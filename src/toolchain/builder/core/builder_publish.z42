@@ -143,9 +143,9 @@ int _pubDesktop(ParseResult r, string rid) {
     string distDir = Path.GetDirectoryName(zpkgSrc);
     int brc = _pubBundleProjectDeps(tomlPath, toml, distDir);
     if (brc != 0) { return brc; }
-    // Colocate declared private native deps beside the zpkg (add-path-dependencies D9/D10).
-    // Skeleton: no-ops until the `[native.dependencies]` app declaration surface lands.
-    int nrc = _pubBundleProjectNativeDeps(tomlPath, toml, distDir);
+    // Colocate transitive private native deps beside the zpkg (add-native-dep-config):
+    // run each native-carrying dep's ProvideNative, flatten its target-rid artifact here.
+    int nrc = _pubBundleProjectNativeDeps(tomlPath, toml, distDir, rid);
     if (nrc != 0) { return nrc; }
 
     // deploy layout (add-package-layout-config): optional bin/payload.
@@ -626,22 +626,85 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
     return 0;
 }
 
-// Colocate a project's declared *private native* dependencies flat beside its zpkg
-// (add-path-dependencies D9/D10): a component's native lib follows the component,
-// resolved at runtime by `native::ext::resolve_native_beside(<zpkg-dir>, <name>)`.
-// The publish step picks the target-rid artifact and lays it flat into payloadDir
-// (mirroring _pubBundleProjectDeps for zpkgs); on mobile it copies into the OS lib
-// dir (jniLibs/<abi>, framework) and the OS loader resolves it.
+// Colocate a project's *private native* deps flat beside its zpkg (add-native-dep-config,
+// supersedes the add-path-dependencies D9/D10 no-op skeleton). Walk the dep closure; for
+// each dep declaring `[native.*]` with a `[build] hooks` producer, run its ProvideNative
+// in a dep-scoped ctx (Target.Rid = publish rid, Dirs.Dist = distDir) so it emits the
+// native into `distDir/<rid>/<prefix><name><suffix>`, then flatten each registered
+// "native" output beside the zpkg (`distDir/<file>`). Runtime resolve_native_beside
+// resolves it by name; the payload copy (_pubCopyDistDeps) carries it into the payload
+// dir. This replaces the deleted xtask _pkgStageReplCdylib special-case: z42.interactive
+// discovers z42.repl's native purely from the closure + `[native]` declaration.
 //
-// DEFERRED (native-future-app-declaration): there is no `[native.dependencies]` app
-// declaration surface yet — the only non-stdlib native lib today (libz42_repl) is a
-// repl-subsystem cdylib staged directly by packaging (_pkgStageReplCdylib), not an
-// app-declared dependency. Standard-library native (compression, `<sdk>/native/`
-// eager) is unchanged. So this is a live-wired no-op skeleton: it reads the (absent)
-// `[native.dependencies]` section and returns 0. Fill in once the declaration surface
-// lands. See docs/spec/archive/2026-08-29-add-path-dependencies/design.md Decision 9/10.
-int _pubBundleProjectNativeDeps(string tomlPath, TomlValue toml, string payloadDir) {
-    // No `[native.dependencies]` declaration surface yet → nothing to colocate.
+// Deps declaring `[native]` but with NO `[build] hooks` (committed prebuilt) are skipped
+// for now — no such consumer yet (design Deferred native-config-future-explicit-files).
+int _pubBundleProjectNativeDeps(string tomlPath, TomlValue toml, string distDir, string rid) {
+    string srcRoot = _pubSrcRoot(tomlPath);
+    if (srcRoot.Length == 0) { return 0; }   // repo-external → no closure to walk
+    string ownName = _pubTomlStr(toml, "project", "name", "");
+    string[] seen  = new string[1024]; int seenN = 0;
+    string[] queue = new string[1024]; int qh = 0; int qt = 0;
+    string[] direct = _pubDepNames(toml);
+    int di = 0;
+    while (di < direct.Length) {
+        string d = direct[di]; di = di + 1;
+        if (d != ownName && !_pubContains(seen, seenN, d)) { seen[seenN] = d; seenN = seenN + 1; queue[qt] = d; qt = qt + 1; }
+    }
+    while (qh < qt) {
+        string name = queue[qh]; qh = qh + 1;
+        string depTomlPath = _pubLocateDepToml(srcRoot, name);
+        if (depTomlPath.Length == 0) { continue; }
+        TomlValue depToml = TomlValue.Parse(File.ReadAllText(depTomlPath));
+        if (_pubHasNative(depToml) && _pubTomlStr(depToml, "build", "hooks", "").Length > 0) {
+            int rc = _pubRunDepProvideNative(depTomlPath, depToml, name, distDir, rid);
+            if (rc != 0) { return rc; }
+        }
+        string[] sub = _pubDepNames(depToml);
+        int si = 0;
+        while (si < sub.Length) {
+            string s = sub[si]; si = si + 1;
+            if (s != ownName && !_pubContains(seen, seenN, s)) { seen[seenN] = s; seenN = seenN + 1; queue[qt] = s; qt = qt + 1; }
+        }
+    }
+    return 0;
+}
+
+// True if `[native.*]` declares ≥1 lib.
+bool _pubHasNative(TomlValue toml) {
+    if (!toml.ContainsKey("native")) { return false; }
+    return toml.Get("native").Keys().Length > 0;
+}
+
+// Load a native-carrying dep's hooks, run ProvideNative (dep-scoped ctx), and flatten
+// each registered "native" output into distDir (beside the consumer zpkg). Best-effort:
+// hook load/run failure warns and returns 0 (does not abort the whole publish).
+int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depName, string distDir, string rid) {
+    string depDir = Path.GetDirectoryName(depTomlPath);
+    if (depDir.Length == 0) { depDir = "."; }
+    string hooksDir = Path.Join(depDir, _pubTomlStr(depToml, "build", "hooks", ""));
+    string interDir = Path.Join(Path.Join(depDir, "artifacts"), Path.Join(depName, "hooks"));
+    BuildHooks h = _loadProjectHooks(hooksDir, interDir, depName + ".hooks");
+    if (h == null) {
+        ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' hooks failed to load — native not colocated");
+        return 0;
+    }
+    PipelineContext ctx = new PipelineContext();
+    ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
+    ctx.Dirs   = new Dirs(depDir, "", interDir, distDir);   // Dist = consumer distDir → native lands here
+    try { h.ProvideNative(ctx); }
+    catch (Exception e) {
+        ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' ProvideNative failed (" + e.Message + ")");
+        return 0;
+    }
+    Output[] outs = ctx.Outputs();
+    int i = 0;
+    while (i < outs.Length) {
+        if (outs[i].Kind == "native" && File.Exists(outs[i].Path)) {
+            string dst = Path.Join(distDir, Path.GetFileName(outs[i].Path));   // flatten (strip <rid>/)
+            if (outs[i].Path != dst && !File.Exists(dst)) { File.Copy(outs[i].Path, dst); }
+        }
+        i = i + 1;
+    }
     return 0;
 }
 
@@ -653,13 +716,20 @@ void _pubCopyDistDeps(string distDir, string projName, string targetDir) {
     int i = 0;
     while (i < entries.Length) {
         string name = entries[i];
-        if (name.EndsWith(".zpkg") && name != mainZpkg) {
+        // Non-app zpkgs + colocated native libs (add-native-dep-config) → carried into payload.
+        bool take = (name.EndsWith(".zpkg") && name != mainZpkg) || _pubIsNativeLib(name);
+        if (take) {
             string src = Path.Join(distDir, name);
             string dst = Path.Join(targetDir, name);
             if (src != dst && !File.Exists(dst)) { File.Copy(src, dst); }
         }
         i = i + 1;
     }
+}
+
+// Native dynamic lib by platform suffix (add-native-dep-config). Flat colocated file.
+bool _pubIsNativeLib(string name) {
+    return name.EndsWith(".dylib") || name.EndsWith(".so") || name.EndsWith(".dll");
 }
 
 // src 根：从 tomlPath 上溯，找同时含 libraries/ 与 compiler/ 的目录。

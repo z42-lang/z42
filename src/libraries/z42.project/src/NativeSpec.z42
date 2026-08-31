@@ -1,0 +1,19 @@
+namespace Z42.Build.Project;
+
+// 受限自举子集写法：sealed class + 构造函数；无 record / 无泛型 / 无 nullable。
+
+/// `[native.<name>]` 的一项 —— 本包**携带/提供**的一个私有 native 库（组件私有 native，
+/// 非 `<sdk>/native/` 标准库横切 native）。add-native-dep-config。
+///
+/// 当前只带**逻辑名** `Name`。实际文件名由**平台派生** `<prefix><Name><suffix>`：
+///   - `<prefix>` = 平台原生前缀（unix `lib`、Windows 空），即 Rust `std::env::consts::DLL_PREFIX`；
+///   - `<suffix>` = 平台族后缀 `.dylib` / `.so` / `.dll`（`DLL_SUFFIX`）。
+/// 约定落点 `<dist>/<rid>/<prefix><Name><suffix>`：有 `[build] hooks` 的 `ProvideNative` 现场产出，
+/// 否则视为已提交的预编译文件（语言无关：rust/c/c++/vendor blob 一视同仁）。
+/// per-lib 表头保留位（将来 `static` / 显式 per-rid `files` 覆盖）——当前只需名字。
+public sealed class NativeSpec {
+    public string Name;
+    public NativeSpec(string name) {
+        this.Name = name;
+    }
+}

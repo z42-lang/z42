@@ -148,11 +148,12 @@ prewarm 线程的 GC 能在本线程等输入时推进。但回调（`complete`/
 
 ### 2.6 打包（host-only 组件私有，进 programs/z42i/ 不进 bin/ / native/）
 
-SDK 打包（`scripts/package/`）：`_pkgBuildAndStageRuntime` 里 `cargo build -p z42-repl`，
-`_pkgStageReplCdylib`（`xtask_package_desktop._pkgStageToolchainComponents` 在 publish z42i 后调用）
-把产物平铺进 **z42i 组件的 `programs/z42i/`**（`[assemble]` 自动并入 `pkgDir`，与 2.4 的
-`<sdk>/programs/z42i/` 发现对齐）。两条**关键排除**：① `_pkgStageZ42vm` **不**再往 `bin/` 放 repl 库；
-② `_copyNativeLibs` 的 `libz42*` glob **显式排除** `libz42_repl`/`z42_repl`，否则会误拷进
+SDK 打包（`scripts/package/`）：`libz42_repl` 由 **z42.repl 的 build hook**（`ProvideNative`）在
+`z42b publish z42.interactive` 时 `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps`
+平铺进 **z42i 组件的 `programs/z42i/`**（`[assemble]` 自动并入 `pkgDir`，与 2.4 的 `<sdk>/programs/z42i/`
+发现对齐）——**不再有** xtask `_pkgStageReplCdylib` 特殊处理（add-native-dep-config）。两条**关键排除**：
+① `_pkgStageZ42vm` **不**往 `bin/` 放 repl 库；② `_copyNativeLibs` 的 `libz42*` glob **显式排除**
+`libz42_repl`/`z42_repl`（hook 把它建进共享 cargoOut），否则会误拷进
 `<sdk>/native/`。把 repl 移出共享 `bin/` 是为根治 §1 急切扫描器对它喷 `ignoring unknown lib repl`
 ——它是**组件私有 native**（跟随 z42i），不是 `<sdk>/native/` 里的跨平台 stdlib 扩展，也不是
 `bin/` 的通用可执行件。布局/解析全轴见 [Native 库的布局与解析](native-libraries.md)。dev 流不建

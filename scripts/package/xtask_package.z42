@@ -252,9 +252,12 @@ void _copyNativeLibs(string cargoOut, string pkgDir) {
     foreach (var f in Directory.Enumerate(cargoOut)) {
         if (f.StartsWith("libz42_platform")) { continue; }   // mobile facade — not desktop SDK
         // libz42_repl / z42_repl.dll — host-only REPL editor cdylib. Ships in
-        // programs/z42i/ (beside the interactive payload), found by the repl-specific
-        // probe, NOT <sdk>/native/. Staged separately by _pkgStageReplCdylib.
-        // (extract-repl-native-cdylib / add-path-dependencies native)
+        // programs/z42i/ (beside the interactive payload), colocated by z42.repl's
+        // ProvideNative build hook during publish; found by the repl-specific probe, NOT
+        // <sdk>/native/. The hook `cargo build -p z42-repl` lands it in this SHARED
+        // cargoOut, so this exclusion still guards against it leaking into <sdk>/native/
+        // (where the eager ext scanner would warn `ignoring unknown lib repl`).
+        // (add-native-dep-config)
         if (f.StartsWith("libz42_repl") || f.StartsWith("z42_repl")) { continue; }
         bool isLib = f.StartsWith("libz42") || f == "z42.lib" || f == "z42.dll" || f.StartsWith("z42_compression");
         if (isLib && (f.EndsWith(".a") || f.EndsWith(".dylib") || f.EndsWith(".so") || f.EndsWith(".lib") || f.EndsWith(".dll"))) {

@@ -1,0 +1,69 @@
+// z42.repl 项目 build hook（add-native-dep-config）。
+//
+// 目的：把 REPL 行编辑器 cdylib（libz42_repl）的产出从 xtask 的硬编码特殊处理
+// （已删的 _pkgStageReplCdylib + 独立 `cargo build -p z42-repl`）收进本库自己的
+// ProvideNative 相位 —— 令 z42.repl 的 dist 自包含（zpkg + native），既可独立被引用，
+// 也让消费方（z42.interactive）publish 时沿 path-dep 闭包自动平铺进 payload。
+//
+// cargo 与 VM 同源：裸 `cargo`（ctx.Exec，PATH 解析，versions.toml 在 xtask 入口已校 channel）
+// + `-p z42-repl --manifest-path src/runtime/Cargo.toml`；z42-repl 是 runtime workspace 成员 →
+// 落进 VM 已 warm 的 artifacts/build/runtime/<profile>/，再拷进 dist/<rid>/。REPL host-only
+// （scripting-charter 2b）→ 只为 host 编，prefix/suffix 按运行平台派生；rid 仍作 dist 子目录键。
+//
+// 注入约定（builder_hooks.z42）：`namespace Build;` + `class ProjectHooks : BuildHooks`，
+// 由 z42b 用注入的同一 ICompiler 编译本目录 → ModuleLoader.Load → 反射实例化。
+namespace Build;
+
+using Std;
+using Std.IO;
+using Z42.Build;
+
+public class ProjectHooks : BuildHooks {
+
+    // 产出 libz42_repl 到 ctx.Dirs.Dist/<rid>/<prefix>z42_repl<suffix>，并登记 native 产物。
+    // 失败只 Warn 不抛（best-effort，与 xtask hooks 一致）——publish 侧据 AddOutput 是否有产物决定复制。
+    public override void ProvideNative(IPipelineContext ctx) {
+        // 仓根：本 toml 在 src/toolchain/interactive/repl/ → 上溯 4 层。
+        string repo = Path.Join(Path.Join(Path.Join(Path.Join(ctx.Dirs.Source, ".."), ".."), ".."), "..");
+        string manifest = Path.Join(repo, Path.Join("src", Path.Join("runtime", "Cargo.toml")));
+        if (!ctx.Exists(manifest)) {
+            ctx.Warn("z42.repl hooks: runtime Cargo.toml not found: " + manifest);
+            return;
+        }
+        ctx.Log("z42.repl hooks: cargo build --release -p z42-repl…");
+        string[] args = new string[6];
+        args[0] = "build"; args[1] = "--release";
+        args[2] = "-p"; args[3] = "z42-repl";
+        args[4] = "--manifest-path"; args[5] = manifest;
+        ExecResult r = ctx.Exec("cargo", args);
+        if (r.ExitCode != 0) {
+            ctx.Warn("z42.repl hooks: cargo build failed (rc=" + r.ExitCode.ToString() + ")");
+            ctx.Warn(r.Stderr);
+            return;
+        }
+        // host cdylib 落点（VM warm 目录，host 无 target triple）+ 平台派生文件名。
+        string fname = ProjectHooks._nativeFileName("z42_repl");
+        string built = Path.Join(repo, Path.Join("artifacts",
+            Path.Join("build", Path.Join("runtime", Path.Join("release", fname)))));
+        if (!ctx.Exists(built)) {
+            ctx.Warn("z42.repl hooks: built cdylib missing: " + built);
+            return;
+        }
+        // dist/<rid>/<fname>（rid 作子目录键；运行期由 publish 拍平进 payload）。
+        string rid = ctx.Target.Rid;
+        string outDir = Path.Join(ctx.Dirs.Dist, rid);
+        ctx.Mkdir(outDir);
+        string dest = Path.Join(outDir, fname);
+        ctx.Copy(built, dest);
+        ctx.AddOutput("native", dest);
+        ctx.Log("z42.repl hooks: native ready: " + dest);
+    }
+
+    // 平台派生 <prefix><name><suffix>：unix `lib`+`.dylib`/`.so`、Windows 空+`.dll`。
+    // 与 Rust std::env::consts::DLL_PREFIX/DLL_SUFFIX 及运行期 resolve_native_beside 同语义。
+    static string _nativeFileName(string name) {
+        if (Platform.IsWindows()) { return name + ".dll"; }
+        if (Platform.IsMacOS())   { return "lib" + name + ".dylib"; }
+        return "lib" + name + ".so";
+    }
+}

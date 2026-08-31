@@ -49,7 +49,30 @@ public static class ManifestLoader {
         ManifestLoader._parseOptimize(root, pm);   // [optimize] 逐 pass 具名开关（构造后填，见 ProjectManifest）
         ManifestLoader._parseAnalyzers(root, pm);   // [analyzers] 编译期 handler zpkg 引用（同构造后填）
         ManifestLoader._parseLints(root, pm);       // [lints] 诊断规则开关 / severity 覆盖（同构造后填）
+        ManifestLoader._parseNative(root, pm);       // [native.*] 本包携带的私有 native 库（同构造后填）
         return pm;
+    }
+
+    // ── [native.<name>]（add-native-dep-config）───────────────────────────────
+    // 每个子表头 `[native.<name>]` 声明本包携带的一个私有 native 库（当前只取逻辑名，表体保留位）。
+    // 键按名稳定排序发射（common-pitfalls §1：禁依赖 TOML/容器碰巧序）。文件名/落点由消费方按平台
+    // 派生 <prefix><name><suffix>，z42.project 不解析文件。
+    private static void _parseNative(TomlValue root, ProjectManifest pm) {
+        if (!root.ContainsKey("native")) { return; }
+        var n = root.Get("native");
+        string[] keys = n.Keys();
+        // 选择排序（稳定名序）
+        int a = 0;
+        while (a < keys.Length) {
+            int min = a; int b = a + 1;
+            while (b < keys.Length) { if (keys[b].CompareTo(keys[min]) < 0) { min = b; } b = b + 1; }
+            if (min != a) { string t = keys[a]; keys[a] = keys[min]; keys[min] = t; }
+            a = a + 1;
+        }
+        NativeSpec[] arr = new NativeSpec[keys.Length];
+        int i = 0;
+        while (i < keys.Length) { arr[i] = new NativeSpec(keys[i]); i = i + 1; }
+        pm.Natives = arr; pm.NativeCount = keys.Length;
     }
 
     // ── [analyzers]（attribute-handler-registry D9）───────────────────────────

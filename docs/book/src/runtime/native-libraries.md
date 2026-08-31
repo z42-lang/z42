@@ -70,9 +70,12 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 「消费方 zpkg 目录」= interactive apphost 的 payload 目录 **`<sdk>/programs/z42i/`**（`z42i` 的
 `z42.interactive.zpkg` 就在那）。
 
-- **打包**（`scripts/package/`）：`_pkgStageReplCdylib` 把 `libz42_repl` 拷进 z42i 组件的
-  `programs/z42i/`（**不是** `bin/`）；`_pkgStageZ42vm` **不**再往 `bin/` 放 repl 库；`_copyNativeLibs`
-  的 `libz42*` glob 显式排除 repl（它不进 `<sdk>/native/`）。
+- **产出 + 打包**（add-native-dep-config）：`libz42_repl` 由 **z42.repl 自己的 build hook**
+  （`repl/hooks/hooks.z42` 的 `ProvideNative`）在 `z42b publish z42.interactive` 时现场
+  `cargo build -p z42-repl` 产出，经 `_pubBundleProjectNativeDeps` 沿 path-dep 闭包平铺进
+  `programs/z42i/`——**不再有** xtask 的 `_pkgStageReplCdylib` 特殊处理，packaging 只整目录拷
+  publish 输出。`_pkgStageZ42vm` **不**往 `bin/` 放 repl 库；`_copyNativeLibs` 的 `libz42*` glob 仍
+  显式排除 repl（hook 把它建进共享 cargoOut，排除防其漏进 `<sdk>/native/`）。
 - **发现**（`corelib::repl_native::candidates()`）：`Z42_REPL_NATIVE` 覆盖 → dev cargo-target
   目录（z42vm 旁）→ 从运行 `<sdk>/bin/<app>` 派生 `<sdk>/programs/z42i/`，经共享的
   `resolve_native_beside` 解析。
@@ -87,16 +90,27 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<P
 
 ---
 
-## 3. app 声明面：`[native.dependencies]`（Deferred）
+## 3. 声明面：`[native.<name>]` + build-hook 产出（add-native-dep-config）
 
-上面的 colocation/解析地基已就位，但「app 在 manifest 里**声明**它需要某个私有 native 库」的**声明面
-尚未落地**（`[native.dependencies]`）。原因：当前唯一的非标准库 native 消费者是 repl，由 packaging
-直接放置（`_pkgStageReplCdylib`），没有走 app 声明。
+一个包在 manifest 里**声明**它携带的私有 native 库，由 build-hook 现场产出（或指向预编译文件），
+`z42 publish` 沿依赖闭包自动把目标平台那份平铺进消费方 payload。
 
-- `builder_publish.z42` 已留 `_pubBundleProjectNativeDeps` **骨架**（挂在 `_pubBundleProjectDeps`
-  邻位，当前 no-op），待声明面落地后按「声明的 native 依赖 + 目标 rid → 平铺进消费方 dist」充实。
-- 详见 [add-path-dependencies Deferred](../../../spec/archive/2026-08-29-add-path-dependencies/design.md)
-  的 `native-future-app-declaration`。
+- **声明**：`[native.<name>]`（每库一张表，当前取逻辑名）。文件名**平台派生** `<prefix><name><suffix>`
+  ——`<prefix>` = `DLL_PREFIX`（unix `lib`、**Windows 空**）、`<suffix>` = `.dylib`/`.so`/`.dll`。config、
+  生产端、运行期 `resolve_native_beside` **共用这一条派生规则**，Windows 不是特例（模型 `NativeSpec`，
+  解析 `ManifestLoader._parseNative` → `ProjectManifest.Natives`）。
+- **产出**：`BuildHooks.ProvideNative(ctx)`（专用窄相位）——hook `cargo build`/`cc` 出 native，拷进
+  `ctx.Dirs.Dist/<rid>/<prefix><name><suffix>`（按 rid 分目录，交叉编译不撞）+ `ctx.AddOutput("native", …)`。
+  语言无关：rust/c/c++/vendor blob 一视同仁（无 hook 则视为已提交预编译文件）。
+- **传递复制**：`_pubBundleProjectNativeDeps` 走消费方 path-dep 闭包 → 对声明 `[native]` 的 dep
+  **只跑其 `ProvideNative`**（不盲跑通用 hook）→ 取**目标 rid** 那份、平铺（去 rid 子目录）进消费方
+  payload（如 `programs/z42i/`）。运行期 `resolve_native_beside` 按名解析，不变。
+- **首个消费者 = z42.repl**：`z42.repl.z42.toml` 声明 `[build] hooks` + `[native.z42_repl]`，hook 编
+  `crates/z42-repl`。取代已删的 xtask `_pkgStageReplCdylib`。
+
+**Deferred**：① 显式 per-rid 文件覆盖（`files."rid"="path"`，破约定的 vendor blob）；② 无 hook 的
+committed 预编译库消费路径；③ cross-desktop / 移动端 native 交叉编译（repl host-only，暂只 host）。
+见 `docs/spec/changes/add-native-dep-config/design.md` Deferred 段。
 
 ---
 

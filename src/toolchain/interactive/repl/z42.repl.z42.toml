@@ -12,3 +12,14 @@ kind    = "lib"
 [dependencies]
 "z42.core"      = "0.1.0"
 "z42.scripting" = "0.1.0"   # Std.Scripting.Completeness（ReplEditing enter 分支整块完整性 + 续行缩进）
+
+# build hook（add-native-dep-config）：本库携带私有 native 行编辑器 cdylib（libz42_repl）。
+# ProvideNative 现场用与 VM 同源的裸 cargo 编 crates/z42-repl → 拷进 dist/<rid>/<prefix>z42_repl<suffix>，
+# 令 z42.repl 的 dist 自包含（zpkg + native），可被任意项目引用。取代已删的 xtask _pkgStageReplCdylib。
+[build]
+hooks = "hooks"
+
+# 声明本包携带的私有 native 库 z42_repl。文件名平台派生 <prefix>z42_repl<suffix>
+# （<prefix>=DLL_PREFIX：Windows 空、其他 lib；<suffix>=.dylib/.so/.dll）。消费方（z42.interactive）
+# publish 时沿 path-dep 闭包读本段、跑本库 ProvideNative、按目标 rid 平铺进 payload。
+[native.z42_repl]

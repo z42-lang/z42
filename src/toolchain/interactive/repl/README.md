@@ -44,3 +44,4 @@ CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）+ dist smoke（
 |------|------|
 | `Repl.z42` | `Std.Repl.Repl`：rustyline 行编辑原生绑定（`ReadLine` / `SetCompleter` / `SetKeyEditor`）|
 | `ReplEditing.z42` | `Std.Repl.ReplEditing.KeyEdit`：键位策略（退格 `dedent`｜错位 `replace:` floor / Tab `insert:` grid-snap / `}` `replace:` 自动回退 / Enter `accept`｜`newline:<缩进>` 整块多行判定，复用 `Completeness`）+ 自由函数 `replKeyEdit` 回调 |
+| `hooks/hooks.z42` | build hook `ProvideNative`（add-native-dep-config）：`z42b publish` 时 `cargo build -p z42-repl` 产 `libz42_repl` → 拷进本库 `dist/<rid>/`；`z42.repl.z42.toml` 的 `[build] hooks` + `[native.z42_repl]` 声明驱动。取代已删的 xtask `_pkgStageReplCdylib` 特殊处理 |
