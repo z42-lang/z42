@@ -38,6 +38,27 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 定型过程解析每个表达式与语句的类型、校验可赋值性与定义性，并由 `OverloadResolver` 完成方法重载决议、`ConstraintChecker` 校验泛型约束。产物是 Bound 树（每个节点携带解析后的类型）与 `SemanticModel`（供代码生成消费）。观察：`--dump-bound`。
 
+#### 同短名跨命名空间的类型解析（FQN keying）
+
+`SymbolTable.Classes` 以**裸类名**为键（`Foo`），同短名不同命名空间的类（`namespace A { class Foo }` 与
+`namespace B { class Foo }`）会在该表里 first/last-wins 只留一份。仅靠裸名表，限定引用 `new A.Foo` 会被剥成
+`Foo` 再查裸名表 → 撞见碰巧赢的那份（B.Foo），致对象身份、`is`/`as`、`GetType().FullName` 全错
+（`fix-type-ref-ns-collision`；与静态调用侧 `fix-crosspkg-static-ns-collision` 同源，见
+[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)）。
+
+根治靠**并存的 FQN 视图**：
+
+- 每个 `Z42ClassType` 带 `Namespace` 字段（本地类由 `StubCollector` 从 `cu.Namespace` 回填，导入类由
+  `ImportedSymbolLoader` 从模块 ns 回填），并提供 `Fqn()`（`ns.IrName()`；全局类退回裸名）。
+- `SymbolTable.ClassesByFqn`（FQN 键 → 类型）与裸名 `Classes` **并存**，注册时同时登记，**保留每一份**同短名类。
+- `ResolveTypeP` 的限定名路径**优先**按 FQN 命中 `ClassesByFqn`（`A.Foo` → 声明 ns==A 的那份），不再剥短名撞赢家；
+  非限定引用仍走裸名表（沿用其 first/last-wins，另见下「Deferred」）。
+- 发射端（`CallEmitter` 的 `ObjNew`）对已解析到的、`Namespace!=""` 的类型直接发 `Fqn()`，绕开
+  `EmitContext.QualifyClass` 按短名走 `ImportedClassNs` 的同类撞名歧义；`is`/`as` 本就发 AST 源码原始限定名，天然正确。
+
+> **Deferred**：① 导入跨包同短名类型（`using` 两个包各有 `Foo`）当前只对**本地**类做 FQN keying；②
+> 非限定同短名（`using A; using B;` 后裸写 `Foo`）仍 first/last-wins 静默选一，C# 语义应报歧义诊断。
+
 ### IR 生成（IrGen）
 
 Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 `Class.Method`（类方法）或函数名（顶层函数）为键。

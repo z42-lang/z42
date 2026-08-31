@@ -1,0 +1,6 @@
+A.Foo
+true
+false
+B.Foo
+false
+true

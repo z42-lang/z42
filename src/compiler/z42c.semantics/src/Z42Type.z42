@@ -27,6 +27,10 @@ public class Z42Type {
 
 public sealed class Z42ClassType : Z42Type {
     private string _name;
+    // fix-type-ref-ns-collision：类声明的命名空间（""=全局；本地由 StubCollector 从 cu.Namespace 设置，
+    // 导入由 ImportedSymbolLoader 从 em.Namespace 设置）。供 Fqn()——同短名跨 ns 类型（`A.Foo`/`B.Foo`）
+    // 解析到正确一份后，emit 端据此发射区分性 FQN（否则 QualifyClass 按短名再限定会撞到 first/last-wins 赢家）。
+    public string Namespace;
     public bool   HasBase;
     public string BaseName;
     public StrMap Fields;    // name → FieldSymbol（1A-3 收集时回填）
@@ -82,6 +86,7 @@ public sealed class Z42ClassType : Z42Type {
     public bool   IsAbstract;
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
+        this.Namespace = "";   // fix-type-ref-ns-collision：默认全局；注册端按声明 ns 覆写
         this.Fields = new StrMap();
         this.Methods = new StrMap();
         this.EventFields = new StrMap();
@@ -183,6 +188,13 @@ public sealed class Z42ClassType : Z42Type {
     public string IrName() {
         if (this.HasArityMangle) { return this._name + "$" + this.ArityMangleCount.ToString(); }
         return this._name;
+    }
+    // fix-type-ref-ns-collision：运行期全限定名（ns + IrName）。ns 为空（全局类）→ 退回 IrName（=裸名，
+    // 其 runtime FQN 本就是裸名）。emit 端（ObjNew 等）对已解析到的正确类型用它发射，绕开 QualifyClass
+    // 按短名走 ImportedClassNs first-wins 的撞名歧义。
+    public string Fqn() {
+        if (this.Namespace == "") { return this.IrName(); }
+        return this.Namespace + "." + this.IrName();
     }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }

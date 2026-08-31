@@ -281,8 +281,15 @@ public sealed class CallEmitter {
             while (k < inst.ArgCount) { targs[k] = this._ee._typeofArgName(inst.TypeArgs[k]); k = k + 1; }
             tcount = inst.ArgCount;
         }
-        // className 已取自 inst.Def.IrName()（arity-overloaded 时 = Name$N）；直接 QualifyClass。
-        string qualCls = this._ctx.QualifyClass(className);
+        // fix-type-ref-ns-collision：已解析到的类型（本地类带 Namespace）直接用其 FQN 发射，绕开
+        // QualifyClass 按短名走 ImportedClassNs first-wins 的撞名歧义（曾致 `new A.Foo` emit `B.Foo`）。
+        // Namespace=="" 的类（全局 / imported——本 change 未给 imported 设 ns）走原 QualifyClass 路径，无回归。
+        Z42ClassType _rct = null;
+        if (n.Type() is Z42ClassType) { _rct = n.Type() as Z42ClassType; }
+        else if (n.Type() is Z42InstantiatedType) { _rct = (n.Type() as Z42InstantiatedType).Def; }
+        string qualCls;
+        if (_rct != null && _rct.Namespace != "") { qualCls = _rct.Fqn(); }
+        else { qualCls = this._ctx.QualifyClass(className); }
         // FQ ctor = "{qualCls}.{ctorKey}"（镜像 C# fqCtor = $"{qualCls}.{n.CtorName}"）
         string fqCtor = qualCls + "." + n.CtorName;
         // add-struct-value-semantics A-use：blob 值 struct 构造 → StructAlloc(零初始化 blob 句柄) + ctor
