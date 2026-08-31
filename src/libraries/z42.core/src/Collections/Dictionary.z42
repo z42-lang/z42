@@ -28,6 +28,12 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
 
     public bool IsEmpty() { return this.Count == 0; }
 
+    public DictionaryEnumerator<TKey, TValue> GetEnumerator() { return new DictionaryEnumerator<TKey, TValue>(this); }
+    internal int _slotCount() { return this.capacity; }
+    internal bool _slotOccupied(int i) { return this.occupied[i]; }
+    internal TKey _slotKey(int i) { return this.keys[i]; }
+    internal TValue _slotValue(int i) { return this.values[i]; }
+
     public TValue this[TKey key] {
         get { return this.Get(key); }
         set { this.Set(key, value); }

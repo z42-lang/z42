@@ -15,6 +15,25 @@ public sealed class StmtBinder {
     private BoundStmt _bindForeach(ForeachStmt fe, TypeEnv env, Z42Type ret) {
             TypeEnv feScope = env.PushScope();
             BoundExpr feIter = this._tc._expr._bindExpr(fe.Iter, feScope);
+            // add-foreach-ienumerable：三-path 决策树的**第三 path（兜底）**——目标既非数组、也无
+            // `get_Item`+`Count` 整数索引面，但暴露 `GetEnumerator()` → 走 IEnumerable 协议 path。
+            // 实现（User 裁决改 Decision 7）：**binder 脱糖**成既有 AST
+            //   { var __e = <Iter>.GetEnumerator();
+            //     try { while (__e.MoveNext()) { <T> x = __e.Current; <Body> } }
+            //     finally { __e.Dispose(); } }
+            // 再走 _bindStmt → 复用 struct 值返回(sret)/try-finally 栈/break-continue/方法派发全部既有
+            // lowering，零新 Bound 节点、零新 emitter。数组/索引两 path（下方原逻辑）完全不动 → byte-identical。
+            {
+                Z42Type ct0 = feIter.Type();
+                Z42ClassType cd0 = null;
+                if (ct0 is Z42ClassType) { cd0 = ct0 as Z42ClassType; }
+                else if (ct0 is Z42InstantiatedType) { cd0 = (ct0 as Z42InstantiatedType).Def; }
+                if (!(ct0 is Z42ArrayType) && cd0 != null && cd0.Methods.ContainsKey("GetEnumerator")) {
+                    bool idxIter0 = cd0.Methods.ContainsKey("get_Item")
+                        && (cd0.Fields.ContainsKey("Count") || cd0.Methods.ContainsKey("Count"));
+                    if (!idxIter0) { return this._bindForeachEnumerable(fe, env, ret); }
+                }
+            }
             Z42Type feElem = new Z42UnknownType();
             bool feIsVar = (fe.Type is NamedType) && ((fe.Type as NamedType).Name == "var");
             if (feIsVar) {
@@ -44,6 +63,38 @@ public sealed class StmtBinder {
                 else if (feClassDef.Methods.ContainsKey("Count")) { feIsClassIter = true; feCountIsField = false; }
             }
             return new BoundForeach(fe.Name, feElem, feIter, febody, feIsClassIter, feCountIsField, fe.Span);
+    }
+
+    // add-foreach-ienumerable：foreach-over-IEnumerable 脱糖（Decision 7 = binder 脱糖，User 裁定）。
+    // 合成等价 AST 后交 _bindStmt——__e 是 GetEnumerator() 返回的具体 struct（pattern-based 无装箱，
+    // Decision 8），MoveNext/Current/Dispose 直接在其上派发；try/finally 保证所有离开路径调 Dispose
+    // （Decision 2）。__e 名以 span.Start 唯一化，避免函数级平表寄存器冲突（嵌套 foreach）。
+    private BoundStmt _bindForeachEnumerable(ForeachStmt fe, TypeEnv env, Z42Type ret) {
+            Span sp = fe.Span;
+            string eName = "__fe_e_" + sp.Start.ToString();
+            TypeExpr varTy = new NamedType("var", new TypeExpr[0], 0, sp);
+            // var __e = <Iter>.GetEnumerator();
+            Expr getEnum = new CallExpr(new MemberExpr(fe.Iter, "GetEnumerator", sp), new Expr[0], 0, sp);
+            Stmt declE = new VarDeclStmt(varTy, eName, getEnum, sp);
+            // while (__e.MoveNext()) { <fe.Type> <fe.Name> = __e.Current; <fe.Body> }
+            Expr moveNext = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), "MoveNext", sp), new Expr[0], 0, sp);
+            Expr curGet = new MemberExpr(new IdentExpr(eName, sp), "Current", sp);   // 属性 getter → get_Current 虚调用
+            Stmt declX = new VarDeclStmt(fe.Type, fe.Name, curGet, sp);
+            Stmt[] whileBodyStmts = new Stmt[2];
+            whileBodyStmts[0] = declX;
+            whileBodyStmts[1] = fe.Body;
+            Stmt whileBody = new BlockStmt(whileBodyStmts, 2, sp);
+            Stmt whileStmt = new WhileStmt(moveNext, whileBody, sp);
+            // try { <while> } finally { __e.Dispose(); }
+            Expr disposeCall = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), "Dispose", sp), new Expr[0], 0, sp);
+            Stmt disposeStmt = new ExprStmt(disposeCall, sp);
+            Stmt tryStmt = new TryCatchStmt(whileStmt, new CatchClause[0], 0, true, disposeStmt, sp);
+            // { var __e = ...; try/finally }
+            Stmt[] blockStmts = new Stmt[2];
+            blockStmts[0] = declE;
+            blockStmts[1] = tryStmt;
+            Stmt block = new BlockStmt(blockStmts, 2, sp);
+            return this._bindStmt(block, env, ret);
     }
 
     private BoundStmt _bindFor(ForStmt f, TypeEnv env, Z42Type ret) {
