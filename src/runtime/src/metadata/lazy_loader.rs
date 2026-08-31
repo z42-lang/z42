@@ -430,8 +430,19 @@ impl LazyLoader {
                     Ok(cand) => {
                         self.declared_zpkgs.insert(dep.file.clone(), cand);
                     }
-                    Err(e) => tracing::warn!(
-                        "cannot read transitive dep zpkg meta `{}`: {e}", dep.file
+                    // A missing transitive dep here is benign: this is an eager
+                    // prefetch of the dep closure, not a hard requirement. If the
+                    // dep is genuinely needed, the call into it surfaces a clear
+                    // `undefined function` at runtime — the real gate. A preemptive
+                    // miss can legitimately happen after a package is merged/renamed
+                    // (e.g. z42.io.binary → z42.io, whose types still resolve via the
+                    // merged package): the stale dep filename lingers in older zpkgs'
+                    // dep lists but nothing loads it. Must stay off stdout/stderr —
+                    // it otherwise pollutes golden-comparison test output for every
+                    // module that transitively references the merged package.
+                    Err(e) => tracing::debug!(
+                        "transitive dep zpkg `{}` not prefetched (resolves lazily / merged away): {e}",
+                        dep.file
                     ),
                 }
             }
