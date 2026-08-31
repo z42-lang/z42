@@ -61,10 +61,12 @@ void Main() {
     Assert.False(td.IsAbstract);
     Assert.False(td.IsSealed);
 
-    // Handle-less (primitive) Type → false, never errors.
+    // fix-type-reflection-names: a primitive Type is now the real `Std.Int32`
+    // struct handle (typeof(int) ≡ (5).GetType()) → IsValueType true (int is a
+    // value type). Not abstract / sealed / record. Never errors.
     Type ti = typeof(int);
     Assert.False(ti.IsAbstract);
     Assert.False(ti.IsSealed);
-    Assert.False(ti.IsValueType);
+    Assert.True(ti.IsValueType);
     Assert.False(ti.IsRecord);
 }

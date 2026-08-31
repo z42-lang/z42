@@ -113,13 +113,51 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
             }
         }
     }
-    // Primitive / unresolved: present a canonical user-facing name. The VM uses
-    // two tag vocabularies — field slots carry `"int"`/`"long"`, function
-    // signatures carry `"i32"`/`"i64"`/`"str"` — so reflection normalizes both
-    // to the C#-style aliases for a consistent surface.
+    // fix-type-reflection-names: a primitive keyword / tag (`int` / `i32` / …)
+    // resolves to its real `Std.*` wrapper struct handle — so `typeof(int)` is the
+    // *same* Type as `(5).GetType()` (C# `typeof(int) == 5.GetType()`): Name
+    // `Int32`, FullName `Std.Int32`, IsValueType true, members enumerable. The VM
+    // uses two tag vocabularies — field slots carry `"int"`/`"long"`, function
+    // signatures carry `"i32"`/`"i64"`/`"str"` — `primitive_fqn` maps both to the
+    // one FQN. (Handle-carrying, unlike the former handle-less alias synthetic.)
+    if let Some(fqn) = primitive_fqn(name) {
+        if let Some(td) = ctx.try_lookup_type(fqn) {
+            return make_type_object(ctx, td);
+        }
+    }
+    // Degraded fallback: z42.core not loaded (no `Std.Int32` to resolve) or a truly
+    // unresolved name → a handle-less synthetic carrying a canonical user-facing name.
     let canon = canonical_type_name(name);
     let simple = type_simple_name(&canon).to_string();
     build_type(ctx, &simple, &canon, NativeData::None)
+}
+
+/// Map a primitive keyword (`int`) *or* VM tag (`i32`) to its fully-qualified
+/// `Std.*` wrapper struct name. `None` for non-primitive names (user/class names,
+/// arrays, generics — handled earlier in `make_type_from_name`).
+///
+/// fix-type-reflection-names: reflection resolves primitives to real handles, so
+/// `typeof(int)` ≡ `(5).GetType()`. Covers both vocabularies (field-slot keywords
+/// and function-signature tags) — the sibling of `canonical_type_name`, which maps
+/// the same inputs to display aliases; this maps them to FQNs.
+pub(super) fn primitive_fqn(name: &str) -> Option<&'static str> {
+    use crate::metadata::well_known_names::*;
+    Some(match name {
+        "sbyte" | "i8" => "Std.SByte",
+        "byte" | "u8" => "Std.Byte",
+        "short" | "i16" => "Std.Int16",
+        "ushort" | "u16" => "Std.UInt16",
+        "int" | "i32" => STD_INT32,
+        "uint" | "u32" => "Std.UInt32",
+        "long" | "i64" => STD_INT64,
+        "ulong" | "u64" => "Std.UInt64",
+        "float" | "f32" => STD_SINGLE,
+        "double" | "f64" => STD_DOUBLE,
+        "bool" => STD_BOOLEAN,
+        "char" => STD_CHAR,
+        "string" | "str" => STD_STRING,
+        _ => return None,
+    })
 }
 
 /// Backs the `Typeof` opcode (add-reflection-generic-type-definition; replaces
@@ -140,11 +178,34 @@ pub fn make_constructed_type(ctx: &VmContext, type_name: &str, type_args: &[Stri
     // Resolve args first and keep them rooted in the Vec while `base` allocates
     // (same alloc ordering as `builtin_type_generic_args`).
     let arg_types: Vec<Value> = type_args.iter().map(|a| make_type_from_name(ctx, a)).collect();
+    // fix-type-reflection-names: compose the display FullName with args, e.g.
+    // `Std.Collections.List<Std.Int32>`. Each arg's FullName is read off its
+    // resolved Type (already `Std.Int32` post primitive-handle resolution); nested
+    // generics compose recursively (each arg is itself a constructed Type carrying
+    // its own `<…>`). Read arg FullNames before allocating the array (borrow order).
+    let arg_fulls: Vec<String> = arg_types
+        .iter()
+        .map(|t| match read_type_str_slot(std::slice::from_ref(t), "__fullName") {
+            Value::Str(s) => s.to_string(),
+            _ => String::new(),
+        })
+        .collect();
     let args_array = ctx.heap().alloc_array(arg_types);
     let base = make_type_from_name(ctx, type_name);
     if let Value::Object(rc) = &base {
-        if let Some(i) = rc.type_desc().field_index.get("__typeArgs").copied() {
-            rc.borrow_mut().set_field_value(i, &args_array);
+        let ti = rc.type_desc().field_index.get("__typeArgs").copied();
+        let fi = rc.type_desc().field_index.get("__fullName").copied();
+        let base_full = match read_type_str_slot(std::slice::from_ref(&base), "__fullName") {
+            Value::Str(s) => s.to_string(),
+            _ => type_name.to_string(),
+        };
+        let composed = format!("{}<{}>", base_full, arg_fulls.join(","));
+        let mut obj = rc.borrow_mut();
+        if let Some(i) = ti {
+            obj.set_field_value(i, &args_array);
+        }
+        if let Some(i) = fi {
+            obj.set_field_value(i, &Value::Str(composed.into()));
         }
     }
     base

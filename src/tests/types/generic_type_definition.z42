@@ -30,7 +30,7 @@ void Main() {
     Type[] args = bi.GetGenericArguments();
     Assert.True(args.Length == 1);
     Type a0 = args[0];
-    Assert.True(a0.Name == "int");
+    Assert.True(a0.Name == "Int32");
 
     // GetGenericTypeDefinition() recovers the open definition Box<>.
     Type def = bi.GetGenericTypeDefinition();
@@ -47,8 +47,8 @@ void Main() {
     Assert.True(pargs.Length == 2);
     Type p0 = pargs[0];
     Type p1 = pargs[1];
-    Assert.True(p0.Name == "int");
-    Assert.True(p1.Name == "string");
+    Assert.True(p0.Name == "Int32");
+    Assert.True(p1.Name == "String");
 
     // ── Non-generic: typeof(Plain) ─────────────────────────────────────────
     Type pl = typeof(Plain);

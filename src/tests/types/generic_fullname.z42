@@ -1,0 +1,30 @@
+namespace Demo;
+
+using Std;
+using Std.Collections;
+
+// fix-type-reflection-names: a constructed generic Type's FullName includes its
+// instantiation arguments in angle-bracket form (`Std.Collections.List<Std.Int32>`),
+// recursively for nested generics. `Name` stays the base simple name (`List`).
+// Applies equally to `typeof(G<A>)` and a generic instance's `.GetType()`.
+
+void Main() {
+    // ── typeof(List<int>) ──────────────────────────────────────────────────
+    Type tof = typeof(List<int>);
+    Assert.Equal("Std.Collections.List<Std.Int32>", tof.FullName);
+    Assert.Equal("List", tof.Name);                  // base simple name, no <…> / arity
+
+    // ── instance .GetType() agrees with typeof ─────────────────────────────
+    List<int> a = new();
+    Type inst = a.GetType();
+    Assert.Equal(tof.FullName, inst.FullName);
+    Assert.Equal("Std.Collections.List<Std.Int32>", inst.FullName);
+
+    // ── multi-arg generic (comma-joined, no space) ─────────────────────────
+    Type td = typeof(Dictionary<string, int>);
+    Assert.Equal("Std.Collections.Dictionary<Std.String,Std.Int32>", td.FullName);
+
+    // ── nested generic (recursive expansion) ───────────────────────────────
+    Type tn = typeof(List<List<int>>);
+    Assert.Equal("Std.Collections.List<Std.Collections.List<Std.Int32>>", tn.FullName);
+}
