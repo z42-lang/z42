@@ -64,16 +64,25 @@ impl JitModule {
         fn_entries_by_id.resize_with(n, std::sync::OnceLock::new);
         // runtime-jit-tiering Phase 1: per-function call counters (pre-sized, zero
         // per-call alloc) + tier-up threshold from `Z42_JIT_THRESHOLD` (default
-        // 1000, clamped ≥ 1; N=1 = compile-on-first-call = pre-tiering behavior).
-        // Default is deliberately high: only genuinely hot functions earn a compile,
-        // so the long cold tail stays in the interpreter (准则 2 — save compile time
-        // + code pages). Mixed-mode (Phase 1.5) still routes the few hot compiled
-        // callees to native even when reached from cold interp frames.
+        // 1, clamped ≥ 1; N=1 = compile-on-first-call).
+        //
+        // lower-jit-threshold-default (2026-08-31): default was 1000 (compile only
+        // genuinely hot functions). That is right for hot-LOOP workloads — but OSR
+        // (`osr_threshold`) already upgrades hot loops independently, and a large class
+        // of real programs (the z42c self-compiler above all) spends its time in
+        // functions each called only a HANDFUL of times (`_build` / `PackageCompile`
+        // / `BuildPackageCus` / the whole codegen+serialize pipeline run ONCE per
+        // build). At 1000 those never compiled → the compiler ran fully interpreted
+        // (only ~18 leaf string utils crossed 1000 calls). Profiled: z42c.semantics
+        // full build 34.7s→29.0s (~17%) at N=1, byte-identical, with <1% of samples
+        // in Cranelift (compile overhead negligible — the cold tail is small and JIT
+        // is lazy/per-function, so only REACHED functions ever compile). N≥2 cannot
+        // help once-called functions at all, so 1 is the only value that captures them.
         let mut call_counts = Vec::with_capacity(n);
         call_counts.resize_with(n, std::sync::atomic::AtomicU32::default);
         let jit_threshold = std::env::var("Z42_JIT_THRESHOLD").ok()
             .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(1000)
+            .unwrap_or(1)
             .max(1);
         // add-osr-loop-tiering: back-edge count that triggers OSR of the running
         // interp activation. Default 10_000 — high enough that short loops finish in
