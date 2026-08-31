@@ -1,0 +1,107 @@
+// core-lib-test-completeness (2026-09-01): dogfood coverage for the Exception
+// hierarchy — catch-by-subtype (a derived exception caught by a base clause),
+// the wrapping ctor (InnerException), and AggregateException's InnerExceptions
+// array + custom ToString. Previously only DivideByZeroException was exercised
+// via catch-by-type; this asserts the *subtype* dispatch + inner-exception plumbing.
+namespace Z42CoreExceptionHierarchyTests;
+
+using Std;
+using Std.Test;
+
+[Test]
+void test_catch_derived_by_base_clause() {
+    // ArgumentNullException : ArgumentException : Exception.
+    // A `catch (ArgumentException)` must catch the derived ArgumentNullException.
+    bool caughtAsBase = false;
+    string msg = "";
+    try {
+        throw new ArgumentNullException("arg was null");
+    } catch (ArgumentException e) {
+        caughtAsBase = true;
+        msg = e.Message;
+    }
+    Assert.True(caughtAsBase);
+    Assert.Equal("arg was null", msg);
+}
+
+[Test]
+void test_catch_derived_by_root_exception() {
+    // The root `catch (Exception)` also catches any subtype.
+    bool caught = false;
+    try {
+        throw new ArgumentNullException("null");
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_more_specific_clause_wins_over_base() {
+    // With the derived clause first, it wins; the base fallback must not run.
+    bool specific = false;
+    bool fallback = false;
+    try {
+        throw new ArgumentNullException("x");
+    } catch (ArgumentException e) {
+        specific = true;
+    } catch (Exception e) {
+        fallback = true;    // must NOT run
+    }
+    Assert.True(specific);
+    Assert.False(fallback);
+}
+
+[Test]
+void test_wrapping_ctor_inner_exception() {
+    // Exception(message, inner) records the cause in InnerException.
+    var inner = new Exception("root cause");
+    var outer = new Exception("wrapper", inner);
+    Assert.Equal("wrapper", outer.Message);
+    Assert.NotNull(outer.InnerException);
+    Assert.Equal("root cause", outer.InnerException.Message);
+
+    // single-arg ctor leaves InnerException null
+    var plain = new Exception("solo");
+    Assert.Null(plain.InnerException);
+}
+
+[Test]
+void test_aggregate_exception_inners_and_tostring() {
+    Exception[] inners = new Exception[]{
+        new ArgumentException("first"),
+        new InvalidOperationException("second"),
+    };
+    var agg = new AggregateException("batch failed", inners);
+    Assert.Equal("batch failed", agg.Message);
+    Assert.Equal(2, agg.InnerExceptions.Length);
+    Assert.Equal("first", agg.InnerExceptions[0].Message);
+    Assert.Equal("second", agg.InnerExceptions[1].Message);
+    // custom ToString: "AggregateException: <msg> (<n> inner)"
+    Assert.Equal("AggregateException: batch failed (2 inner)", agg.ToString());
+}
+
+[Test]
+void test_aggregate_caught_as_base_exception() {
+    // AggregateException : Exception — catchable by the base clause.
+    bool caught = false;
+    int innerCount = 0;
+    try {
+        Exception[] inners = new Exception[]{ new Exception("a") };
+        throw new AggregateException("agg", inners);
+    } catch (Exception e) {
+        caught = true;
+        if (e is AggregateException a) { innerCount = a.InnerExceptions.Length; }
+    }
+    Assert.True(caught);
+    Assert.Equal(1, innerCount);
+}
+
+[Test]
+void test_derived_tostring_override() {
+    // Each subtype overrides ToString with its own type prefix.
+    var arg = new ArgumentException("bad");
+    Assert.Equal("ArgumentException: bad", arg.ToString());
+    var argNull = new ArgumentNullException("nil");
+    Assert.Equal("ArgumentNullException: nil", argNull.ToString());
+}

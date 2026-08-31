@@ -1,0 +1,165 @@
+// core-lib-test-completeness (2026-09-01): dogfood coverage for the previously
+// untested List<T> surface — Insert / RemoveAt / Contains / IndexOf / Clear /
+// Reverse / ToArray / IsEmpty / indexer set. Add / AddRange / Sort / Remove /
+// List(int capacity) are covered by list_sort.z42; this file fills the rest.
+namespace Z42CoreListOpsTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+[Test]
+void test_is_empty() {
+    var xs = new List<int>();
+    Assert.True(xs.IsEmpty());
+    xs.Add(1);
+    Assert.False(xs.IsEmpty());
+    xs.Clear();
+    Assert.True(xs.IsEmpty());
+}
+
+[Test]
+void test_indexer_get_set() {
+    var xs = new List<int>();
+    xs.Add(10);
+    xs.Add(20);
+    xs.Add(30);
+    Assert.Equal(20, xs[1]);
+    xs[1] = 99;                 // indexer set
+    Assert.Equal(99, xs[1]);
+    Assert.Equal(3, xs.Count);  // set must not change Count
+}
+
+[Test]
+void test_insert_head_middle_tail() {
+    var xs = new List<int>();
+    xs.Add(1);
+    xs.Add(2);
+    xs.Add(3);                  // [1,2,3]
+    xs.Insert(0, 0);            // head → [0,1,2,3]
+    xs.Insert(2, 99);          // middle → [0,1,99,2,3]
+    xs.Insert(xs.Count, 100);  // tail → [0,1,99,2,3,100]
+    Assert.Equal(6, xs.Count);
+    Assert.Equal(0, xs[0]);
+    Assert.Equal(1, xs[1]);
+    Assert.Equal(99, xs[2]);
+    Assert.Equal(2, xs[3]);
+    Assert.Equal(3, xs[4]);
+    Assert.Equal(100, xs[5]);
+}
+
+[Test]
+void test_insert_triggers_grow() {
+    // Default capacity 4; inserting past it must Grow and preserve order.
+    var xs = new List<int>();
+    int i = 0;
+    while (i < 4) { xs.Add(i); i = i + 1; }   // fill to capacity [0,1,2,3]
+    xs.Insert(0, -1);                          // forces Grow, shifts everything
+    Assert.Equal(5, xs.Count);
+    Assert.Equal(-1, xs[0]);
+    Assert.Equal(0, xs[1]);
+    Assert.Equal(3, xs[4]);
+}
+
+[Test]
+void test_remove_at_head_middle_tail() {
+    var xs = new List<int>();
+    int i = 0;
+    while (i < 5) { xs.Add(i * 10); i = i + 1; }  // [0,10,20,30,40]
+    xs.RemoveAt(0);                                // [10,20,30,40]
+    Assert.Equal(4, xs.Count);
+    Assert.Equal(10, xs[0]);
+    xs.RemoveAt(1);                                // remove 20 → [10,30,40]
+    Assert.Equal(3, xs.Count);
+    Assert.Equal(10, xs[0]);
+    Assert.Equal(30, xs[1]);
+    Assert.Equal(40, xs[2]);
+    xs.RemoveAt(xs.Count - 1);                     // tail → [10,30]
+    Assert.Equal(2, xs.Count);
+    Assert.Equal(30, xs[1]);
+}
+
+[Test]
+void test_contains_and_index_of() {
+    var xs = new List<int>();
+    xs.Add(5);
+    xs.Add(15);
+    xs.Add(25);
+    Assert.True(xs.Contains(15));
+    Assert.False(xs.Contains(99));
+    Assert.Equal(0, xs.IndexOf(5));
+    Assert.Equal(2, xs.IndexOf(25));
+    Assert.Equal(-1, xs.IndexOf(99));   // absent → -1
+}
+
+[Test]
+void test_index_of_first_occurrence() {
+    var xs = new List<int>();
+    xs.Add(7);
+    xs.Add(7);
+    xs.Add(7);
+    Assert.Equal(0, xs.IndexOf(7));     // first match wins
+}
+
+[Test]
+void test_clear_resets_but_keeps_reusable() {
+    var xs = new List<int>();
+    xs.Add(1);
+    xs.Add(2);
+    xs.Clear();
+    Assert.Equal(0, xs.Count);
+    Assert.False(xs.Contains(1));
+    xs.Add(9);                          // reusable after Clear
+    Assert.Equal(1, xs.Count);
+    Assert.Equal(9, xs[0]);
+}
+
+[Test]
+void test_reverse_even_and_odd() {
+    var even = new List<int>();
+    even.Add(1); even.Add(2); even.Add(3); even.Add(4);
+    even.Reverse();                     // [4,3,2,1]
+    Assert.Equal(4, even[0]);
+    Assert.Equal(3, even[1]);
+    Assert.Equal(2, even[2]);
+    Assert.Equal(1, even[3]);
+
+    var odd = new List<int>();
+    odd.Add(1); odd.Add(2); odd.Add(3);
+    odd.Reverse();                      // [3,2,1] — middle stays put
+    Assert.Equal(3, odd[0]);
+    Assert.Equal(2, odd[1]);
+    Assert.Equal(1, odd[2]);
+}
+
+[Test]
+void test_reverse_empty_and_single() {
+    var e = new List<int>();
+    e.Reverse();                        // must not trap
+    Assert.Equal(0, e.Count);
+
+    var s = new List<int>();
+    s.Add(42);
+    s.Reverse();
+    Assert.Equal(1, s.Count);
+    Assert.Equal(42, s[0]);
+}
+
+[Test]
+void test_to_array_is_snapshot_copy() {
+    var xs = new List<int>();
+    xs.Add(1);
+    xs.Add(2);
+    xs.Add(3);
+    int[] arr = xs.ToArray();
+    Assert.Equal(3, arr.Length);
+    Assert.Equal(1, arr[0]);
+    Assert.Equal(3, arr[2]);
+
+    // Mutating the list must not touch the earlier snapshot (fresh array).
+    xs[0] = 999;
+    Assert.Equal(1, arr[0]);
+
+    var empty = new List<int>();
+    Assert.Equal(0, empty.ToArray().Length);
+}
