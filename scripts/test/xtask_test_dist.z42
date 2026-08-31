@@ -430,6 +430,81 @@ int[] _apphostSmoke(string distDir, string work) {
         Console.WriteLine("  FAIL: multi-exe publish smoke: " + e.Message);
         fail = fail + 1;
     }
+    // (add-precompiled-native) prebuilt native colocation: a lib declaring [native.<name>].dir
+    // (no [build] hooks) + a committed fake prebuilt at <dir>/<rid>/<derived> + a path-dep exe →
+    // z42 publish copies the prebuilt native by target rid beside the app zpkg (dist/) and into
+    // the payload. Asserts file placement (fake bytes are not dlopen-loadable → we do not run).
+    try {
+        // host rid from the package dir name (format z42-<version>-<rid>-release; version optional):
+        // locate a known os-family prefix and take through the arch up to "-release" (robust to the
+        // version segment, matching the existing `IndexOf("windows-")` style above).
+        string pkgName = Path.GetFileName(distDir);
+        string prid = "";
+        string[] osPfx = new string[]{ "macos-", "linux-", "windows-", "iossim-", "ios-", "android-" };
+        int oi = 0;
+        while (oi < osPfx.Length && prid.Length == 0) {
+            int idx = pkgName.IndexOf(osPfx[oi]);
+            if (idx >= 0) {
+                string rest = pkgName.Substring(idx);        // e.g. "macos-arm64-release"
+                int rel = rest.IndexOf("-release");
+                prid = (rel >= 0) ? rest.Substring(0, rel) : rest;   // "macos-arm64"
+            }
+            oi = oi + 1;
+        }
+        // rid-derived <prefix><name><suffix> (mirrors z42b _pubNativeFileName).
+        string pfx = "lib"; string sfx = ".so";
+        if (prid.StartsWith("windows-")) { pfx = ""; sfx = ".dll"; }
+        else if (prid.StartsWith("macos-") || prid.StartsWith("ios-") || prid.StartsWith("iossim-")) { pfx = "lib"; sfx = ".dylib"; }
+        string nfname = pfx + "pnfoo" + sfx;
+
+        string pnRoot = Path.Join(work, "prebuilt-native");
+        string pnlibDir = Path.Join(pnRoot, "pnlib");
+        string pnappDir = Path.Join(pnRoot, "pnapp");
+        Directory.Create(pnlibDir);
+        Directory.Create(pnappDir);
+        // lib pnlib: trivial z42 source + [native.pnfoo] dir="prebuilt" (no [build] hooks).
+        File.WriteAllText(Path.Join(pnlibDir, "pnlib.z42"),
+            "namespace Pn.Lib;\n\npublic static class Pnlib {\n    public static int Answer() { return 42; }\n}\n");
+        File.WriteAllText(Path.Join(pnlibDir, "pnlib.z42.toml"),
+            "[project]\nname = \"pnlib\"\nversion = \"0.1.0\"\nkind = \"lib\"\n" +
+            "[sources]\ninclude = [\"*.z42\"]\n" +
+            "[dependencies]\n\"z42.core\" = \"0.1.0\"\n" +
+            "[native.pnfoo]\ndir = \"prebuilt\"\n");
+        // committed fake prebuilt at prebuilt/<rid>/<derived> (fake bytes — placement only).
+        string pdir = Path.Join(Path.Join(pnlibDir, "prebuilt"), prid);
+        Directory.Create(pdir);
+        File.WriteAllText(Path.Join(pdir, nfname), "FAKE_PREBUILT_NATIVE\n");
+        // exe pnapp path-deps pnlib + payload layout.
+        File.WriteAllText(Path.Join(pnappDir, "pnapp.z42"),
+            "namespace Pn.App;\nusing Std;\nusing Std.IO;\nusing Pn.Lib;\n" +
+            "void Main() { Console.WriteLine(\"PN_\" + Pnlib.Answer().ToString()); Environment.Exit(0); }\n");
+        File.WriteAllText(Path.Join(pnappDir, "pnapp.z42.toml"),
+            "[project]\nname = \"pnapp\"\nversion = \"0.1.0\"\nkind = \"exe\"\nentry = \"Pn.App.Main\"\npack = true\n" +
+            "[sources]\ninclude = [\"*.z42\"]\n" +
+            "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n\"pnlib\" = { path = \"../pnlib\" }\n" +
+            "[build]\ndist_dir = \"dist\"\n" +
+            "[platform.desktop]\napphost = true\npublish_dir = \".\"\npayload = \"payload/pnapp.zpkg\"\n" +
+            "[profile.release]\nmode = \"interp\"\n");
+        int pcn = new Process(launcher).Arg("publish").Arg(Path.Join(pnappDir, "pnapp.z42.toml"))
+            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+            .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
+        // native colocated beside the built zpkg (dist/) by _pubCopyPrebuiltNative, then carried
+        // into the payload dir by _pubCopyDistDeps.
+        string distNative    = Path.Join(Path.Join(pnappDir, "dist"), nfname);
+        string payloadNative = Path.Join(Path.Join(pnappDir, "payload"), nfname);
+        if (pcn == 0 && File.Exists(payloadNative)) {
+            Console.WriteLine("  ✓ prebuilt native colocated by rid → payload/" + nfname);
+            pass = pass + 1;
+        } else {
+            Console.WriteLine("  FAIL: prebuilt native (rc=" + pcn.ToString()
+                + " dist=" + (File.Exists(distNative) ? "y" : "n")
+                + " payload=" + (File.Exists(payloadNative) ? "y" : "n") + ")");
+            fail = fail + 1;
+        }
+    } catch (Exception e) {
+        Console.WriteLine("  FAIL: prebuilt-native smoke: " + e.Message);
+        fail = fail + 1;
+    }
     Console.WriteLine("");
     int[] res = new int[2]; res[0] = pass; res[1] = fail; return res;
 }

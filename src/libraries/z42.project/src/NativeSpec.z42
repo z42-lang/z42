@@ -5,15 +5,20 @@ namespace Z42.Build.Project;
 /// `[native.<name>]` 的一项 —— 本包**携带/提供**的一个私有 native 库（组件私有 native，
 /// 非 `<sdk>/native/` 标准库横切 native）。add-native-dep-config。
 ///
-/// 当前只带**逻辑名** `Name`。实际文件名由**平台派生** `<prefix><Name><suffix>`：
+/// 带**逻辑名** `Name` + 可选**预编译基目录** `Dir`。实际文件名由**平台派生** `<prefix><Name><suffix>`：
 ///   - `<prefix>` = 平台原生前缀（unix `lib`、Windows 空），即 Rust `std::env::consts::DLL_PREFIX`；
 ///   - `<suffix>` = 平台族后缀 `.dylib` / `.so` / `.dll`（`DLL_SUFFIX`）。
-/// 约定落点 `<dist>/<rid>/<prefix><Name><suffix>`：有 `[build] hooks` 的 `ProvideNative` 现场产出，
-/// 否则视为已提交的预编译文件（语言无关：rust/c/c++/vendor blob 一视同仁）。
-/// per-lib 表头保留位（将来 `static` / 显式 per-rid `files` 覆盖）——当前只需名字。
+/// 两条产出/定位路径（add-precompiled-native）：
+///   - 有 `[build] hooks` 的 `ProvideNative` 现场产出到 `<dist>/<rid>/<prefix><Name><suffix>`；
+///   - 无 hooks 但声明了 `Dir`（`[native.<name>].dir`）→ 视为**已提交预编译文件**，定位
+///     `<manifest-dir>/<Dir>/<rid>/<prefix><Name><suffix>`（语言无关：rust/c/c++/vendor blob 一视同仁）。
+/// `Dir` 空 = 无预编译指向（要么走 hook，要么无 native 可复制）。
+/// per-lib 表头 `[native.<name>]` 仍保留将来 `static` / 显式 per-rid `files` 覆盖位。
 public sealed class NativeSpec {
     public string Name;
-    public NativeSpec(string name) {
+    public string Dir;   // [native.<name>].dir：预编译库基目录（相对 manifest）；空=无。
+    public NativeSpec(string name, string dir) {
         this.Name = name;
+        this.Dir = dir;
     }
 }
