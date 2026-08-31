@@ -1,0 +1,112 @@
+// add-core-lib-tests: Std.IO.Path 纯字符串路径逻辑的专属覆盖。此前无任何 path 测试，
+// 而自举工具链大量依赖它，且 Windows/POSIX 分隔符、尾随分隔符、leading-dot 扩展名
+// 等边界正是注释里点名过的历史坑区。
+namespace Z42CorePathBasicsTests;
+
+using Std;
+using Std.IO;
+using Std.Test;
+
+// ── Separator 常量 ────────────────────────────────────────────────────────
+
+[Test]
+void test_separator() {
+    Assert.Equal('/', Path.Separator);
+}
+
+// ── IsRooted（POSIX + Windows 根）─────────────────────────────────────────
+
+[Test]
+void test_is_rooted_posix() {
+    Assert.True(Path.IsRooted("/foo/bar"));
+    Assert.True(Path.IsRooted("/"));
+    Assert.False(Path.IsRooted("foo/bar"));
+    Assert.False(Path.IsRooted("./foo"));
+    Assert.False(Path.IsRooted(""));
+}
+
+[Test]
+void test_is_rooted_windows() {
+    Assert.True(Path.IsRooted("C:\\Users"));   // 盘符 + 反斜杠
+    Assert.True(Path.IsRooted("D:/data"));      // 盘符 + 正斜杠
+    Assert.True(Path.IsRooted("z:foo"));        // 盘符（小写）+ 相对
+    Assert.True(Path.IsRooted("\\network"));    // 反斜杠开头
+    Assert.False(Path.IsRooted("1:foo"));       // 非字母盘符 → 不是根
+}
+
+// ── Join（2-arg + params）─────────────────────────────────────────────────
+
+[Test]
+void test_join_two() {
+    Assert.Equal("a/b", Path.Join("a", "b"));
+    Assert.Equal("a/b", Path.Join("a/", "b"));      // a 已有尾随 / 不重复
+    Assert.Equal("a\\b", Path.Join("a\\", "b"));    // 尾随反斜杠也认
+    Assert.Equal("b", Path.Join("", "b"));          // 空 a
+    Assert.Equal("a", Path.Join("a", ""));          // 空 b
+    Assert.Equal("/abs", Path.Join("a", "/abs"));   // b 绝对 → 替换 a
+}
+
+[Test]
+void test_join_params() {
+    Assert.Equal("a/b/c", Path.Join("a", "b", "c"));
+    Assert.Equal("a/b/c/d", Path.Join("a", "b", "c", "d"));
+    Assert.Equal("", Path.Join(new string[0]));
+    // 中途绝对段替换前缀。
+    Assert.Equal("/x/y", Path.Join("a", "/x", "y"));
+}
+
+// ── GetFileName ───────────────────────────────────────────────────────────
+
+[Test]
+void test_get_file_name() {
+    Assert.Equal("c.txt", Path.GetFileName("/a/b/c.txt"));
+    Assert.Equal("c.txt", Path.GetFileName("c.txt"));
+    Assert.Equal("b", Path.GetFileName("/a/b/"));    // 尾随分隔符跳过
+    Assert.Equal("file", Path.GetFileName("C:\\dir\\file")); // 反斜杠分隔
+    Assert.Equal("", Path.GetFileName("/"));          // 全分隔符 → ""
+    Assert.Equal("", Path.GetFileName(""));
+}
+
+// ── GetExtension（leading dot 不算扩展名）─────────────────────────────────
+
+[Test]
+void test_get_extension() {
+    Assert.Equal("txt", Path.GetExtension("a.txt"));
+    Assert.Equal("gz", Path.GetExtension("a.tar.gz"));      // 最后一个 .
+    Assert.Equal("txt", Path.GetExtension("/dir/a.txt"));
+    Assert.Equal("", Path.GetExtension(".bashrc"));         // leading dot
+    Assert.Equal("", Path.GetExtension("noext"));
+    Assert.Equal("", Path.GetExtension(""));
+}
+
+// ── GetFileNameWithoutExtension ───────────────────────────────────────────
+
+[Test]
+void test_get_file_name_without_extension() {
+    Assert.Equal("a", Path.GetFileNameWithoutExtension("a.txt"));
+    Assert.Equal("a.tar", Path.GetFileNameWithoutExtension("/x/a.tar.gz"));
+    Assert.Equal(".bashrc", Path.GetFileNameWithoutExtension(".bashrc")); // 无扩展 → 整名
+    Assert.Equal("noext", Path.GetFileNameWithoutExtension("noext"));
+}
+
+// ── GetDirectoryName ──────────────────────────────────────────────────────
+
+[Test]
+void test_get_directory_name() {
+    Assert.Equal("/a/b", Path.GetDirectoryName("/a/b/c.txt"));
+    // 尾随分隔符：与 GetFileName("/a/b/")=="b" 一致——末段视为 b，父目录 = "/a"。
+    Assert.Equal("/a", Path.GetDirectoryName("/a/b/"));
+    Assert.Equal("", Path.GetDirectoryName("c.txt"));        // 无分隔符
+    Assert.Equal("/", Path.GetDirectoryName("/a"));          // 根下一级 → "/"
+    Assert.Equal("", Path.GetDirectoryName("/"));            // 纯根 → ""
+    Assert.Equal("", Path.GetDirectoryName(""));
+}
+
+// ── GlobRecursive（不存在目录 → 空数组）───────────────────────────────────
+
+[Test]
+void test_glob_recursive_missing_dir() {
+    // 目录不存在时安全返回空数组（不抛）。
+    string[] hits = Path.GlobRecursive("/nonexistent-z42-glob-xyz", "*.z42");
+    Assert.Equal(0, hits.Length);
+}

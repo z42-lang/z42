@@ -33,10 +33,17 @@ FromJson(t, v):
   t.FullName=="Std.Boolean" → v.AsBool()
   t.FullName=="Std.String"  → v.AsString()
   t.IsArray           → 反射建 elem[]，逐元素递归
+  baseFn=="Std.Collections.List"       → 反射建 List<T>，逐元素递归
+  baseFn=="Std.Collections.Dictionary" → 反射建 Dictionary<K,V>
   else (class)        → 构造 + 成员绑定
 ```
 
-序列化 `_toJson(object o)` 反向，按 `o.GetType().FullName` 分派（多态元素随其**运行期**类型）。
+> **构造型泛型 FullName 含实参**（fix-type-reflection-names）：`typeof(List<int>).FullName` 现为
+> `Std.Collections.List<Std.Int32>`，故集合检测按**去实参的基名** `baseFn`（`FullName` 截到首个 `<` 前）
+> 匹配 `Std.Collections.List` / `Std.Collections.Dictionary`，而非整串 FullName。基元/字符串分派轴
+> 不受影响（基元 FullName 无 `<…>`）。
+
+序列化 `_toJson(object o)` 反向，按 `o.GetType().FullName` 分派（多态元素随其**运行期**类型；集合同样按基名）。
 
 ### 成员模型：字段 + 属性统一
 

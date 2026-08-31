@@ -32,7 +32,7 @@ void Demo() {
 
     // 字段（含继承的实例字段）
     foreach (FieldInfo f in t.GetFields()) {
-        Console.WriteLine(f.Name + " : " + f.FieldType.Name);  // "X : int" ...
+        Console.WriteLine(f.Name + " : " + f.FieldType.Name);  // "X : Int32" ...
     }
 
     // 方法（含继承 / 虚方法）
@@ -56,7 +56,8 @@ class Point { public int X; public int Y; }
 
 void Demo() {
     Type t1 = typeof(int);
-    Console.WriteLine(t1.Name);              // "int"（i32→int 规范化）
+    Console.WriteLine(t1.Name);              // "Int32"（解析到真 Std.Int32 句柄）
+    Console.WriteLine(t1.FullName);          // "Std.Int32"；typeof(int) ≡ (5).GetType()
 
     var tp = typeof(Point);
     Console.WriteLine(tp.Name);              // "Point"
@@ -69,7 +70,7 @@ void Demo() {
 }
 ```
 
-**关键能力**：编译器在 `FunctionEmitter.VisitTypeof` 把目标类型解析成**限定名**（用户类经 `QualifyClassName` → `<ns>.Point`），运行时 `make_type_from_name` 据此命中主模块 `type_registry` → **真 `TypeDesc` 句柄**，故 `typeof(Point).GetFields()` 可枚举成员（不像早期 desugar-to-string 方案只有名字）。基础类型（`int`/`string`/…）→ synthetic Type（Name/FullName 有值）。
+**关键能力**：编译器在 `FunctionEmitter.VisitTypeof` 把目标类型解析成**限定名**（用户类经 `QualifyClassName` → `<ns>.Point`），运行时 `make_type_from_name` 据此命中主模块 `type_registry` → **真 `TypeDesc` 句柄**，故 `typeof(Point).GetFields()` 可枚举成员（不像早期 desugar-to-string 方案只有名字）。基础类型（`int`/`string`/…）经 `primitive_fqn` 映射到 FQ wrapper 名（`int`→`Std.Int32`）后同样命中真 `Std.*` struct 句柄（fix-type-reflection-names）——`typeof(int)` ≡ `(5).GetType()`：Name `Int32`、FullName `Std.Int32`、IsValueType true、成员可枚举。仅数组 `T[]` 仍是 synthetic Type。
 
 > **已修（2026-06-10，fix-chained-property-dispatch）**：`var x = obj.GetType(); x.Name` 现可直接用——`GetType()` 的返回类型已从 `Unknown` 升级为真实 `Std.Type` 类（Object stub 修复），故 `var` 推断为 `Type`、属性派发正常。typeof 的 `var tp = typeof(Point)` 一向正常。详见 Deferred `reflection-future-chained-property-dispatch`（已落地）。
 
@@ -410,6 +411,9 @@ Type bi = typeof(Box<int>);
 bi.IsGenericType;                 // true
 bi.IsGenericTypeDefinition;       // false —— 已构造（带 type args）
 Type[] args = bi.GetGenericArguments();   // [typeof(int)]（此前返回空数组的 bug 已修）
+bi.FullName;                      // "Demo.Box<Std.Int32>" —— fix-type-reflection-names：
+                                  // 构造型 FullName 含实参（尖括号、逗号无空格、嵌套递归展开），
+                                  // Name 仍为基简名 "Box"
 
 Type def = bi.GetGenericTypeDefinition();  // Box<> 开放定义
 def.IsGenericTypeDefinition;      // true

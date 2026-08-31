@@ -11,18 +11,22 @@ public static class JsonBinder {
     public static object FromJson(Type t, JsonValue v) {
         if (v.IsNull()) { return null; }
         string fn = t.FullName;
-        // 基元目标：反射 FieldType/PropertyType 的 FullName 用**规范基元名**（"int"/"long"/
-        // "double"/"bool"/"string"），而装箱运行期类型（GetType）用 Std.* 包装类 FQ——两套词汇
-        // 都接受，使成员类型（前者）与顶层 typeof(T)（后者可能）皆命中。
+        // 基元目标：fix-type-reflection-names 起，反射 FieldType/PropertyType 与 typeof(T)/
+        // GetType 的 FullName **统一**为 Std.* 包装类 FQ（`Std.Int32`…），不再有「关键字 vs FQ」
+        // 两套词汇。分派以 `Std.*` 为主轴；保留旧关键字（"int"…）分支作防御式容错，不影响正确性。
         if (fn == "int"    || fn == "Std.Int32")   { return (int)v.AsLong(); }
         if (fn == "long"   || fn == "Std.Int64")   { return v.AsLong(); }
         if (fn == "double" || fn == "Std.Double")  { return v.AsDouble(); }
         if (fn == "bool"   || fn == "Std.Boolean") { return v.AsBool(); }
         if (fn == "string" || fn == "Std.String")  { return v.AsString(); }
         if (t.IsArray) { return JsonBinder._fromArray(t, v); }
-        // add-collection-serde：集合检测先于通用对象构造。
-        if (fn == "Std.Collections.List")       { return JsonBinder._fromList(t, v); }
-        if (fn == "Std.Collections.Dictionary") { return JsonBinder._fromDict(t, v); }
+        // add-collection-serde：集合检测先于通用对象构造。fix-type-reflection-names 起构造型
+        // 泛型 FullName 含实参（`Std.Collections.List<Std.Int32>`），故按去实参的**基名**匹配。
+        string baseFn = fn;
+        int lt = fn.IndexOf("<");
+        if (lt >= 0) { baseFn = fn.Substring(0, lt); }
+        if (baseFn == "Std.Collections.List")       { return JsonBinder._fromList(t, v); }
+        if (baseFn == "Std.Collections.Dictionary") { return JsonBinder._fromDict(t, v); }
         return JsonBinder._fromObject(t, v);
     }
 

@@ -32,8 +32,8 @@ void Main() {
     // The nested arg keeps its own type args [int, string] (the whole point).
     Type[] innerArgs = inner.GetGenericArguments();
     Assert.True(innerArgs.Length == 2);
-    Assert.True(innerArgs[0].Name == "int");
-    Assert.True(innerArgs[1].Name == "string");
+    Assert.True(innerArgs[0].Name == "Int32");
+    Assert.True(innerArgs[1].Name == "String");
 
     // ── Multi-level nesting: typeof(Box<Pair<Box<int>,string>>) ────────────
     Type deep = typeof(Box<Pair<Box<int>, string>>);
@@ -48,19 +48,19 @@ void Main() {
     Assert.True(dBox.IsGenericType);
     Type[] dBoxArgs = dBox.GetGenericArguments();
     Assert.True(dBoxArgs.Length == 1);
-    Assert.True(dBoxArgs[0].Name == "int");
-    Assert.True(dPairArgs[1].Name == "string");   // the string leaf
+    Assert.True(dBoxArgs[0].Name == "Int32");
+    Assert.True(dPairArgs[1].Name == "String");   // the string leaf
 
     // ── Flat (non-nested) generics unregressed ─────────────────────────────
     Type bi = typeof(Box<int>);
     Type[] biArgs = bi.GetGenericArguments();
     Assert.True(biArgs.Length == 1);
-    Assert.True(biArgs[0].Name == "int");
+    Assert.True(biArgs[0].Name == "Int32");
     Assert.True(biArgs[0].GetGenericArguments().Length == 0);   // leaf: no args
 
     Type pis = typeof(Pair<int, string>);
     Type[] pisArgs = pis.GetGenericArguments();
     Assert.True(pisArgs.Length == 2);
-    Assert.True(pisArgs[0].Name == "int");
-    Assert.True(pisArgs[1].Name == "string");
+    Assert.True(pisArgs[0].Name == "Int32");
+    Assert.True(pisArgs[1].Name == "String");
 }

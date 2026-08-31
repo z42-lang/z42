@@ -25,7 +25,7 @@ void Main() {
     Type[] args = t.GetGenericArguments();
     Assert.True(args.Length == 1);               // was empty before this change
     Type a0 = args[0];
-    Assert.True(a0.Name == "int");
+    Assert.True(a0.Name == "Int32");
 
     // Consistent with typeof(Box<int>).
     Type tof = typeof(Box<int>);

@@ -1,0 +1,55 @@
+// add-core-lib-tests: Enum.Parse / Enum.IsDefined 专属覆盖。GetNames/GetValues/GetName
+// 已由 reflection.z42 覆盖，但 Parse（含未命中抛异常）与 IsDefined 此前无测试——二者
+// 各有独立失败路径。
+namespace Z42CoreEnumParseTests;
+
+using Std;
+using Std.Test;
+
+// 非连续值，含 gap，用于 IsDefined 的正反例。
+enum Color {
+    Red = 0,
+    Green = 5,
+    Blue = 6,
+}
+
+// ── Parse（名 → 值）───────────────────────────────────────────────────────
+
+[Test]
+void test_parse_valid() {
+    Assert.True(Enum.Parse(typeof(Color), "Red") == 0L);
+    Assert.True(Enum.Parse(typeof(Color), "Green") == 5L);
+    Assert.True(Enum.Parse(typeof(Color), "Blue") == 6L);
+}
+
+[Test]
+void test_parse_case_sensitive_and_missing_throws() {
+    // z42 大小写敏感，无 ignoreCase 变体。
+    Assert.ThrowsAny(() => Enum.Parse(typeof(Color), "red"));
+    Assert.ThrowsAny(() => Enum.Parse(typeof(Color), "Purple"));
+    Assert.ThrowsAny(() => Enum.Parse(typeof(Color), ""));
+}
+
+// ── IsDefined（值是否为已定义成员）────────────────────────────────────────
+
+[Test]
+void test_is_defined() {
+    Assert.True(Enum.IsDefined(typeof(Color), 0L));
+    Assert.True(Enum.IsDefined(typeof(Color), 5L));
+    Assert.True(Enum.IsDefined(typeof(Color), 6L));
+    // gap 值（1..4）与越界值均未定义。
+    Assert.False(Enum.IsDefined(typeof(Color), 1L));
+    Assert.False(Enum.IsDefined(typeof(Color), 99L));
+    Assert.False(Enum.IsDefined(typeof(Color), -1L));
+}
+
+// ── GetName ↔ Parse 往返 ─────────────────────────────────────────────────
+
+[Test]
+void test_getname_parse_roundtrip() {
+    long v = Enum.Parse(typeof(Color), "Green");
+    Assert.Equal("Green", Enum.GetName(typeof(Color), v));
+    // 反向：名 → 值 → 名。
+    string name = Enum.GetName(typeof(Color), 6L);
+    Assert.True(Enum.Parse(typeof(Color), name) == 6L);
+}

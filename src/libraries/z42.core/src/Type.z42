@@ -7,8 +7,11 @@ namespace Std;
 // from user code — the VM creates instances via `__obj_get_type` and the
 // reflection builtins, writing `__name` / `__fullName` directly.
 //
-// Primitives / arrays (`int`, `T[]`, `string`) return a handle-less `Type`:
-// `Name` / `FullName` are populated, but member queries reflect empty.
+// Primitives (`int` / `long` / `bool` / …) resolve to their real `Std.*` wrapper
+// struct handle — `typeof(int)` is the *same* Type as `(5).GetType()` (C#
+// `typeof(int) == 5.GetType()`): Name `Int32`, FullName `Std.Int32`, IsValueType
+// true, members enumerable. Only arrays (`T[]`) return a handle-less synthetic
+// (Name/FullName populated, member queries empty). fix-type-reflection-names.
 //
 // Mirrors C# `System.Type`. Runtime generic instantiation via `MakeGenericType`
 // (plan-generic-reflection G1); z42's reified type-erasure means this needs no

@@ -39,14 +39,23 @@ pub struct FieldSlot {
 ///
 /// Reference / unknown types fall back to `Null`. `char` follows the existing
 /// "char-as-i64" representation (no separate `Value::Char` variant).
+///
+/// Three primitive vocabularies reach here: field-slot keywords (`int`), function
+/// signature tags (`i32`), and — since fix-type-reflection-names — the FQ wrapper
+/// names (`Std.Int32`), which reflective `MakeGenericMethod(typeof(int)).Invoke`
+/// threads into `method_type_args` (the resolved Type arg's handle name). All three
+/// must yield the same value-type zero so reflective `default(T)` matches a direct
+/// `Zero<int>()` call.
 pub fn default_value_for(type_tag: &str) -> Value {
     match type_tag {
         "int" | "long" | "short" | "byte" | "sbyte" | "ushort" | "uint" | "ulong"
         | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
-        | "isize" | "usize" => Value::I64(0),
-        "double" | "float" | "f32" | "f64" => Value::F64(0.0),
-        "bool" => Value::Bool(false),
-        "char" => Value::Char('\0'),
+        | "isize" | "usize"
+        | "Std.Int32" | "Std.Int64" | "Std.Int16" | "Std.SByte" | "Std.Byte"
+        | "Std.UInt16" | "Std.UInt32" | "Std.UInt64" => Value::I64(0),
+        "double" | "float" | "f32" | "f64" | "Std.Double" | "Std.Single" => Value::F64(0.0),
+        "bool" | "Std.Boolean" => Value::Bool(false),
+        "char" | "Std.Char" => Value::Char('\0'),
         _ => Value::Null,
     }
 }
@@ -95,7 +104,7 @@ pub fn default_value_for_tag(tag: u8) -> Value {
 ///
 /// Built once per class at module load time; instances reference it via `Arc`.
 /// Includes the flattened inheritance chain for both fields and virtual methods.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeDesc {
     /// Fully-qualified class name (e.g. `"Demo.Point"`).
     pub name: String,
@@ -709,7 +718,7 @@ fn codec_as_char_u32(v: &Value) -> anyhow::Result<u32> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TypeDescCold {
     /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
     /// itself declares** (excluding inherited). Preserved so the cross-zpkg

@@ -206,14 +206,18 @@ public static class ManifestLoader {
         bool hasCache = false; string cacheDir = "";
         bool hasDist = false; string distDir = "";
         bool incremental = true;
+        bool hasHooks = false; string hooksDir = "";
         if (root.ContainsKey("build")) {
             var b = root.Get("build");
             if (b.ContainsKey("output_dir"))  { outDir = b.Get("output_dir").AsString(); hasOut = true; }
             if (b.ContainsKey("cache_dir"))   { cacheDir = b.Get("cache_dir").AsString(); hasCache = true; }
             if (b.ContainsKey("dist_dir"))    { distDir = b.Get("dist_dir").AsString(); hasDist = true; }
             if (b.ContainsKey("incremental")) { incremental = b.Get("incremental").AsBool(); }
+            // fix-hooks-source-scan：`[build] hooks`（projDir 相对目录）。z42c 阶段 2 据此自动排除。
+            if (b.ContainsKey("hooks"))       { hooksDir = b.Get("hooks").AsString(); hasHooks = true; }
         }
-        return new BuildConfig(hasOut, outDir, hasCache, cacheDir, hasDist, distDir, incremental);
+        return new BuildConfig(hasOut, outDir, hasCache, cacheDir, hasDist, distDir, incremental,
+                               hasHooks, hooksDir);
     }
 
     // ── [profile.<name>] ─────────────────────────────────────────────────────

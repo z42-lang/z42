@@ -181,7 +181,7 @@ void test_field_type_is_type_object() {
     foreach (var f in d.GetType().GetFields()) {
         if (f.Name == "a") {
             Type ft = f.FieldType;
-            Assert.Equal("int", ft.Name);
+            Assert.Equal("Int32", ft.Name);
         }
     }
 }
@@ -202,7 +202,7 @@ void test_getmethods_add_signature() {
         if (m.Name == "Add") {
             hasAdd = true;
             Type rt = m.ReturnType;
-            Assert.Equal("int", rt.Name);
+            Assert.Equal("Int32", rt.Name);
             Assert.Equal(2, m.GetParameters().Length);
         }
     }
@@ -255,7 +255,7 @@ void test_interface_getmethods_declared() {
     foreach (var m in methods) {
         if (m.Name == "Area") {
             sawArea = true;
-            Assert.Equal("double", m.ReturnType.Name);
+            Assert.Equal("Double", m.ReturnType.Name);
             Assert.Equal(0, m.GetParameters().Length);
             Assert.True(m.IsAbstract);
             Assert.True(m.IsVirtual);
@@ -294,7 +294,7 @@ void test_make_generic_type_roundtrip() {
     Type made = def.MakeGenericType(typeof(int));
     Type[] gargs = made.GetGenericArguments();
     Assert.Equal(1, gargs.Length);
-    Assert.Equal("int", gargs[0].Name);
+    Assert.Equal("Int32", gargs[0].Name);
 }
 
 [Test]
@@ -326,7 +326,7 @@ void test_activator_constructed_carries_type_args() {
     object o = Activator.CreateInstance(made);
     Type[] gargs = o.GetType().GetGenericArguments();
     Assert.Equal(1, gargs.Length);
-    Assert.Equal("int", gargs[0].Name);
+    Assert.Equal("Int32", gargs[0].Name);
 }
 
 [Test]
@@ -361,7 +361,7 @@ void test_generic_arguments_best_effort() {
     // Monomorphized TypeDesc carries type_args; when present, the first is int.
     // (Best-effort for MVP — see reflection.md.)
     if (args.Length == 1) {
-        Assert.Equal("int", args[0].Name);
+        Assert.Equal("Int32", args[0].Name);
     }
 }
 
@@ -376,7 +376,7 @@ void test_getproperties_readwrite() {
             Assert.True(p.CanRead);
             Assert.True(p.CanWrite);
             Type pt = p.PropertyType;   // local receiver (chained-getter footgun)
-            Assert.Equal("int", pt.Name);
+            Assert.Equal("Int32", pt.Name);
         }
     }
     Assert.True(found);
@@ -393,7 +393,7 @@ void test_getproperties_readonly() {
             Assert.True(p.CanRead);
             Assert.False(p.CanWrite);
             Type pt = p.PropertyType;
-            Assert.Equal("string", pt.Name);
+            Assert.Equal("String", pt.Name);
         }
     }
     Assert.True(found);
@@ -756,7 +756,7 @@ void test_delegate_metadata() {
             sawInvoke = true;
             Assert.True(m.IsVirtual);
             Type rt = m.ReturnType;
-            Assert.Equal("int", rt.Name);
+            Assert.Equal("Int32", rt.Name);
             ParameterInfo[] ps = m.GetParameters();
             Assert.Equal(2, ps.Length);
             Assert.Equal("addA", ps[0].Name);

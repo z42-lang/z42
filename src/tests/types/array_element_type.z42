@@ -15,7 +15,7 @@ void Main() {
     // typeof(int[]): IsArray true, element is int.
     var ti = typeof(int[]);
     Assert.True(ti.IsArray);
-    Assert.Equal("int", ti.GetElementType().Name);
+    Assert.Equal("Int32", ti.GetElementType().Name);
 
     // Non-array type: IsArray false, GetElementType() is null.
     var tn = typeof(int);
@@ -31,14 +31,14 @@ void Main() {
     int[] xs = new int[3];
     var tx = xs.GetType();
     Assert.True(tx.IsArray);
-    Assert.Equal("int", tx.GetElementType().Name);
+    Assert.Equal("Int32", tx.GetElementType().Name);
 
     // Array literal path (ArrayNewLit) carries element type too.
     string[] ys = new string[] { "a", "b" };
     Assert.True(ys.GetType().IsArray);
-    Assert.Equal("string", ys.GetType().GetElementType().Name);
+    Assert.Equal("String", ys.GetType().GetElementType().Name);
 
     // Empty array still carries element type.
     int[] empty = new int[0];
-    Assert.Equal("int", empty.GetType().GetElementType().Name);
+    Assert.Equal("Int32", empty.GetType().GetElementType().Name);
 }

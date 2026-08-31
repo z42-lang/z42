@@ -32,7 +32,7 @@ void Main() {
         if (f.Name == "baseStat") {
             sawBaseStat = true;
             Assert.True(f.IsStatic);          // inherited static
-            Assert.Equal("int", f.FieldType.Name);
+            Assert.Equal("Int32", f.FieldType.Name);
         }
         if (f.Name == "derivedStat") {
             sawDerivedStat = true;
