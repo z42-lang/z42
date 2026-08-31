@@ -3,15 +3,8 @@ namespace Std.Collections;
 // `KeyValuePair<TKey, TValue>` — 不可变键值对，主要用作 `Dictionary<TKey, TValue>.Entries()`
 // 的元素类型，让用户用 `foreach (var kv in dict.Entries())` 遍历字典。
 //
-// 选 class 而非 struct：z42 泛型 struct 当前验证不充分，class 形式更稳；
-// 字段公开为 readonly-by-convention（z42 暂无 readonly 修饰符，靠不写 setter
-// 表达"创建后不应修改"语义）。
-public class KeyValuePair<TKey, TValue> {
-    public TKey Key;
-    public TValue Value;
-
-    public KeyValuePair(TKey key, TValue value) {
-        this.Key = key;
-        this.Value = value;
-    }
-}
+// `[Record] struct` 值类型：无堆分配的 blob 布局，值相等 / 哈希 / ToString 由编译器合成
+// （与 `ValueTuple2..8` 同款，对齐 C# `System.Collections.Generic.KeyValuePair<,>`）。
+// positional record 的 `Key` / `Value` 字段天然只读——创建后不可变，正是键值对语义。
+// 这消除了 `Dictionary.Entries()` 每对一个堆对象的开销。
+[Record] public struct KeyValuePair<TKey, TValue>(TKey Key, TValue Value);

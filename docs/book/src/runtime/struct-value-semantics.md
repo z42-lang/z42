@@ -288,6 +288,12 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
   `struct_layout`，匹配编译期 `IsBlobStruct`）造 `StructBytes` backing（`ArrayObj::struct_backed`，经
   `Heap::alloc_array_obj` region-alloc 保 backing）；字面量经 `pack_struct_elem` 把各元素（`StructRef` 经 arena /
   `BoxedStruct`）字节+引用叶子拷进元素槽。
+  - **泛型值 struct 数组的类型查找按擦除裸名**（fix-generic-value-struct-array）：`array_new` 携带的元素类型名
+    是**非擦除全名**（`Kv<string, int>`，供 `arr.GetType().GetElementType()` 反射），但泛型是**类型擦除**——
+    一个泛型定义只注册**裸名** `Kv` 的单一 `TypeDesc`。故 `try_struct_backed` 查类型前须 `element_type.split('<')`
+    剥泛型实参、用裸名 `try_lookup_type`，否则用全名查 → miss → 数组退化成**引用背衬**（元素 `Null`）→
+    `struct_fset_prim` 崩 `expected StructRef, got Null`（`KeyValuePair<K,V>[]` = `Dictionary.Entries()` 的返回，
+    正是此路径）。全名仍传给 `struct_backed` 以保元素反射。一处修覆盖 interp/jit/数组字面量三条创建路径。
 - **取值**：`array_get` 对 `StructBytes` backing 产 `StructRefHeap` 元素句柄（有 array `GcRef`，替代 `get_boxed`）。
 - **codegen（AccessEmitter）**：`_emitArrayElemHandle`（ArrayGet 直发句柄不拷贝）；`_emitIndex` 对 struct[] 出
   `StructAlloc`+`_copyRegion` 拷出（standalone `arr[i]` 值副本）；`_structChainRoot` 对 BoundIndex struct[] 根=句柄

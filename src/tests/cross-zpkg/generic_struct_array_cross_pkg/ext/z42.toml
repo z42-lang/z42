@@ -1,0 +1,11 @@
+[project]
+name    = "demo.genstructext"
+version = "0.1.0"
+kind    = "lib"
+pack    = true
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"demo.genstructtarget" = "0.1.0"

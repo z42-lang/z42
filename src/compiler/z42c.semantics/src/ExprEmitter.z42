@@ -87,7 +87,7 @@ public sealed class ExprEmitter {
             string elemName = an.ElemName;
             Z42ArrayType at = an.Type() as Z42ArrayType;
             if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
-                elemName = this._ctx.QualifyClass(an.ElemName);
+                elemName = this._qualifyElemName(an.ElemName);
             }
             // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
             // 修 PrimTag 对泛型形参名回落 Ref 的 bug：通过 Z42PrimType 包装会调 PrimTag("T")→Ref。
@@ -119,7 +119,7 @@ public sealed class ExprEmitter {
             string elemName = al.ElemName;
             Z42ArrayType at = al.Type() as Z42ArrayType;
             if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
-                elemName = this._ctx.QualifyClass(al.ElemName);
+                elemName = this._qualifyElemName(al.ElemName);
             }
             this._ctx.Emit(new ArrayNewLitInstr(dst, elemRegs, al.ElemCount, elemName));
             return dst;
@@ -412,6 +412,20 @@ public sealed class ExprEmitter {
     }
     // blob struct 短名（调用方已确认 _isBlobStruct）。
     internal string _blobStructName(Z42Type t) { return this._receiverClassType(t).Name(); }
+
+    // 数组元素类型名限定：泛型实例名（`Kv<String,Int32>`）须先剥实参到裸基名再 QualifyClass
+    // （imported ns 解析按裸键 `Kv`），再回贴实参保运行期非擦除元素反射——镜像 StructAlloc 的
+    // `_blobStructName`（裸基名先行）。否则 QualifyClass 对含实参的名 miss imported 键 → 回落当前
+    // ns → 跨包泛型 struct 数组绑错 ns → try_struct_backed miss → 退化引用数组 → StructFieldSetPrim 崩。
+    // 裸名（无 `<`）走 else 分支，与旧 QualifyClass 调用逐字节等价。
+    private string _qualifyElemName(string elemName) {
+        int lt = elemName.IndexOf("<");
+        if (lt >= 0) {
+            return this._ctx.QualifyClass(elemName.Substring(0, lt))
+                 + elemName.Substring(lt, elemName.Length - lt);
+        }
+        return this._ctx.QualifyClass(elemName);
+    }
 
     // complete-struct：模式嵌套 struct 字段读复用 AccessEmitter 的 struct 值副本产出（_access private，故转发）。
     internal TypedReg _copyStructOut(TypedReg srcBase, int srcOff, string structName) { return this._access._copyStructOut(srcBase, srcOff, structName); }
