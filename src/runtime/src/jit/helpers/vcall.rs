@@ -347,10 +347,25 @@ pub unsafe extern "C" fn jit_vcall(
         // caller's registers directly (no hand-off needed).
     }
 
-    let (class_name, recv_type_id) = match &obj_val {
+    // fix-jit-vcall-overload-dispatch: resolve the override name via the type's
+    // `vtable_index`/`vtable` FIRST — mirroring interp's primary path
+    // (`interp::exec_vcall::vcall`). The `vtable_index` maps a (possibly
+    // overloaded) method name to the CORRECT override slot the compiler bound the
+    // call site to. `resolve_virtual`'s naive `Class.method` string walk instead
+    // grabs whichever same-named function it hits first — the WRONG overload when a
+    // type has two methods sharing a name (e.g. a type implementing
+    // `IEquatable<T>` has both `Equals(T)` and the `Object.Equals(object)`
+    // override; a generic/object-typed receiver's call site carries the unmangled
+    // `Equals`, which resolve_virtual maps to `Class.Equals` = `Equals(T)` instead
+    // of the intended `Object.Equals` override). Fall back to resolve_virtual when
+    // the type has no vtable entry (fallback synthetic descriptors / cross-zpkg).
+    let (class_name, recv_type_id, vtable_name) = match &obj_val {
         Value::Object(rc) => {
             let b = rc.borrow();
-            (b.type_desc.name.clone(), b.type_desc.id.0)
+            let vt_name = b.type_desc.vtable_index.get(method)
+                .and_then(|&slot| b.type_desc.vtable.get(slot))
+                .map(|entry| entry.1.clone());
+            (b.type_desc.name.clone(), b.type_desc.id.0, vt_name)
         }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("VCall: expected object, got {:?}", other).into()));
@@ -358,9 +373,12 @@ pub unsafe extern "C" fn jit_vcall(
         }
     };
 
-    let func_name = match resolve_virtual(vm_ctx_ref(ctx), module, &class_name, method) {
-        Ok(n)  => n,
-        Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+    let func_name = match vtable_name {
+        Some(n) => n,
+        None => match resolve_virtual(vm_ctx_ref(ctx), module, &class_name, method) {
+            Ok(n)  => n,
+            Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+        },
     };
 
     // PIC install: cache (recv_type_id, fn_idx) in the next available slot
