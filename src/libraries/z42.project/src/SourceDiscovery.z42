@@ -9,7 +9,20 @@ using Std;
 using Std.IO;
 
 public static class SourceDiscovery {
+    // 原三参 API：无 `[sources] exclude`。**符号刻意保持不变**——委托到 `DiscoverWithExclude`
+    // （空 exclude）。⚠️ 两-nightly 纪律（fix-hooks-source-scan）：**不加同名 overload**（会把本
+    // 方法符号从 `Discover` mangle 成 `Discover$3`，断 z42c 自举链），故新能力用独立方法名。
+    // z42c 阶段 1 仍调此版；阶段 2 切 `DiscoverWithExclude`。
     public static string[] Discover(string projectDir, string[] includes, int includeCount) {
+        string[] noExc = new string[0];
+        return SourceDiscovery.DiscoverWithExclude(projectDir, includes, includeCount, noExc, 0);
+    }
+
+    // fix-hooks-source-scan：应用 `[sources] exclude` glob（此前 `Sources.Exclude` 解析了却从不
+    // 生效）+ 调用方并入的 hooks 目录（`[build] hooks` → 自动排除）。excludes 为相对
+    // projectDir 的 glob（`hooks/**` / `src/gen/**` / `**/*.z42` / 精确路径）。
+    public static string[] DiscoverWithExclude(string projectDir, string[] includes, int includeCount,
+                                               string[] excludes, int excludeCount) {
         string[] acc = new string[8];
         int n = 0;
         int gi = 0;
@@ -18,7 +31,7 @@ public static class SourceDiscovery {
             int hi = 0;
             while (hi < hits.Length) {
                 string p = hits[hi];
-                if (!SourceDiscovery._excluded(projectDir, p) && !SourceDiscovery._contains(acc, n, p)) {
+                if (!SourceDiscovery._excluded(projectDir, p, excludes, excludeCount) && !SourceDiscovery._contains(acc, n, p)) {
                     if (n == acc.Length) {
                         string[] bigger = new string[acc.Length * 2];
                         int k = 0; while (k < n) { bigger[k] = acc[k]; k = k + 1; }
@@ -64,13 +77,35 @@ public static class SourceDiscovery {
         return Path.Glob(projectDir, pattern);
     }
 
-    // 排除产物目录（dist/.cache 任意层级出现）
-    private static bool _excluded(string projectDir, string p) {
+    // 排除产物目录（dist/.cache 任意层级出现）+ 调用方传入的 exclude glob。
+    private static bool _excluded(string projectDir, string p, string[] excludes, int excludeCount) {
         string rel = p;
         if (p.StartsWith(projectDir)) { rel = p.Substring(projectDir.Length, p.Length - projectDir.Length); }
-        return rel.Contains("/dist/") || rel.Contains("/.cache/")
+        if (rel.Contains("/dist/") || rel.Contains("/.cache/")
             || rel.StartsWith("dist/") || rel.StartsWith(".cache/")
-            || rel.StartsWith("/dist/") || rel.StartsWith("/.cache/");
+            || rel.StartsWith("/dist/") || rel.StartsWith("/.cache/")) { return true; }
+        int ei = 0;
+        while (ei < excludeCount) {
+            if (SourceDiscovery._matchesExclude(rel, excludes[ei])) { return true; }
+            ei = ei + 1;
+        }
+        return false;
+    }
+
+    // exclude glob 匹配（相对路径 rel vs pattern）。支持 `<prefix>/**`（prefix 下全部）、
+    // `**/<suffix>`（后缀，如 `**/*.z42`）、精确相对路径 / basename。leading `/` 归一化。
+    private static bool _matchesExclude(string rel, string pattern) {
+        string r = rel;
+        if (r.StartsWith("/")) { r = r.Substring(1, r.Length - 1); }
+        if (pattern.EndsWith("/**")) {
+            string prefix = pattern.Substring(0, pattern.Length - 3);
+            return r == prefix || r.StartsWith(prefix + "/");
+        }
+        if (pattern.StartsWith("**/")) {
+            string suffix = pattern.Substring(3, pattern.Length - 3);
+            return r == suffix || r.EndsWith("/" + suffix) || r.EndsWith(suffix);
+        }
+        return r == pattern || r.EndsWith("/" + pattern);
     }
 
     private static bool _contains(string[] a, int n, string s) {
