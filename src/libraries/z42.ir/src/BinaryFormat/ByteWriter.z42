@@ -12,13 +12,17 @@ public sealed class ByteWriter {
 
     public int Len() { return this._len; }
 
+    // 一次性确保还能再放 `extra` 字节：按目标总量算够大的容量再扩一次（原实现 doubling 循环，
+    // 等价）。扩容拷贝旧内容逐元素（仅 O(log n) 次触发，非热点）。
     private void _ensure(int extra) {
-        while (this._len + extra > this._buf.Length) {
-            int[] bigger = new int[this._buf.Length * 2];
-            int i = 0;
-            while (i < this._len) { bigger[i] = this._buf[i]; i = i + 1; }
-            this._buf = bigger;
-        }
+        int need = this._len + extra;
+        if (need <= this._buf.Length) { return; }
+        int cap = this._buf.Length;
+        while (cap < need) { cap = cap * 2; }
+        int[] bigger = new int[cap];
+        int i = 0;
+        while (i < this._len) { bigger[i] = this._buf[i]; i = i + 1; }
+        this._buf = bigger;
     }
 
     public void WriteU8(int v) {
@@ -27,24 +31,34 @@ public sealed class ByteWriter {
         this._len = this._len + 1;
     }
 
+    // ensure-once + 直写（去 2 次 WriteU8 方法调用 + 2 次 _ensure）。字节序等价。
     public void WriteU16(int v) {
-        this.WriteU8(v & 0xFF);
-        this.WriteU8((v >> 8) & 0xFF);
+        this._ensure(2);
+        int p = this._len;
+        this._buf[p]     = v & 0xFF;
+        this._buf[p + 1] = (v >> 8) & 0xFF;
+        this._len = p + 2;
     }
 
     public void WriteU32(int v) {
-        this.WriteU8(v & 0xFF);
-        this.WriteU8((v >> 8) & 0xFF);
-        this.WriteU8((v >> 16) & 0xFF);
-        this.WriteU8((v >> 24) & 0xFF);
+        this._ensure(4);
+        int p = this._len;
+        this._buf[p]     = v & 0xFF;
+        this._buf[p + 1] = (v >> 8) & 0xFF;
+        this._buf[p + 2] = (v >> 16) & 0xFF;
+        this._buf[p + 3] = (v >> 24) & 0xFF;
+        this._len = p + 4;
     }
 
     public void WriteI64(long v) {
+        this._ensure(8);
+        int p = this._len;
         int i = 0;
         while (i < 8) {
-            this.WriteU8((int)((v >> (i * 8)) & 0xFFL));
+            this._buf[p + i] = (int)((v >> (i * 8)) & 0xFFL);
             i = i + 1;
         }
+        this._len = p + 8;
     }
 
     // 无符号 LEB128 变长整数（STRS segment-dict：段长 / 段数 / 段索引，恒非负）。
@@ -69,11 +83,17 @@ public sealed class ByteWriter {
     // ByteLength 错位 → STRS 数据整体漂移、串损坏（z42c.driver banner 实证）。ASCII 子集等价不变。
     public void WriteUtf8Bytes(string s) {
         int n = s.Length;
+        // ASCII 快路径：标识符/多数串全 ASCII → 一次 ensure(n) 覆盖纯 ASCII 情形 + 直写，去 per-char
+        // WriteU8 调用。内联容量守卫 `_len >= _buf.Length`（纯 ASCII 恒不触发；混入多字节 scalar
+        // 经 WriteU8 自行扩容后可能耗尽预留 → 守卫兜底），保正确。多字节分支仍走 WriteU8（自扩容）。
+        this._ensure(n);
         int i = 0;
         while (i < n) {
             int cp = (int)s.CharAt(i);
             if (cp < 128) {
-                this.WriteU8(cp);
+                if (this._len >= this._buf.Length) { this._ensure(1); }
+                this._buf[this._len] = cp;
+                this._len = this._len + 1;
             } else if (cp < 2048) {
                 this.WriteU8(192 | (cp >> 6));
                 this.WriteU8(128 | (cp & 63));
@@ -105,10 +125,16 @@ public sealed class ByteWriter {
         this._buf[pos + 3] = (v >> 24) & 0xFF;
     }
 
-    // 追加另一缓冲全部字节。
+    // 追加另一缓冲全部字节。**批量**：一次 ensure + 紧凑内联拷贝 + 一次性 bump（原实现逐字节
+    // WriteU8：每字节 2 次解释执行方法调用 WriteU8+_ensure，packed zpkg 多级嵌套 AppendWriter 使
+    // 每字节重复复制 3-4 层 → 序列化占单包编译 ~51%）。other 字节已 & 0xFF，直拷等价。
     public void AppendWriter(ByteWriter other) {
+        int m = other._len;
+        this._ensure(m);
+        int p = this._len;
         int i = 0;
-        while (i < other._len) { this.WriteU8(other._buf[i]); i = i + 1; }
+        while (i < m) { this._buf[p + i] = other._buf[i]; i = i + 1; }
+        this._len = p + m;
     }
 
     // byte[]（File.WriteAllBytes 写盘；driver --emit-zbc）。
