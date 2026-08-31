@@ -279,9 +279,11 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // make-vm-loading-lazy: `ic_ptr` (before line/col) caches the resolved
         // lazy/merged fn id per call site → lock-free by-id fast path.
         call:          decl!("jit_call",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, i32t, i32t], [i8t]),
-        // jit_builtin(frame, ctx, dst, builtin_id, args_ptr, argc) -> u8
+        // jit_builtin(frame, ctx, dst, builtin_id, name_ptr, name_len, args_ptr, argc) -> u8
         // formalize-jit-method-token (2026-05-08): id-based dispatch (no hash).
-        builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t],         [i8t]),
+        // fix-jit-builtin-ext-fallback: name_ptr/len added so an UNRESOLVED id (native-ext
+        // facade unresolved at compile time) can resolve by name at call time.
+        builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t], [i8t]),
         array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i64t], [i8t]),
         array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr, i64t], [i8t]),
         array_get:     decl!("jit_array_get",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
