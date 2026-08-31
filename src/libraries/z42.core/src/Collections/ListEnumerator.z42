@@ -1,0 +1,29 @@
+namespace Std.Collections;
+
+// `ListEnumerator<T>` — `List<T>` 的前向迭代器（add-foreach-ienumerable，Decision 3/5/8）。
+//
+// `[Record] struct` 值类型：无堆分配、字节 blob 布局（与 `ValueTuple`/`KeyValuePair` 同款），
+// 对齐 C# `List<T>.Enumerator`（struct enumerator，迭代热路径零堆分配）。
+//
+// 语义：`_pos` = 已产出元素计数（0 初值——`[Record] struct` body 字段零初始化，故不用 C# 的 -1
+// 约定）。`MoveNext` 先自增再判界、`Current` 读 `_list[_pos-1]`，等价 C# 的「-1 起、先自增后读」。
+//
+// 注：`List<T>` 自身 foreach 走**索引快路径**（`Count`+`get_Item`，见 foreach 三-path 决策树），
+// 不经本 enumerator；本类服务「以 `IEnumerable<T>` 接口静态类型 / 泛型约束 / 未来 LINQ」的调用点。
+[Record] public struct ListEnumerator<T>(List<T> _list) where T: IEquatable<T> + IComparable<T> {
+    int _pos;
+
+    public bool MoveNext() {
+        if (this._pos < this._list.Count) {
+            this._pos = this._pos + 1;
+            return true;
+        }
+        return false;
+    }
+
+    public T Current {
+        get { return this._list[this._pos - 1]; }
+    }
+
+    public void Dispose() { }
+}

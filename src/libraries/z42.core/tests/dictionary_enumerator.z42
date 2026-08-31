@@ -1,0 +1,33 @@
+// add-foreach-ienumerable：Dictionary<K,V>.GetEnumerator() + DictionaryEnumerator struct 迭代器（槽游标零分配）。
+namespace Z42CoreDictionaryEnumeratorTests;
+using Std;
+using Std.Test;
+using Std.Collections;
+
+[Test]
+void test_enumerator_visits_all_entries() {
+    var d = new Dictionary<string, int>();
+    d.Set("a", 1); d.Set("b", 2); d.Set("c", 3);
+    var e = d.GetEnumerator();
+    int count = 0; int valSum = 0; int guard = 0;
+    while (e.MoveNext() && guard < 1000) { var kv = e.Current; valSum = valSum + kv.Value; count = count + 1; guard = guard + 1; }
+    Assert.Equal(3, count);
+    Assert.Equal(6, valSum);
+}
+[Test]
+void test_enumerator_empty_dict() {
+    var d = new Dictionary<string, int>();
+    var e = d.GetEnumerator();
+    Assert.False(e.MoveNext());
+}
+[Test]
+void test_enumerator_current_pair_matches() {
+    var d = new Dictionary<int, string>();
+    d.Set(42, "answer");
+    var e = d.GetEnumerator();
+    Assert.True(e.MoveNext());
+    var kv = e.Current;
+    Assert.Equal(42, kv.Key);
+    Assert.Equal("answer", kv.Value);
+    Assert.False(e.MoveNext());
+}
