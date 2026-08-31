@@ -11,4 +11,11 @@ public class BuildHooks {
     public virtual void AfterTrim(IPipelineContext ctx)     { }
     public virtual void BeforeAssets(IPipelineContext ctx)  { }
     public virtual void AfterAssets(IPipelineContext ctx)   { }
+
+    /// 产出本包携带的私有 native 库（add-native-dep-config）。**专用窄相位**：只负责现场编/拷
+    /// native（如 `cargo build` 出 cdylib）到 `ctx.Dirs.Dist/<rid>/<prefix><name><suffix>` 并
+    /// `ctx.AddOutput("native", <path>)` 登记。消费方（z42b publish 的 `_pubBundleProjectNativeDeps`）
+    /// 沿 path-dep 闭包**只跑本相位**（不盲跑通用 BeforeAssets），把目标 rid 那份平铺进 payload。
+    /// 默认 no-op。与 `WorkloadBase.NativeBuild`（平台尾相位）命名同族、职责正交。
+    public virtual void ProvideNative(IPipelineContext ctx) { }
 }

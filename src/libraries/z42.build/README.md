@@ -37,7 +37,7 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
 |------|------|
 | `src/Pipeline.z42` | 管线驱动 —— **流程**：八相位顺序，head（z42.build 拥有）+ tail（workload 拥有） |
 | `src/WorkloadBase.z42` | 平台尾相位扩展点（Preflight/Configure/GenerateProject/NativeBuild/Package） |
-| `src/BuildHooks.z42` | 平台无关头相位 hook 扩展点（Before/After × Compile/Trim/Assets） |
+| `src/BuildHooks.z42` | 平台无关头相位 hook 扩展点（Before/After × Compile/Trim/Assets）+ `ProvideNative`（专用窄相位：产本包私有 native 库，add-native-dep-config） |
 | `src/IPipelineContext.z42` | **相位上下文契约**：项目模型 + 能力受限 fs + exec + 日志 + 产物登记 + 平台原语 + preflight 原语 |
 | `src/ICompiler.z42` | **编译抽象**：Compile 头相位经此**在进程内**调编译器库（不 fork z42c）；`z42b` 与 `z42c.driver` 引用同一实现。含 CompileRequest / CompileResult 记录 + NoCompiler 兜底。**计划后续抽到中立微库**（见下） |
 | `src/PipelineContext.z42` | `IPipelineContext` 的 SDK 实现（骨架）—— 受限 fs / exec / 平台原语 / 产物登记的落地点。编排器构造它注入 ctx。**归属暂置本库**（2026-06-23 决策） |

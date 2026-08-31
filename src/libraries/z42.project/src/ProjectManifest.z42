@@ -43,6 +43,11 @@ public sealed class ProjectManifest {
     // 可变公字段（默认空，ManifestLoader 构造后填），同 OptimizeNames 模式。
     public string[] LintNames; public string[] LintSeverities; public int LintCount;
     public bool LintWarningsAsErrors;
+    // ── [native.<name>] 本包携带的私有 native 库（add-native-dep-config）─────────
+    // 每项 = 逻辑名；实际文件名平台派生 <prefix><name><suffix>（NativeSpec）。消费方（z42b publish
+    // 的 _pubBundleProjectNativeDeps）沿 path-dep 闭包读本段，跑 dep 的 ProvideNative、按目标 rid 平铺
+    // 进 payload。z42.project 只搬名字、不产/不解析文件。可变公字段（默认空，ManifestLoader 构造后填）。
+    public NativeSpec[] Natives; public int NativeCount;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -67,5 +72,6 @@ public sealed class ProjectManifest {
         this.Analyzers = new DepEntry[0]; this.AnalyzerCount = 0;
         this.LintNames = new string[0]; this.LintSeverities = new string[0]; this.LintCount = 0;
         this.LintWarningsAsErrors = false;
+        this.Natives = new NativeSpec[0]; this.NativeCount = 0;
     }
 }

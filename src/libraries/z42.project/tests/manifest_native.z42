@@ -1,0 +1,34 @@
+// add-native-dep-config：`[native.<name>]` 声明段解析。
+// 只验 z42.project 解析层——ProjectManifest.Natives 名/数/稳定序；文件名派生与产出/复制在消费方。
+namespace Z42ProjectNativeTests;
+
+using Std;
+using Std.Test;
+using Z42.Build.Project;
+
+[Test]
+void test_single_native() {
+    // 单个 [native.<name>]（空表）→ 一项 NativeSpec，名正确。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[native.z42_repl]\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.NativeCount);
+    Assert.Equal("z42_repl", m.Natives[0].Name);
+}
+
+[Test]
+void test_multiple_native_stable_order() {
+    // 多个声明 → 按名稳定升序（common-pitfalls §1），与声明书写序无关。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[native.zeta]\n\n[native.alpha]\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(2, m.NativeCount);
+    Assert.Equal("alpha", m.Natives[0].Name);
+    Assert.Equal("zeta", m.Natives[1].Name);
+}
+
+[Test]
+void test_no_native_section() {
+    // 无 [native] 段 → 空、不报错。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.NativeCount);
+}
