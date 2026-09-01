@@ -1,17 +1,19 @@
 // 2026-05-07 add-array-base-class: T[] 接入 Std.Array → Std.Object 链路。
-// arr.GetType() 返回 Std.Type 实例，__name="Array"，__fullName="Std.Array"。
+// arr.GetType() 返回 Std.Type 实例，IsArray=true。
+// fix-value-type-object-methods ④（2026-09-01）：数组 Type 名改为全路径元素名——
+// __name="{elemName}[]"、__fullName="{elemFullName}[]"（此前是元素-擦除的 "Array"/"Std.Array"）。
 
 void Main() {
     int[] xs = new int[3];
     var t = xs.GetType();
-    Assert.Equal("Array",     t.__name);
-    Assert.Equal("Std.Array", t.__fullName);
+    Assert.Equal("Int32[]",     t.__name);
+    Assert.Equal("Std.Int32[]", t.__fullName);
 
-    // 不同元素类型也走相同路径（v1 不区分元素类型）
+    // 不同元素类型带各自元素名
     string[] ys = new string[2];
-    Assert.Equal("Array", ys.GetType().__name);
+    Assert.Equal("String[]", ys.GetType().__name);
 
-    // 空数组也有 Type
+    // 空数组也有 Type + 元素名
     int[] empty = new int[0];
-    Assert.Equal("Std.Array", empty.GetType().__fullName);
+    Assert.Equal("Std.Int32[]", empty.GetType().__fullName);
 }

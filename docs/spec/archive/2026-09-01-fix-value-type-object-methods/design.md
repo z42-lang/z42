@@ -56,14 +56,23 @@ struct 的 Object 四方法（注释「镜像 C# ExcludeFromImplicitObject」—
 
 > 若实施中发现绑定层对 struct Object 方法解析不出（E0401）→ 回到选项 B 重新评估（届时停下问 User）。
 
-### Decision 4: ③ Type 对象 GetType 返 null —— 实施期先钉派发点
+### Decision 4: ③ Type 对象 GetType 返 null —— 根因 = 运行期 static/instance vtable 撞车（实施期钉准）
 
 **问题：** `typeof(X).GetType()` 对 `Std.Type` receiver 返 null（本地/imported 类 typeof 皆然），链式 `.FullName`
 → `FieldGet on Null`。
 
-**决定：** 实施**第一步**：加诊断定位——`t.GetType()`（t: Std.Type）走的是 VCall 还是被折叠/DepIndex，为何得
-Null。候选根因：imported `Std.Type` 的 GetType 未接 `builtin_obj_get_type`（SymbolCollector Object-stub 的 GetType
-派发）。定位后按根因修（产出端），不在消费端兜 null。**先钉准再改**，避免臆测。
+**钉准结论（订正原猜测）：** 加诊断（`OverloadBinder._resolveOverload` 打印候选）证实**编译器重载决议本身正确**
+——arity-0 `GetType` 与 static `GetType$1$string` 都在候选集，byArity 正确选中 arity-0 那个。**根因在运行期
+vtable 构建**（`metadata/loader/type_registry.rs::merge_with_base`）：`Std.Type` 的**静态** `GetType(string)`
+（`[Native("__type_get_type")]`）其限定名进 `own_methods`，建 instance vtable 时 `derive_simple_method_name`
+剥掉 `$1$string` mangle 得简单名 `GetType`，**覆盖了**从 `Object` 继承来的 instance `GetType` 槽 → VCall
+命中静态 extern（receiver 当 fqn）→ null。原猜测「SymbolCollector Object-stub 派发」**证伪**。
+
+**根治：static 方法不进 instance vtable。** `TypeDescCold.own_static_flags`（index 对齐 `own_methods`，采自
+`Function.is_static`）；`merge_with_base` 跳过 static 项（它们只经 mangled 直呼 `Call` 派发，从不虚派发）。
+`needs_fixup` 的 `expected_vtable_count` 投影**同步**跳过 static（否则实际 vtable 恒少于投影 → fixup 永不收敛）。
+反射 `GetMethods()` 仍从完整 `own_methods` 枚举 static 方法，不受影响。这是一条**通用**修复——任何类的 static
+方法简单名撞上继承 instance 方法都受益，`Std.Type` 只是首个真实触发者。
 
 ### Decision 5: 数组 FullName/Name 全路径
 

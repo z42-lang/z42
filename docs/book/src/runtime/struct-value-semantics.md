@@ -191,6 +191,32 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
 `ToString`（arity 0）→ native 特判；否则 prepend `{type_name}.{method}$arity` 候选命中合成/用户方法（this=boxed
 值，合成 body 内拆箱），fallback `Std.Object.{method}`。
 
+### 编译器派发：值类型 receiver 的 Object 方法（fix-value-type-object-methods, 2026-09-01）
+
+上面是**运行期**协议；但**编译器**此前不把值类型实例的 Object 方法调用路由到它——`a.GetType()`/`a.ToString()`
+一律发**静态 `Call {Struct}.{method}`**（blob-struct 分支），Object 方法在 struct 上无函数体 → 运行期
+`undefined function`。`E.Red.GetType()` 则因 enum 值是裸 i64 → `primitive_class_name(I64)` → 错误的 `Std.Int32`。
+补齐后 `CallEmitter._emitCall` 的 instance 分支按方法分两路（覆盖 struct + enum，含空/单字段 struct 与 scalar
+之外的值类型）：
+
+- **`GetType()`（0 参）→ 折叠 `typeof(静态类型)`**（`_emitValueTypeGetType`）。值类型 **sealed**（无多态）→
+  编译期静态类型 == 运行期类型，GetType 结果编译期已知；发 `TypeofInstr(FQN)`（复用 typeof codegen，真句柄），
+  **无装箱开销**。判据 `_isStructOrEnumStatic`：`Z42ClassType.IsStruct && !IsScalarValue`（用户 struct；scalar
+  基元的 `IsStruct` 亦 true，但 `5.GetType()` 已由运行期正确处理，故排除以免自举字节漂移）或名在 `EnumTypes`
+  表（enum 变量 receiver，其 `Z42ClassType.IsStruct=false`）。**enum 字面量 `E.Red`** 静态类型是 `long`（z42
+  的 enum-as-int 模型：`E.Red == 0` / 传 int 参不变）——`MemberResolver` 绑成 `BoundLitInt` 时打
+  `EnumTypeName` **origin 标记**，`CallEmitter` 据此折叠回 `typeof(E)`。标记只被 GetType 折叠读取，codegen
+  仍发整数字面量 → 不改任何 int-context 语义、不扰自举字节。
+- **`ToString`/`Equals`/`GetHashCode`（struct 未自声明时）→ `__box_struct(recv)` 装箱 + VCall**
+  （`_emitBoxedStructObjectCall`），命中上面的 runtime 装箱-struct 协议。**自声明**（record 合成 / 用户覆写，
+  `EmitContext.ChainHasMethod` 命中）仍走各自静态 `Call`——保 record 的 `ToString`（`R { A = 1, B = 2 }`）/
+  值 `Equals` 与用户 `ToString` 不被装箱短名拦截。
+
+> **struct 导出方法表仍不注入 Object 四方法**（`ClassExtractor`，decision 3 选项 A）——保 zbc TYPE 段元数据 /
+> 自举字节不变。这只决定 `typeof(struct).GetMethods()` **是否列出** Object 四方法（反射枚举完备性维度，收益边际、
+> blast-radius 大，留后续），**不影响调用**——调用由上面的 `CallEmitter` 路由解决。（旧注释误称「镜像 C#
+> ExcludeFromImplicitObject」，实则 C# struct 经 `ValueType:Object` 有这些方法，已订正。）
+
 **D5 定案**：`==`/`!=` on `object`-typed boxed struct = **值相等**（`Value::BoxedStruct` `PartialEq`：
 type_name∧bytes∧refs），延续 ② 对 struct `==` 的值语义（**P4b 后**：`PartialEq` 先 `ptr_eq`（同盒短路，避免
 双 borrow 死锁），否则经共享对象比 `struct_bytes`/`struct_refs`——值相等语义不变）；`.Equals()` = 合成叶子方法

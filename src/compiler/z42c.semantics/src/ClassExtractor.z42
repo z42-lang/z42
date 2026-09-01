@@ -130,7 +130,13 @@ public static class ClassExtractor {
         string[] seenName = new string[16];
         int[]    seenAt   = new int[16];
         int mc = 0; int seenc = 0;
-        // struct 不从 Object 继承方法（镜像 C# ExcludeFromImplicitObject：struct/record 不注入 Object 四方法）。
+        // struct 的**导出方法表**不注入 Object 四方法（保 zbc TYPE 段元数据 / 自举字节不变——decision 3
+        // 选项 A）。注意：这不代表 struct「没有」Object 方法——fix-value-type-object-methods 起，值类型的
+        // GetType 由 CallEmitter 折叠成 typeof(静态类型)、ToString/Equals/GetHashCode 由 CallEmitter 装箱 +
+        // VCall 命中 runtime 装箱-struct 协议（见 CallEmitter._emitValueTypeGetType /
+        // _emitBoxedStructObjectCall）。此处仅决定「typeof(struct).GetMethods() 是否列出 Object 四方法」这一
+        // **反射枚举完备性**维度——列出属另一维度（改元数据/字节，收益边际），故不注入。旧注释误称「镜像 C#
+        // ExcludeFromImplicitObject」——C# struct 经 ValueType:Object 是**有**这些方法的，特此订正。
         if (!isStruct) {
             ExportedMethodZ[] o4 = ObjectMethods.Four();   // compiler-review §4.3：单源
             methods[0] = o4[0]; methods[1] = o4[1]; methods[2] = o4[2]; methods[3] = o4[3];

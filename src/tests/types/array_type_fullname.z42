@@ -1,0 +1,42 @@
+// fix-value-type-object-methods ④：数组 Type 携**全路径**元素名——FullName = "{elemFullName}[]"、
+// Name = "{elemName}[]"（此前是元素-擦除的合成 "Std.Array"/"Array"）。元素经 make_type_from_name
+// 递归解析（含 change A 的 int→Std.Int32），jagged 递归到任意深度。`typeof(T[])` 与运行期 `arr.GetType()`
+// 一致。GetElementType 不变（读 __elementName）。
+namespace Test;
+
+class Box { public int V; }
+
+void Main() {
+    // 基元数组：元素名 Std.* 全路径
+    Assert.Equal("Std.Int32[]", typeof(int[]).FullName);
+    Assert.Equal("Int32[]", typeof(int[]).Name);
+    Assert.Equal("Std.String[]", typeof(string[]).FullName);
+    Assert.Equal("Std.Boolean[]", typeof(bool[]).FullName);
+
+    // jagged：逐层 [] 递归
+    Assert.Equal("Std.Int32[][]", typeof(int[][]).FullName);
+    Assert.Equal("Int32[][]", typeof(int[][]).Name);
+
+    // 用户类数组：FQN + []
+    Assert.Equal("Test.Box[]", typeof(Box[]).FullName);
+    Assert.Equal("Box[]", typeof(Box[]).Name);
+
+    // 运行期数组值 GetType 一致（走 builtin_obj_get_type → 同一命名路径）
+    int[] xs = new int[3];
+    Assert.Equal("Std.Int32[]", xs.GetType().FullName);
+    Assert.Equal("Int32[]", xs.GetType().Name);
+    Assert.Equal(true, xs.GetType().IsArray);
+
+    string[] ys = new string[2];
+    Assert.Equal("Std.String[]", ys.GetType().FullName);
+
+    // 空数组仍带元素名
+    int[] empty = new int[0];
+    Assert.Equal("Std.Int32[]", empty.GetType().FullName);
+
+    // GetElementType 仍解析出元素 Type（typeof 与运行期两路）
+    Assert.Equal("Std.Int32", typeof(int[]).GetElementType().FullName);
+    Assert.Equal("Std.Int32", xs.GetType().GetElementType().FullName);
+    // jagged 元素是数组 Type
+    Assert.Equal("Std.Int32[]", typeof(int[][]).GetElementType().FullName);
+}

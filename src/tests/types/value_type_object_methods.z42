@@ -1,0 +1,72 @@
+// fix-value-type-object-methods: 值类型（struct/enum）与 Type 对象的 Object 继承方法
+// 对齐 C#。GetType 折叠 typeof(静态类型)（值类型 sealed，编译期已知）；struct 未自声明的
+// ToString/Equals/GetHashCode 装箱 + VCall 命中 runtime 装箱-struct 协议；Type 对象 GetType
+// 经 static/instance vtable 撞车根治后返 typeof(Std.Type)。Assert/Type 均 z42.core（prelude）。
+namespace Test;
+
+struct Point { public int X; public int Y; }
+
+[Record] struct Rec { public int A; public int B; }
+
+struct Custom {
+    public int V;
+    public string ToString() { return "custom-" + this.V.ToString(); }
+}
+
+enum Color { Red = 0, Green = 1, Blue = 2 }
+
+class Widget { public int W; }
+
+void Main() {
+    // ── ① struct 实例 Object 方法 ────────────────────────────────
+    Point p = new Point();
+    p.X = 3; p.Y = 4;
+    // GetType 折叠 typeof(Point)：真句柄、精确 FullName、IsValueType
+    Assert.Equal("Test.Point", p.GetType().FullName);
+    Assert.Equal("Point", p.GetType().Name);
+    Assert.Equal(true, p.GetType().IsValueType);
+    Assert.Equal(false, p.GetType().IsEnum);
+    // ToString（非 record，无自声明）→ 短类型名（C# ValueType 默认）
+    Assert.Equal("Point", p.ToString());
+    // GetHashCode 稳定（native FNV）
+    Assert.Equal(true, p.GetHashCode() == p.GetHashCode());
+
+    // record struct：ToString/Equals/GetHashCode 走合成方法（值语义），不被装箱协议改写
+    Rec r1 = new Rec(); r1.A = 1; r1.B = 2;
+    Rec r2 = new Rec(); r2.A = 1; r2.B = 2;
+    Rec r3 = new Rec(); r3.A = 9; r3.B = 9;
+    Assert.Equal("Rec { A = 1, B = 2 }", r1.ToString());
+    Assert.Equal(true, r1.Equals(r2));
+    Assert.Equal(false, r1.Equals(r3));
+    Assert.Equal(true, r1.GetHashCode() == r2.GetHashCode());
+
+    // 用户自声明 ToString 的 struct：走自身实现，不被装箱短名拦截
+    Custom c = new Custom(); c.V = 7;
+    Assert.Equal("custom-7", c.ToString());
+    // 自声明 struct 的 GetType 仍折叠 typeof
+    Assert.Equal("Test.Custom", c.GetType().FullName);
+
+    // ── ② enum 实例 GetType ─────────────────────────────────────
+    // 字面量 `Color.Red`（静态类型 long，靠 origin 标记还原）
+    Assert.Equal("Test.Color", Color.Red.GetType().FullName);
+    Assert.Equal("Color", Color.Red.GetType().Name);
+    Assert.Equal(true, Color.Blue.GetType().IsEnum);
+    // 声明为 enum 类型的变量
+    Color cv = Color.Blue;
+    Assert.Equal("Test.Color", cv.GetType().FullName);
+
+    // ── ③ Type 对象 GetType → typeof(Std.Type) ──────────────────
+    Assert.Equal("Std.Type", typeof(Widget).GetType().FullName);
+    Assert.Equal("Std.Type", typeof(Point).GetType().FullName);
+    Assert.Equal("Std.Type", typeof(int).GetType().FullName);
+    // 链式不再崩（此前 GetType 返 null → FieldGet on Null）
+    Assert.Equal("Type", typeof(Widget).GetType().Name);
+    // static Type.GetType(string) 仍正常（未被 instance 折叠/撞车影响）
+    Assert.Equal("Test.Widget", Type.GetType("Test.Widget").FullName);
+
+    // ── 基线：本地 class 与基元 GetType 不回归 ───────────────────
+    Widget w = new Widget();
+    Assert.Equal("Test.Widget", w.GetType().FullName);
+    Assert.Equal("Widget", w.GetType().Name);
+    Assert.Equal("Std.Int32", (5).GetType().FullName);
+}
