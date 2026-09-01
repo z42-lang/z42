@@ -1,0 +1,51 @@
+// z42.core 库本地测试 — Convert 的 4 个 native 绑定专测。
+//
+// core-test-completeness 程序（2026-09-01, session 4）：`convert_extras.z42`
+// 只覆盖派生的 ToByte/ToInt16/ToSingle/ToBoolean/ToChar；本文件补齐直接
+// 绑定 native 的 4 个主转换：ToInt32(`__int32_parse`)、ToInt64(`__int64_parse`)、
+// ToDouble(`__double_parse`)、ToString(object)(`__to_str`)。
+namespace Z42CoreConvertNativeTests;
+
+using Std;
+using Std.Test;
+
+// ── ToInt32 ────────────────────────────────────────────────────────────────
+[Test]
+void test_to_int32() {
+    Assert.Equal(42, Convert.ToInt32("42"));
+    Assert.Equal(0, Convert.ToInt32("0"));
+    Assert.Equal(-2147483648, Convert.ToInt32("-2147483648")); // i32 min
+    Assert.Equal(2147483647, Convert.ToInt32("2147483647"));   // i32 max
+}
+
+// ── ToInt64 ────────────────────────────────────────────────────────────────
+[Test]
+void test_to_int64() {
+    Assert.Equal(42L, Convert.ToInt64("42"));
+    // 超出 i32 范围，验证确实走的是 64 位解析
+    Assert.Equal(9223372036854775807L, Convert.ToInt64("9223372036854775807"));  // i64 max
+    Assert.Equal(-9223372036854775808L, Convert.ToInt64("-9223372036854775808")); // i64 min
+}
+
+// ── ToDouble ───────────────────────────────────────────────────────────────
+[Test]
+void test_to_double() {
+    Assert.EqualApprox(2.5, Convert.ToDouble("2.5"), 1e-12);
+    Assert.EqualApprox(0.0, Convert.ToDouble("0"), 1e-12);
+    Assert.EqualApprox(-3.14, Convert.ToDouble("-3.14"), 1e-12);
+    Assert.EqualApprox(1000000.0, Convert.ToDouble("1e6"), 1e-6);  // 科学计数
+}
+
+// ── ToString(object) ───────────────────────────────────────────────────────
+[Test]
+void test_to_string_object() {
+    Assert.Equal("42", Convert.ToString(42));
+    Assert.Equal("-7", Convert.ToString(-7));
+    Assert.Equal("hi", Convert.ToString("hi"));     // string 恒等
+}
+
+// ── 往返：ToInt32 ∘ ToString ────────────────────────────────────────────────
+[Test]
+void test_roundtrip_int32() {
+    Assert.Equal(12345, Convert.ToInt32(Convert.ToString(12345)));
+}
