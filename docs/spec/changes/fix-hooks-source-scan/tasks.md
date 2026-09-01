@@ -1,6 +1,6 @@
 # Tasks: fix-hooks-source-scan
 
-> 状态：🟡 阶段2 IMPL 中（阶段1 = PR #362 已合并） | 类型：feat（stdlib z42.project；阶段2 含 compiler z42c）
+> 状态：🟡 阶段3 IMPL 中（阶段1 = PR #362、阶段2 = PR #367 均已合并；阶段2 nightly @ a680cbd 已发布） | 类型：feat（stdlib z42.project；阶段2 含 compiler z42c）
 > 设计见 [proposal.md](proposal.md)。⚠️ **三**阶段跨三 nightly（原以为两阶段——见下「阶段划分校正」）。
 
 ## ⚠️ 阶段划分校正（2026-09-01，阶段2 实施时发现）
@@ -42,10 +42,15 @@ self-build **前**先把**当前源** z42.project 预建进 flat-libs，种子 z
 - [x] 2.4 验证：`strings xtask.zpkg | grep ProjectHooks` = **空**（新 z42c 建：52 文件 vs 基线 53，hooks/ 已排除）；
       新 xtask `--help` 0 WARN；self-host gen 不动点通过。全量 GREEN（进行中）。
 
-## 阶段 3（阶段2 nightly 发布后，第三 PR）= 删 shim
+## 阶段 3（阶段2 nightly 发布后，第三 PR）= 删 shim ✅ 本 PR
 
-- [ ] 3.1 删 `SourceDiscovery.Discover` 三参 shim（此时种子 `Main.z42` 已调 `DiscoverWithExclude`、不再引用它）。
-- [ ] 3.2 验证：cold bootstrap（下载阶段2 nightly 作种子）+ 全量 GREEN + gen 不动点。
+- [x] 3.1 删 `SourceDiscovery.Discover` 三参 shim（种子 `Main.z42` 已调 `DiscoverWithExclude`、不再引用它）。
+- [x] 3.2 验证：**cold-seed 自建**——用阶段2 nightly SDK（`main @ a680cbd`，其 driver 只含
+      `DiscoverWithExclude$5`、无 `Discover$3` 调用）作 in-tree 种子，`build compiler`（触发
+      `_ensureBootstrapSelfDepLibs` 预建当前源 z42.project、种子 z42c 对其自建）+ `build stdlib`
+      （25/25）均 EXIT=0、无 `undefined function Discover$3`；新建 z42.project.zpkg 只含
+      `DiscoverWithExclude$5`。全量 GREEN（含 stage 5 self-host 不动点 gen1==gen2）+ `test bootstrap`
+      边界通过。
 
 ## 阶段 4（可选，独立后续）= z42b 发布路径也排除 hooks
 

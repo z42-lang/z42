@@ -9,18 +9,11 @@ using Std;
 using Std.IO;
 
 public static class SourceDiscovery {
-    // 原三参 API：无 `[sources] exclude`。委托到 `DiscoverWithExclude`（空 exclude）。
-    // ⚠️ **删除是阶段3，不是阶段2**：`SourceDiscovery.Discover` 是 z42c 的**运行期自依赖**
-    // （编译器自建时其 Main.z42 调本方法发现源）。阶段2 的种子（阶段1 nightly）其编译进二进制的
-    // Main.z42 仍调 3 参 `Discover`；自建时 `_ensureBootstrapSelfDepLibs` 先把**当前源** z42.project
-    // 预建进 flat-libs，种子 z42c 随后对着它跑——若此刻删了 `Discover`，种子 z42c 立即
-    // `undefined function Discover$3`，断自举。故阶段2 只切调用点、**保留本 shim**；等阶段2 nightly
-    // 发布（其种子 Main.z42 已改调 `DiscoverWithExclude`、不再引用 `Discover`）后，阶段3 才删本 shim。
-    public static string[] Discover(string projectDir, string[] includes, int includeCount) {
-        string[] noExc = new string[0];
-        return SourceDiscovery.DiscoverWithExclude(projectDir, includes, includeCount, noExc, 0);
-    }
-
+    // fix-hooks-source-scan 阶段3：原三参 `Discover(pd, inc, incCount)` shim 已删除——所有调用点
+    // （z42c `Main.z42` / `Z42cCompiler`）自阶段2 起改调 `DiscoverWithExclude`，且阶段2 nightly
+    // （其种子 `Main.z42` 已调 `DiscoverWithExclude`、不再引用 `Discover`）已发布，故 z42c 运行期
+    // 自依赖不再需要三参 shim（bootstrap-seed 轴④，比源引用的 API 晚一个 nightly）。
+    //
     // fix-hooks-source-scan：应用 `[sources] exclude` glob（此前 `Sources.Exclude` 解析了却从不
     // 生效）+ 调用方并入的 hooks 目录（`[build] hooks` → 自动排除）。excludes 为相对
     // projectDir 的 glob（`hooks/**` / `src/gen/**` / `**/*.z42` / 精确路径）。
