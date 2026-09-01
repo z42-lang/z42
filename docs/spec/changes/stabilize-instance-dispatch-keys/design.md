@@ -23,27 +23,42 @@
   **裸 `Class.method`** 与 **`Class.method$arity`** 两种（`exec_vcall.rs:174-179 / 229-234 / 327-334`）。
   **从不试全类型-mangle 候选** → 注册成 `Std.Int32.op_Add$2$i32$i32` 的原始类型方法**直接不可达**。
 
-## 设计：解耦为「全签名 overload 键」+「裸规范槽」（additive，不 rekey）
+## 设计（精炼版 2026-09-02）：primary 保基线键 / 非-primary 取全键 —— additive、最小辐射
 
-借鉴 .NET（methoddef token 做 overload 标识；vtable slot 做多态派发；二者独立）。z42 用字符串表近似：
+> 借鉴 .NET（methoddef 做 overload 标识、vtable slot 做多态派发，二者独立）。但**关键洞察**：rekey 破坏
+> 只发生在 **unique→overloaded 的跃迁**。故不必把每个方法都全 mangle（那正是上次回退把**唯一**的
+> CompareTo/GetEnumerator/接口方法也 rekey → 5 子系统全炸的原因）。只需让**跃迁时既有那个不动**。
 
 ```
-每个方法登记两个标识：
-  ① overloadKey(m) = MangleKey(m.name, genericArity, paramTypes)   —— 全签名纯函数、稳定、区分重载
-  ② slotName(m)    = m.name（裸）                                    —— 仅「规范槽」方法额外登记此别名
-
-规范槽 = 每个 (owner, name) 里承担多态/协议派发的那一个方法：
-  · 虚方法链的 virtual origin（首次声明 virtual/abstract 的那层）
-  · 接口方法 / 协议方法（INumber.op_*、IComparable.CompareTo、IEnumerable.GetEnumerator …）
-  · 协议豁免名（ToString/Equals/GetHashCode/GetType/get_Item/set_Item）
-  · 非虚且无同名兄弟时：该唯一方法自身（= 今天的裸键，保持不变）
+每个 (owner, name) 的重载集里：
+  primary（声明序第一个）  → key = 「若它无同名兄弟时的基线键」（唯一方法 = 裸名；即今天的裸键）
+                              —— primary 的裸名 = 多态/协议「规范槽」+ 旧调用方（seed）锚点
+  非-primary（后续兄弟）    → key = MangleKey(全签名)  —— 新增/去除只动自己，不碰 primary
 ```
 
-**关键性质：additive（增量、不 rekey）。** 一个原本唯一的方法 `IndexOf(string)` 今天登记裸 `IndexOf`；
-本方案下它登记**全键 `IndexOf$1$string` + 裸规范槽别名 `IndexOf`**。新增 `IndexOf(char)` 只**新增**全键
-`IndexOf$1$char`（非规范槽、无裸别名）。→ **现有方法的裸规范槽 `IndexOf` 原样保留** → 上一 nightly seed
-的裸 `IndexOf` 调用仍命中 → **零 rekey、零 bootstrap 破坏**。这正是 String 补齐要的解锁；也把 E0436/
-E0433/first-wins 别名那一整类补丁的根因（键随兄弟集漂移）一次性消除。
+**关键性质：additive（对既有唯一方法零字节漂移）。**
+
+- 一个原本唯一的 `IndexOf(string)` 保持裸 `IndexOf`（primary，= 今天）。新增 `IndexOf(char)` 只**新增**
+  非-primary 全键 `IndexOf$1$char` → **primary 的裸 `IndexOf` 原样不动** → seed 的裸调用仍命中 → 零 rekey。
+- **所有唯一方法**（含接口/泛型虚/协议 op_*·CompareTo/foreach 的 GetEnumerator·MoveNext·Current/委托目标——
+  它们几乎都是唯一方法）**保持裸键、逐字节不变** → 上次挂的 **5 子系统天然不受影响**（不再是「先全 rekey 再
+  逐个救」，而是「本就不动」）。
+- 只有**真正的同名多重载**（少见，且多为非多态，如 `Substring` 系 arity 重载）的**非-primary 成员**取全键
+  ——这是一次性迁移（格式 bump + 两代自举），此后加/删重载永久 additive。
+- 这正是 String 补齐要的解锁；也把 E0436/E0433/first-wins 别名那类「键随兄弟集漂移」的补丁根因一次消除。
+
+> **与上次「全 mangle」的本质差别**：上次 = 每个方法（含唯一多态方法）都 rekey → 5 子系统全断、冷 CI 打
+> 地鼠。本方案 = 唯一方法（= 绝大多数多态方法）**不动**，只有非-primary 重载取全键 → 辐射面收敛到「非
+> primary 重载的可达性」（prim 路径探全键 H1 + 非-primary 虚重载 vtable 槽 H4），是有界、可枚举的。
+
+### primary 选取的确定性
+primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载序，本就确定）。规则要求：**新增重载一律
+追加在既有之后**（不得插到 primary 前）——否则 primary 易主 → 既有 primary rekey。此纪律写入 spec 场景
++ 由「本变更不改 z42c 源既有重载声明序」保证；stdlib 加重载（如 String 补齐）也追加式写。
+
+### 旧「全签名 overload 键 + 裸规范槽别名」表述（保留追溯，已被上「primary/非-primary」精炼取代）
+早先设想每个方法都登记全键 + 规范槽裸别名。精炼后：**primary 不必登记全键**（它就用裸键；全键是
+非-primary 专属），省掉「每方法双登记」的字节膨胀与 primary 调用点 emit 漂移。规范槽 = primary 裸名。
 
 ### D1 调用点 emit：resolved 走全键，多态走裸槽
 
