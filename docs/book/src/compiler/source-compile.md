@@ -146,3 +146,20 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 ## Deferred
 
 - 统一的 AST 脱糖阶段：目前少量 AST 改写分散在各处，尚未提取为独立 pass。索引见 `docs/roadmap.md` Deferred Backlog。
+
+- **协议豁免方法无法承载「行为发散」的重载**（`protocol-overload-first-class`）：对象协议方法
+  （`ToString` / `Equals` / `GetHashCode` / `GetType` / `get_Item` / `set_Item`，见
+  `SymbolCollector.IsProtocolExempt`）恒以**裸名**注册——VM / DepIndex 按裸字面名走 vtable **单槽**多态
+  派发（装箱相等、字典哈希、字符串插值、反射、索引器语法都靠它），故这些名不许 mangle。于是同名多重载
+  （如 `Equals(object?)` + `Equals(string)`）的 RegKey 全部塌缩为裸键 `"Equals"`，`ct.Methods.Put` 后写覆盖
+  前 → `OverloadsOf` 只剩一个 → 调用点重载解析看不到另一个。
+  - **后果**：无法让协议方法的两个重载承载**不同**行为；仅当两者语义等价（如 `Std.String` 两 `Equals`
+    同指 `__str_equals` native，塌缩隐形）时可用。非协议 type-based 重载不受影响（各得唯一 mangle 键）。
+  - **正解（C# 模型）**：解耦「运行时规范协议槽」（一个裸名槽，如 `Equals(object?)`）与「供调用点解析的
+    完整重载集」——全部重载按签名存表、标记其一为协议规范槽供 VM/DepIndex 裸名查、调用点按静态实参类型
+    解析、运行时多态走规范槽。属 VM + 编译器（可能连带 vtable 布局 / DepIndex / zbc·zpkg 格式）工程，非局部改动。
+  - **触发条件**：出现真实需要「行为发散的协议重载」的用例（罕见——对象协议契约本就要求
+    `Equals(object)` 与 `Equals(T)` **一致**，此限制大体与契约同向）。
+  - **暴露于** `fix-partial-protocol-overload-e0433`（2026-09-01，partial `Std.String` 拆分把该塌缩显式化：
+    partial 的跨碎片重复成员检测原按 RegKey 判重，误把协议重载报成 E0433；已改为按完整签名判重，但底层
+    单槽塌缩仍在）。索引见 `docs/roadmap.md` Deferred Backlog。
