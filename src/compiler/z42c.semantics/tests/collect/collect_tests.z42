@@ -210,6 +210,26 @@ void test_partial_duplicate_member_reports_E0433() {
     Assert.Equal(true, hasCode(d, "E0433"));
 }
 
+// fix-partial-protocol-overload-e0433：协议豁免方法（Equals/ToString/… 恒裸键）的合法重载
+// 跨碎片共享 RegKey，但签名不同 → 不得误报 E0433（此前按 regName 判重会误报）。镜像 partial String
+// 的 Equals(object?)/Equals(string)。两个重载都应登记（type-based 决议按签名区分）。
+[Test]
+void test_partial_protocol_overload_allowed() {
+    var d = pmergeDiags(
+        "partial class Foo { public bool Equals(object? o) { return false; } }",
+        "partial class Foo { public bool Equals(string s) { return true; } }");
+    Assert.Equal(false, hasCode(d, "E0433"));
+}
+
+// 真方法重复（同名同完整签名）跨碎片 → 仍报 E0433（fix 只放行签名不同的合法重载）。
+[Test]
+void test_partial_duplicate_method_same_sig_reports_E0433() {
+    var d = pmergeDiags(
+        "partial class Foo { public int M(int n) { return n; } }",
+        "partial class Foo { public int M(int n) { return n + 1; } }");
+    Assert.Equal(true, hasCode(d, "E0433"));
+}
+
 [Test]
 void test_partial_interfaces_union() {
     var t = pmergeTable(

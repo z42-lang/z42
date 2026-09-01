@@ -1,0 +1,48 @@
+// fix-partial-protocol-overload-e0433：partial 类跨碎片声明【协议豁免方法】(Equals) 的合法重载
+// —— `Equals(object?)` 与 `Equals(string)` 恒裸键 "Equals" 但签名不同。修复前 MemberCollector
+// 按 regName 判重把二者误报为跨碎片重复成员 (E0433)；修复后按【完整签名】判重，合法重载放行。
+// 这是 stdlib 把 prelude `Std.String` 拆成 partial（Equals(object?)/Equals(string) + char-based
+// IndexOf/Split 重载）的前置能力，本测试用等价的用户 partial 类端到端复核。
+//
+// 断言分两类：
+//   (1) 协议豁免重载 Equals(object?)/Equals(string) 跨碎片【共存 + 编译通过 + 运行不崩】——即 E0433
+//       修复目标。协议方法走 vtable 裸名派发，塌缩语义与非-partial 一致，故不在此断言具体分支。
+//   (2) 非协议 type-based 重载 Find(string)/Find(char) 按【实参类型】派发（full-mangle 键，与 String
+//       的 IndexOf(char)/IndexOf(string) 同机制）。⚠️ 二者必须【同碎片】——partial v1 的重载 mangle
+//       预扫描（arityDup/ovldInst）是每-fragment 的，分处不同碎片会各自当唯一裸键、后者覆盖前者
+//       （partial-types.md「边界与限制」已载）。这也约束 String 补齐：每组 type-based 重载放同一碎片。
+namespace PartialTest;
+
+partial class Tag {
+    public string name;
+    public Tag(string n) { this.name = n; }
+
+    // 协议豁免重载（碎片 1 侧）：typed Equals —— 与碎片 2 的 Equals(object?) 跨碎片共存。
+    public bool Equals(string s) { return this.name == s; }
+
+    // 非协议 type-based 重载对：Find(string) / Find(char) —— 【同碎片】，才能正确 mangle 按类型派发。
+    public int Find(string s) { return 100; }
+    public int Find(char c) { return 7; }
+}
+
+partial class Tag {
+    // 协议豁免重载（碎片 2 侧）：object? 版 override —— 跨碎片，触发修复前的假 E0433。
+    public bool Equals(object? o) { return false; }
+
+    // 普通跨碎片成员：验证协议重载修复不影响常规 partial 合并。
+    public string Label() { return "tag:" + this.name; }
+}
+
+void Main() {
+    var t = new Tag("hi");
+    Assert.Equal("hi", t.name);
+    Assert.Equal("tag:hi", t.Label());        // 常规跨碎片方法
+
+    // (1) 协议豁免重载共存 + 可调用（E0433 修复目标：不再误报重复，codegen/runtime 接受合并类型）。
+    bool eq = t.Equals("hi");
+    Assert.Equal(eq, eq);
+
+    // (2) 同碎片 type-based 重载按实参类型派发。
+    Assert.Equal(100, t.Find("x"));   // Find(string)
+    Assert.Equal(7, t.Find('z'));     // Find(char)
+}
