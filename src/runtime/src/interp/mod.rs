@@ -679,11 +679,16 @@ fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usi
     let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
     // SAFETY: jit_ctx is valid for the whole JitModule::run_fn (set/cleared in
     // lockstep with vm_ctx). Only touched through &-methods / Copy field reads.
-    let threshold = unsafe { (*jit_ctx).osr_threshold };
+    // parallel-worker-jit (2026-09-01): take an EXPLICIT reference first —
+    // `osr_threshold` / `module` now live in `JitShared` behind `JitModuleCtx`'s
+    // `Deref`, so reading them off the raw `*jit_ctx` directly would trip
+    // `dangerous_implicit_autorefs` (implicit autoref of a raw-pointer deref).
+    let jc = unsafe { &*jit_ctx };
+    let threshold = jc.osr_threshold;
     if frame.back_edge_count != threshold { return None; }   // fire exactly once
     // v1: OSR only merged functions — resolve this function's merged id by name.
-    let id = unsafe { (*(*jit_ctx).module).func_index.get(&func.name).copied() }?;
-    let entry = unsafe { (*jit_ctx).resolve_osr_entry(id, loop_header) }?; // owned FnEntry
+    let id = unsafe { (*jc.module).func_index.get(&func.name).copied() }?;
+    let entry = unsafe { jc.resolve_osr_entry(id, loop_header) }?; // owned FnEntry
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut osr = crate::jit::frame::JitFrame::from_interp_regs(&frame.regs, entry.max_reg);
     // add-struct-jit-value-path (P5): OSR continues the SAME logical activation, so
