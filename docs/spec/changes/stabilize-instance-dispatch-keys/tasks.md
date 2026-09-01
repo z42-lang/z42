@@ -10,9 +10,10 @@
 
 ## 阶段 1：编译器 —— 全键 + 裸规范槽（support，不改 z42c 源调用点）
 键生成与登记：
-- [ ] `src/compiler/z42c.semantics/src/OverloadResolver.z42` `MangleKey`/`_compositeKeyName`/`TypeKey`：
-  - [ ] 编方法**泛型 arity**（`$$<n>`，0 省略）+ **归一 type-param 名**（`T`/`U`→`T0,T1`）（H3）
-  - [ ] composite 构造子用 `Fqn()` 而非短名（H5）；保留裸内建 Canon vs composite keyword 拼写非对称
+- [ ] `src/compiler/z42c.semantics/src/OverloadResolver.z42` `MangleKey`/`TypeKey`：本变更**不改键格式**
+  （H3 泛型 arity 编码 + H5 composite FQN 均 grep 证实当前无碰撞 → **降为守卫/Deferred**，避免为不存在的
+  碰撞制造字节漂移）。MangleKey 保持现状（`name$arity$types`，composite 短名 + keyword 非对称）。
+  - [ ] **守卫**：`MemberCollector` 加碰撞诊断——「同类同名同值-arity 的泛型+非泛型」→ 报 E-，不静默覆盖（H3 guard）
 - [ ] `src/compiler/z42c.semantics/src/MemberCollector.z42` `_fillClass`：
   - [ ] 实例方法**恒登记全键**（去掉兄弟集三档决策对「注册键」的影响）
   - [ ] 计算并标记每 (owner,name) 的**规范槽方法**（virtual origin / 接口·协议 / 协议豁免 / 唯一非虚）

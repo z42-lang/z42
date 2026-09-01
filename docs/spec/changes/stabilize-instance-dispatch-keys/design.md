@@ -92,13 +92,17 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 ### D4 泛型专项（H2/H3/H5/H6）
 
-- **generic arity 进键（H3）**：`MangleKey` 增编方法泛型元数 + **归一 type-param 名**（源 `T`/`U` → 规范
-  `T0,T1…`，消除 alpha-rename 敏感 + `Bar<T>()` 与 `Bar()` 塌成 `Bar$0` 的碰撞）。`MemberCollector` 的
-  arity-dup 预扫描同步按扩展签名。
-- **composite 用 FQN（H5）**：`_compositeKeyName`（`OverloadResolver.z42:55-77`）的泛型构造子从短名
-  `List` 改 `Fqn()`（`Std.Collections.List`），闭合与 `fix-type-ref-ns-collision` 同类的短名跨-ns 碰撞；
-  import 侧（`ImportedSymbolLoader`/`ExportedTypeExtractor`/`DependencyIndex`）产出**逐字节一致**的
-  composite 键。⚠️ 保留既有「裸内建 `int`→`i32` vs composite 内叶子 keyword 拼写」的非对称（否则跨包漂）。
+- **generic arity 进键（H3）—— 降为前向守卫，不在核心**（2026-09-02 grep 证实）：全库**无**「同名 + 同
+  值-arity 的泛型/非泛型（或泛型/泛型）并存」——现有泛型方法（Array.Sort/IndexOf/Copy/Fill/Reverse<T>、
+  CreateInstance<T>()、Deserialize<T>(string) 等）要么同名独占、要么与非泛型**值-arity 不同**（如
+  `CreateInstance<T>()` arity-0 vs `CreateInstance(Type)` arity-1），现有 `Name$arity` 方案已区分开。故
+  **不给泛型方法键加 `$$` 编码**（避免为不存在的碰撞让所有泛型方法键漂移）。**守卫**：`MemberCollector`
+  加一条诊断——检测到「同类同名同值-arity 的泛型+非泛型」→ 报 E-（暂不支持）而非静默覆盖。真出现时再落
+  `$$` 编码 + D4a 的 tie-break（届时单独 change）。归一 type-param 名同理留守卫层。
+- **composite 用 FQN（H5）—— 同降为前向守卫**：改 `_compositeKeyName` 用 FQN 会让**每个**带泛型实例化
+  形参（`List<int>`/`Func<…>`/`T[]`）的键漂移（大量字节漂移），而现有代码未见短名跨-ns 的 composite 键真
+  碰撞。故本变更**不改** composite 拼写（保持短名 + 既有 keyword 非对称，零漂移）；留作 Deferred 守卫，真
+  碰撞出现再限定 FQN。
 - **键取自声明签名、不取替换后（H2/H6）**：overload 键用**声明层**签名（类型参数原样，不代入实参）；
   多态槽用裸名（更彻底地 erase 类型）。→ 键不依赖 `_substGeneric` 的 seed-vintage 行为
   （`MemberResolver.z42:305-311` 的 Unknown/unchanged 回落），消除 H6 的跨种子非确定性。
@@ -140,9 +144,12 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 **实现落点**：`OverloadResolver`：`Resolve`/`_betterThan` 加 tie-break③④（读 `Decl.TypeParams.Count`）+ 泛型
 候选代入后判 `_applicable`；`MemberResolver`：显式-arity 门 + 推断门接入候选集（复用 `_applyMethodTypeArgs`）。
-**边角性**：`Bar()`+`Bar<T>()` 同值-arity 共存是否真出现于代码库，开工前 grep 证实——不出现则键层 `$$` 编码
-可先作**守卫**（防未来），决议优先级规则仍按上定义（对 `Foo(int)`+`Foo<T>(T)` 这类**更常见**的泛型/非泛型
-并存有用，属 C#-parity）。
+**边角性（2026-09-02 grep 已证实）**：全库**无**「同名 + 同值-arity 的泛型/非泛型并存」，也无「同名 + 同
+值-arity 的泛型/泛型」。现有泛型/非泛型同名者**值-arity 恒不同**（`CreateInstance<T>()`0 vs `(Type)`1、
+`Deserialize<T>(string)`1 vs `(Type,string)`2），既有 `Name$arity` 已区分。故 **D4a 的 tie-break①②（非泛型≻
+泛型、更具体形参）在现有代码里不被触发** → 本变更**不实现 D4a**，仅在 `MemberCollector` 加**碰撞诊断守卫**
+（检测到同类同名同值-arity 的泛型+非泛型 → 报 E-，不静默覆盖）。真出现该组合时，再单独 change 落 `$$` 编码
++ D4a tie-break（本节设计即其蓝图，届时直接照做）。**决议优先级设计保留在案（D4a），但实现 Deferred。**
 
 ### D5 协议名单统一
 
