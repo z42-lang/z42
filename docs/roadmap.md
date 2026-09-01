@@ -357,6 +357,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 特性 | 描述 | 在哪里 |
 |------|------|------|
 | L3-G3a 关联类型 | `where T: IAdd<Output=T>` + zbc 扩展 + 运行时校验 | [language/generics.md](design/language/generics.md) |
+| 协议方法一等重载（protocol-overload-first-class）| 对象协议方法（`Equals`/`ToString`/`GetHashCode`/`GetType`/索引器）恒裸名注册（VM/DepIndex 裸名 vtable 单槽派发）→ 同名重载 RegKey 塌缩、只一个可派发，无法承载「行为发散」的协议重载（`Std.String` 两 `Equals` 同 native 故可用）。正解=C# 模型：解耦运行时规范协议槽 vs 调用点完整重载集（VM+编译器工程，可能连带 vtable/DepIndex/格式）。触发：出现真实发散用例（罕见，契约本要求 Equals(object)/Equals(T) 一致）。暴露于 fix-partial-protocol-overload-e0433 | [book: source-compile.md](book/src/compiler/source-compile.md) Deferred 段 |
 | TLAB slot 级复用（gc-tlab-slot-reuse）| chunk 独占 TLAB 绕过 region slot 级 free_list；partial-live chunk 的零散死槽暂不被 TLAB 复用（chunk 级回收已做）。触发：live set 稳定但堆随 GC 轮次单调涨 → per-thread free-slot cache | [book: GC TLAB](book/src/runtime/gc-tlab-chunk-exclusive.md) Deferred 段 |
 | 编译器重阶段并行化（compiler-parallel-heavy-phases）| 真正并行加速前置：把 parse/typecheck/codegen 做成 per-file 并行（当前仅 source-read+SHA 并行 → Amdahl 受限）。TLAB 已铺零锁地基；此为编译器侧 change | [book: GC TLAB](book/src/runtime/gc-tlab-chunk-exclusive.md) 性能门段 |
 | json-serde 集合类型（json-serde-future-collections）| ~~`List<T>` + `Dictionary<string,V>`~~ ✅ add-collection-serde（反射-only + 2 小 runtime 反射修复）。剩：`Dictionary<K,V>` 非字符串键（→ array-of-pairs）、`Set`/`Queue`/`Stack` | [changes/add-collection-serde/design.md](spec/changes/add-collection-serde/design.md) Deferred 段 |
