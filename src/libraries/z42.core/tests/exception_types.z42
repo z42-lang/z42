@@ -1,0 +1,208 @@
+// core-lib-test-completeness (session 3, 2026-09-01): dogfood coverage for the
+// concrete leaf exception types that previously had NO individual test. The
+// earlier exception_hierarchy.z42 exercised only the Argument* / Aggregate /
+// Exception spine; this file constructs every remaining leaf (KeyNotFound,
+// IndexOutOfRange, Overflow, Format, NotSupported, NotImplemented,
+// InvalidOperation, NullReference, OutOfMemory, DivideByZero, InvalidMarshal),
+// asserts each one's Message + "<TypeName>: <msg>" ToString override, verifies
+// catch-as-base + `is`-narrowing dispatch for a representative subset, and
+// fully covers MulticastException — the one non-trivial leaf: a THREE-level
+// hierarchy (MulticastException : AggregateException : Exception) with its own
+// Failures / FailureIndices / TotalHandlers fields, SuccessCount(), and a
+// custom ToString.
+namespace Z42CoreExceptionTypesTests;
+
+using Std;
+using Std.Test;
+
+// ---- leaf construction + ToString (every previously-untested leaf type) ----
+
+[Test]
+void test_leaf_construction_message_and_tostring() {
+    // Each leaf overrides ToString as "<TypeName>: <Message>" and stores Message.
+    var knf = new KeyNotFoundException("no such key");
+    Assert.Equal("no such key", knf.Message);
+    Assert.Equal("KeyNotFoundException: no such key", knf.ToString());
+
+    var ioor = new IndexOutOfRangeException("index 7");
+    Assert.Equal("index 7", ioor.Message);
+    Assert.Equal("IndexOutOfRangeException: index 7", ioor.ToString());
+
+    var ovf = new OverflowException("too big");
+    Assert.Equal("OverflowException: too big", ovf.ToString());
+
+    var fmt = new FormatException("bad number");
+    Assert.Equal("FormatException: bad number", fmt.ToString());
+
+    var ns = new NotSupportedException("read-only");
+    Assert.Equal("NotSupportedException: read-only", ns.ToString());
+
+    var ni = new NotImplementedException("todo");
+    Assert.Equal("NotImplementedException: todo", ni.ToString());
+
+    var inv = new InvalidOperationException("empty queue");
+    Assert.Equal("InvalidOperationException: empty queue", inv.ToString());
+
+    var nre = new NullReferenceException("deref null");
+    Assert.Equal("NullReferenceException: deref null", nre.ToString());
+
+    var oom = new OutOfMemoryException("heap full");
+    Assert.Equal("OutOfMemoryException: heap full", oom.ToString());
+
+    var dbz = new DivideByZeroException("div 0");
+    Assert.Equal("DivideByZeroException: div 0", dbz.ToString());
+
+    var marsh = new InvalidMarshalException("interior NUL");
+    Assert.Equal("InvalidMarshalException: interior NUL", marsh.ToString());
+}
+
+[Test]
+void test_leaf_inner_exception_defaults_null() {
+    // Single-arg leaf ctors delegate to base(message); InnerException stays null.
+    var ovf = new OverflowException("x");
+    Assert.Null(ovf.InnerException);
+    var fmt = new FormatException("y");
+    Assert.Null(fmt.InnerException);
+}
+
+// ---- catch-as-base + `is`-narrowing for representative leaf types ----
+
+[Test]
+void test_key_not_found_caught_as_base_and_narrowed() {
+    bool caught = false;
+    bool narrowed = false;
+    string msg = "";
+    try {
+        throw new KeyNotFoundException("missing 'k'");
+    } catch (Exception e) {
+        caught = true;
+        if (e is KeyNotFoundException k) { narrowed = true; msg = k.Message; }
+    }
+    Assert.True(caught);
+    Assert.True(narrowed);
+    Assert.Equal("missing 'k'", msg);
+}
+
+[Test]
+void test_index_out_of_range_caught_as_base() {
+    bool narrowed = false;
+    try {
+        throw new IndexOutOfRangeException("42");
+    } catch (Exception e) {
+        if (e is IndexOutOfRangeException i) { narrowed = true; }
+    }
+    Assert.True(narrowed);
+}
+
+[Test]
+void test_overflow_caught_as_base() {
+    bool narrowed = false;
+    try {
+        throw new OverflowException("i32 range");
+    } catch (Exception e) {
+        if (e is OverflowException o) { narrowed = true; }
+    }
+    Assert.True(narrowed);
+}
+
+[Test]
+void test_not_supported_caught_as_base() {
+    bool narrowed = false;
+    try {
+        throw new NotSupportedException("no Add");
+    } catch (Exception e) {
+        if (e is NotSupportedException n) { narrowed = true; }
+    }
+    Assert.True(narrowed);
+}
+
+[Test]
+void test_distinct_leaf_types_do_not_cross_narrow() {
+    // Thrown FormatException must NOT narrow to an unrelated leaf type.
+    bool wrongType = false;
+    bool rightType = false;
+    try {
+        throw new FormatException("z");
+    } catch (Exception e) {
+        if (e is OverflowException o) { wrongType = true; }
+        if (e is FormatException f) { rightType = true; }
+    }
+    Assert.False(wrongType);
+    Assert.True(rightType);
+}
+
+// ---- MulticastException : AggregateException : Exception (3-level) ----
+
+[Test]
+void test_multicast_fields_and_success_count() {
+    Exception[] failures = new Exception[]{
+        new FormatException("h0 bad"),
+        new OverflowException("h2 bad"),
+    };
+    int[] indices = new int[]{ 0, 2 };
+    var mc = new MulticastException(failures, indices, 5);
+
+    Assert.Equal(2, mc.Failures.Length);
+    Assert.Equal("h0 bad", mc.Failures[0].Message);
+    Assert.Equal("h2 bad", mc.Failures[1].Message);
+    Assert.Equal(2, mc.FailureIndices.Length);
+    Assert.Equal(0, mc.FailureIndices[0]);
+    Assert.Equal(2, mc.FailureIndices[1]);
+    Assert.Equal(5, mc.TotalHandlers);
+    // SuccessCount() = TotalHandlers - Failures.Length = 5 - 2 = 3
+    Assert.Equal(3, mc.SuccessCount());
+}
+
+[Test]
+void test_multicast_custom_tostring() {
+    Exception[] failures = new Exception[]{ new Exception("a"), new Exception("b"), new Exception("c") };
+    int[] indices = new int[]{ 1, 3, 4 };
+    var mc = new MulticastException(failures, indices, 6);
+    // "MulticastException: <failed> of <total> handlers failed"
+    Assert.Equal("MulticastException: 3 of 6 handlers failed", mc.ToString());
+}
+
+[Test]
+void test_multicast_inherits_aggregate_inner_exceptions() {
+    // The base AggregateException ctor is base("multicast invoke aggregate", failures),
+    // so InnerExceptions mirrors Failures and Message is the fixed aggregate label.
+    Exception[] failures = new Exception[]{ new FormatException("x") };
+    int[] indices = new int[]{ 0 };
+    var mc = new MulticastException(failures, indices, 1);
+    Assert.Equal("multicast invoke aggregate", mc.Message);
+    Assert.Equal(1, mc.InnerExceptions.Length);
+    Assert.Equal("x", mc.InnerExceptions[0].Message);
+    Assert.Equal(0, mc.SuccessCount());
+}
+
+[Test]
+void test_multicast_caught_as_aggregate_and_as_root() {
+    // MulticastException is catchable at both intermediate (AggregateException)
+    // and root (Exception) levels, and narrows back to the concrete type.
+    bool asAggregate = false;
+    int inners = 0;
+    try {
+        Exception[] failures = new Exception[]{ new Exception("f0"), new Exception("f1") };
+        int[] indices = new int[]{ 0, 1 };
+        throw new MulticastException(failures, indices, 2);
+    } catch (AggregateException a) {
+        asAggregate = true;
+        inners = a.InnerExceptions.Length;
+        Assert.True(a is MulticastException);
+    }
+    Assert.True(asAggregate);
+    Assert.Equal(2, inners);
+
+    bool asRoot = false;
+    int successes = -1;
+    try {
+        Exception[] failures = new Exception[]{ new Exception("only") };
+        int[] indices = new int[]{ 3 };
+        throw new MulticastException(failures, indices, 4);
+    } catch (Exception e) {
+        asRoot = true;
+        if (e is MulticastException m) { successes = m.SuccessCount(); }
+    }
+    Assert.True(asRoot);
+    Assert.Equal(3, successes);   // 4 total - 1 failure
+}
