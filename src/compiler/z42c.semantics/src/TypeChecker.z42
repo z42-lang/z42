@@ -73,14 +73,22 @@ public sealed class TypeChecker {
         // add-struct-object-boxing (PR2a)：值 struct（Blob）擦除到 object/接口/泛型形参 → 装箱（否则裸拷帧
         // 作用域 StructRef 句柄逃逸创建帧 → use-after-free）。真装箱（blob struct）由 codegen `_emitBox`
         // 按 `IsBlobStruct` 决定——非 blob（单字段等）struct 的 BoundBox 在 codegen 退化为透传。
-        if (vt is Z42ClassType) {
-            Z42ClassType sct = vt as Z42ClassType;
-            if (sct.IsStruct) {
-                // add-struct-generic-boxing (P3a)：泛型 type-param 目标（K/V/T）也是擦除边界。
-                bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name())
-                               || (target is Z42GenericParamType);
-                if (erasesS) { return new BoundBox(value, sct.Name(), target, value.Span); }
-            }
+        //
+        // fix-generic-struct-erasure-boxing：值类型可能是**泛型实例化 struct**（`GRec<int,int>` /
+        // `ValueTuple2<int,int>`），其静态类型是 `Z42InstantiatedType` 而非 `Z42ClassType` → 须 unwrap
+        // 到 `.Def` 再判 IsStruct，否则漏装箱：裸 StructRef 传给擦除形参（如合成 `Equals(object)`）→ runtime
+        // is_instance 无 StructRef 臂 → 值相等直接返 false。装箱名用擦除基名 `.Def.Name()`（与 synth
+        // `<FQ>.Equals$1` 注册名 + runtime type_desc 一致，erased 无实参）。
+        Z42ClassType sct = null;
+        if (vt is Z42ClassType) { sct = vt as Z42ClassType; }
+        else if ((vt is Z42InstantiatedType) && ((vt as Z42InstantiatedType).Def is Z42ClassType)) {
+            sct = (vt as Z42InstantiatedType).Def as Z42ClassType;
+        }
+        if (sct != null && sct.IsStruct) {
+            // add-struct-generic-boxing (P3a)：泛型 type-param 目标（K/V/T）也是擦除边界。
+            bool erasesS = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name())
+                           || (target is Z42GenericParamType);
+            if (erasesS) { return new BoundBox(value, sct.Name(), target, value.Span); }
         }
         return value;
     }

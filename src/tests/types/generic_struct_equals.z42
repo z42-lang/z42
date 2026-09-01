@@ -1,0 +1,48 @@
+// fix-generic-struct-erasure-boxing: 泛型（实例化）值 struct 在擦除边界（→object，如合成
+// Equals(object)）须装箱。此前 BoxIfNeeded 只认 Z42ClassType，漏 Z42InstantiatedType → 裸 StructRef
+// 传给 Equals → runtime is_instance 失败 → 值相等误返 false。非泛型 record struct 作对照基线。
+namespace Test;
+
+[Record] struct GRec<T1, T2> { public T1 A; public T2 B; }
+[Record] struct NRec { public int A; public int B; }
+
+void Main() {
+    // 对照基线：非泛型 record struct 值相等（此前已正确）
+    NRec n1 = new NRec(); n1.A = 1; n1.B = 2;
+    NRec n2 = new NRec(); n2.A = 1; n2.B = 2;
+    NRec n3 = new NRec(); n3.A = 9; n3.B = 9;
+    Assert.Equal(true, n1.Equals(n2));
+    Assert.Equal(false, n1.Equals(n3));
+
+    // 修复目标：用户泛型 record struct（值元素）值相等/不等
+    GRec<int, int> g1 = new GRec<int, int>(); g1.A = 1; g1.B = 2;
+    GRec<int, int> g2 = new GRec<int, int>(); g2.A = 1; g2.B = 2;
+    GRec<int, int> g3 = new GRec<int, int>(); g3.A = 9; g3.B = 9;
+    Assert.Equal(true, g1.Equals(g2));
+    Assert.Equal(false, g1.Equals(g3));
+    Assert.Equal(true, g1.GetHashCode() == g2.GetHashCode());
+
+    // 泛型 record struct 含引用元素（string）
+    GRec<int, string> s1 = new GRec<int, string>(); s1.A = 7; s1.B = "hi";
+    GRec<int, string> s2 = new GRec<int, string>(); s2.A = 7; s2.B = "hi";
+    GRec<int, string> s3 = new GRec<int, string>(); s3.A = 7; s3.B = "bye";
+    Assert.Equal(true, s1.Equals(s2));
+    Assert.Equal(false, s1.Equals(s3));
+
+    // ValueTuple（imported internal stdlib 泛型 record struct，surface 语法）：值相等/不等。
+    // 此前跨包歧义（synth Equals$1(object) vs 继承 Object.Equals(object) 同签名）→ 解析失败 → 松绑不装箱
+    // → 误返 false；method-hiding 修复后合成 Equals$1 隐藏 Object.Equals → 正确值相等。
+    var t1 = (1, 2);
+    var t2 = (1, 2);
+    var t3 = (1, 9);
+    Assert.Equal(true, t1.Equals(t2));
+    Assert.Equal(false, t1.Equals(t3));
+    Assert.Equal(true, t1.GetHashCode() == t2.GetHashCode());
+
+    // ValueTuple 含引用元素（string）
+    var u1 = (1, "x");
+    var u2 = (1, "x");
+    var u3 = (1, "y");
+    Assert.Equal(true, u1.Equals(u2));
+    Assert.Equal(false, u1.Equals(u3));
+}
