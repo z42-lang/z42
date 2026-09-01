@@ -21,8 +21,14 @@ namespace Z42.Build;
     string   Profile,         // debug / release
     bool     StripSymbols,    // 发行剥符号 → 旁挂 .zsym sidecar
     bool     Incremental,     // 增量编译（可缓存）
-    string   Kind);           // "exe" | "lib"（"" → 默认 exe）。lib 无需 Main()——
+    string   Kind,            // "exe" | "lib"（"" → 默认 exe）。lib 无需 Main()——
                               // 支持 compile-then-test 直接编测试工程（add-z42b-compile-then-test）
+    string[] Excludes,        // fix-hooks-source-scan 阶段4：源发现排除 glob（相对 SourceDir，
+    int      ExcludesCount);  // 如 `hooks/**` / `[sources] exclude`），传给 SourceDiscovery.
+                              // DiscoverWithExclude。**阶段4.1 additive**：字段先行、z42c 尚不读
+                              // （让 z42b/publish in-process 编译路径的产物也排除 hooks 死类）；
+                              // 待本字段随 nightly 发布后，阶段4.2 才让 Z42cCompiler 读它
+                              // （bootstrap-seed 轴②：z42c 源引用 stdlib API 须晚一个 nightly）。
 
 /// 编译结果。Zsym 为 "" 表示无 split-debug sidecar；Ok=false 时 Diagnostics 含错误文本。
 [Record] public class CompileResult(
