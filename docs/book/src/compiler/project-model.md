@@ -31,7 +31,22 @@ graph LR
 编译**（`ModuleLoader.Load` 加载 `ProjectHooks : Z42.Build.BuildHooks`）；若被 app 的 `**/*.z42` glob 一起
 扫进 app zpkg，会多一个**跨包死类**（base `BuildHooks` 非本包构建期依赖 → own-only + 跨包基类 → 运行期
 vtable fixup 触发假警报）。这条策略经 workspace 两条构建路径的共同委托点 `_build` 生效，覆盖单包 / workspace
-成员 / path 依赖。（z42b in-process `Z42cCompiler` 发布路径的同款排除见 fix-hooks-source-scan 阶段4。）
+成员 / path 依赖。
+
+**两条编译入口都排除 hooks（fix-hooks-source-scan 阶段4.2）**：上述有效 exclude 的组装在两处对称存在，
+使无论走哪条路径 hooks 源都不进 app zpkg：
+
+- **z42c.driver `Main._build`**（`z42c build <toml>` 直编，阶段2）：直接从 `pm.Sources` / `pm.Build` 组装。
+- **z42b in-process `Pipeline.Compile`**（`z42b build`/`run`/`export`，头相位经 `ICompiler` 在进程内调编译器库）：
+  从 `ctx.Manifest` 组装同样的有效 exclude，填入 `CompileRequest.Excludes`；`Z42cCompiler.Compile` 读
+  `req.Excludes` 传给 `DiscoverWithExclude`。字段先行 / 读取晚一 nightly（bootstrap-seed 轴②：z42c 源引用
+  stdlib 新字段须待其随 nightly 发布），故拆 4.1（`CompileRequest` 加 `Excludes` 字段）+ 4.2（组装并读取）两步。
+
+> ⚠️ **边界**：`Z42cCompiler` 对 app 源恒用 `**/*.z42` 从工程根递归发现，且 `_excluded` 只跳 `dist/`·`.cache/`
+> **不跳 `build/`**。故当 `[build] output_dir` 落在源树内（默认 `<src>/artifacts`）时，递归 glob 会捞到 z42b
+> 在 app 编译前 stage 到 `artifacts/.../build/hooks/` 的 hooks **副本**（其 rel 以 `artifacts/` 开头，不被
+> `hooks/**` 匹配），死类经副本重新混入。真实消费者（z42.repl / z42.builder / xtask）`output_dir` 均落源树外的
+> 共享 artifacts 树，不触发此路径；该 gap 属「递归 glob 捞构建产物」的既有问题，与 hooks 排除正交。
 
 #### `[dependencies]` 值形态：名字依赖 vs 本地 path 依赖
 

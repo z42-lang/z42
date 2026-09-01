@@ -20,10 +20,11 @@ public class Z42cCompiler : ICompiler {
     public CompileResult Compile(CompileRequest req) {
         // 1. 源发现（MVP 默认 glob；z42b scaffold 的标准布局覆盖）。
         string[] includes = new string[1]; includes[0] = "**/*.z42";
-        // fix-hooks-source-scan 阶段2：切 DiscoverWithExclude（空 exclude → 行为不变）。z42b 发布路径
-        // 的 hooks 目录排除待 CompileRequest 增 Excludes 字段后再接（新字段 → z42c 读取需晚一 nightly）。
-        string[] noExc = new string[0];
-        string[] srcs = SourceDiscovery.DiscoverWithExclude(req.SourceDir, includes, 1, noExc, 0);
+        // fix-hooks-source-scan 阶段4.2：应用 req.Excludes（z42b/publish 从 manifest 组装的 exclude
+        // glob——含 `[build] hooks` 目录），让 in-process 编译路径的产物也排除 hooks 死类
+        // （ProjectHooks : BuildHooks → 跨包 vtable fixup 假警报）。req 由 Pipeline.Compile 组装
+        // （阶段2 的 z42c.driver 直编路径同款，见 Main._build）。
+        string[] srcs = SourceDiscovery.DiscoverWithExclude(req.SourceDir, includes, 1, req.Excludes, req.ExcludesCount);
         if (srcs.Length == 0) {
             return new CompileResult("", "", false, "no .z42 sources under " + req.SourceDir);
         }

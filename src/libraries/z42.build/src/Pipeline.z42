@@ -1,5 +1,7 @@
 namespace Z42.Build;
 
+using Z42.Build.Project;
+
 /// 管线驱动 —— 定义整条「编译 → 发布」的**流程**。
 ///
 /// 固定八相位、线性顺序（封闭，不得新增 / 改序）：
@@ -50,6 +52,18 @@ public class Pipeline {
     // 经注入的 ICompiler 调编译器库（in-process）：源码 → app.zpkg (+zsym)。
     // 与独立 z42c.driver 共享同一实现，不 fork z42c 子进程（见 ICompiler.z42）。
     private void Compile(IPipelineContext ctx) {
+        // fix-hooks-source-scan 阶段4.2：有效 exclude = `[sources].exclude` ++（`[build] hooks` 目录，
+        // 若声明）。与 z42c.driver Main._build 同款——hooks 由 z42b 单独编，不该被 app 的 `**/*.z42`
+        // glob 扫进 app zpkg（否则多一跨包死类 ProjectHooks : BuildHooks → vtable fixup 假警报刷屏）。
+        // 目录排除用 `<dir>/**`（SourceDiscovery._matchesExclude 前缀语义）。
+        ProjectManifest pm = ctx.Manifest;
+        int baseExcN = pm.Sources.ExcludeCount;
+        int effExcN = pm.Build.HasHooks ? baseExcN + 1 : baseExcN;
+        string[] effExc = new string[effExcN];
+        int exi = 0;
+        while (exi < baseExcN) { effExc[exi] = pm.Sources.Exclude[exi]; exi = exi + 1; }
+        if (pm.Build.HasHooks) { effExc[baseExcN] = pm.Build.HooksDir + "/**"; }
+
         CompileRequest req = new CompileRequest(
             ctx.Dirs.Source,
             ctx.Dirs.Intermediate + "/app.zpkg",
@@ -58,8 +72,8 @@ public class Pipeline {
             false,                          // strip 由 profile 决定，实现期接 manifest
             true,                           // 增量
             ctx.Project.Kind,               // 工程 kind（exe/lib）——lib 免 Main，供 compile-then-test
-            new string[0],                  // Excludes（阶段4.1 空占位；阶段4.2 从 manifest 组装 hooks/exclude）
-            0);                             // ExcludesCount
+            effExc,                         // Excludes（阶段4.2：从 manifest 组装 hooks/exclude glob）
+            effExcN);                       // ExcludesCount
         CompileResult res = this.Compiler.Compile(req);
         if (!res.Ok) {
             ctx.Warn("compile failed:");

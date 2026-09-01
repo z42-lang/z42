@@ -1,6 +1,6 @@
 # Tasks: fix-hooks-source-scan
 
-> 状态：🟡 阶段4.1 IMPL 中（阶段1 #362、阶段2 #367、阶段3 #369 均已合并；阶段2 nightly @ a680cbd 已发布） | 类型：feat（stdlib z42.project/z42.build；阶段2 含 compiler z42c）
+> 状态：🟢 阶段4.2 完成（阶段1 #362、阶段2 #367、阶段3 #369、阶段4.1 #371 均已合并；阶段4.1 nightly @ 8538fe3 已发布）→ 本 change 全部完成，随本 PR 归档 | 类型：feat（stdlib z42.project/z42.build；阶段2 含 compiler z42c）
 > 设计见 [proposal.md](proposal.md)。⚠️ **三**阶段跨三 nightly（原以为两阶段——见下「阶段划分校正」）。
 
 ## ⚠️ 阶段划分校正（2026-09-01，阶段2 实施时发现）
@@ -59,9 +59,21 @@ self-build **前**先把**当前源** z42.project 预建进 flat-libs，种子 z
       `builder_hooks.z42`（空）、z42ccompiler_tests 4 处（空）。`Z42cCompiler` **不动**（不引用新字段），
       故 `verify-selfhost` 边界不越界（阶段2 nightly 种子 z42.build 无此字段，但 z42c 源不碰它）。
       验证：`test bootstrap`（nightly z42c 编当前源通过）+ cold-seed build compiler/stdlib + 全量 GREEN。
-- [ ] 4.2 阶段4.1 nightly 后：`Pipeline.Compile` 从 manifest（`Sources.Exclude` + `HasHooks?HooksDir/**`）
-      组装 exclude 填入 req；`Z42cCompiler` 读 `req.Excludes` 传 `DiscoverWithExclude`。→ `z42 publish`
-      的 repl/builder/xtask 也不含死类。（z42c 读 stdlib 新字段=轴②，须待 4.1 nightly。）
+- [x] 4.2 阶段4.1 nightly（@ 8538fe3，其种子 z42.build 已含 `Excludes` 字段）发布后：
+      `Pipeline.Compile`（`z42.build`）从 `ctx.Manifest`（`Sources.Exclude` + `HasHooks?HooksDir/**`）
+      组装 exclude 填入 req（与 z42c.driver `Main._build` 同款）；`Z42cCompiler`（z42c）读 `req.Excludes`
+      传 `DiscoverWithExclude`。→ `z42b build`/`run`/`export` 的 in-process Pipeline 路径产物不含死类。
+      **验证（A/B，同一 hooks 工程 + output_dir 在源树外）**：pre-4.2 nightly z42b build → app.zpkg
+      `strings|grep ProjectHooks`=**1**；post-4.2 z42b build → **0**（DIAG 证 `HasHooks=true effExcN=1`、
+      app 源发现 `srcs=1` 仅 Main.z42、hooks/ 已排除）。cold-seed `build compiler`（种子 z42c 编读
+      `req.Excludes` 的当前源，轴②满足）+ `build stdlib` 25/25 EXIT=0。
+      - **⚠️ 已知边界（非 4.2 引入、不影响真实消费者）**：`Z42cCompiler` 对 app 源恒用 `**/*.z42` 从
+        `req.SourceDir`（工程根）递归发现，`_excluded` 只跳 `/dist/`·`/.cache/` **不跳 `/build/`**。故当
+        `[build] output_dir` **落在源树内**（默认 `<src>/artifacts`）时，递归 glob 会捞到 z42b 在 app
+        编译前 stage 到 `artifacts/.../build/hooks/` 的 hooks **副本**（rel 以 `artifacts/` 开头，`hooks/**`
+        不匹配）→ 死类经副本重新混入。真实消费者（z42.repl/z42.builder/xtask）`output_dir` 均为源树外的
+        共享 artifacts 树，不触发；此 gap 属 Z42cCompiler「递归 glob 捞构建产物」的既有问题，与 hooks 排除
+        正交，留待独立评估（如 `_excluded` 增排除 `/build/`，或 Z42cCompiler 用 manifest sources 而非硬编码 glob）。
 
 ## 备注
 
