@@ -134,7 +134,18 @@ runs:
           cp -f "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/"*.zpkg "$G1RUN/"
           cp -f "$G0LIBS/"*.zpkg "$G1RUN/"
           g1runw="$(winpath "$G1RUN")"
-          ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
+          # 修 two-gen 格式-bump 回归(probe-two-gen-verify):**编译期 Z42_LIBS 不能指向 G1RUN**——
+          # G1RUN 含 gen0 旧格式 stdlib(z42.core 旧 minor),而 --workspace 编译期 libsDirs=各成员
+          # DistDirs(fresh 新格式)+Z42_LIBS,于是 z42.core 同名双份(fresh 新 + G1RUN 旧)。旧份被
+          # z42c reader strict-pin skip 但仍参与同名去重/解析抢占 → z42.encoding 解析不到 z42.core
+          # 的 String/FormatException(E0401/E0443)全红。修法与下面 Gen2 对称:driver 运行期旧 stdlib
+          # 走 **entry-dir(=G1RUN,VM 搜索序 [entry-dir, Z42_LIBS] 先看 entry-dir)**,编译期 TSIG 只
+          # 走本轮 fresh DistDirs → Z42_LIBS 指向空目录,消除同名旧份污染。
+          EMPTYLIBS="$ROOT/.ci-emptylibs"; rm -rf "$EMPTYLIBS"; mkdir -p "$EMPTYLIBS"
+          emptylibsw="$(winpath "$EMPTYLIBS")"
+          echo "   DIAG gen1-stdlib pre: G1RUN z42.core minor=$(od -An -tu2 -j6 -N2 "$G1RUN/z42.core.zpkg" | tr -d ' ')"
+          ( cd "$ROOT/src/libraries" && Z42_LIBS="$emptylibsw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
+          echo "   DIAG gen1-stdlib post: fresh z42.core minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg" | tr -d ' ')"
           # 新格式 stdlib flat 视图
           FLAT="$ROOT/artifacts/build/libraries/dist/release"; mkdir -p "$FLAT"
           for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$FLAT/"; done
