@@ -144,8 +144,13 @@ runs:
           EMPTYLIBS="$ROOT/.ci-emptylibs"; rm -rf "$EMPTYLIBS"; mkdir -p "$EMPTYLIBS"
           emptylibsw="$(winpath "$EMPTYLIBS")"
           echo "   DIAG gen1-stdlib pre: G1RUN z42.core minor=$(od -An -tu2 -j6 -N2 "$G1RUN/z42.core.zpkg" | tr -d ' ')"
-          ( cd "$ROOT/src/libraries" && Z42_LIBS="$emptylibsw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
-          echo "   DIAG gen1-stdlib post: fresh z42.core minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg" | tr -d ' ')"
+          echo "   DIAG gen1-driver zpkg minor(format)=$(od -An -tu2 -j6 -N2 "$G1RUN/z42c.driver.zpkg" | tr -d ' ')"
+          G1SRC_RC=0
+          ( cd "$ROOT/src/libraries" && Z42_LIBS="$emptylibsw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release ) || G1SRC_RC=$?
+          echo "   DIAG gen1-stdlib rc=$G1SRC_RC"
+          echo "   DIAG z42.core DistDir:"; ls -la "$ROOT/artifacts/build/libraries/z42.core/release/dist/" 2>&1 | head -6
+          echo "   DIAG gen1-stdlib post: fresh z42.core minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg" 2>&1 | tr -d ' ')"
+          [ "$G1SRC_RC" = 0 ] || { echo "::error::gen1 stdlib build failed rc=$G1SRC_RC (see DIAG above)"; exit 1; }
           # 新格式 stdlib flat 视图
           FLAT="$ROOT/artifacts/build/libraries/dist/release"; mkdir -p "$FLAT"
           for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$FLAT/"; done
