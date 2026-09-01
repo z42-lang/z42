@@ -330,6 +330,51 @@ void test_sealed_non_override_error() {
     Assert.Equal(true, hasCode(d, "E0429"));
 }
 
+// ── fix-static-class-instance-members: static 类只容纳静态成员（E0451）───────────
+// 强制同由 SymbolCollector._passSealedEnforce 发（进 coll.Diags），故读 collectDiags。
+
+[Test]
+void test_static_class_instance_method_error() {
+    // static 类含实例方法 → E0451
+    Assert.Equal(true, hasCode(collectDiags("static class S { public int M() { return 1; } }"), "E0451"));
+}
+
+[Test]
+void test_static_class_instance_field_error() {
+    // static 类含实例字段 → E0451
+    Assert.Equal(true, hasCode(collectDiags("static class S { public int X; }"), "E0451"));
+}
+
+[Test]
+void test_static_class_instance_ctor_error() {
+    // static 类含实例构造器 → E0451
+    Assert.Equal(true, hasCode(collectDiags("static class S { public S() {} }"), "E0451"));
+}
+
+[Test]
+void test_static_class_base_error() {
+    // static 类声明基类 → E0451
+    Assert.Equal(true, hasCode(collectDiags("class B {} static class S : B {}"), "E0451"));
+}
+
+[Test]
+void test_static_class_implements_interface_error() {
+    // static 类实现接口 → E0451
+    Assert.Equal(true, hasCode(collectDiags("interface IFoo { void F(); } static class S : IFoo { public void F() {} }"), "E0451"));
+}
+
+[Test]
+void test_static_class_static_members_ok() {
+    // 纯静态成员（方法 + 字段）→ 无 E0451
+    Assert.Equal(false, hasCode(collectDiags("static class S { public static int X = 1; public static int M() { return X; } }"), "E0451"));
+}
+
+[Test]
+void test_non_static_class_instance_members_ok() {
+    // 非 static 类的实例成员照常合法 → 无 E0451
+    Assert.Equal(false, hasCode(collectDiags("class C { public int X; public int M() { return this.X; } }"), "E0451"));
+}
+
 // ── attribute-handler-registry PR2: `: Attribute` 类名后缀强制（D8）──────────────
 // 纯语法检查（看直接基类名 == Attribute），故无需 import Std/base 可解析。
 

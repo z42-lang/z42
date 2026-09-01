@@ -199,10 +199,26 @@ public sealed class InheritanceResolver {
                                     "cannot inherit from sealed class `" + ct.BaseName + "`", c.Span);
                             }
                         }
-                        // ②③ 逐方法
+                        // ④ static-class 强制（fix-static-class-instance-members）：static 类只容纳静态成员，
+                        //   不得声明基类 / 实现接口 / 含实例成员（对标 C# CS0708/0710/0713/0714）。
+                        //   `static` 仅对 `class` 有意义（struct 无 static 变体）。用字面量 "E0451" 发码
+                        //   （同 E0449/E0450：避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache）。
+                        bool clsStatic = c.Kind == "class" && this._sc._hasWord(c.Mods, "static");
+                        if (clsStatic) {
+                            if (ct.HasBase && ct.BaseName != "") {
+                                this._sc.Diags.Error("E0451",
+                                    "static class `" + c.Name + "` cannot have a base class", c.Span);
+                            }
+                            if (ct.InterfaceCount > 0) {
+                                this._sc.Diags.Error("E0451",
+                                    "static class `" + c.Name + "` cannot implement interfaces", c.Span);
+                            }
+                        }
+                        // ②③ 逐方法；④ static 类的实例成员（与上同 change）
                         int j = 0;
                         while (j < c.MemberCount) {
                             Decl mem = this._sc._unwrap(c.Members[j]);
+                            if (clsStatic) { this._checkStaticClassMember(c.Name, mem); }
                             if (mem is MethodDecl) {
                                 MethodDecl md = mem as MethodDecl;
                                 if (!md.IsCtor) {
@@ -260,6 +276,38 @@ public sealed class InheritanceResolver {
             }
         }
         return null;
+    }
+
+    // fix-static-class-instance-members：static 类的单个成员合法性——实例方法 / 实例字段 /
+    // 实例属性 / 实例构造器 / 索引器均非法（static 类只容纳静态成员）。`const` 字段隐含静态（放行）；
+    // 嵌套类型（class/struct/enum/interface）不是实例成员（不匹配下列 Decl 分支，天然放行）。
+    // 发码用字面量 "E0451"（见 _passSealedEnforce ④ 注释）。
+    private void _checkStaticClassMember(string clsName, Decl mem) {
+        if (mem is MethodDecl) {
+            MethodDecl md = mem as MethodDecl;
+            if (this._sc._hasWord(md.Mods, "static")) { return; }   // 静态方法（含静态构造器）合法
+            if (md.IsCtor) {
+                this._sc.Diags.Error("E0451",
+                    "static class `" + clsName + "` cannot declare an instance constructor", md.Span);
+            } else {
+                this._sc.Diags.Error("E0451",
+                    "static class `" + clsName + "` cannot declare instance method `" + md.Name + "`", md.Span);
+            }
+        } else if (mem is FieldDecl) {
+            FieldDecl fd = mem as FieldDecl;
+            if (this._sc._hasWord(fd.Mods, "static") || this._sc._hasWord(fd.Mods, "const")) { return; }
+            this._sc.Diags.Error("E0451",
+                "static class `" + clsName + "` cannot declare instance field `" + fd.Name + "`", fd.Span);
+        } else if (mem is PropertyDecl) {
+            PropertyDecl pd = mem as PropertyDecl;
+            if (this._sc._hasWord(pd.Mods, "static")) { return; }
+            this._sc.Diags.Error("E0451",
+                "static class `" + clsName + "` cannot declare instance property `" + pd.Name + "`", pd.Span);
+        } else if (mem is IndexerDecl) {
+            IndexerDecl ix = mem as IndexerDecl;
+            this._sc.Diags.Error("E0451",
+                "static class `" + clsName + "` cannot declare an indexer", ix.Span);
+        }
     }
 
 }
