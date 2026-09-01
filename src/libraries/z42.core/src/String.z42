@@ -13,7 +13,11 @@ namespace Std;
 // 2026-04-24 simplify-string-stdlib: migrated 11 methods from Rust builtins to
 // scripts. Index / length / slice semantics uniformly use Unicode scalar (char)
 // count — no UTF-8 byte offsets exposed.
-public static class String : IComparable<string>, IEquatable<string> {
+// fix-static-class-instance-members (2026-09-01): 曾误标 `static class`——但 String
+// 是 primitive `string` 的包装，`s.Length` / `s.Contains(...)` 皆为实例调用，且实现
+// IComparable/IEquatable（实例契约）。`static` 与实例成员/接口矛盾（旧 z42c 静默忽略
+// class 上的 `static`）。对齐 C# `sealed class System.String`：sealed（禁继承 + 去虚化）。
+public sealed class String : IComparable<string>, IEquatable<string> {
     // ── Intrinsic core (extern) ──────────────────────────────────────────────
 
     // Number of Unicode scalar values (characters) in this string. O(n) —
