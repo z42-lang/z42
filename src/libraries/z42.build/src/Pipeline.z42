@@ -57,7 +57,9 @@ public class Pipeline {
             ctx.Target.Profile,
             false,                          // strip 由 profile 决定，实现期接 manifest
             true,                           // 增量
-            ctx.Project.Kind);              // 工程 kind（exe/lib）——lib 免 Main，供 compile-then-test
+            ctx.Project.Kind,               // 工程 kind（exe/lib）——lib 免 Main，供 compile-then-test
+            new string[0],                  // Excludes（阶段4.1 空占位；阶段4.2 从 manifest 组装 hooks/exclude）
+            0);                             // ExcludesCount
         CompileResult res = this.Compiler.Compile(req);
         if (!res.Ok) {
             ctx.Warn("compile failed:");

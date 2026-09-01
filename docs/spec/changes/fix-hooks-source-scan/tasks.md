@@ -1,6 +1,6 @@
 # Tasks: fix-hooks-source-scan
 
-> 状态：🟡 阶段3 IMPL 中（阶段1 = PR #362、阶段2 = PR #367 均已合并；阶段2 nightly @ a680cbd 已发布） | 类型：feat（stdlib z42.project；阶段2 含 compiler z42c）
+> 状态：🟡 阶段4.1 IMPL 中（阶段1 #362、阶段2 #367、阶段3 #369 均已合并；阶段2 nightly @ a680cbd 已发布） | 类型：feat（stdlib z42.project/z42.build；阶段2 含 compiler z42c）
 > 设计见 [proposal.md](proposal.md)。⚠️ **三**阶段跨三 nightly（原以为两阶段——见下「阶段划分校正」）。
 
 ## ⚠️ 阶段划分校正（2026-09-01，阶段2 实施时发现）
@@ -52,11 +52,16 @@ self-build **前**先把**当前源** z42.project 预建进 flat-libs，种子 z
       `DiscoverWithExclude$5`。全量 GREEN（含 stage 5 self-host 不动点 gen1==gen2）+ `test bootstrap`
       边界通过。
 
-## 阶段 4（可选，独立后续）= z42b 发布路径也排除 hooks
+## 阶段 4（独立后续）= z42b 发布路径也排除 hooks（User 2026-09-01 定「现在就推进」）
 
-- [ ] 4.1 `CompileRequest` 加 `string[] Excludes` + count（additive support；z42c 不读 → 一 nightly）。
-- [ ] 4.2 nightly 后：`Pipeline.Compile` 从 manifest 组装 exclude 填入 req；`Z42cCompiler` 读 `req.Excludes`
-      传 `DiscoverWithExclude`。→ `z42 publish` 的 repl/builder/xtask 也不含死类。
+- [x] 4.1 `CompileRequest`（`z42.build/ICompiler.z42`）加 `string[] Excludes` + `int ExcludesCount`
+      （additive support；**z42c 尚不读** → 一 nightly）。6 个构造点全传新参：`Pipeline.z42`（空占位）、
+      `builder_hooks.z42`（空）、z42ccompiler_tests 4 处（空）。`Z42cCompiler` **不动**（不引用新字段），
+      故 `verify-selfhost` 边界不越界（阶段2 nightly 种子 z42.build 无此字段，但 z42c 源不碰它）。
+      验证：`test bootstrap`（nightly z42c 编当前源通过）+ cold-seed build compiler/stdlib + 全量 GREEN。
+- [ ] 4.2 阶段4.1 nightly 后：`Pipeline.Compile` 从 manifest（`Sources.Exclude` + `HasHooks?HooksDir/**`）
+      组装 exclude 填入 req；`Z42cCompiler` 读 `req.Excludes` 传 `DiscoverWithExclude`。→ `z42 publish`
+      的 repl/builder/xtask 也不含死类。（z42c 读 stdlib 新字段=轴②，须待 4.1 nightly。）
 
 ## 备注
 

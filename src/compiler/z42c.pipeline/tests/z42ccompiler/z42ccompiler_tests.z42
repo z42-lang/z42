@@ -26,7 +26,7 @@ string _mkProj(string name, string file, string src) {
 void test_compiles_hello_exe() {
     string dir = _mkProj("hello", "main.z42", "int Main() { return 0; }\n");
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "exe");
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "exe", new string[0], 0);
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal("", res.Diagnostics);
     Assert.Equal(true, res.Ok);
@@ -39,7 +39,7 @@ void test_no_main_reports_missing_entry() {
     // kind=exe 无 Main() → missing entry → Ok=false（exe 专属校验）。
     string dir = _mkProj("nomain", "lib.z42", "int Helper() { return 1; }\n");
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "exe");
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "exe", new string[0], 0);
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal(false, res.Ok);
     Assert.Equal("", res.Zpkg);
@@ -51,7 +51,7 @@ void test_compiles_lib_no_main() {
     // 测试模块是 lib 式、无 Main、只有 [Test]）。
     string dir = _mkProj("libnomain", "lib.z42", "int Helper() { return 1; }\n");
     string outZpkg = Path.Join(dir, "app.zpkg");
-    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "lib");
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "debug", false, false, "lib", new string[0], 0);
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal("", res.Diagnostics);
     Assert.Equal(true, res.Ok);
@@ -62,7 +62,7 @@ void test_compiles_lib_no_main() {
 void test_empty_sourcedir_reports_no_sources() {
     string dir = Path.Join(_tmpRoot(), "empty");
     Directory.Create(dir);
-    CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false, "exe");
+    CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false, "exe", new string[0], 0);
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal(false, res.Ok);
 }
