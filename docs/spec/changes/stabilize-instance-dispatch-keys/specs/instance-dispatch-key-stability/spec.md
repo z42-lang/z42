@@ -46,7 +46,19 @@ IsProtocolExempt ∈ { ToString, Equals, GetHashCode, GetType, get_Item, set_Ite
 
 #### Scenario: 泛型方法 arity 进键，不与非泛型同名塌键
 - **WHEN** 同类同时有 `Bar()` 与 `Bar<T>()`
-- **THEN** 二者键不同（`Bar$0` vs `Bar$$1$0`）；`Foo<T>(T)` 的键对 alpha-rename（`T`→`U`）不变（归一 `T0`）
+- **THEN** 二者键不同（`Bar$0` vs `Bar$$1$0`）→ 都登记不互相覆盖；`Foo<T>(T)` 的键对 alpha-rename（`T`→`U`）不变（归一 `T0`）
+
+#### Scenario: 调用决议——非泛型 ≻ 泛型（tie-break①）
+- **WHEN** `Foo(int)` 与 `Foo<T>(T)` 并存，调用 `x.Foo(5)`（无显式类型实参）
+- **THEN** 两者都适用且逐参同优时，选**非泛型** `Foo(int)`（C# §12.6.4.3）；emit 其精确键
+
+#### Scenario: 调用决议——显式类型实参只选泛型
+- **WHEN** 调用 `x.Foo<int>(5)`
+- **THEN** 仅泛型且 genArity==1 的候选参与（非泛型剔除）；TA 代入判适用；emit 泛型声明键 + method_type_args
+
+#### Scenario: 调用决议——无唯一极小 → 报错不静默覆盖
+- **WHEN** 候选集在全部 tie-break 后仍无唯一「支配所有」者
+- **THEN** 报 E-ambiguous（`OverloadResult` code 2），**禁止**今天「同键塌 `Bar$0` 后者静默覆盖前者」的行为
 
 #### Scenario: composite 键按 FQN 消短名跨-ns 碰撞
 - **WHEN** 两个不同命名空间的同短名泛型类型 `A.List<int>` / `B.List<int>` 出现在方法签名

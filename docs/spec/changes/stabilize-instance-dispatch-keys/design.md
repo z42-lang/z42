@@ -107,6 +107,43 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
   override 同槽、替换不变 → 保持今天可派发。`MemberCollector` 的 `staticVirtual` 基线 carve-out（`:193-196`）
   **改为「登记全键 + 裸规范槽别名」**，而非留纯裸键——这样既稳定（加 op 重载不 rekey）又可派发。
 
+### D4a 泛型/非泛型重载的调用决议优先级（H3 —— 「怎么匹配」）
+
+**前提（键层已保证不覆盖）**：泛型方法即使与非泛型同名同值-arity，键也不同（泛型编 `$$<genArity>`，如
+非泛型 `Bar$0` vs 泛型 `Bar$$1$0`），故二者都登记进 `ct.Methods`、不互相静默覆盖。**决议层**负责在候选集里
+按优先级选对那一个。**z42 泛型不展开/不单态化**（一个泛型方法=一份函数体一个键，实参走 `method_type_args`
+运行期携带，见 generics 投研 item 5），故决议只在**声明层签名**上做，实参代入仅用于「适用性判断/推断」。
+
+对齐 C# ECMA §12.6.4「better function member」，落到现有 `OverloadResolver.Resolve`（适用集→most-specific
+→歧义报错）之上，**新增泛型维度**。调用 `recv.Name(args)` 或 `recv.Name<TA…>(args)`：
+
+1. **候选收集**：源名 `Name` 全部方法（泛型 ∪ 非泛型，含 base 链），按有效签名去重（沿用 `_collectOverloads`）。
+2. **显式类型实参门**（调用带 `<TA…>`）：仅留**泛型且 `Decl.TypeParams.Count == |TA|`** 的候选（非泛型 +
+   arity 不符者剔除）；用 TA 代入得具体形参类型再判适用。（`MemberResolver._applyMethodTypeArgs` 已读 `<TA>`。）
+3. **推断门**（泛型候选、无显式 TA）：由实参→形参推断绑 `T`；推断失败 → 该候选不适用。代入推断结果后判适用。
+4. **适用性过滤**（`_applicable`）：arity 匹配 ∧ 每实参可赋值到（代入后）形参类型。**泛型候选用代入后签名判**。
+5. **Better-function-member 排序**（在 `_betterThan` / `Resolve` 的 most-specific 之上，按序 tie-break）：
+   1. normal form ≻ params-expanded（沿用）；
+   2. 逐参更具体：exact ≻ 加宽/装箱（沿用 `_betterThan`）；
+   3. **平手①：非泛型 ≻ 泛型**（C# §12.6.4.3：Mp 非泛型、Mq 泛型 → Mp 更优）。→ `Bar()` 选非泛型 `Bar()`；
+      `Foo(5)` 在 `Foo(int)` 与 `Foo<T>(T)` 并存时选 `Foo(int)`。判据：`ms.Decl.TypeParams.Count == 0`。
+   4. **平手②：形参类型更具体者胜**（都泛型或都非泛型仍平时）——如 `Foo<T>(T)` vs `Foo<T>(List<T>)` 对
+      `List<int>` 实参选后者（更具体）。
+   6. 仍无唯一极小 → **E-ambiguous**（现有 `OverloadResult` code 2 报错），**不再静默覆盖**（今天塌 `Bar$0` 的坑根治）。
+6. **emit**：选中非泛型 → 其 primary-基线/非-primary-全键；选中泛型 → 其**声明签名键 + `method_type_args`**
+   （显式或推断的 T 绑定）；若走多态（虚/接口/协议约束接收者）→ 裸规范槽（同 D1）。
+
+**与 primary/非-primary 键方案的衔接**：`Bar()`（非泛型）与 `Bar<T>()`（泛型）声明序在先者为 primary、占裸
+规范槽 `Bar`（承接 seed 旧裸调用 + 多态）；另一个取带 `$$`/`$` 的全键。**决议第 5 步的 tie-break 决定「调用
+点选谁」，与「谁占裸槽」正交**——seed 的裸 `Bar` 仍解析到 primary（声明序在先的那个），新调用点按 tie-break
+选具体候选、emit 其精确键。
+
+**实现落点**：`OverloadResolver`：`Resolve`/`_betterThan` 加 tie-break③④（读 `Decl.TypeParams.Count`）+ 泛型
+候选代入后判 `_applicable`；`MemberResolver`：显式-arity 门 + 推断门接入候选集（复用 `_applyMethodTypeArgs`）。
+**边角性**：`Bar()`+`Bar<T>()` 同值-arity 共存是否真出现于代码库，开工前 grep 证实——不出现则键层 `$$` 编码
+可先作**守卫**（防未来），决议优先级规则仍按上定义（对 `Foo(int)`+`Foo<T>(T)` 这类**更常见**的泛型/非泛型
+并存有用，属 C#-parity）。
+
 ### D5 协议名单统一
 
 合并今天分歧的两份：`SymbolCollector.IsProtocolExempt`（6 名）与 `DependencyIndex._isProtocol`（4 名，
