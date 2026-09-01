@@ -43,6 +43,9 @@ pub fn build_type_registry(module: &mut Module) {
         // the simple vtable-slot name is re-derived at merge time via
         // `TypeDesc::derive_simple_method_name`.
         let mut own_methods: Vec<Box<str>> = Vec::new();
+        // fix-value-type-object-methods ③: index-aligned is_static per own method,
+        // so `merge_with_base` can keep statics out of the instance vtable.
+        let mut own_static: Vec<bool> = Vec::new();
         let prefix = format!("{}.", class_name);
         for func in &module.functions {
             if !func.name.starts_with(&prefix) { continue; }
@@ -51,13 +54,14 @@ pub fn build_type_registry(module: &mut Module) {
             let simple_name = class_name.split('.').next_back().unwrap_or(class_name.as_str());
             if method == simple_name || method.starts_with("__") { continue; }
             own_methods.push(func.name.clone().into_boxed_str());
+            own_static.push(func.is_static);
         }
 
         // ── Initial merged view: inherit from local-registry base if present.
         // Cross-zpkg base classes contribute nothing here — that's fixed up
         // later by `try_fixup_inheritance` once the dep is loaded.
         let (fields, field_index, vtable, vtable_index) =
-            merge_with_base(&own_fields, &own_methods, class_name, desc.base_class.as_deref(), &registry);
+            merge_with_base(&own_fields, &own_methods, &own_static, class_name, desc.base_class.as_deref(), &registry);
 
         let type_id = crate::metadata::tokens::TypeId(next_type_id);
         next_type_id += 1;
@@ -72,6 +76,7 @@ pub fn build_type_registry(module: &mut Module) {
         let cold_inner = crate::metadata::types::TypeDescCold {
             own_fields:             own_fields.into(),
             own_methods:            own_methods.into(),
+            own_static_flags:       own_static.into(),
             type_params:            desc.type_params.clone(),
             type_args:              vec![].into(),
             type_param_constraints: desc.type_param_constraints.clone(),
@@ -208,6 +213,7 @@ pub fn build_type_registry(module: &mut Module) {
 fn merge_with_base(
     own_fields:  &[FieldSlot],
     own_methods: &[Box<str>],
+    own_static:  &[bool],
     class_name:  &str,
     base_class_name: Option<&str>,
     registry:    &FxHashMap<String, Arc<TypeDesc>>,
@@ -228,7 +234,13 @@ fn merge_with_base(
         .collect();
 
     // Apply own methods: override if base method same simple name, else append.
-    for fq_func_name in own_methods {
+    // fix-value-type-object-methods ③: skip **static** methods — they are never
+    // virtual-dispatch targets, and letting one occupy an instance vtable slot
+    // (via its mangle-stripped simple name) wrongly shadows an inherited method
+    // (e.g. static `Type.GetType(string)` → simple `GetType` overriding
+    // `Object.GetType` → instance `t.GetType()` calls the static extern → null).
+    for (i, fq_func_name) in own_methods.iter().enumerate() {
+        if own_static.get(i).copied().unwrap_or(false) { continue; }
         let simple_name = TypeDesc::derive_simple_method_name(class_name, fq_func_name);
         if let Some(&slot) = vtable_index.get(simple_name) {
             vtable[slot] = (simple_name.to_string(), fq_func_name.to_string());
@@ -287,6 +299,7 @@ pub fn try_fixup_inheritance(
         let layout = merge_with_base(
             td.own_fields(),
             td.own_methods(),
+            td.own_static_flags(),
             &td.name,
             td.base_name.as_deref(),
             registry,
@@ -388,9 +401,14 @@ fn needs_fixup(td: &TypeDesc, registry: &FxHashMap<String, Arc<TypeDesc>>) -> bo
             .filter(|f| !base.fields.iter().any(|b| b.name == f.name))
             .filter(|f| seen_f.insert(f.name.as_ref()))
             .count();
+    // fix-value-type-object-methods ③: skip static own methods here too — they are
+    // excluded from the vtable in `merge_with_base`, so the projection must match or
+    // `needs_fixup` stays true forever (loader non-convergence).
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let own_unique_methods = td.own_methods().iter()
-        .map(|fq| TypeDesc::derive_simple_method_name(&td.name, fq))
+    let own_static = td.own_static_flags();
+    let own_unique_methods = td.own_methods().iter().enumerate()
+        .filter(|(i, _)| !own_static.get(*i).copied().unwrap_or(false))
+        .map(|(_, fq)| TypeDesc::derive_simple_method_name(&td.name, fq))
         .filter(|simple| !base.vtable_index.contains_key(*simple))
         .filter(|simple| seen.insert(*simple))
         .count();

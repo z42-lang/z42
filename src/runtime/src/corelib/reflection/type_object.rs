@@ -59,8 +59,31 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     // consistent with `arr.GetType()`) carrying the element type. `int[][]`
     // strips one level → element "int[]" (recursively resolvable).
     if let Some(elem) = name.strip_suffix("[]") {
+        // fix-value-type-object-methods ④: array Type carries **full element-path**
+        // names — Name = "{elemName}[]", FullName = "{elemFullName}[]" (was the
+        // element-erased synthetic "Array"/"Std.Array"). The element Type is resolved
+        // recursively so `int[]` → "Int32[]" / "Std.Int32[]" (element name via change A's
+        // int→Std.Int32) and `int[][]` → "Int32[][]" / "Std.Int32[][]". `__elementName`
+        // still records the raw element tag (unchanged; `GetElementType()` reads it).
+        // Element-less arrays (empty tag) keep the old synthetic name (no element to name).
+        if elem.is_empty() {
+            return build_type_ex(
+                ctx, "Array", well_known_names::STD_ARRAY, NativeData::None, true, elem,
+            );
+        }
+        let elem_ty = make_type_from_name(ctx, elem);
+        let elem_name = match read_type_str_slot(std::slice::from_ref(&elem_ty), "__name") {
+            Value::Str(s) => s.to_string(),
+            _ => elem.to_string(),
+        };
+        let elem_full = match read_type_str_slot(std::slice::from_ref(&elem_ty), "__fullName") {
+            Value::Str(s) => s.to_string(),
+            _ => elem.to_string(),
+        };
+        let arr_name = format!("{elem_name}[]");
+        let arr_full = format!("{elem_full}[]");
         return build_type_ex(
-            ctx, "Array", well_known_names::STD_ARRAY, NativeData::None, true, elem,
+            ctx, &arr_name, &arr_full, NativeData::None, true, elem,
         );
     }
     // add-reflection-nested-generic-args: a constructed-generic arg name carries angle

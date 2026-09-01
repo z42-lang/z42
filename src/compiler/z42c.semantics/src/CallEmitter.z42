@@ -100,10 +100,33 @@ public sealed class CallEmitter {
             return bdst;
         }
         if (c.Kind == "instance") {
+            // fix-value-type-object-methods 阶段1：值类型（struct / enum）receiver 的 `GetType()`（0 参）
+            // → 折叠为 `typeof(静态类型)`。值类型 sealed → 编译期静态类型 == 运行期类型，GetType 结果编译期
+            // 已知。修 ① struct GetType（否则走下方无体静态 Call 崩）+ ② enum GetType（否则裸 i64→Std.Int32）。
+            // 排除 scalar 基元（其 IsStruct 亦 true，但 `5.GetType()` 已由运行期正确处理，不拦以免自举字节漂移）；
+            // enum 字面量 `E.Red`（静态类型 long）靠 BoundLitInt.EnumTypeName origin 标记识别。
+            if (c.MethodName == "GetType" && c.ArgCount == 0) {
+                string enumFqn = "";
+                if (c.Receiver is BoundLitInt) {
+                    BoundLitInt bli = c.Receiver as BoundLitInt;
+                    if (bli.EnumTypeName != "") { enumFqn = this._ctx.QualifyClass(bli.EnumTypeName); }
+                }
+                if (enumFqn != "" || this._isStructOrEnumStatic(c.Receiver.Type())) {
+                    return this._emitValueTypeGetType(c, enumFqn);
+                }
+            }
             // add-struct-value-semantics A-use：blob 值 struct 实例方法调用 → **静态 Call 传 handle**
             // （struct 无继承/虚方法；receiver 是 StructRef 句柄非 object，走 VCall 会崩）。含返回 struct 的
             // sret。绕过下方 devirt/DepIndex/VCall。实参先于 receiver（保发射序）+ struct 实参 copy-in。
             if (this._ee._isBlobStruct(c.Receiver.Type())) {
+                // fix-value-type-object-methods 阶段2：struct **未自声明**的 Object 方法（ToString /
+                // GetHashCode / Equals）→ `__box_struct` 装箱 receiver + VCall，命中 runtime 装箱-struct
+                // Object 协议（exec_vcall.rs：ToString→短类型名 / GetHashCode→FNV / Equals→Std.Object）。
+                // 否则（record 合成 / 用户覆写，ChainHasMethod=true）走下方静态 Call，保各自语义不被拦。
+                if (this._isBoxedObjectMethod(c.MethodName, c.ArgCount)
+                    && !this._ctx.ChainHasMethod(c.OwnerClass, c.MethodName)) {
+                    return this._emitBoxedStructObjectCall(c);
+                }
                 TypedReg[] sargs = this._emitStructAwareArgs(c);
                 TypedReg srecv = this._ee.Emit(c.Receiver);
                 string sname = this._ee._blobStructName(c.Receiver.Type());
@@ -260,6 +283,71 @@ public sealed class CallEmitter {
         int i = 0;
         while (i < c.ArgCount) { args[i] = this._ee.Emit(c.Args[i]); i = i + 1; }
         return args;
+    }
+
+    // fix-value-type-object-methods：静态类型是 **用户 struct 或 enum**（值类型，非 scalar 基元）？
+    // 供 GetType 折叠判定。scalar 基元的 Z42ClassType 亦 IsStruct=true（Z42Type.Builtin），但基元 GetType
+    // 已由运行期正确处理，故此处 !IsScalarValue 排除。enum 名走 EnumTypes 表（enum 的 Z42ClassType IsStruct=false）。
+    private bool _isStructOrEnumStatic(Z42Type t) {
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            if (ct.IsStruct && !PrimModel.IsScalarValue(ct.Name())) { return true; }
+            if (this._ctx.Symbols != null && this._ctx.Symbols.EnumTypes.ContainsKey(ct.Name())) { return true; }
+            return false;
+        }
+        if (t is Z42InstantiatedType) {
+            // 泛型 struct receiver（`Pair<int,int> p; p.GetType()`）：Def 是 struct → 值类型。
+            Z42Type def = (t as Z42InstantiatedType).Def;
+            return (def is Z42ClassType) && (def as Z42ClassType).IsStruct && !PrimModel.IsScalarValue(def.Name());
+        }
+        return false;
+    }
+
+    // fix-value-type-object-methods：Object 继承的、struct 上装箱派发的方法（0 参 ToString/GetHashCode、
+    // 1 参 Equals）。GetType 不在此（已由值类型折叠拦截）。
+    private bool _isBoxedObjectMethod(string method, int argCount) {
+        if (argCount == 0 && (method == "ToString" || method == "GetHashCode")) { return true; }
+        if (argCount == 1 && method == "Equals") { return true; }
+        return false;
+    }
+
+    // fix-value-type-object-methods：struct receiver 未自声明的 Object 方法 → 装箱 + VCall。
+    // 实参先于 receiver（match struct 发射序），receiver 经 __box_struct 得 BoxedStruct 句柄 → VCall
+    // 命中 runtime 装箱-struct Object 协议。GetHashCode/ToString 0 参、Equals 1 参。
+    private TypedReg _emitBoxedStructObjectCall(BoundCall c) {
+        TypedReg[] oargs = this._emitStructAwareArgs(c);
+        TypedReg sv = this._ee.Emit(c.Receiver);
+        TypedReg[] ba = new TypedReg[1]; ba[0] = sv;
+        TypedReg boxed = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(boxed, "__box_struct", ba, 1));
+        TypedReg odst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+        this._ctx.Emit(new VCallInstr(odst, boxed, c.MethodName, oargs, c.ArgCount));
+        return odst;
+    }
+
+    // fix-value-type-object-methods：值类型 receiver 的 GetType() → typeof(静态类型) 折叠发射。
+    // enumFqn 非空时用之（`E.Red` 字面量已丢 enum 静态类型，靠 origin 标记提供 FQN）；否则据 receiver
+    // 静态类型经 _typeofName 产 FQN（泛型 struct 携实参，镜像 TypeOpEmitter._emitTypeof）。receiver 先
+    // 求值保副作用（`getStruct().GetType()`），结果弃用。
+    private TypedReg _emitValueTypeGetType(BoundCall c, string enumFqn) {
+        this._ee.Emit(c.Receiver);   // 求值 receiver 保副作用；句柄/值弃用（GetType 编译期已知）
+        string name;
+        string[] targs = new string[0];
+        int targc = 0;
+        if (enumFqn != "") {
+            name = enumFqn;
+        } else {
+            Z42Type rt = c.Receiver.Type();
+            name = this._ee._typeofName(rt);
+            if (rt is Z42InstantiatedType) {
+                Z42InstantiatedType it = rt as Z42InstantiatedType;
+                targs = new string[it.ArgCount];
+                while (targc < it.ArgCount) { targs[targc] = this._ee._typeofArgName(it.TypeArgs[targc]); targc = targc + 1; }
+            }
+        }
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new TypeofInstr(dst, name, targs, targc));
+        return dst;
     }
 
     // new T(args) / new Box<int>(args) → obj_new（结果 ref）。泛型实例化携 resolved type-args。ctor 解析延后。

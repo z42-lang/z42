@@ -25,12 +25,16 @@ public sealed class MemberResolver {
                     return new BoundStaticGet(tid.Name, m.Name, sfs.FieldType, m.Span);
                 }
             }
-            // 枚举常量访问 `EnumType.Member` → BoundLitInt（long）。
+            // 枚举常量访问 `EnumType.Member` → BoundLitInt（long）。保 z42 enum-as-int 模型（member
+            // 值即底层 i64，可自由当 int 用）；EnumTypeName 标记来源 enum，供 `E.Red.GetType()` 折叠回
+            // typeof(E)（fix-value-type-object-methods）——静态类型仍 long，不改任何 int-context 语义。
             if (env.LookupVar(tid.Name) == null && env.Symbols.EnumTypes.ContainsKey(tid.Name)) {
                 string ekey = tid.Name + "." + m.Name;
                 if (env.Symbols.EnumConsts.ContainsKey(ekey)) {
                     StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
-                    return new BoundLitInt(evalBox.Value, Z42ClassType.Builtin("long"), m.Span);
+                    BoundLitInt eb = new BoundLitInt(evalBox.Value, Z42ClassType.Builtin("long"), m.Span);
+                    eb.EnumTypeName = tid.Name;
+                    return eb;
                 }
             }
         }
@@ -122,6 +126,21 @@ public sealed class MemberResolver {
             }
             args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
+        }
+        // fix-value-type-object-methods ④：数组收者的 Object 继承方法（GetType/ToString/Equals/
+        // GetHashCode）——查 Object 取**真实返回类型**（否则下方 fallthrough 松绑 Unknown → 链式
+        // `xs.GetType().FullName` 退化成 FieldGet "FullName" → null）。镜像上方 Z42GenericParamType 分支。
+        // 运行期 VCall 在数组值上仍走 builtin_obj_get_type（数组特化），OwnerClass 与 fallthrough 同名不改派发。
+        if (rt is Z42ArrayType) {
+            if (env.Symbols.HasClass("Object")) {
+                Z42ClassType objCt = env.Symbols.GetClass("Object");
+                string aMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
+                MethodSymbol aMs = this._tc._overload._findMethod(env.Symbols, objCt, aMkey);
+                if (aMs != null) {
+                    args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, aMs.Signature, env);
+                    return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp);
+                }
+            }
         }
         // prim receiver（IC-3，镜像 C#）：prim 名首字母大写 → stdlib 包装类（"string"→"String"，
         // imported 自 z42.core TSIG）→ 取方法 ret 真类型（dst tag 字节实证 Str 非 Unknown）；

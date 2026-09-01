@@ -71,6 +71,7 @@ impl Module {
         let cold = td.cold.as_deref().map(|c| Box::new(crate::metadata::types::TypeDescCold {
             own_fields:             c.own_fields.clone(),
             own_methods:            c.own_methods.clone(),
+            own_static_flags:       c.own_static_flags.clone(),
             type_params:            c.type_params.clone(),
             type_args:              c.type_args.clone(),
             type_param_constraints: c.type_param_constraints.clone(),

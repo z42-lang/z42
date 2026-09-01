@@ -18,8 +18,9 @@ void Main() {
     Object o = f;
     Assert.Equal("Foo", o.GetType().__fullName);
 
-    // 数组上行后也能拿 Type（add-array-base-class 已铺路）
+    // 数组上行后也能拿 Type（add-array-base-class 已铺路）。
+    // fix-value-type-object-methods ④：数组 Type 名 now 全路径（元素名 + []），非合成 "Std.Array"。
     int[] arr = new int[3];
     Object oa = arr;
-    Assert.Equal("Std.Array", oa.GetType().__fullName);
+    Assert.Equal("Std.Int32[]", oa.GetType().__fullName);
 }

@@ -49,6 +49,7 @@
   - [优化管线（编译期 IR 优化 + 运行时分层）](runtime/optimization-pipeline.md)
   - [逃逸分析与栈上分配](runtime/escape-analysis-stack-alloc.md)
   - [struct 值语义（内联字节 blob）](runtime/struct-value-semantics.md)
+  - [反射 Type 身份（Type 对象 GetType / 数组类型名）](runtime/reflection-type-identity.md)
   - [超级指令融合（interp）](runtime/superinstr-fusion.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()

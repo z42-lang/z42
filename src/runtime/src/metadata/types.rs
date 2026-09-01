@@ -736,6 +736,15 @@ pub struct TypeDescCold {
     /// [`TypeDesc::derive_simple_method_name`] given the owning class
     /// name. Saves one heap allocation + 16–24 B per method.
     pub own_methods: Box<[Box<str>]>,
+    /// fix-value-type-object-methods ③: per-entry `is_static` flag, index-aligned
+    /// with `own_methods`. Used by `merge_with_base` to keep **static** methods out
+    /// of the instance vtable — a static method (e.g. `Type.GetType(string)`) whose
+    /// simple name (`GetType`) collides with an inherited Object method must NOT
+    /// override that vtable slot, else instance `t.GetType()` dispatches to the
+    /// static extern (receiver mis-passed as the arg → null). Empty (older modules /
+    /// synthetic descriptors) → all treated non-static (prior behavior). Reflection
+    /// (`GetMethods`) still sees statics via the full `own_methods`.
+    pub own_static_flags: Box<[bool]>,
     /// Generic type parameter names: ["T"], ["K", "V"]. Empty for non-generic classes.
     pub type_params: Box<[String]>,
     /// Concrete type arguments for an instantiated generic class: ["int"], ["string", "int"].
@@ -819,6 +828,7 @@ impl TypeDesc {
 
     #[inline] pub fn own_fields(&self)             -> &[FieldSlot]                              { self.cold_slice(|c| &c.own_fields) }
     #[inline] pub fn own_methods(&self)            -> &[Box<str>]                               { self.cold_slice(|c| &c.own_methods) }
+    #[inline] pub fn own_static_flags(&self)       -> &[bool]                                   { self.cold_slice(|c| &c.own_static_flags) }
     #[inline] pub fn type_params(&self)            -> &[String]                                 { self.cold_slice(|c| &c.type_params) }
     #[inline] pub fn type_args(&self)              -> &[String]                                 { self.cold_slice(|c| &c.type_args) }
     #[inline] pub fn type_param_constraints(&self) -> &[super::bytecode::ConstraintBundle]      { self.cold_slice(|c| &c.type_param_constraints) }

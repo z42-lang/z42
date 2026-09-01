@@ -14,7 +14,13 @@ public class BoundExpr {
 public sealed class BoundLitInt : BoundExpr {
     public string Text;       // 原始字面量文本（数值解析留 codegen）
     private Z42Type _type;
-    public BoundLitInt(string text, Z42Type type, Span span) { this.Span = span; this.Text = text; this._type = type; }
+    // fix-value-type-object-methods：enum 成员来源标记（`E.Red` → "E"，否则 ""）。enum 成员在
+    // MemberResolver 绑成 BoundLitInt(long)（保 z42 enum-as-int 模型：`E.Red == 0` / 传 int 参不变），
+    // 静态类型丢了 enum 身份。该标记让 CallEmitter 的 GetType 折叠能把 `E.Red.GetType()` 还原成
+    // typeof(E)（值类型 sealed，编译期已知）。仅 GetType 折叠读取；codegen（发射整数字面量）不受影响，
+    // 故不扰自举字节。
+    public string EnumTypeName;
+    public BoundLitInt(string text, Z42Type type, Span span) { this.Span = span; this.Text = text; this._type = type; this.EnumTypeName = ""; }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() { return "(lit-int " + this.Text + " :" + this._type.Name() + ")"; }
 }
