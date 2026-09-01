@@ -134,21 +134,10 @@ mod check_safepoint_tests {
     use std::sync::atomic::Ordering;
 
     fn make_jit_ctx(vm_ctx: &VmContext) -> (JitModuleCtx, JitFrame) {
-        // module pointer dangles for the test — check_safepoint never
-        // dereferences it.
-        let jit_ctx = JitModuleCtx {
-            fn_entries_by_id: Vec::new(),
-            module:           std::ptr::null(),
-            // safepoint test never resolves a function → lazy stays null.
-            lazy:             std::ptr::null(),
-            merged_len:       0,
-            lazy_table:       std::sync::Mutex::new(crate::jit::frame::LazyTable::default()),
-            vm_ctx:           vm_ctx as *const VmContext as *mut VmContext,
-            call_counts:      Vec::new(),
-            jit_threshold:    1,
-            osr_entries:      std::sync::Mutex::new(std::collections::HashMap::new()),
-            osr_threshold:    10_000,
-        };
+        // module/lazy dangle for the test — check_safepoint only touches vm_ctx.
+        let jit_ctx = JitModuleCtx::empty_for_test(
+            vm_ctx as *const VmContext as *mut VmContext,
+        );
         (jit_ctx, JitFrame::new(0, &[]))
     }
 

@@ -152,19 +152,24 @@ fn run_spawned_action(
         }
     };
 
-    let outcome = match module.func_index.get(fn_name) {
-        Some(&idx) => crate::interp::exec_function(
-            thread_ctx, module, &module.functions[idx], &arg_vals,
-        )?,
-        None => {
-            let lazy_fn = thread_ctx.try_lookup_function(fn_name)
-                .ok_or_else(|| anyhow!(
-                    "spawned action: function `{}` not found in module or lazy loader",
-                    fn_name
-                ))?;
-            crate::interp::exec_function(thread_ctx, module, lazy_fn.as_ref(), &arg_vals)?
-        }
+    // parallel-worker-jit (2026-09-01): if the entry launched under JIT, `VmCore`
+    // carries the shared compiled-code table — run this worker's action on JIT native
+    // code sharing the SAME compiled functions across every worker (compile-once,
+    // run-N) instead of the interpreter. Its absence (interp mode / no `jit` feature)
+    // routes to the interpreter, unchanged. Both engines yield an `ExecOutcome`, so the
+    // `Std.ThreadException` error semantics below are identical either way.
+    #[cfg(feature = "jit")]
+    let outcome = if let Some(shared) = thread_ctx.core.jit_shared.get() {
+        let mut shell = crate::jit::frame::JitModuleCtx {
+            shared: Arc::clone(shared),
+            vm_ctx: std::ptr::null_mut(),
+        };
+        crate::jit::run_fn_on_shell(&mut shell, thread_ctx, fn_name, &arg_vals)?
+    } else {
+        interp_action_outcome(thread_ctx, module, fn_name, &arg_vals)?
     };
+    #[cfg(not(feature = "jit"))]
+    let outcome = interp_action_outcome(thread_ctx, module, fn_name, &arg_vals)?;
 
     match outcome {
         ExecOutcome::Returned(_) => Ok(()),
@@ -176,6 +181,33 @@ fn run_spawned_action(
             let msg = crate::exception::read_message(&val, module)
                 .unwrap_or_else(|| crate::corelib::convert::value_to_str(&val));
             bail!("{msg}")
+        }
+    }
+}
+
+/// Interpret a spawned action — the fallback when the VM runs in `--mode interp`,
+/// was built without the `jit` feature, or (under JIT) the action itself is
+/// untranslatable. Resolves the function via the merged module first, then the lazy
+/// loader (mirrors `exec_function`'s own resolution). parallel-worker-jit (2026-09-01):
+/// split out so `run_spawned_action` can pick JIT vs interp yet share one `ExecOutcome`
+/// tail (identical `Std.ThreadException` semantics regardless of engine).
+fn interp_action_outcome(
+    thread_ctx: &VmContext,
+    module:     &crate::metadata::Module,
+    fn_name:    &str,
+    arg_vals:   &[Value],
+) -> Result<ExecOutcome> {
+    match module.func_index.get(fn_name) {
+        Some(&idx) => crate::interp::exec_function(
+            thread_ctx, module, &module.functions[idx], arg_vals,
+        ),
+        None => {
+            let lazy_fn = thread_ctx.try_lookup_function(fn_name)
+                .ok_or_else(|| anyhow!(
+                    "spawned action: function `{}` not found in module or lazy loader",
+                    fn_name
+                ))?;
+            crate::interp::exec_function(thread_ctx, module, lazy_fn.as_ref(), arg_vals)
         }
     }
 }

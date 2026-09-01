@@ -4,11 +4,12 @@
 /// JIT-compiled function.  `JitModuleCtx` is the read-only module-level context
 /// that is shared across all calls within a single module execution.
 
-use crate::metadata::Value;
+use crate::metadata::{Module, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 // ── JitFrame ─────────────────────────────────────────────────────────────────
 
@@ -242,23 +243,33 @@ pub struct LazyTable {
 /// through `resolve_fn_by_id`, which compiles the function under `lazy` (the
 /// Mutex-guarded compiler) exactly once. The former by-name `fn_entries` HashMap
 /// is gone — name lookups go through `module.func_index → resolve_fn_by_id`.
-pub struct JitModuleCtx {
+pub struct JitShared {
     /// Compiled function table — slot `i` corresponds to `module.functions[i]`
     /// (== `MethodId.0` == `module.func_index[name]`). Pre-sized once and never
     /// resized, so a slot's address is stable and `OnceLock::get()` hands out a
     /// `&FnEntry` valid for the whole run. An empty slot = "not yet compiled"
     /// (filled by `resolve_fn_by_id` on first call), and stays empty forever for
     /// functions that aren't JIT-translatable — those run on the interpreter.
+    ///
+    /// parallel-worker-jit (2026-09-01): every `OnceLock<FnEntry>` is written at
+    /// most once (compile-once) and `FnEntry` is `Send+Sync`, so this table is
+    /// safe to share across threads — entry + all `--jobs N` workers read the
+    /// same slots. Concurrent first-compiles are serialized by `lazy`'s Mutex +
+    /// double-checked against the `OnceLock`.
     pub fn_entries_by_id: Vec<OnceLock<FnEntry>>,
     /// Back-pointer to the bytecode module for class descriptors, function
     /// bodies (lazy compile), `func_index`, etc.
-    /// SAFETY: the Module must outlive this ctx.
-    pub module:      *const crate::metadata::Module,
+    /// SAFETY: the Module is owned by `VmCore.module` (an `Arc`) which outlives
+    /// every worker thread that shares this `JitShared` — the same invariant
+    /// `LazyCompiler.module` already relies on.
+    pub module:      *const Module,
     /// Lazy per-function compiler (owns the cranelift `JITModule` + helper ids),
-    /// Mutex-guarded so concurrent first-calls compile each function exactly
-    /// once. SAFETY: the `Mutex<LazyCompiler>` is owned by the `JitModule` that
-    /// outlives this ctx; never null once constructed.
-    pub lazy:        *const Mutex<super::lazy::LazyCompiler>,
+    /// Mutex-guarded so concurrent first-calls compile each function exactly once.
+    /// Owned here (was a raw back-pointer into `JitModule`) so the machine-code
+    /// pages stay valid for as long as any `Arc<JitShared>` lives. `JITModule` is
+    /// `!Sync`, but every access is under this Mutex → serialized (see `LazyCompiler`'s
+    /// `unsafe impl Send`).
+    pub lazy:        Box<Mutex<super::lazy::LazyCompiler>>,
     /// `module.functions.len()` — the boundary between merged-module slot ids
     /// (`< merged_len` → `fn_entries_by_id`) and synthetic lazy ids
     /// (`≥ merged_len` → `lazy_table`). make-vm-loading-lazy.
@@ -266,14 +277,6 @@ pub struct JitModuleCtx {
     /// Lazily-loaded functions' compiled entries (see `LazyTable`). Cold-path
     /// Mutex; steady state hits the per-Call-site `call_jit_ic` → lock-free slot.
     pub lazy_table:  Mutex<LazyTable>,
-    /// Mutable VM state (static fields, pending exception, lazy loader).
-    /// Set by `JitModule::run` for the duration of one entry-point invocation;
-    /// reset to null on return. JIT helpers reach mutable VM state via this
-    /// pointer — replaces the previous `thread_local!` slots in
-    /// `jit/helpers.rs` (consolidate-vm-state, 2026-04-28).
-    /// SAFETY: the VmContext must outlive `JitModule::run` and be unique
-    /// (no concurrent JIT entry on the same JitModule).
-    pub vm_ctx:      *mut crate::vm_context::VmContext,
     /// runtime-jit-tiering Phase 1: per-merged-function call counter, parallel to
     /// `fn_entries_by_id` (pre-sized `merged_len`, zero per-call heap alloc). A
     /// function compiles only once its count reaches `jit_threshold`; below that
@@ -294,6 +297,38 @@ pub struct JitModuleCtx {
     /// add-osr-loop-tiering: OSR trigger threshold (loop back-edges in the interp).
     /// From `Z42_OSR_THRESHOLD`, clamped ≥ 1.
     pub osr_threshold: u32,
+}
+
+/// Per-thread JIT dispatch context threaded through every JIT call.
+///
+/// parallel-worker-jit (2026-09-01): split out of the former monolithic
+/// `JitModuleCtx`. All the compile-once, thread-invariant state now lives in the
+/// shared [`JitShared`] (behind an `Arc`, published in `VmCore.jit_shared`); this
+/// thin shell adds only the **per-thread** `vm_ctx` back-pointer. The entry thread
+/// and every `--jobs N` worker each hold their own shell (cheap: an `Arc` bump +
+/// one pointer write) pointing at the SAME `JitShared`, so functions compile once
+/// and every thread runs the same native code with its own `VmContext`.
+///
+/// A `Deref` to `JitShared` keeps the helper/machine-code ABI unchanged: helpers
+/// still receive a single `*const JitModuleCtx` and read `ctx.module` / `ctx.merged_len`
+/// / … transparently through the deref, while `ctx.vm_ctx` resolves to this shell's
+/// own field (fixed offset — see `JIT_MODULE_CTX_VM_CTX_OFFSET`).
+pub struct JitModuleCtx {
+    /// Compile-once, thread-invariant JIT state, shared across entry + all workers.
+    pub shared:  Arc<JitShared>,
+    /// Mutable VM state (static fields, pending exception, lazy loader) for THIS
+    /// thread. Set by `JitModule::run_fn` (entry) / `run_spawned_action` (worker)
+    /// for the duration of one native execution; reset to null on return. JIT
+    /// helpers reach mutable VM state via this pointer.
+    /// SAFETY: the VmContext must outlive the native execution driven through this
+    /// shell, and each thread uses its OWN shell (no cross-thread `vm_ctx` sharing).
+    pub vm_ctx:  *mut crate::vm_context::VmContext,
+}
+
+impl Deref for JitModuleCtx {
+    type Target = JitShared;
+    #[inline]
+    fn deref(&self) -> &JitShared { &self.shared }
 }
 
 /// Byte offset of [`JitModuleCtx::vm_ctx`] within `JitModuleCtx`.
@@ -579,3 +614,64 @@ impl JitModuleCtx {
 // SAFETY: raw pointer — caller ensures Module outlives ctx.
 unsafe impl Send for JitModuleCtx {}
 unsafe impl Sync for JitModuleCtx {}
+
+// SAFETY (parallel-worker-jit): `JitShared` is shared across the entry thread and
+// every `--jobs N` worker via `Arc`. Its auto-trait blockers are:
+//   • `module: *const Module` — read-only; the Module is owned by `VmCore.module`
+//     (Arc), alive for the whole program, hence past every worker's lifetime.
+//   • `lazy: Box<Mutex<LazyCompiler>>` — `LazyCompiler` wraps a `!Sync` cranelift
+//     `JITModule`, but every access is under this Mutex, so it is serialized
+//     (`LazyCompiler` already carries `unsafe impl Send`).
+// All other fields (`fn_entries_by_id` OnceLock slots, `lazy_table`/`osr_entries`
+// Mutexes, `call_counts` atomics) hold `Send+Sync` payloads. Compiled `FnEntry`
+// machine-code pointers are `Send+Sync` and each `OnceLock` is written at most once
+// (compile-once), so concurrent reads see finalized code via `OnceLock` acq/rel.
+unsafe impl Send for JitShared {}
+unsafe impl Sync for JitShared {}
+
+#[cfg(test)]
+impl JitModuleCtx {
+    /// Test-only shell whose only live field is `vm_ctx`. The compiled table is
+    /// empty and `module`/`lazy` back an empty (leaked) `Module` that trampoline /
+    /// ABI unit tests never resolve against. parallel-worker-jit (2026-09-01):
+    /// replaces the per-test `JitModuleCtx { .. }` literals now that the shared
+    /// fields live in `JitShared`.
+    pub(crate) fn empty_for_test(vm_ctx: *mut crate::vm_context::VmContext) -> Self {
+        let module: &'static Module = Box::leak(Box::new(Module {
+            name: String::new(),
+            string_pool: Vec::new(),
+            classes: Vec::new(),
+            functions: Vec::new(),
+            type_registry: Default::default(),
+            type_registry_vec: Vec::new(),
+            func_index: Default::default(),
+            func_ref_cache_slots: 0,
+        }));
+        let lazy = Box::new(Mutex::new(
+            super::lazy::LazyCompiler::setup(module).expect("test LazyCompiler setup"),
+        ));
+        let shared = Arc::new(JitShared {
+            fn_entries_by_id: Vec::new(),
+            module: module as *const Module,
+            lazy,
+            merged_len: 0,
+            lazy_table: Mutex::new(LazyTable::default()),
+            call_counts: Vec::new(),
+            jit_threshold: 1,
+            osr_entries: Mutex::new(std::collections::HashMap::new()),
+            osr_threshold: 10_000,
+        });
+        JitModuleCtx { shared, vm_ctx }
+    }
+
+    /// Test-only: override the tier-up threshold after `setup`. Valid because the
+    /// shared table is uniquely owned at that point (before any worker clones the
+    /// `Arc` / it is published in `VmCore.jit_shared`). parallel-worker-jit: replaces
+    /// the direct `jm.ctx.jit_threshold = N` writes now that the field lives in the
+    /// shared `Arc<JitShared>`.
+    pub(crate) fn set_jit_threshold(&mut self, n: u32) {
+        Arc::get_mut(&mut self.shared)
+            .expect("set_jit_threshold: JitShared must be uniquely owned (pre-worker)")
+            .jit_threshold = n;
+    }
+}

@@ -26,14 +26,20 @@ pub(crate) mod vm_interface;
 #[path = "lazy_load_tests.rs"]
 mod lazy_load_tests;
 
+/// parallel-worker-jit (2026-09-01): concurrency-safety stress tests — N threads
+/// sharing one `JitShared` (compile-once, run-N), the `--jobs N` worker path.
+#[cfg(test)]
+#[path = "parallel_tests.rs"]
+mod parallel_tests;
+
 use crate::metadata::Module;
 use vm_interface::JitVm;
 use anyhow::Result;
 use crate::vm_context::VmContext;
-use frame::{JitFrame, JitModuleCtx};
+use frame::{JitFrame, JitModuleCtx, JitShared};
 use lazy::LazyCompiler;
-use helpers::{take_exception_error, JitFn};
-use std::sync::Mutex;
+use helpers::JitFn;
+use std::sync::{Arc, Mutex};
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -42,11 +48,11 @@ use std::sync::Mutex;
 /// builds the JIT infrastructure; `LazyCompiler::compile_one` fills each slot on
 /// demand via `JitModuleCtx::resolve_fn_by_id`.
 pub struct JitModule {
-    /// Mutex-guarded lazy compiler; owns the cranelift `JITModule` so the
-    /// machine-code pages stay valid for the whole run. Read only through the
-    /// raw pointer stashed in `ctx.lazy` (heap-stable via `Box`, so the pointer
-    /// never dangles) — the field itself just keeps it alive, hence `_lazy`.
-    _lazy: Box<Mutex<LazyCompiler>>,
+    /// Entry thread's per-thread dispatch shell. Its `shared: Arc<JitShared>`
+    /// owns the cranelift `JITModule` (via `JitShared.lazy`) + the compiled-code
+    /// table, so the machine-code pages stay valid as long as any `Arc<JitShared>`
+    /// lives. parallel-worker-jit (2026-09-01): the same `Arc` is also published in
+    /// `VmCore.jit_shared` so `--jobs N` workers share it (compile-once, run-N).
     ctx:   Box<JitModuleCtx>,
     // 2026-04-27 fix-static-field-access: removed `name: String` —
     // 之前用来 format `"{name}.__static_init__"`，新版扫描所有
@@ -92,24 +98,32 @@ impl JitModule {
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(10_000)
             .max(1);
-        let ctx = Box::new(JitModuleCtx {
+        // parallel-worker-jit (2026-09-01): the compile-once, thread-invariant
+        // state lives in `JitShared` (behind an `Arc`); the per-thread shell adds
+        // only `vm_ctx`. `JitShared` OWNS the `LazyCompiler` (was a raw back-pointer
+        // kept alive by `JitModule._lazy`) so the code pages live as long as any
+        // `Arc<JitShared>` — including the clone published in `VmCore.jit_shared`.
+        let shared = Arc::new(JitShared {
             fn_entries_by_id,
             module: module as *const Module,
-            lazy: &*lazy_box as *const Mutex<LazyCompiler>,
+            lazy: lazy_box,
             // make-vm-loading-lazy: functions with id < merged_len live in the
             // pre-sized `fn_entries_by_id`; ids ≥ merged_len are synthetic slots
             // for lazily-loaded (not-yet-merged) functions in `lazy_table`.
             merged_len: n,
             lazy_table: Mutex::new(frame::LazyTable::default()),
-            // Set by JitModule::run for the duration of an entry call; null
-            // outside that window.
-            vm_ctx: std::ptr::null_mut(),
             call_counts,
             jit_threshold,
             osr_entries: Mutex::new(std::collections::HashMap::new()),
             osr_threshold,
         });
-        Ok(JitModule { _lazy: lazy_box, ctx })
+        let ctx = Box::new(JitModuleCtx {
+            shared,
+            // Set by JitModule::run_fn (entry) / run_spawned_action (worker) for the
+            // duration of one native execution; null outside that window.
+            vm_ctx: std::ptr::null_mut(),
+        });
+        Ok(JitModule { ctx })
     }
 
     /// Run a specific entry function by name (no static-init).
@@ -118,90 +132,18 @@ impl JitModule {
     /// `JitModuleCtx.vm_ctx` for the duration of this call so JIT helpers
     /// (which receive `*const JitModuleCtx`) can reach VmContext through it.
     pub fn run_fn(&mut self, ctx: &VmContext, entry_name: &str) -> Result<()> {
-        // Cast `&VmContext` (immutable ref) to a `*mut VmContext` for the
-        // JIT ABI. The JIT extern-C bridge expects a `*mut` pointer for
-        // historical compatibility (the helper functions reach VmContext
-        // through `(*jit_ctx).vm_ctx`), but they only ever call `&self`
-        // methods on it. add-vmcontext-registry (2026-05-20) converted
-        // the caller signature to `&VmContext`, so the cast goes via
-        // `*const _` first to satisfy the strict pointer-cast rules.
-        // unify-gc-heap PR-4 (D11): scope the heap as the ambient GC heap for this
-        // JIT run so heap-less `Str::new` / `.into()` sites inside JIT'd code (and
-        // any interp it re-enters) can allocate GC string blocks. Interp frames
-        // install their own guard; this covers a JIT-first entry.
-        let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
-        // lazy-per-function-jit (2026-07-23): wire this BEFORE resolving the
-        // entry so the entry's own lazy compile is counted (resolve reaches the
-        // counters through `vm_ctx`).
-        self.ctx.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
-        // runtime-jit-tiering Phase 1.5 (mixed-mode): publish the JitModuleCtx
-        // forward pointer (type-erased) so interp frames spawned under this run
-        // (cold-tier callees / fallbacks) can route an already-compiled callee back
-        // to its native code instead of re-interpreting the whole subtree. Cleared
-        // in lockstep with `vm_ctx` below (they must be valid together — native
-        // code reaches `vm_ctx` through `(*jit_ctx).vm_ctx`).
-        ctx.set_jit_ctx(&*self.ctx as *const JitModuleCtx as usize);
-        // Resolve (and lazily compile on first call) the entry function.
-        // SAFETY: module/lazy valid for the JitModule's lifetime.
-        let entry = match unsafe { self.ctx.resolve_fn_by_name(entry_name) } {
-            Some(e) => e.clone(),
-            None => {
-                // Not JIT-translatable (contains an interp-only opcode such as
-                // `LoadLocalAddr`) or absent from the module. Run it on the
-                // interpreter instead of hard-failing — covers a skipped
-                // entry-point or `__static_init__`. The interpreter never
-                // re-enters JIT code, so the whole call subtree runs
-                // interpreted. SAFETY: `module` outlives the JitModule.
-                self.ctx.vm_ctx = std::ptr::null_mut();
-                ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
-                let module = unsafe { &*self.ctx.module };
-                // make-vm-loading-lazy: the entry may be an untranslatable
-                // function in a lazily-loaded zpkg (e.g. a dep's
-                // `__static_init__`) that is NOT in the merged module — resolve
-                // it through the lazy loader, mirroring interp's path.
-                if let Some(func) = module.func_index.get(entry_name)
-                    .and_then(|&idx| module.functions.get(idx))
-                {
-                    return match crate::interp::exec_function(ctx, module, func, &[])? {
-                        crate::interp::ExecOutcome::Returned(_) => Ok(()),
-                        crate::interp::ExecOutcome::Thrown(val) =>
-                            Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
-                    };
-                }
-                let func = ctx.try_lookup_function(entry_name)
-                    .ok_or_else(|| anyhow::anyhow!("JIT: entry `{}` not found", entry_name))?;
-                return match crate::interp::exec_function(ctx, module, func.as_ref(), &[])? {
-                    crate::interp::ExecOutcome::Returned(_) => Ok(()),
-                    crate::interp::ExecOutcome::Thrown(val) =>
-                        Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
-                };
+        // parallel-worker-jit (2026-09-01): the entry runs on this JitModule's own
+        // shell (`self.ctx`) with no args. The body is shared with `--jobs N`
+        // workers via the free `run_fn_on_shell` (each worker builds its own shell
+        // over the same `Arc<JitShared>`). An uncaught top-level exception is
+        // formatted here (entry semantics), unchanged from before the refactor.
+        match run_fn_on_shell(&mut self.ctx, ctx, entry_name, &[])? {
+            crate::interp::ExecOutcome::Returned(_) => Ok(()),
+            crate::interp::ExecOutcome::Thrown(val) => {
+                let module = unsafe { &*self.ctx.shared.module };
+                Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module)))
             }
-        };
-        let mut frame = JitFrame::new(entry.max_reg, &[]);
-        let f: JitFn = unsafe { std::mem::transmute(entry.ptr) };
-        // 2026-05-10 unify-frame-chain: single push enrolling this entry
-        // frame's regs / env_arena (GC roots) + name / file (trace) in
-        // one VmFrame. Inner JIT calls are wrapped by jit_call / jit_vcall
-        // / jit_call_indirect / jit_obj_new / jit_to_str on the same
-        // unified API.
-        ctx.push_frame(crate::exception::VmFrame::new(
-            entry.name.clone(),
-            entry.file.clone(),
-            &frame.regs as *const _,
-            &frame.env_arena as *const _,
-        ));
-        let r = unsafe { f(&mut frame, &*self.ctx) };
-        ctx.pop_frame();
-        frame.recycle();
-        self.ctx.vm_ctx = std::ptr::null_mut();
-        ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
-        if r != 0 {
-            // SAFETY: ctx.module set in compile_module from a &Module that
-            // outlives the JitModule (caller-owned). Deref is safe here.
-            let module = unsafe { &*self.ctx.module };
-            return Err(take_exception_error(ctx, module));
         }
-        Ok(())
     }
 
     /// runtime-jit-tiering Phase 1c: run a `__static_init__` on the interpreter
@@ -310,6 +252,92 @@ impl JitModule {
     }
 }
 
+/// Run function `entry_name` (with `args`) on a given per-thread JIT `shell`.
+///
+/// parallel-worker-jit (2026-09-01): factored out of `JitModule::run_fn` so the
+/// entry thread and every `--jobs N` worker share ONE native-execution path. Each
+/// caller supplies its OWN shell (`JitModuleCtx { shared, vm_ctx }`) over the same
+/// `Arc<JitShared>`, so functions compile once and every thread runs the same code.
+///
+/// Publishes this thread's `vm_ctx` + the mixed-mode `jit_ctx` forward pointer on
+/// `ctx` for the duration (so JIT helpers and any interp the run re-enters reach the
+/// right VmContext + can route already-compiled callees to native), resolves +
+/// compiles-on-first-call the target (interp fallback when untranslatable/absent —
+/// same as the eager entry path), runs the native code, then clears the published
+/// pointers in lockstep. `args` is empty for the entry, the captured-env array for a
+/// worker's action.
+///
+/// Returns the raw [`ExecOutcome`](crate::interp::ExecOutcome) so each caller formats
+/// a thrown exception its own way — the entry wraps it with `format_uncaught` (uncaught
+/// top-level), a worker reads `Exception.Message` for `Std.ThreadException`. Native
+/// success returns `Returned(Null)` (the value is unused by both callers).
+///
+/// SAFETY: `shell.shared.module` outlives this call (owned by `VmCore.module`); the
+/// shell is used by only THIS thread (no cross-thread `vm_ctx` aliasing).
+pub(crate) fn run_fn_on_shell(
+    shell: &mut JitModuleCtx,
+    ctx: &VmContext,
+    entry_name: &str,
+    args: &[crate::metadata::Value],
+) -> Result<crate::interp::ExecOutcome> {
+    use crate::interp::ExecOutcome;
+    use crate::metadata::Value;
+    // unify-gc-heap PR-4 (D11): scope the heap as the ambient GC heap for this run so
+    // heap-less allocation sites inside JIT'd code (and any interp it re-enters) work.
+    let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    // Wire vm_ctx BEFORE resolving so the entry's own lazy compile is counted, then
+    // publish the JitModuleCtx forward pointer (type-erased) for mixed-mode routing.
+    // Both are cleared in lockstep on every exit path (native code reaches vm_ctx
+    // through `(*jit_ctx).vm_ctx`).
+    shell.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
+    let shell_ptr = &*shell as *const JitModuleCtx;
+    ctx.set_jit_ctx(shell_ptr as usize);
+    // Resolve (and lazily compile on first call) the target function.
+    let entry = match unsafe { shell.resolve_fn_by_name(entry_name) } {
+        Some(e) => e.clone(),
+        None => {
+            // Not JIT-translatable (interp-only opcode) or absent from the merged
+            // module. Run it on the interpreter instead of hard-failing — the interp
+            // never re-enters JIT code, so the whole subtree runs interpreted.
+            shell.vm_ctx = std::ptr::null_mut();
+            ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
+            let module = unsafe { &*shell.shared.module };
+            // make-vm-loading-lazy: the target may be an untranslatable function in a
+            // lazily-loaded zpkg not in the merged module — resolve via the lazy loader.
+            if let Some(func) = module.func_index.get(entry_name)
+                .and_then(|&idx| module.functions.get(idx))
+            {
+                return Ok(crate::interp::exec_function(ctx, module, func, args)?);
+            }
+            let func = ctx.try_lookup_function(entry_name)
+                .ok_or_else(|| anyhow::anyhow!("JIT: entry `{}` not found", entry_name))?;
+            return Ok(crate::interp::exec_function(ctx, module, func.as_ref(), args)?);
+        }
+    };
+    let mut frame = JitFrame::new(entry.max_reg, args);
+    let f: JitFn = unsafe { std::mem::transmute(entry.ptr) };
+    // 2026-05-10 unify-frame-chain: single push enrolling this frame's regs /
+    // env_arena (GC roots) + name / file (trace) in one VmFrame.
+    ctx.push_frame(crate::exception::VmFrame::new(
+        entry.name.clone(),
+        entry.file.clone(),
+        &frame.regs as *const _,
+        &frame.env_arena as *const _,
+    ));
+    let r = unsafe { f(&mut frame, shell_ptr) };
+    ctx.pop_frame();
+    frame.recycle();
+    shell.vm_ctx = std::ptr::null_mut();
+    ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
+    if r != 0 {
+        // Native code raised: the thrown value is pending on this thread's VmContext.
+        Ok(ExecOutcome::Thrown(ctx.take_exception().unwrap_or(Value::Null)))
+    } else {
+        // The entry / worker action's return value is unused by both callers.
+        Ok(ExecOutcome::Returned(None))
+    }
+}
+
 // ─── Public entry point called from vm.rs ───────────────────────────────────
 
 /// Called by `Vm::run` when the execution mode is JIT.
@@ -332,6 +360,12 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str) -> Result<()> {
     let start = std::time::Instant::now();
 
     let mut jit_module = JitModule::setup(module)?;
+
+    // parallel-worker-jit (2026-09-01): publish the shared compiled-code table so
+    // `--jobs N` worker threads (spawned during the entry's execution below) run
+    // their action on the SAME JIT native code (compile-once, run-N) instead of the
+    // interpreter. Set-once; a second JIT entry on the same VmCore reuses it.
+    let _ = ctx.core.jit_shared.set(Arc::clone(&jit_module.ctx.shared));
 
     let setup_us = start.elapsed().as_micros() as u64;
     ctx.fire_runtime_event(&crate::observer::RuntimeEvent::JitModuleCompiled {

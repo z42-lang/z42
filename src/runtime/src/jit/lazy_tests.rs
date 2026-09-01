@@ -148,7 +148,7 @@ fn caller_lazily_compiles_callee_mid_execution() {
     // runtime-jit-tiering: this test is about the mid-execution compile property
     // (orthogonal to tiering), so force threshold=1 → B compiles on its first
     // jit_call. (Deterministic regardless of Z42_JIT_THRESHOLD in the env.)
-    jm.ctx.jit_threshold = 1;
+    jm.ctx.set_jit_threshold(1);
     jm.run_fn(&vm, "A").expect("run A, which calls (and lazily compiles) B");
     assert_eq!(compiled_count(&vm), 2,
         "the caller A and its callee B — lazily compiled mid-call — are both compiled");
@@ -162,7 +162,7 @@ fn tiering_cold_jit_call_callee_stays_interp() {
     let module = module_of("M", vec![caller_of("A", "B"), empty_fn("B")]);
     let vm = VmContext::new();
     let mut jm = JitModule::setup(&module).expect("setup");
-    jm.ctx.jit_threshold = 2;
+    jm.ctx.set_jit_threshold(2);
     jm.run_fn(&vm, "A").expect("run A");
     assert_eq!(compiled_count(&vm), 1,
         "only entry A compiles; B (1 jit_call < threshold 2) stays on the interpreter");

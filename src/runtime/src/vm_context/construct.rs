@@ -195,6 +195,10 @@ impl VmContext {
                 ),
                 None => crate::gc::Sampler::disabled(),
             },
+            // parallel-worker-jit (2026-09-01): empty until `jit::run` publishes the
+            // shared compiled-code table on the entry thread (JIT mode only).
+            #[cfg(feature = "jit")]
+            jit_shared: std::sync::OnceLock::new(),
         });
 
         // add-os-signal-handler (2026-05-25): register this Arc<VmCore> into

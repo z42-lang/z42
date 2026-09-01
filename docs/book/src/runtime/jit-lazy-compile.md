@@ -1,7 +1,9 @@
 # 惰性逐函数 JIT（lazy per-function compilation）
 
-> 对齐：2026-07-23（change `lazy-per-function-jit`）。代码：`src/runtime/src/jit/`
-> （`lazy.rs` / `frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
+> 对齐：2026-09-01（change `lazy-per-function-jit`；`parallel-worker-jit` 加「跨线程共享编译码表 +
+> worker 跑 JIT」一节）。代码：`src/runtime/src/jit/`
+> （`lazy.rs` / `frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）
+> + `src/runtime/src/corelib/threading.rs`（worker 分发）+ `src/runtime/src/vm_context/types.rs`（`VmCore.jit_shared`）。
 
 ## 为什么
 
@@ -105,6 +107,58 @@ fn resolve_fn_by_id(&self, idx) -> Option<&FnEntry> {
 - **执行**：并发读 `OnceLock` 槽是安全发布。`LazyCompiler` 手动 `unsafe impl Send`（裸
   `*const Module` 只读；非 `Sync` 的 `JITModule` 只在锁内触碰）。
 - 单测 `concurrent_first_call_compiles_exactly_once` 覆盖两线程竞争首调。
+
+## 并行 worker 线程跑 JIT + 编译码表全局共享（parallel-worker-jit，2026-09-01）
+
+上面的线程安全从设计之初就为**真并发**准备好了；`parallel-worker-jit` 把它兑现——让
+`Std.Threading` / `--jobs N` 的 **worker 线程也跑 JIT**，且全线程**共享同一份编译码表**。
+
+### 修的根因
+
+此前 JIT **只在 entry 线程**发生：`jit::run` → `run_fn` 发布 `jit_ctx` 走原生码；而 worker 经
+`Thread.Start` → `__thread_spawn` → `run_spawned_action` **直接 `interp::exec_function`**、从不
+`set_jit_ctx` → **全程解释执行**。于是开 `--jobs N`：① 每单元工作从原生码退回解释（慢一个量级）
+② 解释器每次 `try_lookup_*` 砸共享 `lazy_loader` 锁 → N 线程串行化。双重回归，`--jobs` 从来是负优化。
+
+### 拆结构：`JitShared`（共享）+ `JitModuleCtx` 薄壳（per-thread）
+
+`JitModuleCtx` 原有 10 个字段里只有 `vm_ctx` 是 per-thread，其余 9 个「编一次就不变」。据此一拆为二：
+
+```
+VmCore.jit_shared: OnceLock<Arc<JitShared>>     // entry 的 jit::run publish；其存在即「JIT 已激活」信号
+        │ Arc::clone
+        ├── JitShared { fn_entries_by_id(OnceLock 机器码槽) + lazy(LazyCompiler) + module
+        │               + merged_len/lazy_table/call_counts/osr_entries/阈值 }   // 编一次、全线程共享
+   entry 薄壳                         worker_i 薄壳
+   { shared, vm_ctx=E }               { shared, vm_ctx=Wi }     // 各带自己的 VmContext
+```
+
+- 薄壳 `impl Deref<Target=JitShared>` → helper 收单个 `*const JitModuleCtx`、`ctx.module` 等字段读经
+  deref 透明命中共享字段，机器码/ABI 与内联 safepoint 的固定 `vm_ctx` 偏移**全不变**。
+- `resolve_*` 方法留薄壳（需同时读 `self.shared.<slot>` + `self.vm_ctx`）。
+- entry 与 worker 共用 `run_fn_on_shell(shell, ctx, name, args) -> ExecOutcome`：发布本线程
+  `vm_ctx`+`jit_ctx` → `resolve_fn_by_name`（未译回落 interp）→ 跑原生码 → 锁步清除。entry 无参、
+  worker 传捕获 env；各自按语义格式化异常（entry `format_uncaught`，worker 取 `Exception.Message`
+  包 `Std.ThreadException`）。
+
+### 为什么共享是安全的（编一次、run-N）
+
+- **机器码跨线程可调**：`FnEntry.ptr` 指向 cranelift 已 finalize 的位置无关码；`OnceLock` 的
+  acq/rel 保证「看得见 ptr 的线程也看得见 finalize 后的码页」。
+- **并发首编同一函数**：都取 `lazy` 的 `Mutex`（串行）+ `OnceLock` 双检 → 恰好编一次。
+- **并发编不同函数**：仍串行在 `lazy` mutex（`JITModule` 非线程安全必须串行编）；编译占比 profile <1%，可接受。
+- `resolve_function_tokens` 在锁外调用也安全：只读不可变 `Function` + 写 `func.resolved`（`OnceLock`，race-safe）。
+- `JitShared` 因此 `unsafe impl Send+Sync`（裸 `*const Module` 只读、`LazyCompiler` 访问全在锁内）。
+- `jit/parallel_tests.rs` 三个压力测试（N 线程共享一个 `JitShared`：同函数并发首编 / 异函数并发编 /
+  已编函数并发狂调）+ 12× release 复跑无 flake，兜住这条从未真并发过的路径。
+
+### 效果与边界
+
+计算密集（纯算术）8 线程 workload A/B（同机）：worker 跑 interp **1.18s** → worker 跑 JIT **0.20s**，
+**~5.8×**；`jit_methods_compiled` 从 1（仅 entry）升到 12（worker 编了 `Heavy` 等），直接坐实 worker 上了
+JIT。**边界**：这是 JIT-vs-interp 的上限；z42c 编译器 `--jobs N` 自建因大量分配 + `lazy_loader` 查找 +
+序列化 Amdahl 串行段，改进小于此，但**方向从「越多越慢」翻成正加速**——`--jobs` 走不通的根因已解。
+逼近线性还需 `lazy_loader` 无锁化（arc-swap，独立后续 change）。
 
 ## 决策权衡
 

@@ -78,14 +78,6 @@ pub(super) fn take_exception(ctx: &VmContext) -> Option<Value> {
     ctx.take_exception()
 }
 
-pub fn take_exception_error(ctx: &VmContext, module: &crate::metadata::Module) -> anyhow::Error {
-    let msg = take_exception(ctx)
-        .as_ref()
-        .map(|v| crate::exception::format_uncaught(v, module))
-        .unwrap_or_else(|| "uncaught exception".to_owned());
-    anyhow::anyhow!("{}", msg)
-}
-
 // ─── JIT function type alias ────────────────────────────────────────────────
 
 pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModuleCtx) -> u8;

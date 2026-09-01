@@ -240,6 +240,17 @@ pub struct VmCore {
     /// load on the already-throttled slow path. Produces a folded flamegraph
     /// (+ optional perfetto sample-trace when `Z42_TRACE_OUT` is set).
     pub(crate) sampler: crate::gc::Sampler,
+
+    /// **parallel-worker-jit (2026-09-01)**: the program's shared JIT compiled-code
+    /// table, published by `jit::run` on the entry thread right after `JitModule::setup`.
+    /// `--jobs N` worker threads (`corelib::threading::run_spawned_action`) read this
+    /// to run their action on JIT native code sharing the SAME compiled functions
+    /// (compile-once, run-N) instead of the interpreter. Its very presence signals
+    /// "JIT is active" — interp entry never sets it, so under `--mode interp` workers
+    /// naturally fall back to `exec_function`. Set exactly once (`OnceLock`); the
+    /// `Arc` also keeps the cranelift code pages alive for the whole VM lifetime.
+    #[cfg(feature = "jit")]
+    pub(crate) jit_shared: std::sync::OnceLock<Arc<crate::jit::frame::JitShared>>,
 }
 
 /// Runtime-mutable state shared across one VM instance's interp + JIT paths.
