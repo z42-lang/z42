@@ -17,6 +17,7 @@
   - [readonly 字段](language/readonly-fields.md)
   - [const 编译期常量](language/const.md)
   - [sealed 修饰符](language/sealed.md)
+  - [static 类（只容纳静态成员）](language/static-classes.md)
   - [target-typed new（省略构造类名）](language/target-typed-new.md)
   - [泛型方法（方法级类型参数）](language/generic-methods.md)
   - [属性与索引器（成员访问器）](language/member-accessors.md)
