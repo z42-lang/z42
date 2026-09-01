@@ -9,8 +9,14 @@ namespace Std;
 // 用户不能 `new Array()` —— `T[]` 通过 `array_new` IR 指令构造。
 // 用户不能继承 Array —— `sealed` 阻止派生。
 //
-// v1 暴露：Length（IR `array_len` 快路径）+ Object 协议成员（GetType / Equals
-// / GetHashCode / ToString，全部 Native 绑定到 `__obj_*` 现有 builtin）+ Clone。
+// v1 暴露：Length（IR `array_len` 快路径）+ Clone。
+//
+// Object 协议成员（GetType / Equals / GetHashCode / ToString）**不在此显式声明**：
+// 数组接收者在 TypeChecker 走 loose-bind（`Z42ArrayType` 不匹配任何成员解析分支，
+// 方法名原样 emit），运行期 VCall 的 primitive/array 派发先查 `Std.Array.<method>`、
+// miss 后兜底 `Std.Object.<method>`（interp/exec_vcall.rs + jit/helpers/vcall.rs）。
+// 这四个协议方法与 `Std.Object` 绑定同一批 `__obj_*` builtin、无任何数组专属行为，
+// 故直接继承基类实现即可（与 Std.Int32 等基元类同款——它们也不重声明这些）。
 //
 // 后续 spec：静态算法（Sort/IndexOf/...） / IEnumerable 接入 / 协变 /
 // 元素类型反射元数据。
@@ -23,20 +29,6 @@ public sealed class Array {
     // 浅拷贝。元素是引用类型 → 共享引用；与 C# `System.Array.Clone()` 语义一致。
     [Native("__array_clone")]
     public extern Object Clone();
-
-    // ── Object 协议（Native 绑定到现有 __obj_* builtin；与 Std.Int32 / Std.String
-    //    同款 —— `Value::Array` 在每个 builtin 内部单独识别）──
-    [Native("__obj_get_type")]
-    public extern Type GetType();
-
-    [Native("__obj_equals")]
-    public extern bool Equals(Object? other);
-
-    [Native("__obj_hash_code")]
-    public extern int GetHashCode();
-
-    [Native("__obj_to_str")]
-    public extern string ToString();
 
     // ── 反射式建/读写（add-array-property-reflection-api）─────────────────────
     // 照搬 C# System.Array：以运行期 Type 建数组、以实例方法读写元素，供反射式
