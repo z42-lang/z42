@@ -331,6 +331,14 @@ public sealed class OverloadBinder {
     }
 
     private MethodSymbol[] _collectOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
+        // 去重键 = **有效签名**（简单名 + 形参规范类型），非 RegKey。这样一个派生类型自己声明的
+        // 方法会**隐藏**基类中同签名的方法（C# method hiding：more-derived wins）——因基链自派生向基
+        // 遍历，首见者（最派生）胜。fix-generic-struct-erasure-boxing：imported record struct 的合成
+        // `Equals$1(object)`（RegKey `Equals$1`）与继承的 `Object.Equals(object)`（RegKey `Equals`）RegKey
+        // 不同但签名相同——旧的 RegKey 去重会二者并存 → 同签名两候选 → 重载决议歧义 → 解析失败 → `.Equals`
+        // 松绑不装箱 → 运行期 `other` 裸 StructRef → is_instance 失败 → 值相等误返 false（且伪 E0425）。
+        // 按签名去重后派生合成 Equals$1 隐藏 Object.Equals → 唯一候选 → 正确装箱决议。type-based 重载
+        // （不同形参类型）签名各异、不受影响；override（同 RegKey、同签名）结果不变。
         StrMap seen = new StrMap();
         MethodSymbol[] acc = new MethodSymbol[8];
         int n = 0;
@@ -340,8 +348,9 @@ public sealed class OverloadBinder {
             MethodSymbol[] here = cur.OverloadsOf(name);
             int i = 0;
             while (i < here.Length) {
-                if (!seen.ContainsKey(here[i].RegKey)) {
-                    seen.Put(here[i].RegKey, "1");
+                string sigKey = OverloadBinder._overloadSigKey(here[i]);
+                if (!seen.ContainsKey(sigKey)) {
+                    seen.Put(sigKey, "1");
                     if (n == acc.Length) {
                         MethodSymbol[] b = new MethodSymbol[acc.Length * 2];
                         int q = 0; while (q < n) { b[q] = acc[q]; q = q + 1; }
@@ -362,6 +371,22 @@ public sealed class OverloadBinder {
         MethodSymbol[] r = new MethodSymbol[n];
         int z = 0; while (z < n) { r[z] = acc[z]; z = z + 1; }
         return r;
+    }
+
+    // fix-generic-struct-erasure-boxing：方法的**有效签名键**（简单名 + 形参规范类型，规范化别名）。
+    // 供 `_collectOverloads` 按签名跨基链去重（派生隐藏基类同签名方法）。params 尾位以 `...` 标记纳入键，
+    // 使 `f(int)` 与 `f(params int[])` 键相异、互不隐藏。
+    private static string _overloadSigKey(MethodSymbol ms) {
+        string k = ms.Name + "#";
+        Z42FuncType s = ms.Signature;
+        if (s == null || s.ParamTypes == null) { return k; }
+        int i = 0;
+        while (i < s.ParamTypes.Length) {
+            if (s.ParamsFrom >= 0 && i == s.ParamsFrom) { k = k + "..."; }
+            k = k + (s.ParamTypes[i] == null ? "?" : Z42Type.Canon(s.ParamTypes[i].Name())) + ",";
+            i = i + 1;
+        }
+        return k;
     }
 
 }

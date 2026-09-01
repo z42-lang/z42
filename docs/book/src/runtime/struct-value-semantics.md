@@ -4,7 +4,8 @@
 > struct→object 装箱身份 + 合成对象协议方法 + 泛型容器装箱（2026-08-11）+ 堆内联字段 / `struct[]` /
 > 方法返回 struct / foreach（2026-08-11，zbc 1.32 / zpkg 0.37）+ **JIT 值路径 helper 桥接 + 跨包 struct
 > 值语义（P4a）+ 装箱引用身份 + struct 字段反射（P4b）**（2026-08-12，均格式中立）+ **基元装箱统一到
-> `BoxedStruct`（unify Phase 2 R3，2026-08-13，格式中立）**落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
+> `BoxedStruct`（unify Phase 2 R3，2026-08-13，格式中立）+ **泛型（实例化）值 struct 值相等边界修复
+> （fix-generic-struct-erasure-boxing，2026-09-01，格式中立）**落地。本页讲**多字段 struct 的真值语义**如何在编译器 + 运行时
 > 实现。程序全景（选项 B / B-radical 统一值类型 / 分阶段）见 `docs/spec/changes/add-struct-value-semantics/`。
 
 ## 目标
@@ -190,6 +191,30 @@ struct 的完整对象协议。unboxed struct 仍无 vtable（这些方法经装
 **VM 派发**（`exec_vcall.rs` + `jit/helpers/vcall.rs` BoxedStruct 臂，interp+JIT 对称）：`GetType`/`GetHashCode`/
 `ToString`（arity 0）→ native 特判；否则 prepend `{type_name}.{method}$arity` 候选命中合成/用户方法（this=boxed
 值，合成 body 内拆箱），fallback `Std.Object.{method}`。
+
+### 泛型（实例化）值 struct 的值相等边界（fix-generic-struct-erasure-boxing, 2026-09-01）
+
+合成 `Equals(object)` 的 body 首指令是 `other is P`（`is_instance`）——**只有 `other` 是 `BoxedStruct` 时**
+runtime 才认（`is_instance` 无裸 `StructRef` 臂）。因此调用点**必须把 struct 实参装箱到 `object`**，否则
+类型测试失败 → 直接走 else 返 `false`（值明明相等）。泛型 record struct（`GRec<int,int>` / `ValueTuple2<int,int>`）
+此前踩两个独立缺口：
+
+1. **实参装箱漏 `Z42InstantiatedType`**（`TypeChecker.BoxIfNeeded`）：擦除边界装箱判据只认 `Z42ClassType`，
+   而**泛型实例化** struct 的静态类型是 `Z42InstantiatedType` → 漏装箱 → 实参裸 `StructRef` 传入 `Equals(object)`。
+   修：unwrap `Z42InstantiatedType.Def` 再判 `IsStruct`，装箱名用 `.Def.Name()`（擦除基名，与合成 `{FQ}.Equals$1`
+   注册名 + runtime `type_desc` 一致）。**本地**用户泛型 record struct 由此修复。
+
+2. **跨包同签名歧义**（`OverloadBinder._collectOverloads`）：**imported** record struct（如 stdlib `ValueTuple2`）
+   的合成 `Equals$1(object)`（RegKey `Equals$1`）跨包可见，与继承的 `Object.Equals(object)`（RegKey `Equals`）
+   **签名相同**。旧的**按 RegKey** 去重令二者并存 → 同签名两候选 → 重载决议歧义（伴随伪 E0425）→ 解析失败
+   → `.Equals` 松绑 `Unknown` **不经 `BoxArgs` 装箱** → 运行期同 ① 症状。修：`_collectOverloads` 改**按有效签名**
+   （简单名 + 形参规范类型，`_overloadSigKey`）跨基链去重——派生类型自己声明/合成的方法**隐藏**基类同签名方法
+   （C# method hiding，基链自派生向基遍历、首见者胜）。合成 `Equals$1` 隐藏 `Object.Equals` → 唯一候选 → 正常
+   装箱决议。type-based 重载（形参类型不同 → 签名各异）与 `override`（同 RegKey 同签名）行为不变。
+
+   > **本地泛型 struct 不踩 ②**：本地 struct 的合成 `Equals$1` 在类型检查**之后**注入 `IrGen`，类型检查期不可见
+   > → `_collectOverloads` 只见继承的 `Object.Equals` → 单候选、无歧义。歧义只在合成方法已随 zpkg 导出、对
+   > consumer 可见的**跨包**场景出现。
 
 ### 编译器派发：值类型 receiver 的 Object 方法（fix-value-type-object-methods, 2026-09-01）
 
