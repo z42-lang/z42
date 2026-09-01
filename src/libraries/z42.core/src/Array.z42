@@ -143,4 +143,155 @@ public sealed class Array {
         int t = lo;
         while (t < hi) { a[t] = scratch[t]; t = t + 1; }
     }
+
+    // ── C# System.Array parity: predicate search / binary search / transform ──
+    // (add-array-csharp-algorithms, 2026-09-02) 纯脚本泛型；委托用 Std.Delegates
+    // 的 Predicate<T> / Func<T,R> / Action<T>。真原语（GetValue/SetValue/Clone/
+    // CreateInstance/Length）仍 native——这些算法只在其之上组合。
+
+    // First element matching `match`, or default(T). Mirrors System.Array.Find.
+    public static T Find<T>(T[] array, Predicate<T> match) {
+        int n = array.Length;
+        for (int i = 0; i < n; i++) {
+            if (match(array[i])) return array[i];
+        }
+        return default(T);
+    }
+
+    // Last element matching `match`, or default(T).
+    public static T FindLast<T>(T[] array, Predicate<T> match) {
+        int i = array.Length - 1;
+        while (i >= 0) {
+            if (match(array[i])) return array[i];
+            i = i - 1;
+        }
+        return default(T);
+    }
+
+    // Index of first element matching `match`, or -1.
+    public static int FindIndex<T>(T[] array, Predicate<T> match) {
+        int n = array.Length;
+        for (int i = 0; i < n; i++) {
+            if (match(array[i])) return i;
+        }
+        return -1;
+    }
+
+    // Index of last element matching `match`, or -1.
+    public static int FindLastIndex<T>(T[] array, Predicate<T> match) {
+        int i = array.Length - 1;
+        while (i >= 0) {
+            if (match(array[i])) return i;
+            i = i - 1;
+        }
+        return -1;
+    }
+
+    // All elements matching `match`, in order, as a right-sized new array.
+    public static T[] FindAll<T>(T[] array, Predicate<T> match) {
+        int n = array.Length;
+        T[] tmp = new T[n];
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            if (match(array[i])) { tmp[count] = array[i]; count = count + 1; }
+        }
+        T[] result = new T[count];
+        for (int j = 0; j < count; j++) { result[j] = tmp[j]; }
+        return result;
+    }
+
+    // True iff any element matches `match`.
+    public static bool Exists<T>(T[] array, Predicate<T> match) {
+        int n = array.Length;
+        for (int i = 0; i < n; i++) {
+            if (match(array[i])) return true;
+        }
+        return false;
+    }
+
+    // True iff every element matches `match` (vacuously true for empty).
+    public static bool TrueForAll<T>(T[] array, Predicate<T> match) {
+        int n = array.Length;
+        for (int i = 0; i < n; i++) {
+            if (!match(array[i])) return false;
+        }
+        return true;
+    }
+
+    // Binary search a `CompareTo`-ascending array. Returns the index of `value`
+    // if found; otherwise `~insertionPoint` (a negative value whose bitwise
+    // complement is where `value` should go to keep the array sorted) — C#
+    // System.Array.BinarySearch semantics.
+    public static int BinarySearch<T>(T[] array, T value) {
+        int lo = 0;
+        int hi = array.Length - 1;
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            int c = array[mid].CompareTo(value);
+            if (c == 0) return mid;
+            if (c < 0) { lo = mid + 1; }
+            else       { hi = mid - 1; }
+        }
+        return ~lo;
+    }
+
+    // True iff `value` occurs in `array` (by `.Equals`).
+    public static bool Contains<T>(T[] array, T value) {
+        return Array.IndexOf<T>(array, value) >= 0;
+    }
+
+    // Last index of `value` (by `.Equals`), or -1.
+    public static int LastIndexOf<T>(T[] array, T value) {
+        int i = array.Length - 1;
+        while (i >= 0) {
+            if (array[i].Equals(value)) return i;
+            i = i - 1;
+        }
+        return -1;
+    }
+
+    // Project each element through `converter` into a new same-length array.
+    public static U[] ConvertAll<T, U>(T[] array, Func<T, U> converter) {
+        int n = array.Length;
+        U[] result = new U[n];
+        for (int i = 0; i < n; i++) { result[i] = converter(array[i]); }
+        return result;
+    }
+
+    // Invoke `action` on each element in order.
+    public static void ForEach<T>(T[] array, Action<T> action) {
+        int n = array.Length;
+        for (int i = 0; i < n; i++) { action(array[i]); }
+    }
+
+    // Set `array[index .. index+length)` to default(T). Throws on out-of-range.
+    public static void Clear<T>(T[] array, int index, int length) {
+        if (index < 0 || length < 0 || index + length > array.Length) {
+            throw new Exception($"Array.Clear: range [{index}, {index + length}) out of bounds (len={array.Length})");
+        }
+        for (int i = 0; i < length; i++) { array[index + i] = default(T); }
+    }
+
+    // Return a new array of length `newSize`: prefix copied from `array`, any
+    // tail filled with default(T); a smaller `newSize` truncates. `array` itself
+    // is unchanged (C# uses `ref T[]`; here you assign the result back).
+    public static T[] Resize<T>(T[] array, int newSize) {
+        if (newSize < 0) {
+            throw new Exception($"Array.Resize: newSize {newSize} is negative");
+        }
+        T[] result = new T[newSize];
+        int copy = array.Length;
+        if (newSize < copy) { copy = newSize; }
+        for (int i = 0; i < copy; i++) { result[i] = array[i]; }
+        // 显式把尾部写成 default(T)：泛型 `new T[n]` 对值类型 T 不做零初始化
+        // （element_type 在泛型 alloc 处未知，槽为 Null），故读未写尾部会拿到 Null。
+        // 显式 `default(T)` 赋值走值路径，给出正确零值（与 Clear 同款）。
+        for (int i = copy; i < newSize; i++) { result[i] = default(T); }
+        return result;
+    }
+
+    // An empty (zero-length) T[].
+    public static T[] Empty<T>() {
+        return new T[0];
+    }
 }
