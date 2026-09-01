@@ -214,7 +214,13 @@ public sealed class MemberCollector {
                 if (md.IsPartial && !md.HasBody) {
                     // 擦除：跳过注册。若某碎片有实现，其 impl 会在自己的碎片正常注册。
                 } else {
-                    if (ct.IsPartial && ct.Methods.ContainsKey(regName)) {
+                    // add-partial-types / fix-partial-protocol-overload-e0433：partial 跨/同碎片重复成员检测。
+                    // 只在【完整签名相同】时报 E0433——真重复。协议豁免重载（Equals(object?)/Equals(string) 等
+                    // 恒裸键 "Equals"，见 SymbolCollector.IsProtocolExempt）与其它共享 RegKey 的合法重载虽 regName
+                    // 相同但签名不同，放行（Put 覆盖，与非-partial 同 last-wins 语义）。此前按 regName 判重会把这类
+                    // 合法重载误报重复（如 partial String 的 Equals(object?)+Equals(string) → 误报 E0433）。
+                    if (ct.IsPartial && ct.Methods.ContainsKey(regName)
+                        && this._sameSignature(ct.Methods.Get(regName) as MethodSymbol, msym)) {
                         this._sc.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
                             "partial type `" + c.Name + "` defines member `" + md.Name + "` in more than one fragment", md.Span);
                     }
@@ -258,6 +264,22 @@ public sealed class MemberCollector {
             i = i + 1;
         }
         return s + ")";
+    }
+
+    // fix-partial-protocol-overload-e0433：两方法符号的完整参数签名是否逐个相同（partial 重复成员判定用——
+    // 区分真重复与共享 RegKey 的合法重载）。参数个数 + 各参数 canonical 类型名逐一比较（用已解析签名，
+    // 避免 AST 类型 Dump 与解析类型名不对齐）。
+    private bool _sameSignature(MethodSymbol a, MethodSymbol b) {
+        if (a == null || b == null) { return false; }
+        if (a.Signature.ParamCount != b.Signature.ParamCount) { return false; }
+        int i = 0;
+        while (i < a.Signature.ParamCount) {
+            if (Z42Type.Canon(a.Signature.ParamTypes[i].Name()) != Z42Type.Canon(b.Signature.ParamTypes[i].Name())) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
     }
 
     // add-const-keyword：const 字段求值 + 登记 ConstVal + 诊断。fsym.IsConst 置位；求值成功 →
