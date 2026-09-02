@@ -671,69 +671,15 @@ public static class ZbcWriter {
 
     // 访问序 1:1 C# VisitInstrRegs（dst 先）。z42c 指令子集。
     private static void _regtInstr(int[] rt, IrInstr ins) {
-        if (ins is ConstStrInstr)  { ZbcWriter._regtVis(rt, (ins as ConstStrInstr).Dst); return; }
-        if (ins is ConstI32Instr)  { ZbcWriter._regtVis(rt, (ins as ConstI32Instr).Dst); return; }
-        if (ins is ConstI64Instr)  { ZbcWriter._regtVis(rt, (ins as ConstI64Instr).Dst); return; }
-        if (ins is ConstF64Instr)  { ZbcWriter._regtVis(rt, (ins as ConstF64Instr).Dst); return; }
-        if (ins is ConstBoolInstr) { ZbcWriter._regtVis(rt, (ins as ConstBoolInstr).Dst); return; }
-        if (ins is ConstCharInstr) { ZbcWriter._regtVis(rt, (ins as ConstCharInstr).Dst); return; }
-        if (ins is ConstNullInstr)  { ZbcWriter._regtVis(rt, (ins as ConstNullInstr).Dst); return; }
-        if (ins is DefaultOfInstr)  { ZbcWriter._regtVis(rt, (ins as DefaultOfInstr).Dst); return; }
-        if (ins is MethodTypeArgInsn) { ZbcWriter._regtVis(rt, (ins as MethodTypeArgInsn).Dst); return; }
-        if (ins is MethodDefaultInsn) { ZbcWriter._regtVis(rt, (ins as MethodDefaultInsn).Dst); return; }
-        if (ins is CopyInstr) { CopyInstr c = ins as CopyInstr; ZbcWriter._regtVis(rt, c.Dst); ZbcWriter._regtVis(rt, c.Src); return; }
-        if (ins is AddInstr) { AddInstr i = ins as AddInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is SubInstr) { SubInstr i = ins as SubInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is MulInstr) { MulInstr i = ins as MulInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is DivInstr) { DivInstr i = ins as DivInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is RemInstr) { RemInstr i = ins as RemInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is NegInstr) { NegInstr i = ins as NegInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Src); return; }
-        if (ins is NotInstr) { NotInstr i = ins as NotInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Src); return; }
-        if (ins is ConvertInstr) { ConvertInstr i = ins as ConvertInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Src); return; }
-        if (ins is ToStrInstr) { ToStrInstr i = ins as ToStrInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Src); return; }
-        if (ins is BitAndInstr) { BitAndInstr i = ins as BitAndInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is BitOrInstr)  { BitOrInstr i = ins as BitOrInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is BitXorInstr) { BitXorInstr i = ins as BitXorInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is BitNotInstr) { BitNotInstr i = ins as BitNotInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Src); return; }
-        if (ins is ShlInstr) { ShlInstr i = ins as ShlInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is ShrInstr) { ShrInstr i = ins as ShrInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is EqInstr) { EqInstr i = ins as EqInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is NeInstr) { NeInstr i = ins as NeInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is LtInstr) { LtInstr i = ins as LtInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is LeInstr) { LeInstr i = ins as LeInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is GtInstr) { GtInstr i = ins as GtInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is GeInstr) { GeInstr i = ins as GeInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is StrConcatInstr) { StrConcatInstr i = ins as StrConcatInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.A); ZbcWriter._regtVis(rt, i.B); return; }
-        if (ins is CallInstr) { CallInstr i = ins as CallInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtArgs(rt, i.Args, i.ArgCount); return; }
-        if (ins is VCallInstr) { VCallInstr i = ins as VCallInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Obj); ZbcWriter._regtArgs(rt, i.Args, i.ArgCount); return; }
-        if (ins is FieldGetInstr) { FieldGetInstr i = ins as FieldGetInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Obj); return; }
-        if (ins is FieldSetInstr) { FieldSetInstr i = ins as FieldSetInstr; ZbcWriter._regtVis(rt, i.Obj); ZbcWriter._regtVis(rt, i.Val); return; }
-        if (ins is ObjNewInstr) { ObjNewInstr i = ins as ObjNewInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtArgs(rt, i.Args, i.ArgCount); return; }
-        if (ins is IsInstanceInstr) { IsInstanceInstr i = ins as IsInstanceInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Obj); return; }
-        if (ins is AsCastInstr) { AsCastInstr i = ins as AsCastInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Obj); return; }
-        if (ins is TypeofInstr) { TypeofInstr i = ins as TypeofInstr; ZbcWriter._regtVis(rt, i.Dst); return; }
-        if (ins is ArrayNewInstr) { ArrayNewInstr an2 = ins as ArrayNewInstr; ZbcWriter._regtVis(rt, an2.Dst); ZbcWriter._regtVis(rt, an2.Size); return; }
-        if (ins is ArrayNewLitInstr) { ArrayNewLitInstr anl = ins as ArrayNewLitInstr; ZbcWriter._regtVis(rt, anl.Dst); ZbcWriter._regtArgs(rt, anl.Elems, anl.ElemCount); return; }
-        if (ins is StaticGetInstr) { ZbcWriter._regtVis(rt, (ins as StaticGetInstr).Dst); return; }
-        if (ins is StaticSetInstr) { ZbcWriter._regtVis(rt, (ins as StaticSetInstr).Val); return; }
-        if (ins is ArrayLenInstr) { ArrayLenInstr al2 = ins as ArrayLenInstr; ZbcWriter._regtVis(rt, al2.Dst); ZbcWriter._regtVis(rt, al2.Arr); return; }
-        if (ins is LoadFnInstr) { ZbcWriter._regtVis(rt, (ins as LoadFnInstr).Dst); return; }
-        if (ins is CallIndirectInstr) { CallIndirectInstr ci2 = ins as CallIndirectInstr; ZbcWriter._regtVis(rt, ci2.Dst); ZbcWriter._regtVis(rt, ci2.Callee); ZbcWriter._regtArgs(rt, ci2.Args, ci2.ArgCount); return; }
-        if (ins is MkClosInstr) { MkClosInstr mk2 = ins as MkClosInstr; ZbcWriter._regtVis(rt, mk2.Dst); ZbcWriter._regtArgs(rt, mk2.Captures, mk2.CaptureCount); return; }
-        if (ins is ArrayGetInstr) { ArrayGetInstr i = ins as ArrayGetInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Arr); ZbcWriter._regtVis(rt, i.Idx); return; }
-        if (ins is ArraySetInstr) { ArraySetInstr i = ins as ArraySetInstr; ZbcWriter._regtVis(rt, i.Arr); ZbcWriter._regtVis(rt, i.Idx); ZbcWriter._regtVis(rt, i.Val); return; }
-        if (ins is LoadLocalAddrInstr) { LoadLocalAddrInstr la = ins as LoadLocalAddrInstr; ZbcWriter._regtVis(rt, la.Dst); ZbcWriter._regtVis(rt, la.Slot); return; }
-        // add-struct-value-semantics Phase A：blob 值类型指令的寄存器 walk（易漏点，否则 REGT 缺型）。
-        if (ins is StructAllocInstr) { ZbcWriter._regtVis(rt, (ins as StructAllocInstr).Dst); return; }
-        if (ins is StructCopyInstr) { StructCopyInstr i = ins as StructCopyInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Src); return; }
-        if (ins is StructFieldGetPrimInstr) { StructFieldGetPrimInstr i = ins as StructFieldGetPrimInstr; ZbcWriter._regtVis(rt, i.Dst); ZbcWriter._regtVis(rt, i.Base); return; }
-        if (ins is StructFieldSetPrimInstr) { StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr; ZbcWriter._regtVis(rt, i.Base); ZbcWriter._regtVis(rt, i.Val); return; }
+        // 统一操作数接口（unify-ir-operand-access）：dst 先、读操作数序——与各指令 ReadAt 的固定序一致。
+        ZbcWriter._regtVis(rt, ins.DefReg());
+        int n = ins.ReadCount();
+        int i = 0;
+        while (i < n) { ZbcWriter._regtVis(rt, ins.ReadAt(i)); i = i + 1; }
     }
 
     private static void _regtTerm(int[] rt, IrTerminator t) {
-        if (t is RetTerm) { RetTerm r = t as RetTerm; if (r.HasReg) { ZbcWriter._regtVis(rt, r.Reg); } return; }
-        if (t is BrCondTerm) { ZbcWriter._regtVis(rt, (t as BrCondTerm).Cond); return; }
-        if (t is ThrowTerm) { ZbcWriter._regtVis(rt, (t as ThrowTerm).Reg); return; }
+        ZbcWriter._regtVis(rt, t.ReadReg());
     }
 
     // ── DBUG：u32 fnCount；每函数 u16 lineCount + 条目(blk u16,instr u16,line u32,file u32|FFFFFFFF,col u32)
