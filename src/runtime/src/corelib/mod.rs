@@ -658,3 +658,5 @@ pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Value
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod native_decl_tests;   // [Native] declarations ↔ BUILTINS consistency

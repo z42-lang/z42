@@ -65,8 +65,8 @@ Dictionary<string,int> ed     = {};                     // 空 Dict（目标类�
 | `{}`（目标 List/Dict） | `new List<T>()` / `new Dictionary<K,V>()` |
 
 - 目标类型（`List<long> x = {1,2,3}`）决定 `T`/`K`/`V`；无目标时由首元素/首键值推断。
-- `List<T>` 的元素须满足其约束 `T: IEquatable<T> + IComparable<T>`，`Dictionary` 键须满足
-  `TKey: IEquatable<TKey>`（与手写 `new List<T>()` 同约束）。
+- `List<T>` 无元素约束（stdlib-structure-batch 2026-09-03 起，对齐 C#），`Dictionary` 键须满足
+  `TKey: IEquatable<TKey>`（与手写 `new List<T>()` / `new Dictionary<K,V>()` 同约束）。
 - 无目标时元素类型经 `Z42Type → TypeExpr` 合成（prim / 数组 / 泛型实例化 / 具名类短名）；
   非平凡元素类型（如需 FQ 的用户类）建议显式写目标类型。
 
