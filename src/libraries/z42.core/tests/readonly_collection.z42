@@ -1,0 +1,85 @@
+// add-readonly-collection (2026-09-02): ReadOnlyCollection<T> + Array.AsReadOnly<T>
+// —— C# System.Array.AsReadOnly / ObjectModel.ReadOnlyCollection parity.
+namespace Z42CoreReadOnlyCollectionTests;
+
+using Std;
+using Std.Collections;
+using Std.Test;
+
+[Test]
+void test_asreadonly_count_and_index() {
+    int[] xs = new int[]{ 10, 20, 30 };
+    ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
+    Assert.Equal(3, ro.Count);
+    Assert.Equal(10, ro[0]);
+    Assert.Equal(20, ro[1]);
+    Assert.Equal(30, ro[2]);
+}
+
+[Test]
+void test_contains() {
+    int[] xs = new int[]{ 1, 2, 3 };
+    ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
+    Assert.True(ro.Contains(2));
+    Assert.True(!ro.Contains(9));
+}
+
+[Test]
+void test_indexof() {
+    int[] xs = new int[]{ 5, 6, 7, 6 };
+    ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
+    Assert.Equal(1, ro.IndexOf(6));   // first match
+    Assert.Equal(-1, ro.IndexOf(99));
+}
+
+[Test]
+void test_copyto() {
+    int[] xs = new int[]{ 1, 2, 3 };
+    ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
+    int[] dst = new int[5];
+    ro.CopyTo(dst, 1);
+    Assert.Equal(0, dst[0]);
+    Assert.Equal(1, dst[1]);
+    Assert.Equal(2, dst[2]);
+    Assert.Equal(3, dst[3]);
+    Assert.Equal(0, dst[4]);
+}
+
+[Test]
+void test_toarray_is_copy() {
+    int[] xs = new int[]{ 1, 2, 3 };
+    ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
+    int[] snap = ro.ToArray();
+    snap[0] = 999;              // mutating the snapshot must not affect the view
+    Assert.Equal(1, ro[0]);
+    Assert.Equal(3, snap.Length);
+}
+
+[Test]
+void test_view_reflects_underlying_mutation() {
+    // C# semantics: AsReadOnly wraps by reference — changes to the backing array
+    // ARE visible through the read-only view (it prevents mutation *through* the
+    // view, not mutation of the underlying array).
+    int[] xs = new int[]{ 1, 2, 3 };
+    ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
+    xs[0] = 100;
+    Assert.Equal(100, ro[0]);
+}
+
+[Test]
+void test_foreach() {
+    int[] xs = new int[]{ 2, 4, 6 };
+    ReadOnlyCollection<int> ro = Array.AsReadOnly<int>(xs);
+    int sum = 0;
+    foreach (int v in ro) { sum = sum + v; }
+    Assert.Equal(12, sum);
+}
+
+[Test]
+void test_string_elements() {
+    string[] ss = new string[]{ "a", "b", "c" };
+    ReadOnlyCollection<string> ro = Array.AsReadOnly<string>(ss);
+    Assert.Equal(3, ro.Count);
+    Assert.True(ro.Contains("b"));
+    Assert.Equal(2, ro.IndexOf("c"));
+}

@@ -1,0 +1,59 @@
+namespace Std.Collections;
+
+
+// `ReadOnlyCollection<T>` —— 只读集合视图（对标 C# System.Collections.ObjectModel.ReadOnlyCollection<T>）。
+//
+// 包装一个既有 `T[]`（**按引用，不复制**）：对底层数组的读通过本视图可见，但本视图不暴露任何变更
+// 操作（无 Add / RemoveAt / set 索引器）——只读契约由「没有变更 API」在类型层面保证，而非运行期抛异常。
+// 由 `Array.AsReadOnly<T>` 构造，也可直接 `new`。
+//
+// 支持 foreach：提供 `Count` 字段 + get-only 索引器 → 走 z42 的索引快路径（无需 GetEnumerator）。
+// 不加泛型约束：Contains / IndexOf 用 `Object.Equals`（所有 T 均可用），故任意 `T[]` 都能包装，
+// 不像 `List<T>` 那样要求 `T: IEquatable<T>`。
+public sealed class ReadOnlyCollection<T> {
+    T[] items;
+    public int Count;
+
+    // 包装既有数组（按引用）。array 不应为 null（对齐 C# AsReadOnly：null 参数是调用方错误）。
+    public ReadOnlyCollection(T[] array) {
+        this.items = array;
+        this.Count = array.Length;
+    }
+
+    // 只读索引访问；越界由底层数组抛 IndexOutOfRangeException。
+    public T this[int index] {
+        get { return this.items[index]; }
+    }
+
+    // 是否包含 value（按 Object.Equals 线性查找）。
+    public bool Contains(T value) {
+        for (int i = 0; i < this.Count; i++) {
+            if (this.items[i].Equals(value)) return true;
+        }
+        return false;
+    }
+
+    // 首个等于 value 的下标（按 Object.Equals），未命中返回 -1。
+    public int IndexOf(T value) {
+        for (int i = 0; i < this.Count; i++) {
+            if (this.items[i].Equals(value)) return i;
+        }
+        return -1;
+    }
+
+    // 将全部元素拷贝到 array，从 arrayIndex 处起。
+    public void CopyTo(T[] array, int arrayIndex) {
+        for (int i = 0; i < this.Count; i++) {
+            array[arrayIndex + i] = this.items[i];
+        }
+    }
+
+    // 返回元素的新数组副本（对底层的防御性快照）。
+    public T[] ToArray() {
+        T[] result = new T[this.Count];
+        for (int i = 0; i < this.Count; i++) {
+            result[i] = this.items[i];
+        }
+        return result;
+    }
+}
