@@ -123,12 +123,17 @@ pub unsafe extern "C" fn jit_vcall(
         call_args.push(Value::I64(scalar));
         call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
         let arity = argc;
-        let candidates = [
+        // stabilize-instance-dispatch-keys (PR-1): bare canonical-slot fallback for a
+        // resolved full-key operand (mirrors interp exec_vcall.rs; inert today).
+        let bare = method.split_once('$').map(|(b, _)| b);
+        let mut candidates: Vec<String> = vec![
             format!("{}.{}${}", class_name, method, arity),
             format!("{}.{}", class_name, method),
-            format!("Std.Object.{}${}", method, arity),
-            format!("Std.Object.{}", method),
         ];
+        if let Some(b) = bare { candidates.push(format!("{}.{}", class_name, b)); }
+        candidates.push(format!("Std.Object.{}${}", method, arity));
+        candidates.push(format!("Std.Object.{}", method));
+        if let Some(b) = bare { candidates.push(format!("Std.Object.{}", b)); }
         for func_name in &candidates {
             if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name.as_str()) {
                 let mut callee = JitFrame::new(entry.max_reg, &call_args);
@@ -202,12 +207,17 @@ pub unsafe extern "C" fn jit_vcall(
         call_args.push(obj_val.clone());
         call_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
         let arity = argc;
-        let candidates = [
+        // stabilize-instance-dispatch-keys (PR-1): bare canonical-slot fallback for a
+        // resolved full-key operand (mirrors interp exec_vcall.rs; inert today).
+        let bare = method.split_once('$').map(|(b2, _)| b2);
+        let mut candidates: Vec<String> = vec![
             format!("{}.{}${}", type_name, method, arity),
             format!("{}.{}", type_name, method),
-            format!("Std.Object.{}${}", method, arity),
-            format!("Std.Object.{}", method),
         ];
+        if let Some(b2) = bare { candidates.push(format!("{}.{}", type_name, b2)); }
+        candidates.push(format!("Std.Object.{}${}", method, arity));
+        candidates.push(format!("Std.Object.{}", method));
+        if let Some(b2) = bare { candidates.push(format!("Std.Object.{}", b2)); }
         for func_name in &candidates {
             if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name.as_str()) {
                 let mut callee = JitFrame::new(entry.max_reg, &call_args);
@@ -271,8 +281,19 @@ pub unsafe extern "C" fn jit_vcall(
         // Std.Object 兜底（镜像 interp）：基元未 override 的协议方法（尤 GetType）走基类实现。
         let obj_primary = format!("Std.Object.{}", method);
         let obj_overload = format!("Std.Object.{}${}", method, arity);
-        for func_name in [primary.as_str(), overload.as_str(),
-                          obj_primary.as_str(), obj_overload.as_str()] {
+        // stabilize-instance-dispatch-keys (PR-1): bare canonical-slot fallback for a
+        // resolved full-key operand (mirrors interp exec_vcall.rs; inert today).
+        let bare = method.split_once('$').map(|(b, _)| b);
+        let bare_class = bare.map(|b| format!("{}.{}", class_name, b));
+        let bare_obj = bare.map(|b| format!("Std.Object.{}", b));
+        let mut candidates: Vec<&str> = Vec::with_capacity(6);
+        candidates.push(primary.as_str());
+        candidates.push(overload.as_str());
+        if let Some(bc) = bare_class.as_deref() { candidates.push(bc); }
+        candidates.push(obj_primary.as_str());
+        candidates.push(obj_overload.as_str());
+        if let Some(bo) = bare_obj.as_deref() { candidates.push(bo); }
+        for func_name in candidates {
             if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name) {
                 // add-jit-primitive-vcall-ic: install (synthetic prim type id →
                 // module fn_idx) so the next call at this site with the same

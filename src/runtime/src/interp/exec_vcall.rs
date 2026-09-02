@@ -171,12 +171,21 @@ pub(super) fn vcall(
         let mut call_args = vec![Value::I64(scalar)];
         call_args.append(&mut extra_args);
         let arity = call_args.len() - 1;
-        let candidates = [
+        // stabilize-instance-dispatch-keys (PR-1, additive/inert-today): the bare
+        // canonical-slot fallback below activates only when the VCall operand is a
+        // resolved full key (`Name$arity$types`, contains '$'). Today prim/boxed
+        // operands are always the unmangled source name (no '$'), so `split_once`
+        // yields None and this candidate set is byte-identical to before. See the
+        // primitive path below for the full rationale (H1 / D2).
+        let bare = method.split_once('$').map(|(b, _)| b);
+        let mut candidates: Vec<String> = vec![
             format!("{}.{}${}", class_name, method, arity),
             format!("{}.{}", class_name, method),
-            format!("Std.Object.{}${}", method, arity),
-            format!("Std.Object.{}", method),
         ];
+        if let Some(b) = bare { candidates.push(format!("{}.{}", class_name, b)); }
+        candidates.push(format!("Std.Object.{}${}", method, arity));
+        candidates.push(format!("Std.Object.{}", method));
+        if let Some(b) = bare { candidates.push(format!("Std.Object.{}", b)); }
         for func_name in &candidates {
             let callee = module.func_index.get(func_name.as_str())
                 .and_then(|&idx| module.functions.get(idx));
@@ -226,12 +235,17 @@ pub(super) fn vcall(
         let mut call_args = vec![obj_val.clone()];
         call_args.append(&mut extra_args);
         let arity = call_args.len() - 1;
-        let candidates = [
+        // stabilize-instance-dispatch-keys (PR-1): bare canonical-slot fallback for a
+        // resolved full-key operand (inert today — struct VCall operands carry no '$').
+        let bare = method.split_once('$').map(|(b2, _)| b2);
+        let mut candidates: Vec<String> = vec![
             format!("{}.{}${}", type_name, method, arity),
             format!("{}.{}", type_name, method),
-            format!("Std.Object.{}${}", method, arity),
-            format!("Std.Object.{}", method),
         ];
+        if let Some(b2) = bare { candidates.push(format!("{}.{}", type_name, b2)); }
+        candidates.push(format!("Std.Object.{}${}", method, arity));
+        candidates.push(format!("Std.Object.{}", method));
+        if let Some(b2) = bare { candidates.push(format!("Std.Object.{}", b2)); }
         for func_name in &candidates {
             let callee = module.func_index.get(func_name.as_str())
                 .and_then(|&idx| module.functions.get(idx));
@@ -332,13 +346,32 @@ pub(super) fn vcall(
         // 类专属候选优先，故 override 仍解析到子类实现，兜底只补「仅 Std.Object 有」的方法。
         let obj_primary = format!("Std.Object.{}", method);
         let obj_overload = format!("Std.Object.{}${}", method, arity);
+        // stabilize-instance-dispatch-keys (PR-1, additive/inert-today): when the
+        // VCall operand is a resolved full key (`Name$arity$types`, contains '$' —
+        // emitted by the compiler only after the PR-2 keying flip), probe the exact
+        // full key first (already formed by `{class}.{method}` = primary), then fall
+        // back to the bare canonical slot `{class}.{Name}` — the primary impl is
+        // bare-registered, so this reaches it when the receiver type doesn't register
+        // that exact overload (H1 / D2 "回落裸规范槽"). Today prim VCall operands are
+        // always the unmangled source name (see the block comment above: the IR
+        // carries the unmangled name and the runtime appends `$arity`), so
+        // `split_once` yields None and the candidate set is byte-identical to before.
+        let bare = method.split_once('$').map(|(b, _)| b);
+        let bare_class = bare.map(|b| format!("{}.{}", class_name, b));
+        let bare_obj = bare.map(|b| format!("Std.Object.{}", b));
         // refactor-vcall-ic-primitives (2026-05-17): on intra-module resolve,
         // populate VCallIC so the next call at this site with the same primitive
         // receiver type takes the IC fast path above — skips both format!()
         // calls + the HashMap lookup. Cross-zpkg (lazy_fn) skips populate
         // because IC cached_fn_idx must index into THIS module's functions table.
-        for func_name in [primary.as_str(), overload.as_str(),
-                          obj_primary.as_str(), obj_overload.as_str()] {
+        let mut candidates: Vec<&str> = Vec::with_capacity(6);
+        candidates.push(primary.as_str());
+        candidates.push(overload.as_str());
+        if let Some(bc) = bare_class.as_deref() { candidates.push(bc); }
+        candidates.push(obj_primary.as_str());
+        candidates.push(obj_overload.as_str());
+        if let Some(bo) = bare_obj.as_deref() { candidates.push(bo); }
+        for func_name in candidates {
             if let Some(&idx) = module.func_index.get(func_name) {
                 if let Some(callee) = module.functions.get(idx) {
                     if let (Some(ic), Some(synth_id)) =
