@@ -171,6 +171,14 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     ("__math_tan",     math::builtin_math_tan),
     ("__math_atan2",   math::builtin_math_atan2),
     ("__math_exp",     math::builtin_math_exp),
+    ("__math_asin",    math::builtin_math_asin),
+    ("__math_acos",    math::builtin_math_acos),
+    ("__math_atan",    math::builtin_math_atan),
+    ("__math_sinh",    math::builtin_math_sinh),
+    ("__math_cosh",    math::builtin_math_cosh),
+    ("__math_tanh",    math::builtin_math_tanh),
+    ("__math_cbrt",    math::builtin_math_cbrt),
+    ("__math_log2",    math::builtin_math_log2),
 
     // ── File I/O ──────────────────────────────────────────────────────────────
     ("__file_read_text",   fs::builtin_file_read_text),

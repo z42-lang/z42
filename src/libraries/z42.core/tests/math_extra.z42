@@ -1,0 +1,90 @@
+// augment-corelib-parity (backlog #9): coverage for the added System.Math
+// members — native inverse-trig / hyperbolic / cbrt / log2, plus the pure-script
+// Truncate and Round(double, int). Float results are asserted with tight bounds
+// (the codebase convention — see math_basics.z42), no exact-equality on doubles.
+namespace Z42MathExtraTests;
+
+using Std.Test;
+using Std;
+
+// ── Inverse trig (native) ───────────────────────────────────────────────
+[Test]
+void test_asin() {
+    double a = Math.Asin(1.0);      // pi/2 ≈ 1.5708
+    Assert.True(a > 1.5707 && a < 1.5709);
+    Assert.True(Math.Asin(0.0) > -0.0001 && Math.Asin(0.0) < 0.0001);
+}
+[Test]
+void test_acos() {
+    double a = Math.Acos(0.0);      // pi/2
+    Assert.True(a > 1.5707 && a < 1.5709);
+    double z = Math.Acos(1.0);      // 0
+    Assert.True(z > -0.0001 && z < 0.0001);
+}
+[Test]
+void test_atan() {
+    double a = Math.Atan(1.0);      // pi/4 ≈ 0.7854
+    Assert.True(a > 0.7853 && a < 0.7855);
+}
+
+// ── Hyperbolic (native) ─────────────────────────────────────────────────
+[Test]
+void test_sinh() {
+    double s = Math.Sinh(1.0);      // ≈ 1.1752
+    Assert.True(s > 1.1751 && s < 1.1753);
+    double z = Math.Sinh(0.0);
+    Assert.True(z > -0.0001 && z < 0.0001);
+}
+[Test]
+void test_cosh() {
+    double c = Math.Cosh(1.0);      // ≈ 1.5431
+    Assert.True(c > 1.5430 && c < 1.5432);
+    double one = Math.Cosh(0.0);    // 1
+    Assert.True(one > 0.9999 && one < 1.0001);
+}
+[Test]
+void test_tanh() {
+    double t = Math.Tanh(1.0);      // ≈ 0.7616
+    Assert.True(t > 0.7615 && t < 0.7617);
+    // Large input: tanh saturates to ~1 (would overflow a sinh/cosh derivation).
+    double big = Math.Tanh(1000.0);
+    Assert.True(big > 0.9999 && big <= 1.0001);
+}
+
+// ── Cbrt / Log2 (native) ────────────────────────────────────────────────
+[Test]
+void test_cbrt() {
+    double c = Math.Cbrt(27.0);     // 3
+    Assert.True(c > 2.9999 && c < 3.0001);
+    double neg = Math.Cbrt(-8.0);   // -2 (real cube root of negative)
+    Assert.True(neg > -2.0001 && neg < -1.9999);
+}
+[Test]
+void test_log2() {
+    double l = Math.Log2(8.0);      // exactly 3
+    Assert.True(l > 2.9999 && l < 3.0001);
+    double one = Math.Log2(1024.0); // exactly 10
+    Assert.True(one > 9.9999 && one < 10.0001);
+}
+
+// ── Truncate (script) ───────────────────────────────────────────────────
+[Test]
+void test_truncate() {
+    double a = Math.Truncate(3.7);
+    Assert.True(a > 2.9999 && a < 3.0001);
+    double b = Math.Truncate(-3.7);   // toward zero -> -3, not -4
+    Assert.True(b > -3.0001 && b < -2.9999);
+    double c = Math.Truncate(5.0);
+    Assert.True(c > 4.9999 && c < 5.0001);
+}
+
+// ── Round(double, int digits) (script) ──────────────────────────────────
+[Test]
+void test_round_digits() {
+    double a = Math.Round(3.14159, 2);   // 3.14
+    Assert.True(a > 3.1399 && a < 3.1401);
+    double b = Math.Round(2.5, 0);       // native round -> 2 (banker's/away varies), just in range
+    Assert.True(b > 1.9999 && b < 3.0001);
+    double c = Math.Round(1.005, 2);     // ~1.0 (binary repr) — bounded loosely
+    Assert.True(c > 0.9999 && c < 1.0101);
+}

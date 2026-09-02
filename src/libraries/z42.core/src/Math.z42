@@ -76,6 +76,23 @@ public static class Math {
         return x;
     }
 
+    // augment-corelib-parity (2026-09-02, backlog #9): pure-script helpers on
+    // top of the native primitives below — trivial arithmetic, no libm needed.
+
+    // Round toward zero (drops the fractional part). Matches System.Math.Truncate.
+    public static double Truncate(double x) {
+        if (x < 0.0) return Ceiling(x);
+        return Floor(x);
+    }
+    // Round to `digits` fractional decimal places. Scales into integer range,
+    // rounds via the native single-arg Round, then unscales — same shape as
+    // System.Math.Round(double, int). Type-based mangling keeps this arity-2
+    // overload distinct from the native Round(double).
+    public static double Round(double x, int digits) {
+        double factor = Pow(10.0, (double)digits);
+        return Round(x * factor) / factor;
+    }
+
     // ── Native bindings (libm 必需) ─────────────────────────────────────────
     [Native("__math_pow")]    public static extern double Pow(double base, double exp);
     [Native("__math_sqrt")]   public static extern double Sqrt(double x);
@@ -89,4 +106,13 @@ public static class Math {
     [Native("__math_tan")]    public static extern double Tan(double x);
     [Native("__math_atan2")]  public static extern double Atan2(double y, double x);
     [Native("__math_exp")]    public static extern double Exp(double x);
+    // Inverse-trig / hyperbolic / cube-root / base-2 log (backlog #9).
+    [Native("__math_asin")]   public static extern double Asin(double x);
+    [Native("__math_acos")]   public static extern double Acos(double x);
+    [Native("__math_atan")]   public static extern double Atan(double x);
+    [Native("__math_sinh")]   public static extern double Sinh(double x);
+    [Native("__math_cosh")]   public static extern double Cosh(double x);
+    [Native("__math_tanh")]   public static extern double Tanh(double x);
+    [Native("__math_cbrt")]   public static extern double Cbrt(double x);
+    [Native("__math_log2")]   public static extern double Log2(double x);
 }

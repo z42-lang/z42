@@ -17,11 +17,12 @@
 | `Single.z42` | `struct float` — 单精度浮点（VM 用 F64 存储；常量 `MaxValue` / `MinValue` / `Epsilon`）|
 | `SByte/Byte/Int16/UInt16/UInt32/UInt64.z42` | 其余整数基元家族（`Parse` / `TryParse` / 协议方法 + `MaxValue` / `MinValue` 常量，C# BCL 对标）|
 | `Bool.z42` | `struct bool` — 布尔（只实现 `IEquatable<bool>`）|
-| `Char.z42` | `struct char` — 字符（`CompareTo` / `Equals` / `GetHashCode` / `ToString` / `IsWhiteSpace` / `ToLower` / `ToUpper`）|
+| `Char.z42` | `struct char` — 字符（`CompareTo` / `Equals` / `GetHashCode` / `ToString` / `IsWhiteSpace` / `ToLower` / `ToUpper` + ASCII 分类 `IsDigit` / `IsLetter` / `IsLetterOrDigit` / `IsUpper` / `IsLower` / `IsPunctuation`；上述分类与 casing 均有 C# 风格静态形式 `Char.IsDigit(c)` 等）|
 | `Type.z42` | 运行时类型对象（`typeof` 运算符返回值）|
 | `Array.z42` | `T[]` 基类（`Length` / `Clone` / 反射 `CreateInstance` / `GetValue` / `SetValue`）+ 静态算法（C# `System.Array` 对标）：排序 `Sort<T>` / `Sort<T>(cmp)` / `Sort<T>(index,length)`、查找 `IndexOf` / `IndexOf(start[,count])` / `LastIndexOf` / `LastIndexOf(start)` / `Contains` / `BinarySearch` / `BinarySearch(index,length,value)` / `BinarySearch(value,cmp)`、谓词 `Find` / `FindLast` / `FindIndex` / `FindLastIndex` / `FindAll` / `Exists` / `TrueForAll`、变换 `ConvertAll` / `ForEach` / `Copy` / `Copy(srcIdx,dstIdx,len)` / `Fill` / `Fill(value,start,count)` / `Reverse` / `Reverse(index,length)` / `Clear` / `Resize` / `Empty`、只读视图 `AsReadOnly<T>`（→ `Collections.ReadOnlyCollection<T>`） |
 | `Assert.z42` | 断言工具（`Assert.True`、`Assert.Equal` 等）|
 | `Convert.z42` | 类型转换工具：`ToInt32` / `ToInt64` / `ToDouble` / `ToString`（native）+ `ToByte` / `ToInt16` / `ToSingle` / `ToBoolean` / `ToChar`（纯脚本）|
+| `Math.z42` | `static Math` — 常量 `Pi` / `E` / `Tau`；纯脚本 `Abs` / `Max` / `Min` / `Sign` / `Clamp`（+ `*Int` 变体）/ `Truncate` / `Round(x,digits)`；native (libm) `Pow` / `Sqrt` / `Floor` / `Ceiling` / `Round` / `Log` / `Log10` / `Log2` / `Exp` / `Sin` / `Cos` / `Tan` / `Asin` / `Acos` / `Atan` / `Atan2` / `Sinh` / `Cosh` / `Tanh` / `Cbrt`（C# `System.Math` 对标）|
 | `IEquatable.z42` | 相等性接口 |
 | `IComparable.z42` | 比较接口 |
 | `IDisposable.z42` | 资源释放接口（`void Dispose()`）|
@@ -57,7 +58,7 @@
 | `Collections/List.Query.z42` | `List<T>` 查询/谓词族（partial 第二部分，对标 C#）：`Find` / `FindLast` / `FindIndex` / `FindLastIndex` / `FindAll` / `Exists` / `TrueForAll` / `RemoveAll` / `LastIndexOf` / `GetRange` / `BinarySearch`（`ConvertAll` / `AsReadOnly` 见 Deferred） |
 | `Collections/Dictionary.z42` | `Dictionary<K,V>` — 泛型哈希映射（纯脚本实现）；`Remove` 复用已存 hash 内联重排探测链；查找族 `TryAdd` / `GetValueOrDefault(key)` / `GetValueOrDefault(key, default)`（`TryGetValue` 待 out→tuple 迁移后引入） |
 | `Collections/ReadOnlyCollection.z42` | `ReadOnlyCollection<T>` — 只读集合视图（对标 C# `ObjectModel.ReadOnlyCollection`）；按引用包装 `T[]`，`Count` / 只读索引器 / `Contains` / `IndexOf` / `CopyTo` / `ToArray` / foreach；无变更 API。由 `Array.AsReadOnly<T>` 构造 |
-| `Collections/HashSet.z42` | _（未来实现；暂缺）_ |
+| `Collections/HashSet.z42` | `HashSet<T>` — 泛型哈希集合（开放寻址，与 `Dictionary` 同款掩码探测 + 存储 hash 短路）；`Add`（去重，已存返 false）/ `Remove` / `Contains` / `Count` / `IsEmpty` / `Clear` / `ToArray` + 集合运算 `UnionWith` / `IntersectWith` / `ExceptWith`（接收 `T[]`）|
 
 ### 设计决策（2026-04-25 reorganize-stdlib-packages W1）
 
