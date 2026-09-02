@@ -59,6 +59,41 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
         return this.values[slot];
     }
 
+    // add-list-dict-lookup-family (2026-09-02): C#-parity 查找族。
+    // 注：TryGetValue 依赖 `out`，而 out→tuple 迁移正在进行（ref-borrow 程序），
+    // 故本次不引入；GetValueOrDefault 覆盖其绝大多数无异常查找场景。
+
+    // 仅当 key 不存在时插入，返回是否成功插入（已存在则不覆盖、返回 false）。
+    // 对标 C# `Dictionary.TryAdd`。复用 Set 的探测/扩容路径，但命中即短路。
+    public bool TryAdd(TKey key, TValue value) {
+        if (this.Count * 4 > this.capacity * 3) this.Grow();
+        int h = key.GetHashCode() & 0x7FFFFFFF;
+        int slot = this._findSlotH(key, h);
+        if (this.occupied[slot]) return false;
+        this.occupied[slot] = true;
+        this.Count = this.Count + 1;
+        this.keys[slot] = key;
+        this.values[slot] = value;
+        this.hashes[slot] = h;
+        return true;
+    }
+
+    // 返回 key 对应的值，不存在则返回 default(TValue)。对标 C#
+    // `Dictionary.GetValueOrDefault(key)` —— 一次探测，无异常。
+    public TValue GetValueOrDefault(TKey key) {
+        int slot = this.FindSlot(key);
+        if (this.occupied[slot]) return this.values[slot];
+        return default(TValue);
+    }
+
+    // 返回 key 对应的值，不存在则返回调用方给定的 `defaultValue`。对标 C#
+    // `Dictionary.GetValueOrDefault(key, defaultValue)`。
+    public TValue GetValueOrDefault(TKey key, TValue defaultValue) {
+        int slot = this.FindSlot(key);
+        if (this.occupied[slot]) return this.values[slot];
+        return defaultValue;
+    }
+
     public bool ContainsKey(TKey key) {
         int slot = this.FindSlot(key);
         return this.occupied[slot];
