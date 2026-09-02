@@ -1,0 +1,134 @@
+// IR 指令：常量 / 类型参数物化 / 静态读 / load_fn / typeof —— 仅定义 Dst、无读操作数（IrDefOnlyInstr）。
+// 拆自 IrInstr.z42（unify-ir-operand-access）；接口约定见 IrInstr.z42 文件头。
+namespace Z42.IR;
+
+// ── 常量 ────────────────────────────────────────────────────────────────────────
+// 数值字面量存原始文本（解析/规范化留 byte-identical ZbcWriter；CG-1A 文本 dump 够用）。
+// 整数分 i32/i64 两条（镜像 C# ConstI32Instr/ConstI64Instr，值宽不同）：int 及更小 → i32，long/u64 → i64。
+public sealed class ConstI32Instr : IrDefOnlyInstr {
+    public string   Text;
+    public ConstI32Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
+    public override string Dump() { return this.Dst.Dump() + " = const.i32 " + this.Text; }
+    public override IrInstr Clone() { return new ConstI32Instr(this.Dst, this.Text); }
+}
+
+public sealed class ConstI64Instr : IrDefOnlyInstr {
+    public string   Text;
+    public ConstI64Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
+    public override string Dump() { return this.Dst.Dump() + " = const.i64 " + this.Text; }
+    public override IrInstr Clone() { return new ConstI64Instr(this.Dst, this.Text); }
+}
+
+public sealed class ConstF64Instr : IrDefOnlyInstr {
+    public string   Text;
+    public ConstF64Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
+    public override string Dump() { return this.Dst.Dump() + " = const.f64 " + this.Text; }
+    public override IrInstr Clone() { return new ConstF64Instr(this.Dst, this.Text); }
+}
+
+public sealed class ConstCharInstr : IrDefOnlyInstr {
+    public char Val;
+    public ConstCharInstr(TypedReg dst, char val) { this.Dst = dst; this.Val = val; }
+    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = const.char " + this.Val.ToString(); }
+    public override IrInstr Clone() { return new ConstCharInstr(this.Dst, this.Val); }
+}
+
+public sealed class ConstBoolInstr : IrDefOnlyInstr {
+    public bool     Value;
+    public ConstBoolInstr(TypedReg dst, bool value) { this.Dst = dst; this.Value = value; }
+    public override string Dump() {
+        string v = "false"; if (this.Value) { v = "true"; }
+        return this.Dst.Dump() + " = const.bool " + v;
+    }
+    public override IrInstr Clone() { return new ConstBoolInstr(this.Dst, this.Value); }
+}
+
+public sealed class ConstStrInstr : IrDefOnlyInstr {
+    public int      Idx;     // StringPool 索引（1-based）
+    public ConstStrInstr(TypedReg dst, int idx) { this.Dst = dst; this.Idx = idx; }
+    public override string Dump() { return this.Dst.Dump() + " = const.str #" + this.Idx.ToString(); }
+    public override IrInstr Clone() { return new ConstStrInstr(this.Dst, this.Idx); }
+}
+
+public sealed class ConstNullInstr : IrDefOnlyInstr {
+    public ConstNullInstr(TypedReg dst) { this.Dst = dst; }
+    public override string Dump() { return this.Dst.Dump() + " = const.null"; }
+    public override IrInstr Clone() { return new ConstNullInstr(this.Dst); }
+}
+
+// default(T) 泛型类型参数零值（D-8b-3 Phase 2；opcode 0xB0）。ParamIndex = 类型实参位置（0 起）。
+// **类级**：运行期读 instance.type_args（regs[0]）。方法级见 MethodDefaultInsn。
+public sealed class DefaultOfInstr : IrDefOnlyInstr {
+    public int      ParamIndex;
+    public DefaultOfInstr(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
+    public override string Dump() { return this.Dst.Dump() + " = default_of " + this.ParamIndex.ToString(); }
+    public override IrInstr Clone() { return new DefaultOfInstr(this.Dst, this.ParamIndex); }
+}
+
+// add-generic-methods：方法级泛型形参物化为具体 Std.Type（opcode 0xB1）。ParamIndex = 该形参在
+// **方法** TypeParams 中序号 → 运行期 make_type_from_name(frame.method_type_args[ParamIndex])。
+// 喂 typeof(T)（直接结果）与 new T()（+ __activator_create）。与类级 TypeofInstr 载体不同（frame 槽 vs 占位名）。
+public sealed class MethodTypeArgInsn : IrDefOnlyInstr {
+    public int      ParamIndex;
+    public MethodTypeArgInsn(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
+    public override string Dump() { return this.Dst.Dump() + " = method_type_arg " + this.ParamIndex.ToString(); }
+    public override IrInstr Clone() { return new MethodTypeArgInsn(this.Dst, this.ParamIndex); }
+}
+
+// add-generic-methods：方法级 default(T) 零值（opcode 0xB2）。镜像 DefaultOfInstr 但读 frame.method_type_args。
+// ParamIndex = 方法 TypeParams 序号 → 运行期 default_value_for(frame.method_type_args[ParamIndex])。
+public sealed class MethodDefaultInsn : IrDefOnlyInstr {
+    public int      ParamIndex;
+    public MethodDefaultInsn(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
+    public override string Dump() { return this.Dst.Dump() + " = method_default " + this.ParamIndex.ToString(); }
+    public override IrInstr Clone() { return new MethodDefaultInsn(this.Dst, this.ParamIndex); }
+}
+
+// ── 静态读 / 函数引用 / typeof ───────────────────────────────────────────────────
+public sealed class StaticGetInstr : IrDefOnlyInstr {
+    public string Field;    // FQ "Cls.Field"
+    public StaticGetInstr(TypedReg dst, string field) { this.Dst = dst; this.Field = field; }
+    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = static_get " + this.Field; }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
+    public override IrInstr Clone() { return new StaticGetInstr(this.Dst, this.Field); }
+}
+
+// 闭包三指令之一（port-z42c-closures）：load_fn @func → 函数引用。
+public sealed class LoadFnInstr : IrDefOnlyInstr {
+    public string Func;
+    public LoadFnInstr(TypedReg dst, string func) { this.Dst = dst; this.Func = func; }
+    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = load_fn @" + this.Func; }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Func; } return null; }
+    public override IrInstr Clone() { return new LoadFnInstr(this.Dst, this.Func); }
+}
+
+// typeof(T) → reflection Std.Type 句柄（镜像 C# TypeofInstr / opcode 0x73）。
+// TypeName=FQ 类型名；TypeArgs=构造泛型实参 FQ 名（IsGenericTypeDefinition==false）。
+public sealed class TypeofInstr : IrDefOnlyInstr {
+    public string   TypeName;
+    public string[] TypeArgs;
+    public int      TypeArgCount;
+    public TypeofInstr(TypedReg dst, string typeName, string[] typeArgs, int typeArgCount) {
+        this.Dst = dst; this.TypeName = typeName; this.TypeArgs = typeArgs; this.TypeArgCount = typeArgCount;
+    }
+    public override string Dump() {
+        string s = this.Dst.Dump() + " = typeof @" + this.TypeName;
+        if (this.TypeArgCount > 0) {
+            s = s + "<";
+            int t = 0;
+            while (t < this.TypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.TypeArgs[t]; t = t + 1; }
+            s = s + ">";
+        }
+        return s;
+    }
+    // 池化序：TypeName，再 TypeArgs。
+    public override int StrCount() { return 1 + this.TypeArgCount; }
+    public override string StrAt(int i) {
+        if (i == 0) { return this.TypeName; }
+        if (i >= 1 && i <= this.TypeArgCount) { return this.TypeArgs[i - 1]; }
+        return null;
+    }
+    public override IrInstr Clone() { return new TypeofInstr(this.Dst, this.TypeName, this.TypeArgs, this.TypeArgCount); }
+}

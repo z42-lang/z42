@@ -400,40 +400,16 @@ public sealed class IrInline {
         return w;
     }
 
-    // 逐指令克隆 + 按 ctx 重映射寄存器。仅 curated 集（_isInlinable 已保证）；未覆盖类型不可达，
-    // 兜底返回原指令仅为类型完整（不会执行到）。
+    // 逐指令克隆 + 按 ctx 重映射寄存器（统一操作数接口：Clone → 重映射定义寄存器与全部读操作数）。
+    // 仅 curated 集（_isInlinable 已保证）；接口对所有指令通用，白名单只表达「哪些指令内联安全」的策略。
     private static IrInstr _cloneRemap(IrInstr ins, InlineCtx ctx) {
-        if (ins is ConstI32Instr)  { ConstI32Instr i = ins as ConstI32Instr; return new ConstI32Instr(IrInline._rr(i.Dst, ctx), i.Text); }
-        if (ins is ConstI64Instr)  { ConstI64Instr i = ins as ConstI64Instr; return new ConstI64Instr(IrInline._rr(i.Dst, ctx), i.Text); }
-        if (ins is ConstF64Instr)  { ConstF64Instr i = ins as ConstF64Instr; return new ConstF64Instr(IrInline._rr(i.Dst, ctx), i.Text); }
-        if (ins is ConstBoolInstr) { ConstBoolInstr i = ins as ConstBoolInstr; return new ConstBoolInstr(IrInline._rr(i.Dst, ctx), i.Value); }
-        if (ins is ConstCharInstr) { ConstCharInstr i = ins as ConstCharInstr; return new ConstCharInstr(IrInline._rr(i.Dst, ctx), i.Val); }
-        if (ins is ConstStrInstr)  { ConstStrInstr i = ins as ConstStrInstr; return new ConstStrInstr(IrInline._rr(i.Dst, ctx), i.Idx); }
-        if (ins is ConstNullInstr) { ConstNullInstr i = ins as ConstNullInstr; return new ConstNullInstr(IrInline._rr(i.Dst, ctx)); }
-        if (ins is CopyInstr)      { CopyInstr i = ins as CopyInstr; return new CopyInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
-        if (ins is AddInstr)       { AddInstr i = ins as AddInstr; return new AddInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is SubInstr)       { SubInstr i = ins as SubInstr; return new SubInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is MulInstr)       { MulInstr i = ins as MulInstr; return new MulInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is DivInstr)       { DivInstr i = ins as DivInstr; return new DivInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is RemInstr)       { RemInstr i = ins as RemInstr; return new RemInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is NegInstr)       { NegInstr i = ins as NegInstr; return new NegInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
-        if (ins is NotInstr)       { NotInstr i = ins as NotInstr; return new NotInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
-        if (ins is BitNotInstr)    { BitNotInstr i = ins as BitNotInstr; return new BitNotInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
-        if (ins is ConvertInstr)   { ConvertInstr i = ins as ConvertInstr; return new ConvertInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Src, ctx)); }
-        if (ins is BitAndInstr)    { BitAndInstr i = ins as BitAndInstr; return new BitAndInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is BitOrInstr)     { BitOrInstr i = ins as BitOrInstr; return new BitOrInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is BitXorInstr)    { BitXorInstr i = ins as BitXorInstr; return new BitXorInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is ShlInstr)       { ShlInstr i = ins as ShlInstr; return new ShlInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is ShrInstr)       { ShrInstr i = ins as ShrInstr; return new ShrInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is EqInstr)        { EqInstr i = ins as EqInstr; return new EqInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is NeInstr)        { NeInstr i = ins as NeInstr; return new NeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is LtInstr)        { LtInstr i = ins as LtInstr; return new LtInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is LeInstr)        { LeInstr i = ins as LeInstr; return new LeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is GtInstr)        { GtInstr i = ins as GtInstr; return new GtInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is GeInstr)        { GeInstr i = ins as GeInstr; return new GeInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.A, ctx), IrInline._rr(i.B, ctx)); }
-        if (ins is FieldGetInstr)  { FieldGetInstr i = ins as FieldGetInstr; FieldGetInstr ni = new FieldGetInstr(IrInline._rr(i.Dst, ctx), IrInline._rr(i.Obj, ctx), i.Field); ni.Readonly = i.Readonly; return ni; }
-        // 不可达（_isInlinable 已滤）；返回原指令仅为类型完整（不会执行到）。
-        return ins;
+        IrInstr c = ins.Clone();
+        TypedReg d = c.DefReg();
+        if (d != null) { c.SetDefReg(IrInline._rr(d, ctx)); }
+        int n = c.ReadCount();
+        int i = 0;
+        while (i < n) { c.SetReadAt(i, IrInline._rr(c.ReadAt(i), ctx)); i = i + 1; }
+        return c;
     }
 
     // 寄存器重映射（clean-inline-copies）：callee 只读形参 → 直接代入调用方实参寄存器（免 param copy）；
