@@ -5,14 +5,12 @@ namespace Std.Collections;
 // RemoveAll / FindAll / GetRange / LastIndexOf / BinarySearch。
 //
 // 拆到独立 partial 文件只为保持单文件可读（List.z42 已承载核心动态数组语义）；
-// 两部分同属一个类型，共享私有字段 `items` / `Count`。约束在此重复声明，与主
-// 部分逐字一致（谓词族靠 T 的 IEquatable/IComparable 无额外要求）。
+// 两部分同属一个类型，共享私有字段 `items` / `Count`（`List<T>` 无类型约束，见主部分头注释）。
 //
 // 未纳入本次的 C# 成员及原因（Deferred，见目录 README）：
-//   - ConvertAll<TOut>：返回 List<TOut>，而 List 的类型约束要求 TOut 也满足
-//     IEquatable+IComparable，需在方法泛型上传播该约束，留作独立 follow-up。
+//   - ConvertAll<TOut>：返回 List<TOut>，需方法级泛型形参 TOut 的实例化支持，留作独立 follow-up。
 //   - AsReadOnly：依赖尚不存在的 ReadOnlyCollection<T> 类型。
-public partial class List<T> where T: IEquatable<T> + IComparable<T> {
+public partial class List<T> {
 
     // 返回第一个满足 `match` 的元素；无匹配返回 default(T)。
     public T Find(Predicate<T> match) {

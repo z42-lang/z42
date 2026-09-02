@@ -71,7 +71,7 @@ driver    ◄── pipeline, ir, core
 | **`new T[n]` 不能在实参位置** | `F(new string[1], ...)` | 先提升局部变量再传 | zpkg_tests |
 | **`fn` / `module` 是保留字** | 参数/变量名随意 | 改名（fname / irm） | 多处 |
 | **类字段不能带泛型参数**（`private List<X> f;` 的 `<X>` 被 parser 静默丢弃 → 取元素退化为无约束 `T`，无法调其方法）| `List<Diagnostic> _items` | **typed array + count**：`Diagnostic[] _items; int _count;` + 手动 `Grow()` | stdlib `TomlValue._arrayItems` / `Process._args`（typed array 元素访问会正确单态化）|
-| **`List<T>` 过度约束** `where T: IEquatable<T> + IComparable<T>`（`IComparable` 对 Token/AST 无意义）| `List<T>` 任意元素 | 用 typed array 规避（同上）；确需有序/查找集合时按需实现接口或 `Sort(comparer)` | List.z42 约束注释 |
+| ~~**`List<T>` 过度约束** `where T: IEquatable<T> + IComparable<T>`~~（**已解除**：stdlib-structure-batch 2026-09-03 去掉类级约束，对齐 C#）| `List<T>` 任意元素 | 历史规避：typed array（同上）。约束已放松，编译器代码可按需迁回 `List<T>`（仍受上一条「类字段不能带泛型参数」限制）| List.z42 头注释 |
 
 > 这三条决定编译器内部**集合一律用 typed array + count 并行数组**（而非 `List<T>` 字段）。`enum` / 泛型字段 / List 约束放松若后续作为独立语言增强落地，编译器代码随之迁移。
 

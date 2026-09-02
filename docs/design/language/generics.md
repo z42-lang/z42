@@ -919,8 +919,8 @@ void Main() {
 
 `List<T>` / `Dictionary<K,V>` 从编译器 pseudo-class 快路径迁移到纯源码实现：
 
-- **新源码类**：`Std.Collections.List<T> where T: IEquatable<T> + IComparable<T>`、
-  `Std.Collections.Dictionary<K,V> where K: IEquatable<K>`。旧的中间产物
+- **新源码类**：`Std.Collections.List<T>`（无约束——stdlib-structure-batch 2026-09-03 去掉了原
+  `where T: IEquatable<T> + IComparable<T>`，对齐 C#）、`Std.Collections.Dictionary<K,V> where K: IEquatable<K>`。旧的中间产物
   `ArrayList<T>` / `HashMap<K,V>` 源文件**已删除**，其能力合并到 List/Dictionary。
 - **Count 统一为 `public int Count` 字段**（直接字段读），替代原来的 `Count()` 方法。
   foreach 协议同时支持 `Count` 字段和 `Count()` 方法，自动适配。
