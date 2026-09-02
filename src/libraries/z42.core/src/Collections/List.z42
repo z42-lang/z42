@@ -6,10 +6,11 @@ namespace Std.Collections;
 // 摊还 O(1) Add / indexer，O(n) RemoveAt / Insert / Contains / IndexOf / Remove。
 // Sort 为自顶向下归并排序（stable，O(n log n)，一次性分配 scratch 缓冲）。
 //
-// 约束：
-//   T: IEquatable<T>   —— 为 Contains / IndexOf / Remove 提供相等判定
-//   T: IComparable<T>  —— 为 Sort 提供大小比较
-// primitive 类型（int / long / double / char / string）通过 VM builtin 同时满足两个接口。
+// 无类型约束（stdlib-structure-batch，对齐 C# `System.Collections.Generic.List<T>`）：
+//   Contains / IndexOf / Remove 用 `Equals`（Object 协议，任意 T 可用）；Sort() 用 `CompareTo`，
+//   与 C# 一样是**运行期**要求——元素不可比较时在 Sort 处失败，而非在类型上一刀切。此前的
+//   `where T: IEquatable<T> + IComparable<T>` 使 `List<JsonValue>` 等 stdlib 自身用法都不满足约束
+//   （编译器暂未校验接口约束才没暴露），故移除。
 // add-list-dict-lookup-family (2026-09-02): the C#-parity query/predicate
 // surface (Find* / Exists / TrueForAll / RemoveAll / FindAll / GetRange /
 // LastIndexOf / BinarySearch) lives in the `List.Query.z42` partial to keep each
@@ -17,7 +18,7 @@ namespace Std.Collections;
 // type-size guideline — `List<T>` mirrors C# `System.Collections.Generic.List<T>`
 // and its parity surface is inherently large; the split keeps files readable
 // while the two parts share one type. See this dir's README「List<T> 尺寸例外」.
-public partial class List<T> where T: IEquatable<T> + IComparable<T> {
+public partial class List<T> {
     T[] items;
     public int Count;
     int capacity;

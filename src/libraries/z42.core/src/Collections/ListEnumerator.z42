@@ -10,7 +10,7 @@ namespace Std.Collections;
 //
 // 注：`List<T>` 自身 foreach 走**索引快路径**（`Count`+`get_Item`，见 foreach 三-path 决策树），
 // 不经本 enumerator；本类服务「以 `IEnumerable<T>` 接口静态类型 / 泛型约束 / 未来 LINQ」的调用点。
-[Record] public struct ListEnumerator<T>(List<T> _list) where T: IEquatable<T> + IComparable<T> {
+[Record] public struct ListEnumerator<T>(List<T> _list) {
     int _pos;
 
     public bool MoveNext() {
