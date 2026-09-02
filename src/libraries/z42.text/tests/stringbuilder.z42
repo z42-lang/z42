@@ -94,3 +94,101 @@ void test_append_object_nonstring_still_works() {
     sb.Append(true);
     Assert.Equal("42true", sb.ToString());
 }
+
+// ── augment-stringbuilder-depth: C# System.Text.StringBuilder parity ──────────
+
+[Test]
+void test_clear_resets_to_empty() {
+    var sb = new StringBuilder();
+    sb.Append("hello").Append("world");
+    sb.Clear();
+    Assert.Equal(0, sb.GetLength());
+    Assert.Equal("", sb.ToString());
+    // Reusable after Clear.
+    sb.Append("again");
+    Assert.Equal("again", sb.ToString());
+}
+
+[Test]
+void test_length_property_getter() {
+    var sb = new StringBuilder();
+    sb.Append("abcd");
+    Assert.Equal(4, sb.Length);
+    Assert.Equal(sb.GetLength(), sb.Length);
+}
+
+[Test]
+void test_indexer_get() {
+    var sb = new StringBuilder();
+    sb.Append("ab").Append("cd");   // spans two parts
+    Assert.Equal('a', sb[0]);
+    Assert.Equal('c', sb[2]);
+    Assert.Equal('d', sb[3]);
+}
+
+[Test]
+void test_indexer_set() {
+    var sb = new StringBuilder();
+    sb.Append("abc");
+    sb[1] = 'X';
+    Assert.Equal("aXc", sb.ToString());
+}
+
+[Test]
+void test_insert_string_middle() {
+    var sb = new StringBuilder();
+    sb.Append("held");
+    sb.Insert(2, "ooo");
+    Assert.Equal("heooold", sb.ToString());
+}
+
+[Test]
+void test_insert_at_start_and_end() {
+    var sb = new StringBuilder();
+    sb.Append("mid");
+    sb.Insert(0, "pre-");
+    sb.Insert(sb.Length, "-post");
+    Assert.Equal("pre-mid-post", sb.ToString());
+}
+
+[Test]
+void test_insert_char_and_object() {
+    var sb = new StringBuilder();
+    sb.Append("ac");
+    sb.Insert(1, 'b');
+    Assert.Equal("abc", sb.ToString());
+    sb.Insert(0, 42);
+    Assert.Equal("42abc", sb.ToString());
+}
+
+[Test]
+void test_remove_range() {
+    var sb = new StringBuilder();
+    sb.Append("abcdef");
+    sb.Remove(1, 3);   // drop "bcd"
+    Assert.Equal("aef", sb.ToString());
+    Assert.Equal(3, sb.Length);
+}
+
+[Test]
+void test_replace_all() {
+    var sb = new StringBuilder();
+    sb.Append("a.b.c");
+    sb.Replace(".", "-");
+    Assert.Equal("a-b-c", sb.ToString());
+}
+
+[Test]
+void test_append_format() {
+    var sb = new StringBuilder();
+    sb.AppendFormat("{0}+{1}={2}", 1, 2, 3);
+    Assert.Equal("1+2=3", sb.ToString());
+}
+
+[Test]
+void test_edit_chain_returns_this() {
+    // Insert / Remove / Replace / Clear all return `this` for chaining.
+    var sb = new StringBuilder();
+    sb.Append("xyz").Insert(1, "AB").Remove(0, 1).Replace("z", "Z");
+    Assert.Equal("AByZ", sb.ToString());
+}
