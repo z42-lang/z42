@@ -53,8 +53,9 @@
 
 | 文件 | 内容 |
 |------|------|
-| `Collections/List.z42` | `List<T>` — 泛型动态数组（纯脚本实现）；`Sort()` 稳定归并排序 O(n log n)，`List(int capacity)` 预分配构造，`AddRange` 一次预扩容 |
-| `Collections/Dictionary.z42` | `Dictionary<K,V>` — 泛型哈希映射（纯脚本实现）；`Remove` 复用已存 hash 内联重排探测链 |
+| `Collections/List.z42` | `List<T>` — 泛型动态数组核心（纯脚本实现）；`Sort()` 稳定归并排序 O(n log n)，`List(int capacity)` 预分配构造，`AddRange` 一次预扩容 |
+| `Collections/List.Query.z42` | `List<T>` 查询/谓词族（partial 第二部分，对标 C#）：`Find` / `FindLast` / `FindIndex` / `FindLastIndex` / `FindAll` / `Exists` / `TrueForAll` / `RemoveAll` / `LastIndexOf` / `GetRange` / `BinarySearch`（`ConvertAll` / `AsReadOnly` 见 Deferred） |
+| `Collections/Dictionary.z42` | `Dictionary<K,V>` — 泛型哈希映射（纯脚本实现）；`Remove` 复用已存 hash 内联重排探测链；查找族 `TryAdd` / `GetValueOrDefault(key)` / `GetValueOrDefault(key, default)`（`TryGetValue` 待 out→tuple 迁移后引入） |
 | `Collections/ReadOnlyCollection.z42` | `ReadOnlyCollection<T>` — 只读集合视图（对标 C# `ObjectModel.ReadOnlyCollection`）；按引用包装 `T[]`，`Count` / 只读索引器 / `Contains` / `IndexOf` / `CopyTo` / `ToArray` / foreach；无变更 API。由 `Array.AsReadOnly<T>` 构造 |
 | `Collections/HashSet.z42` | _（未来实现；暂缺）_ |
 
@@ -74,6 +75,31 @@ namespace）。
 assembly，源码在 `System/Collections/Generic/List.cs`，namespace 独立分层。
 
 > `sources.include` 默认是 `src/**/*.z42`（递归通配），无需修改 manifest
+
+### List<T> 尺寸例外（2026-09-02 add-list-dict-lookup-family）
+
+`List<T>` 拆成两个 partial 文件（`List.z42` 核心 + `List.Query.z42` 查询族）以保持
+**单文件**可读；但按 [code-organization.md](../../../../.claude/rules/code-organization.md)
+「类型拆多文件时累计计入」，`List<T>` **整体**已超过 200 行的类型尺寸软/硬限。
+
+这是**有意的对标例外**：`List<T>` 镜像 C# `System.Collections.Generic.List<T>`，其
+公开成员面（动态数组核心 + 查询/谓词族 + 排序）本就庞大，硬性拆成多个辅助类型只会
+破坏「一个 `List` 就是 C# 那个 `List`」的对标直觉、给调用方增加认知负担。故此处以
+partial 解决文件可读性，类型整体尺寸作为记录在案的例外接受。`Dictionary<K,V>` 仍在
+200 行以内，无需例外。
+
+### Deferred（本次未纳入的 C# 成员）
+
+- **`List<T>.ConvertAll<TOut>(Func<T,TOut>)`**：返回 `List<TOut>`，而 `List<>` 的类型
+  约束要求 `TOut` 也满足 `IEquatable<TOut> + IComparable<TOut>` —— 需在方法级泛型上
+  传播该约束，留独立 follow-up。
+- **`List<T>.AsReadOnly()`**：`ReadOnlyCollection<T>` 已存在，但 C# 语义是**活视图**
+  （随原 List 变化），而本类内部为容量数组，直接包装需决定「快照 vs 活视图」，留决策。
+- **`Dictionary<K,V>.TryGetValue(key, out value)`**：依赖 `out`，而 ref-borrow 程序的
+  out→tuple 迁移正在进行；待迁移落地后以最终 idiom 引入。`GetValueOrDefault` 覆盖多数
+  无异常查找场景。
+- **`Dictionary<K,V>.ContainsValue(value)`**：`TValue` 无约束，值相等判定需走 Object
+  协议装箱路径，语义/性能待评估。
 > 即可自动拾取子目录源文件。
 
 ### primitive-as-struct 设计（L3-G4b 重构）
