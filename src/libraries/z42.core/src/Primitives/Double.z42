@@ -5,6 +5,15 @@ namespace Std;
 //
 // L3-G4b primitive-as-struct: `double` declared as a struct (C# BCL parity).
 public struct Double : IComparable<double>, IEquatable<double>, INumber<double> {
+    // C# BCL parity. Special values via IEEE-754 bit patterns (runtime
+    // __static_init__ can call BitConverter, unlike a const-folded literal).
+    public static double MaxValue = 1.7976931348623157E+308;
+    public static double MinValue = -1.7976931348623157E+308;
+    public static double Epsilon  = 4.9406564584124654E-324;
+    public static double NaN              = BitConverter.DoubleFromBits(0x7FF8000000000000);
+    public static double PositiveInfinity = BitConverter.DoubleFromBits(0x7FF0000000000000);
+    public static double NegativeInfinity = BitConverter.DoubleFromBits(0xFFF0000000000000);
+
     [Native("__double_parse")]      public static extern double Parse(string s);
     [Native("__double_to_string")]  public extern string ToString();
 

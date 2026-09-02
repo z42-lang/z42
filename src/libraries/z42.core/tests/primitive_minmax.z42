@@ -1,0 +1,86 @@
+// add-primitive-minmax: C# BCL parity — MaxValue/MinValue (and Double/Single
+// Epsilon) constants on the primitive structs. `const` so each reference folds
+// to a literal at the use site (primitive structs have no static-field storage).
+namespace Z42CorePrimitiveMinMaxTests;
+
+using Std;
+using Std.Test;
+
+[Test]
+void test_int32() {
+    Assert.Equal(2147483647, int.MaxValue);
+    Assert.Equal(-2147483648, int.MinValue);
+    Assert.True(int.MaxValue == Int32.MaxValue);   // alias == PascalCase struct
+    Assert.True(int.MinValue == Int32.MinValue);
+}
+
+[Test]
+void test_int16() {
+    Assert.True(Int16.MaxValue == 32767);
+    Assert.True(Int16.MinValue == -32768);
+}
+
+[Test]
+void test_int64() {
+    Assert.True(Int64.MaxValue == 9223372036854775807);
+    Assert.True(Int64.MinValue == -9223372036854775807 - 1);
+    Assert.True(Int64.MinValue < 0L);
+}
+
+[Test]
+void test_sbyte() {
+    Assert.True(SByte.MaxValue == 127);
+    Assert.True(SByte.MinValue == -128);
+}
+
+[Test]
+void test_byte() {
+    Assert.True(Byte.MaxValue == 255);
+    Assert.True(Byte.MinValue == 0);
+}
+
+[Test]
+void test_uint16() {
+    Assert.True(UInt16.MaxValue == 65535);
+    Assert.True(UInt16.MinValue == 0);
+}
+
+[Test]
+void test_uint32() {
+    Assert.True(UInt32.MaxValue == 4294967295);
+    Assert.True(UInt32.MinValue == 0);
+}
+
+[Test]
+void test_uint64() {
+    // All-bits-set == 2^64 - 1; adding 1 wraps to 0 (unsigned).
+    Assert.True(UInt64.MaxValue == 0xFFFFFFFFFFFFFFFF);
+    Assert.True(UInt64.MaxValue + 1 == 0);
+    Assert.True(UInt64.MinValue == 0);
+}
+
+[Test]
+void test_double() {
+    Assert.True(Double.MaxValue > 1.0E308);
+    Assert.True(Double.MinValue < -1.0E308);
+    Assert.True(Double.IsFinite(Double.MaxValue));
+    Assert.True(Double.IsFinite(Double.MinValue));
+    Assert.True(Double.Epsilon > 0.0);
+    Assert.True(Double.Epsilon < 1.0E-300);
+}
+
+[Test]
+void test_double_special() {
+    Assert.True(Double.IsNaN(Double.NaN));
+    Assert.True(Double.IsPositiveInfinity(Double.PositiveInfinity));
+    Assert.True(Double.IsNegativeInfinity(Double.NegativeInfinity));
+    Assert.True(Double.PositiveInfinity > Double.MaxValue);
+    Assert.True(Double.NegativeInfinity < Double.MinValue);
+}
+
+[Test]
+void test_single() {
+    Assert.True(Single.MaxValue > 3.0E38);
+    Assert.True(Single.MinValue < -3.0E38);
+    Assert.True(Single.Epsilon > 0.0);
+}

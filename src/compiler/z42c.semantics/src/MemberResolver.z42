@@ -16,13 +16,21 @@ public sealed class MemberResolver {
         // 裸类名静态字段读（SA-2）：Sev.Error——target 是类名（非变量）→ StaticGet
         if (m.Target is IdentExpr) {
             IdentExpr tid = m.Target as IdentExpr;
-            if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
-                Z42ClassType sct = env.Symbols.GetClass(tid.Name);
+            // Static field read on a bare type name (SA-2). Scalar primitive
+            // keyword aliases (`int`, `double`, …) are keyed in the symbol table
+            // under their wrapper name (`Int32`, `Double`); map through so that
+            // `int.MaxValue` binds to the same static field as `Int32.MaxValue`.
+            string clsName = tid.Name;
+            if (!env.Symbols.HasClass(clsName) && PrimModel.IsBuiltin(clsName)) {
+                clsName = PrimModel.Wrapper(clsName);
+            }
+            if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(clsName)) {
+                Z42ClassType sct = env.Symbols.GetClass(clsName);
                 FieldSymbol sfs = sct.Fields.Get(m.Name) as FieldSymbol;
                 if (sfs != null && sfs.IsStatic) {
                     this._tc._access.CheckAccess(sfs.Visibility, sfs.ContainingTypeName, env, env.Symbols, "field", m.Name, m.Span);   // enforce-access-control
                     this._tc._access.CheckDeprecatedF(sfs, m.Name, m.Span);   // add-deprecated-directive
-                    return new BoundStaticGet(tid.Name, m.Name, sfs.FieldType, m.Span);
+                    return new BoundStaticGet(clsName, m.Name, sfs.FieldType, m.Span);
                 }
             }
             // 枚举常量访问 `EnumType.Member` → BoundLitInt（long）。保 z42 enum-as-int 模型（member

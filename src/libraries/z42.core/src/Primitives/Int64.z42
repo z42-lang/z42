@@ -8,6 +8,11 @@ namespace Std;
 // stores both `int` and `long` as Value::I64 — the underlying i64 routines work
 // for both BCL wrapper types.
 public struct Int64 : IComparable<long>, IEquatable<long>, INumber<long> {
+    // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
+    // primitive structs resolve static members through the wrapper type.
+    public static long MaxValue = 9223372036854775807;
+    public static long MinValue = -9223372036854775807 - 1;
+
     [Native("__int64_parse")]      public static extern long Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 

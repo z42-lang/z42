@@ -7,6 +7,11 @@ namespace Std;
 // -32768..=32767). Underlying runtime Value is i64; Parse range-checks input.
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
 public struct Int16 : IComparable<i16>, IEquatable<i16>, INumber<i16> {
+    // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
+    // primitive structs resolve static members through the wrapper type.
+    public static i16 MaxValue = 32767;
+    public static i16 MinValue = -32768;
+
     [Native("__int16_parse")]      public static extern i16 Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
