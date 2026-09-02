@@ -1,5 +1,7 @@
 namespace Std;
 
+using Std.Collections;
+
 // 2026-05-07 add-array-base-class (P4-Array v1):
 // 所有 T[] 在运行时是 `Std.Array` 的实例。编译器特殊处理 is-a：`Z42ArrayType`
 // 视作 `Z42ClassType("Std.Array")` 的子类型；VM 端 `Value::Array` 不携带
@@ -412,5 +414,11 @@ public sealed class Array {
             else       { hi = mid - 1; }
         }
         return ~lo;
+    }
+
+    // Wrap `array` in a read-only view (对标 C# System.Array.AsReadOnly)。视图按引用包装，
+    // 不复制；对底层数组的读通过视图可见，但视图不提供任何变更操作。
+    public static ReadOnlyCollection<T> AsReadOnly<T>(T[] array) {
+        return new ReadOnlyCollection<T>(array);
     }
 }
