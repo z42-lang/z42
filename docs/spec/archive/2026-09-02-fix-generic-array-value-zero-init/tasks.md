@@ -1,14 +1,18 @@
 # Tasks: 泛型数组值类型零初始化根修（方案 C）
 
-> 状态：🟡 DRAFT（待 User 确认后进 IMPL）| 创建：2026-09-02
+> 状态：🟢 完成 | 创建：2026-09-02 | 归档：2026-09-02 | PR #389
 
 ## 进度概览
-- [ ] 阶段 0: DRAFT 确认（User）
-- [ ] 阶段 1: IR + 格式（zbc bump）
-- [ ] 阶段 2: codegen（emit 操作数）
-- [ ] 阶段 3: VM（array_new 解析操作数 → 零值）
-- [ ] 阶段 4: stdlib 去绕过 + 测试
-- [ ] 阶段 5: 验证 + 文档同步
+- [x] 阶段 0: DRAFT 确认（User：确认 method+class 一次做全）
+- [x] 阶段 1: IR + 格式（zbc 36→37 / zpkg 41→42）
+- [x] 阶段 2: codegen（emit 操作数）
+- [x] 阶段 3: VM（array_new 解析操作数 → 基元零值；收窄：struct/ref 保持擦除，见 design Decision 3）
+- [x] 阶段 4: stdlib 去绕过 + 测试
+- [x] 阶段 5: 验证 + 文档同步
+
+> **实施收窄**：只对**基元值类型**改默认值（struct/ref 保持原路径，避免 struct_generic_container 回归）；
+> 舍弃「反射元素类型修正」次要收益。本地全绿（VM 单测 4/4 / cargo --lib 1040 / z42.core 41 / 完整 GREEN + 自举 3/3）；
+> CI required 全绿（compile-toolchain 两代自举 + verify-selfhost 不动点 + test-host×4 + compiler-checks + verify-features）。
 
 ## 阶段 1: IR + 格式
 - [ ] 1.1 `IrInstr.z42` `ArrayNewInstr` 加 `TypeParamKind` + `TypeParamIndex`
