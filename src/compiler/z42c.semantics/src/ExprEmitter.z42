@@ -92,7 +92,14 @@ public sealed class ExprEmitter {
             // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
             // 修 PrimTag 对泛型形参名回落 Ref 的 bug：通过 Z42PrimType 包装会调 PrimTag("T")→Ref。
             int elemTag = at != null ? this._ctx.ToIrType(at.Elem) : IrType.Ref;
-            this._ctx.Emit(new ArrayNewInstr(dst, size, elemTag, elemName));
+            ArrayNewInstr ani = new ArrayNewInstr(dst, size, elemTag, elemName);
+            // fix-generic-array-value-zero-init（方案 C）：泛型形参元素携带 (kind, index)，VM 运行期
+            // 查 type_args 得具体类型产值类型零值。非泛型元素 kind=0/index=-1（编码不变→自举字节安全）。
+            if (an.TypeParamIndex >= 0) {
+                ani.TypeParamKind = an.IsMethodLevel ? 1 : 2;
+                ani.TypeParamIndex = an.TypeParamIndex;
+            }
+            this._ctx.Emit(ani);
             return dst;
         }
         if (e is BoundRefArg) {

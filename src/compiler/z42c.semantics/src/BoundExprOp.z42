@@ -274,9 +274,15 @@ public sealed class BoundRefArg : BoundExpr {
 public sealed class BoundArrayNew : BoundExpr {
     public BoundExpr Size;
     public string    ElemName;     // 元素类型名（elemTag 映射）
+    // fix-generic-array-value-zero-init（方案 C）：元素为泛型形参时的引用，镜像 BoundDefault。
+    // TypeParamIndex ≥0 = 形参序号（-1 = 非泛型元素）；IsMethodLevel=true → 方法级（读 frame.method_type_args），
+    // false + idx≥0 → 类级（读 instance.type_args）。VM 据此产值类型零值。
+    public int  TypeParamIndex;
+    public bool IsMethodLevel;
     private Z42Type _t;            // Z42ArrayType
     public BoundArrayNew(BoundExpr size, string elemName, Z42Type t, Span span) {
         this.Span = span; this.Size = size; this.ElemName = elemName; this._t = t;
+        this.TypeParamIndex = -1; this.IsMethodLevel = false;
     }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(array-new " + this.ElemName + " " + this.Size.Dump() + " :" + this._t.Name() + ")"; }

@@ -54,6 +54,11 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
         Instruction::MethodDefault { .. }    => "MethodDefault (generic method body)",
         Instruction::Call(insn)  if !insn.method_type_args.is_empty() => "generic Call",
         Instruction::VCall(insn) if !insn.method_type_args.is_empty() => "generic VCall",
+        // fix-generic-array-value-zero-init (方案 C): `new T[n]` on a generic type
+        // parameter needs runtime method_type_args / receiver.type_args to zero-init
+        // value-type slots — the carrier the JIT frame lacks — so it runs interp
+        // (consistent with MethodDefault above). Non-generic ArrayNew (kind==0) JITs.
+        Instruction::ArrayNew(insn) if insn.type_param_kind != 0 => "generic-type-param ArrayNew",
         _ => return None,
     })
 }
