@@ -22,6 +22,7 @@
 | `Array.z42` | `T[]` 基类（`Length` / `Clone` / 反射 `CreateInstance` / `GetValue` / `SetValue`）+ 静态算法（C# `System.Array` 对标）：排序 `Sort<T>` / `Sort<T>(cmp)` / `Sort<T>(index,length)`、查找 `IndexOf` / `IndexOf(start[,count])` / `LastIndexOf` / `LastIndexOf(start)` / `Contains` / `BinarySearch` / `BinarySearch(index,length,value)` / `BinarySearch(value,cmp)`、谓词 `Find` / `FindLast` / `FindIndex` / `FindLastIndex` / `FindAll` / `Exists` / `TrueForAll`、变换 `ConvertAll` / `ForEach` / `Copy` / `Copy(srcIdx,dstIdx,len)` / `Fill` / `Fill(value,start,count)` / `Reverse` / `Reverse(index,length)` / `Clear` / `Resize` / `Empty`、只读视图 `AsReadOnly<T>`（→ `Collections.ReadOnlyCollection<T>`） |
 | `Assert.z42` | 断言工具（`Assert.True`、`Assert.Equal` 等）|
 | `Convert.z42` | 类型转换工具：`ToInt32` / `ToInt64` / `ToDouble` / `ToString`（native）+ `ToByte` / `ToInt16` / `ToSingle` / `ToBoolean` / `ToChar`（纯脚本）|
+| `Math.z42` | `static Math` — 常量 `Pi` / `E` / `Tau`；纯脚本 `Abs` / `Max` / `Min` / `Sign` / `Clamp`（+ `*Int` 变体）/ `Truncate` / `Round(x,digits)`；native (libm) `Pow` / `Sqrt` / `Floor` / `Ceiling` / `Round` / `Log` / `Log10` / `Log2` / `Exp` / `Sin` / `Cos` / `Tan` / `Asin` / `Acos` / `Atan` / `Atan2` / `Sinh` / `Cosh` / `Tanh` / `Cbrt`（C# `System.Math` 对标）|
 | `IEquatable.z42` | 相等性接口 |
 | `IComparable.z42` | 比较接口 |
 | `IDisposable.z42` | 资源释放接口（`void Dispose()`）|

@@ -88,3 +88,65 @@ pub fn builtin_math_exp(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
         _ => bail!("Math.Exp: expected numeric argument"),
     }
 }
+
+// augment-corelib-parity (2026-09-02, backlog #9): inverse-trig, hyperbolic,
+// cube-root and base-2 log rounding out System.Math parity. Backed by libm via
+// Rust f64 methods so edge cases (overflow of sinh/cosh, exactness of log2 on
+// powers of two) match the platform math library rather than a lossy z42-script
+// derivation.
+pub fn builtin_math_asin(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.asin())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).asin())),
+        _ => bail!("Math.Asin: expected numeric argument"),
+    }
+}
+pub fn builtin_math_acos(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.acos())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).acos())),
+        _ => bail!("Math.Acos: expected numeric argument"),
+    }
+}
+pub fn builtin_math_atan(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.atan())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).atan())),
+        _ => bail!("Math.Atan: expected numeric argument"),
+    }
+}
+pub fn builtin_math_sinh(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.sinh())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).sinh())),
+        _ => bail!("Math.Sinh: expected numeric argument"),
+    }
+}
+pub fn builtin_math_cosh(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.cosh())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).cosh())),
+        _ => bail!("Math.Cosh: expected numeric argument"),
+    }
+}
+pub fn builtin_math_tanh(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.tanh())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).tanh())),
+        _ => bail!("Math.Tanh: expected numeric argument"),
+    }
+}
+pub fn builtin_math_cbrt(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.cbrt())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).cbrt())),
+        _ => bail!("Math.Cbrt: expected numeric argument"),
+    }
+}
+pub fn builtin_math_log2(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    match args.first() {
+        Some(Value::F64(f)) => Ok(Value::F64(f.log2())),
+        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).log2())),
+        _ => bail!("Math.Log2: expected numeric argument"),
+    }
+}
