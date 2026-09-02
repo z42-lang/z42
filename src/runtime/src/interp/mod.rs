@@ -8,7 +8,8 @@
 /// • exec_call.rs    — Call / Builtin / LoadFn / LoadFnCached / CallIndirect / MkClos
 /// • exec_array.rs   — ArrayNew / ArrayNewLit / ArrayGet / ArraySet / ArrayLen
 /// • exec_object.rs  — ObjNew / FieldGet / FieldSet / IsInstance / AsCast / Static*
-/// • exec_vcall.rs   — VCall + primitive_class_name + is_array_isa (single-op file)
+/// • vcall_resolve.rs — VCall target resolution (shared with jit/helpers/vcall.rs)
+/// • exec_vcall.rs   — VCall invoke side + primitive_class_name + is_array_isa
 /// • exec_native.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
 /// • dispatch.rs   — object dispatch helpers (vtable, ToString, static fields)
 /// • ops.rs        — register-level helpers (int_binop, collect_args, …)
@@ -24,6 +25,7 @@ mod exec_object;
 pub(crate) mod exec_struct;   // add-struct-value-semantics: blob value-type instruction exec (JIT helpers reuse the *_val cores)
 pub(crate) mod exec_value;
 mod exec_vcall;
+pub(crate) mod vcall_resolve;   // unify-vcall-resolution: shared with jit/helpers/vcall.rs
 mod ops;
 pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena
 pub(crate) mod struct_arena;  // add-struct-value-semantics: per-context byte arena for value structs
@@ -33,7 +35,6 @@ pub(crate) mod transient_arena; // make-value-copy: per-context arena for Ref/Pi
 pub(crate) use exec_vcall::primitive_class_name;
 // JIT primitive-receiver VCall IC (add-jit-primitive-vcall-ic): jit_vcall keys its
 // inline cache on primitives via the same synthetic PRIM_TYPE_* ids interp uses.
-pub(crate) use exec_vcall::value_synthetic_type_id;
 pub(crate) use exec_object::prim_isa;   // fix-boxed-primitive-is-as: JIT is/as 复用
 
 pub use crate::corelib::convert::value_to_str;

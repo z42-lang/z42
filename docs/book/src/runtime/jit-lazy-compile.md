@@ -148,6 +148,7 @@ lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「*
 - **Phase 1b — `jit_vcall`/`jit_call_indirect`/`jit_obj_new`（方法/闭包/构造）**：改前把**所有**冷函数→`None`
   会暴露这三者兜底不健壮（86 个 jit golden 挂）。逐一补齐后切 tiered：
   - `jit_vcall`：vtable 路径 `None`-臂本已健壮 interp（receiver+args）→ PIC + vtable 两 resolve site 切
+    > unify-vcall-resolution（2026-09-03）：`jit_vcall` 与 interp `vcall` 的**目标解析**已合一为 `interp/vcall_resolve.rs`（接收者阶梯 / 候选名 / PIC 安装），两侧只剩调用侧；上述 tiering 语义不变（Local → by-id tiered，Lazy → by-name tiered，None → interp）。
     `resolve_fn_by_id_tiered` / `resolve_fn_by_name_tiered`。
     - **primitive 接收者也进 IC（add-jit-primitive-vcall-ic，镜像 interp `refactor-vcall-ic-primitives`）**：
       IC 快路径的 `recv_type` 对 object 取 `TypeDesc.id`、对 primitive（string/int/…）取

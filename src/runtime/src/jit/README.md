@@ -23,7 +23,7 @@
 | `call.rs` | `jit_call`、`jit_builtin` |
 | `array.rs` | 数组分配、元素访问、长度 |
 | `object.rs` | 对象分配、字段访问、类型检查、静态字段、`default(T)` |
-| `vcall.rs` | 虚调用（独立文件，含 primitive-as-struct + 懒加载 fallback） |
+| `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中 → by-id tiered `FnEntry`；miss → `interp::vcall_resolve::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退（unify-vcall-resolution） |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` / `load_fn_cached` |
 | `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，复用 interp `exec_struct` 的 `*_val` 核心（add-struct-jit-value-path P5-A） |
 
@@ -50,5 +50,5 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 ## 依赖关系
 - 依赖 `corelib` 的 `exec_builtin` 和 `value_to_str`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
-- 依赖 `interp::primitive_class_name` + `interp::value_synthetic_type_id`（vcall 共享判定 / primitive-receiver IC 键）+ `interp::dispatch::is_subclass_or_eq_td`（control 共享）
+- 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::is_subclass_or_eq_td`（control 共享）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`
