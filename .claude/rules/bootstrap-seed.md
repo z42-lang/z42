@@ -71,6 +71,16 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
    > **残留**：纯 download-bootstrap 的 job（vm-jit / bench 等，不 feed publish-nightly）在 bump 当次
    > 仍短暂红一跑，等新 nightly 发布自愈——不阻塞发布链。删 cold 兜底照旧**不要踩在 format bump
    > 同一周期**（该残留窗口期）。
+   >
+   > **回归 + 二次根治（2026-08-21 → 2026-09-02）**：#247/#252 引入的 z42c `DepScanCache`（F2 进程级
+   > memo，按**绝对 path 缓存 `ZpkgReader.Open`、无 mtime**）破坏了两代自举——gen0→gen1(stdlib) /
+   > gen1→gen2(compiler) **就地覆写同一 `artifacts/build/{libraries,compiler}`**，gen1 起步时 artifacts
+   > 仍是 gen0 旧 minor 产物，建首成员时 DepScan 预开 `Get(path)` 读旧份 → strict-pin skip → **缓存 null**，
+   > 覆写新 minor 后后续成员复用缓存 null → 跨包类型 undefined(E0401/E0443)。故 2026-08-21 (#240) 后**任何
+   > 格式 bump CI 全红**（纯版本 bump 亦然，探针 PR #381 复现）。**修复**：`ci-bootstrap` §1.5 **每代
+   > 构建前清空其就地 artifacts**（恢复 DepScanCache「建成员前 dist 空」不变式）。DepScanCache 注释自身
+   > 已预警「进程内覆写 zpkg 后重扫需 mtime/size 守卫」——CI 清理是即时解阻，**给 `DepScanCache.Get` 加
+   > mtime/size 守卫是更彻底的根因级修复（backlog，独立 compiler change）**。
 
 ---
 

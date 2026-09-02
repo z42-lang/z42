@@ -134,13 +134,29 @@ runs:
           cp -f "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/"*.zpkg "$G1RUN/"
           cp -f "$G0LIBS/"*.zpkg "$G1RUN/"
           g1runw="$(winpath "$G1RUN")"
+          # 修 two-gen 格式-bump 回归(probe-two-gen-verify)——根因 = z42c DepScanCache（F2 进程级
+          # memo，#247/#252 引入）的 path→内容稳定不变式在两代自举被破坏：gen0 与 gen1 stdlib **同一
+          # `artifacts/build/libraries` 就地覆写**，故 gen1 stdlib 起步时该目录仍是 gen0 旧格式产物
+          # (z42.core 旧 minor)。gen1 z42c 建 [1/25] z42.core 时 DepScan 预开循环 Get(该 path)读到
+          # 旧份 → strict-pin skip → **缓存 null**;[1/25] 随即覆写为新 minor,但 [2/25] z42.encoding
+          # 复用缓存 null → z42.core 缺席 → String/FormatException undefined(E0401/E0443)全红。
+          # DepScanCache 注释原文即言:「进程内覆写 zpkg 后重扫需 mtime/size 守卫」——两代自举正是此路径。
+          # 修法(恢复该不变式,CI 侧最小改动):每代 stdlib/compiler 构建前清空其就地 artifacts,使各成员
+          # dist 起步为空(与 DepScanCache「建成员前其 dist 空、不在 paths」的前提一致)。gen0 产物已在
+          # 上面拷进 G0LIBS,gen1 driver 已拷进 G1RUN,故清 artifacts 安全。
+          rm -rf "$ROOT/artifacts/build/libraries"
           ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
+          echo "   ✓ gen1 stdlib: fresh z42.core minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg" | tr -d ' ')"
           # 新格式 stdlib flat 视图
           FLAT="$ROOT/artifacts/build/libraries/dist/release"; mkdir -p "$FLAT"
           for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$FLAT/"; done
           flatw="$(winpath "$FLAT")"
           # Gen2 z42c: 旧VM + gen1 z42c(entry-dir=旧 stdlib 供运行时)+ Z42_LIBS=新 stdlib(编译期 TSIG)
           # → z42c 新壳。per-member topo 序:兄弟本轮先重写为新格式再被依赖。
+          # 同 gen1 stdlib:清就地 artifacts/build/compiler(gen1 已写 minor 41,gen2 重写 42),避免
+          # DepScanCache 缓存 gen1 旧份的 strict-pin skip → gen2 兄弟(z42c.*)解析缺席。gen1 driver
+          # 已在 G1RUN,gen2 用它作 driver,故清 artifacts/build/compiler 安全(gen2 重建 + boot_driver 取新)。
+          rm -rf "$ROOT/artifacts/build/compiler"
           ( cd "$ROOT/src/compiler" && Z42_LIBS="$flatw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
           g2_minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg" | tr -d ' ')
           [ "$g2_minor" = "$cur_minor" ] || { echo "::error::两代自举 gen2 z42c minor=$g2_minor ≠ current=$cur_minor"; exit 1; }
