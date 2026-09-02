@@ -294,4 +294,123 @@ public sealed class Array {
     public static T[] Empty<T>() {
         return new T[0];
     }
+
+    // ── Range / offset / paired overloads (C# System.Array parity) ────────────
+
+    // Shared bounds check for range overloads: throws when [index, index+length)
+    // escapes [0, array.Length).
+    static void _checkRange<T>(T[] array, int index, int length) {
+        if (index < 0 || length < 0 || index + length > array.Length) {
+            throw new Exception($"Array: range [{index}, {index + length}) out of bounds (length={array.Length})");
+        }
+    }
+
+    // Stable ascending sort of the sub-range [index, index+length) by CompareTo.
+    // Reuses _mergeSort (already parameterised on absolute [lo, hi)); scratch is
+    // full-length so absolute indices line up.
+    public static void Sort<T>(T[] array, int index, int length) {
+        Array._checkRange<T>(array, index, length);
+        if (length < 2) return;
+        T[] scratch = new T[array.Length];
+        Array._mergeSort<T>(array, scratch, index, index + length);
+    }
+
+    // Reverse the sub-range [index, index+length) in place.
+    public static void Reverse<T>(T[] array, int index, int length) {
+        Array._checkRange<T>(array, index, length);
+        int lo = index;
+        int hi = index + length - 1;
+        while (lo < hi) {
+            T t = array[lo];
+            array[lo] = array[hi];
+            array[hi] = t;
+            lo = lo + 1;
+            hi = hi - 1;
+        }
+    }
+
+    // Set `array[startIndex .. startIndex+count)` to `value`.
+    public static void Fill<T>(T[] array, T value, int startIndex, int count) {
+        Array._checkRange<T>(array, startIndex, count);
+        int end = startIndex + count;
+        for (int i = startIndex; i < end; i++) { array[i] = value; }
+    }
+
+    // Copy `length` elements from `source[sourceIndex..]` to
+    // `destination[destinationIndex..]`. Handles overlapping ranges within the
+    // same array (copies backward when moving toward higher indices), mirroring
+    // C# System.Array.Copy.
+    public static void Copy<T>(T[] source, int sourceIndex, T[] destination, int destinationIndex, int length) {
+        if (length < 0 || sourceIndex < 0 || destinationIndex < 0
+            || sourceIndex + length > source.Length
+            || destinationIndex + length > destination.Length) {
+            throw new Exception($"Array.Copy: range out of bounds (srcIdx={sourceIndex}, dstIdx={destinationIndex}, len={length}, src={source.Length}, dst={destination.Length})");
+        }
+        if (destinationIndex > sourceIndex) {
+            int i = length - 1;
+            while (i >= 0) { destination[destinationIndex + i] = source[sourceIndex + i]; i = i - 1; }
+        } else {
+            for (int i = 0; i < length; i++) { destination[destinationIndex + i] = source[sourceIndex + i]; }
+        }
+    }
+
+    // First index of `value` at or after `startIndex` (by `.Equals`), or -1.
+    public static int IndexOf<T>(T[] array, T value, int startIndex) {
+        int n = array.Length;
+        for (int i = startIndex; i < n; i++) {
+            if (array[i].Equals(value)) return i;
+        }
+        return -1;
+    }
+
+    // First index of `value` within [startIndex, startIndex+count) (by `.Equals`), or -1.
+    public static int IndexOf<T>(T[] array, T value, int startIndex, int count) {
+        int end = startIndex + count;
+        if (end > array.Length) { end = array.Length; }
+        for (int i = startIndex; i < end; i++) {
+            if (array[i].Equals(value)) return i;
+        }
+        return -1;
+    }
+
+    // Last index of `value` at or before `startIndex`, searching backward (by `.Equals`), or -1.
+    public static int LastIndexOf<T>(T[] array, T value, int startIndex) {
+        int i = startIndex;
+        while (i >= 0) {
+            if (array[i].Equals(value)) return i;
+            i = i - 1;
+        }
+        return -1;
+    }
+
+    // Binary search for `value` within the sorted sub-range [index, index+length)
+    // by CompareTo. Returns the element index, or ~insertionPoint when absent.
+    public static int BinarySearch<T>(T[] array, int index, int length, T value) {
+        int lo = index;
+        int hi = index + length - 1;
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            int c = array[mid].CompareTo(value);
+            if (c == 0) return mid;
+            if (c < 0) { lo = mid + 1; }
+            else       { hi = mid - 1; }
+        }
+        return ~lo;
+    }
+
+    // Binary search for `value` over the whole array under a caller-supplied
+    // comparator (`comparison(element, value)` < 0 ⇒ element before value).
+    // Returns the element index, or ~insertionPoint when absent.
+    public static int BinarySearch<T>(T[] array, T value, Func<T, T, int> comparison) {
+        int lo = 0;
+        int hi = array.Length - 1;
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            int c = comparison(array[mid], value);
+            if (c == 0) return mid;
+            if (c < 0) { lo = mid + 1; }
+            else       { hi = mid - 1; }
+        }
+        return ~lo;
+    }
 }
