@@ -57,7 +57,7 @@
 | `Collections/List.z42` | `List<T>` — 泛型动态数组（纯脚本实现）；`Sort()` 稳定归并排序 O(n log n)，`List(int capacity)` 预分配构造，`AddRange` 一次预扩容 |
 | `Collections/Dictionary.z42` | `Dictionary<K,V>` — 泛型哈希映射（纯脚本实现）；`Remove` 复用已存 hash 内联重排探测链 |
 | `Collections/ReadOnlyCollection.z42` | `ReadOnlyCollection<T>` — 只读集合视图（对标 C# `ObjectModel.ReadOnlyCollection`）；按引用包装 `T[]`，`Count` / 只读索引器 / `Contains` / `IndexOf` / `CopyTo` / `ToArray` / foreach；无变更 API。由 `Array.AsReadOnly<T>` 构造 |
-| `Collections/HashSet.z42` | _（未来实现；暂缺）_ |
+| `Collections/HashSet.z42` | `HashSet<T>` — 泛型哈希集合（开放寻址，与 `Dictionary` 同款掩码探测 + 存储 hash 短路）；`Add`（去重，已存返 false）/ `Remove` / `Contains` / `Count` / `IsEmpty` / `Clear` / `ToArray` + 集合运算 `UnionWith` / `IntersectWith` / `ExceptWith`（接收 `T[]`）|
 
 ### 设计决策（2026-04-25 reorganize-stdlib-packages W1）
 
