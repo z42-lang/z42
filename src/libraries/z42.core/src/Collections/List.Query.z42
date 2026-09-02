@@ -1,0 +1,130 @@
+namespace Std.Collections;
+
+// `List<T>` 的查询 / 谓词族（partial 第二部分）—— 对标 C#
+// `System.Collections.Generic.List<T>` 的 Find* / Exists / TrueForAll /
+// RemoveAll / FindAll / GetRange / LastIndexOf / BinarySearch。
+//
+// 拆到独立 partial 文件只为保持单文件可读（List.z42 已承载核心动态数组语义）；
+// 两部分同属一个类型，共享私有字段 `items` / `Count`。约束在此重复声明，与主
+// 部分逐字一致（谓词族靠 T 的 IEquatable/IComparable 无额外要求）。
+//
+// 未纳入本次的 C# 成员及原因（Deferred，见目录 README）：
+//   - ConvertAll<TOut>：返回 List<TOut>，而 List 的类型约束要求 TOut 也满足
+//     IEquatable+IComparable，需在方法泛型上传播该约束，留作独立 follow-up。
+//   - AsReadOnly：依赖尚不存在的 ReadOnlyCollection<T> 类型。
+public partial class List<T> where T: IEquatable<T> + IComparable<T> {
+
+    // 返回第一个满足 `match` 的元素；无匹配返回 default(T)。
+    public T Find(Predicate<T> match) {
+        int i = this.FindIndex(match);
+        if (i < 0) return default(T);
+        return this.items[i];
+    }
+
+    // 返回最后一个满足 `match` 的元素；无匹配返回 default(T)。
+    public T FindLast(Predicate<T> match) {
+        int i = this.FindLastIndex(match);
+        if (i < 0) return default(T);
+        return this.items[i];
+    }
+
+    // 返回第一个满足 `match` 的元素下标；无匹配返回 -1。
+    public int FindIndex(Predicate<T> match) {
+        int i = 0;
+        while (i < this.Count) {
+            if (match(this.items[i])) return i;
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    // 返回最后一个满足 `match` 的元素下标；无匹配返回 -1。
+    public int FindLastIndex(Predicate<T> match) {
+        int i = this.Count - 1;
+        while (i >= 0) {
+            if (match(this.items[i])) return i;
+            i = i - 1;
+        }
+        return -1;
+    }
+
+    // 返回所有满足 `match` 的元素组成的新 List（保持相对顺序）。
+    public List<T> FindAll(Predicate<T> match) {
+        List<T> result = new List<T>();
+        int i = 0;
+        while (i < this.Count) {
+            if (match(this.items[i])) result.Add(this.items[i]);
+            i = i + 1;
+        }
+        return result;
+    }
+
+    // 是否存在满足 `match` 的元素。
+    public bool Exists(Predicate<T> match) { return this.FindIndex(match) >= 0; }
+
+    // 是否所有元素都满足 `match`（空列表返回 true，与 C# 一致）。
+    public bool TrueForAll(Predicate<T> match) {
+        int i = 0;
+        while (i < this.Count) {
+            if (!match(this.items[i])) return false;
+            i = i + 1;
+        }
+        return true;
+    }
+
+    // 原地移除所有满足 `match` 的元素（稳定压缩），返回移除个数。O(n)。
+    public int RemoveAll(Predicate<T> match) {
+        int w = 0;
+        int r = 0;
+        while (r < this.Count) {
+            if (!match(this.items[r])) {
+                this.items[w] = this.items[r];
+                w = w + 1;
+            }
+            r = r + 1;
+        }
+        int removed = this.Count - w;
+        this.Count = w;
+        return removed;
+    }
+
+    // 返回最后一个等于 `item` 的元素下标（用 T 的相等判定）；无则 -1。
+    public int LastIndexOf(T item) {
+        int i = this.Count - 1;
+        while (i >= 0) {
+            if (this.items[i].Equals(item)) return i;
+            i = i - 1;
+        }
+        return -1;
+    }
+
+    // 返回 [index, index+count) 子区间的新 List（浅拷贝，保持顺序）。
+    public List<T> GetRange(int index, int count) {
+        List<T> result = new List<T>(count);
+        int i = 0;
+        while (i < count) {
+            result.Add(this.items[index + i]);
+            i = i + 1;
+        }
+        return result;
+    }
+
+    // 在**已升序排序**的列表上二分查找 `item`（用 T 的 CompareTo）。
+    // 命中返回其下标；未命中返回负数：`-insertionPoint - 1`（等价 C# 的
+    // `~insertionPoint`，insertionPoint = 第一个大于 item 的位置）。
+    public int BinarySearch(T item) {
+        int lo = 0;
+        int hi = this.Count - 1;
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            int cmp = this.items[mid].CompareTo(item);
+            if (cmp == 0) return mid;
+            if (cmp < 0) {
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        return -lo - 1;
+    }
+}

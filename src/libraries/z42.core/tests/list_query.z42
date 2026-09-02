@@ -1,0 +1,122 @@
+// add-list-dict-lookup-family (2026-09-02): dogfood coverage for the C#-parity
+// List<T> query/predicate family added in List.Query.z42 — Find / FindLast /
+// FindIndex / FindLastIndex / FindAll / Exists / TrueForAll / RemoveAll /
+// LastIndexOf / BinarySearch / GetRange.
+namespace Z42CoreListQueryTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+List<int> nums() {
+    var xs = new List<int>();
+    xs.Add(10);
+    xs.Add(25);
+    xs.Add(30);
+    xs.Add(25);
+    xs.Add(40);   // [10,25,30,25,40]
+    return xs;
+}
+
+[Test]
+void test_find_and_findindex() {
+    var xs = nums();
+    Assert.Equal(30, xs.Find((int x) => x > 28));       // first > 28
+    Assert.Equal(2, xs.FindIndex((int x) => x > 28));
+    Assert.Equal(0, xs.Find((int x) => x > 100));        // no match → default(int)=0
+    Assert.Equal(-1, xs.FindIndex((int x) => x > 100));
+}
+
+[Test]
+void test_findlast_and_findlastindex() {
+    var xs = nums();
+    Assert.Equal(25, xs.FindLast((int x) => x < 28));   // last < 28 is index 3 (25)
+    Assert.Equal(3, xs.FindLastIndex((int x) => x < 28));
+    Assert.Equal(-1, xs.FindLastIndex((int x) => x > 100));
+}
+
+[Test]
+void test_findall() {
+    var xs = nums();
+    var got = xs.FindAll((int x) => x == 25);
+    Assert.Equal(2, got.Count);
+    Assert.Equal(25, got[0]);
+    Assert.Equal(25, got[1]);
+    // original list untouched
+    Assert.Equal(5, xs.Count);
+}
+
+[Test]
+void test_exists_and_trueforall() {
+    var xs = nums();
+    Assert.True(xs.Exists((int x) => x == 40));
+    Assert.False(xs.Exists((int x) => x == 999));
+    Assert.True(xs.TrueForAll((int x) => x >= 10));
+    Assert.False(xs.TrueForAll((int x) => x > 20));
+    // empty list → TrueForAll is vacuously true
+    var empty = new List<int>();
+    Assert.True(empty.TrueForAll((int x) => x == 0));
+}
+
+[Test]
+void test_removeall() {
+    var xs = nums();
+    int removed = xs.RemoveAll((int x) => x == 25);
+    Assert.Equal(2, removed);
+    Assert.Equal(3, xs.Count);          // [10,30,40]
+    Assert.Equal(10, xs[0]);
+    Assert.Equal(30, xs[1]);
+    Assert.Equal(40, xs[2]);
+    // removing nothing
+    Assert.Equal(0, xs.RemoveAll((int x) => x == 999));
+    Assert.Equal(3, xs.Count);
+}
+
+[Test]
+void test_lastindexof() {
+    var xs = nums();
+    Assert.Equal(3, xs.LastIndexOf(25));   // last of the two 25s
+    Assert.Equal(0, xs.LastIndexOf(10));
+    Assert.Equal(-1, xs.LastIndexOf(999));
+}
+
+[Test]
+void test_getrange() {
+    var xs = nums();
+    var mid = xs.GetRange(1, 3);            // [25,30,25]
+    Assert.Equal(3, mid.Count);
+    Assert.Equal(25, mid[0]);
+    Assert.Equal(30, mid[1]);
+    Assert.Equal(25, mid[2]);
+    // empty range
+    Assert.Equal(0, xs.GetRange(2, 0).Count);
+}
+
+[Test]
+void test_binarysearch() {
+    // BinarySearch requires a sorted list.
+    var xs = new List<int>();
+    xs.Add(1);
+    xs.Add(3);
+    xs.Add(5);
+    xs.Add(7);
+    xs.Add(9);                              // [1,3,5,7,9]
+    Assert.Equal(0, xs.BinarySearch(1));
+    Assert.Equal(2, xs.BinarySearch(5));
+    Assert.Equal(4, xs.BinarySearch(9));
+    // not found → -insertionPoint - 1
+    Assert.Equal(-1, xs.BinarySearch(0));   // insert at 0 → ~0 = -1
+    Assert.Equal(-3, xs.BinarySearch(4));   // insert at 2 → ~2 = -3
+    Assert.Equal(-6, xs.BinarySearch(10));  // insert at 5 → ~5 = -6
+}
+
+[Test]
+void test_find_on_strings() {
+    var xs = new List<string>();
+    xs.Add("apple");
+    xs.Add("banana");
+    xs.Add("cherry");
+    Assert.Equal("banana", xs.Find((string s) => s.Length == 6));
+    Assert.Equal(2, xs.FindIndex((string s) => s == "cherry"));
+    Assert.True(xs.Exists((string s) => s == "apple"));
+}

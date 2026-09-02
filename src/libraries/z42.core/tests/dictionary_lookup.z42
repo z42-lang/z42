@@ -1,0 +1,69 @@
+// add-list-dict-lookup-family (2026-09-02): dogfood coverage for the C#-parity
+// Dictionary<TKey,TValue> lookup additions — TryAdd / GetValueOrDefault(key) /
+// GetValueOrDefault(key, default). (TryGetValue deferred: it relies on `out`,
+// which the ref-borrow out→tuple migration will rework.)
+namespace Z42CoreDictLookupTests;
+
+using Std;
+using Std.Test;
+using Std.Collections;
+
+[Test]
+void test_tryadd_inserts_when_absent() {
+    var d = new Dictionary<string, int>();
+    Assert.True(d.TryAdd("a", 1));
+    Assert.Equal(1, d.Count);
+    Assert.Equal(1, d["a"]);
+
+    // second TryAdd on same key does not overwrite, returns false
+    Assert.False(d.TryAdd("a", 999));
+    Assert.Equal(1, d.Count);
+    Assert.Equal(1, d["a"]);          // value unchanged
+
+    Assert.True(d.TryAdd("b", 2));
+    Assert.Equal(2, d.Count);
+}
+
+[Test]
+void test_tryadd_grows() {
+    var d = new Dictionary<int, int>();
+    int i = 0;
+    while (i < 50) {
+        Assert.True(d.TryAdd(i, i * 10));
+        i = i + 1;
+    }
+    Assert.Equal(50, d.Count);
+    Assert.Equal(250, d[25]);
+    Assert.False(d.TryAdd(25, -1));   // already present
+    Assert.Equal(250, d[25]);
+}
+
+[Test]
+void test_getvalueordefault_no_arg() {
+    var d = new Dictionary<string, int>();
+    d["x"] = 7;
+    Assert.Equal(7, d.GetValueOrDefault("x"));
+    Assert.Equal(0, d.GetValueOrDefault("missing"));   // default(int) = 0
+    // must not insert the missing key
+    Assert.Equal(1, d.Count);
+    Assert.False(d.ContainsKey("missing"));
+}
+
+[Test]
+void test_getvalueordefault_with_default() {
+    var d = new Dictionary<string, int>();
+    d["x"] = 7;
+    Assert.Equal(7, d.GetValueOrDefault("x", -1));
+    Assert.Equal(-1, d.GetValueOrDefault("missing", -1));
+    Assert.Equal(42, d.GetValueOrDefault("nope", 42));
+    Assert.Equal(1, d.Count);          // still no phantom insert
+}
+
+[Test]
+void test_getvalueordefault_string_values() {
+    var d = new Dictionary<int, string>();
+    d[1] = "one";
+    Assert.Equal("one", d.GetValueOrDefault(1));
+    Assert.Equal("", d.GetValueOrDefault(2, ""));
+    Assert.Equal("fallback", d.GetValueOrDefault(3, "fallback"));
+}
