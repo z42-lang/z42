@@ -73,6 +73,109 @@ public class StringBuilder {
         return this._length;
     }
 
+    // ── C# System.Text.StringBuilder parity (corelib alignment) ───────────────
+    //
+    // Random-access reads and in-place edits (indexer / Length setter / Insert /
+    // Remove / Replace) don't map onto the `string[]` parts buffer directly, so
+    // they collapse the buffer to a single materialized string first via
+    // ToString(), then reset it to one part with `_setSingle`. O(n) per edit,
+    // which fits StringBuilder's "many Appends, occasional edits" usage picture.
+
+    // Number of characters currently in the buffer (C# `Length` property, read).
+    // Computed getter mirrors GetLength() and gives the idiomatic `sb.Length`.
+    //
+    // The C# `Length` *setter* (truncate / '\0'-extend) is NOT provided: z42
+    // named properties only support a computed getter body — full get+set
+    // accessor bodies parse for indexers (GS5) but not named properties. Use
+    // `Clear()` for `Length = 0` and `Remove(n, Length - n)` to truncate.
+    public int Length {
+        get { return this._length; }
+    }
+
+    // Random-access char by absolute index. The GS5 indexer parser only accepts
+    // single-expression get/set bodies, so both delegate to helper methods (same
+    // idiom as List/Dictionary). Getter walks the parts buffer (O(count)); setter
+    // collapses + rewrites the single char.
+    public char this[int index] {
+        get { return this._charAt(index); }
+        set { this._setCharAt(index, value); }
+    }
+
+    char _charAt(int index) {
+        if (index < 0 || index >= this._length) {
+            throw new Exception($"StringBuilder index out of range: {index} (Length={this._length})");
+        }
+        int remaining = index;
+        for (int i = 0; i < this._count; i++) {
+            string s = this._parts[i];
+            int sn = s.Length;
+            if (remaining < sn) return s.CharAt(remaining);
+            remaining = remaining - sn;
+        }
+        // Unreachable given the bounds check above.
+        throw new Exception($"StringBuilder index out of range: {index}");
+    }
+
+    void _setCharAt(int index, char value) {
+        char[] chars = this.ToString().ToCharArray();
+        chars[index] = value;
+        this._setSingle(String.FromChars(chars));
+    }
+
+    // Reset the buffer to a single logical part `s`. `_capacity` is always ≥ 4,
+    // so slot 0 is valid without a grow.
+    void _setSingle(string s) {
+        this._parts[0] = s;
+        this._count = 1;
+        this._length = s.Length;
+    }
+
+    // Remove all characters (keeps allocated capacity). Returns this for chaining.
+    public StringBuilder Clear() {
+        this._count = 0;
+        this._length = 0;
+        return this;
+    }
+
+    // Insert `value` at char position `index`. index == Length appends.
+    public StringBuilder Insert(int index, string value) {
+        string cur = this.ToString();
+        string result = String.Concat(cur.Substring(0, index), value, cur.Substring(index));
+        this._setSingle(result);
+        return this;
+    }
+
+    // Insert a single char at `index`.
+    public StringBuilder Insert(int index, char value) {
+        char[] one = new char[1];
+        one[0] = value;
+        return this.Insert(index, String.FromChars(one));
+    }
+
+    // Insert any value (routed through Convert.ToString) at `index`.
+    public StringBuilder Insert(int index, object value) {
+        return this.Insert(index, Convert.ToString(value));
+    }
+
+    // Remove `length` chars starting at `startIndex`. Bounds enforced by Substring.
+    public StringBuilder Remove(int startIndex, int length) {
+        string cur = this.ToString();
+        string result = String.Concat(cur.Substring(0, startIndex), cur.Substring(startIndex + length));
+        this._setSingle(result);
+        return this;
+    }
+
+    // Replace all occurrences of `oldValue` with `newValue`.
+    public StringBuilder Replace(string oldValue, string newValue) {
+        this._setSingle(this.ToString().Replace(oldValue, newValue));
+        return this;
+    }
+
+    // Append `format` with `{0}`-style placeholders filled from `args`.
+    public StringBuilder AppendFormat(string format, params object[] args) {
+        return this.Append(String.Format(format, args));
+    }
+
     // Materialize the accumulated string. O(total_length) one-shot copy
     // to avoid repeated O(n) Concat chains.
     override string ToString() {
