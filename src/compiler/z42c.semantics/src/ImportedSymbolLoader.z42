@@ -245,6 +245,7 @@ public static class ImportedSymbolLoader {
                 var sym = new MethodSymbol(me.Name, me.Visibility, sig, me.IsStatic, ct.Name(), false, null);
                 sym.IsSealed = me.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 sym.IsDeprecated = me.IsDeprecated; sym.DeprecationMsg = me.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
+                sym.TypeParamCount = me.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数，供 arity 重载过滤
                 ct.Methods.Put(me.Name, sym);
                 if (!me.IsStatic) { ct.AddOwnMethod(me.Name, me.IsVirtual, me.IsAbstract); }
             }
@@ -302,6 +303,7 @@ public static class ImportedSymbolLoader {
                 sym.RegKey = m.Name;
                 sym.IsSealed = m.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 sym.IsDeprecated = m.IsDeprecated; sym.DeprecationMsg = m.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
+                sym.TypeParamCount = m.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数，供 arity 重载过滤
                 ct.Methods.Put(m.Name, sym);
                 // G18-import：实例方法入 OwnMethod* 有序元数据（TSIG 方法继承展开；static 不入）。
                 if (!m.IsStatic) { ct.AddOwnMethod(m.Name, m.IsVirtual, m.IsAbstract); }

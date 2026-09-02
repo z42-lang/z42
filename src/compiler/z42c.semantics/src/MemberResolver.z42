@@ -66,7 +66,7 @@ public sealed class MemberResolver {
             //      不报 "no method"（prim 路径 fallthrough，运行期经 DepIndex 解析）。
             bool _stub = ct.Methods.Keys().Length == 0;
             if (_stub && env.Symbols.HasClass(ct.Name())) { ct = env.Symbols.GetClass(ct.Name()); _stub = false; }
-            MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
+            MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, 0, sp);   // 实例成员调用无 CallExpr → typeArgCount=0
             if (ms != null) {
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
@@ -104,7 +104,7 @@ public sealed class MemberResolver {
         if (rt is Z42InstantiatedType) {
             Z42InstantiatedType instRecv = rt as Z42InstantiatedType;
             Z42ClassType itDef2 = instRecv.Def;
-            MethodSymbol itms = this._tc._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, sp);
+            MethodSymbol itms = this._tc._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, 0, sp);
             if (itms != null) {
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
                 BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
@@ -174,7 +174,7 @@ public sealed class MemberResolver {
             }
             // 门扩展：同 arity 多重载（跳过快路径而来）或快路径 wms==null（方法真不存在 → 决议 0 候选返 null →
             // 落下方 loose-bind，现有树字节中性）→ 追加类型决议。
-            MethodSymbol rms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, sp);
+            MethodSymbol rms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, 0, sp);
             if (rms != null) {
                 this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                 this._tc._access.CheckDeprecatedM(rms, mem.Name, sp);
@@ -414,7 +414,7 @@ public sealed class MemberResolver {
                 string cls = env.CurrentClass();
                 if (env.Symbols.HasClass(cls)) {
                     Z42ClassType sct = env.Symbols.GetClass(cls);
-                    MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.Span);
+                    MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span);
                     if (sms != null && sms.IsStatic) {
                         // add-params-varargs：本路径（同类无限定静态调用）不经 _withDefaults，
                         // 但仍须为选中的 params 重载打包 trailing 实参，否则 codegen 收到未打包实参形状。
@@ -474,7 +474,7 @@ public sealed class MemberResolver {
             IdentExpr tid = mem.Target as IdentExpr;
             if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
                 Z42ClassType ct = env.Symbols.GetClass(tid.Name);
-                MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, sp);
+                MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
                 if (ms != null) {
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                     this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
@@ -499,7 +499,7 @@ public sealed class MemberResolver {
                     // stabilize-dispatch-keys（方案A，静态-only）：prim 关键字静态调用（int.Parse / string.FromChars）
                     // 是【静态】方法 → 静态-only 下恒全签名 mangle。旧 _overloadKey/_findMethod（裸名/Name$arity）
                     // 查不到已 mangle 的静态方法 → 必须走 _resolveOverload 拿 RegKey。（prim 实例方法不 mangle，走上方裸键路径。）
-                    MethodSymbol wms2 = this._tc._overload._resolveOverload(env.Symbols, wct2, mem.Name, args, argCount, sp);
+                    MethodSymbol wms2 = this._tc._overload._resolveOverload(env.Symbols, wct2, mem.Name, args, argCount, call.TypeArgCount, sp);
                     if (wms2 != null) {
                         // params 打包 / 默认参数填充（与上方类限定静态调用一致）：keyword 静态调用此前不经
                         // _withDefaults，靠精确 arity 重载兜底；params-for-Join 移除了 `Join(string,string,string,string)`
