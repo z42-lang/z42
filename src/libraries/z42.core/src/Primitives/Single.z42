@@ -7,6 +7,11 @@ namespace Std;
 // VM represents both float and double as Value::F64 at runtime; builtin names reuse
 // the `__double_*` implementations.
 public struct Single : IComparable<float>, IEquatable<float>, INumber<float> {
+    // C# BCL parity — finite range + smallest denormal (NaN/±Infinity deferred).
+    public static float MaxValue = 3.40282347E+38F;
+    public static float MinValue = -3.40282347E+38F;
+    public static float Epsilon  = 1.401298464324817E-45F;
+
     [Native("__double_to_string")]  public extern string ToString();
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
