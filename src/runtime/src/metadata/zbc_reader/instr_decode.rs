@@ -222,7 +222,10 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             let element_type = c.pool_str(pool, et_idx)?.to_owned();
             // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
             let stack_alloc = c.read_u8()? != 0;
-            Instruction::ArrayNew(Box::new(crate::metadata::bytecode::ArrayNewInsn { dst, size, elem_tag, element_type, stack_alloc }))
+            // fix-generic-array-value-zero-init (zbc 1.37): trailing type-param ref.
+            let type_param_kind = c.read_u8()?;
+            let type_param_index = c.read_u16()? as i32 - 1;   // biased: 0 → -1 (none)
+            Instruction::ArrayNew(Box::new(crate::metadata::bytecode::ArrayNewInsn { dst, size, elem_tag, element_type, stack_alloc, type_param_kind, type_param_index }))
         }
         OP_ARRAY_NEW_LIT => {
             let elems = read_args(c)?;

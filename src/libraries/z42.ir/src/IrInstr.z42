@@ -38,9 +38,15 @@ public sealed class ConstF64Instr : IrInstr {
 public sealed class ArrayNewInstr : IrInstr {
     public TypedReg Dst; public TypedReg Size; public int ElemTag; public string ElemName;   // zbc 1.16：elem FQ 名
     public bool StackAlloc;   // zbc 1.29 add-escape-analysis：逃逸分析证明不逃逸 → 帧 arena 栈分配（默认 false=堆）
+    // zbc 1.37 fix-generic-array-value-zero-init（方案 C）：元素若是泛型形参，携带其引用——
+    // TypeParamKind 0=none/1=method 级/2=class 级；TypeParamIndex=形参序号（none 时 -1）。VM 据此
+    // 运行期查 method_type_args/type_args 得具体类型，产值类型零值而非 Null（与 default(T) 同构）。
+    public int TypeParamKind;
+    public int TypeParamIndex;
     public ArrayNewInstr(TypedReg dst, TypedReg size, int elemTag, string elemName) {
         this.Dst = dst; this.Size = size; this.ElemTag = elemTag; this.ElemName = elemName;
         this.StackAlloc = false;
+        this.TypeParamKind = 0; this.TypeParamIndex = -1;
     }
     public override string Dump() { return "%" + this.Dst.Id.ToString() + " = array_new " + this.ElemName + "[%" + this.Size.Id.ToString() + "]"; }
 }

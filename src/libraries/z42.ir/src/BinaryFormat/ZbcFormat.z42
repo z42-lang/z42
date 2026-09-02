@@ -5,7 +5,7 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 C# ZbcWriter.VersionMajor/Minor 一致；strict-pin。bump 同步规则见 version-bumping.md 第 5 步）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 36;   // 2026-08-21 add-generic-methods：方法级泛型 type_args——新 opcode MethodTypeArg(0xB2)/MethodDefault(0xB3)/CallGeneric(0xB4)/VCallGeneric(0xB5)；非泛型 Call/VCall 编码不变（byte-identical）。随 zpkg 0.41 同 bump。旧注（1.35 unify-object-byte-layout PR-3 chunk 2a）
+    public static int Minor = 37;   // 2026-09-02 fix-generic-array-value-zero-init（方案 C）：ArrayNew 尾部加 TypeParamKind(u8) + TypeParamIndex+1(u16)——泛型形参元素携带类型参数引用，VM 运行期查 type_args 产值类型零值。非泛型元素 kind=0/idx=-1（尾字段 00 + 0000），语义不变。随 zpkg 0.42 同 bump。旧注（1.36 add-generic-methods：方法级泛型 type_args 新 opcode MethodTypeArg(0xB2)/MethodDefault(0xB3)/CallGeneric(0xB4)/VCallGeneric(0xB5)；非泛型 Call/VCall byte-identical；1.35 unify-object-byte-layout PR-3 chunk 2a）
                                     // 前史：1.34 unify-object-byte-layout PR-1（TYPE 加对象全字段布局块=每字段 off/size/kind + 8B 扁平引用位图，普通引用类派生谓词 gated）；1.33 enforce-class-access（TYPE 记录加类声明可见性字节，紧随 class_flags u8）；1.32 add-struct-heap-inline P3b（合成内联 struct 布局块，Flags bit7 gated）；1.31 add-struct-value-semantics A-use（TYPE 加值 struct 布局块，Flags bit2 gated）；1.30 impl-sealed-semantics-devirt（SIGS method_flags:u8 加 bit2=sealed）；1.29 add-escape-analysis-stack-alloc（ObjNew/ArrayNew/ArrayNewLit 尾 u8 栈分配标志）；1.28 fix-crosspkg-interface-impl（接口 TYPE 尾部方法签名块，Flags bit4 gated）；1.27 stabilize-dispatch-keys；1.26 add-delegate-metadata；1.24 add-method-modifiers。
 }
 

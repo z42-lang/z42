@@ -213,7 +213,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 
 **Strict-pin 政策**：reader 仅接受 `major == ZpkgWriter.VersionMajor && minor == ZpkgWriter.VersionMinor`。pre-1.0 z42 阶段不为旧 zpkg minor 提供兼容；每次 minor bump = 所有现存 zpkg artifacts 必须 regen（`./xtask build stdlib`）。
 
-- **当前版本**：`major=0, minor=37`（详见下方 Minor changelog）
+- **当前版本**：`major=0, minor=42`（详见下方 Minor changelog）
 - **触发 minor bump** 的事项：新增 section id / 已定义 section 字段语义变化 / **任意 zbc minor bump（强耦合）**
 - **触发 major bump** 的事项（迄今未发生）：改 magic / 改 16B header layout / 改 section directory 12B 条目格式 / 弃用 packed 或 indexed 模式之一
 - **zbc inner 与 zpkg outer minor 强耦合**：zbc minor 任意 bump → zpkg minor 必须同步 +1。历史唯一例外是 zbc 1.4 → 1.5（漏 bump），freeze-zpkg-v0 通过 0.5 → 0.6 catch-up 修正。
@@ -263,6 +263,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.39 | 2026-08-14 | [unify-object-byte-layout](../../spec/changes/unify-object-byte-layout/)（PR-1） | 耦合 inner zbc 1.34（TYPE 对象全字段布局块，普通引用类派生谓词 gated，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.40 | 2026-08-14 | [unify-object-byte-layout](../../spec/changes/unify-object-byte-layout/)（PR-3 chunk 2a） | 耦合 inner zbc 1.35（TYPE 对象块直接字段 field_kinds 细化 GcRef→GcRefArray/GcRefClosure，供 runtime chunk 2b 安全内联 8B 引用；休眠不消费，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.41 | 2026-08-21 | [add-generic-methods](../../spec/changes/add-generic-methods/) | 耦合 inner zbc 1.36（方法级泛型 type_args：新 opcode MethodTypeArg/MethodDefault/CallGeneric/VCallGeneric；非泛型调用 byte-identical，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
+| 0.42 | 2026-09-02 | [fix-generic-array-value-zero-init](../../spec/changes/fix-generic-array-value-zero-init/) | 耦合 inner zbc 1.37（ArrayNew 尾部加 type_param_kind:u8 + (type_param_index+1):u16——泛型形参数组元素携带类型参数引用，VM 运行期查 type_args 产值类型零值而非 Null；非泛型 ArrayNew byte-identical，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

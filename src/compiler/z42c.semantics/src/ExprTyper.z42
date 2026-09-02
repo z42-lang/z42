@@ -248,7 +248,27 @@ public sealed class ExprTyper {
     private BoundExpr _bindArrayNew(ArrayNewExpr an, TypeEnv env) {
             BoundExpr size = this._bindExpr(an.Size, env);
             Z42Type elem = env.ResolveType(an.Elem);
-            return new BoundArrayNew(size, PrimModel.SurfaceName(elem.Name()), new Z42ArrayType(elem), an.Span);
+            BoundArrayNew ban = new BoundArrayNew(size, PrimModel.SurfaceName(elem.Name()), new Z42ArrayType(elem), an.Span);
+            // fix-generic-array-value-zero-init（方案 C）：元素是泛型形参 → 解析 (kind, index)，
+            // 镜像 _bindDefault（方法级就近优先，否则类级）。VM 据此对值类型 T 产零值而非 Null。
+            if (elem is Z42GenericParamType) {
+                string pname = elem.Name();
+                int mIdx = env.MethodParamIndexOf(pname);
+                if (mIdx >= 0) {
+                    ban.TypeParamIndex = mIdx;
+                    ban.IsMethodLevel = true;
+                } else {
+                    int idx = 0;
+                    int pi = 0;
+                    while (pi < env.TypeParamCount) {
+                        if (env.TypeParamNames[pi] == pname) { idx = pi; pi = env.TypeParamCount + 1; }
+                        else { pi = pi + 1; }
+                    }
+                    ban.TypeParamIndex = idx;
+                    ban.IsMethodLevel = false;
+                }
+            }
+            return ban;
     }
 
     // ── 集合字面量脱糖（add-collection-literals）─────────────────────────────────
