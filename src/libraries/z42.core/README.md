@@ -17,7 +17,7 @@
 | `Single.z42` | `struct float` — 单精度浮点（VM 用 F64 存储；常量 `MaxValue` / `MinValue` / `Epsilon`）|
 | `SByte/Byte/Int16/UInt16/UInt32/UInt64.z42` | 其余整数基元家族（`Parse` / `TryParse` / 协议方法 + `MaxValue` / `MinValue` 常量，C# BCL 对标）|
 | `Bool.z42` | `struct bool` — 布尔（只实现 `IEquatable<bool>`）|
-| `Char.z42` | `struct char` — 字符（`CompareTo` / `Equals` / `GetHashCode` / `ToString` / `IsWhiteSpace` / `ToLower` / `ToUpper`）|
+| `Char.z42` | `struct char` — 字符（`CompareTo` / `Equals` / `GetHashCode` / `ToString` / `IsWhiteSpace` / `ToLower` / `ToUpper` + ASCII 分类 `IsDigit` / `IsLetter` / `IsLetterOrDigit` / `IsUpper` / `IsLower` / `IsPunctuation`；上述分类与 casing 均有 C# 风格静态形式 `Char.IsDigit(c)` 等）|
 | `Type.z42` | 运行时类型对象（`typeof` 运算符返回值）|
 | `Array.z42` | `T[]` 基类（`Length` / `Clone` / 反射 `CreateInstance` / `GetValue` / `SetValue`）+ 静态算法（C# `System.Array` 对标）：排序 `Sort<T>` / `Sort<T>(cmp)` / `Sort<T>(index,length)`、查找 `IndexOf` / `IndexOf(start[,count])` / `LastIndexOf` / `LastIndexOf(start)` / `Contains` / `BinarySearch` / `BinarySearch(index,length,value)` / `BinarySearch(value,cmp)`、谓词 `Find` / `FindLast` / `FindIndex` / `FindLastIndex` / `FindAll` / `Exists` / `TrueForAll`、变换 `ConvertAll` / `ForEach` / `Copy` / `Copy(srcIdx,dstIdx,len)` / `Fill` / `Fill(value,start,count)` / `Reverse` / `Reverse(index,length)` / `Clear` / `Resize` / `Empty`、只读视图 `AsReadOnly<T>`（→ `Collections.ReadOnlyCollection<T>`） |
 | `Assert.z42` | 断言工具（`Assert.True`、`Assert.Equal` 等）|

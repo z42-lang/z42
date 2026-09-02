@@ -51,4 +51,41 @@ public struct Char : IComparable<char>, IEquatable<char> {
         bool upper = !(this < 'A') && !(this > 'Z');
         return lower || upper;
     }
+
+    // augment-corelib-parity (2026-09-02, backlog #10): more ASCII classifiers
+    // rounding out System.Char parity. Same ASCII-only rules / L3-CultureInfo
+    // deferral as IsDigit/IsLetter/ToLower above.
+    public bool IsLetterOrDigit() {
+        return this.IsLetter() || this.IsDigit();
+    }
+    public bool IsUpper() {
+        return !(this < 'A') && !(this > 'Z');
+    }
+    public bool IsLower() {
+        return !(this < 'a') && !(this > 'z');
+    }
+    // ASCII punctuation per Unicode P* categories (matches .NET char.IsPunctuation
+    // over U+0000–U+007F): the ASCII symbol chars $ + < = > ^ ` | ~ are category S,
+    // NOT punctuation, so they return false.
+    public bool IsPunctuation() {
+        int c = (int)this;
+        if (c >= 33 && c <= 47) return c != 36 && c != 43; // ! " # % & ' ( ) * , - . /  (excl. $ +)
+        if (c == 58 || c == 59) return true;               // : ;
+        if (c == 63 || c == 64) return true;               // ? @
+        if (c >= 91 && c <= 93) return true;               // [ \ ]
+        if (c == 95) return true;                          // _
+        return c == 123 || c == 125;                       // { }
+    }
+
+    // Static forms mirror the C# System.Char static API (`char.IsDigit(c)` etc.);
+    // z42's type-based mangling lets them coexist with the instance methods above.
+    public static bool IsDigit(char c)         { return c.IsDigit(); }
+    public static bool IsLetter(char c)        { return c.IsLetter(); }
+    public static bool IsLetterOrDigit(char c) { return c.IsLetterOrDigit(); }
+    public static bool IsWhiteSpace(char c)    { return c.IsWhiteSpace(); }
+    public static bool IsUpper(char c)         { return c.IsUpper(); }
+    public static bool IsLower(char c)         { return c.IsLower(); }
+    public static bool IsPunctuation(char c)   { return c.IsPunctuation(); }
+    public static char ToUpper(char c)         { return c.ToUpper(); }
+    public static char ToLower(char c)         { return c.ToLower(); }
 }
