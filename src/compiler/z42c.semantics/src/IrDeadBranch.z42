@@ -24,7 +24,7 @@ public sealed class IrDeadBranch {
         int n = f.MaxReg + 2;
         bool[] known = new bool[n];
         bool[] bval  = new bool[n];
-        int[] defs = IrDeadBranch._computeDefs(f);
+        int[] defs = IrRegCounts.Defs(f);
         int bi = 0;
         while (bi < f.BlockCount) {
             IrBlock blk = f.Blocks[bi];
@@ -53,18 +53,6 @@ public sealed class IrDeadBranch {
             }
             bi = bi + 1;
         }
-    }
-
-    private static int[] _computeDefs(IrFunction f) {
-        int[] defs = new int[f.MaxReg + 2];
-        int bi = 0;
-        while (bi < f.BlockCount) {
-            IrBlock blk = f.Blocks[bi];
-            int ii = 0;
-            while (ii < blk.InstrCount) { IrOptInfo.AddDef(defs, blk.Instrs[ii]); ii = ii + 1; }
-            bi = bi + 1;
-        }
-        return defs;
     }
 
     // 从 entry(block0) 可达性 BFS，移除不可达块。仅 ExcCount==0 调用。

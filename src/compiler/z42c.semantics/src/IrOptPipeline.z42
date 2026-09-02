@@ -47,7 +47,7 @@ public sealed class IrOptPipeline {
         if (f.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
         // pass: const-fold —— 折叠两 int 常量的运算/比较 + 代数恒等式（放最前，产出的 const 供后续传播）
         if (Opt.Has(optSet, Opt.ConstFold)) {
-            int[] defs0 = IrOptPipeline._computeDefs(f);
+            int[] defs0 = IrRegCounts.Defs(f);
             IrOptPipeline._passConstFold(f, defs0);
         }
         // pass: dead-branch —— 常量条件死分支消除（放 const-fold 后：折出的 ConstBool 也触发；喂料还来自
@@ -67,8 +67,8 @@ public sealed class IrOptPipeline {
         }
         // pass: copy-prop —— 从当前 IR 重算读/写计数（含终结子读）
         if (Opt.Has(optSet, Opt.CopyProp)) {
-            int[] reads = IrOptPipeline._computeReads(f);
-            int[] defs = IrOptPipeline._computeDefs(f);
+            int[] reads = IrRegCounts.Reads(f);
+            int[] defs = IrRegCounts.Defs(f);
             IrOptPipeline._passCopyProp(f, reads, defs);
             // use-site 级联（improve-copy-prop-cascade）：清相邻 producer→copy retarget 遗留的
             // 链式/非相邻 copy——把单赋值 `dst=copy src`（src 稳定）的所有 dst 使用点改写为 src、删死 copy。
@@ -76,7 +76,7 @@ public sealed class IrOptPipeline {
         }
         // pass: temp-DCE —— 从当前 IR 重算读计数；参数寄存器 live-out
         if (Opt.Has(optSet, Opt.Dce)) {
-            int[] reads2 = IrOptPipeline._computeReads(f);
+            int[] reads2 = IrRegCounts.Reads(f);
             IrOptPipeline._seedParams(reads2, f.ParamCount);
             IrOptPipeline._passTempDce(f, reads2);
         }
@@ -123,30 +123,6 @@ public sealed class IrOptPipeline {
         }
     }
 
-    // ── 计数助手 ──────────────────────────────────────────────────────────────────
-    private static int[] _computeReads(IrFunction f) {
-        int[] reads = new int[f.MaxReg + 2];
-        int bi = 0;
-        while (bi < f.BlockCount) {
-            IrBlock blk = f.Blocks[bi];
-            int ii = 0;
-            while (ii < blk.InstrCount) { IrOptInfo.AddReads(reads, blk.Instrs[ii]); ii = ii + 1; }
-            if (blk.HasTerm) { IrOptInfo.AddTermReads(reads, blk.Term); }
-            bi = bi + 1;
-        }
-        return reads;
-    }
-    private static int[] _computeDefs(IrFunction f) {
-        int[] defs = new int[f.MaxReg + 2];
-        int bi = 0;
-        while (bi < f.BlockCount) {
-            IrBlock blk = f.Blocks[bi];
-            int ii = 0;
-            while (ii < blk.InstrCount) { IrOptInfo.AddDef(defs, blk.Instrs[ii]); ii = ii + 1; }
-            bi = bi + 1;
-        }
-        return defs;
-    }
     // 参数寄存器 live-out：out/ref 参数最终值由调用方读取（跨函数 escape，函数内看不到）。
     // 上界 [0, ParamCount] 含一格：实例/lambda 精确（reg0=this/env），静态/自由多护一格——安全。
     private static void _seedParams(int[] reads, int paramCount) {
@@ -204,7 +180,7 @@ public sealed class IrOptPipeline {
     // 用 IrOptInfo.ReplaceReads 改写全函数所有 dst 使用点为 src，再删这些已死的 copy。
     // 安全：src 稳定（单赋值 temp / 从不重写的形参）→ 其值在 dst 所有使用点相同（IR 有效 = def 支配 use）。
     private static void _passCopyPropUse(IrFunction f) {
-        int[] defs = IrOptPipeline._computeDefs(f);
+        int[] defs = IrRegCounts.Defs(f);
         int pc = f.ParamCount;
         TypedReg[] map = new TypedReg[f.MaxReg + 2];   // dst id -> src TypedReg（直接映射）
         // 收集合格 copy
@@ -279,7 +255,7 @@ public sealed class IrOptPipeline {
     // 之后用 ReplaceReads 全函数把 dupDst 使用点改写为 firstDst、删重复计算指令。
     // 块内检测（同块 firstDst 在前 → 支配 dupDst 及其所有使用点，值恒等）；跨块不做（避支配分析）。
     private static void _passCse(IrFunction f, int optSet, PureTable pureTable) {
-        int[] defs = IrOptPipeline._computeDefs(f);
+        int[] defs = IrRegCounts.Defs(f);
         int pc = f.ParamCount;
         // add-readonly-fields-opt：readonly-fget 失效——凡函数内被 field_set 写过的字段，跳过其 readonly CSE
         // （保守正确：readonly 字段只在 ctor 经 this 写 → 仅 ctor 自身不消重、非热点；普通方法无 readonly 写 → 全消重）。
