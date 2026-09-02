@@ -4,11 +4,16 @@
 
 ### Requirement: 泛型 `new T[n]` 按元素类型零初始化
 
-**Before:** 泛型方法/类里 `new T[n]`，当 T 绑值类型时，未写入槽为 `Value::Null`；读该槽（触发装箱）
-抛 `__box_prim: expected integer value, got Null`。
+**Before:** 泛型方法/类里 `new T[n]`，当 T 绑**基元值类型**（int/bool/char/double/…）时，未写入槽为
+`Value::Null`；读该槽（触发装箱）抛 `__box_prim: expected integer value, got Null`。
 
-**After:** 未写入槽为该值类型的零值（int→0，bool→false，char→'\0'，double→0.0，值 struct→零布局），
-引用类型仍为 null。读未写槽不再报错。
+**After:** 未写入槽为该基元值类型的零值（int→0，bool→false，char→'\0'，double→0.0）。读未写槽不再报错。
+
+**范围（narrow）：** 只影响**基元值类型**类型参数——它们才是 `__box_prim` bug 现场。**值 struct / 引用类型**
+类型参数**保持原擦除路径不变**（reference-backed、Null 默认）：泛型容器按引用/装箱存 struct（见
+`struct_generic_container`：`Dictionary<P,int>`/`List<P>`），若把已解析的 struct 强制走 struct-backing 会
+`VCall: expected object, got StructRefHeap`。数组 backing 与 `element_type` 保持擦除不变，仅基元槽默认值改变
+（复刻已验证的 `default(T)` 赋值行为）。
 
 #### Scenario: 泛型方法返回值类型数组，读未写槽
 - **WHEN** `T[] make<T>(int n) => new T[n];`，调 `make<int>(3)`，读 `result[0]`（未写）传给取 `object` 形参的方法（触发装箱）
@@ -27,9 +32,9 @@
 - **WHEN** `make<string>(2)`，读未写 `result[0]`
 - **THEN** 得 `null`
 
-#### Scenario: 泛型数组反射元素类型修正
-- **WHEN** 对 `make<int>(3)` 结果做元素类型反射
-- **THEN** 元素类型为具体 `Std.Int32`（非擦除 `"T"`）
+#### Scenario: 值 struct 泛型容器不回归
+- **WHEN** `Dictionary<P,int>` / `List<P>`（P 为值 struct）的存取 / 遍历 / 按值查找（`struct_generic_container`）
+- **THEN** 与修改前逐一致（struct 仍 reference-backed / 装箱，不被强制 struct-backing）
 
 ### Requirement: 非泛型数组编码/行为不变（自举字节安全）
 

@@ -68,11 +68,18 @@ pub(super) fn array_new(
     let n = to_usize(frame.get(size)?, "ArrayNew size")?;
     // fix-generic-array-value-zero-init (方案 C): if the element is a generic type
     // parameter, resolve it to a concrete type name at runtime (mirrors default(T):
-    // method-level → frame.method_type_args, class-level → receiver.type_args). The
-    // resolved name replaces the erased "T" so struct-backing / packing / element_type
-    // reflection all use the concrete type, and the per-slot default becomes the type's
-    // value-type zero instead of Null. kind==0 (non-generic) keeps the original path
-    // byte-for-byte.
+    // method-level → frame.method_type_args, class-level → receiver.type_args), and if
+    // that concrete type is a **primitive value type** (int/bool/char/double/...), use
+    // its zero as the per-slot default instead of Null. This reproduces the proven
+    // `default(T)`-assignment behavior (a reference-backed array whose slots are the
+    // value-type zero), fixing the `__box_prim: got Null` read of an unwritten slot.
+    //
+    // Deliberately narrow: only PRIMITIVE value params are affected. The array's
+    // backing + element_type are left ERASED (unchanged) — struct / reference type
+    // params keep the exact pre-change path. Forcing a resolved *struct* type through
+    // struct-backing here breaks generic containers that store structs by reference
+    // (struct_generic_container: `VCall: expected object, got StructRefHeap`). kind==0
+    // (non-generic) is untouched: `resolved` is None → default_value_for_tag path.
     let resolved: Option<String> = if type_param_kind != 0 && type_param_index >= 0 {
         let idx = type_param_index as usize;
         match type_param_kind {
@@ -86,9 +93,15 @@ pub(super) fn array_new(
     } else {
         None
     };
-    let element_type: &str = resolved.as_deref().unwrap_or(element_type);
+    // Primitive value-type zero for a resolved generic param, else None (struct/ref/no-op).
+    let prim_zero: Option<Value> = resolved.as_deref().and_then(|c| {
+        let d = default_value_for(c);
+        if matches!(d, Value::Null) { None } else { Some(d) }
+    });
     // add-struct-array-codegen: blob value-struct element → StructBytes heap backing
     // (skips stack-alloc + packed paths; element access via StructRefHeap handle).
+    // element_type is the erased/original name — generic struct params do NOT reach here
+    // as a concrete struct, preserving reference-backed generic-container semantics.
     if let Some(sb) = try_struct_backed(ctx, element_type, n) {
         let arr = ctx.heap().alloc_array_obj(sb);
         if matches!(arr, Value::Null) {
@@ -100,13 +113,8 @@ pub(super) fn array_new(
         frame.set(dst, arr);
         return Ok(None);
     }
-    // fix-generic-array-value-zero-init: resolved generic element → value-type zero by
-    // concrete type name (agrees with default_value_for_tag for the tag equivalents,
-    // e.g. "int"/Std.Int32 → I64(0)); else the erased-tag default (unchanged).
-    let default = match resolved.as_deref() {
-        Some(concrete) => default_value_for(concrete),
-        None => default_value_for_tag(elem_tag),
-    };
+    // Primitive generic param → its zero; else the erased-tag default (unchanged).
+    let default = prim_zero.unwrap_or_else(|| default_value_for_tag(elem_tag));
     // add-escape-analysis-stack-alloc: non-escaping array → frame arena (no GC).
     if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let arr = crate::metadata::types::ArrayObj::stack_typed(element_type, vec![default; n]);

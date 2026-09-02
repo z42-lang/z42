@@ -58,12 +58,21 @@ ParamIndex 来源**（ExprTyper 里 default 的解析路径），不新写解析
 frame 无直接接收者句柄，实施时从 frame 的 self 槽取（与 default_of 同源）。**若实现复杂度过高，先只落
 method 级（kind=1，覆盖泛型方法主场景），class 级留 TODO** —— 见 Decision 5。
 
-### Decision 3: elemTag 保持 Unknown，VM 以操作数为准
+### Decision 3: elemTag 保持 Unknown；VM 只对**基元**类型参数改默认值（narrow）
 
 emit 端 `elemTag` 仍走 `ToIrType(泛型形参)=Unknown`（不改现有类型→tag 映射）。VM array_new 见
-`kind!=0` 时**忽略 Unknown tag**，改用解析出的具体类型名重算 default/backing。`kind==0`（具体类型或
-非泛型擦除）完全走原路径，行为逐字节不变——**保证既有非泛型 `new int[n]` / `new C[n]` 的 zbc 编码与
-执行不动**（自举字节安全）。
+`kind!=0` 时解析具体类型名，**仅当它是基元值类型**（`default_value_for` 返回非 Null）才把**每槽默认值**
+换成该基元零值；数组的 **backing 与 `element_type` 保持擦除不变**（reference-backed）。这复刻已验证的
+`default(T)` 赋值行为（reference-backed 数组、槽为基元零值），是修 `__box_prim` bug 的最小改动。
+
+**为什么不改 backing / 不走 struct-backing**（2026-09-02 实测收敛）：把已解析的 **struct** 类型参数走
+`try_struct_backed` 会把泛型容器的 `new T[n]`（T=struct）变成值打包 struct 数组 → `arr[i]` 物化
+`StructRefHeap`，而泛型容器（`Dictionary<P,int>`/`List<P>`）按引用/装箱存 struct、对元素发 boxed
+`VCall` → `VCall: expected object, got StructRefHeap`（`struct_generic_container` 回归）。故 struct / 引用
+类型参数**一律保持原擦除路径**，只有基元受影响。`kind==0`（非泛型）完全走原路径，逐字节不变（自举安全）。
+
+> **舍弃的次要收益**：不再顺带修「泛型数组反射元素类型 `"T"`→具体」（那需要改 element_type/backing，
+> 与上面的 struct 安全冲突）。反射元素类型修正若需要，另起 change 专门处理 struct-backing 的兼容。
 
 ### Decision 4: 移除 Array.Resize 绕过
 
