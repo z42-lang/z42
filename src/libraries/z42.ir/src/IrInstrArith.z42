@@ -1,0 +1,148 @@
+// IR 指令：数据移动 / 二元算术·比较·位·移位·串拼接（IrBinInstr）/ 一元（IrUnInstr）。
+// 拆自 IrInstr.z42（unify-ir-operand-access）；接口约定见 IrInstr.z42 文件头。
+namespace Z42.IR;
+
+// ── 数据移动 ──────────────────────────────────────────────────────────────────────
+public sealed class CopyInstr : IrUnInstr {
+    public CopyInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
+    public override string Dump() { return this.Dst.Dump() + " = copy " + this.Src.Dump(); }
+    public override IrInstr Clone() { return new CopyInstr(this.Dst, this.Src); }
+}
+
+// ── 算术（二元，三操作数）──────────────────────────────────────────────────────────
+// 类型名取 Dst 的标签（镜像 ir.md `add i64 %a, %b`）。
+public sealed class AddInstr : IrBinInstr {
+    public AddInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() {
+        return this.Dst.Dump() + " = add " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
+    }
+    public override IrInstr Clone() { return new AddInstr(this.Dst, this.A, this.B); }
+}
+
+public sealed class SubInstr : IrBinInstr {
+    public SubInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() {
+        return this.Dst.Dump() + " = sub " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
+    }
+    public override IrInstr Clone() { return new SubInstr(this.Dst, this.A, this.B); }
+}
+
+public sealed class MulInstr : IrBinInstr {
+    public MulInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() {
+        return this.Dst.Dump() + " = mul " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
+    }
+    public override IrInstr Clone() { return new MulInstr(this.Dst, this.A, this.B); }
+}
+
+public sealed class DivInstr : IrBinInstr {
+    public DivInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() {
+        return this.Dst.Dump() + " = div " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
+    }
+    public override IrInstr Clone() { return new DivInstr(this.Dst, this.A, this.B); }
+}
+
+public sealed class RemInstr : IrBinInstr {
+    public RemInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() {
+        return this.Dst.Dump() + " = rem " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
+    }
+    public override IrInstr Clone() { return new RemInstr(this.Dst, this.A, this.B); }
+}
+
+// ── 比较（CG-1E）：→ bool。类型名取操作数（A）的标签（结果恒 bool）。──────────────────
+public sealed class EqInstr : IrBinInstr {
+    public EqInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = eq " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new EqInstr(this.Dst, this.A, this.B); }
+}
+public sealed class NeInstr : IrBinInstr {
+    public NeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = ne " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new NeInstr(this.Dst, this.A, this.B); }
+}
+public sealed class LtInstr : IrBinInstr {
+    public LtInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = lt " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new LtInstr(this.Dst, this.A, this.B); }
+}
+public sealed class LeInstr : IrBinInstr {
+    public LeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = le " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new LeInstr(this.Dst, this.A, this.B); }
+}
+public sealed class GtInstr : IrBinInstr {
+    public GtInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = gt " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new GtInstr(this.Dst, this.A, this.B); }
+}
+public sealed class GeInstr : IrBinInstr {
+    public GeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = ge " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new GeInstr(this.Dst, this.A, this.B); }
+}
+
+// ── 位运算（CG-1E）：结果类型 = 操作数（Dst 标签）。─────────────────────────────────
+public sealed class BitAndInstr : IrBinInstr {
+    public BitAndInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = bit_and " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new BitAndInstr(this.Dst, this.A, this.B); }
+}
+public sealed class BitOrInstr : IrBinInstr {
+    public BitOrInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = bit_or " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new BitOrInstr(this.Dst, this.A, this.B); }
+}
+public sealed class BitXorInstr : IrBinInstr {
+    public BitXorInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = bit_xor " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new BitXorInstr(this.Dst, this.A, this.B); }
+}
+public sealed class ShlInstr : IrBinInstr {
+    public ShlInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = shl " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new ShlInstr(this.Dst, this.A, this.B); }
+}
+public sealed class ShrInstr : IrBinInstr {
+    public ShrInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = shr " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new ShrInstr(this.Dst, this.A, this.B); }
+}
+
+// ── 字符串拼接（CG-1E）：a + b（string）。──────────────────────────────────────────
+public sealed class StrConcatInstr : IrBinInstr {
+    public StrConcatInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
+    public override string Dump() { return this.Dst.Dump() + " = str_concat " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override IrInstr Clone() { return new StrConcatInstr(this.Dst, this.A, this.B); }
+}
+
+// ── 一元（CG-1E）─────────────────────────────────────────────────────────────────
+public sealed class NotInstr : IrUnInstr {
+    public NotInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
+    public override string Dump() { return this.Dst.Dump() + " = not " + this.Src.Dump(); }
+    public override IrInstr Clone() { return new NotInstr(this.Dst, this.Src); }
+}
+public sealed class NegInstr : IrUnInstr {
+    public NegInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
+    public override string Dump() { return this.Dst.Dump() + " = neg " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
+    public override IrInstr Clone() { return new NegInstr(this.Dst, this.Src); }
+}
+public sealed class BitNotInstr : IrUnInstr {
+    public BitNotInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
+    public override string Dump() { return this.Dst.Dump() + " = bit_not " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
+    public override IrInstr Clone() { return new BitNotInstr(this.Dst, this.Src); }
+}
+// (T)expr 数值转换（G3；目标 tag 在 Dst.Type）。镜像 C# ConvertInstr。
+public sealed class ConvertInstr : IrUnInstr {
+    public ConvertInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
+    public override string Dump() { return this.Dst.Dump() + " = convert " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
+    public override IrInstr Clone() { return new ConvertInstr(this.Dst, this.Src); }
+}
+
+// ToStr（GS4 interpolation）：dst = src.ToString()；镜像 C# ToStrInstr opcode 0x1F。
+public sealed class ToStrInstr : IrUnInstr {
+    public ToStrInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
+    public override string Dump() { return this.Dst.Dump() + " = to_str " + this.Src.Dump(); }
+    public override IrInstr Clone() { return new ToStrInstr(this.Dst, this.Src); }
+}
