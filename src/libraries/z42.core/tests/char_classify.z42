@@ -1,0 +1,98 @@
+// augment-corelib-parity (backlog #10): coverage for the added System.Char
+// classifiers — instance forms + the C#-style static forms (Char.IsDigit(c)).
+// ASCII rules only (locale-sensitive classification deferred to L3 CultureInfo).
+namespace Z42CoreCharClassifyTests;
+
+using Std;
+using Std.Test;
+
+[Test]
+void test_is_letter_or_digit() {
+    Assert.True('a'.IsLetterOrDigit());
+    Assert.True('Z'.IsLetterOrDigit());
+    Assert.True('7'.IsLetterOrDigit());
+    Assert.False(' '.IsLetterOrDigit());
+    Assert.False('_'.IsLetterOrDigit());
+    Assert.False('!'.IsLetterOrDigit());
+}
+
+[Test]
+void test_is_upper_lower() {
+    Assert.True('A'.IsUpper());
+    Assert.True('Z'.IsUpper());
+    Assert.False('a'.IsUpper());
+    Assert.False('0'.IsUpper());
+
+    Assert.True('a'.IsLower());
+    Assert.True('z'.IsLower());
+    Assert.False('A'.IsLower());
+    Assert.False('9'.IsLower());
+}
+
+[Test]
+void test_is_punctuation_true() {
+    // A spread across the ASCII punctuation ranges.
+    Assert.True('!'.IsPunctuation());
+    Assert.True('"'.IsPunctuation());
+    Assert.True('#'.IsPunctuation());
+    Assert.True('%'.IsPunctuation());
+    Assert.True('\''.IsPunctuation());
+    Assert.True('('.IsPunctuation());
+    Assert.True(')'.IsPunctuation());
+    Assert.True(','.IsPunctuation());
+    Assert.True('.'.IsPunctuation());
+    Assert.True('/'.IsPunctuation());
+    Assert.True(':'.IsPunctuation());
+    Assert.True(';'.IsPunctuation());
+    Assert.True('?'.IsPunctuation());
+    Assert.True('@'.IsPunctuation());
+    Assert.True('['.IsPunctuation());
+    Assert.True(']'.IsPunctuation());
+    Assert.True('_'.IsPunctuation());
+    Assert.True('{'.IsPunctuation());
+    Assert.True('}'.IsPunctuation());
+}
+
+[Test]
+void test_is_punctuation_false() {
+    // Category S (symbol), not punctuation — matches .NET.
+    Assert.False('$'.IsPunctuation());
+    Assert.False('+'.IsPunctuation());
+    Assert.False('<'.IsPunctuation());
+    Assert.False('='.IsPunctuation());
+    Assert.False('>'.IsPunctuation());
+    Assert.False('^'.IsPunctuation());
+    Assert.False('|'.IsPunctuation());
+    Assert.False('~'.IsPunctuation());
+    // Non-punctuation controls / alnum / space.
+    Assert.False('a'.IsPunctuation());
+    Assert.False('0'.IsPunctuation());
+    Assert.False(' '.IsPunctuation());
+}
+
+[Test]
+void test_static_forms() {
+    // C#-style static classifiers delegate to the instance forms.
+    Assert.True(Char.IsDigit('5'));
+    Assert.False(Char.IsDigit('x'));
+    Assert.True(Char.IsLetter('q'));
+    Assert.False(Char.IsLetter('4'));
+    Assert.True(Char.IsLetterOrDigit('q'));
+    Assert.True(Char.IsLetterOrDigit('4'));
+    Assert.True(Char.IsWhiteSpace(' '));
+    Assert.False(Char.IsWhiteSpace('x'));
+    Assert.True(Char.IsUpper('A'));
+    Assert.False(Char.IsUpper('a'));
+    Assert.True(Char.IsLower('a'));
+    Assert.False(Char.IsLower('A'));
+    Assert.True(Char.IsPunctuation('!'));
+    Assert.False(Char.IsPunctuation('$'));
+}
+
+[Test]
+void test_static_casing() {
+    Assert.Equal('A', Char.ToUpper('a'));
+    Assert.Equal('a', Char.ToLower('A'));
+    Assert.Equal('7', Char.ToUpper('7'));   // non-letters unchanged
+    Assert.Equal('!', Char.ToLower('!'));
+}

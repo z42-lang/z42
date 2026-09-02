@@ -1,0 +1,166 @@
+namespace Std.Collections;
+
+// `HashSet<T>` — 开放寻址哈希集合（augment-corelib-parity backlog #4）。
+//
+// 与 `Dictionary<TKey, TValue>` 同款线性探测 + 掩码 hash 短路实现，但只存元素、
+// 不存值：摊还 O(1) 平均 Add / Remove / Contains，负载因子 > 0.75 时 2 倍扩容。
+// 约束：T 必须 hashable + equatable（primitive 走 VM builtin，用户类型实现
+// IEquatable<T>），与 Dictionary 的 TKey 约束一致。
+//
+// 迭代：用 `ToArray()` 取快照后 foreach（专用 enumerator 见 Deferred）。
+public class HashSet<T> where T: IEquatable<T> {
+    T[] elems;
+    bool[] occupied;
+    // 每槽存其元素的掩码 hash（`GetHashCode() & 0x7FFFFFFF`），探测时先比 int
+    // hash，不等即跳过 `.Equals()` 派发；Grow 复用免重算。见 Dictionary 同款注释。
+    int[] hashes;
+    public int Count;
+    int capacity;
+
+    public HashSet() {
+        this.capacity = 8;
+        this.elems = new T[8];
+        this.occupied = new bool[8];
+        this.hashes = new int[8];
+        this.Count = 0;
+    }
+
+    public bool IsEmpty() { return this.Count == 0; }
+
+    // 加入元素；已存在返回 false（不重复），新增返回 true。语义同 C# HashSet<T>.Add。
+    public bool Add(T item) {
+        if (this.Count * 4 > this.capacity * 3) this.Grow();
+        int h = item.GetHashCode() & 0x7FFFFFFF;
+        int slot = this._findSlotH(item, h);
+        if (this.occupied[slot]) return false;
+        this.occupied[slot] = true;
+        this.elems[slot] = item;
+        this.hashes[slot] = h;
+        this.Count = this.Count + 1;
+        return true;
+    }
+
+    public bool Contains(T item) {
+        int slot = this._findSlotH(item, item.GetHashCode() & 0x7FFFFFFF);
+        return this.occupied[slot];
+    }
+
+    public bool Remove(T item) {
+        int slot = this._findSlotH(item, item.GetHashCode() & 0x7FFFFFFF);
+        if (!this.occupied[slot]) return false;
+        this.occupied[slot] = false;
+        this.Count = this.Count - 1;
+        // 重新插入探测链剩余项以填空洞（复用存储 hash，免重算 GetHashCode）。
+        int mask = this.capacity - 1;
+        int j = (slot + 1) & mask;
+        while (this.occupied[j]) {
+            int h = this.hashes[j];
+            T e = this.elems[j];
+            this.occupied[j] = false;
+            int s = h & mask;
+            while (this.occupied[s]) s = (s + 1) & mask;
+            this.occupied[s] = true;
+            this.elems[s] = e;
+            this.hashes[s] = h;
+            j = (j + 1) & mask;
+        }
+        return true;
+    }
+
+    public void Clear() {
+        int i = 0;
+        while (i < this.capacity) {
+            this.occupied[i] = false;
+            i = i + 1;
+        }
+        this.Count = 0;
+    }
+
+    // 元素快照数组（顺序由 capacity 扫描决定，不保证稳定）。
+    public T[] ToArray() {
+        T[] result = new T[this.Count];
+        int idx = 0;
+        int i = 0;
+        while (i < this.capacity) {
+            if (this.occupied[i]) {
+                result[idx] = this.elems[i];
+                idx = idx + 1;
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    // ── Set 运算（C# HashSet<T> 常用变体；接收数组，见 Deferred 关于 IEnumerable）──
+
+    // 并入 items 的全部元素（等价 C# UnionWith）。
+    public void UnionWith(T[] items) {
+        int i = 0;
+        while (i < items.Length) {
+            this.Add(items[i]);
+            i = i + 1;
+        }
+    }
+
+    // 只保留同时存在于 items 的元素（等价 C# IntersectWith）。
+    public void IntersectWith(T[] items) {
+        HashSet<T> other = new HashSet<T>();
+        other.UnionWith(items);
+        T[] current = this.ToArray();
+        this.Clear();
+        int i = 0;
+        while (i < current.Length) {
+            if (other.Contains(current[i])) this.Add(current[i]);
+            i = i + 1;
+        }
+    }
+
+    // 移除 items 中出现的元素（等价 C# ExceptWith）。
+    public void ExceptWith(T[] items) {
+        int i = 0;
+        while (i < items.Length) {
+            this.Remove(items[i]);
+            i = i + 1;
+        }
+    }
+
+    // 掩码探测 + 存储 hash 短路：capacity 恒为 2 的幂，`slot & (capacity-1)`
+    // 等价取模。命中要求存储 hash 相等 *且* elem.Equals。
+    int _findSlotH(T item, int h) {
+        int mask = this.capacity - 1;
+        int slot = h & mask;
+        while (this.occupied[slot] && (this.hashes[slot] != h || !this.elems[slot].Equals(item))) {
+            slot = (slot + 1) & mask;
+        }
+        return slot;
+    }
+
+    void Grow() {
+        int newCap = this.capacity * 2;
+        T[] newElems = new T[newCap];
+        bool[] newOccupied = new bool[newCap];
+        int[] newHashes = new int[newCap];
+        T[] oldElems = this.elems;
+        bool[] oldOccupied = this.occupied;
+        int[] oldHashes = this.hashes;
+        int oldCap = this.capacity;
+        this.elems = newElems;
+        this.occupied = newOccupied;
+        this.hashes = newHashes;
+        this.capacity = newCap;
+        int mask = newCap - 1;
+        int i = 0;
+        while (i < oldCap) {
+            if (oldOccupied[i]) {
+                // 元素必唯一、新表全空 → 直接线性探测首个空槽，免 Equals / 重算 hash。
+                int h = oldHashes[i];
+                int slot = h & mask;
+                while (this.occupied[slot]) slot = (slot + 1) & mask;
+                this.occupied[slot] = true;
+                this.elems[slot] = oldElems[i];
+                this.hashes[slot] = h;
+            }
+            i = i + 1;
+        }
+    }
+}

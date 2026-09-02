@@ -795,7 +795,16 @@ pub struct ArrayNewInsn {
     /// array does not escape its creating frame → interp allocates it in the
     /// frame arena (GC-skipped). JIT ignores this flag (heap-allocates) in v1.
     #[serde(default)] pub stack_alloc: bool,
+    /// fix-generic-array-value-zero-init (zbc 1.37, 方案 C): when the element is a
+    /// generic type parameter, `type_param_kind` is 1 (method-level) or 2 (class-level)
+    /// and `type_param_index` is its param index; the VM resolves it to a concrete type
+    /// at runtime (frame.method_type_args / receiver.type_args) so value-type slots get
+    /// the type's zero, not Null. `kind == 0` / `index == -1` for non-generic elements.
+    #[serde(default)] pub type_param_kind: u8,
+    #[serde(default = "neg_one_i32")] pub type_param_index: i32,
 }
+
+fn neg_one_i32() -> i32 { -1 }
 
 /// Payload for [`Instruction::ArrayNewLit`] (add-reflection-array-element-type).
 #[derive(Debug, Serialize, Deserialize)]

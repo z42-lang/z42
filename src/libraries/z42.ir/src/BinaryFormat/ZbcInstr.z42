@@ -142,6 +142,8 @@ public static class ZbcInstr {
             w.WriteU8(Tag.FromIrType(an.ElemTag));
             w.WriteU32(pool.Idx(an.ElemName));   // zbc 1.16：elem FQ 名
             if (an.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
+            w.WriteU8(an.TypeParamKind);            // zbc 1.37 fix-generic-array-value-zero-init：泛型形参 kind 0/1/2
+            w.WriteU16(an.TypeParamIndex + 1);      // 偏置 +1：-1(none)→0，避免有符号
             return;
         }
         if (ins is ArrayNewLitInstr) {

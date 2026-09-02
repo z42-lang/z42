@@ -1,0 +1,75 @@
+// fix-generic-array-value-zero-init (2026-09-02, 方案 C): 泛型 `new T[n]` 当 T 是值类型时，
+// 未写入槽应为该类型的零值（而非 Null）。读未写槽（尤其经 Assert.Equal 装箱）此前报
+// `__box_prim: expected integer value, got Null`；根修后得零值。
+namespace Z42CoreGenericArrayZeroInitTests;
+
+using Std;
+using Std.Test;
+
+// 方法级类型参数（kind=1）：泛型方法内 `new T[n]`。
+static T[] Make<T>(int n) {
+    return new T[n];
+}
+
+// 类级类型参数（kind=2）：泛型类字段 `new T[n]`（在构造函数里分配）。
+class Box<T> {
+    T[] buf;
+    public Box(int n) { this.buf = new T[n]; }
+    public T Get(int i) { return this.buf[i]; }
+}
+
+[Test]
+void test_method_int_zero() {
+    int[] xs = Make<int>(3);
+    Assert.Equal(3, xs.Length);
+    Assert.Equal(0, xs[0]);   // 未写槽——装箱触发点，修前报 __box_prim Null
+    Assert.Equal(0, xs[1]);
+    Assert.Equal(0, xs[2]);
+}
+
+[Test]
+void test_method_bool_zero() {
+    bool[] bs = Make<bool>(2);
+    Assert.True(!bs[0]);
+    Assert.True(!bs[1]);
+}
+
+[Test]
+void test_method_char_zero() {
+    char[] cs = Make<char>(2);
+    Assert.Equal('\0', cs[0]);
+    Assert.Equal('\0', cs[1]);
+}
+
+[Test]
+void test_method_double_zero() {
+    double[] ds = Make<double>(2);
+    Assert.Equal(0.0, ds[0]);
+    Assert.Equal(0.0, ds[1]);
+}
+
+[Test]
+void test_class_field_int_zero() {
+    Box<int> b = new Box<int>(3);
+    Assert.Equal(0, b.Get(0));   // 类级 type param（kind=2 → 接收者 type_args）
+    Assert.Equal(0, b.Get(2));
+}
+
+[Test]
+void test_reference_type_still_null() {
+    // 引用类型元素未写槽仍为 null（不回归）。
+    string[] ss = Make<string>(2);
+    Assert.True(ss[0] == null);
+    Assert.True(ss[1] == null);
+}
+
+[Test]
+void test_resize_tail_zero_no_workaround() {
+    // Array.Resize 去掉显式填尾绕过后，扩容尾部仍为值类型零值（回归）。
+    int[] xs = new int[]{ 1, 2, 3 };
+    int[] r = Array.Resize<int>(xs, 5);
+    Assert.Equal(1, r[0]);
+    Assert.Equal(3, r[2]);
+    Assert.Equal(0, r[3]);   // 新增尾部
+    Assert.Equal(0, r[4]);
+}

@@ -285,10 +285,8 @@ public sealed class Array {
         int copy = array.Length;
         if (newSize < copy) { copy = newSize; }
         for (int i = 0; i < copy; i++) { result[i] = array[i]; }
-        // 显式把尾部写成 default(T)：泛型 `new T[n]` 对值类型 T 不做零初始化
-        // （element_type 在泛型 alloc 处未知，槽为 Null），故读未写尾部会拿到 Null。
-        // 显式 `default(T)` 赋值走值路径，给出正确零值（与 Clear 同款）。
-        for (int i = copy; i < newSize; i++) { result[i] = default(T); }
+        // fix-generic-array-value-zero-init（方案 C）：泛型 `new T[newSize]` 现在对值类型 T 自动零
+        // 初始化尾部（VM 据 ArrayNew 的 type-param 操作数查 type_args 产零值），无需再显式填 default(T)。
         return result;
     }
 

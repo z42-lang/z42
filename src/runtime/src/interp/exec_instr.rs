@@ -198,7 +198,7 @@ pub fn exec_instr(
 
         // ── Arrays ───────────────────────────────────────────────────────────
         Instruction::ArrayNew(insn) => {
-            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, &insn.element_type, insn.stack_alloc)? {
+            if let Some(thrown) = exec_array::array_new(ctx, module, frame, insn.dst, insn.size, insn.elem_tag, &insn.element_type, insn.stack_alloc, insn.type_param_kind, insn.type_param_index)? {
                 return Ok(Some(thrown));
             }
         }

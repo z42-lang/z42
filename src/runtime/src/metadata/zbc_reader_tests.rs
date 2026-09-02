@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 36, "zbc minor at 1.36 (add-generic-methods: method-level generic type_args — new opcodes MethodTypeArg/MethodDefault/CallGeneric/VCallGeneric; non-generic Call/VCall byte-identical)");
+    assert_eq!(ZBC_VERSION_MINOR, 37, "zbc minor at 1.37 (fix-generic-array-value-zero-init: ArrayNew trailing type-param ref for generic value-type zero-init; non-generic ArrayNew byte-identical)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 41, "zpkg minor at 0.41 (add-generic-methods: coupled zbc 1.36)");
+    assert_eq!(ZPKG_VERSION_MINOR, 42, "zpkg minor at 0.42 (fix-generic-array-value-zero-init: coupled zbc 1.37)");
 }
 
 #[test]

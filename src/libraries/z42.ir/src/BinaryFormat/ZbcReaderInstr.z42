@@ -219,8 +219,12 @@ public static class ZbcReaderInstr {
             int elemTag = c.U8();
             string elemName = ZbcReaderInstr._p(pool, c.U32());
             bool saA = c.U8() != 0;   // zbc 1.29 add-escape-analysis
+            int tpKind = c.U8();          // zbc 1.37 fix-generic-array-value-zero-init
+            int tpIndex = c.U16() - 1;    // 反偏置：0→-1(none)
             ArrayNewInstr anI = new ArrayNewInstr(d, size, ZbcReaderInstr._irTypeFromTag(elemTag), elemName);
             anI.StackAlloc = saA;
+            anI.TypeParamKind = tpKind;
+            anI.TypeParamIndex = tpIndex;
             return anI;
         }
         if (op == Op.ArrayNewLit) {
