@@ -36,7 +36,7 @@ public sealed class IrEscapeAnalysis {
     // 对一个函数：算逃逸集（用摘要解析 call 实参）+ 单赋值集，给不逃逸的分配置 StackAlloc。
     private static void _markFunc(IrModule m, IrFunction f, ParamEscapeTable table) {
         bool[] esc  = IrEscapeAnalysis.ComputeEscapedRegs(m, f, table);
-        int[]  defs = IrEscapeAnalysis._computeDefs(f);
+        int[]  defs = IrRegCounts.Defs(f);
         int bi = 0;
         while (bi < f.BlockCount) {
             IrBlock b = f.Blocks[bi];
@@ -180,20 +180,6 @@ public sealed class IrEscapeAnalysis {
             i = i + 1;
         }
         return null;
-    }
-
-    // ── 辅助 ─────────────────────────────────────────────────────────────────────────
-    // 写计数（复用 IrOptInfo.AddDef 权威 Dst 枚举）。
-    private static int[] _computeDefs(IrFunction f) {
-        int[] defs = new int[f.MaxReg + 2];
-        int bi = 0;
-        while (bi < f.BlockCount) {
-            IrBlock b = f.Blocks[bi];
-            int ii = 0;
-            while (ii < b.InstrCount) { IrOptInfo.AddDef(defs, b.Instrs[ii]); ii = ii + 1; }
-            bi = bi + 1;
-        }
-        return defs;
     }
 
     private static void _mark(bool[] esc, TypedReg r) {
