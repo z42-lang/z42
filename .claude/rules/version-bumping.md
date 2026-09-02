@@ -92,6 +92,77 @@ cargo test lazy_loader          # Rust reader 读 committed zpkg 字节基线
 
 ---
 
+## 本地全量验证 / fixture 重生的配方（格式 bump 专用，2026-09-02 验证）
+
+> **这条解决一个长期的假前提**：过去认为「引入新格式后本地无法全量验证、fixture 无法本地重生 →
+> 只能靠 CI」（因为本地两代自举在 macOS 撞环境墙）。**其实有干净解法**——让 CI 先把新格式工具链建出来、
+> 下载回本地当种子。`fix-generic-array-value-zero-init`（zbc 1.37/zpkg 0.42）用它在 macOS 本地跑通了
+> 完整 GREEN + fixture 重生，无需两代自举。
+
+### 为什么本地直接建不动
+
+minor bump 后，本地 `cargo build` 出的 z42vm 是**新格式**（reader 钉新 minor），但本地唯一的 z42c/stdlib
+种子（`.z42/` 下载的 nightly、或 warm `artifacts/`）还是**旧格式**。warm 建 `xtask build compiler/stdlib`
+→ 新 VM 读旧种子 zpkg → `zpkg minor <旧> not supported (writer is at <新>)` 直接墙掉。要把种子推进到新格式
+本需**两代自举**（旧 VM 跑 gen1/gen2），而本地两代自举在 macOS 有独立的环境墙（见
+`bootstrap-seed.md`）。→ 死结。
+
+### 解法：下载 CI 建好的新格式工具链当本地种子
+
+CI 的 `compile-toolchain` job（两代自举已根治）从**当前 PR 源码**建出新格式的 z42c + 全 stdlib，并
+`upload-artifact` 为 `toolchain-<os>`（`toolchain-macos-15` / `toolchain-ubuntu-latest`）。把它下回本地
+overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/regen 全通，两代自举彻底不需要。
+
+> zpkg 是可移植字节码——linux 建的 z42c.driver.zpkg 也能在 macOS cargo VM 上跑；有同-OS artifact 优先用。
+
+**步骤**（承接上面「Bumping」各步已改完源码 + 版本常量）：
+
+1. **先推一个 PR**。首轮 CI：`compile-toolchain` 应绿（新格式工具链建成 + 上传）；`test-host` 预期**红在
+   committed fixture**（旧格式，还没重生）——正常，用这轮只为拿工具链 artifact。
+2. **下载 + overlay**（保留你自己的 `runtime/z42vm`）：
+   ```bash
+   RUN=<compile-toolchain 所在 run-id>          # gh run list --branch <your-branch>
+   gh run download $RUN -n toolchain-macos-15 -D /tmp/tc
+   rm -rf artifacts/build/compiler artifacts/build/libraries
+   cp -R /tmp/tc/artifacts/build/compiler   artifacts/build/
+   cp -R /tmp/tc/artifacts/build/libraries  artifacts/build/
+   cp    /tmp/tc/artifacts/xtask/xtask.zpkg artifacts/xtask/xtask.zpkg
+   ```
+3. **强制 xtask 用你的新格式 cargo VM**（launcher 默认回落 `.z42/bin/z42vm` 旧种子 → 会报
+   `minor <新> not supported (writer is at <旧>)`）：
+   ```bash
+   export Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm"
+   ```
+4. 现在一切在新格式下跑通（无两代自举）：
+   ```bash
+   xtask build compiler && xtask build stdlib   # warm，同格式
+   xtask build test                             # 原地重生 6 个 zbc-format fixture
+   cargo test --lib                             # committed fixture 现应全过
+   xtask test                                   # 完整 GREEN，含自举不动点 gen1==gen2
+   ```
+   **zpkg-format fixture（手工，步骤 9）**：`xtask build test` 不含 zpkg。逐个：
+   ```bash
+   VM=$PWD/artifacts/build/runtime/release/z42vm
+   Z42C=$(find /tmp/tc -name z42c.driver.zpkg | head -1)
+   LIBS=$PWD/artifacts/build/libraries/dist/release
+   # 临时工程：name 匹配 expected.json（demo.minimal/demo.multi/demo.indexed），kind=lib
+   #   packed → --release；indexed → 无 --release（另产散装 source.zbc）
+   Z42_LIBS="$LIBS" "$VM" "$Z42C" -- build <temp>/demo.minimal.z42.toml --release
+   cp <temp>/dist/demo.minimal.zpkg src/tests/zpkg-format/packed-minimal/source.zpkg
+   # indexed 另拷 dist/source.zbc → indexed-minimal/source.zbc（散装 + FILE 段 hash 自动同步）
+   ```
+   `sym-only-sidecar` 无 Rust 字节读测试 → 保持旧格式不动（沿 f9928607/58d04cb7 处置）。
+5. **重生的 fixture + 收尾 commit** 一起 push；PR 转全绿后合并。
+
+### 与旧记录的关系
+
+- 取代 `escape-stack-format-bump-ci-learnings` §3 的「加临时 CI 步骤重生 fixture」绕法——直接下载
+  `compile-toolchain` 已上传的工具链更省事，无需改 workflow。
+- `bootstrap-seed.md` 的「macOS 本地两代自举环境墙」依然存在，但**本配方绕开了它**（不再需要本地两代
+  自举，改用 CI 建好的种子）。
+
+---
+
 ## bump 与 xtask↔nightly bootstrap 循环
 
 > **✅ 格式-bump 死结已根治（2026-07-09，fix-bootstrap-format-bump-deadlock）**：ci-bootstrap
