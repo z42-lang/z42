@@ -115,9 +115,19 @@ jobs:
             echo "→ src/runtime unchanged base..pr → base_vm = pr_vm"
             BASEVM="$PRVM"
           else
-            echo "→ src/runtime changed → cargo-build base z42vm"
+            echo "→ src/runtime changed → cargo-build base z42vm + native cdylib"
+            # fix-bench-base-cdylib (2026-09-03): build the z42-compression cdylib too.
+            # The VM resolves `[Native(lib = "z42_compression")]` next to its own binary
+            # (`artifacts/build/runtime/release/`, per the repo-root .cargo target-dir).
+            # Building only `--bin z42vm` left base-src's dir without the dylib, so every
+            # compression [Benchmark] failed on the BASE side → "captured compression_bench
+            # (partial: some benches failed)" → non-zero exit → this job red. That hit
+            # EVERY PR touching src/runtime (#394 / #395 / #402 / #406 / #409 / #413) and
+            # no others — the PR side was fine because its dylib sits beside the PR vm.
             ( cd base-src && cargo build --locked --release \
-                --manifest-path src/runtime/Cargo.toml --bin z42vm )
+                --manifest-path src/runtime/Cargo.toml --bin z42vm \
+              && cargo build --locked --release \
+                --manifest-path src/runtime/crates/z42-compression/Cargo.toml )
             BASEVM="$ROOT/base-src/artifacts/build/runtime/release/z42vm"
           fi
 
