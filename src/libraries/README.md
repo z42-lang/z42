@@ -63,8 +63,12 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
    `z42.threading` **转纯脚本**、调 core 的 `*Native` 原语。`Std.IO`（Console/File/Directory/Environment/Path）、
    `Std.Time`（DateTime/…）也在 core。
 2. **可插拔工具 / 算法**（compression / crypto / diagnostics / test / build）—— native + 应用整库**留独立**：
-   正常执行不需要的可选插件，可独立编译、按需加载、可裁剪。
-3. **运行时内核 + cross-cutting 原语**（值语义 / 反射 / GC / libm / 时钟 / 位转换）—— 本就在 `z42.core`。
+   正常执行不需要的可选插件，可独立编译、按需加载、可裁剪。**例外：OS 熵原语**
+   `__crypto_random_bytes` 不是「crypto 算法」而是 OS 能力（同 `__time_now_*`），已重分类为 ③ 的
+   cross-cutting 原语落 core `Std.Runtime.Entropy`（reclassify-os-entropy-to-core，2026-09-03）——
+   core 的 `Guid.NewGuid` 需要它、prelude 不能反依赖 crypto。crypto 的**算法**（哈希 / HMAC）仍留本类
+   可裁剪；`SecureRandom` 作安全语义门面留 crypto、委托 core 熵原语。
+3. **运行时内核 + cross-cutting 原语**（值语义 / 反射 / GC / libm / 时钟 / 位转换 / **OS 熵**）—— 本就在 `z42.core`。
 
 **其余所有库一律纯脚本、零 interop**（collections / text / encoding / toml / json / yaml / uri / regex /
 cli / random / numerics / io.binary / …），要用 native 时**通过调 core 或工具库的公开 API 间接使用**。
@@ -80,7 +84,8 @@ cli / random / numerics / io.binary / …），要用 native 时**通过调 core
 - **接口最小化**：interop 符号**非必要不导出**；对 interop 的包装保持**薄封装**，不叠便利方法。
 - **单一声明点**：每个 native 符号在**全仓库只声明一次**。cross-cutting 原语归 core；平台能力原语归其
   能力库。（位转换 `__*_to_bits`/`__*_from_bits` → core `Std.BitConverter`、时钟 `__time_now_*` → core
-  `Std.Runtime.Clock` 的多库重复声明已由 consolidate-core-intrinsics(A1) 收敛。）
+  `Std.Runtime.Clock` 的多库重复声明已由 consolidate-core-intrinsics(A1) 收敛；OS 熵 `__crypto_random_bytes`
+  → core `Std.Runtime.Entropy`，`z42.crypto.SecureRandom` 委托而不再重声明，见 reclassify-os-entropy-to-core。）
 - **性能升级阶梯**：**脚本实现 → 持续优化（JIT / 算法 / VM 调用机制提速）→ 仍不达标 → 才下沉为
   VM 内置实现**。VM 内置是最后手段，不是默认——优先投资"让脚本层本身更快"的通用机制。
 

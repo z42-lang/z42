@@ -1,0 +1,18 @@
+namespace Std.Runtime;
+
+// Single declaration site for the OS entropy intrinsic
+// (reclassify-os-entropy-to-core, 2026-09-03). OS-backed random bytes are a
+// cross-cutting runtime primitive — like the clock (__time_now_*) — not a
+// crypto *algorithm*, so the raw tap lives in core; z42.crypto's SecureRandom
+// and core's Guid.NewGuid delegate here rather than re-declaring the extern
+// (rule: 单一声明点). Wraps Linux getrandom(2) / macOS getentropy /
+// Windows BCryptGenRandom. wasm32 throws Std.NotSupportedException.
+//
+// The crypto *algorithms* (hashing / AEAD / KDF) stay pluggable in z42.crypto;
+// only this raw OS-capability primitive is core, mirroring how Clock/BitConverter
+// are core while their higher-level users stay in application libraries.
+public static class Entropy {
+    // Fill `n` bytes from the OS CSPRNG. Callers validate `n`.
+    [Native("__crypto_random_bytes")]
+    public static extern byte[] GetBytes(int n);
+}
