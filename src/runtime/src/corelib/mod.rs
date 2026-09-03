@@ -561,6 +561,9 @@ const BUILTINS: &[(&str, NativeFn)] = &[
 
     // ── expose-diagnostics-counters (2026-08-23) — appended to preserve BuiltinIds ──
     ("__diag_counters",           diagnostics::builtin_diag_counters),
+    // ── perf-stdlib-hot-paths (2026-09-03): bulk string primitives ────────────────
+    ("__str_substring",     string::builtin_str_substring),
+    ("__str_concat_parts",  string::builtin_str_concat_parts),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare

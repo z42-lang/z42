@@ -19,7 +19,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | builtin 注册表 + 名称↔id 解析 + 分发 | `mod.rs` 的 `BUILTINS` 表 / `exec_builtin_by_id` |
 | 值转换 / 解析 / to-string | `convert.rs` |
 | 控制台 IO（print/readline/concat/len） | `io.rs` |
-| 字符串操作 / 字符 | `string.rs` / `str_meta.rs` / `char.rs` |
+| 字符串操作 / 字符（含 bulk 原语 `__str_to_chars` / `__str_substring` / `__str_concat_parts`——perf-stdlib-hot-paths：Substring / StringBuilder.ToString / Join / Concat 的底座，一次拷贝取代逐字符 builtin 派发）| `string.rs` / `str_meta.rs` / `char.rs` |
 | 数学 | `math.rs` |
 | 文件系统 / 路径 / env / 时间（平台隔离后端） | `fs.rs` + `fs_backend.rs` |
 | 对象内建（GetType / RefEq / HashCode） | `object.rs` |
