@@ -37,7 +37,6 @@ src/runtime/src/interp/mod.rs	1155
 src/runtime/src/jit/frame.rs	581
 src/runtime/src/jit/helpers/object.rs	580
 src/runtime/src/main.rs	568
-src/runtime/src/metadata/bytecode.rs	1334
 src/runtime/src/metadata/lazy_loader.rs	699
 src/runtime/src/metadata/resolver.rs	611
 src/runtime/src/native/ext.rs	731
