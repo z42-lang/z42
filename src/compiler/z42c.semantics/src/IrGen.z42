@@ -12,6 +12,7 @@ using Std;                   // Convert.ToDouble
 public sealed class IrGen {
     private string[]    _pool;       // 字符串池（1-based；[0]=""占位）
     private int         _poolCount;
+    private StrIndex    _poolIdx;    // 字面量 → 池下标（perf-compiler-lookup-tables：去重查找 O(1)）
     public SymbolTable _symbols;
 
     public TestIndexBuilder _testIx;
@@ -25,6 +26,7 @@ public sealed class IrGen {
         this._pool = new string[8];
         this._pool[0] = "";
         this._poolCount = 1;
+        this._poolIdx = new StrIndex();
         this._testIx = new TestIndexBuilder(this);
         this._classDescB = new ClassDescBuilder(this);
         this._stubE = new StubEmitter(this);
@@ -32,11 +34,8 @@ public sealed class IrGen {
 
     // 字符串字面量 intern → 1-based 池索引（去重）。
     public int Intern(string s) {
-        int i = 1;
-        while (i < this._poolCount) {
-            if (this._pool[i] == s) { return i; }
-            i = i + 1;
-        }
+        int hit = this._poolIdx.Get(s);
+        if (hit >= 0) { return hit; }
         if (this._poolCount == this._pool.Length) {
             string[] bigger = new string[this._pool.Length * 2];
             int k = 0; while (k < this._poolCount) { bigger[k] = this._pool[k]; k = k + 1; }
@@ -44,6 +43,7 @@ public sealed class IrGen {
         }
         int idx = this._poolCount;
         this._pool[idx] = s;
+        this._poolIdx.Put(s, idx);
         this._poolCount = this._poolCount + 1;
         return idx;
     }

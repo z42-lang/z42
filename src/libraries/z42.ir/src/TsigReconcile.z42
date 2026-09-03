@@ -502,6 +502,7 @@ public static class TsigReconcile {
         em.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
         em.IsSealed = (f.MethodFlags & 4) != 0;   // impl-sealed-semantics-devirt：METHOD_FLAG_SEALED
         em.IsDeprecated = IrDeprecation.Has(f.Attrs, f.AttrCount); em.DeprecationMsg = IrDeprecation.Msg(f.Attrs, f.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
+        em.TypeParamCount = f.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数 → 供泛型 arity 重载过滤
         return em;
     }
 

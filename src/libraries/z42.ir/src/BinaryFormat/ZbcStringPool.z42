@@ -1,5 +1,6 @@
 // .zbc 字符串池（port-z42c-zbc-writer ZW-1A-3）。镜像 C# StringPool（插入序 + O(1) 查 idx）。
-// 受限写法：string[] 列表 + int count；Idx 线性查找（trivial 模块池小，热点后续可换 hash）。
+// 受限写法：string[] 列表（插入序，决定 STRS 字节序）+ StrIndex 反查（perf-compiler-lookup-tables：
+// Intern/Idx 从全表线性扫描改 O(1) 哈希，大模块每条带串指令查池不再是平方级）。
 // **0-based**（与 C# StringPool 一致，区别于 IrModule.StringPool 的 1-based 占位方案）。
 // STRS 字节序 = Intern 调用序（非字母序）——确定性关键，各 BuildXxxSection 按固定序预扫 intern。
 namespace Z42.IR.BinaryFormat;
@@ -7,18 +8,16 @@ namespace Z42.IR.BinaryFormat;
 public sealed class ZbcStringPool {
     private string[] _list;
     private int      _count;
-    public ZbcStringPool() { this._list = new string[16]; this._count = 0; }
+    private StrIndex _index;   // s → _list 下标
+    public ZbcStringPool() { this._list = new string[16]; this._count = 0; this._index = new StrIndex(); }
 
     public int Count() { return this._count; }
     public string At(int i) { return this._list[i]; }
 
     // 命中返回已有 idx；否则 append 返回新 idx。
     public int Intern(string s) {
-        int i = 0;
-        while (i < this._count) {
-            if (this._list[i] == s) { return i; }
-            i = i + 1;
-        }
+        int hit = this._index.Get(s);
+        if (hit >= 0) { return hit; }
         if (this._count == this._list.Length) {
             string[] bigger = new string[this._list.Length * 2];
             int j = 0;
@@ -27,17 +26,13 @@ public sealed class ZbcStringPool {
         }
         this._list[this._count] = s;
         int idx = this._count;
+        this._index.Put(s, idx);
         this._count = this._count + 1;
         return idx;
     }
 
     // 已 intern 串的 idx（未命中返回 -1——调用方保证先 intern）。
     public int Idx(string s) {
-        int i = 0;
-        while (i < this._count) {
-            if (this._list[i] == s) { return i; }
-            i = i + 1;
-        }
-        return -1;
+        return this._index.Get(s);
     }
 }

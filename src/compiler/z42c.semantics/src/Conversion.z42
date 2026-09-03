@@ -90,10 +90,11 @@ public static class Conversion {
         Z42ClassType ct = symbols.GetClass(clsName);
         string fromC = Z42Type.Canon(from.Name());
         string toC = Z42Type.Canon(to.Name());
-        string[] keys = ct.Methods.Keys();
+        int cap = ct.Methods.Capacity();   // perf-compiler-lookup-tables：槽位直扫（同 Keys() 序），免分配
         int i = 0;
-        while (i < keys.Length) {
-            object o = ct.Methods.Get(keys[i]);
+        while (i < cap) {
+            object o = null;
+            if (ct.Methods.UsedAt(i)) { o = ct.Methods.ValAt(i); }
             if (o is MethodSymbol) {
                 MethodSymbol ms = o as MethodSymbol;
                 if (ms.IsStatic && SymbolCollector._isConvOp(ms.Name) && ms.Signature != null

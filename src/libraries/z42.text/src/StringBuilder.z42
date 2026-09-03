@@ -176,21 +176,12 @@ public class StringBuilder {
         return this.Append(String.Format(format, args));
     }
 
-    // Materialize the accumulated string. O(total_length) one-shot copy
-    // to avoid repeated O(n) Concat chains.
+    // Materialize the accumulated string. One native bulk concat of the parts
+    // (perf-stdlib-hot-paths: was a per-char CharAt copy into a char[] — one builtin
+    // dispatch per output character — then FromChars).
     override string ToString() {
         if (this._length == 0) return "";
-        char[] buffer = new char[this._length];
-        int pos = 0;
-        for (int i = 0; i < this._count; i++) {
-            string s = this._parts[i];
-            int sn = s.Length;
-            for (int j = 0; j < sn; j++) {
-                buffer[pos] = s.CharAt(j);
-                pos = pos + 1;
-            }
-        }
-        return String.FromChars(buffer);
+        return String.ConcatParts(this._parts, this._count);
     }
 
     // 2× capacity grow strategy (mirrors List<T>.Grow).

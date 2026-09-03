@@ -238,6 +238,7 @@ public sealed class SymbolCollector {
         if (md.ParamCount > 0 && md.Params[md.ParamCount - 1].IsParams) { sig.ParamsFrom = md.ParamCount - 1; }
         var ms = new MethodSymbol(md.Name, this._vis(md.Mods, (containing == "" ? "internal" : "private")), sig, this._hasWord(md.Mods, "static"), containing, true, md);
         ms.IsSealed = this._hasWord(md.Mods, "sealed");   // impl-sealed-semantics-devirt：本地方法级 sealed
+        ms.TypeParamCount = mtpc;   // add-array-paired-sort：方法级泛型形参个数，供泛型 arity 重载过滤
         return ms;
     }
 

@@ -81,6 +81,29 @@ void test_sort_comparator_descending() {
     Assert.Equal(1, xs[4]);
 }
 
+// add-array-paired-sort：配对排序 Sort<TKey,TValue>(keys, items)——按 keys 升序，items 同步换位。
+// 与 comparator Sort<T>(arr, Func) 同为 2 参、仅类型参数个数不同：泛型 arity 重载过滤区分二者
+// （`Sort<int>(arr, lambda)` 绑 comparator；`Sort<int,string>(keys, items)` 绑配对）。
+[Test]
+void test_sort_paired() {
+    int[] keys = new int[]{ 3, 1, 4, 1, 5 };
+    string[] items = new string[]{ "c", "a", "d", "A", "e" };
+    Array.Sort<int, string>(keys, items);
+    Assert.Equal(1, keys[0]); Assert.Equal(1, keys[1]);
+    Assert.Equal(3, keys[2]); Assert.Equal(4, keys[3]); Assert.Equal(5, keys[4]);
+    // items 随 keys 换位（stable：两个 key=1 保持原相对序 "a" 先于 "A"）
+    Assert.Equal("a", items[0]); Assert.Equal("A", items[1]);
+    Assert.Equal("c", items[2]); Assert.Equal("d", items[3]); Assert.Equal("e", items[4]);
+}
+
+[Test]
+void test_sort_paired_noop_small() {
+    int[] keys = new int[]{ 7 };
+    string[] items = new string[]{ "x" };
+    Array.Sort<int, string>(keys, items);   // n<2 no-op
+    Assert.Equal(7, keys[0]); Assert.Equal("x", items[0]);
+}
+
 [Test]
 void test_sort_stable_small() {
     int[] xs = new int[]{ 2, 1 };

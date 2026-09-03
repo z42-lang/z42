@@ -22,6 +22,9 @@ public sealed class MethodSymbol {
                                               // 导入由 ImportedSymbolLoader 从 METHOD_FLAG_SEALED 还原。
     public bool        IsDeprecated;          // add-deprecated-directive：`[Deprecated]` 方法。use-site 告警用。
     public string      DeprecationMsg;        // 本地由 SymbolCollector 从 attr 设置，导入由 ImportedSymbolLoader 还原。
+    public int         TypeParamCount;        // add-array-paired-sort：方法级泛型形参个数（`Sort<T>`=1 / `Sort<TKey,TValue>`=2）。
+                                              // 本地由 SymbolCollector 从 Decl.TypeParams.Count 设；导入由 ImportedSymbolLoader
+                                              // 从 ExportedMethodZ.TypeParamCount 还原。供泛型 arity 重载过滤（默认 0）。
     public MethodSymbol(string name, string visibility, Z42FuncType sig, bool isStatic,
                         string containingTypeName, bool hasDecl, MethodDecl decl) {
         this.Name = name; this.Visibility = visibility; this.Signature = sig; this.IsStatic = isStatic;
@@ -29,6 +32,7 @@ public sealed class MethodSymbol {
         this.RegKey = name;
         this.IsSealed = false;
         this.IsDeprecated = false; this.DeprecationMsg = "";
+        this.TypeParamCount = 0;
     }
     public string Dump() { return "(method " + this.Name + " " + this.Signature.Dump() + ")"; }
 }

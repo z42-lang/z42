@@ -45,6 +45,15 @@ public sealed class StrMap {
         return true;
     }
 
+    // ── 无分配槽位遍历（perf-compiler-lookup-tables）────────────────────────────────
+    // 调用方按 0..Capacity()-1 扫 UsedAt(i) 为 true 的槽读 KeyAt/ValAt，取代「Keys() 分配整表 + 逐键 Get 再哈希」
+    // 的热点写法（重载候选枚举 / 用户转换查找）。槽序 = 哈希布局序，**非确定性迭代序**——只可用于
+    // 「过滤后按稳定键再排」或「结果与顺序无关」的场景（common-pitfalls §1）；需要确定序仍用 Keys()。
+    public int    Capacity()      { return this._cap; }
+    public bool   UsedAt(int i)   { return this._used[i]; }
+    public string KeyAt(int i)    { return this._keys[i]; }
+    public object ValAt(int i)    { return this._vals[i]; }
+
     public string[] Keys() {
         string[] r = new string[this._count];
         int n = 0;

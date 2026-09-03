@@ -178,11 +178,7 @@ public sealed class String : IComparable<string>, IEquatable<string> {
             throw new Exception($"Substring: out of range (start={start}, length={length}, Length={n})");
         }
         if (length == 0) return "";
-        char[] result = new char[length];
-        for (int i = 0; i < length; i++) {
-            result[i] = this.CharAt(start + i);
-        }
-        return String.FromChars(result);
+        return this._substringRaw(start, length);
     }
 
     // ASCII-rule lowercase conversion. Non-ASCII letters are unchanged.
@@ -216,6 +212,15 @@ public sealed class String : IComparable<string>, IEquatable<string> {
     // …) run in script over `arr[i]` (ArrayGet opcode) — the C#/Rust "string
     // ops over a char buffer" model — without a native extern per operation.
     [Native("__str_to_chars")] public extern char[] ToCharArray();
+
+    // perf-stdlib-hot-paths：Substring 的原生 bulk 路径——UTF-8 上一次 slice 拷贝（字符索引经 str_meta 的
+    // char→byte 表 O(1)），取代此前逐字符 CharAt + FromChars（每字符一次 builtin 派发 + Vec 分配）。
+    // 越界由 Rust 侧 bail；脚本侧 Substring 先做同样的边界检查以保留原诊断文案。
+    [Native("__str_substring")] extern string _substringRaw(int start, int length);
+
+    // perf-stdlib-hot-paths：把 parts[0..count) 一次拼接（Rust 侧按字节 memcpy），StringBuilder.ToString /
+    // Join 的底座——取代逐字符 CharAt 复制。count 越界 / 元素非 string 由 Rust 侧 bail。
+    [Native("__str_concat_parts")] public static extern string ConcatParts(string[] parts, int count);
 
     // Trim leading + trailing whitespace.
     public string Trim() {
@@ -345,19 +350,23 @@ public sealed class String : IComparable<string>, IEquatable<string> {
     // 单一 params 重载同时覆盖 normal form（`Join(sep, arr)` 直传 string[]）与 expanded form
     // （`Join(sep, a, b, c)` 编译期打包 string[]）。取代此前的 `Join(string, string[])` +
     // `Join(string, string, string, string)` 双重载（params string[] 与 string[] 同签名，二者不可并存）。
-    // NOTE: kept as left-fold `+` (StrConcatInstr) — for the typical small-arity
-    // Join it beats a char[]+CharAt rebuild (per-char builtin dispatch dominates at
-    // small n; the O(n²) only bites at large n, which a native join/StringBuilder
-    // should own — see perf notes). Measured: char[] version was ~4× SLOWER on the
-    // 16-segment bench.
+    // 历史：曾保留左折叠 `+`——因为当时唯一替代是 char[]+CharAt 重建（每字符一次 builtin 派发，16 段基准
+    // 反慢 4×）。perf-stdlib-hot-paths 后有了 `ConcatParts`（单次原生拼接、无逐字符派发），O(n²) 与
+    // 逐字符两个问题同时消失，故改走它（对比数据见归档 tasks）。
     public static string Join(string separator, params string[] values) {
         int n = values.Length;
         if (n == 0) return "";
-        string result = values[0];
+        if (n == 1) return values[0];
+        // perf-stdlib-hot-paths：交错成 [v0, sep, v1, sep, …] 一次 ConcatParts（原左折叠 `+` 为 O(n²) 拷贝）。
+        string[] parts = new string[n * 2 - 1];
+        parts[0] = values[0];
+        int k = 1;
         for (int i = 1; i < n; i++) {
-            result = result + separator + values[i];
+            parts[k] = separator;
+            parts[k + 1] = values[i];
+            k = k + 2;
         }
-        return result;
+        return String.ConcatParts(parts, parts.Length);
     }
 
     // ── Remaining intrinsic-backed methods (perf-sensitive / 协议依赖) ───────
@@ -367,15 +376,13 @@ public sealed class String : IComparable<string>, IEquatable<string> {
     // migrate-stdlib-to-params：单一 params 重载同时覆盖 normal form（`Concat(arr)` 直传
     // string[]）与 expanded form（`Concat(a, b, c)` 编译期打包 string[]）。取代此前的
     // `Concat(a,b)` + `Concat(a,b,c)` 双固定-arity 重载。无分隔符逐段拼接；零实参 → ""。
-    // NOTE: kept as left-fold `+` (StrConcatInstr) — same rationale as Join above.
+    // perf-stdlib-hot-paths：一次 ConcatParts（原左折叠 `+` 为 O(n²) 拷贝）；n≤2 时 `+` 本就是单次分配，直接用。
     public static string Concat(params string[] values) {
         int n = values.Length;
         if (n == 0) return "";
-        string result = values[0];
-        for (int i = 1; i < n; i++) {
-            result = result + values[i];
-        }
-        return result;
+        if (n == 1) return values[0];
+        if (n == 2) return values[0] + values[1];
+        return String.ConcatParts(values, n);
     }
     // 2026-04-27 wave3b-str-format-script: 脚本实现，链式 Replace + Convert.ToString。
     // 与原 builtin 等价（顺序替换 {0} → {1} → …，未支持 {0:F2} 等格式说明符；
