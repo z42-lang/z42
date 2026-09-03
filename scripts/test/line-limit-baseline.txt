@@ -22,7 +22,6 @@ src/libraries/z42.yaml/src/YamlParser.z42	1692
 src/libraries/z42c.syntax/src/ExprParser.z42	777
 src/libraries/z42c.syntax/src/Lexer.z42	518
 src/runtime/crates/z42-host/src/lib.rs	566
-src/runtime/src/config.rs	1082
 src/runtime/src/corelib/fs.rs	615
 src/runtime/src/corelib/mod.rs	665
 src/runtime/src/corelib/network.rs	1102
