@@ -17,7 +17,7 @@
 ### src/metadata/ — IR 元数据与加载层
 | 文件 | 职责 |
 |------|------|
-| `types.rs` | 运行时值类型：`Value`、`ExecMode`；对象模型：`ScriptObject`、`TypeDesc`、`NativeData`、`FieldSlot` |
+| `types.rs` + `types/` | 运行时值类型与对象模型（refactor-split-metadata-types 后按职责分 9 个子模块，hub 全量 `pub use` 路径不变）：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局与编解码）、`object`（ScriptObject / NativeData）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）|
 | `bytecode.rs` | IR 数据结构：`Module`、`Function`、`Instruction`、`Terminator` |
 | `formats.rs` | `.zbc`/`.zpkg` 磁盘格式数据结构（镜像 C# `PackageTypes.cs`） |
 | `loader.rs` | 统一加载入口：`load_artifact(path)` → `Module`；`build_type_registry` 预构建 `TypeDesc` 注册表 |

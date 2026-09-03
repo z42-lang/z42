@@ -113,6 +113,7 @@ impl VmContext {
             func_ref_slots,
             interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
             subclass_memo: Mutex::new(FxHashMap::default()),
+            isa_cache: super::isa_cache::IsaCache::new(),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };
@@ -378,6 +379,7 @@ impl VmContext {
             func_ref_slots,
             interned_cache: Arc::new(Mutex::new(FxHashMap::default())),
             subclass_memo: Mutex::new(FxHashMap::default()),
+            isa_cache: super::isa_cache::IsaCache::new(),
             safepoint_skip: std::sync::atomic::AtomicU32::new(crate::gc::safepoint::throttle_n()),
             _pin: PhantomPinned,
         };

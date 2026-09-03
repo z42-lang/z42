@@ -122,7 +122,8 @@ test ──► _testAll
   ├─► stage stdlib [Test]                _testLibCore  → test/xtask_test_lib.z42
   ├─► stage compiler                     _testCompiler → build/xtask_compiler.z42
   │       └ 自举不动点 7/7 + [Test] units + e2e (build/xtask_compiler_e2e.z42)
-  └─► stage vscode-syntax                _testVscodeSyntax → grammar ↔ Lexer 关键字防漂移
+  ├─► stage vscode-syntax                _testVscodeSyntax → grammar ↔ Lexer 关键字防漂移
+  └─► stage lines                        _testLines    → test/xtask_test_lines.z42（文件行数硬上限，棘轮基线）
   ──► ✅ GREEN（任一 stage 失败立即停）
   # CI 只为并行把 stdlib/cross-zpkg 用 `--skip` 下放到独立 shard job（见 workflow/ci.md）；
   # stage 组成的唯一权威清单见 book/dev/test-gate.md。
@@ -250,6 +251,7 @@ scripts/
 ├── test/               test 命令族
 │   ├── xtask_test.z42           runtime/e2e/dist/all 编排 + shard 解析
 │   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] harness（发现/依赖/批量编译运行）
+│   ├── xtask_test_lines.z42     `test lines`：src/ 非测试 .z42/.rs 500 行硬上限，对照 line-limit-baseline.txt 棘轮（新越界/增长 → 红）
 │   ├── xtask_test_vm.z42        e2e golden 跑分（+ --dir/--file 子选择）
 │   ├── xtask_test_cross.z42     e2e cross-zpkg 多包
 │   ├── xtask_test_dist.z42      发行包 e2e

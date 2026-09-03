@@ -1,6 +1,6 @@
 # 解释器 / JIT 标量语义的单一真相源
 
-> 对齐：2026-08-23（change `refactor-jit-translate-split`，H3）。
+> 对齐：2026-09-03（change `perf-vm-isa-cache`；此前 2026-08-23 `refactor-jit-translate-split`，H3）。
 > 代码：`src/runtime/src/semantics.rs`（真相源）、`src/runtime/src/interp/ops.rs` +
 > `interp/exec_value.rs`（interp 消费）、`src/runtime/src/jit/helpers/arith.rs` +
 > `jit/helpers/object.rs`（JIT helper 消费）、`src/runtime/src/jit/translate/emit_int.rs` +
@@ -37,6 +37,19 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
   （曾是 `ops.rs` 的副本），改调 `semantics::*`；`jit_convert` 委托 `semantics::convert_value`。
 
 于是路径 1、2 对同一规则只有**一份**实现。
+
+**对象级判定同款（2026-09-03）**：标量之外，两条对象路径也已收敛到运行期同一 Rust 函数——
+
+| 判定 | 单一实现 | 缓存 | interp 调用侧 | JIT 调用侧 |
+|------|---------|------|--------------|-----------|
+| 虚调用目标（`VCall`） | `interp/vcall_resolve.rs::resolve_vcall` | 站点 PIC（`VCallIC`） | `exec_vcall.rs` | `helpers/vcall.rs` |
+| 类型判定（`is` / `as` / 带类型 `catch`） | `interp/dispatch.rs::isa_td` | `vm_context/isa_cache.rs`（身份键直接映射）→ `subclass_memo`（字符串 memo）→ 基链/接口遍历 | `exec_object.rs`、`find_handler` | `helpers/object.rs`、`helpers/control.rs` |
+
+`IsaCache`（change `perf-vm-isa-cache`）键的是**身份**而非内容：接收者 `*const TypeDesc`（注册表 / 惰性加载器持有的
+描述符在 VM 生命周期内不朽；`id == UNRESOLVED` 的临时 fallback 描述符按对象分配，**不缓存**）+ 目标类名串的地址
+（只接受指令 / 异常表 / JIT 烘焙的同一串这类不朽元数据；反射路径仍走字符串 memo）。命中 = 两次 relaxed load，
+无锁无哈希；直接映射、冲突覆盖；与 memo 一起在显式模块 (re)load（REPL 重定义）时清空。此前 JIT 侧自带一份
+`is_subclass_or_eq_walk` + `iface_reaches_mod`（按 `module.classes` 线性查找的等价遍历），随本 change 删除。
 
 ### 路径 3：注释锚定 + 差分测试（无法运行期调 Rust）
 

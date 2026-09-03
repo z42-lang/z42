@@ -1,0 +1,141 @@
+// 类 / struct 声明与 impl 块 → TYPE 条目 + IR 函数（refactor-split-irgen-generate，自 IrGen.Generate 提出；逻辑逐字保留）。
+// 每个 ClassDecl：合并 TYPE record（partial 仅主碎片）→ 成员（IrGenMemberEmitter）→ 合成隐式 ctor →
+// blob struct Equals → [Record] 值语义合成；ImplDecl：`<qualTarget>.<m>` 函数。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed class IrGenTypeEmitter {
+    private IrGen _g;
+    private SemanticModel _model;
+    private IrGenSink _out;
+    private IrGenMemberEmitter _members;
+
+    public IrGenTypeEmitter(IrGen g, SemanticModel model, IrGenSink sink) {
+        this._g = g; this._model = model; this._out = sink;
+        this._members = new IrGenMemberEmitter(g, model, sink);
+    }
+
+    // class / struct（rawDecl = cu.Decls[i]，带 attribute 包装；emittedPartial = 本 CU 已发 record 的 partial 名）。
+    public void EmitClass(Decl rawDecl, ClassDecl c, StrMap emittedPartial) {
+        IrGen g = this._g; SemanticModel model = this._model;
+        // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 owner CT。
+        string ownerKey = c.Name;
+        if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
+        Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
+        // add-partial-types：partial 类型仅**主碎片**（min-path）发一条**合并** TYPE record；非主碎片跳过 record（方法体照发）。
+        bool ptIsPartial = owner != null && owner.IsPartial;
+        bool ptIsMain = !ptIsPartial || owner.PartialMainFile == g.SourceFile;
+        if (ptIsPartial && ptIsMain && emittedPartial.ContainsKey(c.Name)) { ptIsMain = false; }   // 同文件多碎片：只发一次
+        if (ptIsMain && ptIsPartial) { emittedPartial.Put(c.Name, "1"); }
+        if (ptIsMain) {
+            ClassDecl descDecl = c;
+            if (ptIsPartial && g.PartialMerged != null && g.PartialMerged.ContainsKey(c.Name)) {
+                descDecl = g.PartialMerged.Get(c.Name) as ClassDecl;   // 合并碎片：全字段有序 + 基表并集
+            }
+            IrClassDesc cdesc = g._classDescB._classDesc(descDecl, HandlerRegistry.HasRecord(rawDecl));   // add-record-attribute
+            cdesc.Attrs = g._classDescB._attrRefs(rawDecl); cdesc.AttrCount = cdesc.Attrs.Length;   // add-attribute-reflection
+            this._out.AddClass(cdesc);
+        }
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl rawMem = c.Members[j];
+            Decl mem = IrGenFacts._unwrap(rawMem);
+            if (mem is MethodDecl) { this._members.EmitMethod(c, owner, ownerKey, rawMem, mem as MethodDecl); }
+            else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, rawMem, mem as PropertyDecl); }
+            else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, mem as IndexerDecl); }
+            j = j + 1;
+        }
+        this._emitSynthCtor(c, owner, ownerKey);
+        this._emitStructEquals(c, owner);
+        this._emitRecordSynth(rawDecl, c, owner);
+    }
+
+    // 合成隐式 ctor（TypeChecker._synthCtors 已建链 init 体）：无显式实例 ctor 且有字段 init → `<qualClass>.<Name>`。
+    private void _emitSynthCtor(ClassDecl c, Z42ClassType owner, string ownerKey) {
+        IrGen g = this._g; SemanticModel model = this._model;
+        string synthKey = ownerKey + "." + c.Name;
+        if (!g._classDescB._hasExplicitInstanceCtor(c) && model.HasBody(synthKey)) {
+            TypeParamList synthTp = new TypeParamList(new string[0], 0, c.Span);
+            TypeExpr synthRet = new NamedType("", new TypeExpr[0], 0, c.Span);
+            BlockStmt synthBody = new BlockStmt(new Stmt[0], 0, c.Span);
+            MethodDecl synthMd = new MethodDecl("", false, true, synthRet, c.Name, synthTp,
+                                                new WhereClause[0], 0, new Param[0], 0, true, synthBody,
+                                                new Expr[0], 0, false, c.Span);
+            var synthFe = new FunctionEmitter(model.Symbols, g);
+            string synthIr = g._q(g._classIrShortName(c)) + "." + c.Name;
+            IrFunction synthF = synthFe.EmitFunction(synthIr, synthMd, model.GetBody(synthKey),
+                                                     true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
+            IrGenFacts._fillParamMeta(synthF, synthMd, true);   // add-param-metadata（reconcile 补齐）
+            this._out.AddFunc(synthF);
+        }
+    }
+
+    // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。
+    private void _emitStructEquals(ClassDecl c, Z42ClassType owner) {
+        IrGen g = this._g;
+        if (owner != null && g.Layouts != null && g.Layouts.IsBlobStruct(owner.Name())
+            && !owner.Methods.ContainsKey("Equals$1") && !owner.Methods.ContainsKey("Equals")) {
+            var eqFe = new FunctionEmitter(this._model.Symbols, g);
+            string eqIr = g._q(g._classIrShortName(c)) + ".Equals$1";
+            IrFunction eqF = eqFe.EmitSynthStructEquals(eqIr, owner);
+            eqF.MinArg = 1;   // Equals(other) 逻辑参数 1（reconcile：默认=含 this 总数，需覆盖）
+            this._out.AddFunc(eqF);
+        }
+    }
+
+    // add-record-value-semantics：`[Record]` 类型合成值语义（用户未显式声明才合成）。
+    //   class（引用）：Equals（裸名，经 vtable 覆盖 Object 槽）/ GetHashCode / ToString；struct（值）：仅 ToString。
+    private void _emitRecordSynth(Decl rawDecl, ClassDecl c, Z42ClassType owner) {
+        IrGen g = this._g;
+        if (owner != null && HandlerRegistry.HasRecord(rawDecl)) {
+            var rse = new RecordSynthEmitter(this._model.Symbols, g);
+            string rq = g._q(g._classIrShortName(c));
+            bool hasTs = owner.Methods.ContainsKey("ToString") || owner.Methods.ContainsKey("ToString$0");
+            if (owner.IsStruct) {
+                if (!hasTs) { this._out.AddFunc(rse.EmitRecordToString(rq + ".ToString", owner, true)); }
+            } else {
+                if (!owner.Methods.ContainsKey("Equals$1") && !owner.Methods.ContainsKey("Equals")) {
+                    this._out.AddFunc(rse.EmitRecordEquals(rq + ".Equals", owner));
+                }
+                if (!owner.Methods.ContainsKey("GetHashCode") && !owner.Methods.ContainsKey("GetHashCode$0")) {
+                    this._out.AddFunc(rse.EmitRecordGetHashCode(rq + ".GetHashCode", owner));
+                }
+                if (!hasTs) { this._out.AddFunc(rse.EmitRecordToString(rq + ".ToString", owner, false)); }
+            }
+        }
+    }
+
+    // port-z42c-impl-block 2c：发 impl 方法为 `<qualTarget>.<m>` 函数（_qClass：imported target 解析到其声明 ns）。
+    public void EmitImpl(ImplDecl im) {
+        IrGen g = this._g; SemanticModel model = this._model;
+        string itn = "";
+        if (im.TargetType is NamedType) { itn = (im.TargetType as NamedType).Name; }
+        if (itn != "" && model.Symbols.HasClass(itn)) {
+            Z42ClassType iowner = model.Symbols.GetClass(itn) as Z42ClassType;
+            int ij = 0;
+            while (ij < im.MethodCount) {
+                if (im.Methods[ij] is MethodDecl) {
+                    MethodDecl imd = im.Methods[ij] as MethodDecl;
+                    if (imd.HasBody) {
+                        string imk = imd.Name + "$" + imd.ParamCount.ToString();
+                        if (iowner == null || !iowner.Methods.ContainsKey(imk)) { imk = imd.Name; }
+                        string ikey = itn + "." + imk;
+                        if (model.HasBody(ikey)) {
+                            bool ist = IrGenFacts._hasWord(imd.Mods, "static");
+                            var ife = new FunctionEmitter(model.Symbols, g);
+                            IrFunction iirf = ife.EmitFunction(g._qClass(itn) + "." + imk, imd,
+                                                               model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
+                            iirf.Visibility = IrGenFacts._visCode(imd.Mods, 1);   // add-member-visibility
+                            iirf.MethodFlags = IrGenFacts._methodFlags(imd.Mods);   // add-method-modifiers
+                            IrGenFacts._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
+                            this._out.AddFunc(iirf);
+                        }
+                    }
+                }
+                ij = ij + 1;
+            }
+        }
+    }
+}
