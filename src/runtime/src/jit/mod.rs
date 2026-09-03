@@ -80,9 +80,18 @@ impl JitModule {
         // help once-called functions at all, so 1 is the only value that captures them.
         let mut call_counts = Vec::with_capacity(n);
         call_counts.resize_with(n, std::sync::atomic::AtomicU32::default);
+        //
+        // perf-jit-threshold-2 (2026-09-03): default 1 → 2. N=1 also compiles every
+        // function that runs exactly ONCE per process — for the short-lived z42c runs
+        // that dominate GREEN (every golden / stdlib member / test compile) that is
+        // 561 Cranelift compiles ≈ 0.33 s of a 0.80 s hello-world build. Measured same
+        // machine: hello-world 0.80 → 0.46 s at N=2 (35 compiles); the large
+        // z42c.semantics build 12.80 → 12.83 s (no loss — anything worth compiling
+        // is called at least twice). N=2..10 are indistinguishable; 2 keeps the
+        // "compile early" spirit of lower-jit-threshold-default.
         let jit_threshold = std::env::var("Z42_JIT_THRESHOLD").ok()
             .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(1)
+            .unwrap_or(2)
             .max(1);
         // add-osr-loop-tiering: back-edge count that triggers OSR of the running
         // interp activation. Default 10_000 — high enough that short loops finish in
