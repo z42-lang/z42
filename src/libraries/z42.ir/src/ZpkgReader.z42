@@ -567,6 +567,9 @@ public sealed class ZpkgModuleSigs {
     public string       Namespace;
     public IrFunction[] Functions;
     public int          FuncCount;
+    // perf-tsig-reconcile-index：按类分桶的函数索引（懒建，见 SigsClassIndex.Ensure；null = 未建）。
+    public StrIndex     ByClassHead;
+    public int[]        ByClassNext;
     public ZpkgModuleSigs(string ns, IrFunction[] functions, int funcCount) {
         this.Namespace = ns; this.Functions = functions; this.FuncCount = funcCount;
     }

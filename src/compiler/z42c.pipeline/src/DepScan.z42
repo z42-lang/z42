@@ -7,6 +7,7 @@ namespace Z42.Pipeline;
 
 using Std;
 using Std.IO;
+using Std.Time;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Project;
@@ -56,10 +57,14 @@ public static class DepScan {
         // perf（perf-optimize-repl-eval ①）：每个 zpkg 只 `File.ReadAllBytes + ZpkgReader.Open`
         // 一次——解码结果存进平行 `opened[]`，下面主循环直接复用，不再重读重解一遍（原双读在
         // REPL 每轮全量 DepScan 里成倍放大，是 ~3.5s/eval 的一部分）。
+        bool trace = (Environment.GetEnvironmentVariable("Z42C_TRACE_DEPSCAN") ?? "") == "1";
+        Stopwatch swOpen = Stopwatch.StartNew();
+        long msSigs = 0L; long msTsig = 0L;
         ZpkgInfo[] opened = new ZpkgInfo[paths.Length];
         CachedZpkg[] cached = new CachedZpkg[paths.Length];   // F2：进程级 memo 条目（tsig 懒填）
         ZpkgInfo[] world = new ZpkgInfo[paths.Length];
         string[] worldDirs = new string[paths.Length];
+        int[] worldIdxOf = new int[paths.Length];   // perf-tsig-reconcile-index：paths 下标 → world 下标（非 lib = -1）
         int worldCount = 0;
         int wpi = 0;
         while (wpi < paths.Length) {
@@ -67,15 +72,29 @@ public static class DepScan {
             ZpkgInfo wz = ce.Z;
             opened[wpi] = wz;
             cached[wpi] = ce;
+            worldIdxOf[wpi] = 0 - 1;
             if (wz != null && !wz.IsExe) {
                 world[worldCount] = wz; worldDirs[worldCount] = Path.GetDirectoryName(paths[wpi]);
+                worldIdxOf[wpi] = worldCount;
                 worldCount = worldCount + 1;
             }
             wpi = wpi + 1;
         }
         // lazy-type-world：惰性 world（不再一次性全量解析）。ScanDirs 仍 Rebuild 全部包，故 Wp 经
         // 各 Rebuild 的 EnsureFq 按需填满——总解析量不变、消除 BuildWorld 与 Rebuild 的双重解析。
+        long msOpen = swOpen.Elapsed().TotalMilliseconds();
         LazyReconWorld lazyWorld = new LazyReconWorld(world, worldDirs, worldCount);
+        // perf-tsig-reconcile-index：每个 lib 包整包 TYPE/SIGS 只解析一次（进程级 memo），同一份给
+        // DepIndex（Mods）、Rebuild、以及 world 的 EnsureNs（此前 EnsureNs 对该包每个 ns 都重跑整包 SIGS 解析）。
+        int ppi = 0;
+        while (ppi < paths.Length) {
+            if (worldIdxOf[ppi] >= 0) {
+                if (cached[ppi].Mods == null) { cached[ppi].Mods = ZpkgReader.ReadModuleSigs(opened[ppi]); }
+                if (cached[ppi].Types == null) { cached[ppi].Types = ZpkgReader.ReadModuleTypes(opened[ppi], Path.GetDirectoryName(paths[ppi])); }
+                lazyWorld.Preset(worldIdxOf[ppi], cached[ppi].Types, cached[ppi].Mods);
+            }
+            ppi = ppi + 1;
+        }
         int pi = 0;
         while (pi < paths.Length) {
             ZpkgInfo z = opened[pi];   // perf ①：复用预开阶段的解码结果，不重读 paths[pi]
@@ -107,6 +126,7 @@ public static class DepScan {
                     if (declaredCount == 0 || ZpkgPathSort._allowedForIndex(z.Name, declaredDeps, declaredCount)) {
                         // F2-邻：ReadModuleSigs 是 z 字节纯函数、跨成员恒定 → 进程级 memo（命中零重解码 SIGS）。
                         // AddModule 仍每成员执行（按 declaredDeps 建各自过滤 index，不可跨成员共享）。
+                        Stopwatch swS = Stopwatch.StartNew();
                         ZpkgModuleSigs[] mods = cached[pi].Mods;
                         if (mods == null) {
                             mods = ZpkgReader.ReadModuleSigs(z);
@@ -117,6 +137,7 @@ public static class DepScan {
                             index.AddModule(mods[i].Functions, mods[i].FuncCount, mods[i].Namespace);
                             i = i + 1;
                         }
+                        msSigs = msSigs + swS.Elapsed().TotalMilliseconds();
                     }
                     // drop-tsig-expt（unify P3）：从 TYPE/SIGS/IMPL 重建（替代已删 TSIG 段）。
                     // F2：该包 TSIG 只依赖自身 + 祖先（拓扑序保证在场），跨成员恒定 → 进程级 memo，命中零重建。
@@ -124,8 +145,10 @@ public static class DepScan {
                     if (cached[pi].Tsig != null) {
                         tsig = cached[pi].Tsig;
                     } else {
-                        tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), lazyWorld);
+                        Stopwatch swT = Stopwatch.StartNew();
+                        tsig = TsigReconcile.Rebuild(z, Path.GetDirectoryName(paths[pi]), lazyWorld, cached[pi].Types, cached[pi].Mods);
                         cached[pi].Tsig = tsig;
+                        msTsig = msTsig + swT.Elapsed().TotalMilliseconds();
                     }
                     i = 0;
                     while (i < tsig.Length) {
@@ -147,6 +170,10 @@ public static class DepScan {
         }
         index.Seal();
         DepScanResult res = new DepScanResult(index, nsNames, nsFiles, nsCount, exported, exportedPkg, exportedCount);
+        if (trace) {
+            ConsoleError.WriteLine("[depscan] zpkgs=" + paths.Length.ToString() + " open=" + msOpen.ToString()
+                + "ms sigs=" + msSigs.ToString() + "ms tsig=" + msTsig.ToString() + "ms");
+        }
         res.World = lazyWorld;   // 保留惰性 world 供 ExtendWithPackage / EnsurePackageLoaded 复用
         return res;
     }
