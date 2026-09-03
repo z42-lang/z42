@@ -1126,8 +1126,10 @@ fn find_handler(
     type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
     thrown: &Value,
 ) -> Option<usize> {
-    let thrown_class: Option<String> = match thrown {
-        Value::Object(rc) => Some(rc.type_desc().name.clone()),
+    // perf-vm-isa-cache: match on the thrown object's descriptor (identity-cached), no
+    // per-throw `String` clone of its class name.
+    let thrown_td: Option<&crate::metadata::TypeDesc> = match thrown {
+        Value::Object(rc) => Some(rc.type_desc()),
         _                 => None,
     };
 
@@ -1140,8 +1142,8 @@ fn find_handler(
             None      => return Some(i),                   // user untyped catch
             Some("*") => return Some(i),                   // synthetic finally fallthrough
             Some(target) => {
-                if let Some(ref derived) = thrown_class {
-                    if dispatch::is_subclass_or_eq_td(ctx, type_registry, derived, target) {
+                if let Some(td) = thrown_td {
+                    if dispatch::isa_td(ctx, type_registry, td, target) {
                         return Some(i);
                     }
                 }
