@@ -31,8 +31,9 @@ public sealed class CachedZpkg {
     public ExportedModuleZ[] Tsig;     // null = 尚未缓存该包 TSIG（首次某成员把它当非-self 扫到时 Rebuild + 存）
     public ZpkgModuleSigs[] Mods;      // F2-邻：null = 尚未缓存该包 SIGS（ReadModuleSigs 是 z 字节纯函数、跨成员恒定；
                                        // 首次某成员把它当 allowed-非-self 扫到时 ReadModuleSigs + 存，其余成员命中零重解）。
+    public ZpkgModuleTypes[] Types;    // perf-tsig-reconcile-index：整包 TYPE（ReadModuleTypes）memo，与 Mods 同款纯函数。
     public CachedZpkg(string path, ZpkgInfo z) {
-        this.Path = path; this.Z = z; this.Tsig = null; this.Mods = null;
+        this.Path = path; this.Z = z; this.Tsig = null; this.Mods = null; this.Types = null;
     }
 }
 

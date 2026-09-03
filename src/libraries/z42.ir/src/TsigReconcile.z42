@@ -31,9 +31,15 @@ public sealed class LazyReconWorld {
     public string[]        WorldPaths;
     // ns → world 索引（扁平 (ns, idx) 对；z42 无 int[][]，故平行数组 + 线性查）
     private string[] _pairNs; private int[] _pairIdx; private int _pairN;
+    // perf-tsig-reconcile-index：类 FQ → (包, 模块, 类) 索引；模块进入 Wp 时登记（EnsureNs / FromEager）。
+    private ReconClassIndex _cls;
+    // perf-tsig-reconcile-index：DepScan 预解析的整包 TYPE/SIGS（null = 无预设，EnsureNs 走读取器）。
+    private ReconPreset[] _preset;
 
     public LazyReconWorld(ZpkgInfo[] world, string[] worldDirs, int wc) {
         this.World = world; this.WorldDirs = worldDirs; this.Wc = wc;
+        this._cls = new ReconClassIndex();
+        this._preset = new ReconPreset[wc];
         this.WorldPaths = null;   // eager 模式（现有调用方 + 种子 z42c）：World 已全开
         this.Wp = new ReconWorldPkg[wc];
         // 从每包 NSPC 建 (ns, world索引) 对表（廉价；不碰 TYPE/SIGS）。
@@ -75,9 +81,16 @@ public sealed class LazyReconWorld {
             int m = 0;
             while (m < this.Wp[i].Types.Length) { if (this.Wp[i].Types[m].Namespace == ns) { return; } m = m + 1; }
         }
-        ZpkgInfo z = this._openPkg(i);
-        ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, this.WorldDirs[i], ns);
-        ZpkgModuleSigs  ms = ZpkgReader.ReadOneModuleSigs(z, ns);
+        ZpkgModuleTypes mt;
+        ZpkgModuleSigs  ms;
+        if (i < this._preset.Length && this._preset[i] != null) {   // perf-tsig-reconcile-index：预解析命中，零重解
+            mt = this._preset[i].TypesOf(ns);
+            ms = this._preset[i].SigsOf(ns);
+        } else {
+            ZpkgInfo z = this._openPkg(i);
+            mt = ZpkgReader.ReadOneModuleTypes(z, this.WorldDirs[i], ns);
+            ms = ZpkgReader.ReadOneModuleSigs(z, ns);
+        }
         if (this.Wp[i] == null) { this.Wp[i] = new ReconWorldPkg(new ZpkgModuleTypes[0], new ZpkgModuleSigs[0]); }
         ReconWorldPkg wp = this.Wp[i];
         int n = wp.Types.Length;
@@ -87,6 +100,29 @@ public sealed class LazyReconWorld {
         while (k < n) { t2[k] = wp.Types[k]; s2[k] = wp.Sigs[k]; k = k + 1; }
         t2[n] = mt; s2[n] = ms;
         wp.Types = t2; wp.Sigs = s2;
+        this._indexModule(i, n);
+    }
+    // 把 Wp[p].Types[m] 的全部类登记进索引。
+    private void _indexModule(int p, int m) {
+        ZpkgModuleTypes mt = this.Wp[p].Types[m];
+        int t = 0;
+        while (t < mt.ClassCount) { this._cls.Add(mt.Classes[t].Name, p, m, t); t = t + 1; }
+    }
+    // 预设第 i 包的整包 TYPE/SIGS（DepScan.ScanDirs 已解析，见 ReconPreset）。
+    public void Preset(int i, ZpkgModuleTypes[] types, ZpkgModuleSigs[] sigs) {
+        if (i >= this._preset.Length) {
+            ReconPreset[] b = new ReconPreset[i + 1];
+            int k = 0; while (k < this._preset.Length) { b[k] = this._preset[k]; k = k + 1; }
+            this._preset = b;
+        }
+        this._preset[i] = new ReconPreset(types, sigs);
+    }
+    // 按 FQ 定位类：返回索引槽位（-1 = world 中无此类）；调用方先 EnsureFq 让声明该 ns 的包进入 Wp。
+    public int FindClass(string fq) { return this._cls.Find(fq); }
+    public int FoundPkg(int slot) { return this._cls.PkgAt(slot); }
+    public int FoundMod(int slot) { return this._cls.ModAt(slot); }
+    public IrClassDesc FoundDesc(int slot) {
+        return this.Wp[this._cls.PkgAt(slot)].Types[this._cls.ModAt(slot)].Classes[this._cls.ClsAt(slot)];
     }
 
     // 整包填满（eager / EnsureAll / 差分）：对第 i 包每个命名空间 EnsureNs（结果 == 旧整包读，byte-identical
@@ -136,6 +172,11 @@ public sealed class LazyReconWorld {
     public static LazyReconWorld FromEager(ReconWorldPkg[] wp, int wc) {
         LazyReconWorld w = new LazyReconWorld(new ZpkgInfo[0], new string[0], 0);
         w.Wp = wp; w.Wc = wc;
+        int p = 0;
+        while (p < wc) {
+            if (wp[p] != null) { int m = 0; while (m < wp[p].Types.Length) { w._indexModule(p, m); m = m + 1; } }
+            p = p + 1;
+        }
         return w;
     }
 
@@ -201,8 +242,11 @@ public static class TsigReconcile {
 
     // 从 TYPE/SIGS/IMPL 重建 z 的 ExportedModuleZ[]（world = 惰性跨包类型世界，见 LazyReconWorld）。
     public static ExportedModuleZ[] Rebuild(ZpkgInfo z, string zDir, LazyReconWorld world) {
-        ZpkgModuleTypes[] types = ZpkgReader.ReadModuleTypes(z, zDir);
-        ZpkgModuleSigs[] sigs = ZpkgReader.ReadModuleSigs(z);
+        return TsigReconcile.Rebuild(z, zDir, world, ZpkgReader.ReadModuleTypes(z, zDir), ZpkgReader.ReadModuleSigs(z));
+    }
+    // perf-tsig-reconcile-index：调用方已解析整包 TYPE/SIGS（DepScan 与 DepIndex / world 预设共用一份）。
+    public static ExportedModuleZ[] Rebuild(ZpkgInfo z, string zDir, LazyReconWorld world,
+                                            ZpkgModuleTypes[] types, ZpkgModuleSigs[] sigs) {
         int n = types.Length;
         if (sigs.Length < n) { n = sigs.Length; }
         // 全包 free functions（oracle：allFuncs 对每个模块重复同一列表——IrDump._compile 口径）。
@@ -362,21 +406,8 @@ public static class TsigReconcile {
             walk = null;
             if (bn != "" && bn != "Std.Object" && bn != "Object") {
                 world.EnsureFq(bn);   // 路由填充声明 bn 命名空间的所有包
-                int p2 = 0;
-                while (p2 < world.Wc && walk == null) {
-                    if (world.Wp[p2] != null) {
-                        int m2 = 0;
-                        while (m2 < world.Wp[p2].Types.Length && walk == null) {
-                            int t2 = 0;
-                            while (t2 < world.Wp[p2].Types[m2].ClassCount && walk == null) {
-                                if (world.Wp[p2].Types[m2].Classes[t2].Name == bn) { walk = world.Wp[p2].Types[m2].Classes[t2]; walkPkg = p2; walkMod = m2; }
-                                t2 = t2 + 1;
-                            }
-                            m2 = m2 + 1;
-                        }
-                    }
-                    p2 = p2 + 1;
-                }
+                int bs = world.FindClass(bn);   // perf-tsig-reconcile-index：O(1) 定位（原 world 全扫）
+                if (bs >= 0) { walk = world.FoundDesc(bs); walkPkg = world.FoundPkg(bs); walkMod = world.FoundMod(bs); }
             }
             guard = guard + 1;
         }
@@ -428,12 +459,12 @@ public static class TsigReconcile {
             if (chainPkg[ci] >= 0 && chainMod[ci] >= 0) { ancSigs = world.Wp[chainPkg[ci]].Sigs[chainMod[ci]]; }
             if (ancSigs != null) {
                 string prefix = anc.Name + ".";
-                int si = 0;
-                while (si < ancSigs.FuncCount) {
+                int si = SigsClassIndex.First(ancSigs, anc.Name);   // perf-tsig-reconcile-index：只遍历本类的桶
+                while (si >= 0) {
                     IrFunction f = ancSigs.Functions[si];
-                    if (!f.IsStatic && f.Name.StartsWith(prefix)) {
+                    if (!f.IsStatic) {
                         string mkey = f.Name.Substring(prefix.Length);
-                        if (mkey.IndexOf(".") < 0 && mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
+                        if (mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
                             ExportedMethodZ em = TsigReconcile._methodFromSig(f, mkey);
                             if (em.IsAbstract) { em.IsVirtual = false; }   // TSIG：abstract 不置 virtual
                             int at = TsigReconcile._indexOf(seenName, seenc, mkey);
@@ -449,7 +480,7 @@ public static class TsigReconcile {
                             }
                         }
                     }
-                    si = si + 1;
+                    si = ancSigs.ByClassNext[si];
                 }
             }
             ci = ci - 1;
@@ -459,19 +490,19 @@ public static class TsigReconcile {
         if (chainPkg[0] >= 0 && chainMod[0] >= 0) { selfSigs = world.Wp[chainPkg[0]].Sigs[chainMod[0]]; }
         if (selfSigs != null) {
             string sprefix = cd.Name + ".";
-            int ssi = 0;
-            while (ssi < selfSigs.FuncCount) {
+            int ssi = SigsClassIndex.First(selfSigs, cd.Name);   // perf-tsig-reconcile-index
+            while (ssi >= 0) {
                 IrFunction f = selfSigs.Functions[ssi];
-                if (f.IsStatic && f.Name.StartsWith(sprefix)) {
+                if (f.IsStatic) {
                     string mkey = f.Name.Substring(sprefix.Length);
-                    if (mkey.IndexOf(".") < 0 && mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
+                    if (mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
                         ExportedMethodZ em = TsigReconcile._methodFromSig(f, mkey);
                         em.IsVirtual = false;   // TSIG：static 恒 vfalse（`static override` 不置 virtual）
                         if (mc == methods.Length) { ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2]; int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; } methods = b; }
                         methods[mc] = em; mc = mc + 1;
                     }
                 }
-                ssi = ssi + 1;
+                ssi = selfSigs.ByClassNext[ssi];
             }
         }
         ExportedClassZ ecz = new ExportedClassZ(bare, hasBase, baseName,
@@ -570,21 +601,8 @@ public static class TsigReconcile {
     private static void _locate(string fq, LazyReconWorld world, int[] outPkg, int[] outMod, int slot) {
         outPkg[slot] = 0 - 1; outMod[slot] = 0 - 1;
         world.EnsureFq(fq);
-        int p = 0;
-        while (p < world.Wc) {
-            if (world.Wp[p] != null) {
-                int m = 0;
-                while (m < world.Wp[p].Types.Length) {
-                    int t = 0;
-                    while (t < world.Wp[p].Types[m].ClassCount) {
-                        if (world.Wp[p].Types[m].Classes[t].Name == fq) { outPkg[slot] = p; outMod[slot] = m; return; }
-                        t = t + 1;
-                    }
-                    m = m + 1;
-                }
-            }
-            p = p + 1;
-        }
+        int fs = world.FindClass(fq);   // perf-tsig-reconcile-index：O(1)（原 world 全扫）
+        if (fs >= 0) { outPkg[slot] = world.FoundPkg(fs); outMod[slot] = world.FoundMod(fs); }
     }
     private static int _indexOf(string[] arr, int n, string key) {
         int i = 0;
