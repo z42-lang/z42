@@ -38,22 +38,28 @@ struct Slot {
 }
 
 pub(crate) struct IsaCache {
-    slots: Box<[Slot]>,
+    /// Allocated on the first `put` (16 KiB): a `VmContext` that never runs a type test —
+    /// worker / embedding / test contexts — pays nothing and keeps `VmContext::new()`'s
+    /// allocation profile unchanged.
+    slots: std::sync::OnceLock<Box<[Slot]>>,
 }
 
 impl std::fmt::Debug for IsaCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IsaCache").field("slots", &self.slots.len()).finish()
+        f.debug_struct("IsaCache").field("slots", &self.slots.get().map_or(0, |s| s.len())).finish()
     }
 }
 
 impl IsaCache {
     pub(crate) fn new() -> Self {
-        let slots = (0..SLOTS)
+        Self { slots: std::sync::OnceLock::new() }
+    }
+
+    fn alloc_slots() -> Box<[Slot]> {
+        (0..SLOTS)
             .map(|_| Slot { td: AtomicUsize::new(0), tgt: AtomicU64::new(0) })
             .collect::<Vec<_>>()
-            .into_boxed_slice();
-        Self { slots }
+            .into_boxed_slice()
     }
 
     #[inline]
@@ -68,9 +74,10 @@ impl IsaCache {
     /// Cached verdict for (`td`, `target`), if this exact pair was installed.
     #[inline]
     pub(crate) fn get(&self, td: *const crate::metadata::TypeDesc, target: &str) -> Option<bool> {
+        let slots = self.slots.get()?;
         let td = td as usize;
         let tgt = target.as_ptr() as usize as u64;
-        let slot = &self.slots[Self::index(td, tgt as usize)];
+        let slot = &slots[Self::index(td, tgt as usize)];
         if slot.td.load(Relaxed) != td { return None; }
         let w = slot.tgt.load(Relaxed);
         if (w & !VERDICT_BIT) != tgt { return None; }
@@ -80,9 +87,10 @@ impl IsaCache {
     /// Install (overwrite on collision).
     #[inline]
     pub(crate) fn put(&self, td: *const crate::metadata::TypeDesc, target: &str, verdict: bool) {
+        let slots = self.slots.get_or_init(Self::alloc_slots);
         let td = td as usize;
         let tgt = target.as_ptr() as usize as u64;
-        let slot = &self.slots[Self::index(td, tgt as usize)];
+        let slot = &slots[Self::index(td, tgt as usize)];
         // Publish the target word first so a stale `td` never pairs with a fresh verdict.
         slot.tgt.store(tgt | if verdict { VERDICT_BIT } else { 0 }, Relaxed);
         slot.td.store(td, Relaxed);
@@ -90,9 +98,11 @@ impl IsaCache {
 
     /// Forget everything (explicit module reload may redefine a type).
     pub(crate) fn clear(&self) {
-        for s in self.slots.iter() {
-            s.td.store(0, Relaxed);
-            s.tgt.store(0, Relaxed);
+        if let Some(slots) = self.slots.get() {
+            for s in slots.iter() {
+                s.td.store(0, Relaxed);
+                s.tgt.store(0, Relaxed);
+            }
         }
     }
 }
