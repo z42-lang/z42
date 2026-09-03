@@ -12,13 +12,14 @@
 | `src/main.rs` | CLI 入口，加载产物并交给 `Vm` 执行 |
 | `src/vm.rs` | `Vm` 结构体：持有 `Module`，按 `ExecMode` 分发到 interp/jit/aot |
 | `src/lib.rs` | 库入口，re-export 公开 API |
+| `src/config.rs` + `src/config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处；refactor-split-config 后：hub 留本体 / Default / from_env / toml 加载 / 全局单例，`config/knobs.rs` 旋钮表 `KNOWN_KNOBS`，`config/parse.rs` 各 `parse_*`；单测在 `config_tests.rs`）|
 | `src/aot.rs` | AOT 后端桩（未实现） |
 
 ### src/metadata/ — IR 元数据与加载层
 | 文件 | 职责 |
 |------|------|
 | `types.rs` + `types/` | 运行时值类型与对象模型（refactor-split-metadata-types 后按职责分 9 个子模块，hub 全量 `pub use` 路径不变）：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局与编解码）、`object`（ScriptObject / NativeData）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）|
-| `bytecode.rs` | IR 数据结构：`Module`、`Function`、`Instruction`、`Terminator` |
+| `bytecode.rs` + `bytecode/` | zbc IR 数据结构（refactor-split-bytecode 后按职责分子模块，hub 全量 `pub use` 路径不变）：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / 约束束 / CLASS_FLAG_*）、`function`（Function / FunctionCold / BasicBlock / 异常表）、`insn`（*Insn 指令载荷）、`instruction`（Instruction / Terminator / BranchTargets）|
 | `formats.rs` | `.zbc`/`.zpkg` 磁盘格式数据结构（镜像 C# `PackageTypes.cs`） |
 | `loader.rs` | 统一加载入口：`load_artifact(path)` → `Module`；`build_type_registry` 预构建 `TypeDesc` 注册表 |
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
