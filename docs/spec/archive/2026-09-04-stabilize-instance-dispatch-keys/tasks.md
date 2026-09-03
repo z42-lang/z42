@@ -1,4 +1,26 @@
-# Tasks: 实例派发键稳定化
+# Tasks: 实例派发键稳定化（stabilize-instance-dispatch-keys）
+
+> 状态：🟢 已完成 | 创建：2026-09-02 | 完成：2026-09-04 | 类型：lang/vm（compiler + runtime，格式双 bump）
+
+**变更说明：** 实例/静态虚方法的派发键（RegKey = IR 函数名 = TSIG 导出名 = Call/VCall 目标 = DepIndex 注册键）
+从「兄弟集三档」（unique→裸 / 同 arity 重载→`Name$arity` / 同 arity 异类型→全 mangle）改为
+**「primary（声明序首个同名）→裸基线键 / 非-primary→全签名 MangleKey」**（`MemberCollector._fillClass`）。
+配套 5 处：① `MemberResolver` prim-wrapper 去 `_sameArity<2` 快路径、统一 `_resolveOverload` 取 `RegKey`
+② `type_desc.rs derive_simple_method_name` 返回完整键不剥 `$`（同名多虚重载各占独立 vtable 槽）
+③ `OverloadBinder._ctorKey` 按 argCount 找非-primary ctor 的 `RegKey`
+④ 协议豁免名（ToString/Equals/…）也走 primary/非-primary（重载不再全裸 last-wins）
+⑤ `DeclBinder` 重复重载判重键 `md.RegKey` → **全签名 MangleKey**（新键下 primary 裸 / 非-primary 全键不再相同 → 老判重法漏判）。
+格式 zbc 1.37→1.38 / zpkg 0.42→0.43（wire 布局不变、仅键字符串；两代自举吸收）。
+
+**原因：** 旧键**不是方法自身签名的纯函数、而是兄弟集的函数**——给一个原本唯一的方法**新增一个重载**会让
+**既有那个**从裸键 rekey，而上一 nightly 种子里烘焙的调用点仍发裸键 → `undefined function`。这是
+E0436 / E0433 / `ImportedSymbolLoader` first-wins 别名 / String 补齐断种子等一整类反复补丁的**共同根因**。
+新方案下唯一方法（≈所有多态方法：接口 / 泛型虚 / 协议 op_* / foreach / 委托目标）**逐字节不变**，
+加/删重载只动自己 → 上次「全 mangle」回退挂掉的 5 子系统天然不受影响；此后永久 additive。
+
+**文档影响：** [`docs/book/src/compiler/source-compile.md`](../../../book/src/compiler/source-compile.md)
+新增「实例派发键稳定化（primary 裸键 / 非-primary 全签名键）」机制小节（含四个必须镜像的落点表）；
+zbc / zpkg 版本 changelog 落在 `ZbcFormat.z42` / `ZpkgWriter.z42` 的 `Minor` 内联注释（逐-bump SoT）。
 
 > 高风险、冷 CI 收敛型（上次全 mangle 挂 19 e2e golden、全在运行期实例派发、本地 warm 不可见）。
 > 分阶段、support-先行；每阶段尽量本地可验，运行期最终以 CI 两代自举 + e2e golden 为权威门。
@@ -19,7 +41,12 @@
 - [x] **修 5**（碰撞守卫）：`MemberCollector` `sigSeen` 按全签名自查 nullable 碰撞 → E0408（补 `DeclBinder` 新键下漏判）
 - [x] 格式双 bump：zbc 1.37→1.38 / zpkg 0.42→0.43 + `versions.rs` 两常量 + `zbc_tests.z42` golden hex minor
 - [x] 泛型 H3（generic-arity 进键）/ H5（composite FQN）：grep 证实无碰撞 → **降为前向守卫 / Deferred**，不为不存在的碰撞制造字节漂移
-- [x] 本地验：disp 派发（Substring/用户重载/虚方法/foreach/Sort/ctor 重载/struct ToString 重载）**interp + JIT 双模式**全过；碰撞 3 例（E0408 / 2×0-error）符合预期；两代自举 gen2 建 xtask.zpkg debug-assertions VM 无段错误
+- [x] 本地验：disp 派发（Substring/用户重载/虚方法/foreach/Sort/ctor 重载/struct ToString 重载）**interp + JIT 双模式**全过；两代自举 gen2 建 xtask.zpkg debug-assertions VM 无段错误
+- [x] 本地验（CI 首轮红后补）：`cargo test --lib` 993 passed / 0 failed；z42c 单测经 z42b **interp + JIT 双模式**——
+  typecheck 119/119、codegen 103/103（含 `test_error_duplicate_instance_overload_{nullable,type_alias}_collision`
+  / `test_ctor_this_delegation` / 协议豁免与 distinct 负例全 PASS）
+- [x] 格式-bump 配套：Rust version-pin 测试 38/43；`packed-minimal` + `indexed-minimal` fixture header minor
+  版本-patch + 散装 zbc 的 blake3-128 索引哈希同步（改 zbc 内容必同步该哈希，否则 loader 报 content hash mismatch）
 - [ ] 权威门：CI `ci-bootstrap` 两代自举 + `bootstrap-no-csharp` + 全 golden regen 一致 + e2e golden 全绿（冷 CI 收敛，push 后盯）
 
 ## 阶段 0：环境 + 基线（已完成）
