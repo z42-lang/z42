@@ -448,14 +448,16 @@ void test_ctor_lowering() {
 }
 
 // ── ctor 委托 `: this(args)`（fix-z42c-ctor-this-delegation）──────────────────────
-// `: this(args)` 委托同类的另一 ctor（curCls，arity-mangle key），区别于 `: base(args)`
+// `: this(args)` 委托同类的另一 ctor（curCls，按 argCount 解析到其 RegKey），区别于 `: base(args)`
 // 调用基类 ctor。回归 bug：parser 丢弃 base/this 区分 → this 误编为 base ctor 调用
 // （curCls 无显式基类 → 调 Std.Object 2-arg ctor → 运行期 VCall null / 字段保持默认）。
+// stabilize-instance-dispatch-keys：ctor 同走 primary/非-primary 键——声明序首个 `C()` = primary → 裸
+// `C.C`（单 ctor 类因此零漂移，见 test_ctor_field_assign）；`C(int)` = 非-primary → 全签名 `C.C$1$i32`。
 [Test]
 void test_ctor_this_delegation() {
     string src = "class C { public int X; public C() : this(5) {} public C(int x) { this.X = x; } }";
-    Assert.Equal("fn @C.C$0(1) -> void {\nentry:\n  %1 = const.i64 5\n  %2 = call @C.C$1(%0, %1)\n  ret\n}",
-                 IrDump.DumpFunc(src, "C.C$0"));
+    Assert.Equal("fn @C.C(1) -> void {\nentry:\n  %1 = const.i64 5\n  %2 = call @C.C$1$i32(%0, %1)\n  ret\n}",
+                 IrDump.DumpFunc(src, "C.C"));
 }
 
 // ── new T[n] 元素类型名 FQ 化（port-z42c-self-compile G16）─────────────────────────

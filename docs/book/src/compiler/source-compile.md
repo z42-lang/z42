@@ -86,6 +86,36 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 **方案**：`MemberResolver.z42:17-27` 在 `HasClass` 前加一步——`!HasClass(name) && PrimModel.IsBuiltin(name)` 时把 `name` 归一到 `PrimModel.Wrapper(name)`（`"int"→"Int32"`），并用归一后的包装名产 `BoundStaticGet`（其 `QualifyClass` 得 `Std.Int32`、匹配 `Std.Int32.__static_init__` 写入的键）。于是 `int.MaxValue` 与 `Int32.MaxValue` 绑定到同一静态字段。跨包 `Int32.MaxValue` 本就走 `HasClass("Int32")` 命中的原分支（static 字段随 zbc 类型段导入），无需改动。**字节中性**：非标量类 `clsName==name` 不变；仅新增「标量关键字 + 存在 static 字段」这一命中，既有代码无此形态。const 字段不适用（跨包不序列化值、`IsStatic` 亦为 false）——故 `Int32.MaxValue` 等采用 `static` 字段（值单一真相源在 `Primitives/*.z42`，经 `__static_init__` 落地；`Double.NaN`/`±Infinity` 借 `BitConverter` 在 init 期构造，const 折叠做不到）。
 
+#### 实例派发键稳定化（primary 裸键 / 非-primary 全签名键）
+
+方法的**派发键**（= IR 函数名 = TSIG 导出名 = `Call`/`VCall` 目标 = DepIndex 注册键）此前随**兄弟集**三档漂移：唯一方法 → 裸名 `IndexOf`；同 arity 重载 → `IndexOf$1`；同 arity 不同类型 → 全 mangle `IndexOf$1$string`。**问题**：给一个原本唯一的方法**新增一个重载**，会让**既有那个方法**从裸 `IndexOf` rekey 成 `IndexOf$1$string`——而上一个 nightly 种子里烘焙的调用点仍发裸 `IndexOf` → 运行期 `VCall/Call` 落空。这是 E0436/E0433/first-wins 别名一整类「键随兄弟集漂移」补丁的共同根因，也卡住 stdlib 加重载（如 String 补齐）。
+
+**根因洞察**：一个字符串键在扛两件互斥的活——① overload 决议标识（编译期，要区分同名重载、且**稳定于兄弟增删**）；② 多态派发槽（运行期虚/接口/协议/foreach，要 base·派生·实例化三方**替换不变**的裸槽）。rekey 破坏**只发生在 unique→overloaded 的跃迁**。
+
+**方案（`MemberCollector._fillClass`）**：每个 `(owner, name)` 重载集里——
+
+```
+primary（声明序第一个同名成员） → key = 裸名          （= 唯一方法今天的键：多态/协议规范槽 + seed 锚点）
+非-primary（后续同名兄弟）        → key = MangleKey(全签名)（如 IndexOf$1$char；加/删只动自己、不碰 primary）
+```
+
+`emittedInst`（`StrMap`）跟踪每名是否已出 primary：首个同名裸键，后续取 `OverloadResolver.MangleKey`。**关键性质 additive——所有唯一方法逐字节不变**：接口/泛型虚/协议 `op_*`·`CompareTo`/foreach 的 `GetEnumerator`·`MoveNext`·`Current`/委托目标几乎都是唯一方法，全保裸键 → 上次「全 mangle」回退挂的 5 子系统（19 e2e golden）**本就不动**，而非「先全 rekey 再逐个救」。只有真正的同名多重载（少见，多为非多态如 `Substring` 系 arity 重载）的非-primary 成员取全键，一次性迁移（格式 bump + 两代自举）后永久 additive。
+
+primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载序，确定）。纪律：**新增重载一律追加在既有之后**，否则 primary 易主 → 既有 primary rekey（写入 spec 场景 + 由「不改 z42c 源既有重载声明序」保证）。
+
+调用点 emit（`MemberResolver`）：静态可决议的具体重载 → 发 `ms.RegKey`（primary 裸 / 非-primary 全键）；多态派发（虚/接口/泛型参数接收者）→ 发裸规范槽。**prim-wrapper 接收者不再有 arity 快路径**——统一走 `_resolveOverload` 取 `RegKey`（去掉此前 `_sameArity<2` 时用 `Name$arity` 的分支，那会对非-primary 重载发错 arity 键致段错误）。
+
+**四个必须镜像的落点**（辐射面收敛到「非-primary 重载的可达性」，有界可枚举）：
+
+| 落点 | 处理 |
+|------|------|
+| **ctor 键**（`OverloadBinder._ctorKey`） | 老 `Box$argCount` 查不到非-primary 全键（如 `Box$2$i32$i32`）→ 按 `argCount` 在本类 ctor 里找匹配者返其 `RegKey`（否则 `new Box(3,4)` 发裸 `Box` → ObjNew 命中 primary arity-1 ctor → 错 ctor） |
+| **协议豁免名重载**（`ToString`/`Equals`/…） | 协议豁免名**也走 primary/非-primary**：规范签名（声明序首个）= primary 裸（VM vtable/DepIndex 硬查锚点保住）；其重载（`ToString(string)`）= 非-primary 全键（否则全裸 last-wins 撞车——`guid.ToString("D")` 派发到无参 `ToString` 丢 format） |
+| **VM vtable 槽**（`type_desc.rs derive_simple_method_name`） | 返回**完整键、不再剥 `$` 后缀**——否则同名多个虚重载塌进一槽（H4：`o.F(int)` 与 `o.F(int,int)` 撞）。`merge_with_base` 的 override 匹配 + JIT `vtable_index` 同用此键 |
+| **碰撞守卫**（`MemberCollector` `sigSeen`） | 老键下 `G(string)`/`G(string?)` 靠共享 `RegKey` 被 `DeclBinder` 判重报 E0408；新键下 primary=裸、非-primary=全键，`RegKey` 不再相同 → `DeclBinder` 漏判 → 故在此按**全签名 MangleKey**（含 nullable/alias 归一）自查：同全签名 ≥2 报 E0408。协议豁免名 + 转换运算符跳过（各有专属冲突检测） |
+
+**格式**：一次性迁移 bump zbc 1.37→1.38 / zpkg 0.42→0.43，`ci-bootstrap` 版本差 gate 走两代自举吸收（gen1==gen2 字节不动点）。此后加/删重载永久 additive、不再 bump。设计全文（含泛型 H2/H3/H5 降为前向守卫、D4a 决议优先级）见变更归档 `docs/spec/archive/…-stabilize-instance-dispatch-keys`。
+
 ### IR 生成（IrGen）
 
 Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 `Class.Method`（类方法）或函数名（顶层函数）为键。

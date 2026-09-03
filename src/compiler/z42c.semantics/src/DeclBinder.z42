@@ -115,7 +115,22 @@ public sealed class DeclBinder {
         }
     }
 
-    private void _checkDuplicateStaticOverloads(ClassDecl c) {
+    // stabilize-instance-dispatch-keys：判重键从 `md.RegKey` 改为**全签名 MangleKey**。
+    // 老键下碰撞的重载（`G(string)`/`G(string?)`、`F(int)`/`F(i32)`——Canon 归一 nullable/别名后同签名）
+    // 共享同一 RegKey，靠「RegKey 重复」即可判重；新键下 primary=裸、非-primary=全键，二者 RegKey
+    // **不再相同** → 漏判。故这里按符号的语义签名重算全键（Canon 归一，同 MemberCollector 的键规则），
+    // 与兄弟集无关、只看方法自身签名 → 判重恢复且不随 primary 选取漂移。
+    private string _dupSigKey(Z42ClassType ct, MethodDecl md) {
+        if (ct != null && md.RegKey != "") {
+            MethodSymbol dms = ct.Methods.Get(md.RegKey) as MethodSymbol;
+            if (dms != null && dms.Signature != null) {
+                return OverloadResolver.MangleKey(md.Name, dms.Signature.ParamTypes, dms.Signature.ParamCount);
+            }
+        }
+        return md.RegKey;   // 符号缺失（decl-only partial 等）→ 回落老行为
+    }
+
+    private void _checkDuplicateStaticOverloads(ClassDecl c, Z42ClassType ct) {
         StrMap seenArity = new StrMap();   // (static|inst)$name$arity → 首次见
         StrMap dupArity  = new StrMap();   // 同键 → 该 arity ≥2 个方法
         int i = 0;
@@ -140,12 +155,13 @@ public sealed class DeclBinder {
                 if (!SymbolCollector.IsProtocolExempt(md.Name)) {
                     string ak = this._dupCheckKey(md);
                     if (dupArity.ContainsKey(ak)) {
-                        if (seenKey.ContainsKey(md.RegKey)) {
+                        string sk = this._dupSigKey(ct, md);
+                        if (seenKey.ContainsKey(sk)) {
                             this._tc._diags.Error(DiagnosticCodes.DuplicateDeclaration,
                                 "duplicate overload `" + md.Name + "` — parameter types are identical once " +
                                 "aliases (e.g. int/i32) and nullability are normalized", md.Span);
                         } else {
-                            seenKey.Put(md.RegKey, "1");
+                            seenKey.Put(sk, "1");
                         }
                     }
                 }
@@ -200,7 +216,7 @@ public sealed class DeclBinder {
         string ctKey = c.Name;
         if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
         Z42ClassType ct = symbols.GetClass(ctKey);
-        this._checkDuplicateStaticOverloads(c);
+        this._checkDuplicateStaticOverloads(c, ct);
         this._checkExposure(symbols, c, ct);   // complete-class-access-control ②：不一致可访问性（E0441）
         int j = 0;
         while (j < c.MemberCount) {

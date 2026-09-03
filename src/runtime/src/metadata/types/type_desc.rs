@@ -298,7 +298,15 @@ impl TypeDesc {
             return fq;
         }
         let after_prefix = &fq[dot + 1..];
-        after_prefix.split('$').next().unwrap_or(after_prefix)
+        // stabilize-instance-dispatch-keys (H4): return the FULL method key (do NOT strip
+        // `$…`). Under primary/non-primary keying one class can have `F` (primary, bare =
+        // canonical slot) + `F$1$string` + `F$2$i32$i32` (non-primary, full keys). Stripping
+        // to the simple name "F" collapsed all three onto one method-table/vtable slot →
+        // last-wins → a resolved call `o.F(5)` mis-dispatched to whichever sibling won the
+        // "F" slot (observed: F(int) call → F(string) body). Keeping the full key gives each
+        // overload its own slot; the bare primary keeps "F" for polymorphic/canonical
+        // dispatch, and base/derived overrides align by identical full key.
+        after_prefix
     }
 }
 
