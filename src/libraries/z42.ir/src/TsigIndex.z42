@@ -1,0 +1,121 @@
+// TSIG 重建的两张索引（perf-tsig-reconcile-index）。
+// 此前 TsigReconcile 每个类：① `_locate` / 基链在整个 world（全部包 × 模块 × 类）按名线性定位；
+// ② 每个祖先层扫祖先模块**全部** SIGS 函数做 `StartsWith(类名+".")`。两者都随 world 规模平方增长，
+// 25 包 world 下单次 DepScan 的 TSIG 重建 ≈ 0.9 s（Open 73 ms、SIGS 140 ms）。
+// 两张索引都只回答「在哪」，产出顺序与原线性扫描一致（byte-identical 由自举不动点 + 全 stdlib 字节对账守住）。
+namespace Z42.IR;
+
+// ① world 级：类 FQ 名 → (包, 模块, 类) 三元下标。重复 FQ（同名类出现在多个包）保留 (包, 模块, 类)
+// 字典序最小者——与 `_locate` 按 p → m → t 升序扫描的 first-wins 语义一致。模块只增不删，索引只增。
+public sealed class ReconClassIndex {
+    private StrIndex _slot;
+    private int[] _pkg; private int[] _mod; private int[] _cls;
+    private int _n;
+
+    public ReconClassIndex() {
+        this._slot = new StrIndex();
+        this._pkg = new int[64]; this._mod = new int[64]; this._cls = new int[64];
+        this._n = 0;
+    }
+
+    // 登记一个类；已存在则仅当新位置更靠前时覆盖。
+    public void Add(string fq, int p, int m, int t) {
+        int s = this._slot.Get(fq);
+        if (s >= 0) {
+            if (p < this._pkg[s] || (p == this._pkg[s] && (m < this._mod[s] || (m == this._mod[s] && t < this._cls[s])))) {
+                this._pkg[s] = p; this._mod[s] = m; this._cls[s] = t;
+            }
+            return;
+        }
+        if (this._n == this._pkg.Length) {
+            int cap = this._pkg.Length * 2;
+            int[] a = new int[cap]; int[] b = new int[cap]; int[] c = new int[cap];
+            int k = 0;
+            while (k < this._n) { a[k] = this._pkg[k]; b[k] = this._mod[k]; c[k] = this._cls[k]; k = k + 1; }
+            this._pkg = a; this._mod = b; this._cls = c;
+        }
+        this._pkg[this._n] = p; this._mod[this._n] = m; this._cls[this._n] = t;
+        this._slot.Put(fq, this._n);
+        this._n = this._n + 1;
+    }
+
+    // 命中返回槽位（用 PkgAt/ModAt/ClsAt 取三元下标），未命中 -1。
+    public int Find(string fq) { return this._slot.Get(fq); }
+    public int PkgAt(int s) { return this._pkg[s]; }
+    public int ModAt(int s) { return this._mod[s]; }
+    public int ClsAt(int s) { return this._cls[s]; }
+}
+
+// ② 模块级：SIGS 函数按「所属类 FQ（最后一个 '.' 之前）」分桶，桶内按函数下标升序（与原扫描序一致）。
+// 懒建、挂在 ZpkgModuleSigs 上（ByClassHead / ByClassNext），跨成员编译随 DepScanCache 一起复用。
+public static class SigsClassIndex {
+    public static void Ensure(ZpkgModuleSigs ms) {
+        if (ms.ByClassHead != null) { return; }
+        StrIndex head = new StrIndex();
+        int[] next = new int[ms.FuncCount];
+        int i = ms.FuncCount - 1;
+        while (i >= 0) {                       // 逆序头插 → 正序遍历
+            string name = ms.Functions[i].Name;
+            int dot = name.Length - 1;                       // 最后一个 '.'（46）；z42 string 无 LastIndexOf
+            while (dot >= 0 && (int)name.CharAt(dot) != 46) { dot = dot - 1; }
+            next[i] = 0 - 1;
+            if (dot > 0) {
+                string cls = name.Substring(0, dot);
+                int old = head.Get(cls);
+                next[i] = old;
+                head.Put(cls, i);
+            }
+            i = i - 1;
+        }
+        ms.ByClassHead = head; ms.ByClassNext = next;
+    }
+
+    // 类 `cls` 的第一个函数下标（-1 = 无）；后继用 `ms.ByClassNext[i]`。
+    public static int First(ZpkgModuleSigs ms, string cls) {
+        SigsClassIndex.Ensure(ms);
+        return ms.ByClassHead.Get(cls);
+    }
+}
+
+// ③ 预解析的整包 TYPE/SIGS（perf-tsig-reconcile-index）：DepScan 已为 DepIndex / Rebuild 各解析过一遍，
+// 交给 LazyReconWorld 后，EnsureNs 按 ns 合并即可，不再对同一包每个 ns 重跑一次整包 SIGS 解析
+// （ReadOneModuleSigs 内部就是「整包解析 + 按 ns 过滤」）。合并规则与 ReadOneModuleTypes / ReadOneModuleSigs 逐字相同。
+public sealed class ReconPreset {
+    public ZpkgModuleTypes[] Types;
+    public ZpkgModuleSigs[]  Sigs;
+    public ReconPreset(ZpkgModuleTypes[] types, ZpkgModuleSigs[] sigs) { this.Types = types; this.Sigs = sigs; }
+
+    // == ReadOneModuleTypes：按 MODS 序累积所有 ns 匹配模块的 classes。
+    public ZpkgModuleTypes TypesOf(string ns) {
+        IrClassDesc[] acc = new IrClassDesc[8]; int accn = 0;
+        int a = 0;
+        while (a < this.Types.Length) {
+            if (this.Types[a].Namespace == ns) {
+                int c = 0;
+                while (c < this.Types[a].ClassCount) {
+                    if (accn == acc.Length) { IrClassDesc[] b = new IrClassDesc[acc.Length * 2]; int k = 0; while (k < accn) { b[k] = acc[k]; k = k + 1; } acc = b; }
+                    acc[accn] = this.Types[a].Classes[c]; accn = accn + 1; c = c + 1;
+                }
+            }
+            a = a + 1;
+        }
+        return new ZpkgModuleTypes(ns, acc, accn);
+    }
+
+    // == ReadOneModuleSigs：按 MODS 序累积所有 ns 匹配模块的函数。
+    public ZpkgModuleSigs SigsOf(string ns) {
+        IrFunction[] acc = new IrFunction[8]; int accn = 0;
+        int i = 0;
+        while (i < this.Sigs.Length) {
+            if (this.Sigs[i].Namespace == ns) {
+                int f = 0;
+                while (f < this.Sigs[i].FuncCount) {
+                    if (accn == acc.Length) { IrFunction[] b = new IrFunction[acc.Length * 2]; int k = 0; while (k < accn) { b[k] = acc[k]; k = k + 1; } acc = b; }
+                    acc[accn] = this.Sigs[i].Functions[f]; accn = accn + 1; f = f + 1;
+                }
+            }
+            i = i + 1;
+        }
+        return new ZpkgModuleSigs(ns, acc, accn);
+    }
+}
