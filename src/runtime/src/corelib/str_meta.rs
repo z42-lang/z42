@@ -131,6 +131,22 @@ pub fn char_len(s: &Str) -> usize {
 
 /// O(1) (amortised) char at scalar index `i` — backs `Std.String.CharAt`.
 /// Returns `None` when `i >= char_len`.
+/// Byte range `[b0, b1)` of the character range `[start, start+len)`; `None` when the
+/// range is out of bounds. ASCII strings map 1:1; non-ASCII use the cached offsets table.
+/// perf-stdlib-hot-paths: backs `Std.String.Substring` (one slice copy instead of a
+/// per-character `CharAt` loop).
+pub fn byte_range(s: &Str, start: usize, len: usize) -> Option<(usize, usize)> {
+    with_meta(s, |m| {
+        let end = start.checked_add(len)?;
+        if end > m.char_len { return None; }
+        if m.ascii { return Some((start, end)); }
+        let offs = m.offsets.as_ref()?;
+        let b0 = offs[start] as usize;
+        let b1 = if end == m.char_len { m.s.len() } else { offs[end] as usize };
+        Some((b0, b1))
+    })
+}
+
 pub fn char_at(s: &Str, i: usize) -> Option<char> {
     with_meta(s, |m| {
         if m.ascii {

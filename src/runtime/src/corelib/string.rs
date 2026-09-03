@@ -82,6 +82,57 @@ pub fn builtin_str_char_at(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Err(anyhow!("__str_char_at: index {} out of range (length {})", i, last_seen))
 }
 
+/// `Std.String.Substring(start, length)` bulk path (perf-stdlib-hot-paths): character
+/// range → byte range via the per-string metadata cache, one slice copy into a new heap
+/// string. Bails on an out-of-range request (the script side checks first and reports
+/// its own message; this is the defensive floor).
+/// args: [this: str, start: int, length: int]
+pub fn builtin_str_substring(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let start = arg_usize(args, 1, "__str_substring")?;
+    let len = arg_usize(args, 2, "__str_substring")?;
+    match args.first() {
+        Some(Value::Str(s)) => match super::str_meta::byte_range(s, start, len) {
+            Some((b0, b1)) => Ok(Value::Str(ctx.heap().alloc_str(&s[b0..b1]))),
+            None => bail!("__str_substring: range [{}, {}) out of bounds (length {})",
+                          start, start + len, super::str_meta::char_len(s)),
+        },
+        Some(other) => bail!("__str_substring: expected string receiver, got {:?}", other),
+        None => bail!("__str_substring: missing receiver"),
+    }
+}
+
+/// `Std.String.ConcatParts(parts, count)` (perf-stdlib-hot-paths): concatenate the first
+/// `count` elements of a `string[]` with a single allocation — the `StringBuilder.ToString`
+/// / `Join` floor. Elements must be strings (null is rejected: a StringBuilder never
+/// stores null parts, so a null here is a caller bug worth surfacing).
+/// args: [parts: string[], count: int]
+pub fn builtin_str_concat_parts(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let count = arg_usize(args, 1, "__str_concat_parts")?;
+    let arr = match args.first() {
+        Some(Value::Array(a)) => a.clone(),
+        Some(other) => bail!("__str_concat_parts: expected string[], got {:?}", other),
+        None => bail!("__str_concat_parts: missing arg 0"),
+    };
+    let b = arr.borrow();
+    if count > b.len() {
+        bail!("__str_concat_parts: count {} exceeds array length {}", count, b.len());
+    }
+    let mut total = 0usize;
+    let mut parts: Vec<Value> = Vec::with_capacity(count);
+    for v in b.iter_boxed().take(count) {
+        match &v {
+            Value::Str(s) => total += s.len(),
+            other => bail!("__str_concat_parts: element must be string, got {:?}", other),
+        }
+        parts.push(v);
+    }
+    let mut out = String::with_capacity(total);
+    for v in &parts {
+        if let Value::Str(s) = v { out.push_str(s); }
+    }
+    Ok(Value::Str(ctx.heap().alloc_str(&out)))
+}
+
 /// Builds a string from a char[] array.
 /// args: [chars: Array<Char>]
 /// New in simplify-string-stdlib (2026-04-24): enables script-side string

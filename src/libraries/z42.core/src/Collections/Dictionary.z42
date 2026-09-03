@@ -103,6 +103,10 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
         int slot = this.FindSlot(key);
         if (!this.occupied[slot]) return false;
         this.occupied[slot] = false;
+        // perf-stdlib-hot-paths：清掉被移除槽的 key/value 引用，否则被删对象在槽被覆盖前一直被 GC 视为可达
+        //（镜像 C# Dictionary.Remove 的 entry 清零）。下方回填探测链时腾空的槽同样清。
+        this.keys[slot] = default(TKey);
+        this.values[slot] = default(TValue);
         this.Count = this.Count - 1;
         // 重新插入探测链剩余项以避免空洞。复用已存 hashes[j] inline 再插
         // （照抄 Grow 的思路）：免去 Set() 重算 GetHashCode（对 string key 为
@@ -114,6 +118,8 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
             TKey k = this.keys[j];
             TValue v = this.values[j];
             this.occupied[j] = false;
+            this.keys[j] = default(TKey);
+            this.values[j] = default(TValue);
             int s = h & mask;
             while (this.occupied[s]) s = (s + 1) & mask;
             this.occupied[s] = true;
@@ -128,7 +134,11 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
     public void Clear() {
         int i = 0;
         while (i < this.capacity) {
-            this.occupied[i] = false;
+            if (this.occupied[i]) {
+                this.occupied[i] = false;
+                this.keys[i] = default(TKey);      // perf-stdlib-hot-paths：释放引用（镜像 C# Array.Clear）
+                this.values[i] = default(TValue);
+            }
             i = i + 1;
         }
         this.Count = 0;

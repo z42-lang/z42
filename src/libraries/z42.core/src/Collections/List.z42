@@ -116,6 +116,7 @@ public partial class List<T> {
             i = i + 1;
         }
         this.Count = this.Count - 1;
+        this.items[this.Count] = default(T);   // perf-stdlib-hot-paths：清尾槽引用（镜像 C# List.RemoveAt）
     }
 
     public bool Remove(T item) {
@@ -136,7 +137,12 @@ public partial class List<T> {
         return -1;
     }
 
-    public void Clear() { this.Count = 0; }
+    // perf-stdlib-hot-paths：清引用（镜像 C# List.Clear 的 Array.Clear），否则已移除对象在槽被覆盖前仍被 GC 视为可达。
+    public void Clear() {
+        int i = 0;
+        while (i < this.Count) { this.items[i] = default(T); i = i + 1; }
+        this.Count = 0;
+    }
 
     // Top-down merge sort — stable, O(n log n). One scratch buffer allocated
     // up front and reused across every merge (recursion only splits index

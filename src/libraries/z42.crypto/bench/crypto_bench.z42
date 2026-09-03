@@ -66,3 +66,39 @@ void test_crypto_bench_bodies_run() {
     Assert.Equal(3, b.Samples);
     Assert.True(b.TotalNs > 0L);
 }
+
+// perf-stdlib-hot-paths：AES 基准（此前无覆盖）。CBC 与 GCM 各 4 KB 往返；S-box 静态化前每 16 字节块
+// 重建 S-box 约 11 次，是最热的纯脚本路径之一。
+byte[] _mkKey(int n) {
+    byte[] k = new byte[n];
+    int i = 0;
+    while (i < n) { k[i] = (byte)(i * 13 + 7); i = i + 1; }
+    return k;
+}
+
+[Benchmark]
+void bench_aes_cbc_roundtrip_4k() {
+    byte[] key = _mkKey(16);
+    byte[] iv = _mkKey(16);
+    byte[] msg = _mkPayload(4096);
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        byte[] ct = Aes.EncryptCbcPkcs7(key, iv, msg);
+        BenchHelpers.blackBox(Aes.DecryptCbcPkcs7(key, iv, ct).Length);
+    });
+    b.printSummary("aes_cbc_roundtrip_4k");
+}
+
+[Benchmark]
+void bench_aes_gcm_roundtrip_4k() {
+    byte[] key = _mkKey(16);
+    byte[] iv = _mkKey(12);
+    byte[] aad = new byte[0];
+    byte[] msg = _mkPayload(4096);
+    var b = new Bencher(2, 10);
+    b.iter(() => {
+        byte[] ct = Aes.EncryptGcm(key, iv, aad, msg);
+        BenchHelpers.blackBox(Aes.DecryptGcm(key, iv, aad, ct).Length);
+    });
+    b.printSummary("aes_gcm_roundtrip_4k");
+}

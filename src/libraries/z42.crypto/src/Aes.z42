@@ -26,6 +26,9 @@ using Std.Encoding;
 // envelopes). Bulk encryption (>1 MB) wants the cdylib follow-up.
 
 public static class Aes {
+    // perf-stdlib-hot-paths：S-box / 逆 S-box 只建一次（此前每轮 SubBytes / 每次密钥扩展都 new int[256] + 256 次赋值）。
+    static int[] _SBOX = Aes._sbox();
+    static int[] _INV_SBOX = Aes._invSbox();
     // ── Public API ───────────────────────────────────────────────────────
 
     /// Encrypt one 16-byte block. `key` is 16, 24, or 32 bytes selecting
@@ -829,13 +832,13 @@ public static class Aes {
                 // RotWord: cyclic left shift by 1 byte.
                 int tmp = t0; t0 = t1; t1 = t2; t2 = t3; t3 = tmp;
                 // SubWord: S-box each byte.
-                int[] sb = Aes._sbox();
+                int[] sb = Aes._SBOX;
                 t0 = sb[t0]; t1 = sb[t1]; t2 = sb[t2]; t3 = sb[t3];
                 // XOR with round constant.
                 t0 = t0 ^ rcon[wordIdx / nk];
             } else if (nk > 6 && wordIdx % nk == 4) {
                 // AES-256 extra SubWord step every Nk=8 words.
-                int[] sb = Aes._sbox();
+                int[] sb = Aes._SBOX;
                 t0 = sb[t0]; t1 = sb[t1]; t2 = sb[t2]; t3 = sb[t3];
             }
 
@@ -884,13 +887,13 @@ public static class Aes {
     }
 
     static void _subBytes(int[] state) {
-        int[] sb = Aes._sbox();
+        int[] sb = Aes._SBOX;
         int i = 0;
         while (i < 16) { state[i] = sb[state[i]]; i = i + 1; }
     }
 
     static void _invSubBytes(int[] state) {
-        int[] isb = Aes._invSbox();
+        int[] isb = Aes._INV_SBOX;
         int i = 0;
         while (i < 16) { state[i] = isb[state[i]]; i = i + 1; }
     }
@@ -996,7 +999,8 @@ public static class Aes {
     // ── Tables ───────────────────────────────────────────────────────────
 
     /// AES S-box (FIPS 197 Table 4).
-    static int[] _sbox() {
+    // internal（非 private）：静态字段初始化器在合成的 __static_init__ 中求值，私有成员访问检查会拒绝（镜像 Sha256._roundConstants）。
+    internal static int[] _sbox() {
         int[] s = new int[256];
         // Row 0
         s[0x00]=0x63; s[0x01]=0x7c; s[0x02]=0x77; s[0x03]=0x7b; s[0x04]=0xf2; s[0x05]=0x6b; s[0x06]=0x6f; s[0x07]=0xc5;
@@ -1035,7 +1039,7 @@ public static class Aes {
     }
 
     /// Inverse S-box (FIPS 197 Table 6).
-    static int[] _invSbox() {
+    internal static int[] _invSbox() {
         int[] s = new int[256];
         s[0x00]=0x52; s[0x01]=0x09; s[0x02]=0x6a; s[0x03]=0xd5; s[0x04]=0x30; s[0x05]=0x36; s[0x06]=0xa5; s[0x07]=0x38;
         s[0x08]=0xbf; s[0x09]=0x40; s[0x0a]=0xa3; s[0x0b]=0x9e; s[0x0c]=0x81; s[0x0d]=0xf3; s[0x0e]=0xd7; s[0x0f]=0xfb;

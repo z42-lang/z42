@@ -9,7 +9,7 @@ z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `StringBuilder.z42` | `StringBuilder` | 字符串拼接缓冲区 — Script-First 实现，基于 `string[]` + `String.FromChars`。C# `System.Text.StringBuilder` 对齐：`Append`/`AppendLine`/`AppendFormat`、`Insert`/`Remove`/`Replace`/`Clear`、索引器 `this[int]`、`Length { get; set; }`、`GetLength`/`ToString` |
+| `StringBuilder.z42` | `StringBuilder` | 字符串拼接缓冲区 — Script-First 实现，基于 `string[]` 收集片段，`ToString` 走 `String.ConcatParts` 单次原生拼接（perf-stdlib-hot-paths）。C# `System.Text.StringBuilder` 对齐：`Append`/`AppendLine`/`AppendFormat`、`Insert`/`Remove`/`Replace`/`Clear`、索引器 `this[int]`、`Length { get; set; }`、`GetLength`/`ToString` |
 | `Levenshtein.z42`   | `Levenshtein` static class | 编辑距离 `Distance(a, b)` + 归一化相似度 `SimilarityRatio(a, b) ∈ [0,1]`（fuzzy search / 拼写纠错） |
 | `Strings.z42`       | `Strings` static class | 字符串 shaping helpers：`PadLeft / PadRight / Repeat / IndexOfAny / TrimChars`（expand-z42-text-strings, 2026-06-03，review.md S3/S5 Phase 1） |
 
@@ -18,7 +18,8 @@ z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries
 ## 实现备注
 
 `StringBuilder` 内部用 `string[]` 收集 Append 片段（按 2× 扩容），ToString 时
-一次性合并到 `char[]` 再 `String.FromChars` 出来。不用 `List<string>` 是因为
+经 `String.ConcatParts(parts, count)` 一次原生拼接（perf-stdlib-hot-paths；此前是逐字符
+`CharAt` 复制进 `char[]` 再 `FromChars`，每个输出字符一次 builtin 派发）。不用 `List<string>` 是因为
 parser 当前对字段声明的泛型实例化语法（`List<string> _parts;`）会误识别为
 method header；待后续 parser 修复后可以切换。
 
