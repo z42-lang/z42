@@ -72,6 +72,7 @@ impl VmContext {
         // could invalidate a cached subclass answer. Lazy-load ADDs (monotonic) are safe and
         // don't clear; only these explicit loads do.
         self.subclass_memo.lock().clear();
+        self.isa_cache.clear();
         let mut state = self.core.lazy_loader.lock();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadModule: no lazy loader installed (cannot register loaded module)")
@@ -90,6 +91,7 @@ impl VmContext {
         &self, raw: &[u8],
     ) -> anyhow::Result<Vec<String>> {
         self.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
+        self.isa_cache.clear();
         let mut state = self.core.lazy_loader.lock();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")

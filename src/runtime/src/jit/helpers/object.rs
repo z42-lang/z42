@@ -2,6 +2,7 @@
 //! Object allocation, field access, type tests, static fields, and the
 //! generic `default(T)` runtime helper.
 
+use crate::interp::dispatch::isa_td;
 use crate::metadata::{NativeData, Value};
 
 use super::super::frame::{JitFrame, JitModuleCtx};
@@ -442,95 +443,10 @@ pub unsafe extern "C" fn jit_field_set(
 
 // ── IsInstance / AsCast ──────────────────────────────────────────────────────
 //
-// Both helpers share the `is_subclass_or_eq` walk + the `is_array_isa`
-// hardcoded array-base chain (2026-05-07 add-array-base-class).
-
-pub(super) fn is_subclass_or_eq(
-    vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, derived: &str, target: &str,
-) -> bool {
-    if derived == target { return true; }
-    // optimize-subclass-check (JIT arm): share the per-VmContext memo with interp
-    // (`dispatch::is_subclass_or_eq_td`). Since `Z42_JIT_THRESHOLD` defaults to 1,
-    // z42c runs under JIT — so THIS is z42c's hot is-check path (the interp memo,
-    // added in #350, never applied to z42c under JIT). The (derived, target) verdict
-    // is a global, monotonic fact — a loaded type's base/interface chain never
-    // changes and lazy loading only ADDs types — so a hit resolves by `&str` with
-    // zero walk and zero `lazy_loader`-locked `try_lookup_type` (the slow path did a
-    // full base+interface chain walk on every `x is T`). Cleared on module (re)load
-    // (REPL) together with the interp memo — see `vm_context::lookup` load_module_*.
-    if let Some(v) = vm.subclass_memo.lock().get(derived).and_then(|m| m.get(target)).copied() {
-        return v;
-    }
-    let result = is_subclass_or_eq_walk(vm, module, derived, target);
-    vm.subclass_memo.lock().entry(derived.to_string()).or_default().insert(target.to_string(), result);
-    result
-}
-
-/// Alloc-free-fast-path base+interface chain walk backing [`is_subclass_or_eq`].
-/// Caller has already handled `derived == target` and the shared memo.
-fn is_subclass_or_eq_walk(
-    vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, derived: &str, target: &str,
-) -> bool {
-    // Fast path: zero-alloc &str walk while every link resolves in the MAIN module
-    // (the overwhelmingly common case — identical to the pre-fallback walk).
-    let mut cur: &str = derived;
-    loop {
-        if cur == target { return true; }
-        let Some(c) = module.classes.iter().find(|c| c.name == cur) else { break; };
-        // add-reflection-assignable-from: declared interfaces (FQ-named, zbc 1.20)
-        // checked at each level; add-reflection-transitive-interfaces: direct OR transitive.
-        if c.interfaces.iter().any(|i| iface_reaches_mod(vm, module, i, target)) { return true; }
-        match c.base_class.as_deref() {
-            Some(base) => cur = base,
-            None       => return false,
-        }
-    }
-    // Slow path (fix-crosspkg-interface-impl / dynamic-component-registration):
-    // the chain left the main module — reflectively/lazily loaded types
-    // (ModuleLoader.Load + Activator.CreateInstance) resolve via the lazy loader.
-    // Allocation is confined to this rare branch.
-    let mut cur: String = cur.to_string();
-    loop {
-        if cur == target { return true; }
-        let (ifaces, base): (Vec<String>, Option<String>) =
-            if let Some(c) = module.classes.iter().find(|c| c.name == cur) {
-                (c.interfaces.iter().map(|s| s.to_string()).collect(), c.base_class.clone())
-            } else if let Some(td) = vm.try_lookup_type(cur.as_str()) {
-                (td.interfaces().iter().map(|s| s.to_string()).collect(), td.base_name.clone())
-            } else {
-                return false;
-            };
-        if ifaces.iter().any(|i| iface_reaches_mod(vm, module, i, target)) { return true; }
-        match base {
-            Some(b) => cur = b,
-            None    => return false,
-        }
-    }
-}
-
-/// add-reflection-transitive-interfaces: JIT mirror of `iface_reaches_td` —
-/// true if `iface` equals `target` or reaches it via its transitive base
-/// interfaces. Lazy-loader fallback only on main-module miss
-/// (fix-crosspkg-interface-impl), mirroring interp.
-fn iface_reaches_mod(
-    vm: &crate::vm_context::VmContext, module: &crate::metadata::Module, iface: &str, target: &str,
-) -> bool {
-    // Fast path: direct hit without any allocation.
-    if iface == target { return true; }
-    let mut queue: Vec<String> = vec![iface.to_string()];
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    while let Some(name) = queue.pop() {
-        if name == target { return true; }
-        if !seen.insert(name.clone()) { continue; }
-        if let Some(c) = module.classes.iter().find(|c| c.name == name) {
-            for bi in c.interfaces.iter() { queue.push(bi.to_string()); }
-        } else if let Some(td) = vm.try_lookup_type(name.as_str()) {
-            for bi in td.interfaces() { queue.push(bi.to_string()); }
-        }
-    }
-    false
-}
-
+// perf-vm-isa-cache (2026-09-03): the JIT-private `is_subclass_or_eq` walk (+ its
+// `iface_reaches_mod` mirror) is gone — both helpers now call the interpreter's single
+// `dispatch::isa_td` (identity-keyed `IsaCache` → shared string memo → chain walk), so
+// there is exactly one type-test implementation for interp, JIT and typed `catch`.
 // 2026-05-07 add-array-base-class: T[] is-a Std.Array is-a Std.Object.
 // Mirror the interp `is_array_isa` hardcoded chain.
 pub(super) fn is_array_isa(class_name: &str) -> bool {
@@ -546,13 +462,13 @@ pub unsafe extern "C" fn jit_is_instance(
         .unwrap_or("<invalid>");
     let module = &*(*ctx).module;
     let result = match &(*frame).regs[obj as usize] {
-        Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
+        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name),
         Value::Array(_)   => is_array_isa(class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
             || &*b.type_desc().name == class_name
-            || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_desc().name, class_name),
+            || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name),
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配（Null → None → false）。
         other => crate::interp::prim_isa(other, class_name),
     };
@@ -584,7 +500,7 @@ pub unsafe extern "C" fn jit_as_cast(
                         .unwrap_or(Value::Null)
                 }
             }
-        } else if is_obj || is_subclass_or_eq(vm_ctx_ref(ctx), module, &b.type_desc().name, class_name) {
+        } else if is_obj || isa_td(vm_ctx_ref(ctx), &module.type_registry, b.type_desc(), class_name) {
             val.clone()
         } else {
             Value::Null
@@ -612,7 +528,7 @@ pub unsafe extern "C" fn jit_as_cast(
         return;
     }
     let is_match = match &val {
-        Value::Object(rc) => is_subclass_or_eq(vm_ctx_ref(ctx), module, &rc.type_desc().name, class_name),
+        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name),
         Value::Array(_)   => is_array_isa(class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。
