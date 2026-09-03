@@ -1,0 +1,146 @@
+// 类成员 → IR 函数（refactor-split-irgen-generate，自 IrGen.Generate 提出；逻辑逐字保留）：
+// 方法（有体 / extern 桩 / abstract 桩）、属性（计算 getter / extern getter / auto-prop get·set 桩）、索引器（get_Item / set_Item）。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed class IrGenMemberEmitter {
+    private IrGen _g;
+    private SemanticModel _model;
+    private IrGenSink _out;
+
+    public IrGenMemberEmitter(IrGen g, SemanticModel model, IrGenSink sink) { this._g = g; this._model = model; this._out = sink; }
+
+    // 方法：GS3 重载键 Name$arity / unique 裸名；HasBody → 编译体；extern → builtin 桩；实例 abstract → signature-only 桩。
+    public void EmitMethod(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, MethodDecl md) {
+        IrGen g = this._g; SemanticModel model = this._model;
+        string methKey = md.Name + "$" + md.ParamCount.ToString();
+        if (md.RegKey != "") { methKey = md.RegKey; }                                  // type-based 重载：注册键
+        else if (owner == null || !owner.Methods.ContainsKey(methKey)) { methKey = md.Name; }
+        string irName = g._q(g._classIrShortName(c)) + "." + methKey;   // IR/包内名（FQ，arity-mangle 时 Name$N）
+        if (md.HasBody) {              // G11：ctor 也发 `<qualClass>.<Class>` 函数（md.Name=类名，ret void，实例）
+            string key = ownerKey + "." + methKey;    // SemanticModel 键（arity-mangle 时 ownerKey=Name$N）
+            if (model.HasBody(key)) {
+                bool isStaticMethod = IrGenFacts._hasWord(md.Mods, "static");
+                bool isInstance = !isStaticMethod;   // 实例方法有 this；静态方法无
+                var fe = new FunctionEmitter(model.Symbols, g);
+                IrFunction irf = fe.EmitFunction(irName, md, model.GetBody(key), isInstance, isStaticMethod,
+                                                 owner, c.TypeParams.Names, c.TypeParams.Count);
+                irf.Attrs = g._classDescB._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection
+                irf.ParamAttrs = g._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
+                irf.Visibility = IrGenFacts._visCode(md.Mods, 1);   // add-member-visibility（成员默认 private）
+                irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
+                IrGenFacts._fillParamMeta(irf, md, isInstance);       // add-param-metadata
+                this._out.AddFunc(irf);
+            }
+        } else if (IrGenFacts._hasWord(md.Mods, "extern")) {
+            // legacy [Native("__name")] extern → 发 builtin 桩函数（镜像 C# EmitNativeStub）。
+            string nat = g._stubE._nativeIntrinsic(rawMem);
+            if (nat != "") {
+                IrFunction stub = g._stubE._emitNativeStub(irName, md, nat, IrGenFacts._hasWord(md.Mods, "static"), rawMem);
+                stub.Visibility = IrGenFacts._visCode(md.Mods, 1);      // add-member-visibility：extern 桩此前漏设
+                stub.MethodFlags = IrGenFacts._methodFlags(md.Mods); // add-method-modifiers：virtual extern
+                IrGenFacts._fillParamMeta(stub, md, !IrGenFacts._hasWord(md.Mods, "static"));   // add-param-metadata
+                this._out.AddFunc(stub);
+            }
+        } else if (IrGenFacts._hasWord(md.Mods, "abstract") && !IrGenFacts._hasWord(md.Mods, "static")) {
+            // add-method-modifiers（unify P1-c）：实例 abstract 方法无 body → signature-only 死体桩，进 SIGS/FUNC 使反射可见。
+            IrFunction astub = g._stubE._emitAbstractStub(irName, md);
+            astub.Attrs = g._classDescB._attrRefs(rawMem); astub.AttrCount = astub.Attrs.Length;
+            astub.ParamAttrs = g._classDescB._paramAttrRefs(md, true); astub.ParamAttrsLen = astub.ParamAttrs.Length;
+            astub.Visibility = IrGenFacts._visCode(md.Mods, 1);
+            astub.MethodFlags = IrGenFacts._methodFlags(md.Mods);
+            IrGenFacts._fillParamMeta(astub, md, true);   // add-param-metadata：abstract 恒实例
+            this._out.AddFunc(astub);
+        }
+    }
+
+    // 属性：计算 getter（HasGetBody）→ 真实 get_X；extern getter → builtin 桩；auto-prop → field.get/set @__prop_X 桩。
+    public void EmitProperty(ClassDecl c, Z42ClassType owner, Decl rawMem, PropertyDecl pd) {
+        IrGen g = this._g; SemanticModel model = this._model;
+        bool pdExtern = IrGenFacts._hasWord(pd.Mods, "extern");
+        bool pdStatic = IrGenFacts._hasWord(pd.Mods, "static");
+        if (pd.HasGetBody) {
+            string pgKey = c.Name + ".get_" + pd.Name;
+            string pgIrName = g._q(g._classIrShortName(c)) + ".get_" + pd.Name;
+            if (model.HasBody(pgKey)) {
+                TypeParamList emptyTpPg = new TypeParamList(new string[0], 0, pd.Span);
+                MethodDecl synthPg = new MethodDecl("", false, false, pd.Type, "get_" + pd.Name,
+                                                     emptyTpPg, new WhereClause[0], 0,
+                                                     new Param[0], 0, true, pd.GetBody, new Expr[0], 0, false, pd.Span);
+                var fePg = new FunctionEmitter(model.Symbols, g);
+                IrFunction pgIrf = fePg.EmitFunction(pgIrName, synthPg, model.GetBody(pgKey),
+                                                      !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
+                IrGenFacts._fillParamMeta(pgIrf, synthPg, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                this._out.AddFunc(pgIrf);
+            }
+        } else if (pd.HasGet && pdExtern) {
+            string nat2 = g._stubE._nativeIntrinsic(rawMem);
+            if (nat2 != "") {
+                TypeParamList emptyTpP = new TypeParamList(new string[0], 0, pd.Span);
+                MethodDecl synthPd = new MethodDecl("", false, false, pd.Type, "get_" + pd.Name,
+                                                     emptyTpP, new WhereClause[0], 0,
+                                                     new Param[0], 0, false, null, new Expr[0], 0, false, pd.Span);
+                IrFunction pstub = g._stubE._emitNativeStub(g._q(g._classIrShortName(c)) + ".get_" + pd.Name,
+                                                         synthPd, nat2, pdStatic, rawMem);
+                IrGenFacts._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                this._out.AddFunc(pstub);
+            }
+        } else if (pd.HasGet && !pdExtern) {
+            // 非 extern auto-prop：合成 field.get @__prop_Name 桩（镜像 C# SynthesizeClassAutoProp）。
+            string backing = "__prop_" + pd.Name;
+            string getIrNm = g._q(g._classIrShortName(c)) + ".get_" + pd.Name;
+            string retNm = g._classDescB._typeFieldName(pd.Type);
+            int retTag = IrGenFacts._irTypeTag(pd.Type);
+            IrFunction ag = g._stubE._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
+            ag.MinArg = 0;   // getter 逻辑参数 0（reconcile：ctor 默认=含 this 总数，需覆盖）
+            this._out.AddFunc(ag);
+            if (pd.HasSet) {
+                string setIrNm = g._q(g._classIrShortName(c)) + ".set_" + pd.Name;
+                IrFunction sg = g._stubE._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
+                sg.MinArg = 1;   // setter 逻辑参数 1
+                this._out.AddFunc(sg);
+            }
+        }
+    }
+
+    // 索引器 → get_Item / set_Item 编译函数（镜像 C# IndexerDecl lowering）。
+    public void EmitIndexer(ClassDecl c, Z42ClassType owner, IndexerDecl idx) {
+        IrGen g = this._g; SemanticModel model = this._model;
+        TypeParamList emptyTpI = new TypeParamList(new string[0], 0, idx.Span);
+        TypeExpr voidRet = new NamedType("void", new TypeExpr[0], 0, idx.Span);
+        if (idx.HasGet) {
+            string getKey = c.Name + ".get_Item";
+            string getIrName = g._q(g._classIrShortName(c)) + ".get_Item";
+            if (model.HasBody(getKey)) {
+                MethodDecl synthGet = new MethodDecl("", false, false, idx.RetType, "get_Item",
+                                                      emptyTpI, new WhereClause[0], 0,
+                                                      idx.Params, idx.ParamCount, true, idx.GetBody, new Expr[0], 0, false, idx.Span);
+                var feGet = new FunctionEmitter(model.Symbols, g);
+                IrFunction getIrf = feGet.EmitFunction(getIrName, synthGet, model.GetBody(getKey),
+                                                        true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
+                IrGenFacts._fillParamMeta(getIrf, synthGet, true);   // add-param-metadata（reconcile 补齐）
+                this._out.AddFunc(getIrf);
+            }
+        }
+        if (idx.HasSet) {
+            string setKey = c.Name + ".set_Item";
+            string setIrName = g._q(g._classIrShortName(c)) + ".set_Item";
+            if (model.HasBody(setKey)) {
+                Param[] setPs = new Param[idx.ParamCount + 1];
+                int spi = 0;
+                while (spi < idx.ParamCount) { setPs[spi] = idx.Params[spi]; spi = spi + 1; }
+                setPs[idx.ParamCount] = new Param(idx.RetType, "value", idx.Span);
+                MethodDecl synthSet = new MethodDecl("", false, false, voidRet, "set_Item",
+                                                      emptyTpI, new WhereClause[0], 0,
+                                                      setPs, idx.ParamCount + 1, true, idx.SetBody, new Expr[0], 0, false, idx.Span);
+                var feSet = new FunctionEmitter(model.Symbols, g);
+                IrFunction setIrf = feSet.EmitFunction(setIrName, synthSet, model.GetBody(setKey),
+                                                        true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
+                IrGenFacts._fillParamMeta(setIrf, synthSet, true);   // add-param-metadata（reconcile 补齐）
+                this._out.AddFunc(setIrf);
+            }
+        }
+    }
+}
