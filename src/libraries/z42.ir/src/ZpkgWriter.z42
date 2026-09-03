@@ -34,7 +34,7 @@ public sealed class ZpkgSectionList {
 public static class ZpkgWriterZ {
     // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
     public static int Major = 0;
-    public static int Minor = 43;   // 2026-09-03 stabilize-instance-dispatch-keys：内嵌 zbc 1.38（实例/静态虚方法键 primary 裸/非-primary 全签名 mangle；wire 布局不变，仅键字符串）。bump 触发 ci-bootstrap 版本差 gate → 两代自举重键。前史 0.42 fix-generic-array-value-zero-init（内嵌 zbc 1.37）。
+    public static int Minor = 42;   // 2026-09-02 fix-generic-array-value-zero-init：内嵌 zbc 1.37（ArrayNew 加 TypeParamKind/Index 尾字段；非泛型数组 byte-identical）。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收。前史 0.41 add-generic-methods（内嵌 zbc 1.36）。
                                     // 前史：0.39 unify-object-byte-layout PR-1（内嵌 zbc 1.34，TYPE 对象全字段布局块）；0.38 enforce-class-access（内嵌 zbc 1.33，TYPE 类声明可见性字节）；0.37 add-struct-heap-inline P3b（内嵌 zbc 1.32）；0.36 add-struct-value-semantics A-use（内嵌 zbc 1.31）；0.35 impl-sealed-semantics-devirt（耦合 zbc 1.30）；0.34 add-escape-analysis-stack-alloc（耦合 zbc 1.29）；0.33 fix-crosspkg-interface-impl（耦合 zbc 1.28）。
     // add-offline-symbolication (2026-08-04)：`.zsym` SymOnly sidecar 的 MDBG 布局在 minor 33 内变更
     //   （per-module 加 funcCount + per-func frameName_idx，见 _buildSidecar）——**不 bump 共享 minor**：

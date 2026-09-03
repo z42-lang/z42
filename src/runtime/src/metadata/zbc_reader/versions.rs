@@ -139,7 +139,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // and initialises value-type array slots with the type's zero (not Null). Non-generic
 // ArrayNew emits kind=0/index=-1 (tail bytes 00 00 00) — semantics unchanged.
 // ArrayNewLit is NOT changed (all slots literal-written, no null-tail bug). Coupled with zpkg 0.42.
-pub const ZBC_VERSION_MINOR: u16 = 38;
+pub const ZBC_VERSION_MINOR: u16 = 37;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -249,7 +249,7 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-02 fix-generic-array-value-zero-init: bumped to 0.42, coupled inner zbc 1.37
 // (ArrayNew trailing type-param reference for generic value-type zero-init). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 43;
+pub const ZPKG_VERSION_MINOR: u16 = 42;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

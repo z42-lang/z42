@@ -188,12 +188,10 @@ public static class ClassExtractor {
                     if (amem is MethodDecl) {
                         MethodDecl amd = amem as MethodDecl;
                         if (!ExportedTypeExtractor._hasWord(amd.Mods, "static")) {     // 实例方法（含 ctor，G11）
-                            // stabilize-instance-dispatch-keys：优先注册键 md.RegKey（SoT）。primary=裸 / 非-primary=
-                            // 全签名 `Name$arity$types`（≠老 `Name$arity`）→ 必须用 RegKey 查，否则 `Name$arity` miss→
-                            // bare 兜底取到 primary（错 arity）ms → _fromSymbol 里 ParamTypes[i] 越界崩。镜像静态路径 :326。
+                            // GS3：重载方法以 Name$arity 键存，查找先试 Name$arity，再 bare（unique 方法）。
+                            // seenName 用 amkey（重载时含 $）做去重键，使 F$1/F$2 互不干扰（各自新增而非 override 替换）。
                             string amkey = amd.Name + "$" + amd.ParamCount.ToString();
-                            if (amd.RegKey != "") { amkey = amd.RegKey; }
-                            else if (!chain[mci].Methods.ContainsKey(amkey)) { amkey = amd.Name; }
+                            if (!chain[mci].Methods.ContainsKey(amkey)) { amkey = amd.Name; }
                             MethodSymbol ams = chain[mci].Methods.Get(amkey) as MethodSymbol;
                             if (ams != null) {
                                 ExportedMethodZ em = ClassExtractor._fromSymbol(amd, ams, false, amkey);
