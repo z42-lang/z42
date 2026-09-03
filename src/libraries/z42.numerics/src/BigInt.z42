@@ -767,69 +767,34 @@ public class BigInt {
 
     // ── Modular exponentiation (add-bigint-modpow, 2026-05-25) ──────────
 
-    /// Compute `(this ^ exp) mod modulus` via square-and-multiply
-    /// (LSB-first), walking exp's bits with `TestBit` / `ShiftRight`.
-    /// Reduces O(2^N) intermediate-size explosion of `Pow().Mod()` to
-    /// O(N) modular multiplications. RSA / Diffie-Hellman backbone.
-    ///
-    /// v0 limits:
-    ///   * `modulus > 0` — else ArgumentException
-    ///   * `exp >= 0`    — negative exponent needs modular inverse
-    ///                     (separate spec; throws ArgumentException)
-    ///   * `exp == 0`    → returns 1 (mathematical convention; even
-    ///                     `0^0 mod m == 1` follows it)
-    ///   * `modulus == 1` → always 0 (anything mod 1 is 0)
-    ///
-    /// Out of v0 scope: Montgomery / Barrett reduction (constants
-    /// higher than ideal; correctness comes first).
-    public BigInt ModPow(BigInt exp, BigInt modulus) {
-        if (modulus._sign <= 0) {
-            throw new ArgumentException("BigInt.ModPow: modulus must be > 0");
-        }
-        // add-bigint-modpow-negexp (2026-05-25): route negative exponent
-        // through ModInverse (`a^(-n) mod m == (a^-1 mod m)^n mod m`).
-        // Requires gcd(this, modulus) == 1 — ModInverse handles the check.
-        if (exp._sign < 0) {
-            BigInt inv = this.ModInverse(modulus);
-            BigInt absExp = exp.Abs();
-            return inv.ModPow(absExp, modulus);
-        }
-        if (modulus.IsOne()) return BigInt.Zero;
-        if (exp.IsZero())    return BigInt.One;
-        // add-bigint-modpow-montgomery (2026-05-28): for odd modulus we
-        // route through Montgomery REDC — replaces each per-step divmod
-        // (O(n*m) limb ops) with a single multi-limb add-and-shift
-        // reduction (O(n) limb ops). Setup cost is one Mod for R^2 mod n
-        // plus a single-limb modular inverse, amortised over typically
-        // 2*bitLength(exp) modular multiplications — net 2-3× speedup
-        // on the cryptographic-size moduli (RSA, X25519, Ed25519, ECDSA)
-        // that dominate ModPow callers.
-        //
-        // Even modulus keeps the legacy square-and-multiply path because
-        // Montgomery requires gcd(R, n) = 1 (n must be odd for R = 2^k).
-        if (modulus._mag.Length > 0 && (modulus._mag[0] & 1) == 1) {
-            return BigInt._modPowMontgomery(this, exp, modulus);
-        }
-        // Reduce base into [0, modulus). Mod follows dividend sign in
-        // BigInt; for negative `this` the magnitude reduces fine and
-        // (result * b) wraps mod modulus correctly.
-        BigInt b      = this.Mod(modulus);
-        if (b._sign < 0) b = b.Add(modulus);
-        BigInt result = BigInt.One;
-        BigInt e      = exp;
-        while (!e.IsZero()) {
-            if (e.TestBit(0)) {
-                BigInt prod = result.Multiply(b);
-                result = prod.Mod(modulus);
-            }
-            e = e.ShiftRight(1);
-            if (!e.IsZero()) {
-                BigInt sq = b.Multiply(b);
-                b = sq.Mod(modulus);
-            }
-        }
-        return result;
+    // ── 模幂 / 模逆 / 素性检测：算法体在 BigIntModular / BigIntPrimality / BigIntBpsw（refactor-split-bigint）──
+
+    /// Modular exponentiation `this^exp mod modulus`（负指数经 ModInverse；奇模数走 Montgomery REDC）。见 BigIntModular。
+    public BigInt ModPow(BigInt exp, BigInt modulus) { return BigIntModular.ModPow(this, exp, modulus); }
+
+    /// Modular multiplicative inverse in `[0, modulus)`（扩展欧几里得）。见 BigIntModular。
+    public BigInt ModInverse(BigInt modulus) { return BigIntModular.ModInverse(this, modulus); }
+
+    /// Miller-Rabin probabilistic primality test with a default RNG
+    /// (wall-clock seeded). Use the `(int, Random)` overload for
+    /// deterministic / reproducible witnesses.
+    public bool IsProbablyPrime(int rounds) {
+        Random rng = new Random();
+        return this.IsProbablyPrime(rounds, rng);
     }
+
+    /// Miller-Rabin with caller-provided RNG（错误率 ≤ 4^-rounds）。见 BigIntPrimality。
+    public bool IsProbablyPrime(int rounds, Random rng) { return BigIntPrimality.IsProbablyPrime(this, rounds, rng); }
+
+    /// Smallest (probably) prime strictly greater than `this`（6k±1 轮转 + 小素数试除 + 20 轮 MR）。见 BigIntPrimality。
+    public BigInt NextPrime() { return BigIntPrimality.NextPrime(this); }
+
+    /// Deterministic primality for n < 3,317,044,064,679,887,385,961,981（OEIS A014233 见证集）。见 BigIntPrimality。
+    public bool IsPrime() { return BigIntPrimality.IsPrime(this); }
+
+    /// BPSW primality（强 MR 基 2 + 强 Lucas）。见 BigIntBpsw。
+    public bool IsBpswPrime() { return BigIntBpsw.IsBpswPrime(this); }
+
 
     // ── Montgomery REDC fast path (RSA / ECC ModPow) ─────────────────────────
     //
@@ -842,148 +807,9 @@ public class BigInt {
     // Convert in: MontMul(a, R^2 mod n) = a*R mod n = a'.
     // Convert out: MontMul(a', 1) = a*R*R^(-1) mod n = a.
 
-    static BigInt _modPowMontgomery(BigInt base_, BigInt exp, BigInt modulus) {
-        int[] n = modulus._mag;
-        int k = n.Length;
-        // n' = -n[0]^(-1) mod 2^31. n must be odd (caller guaranteed).
-        int nPrime = BigInt._montNPrime(n[0]);
-        // R^2 mod n via standard ops (one-time setup).
-        BigInt R2 = BigInt.One.ShiftLeft(31 * 2 * k).Mod(modulus);
-        // Convert base into Montgomery form. Reduce first so |base| < n.
-        BigInt b = base_.Mod(modulus);
-        if (b._sign < 0) b = b.Add(modulus);
-        int[] bMont = BigInt._montMul(b._mag, R2._mag, n, nPrime, k);
-        // result starts at R mod n (i.e. 1 in Montgomery form).
-        int[] resultMont = BigInt._montMul(BigInt._oneMag(), R2._mag, n, nPrime, k);
-        BigInt e = exp;
-        while (!e.IsZero()) {
-            if (e.TestBit(0)) {
-                resultMont = BigInt._montMul(resultMont, bMont, n, nPrime, k);
-            }
-            e = e.ShiftRight(1);
-            if (!e.IsZero()) {
-                bMont = BigInt._montMul(bMont, bMont, n, nPrime, k);
-            }
-        }
-        // Convert out: MontMul(resultMont, 1).
-        int[] out_ = BigInt._montMul(resultMont, BigInt._oneMag(), n, nPrime, k);
-        return BigInt._fromMagSign(out_, 1);
-    }
 
-    /// Montgomery multiplication: (a * b) * R^(-1) mod n. Returns k-limb
-    /// magnitude (possibly trimmed if leading zeros). Both `a` and `b`
-    /// must already be ≤ n in magnitude (Montgomery-form inputs).
-    static int[] _montMul(int[] a, int[] b, int[] n, int nPrime, int k) {
-        int[] t = BigInt._magMul(a, b);   // length ≤ 2k
-        return BigInt._montRedc(t, n, nPrime, k);
-    }
 
-    /// Montgomery REDC: given T < n*R, compute T * R^(-1) mod n.
-    /// Implementation per Handbook of Applied Cryptography §14.32 (CIOS
-    /// inverse — single-pass loop over k limb positions).
-    static int[] _montRedc(int[] t, int[] n, int nPrime, int k) {
-        // Working buffer of size 2k+1 (room for carry into top limb).
-        int sz = 2 * k + 1;
-        int[] T = new int[sz];
-        int i = 0;
-        int copyN = t.Length;
-        if (copyN > sz) copyN = sz;
-        while (i < copyN) { T[i] = t[i]; i = i + 1; }
-        long baseM1 = BigInt.BASE - 1L;   // 0x7FFFFFFF mask
-        // For each lower limb position j in [0, k), zero it out by adding
-        // m*n shifted by j positions, where m = T[j]*nPrime mod base.
-        int j = 0;
-        while (j < k) {
-            long mLong = ((long)T[j] * (long)nPrime) & baseM1;
-            // T += m * n * base^j
-            long carry = 0L;
-            int ii = 0;
-            while (ii < k) {
-                long sum = (long)T[j + ii] + mLong * ((long)n[ii] & baseM1) + carry;
-                T[j + ii] = (int)(sum & baseM1);
-                carry = (sum >> 31) & baseM1;
-                // Note: sum can be up to (2^31-1) + (2^31-1)*(2^31-1) + (2^31-1)
-                //     < 2^62. Fits in long. carry < 2^31 always.
-                ii = ii + 1;
-            }
-            // Propagate carry into upper limbs.
-            int p = j + k;
-            while (carry > 0L && p < sz) {
-                long sum = (long)T[p] + carry;
-                T[p] = (int)(sum & baseM1);
-                carry = (sum >> 31) & baseM1;
-                p = p + 1;
-            }
-            j = j + 1;
-        }
-        // Shift right by k limbs to get U = T / R.
-        int[] u = new int[k + 1];
-        int q = 0;
-        while (q < k + 1) {
-            u[q] = T[k + q];
-            q = q + 1;
-        }
-        // If U >= n, subtract n once (single conditional final step).
-        bool uGe = false;
-        if (u[k] > 0) {
-            uGe = true;
-        } else {
-            // Compare u[0..k-1] vs n[0..k-1] from top down. Use a `decided`
-            // flag to distinguish "broke out on differing limb" (uGe is
-            // whatever the comparison said) from "all limbs equal" (which
-            // also means U >= n — exact equality still needs the subtract
-            // to canonicalise the representation).
-            bool decided = false;
-            int s = k - 1;
-            while (s >= 0 && !decided) {
-                int aLimb = (int)((long)u[s] & baseM1);
-                int bLimb = (int)((long)n[s] & baseM1);
-                if (aLimb != bLimb) {
-                    uGe = aLimb > bLimb;
-                    decided = true;
-                }
-                s = s - 1;
-            }
-            if (!decided) { uGe = true; }
-        }
-        if (uGe) {
-            long borrow = 0L;
-            int x = 0;
-            while (x < k) {
-                long diff = ((long)u[x] & baseM1) - ((long)n[x] & baseM1) - borrow;
-                if (diff < 0L) {
-                    diff = diff + BigInt.BASE;
-                    borrow = 1L;
-                } else {
-                    borrow = 0L;
-                }
-                u[x] = (int)diff;
-                x = x + 1;
-            }
-            // u[k] absorbs final borrow (was 0 or 1 from "u[k] > 0" branch).
-            u[k] = u[k] - (int)borrow;
-        }
-        // Trim trailing zeros (u is k+1 limbs; top often 0).
-        return BigInt._trim(u);
-    }
 
-    /// Compute n' such that n * n' ≡ -1 (mod 2^31). Requires n0 odd.
-    /// Newton's iteration: x_{i+1} = x_i * (2 - n0 * x_i) (mod 2^31)
-    /// — bit-precision doubles per step, so 5 iterations suffice for 31 bits.
-    static int _montNPrime(int n0) {
-        long n = (long)n0 & 0x7FFFFFFFL;
-        long x = 1L;
-        int it = 0;
-        while (it < 5) {
-            long nx = (n * x) & 0x7FFFFFFFL;
-            long two_minus = (2L - nx) & 0x7FFFFFFFL;
-            x = (x * two_minus) & 0x7FFFFFFFL;
-            it = it + 1;
-        }
-        // n' = -n^(-1) mod 2^31
-        long nPrime = (BigInt.BASE - x) & 0x7FFFFFFFL;
-        return (int)nPrime;
-    }
 
     /// Greatest common divisor of |this| and |other|. Always returns a
     /// non-negative result (sign of operands ignored).
@@ -1057,214 +883,13 @@ public class BigInt {
         return absProd.Divide(g);
     }
 
-    /// Modular multiplicative inverse: returns `x` in `[0, modulus)` such
-    /// that `(this * x) mod modulus == 1`. Computed via iterative extended
-    /// Euclidean algorithm.
-    ///
-    /// Throws `ArgumentException` if:
-    ///   * `modulus <= 1` — `mod 1` collapses every value to 0 (no
-    ///     invertible elements); `modulus <= 0` is undefined
-    ///   * `gcd(this, modulus) != 1` — no inverse exists (includes the
-    ///     `this == 0` case since `gcd(0, m) == m != 1`)
-    ///
-    /// Negative `this` is normalised via `this.Mod(modulus)` to `[0, m)`
-    /// before the algorithm runs; result is always non-negative.
-    ///
-    /// Use cases: ModPow with negative exponent (via `(a^-1)^|e| mod m`);
-    /// RSA private-key derivation (`d = e^-1 mod φ(n)`); Bezout coefficients.
-    public BigInt ModInverse(BigInt modulus) {
-        if (modulus._sign <= 0 || modulus.IsOne()) {
-            throw new ArgumentException("BigInt.ModInverse: modulus must be > 1");
-        }
-        // Normalise `this` into [0, modulus). Mod follows dividend sign,
-        // so add modulus when negative.
-        BigInt a = this.Mod(modulus);
-        if (a._sign < 0) a = a.Add(modulus);
-        if (a.IsZero()) {
-            throw new ArgumentException("BigInt.ModInverse: gcd(0, m) != 1 — inverse does not exist");
-        }
-        // Iterative extended Euclidean.
-        // Invariant: g0 = old_g, g1 = current_g; x0, x1 are coefficients such
-        // that x_k * (this_normalised) ≡ g_k (mod modulus).
-        BigInt g0 = modulus;
-        BigInt g1 = a;
-        BigInt x0 = BigInt.Zero;
-        BigInt x1 = BigInt.One;
-        while (!g1.IsZero()) {
-            BigInt q   = g0.Divide(g1);
-            BigInt qg1 = q.Multiply(g1);
-            BigInt g2  = g0.Subtract(qg1);
-            BigInt qx1 = q.Multiply(x1);
-            BigInt x2  = x0.Subtract(qx1);
-            g0 = g1;
-            g1 = g2;
-            x0 = x1;
-            x1 = x2;
-        }
-        if (!g0.IsOne()) {
-            throw new ArgumentException("BigInt.ModInverse: gcd(this, modulus) != 1 — inverse does not exist");
-        }
-        // x0 may be negative; normalise to [0, modulus).
-        BigInt r = x0.Mod(modulus);
-        if (r._sign < 0) r = r.Add(modulus);
-        return r;
-    }
 
     // ── Probabilistic primality (add-bigint-prime, 2026-05-25) ──────────
 
-    /// Uniform-ish random BigInt in `[0, upper)`. Generates a magnitude
-    /// with `upper.BitLength()` random bits then reduces modulo `upper`.
-    /// Mod-bias is acceptable for Miller-Rabin witness sampling (correctness
-    /// only depends on witnesses being distributed enough to surface
-    /// composites within the requested rounds).
-    static BigInt _randomBelow(Random rng, BigInt upper) {
-        int bitLen = upper.BitLength();
-        if (bitLen <= 0) return BigInt.Zero;
-        int limbCount = (bitLen + 30) / 31;
-        int[] mag = new int[limbCount];
-        int i = 0;
-        while (i < limbCount) {
-            // Generate 31 random bits as a long (NextLongRange takes long
-            // bounds; 2^31 fits comfortably). Cast to int — value is in
-            // [0, 2^31) so the int is non-negative.
-            long raw = rng.NextLongRange(0L, 2147483648L);
-            mag[i] = (int)raw;
-            i = i + 1;
-        }
-        BigInt cand = BigInt._fromMagSign(mag, 1);
-        return cand.Mod(upper);
-    }
 
-    /// Miller-Rabin probabilistic primality test with a default RNG
-    /// (wall-clock seeded). Use the `(int, Random)` overload for
-    /// deterministic / reproducible witnesses.
-    public bool IsProbablyPrime(int rounds) {
-        Random rng = new Random();
-        return this.IsProbablyPrime(rounds, rng);
-    }
 
-    /// Miller-Rabin probabilistic primality test with caller-provided RNG.
-    /// Returns `true` if probably prime (error ≤ `4^(-rounds)`), `false`
-    /// if definitely composite.
-    public bool IsProbablyPrime(int rounds, Random rng) {
-        if (rounds <= 0) {
-            throw new ArgumentException("BigInt.IsProbablyPrime: rounds must be > 0");
-        }
-        // Quick rejects on small values + sign + parity.
-        if (this._sign <= 0) return false;
-        if (this.IsOne())    return false;
-        BigInt two   = new BigInt(2L);
-        BigInt three = new BigInt(3L);
-        if (this.CompareTo(two)   == 0) return true;
-        if (this.CompareTo(three) == 0) return true;
-        // Even numbers > 2 are composite (TestBit(0) returns parity).
-        if (!this.TestBit(0)) return false;
-        // Decompose n - 1 = 2^r * d, d odd.
-        BigInt nMinus1 = this.Subtract(BigInt.One);
-        BigInt d       = nMinus1;
-        int r          = 0;
-        while (!d.TestBit(0)) {
-            d = d.ShiftRight(1);
-            r = r + 1;
-        }
-        // Witness range [2, n-2] generated as `_randomBelow(n-3) + 2`.
-        BigInt nMinus3 = this.Subtract(three);
-        int i = 0;
-        while (i < rounds) {
-            BigInt rawIdx = BigInt._randomBelow(rng, nMinus3);
-            BigInt a      = rawIdx.Add(two);
-            BigInt x      = a.ModPow(d, this);
-            if (x.IsOne() || x.CompareTo(nMinus1) == 0) {
-                i = i + 1;
-                continue;
-            }
-            bool composite = true;
-            int j = 0;
-            while (j < r - 1) {
-                BigInt xSq = x.Multiply(x);
-                x = xSq.Mod(this);
-                if (x.CompareTo(nMinus1) == 0) {
-                    composite = false;
-                    j = r;            // break; z42 loop has no `break` parity yet
-                } else {
-                    j = j + 1;
-                }
-            }
-            if (composite) return false;
-            i = i + 1;
-        }
-        return true;
-    }
 
-    /// Smallest (probably) prime strictly greater than `this`. Uses 20-round
-    /// Miller-Rabin (cryptographic-grade default; error ≤ 4^-20 ≈ 10^-12).
-    ///
-    /// `(this < 2).NextPrime() == 2`; otherwise stepping uses a 2-3 wheel
-    /// (only candidates coprime to 6, i.e. `6k±1`) plus a small-prime trial
-    /// division early-reject (primes 3..31) to short-circuit before invoking
-    /// the heavier Miller-Rabin path. add-bigint-prime-sieve (2026-05-25).
-    public BigInt NextPrime() {
-        BigInt two   = new BigInt(2L);
-        BigInt three = new BigInt(3L);
-        if (this.CompareTo(two)   < 0) return two;
-        if (this.CompareTo(three) < 0) return three;
-        // Step `this` up to the first candidate strictly greater than `this`
-        // and coprime to 6. Uses `this mod 6` to land on either 6k+1 or 6k+5.
-        BigInt six  = new BigInt(6L);
-        BigInt mod6 = this.Mod(six);
-        long m      = mod6.ToInt64();
-        BigInt cand;
-        if      (m == 0L) { cand = this.Add(BigInt.One);          }   // → 6k+1
-        else if (m == 1L) { cand = this.Add(new BigInt(4L));      }   // → 6k+5
-        else if (m == 2L) { cand = this.Add(new BigInt(3L));      }   // → 6k+5
-        else if (m == 3L) { cand = this.Add(new BigInt(2L));      }   // → 6k+5
-        else if (m == 4L) { cand = this.Add(BigInt.One);          }   // → 6k+5
-        else              { cand = this.Add(new BigInt(2L));      }   // m==5 → 6k+7 = 6(k+1)+1
-        BigInt four = new BigInt(4L);
-        // After a 6k+5 candidate the next coprime-to-6 step is +2 (→ 6k+7);
-        // after 6k+1 the next step is +4 (→ 6k+5).
-        BigInt candMod6 = cand.Mod(six);
-        bool nextStepIs2 = (candMod6.ToInt64() == 5L);
-        Random rng = new Random();
-        while (true) {
-            if (BigInt._trialDivideSmallPrimes(cand)) {
-                if (cand.IsProbablyPrime(20, rng)) return cand;
-            }
-            if (nextStepIs2) {
-                cand = cand.Add(two);
-                nextStepIs2 = false;
-            } else {
-                cand = cand.Add(four);
-                nextStepIs2 = true;
-            }
-        }
-        return BigInt.Zero;   // unreachable; satisfies type-checker if needed
-    }
 
-    /// Trial divide `cand` by primes 3, 5, 7, 11, ..., 31. Returns true if
-    /// `cand` is one of those primes or has no small factor (Miller-Rabin
-    /// should be run); returns false if `cand` is divisible by any small
-    /// prime > 2 (definitely composite). Big perf win in NextPrime — most
-    /// composite candidates are caught here without invoking ModPow rounds.
-    static bool _trialDivideSmallPrimes(BigInt cand) {
-        int[] smallPrimes = new int[10];
-        smallPrimes[0] =  3; smallPrimes[1] =  5; smallPrimes[2] =  7;
-        smallPrimes[3] = 11; smallPrimes[4] = 13; smallPrimes[5] = 17;
-        smallPrimes[6] = 19; smallPrimes[7] = 23; smallPrimes[8] = 29;
-        smallPrimes[9] = 31;
-        int i = 0;
-        while (i < 10) {
-            BigInt p = new BigInt((long)smallPrimes[i]);
-            // If cand == p, it IS prime — let Miller-Rabin confirm.
-            if (cand.CompareTo(p) == 0) return true;
-            // Divisibility by a smaller prime → composite (cand > p assumed
-            // since the wheel skips ≤ 4 cases and cand > this >= 3).
-            BigInt r = cand.Mod(p);
-            if (r.IsZero()) return false;
-            i = i + 1;
-        }
-        return true;
-    }
 
     // ── Deterministic primality (add-bigint-prime-deterministic, 2026-06-02) ──
     //
@@ -1274,206 +899,14 @@ public class BigInt {
     // bits). Same witness tables used by sympy.isprime / Java
     // BigInteger / Go math/big in their deterministic regimes.
 
-    /// True iff this BigInt is prime, with **zero** error within the
-    /// supported range. Throws `ArgumentException` for values ≥
-    /// 3,317,044,064,679,887,385,961,981 — callers with larger inputs
-    /// should use `IsProbablyPrime(rounds)`.
-    ///
-    /// Tier-selects the smallest valid witness set per OEIS A014233
-    /// (one round for n < 2047, up to 13 for the top tier). Pre-trial
-    /// divides by primes 2..41 so the Miller-Rabin loop always sees
-    /// n > 41 and odd — handles the small-prime + Carmichael edge
-    /// cases without conditional witness skipping.
-    public bool IsPrime() {
-        if (this._sign <= 0) return false;
-        if (this.IsOne())    return false;
-        // Pre-trial divide by every prime that appears in any witness set
-        // (2..41). Three outcomes: equal-to-prime (return true), divisible
-        // (return false), coprime (fall through to Miller-Rabin).
-        int td = BigInt._trialDivideUpTo41(this);
-        if (td == 0) return false;
-        if (td == 1) return true;
-        // Reject values at or above the top deterministic threshold; the
-        // caller asked for a deterministic answer we can't honour.
-        BigInt topBound = BigInt.Parse("3317044064679887385961981");
-        if (this.CompareTo(topBound) >= 0) {
-            throw new ArgumentException(
-                "BigInt.IsPrime: deterministic witnesses only known for "
-                + "n < 3,317,044,064,679,887,385,961,981; use "
-                + "IsProbablyPrime(rounds) for larger values");
-        }
-        // Decompose n - 1 = 2^r * d once and reuse across witnesses.
-        BigInt nMinus1 = this.Subtract(BigInt.One);
-        BigInt d       = nMinus1;
-        int r          = 0;
-        while (!d.TestBit(0)) {
-            d = d.ShiftRight(1);
-            r = r + 1;
-        }
-        // Pick smallest sufficient witness set.
-        BigInt[] witnesses = BigInt._pickDeterministicWitnesses(this);
-        int i = 0;
-        while (i < witnesses.Length) {
-            if (!this._millerRabinFixedWitness(witnesses[i], d, r, nMinus1)) {
-                return false;
-            }
-            i = i + 1;
-        }
-        return true;
-    }
 
-    /// Return 0 if `n` is divisible by a prime in {2..41} and not equal
-    /// to it (definitely composite), 1 if `n` equals one of those primes
-    /// (definitely prime), 2 if `n` is coprime to all (Miller-Rabin
-    /// needed). Pre-condition: `n > 0`.
-    static int _trialDivideUpTo41(BigInt n) {
-        int[] primes = new int[13];
-        primes[ 0] =  2; primes[ 1] =  3; primes[ 2] =  5; primes[ 3] =  7;
-        primes[ 4] = 11; primes[ 5] = 13; primes[ 6] = 17; primes[ 7] = 19;
-        primes[ 8] = 23; primes[ 9] = 29; primes[10] = 31; primes[11] = 37;
-        primes[12] = 41;
-        int i = 0;
-        while (i < 13) {
-            BigInt p = new BigInt((long)primes[i]);
-            int cmp = n.CompareTo(p);
-            if (cmp == 0) return 1;     // n is this small prime
-            if (cmp > 0) {
-                BigInt rem = n.Mod(p);
-                if (rem.IsZero()) return 0;   // divisible → composite
-            }
-            i = i + 1;
-        }
-        return 2;
-    }
 
-    /// Run one round of Miller-Rabin with `witness` as base `a`. Returns
-    /// false iff `witness` proves `this` composite; true iff it passes
-    /// (probably-prime under this witness). Caller pre-computes
-    /// `d`, `r` such that `this - 1 = 2^r * d`, and `nMinus1 = this - 1`.
-    bool _millerRabinFixedWitness(BigInt witness, BigInt d, int r,
-                                  BigInt nMinus1) {
-        BigInt x = witness.ModPow(d, this);
-        if (x.IsOne() || x.CompareTo(nMinus1) == 0) {
-            return true;
-        }
-        int j = 0;
-        while (j < r - 1) {
-            BigInt xSq = x.Multiply(x);
-            x = xSq.Mod(this);
-            if (x.CompareTo(nMinus1) == 0) return true;
-            j = j + 1;
-        }
-        return false;
-    }
 
-    /// Pick smallest deterministic witness set sufficient for `n`. Caller
-    /// has already verified `n < 3,317,044,064,679,887,385,961,981`.
-    /// Tier table is from OEIS A014233.
-    static BigInt[] _pickDeterministicWitnesses(BigInt n) {
-        // Tier 1: n < 2047 → {2}
-        if (n.CompareTo(BigInt.Parse("2047")) < 0) {
-            return BigInt._witnessesOf1(2L);
-        }
-        // Tier 2: n < 1,373,653 → {2, 3}
-        if (n.CompareTo(BigInt.Parse("1373653")) < 0) {
-            return BigInt._witnessesOf2(2L, 3L);
-        }
-        // Tier 3: n < 9,080,191 → {31, 73}
-        if (n.CompareTo(BigInt.Parse("9080191")) < 0) {
-            return BigInt._witnessesOf2(31L, 73L);
-        }
-        // Tier 4: n < 25,326,001 → {2, 3, 5}
-        if (n.CompareTo(BigInt.Parse("25326001")) < 0) {
-            return BigInt._witnessesOf3(2L, 3L, 5L);
-        }
-        // Tier 5: n < 3,215,031,751 → {2, 3, 5, 7}
-        if (n.CompareTo(BigInt.Parse("3215031751")) < 0) {
-            return BigInt._witnessesOf4(2L, 3L, 5L, 7L);
-        }
-        // Tier 6: n < 4,759,123,141 → {2, 7, 61}
-        if (n.CompareTo(BigInt.Parse("4759123141")) < 0) {
-            return BigInt._witnessesOf3(2L, 7L, 61L);
-        }
-        // Tier 7: n < 1,122,004,669,633 → {2, 13, 23, 1662803}
-        if (n.CompareTo(BigInt.Parse("1122004669633")) < 0) {
-            return BigInt._witnessesOf4(2L, 13L, 23L, 1662803L);
-        }
-        // Tier 8: n < 2,152,302,898,747 → {2, 3, 5, 7, 11}
-        if (n.CompareTo(BigInt.Parse("2152302898747")) < 0) {
-            return BigInt._witnessesOfRange(11);
-        }
-        // Tier 9: n < 3,474,749,660,383 → {2, 3, 5, 7, 11, 13}
-        if (n.CompareTo(BigInt.Parse("3474749660383")) < 0) {
-            return BigInt._witnessesOfRange(13);
-        }
-        // Tier 10: n < 341,550,071,728,321 → {2, 3, 5, 7, 11, 13, 17}
-        if (n.CompareTo(BigInt.Parse("341550071728321")) < 0) {
-            return BigInt._witnessesOfRange(17);
-        }
-        // Tier 11: n < 3,825,123,056,546,413,051 → {2,3,5,7,11,13,17,19,23}
-        if (n.CompareTo(BigInt.Parse("3825123056546413051")) < 0) {
-            return BigInt._witnessesOfRange(23);
-        }
-        // Tier 12: n < 318,665,857,834,031,151,167,461 → {2..37}
-        if (n.CompareTo(BigInt.Parse("318665857834031151167461")) < 0) {
-            return BigInt._witnessesOfRange(37);
-        }
-        // Tier 13: n < 3,317,044,064,679,887,385,961,981 → {2..41}
-        return BigInt._witnessesOfRange(41);
-    }
 
-    static BigInt[] _witnessesOf1(long a) {
-        BigInt[] w = new BigInt[1];
-        w[0] = new BigInt(a);
-        return w;
-    }
 
-    static BigInt[] _witnessesOf2(long a, long b) {
-        BigInt[] w = new BigInt[2];
-        w[0] = new BigInt(a);
-        w[1] = new BigInt(b);
-        return w;
-    }
 
-    static BigInt[] _witnessesOf3(long a, long b, long c) {
-        BigInt[] w = new BigInt[3];
-        w[0] = new BigInt(a);
-        w[1] = new BigInt(b);
-        w[2] = new BigInt(c);
-        return w;
-    }
 
-    static BigInt[] _witnessesOf4(long a, long b, long c, long d) {
-        BigInt[] w = new BigInt[4];
-        w[0] = new BigInt(a);
-        w[1] = new BigInt(b);
-        w[2] = new BigInt(c);
-        w[3] = new BigInt(d);
-        return w;
-    }
 
-    /// Build witness set {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41}
-    /// truncated to primes ≤ maxPrime. Used by tiers 8..13.
-    static BigInt[] _witnessesOfRange(int maxPrime) {
-        int[] all = new int[13];
-        all[ 0] =  2; all[ 1] =  3; all[ 2] =  5; all[ 3] =  7;
-        all[ 4] = 11; all[ 5] = 13; all[ 6] = 17; all[ 7] = 19;
-        all[ 8] = 23; all[ 9] = 29; all[10] = 31; all[11] = 37;
-        all[12] = 41;
-        int count = 0;
-        int i = 0;
-        while (i < 13) {
-            if (all[i] <= maxPrime) count = count + 1;
-            i = i + 1;
-        }
-        BigInt[] w = new BigInt[count];
-        int j = 0;
-        while (j < count) {
-            w[j] = new BigInt((long)all[j]);
-            j = j + 1;
-        }
-        return w;
-    }
 
     // ── BPSW primality (add-bigint-bpsw, 2026-06-03) ─────────────────
     //
@@ -1484,178 +917,9 @@ public class BigInt {
     // "practically deterministic" answer beyond IsPrime()'s
     // ~3.317×10^24 hard ceiling.
 
-    /// True iff this BigInt passes the BPSW primality test. No known
-    /// counterexample; verified for every n ≤ 2^64. Use this for n
-    /// above `IsPrime()`'s 3.317×10^24 deterministic ceiling.
-    public bool IsBpswPrime() {
-        if (this._sign <= 0) return false;
-        if (this.IsOne())    return false;
-        // Pre-trial divide by primes 2..41 (same set used by IsPrime).
-        int td = BigInt._trialDivideUpTo41(this);
-        if (td == 0) return false;
-        if (td == 1) return true;
-        // Step 1: strong Miller-Rabin base 2.
-        BigInt nMinus1 = this.Subtract(BigInt.One);
-        BigInt dMr = nMinus1;
-        int rMr = 0;
-        while (!dMr.TestBit(0)) {
-            dMr = dMr.ShiftRight(1);
-            rMr = rMr + 1;
-        }
-        BigInt witness2 = new BigInt(2L);
-        if (!this._millerRabinFixedWitness(witness2, dMr, rMr, nMinus1)) {
-            return false;
-        }
-        // Step 2: strong Lucas test with parameters via Selfridge's method.
-        // Search D in {5, -7, 9, -11, 13, -15, ...} for first D with
-        // jacobi(D, n) = -1. Bound the search to avoid an infinite loop
-        // on pathological inputs (typical D found within ~10 trials).
-        int absD = 5;
-        int sgn  = 1;
-        int tries = 0;
-        while (tries < 200) {
-            int D = sgn * absD;
-            BigInt bigD = new BigInt((long)D);
-            int j = BigInt._jacobiSymbol(bigD, this);
-            if (j == 0) {
-                // n shares a factor with D. If n equals |D|, n is a
-                // small prime (43, 47, ..., 97 not covered by trial
-                // division). Otherwise n is composite.
-                BigInt absBigD = new BigInt((long)absD);
-                if (this.CompareTo(absBigD) == 0) return true;
-                return false;
-            }
-            if (j == -1) {
-                // Q = (1 - D) / 4 — always integer since D ≡ 5 (mod 8)
-                // or D ≡ -3 (mod 8) in the search sequence.
-                int Q = (1 - D) / 4;
-                int P = 1;
-                return this._strongLucasPRP(D, P, Q);
-            }
-            absD = absD + 2;
-            sgn  = -sgn;
-            tries = tries + 1;
-        }
-        // Suspiciously square-like input; treat as composite.
-        return false;
-    }
 
-    /// Jacobi symbol (a / n) per quadratic-reciprocity algorithm.
-    /// Returns -1, 0, or 1. `n` must be positive and odd.
-    static int _jacobiSymbol(BigInt a, BigInt n) {
-        if (n._sign <= 0) {
-            throw new ArgumentException("Jacobi: n must be > 0");
-        }
-        if (!n.TestBit(0)) {
-            throw new ArgumentException("Jacobi: n must be odd");
-        }
-        int result = 1;
-        BigInt aNorm = a.Mod(n);
-        if (aNorm._sign < 0) aNorm = aNorm.Add(n);
-        BigInt nLocal = n;
-        BigInt big8 = new BigInt(8L);
-        BigInt big4 = new BigInt(4L);
-        while (!aNorm.IsZero()) {
-            while (!aNorm.TestBit(0)) {
-                aNorm = aNorm.ShiftRight(1);
-                BigInt nMod8 = nLocal.Mod(big8);
-                long r8 = nMod8.ToInt64();
-                if (r8 == 3L || r8 == 5L) result = -result;
-            }
-            BigInt tmp = aNorm;
-            aNorm = nLocal;
-            nLocal = tmp;
-            BigInt aMod4 = aNorm.Mod(big4);
-            BigInt nMod4 = nLocal.Mod(big4);
-            if (aMod4.ToInt64() == 3L && nMod4.ToInt64() == 3L) {
-                result = -result;
-            }
-            aNorm = aNorm.Mod(nLocal);
-            if (aNorm._sign < 0) aNorm = aNorm.Add(nLocal);
-        }
-        if (nLocal.IsOne()) return result;
-        return 0;
-    }
 
-    /// Strong Lucas pseudoprime test mod `this` (= n). Caller has
-    /// already chosen `D, P, Q` per Selfridge. Returns true iff `this`
-    /// passes — false proves composite.
-    ///
-    /// Algorithm: decompose n + 1 = 2^s × d (d odd), compute (U_d, V_d)
-    /// mod n by binary-expanding d MSB-first with the doubling formulas
-    /// (U_{2k} = U_k V_k; V_{2k} = V_k² - 2 Q^k), then check U_d ≡ 0
-    /// or V_{d·2^r} ≡ 0 for some 0 ≤ r < s.
-    bool _strongLucasPRP(int D, int P, int Q) {
-        BigInt n = this;
-        BigInt nPlus1 = n.Add(BigInt.One);
-        BigInt d = nPlus1;
-        int s = 0;
-        while (!d.TestBit(0)) {
-            d = d.ShiftRight(1);
-            s = s + 1;
-        }
-        BigInt two = new BigInt(2L);
-        BigInt bigD = BigInt._modNonNeg(new BigInt((long)D), n);
-        BigInt bigP = BigInt._modNonNeg(new BigInt((long)P), n);
-        BigInt bigQ = BigInt._modNonNeg(new BigInt((long)Q), n);
-        BigInt inv2 = two.ModInverse(n);
-        // Initialise at k=1: U_1 = 1, V_1 = P, Q^1 = Q.
-        BigInt U  = BigInt.One;
-        BigInt V  = bigP;
-        BigInt Qk = bigQ;
-        int bitLen = d.BitLength();
-        int i = bitLen - 2;
-        while (i >= 0) {
-            BigInt newU = U.Multiply(V);
-            newU = BigInt._modNonNeg(newU.Mod(n), n);
-            BigInt vSq = V.Multiply(V);
-            BigInt twoQk = two.Multiply(Qk);
-            BigInt newV = vSq.Subtract(twoQk);
-            newV = BigInt._modNonNeg(newV.Mod(n), n);
-            BigInt qkSq = Qk.Multiply(Qk);
-            BigInt newQk = BigInt._modNonNeg(qkSq.Mod(n), n);
-            U  = newU;
-            V  = newV;
-            Qk = newQk;
-            if (d.TestBit(i)) {
-                BigInt pU = bigP.Multiply(U);
-                BigInt sumA = pU.Add(V);
-                BigInt sumAi = sumA.Multiply(inv2);
-                BigInt nextU = BigInt._modNonNeg(sumAi.Mod(n), n);
-                BigInt dU = bigD.Multiply(U);
-                BigInt pV = bigP.Multiply(V);
-                BigInt sumB = dU.Add(pV);
-                BigInt sumBi = sumB.Multiply(inv2);
-                BigInt nextV = BigInt._modNonNeg(sumBi.Mod(n), n);
-                BigInt qkQ = Qk.Multiply(bigQ);
-                BigInt nextQk = BigInt._modNonNeg(qkQ.Mod(n), n);
-                U  = nextU;
-                V  = nextV;
-                Qk = nextQk;
-            }
-            i = i - 1;
-        }
-        // (U, V) is now (U_d, V_d).
-        if (U.IsZero()) return true;
-        // Check V_{d·2^r} ≡ 0 for r in [0, s).
-        int r = 0;
-        while (r < s) {
-            if (V.IsZero()) return true;
-            BigInt vSq2 = V.Multiply(V);
-            BigInt twoQk2 = two.Multiply(Qk);
-            BigInt newV2 = vSq2.Subtract(twoQk2);
-            V = BigInt._modNonNeg(newV2.Mod(n), n);
-            BigInt qkSq2 = Qk.Multiply(Qk);
-            Qk = BigInt._modNonNeg(qkSq2.Mod(n), n);
-            r = r + 1;
-        }
-        return false;
-    }
 
-    static BigInt _modNonNeg(BigInt x, BigInt n) {
-        if (x._sign < 0) return x.Add(n);
-        return x;
-    }
 
     // ── Comparison ──────────────────────────────────────────────────────
 
@@ -1737,7 +1001,7 @@ public class BigInt {
     }
 
     /// Strip trailing-zero limbs.
-    static int[] _trim(int[] mag) {
+    internal static int[] _trim(int[] mag) {
         int n = mag.Length;
         while (n > 0 && mag[n - 1] == 0) { n = n - 1; }
         if (n == mag.Length) return mag;
@@ -1885,7 +1149,7 @@ public class BigInt {
     /// Magnitude multiplication. Dispatches to schoolbook below
     /// `KARATSUBA_THRESHOLD` (small operands win on constant factors) and
     /// to Karatsuba above (sub-quadratic O(n^log2(3)) ≈ O(n^1.585)).
-    static int[] _magMul(int[] a, int[] b) {
+    internal static int[] _magMul(int[] a, int[] b) {
         int la = a.Length;
         int lb = b.Length;
         if (la == 0 || lb == 0) return new int[0];
