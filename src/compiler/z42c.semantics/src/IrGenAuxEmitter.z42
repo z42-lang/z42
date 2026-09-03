@@ -1,0 +1,114 @@
+// CU 级附属类型与自由函数（refactor-split-irgen-generate，自 IrGen.Generate 提出；逻辑逐字保留）：
+// 接口 TYPE 条目 → enum 类型 → delegate 类型（TYPE + Invoke 桩）→ 自由函数。调用顺序由 Generate 固定（byte-identical）。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed class IrGenAuxEmitter {
+    private IrGen _g;
+    private SemanticModel _model;
+    private IrGenSink _out;
+
+    public IrGenAuxEmitter(IrGen g, SemanticModel model, IrGenSink sink) { this._g = g; this._model = model; this._out = sink; }
+
+    // zbc 1.19（add-reflection-interface-class-predicates）：接口 emit 最小 TYPE 条目（Flags=abstract|interface），
+    // Concat 在 classes 之后 → typeof(IFoo) 解析真句柄 + IsInterface。partial 接口仅主碎片发一条合并 record。
+    public void EmitInterfaces(CompilationUnit cu, StrMap emittedPartial) {
+        IrGen g = this._g;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl di = IrGenFacts._unwrap(cu.Decls[i]);
+            if (di is ClassDecl) {
+                ClassDecl ic = di as ClassDecl;
+                if (ic.Kind == "interface") {
+                    Z42InterfaceType ifOwn = this._model.Symbols.Interfaces.Get(ic.Name) as Z42InterfaceType;
+                    bool ifPartial = ifOwn != null && ifOwn.IsPartial;
+                    bool ifMain = !ifPartial || ifOwn.PartialMainFile == g.SourceFile;
+                    if (ifPartial && ifMain && emittedPartial.ContainsKey(ic.Name)) { ifMain = false; }   // 同文件多碎片：只发一次
+                    if (ifMain && ifPartial) { emittedPartial.Put(ic.Name, "1"); }
+                    if (ifMain) {
+                        ClassDecl idesc = ic;
+                        if (ifPartial && g.PartialMerged != null && g.PartialMerged.ContainsKey(ic.Name)) {
+                            idesc = g.PartialMerged.Get(ic.Name) as ClassDecl;
+                        }
+                        this._out.AddClass(g._classDescB._interfaceDesc(idesc));
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // enum 类型（add-enum-type-metadata / unify-type-metadata P1-a）：特殊 class，class_flags bit5=enum + 成员 {name,i64}。
+    // 值求值同 SymbolCollector._passEnums（cur=0，显式 =N 覆盖，隐式 +1）。FQ 名（_q 加 namespace）。
+    public void EmitEnums(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl de = IrGenFacts._unwrap(cu.Decls[i]);
+            if (de is EnumDecl) {
+                EnumDecl ed = de as EnumDecl;
+                IrClassDesc edesc = new IrClassDesc(this._g._q(ed.Name), false, "", new IrFieldDesc[0], 0);
+                edesc.Flags = edesc.Flags | 32;   // bit5 = enum
+                string[] mn = new string[ed.MemberCount];
+                long[] mv = new long[ed.MemberCount];
+                long cur = 0;
+                int mi = 0;
+                while (mi < ed.MemberCount) {
+                    EnumMember em = ed.Members[mi];
+                    if (em.HasValue) { cur = IrGenFacts._parseEnumVal(em.Value); }
+                    mn[mi] = em.Name; mv[mi] = cur;
+                    cur = cur + 1;
+                    mi = mi + 1;
+                }
+                edesc.EnumMemberNames = mn; edesc.EnumMemberValues = mv; edesc.EnumMemberCount = ed.MemberCount;
+                this._out.AddClass(edesc);
+            }
+            i = i + 1;
+        }
+    }
+
+    // delegate 类型（add-delegate-metadata / unify-type-metadata P1-e ②）：TYPE 条目（bit6=delegate + TypeParams）
+    // + 合成 `<FQ>.Invoke` 死体桩（真实调用走 CallIndirect；供反射签名 + 重建）。
+    public void EmitDelegates(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl dg = IrGenFacts._unwrap(cu.Decls[i]);
+            if (dg is DelegateDecl) {
+                DelegateDecl dd = dg as DelegateDecl;
+                string dfq = this._g._q(dd.Name);
+                IrClassDesc ddesc = new IrClassDesc(dfq, false, "", new IrFieldDesc[0], 0);
+                ddesc.Flags = ddesc.Flags | 64;   // bit6 = delegate
+                if (dd.TypeParams.Count > 0) {
+                    ddesc.TypeParams = dd.TypeParams.Names; ddesc.TypeParamCount = dd.TypeParams.Count;
+                    ddesc.TypeParamConstraints = new IrConstraintDesc[dd.TypeParams.Count];
+                }
+                this._out.AddClass(ddesc);
+                this._out.AddFunc(this._g._stubE._emitDelegateInvoke(dfq, dd));
+            }
+            i = i + 1;
+        }
+    }
+
+    // 自由函数：无 this（isInstance=false）且 IsStatic=false（与 C# 一致）；默认 internal（顶层，最小封闭作用域=模块）。
+    public void EmitFreeFunctions(CompilationUnit cu) {
+        SemanticModel model = this._model;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = IrGenFacts._unwrap(cu.Decls[i]);
+            if (d is MethodDecl) {
+                MethodDecl md = d as MethodDecl;
+                if (md.HasBody && model.HasBody(md.Name)) {
+                    var fe = new FunctionEmitter(model.Symbols, this._g);
+                    IrFunction irf = fe.EmitFunction(this._g._q(md.Name), md, model.GetBody(md.Name), false, false,
+                                                     null, new string[0], 0);
+                    irf.Visibility = IrGenFacts._visCode(md.Mods, 3);
+                    irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
+                    IrGenFacts._fillParamMeta(irf, md, false);   // add-param-metadata：自由函数无 this
+                    this._out.AddFunc(irf);
+                }
+            }
+            i = i + 1;
+        }
+    }
+}
