@@ -6,7 +6,7 @@ use crate::metadata::{Module, NativeData, ScriptObject, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
-use super::dispatch::{is_subclass_or_eq_td, make_fallback_type_desc};
+use super::dispatch::{isa_td, make_fallback_type_desc};
 use super::exec_vcall::is_array_isa;
 use super::ops::collect_args;
 use super::Frame;
@@ -375,9 +375,7 @@ pub(super) fn is_instance(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
 ) -> Result<()> {
     let result = match frame.get(obj)? {
-        Value::Object(rc) => {
-            is_subclass_or_eq_td(ctx, &module.type_registry, &rc.type_desc().name, class_name)
-        }
+        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name),
         // 2026-05-07 add-array-base-class: T[] is-a Std.Array is-a Std.Object.
         // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
         Value::Array(_) => is_array_isa(class_name),
@@ -388,7 +386,7 @@ pub(super) fn is_instance(
         Value::BoxedStruct(b) => {
             class_name == "Std.Object" || class_name == "Object"
                 || &*b.type_desc().name == class_name
-                || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_desc().name, class_name)
+                || isa_td(ctx, &module.type_registry, b.type_desc(), class_name)
         }
         // fix-boxed-primitive-is-as: 未装箱裸基元（未经 object 边界）→ stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),
@@ -412,7 +410,7 @@ pub(super) fn as_cast(
                 Some(n) => Value::I64(n), // 基元盒精确命中 → 拆回裸标量
                 None => super::exec_struct::unbox_struct(ctx, frame.frame_id, b)?, // struct 盒 → arena StructRef
             }
-        } else if is_obj || is_subclass_or_eq_td(ctx, &module.type_registry, &b.type_desc().name, class_name) {
+        } else if is_obj || isa_td(ctx, &module.type_registry, b.type_desc(), class_name) {
             val.clone()
         } else {
             Value::Null
@@ -437,9 +435,7 @@ pub(super) fn as_cast(
         return Ok(());
     }
     let is_match = match &val {
-        Value::Object(rc) => {
-            is_subclass_or_eq_td(ctx, &module.type_registry, &rc.type_desc().name, class_name)
-        }
+        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name),
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名松匹配兜底。

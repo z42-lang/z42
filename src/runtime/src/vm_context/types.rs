@@ -347,6 +347,11 @@ pub struct VmContext {
     /// by `&str` with zero allocation. Per-context (not shared) → no lock contention under
     /// parallel `--jobs` compile. Cleared on explicit module (re)load (REPL redefinition).
     pub(crate) subclass_memo:     Mutex<FxHashMap<String, FxHashMap<String, bool>>>,
+    /// perf-vm-isa-cache (2026-09-03): identity-keyed direct-mapped front cache for
+    /// `is` / `as` / typed `catch` in front of `subclass_memo` — a hit is two relaxed loads,
+    /// no lock, no string hashing. See `isa_cache.rs` for the key/lifetime contract; cleared
+    /// together with the memo on explicit module (re)load.
+    pub(crate) isa_cache:         super::isa_cache::IsaCache,
     /// **add-vmcontext-registry (2026-05-20)**: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in

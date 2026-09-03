@@ -1,0 +1,60 @@
+// perf-vm-isa-cache (三面评审 V-6, 2026-09-03) microbench: `is` / `as` chains + typed catch.
+//
+// Models z42c's serializer shape — every element of a mixed array is pushed through an
+// 8-way `is`-chain (visitor dispatch by type test), then an interface test and an `as`
+// downcast. Pre-cache each test cost a mutex + two FQ-name string hashes in the subclass
+// memo; the identity-keyed IsaCache resolves a hit with two loads.
+//
+// Objects are allocated once outside the loop so the type tests dominate; each branch adds a
+// distinct constant so the JIT can't fold the chain away.
+//
+// Expected output (deterministic): 39000000
+
+namespace Bench.TypeTestChain;
+
+using Std.IO;
+
+interface INode { int Tag(); }
+
+class Node { public int V; }
+class A : Node, INode { public int Tag() { return 1; } }
+class B : Node, INode { public int Tag() { return 2; } }
+class C : Node { }
+class D : Node { }
+class E : Node, INode { public int Tag() { return 5; } }
+class F : Node { }
+class G : Node { }
+class H : Node, INode { public int Tag() { return 8; } }
+
+long Drive(Node[] arr, long n) {
+    long total = 0L;
+    long i = 0L;
+    while (i < n) {
+        Node o = arr[(int)(i % 8L)];
+        // 8-way is-chain: element k takes k+1 tests to resolve.
+        if (o is A) { total = total + 1L; }
+        else if (o is B) { total = total + 2L; }
+        else if (o is C) { total = total + 3L; }
+        else if (o is D) { total = total + 4L; }
+        else if (o is E) { total = total + 5L; }
+        else if (o is F) { total = total + 6L; }
+        else if (o is G) { total = total + 7L; }
+        else if (o is H) { total = total + 8L; }
+        // interface test + downcast on the hits.
+        if (o is INode) {
+            INode tagged = o as INode;
+            total = total + (long)tagged.Tag();
+        }
+        i = i + 1L;
+    }
+    return total;
+}
+
+void Main() {
+    Node[] arr = new Node[8];
+    arr[0] = new A(); arr[1] = new B(); arr[2] = new C(); arr[3] = new D();
+    arr[4] = new E(); arr[5] = new F(); arr[6] = new G(); arr[7] = new H();
+    // per 8 elements: is-chain 1+2+…+8 = 36, tags 1+2+5+8 = 16 → 52 per 8 → 6.5 per element
+    long result = Drive(arr, 6000000L);
+    Console.WriteLine(result.ToString());
+}

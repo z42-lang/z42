@@ -1,0 +1,19 @@
+// IrGen 的模块级累加器（refactor-split-irgen-generate）：Generate 拆成多个 emitter 后，函数 / 类型描述
+// 仍按**同一顺序**追加进这里（byte-identical：module.Functions 序 = 静态初始化 → 类方法（声明序）→ impl →
+// 自由函数 → lifted；TYPE 序 = 类/struct → 接口 → enum → delegate）。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class IrGenSink {
+    public IrFunction[]  Funcs;   public int Fc;
+    public IrClassDesc[] Classes; public int Cc;
+
+    public IrGenSink() {
+        this.Funcs = new IrFunction[8];    this.Fc = 0;
+        this.Classes = new IrClassDesc[8]; this.Cc = 0;
+    }
+
+    public void AddFunc(IrFunction f) { this.Funcs = IrGenFacts._pushFunc(this.Funcs, this.Fc, f); this.Fc = this.Fc + 1; }
+    public void AddClass(IrClassDesc c) { this.Classes = IrGenFacts._pushClass(this.Classes, this.Cc, c); this.Cc = this.Cc + 1; }
+}
