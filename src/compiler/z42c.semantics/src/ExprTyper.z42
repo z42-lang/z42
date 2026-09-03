@@ -419,7 +419,7 @@ public sealed class ExprTyper {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
             opArgs[0] = left; opArgs[1] = right;
-            MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, bin.Span);
+            MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, 0, bin.Span);   // 运算符重载无显式类型实参 → typeArgCount=0
             if (opMs != null) {
                 return new BoundCall("static", false, null, lct.Name(), opMs.RegKey, opArgs, 2, opMs.Signature.Ret, bin.Span);
             }

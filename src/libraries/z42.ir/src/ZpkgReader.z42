@@ -247,6 +247,7 @@ public static class ZpkgReader {
                                     new int[0], 0,
                                     new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
             stub.Visibility = vis; stub.MethodFlags = mflags;
+            stub.TypeParamCount = tpc;   // add-array-paired-sort：跨包方法级泛型形参个数（tpc 早已读、此前只弃）→ 供泛型 arity 重载过滤
             stub.MinArg = minArg; stub.ParamsFrom = paramsFrom;
             stub.ParamNames = pnames; stub.ParamDefaultKinds = pdKinds;
             stub.ParamDefaultVals = pdVals; stub.ParamDefaultStrs = pdStrs;

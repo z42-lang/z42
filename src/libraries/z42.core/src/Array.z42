@@ -127,6 +127,33 @@ public sealed class Array {
         Array._mergeSortCmp<T>(array, scratch, 0, n, comparison);
     }
 
+    // Paired sort (C# System.Array.Sort<TKey,TValue>): sort `keys` ascending by
+    // CompareTo, applying the same permutation to `items` in parallel.
+    public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items) {
+        int n = keys.Length;
+        if (n < 2) return;
+        TKey[] kScratch = new TKey[n];
+        TValue[] vScratch = new TValue[n];
+        Array._mergeSortPaired<TKey, TValue>(keys, items, kScratch, vScratch, 0, n);
+    }
+
+    static void _mergeSortPaired<TKey, TValue>(TKey[] k, TValue[] v, TKey[] ks, TValue[] vs, int lo, int hi) {
+        if (hi - lo < 2) return;
+        int mid = lo + (hi - lo) / 2;
+        Array._mergeSortPaired<TKey, TValue>(k, v, ks, vs, lo, mid);
+        Array._mergeSortPaired<TKey, TValue>(k, v, ks, vs, mid, hi);
+        int i = lo; int j = mid; int m = lo;
+        while (i < mid && j < hi) {
+            if (k[j].CompareTo(k[i]) < 0) { ks[m] = k[j]; vs[m] = v[j]; j = j + 1; }
+            else                          { ks[m] = k[i]; vs[m] = v[i]; i = i + 1; }
+            m = m + 1;
+        }
+        while (i < mid) { ks[m] = k[i]; vs[m] = v[i]; i = i + 1; m = m + 1; }
+        while (j < hi)  { ks[m] = k[j]; vs[m] = v[j]; j = j + 1; m = m + 1; }
+        int t = lo;
+        while (t < hi) { k[t] = ks[t]; v[t] = vs[t]; t = t + 1; }
+    }
+
     static void _mergeSortCmp<T>(T[] a, T[] scratch, int lo, int hi, Func<T, T, int> cmp) {
         if (hi - lo < 2) return;
         int mid = lo + (hi - lo) / 2;

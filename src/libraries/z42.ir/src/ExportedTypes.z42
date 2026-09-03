@@ -29,6 +29,8 @@ public sealed class ExportedMethodZ {
     // 同 ParamsFrom：构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 4) 构造后赋值。
     public bool             IsDeprecated;    // add-deprecated-directive：方法级 `[Deprecated]`（METHOD_FLAG_DEPRECATED bit3）。
     public string           DeprecationMsg;  // 同 IsSealed：ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 构造后赋值。
+    public int              TypeParamCount;  // add-array-paired-sort：方法级泛型形参个数（SIGS 早已存 tp 块，无格式 bump）。
+    // 同 IsSealed/ParamsFrom：ctor 元数不变（旧种子 ABI），默认 0，构造后由 SigEntryZ 赋值。供泛型 arity 重载过滤。
     public ExportedMethodZ(string name, string returnType, string visibility,
                            bool isStatic, bool isVirtual, bool isAbstract, int minArgCount,
                            ExportedParamZ[] params_, int paramCount) {
@@ -38,6 +40,7 @@ public sealed class ExportedMethodZ {
         this.ParamsFrom = 0 - 1;
         this.IsSealed = false;
         this.IsDeprecated = false; this.DeprecationMsg = "";
+        this.TypeParamCount = 0;
     }
 }
 
