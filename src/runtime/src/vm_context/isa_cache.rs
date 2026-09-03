@@ -59,9 +59,10 @@ impl IsaCache {
     #[inline]
     pub(crate) fn index(td: usize, target: usize) -> usize {
         // Both keys are pointers (16-byte aligned heap allocations → low bits are zero);
-        // fold the informative bits of each before masking.
-        let h = (td >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (target >> 3);
-        (h ^ (h >> 17)) & (SLOTS - 1)
+        // fold the informative bits of each before masking. Mix in u64 so the constant is
+        // valid on 32-bit targets too (wasm32: `usize` is 32 bits).
+        let h = ((td as u64) >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ ((target as u64) >> 3);
+        ((h ^ (h >> 17)) as usize) & (SLOTS - 1)
     }
 
     /// Cached verdict for (`td`, `target`), if this exact pair was installed.
