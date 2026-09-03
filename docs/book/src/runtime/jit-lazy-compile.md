@@ -139,8 +139,11 @@ lazy-per-function-jit 是「首次调用即编译」；分层把它推进为「*
 - **三态槽**：`FnEntry.ptr==null` = **Rejected**（不可编/编译失败的负缓存）；`ptr≠null` = Compiled；
   `OnceLock` 空 = Unknown。Rejected 一次判定后缓存 → **消除不可编函数每次调用重扫 `jit_unsupported_reason`**
   （整函数指令走一遍）的浪费。两条 resolve 路径通用。
-- **阈值**：`Z42_JIT_THRESHOLD`（默认 **1000**，clamp≥1；N=1 = 首 call 即编 = 分层前行为）。第 N 次调用时编译，
-  前 N-1 次解释。默认刻意取高：只有真正的热函数才值得编译，冷长尾全留解释器（准则 2 省编译时间+code 页）；
+- **阈值**：`Z42_JIT_THRESHOLD`（默认 **2**，clamp≥1；N=1 = 首 call 即编）。第 N 次调用时编译，前 N-1 次解释。
+  演进：最初 1000（只编真热函数）→ lower-jit-threshold-default（2026-08-31）改 1（z42c 这类「每函数只调几次」
+  的程序在 1000 下几乎全程解释，−12–17%）→ perf-jit-threshold-2（2026-09-03）改 **2**：N=1 会把每个进程里
+  **只跑一次**的函数也全编了——短命 z42c 进程（每个 golden / stdlib 成员编译）hello-world 0.80 s 里 0.33 s 是
+  Cranelift 编 561 个一次性函数；N=2 只编 35 个，小编译 0.80→0.46 s，大编译 z42c.semantics 12.80→12.83 s 无损；
   混合模式（Phase 1.5）保证少数已编译的热 callee 即便被冷 interp 帧调到也走原生。
 
 **分阶段接入各调用点**：阈值需要调用点的 `None`-臂能健壮 interp 任意冷 callee。
