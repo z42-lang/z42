@@ -93,7 +93,7 @@ public static class CuPreprocess {
             }
             di = di + 1;
         }
-        if (exclude.Keys().Length == 0) { return imported; }
+        if (exclude.Count() == 0) { return imported; }
         StrMap r = new StrMap();
         string[] ks = imported.Keys();
         int i = 0;
@@ -227,7 +227,7 @@ public static class CuPreprocess {
             }
             di = di + 1;
         }
-        if (exclude.Keys().Length == 0) { return imported; }
+        if (exclude.Count() == 0) { return imported; }
         StrMap r = new StrMap();
         string[] ks = imported.Keys();
         int i = 0;

@@ -69,6 +69,7 @@ public sealed class SigEntryZ {
     public long[]   ParamDefaultVals;  // kind 2/3/4 载荷
     public string[] ParamDefaultStrs;  // kind 5 字符串值
     public string[] ParamTypes; public int ParamTypeCount;
+    public int      TypeParamCount;   // add-array-paired-sort：方法级泛型形参个数（SIGS 早已存 tp 块，此前 reader 读弃；现捕获供泛型 arity 重载过滤）。无格式 bump。
     public IrAttrRef[] Attrs; public int AttrCount;
     public IrAttrRefList[] ParamAttrs; public int ParamAttrsLen;
     public SigEntryZ() {
@@ -80,6 +81,7 @@ public sealed class SigEntryZ {
         this.ParamNames = new string[0]; this.ParamDefaultKinds = new int[0];
         this.ParamDefaultVals = new long[0]; this.ParamDefaultStrs = new string[0];
         this.ParamTypes = new string[0]; this.ParamTypeCount = 0;
+        this.TypeParamCount = 0;
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
         this.ParamAttrs = new IrAttrRefList[0]; this.ParamAttrsLen = 0;
     }
@@ -493,7 +495,8 @@ public static class ZbcReader {
                 e.ParamDefaultVals[p] = dv; e.ParamDefaultStrs[p] = ds;
                 p = p + 1;
             }
-            int tpc = c.U8();   // z42 writer 恒 0；防御性跳过（bundle 与 writer 子集同构）
+            int tpc = c.U8();   // 方法级泛型形参个数（add-reflective-invoke 起 writer 写真实值）。
+            e.TypeParamCount = tpc;   // add-array-paired-sort：捕获供泛型 arity 重载过滤（此前只读弃）。
             int t = 0;
             while (t < tpc) {
                 c.U32();

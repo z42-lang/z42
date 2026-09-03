@@ -23,6 +23,10 @@ public sealed class Lexer {
     private string[] _kwNames;
     private int[]    _kwKinds;
     private int      _kwCount;
+    // perf-compiler-lookup-tables：按首字符分桶的链（_kwHead[c] → 首个关键字下标，_kwNext 链到下一个），
+    // 每个标识符只与同首字符的少数关键字比较，取代 84 项全表线性扫描（每次比较都是一次 builtin 调用）。
+    private int[]    _kwHead;
+    private int[]    _kwNext;
 
     // 输出 token（typed array + count）
     private Token[]  _toks;
@@ -45,6 +49,10 @@ public sealed class Lexer {
         this._kwNames = new string[128];
         this._kwKinds = new int[128];
         this._kwCount = 0;
+        this._kwHead = new int[128];
+        int hb = 0;
+        while (hb < 128) { this._kwHead[hb] = -1; hb = hb + 1; }
+        this._kwNext = new int[128];
         this._initKeywords();
     }
 
@@ -450,18 +458,27 @@ public sealed class Lexer {
 
     // ── 关键字表 ────────────────────────────────────────────────────────────
     private int _kwLookup(string text) {
-        int i = 0;
-        while (i < this._kwCount) {
+        if (text.ByteLength == 0) { return -1; }
+        int c = (int)text.CharAt(0);
+        if (c < 0 || c >= 128) { return -1; }   // 关键字全 ASCII；非 ASCII 首字符必非关键字
+        int i = this._kwHead[c];
+        while (i >= 0) {
             if (this._kwNames[i] == text) { return this._kwKinds[i]; }
-            i = i + 1;
+            i = this._kwNext[i];
         }
         return -1;
     }
 
+    // 注册序保留在 _kwNames/_kwKinds（KeywordNameAt 供 DumpTool / vscode-syntax 生成，顺序有意义）；
+    // 桶链只做查找加速，与注册序无关。
     private void _kw(string name, int kind) {
-        this._kwNames[this._kwCount] = name;
-        this._kwKinds[this._kwCount] = kind;
-        this._kwCount = this._kwCount + 1;
+        int idx = this._kwCount;
+        this._kwNames[idx] = name;
+        this._kwKinds[idx] = kind;
+        int c = (int)name.CharAt(0);
+        this._kwNext[idx] = this._kwHead[c];
+        this._kwHead[c] = idx;
+        this._kwCount = idx + 1;
     }
 
     private void _initKeywords() {

@@ -197,7 +197,7 @@ public sealed class OverloadBinder {
     }
 
     internal MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
-                                          BoundExpr[] args, int argCount, Span sp) {
+                                          BoundExpr[] args, int argCount, int typeArgCount, Span sp) {
         MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
         if (all.Length == 0) { return null; }
         // add-target-typed-new：延迟绑定的 target-typed new 实参（null 位）无类型 → 无法参与基于类型的重载决议。
@@ -228,6 +228,20 @@ public sealed class OverloadBinder {
                     "target-typed `new` argument to overloaded `" + name + "` needs an explicit type", sp);
             }
             return null;
+        }
+        // add-array-paired-sort：泛型 arity 过滤（C# 规则）——调用带 N 个显式类型实参（`Sort<int>` → N=1）时，
+        // 只有恰好声明 N 个类型形参的候选合格（`Sort<T>` 合格、`Sort<TKey,TValue>` 不合格）。**防御性**：仅当
+        // 过滤后仍非空才采用——候选 TypeParamCount 未知/为 0（如某些跨包路径未回填）时不误删全部候选，保证不回归
+        // 既有可用的泛型调用（无此过滤前的行为）。
+        if (typeArgCount > 0 && na > 1) {
+            MethodSymbol[] byTp = new MethodSymbol[na];
+            int nt = 0;
+            int ti = 0;
+            while (ti < na) {
+                if (byArity[ti].TypeParamCount == typeArgCount) { byTp[nt] = byArity[ti]; nt = nt + 1; }
+                ti = ti + 1;
+            }
+            if (nt > 0) { byArity = byTp; na = nt; }
         }
         if (na == 1) { return byArity[0]; }   // 单 arity 候选 → 行为保持（deferred 位稍后按形参类型回填）
         // 同 arity ≥2 → type-based 决议；deferred 位无类型无法决议 → 报 E0437 让用户写显式类名。

@@ -165,16 +165,20 @@ public sealed class Z42ClassType : Z42Type {
         this.InterfaceCount = this.InterfaceCount + 1;
     }
     // add-type-based-overloads：本类中所有源名为 name 的方法符号（重载候选枚举；不走 base 链——调用方按需 base walk）。
+    // perf-compiler-lookup-tables：按 StrMap 槽位直扫（与 Keys() 同序 → 结果序不变），免每次分配键数组 +
+    // 逐键 Get 再哈希（重载决议对每个调用点沿 base 链反复调用本方法）。
     public MethodSymbol[] OverloadsOf(string name) {
-        string[] keys = this.Methods.Keys();
-        MethodSymbol[] tmp = new MethodSymbol[keys.Length];
+        int cap = this.Methods.Capacity();
+        MethodSymbol[] tmp = new MethodSymbol[this.Methods.Count()];
         int n = 0;
         int i = 0;
-        while (i < keys.Length) {
-            object v = this.Methods.Get(keys[i]);
-            if (v is MethodSymbol) {
-                MethodSymbol ms = v as MethodSymbol;
-                if (ms.Name == name) { tmp[n] = ms; n = n + 1; }
+        while (i < cap) {
+            if (this.Methods.UsedAt(i)) {
+                object v = this.Methods.ValAt(i);
+                if (v is MethodSymbol) {
+                    MethodSymbol ms = v as MethodSymbol;
+                    if (ms.Name == name) { tmp[n] = ms; n = n + 1; }
+                }
             }
             i = i + 1;
         }
