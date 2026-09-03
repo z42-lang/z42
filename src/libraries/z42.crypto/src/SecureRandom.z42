@@ -1,10 +1,15 @@
 namespace Std.Crypto;
 
 using Std;
+using Std.Runtime;
 
 // add-csprng-to-crypto (2026-05-26): OS-backed cryptographically secure
-// random number generator. Bridges to `__crypto_random_bytes` builtin which
-// wraps Linux getrandom(2) / macOS getentropy / Windows BCryptGenRandom.
+// random number generator. The raw entropy tap `__crypto_random_bytes` was
+// re-homed to core `Std.Runtime.Entropy` as a cross-cutting primitive
+// (reclassify-os-entropy-to-core, 2026-09-03) so core's Guid.NewGuid can use
+// it too; SecureRandom now delegates there (rule: 单一声明点). This class stays
+// the security-framed façade (rejection sampling, bounded ints) in the
+// pluggable z42.crypto library.
 //
 // **Use this for** session tokens, CSRF nonces, KDF salts, masking keys,
 // password generation, anything where unpredictability matters.
@@ -15,15 +20,12 @@ using Std;
 // wasm32 throws `Std.NotSupportedException` (wasm-bridge to browser
 // crypto.getRandomValues / WASI is `add-csprng-wasm-bridge` follow-up).
 public static class SecureRandom {
-    [Native("__crypto_random_bytes")]
-    private static extern byte[] _CryptoRandomBytes(int n);
-
     /// Fill `n` bytes from OS CSPRNG. `n` must be ≥ 0.
     public static byte[] GetBytes(int n) {
         if (n < 0) {
             throw new ArgumentException("n must be non-negative, got " + n.ToString());
         }
-        return _CryptoRandomBytes(n);
+        return Entropy.GetBytes(n);
     }
 
     /// Random `int` uniformly distributed over the full i32 range
