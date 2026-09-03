@@ -24,7 +24,6 @@ src/libraries/z42c.syntax/src/Lexer.z42	518
 src/runtime/crates/z42-host/src/lib.rs	566
 src/runtime/src/corelib/fs.rs	615
 src/runtime/src/corelib/mod.rs	665
-src/runtime/src/corelib/network.rs	1102
 src/runtime/src/corelib/process.rs	842
 src/runtime/src/corelib/sync.rs	574
 src/runtime/src/gc/arc_heap/alloc.rs	601

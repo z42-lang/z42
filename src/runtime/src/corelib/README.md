@@ -32,7 +32,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 基准计时 | `bench.rs` |
 | 进程 / 平台 / 系统信息 | `process.rs` / `platform.rs` / `system.rs` |
 | 线程 / 锁 / 锁争用探针 | `threading.rs` / `sync.rs` / `sync_contention.rs` |
-| 网络 / TLS / 加密 | `network.rs` / `tls.rs` / `crypto.rs` |
+| 网络 / TLS / 加密 | `network.rs`（hub：KIND_* / 句柄槽）+ `network/{tcp, tcp_options, udp, wasm}.rs`（refactor-split-network）/ `tls.rs` / `crypto.rs` |
 | REPL 支持（求值宿主 / 行编辑） | `repl.rs` / `repl_editing.rs` |
 | 测试宿主（隔离跑 golden） | `tests.rs`（+ `reflection/module_load.rs` 的 `__run_goldens_isolated`）|
 
