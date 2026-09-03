@@ -58,12 +58,14 @@ pub unsafe extern "C" fn jit_match_catch_type(
         Some(v) => v,
         None    => return 0,
     };
-    let derived: &str = match &exc {
-        Value::Object(rc) => &rc.type_desc().name,
+    let td = match &exc {
+        Value::Object(rc) => rc.type_desc(),
         _                 => return 0, // primitives / null don't match typed catches
     };
     let module = &*(*ctx).module;
-    if crate::interp::dispatch::is_subclass_or_eq_td(vm_ctx, &module.type_registry, derived, target) {
+    // perf-vm-isa-cache: identity-cached type test (`target` is the exception-table string
+    // baked into the JIT code — immortal metadata, as the cache contract requires).
+    if crate::interp::dispatch::isa_td(vm_ctx, &module.type_registry, td, target) {
         1
     } else {
         0

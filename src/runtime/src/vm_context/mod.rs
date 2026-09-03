@@ -59,6 +59,7 @@ mod native;
 mod frames;
 mod statics;
 mod lookup;
+mod isa_cache;
 
 pub use types::{VmCore, VmContext, VM_CONTEXT_SAFEPOINT_SKIP_OFFSET};
 pub(crate) use resource_registry::ResourceRegistry;
@@ -151,3 +152,5 @@ impl crate::gc::arc_heap::ContextReclaim for CoreContextReclaimer {
 #[cfg(test)]
 #[path = "../vm_context_tests.rs"]
 mod vm_context_tests;
+#[cfg(test)]
+mod isa_cache_tests;

@@ -61,6 +61,33 @@ pub fn is_subclass_or_eq_td(
     result
 }
 
+/// perf-vm-isa-cache: type test for a **receiver descriptor** — the single entry used by
+/// interp `is` / `as` / typed `catch` and their JIT helpers. Front-cached in the identity-keyed
+/// `ctx.isa_cache` (two loads on a hit), then the string-keyed memo / chain walk above.
+///
+/// Contract: `target` must be an immortal metadata string (instruction / exception-table /
+/// JIT-baked class name) — see `vm_context::isa_cache`. Transient fallback descriptors
+/// (`id == UNRESOLVED`, allocated per object) are answered but never cached.
+#[inline]
+pub fn isa_td(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    td: &TypeDesc,
+    target: &str,
+) -> bool {
+    let cacheable = td.id != crate::metadata::tokens::TypeId::UNRESOLVED;
+    if cacheable {
+        if let Some(v) = ctx.isa_cache.get(td as *const TypeDesc, target) {
+            return v;
+        }
+    }
+    let v = is_subclass_or_eq_td(ctx, registry, &td.name, target);
+    if cacheable {
+        ctx.isa_cache.put(td as *const TypeDesc, target, v);
+    }
+    v
+}
+
 /// Alloc-free base+interface chain walk backing [`is_subclass_or_eq_td`]. Caller has already
 /// handled `derived == target` and the memo. Holds the current `Arc<TypeDesc>` across
 /// iterations and follows `base_name` by `&str` (no per-level `String` allocation).
