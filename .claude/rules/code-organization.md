@@ -121,6 +121,10 @@ README 是**基础层 + 人 review 的落点**：看完 README 就掌握"这个�
 
 ### 执行方式
 
+- **机械门禁（add-line-count-lint，2026-09-03）**：`xtask test lines` 是 GREEN gate 的一个 stage——扫 `src/` 下非测试
+  `.z42` / `.rs` 文件，**新的越界文件（>500 行）或比 `scripts/test/line-limit-baseline.txt` 基线更长的已知越界文件 → 红**；
+  基线内未增长的只 warn。基线是**棘轮**：拆分后降到上限以下 → `xtask test lines --update` 剔除；禁止用 `--update` 把新越界 /
+  增长写进基线（那等于关掉门禁）。
 - Claude 每次新增代码时，**主动检查**所在文件是否超出软限制
 - 超出软限制时，**建议**拆分方案但不强制打断当前任务
 - 超出硬限制时，**必须**在本次迭代内拆分，不得推迟

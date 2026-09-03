@@ -46,10 +46,11 @@ graph LR
     S2 --> S3[stdlib Test 用例]
     S3 --> S4[compiler 自举<br/>七包 + 不动点 + units]
     S4 --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
-    S5 --> G((GREEN))
+    S5 --> S6[lines<br/>文件行数硬上限 棘轮基线]
+    S6 --> G((GREEN))
 ```
 
-先备工具链与基线，再依序跑五个验证 stage；任一步失败立即终止。
+先备工具链与基线，再依序跑六个验证 stage；任一步失败立即终止。
 **debug z42vm 必须先于 regen 构建**（fix-gate-debug-vm-order，2026-07-16）：golden regen 用
 `_activeVm(root,"debug")` 解析 debug vm 去编译各 golden；若 regen 先跑而 debug vm stale（早于某个
 新增 VM builtin），会在 regen 阶段 panic「unknown builtin」→ 全体 golden 假失败、且 regen 返回 1
@@ -64,6 +65,10 @@ graph LR
 的 debug 断言覆盖不丢，pole 消失（~18→2-3min）。`--toolchain` 消费路径只带 release VM，编译+运行同为它。
 （`vscode-syntax` 守生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 +
 模板」的重渲染——Lexer 加关键字未 `deps install vscode` 重新生成即红，性质同自举不动点。）
+（`lines` 守 [code-organization.md](../../../../.claude/rules/code-organization.md) 的 **文件 500 行硬上限**（add-line-count-lint）：
+扫 `src/` 下非测试 `.z42` / `.rs`，对照 `scripts/test/line-limit-baseline.txt` 棘轮基线——**不在基线的新越界文件、或比基线更长的
+已知越界文件 → 红**；基线内且未增长只 warn。拆分后降到上限以下的文件用 `xtask test lines --update` 从基线剔除（只降不升）。
+纯文本扫描 <1 s，host-independent。）
 （`test runtime` = Rust VM 单测 cargo test **不在** gate 内 —— 它的 signal_handler_e2e
 在信号受限的沙箱里会挂;改由每条 CI 腿单独一步 + 本地 `xtask test runtime` 按需跑。）
 设 `--no-build`（或 `--toolchain <sdk>`）时**跳过构建波、直接消费既有产物**——CI 的
