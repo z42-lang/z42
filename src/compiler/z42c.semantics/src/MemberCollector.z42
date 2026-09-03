@@ -67,34 +67,18 @@ public sealed class MemberCollector {
             this._sc._chkTypeRef(table.ResolveTypeP(c.Bases[_bi], tp, tpc), c.Name, table, c.Bases[_bi].Span);
             _bi = _bi + 1;
         }
-        // stabilize-dispatch-keys（方案A，静态-only）：静态方法恒全签名 mangle（键稳定，加/删重载不 re-mangle
-        // 现有静态键）；实例方法保持基线键规则（bare / Name$arity / type-overload 全 mangle）。故实例仍需预扫描
-        // 兄弟集（ovldInst 判 arity-based 重载、arityDup 判 type-based 重载）。静态不依赖预扫描（无条件 mangle）。
-        StrMap seenInst   = new StrMap();   // 实例方法首次见
-        StrMap ovldInst   = new StrMap();   // 实例方法重载（>1 arity）
-        // add-type-based-overloads：同 (name,arity) ≥2 重载检测（type-based）。键 name$arity，值 "1"=见过 / "2"=重复。
-        // arityDup 计入 static+instance 全部方法：实例方法的 wantMangle 判据依赖跨 static/instance 的 name$arity
-        // 碰撞（镜像基线），故必须全量统计才能与基线实例键逐字节一致。
-        StrMap arityDup   = new StrMap();
-        int pi = 0;
-        while (pi < c.MemberCount) {
-            Decl pmem = this._sc._unwrap(c.Members[pi]);
-            if (pmem is MethodDecl) {
-                MethodDecl pmd = pmem as MethodDecl;
-                if (!this._sc._hasWord(pmd.Mods, "static")) {
-                    if (seenInst.ContainsKey(pmd.Name)) { ovldInst.Put(pmd.Name, "1"); }
-                    else { seenInst.Put(pmd.Name, "1"); }
-                }
-                string ak = pmd.Name + "$" + pmd.ParamCount.ToString();
-                if (arityDup.ContainsKey(ak)) { arityDup.Put(ak, "2"); }   // ≥2 → type-based 重载
-                else { arityDup.Put(ak, "1"); }
-            }
-            pi = pi + 1;
-        }
+        // stabilize-instance-dispatch-keys：实例/静态虚方法改「primary（声明序首个同名）裸基线键 / 非-primary
+        // 全 mangle」，键仅依赖**声明序 + 是否已见过该名**（emit-期 `emittedInst` tracker，见下），不再依赖兄弟集
+        // 预扫描（旧的 seenInst/ovldInst/arityDup 三档：unique-bare / arity-`Name$arity` / type-overload 全 mangle
+        // 已删——那套让「加一个重载 → 既有方法 rekey」，正是要根治的漂移源）。静态非虚仍恒全 mangle（下方）。
         StrMap classConstEnv = new StrMap();   // add-const-keyword：按声明序累积同类 const（裸名 + `Class.名`），供后续 const 初始化器引用
         // add-user-conversions ②：本类转换运算符 (源→目标) → "implicit"/"explicit"，声明期冲突检测（E0440）。
         // 须在注册时检测——真重复会在 ct.Methods 里静默覆盖，事后扫 ct.Methods 抓不到。
         StrMap convSeen = new StrMap();
+        // stabilize-instance-dispatch-keys：primary/非-primary 键决议的 emit-期 tracker。声明序**首次**见到
+        // 某实例/静态虚方法名 → primary（基线键=裸名，多态/协议规范槽 + seed 锚点）；后续同名兄弟 → 非-primary
+        // （全签名 MangleKey，加/删重载只动自己、不碰 primary → 唯一方法逐字节不变）。协议豁免名恒裸、不入此表。
+        StrMap emittedInst = new StrMap();
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._sc._unwrap(c.Members[j]);
@@ -200,14 +184,19 @@ public sealed class MemberCollector {
                         regName = regName + "$to$" + Z42Type.Canon(msym.Signature.Ret.Name());
                     }
                 } else {
-                    string aritK = md.Name + "$" + md.ParamCount.ToString();
+                    // stabilize-instance-dispatch-keys：primary/非-primary 键。声明序**首个**同名（实例或静态虚）
+                    // → 裸基线键（= 唯一方法今天的键：多态/协议规范槽 + seed 锚点，零字节漂移）；后续兄弟 →
+                    // 全签名 MangleKey（加/删重载只动自己、不碰 primary）。协议豁免名恒裸（VM vtable / DepIndex 按
+                    // 裸字面量硬查锚点，mangle 会断；多豁免重载全裸 last-wins，同今天）。decl-only partial 会被下方
+                    // 擦除、不注册，故不计入 primary tracker（否则真 impl 会被误判为非-primary 而 mangle）。
                     regName = md.Name;
-                    bool wantMangle = arityDup.ContainsKey(aritK) && arityDup.Get(aritK) == "2"
-                        && !SymbolCollector.IsProtocolExempt(md.Name);
-                    if (wantMangle) {
-                        regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
-                    } else if (ovldInst.ContainsKey(md.Name)) {
-                        regName = aritK;
+                    bool tracks = !SymbolCollector.IsProtocolExempt(md.Name) && !(md.IsPartial && !md.HasBody);
+                    if (tracks) {
+                        if (emittedInst.ContainsKey(md.Name)) {
+                            regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                        } else {
+                            emittedInst.Put(md.Name, "1");
+                        }
                     }
                 }
                 // add-partial-types：decl-only partial method → 擦除（无实现即不存在，不注册桩/体）。
