@@ -1,0 +1,182 @@
+// BigIntBpsw —— BPSW 素性检测：强 Lucas 伪素数测试 + Jacobi 符号（refactor-split-bigint，2026-09-03）。
+// 自 2234 行的 BigInt.z42 按职责提出：BigInt 保留同名公开方法作薄委托（API 不变），算法体逐字搬移，
+// 仅把 `this` 改为显式 `this` 参数、跨类调用改为 `BigIntXxx._helper(...)`。
+namespace Std.Numerics;
+
+using Std;
+using Std.Random;
+
+internal static class BigIntBpsw {
+    /// True iff this BigInt passes the BPSW primality test. No known
+    /// counterexample; verified for every n ≤ 2^64. Use this for n
+    /// above `IsPrime()`'s 3.317×10^24 deterministic ceiling.
+    internal static bool IsBpswPrime(BigInt self) {
+        if (self._sign <= 0) return false;
+        if (self.IsOne())    return false;
+        // Pre-trial divide by primes 2..41 (same set used by IsPrime).
+        int td = BigIntPrimality._trialDivideUpTo41(self);
+        if (td == 0) return false;
+        if (td == 1) return true;
+        // Step 1: strong Miller-Rabin base 2.
+        BigInt nMinus1 = self.Subtract(BigInt.One);
+        BigInt dMr = nMinus1;
+        int rMr = 0;
+        while (!dMr.TestBit(0)) {
+            dMr = dMr.ShiftRight(1);
+            rMr = rMr + 1;
+        }
+        BigInt witness2 = new BigInt(2L);
+        if (!BigIntPrimality._millerRabinFixedWitness(self, witness2, dMr, rMr, nMinus1)) {
+            return false;
+        }
+        // Step 2: strong Lucas test with parameters via Selfridge's method.
+        // Search D in {5, -7, 9, -11, 13, -15, ...} for first D with
+        // jacobi(D, n) = -1. Bound the search to avoid an infinite loop
+        // on pathological inputs (typical D found within ~10 trials).
+        int absD = 5;
+        int sgn  = 1;
+        int tries = 0;
+        while (tries < 200) {
+            int D = sgn * absD;
+            BigInt bigD = new BigInt((long)D);
+            int j = BigIntBpsw._jacobiSymbol(bigD, self);
+            if (j == 0) {
+                // n shares a factor with D. If n equals |D|, n is a
+                // small prime (43, 47, ..., 97 not covered by trial
+                // division). Otherwise n is composite.
+                BigInt absBigD = new BigInt((long)absD);
+                if (self.CompareTo(absBigD) == 0) return true;
+                return false;
+            }
+            if (j == -1) {
+                // Q = (1 - D) / 4 — always integer since D ≡ 5 (mod 8)
+                // or D ≡ -3 (mod 8) in the search sequence.
+                int Q = (1 - D) / 4;
+                int P = 1;
+                return BigIntBpsw._strongLucasPRP(self, D, P, Q);
+            }
+            absD = absD + 2;
+            sgn  = -sgn;
+            tries = tries + 1;
+        }
+        // Suspiciously square-like input; treat as composite.
+        return false;
+    }
+
+    /// Jacobi symbol (a / n) per quadratic-reciprocity algorithm.
+    /// Returns -1, 0, or 1. `n` must be positive and odd.
+    internal static int _jacobiSymbol(BigInt a, BigInt n) {
+        if (n._sign <= 0) {
+            throw new ArgumentException("Jacobi: n must be > 0");
+        }
+        if (!n.TestBit(0)) {
+            throw new ArgumentException("Jacobi: n must be odd");
+        }
+        int result = 1;
+        BigInt aNorm = a.Mod(n);
+        if (aNorm._sign < 0) aNorm = aNorm.Add(n);
+        BigInt nLocal = n;
+        BigInt big8 = new BigInt(8L);
+        BigInt big4 = new BigInt(4L);
+        while (!aNorm.IsZero()) {
+            while (!aNorm.TestBit(0)) {
+                aNorm = aNorm.ShiftRight(1);
+                BigInt nMod8 = nLocal.Mod(big8);
+                long r8 = nMod8.ToInt64();
+                if (r8 == 3L || r8 == 5L) result = -result;
+            }
+            BigInt tmp = aNorm;
+            aNorm = nLocal;
+            nLocal = tmp;
+            BigInt aMod4 = aNorm.Mod(big4);
+            BigInt nMod4 = nLocal.Mod(big4);
+            if (aMod4.ToInt64() == 3L && nMod4.ToInt64() == 3L) {
+                result = -result;
+            }
+            aNorm = aNorm.Mod(nLocal);
+            if (aNorm._sign < 0) aNorm = aNorm.Add(nLocal);
+        }
+        if (nLocal.IsOne()) return result;
+        return 0;
+    }
+
+    /// Strong Lucas pseudoprime test mod `this` (= n). Caller has
+    /// already chosen `D, P, Q` per Selfridge. Returns true iff `this`
+    /// passes — false proves composite.
+    ///
+    /// Algorithm: decompose n + 1 = 2^s × d (d odd), compute (U_d, V_d)
+    /// mod n by binary-expanding d MSB-first with the doubling formulas
+    /// (U_{2k} = U_k V_k; V_{2k} = V_k² - 2 Q^k), then check U_d ≡ 0
+    /// or V_{d·2^r} ≡ 0 for some 0 ≤ r < s.
+    internal static bool _strongLucasPRP(BigInt self, int D, int P, int Q) {
+        BigInt n = self;
+        BigInt nPlus1 = n.Add(BigInt.One);
+        BigInt d = nPlus1;
+        int s = 0;
+        while (!d.TestBit(0)) {
+            d = d.ShiftRight(1);
+            s = s + 1;
+        }
+        BigInt two = new BigInt(2L);
+        BigInt bigD = BigIntBpsw._modNonNeg(new BigInt((long)D), n);
+        BigInt bigP = BigIntBpsw._modNonNeg(new BigInt((long)P), n);
+        BigInt bigQ = BigIntBpsw._modNonNeg(new BigInt((long)Q), n);
+        BigInt inv2 = two.ModInverse(n);
+        // Initialise at k=1: U_1 = 1, V_1 = P, Q^1 = Q.
+        BigInt U  = BigInt.One;
+        BigInt V  = bigP;
+        BigInt Qk = bigQ;
+        int bitLen = d.BitLength();
+        int i = bitLen - 2;
+        while (i >= 0) {
+            BigInt newU = U.Multiply(V);
+            newU = BigIntBpsw._modNonNeg(newU.Mod(n), n);
+            BigInt vSq = V.Multiply(V);
+            BigInt twoQk = two.Multiply(Qk);
+            BigInt newV = vSq.Subtract(twoQk);
+            newV = BigIntBpsw._modNonNeg(newV.Mod(n), n);
+            BigInt qkSq = Qk.Multiply(Qk);
+            BigInt newQk = BigIntBpsw._modNonNeg(qkSq.Mod(n), n);
+            U  = newU;
+            V  = newV;
+            Qk = newQk;
+            if (d.TestBit(i)) {
+                BigInt pU = bigP.Multiply(U);
+                BigInt sumA = pU.Add(V);
+                BigInt sumAi = sumA.Multiply(inv2);
+                BigInt nextU = BigIntBpsw._modNonNeg(sumAi.Mod(n), n);
+                BigInt dU = bigD.Multiply(U);
+                BigInt pV = bigP.Multiply(V);
+                BigInt sumB = dU.Add(pV);
+                BigInt sumBi = sumB.Multiply(inv2);
+                BigInt nextV = BigIntBpsw._modNonNeg(sumBi.Mod(n), n);
+                BigInt qkQ = Qk.Multiply(bigQ);
+                BigInt nextQk = BigIntBpsw._modNonNeg(qkQ.Mod(n), n);
+                U  = nextU;
+                V  = nextV;
+                Qk = nextQk;
+            }
+            i = i - 1;
+        }
+        // (U, V) is now (U_d, V_d).
+        if (U.IsZero()) return true;
+        // Check V_{d·2^r} ≡ 0 for r in [0, s).
+        int r = 0;
+        while (r < s) {
+            if (V.IsZero()) return true;
+            BigInt vSq2 = V.Multiply(V);
+            BigInt twoQk2 = two.Multiply(Qk);
+            BigInt newV2 = vSq2.Subtract(twoQk2);
+            V = BigIntBpsw._modNonNeg(newV2.Mod(n), n);
+            BigInt qkSq2 = Qk.Multiply(Qk);
+            Qk = BigIntBpsw._modNonNeg(qkSq2.Mod(n), n);
+            r = r + 1;
+        }
+        return false;
+    }
+
+    internal static BigInt _modNonNeg(BigInt x, BigInt n) {
+        if (x._sign < 0) return x.Add(n);
+        return x;
+    }
+}

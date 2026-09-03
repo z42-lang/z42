@@ -1,0 +1,356 @@
+// BigIntPrimality —— Miller-Rabin（随机见证 / OEIS A014233 确定性见证集）、NextPrime 轮转与小素数试除（refactor-split-bigint，2026-09-03）。
+// 自 2234 行的 BigInt.z42 按职责提出：BigInt 保留同名公开方法作薄委托（API 不变），算法体逐字搬移，
+// 仅把 `this` 改为显式 `this` 参数、跨类调用改为 `BigIntXxx._helper(...)`。
+namespace Std.Numerics;
+
+using Std;
+using Std.Random;
+
+internal static class BigIntPrimality {
+    /// Uniform-ish random BigInt in `[0, upper)`. Generates a magnitude
+    /// with `upper.BitLength()` random bits then reduces modulo `upper`.
+    /// Mod-bias is acceptable for Miller-Rabin witness sampling (correctness
+    /// only depends on witnesses being distributed enough to surface
+    /// composites within the requested rounds).
+    internal static BigInt _randomBelow(Random rng, BigInt upper) {
+        int bitLen = upper.BitLength();
+        if (bitLen <= 0) return BigInt.Zero;
+        int limbCount = (bitLen + 30) / 31;
+        int[] mag = new int[limbCount];
+        int i = 0;
+        while (i < limbCount) {
+            // Generate 31 random bits as a long (NextLongRange takes long
+            // bounds; 2^31 fits comfortably). Cast to int — value is in
+            // [0, 2^31) so the int is non-negative.
+            long raw = rng.NextLongRange(0L, 2147483648L);
+            mag[i] = (int)raw;
+            i = i + 1;
+        }
+        BigInt cand = BigInt._fromMagSign(mag, 1);
+        return cand.Mod(upper);
+    }
+
+    /// Miller-Rabin probabilistic primality test with caller-provided RNG.
+    /// Returns `true` if probably prime (error ≤ `4^(-rounds)`), `false`
+    /// if definitely composite.
+    internal static bool IsProbablyPrime(BigInt self, int rounds, Random rng) {
+        if (rounds <= 0) {
+            throw new ArgumentException("BigInt.IsProbablyPrime: rounds must be > 0");
+        }
+        // Quick rejects on small values + sign + parity.
+        if (self._sign <= 0) return false;
+        if (self.IsOne())    return false;
+        BigInt two   = new BigInt(2L);
+        BigInt three = new BigInt(3L);
+        if (self.CompareTo(two)   == 0) return true;
+        if (self.CompareTo(three) == 0) return true;
+        // Even numbers > 2 are composite (TestBit(0) returns parity).
+        if (!self.TestBit(0)) return false;
+        // Decompose n - 1 = 2^r * d, d odd.
+        BigInt nMinus1 = self.Subtract(BigInt.One);
+        BigInt d       = nMinus1;
+        int r          = 0;
+        while (!d.TestBit(0)) {
+            d = d.ShiftRight(1);
+            r = r + 1;
+        }
+        // Witness range [2, n-2] generated as `_randomBelow(n-3) + 2`.
+        BigInt nMinus3 = self.Subtract(three);
+        int i = 0;
+        while (i < rounds) {
+            BigInt rawIdx = BigIntPrimality._randomBelow(rng, nMinus3);
+            BigInt a      = rawIdx.Add(two);
+            BigInt x      = a.ModPow(d, self);
+            if (x.IsOne() || x.CompareTo(nMinus1) == 0) {
+                i = i + 1;
+                continue;
+            }
+            bool composite = true;
+            int j = 0;
+            while (j < r - 1) {
+                BigInt xSq = x.Multiply(x);
+                x = xSq.Mod(self);
+                if (x.CompareTo(nMinus1) == 0) {
+                    composite = false;
+                    j = r;            // break; z42 loop has no `break` parity yet
+                } else {
+                    j = j + 1;
+                }
+            }
+            if (composite) return false;
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// Smallest (probably) prime strictly greater than `this`. Uses 20-round
+    /// Miller-Rabin (cryptographic-grade default; error ≤ 4^-20 ≈ 10^-12).
+    ///
+    /// `(this < 2).NextPrime() == 2`; otherwise stepping uses a 2-3 wheel
+    /// (only candidates coprime to 6, i.e. `6k±1`) plus a small-prime trial
+    /// division early-reject (primes 3..31) to short-circuit before invoking
+    /// the heavier Miller-Rabin path. add-bigint-prime-sieve (2026-05-25).
+    internal static BigInt NextPrime(BigInt self) {
+        BigInt two   = new BigInt(2L);
+        BigInt three = new BigInt(3L);
+        if (self.CompareTo(two)   < 0) return two;
+        if (self.CompareTo(three) < 0) return three;
+        // Step `this` up to the first candidate strictly greater than `this`
+        // and coprime to 6. Uses `this mod 6` to land on either 6k+1 or 6k+5.
+        BigInt six  = new BigInt(6L);
+        BigInt mod6 = self.Mod(six);
+        long m      = mod6.ToInt64();
+        BigInt cand;
+        if      (m == 0L) { cand = self.Add(BigInt.One);          }   // → 6k+1
+        else if (m == 1L) { cand = self.Add(new BigInt(4L));      }   // → 6k+5
+        else if (m == 2L) { cand = self.Add(new BigInt(3L));      }   // → 6k+5
+        else if (m == 3L) { cand = self.Add(new BigInt(2L));      }   // → 6k+5
+        else if (m == 4L) { cand = self.Add(BigInt.One);          }   // → 6k+5
+        else              { cand = self.Add(new BigInt(2L));      }   // m==5 → 6k+7 = 6(k+1)+1
+        BigInt four = new BigInt(4L);
+        // After a 6k+5 candidate the next coprime-to-6 step is +2 (→ 6k+7);
+        // after 6k+1 the next step is +4 (→ 6k+5).
+        BigInt candMod6 = cand.Mod(six);
+        bool nextStepIs2 = (candMod6.ToInt64() == 5L);
+        Random rng = new Random();
+        while (true) {
+            if (BigIntPrimality._trialDivideSmallPrimes(cand)) {
+                if (cand.IsProbablyPrime(20, rng)) return cand;
+            }
+            if (nextStepIs2) {
+                cand = cand.Add(two);
+                nextStepIs2 = false;
+            } else {
+                cand = cand.Add(four);
+                nextStepIs2 = true;
+            }
+        }
+        return BigInt.Zero;   // unreachable; satisfies type-checker if needed
+    }
+
+    /// Trial divide `cand` by primes 3, 5, 7, 11, ..., 31. Returns true if
+    /// `cand` is one of those primes or has no small factor (Miller-Rabin
+    /// should be run); returns false if `cand` is divisible by any small
+    /// prime > 2 (definitely composite). Big perf win in NextPrime — most
+    /// composite candidates are caught here without invoking ModPow rounds.
+    internal static bool _trialDivideSmallPrimes(BigInt cand) {
+        int[] smallPrimes = new int[10];
+        smallPrimes[0] =  3; smallPrimes[1] =  5; smallPrimes[2] =  7;
+        smallPrimes[3] = 11; smallPrimes[4] = 13; smallPrimes[5] = 17;
+        smallPrimes[6] = 19; smallPrimes[7] = 23; smallPrimes[8] = 29;
+        smallPrimes[9] = 31;
+        int i = 0;
+        while (i < 10) {
+            BigInt p = new BigInt((long)smallPrimes[i]);
+            // If cand == p, it IS prime — let Miller-Rabin confirm.
+            if (cand.CompareTo(p) == 0) return true;
+            // Divisibility by a smaller prime → composite (cand > p assumed
+            // since the wheel skips ≤ 4 cases and cand > this >= 3).
+            BigInt r = cand.Mod(p);
+            if (r.IsZero()) return false;
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// True iff this BigInt is prime, with **zero** error within the
+    /// supported range. Throws `ArgumentException` for values ≥
+    /// 3,317,044,064,679,887,385,961,981 — callers with larger inputs
+    /// should use `IsProbablyPrime(rounds)`.
+    ///
+    /// Tier-selects the smallest valid witness set per OEIS A014233
+    /// (one round for n < 2047, up to 13 for the top tier). Pre-trial
+    /// divides by primes 2..41 so the Miller-Rabin loop always sees
+    /// n > 41 and odd — handles the small-prime + Carmichael edge
+    /// cases without conditional witness skipping.
+    internal static bool IsPrime(BigInt self) {
+        if (self._sign <= 0) return false;
+        if (self.IsOne())    return false;
+        // Pre-trial divide by every prime that appears in any witness set
+        // (2..41). Three outcomes: equal-to-prime (return true), divisible
+        // (return false), coprime (fall through to Miller-Rabin).
+        int td = BigIntPrimality._trialDivideUpTo41(self);
+        if (td == 0) return false;
+        if (td == 1) return true;
+        // Reject values at or above the top deterministic threshold; the
+        // caller asked for a deterministic answer we can't honour.
+        BigInt topBound = BigInt.Parse("3317044064679887385961981");
+        if (self.CompareTo(topBound) >= 0) {
+            throw new ArgumentException(
+                "BigInt.IsPrime: deterministic witnesses only known for "
+                + "n < 3,317,044,064,679,887,385,961,981; use "
+                + "IsProbablyPrime(rounds) for larger values");
+        }
+        // Decompose n - 1 = 2^r * d once and reuse across witnesses.
+        BigInt nMinus1 = self.Subtract(BigInt.One);
+        BigInt d       = nMinus1;
+        int r          = 0;
+        while (!d.TestBit(0)) {
+            d = d.ShiftRight(1);
+            r = r + 1;
+        }
+        // Pick smallest sufficient witness set.
+        BigInt[] witnesses = BigIntPrimality._pickDeterministicWitnesses(self);
+        int i = 0;
+        while (i < witnesses.Length) {
+            if (!BigIntPrimality._millerRabinFixedWitness(self, witnesses[i], d, r, nMinus1)) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// Return 0 if `n` is divisible by a prime in {2..41} and not equal
+    /// to it (definitely composite), 1 if `n` equals one of those primes
+    /// (definitely prime), 2 if `n` is coprime to all (Miller-Rabin
+    /// needed). Pre-condition: `n > 0`.
+    internal static int _trialDivideUpTo41(BigInt n) {
+        int[] primes = new int[13];
+        primes[ 0] =  2; primes[ 1] =  3; primes[ 2] =  5; primes[ 3] =  7;
+        primes[ 4] = 11; primes[ 5] = 13; primes[ 6] = 17; primes[ 7] = 19;
+        primes[ 8] = 23; primes[ 9] = 29; primes[10] = 31; primes[11] = 37;
+        primes[12] = 41;
+        int i = 0;
+        while (i < 13) {
+            BigInt p = new BigInt((long)primes[i]);
+            int cmp = n.CompareTo(p);
+            if (cmp == 0) return 1;     // n is self small prime
+            if (cmp > 0) {
+                BigInt rem = n.Mod(p);
+                if (rem.IsZero()) return 0;   // divisible → composite
+            }
+            i = i + 1;
+        }
+        return 2;
+    }
+
+    /// Run one round of Miller-Rabin with `witness` as base `a`. Returns
+    /// false iff `witness` proves `this` composite; true iff it passes
+    /// (probably-prime under this witness). Caller pre-computes
+    /// `d`, `r` such that `this - 1 = 2^r * d`, and `nMinus1 = this - 1`.
+    internal static bool _millerRabinFixedWitness(BigInt self, BigInt witness, BigInt d, int r,
+                                  BigInt nMinus1) {
+        BigInt x = witness.ModPow(d, self);
+        if (x.IsOne() || x.CompareTo(nMinus1) == 0) {
+            return true;
+        }
+        int j = 0;
+        while (j < r - 1) {
+            BigInt xSq = x.Multiply(x);
+            x = xSq.Mod(self);
+            if (x.CompareTo(nMinus1) == 0) return true;
+            j = j + 1;
+        }
+        return false;
+    }
+
+    /// Pick smallest deterministic witness set sufficient for `n`. Caller
+    /// has already verified `n < 3,317,044,064,679,887,385,961,981`.
+    /// Tier table is from OEIS A014233.
+    internal static BigInt[] _pickDeterministicWitnesses(BigInt n) {
+        // Tier 1: n < 2047 → {2}
+        if (n.CompareTo(BigInt.Parse("2047")) < 0) {
+            return BigIntPrimality._witnessesOf1(2L);
+        }
+        // Tier 2: n < 1,373,653 → {2, 3}
+        if (n.CompareTo(BigInt.Parse("1373653")) < 0) {
+            return BigIntPrimality._witnessesOf2(2L, 3L);
+        }
+        // Tier 3: n < 9,080,191 → {31, 73}
+        if (n.CompareTo(BigInt.Parse("9080191")) < 0) {
+            return BigIntPrimality._witnessesOf2(31L, 73L);
+        }
+        // Tier 4: n < 25,326,001 → {2, 3, 5}
+        if (n.CompareTo(BigInt.Parse("25326001")) < 0) {
+            return BigIntPrimality._witnessesOf3(2L, 3L, 5L);
+        }
+        // Tier 5: n < 3,215,031,751 → {2, 3, 5, 7}
+        if (n.CompareTo(BigInt.Parse("3215031751")) < 0) {
+            return BigIntPrimality._witnessesOf4(2L, 3L, 5L, 7L);
+        }
+        // Tier 6: n < 4,759,123,141 → {2, 7, 61}
+        if (n.CompareTo(BigInt.Parse("4759123141")) < 0) {
+            return BigIntPrimality._witnessesOf3(2L, 7L, 61L);
+        }
+        // Tier 7: n < 1,122,004,669,633 → {2, 13, 23, 1662803}
+        if (n.CompareTo(BigInt.Parse("1122004669633")) < 0) {
+            return BigIntPrimality._witnessesOf4(2L, 13L, 23L, 1662803L);
+        }
+        // Tier 8: n < 2,152,302,898,747 → {2, 3, 5, 7, 11}
+        if (n.CompareTo(BigInt.Parse("2152302898747")) < 0) {
+            return BigIntPrimality._witnessesOfRange(11);
+        }
+        // Tier 9: n < 3,474,749,660,383 → {2, 3, 5, 7, 11, 13}
+        if (n.CompareTo(BigInt.Parse("3474749660383")) < 0) {
+            return BigIntPrimality._witnessesOfRange(13);
+        }
+        // Tier 10: n < 341,550,071,728,321 → {2, 3, 5, 7, 11, 13, 17}
+        if (n.CompareTo(BigInt.Parse("341550071728321")) < 0) {
+            return BigIntPrimality._witnessesOfRange(17);
+        }
+        // Tier 11: n < 3,825,123,056,546,413,051 → {2,3,5,7,11,13,17,19,23}
+        if (n.CompareTo(BigInt.Parse("3825123056546413051")) < 0) {
+            return BigIntPrimality._witnessesOfRange(23);
+        }
+        // Tier 12: n < 318,665,857,834,031,151,167,461 → {2..37}
+        if (n.CompareTo(BigInt.Parse("318665857834031151167461")) < 0) {
+            return BigIntPrimality._witnessesOfRange(37);
+        }
+        // Tier 13: n < 3,317,044,064,679,887,385,961,981 → {2..41}
+        return BigIntPrimality._witnessesOfRange(41);
+    }
+
+    internal static BigInt[] _witnessesOf1(long a) {
+        BigInt[] w = new BigInt[1];
+        w[0] = new BigInt(a);
+        return w;
+    }
+
+    internal static BigInt[] _witnessesOf2(long a, long b) {
+        BigInt[] w = new BigInt[2];
+        w[0] = new BigInt(a);
+        w[1] = new BigInt(b);
+        return w;
+    }
+
+    internal static BigInt[] _witnessesOf3(long a, long b, long c) {
+        BigInt[] w = new BigInt[3];
+        w[0] = new BigInt(a);
+        w[1] = new BigInt(b);
+        w[2] = new BigInt(c);
+        return w;
+    }
+
+    internal static BigInt[] _witnessesOf4(long a, long b, long c, long d) {
+        BigInt[] w = new BigInt[4];
+        w[0] = new BigInt(a);
+        w[1] = new BigInt(b);
+        w[2] = new BigInt(c);
+        w[3] = new BigInt(d);
+        return w;
+    }
+
+    /// Build witness set {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41}
+    /// truncated to primes ≤ maxPrime. Used by tiers 8..13.
+    internal static BigInt[] _witnessesOfRange(int maxPrime) {
+        int[] all = new int[13];
+        all[ 0] =  2; all[ 1] =  3; all[ 2] =  5; all[ 3] =  7;
+        all[ 4] = 11; all[ 5] = 13; all[ 6] = 17; all[ 7] = 19;
+        all[ 8] = 23; all[ 9] = 29; all[10] = 31; all[11] = 37;
+        all[12] = 41;
+        int count = 0;
+        int i = 0;
+        while (i < 13) {
+            if (all[i] <= maxPrime) count = count + 1;
+            i = i + 1;
+        }
+        BigInt[] w = new BigInt[count];
+        int j = 0;
+        while (j < count) {
+            w[j] = new BigInt((long)all[j]);
+            j = j + 1;
+        }
+        return w;
+    }
+}

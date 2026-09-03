@@ -10,6 +10,7 @@ z42 任意精度 + 扩展数值类型。v0 仅 BigInt（arbitrary-precision inte
 | 文件 | 类型 | 说明 |
 |------|------|------|
 | `BigInt.z42` | `BigInt` | 任意精度整数；construct / Parse(decimal+hex) / Add/Sub/Mul/Div/Mod / Pow / CompareTo / ToString (decimal) / ToHex / `ToBase(radix 2–36)` |
+| `BigIntModular.z42` / `BigIntPrimality.z42` / `BigIntBpsw.z42` | `BigIntModular` / `BigIntPrimality` / `BigIntBpsw`（internal）| refactor-split-bigint：ModPow（Montgomery REDC）/ ModInverse；Miller-Rabin（随机 + A014233 确定性见证）/ NextPrime / 小素数试除；BPSW（强 Lucas + Jacobi）——`BigInt` 同名公开方法为薄委托 |
 
 ## 入口点
 
