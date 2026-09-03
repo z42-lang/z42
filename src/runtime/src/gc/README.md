@@ -21,7 +21,10 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— GC 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
 | `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
 | `region.rs` | 定长 `Region<T>` chunk 分配器（对象/数组）+ `ChunkClaim`（TLAB borrow/retire/reclaim 链本地分配）|
-| `var_region.rs` | 变长 `VarRegion` 字节 bump 分配器（字符串/闭包）+ `VarChunkClaim`（TLAB + per-chunk `reuse_gen` ABA 守）|
+| `var_region.rs` | 变长 `VarRegion` 字节 bump 分配器（字符串/闭包）——alloc / resolve / tombstone / sweep 主体 |
+| `var_region/block.rs` | `BlockType` / `GcBlockHeader`（16 B 头）/ payload 指针 + `PayloadDropGlue` |
+| `var_region/chunk.rs` | 尺寸类 + 原始 chunk + `VarChunkClaim`（TLAB + per-chunk `reuse_gen` ABA 守）+ chunk 增长/借出/回收 |
+| `var_region/var_ref.rs` | `VarGcRef` —— 8 字节类型擦除 tagged 句柄 |
 | `tlab.rs` | **add-gc-tlab**：thread-local `Tlab{obj,arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/book/src/runtime/gc-tlab-chunk-exclusive.md) |
 | `refs.rs` | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄 + `GcAllocation<T>` wrapper |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
