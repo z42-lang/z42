@@ -1,10 +1,16 @@
 // IR 基本块终结符（port-z42c-codegen CG-1A）。镜像 C# IrTerminator record。
 // 受限写法：class 继承 + virtual Dump()。每块恰一个终结符（显式控制流）。
 // CG-1A 用 RetTerm；BrTerm/BrCondTerm 在 CG-1B 控制流启用；ThrowTerm 占位（异常增量）。
+// 统一操作数接口（unify-ir-operand-access）：终结符至多读一个寄存器（ret 值 / 条件 / 抛出值），
+// ReadReg / SetReadReg 供 IrOptInfo 计读·改写与 ZbcWriter REGT 收集统一迭代（同 IrInstr 接口）。
 namespace Z42.IR;
 
 public class IrTerminator {
     public virtual string Dump() { return "?term"; }
+    // 读的寄存器；不读者 null。
+    public virtual TypedReg ReadReg() { return null; }
+    // 改写读的寄存器；不读者忽略。
+    public virtual void SetReadReg(TypedReg r) { }
 }
 
 // 返回：有值 `ret %r` / 无值 `ret`。
@@ -16,6 +22,8 @@ public sealed class RetTerm : IrTerminator {
         if (this.HasReg) { return "ret " + this.Reg.Dump(); }
         return "ret";
     }
+    public override TypedReg ReadReg() { if (this.HasReg) { return this.Reg; } return null; }
+    public override void SetReadReg(TypedReg r) { if (this.HasReg) { this.Reg = r; } }
 }
 
 // 无条件跳转。
@@ -36,6 +44,8 @@ public sealed class BrCondTerm : IrTerminator {
     public override string Dump() {
         return "br.cond " + this.Cond.Dump() + ", " + this.TrueLabel + ", " + this.FalseLabel;
     }
+    public override TypedReg ReadReg() { return this.Cond; }
+    public override void SetReadReg(TypedReg r) { this.Cond = r; }
 }
 
 // 抛出（异常增量启用；占位）。
@@ -43,4 +53,6 @@ public sealed class ThrowTerm : IrTerminator {
     public TypedReg Reg;
     public ThrowTerm(TypedReg reg) { this.Reg = reg; }
     public override string Dump() { return "throw " + this.Reg.Dump(); }
+    public override TypedReg ReadReg() { return this.Reg; }
+    public override void SetReadReg(TypedReg r) { this.Reg = r; }
 }

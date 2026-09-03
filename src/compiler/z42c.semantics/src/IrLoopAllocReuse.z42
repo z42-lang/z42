@@ -34,7 +34,7 @@ public sealed class IrLoopAllocReuse {
         if (cfg == null) { return; }   // <2 块 / 有异常表
         int n = cfg.N;
         int rc = f.MaxReg + 2;
-        int[]    defs      = IrLoopAllocReuse._computeDefs(f, rc);
+        int[]    defs      = IrRegCounts.DefsCap(f, rc);
         string[] constText = IrLoopAllocReuse._computeConstText(f, rc);
         bool[] isHeader = IrLoopUtil.Headers(cfg);
         int h = 0;
@@ -255,19 +255,6 @@ public sealed class IrLoopAllocReuse {
         f.MaxReg = f.MaxReg + 1;
         TypedReg dummy = new TypedReg(f.MaxReg, IrType.Ref);
         return new CallInstr(dummy, o.CtorName, callArgs, o.ArgCount + 1);
-    }
-
-    // ── 辅助 ─────────────────────────────────────────────────────────────────────────
-    private static int[] _computeDefs(IrFunction f, int rc) {
-        int[] defs = new int[rc];
-        int bi = 0;
-        while (bi < f.BlockCount) {
-            IrBlock b = f.Blocks[bi];
-            int ii = 0;
-            while (ii < b.InstrCount) { IrOptInfo.AddDef(defs, b.Instrs[ii]); ii = ii + 1; }
-            bi = bi + 1;
-        }
-        return defs;
     }
 
     // reg → const 文本（ConstI32/I64 的 Text；非 const 为 null）。

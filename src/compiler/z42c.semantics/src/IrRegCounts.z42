@@ -1,0 +1,52 @@
+// IrRegCounts —— 函数内寄存器读 / 写计数的**唯一**实现（share-ir-reg-counts）。
+//
+// 此前 IrOptPipeline / IrDeadBranch / IrEscapeAnalysis / IrLoopAllocReuse 各自持一份逐字相同的
+// `_computeDefs`（+ IrOptPipeline 的 `_computeReads`），四处平行维护。计数语义全部来自 IrOptInfo
+// （`AddDef` / `AddReads` / `AddTermReads`，底层是 z42.ir 的统一操作数接口），本类只负责「扫全函数、
+// 累加、返回数组」这一层。
+//
+// 约定：
+//   - 数组下标 = 寄存器 id；默认长度 `f.MaxReg + 2`（+2 留 MaxReg 本身与越界守卫位，沿用各 pass 既有写法）；
+//     `DefsCap` 允许调用方指定长度（IrLoopAllocReuse 用同一 rc 与其它并行数组对齐）。
+//   - `Defs`：每条指令的定义寄存器 +1（终结子不定义）。`defs[r]==1` 即单赋值。
+//   - `Reads`：每条指令的读操作数 +1，每块终结子的读 +1。**不含**参数 live-out 种子——需要时调用方
+//     自行 `_seedParams`（temp-DCE 的保护逻辑属 pass 策略，不属计数）。
+//   - 每次调用都从当前 IR 重算（pass 之间 IR 会变；design D2「各 pass 独立开启也正确」）。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public sealed class IrRegCounts {
+
+    // 写计数（长度 MaxReg+2）。
+    public static int[] Defs(IrFunction f) {
+        return IrRegCounts.DefsCap(f, f.MaxReg + 2);
+    }
+
+    // 写计数（调用方指定长度 cap）。
+    public static int[] DefsCap(IrFunction f, int cap) {
+        int[] defs = new int[cap];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.AddDef(defs, blk.Instrs[ii]); ii = ii + 1; }
+            bi = bi + 1;
+        }
+        return defs;
+    }
+
+    // 读计数（长度 MaxReg+2；含终结子读）。
+    public static int[] Reads(IrFunction f) {
+        int[] reads = new int[f.MaxReg + 2];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock blk = f.Blocks[bi];
+            int ii = 0;
+            while (ii < blk.InstrCount) { IrOptInfo.AddReads(reads, blk.Instrs[ii]); ii = ii + 1; }
+            if (blk.HasTerm) { IrOptInfo.AddTermReads(reads, blk.Term); }
+            bi = bi + 1;
+        }
+        return reads;
+    }
+}

@@ -9,7 +9,8 @@
 //   - **角色感知逃逸汇点规则表**（`_markEscaping`，可扩展核心）：逐指令按操作数**角色**分类——
 //     escaping（返回 / 存字段·数组·静态的值 / throw / 闭包捕获 / ToString / as-cast 别名 / 取址）标记逃逸；
 //     neutral（读自身字段·数组·长度 / is-check / 算术等消费值）跳过。
-//     **铁律：完整镜像 IrOptInfo.AddReads 的读枚举**——漏一个 escaping 操作数 = 漏判逃逸 = 悬垂栈引用。
+//     **安全底线（unify-ir-operand-access）**：规则表未显式列出的指令走保守兜底——经统一操作数接口把
+//     全部读操作数标逃逸；neutral 指令必须显式登记。新增指令忘了登记 = 少一次栈分配机会，而非悬垂栈引用。
 //   - **跨过程参数逃逸摘要**（add-crossproc-escape-summary）：`CallInstr`/`ObjNew` 的实参**不再一律逃逸**，
 //     而是按 callee 的参数逃逸摘要（`IrEscapeSummary` 算的模块不动点 `ParamEscapeTable`）逐个判——callee
 //     不让参数 i 逃逸 → 该实参不逃逸。无摘要（跨包/无体/VCall/CallIndirect/builtin/闭包）→ 保守全标。
@@ -35,7 +36,7 @@ public sealed class IrEscapeAnalysis {
     // 对一个函数：算逃逸集（用摘要解析 call 实参）+ 单赋值集，给不逃逸的分配置 StackAlloc。
     private static void _markFunc(IrModule m, IrFunction f, ParamEscapeTable table) {
         bool[] esc  = IrEscapeAnalysis.ComputeEscapedRegs(m, f, table);
-        int[]  defs = IrEscapeAnalysis._computeDefs(f);
+        int[]  defs = IrRegCounts.Defs(f);
         int bi = 0;
         while (bi < f.BlockCount) {
             IrBlock b = f.Blocks[bi];
@@ -110,40 +111,33 @@ public sealed class IrEscapeAnalysis {
         return esc;
     }
 
-    // 逃逸汇点规则表（可扩展核心）——完整镜像 IrOptInfo.AddReads 的读枚举，逐操作数分类。
+    // 逃逸汇点规则表（可扩展核心）——逐指令按操作数**角色**分类：escaping 标记、neutral 跳过。
+    // 顺序即优先级：① 有摘要的静态调用 → ② 显式 neutral 白名单 → ③ 部分汇点（只标特定角色）→
+    // ④ 兜底：**全部读操作数逃逸**（统一操作数接口 ReadAt；覆盖无摘要调用 / 存储 / 别名 / 未来新增指令）。
     private static void _markEscaping(IrModule m, ParamEscapeTable table, bool[] esc, IrInstr ins) {
-        // 静态直接调用：实参**按 callee 摘要**逐个判（args[i]→callee 参数槽 i）。无摘要→全标。
+        // ① 静态直接调用：实参**按 callee 摘要**逐个判（args[i]→callee 参数槽 i）。无摘要→全标。
         if (ins is CallInstr)        { CallInstr i = ins as CallInstr; IrEscapeAnalysis._markCallArgs(m, table, esc, i.Func, i.Args, i.ArgCount, 0); return; }
         // ObjNew：实参是 ctor 实参**不含 this**（运行时前置）→ args[i]→ctor 参数槽 i+1。无摘要→全标。
         if (ins is ObjNewInstr)      { ObjNewInstr i = ins as ObjNewInstr; IrEscapeAnalysis._markCallArgs(m, table, esc, i.CtorName, i.Args, i.ArgCount, 1); return; }
-        // 以下调用形式**无可靠摘要**（动态派发 / 原生 / 闭包捕获）→ 保守全标（soundness 底线）。
-        if (ins is BuiltinInstr)     { BuiltinInstr i = ins as BuiltinInstr; IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
-        if (ins is CallNativeInstr)  { CallNativeInstr i = ins as CallNativeInstr; IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
-        if (ins is VCallInstr)       { VCallInstr i = ins as VCallInstr; IrEscapeAnalysis._mark(esc, i.Obj); IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
-        if (ins is CallIndirectInstr){ CallIndirectInstr i = ins as CallIndirectInstr; IrEscapeAnalysis._mark(esc, i.Callee); IrEscapeAnalysis._markArgs(esc, i.Args, i.ArgCount); return; }
-        if (ins is MkClosInstr)      { MkClosInstr i = ins as MkClosInstr; IrEscapeAnalysis._markArgs(esc, i.Captures, i.CaptureCount); return; }
-        // 存储：被存进对象/静态/数组的**值**逃逸；target/array/index 是 neutral。
-        if (ins is FieldSetInstr)    { FieldSetInstr i = ins as FieldSetInstr; IrEscapeAnalysis._mark(esc, i.Val); return; }
-        if (ins is StaticSetInstr)   { StaticSetInstr i = ins as StaticSetInstr; IrEscapeAnalysis._mark(esc, i.Val); return; }
-        if (ins is ArraySetInstr)    { ArraySetInstr i = ins as ArraySetInstr; IrEscapeAnalysis._mark(esc, i.Val); return; }
-        if (ins is ArrayNewLitInstr) { ArrayNewLitInstr i = ins as ArrayNewLitInstr; IrEscapeAnalysis._markArgs(esc, i.Elems, i.ElemCount); return; }
-        // 别名 / 调用用户码：as-cast 结果别名 Obj；ToStr 调 ToString(this)；取址泄漏引用。
-        if (ins is AsCastInstr)      { AsCastInstr i = ins as AsCastInstr; IrEscapeAnalysis._mark(esc, i.Obj); return; }
-        if (ins is ToStrInstr)       { ToStrInstr i = ins as ToStrInstr; IrEscapeAnalysis._mark(esc, i.Src); return; }
-        if (ins is LoadLocalAddrInstr){ LoadLocalAddrInstr i = ins as LoadLocalAddrInstr; IrEscapeAnalysis._mark(esc, i.Slot); return; }
-        // IsInstance.Obj / Convert.Src：标 ESCAPE **有意收窄运行时触达面**（非逃逸语义所需）——见
-        // escape-analysis book「运行时触达面」。放宽需运行时补 StackObject 分支（跨过程摘要 v1 不动）。
-        if (ins is IsInstanceInstr)  { IsInstanceInstr i = ins as IsInstanceInstr; IrEscapeAnalysis._mark(esc, i.Obj); return; }
-        if (ins is ConvertInstr)     { ConvertInstr i = ins as ConvertInstr; IrEscapeAnalysis._mark(esc, i.Src); return; }
-        // add-struct-value-semantics A-use（铁律：完整镜像 AddReads）：存入 struct blob 的**值**逃逸
-        // （对称 FieldSet——含引用叶子时防止存进 struct 的对象被误栈分配→悬垂）。struct 句柄操作数
-        // （copy 的 Dst/Src、fget 的 Base）是 StructRef，非 ObjNew 逃逸候选 → neutral。
-        if (ins is StructFieldSetPrimInstr){ StructFieldSetPrimInstr i = ins as StructFieldSetPrimInstr; IrEscapeAnalysis._mark(esc, i.Val); return; }
-        if (ins is StructCopyInstr)        { return; }
-        if (ins is StructFieldGetPrimInstr){ return; }
-        if (ins is StructAllocInstr)       { return; }
-        // 其余皆 neutral（不标）：Copy(Pass B) / FieldGet.Obj / ArrayGet / ArrayLen / 算术·比较·位·移位·
-        //   一元·StrConcat 操作数 / ArrayNew.Size / Const* / StaticGet / LoadFn / Typeof / DefaultOf。
+        // ② 显式 neutral（消费值但不让其逃逸）：copy（Pass B 传递闭包处理）/ 读自身字段·数组·长度 /
+        //    二元算术·比较·位·移位·串拼接 / 一元 neg·not·bit_not / ArrayNew.Size / struct 句柄操作数
+        //    （StructRef 非 ObjNew 逃逸候选）。仅定义 Dst 的指令（Const*/StaticGet/LoadFn/Typeof/DefaultOf/
+        //    MethodTypeArg/MethodDefault/StructAlloc）无读操作数，兜底自然不标。
+        if (ins is CopyInstr || ins is IrBinInstr || ins is NegInstr || ins is NotInstr || ins is BitNotInstr
+            || ins is FieldGetInstr || ins is ArrayGetInstr || ins is ArrayLenInstr || ins is ArrayNewInstr
+            || ins is StructCopyInstr || ins is StructFieldGetPrimInstr) { return; }
+        // ③ 部分汇点：被存进对象/数组/struct blob 的**值**逃逸；target/array/index/base 是 neutral
+        //    （StructFieldSetPrim 对称 FieldSet——含引用叶子时防止存进 struct 的对象被误栈分配→悬垂）。
+        if (ins is FieldSetInstr)          { IrEscapeAnalysis._mark(esc, (ins as FieldSetInstr).Val); return; }
+        if (ins is ArraySetInstr)          { IrEscapeAnalysis._mark(esc, (ins as ArraySetInstr).Val); return; }
+        if (ins is StructFieldSetPrimInstr){ IrEscapeAnalysis._mark(esc, (ins as StructFieldSetPrimInstr).Val); return; }
+        // ④ 兜底：全部读操作数逃逸。覆盖——无可靠摘要的调用形式（Builtin / CallNative / VCall 动态派发 /
+        //    CallIndirect）、MkClos 闭包捕获、ArrayNewLit 元素、StaticSet 值、AsCast 别名、ToStr 调 ToString(this)、
+        //    LoadLocalAddr 取址泄漏；IsInstance.Obj / Convert.Src 标 ESCAPE **有意收窄运行时触达面**（非逃逸语义
+        //    所需，见 escape-analysis book「运行时触达面」；放宽需运行时补 StackObject 分支）；以及未来新增指令。
+        int n = ins.ReadCount();
+        int k = 0;
+        while (k < n) { IrEscapeAnalysis._mark(esc, ins.ReadAt(k)); k = k + 1; }
     }
 
     // 静态调用/ObjNew 的实参按 callee 摘要标逃逸。paramOffset：CallInstr=0（args[i]→槽 i）、ObjNew=1（→槽 i+1）。
@@ -188,25 +182,7 @@ public sealed class IrEscapeAnalysis {
         return null;
     }
 
-    // ── 辅助 ─────────────────────────────────────────────────────────────────────────
-    // 写计数（复用 IrOptInfo.AddDef 权威 Dst 枚举）。
-    private static int[] _computeDefs(IrFunction f) {
-        int[] defs = new int[f.MaxReg + 2];
-        int bi = 0;
-        while (bi < f.BlockCount) {
-            IrBlock b = f.Blocks[bi];
-            int ii = 0;
-            while (ii < b.InstrCount) { IrOptInfo.AddDef(defs, b.Instrs[ii]); ii = ii + 1; }
-            bi = bi + 1;
-        }
-        return defs;
-    }
-
     private static void _mark(bool[] esc, TypedReg r) {
         if (r.Id >= 0 && r.Id < esc.Length) { esc[r.Id] = true; }
-    }
-    private static void _markArgs(bool[] esc, TypedReg[] args, int count) {
-        int i = 0;
-        while (i < count) { IrEscapeAnalysis._mark(esc, args[i]); i = i + 1; }
     }
 }

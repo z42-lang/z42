@@ -1,6 +1,6 @@
 # 逃逸分析与栈上分配
 
-> 对齐：2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
+> 对齐：2026-09-03（unify-ir-operand-access：规则表兜底改为经统一操作数接口标全部读操作数，代码与本页「铁律」对齐）；2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
 > 状态：🟡 编译期分析 + IR 标志 + interp 运行时（对象+数组）已实现；JIT 消费与跨过程精度为 future。
 
 z42 的分配（`new Foo(...)` / `new T[n]` / `[a,b,c]`）默认走 GC 堆——region 分配锁 + 标记/清扫追踪
@@ -39,8 +39,9 @@ CFG」的坑）。
 1. **Pass A**：逐指令 / 终结子，按操作数**角色**把「经逃逸角色读到的 reg」入种子集。
 2. **Pass B**：copy 传递闭包不动点——`dst = copy src`，dst 逃逸 ⇒ src 逃逸（对象经 copy 流出）。
 
-**角色感知逃逸汇点规则表（可扩展核心）**——**完整镜像 `IrOptInfo.AddReads` 的读枚举**，逐操作数分类
-（漏一个 escaping 操作数 = 漏判逃逸 = 悬垂栈引用）：
+**角色感知逃逸汇点规则表（可扩展核心）**——逐操作数按角色分类。顺序即优先级：① 有摘要的静态调用 →
+② **显式 neutral 白名单** → ③ 部分汇点（只标特定角色）→ ④ **兜底：经统一操作数接口（`IrInstr.ReadAt`）把
+全部读操作数标逃逸**。neutral 必须显式登记；新增指令忘了登记 = 少一次栈分配机会，而非悬垂栈引用：
 
 | 指令 / 终结子 | 逃逸角色（入种子） | 中性角色（不标） |
 |---|---|---|
@@ -63,6 +64,9 @@ CFG」的坑）。
 
 **铁律（对齐 LICM 的保守姿态）**：规则表**不认识**的指令读了目标 reg → **默认判逃逸**（over-approximate
 安全兜底）。加精度 = 往规则表加/改一条分支，引擎（两趟）不动 —— 这是「后面可补规则」的落点。
+
+> 2026-09-03 校正：unify-ir-operand-access 之前代码的实际兜底是「未列出 = neutral」（与本页铁律相反，靠人工
+> 镜像 `AddReads` 枚举保完整）；现改为经接口标全部读操作数，代码与铁律一致。
 
 ### 跨过程参数逃逸摘要（`IrEscapeSummary`，change `add-crossproc-escape-summary`）
 

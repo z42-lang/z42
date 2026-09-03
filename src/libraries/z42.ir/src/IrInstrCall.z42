@@ -1,0 +1,258 @@
+// IR 指令：调用族（call / builtin / call.native / vcall / call_ind / mk_clos）+ ref 取址 + 静态写。
+// 拆自 IrInstr.z42（unify-ir-operand-access）；接口约定见 IrInstr.z42 文件头。
+// 读操作数序：接收者/被调（Obj / Callee）先、再 Args（= REGT 访问序）。
+namespace Z42.IR;
+
+// ── 调用（CG-1C）──────────────────────────────────────────────────────────────────
+// 直接调用（自由函数 / 静态方法，按限定名）。void 结果 dst 未读（镜像 C#，恒带 dst）。
+public sealed class CallInstr : IrInstr {
+    public TypedReg   Dst;
+    public string     Func;
+    public TypedReg[] Args;
+    public int        ArgCount;
+    // add-generic-methods：泛型方法调用 `Foo<A,B>()` 的解析后 FQ 类型实参名（非泛型调用为空）。
+    // 运行期拷入 callee frame.method_type_args。默认空数组 → Dump/zbc 编码零额外（byte-identical）。
+    public string[]   MethodTypeArgs;
+    public int        MethodTypeArgCount;
+    public CallInstr(TypedReg dst, string func, TypedReg[] args, int argCount) {
+        this.Dst = dst; this.Func = func; this.Args = args; this.ArgCount = argCount;
+        this.MethodTypeArgs = new string[0]; this.MethodTypeArgCount = 0;
+    }
+    public override string Dump() {
+        string s = this.Dst.Dump() + " = call @" + this.Func;
+        if (this.MethodTypeArgCount > 0) {
+            s = s + "<";
+            int t = 0;
+            while (t < this.MethodTypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.MethodTypeArgs[t]; t = t + 1; }
+            s = s + ">";
+        }
+        s = s + "(";
+        int i = 0;
+        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return this.ArgCount; }
+    public override TypedReg ReadAt(int i) { if (i >= 0 && i < this.ArgCount) { return this.Args[i]; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i >= 0 && i < this.ArgCount) { this.Args[i] = r; } }
+    // 池化序：Func，再 MethodTypeArgs。
+    public override int StrCount() { return 1 + this.MethodTypeArgCount; }
+    public override string StrAt(int i) {
+        if (i == 0) { return this.Func; }
+        if (i >= 1 && i <= this.MethodTypeArgCount) { return this.MethodTypeArgs[i - 1]; }
+        return null;
+    }
+    public override IrInstr Clone() {
+        CallInstr c = new CallInstr(this.Dst, this.Func, IrInstr.CloneRegs(this.Args), this.ArgCount);
+        c.MethodTypeArgs = this.MethodTypeArgs; c.MethodTypeArgCount = this.MethodTypeArgCount;
+        return c;
+    }
+}
+
+// builtin 调用（legacy `[Native("__name")]` extern 桩函数体；镜像 C# BuiltinInstr，opcode 0x51）。
+public sealed class BuiltinInstr : IrInstr {
+    public TypedReg   Dst;
+    public string     Name;
+    public TypedReg[] Args;
+    public int        ArgCount;
+    public BuiltinInstr(TypedReg dst, string name, TypedReg[] args, int argCount) {
+        this.Dst = dst; this.Name = name; this.Args = args; this.ArgCount = argCount;
+    }
+    public override string Dump() {
+        string s = this.Dst.Dump() + " = builtin " + this.Name + "(";
+        int i = 0;
+        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return this.ArgCount; }
+    public override TypedReg ReadAt(int i) { if (i >= 0 && i < this.ArgCount) { return this.Args[i]; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i >= 0 && i < this.ArgCount) { this.Args[i] = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Name; } return null; }
+    public override IrInstr Clone() { return new BuiltinInstr(this.Dst, this.Name, IrInstr.CloneRegs(this.Args), this.ArgCount); }
+}
+
+// typed native call（`[Native(lib,type,entry)]` extern 桩函数体；镜像 VM Instruction::CallNative，
+// opcode 0x53）。区别于 BuiltinInstr：带 module/type 限定，经 z42_register_type 注册的 Tier 1 C ABI
+// 直接符号分派（非 builtin 表）。
+public sealed class CallNativeInstr : IrInstr {
+    public TypedReg   Dst;
+    public string     Module;
+    public string     Type;
+    public string     Symbol;
+    public TypedReg[] Args;
+    public int        ArgCount;
+    public CallNativeInstr(TypedReg dst, string modu, string typ, string sym, TypedReg[] args, int argCount) {
+        this.Dst = dst; this.Module = modu; this.Type = typ; this.Symbol = sym; this.Args = args; this.ArgCount = argCount;
+    }
+    public override string Dump() {
+        string s = this.Dst.Dump() + " = call.native " + this.Module + "::" + this.Type + "::" + this.Symbol + "(";
+        int i = 0;
+        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return this.ArgCount; }
+    public override TypedReg ReadAt(int i) { if (i >= 0 && i < this.ArgCount) { return this.Args[i]; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i >= 0 && i < this.ArgCount) { this.Args[i] = r; } }
+    // 池化序：Module, Type, Symbol。
+    public override int StrCount() { return 3; }
+    public override string StrAt(int i) {
+        if (i == 0) { return this.Module; }
+        if (i == 1) { return this.Type; }
+        if (i == 2) { return this.Symbol; }
+        return null;
+    }
+    public override IrInstr Clone() {
+        return new CallNativeInstr(this.Dst, this.Module, this.Type, this.Symbol, IrInstr.CloneRegs(this.Args), this.ArgCount);
+    }
+}
+
+// 虚分派（实例方法，经 receiver 的 vtable）。
+public sealed class VCallInstr : IrInstr {
+    public TypedReg   Dst;
+    public TypedReg   Obj;
+    public string     Method;
+    public TypedReg[] Args;
+    public int        ArgCount;
+    // add-generic-methods：泛型实例方法调用类型实参（见 CallInstr）。默认空 → byte-identical。
+    public string[]   MethodTypeArgs;
+    public int        MethodTypeArgCount;
+    public VCallInstr(TypedReg dst, TypedReg obj, string method, TypedReg[] args, int argCount) {
+        this.Dst = dst; this.Obj = obj; this.Method = method; this.Args = args; this.ArgCount = argCount;
+        this.MethodTypeArgs = new string[0]; this.MethodTypeArgCount = 0;
+    }
+    public override string Dump() {
+        string s = this.Dst.Dump() + " = vcall " + this.Obj.Dump() + "." + this.Method;
+        if (this.MethodTypeArgCount > 0) {
+            s = s + "<";
+            int t = 0;
+            while (t < this.MethodTypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.MethodTypeArgs[t]; t = t + 1; }
+            s = s + ">";
+        }
+        s = s + "(";
+        int i = 0;
+        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    // 读序：Obj，再 Args。
+    public override int ReadCount() { return 1 + this.ArgCount; }
+    public override TypedReg ReadAt(int i) {
+        if (i == 0) { return this.Obj; }
+        if (i >= 1 && i <= this.ArgCount) { return this.Args[i - 1]; }
+        return null;
+    }
+    public override void SetReadAt(int i, TypedReg r) {
+        if (i == 0) { this.Obj = r; return; }
+        if (i >= 1 && i <= this.ArgCount) { this.Args[i - 1] = r; }
+    }
+    // 池化序：Method，再 MethodTypeArgs。
+    public override int StrCount() { return 1 + this.MethodTypeArgCount; }
+    public override string StrAt(int i) {
+        if (i == 0) { return this.Method; }
+        if (i >= 1 && i <= this.MethodTypeArgCount) { return this.MethodTypeArgs[i - 1]; }
+        return null;
+    }
+    public override IrInstr Clone() {
+        VCallInstr c = new VCallInstr(this.Dst, this.Obj, this.Method, IrInstr.CloneRegs(this.Args), this.ArgCount);
+        c.MethodTypeArgs = this.MethodTypeArgs; c.MethodTypeArgCount = this.MethodTypeArgCount;
+        return c;
+    }
+}
+
+// 闭包三指令（port-z42c-closures）：间接调用 + 构造闭包（load_fn 见 IrInstrConst.z42）。
+public sealed class CallIndirectInstr : IrInstr {
+    public TypedReg Dst; public TypedReg Callee;
+    public TypedReg[] Args; public int ArgCount;
+    public CallIndirectInstr(TypedReg dst, TypedReg callee, TypedReg[] args, int argCount) {
+        this.Dst = dst; this.Callee = callee; this.Args = args; this.ArgCount = argCount;
+    }
+    public override string Dump() {
+        string s = "%" + this.Dst.Id.ToString() + " = call_ind %" + this.Callee.Id.ToString() + "(";
+        int i = 0;
+        while (i < this.ArgCount) {
+            if (i > 0) { s = s + ", "; }
+            s = s + "%" + this.Args[i].Id.ToString();
+            i = i + 1;
+        }
+        return s + ")";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    // 读序：Callee，再 Args。
+    public override int ReadCount() { return 1 + this.ArgCount; }
+    public override TypedReg ReadAt(int i) {
+        if (i == 0) { return this.Callee; }
+        if (i >= 1 && i <= this.ArgCount) { return this.Args[i - 1]; }
+        return null;
+    }
+    public override void SetReadAt(int i, TypedReg r) {
+        if (i == 0) { this.Callee = r; return; }
+        if (i >= 1 && i <= this.ArgCount) { this.Args[i - 1] = r; }
+    }
+    public override IrInstr Clone() { return new CallIndirectInstr(this.Dst, this.Callee, IrInstr.CloneRegs(this.Args), this.ArgCount); }
+}
+
+public sealed class MkClosInstr : IrInstr {
+    public TypedReg Dst; public string Func;
+    public TypedReg[] Captures; public int CaptureCount;
+    public bool StackAlloc;
+    public MkClosInstr(TypedReg dst, string func, TypedReg[] captures, int captureCount, bool stackAlloc) {
+        this.Dst = dst; this.Func = func; this.Captures = captures; this.CaptureCount = captureCount;
+        this.StackAlloc = stackAlloc;
+    }
+    public override string Dump() {
+        string s = "%" + this.Dst.Id.ToString() + " = mk_clos @" + this.Func + "(";
+        int i = 0;
+        while (i < this.CaptureCount) {
+            if (i > 0) { s = s + ", "; }
+            s = s + "%" + this.Captures[i].Id.ToString();
+            i = i + 1;
+        }
+        return s + ")";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return this.CaptureCount; }
+    public override TypedReg ReadAt(int i) { if (i >= 0 && i < this.CaptureCount) { return this.Captures[i]; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i >= 0 && i < this.CaptureCount) { this.Captures[i] = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Func; } return null; }
+    public override IrInstr Clone() {
+        return new MkClosInstr(this.Dst, this.Func, IrInstr.CloneRegs(this.Captures), this.CaptureCount, this.StackAlloc);
+    }
+}
+
+// ref 参数调用：load_local_addr %slot → addr 寄存器（传 callee；opcode 0xA0；镜像 C# LoadLocalAddrInstr）。
+// Dst.Type = IrType.Unknown（AddressOf.cs：Alloc(IrType.Unknown)）。
+public sealed class LoadLocalAddrInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Slot;
+    public LoadLocalAddrInstr(TypedReg dst, TypedReg slot) { this.Dst = dst; this.Slot = slot; }
+    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = load_local_addr %" + this.Slot.Id.ToString(); }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Slot; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Slot = r; } }
+    public override IrInstr Clone() { return new LoadLocalAddrInstr(this.Dst, this.Slot); }
+}
+
+// 静态字段写：无定义寄存器，读 Val。
+public sealed class StaticSetInstr : IrInstr {
+    public string Field; public TypedReg Val;
+    public StaticSetInstr(string field, TypedReg val) { this.Field = field; this.Val = val; }
+    public override string Dump() { return "static_set " + this.Field + ", %" + this.Val.Id.ToString(); }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Val; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Val = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
+    public override IrInstr Clone() { return new StaticSetInstr(this.Field, this.Val); }
+}

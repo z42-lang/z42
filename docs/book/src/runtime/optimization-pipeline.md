@@ -1,6 +1,6 @@
 # 优化管线（编译期 IR 优化 + 运行时 JIT/interp 分层）
 
-> 对齐：2026-08-07（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** / CSE / LICM /
+> 对齐：2026-09-03（unify-ir-operand-access：读/写寄存器枚举走 `IrInstr` 统一操作数接口）；2026-08-07（编译期 pass：const-fold / copy-prop / temp-DCE / **函数内联** / CSE / LICM /
 > **逃逸分析栈上分配** / 循环分配复用 / **readonly 字段读优化** / **纯函数调用优化** /
 > **const 常量传播 + 死分支消除** + OptSet 门控已落地）
 > 状态：🟡 编译期 IR 优化已成形（4 pass + 可独立开关 OptSet）；运行时 JIT 分层随 `jit-lowering-pipeline` 续。
@@ -97,8 +97,9 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
 > 折叠含直接调用的 golden 且脆弱，故排除；该值 = 引入内联前 `Opt.All` 的等价输出，既有 golden 逐字节
 > 不变。内联行为由真实 release 自建（D7）+ `DumpFuncOpt(src,key,optSet)` 专项单测覆盖。
 
-**读/写计数**：一趟扫全函数，`reads[reg]`（每指令读操作数 + 每块终结子读，镜像 ZbcWriter._regtInstr 保完整）、
-`defs[reg]`（每指令 Dst）。参数寄存器 seed 为 live-out（out/ref 参数最终值由调用方读，函数内看不到）。
+**读/写计数**（`IrRegCounts.Reads` / `Defs`，share-ir-reg-counts 起为各 pass 唯一实现）：一趟扫全函数，`reads[reg]`（每指令读操作数 + 每块终结子读）、`defs[reg]`（每指令定义寄存器）。**枚举来源 = z42.ir 的统一操作数接口**
+（unify-ir-operand-access：`IrInstr.DefReg / ReadCount / ReadAt`、`IrTerminator.ReadReg`）——每条指令自己回答操作数，
+`IrOptInfo` 不再逐 opcode 镜像 `ZbcWriter._regtInstr`（REGT 收集同走该接口），新增指令实现接口即被所有 pass 正确计入。参数寄存器 seed 为 live-out（out/ref 参数最终值由调用方读，函数内看不到）。
 
 **pass 1 const-fold**：`TryConstFold(ins, cint, cval)` —— 建单赋值 int 常量表(`ConstI64`→`_parseIntLit`)，
 前向扫描把两操作数皆常量的运算/比较就地折成 `Const` 指令，并把折出的新 const 登记回表(链式传播
@@ -122,7 +123,7 @@ reads/defs + 单测逐 pass 单独开跑 golden。**顺序**只影响效果不�
   中 src 无 producer 可 retarget（如 src 是形参 / 非相邻）时留存。级联相：对**单赋值** `dst = copy src`
   （dst 非形参、`defs[dst]==1`；src **稳定**=单赋值 temp `defs==1` / 从不重写形参 `defs==0`）建 `dst→src` 映射
   （**链式解析**到最终稳定 src），用 `IrOptInfo.ReplaceReads`（通用「按 remap 改写一条指令/终结子读操作数」，
-  完整镜像 `AddReads` 读枚举）把**全函数** dst 使用点改写为 src、再删这些已死的 copy。
+  经接口 `SetReadAt` / `SetReadReg`）把**全函数** dst 使用点改写为 src、再删这些已死的 copy。
   安全：src 稳定 ⇒ 其值在 dst 每个使用点相同（IR 有效=def 支配 use；src 单赋值故值恒定）。`ReplaceReads` 同为 CSE 复用。
 
 **pass 2b CSE（公共子表达式消除，`Opt.Cse`；跑在 const-fold 后、copy-prop 前）**：**块内** value-number——
@@ -242,7 +243,8 @@ IrModule = 单 CU，callee 在同模块内解析（函数共享 StringPool → �
   算术（add/sub/mul/div/rem）/ 比较（eq/ne/lt/le/gt/ge）/ 位·一元（bit_and/or/xor/shl/shr/not/neg/bit_not/
   convert）/ field_get。callee 体含任一**非** curated 指令（call/vcall/obj_new/array_*/field_set/static_*/
   str_concat/...）→ **跳过整个 callee**。curated 集天然排除嵌套调用（无递归展开）、分配、副作用存储、ref/out
-  （无地址/存储指令）。`_isInlinable`（判定）与 `_cloneRemap`（克隆）覆盖集**必须一致**。
+  （无地址/存储指令）。`_isInlinable` 只表达「哪些指令内联安全」的**策略**；`_cloneRemap` 经接口 `Clone` + `SetDefReg` / `SetReadAt`
+  重映射，对全部指令通用（unify-ir-operand-access 之前二者是必须手工同步的两条平行链）。
 - **展开（D5）**：`offset = caller.MaxReg`（fresh reg 区，> 所有 caller reg → 无碰撞）；callee reg `r` → caller
   reg `r+offset`。① **形参绑定（clean-inline-copies）**：**只读**形参（body 从不写它）→ body 中直接**代入调用方
   实参寄存器**、不 emit copy（只读形参只作读操作数、从不是 dst → 代入安全，等价调用点求值）；**被写**形参

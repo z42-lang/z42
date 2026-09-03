@@ -447,34 +447,9 @@ public static class ZbcInstr {
 
     // 指令引用串预扫 intern（镜像 C# InternInstrStrings；调用序 = STRS 字节序的一部分，须 1:1）。
     public static void InternStrings(ZbcStringPool pool, IrInstr ins) {
-        if (ins is CallInstr) { CallInstr i = ins as CallInstr; pool.Intern(i.Func); int t = 0; while (t < i.MethodTypeArgCount) { pool.Intern(i.MethodTypeArgs[t]); t = t + 1; } return; }
-        if (ins is LoadFnInstr) { pool.Intern((ins as LoadFnInstr).Func); return; }       // C# 池序实证：lift 名入池
-        if (ins is ArrayNewInstr) { pool.Intern((ins as ArrayNewInstr).ElemName); return; }
-        if (ins is ArrayNewLitInstr) { pool.Intern((ins as ArrayNewLitInstr).ElemName); return; }
-        if (ins is StaticGetInstr) { pool.Intern((ins as StaticGetInstr).Field); return; }
-        if (ins is StaticSetInstr) { pool.Intern((ins as StaticSetInstr).Field); return; }
-        if (ins is MkClosInstr) { pool.Intern((ins as MkClosInstr).Func); return; }
-        if (ins is BuiltinInstr) { pool.Intern((ins as BuiltinInstr).Name); return; }   // 镜像 C# InternInstrStrings
-        if (ins is CallNativeInstr) { CallNativeInstr i = ins as CallNativeInstr; pool.Intern(i.Module); pool.Intern(i.Type); pool.Intern(i.Symbol); return; }
-        if (ins is VCallInstr) { VCallInstr i = ins as VCallInstr; pool.Intern(i.Method); int t = 0; while (t < i.MethodTypeArgCount) { pool.Intern(i.MethodTypeArgs[t]); t = t + 1; } return; }
-        if (ins is FieldGetInstr) { FieldGetInstr i = ins as FieldGetInstr; pool.Intern(i.Field); return; }
-        if (ins is FieldSetInstr) { FieldSetInstr i = ins as FieldSetInstr; pool.Intern(i.Field); return; }
-        if (ins is StructAllocInstr) { pool.Intern((ins as StructAllocInstr).TypeName); return; }   // 仅 StructAlloc 带类型名串
-        if (ins is ObjNewInstr) {
-            ObjNewInstr i = ins as ObjNewInstr;
-            pool.Intern(i.ClassName); pool.Intern(i.CtorName);
-            int t = 0;
-            while (t < i.TypeArgCount) { pool.Intern(i.TypeArgs[t]); t = t + 1; }
-            return;
-        }
-        if (ins is IsInstanceInstr) { IsInstanceInstr i = ins as IsInstanceInstr; pool.Intern(i.ClassName); return; }
-        if (ins is AsCastInstr) { AsCastInstr i = ins as AsCastInstr; pool.Intern(i.ClassName); return; }
-        if (ins is TypeofInstr) {
-            TypeofInstr i = ins as TypeofInstr;
-            pool.Intern(i.TypeName);
-            int t = 0;
-            while (t < i.TypeArgCount) { pool.Intern(i.TypeArgs[t]); t = t + 1; }
-            return;
-        }
+        // 统一操作数接口（unify-ir-operand-access）：各指令 StrAt 的固定序 = 既有池化序（byte-identical）。
+        int n = ins.StrCount();
+        int i = 0;
+        while (i < n) { pool.Intern(ins.StrAt(i)); i = i + 1; }
     }
 }

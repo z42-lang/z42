@@ -1,0 +1,309 @@
+// IR 指令：字段访问 / 对象 / 数组 / 类型测试 / blob 值类型。
+// 拆自 IrInstr.z42（unify-ir-operand-access）；接口约定见 IrInstr.z42 文件头。
+namespace Z42.IR;
+
+// ── 字段访问（CG-1C）──────────────────────────────────────────────────────────────
+public sealed class FieldGetInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Obj;
+    public string   Field;
+    // add-readonly-fields-opt：字段声明为 readonly（构造后不变）——**仅内存优化提示**，不序列化到 zbc；
+    // 优化器（CSE/LICM）在 ZbcWriter 之前消费。默认 false；emit 时由 ExprEmitter 从 FieldSymbol 设置。
+    public bool     Readonly;
+    public FieldGetInstr(TypedReg dst, TypedReg obj, string field) {
+        this.Dst = dst; this.Obj = obj; this.Field = field; this.Readonly = false;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = field_get " + this.Obj.Dump() + "." + this.Field; }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Obj; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Obj = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
+    public override IrInstr Clone() {
+        FieldGetInstr c = new FieldGetInstr(this.Dst, this.Obj, this.Field);
+        c.Readonly = this.Readonly;
+        return c;
+    }
+}
+
+// 字段写：无定义寄存器，读 Obj, Val。
+public sealed class FieldSetInstr : IrInstr {
+    public TypedReg Obj;
+    public string   Field;
+    public TypedReg Val;
+    public FieldSetInstr(TypedReg obj, string field, TypedReg val) {
+        this.Obj = obj; this.Field = field; this.Val = val;
+    }
+    public override string Dump() { return "field_set " + this.Obj.Dump() + "." + this.Field + ", " + this.Val.Dump(); }
+    public override int ReadCount() { return 2; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Obj; } if (i == 1) { return this.Val; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Obj = r; } else if (i == 1) { this.Val = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
+    public override IrInstr Clone() { return new FieldSetInstr(this.Obj, this.Field, this.Val); }
+}
+
+// ── 对象 / 数组 / 类型测试（CG-1D；CG-2 加泛型 type-args）─────────────────────────
+// new ClassName<TypeArgs>(args)。CtorName = FQ ctor 方法名（如 "Std.Exception.Exception$1"）；
+// TypeArgs = resolved 类型实参名（new Box<int>() → ["int"]，VM 写入 ScriptObject.type_args）；非泛型空。
+public sealed class ObjNewInstr : IrInstr {
+    public TypedReg   Dst;
+    public string     ClassName;
+    public string     CtorName;   // FQ ctor 方法名（"{qualCls}.{methodKey}"，如 "Std.Exception.Exception$1"）
+    public string[]   TypeArgs;
+    public int        TypeArgCount;
+    public TypedReg[] Args;
+    public int        ArgCount;
+    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 + ctor 不泄漏 this → 栈分配（默认 false=堆）
+    public ObjNewInstr(TypedReg dst, string className, string ctorName, string[] typeArgs, int typeArgCount,
+                       TypedReg[] args, int argCount) {
+        this.Dst = dst; this.ClassName = className; this.CtorName = ctorName;
+        this.TypeArgs = typeArgs; this.TypeArgCount = typeArgCount;
+        this.Args = args; this.ArgCount = argCount;
+        this.StackAlloc = false;
+    }
+    public override string Dump() {
+        string s = this.Dst.Dump() + " = obj_new " + this.ClassName;
+        if (this.TypeArgCount > 0) {
+            s = s + "<";
+            int t = 0;
+            while (t < this.TypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.TypeArgs[t]; t = t + 1; }
+            s = s + ">";
+        }
+        s = s + "(";
+        int i = 0;
+        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
+        return s + ")";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return this.ArgCount; }
+    public override TypedReg ReadAt(int i) { if (i >= 0 && i < this.ArgCount) { return this.Args[i]; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i >= 0 && i < this.ArgCount) { this.Args[i] = r; } }
+    // 池化序：ClassName, CtorName，再 TypeArgs。
+    public override int StrCount() { return 2 + this.TypeArgCount; }
+    public override string StrAt(int i) {
+        if (i == 0) { return this.ClassName; }
+        if (i == 1) { return this.CtorName; }
+        if (i >= 2 && i < 2 + this.TypeArgCount) { return this.TypeArgs[i - 2]; }
+        return null;
+    }
+    public override IrInstr Clone() {
+        ObjNewInstr c = new ObjNewInstr(this.Dst, this.ClassName, this.CtorName, this.TypeArgs, this.TypeArgCount,
+                                        IrInstr.CloneRegs(this.Args), this.ArgCount);
+        c.StackAlloc = this.StackAlloc;
+        return c;
+    }
+}
+
+// x is T → bool。
+public sealed class IsInstanceInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Obj;
+    public string   ClassName;
+    public IsInstanceInstr(TypedReg dst, TypedReg obj, string className) {
+        this.Dst = dst; this.Obj = obj; this.ClassName = className;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = is_instance " + this.Obj.Dump() + ", " + this.ClassName; }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Obj; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Obj = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.ClassName; } return null; }
+    public override IrInstr Clone() { return new IsInstanceInstr(this.Dst, this.Obj, this.ClassName); }
+}
+
+// x as T → T（不匹配返回 null）。
+public sealed class AsCastInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Obj;
+    public string   ClassName;
+    public AsCastInstr(TypedReg dst, TypedReg obj, string className) {
+        this.Dst = dst; this.Obj = obj; this.ClassName = className;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = as_cast " + this.Obj.Dump() + ", " + this.ClassName; }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Obj; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Obj = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.ClassName; } return null; }
+    public override IrInstr Clone() { return new AsCastInstr(this.Dst, this.Obj, this.ClassName); }
+}
+
+// ── 数组 ────────────────────────────────────────────────────────────────────────
+public sealed class ArrayNewInstr : IrInstr {
+    public TypedReg Dst; public TypedReg Size; public int ElemTag; public string ElemName;   // zbc 1.16：elem FQ 名
+    public bool StackAlloc;   // zbc 1.29 add-escape-analysis：逃逸分析证明不逃逸 → 帧 arena 栈分配（默认 false=堆）
+    // zbc 1.37 fix-generic-array-value-zero-init（方案 C）：元素若是泛型形参，携带其引用——
+    // TypeParamKind 0=none/1=method 级/2=class 级；TypeParamIndex=形参序号（none 时 -1）。VM 据此
+    // 运行期查 method_type_args/type_args 得具体类型，产值类型零值而非 Null（与 default(T) 同构）。
+    public int TypeParamKind;
+    public int TypeParamIndex;
+    public ArrayNewInstr(TypedReg dst, TypedReg size, int elemTag, string elemName) {
+        this.Dst = dst; this.Size = size; this.ElemTag = elemTag; this.ElemName = elemName;
+        this.StackAlloc = false;
+        this.TypeParamKind = 0; this.TypeParamIndex = -1;
+    }
+    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = array_new " + this.ElemName + "[%" + this.Size.Id.ToString() + "]"; }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Size; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Size = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.ElemName; } return null; }
+    public override IrInstr Clone() {
+        ArrayNewInstr c = new ArrayNewInstr(this.Dst, this.Size, this.ElemTag, this.ElemName);
+        c.StackAlloc = this.StackAlloc; c.TypeParamKind = this.TypeParamKind; c.TypeParamIndex = this.TypeParamIndex;
+        return c;
+    }
+}
+
+public sealed class ArrayNewLitInstr : IrInstr {
+    public TypedReg   Dst;
+    public TypedReg[] Elems;
+    public int        ElemCount;
+    public string     ElemName;
+    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 → 栈分配（默认 false=堆）
+    public ArrayNewLitInstr(TypedReg dst, TypedReg[] elems, int elemCount, string elemName) {
+        this.Dst = dst; this.Elems = elems; this.ElemCount = elemCount; this.ElemName = elemName;
+        this.StackAlloc = false;
+    }
+    public override string Dump() {
+        string s = "%" + this.Dst.Id.ToString() + " = arr.new.lit";
+        if (this.ElemCount > 0) {
+            s = s + "  ";
+            int i = 0;
+            while (i < this.ElemCount) { if (i > 0) { s = s + ", "; } s = s + "%" + this.Elems[i].Id.ToString(); i = i + 1; }
+        }
+        return s;
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return this.ElemCount; }
+    public override TypedReg ReadAt(int i) { if (i >= 0 && i < this.ElemCount) { return this.Elems[i]; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i >= 0 && i < this.ElemCount) { this.Elems[i] = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.ElemName; } return null; }
+    public override IrInstr Clone() {
+        ArrayNewLitInstr c = new ArrayNewLitInstr(this.Dst, IrInstr.CloneRegs(this.Elems), this.ElemCount, this.ElemName);
+        c.StackAlloc = this.StackAlloc;
+        return c;
+    }
+}
+
+public sealed class ArrayGetInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Arr;
+    public TypedReg Idx;
+    public ArrayGetInstr(TypedReg dst, TypedReg arr, TypedReg idx) { this.Dst = dst; this.Arr = arr; this.Idx = idx; }
+    public override string Dump() { return this.Dst.Dump() + " = array_get " + this.Arr.Dump() + "[" + this.Idx.Dump() + "]"; }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 2; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Arr; } if (i == 1) { return this.Idx; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Arr = r; } else if (i == 1) { this.Idx = r; } }
+    public override IrInstr Clone() { return new ArrayGetInstr(this.Dst, this.Arr, this.Idx); }
+}
+
+// 数组写：无定义寄存器，读 Arr, Idx, Val。
+public sealed class ArraySetInstr : IrInstr {
+    public TypedReg Arr;
+    public TypedReg Idx;
+    public TypedReg Val;
+    public ArraySetInstr(TypedReg arr, TypedReg idx, TypedReg val) { this.Arr = arr; this.Idx = idx; this.Val = val; }
+    public override string Dump() { return "array_set " + this.Arr.Dump() + "[" + this.Idx.Dump() + "], " + this.Val.Dump(); }
+    public override int ReadCount() { return 3; }
+    public override TypedReg ReadAt(int i) {
+        if (i == 0) { return this.Arr; }
+        if (i == 1) { return this.Idx; }
+        if (i == 2) { return this.Val; }
+        return null;
+    }
+    public override void SetReadAt(int i, TypedReg r) {
+        if (i == 0) { this.Arr = r; } else if (i == 1) { this.Idx = r; } else if (i == 2) { this.Val = r; }
+    }
+    public override IrInstr Clone() { return new ArraySetInstr(this.Arr, this.Idx, this.Val); }
+}
+
+public sealed class ArrayLenInstr : IrInstr {
+    public TypedReg Dst; public TypedReg Arr;
+    public ArrayLenInstr(TypedReg dst, TypedReg arr) { this.Dst = dst; this.Arr = arr; }
+    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = array_len %" + this.Arr.Id.ToString(); }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Arr; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Arr = r; } }
+    public override IrInstr Clone() { return new ArrayLenInstr(this.Dst, this.Arr); }
+}
+
+// ── blob 值类型（add-struct-value-semantics Phase A）───────────────────────────────
+// 多字段 struct 内联字节表示：值以字节 blob 存在 per-context 字节 arena，寄存器持 StructRef 句柄。
+// 操作数按「base 句柄 + byte_offset + size/kind」引用字节区间。字节大小/偏移由编译期 StructLayout 烘焙为
+// 立即数（运行时无需查表）。z42c 在 A-use（2c）才发射；A-support 只加编解码/执行能力。
+// 接口语义：StructAlloc / FieldGetPrim 定义 Dst；StructCopy / FieldSetPrim 是原地副作用（句柄由 StructAlloc
+// 定义、blob 被写）→ 无定义寄存器；StructCopy 的 `Dst` 是被写句柄 = **读操作数**（序：Dst, Src）。
+public sealed class StructAllocInstr : IrDefOnlyInstr {
+    public string   TypeName;   // FQ 值类型名（arena 记录，供 GC 按引用位图扫描 + 装箱取精确类型）
+    public int      Size;       // blob 字节数（StructLayout.Size）
+    public StructAllocInstr(TypedReg dst, string typeName, int size) {
+        this.Dst = dst; this.TypeName = typeName; this.Size = size;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = struct_alloc " + this.TypeName + " [" + this.Size.ToString() + "B]"; }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.TypeName; } return null; }
+    public override IrInstr Clone() { return new StructAllocInstr(this.Dst, this.TypeName, this.Size); }
+}
+
+public sealed class StructCopyInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Src;
+    public int      Size;       // 复制字节数（= 值类型 blob 大小）
+    public StructCopyInstr(TypedReg dst, TypedReg src, int size) {
+        this.Dst = dst; this.Src = src; this.Size = size;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = struct_copy " + this.Src.Dump() + " [" + this.Size.ToString() + "B]"; }
+    public override int ReadCount() { return 2; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Dst; } if (i == 1) { return this.Src; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Dst = r; } else if (i == 1) { this.Src = r; } }
+    public override IrInstr Clone() { return new StructCopyInstr(this.Dst, this.Src, this.Size); }
+}
+
+public sealed class StructFieldGetPrimInstr : IrInstr {
+    public TypedReg Dst;        // 目标寄存器（收基元值）
+    public TypedReg Base;       // struct blob 句柄
+    public int      ByteOff;    // 叶子在 blob 内字节偏移
+    public int      Kind;       // 基元叶子种类（StructLeafKind：字节宽/解码方式；Prim 各基元由 Base 类型静态已知）
+    public StructFieldGetPrimInstr(TypedReg dst, TypedReg base_, int byteOff, int kind) {
+        this.Dst = dst; this.Base = base_; this.ByteOff = byteOff; this.Kind = kind;
+    }
+    public override string Dump() { return this.Dst.Dump() + " = struct_fget_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString(); }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Base; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Base = r; } }
+    public override IrInstr Clone() { return new StructFieldGetPrimInstr(this.Dst, this.Base, this.ByteOff, this.Kind); }
+}
+
+public sealed class StructFieldSetPrimInstr : IrInstr {
+    public TypedReg Base;       // struct blob 句柄
+    public int      ByteOff;
+    public int      Kind;
+    public TypedReg Val;        // 源基元值寄存器
+    public StructFieldSetPrimInstr(TypedReg base_, int byteOff, int kind, TypedReg val) {
+        this.Base = base_; this.ByteOff = byteOff; this.Kind = kind; this.Val = val;
+    }
+    public override string Dump() { return "struct_fset_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString() + ", " + this.Val.Dump(); }
+    public override int ReadCount() { return 2; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Base; } if (i == 1) { return this.Val; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Base = r; } else if (i == 1) { this.Val = r; } }
+    public override IrInstr Clone() { return new StructFieldSetPrimInstr(this.Base, this.ByteOff, this.Kind, this.Val); }
+}

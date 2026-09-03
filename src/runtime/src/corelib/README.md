@@ -56,6 +56,11 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 # corelib Rust 单元测试（各 <mod>_tests.rs，含 reflection/reflection_tests.rs）
 cargo test --lib --manifest-path src/runtime/Cargo.toml
 
+# [Native("__x")] 声明 ↔ BUILTINS 双向对账（native_decl_tests.rs，stdlib-structure-batch）：
+#   扫 src/libraries/**/*.z42；声明了但表里没有 → 红；表里有但未声明且不在 UNDECLARED_ALLOWLIST → 红。
+#   加 builtin 时：要么在 stdlib 声明，要么进 allowlist 并写明原因（编译器直接发射 / VM 内部 / host-only）。
+cargo test --lib --manifest-path src/runtime/Cargo.toml native_decl
+
 # 反射等端到端 golden（src/tests/reflection/ 等）
 xtask test e2e
 

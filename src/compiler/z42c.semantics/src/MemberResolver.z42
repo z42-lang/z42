@@ -64,7 +64,7 @@ public sealed class MemberResolver {
             //   ① ct 无方法而主符号表有同名真类 → 重解析成真类（prim 路径 HasClass 分支）；
             //   ② ct 无方法且主符号表无（懒加载未载真类）→ 下方 ms==null 时 **loose 绑定 Unknown**，
             //      不报 "no method"（prim 路径 fallthrough，运行期经 DepIndex 解析）。
-            bool _stub = ct.Methods.Keys().Length == 0;
+            bool _stub = ct.Methods.Count() == 0;
             if (_stub && env.Symbols.HasClass(ct.Name())) { ct = env.Symbols.GetClass(ct.Name()); _stub = false; }
             MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, 0, sp);   // 实例成员调用无 CallExpr → typeArgCount=0
             if (ms != null) {

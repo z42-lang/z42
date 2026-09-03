@@ -1,619 +1,81 @@
-// IR 指令（port-z42c-codegen CG-1A）。镜像 C# z42.IR/IrModule.cs 的 IrInstr record 层次。
-// 受限写法：class 继承 + virtual Dump()（同 Bound.z42 模式；z42 无 record/abstract）。
-// class-per-instruction（User 裁决 D2）：每条指令一个 class，按增量逐条加。
-// 注：opcode 整数（Op()）留 ZbcWriter 增量时加（CG-1A 无 .zbc emit，dump 直接用指令名，
-//     避免现在 committed 错误 opcode 号）。
-// CG-1A 集：Const{I64,F64,Bool,Str,Null} + Copy + Add/Sub/Mul/Div/Rem。
+// IR 指令基类 + 统一操作数接口（unify-ir-operand-access）。
+// 镜像 C# z42.IR/IrModule.cs 的 IrInstr record 层次；受限写法：class 继承 + virtual（z42 无 record/abstract）。
+// class-per-instruction（User 裁决 D2）：每条指令一个 class。指令类按类别分文件：
+//   IrInstrConst.z42  ── 常量 / 类型参数物化 / 静态读 / load_fn / typeof（仅定义 Dst，无读操作数）
+//   IrInstrArith.z42  ── copy / 二元算术·比较·位·移位·串拼接 / 一元
+//   IrInstrCall.z42   ── 调用族（call / builtin / call.native / vcall / call_ind / mk_clos）+ 取址 + 静态写
+//   IrInstrObject.z42 ── 字段 / 对象 / 数组 / is·as / blob 值类型
 // Dump 形如 ir.md：`%2 = add i64 %0, %1` / `%3 = const.i64 5`。
+//
+// ── 统一操作数接口 ──────────────────────────────────────────────────────────────
+// 每条指令自己回答「定义哪个寄存器 / 读哪些寄存器 / 携带哪些入池字符串 / 如何克隆」，消费者
+// （IrOptInfo 读写计数与改写、IrInline 克隆重映射、ZbcWriter REGT 收集、ZbcInstr 串池预扫、逃逸分析
+// 兜底规则）统一走接口迭代，不再各自维护逐指令 if-is 链。新增指令 = 加 class + 实现本接口 + WriteInstr/
+// ZbcReaderInstr 编解码，其余消费者自动覆盖。
+//   - DefReg / SetDefReg：该指令**写入**的寄存器；纯副作用指令（field_set / static_set / array_set /
+//     struct_copy / struct_fset_prim）无定义 → null / 忽略。注意 StructCopy 的 `Dst` 字段是被写的**句柄**
+//     （读操作数），不是定义。
+//   - ReadCount / ReadAt / SetReadAt：读操作数按**固定顺序**（= REGT 访问序 = C# VisitInstrRegs 的
+//     "dst 先、操作数序"去掉 dst；REGT 首个非 Unknown 赢，顺序进 byte-identical 前提）。
+//   - StrCount / StrAt：入 STRS 池的字符串操作数，顺序 = 池化序（ZbcInstr.InternStrings 的既有序）。
+//   - Clone：浅克隆——操作数数组复制（克隆体可独立 SetReadAt），TypedReg 实例共享（只读传递），
+//     字符串数组/标量原样。
 namespace Z42.IR;
 
 public class IrInstr {
     public virtual string Dump() { return "?instr"; }
-}
 
-// ── 常量 ────────────────────────────────────────────────────────────────────────
-// 数值字面量存原始文本（解析/规范化留 byte-identical ZbcWriter；CG-1A 文本 dump 够用）。
-// 整数分 i32/i64 两条（镜像 C# ConstI32Instr/ConstI64Instr，值宽不同）：int 及更小 → i32，long/u64 → i64。
-public sealed class ConstI32Instr : IrInstr {
-    public TypedReg Dst;
-    public string   Text;
-    public ConstI32Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
-    public override string Dump() { return this.Dst.Dump() + " = const.i32 " + this.Text; }
-}
+    // 定义寄存器；无定义者 null。
+    public virtual TypedReg DefReg() { return null; }
+    // 改写定义寄存器；无定义者忽略。
+    public virtual void SetDefReg(TypedReg r) { }
+    // 读操作数个数 / 第 i 个读操作数（越界 null）/ 改写第 i 个读操作数（越界忽略）。
+    public virtual int ReadCount() { return 0; }
+    public virtual TypedReg ReadAt(int i) { return null; }
+    public virtual void SetReadAt(int i, TypedReg r) { }
+    // 入池字符串操作数个数 / 第 i 个（越界 null）。
+    public virtual int StrCount() { return 0; }
+    public virtual string StrAt(int i) { return null; }
+    // 浅克隆（见文件头）。基类不可实例化 → null。
+    public virtual IrInstr Clone() { return null; }
 
-public sealed class ConstI64Instr : IrInstr {
-    public TypedReg Dst;
-    public string   Text;
-    public ConstI64Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
-    public override string Dump() { return this.Dst.Dump() + " = const.i64 " + this.Text; }
-}
-
-public sealed class ConstF64Instr : IrInstr {
-    public TypedReg Dst;
-    public string   Text;
-    public ConstF64Instr(TypedReg dst, string text) { this.Dst = dst; this.Text = text; }
-    public override string Dump() { return this.Dst.Dump() + " = const.f64 " + this.Text; }
-}
-
-public sealed class ArrayNewInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Size; public int ElemTag; public string ElemName;   // zbc 1.16：elem FQ 名
-    public bool StackAlloc;   // zbc 1.29 add-escape-analysis：逃逸分析证明不逃逸 → 帧 arena 栈分配（默认 false=堆）
-    // zbc 1.37 fix-generic-array-value-zero-init（方案 C）：元素若是泛型形参，携带其引用——
-    // TypeParamKind 0=none/1=method 级/2=class 级；TypeParamIndex=形参序号（none 时 -1）。VM 据此
-    // 运行期查 method_type_args/type_args 得具体类型，产值类型零值而非 Null（与 default(T) 同构）。
-    public int TypeParamKind;
-    public int TypeParamIndex;
-    public ArrayNewInstr(TypedReg dst, TypedReg size, int elemTag, string elemName) {
-        this.Dst = dst; this.Size = size; this.ElemTag = elemTag; this.ElemName = elemName;
-        this.StackAlloc = false;
-        this.TypeParamKind = 0; this.TypeParamIndex = -1;
-    }
-    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = array_new " + this.ElemName + "[%" + this.Size.Id.ToString() + "]"; }
-}
-
-// ref 参数调用：load_local_addr %slot → addr 寄存器（传 callee；opcode 0xA0；镜像 C# LoadLocalAddrInstr）。
-// Dst.Type = IrType.Unknown（AddressOf.cs：Alloc(IrType.Unknown)）。
-public sealed class LoadLocalAddrInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg Slot;
-    public LoadLocalAddrInstr(TypedReg dst, TypedReg slot) { this.Dst = dst; this.Slot = slot; }
-    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = load_local_addr %" + this.Slot.Id.ToString(); }
-}
-
-public sealed class ArrayNewLitInstr : IrInstr {
-    public TypedReg   Dst;
-    public TypedReg[] Elems;
-    public int        ElemCount;
-    public string     ElemName;
-    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 → 栈分配（默认 false=堆）
-    public ArrayNewLitInstr(TypedReg dst, TypedReg[] elems, int elemCount, string elemName) {
-        this.Dst = dst; this.Elems = elems; this.ElemCount = elemCount; this.ElemName = elemName;
-        this.StackAlloc = false;
-    }
-    public override string Dump() {
-        string s = "%" + this.Dst.Id.ToString() + " = arr.new.lit";
-        if (this.ElemCount > 0) {
-            s = s + "  ";
-            int i = 0;
-            while (i < this.ElemCount) { if (i > 0) { s = s + ", "; } s = s + "%" + this.Elems[i].Id.ToString(); i = i + 1; }
-        }
-        return s;
-    }
-}
-
-public sealed class StaticGetInstr : IrInstr {
-    public TypedReg Dst; public string Field;    // FQ "Cls.Field"
-    public StaticGetInstr(TypedReg dst, string field) { this.Dst = dst; this.Field = field; }
-    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = static_get " + this.Field; }
-}
-
-public sealed class StaticSetInstr : IrInstr {
-    public string Field; public TypedReg Val;
-    public StaticSetInstr(string field, TypedReg val) { this.Field = field; this.Val = val; }
-    public override string Dump() { return "static_set " + this.Field + ", %" + this.Val.Id.ToString(); }
-}
-
-public sealed class ArrayLenInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Arr;
-    public ArrayLenInstr(TypedReg dst, TypedReg arr) { this.Dst = dst; this.Arr = arr; }
-    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = array_len %" + this.Arr.Id.ToString(); }
-}
-
-// 闭包三指令（port-z42c-closures）。
-public sealed class LoadFnInstr : IrInstr {
-    public TypedReg Dst; public string Func;
-    public LoadFnInstr(TypedReg dst, string func) { this.Dst = dst; this.Func = func; }
-    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = load_fn @" + this.Func; }
-}
-
-public sealed class MkClosInstr : IrInstr {
-    public TypedReg Dst; public string Func;
-    public TypedReg[] Captures; public int CaptureCount;
-    public bool StackAlloc;
-    public MkClosInstr(TypedReg dst, string func, TypedReg[] captures, int captureCount, bool stackAlloc) {
-        this.Dst = dst; this.Func = func; this.Captures = captures; this.CaptureCount = captureCount;
-        this.StackAlloc = stackAlloc;
-    }
-    public override string Dump() {
-        string s = "%" + this.Dst.Id.ToString() + " = mk_clos @" + this.Func + "(";
+    // 克隆助手：复制 TypedReg 数组（元素共享）。
+    public static TypedReg[] CloneRegs(TypedReg[] a) {
+        if (a == null) { return null; }
+        TypedReg[] n = new TypedReg[a.Length];
         int i = 0;
-        while (i < this.CaptureCount) {
-            if (i > 0) { s = s + ", "; }
-            s = s + "%" + this.Captures[i].Id.ToString();
-            i = i + 1;
-        }
-        return s + ")";
+        while (i < a.Length) { n[i] = a[i]; i = i + 1; }
+        return n;
     }
 }
 
-public sealed class CallIndirectInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Callee;
-    public TypedReg[] Args; public int ArgCount;
-    public CallIndirectInstr(TypedReg dst, TypedReg callee, TypedReg[] args, int argCount) {
-        this.Dst = dst; this.Callee = callee; this.Args = args; this.ArgCount = argCount;
-    }
-    public override string Dump() {
-        string s = "%" + this.Dst.Id.ToString() + " = call_ind %" + this.Callee.Id.ToString() + "(";
-        int i = 0;
-        while (i < this.ArgCount) {
-            if (i > 0) { s = s + ", "; }
-            s = s + "%" + this.Args[i].Id.ToString();
-            i = i + 1;
-        }
-        return s + ")";
-    }
-}
-
-public sealed class ConstCharInstr : IrInstr {
-    public TypedReg Dst; public char Val;
-    public ConstCharInstr(TypedReg dst, char val) { this.Dst = dst; this.Val = val; }
-    public override string Dump() { return "%" + this.Dst.Id.ToString() + " = const.char " + this.Val.ToString(); }
-}
-
-public sealed class ConstBoolInstr : IrInstr {
+// ── 共享形状基类（减少逐类样板；消费者仍按具体类判 opcode 语义）────────────────────
+// 仅定义 Dst、无读操作数：Const* / DefaultOf / MethodTypeArg / MethodDefault / StaticGet / LoadFn / Typeof / StructAlloc。
+public class IrDefOnlyInstr : IrInstr {
     public TypedReg Dst;
-    public bool     Value;
-    public ConstBoolInstr(TypedReg dst, bool value) { this.Dst = dst; this.Value = value; }
-    public override string Dump() {
-        string v = "false"; if (this.Value) { v = "true"; }
-        return this.Dst.Dump() + " = const.bool " + v;
-    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
 }
 
-public sealed class ConstStrInstr : IrInstr {
-    public TypedReg Dst;
-    public int      Idx;     // StringPool 索引（1-based）
-    public ConstStrInstr(TypedReg dst, int idx) { this.Dst = dst; this.Idx = idx; }
-    public override string Dump() { return this.Dst.Dump() + " = const.str #" + this.Idx.ToString(); }
-}
-
-public sealed class ConstNullInstr : IrInstr {
-    public TypedReg Dst;
-    public ConstNullInstr(TypedReg dst) { this.Dst = dst; }
-    public override string Dump() { return this.Dst.Dump() + " = const.null"; }
-}
-
-// default(T) 泛型类型参数零值（D-8b-3 Phase 2；opcode 0xB0）。ParamIndex = 类型实参位置（0 起）。
-// **类级**：运行期读 instance.type_args（regs[0]）。方法级见 MethodDefaultInsn。
-public sealed class DefaultOfInstr : IrInstr {
-    public TypedReg Dst;
-    public int      ParamIndex;
-    public DefaultOfInstr(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
-    public override string Dump() { return this.Dst.Dump() + " = default_of " + this.ParamIndex.ToString(); }
-}
-
-// add-generic-methods：方法级泛型形参物化为具体 Std.Type（opcode 0xB1）。ParamIndex = 该形参在
-// **方法** TypeParams 中序号 → 运行期 make_type_from_name(frame.method_type_args[ParamIndex])。
-// 喂 typeof(T)（直接结果）与 new T()（+ __activator_create）。与类级 TypeofInstr 载体不同（frame 槽 vs 占位名）。
-public sealed class MethodTypeArgInsn : IrInstr {
-    public TypedReg Dst;
-    public int      ParamIndex;
-    public MethodTypeArgInsn(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
-    public override string Dump() { return this.Dst.Dump() + " = method_type_arg " + this.ParamIndex.ToString(); }
-}
-
-// add-generic-methods：方法级 default(T) 零值（opcode 0xB2）。镜像 DefaultOfInstr 但读 frame.method_type_args。
-// ParamIndex = 方法 TypeParams 序号 → 运行期 default_value_for(frame.method_type_args[ParamIndex])。
-public sealed class MethodDefaultInsn : IrInstr {
-    public TypedReg Dst;
-    public int      ParamIndex;
-    public MethodDefaultInsn(TypedReg dst, int paramIndex) { this.Dst = dst; this.ParamIndex = paramIndex; }
-    public override string Dump() { return this.Dst.Dump() + " = method_default " + this.ParamIndex.ToString(); }
-}
-
-// ── 数据移动 ──────────────────────────────────────────────────────────────────────
-public sealed class CopyInstr : IrInstr {
+// 一元：Dst = op Src（copy / neg / not / bit_not / convert / to_str）。
+public class IrUnInstr : IrInstr {
     public TypedReg Dst;
     public TypedReg Src;
-    public CopyInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
-    public override string Dump() { return this.Dst.Dump() + " = copy " + this.Src.Dump(); }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Src; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Src = r; } }
 }
 
-// ── 算术（二元，三操作数）──────────────────────────────────────────────────────────
-// 类型名取 Dst 的标签（镜像 ir.md `add i64 %a, %b`）。
-public sealed class AddInstr : IrInstr {
+// 二元：Dst = op A, B（算术 / 比较 / 位 / 移位 / 串拼接）。
+public class IrBinInstr : IrInstr {
     public TypedReg Dst;
     public TypedReg A;
     public TypedReg B;
-    public AddInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() {
-        return this.Dst.Dump() + " = add " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
-    }
-}
-
-public sealed class SubInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg A;
-    public TypedReg B;
-    public SubInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() {
-        return this.Dst.Dump() + " = sub " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
-    }
-}
-
-public sealed class MulInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg A;
-    public TypedReg B;
-    public MulInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() {
-        return this.Dst.Dump() + " = mul " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
-    }
-}
-
-public sealed class DivInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg A;
-    public TypedReg B;
-    public DivInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() {
-        return this.Dst.Dump() + " = div " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
-    }
-}
-
-public sealed class RemInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg A;
-    public TypedReg B;
-    public RemInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() {
-        return this.Dst.Dump() + " = rem " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump();
-    }
-}
-
-// ── 调用（CG-1C）──────────────────────────────────────────────────────────────────
-// 直接调用（自由函数 / 静态方法，按限定名）。void 结果 dst 未读（镜像 C#，恒带 dst）。
-public sealed class CallInstr : IrInstr {
-    public TypedReg   Dst;
-    public string     Func;
-    public TypedReg[] Args;
-    public int        ArgCount;
-    // add-generic-methods：泛型方法调用 `Foo<A,B>()` 的解析后 FQ 类型实参名（非泛型调用为空）。
-    // 运行期拷入 callee frame.method_type_args。默认空数组 → Dump/zbc 编码零额外（byte-identical）。
-    public string[]   MethodTypeArgs;
-    public int        MethodTypeArgCount;
-    public CallInstr(TypedReg dst, string func, TypedReg[] args, int argCount) {
-        this.Dst = dst; this.Func = func; this.Args = args; this.ArgCount = argCount;
-        this.MethodTypeArgs = new string[0]; this.MethodTypeArgCount = 0;
-    }
-    public override string Dump() {
-        string s = this.Dst.Dump() + " = call @" + this.Func;
-        if (this.MethodTypeArgCount > 0) {
-            s = s + "<";
-            int t = 0;
-            while (t < this.MethodTypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.MethodTypeArgs[t]; t = t + 1; }
-            s = s + ">";
-        }
-        s = s + "(";
-        int i = 0;
-        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
-        return s + ")";
-    }
-}
-
-// builtin 调用（legacy `[Native("__name")]` extern 桩函数体；镜像 C# BuiltinInstr，opcode 0x51）。
-public sealed class BuiltinInstr : IrInstr {
-    public TypedReg   Dst;
-    public string     Name;
-    public TypedReg[] Args;
-    public int        ArgCount;
-    public BuiltinInstr(TypedReg dst, string name, TypedReg[] args, int argCount) {
-        this.Dst = dst; this.Name = name; this.Args = args; this.ArgCount = argCount;
-    }
-    public override string Dump() {
-        string s = this.Dst.Dump() + " = builtin " + this.Name + "(";
-        int i = 0;
-        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
-        return s + ")";
-    }
-}
-
-// typed native call（`[Native(lib,type,entry)]` extern 桩函数体；镜像 VM Instruction::CallNative，
-// opcode 0x53）。区别于 BuiltinInstr：带 module/type 限定，经 z42_register_type 注册的 Tier 1 C ABI
-// 直接符号分派（非 builtin 表）。
-public sealed class CallNativeInstr : IrInstr {
-    public TypedReg   Dst;
-    public string     Module;
-    public string     Type;
-    public string     Symbol;
-    public TypedReg[] Args;
-    public int        ArgCount;
-    public CallNativeInstr(TypedReg dst, string modu, string typ, string sym, TypedReg[] args, int argCount) {
-        this.Dst = dst; this.Module = modu; this.Type = typ; this.Symbol = sym; this.Args = args; this.ArgCount = argCount;
-    }
-    public override string Dump() {
-        string s = this.Dst.Dump() + " = call.native " + this.Module + "::" + this.Type + "::" + this.Symbol + "(";
-        int i = 0;
-        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
-        return s + ")";
-    }
-}
-
-// 虚分派（实例方法，经 receiver 的 vtable）。
-public sealed class VCallInstr : IrInstr {
-    public TypedReg   Dst;
-    public TypedReg   Obj;
-    public string     Method;
-    public TypedReg[] Args;
-    public int        ArgCount;
-    // add-generic-methods：泛型实例方法调用类型实参（见 CallInstr）。默认空 → byte-identical。
-    public string[]   MethodTypeArgs;
-    public int        MethodTypeArgCount;
-    public VCallInstr(TypedReg dst, TypedReg obj, string method, TypedReg[] args, int argCount) {
-        this.Dst = dst; this.Obj = obj; this.Method = method; this.Args = args; this.ArgCount = argCount;
-        this.MethodTypeArgs = new string[0]; this.MethodTypeArgCount = 0;
-    }
-    public override string Dump() {
-        string s = this.Dst.Dump() + " = vcall " + this.Obj.Dump() + "." + this.Method;
-        if (this.MethodTypeArgCount > 0) {
-            s = s + "<";
-            int t = 0;
-            while (t < this.MethodTypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.MethodTypeArgs[t]; t = t + 1; }
-            s = s + ">";
-        }
-        s = s + "(";
-        int i = 0;
-        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
-        return s + ")";
-    }
-}
-
-// ── 字段访问（CG-1C）──────────────────────────────────────────────────────────────
-public sealed class FieldGetInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg Obj;
-    public string   Field;
-    // add-readonly-fields-opt：字段声明为 readonly（构造后不变）——**仅内存优化提示**，不序列化到 zbc；
-    // 优化器（CSE/LICM）在 ZbcWriter 之前消费。默认 false；emit 时由 ExprEmitter 从 FieldSymbol 设置。
-    public bool     Readonly;
-    public FieldGetInstr(TypedReg dst, TypedReg obj, string field) {
-        this.Dst = dst; this.Obj = obj; this.Field = field; this.Readonly = false;
-    }
-    public override string Dump() { return this.Dst.Dump() + " = field_get " + this.Obj.Dump() + "." + this.Field; }
-}
-
-public sealed class FieldSetInstr : IrInstr {
-    public TypedReg Obj;
-    public string   Field;
-    public TypedReg Val;
-    public FieldSetInstr(TypedReg obj, string field, TypedReg val) {
-        this.Obj = obj; this.Field = field; this.Val = val;
-    }
-    public override string Dump() { return "field_set " + this.Obj.Dump() + "." + this.Field + ", " + this.Val.Dump(); }
-}
-
-// ── blob 值类型（add-struct-value-semantics Phase A）───────────────────────────────
-// 多字段 struct 内联字节表示：值以字节 blob 存在 per-context 字节 arena，寄存器持 StructRef 句柄。
-// 操作数按「base 句柄 + byte_offset + size/kind」引用字节区间。字节大小/偏移由编译期 StructLayout 烘焙为
-// 立即数（运行时无需查表）。z42c 在 A-use（2c）才发射；A-support 只加编解码/执行能力。
-public sealed class StructAllocInstr : IrInstr {
-    public TypedReg Dst;
-    public string   TypeName;   // FQ 值类型名（arena 记录，供 GC 按引用位图扫描 + 装箱取精确类型）
-    public int      Size;       // blob 字节数（StructLayout.Size）
-    public StructAllocInstr(TypedReg dst, string typeName, int size) {
-        this.Dst = dst; this.TypeName = typeName; this.Size = size;
-    }
-    public override string Dump() { return this.Dst.Dump() + " = struct_alloc " + this.TypeName + " [" + this.Size.ToString() + "B]"; }
-}
-
-public sealed class StructCopyInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg Src;
-    public int      Size;       // 复制字节数（= 值类型 blob 大小）
-    public StructCopyInstr(TypedReg dst, TypedReg src, int size) {
-        this.Dst = dst; this.Src = src; this.Size = size;
-    }
-    public override string Dump() { return this.Dst.Dump() + " = struct_copy " + this.Src.Dump() + " [" + this.Size.ToString() + "B]"; }
-}
-
-public sealed class StructFieldGetPrimInstr : IrInstr {
-    public TypedReg Dst;        // 目标寄存器（收基元值）
-    public TypedReg Base;       // struct blob 句柄
-    public int      ByteOff;    // 叶子在 blob 内字节偏移
-    public int      Kind;       // 基元叶子种类（StructLeafKind：字节宽/解码方式；Prim 各基元由 Base 类型静态已知）
-    public StructFieldGetPrimInstr(TypedReg dst, TypedReg base_, int byteOff, int kind) {
-        this.Dst = dst; this.Base = base_; this.ByteOff = byteOff; this.Kind = kind;
-    }
-    public override string Dump() { return this.Dst.Dump() + " = struct_fget_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString(); }
-}
-
-public sealed class StructFieldSetPrimInstr : IrInstr {
-    public TypedReg Base;       // struct blob 句柄
-    public int      ByteOff;
-    public int      Kind;
-    public TypedReg Val;        // 源基元值寄存器
-    public StructFieldSetPrimInstr(TypedReg base_, int byteOff, int kind, TypedReg val) {
-        this.Base = base_; this.ByteOff = byteOff; this.Kind = kind; this.Val = val;
-    }
-    public override string Dump() { return "struct_fset_prim " + this.Base.Dump() + " @" + this.ByteOff.ToString() + ", " + this.Val.Dump(); }
-}
-
-// ── 对象 / 数组 / 类型测试（CG-1D；CG-2 加泛型 type-args）─────────────────────────
-// new ClassName<TypeArgs>(args)。CtorName = FQ ctor 方法名（如 "Std.Exception.Exception$1"）；
-// TypeArgs = resolved 类型实参名（new Box<int>() → ["int"]，VM 写入 ScriptObject.type_args）；非泛型空。
-public sealed class ObjNewInstr : IrInstr {
-    public TypedReg   Dst;
-    public string     ClassName;
-    public string     CtorName;   // FQ ctor 方法名（"{qualCls}.{methodKey}"，如 "Std.Exception.Exception$1"）
-    public string[]   TypeArgs;
-    public int        TypeArgCount;
-    public TypedReg[] Args;
-    public int        ArgCount;
-    public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 + ctor 不泄漏 this → 栈分配（默认 false=堆）
-    public ObjNewInstr(TypedReg dst, string className, string ctorName, string[] typeArgs, int typeArgCount,
-                       TypedReg[] args, int argCount) {
-        this.Dst = dst; this.ClassName = className; this.CtorName = ctorName;
-        this.TypeArgs = typeArgs; this.TypeArgCount = typeArgCount;
-        this.Args = args; this.ArgCount = argCount;
-        this.StackAlloc = false;
-    }
-    public override string Dump() {
-        string s = this.Dst.Dump() + " = obj_new " + this.ClassName;
-        if (this.TypeArgCount > 0) {
-            s = s + "<";
-            int t = 0;
-            while (t < this.TypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.TypeArgs[t]; t = t + 1; }
-            s = s + ">";
-        }
-        s = s + "(";
-        int i = 0;
-        while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
-        return s + ")";
-    }
-}
-
-// typeof(T) → reflection Std.Type 句柄（镜像 C# TypeofInstr / opcode 0x73）。
-// TypeName=FQ 类型名；TypeArgs=构造泛型实参 FQ 名（IsGenericTypeDefinition==false）。
-public sealed class TypeofInstr : IrInstr {
-    public TypedReg Dst;
-    public string   TypeName;
-    public string[] TypeArgs;
-    public int      TypeArgCount;
-    public TypeofInstr(TypedReg dst, string typeName, string[] typeArgs, int typeArgCount) {
-        this.Dst = dst; this.TypeName = typeName; this.TypeArgs = typeArgs; this.TypeArgCount = typeArgCount;
-    }
-    public override string Dump() {
-        string s = this.Dst.Dump() + " = typeof @" + this.TypeName;
-        if (this.TypeArgCount > 0) {
-            s = s + "<";
-            int t = 0;
-            while (t < this.TypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.TypeArgs[t]; t = t + 1; }
-            s = s + ">";
-        }
-        return s;
-    }
-}
-
-public sealed class ArrayGetInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg Arr;
-    public TypedReg Idx;
-    public ArrayGetInstr(TypedReg dst, TypedReg arr, TypedReg idx) { this.Dst = dst; this.Arr = arr; this.Idx = idx; }
-    public override string Dump() { return this.Dst.Dump() + " = array_get " + this.Arr.Dump() + "[" + this.Idx.Dump() + "]"; }
-}
-
-public sealed class ArraySetInstr : IrInstr {
-    public TypedReg Arr;
-    public TypedReg Idx;
-    public TypedReg Val;
-    public ArraySetInstr(TypedReg arr, TypedReg idx, TypedReg val) { this.Arr = arr; this.Idx = idx; this.Val = val; }
-    public override string Dump() { return "array_set " + this.Arr.Dump() + "[" + this.Idx.Dump() + "], " + this.Val.Dump(); }
-}
-
-// x is T → bool。
-public sealed class IsInstanceInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg Obj;
-    public string   ClassName;
-    public IsInstanceInstr(TypedReg dst, TypedReg obj, string className) {
-        this.Dst = dst; this.Obj = obj; this.ClassName = className;
-    }
-    public override string Dump() { return this.Dst.Dump() + " = is_instance " + this.Obj.Dump() + ", " + this.ClassName; }
-}
-
-// x as T → T（不匹配返回 null）。
-public sealed class AsCastInstr : IrInstr {
-    public TypedReg Dst;
-    public TypedReg Obj;
-    public string   ClassName;
-    public AsCastInstr(TypedReg dst, TypedReg obj, string className) {
-        this.Dst = dst; this.Obj = obj; this.ClassName = className;
-    }
-    public override string Dump() { return this.Dst.Dump() + " = as_cast " + this.Obj.Dump() + ", " + this.ClassName; }
-}
-
-// ── 比较（CG-1E）：→ bool。类型名取操作数（A）的标签（结果恒 bool）。──────────────────
-public sealed class EqInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public EqInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = eq " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class NeInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public NeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = ne " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class LtInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public LtInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = lt " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class LeInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public LeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = le " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class GtInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public GtInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = gt " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class GeInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public GeInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = ge " + IrType.Name(this.A.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-
-// ── 位运算（CG-1E）：结果类型 = 操作数（Dst 标签）。─────────────────────────────────
-public sealed class BitAndInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public BitAndInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = bit_and " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class BitOrInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public BitOrInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = bit_or " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class BitXorInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public BitXorInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = bit_xor " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class ShlInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public ShlInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = shl " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-public sealed class ShrInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public ShrInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = shr " + IrType.Name(this.Dst.Type) + " " + this.A.Dump() + ", " + this.B.Dump(); }
-}
-
-// ── 一元（CG-1E）─────────────────────────────────────────────────────────────────
-public sealed class NotInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Src;
-    public NotInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
-    public override string Dump() { return this.Dst.Dump() + " = not " + this.Src.Dump(); }
-}
-public sealed class NegInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Src;
-    public NegInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
-    public override string Dump() { return this.Dst.Dump() + " = neg " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
-}
-public sealed class BitNotInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Src;
-    public BitNotInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
-    public override string Dump() { return this.Dst.Dump() + " = bit_not " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
-}
-// (T)expr 数值转换（G3；目标 tag 在 Dst.Type）。镜像 C# ConvertInstr。
-public sealed class ConvertInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Src;
-    public ConvertInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
-    public override string Dump() { return this.Dst.Dump() + " = convert " + IrType.Name(this.Dst.Type) + " " + this.Src.Dump(); }
-}
-
-// ToStr（GS4 interpolation）：dst = src.ToString()；镜像 C# ToStrInstr opcode 0x1F。
-public sealed class ToStrInstr : IrInstr {
-    public TypedReg Dst; public TypedReg Src;
-    public ToStrInstr(TypedReg dst, TypedReg src) { this.Dst = dst; this.Src = src; }
-    public override string Dump() { return this.Dst.Dump() + " = to_str " + this.Src.Dump(); }
-}
-
-// ── 字符串拼接（CG-1E）：a + b（string）。──────────────────────────────────────────
-public sealed class StrConcatInstr : IrInstr {
-    public TypedReg Dst; public TypedReg A; public TypedReg B;
-    public StrConcatInstr(TypedReg dst, TypedReg a, TypedReg b) { this.Dst = dst; this.A = a; this.B = b; }
-    public override string Dump() { return this.Dst.Dump() + " = str_concat " + this.A.Dump() + ", " + this.B.Dump(); }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 2; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.A; } if (i == 1) { return this.B; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.A = r; } else if (i == 1) { this.B = r; } }
 }
