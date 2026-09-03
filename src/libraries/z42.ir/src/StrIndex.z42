@@ -1,0 +1,74 @@
+// string → int 开放寻址哈希索引（perf-compiler-lookup-tables）。
+// 用途：给「插入序数组」配一个 O(1) 反查（ZbcStringPool.Intern/Idx、IrGen.Intern 的字面量池），
+// 取代此前的全表线性扫描（大模块的 STRS 池数千串 × 每条带串指令都查一次 = 平方级）。
+// 与 StrMap 同款线性探测（负载 <0.5）；值是 int 不装箱、无 Remove（池只增不删）。
+// 迭代序无关：所有确定性输出仍由调用方的插入序数组决定，本索引只回答「在哪个下标」。
+namespace Z42.IR;
+
+public sealed class StrIndex {
+    private string[] _keys;
+    private int[]    _vals;
+    private bool[]   _used;
+    private int      _count;
+    private int      _cap;
+
+    public StrIndex() {
+        this._cap = 32;
+        this._keys = new string[32];
+        this._vals = new int[32];
+        this._used = new bool[32];
+        this._count = 0;
+    }
+
+    public int Count() { return this._count; }
+
+    // 命中返回值；未命中 -1（调用方的值域皆为非负下标）。
+    public int Get(string key) {
+        int slot = this._hash(key) % this._cap;
+        int probes = 0;
+        while (probes < this._cap) {
+            if (!this._used[slot]) { return -1; }
+            if (this._keys[slot] == key) { return this._vals[slot]; }
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+            probes = probes + 1;
+        }
+        return -1;
+    }
+
+    // 插入或覆盖。
+    public void Put(string key, int val) {
+        if (this._count * 2 >= this._cap) { this._grow(); }
+        int slot = this._hash(key) % this._cap;
+        while (this._used[slot] && this._keys[slot] != key) {
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+        }
+        if (!this._used[slot]) { this._count = this._count + 1; }
+        this._keys[slot] = key;
+        this._vals[slot] = val;
+        this._used[slot] = true;
+    }
+
+    private int _hash(string key) {
+        int h = key.GetHashCode();
+        return h & 0x7FFFFFFF;
+    }
+
+    private void _grow() {
+        int oldCap = this._cap;
+        string[] oldKeys = this._keys;
+        int[]    oldVals = this._vals;
+        bool[]   oldUsed = this._used;
+        this._cap = oldCap * 2;
+        this._keys = new string[this._cap];
+        this._vals = new int[this._cap];
+        this._used = new bool[this._cap];
+        this._count = 0;
+        int i = 0;
+        while (i < oldCap) {
+            if (oldUsed[i]) { this.Put(oldKeys[i], oldVals[i]); }
+            i = i + 1;
+        }
+    }
+}

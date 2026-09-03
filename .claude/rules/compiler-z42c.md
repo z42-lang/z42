@@ -49,7 +49,7 @@ IR 模型 + zbc/zpkg 格式 + 依赖索引已下沉 stdlib 库 **`z42.ir`**（na
 **位置**：`z42c.syntax/src/Lexer.z42`。**风格**：手写扫描器（逐字符 + 前瞻），无外部组合子库（为自举保留最简实现）。
 
 - 主循环 `_lexOne()` 按首字符分派到 `_lexIdent` / `_lexNumber` / `_lexString` / `_lexRawString` / `_lexInterpolated` / `_lexChar` / `_lexSymbol`；trivia（空白 / `//` / `/* */`）单独跳过。
-- 关键字识别：`_initKeywords()` 注册到并行数组 `_kwNames` / `_kwKinds`，`_kwLookup()` 线性查；标识符 lex 后查表，命中即关键字。
+- 关键字识别：`_initKeywords()` 注册到并行数组 `_kwNames` / `_kwKinds`（注册序供 DumpTool / vscode-syntax 生成），`_kwLookup()` 走首字符分桶链 `_kwHead` / `_kwNext`（perf-compiler-lookup-tables）；标识符 lex 后查表，命中即关键字。
 - 符号：`_lexSymbol()` 做**最长匹配**（`==` 胜 `=`，`>>>` 胜 `>>` 胜 `>`）。
 
 ### Token 类型

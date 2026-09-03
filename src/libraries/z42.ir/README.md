@@ -13,7 +13,7 @@ z42c / z42b / 未来 REPL·分析工具经本库**共享**「emit IR → zbc/zpk
 | zpkg 后端 | `ZpkgWriter` / `ZpkgWriterIndexed` / `ZpkgReader` / `ZpkgBuilder` / `PackageTypes` / `TsigReconcile` | `.zpkg` 包格式读/写/构建 + 类型签名（TSIG）重建（含**本地 enum 导出** → 跨包 enum 导入，add-repl-decls-multiline）+ 包类型模型 |
 | 惰性跨包类型世界 | `TsigReconcile.LazyReconWorld` | 按包懒填 TYPE/SIGS + 命名空间路由（`EnsureFq`）——`Rebuild` 基类链只解析引用闭包，不再一次性全量解析 world（lazy-type-world；O(引用) 不随库总量增长；旧 `BuildWorld`+4-arg `Rebuild` 作 eager 包装保留给种子）|
 | 元数据 | `ExportedTypes` / `DependencyIndex` | 导出类型面 + 跨包依赖调用索引 |
-| util | `StrMap` | 有序 map（确定性迭代；编译器全程用） |
+| util | `StrMap` / `StrIndex` | `StrMap`：string→object 开放寻址 map（编译器全程用）；`StrIndex`：string→int 反查索引（无装箱、无删除），给插入序数组配 O(1) 查下标——`ZbcStringPool` / `IrGen` 字面量池用（perf-compiler-lookup-tables） |
 
 ## 入口点
 `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Project`（zpkg 后端沿用旧 namespace，纯 MOVE 无并存）。
