@@ -293,6 +293,12 @@ int _testAll(bool noBuild, string skip) {
         Console.WriteLine("\n=== stage: vscode-syntax ===");
         c = _testVscodeSyntax(); if (c != 0) { return c; }
     }
+    // stage 7: 文件行数硬上限 lint（add-line-count-lint）：新越界 / 继续膨胀 → 红；基线内 → warn。
+    // 纯文本扫描（~1s），host-independent。Skippable: "lines"。
+    if (!_skipHas(skip, "lines")) {
+        Console.WriteLine("\n=== stage: lines ===");
+        c = _testLines(false); if (c != 0) { return c; }
+    }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _procEnd("test", sw);
     return 0;

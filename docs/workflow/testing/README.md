@@ -36,7 +36,7 @@ CI 按模块变更检测（`dorny/paths-filter`）有条件地跳过无关 job�
 | CI job | 门控条件（任一为 true 触发） | 主要 stage |
 |--------|---------------------------|-----------|
 | `test-host`(×4 OS) | 始终运行 | e2e goldens（interp）+ cross-zpkg（仅 linux-x64） |
-| `compiler-checks`(linux) | compiler 改动 | z42c 自举不动点 + vscode-syntax |
+| `compiler-checks`(linux) | compiler 改动 | z42c 自举不动点 + vscode-syntax + lines（行数硬上限棘轮）|
 | `vm-jit`(×2 shard) | vm 改动 | JIT 模式 goldens |
 | `stdlib-interp`(×3 OS) | vm \|\| stdlib 改动 | stdlib `[Test]` interp 模式（不分片） |
 | `stdlib-jit`(×2 shard) | vm \|\| stdlib 改动 | stdlib `[Test]` JIT 模式 |

@@ -334,6 +334,9 @@ SubcommandRouter _testRouter() {
     t.Add("bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)", bootstrap);
     t.Add("vscode-syntax", "VSCode grammar <-> Lexer keyword-table sync check",
         new ArgParser("xtask test vscode-syntax", "regen grammar in-memory + diff vs committed"));
+    ArgParser lines = new ArgParser("xtask test lines", "file line-count hard-limit lint (ratchet baseline)");
+    lines.AddFlag("update", "", "rewrite scripts/test/line-limit-baseline.txt from the current tree");
+    t.Add("lines", "file line-count hard-limit lint (>500 lines: new/grown = red, known = warn)", lines);
     t.Add("incremental", "file-level incremental reconciler (per-file touch: incr == full, byte-exact)",
         new ArgParser("xtask test incremental", "brute-force reconcile incremental vs full builds + timing"));
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
@@ -534,6 +537,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检
     if (sub == "bootstrap")    { return _bootstrapCheck(r.GetPositional(0)); }   // staged-bootstrap 边界检查
     if (sub == "vscode-syntax") { return _testVscodeSyntax(); }   // grammar ↔ Lexer 关键字一致性
+    if (sub == "lines")        { return _testLines(r.GetFlag("update")); }          // 文件行数硬上限（棘轮基线）
     if (sub == "incremental")  { return _testIncremental(r); }   // 文件级增量暴力对账（D4/D8）
     if (sub == "changed")      { return _testChanged(r); }
     if (sub == "platform") {
