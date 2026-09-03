@@ -1,0 +1,74 @@
+// add-guid-lazy-version (2026-09-03): Std.Guid 单元测试。
+namespace Z42GuidTests;
+
+using Std.Test;
+using Std;
+
+[Test]
+void test_empty() {
+    var g = Guid.Empty();
+    Assert.Equal("00000000-0000-0000-0000-000000000000", g.ToString());
+}
+
+// NOTE: unlike C#, `default(Guid)` yields a Null value in z42 (struct-default
+// limitation, see Guid.z42 header) — use Guid.Empty() for the all-zero GUID.
+// A test on default(Guid) would trap on the receiver, so it is intentionally
+// omitted.
+
+[Test]
+void test_parse_d_roundtrip() {
+    string s = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    var g = Guid.Parse(s);
+    Assert.Equal(s, g.ToString());
+    Assert.Equal(s, g.ToString("D"));
+}
+
+[Test]
+void test_parse_n_form() {
+    string n = "0f8fad5bd9cb469fa16570867728950e";
+    var g = Guid.Parse(n);
+    Assert.Equal(n, g.ToString("N"));
+    Assert.Equal("0f8fad5b-d9cb-469f-a165-70867728950e", g.ToString("D"));
+}
+
+[Test]
+void test_equals_across_forms() {
+    var a = Guid.Parse("0f8fad5b-d9cb-469f-a165-70867728950e");
+    var b = Guid.Parse("0f8fad5bd9cb469fa16570867728950e");
+    Assert.True(a.Equals(b));
+    Assert.False(a.Equals(Guid.Empty()));
+}
+
+[Test]
+void test_newguid_v4_layout() {
+    var g = Guid.NewGuid();
+    string s = g.ToString();
+    Assert.Equal(36, s.Length);
+    // version nibble '4' at index 14; variant nibble in {8,9,a,b} at index 19.
+    Assert.Equal('4', s.CharAt(14));
+    char variant = s.CharAt(19);
+    bool okVariant = (variant == '8') || (variant == '9') || (variant == 'a') || (variant == 'b');
+    Assert.True(okVariant);
+}
+
+[Test]
+void test_newguid_unique() {
+    var a = Guid.NewGuid();
+    var b = Guid.NewGuid();
+    Assert.False(a.Equals(b));
+}
+
+[Test]
+void test_tryparse() {
+    Assert.NotNull(Guid.TryParse("0f8fad5b-d9cb-469f-a165-70867728950e"));
+    Assert.Null(Guid.TryParse("not-a-guid-string-value-here-nope!!"));
+    // 35 chars — wrong length
+    Assert.Null(Guid.TryParse("0f8fad5b-d9cb-469f-a165-7086772890"));
+}
+
+[Test]
+void test_parse_bad_throws() {
+    Assert.ThrowsAny(() => Guid.Parse("xyz"));
+    // right length, bad hex char 'z'
+    Assert.ThrowsAny(() => Guid.Parse("zf8fad5b-d9cb-469f-a165-70867728950e"));
+}

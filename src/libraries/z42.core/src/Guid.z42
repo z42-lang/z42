@@ -1,0 +1,171 @@
+namespace Std;
+
+using Std.Runtime;
+
+// add-guid-lazy-version (2026-09-03): C# System.Guid parity — a 128-bit
+// globally-unique identifier. `NewGuid()` produces an RFC 4122 version-4
+// (random) GUID from OS entropy (Std.Runtime.Entropy, re-homed to core so this
+// prelude type can reach it — see reclassify-os-entropy-to-core).
+//
+// Backed by 16 raw bytes. The value is immutable. String form is the canonical
+// 8-4-4-4-12 lowercase hex ("D"); "N" is the 32-char un-hyphenated form. The
+// byte→hex layout is sequential (not C#'s mixed-endian first-three-groups), but
+// round-trips through Parse/ToString and is a valid canonical GUID string.
+//
+// ⚠️ z42 struct-default limitation: `default(Guid)` yields a Null value (no
+// zero-struct materialization for a struct with a reference field), so — unlike
+// C# where default(Guid) == Guid.Empty — you must call `Guid.Empty()` for the
+// all-zero GUID. Attempting a method call on `default(Guid)` traps. A pure-value
+// (two-i64) representation would fix this but currently hits a separate
+// StructCopy-on-blob-struct bug; deferred (see change proposal).
+public struct Guid {
+    private byte[] _bytes;
+
+    // Construct from exactly 16 bytes (copied defensively).
+    public Guid(byte[] b) {
+        if (b.Length != 16) {
+            throw new ArgumentException("Guid requires exactly 16 bytes, got " + b.Length.ToString());
+        }
+        byte[] c = new byte[16];
+        int i = 0;
+        while (i < 16) {
+            c[i] = b[i];
+            i = i + 1;
+        }
+        _bytes = c;
+    }
+
+    // The all-zero GUID (00000000-0000-0000-0000-000000000000).
+    public static Guid Empty() {
+        return new Guid(new byte[16]);
+    }
+
+    // A fresh RFC 4122 v4 (random) GUID from OS entropy.
+    public static Guid NewGuid() {
+        byte[] b = Entropy.GetBytes(16);
+        // version 4 in the high nibble of byte 6; variant '10x' in byte 8.
+        b[6] = (byte)(((int)b[6] & 0x0F) | 0x40);
+        b[8] = (byte)(((int)b[8] & 0x3F) | 0x80);
+        return new Guid(b);
+    }
+
+    // ── 解析 ──────────────────────────────────────────────────────────────────
+
+    // Parse the canonical "D" form (36 chars, hyphenated) or the "N" form
+    // (32 hex chars). Throws FormatException on any other length or a bad char.
+    public static Guid Parse(string s) {
+        int len = s.Length;
+        byte[] outb = new byte[16];
+        if (len == 32) {
+            Guid._parseHexInto(s, outb, false);
+        } else if (len == 36) {
+            Guid._parseHexInto(s, outb, true);
+        } else {
+            throw new FormatException("Guid string length " + len.ToString() + " invalid (expected 32 or 36): " + s);
+        }
+        return new Guid(outb);
+    }
+
+    // Non-throwing parse: the Guid on success, null on any malformed input.
+    public static Guid? TryParse(string s) {
+        try {
+            return Guid.Parse(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void _parseHexInto(string s, byte[] outb, bool dashes) {
+        int bi = 0;
+        int i = 0;
+        while (bi < 16) {
+            if (dashes && (bi == 4 || bi == 6 || bi == 8 || bi == 10)) {
+                if (s.CharAt(i) != '-') {
+                    throw new FormatException("Guid: expected '-' at position " + i.ToString() + ": " + s);
+                }
+                i = i + 1;
+            }
+            int hi = Guid._nibble(s.CharAt(i), s);
+            int lo = Guid._nibble(s.CharAt(i + 1), s);
+            outb[bi] = (byte)((hi << 4) | lo);
+            i = i + 2;
+            bi = bi + 1;
+        }
+    }
+
+    private static int _nibble(char c, string whole) {
+        if (!(c < '0') && !(c > '9')) { return (int)c - (int)'0'; }
+        if (!(c < 'a') && !(c > 'f')) { return (int)c - (int)'a' + 10; }
+        if (!(c < 'A') && !(c > 'F')) { return (int)c - (int)'A' + 10; }
+        throw new FormatException("Guid: invalid hex character '" + c.ToString() + "' in " + whole);
+    }
+
+    // ── 相等 ──────────────────────────────────────────────────────────────────
+
+    public bool Equals(Guid other) {
+        byte[] a = _bytes;
+        byte[] b = other._rawBytes();
+        int i = 0;
+        while (i < 16) {
+            if (a[i] != b[i]) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    private byte[] _rawBytes() { return _bytes; }
+
+    public int GetHashCode() {
+        int h = 0;
+        int i = 0;
+        while (i < 16) {
+            h = h * 31 + ((int)_bytes[i] & 0xFF);
+            i = i + 1;
+        }
+        return h;
+    }
+
+    // ── 格式化 ────────────────────────────────────────────────────────────────
+
+    // Canonical hyphenated lowercase form, e.g. "0f8fad5b-d9cb-469f-a165-70867728950e".
+    public override string ToString() {
+        return this._toHex(true);
+    }
+
+    // "D" (hyphenated, default) or "N" (32 hex, no hyphens); case-insensitive.
+    public string ToString(string format) {
+        if (format == "N" || format == "n") {
+            return this._toHex(false);
+        }
+        if (format == "D" || format == "d" || format == "") {
+            return this._toHex(true);
+        }
+        throw new FormatException("Guid format '" + format + "' not supported (use \"D\" or \"N\")");
+    }
+
+    private string _toHex(bool dashes) {
+        string digits = "0123456789abcdef";
+        int len = 32;
+        if (dashes) {
+            len = 36;
+        }
+        char[] outc = new char[len];
+        int pos = 0;
+        int i = 0;
+        while (i < 16) {
+            if (dashes && (i == 4 || i == 6 || i == 8 || i == 10)) {
+                outc[pos] = '-';
+                pos = pos + 1;
+            }
+            int bv = (int)_bytes[i] & 0xFF;
+            outc[pos] = digits.CharAt((bv >> 4) & 0x0F);
+            pos = pos + 1;
+            outc[pos] = digits.CharAt(bv & 0x0F);
+            pos = pos + 1;
+            i = i + 1;
+        }
+        return String.FromChars(outc);
+    }
+}

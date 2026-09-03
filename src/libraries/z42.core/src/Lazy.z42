@@ -1,0 +1,39 @@
+namespace Std;
+
+// add-guid-lazy-version (2026-09-03): C# System.Lazy<T> parity — deferred,
+// memoized one-time initialization. Wraps a Func<T> factory; the first Value
+// read runs the factory and caches the result, subsequent reads return the
+// cached value without re-invoking.
+//
+// Single-thread memoize only (matches C# LazyThreadSafetyMode.None); a
+// thread-safe publication mode defers to L3 once the threading story lands.
+public sealed class Lazy<T> {
+    private Func<T> _factory;
+    private T _value;
+    private bool _created;
+
+    public Lazy(Func<T> factory) {
+        _factory = factory;
+        _created = false;
+    }
+
+    // True once Value has been materialized.
+    public bool IsValueCreated {
+        get { return _created; }
+    }
+
+    // The lazily-computed value. The first read invokes the factory and caches
+    // it; later reads return the cache. The mutating memoize lives in _force()
+    // so the accessor body stays a single expression.
+    public T Value {
+        get { return this._force(); }
+    }
+
+    private T _force() {
+        if (!_created) {
+            _value = _factory();
+            _created = true;
+        }
+        return _value;
+    }
+}

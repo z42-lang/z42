@@ -1,0 +1,148 @@
+namespace Std;
+
+// add-guid-lazy-version (2026-09-03): C# System.Version parity — a
+// dotted-quad version number (major.minor[.build[.revision]]). Build and
+// revision are optional; an unset component is stored as -1 and omitted from
+// ToString, exactly like the BCL. Ordered by the four components in sequence
+// (an unset -1 sorts below any real 0+ component, matching C#).
+public sealed class Version {
+    private int _major;
+    private int _minor;
+    private int _build;
+    private int _revision;
+
+    public Version(int major, int minor) {
+        Version._checkNonNeg(major);
+        Version._checkNonNeg(minor);
+        _major = major;
+        _minor = minor;
+        _build = -1;
+        _revision = -1;
+    }
+
+    public Version(int major, int minor, int build) {
+        Version._checkNonNeg(major);
+        Version._checkNonNeg(minor);
+        Version._checkNonNeg(build);
+        _major = major;
+        _minor = minor;
+        _build = build;
+        _revision = -1;
+    }
+
+    public Version(int major, int minor, int build, int revision) {
+        Version._checkNonNeg(major);
+        Version._checkNonNeg(minor);
+        Version._checkNonNeg(build);
+        Version._checkNonNeg(revision);
+        _major = major;
+        _minor = minor;
+        _build = build;
+        _revision = revision;
+    }
+
+    private static void _checkNonNeg(int v) {
+        if (v < 0) {
+            throw new ArgumentException("version component must be non-negative, got " + v.ToString());
+        }
+    }
+
+    // ── 访问器 ────────────────────────────────────────────────────────────────
+    // Build / Revision return -1 when the component was not supplied (BCL parity).
+
+    public int Major    { get { return _major; } }
+    public int Minor    { get { return _minor; } }
+    public int Build    { get { return _build; } }
+    public int Revision { get { return _revision; } }
+
+    // ── 解析 ──────────────────────────────────────────────────────────────────
+
+    // Parse "major.minor", "major.minor.build" or "major.minor.build.revision".
+    // Throws FormatException on the wrong component count or a non-integer /
+    // negative component.
+    public static Version Parse(string s) {
+        string[] parts = s.Split(".");
+        int n = parts.Length;
+        if (n < 2 || n > 4) {
+            throw new FormatException("Version string has " + n.ToString() + " components (expected 2-4): " + s);
+        }
+        int major = Version._parseComponent(parts[0], s);
+        int minor = Version._parseComponent(parts[1], s);
+        if (n == 2) {
+            return new Version(major, minor);
+        }
+        int build = Version._parseComponent(parts[2], s);
+        if (n == 3) {
+            return new Version(major, minor, build);
+        }
+        int revision = Version._parseComponent(parts[3], s);
+        return new Version(major, minor, build, revision);
+    }
+
+    private static int _parseComponent(string part, string whole) {
+        int? v = Int32.TryParse(part);
+        if (v == null) {
+            throw new FormatException("Version component is not an integer: '" + part + "' in " + whole);
+        }
+        int iv = (int)v;
+        if (iv < 0) {
+            throw new FormatException("Version component is negative: '" + part + "' in " + whole);
+        }
+        return iv;
+    }
+
+    // Non-throwing parse: the Version on success, null on any malformed input.
+    public static Version TryParse(string s) {
+        try {
+            return Version.Parse(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ── 比较 ──────────────────────────────────────────────────────────────────
+
+    // Lexicographic over (major, minor, build, revision). Returns -1 / 0 / 1.
+    public int CompareTo(Version other) {
+        if (_major != other.Major)       { return Version._cmpInt(_major, other.Major); }
+        if (_minor != other.Minor)       { return Version._cmpInt(_minor, other.Minor); }
+        if (_build != other.Build)       { return Version._cmpInt(_build, other.Build); }
+        if (_revision != other.Revision) { return Version._cmpInt(_revision, other.Revision); }
+        return 0;
+    }
+
+    private static int _cmpInt(int a, int b) {
+        if (a < b) { return -1; }
+        if (a > b) { return 1; }
+        return 0;
+    }
+
+    public bool Equals(Version other) {
+        return _major == other.Major
+            && _minor == other.Minor
+            && _build == other.Build
+            && _revision == other.Revision;
+    }
+
+    public int GetHashCode() {
+        int h = _major;
+        h = h * 31 + _minor;
+        h = h * 31 + _build;
+        h = h * 31 + _revision;
+        return h;
+    }
+
+    // ── 格式化 ────────────────────────────────────────────────────────────────
+
+    // "major.minor[.build[.revision]]" — trailing unset (-1) components omitted.
+    public override string ToString() {
+        string s = _major.ToString() + "." + _minor.ToString();
+        if (_build >= 0) {
+            s = s + "." + _build.ToString();
+            if (_revision >= 0) {
+                s = s + "." + _revision.ToString();
+            }
+        }
+        return s;
+    }
+}

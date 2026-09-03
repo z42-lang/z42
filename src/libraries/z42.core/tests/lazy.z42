@@ -1,0 +1,43 @@
+// add-guid-lazy-version (2026-09-03): Std.Lazy<T> 单元测试。
+namespace Z42LazyTests;
+
+using Std.Test;
+using Std;
+
+// Mutable probe so the "factory runs exactly once" test can count invocations
+// via a captured object reference.
+class LazyProbe {
+    public int calls;
+    public LazyProbe() { calls = 0; }
+    public int Next() {
+        calls = calls + 1;
+        return calls;
+    }
+}
+
+[Test]
+void test_value_and_created_flag() {
+    var lazy = new Lazy<int>(() => 42);
+    Assert.False(lazy.IsValueCreated);
+    Assert.Equal(42, lazy.Value);
+    Assert.True(lazy.IsValueCreated);
+    Assert.Equal(42, lazy.Value);
+}
+
+[Test]
+void test_factory_runs_once() {
+    var probe = new LazyProbe();
+    var lazy = new Lazy<int>(() => probe.Next());
+    Assert.Equal(0, probe.calls);
+    Assert.Equal(1, lazy.Value);
+    Assert.Equal(1, lazy.Value);   // memoized — factory not called again
+    Assert.Equal(1, probe.calls);
+}
+
+[Test]
+void test_reference_value() {
+    var lazy = new Lazy<string>(() => "hello");
+    Assert.False(lazy.IsValueCreated);
+    Assert.Equal("hello", lazy.Value);
+    Assert.True(lazy.IsValueCreated);
+}
