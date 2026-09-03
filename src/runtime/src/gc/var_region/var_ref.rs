@@ -59,7 +59,7 @@ impl VarGcRef {
 
     #[cfg(not(target_pointer_width = "64"))]
     #[inline]
-    fn pack(ptr: NonNull<GcBlockHeader>, generation: u32) -> Self {
+    pub(super) fn pack(ptr: NonNull<GcBlockHeader>, generation: u32) -> Self {
         Self { ptr, generation }
     }
 
@@ -75,7 +75,7 @@ impl VarGcRef {
 
     #[cfg(not(target_pointer_width = "64"))]
     #[inline]
-    fn header_ptr(&self) -> NonNull<GcBlockHeader> {
+    pub(super) fn header_ptr(&self) -> NonNull<GcBlockHeader> {
         self.ptr
     }
 
@@ -88,7 +88,7 @@ impl VarGcRef {
 
     #[cfg(not(target_pointer_width = "64"))]
     #[inline]
-    fn gen16(&self) -> u16 {
+    pub(super) fn gen16(&self) -> u16 {
         self.generation as u16
     }
 
