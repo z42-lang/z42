@@ -201,11 +201,11 @@ pub fn builtin_env_args(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
         .collect();
     Ok(ctx.heap().alloc_array(list))
 }
-pub fn builtin_process_exit(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let code = match args.first() {
-        Some(Value::I64(n)) => *n as i32,
-        _ => 0,
-    };
+pub fn builtin_process_exit(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let code = match args.first() { Some(Value::I64(n)) => *n as i32, _ => 0 };
+    // `process::exit` runs no destructors: report before leaving, or every
+    // program that exits this way loses it (see `app::report_on_exit`).
+    crate::app::report_on_exit(ctx);
     std::process::exit(code);
 }
 pub fn builtin_env_unset(_ctx: &VmContext, args: &[Value]) -> Result<Value> {

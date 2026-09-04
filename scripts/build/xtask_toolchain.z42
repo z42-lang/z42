@@ -118,6 +118,27 @@ int _ensureToolchainDeps(string root) {
     return 0;
 }
 
+// z42b（z42.builder.zpkg）的 toml —— 单点常量，避免各站点各写一遍字面路径。
+string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
+
+// 确保 z42b 已按**当前 z42c** 编好。
+//
+// 为什么无条件重编而非 File.Exists 就跳过：z42b 是 zpkg，必须与当前 z42c 的 zpkg
+// 格式一致（strict-pin）——「存在」≠「可用」，上一格式版本的 z42.builder.zpkg 会在
+// 运行期被 z42vm 直接拒。而它只是几个小文件的 z42c 增量编译，源未变时近 no-op。
+// （同 test-lib stage 里既有 z42b 构建的理由，那里称之为 format-skew guard。）
+int _ensureZ42b(string root) {
+    int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
+    int c = _z42cBuildToml(_builtVm(root, "release"), _selfContainedDriverDir(root),
+                           _libsDir(root), _z42bToml());
+    if (c != 0) { ConsoleError.WriteLine("  ✗ z42b (z42.builder.zpkg) build failed"); return c; }
+    if (!File.Exists(_toolchainZpkg(root, _z42bToml()))) {
+        ConsoleError.WriteLine("  ✗ z42b built but zpkg missing: " + _toolchainZpkg(root, _z42bToml()));
+        return 1;
+    }
+    return 0;
+}
+
 // ── build workload ───────────────────────────────────────────────────────────
 // Compile the 4 workload libs → the stdlib libs dir (their toml dist_dir points there
 // so launcher's z42c build resolves them). Prereq: z42vm + z42c + stdlib present

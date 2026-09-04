@@ -48,6 +48,7 @@ pub mod safepoint;
 pub mod sampler;
 pub mod snapshot;
 pub mod soft_registry;
+pub mod trace;
 pub mod types;
 
 pub use heap::MagrGC;
