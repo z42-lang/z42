@@ -73,8 +73,27 @@ fn main() {
     // _compileCase. When no warm z42c toolchain is present (e.g. the initial
     // cold cargo build, before stdlib/z42c are built), the fixtures are
     // skipped and their tests opt out — no hard build dependency.
+    //
+    // ⚠️ 整块由 `z42-test-fixtures` feature 门控，默认**关闭**。
+    //
+    // 原因（fix-build-rs-zpkg-invalidation, 2026-09-05）：下面的
+    // `rerun-if-changed=<z42c.driver.zpkg>` 在构建期形成一个环——
+    //     z42vm(Rust) ──要它才能跑──> z42c ──产出──> z42c.driver.zpkg
+    //          ↑                                          │
+    //          └────── build.rs rerun-if-changed ─────────┘
+    // 而 `xtask build compiler` 每轮都重写 driver.zpkg，于是**下一次** cargo 判定
+    // build script 陈旧 → 整个 crate graph（lib z42 → z42vm → 各 cdylib）全量重编。
+    // 实测：warm 树上仅 `touch` 一下 driver.zpkg，release 重编就要 **62s**；
+    // `xtask build compiler` 的 92s 里有 62s 是这个（debug 只 ~3.5s，故只在
+    // release 上致命）。CI 的 ci-bootstrap 每个 job 都踩一次，一次 run 踩 7 次。
+    //
+    // 这是**纯测试便利设施**（编两个 fixture）被挂进了所有人的构建关键路径。
+    // 门控后：普通 release 构建根本不声明这条依赖 → 环在非测试路径上断开；
+    // 只有 `xtask test runtime` / CI 的 Rust 单测步骤显式带 feature 时才接上，
+    // 那些路径本来就要跑 z42c，覆盖面不变。
+    let want_fixtures = env::var_os("CARGO_FEATURE_Z42_TEST_FIXTURES").is_some();
     let project_root = manifest_dir.parent().and_then(Path::parent);
-    if let Some(root) = project_root {
+    if let (true, Some(root)) = (want_fixtures, project_root) {
         // z42c.driver is self-contained: its 6 z42c.* siblings are bundled into its
         // own dist by `z42c build` (simplify-compiler-build). So Z42_LIBS supplies
         // only the stdlib — the driver's siblings resolve from its own dir (z42vm's

@@ -131,7 +131,13 @@ int _testE2e(ParseResult r) {
 // (suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores).
 int _testRuntime() {
     Stopwatch sw = _procStart("test runtime");
+    // --features z42-test-fixtures：build.rs 里「用 z42c 编两个 .z42 fixture + emit
+    // cfg」那块默认关闭（否则它 rerun-if-changed 到 z42c.driver.zpkg，而该文件被
+    // `xtask build compiler` 每轮重写 → 下一次 cargo 全量重编，release 实测 62s）。
+    // Rust 单测是唯一真正需要那两个 fixture 的地方，故在这里按需打开——覆盖面不变，
+    // 只是把成本从「所有人的每次构建」挪到「真的要跑 Rust 单测时」。
     int __rc = _exec(new Process("cargo").Arg("test").Arg("--locked")
+        .Arg("--features").Arg("z42-test-fixtures")
         .Arg("--manifest-path").Arg(_runtimeManifest())
         .Arg("--").Arg("--test-threads=1")
         .Env("RUST_MIN_STACK", "8388608"));
