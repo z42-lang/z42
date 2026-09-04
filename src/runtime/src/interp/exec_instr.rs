@@ -220,12 +220,14 @@ pub fn exec_instr(
             // Hot path: pass type_token cache for repopulation. Dispatch via
             // type_registry / lazy_loader unchanged.
             let type_token = cached_token!(_site_idx, type_tokens);
+            // cache-ctorless-objnew: per-site "this class has no ctor" mark.
+            let ctorless = cached_token!(_site_idx, ctorless_marks);
             // fix-ctor-throw-propagation (2026-05-24): mirror Call / Builtin —
             // propagate user `throw` from the ctor body to the enclosing
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
                 ctx, module, frame, *dst, class_name, ctor_name, args, type_args, type_token,
-                *stack_alloc,
+                ctorless, *stack_alloc,
             )? {
                 return Ok(Some(thrown));
             }

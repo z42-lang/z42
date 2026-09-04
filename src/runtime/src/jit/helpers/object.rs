@@ -22,6 +22,9 @@ pub unsafe extern "C" fn jit_obj_new(
     // IR `Instruction::ObjNew { type_args: Vec<String> }` storage, valid for
     // module lifetime. Non-generic ObjNew passes count = 0.
     type_args_ptr: *const String, type_args_count: usize,
+    // cache-ctorless-objnew: per-site "this class has no ctor" mark (may be null
+    // when the function was compiled without a resolved token table).
+    ctorless_mark: *const std::sync::atomic::AtomicUsize,
 ) -> u8 {
     // cache-failed-name-resolution: borrow, don't `to_string()` — 2 allocs per `new`.
     let class_name = std::str::from_utf8(std::slice::from_raw_parts(cls_name_ptr, cls_name_len))
@@ -69,6 +72,22 @@ pub unsafe extern "C" fn jit_obj_new(
         }
     }
 
+    // cache-ctorless-objnew: a class with no explicit constructor still makes the
+    // compiler emit `<Class>..ctor$N` — a name that resolves nowhere. Once this site
+    // has proved that, skip the lazy-table mutex, the loader lookup, AND the
+    // `ctor_args` Vec below. The merged module is still probed first (a plain hash,
+    // no lock): the mark says "no *lazily-loadable* ctor", and `Function.resolved`
+    // is shared by every module this function may run under, so a module that does
+    // carry the ctor must still win.
+    use crate::metadata::resolver::{ctorless_hit, ctorless_note};
+    let mark = if ctorless_mark.is_null() { None } else { Some(&*ctorless_mark) };
+    let live = vm_ctx_ref(ctx).fn_registration_mark();
+    let in_module = module.func_index.contains_key(ctor_name);
+    if !in_module && ctorless_hit(mark, live) {
+        frame_ref.regs[dst as usize] = obj_val;
+        return 0;
+    }
+
     let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
     let mut ctor_args: Vec<Value> = vec![obj_val.clone()];
     ctor_args.extend(arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()));
@@ -100,6 +119,7 @@ pub unsafe extern "C" fn jit_obj_new(
         } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name) {
             Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
         } else {
+            ctorless_note(mark, live); // nothing resolves it — remember for this site
             None // ctor-less type → skip (object already default-initialised)
         };
         if let Some(outcome) = oc {

@@ -181,3 +181,58 @@ pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, slot: u32, fn_idx: u32) {
     entry.fn_idx.store(fn_idx, Relaxed);
     entry.type_id.store(recv_type, Relaxed);
 }
+
+// ── cache-ctorless-objnew: per-ObjNew-site "no constructor" mark ─────────────
+
+/// Monotonic count of functions ever registered into a lazy loader's
+/// `function_table`, plus loader install/uninstall. **Process-global on
+/// purpose**: it is only ever compared for equality against a value a site
+/// recorded earlier, so sharing it across `VmContext`s can only make a cached
+/// answer look stale (→ re-resolve), never make a stale answer look fresh.
+/// Keeping it out of `LazyLoader` / `VmCore` also keeps their layouts untouched
+/// — see the "布局彩票" note in `docs/book/src/dev/benchmarking.md`.
+/// Starts at 1 so `0` stays the "never proved" sentinel.
+static FN_REGISTRATIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(1);
+
+/// The current registration mark. A site that proved "no constructor" at value
+/// `n` may reuse that answer while this still reads `n`.
+#[inline]
+pub fn fn_registration_mark() -> usize {
+    FN_REGISTRATIONS.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Bump the mark — every insert into a loader `function_table`, and every loader
+/// install/uninstall, calls this. An absent ctor can only become present through
+/// one of those, so equality of the mark proves the negative answer still holds.
+#[inline]
+pub fn note_fn_registration() {
+    FN_REGISTRATIONS.fetch_add(1, std::sync::atomic::Ordering::Release);
+}
+
+/// `true` when this `ObjNew` site already proved its class has **no constructor**
+/// and nothing has been registered into the loader's `function_table` since.
+///
+/// `live` is `VmContext::fn_registration_mark()`. `0` is the never-proved
+/// sentinel (the live counter starts at 1), so a fresh slot never hits.
+#[inline]
+pub fn ctorless_hit(mark: Option<&std::sync::atomic::AtomicUsize>, live: usize) -> bool {
+    match mark {
+        Some(slot) => {
+            let seen = slot.load(std::sync::atomic::Ordering::Acquire);
+            seen != 0 && seen == live
+        }
+        None => false,
+    }
+}
+
+/// Record that `ctor_name` resolved nowhere, as of the mark read **before** the
+/// resolve. Using the earlier value is deliberate: if a registration raced in
+/// during the resolve, the stored mark is already stale and the next visit
+/// re-resolves — conservative, never the other way round.
+#[inline]
+pub fn ctorless_note(mark: Option<&std::sync::atomic::AtomicUsize>, mark_before: usize) {
+    if let Some(slot) = mark {
+        slot.store(mark_before, std::sync::atomic::Ordering::Release);
+    }
+}
