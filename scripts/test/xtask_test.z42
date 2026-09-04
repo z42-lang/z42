@@ -9,6 +9,71 @@ using Std.Toml;
 using Std.Time;
 using Std.Cli;
 
+// ── GREEN gate 的 stage 计时归因 ─────────────────────────────────────────────
+//
+// 为什么不复用 _procStart/_procEnd：那一对只在 `-v diagnostic`(>=4) 才打印耗时，
+// 而 CI 跑的是默认 verbosity —— 于是 `xtask test` 在 CI 日志里是个黑盒，只有一个
+// 总时长，想知道「哪个 stage 吃掉了墙钟」必须本地复现或调高 verbosity 重跑一次。
+// stage 数是个位数、边界天然清晰，所以这里**无条件**打印每个 stage 的耗时，并在
+// 末尾给一张降序表 —— 任何 CI 慢下来的排查都从这张表开始，而不是从一次重跑开始。
+
+// stage 计时账本：名字 + 毫秒并行数组（沿用仓库既有并行数组风格，见 DistSnapZ）。
+public sealed class StageLogZ {
+    public string[] Names;
+    public long[] Ms;
+    public int Count;
+    public StageLogZ() { Names = new string[24]; Ms = new long[24]; Count = 0; }
+    public void Add(string n, long ms) {
+        if (Count < Names.Length) { Names[Count] = n; Ms[Count] = ms; Count = Count + 1; }
+    }
+}
+
+Stopwatch _stageStart(string name) {
+    Console.WriteLine("\n=== stage: " + name + " ===");
+    return Stopwatch.StartNew();
+}
+
+void _stageEnd(StageLogZ log, string name, Stopwatch sw) {
+    long ms = sw.Elapsed().TotalMilliseconds();
+    log.Add(name, ms);
+    Console.WriteLine("--- stage: " + name + " — " + _fmtDur(ms) + " ---");
+}
+
+// 降序耗时表 + 占比。stage 数 ≤ 24 → 选择排序足够，不值得引入更复杂的排序。
+void _stageSummary(StageLogZ log, long totalMs) {
+    if (log.Count == 0) { return; }
+    int[] order = new int[log.Count];
+    int i = 0;
+    while (i < log.Count) { order[i] = i; i = i + 1; }
+    i = 0;
+    while (i < log.Count) {
+        int best = i;
+        int j = i + 1;
+        while (j < log.Count) {
+            if (log.Ms[order[j]] > log.Ms[order[best]]) { best = j; }
+            j = j + 1;
+        }
+        int t = order[i]; order[i] = order[best]; order[best] = t;
+        i = i + 1;
+    }
+    Console.WriteLine("\n── stage wall-clock (降序) ──");
+    i = 0;
+    while (i < log.Count) {
+        int k = order[i];
+        long pct = totalMs > 0 ? (log.Ms[k] * 100) / totalMs : 0;
+        Console.WriteLine("  " + _padRight(log.Names[k], 48) + _fmtDur(log.Ms[k])
+            + "  (" + pct.ToString() + "%)");
+        i = i + 1;
+    }
+    Console.WriteLine("  " + _padRight("TOTAL", 48) + _fmtDur(totalMs));
+}
+
+string _padRight(string s, int width) {
+    string o = s;
+    while (o.Length < width) { o = o + " "; }
+    return o;
+}
+
 // ── test e2e ────────────────────────────────────────────────────────────────
 
 // `test e2e [--dir <cat>] [--file <path>] [--mode interp|jit] [--no-rebuild] [--jobs=N]`
@@ -233,9 +298,14 @@ int _testAll(bool noBuild, string skip) {
     // early-returns here before the debug vm ever gets rebuilt. Building it first
     // keeps regen on a current vm. (The [Test]/[Benchmark] runner is now z42b —
     // z42.builder.zpkg, built by the lib/compiler stages with the current z42c.)
+    StageLogZ slog = new StageLogZ();
+    // build wave 也计时：它常常是整个 gate 里最大的一块（CI 上 regen + 自建），
+    // 不计的话下面的 stage 表加起来对不上总时长，反而误导。
+    Stopwatch swStage = _stageStart("build wave (debug vm + regen)");
     int c = _buildDebugVmAndCompression(); if (c != 0) { return c; }
     c = _regenForTest(haveTc, noBuild);
     if (c != 0) { return c; }
+    _stageEnd(slog, "build wave (debug vm + regen)", swStage);
     // NOTE: the Rust VM unit harness (`test runtime` = cargo test) is intentionally
     // NOT a stage here. It spawns signal-crash helpers (signal_handler_e2e) that hang
     // in signal-restricted sandboxes, which would make the always-run gate unusable.
@@ -249,57 +319,67 @@ int _testAll(bool noBuild, string skip) {
     // redundant (5× the slow per-case cranelift compile). Splitting interp (here,
     // all OS) from jit (one linux job) keeps full coverage while taking the slow
     // jit stage off every host leg's critical path.
-    Console.WriteLine("\n=== stage: e2e goldens (interp; jit → vm-jit-consistency) ===");
+    swStage = _stageStart("e2e goldens (interp; jit → vm-jit-consistency)");
     c = _testE2eCore("interp", false, false, "4", "", "", ""); if (c != 0) { return c; }
+    _stageEnd(slog, "e2e goldens (interp; jit → vm-jit-consistency)", swStage);
     // stage 3: e2e cross-zpkg (skippable: CI offloads to a dedicated cross-zpkg-interp job)
     if (!_skipHas(skip, "cross-zpkg")) {
-        Console.WriteLine("\n=== stage: e2e cross-zpkg ===");
+        swStage = _stageStart("e2e cross-zpkg");
         c = _testCrossZpkgCore("interp", true); if (c != 0) { return c; }
+        _stageEnd(slog, "e2e cross-zpkg", swStage);
     }
     // stage 3b: e2e multi-exe (unify-run-modes P3 — one project → N exe zpkgs)
     if (!_skipHas(skip, "multi-exe")) {
-        Console.WriteLine("\n=== stage: e2e multi-exe ===");
+        swStage = _stageStart("e2e multi-exe");
         c = _testMultiExeCore("interp", true); if (c != 0) { return c; }
+        _stageEnd(slog, "e2e multi-exe", swStage);
     }
     // stage 4: stdlib [Test] (no build) (skippable: CI shards it across stdlib-interp jobs)
     if (!_skipHas(skip, "stdlib")) {
-        Console.WriteLine("\n=== stage: stdlib [Test] ===");
+        swStage = _stageStart("stdlib [Test]");
         c = _testLibCore("test", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
+        _stageEnd(slog, "stdlib [Test]", swStage);
     }
     // stage 4b: manifest-target fixtures (add-tests-bench-manifest-config P4 —
     // [[test]] harness true/false exit-code + explicit-overlay). noBuild=true:
     // the wave + stdlib stage already prepared the release toolchain.
     if (!_skipHas(skip, "targets")) {
-        Console.WriteLine("\n=== stage: manifest targets ([[test]]) ===");
+        swStage = _stageStart("manifest targets ([[test]])");
         c = _testTargetsCore("test", "", true); if (c != 0) { return c; }
+        _stageEnd(slog, "manifest targets ([[test]])", swStage);
     }
     // stage 4c: example compile-gate (design D4): compile ALL examples across
     // projects (build failure = stage failure), run those marked test=true.
     if (!_skipHas(skip, "examples")) {
-        Console.WriteLine("\n=== stage: examples (compile gate + test=true run) ===");
+        swStage = _stageStart("examples (compile gate + test=true run)");
         c = _testExampleGate(true); if (c != 0) { return c; }
+        _stageEnd(slog, "examples (compile gate + test=true run)", swStage);
     }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     // Skippable: CI offloads to a dedicated compiler-checks(linux-x64) job (1×)
     // — running on all 4 OS legs was 4× redundant (host-independent output).
     if (!_skipHas(skip, "compiler")) {
-        Console.WriteLine("\n=== stage: compiler ===");
+        swStage = _stageStart("compiler");
         c = _testCompiler(true); if (c != 0) { return c; }
+        _stageEnd(slog, "compiler", swStage);
     }
     // stage 6: VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
     // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext, 2026-07-07）
     // Skippable: same rationale as compiler — host-independent, 1× on CI.
     if (!_skipHas(skip, "vscode")) {
-        Console.WriteLine("\n=== stage: vscode-syntax ===");
+        swStage = _stageStart("vscode-syntax");
         c = _testVscodeSyntax(); if (c != 0) { return c; }
+        _stageEnd(slog, "vscode-syntax", swStage);
     }
     // stage 7: 文件行数硬上限 lint（add-line-count-lint）：新越界 / 继续膨胀 → 红；基线内 → warn。
     // 纯文本扫描（~1s），host-independent。Skippable: "lines"。
     if (!_skipHas(skip, "lines")) {
-        Console.WriteLine("\n=== stage: lines ===");
+        swStage = _stageStart("lines");
         c = _testLines(false); if (c != 0) { return c; }
+        _stageEnd(slog, "lines", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
+    _stageSummary(slog, sw.Elapsed().TotalMilliseconds());
     _procEnd("test", sw);
     return 0;
 }
