@@ -101,17 +101,26 @@ Dictionary 无自定义相等 ctor。用户被迫把唯一排序逻辑硬编码�
 **一个只想装载、从不排序的 DTO 列表都建不了**。C# `List<T>` 无约束（用 `EqualityComparer.Default` 运行时
 兜底）。根因是缺 `EqualityComparer.Default` 机制。Dictionary 要求 `TKey: IEquatable<TKey>` 同类问题，半径较小。
 
-### 🟡 高频痛点（大多不被语言阻塞，可低成本补）
+### ✅ 高频痛点（原 🟡；**本节六项已全部补齐**，2026-09-04 复核）
 
-- **TryParse 缺失** —— 所有 Parse 抛异常，无 `TryParse`。但 `IPAddress.TryParse(s) → IPAddress?` 已证明
-  "返回 nullable 替代 out 参数"可行，所以 `Int32.TryParse(s) → int?` **现在就能建**。
-- **Double.IsNaN / IsInfinity 缺失** —— 用户判 NaN 只能自己写 `x != x`。纯脚本可加。
-- **String 缺** PadLeft/PadRight、IndexOf(char)、Split(char[])、Trim(char)、LastIndexOf、Insert/Remove ——
-  全不被阻塞，照现有 char[]-脚本范式就能补。
-- **Array 静态算法几乎全空** —— Sort/IndexOf/Copy/Fill/Reverse 都无，只有反射壳方法。
-- **StringBuilder 只有 Append(object)** —— 传字符串也走 Convert.ToString 虚分发；传 char 还要装箱。
-  缺 Append(char)/Append(string) 重载（也是下面性能问题 P2 的根因）。
-- **Convert 仅 4 个方法**（ToInt32/ToInt64/ToDouble/ToString），缺 ToBoolean/ToByte/ToInt16/ToSingle/ToChar。
+> 下列条目是评审当时的现状描述，保留原文以便追溯；每条后附落地情况（逐条 grep 复核过源码，
+> 非凭记忆）。**本节至此清空**，后续 stdlib 补齐工作转向上面的 🔴 结构性缺口
+> （IEnumerable/LINQ、IComparer、`List<T>` 过度约束）。
+
+- ~~**TryParse 缺失**~~ —— ✅ 已补：`Int32.TryParse(s) → int?`（`Primitives/Int32.z42`），
+  按 `IPAddress.TryParse` 的「返回 nullable 替代 out 参数」范式，各标量类型同款。
+- ~~**Double.IsNaN / IsInfinity 缺失**~~ —— ✅ 已补（`Primitives/Double.z42`）。
+- ~~**String 缺** PadLeft/PadRight、IndexOf(char)、Split(char[])、Trim(char)、LastIndexOf、Insert/Remove~~
+  —— ✅ 已补（change `augment-string-prelude`，2026-09-04）：`IndexOf(char)` / `LastIndexOf(string|char)` /
+  `Split(char[])` / `Trim`·`TrimStart`·`TrimEnd` 各自的 `char` 与 `char[]` 重载 / `Insert(int,string)` /
+  `Remove(int)`·`Remove(int,int)` / `PadLeft`·`PadRight` 各两个重载。
+  **补齐一度被卡三轮**——头部方法是与既有方法同名的重载，而旧派发键依赖「兄弟重载数」，
+  加重载会把既有裸键 rekey 掉、打断自举链；根因修复见 `stabilize-instance-dispatch-keys`（#414）。
+- ~~**Array 静态算法几乎全空**~~ —— ✅ 已补：Sort/IndexOf/Copy/Fill/Reverse 等 15 个静态算法
+  （`Array.z42`，含 range/offset 重载与配对 `Sort<TKey,TValue>`）。
+- ~~**StringBuilder 只有 Append(object)**~~ —— ✅ 已补 `Append(string)` / `Append(char)` /
+  `AppendLine` / `AppendFormat`（`StringBuilder.z42`），性能问题 P2 的根因随之消解。
+- ~~**Convert 仅 4 个方法**~~ —— ✅ 已补至 10 个（`Convert.z42`）。
 
 ### 🟢 有前置依赖，需先解锁
 

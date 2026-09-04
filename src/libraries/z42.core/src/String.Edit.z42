@@ -1,0 +1,88 @@
+namespace Std;
+
+// Partial fragment of `Std.String` — 位置编辑（Insert / Remove）与对齐填充（PadLeft /
+// PadRight）。augment-string-prelude (2026-09-04)：这批 BCL 方法与核心碎片没有同名
+// 重载交集，单独成片让 `String.z42` 保持在 500 行硬限内。
+//
+// 碎片归属规则（partial v1）：**同名方法组必须落在同一碎片**——键决策
+// （MemberCollector `emittedInst`，见 stabilize-instance-dispatch-keys）是
+// 每-fragment 的局部状态，跨碎片时两个同名方法会各自当「声明序首个」取裸键，
+// 后者在 `ct.Methods` 里静默覆盖前者。故 Remove×2 / PadLeft×2 / PadRight×2
+// 各自成组落在本碎片。
+public sealed partial class String {
+    // ── 位置编辑 ─────────────────────────────────────────────────────────────
+
+    // 在 `startIndex` 处插入 `value`。startIndex == Length 时等价于追加。
+    // 对齐 C# `string.Insert`：越界抛异常，空 value 返回原串。
+    public string Insert(int startIndex, string value) {
+        int n = this.Length;
+        if (startIndex < 0 || startIndex > n) {
+            throw new Exception($"Insert: startIndex out of range (startIndex={startIndex}, Length={n})");
+        }
+        if (value.Length == 0) return this;
+        return this.Substring(0, startIndex) + value + this.Substring(startIndex);
+    }
+
+    // Remove(startIndex)：删除 [startIndex, Length) —— 即截断到 startIndex。
+    public string Remove(int startIndex) {
+        int n = this.Length;
+        if (startIndex < 0 || startIndex > n) {
+            throw new Exception($"Remove: startIndex out of range (startIndex={startIndex}, Length={n})");
+        }
+        return this.Substring(0, startIndex);
+    }
+
+    // Remove(startIndex, count)：删除 [startIndex, startIndex+count)。
+    // 边界判据与 Substring 同构（`startIndex > n - count` 一次覆盖两端越界）。
+    public string Remove(int startIndex, int count) {
+        int n = this.Length;
+        if (startIndex < 0 || count < 0 || startIndex > n - count) {
+            throw new Exception($"Remove: out of range (startIndex={startIndex}, count={count}, Length={n})");
+        }
+        if (count == 0) return this;
+        return this.Substring(0, startIndex) + this.Substring(startIndex + count);
+    }
+
+    // ── 对齐填充 ─────────────────────────────────────────────────────────────
+
+    // 右对齐到 `totalWidth`，左侧补空格。串已达宽度则原样返回（C# 语义）。
+    public string PadLeft(int totalWidth) {
+        return this.PadLeft(totalWidth, ' ');
+    }
+
+    // 右对齐到 `totalWidth`，左侧补 `paddingChar`。
+    // 一次分配 char[totalWidth] 后填充（对比 z42.text `Strings.PadLeft` 的逐字符
+    // CharAt 取源串：这里用 ToCharArray 的 bulk 视图，与 String 其它方法一致）。
+    public string PadLeft(int totalWidth, char paddingChar) {
+        if (totalWidth < 0) {
+            throw new Exception($"PadLeft: totalWidth must not be negative (totalWidth={totalWidth})");
+        }
+        char[] src = this.ToCharArray();
+        int n = src.Length;
+        if (n >= totalWidth) return this;
+        char[] buf = new char[totalWidth];
+        int pad = totalWidth - n;
+        for (int i = 0; i < pad; i++) { buf[i] = paddingChar; }
+        for (int i = 0; i < n; i++) { buf[pad + i] = src[i]; }
+        return String.FromChars(buf);
+    }
+
+    // 左对齐到 `totalWidth`，右侧补空格。
+    public string PadRight(int totalWidth) {
+        return this.PadRight(totalWidth, ' ');
+    }
+
+    // 左对齐到 `totalWidth`，右侧补 `paddingChar`。
+    public string PadRight(int totalWidth, char paddingChar) {
+        if (totalWidth < 0) {
+            throw new Exception($"PadRight: totalWidth must not be negative (totalWidth={totalWidth})");
+        }
+        char[] src = this.ToCharArray();
+        int n = src.Length;
+        if (n >= totalWidth) return this;
+        char[] buf = new char[totalWidth];
+        for (int i = 0; i < n; i++) { buf[i] = src[i]; }
+        for (int i = n; i < totalWidth; i++) { buf[i] = paddingChar; }
+        return String.FromChars(buf);
+    }
+}
