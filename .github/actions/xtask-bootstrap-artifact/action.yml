@@ -18,11 +18,13 @@ inputs:
       MORE than this action does — e.g. host-package's package step additionally
       builds cdylib/staticlib/apphost, so it owns `package-host-v2`.
 
-      Do NOT point this at `host-v2`: that key is saved by the ci-bootstrap action,
-      which only does `cargo build --bin z42vm` (bin/rlib). Sharing it means the
-      cdylibs built here never land in the cache and get recompiled cold every run
-      — the exact bug that sat in 7 jobs until 2026-09-04. Keeping the cache config
-      inside this action (instead of copy-pasted per job) is what stops it recurring.
+      历史：`host-v2`（ci-bootstrap 侧的 key）曾经只含 bin/rlib —— 那时 ci-bootstrap
+      跑的是 `cargo build --bin z42vm`，共用它会让这里建的 cdylib 永远进不了缓存、
+      每轮冷编（2026-09-04 前有 7 个 job 中招）。2026-09-05 起 ci-bootstrap 的 [0/5]
+      已改为全 workspace（与本 action 同一 unit 集合，见该 action 注释），两边内容
+      因此趋同；但仍保持两个 key 分开，因为两条 bootstrap 路径后续做的事不同，
+      合并需要单独验证。把缓存配置留在本 action 内（而不是每个 job 抄一份）才是
+      当初那个 bug 不再复发的原因。
     required: false
     default: artifact-host-v1
   rust-targets:
