@@ -65,6 +65,10 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // dispatch module so `method_tokens` indices stay valid.
     if func.resolved.get().is_none() {
         crate::metadata::resolver::resolve_function_tokens(func, module, ctx);
+        // defer-class-initialization (T3): 解析刚把本函数引用的静态字段的**所属类**
+        // 入了队；在函数体执行前触发它们的初始化，保证第一条 StaticGet 读到的是
+        // 初始化后的值而不是 Null。排空自带线程本地重入保护。
+        ctx.run_pending_static_inits();
     }
     // Spec impl-ref-out-in-runtime (Decision R2 architecture E):
     // 入口 copy-in：扫描 params，对每个持 Value::Ref 的 reg：

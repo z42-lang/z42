@@ -399,3 +399,35 @@ fn load_module_from_path_dedupes_module_dir() {
     let count = loader.search_dirs.iter().filter(|d| **d == dir).count();
     assert_eq!(count, 1, "module dir already present → not duplicated in search_dirs");
 }
+
+// ── defer-class-initialization: 原生类型名守卫 ────────────────────────────────
+
+#[test]
+fn primitive_keyword_names_are_recognized() {
+    // 无点号的编译器关键字 → 守卫命中（不进 Fallback-B 全量扫描）
+    for n in ["int", "long", "short", "byte", "sbyte", "uint", "ulong", "ushort",
+              "float", "double", "bool", "char", "string", "object", "void"] {
+        assert!(is_primitive_keyword_name(n), "`{n}` should be a primitive keyword name");
+    }
+}
+
+#[test]
+fn qualified_and_user_names_are_not_primitive() {
+    // 带点号的一律不是（哪怕最后一段撞了关键字）
+    assert!(!is_primitive_keyword_name("Std.Int32"));
+    assert!(!is_primitive_keyword_name("Demo.int"));
+    // 用户类名不是
+    assert!(!is_primitive_keyword_name("Process"));
+    assert!(!is_primitive_keyword_name("Integer"));
+}
+
+#[test]
+fn init_state_distinguishes_running_thread() {
+    // 重入判定靠 ThreadId 相等：同线程 Running → 跳过；他线程 Running → 等待。
+    let me = std::thread::current().id();
+    let other = std::thread::spawn(|| std::thread::current().id()).join().unwrap();
+    assert_ne!(me, other);
+    assert_eq!(InitState::Running(me), InitState::Running(me));
+    assert_ne!(InitState::Running(me), InitState::Running(other));
+    assert_ne!(InitState::Running(me), InitState::Done);
+}

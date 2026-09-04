@@ -30,6 +30,16 @@ pub struct VmCore {
     /// is called (typically from `bootstrap.rs`). Shared across threads
     /// since zpkg resolution + module loading is a process-global operation.
     pub(crate) lazy_loader:        Mutex<Option<LazyLoader>>,
+    /// defer-class-initialization: 待初始化的**所属类** FQN 队列。由
+    /// `metadata::resolver` 解析 `StaticGet`/`StaticSet` 时入队（字段名去掉最后一段），
+    /// 在 `VmContext::run_pending_static_inits` 里逐个 `try_lookup_type` 触发所属包加载
+    /// + 初始化。这是「静态字段引用触发类初始化」的落点：热路径
+    /// `static_get_by_id` 因 `Value::Null` 是合法值而无法区分「未初始化」，
+    /// 故触发点前移到「名字→id 解析」这一每名一次的冷路径。
+    pub(crate) pending_type_inits: Mutex<Vec<String>>,
+    /// defer-class-initialization: 懒执行的 `__static_init__` 抛出/出错时记录首个失败，
+    /// 由 `Vm::run` 在入口返回后转成运行错误（对齐变更前 boot 期 `bail!` 的响度）。
+    pub(crate) static_init_error:  Mutex<Option<String>>,
     /// **add-load-context-model (2026-07-30)**: registry of load contexts +
     /// assemblies (dotnet ALC 地基). Root context (id 0) + root assembly (id 0)
     /// pre-populated. `collectible` contexts created via `AssemblyLoadContext.CreateCollectible`;

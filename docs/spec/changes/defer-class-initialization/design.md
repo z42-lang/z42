@@ -111,6 +111,51 @@ REPL 每一轮走的是**另一条注册路径**，与本变更的队列不相�
 REPL 未被 `xtask test` 默认覆盖（仅 `xtask test dist` 有一条 `z42 repl -c '1 + 2'` 冒烟），
 本变更须补一条多轮 REPL 用例（含静态字段访问），否则回归无网。
 
+## 实施中发现的隐藏耦合：候选集不是传递闭包
+
+**症状**：去掉 boot 期 force-load 后，`xtask test` 立刻炸在
+`Std.IO.Process.AppendString` 的 `arr.Length`（`this._args` 是 Null）。
+
+**根因链**（逐环实测）：
+
+1. `LazyLoader::declared_zpkgs` 是**增量**集合：初值来自入口的直接依赖 + IMPT 命名空间，
+   每加载一个包才把**它的**依赖注册成新候选。
+2. xtask 的直接依赖是 cli / crypto / encoding / json / project / regex / text / toml 八个；
+   **z42.io 只是 z42.cli 的传递依赖**，一开始不在候选集里。
+3. `new Process("git")` → `resolve_type("Std.IO.Process")`：
+   `candidates_for_namespace("Std.IO")` = **空**（z42.io 尚未成为候选），
+   Fallback-B 扫完那 8 个仍找不到 → 返回 `None`。
+4. `interp::exec_object::obj_new` 在两处查找都落空时**静默合成一个空 `TypeDesc`**
+   （`make_fallback_type_desc`：无字段、`id = UNRESOLVED`）→ 构造函数的 `FieldSet`
+   因 `field_index` 查不到槽位而**被丢弃**，之后每次 `FieldGet` 都读到 `Null`。
+   实测该对象 `refs=0 bytes=0 tid=4294967295`。
+5. 崩溃点（`arr.Length`）离根因隔了两层调用，且**全程没有一条日志**。
+
+**为什么变更前不炸**：boot 期 `force_load_all_declared()` 反复加载直到 `remaining_declared()`
+为空 —— 顺带把候选集推到了**传递闭包**。它掩盖了 3 的窗口。
+
+**同族的其它三处静默降级**（都被 boot 期 force-load 掩盖，实施中逐一撞到）：
+
+| 静默点 | 表现 | 处置 |
+|---|---|---|
+| `resolve_type` 返回**基类尚未加载**的子类（`needs_fixup` 对此返 false）| 基类字段无槽位、`base(name)` 写入丢弃 → golden `vcall_base_fallback` 的 `Rex` 变 `null` | `ensure_base_chain_loaded`（迭代加载基类链 + fixup 到不动点）+ `base_chain_complete` 快路径 |
+| `let _ = self.load_zpkg_file(...)` **吞掉加载失败** | 失败的包永远留在 `remaining_declared()` → 不动点循环原地死转 100% CPU | 「一轮无成功加载就停」的闸门 |
+| `load_module_from_path` **丢弃**收集到的 `__static_init__` 名字 | z42b 显式加载编译器模块 → `DepScanCache._count` 永远 Null | 入队交给 `run_pending_static_inits` |
+
+**外加一个顺序问题**：`static_fields_clear()` 把静态槽位清零后，已加载的包不会再被任何查找
+重新触发 → 静态字段永远停在 Null（z42b 嵌套跑目标模块时 `Sha256._roundConstants` 就这么没的）。
+处置：清零时把 `static_init_state` 里已跑过的名字**倒回待跑队列**，由紧随的排空重跑——
+等价于变更前「清零后无条件重跑全部初始化器」的语义。
+
+**修法（本变更）**：
+
+- `resolve_function` / `resolve_type` 的 Fallback-B 改为**扫到不动点**：
+  一轮加载完重新取 `remaining_declared()`，直到集合为空或命中。
+  这在不恢复 boot 期全量加载的前提下，恢复了「可达即可解析」的保证。
+- `obj_new` 的空描述符合成路径加 `tracing::warn!`（仅对含点号的跨包类名）。
+  静默合成空描述符是数据损坏的温床——这个 bug 本可以第一时间被看见。
+- `FieldGet` 的错误信息补上字段名（原来只说 "got Null"，不说读的是哪个字段）。
+
 ## 备选方案（已否决）
 
 | 方案 | 否决理由 |
@@ -120,7 +165,22 @@ REPL 未被 `xtask test` 默认覆盖（仅 `xtask test dist` 有一条 `z42 rep
 | C：boot 时只跳过「无 `__static_init__`」的包 | 仍需读取每个包判断有无；实测 18 个包中 9 个无初始化器，只省 5.6/26 ms |
 | D：在 `static_get_by_id` 加 miss 触发 | `Value::Null` 是合法值，无 miss 信号；且是热路径 |
 
-## 预期收益（原型实测，同二进制切 env，hyperfine 60 runs）
+## 实测收益（实现版 vs main 的 VM，同机 hyperfine）
+
+| 场景 | main | 本变更 | |
+|---|---|---|---|
+| **`z42i -c '1 + 2'`（REPL 单次求值）** | 445.6 ms ± 14.0 | **69.5 ms ± 6.3** | **6.41×** |
+| **`z42i` peak RSS** | 76.0 MB | **44.6 MB** | −41% |
+| hello 墙钟 | 34.6 ms ± 5.9 | **17.6 ms ± 4.8** | 1.97× |
+| hello peak RSS | 22.8 MB | **12.0 MB** | −47% |
+| 用 Regex 的程序 墙钟 | 56.1 ms ± 7.7 | **21.2 ms ± 4.8** | 3.19× |
+| z42c 编译 hello | 442.2 ms | 441.2 ms | 持平 |
+| 加载 zpkg 数（hello） | 18 | **1** | |
+
+REPL 是收益最大的场景——交互求值每次都要过完整的加载路径，变更前每轮都在为整个
+标准库 + 编译器管线付 force-load 的钱。z42c 批量编译持平是预期内的（它本来就用大半标准库）。
+
+## 原设计的预期收益（原型实测，同二进制切 env，hyperfine 60 runs）
 
 | 场景 | 现状 | 目标 |
 |---|---|---|

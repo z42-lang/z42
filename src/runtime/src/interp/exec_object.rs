@@ -44,6 +44,17 @@ pub(super) fn obj_new(
         .cloned()
         .or_else(|| ctx.try_lookup_type(class_name))
         .unwrap_or_else(|| {
+            // defer-class-initialization (2026-09-04): 合成空描述符是**静默数据损坏**的
+            // 温床——它没有字段槽，构造函数的 FieldSet 会被丢弃、后续 FieldGet 全读到
+            // Null，错误现场离根因十万八千里（实测：`Std.IO.Process` 被合成空壳后，
+            // 崩在 `AppendString` 的 `arr.Length`）。合法用途只有编译器合成的本地类；
+            // 带点号的名字一律是跨包引用没解析到，必须叫出来。
+            if class_name.contains('.') {
+                tracing::warn!(
+                    "class `{class_name}` not found in module registry or lazy loader; \
+                     synthesizing an EMPTY TypeDesc — field writes will be silently dropped"
+                );
+            }
             std::sync::Arc::new(make_fallback_type_desc(module, class_name))
         });
 
@@ -244,7 +255,7 @@ pub(super) fn field_get(
                 other => bail!("PinnedView has no field `{}` (only `ptr` / `len`)", other),
             }
         }
-        other => bail!("FieldGet: not an object or known value type, got {:?}", other),
+        other => bail!("FieldGet: not an object or known value type, got {:?} (field `{}`)", other, field_name),
     };
     frame.set(dst, val);
     Ok(())

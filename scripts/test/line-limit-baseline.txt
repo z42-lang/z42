@@ -34,8 +34,6 @@ src/runtime/src/host/mod.rs	763
 src/runtime/src/jit/frame.rs	581
 src/runtime/src/jit/helpers/object.rs	580
 src/runtime/src/main.rs	568
-src/runtime/src/metadata/lazy_loader.rs	699
-src/runtime/src/metadata/resolver.rs	611
 src/runtime/src/native/ext.rs	731
 src/toolchain/builder/core/builder_publish.z42	967
 src/toolchain/launcher/core/launcher.z42	513
