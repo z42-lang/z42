@@ -87,7 +87,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let self_ptr = entry.value.data_ptr() as usize;
                 let obj = entry.value.lock();
                 let type_name = obj.type_desc.name.clone();
-                for slot in obj.refs.iter() {
+                for slot in obj.refs().iter() {
                     if let Some(child) = value_heap_ptr(slot) {
                         g.add_edge(
                             child,

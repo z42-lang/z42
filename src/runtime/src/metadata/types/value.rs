@@ -274,7 +274,7 @@ impl Value {
                 // string + inline-struct interior refs) live in `refs`; PR-3 chunk 2b
                 // additionally inlines direct object/array refs as 8B pointers in `bytes`,
                 // scanned via `trace_inline_refs`.
-                for r in &obj.refs { visit(r); }
+                for r in obj.refs() { visit(r); }
                 obj.trace_inline_refs(visit);
             }
             Value::Array(rc) => {
@@ -301,7 +301,7 @@ impl Value {
             }
             // add-boxed-struct-identity (P4b, 路 B2): 装箱 struct 是共享 `ScriptObject` → 与 Object
             // 同路追踪其 struct_refs 引用叶子（slots 空）。对象本身由 mark 循环的 BoxedStruct 臂标记。
-            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in &obj.refs { visit(r); } }
+            Value::BoxedStruct(gc) => { let obj = gc.borrow(); for r in obj.refs() { visit(r); } }
             // make-value-copy: `Ref` / `StructRefHeap` are transient-arena handles — leaves
             // here, exactly like `StructRef` / `StackObject`. Their payload's GcRefs (a
             // Ref's Array/Field target, a StructRefHeap's backing array) are scanned
@@ -379,8 +379,8 @@ impl PartialEq for Value {
                 } else {
                     let (ao, bo) = (a.borrow(), b.borrow());
                     ao.type_desc.name == bo.type_desc.name
-                        && ao.bytes == bo.bytes
-                        && ao.refs == bo.refs
+                        && ao.bytes() == bo.bytes()
+                        && ao.refs() == bo.refs()
                 }
             }
             // add-escape-analysis-stack-alloc: 栈句柄引用相等 —— 同 (frame_idx, idx,

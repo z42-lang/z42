@@ -266,7 +266,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // slots is `Box<[Value]>` — len == actual allocation (no excess
         // capacity to charge separately).
         (size_of::<Value>() + size_of::<ScriptObject>()
-            + obj.bytes.len() + obj.refs.len() * size_of::<Value>()) as u64
+            + obj.bytes().len() + obj.refs().len() * size_of::<Value>()) as u64
     }
 
     pub(super) fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
@@ -557,8 +557,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // slots is `Box<[Value]>` — len == actual allocation.
                 // add-struct-heap-inline (P3b): + inline struct byte region + ref side-table.
                 size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.bytes.len()
-                    + obj.refs.len() * size_of::<Value>()
+                    + obj.bytes().len()
+                    + obj.refs().len() * size_of::<Value>()
             }
             // impl-lambda-l2: FuncRef holds the function name; no managed heap
             // allocation beyond the string buffer.
@@ -593,8 +593,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             Value::BoxedStruct(gc) => {
                 let obj = gc.borrow();
                 size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.bytes.len()
-                    + obj.refs.len() * size_of::<Value>()
+                    + obj.bytes().len()
+                    + obj.refs().len() * size_of::<Value>()
             }
         }
     }

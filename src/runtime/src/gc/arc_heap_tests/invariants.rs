@@ -74,7 +74,7 @@ fn healthy_heap_validates_with_cross_gen_writes_under_generational() {
     let _pin_child = heap_dyn.pin_root(child.clone());
     {
         let Value::Object(o) = &owner else { panic!() };
-        o.borrow_mut().refs[0] = child.clone();
+        o.borrow_mut().refs_mut()[0] = child.clone();
     }
     heap_dyn.write_barrier_field(&owner, 0, &child);
 

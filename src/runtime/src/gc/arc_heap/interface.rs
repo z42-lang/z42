@@ -77,11 +77,10 @@ impl MagrGC for ArcMagrGC {
         // then encode each provided initial value through `set_field_value`. Callers
         // that pass `Vec::new()` (e.g. `obj_new`, which relies on defaults) skip the
         // loop entirely — zero-init already equals the old per-field defaults.
-        let (bytes, refs) = type_desc.object_regions();
+        let storage = type_desc.object_storage();
         let mut obj = ScriptObject {
             type_desc,
-            bytes,
-            refs,
+            storage,
             native,
             type_args: Box::new([]),
         };
@@ -102,8 +101,7 @@ impl MagrGC for ArcMagrGC {
         // payload (`bytes`); no reference leaves.
         let obj = ScriptObject {
             type_desc,
-            bytes: scalar_bytes,
-            refs: Box::new([]),
+            storage: crate::metadata::types::ObjStorage::from_bytes(&scalar_bytes),
             native: NativeData::None,
             type_args: Box::new([]),
         };

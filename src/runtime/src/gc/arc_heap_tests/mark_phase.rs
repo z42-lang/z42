@@ -100,8 +100,8 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
 
     heap.reset_marks_for_test();
@@ -119,8 +119,8 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
     // see stale shapes from other tests.
     let Value::Object(a_gc) = &a else { panic!() };
     let Value::Object(b_gc) = &b else { panic!() };
-    a_gc.borrow_mut().refs[0] = Value::Null;
-    b_gc.borrow_mut().refs[0] = Value::Null;
+    a_gc.borrow_mut().refs_mut()[0] = Value::Null;
+    b_gc.borrow_mut().refs_mut()[0] = Value::Null;
 }
 
 #[test]
@@ -156,8 +156,8 @@ fn mark_sweep_frees_two_node_cycle() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a);
     drop(b);
@@ -176,7 +176,7 @@ fn mark_sweep_frees_self_reference_cycle() {
     let a = heap.alloc_object(dummy_type_desc("Self"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(a_gc) = &a else { panic!() };
-        a_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a);
     assert_eq!(alive_count(&heap), 1);
@@ -221,9 +221,9 @@ fn mark_sweep_frees_three_node_cycle() {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
         let Value::Object(c_gc) = &c else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = c.clone();
-        c_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = c.clone();
+        c_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a);
     drop(b);
@@ -244,8 +244,8 @@ fn mark_sweep_preserves_externally_referenced_cycle() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     // Pin a as root → both a and b are reachable through the cycle.
     let root_handle = heap.pin_root(a.clone());

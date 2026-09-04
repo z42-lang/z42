@@ -16,13 +16,13 @@
 
 ## P2 `bytes` + `refs` 合成单块
 
-- [ ] 2.1 `metadata/types/obj_storage.rs`（NEW）：`ObjStorage` + 四个安全访问器 +
+- [x] 2.1 `metadata/types/obj_storage.rs`（NEW）：`ObjStorage` + 四个安全访问器 +
       `Drop` + `unsafe impl Send/Sync` + 单测（空 / 仅字节 / 仅引用 / 混合 / drop 计数 / 对齐）
-- [ ] 2.2 `metadata/types/object.rs`：`ScriptObject.bytes`/`refs` → 私有 `storage`，
+- [x] 2.2 `metadata/types/object.rs`：`ScriptObject.bytes`/`refs` → 私有 `storage`，
       加 `bytes()` / `bytes_mut()` / `refs()` / `refs_mut()`
-- [ ] 2.3 `metadata/types/type_desc.rs`：`object_regions()` → `object_storage()`
-- [ ] 2.4 编译器穷举其余调用点（gc/collect、gc/generational、interp、corelib、jit）
-- [ ] 2.5 度量：`ScriptObject` 72 → 56；RSS + `09_alloc_ctorless` A/B
+- [x] 2.3 `metadata/types/type_desc.rs`：`object_regions()` → `object_storage()`
+- [x] 2.4 编译器穷举其余调用点（gc/collect、gc/generational、interp、corelib、jit）
+- [x] 2.5 度量：`ScriptObject` 72 → 56；RSS + `09_alloc_ctorless` A/B
 
 ## P3 `native` + `type_args` → `Option<Box<ObjExtras>>`
 
@@ -49,8 +49,14 @@
 |---|---:|---:|---|
 | base(main) | 516.64 MB | 236 B | 264.7 ms ± 7.2 |
 | **P1**（终结器槽 24→8）| **474.38 MB（−8.2%）** | **215 B** | 258.8 ms ± 5.0（1.02×，不回归）|
+| **+P2**（bytes+refs 单块）| **448.64 MB（−13.2%）** | **202 B** | 278.5 vs base 285.6（1.03×）|
 
 \* 每对象 =（RSS − 空跑 12.29 MB − 200 万格数组约 32 MB）/ 200 万。
 
-`RegionEntry<ScriptObject>` 128 → **112**（单测 `region_entry_stays_lean_for_script_objects`
-把「header = T + 40」钉住，涨了就红）。
+`RegionEntry<ScriptObject>` 128 → **112** → **96**；`ScriptObject` 72 → **56**。
+两个尺寸都有单测钉住（`region_entry_stays_lean_for_script_objects` 钉「header = T + 40」，
+`script_object_stays_small` 钉 56），涨了就红。
+
+P2 的 CPU 收益（1.03×）低于预期的 +5–6%：省下的那次 malloc 在 mimalloc 的小对象档上
+本来就很便宜，profile 里 `object_regions` 的 78 采样大头是**零初始化 + 写 Null**，
+那部分工作量没变。内存才是它的主收益。

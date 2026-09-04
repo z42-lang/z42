@@ -38,8 +38,8 @@ fn set_mode_does_not_affect_in_progress_collect() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a); drop(b);
 

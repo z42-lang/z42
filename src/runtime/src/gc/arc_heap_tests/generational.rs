@@ -354,7 +354,7 @@ fn cross_gen_write_target_survives_minor_via_dirty_card() {
     let child2 = alloc_obj(&heap, "Child2");  // fresh young
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
-        owner_gc.borrow_mut().refs[0] = child2.clone();
+        owner_gc.borrow_mut().refs_mut()[0] = child2.clone();
     }
     // Manually fire the barrier (in production, interp/JIT would).
     heap.write_barrier_field(&owner, 0, &child2);
@@ -373,7 +373,7 @@ fn cross_gen_write_target_survives_minor_via_dirty_card() {
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
         let owner_borrow = owner_gc.borrow();
-        assert!(matches!(owner_borrow.refs[0], Value::Object(_)),
+        assert!(matches!(owner_borrow.refs()[0], Value::Object(_)),
             "child2 still in owner.slot[0]");
     }
 }
@@ -396,7 +396,7 @@ fn minor_gc_does_not_clear_card_dirty_bits() {
     let _pin_child = heap.pin_root(child.clone());
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
-        owner_gc.borrow_mut().refs[0] = child.clone();
+        owner_gc.borrow_mut().refs_mut()[0] = child.clone();
     }
     heap.write_barrier_field(&owner, 0, &child);
 
@@ -444,7 +444,7 @@ fn major_collect_via_context_clears_card_dirty() {
     let _pin_child = heap_dyn.pin_root(child.clone());
     {
         let Value::Object(owner_gc) = &owner else { panic!() };
-        owner_gc.borrow_mut().refs[0] = child.clone();
+        owner_gc.borrow_mut().refs_mut()[0] = child.clone();
     }
     heap_dyn.write_barrier_field(&owner, 0, &child);
 
@@ -590,8 +590,8 @@ fn cycle_collection_under_generational_mode_still_frees_garbage() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a);
     drop(b);

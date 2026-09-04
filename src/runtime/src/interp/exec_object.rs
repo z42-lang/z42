@@ -86,11 +86,10 @@ pub(super) fn obj_new(
     // through `ctx.stack_arena`, so the ctor's child frame reaches it fine.
     // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
-        let (bytes, refs) = type_desc.object_regions();
+        let storage = type_desc.object_storage();
         let obj = ScriptObject {
             type_desc,
-            bytes,
-            refs,
+            storage,
             native: NativeData::None,
             type_args: if type_args.is_empty() {
                 Box::new([])

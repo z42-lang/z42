@@ -98,14 +98,14 @@ impl ArrayObj {
                     let bo = b.borrow();
                     let rc = layout.ref_count();
                     let bstart = i * *elem_size;
-                    let n = bo.bytes.len().min(*elem_size);
+                    let n = bo.bytes().len().min(*elem_size);
                     // SAFETY: exclusive block payloads: `bytes` holds `len*elem_size` u8,
                     // `refs` holds `len*rc` Values.
                     let bslice = unsafe { Self::slice_of_mut::<u8>(bytes, *len * *elem_size) };
-                    bslice[bstart..bstart + n].copy_from_slice(&bo.bytes[..n]);
+                    bslice[bstart..bstart + n].copy_from_slice(&bo.bytes()[..n]);
                     let rslice = unsafe { Self::slice_of_mut::<Value>(refs, *len * rc) };
-                    let rn = bo.refs.len().min(rc);
-                    for k in 0..rn { rslice[i * rc + k] = bo.refs[k].clone(); }
+                    let rn = bo.refs().len().min(rc);
+                    for k in 0..rn { rslice[i * rc + k] = bo.refs()[k].clone(); }
                 } else {
                     debug_assert!(false,
                         "struct[] set_boxed needs a BoxedStruct source (StructRef → exec-level ArraySet), got {val:?}");
