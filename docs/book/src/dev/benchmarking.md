@@ -252,6 +252,26 @@ exit = regressions > 0 ? 1 : 0
 > 格式而 base_vm 是 base(旧)格式读不了 → 该 PR 当次 bench 可能红。与 bootstrap-seed 的格式-bump 瞬态一致，
 > 随 nightly 自愈、不阻塞（格式-bump 时 perf 对照本就意义有限）。
 
+### 启动类微小回归：先排除「布局彩票」（cache-failed-name-resolution，2026-09-04）
+
+hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其敏感。实测过一个反直觉的对照：
+
+> 在 `LazyLoader` 上加**一个从不读的 `usize` 字段**（其余全部保持 HEAD，`git diff` 只有 3 行），
+> hello 启动的 **instructions retired 从 69.6 M 涨到 73.5 M（+5.7%）**，墙钟 +0.4 ms。
+
+也就是说，一条**逻辑上零成本**的改动就能在启动上造出 ~6% 的「回归」。装箱、`#[inline(never)]`、
+把整个 `LazyLoader` 挪到 `Box` 里（让 `VmCore` 大小不再随它变）都消不掉这个差值。
+
+**因此判断「某改动是否真的拖慢了启动」必须做两件事**：
+
+1. **看 `instructions retired`**（macOS: `/usr/bin/time -l`）而不是只看墙钟——它对代码布局免疫，
+   跨运行的离散度只有 ~0.5%，能把「真多干活了」和「布局摆动」分开；
+2. **做扰动对照组**：`HEAD + 一个死字段` 重编一份，测同一指标。对照组同样摆动 ⇒ 这个差值
+   **不可归因于被测改动**。顺带对一遍 `--print-stats-on-exit` 的计数器（builtin_calls /
+   jit_methods_compiled / allocations / …），逐项相同则可确认没有行为差异。
+
+（cache-failed-name-resolution 差点因为这条被误判成 −6% 启动回归而砍掉一条 1.94× 的优化。）
+
 ## 已知局限与后续
 
 - **micro/criterion tier 已进门禁**（Stage 2/3，extend-ab-bench-micro-criterion）：micro 用两个隔离

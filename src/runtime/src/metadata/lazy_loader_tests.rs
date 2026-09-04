@@ -431,3 +431,100 @@ fn init_state_distinguishes_running_thread() {
     assert_ne!(InitState::Running(me), InitState::Running(other));
     assert_ne!(InitState::Running(me), InitState::Done);
 }
+
+// ── cache-failed-name-resolution: negative resolve cache ─────────────────────
+
+/// A minimal `Function` usable as an in-memory module member.
+fn ll_stub_function(name: &str) -> crate::metadata::bytecode::Function {
+    use crate::metadata::bytecode::{BasicBlock, Function, Terminator};
+    use crate::metadata::types::ExecMode;
+    Function {
+        name: name.to_string(),
+        param_count: 0,
+        ret_type: "void".to_string(),
+        exec_mode: ExecMode::Interp,
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions: Vec::new(),
+            terminator: Terminator::Ret { reg: None },
+        }],
+        is_static: true,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 0,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        frame_meta: None,
+        resolved: std::sync::OnceLock::new(),
+    }
+}
+
+#[test]
+fn failed_function_resolve_is_remembered() {
+    let mut loader = LazyLoader::new(
+        Vec::new(), 0,
+        vec![("a.zpkg".to_string(), fake_candidate(&["X"]))],
+        Vec::new(),
+    );
+    // `a.zpkg` doesn't exist on disk, so the walk finds nothing and gives up.
+    assert!(loader.resolve_function("Foo.Bar.Baz$0").is_none());
+    assert!(
+        loader.negative.as_ref().unwrap().functions.contains("Foo.Bar.Baz$0"),
+        "a full failed walk must be recorded so the next identical lookup is a hash probe",
+    );
+    // Second call answers from the cache — same result.
+    assert!(loader.resolve_function("Foo.Bar.Baz$0").is_none());
+}
+
+#[test]
+fn failed_type_resolve_is_remembered() {
+    let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
+    assert!(loader.resolve_type("Some.Missing.Class").is_none());
+    assert!(loader.negative.as_ref().unwrap().types.contains("Some.Missing.Class"));
+    assert!(loader.resolve_type("Some.Missing.Class").is_none());
+}
+
+#[test]
+fn negative_cache_is_dropped_when_a_package_registers() {
+    let mut loader = LazyLoader::new(
+        vec![PathBuf::from("/z42-nonexistent-search-dir")], 0, Vec::new(), Vec::new(),
+    );
+    // Miss recorded while `Late.Pkg.F$0` genuinely isn't loadable.
+    assert!(loader.resolve_function("Late.Pkg.F$0").is_none());
+    assert!(loader.negative.as_ref().unwrap().functions.contains("Late.Pkg.F$0"));
+
+    // Registering a package that *does* declare it must not be masked by the
+    // stale negative entry — the length fingerprint moves, so the cache drops.
+    let mut artifact = ll_inmem_artifact("Late.Pkg", Some("late_pkg"), &[]);
+    artifact.module.functions.push(ll_stub_function("Late.Pkg.F$0"));
+    loader.register_loaded_artifact(artifact).expect("register late pkg");
+
+    assert!(
+        loader.resolve_function("Late.Pkg.F$0").is_some(),
+        "a name registered after its miss must resolve — the negative cache is \
+         only valid while the append-only registries are unchanged",
+    );
+    // The stale entry may still sit in the set — `resolve_function` answered from
+    // `function_table` before ever probing it. Harmless by construction: the
+    // positive table is checked first, and the next *miss* sees the moved
+    // fingerprint and drops the whole set.
+    assert!(loader.resolve_function("Still.Missing$0").is_none());
+    assert!(
+        !loader.negative.as_ref().unwrap().functions.contains("Late.Pkg.F$0"),
+        "the first miss after a registration drops every stale negative entry",
+    );
+}
+
+#[test]
+fn negative_cache_survives_a_repeat_miss_without_growing_stale() {
+    let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
+    for _ in 0..3 {
+        assert!(loader.resolve_function("A.B.C$0").is_none());
+        assert!(loader.resolve_type("A.B").is_none());
+    }
+    assert_eq!(loader.negative.as_ref().unwrap().functions.len(), 1);
+    assert_eq!(loader.negative.as_ref().unwrap().types.len(), 1);
+}

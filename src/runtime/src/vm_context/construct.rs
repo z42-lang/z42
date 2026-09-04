@@ -142,6 +142,8 @@ impl VmContext {
             static_field_index: Mutex::new(FxHashMap::default()),
             lazy_loader:        Mutex::new(None),
             pending_type_inits: Mutex::new(Vec::new()),
+            pending_type_init_count: std::sync::atomic::AtomicUsize::new(0),
+            running_static_inits:    std::sync::atomic::AtomicUsize::new(0),
             static_init_error:  Mutex::new(None),
             context_registry:   Mutex::new(crate::metadata::context::ContextRegistry::new()),
             #[cfg(feature = "native-interop")]

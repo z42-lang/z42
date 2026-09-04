@@ -37,6 +37,18 @@ pub struct VmCore {
     /// `static_get_by_id` 因 `Value::Null` 是合法值而无法区分「未初始化」，
     /// 故触发点前移到「名字→id 解析」这一每名一次的冷路径。
     pub(crate) pending_type_inits: Mutex<Vec<String>>,
+    /// **cache-failed-name-resolution**: lock-free mirrors of "how much static-init
+    /// work is outstanding", so `try_lookup_*` can prove the drain would be a no-op
+    /// **without** taking two more mutexes and scanning `static_init_state` on every
+    /// single lookup. `pending_type_init_count` mirrors `pending_type_inits.len()`;
+    /// both are maintained at the mutation sites, under the same lock as the state
+    /// they mirror, and are only ever trusted for the `== 0` ("provably nothing to
+    /// do") direction.
+    pub(crate) pending_type_init_count: std::sync::atomic::AtomicUsize,
+    /// Number of `__static_init__` bodies currently `Running` on any thread. Bumped
+    /// where `InitState::Running` is written and dropped where `Done` is written,
+    /// both under the loader lock, so `== 0` implies no `Running` entry exists.
+    pub(crate) running_static_inits: std::sync::atomic::AtomicUsize,
     /// defer-class-initialization: 懒执行的 `__static_init__` 抛出/出错时记录首个失败，
     /// 由 `Vm::run` 在入口返回后转成运行错误（对齐变更前 boot 期 `bail!` 的响度）。
     pub(crate) static_init_error:  Mutex<Option<String>>,
