@@ -113,3 +113,49 @@ linux(x64/arm64) 本轮仍过，暂不 ignore、留观察。
 2. loom 模型下设计并验证：**marking 期 allocate-black**（出生 marked=1，消除"可达新对象被 sweep"）
    + **注册—首safepoint 窗口封闭**（避开上次改"谁成为 collector"时序的 deadlock）。
 3. 模型绿后落地实现，CI 全腿去 ignore 回归。
+
+## 更新 2026-09-04：collector 仲裁建模落地（模型 B），2026-06-01 的 deadlock 变成确定性本地测试
+
+阶段 3.1 的「未做」项已补齐：`gc_registration_race_loom.rs` 现在有**两个**模型，
+共用一套按 `gc/safepoint.rs` 建模的协议原语（`request_gc_pause` 的 `collector_active`
+CAS + handshake、`release_pause`、`park_until_idle`）：
+
+| 模型 | 场景 | 搜索 | 绿了代表什么 |
+|---|---|---|---|
+| A — stale mark | 单 collector + 一个迟注册 mutator | preemption-bounded(3) | fix 关上了 注册→sweep 窗口 |
+| B — arbitration | 活跃 collector 在 worker 已 park 时释放 | **穷举**（34 条交错） | fix **没有**重新引入 2026-06-01 deadlock |
+
+模型 B 逐字复刻 `safepoint_tests::second_collector_falls_back_to_mutator_park_returns_none`：
+test-main 冒充活跃 collector（`collector_active=true` + phase `Marking`），等 worker park，
+按单测的顺序释放（先清 claim 再开世界+notify），然后 `join()`。
+**关键建模点：join 之后 test-main 永不再 park，但它的 `VmContext` 仍在 `vm_contexts` 里、
+仍计入后来者的 `need`。** 这个不对称就是 deadlock 的全部。
+
+实测（本机，0.14 s 跑完全部 4 个测试）：
+
+- `arbitration_baseline_has_no_deadlock`（对照组）**绿**：baseline 下 worker 是在 CAS
+  **已经输掉之后**才 park，永远抢不到 collector 角色 → 返回 None → join 干净。
+- `registration_close_reintroduces_2026_06_01_deadlock` **确定性复现**
+  （loom `deadlock; threads = [(Id(0), Blocked), (Id(1), Blocked)]`）：注册封闭把 park 移到了
+  **仲裁 CAS 之前**，worker 醒来时 claim 已被释放 → 赢得 collector 角色 → 等 `need = 1`
+  个永远不会来的 parker，而 test-main 卡在 `join()`。
+
+⇒ **修复的硬约束（模型已固化为门禁）**：注册窗口封闭**不得把任何 context 的 park 移到
+collector 仲裁 CAS 之前**。候选 fix 必须让 `registration_close_eliminates_race` 转绿的**同时**
+保持 `arbitration_*` 不死锁。对照组的存在是这个门有判别力的前提——一个两边都死锁的模型
+证明不了任何东西。
+
+### loom 0.7.2 陷阱（踩过，别重走）
+
+检测到 deadlock 后展开时若 drop 一个 `loom::sync::Arc`，其 Drop 会调
+`rt::arc::Arc::branch` 对已拆除的 execution `unwrap()` → **析构中二次 panic → 进程 abort**
+（`thread caused non-unwinding panic. aborting.`，且残留 `UE` 状态的僵尸进程）。
+表现是「跑几百秒不结束」，极易误判成「状态空间爆炸、模型太慢」——实际 deadlock 是
+**毫秒级**就命中的。解法：模型状态改用 `Box::leak` 的 `&'static Gc`（无析构），
+panic 就能正常展开、`#[should_panic]` 接得住。每条交错泄漏一个小结构体，可忽略。
+
+### 仍未建模（下一增量）
+
+**marking 期 allocate-black**。`alloc_object` 出生 marked=0（白），当前正确性依赖 barrier
+**同步**染灰；只关注册窗口而不配 allocate-black 的 fix 仍不健全（可达新对象会被进行中的
+cycle 当垃圾 sweep 掉——比 stale mark 更严重）。
