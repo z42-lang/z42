@@ -118,7 +118,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                         let obj = entry.value.lock();
                         Self::script_object_size_estimate(&obj)
                     };
-                    let fin = entry.finalizer.lock().take();
+                    let fin = entry.take_finalizer();
                     tombstones_object.push((h, fin, size));
                 }
             });
@@ -162,7 +162,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                         let arr = entry.value.lock();
                         Self::array_size_estimate(&arr)
                     };
-                    let fin = entry.finalizer.lock().take();
+                    let fin = entry.take_finalizer();
                     tombstones_array.push((h, fin, size));
                 }
             });

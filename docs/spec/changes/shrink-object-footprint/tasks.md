@@ -5,14 +5,14 @@
 
 ## P1 终结器槽 24 → 8 字节
 
-- [ ] 1.1 `gc/region.rs`：`RegionEntry.finalizer` 由 `Mutex<Option<FinalizerFn>>`
+- [x] 1.1 `gc/region.rs`：`RegionEntry.finalizer` 由 `Mutex<Option<FinalizerFn>>`
       改为 `AtomicPtr<FinalizerFn>`（`Box::into_raw` 形态，null = 无）
-- [ ] 1.2 `gc/region.rs`：`RegionEntry` 新增 `Drop`，释放非空终结器指针
-- [ ] 1.3 `gc/refs.rs`：`set` / `cancel` / `take` / `has` 四个访问器改走原子指针，签名不变
-- [ ] 1.4 `gc/arc_heap/{collect,generational,control}.rs`：5 处 `finalizer.lock().take()`
+- [x] 1.2 `gc/region.rs`：`RegionEntry` 新增 `Drop`，释放非空终结器指针
+- [x] 1.3 `gc/refs.rs`：`set` / `cancel` / `take` / `has` 四个访问器改走原子指针，签名不变
+- [x] 1.4 `gc/arc_heap/{collect,generational,control}.rs`：5 处 `finalizer.lock().take()`
       改为 `take_finalizer_raw(entry)`
-- [ ] 1.5 `gc/region_tests.rs`：加布局断言 + set/take/cancel/drop 不泄漏的单测
-- [ ] 1.6 度量：`RegionEntry<ScriptObject>` 128 → 112；RSS A/B
+- [x] 1.5 `gc/region_tests.rs`：加布局断言 + set/take/cancel/drop 不泄漏的单测
+- [x] 1.6 度量：`RegionEntry<ScriptObject>` 128 → 112；RSS A/B
 
 ## P2 `bytes` + `refs` 合成单块
 
@@ -42,4 +42,15 @@
 
 ## 实测
 
-（逐项填）
+同机；base = main(#423) 编出的 VM。内存载体 = 留住 200 万 `Node`；CPU 载体 =
+`bench/scenarios/09_alloc_ctorless`。
+
+| | peak RSS | 每对象* | `09_alloc_ctorless` |
+|---|---:|---:|---|
+| base(main) | 516.64 MB | 236 B | 264.7 ms ± 7.2 |
+| **P1**（终结器槽 24→8）| **474.38 MB（−8.2%）** | **215 B** | 258.8 ms ± 5.0（1.02×，不回归）|
+
+\* 每对象 =（RSS − 空跑 12.29 MB − 200 万格数组约 32 MB）/ 200 万。
+
+`RegionEntry<ScriptObject>` 128 → **112**（单测 `region_entry_stays_lean_for_script_objects`
+把「header = T + 40」钉住，涨了就红）。

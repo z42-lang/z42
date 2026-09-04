@@ -324,7 +324,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // the trait dispatch path; caller's Value parameter
                 // keeps the GcRef alive throughout.
                 let entry: &crate::gc::region::RegionEntry<ScriptObject> = unsafe { entry_ptr.as_ref() };
-                let fin = entry.finalizer.lock().take();
+                let fin = entry.take_finalizer();
                 let fired = fin.is_some();
                 if let Some(f) = fin { f(); }
                 let mut region = self.region_object.lock();
@@ -334,7 +334,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             Value::Array(gc) => {
                 let entry_ptr = gc.entry_ptr();
                 let entry: &crate::gc::region::RegionEntry<ArrayObj> = unsafe { entry_ptr.as_ref() };
-                let fin = entry.finalizer.lock().take();
+                let fin = entry.take_finalizer();
                 let fired = fin.is_some();
                 if let Some(f) = fin { f(); }
                 let mut region = self.region_array.lock();

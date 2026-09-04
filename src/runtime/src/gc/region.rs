@@ -35,7 +35,7 @@
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, Ordering};
 
 use parking_lot::Mutex;
 
@@ -86,10 +86,18 @@ pub struct RegionEntry<T> {
     /// reclaimed + slot reused → return None / panic (per design D5).
     pub(crate) generation: AtomicU32,
 
-    /// One-shot finalizer slot. `Mutex<Option<FinalizerFn>>` so the
-    /// sweep path can `take()` the closure atomically (fire-once
-    /// semantics — matches add-mark-sweep-collector behavior).
-    pub(crate) finalizer: Mutex<Option<FinalizerFn>>,
+    /// One-shot finalizer slot, as a **raw `Box<FinalizerFn>` pointer**
+    /// (`null` = none). `swap(null)` gives the same fire-once `take()`
+    /// semantics the sweep path relies on, atomically and lock-free.
+    ///
+    /// shrink-object-footprint P1: this was `Mutex<Option<FinalizerFn>>` =
+    /// **24 bytes on every entry** (19% of a 128-byte `RegionEntry<ScriptObject>`)
+    /// for a capability with **zero production registrations** — `grep
+    /// register_finalizer` over `src/` hits only the trait, its impl, these
+    /// accessors, and `arc_heap_tests/finalization.rs`. As an `AtomicPtr` it is
+    /// 8 bytes, and only an entry that actually registers one pays the 16-byte
+    /// box. Freed by this entry's `Drop`.
+    pub(crate) finalizer: AtomicPtr<FinalizerFn>,
 
     /// **add-custom-allocator P2 (2026-05-22)**: self-location
     /// (chunk_idx, entry_idx) within the owning Region. Lets the
@@ -112,6 +120,20 @@ pub struct RegionEntry<T> {
     /// `SeqCst` ordering to keep soft-ref count visible across threads
     /// (GC and mutator run concurrently in `ConcurrentMarkSweep`).
     pub(crate) soft_ref_count: AtomicU32,
+}
+
+/// shrink-object-footprint P1: the finalizer slot owns a `Box<FinalizerFn>`
+/// (raw pointer, so the entry stays 8 bytes wider instead of 24) — free it when
+/// the entry itself goes away, or the `Arc<dyn Fn>` inside leaks.
+impl<T> Drop for RegionEntry<T> {
+    fn drop(&mut self) {
+        let raw = *self.finalizer.get_mut();
+        if !raw.is_null() {
+            // SAFETY: non-null ⇒ from `Box::into_raw` in `set_finalizer`; `&mut self`
+            // means no other reference can observe the slot.
+            drop(unsafe { Box::from_raw(raw) });
+        }
+    }
 }
 
 /// **add-generational-gc P0 (2026-05-22)**: number of minor GCs an
@@ -143,10 +165,37 @@ impl<T> RegionEntry<T> {
             alive:          AtomicBool::new(true),
             gen_age:        AtomicU8::new(0),
             generation:     AtomicU32::new(0),
-            finalizer:      Mutex::new(None),
+            finalizer:      AtomicPtr::new(std::ptr::null_mut()),
             location,
             soft_ref_count: AtomicU32::new(0),
         }
+    }
+
+    /// shrink-object-footprint P1: install a finalizer, dropping any previous one.
+    /// Fire-once semantics are unchanged — `take_finalizer` still swaps `null` in.
+    pub(crate) fn set_finalizer(&self, fin: FinalizerFn) {
+        let raw = Box::into_raw(Box::new(fin));
+        let prev = self.finalizer.swap(raw, Ordering::AcqRel);
+        if !prev.is_null() {
+            // SAFETY: non-null ⇒ produced by `Box::into_raw` here, and the swap
+            // gives this thread exclusive ownership of the old box.
+            drop(unsafe { Box::from_raw(prev) });
+        }
+    }
+
+    /// Take the finalizer, leaving the slot empty (fire-once).
+    pub(crate) fn take_finalizer(&self) -> Option<FinalizerFn> {
+        let raw = self.finalizer.swap(std::ptr::null_mut(), Ordering::AcqRel);
+        if raw.is_null() {
+            return None;
+        }
+        // SAFETY: see `set_finalizer` — the swap hands us sole ownership.
+        Some(*unsafe { Box::from_raw(raw) })
+    }
+
+    /// Whether a finalizer is currently installed (no ownership transfer).
+    pub(crate) fn has_finalizer(&self) -> bool {
+        !self.finalizer.load(Ordering::Acquire).is_null()
     }
 
     /// **add-generational-gc P0 (2026-05-22)**: read current gen_age.
