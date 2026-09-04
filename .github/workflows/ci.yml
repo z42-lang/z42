@@ -549,11 +549,17 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # artifact-host-v1, NOT host-v2 —— 同 host-package 的理由（见该 job 注释）：
+      # host-v2 由跑 ci-bootstrap 的 job 保存，而 ci-bootstrap 只 `cargo build
+      # --bin z42vm`（bin/rlib）。所有走 xtask-bootstrap-artifact 的 job 建的是整个
+      # workspace（含 libz42 / libz42_compression 等 cdylib），共用 host-v2 意味着
+      # 那些 cdylib 永远进不了缓存、每次冷编。这 6 个 job 的 cargo 调用逐字相同，
+      # 故共享一个专属 key 即可全部命中。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          shared-key: artifact-host-v1
 
       # cargo build z42vm + restore z42c/stdlib/xtask zpkgs at canonical paths
       - uses: ./.github/actions/xtask-bootstrap-artifact
@@ -594,7 +600,13 @@ jobs:
           fi
           echo "OK: zbc-format baselines match the current writer"
 
+      # 以下组装 + 上传 linux 腿独占：current-sdk 的两个消费方
+      # （consume-current-sdk / vm-jit-consistency）都硬编码 current-sdk-ubuntu-latest，
+      # `current-sdk-macos-15` 上传后从无人下载。
+      # macOS 腿保留上面的 golden 重生 + 字节基线门 —— 那是真覆盖（zbc 是 arch-中立的，
+      # 在 macOS 上重生仍须与提交字节逐字一致 = 跨架构确定性），只跳过这两步无人消费的。
       - name: Assemble .z42 toolchain (build sdk --no-build) + bundle goldens
+        if: matrix.os == 'ubuntu-latest'
         continue-on-error: true
         shell: bash
         run: |
@@ -609,6 +621,7 @@ jobs:
           fi
 
       - name: Upload current-sdk-${{ matrix.os }}
+        if: matrix.os == 'ubuntu-latest'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -739,7 +752,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          shared-key: artifact-host-v1
 
       # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
       # stdlib + xtask.zpkg) instead of re-bootstrapping per shard — removes 4×
@@ -812,7 +825,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          shared-key: artifact-host-v1
 
       # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
       # stdlib + xtask.zpkg) instead of re-bootstrapping per shard.
@@ -865,7 +878,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          shared-key: artifact-host-v1
 
       # Consume the toolchain artifact (z42c+stdlib+xtask.zpkg — arch-independent
       # bytecode) + cargo-build the native z42vm. macOS resolves toolchain-macos-15;
@@ -990,7 +1003,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          shared-key: artifact-host-v1
 
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
@@ -1395,7 +1408,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          shared-key: artifact-host-v1
       - name: Provision z42vm + xtask (consume toolchain artifact)
         uses: ./.github/actions/xtask-bootstrap-artifact
 
@@ -1610,7 +1623,7 @@ jobs:
     # the raised Playwright timeout (playwright.embedded.config.ts) needs more room
     # under the job wall alongside a cold ~27min build; 75 matches toolchain-bootstrap.
     timeout-minutes: 75
-    needs: [changes, toolchain-bootstrap]
+    needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -1647,7 +1660,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          key: tier2-wasm
+          # shared-key（非 key）：Swatinem 的 `key` 只是在自动生成的
+          # job+matrix key 上再追加一段，3 个 shard 因此各存一份内容完全
+          # 相同的缓存（3× 存储、shard 2/3 永远冷 miss）。shared-key 替换掉
+          # job/matrix 分量，三个 shard 真正共享一份。
+          shared-key: tier2-wasm
       - name: Install wasm-pack
         uses: taiki-e/install-action@v2
         with:
@@ -1749,7 +1766,7 @@ jobs:
     # ci-perf-tier2: 45→60. Same cold-build + simulator-boot pressure repeatedly
     # cancelled this job before it could report.
     timeout-minutes: 60
-    needs: [changes, toolchain-bootstrap]
+    needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -1781,7 +1798,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          key: tier2-ios
+          # shared-key（非 key）：Swatinem 的 `key` 只是在自动生成的
+          # job+matrix key 上再追加一段，3 个 shard 因此各存一份内容完全
+          # 相同的缓存（3× 存储、shard 2/3 永远冷 miss）。shared-key 替换掉
+          # job/matrix 分量，三个 shard 真正共享一份。
+          shared-key: tier2-ios
       - uses: ./.github/actions/xtask-bootstrap-artifact
       - name: test platform ios + embedded (shard ${{ matrix.shard }}/3, one simulator run)
         shell: bash
@@ -1831,7 +1852,7 @@ jobs:
     # ci-perf-tier2: 45→60. Cold NDK/cargo-ndk build + emulator boot headroom
     # (AVD snapshot cache below cuts boot once warm).
     timeout-minutes: 60
-    needs: [changes, toolchain-bootstrap]
+    needs: toolchain-bootstrap   # `changes` 不在 needs：本 job 的 if: 只看 event_name，从不读 needs.changes.outputs.*
     # Tier-2 (slow: browser/emulator/simulator) — nightly-only (16:00 UTC = 00:00
     # UTC+8) + manual, NOT per-PR, to keep daily iteration fast (reduce-tier2-ci-cadence).
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -1868,7 +1889,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/runtime -> ../../artifacts/build/runtime
-          key: tier2-android
+          # shared-key（非 key）：Swatinem 的 `key` 只是在自动生成的
+          # job+matrix key 上再追加一段，3 个 shard 因此各存一份内容完全
+          # 相同的缓存（3× 存储、shard 2/3 永远冷 miss）。shared-key 替换掉
+          # job/matrix 分量，三个 shard 真正共享一份。
+          shared-key: tier2-android
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
@@ -2012,6 +2037,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+      # 此前这个 job 完全没有 rust-cache —— 每次都冷编整个 runtime workspace。
+      # 与其余 xtask-bootstrap-artifact 消费方共享同一个 key（cargo 调用逐字相同）。
+      - name: Cache Rust deps (Swatinem)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/runtime -> ../../artifacts/build/runtime
+          shared-key: artifact-host-v1
       # consume the toolchain-ubuntu-latest artifact (z42c + stdlib + xtask)
       # + cargo-build z42vm.
       - uses: ./.github/actions/xtask-bootstrap-artifact
