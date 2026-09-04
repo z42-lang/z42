@@ -1,0 +1,236 @@
+// augment-string-prelude (2026-09-04): prelude `Std.String` 的 BCL 补齐方法专测——
+// char 版查找（IndexOf/LastIndexOf）、char-set 切分与裁剪（Split(char[]) / Trim 家族）、
+// 位置编辑（Insert/Remove）与对齐填充（PadLeft/PadRight）。
+//
+// 除逐方法语义外，本文件刻意覆盖**重载决议正确性**：这批方法多数是与既有方法
+// 同名的重载（`IndexOf(string)` vs `IndexOf(char)`、`Split(string)` vs `Split(char[])`、
+// `Trim()` vs `Trim(char)` vs `Trim(char[])`），而 `string` 是 primitive 接收者——
+// 走 MemberResolver 的 prim 路径 + 运行期无-vtable 候选探测。派发绑错在这类测试外
+// 表现为「返回了另一个重载的结果」而非崩溃，故每组重载都断言到能区分彼此的值上。
+namespace Z42CoreStringBclAugmentTests;
+
+using Std;
+using Std.Test;
+
+// ── IndexOf(char) / LastIndexOf ──────────────────────────────────────────────
+
+[Test]
+void test_indexof_char() {
+    Assert.Equal(2, "hello".IndexOf('l'));    // 首个匹配
+    Assert.Equal(0, "hello".IndexOf('h'));
+    Assert.Equal(4, "hello".IndexOf('o'));
+    Assert.Equal(-1, "hello".IndexOf('z'));
+    Assert.Equal(-1, "".IndexOf('a'));
+}
+
+[Test]
+void test_indexof_string_vs_char_overloads_are_distinct() {
+    // 重载决议：两者同名同 arity，只有参数类型不同。若绑错，'l' 会被当作串搜索
+    // （或反之）——这里用「串 needle 长度 >1」的用例让两条路径结果不同。
+    string s = "hello world";
+    Assert.Equal(2, s.IndexOf("ll"));    // string 重载（primary，裸键 IndexOf）
+    Assert.Equal(2, s.IndexOf('l'));     // char 重载（非-primary，全签名键）
+    Assert.Equal(6, s.IndexOf("world"));
+    Assert.Equal(4, s.IndexOf('o'));
+}
+
+[Test]
+void test_lastindexof_string() {
+    Assert.Equal(9, "hello world".LastIndexOf("l"));   // 末尾那个 l（"world" 里）
+    Assert.Equal(3, "ababab".LastIndexOf("bab"));      // 重叠匹配取最右起点
+    Assert.Equal(0, "abc".LastIndexOf("abc"));
+    Assert.Equal(-1, "abc".LastIndexOf("xyz"));
+    Assert.Equal(-1, "ab".LastIndexOf("abc"));          // needle 比 haystack 长
+    // 空 needle → Length（与 IndexOf("") == 0 对称：空串匹配在末尾）。
+    Assert.Equal(3, "abc".LastIndexOf(""));
+    Assert.Equal(0, "".LastIndexOf(""));
+}
+
+[Test]
+void test_lastindexof_char() {
+    Assert.Equal(3, "hello".LastIndexOf('l'));
+    Assert.Equal(0, "hello".LastIndexOf('h'));
+    Assert.Equal(-1, "hello".LastIndexOf('z'));
+    Assert.Equal(-1, "".LastIndexOf('a'));
+}
+
+[Test]
+void test_indexof_lastindexof_multibyte_scalar_indices() {
+    // 索引统一是 Unicode scalar 计数（非 UTF-8 字节偏移）。
+    string s = "你a好a";
+    Assert.Equal(1, s.IndexOf('a'));
+    Assert.Equal(3, s.LastIndexOf('a'));
+    Assert.Equal(2, s.IndexOf("好"));
+}
+
+// ── Split(char[]) ────────────────────────────────────────────────────────────
+
+[Test]
+void test_split_char_array_single_separator() {
+    string[] parts = "a,b,c".Split([',']);
+    Assert.Equal(3, parts.Length);
+    Assert.Equal("a", parts[0]);
+    Assert.Equal("b", parts[1]);
+    Assert.Equal("c", parts[2]);
+}
+
+[Test]
+void test_split_char_array_multiple_separators() {
+    string[] parts = "a,b;c,d".Split([',', ';']);
+    Assert.Equal(4, parts.Length);
+    Assert.Equal("a", parts[0]);
+    Assert.Equal("b", parts[1]);
+    Assert.Equal("c", parts[2]);
+    Assert.Equal("d", parts[3]);
+}
+
+[Test]
+void test_split_char_array_keeps_empty_segments() {
+    // 相邻/首尾分隔符 → 空段保留（无 options 时不滤空，与 Split(string) 一致）。
+    string[] parts = ",a,,b,".Split([',']);
+    Assert.Equal(5, parts.Length);
+    Assert.Equal("", parts[0]);
+    Assert.Equal("a", parts[1]);
+    Assert.Equal("", parts[2]);
+    Assert.Equal("b", parts[3]);
+    Assert.Equal("", parts[4]);
+}
+
+[Test]
+void test_split_char_array_empty_set_splits_on_whitespace() {
+    char[] none = new char[0];
+    string[] parts = "a b\tc".Split(none);
+    Assert.Equal(3, parts.Length);
+    Assert.Equal("a", parts[0]);
+    Assert.Equal("b", parts[1]);
+    Assert.Equal("c", parts[2]);
+}
+
+[Test]
+void test_split_string_vs_char_array_overloads_are_distinct() {
+    // 同名同 arity 的 type-based 重载：string 分隔符 vs char[] 分隔符集合。
+    string s = "a,b";
+    string[] byStr = s.Split(",");
+    string[] byChars = s.Split([',']);
+    Assert.Equal(2, byStr.Length);
+    Assert.Equal(2, byChars.Length);
+    Assert.Equal("a", byStr[0]);
+    Assert.Equal("a", byChars[0]);
+    // 多字符分隔符只有 string 重载能表达（char[] 会当成两个单字符分隔符）。
+    string[] multi = "a::b".Split("::");
+    Assert.Equal(2, multi.Length);
+    Assert.Equal("b", multi[1]);
+    string[] asSet = "a::b".Split([':']);
+    Assert.Equal(3, asSet.Length);   // "a" / "" / "b"
+    Assert.Equal("", asSet[1]);
+}
+
+// ── Trim / TrimStart / TrimEnd 的 char 与 char[] 重载 ────────────────────────
+
+[Test]
+void test_trim_char() {
+    Assert.Equal("bc", "aabcaa".Trim('a'));
+    Assert.Equal("bcaa", "aabcaa".TrimStart('a'));
+    Assert.Equal("aabc", "aabcaa".TrimEnd('a'));
+    Assert.Equal("", "aaa".Trim('a'));
+    Assert.Equal("abc", "abc".Trim('z'));    // 无匹配 → 原样
+}
+
+[Test]
+void test_trim_char_array() {
+    Assert.Equal("bc", "xyxbcyx".Trim(['x', 'y']));
+    Assert.Equal("bcyx", "xyxbcyx".TrimStart(['x', 'y']));
+    Assert.Equal("xyxbc", "xyxbcyx".TrimEnd(['x', 'y']));
+    Assert.Equal("", "xyxy".Trim(['x', 'y']));
+}
+
+[Test]
+void test_trim_char_array_empty_set_falls_back_to_whitespace() {
+    char[] none = new char[0];
+    Assert.Equal("abc", "  abc  ".Trim(none));
+    Assert.Equal("abc  ", "  abc  ".TrimStart(none));
+    Assert.Equal("  abc", "  abc  ".TrimEnd(none));
+}
+
+[Test]
+void test_trim_overloads_are_distinct_from_zero_arg() {
+    // `Trim()` 是 primary（裸键），char / char[] 版是非-primary（全签名键）。
+    // 用「空白 vs 指定字符」区分：绑错会让结果落到另一条语义上。
+    string s = " a ";
+    Assert.Equal("a", s.Trim());            // 空白
+    Assert.Equal(" a ", s.Trim('x'));       // 'x' 不在串里 → 原样（不是 "a"）
+    Assert.Equal(" a ", s.Trim(['x']));
+}
+
+// ── Insert / Remove ──────────────────────────────────────────────────────────
+
+[Test]
+void test_insert() {
+    Assert.Equal("Xabc", "abc".Insert(0, "X"));
+    Assert.Equal("aXbc", "abc".Insert(1, "X"));
+    Assert.Equal("abcX", "abc".Insert(3, "X"));    // == Length → 追加
+    Assert.Equal("abc", "abc".Insert(1, ""));       // 空 value → 原样
+    Assert.Equal("X", "".Insert(0, "X"));
+}
+
+[Test]
+void test_insert_out_of_range_throws() {
+    Assert.ThrowsAny(() => "abc".Insert(-1, "X"));
+    Assert.ThrowsAny(() => "abc".Insert(4, "X"));
+}
+
+[Test]
+void test_remove_from_index() {
+    Assert.Equal("ab", "abcde".Remove(2));
+    Assert.Equal("", "abcde".Remove(0));
+    Assert.Equal("abcde", "abcde".Remove(5));   // == Length → 原样
+}
+
+[Test]
+void test_remove_range() {
+    Assert.Equal("ade", "abcde".Remove(1, 2));
+    Assert.Equal("abcde", "abcde".Remove(2, 0));   // count 0 → 原样
+    Assert.Equal("", "abcde".Remove(0, 5));
+    Assert.Equal("abc", "abcde".Remove(3, 2));
+}
+
+[Test]
+void test_remove_out_of_range_throws() {
+    Assert.ThrowsAny(() => "abc".Remove(-1));
+    Assert.ThrowsAny(() => "abc".Remove(4));
+    Assert.ThrowsAny(() => "abc".Remove(1, -1));
+    Assert.ThrowsAny(() => "abc".Remove(2, 5));
+}
+
+// ── PadLeft / PadRight ───────────────────────────────────────────────────────
+
+[Test]
+void test_pad_left() {
+    Assert.Equal("  abc", "abc".PadLeft(5));
+    Assert.Equal("00abc", "abc".PadLeft(5, '0'));
+    Assert.Equal("abc", "abc".PadLeft(3));      // 已达宽度 → 原样
+    Assert.Equal("abc", "abc".PadLeft(2));      // 短于串长 → 原样（不截断）
+    Assert.Equal("   ", "".PadLeft(3));
+}
+
+[Test]
+void test_pad_right() {
+    Assert.Equal("abc  ", "abc".PadRight(5));
+    Assert.Equal("abc00", "abc".PadRight(5, '0'));
+    Assert.Equal("abc", "abc".PadRight(3));
+    Assert.Equal("abc", "abc".PadRight(2));
+    Assert.Equal("...", "".PadRight(3, '.'));
+}
+
+[Test]
+void test_pad_negative_width_throws() {
+    Assert.ThrowsAny(() => "abc".PadLeft(-1));
+    Assert.ThrowsAny(() => "abc".PadRight(-1));
+}
+
+[Test]
+void test_pad_multibyte_counts_scalars() {
+    // 填充宽度按 scalar 计数（"你好".Length == 2），不是 UTF-8 字节数。
+    Assert.Equal(" 你好", "你好".PadLeft(3));
+    Assert.Equal("你好 ", "你好".PadRight(3));
+}

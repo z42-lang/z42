@@ -18,16 +18,23 @@ namespace Std;
 // IComparable/IEquatable（实例契约）。`static` 与实例成员/接口矛盾（旧 z42c 静默忽略
 // class 上的 `static`）。对齐 C# `sealed class System.String`：sealed（禁继承 + 去虚化）。
 //
-// augment-string-prelude (2026-09-04)：声明 `partial`，把 Split/Join/Concat/Format 移到碎片
-// `String.Split.z42`，为补齐 char-based BCL 方法腾出行数（补齐后核心文件会超 500 行硬限）。
+// augment-string-prelude (2026-09-04)：声明 `partial`，拆成三个碎片以守住 500 行硬限——
+// 本文件（核心）/ `String.Split.z42`（Split/Join/Concat/Format）/ `String.Edit.z42`
+// （Insert/Remove/Pad*）。同期补齐了 char-based BCL 方法（IndexOf(char)/LastIndexOf/
+// Trim 家族 char 重载/Split(char[])/Insert/Remove/PadLeft/PadRight）。
 //
 // ⚠️ 碎片归属规则：**同名方法组必须整组落在同一碎片**。方法注册键的 primary 判定
 // （MemberCollector 的 `emittedInst`，见 stabilize-instance-dispatch-keys）是**每-碎片**
 // 的局部状态——「声明序首个同名 → 裸键，其余 → 全签名键」里的「首个」只在本碎片内计数。
 // 同名方法分处两碎片时，两边都认为自己是首个而取同一个裸键，后合并者在 `ct.Methods` 里
 // **静默覆盖**前者（签名不同，不触发 E0433），调用方随之派发到错误重载。
-// 故：`Substring`×2 / `Equals`×2 留在本碎片，`Split`×2 整组移到 String.Split.z42。
-// （该限制是 partial v1 的 Deferred 项，见 language/partial-types.md。）
+// 故：`IndexOf`×2 / `LastIndexOf`×2 / `Trim`×3 / `TrimStart`×3 / `TrimEnd`×3 / `Substring`×2 /
+// `Equals`×2 全在本碎片；`Split`×3 全在 String.Split.z42；`Remove`×2 / `PadLeft`×2 /
+// `PadRight`×2 全在 String.Edit.z42。（该限制是 partial v1 的 Deferred 项，见
+// language/partial-types.md「边界与限制」。）
+//
+// 另一条纪律：**新重载必须追加在同名既有重载之后**——primary（= 裸键 = seed 与跨包既有
+// 调用的锚点）取声明序首个，插到前面会让 primary 易主、把既有裸键挪走。
 public sealed partial class String : IComparable<string>, IEquatable<string> {
     // ── Intrinsic core (extern) ──────────────────────────────────────────────
 
@@ -120,6 +127,50 @@ public sealed partial class String : IComparable<string>, IEquatable<string> {
                 if (h[i + j] != n[j]) { match = false; break; }
             }
             if (match) return i;
+        }
+        return -1;
+    }
+
+    // First index of `value` (char), or -1 if not found. char 版兄弟重载——单字符
+    // 查找不必把 needle 也物化成 char[]，直接在 bulk 视图上单层扫描。
+    // stabilize-instance-dispatch-keys 后加重载是纯增量：`IndexOf(string)` 作为
+    // 声明序首个仍持裸键 `IndexOf`（seed / 跨包既有调用的锚点不动），本重载取全
+    // 签名键 `IndexOf$1$char`。**新重载必须追加在既有重载之后**，否则 primary 易主。
+    public int IndexOf(char value) {
+        char[] h = this.ToCharArray();
+        int n = h.Length;
+        for (int i = 0; i < n; i++) {
+            if (h[i] == value) return i;
+        }
+        return -1;
+    }
+
+    // Last index of `value` (scalar units), or -1 if not found.
+    // 与 IndexOf(string) 同构（同一 char[] bulk 视图 + 朴素 O(n·m) 比对），只是
+    // 起点从右端开始向左走。空 needle → Length（"空串匹配在末尾"，与
+    // `IndexOf("") == 0` 对称；对齐 .NET Core 的 `"abc".LastIndexOf("") == 3`）。
+    public int LastIndexOf(string value) {
+        char[] h = this.ToCharArray();
+        char[] n = value.ToCharArray();
+        int tn = h.Length;
+        int vn = n.Length;
+        if (vn == 0) return tn;
+        if (vn > tn) return -1;
+        for (int i = tn - vn; i >= 0; i--) {
+            bool match = true;
+            for (int j = 0; j < vn; j++) {
+                if (h[i + j] != n[j]) { match = false; break; }
+            }
+            if (match) return i;
+        }
+        return -1;
+    }
+
+    // Last index of `value` (char), or -1 if not found.
+    public int LastIndexOf(char value) {
+        char[] h = this.ToCharArray();
+        for (int i = h.Length - 1; i >= 0; i--) {
+            if (h[i] == value) return i;
         }
         return -1;
     }
@@ -256,6 +307,72 @@ public sealed partial class String : IComparable<string>, IEquatable<string> {
         if (n == 0) return "";
         int e = n - 1;
         while (e >= 0 && this.CharAt(e).IsWhiteSpace()) { e = e - 1; }
+        return this.Substring(0, e + 1);
+    }
+
+    // ── Trim 家族的 char / char[] 重载 ───────────────────────────────────────
+    // 三组同名重载（Trim / TrimStart / TrimEnd）必须与上面的无参版同碎片，
+    // 且**追加在其后**——无参版是 primary（裸键，seed 锚点），char / char[]
+    // 版取全签名键。空集合退化为按空白裁剪，对齐 C# `Trim(char[])`。
+
+    // Trim 家族的 char-set 成员判定。集合都很小（典型 1–4 个字符），线性扫描比
+    // 建哈希集便宜；且 z42.core 不能依赖 z42.collections（后者依赖前者）。
+    private static bool _inSet(char[] set, char c) {
+        int n = set.Length;
+        for (int i = 0; i < n; i++) {
+            if (set[i] == c) return true;
+        }
+        return false;
+    }
+
+    // Trim leading + trailing occurrences of `trimChar`.
+    public string Trim(char trimChar) {
+        char[] set = new char[1];
+        set[0] = trimChar;
+        return this.Trim(set);
+    }
+
+    // Trim leading + trailing occurrences of any char in `trimChars`.
+    public string Trim(char[] trimChars) {
+        if (trimChars.Length == 0) return this.Trim();
+        char[] t = this.ToCharArray();
+        int n = t.Length;
+        int s = 0;
+        while (s < n && String._inSet(trimChars, t[s])) { s = s + 1; }
+        if (s == n) return "";
+        int e = n - 1;
+        while (e > s && String._inSet(trimChars, t[e])) { e = e - 1; }
+        return this.Substring(s, e - s + 1);
+    }
+
+    public string TrimStart(char trimChar) {
+        char[] set = new char[1];
+        set[0] = trimChar;
+        return this.TrimStart(set);
+    }
+
+    public string TrimStart(char[] trimChars) {
+        if (trimChars.Length == 0) return this.TrimStart();
+        char[] t = this.ToCharArray();
+        int n = t.Length;
+        int s = 0;
+        while (s < n && String._inSet(trimChars, t[s])) { s = s + 1; }
+        return this.Substring(s, n - s);
+    }
+
+    public string TrimEnd(char trimChar) {
+        char[] set = new char[1];
+        set[0] = trimChar;
+        return this.TrimEnd(set);
+    }
+
+    public string TrimEnd(char[] trimChars) {
+        if (trimChars.Length == 0) return this.TrimEnd();
+        char[] t = this.ToCharArray();
+        int n = t.Length;
+        if (n == 0) return "";
+        int e = n - 1;
+        while (e >= 0 && String._inSet(trimChars, t[e])) { e = e - 1; }
         return this.Substring(0, e + 1);
     }
 

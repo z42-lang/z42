@@ -90,6 +90,43 @@ public sealed partial class String {
         return result;
     }
 
+    // Split on any of `separators`（单字符分隔符集合）。空集合 → 按空白切分，
+    // 对齐 C# `string.Split(char[])`（`Split(null)` / `Split()` 的空白语义）。
+    // 与 Split(string) 同名同 arity、靠参数类型区分（type-based 重载），故**必须
+    // 同碎片**；且**追加在 Split(string) 之后**，让后者保持 primary 裸键。
+    public string[] Split(char[] separators) {
+        char[] t = this.ToCharArray();
+        int n = t.Length;
+        bool ws = separators.Length == 0;
+        // Pass 1: 数段数（分隔符个数 + 1）
+        int count = 1;
+        for (int i = 0; i < n; i++) {
+            if (String._isSplitSep(t[i], separators, ws)) { count = count + 1; }
+        }
+        // Pass 2: 切段（相邻/首尾分隔符产生空段，与 Split(string) 一致不滤空）
+        string[] result = new string[count];
+        int idx = 0;
+        int start = 0;
+        for (int k = 0; k < n; k++) {
+            if (String._isSplitSep(t[k], separators, ws)) {
+                result[idx] = this.Substring(start, k - start);
+                idx = idx + 1;
+                start = k + 1;
+            }
+        }
+        result[idx] = this.Substring(start, n - start);
+        return result;
+    }
+
+    private static bool _isSplitSep(char c, char[] separators, bool ws) {
+        if (ws) return c.IsWhiteSpace();
+        int n = separators.Length;
+        for (int i = 0; i < n; i++) {
+            if (separators[i] == c) return true;
+        }
+        return false;
+    }
+
     // Static: namespaced as String.Join. stabilize-dispatch-keys 落地 params——
     // 单一 params 重载同时覆盖 normal form（`Join(sep, arr)` 直传 string[]）与 expanded form
     // （`Join(sep, a, b, c)` 编译期打包 string[]）。取代此前的 `Join(string, string[])` +
