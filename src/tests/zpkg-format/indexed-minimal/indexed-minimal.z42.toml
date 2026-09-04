@@ -1,0 +1,10 @@
+# refresh-format-fixtures: indexed 模式（pack=false）——主文件去 MODS 加 FILE，
+# 配套散装 source.zbc 供 VM indexed 装载测试（loader_tests.rs::indexed_zpkg_*）。
+# 注意：indexed 是 dev-mode，与 --release strip 不兼容，须不带 --release 构建。
+[project]
+name    = "demo.indexed"
+version = "0.1.0"
+pack    = false
+
+[sources]
+include = ["source.z42"]

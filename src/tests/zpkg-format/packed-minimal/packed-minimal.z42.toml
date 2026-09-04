@@ -1,0 +1,9 @@
+# refresh-format-fixtures: committed 构建配方，让 source.zpkg 可一键重生。
+# 此前配方只存在于口头/expected.json，格式 bump 时须手工拼命令 → 必被遗忘。
+[project]
+name    = "demo.minimal"
+version = "0.1.0"
+pack    = true          # packed 模式（release 默认形态）
+
+[sources]
+include = ["source.z42"]
