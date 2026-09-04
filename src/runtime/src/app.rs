@@ -219,73 +219,118 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         ctx.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size });
     }
 
+    // Record the reporting knobs before execution so `Environment.Exit` can
+    // honour them (see `report_on_exit`).
+    let _ = EXIT_REPORT.set(ExitReport {
+        print_stats: opts.print_stats,
+        stats_json: opts.stats_json,
+    });
+
     let vm = crate::vm::Vm::new(opts.mode);
     // Caller-supplied `entry` overrides any artifact-supplied entry hint.
     let effective_entry = entry.or(entry_hint.as_deref());
     let result = vm.run(&*ctx, effective_entry);
 
-    // --print-stats-on-exit: snapshot counters AFTER vm.run (even on error).
-    // JSON form (--stats-format=json) is one line for `xtask profile` to scrape;
-    // both go to stderr so program stdout stays the script's own output.
-    // Merge the RuntimeCounters snapshot with heap-owned numbers (allocations +
-    // GC minor/major/reclaimed) into one ProfileSnapshot so the profile picture
-    // is complete in a single line/block.
-    if opts.print_stats {
-        let counters = ctx.counters().snapshot();
-        let h = ctx.heap().stats();
-        // add-concurrency-probes (P1b): safepoint-park distribution (always-on)
-        // + user-lock contention counters (0 unless the `profile-contention`
-        // feature is built in).
-        let (park_count, park_us_total, park_max_us) = {
-            let ph = ctx.core.park_histogram.lock();
-            (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
-        };
-        use std::sync::atomic::Ordering::Relaxed;
-        let snap = crate::counters::ProfileSnapshot::new(
-            counters, h.allocations,
-            h.minor_collections, h.major_collections, h.reclaimed_bytes,
-        )
-        .with_concurrency(
-            park_count, park_us_total, park_max_us,
-            ctx.core.lock_contentions.load(Relaxed),
-            ctx.core.lock_wait_us.load(Relaxed),
-        );
-        if opts.stats_json {
-            eprintln!("{}", snap.to_json());
-        } else {
-            eprintln!("{snap}");
-        }
-    }
-
-    // add-sampling-profiler (P2): flush the safepoint sampling profiler's folded
-    // stacks (+ optional perfetto trace) after the run. Gated on the sampler
-    // being enabled (Z42_SAMPLE_HZ set) — the default-off path does nothing.
-    // Independent of --print-stats-on-exit: the sampler is its own env-driven
-    // profiling channel.
-    if ctx.core.sampler.enabled() {
-        let cfg = crate::config::runtime_config();
-        let folded_path = cfg.sample_out.to_string_lossy();
-        match ctx.core.sampler.flush_folded(&folded_path) {
-            Ok(()) => eprintln!(
-                "z42: sampling profiler → folded stacks: {folded_path}  \
-                 (flamegraph: `inferno-flamegraph < {folded_path} > flame.svg`)"
-            ),
-            Err(e) => eprintln!("z42: failed to write sample folded stacks to {folded_path}: {e}"),
-        }
-        if let Some(trace_path) = cfg.trace_out.as_ref() {
-            let trace_path = trace_path.to_string_lossy();
-            match ctx.core.sampler.flush_trace(&trace_path) {
-                Ok(()) => eprintln!(
-                    "z42: sampling profiler → perfetto trace: {trace_path}  \
-                     (open at https://ui.perfetto.dev)"
-                ),
-                Err(e) => eprintln!("z42: failed to write sample trace to {trace_path}: {e}"),
-            }
-        }
-    }
+    report_on_exit(&ctx);
 
     result
 }
+
+/// End-of-run reporting knobs, recorded by [`run`] so the **`Environment.Exit`
+/// path can produce the same output as a normal return**
+/// (add-gc-runtime-knobs, 2026-09-05).
+///
+/// `Environment.Exit` is `std::process::exit`, which unwinds nothing and runs no
+/// `Drop`. Before this existed it silently skipped both `--print-stats-on-exit`
+/// and the sampling profiler's flush — so neither worked for *any* program that
+/// exits that way, which includes z42c itself (`z42c.driver` ends every command
+/// with `Environment.Exit(code)`). The VM's own profiling tooling was blind to
+/// the project's most important workload.
+struct ExitReport {
+    print_stats: bool,
+    stats_json: bool,
+}
+
+/// First-wins: an embedder or a nested `run` must not clobber the CLI's choice.
+static EXIT_REPORT: std::sync::OnceLock<ExitReport> = std::sync::OnceLock::new();
+
+/// Emit the end-of-run counter snapshot (when requested) and flush the sampling
+/// profiler. Called on the normal return path by [`run`] and, before the process
+/// dies, by `Environment.Exit`. Safe to call with no `EXIT_REPORT` recorded
+/// (pure-embedder VMs): stats are then skipped and only the env-driven sampler
+/// flush applies.
+pub(crate) fn report_on_exit(ctx: &crate::vm_context::VmContext) {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    // A z42 `Environment.Exit` inside a program that also returns normally can
+    // only happen once (process::exit never returns), but an embedder may call
+    // `run` repeatedly — report at most once per process either way.
+    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let default = ExitReport { print_stats: false, stats_json: false };
+    let report = EXIT_REPORT.get().unwrap_or(&default);
+// --print-stats-on-exit: snapshot counters AFTER vm.run (even on error).
+// JSON form (--stats-format=json) is one line for `xtask profile` to scrape;
+// both go to stderr so program stdout stays the script's own output.
+// Merge the RuntimeCounters snapshot with heap-owned numbers (allocations +
+// GC minor/major/reclaimed) into one ProfileSnapshot so the profile picture
+// is complete in a single line/block.
+if report.print_stats {
+    let counters = ctx.counters().snapshot();
+    let h = ctx.heap().stats();
+    // add-concurrency-probes (P1b): safepoint-park distribution (always-on)
+    // + user-lock contention counters (0 unless the `profile-contention`
+    // feature is built in).
+    let (park_count, park_us_total, park_max_us) = {
+        let ph = ctx.core.park_histogram.lock();
+        (ph.count, ph.total_us, if ph.count == 0 { 0 } else { ph.max_us })
+    };
+    use std::sync::atomic::Ordering::Relaxed;
+    let snap = crate::counters::ProfileSnapshot::new(
+        counters, h.allocations,
+        h.minor_collections, h.major_collections, h.reclaimed_bytes,
+    )
+    .with_concurrency(
+        park_count, park_us_total, park_max_us,
+        ctx.core.lock_contentions.load(Relaxed),
+        ctx.core.lock_wait_us.load(Relaxed),
+    );
+    if report.stats_json {
+        eprintln!("{}", snap.to_json());
+    } else {
+        eprintln!("{snap}");
+    }
+}
+
+// add-sampling-profiler (P2): flush the safepoint sampling profiler's folded
+// stacks (+ optional perfetto trace) after the run. Gated on the sampler
+// being enabled (Z42_SAMPLE_HZ set) — the default-off path does nothing.
+// Independent of --print-stats-on-exit: the sampler is its own env-driven
+// profiling channel.
+if ctx.core.sampler.enabled() {
+    let cfg = crate::config::runtime_config();
+    let folded_path = cfg.sample_out.to_string_lossy();
+    match ctx.core.sampler.flush_folded(&folded_path) {
+        Ok(()) => eprintln!(
+            "z42: sampling profiler → folded stacks: {folded_path}  \
+             (flamegraph: `inferno-flamegraph < {folded_path} > flame.svg`)"
+        ),
+        Err(e) => eprintln!("z42: failed to write sample folded stacks to {folded_path}: {e}"),
+    }
+    if let Some(trace_path) = cfg.trace_out.as_ref() {
+        let trace_path = trace_path.to_string_lossy();
+        match ctx.core.sampler.flush_trace(&trace_path) {
+            Ok(()) => eprintln!(
+                "z42: sampling profiler → perfetto trace: {trace_path}  \
+                 (open at https://ui.perfetto.dev)"
+            ),
+            Err(e) => eprintln!("z42: failed to write sample trace to {trace_path}: {e}"),
+        }
+    }
+}
+
+}
+
 
 /// Build the declared-but-not-loaded zpkg candidate set for the lazy loader.
 ///

@@ -85,6 +85,18 @@ pub struct RuntimeConfig {
     /// which SoftHandle refs become GC-eligible. Falls back to 0.80 on
     /// missing / invalid.
     pub gc_soft_threshold: f64,
+    /// `Z42_GC_MAX_BYTES` — soft heap budget that **arms auto-collect**
+    /// (add-gc-runtime-knobs, 2026-09-05). `None` (the historical default) means
+    /// *no automatic collection ever happens*: `maybe_auto_collect` bails out
+    /// while this is unset, so a long-running program grows until it exits.
+    /// The three ratios below are fractions of this budget and are inert
+    /// without it. Accepts `512MB` / `2G` / a plain byte count.
+    pub gc_max_bytes: Option<u64>,
+    /// `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs,
+    /// 2026-09-05): one line per cycle with kind, heap used before/after,
+    /// bytes reclaimed and pause µs. Any non-empty value except `0`/`false`
+    /// turns it on. Off = zero cost (no observer installed).
+    pub gc_trace: bool,
     /// `Z42_GC_NEAR_LIMIT_RATIO` (0.0–1.0) — heap-used fraction of the
     /// max-bytes limit at/above which the allocator trips an auto-collect
     /// and fires `NearHeapLimit`. Falls back to 0.90; clamped to `[0,1]`.
@@ -138,6 +150,8 @@ impl Default for RuntimeConfig {
             gc_minor_threshold: 0.75,
             gc_pause_window: 1024,
             gc_soft_threshold: 0.80,
+            gc_max_bytes: None,
+            gc_trace: false,
             gc_near_limit_ratio: 0.90,
             gc_pressure_ratio: 0.75,
             gc_throttle_ratio: 0.10,
@@ -218,12 +232,17 @@ impl RuntimeConfig {
             gc_minor_threshold:  parse_gc_minor_threshold(&layered),
             gc_pause_window:     parse_gc_pause_window(&layered),
             gc_soft_threshold:   parse_gc_soft_threshold(&layered),
+            gc_max_bytes:        parse_gc_max_bytes(&layered),
+            gc_trace:            parse_bool_knob(&layered, "Z42_GC_TRACE"),
             gc_near_limit_ratio: parse_gc_ratio(&layered, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
             gc_pressure_ratio:   parse_gc_ratio(&layered, "Z42_GC_PRESSURE_RATIO",   0.75),
             gc_throttle_ratio:   parse_gc_ratio(&layered, "Z42_GC_THROTTLE_RATIO",   0.10),
             safepoint_throttle:  parse_safepoint_throttle(&layered),
             native_search_paths: parse_native_search_paths(&layered),
-            jit_profile:         layered("Z42_JIT_PROFILE").filter(|s| !s.trim().is_empty()).is_some(),
+            // add-gc-runtime-knobs (2026-09-05): was `non-empty = on`, which turned
+            // `Z42_JIT_PROFILE=false` ON — contradicting this field's own doc.
+            // Now shares `parse_bool_knob` with `Z42_GC_TRACE`.
+            jit_profile:         parse_bool_knob(&layered, "Z42_JIT_PROFILE"),
             mode:                layered("Z42_MODE").filter(|s| !s.trim().is_empty()),
             sample_hz:           parse_sample_hz(&layered),
             sample_out:          layered("Z42_SAMPLE_OUT").filter(|s| !s.trim().is_empty())
