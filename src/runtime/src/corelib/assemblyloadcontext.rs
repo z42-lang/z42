@@ -50,7 +50,7 @@ fn build_assembly(ctx: &VmContext, aid: AssemblyId) -> Result<Value> {
 
 fn ctx_handle(args: &[Value]) -> Result<ContextId> {
     match args.first() {
-        Some(Value::Object(rc)) => match &rc.borrow().native {
+        Some(Value::Object(rc)) => match &rc.borrow().native() {
             NativeData::LoadContextHandle(cid) => Ok(*cid),
             _ => bail!("expected a Std.Runtime.AssemblyLoadContext receiver"),
         },
@@ -60,7 +60,7 @@ fn ctx_handle(args: &[Value]) -> Result<ContextId> {
 
 fn asm_handle(args: &[Value]) -> Result<AssemblyId> {
     match args.first() {
-        Some(Value::Object(rc)) => match &rc.borrow().native {
+        Some(Value::Object(rc)) => match &rc.borrow().native() {
             NativeData::AssemblyHandle(aid) => Ok(*aid),
             _ => bail!("expected a Std.Reflection.Assembly receiver"),
         },

@@ -68,7 +68,7 @@ pub unsafe extern "C" fn jit_obj_new(
     if type_args_count > 0 {
         if let Value::Object(ref rc) = obj_val {
             let slice = std::slice::from_raw_parts(type_args_ptr, type_args_count);
-            rc.borrow_mut().type_args = Box::<[String]>::from(slice);
+            rc.borrow_mut().set_type_args(Box::<[String]>::from(slice));
         }
     }
 
@@ -170,7 +170,7 @@ pub unsafe extern "C" fn jit_default_of(
     let val = match frame_ref.regs.first() {
         Some(Value::Object(rc)) => {
             let b = rc.borrow();
-            b.type_args.get(param_index as usize)
+            b.type_args().get(param_index as usize)
                 .map(|tag| crate::metadata::types::default_value_for(tag))
                 .unwrap_or(Value::Null)
         }

@@ -67,12 +67,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
 
 #[test]
 fn is_heap_ref_true_for_object() {
-    let v = Value::Object(GcRef::new(ScriptObject {
-        type_desc: dummy_type_desc("Foo"),
-        storage: crate::metadata::types::ObjStorage::new(0, 0),
-        native: NativeData::None,
-        type_args: Box::new([]),
-    }));
+    let v = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Foo"), crate::metadata::types::ObjStorage::new(0, 0))));
     assert!(v.is_heap_ref());
 }
 
@@ -113,25 +108,15 @@ fn trace_children_visits_inline_struct_refs() {
     // An object whose inline struct field holds a reference leaf (e.g. a nested
     // object) in `struct_refs`. `trace_children` must visit it so the leaf stays
     // marked — exactly the use-after-free P3b closes (`c.pt` holding a string/obj).
-    let leaf = Value::Object(GcRef::new(ScriptObject {
-        type_desc: dummy_type_desc("Leaf"),
-        storage: crate::metadata::types::ObjStorage::new(0, 0),
-        native: NativeData::None,
-        type_args: Box::new([]),
-    }));
-    let owner = Value::Object(GcRef::new(ScriptObject {
-        type_desc: dummy_type_desc("Owner"),
-        // shrink-object-footprint P2: primitives (+ dead ref holes) in the byte
+    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0, 0))));
+    let owner = Value::Object(GcRef::new(        // shrink-object-footprint P2: primitives (+ dead ref holes) in the byte
         // region, all reference leaves in the reference region — one block.
         // The inline-struct reference leaf lives among the refs.
-        storage: {
+ScriptObject::new(dummy_type_desc("Owner"), {
             let mut st = crate::metadata::types::ObjStorage::new(8, 1);
             st.refs_mut()[0] = leaf.clone();
             st
-        },
-        native: NativeData::None,
-        type_args: Box::new([]),
-    }));
+        })));
 
     let mut visited_object_children = 0usize;
     owner.trace_children(&mut |v: &Value| {
@@ -173,19 +158,9 @@ fn inline_object_field_roundtrips_and_is_traced() {
     });
 
     // The heap object the inlined field will point at.
-    let leaf = Value::Object(GcRef::new(ScriptObject {
-        type_desc: dummy_type_desc("Leaf"),
-        storage: crate::metadata::types::ObjStorage::new(0, 0),
-        native: NativeData::None,
-        type_args: Box::new([]),
-    }));
+    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0, 0))));
     // A Holder instance: one 8B inline field window, zero-initialized.
-    let holder = GcRef::new(ScriptObject {
-        type_desc: holder_td,
-        storage: crate::metadata::types::ObjStorage::new(8, 0),
-        native: NativeData::None,
-        type_args: Box::new([]),
-    });
+    let holder = GcRef::new(ScriptObject::new(holder_td, crate::metadata::types::ObjStorage::new(8, 0)));
 
     // Zeroed window (`0` sentinel) reads back as `Null`.
     assert!(matches!(holder.borrow().field_value(0), Value::Null), "zeroed inline field = Null");
@@ -423,14 +398,9 @@ fn value_bool_payload_at_offset_8() {
 //    名的 (width, signed) 还原 i64。见 well_known_names::int_wrapper_scalar_spec。────────
 
 fn boxed_prim(name: &str, bytes: &[u8]) -> GcRef<ScriptObject> {
-    GcRef::new(ScriptObject {
-        type_desc: dummy_type_desc(name),
-        // shrink-object-footprint P2: a boxed primitive's scalar is its whole byte
+    GcRef::new(        // shrink-object-footprint P2: a boxed primitive's scalar is its whole byte
         // payload; no reference leaves.
-        storage: crate::metadata::types::ObjStorage::from_bytes(bytes),
-        native: NativeData::None,
-        type_args: Box::new([]),
-    })
+ScriptObject::new(dummy_type_desc(name), crate::metadata::types::ObjStorage::from_bytes(bytes)))
 }
 
 #[test]
@@ -552,6 +522,6 @@ fn script_object_stays_small() {
     // shrink-object-footprint: `ScriptObject` is the payload of every
     // `RegionEntry`, so its size is multiplied by the live object count. Pin it
     // so an added field is a deliberate decision with a measurement, not a drift.
-    assert_eq!(std::mem::size_of::<ScriptObject>(), 56,
+    assert_eq!(std::mem::size_of::<ScriptObject>(), 32,
         "ScriptObject grew — re-measure per-object RSS before updating this");
 }

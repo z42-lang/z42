@@ -85,7 +85,7 @@ pub(super) fn array_new(
         match type_param_kind {
             1 => frame.method_type_args.get(idx).cloned(),
             2 => match frame.get(0) {
-                Ok(Value::Object(rc)) => rc.borrow().type_args.get(idx).cloned(),
+                Ok(Value::Object(rc)) => rc.borrow().type_args().get(idx).cloned(),
                 _ => None,
             },
             _ => None,

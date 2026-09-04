@@ -78,12 +78,7 @@ impl MagrGC for ArcMagrGC {
         // that pass `Vec::new()` (e.g. `obj_new`, which relies on defaults) skip the
         // loop entirely — zero-init already equals the old per-field defaults.
         let storage = type_desc.object_storage();
-        let mut obj = ScriptObject {
-            type_desc,
-            storage,
-            native,
-            type_args: Box::new([]),
-        };
+        let mut obj = ScriptObject::with_native(type_desc, storage, native);
         for (i, v) in slots.into_iter().enumerate() {
             obj.set_field_value(i, &v);
         }
@@ -99,12 +94,8 @@ impl MagrGC for ArcMagrGC {
     fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, scalar_bytes: Box<[u8]>) -> Value {
         // unify-object-byte-layout (PR-2): the boxed scalar IS the object's whole byte
         // payload (`bytes`); no reference leaves.
-        let obj = ScriptObject {
-            type_desc,
-            storage: crate::metadata::types::ObjStorage::from_bytes(&scalar_bytes),
-            native: NativeData::None,
-            type_args: Box::new([]),
-        };
+        let obj = ScriptObject::new(
+            type_desc, crate::metadata::types::ObjStorage::from_bytes(&scalar_bytes));
         self.finish_alloc(obj)
     }
 

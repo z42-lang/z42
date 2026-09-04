@@ -47,6 +47,23 @@ pub enum NativeData {
 //   2. A flat slot array (Vec<Value>)            — instance fields by index
 //   3. Optional native backing (NativeData)      — for built-in types
 
+/// shrink-object-footprint P3: the cold per-instance side-fields of a
+/// [`ScriptObject`]. Allocated only when at least one of them is non-empty.
+#[derive(Debug, Default)]
+struct ObjExtras {
+    /// Native backing for built-in types (WeakRef / Type / LoadContext / Assembly).
+    native: NativeData,
+    /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): per-instance
+    /// generic type-arguments. For `new Foo<int, string>()` this is
+    /// `["int", "string"]`. Index aligns with `type_desc.type_params`.
+    /// Read by `DefaultOf` and runtime type-args queries.
+    type_args: Box<[String]>,
+}
+
+impl Default for NativeData {
+    fn default() -> Self { NativeData::None }
+}
+
 /// Heap-allocated managed object with reference semantics (CoreCLR Object equivalent).
 #[derive(Debug)]
 pub struct ScriptObject {
@@ -67,22 +84,68 @@ pub struct ScriptObject {
     /// Was two separate boxed slices (`bytes: Box<[u8]>` + `refs: Box<[Value]>`) =
     /// two mallocs and 32 bytes of fat pointer per object.
     pub storage: ObjStorage,
-    /// Native backing for built-in types (e.g. StringBuilder buffer).
-    pub native: NativeData,
-    /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): per-instance
-    /// generic type-arguments. For `new Foo<int, string>()` this is
-    /// `["int", "string"]`. Empty for non-generic classes and uninstantiated
-    /// generic definitions. Index aligns with `type_desc.type_params`.
-    /// Read by `DefaultOf` opcode and any future runtime type-args queries.
+    /// shrink-object-footprint P3: the two **cold** per-instance side-fields —
+    /// native backing and generic type-arguments — behind one optional box.
     ///
-    /// review.md E5.4 follow-up (2026-05-27): `Box<[String]>` instead of
-    /// `Vec<String>` — written exactly once at `obj.new` time, then
-    /// read-only for the object's lifetime. Saves 8 B/ScriptObject vs
-    /// `Vec`. StringId migration deferred to Phase B+.
-    pub type_args: Box<[String]>,
+    /// Both are empty for the overwhelming majority of objects: `NativeData::None`
+    /// for every ordinary user class (only WeakRef / Type / LoadContext / Assembly
+    /// carry a handle), and no type-args for every non-generic instantiation.
+    /// Inline they cost 16 + 16 = **32 bytes on every object**; as
+    /// `Option<Box<ObjExtras>>` they cost 8, and only an object that actually has
+    /// one of them pays for the box.
+    extras: Option<Box<ObjExtras>>,
 }
 
 impl ScriptObject {
+    /// shrink-object-footprint P3: the object's native backing (`None` when it has
+    /// no extras box, which is the common case).
+    #[inline]
+    pub fn native(&self) -> &NativeData {
+        const NONE: &NativeData = &NativeData::None;
+        self.extras.as_ref().map_or(NONE, |e| &e.native)
+    }
+
+    /// Per-instance generic type-arguments; empty for non-generic instances.
+    #[inline]
+    pub fn type_args(&self) -> &[String] {
+        self.extras.as_ref().map_or(&[], |e| &e.type_args)
+    }
+
+    /// Install the native backing, allocating the cold extras box on first use.
+    #[inline]
+    pub fn set_native(&mut self, native: NativeData) {
+        if matches!(native, NativeData::None) && self.extras.is_none() {
+            return; // nothing to record — stay box-free
+        }
+        self.extras.get_or_insert_with(Default::default).native = native;
+    }
+
+    /// Install per-instance type-arguments (no-op for an empty list on a
+    /// box-free object, so a non-generic `new` never allocates the box).
+    #[inline]
+    pub fn set_type_args(&mut self, type_args: Box<[String]>) {
+        if type_args.is_empty() && self.extras.is_none() {
+            return;
+        }
+        self.extras.get_or_insert_with(Default::default).type_args = type_args;
+    }
+
+    /// Construct with no extras — the common case.
+    #[inline]
+    pub fn new(type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage) -> Self {
+        Self { type_desc, storage, extras: None }
+    }
+
+    /// Construct with a native backing (built-in boxes).
+    #[inline]
+    pub fn with_native(
+        type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage, native: NativeData,
+    ) -> Self {
+        let mut o = Self::new(type_desc, storage);
+        o.set_native(native);
+        o
+    }
+
     /// shrink-object-footprint P2: the byte-packed primitive leaves.
     #[inline] pub fn bytes(&self) -> &[u8] { self.storage.bytes() }
     /// Mutable view of the primitive leaves.
@@ -323,7 +386,7 @@ impl crate::gc::GcRef<ScriptObject> {
     pub fn type_args(&self) -> &[String] {
         // SAFETY: type_args is write-once-at-alloc; see type_desc().
         let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_args }
+        unsafe { &(*obj_ptr).type_args() }
     }
 }
 

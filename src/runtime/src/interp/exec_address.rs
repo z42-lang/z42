@@ -74,7 +74,7 @@ pub(super) fn default_of(frame: &mut Frame, dst: u32, param_index: u8) {
     let val = match frame.get(0) {
         Ok(Value::Object(rc)) => {
             let borrowed = rc.borrow();
-            borrowed.type_args.get(param_index as usize)
+            borrowed.type_args().get(param_index as usize)
                 .map(|tag| crate::metadata::types::default_value_for(tag))
                 .unwrap_or(Value::Null)
         }

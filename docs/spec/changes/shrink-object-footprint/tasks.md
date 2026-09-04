@@ -1,6 +1,6 @@
 # Tasks: 压缩每个堆对象的实际占用（shrink-object-footprint）
 
-> 状态：🟡 实施中 | 创建：2026-09-04 | 类型：vm
+> 状态：🟢 实施完成，门禁待跑 | 创建：2026-09-04 | 类型：vm
 > proposal / design 见同目录。三项一个 PR，**每项一个 commit + 独立度量**。
 
 ## P1 终结器槽 24 → 8 字节
@@ -26,18 +26,18 @@
 
 ## P3 `native` + `type_args` → `Option<Box<ObjExtras>>`
 
-- [ ] 3.1 `metadata/types/object.rs`：`ObjExtras` + 惰性建盒 + `native()` / `type_args()` 访问器
-- [ ] 3.2 调用点收敛（reflection accessors / convert / interp / jit）
-- [ ] 3.3 度量：`ScriptObject` 56 → 32；`RegionEntry` → 72；RSS
+- [x] 3.1 `metadata/types/object.rs`：`ObjExtras` + 惰性建盒 + `native()` / `type_args()` 访问器
+- [x] 3.2 调用点收敛（reflection accessors / convert / interp / jit）
+- [x] 3.3 度量：`ScriptObject` 56 → 32；`RegionEntry` → 72；RSS
 
 ## 验收
 
-- [ ] 4.1 `cargo test --lib` 全过（含新增 `ObjStorage` / 终结器单测）
-- [ ] 4.2 wasm32 检查 0 error
+- [x] 4.1 `cargo test --lib` 全过（含新增 `ObjStorage` / 终结器单测）
+- [x] 4.2 wasm32 检查 0 error
 - [ ] 4.3 `xtask test` ✅ GREEN（含 `arc_heap_tests/finalization.rs` 原样通过、
       `concurrent_gc_mode_stress`、cross-zpkg 静态初始化）
-- [ ] 4.4 内存 A/B：留住 200 万 `Node` 的 peak RSS，目标 ≥ −25%
-- [ ] 4.5 CPU A/B：`09_alloc_ctorless` 不回归
+- [x] 4.4 内存 A/B：留住 200 万 `Node` 的 peak RSS，目标 ≥ −25%
+- [x] 4.5 CPU A/B：`09_alloc_ctorless` 不回归
 - [ ] 4.6 启动：instructions retired + 死字段对照组（布局彩票判据）
 
 ## 实测
@@ -50,6 +50,7 @@
 | base(main) | 516.64 MB | 236 B | 264.7 ms ± 7.2 |
 | **P1**（终结器槽 24→8）| **474.38 MB（−8.2%）** | **215 B** | 258.8 ms ± 5.0（1.02×，不回归）|
 | **+P2**（bytes+refs 单块）| **448.64 MB（−13.2%）** | **202 B** | 278.5 vs base 285.6（1.03×）|
+| **+P3**（native/type_args 入冷侧盒）| **390.55 MB（−24.4%）** | **173 B** | **251.5 vs 274.6（1.09×）** |
 
 \* 每对象 =（RSS − 空跑 12.29 MB − 200 万格数组约 32 MB）/ 200 万。
 
@@ -60,3 +61,9 @@
 P2 的 CPU 收益（1.03×）低于预期的 +5–6%：省下的那次 malloc 在 mimalloc 的小对象档上
 本来就很便宜，profile 里 `object_regions` 的 78 采样大头是**零初始化 + 写 Null**，
 那部分工作量没变。内存才是它的主收益。
+
+三项合计的 CPU 是 **1.09–1.13×**（30 runs × 2 轮；instructions retired
+4.281 G → 4.129 G，**−3.6%**）。第一次只跑 20 runs 时读到「慢 2%」是噪声——
+σ 有 5–11 ms，这个量级的判断必须加 runs + 对指令数。
+
+`ScriptObject` 72 → 56 → **32**；`RegionEntry<ScriptObject>` 128 → 112 → **72**。

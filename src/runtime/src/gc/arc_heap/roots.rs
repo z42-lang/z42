@@ -61,7 +61,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if entry.is_marked() {
                 let obj = entry.value.lock();
                 let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
-                if let Some(cid) = snap.retained_context(td_ptr, &obj.native) {
+                if let Some(cid) = snap.retained_context(td_ptr, &obj.native()) {
                     live.insert(cid);
                 }
             }

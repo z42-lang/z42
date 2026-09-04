@@ -6,7 +6,7 @@ use super::*;
 /// handle-backed → the TypeDesc FQ name; array → `<elem>[]`; else `__fullName`.
 pub(super) fn type_arg_name(v: &Value) -> Option<String> {
     if let Value::Object(rc) = v {
-        if let NativeData::TypeHandle(td) = &rc.borrow().native {
+        if let NativeData::TypeHandle(td) = &rc.borrow().native() {
             return Some(td.name.clone());
         }
     }

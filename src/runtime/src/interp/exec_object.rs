@@ -87,16 +87,12 @@ pub(super) fn obj_new(
     // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let storage = type_desc.object_storage();
-        let obj = ScriptObject {
-            type_desc,
-            storage,
-            native: NativeData::None,
-            type_args: if type_args.is_empty() {
-                Box::new([])
-            } else {
-                Box::<[String]>::from(type_args)
-            },
-        };
+        let mut obj = ScriptObject::new(type_desc, storage);
+        obj.set_type_args(if type_args.is_empty() {
+            Box::new([])
+        } else {
+            Box::<[String]>::from(type_args)
+        });
         let idx = ctx.stack_alloc_obj(frame.frame_id, obj);
         Value::StackObject { idx, frame_id: frame.frame_id }
     } else {
@@ -116,7 +112,7 @@ pub(super) fn obj_new(
         // per-instance type_args from the IR instruction. Read by `DefaultOf`.
         if !type_args.is_empty() {
             if let Value::Object(ref rc) = obj_val {
-                rc.borrow_mut().type_args = Box::<[String]>::from(type_args);
+                rc.borrow_mut().set_type_args(Box::<[String]>::from(type_args));
             }
         }
         obj_val
