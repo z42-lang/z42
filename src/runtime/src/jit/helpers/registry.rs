@@ -23,7 +23,7 @@ use cranelift_codegen::ir::{types, AbiParam};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module as CraneliftModule};
 
-use super::{arith, array, call, closure, control, object, struct_ops, value, vcall};
+use super::{arith, array, call, closure, control, object, object_field, struct_ops, value, vcall};
 
 // ─── HelperIds ──────────────────────────────────────────────────────────────
 //
@@ -193,10 +193,10 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_typeof",        object::jit_typeof);
     reg!("jit_default_of",    object::jit_default_of);
     reg!("jit_convert",       object::jit_convert);
-    reg!("jit_field_get",     object::jit_field_get);
-    reg!("jit_obj_field_slot", object::jit_obj_field_slot);
-    reg!("jit_obj_ref_field_slot", object::jit_obj_ref_field_slot);
-    reg!("jit_field_set",     object::jit_field_set);
+    reg!("jit_field_get",     object_field::jit_field_get);
+    reg!("jit_obj_field_slot", object_field::jit_obj_field_slot);
+    reg!("jit_obj_ref_field_slot", object_field::jit_obj_ref_field_slot);
+    reg!("jit_field_set",     object_field::jit_field_set);
     reg!("jit_is_instance",   object::jit_is_instance);
     reg!("jit_as_cast",       object::jit_as_cast);
     reg!("jit_static_get",    object::jit_static_get);

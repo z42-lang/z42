@@ -2,7 +2,7 @@
 src/compiler/z42c.driver/src/Main.z42	636
 src/compiler/z42c.semantics/src/EmitContext.z42	541
 src/compiler/z42c.semantics/src/ExprEmitter.z42	523
-src/compiler/z42c.semantics/src/MemberResolver.z42	524
+src/compiler/z42c.semantics/src/MemberResolver.z42	513
 src/compiler/z42c.semantics/src/StructLayout.z42	582
 src/compiler/z42c.semantics/src/TypeChecker.z42	522
 src/libraries/z42.cli/src/ArgParser.z42	729
@@ -32,7 +32,6 @@ src/runtime/src/gc/refs.rs	620
 src/runtime/src/gc/region.rs	1036
 src/runtime/src/host/mod.rs	763
 src/runtime/src/jit/frame.rs	581
-src/runtime/src/jit/helpers/object.rs	580
 src/runtime/src/main.rs	568
 src/runtime/src/native/ext.rs	731
 src/toolchain/builder/core/builder_publish.z42	967
