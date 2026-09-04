@@ -49,6 +49,13 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         consumed_by: "main.rs (panic hook) + signal_handler.rs",
     },
     KnobSpec {
+        name: "Z42_GC_MAX_BYTES",
+        toml_key: "gc-max-bytes",
+        description: "soft heap budget that ARMS automatic collection; the gc-*-ratio knobs are fractions of it and are inert without it. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
+        default_hint: "unset; NO automatic collection happens at all (collect only on an explicit Std.GC.Collect())",
+        consumed_by: "vm_context/construct.rs (set_max_heap_bytes) → gc/arc_heap/alloc.rs",
+    },
+    KnobSpec {
         name: "Z42_GC_MINOR_THRESHOLD",
         toml_key: "gc-minor-threshold",
         description: "fraction (0.0–1.0) of young entries surviving minor GC above which the next collect escalates to major immediately",
@@ -96,6 +103,13 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         description: "min heap-used growth (fraction 0.0–1.0 of the max-bytes limit) since the last auto-collect before another auto-collect may trip — debounces back-to-back collects",
         default_hint: "unset; defaults to 0.10",
         consumed_by: "gc/arc_heap/alloc.rs",
+    },
+    KnobSpec {
+        name: "Z42_GC_TRACE",
+        toml_key: "gc-trace",
+        description: "print one stderr line per collection (kind, heap used before/after, bytes reclaimed, pause ms) plus near-limit / over-budget edges",
+        default_hint: "unset; off (0/false/off/no also off). No observer installed when off",
+        consumed_by: "gc/trace.rs, installed by vm_context/construct.rs",
     },
     KnobSpec {
         name: "Z42_JIT_PROFILE",

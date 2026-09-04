@@ -296,39 +296,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// - 距上次 auto-collect 增长 >= 10% limit（throttle，避免每次 alloc 都 collect）
     /// - pause_count == 0
     ///
-    /// **add-gc-safepoint-auto-threshold (2026-05-20)**: 当 `external_needs_collect`
-    /// flag 装上时（VmCore 构造后 wire），仅 `flag.store(true, Release)` —
-    /// 实际 collect 延迟到下一次 mutator 走 `check_safepoint(ctx)` 时由该 mutator
-    /// 在 safepoint guard 内执行，避免多线程下 scanner 与 mutator regs 写读 race。
-    /// 当 flag 未装（GC 单测直接 `ArcMagrGC::new()` 路径）→ fallback 回原
-    /// inline collect，保持单线程现有行为零变化。
-    pub(super) fn maybe_auto_collect(&self) {
-        let (max_opt, last, paused) = {
-            let i = self.inner.lock();
-            (i.stats.max_bytes, i.last_auto_collect_used, i.pause_count > 0)
-        };
-        let used = self.used_bytes_atomic();
-        if paused { return; }
-        let Some(limit) = max_opt else { return };
-        let cfg = crate::config::runtime_config();
-        let near_threshold = (limit as f64 * cfg.gc_near_limit_ratio) as u64;
-        if used < near_threshold { return; }
-        let throttle_delta = (limit as f64 * cfg.gc_throttle_ratio) as u64;
-        if used.saturating_sub(last) < throttle_delta { return; }
-        // Mark this as the "last seen used" pre-collect so we don't re-trip
-        // on every subsequent alloc until the collect actually runs.
-        self.inner.lock().last_auto_collect_used = used;
-
-        // Defer to safepoint when wired (multi-thread safe path).
-        if let Some(flag) = self.external_needs_collect.lock().clone() {
-            flag.store(true, std::sync::atomic::Ordering::Release);
-            return;
-        }
-        // Fallback: legacy inline collect — preserves GC unit-test behaviour
-        // (those tests construct ArcMagrGC::new() without VmCore wiring).
-        self.collect_cycles();
-    }
-
     /// **Phase 3d**: collect 完成后，若 used 已降到 near-limit 阈值以下，
     /// reset `near_limit_warned` 让下次跨阈值能再发 NearHeapLimit 事件。
     /// 阈值比率来自 `Z42_GC_NEAR_LIMIT_RATIO`（默认 0.90），与 [`Self::check_pressure`]
