@@ -111,7 +111,7 @@ impl VmContext {
     }
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
-        let (result, newly_loaded) = {
+        let (result, newly_loaded, loader_quiet) = {
             let mut state = self.core.lazy_loader.lock();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain the loader's `newly_loaded` scratch
@@ -123,8 +123,12 @@ impl VmContext {
             loader.newly_loaded.clear();
             let result = loader.resolve_function(func_name);
             let newly = std::mem::take(&mut loader.newly_loaded);
-            (result, newly)
+            let quiet = loader.pending_static_inits.is_empty();
+            (result, newly, quiet)
         };
+        if self.static_init_drain_is_noop(&newly_loaded, loader_quiet) {
+            return result;
+        }
         // defer-class-initialization (T1): 锁已释放，跑刚拉进来的包的初始化器。
         self.run_pending_static_inits();
         for name in newly_loaded {
@@ -136,21 +140,43 @@ impl VmContext {
     /// Look up a class TypeDesc by FQ name; triggers lazy load if needed.
     /// Same `ModuleLoaded` emit semantics as `try_lookup_function`.
     pub fn try_lookup_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
-        let (result, newly_loaded) = {
+        let (result, newly_loaded, loader_quiet) = {
             let mut state = self.core.lazy_loader.lock();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain scratch buffer (see try_lookup_function).
             loader.newly_loaded.clear();
             let result = loader.resolve_type(class_name);
             let newly = std::mem::take(&mut loader.newly_loaded);
-            (result, newly)
+            let quiet = loader.pending_static_inits.is_empty();
+            (result, newly, quiet)
         };
+        if self.static_init_drain_is_noop(&newly_loaded, loader_quiet) {
+            return result;
+        }
         // defer-class-initialization (T2): 同上。
         self.run_pending_static_inits();
         for name in newly_loaded {
             self.fire_runtime_event(&crate::observer::RuntimeEvent::ModuleLoaded { name, byte_size: None });
         }
         result
+    }
+
+    /// cache-failed-name-resolution: `true` when `run_pending_static_inits` provably
+    /// has nothing to do, so a lookup can skip it and its two extra mutex round-trips
+    /// plus the `static_init_state` scan. Not a semantic change: every `false` falls
+    /// through to the real drain, and the barrier `static_init_concurrent` depends on
+    /// is preserved because "another thread is inside an initializer" is exactly
+    /// `running_static_inits != 0`.
+    ///
+    /// `newly_loaded` / `loader_quiet` come out of the loader lock the caller already
+    /// held; the other two reads are plain atomics.
+    #[inline]
+    fn static_init_drain_is_noop(&self, newly_loaded: &[String], loader_quiet: bool) -> bool {
+        use std::sync::atomic::Ordering;
+        newly_loaded.is_empty()
+            && loader_quiet
+            && self.core.pending_type_init_count.load(Ordering::Relaxed) == 0
+            && self.core.running_static_inits.load(Ordering::Acquire) == 0
     }
 
     /// defer-class-initialization: 排空「待初始化类」与「待跑 `__static_init__`」两个队列。
@@ -176,7 +202,12 @@ impl VmContext {
         loop {
             // ① 待初始化的所属类（静态字段引用触发点 T3）：解析类型会触发所属包加载，
             //    进而把该包的 `__static_init__` 压进 pending_static_inits。
-            let types: Vec<String> = std::mem::take(&mut *self.core.pending_type_inits.lock());
+            let types: Vec<String> = {
+                let mut q = self.core.pending_type_inits.lock();
+                self.core.pending_type_init_count
+                    .store(0, std::sync::atomic::Ordering::Relaxed);
+                std::mem::take(&mut *q)
+            };
             for class_fq in &types {
                 let _ = self.try_lookup_type(class_fq);
             }
@@ -214,6 +245,10 @@ impl VmContext {
         // 上限兜底：初始化器都是纯表构造（实测 31 个合计 78 µs），正常等待是微秒级。
         // 真等到这个上限说明持有线程已经死了，继续空转没有意义——放行并留下告警。
         for spin in 0..2_000_000u64 {
+            // Lock-free pre-check: no `Running` entry anywhere → nothing to wait for.
+            if self.core.running_static_inits.load(std::sync::atomic::Ordering::Acquire) == 0 {
+                return;
+            }
             let busy = {
                 let state = self.core.lazy_loader.lock();
                 match state.as_ref() {
@@ -248,6 +283,10 @@ impl VmContext {
                     Some(InitState::Running(_)) => false,                  // 他线程持有 → 等
                     None => {
                         loader.static_init_state.insert(name.to_string(), InitState::Running(me));
+                        // Bumped under the loader lock, alongside the `Running` entry
+                        // it mirrors, so `== 0` ⇒ no `Running` entry exists.
+                        self.core.running_static_inits
+                            .fetch_add(1, std::sync::atomic::Ordering::Release);
                         true
                     }
                 }
@@ -280,6 +319,8 @@ impl VmContext {
             if let Some(loader) = state.as_mut() {
                 loader.static_init_state.insert(name.to_string(), InitState::Done);
             }
+            self.core.running_static_inits
+                .fetch_sub(1, std::sync::atomic::Ordering::Release);
         }
         if let Some(msg) = outcome {
             tracing::error!("{msg}");
@@ -304,6 +345,8 @@ impl VmContext {
         let mut q = self.core.pending_type_inits.lock();
         if !q.iter().any(|c| c == class_fq) {
             q.push(class_fq.to_string());
+            self.core.pending_type_init_count
+                .store(q.len(), std::sync::atomic::Ordering::Relaxed);
         }
     }
 

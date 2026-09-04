@@ -9,6 +9,14 @@ impl LazyLoader {
         if let Some(f) = self.function_table.get(func_name) {
             return Some(Arc::clone(f));
         }
+        // cache-failed-name-resolution: a name that already lost the full walk
+        // under this registry state loses it again — answer from the set instead
+        // of re-scanning every declared-but-unloaded zpkg. Dominant case: the
+        // synthesized `<Class>..ctor$0` of a **ctor-less class**, looked up once
+        // per `new` by both interp and JIT.
+        if self.is_known_unresolved_function(func_name) {
+            return None;
+        }
         // Strategy C: precise routing by namespace prefix
         if let Some(ns) = namespace_prefix(func_name) {
             for zpkg_file in self.candidates_for_namespace(&ns) {
@@ -27,7 +35,7 @@ impl LazyLoader {
         // `force_load_all_declared()` 掩盖（它在任何用户代码前就把闭包铺满了）。
         loop {
             let remaining = self.remaining_declared();
-            if remaining.is_empty() { return None; }
+            if remaining.is_empty() { break; }
             let mut progressed = false;
             for zpkg_file in remaining {
                 if self.load_zpkg_file(&zpkg_file).is_ok() { progressed = true; }
@@ -37,8 +45,10 @@ impl LazyLoader {
             }
             // 无进展就停：加载失败的包会一直留在 `remaining_declared()` 里
             // （只有成功才标记 loaded），不设这个闸门会原地死循环。
-            if !progressed { return None; }
+            if !progressed { break; }
         }
+        self.note_unresolved_function(func_name);
+        None
     }
 
     /// defer-class-initialization: 只读探测——该类是否已注册（不触发任何加载）。
@@ -50,7 +60,16 @@ impl LazyLoader {
     /// L3-G4d: also triggers the zpkg load for the owning namespace so the
     /// first `new Stack<int>()` on an imported generic class resolves.
     pub fn resolve_type(&mut self, class_name: &str) -> Option<Arc<TypeDesc>> {
-        let td = self.resolve_type_raw(class_name)?;
+        // cache-failed-name-resolution: see `resolve_function`. Misses here are
+        // just as hot — `obj_new` probes the class name on every allocation of a
+        // type that lives outside the merged module's registry.
+        if self.is_known_unresolved_type(class_name) {
+            return None;
+        }
+        let Some(td) = self.resolve_type_raw(class_name) else {
+            self.note_unresolved_type(class_name);
+            return None;
+        };
         // 快路径：基类链已完整 ⇒ `load_zpkg_file` 末尾的 fixup 已经收敛过，直接返回。
         // （不能无条件跑 fixup —— 那是 O(registry) 的扫描，会压在每次跨包类型查找上。）
         if self.base_chain_complete(class_name) {

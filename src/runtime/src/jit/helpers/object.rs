@@ -23,10 +23,11 @@ pub unsafe extern "C" fn jit_obj_new(
     // module lifetime. Non-generic ObjNew passes count = 0.
     type_args_ptr: *const String, type_args_count: usize,
 ) -> u8 {
+    // cache-failed-name-resolution: borrow, don't `to_string()` — 2 allocs per `new`.
     let class_name = std::str::from_utf8(std::slice::from_raw_parts(cls_name_ptr, cls_name_len))
-        .unwrap_or("<invalid>").to_string();
+        .unwrap_or("<invalid>");
     let ctor_name = std::str::from_utf8(std::slice::from_raw_parts(ctor_name_ptr, ctor_name_len))
-        .unwrap_or("<invalid>").to_string();
+        .unwrap_or("<invalid>");
     let ctx_ref   = &*ctx;
     let module    = &*ctx_ref.module;
     let frame_ref = &mut *frame;
@@ -42,10 +43,10 @@ pub unsafe extern "C" fn jit_obj_new(
     // interp's `exec_object::obj_new`. Without this, `new SubcommandRouter()` gets
     // a zero-field TypeDesc → zero slots → every field read returns Null (observed:
     // `this._count` reads Null → `I64(0) vs Null` in SubcommandRouter.Add).
-    let type_desc = module.type_lookup(&class_name).cloned()
-        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(&class_name))
+    let type_desc = module.type_lookup(class_name).cloned()
+        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(class_name))
         .unwrap_or_else(|| std::sync::Arc::new(crate::metadata::TypeDesc {
-            name: class_name.clone(), base_name: None,
+            name: class_name.to_string(), base_name: None,
             class_flags: 0,
             visibility: 0,
             fields: Vec::new(), field_index: crate::metadata::NameIndex::new(),
@@ -79,7 +80,7 @@ pub unsafe extern "C" fn jit_obj_new(
     // old code silently skipped the ctor for None, leaving fields uninitialized
     // (observed: `is_pattern_binding` field 5→0). A type with no ctor resolves to
     // nothing → both paths skip and the already-default-initialised object is used.
-    if let Some(entry) = ctx_ref.resolve_fn_by_name_tiered(ctor_name.as_str()) {
+    if let Some(entry) = ctx_ref.resolve_fn_by_name_tiered(ctor_name) {
         let mut callee = JitFrame::new(entry.max_reg, &ctor_args);
         let jit_fn: JitFn = std::mem::transmute(entry.ptr);
         let vm_ctx = vm_ctx_ref(ctx);
@@ -92,12 +93,11 @@ pub unsafe extern "C" fn jit_obj_new(
         if r != 0 { return 1; }
     } else {
         let vm_ctx = vm_ctx_ref(ctx);
-        let module = &*ctx_ref.module;
-        let oc = if let Some(callee) = module.func_index.get(ctor_name.as_str())
+        let oc = if let Some(callee) = module.func_index.get(ctor_name)
             .and_then(|&idx| module.functions.get(idx))
         {
             Some(crate::interp::exec_function(vm_ctx, module, callee, &ctor_args))
-        } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name.as_str()) {
+        } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name) {
             Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
         } else {
             None // ctor-less type → skip (object already default-initialised)

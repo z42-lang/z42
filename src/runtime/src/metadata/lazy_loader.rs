@@ -103,6 +103,28 @@ pub struct LazyLoader {
     /// cross-package traits; only loaded packages contribute (an unloaded
     /// package's impl methods aren't callable either — consistent).
     impls:          FxHashMap<String, Vec<String>>,
+
+    /// **cache-failed-name-resolution**: names whose *full* resolve came back empty.
+    ///
+    /// Why this matters: a **ctor-less class** makes `new Foo()` look up
+    /// `Foo..ctor$0`, which does not exist — both `interp::obj_new` and
+    /// `jit_obj_new` therefore paid a full failed resolve (`format!` +
+    /// `candidates_for_namespace` scan + `remaining_declared` scan + sort)
+    /// **on every single allocation**, and `jit_obj_new` paid it twice.
+    ///
+    /// Lazily allocated (`None` until the first recorded miss) so a program that
+    /// never misses pays nothing — same rule as per-`VmContext` caches.
+    negative: Option<Box<NegativeResolveCache>>,
+}
+
+/// cache-failed-name-resolution: the negative resolve cache, held behind a `Box`
+/// so `LazyLoader` itself stays the size it was. Valid only while
+/// `LazyLoader::registry_fingerprint` is unchanged.
+#[derive(Default)]
+struct NegativeResolveCache {
+    functions:   FxHashSet<String>,
+    types:       FxHashSet<String>,
+    fingerprint: (usize, usize, usize, usize),
 }
 
 impl LazyLoader {
@@ -178,6 +200,7 @@ impl LazyLoader {
             function_table: FxHashMap::default(),
             type_registry:  FxHashMap::default(),
             impls:          FxHashMap::default(),
+            negative: None,
         }
     }
 
@@ -191,6 +214,60 @@ impl LazyLoader {
         }
     }
 
+    /// cache-failed-name-resolution: cheap staleness key for the negative cache.
+    /// `loaded_zpkgs` / `declared_zpkgs` / `function_table` / `type_registry` are
+    /// **append-only** (grep: no `remove` / `clear` / `retain` on any of them), so
+    /// an unchanged length tuple proves no name that previously failed to resolve
+    /// could have become resolvable.
+    #[inline]
+    fn registry_fingerprint(&self) -> (usize, usize, usize, usize) {
+        (self.loaded_zpkgs.len(), self.declared_zpkgs.len(),
+         self.function_table.len(), self.type_registry.len())
+    }
+
+    /// The live negative cache, or `None` when nothing has ever been recorded
+    /// (so a program that never misses pays no allocation and no scan).
+    #[inline]
+    fn negative_cache(&mut self) -> Option<&mut NegativeResolveCache> {
+        let fp = self.registry_fingerprint();
+        let neg = self.negative.as_mut()?;
+        if neg.fingerprint != fp {
+            neg.functions.clear();
+            neg.types.clear();
+            neg.fingerprint = fp;
+        }
+        Some(neg)
+    }
+
+    /// cache-failed-name-resolution: `true` when `name` is a known-unresolvable
+    /// function under the *current* registry state.
+    #[inline]
+    fn is_known_unresolved_function(&mut self, name: &str) -> bool {
+        self.negative_cache().is_some_and(|n| n.functions.contains(name))
+    }
+
+    /// cache-failed-name-resolution: same, for types.
+    #[inline]
+    fn is_known_unresolved_type(&mut self, name: &str) -> bool {
+        self.negative_cache().is_some_and(|n| n.types.contains(name))
+    }
+
+    /// Record a failed function resolve. The fingerprint is re-read here (not
+    /// reused from the probe) because the resolve itself may have loaded zpkgs.
+    fn note_unresolved_function(&mut self, name: &str) {
+        let fp = self.registry_fingerprint();
+        let neg = self.negative.get_or_insert_with(Default::default);
+        if neg.fingerprint != fp { neg.functions.clear(); neg.types.clear(); neg.fingerprint = fp; }
+        neg.functions.insert(name.to_string());
+    }
+
+    /// Record a failed type resolve.
+    fn note_unresolved_type(&mut self, name: &str) {
+        let fp = self.registry_fingerprint();
+        let neg = self.negative.get_or_insert_with(Default::default);
+        if neg.fingerprint != fp { neg.functions.clear(); neg.types.clear(); neg.fingerprint = fp; }
+        neg.types.insert(name.to_string());
+    }
 
     // 解析路径（`resolve.rs`）与注册/加载路径（`registry.rs`）是本类型的两个 impl 块。
 }
