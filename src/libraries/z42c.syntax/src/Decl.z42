@@ -138,7 +138,13 @@ public sealed class MethodDecl : Decl {
     public int           BaseArgCount;
     public bool          IsThisInit;  // true → init 是 `: this(args)`（ctor 委托同类）；false → `: base(args)`
     public string        RegKey;      // add-type-based-overloads：注册键（Methods 映射键 = body 键 = IR 名）。
-                                       // SymbolCollector 收集时填（bare/Name$arity/Name$arity$typesig）；"" = 未填（回落旧逻辑）。
+                                       // unify-regkey-source-of-truth：**只由 SymbolCollector.RegisterMethod 写**
+                                       // （算键与写键绑死的唯一注册入口）→ 凡注册过的方法必非空。此前
+                                       // InheritanceResolver._passImpls 只 Put 不写，impl-block 方法的 RegKey 恒空。
+                                       // ⚠️ 读它请走 `OverloadResolver.MethodKeyOf(owner, md)` 而非直接取 ——
+                                       // 那里区分了「注册在哪个键下」与「该解析到哪个键」（对被擦除的
+                                       // decl-only partial 二者不同），并集中承载唯一的回落逻辑。
+                                       // 这段逻辑此前被手抄 7 份，#414 改键规则时漏同步一份即崩。
     public bool          IsPartial;   // add-partial-types：`partial` 修饰（方法碎片；声明侧 HasBody=false，实现侧 HasBody=true）。
                                        // 由 parser 从 mods 派生（post-construction，镜像 RegKey）；默认 false → 现有方法不变。
     public MethodDecl(string mods, bool isFree, bool isCtor, TypeExpr retType, string name,
