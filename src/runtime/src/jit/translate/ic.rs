@@ -62,6 +62,22 @@ pub(super) fn field_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usiz
         .unwrap_or(std::ptr::null())
 }
 
+/// **cache-ctorless-objnew**: stable raw pointer to the per-`ObjNew`-site
+/// "this class has no constructor" mark. Same lifetime guarantees as
+/// `field_ic_ptr_at` (the slot lives in `Function.resolved`, a write-once
+/// `OnceLock`, so the address is stable for the module's life). Null when the
+/// function was compiled without a resolved token table — the helper then
+/// simply always re-resolves.
+pub(super) fn ctorless_mark_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const std::sync::atomic::AtomicUsize {
+    func.resolved.get()
+        .and_then(|r| {
+            let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
+            r.ctorless_marks.get(site as usize)
+        })
+        .map(|m| m as *const _)
+        .unwrap_or(std::ptr::null())
+}
+
 /// formalize-jit-method-token Phase 2 helper: look up the resolved
 /// `StaticFieldId.0` for a `StaticGet` / `StaticSet` site at
 /// `(block_idx, instr_idx)`, or `UNRESOLVED` when `Function.resolved` is unset.

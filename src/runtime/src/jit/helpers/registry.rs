@@ -294,8 +294,9 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         array_set:     decl!("jit_array_set",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         array_len:     decl!("jit_array_len",     [ptr, ptr, i32t, i32t],                 [i8t]),
         // jit_obj_new(frame, ctx, dst, cls_ptr, cls_len, ctor_ptr, ctor_len, args_ptr, argc,
+        //             type_args_ptr, type_args_count, ctorless_mark_ptr)
         //             type_args_ptr, type_args_count) -> u8
-        obj_new:       decl!("jit_obj_new",    [ptr, ptr, i32t, ptr, i64t, ptr, i64t, ptr, i64t, ptr, i64t], [i8t]),
+        obj_new:       decl!("jit_obj_new",    [ptr, ptr, i32t, ptr, i64t, ptr, i64t, ptr, i64t, ptr, i64t, ptr], [i8t]),
         // jit_typeof(frame, ctx, dst, type_name_ptr, type_name_len, type_args_ptr, type_args_count)
         // add-reflection-generic-type-definition: type_args_ptr is `*const String`
         // into the IR `Instruction::Typeof { type_args }` storage (module lifetime).

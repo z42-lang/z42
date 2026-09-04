@@ -33,6 +33,8 @@ pub(super) fn obj_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, class_name: &str, ctor_name: &str, args: &[u32], type_args: &[String],
     type_token: Option<&std::sync::atomic::AtomicU32>,
+    // cache-ctorless-objnew: per-site mark; see `ResolvedTokens::ctorless_marks`.
+    ctorless_mark: Option<&std::sync::atomic::AtomicUsize>,
     stack_alloc: bool,
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
@@ -130,12 +132,24 @@ pub(super) fn obj_new(
         let mut ctor_args = vec![obj_val.clone()];
         ctor_args.extend(collect_args(&frame.regs, args)?);
         Some(super::exec_function(ctx, module, ctor, &ctor_args)?)
-    } else if let Some(lazy_ctor) = ctx.try_lookup_function(ctor_name) {
-        let mut ctor_args = vec![obj_val.clone()];
-        ctor_args.extend(collect_args(&frame.regs, args)?);
-        Some(super::exec_function(ctx, module, lazy_ctor.as_ref(), &ctor_args)?)
-    } else {
+    } else if crate::metadata::resolver::ctorless_hit(ctorless_mark, ctx.fn_registration_mark()) {
+        // cache-ctorless-objnew: the merged module was already probed above, and
+        // this site proved `ctor_name` resolves nowhere in the loader either, with
+        // nothing registered since — skip the lookup.
         None
+    } else {
+        let mark = ctx.fn_registration_mark();
+        match ctx.try_lookup_function(ctor_name) {
+            Some(lazy_ctor) => {
+                let mut ctor_args = vec![obj_val.clone()];
+                ctor_args.extend(collect_args(&frame.regs, args)?);
+                Some(super::exec_function(ctx, module, lazy_ctor.as_ref(), &ctor_args)?)
+            }
+            None => {
+                crate::metadata::resolver::ctorless_note(ctorless_mark, mark);
+                None
+            }
+        }
     };
 
     // fix-ctor-throw-propagation (2026-05-24): if the ctor threw a user

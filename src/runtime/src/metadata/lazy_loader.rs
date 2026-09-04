@@ -115,6 +115,7 @@ pub struct LazyLoader {
     /// Lazily allocated (`None` until the first recorded miss) so a program that
     /// never misses pays nothing — same rule as per-`VmContext` caches.
     negative: Option<Box<NegativeResolveCache>>,
+
 }
 
 /// cache-failed-name-resolution: the negative resolve cache, held behind a `Box`
@@ -212,6 +213,19 @@ impl LazyLoader {
         if self.loaded_zpkgs.insert(name.clone()) {
             self.newly_loaded.push(name);
         }
+    }
+
+    /// cache-ctorless-objnew: **the single funnel** for growing `function_table`.
+    /// Every insert bumps the global registration mark, which is what makes
+    /// "no function has been registered since" a sound guard for a cached negative
+    /// answer. Returns `false` when the name was already present (first-wins).
+    pub(crate) fn insert_function(&mut self, name: String, f: Arc<Function>) -> bool {
+        if self.function_table.contains_key(&name) {
+            return false;
+        }
+        self.function_table.insert(name, f);
+        crate::metadata::resolver::note_fn_registration();
+        true
     }
 
     /// cache-failed-name-resolution: cheap staleness key for the negative cache.

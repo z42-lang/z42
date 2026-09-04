@@ -66,6 +66,14 @@ pub struct ResolvedTokens {
     pub builtin_tokens: Vec<u32>,
     /// `ObjNew` sites: cached `TypeId` (similar lifecycle to method_tokens).
     pub type_tokens: Vec<AtomicU32>,
+    /// **cache-ctorless-objnew**: `ObjNew` sites, parallel to `type_tokens` — the
+    /// `VmContext::fn_registration_mark()` at which this site proved its class has
+    /// **no constructor** (`0` = never proved). A class without an explicit ctor
+    /// still makes the compiler emit `<Class>..ctor$N`, a name that resolves
+    /// nowhere; without this the runtime re-ran that failed resolve on **every**
+    /// allocation. Valid while the mark is unchanged: `function_table` only grows,
+    /// and an absent ctor can only appear by being inserted there.
+    pub ctorless_marks: Vec<std::sync::atomic::AtomicUsize>,
     /// `VCall` sites: monomorphic inline cache (TypeId, vtable slot, MethodId).
     pub vcall_ic: Vec<VCallIC>,
     /// `FieldGet` / `FieldSet` sites: monomorphic inline cache (TypeId, field slot).
@@ -81,6 +89,7 @@ pub struct ResolvedTokens {
 
 mod ic;
 pub use ic::{
+    ctorless_hit, ctorless_note, fn_registration_mark, note_fn_registration,
     field_ic_install, field_ic_lookup, vcall_ic_install, vcall_ic_lookup,
     FieldIC, FieldICEntry, VCallIC, VCallICEntry, IC_SLOTS,
 };
@@ -242,6 +251,9 @@ pub fn resolve_function_tokens(
             ))
             .collect();
 
+        // cache-ctorless-objnew: one slot per ObjNew site, parallel to `type_tokens`.
+        let ctorless_marks: Vec<std::sync::atomic::AtomicUsize> =
+            type_site_names.iter().map(|_| std::sync::atomic::AtomicUsize::new(0)).collect();
         let vcall_ic: Vec<VCallIC> = (0..vcall_site_count).map(|_| VCallIC::default()).collect();
         let field_ic: Vec<FieldIC> = (0..field_site_count).map(|_| FieldIC::default()).collect();
 
@@ -269,6 +281,7 @@ pub fn resolve_function_tokens(
             call_jit_ic,
             builtin_tokens,
             type_tokens,
+            ctorless_marks,
             vcall_ic,
             field_ic,
             static_field_tokens,

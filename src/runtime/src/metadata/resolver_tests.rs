@@ -159,6 +159,42 @@ fn vcall_ic_poly_four_types() {
     for t in 1..=4 { assert_eq!(vcall_ic_lookup(&ic, t), Some((t, t * 100))); }
 }
 
+// ── cache-ctorless-objnew ────────────────────────────────────────────────
+//
+// The mark is a process-global counter, so these tests pass **synthetic**
+// live values rather than reading it — otherwise a concurrently-running test
+// that loads a package would bump it mid-assertion and make them flaky.
+
+#[test]
+fn ctorless_fresh_or_absent_slot_never_hits() {
+    use std::sync::atomic::AtomicUsize;
+    let slot = AtomicUsize::new(0); // 0 = never proved
+    assert!(!ctorless_hit(Some(&slot), 0));
+    assert!(!ctorless_hit(Some(&slot), 42));
+    // Absent slot = function compiled without a resolved token table; the
+    // caller must then always re-resolve.
+    assert!(!ctorless_hit(None, 42));
+}
+
+#[test]
+fn ctorless_hits_only_at_the_mark_it_was_proved_at() {
+    use std::sync::atomic::AtomicUsize;
+    let slot = AtomicUsize::new(0);
+    ctorless_note(Some(&slot), 7);
+    assert!(ctorless_hit(Some(&slot), 7), "reusable while nothing registered");
+    // Any registration moves the mark — the cached negative must stop hitting,
+    // because a function insert is exactly how an absent ctor can appear.
+    assert!(!ctorless_hit(Some(&slot), 8));
+}
+
+#[test]
+fn note_fn_registration_strictly_advances_the_mark() {
+    // Holds even if other threads bump concurrently (monotonic counter).
+    let before = fn_registration_mark();
+    note_fn_registration();
+    assert!(fn_registration_mark() > before);
+}
+
 #[test]
 fn ic_reinstall_same_type_updates_slot_in_place() {
     let ic = FieldIC::default();

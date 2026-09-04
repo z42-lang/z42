@@ -47,7 +47,10 @@ impl LazyLoader {
             if name.ends_with(".__static_init__") {
                 self.pending_static_inits.push(name.clone());
             }
-            self.function_table.insert(name, Arc::new(fn_));
+            // cache-ctorless-objnew: the one funnel that grows `function_table`
+            // (it bumps the shared registration counter every ObjNew site's
+            // "this class has no ctor" cache is validated against).
+            self.insert_function(name, Arc::new(fn_));
         }
         // fix-cross-pkg-subclass-fields (2026-05-14): drop the by-id Vec of
         // TypeDescs BEFORE moving them into `self.type_registry` so each Arc
@@ -303,10 +306,8 @@ impl LazyLoader {
             if name.ends_with(".__static_init__") {
                 static_inits.push(name.clone());
             }
-            if self.function_table.contains_key(&name) {
-                continue; // first-wins
-            }
-            self.function_table.insert(name, Arc::new(fn_));
+            // cache-ctorless-objnew: same funnel (first-wins handled inside).
+            self.insert_function(name, Arc::new(fn_));
         }
         artifact.module.type_registry_vec.clear();
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {

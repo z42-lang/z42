@@ -23,8 +23,12 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let (ap, al) = self.regs_val(args);
                     let tap = self.builder.ins().iconst(self.ptr, type_args.as_ptr() as i64);
                     let tac = self.builder.ins().iconst(types::I64, type_args.len() as i64);
+                    // cache-ctorless-objnew: bake the per-site mark's address (stable
+                    // through `Function.resolved`, like the FieldIC pointer below).
+                    let cm = ctorless_mark_ptr_at(self.func, self.block_idx, self.instr_idx);
+                    let cmv = self.builder.ins().iconst(self.ptr, cm as i64);
                     let inst = self.builder.ins().call(self.hr_obj_new,
-                        &[self.frame_val, self.ctx_val, d, cp, cl, kp, kl, ap, al, tap, tac]);
+                        &[self.frame_val, self.ctx_val, d, cp, cl, kp, kl, ap, al, tap, tac, cmv]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::Typeof(insn) => {
