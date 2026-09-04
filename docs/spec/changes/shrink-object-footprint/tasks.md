@@ -1,6 +1,6 @@
 # Tasks: 压缩每个堆对象的实际占用（shrink-object-footprint）
 
-> 状态：🟢 实施完成，门禁待跑 | 创建：2026-09-04 | 类型：vm
+> 状态：🟢 实施+验证完成，待合并 | 创建：2026-09-04 | 类型：vm
 > proposal / design 见同目录。三项一个 PR，**每项一个 commit + 独立度量**。
 
 ## P1 终结器槽 24 → 8 字节
@@ -34,11 +34,11 @@
 
 - [x] 4.1 `cargo test --lib` 全过（含新增 `ObjStorage` / 终结器单测）
 - [x] 4.2 wasm32 检查 0 error
-- [ ] 4.3 `xtask test` ✅ GREEN（含 `arc_heap_tests/finalization.rs` 原样通过、
+- [x] 4.3 `xtask test` ✅ GREEN（含 `arc_heap_tests/finalization.rs` 原样通过、
       `concurrent_gc_mode_stress`、cross-zpkg 静态初始化）
 - [x] 4.4 内存 A/B：留住 200 万 `Node` 的 peak RSS，目标 ≥ −25%
 - [x] 4.5 CPU A/B：`09_alloc_ctorless` 不回归
-- [ ] 4.6 启动：instructions retired + 死字段对照组（布局彩票判据）
+- [x] 4.6 启动：instructions retired + 死字段对照组（布局彩票判据）
 
 ## 实测
 
@@ -67,3 +67,14 @@ P2 的 CPU 收益（1.03×）低于预期的 +5–6%：省下的那次 malloc �
 σ 有 5–11 ms，这个量级的判断必须加 runs + 对指令数。
 
 `ScriptObject` 72 → 56 → **32**；`RegionEntry<ScriptObject>` 128 → 112 → **72**。
+
+**hello 启动**：instructions retired 71.06 → 74.56 M（+4.9%），**又是布局彩票**。
+按 `benchmarking.md` 的配方证伪：本变更**再加一个死字段**是 74.58 M（不是 ~78 M）——
+效应**饱和**而非累加，是二选一的布局桶。hello peak RSS 11.34 → 11.39 MB（持平；
+启动期活对象少，本变更的收益按对象数线性放大，hello 里几乎没有对象）。
+
+## 前置 refactor（独立 commit）
+
+P1 给 `RegionEntry` 加访问器 + `Drop` 后 `gc/region.rs` 1036 → 1085，撞上棘轮
+（已越界文件禁止增长）。按已有边界拆出 `region/entry.rs`(208) 与
+`region/invariants.rs`(148)，region.rs 降到 754，基线随之从 1036 收紧到 754。
