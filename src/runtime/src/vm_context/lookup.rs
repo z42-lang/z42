@@ -190,10 +190,43 @@ impl VmContext {
                 }
             };
             if names.is_empty() && types.is_empty() {
+                self.await_init_quiescence();
                 return;
             }
             for name in names {
                 self.run_one_static_init(&name);
+            }
+        }
+    }
+
+    /// 等到**没有其它线程**正在跑 `__static_init__` 才返回。
+    ///
+    /// 光靠「队列里有没有我的活」不够：两个线程同时进 `resolve_function_tokens` 时，
+    /// 先到的把待跑队列 `mem::take` 走，后到的看到空队列就直接返回、接着去读那个
+    /// **还在初始化中**的类的静态字段 → 读到 Null（cross-zpkg golden
+    /// `static_init_concurrent` 稳定复现，interp / JIT 两种模式都会）。
+    /// 因此排空的收尾必须是「初始化静止」而不是「我的队列空了」。
+    ///
+    /// 不会互相死等：本方法只等**别人**的 `Running`，而调用它时自己名下的初始化
+    /// 都已跑完（`run_one_static_init` 返回即 `Done`），所以不存在 A 等 B、B 等 A 的环。
+    fn await_init_quiescence(&self) {
+        let me = std::thread::current().id();
+        // 上限兜底：初始化器都是纯表构造（实测 31 个合计 78 µs），正常等待是微秒级。
+        // 真等到这个上限说明持有线程已经死了，继续空转没有意义——放行并留下告警。
+        for spin in 0..2_000_000u64 {
+            let busy = {
+                let state = self.core.lazy_loader.lock();
+                match state.as_ref() {
+                    Some(loader) => loader.static_init_state.values().any(|st| {
+                        matches!(st, crate::metadata::lazy_loader::InitState::Running(t) if *t != me)
+                    }),
+                    None => false,
+                }
+            };
+            if !busy { return; }
+            std::thread::yield_now();
+            if spin == 1_999_999 {
+                tracing::warn!("static-init quiescence wait timed out; proceeding");
             }
         }
     }

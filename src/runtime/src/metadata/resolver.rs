@@ -275,6 +275,14 @@ pub fn resolve_function_tokens(
             site_index,
         };
 
+        // defer-class-initialization (T3): 排空必须在**发布 `resolved` 之前**。
+        // `resolved` 是 `OnceLock`——一旦发布，其它线程就跳过整条解析路径直奔函数体。
+        // 若在发布之后才跑初始化器，另一个线程会在初始化完成前读到 Null
+        // （cross-zpkg golden `static_init_concurrent` 抓到过：JIT 模式下两个工作线程
+        // 同时首次触达同一包，一个读到 `Table` 是 Null）。放在发布前后，
+        // 「看见 resolved 已发布」就蕴含「该函数引用的类都已初始化完毕」。
+        ctx.run_pending_static_inits();
+
         // OnceLock idempotent set — Err means already set (race or repeat call).
         let _ = func.resolved.set(resolved);
     }

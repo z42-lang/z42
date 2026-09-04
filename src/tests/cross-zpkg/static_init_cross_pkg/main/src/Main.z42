@@ -1,0 +1,13 @@
+namespace DemoSiMain;
+using Std.IO;
+using Demo.SiTarget;
+using Demo.SiExt;
+using Std;
+
+// 只读静态字段，不调用两个 dep 包的任何函数：唯一能让它们的 `__static_init__`
+// 跑起来的路径就是「静态字段引用触发所属类初始化」。
+void Main() {
+    Console.WriteLine(Table.Values.Length);   // 3
+    Console.WriteLine(Table.Count);           // 3
+    Console.WriteLine(Derived.Doubled);       // 6 —— 跨包初始化顺序
+}

@@ -1,0 +1,23 @@
+namespace DemoScMain;
+using Std.IO;
+using Std.Threading;
+using Demo.ScExt;
+using Std;
+
+// 结果槽（静态数组）——两个工作线程各写一格，主线程 Join 后按固定顺序打印。
+public class Slots {
+    public static int[] R = new int[] { 0, 0 };
+}
+
+// 两个工作线程**同时首次触达** demo.sctarget（经由 demo.scext.Probe.Read）。
+// 主线程自己不先碰它，确保「首次加载 + 初始化」落在并发窗口里。
+// 期望两边都读到 104（Total 100 + Table.Length 4）：初始化器只跑一次，
+// 且非持有线程必须等到 `InitState::Done` 才读静态字段。
+void Main() {
+    Thread t1 = Thread.Start(() => { Slots.R[0] = Probe.Read(); });
+    Thread t2 = Thread.Start(() => { Slots.R[1] = Probe.Read(); });
+    t1.Join();
+    t2.Join();
+    Console.WriteLine(Slots.R[0]);
+    Console.WriteLine(Slots.R[1]);
+}

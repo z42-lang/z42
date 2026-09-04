@@ -1,0 +1,9 @@
+[project]
+name = "demo.siapp"   # *app 排在 dist glob 首位（cross-zpkg 驱动取字母序首个 zpkg 当 exe）
+version = "0.1.0"
+kind = "exe"
+entry = "DemoSiMain.Main"
+pack = true
+[dependencies]
+"demo.sitarget" = "0.1.0"
+"demo.siext" = "0.1.0"

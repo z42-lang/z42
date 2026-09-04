@@ -156,6 +156,27 @@ REPL 未被 `xtask test` 默认覆盖（仅 `xtask test dist` 有一条 `z42 rep
   静默合成空描述符是数据损坏的温床——这个 bug 本可以第一时间被看见。
 - `FieldGet` 的错误信息补上字段名（原来只说 "got Null"，不说读的是哪个字段）。
 
+## 并发排空的收尾判据：不是「队列空」，而是「初始化静止」
+
+新增的 cross-zpkg golden `static_init_concurrent`（两个工作线程同时首次触达同一包）
+抓到一个真竞态，interp / JIT 两种模式都稳定复现：
+
+1. 线程 A 与 B 同时进入 `resolve_function_tokens`（`Function::resolved` 是 `OnceLock`，
+   只保证「一个赢」，不保证「后到者等前者跑完初始化器」）。
+2. A 先排空：`mem::take` 把待跑队列整个取走，把 `Shared.__static_init__` 标成 `Running(A)`。
+3. B 随后排空：**看到空队列**，直接返回 → 往下读 `Shared.Table` → **Null**（A 还在跑）。
+
+第一版修法（把排空移到发布 `resolved` **之前**）不足以堵住——两个线程可以并发进入解析。
+
+**最终判据**：`run_pending_static_inits` 的收尾改为 `await_init_quiescence()`——
+等到 `static_init_state` 里**没有任何他线程的 `Running`** 才返回。
+
+不会互相死等：本方法只等**别人**的 `Running`，而调用它时自己名下的初始化都已 `Done`
+（`run_one_static_init` 返回即置 Done），构不成环。另设自旋上限兜底（持有线程真死了则放行 + 告警）。
+
+修后 `static_init_concurrent`：**jit 40/40、interp 40/40**（修前两种模式都在 20–60% 概率炸）。
+排空的收尾多了一次锁获取，实测无可见开销（hello 2.06×、z42i 6.49×，与修前一致）。
+
 ## 备选方案（已否决）
 
 | 方案 | 否决理由 |

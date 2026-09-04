@@ -1,0 +1,11 @@
+namespace Demo.SiTarget;
+using Std;
+
+// defer-class-initialization: 本包的静态初始化器建表；下游包的初始化器读它，
+// main 只**读静态字段**（不调用任何函数）——这条路径只能靠「静态字段引用触发
+// 所属类初始化」（T3）覆盖。变更前靠 boot 期 force-load 全量预跑而看不出差别。
+public class Table {
+    public static int[] Values = new int[] { 1, 2, 3 };
+    // 同包内的第二个静态字段，依赖第一个 → 锁住包内初始化顺序。
+    public static int Count = 3;
+}

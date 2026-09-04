@@ -1,0 +1,8 @@
+namespace Demo.SiExt;
+using Std;
+using Demo.SiTarget;
+
+// 本包的静态初始化器**读上游包的静态字段** → 上游的初始化器必须先跑完。
+public class Derived {
+    public static int Doubled = Table.Count * 2;
+}

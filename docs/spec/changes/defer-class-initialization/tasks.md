@@ -1,6 +1,6 @@
 # Tasks: 类初始化按需触发（defer-class-initialization）
 
-> 状态：🟢 实施+验证完成，待合并 | User 过 gate：2026-09-04| 创建：2026-09-04 | 类型：vm（完整流程）
+> 状态：🟢 实施+验证完成（含并发竞态修复），待合并 | User 过 gate：2026-09-04| 创建：2026-09-04 | 类型：vm（完整流程）
 
 ## 阶段 7：实施（含实施中发现的 5 个主干潜伏 bug，见 design.md）
 
@@ -33,11 +33,14 @@
       - [x] 多轮会话：`using Std.Regex` / `Std.Text` → Regex.Compile / StringBuilder 均正确
       - [x] 多轮会话：`BigInt.LIMB_BITS`=31 / `BigInt.BASE`=2147483648（**T3 关键验证**，不是 null）
       - [x] 多轮会话：counter=42 / keep=7 在后续新包加载后保持不变
-- [ ] 6.5 循环初始化器用例（包 A ↔ 包 B 互引静态字段）—— **未做**：需新建两个互引 zpkg fixture
-- [ ] 6.6 并发用例：两线程同时首次触达同一包 —— **未做**：`InitState` 的线程判定有单元测试，
-      但缺端到端并发用例（REPL 的 `Thread.Start` 预热已经在真实触发这条路径且全绿）
+- [x] 6.5 跨包静态初始化顺序用例 `src/tests/cross-zpkg/static_init_cross_pkg`
+      （main **只读静态字段、不调 dep 任何函数** → 只有 T3 能覆盖；`Table.Count`=3 → `Derived.Doubled`=6）。
+      注：**真正的「循环」初始化器在本 harness 里表达不出来**——三包 target→ext→main 是 DAG，
+      包之间不能互相依赖，语言层面也不支持循环包依赖。同线程重入由单元测试覆盖状态机本身。
+- [x] 6.6 并发用例 `src/tests/cross-zpkg/static_init_concurrent`（两工作线程同时首次触达同一包）。
+      **抓到真竞态**（见 design.md「并发排空的收尾判据」）；修后 jit 40/40 + interp 40/40。
 - [x] 7.1 A/B 对比数据（见 design.md「实测收益」：REPL 6.41×、hello 1.97×、regex 3.19×、RSS −41~47%）
-- [ ] 7.1b 循环初始化器 / 并发首次触达的**专项用例**仍缺（`InitState` 只有单元测试覆盖状态机本身）（同机 hyperfine ≥ 50 runs + peak RSS）：hello / 用 Regex 的程序 / z42c 编译
+- [x] 7.1b 专项用例已补（6.5 / 6.6），并在 6.6 中抓到一个真竞态（同机 hyperfine ≥ 50 runs + peak RSS）：hello / 用 Regex 的程序 / z42c 编译
 - [x] 7.2 z42c 自编译产物**字节相同**（`--emit-zbc hello.z42` cmp 通过）
 
 ## 阶段 9：归档
