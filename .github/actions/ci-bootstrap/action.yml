@@ -54,8 +54,26 @@ runs:
         ROOT="$PWD"
 
         # ── 0. z42vm (Rust; cargo) ───────────────────────────────────────────────────
-        echo "── [0/5] cargo build z42vm (release) ──"
-        cargo build --locked --release --manifest-path src/runtime/Cargo.toml --bin z42vm
+        #
+        # 故意**不加** `--bin z42vm`：必须与步骤 [3/5] 里 xtask `_buildRuntime` 的
+        # `cargo build --release`（全 workspace）**是同一个 unit 集合**，否则这个 job
+        # 会把 `z42` lib 编两遍。
+        #
+        # 原因是 cargo 的 feature unification：workspace 里除 z42vm 外还有
+        # z42-compression / z42-repl 两个 cdylib，它们在 `z42` 上启用的 feature 与
+        # `--bin z42vm` 单独解析出来的不同 → 两个不同 fingerprint 的 `z42` lib 各编一次，
+        # 且两份产物在 target dir 里**并存**（所以不是来回覆盖，是实打实编两遍）。
+        #
+        # 本地实测（warm 树，release）：
+        #   full(warm) 0.12s → `--bin z42vm` **60s** → full 再跑 0.26s → --bin 再跑 0.12s
+        # 即首次跨过去要付一整轮 lib 编译。CI 上正是这个形状：
+        #   步骤 [0/5] `--bin z42vm` 76s + 步骤 [3/5] 全 workspace 75s ≈ 150s，
+        # 而实际只需要其中一份。对齐后 [3/5] 的 cargo 变成 no-op。
+        #
+        # 代价：这一步多编 z42-compression + z42-repl 两个 cdylib（实测 +7s / +0s），
+        # 但它们本来也会在 [3/5] 被编——只是挪到这里，且不再触发 lib 二次编译。
+        echo "── [0/5] cargo build z42vm + cdylibs (release; unit set 对齐 _buildRuntime) ──"
+        cargo build --locked --release --manifest-path src/runtime/Cargo.toml
         vm="$ROOT/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
 
         # ── 1. download prev nightly SDK → seed (z42c-written compiler + stdlib) ────
