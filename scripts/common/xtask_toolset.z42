@@ -1,0 +1,80 @@
+// xtask — 「跑一组 fixture 需要的工具链四件套」的单点解析（unify-toolset-resolution, 2026-09-05）。
+//
+// 此前 cross-zpkg / multi-exe 两个 harness 各自内联了**逐字相同**的一段解析：
+//
+//     tc = _toolchainDir(root)
+//     if (tc)  → libs/driver/vm 全取 toolchain（只带 release vm，compile==run）
+//     else     → libs=build-tree, driver=_assembleDriverHome,
+//                runVm=debug（保 overflow-check / debug_assert 覆盖）
+//                compileVm=release（编译快一个量级），缺 release 就回落 debug
+//     + driver 缺失 / vm 缺失 的两段报错
+//
+// 两份拷贝连错误文案都一样。复制本身有代价：`speed-up-cross-zpkg-compile-vm`
+// （编译改 release VM，把 test-host 从 ~18min 砍到 2-3min）当初就得在两处各改一遍。
+//
+// **顺带修掉一个静默缺陷**：原来 release vm 缺失时回落 debug 是**完全无声**的 ——
+// 一旦某步没建 release vm，整条链会慢 5-10× 而不报错（这正是 cross-zpkg 那个坑的
+// 形状：慢得不明不白，还得靠人去量才发现）。现在回落时明确 warn 一行。
+//
+// 未纳入（形状不同，刻意不硬凑）：
+//   - `_regenGoldenF`（xtask_test_assets.z42）：单 vm，且用的是 tc-aware 的 `_activeVm`；
+//   - `_platformAssets`（xtask_test_platform.z42）：**完全不看 toolchain**，改成看是行为变更。
+// 两者若要并入，须单独评估 + 各自的 GREEN 覆盖，别顺手改。
+//
+// Same Z42Xtask namespace as the rest of xtask, so callers use bare names.
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// 解析结果。Ok=false 时 _resolveToolset 已经打印过具体原因，调用方直接 return 1 即可。
+// 自动属性 + 隐式默认构造，沿用本仓 TargetTooling / DepBundle 的写法。
+class ToolsetZ {
+    public string DriverZpkg { get; set; }   // z42c.driver.zpkg（7 个 z42c.* 兄弟包 colocated 在同目录）
+    public string StdlibDist { get; set; }   // Z42_LIBS
+    public string CompileVm  { get; set; }   // 编 fixture 用：优先 release（比 debug 快一个量级）
+    public string RunVm      { get; set; }   // 跑 fixture 用：build-tree 下取 debug，保住断言覆盖
+    public bool   Ok         { get; set; }
+}
+
+// 解析 cross-zpkg / multi-exe 这类「z42c 编 fixture → z42vm 跑」harness 的工具链。
+// 失败时打印原因并返回 Ok=false。
+ToolsetZ _resolveToolset(string root) {
+    ToolsetZ t = new ToolsetZ();
+    t.Ok = false;
+    string tc = _toolchainDir(root);
+    string driverHome;
+    if (tc.Length > 0) {
+        t.StdlibDist = _toolchainLibs(tc);
+        driverHome   = _toolchainDriverHome(tc);   // driver + 7 siblings colocated
+        t.CompileVm  = _toolchainVm(tc);
+        t.RunVm      = t.CompileVm;                // toolchain 只带 release vm
+    } else {
+        t.StdlibDist = _libsDir(root);
+        // driverHome = 含 z42c.driver.zpkg + 7 个 z42c.* 兄弟的目录（z42vm 从 entry
+        // zpkg 所在目录解析其依赖；fixture 自身的 deps + stdlib 走 Z42_LIBS）。
+        driverHome  = _assembleDriverHome(root);
+        t.RunVm     = _builtVm(root, "debug");
+        t.CompileVm = _builtVm(root, "release");
+        if (!File.Exists(t.CompileVm)) {
+            // 无声回落会让整条链慢 5-10× 且看不出原因——必须说出来。
+            _vNormal("  ⚠ release z42vm 不存在，编译回落到 debug vm（会慢 5-10×）："
+                     + t.CompileVm);
+            _vNormal("    建议先跑：cargo build --release --manifest-path src/runtime/Cargo.toml");
+            t.CompileVm = t.RunVm;
+        }
+    }
+    if (driverHome.Length == 0) {
+        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
+        ConsoleError.WriteLine("       Build it via: ./xtask test compiler  (or build stdlib)");
+        return t;
+    }
+    t.DriverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
+    if (!File.Exists(t.CompileVm) || !File.Exists(t.RunVm)) {
+        ConsoleError.WriteLine("error: z42vm not found (compile=" + t.CompileVm + " run=" + t.RunVm + ")");
+        ConsoleError.WriteLine("       Build it via: cargo build --manifest-path src/runtime/Cargo.toml");
+        return t;
+    }
+    t.Ok = true;
+    return t;
+}
