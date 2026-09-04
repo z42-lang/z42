@@ -56,7 +56,6 @@ jobs:
       compiler: ${{ steps.filter.outputs.compiler }}
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
-      tests: ${{ steps.filter.outputs.tests }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -79,9 +78,19 @@ jobs:
             # (verify-selfhost) + compiler-checks (self-host fixpoint + vscode).
             # Only a z42c change can make the prev nightly's z42c unable to compile
             # current source, or change the self-host fixpoint / vscode grammar.
+            #
+            # z42c 的 member 分布在两处，两处都必须匹配：
+            #   src/compiler/       → z42c.driver / z42c.pipeline / z42c.semantics
+            #   src/libraries/z42c.* → z42c.core / z42c.syntax（词法+语法前端，route A 后迁出）
+            # 只写 src/compiler/** 会漏掉整个前端：改 Lexer 加关键字 → compiler=false
+            # → compiler-checks 被跳过 → 专为此存在的 `xtask test vscode-syntax`
+            # （"Lexer 加关键字未重新生成即红"）恰好在唯一需要它的场景下不跑，
+            # verify-selfhost 同理被跳过。
             # ci.yml fallback = 保底全跑.
             compiler:
               - 'src/compiler/**'
+              - 'src/libraries/z42c.core/**'
+              - 'src/libraries/z42c.syntax/**'
               - '.github/workflows/ci.yml'
             # change-detect rule (c): gates the Rust VM unit harness (cargo test)
             # + JIT consistency. Only a src/runtime change can affect it.
@@ -94,13 +103,10 @@ jobs:
             stdlib:
               - 'src/libraries/**'
               - '.github/workflows/ci.yml'
-            # change-detect rule (e): gates e2e golden suites. Test case changes
-            # affect golden expected output; xtask/script changes can affect the
-            # harness itself.
-            tests:
-              - 'src/tests/**'
-              - 'scripts/**'
-              - '.github/workflows/ci.yml'
+            # NOTE: 曾有一个 `tests:` filter（src/tests + scripts），但它的 output
+            # 从未被任何 job 的 `if:` 引用 —— 注释描述的门控从来没实现过。留着只会让
+            # 人以为 e2e golden 有内容级门控。2026-09-04 删除；真要门控 e2e 时重新加，
+            # 并在同一提交里接上消费方。
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
@@ -288,8 +294,10 @@ jobs:
       # Windows doesn't run `test all` (goldens run on linux/macos), so it first needs
       # `build test` to populate artifacts/build/tests so zbc_compat sees ≥50 goldens.
       # non-Windows already regen'd them in `test all` above.
+      # schedule/dispatch 逃生口同 verify-selfhost：paths-filter 在这两个事件下恒 false，
+      # 否则 nightly 全量 sweep 上 windows 腿几乎什么都不做。
       - name: Build golden test assets (Windows — zbc_compat inputs)
-        if: matrix.os == 'windows-latest' && needs.changes.outputs.vm == 'true'
+        if: matrix.os == 'windows-latest' && (needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         shell: bash
         run: |
           set -euo pipefail
@@ -303,7 +311,7 @@ jobs:
       # cargo test builds debug binaries — never relinks the running release z42vm, so
       # no Windows file-lock. Gated on the vm change filter (rule c).
       - name: Rust VM unit tests (xtask test runtime)
-        if: needs.changes.outputs.vm == 'true'
+        if: needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
@@ -899,8 +907,15 @@ jobs:
     # nightly lacks without a same-window compiler change). Skip otherwise. Safe
     # to gate: no job has verify-selfhost in its `needs:` (deliberately excluded
     # from publish-nightly for deadlock-avoidance).
+    #
+    # schedule / workflow_dispatch 必须无条件跑：paths-filter 在这两个事件下没有
+    # before-sha 可比，filter 基本恒 false —— 没有这个逃生口，每日 nightly 全量
+    # sweep 里 verify-selfhost 从不运行，而 nightly 的存在意义恰恰是覆盖 per-push
+    # filter 跳过的提交（见文件头 schedule 注释）。其余 changes-gated job
+    # (vm-jit / stdlib-jit / stdlib-interp / compiler-checks / feature-matrix)
+    # 早就都带这个逃生口，只有这里漏了。
     needs: changes
-    if: ${{ needs.changes.outputs.compiler == 'true' }}
+    if: ${{ needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
