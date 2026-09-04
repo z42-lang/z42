@@ -281,6 +281,16 @@ void _procEnd(string name, Stopwatch sw) {
     }
 }
 
+// 人类可读时长："45.2s" / "3m07s"。CI 日志里一眼可读，不用心算毫秒。
+string _fmtDur(long ms) {
+    long totalSec = ms / 1000;
+    if (totalSec < 60) {
+        return totalSec.ToString() + "." + ((ms % 1000) / 100).ToString() + "s";
+    }
+    long s = totalSec % 60;
+    return (totalSec / 60).ToString() + "m" + (s < 10 ? "0" : "") + s.ToString() + "s";
+}
+
 // ── cold-start seed resolution (shared: build compiler / build stdlib + CI) ───
 //
 // A cold tree has no in-tree z42c/stdlib seed. Instead of erroring, resolve one

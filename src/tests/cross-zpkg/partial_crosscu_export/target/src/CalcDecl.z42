@@ -1,0 +1,15 @@
+namespace Demo.PCalc;
+
+// unify-regkey-phase2 前置：**跨-CU partial 的 TSIG 导出面**（此前零覆盖——
+// src/tests/partial-types/ 全是单文件用例）。
+//
+// 声明碎片在本 CU，实现碎片在 CalcImpl.z42 —— 二者属**不同编译单元**，而 TSIG 是
+// **按 CU（module）**导出的（ExportedTypeExtractor 的 classMap 是 per-CU last-wins）。
+// 导出本 CU 的 Calc 时会走到下面这份 decl-only 的 MethodDecl：它自己**不注册符号**
+// （MemberCollector 的擦除分支），键必须解析到**实现碎片注册的那个**，否则该方法在这个
+// module 的导出面里缺失 → 跨包调用方拿不到它。
+public partial class Calc {
+    public partial int Double(int n);                                  // 声明侧（无 body → 本碎片擦除）
+    public int Quad(int n) { return this.Double(this.Double(n)); }     // 同 CU 内经配对实现调用
+    public static partial int Triple(int n);                           // static partial 声明侧（静态键走全签名 mangle，与实例的 primary/非-primary 规则不同）
+}

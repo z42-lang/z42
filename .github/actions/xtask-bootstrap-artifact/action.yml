@@ -5,11 +5,46 @@ description: >
   `cargo build` for z42vm + native cdylibs. After this, drive work via
   `z42vm artifacts/xtask/xtask.zpkg -- <cmd>` exactly like the source/download
   bootstraps. Replaces xtask-bootstrap-source on the package / platform-test jobs.
-  The consuming job MUST `needs: toolchain-bootstrap`.
+  The consuming job MUST `needs: toolchain-bootstrap` and `actions/checkout` first
+  (checkout cannot live in here — this action's own file has to exist on disk to
+  be resolvable).
   Linux + macOS host runners (the toolchain artifact is per host OS).
+inputs:
+  cache-key:
+    description: >
+      Swatinem rust-cache `shared-key`. Default `artifact-host-v1` = the shared
+      full-workspace (incl. cdylib) cache for every job whose cargo invocation is
+      byte-identical to the one below. Override ONLY when the job builds strictly
+      MORE than this action does — e.g. host-package's package step additionally
+      builds cdylib/staticlib/apphost, so it owns `package-host-v2`.
+
+      Do NOT point this at `host-v2`: that key is saved by the ci-bootstrap action,
+      which only does `cargo build --bin z42vm` (bin/rlib). Sharing it means the
+      cdylibs built here never land in the cache and get recompiled cold every run
+      — the exact bug that sat in 7 jobs until 2026-09-04. Keeping the cache config
+      inside this action (instead of copy-pasted per job) is what stops it recurring.
+    required: false
+    default: artifact-host-v1
+  rust-targets:
+    description: >
+      Extra rustup targets, comma-separated (e.g. `wasm32-unknown-unknown`), for
+      jobs that cross-compile after bootstrapping. Empty = host only.
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ inputs.rust-targets }}
+
+    - name: Cache Rust deps (Swatinem)
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: src/runtime -> ../../artifacts/build/runtime
+        shared-key: ${{ inputs.cache-key }}
+
     # z42vm + native cdylibs (libz42, libz42_compression, …) — host-matched, fresh.
     # cargo's target-dir is artifacts/build/runtime, so this lands z42vm at the
     # standard artifacts/build/runtime/release/z42vm the zpkg artifact expects.

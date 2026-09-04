@@ -188,12 +188,9 @@ public static class ClassExtractor {
                     if (amem is MethodDecl) {
                         MethodDecl amd = amem as MethodDecl;
                         if (!ExportedTypeExtractor._hasWord(amd.Mods, "static")) {     // 实例方法（含 ctor，G11）
-                            // stabilize-instance-dispatch-keys：优先注册键 md.RegKey（SoT）。primary=裸 / 非-primary=
-                            // 全签名 `Name$arity$types`（≠老 `Name$arity`）→ 必须用 RegKey 查，否则 `Name$arity` miss→
-                            // bare 兜底取到 primary（错 arity）ms → _fromSymbol 里 ParamTypes[i] 越界崩。镜像静态路径 :326。
-                            string amkey = amd.Name + "$" + amd.ParamCount.ToString();
-                            if (amd.RegKey != "") { amkey = amd.RegKey; }
-                            else if (!chain[mci].Methods.ContainsKey(amkey)) { amkey = amd.Name; }
+                            // unify-regkey-source-of-truth：键解析收敛到 OverloadResolver.MethodKeyOf。
+                            // 此处曾是 #414 漏同步的那份抄本（拿错 symbol → _fromSymbol 里 ParamTypes[i] 越界崩）。
+                            string amkey = OverloadResolver.MethodKeyOf(amd);
                             MethodSymbol ams = chain[mci].Methods.Get(amkey) as MethodSymbol;
                             if (ams != null) {
                                 ExportedMethodZ em = ClassExtractor._fromSymbol(amd, ams, false, amkey);
@@ -325,9 +322,7 @@ public static class ClassExtractor {
             if (smem is MethodDecl) {
                 MethodDecl smd = smem as MethodDecl;
                 if (ExportedTypeExtractor._hasWord(smd.Mods, "static")) {
-                    string smkey = smd.Name + "$" + smd.ParamCount.ToString();
-                    if (smd.RegKey != "") { smkey = smd.RegKey; }                       // type-based 重载：注册键
-                    else if (!ct.Methods.ContainsKey(smkey)) { smkey = smd.Name; }
+                    string smkey = OverloadResolver.MethodKeyOf(smd);
                     MethodSymbol sms = ct.Methods.Get(smkey) as MethodSymbol;
                     if (sms != null && ClassExtractor._indexOf(seenStatic, seenStaticCount, smkey) < 0) {
                         if (seenStaticCount == seenStatic.Length) {

@@ -1,0 +1,8 @@
+namespace Demo.PCalc;
+
+// 同一 partial 类的实现碎片，与 CalcDecl.z42 分处不同 CU：这里才是两个 partial
+// 方法真正注册符号 / 发射函数体的地方。
+public partial class Calc {
+    public partial int Double(int n) { return n * 2; }
+    public static partial int Triple(int n) { return n * 3; }
+}
