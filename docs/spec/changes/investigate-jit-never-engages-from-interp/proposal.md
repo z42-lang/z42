@@ -94,6 +94,46 @@ tier-up 的那类工作,是不合格的探针。）
 - **方向 4：不做**。接受「自举编译器全解释」，把 CPU 预算花在解释器本身
   （`exec_function_body` 自占 36.6%）。
 
+## 已实测证伪的修复形态：「先 peek 再计数 + 时间预算」
+
+方向 1+3 的组合（廉价计数器守门、越线才做完整 resolve、外加进程寿命预算）**已实现并实测，
+不成立**。记录形态与原因，避免重走：
+
+```rust
+// 试过的形状（jit/frame.rs::resolve_fn_by_name_interp_tiered）
+if let Some(e) = self.resolve_fn_by_name_peek(name) { return Some(e); }  // 1. 快路径
+let id = self.resolve_id_by_name(name)?;                                  // 2. 拿 id
+let n  = self.bump_interp_count(id)?;                                     // 3. 计数
+if n < th || n % th != 0 || !budget_reached() { return None; }             // 4. 门
+self.resolve_fn_by_id(id as usize)                                        // 5. 越线才编
+```
+
+| | 编译 semantics |
+|---|---:|
+| base（peek-only） | 12.979 s |
+| 朴素版（peek→tiered，一个词） | **11.921 s** |
+| 本形态 th=2 / budget=400 ms | 12.941 s（**无收益**） |
+| 本形态 th=8 / budget=400 ms | 13.458 s |
+| 本形态 th=2 / budget=2000 ms | 13.403 s |
+
+**为什么不成立**：`peek` 与 `resolve_id_by_name` **查的是同一张表**（合并模块的
+`func_index`，未命中再进 `lazy_table` 的锁）。先 peek 再 resolve 等于**把同一次查找做了两遍**，
+而且是在「尚未编译」这条最频繁的路径上。对永远不会越线的函数，每次调用都白付两遍——
+朴素版只查一遍，所以反而更快。**「保持 peek 的常态成本」与「在未命中时计数」不能拆成两步做。**
+
+### 中途还踩到的一个实现错误（同样值得记）
+
+第一版只处理合并模块里的函数（`module.func_index.get(name)` 未命中就 return），
+而 z42c build 里**编译器自己的包（z42c.semantics / .syntax / .core）全是懒加载的**，
+根本不在合并模块——把真正要紧的那批全跳过了，于是"调参无效"看着像阈值问题，实则是漏了半边。
+**改这条路时先确认 merged / lazy 两个 id 空间都覆盖到。**
+
+### 下一次该从哪切
+
+计数必须**搭在 peek 已经做的那次查找上**，而不是另起一次：给 peek 加一条能同时返回
+「未编译 + 该函数的 counter 位置」的路径（合并路径是 `call_counts[idx]`，懒路径是
+`LazySlot::count`，两者都已存在），再叠时间预算。这样常态路径的成本才真正等于今天的 peek。
+
 ## Scope
 
 本次调查**未改动任何生产代码**（插桩与两个天花板实验都已 revert）。
