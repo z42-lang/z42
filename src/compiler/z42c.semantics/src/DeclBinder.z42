@@ -185,7 +185,7 @@ public sealed class DeclBinder {
             if (im.Methods[j] is MethodDecl) {
                 MethodDecl md = im.Methods[j] as MethodDecl;
                 if (md.HasBody) {
-                    string mkey = OverloadResolver.MethodKeyOf(ct, md);
+                    string mkey = OverloadResolver.MethodKeyOf(md);
                     MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
                     int mtpc = md.TypeParams.Count;
                     string[] allParams = this._mergeParams(new string[0], 0, md.TypeParams.Names, mtpc);
@@ -230,7 +230,7 @@ public sealed class DeclBinder {
             } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
                 if (md.HasBody) {                       // G11：ctor（IsCtor）也绑体——ms 已收集（名=类名，ret void），this+字段入 scope
-                    string mkey = OverloadResolver.MethodKeyOf(ct, md);
+                    string mkey = OverloadResolver.MethodKeyOf(md);
                     MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
                     // 活跃类型形参 = 类的 + 方法自身的（2A-2）。
                     int mtpc = md.TypeParams.Count;
@@ -327,7 +327,7 @@ public sealed class DeclBinder {
                 }
             } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
-                string mkey = OverloadResolver.MethodKeyOf(ct, md);
+                string mkey = OverloadResolver.MethodKeyOf(md);
                 MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
                 if (ms != null) {
                     string mvis = AccessChecker.MinVisibility(ms.Visibility, ct.Visibility);   // 有效可访问性封顶

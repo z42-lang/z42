@@ -190,7 +190,7 @@ public static class ClassExtractor {
                         if (!ExportedTypeExtractor._hasWord(amd.Mods, "static")) {     // 实例方法（含 ctor，G11）
                             // unify-regkey-source-of-truth：键解析收敛到 OverloadResolver.MethodKeyOf。
                             // 此处曾是 #414 漏同步的那份抄本（拿错 symbol → _fromSymbol 里 ParamTypes[i] 越界崩）。
-                            string amkey = OverloadResolver.MethodKeyOf(chain[mci], amd);
+                            string amkey = OverloadResolver.MethodKeyOf(amd);
                             MethodSymbol ams = chain[mci].Methods.Get(amkey) as MethodSymbol;
                             if (ams != null) {
                                 ExportedMethodZ em = ClassExtractor._fromSymbol(amd, ams, false, amkey);
@@ -322,7 +322,7 @@ public static class ClassExtractor {
             if (smem is MethodDecl) {
                 MethodDecl smd = smem as MethodDecl;
                 if (ExportedTypeExtractor._hasWord(smd.Mods, "static")) {
-                    string smkey = OverloadResolver.MethodKeyOf(ct, smd);
+                    string smkey = OverloadResolver.MethodKeyOf(smd);
                     MethodSymbol sms = ct.Methods.Get(smkey) as MethodSymbol;
                     if (sms != null && ClassExtractor._indexOf(seenStatic, seenStaticCount, smkey) < 0) {
                         if (seenStaticCount == seenStatic.Length) {

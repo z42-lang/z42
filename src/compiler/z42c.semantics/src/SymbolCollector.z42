@@ -230,7 +230,8 @@ public sealed class SymbolCollector {
     // RegKey 因此恒为空串，逼得全部消费点都得挂「退回裸名」的兜底。走本入口后，
     // 「注册了却没填 RegKey」在结构上不可能发生。
     //
-    // 读侧的对应物是 `OverloadResolver.MethodKeyOf`（解析键的唯一实现）。
+    // 读侧的对应物是 `OverloadResolver.MethodKeyOf`（解析键的唯一实现）。unify-regkey-phase2 起
+    // 它**不再回落**、空 RegKey 直接抛 —— 即：任何新的方法注册路径都必须走本入口，否则编译期炸。
     //
     // 注：调用方各自决定 `key` —— `MemberCollector._fillClass` 用 primary/非-primary 规则算，
     // `InheritanceResolver._passImpls` 恒用裸名（**impl 方法不参与 primary/非-primary**，

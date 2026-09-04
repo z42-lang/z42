@@ -1,0 +1,10 @@
+[project]
+name    = "demo.pcalcapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.PCalcApp.Main"
+pack    = true
+
+[dependencies]
+"demo.pcalc"    = "0.1.0"
+"demo.pcalcext" = "0.1.0"

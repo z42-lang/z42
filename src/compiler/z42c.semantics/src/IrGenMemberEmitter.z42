@@ -15,7 +15,7 @@ public sealed class IrGenMemberEmitter {
     // 方法：GS3 重载键 Name$arity / unique 裸名；HasBody → 编译体；extern → builtin 桩；实例 abstract → signature-only 桩。
     public void EmitMethod(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, MethodDecl md) {
         IrGen g = this._g; SemanticModel model = this._model;
-        string methKey = OverloadResolver.MethodKeyOf(owner, md);   // unify-regkey-source-of-truth
+        string methKey = OverloadResolver.MethodKeyOf(md);   // unify-regkey-source-of-truth
         string irName = g._q(g._classIrShortName(c)) + "." + methKey;   // IR/包内名（FQ，arity-mangle 时 Name$N）
         if (md.HasBody) {              // G11：ctor 也发 `<qualClass>.<Class>` 函数（md.Name=类名，ret void，实例）
             string key = ownerKey + "." + methKey;    // SemanticModel 键（arity-mangle 时 ownerKey=Name$N）
