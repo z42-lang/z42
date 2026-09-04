@@ -119,9 +119,7 @@ public sealed class IrGenTypeEmitter {
                 if (im.Methods[ij] is MethodDecl) {
                     MethodDecl imd = im.Methods[ij] as MethodDecl;
                     if (imd.HasBody) {
-                        string imk = imd.Name + "$" + imd.ParamCount.ToString();
-                        if (imd.RegKey != "") { imk = imd.RegKey; }                       // stabilize-instance-dispatch-keys：注册键 SoT（非-primary=全签名）
-                        else if (iowner == null || !iowner.Methods.ContainsKey(imk)) { imk = imd.Name; }
+                        string imk = OverloadResolver.MethodKeyOf(iowner, imd);   // unify-regkey-source-of-truth：与 DeclBinder._bindImpl 成对，必须同键
                         string ikey = itn + "." + imk;
                         if (model.HasBody(ikey)) {
                             bool ist = IrGenFacts._hasWord(imd.Mods, "static");

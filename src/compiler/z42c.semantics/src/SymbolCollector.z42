@@ -222,6 +222,25 @@ public sealed class SymbolCollector {
     // add-user-conversions：转换运算符方法名（op_Implicit / op_Explicit）。
     public static bool _isConvOp(string name) { return name == "op_Implicit" || name == "op_Explicit"; }
 
+    // ── 方法注册（唯一入口）─────────────────────────────────────────────────
+    // unify-regkey-source-of-truth：**把「算键」与「写键」绑成一个不可分割的动作。**
+    //
+    // 此前注册散在两处、各写各的，于是 `InheritanceResolver._passImpls` 只做了
+    // `target.Methods.Put(md.Name, sym)` 而**忘了写 md.RegKey** —— impl-block 方法的
+    // RegKey 因此恒为空串，逼得全部消费点都得挂「退回裸名」的兜底。走本入口后，
+    // 「注册了却没填 RegKey」在结构上不可能发生。
+    //
+    // 读侧的对应物是 `OverloadResolver.MethodKeyOf`（解析键的唯一实现）。
+    //
+    // 注：调用方各自决定 `key` —— `MemberCollector._fillClass` 用 primary/非-primary 规则算，
+    // `InheritanceResolver._passImpls` 恒用裸名（**impl 方法不参与 primary/非-primary**，
+    // 把它并入会 rekey 既有键 + 需格式 bump，是独立的语义扩展，本变更明确不做）。
+    public static void RegisterMethod(Z42ClassType ct, MethodDecl md, MethodSymbol sym, string key) {
+        sym.RegKey = key;
+        md.RegKey  = key;
+        ct.Methods.Put(key, sym);
+    }
+
     // tp/tpc = 类的活跃类型形参；与方法自身型参（md.TypeParams，2A-2）合并后解析签名。
     internal MethodSymbol _methodSymbol(SymbolTable table, MethodDecl md, string containing, string[] tp, int tpc) {
         int mtpc = md.TypeParams.Count;
