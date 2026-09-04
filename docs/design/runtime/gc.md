@@ -158,6 +158,44 @@ RAII guard：
 错优先 fallback STW 看是否复现，把 bug 定位到 concurrent 路径还是更
 底层（trait / barrier / safepoint）。
 
+### 自动回收的运行时旋钮 (add-gc-runtime-knobs, 2026-09-05)
+
+⚠️ **默认不回收。** `maybe_auto_collect` 在 `max_bytes` 为 `None` 时**立即返回**，
+而在本次改动之前**没有任何途径能设置 `max_bytes`**（没有 CLI flag、没有环境变量，
+只有嵌入侧的 `set_max_heap_bytes` API）。后果：默认配置下的 z42 进程**从不自动 GC**，
+只增长不回收；`Z42_GC_NEAR_LIMIT_RATIO` / `Z42_GC_PRESSURE_RATIO` /
+`Z42_GC_THROTTLE_RATIO` 这三个旋钮都是 `max_bytes` 的比例，因此也全都是死的。
+
+实测（z42c 编译 `z42c.semantics`，28k 行）：**4224 万次分配、0 次回收、峰值 RSS 2.96 GB**。
+
+| 旋钮 | 作用 | 默认 |
+|---|---|---|
+| `Z42_GC_MAX_BYTES` | **软预算，用来「武装」自动回收**。接受字节数或 `K/KB/M/MB/G/GB` 后缀（`512MB` / `2G`）；`0`/`unlimited`/`none` = 不设 | 未设 ⇒ **完全不自动回收**（保持历史行为） |
+| `Z42_GC_TRACE` | 每次回收在 stderr 打一行（kind / used 前后 / 回收字节 / 暂停毫秒），外加 near-limit、超预算边沿 | 关（`0`/`false`/`off`/`no` 亦为关） |
+
+默认**故意保持不变**：见下面的成本数据 —— 在当前收集器吞吐下，给大堆负载设预算会
+让它显著变慢，所以这必须是显式 opt-in，而不是悄悄改默认。
+
+#### 徒劳回收的退避（futility backoff）
+
+只加预算是个陷阱。原策略的去抖条件是「自上次回收以来 used 增长 >= `throttle_ratio × 预算`」，
+**只看增长、不看成效**：当活跃集本身就超过预算时，每次回收都几乎回收不到东西、堆继续涨、
+增长门再次满足 —— 无限循环。实测 `bench/scenarios/09_alloc_ctorless`（150 万对象全部存活）
+配 64MB 预算：每涨约 6MB 就做一次全量 mark-sweep，每次回收 **0 字节**、耗时约 75ms，
+**0.29 s 的程序 9 分钟没跑完**。
+
+现在每次「无效回收」（回收量 < 一个增长门）把增长门**翻倍**（上限 64×），
+一次有效回收即复位。同一负载：**1.19 s / 4 次回收**（间隔 6.4M→12.8M→25.6M→51.2M），
+输出不变。策略与推导见 `gc/arc_heap/auto_collect.rs`。
+
+#### 已知成本（先量再用）
+
+`Z42_GC_TRACE` 量出的暂停时间随堆线性增长（alloc 基准：57.6M→61.5ms、96.0M→114.7ms、
+147.2M→173.1ms，约 1.2 ms/MB）。但**在真实编译器负载上远不止线性**：给 z42c 设 1GB 预算，
+单次 mark-sweep **跑了 210 秒仍未结束**（同样按 1.2ms/MB 外推只该约 1.1 秒）。
+⇒ 大对象数堆上的收集器吞吐是独立的待调查项；在它改善之前，`Z42_GC_MAX_BYTES`
+适合中小堆的长驻进程，不适合 z42c 这类一次性大批量分配的负载。
+
 ### Concurrent mark protocol (add-concurrent-gc P4, 2026-05-22)
 
 ConcurrentMarkSweep 模式下 `collect_cycles_with_context` 跑 6 个阶段：
