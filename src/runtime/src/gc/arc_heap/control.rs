@@ -180,6 +180,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     kind: GcKind::CycleCollector, used_bytes: used_before,
                 });
 
+                // investigate-concurrent-gc-stale-mark-race 3.2: open the
+                // allocate-black window for the whole span in which a mutator
+                // can be running — from here (mutators are parked, but resume
+                // at Phase 2) through the end of sweep. Objects born inside it
+                // are marked, so the Phase 6 sweep cannot reclaim one that
+                // became reachable after the Phase 1 root snapshot.
+                self.begin_alloc_black();
+
                 // Phase 1: STW root snapshot (still holding initial pause).
                 self.snapshot_roots_into_mark_queue();
 
@@ -205,6 +213,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
                 // Phase 6: STW sweep (mutators still parked).
                 let freed_bytes = self.sweep_phase();
+                // 3.2: close the allocate-black window. Safe here and not
+                // earlier: sweep clears the mark on every survivor, so a
+                // newborn shaded during the window leaves this cycle white and
+                // is collectible by the next one. Mutators are still parked, so
+                // no allocation can slip between the sweep and this store.
+                self.end_alloc_black();
                 #[cfg(debug_assertions)]
                 {
                     let post_sweep = self.mark_queue.lock().len();
