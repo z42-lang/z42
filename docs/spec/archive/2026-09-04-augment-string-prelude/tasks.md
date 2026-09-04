@@ -1,6 +1,13 @@
 # Tasks: prelude `Std.String` 补齐 char-based BCL 方法（augment-string-prelude）
 
-> 状态：🟡 实施中 | 创建：2026-09-04 | 类型：feat(stdlib) + refactor（纯加性库方法，不动 lang/ir/vm → 最小化模式）
+> 状态：🟢 实施+验证完成 | 创建：2026-09-04 | 完成：2026-09-04 | 类型：feat(stdlib) + refactor（纯加性库方法，不动 lang/ir/vm → 最小化模式）
+>
+> **变更说明**：prelude `Std.String` 补 14 个 char-based BCL 方法；`String.z42` 声明 `partial` 并拆出
+> `String.Split.z42` / `String.Edit.z42` 两个碎片以守住 500 行硬限。
+> **原因**：`docs/library_review.md` §109 列出的 String 缺口；其头部方法是与既有方法同名的重载，
+> 三轮受阻于旧派发键的「加重载即 rekey」问题，直到 `stabilize-instance-dispatch-keys`（#414）落地并发布 nightly 后才可落。
+> **文档影响**：`docs/book/src/language/partial-types.md`「边界与限制」改写（跨碎片重载的精确机制 + 静默覆盖失败模式 +
+> Deferred 正解）；`docs/library_review.md` 🟡 节六项全部复核完成、清空该节。
 > 上游：`docs/library_review.md` §109「String 缺 PadLeft/PadRight、IndexOf(char)、Split(char[])、Trim(char)、LastIndexOf、Insert/Remove」
 > 前置（**已全部拆除**）：E0436 阶段1（#357）/ E0433 partial 协议豁免重载（#375）/ **派发键稳定化（#414）**
 
@@ -70,11 +77,31 @@ User 裁决不做 workaround，走根因修复 → `stabilize-instance-dispatch-
 
 ## 验证
 
-- [ ] 5.1 基线 GREEN：`xtask test stdlib z42.core` 49/49 文件（改动前，已取得 ✅）
-- [ ] 5.2 refactor 后 `xtask test stdlib z42.core` 全绿 + **导出键与 nightly 逐一对账**（证明纯移动不改键）
-- [ ] 5.3 feat 后 `xtask test stdlib z42.core` 全绿（含新测试文件）
-- [ ] 5.4 `xtask test` 完整 GREEN
-- [ ] 5.5 `xtask test bootstrap`：上一版 nightly z42c 仍能编当前源（无语法/格式/stdlib-API 越界）
+- [x] 5.0 **开工前置：种子自验** —— nightly 构建自 `1317141`（= #414 本体），种子 `libs/z42.core.zpkg`
+      里裸 `Substring` 与 `Substring$2$i32$i32` 并存 = 新 keying 已就位（旧种子只有 `Substring$1`/`$2`）
+- [x] 5.1 基线 GREEN：`xtask test stdlib z42.core` **49/49 文件**（改动前）
+- [x] 5.2 refactor 后 49/49 全绿 + **导出键与 nightly 字节级对账零漂移**（证明纯移动不改键）
+- [x] 5.3 feat 后 **50/50 文件**全绿；新测试 `string_bcl_augment.z42` **23/23 PASS**
+- [x] 5.4 **纯加性对账**：既有 primary 裸键（IndexOf/Split/Trim/Substring/Equals/…）逐一复核零丢失；
+      新增 14 个键全为全签名形态（`IndexOf$1$char` / `Split$1$char[]` / `Trim$1$char[]` / …）
+      → **无格式 bump、无两代自举需求**
+- [x] 5.5 `xtask test` 完整 GREEN（`✅ GREEN — all stages passed`）；行数门 `0 new/grown`
+      （三个碎片 386 / 247 / 88 行）
+- [x] 5.6 `xtask test bootstrap`：`✅ nightly z42c compiles current source — NO staged-bootstrap
+      boundary violation` + `✅ repo z42c self-build OK`
+
+> **验证方法学教训（供后续 stdlib change 复用）**：**不要用 `strings` 比对 zpkg 导出键**。
+> 池串是「1 字节长度前缀 + ASCII」、无 NUL 分隔，相邻串会被 `strings` 粘成一行
+> （裸 `Split` 被输出成 `SplitGsha256:…` → 假「键消失」告警，本次误报两次）。
+> 正解 = 按 `bytes([len(k)]) + k.encode()` 做精确字节匹配逐键判定。
+
+## Deferred
+
+- **partial 碎片的按类型 primary tracker**：把 `MemberCollector._fillClass` 的局部 `emittedInst`
+  提升为按类型的 tracker，解除「同名方法组必须同碎片」限制（碎片已有确定序 → primary 选择仍确定）。
+  属编译器改动、受 support-先行纪律约束，未随本 stdlib change 落地。
+- **`Split(char[], int options)`**：`Split(string,int)` 有 options 重载，char[] 版暂无；
+  等有实际需求再补（补时须与 Split 家族同碎片、追加在末尾）。
 
 ## 关联
 
