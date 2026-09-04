@@ -470,3 +470,260 @@ fn mode_from_runtime_table_when_env_unset() {
     let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&t));
     assert_eq!(cfg.mode.as_deref(), Some("aot"), "[runtime].mode used when env unset");
 }
+
+// ── complete-runtime-settings P0: schema 不变式 + 可用性求值 ────────────────
+//
+// 求值测试一律**注入假 BuildCtx**，不读真实构建配置——否则同一断言在
+// `--no-default-features` 的 wasm/ios preset 下结果会漂移（design.md Testing Strategy）。
+
+/// 造一个可控的构建环境。
+fn ctx(debug: bool, features: &[&'static str], os: &'static str) -> BuildCtx {
+    BuildCtx { debug, features: features.to_vec(), os }
+}
+
+fn spec_named(name: &str) -> &'static KnobSpec {
+    KNOWN_KNOBS.iter().find(|k| k.name == name).unwrap_or_else(|| panic!("{name} not registered"))
+}
+
+#[test]
+fn requires_only_reference_known_features() {
+    for k in KNOWN_KNOBS {
+        for f in k.requires {
+            assert!(
+                KNOWN_FEATURES.contains(f),
+                "{}: requires unknown feature `{f}` — add it to availability::KNOWN_FEATURES \
+                 (and to feature_enabled's match) or fix the typo",
+                k.name
+            );
+        }
+    }
+}
+
+#[test]
+fn feature_table_covers_cargo_features() {
+    // Mirror of `[features]` in src/runtime/Cargo.toml, minus the `default` meta-feature.
+    // Cargo.toml gains a feature → this test goes red until KNOWN_FEATURES + the
+    // feature_enabled match are updated in lockstep.
+    let expected = [
+        "android", "aot", "bundled-compression", "dhat-heap", "interp-only", "ios",
+        "jit", "mimalloc-alloc", "native-interop", "profile-contention", "wasm",
+    ];
+    assert_eq!(
+        KNOWN_FEATURES, &expected[..],
+        "KNOWN_FEATURES drifted from Cargo.toml [features]; keep both (and feature_enabled) in sync"
+    );
+    // Sorted so the table stays scannable.
+    let mut sorted = expected;
+    sorted.sort();
+    assert_eq!(KNOWN_FEATURES, &sorted[..], "KNOWN_FEATURES must stay alphabetically sorted");
+}
+
+#[test]
+fn feature_enabled_rejects_unknown_names() {
+    assert!(!feature_enabled("not-a-real-feature"));
+    assert!(!feature_enabled(""));
+}
+
+#[test]
+fn meta_knobs_are_internal_and_never_file_settable() {
+    for k in KNOWN_KNOBS.iter().filter(|k| k.is_meta()) {
+        assert_eq!(k.tier, Tier::Internal, "{}: meta knob must be Internal tier", k.name);
+        assert_eq!(
+            k.sources,
+            LayerMask::CLI_ENV,
+            "{}: a knob that names a config file (or controls diagnostic severity) must not be \
+             settable from a config file — that is self-referential",
+            k.name
+        );
+    }
+    // The three meta knobs are all registered.
+    for name in ["Z42_CONFIG", "Z42_APP_CONFIG", "Z42_STRICT_CONFIG"] {
+        assert!(spec_named(name).is_meta(), "{name} must be a meta knob");
+    }
+}
+
+#[test]
+fn non_meta_knobs_have_a_toml_key() {
+    for k in KNOWN_KNOBS.iter().filter(|k| k.tier != Tier::Internal) {
+        assert!(!k.toml_key.is_empty(), "{}: non-internal knob needs a toml_key", k.name);
+    }
+}
+
+#[test]
+fn aliases_are_unique_and_dont_shadow_keys() {
+    let mut seen: Vec<&str> = Vec::new();
+    for k in KNOWN_KNOBS {
+        for a in k.aliases {
+            assert!(
+                !KNOWN_KNOBS.iter().any(|o| o.toml_key == *a),
+                "{}: alias `{a}` collides with another knob's toml_key",
+                k.name
+            );
+            assert!(!seen.contains(a), "{}: alias `{a}` is already used by another knob", k.name);
+            seen.push(a);
+        }
+    }
+}
+
+#[test]
+fn knob_lookup_by_key_and_env_name() {
+    assert_eq!(knob_by_key("gc-mode").unwrap().name, "Z42_GC_MODE");
+    assert_eq!(knob_by_env_name("Z42_GC_MODE").unwrap().toml_key, "gc-mode");
+    // env-name form is NOT accepted as a --set key (design.md Decision 1 / User U2)
+    assert!(knob_by_key("Z42_GC_MODE").is_none(), "env-var form must not be a CLI key");
+    // meta knobs have no key form at all
+    assert!(knob_by_key("").is_none(), "empty key must never match a meta knob");
+    assert!(knob_by_key("nope").is_none());
+}
+
+#[test]
+fn enum_value_kinds_list_every_parser_arm() {
+    // GC_MODES must cover exactly what parse_gc_mode accepts, else --set/-file
+    // validation would reject a value the parser handles (or vice versa).
+    let ValueKind::Enum(modes) = spec_named("Z42_GC_MODE").value else {
+        panic!("Z42_GC_MODE must be an Enum knob")
+    };
+    for m in ["stw", "stw-mark-sweep", "concurrent", "concurrent-mark-sweep",
+              "generational", "generational-mark-sweep"] {
+        assert!(modes.contains(&m), "GC_MODES missing parser arm `{m}`");
+    }
+    assert_eq!(modes.len(), 6, "GC_MODES has an arm parse_gc_mode does not handle");
+
+    let ValueKind::Enum(exec) = spec_named("Z42_MODE").value else {
+        panic!("Z42_MODE must be an Enum knob")
+    };
+    assert_eq!(exec, &["interp", "jit", "aot"]);
+}
+
+#[test]
+fn z42_mode_has_no_knob_level_feature_gate() {
+    // Deliberate exception (design.md Decision 2): jit/aot gating is PER-VALUE and
+    // lives in main.rs::resolve_config_mode; interp works in every build. Marking the
+    // knob `requires:["jit"]` would wrongly reject `Z42_MODE=interp` on interp-only builds.
+    assert!(spec_named("Z42_MODE").requires.is_empty(),
+        "Z42_MODE must not carry a knob-level feature gate");
+}
+
+// ── 可用性四轴求值 ───────────────────────────────────────────────────────────
+
+#[test]
+fn availability_accepts_a_plain_knob_from_every_layer() {
+    let c = ctx(false, &[], "linux");
+    let k = spec_named("Z42_GC_MODE");
+    for layer in [Layer::Cli, Layer::Env, Layer::UserConfig, Layer::AppConfig] {
+        assert_eq!(evaluate(k, layer, &c), Ok(()), "gc-mode should be settable from {layer:?}");
+    }
+    assert!(is_available(k, &c));
+}
+
+#[test]
+fn availability_rejects_layer_outside_sources_mask() {
+    let c = ctx(true, &[], "linux");
+    let k = spec_named("Z42_STRESS_ITERS"); // env-only
+    assert_eq!(evaluate(k, Layer::Env, &c), Ok(()));
+    assert_eq!(
+        evaluate(k, Layer::Cli, &c),
+        Err(Rejection::NotAcceptedFrom { layer: Layer::Cli, accepted: LayerMask::ENV_ONLY })
+    );
+    assert!(matches!(evaluate(k, Layer::UserConfig, &c), Err(Rejection::NotAcceptedFrom { .. })));
+}
+
+#[test]
+fn availability_rejects_debug_only_knob_in_release() {
+    let k = spec_named("Z42_STRESS_ITERS");
+    assert_eq!(evaluate(k, Layer::Env, &ctx(true, &[], "linux")), Ok(()));
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &[], "linux")), Err(Rejection::DebugOnly));
+    assert!(!is_available(k, &ctx(false, &[], "linux")));
+}
+
+#[test]
+fn availability_rejects_missing_feature() {
+    let k = spec_named("Z42_JIT_PROFILE");
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &["jit"], "linux")), Ok(()));
+    assert_eq!(
+        evaluate(k, Layer::Env, &ctx(false, &["native-interop"], "linux")),
+        Err(Rejection::MissingFeatures(vec!["jit"]))
+    );
+}
+
+#[test]
+fn availability_rejects_excluded_platform() {
+    let k = spec_named("Z42_SAMPLE_HZ");
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &[], "macos")), Ok(()));
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &[], "wasm")), Err(Rejection::WrongPlatform));
+}
+
+#[test]
+fn availability_checks_layer_before_build_and_feature() {
+    // A knob rejected on several axes reports the *layer* one first — it is the most
+    // actionable ("you cannot set this here") and does not depend on the build.
+    let c = ctx(false, &[], "linux");
+    let k = spec_named("Z42_STRESS_ITERS"); // env-only AND debug-only
+    assert!(matches!(evaluate(k, Layer::Cli, &c), Err(Rejection::NotAcceptedFrom { .. })));
+}
+
+#[test]
+fn platform_only_form_is_an_allowlist() {
+    // No shipped knob uses Only(..) yet; assert the evaluator handles it so the
+    // variant is not silently broken when the first user shows up.
+    let k = KnobSpec { platforms: PlatformAvail::Only(&["windows"]), ..*spec_named("Z42_LOG") };
+    assert_eq!(evaluate(&k, Layer::Env, &ctx(false, &[], "windows")), Ok(()));
+    assert_eq!(evaluate(&k, Layer::Env, &ctx(false, &[], "linux")), Err(Rejection::WrongPlatform));
+}
+
+#[test]
+fn layer_mask_labels_follow_priority_order() {
+    assert_eq!(LayerMask::ALL.labels(), vec!["cli", "env", "user-config", "app-config"]);
+    assert_eq!(LayerMask::CLI_ENV.labels(), vec!["cli", "env"]);
+    assert_eq!(LayerMask::ENV_ONLY.labels(), vec!["env"]);
+    assert!(LayerMask::ALL.contains(LayerMask::CLI));
+    assert!(!LayerMask::ENV_ONLY.contains(LayerMask::CLI));
+    // Default is not an input layer — it never satisfies a sources mask.
+    assert!(!LayerMask::ALL.contains(Layer::Default.mask()));
+}
+
+// ── 诊断渲染 ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn rejection_message_names_the_missing_feature_and_this_builds_features() {
+    let c = ctx(false, &["interp-only", "native-interop"], "linux");
+    let k = spec_named("Z42_JIT_PROFILE");
+    let msg = evaluate(k, Layer::Env, &c).unwrap_err().render(k, Layer::Env, &c);
+    assert!(msg.contains("jit-profile"), "message must name the knob key: {msg}");
+    assert!(msg.contains("Z42_JIT_PROFILE"), "message must name the env var: {msg}");
+    assert!(msg.contains("[env]"), "message must name the source layer: {msg}");
+    assert!(msg.contains("requires feature `jit`"), "message must name the missing feature: {msg}");
+    assert!(msg.contains("interp-only, native-interop"),
+        "message must list what this build DOES have: {msg}");
+    assert!(msg.contains("value ignored"), "message must say what happens to the value: {msg}");
+    assert!(msg.contains("--list-knobs --all"), "message must point at the discovery command: {msg}");
+}
+
+#[test]
+fn rejection_message_for_wrong_layer_lists_accepted_layers() {
+    let c = ctx(true, &[], "linux");
+    let k = spec_named("Z42_STRESS_ITERS");
+    let msg = evaluate(k, Layer::Cli, &c).unwrap_err().render(k, Layer::Cli, &c);
+    assert!(msg.contains("cannot be set from [cli]"), "{msg}");
+    assert!(msg.contains("accepted layers: env"), "{msg}");
+}
+
+#[test]
+fn rejection_message_for_platform_lists_supported_set() {
+    let c = ctx(false, &[], "wasm");
+    let k = spec_named("Z42_SAMPLE_HZ");
+    let msg = evaluate(k, Layer::Env, &c).unwrap_err().render(k, Layer::Env, &c);
+    assert!(msg.contains("unavailable on this platform (wasm)"), "{msg}");
+    assert!(msg.contains("all except wasm"), "{msg}");
+}
+
+#[test]
+fn build_ctx_current_reports_a_normalized_os() {
+    let c = BuildCtx::current();
+    assert!(!c.os.is_empty());
+    // Whatever the target, every reported feature must be a known one.
+    for f in &c.features {
+        assert!(KNOWN_FEATURES.contains(f), "BuildCtx::current reported unknown feature {f}");
+    }
+    assert_eq!(c.debug, cfg!(debug_assertions));
+}

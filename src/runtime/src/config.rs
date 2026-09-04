@@ -36,8 +36,14 @@ use std::sync::OnceLock;
 
 // refactor-split-config（2026-09-03）：旋钮表 → `config/knobs.rs`，解析函数 → `config/parse.rs`，
 // 单测 → `config_tests.rs`；本文件留 RuntimeConfig 本体 / 默认值 / from_env / toml 加载 / 全局单例。
+// complete-runtime-settings P0（2026-09-05）：schema 类型层 → `config/knobs.rs`，
+// 旋钮登记表 → `config/knob_table.rs`，可用性求值 → `config/availability.rs`。
+mod availability;
+mod knob_table;
 mod knobs;
 mod parse;
+pub use availability::*;
+pub use knob_table::{knob_by_env_name, knob_by_key, KNOWN_KNOBS};
 pub use knobs::*;
 pub(crate) use parse::*;
 
