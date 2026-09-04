@@ -150,16 +150,10 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // the runner exists AND its zpkg format matches the current z42c (the format-
     // skew guard the old cargo test-runner build couldn't give). Its deps resolve
     // from `libs` (the same flat dir the test units compile against).
-    string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    string builderZpkg = _toolchainZpkg(root, _z42bToml());
     Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
-    int bcRC = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg("src/toolchain/builder/core/z42.builder.z42.toml").Arg("--release")
-        .Env("Z42_LIBS", libs).WorkingDirectory(root));
+    int bcRC = _buildZ42bWith(root, vm, driverZpkg, libs);
     if (bcRC != 0) { return bcRC; }
-    if (!File.Exists(builderZpkg)) {
-        ConsoleError.WriteLine("error: z42.builder.zpkg not found at " + builderZpkg);
-        return 2;
-    }
     string libsRoot = Path.Join(root, "src/libraries");
     string[] libList;
     if (nReq > 0) {
