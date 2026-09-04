@@ -115,6 +115,7 @@ bench/
 │   ├── 06_thread_scaling.z42  # 多线程 spawn/join (caps=threads)
 │   ├── 07_string_heavy.z42    # 字符串搜索/拼接 (per-char VCall 分发税)
 │   ├── 08_dict_heavy.z42      # 字典 insert/lookup (string-key hash + Equals 探测)
+│   ├── 09_alloc_ctorless.z42  # 无构造函数类的分配紧循环 (守 cache-failed-name-resolution)
 │   ├── 10_mono_vcall.z42      # 单态虚调用紧循环 (IC 恒命中，隔离 dispatch 成本)
 │   └── 11_type_test_chain.z42 # 8 路 is 链 + 接口 is + as (类型判定 IsaCache，perf-vm-isa-cache)
 ├── probe/                     # capabilities.z42 — 被测 VM 能力探针（profile.caps 来源）
