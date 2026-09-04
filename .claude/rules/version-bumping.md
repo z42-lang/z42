@@ -26,10 +26,14 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 35 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 35 |
-| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 40 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 40 |
+| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 38 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 38 |
+| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 43 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 43 |
+
+> ⚠️ 这张表**自己也会腐坏**（2026-09-04 发现时停在 1/35 与 0/40，落后 3 个 minor，且路径在
+> reader 拆分后已失效）。bump 时请连同本表一起改 —— 它是给人读的索引，没有测试兜底。
+> 二进制 fixture 那边已有防腐门（步骤 4 / 9），这张表还没有。
 
 > reader 端（`zbc_reader.rs`）每个常量旁有逐行 minor changelog 注释（日期 / spec / 格式变化）——bump 时在那里追加一行。
 > writer 端常量旁也有同样的单行 bump 注释，保持格式一致。
@@ -43,7 +47,15 @@ paths:
 1. **`ZbcFormat.z42`**（`src/libraries/z42.ir/src/BinaryFormat/`）— `ZbcVersion.Minor++`，常量旁注释本次 bump 内容（参考已有行格式）。若 bump 改了指令/section 布局，`ZbcInstr.z42`（编码）+ `ZbcReaderInstr.z42`（解码）或 `ZbcWriter.z42` 的对应 `Build*` / `_assemble` 逻辑同步。
 2. **`zbc_reader.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/design/runtime/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
-4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta。
+4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
+
+   > 🔒 **CI 有门（`refresh-format-fixtures`，2026-09-04 起）**：`compile-test-assets` job 在 `build test`
+   > 之后跑 `git diff --quiet -- src/tests/zbc-format`，**有差异即红**。
+   >
+   > 为什么需要这道门：此前这些基线唯一的把关方式是「人工注意到 `git diff`」。而 regen 在所有消费者
+   > **之前**就地覆写，于是 `zbc_compat` 校验的永远是刚重生的字节、**从不是 committed 的那份** ——
+   > 陈旧基线因此可以一直绿着，同时把每个人的工作树弄脏。实际后果：这 6 个 fixture 停在 zbc **1.37**
+   > 一路熬过了 1.38 的 bump（#414 漏了本步），2026-09-04 才被发现。形态同 `cargo fmt --check`。
 5. **z42c golden hex 单测** — `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 的 `test_zbc_empty_byte_identical` 内嵌 `empty/source.zbc` 的 hex 串（zbc 1.21 起 226B；header 的 `minor` 字段 + STRS 段体会随 bump 变化）。从 regen 后的 fixture 重截：
    ```bash
    xxd -p src/tests/zbc-format/empty/source.zbc | tr -d '\n'
@@ -73,8 +85,16 @@ xtask test compiler    # z42c golden hex 单测
 7. **`zbc_reader.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
 8. **`docs/design/runtime/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
+   每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**（refresh-format-fixtures，2026-09-04）：
+   `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar。
+   完整重生命令见 [`src/tests/zpkg-format/README.md`](../../src/tests/zpkg-format/README.md)「维护流程」。
 
-   > ⚠️ **zpkg-format 暂无一键 regen**：`xtask build test` 目前只覆盖 zbc-format，zpkg fixture 需手工用 `z42c build` 逐个重生覆写（见 `src/tests/zpkg-format/README.md` TODO）。
+   > 🔒 **有防腐门**：`cargo test --test format_fixture_versions` 读 committed 字节、断言 header 版本
+   > == 当前常量，**陈旧即红**（zbc 与 zpkg 两套一起覆盖）。
+   >
+   > 为什么需要：此前配方只存在于口头（README 挂着「暂需手工逐个重生」的 TODO），且这 4 个里
+   > **有 2 个没有任何测试读**。于是 1.37→1.38 那次 bump 漏掉本目录 —— `packed-multi-module` 停在
+   > zpkg 42、`sym-only-sidecar` 停在 **35**（落后 8 个 minor），CI 全程绿。
 
 提交前自检扩展：
 

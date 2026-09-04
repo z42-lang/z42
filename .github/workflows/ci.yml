@@ -561,6 +561,31 @@ jobs:
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- build test
 
+      # refresh-format-fixtures: committed byte baselines must be up to date.
+      # `build test` above regenerates src/tests/zbc-format/*/source.zbc IN PLACE, so a
+      # non-empty diff here means the checked-in bytes were stale — i.e. some earlier
+      # format change skipped step 4 of .claude/rules/version-bumping.md.
+      #
+      # Why this gate is needed: the baselines' only prior safeguard was "a human
+      # notices `git diff`". Since regen runs before every consumer, `zbc_compat`
+      # validates the freshly-rewritten bytes and never the committed ones — so stale
+      # baselines stayed green while dirtying every contributor's working tree
+      # (they sat at zbc 1.37 right through the 1.38 bump). Same shape as
+      # `cargo fmt --check`: regen, then fail if it changed anything.
+      - name: Golden byte baselines are up to date (regen produced no diff)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- src/tests/zbc-format; then
+            echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
+            echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
+            echo "review the diff, then commit the regenerated fixtures"
+            echo "(see .claude/rules/version-bumping.md step 4)."
+            git --no-pager diff --stat -- src/tests/zbc-format
+            exit 1
+          fi
+          echo "OK: zbc-format baselines match the current writer"
+
       - name: Assemble .z42 toolchain (build sdk --no-build) + bundle goldens
         continue-on-error: true
         shell: bash

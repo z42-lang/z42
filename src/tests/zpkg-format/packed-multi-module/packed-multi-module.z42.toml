@@ -1,0 +1,8 @@
+# refresh-format-fixtures: 多 .z42 → 同一 zpkg（MODS 多条目 + 共享 STRS pool）。
+[project]
+name    = "demo.multi"
+version = "0.1.0"
+pack    = true
+
+[sources]
+include = ["mod_a.z42", "mod_b.z42"]

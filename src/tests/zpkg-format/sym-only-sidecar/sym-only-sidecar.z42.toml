@@ -1,0 +1,9 @@
+# refresh-format-fixtures: sym-only sidecar 形态。fixture 存的是 --release strip
+# 产出的 .zsym 旁车字节（META + STRS + MDBG + BLID），不是主 zpkg。
+[project]
+name    = "demo.sidecar"
+version = "0.1.0"
+pack    = true
+
+[sources]
+include = ["source.z42"]
