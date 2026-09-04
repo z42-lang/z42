@@ -62,12 +62,14 @@
 //! So registration-window closure must not move a context's park to *before*
 //! the collector CAS. Any candidate fix has to keep `arbitration_*` green.
 //!
-//! ## HONEST SCOPE / next increments
+//! ## Scope
 //!
-//! Still NOT modelled: marking-period allocate-black (needed for the
-//! *new-object* sweep hazard, separate from this stale-mark-on-existing-object
-//! race — see design.md candidate B). A fix that closes the registration window
-//! but keeps `alloc_object` birthing objects white is still unsound.
+//! The third hazard — the *new-object* sweep hazard that marking-period
+//! allocate-black fixes, separate from this stale-mark-on-an-*existing*-object
+//! race — lives in the sibling file `gc_alloc_black_loom.rs` (model C). A fix
+//! that closes the registration window but keeps `alloc_object` birthing
+//! objects white is still unsound, so a candidate fix has to keep all three
+//! files green.
 //!
 //! Run: `RUSTFLAGS="--cfg loom" cargo test --manifest-path src/runtime/Cargo.toml \
 //!       --test gc_registration_race_loom --release`

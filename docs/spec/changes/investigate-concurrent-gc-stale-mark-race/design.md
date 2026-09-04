@@ -159,3 +159,56 @@ panic 就能正常展开、`#[should_panic]` 接得住。每条交错泄漏一�
 **marking 期 allocate-black**。`alloc_object` 出生 marked=0（白），当前正确性依赖 barrier
 **同步**染灰；只关注册窗口而不配 allocate-black 的 fix 仍不健全（可达新对象会被进行中的
 cycle 当垃圾 sweep 掉——比 stale mark 更严重）。
+
+## 更新 2026-09-04（二）：新对象 sweep hazard 建模（模型 C）+ 一个比原记录更强的事实
+
+阶段 3.1c。新文件 `src/runtime/tests/gc_alloc_black_loom.rs`（自成一体，因为它需要
+模型 A/B 都没建的**并发 cycle 全流程**：snapshot → yield → handshake → sweep）。
+
+### 更正：这个 hazard 不依赖 naive B，它无条件成立
+
+上文「关键新发现 2」把 allocate-black 说成是**朴素候选 B 的前提**（barrier 先 park
+再染色才会出事）。读码后确认范围更大 —— **今天的 ConcurrentMarkSweep 就有这个洞**：
+
+- `finish_alloc` / `alloc_array_obj`（`gc/arc_heap/alloc.rs`）发布 region entry 时
+  **完全不碰 mark bit**，新对象一律出生白色；
+- write barrier（`generational.rs:288`）只染**被写入堆字段的那个 ref**，覆盖不到
+  「只被 frame reg 持有」的新对象；
+- `snapshot_roots_into_mark_queue`（`roots.rs:21`）**确实**会走每个 VmContext 的
+  frame regs（`vm_context/construct.rs:234` 装的 external root scanner），但并发路径
+  **只在 Phase 1 调它一次**，Phase 6 sweep 之前**再也不重扫 roots**
+  （`control.rs:183-208`）。
+
+⇒ 在 Phase 2–4 的并发窗口里分配、且只被 frame reg 持有的对象，没有任何机制会染它，
+Phase 6 直接把它 tombstone —— **可达对象被回收，mutator 手里还攥着句柄**。
+比 stale mark 严重。STW 路径不受影响，因为 `mark_phase`（`collect.rs:22`）在 collect
+时**重扫 roots**；而 `StwMarkSweep` 正是生产默认，这解释了为什么它没在生产里炸。
+
+### 模型钉死了策略边界
+
+`AllocBlack` 三档，**穷举 2105 条交错**：
+
+| 策略 | 结果 |
+|---|---|
+| `Never`（今日生产） | 可达新对象被 sweep |
+| `ConcurrentOnly`（phase == ConcurrentMarking） | **仍然**被 sweep |
+| `ConcurrentAndMarking` | 绿 |
+
+中间那档是建这个模型的**全部理由**：「并发 mark 期出生即黑」是最自然的读法，而它是**错的**
+—— `request_handshake_pause` 先把 phase 翻成 `Marking` **然后才等** mutator park，
+mutator 在抵达下一个 safepoint 之前仍能分配，此时读到的是 `Marking`。
+⇒ design 上文写的 `phase ∈ {ConcurrentMarking, Marking}` 从**断言**变成**已证必要**。
+`allocate_black_on_concurrent_marking_alone_is_insufficient` 就是防止它被收窄回去的门。
+
+**归因是差分式的、不靠插桩**：`ConcurrentAndMarking` 与 `ConcurrentOnly` 的唯一差别就是
+「`Marking` 期算不算黑」，前者绿后者红 ⇒ 故障必然来自 `Marking` 窗口。
+
+### 绿不是空过（已量化）
+
+插桩统计 `ConcurrentAndMarking` 那一档：2105 条交错里，分配落在
+**Idle 724 / Requested 481 / ConcurrentMarking 828 / Marking 72** —— 四个 phase 全都走到了，
+包括那 72 次危险窗口。模型确实进入了危险状态，只是被 allocate-black 挡住。
+
+顺带：在 `Idle` / `Requested` 分配**不需要** allocate-black 也安全，因为 Phase 1 快照
+还没跑、会把它当 frame-reg root 染掉。模型也覆盖了这条（否则 `ConcurrentAndMarking`
+会是「碰巧绿」）。

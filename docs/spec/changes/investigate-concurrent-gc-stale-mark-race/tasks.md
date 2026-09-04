@@ -11,7 +11,7 @@
       windows-only"不成立）。ignore 扩到 `any(windows, macos)`（User 2026-07-08 豁免）。
       linux（x64/arm64）本轮仍过，暂留观察——若后续 flaky 再扩。
 - [ ] 阶段 3: loom/shuttle 确定性验证 + 正确修复 + 回归（**开工中**；3.1/3.1b 已完成，两个 hazard 中的
-      「注册窗口」与「仲裁死锁」均已确定性建模；余 3.1c allocate-black 建模 + 3.2 起的正式修复）
+      三个 hazard（注册窗口 / 仲裁死锁 / 新对象被 sweep）**均已确定性建模**；余 3.2 起的正式修复）
 
 ## 阶段 1: 二分定位
 
@@ -38,9 +38,15 @@
       在**穷举**搜索（34 条交错）下绿——同一模型翻一个开关即分开两侧，模型有判别力。
       产出的硬约束：**注册窗口封闭不得把任何 context 的 park 移到 collector 仲裁 CAS 之前**。
       细节 + loom 0.7.2 的 abort 陷阱见 design.md「更新 2026-09-04」。
-- [ ] 3.1c **marking 期 allocate-black 建模**（下一增量）：`alloc_object` 出生 marked=0，
-      只关注册窗口的 fix 仍会让可达新对象被进行中的 cycle sweep 掉。模型 A/B 都不覆盖这一族。
-- [ ] 3.2 在模型下设计修复：注册—首safepoint 窗口封闭 + marking 期 allocate-black + 不破坏 collector 仲裁时序（绝不放宽 invariant）——**先补 deadlock 模型**再验证
+- [x] 3.1c **marking 期 allocate-black 建模（模型 C）**（2026-09-04）：新文件
+      `src/runtime/tests/gc_alloc_black_loom.rs`，建模并发 cycle 全流程
+      （snapshot → yield → handshake → sweep）。**穷举 2105 条交错**，三档策略把边界钉死：
+      `Never`（今日生产）→ 可达新对象被 sweep；`ConcurrentOnly` → **仍然**被 sweep；
+      `ConcurrentAndMarking`（design 的提法）→ 绿。
+      ⇒ design 里 `phase ∈ {ConcurrentMarking, Marking}` 从**断言**变成了**已证必要**。
+      顺带确认该 hazard **不依赖注册窗口 race、也不依赖任何候选 fix**（见 design.md
+      「更新 2026-09-04（二）」）。
+- [ ] 3.2 在模型下设计修复：注册—首safepoint 窗口封闭 + marking 期 allocate-black + 不破坏 collector 仲裁时序（绝不放宽 invariant）。**三个模型已就位、可直接当门禁用**：fix 必须让 `registration_close_eliminates_race` 转绿，同时保持 `arbitration_baseline_has_no_deadlock` 与 `allocate_black_on_concurrent_and_marking_is_sufficient` 不红。
 - [ ] 3.3 cargo test —— 全绿（含本测试重新启用、稳定）
 - [ ] 3.4 移除 cross_thread_smoke.rs 上的 `#[ignore]`（过渡撤销）
 - [ ] 3.5 docs/design/runtime/vm-architecture.md 或 GC 专章追加"并发 mark bit 生命周期 + 注册/safepoint 协议"说明
