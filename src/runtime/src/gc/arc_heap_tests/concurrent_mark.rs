@@ -423,3 +423,86 @@ fn barrier_mode_switch_takes_effect_immediately_on_next_write() {
     let Value::Object(rc) = &n2 else { panic!() };
     GcRef::clear_mark(rc);
 }
+
+// ── investigate-concurrent-gc-stale-mark-race 3.2: marking-period allocate-black ──
+
+/// Regression for the *new-object* sweep hazard.
+///
+/// The concurrent path snapshots roots exactly once (Phase 1) and never
+/// re-scans them before the Phase 6 sweep, and the write barrier only shades
+/// refs that are *stored into a heap field*. So an object allocated during the
+/// cycle that becomes reachable afterwards — in production, one that lands in a
+/// frame reg — is shaded by nothing, and sweep tombstones it while the mutator
+/// still holds a live handle.
+///
+/// Driven by hand rather than through
+/// `run_cycle_collection_concurrent_inline_for_test` precisely because the point
+/// is to allocate *between* the snapshot and the sweep. Deterministic — no
+/// threads, no interleaving needed; the hazard is not a race.
+///
+/// Why the window must also cover the `Marking` handshake and not just
+/// `ConcurrentMarking` is proved separately, under exhaustive interleaving, by
+/// `tests/gc_alloc_black_loom.rs`.
+#[test]
+fn allocate_black_keeps_an_object_that_becomes_a_root_after_the_snapshot() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::ConcurrentMarkSweep);
+
+    let old = heap.alloc_object(dummy_type_desc("Old"), vec![Value::Null], NativeData::None);
+    let old_pin = heap.pin_root(old.clone());
+
+    // Phase 1 — collector holds the initial pause; the allocate-black window
+    // opens with it.
+    heap.begin_alloc_black();
+    heap.snapshot_roots_into_mark_queue_for_test();
+
+    // Phases 2-4 — mutators are running again. One allocates an object that
+    // becomes a root only now, i.e. after the snapshot. It is never stored into
+    // a heap field, so no write barrier fires for it.
+    let fresh = heap.alloc_object(dummy_type_desc("Fresh"), vec![Value::Null], NativeData::None);
+    let fresh_pin = heap.pin_root(fresh.clone());
+
+    // Phases 3 + 5 drain, Phase 6 sweeps, then the window closes.
+    heap.drain_mark_queue();
+    heap.sweep_phase();
+    heap.end_alloc_black();
+
+    assert_eq!(alive_count(&heap), 2,
+        "an object allocated during the concurrent cycle must survive that cycle \
+         — allocate-black is what makes that true");
+
+    // Retention is for exactly one cycle, not forever: sweep clears survivors'
+    // marks, so the newborn leaves the cycle white and the next one can take it.
+    let Value::Object(fresh_rc) = &fresh else { panic!() };
+    assert!(!GcRef::is_marked(fresh_rc), "newborn leaves the cycle white");
+
+    heap.unpin_root(fresh_pin);
+    heap.unpin_root(old_pin);
+    heap.collect_cycles();
+    assert_eq!(alive_count(&heap), 0, "once unpinned, the next cycle reclaims both");
+}
+
+/// The same hazard for `region_var` blocks — strings, closures and array
+/// backings are mark-swept by `VarRegion::sweep` exactly like region entries, so
+/// `acquire_var_block` (the single chokepoint for all of them) needs the same
+/// shading. Without it this string is tombstoned while still rooted.
+#[test]
+fn allocate_black_covers_var_region_blocks() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::ConcurrentMarkSweep);
+
+    heap.begin_alloc_black();
+    heap.snapshot_roots_into_mark_queue_for_test();
+
+    let s = heap.alloc_str("allocated during the concurrent cycle");
+    let s_pin = heap.pin_root(Value::Str(s));
+
+    heap.drain_mark_queue();
+    heap.sweep_phase();
+    heap.end_alloc_black();
+
+    assert!(s.var_ref().is_live(),
+        "a string allocated during the concurrent cycle must survive it");
+
+    heap.unpin_root(s_pin);
+}

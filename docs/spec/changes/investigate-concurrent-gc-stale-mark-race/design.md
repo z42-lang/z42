@@ -212,3 +212,51 @@ mutator 在抵达下一个 safepoint 之前仍能分配，此时读到的是 `Ma
 顺带：在 `Idle` / `Requested` 分配**不需要** allocate-black 也安全，因为 Phase 1 快照
 还没跑、会把它当 frame-reg root 染掉。模型也覆盖了这条（否则 `ConcurrentAndMarking`
 会是「碰巧绿」）。
+
+## 更新 2026-09-04（三）：3.2a allocate-black 已落地；3.2b 注册窗口封闭的三条硬事实
+
+### 3.2a 已落地
+
+`ArcMagrGC::alloc_black`（`AtomicBool`）在并发 cycle 的 `request_gc_pause` →
+`sweep_phase` 结束之间为真，期间所有分配出生即 `marked = 1`。
+
+- **跨度必须含 `Marking`**，不能只含 `ConcurrentMarking` —— 模型 C 已证（见上一节）。
+- **落点是全部 5 个分配 chokepoint**：`finish_alloc` 与 `alloc_array_obj` 各自的
+  TLAB 快路径 + ambient 路径，加 `acquire_var_block`。最后一个容易漏：strings /
+  closures / 数组载荷都是 `region_var` 块，被 `VarRegion::sweep` 同样 mark-sweep。
+- **关窗时机**：必须在 `sweep_phase()` **之后**、mutator 仍 parked 时。sweep 会清掉所有
+  survivor 的 mark，所以本 cycle 出生的黑对象离开 cycle 时是白的 —— 保守存活**一个** cycle，
+  不是永久。回归测试对这一点有断言。
+- **热路径代价**：一次 relaxed load，默认 `StwMarkSweep` 下恒为 false。
+
+回归测试是**单线程确定性**的（这个 hazard 不是 race，不需要交错），手工驱动
+snapshot → 分配 → drain → sweep。已做变异验证：`allocating_black()` 改成恒 false，
+两条测试都红。
+
+### 3.2b（注册窗口封闭）比预想难 —— 三条硬事实
+
+**事实 1：write barrier 是 post-write（Steele 式），不是 pre-write。**
+所有调用点（`interp/exec_object.rs:339` 等、`jit/helpers/object_field.rs`、
+`corelib/reflection/accessors.rs`）都是**先 `set_field_value` 再调 barrier**。
+⇒ 在 barrier 里 park 必然把「已写入但未染色」的状态暴露给 sweep（禁区 2）。
+把全仓约 10 个调用点改成 pre-write 是一次独立的、有风险的改造，不是本 fix 的搭头。
+
+**事实 2：「注册即算 parked」（born-parked）只是把窗口挪了个位置，没关上。**
+让新 context 在注册时同时进 `vm_contexts` 并 `parked_count += 1`，确实能保证它不会
+漏出 handshake；但它在抵达第一个 safepoint 之前仍然在跑，而此时 collector **以为它已
+parked**、可以放心 sweep —— 比今天更糟。要真正关上，新 context 必须在**任何堆操作之前**
+完成「born-parked → running」的转换，而这个转换点若放在 `new_with_core` 末尾，就等价于
+2026-06-01 那次 park-at-registration（禁区 1/3）。
+（附带坑：`check_safepoint` 的 throttle 快路径只是递减计数器，新 context 的
+`safepoint_skip` 若不特殊置 1，头 1024 次调用根本不进慢路径。）
+
+**事实 3：2026-06-01 的 deadlock 是一个先于本 fix 存在的隐患的症状。**
+真正的不变量缺口是：**一个线程阻塞（`join()` / 未包 `NativeParkGuard` 的 native 调用）
+时，它的 `VmContext` 仍留在 `vm_contexts` 里、仍计入任何后来 collector 的 `need`。**
+在 `second_collector_falls_back_to_mutator_park_returns_none` 里主线程正是这样，
+测试只是靠「worker 必输 CAS」这个构造避开了它。注册封闭之所以炸，是因为它让 worker
+赢了 CAS，把这个既有隐患**暴露**了出来 —— 不是它**制造**了这个隐患。
+
+⇒ 3.2b 的正道多半是先补上事实 3 的缺口（阻塞线程必须是 GC-safe：要么退出
+`vm_contexts`，要么进 `native_park` 计数），而这会牵动 `NativeParkGuard` 的适用范围。
+**需要 User 裁决方向后再动**；三个 loom 模型已就位，任何候选都能先在模型里判生死。

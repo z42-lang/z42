@@ -46,7 +46,22 @@
       ⇒ design 里 `phase ∈ {ConcurrentMarking, Marking}` 从**断言**变成了**已证必要**。
       顺带确认该 hazard **不依赖注册窗口 race、也不依赖任何候选 fix**（见 design.md
       「更新 2026-09-04（二）」）。
-- [ ] 3.2 在模型下设计修复：注册—首safepoint 窗口封闭 + marking 期 allocate-black + 不破坏 collector 仲裁时序（绝不放宽 invariant）。**三个模型已就位、可直接当门禁用**：fix 必须让 `registration_close_eliminates_race` 转绿，同时保持 `arbitration_baseline_has_no_deadlock` 与 `allocate_black_on_concurrent_and_marking_is_sufficient` 不红。
+- [~] 3.2 在模型下设计修复（拆成 3.2a/3.2b，**三个模型直接当门禁**）。
+- [x] 3.2a **marking 期 allocate-black —— 已落地**（2026-09-04）。`ArcMagrGC::alloc_black`
+      在并发 cycle 的 `request_gc_pause` → `sweep_phase` 结束之间为真（这个跨度**必须**含
+      `Marking`，由模型 C 证明），期间所有分配出生即 marked=1。
+      落点是**全部 5 个分配 chokepoint**：`finish_alloc` / `alloc_array_obj` 各自的 TLAB
+      快路径与 ambient 路径，加上 `acquire_var_block`（strings / closures / 数组载荷这些
+      `region_var` 块同样被 `VarRegion::sweep` mark-sweep）。热路径代价 = 一次 relaxed load，
+      且在默认 `StwMarkSweep` 下恒为 false。
+      回归测试：`arc_heap_tests::concurrent_mark::allocate_black_keeps_an_object_that_becomes_a_root_after_the_snapshot`
+      与 `..._covers_var_region_blocks` —— **单线程确定性**（这个 hazard 不是 race），
+      手工驱动 snapshot→分配→drain→sweep。**已做变异验证**：把 `allocating_black()` 改成
+      恒 false，两条测试都红（`left: 1`，新对象被 sweep 掉），确认不是空过。
+- [ ] 3.2b **注册—首 safepoint 窗口封闭** —— 未做，比预想难，见 design.md
+      「更新 2026-09-04（三）」记录的三条硬事实（barrier 是 post-write / born-parked 只是
+      把窗口挪了个位置 / 2026-06-01 的 deadlock 是一个**先于本 fix 存在**的隐患的症状）。
+      需要 User 裁决方向后再动。
 - [ ] 3.3 cargo test —— 全绿（含本测试重新启用、稳定）
 - [ ] 3.4 移除 cross_thread_smoke.rs 上的 `#[ignore]`（过渡撤销）
 - [ ] 3.5 docs/design/runtime/vm-architecture.md 或 GC 专章追加"并发 mark bit 生命周期 + 注册/safepoint 协议"说明

@@ -229,10 +229,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
             && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
         {
             if let Some(vref) = self.tlab_alloc_var(payload, block_type) {
-                return (vref, true);
+                return (self.shade_var_newborn(vref), true); // 3.2 allocate-black
             }
         }
-        (self.region_var.lock().alloc(payload, block_type), false)
+        (self.shade_var_newborn(self.region_var.lock().alloc(payload, block_type)), false)
     }
 
     /// **add-gc-tlab (stage 2/3)**: retire the calling thread's TLAB — merge all
@@ -386,7 +386,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
         {
             match self.tlab_alloc_object(obj, &td_for_record) {
-                Ok(value) => return value,
+                Ok(value) => return self.shade_newborn(value), // 3.2 allocate-black
                 Err(o) => o,
             }
         } else {
@@ -406,7 +406,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // SAFETY: handle was just produced by region.alloc; entry ptr
         // is stable for entry lifetime; generation matches.
         let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-        let value = Value::Object(gc);
+        let value = self.shade_newborn(Value::Object(gc)); // 3.2 allocate-black
 
         let size = self.object_size_bytes(&value);
         // Phase 3-OOM: strict 模式下若 alloc 后会越界，撤销并返 Null
@@ -511,7 +511,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
         {
             match self.tlab_alloc_array(obj) {
-                Ok(value) => return value,
+                Ok(value) => return self.shade_newborn(value), // 3.2 allocate-black
                 Err(o) => o,
             }
         } else {
@@ -525,7 +525,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             (entry, handle.generation, handle)
         };
         let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-        let value = Value::Array(gc);
+        let value = self.shade_newborn(Value::Array(gc)); // 3.2 allocate-black
 
         let size = self.object_size_bytes(&value);
         let (would_oom, limit) = self.would_oom_after_alloc(size as u64);

@@ -326,6 +326,13 @@ pub struct ArcMagrGC {
     /// (z42 typical 1-2 mutators); lock-free upgrade is a deferred
     /// perf spec. Stays empty when mode == StwMarkSweep.
     mark_queue: Mutex<Vec<Value>>,
+    /// **investigate-concurrent-gc-stale-mark-race 3.2a (2026-09-04)**:
+    /// marking-period allocate-black. True for exactly the span of a
+    /// `ConcurrentMarkSweep` cycle in which mutators can be running; every
+    /// allocation made while it is set is born `marked = 1`. See
+    /// [`super::arc_heap::alloc_black`] for why this exists, why the span must
+    /// include `Marking`, and what it costs.
+    alloc_black: std::sync::atomic::AtomicBool,
     /// **add-gc-pause-histogram (2026-05-22)**: aggregate pause-time
     /// histogram. Recorded into at the end of every `collect_cycles` /
     /// `collect_cycles_with_context` / `force_collect` path, right
@@ -404,6 +411,7 @@ impl Default for ArcMagrGC {
             region_array:  Mutex::new(super::region::Region::new()),
             region_var:    Mutex::new(VarRegion::with_drop_glue(var_drop_glue)),
             mark_queue: Mutex::new(Vec::new()),
+            alloc_black: std::sync::atomic::AtomicBool::new(false),
             pause_histogram: Mutex::new(super::types::PauseHistogram::default()),
             #[cfg(test)]
             barrier_observer: Mutex::new(None),
@@ -471,6 +479,7 @@ impl std::fmt::Debug for ArcMagrGC {
 // 每个子模块以 `impl ArcMagrGC` 承载一组职责的 inherent 方法；跨模块调用的方法标
 // `pub(super)`（arc_heap 子树内可见）。GC 公共 trait 接口在 `interface.rs`（薄委托）。
 mod alloc;
+mod alloc_black;
 mod collect;
 mod control;
 mod generational;
