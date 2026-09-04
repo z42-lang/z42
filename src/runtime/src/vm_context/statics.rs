@@ -96,6 +96,21 @@ impl VmContext {
         for slot in sf.iter_mut() {
             *slot = Value::Null;
         }
+        drop(sf);
+        // defer-class-initialization: 槽位清零后，**已跑过的初始化器必须重跑**——
+        // 否则那些包已经是「已加载」状态、不会再被任何查找重新触发，静态字段永远停在
+        // Null。实测：z42b 先加载依赖跑完 43 个初始化器，随后为目标模块调
+        // `init_static_fields` → 这里清零 → `Sha256._roundConstants` 变 Null，
+        // 崩在 `Sha256._processBlock`。
+        // 变更前 `init_static_fields` 在清零后无条件重跑全部初始化器，等价于此。
+        // 把已跑过的名字倒回待跑队列，由紧随其后的 `run_pending_static_inits` 重跑。
+        let mut state = self.core.lazy_loader.lock();
+        if let Some(loader) = state.as_mut() {
+            let ran: Vec<String> = loader.static_init_state.keys().cloned().collect();
+            tracing::debug!("static fields cleared; re-queuing {} static init(s)", ran.len());
+            loader.static_init_state.clear();
+            loader.pending_static_inits.extend(ran);
+        }
     }
 
     // ── JIT exception bridge ──────────────────────────────────────────────

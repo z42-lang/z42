@@ -60,7 +60,7 @@ impl Vm {
             .find(|f| f.name == entry_name)
             .ok_or_else(|| anyhow::anyhow!("entry `{}` disappeared — this is a bug", entry_name))?;
 
-        match self.default_mode {
+        let outcome = match self.default_mode {
             ExecMode::Interp => crate::interp::run_with_static_init(ctx, module, entry),
             // 2026-05-07 add-runtime-feature-flags (P4.1): JIT path is feature-gated.
             // When `jit` feature is off, fall through to a friendly bail so old zbc
@@ -78,6 +78,16 @@ impl Vm {
                  phase, LLVM/inkwell). Switch to `--mode interp` or \
                  `--mode jit`."
             ),
+        };
+        // defer-class-initialization: 懒执行的 `__static_init__` 抛出时无法就地传播
+        // （触发点是返回 `Option` 的查找函数），改为记录首个失败并在这里转成运行错误——
+        // 与变更前 boot 期 `init_static_fields` 的 `bail!` 同等响度。程序自身的错误优先。
+        match outcome {
+            Err(e) => Err(e),
+            Ok(()) => match ctx.take_static_init_error() {
+                Some(msg) => bail!("{msg}"),
+                None => Ok(()),
+            },
         }
     }
 

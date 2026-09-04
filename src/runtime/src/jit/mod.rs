@@ -282,15 +282,18 @@ impl JitModule {
         // any main-side init that reads a static field a dep init sets (observed:
         // xtask crashes `I64(0) vs Null` on the first cross-package static read).
         // `run_fn` compiles each to native (or interp-fallback if untranslatable).
+        // defer-class-initialization (2026-09-04): 与 interp 侧 `init_static_fields`
+        // 对称——不再 force-load 全部已声明 zpkg 来枚举初始化器。先排空 T3 在主模块
+        // 解析期入队的「静态字段所属类」（这会加载并初始化依赖包），再跑主模块自己的
+        // 初始化器。上面注释记录的顺序依赖（依赖包的 init 必须先于主模块 init）由这个
+        // 先后关系保证，比旧的「全局按名排序」更精确。
+        ctx.run_pending_static_inits();
         let init_names: Vec<String> = {
             let module = unsafe { &*self.ctx.module };
             let mut v: Vec<String> = module.functions.iter()
                 .map(|f| f.name.clone())
                 .filter(|n| n.ends_with(".__static_init__"))
                 .collect();
-            // Lazy inits force-load every declared zpkg; the returned names are
-            // disjoint from the eager set (declared excludes initially-loaded).
-            v.extend(ctx.collect_lazy_static_init_names());
             v.sort();
             v.dedup();
             v

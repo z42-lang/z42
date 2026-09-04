@@ -87,6 +87,11 @@ pub fn run_outcome(
 pub fn init_static_fields(ctx: &VmContext, module: &Module) -> Result<()> {
     ctx.static_fields_clear();
 
+    // defer-class-initialization: 先跑依赖包的初始化器（T3 在主模块解析期入队的
+    // 「静态字段所属类」），再跑主模块自己的——主模块的初始化器可能读依赖包设置的
+    // 静态字段（fix-static-field-access 的顺序依赖）。
+    ctx.run_pending_static_inits();
+
     // 1. Eager-loaded init functions (in main + z42.core).
     let mut eager_inits: Vec<&Function> = module.functions.iter()
         .filter(|f| f.name.ends_with(".__static_init__"))
@@ -100,22 +105,19 @@ pub fn init_static_fields(ctx: &VmContext, module: &Module) -> Result<()> {
         }
     }
 
-    // 2. Lazy-loadable init functions (from declared but not-yet-loaded zpkgs).
+    // 2. defer-class-initialization (2026-09-04): 不再 force-load 全部已声明 zpkg。
     //
-    // fix-multi-file-static-init (2026-05-15): the compiler now emits
-    // `<ns>.<source-stem>.__static_init__` (one per CU), so a single
-    // `try_lookup_function("<ns>.__static_init__")` would never resolve. We
-    // force-load every declared zpkg, then enumerate ALL `*.__static_init__`
-    // functions via the loader and run each.
-    let lazy_init_names = ctx.collect_lazy_static_init_names();
-    for init_name in lazy_init_names {
-        let Some(init_fn) = ctx.try_lookup_function(&init_name) else { continue };
-        match exec_function(ctx, module, init_fn.as_ref(), &[])? {
-            ExecOutcome::Returned(_) => {}
-            ExecOutcome::Thrown(val) =>
-                bail!("uncaught exception in static init `{}`: {}", init_name, value_to_str(&val)),
-        }
-    }
+    // 变更前这里调 `collect_lazy_static_init_names()`，它内部
+    // `force_load_all_declared()` 把 libs/ 下每个候选包整包加载再全表扫后缀——
+    // 实测 hello world 因此加载 18 个包 2910 个函数、13.6 ms，而真正要跑的 31 个
+    // 初始化器合计只要 78 µs（99.4% 的成本是「找」）。
+    //
+    // 现在改为按需：包被首次触达时加载，其 `__static_init__` 入队，由
+    // `run_pending_static_inits` 在锁外执行（触发点 T1 函数查找 / T2 类型查找 /
+    // T3 静态字段引用）。这里只需排空 T3 在主模块解析期入队的「所属类」——
+    // **必须在步骤 1 之前**，因为主模块的初始化器可能读依赖包的静态字段
+    // （2026-04-27 fix-static-field-access 记录过这个顺序依赖）。
+    ctx.run_pending_static_inits();
     Ok(())
 }
 

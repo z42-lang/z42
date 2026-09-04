@@ -1,0 +1,10 @@
+[project]
+name = "demo.scapp"   # *app 排在 dist glob 首位（cross-zpkg 驱动取字母序首个 zpkg 当 exe）
+version = "0.1.0"
+kind = "exe"
+entry = "DemoScMain.Main"
+pack = true
+[dependencies]
+"z42.threading" = "0.1.0"
+"demo.sctarget" = "0.1.0"
+"demo.scext" = "0.1.0"

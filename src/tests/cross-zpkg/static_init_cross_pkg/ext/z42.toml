@@ -1,0 +1,9 @@
+[project]
+name = "demo.siext"
+version = "0.1.0"
+kind = "lib"
+pack = true
+[sources]
+include = ["src/**/*.z42"]
+[dependencies]
+"demo.sitarget" = "0.1.0"

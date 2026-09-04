@@ -1,0 +1,9 @@
+namespace Demo.ScTarget;
+using Std;
+
+// defer-class-initialization：两个线程同时**首次触达**本包时，初始化器只能跑一次，
+// 且两边读到的都必须是初始化后的值（`InitState::Running(ThreadId)` + 等 `Done`）。
+public class Shared {
+    public static int[] Table = new int[] { 10, 20, 30, 40 };
+    public static int Total = 100;
+}

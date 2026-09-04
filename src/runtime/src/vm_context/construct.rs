@@ -141,6 +141,8 @@ impl VmContext {
             static_fields:      Mutex::new(Vec::new()),
             static_field_index: Mutex::new(FxHashMap::default()),
             lazy_loader:        Mutex::new(None),
+            pending_type_inits: Mutex::new(Vec::new()),
+            static_init_error:  Mutex::new(None),
             context_registry:   Mutex::new(crate::metadata::context::ContextRegistry::new()),
             #[cfg(feature = "native-interop")]
             native_types:       RwLock::new(HashMap::new()),

@@ -1,0 +1,8 @@
+namespace Demo.ScExt;
+using Std;
+using Demo.ScTarget;
+
+// 从工作线程调用：首次调用会触发 demo.sctarget 的加载 + 初始化。
+public class Probe {
+    public static int Read() { return Shared.Total + Shared.Table.Length; }
+}
