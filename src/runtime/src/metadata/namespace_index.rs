@@ -101,13 +101,61 @@ pub fn scan_zpkg_candidates(dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
             let path = dir.join(&name);
             if path.extension().and_then(|e| e.to_str()) != Some("zpkg") { continue; }
             let path_str = match path.to_str() { Some(s) => s, None => continue };
-            let data = match backend.read(path_str) { Ok(d) => d, Err(_) => continue };
-            if data.len() < 4 || &data[0..4] != ZPKG_MAGIC { continue; }
-            let namespaces = match read_zpkg_namespaces(&data) { Ok(v) => v, Err(_) => continue };
+            let namespaces = match cached_zpkg_namespaces(path_str) { Some(v) => v, None => continue };
             out.push(ZpkgCandidate { file_path: path, namespaces });
         }
     }
     out
+}
+
+/// 每文件的 NSPC 记忆化，按 **(size, mtime_ms)** 校验。
+///
+/// cache-zpkg-candidate-scan（2026-09-04）：本扫描会把 libs 目录下**每个** zpkg 读进内存
+/// 再解析 NSPC，而 `loader::resolve_namespace` 每次调用都做一次完整扫描、
+/// `app::build_declared_candidates` 又按入口的**每个** import 命名空间各调一次
+/// —— hello world 因此做了 75 次读+解析（3 个命名空间 × 25 个包），实测 5.8–10 ms，
+/// 是启动耗时的最大头。单个包的读+解析只要 0.01–0.11 ms，成本全在重复。
+///
+/// **必须带 (size, mtime) 守卫**：REPL / z42b 会在运行中往 libs 目录写入新编译的 zpkg，
+/// 纯 path 键的缓存会读到旧导出面 —— `DepScanCache` 正是这么踩过一次
+/// （见 `GeneratorLoader.z42` 的注释）。守卫后重复扫描退化为 readdir + 每文件一次 stat。
+fn cached_zpkg_namespaces(path_str: &str) -> Option<Vec<String>> {
+    use std::sync::OnceLock;
+    type Memo = parking_lot::Mutex<std::collections::HashMap<String, (u64, i64, Vec<String>)>>;
+    static MEMO: OnceLock<Memo> = OnceLock::new();
+
+    let backend = fs_backend::active();
+    // **只在有真实 mtime 的后端上缓存**。内存后端（wasm host 把 stdlib zpkg 挂进 VFS）
+    // 的 `modified_ms` 恒返回 0——它的本意是「按最旧处理 ⇒ 缓存一律视为过期」，
+    // 但等值守卫会把它变成「永远命中」，正好相反。所以这里按后端种类显式放行：
+    // 新增后端时这个 match 会编译报错，逼着做同样的判断。
+    let stamp = match backend {
+        fs_backend::FsBackend::Native => {
+            match (backend.file_len(path_str), backend.modified_ms(path_str)) {
+                (Ok(len), Ok(ms)) => Some((len, ms)),
+                _ => None,   // stat 失败 → 退回「每次读+解析」，不缓存
+            }
+        }
+        fs_backend::FsBackend::Memory => None,
+    };
+    if let Some((len, ms)) = stamp {
+        let memo = MEMO.get_or_init(Default::default);
+        if let Some((clen, cms, ns)) = memo.lock().get(path_str) {
+            if *clen == len && *cms == ms {
+                return Some(ns.clone());
+            }
+        }
+    }
+
+    let data = backend.read(path_str).ok()?;
+    if data.len() < 4 || &data[0..4] != ZPKG_MAGIC { return None; }
+    let namespaces = read_zpkg_namespaces(&data).ok()?;
+    if let Some((len, ms)) = stamp {
+        MEMO.get_or_init(Default::default)
+            .lock()
+            .insert(path_str.to_string(), (len, ms, namespaces.clone()));
+    }
+    Some(namespaces)
 }
 
 /// Scan `dirs` (in caller order) for `.zbc` files, reading each one's single

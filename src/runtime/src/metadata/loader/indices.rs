@@ -5,6 +5,15 @@ use super::*;
 pub fn build_block_indices(module: &mut Module) {
     use crate::metadata::bytecode::{BranchTargets, Terminator};
     for func in &mut module.functions {
+        // cache-zpkg-candidate-scan（2026-09-04）：同一批函数会被跑**两遍**——
+        // 依赖 zpkg 作为 artifact 加载时一遍，合并进入口模块后又一遍（实测 z42.core
+        // 的 911 个函数第二遍纯浪费 0.65 ms）。`Function` 在合并时是**移动**而非克隆，
+        // 派生数据随之带过来，所以第二遍可以整段跳过。
+        // 判据用 `branch_targets`（本函数一定会把它填成与 `blocks` 等长）而不是
+        // `block_index`（无标签块的函数可能天然为空）。
+        if !func.blocks.is_empty() && func.branch_targets.len() == func.blocks.len() {
+            continue;
+        }
         func.block_index = func.blocks
             .iter()
             .enumerate()
