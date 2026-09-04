@@ -319,7 +319,6 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- test runtime
 
-
   # ── parallelize-host-package: SDK packaging, parallel to host tests (all 4 OS) ──
   # The host package (`xtask package release`) used to run sequentially after
   # `test all` on each build-and-test leg, adding ~10 min to the critical path. It's
@@ -355,21 +354,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # OWN cache key (not the shared host-v2): the package step builds z42 as
-      # cdylib + staticlib + z42-compression + apphost on top of bin/rlib. host-v2
-      # is saved by compile-toolchain (bin/rlib only), so sharing it meant those
-      # extra crate-types were never cached and recompiled cold every run (~6-8 min
-      # on Windows). A dedicated key caches the FULL package build → warm reuse.
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: package-host-v2
-
+      # OWN cache key (not the default artifact-host-v1): the package step below
+      # builds z42 as cdylib + staticlib + z42-compression + apphost on top of what
+      # the action itself builds. A dedicated key caches the FULL package build →
+      # warm reuse (sharing a narrower key meant those extra crate-types recompiled
+      # cold every run, ~6-8 min on Windows).
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          cache-key: package-host-v2
 
       - name: Package host RID (z42 xtask.zpkg package)
         shell: bash
@@ -546,22 +538,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # artifact-host-v1, NOT host-v2 —— 同 host-package 的理由（见该 job 注释）：
-      # host-v2 由跑 ci-bootstrap 的 job 保存，而 ci-bootstrap 只 `cargo build
-      # --bin z42vm`（bin/rlib）。所有走 xtask-bootstrap-artifact 的 job 建的是整个
-      # workspace（含 libz42 / libz42_compression 等 cdylib），共用 host-v2 意味着
-      # 那些 cdylib 永远进不了缓存、每次冷编。这 6 个 job 的 cargo 调用逐字相同，
-      # 故共享一个专属 key 即可全部命中。
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: artifact-host-v1
-
-      # cargo build z42vm + restore z42c/stdlib/xtask zpkgs at canonical paths
+      # cargo build z42vm + restore z42c/stdlib/xtask zpkgs at canonical paths。
+      # rust toolchain + rust-cache 由该 action 自带 —— 缓存 key 的选择理由（为什么
+      # 不能共用 ci-bootstrap 的 host-v2）现在写在 action 的 cache-key input 上，
+      # 单点维护，不再逐 job 复制。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
       # compile-once P2.4 (shared compiled assets): build the golden .zbc ONCE here
@@ -745,19 +725,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: artifact-host-v1
-
       # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
       # stdlib + xtask.zpkg) instead of re-bootstrapping per shard — removes 4×
       # redundant z42c/stdlib builds + the per-shard nightly-download drift flake
       # (xtask-review §3.1). Same consume path as host-package / assemble-current-sdk.
+      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
       # Golden .zbc are compiled ONCE by assemble-current-sdk (build test) and bundled
@@ -818,17 +790,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: artifact-host-v1
-
       # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
       # stdlib + xtask.zpkg) instead of re-bootstrapping per shard.
+      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
       - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/2)
@@ -871,18 +835,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: artifact-host-v1
-
       # Consume the toolchain artifact (z42c+stdlib+xtask.zpkg — arch-independent
       # bytecode) + cargo-build the native z42vm. macOS resolves toolchain-macos-15;
       # linux (x64 AND arm64) resolves toolchain-ubuntu-latest (zpkg is arch-neutral).
+      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
       - name: stdlib [Test] — INTERP mode (full)
@@ -996,15 +952,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: artifact-host-v1
-
+      # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
 
       - name: z42c self-host fixpoint (xtask test compiler)
@@ -1087,20 +1035,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-
-      - name: Setup Rust + iOS targets
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
-
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: ios-v2
-
-
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          cache-key: ios-v2
+          rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim
 
       - name: Package ios-arm64 + iossim-arm64 (z42 xtask.zpkg package)
         shell: bash
@@ -1166,12 +1104,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-
-      - name: Setup Rust + Android targets
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
@@ -1187,14 +1119,10 @@ jobs:
           ndk-version: r26d
           local-cache: false
 
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: android-v2
-
-
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          cache-key: android-v2
+          rust-targets: aarch64-linux-android,x86_64-linux-android
 
       - name: Package android-arm64 + android-x64 (z42 xtask.zpkg package)
         shell: bash
@@ -1271,25 +1199,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-
-      - name: Setup Rust + wasm target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
       - name: Install wasm-pack + wasm-tools
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack,wasm-tools
 
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: wasm-v2
-
-
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          cache-key: wasm-v2
+          rust-targets: wasm32-unknown-unknown
 
       - name: Build wasm platform (pkg-web/ + pkg-nodejs/ via test platform wasm build)
         shell: bash
@@ -1398,17 +1316,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Provision z42vm + xtask.zpkg so the release-packaging steps run as
-      # `xtask release …` (script-zero — no scripts/release/*.sh). Consumes the
-      # toolchain-ubuntu-latest artifact (z42c + stdlib + xtask.zpkg) + cargo
-      # builds z42vm. The action requires `needs: toolchain-bootstrap` (added).
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: artifact-host-v1
       - name: Provision z42vm + xtask (consume toolchain artifact)
         uses: ./.github/actions/xtask-bootstrap-artifact
 
@@ -1648,23 +1555,6 @@ jobs:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/artifacts/tools/playwright-browsers
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Rust + wasm target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      # ci-perf-tier2: tier-2 jobs previously had NO rust-cache — each cold-built
-      # z42vm + native slices via cargo. workspaces points at the repo's custom
-      # target-dir (root .cargo/config `target-dir = artifacts/build/runtime`);
-      # distinct key per job so wasm/ios/android caches don't thrash each other.
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          # shared-key（非 key）：Swatinem 的 `key` 只是在自动生成的
-          # job+matrix key 上再追加一段，3 个 shard 因此各存一份内容完全
-          # 相同的缓存（3× 存储、shard 2/3 永远冷 miss）。shared-key 替换掉
-          # job/matrix 分量，三个 shard 真正共享一份。
-          shared-key: tier2-wasm
       - name: Install wasm-pack
         uses: taiki-e/install-action@v2
         with:
@@ -1685,6 +1575,9 @@ jobs:
           path: ${{ github.workspace }}/artifacts/tools/playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('src/toolchain/workload/wasm/platform/tests/package-lock.json') }}
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          cache-key: tier2-wasm
+          rust-targets: wasm32-unknown-unknown
       - name: Prime Playwright (node deps + Chromium + OS libs)
         shell: bash
         run: |
@@ -1789,21 +1682,10 @@ jobs:
       checks: write
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Rust + iOS targets
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
-      # ci-perf-tier2: rust-cache (custom target-dir); distinct key per tier-2 job.
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          # shared-key（非 key）：Swatinem 的 `key` 只是在自动生成的
-          # job+matrix key 上再追加一段，3 个 shard 因此各存一份内容完全
-          # 相同的缓存（3× 存储、shard 2/3 永远冷 miss）。shared-key 替换掉
-          # job/matrix 分量，三个 shard 真正共享一份。
-          shared-key: tier2-ios
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          cache-key: tier2-ios
+          rust-targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
       - name: test platform ios + embedded (shard ${{ matrix.shard }}/3, one simulator run)
         shell: bash
         run: |
@@ -1880,20 +1762,6 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Setup Rust + Android targets
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-      # ci-perf-tier2: rust-cache (custom target-dir); distinct key per tier-2 job.
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          # shared-key（非 key）：Swatinem 的 `key` 只是在自动生成的
-          # job+matrix key 上再追加一段，3 个 shard 因此各存一份内容完全
-          # 相同的缓存（3× 存储、shard 2/3 永远冷 miss）。shared-key 替换掉
-          # job/matrix 分量，三个 shard 真正共享一份。
-          shared-key: tier2-android
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
@@ -1909,6 +1777,9 @@ jobs:
         with:
           ndk-version: r26d
       - uses: ./.github/actions/xtask-bootstrap-artifact
+        with:
+          cache-key: tier2-android
+          rust-targets: aarch64-linux-android,x86_64-linux-android
       - name: test platform android — cargo-ndk + AAR + assets
         shell: bash
         env:
@@ -2035,17 +1906,8 @@ jobs:
       checks: write
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-      # 此前这个 job 完全没有 rust-cache —— 每次都冷编整个 runtime workspace。
-      # 与其余 xtask-bootstrap-artifact 消费方共享同一个 key（cargo 调用逐字相同）。
-      - name: Cache Rust deps (Swatinem)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: artifact-host-v1
       # consume the toolchain-ubuntu-latest artifact (z42c + stdlib + xtask)
-      # + cargo-build z42vm.
+      # + cargo-build z42vm。rust toolchain + rust-cache 由该 action 自带。
       - uses: ./.github/actions/xtask-bootstrap-artifact
       - name: test platform desktop (Tier-1 C ABI R1–R7)
         shell: bash
