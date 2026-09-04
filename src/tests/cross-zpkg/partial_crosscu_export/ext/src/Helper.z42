@@ -1,0 +1,14 @@
+namespace Demo.PCalcExt;
+
+using Demo.PCalc;
+
+// 跨包消费 demo.pcalc 的导出面：`Double` / `Triple` 的声明碎片在 target 的另一个 CU 里被擦除，
+// 这里能不能解析到它们，取决于那个 CU 的 TSIG 是否带上了实现碎片注册的键。
+public class Helper {
+    public static int DoubleThenQuad(int n) {
+        var c = new Calc();
+        return c.Quad(c.Double(n));
+    }
+
+    public static int TripleTwice(int n) { return Calc.Triple(Calc.Triple(n)); }
+}

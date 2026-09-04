@@ -9,7 +9,8 @@
 //   多个不可比 = 歧义。v1 不做 int→long→double 隐式数值排序（并列即歧义，让用户显式 cast）。
 namespace Z42.Semantics;
 
-using Z42.IR;       // unify-regkey-source-of-truth：MethodKeyOf 收 MethodDecl
+using Z42.Syntax;   // MethodKeyOf 收 MethodDecl（阶段 1 的 `using Z42.IR` 是 DRAFT 版签名
+                    // 收 StrMap 时加的，实现改收类型后就没用了 —— 顺手订正）
 
 // 决议结果（z42 无元组 → holder）。Kind：0=Resolved，1=NoMatch，2=Ambiguous。
 public sealed class OverloadResult {
@@ -39,15 +40,24 @@ public sealed class OverloadResolver {
     // `sig.ParamTypes[1]` 在 len-1 上越界，gen2 z42c 建 z42.core 直接崩 —— 那次返工的
     // 直接成因就是这份复制。收敛到此处后，改键规则只需动这一个地方。
     //
-    // `owner` = 要在其中解析的类型（不同调用点分别是 ct / 祖先 chain 的一环 / impl 目标）。
-    // **容忍 owner == null**（IrGen 两处的既有守卫：拿不到 owner 时退回裸名）。
-    public static string MethodKeyOf(Z42ClassType owner, MethodDecl md) {
-        if (md.RegKey != "") { return md.RegKey; }                       // 正常路径：注册时写入的键
-        // 以下仅对 RegKey 未填者生效。写侧收敛后，唯一残留者是被擦除的 decl-only
-        // partial（它没有自己的注册动作）——靠名字去命中实现碎片注册的那个符号。
-        string arityKey = md.Name + "$" + md.ParamCount.ToString();
-        if (owner != null && owner.Methods.ContainsKey(arityKey)) { return arityKey; }
-        return md.Name;
+    // **阶段 2（本变更）：回落已删。** 写侧收敛后，进到这 6 个消费点的 MethodDecl 全部
+    // 经 `MemberCollector._fillClass`（含擦除分支顺手写键）或 `InheritanceResolver._passImpls`
+    // 填过 RegKey —— 回落分支在全仓库 + 自举 + 全套测试下**一次都不触发**（用「命中即抛」
+    // 的探针实测过）。故不再按名字猜键，改为**守住不变量**：
+    //
+    //   RegKey 为空 = 有新的注册路径漏走 `SymbolCollector.RegisterMethod`（唯一注册入口）。
+    //
+    // 这里**必须抛而不是回落**：派发相关缺陷的失败模式是「静默派发到错误目标」——
+    // 猜出来的裸名可能恰好命中**另一个同名重载**（#414 后 primary 才是裸键），
+    // 编译照样成功、跑起来才错。宁可在编译期炸出调用栈。
+    // 不接收 owner（不再查表）：调用点少一个「拿 owner」的负担，也杜绝「传错 owner
+    // 导致解析到别的类型」这类新错法。
+    public static string MethodKeyOf(MethodDecl md) {
+        if (md.RegKey == "") {
+            throw new Exception("MethodKeyOf: method `" + md.Name + "` has no RegKey — "
+                + "注册路径漏走 SymbolCollector.RegisterMethod（unify-regkey 不变量）");
+        }
+        return md.RegKey;
     }
 
     // ── 签名键派生 ──────────────────────────────────────────────────────────

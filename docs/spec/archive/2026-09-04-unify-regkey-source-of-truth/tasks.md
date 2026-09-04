@@ -2,6 +2,10 @@
 
 > 状态：🟢 阶段 1 实施+验证完成（阶段 2 另 PR）| 创建：2026-09-04 | 修订：2026-09-04（方向重定）
 > 类型：refactor(compiler)，目标**字节中性** | 见 [proposal.md](proposal.md) / [design.md](design.md)
+>
+> **阶段 2 已完成**（2026-09-05，另 PR）：读侧回落删除 → `MethodKeyOf` 收窄为不变量守卫，
+> 并补齐下面「阶段 2」列出的两块零覆盖测试。详见
+> [`archive/2026-09-05-unify-regkey-phase2`](../2026-09-05-unify-regkey-phase2/tasks.md)。
 
 ## 阶段 0 — 审批（当前）
 

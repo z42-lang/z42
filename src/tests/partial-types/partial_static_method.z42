@@ -1,0 +1,20 @@
+// unify-regkey-phase2 前置：**static partial method**（此前全仓库无此写法 → 零覆盖）。
+// 静态方法的注册键走【全签名 mangle】（stabilize-dispatch-keys 方案 A），与实例方法的
+// primary 裸键 / 非-primary 全键规则不同；声明碎片被擦除后，消费方（TSIG 导出 / 暴露检查）
+// 解析出的键必须同样是那个 mangle 键，才能命中实现碎片注册的符号。
+namespace PartialStaticTest;
+
+partial class Util {
+    static partial int Triple(int n);                                  // 声明侧（无 body）
+    static partial void OnUnusedStatic();                              // 无实现 → 整体擦除
+    public static int Nine(int n) { return Util.Triple(Util.Triple(n)); }
+}
+
+partial class Util {
+    static partial int Triple(int n) { return n * 3; }                 // 实现侧
+}
+
+void Main() {
+    Assert.Equal(9, Util.Nine(1));    // Triple(Triple(1)) = 9
+    Assert.Equal(6, Util.Triple(2));  // 直接调用配对实现
+}

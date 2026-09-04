@@ -116,6 +116,26 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 **格式**：一次性迁移 bump zbc 1.37→1.38 / zpkg 0.42→0.43，`ci-bootstrap` 版本差 gate 走两代自举吸收（gen1==gen2 字节不动点）。此后加/删重载永久 additive、不再 bump。设计全文（含泛型 H2/H3/H5 降为前向守卫、D4a 决议优先级）见变更归档 `docs/spec/archive/…-stabilize-instance-dispatch-keys`。
 
+#### 注册键的单一 owner（写侧唯一入口 + 读侧不变量）
+
+上一节那套键规则，此前**被手抄了 7 份**（`ClassExtractor` ×2 / `DeclBinder` ×3 / `IrGenTypeEmitter` / `IrGenMemberEmitter`），每份都长这样：「先试 `md.RegKey`，空则试 `Name$arity`，再空则退回裸名」。#414 改键规则时漏同步其中一份（祖先方法的 TSIG 导出），拿错 symbol 后越界，gen2 z42c 建 `z42.core` 直接崩——**那次返工的直接成因就是这份复制**。
+
+收敛成两个口子，各自只有一个实现：
+
+| 方向 | 唯一实现 | 职责 |
+|------|---------|------|
+| **写** | `SymbolCollector.RegisterMethod(ct, md, sym, key)` | `sym.RegKey = key` + `md.RegKey = key` + `ct.Methods.Put(key, sym)` 三件事绑成一个动作 → 结构上不可能「注册了却没填键」（旧 `InheritanceResolver._passImpls` 正是只 `Put` 不写，害得 impl-block 方法的 `RegKey` 恒空、逼出上面那圈兜底） |
+| **读** | `OverloadResolver.MethodKeyOf(md)` | 直接返回 `md.RegKey`；**为空即抛**，不再按名字猜 |
+
+**为什么读侧宁可抛也不回落**：猜出来的裸名在 primary/非-primary 规则下可能恰好命中**另一个同名重载**（primary 才是裸键）——编译成功、跑起来才派发错人。派发缺陷的典型失败模式就是这种「静默派发到错误目标」，编译期炸出调用栈远好过运行期查半天。
+
+**不变量**：凡进入语义层的 class/struct/impl 方法，`RegKey` 必非空。两类容易误判为反例的：
+
+- **impl-block 方法**：不参与 primary/非-primary，恒用裸名（并入需 rekey + 格式 bump，是独立的语义扩展）；由 `_passImpls` 走写侧入口补齐。
+- **被擦除的 decl-only partial**：它自己不注册符号，但 `MemberCollector` 的擦除分支**照样写键**——消费方（TSIG 导出 / 暴露检查）要问的是「该解析到哪个键」，答案正是实现碎片注册的那个。两侧键一致：静态走全签名 mangle（只依赖签名）；实例恒裸名（decl-only 不进 primary tracker）。**同名重载分处两碎片时不成立**，但那是 partial v1 的既有限制（重载须同碎片）。
+
+回归守卫：`src/tests/cross-zpkg/partial_crosscu_export/`（跨-CU partial 的导出面）+ `src/tests/partial-types/partial_static_method.z42`（`static partial`）。
+
 ### IR 生成（IrGen）
 
 Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 `Class.Method`（类方法）或函数名（顶层函数）为键。
