@@ -50,11 +50,21 @@ type(scope): 描述
 
 ## 页脚
 
-AI 生成的提交在信息末尾附：
+AI 生成的提交在信息末尾附 **当次会话给出的模型** 署名行：
 
 ```
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 ```
+
+AI 生成的 PR，描述末尾附：
+
+```
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+> **署谁以工具链当次下发的 attribution 为准**——Claude Code 每次会话会给出当前模型的署名
+> 格式，本文件只约定**新提交**跟着它走，换模型时不回头改历史提交。
+> 沿革：`Claude Opus 4.8 (1M context)` → `Claude Opus 5`（2026-09-05）。
 
 ## 示例
 
