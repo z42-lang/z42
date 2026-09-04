@@ -470,3 +470,58 @@ fn mode_from_runtime_table_when_env_unset() {
     let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&t));
     assert_eq!(cfg.mode.as_deref(), Some("aot"), "[runtime].mode used when env unset");
 }
+
+// ── add-gc-runtime-knobs (2026-09-05) ────────────────────────────────────────
+
+#[test]
+fn gc_max_bytes_accepts_plain_counts_and_binary_suffixes() {
+    let cases: &[(&str, Option<u64>)] = &[
+        ("536870912", Some(536870912)),
+        ("512MB",     Some(512 * 1024 * 1024)),
+        ("512mb",     Some(512 * 1024 * 1024)),
+        ("512 MB",    Some(512 * 1024 * 1024)),
+        ("2G",        Some(2 * 1024 * 1024 * 1024)),
+        ("64k",       Some(64 * 1024)),
+        // Explicitly-unlimited spellings, and the historical "unset" default.
+        ("0",         None),
+        ("unlimited", None),
+        ("none",      None),
+        ("",          None),
+    ];
+    for (raw, want) in cases {
+        let env = fake_env(&[("Z42_GC_MAX_BYTES", raw)]);
+        assert_eq!(parse_gc_max_bytes(&env), *want, "Z42_GC_MAX_BYTES={raw:?}");
+    }
+}
+
+#[test]
+fn gc_max_bytes_rejects_garbage_as_unlimited_rather_than_guessing() {
+    // A wrong budget is worse than none: guessing here would silently change
+    // collection behaviour on a typo.
+    for raw in ["abc", "12x", "1.5GB", "-1", "99999999999999999999G"] {
+        let env = fake_env(&[("Z42_GC_MAX_BYTES", raw)]);
+        assert_eq!(parse_gc_max_bytes(&env), None, "Z42_GC_MAX_BYTES={raw:?}");
+    }
+}
+
+#[test]
+fn bool_knob_honours_falsey_spellings() {
+    for raw in ["0", "false", "FALSE", "off", "no", " ", ""] {
+        let env = fake_env(&[("Z42_GC_TRACE", raw)]);
+        assert!(!parse_bool_knob(&env, "Z42_GC_TRACE"), "{raw:?} must be off");
+    }
+    for raw in ["1", "true", "on", "yes", "anything"] {
+        let env = fake_env(&[("Z42_GC_TRACE", raw)]);
+        assert!(parse_bool_knob(&env, "Z42_GC_TRACE"), "{raw:?} must be on");
+    }
+    let empty = fake_env(&[]);
+    assert!(!parse_bool_knob(&empty, "Z42_GC_TRACE"), "unset must be off");
+}
+
+#[test]
+fn new_gc_knobs_are_registered_in_known_knobs() {
+    let names: Vec<&str> = KNOWN_KNOBS.iter().map(|k| k.name).collect();
+    for required in ["Z42_GC_MAX_BYTES", "Z42_GC_TRACE"] {
+        assert!(names.contains(&required), "{required} missing from KNOWN_KNOBS");
+    }
+}
