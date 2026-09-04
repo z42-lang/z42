@@ -17,7 +17,18 @@ namespace Std;
 // 是 primitive `string` 的包装，`s.Length` / `s.Contains(...)` 皆为实例调用，且实现
 // IComparable/IEquatable（实例契约）。`static` 与实例成员/接口矛盾（旧 z42c 静默忽略
 // class 上的 `static`）。对齐 C# `sealed class System.String`：sealed（禁继承 + 去虚化）。
-public sealed class String : IComparable<string>, IEquatable<string> {
+//
+// augment-string-prelude (2026-09-04)：声明 `partial`，把 Split/Join/Concat/Format 移到碎片
+// `String.Split.z42`，为补齐 char-based BCL 方法腾出行数（补齐后核心文件会超 500 行硬限）。
+//
+// ⚠️ 碎片归属规则：**同名方法组必须整组落在同一碎片**。方法注册键的 primary 判定
+// （MemberCollector 的 `emittedInst`，见 stabilize-instance-dispatch-keys）是**每-碎片**
+// 的局部状态——「声明序首个同名 → 裸键，其余 → 全签名键」里的「首个」只在本碎片内计数。
+// 同名方法分处两碎片时，两边都认为自己是首个而取同一个裸键，后合并者在 `ct.Methods` 里
+// **静默覆盖**前者（签名不同，不触发 E0433），调用方随之派发到错误重载。
+// 故：`Substring`×2 / `Equals`×2 留在本碎片，`Split`×2 整组移到 String.Split.z42。
+// （该限制是 partial v1 的 Deferred 项，见 language/partial-types.md。）
+public sealed partial class String : IComparable<string>, IEquatable<string> {
     // ── Intrinsic core (extern) ──────────────────────────────────────────────
 
     // Number of Unicode scalar values (characters) in this string. O(n) —
@@ -261,206 +272,5 @@ public sealed class String : IComparable<string>, IEquatable<string> {
             if (!value.CharAt(i).IsWhiteSpace()) return false;
         }
         return true;
-    }
-
-    // ── Split / Join (Wave 1.5, 2026-04-27 wave1-string-script) ─────────────
-    // 从 [Native] 迁纯脚本（BCL `string.Split` / Rust `str::split` 都是源码）。
-    // 两遍扫描：先数 split 个数，再分配 string[] 一次性填充。
-
-    // Split this string by `separator` into segments. Empty separator throws.
-    public string[] Split(string separator) {
-        int sepLen = separator.Length;
-        if (sepLen == 0) {
-            throw new Exception("string.Split: separator must not be empty");
-        }
-        // char[]-script: bulk-materialise once, scan over ArrayGet (whole-string
-        // two-pass scan → materialisation amortised). Substring extraction unchanged.
-        char[] t = this.ToCharArray();
-        char[] sp = separator.ToCharArray();
-        int n = t.Length;
-        // Pass 1: count parts (matches + 1)
-        int count = 1;
-        int i = 0;
-        while (i <= n - sepLen) {
-            bool hit = true;
-            for (int j = 0; j < sepLen; j++) {
-                if (t[i + j] != sp[j]) { hit = false; break; }
-            }
-            if (hit) { count = count + 1; i = i + sepLen; }
-            else     { i = i + 1; }
-        }
-        // Pass 2: extract parts
-        string[] result = new string[count];
-        int idx = 0;
-        int start = 0;
-        int k = 0;
-        while (k <= n - sepLen) {
-            bool hit = true;
-            for (int j = 0; j < sepLen; j++) {
-                if (t[k + j] != sp[j]) { hit = false; break; }
-            }
-            if (hit) {
-                result[idx] = this.Substring(start, k - start);
-                idx = idx + 1;
-                k = k + sepLen;
-                start = k;
-            } else {
-                k = k + 1;
-            }
-        }
-        result[idx] = this.Substring(start, n - start);
-        return result;
-    }
-
-    // add-string-split-options (2026-05-27): 带 options 的重载。
-    // options 是 `Std.SplitOptions.*` 的 bitwise OR。
-    //
-    // 实现：先复用单参 Split 拿原始段，再按 options 后处理（trim / 滤空）。
-    // 两阶段比"在 split 主循环里嵌入分支"代码量大致相等且更易读 + 易测。
-    public string[] Split(string separator, int options) {
-        string[] raw = this.Split(separator);
-        bool trim   = (options & SplitOptions.TrimEntries) != 0;
-        bool dropEmpty = (options & SplitOptions.RemoveEmptyEntries) != 0;
-        if (!trim && !dropEmpty) return raw;
-
-        // Pass 1: trim (if requested) + count keeps
-        string[] processed = new string[raw.Length];
-        int keep = 0;
-        int i = 0;
-        while (i < raw.Length) {
-            string s = raw[i];
-            if (trim) s = s.Trim();
-            if (dropEmpty && s.Length == 0) { i = i + 1; continue; }
-            processed[keep] = s;
-            keep = keep + 1;
-            i = i + 1;
-        }
-        // Pass 2: compact to keep-sized array
-        if (keep == raw.Length) return processed;
-        string[] result = new string[keep];
-        int j = 0;
-        while (j < keep) {
-            result[j] = processed[j];
-            j = j + 1;
-        }
-        return result;
-    }
-
-    // Static: namespaced as String.Join. stabilize-dispatch-keys 落地 params——
-    // 单一 params 重载同时覆盖 normal form（`Join(sep, arr)` 直传 string[]）与 expanded form
-    // （`Join(sep, a, b, c)` 编译期打包 string[]）。取代此前的 `Join(string, string[])` +
-    // `Join(string, string, string, string)` 双重载（params string[] 与 string[] 同签名，二者不可并存）。
-    // 历史：曾保留左折叠 `+`——因为当时唯一替代是 char[]+CharAt 重建（每字符一次 builtin 派发，16 段基准
-    // 反慢 4×）。perf-stdlib-hot-paths 后有了 `ConcatParts`（单次原生拼接、无逐字符派发），O(n²) 与
-    // 逐字符两个问题同时消失，故改走它（对比数据见归档 tasks）。
-    public static string Join(string separator, params string[] values) {
-        int n = values.Length;
-        if (n == 0) return "";
-        if (n == 1) return values[0];
-        // perf-stdlib-hot-paths：交错成 [v0, sep, v1, sep, …] 一次 ConcatParts（原左折叠 `+` 为 O(n²) 拷贝）。
-        string[] parts = new string[n * 2 - 1];
-        parts[0] = values[0];
-        int k = 1;
-        for (int i = 1; i < n; i++) {
-            parts[k] = separator;
-            parts[k + 1] = values[i];
-            k = k + 2;
-        }
-        return String.ConcatParts(parts, parts.Length);
-    }
-
-    // ── Remaining intrinsic-backed methods (perf-sensitive / 协议依赖) ───────
-    // 2026-04-27 wave3a-str-concat-script: 脚本实现 —— `+` 编译为 IR
-    // `StrConcatInstr` 指令（见 FunctionEmitterCalls.EmitConcat），与原
-    // `__str_concat` builtin 等价，无需 builtin。
-    // migrate-stdlib-to-params：单一 params 重载同时覆盖 normal form（`Concat(arr)` 直传
-    // string[]）与 expanded form（`Concat(a, b, c)` 编译期打包 string[]）。取代此前的
-    // `Concat(a,b)` + `Concat(a,b,c)` 双固定-arity 重载。无分隔符逐段拼接；零实参 → ""。
-    // perf-stdlib-hot-paths：一次 ConcatParts（原左折叠 `+` 为 O(n²) 拷贝）；n≤2 时 `+` 本就是单次分配，直接用。
-    public static string Concat(params string[] values) {
-        int n = values.Length;
-        if (n == 0) return "";
-        if (n == 1) return values[0];
-        if (n == 2) return values[0] + values[1];
-        return String.ConcatParts(values, n);
-    }
-    // 2026-04-27 wave3b-str-format-script: 脚本实现，链式 Replace + Convert.ToString。
-    // 与原 builtin 等价（顺序替换 {0} → {1} → …，未支持 {0:F2} 等格式说明符；
-    // 后者待 IFormattable 协议引入后独立 spec）。
-    // migrate-stdlib-to-params：`params object[]` 单一重载取代 `Format(fmt,arg0)` +
-    // `Format(fmt,arg0,arg1)`，循环把 `{i}` 替换为 `Convert.ToString(args[i])`（混类型装箱）。
-    // perf: single scan substituting `{n}` tokens (was k chained full-string
-    // `Replace` passes + k needle builds + Convert.ToString per pass → O(k·len)).
-    // Args are stringified once; two passes over the (short) format compute the
-    // exact length then fill one char[]. Non-recursive substitution (matches C#;
-    // the old chained Replace could re-substitute inside an arg's text).
-    public static string Format(string format, params object[] args) {
-        int argN = args.Length;
-        string[] argStr = new string[argN];
-        int a = 0;
-        while (a < argN) { argStr[a] = Convert.ToString(args[a]); a = a + 1; }
-        int flen = format.Length;
-
-        // pass 1: output length
-        int total = 0;
-        int i = 0;
-        while (i < flen) {
-            int endJ = String._fmtToken(format, flen, i, argN);
-            if (endJ >= 0) {
-                int idx = String._fmtIndex(format, i + 1);
-                total = total + argStr[idx].Length;
-                i = endJ + 1;
-            } else {
-                total = total + 1;
-                i = i + 1;
-            }
-        }
-
-        // pass 2: fill
-        char[] buf = new char[total];
-        int pos = 0;
-        i = 0;
-        while (i < flen) {
-            int endJ = String._fmtToken(format, flen, i, argN);
-            if (endJ >= 0) {
-                string s = argStr[String._fmtIndex(format, i + 1)];
-                int sl = s.Length;
-                int k = 0;
-                while (k < sl) { buf[pos] = s.CharAt(k); pos = pos + 1; k = k + 1; }
-                i = endJ + 1;
-            } else {
-                buf[pos] = format.CharAt(i);
-                pos = pos + 1;
-                i = i + 1;
-            }
-        }
-        return String.FromChars(buf);
-    }
-
-    // If format[start] begins a valid `{n}` token with n < argN, return the index
-    // of its closing `}`; else -1. (start points at `{`.)
-    private static int _fmtToken(string format, int flen, int start, int argN) {
-        if (format.CharAt(start) != '{') { return -1; }
-        int j = start + 1;
-        bool hasDigit = false;
-        int idx = 0;
-        while (j < flen) {
-            int dc = (int)format.CharAt(j);
-            if (dc >= 48 && dc <= 57) { idx = idx * 10 + (dc - 48); hasDigit = true; j = j + 1; }
-            else { break; }
-        }
-        if (hasDigit && j < flen && format.CharAt(j) == '}' && idx < argN) { return j; }
-        return -1;
-    }
-
-    // Parse the decimal index starting at `digitStart` (after a validated `{`).
-    private static int _fmtIndex(string format, int digitStart) {
-        int idx = 0;
-        int j = digitStart;
-        while (true) {
-            int dc = (int)format.CharAt(j);
-            if (dc >= 48 && dc <= 57) { idx = idx * 10 + (dc - 48); j = j + 1; }
-            else { return idx; }
-        }
     }
 }
