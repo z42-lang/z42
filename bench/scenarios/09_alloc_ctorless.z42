@@ -1,0 +1,56 @@
+// E2E benchmark scenario: allocation-heavy loop over a **ctor-less** class
+// (cache-failed-name-resolution, 2026-09-04).
+//
+// Why this scenario exists: a class with no explicit constructor makes every
+// `new` look up a `<Class>..ctor$0` that does not exist. Before #421 that
+// failed lookup was re-walked in full on **every single allocation** (namespace
+// routing + Fallback-B over every declared-but-unloaded zpkg, twice per `new`
+// in the JIT path) — 53% of this workload's samples, none of it in the
+// allocator. `Node` therefore deliberately has no constructor; adding one would
+// silently stop guarding that path.
+//
+// The body keeps a rolling live set so the objects are really allocated and
+// really stored (an escape-analysis or DCE pass must not be able to fold the
+// loop away), while the bulk becomes garbage — this also exercises object
+// alloc + field encode + write barriers.
+//
+// Expected output (deterministic): 71999644
+
+namespace Bench.AllocCtorless;
+
+using Std.IO;
+
+class Node {
+    public int A;
+    public long B;
+    public double C;
+    public bool D;
+    public Node Next;
+    public string Tag;
+}
+
+long Drive(long n, int keep) {
+    Node[] live = new Node[keep];
+    long acc = 0L;
+    long i = 0L;
+    while (i < n) {
+        Node x = new Node();
+        x.A = (int)(i % 97L);
+        x.B = i;
+        x.C = 1.5;
+        x.D = true;
+        // Chain to the slot we are about to overwrite: keeps a real reference
+        // field live (write barrier) instead of a dead store.
+        int slot = (int)(i % (long)keep);
+        x.Next = live[slot];
+        acc = acc + (long)x.A;
+        live[slot] = x;
+        i = i + 1L;
+    }
+    return acc;
+}
+
+void Main() {
+    long result = Drive(1500000L, 4096);
+    Console.WriteLine(result.ToString());
+}
