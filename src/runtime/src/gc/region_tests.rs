@@ -615,3 +615,65 @@ fn region_drop_after_slot_reuse_drops_each_value_exactly_once() {
     }
     assert_eq!(drop_count.load(Ordering::Acquire), 2);
 }
+
+// ── shrink-object-footprint P1: finalizer slot ──────────────────────────────
+
+#[test]
+fn region_entry_stays_lean_for_script_objects() {
+    use std::mem::size_of;
+    // The whole point of P1: a `RegionEntry` header must not carry a 24-byte
+    // mutex-wrapped finalizer for a capability nothing registers. `T + 40`.
+    assert_eq!(
+        size_of::<RegionEntry<crate::metadata::ScriptObject>>(),
+        size_of::<crate::metadata::ScriptObject>() + 40,
+        "RegionEntry header grew — check what was added before updating this number",
+    );
+}
+
+#[test]
+fn finalizer_set_take_is_fire_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let entry = RegionEntry::new_for_test(7u32);
+    assert!(!entry.has_finalizer());
+    assert!(entry.take_finalizer().is_none());
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = Arc::clone(&hits);
+    entry.set_finalizer(Arc::new(move || { h.fetch_add(1, Ordering::SeqCst); }));
+    assert!(entry.has_finalizer());
+
+    let fin = entry.take_finalizer().expect("installed finalizer");
+    fin();
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    // Fire-once: the slot is empty after the take.
+    assert!(!entry.has_finalizer());
+    assert!(entry.take_finalizer().is_none());
+}
+
+#[test]
+fn finalizer_reinstall_drops_the_previous_box() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    // `dropped` counts how many of the closures' captured Arcs have been released,
+    // which is how we see that overwriting a slot frees the old box.
+    let live = Arc::new(AtomicUsize::new(0));
+    let entry = RegionEntry::new_for_test(1u32);
+
+    let a = Arc::clone(&live);
+    entry.set_finalizer(Arc::new(move || { a.fetch_add(1, Ordering::SeqCst); }));
+    assert_eq!(Arc::strong_count(&live), 2, "first closure holds a clone");
+
+    let b = Arc::clone(&live);
+    entry.set_finalizer(Arc::new(move || { b.fetch_add(1, Ordering::SeqCst); }));
+    assert_eq!(
+        Arc::strong_count(&live), 2,
+        "re-installing must drop the previous finalizer box, not leak it",
+    );
+
+    drop(entry);
+    assert_eq!(
+        Arc::strong_count(&live), 1,
+        "dropping the entry must free an un-taken finalizer",
+    );
+}

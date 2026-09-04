@@ -29,7 +29,7 @@ src/runtime/src/corelib/sync.rs	574
 src/runtime/src/gc/arc_heap/alloc.rs	601
 src/runtime/src/gc/heap.rs	512
 src/runtime/src/gc/refs.rs	620
-src/runtime/src/gc/region.rs	1036
+src/runtime/src/gc/region.rs	754
 src/runtime/src/host/mod.rs	763
 src/runtime/src/jit/frame.rs	581
 src/runtime/src/main.rs	568

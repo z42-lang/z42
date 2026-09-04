@@ -333,7 +333,7 @@ pub(super) fn type_handle(args: &[Value]) -> Option<Arc<TypeDesc>> {
     match args.first() {
         Some(Value::Object(rc)) => {
             let obj = rc.borrow();
-            match &obj.native {
+            match &obj.native() {
                 NativeData::TypeHandle(td) => Some(td.clone()),
                 _ => None,
             }

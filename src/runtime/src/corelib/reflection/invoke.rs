@@ -291,7 +291,7 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
         let names: Vec<String> = rc.borrow().iter_boxed().filter_map(|v| type_arg_name(&v)).collect();
         if !names.is_empty() {
             if let Value::Object(orc) = &obj {
-                orc.borrow_mut().type_args = names.into_boxed_slice();
+                orc.borrow_mut().set_type_args(names.into_boxed_slice());
             }
         }
     }

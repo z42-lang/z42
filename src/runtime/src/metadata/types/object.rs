@@ -47,44 +47,114 @@ pub enum NativeData {
 //   2. A flat slot array (Vec<Value>)            — instance fields by index
 //   3. Optional native backing (NativeData)      — for built-in types
 
+/// shrink-object-footprint P3: the cold per-instance side-fields of a
+/// [`ScriptObject`]. Allocated only when at least one of them is non-empty.
+#[derive(Debug, Default)]
+struct ObjExtras {
+    /// Native backing for built-in types (WeakRef / Type / LoadContext / Assembly).
+    native: NativeData,
+    /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): per-instance
+    /// generic type-arguments. For `new Foo<int, string>()` this is
+    /// `["int", "string"]`. Index aligns with `type_desc.type_params`.
+    /// Read by `DefaultOf` and runtime type-args queries.
+    type_args: Box<[String]>,
+}
+
+impl Default for NativeData {
+    fn default() -> Self { NativeData::None }
+}
+
 /// Heap-allocated managed object with reference semantics (CoreCLR Object equivalent).
 #[derive(Debug)]
 pub struct ScriptObject {
     /// Type descriptor shared across all instances of this class.
     pub type_desc: Arc<TypeDesc>,
-    /// unify-object-byte-layout (PR-2): the object's **byte-packed** field storage.
+    /// shrink-object-footprint P2: the object's field payload — the **byte-packed**
+    /// primitive leaves and the **reference leaves**, in ONE allocation
+    /// (see [`ObjStorage`]).
+    ///
     /// Every primitive leaf of every direct field (incl. inline-struct interior
     /// primitive leaves) lives at its composed byte offset (`ObjectLayout::field_access`
-    /// / `field_offsets`); reference fields occupy an 8B hole here (dead in PR-2 — the
-    /// value is in `refs`; PR-3 inlines the 8B pointer). Replaces the pre-PR-2
-    /// `slots: Box<[Value]>` + `struct_bytes` (P3b). Size = `ObjectLayout::size`
-    /// (or the type's `struct_layout` size for a boxed value struct). Zero-initialized
-    /// at alloc = every primitive field's default (0 / false / '\0').
-    pub bytes: Box<[u8]>,
-    /// unify-object-byte-layout (PR-2): the object's **reference leaves** as real
-    /// `Value`s in a side-table — every reference field + every inline-struct interior
-    /// reference leaf, ordered by the composed reference bitmap
-    /// (`ObjectLayout::ref_offsets` / `FieldAccess::ref_slot`). GC scans these directly
-    /// (`visitor(&Value)`); a write to one is a plain `Value`-slot store routed through
-    /// `write_barrier_field`. Replaces the pre-PR-2 `struct_refs` (P3b) and the
-    /// reference cells of `slots`. `Null`-filled at alloc.
-    pub refs: Box<[Value]>,
-    /// Native backing for built-in types (e.g. StringBuilder buffer).
-    pub native: NativeData,
-    /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): per-instance
-    /// generic type-arguments. For `new Foo<int, string>()` this is
-    /// `["int", "string"]`. Empty for non-generic classes and uninstantiated
-    /// generic definitions. Index aligns with `type_desc.type_params`.
-    /// Read by `DefaultOf` opcode and any future runtime type-args queries.
+    /// / `field_offsets`) in `storage.bytes()`; every reference leaf lives in
+    /// `storage.refs()`, ordered by the composed reference bitmap
+    /// (`ObjectLayout::ref_offsets` / `FieldAccess::ref_slot`). GC scans the reference
+    /// side directly (`visitor(&Value)`); a write to one is a plain `Value`-slot store
+    /// routed through `write_barrier_field`.
     ///
-    /// review.md E5.4 follow-up (2026-05-27): `Box<[String]>` instead of
-    /// `Vec<String>` — written exactly once at `obj.new` time, then
-    /// read-only for the object's lifetime. Saves 8 B/ScriptObject vs
-    /// `Vec`. StringId migration deferred to Phase B+.
-    pub type_args: Box<[String]>,
+    /// Was two separate boxed slices (`bytes: Box<[u8]>` + `refs: Box<[Value]>`) =
+    /// two mallocs and 32 bytes of fat pointer per object.
+    pub storage: ObjStorage,
+    /// shrink-object-footprint P3: the two **cold** per-instance side-fields —
+    /// native backing and generic type-arguments — behind one optional box.
+    ///
+    /// Both are empty for the overwhelming majority of objects: `NativeData::None`
+    /// for every ordinary user class (only WeakRef / Type / LoadContext / Assembly
+    /// carry a handle), and no type-args for every non-generic instantiation.
+    /// Inline they cost 16 + 16 = **32 bytes on every object**; as
+    /// `Option<Box<ObjExtras>>` they cost 8, and only an object that actually has
+    /// one of them pays for the box.
+    extras: Option<Box<ObjExtras>>,
 }
 
 impl ScriptObject {
+    /// shrink-object-footprint P3: the object's native backing (`None` when it has
+    /// no extras box, which is the common case).
+    #[inline]
+    pub fn native(&self) -> &NativeData {
+        const NONE: &NativeData = &NativeData::None;
+        self.extras.as_ref().map_or(NONE, |e| &e.native)
+    }
+
+    /// Per-instance generic type-arguments; empty for non-generic instances.
+    #[inline]
+    pub fn type_args(&self) -> &[String] {
+        self.extras.as_ref().map_or(&[], |e| &e.type_args)
+    }
+
+    /// Install the native backing, allocating the cold extras box on first use.
+    #[inline]
+    pub fn set_native(&mut self, native: NativeData) {
+        if matches!(native, NativeData::None) && self.extras.is_none() {
+            return; // nothing to record — stay box-free
+        }
+        self.extras.get_or_insert_with(Default::default).native = native;
+    }
+
+    /// Install per-instance type-arguments (no-op for an empty list on a
+    /// box-free object, so a non-generic `new` never allocates the box).
+    #[inline]
+    pub fn set_type_args(&mut self, type_args: Box<[String]>) {
+        if type_args.is_empty() && self.extras.is_none() {
+            return;
+        }
+        self.extras.get_or_insert_with(Default::default).type_args = type_args;
+    }
+
+    /// Construct with no extras — the common case.
+    #[inline]
+    pub fn new(type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage) -> Self {
+        Self { type_desc, storage, extras: None }
+    }
+
+    /// Construct with a native backing (built-in boxes).
+    #[inline]
+    pub fn with_native(
+        type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage, native: NativeData,
+    ) -> Self {
+        let mut o = Self::new(type_desc, storage);
+        o.set_native(native);
+        o
+    }
+
+    /// shrink-object-footprint P2: the byte-packed primitive leaves.
+    #[inline] pub fn bytes(&self) -> &[u8] { self.storage.bytes() }
+    /// Mutable view of the primitive leaves.
+    #[inline] pub fn bytes_mut(&mut self) -> &mut [u8] { self.storage.bytes_mut() }
+    /// The reference leaves, in composed reference-bitmap order.
+    #[inline] pub fn refs(&self) -> &[Value] { self.storage.refs() }
+    /// Mutable view of the reference leaves (GC scan / field store).
+    #[inline] pub fn refs_mut(&mut self) -> &mut [Value] { self.storage.refs_mut() }
+
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
     /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
     /// 否则（多字段 struct 装箱 / 非整数 wrapper）返 `None`。按 wrapper 宽度 + 有无符号从
@@ -93,11 +163,11 @@ impl ScriptObject {
     pub fn boxed_prim_i64(&self) -> Option<i64> {
         let (width, signed) =
             crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?;
-        if self.bytes.len() < width {
+        if self.bytes().len() < width {
             return None;
         }
         let mut buf = [0u8; 8];
-        buf[..width].copy_from_slice(&self.bytes[..width]);
+        buf[..width].copy_from_slice(&self.bytes()[..width]);
         let mut v = i64::from_le_bytes(buf);
         if signed && width < 8 {
             let shift = (8 - width) * 8;
@@ -127,17 +197,17 @@ impl ScriptObject {
     pub fn field_value(&self, slot: usize) -> Value {
         let fa = match self.field_access_of(slot) { Some(f) => f, None => return Value::Null };
         if fa.ref_slot >= 0 {
-            return self.refs.get(fa.ref_slot as usize).cloned().unwrap_or(Value::Null);
+            return self.refs().get(fa.ref_slot as usize).cloned().unwrap_or(Value::Null);
         }
         // PR-3 chunk 2b: an inlined direct object/array reference (`ref_slot == -1` but a
         // reference tag) — read the 8B tagged pointer straight from `bytes` (0 = `Null`).
         if fa.tag == TAG_OBJECT || fa.tag == TAG_ARRAY {
-            return read_inline_ref(&self.bytes, fa.offset as usize, fa.tag == TAG_ARRAY);
+            return read_inline_ref(&self.bytes(), fa.offset as usize, fa.tag == TAG_ARRAY);
         }
         if fa.tag == TAG_UNKNOWN {
             return Value::Null; // struct-typed root — not a FieldGet target
         }
-        decode_prim(&self.bytes, fa.offset as usize, fa.width as usize, fa.tag)
+        decode_prim(&self.bytes(), fa.offset as usize, fa.width as usize, fa.tag)
             .unwrap_or(Value::Null)
     }
 
@@ -161,7 +231,7 @@ impl ScriptObject {
             TAG_OBJECT | TAG_ARRAY | TAG_UNKNOWN | TAG_STR => return None,
             _ => {}
         }
-        Some((self.bytes.as_ptr(), fa.offset, fa.width, fa.tag))
+        Some((self.bytes().as_ptr(), fa.offset, fa.width, fa.tag))
     }
 
     /// post-layout JIT perf (T1-B): if `name` is a direct **byte-inlined reference**
@@ -182,8 +252,8 @@ impl ScriptObject {
         let fa = self.field_access_of(slot)?;
         if fa.ref_slot >= 0 { return None; } // side-table reference (closure/func/string)
         match fa.tag {
-            TAG_OBJECT => Some((self.bytes.as_ptr(), fa.offset, false)),
-            TAG_ARRAY  => Some((self.bytes.as_ptr(), fa.offset, true)),
+            TAG_OBJECT => Some((self.bytes().as_ptr(), fa.offset, false)),
+            TAG_ARRAY  => Some((self.bytes().as_ptr(), fa.offset, true)),
             _ => None, // primitive / struct root / string
         }
     }
@@ -197,14 +267,14 @@ impl ScriptObject {
     pub fn set_field_value(&mut self, slot: usize, v: &Value) -> bool {
         let fa = match self.field_access_of(slot) { Some(f) => f, None => return false };
         if fa.ref_slot >= 0 {
-            if let Some(cell) = self.refs.get_mut(fa.ref_slot as usize) { *cell = v.clone(); }
+            if let Some(cell) = self.refs_mut().get_mut(fa.ref_slot as usize) { *cell = v.clone(); }
             return true;
         }
         // PR-3 chunk 2b: an inlined direct object/array reference — write the 8B tagged
         // pointer into `bytes` (`Null`/non-heap → 0). Returns `true` so the caller still
         // fires `write_barrier_field` (the target IS a reference slot, just byte-inlined).
         if fa.tag == TAG_OBJECT || fa.tag == TAG_ARRAY {
-            write_inline_ref(&mut self.bytes, fa.offset as usize, v);
+            write_inline_ref(&mut self.bytes_mut(), fa.offset as usize, v);
             return true;
         }
         if fa.tag == TAG_UNKNOWN { return false; } // struct-typed root
@@ -217,8 +287,8 @@ impl ScriptObject {
         let src: &Value = match v {
             Value::BoxedStruct(gc) => {
                 let b = gc.borrow();
-                if b.bytes.len() >= fa.width as usize {
-                    unboxed = decode_prim(&b.bytes, 0, fa.width as usize, fa.tag)
+                if b.bytes().len() >= fa.width as usize {
+                    unboxed = decode_prim(&b.bytes(), 0, fa.width as usize, fa.tag)
                         .unwrap_or(Value::Null);
                     &unboxed
                 } else {
@@ -228,7 +298,7 @@ impl ScriptObject {
             }
             _ => v,
         };
-        let _ = encode_prim(&mut self.bytes, fa.offset as usize, fa.width as usize, fa.tag, src);
+        let _ = encode_prim(&mut self.bytes_mut(), fa.offset as usize, fa.width as usize, fa.tag, src);
         false
     }
 
@@ -243,7 +313,7 @@ impl ScriptObject {
     pub fn trace_inline_refs(&self, visit: &mut dyn FnMut(&Value)) {
         if let Some(col) = self.type_desc.composed_object_layout() {
             for ir in col.inline_refs.iter() {
-                let v = read_inline_ref(&self.bytes, ir.offset as usize, ir.is_array);
+                let v = read_inline_ref(&self.bytes(), ir.offset as usize, ir.is_array);
                 if !matches!(v, Value::Null) {
                     visit(&v);
                 }
@@ -268,8 +338,8 @@ impl ScriptObject {
         };
         for off in offsets {
             let off = off as usize;
-            if off + 8 <= self.bytes.len() {
-                self.bytes[off..off + 8].fill(0);
+            if off + 8 <= self.bytes().len() {
+                self.bytes_mut()[off..off + 8].fill(0);
             }
         }
     }
@@ -316,7 +386,7 @@ impl crate::gc::GcRef<ScriptObject> {
     pub fn type_args(&self) -> &[String] {
         // SAFETY: type_args is write-once-at-alloc; see type_desc().
         let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_args }
+        unsafe { &(*obj_ptr).type_args() }
     }
 }
 

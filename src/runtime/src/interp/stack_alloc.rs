@@ -137,7 +137,7 @@ impl StackArena {
         for s in &self.objs {
             // unify-object-byte-layout (PR-2): all reference leaves live in `refs`;
             // `bytes` holds only primitives.
-            for r in s.obj.refs.iter() {
+            for r in s.obj.refs().iter() {
                 visit(r);
             }
         }

@@ -137,11 +137,11 @@ fn cycle_does_not_loop() {
     let b = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
     // a.head = b
     if let Value::Object(gc) = &a {
-        gc.borrow_mut().refs[0] = b.clone();
+        gc.borrow_mut().refs_mut()[0] = b.clone();
     }
     // b.head = a — completes the cycle
     if let Value::Object(gc) = &b {
-        gc.borrow_mut().refs[0] = a.clone();
+        gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     let root = heap.pin_root(a.clone());
 

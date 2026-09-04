@@ -47,7 +47,7 @@ pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize)
 pub(crate) fn pack_struct_elem(ctx: &VmContext, arr: &mut crate::metadata::types::ArrayObj, i: usize, v: &Value) -> Result<()> {
     let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
         // add-boxed-struct-identity (P4b): read the source box's blob out of its shared object.
-        Value::BoxedStruct(b) => { let o = b.borrow(); (o.bytes.to_vec(), o.refs.to_vec()) }
+        Value::BoxedStruct(b) => { let o = b.borrow(); (o.bytes().to_vec(), o.refs().to_vec()) }
         Value::StructRef { idx, frame_id } =>
             ctx.struct_arena.lock().with(*idx, *frame_id, |s| (s.bytes.to_vec(), s.refs.to_vec()))?,
         Value::Null => return Ok(()),
@@ -85,7 +85,7 @@ pub(super) fn array_new(
         match type_param_kind {
             1 => frame.method_type_args.get(idx).cloned(),
             2 => match frame.get(0) {
-                Ok(Value::Object(rc)) => rc.borrow().type_args.get(idx).cloned(),
+                Ok(Value::Object(rc)) => rc.borrow().type_args().get(idx).cloned(),
                 _ => None,
             },
             _ => None,

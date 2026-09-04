@@ -250,16 +250,14 @@ impl TypeDesc {
         (l.size, l.ref_count())
     }
 
-    /// unify-object-byte-layout (PR-2): allocate the zero-initialized byte region +
-    /// `Null`-filled reference side-table for a fresh instance. Zero bytes = every
-    /// primitive field's default (0 / false / '\0'); `Null` refs = every reference
-    /// field's default. Single sizing site for every `ScriptObject` construction.
+    /// shrink-object-footprint P2: allocate a fresh instance's payload — the
+    /// zero-initialized byte region and the `Null`-filled reference leaves, in
+    /// **one** block. Zero bytes = every primitive field's default (0 / false /
+    /// '\0'). Single sizing site for every `ScriptObject` construction.
     #[inline]
-    pub fn object_regions(&self) -> (Box<[u8]>, Box<[Value]>) {
+    pub fn object_storage(&self) -> crate::metadata::types::ObjStorage {
         let (nb, nr) = self.object_region_sizes();
-        let bytes = if nb == 0 { Box::from([]) } else { vec![0u8; nb].into_boxed_slice() };
-        let refs = if nr == 0 { Box::from([]) } else { vec![Value::Null; nr].into_boxed_slice() };
-        (bytes, refs)
+        crate::metadata::types::ObjStorage::new(nb, nr)
     }
 
     /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).

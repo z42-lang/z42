@@ -73,7 +73,7 @@ pub(crate) fn unbox_struct(
     // independent of the box).
     let (type_name, bytes, refs): (Arc<str>, Vec<u8>, Vec<Value>) = {
         let o = gc.borrow();
-        (Arc::from(&*o.type_desc.name), o.bytes.to_vec(), o.refs.to_vec())
+        (Arc::from(&*o.type_desc.name), o.bytes().to_vec(), o.refs().to_vec())
     };
     let layout = resolve_layout(ctx, &type_name, bytes.len() as u32);
     let idx = ctx.struct_alloc(frame_id, type_name, layout);
@@ -174,11 +174,11 @@ pub(crate) fn struct_field_get_val(
                 let ri = col.ref_index(byte_off).ok_or_else(|| {
                     anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
                 })?;
-                obj.refs[ri].clone()
+                obj.refs()[ri].clone()
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
-                decode_prim(&obj.bytes, off, w, kind)?
+                decode_prim(&obj.bytes(), off, w, kind)?
             }
         }
         // add-static-struct-bytecization (PR-2 S): leaf of a **boxed** value struct (a
@@ -195,11 +195,11 @@ pub(crate) fn struct_field_get_val(
                 let ri = sl.ref_index(byte_off).ok_or_else(|| {
                     anyhow::anyhow!("boxed struct ref leaf at byte offset {byte_off} not in struct layout")
                 })?;
-                obj.refs[ri].clone()
+                obj.refs()[ri].clone()
             } else {
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
-                decode_prim(&obj.bytes, off, w, kind)?
+                decode_prim(&obj.bytes(), off, w, kind)?
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf of a struct[] element `arr[index]`.
@@ -275,7 +275,7 @@ pub(crate) fn struct_field_set_val(
                     let ri = col.ref_index(byte_off).ok_or_else(|| {
                         anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
                     })?;
-                    obj.refs[ri] = v.clone();
+                    obj.refs_mut()[ri] = v.clone();
                     ri
                 };
                 // Write barrier: reference stored into a heap object. The `slot`
@@ -289,7 +289,7 @@ pub(crate) fn struct_field_set_val(
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
                 let mut obj = gc.borrow_mut();
-                encode_prim(&mut obj.bytes, off, w, kind, v)
+                encode_prim(&mut obj.bytes_mut(), off, w, kind, v)
             }
         }
         // add-static-struct-bytecization (PR-2 S): leaf write into a **boxed** value
@@ -305,7 +305,7 @@ pub(crate) fn struct_field_set_val(
                     let ri = sl.ref_index(byte_off).ok_or_else(|| {
                         anyhow::anyhow!("boxed struct ref leaf at byte offset {byte_off} not in struct layout")
                     })?;
-                    obj.refs[ri] = v.clone();
+                    obj.refs_mut()[ri] = v.clone();
                     ri
                 };
                 if v.is_heap_ref() {
@@ -316,7 +316,7 @@ pub(crate) fn struct_field_set_val(
                 let off = byte_off as usize;
                 let w = prim_width(kind)?;
                 let mut obj = gc.borrow_mut();
-                encode_prim(&mut obj.bytes, off, w, kind, v)
+                encode_prim(&mut obj.bytes_mut(), off, w, kind, v)
             }
         }
         // add-struct-heap-inline (P3b, D1-a): leaf write into a struct[] element.

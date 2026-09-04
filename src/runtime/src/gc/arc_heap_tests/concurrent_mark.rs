@@ -213,8 +213,8 @@ fn collect_cycles_with_context_routes_concurrent_under_concurrent_mode() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a); drop(b);
 
@@ -252,8 +252,8 @@ fn collect_cycles_with_context_default_stw_unchanged() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a); drop(b);
 
@@ -305,8 +305,8 @@ fn concurrent_collect_inline_frees_unreachable_cycle() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs[0] = b.clone();
-        b_gc.borrow_mut().refs[0] = a.clone();
+        a_gc.borrow_mut().refs_mut()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut()[0] = a.clone();
     }
     drop(a); drop(b);
     assert_eq!(alive_count(&heap), 2);
@@ -363,7 +363,7 @@ fn concurrent_collect_inline_with_simulated_barrier_marks_late_writes() {
     );
     {
         let Value::Object(root_gc) = &root_obj else { panic!() };
-        root_gc.borrow_mut().refs[0] = new_child.clone();
+        root_gc.borrow_mut().refs_mut()[0] = new_child.clone();
     }
     heap.write_barrier_field(&root_obj, 0, &new_child);  // P3 barrier dispatch
 

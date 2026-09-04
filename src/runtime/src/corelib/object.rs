@@ -178,7 +178,7 @@ pub fn builtin_obj_upgrade_weak(ctx: &VmContext, args: &[Value]) -> Result<Value
     };
     let weak = {
         let obj = handle.borrow();
-        match &obj.native {
+        match &obj.native() {
             NativeData::WeakRef(w) => w.clone(),
             _ => return Ok(Value::Null),
         }

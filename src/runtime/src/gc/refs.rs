@@ -455,25 +455,25 @@ impl<T> GcRef<T> {
     /// the entry is unreachable, or immediately via `Std.GC.Finalize(x)`
     /// (P2 API).
     pub(crate) fn set_finalizer(this: &Self, fin: FinalizerFn) {
-        *this.entry_ref().finalizer.lock() = Some(fin);
+        this.entry_ref().set_finalizer(fin);
     }
 
     /// Cancel + take the registered finalizer. Returns true if one
     /// was previously registered.
     pub(crate) fn cancel_finalizer(this: &Self) -> bool {
-        this.entry_ref().finalizer.lock().take().is_some()
+        this.entry_ref().take_finalizer().is_some()
     }
 
     /// Take the finalizer (one-shot). Used by sweep when firing the
     /// finalizer at object death.
     #[allow(dead_code)] // becomes used by P2 `Std.GC.Finalize(x)` builtin
     pub(crate) fn take_finalizer(this: &Self) -> Option<FinalizerFn> {
-        this.entry_ref().finalizer.lock().take()
+        this.entry_ref().take_finalizer()
     }
 
     /// Query whether a finalizer is registered.
     pub(crate) fn has_finalizer(this: &Self) -> bool {
-        this.entry_ref().finalizer.lock().is_some()
+        this.entry_ref().has_finalizer()
     }
 
     /// **add-custom-allocator P1 (2026-05-22)**: expose the underlying
