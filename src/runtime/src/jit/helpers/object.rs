@@ -345,6 +345,22 @@ pub unsafe extern "C" fn jit_field_get(
         Value::Str(s) if field_name == "Length"     => Value::I64(crate::corelib::str_meta::char_len(s) as i64),
         Value::Str(s) if field_name == "ByteLength" => Value::I64(s.len() as i64),
         Value::Array(rc) if field_name == "Length" || field_name == "Count" => Value::I64(rc.borrow().len() as i64),
+        // fix-jit-field-get-stackarray: the `StackArray` analogue of the `StackObject`
+        // arm above — a stack-allocated array (escape analysis) reaching the JIT and
+        // having its `.Length` read. `jit_array_get` already resolves StackArray via
+        // the stack arena (three sites); this path was the missing counterpart, so any
+        // `arr.Length` on a stack-allocated array fell through to the catch-all and
+        // raised `FieldGet: expected object, got StackArray`.
+        // Repro (pre-fix: interp OK, JIT throws): a stdlib method that allocates
+        // `new char[1]` and hands it to a sibling overload which reads `.Length`
+        // (`Std.String.Trim(char)` → `Trim(char[])`, added by augment-string-prelude).
+        Value::StackArray { idx: aidx, frame_id } if field_name == "Length" || field_name == "Count" => {
+            let (aidx, frame_id) = (*aidx, *frame_id);
+            match vm_ctx_ref(ctx).stack_arena.lock().with_arr(aidx, frame_id, |a| a.len()) {
+                Ok(n) => Value::I64(n as i64),
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+            }
+        }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("FieldGet: expected object, got {:?}", other).into()));
             return 1;

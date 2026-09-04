@@ -52,6 +52,31 @@ User 裁决不做 workaround，走根因修复 → `stabilize-instance-dispatch-
       走 MemberResolver prim 路径 + 运行期无-vtable 候选探测，**绑错的表现是「返回另一个重载的结果」而非崩溃**
 - [x] 3.3 多字节用例（索引/填充宽度按 Unicode scalar 计数，非 UTF-8 字节）
 
+### 3.5 fix(runtime)：JIT `jit_field_get` 补 `StackArray` 分支（CI 逮到的既有 VM 缺陷）
+
+- [x] 3.5.1 **症状**：PR 首轮 CI `test-stdlib-jit(linux-x64) shard 1` 红 ——
+      `uncaught exception: FieldGet: expected object, got StackArray { idx: 0, frame_id: 436 }`，
+      失败点是新测试的 `test_trim_char`（第一个走 `Trim(char)` 的用例）。**interp 全绿、仅 JIT 挂。**
+- [x] 3.5.2 **根因**：`src/runtime/src/jit/helpers/object.rs` 的 `jit_field_get` 匹配了
+      `StackObject` / `Object` / `Str` / `Array`，**独缺 `StackArray`** → 落进 catch-all 抛异常。
+      该函数自己的注释就写着「See `jit_array_get` for the StackArray analogue」——`helpers/array.rs`
+      的 148/233/293 三处都有 StackArray 分支，**唯独读 `.Length` 这条对称路径漏了**。
+      触发条件 = JIT 拿到逃逸分析产出的**栈分配数组**并读其 `.Length`；`Trim(char)`
+      （`new char[1]` → 委派 `Trim(char[])`，后者读 `trimChars.Length`）是全仓库第一个走到的调用。
+      **既有缺陷，非本 change 库代码的错误** —— 故按根因修复，不改库代码绕过。
+- [x] 3.5.3 **逐步排除**（每步跑 interp/JIT 双模式，确认不是通用模式）：用户类同款
+      「局部数组 → 同类重载读 `.Length`」不复现；调用方局部 `new char[]` 直传 `String.Trim(char[])`
+      不复现；集合字面量直传不复现；既有 `String.Split(char[])` 不复现；
+      **只有 stdlib 内部 `Trim(char)`→`Trim(char[])` 复现**。同源两引擎结果不同 ⇒ 按定义是引擎缺陷。
+- [x] 3.5.4 **修复**：照搬 `jit_array_get` 的现成对称实现，加
+      `Value::StackArray if field_name == "Length" | "Count"` 分支，经 `stack_arena.with_arr` 取长度。
+- [x] 3.5.5 **验证**：修复后 repro 双模式一致（`bc / bc / bcaa / aabc`）；`cargo test --release` 全量；
+      本地补跑 CI 同款 JIT 模式 stdlib（`test stdlib --mode jit --no-build --shard 1/2`）。
+
+> **流程教训**：记忆里 #414 的教训明写「本地验证要覆盖 JIT 模式」，本次仍只跑 interp 就推 PR、
+> 靠 CI 兜住。**改动 stdlib 派发面 / 新增重载后，本地必须补跑 `xtask test stdlib --mode jit`**
+> （CI 命令见 `.github/workflows/ci.yml` 的 test-stdlib-jit）。
+
 ### 4. 文档
 
 - [x] 4.1 `docs/book/src/language/partial-types.md`「边界与限制 v1」：把含糊的「键 mangle 可能不一致」
