@@ -27,88 +27,80 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 #[derive(Parser)]
 #[command(name = "z42vm", about = "z42 Virtual Machine", version)]
 struct Cli {
-    /// Bytecode file to execute.
-    /// Accepted formats: .zbc (single-file), .zpkg (project package).
-    /// Optional only when `--info` is set.
+    /// 要执行的字节码：`.zbc`（单文件）或 `.zpkg`（工程包）。
+    /// 自省命令（`--info` / `--list-knobs` / `--show-config`）下可省。
     file: Option<String>,
 
-    /// Optional entry-function override (positional). When omitted the VM
-    /// reads the `Entry` baked into the zpkg by `z42c build` (which itself
-    /// auto-detects `Main()` at compile time — see auto-detect-main spec).
-    /// Bare `.zbc` files without zpkg metadata REQUIRE this positional
-    /// argument; no silent fallback. **z42-test-runner** is the main
-    /// consumer: it forks `z42vm <file> <test_method>` per `[Test]`
-    /// discovered via TIDX.
+    /// 入口函数名，覆盖 zpkg 里烤好的 `Entry`。
+    ///
+    /// 平时不用给——`z42c build` 会把 `Main()` 烤进 zpkg。裸 `.zbc`（无 zpkg 元数据）
+    /// 必须给。主要消费方是测试运行器：每个 `[Test]` fork 一次 `z42vm <file> <test>`。
     entry: Option<String>,
 
-    /// Execution mode override (default: jit when built with the `jit`
-    /// feature, else interp)
-    #[arg(long, value_enum)]
+    // ── 执行 ────────────────────────────────────────────────────────────
+    /// 执行模式，覆盖本次运行的默认值。
+    #[arg(long, value_enum, help_heading = "执行")]
     mode: Option<ExecMode>,
 
-    /// Enable verbose tracing
-    #[arg(short, long)]
+    /// 详细日志（等价于 `--set log=z42=info`）。
+    #[arg(short, long, help_heading = "执行")]
     verbose: bool,
 
-    /// Print runtime build info (version / target / build profile / enabled features /
-    /// exec modes / libs dir / Z42_PATH) and exit. Useful for bug reports and CI
-    /// preflight. docs/review.md Part 4 D5 (2026-05-25).
-    #[arg(long)]
-    info: bool,
-
-    /// Set a runtime knob for this run: `--set <key>=<value>`, repeatable.
-    /// Highest-precedence layer (above `Z42_*` env vars and config files).
-    /// Keys are the knob's `[runtime]` key (e.g. `gc-mode`); run
-    /// `z42vm --list-knobs` for the full list.
-    #[arg(long = "set", value_name = "KEY=VALUE")]
+    // ── 运行时配置 ──────────────────────────────────────────────────────
+    /// 为本次运行设置一个运行时旋钮，可重复：`--set gc-mode=concurrent`。
+    ///
+    /// 优先级最高（压过 `Z42_*` 环境变量与配置文件）。旋钮名见 `--list-knobs`。
+    #[arg(long = "set", value_name = "KEY=VALUE", help_heading = "运行时配置")]
     set: Vec<String>,
 
-    /// Print every runtime knob's schema (type / settable layers / availability /
-    /// default) and exit. `--all` additionally lists unsupported + internal knobs.
-    #[arg(long)]
-    list_knobs: bool,
-
-    /// Print each knob's effective value with its source layer — and, for values
-    /// that did not take effect, why — then exit.
-    #[arg(long)]
-    show_config: bool,
-
-    /// Include unsupported + internal knobs in `--list-knobs` / `--show-config`.
-    #[arg(long)]
-    all: bool,
-
-    /// Emit `--list-knobs` / `--show-config` as JSON instead of text.
-    #[arg(long)]
-    json: bool,
-
-    /// Treat config problems from env / config files as fatal instead of
-    /// warning + falling back to the default. Equivalent to
-    /// `Z42_STRICT_CONFIG=1`. CLI (`--set`) problems are always fatal.
-    /// complete-runtime-settings P1 (2026-09-05) — the CI config-drift gate.
-    #[arg(long)]
+    /// 把来自环境变量 / 配置文件的配置问题从警告升级为致命错误。
+    ///
+    /// 命令行（`--set`）的问题一律致命，不受此开关影响。CI 用它把配置漂移变成硬失败。
+    // 等价 `Z42_STRICT_CONFIG=1`。引入：complete-runtime-settings P1（2026-09-05）。
+    #[arg(long, help_heading = "运行时配置")]
     strict_config: bool,
 
-    /// Print runtime counter snapshot (builtin_calls / native_calls /
-    /// jit_methods_compiled / exceptions_thrown / etc.) to stderr after
-    /// the script exits cleanly. docs/review.md Part 4 D6 (2026-05-26).
-    #[arg(long)]
-    print_stats_on_exit: bool,
+    // ── 自省 ────────────────────────────────────────────────────────────
+    /// 构建信息 + 完整旋钮快照，然后退出。**提 bug 时贴这个。**
+    // 引入：docs/review.md Part 4 D5（2026-05-25）。
+    #[arg(long, help_heading = "自省")]
+    info: bool,
 
-    /// Output format for `--print-stats-on-exit` (script-profiling P0):
-    /// `text` (default, human block) or `json` (one-line object that
-    /// `xtask profile` scrapes off stderr). No effect without
-    /// `--print-stats-on-exit`.
-    #[arg(long, value_enum, default_value = "text")]
-    stats_format: StatsFormat,
+    /// **有哪些旋钮**：类型 / 可设置层 / 本 build 的可用性 / 默认值，然后退出。
+    #[arg(long, help_heading = "自省")]
+    list_knobs: bool,
 
-    /// add-z42-launcher (2026-06-02): arguments forwarded to the running z42
-    /// program. Everything after a literal `--` separator is collected here
-    /// and exposed to z42 code via `Std.IO.Environment.GetCommandLineArgs()`
-    /// — NOT parsed by z42vm itself. e.g. `z42vm app.zpkg Main -- a b c` →
-    /// the program sees `["a", "b", "c"]`.
+    /// **旋钮当前是什么值**、来自哪一层，以及某一层的值为什么没生效，然后退出。
+    #[arg(long, help_heading = "自省")]
+    show_config: bool,
+
+    /// 让上面两个命令连不推荐 / 内部旋钮一起列出。
+    #[arg(long, help_heading = "自省")]
+    all: bool,
+
+    /// 让上面两个命令输出 JSON 而非文本。
+    #[arg(long, help_heading = "自省")]
+    json: bool,
+
+    // ── 诊断 ────────────────────────────────────────────────────────────
+    /// 程序正常退出后，把运行时计数器打到 stderr。
+    ///
+    /// `--stats` = 人读的文本块；`--stats=json` = 单行 JSON（供工具抓取）。
+    // 引入：docs/review.md Part 4 D6（2026-05-26）；JSON 形态来自 script-profiling P0。
+    //
+    // `require_equals`：可选值必须写成 `--stats=json`。不加的话 clap 会把紧跟其后的
+    // 位置参数当成它的值——`z42vm --stats app.zpkg` 会报「invalid value 'app.zpkg'
+    // for '--stats'」。这是带可选值的 flag 的通病，`--color=always` 同款解法。
+    #[arg(long, value_name = "FORMAT", num_args = 0..=1, require_equals = true,
+          default_missing_value = "text", help_heading = "诊断")]
+    stats: Option<StatsFormat>,
+
+    /// 传给被运行程序的参数（`--` 之后的一切）。z42vm 自己不解析它们，
+    /// z42 代码经 `Std.IO.Environment.GetCommandLineArgs()` 读到。
     #[arg(last = true)]
     args: Vec<String>,
 }
+
 // 2026-05-11 retire-z-codes: `--explain` / `--list-errors` were removed
 // alongside the Rust-side `diagnostics` catalog. Use `z42c explain E####`
 // for compile-time codes; runtime errors are typed z42 exceptions now.
@@ -211,6 +203,14 @@ fn main() -> Result<()> {
     // Two independent file layers: the user's own (`Z42_CONFIG`) and the app's
     // build-generated sidecar (`Z42_APP_CONFIG`). They merge per key with the user
     // winning — setting Z42_CONFIG must not discard what the app ships with.
+    // `--all` / `--json` 只修饰两个自省命令。静默忽略是最坏的——用户以为拿到了 JSON。
+    // 与 `--set` 未知 key 直接 exit 2 同一原则：命令行是「此刻手敲」的层，不猜、说出来。
+    if (cli.all || cli.json) && !(cli.list_knobs || cli.show_config) {
+        let which = if cli.json { "--json" } else { "--all" };
+        eprintln!("z42: {which} only applies to --list-knobs / --show-config");
+        std::process::exit(2);
+    }
+
     let runtime_table = z42::config::load_runtime_toml(&getenv)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     // app-config 层：显式 `Z42_APP_CONFIG` 优先，否则由 app 文件推导出它旁边的
@@ -388,8 +388,8 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
             mode: effective_mode,
             libs_dir,
             program_args: cli.args.clone(),
-            print_stats: cli.print_stats_on_exit,
-            stats_json: cli.stats_format == StatsFormat::Json,
+            print_stats: cli.stats.is_some(),
+            stats_json: cli.stats == Some(StatsFormat::Json),
         },
     )
 }
