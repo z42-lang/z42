@@ -104,7 +104,7 @@ impl VmContext {
         // 崩在 `Sha256._processBlock`。
         // 变更前 `init_static_fields` 在清零后无条件重跑全部初始化器，等价于此。
         // 把已跑过的名字倒回待跑队列，由紧随其后的 `run_pending_static_inits` 重跑。
-        let mut state = self.core.lazy_loader.lock();
+        let mut state = self.core.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
             let ran: Vec<String> = loader.static_init_state.keys().cloned().collect();
             tracing::debug!("static fields cleared; re-queuing {} static init(s)", ran.len());
