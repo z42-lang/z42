@@ -20,6 +20,7 @@
   - [static 类（只容纳静态成员）](language/static-classes.md)
   - [target-typed new（省略构造类名）](language/target-typed-new.md)
   - [泛型方法（方法级类型参数）](language/generic-methods.md)
+  - [泛型约束（`where` 子句）](language/generic-constraints.md)
   - [属性与索引器（成员访问器）](language/member-accessors.md)
   - [`[Record]` attribute 与主构造器](language/record-attribute.md)
   - [模式匹配（Rust 风格结构化模式）](language/pattern-matching.md)

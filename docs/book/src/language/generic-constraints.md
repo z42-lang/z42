@@ -1,0 +1,128 @@
+# 泛型约束（`where` 子句）
+
+> 对齐：2026-09-05（change `complete-where-constraints`）
+>
+> 本页是**泛型约束语义与校验范围的 SoT**。泛型的整体设计（代码共享策略、reified 类型、
+> 跨 zpkg 元数据）见 [`docs/design/language/generics.md`](../../../design/language/generics.md)；
+> 方法级类型参数见 [泛型方法](generic-methods.md)。
+
+## 语法
+
+```z42
+class Box<T> where T : IFoo { }                  // 接口约束
+class Box<T> where T : IFoo + IBar { }           // 多约束用 `+` 分隔（Rust 风格，非 C# 的 `,`）
+class Map<K, V> where K : IEquatable<K> where V : class { }   // 每个型参一条 where
+void Sort<T>(T[] xs) where T : IComparable<T> { }             // 方法级
+```
+
+多个型参各写各的 `where`；同一型参的多条约束用 `+` 连接。
+
+## 七项约束
+
+判定规则的**唯一真相源是运行期** [`validate_type_arg_constraint`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/reflection/generics.rs)
+——它是 `MakeGenericType` 这条绕过编译期的反射入口的自我把关。编译期照抄同一套规则，
+两边不各判各的。
+
+| 约束 | 语法 | 满足条件 | 编译期校验 |
+|------|------|---------|-----------|
+| 接口 | `where T : IFoo` | T 或其基类实现 IFoo（**含接口继承链**：`class C : IDerived`、`interface IDerived : IBase` ⇒ C 满足 `IBase`） | ✅ |
+| 基类 | `where T : Base` | T 是 Base 或其子类 | ✅ |
+| 引用类型 | `where T : class` | T 非值类型（基元与 struct 不满足；`string`/`object` 满足） | ✅ |
+| 值类型 | `where T : struct` | T 是值类型 | ✅ |
+| 枚举 | `where T : enum` | T 是 `enum` 声明的类型（基元**不**满足） | ✅ |
+| 无参构造 | `where T : new()` | 基元满足；类须**非 abstract** 且可零实参构造 | ✅ |
+| 型参引用 | `where U : T` | U 的实参可赋给 T 的实参 | ✅ |
+| 函数类型 | `where T : Func<int, R>` | — | ❌ 未发出（见下） |
+
+`class` 与 `struct` 同时出现在一个型参上 → 报错（互斥）。
+
+### `new()` 的一条易错规则
+
+**完全没有声明任何构造器 = 默认构造 = 满足 `new()`。** 只有「声明了构造器、却没有一个能零
+实参调用」才不满足。「能零实参调用」包括：无参构造器、形参**全部带默认值**、`params` 变长
+构造器。abstract 类一律不满足。
+
+```z42
+class Plain { }                                   // ✅ 满足：无显式 ctor
+class HasNoArg { public HasNoArg() { } }          // ✅ 满足
+class AllDefault { public AllDefault(int x = 1) { } }   // ✅ 满足：形参全带默认值
+class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
+```
+
+## 校验发生在哪里
+
+| 时机 | 位置 | 报什么 |
+|------|------|--------|
+| 声明期 | 每个泛型类的 `where` 子句解析成约束集 | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、**未知约束名 `E0443`** |
+| 实例化点 | `new Box<D>()` | 违反约束 `E0402`，Span 指向实例化处 |
+| 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（**显式**写类型实参时） | 违反约束 `E0402` |
+
+诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
+
+## 已知限制（诚实标注）
+
+这些不是 bug，是当前实现的**明确边界**。踩到时不要以为约束在保护你。
+
+### 1. 跨包约束完全不校验
+
+**导入类型的泛型实例化，`where` 约束一条都不检查**——不只是本页新补的几项，连基类 /
+`class` / `struct` / 型参引用也一样。原因是约束集只对本包编译单元里的类声明登记，导入类型
+走另一条加载链、全程不携带约束信息。
+
+⇒ `Dictionary<K,V>` 这类来自 stdlib 的泛型，你传什么实参都不会被拦。
+Deferred：`where-constraint-future-crosspkg`。
+
+### 2. 接口约束只比裸名，不校验类型实参
+
+`where T : IEquatable<T>` 只检查「T 实现了名为 `IEquatable` 的接口」，**不检查实参是否是
+T 自己**。故 `class Foo : IEquatable<string>` 也能满足 `where T : IEquatable<T>`。
+
+这与运行期行为一致（它拿到的同样是常量池里的裸名），故两边不产生分歧。裸名匹配还顺带
+消掉了 F-bounded 自引用（`interface INumber<T> where T : INumber<T>`）朴素展开会无限递归的
+问题。Deferred：`where-constraint-future-type-arg-matching`。
+
+### 3. 方法级约束只在显式写类型实参时校验
+
+`Max<int>(a, b)` 校验；`Max(a, b)`（靠推断）**不**校验。
+Deferred：`where-constraint-future-inferred-method-args`。
+
+### 4. 顶层函数的 `where` 不校验
+
+只有类的成员方法走方法级校验路径。
+Deferred：`where-constraint-future-toplevel-func`。
+
+### 5. 函数类型约束从未发出诊断
+
+`E0422` / `E0423` 已定义但没有代码路径会发出它们。注意代码生成依赖该约束把参数当 func 值走
+间接调用，改动需谨慎。Deferred：`where-constraint-future-func-constraint`。
+
+### 6. 关联类型 / 嵌套约束**未实现**
+
+`where T : IAdd<Output=T>`、`where T : IIterator<Item=U>, U : IDisplay` 这类 Rust 风格表达力
+**当前不支持**——parser 没有 `Name=Type` 的解析。`docs/design/language/generics.md` 的设计
+目标一节曾按已实现描述，那是**设计意图而非现状**。
+
+## 为什么这些约束曾经集体失效
+
+一段值得记住的历史，也是本页存在的理由。
+
+`where T : IFoo` 曾长期**写了等于没写**：不报错、也不校验。比「不支持」更糟——不支持会报错，
+假实现让使用者以为拿到了类型保护。三层叠加造成：
+
+1. **编译期只认 4/7 项**，其余静默延后。更早的一刀是：约束填充有个「类型实参个数为 0」的
+   前置条件，而真实世界的接口约束绝大多数是泛型接口（`IEquatable<T>` / `IComparable<T>` /
+   `INumber<T>`）——它们在接口判定**之前**就被整条丢弃了。
+2. **zbc writer 只写一个 flag 位**，把运行期那份完整的七项校验饿成了死代码。
+3. **没有任何门能发现前两层**：负例（期望编译报错）语料原在 `src/tests/errors/`，
+   2026-05-12 搬进 C# 测试项目，2026-06-26 C# 编译器移除时随整个测试项目一起蒸发。
+   自举迁移只搬了「能编过」的正例。
+
+第 3 层是根因：**没有测试盯着的约定迟早会烂**，而一句自洽的注释能让它烂得毫无声息。
+今天这些语义由 `src/compiler/z42c.semantics/tests/typecheck/constraint_tests.z42` 的负例
+用例守着——那是 `where` 约束第一次有门盯着。
+
+## 相关
+
+- [泛型方法](generic-methods.md) —— 方法级类型参数与 `<` 歧义消解
+- [`docs/design/language/generics.md`](../../../design/language/generics.md) —— 泛型整体设计与选型
+- change [`complete-where-constraints`](../../../spec/archive/2026-09-05-complete-where-constraints/proposal.md) —— 本页所述行为的引入过程（含三层塌陷的完整定位）

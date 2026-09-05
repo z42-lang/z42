@@ -1,6 +1,10 @@
 # z42 泛型设计
 
 > **Status**: L3-G1/G2/G2.5/G3a/G3d/G4 ✅ ｜ 泛型函数 + 泛型类 + 约束体系 + 跨 zpkg 元数据传播；关联类型 / 协变逆变 / 反射见 Deferred
+>
+> **约束体系的真实校验范围**（2026-09-05 订正）：同包七项已校验，**跨包一条不校验**；
+> 关联类型 / 嵌套约束**未实现**。以
+> [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md) 为准。
 
 > **方法级类型参数（2026-08-21 add-generic-methods M1）**：`Foo<T>()` 直接调用 + 方法体 `typeof(T)`/`new T()`/`default(T)` 具化为调用点类型——载体是 `Frame.method_type_args`（与类级实例 `type_args` 对称）。实现原理、决策、`<` 歧义消解见 **[book/src/language/generic-methods.md](../../book/src/language/generic-methods.md)**（SoT）。
 
@@ -103,26 +107,37 @@ interface IEnumerable<T> {
 
 ## 约束体系
 
+> **约束的语义与校验范围的 SoT 已上浮到
+> [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md)**
+> （change `complete-where-constraints`，2026-09-05）。本节只保留**选型意图**；
+> 「哪些真的会被校验、边界在哪」一律以 book 页为准。
+
 ### 基础约束（与 C# 对齐）
 
-| 约束 | 语法 | 含义 |
-|------|------|------|
-| 接口约束 | `where T: ISomething` | T 必须实现该接口 |
-| 基类约束 | `where T: BaseClass` | T 必须继承自该类 |
-| 引用类型 | `where T: class` | T 必须是引用类型 |
-| 值类型 | `where T: struct` | T 必须是值类型 |
-| 构造器 | `where T: new()` | T 必须有无参构造器 |
-| enum | `where T: enum` | T 必须是 enum 类型 |
+| 约束 | 语法 | 含义 | 编译期校验 |
+|------|------|------|-----------|
+| 接口约束 | `where T: ISomething` | T 必须实现该接口（含接口继承链） | ✅ |
+| 基类约束 | `where T: BaseClass` | T 必须继承自该类 | ✅ |
+| 引用类型 | `where T: class` | T 必须是引用类型 | ✅ |
+| 值类型 | `where T: struct` | T 必须是值类型 | ✅ |
+| 构造器 | `where T: new()` | T 必须可零实参构造（**无显式 ctor 也算**） | ✅ |
+| enum | `where T: enum` | T 必须是 enum 类型 | ✅ |
+
+> ⚠️ **上表的 ✅ 只覆盖同包**。跨包泛型实例化的约束**一条都不校验**（连基类 / `class` /
+> `struct` 也不），详见 book 页「已知限制」。
 
 ### Rust 风格增强
 
-| 约束 | 语法 | C# 能否做到 |
-|------|------|------------|
-| **多约束组合** | `where T: ISerializable + ICloneable` | C# 用 `,` 分隔，z42 用 `+`（Rust 风格） |
-| **自引用约束** | `where T: IComparable<T>` | ✅ C# 支持 |
-| **交叉类型参数** | `where K: IHash, V: ICloneable` | ✅ C# 支持 |
-| **关联类型** | `where T: IAdd<Output=T>` | ❌ C# 不支持，Rust 支持 |
-| **嵌套约束** | `where T: IIterator<Item=U>, U: IDisplay` | ❌ C# 不支持，Rust 支持 |
+| 约束 | 语法 | C# 能否做到 | **z42 实现状态** |
+|------|------|------------|-----------------|
+| **多约束组合** | `where T: ISerializable + ICloneable` | C# 用 `,` 分隔，z42 用 `+`（Rust 风格） | ✅ 已实现 |
+| **自引用约束** | `where T: IComparable<T>` | ✅ C# 支持 | ⚠️ 可写，但只比**裸名**、不校验类型实参 |
+| **交叉类型参数** | `where K: IHash, V: ICloneable` | ✅ C# 支持 | ✅ 已实现（每型参一条 `where`） |
+| **关联类型** | `where T: IAdd<Output=T>` | ❌ C# 不支持，Rust 支持 | ❌ **未实现**（parser 无 `Name=Type` 解析） |
+| **嵌套约束** | `where T: IIterator<Item=U>, U: IDisplay` | ❌ C# 不支持，Rust 支持 | ❌ **未实现** |
+
+> 本节此前把关联类型 / 嵌套约束按**已实现**描述（含语法示例），实为**设计意图**。
+> 2026-09-05 按实况订正——文档与实现的这类漂移正是 `complete-where-constraints` 要根除的对象。
 
 ### 关联类型
 

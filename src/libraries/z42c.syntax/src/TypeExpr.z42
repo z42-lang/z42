@@ -87,7 +87,7 @@ public sealed class WhereConstraint {
     public Span Span;
     public bool     IsType;
     public TypeExpr Type;      // 仅 IsType
-    public string   Special;   // "new()" / "class" / "struct"（!IsType）
+    public string   Special;   // "new()" / "class" / "struct" / "enum"（!IsType）
     public WhereConstraint(bool isType, TypeExpr type, string special, Span span) { this.Span = span;
         this.IsType = isType; this.Type = type; this.Special = special;
     }
