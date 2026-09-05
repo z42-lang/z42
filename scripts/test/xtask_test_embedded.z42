@@ -608,7 +608,7 @@ int _runWasmTesthost(string root) {
 int _z42bDevice(string root, string manifestPath, string rid, string destDir, string[] extra) {
     string vm = _builtVm(root, "release");
     if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
-    string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    string builderZpkg = _toolchainZpkg(root, _z42bToml());
     if (builderZpkg.Length == 0 || !File.Exists(builderZpkg)) {
         ConsoleError.WriteLine("error: z42b (z42.builder.zpkg) not built; run build toolchain");
         return 1;
@@ -832,7 +832,7 @@ int _testEmbedded(ParseResult r) {
     // on the host: xtask (fleet orchestrator) built the bundle; z42b runs it.
     string vm = _builtVm(root, "release");
     if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
-    string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    string builderZpkg = _toolchainZpkg(root, _z42bToml());
     if (builderZpkg.Length == 0 || !File.Exists(builderZpkg)) {
         ConsoleError.WriteLine("error: z42b (z42.builder.zpkg) not built; run build toolchain");
         return 1;

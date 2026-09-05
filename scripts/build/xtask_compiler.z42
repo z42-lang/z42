@@ -250,15 +250,9 @@ int _testCompilerUnits(string root, string profile, string[] members) {
     // retire-test-runner: z42c [Test] units run through z42b (z42.builder.zpkg)
     // via z42vm, replacing the deleted Rust z42-test-runner. Build it here (deps
     // resolve from `flat`); incremental/cached when already current.
-    string builderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
-    int bc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg("src/toolchain/builder/core/z42.builder.z42.toml").Arg("--release")
-        .Env("Z42_LIBS", flat).WorkingDirectory(root));
+    string builderZpkg = _toolchainZpkg(root, _z42bToml());
+    int bc = _buildZ42bWith(root, vm, driverZpkg, flat);
     if (bc != 0) { return bc; }
-    if (!File.Exists(builderZpkg)) {
-        ConsoleError.WriteLine("error: z42.builder.zpkg not found at " + builderZpkg);
-        return 2;
-    }
 
     int totalFailed = 0;
     int totalUnits = 0;

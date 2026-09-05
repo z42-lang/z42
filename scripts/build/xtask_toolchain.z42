@@ -28,7 +28,7 @@ string[] _workloadTomls() {
 string[] _toolchainApphostTomls() {
     string[] xs = new string[4];
     xs[0] = "src/toolchain/launcher/core/z42.launcher.z42.toml";
-    xs[1] = "src/toolchain/builder/core/z42.builder.z42.toml";
+    xs[1] = _z42bToml();
     xs[2] = "src/toolchain/devtools/core/z42.devtools.z42.toml";
     xs[3] = "src/toolchain/interactive/core/z42.interactive.z42.toml";
     return xs;
@@ -121,7 +121,30 @@ int _ensureToolchainDeps(string root) {
 // z42b（z42.builder.zpkg）的 toml —— 单点常量，避免各站点各写一遍字面路径。
 string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 
-// 确保 z42b 已按**当前 z42c** 编好。
+// 用**调用方给定**的 (vm, driver, libs) 编 z42b 并校验产物。
+//
+// 为什么参数化而不是让本函数自己解析：四个调用点的 vm/driver/libs 来源**各不相同**——
+//   test stdlib   ：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
+//   test compiler ：按 profile 取（_driverZpkg(root, profile)）
+//   test targets  ：固定 release
+//   stage-toolchain：release + 纯 stdlib libs（见 _ensureZ42b）
+// 前三者用的还是 `_assembleAllLibs`（stdlib + z42c 七兄弟的扁平目录，因为它们同时要编
+// 测试单元），而 stage-toolchain 只需 `_libsDir`。**能统一的只有「怎么编 + 怎么校验」，
+// 输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
+int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
+    int rc = _exec(new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(_z42bToml()).Arg("--release")
+        .Env("Z42_LIBS", libs).WorkingDirectory(root));
+    if (rc != 0) { ConsoleError.WriteLine("  ✗ z42b (z42.builder.zpkg) build failed"); return rc; }
+    string zpkg = _toolchainZpkg(root, _z42bToml());
+    if (!File.Exists(zpkg)) {
+        ConsoleError.WriteLine("error: z42.builder.zpkg not found at " + zpkg);
+        return 1;
+    }
+    return 0;
+}
+
+// 确保 z42b 已按**当前 z42c** 编好（stage-toolchain 用：自行解析 release 工具链）。
 //
 // 为什么无条件重编而非 File.Exists 就跳过：z42b 是 zpkg，必须与当前 z42c 的 zpkg
 // 格式一致（strict-pin）——「存在」≠「可用」，上一格式版本的 z42.builder.zpkg 会在
@@ -129,14 +152,7 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 // （同 test-lib stage 里既有 z42b 构建的理由，那里称之为 format-skew guard。）
 int _ensureZ42b(string root) {
     int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
-    int c = _z42cBuildToml(_builtVm(root, "release"), _selfContainedDriverDir(root),
-                           _libsDir(root), _z42bToml());
-    if (c != 0) { ConsoleError.WriteLine("  ✗ z42b (z42.builder.zpkg) build failed"); return c; }
-    if (!File.Exists(_toolchainZpkg(root, _z42bToml()))) {
-        ConsoleError.WriteLine("  ✗ z42b built but zpkg missing: " + _toolchainZpkg(root, _z42bToml()));
-        return 1;
-    }
-    return 0;
+    return _buildZ42bWith(root, _builtVm(root, "release"), _driverZpkg(root), _libsDir(root));
 }
 
 // ── build workload ───────────────────────────────────────────────────────────
@@ -178,7 +194,7 @@ int _buildToolchain() {
     string cargoOut = _cargoOutFor(root, rid, "release");
     string apphostStub = Path.Join(cargoOut, Platform.IsWindows() ? "apphost.exe" : "apphost");
     // z42b must exist before it can publish the others.
-    string builderToml = "src/toolchain/builder/core/z42.builder.z42.toml";
+    string builderToml = _z42bToml();
     int bc = _z42cBuildToml(vm, z42cDir, libs, builderToml);
     if (bc != 0) { ConsoleError.WriteLine("  ✗ z42b build failed"); return bc; }
     string z42bZpkg = _toolchainZpkg(root, builderToml);
@@ -212,7 +228,7 @@ int _sdkMergeApphosts(string root, string outDir, bool noBuild) {
         // just built by _buildToolchain — publish z42c's apphost with them.
         string vm = _builtVm(root, "release");
         string rid = _detectHostRid();
-        string z42bZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+        string z42bZpkg = _toolchainZpkg(root, _z42bToml());
         string stub = Path.Join(_cargoOutFor(root, rid, "release"),
             Platform.IsWindows() ? "apphost.exe" : "apphost");
         int zc = _z42bPublish(vm, z42bZpkg, _libsDir(root), stub, z42cToml, rid,
