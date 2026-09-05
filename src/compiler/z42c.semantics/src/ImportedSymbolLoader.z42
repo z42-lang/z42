@@ -91,11 +91,18 @@ public static class ImportedSymbolLoader {
                         // add-crosspkg-struct-value-semantics (P4a) 根因修复：跨包 struct 值类型分类。生产方
                         // ExportedTypeExtractor 把 struct-ness 编码进 ExportedClassZ.HasBase（`hasBase = !isStruct`——
                         // 非-struct class 恒 HasBase=true，struct 恒 HasBase=false），故 `!cl.HasBase` 精确等价
-                        // isStruct。不新增 ExportedClassZ 字段：那会让 z42c 源用一个上一 nightly 种子 z42.ir 尚无的
-                        // stdlib API → bootstrap 越界（axis ②，实测 E0401）；复用既有 HasBase 编码零越界。
-                        // 修前 imported struct 当引用类型（消费方不发 StructAlloc/FieldGetPrim）→ 与生产方 struct
-                        // 构造函数（发 StructFieldSetPrim off=0）不一致 → 运行期 blob-bounds 崩。分类正确后
+                        // isStruct。修前 imported struct 当引用类型（消费方不发 StructAlloc/FieldGetPrim）→ 与生产方
+                        // struct 构造函数（发 StructFieldSetPrim off=0）不一致 → 运行期 blob-bounds 崩。分类正确后
                         // StructLayout.BuildFromSymbols 从字段名/类型重算布局（与生产方持久化逐字节一致）。
+                        //
+                        // ⚠️ 此处原有一条「不新增 ExportedClassZ 字段 ← bootstrap 越界」的论证，已于
+                        // add-associated-types (2026-09-06) 删除：它写下时（ea3f0c73, 08-12）就已失效 13 天——
+                        // _ensureBootstrapSelfDepLibs 的破环预建自 07596b57 (07-30) 起**总是**用当前 driver 把
+                        // 当前源 z42.ir 建进 build-libs（不 warm-skip），z42c 源用当前源 z42.ir 新 API 已是常态
+                        // （先例：IsSealed / Visibility / IsDeprecated / ExportedMethodZ.TypeParamCount / StrMap.Find）。
+                        // 唯一仍有效的约束是**种子 ABI**：新字段不得进 ctor 签名，须 ctor 内给默认值 + 构造后赋值。
+                        // 机制见 docs/design/compiler/self-hosting.md 轴④ 与 .claude/rules/bootstrap-seed.md。
+                        // （struct-ness 继续复用 HasBase 编码属独立技术债，登记 Deferred，不在本 change 内改。）
                         nct.IsStruct = !cl.HasBase;
                         if (cl.TpCount > 0) { nct.GenericParamNames = cl.TypeParams; nct.GenericParamCount = cl.TpCount; }
                         if (needsMangle) { nct.HasArityMangle = true; nct.ArityMangleCount = cl.TpCount; }

@@ -16,12 +16,12 @@
 
 ### 1A 认知与门面修正（**独立 commit，必须先落**）
 
-- [ ] 1A.1 `ImportedSymbolLoader.z42:91-98` —— 保留「struct-ness 编码在 `HasBase`」的事实描述，删除「不许加 `ExportedClassZ` 字段 ← bootstrap 越界」的过时论证（依据：design D1 三条证据）
-- [ ] 1A.2 `docs/design/compiler/self-hosting.md:219` —— 删已失效的 warm-skip 描述（与同文件 :235-245 自相矛盾）
-- [ ] 1A.3 `.claude/rules/bootstrap-seed.md:151` —— 旧函数名 `_ensureBootstrapZ42Ir` → `_ensureBootstrapSelfDepLibs`；轴④判据补「**已有包的新 API** 由预建自动破环，无需等 nightly」
-- [ ] 1A.4 `scripts/build/xtask_compiler.z42` —— `_ensureBootstrapSelfDepLibs` 目标 libs 目录参数化（in-tree flat 为默认，行为不变）
-- [ ] 1A.5 `scripts/build/xtask_bootstrap_check.z42` —— A 路径用隔离 runlibs 调同一预建函数；**注释写清改后仍守哪三轴、不再守哪一轴**（design D2 表）
-- [ ] 1A.6 跑 `./xtask test bootstrap` 确认改后仍绿，且不再对自依赖库 API 报假红
+- [x] 1A.1 `ImportedSymbolLoader.z42:91-98` —— 保留「struct-ness 编码在 `HasBase`」的事实描述，删除「不许加 `ExportedClassZ` 字段 ← bootstrap 越界」的过时论证（依据：design D1 三条证据）
+- [x] 1A.2 `docs/design/compiler/self-hosting.md:219` —— 删已失效的 warm-skip 描述（与同文件 :235-245 自相矛盾）
+- [x] 1A.3 `.claude/rules/bootstrap-seed.md:151` —— 旧函数名 `_ensureBootstrapZ42Ir` → `_ensureBootstrapSelfDepLibs`；轴④判据补「**已有包的新 API** 由预建自动破环，无需等 nightly」
+- [x] 1A.4 `scripts/build/xtask_compiler.z42` —— **无需改动**：`_ensureBootstrapSelfDepLibs` 的 `stdlibFlat` 参数本就同时充当 Z42_LIBS 与 `--output-dir`，已天然参数化
+- [x] 1A.5 `scripts/build/xtask_bootstrap_check.z42` —— A 路径用隔离 runlibs 调同一预建函数；**注释写清改后仍守哪三轴、不再守哪一轴**（design D2 表）
+- [x] 1A.6 跑 `./xtask test bootstrap` 确认改后仍绿（nightly + repo 两路径全 ✓，REAL_EXIT=0）。**真正的证明在 1D 之后复跑**——加完 `ExportedClassZ` 字段仍绿 = 假阳性确已消除
 
 ### 1B IR 与格式层（写端 → 读端）
 

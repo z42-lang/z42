@@ -16,6 +16,27 @@
 //   (B) repo  z42c   → current source   ← the normal self-build (sanity)
 // (A) fails but (B) passes ⇒ you used something newer than the published nightly:
 // split into "support first (old-syntax-written), use later" per the discipline.
+//
+// WHAT THIS GATE DOES AND DOESN'T GUARD (add-associated-types, 2026-09-06 — read before
+// concluding it "stopped working"). Both runs go through `_ensureBootstrapSelfDepLibs`,
+// exactly like the real `build compiler` path, so:
+//
+//   ✅ axis ① syntax          — the seed z42c must parse current source (incl. the self-dep
+//                               libs it pre-builds), so new syntax fails here.
+//   ✅ axis ② zbc/zpkg format — ditto; a format the seed can't emit/read fails here.
+//   ✅ axis ③ OTHER stdlib    — z42.collections / z42.threading / … are NOT pre-built, so
+//                               z42c source using their new APIs still fails here.
+//   ❌ axis ③ SELF-DEP libs   — z42.core / z42.project / z42.build / z42.ir / z42c.core /
+//                               z42c.syntax are rebuilt from CURRENT source by the pre-build.
+//                               Guarding them would be guarding a constraint that does not
+//                               exist: the real build pre-builds them too (self-hosting.md
+//                               axis ④). This is the false-red that was removed, not a gap.
+//   ❌ axis ④ runtime self-dep — still unverified here (this gate only compiles; it never
+//                               RUNS the freshly built z42c). Cold-start runtime breakage
+//                               (`undefined function …`) surfaces in CI `verify-selfhost`.
+//
+// Note this is a LOCAL fast gate — no CI job invokes it; the CI boundary gate is
+// `verify-selfhost`, which drives the same `_ensureBootstrapSelfDepLibs` path via ci-bootstrap.
 namespace Z42Xtask;
 
 using Std;
@@ -135,6 +156,18 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     _resetDir(runlibs);
     _copyAll(stdlibDir, runlibs, "*.zpkg");
     _copyAll(Path.GetDirectoryName(driver), runlibs, "*.zpkg");
+    // Mirror the REAL `build compiler` path (xtask_compiler.z42 _buildCompilerViaZ42c): break the
+    // axis-④ self-dependency ring by pre-building the CURRENT-source self-dep libs with this seed
+    // before compiling the workspace. `_ensureBootstrapSelfDepLibs`'s flat-dir parameter doubles as
+    // both Z42_LIBS and --output-dir, so passing `runlibs` keeps this check fully isolated.
+    //
+    // Without this the check diverged from reality and produced FALSE REDS (add-associated-types,
+    // 2026-09-06): the nightly `libs/` carries the PREVIOUS nightly's z42.ir, so any z42c source
+    // consuming a current-source z42.ir member (routine since 07596b57 removed the warm-skip — see
+    // self-hosting.md axis ④) failed here on the day it landed and "self-healed" the next day when
+    // the nightly caught up. It also never rebuilt z42c.core/z42c.syntax, which moved out of
+    // `_compilerMembers` into src/libraries/ (#317) — so new frontend symbols were false-red too.
+    _ensureBootstrapSelfDepLibs(root, vm, driver, runlibs);
     string outRoot = Path.Join(work, label + "-out");
     _resetDir(outRoot);
     int fail = 0;
