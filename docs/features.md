@@ -336,6 +336,28 @@ The VM maintains two independent search paths with fixed priority:
 
 | Path | Format | Env var | Default dirs | Priority |
 |------|--------|---------|--------------|---------|
+### 运行时设置（旋钮）
+
+每个 `Z42_*` 旋钮在 `src/runtime/src/config/knob_table.rs` 登记一次，CLI / 环境变量 /
+两个配置文件层 / 查询命令 / z42 脚本表面全部由该表驱动。优先级链（高 → 低）：
+
+| 层 | 来源 | 谁写的 |
+|---|---|---|
+| L1 | `z42vm --set <key>=<value>` / `--mode` | 用户，此刻此机 |
+| L2 | `Z42_*` 环境变量 | 用户 / CI / 容器 |
+| L3 | `Z42_CONFIG` → `[runtime]` TOML | 用户手写 |
+| L4 | `Z42_APP_CONFIG` → `<app>.runtimeconfig.toml` | `z42c build` 从 `[profile.*]` 生成 |
+| L5 | 登记表内置默认 | — |
+
+每个旋钮还声明**可用性**（build profile / 需要的 cargo feature / 平台）与**可设置层**；
+设了一个本 build 不支持的旋钮会得到明确告知而非静默无效——CLI 层致命（exit 2），
+env / 文件层 warn 后用默认继续（`--strict-config` 可升级为致命）。
+
+查询：`z42vm --list-knobs [--all] [--json]`（schema）/ `z42vm --show-config [--json]`
+（生效值 + 来源 + 为什么某层没生效）。z42 脚本侧只读面：`Std.Runtime.RuntimeConfig`。
+
+机制详解见 [runtime-settings.md](book/src/runtime/runtime-settings.md)。
+
 | **module path** | `.zbc` only | `Z42_PATH` | `<cwd>/`, `<cwd>/modules/` | High |
 | **libs path** | `.zpkg` only | `Z42_LIBS` | `<binary-dir>/../libs/`, `<cwd>/artifacts/z42/libs/` | Low |
 
