@@ -110,13 +110,9 @@ public class HttpHeaders {
         string[] nk = new string[newCap];
         string[] nv = new string[newCap];
         string[] nl = new string[newCap];
-        int i = 0;
-        while (i < this._count) {
-            nk[i] = this._keys[i];
-            nv[i] = this._values[i];
-            nl[i] = this._lowerKeys[i];
-            i = i + 1;
-        }
+        Array.Copy(this._keys, nk, this._count);
+        Array.Copy(this._values, nv, this._count);
+        Array.Copy(this._lowerKeys, nl, this._count);
         this._keys      = nk;
         this._values    = nv;
         this._lowerKeys = nl;

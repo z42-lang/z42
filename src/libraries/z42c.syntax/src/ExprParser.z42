@@ -64,7 +64,7 @@ public sealed class ExprParser {
                 while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
                     if (ac == arms.Length) {
                         SwitchArm[] big = new SwitchArm[arms.Length * 2];
-                        int ai = 0; while (ai < ac) { big[ai] = arms[ai]; ai = ai + 1; }
+                        Array.Copy(arms, big, ac);
                         arms = big;
                     }
                     Span asp = this._p._peek().Span;
@@ -200,7 +200,7 @@ public sealed class ExprParser {
             while (true) {
                 if (n == args.Length) {
                     Expr[] bigger = new Expr[args.Length * 2];
-                    int i = 0; while (i < n) { bigger[i] = args[i]; i = i + 1; }
+                    Array.Copy(args, bigger, n);
                     args = bigger;
                 }
                 Expr arg = null;
@@ -307,7 +307,7 @@ public sealed class ExprParser {
                     this._p._advance();   // ,
                     if (en == elems.Length) {
                         Expr[] b = new Expr[elems.Length * 2];
-                        int i = 0; while (i < en) { b[i] = elems[i]; i = i + 1; }
+                        Array.Copy(elems, b, en);
                         elems = b;
                     }
                     elems[en] = this._parseExpr(0); en = en + 1;
@@ -338,7 +338,7 @@ public sealed class ExprParser {
                     while (true) {
                         if (tn == targs.Length) {
                             Expr[] b = new Expr[targs.Length * 2];
-                            int i = 0; while (i < tn) { b[i] = targs[i]; i = i + 1; }
+                            Array.Copy(targs, b, tn);
                             targs = b;
                         }
                         targs[tn] = this._parseExpr(0); tn = tn + 1;
@@ -364,7 +364,7 @@ public sealed class ExprParser {
                     while (true) {
                         if (en == elems.Length) {
                             Expr[] b = new Expr[elems.Length * 2];
-                            int i = 0; while (i < en) { b[i] = elems[i]; i = i + 1; }
+                            Array.Copy(elems, b, en);
                             elems = b;
                         }
                         elems[en] = this._parseExpr(0); en = en + 1;
@@ -395,7 +395,7 @@ public sealed class ExprParser {
                     while (true) {
                         if (n == args.Length) {
                             Expr[] b = new Expr[args.Length * 2];
-                            int i = 0; while (i < n) { b[i] = args[i]; i = i + 1; }
+                            Array.Copy(args, b, n);
                             args = b;
                         }
                         args[n] = this._parseExpr(0); n = n + 1;
@@ -472,7 +472,7 @@ public sealed class ExprParser {
                     if (fc == names.Length) {
                         string[] nb = new string[names.Length * 2];
                         Expr[] vb = new Expr[values.Length * 2];
-                        int i = 0; while (i < fc) { nb[i] = names[i]; vb[i] = values[i]; i = i + 1; }
+                        Array.Copy(names, nb, fc); Array.Copy(values, vb, fc);
                         names = nb; values = vb;
                     }
                     Token fn = this._p._peek();
@@ -513,7 +513,7 @@ public sealed class ExprParser {
                     if (fc == names.Length) {
                         string[] nb = new string[names.Length * 2];
                         Expr[] vb = new Expr[values.Length * 2];
-                        int i = 0; while (i < fc) { nb[i] = names[i]; vb[i] = values[i]; i = i + 1; }
+                        Array.Copy(names, nb, fc); Array.Copy(values, vb, fc);
                         names = nb; values = vb;
                     }
                     Token fn = this._p._peek();
@@ -564,7 +564,7 @@ public sealed class ExprParser {
             if (en == elems.Length) {
                 Expr[] b = new Expr[elems.Length * 2];
                 bool[] bs = new bool[spreads.Length * 2];
-                int i = 0; while (i < en) { b[i] = elems[i]; bs[i] = spreads[i]; i = i + 1; }
+                Array.Copy(elems, b, en); Array.Copy(spreads, bs, en);
                 elems = b; spreads = bs;
             }
             bool sp = false;
@@ -597,7 +597,7 @@ public sealed class ExprParser {
                 if (dn == keys.Length) {
                     Expr[] bk = new Expr[keys.Length * 2];
                     Expr[] bv = new Expr[vals.Length * 2];
-                    int i = 0; while (i < dn) { bk[i] = keys[i]; bv[i] = vals[i]; i = i + 1; }
+                    Array.Copy(keys, bk, dn); Array.Copy(vals, bv, dn);
                     keys = bk; vals = bv;
                 }
                 keys[dn] = this._parseExpr(0);
@@ -617,7 +617,7 @@ public sealed class ExprParser {
             if (this._p._peek().Kind == TokenKind.RBrace) { break; }   // 尾逗号容忍
             if (en == elems.Length) {
                 Expr[] b = new Expr[elems.Length * 2];
-                int i = 0; while (i < en) { b[i] = elems[i]; i = i + 1; }
+                Array.Copy(elems, b, en);
                 elems = b;
             }
             elems[en] = this._parseExpr(0); en = en + 1;
@@ -682,7 +682,7 @@ public sealed class ExprParser {
             while (more) {
                 if (pc == ps.Length) {
                     LambdaParam[] b = new LambdaParam[ps.Length * 2];
-                    int k = 0; while (k < pc) { b[k] = ps[k]; k = k + 1; }
+                    Array.Copy(ps, b, pc);
                     ps = b;
                 }
                 // 类型形态：下一 token 后还有 Identifier → 带类型（镜像 C# 探测）

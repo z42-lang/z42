@@ -188,9 +188,7 @@ public class StringBuilder {
     void Grow() {
         int newCap = this._capacity * 2;
         string[] bigger = new string[newCap];
-        for (int i = 0; i < this._count; i++) {
-            bigger[i] = this._parts[i];
-        }
+        Array.Copy(this._parts, bigger, this._count);
         this._parts = bigger;
         this._capacity = newCap;
     }

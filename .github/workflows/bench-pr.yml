@@ -61,9 +61,14 @@ name: Bench PR Regression
 # （暖缓存下 base/pr 编译各 115s→84s，只剩编 z42 crate 本身；缓存回存 469MB），bootstrap 181s、
 # 建 base 工具链 120s，job 合计 1227s → **1047s**；合并后 base 侧也带上跳过开关 ⇒ criterion ≈390s。
 #
-# fix-criterion-ci-separation (2026-09-05)：暖缓存那跑 criterion 打出一次**教科书级假红**——
-# 本 PR 一行 VM 代码没动，却报 gc_cycle/large_array_10k +20.9%。根因不在 criterion 而在下面的
-# 判红脚本，详见该处注释与 book「判红规则的一处实现偏差」。
+# fix-criterion-ci-separation + align-criterion-threshold (2026-09-05)：#457 自身跑了四次
+# **base 与 pr 的 VM 代码逐字节相同**的对照，criterion 判红两次，全是假的。两个独立根因，都已修：
+#   ① 区间语义：`pe > thr and lo > 0` 把「CI 分离」实现成「下界大于零」⇒ [+0.5%, +60%] 也算证据。
+#      改成 `lo > thr`（整个区间在阈值之上）。
+#   ② 阈值：修完①之后又红一次（+15.9%，区间只有 5.1pp 宽）——**criterion 层的噪声底同样在 ±16%**
+#      （四次空跑单条极差最大 31.9pp），10% 画在噪声底之下。阈值 0.10 → 0.25，与 e2e 对齐。
+# 两者别混：①治「宽区间冒充证据」，②治「跑间漂移 + 跑内区间很窄」。详见下面判红脚本的注释与
+# book 判红语义页「判红规则的一处实现偏差」「criterion 层的噪声底也在 ±16%」。
 
 on:
   pull_request:
@@ -346,7 +351,7 @@ jobs:
           CRITERION_HOME="$CRITERION_HOME" \
             cargo bench --locked --manifest-path src/runtime/Cargo.toml \
               --bench gc_cycle_bench -- --baseline ab-base
-          echo "── gate: 整个 95% 区间在 +10% 之上（lower_bound > thr）= 回归 ──"
+          echo "── gate: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 回归 ──"
           python3 - "$CRITERION_HOME" <<'PY'
           # fix-criterion-ci-separation (2026-09-05)：判红条件是**整个区间**在阈值之上
           # （lower_bound > thr），不是「点估计过阈值 + 下界大于零」。
@@ -360,8 +365,19 @@ jobs:
           #   · #423：+13.2%（下界 +4.5%）→ 作者按假红照常合并。
           # 新条件 `lo > thr` 对这两例都不判红，而一条测准的真回归（如区间 [+18%, +22%]）照红。
           # 点估计不再单独参与判定——它落在区间里，区间才是结论。
+          # align-criterion-threshold (2026-09-05)：阈值 0.10 → 0.25，与 e2e 同一个理由、同一个量级。
+          # #457 自身跑了四次**base 与 pr 的 VM 代码逐字节相同**的对照（改动只有 workflow + bench
+          # harness + book），单条 bench 的判定值散布：
+          #   gc_cycle/large_array_10k              +0.6 / +20.9 / +0.3 / -11.0  (极差 31.9pp)
+          #   gc_minor/1k_young_with_10k_pinned_old +0.0 /  -1.5 / +5.9 / +15.9  (极差 17.4pp)
+          #   gc_sweep/10k_survivors                +0.7 /  +6.2 / -9.1 /  +1.1  (极差 15.3pp)
+          # ⇒ **criterion 层的噪声底也在 ±16% 上下**（与 #442 给 e2e/micro 测出的 ±13~16% 同量级），
+          # 10% 的阈值画在噪声底之下，假红是数学必然。注意这跟上面的区间修正是**两个**问题：
+          # `lo > thr` 修的是「宽区间冒充证据」；这里修的是「跑间漂移 + 跑内区间很窄」——跑5 那条
+          # +15.9% 的区间只有 5.1pp 宽，任何基于**跑内**区间的规则都拦不住它。
+          # 收回 0.15 的前提仍是「可疑即复测」（用跑间离散度重算区间），见 book 判红语义页。
           import json, os, sys, glob
-          home = sys.argv[1]; thr = 0.10; regr = []
+          home = sys.argv[1]; thr = 0.25; regr = []
           for est in glob.glob(os.path.join(home, "**", "change", "estimates.json"), recursive=True):
               with open(est) as f: d = json.load(f)
               mean = d.get("mean", {}); pe = mean.get("point_estimate")
