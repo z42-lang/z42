@@ -1,0 +1,268 @@
+// xtask — embedded test-host：golden → [Test] 归一 + 单元 zbc 发射
+//
+// 把 src/tests 的 golden case（source.z42 + expected_output.txt）包装成 [Test] 函数，
+// and 把 stdlib 的 [Test] 文件/目录发射成 bundle 里的 .zbc 单元。纯「单个 case 怎么变成
+// 一个可执行单元」，不含语料枚举与分片。
+//
+// 从 xtask_test_embedded.z42 拆出（原文件 848 行 = 500 行硬限的 1.7 倍，三个职责混装）。
+// 同 Z42Xtask 命名空间，跨文件裸名互调。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// Build the shared z42 test-agent → app.zpkg (idempotent: skip if present).
+string _ensureTestAgent(string root) {
+    string toml = Path.Join(root, "src/toolchain/workload/test/agent/z42.testagent.z42.toml");
+    string zpkg = Path.Join(root, "src/toolchain/workload/test/agent/dist/z42.testagent.zpkg");
+    if (File.Exists(zpkg)) { return zpkg; }
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    Console.WriteLine("  build test-agent → z42.testagent.zpkg");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zpkg;
+}
+
+// ── golden → [Test] 归一 (wire-embedded-testhost G1) ─────────────────────────
+//
+// A golden case is a whole program (source.z42 [+ expected_output.txt]). To run
+// it through the single Runner path, generate a [Test] wrapper in the SAME
+// module that captures Main()'s stdout and asserts it equals the expected output
+// (or, when there is no expected file, just runs Main — Assert-self-validating).
+// Proven approach: combine golden source + injected `using Std.Test;` + appended
+// [Test] → one module with a [Test] the agent runs like any other.
+
+// Escape a string for embedding as a z42 double-quoted literal.
+string _zEscape(string s) {
+    string o = s.Replace("\\", "\\\\");
+    o = o.Replace("\"", "\\\"");
+    o = o.Replace("\r", "");
+    o = o.Replace("\n", "\\n");
+    return o;
+}
+
+// Build the combined golden+wrapper source. Injects `using Std.Test;` after the
+// `namespace ...;` line if present, else at the top; appends the [Test] wrapper.
+string _wrapGoldenSource(string src, bool hasExpected, string expected) {
+    string inject = "using Std.Test;\n";
+    string body;
+    string[] lines = src.Split("\n");
+    int nsIdx = -1;
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        if (lines[i].Trim().StartsWith("namespace ")) { nsIdx = i; break; }
+    }
+    if (nsIdx < 0) {
+        body = inject + src;
+    } else {
+        string head = "";
+        for (int i = 0; i <= nsIdx; i = i + 1) { head = head + lines[i] + "\n"; }
+        string tail = "";
+        for (int i = nsIdx + 1; i < lines.Length; i = i + 1) {
+            tail = tail + lines[i];
+            if (i + 1 < lines.Length) { tail = tail + "\n"; }
+        }
+        body = head + inject + tail;
+    }
+    // Use short names (TestIO / Assert) via the injected `using Std.Test;` —
+    // fully-qualified `Std.Test.TestIO` parses as a field-access chain (→ Null).
+    string wrapper;
+    if (hasExpected) {
+        wrapper = "\n[Test] void __golden_check() {\n"
+            + "    string __c = TestIO.captureStdout(() => { Main(); });\n"
+            + "    Assert.Equal(\"" + _zEscape(expected.TrimEnd()) + "\", __c.TrimEnd());\n}\n";
+    } else {
+        // Assert-self-validating golden: Main throws on failure.
+        wrapper = "\n[Test] void __golden_check() { Main(); }\n";
+    }
+    return body + wrapper;
+}
+
+// Build a golden case dir (<caseDir>/source.z42 [+ expected_output.txt]) into a
+// [Test]-wrapped .zbc. Returns the .zbc path ("" on failure).
+string _buildGoldenCase(string root, string caseDir) {
+    string src = Path.Join(caseDir, "source.z42");
+    if (!File.Exists(src)) { ConsoleError.WriteLine("error: no source.z42 in " + caseDir); return ""; }
+    string srcText = File.ReadAllText(src);
+    string expPath = Path.Join(caseDir, "expected_output.txt");
+    bool hasExp = File.Exists(expPath);
+    string exp = hasExp ? File.ReadAllText(expPath) : "";
+    string combined = _wrapGoldenSource(srcText, hasExp, exp);
+
+    string outDir = Path.Join(root, "artifacts/build/embedded-test");
+    Directory.Create(outDir);
+    string name = Path.GetFileName(caseDir);
+    string wrappedSrc = Path.Join(outDir, name + ".golden.z42");
+    File.WriteAllText(wrappedSrc, combined);
+    string zbc = Path.Join(outDir, name + ".golden.zbc");
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc).Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zbc;
+}
+
+// ── test-bundle 构建 (G2) ────────────────────────────────────────────────────
+//
+// Enumerate the corpus → compile each case to a .zbc (golden→[Test] wrapped;
+// stdlib [Test] unit→direct emit) → copy into a bundle dir + write manifest.json
+// (name→zbc). Build-time `filter` (substring; empty=all) bounds what's compiled
+// so `--case`/`--filter` don't compile the whole corpus for a single run.
+
+string _bundleSafeName(string name) {
+    return name.Replace("/", "__").Replace(".", "_");
+}
+
+// Emit a stdlib [Test] unit (single .z42) → .zbc in `bundleDir`. Returns "" on fail.
+string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir) {
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    string zbc = Path.Join(bundleDir, safe + ".zbc");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("--emit-zbc").Arg(unitSrc).Arg(zbc).Env("Z42_LIBS", flat));
+    if (c != 0) { return ""; }
+    return zbc;
+}
+
+// Build a DIR-mode stdlib [Test] unit (tests/<name>/ with helper .z42 files, or
+// an own manifest) into a packed .zpkg, then copy it into `bundleDir`. Reuses
+// the host runner's `_renderSyntheticManifest` (same build path as `test lib`,
+// no duplication) with empty deps — Z42_LIBS=flat resolves every `using`, same
+// as single-file `--emit-zbc`. Returns the copied path ("" on failure).
+string _emitDirUnit(string root, string lib, string name, string dirPath, string safe, string bundleDir) {
+    string projName = lib + ".test." + name;
+    string outDir = Path.Join(root, "artifacts/build/embedded-test/dm/" + projName);
+    Directory.Create(outDir);
+    // Synthetic toml written NEXT TO the sources (glob is manifest-relative);
+    // dot-prefixed + unique so it's git-ignored and won't collide.
+    string toml = Path.Join(dirPath, ".xtask-embed-" + projName + ".z42.toml");
+    File.WriteAllText(toml, _renderSyntheticManifest(projName, "**/*.z42", outDir, name, _newBundle()));
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root);
+    string flat = _assembleAllLibs(root, "release");
+    int c = _exec(new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg(toml).Arg("--release").Env("Z42_LIBS", flat));
+    File.Delete(toml);   // clean up the synthetic manifest regardless of outcome
+    if (c != 0) { return ""; }
+    string produced = Path.Join(outDir, "dist/" + projName + ".zpkg");
+    if (!File.Exists(produced)) { return ""; }
+    string dest = Path.Join(bundleDir, safe + ".zpkg");
+    File.Copy(produced, dest, true);
+    return dest;
+}
+
+// Read a golden's expected_output.txt (or "" when absent = expect empty stdout).
+string _readExpected(string path) {
+    if (File.Exists(path)) { return File.ReadAllText(path); }
+    return "";
+}
+
+// Compile a golden source (no [Test] wrap) → <safe>.zbc + write <safe>.expected
+// sibling; return its manifest JSON entry, or "" on compile failure (e.g.
+// compile-fail goldens — skipped, they aren't runnable-in-embed). Shared by the
+// dir / flat / lib golden enumerations. Direct-run: agent runs it isolated.
+string _goldenEntry(string root, string caseName, string src, string expTxt, string bundleDir) {
+    string safe = _bundleSafeName(caseName);
+    string zbc = _emitUnitZbc(root, src, safe, bundleDir);
+    if (zbc.Length == 0) { return ""; }
+    string entry = _deriveEntry(src);
+    File.WriteAllText(Path.Join(bundleDir, safe + ".expected"), expTxt);
+    return "    {\"name\": \"" + caseName + "\", \"zbc\": \"" + safe + ".zbc\", "
+        + "\"entry\": \"" + entry + "\", \"expected\": \"" + safe + ".expected\"}";
+}
+
+// Build the test bundle. Returns the manifest.json path ("" if no cases matched).
+// fix-wasm-corpus-capability-gate: a test case whose lib/path needs a runtime
+// capability the TARGET platform lacks is excluded from that target's bundle —
+// so the in-browser (wasm) corpus stays platform-honest instead of running
+// socket/thread/native-fs tests that can't work there (and used to trap the VM).
+// Capability model: net→socket, threading→threads, io/json/toml/yaml stream +
+// operating_system/env_cwd/process_which → native-fs/env/process. Coarse,
+// library-level, covers both [Test] units and goldens (matches the exec-profile
+// "caps are ground truth of the target" model). Extend the absent lists as new
+// capability-specific test groups appear.
+//
+// tier2-mobile-coverage: two tiers of tier-2 target, DIFFERENT capability sets:
+//   • wasm — NO native facilities at all (no threads, no dlopen native-ext, no
+//     real fs, no OS entropy, no system clock). Excludes the union below.
+//   • mobile (ios sim / android emu) — a REAL native runtime WITH pthreads,
+//     statically-linked native-ext (compression), OS entropy, a system clock,
+//     and a writable app-sandbox filesystem. So mobile KEEPS threading /
+//     compression / crypto.secure_random / time.datetime / fs / streams that
+//     wasm must drop. Mobile only lacks the APP-SANDBOX gaps: server/loopback
+//     sockets + DNS (no CI network), process fork/exec, a TTY/console, mutable
+//     env, and desktop-specific OS-identity strings. Those are the SHARED gaps
+//     (both wasm and mobile fail them). Mobile's fs/stream KEEP-IN set is a
+//     capability HYPOTHESIS validated by the tier-2 CI shard run (see
+//     embedded-app-run.md §5.8) — a case that turns out to need something the
+//     sandbox denies moves up into the mobile-excluded list on the next cycle.
+bool _targetExcludes(string rid, string caseName) {
+    bool isWasm    = rid.Contains("wasm");
+    bool isAndroid = rid.Contains("android");
+    bool isMobile  = rid.Contains("ios") || isAndroid;
+    if (!isWasm && !isMobile) { return false; }   // desktop runs everything
+
+    // ── SHARED gaps: neither wasm NOR the mobile app sandbox can run these ──
+    if (caseName.StartsWith("z42.net/"))         { return true; }   // sockets/servers/DNS (no CI network; sandbox blocks bind/listen)
+    if (caseName.StartsWith("z42.io/process"))   { return true; }   // process spawn — no fork/exec in the app sandbox (basic/spawn/stdio/stdin/timeout/which/failure/env_cwd)
+    if (caseName.StartsWith("z42.io/console"))   { return true; }   // console/tty — no TTY in the test harness (console/console_tty)
+    if (caseName.StartsWith("z42.io/env"))       { return true; }   // env vars — not mutable/inherited on wasm or the mobile harness (env_cwd/env_set/environment_extra)
+    if (caseName == "z42.io/ansi_color")         { return true; }   // env-driven ANSI
+    if (caseName == "z42.io/operating_system")   { return true; }   // OS name / current_dir — differs from desktop expectations
+    if (caseName == "z42.io/platform")           { return true; }   // OS/family identity strings — wasm reports "wasm", mobile "ios"/"android", not a desktop OS
+    if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }  // env/process
+
+    // ── WASM-ONLY gaps: mobile's native runtime HAS all of these → keep them
+    //    IN for ios/android (they were only excluded because wasm can't) ──
+    if (isWasm) {
+        if (caseName.StartsWith("z42.threading/")) { return true; }   // no threads
+        // z42.compression is a [Native(lib="z42_compression")] facade (brotli/gzip/
+        // zstd/zip/lz4/tar). wasm has no dlopen → the ext registry is empty → the
+        // metadata resolver panics ("unknown builtin `__brotli_compress` …") the
+        // moment such a case loads. Mobile links the native-ext statically → it runs.
+        if (caseName.StartsWith("z42.compression/")) { return true; }
+        if (caseName.Contains("stream"))           { return true; }   // native FileStream (io/json/toml/yaml *stream*); mobile has a real fs
+        if (caseName.StartsWith("z42.io/file"))      { return true; }  // native fs (file_temp/bytes/extras/atomic_write/chmod_link_size/last_write_time/…)
+        if (caseName.StartsWith("z42.io/directory")) { return true; }  // native fs (directory/directory_copy/directory_temp)
+        if (caseName.StartsWith("z42.io/path_glob")) { return true; }  // fs glob (path_glob/path_glob_recursive)
+        if (caseName == "z42.io/gc_heap_snapshot")   { return true; }  // writes a heap-snapshot file
+        if (caseName.StartsWith("z42.crypto/secure_random")) { return true; }  // OS entropy (basic/distribution)
+        if (caseName == "z42.core/datetime")         { return true; }  // DateTime.UtcNow → system clock (time 迁入 core 后 case 名变；parse/calendar/offset cases still run)
+    }
+
+    // ── ANDROID-ONLY gap: iOS's simulator sandbox runs this; the Android
+    //    emulator app's does NOT. Surfaced by the tier2-mobile-coverage discovery
+    //    dispatch (run 32422098038): iOS all-green, Android red on it.
+    //    (iOS keeps it — do NOT move it into the shared/mobile list.) ──
+    if (isAndroid) {
+        // GENUINE gap: the Android app sandbox denies POSIX hard links
+        // (File.Link → "Permission denied"; symlinks still work). Not fixable —
+        // permanent Android exclusion.
+        if (caseName == "z42.io/file_chmod_link_size") { return true; }
+        // MEMORY gap (NOT /tmp): gc_heap_snapshot calls GC.WriteHeapSnapshot, which
+        // serialises the WHOLE live heap to a V8 JSON string (+ ReadAllText reloads
+        // it). In the embedded runner [Test] units share ONE VM, so by the time this
+        // case runs (idx ~337/464, ~112 units into its shard) the accumulated heap
+        // is large → the snapshot balloons to multi-GB. The Android emulator's tight
+        // budget → the low-memory-killer SIGKILLs the app (dispatch 32435384808:
+        // android shard 2 hit ~2.4GB RSS + 2.2GB swap → LMK; shards 1/3 without this
+        // case are green). iOS-sim (macOS host, ample RAM) runs it fine and desktop
+        // isn't shared-VM, so exclude on Android ONLY. Already excluded on wasm
+        // (line above). The /tmp→CreateTempDir portability fix still applies to the
+        // test itself. (embedded-app-run.md §5.8.)
+        if (caseName == "z42.io/gc_heap_snapshot") { return true; }
+        // NOTE (/tmp-portability follow-up landed): directory / directory_copy /
+        // file_extras / file_last_write_time used to be excluded here too — they
+        // hardcoded `/tmp/...` write paths the Android emulator has no writable /tmp
+        // for. They now write under File.CreateTempDir (portable, Android-writable —
+        // z42.io/file_temp proves it), so those 4 Android excludes were REMOVED and
+        // they run in the full-coverage shards. (embedded-app-run.md §5.8.)
+    }
+    return false;
+}
