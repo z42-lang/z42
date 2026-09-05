@@ -224,6 +224,32 @@ int[] _launcherSmoke(string distDir, string work) {
                 Console.WriteLine("  FAIL: z42 run <dir> --bin greet → '" + got + "' (stderr: " + rr.Stderr.Trim() + ")");
                 fail = fail + 1;
             }
+            // launcher-forwards-set: `--set` 是优先级链最高层，但主前门 `z42 run`
+            // 此前根本传不进去（放 app 前会被当成 app 路径，放 app 后被静默丢弃）。
+            // 这条断言盯住转发链；同时 `--bogus` 一条盯住"未识别 flag 不再当路径"。
+            ProcessResult rs = new Process(launcher).Arg("run").Arg(mexeWork)
+                .Arg("--bin").Arg("greet").Arg("--set").Arg("gc-mode=concurrent")
+                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+            if (rs.Stdout.Trim() == "greet-main" && rs.ExitCode == 0) {
+                Console.WriteLine("  ✓ z42 run --set <knob> 转发给 z42vm");
+                pass = pass + 1;
+            } else {
+                Console.WriteLine("  FAIL: z42 run --set → rc=" + rs.ExitCode.ToString()
+                    + " out='" + rs.Stdout.Trim() + "' err='" + rs.Stderr.Trim() + "'");
+                fail = fail + 1;
+            }
+            ProcessResult rb = new Process(launcher).Arg("run").Arg("--bogus").Arg(mexeWork)
+                .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+            if (rb.ExitCode != 0 && rb.Stderr.IndexOf("unknown option") >= 0) {
+                Console.WriteLine("  ✓ z42 run 未识别 flag 明确报错（不再当成 app 路径）");
+                pass = pass + 1;
+            } else {
+                Console.WriteLine("  FAIL: z42 run --bogus → rc=" + rb.ExitCode.ToString()
+                    + " err='" + rb.Stderr.Trim() + "'");
+                fail = fail + 1;
+            }
         } catch (Exception e) {
             Console.WriteLine("  FAIL: z42 run --bin smoke: " + e.Message);
             fail = fail + 1;

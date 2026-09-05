@@ -70,6 +70,7 @@
   - [三层架构与包边界]()
   - [核心包索引]()
   - [JSON serde（对象 ↔ JSON）](stdlib/json-serde.md)
+  - [`Std.Runtime.RuntimeConfig`（只读查询运行时设置）](stdlib/runtime-config.md)
 
 # 第五部分 · 工具链（Toolchain）
 
