@@ -115,7 +115,7 @@ public sealed class TypeEnv {
         TypeEnv e = this;
         bool more = true;
         while (more) {
-            if (e.Consts.ContainsKey(name)) { return e.Consts.Get(name) as ConstValue; }
+            int _sl0 = e.Consts.Find(name); if (_sl0 >= 0) { return e.Consts.ValAt(_sl0) as ConstValue; }
             if (e.HasParent) { e = e.Parent; } else { more = false; }
         }
         return null;
@@ -141,7 +141,7 @@ public sealed class TypeEnv {
         TypeEnv e = this;
         bool more = true;
         while (more) {
-            if (e.LocalFns.ContainsKey(name)) { return e.LocalFns.Get(name) as Z42FuncType; }
+            int _sl1 = e.LocalFns.Find(name); if (_sl1 >= 0) { return e.LocalFns.ValAt(_sl1) as Z42FuncType; }
             if (e.HasParent) { e = e.Parent; } else { more = false; }
         }
         return null;
@@ -153,7 +153,7 @@ public sealed class TypeEnv {
         TypeEnv e = this;
         bool more = true;
         while (more) {
-            if (e.Vars.ContainsKey(name)) { return e.Vars.Get(name) as Z42Type; }
+            int _sl2 = e.Vars.Find(name); if (_sl2 >= 0) { return e.Vars.ValAt(_sl2) as Z42Type; }
             if (e.HasParent) { e = e.Parent; }
             else { more = false; }
         }

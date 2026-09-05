@@ -22,6 +22,12 @@ public sealed class StrMap {
 
     public bool ContainsKey(string key) { return this._find(key) >= 0; }
 
+    // 命中槽号（未命中 -1）。`ContainsKey(k)` 紧跟 `Get(k)` 这种成对写法要走**两次** hash +
+    // 两次探测；改成 `Find` 一次拿槽号、再 `ValAt` 取值，只走一次。槽号语义与 UsedAt/KeyAt/ValAt
+    // 一致，且对「值本身是 null」的键也正确（Get 的 null 返回分不清「无此键」与「值为 null」）。
+    // ⚠ 槽号只在下一次 Put 之前有效（Put 可能触发 _grow 重排整表）。
+    public int Find(string key) { return this._find(key); }
+
     // 不存在返回 null（调用方 `as`-下行前 ContainsKey 或判 null）。
     public object Get(string key) {
         int i = this._find(key);

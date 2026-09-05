@@ -30,6 +30,11 @@ public sealed class Lexer {
     // 每个标识符只与同首字符的少数关键字比较，取代 84 项全表线性扫描（每次比较都是一次 builtin 调用）。
     private int[]    _kwHead;
     private int[]    _kwNext;
+    // 单字符符号快表：多字符运算符的首字符集是 `- = ! < > & | ? : . + * / % ^`，其余符号
+    // 不可能开启多字符匹配 —— 直接查表出 token，跳过 _lexSymbol 里 26 次双字符 + 16 次单字符
+    // 比较。表里正是 z42 源码中最高频的那几个（`;` `(` `)` `,` `{` `}` `[` `]`）。
+    private int[]    _sym1;
+    private string[] _sym1Text;
 
     // 输出 token（typed array + count）
     private Token[]  _toks;
@@ -57,6 +62,12 @@ public sealed class Lexer {
         int hb = 0;
         while (hb < 128) { this._kwHead[hb] = -1; hb = hb + 1; }
         this._kwNext = new int[128];
+        this._sym1 = new int[128]; this._sym1Text = new string[128];
+        int sb = 0; while (sb < 128) { this._sym1[sb] = -1; sb = sb + 1; }
+        this._sym('(', TokenKind.LParen, "("); this._sym(')', TokenKind.RParen, ")"); this._sym('{', TokenKind.LBrace, "{");
+        this._sym('}', TokenKind.RBrace, "}"); this._sym('[', TokenKind.LBracket, "["); this._sym(']', TokenKind.RBracket, "]");
+        this._sym(',', TokenKind.Comma, ","); this._sym(';', TokenKind.Semicolon, ";"); this._sym('~', TokenKind.Tilde, "~");
+        this._sym('@', TokenKind.At, "@"); this._sym('#', TokenKind.Hash, "#");
         this._initKeywords();
     }
 
@@ -336,8 +347,15 @@ public sealed class Lexer {
     }
 
     // ── 符号（最长匹配）─────────────────────────────────────────────────────
+    private void _sym(char c, int kind, string text) { this._sym1[(int)c] = kind; this._sym1Text[(int)c] = text; }
+
     private void _lexSymbol() {
         char c = this._ch(this._pos);
+        int ci = (int)c;
+        if (ci < 128) {
+            int k = this._sym1[ci];
+            if (k >= 0) { this._advance(); this._emit(k, this._sym1Text[ci]); return; }
+        }
         char d = this._ch(this._pos + 1);
         // 两字符
         if (c == '-' && d == '>') { this._adv2(); this._emit(TokenKind.Arrow, "->"); return; }
