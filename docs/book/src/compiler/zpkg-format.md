@@ -1,11 +1,11 @@
 # zpkg 包格式
 
-> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.32）｜ **代码**: `src/libraries/z42.ir/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
+> **页型**: 参考页 ｜ **状态**: ✅ 已实现（v0.43）｜ **代码**: `src/libraries/z42.ir/src/`（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42`）
 > **相关**: [zbc 字节码格式](zbc-format.md) · [工程模型、依赖解析与工作区编译](project-model.md) ｜ **对齐**: 2026-07-19
 
 ## 概述
 
-`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.32**，与 zbc 1.27 强耦合（两者同步 bump）。
+`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.43**，与 zbc 1.38 强耦合（两者同步 bump）。
 
 它有两种布局：**packed**（模块 zbc 字节内嵌，用于分发与测试）与 **indexed**（模块 zbc 外挂为散装 `.zbc` 文件，用于开发态增量）。字节原语与 section 目录结构与 [zbc](zbc-format.md) 一致，本页只列 zpkg 特有部分。
 
@@ -26,7 +26,7 @@
 
 **flags**：`bit0 (0x01)` Packed、`bit1 (0x02)` Exe、`bit2 (0x04)` SymOnly（`.zsym` sidecar，reader 见此位即拒绝作工程包加载）。
 
-Section 目录同 zbc：每条 12 字节（tag 4B + offset u32 + size u32），首段偏移 `= 16 + sec_count × 12`。reader strict-pin，`major`/`minor` 任一不符即静默跳过。
+Section 目录同 zbc：每条 12 字节（tag 4B + offset u32 + size u32），首段偏移 `= 16 + sec_count × 12`。reader strict-pin，`major`/`minor` 任一不符即拒绝该文件（**不再静默跳过**，见 [版本](#版本)）。
 
 ### Section 顺序
 
@@ -143,4 +143,28 @@ frameName → 行表 把 `+0x<offset>` 还原成 `file:line:col`。z42 侧读 `.
 
 ## 版本
 
-Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（0.32 ↔ 1.27），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
+Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（0.43 ↔ 1.38），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
+
+### 版本失配怎么表现（fix-version-mismatch-diagnosis，2026-09-05）
+
+Strict-pin 是**双向**的：reader 只认与自己 writer 完全相同的 `major.minor`，比自己**旧**的
+zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` 必须同代**，没有兼容层可退。
+
+由此推出一条运行期规则：**版本失配不是「跳过这个文件继续跑」，而是致命的**。
+
+| 失配位置 | 行为 |
+|---|---|
+| 入口 `.zpkg`/`.zbc` | 直接报错退出（一直如此） |
+| `Z42_LIBS` 里的 **`z42.core.zpkg`** | **报错退出**，并给出补救命令 |
+| 依赖 / 命名空间解析出的其它 `.zpkg` | 警告（一个命名空间可能有多个候选，未必致命），但警告文案里点明是版本失配 + 补救命令 |
+| `.zsym` sidecar | 警告（调试符号是可选的，缺了只影响栈回溯可读性） |
+
+改这条之前，`z42.core` 加载失败只是一条 `WARN`，程序照跑，直到很远处才以
+`undefined function Std.IO.Environment.GetCommandLineArgs$0` 这种**完全误导**的形式炸掉
+（比运行时更旧的 VM 上则直接挂死）。典型触发场景：仓库里 `install-z42.sh` 下载的
+`.z42/` 种子还停在旧格式，而构建树已经跟着 main 的格式 bump 走到了新版本。
+
+实现：`zbc_reader/versions.rs` 的 `FormatVersionMismatch`（带类型的错误，Display 文案与
+历史字符串逐字相同）+ `app.rs` 从 anyhow 链里 `downcast` 出它来与「普通读失败」区分。
+补救命令由错误类型自带：zpkg → `xtask build stdlib`，zbc → `xtask regen`；也可以改用
+`Z42_PORTABLE_VM=<配套的 z42vm>` 反过来迁就产物。

@@ -46,6 +46,7 @@ use zpkg::*;
 
 // Public API preserved at `metadata::zbc_reader::*` for in-crate consumers.
 pub use versions::{ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR, ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR};
+pub use versions::{as_version_mismatch, FormatKind, FormatVersionMismatch};
 pub use func_reader::DbugFuncEntry;
 pub use sidecar::{ZbcSidecarData, ZpkgSidecarData, read_build_id, parse_zbc_sidecar, parse_zpkg_sidecar};
 pub use zpkg::{ZpkgInfo, read_zpkg_meta, read_zpkg_modules, read_zpkg_namespaces};
