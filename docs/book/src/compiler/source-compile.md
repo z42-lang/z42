@@ -142,6 +142,38 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 
 代码生成只依赖 `SemanticModel` 这一接口，与前端类型检查解耦。观察：`--dump-ir`。
 
+#### 字节布局表（StructLayout）是包级单例，不随 CU 重建
+
+`StructLayout`（struct blob 布局 / class 合成内联布局 / 对象全字段布局）由
+`StructLayout.BuildFromSymbols(symbols)` **一次性全量预计算**：先抽符号表里每个类型的
+`OwnFieldNames`/`OwnFieldSpellings`，再依次填满 `_cache`（struct）、`_inlineCache`、
+`_objectCache` 三张表。ClassDescBuilder（写 zbc 布局块）与 ExprEmitter/AccessEmitter/
+PatternEmitter（烘焙 `struct_fget_prim` 等指令的立即数 offset）**同源查这一张表** → 写侧与
+读侧偏移必然一致。
+
+这张表的输入只有 `SymbolTable.Classes` / `SymbolTable.Interfaces`，二者是**包级**数据：
+
+- 唯一的写入口 `Z42ClassType.AddOwnField` 只在 `SymbolCollector`（本包源码）与
+  `ImportedSymbolLoader`（跨包导入符号）阶段调用，二者都在 per-file 编译循环**之前**跑完；
+  `TypeChecker.Infer` / `IrGen.Generate` 全程不写。
+- 每个 CU 拿到的 `model.Symbols` 是 `SymbolTable.WithAliases` 的**浅拷贝视图**——只换
+  `CurrentAliases`，`Classes`/`Interfaces` 与包级表**共享同一引用**。
+
+所以「逐 CU 各建一份」与「整包建一份」结果恒等。故布局表由 `IrDump.BuildPackageCus`
+在 per-file 循环前算一次，经 `CuCompile._compileCu` 注入 `IrGen.Layouts`；`IrGen.Generate`
+只在**未注入**时（单文件 `--dump-ir` / 单测路径）自行计算。
+
+> **为什么这不是可有可无的微优化**：此前每个 CU 都要把**整包 + 全部导入符号**的布局重算一遍
+> ——编译 `z42c.semantics`（95 个文件）就是重建 95 次，实测占该编译总指令数的 31.8%。
+> 提出循环后指令数 165.0 G → 114.7 G（−30.5%）、峰值 RSS 2.96 GB → 1.42 GB（−52%），
+> 产物逐字节不变。
+
+**并行安全的前提是「预计算后只读」**，改动这张表时必须守住：`LayoutOf` 对 `_defs` 里的键
+必命中 `_cache`（预计算已填满），缺失的键返回**不入缓存**的空布局；`InlineLayoutOf` /
+`ObjectLayoutOf` 纯查表。即 per-file 循环（`ParallelFor` 并行段）里没有任何一条路径会写这
+三张表。若日后新增惰性计算路径，要么在 `BuildFromSymbols` 里一并预计算，要么退回 per-CU
+建表——不能让并行 worker 共享一张会被写的表。
+
 #### try/catch/finally 的控制流下沉（finally 非局部退出）
 
 z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控制流簇，从 `FunctionEmitter` 分出）把 `finally` **desugar 成普通基本块**，接到每条离开 try 区域的边上：
