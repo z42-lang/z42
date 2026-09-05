@@ -18,6 +18,10 @@ public static class DiagnosticCodes {
     public static string ParamsNotLast          = "E0206";  // params 非末参（add-params-varargs）
     public static string ParamsNotArray         = "E0207";  // params 类型非 T[]
     public static string ParamsModifierConflict = "E0208";  // params 与 ref/out/默认值同现
+    // 只能出现在文件顶部的声明（using / global using / namespace）出现在语句位置。
+    // 语言本就不接受，但此前只是一路级联出 4 条无关错误（"unexpected token in expression"
+    // / "expected ';'" / 两条 "undefined"），没有一条说得出真正原因。
+    public static string DeclarationInStatement = "E0209";
 
     // Feature gates
     public static string FeatureDisabled     = "E0301";
