@@ -94,16 +94,36 @@ mode = "interp"
 ### 侧车怎么到达已发布的 app
 
 `z42 publish` 把侧车与 zpkg 一起搬进部署布局（自包含布局把 zpkg 改名成 `app.zpkg`，
-侧车跟着改成 `app.runtimeconfig.toml`——发现约定是「同目录、同 stem」）。运行时由
-**apphost** 按同一约定发现它、设进 `Z42_APP_CONFIG` 交给 z42vm；调用方显式设过就不覆盖。
+侧车跟着改成 `app.runtimeconfig.toml`）。
 
-apphost 只**找**文件、传路径：解析 TOML、判定可用性、产生诊断都属于 VM。它刻意不经
-launcher（`simplify-apphost-direct-run`：部署一个 app 只需 apphost + app.zpkg + 运行时），
-所以这条发现逻辑在两处各有一份——重复的是一行路径拼接，不是逻辑。
+**运行时不需要任何人指路**：`Z42_APP_CONFIG` 未设时，**VM 自己**按「同目录、同 stem」
+从 app 文件推出侧车路径（`config::sidecar_for`）。这条推导发生在**装配**期——配置在
+`OnceLock` 里 boot 后冻结，`app::run` 那时再想加一层就晚了——所以它在两个入口各做一次：
+`z42vm` 的 `main()`（有 `cli.file`）与 `z42-host::run_app`（有 `file` 参数）。这两条就是
+**全部**进入执行核心的路径，于是覆盖：
 
-> 这条链此前是断的（sidecar-reaches-published-apps 2026-09-05 修）：publish 不拷侧车、
-> apphost 不传路径，于是工程在 manifest 里声明的运行时设置在**用户实际发布的形态上
-> 完全无效且无提示**。`xtask test dist` 的 apphost smoke 现在断言
+| 形态 | |
+|---|---|
+| `z42vm <app.zpkg>` 直跑 | ✅ |
+| `z42 run` / `z42 repl`（launcher）| ✅ |
+| `z42 publish` 出的 spawn apphost | ✅ |
+| 桌面自包含 apphost（进程内 `z42_host_run_app`）| ✅ |
+| wasm / iOS / Android | ✅ |
+
+**约定只有一处实现。** 调用方**可以**传显式路径（`Z42_APP_CONFIG` 仍优先），但不必自己
+去发现——对照 dotnet：host 永远读 `<app>.runtimeconfig.json`，那是 **app 的属性**，不是
+调用方的选项。据此 apphost **不**做发现（它算出路径只为交回给能自己算的东西，是纯重复；
+它的本分是"找 z42vm + 把 app 交给它"）；launcher 仍转发，因为它为顶层 `version` pin 本来
+就把该文件读进来了，路径在手，转发已知值不是重复发现。
+
+找不到侧车是**常态**（多数工程没有 `[profile.*]` 旋钮 ⇒ build 不产侧车），安静跳过、
+不 warn；而 `Z42_APP_CONFIG` 被**显式**指向一个不存在的路径仍会 warn。
+
+> 这条链分两步修好：`sidecar-reaches-published-apps`（2026-09-05）让 publish 拷侧车、
+> apphost 传路径；`app-config-follows-the-app`（同日）发现**根子更深**——app-config 层
+> 只在别人主动指路时才存在，于是 `z42vm <app>` 直跑与一切嵌入形态（wasm / iOS /
+> Android / 桌面自包含）都拿不到，因为那些环境里根本没有"用户设环境变量"这回事。改成
+> 由 app 文件推导后，apphost 那份发现随之删除。`xtask test dist` 的 apphost smoke 断言
 > `RuntimeConfig.Source("mode") == "app-config"`，链上任何一环断掉都会红。
 
 ## 登记表：唯一 SoT

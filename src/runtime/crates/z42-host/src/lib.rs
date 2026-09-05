@@ -31,6 +31,10 @@
 //! concurrently returns `HostError::AlreadyInit`. Multi-instance lands
 //! in a future iteration (see embedding.md §12 Deferred).
 
+mod app_config;
+mod resolvers;
+use app_config::install_app_config;
+pub use resolvers::{MapResolver, SearchPathsResolver};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 use std::path::{Path, PathBuf};
@@ -104,80 +108,6 @@ impl Default for HostConfig {
     }
 }
 
-// ── Built-in resolvers ──────────────────────────────────────────────────
-
-/// `HashMap`-backed eager resolver. The host pre-populates all known
-/// zpkgs at startup; `resolve` is a trivial map lookup. Ideal for
-/// mobile / WASM where stdlib bundles are loaded once and then served
-/// from memory.
-///
-/// ```no_run
-/// # use z42_host::{MapResolver};
-/// let mut r = MapResolver::new();
-/// r.insert("z42.core", std::fs::read("z42.core.zpkg").unwrap());
-/// ```
-pub struct MapResolver {
-    map: std::sync::RwLock<std::collections::HashMap<String, Vec<u8>>>,
-}
-
-impl MapResolver {
-    pub fn new() -> Self {
-        Self {
-            map: std::sync::RwLock::new(std::collections::HashMap::new()),
-        }
-    }
-
-    pub fn insert(&self, namespace: &str, bytes: Vec<u8>) {
-        if let Ok(mut g) = self.map.write() {
-            g.insert(namespace.to_string(), bytes);
-        }
-    }
-
-    pub fn with(namespace: &str, bytes: Vec<u8>) -> Arc<Self> {
-        let r = Self::new();
-        r.insert(namespace, bytes);
-        Arc::new(r)
-    }
-}
-
-impl Default for MapResolver {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ZpkgResolver for MapResolver {
-    fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
-        self.map.read().ok()?.get(namespace).cloned()
-    }
-}
-
-/// Filesystem-based resolver. Scans the configured directories for
-/// `.zpkg` files declaring the requested namespace (mirrors the legacy
-/// `search_paths` behaviour). Useful for desktop apps that ship the
-/// stdlib alongside the binary and want explicit resolver chaining.
-pub struct SearchPathsResolver {
-    paths: Vec<PathBuf>,
-}
-
-impl SearchPathsResolver {
-    pub fn new(paths: Vec<PathBuf>) -> Self {
-        Self { paths }
-    }
-}
-
-impl ZpkgResolver for SearchPathsResolver {
-    fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
-        let zpkgs = z42::metadata::resolve_namespace(namespace, &[], &self.paths).ok()?;
-        for zpkg_path in zpkgs {
-            if let Ok(bytes) = std::fs::read(&zpkg_path) {
-                return Some(bytes);
-            }
-        }
-        None
-    }
-}
-
 /// Read the keys a zpkg can be resolved by — its package name (e.g.
 /// `"z42.core"`, by which the prelude is requested) plus every namespace
 /// it declares in `NSPC`. Tier 3 facades use this to build a resolution
@@ -212,6 +142,7 @@ pub fn run_app(
     mode: Option<z42::metadata::ExecMode>,
     args: Vec<String>,
 ) -> Result<(), HostError> {
+    install_app_config(file);
     let opts = z42::app::RunOpts {
         mode: mode.unwrap_or_else(z42::app::default_mode),
         libs_dir,

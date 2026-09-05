@@ -1662,3 +1662,58 @@ fn from_getter_still_has_no_file_layer() {
     assert!(cfg.resolved.iter().all(|r| r.source != Layer::UserConfig
                                      && r.source != Layer::AppConfig));
 }
+
+// ── app-config-follows-the-app: 侧车由 app 文件推导 ────────────────────────
+
+#[test]
+fn sidecar_is_derived_by_replacing_the_apps_extension() {
+    let d = std::env::temp_dir().join(format!("z42-sidecar-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&d);
+    let app = d.join("app.zpkg");
+    std::fs::write(&app, b"zpkg").unwrap();
+
+    assert_eq!(sidecar_for(&app), None, "no sidecar is the normal case, not an error");
+
+    let side = d.join("app.runtimeconfig.toml");
+    std::fs::write(&side, b"[runtime]\n").unwrap();
+    assert_eq!(sidecar_for(&app), Some(side.clone()),
+        "app.zpkg -> app.runtimeconfig.toml (replace, not append)");
+
+    // A bare .zbc app works the same way.
+    let zbc = d.join("app.zbc");
+    std::fs::write(&zbc, b"zbc").unwrap();
+    assert_eq!(sidecar_for(&zbc), Some(side.clone()), "stem-derived, extension-agnostic");
+
+    // A directory of that name is not a config file.
+    let dird = d.join("dir.zpkg");
+    std::fs::write(&dird, b"zpkg").unwrap();
+    std::fs::create_dir_all(d.join("dir.runtimeconfig.toml")).unwrap();
+    assert_eq!(sidecar_for(&dird), None);
+
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn a_derived_sidecar_lands_in_the_app_config_layer_and_loses_to_the_user() {
+    let d = std::env::temp_dir().join(format!("z42-sidecar-layer-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&d);
+    let app = d.join("demo.zpkg");
+    std::fs::write(&app, b"zpkg").unwrap();
+    std::fs::write(d.join("demo.runtimeconfig.toml"),
+                   b"[runtime]\ngc-mode = \"stw\"\nsafepoint-throttle = 64\n").unwrap();
+
+    let derived = sidecar_for(&app).expect("derived");
+    let app_table = load_config_file(&derived, "app sidecar").unwrap().expect("[runtime]");
+    let user = rt_table("gc-mode = \"concurrent\"");
+
+    let (cfg, res) = RuntimeConfig::resolve_with(
+        &fake_env(&[]),
+        &Inputs { user_config: Some(&user), app_config: Some(&app_table), ..Default::default() },
+        &full_ctx(),
+    );
+    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "user config still wins per key");
+    assert_eq!(cfg.safepoint_throttle, 64, "sidecar-only key applies");
+    assert_eq!(res.get("Z42_SAFEPOINT_THROTTLE").unwrap().source, Layer::AppConfig);
+
+    let _ = std::fs::remove_dir_all(&d);
+}

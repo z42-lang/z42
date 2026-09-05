@@ -213,8 +213,20 @@ fn main() -> Result<()> {
     // winning — setting Z42_CONFIG must not discard what the app ships with.
     let runtime_table = z42::config::load_runtime_toml(&getenv)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let app_table = z42::config::load_app_config(&getenv)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // app-config 层：显式 `Z42_APP_CONFIG` 优先，否则由 app 文件推导出它旁边的
+    // 侧车（app-config-follows-the-app）。推导必须发生在**装配**期——配置在
+    // OnceLock 里 boot 后冻结，`app::run` 那时再想加一层就晚了。
+    let app_table = match z42::config::load_app_config(&getenv) {
+        Ok(Some(t)) => Some(t),
+        Ok(None) => match cli.file.as_deref().and_then(|f| {
+            z42::config::sidecar_for(std::path::Path::new(f))
+        }) {
+            Some(p) => z42::config::load_config_file(&p, "app sidecar")
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+            None => None,
+        },
+        Err(e) => return Err(anyhow::anyhow!("{e}")),
+    };
     let build_ctx = z42::config::BuildCtx::current();
     let inputs = z42::config::Inputs {
         cli: cli_knobs,
