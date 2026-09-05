@@ -180,6 +180,31 @@ pub fn resolve_app_runtime_in(
     None
 }
 
+/// The app's `<stem>.runtimeconfig.toml` sidecar, if there is one to hand to
+/// z42vm as its **app-config layer** (`Z42_APP_CONFIG`).
+///
+/// `z42c build` writes this file next to the zpkg when the project's
+/// `[profile.*]` declares runtime knobs; `z42 publish` carries it into the deploy
+/// layout. The launcher does the same discovery — but a published app **bypasses
+/// the launcher entirely** (simplify-apphost-direct-run: deploying an app needs
+/// only the apphost + app.zpkg + a runtime, no `launcher.zpkg`), so without this
+/// the project's own runtime settings were silently dead in exactly the shape
+/// users ship. (sidecar-reaches-published-apps, 2026-09-05.)
+///
+/// The apphost only *finds* the file and passes the path along: parsing TOML,
+/// judging knob availability and emitting diagnostics all belong to the VM. And
+/// an explicit `Z42_APP_CONFIG` from the caller always wins — this is a
+/// convention-based default, not a rule.
+fn app_config_sidecar(app_zpkg: &Path) -> Option<PathBuf> {
+    if std::env::var_os("Z42_APP_CONFIG").is_some_and(|v| !v.is_empty()) {
+        return None;
+    }
+    // `with_extension` REPLACES the last extension: app.zpkg -> app.runtimeconfig.toml,
+    // matching the "same directory, same stem" convention the launcher uses.
+    let sidecar = app_zpkg.with_extension("runtimeconfig.toml");
+    sidecar.is_file().then_some(sidecar)
+}
+
 /// Exec `z42vm <app_zpkg> -- <argv>` directly (apphost run path) with
 /// `Z42_LIBS` set, and propagate the child exit code. No `launcher.zpkg`, no
 /// muxer, single VM. Never returns.
@@ -188,6 +213,9 @@ pub fn exec_app(rt: &AppRuntime, app_zpkg: &Path, argv: &[String]) -> ! {
     cmd.arg(app_zpkg);
     if rt.libs.is_dir() {
         cmd.env("Z42_LIBS", &rt.libs);
+    }
+    if let Some(sidecar) = app_config_sidecar(app_zpkg) {
+        cmd.env("Z42_APP_CONFIG", sidecar);
     }
     if !argv.is_empty() {
         cmd.arg("--");
@@ -384,5 +412,67 @@ mod tests {
         let rt = resolve_app_runtime_in(Some(&bogus), Some(&env_home), &temp_dir("pv-exe5"), None)
             .expect("falls through to $Z42_HOME");
         assert!(rt.vm.starts_with(&env_home));
+    }
+    // ── sidecar-reaches-published-apps (2026-09-05) ──────────────────────────
+
+    /// `Z42_APP_CONFIG` is process-global, so these three cases must not race.
+    static SIDECAR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn without_app_config<R>(f: impl FnOnce() -> R) -> R {
+        let _g = SIDECAR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let saved = std::env::var_os("Z42_APP_CONFIG");
+        unsafe { std::env::remove_var("Z42_APP_CONFIG") };
+        let out = f();
+        if let Some(v) = saved {
+            unsafe { std::env::set_var("Z42_APP_CONFIG", v) };
+        }
+        out
+    }
+
+    #[test]
+    fn sidecar_is_found_next_to_the_app_zpkg() {
+        let d = temp_dir("sidecar-found");
+        let zpkg = d.join("app.zpkg");
+        fs::write(&zpkg, b"zpkg").unwrap();
+        // `with_extension` must REPLACE `.zpkg`, not append — app.zpkg's sidecar is
+        // app.runtimeconfig.toml, which is also what `z42 publish` writes.
+        fs::write(d.join("app.runtimeconfig.toml"), b"[runtime]\n").unwrap();
+        let got = without_app_config(|| app_config_sidecar(&zpkg));
+        assert_eq!(got, Some(d.join("app.runtimeconfig.toml")));
+    }
+
+    #[test]
+    fn no_sidecar_means_no_env_var() {
+        // Most projects declare no `[profile.*]` runtime knobs, so `z42c build`
+        // writes no sidecar — that must stay a silent no-op.
+        let d = temp_dir("sidecar-absent");
+        let zpkg = d.join("app.zpkg");
+        fs::write(&zpkg, b"zpkg").unwrap();
+        assert_eq!(without_app_config(|| app_config_sidecar(&zpkg)), None);
+    }
+
+    #[test]
+    fn an_explicit_app_config_is_never_overridden() {
+        let d = temp_dir("sidecar-explicit");
+        let zpkg = d.join("app.zpkg");
+        fs::write(&zpkg, b"zpkg").unwrap();
+        fs::write(d.join("app.runtimeconfig.toml"), b"[runtime]\n").unwrap();
+        let _g = SIDECAR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let saved = std::env::var_os("Z42_APP_CONFIG");
+        unsafe { std::env::set_var("Z42_APP_CONFIG", "/somewhere/else.toml") };
+        assert_eq!(app_config_sidecar(&zpkg), None, "caller's choice wins over discovery");
+        match saved {
+            Some(v) => unsafe { std::env::set_var("Z42_APP_CONFIG", v) },
+            None => unsafe { std::env::remove_var("Z42_APP_CONFIG") },
+        }
+    }
+
+    #[test]
+    fn a_sidecar_that_is_a_directory_is_not_used() {
+        let d = temp_dir("sidecar-dir");
+        let zpkg = d.join("app.zpkg");
+        fs::write(&zpkg, b"zpkg").unwrap();
+        fs::create_dir_all(d.join("app.runtimeconfig.toml")).unwrap();
+        assert_eq!(without_app_config(|| app_config_sidecar(&zpkg)), None);
     }
 }
