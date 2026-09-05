@@ -16,10 +16,9 @@ public static class TypeFactsTc {
         return "";
     }
 
-    public static bool _hasWordTc(string mods, string w) {
-        if (mods == "") { return false; }
-        return (" " + mods + " ").IndexOf(" " + w + " ") >= 0;
-    }
+    // 转发到规范实现（IrGenFacts._hasWord）——原本是 `(" "+mods+" ").IndexOf(" "+w+" ")`，
+    // 每次调用拼两个新串。对非空 w 语义等价（都要求整词、两侧是空格或串边界）。
+    public static bool _hasWordTc(string mods, string w) { return IrGenFacts._hasWord(mods, w); }
 
     public static Z42Type _floatLitType(string text) {
         int n = text.Length;
