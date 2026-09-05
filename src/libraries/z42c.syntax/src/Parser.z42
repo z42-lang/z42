@@ -218,9 +218,36 @@ public sealed class Parser {
 
 
     // ════ 语句 ══════════════════════════════════════════════════════════════
+    // 错误恢复：跳过到（含）下一个 `;`，或在 `}` / EOF 前停下。让一条错误只报一次，
+    // 后续语句仍能正常解析。
+    void _skipToSemicolon() {
+        while (this._peek().Kind != TokenKind.Semicolon
+            && this._peek().Kind != TokenKind.RBrace
+            && this._peek().Kind != TokenKind.Eof) {
+            this._advance();
+        }
+        if (this._peek().Kind == TokenKind.Semicolon) { this._advance(); }
+    }
+
     public Stmt ParseStatement() {
         Token st = this._peek();
         int k = st.Kind;
+        // `using` / `global using` / `namespace` 只能出现在文件顶部。语言本来就不接受它们
+        // 出现在语句位置，但此前是一路级联出 4 条互不相关的错误（"unexpected token in
+        // expression" → "expected ';'" → 两条 "undefined"），没有一条说得出真正原因，
+        // 写错的人得自己猜。这里在唯一的语句分发点截住，给一条说清楚的诊断并跳到
+        // 分号恢复（后续语句照常解析，不再连锁误报）。
+        if (k == TokenKind.Using || k == TokenKind.Namespace
+            || (k == TokenKind.Identifier && st.Text == "global"
+                && this._peekAt(1).Kind == TokenKind.Using)) {
+            string what = (k == TokenKind.Namespace) ? "namespace" : "using";
+            this._diags.Error(DiagnosticCodes.DeclarationInStatement,
+                "`" + what + "` may only appear at the top of a file, before any type or function"
+                + " — move it above the enclosing declaration",
+                st.Span);
+            this._skipToSemicolon();
+            return new ExprStmt(new NullLitExpr(st.Span), st.Span);
+        }
         if (k == TokenKind.LBrace)  {
             // 属性形态解构声明 `{ X: x } = e;`（省类型）须先于块语句判别——配平 `}` 后见 `=` 才是解构声明，
             // 否则是普通块（块不作 lvalue、后不跟 `=`，无歧义）。complete-pattern-engine 特性 1。

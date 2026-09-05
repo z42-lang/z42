@@ -75,11 +75,14 @@ void Main() {
 标量之外的一切（数组、嵌套表、日期）走 `Raw()` + `Std.Toml`：
 
 ```z42
-using Std.Toml;
+using Std.Runtime;
+using Std.Toml;          // using 只能在文件顶部
 
-TomlValue p = TomlValue.Parse(AppProperties.Raw() ?? "");
-long retries = p.Get("limits").Get("max-retries").AsLong();
-string first = p.Get("feature-flags").At(0).AsString();
+void Main() {
+    TomlValue p = TomlValue.Parse(AppProperties.Raw() ?? "");
+    long retries = p.Get("limits").Get("max-retries").AsLong();
+    string first = p.Get("feature-flags").At(0).AsString();
+}
 ```
 
 **为什么是"交出原文"而不是让 VM 暴露一套结构化 ABI**：z42 stdlib 已有完整的 TOML
