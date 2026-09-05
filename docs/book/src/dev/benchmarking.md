@@ -105,8 +105,14 @@ Rust VM 内部热路径（`src/runtime/benches/gc_cycle_bench.rs`：cycle_heavy 
 
 1. **base(merge-base) 树**：`cargo bench --bench gc_cycle_bench -- --save-baseline ab-base`。
 2. **PR 树**：`cargo bench --bench gc_cycle_bench -- --baseline ab-base`（criterion 报每个基准的均值变化 %）。
-3. 共享 `CRITERION_HOME` 让两树的结果相遇；门禁读 `<bench>/change/estimates.json` 的 `mean.point_estimate`
-   与 `confidence_interval.lower_bound`——**变化 > +10% 且 CI 下界 > 0**（criterion 确信真慢）→ 判红。
+3. 共享 `CRITERION_HOME` 让两树的结果相遇；门禁读 `<bench>/change/estimates.json` 的
+   `mean.confidence_interval`——**整个 95% 区间在 +10% 之上（`lower_bound > thr`）** → 判红。
+   点估计不单独参与判定：它落在区间里，**区间才是结论**。区间没整体过阈值、但点估计过了的条目
+   打印成 `?`（「可疑」），正是[可疑即复测](#已知局限与后续)该接手的输入。
+
+   > ⚠️ **2026-09-05 前这里是 `pe > thr and lo > 0.0`**，把「CI 分离」实现成了「下界大于**零**」，
+   > 于是 `[+0.5%, +60%]` 这种毫无信息量的宽区间照样算「分离」——实测踩中两次全是假红，见
+   > 「[判红规则的一处实现偏差](#判红规则的一处实现偏差2026-09-05修)」。
 
 **`concurrent_*`（多线程）基准仅信息性、不判红**：criterion 的 `--baseline` 比的是**两次独立跑**（base 先存、
 pr 再比），线程 GC 基准在共享 runner 上的**跑间线程调度噪声**很大（实测：一个 perf-中立的纯注释 PR，
@@ -366,6 +372,27 @@ CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步�
 其中 `gc_alloc/array_throughput_10k` 从 +16.8% 变成 **−0.0%** —— 坐实了那 16.8% 是 thin/fat 的
 codegen 差，不是噪声、更不是回归。
 
+### 判红规则的一处实现偏差（2026-09-05 修）
+
+本页一直写着 criterion 层「变化 > +10% **且 CI 分离**」，但代码写的是 `pe > thr and lo > 0.0`
+——**「分离」被实现成「下界大于零」而不是「下界大于阈值」**。区间只要不跨零就算数，宽度不设限，
+于是一条点估计被离群值拉高、区间宽到 60pp 的测量，照样满足条件。
+
+实测踩中两次，两次都是假红：
+
+| 现场 | 报数 | 为什么是假的 |
+|------|------|-------------|
+| #457 自身（run 33955693181） | `gc_cycle/large_array_10k` **+20.9%**，CI `[+0.5%, +60.2%]` | 该 PR 只改 workflow + bench harness + book，**一行 VM 代码都没动**；原始值 base 200.0 µs vs pr 207.9 µs（真实差 +4%）；criterion 自己的 **p = 0.24 > 0.05**（无显著变化）；同一条 bench 上一跑 +0.6%、区间 `[+0.35%, +0.93%]` |
+| #423 | `gc_cycle/large_array_10k` +13.2%，CI 下界 +4.5% | 「ObjNew 处缓存无构造函数」的改动不可能让 GC 扫 10k 数组慢 13%；作者五分钟后照常合并 |
+
+改成 **`lo > thr`（整个区间在阈值之上）** 后：这两例都不判红，而一条测准的真回归
+（如区间 `[+18%, +22%]`）照红。同时输出改成打印**完整区间与宽度**——旧输出只打下界，
+看不出 `[+0.5%, +60%]` 有多没用。
+
+> 这条与「[噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)」缺陷 ② 是同一个病灶的两面：
+> 那边是**区间被低估**，这边是**区间宽得没意义却仍被当成证据**。共同的处方仍是
+> [可疑即复测](#已知局限与后续)——把「可疑」的那一两条重测，用跑间离散度给出**可信的**区间。
+
 ### 试过并回退：`[profile.bench]` 改 thin-LTO（2026-09-05，别再试）
 
 `[profile.bench]` 默认继承 `[profile.release]` 的 `lto = true, codegen-units = 1`，每次 `cargo bench`
@@ -462,6 +489,8 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
   照常合并，即按假红处理（一个「ObjNew 处缓存无构造函数」的改动让 GC 扫 10k 数组慢 13% 不可信，属
   「[布局彩票](#启动类微小回归先排除布局彩票cache-failed-name-resolution2026-09-04)」那一类）。
   它的缺陷与 micro 同源（跑内区间抓不到跑间漂移），只是 `--save-baseline` 的 outlier 检测遮掩得更好。
+  **第二例出现在 #457 自己身上**（一行 VM 代码没改却报 +20.9%），两次判红都是假的——直接根因已修
+  （见「[判红规则的一处实现偏差](#判红规则的一处实现偏差2026-09-05修)」）。
   「可疑即复测」落地时应一并复核它是否该继续硬判。
 - **`full` 层场景当前只在本地跑**：`bench-update.yml` 删除后，非 gate 层的 5 个场景没有 CI 落点。
   这是本次的**已知取舍**——需要时用 `xtask bench`（默认 `--tier all`）本地全跑；若要恢复定期全量，
