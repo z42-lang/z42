@@ -272,115 +272,43 @@ _Case[] _enumerateCases(string root, string mode) {
     return _enumerateCasesF(root, mode, "", "");
 }
 
+// Run-golden selection over the shared walk (_walkGoldenCorpus, common/xtask_golden.z42).
+// The runner drives PREBUILT `.zbc` from the artifacts mirror, so "the case exists"
+// here means the MIRROR ARTIFACT exists — a case whose .zbc was never regenerated
+// drops out on its own (that is also why the flat segment needs no cat filter of
+// its own: `build test` never emitted a .zbc for a non-regen category).
 _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string fileFilter) {
-    _Case[] cases = new _Case[64];
+    _GoldenEntry[] entries = _walkGoldenCorpus(root);
+    _Case[] cases = new _Case[entries.Length];
     int n = 0;
 
-    // Dir mode part 1: src/tests/<cat>/<name>/
-    string testsDir = Path.Join(root, "src/tests");
-    string[] cats = _enumDirsSorted(testsDir);
-    int ci = 0;
-    while (ci < cats.Length) {
-        string catDir = Path.Join(testsDir, cats[ci]);
-        if (_isNonRunnableCat(cats[ci])) { ci = ci + 1; continue; }
-        if (dirFilter.Length > 0 && cats[ci] != dirFilter) { ci = ci + 1; continue; }
-        string[] names = _enumDirsSorted(catDir);
-        int ni = 0;
-        while (ni < names.Length) {
-            string dir = Path.Join(catDir, names[ni]);
-            if (_isExcludedDirName(cats[ci], names[ni])) { ni = ni + 1; continue; }
-            if (!_e2eIncluded(cats[ci], names[ni], Path.Join(dir, "source.z42"), dirFilter, fileFilter)) { ni = ni + 1; continue; }
-            // run-golden .zbc lives in the artifacts mirror, not beside source.z42
-            // (redirect-golden-zbc-to-artifacts). Sidecars (expected_output.txt,
-            // interp_only, source.z42 for entry derivation) stay in src `dir`.
-            string artifact = Path.Join(
-                _goldenArtifactDir(root, Path.Join(Path.Join("tests", cats[ci]), names[ni])),
-                "source.zbc");
-            if (File.Exists(artifact)) {
-                if (mode == "jit" && File.Exists(Path.Join(dir, "interp_only"))) {
-                    ni = ni + 1;
-                    continue;
-                }
-                string expected = Path.Join(dir, "expected_output.txt");
-                string entry = _deriveEntry(Path.Join(dir, "source.z42"));
-                _Case c = new _Case(names[ni], artifact, expected, entry);
-                cases = _appendCase(cases, n, c);
-                n = n + 1;
-            }
-            ni = ni + 1;
+    int i = 0;
+    while (i < entries.Length) {
+        _GoldenEntry e = entries[i];
+        i = i + 1;
+        if (e.seg == "lib-file") { continue; }       // stdlib [Test] file units — z42b's, not golden
+        if (e.isLib) {
+            // Library golden tests are not a src/tests category, so a --dir <cat>
+            // filter excludes them entirely.
+            if (dirFilter.Length > 0) { continue; }
+            if (fileFilter.Length > 0 && !_e2eIncluded("", e.name, e.src, "", fileFilter)) { continue; }
+            // [Test]/[Benchmark] dir tests (e.g. z42.crypto/tests/secp256k1) have no
+            // Main and are run by `xtask test stdlib` via z42b — the golden runner
+            // must skip them (else "entry function …Main not found").
+            if (e.hasTestMethods) { continue; }
+        } else {
+            if (_isNonRunnableCat(e.cat)) { continue; }
+            if (_isExcludedDirName(e.cat, e.name)) { continue; }
+            if (!_e2eIncluded(e.cat, e.name, e.src, dirFilter, fileFilter)) { continue; }
         }
-        ci = ci + 1;
-    }
-
-    // Dir mode part 2: src/libraries/<lib>/tests/<name>/ — library golden tests are
-    // not a src/tests category, so a --dir <cat> filter excludes them entirely.
-    string libsRoot = Path.Join(root, "src/libraries");
-    string[] libs = (dirFilter.Length > 0) ? new string[0] : _enumDirsSorted(libsRoot);
-    int li = 0;
-    while (li < libs.Length) {
-        string libTests = Path.Join(libsRoot, libs[li] + "/tests");
-        if (Directory.Exists(libTests)) {
-            string[] names = _enumDirsSorted(libTests);
-            int ni = 0;
-            while (ni < names.Length) {
-                string dir = Path.Join(libTests, names[ni]);
-                if (fileFilter.Length > 0 && !_e2eIncluded("", names[ni], Path.Join(dir, "source.z42"), "", fileFilter)) { ni = ni + 1; continue; }
-                // [Test]/[Benchmark] dir tests (e.g. z42.crypto/tests/secp256k1)
-                // have no Main and are run by `xtask test stdlib` via z42b — the
-                // golden runner must skip them (else "entry function …Main not
-                // found").
-                if (_dirHasTestMethods(dir)) { ni = ni + 1; continue; }
-                // run-golden .zbc → artifacts mirror; sidecars stay in src `dir`.
-                string artifact = Path.Join(
-                    _goldenArtifactDir(root,
-                        Path.Join(Path.Join(Path.Join("libraries", libs[li]), "tests"), names[ni])),
-                    "source.zbc");
-                if (File.Exists(artifact)) {
-                    if (mode == "jit" && File.Exists(Path.Join(dir, "interp_only"))) {
-                        ni = ni + 1;
-                        continue;
-                    }
-                    string expected = Path.Join(dir, "expected_output.txt");
-                    string entry = _deriveEntry(Path.Join(dir, "source.z42"));
-                    _Case c = new _Case(names[ni], artifact, expected, entry);
-                    cases = _appendCase(cases, n, c);
-                    n = n + 1;
-                }
-                ni = ni + 1;
-            }
-        }
-        li = li + 1;
-    }
-
-    // Flat mode: src/tests/<cat>/<name>.zbc
-    ci = 0;
-    while (ci < cats.Length) {
-        if (_isNonRunnableCat(cats[ci])) { ci = ci + 1; continue; }
-        if (dirFilter.Length > 0 && cats[ci] != dirFilter) { ci = ci + 1; continue; }
-        string catDir = Path.Join(testsDir, cats[ci]);
-        // flat run-golden .zbc → artifacts mirror; sidecars (.interp_only,
-        // .expected_output.txt, .z42) stay in src `catDir`.
-        string mirrorCat = _goldenArtifactDir(root, Path.Join("tests", cats[ci]));
-        string[] hits = Path.Glob(mirrorCat, "*.zbc");
-        int hi = 0;
-        while (hi < hits.Length) {
-            string artifact = hits[hi];
-            string name = Path.GetFileNameWithoutExtension(artifact);
-            if (fileFilter.Length > 0 && !_e2eIncluded(cats[ci], name, Path.Join(catDir, name + ".z42"), dirFilter, fileFilter)) { hi = hi + 1; continue; }
-            string interpMarker = Path.Join(catDir, name + ".interp_only");
-            if (mode == "jit" && File.Exists(interpMarker)) {
-                hi = hi + 1;
-                continue;
-            }
-            string expected = Path.Join(catDir, name + ".expected_output.txt");
-            string srcFile = Path.Join(catDir, name + ".z42");
-            string entry = _deriveEntry(srcFile);
-            _Case c = new _Case(name, artifact, expected, entry);
-            cases = _appendCase(cases, n, c);
-            n = n + 1;
-            hi = hi + 1;
-        }
-        ci = ci + 1;
+        // run-golden .zbc lives in the artifacts mirror, not beside source.z42
+        // (redirect-golden-zbc-to-artifacts). Sidecars (expected_output.txt,
+        // interp_only, source.z42 for entry derivation) stay in src.
+        string artifact = _entryZbc(root, e);
+        if (!File.Exists(artifact)) { continue; }
+        if (mode == "jit" && e.interpOnly) { continue; }
+        cases[n] = new _Case(e.name, artifact, e.expected, _deriveEntry(e.src));
+        n = n + 1;
     }
 
     // Trim to exact length.
@@ -388,18 +316,4 @@ _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string file
     int t = 0;
     while (t < n) { tight[t] = cases[t]; t = t + 1; }
     return tight;
-}
-
-_Case[] _appendCase(_Case[] arr, int count, _Case v) {
-    if (count < arr.Length) {
-        arr[count] = v;
-        return arr;
-    }
-    int newCap = arr.Length * 2;
-    if (newCap < 4) { newCap = 4; }
-    _Case[] bigger = new _Case[newCap];
-    int i = 0;
-    while (i < count) { bigger[i] = arr[i]; i = i + 1; }
-    bigger[count] = v;
-    return bigger;
 }

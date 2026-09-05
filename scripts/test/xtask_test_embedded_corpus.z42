@@ -33,106 +33,117 @@ class _CorpusCase {
     }
 }
 
-// Growable _CorpusCase[] append (mirrors _appendCase).
-_CorpusCase[] _appendCorpus(_CorpusCase[] arr, int n, _CorpusCase c) {
-    if (n < arr.Length) { arr[n] = c; return arr; }
-    _CorpusCase[] bigger = new _CorpusCase[arr.Length * 2 + 8];
-    int i = 0; while (i < n) { bigger[i] = arr[i]; i = i + 1; }
-    bigger[n] = c;
-    return bigger;
-}
-
 // Enumerate the full corpus (goldens + stdlib [Test] units/dir-units/lib-goldens)
 // as descriptors — filter by name substring, but rid-INDEPENDENT (no capability
 // exclusion, no cap): those are bundle-time policy applied by _buildTestBundle.
-// Emission order is stable (sorted cats, then per-lib units→dir-units→lib-goldens),
-// so a bucket's cases stay CONTIGUOUS — which _sampleCorpus relies on.
+//
+// Selection maps the shared corpus walk (_walkGoldenCorpus, common/xtask_golden.z42);
+// only the ORDER is corpus-specific and load-bearing: a bucket's cases must stay
+// CONTIGUOUS (_sampleCorpus and the shard slicer rely on it), and within a
+// src/tests bucket dir-mode and flat-mode cases interleave in one raw-basename
+// sort — hence the per-bucket regrouping below rather than a single pass.
 _CorpusCase[] _enumerateCorpus(string root, string filter) {
-    _CorpusCase[] cs = new _CorpusCase[64];
+    _GoldenEntry[] es = _walkGoldenCorpus(root);
+    _CorpusCase[] cs = new _CorpusCase[es.Length];
     int n = 0;
 
-    // 1. golden e2e — dir-mode (<cat>/<name>/source.z42 + expected_output.txt) AND
-    // flat-mode (<cat>/<name>.z42 + <name>.expected_output.txt).
-    string testsRoot = Path.Join(root, "src/tests");
-    foreach (var cat in _sortedStrings(Directory.Enumerate(testsRoot))) {
-        string catDir = Path.Join(testsRoot, cat);
-        if (!Directory.Exists(catDir)) { continue; }
+    // 1. src/tests goldens — per category, dir-mode (<cat>/<name>/source.z42) and
+    // flat-mode (<cat>/<name>.z42) merged back into one sorted-by-entry-name run.
+    foreach (var cat in _enumDirsSorted(Path.Join(root, "src/tests"))) {
         if (_isNonRunnableCat(cat)) { continue; }
-        foreach (var name in _sortedStrings(Directory.Enumerate(catDir))) {
-            string full = Path.Join(catDir, name);
-            _CorpusCase c = new _CorpusCase();
-            if (Directory.Exists(full)) {
-                if (!File.Exists(Path.Join(full, "source.z42"))) { continue; }
-                if (_isExcludedDirName(cat, name)) { continue; }
-                c.name = cat + "/" + name;
-                c.src = Path.Join(full, "source.z42");
-                c.exp = _readExpected(Path.Join(full, "expected_output.txt"));
-                c.dir = full;
-                c.interpOnly = File.Exists(Path.Join(full, "interp_only"));
-            } else if (name.EndsWith(".z42")) {
-                string nm = name.Substring(0, name.Length - 4);
-                c.name = cat + "/" + nm;
-                c.src = full;
-                c.exp = _readExpected(Path.Join(catDir, nm + ".expected_output.txt"));
-                c.dir = catDir;
-            } else {
-                continue;   // sidecar (.expected_output.txt / .interp_only) or non-source
+        _GoldenEntry[] bucket = _entriesInBucket(es, "tests-dir", "tests-flat", cat);
+        int bi = 0;
+        while (bi < bucket.Length) {
+            _GoldenEntry e = bucket[bi];
+            bi = bi + 1;
+            if (e.seg == "tests-dir") {
+                if (!e.hasSource) { continue; }
+                if (_isExcludedDirName(cat, e.name)) { continue; }
             }
-            if (filter.Length > 0 && !c.name.Contains(filter)) { continue; }
-            c.bucket = cat; c.kind = "golden";
-            cs = _appendCorpus(cs, n, c); n = n + 1;
+            string caseName = cat + "/" + e.name;
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            _CorpusCase c = new _CorpusCase();
+            c.name = caseName; c.bucket = cat; c.kind = "golden";
+            c.src = e.src; c.exp = _readExpected(e.expected); c.dir = e.dir;
+            c.interpOnly = e.interpOnly;
+            cs[n] = c; n = n + 1;
         }
     }
 
     // 2. stdlib per-lib: [Test] file units (2), [Test] dir units (2b), lib goldens (2c).
-    string libsRoot = Path.Join(root, "src/libraries");
-    foreach (var lib in _sortedStrings(Directory.Enumerate(libsRoot))) {
-        string tdir = Path.Join(libsRoot, lib, "tests");
-        if (!Directory.Exists(tdir)) { continue; }
+    foreach (var lib in _enumDirsSorted(Path.Join(root, "src/libraries"))) {
         // 2. file units (tests/*.z42)
-        foreach (var f in _sortedStrings(Directory.Enumerate(tdir))) {
-            if (!f.EndsWith(".z42")) { continue; }
-            string caseName = lib + "/" + f.Substring(0, f.Length - 4);
+        foreach (var e in _entriesInBucket(es, "lib-file", "lib-file", lib)) {
+            string caseName = lib + "/" + e.name;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
             _CorpusCase c = new _CorpusCase();
             c.name = caseName; c.bucket = lib; c.kind = "unit";
-            c.src = Path.Join(tdir, f); c.lib = lib;
-            c.leaf = f.Substring(0, f.Length - 4);
-            cs = _appendCorpus(cs, n, c); n = n + 1;
+            c.src = e.src; c.lib = lib; c.leaf = e.name;
+            cs[n] = c; n = n + 1;
         }
+        _GoldenEntry[] dirs = _entriesInBucket(es, "lib-dir", "lib-dir", lib);
         // 2b. dir-mode [Test] units (tests/<nm>/ with [Test] methods)
-        foreach (var nm in _sortedStrings(Directory.Enumerate(tdir))) {
-            string dpath = Path.Join(tdir, nm);
-            if (!Directory.Exists(dpath)) { continue; }
-            if (!_dirHasTestMethods(dpath)) { continue; }
-            string caseName = lib + "/" + nm;
+        foreach (var e in dirs) {
+            if (!e.hasTestMethods) { continue; }
+            string caseName = lib + "/" + e.name;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
             _CorpusCase c = new _CorpusCase();
             c.name = caseName; c.bucket = lib; c.kind = "dir-unit";
-            c.lib = lib; c.leaf = nm; c.dir = dpath;
-            cs = _appendCorpus(cs, n, c); n = n + 1;
+            c.lib = lib; c.leaf = e.name; c.dir = e.dir;
+            cs[n] = c; n = n + 1;
         }
         // 2c. lib-mode goldens (tests/<nm>/source.z42 WITHOUT [Test])
-        foreach (var nm in _sortedStrings(Directory.Enumerate(tdir))) {
-            string dpath = Path.Join(tdir, nm);
-            if (!Directory.Exists(dpath)) { continue; }
-            if (_dirHasTestMethods(dpath)) { continue; }
-            string gsrc = Path.Join(dpath, "source.z42");
-            if (!File.Exists(gsrc)) { continue; }
-            string caseName = lib + "/" + nm;
+        foreach (var e in dirs) {
+            if (e.hasTestMethods || !e.hasSource) { continue; }
+            string caseName = lib + "/" + e.name;
             if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
             _CorpusCase c = new _CorpusCase();
             c.name = caseName; c.bucket = lib; c.kind = "golden";
-            c.src = gsrc; c.exp = _readExpected(Path.Join(dpath, "expected_output.txt"));
-            c.lib = lib; c.leaf = nm; c.dir = dpath;
-            c.interpOnly = File.Exists(Path.Join(dpath, "interp_only"));
-            cs = _appendCorpus(cs, n, c); n = n + 1;
+            c.src = e.src; c.exp = _readExpected(e.expected);
+            c.lib = lib; c.leaf = e.name; c.dir = e.dir;
+            c.interpOnly = e.interpOnly;
+            cs[n] = c; n = n + 1;
         }
     }
 
     _CorpusCase[] outc = new _CorpusCase[n];
     int i = 0; while (i < n) { outc[i] = cs[i]; i = i + 1; }
     return outc;
+}
+
+// Entries of `bucket` (src/tests category or lib name) drawn from one or two
+// segments, merged back into raw-directory-entry-name order. Both segments are
+// already name-sorted inside the walk, so a two-pointer merge suffices; pass the
+// same segment twice to select just that one.
+_GoldenEntry[] _entriesInBucket(_GoldenEntry[] es, string segA, string segB, string bucket) {
+    int cap = 0;
+    int i = 0;
+    while (i < es.Length) {
+        if (es[i].cat == bucket && (es[i].seg == segA || es[i].seg == segB)) { cap = cap + 1; }
+        i = i + 1;
+    }
+    _GoldenEntry[] a = new _GoldenEntry[cap];
+    _GoldenEntry[] b = new _GoldenEntry[cap];
+    int na = 0; int nb = 0;
+    i = 0;
+    while (i < es.Length) {
+        _GoldenEntry e = es[i];
+        i = i + 1;
+        if (e.cat != bucket) { continue; }
+        if (e.seg == segA) { a[na] = e; na = na + 1; }
+        else if (e.seg == segB) { b[nb] = e; nb = nb + 1; }
+    }
+    _GoldenEntry[] merged = new _GoldenEntry[cap];
+    int ia = 0; int ib = 0; int m = 0;
+    while (ia < na || ib < nb) {
+        if (ib >= nb || (ia < na && a[ia].entryName.CompareTo(b[ib].entryName) <= 0)) {
+            merged[m] = a[ia]; ia = ia + 1;
+        } else {
+            merged[m] = b[ib]; ib = ib + 1;
+        }
+        m = m + 1;
+    }
+    return merged;
 }
 
 // Per-category sampling for the embed smoke cap: pick up to `cap` cases spread
