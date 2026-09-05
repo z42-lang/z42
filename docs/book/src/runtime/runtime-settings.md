@@ -1,10 +1,12 @@
 # 运行时设置（旋钮登记表 / 五层优先级 / 可用性与诊断）
 
-> 对齐：2026-09-05（change `complete-runtime-settings`；地基来自已归档的 `unify-run-modes` P0）。
+> 对齐：2026-09-06（change `compiler-checks-knob-names`；主体来自 `complete-runtime-settings`，
+> 地基来自已归档的 `unify-run-modes` P0）。
 > 代码：`src/runtime/src/config/`（`knobs.rs` 类型 · `knob_table.rs` 登记表 · `availability.rs` 求值 ·
 > `resolve.rs` 分层解析 · `source.rs` 配置文件 · `render.rs` 查询渲染 · `cli.rs` `--set`）、
 > `src/runtime/src/corelib/config.rs`（脚本 builtin）、
-> `src/compiler/z42c.driver/src/RuntimeConfigSidecar.z42`（侧车生成）。
+> `src/compiler/z42c.driver/src/RuntimeConfigSidecar.z42`（侧车生成）、
+> `src/compiler/z42c.driver/src/ProfileKnobs.z42`（构建期旋钮名校验）。
 
 ## 为什么
 
@@ -225,6 +227,33 @@ interp-only 二进制**起不来**：用可用性检查换来一场可用性事�
 **未知 key 只在 z42vm 拥有命名空间的层检测**——`--set` 的 key 与 `[runtime]` 表的 key。
 **不扫环境变量**：`Z42_` 前缀是全生态共享的（launcher 的 `Z42_HOME` / `Z42_PORTABLE_*`、
 测试框架的 `Z42_TEST_*`），VM 对着这些喊"未知旋钮"是每次 run 都刷的纯误报。
+
+### 更早一层：构建期的旋钮名校验
+
+侧车里的旋钮名来自工程 manifest 的 `[profile.<n>.runtime]`。上表里 L4 那一格只能 warn
+（跨机器传播的层不得致命），于是 `gc-mdoe` 这种 typo 过去要等到**目标机每次启动**才刷一行，
+而错在开发者的 manifest 里——说的地方不对，说了也没人修。
+
+`z42c build` 因此在**编译前**先查一遍全部 `[profile.*.runtime]`（compiler-checks-knob-names，
+2026-09-06）：
+
+```
+z42c build: warning: [profile.release.runtime] 未知运行时旋钮 `gc-mdoe`——是不是 `gc-mode`？
+  它仍会被烤进侧车，目标机 VM 每次启动都会警告并忽略它；`z42vm --list-knobs --all` 列出全部旋钮。
+```
+
+三个刻意的边界：
+
+- **旋钮全集直接问 VM**——z42c 自己就跑在 z42vm 上，调 `Std.Runtime.RuntimeConfig.Names()`
+  拿的就是这台 VM 的登记表。**没有第二份清单**，也就无从漂移。
+- **只查"未知名"，不查可用性**。可用性取决于**目标机**的 build 与平台；在带 jit 的机器上
+  为 interp-only 目标构建是合法场景，构建期判它必然误报。这一格仍归运行时。
+- **warning，不是 error**。用旧工具链为新 VM 构建时，新旋钮还不在旧登记表里——判红会拦住
+  一个合法组合。（相比之下，`[profile.<n>]` 下**直接写键**是 manifest 结构错误、与 VM 版本
+  无关，仍是致命；该检查同样在编译前跑，且对 `kind = "lib"` 一视同仁。）
+
+两个 profile **都查**，与本次构建的是哪个无关——`[profile.release.runtime]` 的 typo 恰恰是
+"本地只跑 debug、发布时才炸"的那一种。
 
 ### 范围校验的归属
 
