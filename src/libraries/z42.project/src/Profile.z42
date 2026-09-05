@@ -2,46 +2,42 @@ namespace Z42.Build.Project;
 
 using Std.Toml;
 
-/// `[profile.<name>]` 段。Name ∈ "debug" | "release"；Mode ∈ "interp" | "jit" | "aot"。
+/// `[profile.<name>]` 段。Name ∈ "debug" | "release"。
+///
+/// **它本身只是命名空间**——内容是两个具名子表，与产物侧车的两段 1:1：
+///
+///     [profile.release.runtime]      → <app>.runtimeconfig.toml 的 [runtime]
+///     [profile.release.properties]   → 同上的 [properties]
+///
+/// restructure-profile-sections（2026-09-05）：此前旋钮是 `[profile.<n>]` 下的裸标量，
+/// 与构建期键靠一份**手写排除清单**（`pack`/`strip`/`optimize`/`debug`）区分——漏更新
+/// 就会让新的构建期键悄悄流进 app 侧车、每次运行刷一行 `unknown runtime knob`。
+/// 改成子表后边界是**结构性**的，不可能漏。
+///
+/// 同一 change 删掉了 `Pack`/`Strip`/`Mode`/`Optimize`/`Debug` 五个字段——它们解析后
+/// 全仓无任何消费方（`pack` 的真实位置是 `[project]`；`mode` 走 `Knobs`），留着只会让人
+/// 以为有用（4 个工具链 manifest 当时都写着 `optimize = 2`）。
 public sealed class Profile {
     public string Name;
-    public bool   Pack;
-    public bool   Strip;
-    public string Mode;
-    public int    Optimize;   // 0–3
-    public bool   Debug;
 
-    /// 该 profile 声明的**运行时**旋钮，扁平 `"key=value"` 条目（z42 暂无稳定的
-    /// Map marshal 通路，沿用 `Environment.GetEnvironmentVariables()` 的形状）。
-    ///
-    /// 只含用户**真的写了**的键——`Mode` 字段在用户没写 `mode` 时也会是 "interp"
-    /// （历史默认），拿它烤侧车会把一个用户没声明的 `mode = "interp"` 写进产物、
-    /// 静默压过 build 默认的 jit。Knobs 没有这个歧义。
-    ///
-    /// 构建期键（pack / strip / optimize / debug）不在内——它们指挥编译器，不是
-    /// 运行时设置。complete-runtime-settings P5（2026-09-05）。
+    /// `[profile.<n>.runtime]` 的标量键，扁平 `"key=value"`。
+    /// 由 build 烤进侧车的 `[runtime]` 段，运行时走 VM 的五层优先级链。
     public string[] Knobs;
 
-    /// `[profile.<n>.properties]` —— 该 profile 的应用自定义属性，逐 key **浅覆盖**
-    /// 顶层 `[properties]` 基表。原样保留 `TomlValue` 以支持完整 TOML 类型
-    /// （数组 / 嵌套表）——与 `Knobs` 的扁平字符串形态不同，因为属性不参与分层解析、
-    /// 不需要过 VM 的旋钮管道，只需原样送到侧车。
-    /// 可变公字段（默认空表，ManifestLoader 填），避免再撑构造函数。
-    /// add-app-properties（2026-09-05）。
+    /// `[profile.<n>.properties]` —— 应用自定义配置，原样保留 `TomlValue` 以支持完整
+    /// TOML 类型（数组 / 嵌套表）。与 `Knobs` 的扁平字符串形态不同，因为属性不参与
+    /// 分层解析、不过 VM 的旋钮管道，只需原样送到侧车。
     public TomlValue Properties;
 
-    public Profile(string name, bool pack, bool strip, string mode, int optimize, bool debug) {
-        this.Name = name; this.Pack = pack; this.Strip = strip;
-        this.Mode = mode; this.Optimize = optimize; this.Debug = debug;
-        this.Knobs = new string[0];
-        this.Properties = TomlValue.OfTable();
-    }
+    /// `[profile.<n>]` 下直接写的键——**一个都不合法**，但校验归消费方
+    /// （仓内约定：z42.project 只搬运；报错在 z42c driver，同 `[[exe]]` 缺 entry 的处理）。
+    /// 非空即表示 manifest 用了旧形状，driver 会指出该写进哪个子表。
+    public string[] BadKeys;
 
-    public Profile(string name, bool pack, bool strip, string mode, int optimize, bool debug,
-                   string[] knobs) {
-        this.Name = name; this.Pack = pack; this.Strip = strip;
-        this.Mode = mode; this.Optimize = optimize; this.Debug = debug;
+    public Profile(string name, string[] knobs, TomlValue properties, string[] badKeys) {
+        this.Name = name;
         this.Knobs = knobs;
-        this.Properties = TomlValue.OfTable();
+        this.Properties = properties;
+        this.BadKeys = badKeys;
     }
 }
