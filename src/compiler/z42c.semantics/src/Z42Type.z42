@@ -230,7 +230,27 @@ public sealed class Z42InterfaceType : Z42Type {
     // → internal 接口跨包引用 deny（CheckTypeRef 接口分支消费，镜像 Z42ClassType）。
     public string Visibility;
     public bool   IsImported;
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; }
+    // 父接口**裸名**（`interface IDerived : IBase` 的 IBase；去 `<...>`）。
+    // complete-where-constraints PR-1：`SymbolTable.Implements` 此前只扫类的**直接**接口名单、
+    // 不走接口继承链 → `class C : IDerived` 问 `Implements("C","IBase")` 返回 false。传递闭包
+    // 此前只在 IR 发射期由 `ClassDescBuilder._expandIfaces` 算，符号表里没有 → 本字段补上。
+    // 受限写法：typed array + int count（类字段不能带泛型）。
+    public string[] BaseNames;
+    public int      BaseCount;
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; }
+
+    public void AddBase(string name) {
+        if (this.BaseCount == this.BaseNames.Length) {
+            int cap = this.BaseNames.Length * 2;
+            if (cap < 2) { cap = 2; }
+            string[] bigger = new string[cap];
+            int i = 0;
+            while (i < this.BaseCount) { bigger[i] = this.BaseNames[i]; i = i + 1; }
+            this.BaseNames = bigger;
+        }
+        this.BaseNames[this.BaseCount] = name;
+        this.BaseCount = this.BaseCount + 1;
+    }
     public override string Name() { return this._name; }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
