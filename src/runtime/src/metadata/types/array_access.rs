@@ -186,6 +186,35 @@ impl ArrayObj {
         (0..self.len()).map(|i| self.get_boxed(i)).collect()
     }
 
+    /// perf-bulk-array-copy: bulk element move `src[si..si+n]` → `self[di..di+n]`.
+    /// Generic path via `get_boxed`/`set_boxed` so every backing (packed / boxed /
+    /// struct) works and element-type conversions stay exactly as the single-element
+    /// path defines them. The win is not the inner loop — it is paying **one** native
+    /// call instead of `n` interpreted `ArrayGet`/`ArraySet` round trips.
+    /// Caller bounds-checks both ranges.
+    pub fn copy_elems_from(&mut self, src: &ArrayObj, si: usize, di: usize, n: usize) {
+        for k in 0..n {
+            self.set_boxed(di + k, src.get_boxed(si + k));
+        }
+    }
+
+    /// Same-array bulk move with `memmove` semantics: copies backward when the
+    /// destination range starts above the source range, so overlapping moves do not
+    /// clobber elements they have yet to read. `di == si` is a no-op.
+    pub fn copy_elems_within(&mut self, si: usize, di: usize, n: usize) {
+        if di > si {
+            for k in (0..n).rev() {
+                let v = self.get_boxed(si + k);
+                self.set_boxed(di + k, v);
+            }
+        } else if di < si {
+            for k in 0..n {
+                let v = self.get_boxed(si + k);
+                self.set_boxed(di + k, v);
+            }
+        }
+    }
+
     /// add-struct-heap-inline (P3b): every heap reference this array holds, for the
     /// GC mark traversal. A `Boxed` array's elements are all refs; a `StructBytes`
     /// (value-struct) array's refs are the inline elements' reference leaves in the

@@ -246,4 +246,8 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     ("__cfg_dump",      config::builtin_cfg_dump),
     ("__cfg_describe",  config::builtin_cfg_describe),
     ("__cfg_available", config::builtin_cfg_available),
+
+    // ── perf-bulk-array-copy (2026-09-05) — appended to preserve existing BuiltinIds ──
+    // `Array.Copy` 的底座：一次区间搬运，取代脚本里的逐元素 for 循环。
+    ("__array_copy",    array::builtin_array_copy),
 ];
