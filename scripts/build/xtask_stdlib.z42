@@ -134,30 +134,7 @@ string _assembleAllLibs(string root, string profile) {
     return flat;
 }
 
-void _cleanGlob(string dir, string pattern) {
-    string[] hits = Path.Glob(dir, pattern);
-    int i = 0;
-    while (i < hits.Length) {
-        try { File.Delete(hits[i]); } catch (Exception e) { /* best-effort */ }
-        i = i + 1;
-    }
-}
-
-// Hard-link srcDir's matches into flatDir; fall back to Copy across filesystems
-// (mirrors bash `cp -l ... || cp`).
-void _linkAll(string srcDir, string flatDir, string pattern) {
-    if (!Directory.Exists(srcDir)) { return; }
-    string[] hits = Path.Glob(srcDir, pattern);
-    int i = 0;
-    while (i < hits.Length) {
-        string dst = Path.Join(flatDir, Path.GetFileName(hits[i]));
-        try { File.Link(hits[i], dst); }
-        catch (Exception e) {
-            try { File.Copy(hits[i], dst); } catch (Exception e2) { /* skip */ }
-        }
-        i = i + 1;
-    }
-}
+// `_cleanGlob` / `_linkAll` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。
 
 // ── build sdk (compile-once P1.3) ────────────────────────────────────────────
 

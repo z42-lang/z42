@@ -223,13 +223,7 @@ string _workloadPkgHeader(string name, string version, string rid, string profil
     return m + "\n";
 }
 
-void _copyIfExists(string src, string dst) {
-    if (File.Exists(src)) { File.Copy(src, dst); }
-}
-
-void _makeExe(string path) {
-    if (File.Exists(path)) { File.MakeExecutable(path); }
-}
+// `_copyIfExists` / `_makeExe` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。
 
 // Mobile/wasm packages don't ship z42c — bin/ gets a placeholder README.
 // Shared by _packageAndroid / _packageWasm (ios writes its own inline).

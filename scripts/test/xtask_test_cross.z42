@@ -365,7 +365,7 @@ string _prepPkgLibs(string pkgDir, string srcLibsDir) {
 
 // ── Path / file helpers (cross-specific) ─────────────────────────────────
 
-// Thin wrappers over _copyAll (build/xtask_compiler.z42): identical error
+// Thin wrappers over _copyAll (common/xtask_fs.z42): identical error
 // handling (Directory.Exists guard + try/catch skip), plus a harmless self-copy
 // guard (src≠dst always holds for these fixture-staging callers).
 void _copyZpkgs(string srcDir, string dstDir) {
