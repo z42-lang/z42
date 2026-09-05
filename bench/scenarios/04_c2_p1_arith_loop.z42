@@ -25,6 +25,7 @@
 // what this prints. The bench measures loop timing, not numeric correctness
 // (z42 xtask.zpkg bench discards stdout), so the wraparound is intentional/harmless.
 
+// tier: full — 实测跑间噪声最大（perf-neutral PR 上 ratio 1.24、区间 ±14%）
 namespace Bench.C2P1ArithLoop;
 
 using Std.IO;

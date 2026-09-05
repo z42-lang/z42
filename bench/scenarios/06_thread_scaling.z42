@@ -18,6 +18,7 @@
 // requires-caps: threads
 // (add-bench-speedup-cap-gating: the harness skips this scenario on a VM whose
 // probed caps lack "threads" — e.g. wasm/interp-only — instead of crashing.)
+// tier: full — 多线程，跑间调度噪声大，不适合判红
 namespace Bench.ThreadScaling;
 
 using Std;

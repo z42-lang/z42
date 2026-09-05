@@ -16,6 +16,7 @@
 //
 // Expected output (deterministic): 71999644
 
+// tier: gate — 分配紧循环，守无构造函数的名字解析缓存
 namespace Bench.AllocCtorless;
 
 using Std.IO;

@@ -10,6 +10,7 @@
 //
 // Expected output (deterministic): 39000000
 
+// tier: full — IsaCache，回归面窄
 namespace Bench.TypeTestChain;
 
 using Std.IO;
