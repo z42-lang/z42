@@ -1,6 +1,6 @@
 //! `config.rs` 的单测（runtime-rust.md：测试独立文件；refactor-split-config 自内联 `mod tests` 搬出）。
 use super::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Build a fake env getter from a static map — avoids global env-var
 /// race when cargo runs tests in parallel. Returns owned strings so
@@ -369,10 +369,10 @@ fn new_knobs_registered_with_toml_keys() {
     for name in ["Z42_JIT_PROFILE", "Z42_TARGET", "Z42_CONFIG"] {
         assert!(KNOWN_KNOBS.iter().any(|k| k.name == name), "{name} must be registered");
     }
-    assert_eq!(toml_key_for("Z42_GC_MODE"), Some("gc-mode"));
-    assert_eq!(toml_key_for("Z42_GC_MINOR_THRESHOLD"), Some("gc-minor-threshold"));
+    assert_eq!(knob_by_env_name("Z42_GC_MODE").map(|k| k.toml_key), Some("gc-mode"));
+    assert_eq!(knob_by_env_name("Z42_GC_MINOR_THRESHOLD").map(|k| k.toml_key), Some("gc-minor-threshold"));
     // Z42_CONFIG is a meta pointer — no [runtime] value key.
-    assert_eq!(toml_key_for("Z42_CONFIG"), Some(""));
+    assert_eq!(knob_by_env_name("Z42_CONFIG").map(|k| k.toml_key), Some(""));
 }
 
 #[test]
@@ -440,7 +440,7 @@ fn load_runtime_toml_malformed_errors_explicitly() {
 #[test]
 fn mode_registered_with_toml_key() {
     assert!(KNOWN_KNOBS.iter().any(|k| k.name == "Z42_MODE"));
-    assert_eq!(toml_key_for("Z42_MODE"), Some("mode"));
+    assert_eq!(knob_by_env_name("Z42_MODE").map(|k| k.toml_key), Some("mode"));
 }
 
 #[test]
@@ -469,6 +469,812 @@ fn mode_from_runtime_table_when_env_unset() {
     let t = rt_table("mode = \"aot\"");
     let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&t));
     assert_eq!(cfg.mode.as_deref(), Some("aot"), "[runtime].mode used when env unset");
+}
+
+// ── complete-runtime-settings P0: schema 不变式 + 可用性求值 ────────────────
+//
+// 求值测试一律**注入假 BuildCtx**，不读真实构建配置——否则同一断言在
+// `--no-default-features` 的 wasm/ios preset 下结果会漂移（design.md Testing Strategy）。
+
+/// 造一个可控的构建环境。
+fn ctx(debug: bool, features: &[&'static str], os: &'static str) -> BuildCtx {
+    BuildCtx { debug, features: features.to_vec(), os }
+}
+
+fn spec_named(name: &str) -> &'static KnobSpec {
+    KNOWN_KNOBS.iter().find(|k| k.name == name).unwrap_or_else(|| panic!("{name} not registered"))
+}
+
+#[test]
+fn requires_only_reference_known_features() {
+    for k in KNOWN_KNOBS {
+        for f in k.requires {
+            assert!(
+                KNOWN_FEATURES.contains(f),
+                "{}: requires unknown feature `{f}` — add it to availability::KNOWN_FEATURES \
+                 (and to feature_enabled's match) or fix the typo",
+                k.name
+            );
+        }
+    }
+}
+
+#[test]
+fn feature_table_covers_cargo_features() {
+    // Mirror of `[features]` in src/runtime/Cargo.toml, minus the `default` meta-feature.
+    // Cargo.toml gains a feature → this test goes red until KNOWN_FEATURES + the
+    // feature_enabled match are updated in lockstep.
+    let expected = [
+        "android", "aot", "bundled-compression", "dhat-heap", "interp-only", "ios",
+        "jit", "mimalloc-alloc", "native-interop", "profile-contention", "wasm",
+    ];
+    assert_eq!(
+        KNOWN_FEATURES, &expected[..],
+        "KNOWN_FEATURES drifted from Cargo.toml [features]; keep both (and feature_enabled) in sync"
+    );
+    // Sorted so the table stays scannable.
+    let mut sorted = expected;
+    sorted.sort();
+    assert_eq!(KNOWN_FEATURES, &sorted[..], "KNOWN_FEATURES must stay alphabetically sorted");
+}
+
+#[test]
+fn feature_enabled_rejects_unknown_names() {
+    assert!(!feature_enabled("not-a-real-feature"));
+    assert!(!feature_enabled(""));
+}
+
+#[test]
+fn meta_knobs_are_internal_and_never_file_settable() {
+    for k in KNOWN_KNOBS.iter().filter(|k| k.is_meta()) {
+        assert_eq!(k.tier, Tier::Internal, "{}: meta knob must be Internal tier", k.name);
+        assert_eq!(
+            k.sources,
+            LayerMask::CLI_ENV,
+            "{}: a knob that names a config file (or controls diagnostic severity) must not be \
+             settable from a config file — that is self-referential",
+            k.name
+        );
+    }
+    // The three meta knobs are all registered.
+    for name in ["Z42_CONFIG", "Z42_APP_CONFIG", "Z42_STRICT_CONFIG"] {
+        assert!(spec_named(name).is_meta(), "{name} must be a meta knob");
+    }
+}
+
+#[test]
+fn non_meta_knobs_have_a_toml_key() {
+    for k in KNOWN_KNOBS.iter().filter(|k| k.tier != Tier::Internal) {
+        assert!(!k.toml_key.is_empty(), "{}: non-internal knob needs a toml_key", k.name);
+    }
+}
+
+#[test]
+fn aliases_are_unique_and_dont_shadow_keys() {
+    let mut seen: Vec<&str> = Vec::new();
+    for k in KNOWN_KNOBS {
+        for a in k.aliases {
+            assert!(
+                !KNOWN_KNOBS.iter().any(|o| o.toml_key == *a),
+                "{}: alias `{a}` collides with another knob's toml_key",
+                k.name
+            );
+            assert!(!seen.contains(a), "{}: alias `{a}` is already used by another knob", k.name);
+            seen.push(a);
+        }
+    }
+}
+
+#[test]
+fn knob_lookup_by_key_and_env_name() {
+    assert_eq!(knob_by_key("gc-mode").unwrap().name, "Z42_GC_MODE");
+    assert_eq!(knob_by_env_name("Z42_GC_MODE").unwrap().toml_key, "gc-mode");
+    // env-name form is NOT accepted as a --set key (design.md Decision 1 / User U2)
+    assert!(knob_by_key("Z42_GC_MODE").is_none(), "env-var form must not be a CLI key");
+    // meta knobs have no key form at all
+    assert!(knob_by_key("").is_none(), "empty key must never match a meta knob");
+    assert!(knob_by_key("nope").is_none());
+}
+
+#[test]
+fn enum_value_kinds_list_every_parser_arm() {
+    // GC_MODES must cover exactly what parse_gc_mode accepts, else --set/-file
+    // validation would reject a value the parser handles (or vice versa).
+    let ValueKind::Enum(modes) = spec_named("Z42_GC_MODE").value else {
+        panic!("Z42_GC_MODE must be an Enum knob")
+    };
+    for m in ["stw", "stw-mark-sweep", "concurrent", "concurrent-mark-sweep",
+              "generational", "generational-mark-sweep"] {
+        assert!(modes.contains(&m), "GC_MODES missing parser arm `{m}`");
+    }
+    assert_eq!(modes.len(), 6, "GC_MODES has an arm parse_gc_mode does not handle");
+
+    let ValueKind::Enum(exec) = spec_named("Z42_MODE").value else {
+        panic!("Z42_MODE must be an Enum knob")
+    };
+    assert_eq!(exec, &["interp", "jit", "aot"]);
+}
+
+#[test]
+fn z42_mode_has_no_knob_level_feature_gate() {
+    // Deliberate exception (design.md Decision 2): jit/aot gating is PER-VALUE and
+    // lives in main.rs::resolve_config_mode; interp works in every build. Marking the
+    // knob `requires:["jit"]` would wrongly reject `Z42_MODE=interp` on interp-only builds.
+    assert!(spec_named("Z42_MODE").requires.is_empty(),
+        "Z42_MODE must not carry a knob-level feature gate");
+}
+
+// ── 可用性四轴求值 ───────────────────────────────────────────────────────────
+
+#[test]
+fn availability_accepts_a_plain_knob_from_every_layer() {
+    let c = ctx(false, &[], "linux");
+    let k = spec_named("Z42_GC_MODE");
+    for layer in [Layer::Cli, Layer::Env, Layer::UserConfig, Layer::AppConfig] {
+        assert_eq!(evaluate(k, layer, &c), Ok(()), "gc-mode should be settable from {layer:?}");
+    }
+    assert!(is_available(k, &c));
+}
+
+#[test]
+fn availability_rejects_layer_outside_sources_mask() {
+    let c = ctx(true, &[], "linux");
+    let k = spec_named("Z42_STRESS_ITERS"); // env-only
+    assert_eq!(evaluate(k, Layer::Env, &c), Ok(()));
+    assert_eq!(
+        evaluate(k, Layer::Cli, &c),
+        Err(Rejection::NotAcceptedFrom { layer: Layer::Cli, accepted: LayerMask::ENV_ONLY })
+    );
+    assert!(matches!(evaluate(k, Layer::UserConfig, &c), Err(Rejection::NotAcceptedFrom { .. })));
+}
+
+#[test]
+fn availability_rejects_debug_only_knob_in_release() {
+    let k = spec_named("Z42_STRESS_ITERS");
+    assert_eq!(evaluate(k, Layer::Env, &ctx(true, &[], "linux")), Ok(()));
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &[], "linux")), Err(Rejection::DebugOnly));
+    assert!(!is_available(k, &ctx(false, &[], "linux")));
+}
+
+#[test]
+fn availability_rejects_missing_feature() {
+    let k = spec_named("Z42_JIT_PROFILE");
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &["jit"], "linux")), Ok(()));
+    assert_eq!(
+        evaluate(k, Layer::Env, &ctx(false, &["native-interop"], "linux")),
+        Err(Rejection::MissingFeatures(vec!["jit"]))
+    );
+}
+
+#[test]
+fn availability_rejects_excluded_platform() {
+    let k = spec_named("Z42_SAMPLE_HZ");
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &[], "macos")), Ok(()));
+    assert_eq!(evaluate(k, Layer::Env, &ctx(false, &[], "wasm")), Err(Rejection::WrongPlatform));
+}
+
+#[test]
+fn availability_checks_layer_before_build_and_feature() {
+    // A knob rejected on several axes reports the *layer* one first — it is the most
+    // actionable ("you cannot set this here") and does not depend on the build.
+    let c = ctx(false, &[], "linux");
+    let k = spec_named("Z42_STRESS_ITERS"); // env-only AND debug-only
+    assert!(matches!(evaluate(k, Layer::Cli, &c), Err(Rejection::NotAcceptedFrom { .. })));
+}
+
+#[test]
+fn platform_only_form_is_an_allowlist() {
+    // No shipped knob uses Only(..) yet; assert the evaluator handles it so the
+    // variant is not silently broken when the first user shows up.
+    let k = KnobSpec { platforms: PlatformAvail::Only(&["windows"]), ..*spec_named("Z42_LOG") };
+    assert_eq!(evaluate(&k, Layer::Env, &ctx(false, &[], "windows")), Ok(()));
+    assert_eq!(evaluate(&k, Layer::Env, &ctx(false, &[], "linux")), Err(Rejection::WrongPlatform));
+}
+
+#[test]
+fn layer_mask_labels_follow_priority_order() {
+    assert_eq!(LayerMask::ALL.labels(), vec!["cli", "env", "user-config", "app-config"]);
+    assert_eq!(LayerMask::CLI_ENV.labels(), vec!["cli", "env"]);
+    assert_eq!(LayerMask::ENV_ONLY.labels(), vec!["env"]);
+    assert!(LayerMask::ALL.contains(LayerMask::CLI));
+    assert!(!LayerMask::ENV_ONLY.contains(LayerMask::CLI));
+    // Default is not an input layer — it never satisfies a sources mask.
+    assert!(!LayerMask::ALL.contains(Layer::Default.mask()));
+}
+
+// ── 诊断渲染 ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn rejection_message_names_the_missing_feature_and_this_builds_features() {
+    let c = ctx(false, &["interp-only", "native-interop"], "linux");
+    let k = spec_named("Z42_JIT_PROFILE");
+    let msg = evaluate(k, Layer::Env, &c).unwrap_err().render(k, Layer::Env, &c);
+    assert!(msg.contains("jit-profile"), "message must name the knob key: {msg}");
+    assert!(msg.contains("Z42_JIT_PROFILE"), "message must name the env var: {msg}");
+    assert!(msg.contains("[env]"), "message must name the source layer: {msg}");
+    assert!(msg.contains("requires feature `jit`"), "message must name the missing feature: {msg}");
+    assert!(msg.contains("interp-only, native-interop"),
+        "message must list what this build DOES have: {msg}");
+    assert!(msg.contains("value ignored"), "message must say what happens to the value: {msg}");
+    assert!(msg.contains("--list-knobs --all"), "message must point at the discovery command: {msg}");
+}
+
+#[test]
+fn rejection_message_for_wrong_layer_lists_accepted_layers() {
+    let c = ctx(true, &[], "linux");
+    let k = spec_named("Z42_STRESS_ITERS");
+    let msg = evaluate(k, Layer::Cli, &c).unwrap_err().render(k, Layer::Cli, &c);
+    assert!(msg.contains("cannot be set from [cli]"), "{msg}");
+    assert!(msg.contains("accepted layers: env"), "{msg}");
+}
+
+#[test]
+fn rejection_message_for_platform_lists_supported_set() {
+    let c = ctx(false, &[], "wasm");
+    let k = spec_named("Z42_SAMPLE_HZ");
+    let msg = evaluate(k, Layer::Env, &c).unwrap_err().render(k, Layer::Env, &c);
+    assert!(msg.contains("unavailable on this platform (wasm)"), "{msg}");
+    assert!(msg.contains("all except wasm"), "{msg}");
+}
+
+#[test]
+fn build_ctx_current_reports_a_normalized_os() {
+    let c = BuildCtx::current();
+    assert!(!c.os.is_empty());
+    // Whatever the target, every reported feature must be a known one.
+    for f in &c.features {
+        assert!(KNOWN_FEATURES.contains(f), "BuildCtx::current reported unknown feature {f}");
+    }
+    assert_eq!(c.debug, cfg!(debug_assertions));
+}
+
+// ── complete-runtime-settings P1: 注册表防腐（源码扫描）─────────────────────
+
+/// 只在测试里存在的 `Z42_*` 名字——不是运行时旋钮，不该进 `KNOWN_KNOBS`。
+const TEST_ONLY_ENV_NAMES: &[&str] = &[
+    "Z42_CLEAR_TEST",
+    "Z42_DEFINITELY_NOT_SET_XYZZY_KEY",
+    "Z42_PARENT_VAR",
+    "Z42_STRESS_SEED", // 压力测试种子，与 Z42_STRESS_ITERS 成对；仅测试代码消费
+    "Z42_TEST_VAR",
+    "Z42_X",
+];
+
+/// 递归收集 `dir` 下所有非测试 `.rs` 文件里出现的 `"Z42_*"` 字符串字面量。
+fn scan_env_literals(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let path = e.path();
+        if path.is_dir() {
+            // 测试目录整体跳过。
+            if path.file_name().is_some_and(|n| n == "tests") {
+                continue;
+            }
+            scan_env_literals(&path, out);
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        if !name.ends_with(".rs") || name.ends_with("_tests.rs") || name == "tests.rs" {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let rel = path.strip_prefix(dir).unwrap_or(&path).display().to_string();
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while let Some(off) = text[i..].find("\"Z42_") {
+            let start = i + off + 1;
+            let mut end = start;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_uppercase() || bytes[end].is_ascii_digit() || bytes[end] == b'_')
+            {
+                end += 1;
+            }
+            // `"Z42_"` on its own is a prefix test, not a knob name.
+            if end < bytes.len() && bytes[end] == b'"' && end > start + 4 && bytes[end - 1] != b'_' {
+                out.push((text[start..end].to_string(), rel.clone()));
+            }
+            i = start;
+        }
+    }
+}
+
+#[test]
+fn every_z42_env_literal_in_the_vm_is_registered() {
+    // The registry claims to be the authoritative list of every Z42_* the runtime
+    // reads. It had drifted: 8 knobs (jit/osr thresholds, the three fusion switches,
+    // stackalloc, jit-debug-promote, repl-native) were read inline via std::env::var
+    // and absent from the table, so `--info` / `--list-knobs` could not show them.
+    // This gate keeps that from happening again.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found = Vec::new();
+    scan_env_literals(&root, &mut found);
+    assert!(found.len() > 10, "source scan found suspiciously few Z42_* literals — is the walk broken?");
+
+    let mut unregistered: Vec<String> = found
+        .into_iter()
+        .filter(|(name, _)| {
+            !TEST_ONLY_ENV_NAMES.contains(&name.as_str()) && knob_by_env_name(name).is_none()
+        })
+        .map(|(name, file)| format!("{name} (read in {file})"))
+        .collect();
+    unregistered.sort();
+    unregistered.dedup();
+    assert!(
+        unregistered.is_empty(),
+        "these Z42_* env vars are read by the runtime but missing from KNOWN_KNOBS —\n  \
+         register them in config/knob_table.rs (use the INLINE_ENV base if the read stays\n  \
+         inline), or add the name to TEST_ONLY_ENV_NAMES if it is test scaffolding:\n  - {}",
+        unregistered.join("\n  - ")
+    );
+}
+
+#[test]
+fn inline_env_knobs_are_honest_about_their_layers() {
+    // A knob still read via a bare std::env::var never sees the CLI or file layers —
+    // claiming otherwise would make `--set` silently no-op. Every knob whose
+    // consumed_by says "inline env read" must therefore be env-only.
+    for k in KNOWN_KNOBS.iter().filter(|k| k.consumed_by.contains("inline env read")) {
+        assert_eq!(
+            k.sources, LayerMask::ENV_ONLY,
+            "{}: still read inline via std::env::var, so it must declare ENV_ONLY until it is \
+             routed through RuntimeConfig — otherwise --list-knobs lies about --set working",
+            k.name
+        );
+    }
+}
+
+// ── complete-runtime-settings P1: provenance + 严重度分层 ───────────────────
+
+fn resolve_all(
+    cli: &[(&'static str, &str)],
+    env: &[(&str, &str)],
+    user: Option<&toml::Table>,
+    app: Option<&toml::Table>,
+    ctx: &BuildCtx,
+) -> (RuntimeConfig, Resolution) {
+    let inputs = Inputs {
+        cli: cli.iter().map(|(k, v)| (*k, (*v).to_string())).collect(),
+        user_config: user,
+        app_config: app,
+    };
+    let get = fake_env(env);
+    RuntimeConfig::resolve_with(&get, &inputs, ctx)
+}
+
+fn full_ctx() -> BuildCtx {
+    ctx(true, &["jit", "native-interop"], "linux")
+}
+
+#[test]
+fn provenance_records_the_winning_layer() {
+    let user = rt_table("gc-mode = \"generational\"");
+    let (cfg, res) = resolve_all(
+        &[("Z42_GC_MODE", "concurrent")],
+        &[("Z42_GC_MODE", "stw")],
+        Some(&user),
+        None,
+        &full_ctx(),
+    );
+    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "cli wins");
+    let k = res.get("Z42_GC_MODE").unwrap();
+    assert_eq!(k.source, Layer::Cli);
+    assert_eq!(k.raw.as_deref(), Some("concurrent"));
+    // Both lower layers are recorded as overridden, in priority order.
+    assert_eq!(
+        k.ignored,
+        vec![
+            IgnoredValue { layer: Layer::Env, value: "stw".into(), reason: IgnoreReason::Overridden },
+            IgnoredValue { layer: Layer::UserConfig, value: "generational".into(), reason: IgnoreReason::Overridden },
+        ]
+    );
+    assert!(res.diagnostics.is_empty(), "being overridden is normal, not a problem");
+}
+
+#[test]
+fn full_five_layer_priority_chain() {
+    let user = rt_table("gc-mode = \"generational\"");
+    let app = rt_table("gc-mode = \"stw\"");
+    let c = full_ctx();
+    let cases: [(&[(&'static str, &str)], &[(&str, &str)], bool, bool, GcMode, Layer); 5] = [
+        (&[("Z42_GC_MODE", "concurrent")], &[("Z42_GC_MODE", "stw")], true, true, GcMode::ConcurrentMarkSweep, Layer::Cli),
+        (&[],                              &[("Z42_GC_MODE", "concurrent")], true, true, GcMode::ConcurrentMarkSweep, Layer::Env),
+        (&[],                              &[],  true,  true, GcMode::GenerationalMarkSweep, Layer::UserConfig),
+        (&[],                              &[],  false, true, GcMode::StwMarkSweep,          Layer::AppConfig),
+        (&[],                              &[],  false, false, GcMode::StwMarkSweep,         Layer::Default),
+    ];
+    for (cli, env, with_user, with_app, want_mode, want_layer) in cases {
+        let (cfg, res) = resolve_all(
+            cli, env,
+            with_user.then_some(&user),
+            with_app.then_some(&app),
+            &c,
+        );
+        assert_eq!(cfg.gc_mode, want_mode, "layer {want_layer:?}");
+        assert_eq!(res.get("Z42_GC_MODE").unwrap().source, want_layer);
+    }
+}
+
+#[test]
+fn user_config_and_app_config_merge_per_key() {
+    // The bug this guards: the launcher used to hand the app sidecar through
+    // Z42_CONFIG, so setting Z42_CONFIG yourself dropped the sidecar wholesale.
+    // Two independent layers must merge key by key instead.
+    let user = rt_table("gc-mode = \"concurrent\"");
+    let app = rt_table("gc-mode = \"stw\"\nsafepoint-throttle = 64\nlog = \"z42=trace\"");
+    let (cfg, res) = resolve_all(&[], &[], Some(&user), Some(&app), &full_ctx());
+
+    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep, "same key -> user wins");
+    assert_eq!(cfg.safepoint_throttle, 64, "app-only key still applies");
+    assert_eq!(cfg.log_filter.as_deref(), Some("z42=trace"), "app-only key still applies");
+    assert_eq!(res.get("Z42_SAFEPOINT_THROTTLE").unwrap().source, Layer::AppConfig);
+    assert_eq!(res.get("Z42_GC_MODE").unwrap().source, Layer::UserConfig);
+}
+
+#[test]
+fn cli_empty_value_clears_and_falls_through() {
+    let (cfg, res) = resolve_all(
+        &[("Z42_GC_MODE", "")],
+        &[("Z42_GC_MODE", "concurrent")],
+        None, None, &full_ctx(),
+    );
+    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep);
+    assert_eq!(res.get("Z42_GC_MODE").unwrap().source, Layer::Env);
+}
+
+#[test]
+fn unavailable_value_is_recorded_and_diagnosed_then_lower_layer_wins() {
+    // No `jit` feature: the env value is rejected, but a config-file value for a
+    // *different* knob keeps working and the process is expected to continue.
+    let c = ctx(true, &["native-interop"], "linux");
+    let (cfg, res) = resolve_all(&[], &[("Z42_JIT_PROFILE", "1")], None, None, &c);
+    assert!(!cfg.jit_profile, "rejected value must not take effect");
+    let k = res.get("Z42_JIT_PROFILE").unwrap();
+    assert_eq!(k.source, Layer::Default);
+    assert!(matches!(k.ignored[0].reason, IgnoreReason::Unavailable(Rejection::MissingFeatures(_))));
+    assert_eq!(res.diagnostics.len(), 1);
+    assert_eq!(res.diagnostics[0].layer, Layer::Env);
+}
+
+#[test]
+fn one_diagnostic_per_knob_even_when_several_layers_set_it() {
+    // Same knob unavailable in this build, set from two layers: repeating
+    // "requires feature `jit`" adds nothing. Only the highest layer reports;
+    // every rejected layer is still recorded for --show-config.
+    let c = ctx(true, &["native-interop"], "linux");
+    let app = rt_table("jit-profile = true");
+    let (_, res) = resolve_all(&[], &[("Z42_JIT_PROFILE", "1")], None, Some(&app), &c);
+    assert_eq!(res.diagnostics.len(), 1, "one message per knob, from the highest layer");
+    assert_eq!(res.diagnostics[0].layer, Layer::Env);
+    let k = res.get("Z42_JIT_PROFILE").unwrap();
+    assert_eq!(k.ignored.len(), 2, "both layers recorded for --show-config");
+    assert!(k.ignored.iter().all(|i| matches!(i.reason, IgnoreReason::Unavailable(_))));
+}
+
+#[test]
+fn a_value_overridden_by_a_higher_layer_is_never_diagnosed() {
+    // Being overridden is the chain working, not a problem.
+    let c = full_ctx();
+    let app = rt_table("gc-mode = \"stw\"");
+    let (_, res) = resolve_all(&[], &[("Z42_GC_MODE", "concurrent")], None, Some(&app), &c);
+    assert!(res.diagnostics.is_empty());
+    assert_eq!(res.get("Z42_GC_MODE").unwrap().ignored[0].reason, IgnoreReason::Overridden);
+}
+
+#[test]
+fn invalid_typed_value_is_rejected_with_a_diagnostic() {
+    let (cfg, res) = resolve_all(&[], &[("Z42_GC_MODE", "quantum")], None, None, &full_ctx());
+    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep, "falls back to the default");
+    let k = res.get("Z42_GC_MODE").unwrap();
+    assert!(matches!(k.ignored[0].reason, IgnoreReason::Invalid(_)));
+    assert!(res.diagnostics[0].message.contains("expected one of"), "{:?}", res.diagnostics[0]);
+}
+
+#[test]
+fn out_of_range_numbers_are_not_rejected_here() {
+    // Range policy belongs to the parsers, which clamp (Z42_GC_SOFT_THRESHOLD=1.5
+    // -> 1.0, asserted elsewhere as "not rejected"). Rejecting here would turn a
+    // clamp into a fallback — a behaviour regression.
+    let (cfg, res) = resolve_all(&[], &[("Z42_GC_SOFT_THRESHOLD", "1.5")], None, None, &full_ctx());
+    assert_eq!(cfg.gc_soft_threshold, 1.0);
+    assert!(res.diagnostics.is_empty());
+    assert_eq!(res.get("Z42_GC_SOFT_THRESHOLD").unwrap().source, Layer::Env);
+}
+
+#[test]
+fn severity_is_fatal_for_cli_and_a_warning_for_everything_else() {
+    let c = ctx(true, &["native-interop"], "linux"); // no jit
+    let (_, from_env) = resolve_all(&[], &[("Z42_JIT_PROFILE", "1")], None, None, &c);
+    assert!(from_env.into_result(false).is_ok(), "env problems must not stop the process");
+    assert!(from_env.into_result(true).is_err(), "--strict-config escalates them");
+
+    let (_, from_cli) = resolve_all(&[("Z42_JIT_PROFILE", "1")], &[], None, None, &c);
+    let err = from_cli.into_result(false).unwrap_err();
+    assert!(err.contains("jit-profile"), "{err}");
+    assert!(err.contains("[cli]"), "CLI problems are fatal even without strict mode: {err}");
+}
+
+#[test]
+fn strict_mode_error_explains_how_to_turn_it_off() {
+    let c = ctx(true, &[], "linux");
+    let (_, res) = resolve_all(&[], &[("Z42_JIT_PROFILE", "1")], None, None, &c);
+    let err = res.into_result(true).unwrap_err();
+    assert!(err.contains("--strict-config"), "{err}");
+}
+
+#[test]
+fn jit_profile_now_honours_a_real_boolean() {
+    // Was a doc/impl divergence: the field doc promised `false` = off, but the
+    // implementation was `.is_some()` on any non-empty string, so
+    // Z42_JIT_PROFILE=false turned profiling ON.
+    let c = full_ctx();
+    for (val, want) in [("1", true), ("true", true), ("on", true), ("yes", true),
+                        ("0", false), ("false", false), ("off", false), ("no", false)] {
+        let (cfg, res) = resolve_all(&[], &[("Z42_JIT_PROFILE", val)], None, None, &c);
+        assert_eq!(cfg.jit_profile, want, "Z42_JIT_PROFILE={val}");
+        assert!(res.diagnostics.is_empty(), "{val} is a valid boolean");
+    }
+    // A non-boolean is now an explicit diagnostic rather than a silent "on".
+    let (cfg, res) = resolve_all(&[], &[("Z42_JIT_PROFILE", "sure")], None, None, &c);
+    assert!(!cfg.jit_profile);
+    assert!(res.diagnostics[0].message.contains("expected a boolean"), "{:?}", res.diagnostics[0]);
+}
+
+#[test]
+fn flag_knobs_accept_any_value_including_zero() {
+    // Z42_NO_FUSION and friends are presence-based: `=0` still disables fusion.
+    // Declaring them ValueKind::Bool would have quietly inverted that.
+    let spec = spec_named("Z42_NO_FUSION");
+    assert_eq!(spec.value, ValueKind::Flag);
+    for v in ["1", "0", "false", "whatever"] {
+        assert_eq!(validate(spec.value, v), Ok(()), "flag knob must accept {v:?}");
+    }
+}
+
+#[test]
+fn unknown_table_keys_are_reported() {
+    let t = rt_table("gc-mode = \"stw\"\ngc-mod = \"stw\"\nnonsense = 1");
+    let mut keys = unknown_table_keys(&t);
+    keys.sort();
+    assert_eq!(keys, vec!["gc-mod".to_string(), "nonsense".to_string()]);
+    let d = unknown_key_diagnostic(Layer::UserConfig, "gc-mod");
+    assert_eq!(d.layer, Layer::UserConfig);
+    assert!(d.message.contains("unknown runtime knob `gc-mod`"), "{}", d.message);
+}
+
+#[test]
+fn parse_bool_is_closed_not_truthy() {
+    for v in ["1", "TRUE", "Yes", " on "] { assert_eq!(parse_bool(v), Some(true), "{v}"); }
+    for v in ["0", "False", "no", "OFF"] { assert_eq!(parse_bool(v), Some(false), "{v}"); }
+    for v in ["", "2", "sure", "null"] { assert_eq!(parse_bool(v), None, "{v}"); }
+}
+
+// ── complete-runtime-settings P2: CLI --set ─────────────────────────────────
+
+fn set_args(a: &[&str]) -> Vec<String> {
+    a.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn set_parses_key_value_pairs() {
+    let m = parse_set_args(&set_args(&["gc-mode=concurrent", "safepoint-throttle=64"])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("concurrent"));
+    assert_eq!(m.get("Z42_SAFEPOINT_THROTTLE").map(String::as_str), Some("64"));
+}
+
+#[test]
+fn set_splits_on_the_first_equals_only() {
+    // Path lists and log directives legitimately contain '='.
+    let m = parse_set_args(&set_args(&["path=/a=b:/c", "log=z42::jit=debug,z42=warn"])).unwrap();
+    assert_eq!(m.get("Z42_PATH").map(String::as_str), Some("/a=b:/c"));
+    assert_eq!(m.get("Z42_LOG").map(String::as_str), Some("z42::jit=debug,z42=warn"));
+}
+
+#[test]
+fn set_empty_value_is_kept_as_an_explicit_clear() {
+    let m = parse_set_args(&set_args(&["gc-mode="])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some(""));
+}
+
+#[test]
+fn set_rejects_a_missing_equals_sign() {
+    let err = parse_set_args(&set_args(&["gc-mode"])).unwrap_err();
+    assert!(err.contains("expects KEY=VALUE"), "{err}");
+}
+
+#[test]
+fn set_rejects_unknown_keys_with_a_suggestion() {
+    let err = parse_set_args(&set_args(&["gc-mod=stw"])).unwrap_err();
+    assert!(err.contains("unknown runtime knob `gc-mod`"), "{err}");
+    assert!(err.contains("did you mean `gc-mode`?"), "{err}");
+    assert!(err.contains("--list-knobs"), "{err}");
+}
+
+#[test]
+fn set_rejects_the_env_var_spelling() {
+    // Decision: only the declared key (or an explicit alias) — never an implicit
+    // Z42_* equivalence (User U2).
+    let err = parse_set_args(&set_args(&["Z42_GC_MODE=stw"])).unwrap_err();
+    assert!(err.contains("unknown runtime knob"), "{err}");
+}
+
+#[test]
+fn set_last_occurrence_wins() {
+    let m = parse_set_args(&set_args(&["gc-mode=stw", "gc-mode=concurrent"])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("concurrent"));
+}
+
+#[test]
+fn suggestions_do_not_fire_for_unrelated_input() {
+    assert_eq!(suggest_key("gc-mod"), Some("gc-mode"));
+    assert_eq!(suggest_key("gcmode"), Some("gc-mode"));
+    assert_eq!(suggest_key("completely-different-thing"), None);
+    assert_eq!(suggest_key("x"), None, "a 1-char key must not match everything");
+}
+
+#[test]
+fn dedicated_flag_and_set_for_the_same_knob_is_an_error() {
+    let m = parse_set_args(&set_args(&["mode=jit"])).unwrap();
+    let err = reject_flag_conflict(&m, "Z42_MODE", "--mode", Some("interp")).unwrap_err();
+    assert!(err.contains("--mode interp"), "{err}");
+    assert!(err.contains("--set mode=jit"), "{err}");
+    assert!(err.contains("same precedence layer"), "{err}");
+    // Either alone is fine.
+    assert!(reject_flag_conflict(&m, "Z42_MODE", "--mode", None).is_ok());
+    assert!(reject_flag_conflict(&BTreeMap::new(), "Z42_MODE", "--mode", Some("interp")).is_ok());
+}
+
+// ── complete-runtime-settings P3: 查询表面 ─────────────────────────────────
+
+#[test]
+fn list_knobs_hides_non_public_tiers_by_default() {
+    let default_view: Vec<&str> = visible_knobs(false).map(|k| k.name).collect();
+    let all_view: Vec<&str> = visible_knobs(true).map(|k| k.name).collect();
+    assert_eq!(all_view.len(), KNOWN_KNOBS.len(), "--all must list everything");
+    assert!(default_view.len() < all_view.len(), "default view must filter something");
+    assert!(default_view.contains(&"Z42_GC_MODE"), "a public knob must be listed");
+    assert!(!default_view.contains(&"Z42_STRESS_ITERS"), "test scaffolding must be hidden");
+    assert!(!default_view.contains(&"Z42_CONFIG"), "meta knobs must be hidden");
+    assert!(!default_view.contains(&"Z42_GC_SOFT_THRESHOLD"), "tuning knobs must be hidden");
+}
+
+#[test]
+fn list_knobs_text_shows_the_schema_a_user_needs() {
+    let text = list_knobs_text(false, &full_ctx());
+    assert!(text.contains("gc-mode"), "{text}");
+    assert!(text.contains("Z42_GC_MODE"));
+    assert!(text.contains("set from    cli, env, user-config, app-config"));
+    assert!(text.contains("enum(stw|"));
+    assert!(text.contains("status      available"));
+}
+
+#[test]
+fn list_knobs_marks_knobs_this_build_cannot_use() {
+    let no_jit = ctx(true, &["native-interop"], "linux");
+    let text = list_knobs_text(true, &no_jit);
+    assert!(text.contains("UNAVAILABLE (needs feature jit)"), "{text}");
+    let wasm = ctx(true, &[], "wasm");
+    assert!(list_knobs_text(true, &wasm).contains("not on wasm"));
+}
+
+#[test]
+fn list_knobs_json_is_valid_and_stable() {
+    let v: serde_json::Value =
+        serde_json::from_str(&list_knobs_json(true, &full_ctx())).expect("valid JSON");
+    let knobs = v["knobs"].as_array().unwrap();
+    assert_eq!(knobs.len(), KNOWN_KNOBS.len());
+    let gc = knobs.iter().find(|k| k["env"] == "Z42_GC_MODE").unwrap();
+    for field in ["key", "env", "aliases", "type", "sources", "tier", "available",
+                  "build", "requires", "platforms", "default", "consumed_by", "description"] {
+        assert!(!gc[field].is_null(), "missing schema field `{field}`");
+    }
+    assert_eq!(gc["sources"], serde_json::json!(["cli", "env", "user-config", "app-config"]));
+    assert_eq!(v["build"]["os"], "linux");
+}
+
+#[test]
+fn show_config_explains_why_a_value_did_not_take_effect() {
+    let c = ctx(true, &["native-interop"], "linux"); // no jit
+    let user = rt_table("gc-mode = \"stw\"");
+    let (_, res) = resolve_all(
+        &[("Z42_GC_MODE", "concurrent")],
+        &[("Z42_JIT_PROFILE", "1")],
+        Some(&user), None, &c,
+    );
+    let text = show_config_text(&res, true);
+    assert!(text.contains("gc-mode = concurrent  [cli]"), "{text}");
+    assert!(text.contains("ignored [user-config] \"stw\"  (overridden by a higher layer)"), "{text}");
+    assert!(text.contains("ignored [env] \"1\"  (unavailable in this build)"), "{text}");
+}
+
+#[test]
+fn show_config_default_view_still_surfaces_ignored_values() {
+    // A knob the user set but that did not take effect must be visible even when
+    // its tier would normally hide it — that is exactly the case worth showing.
+    let c = ctx(false, &[], "linux"); // release: Z42_STRESS_ITERS is debug-only
+    let (_, res) = resolve_all(&[], &[("Z42_STRESS_ITERS", "5")], None, None, &c);
+    let text = show_config_text(&res, false);
+    assert!(text.contains("stress-iters"), "internal knob with an ignored value must show: {text}");
+    assert!(text.contains("unavailable in this build"), "{text}");
+}
+
+#[test]
+fn show_config_json_is_valid() {
+    let (_, res) = resolve_all(&[("Z42_GC_MODE", "concurrent")], &[], None, None, &full_ctx());
+    let v: serde_json::Value =
+        serde_json::from_str(&show_config_json(&res, true)).expect("valid JSON");
+    let gc = v["knobs"].as_array().unwrap().iter()
+        .find(|k| k["env"] == "Z42_GC_MODE").unwrap();
+    assert_eq!(gc["value"], "concurrent");
+    assert_eq!(gc["source"], "cli");
+    assert!(gc["ignored"].as_array().unwrap().is_empty());
+}
+
+// ── complete-runtime-settings P4: 双文件层 + 格式 ───────────────────────────
+
+fn write_cfg(name: &str, body: &str) -> std::path::PathBuf {
+    let p = std::env::temp_dir().join(format!("z42-cfg-{name}-{}.toml", std::process::id()));
+    std::fs::write(&p, body).unwrap();
+    p
+}
+
+#[test]
+fn json_config_path_gets_a_migration_hint_not_silence() {
+    // Someone coming from .NET writes app.runtimeconfig.json and expects it to work.
+    // Silently ignoring the file costs them half an hour of debugging.
+    let err = load_config_file(
+        std::path::Path::new("/tmp/app.runtimeconfig.json"),
+        "Z42_CONFIG",
+    ).unwrap_err();
+    assert!(err.contains("TOML, not JSON"), "{err}");
+    assert!(err.contains("app.runtimeconfig.toml"), "must name the file they should write: {err}");
+    assert!(err.contains("[runtime]"), "{err}");
+}
+
+#[test]
+fn missing_config_file_is_not_fatal_but_bad_toml_is() {
+    assert_eq!(
+        load_config_file(std::path::Path::new("/definitely/not/here.toml"), "Z42_CONFIG"),
+        Ok(None),
+        "a missing file must not stop the VM — env + defaults still apply"
+    );
+    let bad = write_cfg("bad", "[runtime\ngc-mode = ");
+    assert!(load_config_file(&bad, "Z42_CONFIG").is_err(), "malformed TOML is explicit");
+    let not_table = write_cfg("nottable", "runtime = 1\n");
+    assert!(load_config_file(&not_table, "Z42_CONFIG").unwrap_err().contains("must be a table"));
+    let no_section = write_cfg("nosection", "version = \"0.5.0\"\n");
+    assert_eq!(load_config_file(&no_section, "Z42_CONFIG"), Ok(None), "no [runtime] -> no layer");
+    for p in [bad, not_table, no_section] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn both_file_layers_load_from_their_own_env_var() {
+    let user = write_cfg("user", "[runtime]\ngc-mode = \"concurrent\"\n");
+    let app = write_cfg("app", "[runtime]\nsafepoint-throttle = 64\n");
+    let get = fake_env(&[
+        ("Z42_CONFIG", user.to_str().unwrap()),
+        ("Z42_APP_CONFIG", app.to_str().unwrap()),
+    ]);
+    let u = load_runtime_toml(&get).unwrap().expect("user layer");
+    let a = load_app_config(&get).unwrap().expect("app layer");
+    assert_eq!(u.get("gc-mode").and_then(|v| v.as_str()), Some("concurrent"));
+    assert_eq!(a.get("safepoint-throttle").and_then(|v| v.as_integer()), Some(64));
+
+    // And nothing about setting Z42_CONFIG suppresses the app layer.
+    let (cfg, _) = RuntimeConfig::resolve_with(
+        &fake_env(&[]),
+        &Inputs { user_config: Some(&u), app_config: Some(&a), ..Default::default() },
+        &full_ctx(),
+    );
+    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep);
+    assert_eq!(cfg.safepoint_throttle, 64);
+    for p in [user, app] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn unset_config_vars_mean_no_file_layer() {
+    let get = fake_env(&[("Z42_CONFIG", "  ")]);
+    assert_eq!(load_runtime_toml(&get), Ok(None));
+    assert_eq!(load_app_config(&get), Ok(None));
 }
 
 // ── add-gc-runtime-knobs (2026-09-05) ────────────────────────────────────────
@@ -524,4 +1330,41 @@ fn new_gc_knobs_are_registered_in_known_knobs() {
     for required in ["Z42_GC_MAX_BYTES", "Z42_GC_TRACE"] {
         assert!(names.contains(&required), "{required} missing from KNOWN_KNOBS");
     }
+}
+
+#[test]
+fn bool_knobs_are_type_checked_one_layer_above_parse_bool_knob() {
+    // `parse_bool_knob` is deliberately permissive ("anything but 0/false/off/no
+    // is on") — the test above pins that. But both bool knobs now declare
+    // `ValueKind::Bool`, so a non-boolean is caught in `resolve_knobs` and never
+    // reaches the parser: it becomes an explicit diagnostic + the default.
+    //
+    // Net effect vs. add-gc-runtime-knobs alone: `Z42_GC_TRACE=ture` (a typo) used
+    // to silently turn tracing ON; it now says "expected a boolean" and stays off.
+    // Deliberate tightening — a typo that silently changes behaviour is worse than
+    // one that is reported.
+    assert_eq!(spec_named("Z42_GC_TRACE").value, ValueKind::Bool);
+    assert_eq!(spec_named("Z42_JIT_PROFILE").value, ValueKind::Bool);
+
+    let c = full_ctx();
+    let (cfg, res) = resolve_all(&[], &[("Z42_GC_TRACE", "ture")], None, None, &c);
+    assert!(!cfg.gc_trace, "a non-boolean must not enable tracing");
+    assert!(res.diagnostics[0].message.contains("expected a boolean"), "{:?}", res.diagnostics[0]);
+
+    // Valid spellings still work end to end.
+    for (raw, want) in [("1", true), ("on", true), ("false", false), ("0", false)] {
+        let (cfg, res) = resolve_all(&[], &[("Z42_GC_TRACE", raw)], None, None, &c);
+        assert_eq!(cfg.gc_trace, want, "Z42_GC_TRACE={raw}");
+        assert!(res.diagnostics.is_empty());
+    }
+}
+
+#[test]
+fn gc_max_bytes_is_a_string_knob_because_it_takes_unit_suffixes() {
+    // Declaring it Int would reject `512MB` at the resolve layer before
+    // parse_gc_max_bytes ever sees it.
+    assert_eq!(spec_named("Z42_GC_MAX_BYTES").value, ValueKind::Str);
+    let (cfg, res) = resolve_all(&[], &[("Z42_GC_MAX_BYTES", "512MB")], None, None, &full_ctx());
+    assert_eq!(cfg.gc_max_bytes, Some(512 * 1024 * 1024));
+    assert!(res.diagnostics.is_empty());
 }

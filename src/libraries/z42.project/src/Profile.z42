@@ -8,8 +8,28 @@ public sealed class Profile {
     public string Mode;
     public int    Optimize;   // 0–3
     public bool   Debug;
+
+    /// 该 profile 声明的**运行时**旋钮，扁平 `"key=value"` 条目（z42 暂无稳定的
+    /// Map marshal 通路，沿用 `Environment.GetEnvironmentVariables()` 的形状）。
+    ///
+    /// 只含用户**真的写了**的键——`Mode` 字段在用户没写 `mode` 时也会是 "interp"
+    /// （历史默认），拿它烤侧车会把一个用户没声明的 `mode = "interp"` 写进产物、
+    /// 静默压过 build 默认的 jit。Knobs 没有这个歧义。
+    ///
+    /// 构建期键（pack / strip / optimize / debug）不在内——它们指挥编译器，不是
+    /// 运行时设置。complete-runtime-settings P5（2026-09-05）。
+    public string[] Knobs;
+
     public Profile(string name, bool pack, bool strip, string mode, int optimize, bool debug) {
         this.Name = name; this.Pack = pack; this.Strip = strip;
         this.Mode = mode; this.Optimize = optimize; this.Debug = debug;
+        this.Knobs = new string[0];
+    }
+
+    public Profile(string name, bool pack, bool strip, string mode, int optimize, bool debug,
+                   string[] knobs) {
+        this.Name = name; this.Pack = pack; this.Strip = strip;
+        this.Mode = mode; this.Optimize = optimize; this.Debug = debug;
+        this.Knobs = knobs;
     }
 }

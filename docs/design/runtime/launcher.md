@@ -205,7 +205,9 @@ safepoint-throttle = 1024
 
 `z42 run <app.zpkg>` 时,launcher 核心(`Std.Toml` 解析):
 - 顶层 `version` 进入版本解析,**优先级**:`--runtime` > runtimeconfig `version` > `config.toml` default > 唯一已装。
-- `[runtime]` 表**不再由 launcher 注入 env**——launcher 改为把 sidecar 路径设进 `Z42_CONFIG`,由 **z42vm 自己**按 [runtime-settings.md](runtime-settings.md) 的分层链(`env > [runtime] 文件 > 默认`)解析该表。旋钮键用 KNOWN_KNOBS 的 `toml_key`(kebab-case，如 `gc-mode`)。用户显式设的 `Z42_CONFIG` 优先(不被 sidecar 覆盖)。
+- `[runtime]` 表**不再由 launcher 注入 env**——launcher 把 sidecar 路径设进 **`Z42_APP_CONFIG`**,由 **z42vm 自己**按 [五层优先级链](../../book/src/runtime/runtime-settings.md)(`cli > env > 用户配置 Z42_CONFIG > 应用侧车 Z42_APP_CONFIG > 默认`)解析。旋钮键用 KNOWN_KNOBS 的 `toml_key`(kebab-case，如 `gc-mode`)。
+  > **通道拆分(complete-runtime-settings P5, 2026-09-05)**：sidecar 从前与用户配置共用 `Z42_CONFIG`,且只在用户没设时才塞——于是用户一 `export Z42_CONFIG=my.toml`,应用侧车就被**整份丢弃**。现在两者是独立通道、**逐 key 叠加**(同 key 用户赢),用户改一个旋钮不会丢掉应用自带的其余配置。
+- **sidecar 现在由 `z42c build` 生成**(complete-runtime-settings P5)：manifest 的 `[profile.<n>]` 里除构建期键(pack/strip/optimize/debug)外的旋钮被烤进 `dist/<name>.runtimeconfig.toml`。对齐 dotnet(SDK 从项目属性生成 runtimeconfig)。此前 launcher 是把 `[profile.debug].mode` 注入成 `Z42_MODE` 的,那让工程 profile 落在 **env 层**、反过来压过用户的配置文件,且只能带 mode 一个旋钮——两个问题一并解决。
 - **弃用 `configProperties`**(旧 JSON 的任意 `Z42_*` 注入):旋钮走 `[runtime]` 表 + VM 端解析取代;需要任意 env 请在环境里设。这也让 apphost 直跑路径将来能用同一 `Z42_CONFIG` 机制拿到 `[runtime]`(现 apphost 仍不读 sidecar，见下)。
 
 > **格式迁移(unify-run-modes P1)**:sidecar 由 `.runtimeconfig.json` 改为 `.runtimeconfig.toml`,与全仓 `Std.Toml` 栈一致;pre-1.0 不留 JSON 兼容(旧 JSON sidecar 需改写为 TOML)。`config.toml`(default 版本)也由手写单行扫描改走 `Std.Toml`。
@@ -214,7 +216,7 @@ safepoint-throttle = 1024
 
 `z42 run` 和 `z42 repl` 都接受两个 launcher 级旗标（**从 launcher 拦下，不透传给程序/z42i**）：
 
-- `--config <file>`：给该次运行的 z42vm 设 `Z42_CONFIG`，其 `[runtime]` 段经 P0 分层链应用。**"用哪个文件"优先级**：`--config` > 用户 env `Z42_CONFIG` > app 侧车 `.runtimeconfig.toml`（run 专有）。
+- `--config <file>`：给该次运行的 z42vm 设 `Z42_CONFIG`（用户配置层）。app 侧车走**另一条通道** `Z42_APP_CONFIG`，两层逐 key 叠加、用户层赢——`--config` 不再吃掉侧车。
 - `--mode <interp|jit|aot>`：作为 z42vm 的 `--mode`（执行模式最高优先级，高于 `Z42_MODE`/`[runtime].mode`）。
 
 ```bash
