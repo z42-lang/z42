@@ -1208,3 +1208,71 @@ fn show_config_json_is_valid() {
     assert_eq!(gc["source"], "cli");
     assert!(gc["ignored"].as_array().unwrap().is_empty());
 }
+
+// ── complete-runtime-settings P4: 双文件层 + 格式 ───────────────────────────
+
+fn write_cfg(name: &str, body: &str) -> std::path::PathBuf {
+    let p = std::env::temp_dir().join(format!("z42-cfg-{name}-{}.toml", std::process::id()));
+    std::fs::write(&p, body).unwrap();
+    p
+}
+
+#[test]
+fn json_config_path_gets_a_migration_hint_not_silence() {
+    // Someone coming from .NET writes app.runtimeconfig.json and expects it to work.
+    // Silently ignoring the file costs them half an hour of debugging.
+    let err = load_config_file(
+        std::path::Path::new("/tmp/app.runtimeconfig.json"),
+        "Z42_CONFIG",
+    ).unwrap_err();
+    assert!(err.contains("TOML, not JSON"), "{err}");
+    assert!(err.contains("app.runtimeconfig.toml"), "must name the file they should write: {err}");
+    assert!(err.contains("[runtime]"), "{err}");
+}
+
+#[test]
+fn missing_config_file_is_not_fatal_but_bad_toml_is() {
+    assert_eq!(
+        load_config_file(std::path::Path::new("/definitely/not/here.toml"), "Z42_CONFIG"),
+        Ok(None),
+        "a missing file must not stop the VM — env + defaults still apply"
+    );
+    let bad = write_cfg("bad", "[runtime\ngc-mode = ");
+    assert!(load_config_file(&bad, "Z42_CONFIG").is_err(), "malformed TOML is explicit");
+    let not_table = write_cfg("nottable", "runtime = 1\n");
+    assert!(load_config_file(&not_table, "Z42_CONFIG").unwrap_err().contains("must be a table"));
+    let no_section = write_cfg("nosection", "version = \"0.5.0\"\n");
+    assert_eq!(load_config_file(&no_section, "Z42_CONFIG"), Ok(None), "no [runtime] -> no layer");
+    for p in [bad, not_table, no_section] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn both_file_layers_load_from_their_own_env_var() {
+    let user = write_cfg("user", "[runtime]\ngc-mode = \"concurrent\"\n");
+    let app = write_cfg("app", "[runtime]\nsafepoint-throttle = 64\n");
+    let get = fake_env(&[
+        ("Z42_CONFIG", user.to_str().unwrap()),
+        ("Z42_APP_CONFIG", app.to_str().unwrap()),
+    ]);
+    let u = load_runtime_toml(&get).unwrap().expect("user layer");
+    let a = load_app_config(&get).unwrap().expect("app layer");
+    assert_eq!(u.get("gc-mode").and_then(|v| v.as_str()), Some("concurrent"));
+    assert_eq!(a.get("safepoint-throttle").and_then(|v| v.as_integer()), Some(64));
+
+    // And nothing about setting Z42_CONFIG suppresses the app layer.
+    let (cfg, _) = RuntimeConfig::resolve_with(
+        &fake_env(&[]),
+        &Inputs { user_config: Some(&u), app_config: Some(&a), ..Default::default() },
+        &full_ctx(),
+    );
+    assert_eq!(cfg.gc_mode, GcMode::ConcurrentMarkSweep);
+    assert_eq!(cfg.safepoint_throttle, 64);
+    for p in [user, app] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn unset_config_vars_mean_no_file_layer() {
+    let get = fake_env(&[("Z42_CONFIG", "  ")]);
+    assert_eq!(load_runtime_toml(&get), Ok(None));
+    assert_eq!(load_app_config(&get), Ok(None));
+}

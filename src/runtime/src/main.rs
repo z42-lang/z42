@@ -504,13 +504,18 @@ fn main() -> Result<()> {
         std::process::exit(2);
     }
 
+    // Two independent file layers: the user's own (`Z42_CONFIG`) and the app's
+    // build-generated sidecar (`Z42_APP_CONFIG`). They merge per key with the user
+    // winning — setting Z42_CONFIG must not discard what the app ships with.
     let runtime_table = z42::config::load_runtime_toml(&getenv)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let app_table = z42::config::load_app_config(&getenv)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let build_ctx = z42::config::BuildCtx::current();
     let inputs = z42::config::Inputs {
         cli: cli_knobs,
         user_config: runtime_table.as_ref(),
-        ..Default::default()
+        app_config: app_table.as_ref(),
     };
     let (cfg, mut resolution) =
         z42::config::RuntimeConfig::resolve_with(&getenv, &inputs, &build_ctx);
@@ -519,11 +524,13 @@ fn main() -> Result<()> {
     // `[runtime]` table here, and `--set` keys (P2). Environment variables are NOT
     // scanned: the `Z42_` prefix is shared with the launcher, the test harness and
     // embedders, so "unknown knob Z42_HOME" would fire on every single run.
-    if let Some(table) = runtime_table.as_ref() {
+    for (table, layer) in [
+        (runtime_table.as_ref(), z42::config::Layer::UserConfig),
+        (app_table.as_ref(), z42::config::Layer::AppConfig),
+    ] {
+        let Some(table) = table else { continue };
         for key in z42::config::unknown_table_keys(table) {
-            resolution
-                .diagnostics
-                .push(z42::config::unknown_key_diagnostic(z42::config::Layer::UserConfig, &key));
+            resolution.diagnostics.push(z42::config::unknown_key_diagnostic(layer, &key));
         }
     }
 

@@ -44,6 +44,7 @@ mod knob_table;
 mod knobs;
 mod parse;
 mod render;
+mod source;
 mod resolve;
 pub use availability::*;
 pub use cli::*;
@@ -51,6 +52,7 @@ pub use knob_table::{knob_by_env_name, knob_by_key, KNOWN_KNOBS};
 pub use knobs::*;
 pub use render::*;
 pub use resolve::*;
+pub use source::*;
 pub(crate) use parse::*;
 
 /// Resolved values of **every `Z42_*` runtime knob the runtime consumes**.
@@ -263,39 +265,6 @@ impl RuntimeConfig {
 
             resolved: res.knobs.clone(),
         }
-    }
-}
-
-/// Read the `[runtime]` table from the TOML file named by `Z42_CONFIG`, if any.
-///
-/// - `Z42_CONFIG` unset / empty → `Ok(None)` (no config-file layer; env + defaults).
-/// - file missing → `Ok(None)` + a `warn` (not fatal — env / defaults still apply).
-/// - malformed TOML, or `[runtime]` present but not a table → `Err(msg)`
-///   (**explicit** — the caller surfaces it and exits; never silently defaults).
-/// - present but no `[runtime]` table → `Ok(None)`.
-pub fn load_runtime_toml<F>(get: F) -> Result<Option<toml::Table>, String>
-where
-    F: Fn(&str) -> Option<String>,
-{
-    let Some(path) = get("Z42_CONFIG").filter(|s| !s.trim().is_empty()) else {
-        return Ok(None);
-    };
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // eprintln (not tracing) — this runs before the subscriber is
-            // installed, and matches the other one-line boot warnings here.
-            eprintln!("z42: Z42_CONFIG={path:?} not found; ignoring config-file layer");
-            return Ok(None);
-        }
-        Err(e) => return Err(format!("Z42_CONFIG={path:?}: {e}")),
-    };
-    let doc: toml::Table =
-        toml::from_str(&text).map_err(|e| format!("Z42_CONFIG={path:?}: invalid TOML: {e}"))?;
-    match doc.get("runtime") {
-        Some(toml::Value::Table(t)) => Ok(Some(t.clone())),
-        Some(_) => Err(format!("Z42_CONFIG={path:?}: [runtime] must be a table")),
-        None => Ok(None),
     }
 }
 

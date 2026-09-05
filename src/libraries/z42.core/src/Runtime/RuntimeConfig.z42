@@ -1,0 +1,55 @@
+namespace Std.Runtime;
+
+// 运行时设置的**只读**查询面（complete-runtime-settings P4, 2026-09-05）。
+//
+// z42vm 把每个旋钮按固定优先级链解析一次，boot 后冻结：
+//
+//     cli (--set / --mode)  >  env (Z42_*)  >  用户配置 (Z42_CONFIG)
+//         >  应用侧车 (Z42_APP_CONFIG)  >  内置默认
+//
+// 这个类让 z42 代码看到**解析后的生效值和它的来源**——直接读
+// `Environment.GetEnvironmentVariable("Z42_GC_MODE")` 只能拿到 env 那一层的原始
+// 字符串，看不到 CLI 覆盖、配置文件、也分不清"没设"和"设了但被更高层压过"。
+//
+// 命令行侧的对应物：`z42vm --list-knobs`（schema）/ `z42vm --show-config`（生效值）。
+//
+// **没有 setter**：配置在 VM 侧是 OnceLock，boot 后物理不可变；且多数旋钮只在启动
+// 期被消费一次（决定建哪种堆、要不要起采样线程），运行中改要么无效要么要重建子
+// 系统——"能设但不生效"比"不能设"更坏。需要运行期可调的能力走专门 API（Std.GC）。
+public static class RuntimeConfig {
+    // 旋钮的生效值（如 "concurrent"）。未知 key，或该旋钮取内置默认时返回 null。
+    // key 用旋钮的配置键（`gc-mode`），也接受环境变量名（`Z42_GC_MODE`）。
+    [Native("__cfg_get")]
+    public static extern string? Get(string key);
+
+    // 生效值来自哪一层："cli" | "env" | "user-config" | "app-config" | "default"。
+    // 未知 key 返回 "unknown"。
+    [Native("__cfg_source")]
+    public static extern string Source(string key);
+
+    // 全部旋钮的 key。
+    [Native("__cfg_names")]
+    public static extern string[] Names();
+
+    // 扁平转储，每项形如 `"gc-mode=concurrent|env"`；取默认时 value 段为空。
+    // 按**第一个** `=` 和**最后一个** `|` 切分（值本身可能含 `=`，如 log 指令）。
+    // 形状沿用 `Environment.GetEnvironmentVariables()` 的扁平数组约定。
+    [Native("__cfg_dump")]
+    public static extern string[] Dump();
+
+    // 旋钮的一行说明；未知 key 返回 null。
+    [Native("__cfg_describe")]
+    public static extern string? Describe(string key);
+
+    // 该旋钮在**当前 build 与平台**是否存在。例如 `jit-profile` 需要 `jit`
+    // feature，interp-only 的 z42vm 上返回 false——设了它也不会生效（VM 会在启动
+    // 时打印一行说明）。未知 key 返回 false。
+    [Native("__cfg_available")]
+    public static extern bool IsAvailable(string key);
+
+    // 便利包装：取不到时返回 fallback。
+    public static string GetOrDefault(string key, string fallback) {
+        string? v = Get(key);
+        return v ?? fallback;
+    }
+}

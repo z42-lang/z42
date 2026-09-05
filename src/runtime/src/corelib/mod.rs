@@ -45,6 +45,7 @@ pub mod struct_reflect;   // add-boxed-struct-identity (P4b): value-struct field
 pub mod assemblyloadcontext;
 pub mod diagnostics;
 pub mod array;
+pub mod config;
 pub mod char;
 pub mod gc;
 pub mod bench;
@@ -564,6 +565,16 @@ const BUILTINS: &[(&str, NativeFn)] = &[
     // ── perf-stdlib-hot-paths (2026-09-03): bulk string primitives ────────────────
     ("__str_substring",     string::builtin_str_substring),
     ("__str_concat_parts",  string::builtin_str_concat_parts),
+
+    // ── complete-runtime-settings P4 (2026-09-05) — appended to preserve BuiltinIds ──
+    // Read-only view of the resolved runtime configuration (Std.Runtime.RuntimeConfig).
+    // No setter: the config is frozen in a OnceLock after boot — see corelib/config.rs.
+    ("__cfg_get",       config::builtin_cfg_get),
+    ("__cfg_source",    config::builtin_cfg_source),
+    ("__cfg_names",     config::builtin_cfg_names),
+    ("__cfg_dump",      config::builtin_cfg_dump),
+    ("__cfg_describe",  config::builtin_cfg_describe),
+    ("__cfg_available", config::builtin_cfg_available),
 ];
 
 // runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
