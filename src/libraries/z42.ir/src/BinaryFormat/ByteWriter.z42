@@ -12,11 +12,10 @@ public sealed class ByteWriter {
 
     public int Len() { return this._len; }
 
-    // 一次性确保还能再放 `extra` 字节：按目标总量算够大的容量再扩一次（原实现 doubling 循环，
-    // 等价）。扩容拷贝旧内容逐元素（仅 O(log n) 次触发，非热点）。
-    private void _ensure(int extra) {
-        int need = this._len + extra;
-        if (need <= this._buf.Length) { return; }
+    // 容量守卫在**每次写入**上都要过一遍，而真正扩容只有 O(log n) 次 —— 所以守卫本身内联在
+    // 各 Write* 里（`_len + k > _buf.Length` 一个比较），只有真要扩容才调 `_grow`。
+    // 原来 `_ensure(k)` 是一次 z42 方法调用/字节，profile 上 self 2.96%，几乎全是这层转调。
+    private void _grow(int need) {
         int cap = this._buf.Length;
         while (cap < need) { cap = cap * 2; }
         int[] bigger = new int[cap];
@@ -26,14 +25,14 @@ public sealed class ByteWriter {
     }
 
     public void WriteU8(int v) {
-        this._ensure(1);
+        if (this._len + 1 > this._buf.Length) { this._grow(this._len + 1); }
         this._buf[this._len] = v & 0xFF;
         this._len = this._len + 1;
     }
 
     // ensure-once + 直写（去 2 次 WriteU8 方法调用 + 2 次 _ensure）。字节序等价。
     public void WriteU16(int v) {
-        this._ensure(2);
+        if (this._len + 2 > this._buf.Length) { this._grow(this._len + 2); }
         int p = this._len;
         this._buf[p]     = v & 0xFF;
         this._buf[p + 1] = (v >> 8) & 0xFF;
@@ -41,7 +40,7 @@ public sealed class ByteWriter {
     }
 
     public void WriteU32(int v) {
-        this._ensure(4);
+        if (this._len + 4 > this._buf.Length) { this._grow(this._len + 4); }
         int p = this._len;
         this._buf[p]     = v & 0xFF;
         this._buf[p + 1] = (v >> 8) & 0xFF;
@@ -51,7 +50,7 @@ public sealed class ByteWriter {
     }
 
     public void WriteI64(long v) {
-        this._ensure(8);
+        if (this._len + 8 > this._buf.Length) { this._grow(this._len + 8); }
         int p = this._len;
         int i = 0;
         while (i < 8) {
@@ -86,12 +85,12 @@ public sealed class ByteWriter {
         // ASCII 快路径：标识符/多数串全 ASCII → 一次 ensure(n) 覆盖纯 ASCII 情形 + 直写，去 per-char
         // WriteU8 调用。内联容量守卫 `_len >= _buf.Length`（纯 ASCII 恒不触发；混入多字节 scalar
         // 经 WriteU8 自行扩容后可能耗尽预留 → 守卫兜底），保正确。多字节分支仍走 WriteU8（自扩容）。
-        this._ensure(n);
+        if (this._len + n > this._buf.Length) { this._grow(this._len + n); }
         int i = 0;
         while (i < n) {
             int cp = (int)s.CharAt(i);
             if (cp < 128) {
-                if (this._len >= this._buf.Length) { this._ensure(1); }
+                if (this._len >= this._buf.Length) { this._grow(this._len + 1); }
                 this._buf[this._len] = cp;
                 this._len = this._len + 1;
             } else if (cp < 2048) {
@@ -130,7 +129,7 @@ public sealed class ByteWriter {
     // 每字节重复复制 3-4 层 → 序列化占单包编译 ~51%）。other 字节已 & 0xFF，直拷等价。
     public void AppendWriter(ByteWriter other) {
         int m = other._len;
-        this._ensure(m);
+        if (this._len + m > this._buf.Length) { this._grow(this._len + m); }
         int p = this._len;
         int i = 0;
         while (i < m) { this._buf[p + i] = other._buf[i]; i = i + 1; }

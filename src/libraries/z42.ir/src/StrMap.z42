@@ -65,14 +65,14 @@ public sealed class StrMap {
         return r;
     }
 
-    private int _hash(string key) {
-        int h = key.GetHashCode();
-        return h & 0x7FFFFFFF;   // 清符号位 → 非负
-    }
+    // 槽号：`_cap` 恒为 2 的幂（16 起、_grow 翻倍）⇒ `h % _cap` 等价于 `h & (_cap-1)`，
+    // 省掉每次查找一次整除。与旧式 `(h & 0x7FFFFFFF) % _cap` 逐位等值：低位掩码本就落在
+    // 0x7FFFFFFF 之内，清符号位那一步对结果没有影响，结果恒非负。探测序不变 ⇒ 槽布局不变。
+    // 原来还外套一层 `_hash` 方法调用，每次查找一次 —— 一并内联掉。
 
     // 查找已有 key 的槽（命中返回槽号，未命中 -1）。
     private int _find(string key) {
-        int slot = this._hash(key) % this._cap;
+        int slot = key.GetHashCode() & (this._cap - 1);
         int probes = 0;
         while (probes < this._cap) {
             if (!this._used[slot]) { return -1; }
@@ -86,7 +86,7 @@ public sealed class StrMap {
 
     // 为 Put 找槽：命中 key 的槽（更新）或第一个空槽（负载 <0.5 必有空）。
     private int _slotFor(string key) {
-        int slot = this._hash(key) % this._cap;
+        int slot = key.GetHashCode() & (this._cap - 1);
         while (this._used[slot] && this._keys[slot] != key) {
             slot = slot + 1;
             if (slot >= this._cap) { slot = 0; }
