@@ -142,15 +142,32 @@ public static class IrGenFacts {
         return d;
     }
 
+    /// 修饰符串里是否含 `word` 这个**空格分隔的整词**。z42c 里有 75 处调用（全部传
+    /// "static"/"abstract"/... 这类字面量），是本项目的规范实现，另外三处（SymbolCollector /
+    /// ExportedTypeExtractor / TypeFactsTc）都转发到这里。
+    ///
+    /// perf：四份旧实现各有各的浪费 —— 两份逐字符 `CharAt`（每字符一次 builtin 分发）再
+    /// `Substring` 出 token 比较；一份 `Split(" ")` 分配数组 + 每个 token 一个子串；一份
+    /// `(" "+mods+" ").IndexOf(" "+w+" ")` 每次拼两个新串。这里一次 `ToCharArray` 物化，
+    /// 之后全是 ArrayGet：不切子串、不建数组。
+    ///
+    /// 语义：对**非空** word 与四份旧实现逐条一致（整词匹配；空 token 永不匹配非空 word）。
     public static bool _hasWord(string s, string word) {
+        int wn = word.Length;
+        if (wn == 0) { return false; }
         int n = s.Length;
+        if (wn > n) { return false; }
+        // 扫描面物化一次（原来两份实现是每字符一次 `CharAt` builtin 分发）；`word` 侧不物化
+        // ——只有 token 长度与两侧边界都对上时才逐字符比，实测每次调用至多比一两个 token。
+        char[] cs = s.ToCharArray();
         int start = 0;
         int i = 0;
         while (i <= n) {
-            if (i == n || s.CharAt(i) == ' ') {
-                if (i > start) {
-                    string tok = s.Substring(start, i - start);
-                    if (tok == word) { return true; }
+            if (i == n || cs[i] == ' ') {
+                if (i - start == wn) {
+                    int j = 0;
+                    while (j < wn && cs[start + j] == word.CharAt(j)) { j = j + 1; }
+                    if (j == wn) { return true; }
                 }
                 start = i + 1;
             }

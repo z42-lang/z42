@@ -297,6 +297,7 @@ public static class ImportedSymbolLoader {
                 // z42c 既有约定：静态/实例同进 Methods（IsStatic 标真值）——D3
                 // add-type-based-overloads：symbol.Name = 源名（首个 $ 前），RegKey = 完整注册键
                 //   → OverloadsOf(源名) 跨包候选枚举一致（同本地）；调用方决议返回 RegKey 派发。
+                // 同一个 m.Name 原来在本次迭代里被 _dollarAt 算了两遍（这里与下面注册 bare 键处）。
                 int srcDol = ImportedSymbolLoader._dollarAt(m.Name);
                 string srcName = (srcDol >= 0) ? m.Name.Substring(0, srcDol) : m.Name;
                 var sym = new MethodSymbol(srcName, m.Visibility, sig, m.IsStatic, ct.Name(), false, null);
@@ -308,9 +309,8 @@ public static class ImportedSymbolLoader {
                 // G18-import：实例方法入 OwnMethod* 有序元数据（TSIG 方法继承展开；static 不入）。
                 if (!m.IsStatic) { ct.AddOwnMethod(m.Name, m.IsVirtual, m.IsAbstract); }
                 // 重载 arity 后缀（"Substring$2"）→ 同时注册 bare 键 first-wins（镜像 C# Phase2）
-                int dollar = ImportedSymbolLoader._dollarAt(m.Name);
-                if (dollar >= 0) {
-                    string bare = m.Name.Substring(0, dollar);
+                if (srcDol >= 0) {
+                    string bare = srcName;
                     if (!ct.Methods.ContainsKey(bare)) { ct.Methods.Put(bare, sym); }
                 }
             }
@@ -318,14 +318,9 @@ public static class ImportedSymbolLoader {
         }
     }
 
-    private static int _dollarAt(string s) {
-        int i = 0;
-        while (i < s.Length) {
-            if (s.CharAt(i) == '$') { return i; }
-            i = i + 1;
-        }
-        return 0 - 1;
-    }
+    // `String.IndexOf(char)` 已是 bulk char[] 版（ToCharArray 一次 + ArrayGet 扫）；原来这里
+    // 手写的循环每字符要 `s.Length` + `s.CharAt(i)` 两次 builtin 分发。
+    private static int _dollarAt(string s) { return s.IndexOf('$'); }
 
     // TypeResolver 子集（镜像 C# 优先级）：数组后缀 → prim/void → imported class → 泛型型参 → fallback prim(name)。
     // typeParams/tpCount：当前类的类型形参列表（如 ["T"] for Channel<T>）；无则传空数组 + 0。
