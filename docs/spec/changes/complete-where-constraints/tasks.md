@@ -43,33 +43,58 @@
 - **踩坑记录**：手拼 TYPE 段最初漏了**对象全字段布局块**（`(Flags & 116) == 0` 时恒存在，
       非 gated），5 条用例全 OOB。写字节级 fixture 前必须把 `ReadTypeAt` 读到尾
 
-## Phase 1 — 接口约束（PR-1，主体）⚪
+## Phase 1 — 接口约束（PR-1，主体）🟢
 
-### 1a 重构先行（单独 commit）
-- [ ] 1.1 合并 `_fillBundle` / `_fillBundleM` 为一份（两者今天逐字重复）
-- [ ] 1.2 合并 `_checkBundle` / `_checkBundleM`（差异仅 Span 与 owner 名 → 参数化）
-- **GREEN**：纯重构，行为不变，字节不动点成立（gen1 == gen2）
+### 1a 重构先行（单独 commit `05c00aeb`）
+- [x] 1.1 合并 `_fillBundle` / `_fillBundleM` 为一份（两者此前逐字重复）
+- [x] 1.2 合并 `_checkBundle` / `_checkBundleM`（差异仅 Span 与 owner 名 → 参数化）；
+      顺带 `_isParam` 并入 `_indexOfName`、`_err`/`_errAt` 合一。265 → 215 行
+- **GREEN**：✅ 纯重构，行为不变，字节不动点 gen1 == gen2 3/3
 
 ### 1b 接口约束（功能 commit）
-- [ ] 1.3 `ConstraintBundle` 加 `InterfaceNames[] / InterfaceCount`
-- [ ] 1.4 **去掉 `nt.ArgCount == 0` 过滤**；按裸名分流：`HasInterface` → 接口约束，
-      `HasClass` → base-class 约束
-- [ ] 1.5 `_checkBundle` 加接口分支 → `SymbolTable.Implements`
-- [ ] 1.6 **接口继承闭包**：`Z42InterfaceType` 加 base 列表 + `Implements` 走闭包
-      （本 PR 主要未知量；代价超预期则退为「只判直接接口 + 不升 error」，见 design §4）
+- [x] 1.3 `ConstraintBundle` 加 `InterfaceNames[] / InterfaceCount` + `AddInterface`
+- [x] 1.4 **去掉 `nt.ArgCount == 0` 过滤**；按裸名分流：`HasInterface` → 接口约束，
+      `HasClass` → base-class 约束（base 分支保留 ArgCount 过滤：泛型 base 不在本轮）
+- [x] 1.5 `_checkBundle` 加接口分支 → `SymbolTable.Implements`；`_satisfiesInterface` 对
+      `Z42GenericParamType` / `Z42ErrorType` / `Z42UnknownType` **按满足处理**（否则泛型类
+      内部转发 `Outer<T>` → `new Box<T>()` 每处都误报、且与既有诊断叠加二次噪声）
+- [x] 1.6 **接口继承闭包**：`Z42InterfaceType` 加 `BaseNames/BaseCount`（StubCollector 从
+      `c.Bases` 填，裸名）+ `Implements` 改两层遍历（类 base 链收直接接口 → 再沿父接口链 BFS）
+      + 新增 `InterfaceDerivesFrom`（接口自身作实参时用）。**代价远低于预期**，未走退路
+
+### 1b′ 顺带修：实例调用路径的方法级校验整条静默（**Scope 扩展，User 已裁决**）
+- [x] 1.12 实测发现 `this.m<T>()` 路径上**方法级 where 约束与既有 arity 校验 E0445 双双不发**：
+      `_bindCall` 兜底对成员调用传 `ms = null`（`MemberResolver.z42:428`），
+      `_applyMethodTypeArgs` 里 `ms != null && ms.HasDecl` 恒不成立。注释「无本地 Decl →
+      仅解析、不校验」只对 imported / prim 成立，**同类实例方法明明已解析出 ms、只是没往外透**
+- [x] 1.13 修：`_bindInstanceMemberCall` 增 `call` 参数，用户类 / 泛型实例化受者两个分支带真
+      `ms` 调 `_applyMethodTypeArgs`（幂等，兜底自动早退）。**刻意不改重载决议**——把
+      `_resolveOverload` 的 typeArgCount 从 0 改成 `call.TypeArgCount` 会改变重载选择、
+      撼动 codegen 与自举不动点，属另一件事
+- [x] 1.14 同步改掉 428 那条**已不成立**的兜底注释（它正是把缺口伪装成设计意图、躲过历次 review 的原因）
 
 ### 1c warning 探针 → 翻 error（User 裁决）
-- [ ] 1.7 先以 **warning** 发诊断，`xtask test` + 全 stdlib 编译，**拉出新增诊断完整清单**
-- [ ] 1.8 逐条对账；重点验 `int`/`string` → wrapper 归一（`Dictionary<int,int>` /
-      `HashSet<string>` / `PriorityQueue<long>` / `SortedSet<int>` …）
-- [ ] 1.9 `src/tests/types/struct_generic_container.z42`：给 `struct P` / `struct Tagged`
-      补 `: IEquatable<>`（User 已裁决）
-- [ ] 1.10 清单归零后**翻成 error**
-- [ ] 1.11 负例单测：新建 `src/compiler/z42c.semantics/tests/typecheck/constraint_tests.z42`
-      （与 `typecheck_tests.z42` 平级、扁平、单一职责），用 `SemanticDump.FirstErrorCode`
-      断言「接口约束不满足 → E04xx」+ 正例「满足 → 零诊断」；同时修
-      `src/tests/README.md:44,73` 指向已删 `z42.Tests/Fixtures/` 的两条死链（承接 0.4）
-- **GREEN**：`xtask test` 全绿 + `test stdlib --mode jit` + 字节不动点
+- [x] 1.7 以 **warning** 跑了**两轮**全仓探针：① 同包路径；② 加上 1b′ 的实例调用路径
+- [x] 1.8 对账结果：**两轮新增诊断均为 0 条**，`E0445` arity 亦 0 条，`xtask test` 全绿
+- [x] 1.9 ~~给 `struct P` / `struct Tagged` 补 `: IEquatable<>`~~ **本轮无需**——该预判建立在
+      「`Dictionary<int,int>` 会被校验」之上，而**跨包约束本轮 100% 不校验**（见下）。
+      留给 PR-5
+- [x] 1.10 清单归零 → **翻成 error**
+- [x] 1.11 负例单测 `tests/typecheck/constraint_tests.z42`（13 条，与 `typecheck_tests.z42`
+      平级、扁平、单一职责）：接口满足/违反、**泛型接口**满足/违反（打 ArgCount 过滤）、
+      继承闭包两层/三层、**闭包不过度放宽**、基类链接口、型参转发不误报、多接口 `+`
+      满足/违反、方法级满足/违反
+- **GREEN**：✅ `xtask test` 全绿（10 stages）+ 13/13 负例 + 字节不动点 3/3
+
+> ### ⚠️ 「零误报」的真实覆盖面（必读，防下一轮误判）
+> design §6 已定性**跨包约束今天 100% 不校验**：`symbols.ClassConstraints` 的唯一写入点是
+> `ConstraintChecker.Resolve`，只遍历本包 CU 的 `ClassDecl`；导入类型走
+> `ZpkgReader → TsigReconcile → ImportedSymbolLoader` 全程不碰它 → `Check` 第一行
+> `HasConstraints` 即返回。
+>
+> ⇒ 本轮探针覆盖的**只有同包约束**。风险表那条 🔴「基元 wrapper 归一偏差 →
+> `Dictionary<int,int>` 编不过 → 自举链断」**根本没被触及**，它要到 PR-5 跨包持久化才浮现。
+> **切勿把本轮的零误报读作「wrapper 归一没问题」。**
 
 ## Phase 2 — `enum` + `new()`（PR-2）⚪
 
@@ -108,8 +133,9 @@
 
 | 风险 | 等级 | 处置 |
 |---|---|---|
-| 基元 → wrapper 归一有偏差 → `Dictionary<int,int>` 编不过 → **自举链断** | 🔴 | Phase 1c warning 探针先量（User 裁决） |
-| 接口继承闭包代价超预期 | 🟠 | 退为只判直接接口 + 不升 error（design §4） |
-| 去 `ArgCount` 过滤让 21 条泛型接口约束一次性生效 | 🟠 | 同 warning 探针 |
+| 基元 → wrapper 归一有偏差 → `Dictionary<int,int>` 编不过 → **自举链断** | 🔴 **未解除** | 探针零误报**不构成证据**——跨包约束本轮 100% 不校验，该风险要到 PR-5 才真正暴露。原定的「给 struct P 补 IEquatable」处置一并顺延 |
+| 接口继承闭包代价超预期 | 🟢 已解除 | 实际代价远低于预期（`Z42InterfaceType` 加 base 列表 + `Implements` 两层 BFS），未走退路 |
+| 去 `ArgCount` 过滤让 21 条泛型接口约束一次性生效 | 🟢 已解除 | 两轮探针新增诊断 0 条 |
+| 实例调用路径此前整条不校验（1b′ 新发现） | 🟢 已解除 | 修后两轮探针 `E0445` arity 亦 0 条；修法克制在「接真 ms」，不动重载决议 |
 | Span 变更打翻既有诊断 golden | 🟡 | Phase 4 独立 PR，golden 变化单独对账 |
 | 跨包 100% 不校验（本轮不修）→ 用户以为已保护 | 🟡 | 文档**诚实标注**（9.1）；PR-5 下一轮 |

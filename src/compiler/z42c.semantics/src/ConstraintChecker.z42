@@ -7,8 +7,16 @@
 //   · Check（call-site，镜像 C# ValidateGenericConstraints）：泛型实例化 new Box<int>() 逐
 //     (型参约束 bundle, 实参) 校验；违反报 E0402。
 //
-// 可行子集（z42c 当前类型模型）：base-class / class / struct / 型参引用 where U:T。
-// 延后（与既有延后一致）：interface / enum / new() / func-type 约束 —— 见 GenericConstraint.z42。
+// 已校验：base-class / class / struct / 型参引用 where U:T / **interface**（含继承闭包）。
+// 延后：enum / new()（PR-2）、func-type 约束 —— 见 GenericConstraint.z42。
+//
+// **落地强度（complete-where-constraints 1c）**：接口约束先以 warning 跑了两轮全仓探针
+// （第一轮同包路径、第二轮加上实例调用路径），新增诊断均为 **0 条**、GREEN 全绿，故翻成 error。
+// 需要留意的是「零误报」的**真实覆盖面**：design §6 已定性**跨包约束今天 100% 不校验**
+// （`symbols.ClassConstraints` 的唯一写入点只遍历本包 CU 的 ClassDecl，导入类型全程不碰，
+// `Check` 第一行 `HasConstraints` 即返回）。故 DRAFT 风险表那条 🔴「基元 wrapper 归一偏差 →
+// `Dictionary<int,int>` 编不过 → 自举链断」**本轮根本没被触及**，它要到 PR-5 跨包持久化才浮现。
+// 别把这轮的零误报读成「wrapper 归一没问题」。
 namespace Z42.Semantics;
 using Z42.IR;
 
@@ -75,10 +83,16 @@ public sealed class ConstraintChecker {
                 NamedType nt = con.Type as NamedType;
                 if (this._indexOfName(pnames, pc, nt.Name) >= 0) {
                     bundle.HasTypeParamRef = true; bundle.TypeParamRef = nt.Name;
+                } else if (symbols.HasInterface(nt.Name)) {
+                    // 接口约束。**不加 ArgCount == 0 过滤**——全仓真实接口约束绝大多数是泛型接口
+                    // （IEquatable<T> / IComparable<T> / INumber<T>），此前那个过滤在接口判定
+                    // 之前就把它们整条丢弃，这才是接口约束全体静默的直接原因。
+                    // 按裸名匹配（design D1）：`nt.Name` 已是裸名（泛型实参在 nt.Args）。
+                    bundle.AddInterface(nt.Name);
                 } else if (nt.ArgCount == 0 && symbols.HasClass(nt.Name)) {
                     bundle.HasBaseClass = true; bundle.BaseClassName = nt.Name;
                 }
-                // 泛型 base / interface / enum / 未知 → 延后（不报 false positive）
+                // 泛型 base / enum / 未知名 → 仍延后（未知名于 PR-4 改报 E0443）
             }
             k = k + 1;
         }
@@ -128,6 +142,32 @@ public sealed class ConstraintChecker {
                 this._err(arg, pn, b.TypeParamRef, ownerName, sp);
             }
         }
+        int ii = 0;
+        while (ii < b.InterfaceCount) {
+            if (!this._satisfiesInterface(symbols, arg, b.InterfaceNames[ii])) {
+                this._err(arg, pn, b.InterfaceNames[ii], ownerName, sp);
+            }
+            ii = ii + 1;
+        }
+    }
+
+    // arg 满足接口约束（裸名匹配，design D1——不校验接口的类型实参，与运行期
+    // `constraint_satisfied_by` 拿到的同样是常量池裸名，两边不产生分歧）。
+    private bool _satisfiesInterface(SymbolTable symbols, Z42Type arg, string ifaceName) {
+        if (arg is Z42ClassType) { return symbols.Implements(arg.Name(), ifaceName); }
+        if (arg is Z42InstantiatedType) { return symbols.Implements((arg as Z42InstantiatedType).Def.Name(), ifaceName); }
+        if (arg is Z42InterfaceType) {
+            // 接口自身作实参：同名满足；否则沿父接口链判（IDerived 满足 IBase）。
+            if (arg.Name() == ifaceName) { return true; }
+            return symbols.InterfaceDerivesFrom(arg.Name(), ifaceName);
+        }
+        // 未解析的型参（`class Outer<T> { Box<T> b; }` 里的 T）：此处无从判定——T 的约束
+        // 由 Outer 自己的实例化点校验。**按满足处理**，否则每个泛型类内部转发都会误报。
+        if (arg is Z42GenericParamType) { return true; }
+        // 数组 / func / void / error / unknown：不实现任何用户接口。error/unknown 已由别处报错，
+        // 这里不叠加二次诊断。
+        if ((arg is Z42ErrorType) || (arg is Z42UnknownType)) { return true; }
+        return false;
     }
 
     private void _err(Z42Type arg, string param, string constraint, string owner, Span sp) {
