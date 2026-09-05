@@ -5,6 +5,7 @@
 // 覆盖：空白/换行/行注释(//)/块注释(/* */) 作 trivia 跳过；标识符+关键字（全表）；
 // 数字字面量（十进制/hex `0x`/bin `0b` + `_` 分隔 + 小数 + 指数 [eE][+-]? + 后缀 L/u/f/d/m，incr 6c-1）；
 // 字符串 "..."（含转义跳过，raw lexeme 保留引号）；字符 '...'；raw 串 """..."""；插值串 $"...{e}..."（单 token）；
+// 扫描面走 bulk `char[]`（ToCharArray 一次 native 调用）而非逐字符 CharAt+Length 两次 builtin 分发（`String.IndexOf` 的先例）；`_chars[i]`/`_len` 按 scalar 对应 `CharAt(i)`/`Length`，故 token 文本仍用 `_src.Substring` 切。
 // 全套符号/运算符（最长匹配）；EOF。`DecodeString` 剥引号 + 还原 C 系单字符转义集
 // （\a\b\f\n\r\t\v\0\\\"\'）；未知转义词法器报 E0102。延后：\uXXXX/\xXX 数字转义。
 namespace Z42.Syntax;
@@ -13,6 +14,8 @@ using Z42.Core;
 
 public sealed class Lexer {
     private string _src;
+    private char[] _chars;
+    private int    _len;
     private string _file;
     private int    _pos;
     private int    _line;
@@ -39,6 +42,7 @@ public sealed class Lexer {
 
     public Lexer(string src, string file) {
         this._src = src;
+        this._chars = src.ToCharArray(); this._len = this._chars.Length;
         this._file = file;
         this._pos = 0;
         this._line = 1;
@@ -59,6 +63,8 @@ public sealed class Lexer {
     public DiagnosticBag Diagnostics() { return this._diags; }
     public int   TokenCount()    { return this._tokCount; }
     public Token TokenAt(int i)  { return this._toks[i]; }
+    // Tokenize() 之后 _toks 不再重分配（_growToks 只在词法期跑）——parser 缓存它，把每次 peek 的两次 z42 调用省成一次数组索引；容量 >= TokenCount()，按后者定界。
+    public Token[] Tokens()      { return this._toks; }
 
     // 关键字表只读访问器（供 DumpTool.DumpKeywords / 单测；表本体 private，注册序）。
     public int    KeywordCount()       { return this._kwCount; }
@@ -66,9 +72,9 @@ public sealed class Lexer {
 
     // ── 公开入口 ────────────────────────────────────────────────────────────
     public void Tokenize() {
-        while (this._pos < this._src.Length) {
+        while (this._pos < this._len) {
             this._skipTrivia();
-            if (this._pos >= this._src.Length) { break; }
+            if (this._pos >= this._len) { break; }
             this._sPos = this._pos; this._sLine = this._line; this._sCol = this._col;
             this._lexOne();
         }
@@ -77,12 +83,8 @@ public sealed class Lexer {
     }
 
     // ── 字符工具 ────────────────────────────────────────────────────────────
-    private string _src2() { return this._src; }
     // 越界返回空格哨兵（调用方主循环已用 _pos<Length 守卫，哨兵仅供前瞻安全）
-    private char _ch(int i) {
-        if (i < this._src.Length) { return this._src.CharAt(i); }
-        return ' ';
-    }
+    private char _ch(int i) { if (i < this._len) { return this._chars[i]; } return ' '; }
     private bool _isDigit(char c) { return c >= '0' && c <= '9'; }
     private bool _isAlpha(char c) {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
@@ -90,7 +92,7 @@ public sealed class Lexer {
     private bool _isAlnum(char c) { return this._isAlpha(c) || this._isDigit(c); }
 
     private char _advance() {
-        char c = this._src.CharAt(this._pos);
+        char c = this._chars[this._pos];
         this._pos = this._pos + 1;
         if (c == '\n') { this._line = this._line + 1; this._col = 1; }
         else { this._col = this._col + 1; }
@@ -99,15 +101,15 @@ public sealed class Lexer {
 
     // ── trivia（空白 + 注释）────────────────────────────────────────────────
     private void _skipTrivia() {
-        while (this._pos < this._src.Length) {
+        while (this._pos < this._len) {
             char c = this._ch(this._pos);
             if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
                 this._advance();
             } else if (c == '/' && this._ch(this._pos + 1) == '/') {
-                while (this._pos < this._src.Length && this._ch(this._pos) != '\n') { this._advance(); }
+                while (this._pos < this._len && this._ch(this._pos) != '\n') { this._advance(); }
             } else if (c == '/' && this._ch(this._pos + 1) == '*') {
                 this._advance(); this._advance();   // consume /*
-                while (this._pos < this._src.Length) {
+                while (this._pos < this._len) {
                     if (this._ch(this._pos) == '*' && this._ch(this._pos + 1) == '/') {
                         this._advance(); this._advance(); break;
                     }
@@ -133,7 +135,7 @@ public sealed class Lexer {
 
     private void _lexIdent() {
         int start = this._pos;
-        while (this._pos < this._src.Length && this._isAlnum(this._ch(this._pos))) { this._advance(); }
+        while (this._pos < this._len && this._isAlnum(this._ch(this._pos))) { this._advance(); }
         string text = this._src.Substring(start, this._pos - start);
         if (text == "_") { this._emit(TokenKind.Underscore, text); return; }
         int kind = this._kwLookup(text);
@@ -148,7 +150,7 @@ public sealed class Lexer {
         char c1 = this._ch(this._pos + 1);
         if (c0 == '0' && (c1 == 'x' || c1 == 'X')) {
             this._adv2();
-            while (this._pos < this._src.Length
+            while (this._pos < this._len
                 && (this._isHexDigit(this._ch(this._pos)) || this._ch(this._pos) == '_')) { this._advance(); }
             this._consumeNumSuffix();
             this._emitNum(start, false);
@@ -156,7 +158,7 @@ public sealed class Lexer {
         }
         if (c0 == '0' && (c1 == 'b' || c1 == 'B')) {
             this._adv2();
-            while (this._pos < this._src.Length
+            while (this._pos < this._len
                 && (this._ch(this._pos) == '0' || this._ch(this._pos) == '1' || this._ch(this._pos) == '_')) { this._advance(); }
             this._consumeNumSuffix();
             this._emitNum(start, false);
@@ -187,7 +189,7 @@ public sealed class Lexer {
     }
 
     private void _consumeDigits() {
-        while (this._pos < this._src.Length
+        while (this._pos < this._len
             && (this._isDigit(this._ch(this._pos)) || this._ch(this._pos) == '_')) { this._advance(); }
     }
 
@@ -198,7 +200,7 @@ public sealed class Lexer {
     // 数字后缀（L l u U f F d D m M）。返回是否含浮点型后缀（f/d/m）。
     private bool _consumeNumSuffix() {
         bool fl = false;
-        while (this._pos < this._src.Length && this._isNumSuffix(this._ch(this._pos))) {
+        while (this._pos < this._len && this._isNumSuffix(this._ch(this._pos))) {
             char s = this._ch(this._pos);
             if (s == 'f' || s == 'F' || s == 'd' || s == 'D' || s == 'm' || s == 'M') { fl = true; }
             this._advance();
@@ -221,11 +223,11 @@ public sealed class Lexer {
     private void _lexString() {
         int start = this._pos;
         this._advance();   // opening "
-        while (this._pos < this._src.Length && this._ch(this._pos) != '"') {
+        while (this._pos < this._len && this._ch(this._pos) != '"') {
             if (this._ch(this._pos) == '\\') { this._validateEscape(this._pos); this._advance(); }   // 校验 + skip escaped char
-            if (this._pos < this._src.Length) { this._advance(); }
+            if (this._pos < this._len) { this._advance(); }
         }
-        if (this._pos >= this._src.Length) {
+        if (this._pos >= this._len) {
             this._diags.Error(DiagnosticCodes.UnterminatedString, "unterminated string literal", this._curSpan(start));
         } else {
             this._advance();   // closing "
@@ -236,11 +238,11 @@ public sealed class Lexer {
     private void _lexChar() {
         int start = this._pos;
         this._advance();   // opening '
-        while (this._pos < this._src.Length && this._ch(this._pos) != '\'') {
+        while (this._pos < this._len && this._ch(this._pos) != '\'') {
             if (this._ch(this._pos) == '\\') { this._validateEscape(this._pos); this._advance(); }
-            if (this._pos < this._src.Length) { this._advance(); }
+            if (this._pos < this._len) { this._advance(); }
         }
-        if (this._pos < this._src.Length) { this._advance(); }   // closing '
+        if (this._pos < this._len) { this._advance(); }   // closing '
         this._emit(TokenKind.CharLiteral, this._src.Substring(start, this._pos - start));
     }
 
@@ -249,7 +251,7 @@ public sealed class Lexer {
         int start = this._pos;
         this._advance(); this._advance(); this._advance();   // opening """
         bool closed = false;
-        while (this._pos < this._src.Length) {
+        while (this._pos < this._len) {
             if (this._ch(this._pos) == '"' && this._ch(this._pos + 1) == '"' && this._ch(this._pos + 2) == '"') {
                 this._advance(); this._advance(); this._advance();
                 closed = true;
@@ -270,10 +272,10 @@ public sealed class Lexer {
         this._advance(); this._advance();   // opening $"
         int depth = 0;
         bool closed = false;
-        while (this._pos < this._src.Length) {
+        while (this._pos < this._len) {
             char c = this._ch(this._pos);
             if (depth == 0) {
-                if (c == '\\') { this._validateEscape(this._pos); this._advance(); if (this._pos < this._src.Length) { this._advance(); } continue; }
+                if (c == '\\') { this._validateEscape(this._pos); this._advance(); if (this._pos < this._len) { this._advance(); } continue; }
                 if (c == '"') { this._advance(); closed = true; break; }
                 if (c == '{') {
                     if (this._ch(this._pos + 1) == '{') { this._advance(); this._advance(); continue; }   // {{ 字面
@@ -299,11 +301,11 @@ public sealed class Lexer {
 
     private void _skipNestedString() {
         this._advance();   // opening "
-        while (this._pos < this._src.Length && this._ch(this._pos) != '"') {
+        while (this._pos < this._len && this._ch(this._pos) != '"') {
             if (this._ch(this._pos) == '\\') { this._validateEscape(this._pos); this._advance(); }
-            if (this._pos < this._src.Length) { this._advance(); }
+            if (this._pos < this._len) { this._advance(); }
         }
-        if (this._pos < this._src.Length) { this._advance(); }   // closing "
+        if (this._pos < this._len) { this._advance(); }   // closing "
     }
 
     // 把字符串字面量的 raw lexeme（含两端引号）解码为实际值：剥引号 + 转义还原。
@@ -362,7 +364,7 @@ public sealed class Lexer {
     // 校验 bsPos 处的转义（bsPos 指向 '\\'）：非法则报 E0102，span 覆盖 `\X` 两字符。
     // 串尾孤立 '\\'（next 越界）交给上层的未终止串诊断，不在此重复报。
     private void _validateEscape(int bsPos) {
-        if (bsPos + 1 >= this._src.Length) { return; }
+        if (bsPos + 1 >= this._len) { return; }
         char e = this._ch(bsPos + 1);
         if (Lexer._isKnownEscape(e)) { return; }
         this._diags.Error(DiagnosticCodes.InvalidEscape,
@@ -436,9 +438,7 @@ public sealed class Lexer {
 
     private void _adv2() { this._advance(); this._advance(); }
 
-    private Span _curSpan(int start) {
-        return new Span(start, this._pos, this._sLine, this._sCol, this._file);
-    }
+    private Span _curSpan(int start) { return new Span(start, this._pos, this._sLine, this._sCol, this._file); }
 
     // ── 输出 ────────────────────────────────────────────────────────────────
     private void _emit(int kind, string text) {

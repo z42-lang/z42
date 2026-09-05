@@ -16,34 +16,47 @@ public static class PrimModel {
     // 非内建 → 原样返回（剥尾部 `?`）。与 Z42Type.Canon 对关键字/短名的结果一致（超集：也认包装名/FQ）。
     public static string Canon(string n) {
         string s = n;
-        if (s.EndsWith("?")) { s = s.Substring(0, s.Length - 1); }
-        if (s.StartsWith("Std.")) { s = s.Substring(4); }   // FQ → 包装名
-        // 关键字 → 短名
-        if (s == "byte")   { return "u8"; }
-        if (s == "sbyte")  { return "i8"; }
-        if (s == "short")  { return "i16"; }
-        if (s == "ushort") { return "u16"; }
-        if (s == "int")    { return "i32"; }
-        if (s == "uint")   { return "u32"; }
-        if (s == "long")   { return "i64"; }
-        if (s == "ulong")  { return "u64"; }
-        if (s == "float")  { return "f32"; }
-        if (s == "double") { return "f64"; }
-        // 包装名（PascalCase）→ 短名
-        if (s == "SByte")   { return "i8"; }
-        if (s == "Int16")   { return "i16"; }
-        if (s == "Int32")   { return "i32"; }
-        if (s == "Int64")   { return "i64"; }
-        if (s == "Byte")    { return "u8"; }
-        if (s == "UInt16")  { return "u16"; }
-        if (s == "UInt32")  { return "u32"; }
-        if (s == "UInt64")  { return "u64"; }
-        if (s == "Single")  { return "f32"; }
-        if (s == "Double")  { return "f64"; }
-        if (s == "Boolean") { return "bool"; }
-        if (s == "Char")    { return "char"; }
-        if (s == "String")  { return "string"; }
-        if (s == "Object")  { return "object"; }
+        int L = s.Length;
+        // perf：`EndsWith("?")`/`StartsWith("Std.")` 各是一次 z42 方法调用 + 4 次 builtin
+        // 分发（Length×2 + CharAt×2），而这里只需要看首尾各一个字符 —— 直接 CharAt 判。
+        if (L > 0 && s.CharAt(L - 1) == '?') { s = s.Substring(0, L - 1); L = L - 1; }
+        if (L == 0) { return s; }
+        char c0 = s.CharAt(0);
+        if (L >= 4 && c0 == 'S' && s.CharAt(1) == 't' && s.CharAt(2) == 'd' && s.CharAt(3) == '.') {
+            s = s.Substring(4); L = L - 4;                       // FQ → 包装名
+            if (L == 0) { return s; }
+            c0 = s.CharAt(0);
+        }
+        // 24 个待匹配名字的长度只落在 3/4/5/6/7（len3:1 / len4:5 / len5:8 / len6:9 / len7:1），
+        // 且同长度内首字符近乎两两不同 —— 先按 (L, c0) 分桶再比较。最常见入参是用户类名
+        // （原来要走完 24 次顺序 ==），现在绝大多数一次字符串比较都不做，最坏 3 次。
+        if (L == 4) {
+            if (c0 == 'b' && s == "byte") { return "u8"; }
+            if (c0 == 'u' && s == "uint") { return "u32"; }
+            if (c0 == 'l' && s == "long") { return "i64"; }
+            if (c0 == 'B' && s == "Byte") { return "u8"; }
+            if (c0 == 'C' && s == "Char") { return "char"; }
+            return s;
+        }
+        if (L == 5) {
+            if (c0 == 's') { if (s == "sbyte") { return "i8"; } if (s == "short") { return "i16"; } return s; }
+            if (c0 == 'I') { if (s == "Int32") { return "i32"; } if (s == "Int16") { return "i16"; } if (s == "Int64") { return "i64"; } return s; }
+            if (c0 == 'u' && s == "ulong") { return "u64"; }
+            if (c0 == 'f' && s == "float") { return "f32"; }
+            if (c0 == 'S' && s == "SByte") { return "i8"; }
+            return s;
+        }
+        if (L == 6) {
+            if (c0 == 'U') { if (s == "UInt32") { return "u32"; } if (s == "UInt16") { return "u16"; } if (s == "UInt64") { return "u64"; } return s; }
+            if (c0 == 'S') { if (s == "String") { return "string"; } if (s == "Single") { return "f32"; } return s; }
+            if (c0 == 'u' && s == "ushort") { return "u16"; }
+            if (c0 == 'd' && s == "double") { return "f64"; }
+            if (c0 == 'D' && s == "Double") { return "f64"; }
+            if (c0 == 'O' && s == "Object") { return "object"; }
+            return s;
+        }
+        if (L == 3 && c0 == 'i' && s == "int") { return "i32"; }
+        if (L == 7 && c0 == 'B' && s == "Boolean") { return "bool"; }
         return s;   // 已是短名（i32/bool/char/string/object…）或非内建 → 原样
     }
 

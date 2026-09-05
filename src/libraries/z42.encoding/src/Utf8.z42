@@ -8,26 +8,22 @@ namespace Std.Encoding;
 
 public static class Utf8 {
     public static byte[] GetBytes(string s) {
-        if (s.Length == 0) return new byte[0];
+        // perf：原来两趟循环，每趟每字符都吃 `s.Length` + `s.CharAt(i)` 两次 builtin
+        // 分发（合计 4n 次）。现在两次 native 就够：
+        //   ① pass 1「按 scalar 累加 UTF-8 长度」的结果 **恒等于** `ByteLength`
+        //      （z42 string 内部就是 UTF-8 存储），O(1) native 直接拿；
+        //   ② 扫描面走 bulk `char[]`（ToCharArray 一次），其余全是 ArrayGet opcode。
+        // 与 `String.IndexOf` / Lexer 同一模式：既有 bulk primitive，算法留在 script。
+        int total = s.ByteLength;
+        if (total == 0) return new byte[0];
 
-        // Pass 1: 算总字节数
-        int total = 0;
-        int i = 0;
-        while (i < s.Length) {
-            int cp = (int)s.CharAt(i);
-            if (cp < 0x80)         total = total + 1;
-            else if (cp < 0x800)   total = total + 2;
-            else if (cp < 0x10000) total = total + 3;
-            else                   total = total + 4;
-            i = i + 1;
-        }
-
-        // Pass 2: 填充
+        char[] cs = s.ToCharArray();
+        int n = cs.Length;
         byte[] result = new byte[total];
         int dst = 0;
-        i = 0;
-        while (i < s.Length) {
-            int cp = (int)s.CharAt(i);
+        int i = 0;
+        while (i < n) {
+            int cp = (int)cs[i];
             if (cp < 0x80) {
                 result[dst] = (byte)cp;
                 dst = dst + 1;

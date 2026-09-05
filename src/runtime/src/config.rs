@@ -229,10 +229,39 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Build from the process environment (POSIX getenv / Windows GetEnvironmentVariable).
-    /// Empty strings are treated as unset.
+    /// Build from the process environment: env vars **plus** the two config-file
+    /// layers the environment names (`Z42_CONFIG` → user, `Z42_APP_CONFIG` → app
+    /// sidecar). Empty strings are treated as unset.
+    ///
+    /// This is the path every **non-`z42vm`** entry point takes — `runtime_config()`
+    /// lazily initialises through it, so `z42_host_run_app` (desktop self-contained
+    /// apphost / wasm / iOS / Android / testhost) lands here. `z42vm`'s `main()`
+    /// does not: it assembles the CLI layer itself and installs the result via
+    /// [`init_runtime_config`] before anything reads it.
+    ///
+    /// sidecar-reaches-published-apps (2026-09-05) added the file layers here.
+    /// They used to be loaded **only** in `main()`, so every embedder silently
+    /// ignored `Z42_CONFIG` and `Z42_APP_CONFIG` — the documented precedence
+    /// chain simply did not hold outside the `z42vm` binary.
+    ///
+    /// **Never exits.** A malformed config file downgrades to one stderr line and
+    /// "that layer does not exist": this is a library path that may be running
+    /// inside a host process (an iOS app, an Android JNI thread, wasm), where
+    /// killing the process over a config typo is not ours to do. `z42vm`'s
+    /// `main()` keeps the stricter treatment (fatal + `--strict-config`).
     pub fn from_env() -> Self {
-        Self::from_getter(|name| std::env::var(name).ok())
+        let get = |name: &str| std::env::var(name).ok();
+        let user = load_layer_lenient(&get, "Z42_CONFIG");
+        let app = load_layer_lenient(&get, "Z42_APP_CONFIG");
+        let inputs = Inputs {
+            user_config: user.as_ref(),
+            app_config: app.as_ref(),
+            ..Default::default()
+        };
+        let (cfg, resolution) = Self::resolve_with(&get, &inputs, &BuildCtx::current());
+        // Warn-only: no `--strict-config` on this path (see the doc above).
+        let _ = resolution.into_result(false);
+        cfg
     }
 
     /// Build using an injectable env getter. Test-friendly form —
