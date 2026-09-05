@@ -140,7 +140,7 @@ impl VmContext {
         let core: Arc<VmCore> = Arc::new(VmCore {
             static_fields:      Mutex::new(Vec::new()),
             static_field_index: Mutex::new(FxHashMap::default()),
-            lazy_loader:        Mutex::new(None),
+            lazy_loader:        RwLock::new(None),
             pending_type_inits: Mutex::new(Vec::new()),
             pending_type_init_count: std::sync::atomic::AtomicUsize::new(0),
             running_static_inits:    std::sync::atomic::AtomicUsize::new(0),
