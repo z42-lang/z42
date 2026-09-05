@@ -20,7 +20,7 @@
 //!
 //! complete-runtime-settings P4（2026-09-05）：自 config.rs 迁出并泛化为按路径读。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// 读一个运行配置文件的 `[runtime]` 表。
 ///
@@ -101,4 +101,30 @@ where
             None
         }
     }
+}
+
+/// app 旁边的运行配置侧车：`<同目录>/<同 stem>.runtimeconfig.toml`，存在才返回。
+///
+/// # 为什么约定住在这里
+///
+/// `z42c build` 把工程 `[profile.*]` 烤成这个文件放在 zpkg 旁边。此前**必须有人
+/// 主动把路径设进 `Z42_APP_CONFIG`** 才算数——于是 `z42vm <app.zpkg>` 直跑、以及
+/// 一切嵌入形态（wasm / iOS / Android / 桌面自包含）都拿不到 app 自己的运行配置，
+/// 因为那些环境里根本没有"用户设环境变量"这回事。
+///
+/// dotnet 的 host 永远读 `<app>.runtimeconfig.json`，不需要谁指路——那是 **app 的
+/// 属性**，不是调用方的选项。这个函数把 z42 拉回同一个模型：约定只有这一处实现，
+/// 调用方**可以**传显式路径（`Z42_APP_CONFIG` 仍然优先），但不必自己去发现。
+///
+/// 找不到是**常态**（多数工程没有 `[profile.*]` 运行时旋钮 ⇒ build 不产侧车），
+/// 所以这里安静返回 `None`——与"显式指向一个不存在的文件"不同，那种情况
+/// [`load_config_file`] 仍会 warn。
+///
+/// app-config-follows-the-app（2026-09-05）。
+pub fn sidecar_for(app_file: &Path) -> Option<PathBuf> {
+    // `with_extension` 替换最后一个扩展名：app.zpkg → app.runtimeconfig.toml
+    //（不是追加），与 z42c 的产出名、launcher 的 `_runtimeConfigPath`、
+    // publish 的 `_pubSidecarOf` 一致。
+    let path = app_file.with_extension("runtimeconfig.toml");
+    path.is_file().then_some(path)
 }
