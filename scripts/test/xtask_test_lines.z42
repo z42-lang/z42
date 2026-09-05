@@ -1,5 +1,7 @@
 // xtask — `test lines` gate stage（add-line-count-lint，三面评审 L-10 / C-10 文本结构阶段）。
-// 文件行数硬上限 lint：src/ 下非测试 .z42 / .rs 文件 > 500 行即越界（code-organization.md）。
+// 文件行数 lint：src/ 下非测试 .z42 / .rs 文件（code-organization.md）。
+//   > 886 行（硬限）→ 越界，走下面的棘轮判定（新越界/继续膨胀 = 红）
+//   > 500 行（软限）→ 只 warn，不参与棘轮、永不变红
 // 先 warn 后 fail 的落地方式 = **棘轮基线**：`scripts/test/line-limit-baseline.txt` 记录已知越界文件
 // 及其当时行数；越界文件若不在基线（新越界）或比基线更长（继续膨胀）→ 红；在基线内且不增长 → 只 warn。
 // 拆分后降到上限以下的文件在下次 `--update` 时自动从基线消失（只降不升）。
@@ -10,8 +12,12 @@ using Std.IO;
 using Std.Cli;
 using Std.Time;
 
-// 文件行数硬上限（code-organization.md：.z42 / .rs 500 行）。
-int _lineLimitHard() { return 500; }
+// 文件行数上限（code-organization.md）。
+int _lineLimitHard() { return 886; }
+// 软限：只提示、永不变红。2026-09-05 之前软限 300 是**纯文档约定、lint 里零实现**，
+// 于是 16.4% 的文件长期越过它而无人知晓——正是「没有测试盯着的约定迟早会烂」的又一例
+// （同 format-fixture 那次）。这里给它一个最弱的牙：出 warn，不进棘轮、不阻断。
+int _lineLimitSoft() { return 500; }
 
 // `xtask test lines [--update]`
 int _testLines(bool update) {
@@ -60,6 +66,20 @@ int _testLines(bool update) {
         }
         i = i + 1;
     }
+    // 软限提示（不阻断、不进棘轮）：介于软硬限之间的文件——「到了该重新审视是不是
+    // 该拆的体量」，但不强制。硬限越界的已在上面报过，不重复。
+    int softs = 0;
+    i = 0;
+    while (i < files.Length) {
+        int n2 = _countLines(files[i]);
+        if (n2 > _lineLimitSoft() && n2 <= _lineLimitHard()) { softs = softs + 1; }
+        i = i + 1;
+    }
+    if (softs > 0) {
+        Console.WriteLine("  ℹ " + softs.ToString() + " file(s) over the " + _lineLimitSoft().ToString()
+            + "-line soft limit (advisory only — consider splitting)");
+    }
+
     // 基线里已经不越界 / 已删除的条目：提示棘轮更新（不阻断）。
     i = 0;
     while (i < bc) {
