@@ -113,8 +113,11 @@ pr 再比），线程 GC 基准在共享 runner 上的**跑间线程调度噪声
 concurrent 基准摆动 +6~33%，单线程基准却居 0 附近）。criterion 紧的**跑内** CI 抓不到这种跑间漂移，硬判会
 假红。故 concurrent 基准打印但不 fail job；单线程 GC 基准照常硬门禁。
 
-**仅当 PR 触碰 `src/runtime` 时跑**（`git diff --quiet base..HEAD -- src/runtime` 为真则跳过——VM 字节
-相同、结果必不动）。`smoke_bench.rs` 是纯 Rust sanity（不碰 VM），保留作「criterion 装置能跑」自检、
+**仅当 PR 触碰 `src/runtime` 的非文档文件时跑**（`git diff --quiet base..HEAD -- src/runtime
+':(exclude,glob)src/runtime/**/*.md'` 为真则跳过——VM 字节相同、结果必不动）。**`*.md` 的排除是必要的**：
+该目录下有 13 个 README，#442 只动了 `src/runtime/benches/README.md` 一行，就白跑 criterion 463s +
+重建 base z42vm 98s（约 9 分钟）。见「[改动面守卫](#改动面守卫为什么是排除文档而不是列白名单)」。
+`smoke_bench.rs` 是纯 Rust sanity（不碰 VM），保留作「criterion 装置能跑」自检、
 **不纳入门禁**。
 
 ## 执行画像（profile，schema v2）
@@ -156,7 +159,7 @@ checkout，无法指向 base-src，故**不复用它建 base**；改用**已 boo
 编译器编旧源恒成立，staged-bootstrap 纪律）：PR z42c 编 `base-src/src/compiler` → base z42c，再由 base
 z42c 编 `base-src/src/libraries` → base stdlib。**只测 scenario 运行时**，故 base driver 由 PR z42c 生成
 其字节码这点对测量零影响——它跑的仍是 base 的 codegen 逻辑，产 base 风格的 scenario .zbc。z42vm 复用：
-`git diff base..pr -- src/runtime` 无变更时 base_vm = pr_vm，省最重的 cargo 建。
+`git diff base..pr -- src/runtime`（排除 `*.md`）无变更时 base_vm = pr_vm，省最重的 cargo 建。
 
 判红纯函数 `_abVerdict`（`scripts/xtask_bench.z42`，可 `bench --ab-selftest` 单测）：
 
@@ -276,30 +279,58 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 ### CI 门禁接线（bench-pr.yml）
 
 触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `bench` /
-`scripts/**/*.z42` / 本 workflow），**纯文档 PR 跳过**。步骤：
+`scripts/**/*.z42` / 本 workflow），末尾再加一条负向模式 `!**/*.md`（负向在后 ⇒ 覆盖前面的匹配），
+使**纯文档 PR 一个文件都不命中、整个 workflow 不触发**；`.md` 与代码同改则照旧跑。
+（没有这条负向模式时，上面的目录通配会把「改一行 `bench/README.md`」也拉进来烧一个完整 job。）步骤：
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`）
 2. bootstrap PR 工具链（`ci-bootstrap`：nightly z42c 种子 → 当前源码 warm 自建）
-3. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime` 无变更 → base_vm=pr_vm，否则
+3. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime`（排除 `*.md`）无变更 → base_vm=pr_vm，否则
    cargo 建 base z42vm；PR z42c 编 `base-src/src/compiler`→base z42c，base z42c 编 `base-src/src/libraries`→base stdlib
 4. **e2e A/B（唯一硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`。
-   `MODE` 按改动面收窄：`src/runtime` 无变更 → `jit`（interp/jit 的相对性能只可能被 VM 改动挪动），
+   `MODE` 按改动面收窄：`src/runtime`（排除 `*.md`）无变更 → `jit`（interp/jit 的相对性能只可能被 VM 改动挪动），
    否则 `both`。`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `bench/results/ab.json`
 5. **micro A/B（informational，永不 fail）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树
    复用 3 建的工具链、仅新建 base z42b）→ `bench --micro-diff` 打印全部比值。降级理由见「噪声底与阈值」②
-6. **criterion A/B**（Part C，仅 `src/runtime` 改动时）：base 树 `--save-baseline ab-base`、PR 树
+6. **criterion A/B**（Part C，仅 `src/runtime` 非文档改动时）：base 树 `--save-baseline ab-base`、PR 树
    `--baseline ab-base`（共享 `CRITERION_HOME`），读 `change/estimates.json` 判红（>10% 且 CI 分离）
 
-**耗时构成**（实测，run 33930770961 / 33923733669；`gh run list` 看到的 2000s+ 是**排队**不是执行）：
+**耗时构成**（全部实测；`gh run list` 看到的 2000s+ 是**排队**不是执行，要看 job 的
+`started_at`→`completed_at`）。#442 前的两个样本（run 33930770961 / 33923733669）**都没碰
+`src/runtime`**，所以「改前」列只与中间那列同口径；碰 VM 的路径在 #442 前没有同口径样本。
 
-| 步骤 | 改前 | 改后 |
-|------|------|------|
-| bootstrap PR 工具链 | 210–288s | 不变（地板） |
-| 建 base 工具链 | 54–61s | 不变（只占 5%，不是耗时主体） |
-| e2e A/B | 385s（11 场景 × 2 mode） | ~105s（6 场景 × jit） |
-| micro 捕获 ×2 | 92s | 不变（仍跑，只是不判红） |
-| **allocations 探针** | **268–284s（26%，且从不 fail）** | **0 —— 已删** |
-| **合计（执行）** | **1046–1100s ≈ 17–18 min** | **≈ 8–10 min** |
+| 步骤 | #442 前（未碰 VM） | #442 后·未碰 VM | #442 后·碰 VM |
+|------|------------------|----------------|--------------|
+| bootstrap PR 工具链 | 210–288s | 201s | 189–201s |
+| 建 base 工具链 | 54–61s | 49s | 188–190s（含 cargo 建 base z42vm ≈140s） |
+| e2e A/B | 385s（11 场景 × 2 mode） | 78s（6 场景 × jit） | 195–196s（6 场景 × both） |
+| micro 捕获 ×2 | 92s | 90s | 90s |
+| criterion A/B | —（未碰 VM 本就跳过） | 0（跳过） | **531–532s** |
+| **allocations 探针** | **268–284s（26%，且从不 fail）** | **0 —— 已删** | **0 —— 已删** |
+| **合计（执行）** | **1046–1100s ≈ 17–18 min** | **445s ≈ 7.4 min** | **1227–1239s ≈ 20.5 min** |
+
+样本：未碰 VM = run 33937108536；碰 VM = run 33941190557 / 33938670206。
+
+两条路径分化很大，**结论要分开说**：未碰 VM 的 PR 已达标（−57%，7.4 min）；碰 VM 的 PR 仍是
+20.5 min，大头换成了 criterion A/B（531s，占 43%）——那是**下一块**值得攻的成本，但削它之前
+必须先有「哪个 bench 花在编译、哪个花在跑、informational 的 `concurrent_*` 占多少」的分解数据，
+不能凭印象砍（砍错方向 = 门禁变瞎，正是本轮整治要根除的）。
+
+### 改动面守卫：为什么是排除文档而不是列白名单
+
+上表里「碰没碰 VM」这个判据由三处 `git diff --quiet base..HEAD -- src/runtime …` 决定（建 base
+工具链 / `--mode` / criterion）。`src/runtime` 下有 13 个 `README.md`，裸目录判据会把它们也算作
+「VM 变了」——#442 自己就踩了这个坑（只改 `src/runtime/benches/README.md` 一行，白烧约 9 分钟）。
+
+narrow-bench-gate-guards（2026-09-05）给三处都加上 `':(exclude,glob)src/runtime/**/*.md'`。
+**选「排除文档」而不是「只列 `*.rs` + `Cargo.toml`/`Cargo.lock`」的白名单**，理由是两种错法不对称：
+
+| 写法 | 漏判方向 | 后果 |
+|------|---------|------|
+| 白名单（只列已知会影响产物的类型） | **假阴性**：新出现一种真影响 z42vm 产物的文件类型未被列入 → 门禁**静默跳过**本该跑的比较 | 门禁变瞎，且不报错、无人察觉 |
+| 排除法（只排掉确定是文档的 `*.md`） | **假阳性**：某些不影响产物的非 `.md` 文件（如 `tests/data/*.json`）仍触发 | 多跑一次，费时间不费正确性 |
+
+整治 bench 门禁的全部意义是**别让判定失真**，所以取「只可能错向多跑」的那一边。
 
 > allocations 探针的注释自己写着「observe 3-5 rounds before turning it into a gate」——观察期早已过去，
 > 它既没变成门禁也没人读，却稳定占掉每个 PR 四分半。**要么做成门禁，要么删**，本次选删；
@@ -337,7 +368,7 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
   只对初判 `R_lower > 1+thr` 的 1~2 条再交替测 k=3 轮，用**跑间比值离散度**重算区间（成本 +30~60s，
   不是 ×3）。落地后阈值可从 0.25 收回 0.15、micro 可重新判红。
 - **micro tier 只打印不判红**（simplify-bench-gate 降级）；criterion 仍硬门禁（它自带 outlier 检测 +
-  bootstrap CI，且只在 `src/runtime` 改动时跑）。
+  bootstrap CI，且只在 `src/runtime` 非文档改动时跑）。
 - **`full` 层场景当前只在本地跑**：`bench-update.yml` 删除后，非 gate 层的 5 个场景没有 CI 落点。
   这是本次的**已知取舍**——需要时用 `xtask bench`（默认 `--tier all`）本地全跑；若要恢复定期全量，
   应落在独立的数据仓 / 定时 workflow，而不是回到「每次 push main 烧一个 job」。

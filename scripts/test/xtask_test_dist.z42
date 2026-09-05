@@ -317,12 +317,21 @@ int[] _apphostSmoke(string distDir, string work) {
     }
     Console.WriteLine("desktop-publish smoke: " + tmpl);
 
+    // The app prints where its `mode` knob came from. `[profile.release] mode` below
+    // is baked by `z42c build` into `app.runtimeconfig.toml`; `z42 publish` must carry
+    // that sidecar into the deploy layout and the apphost must hand it to z42vm as
+    // Z42_APP_CONFIG. Asserting `app-config` here fails if ANY link in that chain
+    // breaks — which is exactly how the chain was dead before
+    // sidecar-reaches-published-apps (2026-09-05): the settings a project declares
+    // were silently inert in the shape users actually ship.
     string appSrc =
         "namespace AhSmoke;\n" +
         "using Std;\n" +
         "using Std.IO;\n" +
+        "using Std.Runtime;\n" +
         "void Main() {\n" +
         "    Console.WriteLine(\"APPHOST_OK\");\n" +
+        "    Console.WriteLine(\"MODE_SRC=\" + RuntimeConfig.Source(\"mode\"));\n" +
         "    Environment.Exit(0);\n" +
         "}\n";
     string appToml =
@@ -386,6 +395,15 @@ int[] _apphostSmoke(string distDir, string work) {
         if (r.Stdout.IndexOf("APPHOST_OK") >= 0) {
             Console.WriteLine("  ✓ produced apphost runs the app");
             pass = pass + 1;
+            // The project's [profile.release] must reach the published binary.
+            if (r.Stdout.IndexOf("MODE_SRC=app-config") >= 0) {
+                Console.WriteLine("  ✓ published app reads its runtimeconfig sidecar");
+                pass = pass + 1;
+            } else {
+                Console.WriteLine("  FAIL: sidecar did not reach the published app; got '"
+                    + r.Stdout.Trim() + "' (expected MODE_SRC=app-config)");
+                fail = fail + 1;
+            }
         } else {
             Console.WriteLine("  FAIL: produced apphost stdout='" + r.Stdout.Trim() + "' stderr='" + r.Stderr.Trim() + "'");
             fail = fail + 1;
