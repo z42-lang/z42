@@ -399,6 +399,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
                     Console.WriteLine("wrote -> " + symX);
                 }
             }
+            // 运行配置侧车（complete-runtime-settings P5）：每个产物一份。
+            int rcx = _writeRuntimeConfigSidecar(pm, distDir, ex.Name, isRelease);
+            if (rcx != 0) { return rcx; }
             xi = xi + 1;
         }
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
@@ -423,6 +426,12 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             File.WriteAllBytes(symPath, wres.Sidecar);
             Console.WriteLine("wrote -> " + symPath);
         }
+    }
+    // 运行配置侧车（complete-runtime-settings P5）：只对 exe 产物；无 [profile.*]
+    // 旋钮时不产文件（非破坏——从前没有侧车的工程 dist 内容逐字节不变）。
+    if (isExe) {
+        int rc1 = _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
+        if (rc1 != 0) { return rc1; }
     }
     // cache 落盘（port-incremental-build-cache 阶段 1）：单工程模式逐文件写 fullMode
     // .zbc。workspace/flat（outputDirOverride 非空）暂不落——cache 目录须由 workspace
