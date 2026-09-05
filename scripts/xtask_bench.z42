@@ -716,10 +716,10 @@ int _benchMicroDiff(ParseResult r) {
         string mkey   = _epBenchModeKey(c);
         JsonValue b = _findBenchObj(baseBs, name, metric, mkey);
         if (b == null) { newb = newb + 1; j = j + 1; continue; }
-        AbVerdict v = _microVerdict(b, c, thr);
+        AbVerdict v = new AbVerdict();
         if (k > 1) {
-            AbVerdict rv = _microResampled(curDocs, baseDocs, k, name, metric, mkey, thr);
-            if (rv.Verdict == "no-data") {
+            v = _microResampled(curDocs, baseDocs, k, name, metric, mkey, thr);
+            if (v.Verdict == "no-data") {
                 // Present in round 1 but not in every round. A benchmark that comes and
                 // goes between rounds is not evidence of a regression — keep it OUT of
                 // the gate, but say so: silently dropping gate entries is how a gate
@@ -729,7 +729,8 @@ int _benchMicroDiff(ParseResult r) {
                 j = j + 1;
                 continue;
             }
-            v = rv;
+        } else {
+            v = _microVerdict(b, c, thr);
         }
         compared = compared + 1;
         _abPrint(name, mkey, v);
