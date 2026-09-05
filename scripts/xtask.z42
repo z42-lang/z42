@@ -21,12 +21,17 @@
 // （`_runCli` + 各 `_xRouter()` / `_dispatchX`）——Main 只做 argv 取用与转发。
 // 各命令的 handler 分散在 build/ test/ package/ install/ 子目录，映射见
 // `scripts/README.md` 的源码结构表。
+//
+// 本文件只剩**入口**：`Main`（校验 VM → 转 _runCli）与 `run` 直通。任何 build /
+// test / deps 的 handler 都不在这里——它们归各自的族目录
+// （relocate-xtask-handlers, 2026-09-05：此前 _buildRuntime / _buildStdlib /
+// _regenCore / _testChanged / _depsCheck / _clean / _featureMatrix 错落在此，
+// 与「Main 只做转发」的自述矛盾）。`run` 留下是因为它是 _runCli 在 Resolve 之前
+// 就拦截的裸直通，属于入口层而非某个命令族。
 namespace Z42Xtask;
 
 using Std;
 using Std.IO;
-using Std.Cli;
-using Std.Time;   // Stopwatch — command process markers
 
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
@@ -54,156 +59,6 @@ int _run(string[] argv) {
             + e.Message + ")");
         return 127;
     }
-}
-
-// ── build ─────────────────────────────────────────────────────────────────
-
-int _buildRuntime() {
-    Stopwatch sw = _procStart("build runtime (cargo z42vm)");
-    int __rc = _exec(_cargoRelease()
-        .Arg("--manifest-path").Arg(_runtimeManifest()));
-    if (__rc == 0) { _procEnd("build runtime (cargo z42vm)", sw); }
-    return __rc;
-}
-
-// 编译器自举：用 _buildCompiler（z42c 种子自建，src/compiler）。
-
-// feature-matrix (CI P4.1): verify each Cargo feature combo compiles (host target).
-int _featureMatrix() {
-    Stopwatch sw = _procStart("feature-matrix");
-    int c = _cargoFeature("interp-only"); if (c != 0) { return c; }
-    c = _cargoFeature("wasm");            if (c != 0) { return c; }
-    c = _cargoFeature("ios");             if (c != 0) { return c; }
-    int __rc = _cargoFeature("android");
-    if (__rc == 0) { _procEnd("feature-matrix", sw); }
-    return __rc;
-}
-
-int _cargoFeature(string feat) {
-    Console.WriteLine("== cargo build --no-default-features --features " + feat + " ==");
-    return _exec(_cargoRelease()
-        .Arg("--manifest-path").Arg(_runtimeManifest())
-        .Arg("--no-default-features").Arg("--features").Arg(feat));
-}
-
-// `build stdlib` — in-process (unify-scripts-into-xtask). Folded from the former
-// standalone scripts/build-stdlib.z42 into xtask_stdlib.z42 (_buildStdlibCore):
-// z42c build --workspace (release) + verify + flat-view (no namespace index —
-// the VM + embedding hosts read each zpkg's NSPC section). `build --workspace`
-// compiles stdlib from source, so it's self-sufficient once xtask is running. The
-// COLD bootstrap (CI composite / fresh clone) downloads the previous nightly's
-// z42c seed and builds xtask FIRST (to satisfy xtask's own `using Std.*`), then
-// runs `xtask build stdlib` afterward. No dotnet (C# removed 2026-06-26).
-int _buildStdlib() {
-    return _buildStdlibCore();
-}
-
-// ── test ──────────────────────────────────────────────────────────────────
-//
-// The test command tree (vm / cross-zpkg / dist / stdlib / compiler /
-// compiler / changed / all) + the "no subcommand = full gate" default
-// live in xtask_cli.z42 (_runCli / _dispatchTest). The leaf handlers
-// (_testE2e / _testRuntime / _testLib / _testDist / _testChanged) read
-// their args from a Std.Cli ParseResult.
-
-// `test changed` — native, bash-free, in-process. Reads base-ref positional +
-// --dry-run from the ParseResult; env `Z42_TEST_CHANGED_BASE` is the fallback
-// when no positional given; default HEAD. Mapped `xtask test …` plan commands
-// re-enter the in-process router; raw `cargo …` runs via `_exec`.
-int _testChanged(ParseResult r) {
-    string base_ = r.GetPositional(0);
-    if (base_.Length == 0) {
-        base_ = Environment.GetEnvironmentVariable("Z42_TEST_CHANGED_BASE") ?? "";
-    }
-    if (base_.Length == 0) { base_ = "HEAD"; }
-    return _testChangedRun(base_, r.GetFlag("dry-run"));
-}
-
-// ── deps ──────────────────────────────────────────────────────────────────
-//
-// deps check / install / env routing lives in xtask_cli.z42 (_dispatchDeps).
-
-// `deps check [--os <p>]` — 唯一只读校验：presence + versions.toml drift（逻辑在
-// xtask_deps.z42 :: _depsCheckRun，in-process 直调）。presence 仅显式 --os 时计入
-// 退出码——CI 的 build-and-test 在无平台 SDK 的 runner 上裸跑本命令（只把 drift
-// 当门禁），语义详见 xtask_deps.z42 头注释。
-int _depsCheck(ParseResult r) {
-    Stopwatch sw = _procStart("deps check");
-    int __rc = _depsCheckRun(r.GetOption("os"));
-    if (__rc == 0) { _procEnd("deps check", sw); }
-    return __rc;
-}
-
-// ── golden-asset rebuild (shared by `build test` + the gate build-wave) ─────
-//
-// The standalone `regen` command was folded into `build test` (redesign-xtask-test):
-// `build test` (_buildTest) = ensure deps (build-if-missing) + _regenGolden. These
-// functions remain as the shared golden-asset machinery — _regenForTest (test gate
-// build-wave) and _buildTest both call them. Post-format-bump fixture regen is now
-// `xtask build stdlib && xtask build test`.
-
-int _regenCore(bool rebuildStdlib) {
-    // golden 编译走 z42c。
-    // _buildStdlib（warm 路径）顺带把 z42c per-member dist 建好，_regenGolden 据此组 driver-home。
-    if (rebuildStdlib) { int c = _buildStdlib(); if (c != 0) { return c; } }
-    int cr = _buildRuntime(); if (cr != 0) { return cr; }   // cargo build --release (launcher runtime needs z42vm)
-    // in-process (unify-scripts-into-xtask): regen logic folded into xtask_regen.z42（_regenGolden，z42c）。
-    return _regenGolden();
-}
-
-// ── clean (add-tests-bench-manifest-config Phase 3.4) ───────────────────────
-//
-// Output-dir matrix (proposal §6.4):
-//   clean         delete each <lib>/<profile>/{cache,dist} + the aggregate
-//                 libraries/dist/ — production artifacts; KEEPS tests/ + bench/.
-//   clean tests   delete each <lib>/<profile>/tests/   (built by `test stdlib`)
-//   clean bench   delete each <lib>/<profile>/bench/   (built by `bench stdlib`)
-//   clean all     delete the whole artifacts/build/    (full reset)
-int _clean(ParseResult r) {
-    string root = _root();
-    string sub  = r.GetPositional(0);   // "" | tests | bench | all
-    if (sub == "all") {
-        string bd = Path.Join(root, "artifacts/build");
-        if (Directory.Exists(bd)) { Directory.Delete(bd, true); }
-        Console.WriteLine("✅ clean all: removed artifacts/build/");
-        return 0;
-    }
-    if (sub != "" && sub != "tests" && sub != "bench") {
-        ConsoleError.WriteLine("xtask clean: unknown target '" + sub
-            + "'  (empty=production cache/dist | tests | bench | all)");
-        return 2;
-    }
-    string libsRoot = Path.Join(root, "artifacts/build/libraries");
-    if (!Directory.Exists(libsRoot)) {
-        Console.WriteLine("clean: nothing under artifacts/build/libraries/");
-        return 0;
-    }
-    int n = 0;
-    foreach (var entry in _sortedStrings(Directory.Enumerate(libsRoot))) {
-        string entryDir = Path.Join(libsRoot, entry);
-        if (entry == "dist") {
-            // The aggregate libraries/dist/<profile>/ — production only.
-            if (sub == "") { n = n + _rmIfExists(entryDir); }
-            continue;
-        }
-        foreach (var prof in _sortedStrings(Directory.Enumerate(entryDir))) {
-            string pd = Path.Join(entryDir, prof);
-            if (sub == "tests" || sub == "bench") {
-                n = n + _rmIfExists(Path.Join(pd, sub));
-            } else {
-                n = n + _rmIfExists(Path.Join(pd, "cache"));
-                n = n + _rmIfExists(Path.Join(pd, "dist"));
-            }
-        }
-    }
-    string label = (sub == "") ? "production cache/dist" : sub;
-    Console.WriteLine("✅ clean " + sub + ": removed " + n.ToString() + " dir(s) [" + label + "]");
-    return 0;
-}
-
-int _rmIfExists(string dir) {
-    if (Directory.Exists(dir)) { Directory.Delete(dir, true); return 1; }
-    return 0;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

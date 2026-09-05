@@ -75,7 +75,7 @@ managed 布局的 `Z42_HOME` 不符 SDK-toolchain 布局时自动回落 build-tr
 
 | 组件 | 位置 | 要点 |
 |------|------|------|
-| 入口 + 顶层 handler | `scripts/xtask.z42` | `Main` → `_ensureDriverVm` 校验 VM → `_runCli` |
+| 入口（**仅此**） | `scripts/xtask.z42` | `Main` → `_ensureDriverVm` 校验 VM → `_runCli`；外加 `run` 直通（`_runCli` 在 Resolve 前拦截）。**不含任何命令 handler**——它们归各自族目录（relocate-xtask-handlers, 2026-09-05） |
 | CLI 核心 | `scripts/xtask_cli.z42` | `_applyToolchainOpt`/`_applyVerbosityOpt` 剥离全局标志 → `_cliRoot` 构造根树 → `_dispatch` 按顶层命令分流 |
 | 各命令族的 router + dispatch | `scripts/cli/xtask_cli_<族>.z42` | build / package / test / deps / bench 各一文件（见下节） |
 | 共享基建 | `scripts/common/` | 路径解析、进程执行、versions.toml、golden 枚举 |

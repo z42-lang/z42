@@ -1,0 +1,63 @@
+// xtask — `clean` 命令：按 target 删 artifacts/build/ 下的产物目录。
+// 从 xtask.z42 搬来（relocate-xtask-handlers, 2026-09-05）——它删的全是 build/
+// 产物，归 build 族。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;   // ParseResult
+
+// ── clean (add-tests-bench-manifest-config Phase 3.4) ───────────────────────
+//
+// Output-dir matrix (proposal §6.4):
+//   clean         delete each <lib>/<profile>/{cache,dist} + the aggregate
+//                 libraries/dist/ — production artifacts; KEEPS tests/ + bench/.
+//   clean tests   delete each <lib>/<profile>/tests/   (built by `test stdlib`)
+//   clean bench   delete each <lib>/<profile>/bench/   (built by `bench stdlib`)
+//   clean all     delete the whole artifacts/build/    (full reset)
+int _clean(ParseResult r) {
+    string root = _root();
+    string sub  = r.GetPositional(0);   // "" | tests | bench | all
+    if (sub == "all") {
+        string bd = Path.Join(root, "artifacts/build");
+        if (Directory.Exists(bd)) { Directory.Delete(bd, true); }
+        Console.WriteLine("✅ clean all: removed artifacts/build/");
+        return 0;
+    }
+    if (sub != "" && sub != "tests" && sub != "bench") {
+        ConsoleError.WriteLine("xtask clean: unknown target '" + sub
+            + "'  (empty=production cache/dist | tests | bench | all)");
+        return 2;
+    }
+    string libsRoot = Path.Join(root, "artifacts/build/libraries");
+    if (!Directory.Exists(libsRoot)) {
+        Console.WriteLine("clean: nothing under artifacts/build/libraries/");
+        return 0;
+    }
+    int n = 0;
+    foreach (var entry in _sortedStrings(Directory.Enumerate(libsRoot))) {
+        string entryDir = Path.Join(libsRoot, entry);
+        if (entry == "dist") {
+            // The aggregate libraries/dist/<profile>/ — production only.
+            if (sub == "") { n = n + _rmIfExists(entryDir); }
+            continue;
+        }
+        foreach (var prof in _sortedStrings(Directory.Enumerate(entryDir))) {
+            string pd = Path.Join(entryDir, prof);
+            if (sub == "tests" || sub == "bench") {
+                n = n + _rmIfExists(Path.Join(pd, sub));
+            } else {
+                n = n + _rmIfExists(Path.Join(pd, "cache"));
+                n = n + _rmIfExists(Path.Join(pd, "dist"));
+            }
+        }
+    }
+    string label = (sub == "") ? "production cache/dist" : sub;
+    Console.WriteLine("✅ clean " + sub + ": removed " + n.ToString() + " dir(s) [" + label + "]");
+    return 0;
+}
+
+int _rmIfExists(string dir) {
+    if (Directory.Exists(dir)) { Directory.Delete(dir, true); return 1; }
+    return 0;
+}

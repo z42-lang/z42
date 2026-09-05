@@ -21,6 +21,7 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 using Std.Time;
+using Std.Cli;
 
 // `test changed` body — run in-process. Returns the overall exit code:
 // 0 on success, 2 when not a git repo / spawn failure, or the first failing
@@ -386,4 +387,19 @@ bool _contains(string[] arr, int count, string v) {
         i = i + 1;
     }
     return false;
+}
+
+// ── `test changed` 命令入口（relocate-xtask-handlers, 2026-09-05 从 xtask.z42 搬来） ──
+
+// `test changed` — native, bash-free, in-process. Reads base-ref positional +
+// --dry-run from the ParseResult; env `Z42_TEST_CHANGED_BASE` is the fallback
+// when no positional given; default HEAD. Mapped `xtask test …` plan commands
+// re-enter the in-process router; raw `cargo …` runs via `_exec`.
+int _testChanged(ParseResult r) {
+    string base_ = r.GetPositional(0);
+    if (base_.Length == 0) {
+        base_ = Environment.GetEnvironmentVariable("Z42_TEST_CHANGED_BASE") ?? "";
+    }
+    if (base_.Length == 0) { base_ = "HEAD"; }
+    return _testChangedRun(base_, r.GetFlag("dry-run"));
 }

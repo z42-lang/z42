@@ -285,3 +285,22 @@ ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDi
         .Stderr(Stdio.Null())
         .Spawn();
 }
+
+// ── golden 资产重建的共享入口（relocate-xtask-handlers, 2026-09-05 从 xtask.z42 搬来） ──
+
+// ── golden-asset rebuild (shared by `build test` + the gate build-wave) ─────
+//
+// The standalone `regen` command was folded into `build test` (redesign-xtask-test):
+// `build test` (_buildTest) = ensure deps (build-if-missing) + _regenGolden. These
+// functions remain as the shared golden-asset machinery — _regenForTest (test gate
+// build-wave) and _buildTest both call them. Post-format-bump fixture regen is now
+// `xtask build stdlib && xtask build test`.
+
+int _regenCore(bool rebuildStdlib) {
+    // golden 编译走 z42c。
+    // _buildStdlib（warm 路径）顺带把 z42c per-member dist 建好，_regenGolden 据此组 driver-home。
+    if (rebuildStdlib) { int c = _buildStdlib(); if (c != 0) { return c; } }
+    int cr = _buildRuntime(); if (cr != 0) { return cr; }   // cargo build --release (launcher runtime needs z42vm)
+    // in-process (unify-scripts-into-xtask): regen logic folded into xtask_regen.z42（_regenGolden，z42c）。
+    return _regenGolden();
+}

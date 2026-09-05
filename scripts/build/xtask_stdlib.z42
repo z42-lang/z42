@@ -309,3 +309,17 @@ void _stageCopyExt(string srcDir, string dstDir, string pattern) {
         i = i + 1;
     }
 }
+
+// ── `build stdlib` 命令入口（relocate-xtask-handlers, 2026-09-05 从 xtask.z42 搬来） ──
+
+// `build stdlib` — in-process (unify-scripts-into-xtask). Folded from the former
+// standalone scripts/build-stdlib.z42 into xtask_stdlib.z42 (_buildStdlibCore):
+// z42c build --workspace (release) + verify + flat-view (no namespace index —
+// the VM + embedding hosts read each zpkg's NSPC section). `build --workspace`
+// compiles stdlib from source, so it's self-sufficient once xtask is running. The
+// COLD bootstrap (CI composite / fresh clone) downloads the previous nightly's
+// z42c seed and builds xtask FIRST (to satisfy xtask's own `using Std.*`), then
+// runs `xtask build stdlib` afterward. No dotnet (C# removed 2026-06-26).
+int _buildStdlib() {
+    return _buildStdlibCore();
+}
