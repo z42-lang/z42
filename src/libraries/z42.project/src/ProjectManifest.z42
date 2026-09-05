@@ -1,5 +1,7 @@
 namespace Z42.Build.Project;
 
+using Std.Toml;
+
 /// `z42.toml` 的完整类型化模型（单项目）。z42c 与 z42.build 共同依赖的唯一真相。
 ///
 /// 受限自举子集写法：sealed class + 构造函数、bool HasX 替 nullable、array+count 替泛型。
@@ -48,6 +50,12 @@ public sealed class ProjectManifest {
     // 的 _pubBundleProjectNativeDeps）沿 path-dep 闭包读本段，跑 dep 的 ProvideNative、按目标 rid 平铺
     // 进 payload。z42.project 只搬名字、不产/不解析文件。可变公字段（默认空，ManifestLoader 构造后填）。
     public NativeSpec[] Natives; public int NativeCount;
+    // ── [properties] 应用自定义配置属性（add-app-properties）─────────────────
+    // **不是运行时旋钮**：z42.project 与 VM 都不理解它的含义，只搬运。基表对所有 profile
+    // 共用，`[profile.<n>.properties]` 逐 key 浅覆盖它；build 把合并结果烤进侧车的
+    // `[properties]` 段，运行时经 `Std.Runtime.AppProperties` 只读。原样保留 TomlValue
+    // 以支持完整 TOML 类型（数组 / 嵌套表）。可变公字段（默认空表，ManifestLoader 填）。
+    public TomlValue Properties;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -73,5 +81,6 @@ public sealed class ProjectManifest {
         this.LintNames = new string[0]; this.LintSeverities = new string[0]; this.LintCount = 0;
         this.LintWarningsAsErrors = false;
         this.Natives = new NativeSpec[0]; this.NativeCount = 0;
+        this.Properties = TomlValue.OfTable();
     }
 }

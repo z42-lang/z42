@@ -1,0 +1,13 @@
+using Std.Runtime;
+
+// add-app-properties：没有 app 侧车时，属性面的每个方法都给出"空"的合理答案，
+// 不抛异常、不报错——「没有属性」是绝大多数工程的常态。
+// 有侧车时的完整链路（基表 / profile 覆盖 / 数组 / 嵌套表）由 Rust 侧单测 +
+// 手工 e2e 覆盖：那需要一个带 [properties] 的工程 + build，超出裸 .z42 用例的形态。
+void Main() {
+    Assert.Null(AppProperties.Get("anything"));
+    Assert.False(AppProperties.Has("anything"));
+    Assert.Equal(0, AppProperties.Names().Length);
+    Assert.Null(AppProperties.Raw());
+    Assert.Equal("fallback", AppProperties.GetOrDefault("anything", "fallback"));
+}
