@@ -2,11 +2,11 @@
 //
 // 判定规则的唯一真相源是**运行期** `src/runtime/src/corelib/reflection/generics.rs::
 // validate_type_arg_constraint`（七项俱全）——编译期照抄，不另立规则。当前落地：
-//   base-class（where T : C）/ class / struct / 型参引用（where U : T）/ **interface**
-//   + class·struct 互斥。
-// 延后（complete-where-constraints 后续阶段）：
-//   · enum 约束（PR-2）        · new() 约束（PR-2）
-//   · func-type 约束（E0422/E0423 已定义但从未发出；Deferred where-constraint-future-func-constraint）
+//   base-class（where T : C）/ class / struct / 型参引用（where U : T）/ interface（含继承闭包）
+//   / enum / new()  + class·struct 互斥。
+// 延后：func-type 约束（E0422/E0423 已定义但从未发出；
+//   Deferred where-constraint-future-func-constraint——注意 CallEmitter 靠该约束把参数当
+//   func 值走 CallIndirect，改动需谨慎）。
 //
 // > 注：原注释称「z42c 缺 Z42InterfaceType / 缺 ctor 收集」——**均已过时**。
 // > `Z42InterfaceType` 是独立类型、`SymbolTable.Implements` 早被 Conversion/DeclBinder 消费；
@@ -23,6 +23,8 @@ public sealed class ConstraintBundle {
     public bool   RequiresStruct;  // where T : struct
     public bool   HasTypeParamRef; // where U : T
     public string TypeParamRef;    // 引用的型参名（"T"）
+    public bool   RequiresEnum;    // where T : enum
+    public bool   RequiresCtor;    // where T : new()
     // where T : IFoo —— **裸名**（去 `<...>`，见 design D1）。一个型参可有多条接口约束
     // （`where T : IFoo + IBar`），故用 typed array + count（类字段不能带泛型）。
     public string[] InterfaceNames;
@@ -33,6 +35,7 @@ public sealed class ConstraintBundle {
         this.RequiresClass = false; this.RequiresStruct = false;
         this.HasTypeParamRef = false; this.TypeParamRef = "";
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
+        this.RequiresEnum = false; this.RequiresCtor = false;
     }
 
     public void AddInterface(string name) {
@@ -50,7 +53,8 @@ public sealed class ConstraintBundle {
 
     public bool IsEmpty() {
         return !this.HasBaseClass && !this.RequiresClass && !this.RequiresStruct
-            && !this.HasTypeParamRef && this.InterfaceCount == 0;
+            && !this.HasTypeParamRef && this.InterfaceCount == 0
+            && !this.RequiresEnum && !this.RequiresCtor;
     }
 }
 

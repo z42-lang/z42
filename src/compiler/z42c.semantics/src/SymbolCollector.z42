@@ -294,20 +294,6 @@ public sealed class SymbolCollector {
     }
 
     // mods 空格分隔；逐 token 比较（不依赖 String.Contains，避免子串误命中）。
-    internal bool _hasWord(string s, string word) {
-        int n = s.Length;
-        int start = 0;
-        int i = 0;
-        while (i <= n) {
-            if (i == n || s.CharAt(i) == ' ') {
-                if (i > start) {
-                    string tok = s.Substring(start, i - start);
-                    if (tok == word) { return true; }
-                }
-                start = i + 1;
-            }
-            i = i + 1;
-        }
-        return false;
-    }
+    // 转发到规范实现（IrGenFacts._hasWord）——原本是本文件自己的逐字符 CharAt + Substring 版。
+    internal bool _hasWord(string s, string word) { return IrGenFacts._hasWord(s, word); }
 }

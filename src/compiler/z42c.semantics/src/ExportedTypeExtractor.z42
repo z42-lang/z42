@@ -228,16 +228,9 @@ public static class ExportedTypeExtractor {
         return required;
     }
 
-    internal static bool _hasWord(string mods, string word) {
-        if (mods == "") { return false; }
-        string[] parts = mods.Split(" ");
-        int i = 0;
-        while (i < parts.Length) {
-            if (parts[i] == word) { return true; }
-            i = i + 1;
-        }
-        return false;
-    }
+    // 转发到规范实现（IrGenFacts._hasWord）——原本是 `Split(" ")` 版：为一次成员判定分配
+    // 一个 string[] 加每个 token 一个子串。
+    internal static bool _hasWord(string mods, string word) { return IrGenFacts._hasWord(mods, word); }
 
     // ExportedMethodZ 构造快捷方式（public + virtual + abstract，flags=6，minArg=参数数）。
     // ClassExtractor（接口方法）与 BuiltinTypeDefs（内建接口面）共用 → 留 hub。
