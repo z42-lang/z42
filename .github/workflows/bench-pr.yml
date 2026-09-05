@@ -44,6 +44,17 @@ name: Bench PR Regression
 # 影响 z42vm 产物的文件类型，门禁会**静默跳过**本该跑的比较（假阴性，门禁变瞎）；
 # 排除法最坏只是多跑一次（假阳性，费时间不费正确性）。这条门禁整治的全部意义就是
 # 别让判定失真，故取只可能错向「多跑」的那一边。
+#
+# lighten-criterion-ab (2026-09-05)：慢路径 1227s 的大头 criterion A/B 531s，先分解再削
+# （逐行日志时间戳，两次 run 吻合 ±3s）：base 编译 115s + base 测量 148s + pr 编译 116s +
+# pr 测量 151s ⇒ 编译 233s(44%) / 测量 297s(56%)，测量里 concurrent_* 占 75s(14%) 却从不判红。
+# 三刀（只动成本、不动判红语义）：① [profile.bench] 改 thin-LTO/cgu=16 —— 它原先继承
+# [profile.release] 的 fat LTO + cgu=1，单侧链接 73s；实测重链 68s→20s，且只影响 bench 二进制，
+# 出货 z42vm 仍 fat LTO。② 本 job 用自己的 cache key（原先与 CI 共用 host-v2 ⇒ 每次 exact hit、
+# 从不回存，bench profile 的依赖产物和 base-src 的 target 从来没进过缓存）。③ concurrent_*
+# 用 Z42_BENCH_SKIP_INFORMATIONAL 排除在测量之外。没做：砍 sample_size（区间变宽=判红变钝）、
+# 再收窄 criterion 守卫（gc_cycle_bench 链接整个 crate，收窄=假阴性）。见 book 判红语义页
+# 「criterion 成本分解与省时三刀」。
 
 on:
   pull_request:
@@ -96,11 +107,20 @@ jobs:
           wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine_1.20.0_amd64.deb
           sudo dpkg -i hyperfine_1.20.0_amd64.deb
 
+      # lighten-criterion-ab (2026-09-05)：这个 job 需要**自己的** cache key。
+      # 原先和 CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步骤
+      # 恒为 "Cache up-to-date"、**一次都没回存过**。后果：`cargo bench` 用的那份依赖
+      # 产物（dev-deps 参与 feature 统一 ⇒ 与 `cargo build --bin z42vm` 的哈希不同）
+      # 每次从零编 112 个 crate（实测 base/pr 各 43s），base-src 的依赖同理（另 34s）。
+      # 换成独立 key 后本 job 自己维护缓存：首次（含每次 Cargo.lock 变动）会冷编一轮，
+      # 此后每次省下这 ~120s。base-src 也纳入 workspaces —— 它的 target 目录同样从零。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          workspaces: |
+            src/runtime -> ../../artifacts/build/runtime
+            base-src/src/runtime -> ../../artifacts/build/runtime
+          shared-key: bench-ab-v1
 
       # Seed from the prev nightly + build current source warm (xtask bench
       # rebuilds stdlib via the warm self-build). Same path as CI build-and-test.
@@ -295,6 +315,11 @@ jobs:
             echo "→ src/runtime unchanged base..pr → skip criterion A/B (VM byte-identical)"
             exit 0
           fi
+          # lighten-criterion-ab: `concurrent_*` 三条本就是 informational（下面的判红
+          # 脚本对它们只打印不 fail），却占掉本步骤 75s / 531s = 14%。用 bench 源码里的
+          # 排除开关把它们排除在**测量**之外（见 gc_cycle_bench.rs `skip_informational`：
+          # 排除法而非白名单，跳过时打印不静默）。
+          export Z42_BENCH_SKIP_INFORMATIONAL=1
           export CRITERION_HOME="$PWD/.criterion-ab"
           rm -rf "$CRITERION_HOME"; mkdir -p "$CRITERION_HOME"
           echo "── base: save criterion baseline 'ab-base' (base tree) ──"

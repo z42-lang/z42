@@ -111,7 +111,14 @@ Rust VM 内部热路径（`src/runtime/benches/gc_cycle_bench.rs`：cycle_heavy 
 **`concurrent_*`（多线程）基准仅信息性、不判红**：criterion 的 `--baseline` 比的是**两次独立跑**（base 先存、
 pr 再比），线程 GC 基准在共享 runner 上的**跑间线程调度噪声**很大（实测：一个 perf-中立的纯注释 PR，
 concurrent 基准摆动 +6~33%，单线程基准却居 0 附近）。criterion 紧的**跑内** CI 抓不到这种跑间漂移，硬判会
-假红。故 concurrent 基准打印但不 fail job；单线程 GC 基准照常硬门禁。
+假红。故 concurrent 基准不 fail job；单线程 GC 基准照常硬门禁。
+
+**且 CI 里连测都不测**（lighten-criterion-ab，2026-09-05）：既然从不判红，每个碰 VM 的 PR 为它们花的
+75s（criterion 步骤的 14%）就是纯开销。workflow 设 `Z42_BENCH_SKIP_INFORMATIONAL=1`，
+`gc_cycle_bench.rs` 的 `skip_informational()` 据此跳过并**打印一行**（不静默）；本地 `cargo bench`
+不设这个变量，照常全跑。**这是排除法不是白名单**：新加的 bench 默认进门禁，只有在源码里显式标成
+informational 的才可能被跳过——同「[改动面守卫](#改动面守卫为什么是排除文档而不是列白名单)」的取向，
+最坏错向「多跑一条」，不会错向「静默少跑」。
 
 **仅当 PR 触碰 `src/runtime` 的非文档文件时跑**（`git diff --quiet base..HEAD -- src/runtime
 ':(exclude,glob)src/runtime/**/*.md'` 为真则跳过——VM 字节相同、结果必不动）。**`*.md` 的排除是必要的**：
@@ -311,10 +318,59 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 
 样本：未碰 VM = run 33937108536；碰 VM = run 33941190557 / 33938670206。
 
-两条路径分化很大，**结论要分开说**：未碰 VM 的 PR 已达标（−57%，7.4 min）；碰 VM 的 PR 仍是
-20.5 min，大头换成了 criterion A/B（531s，占 43%）——那是**下一块**值得攻的成本，但削它之前
-必须先有「哪个 bench 花在编译、哪个花在跑、informational 的 `concurrent_*` 占多少」的分解数据，
-不能凭印象砍（砍错方向 = 门禁变瞎，正是本轮整治要根除的）。
+两条路径分化很大，**结论要分开说**：未碰 VM 的 PR 已达标（−57%，7.4 min；#447 自身的 run 33946467207
+= 457s、criterion 0s）；碰 VM 的 PR 仍是 20.5 min，大头换成了 criterion A/B（531s，占 43%）——
+分解与削法见下一节。
+
+### criterion 成本分解与「省时三刀」（lighten-criterion-ab，2026-09-05）
+
+削它之前先分解（两次慢路径 run 的逐行日志时间戳，33941190557 / 33938670206，两次吻合到 ±3s）：
+
+| 段 | 耗时 | 内容 |
+|----|------|------|
+| base `cargo bench` | 115s | 43s 编 112 个依赖 crate + **73s z42 crate codegen + fat-LTO 链接** |
+| base 测量 | 148s | 13 条 bench × ~11.4s（criterion 默认 warm-up 3s + measurement 5s + 分析） |
+| pr `cargo bench` | 116s | 同上 |
+| pr 测量 | 151s | 同上 |
+| 判红脚本 | ~0s | 读 `change/estimates.json` |
+
+⇒ **编译 233s（44%）／测量 297s（56%）**；测量里 `concurrent_*` 三条占 **75s（14%）而从不判红**。
+
+依赖为什么每次从零编 112 个 crate：`cargo bench` 让 dev-dependencies 参与 feature 统一，产物哈希
+与 `cargo build --bin z42vm` 不同，**不能复用 bootstrap 那一步的 release 产物**；而这个 job 原先和
+CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步骤恒为 "Cache up-to-date"、
+**一次都没回存过**，所以这份产物从来没进过缓存。base-src 的 target 目录同理（「建 base 工具链」
+那 190s 里，cargo 建 base z42vm 占 117s，其中 34s 是依赖）。
+
+三刀（都只动成本、不动判红语义）：
+
+1. **`[profile.bench] lto = "thin", codegen-units = 16`**（`src/runtime/Cargo.toml`）。它默认继承
+   `[profile.release]` 的 `lto = true, codegen-units = 1`，于是每次 `cargo bench` 都要 fat-LTO 链接
+   整个 crate。本机同棵树实测（改一行 `lib.rs` 后重链）：
+
+   | `[profile.bench]` | 重链耗时 |
+   |---|---|
+   | `lto=true, cgu=1`（原） | 68s |
+   | `lto=true, cgu=16` | 60s ← fat LTO 的串行链接是大头，cgu 救不动 |
+   | `lto="thin", cgu=16` | **20s** |
+   | `lto=false, cgu=16` | 10s |
+
+   取 thin（保留跨 crate 内联，不像 `lto=false` 那样彻底放弃）。**只作用于 bench 二进制，出货的
+   z42vm 仍是 fat LTO。** 对判红的影响：A/B 两侧同 profile，比值对称有效；实测同源码下 thin 与 fat
+   的绝对值差 1.8~4.9%（三条 GC bench），与跑间漂移同量级。
+2. **bench job 用自己的缓存 key**（`shared-key: bench-ab-v1`），并把 `base-src/src/runtime` 一并纳入
+   `workspaces`。此后本 job 自己维护缓存：首次（及每次 `Cargo.lock` 变动）冷编一轮，之后省下上面
+   那两份依赖编译。
+3. **`concurrent_*` 退出 CI 测量**（见上「criterion(Rust) 同-runner A/B」节）。
+
+**没做、且不要凭印象去做的两条**：
+
+- **砍 `sample_size` / `measurement_time`**：省的是测量时间，代价是区间变宽 ⇒ 判红更钝。方向与
+  「[可疑即复测](#已知局限与后续)」相反——真正的问题是 criterion 的**跑内**区间抓不到跑间漂移，
+  而不是样本不够。
+- **把 criterion 的触发守卫再收窄**（例如「只有改了 GC 相关文件才跑」）：`gc_cycle_bench` 链接整个
+  crate，任何 VM 改动都可能挪动它；收窄 = 假阴性，正是[改动面守卫](#改动面守卫为什么是排除文档而不是列白名单)
+  那一节拒绝的错向。
 
 ### 改动面守卫：为什么是排除文档而不是列白名单
 
@@ -369,6 +425,13 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
   不是 ×3）。落地后阈值可从 0.25 收回 0.15、micro 可重新判红。
 - **micro tier 只打印不判红**（simplify-bench-gate 降级）；criterion 仍硬门禁（它自带 outlier 检测 +
   bootstrap CI，且只在 `src/runtime` 非文档改动时跑）。
+- ⚠️ **criterion 硬门禁的历史命中率待观察**：2026-09-01~09-04 的 34 次 bench-pr 失败逐条归类——
+  micro 层 12 次、基础设施故障（建 base 工具链 / 采 base micro 基线）19 次、e2e 2 次、
+  **criterion 1 次**；那唯一一次（#423，`gc_cycle/large_array_10k +13.2%`、CI 下界 +4.5%）作者五分钟后
+  照常合并，即按假红处理（一个「ObjNew 处缓存无构造函数」的改动让 GC 扫 10k 数组慢 13% 不可信，属
+  「[布局彩票](#启动类微小回归先排除布局彩票cache-failed-name-resolution2026-09-04)」那一类）。
+  它的缺陷与 micro 同源（跑内区间抓不到跑间漂移），只是 `--save-baseline` 的 outlier 检测遮掩得更好。
+  「可疑即复测」落地时应一并复核它是否该继续硬判。
 - **`full` 层场景当前只在本地跑**：`bench-update.yml` 删除后，非 gate 层的 5 个场景没有 CI 落点。
   这是本次的**已知取舍**——需要时用 `xtask bench`（默认 `--tier all`）本地全跑；若要恢复定期全量，
   应落在独立的数据仓 / 定时 workflow，而不是回到「每次 push main 烧一个 job」。
