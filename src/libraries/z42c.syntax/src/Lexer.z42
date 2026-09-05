@@ -63,6 +63,8 @@ public sealed class Lexer {
     public DiagnosticBag Diagnostics() { return this._diags; }
     public int   TokenCount()    { return this._tokCount; }
     public Token TokenAt(int i)  { return this._toks[i]; }
+    // Tokenize() 之后 _toks 不再重分配（_growToks 只在词法期跑）——parser 缓存它，把每次 peek 的两次 z42 调用省成一次数组索引；容量 >= TokenCount()，按后者定界。
+    public Token[] Tokens()      { return this._toks; }
 
     // 关键字表只读访问器（供 DumpTool.DumpKeywords / 单测；表本体 private，注册序）。
     public int    KeywordCount()       { return this._kwCount; }
@@ -436,9 +438,7 @@ public sealed class Lexer {
 
     private void _adv2() { this._advance(); this._advance(); }
 
-    private Span _curSpan(int start) {
-        return new Span(start, this._pos, this._sLine, this._sCol, this._file);
-    }
+    private Span _curSpan(int start) { return new Span(start, this._pos, this._sLine, this._sCol, this._file); }
 
     // ── 输出 ────────────────────────────────────────────────────────────────
     private void _emit(int kind, string text) {

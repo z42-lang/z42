@@ -16,6 +16,8 @@ using Z42.Core;
 
 public sealed class Parser {
     private Lexer _lx;
+    private Token[] _toks;                 // = _lx.Tokens()，词法结束后固定不变（见 Lexer.Tokens 注释）
+    private int   _tokN;                   // = _lx.TokenCount()，peek 的 Eof clamp 上界
     private int   _pos;
     public DiagnosticBag _diags;
     private bool  _lexMerged;              // lexer 诊断是否已并入 _diags（merge-once 守卫）
@@ -36,6 +38,8 @@ public sealed class Parser {
     public Parser(string src, string file) {
         this._lx = new Lexer(src, file);
         this._lx.Tokenize();
+        this._toks = this._lx.Tokens();
+        this._tokN = this._lx.TokenCount();
         this._pos = 0;
         this._pendingGt = 0;
         this._diags = new DiagnosticBag();
@@ -151,12 +155,13 @@ public sealed class Parser {
     }
 
     // ── token 游标 ──────────────────────────────────────────────────────────
-    public Token _peek()       { return this._peekAt(0); }
+    // 热路径（profile：_peekAt self 4.22% + _peek 1.14%）——原来每次 peek 都要
+    // `_lx.TokenCount()` + `_lx.TokenAt(i)` 两次 z42 方法调用（各一个帧），现在直接走缓存数组。
+    public Token _peek()       { int i = this._pos; if (i >= this._tokN) { i = this._tokN - 1; } return this._toks[i]; }
     public Token _peekAt(int o) {
         int i = this._pos + o;
-        int n = this._lx.TokenCount();
-        if (i >= n) { i = n - 1; }   // clamp 到 Eof
-        return this._lx.TokenAt(i);
+        if (i >= this._tokN) { i = this._tokN - 1; }   // clamp 到 Eof
+        return this._toks[i];
     }
     public void _advance() { this._pos = this._pos + 1; }
 
