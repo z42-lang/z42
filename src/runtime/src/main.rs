@@ -52,6 +52,13 @@ struct Cli {
     #[arg(long)]
     info: bool,
 
+    /// Treat config problems from env / config files as fatal instead of
+    /// warning + falling back to the default. Equivalent to
+    /// `Z42_STRICT_CONFIG=1`. CLI (`--set`) problems are always fatal.
+    /// complete-runtime-settings P1 (2026-09-05) — the CI config-drift gate.
+    #[arg(long)]
+    strict_config: bool,
+
     /// Print runtime counter snapshot (builtin_calls / native_calls /
     /// jit_methods_compiled / exceptions_thrown / etc.) to stderr after
     /// the script exits cleanly. docs/review.md Part 4 D6 (2026-05-26).
@@ -461,12 +468,40 @@ fn main() -> Result<()> {
     // config as the global BEFORE tracing / subsystems read it, so the
     // [runtime] layer is visible everywhere. Z42_CONFIG unset → resolve(env,
     // None) == the previous env-only from_env() (non-breaking).
-    let runtime_table = z42::config::load_runtime_toml(|n| std::env::var(n).ok())
+    let getenv = |n: &str| std::env::var(n).ok();
+    let runtime_table = z42::config::load_runtime_toml(&getenv)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let cfg = z42::config::RuntimeConfig::resolve(
-        |n| std::env::var(n).ok(),
-        runtime_table.as_ref(),
-    );
+    let build_ctx = z42::config::BuildCtx::current();
+    let inputs = z42::config::Inputs {
+        user_config: runtime_table.as_ref(),
+        ..Default::default()
+    };
+    let (cfg, mut resolution) =
+        z42::config::RuntimeConfig::resolve_with(&getenv, &inputs, &build_ctx);
+
+    // Unknown keys are only reported for layers whose namespace z42vm owns — the
+    // `[runtime]` table here, and `--set` keys (P2). Environment variables are NOT
+    // scanned: the `Z42_` prefix is shared with the launcher, the test harness and
+    // embedders, so "unknown knob Z42_HOME" would fire on every single run.
+    if let Some(table) = runtime_table.as_ref() {
+        for key in z42::config::unknown_table_keys(table) {
+            resolution
+                .diagnostics
+                .push(z42::config::unknown_key_diagnostic(z42::config::Layer::UserConfig, &key));
+        }
+    }
+
+    // Severity split (complete-runtime-settings design.md Decision 3): CLI problems
+    // are always fatal; env / config-file problems warn and fall back, unless strict
+    // mode is on. Exit code 2 distinguishes "your configuration is wrong" from a
+    // normal runtime failure (1).
+    let strict = cli.strict_config
+        || getenv("Z42_STRICT_CONFIG").and_then(|s| z42::config::parse_bool(&s)).unwrap_or(false);
+    if let Err(msg) = resolution.into_result(strict) {
+        eprintln!("{msg}");
+        std::process::exit(2);
+    }
+
     if z42::config::init_runtime_config(cfg.clone()).is_err() {
         eprintln!("z42: runtime config already initialised before main(); [runtime] layer may be ignored");
     }

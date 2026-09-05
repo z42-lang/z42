@@ -42,9 +42,11 @@ mod availability;
 mod knob_table;
 mod knobs;
 mod parse;
+mod resolve;
 pub use availability::*;
 pub use knob_table::{knob_by_env_name, knob_by_key, KNOWN_KNOBS};
 pub use knobs::*;
+pub use resolve::*;
 pub(crate) use parse::*;
 
 /// Resolved values of **every `Z42_*` runtime knob the runtime consumes**.
@@ -111,8 +113,15 @@ pub struct RuntimeConfig {
     /// `Z42_NATIVE_PATH` — pre-split search paths for native modules.
     /// Empty list = no override (consumer applies SDK-relative fallback).
     pub native_search_paths: Vec<PathBuf>,
-    /// `Z42_JIT_PROFILE` — enable JIT compilation profiling. Any non-empty
-    /// value turns it on; `false` = off. Read by `jit/lazy.rs`.
+    /// `Z42_JIT_PROFILE` — enable JIT compilation profiling. A proper boolean
+    /// (`true/false`, `1/0`, `yes/no`, `on/off`); anything else is rejected with
+    /// a diagnostic and falls back to off. Read by `jit/lazy.rs`.
+    ///
+    /// complete-runtime-settings P1 fixed a doc/impl divergence here: the field
+    /// doc always promised `false` = off, but the implementation was
+    /// `.is_some()` on a non-empty string — so `Z42_JIT_PROFILE=false` turned
+    /// profiling **on**. Now that the knob declares `ValueKind::Bool`, the value
+    /// is actually parsed.
     pub jit_profile: bool,
     /// `Z42_MODE` — default execution mode (`interp` / `jit` / `aot`), raw
     /// (unvalidated) string. `None` = unset. Sits below `--mode` CLI and above
@@ -131,6 +140,12 @@ pub struct RuntimeConfig {
     /// = no trace (folded still produced). `Some` → additionally record a
     /// per-sample `(ts, stack)` timeline and serialize it on exit.
     pub trace_out: Option<PathBuf>,
+
+    // ── complete-runtime-settings P1: provenance ─────────────────────────
+    /// 每个旋钮的生效值 + 来源层 + 被丢弃的值。由 [`RuntimeConfig::resolve_with`]
+    /// 一次产出，`--info` / `--show-config` / `__cfg_*` builtin 纯读——优先级链
+    /// 只有一份实现。用 `Default::default()` 直接构造时为空。
+    pub resolved: Vec<ResolvedKnob>,
 }
 
 impl Default for RuntimeConfig {
@@ -154,6 +169,7 @@ impl Default for RuntimeConfig {
             sample_hz: None,
             sample_out: PathBuf::from("z42-samples.folded"),
             trace_out: None,
+            resolved: Vec::new(),
         }
     }
 }
@@ -177,67 +193,75 @@ impl RuntimeConfig {
         Self::resolve(get, None)
     }
 
-    /// Layered resolution — the single precedence chain for `Z42_*` knobs:
-    /// **explicit env value (`get`) > `[runtime]` TOML value > built-in
-    /// default**. Each knob is matched to its TOML key via [`KNOWN_KNOBS`]
-    /// (`toml_key`). `resolve(get, None)` is exactly the env-only form and is
-    /// byte-for-byte the pre-existing [`from_getter`] behaviour — the
-    /// non-breaking guarantee: with no config-file layer, nothing changes.
+    /// Layered resolution — the precedence chain for every `Z42_*` knob:
+    /// **CLI > env > user config file > app config sidecar > built-in default**.
     ///
-    /// CLI flags (e.g. `--mode`) sit *above* this chain and are applied by
-    /// `main.rs`, not here. Project `[profile.*]` sits *below* env and above
-    /// defaults; wiring that in is a later phase and does not touch this fn.
+    /// This two-argument form is the compatibility shape: env + one config table
+    /// (the user layer), no CLI, no app sidecar. `resolve(get, None)` is exactly
+    /// the env-only form and is byte-for-byte the old [`from_getter`] behaviour
+    /// — the non-breaking guarantee.
+    ///
+    /// [`from_getter`]: RuntimeConfig::from_getter
     pub fn resolve<F>(get: F, runtime_table: Option<&toml::Table>) -> Self
     where
         F: Fn(&str) -> Option<String>,
     {
-        // A getter that layers the `[runtime]` table under the real env:
-        // a non-empty env value wins; otherwise the knob's `toml_key` is
-        // looked up in the table; otherwise `None` → each parser's default.
-        let layered = |name: &str| -> Option<String> {
-            if let Some(v) = get(name) {
-                if !v.trim().is_empty() {
-                    return Some(v);
-                }
-            }
-            let table = runtime_table?;
-            let key = toml_key_for(name)?;
-            if key.is_empty() {
-                return None; // meta pointer (e.g. Z42_CONFIG) — never a table value
-            }
-            table.get(key).and_then(toml_scalar_to_string)
-        };
+        let inputs = Inputs { user_config: runtime_table, ..Default::default() };
+        Self::resolve_with(&get, &inputs, &BuildCtx::current()).0
+    }
 
+    /// Full resolution: all four input layers + provenance.
+    ///
+    /// Returns the typed config **and** the [`Resolution`] that produced it —
+    /// the caller decides what to do with `resolution.diagnostics` (see
+    /// [`Resolution::into_result`] for the CLI-fatal / else-warn split).
+    pub fn resolve_with<F>(get: &F, inputs: &Inputs, ctx: &BuildCtx) -> (Self, Resolution)
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let resolution = resolve_knobs(get, inputs, ctx);
+        let cfg = Self::from_resolution(&resolution);
+        (cfg, resolution)
+    }
+
+    /// Project the resolved raw strings onto the typed fields.
+    ///
+    /// Each `parse_*` keeps owning its own **range** policy (clamp vs fall back)
+    /// — `resolve_knobs` only rejected values that could not be parsed as the
+    /// declared type at all, so this stays behaviourally identical to the
+    /// pre-P1 code for every value the parsers used to see.
+    fn from_resolution(res: &Resolution) -> Self {
+        let get = |name: &str| res.get(name).and_then(|k| k.raw.clone());
         Self {
             // ── Phase 1 startup knobs ─────────────────────────────────────
-            libs_dir:    layered("Z42_LIBS")    .filter(|s| !s.trim().is_empty()).map(PathBuf::from),
-            module_path: layered("Z42_PATH")    .filter(|s| !s.trim().is_empty()).map(|s| split_paths(&s)).unwrap_or_default(),
-            log_filter:  layered("Z42_LOG")     .filter(|s| !s.trim().is_empty()),
-            crash_dir:   layered("Z42_CRASH_DIR").filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+            libs_dir:    get("Z42_LIBS").map(PathBuf::from),
+            module_path: get("Z42_PATH").map(|s| split_paths(&s)).unwrap_or_default(),
+            log_filter:  get("Z42_LOG"),
+            crash_dir:   get("Z42_CRASH_DIR").map(PathBuf::from),
 
             // ── Phase 2 subsystem knobs ──────────────────────────────────
-            // Each parser absorbs its own validation: missing / empty
-            // / invalid → default with an `eprintln!` warning so misconfigured
-            // production runs surface the problem in one stderr line at
-            // process start rather than silent-degrading per-subsystem.
-            gc_mode:             parse_gc_mode(&layered),
-            gc_minor_threshold:  parse_gc_minor_threshold(&layered),
-            gc_pause_window:     parse_gc_pause_window(&layered),
-            gc_soft_threshold:   parse_gc_soft_threshold(&layered),
-            gc_near_limit_ratio: parse_gc_ratio(&layered, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
-            gc_pressure_ratio:   parse_gc_ratio(&layered, "Z42_GC_PRESSURE_RATIO",   0.75),
-            gc_throttle_ratio:   parse_gc_ratio(&layered, "Z42_GC_THROTTLE_RATIO",   0.10),
-            safepoint_throttle:  parse_safepoint_throttle(&layered),
-            native_search_paths: parse_native_search_paths(&layered),
-            jit_profile:         layered("Z42_JIT_PROFILE").filter(|s| !s.trim().is_empty()).is_some(),
-            mode:                layered("Z42_MODE").filter(|s| !s.trim().is_empty()),
-            sample_hz:           parse_sample_hz(&layered),
-            sample_out:          layered("Z42_SAMPLE_OUT").filter(|s| !s.trim().is_empty())
-                                    .map(PathBuf::from).unwrap_or_else(|| PathBuf::from("z42-samples.folded")),
-            trace_out:           layered("Z42_TRACE_OUT").filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+            gc_mode:             parse_gc_mode(&get),
+            gc_minor_threshold:  parse_gc_minor_threshold(&get),
+            gc_pause_window:     parse_gc_pause_window(&get),
+            gc_soft_threshold:   parse_gc_soft_threshold(&get),
+            gc_near_limit_ratio: parse_gc_ratio(&get, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
+            gc_pressure_ratio:   parse_gc_ratio(&get, "Z42_GC_PRESSURE_RATIO",   0.75),
+            gc_throttle_ratio:   parse_gc_ratio(&get, "Z42_GC_THROTTLE_RATIO",   0.10),
+            safepoint_throttle:  parse_safepoint_throttle(&get),
+            native_search_paths: parse_native_search_paths(&get),
+            // Real boolean parse — see the field doc for the divergence this fixed.
+            jit_profile:         get("Z42_JIT_PROFILE").and_then(|s| parse_bool(&s)).unwrap_or(false),
+            mode:                get("Z42_MODE"),
+            sample_hz:           parse_sample_hz(&get),
+            sample_out:          get("Z42_SAMPLE_OUT").map(PathBuf::from)
+                                    .unwrap_or_else(|| PathBuf::from("z42-samples.folded")),
+            trace_out:           get("Z42_TRACE_OUT").map(PathBuf::from),
+
+            resolved: res.knobs.clone(),
         }
     }
 }
+
 /// Read the `[runtime]` table from the TOML file named by `Z42_CONFIG`, if any.
 ///
 /// - `Z42_CONFIG` unset / empty → `Ok(None)` (no config-file layer; env + defaults).

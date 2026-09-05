@@ -114,6 +114,12 @@ impl LayerMask {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValueKind {
     Bool,
+    /// **存在即启用**：任何值（含 `0` / `false`）都算开。与 [`Bool`] 的区别是
+    /// 语义不同、不是宽松版——`Z42_NO_FUSION=0` 今天是**关闭 fusion**，不是开启。
+    /// 只用于历史上以 `env::var(..).is_ok()` 实现的旋钮，登记时如实标注。
+    ///
+    /// [`Bool`]: ValueKind::Bool
+    Flag,
     Int { min: i64, max: i64 },
     Float { min: f64, max: f64 },
     Str,
@@ -129,6 +135,7 @@ impl ValueKind {
     pub fn label(self) -> String {
         match self {
             ValueKind::Bool => "bool".to_string(),
+            ValueKind::Flag => "flag (presence enables)".to_string(),
             ValueKind::Int { min, max } => format!("int[{min}..{max}]"),
             ValueKind::Float { min, max } => format!("float[{min}..{max}]"),
             ValueKind::Str => "string".to_string(),
