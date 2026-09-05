@@ -64,16 +64,35 @@ flags u8 → [bit2 base u32] → [bit3 tpRef u32] → ifaceCount u8 + u32× → 
 
 ## 4. 变更点
 
-### PR-0 — expected-compile-error 测试机制
+### ~~PR-0 — expected-compile-error 测试机制~~（已撤销，2026-09-05）
 
-`scripts/test/xtask_test_dist.z42` 的 sidecar 体系加 `expected_error.txt`：
+> **初稿方案**：给 `scripts/test/xtask_test_dist.z42` 的 sidecar 体系加 `expected_error.txt`。
+> **撤销，两处硬伤：**
+>
+> 1. **落点不在门内**：`test dist` 是独立子命令，`xtask test` 的 stage 表
+>    （build wave → e2e → cross-zpkg → multi-exe → stdlib → manifest targets → examples →
+>    compiler → vscode-syntax）**不含它**，workflow.md 写明只在发行版变更时追加跑。把负例门建在
+>    那儿 = 平时没人跑 = 精确复现本变更要修的失败模式。
+> 2. **机制已经存在**：`SemanticDump.FirstErrorCode` / `FirstErrorMessage` / `FirstErrorPos` /
+>    `ErrorCount` 接源码串回诊断，由 `xtask test compiler`（stage 5）的 `[Test]` units 驱动，
+>    活例 `undefined_type_tests.z42`。再造一套 = 两套并存，违反设计完整性。
 
-- dir 模式 `<cat>/<name>/expected_error.txt`；flat 模式 `<cat>/<name>.expected_error.txt`
-- 语义：编译**必须失败**，且 stderr/诊断输出**包含** `expected_error.txt` 的每一行（逐行子串匹配，
-  不做全文比对——诊断措辞会演进，钉死全文等于给自己上枷锁）
-- 与 `expected_output.txt` **互斥**：同时存在 → runner 报配置错误
+**改为**：负例直接写成 `z42c.semantics` 自己的一个平铺单测文件
+`src/compiler/z42c.semantics/tests/typecheck/constraint_tests.z42`（与 `typecheck_tests.z42` /
+`typecheck_params_tests.z42` 平级；该目录的 `.z42.toml` 已 `include = ["**/*.z42"]`，新文件零配置
+自动纳入）。不新建 stage / runner / sidecar，PR-0 并进 PR-1。
 
-> 独立价值：E0404 跨包 internal、E0451 static 类实例成员等一批诊断今天全靠手工验证 fixture。
+**为什么天然可行**：`ConstraintChecker` 与 `TypeChecker` 共用同一个 `DiagnosticBag`
+（`TypeChecker.z42:41` 构造、`:305` 驱动 `Resolve`；校验落在 `ConstructTyper.z42:156` 的 `new` 点
+与 `MemberResolver.z42:364` 的显式型参调用点），全在 `TypeChecker.Infer` 内 → `SemanticDump` 直接可见。
+
+**已知边界**（memory `semanticdump-errorcount-skips-collector-diags`）：`ErrorCount` /
+`FirstErrorCode` **不含 `SymbolCollector` 期诊断**。where 约束不踩——ConstraintChecker 在
+TypeChecker 内。若 PR-4 把「未知约束名 → E0443」放进收集期，则须改用
+`undefined_type_tests.z42` 那套 `collectDiags(src)` 直读 `coll.Diags` 的写法。
+
+**仍然缺、但本轮不做**：跨包 / 多文件的 expected-compile-error 门（E0404 cross-zpkg internal、
+E0451 等今天靠手工 fixture）。与 where 约束正交 → Deferred，见 §7。
 
 ### PR-1 — 接口约束
 
@@ -175,3 +194,4 @@ arity-mangle 键 `Name$N`——两者对不上，需要先定键规则。
 | `where-constraint-future-inferred-method-args` | 方法级约束只在**显式**写类型实参时校验（`MemberResolver._applyMethodTypeArgs` 的 `TypeArgCount == 0` 早退）；推断调用 `Max(a,b)` 不校验 |
 | `where-constraint-future-toplevel-func` | 顶层 `FuncDecl` 的 `where` 不校验（`CheckMethod` 只接 `MethodDecl`） |
 | `where-constraint-future-func-constraint` | func 类型约束（`where T: Func<int,R>`）—— E0422/E0423 已定义但从未发出。注意 `CallEmitter` 靠该约束把参数当 func 值走 `CallIndirect`，改动需谨慎 |
+| `where-constraint-future-crosspkg-negative-gate` | 跨包 / 多文件 expected-compile-error 门。`SemanticDump` 只覆盖单文件语义诊断；E0404（cross-zpkg internal）、E0451 等仍靠手工 fixture + README 描述步骤，无自动门。与 where 约束正交，撤销 PR-0 时登记 |

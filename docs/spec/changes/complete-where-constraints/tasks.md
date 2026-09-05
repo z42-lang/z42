@@ -1,27 +1,29 @@
 # tasks — complete-where-constraints
 
-> 状态：🟡 DRAFT 完成，待 User 过 gate | 创建：2026-09-05 | 类型：lang（完整流程）
+> 状态：🟡 IMPL 进行中（gate 已过 2026-09-05）| 创建：2026-09-05 | 类型：lang（完整流程）
 > 图例：⚪ 未开始 · 🟡 进行中 · 🟢 完成 · ⛔ 阻塞
 >
 > **分支/worktree**：`complete-where-constraints` @ `../z42-whereconstraints`（基于 origin/main）
 >
-> **落地形态**：本 change 分 5 个 PR。PR-0 / PR-A 与 where 语义无关、有独立价值，可先行合并；
-> PR-1/2/4 是主体。PR-3 / PR-5 **不在本轮**（见 design §6）。
+> **落地形态**：本 change 分 **4** 个 PR（PR-0 已撤销并进 PR-1）。PR-A 与 where 语义无关、
+> 有独立价值，可先行合并；PR-1/2/4 是主体。PR-3 / PR-5 **不在本轮**（见 design §6）。
 
 ---
 
-## Phase 0 — 测试机制（PR-0，前置）⚪
+## Phase 0 — 测试机制（PR-0）🟢 已撤销
 
-> 没有这个门，后面全部白做——第 3 次烂掉只是时间问题。
+> **撤销理由（2026-09-05 IMPL 期实测）**：机制已存在且已在 GREEN gate 内——
+> `SemanticDump.FirstErrorCode/FirstErrorMessage/ErrorCount` + `[Test]` units，由
+> `xtask test compiler`（stage 5）驱动，活例 `undefined_type_tests.z42`。且初稿选的落点
+> `xtask_test_dist.z42` **不在** `xtask test` 的 stage 表里（`test dist` 是发行版专用子命令）。
+> 详见 design §4 PR-0 段。
 
-- [ ] 0.1 `scripts/test/xtask_test_dist.z42` sidecar 加 `expected_error.txt`
-      （dir 模式 `<cat>/<name>/expected_error.txt`；flat 模式 `<cat>/<name>.expected_error.txt`）
-- [ ] 0.2 语义：编译**必须失败** + 诊断输出**逐行子串包含**（不做全文比对）
-- [ ] 0.3 与 `expected_output.txt` 互斥；同时存在 → runner 报配置错误
-- [ ] 0.4 `src/tests/README.md` 补第三种用例形态说明
-- [ ] 0.5 自举一条：拿一个**现有**手工验证 fixture 转成自动用例，证明机制可用
-      （候选：E0451 static 类实例成员——单包，比 cross-zpkg 的 E0404 简单）
-- **GREEN**：`xtask test` 全绿；新机制至少 1 条用例真跑且**变异验证**（故意改对源码 → 该用例变红）
+- [x] 0.1–0.3 ~~sidecar 机制~~ **撤销**：不另造第二套，用既有 `SemanticDump` + `[Test]`
+- [x] 0.4 `src/tests/README.md` 第 44 / 73 行指向已删的 `src/compiler/z42.Tests/Fixtures/`
+      → 改为指向 `SemanticDump` 单测体系（由 1.11 一并落地）
+- [x] 0.5 ~~自举一条现有 fixture~~ **撤销**：`undefined_type_tests.z42` 已是活例，无需再证
+- [x] 0.6 跨包 / 多文件负例门（真正仍缺的那部分）登记 Deferred
+      `where-constraint-future-crosspkg-negative-gate`（design §7）
 
 ## Phase A — 修 ZbcReader 漏读 bit2（PR-A，独立 bug fix）⚪
 
@@ -53,7 +55,10 @@
 - [ ] 1.9 `src/tests/types/struct_generic_container.z42`：给 `struct P` / `struct Tagged`
       补 `: IEquatable<>`（User 已裁决）
 - [ ] 1.10 清单归零后**翻成 error**
-- [ ] 1.11 用 Phase 0 的机制补负例用例：接口约束不满足 → 期望报错
+- [ ] 1.11 负例单测：新建 `src/compiler/z42c.semantics/tests/typecheck/constraint_tests.z42`
+      （与 `typecheck_tests.z42` 平级、扁平、单一职责），用 `SemanticDump.FirstErrorCode`
+      断言「接口约束不满足 → E04xx」+ 正例「满足 → 零诊断」；同时修
+      `src/tests/README.md:44,73` 指向已删 `z42.Tests/Fixtures/` 的两条死链（承接 0.4）
 - **GREEN**：`xtask test` 全绿 + `test stdlib --mode jit` + 字节不动点
 
 ## Phase 2 — `enum` + `new()`（PR-2）⚪

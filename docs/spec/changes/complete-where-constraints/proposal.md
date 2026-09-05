@@ -44,11 +44,26 @@ bit3 + 接口名列表**，注释直言「其余 z42c 暂仅接口约束」。�
 
 ### 第 3 层 — 没有任何门能发现前两层
 
-负例语料曾在 `src/tests/errors/`，2026-05-12 搬进 `src/compiler/z42.Tests/Fixtures/`（C# 测试项目）。
+负例**语料**曾在 `src/tests/errors/`，2026-05-12 搬进 `src/compiler/z42.Tests/Fixtures/`（C# 测试项目）。
 **C# 编译器 2026-06-26 被移除时，整个 `z42.Tests/` 连同负例语料一起消失。** 今天 `src/compiler/`
-下只剩 `z42c.driver` / `z42c.pipeline` / `z42c.semantics`。
+下只剩 `z42c.driver` / `z42c.pipeline` / `z42c.semantics`；
+[`src/tests/README.md:73`](../../../../src/tests/README.md) 仍指着那个已删目录——**文档比实现活得久**，
+本身就是这层塌陷的旁证。
 
-现存的「期望编译报错」用例**全是手工验证 fixture**，
+> **⚠️ 校正（2026-09-05 IMPL 期）**：DRAFT 初稿在此处断言「今天仍无 expected-compile-error
+> 机制」，**这是错的**。语义层单文件诊断的机制一直在，且一直在 GREEN gate 内：
+> [`SemanticDump`](../../../../src/compiler/z42c.semantics/src/SemanticDump.z42) 的
+> `FirstErrorCode` / `FirstErrorMessage` / `FirstErrorPos` / `ErrorCount` 接一段源码串回诊断，
+> 由 `xtask test compiler`（stage 5）的 `[Test]` units 驱动；活例见
+> [`undefined_type_tests.z42`](../../../../src/compiler/z42c.semantics/tests/typecheck/undefined_type/undefined_type_tests.z42)。
+> 且 `ConstraintChecker` 与 `TypeChecker` **共用同一个 `DiagnosticBag`**
+> （`TypeChecker.z42:41` 构造、`:305` 驱动 `Resolve`，校验落在 `ConstructTyper.z42:156` /
+> `MemberResolver.z42:364`），故 where 约束的诊断天然对 `SemanticDump` 可见。
+>
+> ⇒ **真正缺的只是「多文件 / 跨包」负例门**（E0404 cross-zpkg internal 那一类），
+> 而 where 约束全是单文件语义诊断，用不上它。PR-0 因此从「造机制」缩为「用机制」，见 What。
+
+真正没有门的是**跨包**负例——
 [`class_internal_access/README.md`](../../../../src/tests/cross-zpkg/class_internal_access/README.md)
 自己写着：
 
@@ -72,9 +87,9 @@ bit3 + 接口名列表**，注释直言「其余 z42c 暂仅接口约束」。�
 
 | 阶段 | 内容 |
 |---|---|
-| **PR-0** | 测试体系加 `expected_error.txt` sidecar（expected-compile-error 模式） |
+| ~~**PR-0**~~ | ~~测试体系加 `expected_error.txt` sidecar~~ **已撤销**：机制已存在（见上「校正」），负例改为跟着 `z42c.semantics` 走的一个平铺 `[Test]` 文件，并进 PR-1 |
 | **PR-A** | 修 `ZbcReader` 漏读 bit2（**真 bug**，见 design §3） |
-| **PR-1** | 同包接口约束真校验（去 `ArgCount` 过滤 + Bundle 加接口字段 + 合并两份重复 `_fillBundle` + 接口继承闭包） |
+| **PR-1** | 同包接口约束真校验（去 `ArgCount` 过滤 + Bundle 加接口字段 + 合并两份重复 `_fillBundle` + 接口继承闭包）+ 负例单测 |
 | **PR-2** | `enum` 约束（含 parser）+ `new()` 约束 |
 | **PR-4** | 诊断质量：用已有的 `WhereClause.Span` 替掉 `_noSpan()`；未知约束名从静默改报 E0443 |
 
@@ -82,6 +97,8 @@ bit3 + 接口名列表**，注释直言「其余 z42c 暂仅接口约束」。�
 
 - **PR-3** ZbcWriter 置 bit0/1/2/4/5，接活运行期死分支——收益独立，依赖 PR-A
 - **PR-5** 跨包约束持久化——踩 bootstrap-seed 第二根轴（stdlib API 面），需卡 nightly 节奏
+- **跨包 / 多文件负例门**（E0404 cross-zpkg internal 那类今天仍靠手工 fixture）——与 where
+  约束正交，登记 Deferred 单独立项
 
 ## 非目标
 
@@ -94,3 +111,7 @@ bit3 + 接口名列表**，注释直言「其余 z42c 暂仅接口约束」。�
 1. **PR-1 先以 warning 落地探一轮**，跑全仓 + stdlib 拉出新增诊断清单对账，确认零误报后再翻 error。
 2. `src/tests/types/struct_generic_container.z42` 里的 `struct P` / `struct Tagged`
    **补 `: IEquatable<>`**（而非放宽 `Dictionary` 的 `TKey` 约束）。
+3. **（2026-09-05 IMPL 期）PR-0 撤销**：既有 `SemanticDump` + `[Test]` 机制已够用且已在 GREEN
+   gate 内，不另造第二套。负例**跟着类库走、尽量扁平单一职责**——落
+   `src/compiler/z42c.semantics/tests/typecheck/constraint_tests.z42`，与 `typecheck_tests.z42`
+   平级并列，**不**放 `src/tests/`、**不**再嵌一层子目录。
