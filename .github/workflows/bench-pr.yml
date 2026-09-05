@@ -57,6 +57,7 @@ name: Bench PR Regression
 # 本机对照不可外推到 CI runner**，只有省「总工作量」的改法才跨机器成立。
 # 没做：砍 sample_size（区间变宽=判红变钝）、再收窄 criterion 守卫（gc_cycle_bench 链接整个 crate，
 # 收窄=假阴性）。见 book 判红语义页「criterion 成本分解与削减」。
+# 实测（#457 自身 run 33954602385，冷缓存）：criterion 480s（pr 侧测量 151s→101s）；缓存回存 469MB。
 
 on:
   pull_request:

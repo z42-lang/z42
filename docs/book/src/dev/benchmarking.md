@@ -350,6 +350,22 @@ CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步�
 2. **`concurrent_*` 退出 CI 测量**（见上「criterion(Rust) 同-runner A/B」节）。实测 pr 侧测量
    151s → **103.4s（−48s）**；合并后 base 侧也带上这个开关，两侧合计 −95s。
 
+**实测（PR #457 自身的 run 33954602385，冷缓存、绿）**：criterion 步骤 **480s**（531s 起步）。
+
+| 段 | 基线（531s 那两跑） | #457 冷缓存跑 |
+|----|--------------------|--------------|
+| base 编译 | 115s（112 crate） | 119s（112 crate） |
+| base 测量 | 148s（13 条） | 136s（13 条，base=main 还没有这个开关） |
+| pr 编译 | 116s | 125s |
+| pr 测量 | 151s（13 条） | **101s（10 条）** |
+
+⚠️ **跨 run 比总时长要留 runner 余量**：同一份改动的两跑里，e2e 一次 193s、一次 271s（**+40%**），
+纯粹是 runner 快慢。只有**同一跑内的两侧**（base vs pr）和**同一步骤的多跑中位**才值得直接比。
+
+判红侧的反证也在这一跑：`[profile.bench]` 回退后两侧同 profile，10 条全部落在 **±1.8%** 内，
+其中 `gc_alloc/array_throughput_10k` 从 +16.8% 变成 **−0.0%** —— 坐实了那 16.8% 是 thin/fat 的
+codegen 差，不是噪声、更不是回归。
+
 ### 试过并回退：`[profile.bench]` 改 thin-LTO（2026-09-05，别再试）
 
 `[profile.bench]` 默认继承 `[profile.release]` 的 `lto = true, codegen-units = 1`，每次 `cargo bench`
