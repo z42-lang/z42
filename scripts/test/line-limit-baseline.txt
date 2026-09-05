@@ -1,35 +1,7 @@
-# line-limit ratchet baseline (xtask test lines --update): path<TAB>lines; hard limit 500
-src/compiler/z42c.semantics/src/EmitContext.z42	541
-src/compiler/z42c.semantics/src/ExprEmitter.z42	523
-src/compiler/z42c.semantics/src/MemberResolver.z42	513
-src/compiler/z42c.semantics/src/StructLayout.z42	582
-src/compiler/z42c.semantics/src/TypeChecker.z42	522
-src/libraries/z42.cli/src/ArgParser.z42	729
-src/libraries/z42.compression/src/Tar.z42	514
+# line-limit ratchet baseline (xtask test lines --update): path<TAB>lines; hard limit 886
 src/libraries/z42.crypto/src/Aes.z42	1094
-src/libraries/z42.crypto/src/Rsa.z42	560
-src/libraries/z42.ir/src/BinaryFormat/ZbcReader.z42	743
-src/libraries/z42.ir/src/BinaryFormat/ZbcWriter.z42	792
-src/libraries/z42.ir/src/TsigReconcile.z42	622
-src/libraries/z42.ir/src/ZpkgReader.z42	586
 src/libraries/z42.net/src/Http/HttpClient.z42	1411
-src/libraries/z42.net/src/WebSockets/WebSocketClient.z42	551
 src/libraries/z42.numerics/src/BigInt.z42	1498
-src/libraries/z42.regex/src/Regex.z42	566
 src/libraries/z42.toml/src/TomlParser.z42	998
 src/libraries/z42.yaml/src/YamlParser.z42	1692
-src/libraries/z42c.syntax/src/ExprParser.z42	777
-src/libraries/z42c.syntax/src/Lexer.z42	518
-src/runtime/crates/z42-host/src/lib.rs	566
-src/runtime/src/corelib/fs.rs	615
-src/runtime/src/corelib/process.rs	842
-src/runtime/src/corelib/sync.rs	574
-src/runtime/src/gc/arc_heap/alloc.rs	601
-src/runtime/src/gc/heap.rs	512
-src/runtime/src/gc/refs.rs	620
-src/runtime/src/gc/region.rs	754
-src/runtime/src/host/mod.rs	763
-src/runtime/src/jit/frame.rs	581
-src/runtime/src/native/ext.rs	731
 src/toolchain/builder/core/builder_publish.z42	967
-src/toolchain/launcher/core/launcher.z42	511

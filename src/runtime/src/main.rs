@@ -316,10 +316,11 @@ fn main() -> Result<()> {
     // resolution) sees the same libs dir the VM uses — SDK layout works with no
     // manual `Z42_LIBS=` set. Only fills an unset/empty var; explicit values
     // are respected.
-    if let Some(val) = libs_env_to_publish(
-        std::env::var("Z42_LIBS").ok().as_deref(),
-        libs_dir.as_deref(),
-    ) {
+    // "Did the user already specify libs?" must consult the RESOLVED knob, not the
+    // raw env — otherwise `--set libs=/x` and `[runtime].libs` would be overwritten
+    // by the auto-published value (adopt-inline-env-knobs, 2026-09-05).
+    let user_libs = cfg.libs_dir.as_ref().map(|p| p.display().to_string());
+    if let Some(val) = libs_env_to_publish(user_libs.as_deref(), libs_dir.as_deref()) {
         // Safety: z42 is single-threaded; no concurrent env reads during boot.
         unsafe { std::env::set_var("Z42_LIBS", &val); }
     }

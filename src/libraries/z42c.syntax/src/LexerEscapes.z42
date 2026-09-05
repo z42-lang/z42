@@ -1,0 +1,61 @@
+// 字符串字面量的转义解码与校验 —— 从 Lexer.z42 拆出（该文件在 500 行门禁之上，门禁提示 split）。
+// 这一整块本来就是纯静态、不碰词法器实例状态，独立成类没有耦合代价。
+// `Lexer.DecodeString` 保留为到 `Decode` 的转发，既有调用方与单测不受影响。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public static class LexerEscapes {
+    // 把字符串字面量的 raw lexeme（含两端引号）解码为实际值：剥引号 + 转义还原。
+    // 支持 C 系单字符转义全集 \a \b \f \n \r \t \v \0 \\ \" \'；数字/Unicode 转义延后（见 deferred）。
+    // 未知转义已被词法器拦下报 E0102，故合法程序进不了下面的 else 兜底分支。
+    public static string Decode(string raw) {
+        // raw 串 """...""": 剥三引号，内容逐字保留（不处理转义）。lexer 见 3 引号即走
+        // _lexRawString，故任何以 """ 起的 lexeme 必是 raw 串。
+        if (raw.Length >= 6 && raw.Substring(0, 3) == "\"\"\"" && raw.Substring(raw.Length - 3, 3) == "\"\"\"") {
+            return raw.Substring(3, raw.Length - 6);
+        }
+        if (raw.Length < 2) { return raw; }
+        string inner = raw.Substring(1, raw.Length - 2);
+        string result = "";
+        int i = 0;
+        int runStart = 0;
+        while (i < inner.Length) {
+            if (inner.CharAt(i) == '\\' && i + 1 < inner.Length) {
+                result = result + inner.Substring(runStart, i - runStart);   // flush 字面段
+                char e = inner.CharAt(i + 1);
+                if (e == 'n')       { result = result + "\n"; }
+                else if (e == 't')  { result = result + "\t"; }
+                else if (e == 'r')  { result = result + "\r"; }
+                else if (e == '\\') { result = result + "\\"; }
+                else if (e == '"')  { result = result + "\""; }
+                else if (e == '\'') { result = result + "'"; }
+                else if (e == '0')  { result = result + "\0"; }
+                // C 系控制转义：码点构造（不用 \a\b\f\v 字面量，避免自举鸡蛋，见 design D3）。
+                else if (e == 'a')  { result = result + LexerEscapes.CtrlChar(7); }    // BEL
+                else if (e == 'b')  { result = result + LexerEscapes.CtrlChar(8); }    // BS
+                else if (e == 'f')  { result = result + LexerEscapes.CtrlChar(12); }   // FF
+                else if (e == 'v')  { result = result + LexerEscapes.CtrlChar(11); }   // VT
+                else                { result = result + inner.Substring(i + 1, 1); }   // 未知转义：保留原字符（词法器已报 E0102，此分支对合法程序不可达）
+                i = i + 2;
+                runStart = i;
+            } else {
+                i = i + 1;
+            }
+        }
+        result = result + inner.Substring(runStart, inner.Length - runStart);   // flush 末段
+        return result;
+    }
+
+    // 由码点构造单字符串（供 DecodeString 产出控制字符，绕过自举鸡蛋，见 D3）。
+    public static string CtrlChar(int code) {
+        char[] z = new char[1]; z[0] = (char)code; return String.FromChars(z);
+    }
+
+    // 合法转义集谓词（C 系单字符全集）——词法器校验与 DecodeString 映射的唯一真相。
+    public static bool IsKnown(char e) {
+        return e == 'n' || e == 't' || e == 'r' || e == '0'
+            || e == 'a' || e == 'b' || e == 'f' || e == 'v'
+            || e == '\\' || e == '"' || e == '\'';
+    }
+}

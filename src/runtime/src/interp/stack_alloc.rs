@@ -173,7 +173,13 @@ fn mode() -> u32 {
     if m != MODE_UNSET {
         return m;
     }
-    let resolved = match std::env::var("Z42_STACKALLOC").ok().as_deref() {
+    // adopt-inline-env-knobs (2026-09-05): source is the layered config now, not a
+    // bare env read. The AtomicU32 cache stays — it saves the 5-way match on this
+    // interpreter allocation hot path, which is a separate cost from reading the knob.
+    // The `_ => MODE_ON` arm below is now purely "the default"; a misspelled value is
+    // rejected one layer up (ValueKind::Enum) with a diagnostic instead of silently
+    // landing here and leaving the optimisation on.
+    let resolved = match crate::config::runtime_config().stackalloc.as_deref() {
         Some("off") | Some("0") | Some("heap") => MODE_OFF,
         Some("stats") => MODE_STATS,
         _ => MODE_ON,

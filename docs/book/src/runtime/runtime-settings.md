@@ -35,6 +35,17 @@ flowchart TD
 
 **逐 key 独立**：环境里设了 `Z42_LOG`、侧车里写了 `gc-mode`，两个都生效——不是整层二选一。
 
+**五层对 `z42vm` 与嵌入方都成立**。CLI 层是 `z42vm` 二进制独有的（`--set` 由它解析）；
+其余四层由 `RuntimeConfig::from_env()` 装配，所有走 `z42_host_run_app` 的入口
+（desktop 自包含 apphost / wasm / iOS / Android / testhost）经 `runtime_config()` 懒初始化
+落在这条路径上。区别只在**诊断严重度**：`z42vm` 的 `main()` 对坏配置致命退出并提供
+`--strict-config`；库入口一律 warn 后继续——它可能跑在宿主进程里，因一个配置 typo
+杀掉宿主不是它该做的事。
+
+> 这一点此前不成立（sidecar-reaches-published-apps 2026-09-05 修）：`from_env()` 是
+> `resolve(get, None)`，文件层只在 `z42vm` 的 `main()` 里单独装配，于是**每个嵌入方都
+> 静默忽略 `Z42_CONFIG` 与 `Z42_APP_CONFIG`**——文档承诺的链在 z42vm 二进制之外根本没接上。
+
 **L3 与 L4 是同一种东西的两个实例**：格式相同、解析器相同（`[runtime]` TOML 表），
 区别只在**谁写的**。L3 是用户手写（"我这台机器上想改这个"），L4 由 `z42c build` 生成、
 随产物分发（"这个应用需要这样跑"）。所以它们叠加而不是互斥——用户改一个旋钮不该丢掉
@@ -80,8 +91,20 @@ mode = "interp"
 - **不覆盖手写侧车**。目标路径已存在且不含生成标记头 → build 报错，提示把内容移进
   manifest 的 `[profile.*]`。
 
-> **已知缺口**：apphost 直跑路径不读侧车（`simplify-apphost-direct-run` 的既有代价），
-> `z42 publish` 也尚未把侧车拷进 publish 布局。需要 profile 配置的 app 走 `z42 run`。
+### 侧车怎么到达已发布的 app
+
+`z42 publish` 把侧车与 zpkg 一起搬进部署布局（自包含布局把 zpkg 改名成 `app.zpkg`，
+侧车跟着改成 `app.runtimeconfig.toml`——发现约定是「同目录、同 stem」）。运行时由
+**apphost** 按同一约定发现它、设进 `Z42_APP_CONFIG` 交给 z42vm；调用方显式设过就不覆盖。
+
+apphost 只**找**文件、传路径：解析 TOML、判定可用性、产生诊断都属于 VM。它刻意不经
+launcher（`simplify-apphost-direct-run`：部署一个 app 只需 apphost + app.zpkg + 运行时），
+所以这条发现逻辑在两处各有一份——重复的是一行路径拼接，不是逻辑。
+
+> 这条链此前是断的（sidecar-reaches-published-apps 2026-09-05 修）：publish 不拷侧车、
+> apphost 不传路径，于是工程在 manifest 里声明的运行时设置在**用户实际发布的形态上
+> 完全无效且无提示**。`xtask test dist` 的 apphost smoke 现在断言
+> `RuntimeConfig.Source("mode") == "app-config"`，链上任何一环断掉都会红。
 
 ## 登记表：唯一 SoT
 
@@ -104,14 +127,23 @@ mode = "interp"
 - **`aliases` 而不是"env 名自动等价"**：`--set` 只认 `toml_key` 或表里显式写出的短名。
   自动接受 `Z42_GC_MODE` 会建立一条隐式双写法约定，将来某个旋钮的 env 名与 kebab key
   一旦不再是机械映射（为兼容改名），"自动等价"就失效或产生歧义。
-- **`ValueKind::Flag` 与 `Bool` 分开**：`Z42_NO_FUSION=0` 今天的语义是**关闭 fusion**
-  （历史实现是 `env::var(..).is_ok()`，存在即生效）。把它标成 `Bool` 会悄悄反转语义。
+- **`ValueKind::Flag` 与 `Bool` 分开**：`Flag` 是"存在即启用"（连 `=0` 也算开），
+  忠实描述用 `env::var(..).is_ok()` 实现的旋钮。但这条 shell 惯例**活不过配置文件**：
+  一旦旋钮能写进 `[runtime]`，`no-fusion = false` 必须表示"不要关"。所以
+  `adopt-inline-env-knobs` 在放开这四个开关旋钮的层时，同一刻把它们转成了真 `Bool`
+  ——**开放层与转换类型必须一起发生**。`Flag` 变体保留，但当前无使用者；将来若有旋钮
+  要用它，得说明为什么这条配置文件陷阱对它不适用。
 - **`sources` 不是所有旋钮都给全**：
   - 元旋钮（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG`）只收 CLI/env——
     它们决定**读哪个文件**和**诊断有多严格**，写进配置文件会自指；
-  - 尚未收编进 `RuntimeConfig` 的旋钮（`Z42_JIT_THRESHOLD` 等仍在各自 `consumed_by`
-    处直接 `std::env::var`）标 **ENV_ONLY**——CLI 与配置文件层根本到不了那行内联读取，
-    标成"四层全收"会让 `--list-knobs` 声称能 `--set` 而实际静默无效，**比不登记更坏**。
+  - `Z42_STRESS_ITERS` 标 **ENV_ONLY**：GC 压力测试脚手架，进 CLI 表面等于向用户暗示
+    它是个正经旋钮。
+  - 其余**全部四层可设**。曾有 8 个旋钮（`Z42_JIT_THRESHOLD` / `Z42_STACKALLOC` 等）
+    在各自 `consumed_by` 处直接 `std::env::var`，那时它们如实标 ENV_ONLY——CLI 与配置
+    文件层根本到不了那行内联读取，标成"四层全收"会让 `--list-knobs` 声称能 `--set`
+    而实际静默无效，**比不登记更坏**。`adopt-inline-env-knobs`（2026-09-05）把消费点
+    改读 `runtime_config()` 后限制解除，并留了一道反向门：**任何新的内联 env 读都会
+    让测试变红**（`no_knob_is_read_inline_from_the_environment_any_more`）。
 
 登记表有一道**源码扫描防腐门**（`config_tests.rs`）：走 `src/` 找 `"Z42_*"` 字面量，
 不在表内即红。加这道门是因为表曾经漂移过——8 个 VM 真在读的旋钮不在表里，于是

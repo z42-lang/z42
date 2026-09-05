@@ -740,8 +740,25 @@ const TEST_ONLY_ENV_NAMES: &[&str] = &[
     "Z42_X",
 ];
 
-/// 递归收集 `dir` 下所有非测试 `.rs` 文件里出现的 `"Z42_*"` 字符串字面量。
-fn scan_env_literals(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+/// `off` 所在的那一行（用来判断这个字面量是不是一次真正的 env 读取，而不是
+/// 一个诊断消息里的名字、或一个当参数传的 key）。
+fn line_around(text: &str, off: usize) -> &str {
+    let start = text[..off].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[off..].find('\n').map_or(text.len(), |i| off + i);
+    &text[start..end]
+}
+
+/// 递归收集 `dir` 下所有非测试 `.rs` 文件里出现的 `"Z42_*"` 字符串字面量，
+/// 并标注它是否是一次真正的 `env::var` / `var_os` **读取**。
+fn scan_env_literals(dir: &std::path::Path, out: &mut Vec<(String, String, bool)>) {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    scan_env_literals_in(dir, &root, out)
+}
+
+/// `rel` 相对 `root` 而非相对当前递归层——否则 `config/parse.rs` 会被记成 `parse.rs`，
+/// 按目录过滤就失效了（我第一版正是这么错的，被下面那道门当场抓到）。
+fn scan_env_literals_in(dir: &std::path::Path, root: &std::path::Path,
+                        out: &mut Vec<(String, String, bool)>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.flatten() {
         let path = e.path();
@@ -750,7 +767,7 @@ fn scan_env_literals(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
             if path.file_name().is_some_and(|n| n == "tests") {
                 continue;
             }
-            scan_env_literals(&path, out);
+            scan_env_literals_in(&path, root, out);
             continue;
         }
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
@@ -758,7 +775,7 @@ fn scan_env_literals(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let rel = path.strip_prefix(dir).unwrap_or(&path).display().to_string();
+        let rel = path.strip_prefix(root).unwrap_or(&path).display().to_string();
         let bytes = text.as_bytes();
         let mut i = 0;
         while let Some(off) = text[i..].find("\"Z42_") {
@@ -771,7 +788,10 @@ fn scan_env_literals(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
             }
             // `"Z42_"` on its own is a prefix test, not a knob name.
             if end < bytes.len() && bytes[end] == b'"' && end > start + 4 && bytes[end - 1] != b'_' {
-                out.push((text[start..end].to_string(), rel.clone()));
+                let line = line_around(&text, start);
+                let is_read = (line.contains("env::var(") || line.contains("env::var_os("))
+                    && !line.contains("set_var") && !line.contains("remove_var");
+                out.push((text[start..end].to_string(), rel.clone(), is_read));
             }
             i = start;
         }
@@ -792,10 +812,10 @@ fn every_z42_env_literal_in_the_vm_is_registered() {
 
     let mut unregistered: Vec<String> = found
         .into_iter()
-        .filter(|(name, _)| {
+        .filter(|(name, _, _)| {
             !TEST_ONLY_ENV_NAMES.contains(&name.as_str()) && knob_by_env_name(name).is_none()
         })
-        .map(|(name, file)| format!("{name} (read in {file})"))
+        .map(|(name, file, _)| format!("{name} (in {file})"))
         .collect();
     unregistered.sort();
     unregistered.dedup();
@@ -809,18 +829,49 @@ fn every_z42_env_literal_in_the_vm_is_registered() {
 }
 
 #[test]
-fn inline_env_knobs_are_honest_about_their_layers() {
-    // A knob still read via a bare std::env::var never sees the CLI or file layers —
-    // claiming otherwise would make `--set` silently no-op. Every knob whose
-    // consumed_by says "inline env read" must therefore be env-only.
-    for k in KNOWN_KNOBS.iter().filter(|k| k.consumed_by.contains("inline env read")) {
-        assert_eq!(
-            k.sources, LayerMask::ENV_ONLY,
-            "{}: still read inline via std::env::var, so it must declare ENV_ONLY until it is \
-             routed through RuntimeConfig — otherwise --list-knobs lies about --set working",
-            k.name
-        );
-    }
+fn no_knob_is_read_inline_from_the_environment_any_more() {
+    // The registry may only promise a layer the consumer can actually observe.
+    // A knob read via a bare `std::env::var` at its consumption site never sees the
+    // CLI or config-file layers, so declaring `LayerMask::ALL` for it would make
+    // `--set` a silent no-op — worse than not registering it at all.
+    //
+    // adopt-inline-env-knobs routed the last eight such knobs through
+    // `runtime_config()`. This gate is now the *reverse* of what it used to be:
+    // rather than checking that inline readers stay ENV_ONLY, it refuses to let a
+    // new inline reader appear. Adding one means either routing it through
+    // RuntimeConfig, or declaring ENV_ONLY and saying why here.
+    let inline: Vec<&str> = KNOWN_KNOBS.iter()
+        .filter(|k| k.consumed_by.contains("inline env read"))
+        .map(|k| k.name)
+        .collect();
+    assert!(inline.is_empty(),
+        "these knobs claim an inline env read — route them through runtime_config() \
+         (see adopt-inline-env-knobs) or mark them ENV_ONLY deliberately: {inline:?}");
+
+    // And every consumer that a scan can reach must go through the config module.
+    // `Z42_STRESS_ITERS` is the one deliberate exception (test scaffolding).
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found = Vec::new();
+    scan_env_literals(&root, &mut found);
+    let stragglers: Vec<String> = found.into_iter()
+        .filter(|(name, file, is_read)| {
+            *is_read
+                && !TEST_ONLY_ENV_NAMES.contains(&name.as_str())
+                && !file.starts_with("config")   // the config module IS the reader
+                && knob_by_env_name(name).is_some_and(|k| {
+                    // Meta knobs (Z42_CONFIG / Z42_APP_CONFIG / Z42_STRICT_CONFIG) name
+                    // the config files and the diagnostic severity, so `main()` reads
+                    // them from the environment while ASSEMBLING the layers — there is
+                    // no resolved value to consult yet. Scaffolding stays env-only too.
+                    !k.is_meta() && k.sources != LayerMask::ENV_ONLY
+                })
+        })
+        .map(|(name, file, _)| format!("{name} (read in {file})"))
+        .collect();
+    assert!(stragglers.is_empty(),
+        "a knob that advertises the CLI / config-file layers is still being read straight \
+         from the environment — the layers would be silently ignored there:\n  - {}",
+        stragglers.join("\n  - "));
 }
 
 // ── complete-runtime-settings P1: provenance + 严重度分层 ───────────────────
@@ -1020,14 +1071,34 @@ fn jit_profile_now_honours_a_real_boolean() {
 }
 
 #[test]
-fn flag_knobs_accept_any_value_including_zero() {
-    // Z42_NO_FUSION and friends are presence-based: `=0` still disables fusion.
-    // Declaring them ValueKind::Bool would have quietly inverted that.
-    let spec = spec_named("Z42_NO_FUSION");
-    assert_eq!(spec.value, ValueKind::Flag);
-    for v in ["1", "0", "false", "whatever"] {
-        assert_eq!(validate(spec.value, v), Ok(()), "flag knob must accept {v:?}");
+fn the_four_switch_knobs_are_real_booleans_now() {
+    // They used to be ValueKind::Flag ("presence enables" — `Z42_NO_FUSION=0` STILL
+    // disabled fusion). That shell convention does not survive a config file:
+    //
+    //     [runtime]
+    //     no-fusion = false     # under Flag semantics this DISABLES fusion
+    //
+    // adopt-inline-env-knobs opened these knobs to the config-file layers, so the
+    // conversion had to happen in the same breath — see design.md Decision 2.
+    for name in ["Z42_NO_FUSION", "Z42_NO_TYPED_FUSION", "Z42_FUSION_DEBUG",
+                 "Z42_JIT_DEBUG_PROMOTE"] {
+        assert_eq!(spec_named(name).value, ValueKind::Bool, "{name}");
     }
+    let spec = spec_named("Z42_NO_FUSION");
+    for v in ["1", "true", "0", "false", "on", "off"] {
+        assert_eq!(validate(spec.value, v), Ok(()), "{v:?} is a boolean");
+    }
+    assert!(validate(spec.value, "whatever").is_err(), "a non-boolean is now a type error");
+}
+
+#[test]
+fn value_kind_flag_has_no_users_left() {
+    // Flag still exists for a knob that genuinely means "presence enables", but
+    // nothing uses it today. If a future knob adopts it, that knob owes an
+    // explanation for why the config-file trap in Decision 2 does not apply to it.
+    let flags: Vec<&str> = KNOWN_KNOBS.iter()
+        .filter(|k| k.value == ValueKind::Flag).map(|k| k.name).collect();
+    assert!(flags.is_empty(), "ValueKind::Flag knobs need a justification: {flags:?}");
 }
 
 #[test]
@@ -1367,4 +1438,227 @@ fn gc_max_bytes_is_a_string_knob_because_it_takes_unit_suffixes() {
     let (cfg, res) = resolve_all(&[], &[("Z42_GC_MAX_BYTES", "512MB")], None, None, &full_ctx());
     assert_eq!(cfg.gc_max_bytes, Some(512 * 1024 * 1024));
     assert!(res.diagnostics.is_empty());
+}
+
+// ── adopt-inline-env-knobs: 收编的 8 个旋钮 ────────────────────────────────
+
+const ADOPTED: &[&str] = &[
+    "Z42_FUSION_DEBUG", "Z42_JIT_DEBUG_PROMOTE", "Z42_JIT_THRESHOLD", "Z42_NO_FUSION",
+    "Z42_NO_TYPED_FUSION", "Z42_OSR_THRESHOLD", "Z42_REPL_NATIVE", "Z42_STACKALLOC",
+];
+
+#[test]
+fn adopted_knobs_are_settable_from_every_layer() {
+    for name in ADOPTED {
+        let spec = spec_named(name);
+        assert_eq!(spec.sources, LayerMask::ALL,
+            "{name}: consumed via runtime_config() now, so all four layers must work");
+        assert!(!spec.consumed_by.contains("inline env read"),
+            "{name}: consumed_by still claims an inline env read");
+    }
+}
+
+#[test]
+fn env_only_is_now_reserved_for_scaffolding_and_meta_knobs() {
+    // The registry should not carry "you may only set this from env" for anything
+    // that a user could reasonably want on the command line.
+    let env_only: Vec<&str> = KNOWN_KNOBS.iter()
+        .filter(|k| k.sources == LayerMask::ENV_ONLY).map(|k| k.name).collect();
+    assert_eq!(env_only, vec!["Z42_STRESS_ITERS"],
+        "ENV_ONLY is for test scaffolding only; meta knobs use CLI_ENV");
+}
+
+#[test]
+fn adopted_knobs_resolve_through_the_full_chain() {
+    let app = rt_table("jit-threshold = 7\nstackalloc = \"stats\"");
+    let (cfg, res) = resolve_all(
+        &[("Z42_OSR_THRESHOLD", "500")],
+        &[("Z42_JIT_THRESHOLD", "3")],
+        None, Some(&app), &full_ctx(),
+    );
+    assert_eq!(cfg.osr_threshold, 500, "cli layer");
+    assert_eq!(cfg.jit_threshold, 3, "env beats the app sidecar");
+    assert_eq!(cfg.stackalloc.as_deref(), Some("stats"), "app-config layer");
+    assert_eq!(res.get("Z42_JIT_THRESHOLD").unwrap().source, Layer::Env);
+    assert_eq!(res.get("Z42_STACKALLOC").unwrap().source, Layer::AppConfig);
+}
+
+#[test]
+fn switch_knobs_honour_falsey_values_end_to_end() {
+    let c = full_ctx();
+    for raw in ["false", "0", "off", "no"] {
+        let (cfg, res) = resolve_all(&[], &[("Z42_NO_FUSION", raw)], None, None, &c);
+        assert!(!cfg.no_fusion, "Z42_NO_FUSION={raw} must NOT disable fusion");
+        assert!(res.diagnostics.is_empty(), "{raw} is a valid boolean");
+    }
+    for raw in ["true", "1", "on", "yes"] {
+        let (cfg, _) = resolve_all(&[], &[("Z42_NO_FUSION", raw)], None, None, &c);
+        assert!(cfg.no_fusion, "Z42_NO_FUSION={raw} must disable fusion");
+    }
+    let (cfg, res) = resolve_all(&[], &[("Z42_NO_FUSION", "maybe")], None, None, &c);
+    assert!(!cfg.no_fusion);
+    assert!(res.diagnostics[0].message.contains("expected a boolean"), "{:?}", res.diagnostics[0]);
+}
+
+#[test]
+fn no_typed_fusion_keeps_the_knobs_own_polarity() {
+    // The field is named after the knob (negative), not flipped to a positive
+    // `typed_fusion_enabled` — the table's name is the SoT and --show-config prints
+    // `no-typed-fusion`. The single inversion lives at the one call site that wants it.
+    let (cfg, _) = resolve_all(&[], &[("Z42_NO_TYPED_FUSION", "true")], None, None, &full_ctx());
+    assert!(cfg.no_typed_fusion);
+    let (cfg, _) = resolve_all(&[], &[], None, None, &full_ctx());
+    assert!(!cfg.no_typed_fusion, "typed fusion is on by default");
+}
+
+#[test]
+fn thresholds_keep_their_previous_semantics() {
+    let c = full_ctx();
+    let (d, _) = resolve_all(&[], &[], None, None, &c);
+    assert_eq!(d.jit_threshold, 2, "lower-jit-threshold-default");
+    assert_eq!(d.osr_threshold, 10_000, "add-osr-loop-tiering");
+
+    // 0 clamps to 1 (compiling "every zeroth call" means every call).
+    let (z, _) = resolve_all(&[], &[("Z42_JIT_THRESHOLD", "0")], None, None, &c);
+    assert_eq!(z.jit_threshold, 1);
+
+    // Garbage falls back to the default — but is no longer SILENT about it.
+    let (g, res) = resolve_all(&[], &[("Z42_JIT_THRESHOLD", "abc")], None, None, &c);
+    assert_eq!(g.jit_threshold, 2);
+    assert!(res.diagnostics[0].message.contains("expected an integer"), "{:?}", res.diagnostics[0]);
+}
+
+#[test]
+fn stackalloc_typos_are_reported_instead_of_silently_meaning_on() {
+    // The consumer's match ends in `_ => MODE_ON`, so `Z42_STACKALLOC=of` (a typo for
+    // `off`) used to silently leave the optimisation ON while someone was mid-triage
+    // believing they had turned it off. The Enum check now catches it first.
+    let c = full_ctx();
+    for raw in ["off", "0", "heap", "stats", "on"] {
+        let (cfg, res) = resolve_all(&[], &[("Z42_STACKALLOC", raw)], None, None, &c);
+        assert_eq!(cfg.stackalloc.as_deref(), Some(raw));
+        assert!(res.diagnostics.is_empty(), "{raw} is a declared value");
+    }
+    let (cfg, res) = resolve_all(&[], &[("Z42_STACKALLOC", "of")], None, None, &c);
+    assert_eq!(cfg.stackalloc, None, "rejected -> the consumer sees no override");
+    assert!(res.diagnostics[0].message.contains("expected one of"), "{:?}", res.diagnostics[0]);
+}
+
+#[test]
+fn repl_native_is_a_path_override() {
+    let (cfg, _) = resolve_all(&[], &[("Z42_REPL_NATIVE", "/opt/z42/libz42_repl.dylib")],
+                               None, None, &full_ctx());
+    assert_eq!(cfg.repl_native, Some(std::path::PathBuf::from("/opt/z42/libz42_repl.dylib")));
+}
+
+// ── sidecar-reaches-published-apps P0: 库入口也读文件层 ────────────────────
+//
+// `from_env` 是唯一真正读进程环境的入口，也是每个**非 z42vm** 入口的必经之路
+// （`runtime_config()` 懒初始化 → `z42_host_run_app` → desktop 自包含 apphost /
+// wasm / iOS / Android / testhost）。它此前只读 env，于是嵌入方静默丢掉 L3/L4。
+//
+// 这些测试要动真实进程环境，故串行（`env_lock`）并在结束时还原。
+
+use std::sync::Mutex;
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// 在受控的真实环境变量下跑 `f`，结束还原。`from_env` 只认真实 env，无法注入。
+fn with_env<R>(pairs: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let saved: Vec<(String, Option<String>)> =
+        pairs.iter().map(|(k, _)| ((*k).to_string(), std::env::var(k).ok())).collect();
+    for (k, v) in pairs {
+        // Safety: serialised by ENV_LOCK; these tests do not spawn threads.
+        match v {
+            Some(v) => unsafe { std::env::set_var(k, v) },
+            None => unsafe { std::env::remove_var(k) },
+        }
+    }
+    let out = f();
+    for (k, v) in saved {
+        match v {
+            Some(v) => unsafe { std::env::set_var(&k, v) },
+            None => unsafe { std::env::remove_var(&k) },
+        }
+    }
+    out
+}
+
+#[test]
+fn from_env_reads_the_user_config_layer() {
+    let f = write_cfg("fromenv-user", "[runtime]\ngc-mode = \"concurrent\"\n");
+    let got = with_env(
+        &[("Z42_CONFIG", f.to_str()), ("Z42_APP_CONFIG", None), ("Z42_GC_MODE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::ConcurrentMarkSweep, "embedders must see Z42_CONFIG");
+    assert_eq!(got.resolved.iter().find(|r| r.name == "Z42_GC_MODE").unwrap().source,
+               Layer::UserConfig);
+    let _ = std::fs::remove_file(f);
+}
+
+#[test]
+fn from_env_reads_the_app_sidecar_layer() {
+    let f = write_cfg("fromenv-app", "[runtime]\ngc-mode = \"generational\"\n");
+    let got = with_env(
+        &[("Z42_CONFIG", None), ("Z42_APP_CONFIG", f.to_str()), ("Z42_GC_MODE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::GenerationalMarkSweep, "embedders must see Z42_APP_CONFIG");
+    assert_eq!(got.resolved.iter().find(|r| r.name == "Z42_GC_MODE").unwrap().source,
+               Layer::AppConfig);
+    let _ = std::fs::remove_file(f);
+}
+
+#[test]
+fn from_env_layers_user_over_app_and_env_over_both() {
+    let user = write_cfg("fromenv-both-u", "[runtime]\nmode = \"jit\"\n");
+    let app = write_cfg("fromenv-both-a", "[runtime]\nmode = \"interp\"\nsafepoint-throttle = 64\n");
+    let got = with_env(
+        &[("Z42_CONFIG", user.to_str()), ("Z42_APP_CONFIG", app.to_str()),
+          ("Z42_MODE", None), ("Z42_SAFEPOINT_THROTTLE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.mode.as_deref(), Some("jit"), "same key -> user layer wins");
+    assert_eq!(got.safepoint_throttle, 64, "app-only key still applies");
+
+    // env beats both.
+    let got = with_env(
+        &[("Z42_CONFIG", user.to_str()), ("Z42_APP_CONFIG", app.to_str()),
+          ("Z42_MODE", Some("aot")), ("Z42_SAFEPOINT_THROTTLE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.mode.as_deref(), Some("aot"));
+    for p in [user, app] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn from_env_downgrades_a_broken_config_file_instead_of_dying() {
+    // The whole point of the lenient path: an embedder must not lose its process
+    // over a config typo. Malformed TOML -> that layer is gone, everything else works.
+    let bad = write_cfg("fromenv-bad", "[runtime\ngc-mode = ");
+    let got = with_env(
+        &[("Z42_CONFIG", bad.to_str()), ("Z42_APP_CONFIG", None), ("Z42_GC_MODE", Some("concurrent"))],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::ConcurrentMarkSweep, "env layer must still apply");
+    let _ = std::fs::remove_file(bad);
+
+    // Same for the JSON migration error — a hint, not a hard stop.
+    let got = with_env(
+        &[("Z42_CONFIG", Some("/tmp/nope.runtimeconfig.json")), ("Z42_APP_CONFIG", None),
+          ("Z42_GC_MODE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::default());
+}
+
+#[test]
+fn from_getter_still_has_no_file_layer() {
+    // Non-breaking guarantee: the injectable path is unchanged — it reads nothing
+    // off disk, which is what keeps the rest of this file hermetic.
+    let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_CONFIG", "/definitely/not/read.toml")]));
+    assert_eq!(cfg.gc_mode, GcMode::default());
+    assert!(cfg.resolved.iter().all(|r| r.source != Layer::UserConfig
+                                     && r.source != Layer::AppConfig));
 }

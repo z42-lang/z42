@@ -159,6 +159,32 @@ pub struct RuntimeConfig {
     /// per-sample `(ts, stack)` timeline and serialize it on exit.
     pub trace_out: Option<PathBuf>,
 
+    // ── adopt-inline-env-knobs (2026-09-05): 收编的 8 个旋钮 ─────────────
+    // 此前它们各自在 `consumed_by` 处 `std::env::var`，于是只有 env 层能设。
+    // 收编后四层全收，且比原来**更快**——`env::var` 每次要加锁 + 查环境块 +
+    // 分配 String，这里是 OnceLock 的一次 acquire load + 字段读。
+    /// `Z42_JIT_THRESHOLD` — 函数被排入 JIT 编译的调用次数。clamp ≥ 1。
+    pub jit_threshold: u32,
+    /// `Z42_OSR_THRESHOLD` — 触发 OSR（把运行中的 interp 帧换成 JIT 帧）的回边次数。clamp ≥ 1。
+    pub osr_threshold: u32,
+    /// `Z42_JIT_DEBUG_PROMOTE` — 打印每次 interp→JIT 晋升决策。
+    pub jit_debug_promote: bool,
+    /// `Z42_NO_FUSION` — 关掉解释器超级指令融合（kill-switch / A-B 用）。
+    pub no_fusion: bool,
+    /// `Z42_NO_TYPED_FUSION` — 只关掉融合里的类型特化那一半。
+    ///
+    /// 字段名跟着**旋钮名**（反向），不存正向的 `typed_fusion_enabled`：表里的名字
+    /// 是唯一 SoT，`--show-config` 打印 `no-typed-fusion`，结构体叫别的会让读代码的
+    /// 人每次都要在脑子里反转一遍。反转只发生在真正需要它的那一行。
+    pub no_typed_fusion: bool,
+    /// `Z42_FUSION_DEBUG` — 把融合识别结果打到 stderr。
+    pub fusion_debug: bool,
+    /// `Z42_STACKALLOC` — 逃逸分析栈上分配的开关 / 统计。原样存字符串，五路 match
+    /// 留在消费点（`interp/stack_alloc.rs`），那里还有一层 `AtomicU32` 缓存。
+    pub stackalloc: Option<String>,
+    /// `Z42_REPL_NATIVE` — REPL 行编辑 cdylib 的路径覆盖（文件或其所在目录）。
+    pub repl_native: Option<PathBuf>,
+
     // ── complete-runtime-settings P1: provenance ─────────────────────────
     /// 每个旋钮的生效值 + 来源层 + 被丢弃的值。由 [`RuntimeConfig::resolve_with`]
     /// 一次产出，`--info` / `--show-config` / `__cfg_*` builtin 纯读——优先级链
@@ -189,16 +215,53 @@ impl Default for RuntimeConfig {
             sample_hz: None,
             sample_out: PathBuf::from("z42-samples.folded"),
             trace_out: None,
+            jit_threshold: 2,
+            osr_threshold: 10_000,
+            jit_debug_promote: false,
+            no_fusion: false,
+            no_typed_fusion: false,
+            fusion_debug: false,
+            stackalloc: None,
+            repl_native: None,
             resolved: Vec::new(),
         }
     }
 }
 
 impl RuntimeConfig {
-    /// Build from the process environment (POSIX getenv / Windows GetEnvironmentVariable).
-    /// Empty strings are treated as unset.
+    /// Build from the process environment: env vars **plus** the two config-file
+    /// layers the environment names (`Z42_CONFIG` → user, `Z42_APP_CONFIG` → app
+    /// sidecar). Empty strings are treated as unset.
+    ///
+    /// This is the path every **non-`z42vm`** entry point takes — `runtime_config()`
+    /// lazily initialises through it, so `z42_host_run_app` (desktop self-contained
+    /// apphost / wasm / iOS / Android / testhost) lands here. `z42vm`'s `main()`
+    /// does not: it assembles the CLI layer itself and installs the result via
+    /// [`init_runtime_config`] before anything reads it.
+    ///
+    /// sidecar-reaches-published-apps (2026-09-05) added the file layers here.
+    /// They used to be loaded **only** in `main()`, so every embedder silently
+    /// ignored `Z42_CONFIG` and `Z42_APP_CONFIG` — the documented precedence
+    /// chain simply did not hold outside the `z42vm` binary.
+    ///
+    /// **Never exits.** A malformed config file downgrades to one stderr line and
+    /// "that layer does not exist": this is a library path that may be running
+    /// inside a host process (an iOS app, an Android JNI thread, wasm), where
+    /// killing the process over a config typo is not ours to do. `z42vm`'s
+    /// `main()` keeps the stricter treatment (fatal + `--strict-config`).
     pub fn from_env() -> Self {
-        Self::from_getter(|name| std::env::var(name).ok())
+        let get = |name: &str| std::env::var(name).ok();
+        let user = load_layer_lenient(&get, "Z42_CONFIG");
+        let app = load_layer_lenient(&get, "Z42_APP_CONFIG");
+        let inputs = Inputs {
+            user_config: user.as_ref(),
+            app_config: app.as_ref(),
+            ..Default::default()
+        };
+        let (cfg, resolution) = Self::resolve_with(&get, &inputs, &BuildCtx::current());
+        // Warn-only: no `--strict-config` on this path (see the doc above).
+        let _ = resolution.into_result(false);
+        cfg
     }
 
     /// Build using an injectable env getter. Test-friendly form —
@@ -281,6 +344,17 @@ impl RuntimeConfig {
             sample_out:          get("Z42_SAMPLE_OUT").map(PathBuf::from)
                                     .unwrap_or_else(|| PathBuf::from("z42-samples.folded")),
             trace_out:           get("Z42_TRACE_OUT").map(PathBuf::from),
+
+            // adopt-inline-env-knobs：语义与各自原先的内联读取逐字相同
+            // （两个 threshold 仍 clamp ≥1；四个开关现在是真布尔，见 knob_table）。
+            jit_threshold:       parse_u32_knob(&get, "Z42_JIT_THRESHOLD", 2),
+            osr_threshold:       parse_u32_knob(&get, "Z42_OSR_THRESHOLD", 10_000),
+            jit_debug_promote:   parse_bool_knob(&get, "Z42_JIT_DEBUG_PROMOTE"),
+            no_fusion:           parse_bool_knob(&get, "Z42_NO_FUSION"),
+            no_typed_fusion:     parse_bool_knob(&get, "Z42_NO_TYPED_FUSION"),
+            fusion_debug:        parse_bool_knob(&get, "Z42_FUSION_DEBUG"),
+            stackalloc:          get("Z42_STACKALLOC"),
+            repl_native:         get("Z42_REPL_NATIVE").map(PathBuf::from),
 
             resolved: res.knobs.clone(),
         }

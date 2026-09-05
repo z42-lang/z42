@@ -132,6 +132,7 @@ public sealed class IrLoopUtil {
     }
 
     // ② 支配：dom[b*n+x] = x 支配 b。迭代 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=0。
+    // 不动点结果与前驱访问序无关（交是可交换可结合的），故建表/换序不改变输出。
     private static bool[] _computeDom(int n, bool[] predMat) {
         bool[] dom = new bool[n * n];
         dom[0] = true;
@@ -141,29 +142,49 @@ public sealed class IrLoopUtil {
             while (x < n) { dom[b * n + x] = true; x = x + 1; }
             b = b + 1;
         }
+        // 前驱邻接表（CSR）：稠密 predMat 每轮每块都要 O(n) 扫一遍才知道谁是前驱，而多数块
+        // 只有 1-2 个前驱 —— 这里只扫一次建表（O(n²) 一次性），之后每轮按表直取。
+        int[] predOff = new int[n + 1];
+        b = 0;
+        while (b < n) {
+            int c = 0;
+            int p = 0;
+            while (p < n) { if (predMat[b * n + p]) { c = c + 1; } p = p + 1; }
+            predOff[b + 1] = predOff[b] + c;
+            b = b + 1;
+        }
+        int[] preds = new int[predOff[n]];
+        b = 0;
+        while (b < n) {
+            int w = predOff[b];
+            int p = 0;
+            while (p < n) { if (predMat[b * n + p]) { preds[w] = p; w = w + 1; } p = p + 1; }
+            b = b + 1;
+        }
+        bool[] inter = new bool[n];   // 提到迭代外复用：原来每块每轮 new 一个 bool[n]
         bool changed = true;
         while (changed) {
             changed = false;
             b = 1;
             while (b < n) {
-                bool[] inter = new bool[n];
-                int x = 0;
-                while (x < n) { inter[x] = true; x = x + 1; }
-                bool hasPred = false;
-                int p = 0;
-                while (p < n) {
-                    if (predMat[b * n + p]) {
-                        hasPred = true;
-                        int y = 0;
-                        while (y < n) { inter[y] = inter[y] && dom[p * n + y]; y = y + 1; }
-                    }
-                    p = p + 1;
-                }
-                if (hasPred) {
-                    inter[b] = true;
+                int lo = predOff[b];
+                int hi = predOff[b + 1];
+                if (lo < hi) {
                     int y = 0;
+                    int o = preds[lo] * n;
+                    while (y < n) { inter[y] = dom[o + y]; y = y + 1; }   // 首个前驱直接拷贝（取代「全填 true 再与」）
+                    int k = lo + 1;
+                    while (k < hi) {
+                        o = preds[k] * n;
+                        y = 0;
+                        while (y < n) { inter[y] = inter[y] && dom[o + y]; y = y + 1; }
+                        k = k + 1;
+                    }
+                    inter[b] = true;
+                    o = b * n;
+                    y = 0;
                     while (y < n) {
-                        if (dom[b * n + y] != inter[y]) { dom[b * n + y] = inter[y]; changed = true; }
+                        if (dom[o + y] != inter[y]) { dom[o + y] = inter[y]; changed = true; }
                         y = y + 1;
                     }
                 }
