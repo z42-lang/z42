@@ -117,8 +117,8 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
         Console.WriteLine("→ Preparing tooling (stdlib + z42vm; release)...");
         int c = _buildStdlib(); if (c != 0) { return c; }
         c = _buildRuntime(); if (c != 0) { return c; }
-        // _buildStdlib already self-builds z42c (→ _buildStdlibCore →
-        // _buildCompilerViaZ42c: 7 z42c.* members + self-contained driver); test
+        // _buildStdlib already self-builds z42c (→ _buildCompilerViaZ42c:
+        // 7 z42c.* members + self-contained driver); test
         // units compile through that z42c (z42vm + z42c.driver.zpkg). A trailing
         // _buildCompiler would be a redundant byte-identical gen2 self-build; the
         // _buildRuntime above already refreshes the release z42vm for format skew.
@@ -183,7 +183,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // lib's [tests]/[benches] section (Auto → convention scan, byte-identical to
     // the legacy path for the many libs declaring no section) + explicit
     // [[test]]/[[bench]] targets (harness=true → z42b reflection; harness=false →
-    // exit-code) drive _runLibKind (xtask_test_targets.z42). 3-layer dev-deps
+    // exit-code) drive _runLibKind (xtask_manifest_targets.z42). 3-layer dev-deps
     // (target > section > project) via ManifestLoader replace the raw-toml harvest.
     foreach (var lib in libList) {
         int f = _runLibKind(root, libsRoot, lib, subdir, kind, label, filter,

@@ -3,7 +3,7 @@
 //
 // Builds the z42 self-host compiler workspace (src/compiler — 7 子包 1:1 镜像 C#
 // bootstrap 的 7 项目) and smoke-tests that all 7 z42c.<sub>.zpkg are produced.
-// Mirrors xtask_stdlib.z42 (_buildStdlibCore) but targets src/compiler →
+// Mirrors xtask_stdlib.z42 (_buildStdlib) but targets src/compiler →
 // artifacts/build/compiler.
 //
 // NO Z42_LIBS needed: the C# z42c resolves declared workspace siblings from the

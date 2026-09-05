@@ -1,7 +1,7 @@
 // xtask — packages.toml assembly engine self-check (add-package-layout-config,
 // 阶段 4.1b).
 //
-// Same rationale as xtask_test_packages_config.z42 / xtask_test_stage_components.z42:
+// Same rationale as xtask_selfcheck_packages_config.z42 / xtask_selfcheck_stage_components.z42:
 // xtask is an exe, so the [Test]-attribute reflection runner can't see it — this
 // is a plain throw-on-mismatch self-check, not [Test]-discovered.
 //
