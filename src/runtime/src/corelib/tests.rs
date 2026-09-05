@@ -541,3 +541,28 @@ fn make_closure_returns_null_for_invalid_args() {
     // env 不是 array
     assert_eq!(exec_builtin(&c, "__make_closure", &[s("x"), i(5)]).unwrap(), Value::Null);
 }
+
+// ── refactor-split-corelib-mod: 拼接表的不变式 ─────────────────────────────
+//
+// BUILTINS 现在是 PART1 ++ PART2 的**编译期**拼接（两个文件纯粹是 500 行硬限所
+// 迫）。下标即 BuiltinId、会被烤进 zbc，所以拼接不能错位、不能留空洞。
+
+#[test]
+fn builtin_table_join_preserves_order_and_has_no_holes() {
+    use super::BUILTINS;
+    // 没有被填充值漏下来的空洞（padding 的名字是空串）。
+    assert!(BUILTINS.iter().all(|(n, _)| !n.is_empty()),
+        "a padding slot leaked into BUILTINS — the const join left a hole");
+    // 第一条仍是历史上的 BuiltinId 0。
+    assert_eq!(BUILTINS[0].0, "__println", "BuiltinId 0 must stay stable");
+    // 名字唯一——重复会让 name→id 索引静默丢掉一个实现。
+    let mut names: Vec<&str> = BUILTINS.iter().map(|(n, _)| *n).collect();
+    let total = names.len();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), total, "duplicate builtin name in BUILTINS");
+    // 拼接点两侧的相对顺序保持：PART2 的第一条排在 PART1 最后一条之后。
+    let idx = |n: &str| BUILTINS.iter().position(|(x, _)| *x == n).unwrap();
+    assert!(idx("__process_handle_drop") < idx("__platform_os"),
+        "PART2 must follow PART1 — appended BuiltinIds shifted");
+}

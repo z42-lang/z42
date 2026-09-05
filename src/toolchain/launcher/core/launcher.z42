@@ -316,15 +316,13 @@ void _cmdRun(string[] rest) {
         .Stdout(Stdio.Inherit())
         .Stderr(Stdio.Inherit());
     if (libs.Length > 0) { proc = proc.Env("Z42_LIBS", libs); }
-    // Point z42vm at a `[runtime]` config file (P0 resolution). Precedence for
-    // "which file": explicit `--config` (repl-run-config) > user's env
-    // Z42_CONFIG > the app's `.runtimeconfig.toml` sidecar (P1).
-    if (cfgOpt != null && cfgOpt.Length > 0) {
-        proc = proc.Env("Z42_CONFIG", cfgOpt);
-    } else if (hasCfg) {
-        string existingCfg = Environment.GetEnvironmentVariable("Z42_CONFIG") ?? "";
-        if (existingCfg.Length == 0) { proc = proc.Env("Z42_CONFIG", rcPath); }
-    }
+    // 两个**独立**的配置文件层（complete-runtime-settings P5）：
+    //   Z42_CONFIG     = 用户配置（`--config`，否则继承用户自己 export 的）
+    //   Z42_APP_CONFIG = 应用侧车 `<app>.runtimeconfig.toml`（随产物分发）
+    // z42vm 侧逐 key 叠加、用户层赢。此前两者共用 Z42_CONFIG 一个通道且只在用户
+    // 没设时才塞侧车——于是用户一 export Z42_CONFIG，侧车就被整份丢弃。
+    if (cfgOpt != null && cfgOpt.Length > 0) { proc = proc.Env("Z42_CONFIG", cfgOpt); }
+    if (hasCfg) { proc = proc.Env("Z42_APP_CONFIG", rcPath); }
     // Forward the program's own args after `--`.
     if (appArgs.Length > 0) {
         proc = proc.Arg("--");
