@@ -219,13 +219,11 @@ string _epBenchModeKey(JsonValue b) {
 // — or "" if the probe could not be produced, which callers must treat as "no
 // profile" (see _epProbe).
 //
-// Source location: `src/tests/perf/probe/` since move-bench-into-tests
-// (2026-09-05); `bench/probe/` before it. The fallback exists for ONE caller
-// shape: `bench stdlib --json` run with cwd=base-src (bench-pr.yml's "Capture
-// base micro baseline"), where `root` is a checkout of the PR's merge base. On
-// the PR that performs the move, that base predates it and only has the old
-// path. Once the move is in main, every base carries the new layout —
-// **delete this fallback then** (grep BENCH-LAYOUT-MIGRATION).
+// `root` is the tree being measured; for `bench stdlib --json` under
+// bench-pr.yml's "Capture base micro baseline" that is base-src, a checkout of
+// the PR's merge base. So the probe must exist at the same path in BOTH trees —
+// any PR that moves it needs a transitional fallback here (move-bench-into-tests
+// carried one for exactly one PR, removed once main had the new layout).
 //
 // Both the missing-source and failed-compile paths used to be silent: this
 // function ignored the compiler's exit code and _epProbe turned any unparseable
@@ -236,15 +234,10 @@ string _epBenchModeKey(JsonValue b) {
 string _epEnsureProbe(string root, string vm, string driver, string libs) {
     string src = Path.Join(root, "src/tests/perf/probe/capabilities.z42");
     if (!File.Exists(src)) {
-        // BENCH-LAYOUT-MIGRATION: pre-move tree (base-src on the moving PR).
-        string legacy = Path.Join(root, "bench/probe/capabilities.z42");
-        if (File.Exists(legacy)) { src = legacy; }
-        else {
-            ConsoleError.WriteLine("warning: exec-profile probe source not found under "
-                + root + " (tried src/tests/perf/probe/ and bench/probe/) — "
-                + "results will carry an empty profile and will NOT match across trees");
-            return "";
-        }
+        ConsoleError.WriteLine("warning: exec-profile probe source not found at "
+            + src + " — results will carry an empty profile and will NOT match "
+            + "across trees (did a PR move the probe without a transitional fallback?)");
+        return "";
     }
     string outDir = Path.Join(root, "artifacts/.scratch/exec-profile");
     Directory.Create(outDir);
