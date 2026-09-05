@@ -1,7 +1,7 @@
 # 性能基准与回归门禁（benchmark / bench gate）
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/xtask_bench.z42` · `bench/` · `.github/workflows/bench-pr.yml` · `bench-update.yml`
-> **相关**: [xtask](xtask.md) · [测试门禁](test-gate.md) ｜ **对齐**: 2026-08-24
+> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/xtask_bench.z42` · `bench/` · `.github/workflows/bench-pr.yml`
+> **相关**: [xtask](xtask.md) · [测试门禁](test-gate.md) ｜ **对齐**: 2026-09-05
 
 ## 概述
 
@@ -9,8 +9,8 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 
 1. **度量**——`xtask bench` 跑一组端到端场景（`bench/scenarios/*.z42`），每条产出带
    置信区间的结构化结果（schema v2）；`xtask bench stdlib <lib>` 跑库内 `[Benchmark]` 微基准。
-2. **持久化（历史 dashboard）**——每次 push 到 main，`bench-update.yml` 把全量 e2e 结果提交到孤儿分支
-   `bench-baselines`，作为"main 历史性能"趋势记录。**它不再喂门禁**（见下）。
+2. **分层**——场景在源码头部声明 `// tier: gate | full`。`gate` 是 PR 门禁测量的那一小组代表性场景，
+   `full` 是其余（本地 / 按需）。`xtask bench` 默认 `--tier all`，CI 传 `--tier gate`。
 3. **门禁（同-runner A/B）**——PR 触碰性能敏感路径时，`bench-pr.yml` 在**同一台 runner** 上建 PR
    与 base（merge-base）两套工具链，`xtask bench --ab` 让每个场景在两套下**同机相邻**编译+测量，按
    比值 95% 下界判红。这取代了旧的「拉另一台 runner 的 baseline 快照做跨-runner diff」——那种比法
@@ -43,25 +43,26 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | **PR 门禁比法** | **同-runner A/B**（base 与 pr 同机相邻测量，比比值）| 跨-runner baseline 快照被 ±26–60% between-run 偏移主导，门禁失明；同机测量让 `k` 约掉，才既不假报又能抓真回归 |
 | **A/B 判红准则** | **比值 95% 下界 R_lower > 1+thr**（SEM 误差传播）| 同机抵消后 within-run SEM 才有效；对商做误差传播得比值置信区间，下界超阈值 = 有把握判回归 |
 | **A/B 交错** | hyperfine 双命令单 invocation（`env Z42_LIBS=… vm …` 前缀）| 两侧相邻数秒、各带自己的 libs；逐次交错属过度工程 |
-| 区间感知 diff（历史） | `bench --diff`：**区间分离 AND 均值超阈值** | 旧 PR 门禁准则（P0）；现降级为 `bench --diff` 命令 + 历史 dashboard 对比，不再是 PR 门禁 |
+| 区间感知 diff（本地） | `bench --diff`：**区间分离 AND 均值超阈值** | 旧 PR 门禁准则（P0）；现降级为本地「优化前后对比」工具，需显式 `--baseline <path>` |
 | 区间来源 | 复用结果 JSON 已有的 `ci_lower`/`ci_upper` | e2e 由 hyperfine 的 min/max 产、micro 用采样 min/max 充当；不采集新数据，零额外成本 |
 | 缺区间回落 | 任一侧缺 `ci_lower`/`ci_upper` → 裸均值比值门禁，标 `(no-ci)` | 老格式 / 外部结果无 CI 时仍可判，只是回到宽松语义，显式标注让读者知道判据降级了 |
-| 阈值 | 时间 5%（`--threshold-time`；CI 用 0.10）/ 内存 10% | 时间默认严、CI 放宽到 10% 匹配 0.2.3 退出标准；内存指标暂为 informational |
+| **阈值** | 时间 5%（`--threshold-time` 默认）/ **CI 用 0.25** / 内存 10% | **阈值必须高于噪声底**：实测噪声底 ±13~16%，10% 的旧值画在其下 ⇒ 假红是数学必然（见「噪声底与阈值」）。内存指标暂为 informational |
+| **场景分层** | `// tier: gate \| full` 头部声明；CI 传 `--tier gate` | 门禁只需一小组代表性场景。**这同时把每 PR 的比较次数从 87 降到 6~12**，多重比较的假红概率随之降一个量级——分层不只是省时间 |
 | 画像键 | `(name, metric, mode_label@os/arch)` | interp/jit、跨平台结果隔离，杜绝 interp 的数字被拿去比 jit 基线 |
-| micro 进 CI | **是（同-runner A/B）** | 单快照跨-runner 比确实噪声过敏；但**同-runner** base-batch vs pr-batch 把机器因子约掉，配 Bencher mean/stddev 的 SEM → 门禁有效（`bench --micro-diff`） |
-| 基线存放 | 孤儿分支 `bench-baselines`，非主仓库树 | 结果 JSON 随 push 每日覆盖，进主分支历史会污染 diff；孤儿分支隔离、PR 侧按需 fetch |
+| **micro 进 CI** | **跑，但只打印、不判红**（informational） | Bencher 的 stddev 是**进程内**批次样本方差，而 base/pr 是两个独立进程 ⇒ 区间被低估约三倍，「区间分离」这道保险不成立（见「噪声底与阈值」）。要重新硬门禁，先做「可疑即复测」 |
+| 基线存放 | **不存**（`bench-update.yml` + `bench-baselines` 分支已删） | 它早已不喂门禁，却每次 push main 烧一个 job、往孤儿分支累积了 1249 条机器提交。趋势记录若要恢复，应落在独立的数据仓，而不是代码仓的分支 |
 
 ## 三层度量 tier
 
 | tier | 工具 | 位置 | 粒度 | 进 CI 门禁 |
 |------|------|------|------|-----------|
-| **z42 e2e** | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ `bench-pr.yml` 硬门禁 |
-| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 同-runner A/B（`bench --micro-diff`） |
+| **z42 e2e** | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ `bench-pr.yml` 硬门禁（**只测 `--tier gate`**） |
+| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ⚠️ **只打印、不判红**（`bench --micro-diff`；理由见「噪声底与阈值」②） |
 | **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke）| ✅ criterion 原生 A/B（仅 src/runtime 改动时） |
 
-**e2e** 捕获全管线回归（启动开销 / dispatch / 整体吞吐），是门禁守护面；**micro** 把回归
-定位到具体函数、守 stdlib 热路径——ns 级单快照跨-runner 比确实过敏，但**同-runner A/B**
-（base 树 + pr 树同机各测一遍、比比值）把机器因子约掉，配 mean/stddev 的 SEM 后同样能进门禁。
+**e2e** 捕获全管线回归（启动开销 / dispatch / 整体吞吐），是**唯一的硬门禁守护面**；**micro** 把回归
+定位到具体函数、守 stdlib 热路径，但它的置信区间不可信（进程内样本方差 vs 跨进程比较，低估约三倍），
+故**只作诊断材料、不判红**——改 stdlib 热路径后自己去 CI 日志里看那 65 条比值。
 
 ### micro 同-runner A/B（`bench --micro-diff`，Part B）
 
@@ -72,10 +73,12 @@ micro `[Benchmark]` 在 z42b 里**进程内**跑，base 与 pr 的同名 stdlib 
 2. **base(merge-base) 树**跑同样命令 → `micro-base.json`（base 工具链，复用 CI「Build base toolchain」步已建
    的 base 编译器+stdlib，仅新建 base z42b）。
 3. `bench --micro-diff --current micro-pr.json --baseline micro-base.json` 逐基准（按 `name` + 画像键配对）
-   `_abVerdict`——与 e2e 共用同一判红纯函数。回归 ⟺ R_lower > 1+thr（CI 用 0.10）。
+   `_abVerdict`——与 e2e 共用同一判红纯函数。
 
-同机顺序测量 → 机器因子在比值抵消；采样越多（自适应）CI 越紧、门禁越敏。PR 新增/改名的基准在 base 无
-对应 → 信息性 skip，不判红。
+⚠️ **这一层在 CI 里只打印、不 fail job**（simplify-bench-gate）。同机顺序测量确实让机器因子在比值抵消，
+但它**没有**消掉进程间那部分方差，而 `Bencher` 的 stddev 又只测进程内——两者一叠加，区间比真实噪声窄约
+三倍，判红退化成抽签。完整数据与现场见「[噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)」。
+PR 新增/改名的基准在 base 无对应 → 信息性 skip。
 
 ### Bencher 统计与自适应采样（`Std.Test.Bencher`）
 
@@ -146,9 +149,6 @@ flowchart TD
     V -->|R_lower > 1+thr| F[❌ fail workflow]
     V -->|overlap / faster| K[✅ pass]
   end
-  subgraph dash[push → main：历史 dashboard，不喂门禁]
-    U[bench-update.yml] -->|xtask bench| BL[(bench-baselines 分支)]
-  end
 ```
 
 **base 工具链怎么来**：ci-bootstrap 的 composite 头一步 `cd $(git rev-parse --show-toplevel)` 会锁回 PR
@@ -172,16 +172,17 @@ else:                   → ≈ overlap       (noise, 放行)
 缺 stddev/n（n≤1 或 stddev≤0）→ 回落裸比值 ratio>1+thr，标 (no-ci)
 ```
 
-- `thr` 默认 **0.10**（CI 用 0.10，沿用 0.2.3 退出标准）；`Z=1.96`。
+- `thr` 默认 **0.10**；**CI 用 0.25**——见下「噪声底与阈值」，10% 画在噪声底之下，假红是数学必然。`Z=1.96`。
 - 结果落 `bench/results/ab.json`（`ab-v1` schema：每场景 base/pr mean·stddev、ratio、r_lower/r_upper、
   verdict），信息性 artifact，不复用 baseline-schema。
 - **同机抵消让 within-run SEM 在此统计有效**——这是 P0 跨-runner 比法下不成立、A/B 下才成立的关键。
 
 ### 区间感知 diff（`bench --diff`；历史 dashboard 对比，非 PR 门禁）
 
-> **P0 时期的 PR 门禁准则，现已退休为 `bench --diff` 命令 + 历史对比工具**（不再由 bench-pr 调用）。
-> 基线仍活在 `bench-baselines` 孤儿分支（`bench/results/*`、`bench/baselines/*` gitignored），
-> `bench-update.yml` 每 push 覆盖一次，供人工趋势对比 / 本地 `--diff`。判红语义如下：
+> **P0 时期的 PR 门禁准则，现已退休为纯本地的「优化前后对比」工具**（不再由 bench-pr 调用）。
+> `bench-update.yml` 与 `bench-baselines` 孤儿分支已于 simplify-bench-gate 删除（那条分支累积了
+> 1249 条机器提交、同一个 JSON 反复覆盖，而它早已不喂门禁），故 `--diff` **必须显式给
+> `--baseline <path>`**，不再自动挑一份主分支基线。判红语义如下：
 
 对每条 current 结果，按画像键在 baseline 里找对应项（`_findBenchObj`），然后：
 
@@ -210,6 +211,48 @@ exit = regressions > 0 ? 1 : 0
 
 改进（`↓`）对称要求区间反向分离，但**从不 fail**，只作展示。
 
+### 噪声底与阈值（simplify-bench-gate，2026-09-05）
+
+**这一节是阈值取值的依据，改阈值前必须先读。** 门禁在此之前每个 PR 期望假红约 2 条，最近 4 次
+`bench-pr` 失败逐条核对**全部是假红**——三个叠加缺陷：
+
+**① 判红阈值画在噪声底之下。** 拿两个**应当 perf-neutral 的 PR** 反推真实噪声（比值对数标准差 ×1.96）：
+
+| 层 | 探针 PR | 比值散布 | **真实噪声(95%)** | 声称的区间宽度 |
+|----|---------|---------|------------------|----------------|
+| e2e（22 条） | 编译器注册键重构 | 0.932 – 1.239 | **±13%** | 中位 7.9% |
+| micro（65 条） | GC loom 建模（不碰 crypto） | 0.747 – 1.115 | **±16%** | 中位 4.8%、最窄 **0.25%** |
+
+旧阈值 10% 低于这个噪声底 ⇒ 筛出来的必然主要是噪声。**现 CI 用 0.25**（留安全边际）。
+
+> **代价说清楚**：抓不到 25% 以下的真回归。但旧门禁**也抓不到**——真信号淹在假红里，没人认真看。
+> 而历史上真正需要拦住的量级（把 #421 的负缓存 revert = **1.93×**）远超 25%。
+> **一个 25% 阈值但没人忽略的门禁，强过一个 10% 阈值但被当噪声跳过的门禁。**
+
+**② 声称的置信区间被系统性低估 ⇒「区间分离」这道保险失效。** micro 声称的区间中位仅 4.8%，
+而真实噪声 ±16%——**低估约三倍**。根因：`Bencher` 的 `stddev` 是**单个进程内批次样本**的离散度，
+而 base 与 pr 是**两个独立进程**，进程间那部分方差（CPU 频率 / page cache / 分配器与 GC 起始状态 /
+[代码布局彩票](#启动类微小回归先排除布局彩票cache-failed-name-resolution2026-09-04)）完全没被建模。
+判红因此退化成「谁的区间碰巧最窄」的抽签——同一批数据里的现场：
+
+| 基准 | 比值 | 声称区间 | 判定 | 为什么是假红 |
+|------|------|---------|------|-------------|
+| `crypto.sha256_4k` | 1.115 | ±0.15% | ↑ 判红 | 区间窄到离谱，恰好把 1.10 顶出去 |
+| `crypto.sha256_small` | 1.110 | ±0.8% | ≈ 放过 | **同量级的同一效应**，只因区间稍宽就没红 |
+| `crypto.aes_cbc_4k` | 0.810 | ±0.06% | ↓ 快 19% | GC 改动不可能让 AES 快 19%，却被宣称为极高置信 |
+
+e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs 真实 13%，低估约 1.6 倍）但仍不够，
+故 e2e 保持硬门禁、**micro 降级为只打印不判红**。
+
+**③ 每个 PR 做 22+65=87 次比较、不做多重比较校正。** 即便区间完美标定，单侧 95% 下期望假红也有
+`87 × 0.025 ≈ 2.2` 条；只要任意一条撞上，整个 job 红。**场景分层（`--tier gate`）把比较数降到 6~12**，
+这是分层最容易被低估的收益。
+
+**尚未做（下一步，是收紧阈值的前提）——「可疑即复测」**：今天 base 与 pr 各测**一次**，比值的不确定度
+只能从进程内样本方差推（即缺陷 ②）。正解是第一轮照常测，**只对初判 `R_lower > 1+thr` 的那 1~2 条**
+再交替测 k=3 轮，用**三个独立比值之间的离散度**重算区间——那才是真实的不确定度。因为复测只发生在少数
+条目上，成本约 +30~60s 而非 ×3。有了它，阈值才有依据从 25% 收回 15%、micro 才有依据重新硬门禁。
+
 ### 判定结果的四种标注
 
 | 符号 / 标注 | 含义 | 是否 fail |
@@ -233,20 +276,34 @@ exit = regressions > 0 ? 1 : 0
 ### CI 门禁接线（bench-pr.yml）
 
 触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `bench` /
-`scripts/**/*.z42` / 本 workflow），**纯文档 PR 跳过**。`timeout-minutes: 60`（建两套工具链 + micro/criterion A/B）。步骤：
+`scripts/**/*.z42` / 本 workflow），**纯文档 PR 跳过**。步骤：
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`）
 2. bootstrap PR 工具链（`ci-bootstrap`：nightly z42c 种子 → 当前源码 warm 自建）
 3. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime` 无变更 → base_vm=pr_vm，否则
    cargo 建 base z42vm；PR z42c 编 `base-src/src/compiler`→base z42c，base z42c 编 `base-src/src/libraries`→base stdlib
-4. **e2e A/B**：`xtask bench --ab --mode both --threshold-time 0.10 --base-vm/-libs/-driver …`：每场景×mode
-   在两套下同机编译+测量，`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `bench/results/ab.json`
-5. **micro A/B**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树复用 3 建的工具链、cp base_vm、
-   仅新建 base z42b）→ `bench --micro-diff` 逐基准 `_abVerdict` 判红
+4. **e2e A/B（唯一硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`。
+   `MODE` 按改动面收窄：`src/runtime` 无变更 → `jit`（interp/jit 的相对性能只可能被 VM 改动挪动），
+   否则 `both`。`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `bench/results/ab.json`
+5. **micro A/B（informational，永不 fail）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树
+   复用 3 建的工具链、仅新建 base z42b）→ `bench --micro-diff` 打印全部比值。降级理由见「噪声底与阈值」②
 6. **criterion A/B**（Part C，仅 `src/runtime` 改动时）：base 树 `--save-baseline ab-base`、PR 树
    `--baseline ab-base`（共享 `CRITERION_HOME`），读 `change/estimates.json` 判红（>10% 且 CI 分离）
-7. **allocations 探针（informational，永不 fail）**：alloc 计数是确定性的（不像 wall-time），
-   打印每场景 × GC-mode 的分配数，为将来的确定性 alloc 回归门禁积累观测（决策 D4）
+
+**耗时构成**（实测，run 33930770961 / 33923733669；`gh run list` 看到的 2000s+ 是**排队**不是执行）：
+
+| 步骤 | 改前 | 改后 |
+|------|------|------|
+| bootstrap PR 工具链 | 210–288s | 不变（地板） |
+| 建 base 工具链 | 54–61s | 不变（只占 5%，不是耗时主体） |
+| e2e A/B | 385s（11 场景 × 2 mode） | ~105s（6 场景 × jit） |
+| micro 捕获 ×2 | 92s | 不变（仍跑，只是不判红） |
+| **allocations 探针** | **268–284s（26%，且从不 fail）** | **0 —— 已删** |
+| **合计（执行）** | **1046–1100s ≈ 17–18 min** | **≈ 8–10 min** |
+
+> allocations 探针的注释自己写着「observe 3-5 rounds before turning it into a gate」——观察期早已过去，
+> 它既没变成门禁也没人读，却稳定占掉每个 PR 四分半。**要么做成门禁，要么删**，本次选删；
+> alloc 计数是确定性指标，真要用它，正确的位置是定期采样而不是每个 PR 的关键路径。
 
 > **格式-bump 边角（已知瞬态）**：PR 同时 bump zpkg 格式 **且**动 `src/runtime` 时，base driver 是 PR(新)
 > 格式而 base_vm 是 base(旧)格式读不了 → 该 PR 当次 bench 可能红。与 bootstrap-seed 的格式-bump 瞬态一致，
@@ -274,14 +331,22 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
 
 ## 已知局限与后续
 
-- **micro/criterion tier 已进门禁**（Stage 2/3，extend-ab-bench-micro-criterion）：micro 用两个隔离
-  `bench stdlib --json` 基线 + `bench --micro-diff`；criterion 用其原生 baseline 对照（仅 runtime 改动时）。
-  `ab-bench-micro` / `ab-bench-criterion` 两个 Deferred 项**已落地**。
+- ⚠️ **「可疑即复测」尚未实现——这是收紧阈值与恢复 micro 硬门禁的唯一前提**（Deferred
+  `ab-resample-on-suspicion`）。今天 base 与 pr 各测**一次**，比值的不确定度只能从进程内样本方差推，
+  这正是「[噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)」缺陷 ② 的根。做法：第一轮照常测，
+  只对初判 `R_lower > 1+thr` 的 1~2 条再交替测 k=3 轮，用**跑间比值离散度**重算区间（成本 +30~60s，
+  不是 ×3）。落地后阈值可从 0.25 收回 0.15、micro 可重新判红。
+- **micro tier 只打印不判红**（simplify-bench-gate 降级）；criterion 仍硬门禁（它自带 outlier 检测 +
+  bootstrap CI，且只在 `src/runtime` 改动时跑）。
+- **`full` 层场景当前只在本地跑**：`bench-update.yml` 删除后，非 gate 层的 5 个场景没有 CI 落点。
+  这是本次的**已知取舍**——需要时用 `xtask bench`（默认 `--tier all`）本地全跑；若要恢复定期全量，
+  应落在独立的数据仓 / 定时 workflow，而不是回到「每次 push main 烧一个 job」。
 - **A/B 交错粒度**：hyperfine 双命令是「base 全跑→pr 全跑」于一 invocation（同机相邻，够抵消 between-run），
   非逐次交错；逐次交错抗 job 内漂移更强，Deferred `ab-interleave-per-run`。
 - **内存指标**：schema 有 `metric:"memory"` 位，但 e2e harness 暂不采集 RSS；`--threshold-memory`
   保留默认、内存 diff 为 informational。
-- **allocations 门禁**：探针已打印、待观测 3–5 轮跨 GC-mode 稳定性后再转硬门禁。
+- **allocations 探针已删**（simplify-bench-gate）：占单次 job 26%、从不 fail、观察期内没人推进它转门禁。
+  alloc 计数确实是确定性指标，值得做门禁，但正确位置是定期采样而非每个 PR 的关键路径。
 
 ## 参考
 

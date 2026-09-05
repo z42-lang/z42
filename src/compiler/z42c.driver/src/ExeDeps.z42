@@ -1,0 +1,88 @@
+// z42c driver —— exe 产物的兄弟包依赖 bundling（`_bundleExeDeps` / `_srcRoot`）。
+// refactor-split-driver-main（complete-runtime-settings P5 前置，2026-09-05）：
+// `Main.z42` 长期 636 行、在 line-limit 棘轮基线上，任何增长都会让 `xtask test lines`
+// 变红。本文件是从它逐行搬出的**纯移动**（无逻辑改动），同包同 namespace，调用方
+// 不变；搬完 Main.z42 回到 500 行硬限之下、可从基线剔除。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Z42.Project;
+using Z42.Build.Project;
+
+// **非标准库**依赖（名不以 `z42.` 开头，即 workspace 本地兄弟包如 `z42c.*`）的已构建
+// zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序 = [entry-zpkg 目录,
+// Z42_LIBS]，故 exe 从自身 dist 即可解析兄弟包，stdlib（z42.*）仍走 Z42_LIBS。
+// 仅直接依赖（与 publish 一致：exe 应直接声明全部所需兄弟；传递闭包记 Deferred）。
+int _bundleExeDeps(ProjectManifest pm, string projectDir, string distDir, string[] libsDirs, int libsDirsN) {
+    // 复制判定（add-path-dependencies D2，镜像 builder _pubBundleProjectDeps）：真-stdlib
+    //（`<srcRoot>/libraries/<name>` 存在）走 Z42_LIBS 不复制；其余（path 依赖 / 非 stdlib 命名
+    // 依赖）= 私有，复制进 dist。srcRoot 找不到（repo 外构建）→ 回落旧判据「z42.* 命名视作
+    // stdlib、path 依赖必复制」。path 依赖名即便 z42.*（如 z42.repl）也不在 libraries → 复制。
+    string srcRoot = _srcRoot(projectDir);
+    int i = 0;
+    while (i < pm.DepCount) {
+        string dep = pm.Deps[i].Name;
+        bool isPathDep = pm.Deps[i].Path.Length > 0;
+        i = i + 1;
+        bool isTrueStdlib;
+        if (srcRoot.Length > 0) {
+            isTrueStdlib = !isPathDep
+                && Directory.Exists(Path.Join(Path.Join(srcRoot, "libraries"), dep));
+        } else {
+            isTrueStdlib = !isPathDep && dep.StartsWith("z42.");
+        }
+        if (isTrueStdlib) { continue; }   // 真-stdlib：走 Z42_LIBS，不复制
+        string zname = dep + ".zpkg";
+        bool copied = false;
+        int d = 0;
+        while (d < libsDirsN) {
+            string cand = Path.Join(libsDirs[d], zname);
+            if (File.Exists(cand)) {
+                string dst = Path.Join(distDir, zname);
+                if (cand != dst) {
+                    if (File.Exists(dst)) { File.Delete(dst); }
+                    File.Copy(cand, dst);
+                    string sym = Path.Join(libsDirs[d], dep + ".zsym");
+                    if (File.Exists(sym)) {
+                        string symDst = Path.Join(distDir, dep + ".zsym");
+                        if (File.Exists(symDst)) { File.Delete(symDst); }
+                        File.Copy(sym, symDst);
+                    }
+                }
+                copied = true;
+                d = libsDirsN;   // break
+            } else {
+                d = d + 1;
+            }
+        }
+        if (!copied) {
+            ConsoleError.WriteLine("z42c build: exe dep '" + dep
+                + "' zpkg 未在 libs 目录找到（先建兄弟包 / 用 --workspace / path 依赖）");
+            return ExitCode.BuildError;
+        }
+    }
+    return ExitCode.Ok;
+}
+
+// src 根：从 projectDir 上溯，找同时含 libraries/ 与 compiler/ 的目录（镜像 builder
+// _pubSrcRoot）。用于 _bundleExeDeps 的真-stdlib 判定。repo 外构建 → 返回 ""。
+string _srcRoot(string projectDir) {
+    string dir = Path.IsRooted(projectDir) ? projectDir
+        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
+    while (dir.Length > 0) {
+        if (Directory.Exists(Path.Join(dir, "libraries")) && Directory.Exists(Path.Join(dir, "compiler"))) {
+            return dir;
+        }
+        string parent = Path.GetDirectoryName(dir);
+        if (parent.Length == 0 || parent == dir) { return ""; }
+        dir = parent;
+    }
+    return "";
+}
+
+// `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找
+// z42.workspace.toml → 成员拓扑序 → 逐成员 build。
+// Milestone 1（显式 --output-dir <flat>）：全成员产物落该 flat dir（= 各成员 libsDir，
+// deps-first 解析兄弟）。产物 zpkg 与 C# `build --workspace` byte-identical（字节与
+// 目录无关）。注意：flat dir 须含 stdlib 依赖（调用方 seed Z42_LIBS 内容）。

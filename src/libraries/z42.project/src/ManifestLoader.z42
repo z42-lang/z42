@@ -236,10 +236,38 @@ public static class ManifestLoader {
             if (pv.ContainsKey("mode"))     { mode = pv.Get("mode").AsString(); }
             if (pv.ContainsKey("optimize")) { opt = (int)pv.Get("optimize").AsLong(); }
             if (pv.ContainsKey("debug"))    { debug = pv.Get("debug").AsBool(); }
-            r[i] = new Profile(names[i], pack, strip, mode, opt, debug);
+            r[i] = new Profile(names[i], pack, strip, mode, opt, debug, _profileKnobs(pv));
             i = i + 1;
         }
         return r;
+    }
+
+    // `[profile.<n>]` 里的**运行时**旋钮（complete-runtime-settings P5）。
+    // 构建期键（pack/strip/optimize/debug）指挥编译器，不是运行时设置，排除在外；
+    // 其余一律原样收下（含 mode），由 z42vm 的旋钮登记表判定认不认——manifest 侧
+    // 不复制一份旋钮清单，否则加一个旋钮要改两处。
+    private static string[] _profileKnobs(TomlValue pv) {
+        string[] keys = pv.Keys();
+        string[] tmp = new string[keys.Length];
+        int n = 0;
+        int i = 0;
+        while (i < keys.Length) {
+            string k = keys[i];
+            if (k != "pack" && k != "strip" && k != "optimize" && k != "debug") {
+                TomlValue v = pv.Get(k);
+                string s = "";
+                if (v.IsString())      { s = v.AsString(); }
+                else if (v.IsLong())   { s = v.AsLong().ToString(); }
+                else if (v.IsBool())   { s = v.AsBool() ? "true" : "false"; }
+                else if (v.IsDouble()) { s = v.AsDouble().ToString(); }
+                if (s.Length > 0) { tmp[n] = k + "=" + s; n = n + 1; }
+            }
+            i = i + 1;
+        }
+        string[] outv = new string[n];
+        int j = 0;
+        while (j < n) { outv[j] = tmp[j]; j = j + 1; }
+        return outv;
     }
 
     // ── [dependencies] / [workspace.dependencies] ────────────────────────────

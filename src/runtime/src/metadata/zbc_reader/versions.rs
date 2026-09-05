@@ -272,13 +272,10 @@ pub(super) fn verify_zbc_version(data: &[u8]) -> Result<()> {
     // Strict-pin policy (freeze-zbc-v1, 2026-05-14): exact match with writer.
     // Pre-1.0 z42 doesn't keep older zbc minor readable; regen via xtask regen.
     if major != ZBC_VERSION_MAJOR {
-        bail!("zbc major {major} not supported (writer is at {ZBC_VERSION_MAJOR})");
+        return Err(FormatVersionMismatch::zbc_major(major).into());
     }
     if minor != ZBC_VERSION_MINOR {
-        bail!(
-            "zbc minor {minor} not supported (writer is at {ZBC_VERSION_MINOR}); \
-             regen via xtask regen"
-        );
+        return Err(FormatVersionMismatch::zbc_minor(minor).into());
     }
     Ok(())
 }
@@ -297,14 +294,88 @@ pub(super) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
     // Pre-1.0 z42 doesn't keep older zpkg minor readable; regen via
     // xtask build stdlib.
     if major != ZPKG_VERSION_MAJOR {
-        bail!("zpkg major {major} not supported (writer is at {ZPKG_VERSION_MAJOR})");
+        return Err(FormatVersionMismatch::zpkg_major(major).into());
     }
     if minor != ZPKG_VERSION_MINOR {
-        bail!(
-            "zpkg minor {minor} not supported (writer is at \
-             {ZPKG_VERSION_MAJOR}.{ZPKG_VERSION_MINOR}); \
-             regen via xtask build stdlib"
-        );
+        return Err(FormatVersionMismatch::zpkg_minor(minor).into());
     }
     Ok(())
+}
+
+// ── typed format-version mismatch (fix-version-mismatch-diagnosis, 2026-09-05) ──
+//
+// Why a distinct error type rather than the former `bail!("…")` strings: the
+// strict-pin policy above makes a version mismatch **unrecoverable** — a z42vm
+// can read exactly one format generation, so a mismatched .zpkg can never be
+// substituted or partially used. Callers that (correctly) downgrade an ordinary
+// "could not read this artifact" to a warning must NOT do so here: continuing
+// boots a world without a stdlib and the failure resurfaces much later as a
+// bogus `undefined function Std.…` (older runtimes hung outright). `app.rs`
+// downcasts this type out of the anyhow chain to tell the two apart.
+//
+// Display strings are byte-identical to the former inline `bail!`s (asserted by
+// `zbc_reader_tests.rs`), so existing diagnostics and user-facing text are
+// unchanged — only the *type* is new.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatKind { Zbc, Zpkg }
+
+/// A .zbc / .zpkg whose format version is not the one this runtime is pinned to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormatVersionMismatch {
+    pub kind: FormatKind,
+    /// The version found in the file's header.
+    pub found: (u16, u16),
+    /// The version this runtime writes (and therefore the only one it reads).
+    pub writer: (u16, u16),
+    /// True when the *major* differs (a harder break than a minor bump).
+    pub major_differs: bool,
+}
+
+impl FormatVersionMismatch {
+    fn zbc_major(major: u16) -> Self {
+        Self { kind: FormatKind::Zbc, found: (major, 0), writer: (ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR), major_differs: true }
+    }
+    fn zbc_minor(minor: u16) -> Self {
+        Self { kind: FormatKind::Zbc, found: (ZBC_VERSION_MAJOR, minor), writer: (ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR), major_differs: false }
+    }
+    fn zpkg_major(major: u16) -> Self {
+        Self { kind: FormatKind::Zpkg, found: (major, 0), writer: (ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR), major_differs: true }
+    }
+    fn zpkg_minor(minor: u16) -> Self {
+        Self { kind: FormatKind::Zpkg, found: (ZPKG_VERSION_MAJOR, minor), writer: (ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR), major_differs: false }
+    }
+
+    /// The command that regenerates artifacts of this kind against this runtime.
+    pub fn remedy(&self) -> &'static str {
+        match self.kind {
+            FormatKind::Zbc => "xtask regen",
+            FormatKind::Zpkg => "xtask build stdlib",
+        }
+    }
+}
+
+impl std::fmt::Display for FormatVersionMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Byte-identical to the pre-2026-09-05 inline `bail!` strings.
+        match (self.kind, self.major_differs) {
+            (FormatKind::Zbc, true) => write!(
+                f, "zbc major {} not supported (writer is at {})", self.found.0, self.writer.0),
+            (FormatKind::Zbc, false) => write!(
+                f, "zbc minor {} not supported (writer is at {}); regen via xtask regen",
+                self.found.1, self.writer.1),
+            (FormatKind::Zpkg, true) => write!(
+                f, "zpkg major {} not supported (writer is at {})", self.found.0, self.writer.0),
+            (FormatKind::Zpkg, false) => write!(
+                f, "zpkg minor {} not supported (writer is at {}.{}); regen via xtask build stdlib",
+                self.found.1, self.writer.0, self.writer.1),
+        }
+    }
+}
+
+impl std::error::Error for FormatVersionMismatch {}
+
+/// Find a [`FormatVersionMismatch`] anywhere in an error chain (the readers wrap
+/// it in `.context(…)` on the way out).
+pub fn as_version_mismatch(e: &anyhow::Error) -> Option<&FormatVersionMismatch> {
+    e.chain().find_map(|c| c.downcast_ref::<FormatVersionMismatch>())
 }

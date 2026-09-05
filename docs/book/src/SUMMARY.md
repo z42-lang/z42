@@ -55,6 +55,7 @@
   - [GC]()
     - [GC 调参与自动回收 / safepoint 协议](runtime/gc-tuning-and-safepoint.md)
     - [GC TLAB：线程本地分配（chunk 独占）](runtime/gc-tlab-chunk-exclusive.md)
+  - [运行时设置（旋钮登记表 / 五层优先级 / 可用性与诊断）](runtime/runtime-settings.md)
   - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
   - [堆保留诊断（whyRetained）](runtime/heap-diagnostics.md)
   - [诊断与性能分析（采样 profiler / 火焰图 / perfetto）](runtime/diagnostics.md)

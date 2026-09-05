@@ -259,3 +259,79 @@ fn pure_primitive_struct_block_has_no_ref_leaves() {
     assert_eq!(sl.size, 8);
     assert!(sl.ref_offsets.is_empty(), "pure-primitive struct has no ref leaves");
 }
+
+// ── fix-version-mismatch-diagnosis (2026-09-05) ──────────────────────────────
+// A version mismatch is now a *typed* error (`FormatVersionMismatch`) so callers
+// that warn-and-continue on ordinary read failures can hard-fail on this one.
+// These tests pin both halves: the user-visible strings must not drift (they are
+// the same text the pre-2026-09-05 inline `bail!`s produced), and the type must
+// stay recoverable from an anyhow chain that has been `.context(…)`-wrapped.
+
+#[test]
+fn zpkg_wrong_minor_is_a_typed_version_mismatch() {
+    let bytes = build_zpkg_header(ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR + 1, 0x01);
+    let err = read_zpkg_modules(&bytes).unwrap_err();
+    let m = as_version_mismatch(&err).expect("should carry FormatVersionMismatch");
+    assert_eq!(m.kind, FormatKind::Zpkg);
+    assert_eq!(m.found, (ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR + 1));
+    assert_eq!(m.writer, (ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR));
+    assert!(!m.major_differs);
+    assert_eq!(m.remedy(), "xtask build stdlib");
+}
+
+#[test]
+fn zbc_wrong_minor_is_a_typed_version_mismatch() {
+    let bytes = build_zbc_header(ZBC_VERSION_MAJOR, ZBC_VERSION_MINOR + 1, 0);
+    let err = read_zbc(&bytes).unwrap_err();
+    let m = as_version_mismatch(&err).expect("should carry FormatVersionMismatch");
+    assert_eq!(m.kind, FormatKind::Zbc);
+    assert!(!m.major_differs);
+    assert_eq!(m.remedy(), "xtask regen");
+}
+
+#[test]
+fn version_mismatch_survives_context_wrapping() {
+    // The real path wraps the reader error in `.context("cannot read zpkg
+    // metadata")` (loader/artifact.rs) before app.rs sees it — the downcast must
+    // still find it, or the hard-fail silently degrades back to a warning.
+    use anyhow::Context;
+    let bytes = build_zpkg_header(ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR + 1, 0x01);
+    let err = read_zpkg_modules(&bytes)
+        .context("cannot read zpkg metadata")
+        .context("cannot parse zpkg `x.zpkg`")
+        .unwrap_err();
+    assert!(as_version_mismatch(&err).is_some(), "downcast lost through context()");
+}
+
+#[test]
+fn version_mismatch_messages_are_unchanged() {
+    // Byte-identical to the strings the inline bail!s produced.
+    let zpkg = read_zpkg_modules(&build_zpkg_header(ZPKG_VERSION_MAJOR, 41, 0x01)).unwrap_err();
+    assert_eq!(
+        as_version_mismatch(&zpkg).unwrap().to_string(),
+        format!(
+            "zpkg minor 41 not supported (writer is at {ZPKG_VERSION_MAJOR}.{ZPKG_VERSION_MINOR}); \
+             regen via xtask build stdlib"
+        )
+    );
+    let zpkg_maj = read_zpkg_modules(&build_zpkg_header(9, ZPKG_VERSION_MINOR, 0x01)).unwrap_err();
+    assert_eq!(
+        as_version_mismatch(&zpkg_maj).unwrap().to_string(),
+        format!("zpkg major 9 not supported (writer is at {ZPKG_VERSION_MAJOR})")
+    );
+    let zbc = read_zbc(&build_zbc_header(ZBC_VERSION_MAJOR, 7, 0)).unwrap_err();
+    assert_eq!(
+        as_version_mismatch(&zbc).unwrap().to_string(),
+        format!("zbc minor 7 not supported (writer is at {ZBC_VERSION_MINOR}); regen via xtask regen")
+    );
+}
+
+#[test]
+fn ordinary_read_failures_are_not_version_mismatches() {
+    // Guard the discrimination the fix depends on: a corrupt/unrelated file must
+    // stay a plain error so app.rs keeps warn-and-continue for it.
+    let mut bytes = build_zpkg_header(ZPKG_VERSION_MAJOR, ZPKG_VERSION_MINOR, 0x01);
+    bytes[0..4].copy_from_slice(b"XXXX");
+    let err = read_zpkg_modules(&bytes).unwrap_err();
+    assert!(as_version_mismatch(&err).is_none(), "bad magic must not read as a version mismatch");
+}

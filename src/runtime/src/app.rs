@@ -16,7 +16,7 @@
 use crate::corelib::fs_backend;
 use crate::metadata::lazy_loader::ZpkgCandidate;
 use crate::metadata::{ExecMode, LoadedArtifact};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -28,9 +28,35 @@ use std::path::{Path, PathBuf};
 fn be_is_dir(p: &Path) -> bool {
     p.to_str().map(|s| fs_backend::active().is_dir(s)).unwrap_or(false)
 }
+
 fn be_exists(p: &Path) -> bool {
     p.to_str().map(|s| fs_backend::active().exists(s)).unwrap_or(false)
 }
+
+// fix-version-mismatch-diagnosis (2026-09-05): a .zpkg whose format version is
+// not this runtime's is **not** a "skip it and carry on" condition. The strict
+// pin (see zbc_reader/versions.rs) means z42vm reads exactly one generation, so
+// a mismatched package can never be substituted — warning and continuing boots a
+// world with no stdlib and the real failure surfaces far away as a bogus
+// `undefined function Std.IO.Environment.GetCommandLineArgs$0` (and on runtimes
+// older than the package, as an outright hang). This is exactly the trap a stale
+// `.z42` seed + a freshly built tree walks into after a format bump.
+//
+// So: version mismatches get named at the point of detection, with the command
+// that fixes them. Every other read failure keeps its warn-and-continue
+// behavior — those really can be optional / unrelated artifacts.
+fn version_mismatch_hint(file: &str, e: &anyhow::Error) -> Option<String> {
+    let m = crate::metadata::zbc_reader::as_version_mismatch(e)?;
+    Some(format!(
+        "`{file}` was built for a different z42 format version than this runtime: {m}.\n\
+         z42vm and every .zpkg it loads must be the same generation — there is no \
+         cross-version compatibility (strict-pin policy).\n\
+         Fix by rebuilding the libraries against this runtime (`{remedy}`), or by \
+         running the z42vm that produced them (`Z42_PORTABLE_VM=<matching z42vm>`).",
+        remedy = m.remedy()
+    ))
+}
+
 
 /// Build-default execution mode: JIT when compiled in (make-jit-default),
 /// else Interp (jit-less builds — wasm / `--features interp-only`). Callers
@@ -115,7 +141,11 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
                     loaded_paths.insert(core_canonical);
                     initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
                 }
-                Err(e) => tracing::warn!("failed to load z42.core: {e:#}"),
+                Err(e) => match version_mismatch_hint(&core_str, &e) {
+                    // Unrecoverable: z42.core is the prelude — nothing runs without it.
+                    Some(hint) => bail!("{hint}"),
+                    None => tracing::warn!("failed to load z42.core: {e:#}"),
+                },
             }
         } else {
             tracing::debug!("z42.core.zpkg not found in {}", dir.display());
@@ -374,7 +404,14 @@ fn build_declared_candidates(
                 if loaded_has(&file_name) || declared_has(&declared, &file_name) { continue; }
                 match ZpkgCandidate::build_in_dirs(search_dirs, &file_name) {
                     Ok(cand) => declared.push((file_name, cand)),
-                    Err(e)   => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
+                    // Left as a warning on purpose: a namespace can resolve to several
+                    // candidates, so one unreadable file is not yet fatal. The hint
+                    // still names the remedy when it is a version mismatch rather
+                    // than a corrupt / unrelated file.
+                    Err(e)   => match version_mismatch_hint(&file_name, &e) {
+                        Some(hint) => tracing::warn!("{hint}"),
+                        None => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
+                    },
                 }
             }
         }
@@ -395,7 +432,14 @@ fn build_declared_candidates(
             if declared_has(&declared, &file_name) { continue; }
             match ZpkgCandidate::build_in_dirs(search_dirs, &file_name) {
                 Ok(cand) => declared.push((file_name, cand)),
-                Err(e)   => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
+                // Left as a warning on purpose: a namespace can resolve to several
+                // candidates, so one unreadable file is not yet fatal. The hint
+                // still names the remedy when it is a version mismatch rather
+                // than a corrupt / unrelated file.
+                Err(e)   => match version_mismatch_hint(&file_name, &e) {
+                    Some(hint) => tracing::warn!("{hint}"),
+                    None => tracing::warn!("cannot read zpkg meta `{}`: {e}", file_name),
+                },
             }
         }
     }

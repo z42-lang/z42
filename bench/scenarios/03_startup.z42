@@ -1,6 +1,7 @@
 // E2E benchmark scenario: minimal startup.
 // Workload: just print one line. Measures z42vm + stdlib load + interp init overhead.
 // Expected output: ok
+// tier: gate — VM 启动 + stdlib 加载，守启动优化成果
 namespace Bench.Startup;
 using Std.IO;
 
