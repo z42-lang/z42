@@ -138,3 +138,53 @@ void test_stmt_spans() {
     Assert.Equal(5, body.Stmts[0].Span.Column);
     Assert.Equal("t.z42", body.Stmts[0].Span.File);
 }
+
+// ── `using` / `namespace` 只能在文件顶部（2026-09-05）────────────────────────
+//
+// 语言本来就不接受它们出现在语句位置，但此前是一路级联出 4 条互不相关的错误
+// （unexpected token in expression → expected ';' → 两条 undefined），没有一条说得出
+// 真正原因。这些用例钉住「一条说清楚的诊断 + 恢复后不再连锁误报」。
+
+int countCode(DiagnosticBag bag, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == code) { n = n + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+[Test]
+void test_using_in_function_body_is_one_clear_error() {
+    var p = new Parser("void Main() { int a = 1; using Std.Toml; int b = 2; }", "t.z42");
+    p.ParseCompilationUnit();
+    var bag = p.Diagnostics();
+    Assert.Equal(1, countCode(bag, DiagnosticCodes.DeclarationInStatement));
+    // 恢复到分号后继续解析：不再有 E0201/E0202 的连锁误报。
+    Assert.Equal(0, countCode(bag, DiagnosticCodes.UnexpectedToken));
+    Assert.Equal(0, countCode(bag, DiagnosticCodes.ExpectedToken));
+}
+
+[Test]
+void test_namespace_in_function_body_is_reported_too() {
+    var p = new Parser("void Main() { namespace Foo; }", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(1, countCode(p.Diagnostics(), DiagnosticCodes.DeclarationInStatement));
+}
+
+[Test]
+void test_global_using_in_function_body_is_reported() {
+    var p = new Parser("void Main() { global using Std.Toml; }", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(1, countCode(p.Diagnostics(), DiagnosticCodes.DeclarationInStatement));
+}
+
+[Test]
+void test_top_level_using_still_parses() {
+    // 非破坏：文件顶部的 using / global using / namespace 一如既往。
+    var p = new Parser("namespace N;\nusing Std;\nglobal using Std.IO;\nvoid Main() { }", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(0, countCode(p.Diagnostics(), DiagnosticCodes.DeclarationInStatement));
+    Assert.False(p.Diagnostics().HasErrors());
+}

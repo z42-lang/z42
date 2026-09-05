@@ -223,6 +223,7 @@ impl VmContext {
             && loader_quiet
             && self.core.pending_type_init_count.load(Ordering::Relaxed) == 0
             && self.core.running_static_inits.load(Ordering::Acquire) == 0
+            && self.core.init_batch_inflight.load(Ordering::Acquire) == 0
     }
 
     /// defer-class-initialization: 排空「待初始化类」与「待跑 `__static_init__`」两个队列。
@@ -246,6 +247,9 @@ impl VmContext {
         let _guard = Guard;
 
         loop {
+            // 取队列**之前**先宣告在飞：从这一刻起到本批处理完，别的线程都不会把
+            // 「三个队列/计数都是零」误读成「初始化已静止」（见 `init_batch_inflight`）。
+            self.core.init_batch_inflight.fetch_add(1, std::sync::atomic::Ordering::Release);
             // ① 待初始化的所属类（静态字段引用触发点 T3）：解析类型会触发所属包加载，
             //    进而把该包的 `__static_init__` 压进 pending_static_inits。
             let types: Vec<String> = {
@@ -258,21 +262,45 @@ impl VmContext {
                 let _ = self.try_lookup_type(class_fq);
             }
 
-            // ② 待跑的初始化器。
+            // ② 待跑的初始化器。**取出与认领必须在同一把锁里完成** —— 只 take 不认领的话，
+            //    从队列清空到 `run_one_static_init` 写 `Running` 之间有一个窗口，别的线程会看到
+            //    「队列空 + 无 Running + 计数 0」而误判「初始化已静止」，接着读到未赋值的静态
+            //    字段。取走即写 `Claimed(me)`（见 `InitState::Claimed`）。
             let names: Vec<String> = {
                 let mut state = self.core.lazy_loader.write();
                 match state.as_mut() {
-                    Some(loader) => std::mem::take(&mut loader.pending_static_inits),
+                    Some(loader) => {
+                        let taken = std::mem::take(&mut loader.pending_static_inits);
+                        for n in &taken {
+                            if !loader.static_init_state.contains_key(n) {
+                                loader.static_init_state.insert(
+                                    n.clone(),
+                                    crate::metadata::lazy_loader::InitState::Claimed(
+                                        std::thread::current().id(),
+                                    ),
+                                );
+                                // 与 `Claimed` 同锁自增：计数从此刻起就非零，窗口关闭。
+                                // 对应的自减在 `Done` 落定处（Claimed → Running 只是换状态，
+                                // 不动计数）。
+                                self.core.running_static_inits
+                                    .fetch_add(1, std::sync::atomic::Ordering::Release);
+                            }
+                        }
+                        taken
+                    }
                     None => Vec::new(),
                 }
             };
             if names.is_empty() && types.is_empty() {
+                // 本批没活 —— 先撤销自己的在飞声明，再去等别人静止（否则会等自己）。
+                self.core.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
                 self.await_init_quiescence();
                 return;
             }
             for name in names {
                 self.run_one_static_init(&name);
             }
+            self.core.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
         }
     }
 
@@ -292,14 +320,26 @@ impl VmContext {
         // 真等到这个上限说明持有线程已经死了，继续空转没有意义——放行并留下告警。
         for spin in 0..2_000_000u64 {
             // Lock-free pre-check: no `Running` entry anywhere → nothing to wait for.
-            if self.core.running_static_inits.load(std::sync::atomic::Ordering::Acquire) == 0 {
+            if self.core.running_static_inits.load(std::sync::atomic::Ordering::Acquire) == 0
+                && self.core.init_batch_inflight.load(std::sync::atomic::Ordering::Acquire) == 0
+            {
                 return;
+            }
+            if self.core.init_batch_inflight.load(std::sync::atomic::Ordering::Acquire) != 0 {
+                std::thread::yield_now();
+                continue;   // 有线程正在处理一批 —— 它可能还会产出新的初始化器
             }
             let busy = {
                 let state = self.core.lazy_loader.write();
                 match state.as_ref() {
                     Some(loader) => loader.static_init_state.values().any(|st| {
-                        matches!(st, crate::metadata::lazy_loader::InitState::Running(t) if *t != me)
+                        // `Claimed` 与 `Running` 一样算「他线程手上还有活」。
+                        matches!(
+                            st,
+                            crate::metadata::lazy_loader::InitState::Running(t)
+                                | crate::metadata::lazy_loader::InitState::Claimed(t)
+                            if *t != me
+                        )
                     }),
                     None => false,
                 }
@@ -326,7 +366,12 @@ impl VmContext {
                 match loader.static_init_state.get(name) {
                     Some(InitState::Done) => return,
                     Some(InitState::Running(tid)) if *tid == me => return, // 重入
-                    Some(InitState::Running(_)) => false,                  // 他线程持有 → 等
+                    // 本线程在 ② 里取走时已认领 —— 换成 Running 开跑（计数早已算上，不再自增）。
+                    Some(InitState::Claimed(tid)) if *tid == me => {
+                        loader.static_init_state.insert(name.to_string(), InitState::Running(me));
+                        true
+                    }
+                    Some(InitState::Running(_)) | Some(InitState::Claimed(_)) => false, // 他线程持有 → 等
                     None => {
                         loader.static_init_state.insert(name.to_string(), InitState::Running(me));
                         // Bumped under the loader lock, alongside the `Running` entry

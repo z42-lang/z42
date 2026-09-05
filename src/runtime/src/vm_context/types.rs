@@ -55,6 +55,15 @@ pub struct VmCore {
     /// where `InitState::Running` is written and dropped where `Done` is written,
     /// both under the loader lock, so `== 0` implies no `Running` entry exists.
     pub(crate) running_static_inits: std::sync::atomic::AtomicUsize,
+    /// fix-static-init-claim-window：**有线程正在处理一批初始化工作**（从两个队列
+    /// 取走内容起，到这批处理完为止）。
+    ///
+    /// 光有 `pending_type_init_count` / `pending_static_inits` / `running_static_inits`
+    /// 不够：`run_pending_static_inits` 把类型队列 `mem::take` 走并把计数清零之后，要等
+    /// `try_lookup_type` 触发所属包加载，才会有新的 `__static_init__` 入队。这中间三个
+    /// 指标全是零，别的线程据此判定「初始化已静止」→ 读到未赋值的静态字段。
+    /// 本计数在**取队列之前**自增、整批处理完才自减，把这段窗口盖住。
+    pub(crate) init_batch_inflight: std::sync::atomic::AtomicUsize,
     /// defer-class-initialization: 懒执行的 `__static_init__` 抛出/出错时记录首个失败，
     /// 由 `Vm::run` 在入口返回后转成运行错误（对齐变更前 boot 期 `bail!` 的响度）。
     pub(crate) static_init_error:  Mutex<Option<String>>,
