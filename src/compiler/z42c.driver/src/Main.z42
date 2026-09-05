@@ -40,7 +40,7 @@ sealed class SrcReadHashTask : IParallelBody {
         this._texts[i] = t;
         string hin = t;
         if (this._handlerFp.Length > 0) { hin = hin + "\n#z42c-handler-fp:" + this._handlerFp; }
-        this._hashes[i] = ZpkgBuilder.Sha256Hex(hin);
+        this._hashes[i] = ZpkgBuilder.SourceHashHex(hin);
     }
 }
 

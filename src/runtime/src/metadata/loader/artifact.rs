@@ -220,8 +220,9 @@ fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
         let bytes = fs_backend::active().read(zbc_path_str).with_context(|| {
             format!("indexed zpkg: cannot read scattered zbc `{}`", zbc_path.display())
         })?;
-        // plain BLAKE3-128（区别于 build_id::compute 的"尾 16B 清零"BLID 语义——
-        // 那是给自含 BLID 段的文件用的；散装 zbc 是内容原样哈希）。
+        // plain BLAKE3-128（区别于 BLID：那个是"尾 16B 清零"后的写入端标签、runtime
+        // 只比相等不重算；散装 zbc 是内容原样哈希，这里**真的重算校验** ⇒ 它才是跨
+        // 语言契约，算法不可单方面改）。
         let got = hex_lower(&blake3::hash(&bytes).as_bytes()[..16]);
         if got != e.zbc_hash {
             bail!(

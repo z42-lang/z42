@@ -34,7 +34,7 @@ public class Z42cCompiler : ICompiler {
         int i = 0;
         while (i < srcs.Length) {
             texts[i] = File.ReadAllText(srcs[i]);
-            hashes[i] = ZpkgBuilder.Sha256Hex(texts[i]);
+            hashes[i] = ZpkgBuilder.SourceHashHex(texts[i]);
             i = i + 1;
         }
         // 3. parse-all（全量；无增量——Z42cCompiler 不参与 driver 的 dev-loop 增量）。

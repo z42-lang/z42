@@ -1,34 +1,25 @@
 //! Build identifier for split-debug-symbols (zbc 1.2 / zpkg 0.3+).
 //!
-//! A build_id is BLAKE3-128 (first 16 bytes of BLAKE3-256) of the entire
-//! main binary file (zbc or zpkg), with the BLID section's 16-byte payload
-//! zeroed before hashing. The same build_id is written into both the main
-//! file's BLID section and its sidecar (`.zsym`), so the loader can verify
-//! pairing.
+//! A build_id is a 16-byte content tag the compiler writes into BOTH the main
+//! binary's `BLID` section and its sidecar (`.zsym`), so the loader can tell
+//! whether a given `.zsym` belongs to a given `.zpkg`. The writer computes it
+//! over the whole main file with the BLID payload (the trailing 16 bytes)
+//! zeroed; see `Z42.Project.ZpkgWriterZ.WritePackedWithSidecar`.
 //!
-//! "Integrity-zeroed" hashing: the BLID section is required to be the last
-//! section of the main file (writer enforces this), so the trailing 16 bytes
-//! are the BLID payload. We zero them by hashing `bytes[..len-16]` then
-//! feeding 16 zero bytes.
+//! **The runtime never recomputes it** — pairing is a plain equality check
+//! between the two stored values (`read_build_id` + `!=` in
+//! `loader::artifact`). It is therefore not a security boundary, and the
+//! writer deliberately uses a fast non-cryptographic hash (MurmurHash3
+//! x86_128) rather than BLAKE3: z42c runs interpreted, where BLAKE3 cost ~15x
+//! more. Because this side only compares, the algorithm lives in exactly one
+//! place — the writer — and there is intentionally no `compute()` here to
+//! drift out of sync with it.
+//!
+//! Not to be confused with an indexed zpkg's scattered-`.zbc` `zbc_hash`,
+//! which IS recomputed here (plain BLAKE3-128, `loader::artifact`) and so is a
+//! real cross-language contract.
 
 pub const SIZE: usize = 16;
-
-/// Computes BLAKE3-128 over `bytes`, treating the trailing 16 bytes as zero.
-/// Returns a 16-byte build_id.
-///
-/// Caller is responsible for ensuring the BLID section's 16 bytes are at the
-/// tail of `bytes`. The function does not inspect section directory; it just
-/// zeroes the trailing 16 bytes for the hash input.
-pub fn compute(bytes: &[u8]) -> [u8; SIZE] {
-    assert!(bytes.len() >= SIZE, "input must be at least {SIZE} bytes");
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&bytes[..bytes.len() - SIZE]);
-    hasher.update(&[0u8; SIZE]);
-    let mut out = [0u8; SIZE];
-    let hash = hasher.finalize();
-    out.copy_from_slice(&hash.as_bytes()[..SIZE]);
-    out
-}
 
 /// Formats the first 4 bytes of a build_id as 8 lowercase hex chars,
 /// matching the trace fallback `[build:abcd1234]` suffix.
