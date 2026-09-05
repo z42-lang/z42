@@ -82,3 +82,23 @@ where
 {
     load_layer(get, "Z42_APP_CONFIG")
 }
+
+/// 读一个配置文件层，**问题一律降级为 warn**。
+///
+/// 给库入口（[`RuntimeConfig::from_env`]）用：它可能跑在宿主进程里，因一个配置
+/// typo 杀掉宿主不是它该做的事。`z42vm` 的 `main()` 走 [`load_layer`] 的
+/// `Result`，把同样的问题当致命处理。
+///
+/// [`RuntimeConfig::from_env`]: super::RuntimeConfig::from_env
+pub fn load_layer_lenient<F>(get: &F, var: &str) -> Option<toml::Table>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    match load_layer(get, var) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("z42: {e}\n     -> that config layer is ignored; env + defaults still apply.");
+            None
+        }
+    }
+}
