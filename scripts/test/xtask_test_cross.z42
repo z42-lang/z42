@@ -59,120 +59,53 @@ int _testCrossZpkgImpl(string mode) {
     string[] failures = new string[8];
     int      failCount = 0;
 
+    // ── 分波并发（parallel-cross-zpkg, 2026-09-05）──────────────────────────
+    //
+    // 每个 fixture 内部 target→ext→main **有真实依赖、必须串行**；但 **fixture 之间
+    // 完全独立**。所以按「波次」并发：全部 target 一起编 → 等 → 全部 ext → 等 →
+    // 全部 main → 等 → 全部 run。波内并发度见 _crossJobs()。
+    //
+    // 为什么值得：一轮 19 个 fixture × 3 次 z42c build + 19 次 run ≈ 76 个进程，
+    // 此前**全串行**。成本由每进程 z42c 启动主导（同 golden regen 的形状——那边实测
+    // 4→40s / 8→20s / 16→12s，扩展性很好）。
+    //
+    // ⚠️ 先试过「把每次 build 的 stdlib 拷贝改成硬链接」（76 次 × 2.6MB ≈ 198MB），
+    // 实测 45s → 44s ≈ 噪声：**瓶颈是进程数，不是 I/O**。别再往 I/O 方向猜。
+    string[] act = new string[names.Length];
+    int nAct = 0;
     int i = 0;
     while (i < names.Length) {
-        string name = names[i];
-        string dir = Path.Join(testsDir, name);
-        if (!File.Exists(Path.Join(dir, "expected_output.txt"))) {
-            i = i + 1;
-            continue;
+        if (File.Exists(Path.Join(Path.Join(testsDir, names[i]), "expected_output.txt"))) {
+            act[nAct] = names[i]; nAct = nAct + 1;
         }
+        i = i + 1;
+    }
 
-        Console.WriteLine("── Test: " + name + " ──");
-        string failLabel = _runOneCrossCase(compileVm, runVm, driverZpkg, stdlibDist, dir, name, mode);
-        if (failLabel.Length == 0) {
+    string[] label = new string[nAct];   // "" = 仍存活；非空 = 失败标签（后续波次跳过它）
+    i = 0; while (i < nAct) { label[i] = ""; i = i + 1; }
+
+    _crossBuildWave(act, nAct, label, testsDir, "target", compileVm, driverZpkg, stdlibDist);
+    _crossBuildWave(act, nAct, label, testsDir, "ext",    compileVm, driverZpkg, stdlibDist);
+    _crossBuildWave(act, nAct, label, testsDir, "main",   compileVm, driverZpkg, stdlibDist);
+    _crossRunWave(act, nAct, label, testsDir, stdlibDist, runVm, mode);
+
+    i = 0;
+    while (i < nAct) {
+        if (label[i].Length == 0) {
+            Console.WriteLine("  PASS " + act[i]);
             pass = pass + 1;
         } else {
+            Console.WriteLine("  FAIL " + label[i]);
             fail = fail + 1;
-            failures = _append(failures, failCount, failLabel);
+            failures = _append(failures, failCount, label[i]);
             failCount = failCount + 1;
         }
-
         i = i + 1;
     }
 
     return _crossSummary(pass, fail, failures, failCount);
 }
 
-// Build + run one cross-zpkg case: three-stage build in dep order (target → ext
-// → main, each seeding the next one's libs), then run main's zpkg through z42vm
-// and diff stdout against expected_output.txt. Returns "" on pass, else a
-// failure label (containing `name`) for the summary. Extracted from
-// _testCrossZpkgImpl so the driver loop stays a thin pass/fail tally (review §2.8).
-string _runOneCrossCase(string compileVm, string runVm, string driverZpkg, string stdlibDist, string dir, string name, string mode) {
-    string targetDir = Path.Join(dir, "target");
-    string extDir    = Path.Join(dir, "ext");
-    string mainDir   = Path.Join(dir, "main");
-
-    // Stages 1–3 build fixtures with compileVm (release: the hot path); the final
-    // main.zpkg run below uses runVm (debug: assertion + overflow coverage).
-
-    // Stage 1: target (no deps).
-    if (!_buildCompilerPkg(compileVm, driverZpkg, stdlibDist, targetDir, "")) {
-        return name + " (target build)";
-    }
-
-    // Stage 2: ext (deps on target/dist).
-    if (!_buildCompilerPkg(compileVm, driverZpkg, stdlibDist, extDir, _fixtureDist(targetDir))) {
-        return name + " (ext build)";
-    }
-
-    // Stage 3: main (deps on target + ext). _buildCompilerPkg only seeds from a
-    // single dir; main needs both, so populate libs manually here.
-    string mainLibs = Path.Join(mainDir, "libs");
-    if (Directory.Exists(mainLibs)) { Directory.Delete(mainLibs, true); }
-    Directory.Create(mainLibs);
-    _copyZpkgs(_fixtureDist(targetDir), mainLibs);
-    _copyZpkgs(_fixtureDist(extDir), mainLibs);
-    string mainToml = _findToml(mainDir);
-    if (mainToml.Length == 0 || !_invokeBuildCompiler(compileVm, driverZpkg, stdlibDist, mainDir, mainToml)) {
-        Console.WriteLine("    main build failed");
-        return name + " (main build)";
-    }
-
-    // Stage 4: run the MAIN APP's zpkg (by project name) through z42vm.
-    // A packed exe build can leave dependency zpkgs alongside main.zpkg in the
-    // dist dir; the former `_firstZpkg` (sorted glob[0]) then intermittently
-    // picked a *dependency* that sorts before the app — e.g. generic_field_carry
-    // (app `demo.gmain`, dep `demo.gext` < `demo.gmain`) → the dep has no baked
-    // entry → "no entry point" (flaky; only that case is vulnerable). Select the
-    // app zpkg by name so the run is correct regardless of what else is in dist.
-    // (fix-crosszpkg-run-app-by-name)
-    string appName = _tomlName(mainToml);
-    string mainZpkg = "";
-    if (appName.Length > 0) {
-        string cand = Path.Join(_fixtureDist(mainDir), appName + ".zpkg");
-        if (File.Exists(cand)) { mainZpkg = cand; }
-    }
-    if (mainZpkg.Length == 0) { mainZpkg = _firstZpkg(_fixtureDist(mainDir)); }   // fallback
-    if (mainZpkg.Length == 0) {
-        Console.WriteLine("    main produced no zpkg");
-        return name + " (no zpkg)";
-    }
-
-    // Per-test libs dir: stdlib zpkgs + target + ext.
-    string testLibs = File.CreateTempDir("z42-xpkg-");
-    _copyStdlibZpkgs(stdlibDist, testLibs);
-    _copyZpkgs(_fixtureDist(targetDir), testLibs);
-    _copyZpkgs(_fixtureDist(extDir), testLibs);
-
-    string actual = "";
-    bool runErr = false;
-    try {
-        ProcessResult vmResult = new Process(runVm)
-            .Arg(mainZpkg)
-            .Arg("--mode").Arg(mode)
-            .Env("Z42_LIBS", testLibs)
-            .Run();
-        // bash: `$(... 2>&1)` — merge stderr into stdout. We approximate
-        // by concatenating; a passing VM run produces no stderr, so for
-        // successful tests the order doesn't matter.
-        actual = vmResult.Stdout + vmResult.Stderr;
-    } catch (Exception e) {
-        runErr = true;
-    }
-    Directory.Delete(testLibs, true);
-
-    string expected = File.ReadAllText(Path.Join(dir, "expected_output.txt"));
-    if (!runErr && actual == expected) {
-        Console.WriteLine("  PASS");
-        return "";
-    }
-    Console.WriteLine("  FAIL");
-    Console.WriteLine("    expected: " + _firstLines(expected, 3));
-    Console.WriteLine("    actual:   " + _firstLines(actual,   3));
-    return name;
-}
 
 // Print the pass/fail tally + any failure list; returns process rc (0 = all pass).
 int _crossSummary(int pass, int fail, string[] failures, int failCount) {
@@ -223,33 +156,171 @@ string _assembleDriverHome(string root) {
     return home;
 }
 
-// 用 z42c 编译一个 package（z42vm 跑 z42c.driver.zpkg）。先把上一阶段产物 copy 进
-// <pkgDir>/libs，再 build → <pkgDir>/artifacts/debug/dist（与 C# 路径一致 → 下游
-// run/diff 不变）。
-bool _buildCompilerPkg(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string srcLibsDir) {
-    string pkgLibs = Path.Join(pkgDir, "libs");
-    if (Directory.Exists(pkgLibs)) { Directory.Delete(pkgLibs, true); }
-    Directory.Create(pkgLibs);
-    if (srcLibsDir.Length > 0) { _copyZpkgs(srcLibsDir, pkgLibs); }
-    string toml = _findToml(pkgDir);
-    if (toml.Length == 0) {
-        Console.WriteLine("    error: no toml in " + pkgDir);
-        return false;
+
+
+// 波内并发度。同 golden regen 的理由：成本由每进程 z42c 启动主导，超核数仍获益，
+// 但少核机器（GitHub 4 核 runner）不冒进 → max(8, CpuCount())；`Z42_XPKG_JOBS` 逃生舱
+// 便于在 CI 上实测更高值而不改代码。
+int _crossJobs() {
+    string ov = Environment.GetEnvironmentVariable("Z42_XPKG_JOBS") ?? "";
+    if (ov.Length > 0) {
+        try { int v = int.Parse(ov); if (v > 0) { return v; } } catch (Exception e) { }
     }
-    return _invokeBuildCompiler(vmBin, driverZpkg, stdlibDist, pkgDir, toml);
+    int cpu = OperatingSystem.CpuCount();
+    return cpu > 8 ? cpu : 8;
 }
 
-// 单次 z42c build。outDir = <pkgDir>/artifacts/debug/dist。Z42_LIBS = temp(stdlib +
-// pkgDir/libs)；z42c.* 由 driver-home 解析。WorkingDirectory=pkgDir（镜像手验）。
-bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
+// 一波 build：对所有仍存活的 fixture 并发编同一个 stage（target/ext/main）。
+// stage 的依赖 libs 就地准备好后再 spawn；失败者写 label，后续波次自动跳过。
+void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, string stage,
+                     string vmBin, string driverZpkg, string stdlibDist) {
+    int jobs = _crossJobs();
+    int k = 0;
+    while (k < nAct) {
+        int bsz = jobs; if (k + bsz > nAct) { bsz = nAct - k; }
+        XpkgJobZ[] hs = new XpkgJobZ[bsz];
+        int b = 0;
+        while (b < bsz) {
+            int idx = k + b;
+            hs[b] = new XpkgJobZ(); hs[b].Live = false;
+            if (label[idx].Length == 0) {
+                string dir = Path.Join(testsDir, act[idx]);
+                string pkgDir = Path.Join(dir, stage);
+                string toml = "";
+                if (stage == "target") {
+                    toml = _prepPkgLibs(pkgDir, "");
+                } else if (stage == "ext") {
+                    toml = _prepPkgLibs(pkgDir, _fixtureDist(Path.Join(dir, "target")));
+                } else {
+                    // main 依赖 target + ext 两个 dist —— _prepPkgLibs 只吃一个源，
+                    // 故先建空 libs 再手动并入两份（与串行版同语义）。
+                    toml = _prepPkgLibs(pkgDir, _fixtureDist(Path.Join(dir, "target")));
+                    _copyZpkgs(_fixtureDist(Path.Join(dir, "ext")), Path.Join(pkgDir, "libs"));
+                }
+                if (toml.Length == 0) {
+                    label[idx] = act[idx] + " (" + stage + ": no toml)";
+                } else {
+                    hs[b] = _spawnBuildPkg(vmBin, driverZpkg, stdlibDist, pkgDir, toml);
+                }
+            }
+            b = b + 1;
+        }
+        b = 0;
+        while (b < bsz) {
+            int idx = k + b;
+            if (label[idx].Length == 0) {
+                if (!_awaitBuildPkg(hs[b])) { label[idx] = act[idx] + " (" + stage + " build)"; }
+            }
+            b = b + 1;
+        }
+        k = k + bsz;
+    }
+}
+
+// 一波 run：并发跑每个 fixture 的 main zpkg，再逐个比对 expected_output.txt。
+// 运行用 runVm（**debug**）—— 保住跨包执行的 assertion / overflow 覆盖（compileVm 是
+// release，只用于编译；见文件头 speed-up-cross-zpkg-compile-vm 的分工说明）。
+// 判定/打印按原顺序做，终端输出保持可读（同 _runVmBatch 的做法）。
+void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
+                   string stdlibDist, string runVm, string mode) {
+    int jobs = _crossJobs();
+    int k = 0;
+    while (k < nAct) {
+        int bsz = jobs; if (k + bsz > nAct) { bsz = nAct - k; }
+        ProcessHandle[] hs = new ProcessHandle[bsz];
+        string[] tmpLibs = new string[bsz];
+        bool[] live = new bool[bsz];
+        int b = 0;
+        while (b < bsz) {
+            int idx = k + b;
+            live[b] = false; tmpLibs[b] = "";
+            if (label[idx].Length == 0) {
+                string dir = Path.Join(testsDir, act[idx]);
+                string mainDir = Path.Join(dir, "main");
+                string mainToml = _findToml(mainDir);
+                // 按**工程名**取 main zpkg：packed exe build 会把依赖 zpkg 也留在 dist 里，
+                // 旧的 `_firstZpkg`（排序后取 [0]）会间歇性挑中排在前面的依赖 → "no entry
+                // point" 假失败（fix-crosszpkg-run-app-by-name）。此处保持同一修复。
+                string appName = mainToml.Length > 0 ? _tomlName(mainToml) : "";
+                string mainZpkg = "";
+                if (appName.Length > 0) {
+                    string cand = Path.Join(_fixtureDist(mainDir), appName + ".zpkg");
+                    if (File.Exists(cand)) { mainZpkg = cand; }
+                }
+                if (mainZpkg.Length == 0) { mainZpkg = _firstZpkg(_fixtureDist(mainDir)); }
+                if (mainZpkg.Length == 0) {
+                    label[idx] = act[idx] + " (no zpkg)";
+                } else {
+                    // 每个 fixture 一份独立 Z42_LIBS：stdlib + 它自己的 target/ext 产物。
+                    string testLibs = File.CreateTempDir("z42-xpkg-");
+                    _copyStdlibZpkgs(stdlibDist, testLibs);
+                    _copyZpkgs(_fixtureDist(Path.Join(dir, "target")), testLibs);
+                    _copyZpkgs(_fixtureDist(Path.Join(dir, "ext")), testLibs);
+                    tmpLibs[b] = testLibs;
+                    try {
+                        hs[b] = new Process(runVm)
+                            .Arg(mainZpkg)
+                            .Arg("--mode").Arg(mode)
+                            .Env("Z42_LIBS", testLibs)
+                            .Spawn();
+                        live[b] = true;
+                    } catch (Exception e) {
+                        label[idx] = act[idx] + " (spawn failed)";
+                        Directory.Delete(testLibs, true);
+                        tmpLibs[b] = "";
+                    }
+                }
+            }
+            b = b + 1;
+        }
+        b = 0;
+        while (b < bsz) {
+            int idx = k + b;
+            if (live[b]) {
+                string actual = "";
+                bool runErr = false;
+                try {
+                    ProcessResult r = hs[b].Wait();
+                    // 串行版用 `$(... 2>&1)` 的等价做法：拼接 stdout+stderr。
+                    actual = r.Stdout + r.Stderr;
+                } catch (Exception e) { runErr = true; }
+                if (tmpLibs[b].Length > 0) { Directory.Delete(tmpLibs[b], true); }
+                string expected = File.ReadAllText(Path.Join(Path.Join(testsDir, act[idx]), "expected_output.txt"));
+                if (runErr || actual != expected) {
+                    Console.WriteLine("  ── " + act[idx] + " ──");
+                    Console.WriteLine("    expected: " + _firstLines(expected, 3));
+                    Console.WriteLine("    actual:   " + _firstLines(actual,   3));
+                    label[idx] = act[idx];
+                }
+            }
+            b = b + 1;
+        }
+        k = k + bsz;
+    }
+}
+
+// ── 分波并发（parallel-cross-zpkg, 2026-09-05）────────────────────────────
+//
+// 一次 fixture build 的 spawn 句柄 + 待清理的临时 libs 目录。
+class XpkgJobZ {
+    public ProcessHandle H { get; set; }
+    public string Libs { get; set; }   // Wait 后要删的临时 Z42_LIBS
+    public bool Live { get; set; }     // false = 本 fixture 已在更早的波次失败/跳过
+}
+
+// _invokeBuildCompiler 的 spawn 版：准备好 outDir + 临时 libs 后**不等待**，
+// 由调用方批量 Wait。临时 libs 必须活到 Wait 之后，故随句柄一起返回。
+XpkgJobZ _spawnBuildPkg(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
+    XpkgJobZ j = new XpkgJobZ();
+    j.Live = false;
     string outDir = _fixtureDist(pkgDir);
     Directory.Create(outDir);
     string libs = File.CreateTempDir("z42-xpkg-libs-");
     _copyStdlibZpkgs(stdlibDist, libs);
     _copyZpkgs(Path.Join(pkgDir, "libs"), libs);
-    bool ok = false;
+    j.Libs = libs;
     try {
-        ProcessResult br = new Process(vmBin)
+        j.H = new Process(vmBin)
             .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
             .Arg("--").Arg("build").Arg(toml)
             .Arg("--output-dir").Arg(outDir).Arg("--release")
@@ -257,13 +328,39 @@ bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, st
             .Env("Z42_LIBS", libs)
             .Stdout(Stdio.Null())
             .Stderr(Stdio.Null())
-            .Run();
-        ok = br.ExitCode == 0;
+            .Spawn();
+        j.Live = true;
     } catch (Exception e) {
-        ok = false;
+        Directory.Delete(libs, true);
     }
-    Directory.Delete(libs, true);
+    return j;
+}
+
+// Wait 一个 spawn 的 build 并清理其临时 libs。true = 成功。
+bool _awaitBuildPkg(XpkgJobZ j) {
+    if (!j.Live) { return false; }
+    bool ok = false;
+    try {
+        ProcessResult r = j.H.Wait();
+        ok = (r.ExitCode == 0);
+    } catch (Exception e) { ok = false; }
+    Directory.Delete(j.Libs, true);
     return ok;
+}
+
+// 阻塞版（multi-exe harness 仍在用）：就是 spawn + 立刻 wait，**不再有第二份实现**。
+bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
+    return _awaitBuildPkg(_spawnBuildPkg(vmBin, driverZpkg, stdlibDist, pkgDir, toml));
+}
+
+// 准备一个 pkg 的 libs 目录（stage 1/2 的前半段，从 _buildCompilerPkg 抽出），
+// 返回该 pkg 的 toml（"" = 找不到）。
+string _prepPkgLibs(string pkgDir, string srcLibsDir) {
+    string pkgLibs = Path.Join(pkgDir, "libs");
+    if (Directory.Exists(pkgLibs)) { Directory.Delete(pkgLibs, true); }
+    Directory.Create(pkgLibs);
+    if (srcLibsDir.Length > 0) { _copyZpkgs(srcLibsDir, pkgLibs); }
+    return _findToml(pkgDir);
 }
 
 // ── Path / file helpers (cross-specific) ─────────────────────────────────
@@ -278,9 +375,20 @@ void _copyZpkgs(string srcDir, string dstDir) {
 // Stdlib artifacts live in the FLAT dist view at
 // artifacts/build/libraries/dist/release (the same layout Z42_LIBS / _z42vm
 // consume). Copy *.zpkg + *.zsym from there.
+// stdlib 进每个 fixture 的临时 Z42_LIBS 目录：**硬链接**而非拷贝。
+//
+// Z42_LIBS 只接受单一目录，所以每次 build / run 都要把「stdlib + 本 fixture 的依赖」
+// 并到一个临时目录里。stdlib 侧此前是逐文件 File.Copy —— flat dist 现在 50 个文件
+// / 2.6MB，而 cross-zpkg 一轮要建 19 个 fixture × 3 次 build + 19 次 run-libs
+// = 76 次 ≈ **198MB 的纯拷贝**，全串行。
+//
+// 这些文件对 VM 是**只读**的（只被加载，不被写），临时目录用完即
+// `Directory.Delete`（只断链、不动源文件），所以硬链接语义完全等价。
+// `_linkAll` 自带 copy fallback（跨文件系统 / 不支持硬链接时），故无平台风险。
+// fixture 自己的依赖仍走 _copyZpkgs（它们由本轮构建产出、数量少）。
 void _copyStdlibZpkgs(string distDir, string dstDir) {
-    _copyAll(distDir, dstDir, "*.zpkg");
-    _copyAll(distDir, dstDir, "*.zsym");
+    _linkAll(distDir, dstDir, "*.zpkg");
+    _linkAll(distDir, dstDir, "*.zsym");
 }
 
 // <pkgDir>/artifacts/debug/dist — where a per-package z42c build lands its zpkg
