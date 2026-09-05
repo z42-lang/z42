@@ -682,8 +682,7 @@ src/tests/perf/                          # benchmark 子树（xtask bench 独占
 │   ├── 01_fibonacci.z42 … 11_type_test_chain.z42
 │   └──                                  # 首行 `// tier: gate|full` 决定是否进 PR 门禁
 ├── probe/capabilities.z42               # 被测 VM 能力探针 → 结果的 profile 字段
-├── testdata/*.json                      # 判红逻辑的三态 fixture（overlap/regress/improve）
-└── repl/run.sh + session_*eval.txt      # REPL 每-eval 延迟复现（hyperfine，手工跑）
+└── testdata/*.json                      # 判红 fixture（4 个），bench-pr.yml 每次跑断言退出码
 
 src/libraries/<lib>/bench/*_bench.z42    # micro：[Benchmark] + Std.Test.Bencher，z42b 派发
                                          # （`.bench.` infix 是 zpkg 命名硬约束，与本节无关）

@@ -207,7 +207,7 @@ else:                   → ≈ overlap       (noise, 放行)
 
 ```
 delta = (cur.value - base.value) / base.value       # 相对均值变化
-thr   = 内存指标 ? threshold-memory : threshold-time  # 默认 5% / CI 10%
+thr   = 内存指标 ? threshold-memory : threshold-time  # 默认 时间 5% / 内存 10%；CI 显式传 0.25
 
 if 双方都有置信区间 (_hasCi):                          # 主路径
     if delta > thr   AND cur.ci_lower > base.ci_upper:  → ↑ 回归   (regressions++)
@@ -301,15 +301,23 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`）
 2. bootstrap PR 工具链（`ci-bootstrap`：nightly z42c 种子 → 当前源码 warm 自建）
-3. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime`（排除 `*.md`）无变更 → base_vm=pr_vm，否则
+3. **判红逻辑自检**（move-bench-into-tests，2026-09-05）：拿 `src/tests/perf/testdata/` 的四个
+   fixture 跑 `bench --diff`，断言退出码 `overlap 0 / regress 1 / improve 0 /
+   separated-under-threshold 0`。纯 JSON 比较、几秒，放在测量之前 ⇒ 规则改坏立刻失败而不是
+   等二十分钟。**覆盖 `_benchDiff` 的两半条件**（`delta > thr` 与 `cLo > bHi`）——
+   `separated-under-threshold` 是唯一对阈值本身敏感的一条（+20%，把 thr 降到 0.10 就翻红），
+   没有它整套 fixture 在 `thr=0.001` 下也照过，等于不看阈值。**不覆盖** `_abVerdict`
+   （`--ab` 需两套真工具链，fixture 喂不了）与 `_microDiff`（可以喂但尚无 fixture）。
+4. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime`（排除 `*.md`）无变更 → base_vm=pr_vm，否则
    cargo 建 base z42vm；PR z42c 编 `base-src/src/compiler`→base z42c，base z42c 编 `base-src/src/libraries`→base stdlib
-4. **e2e A/B（唯一硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`。
+5. **e2e A/B（唯一硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`。
    `MODE` 按改动面收窄：`src/runtime`（排除 `*.md`）无变更 → `jit`（interp/jit 的相对性能只可能被 VM 改动挪动），
    否则 `both`。`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `artifacts/bench/ab.json`
-5. **micro A/B（informational，永不 fail）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树
+6. **micro A/B（informational，永不 fail）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树
    复用 3 建的工具链、仅新建 base z42b）→ `bench --micro-diff` 打印全部比值。降级理由见「噪声底与阈值」②
-6. **criterion A/B**（Part C，仅 `src/runtime` 非文档改动时）：base 树 `--save-baseline ab-base`、PR 树
-   `--baseline ab-base`（共享 `CRITERION_HOME`），读 `change/estimates.json` 判红（>10% 且 CI 分离）
+7. **criterion A/B**（Part C，仅 `src/runtime` 非文档改动时）：base 树 `--save-baseline ab-base`、PR 树
+   `--baseline ab-base`（共享 `CRITERION_HOME`），读 `change/estimates.json` 判红
+   （**整个区间在 +25% 之上**；阈值 0.10→0.25 见 #465，与 e2e 同一个理由——它的噪声底同样在 ±16%）
 
 **耗时构成**（全部实测；`gh run list` 看到的 2000s+ 是**排队**不是执行，要看 job 的
 `started_at`→`completed_at`）。#442 前的两个样本（run 33930770961 / 33923733669）**都没碰
