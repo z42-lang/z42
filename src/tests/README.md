@@ -10,16 +10,12 @@
 - **Flat 模式** — `<category>/<name>.z42` 单文件（仅 assert-only run 用例：用 `Std.Assert` 抛异常表达失败，期望空 stdout，无任何 sidecar）
 
 不放在这里：
-- 编译器单元测试 → [src/compiler/z42.Tests/](../compiler/z42.Tests/)
-- 编译器 golden fixtures（errors / parse；不进 VM）→ [src/compiler/z42.Tests/Fixtures/](../compiler/z42.Tests/Fixtures/)
+- 编译器单元测试（语义层）→ [src/compiler/z42c.semantics/tests/](../compiler/z42c.semantics/tests/)
+- 编译器单元测试（语法层）→ [src/libraries/z42c.syntax/tests/](../libraries/z42c.syntax/tests/)
+- **期望编译报错的用例** → 同上（`[Test]` + `SemanticDump`，见下方说明）
 - VM Rust 单元测试 → [src/runtime/src/](../runtime/src/) 同模块的 `*_tests.rs`
 - VM Rust 集成测试（zbc_compat / native interop / manifest schema）→ [src/runtime/tests/](../runtime/tests/)
 - stdlib 库本地测试 → [src/libraries/<lib>/tests/](../libraries/)
-
-> 2026-05-12 重构：以前 `errors/` + `parse/` 也在本目录，但它们只过编译器、
-> 不进 VM、由 `dotnet test` (GoldenTests.cs) 消费 —— 与 VM e2e 共用同根导致
-> 当时的 VM 测试入口要手动 exclude。已搬到 `src/compiler/z42.Tests/Fixtures/`，每个
-> runner 拥有自己的 fixture，黑名单也跟着删了。
 
 ## 类别
 
@@ -41,7 +37,17 @@
 | `strings/` | string builtin / 方法 / 静态方法 / 边界 / script-mode |
 | `cross-zpkg/` | 多 zpkg 端到端（target / ext / main 三方协作；由 `z42 xtask.zpkg test cross-zpkg` 跑） |
 
-> 编译器 golden（`errors/` + `parse/`）已搬到 [`src/compiler/z42.Tests/Fixtures/`](../compiler/z42.Tests/Fixtures/)。
+> **期望编译报错的用例不在本目录**：写成 `z42c.semantics` 自己的 `[Test]` 单测
+> （`src/compiler/z42c.semantics/tests/typecheck/`，用 `SemanticDump.FirstErrorCode` /
+> `FirstErrorMessage` / `FirstErrorPos` / `ErrorCount` 断言），由 `xtask test compiler` 驱动。
+> 参考 `undefined_type_tests.z42` / `constraint_tests.z42`。
+>
+> 历史：负例语料曾在本目录 `errors/`，2026-05-12 搬进 C# 测试项目 `z42.Tests/Fixtures/`，
+> 2026-06-26 C# 编译器移除时随整个测试项目一起蒸发——自举迁移只搬了「能编过」的正例，
+> 导致一批诊断静默退化（详见 change `complete-where-constraints`）。
+>
+> ⚠️ **仍缺口**：`SemanticDump` 只覆盖**单文件语义**诊断。跨包 / 多文件的期望报错
+> （E0404 跨包 internal 等）今天仍靠手工验证 fixture + README 描述步骤，**没有自动门**。
 
 ## 用例文件约定
 
@@ -53,7 +59,6 @@
 | `source.zbc` | run / parse | 由 `z42 xtask.zpkg regen` 生成，按组件镜像落 `artifacts/build/tests/<rel>/source.zbc`（**不与源同处**，gitignored，不污染 src）。例外：`zbc-format/*/source.zbc` 是 check-in 字节基线，就地重写 |
 | `source.zasm` | 可选 | ZASM 调试文本 |
 | `expected_output.txt` | run | stdout 期望（**空 = 删除**；缺失 = assert-only 模式：用例靠 `Std.Assert` 抛异常表达失败，期望空 stdout）|
-| `expected_error.txt` | error | 编译诊断期望 |
 | `expected.zasm` | parse | IR ZASM 期望 |
 | `features.toml` | 可选 | LanguageFeatures override |
 | `interp_only` | 可选 marker | 跳过 JIT 模式 |
@@ -70,8 +75,9 @@
 按以下顺序判断归属（先到先得）：
 
 1. **库 API 行为** → `src/libraries/<lib>/tests/<name>[.z42]`
-2. **编译失败** → `src/compiler/z42.Tests/Fixtures/errors/<name>/`（必须 dir，含 `expected_error.txt`）
-3. **仅 ZASM 匹配** → `src/compiler/z42.Tests/Fixtures/parse/<name>/`（必须 dir，含 `expected.zasm`）
+2. **期望编译报错** → `src/compiler/z42c.semantics/tests/typecheck/<topic>_tests.z42`
+   （`[Test]` 单测 + `SemanticDump.FirstErrorCode`，**不放本目录**；见上方说明）
+3. **仅 ZASM 匹配** → `src/libraries/z42c.syntax/tests/dump/`（parser dump 单测）
 4. **跨多 zpkg** → `src/tests/cross-zpkg/<name>/`
 5. **其他 VM/编译器特性**：
    - 用 `Console.WriteLine` 测打印行为 / 需要 sidecar → `src/tests/<category>/<name>/source.z42` + sidecars（dir 模式）
@@ -85,7 +91,7 @@
 ```bash
 z42 xtask.zpkg test vm          # 全部 run 用例（interp + jit；不含 cross-zpkg）
 z42 xtask.zpkg test cross-zpkg  # 仅 cross-zpkg
-dotnet test src/compiler/z42.Tests/z42.Tests.csproj  # xUnit 跑 run + error + parse 三类
+z42 xtask.zpkg test compiler    # z42c 自举 + 编译器 [Test] 单测（含期望报错的负例）
 ```
 
 或一把跑全 GREEN：`z42 xtask.zpkg test`。

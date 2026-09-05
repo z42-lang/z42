@@ -1,6 +1,6 @@
 # tasks — complete-where-constraints
 
-> 状态：🟡 IMPL 进行中（gate 已过 2026-09-05）| 创建：2026-09-05 | 类型：lang（完整流程）
+> 状态：🟢 已完成 | 创建：2026-09-05 | 完成：2026-09-05 | 类型：lang（完整流程）
 > 图例：⚪ 未开始 · 🟡 进行中 · 🟢 完成 · ⛔ 阻塞
 >
 > **分支/worktree**：`complete-where-constraints` @ `../z42-whereconstraints`（基于 origin/main）
@@ -117,24 +117,42 @@
 > **support**（z42c 能解析 `where T : enum`），z42c 自身源码与 stdlib **不使用**它 → 上一版
 > nightly 仍能编当前源码，自举链不断。「use」要等下一个 nightly 发布后才可以。
 
-## Phase 4 — 诊断质量（PR-4）⚪
+## Phase 4 — 诊断质量（PR-4）🟢
 
-- [ ] 4.1 ConstraintChecker 全程改用真 Span（`WhereClause.Span` / `WhereConstraint.Span` 本来就有）
-- [ ] 4.2 删 `_noSpan()`
-- [ ] 4.3 未知约束名（拼写错误）从静默改报 **E0443 UndefinedType**
-- [ ] 4.4 负例用例：`where T : IFooo` → E0443
-- **GREEN**：`xtask test` 全绿；确认既有诊断的 Span 变化不打翻 golden
+- [x] 4.1 全程改用真 Span：声明期用 `WhereClause.Span` / `WhereConstraint.Span`（本来就有）；
+      **call-site 的 Span 从调用方透进来**——`Check` 增 `Span` 形参，`ConstructTyper` 传
+      `n.Type.Span`，诊断从此指向 `new Box<D>()` 而非 `<sem> 0:0`
+- [x] 4.2 删 `_noSpan()`（连同那条「AST 节点暂不携 Span」的**过时**注释）
+- [x] 4.3 未知约束名从静默改报 **E0443**。先以 warning 探针跑全仓（担心 z42c
+      **不 import 接口定义进符号表** → `where T : 某导入接口` 误报）→ 实测 **0 条** → 升 error
+- [x] 4.4 负例用例 5 条：拼错名 → E0443；未知型参 → E0401；`class + struct` 互斥 → E0402；
+      **两条专钉 Span 行号**（声明处 / 实例化点）——只断言错误码的用例看不出 Span 是否仍是
+      `0:0`，而 `_noSpan()` 能活这么久正因为没有测试关心诊断指向哪里
+- **GREEN**：✅ `xtask test` 全绿 + 27/27 负例 + 字节不动点 3/3
 
-## Phase 9 — 文档 + 归档 ⚪
+### 4.x 实施期发现并修的真 bug
+- [x] target-typed `new()`（`List<int> a = new();`）**没有类型节点** → 取 `n.Type.Span` 直接
+      NPE，打挂 golden `generic_fullname`。回落到 new 表达式自身的 Span
+- [x] 顺带扩大判定面：base-class 分支的 `nt.ArgCount == 0` 一并去掉——否则
+      `where T : Box<int>` 会掉进新的「未知约束名」分支被误判成拼写错误。泛型 base 现按裸名
+      记录并参与校验，与接口同口径（design D1）。探针实测新增诊断 0 条
 
-- [ ] 9.1 `docs/book/src/language/` 新建约束页（或并入 generics 页）：七项约束语义 +
-      **裸名匹配的已知限制**（D1）+ 跨包尚不校验（诚实标注）
-- [ ] 9.2 `docs/design/language/generics.md` 的「约束体系」表按实况更新
-      （当前标 ✅ 但实际未校验的行必须改）
-- [ ] 9.3 `GenericConstraint.z42` 那条**已过时**的「z42c 缺对应类型/信息」注释删除/改写
-- [ ] 9.4 Deferred 六条登记进 roadmap 未完成项索引（见 design §7）
-- [ ] 9.5 `src/tests/README.md` 已在 0.4 更新——复核
-- [ ] 9.6 归档 `changes/` → `archive/2026-XX-XX-complete-where-constraints/`，**随 PR 一起提交**
+## Phase 9 — 文档 + 归档 🟢
+
+- [x] 9.1 新建 **`docs/book/src/language/generic-constraints.md`**（约束语义与校验范围的 SoT）：
+      七项语义 + `new()` 易错规则 + 校验时机表 + **6 条已知限制诚实标注**
+      （跨包不校验 / 裸名匹配 / 推断调用 / 顶层函数 / func 约束 / 关联类型未实现）
+      + 「为什么曾集体失效」的三层塌陷复盘。已挂入 `SUMMARY.md`
+- [x] 9.2 `docs/design/language/generics.md` 按实况订正：Status 头加真实校验范围；基础约束表
+      加「编译期校验」列 + 跨包警示；Rust 增强表加「z42 实现状态」列——**关联类型 / 嵌套约束
+      此前按已实现描述（含语法示例），实为设计意图**，标 ❌ 未实现并注明订正原因
+- [x] 9.3 `GenericConstraint.z42` / `ConstraintChecker.z42` 的过时注释全部改写
+      （「z42c 缺 Z42InterfaceType / 缺 ctor 收集」——两者今天都有）
+- [x] 9.4 Deferred **7 条**登记进 `docs/roadmap.md` Deferred Backlog Index
+      （含订正「L3-G3a 关联类型」那条为未实现）
+- [x] 9.5 `src/tests/README.md` 的两条死链（指向 2026-06-26 已删的
+      `src/compiler/z42.Tests/Fixtures/`）改指 `SemanticDump` 单测体系
+- [x] 9.6 归档 `changes/` → `archive/2026-09-05-complete-where-constraints/`，**随 PR 一起提交**
 
 ---
 

@@ -59,7 +59,7 @@ public sealed class ConstraintChecker {
             if (pi < 0) {
                 this._diags.Error(DiagnosticCodes.UndefinedSymbol,
                     "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + c.Name + "`",
-                    this._noSpan());
+                    wc.Span);
             } else {
                 this._fillBundle(symbols, c.Name, bundles[pi], wc, pnames, pc);
             }
@@ -91,22 +91,34 @@ public sealed class ConstraintChecker {
                     // 之前就把它们整条丢弃，这才是接口约束全体静默的直接原因。
                     // 按裸名匹配（design D1）：`nt.Name` 已是裸名（泛型实参在 nt.Args）。
                     bundle.AddInterface(nt.Name);
-                } else if (nt.ArgCount == 0 && symbols.HasClass(nt.Name)) {
+                } else if (symbols.HasClass(nt.Name)) {
+                    // 泛型 base（`where T : Box<int>`）仍只记裸名——本轮不校验其类型实参
+                    // （与接口的裸名匹配同口径，design D1）。
                     bundle.HasBaseClass = true; bundle.BaseClassName = nt.Name;
+                } else {
+                    // 既不是型参、也不是已知接口/类 —— 多半是把约束名拼错了（`where T : IFooo`）。
+                    // 此前**完全静默**：写错名字等于没写约束，而使用者以为约束生效了。
+                    //
+                    // 曾担心误报（z42c **不把接口的定义 import 进符号表**——ImportedSymbolLoader，
+                    // 会破坏 byte-identical——故 `where T : 某导入接口` 可能 HasInterface/HasClass
+                    // 皆假）。以 warning 跑全仓 + 全 stdlib 探针实测 **0 条**，故升 error。
+                    this._diags.Error(DiagnosticCodes.UndefinedType,
+                        "unknown constraint type `" + nt.Name + "` on `" + ownerName + "`", con.Span);
                 }
-                // 泛型 base / enum / 未知名 → 仍延后（未知名于 PR-4 改报 E0443）
             }
             k = k + 1;
         }
         if (bundle.RequiresClass && bundle.RequiresStruct) {
             this._diags.Error(DiagnosticCodes.TypeMismatch,
                 "type parameter `" + wc.TypeParam + "` cannot be both `class` and `struct` on `" + ownerName + "`",
-                this._noSpan());
+                wc.Span);
         }
     }
 
     // ════ Check（call-site 校验）═══════════════════════════════════════════════
-    public void Check(SymbolTable symbols, Z42InstantiatedType inst) {
+    // `sp` = 实例化点（`new Box<D>()` 的类型位）。此前全程 `_noSpan()` → 诊断指向 `<sem> 0:0`，
+    // 使用者拿到一条不知道该看哪一行的错误（complete-where-constraints PR-4）。
+    public void Check(SymbolTable symbols, Z42InstantiatedType inst, Span sp) {
         string cname = inst.Def.Name();
         if (!symbols.HasConstraints(cname)) { return; }
         ConstraintSet cs = symbols.GetConstraints(cname);
@@ -117,7 +129,7 @@ public sealed class ConstraintChecker {
             ConstraintBundle b = cs.Bundles[i];
             if (!b.IsEmpty()) {
                 this._checkBundle(symbols, cs.ParamNames, cs.Count, inst.TypeArgs, inst.ArgCount,
-                                  b, inst.TypeArgs[i], cname, i, this._noSpan());
+                                  b, inst.TypeArgs[i], cname, i, sp);
             }
             i = i + 1;
         }
@@ -302,6 +314,4 @@ public sealed class ConstraintChecker {
         return d;
     }
 
-    // AST 节点暂不携 Span → 占位（span-bearing AST 是后续 syntax 增强）。
-    private Span _noSpan() { return new Span(0, 0, 1, 1, "<sem>"); }
 }
