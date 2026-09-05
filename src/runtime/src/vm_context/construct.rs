@@ -144,6 +144,7 @@ impl VmContext {
             pending_type_inits: Mutex::new(Vec::new()),
             pending_type_init_count: std::sync::atomic::AtomicUsize::new(0),
             running_static_inits:    std::sync::atomic::AtomicUsize::new(0),
+            init_batch_inflight:     std::sync::atomic::AtomicUsize::new(0),
             static_init_error:  Mutex::new(None),
             context_registry:   Mutex::new(crate::metadata::context::ContextRegistry::new()),
             #[cfg(feature = "native-interop")]
