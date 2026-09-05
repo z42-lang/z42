@@ -1,7 +1,7 @@
 # 测试门禁（test gate）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/test/`
-> **相关**: [xtask](xtask.md) · [构建编排](build.md) ｜ **对齐**: 2026-07-07
+> **相关**: [xtask](xtask.md) · [构建编排](build.md) ｜ **对齐**: 2026-09-05
 
 ## 概述
 
@@ -22,7 +22,8 @@
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 完整 gate 的内容 | cargo build (z42vm) + e2e（goldens + cross-zpkg）/ stdlib / compiler / vscode-syntax stage | 每个 stage 守一类回归面：端到端语义与跨包行为、库正确性、编译器自举、生成产物一致性（Rust VM 单测独立于 gate，见 `test runtime`） |
+| 完整 gate 的内容 | build wave + e2e（goldens / cross-zpkg / multi-exe）/ stdlib / manifest targets / examples / compiler / vscode-syntax / lines —— 逐条清单见下「完整 gate 的 stage 流水」 | 每个 stage 守一类回归面：端到端语义与跨包行为、库正确性、清单驱动的 target 契约、示例可编译、编译器自举、生成产物一致性、代码规模棘轮（Rust VM 单测独立于 gate，见 `test runtime`） |
+| stage 清单不漂移 | 代码 `_gateStageNames()` 与本页 `gate-stages` 区互为副本，gate 开跑前对账（`_checkGateStageDoc`） | 本页曾自称 SoT 却漏了 3 个 stage —— 纪律守不住无人盯的清单，改成会变红的门 |
 | 加速机制 | `test changed`（命令级）+ 单 stage / `--no-build` | changed 按文件精确到单库命令，适合小步迭代；单 stage / `--no-build` 反复跑同一测试免重编 |
 | changed 的保守坍缩 | 任一改动文件映射为 full → 整个计划坍缩为 `test all` | 宁可多跑不可漏跑；xtask 自身与 workspace 配置改动一律 full |
 | 计划执行方式 | 逻辑命令 in-process 重入 CLI 路由（不 shell out） | 免去每命令一次进程启动；cargo 命令例外走子进程 |
@@ -36,6 +37,15 @@
 > （`scripts/README.md`、`.claude/rules/workflow.md`、`docs/workflow/ci.md`）一律
 > 「跑 `xtask test`，stage 组成见此」+ 链接，不再各自复列（历史上复列 5-6 处、已互相漂移
 > ——有的漏 vscode-syntax、有的把 stdlib 写成 `test lib`）。改 gate 组成 → 只改这里。
+>
+> **这条约定现在有门守着**（fix-xtask-doc-drift，2026-09-05）：下面 `gate-stages` 区是本
+> 清单的机器可读副本，`_checkGateStageDoc`（`scripts/test/xtask_test.z42`）在 gate 开跑前
+> 与代码侧的 `_gateStageNames()` 逐条对账，不一致即红。**加 / 删 / 改名 stage 要同时改两处。**
+>
+> 为什么补这道门：本节此前自称 SoT 却仍然烂了——multi-exe（unify-run-modes P3）、
+> manifest targets（add-tests-bench-manifest-config P4）、examples（设计 D4）三次加 stage
+> 都没同步本页，文档停在 6 个而 gate 实跑 9 个。**没有测试盯着的约定迟早会烂**，纪律不够，
+> 得有会变红的东西。形态同 `vscode-syntax`（生成产物 ↔ 源表防漂移）。
 
 ```mermaid
 graph LR
@@ -43,14 +53,36 @@ graph LR
     D --> R[regen 构建波<br/>cargo release z42vm<br/>+ golden .zbc]
     R --> S1[e2e goldens<br/>interp]
     S1 --> S2[e2e cross-zpkg<br/>编译=release·运行=debug]
-    S2 --> S3[stdlib Test 用例]
-    S3 --> S4[compiler 自举<br/>七包 + 不动点 + units]
+    S2 --> S2b[e2e multi-exe<br/>一工程 → N 个 exe zpkg]
+    S2b --> S3[stdlib Test 用例]
+    S3 --> S3b[manifest targets<br/>&#91;&#91;test&#93;&#93; fixture]
+    S3b --> S3c[examples<br/>编译 gate + test=true 运行]
+    S3c --> S4[compiler 自举<br/>七包 + 不动点 + units]
     S4 --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
     S5 --> S6[lines<br/>文件行数硬上限 棘轮基线]
     S6 --> G((GREEN))
 ```
 
-先备工具链与基线，再依序跑六个验证 stage；任一步失败立即终止。
+**机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
+顺序 = 实际执行顺序。仅改这里而不改 `_gateStageNames()` 会让 gate 变红，反之亦然）：
+
+<!-- gate-stages:begin -->
+- `build wave (debug vm + regen)`
+- `e2e goldens (interp; jit → vm-jit-consistency)`
+- `e2e cross-zpkg`
+- `e2e multi-exe`
+- `stdlib [Test]`
+- `manifest targets ([[test]])`
+- `examples (compile gate + test=true run)`
+- `compiler`
+- `vscode-syntax`
+- `lines`
+<!-- gate-stages:end -->
+
+先备工具链与基线（build wave），再依序跑九个验证 stage；任一步失败立即终止。
+除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <name>` 下放到独立 CI job
+（见 `_skipHas`；skip 名是短名，如 `vscode` / `targets`，不等于 banner 全名）——skip 只影响
+**在哪跑**，不改变 gate 的 stage 组成，故上面的清单不随 `--skip` 变化。
 **debug z42vm 必须先于 regen 构建**（fix-gate-debug-vm-order，2026-07-16）：golden regen 用
 `_activeVm(root,"debug")` 解析 debug vm 去编译各 golden；若 regen 先跑而 debug vm stale（早于某个
 新增 VM builtin），会在 regen 阶段 panic「unknown builtin」→ 全体 golden 假失败、且 regen 返回 1
@@ -131,7 +163,8 @@ changed 是"逐文件求命令并集"（能精确到单个库），任一未识�
 
 | 组件 | 位置 | 要点 |
 |------|------|------|
-| gate 编排 | `scripts/test/xtask_test.z42` 的 `_testAll` | regen 构建波 → 四 stage 串联 |
+| gate 编排 | `scripts/test/xtask_test.z42` 的 `_testAll` | 构建波 → 九个验证 stage 串联；开跑前先 `_checkGateStageDoc` 对账本页清单 |
+| stage 清单 SoT | 同上的 `_gateStageNames()` ↔ 本页 `gate-stages` 区 | 两份互为副本；`_stageStart` 另断言 banner 名已登记 |
 | VM goldens | `scripts/test/xtask_test_vm.z42` | 枚举 + 并发跑分 + 汇总 |
 | cross-zpkg e2e | `scripts/test/xtask_test_cross.z42` | 多 zpkg 协作场景 |
 | stdlib [Test] | `scripts/test/xtask_test_lib.z42` + `_lib_units.z42` | 属性发现、批量编译、分片 |

@@ -29,8 +29,22 @@ public sealed class StageLogZ {
 }
 
 Stopwatch _stageStart(string name) {
+    // 注册校验：banner 名必须已在 _gateStageNames() 里登记。这半边保证「加了 stage
+    // 却没进代码侧清单」当场炸，另半边（_checkGateStageDoc）保证清单与文档一致——
+    // 两个环扣上，新 stage 才没法悄悄绕过 test-gate.md。
+    if (!_isRegisteredStage(name)) {
+        throw new Exception("stage '" + name + "' 未在 _gateStageNames() 登记 —— "
+            + "加 stage 要同时改 _gateStageNames() 与 docs/book/src/dev/test-gate.md 的 gate-stages 区");
+    }
     Console.WriteLine("\n=== stage: " + name + " ===");
     return Stopwatch.StartNew();
+}
+
+bool _isRegisteredStage(string name) {
+    string[] all = _gateStageNames();
+    int i = 0;
+    while (i < all.Length) { if (all[i] == name) { return true; } i = i + 1; }
+    return false;
 }
 
 void _stageEnd(StageLogZ log, string name, Stopwatch sw) {
@@ -286,8 +300,102 @@ bool _skipHas(string skip, string stage) {
     return false;
 }
 
+// ── stage 清单 ↔ test-gate.md 防漂移门（fix-xtask-doc-drift, 2026-09-05）─────
+//
+// 为什么要这道门：docs/book/src/dev/test-gate.md 自称「GREEN gate stage 组成的唯一
+// 权威清单（SoT）」，页内还明文警告过「历史上复列 5-6 处、已互相漂移」——然后它自己
+// 还是烂了：multi-exe（unify-run-modes P3）、manifest targets（add-tests-bench-manifest-
+// config P4）、examples（设计 D4）三次加 stage 都没同步该页，文档停在 6 个而 gate 实跑 9 个。
+// **纯纪律守不住一份没有测试盯着的清单**（同 format-fixture 那次的教训），所以把「gate 跑
+// 哪些 stage」变成数据 + 开跑前与文档对账。形态照 `test vscode-syntax`（生成产物 ↔ 源表）。
+//
+// 加/删/改名一个 stage 的正确姿势：改 _gateStageNames() + test-gate.md 的
+// gate-stages 区，两处一致才绿；只改一处 → 本门变红并打印差异。
+
+// gate 的规范 stage 名单（代码侧唯一 SoT），顺序 = _testAll 的实际执行顺序。
+// 含 build wave：它也走 _stageStart 打 banner、也计入耗时表，对读日志的人就是一个 stage。
+string[] _gateStageNames() {
+    return new string[]{
+        "build wave (debug vm + regen)",
+        "e2e goldens (interp; jit → vm-jit-consistency)",
+        "e2e cross-zpkg",
+        "e2e multi-exe",
+        "stdlib [Test]",
+        "manifest targets ([[test]])",
+        "examples (compile gate + test=true run)",
+        "compiler",
+        "vscode-syntax",
+        "lines"
+    };
+}
+
+// test-gate.md 里机器可读清单区的边界标记（HTML 注释：渲染成 book 时不可见）。
+string _gateStagesDocPath(string root) {
+    return Path.Join(root, "docs/book/src/dev/test-gate.md");
+}
+
+// 从 test-gate.md 的 <!-- gate-stages:begin/end --> 区抽出 stage 名（每行一个
+// `- \`name\``）。区块缺失返回 null（调用方报「标记不见了」而非「清单为空」——
+// 两种失败原因不同，混在一起会让人去改清单而不是去找被删掉的标记）。
+string[] _gateStagesFromDoc(string text) {
+    int b = text.IndexOf("<!-- gate-stages:begin -->");
+    int e = text.IndexOf("<!-- gate-stages:end -->");
+    if (b < 0 || e < 0 || e < b) { return null; }
+    // "\n" 而非 '\n'：z42 的 Split 无 char 重载。CRLF 下每行尾留的 \r 由下面的 Trim() 吃掉。
+    string[] lines = text.Substring(b, e - b).Split("\n");
+    string[] names = new string[32];
+    int n = 0;
+    int i = 0;
+    while (i < lines.Length) {
+        string ln = lines[i].Trim();
+        // 只认 "- `name`" 形状，其余（标记行 / 空行 / 说明文字）跳过。
+        if (ln.StartsWith("- `") && ln.EndsWith("`")) {
+            names = _append(names, n, ln.Substring(3, ln.Length - 4));
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    string[] outNames = new string[n];
+    int j = 0;
+    while (j < n) { outNames[j] = names[j]; j = j + 1; }
+    return outNames;
+}
+
+// 对账 _gateStageNames() 与 test-gate.md。不一致 → 打印逐条差异后返回 1。
+int _checkGateStageDoc() {
+    string root = _root();
+    string docPath = _gateStagesDocPath(root);
+    if (!File.Exists(docPath)) {
+        ConsoleError.WriteLine("error: gate stage SoT 文档不存在: " + docPath);
+        return 1;
+    }
+    string[] want = _gateStageNames();
+    string[] got = _gateStagesFromDoc(File.ReadAllText(docPath));
+    if (got == null) {
+        ConsoleError.WriteLine("error: test-gate.md 缺 <!-- gate-stages:begin/end --> 标记区");
+        ConsoleError.WriteLine("       该区是 stage 清单的机器可读副本，不能删——见 _checkGateStageDoc");
+        return 1;
+    }
+    bool same = (want.Length == got.Length);
+    int i = 0;
+    while (same && i < want.Length) { if (want[i] != got[i]) { same = false; } i = i + 1; }
+    if (same) { return 0; }
+    ConsoleError.WriteLine("error: GREEN gate stage 清单与 docs/book/src/dev/test-gate.md 不一致");
+    ConsoleError.WriteLine("       代码 (_gateStageNames, scripts/test/xtask_test.z42):");
+    int k = 0;
+    while (k < want.Length) { ConsoleError.WriteLine("         " + (k + 1).ToString() + ". " + want[k]); k = k + 1; }
+    ConsoleError.WriteLine("       文档 (gate-stages 区):");
+    k = 0;
+    while (k < got.Length) { ConsoleError.WriteLine("         " + (k + 1).ToString() + ". " + got[k]); k = k + 1; }
+    ConsoleError.WriteLine("       → 改了 gate 组成就两处一起改；文档区是给人读的 SoT，代码是执行的 SoT。");
+    return 1;
+}
+
 int _testAll(bool noBuild, string skip) {
     Stopwatch sw = _procStart("test");
+    // stage 清单 ↔ 文档对账：放在构建波之前，几毫秒，失败即停——文档漂移不该让人
+    // 等十几分钟的 gate 跑完才发现。
+    int dc = _checkGateStageDoc(); if (dc != 0) { return dc; }
     // build wave (once): stdlib + compiler driver + release runtime + golden zbc.
     // compile-once consume: skip the redundant z42c+stdlib rebuild when they're
     // already present — either a --toolchain is set (CI downloads current-sdk) OR

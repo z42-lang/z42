@@ -2,7 +2,11 @@
 //
 // Same rationale as xtask_test_packages_config.z42: xtask is an exe, so the
 // [Test]-attribute reflection runner can't see it — this is a plain
-// throw-on-mismatch self-check wired into `test`, not [Test]-discovered.
+// throw-on-mismatch self-check, not [Test]-discovered.
+//
+// 运行方式：`xtask test packages`（经 _testPackages 聚合三层自检）。**它是 opt-in 的，
+// 不在 `xtask test` 的 GREEN gate stage 里**——改打包系统时手动跑（见 scripts/README.md）。
+// （原注释写的是 "wired into `test`"，容易被读成「gate 会自动跑」，实际不会。）
 //
 // Exercises _pkgStageZ42vm/_pkgStageNative/_pkgStageStdlib against a
 // throwaway fake cargoOut (these handlers only copy — they never invoke

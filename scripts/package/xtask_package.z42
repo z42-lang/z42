@@ -118,7 +118,7 @@ int _buildPackageCore(string profile, string rid, string variant, bool noBuild) 
     } else if (category == "wasm") {
         c = _packageWasm(root, pkgDir, rid, version, profile, hostRid);
     } else {
-        ConsoleError.WriteLine("build package: unknown category '" + category + "' for rid " + rid);
+        ConsoleError.WriteLine("package runtime: unknown category '" + category + "' for rid " + rid);
         return 2;
     }
     if (c != 0) { return c; }
