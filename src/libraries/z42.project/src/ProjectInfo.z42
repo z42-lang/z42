@@ -8,7 +8,9 @@ public sealed class ProjectInfo {
     public bool   HasEntry;
     public string Entry;       // 仅 HasEntry 有效（否则自动探测）
     public bool   HasPack;
-    public bool   Pack;        // 仅 HasPack 有效（[profile.*].pack 最低优先级回退）
+    public bool   Pack;        // [project].pack；仅 HasPack 有效，否则 isPacked = isRelease
+    // （此处原注释写着「[profile.*].pack 最低优先级回退」——那个回退**从未实现**，
+    //  `Profile.Pack` 解析后从无人读；restructure-profile-sections 已删该死字段。）
     public ProjectInfo(string name, string version, string kind,
                        bool hasEntry, string entry, bool hasPack, bool pack) {
         this.Name = name; this.Version = version; this.Kind = kind;
