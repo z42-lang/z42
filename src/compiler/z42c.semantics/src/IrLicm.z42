@@ -26,14 +26,14 @@ public sealed class IrLicm {
             if (isHeader[h]) {
                 bool[] inLoop = IrLoopUtil.LoopBody(cfg, h);
                 int ph = IrLoopUtil.CleanPreheader(f, cfg, h, inLoop);
-                if (ph >= 0) { IrLicm._hoistInvariants(f, n, inLoop, ph, h, cfg.Dom, optSet, pureTable); }
+                if (ph >= 0) { IrLicm._hoistInvariants(f, n, inLoop, ph, h, cfg.Dom, cfg.DW, optSet, pureTable); }
             }
             h = h + 1;
         }
     }
 
     // 不变量分析 + 外提到 pre-header。
-    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, bool[] dom, int optSet, PureTable pureTable) {
+    private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, int[] dom, int dw, int optSet, PureTable pureTable) {
         int rc = f.MaxReg + 2;
         // defInLoop[reg] = 该 reg 在**被 header 支配的任一块**中定义（= 循环支配域，**含**异常/多出口退出块——
         // 后者被「latch 反向可达」的循环体排除，但仍受 header 支配。用 header 支配域而非反向可达体，
@@ -46,7 +46,7 @@ public sealed class IrLicm {
         int[] defsGlobal = new int[rc];
         int b = 0;
         while (b < n) {
-            bool headerDom = dom[b * n + h];   // b 受 header 支配 → 属循环支配域
+            bool headerDom = (dom[b * dw + (h >> 4)] & (1 << (h & 15))) != 0;   // b 受 header 支配 → 属循环支配域
             IrBlock blk = f.Blocks[b];
             int ii = 0;
             while (ii < blk.InstrCount) {
