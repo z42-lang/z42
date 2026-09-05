@@ -16,6 +16,7 @@ pack    = true
 "z42.project"    = "0.1.0"   # 组合式 manifest 模型（converge：取代 z42c.project 自带 model）
 "z42.io"         = "0.1.0"
 "z42.toml"       = "0.1.0"   # 侧车序列化（TomlValue.Stringify）——add-app-properties
+"z42.text"       = "0.1.0"   # Levenshtein —— 旋钮名 typo 的最近邻建议（compiler-checks-knob-names）
 "z42.crypto"     = "0.1.0"   # Blake3 —— indexed 散装 zbc 内容 hash（add-indexed-zpkg-min-patch）
 "z42c.pipeline"  = "0.1.0"   # DepScan + CacheStore（converge：CacheStore 迁入 pipeline）；镜像 C# driver→pipeline 边
 

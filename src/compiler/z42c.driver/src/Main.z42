@@ -141,6 +141,10 @@ void Main() {
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
 int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet, bool fix) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
+    // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
+    // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
+    int pkc = _validateProfileKnobs(pm);
+    if (pkc != 0) { return pkc; }
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
     // fix-hooks-source-scan 阶段2：有效 exclude = `[sources].exclude` ++（`[build] hooks` 目录，若声明）。
