@@ -50,7 +50,11 @@ impl LazyCompiler {
         // Cranelift 无法跨 op 去箱来消除,故 speed 档零计算提升却多 ~4-5ms 冷编译
         // （arith compute 50.4→52.9ms、poly 1024→1028ms flat、startup 54→59ms）。
         // 真正的 JIT 杠杆是结构性去箱 + 内联 helper,不是让 Cranelift 更用力优化
-        // 现有形状。故保留默认档。详见 bench/results/MODE-COMPARISON.md。
+        // 现有形状。故保留默认档。
+        // （原引的 bench/results/MODE-COMPARISON.md 是 perf-vm-iteration 时期
+        // compare-modes.sh 的产物，早已不在仓库；该脚本本身也随 move-bench-into-tests
+        // 删除——interp/jit 对比现在是 `xtask bench --mode both`。上面括号里的
+        // 数字就是当时的结论，无需再去找那份文件。）
         let isa = cranelift_native::builder()
             .map_err(|e| anyhow::anyhow!("native ISA unavailable: {}", e))?
             .finish(cranelift_codegen::settings::Flags::new(
