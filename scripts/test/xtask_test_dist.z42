@@ -43,7 +43,7 @@ int _testDistRun(string modeArg) {
     if (distDir.Length == 0) { distDir = _latestReleasePkg(root); }
     if (distDir.Length == 0 || !Directory.Exists(distDir)) {
         ConsoleError.WriteLine("error: no packaged distribution found at artifacts/packages/z42-*-release");
-        ConsoleError.WriteLine("       Run: z42 xtask.zpkg build package release");
+        ConsoleError.WriteLine("       Run: xtask package sdk");
         return 1;
     }
     string z42c    = Path.Join(distDir, "bin/z42c");

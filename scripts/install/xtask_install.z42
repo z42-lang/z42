@@ -65,7 +65,7 @@ int _depsInstall(ParseResult r) {
         Console.WriteLine("✅ setup complete");
         if (platform == "android") {
             Console.WriteLine("   For ANDROID_NDK_HOME export, run:");
-            Console.WriteLine("     eval \"$(z42 xtask.zpkg deps env)\"");
+            Console.WriteLine("     eval \"$(xtask deps env)\"");
             Console.WriteLine("   Android emulator tier (instrumentation tests) auto-installs on `test platform android run`.");
         }
     }
@@ -90,7 +90,7 @@ int _depsEnv(ParseResult r) {
     TomlValue toml = TomlValue.Parse(File.ReadAllText(Path.Join(root, "versions.toml")));
     string home = _resolveNdkHome(root, toml);
     if (home.Length == 0) {
-        ConsoleError.WriteLine("# android: NDK not found; run z42 xtask.zpkg deps install --os android");
+        ConsoleError.WriteLine("# android: NDK not found; run xtask deps install --os android");
         return 1;
     }
     Console.WriteLine("export ANDROID_NDK_HOME=\"" + home + "\"");
@@ -314,7 +314,7 @@ int _checkAndroidBuildSdk(string root, TomlValue toml) {
     if (_resolveNdkHome(root, toml).Length > 0) {
         Console.WriteLine("  ✓ NDK " + ndkVer + " at " + _resolveNdkHome(root, toml));
     } else {
-        ConsoleError.WriteLine("  ✗ NDK " + ndkVer + " missing (run: z42 xtask.zpkg deps install --os android)"); rc = 1;
+        ConsoleError.WriteLine("  ✗ NDK " + ndkVer + " missing (run: xtask deps install --os android)"); rc = 1;
     }
     string sdkDir = Path.Join(root, _vget(toml, "build.android.install_root"));
     string platformVer = _vget(toml, "build.android.sdk.platform");

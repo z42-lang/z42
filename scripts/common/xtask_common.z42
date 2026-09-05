@@ -39,14 +39,13 @@ int _execIn(Process p, string wd) {
 
 // ── z42c 编译执行模式 + workspace 构建收敛（consolidate-z42c-invocations）──────
 
-// z42c 编译走 interp 还是 jit 的单一开关。默认 "interp"（行为保持）。实测 jit 比 interp
-// 快 3.6×（大编译）/1.67×（小编译）、产物 byte-identical（docs/xtask_review.md 附录 A）；
-// 翻默认到 jit 是独立的 B 步（前置：jit-fixpoint-check 全平台绿 + User 拍板）。
-// Z42C_BUILD_MODE=interp|jit 环境覆盖（格式-bump 窗口 / 确定性审计 / 调试的逃生舱）。
-// z42c 编译（xtask 驱动 z42vm 跑 z42c.driver）的执行模式。默认 jit：jit-fixpoint-check
-// 四平台确认 z42c workspace 编译 interp==jit 逐字节一致，jit 编译快 1.67-3.6×，故自举
-// 不动点信任基线移到 cranelift/JIT。逃生舱 Z42C_BUILD_MODE=interp（格式-bump 窗口 /
-// 确定性审计 / 调试时回解释器）。
+// z42c 编译（xtask 驱动 z42vm 跑 z42c.driver）走 interp 还是 jit 的单一开关。
+// **默认 jit**：jit-fixpoint-check 四平台确认 z42c workspace 编译 interp==jit 逐字节一致，
+// 且 jit 快 1.67×（小编译）–3.6×（大编译），故自举不动点的信任基线已移到 cranelift/JIT。
+// 逃生舱 Z42C_BUILD_MODE=interp|jit（格式-bump 窗口 / 确定性审计 / 调试时回解释器）。
+//
+// 注：此处原先叠着两段互相矛盾的注释——上一段停留在「默认 interp、翻 jit 是待办的 B 步」，
+// 下一段才是翻默认之后的实况。翻默认时只追加了新注释、没删旧的（fix-xtask-doc-drift 清理）。
 string _z42cMode() {
     string m = Environment.GetEnvironmentVariable("Z42C_BUILD_MODE") ?? "";
     if (m == "interp" || m == "jit") { return m; }

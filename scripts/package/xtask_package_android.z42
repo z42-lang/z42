@@ -124,7 +124,7 @@ int _packageAndroid(string root, string pkgDir, string rid, string version, stri
 // env var as a side effect when it resolves the in-repo NDK. Returns 0 on success.
 int _ensureAndroidNdk(string root) {
     if (!_have("cargo-ndk")) {
-        ConsoleError.WriteLine("error: cargo-ndk not found. install: cargo install cargo-ndk --locked (or z42 xtask.zpkg deps install --os android)");
+        ConsoleError.WriteLine("error: cargo-ndk not found. install: cargo install cargo-ndk --locked (or xtask deps install --os android)");
         return 1;
     }
     string ndkHome = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
@@ -135,7 +135,7 @@ int _ensureAndroidNdk(string root) {
         return 0;
     }
     ConsoleError.WriteLine("error: $ANDROID_NDK_HOME unset and NDK not found at " + autoNdk);
-    ConsoleError.WriteLine("       run: z42 xtask.zpkg deps install --os android");
+    ConsoleError.WriteLine("       run: xtask deps install --os android");
     return 1;
 }
 
