@@ -229,6 +229,14 @@ void _cmdWhich(ParseResult r) {
     Console.WriteLine(_vmPath(dir) ?? ("(z42vm missing in " + dir + ")"));
 }
 
+// `z42 run` 的 usage 文案。单一来源——扫描循环报未知 flag 时与缺 app 时共用，
+// 加 flag 时不会漏改文案。
+string _runUsage() {
+    return "usage: z42 run [--runtime <ver>] [--bin <name>] [--config <file>]"
+         + " [--mode <interp|jit|aot>] [--set <key>=<value>]..."
+         + " <app.zpkg | project-dir | project.z42.toml> [-- <args>]";
+}
+
 // z42 run [--runtime V] <app.zpkg> [-- <app args>]
 void _cmdRun(string[] rest) {
     string? ver = _flagValue(rest, "--runtime");
@@ -237,6 +245,11 @@ void _cmdRun(string[] rest) {
     string? modeOpt = _flagValue(rest, "--mode");  // (repl-run-config) z42vm exec mode
     string app = "";
     string[] appArgs = new string[0];
+    // `--set k=v` 可重复（launcher-forwards-set）。launcher **只透传**：key 合法性 /
+    // 可用性 / 类型诊断全归 z42vm——旋钮登记表在那边，这里若自己校验就成了第二处 SoT。
+    // value 里含 `=`（`--set log=z42::jit=debug`）也不用管，切分由 VM 按第一个 `=` 做。
+    string[] setBuf = new string[64];
+    int setN = 0;
     int i = 0;
     while (i < rest.Length) {
         string a = rest[i];
@@ -244,12 +257,27 @@ void _cmdRun(string[] rest) {
         if (a == "--bin") { i = i + 2; continue; }        // skip flag + value (P4)
         if (a == "--config") { i = i + 2; continue; }     // skip flag + value
         if (a == "--mode") { i = i + 2; continue; }       // skip flag + value
+        if (a == "--set") {
+            if (i + 1 < rest.Length && setN < setBuf.Length) { setBuf[setN] = rest[i + 1]; setN = setN + 1; }
+            i = i + 2;
+            continue;
+        }
         if (a == "--") { appArgs = _tail(rest, i + 1); break; }
+        // 未识别的 `--flag`：报错，不猜。此前它会被当成 app 路径（于是去找一个叫
+        // `--bogus` 的工程），或在 app 已定后被静默丢弃——`--set` 漏转发之所以表现得
+        // 那么糊涂，根源正是这条兜底。`--` 之后的一切仍归程序，不走这里。
+        if (a.StartsWith("--")) {
+            ConsoleError.WriteLine("z42 run: unknown option `" + a + "`");
+            ConsoleError.WriteLine(_runUsage());
+            ConsoleError.WriteLine("  (program arguments go after a `--` separator)");
+            Environment.Exit(2);
+            return;
+        }
         if (app.Length == 0) { app = a; }
         i = i + 1;
     }
     if (app.Length == 0) {
-        ConsoleError.WriteLine("usage: z42 run [--runtime <ver>] [--bin <name>] [--config <file>] [--mode <interp|jit|aot>] <app.zpkg | project-dir | project.z42.toml> [-- <args>]");
+        ConsoleError.WriteLine(_runUsage());
         Environment.Exit(2);
         return;
     }
@@ -311,6 +339,9 @@ void _cmdRun(string[] rest) {
     // Explicit `--mode` (repl-run-config): a z42vm flag → must precede the app
     // positional. Highest exec-mode precedence (above Z42_MODE / [runtime]).
     if (modeOpt != null && modeOpt.Length > 0) { proc = proc.Arg("--mode").Arg(modeOpt); }
+    // 运行时旋钮的 CLI 层（最高优先级）——原样转发，语义归 z42vm。
+    int si = 0;
+    while (si < setN) { proc = proc.Arg("--set").Arg(setBuf[si]); si = si + 1; }
     proc = proc.Arg(app)
         .Stdin(Stdio.Inherit())
         .Stdout(Stdio.Inherit())

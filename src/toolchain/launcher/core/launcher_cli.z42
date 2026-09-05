@@ -119,6 +119,8 @@ void _printReplHelp() {
     Console.WriteLine("  --mode <interp|jit|aot>  execution mode for the REPL's z42vm");
     Console.WriteLine("                           (default: jit; also via Z42_MODE / [runtime].mode)");
     Console.WriteLine("  --config <file>          runtime config file (sets Z42_CONFIG)");
+    Console.WriteLine("  --set <key>=<value>      set a runtime knob for this run (repeatable;");
+    Console.WriteLine("                           highest precedence — see `z42vm --list-knobs`)");
     Console.WriteLine("  -c <expr>                evaluate <expr> once, print it, and exit (non-interactive)");
     Console.WriteLine("  -h, --help               show this help");
     Console.WriteLine("");
@@ -165,9 +167,24 @@ int _forwardRepl(string[] argv) {
     // z42vm; everything else passes through to z42i as its own args (e.g. `-c`).
     string? cfgOpt = _flagValue(argv, "--config");
     string? modeOpt = _flagValue(argv, "--mode");
+    // `--set k=v` 可重复（launcher-forwards-set）：REPL 也是 z42vm 跑 z42i，运行时
+    // 旋钮对它一样适用。收集全部、并从传给 z42i 的参数里剥净（`_stripFlag` 只剥一个）。
+    string[] setBuf = new string[64];
+    int setN = 0;
     string[] z42iArgs = _stripFlag(_stripFlag(argv, "--config"), "--mode");
+    int k = 0;
+    while (k < z42iArgs.Length) {
+        if (z42iArgs[k] == "--set" && k + 1 < z42iArgs.Length && setN < setBuf.Length) {
+            setBuf[setN] = z42iArgs[k + 1]; setN = setN + 1;
+        }
+        k = k + 1;
+    }
+    int sr = 0;
+    while (sr < setN) { z42iArgs = _stripFlag(z42iArgs, "--set"); sr = sr + 1; }
     Process proc = new Process(vm);
     if (modeOpt != null && modeOpt.Length > 0) { proc = proc.Arg("--mode").Arg(modeOpt); }
+    int sf = 0;
+    while (sf < setN) { proc = proc.Arg("--set").Arg(setBuf[sf]); sf = sf + 1; }
     // ShareProcessGroup: the REPL is interactive (Stdin.Inherit) and drives the tty via
     // its line editor. Left in a fresh (background) process group it can't grab the
     // controlling terminal — no `>>>` prompt, and tty reads stop on SIGTTIN (no eval).
