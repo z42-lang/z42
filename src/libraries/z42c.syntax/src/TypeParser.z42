@@ -82,6 +82,9 @@ public sealed class TypeParser {
         }
         if (k == TokenKind.Class)  { this._p._advance(); return new WhereConstraint(false, this._emptyType(), "class", sp); }
         if (k == TokenKind.Struct) { this._p._advance(); return new WhereConstraint(false, this._emptyType(), "struct", sp); }
+        // `where T : enum`——此前**没有**这个特判，`enum` 落进下面的 `_parseType()` 兜底变成
+        // `NamedType("enum")`，语义层查不到同名类/接口 → 整条静默丢弃（complete-where-constraints PR-2）。
+        if (k == TokenKind.Enum)   { this._p._advance(); return new WhereConstraint(false, this._emptyType(), "enum", sp); }
         return new WhereConstraint(true, this._parseType(), "", sp);
     }
 

@@ -96,17 +96,26 @@
 > `Dictionary<int,int>` 编不过 → 自举链断」**根本没被触及**，它要到 PR-5 跨包持久化才浮现。
 > **切勿把本轮的零误报读作「wrapper 归一没问题」。**
 
-## Phase 2 — `enum` + `new()`（PR-2）⚪
+## Phase 2 — `enum` + `new()`（PR-2）🟢
 
-- [ ] 2.1 `TypeParser._parseConstraint` 补 `enum` special（今天落进 `_parseType()` 兜底）
-- [ ] 2.2 `WhereConstraint.Special` 注释同步取值（`new()` / `class` / `struct` / `enum`）
-- [ ] 2.3 `ConstraintBundle` 加 `RequiresEnum` / `RequiresCtor`
-- [ ] 2.4 `enum` 判定 → `symbols.EnumTypes.ContainsKey`
-- [ ] 2.5 `new()` 判定 → `ct.OverloadsOf(ct.Name())` 找 `ParamCount==0`；
-      **无显式 ctor = 满足**、abstract 类**不**满足（对齐运行期 `generics.rs`）
-- [ ] 2.6 负例用例各一条（Phase 0 机制）
-- **GREEN**：`xtask test` 全绿。`new()` 全仓零真实用例 → 回归面为零；
-      `enum` 仅 `src/tests/generics/generic_enum_constraint.z42` 一条
+- [x] 2.1 `TypeParser._parseConstraint` 补 `enum` special。**根因在 parser 而非语义层**：
+      `enum` 此前落进 `_parseType()` 兜底 → `NamedType("enum")` → 语义层查不到同名类/接口
+      → 静默丢弃。与接口约束同一种死法，只是死在更早的阶段
+- [x] 2.2 `WhereConstraint.Special` 注释同步取值（`new()` / `class` / `struct` / `enum`）
+- [x] 2.3 `ConstraintBundle` 加 `RequiresEnum` / `RequiresCtor`（含 `IsEmpty` 同步）
+- [x] 2.4 `enum` 判定 → `symbols.EnumTypes.ContainsKey`；未解析型参 / error / unknown
+      按满足处理（同 `_satisfiesInterface` 的口径）
+- [x] 2.5 `new()` 判定**照抄运行期 `generics.rs::type_has_no_arg_ctor`**（design §1 铁律：
+      运行期是 SoT，不另立规则）：基元满足；类须非 abstract；**完全没有显式 ctor = 默认构造
+      = 满足**，只有「声明了 ctor 却无一能零实参调用」才不满足。「能零实参调用」的判据**复用
+      `ConstructTyper.z42:186-193` 已有规则**（params 变长 / 尾参全带默认值都算），不另写一套
+- [x] 2.6 负例用例 **9 条**：enum 满足 / 违反(class) / 违反(基元)；new() 无显式 ctor 满足 /
+      显式无参 ctor 满足 / 只有带参 ctor 违反 / 形参全默认满足 / 基元满足；`struct + new()` 组合
+- **GREEN**：✅ `xtask test` 全绿 + 22/22 负例 + 字节不动点 3/3
+
+> **自举纪律**（[bootstrap-seed.md](../../../../.claude/rules/bootstrap-seed.md)）：本阶段只加
+> **support**（z42c 能解析 `where T : enum`），z42c 自身源码与 stdlib **不使用**它 → 上一版
+> nightly 仍能编当前源码，自举链不断。「use」要等下一个 nightly 发布后才可以。
 
 ## Phase 4 — 诊断质量（PR-4）⚪
 
