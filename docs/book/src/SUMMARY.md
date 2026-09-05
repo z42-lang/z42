@@ -71,6 +71,7 @@
   - [核心包索引]()
   - [JSON serde（对象 ↔ JSON）](stdlib/json-serde.md)
   - [`Std.Runtime.RuntimeConfig`（只读查询运行时设置）](stdlib/runtime-config.md)
+  - [`Std.Runtime.AppProperties`（应用自定义配置）](stdlib/app-properties.md)
 
 # 第五部分 · 工具链（Toolchain）
 

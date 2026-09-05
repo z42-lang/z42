@@ -216,17 +216,31 @@ fn main() -> Result<()> {
     // app-config 层：显式 `Z42_APP_CONFIG` 优先，否则由 app 文件推导出它旁边的
     // 侧车（app-config-follows-the-app）。推导必须发生在**装配**期——配置在
     // OnceLock 里 boot 后冻结，`app::run` 那时再想加一层就晚了。
-    let app_table = match z42::config::load_app_config(&getenv) {
-        Ok(Some(t)) => Some(t),
-        Ok(None) => match cli.file.as_deref().and_then(|f| {
-            z42::config::sidecar_for(std::path::Path::new(f))
-        }) {
-            Some(p) => z42::config::load_config_file(&p, "app sidecar")
+    // app 侧车同时携带 `[runtime]`（旋钮）与 `[properties]`（应用自定义配置）。
+    let (app_table, app_props) = {
+        let explicit = getenv("Z42_APP_CONFIG").filter(|s| !s.trim().is_empty());
+        let path = match explicit {
+            Some(p) => Some(std::path::PathBuf::from(p.trim())),
+            None => cli.file.as_deref()
+                .and_then(|f| z42::config::sidecar_for(std::path::Path::new(f))),
+        };
+        match path {
+            Some(p) => z42::config::load_config_tables(&p, "Z42_APP_CONFIG")
                 .map_err(|e| anyhow::anyhow!("{e}"))?,
-            None => None,
-        },
-        Err(e) => return Err(anyhow::anyhow!("{e}")),
+            None => (None, None),
+        }
     };
+    // 属性归 app 所有，不参与分层——用户配置里写了它是无效的，但静默忽略会让人
+    // debug 半天（add-app-properties）。
+    if runtime_table.is_some() {
+        if let Ok(p) = getenv("Z42_CONFIG").ok_or(()) {
+            if let Ok((_, Some(_))) = z42::config::load_config_tables(
+                std::path::Path::new(p.trim()), "Z42_CONFIG") {
+                eprintln!("z42: [properties] in Z42_CONFIG is ignored — application properties \
+belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
+            }
+        }
+    }
     let build_ctx = z42::config::BuildCtx::current();
     let inputs = z42::config::Inputs {
         cli: cli_knobs,
@@ -262,6 +276,7 @@ fn main() -> Result<()> {
     }
     let resolution = resolution;
 
+    let cfg = cfg.with_app_properties(app_props);
     if z42::config::init_runtime_config(cfg.clone()).is_err() {
         eprintln!("z42: runtime config already initialised before main(); [runtime] layer may be ignored");
     }

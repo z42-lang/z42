@@ -1,23 +1,31 @@
 // z42c driver —— `dist/<name>.runtimeconfig.toml` 侧车生成。
 //
-// 工程 manifest 的 `[profile.<n>]` 里除构建期键（pack/strip/optimize/debug）之外的
-// 键，是**运行时**旋钮；build 把它们烤进产物旁的侧车，launcher 运行时经
-// `Z42_APP_CONFIG` 交给 z42vm，落在优先级链的「应用配置」层：
+// 侧车装两样东西，**分表**：
 //
-//     cli (--set/--mode) > env (Z42_*) > 用户配置 (Z42_CONFIG) > 应用侧车 > 默认
+//   [runtime]      工程 `[profile.<n>]` 的运行时旋钮 —— VM 认识它们（登记表 / 类型 /
+//                  可用性 / 诊断），走五层优先级链。
+//   [properties]   `[properties]` 基表 + `[profile.<n>.properties]` 的合并结果 ——
+//                  应用自定义配置，**VM 不理解也不校验**，运行时经
+//                  `Std.Runtime.AppProperties` 只读（add-app-properties）。
 //
-// 对齐 dotnet：`<app>.runtimeconfig.json` 由 SDK 在**构建时**从项目属性生成并与
-// 产物一起进 bin/，不是运行时拼的。放在 driver（而非 launcher）是因为侧车必须与
-// 产物 1:1——放 launcher 就只有 `z42 run <dir>` 路径会产，`z42 build` 单跑和
-// `z42 publish` 打包时产物不自洽。
+// 分表而非靠前缀区分：否则 `gc-mdoe` 这种 typo 会被当成一个合法的用户属性静默收下，
+// 「未知旋钮就明确报出来」那道诊断就死了。
 //
-// 此前 launcher 是把 `[profile.debug].mode` 注入成 `Z42_MODE` 环境变量的，于是
-// 工程 profile 实际落在 **env 层**、反过来压过用户的配置文件；而且只能带 mode
-// 一个旋钮。complete-runtime-settings P5（2026-09-05）改掉了这条。
+// 若只有旋钮而无属性（或反之），另一段就不出现；两者皆空 → **不产文件**，
+// 让"从前没有侧车"的工程 dist 内容逐字节不变。
+//
+// 对齐 dotnet：`<app>.runtimeconfig.json` 由 SDK 在**构建时**生成并与产物一起进 bin/。
+// 放在 driver（写产物的地方）而非 launcher，是因为侧车必须与产物 1:1——放 launcher 就
+// 只有 `z42 run <dir>` 会产，`z42 build` 单跑与 `z42 publish` 打包时产物不自洽。
+//
+// complete-runtime-settings（2026-09-05）引入；add-app-properties 加 `[properties]`
+// 并把手拼 TOML 换成 `TomlValue.Stringify`（属性支持完整类型后，数组 / 嵌套表 / 转义
+// 自己拼不可行——一个正确的写出器比三行判断可靠）。
 namespace Z42.Driver;
 
 using Std;
 using Std.IO;
+using Std.Toml;
 using Z42.Build.Project;
 
 // 生成标记头：再次 build 靠它区分「自己上次产的」与「用户手写的」。
@@ -28,39 +36,46 @@ static class RcSidecar {
 // 写 `<distDir>/<name>.runtimeconfig.toml`。
 //
 // 返回 ExitCode.Ok（含"什么都没写"）或 ExitCode.BuildError（撞上用户手写文件）。
-//
-// **没有 `[profile.<n>]`、或该 profile 没声明任何运行时旋钮 → 不产文件**：产一个
-// 空 `[runtime]` 表既无意义，又会让"从前没有侧车"的工程凭空多出一个产物。
 int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, bool isRelease) {
     string profName = isRelease ? "release" : "debug";
     string[] knobs = _profileKnobsOf(pm, profName);
-    string path = Path.Join(distDir, name + ".runtimeconfig.toml");
-    if (knobs.Length == 0) {
+    TomlValue props = _mergedProperties(pm, profName);
+    bool hasProps = props.Keys().Length > 0;
+    if (knobs.Length == 0 && !hasProps) {
         return ExitCode.Ok;
     }
+    string path = Path.Join(distDir, name + ".runtimeconfig.toml");
     // 用户手写的同名侧车不覆盖——那是他自己的运行配置，静默覆盖等于吃掉他的设置。
     if (File.Exists(path)) {
         string existing = File.ReadAllText(path);
         if (!existing.StartsWith(RcSidecar.Marker)) {
             ConsoleError.WriteLine("z42c build: " + path + " 已存在且不是 z42c 生成的——");
-            ConsoleError.WriteLine("  它会被 `[profile." + profName + "]` 的旋钮覆盖。把手写内容移到");
-            ConsoleError.WriteLine("  manifest 的 `[profile." + profName + "]`，或删掉该文件。");
+            ConsoleError.WriteLine("  它会被 `[profile." + profName + "]` 的旋钮 / 属性覆盖。把手写内容移到");
+            ConsoleError.WriteLine("  manifest 的 `[profile." + profName + "]` 或 `[properties]`，或删掉该文件。");
             return ExitCode.BuildError;
         }
     }
-    string body = RcSidecar.Marker + "\n";
-    body = body + "# source: [profile." + profName + "] of " + pm.Project.Name + "\n";
-    body = body + "[runtime]\n";
-    int i = 0;
-    while (i < knobs.Length) {
-        int eq = knobs[i].IndexOf("=");
-        if (eq > 0) {
-            string k = knobs[i].Substring(0, eq);
-            string v = knobs[i].Substring(eq + 1, knobs[i].Length - eq - 1);
-            body = body + k + " = " + _tomlScalar(v) + "\n";
+
+    TomlValue root = TomlValue.OfTable();
+    if (knobs.Length > 0) {
+        TomlValue rt = TomlValue.OfTable();
+        int i = 0;
+        while (i < knobs.Length) {
+            int eq = knobs[i].IndexOf("=");
+            if (eq > 0) {
+                string k = knobs[i].Substring(0, eq);
+                string v = knobs[i].Substring(eq + 1, knobs[i].Length - eq - 1);
+                rt.Set(k, TomlValue.OfString(v));
+            }
+            i = i + 1;
         }
-        i = i + 1;
+        root.Set("runtime", rt);
     }
+    if (hasProps) { root.Set("properties", props); }
+
+    string body = RcSidecar.Marker + "\n"
+                + "# source: [profile." + profName + "] of " + pm.Project.Name + "\n"
+                + TomlValue.Stringify(root);
     File.WriteAllText(path, body);
     Console.WriteLine("wrote -> " + path);
     return ExitCode.Ok;
@@ -76,20 +91,25 @@ string[] _profileKnobsOf(ProjectManifest pm, string profName) {
     return new string[0];
 }
 
-// 布尔与纯整数原样写（TOML 标量），其余加引号。z42vm 侧两种都收
-// （`toml_scalar_to_string` 把 string/int/float/bool 一律转成字符串再喂给各
-// `parse_*`），这里只是让生成的文件读起来像人写的。
-string _tomlScalar(string v) {
-    if (v == "true" || v == "false") { return v; }
-    if (v.Length > 0 && _allDigits(v)) { return v; }
-    return "\"" + v + "\"";
-}
-
-bool _allDigits(string s) {
+// 顶层 `[properties]` 基表 + 该 profile 的 `[profile.<n>.properties]`，**浅覆盖**：
+// profile 里出现的顶层 key 整体替换基表的值，不深合并子表。
+//
+// 深合并要额外解释"子表怎么合、数组怎么合"，规则一多就没人记得住；浅覆盖一句话讲完，
+// 且与本系统别处「逐 key 叠加」的心智一致。
+TomlValue _mergedProperties(ProjectManifest pm, string profName) {
+    TomlValue outv = TomlValue.OfTable();
+    string[] baseKeys = pm.Properties.Keys();
     int i = 0;
-    while (i < s.Length) {
-        if (!s.CharAt(i).IsDigit()) { return false; }
-        i = i + 1;
+    while (i < baseKeys.Length) { outv.Set(baseKeys[i], pm.Properties.Get(baseKeys[i])); i = i + 1; }
+    int p = 0;
+    while (p < pm.ProfileCount) {
+        if (pm.Profiles[p].Name == profName) {
+            TomlValue pp = pm.Profiles[p].Properties;
+            string[] ks = pp.Keys();
+            int j = 0;
+            while (j < ks.Length) { outv.Set(ks[j], pp.Get(ks[j])); j = j + 1; }
+        }
+        p = p + 1;
     }
-    return true;
+    return outv;
 }

@@ -50,6 +50,12 @@ public static class ManifestLoader {
         ManifestLoader._parseAnalyzers(root, pm);   // [analyzers] 编译期 handler zpkg 引用（同构造后填）
         ManifestLoader._parseLints(root, pm);       // [lints] 诊断规则开关 / severity 覆盖（同构造后填）
         ManifestLoader._parseNative(root, pm);       // [native.*] 本包携带的私有 native 库（同构造后填）
+        // [properties] 应用自定义属性基表（add-app-properties，同构造后填）。
+        // 只搬运、不解释——z42.project 与 VM 都不理解它的含义。
+        if (root.ContainsKey("properties")) {
+            TomlValue bp = root.Get("properties");
+            if (bp.IsTable()) { pm.Properties = bp; }
+        }
         return pm;
     }
 
@@ -237,6 +243,12 @@ public static class ManifestLoader {
             if (pv.ContainsKey("optimize")) { opt = (int)pv.Get("optimize").AsLong(); }
             if (pv.ContainsKey("debug"))    { debug = pv.Get("debug").AsBool(); }
             r[i] = new Profile(names[i], pack, strip, mode, opt, debug, _profileKnobs(pv));
+            // `[profile.<n>.properties]`：应用自定义属性，原样保留（完整 TOML 类型）。
+            // 与 Knobs 的区别见 Profile.z42。add-app-properties。
+            if (pv.ContainsKey("properties")) {
+                TomlValue pp = pv.Get("properties");
+                if (pp.IsTable()) { r[i].Properties = pp; }
+            }
             i = i + 1;
         }
         return r;

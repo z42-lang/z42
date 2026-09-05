@@ -250,4 +250,12 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     // ── perf-bulk-array-copy (2026-09-05) — appended to preserve existing BuiltinIds ──
     // `Array.Copy` 的底座：一次区间搬运，取代脚本里的逐元素 for 循环。
     ("__array_copy",    array::builtin_array_copy),
+
+    // ── add-app-properties (2026-09-05) — appended to preserve existing BuiltinIds ──
+    // 应用自定义配置属性（Std.Runtime.AppProperties）。不是旋钮：VM 不校验、
+    // 未知键不是错误；结构化值走 __app_props_toml + Std.Toml。
+    ("__app_prop",        appprops::builtin_app_prop),
+    ("__app_prop_has",    appprops::builtin_app_prop_has),
+    ("__app_prop_names",  appprops::builtin_app_prop_names),
+    ("__app_props_toml",  appprops::builtin_app_props_toml),
 ];

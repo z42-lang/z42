@@ -1,0 +1,49 @@
+namespace Std.Runtime;
+
+// 应用自定义配置属性 —— **app 自己的**配置，只读（add-app-properties, 2026-09-05）。
+//
+// 来自工程 manifest 的 `[properties]` 基表 + `[profile.<n>.properties]`，由
+// `z42c build` 烤进 `<app>.runtimeconfig.toml` 的 `[properties]` 段，随产物分发。
+// 对照 .NET：`runtimeOptions.configProperties` + `AppContext.GetData`。
+//
+// **与 [[RuntimeConfig]] 的分工**（不要混用）：
+//
+//   RuntimeConfig   VM 旋钮：有登记表、有类型与取值域、有 build/平台可用性判定、
+//                   有五层优先级链（cli > env > 用户配置 > app 侧车 > 默认）、
+//                   未知 key 会被诊断出来。
+//   AppProperties   app 自己的配置：VM 不理解、不校验，未知 key 是**正常情形**；
+//                   只从 app 侧车来，没有 CLI / env / 用户配置的覆盖。
+//
+// 两者分开是因为保证不同——混进一个 API，"返回 null"会同时意味着"取默认值"和
+// "这个旋钮压根不存在"，调用方没法区分。
+//
+// **完整 TOML 类型**：标量用 `Get` 一次拿到（零依赖）；数组 / 嵌套表用 `Raw()` 取
+// 整段 TOML 文本，交给 `Std.Toml` 解析——TOML 有什么就支持什么。
+public static class AppProperties {
+    // 顶层标量属性。不存在、或该键的值不是标量（数组 / 表）→ null，后者请用 Raw()。
+    // 整数 / 布尔 / 日期渲染为字符串。
+    [Native("__app_prop")]
+    public static extern string? Get(string key);
+
+    // 顶层是否存在该键（值为数组 / 表时同样为 true）。
+    [Native("__app_prop_has")]
+    public static extern bool Has(string key);
+
+    // 全部顶层键。
+    [Native("__app_prop_names")]
+    public static extern string[] Names();
+
+    // 整段 `[properties]` 的 TOML 文本；没有属性时返回 null（区别于空表）。
+    //
+    //     using Std.Toml;
+    //     TomlValue p = TomlValue.Parse(AppProperties.Raw() ?? "");
+    //     long n = p.Get("limits").Get("max-retries").AsLong();
+    [Native("__app_props_toml")]
+    public static extern string? Raw();
+
+    // 便利包装：取不到（不存在或非标量）时返回 fallback。
+    public static string GetOrDefault(string key, string fallback) {
+        string? v = Get(key);
+        return v ?? fallback;
+    }
+}

@@ -29,6 +29,19 @@ use std::path::{Path, PathBuf};
 /// - 非法 TOML，或 `runtime` 存在但不是表 → `Err`（显式，绝不静默降级为默认）。
 /// - 合法但没有 `[runtime]` 段 → `Ok(None)`。
 pub fn load_config_file(path: &Path, var: &str) -> Result<Option<toml::Table>, String> {
+    load_config_tables(path, var).map(|(rt, _)| rt)
+}
+
+/// 同 [`load_config_file`]，但同时取出 `[properties]` 段。
+///
+/// `[runtime]` 是 **VM 旋钮**（登记表校验、五层分层、未知键诊断）；`[properties]` 是
+/// **应用自定义配置**——VM 不理解也不校验，只原样搬运给 `Std.Runtime.AppProperties`
+/// （add-app-properties）。分成两张表而不是靠前缀区分：否则 `gc-mdoe` 这种 typo 会被
+/// 当成一个合法的用户属性静默收下，「未知旋钮就明确报出来」那道诊断就死了。
+pub fn load_config_tables(
+    path: &Path,
+    var: &str,
+) -> Result<(Option<toml::Table>, Option<toml::Table>), String> {
     if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("app");
         return Err(format!(
@@ -43,17 +56,23 @@ pub fn load_config_file(path: &Path, var: &str) -> Result<Option<toml::Table>, S
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // eprintln (not tracing) — this runs before the subscriber is installed.
             eprintln!("z42: {var}={} not found; ignoring that config layer", path.display());
-            return Ok(None);
+            return Ok((None, None));
         }
         Err(e) => return Err(format!("{var}={}: {e}", path.display())),
     };
     let doc: toml::Table = toml::from_str(&text)
         .map_err(|e| format!("{var}={}: invalid TOML: {e}", path.display()))?;
-    match doc.get("runtime") {
-        Some(toml::Value::Table(t)) => Ok(Some(t.clone())),
-        Some(_) => Err(format!("{var}={}: [runtime] must be a table", path.display())),
-        None => Ok(None),
-    }
+    let runtime = match doc.get("runtime") {
+        Some(toml::Value::Table(t)) => Some(t.clone()),
+        Some(_) => return Err(format!("{var}={}: [runtime] must be a table", path.display())),
+        None => None,
+    };
+    let props = match doc.get("properties") {
+        Some(toml::Value::Table(t)) => Some(t.clone()),
+        Some(_) => return Err(format!("{var}={}: [properties] must be a table", path.display())),
+        None => None,
+    };
+    Ok((runtime, props))
 }
 
 /// 读 `var` 命名的配置文件层。变量未设 / 空 → `Ok(None)`（该层不存在）。

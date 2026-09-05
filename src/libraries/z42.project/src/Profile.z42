@@ -1,5 +1,7 @@
 namespace Z42.Build.Project;
 
+using Std.Toml;
+
 /// `[profile.<name>]` 段。Name ∈ "debug" | "release"；Mode ∈ "interp" | "jit" | "aot"。
 public sealed class Profile {
     public string Name;
@@ -20,10 +22,19 @@ public sealed class Profile {
     /// 运行时设置。complete-runtime-settings P5（2026-09-05）。
     public string[] Knobs;
 
+    /// `[profile.<n>.properties]` —— 该 profile 的应用自定义属性，逐 key **浅覆盖**
+    /// 顶层 `[properties]` 基表。原样保留 `TomlValue` 以支持完整 TOML 类型
+    /// （数组 / 嵌套表）——与 `Knobs` 的扁平字符串形态不同，因为属性不参与分层解析、
+    /// 不需要过 VM 的旋钮管道，只需原样送到侧车。
+    /// 可变公字段（默认空表，ManifestLoader 填），避免再撑构造函数。
+    /// add-app-properties（2026-09-05）。
+    public TomlValue Properties;
+
     public Profile(string name, bool pack, bool strip, string mode, int optimize, bool debug) {
         this.Name = name; this.Pack = pack; this.Strip = strip;
         this.Mode = mode; this.Optimize = optimize; this.Debug = debug;
         this.Knobs = new string[0];
+        this.Properties = TomlValue.OfTable();
     }
 
     public Profile(string name, bool pack, bool strip, string mode, int optimize, bool debug,
@@ -31,5 +42,6 @@ public sealed class Profile {
         this.Name = name; this.Pack = pack; this.Strip = strip;
         this.Mode = mode; this.Optimize = optimize; this.Debug = debug;
         this.Knobs = knobs;
+        this.Properties = TomlValue.OfTable();
     }
 }

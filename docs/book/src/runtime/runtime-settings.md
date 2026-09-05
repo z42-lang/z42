@@ -126,6 +126,22 @@ mode = "interp"
 > 由 app 文件推导后，apphost 那份发现随之删除。`xtask test dist` 的 apphost smoke 断言
 > `RuntimeConfig.Source("mode") == "app-config"`，链上任何一环断掉都会红。
 
+## 旋钮 vs 应用属性
+
+侧车装两样东西，**分表**：
+
+| 段 | 装什么 | 谁理解它 |
+|---|---|---|
+| `[runtime]` | VM 旋钮 | VM：登记表 / 类型 / 可用性 / 诊断 / 五层链 |
+| `[properties]` | app 自定义配置 | **只有 app 自己**——VM 原样搬运，不校验 |
+
+分表不是洁癖，是为了**保住诊断**：若两者同住一张表，`gc-mdoe` 这种 typo 会被当成一个
+合法的用户属性静默收下，本页承诺的「未知旋钮就明确报出来」随之失效。
+
+应用属性只从 app 侧车来（没有 CLI / env / 用户配置的覆盖——它是**项目**配置），
+运行时经 [`Std.Runtime.AppProperties`](../stdlib/app-properties.md) 只读，支持完整
+TOML 类型。
+
 ## 登记表：唯一 SoT
 
 每个旋钮在 `config/knob_table.rs` 里一条，声明 12 个字段。**新增旋钮 = 加一行 +

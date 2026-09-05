@@ -44,6 +44,7 @@ pub mod reflection;
 pub mod struct_reflect;   // add-boxed-struct-identity (P4b): value-struct field layout replication
 pub mod assemblyloadcontext;
 pub mod diagnostics;
+pub mod appprops;
 pub mod array;
 mod builtin_table;
 mod builtin_table_ext;

@@ -1717,3 +1717,60 @@ fn a_derived_sidecar_lands_in_the_app_config_layer_and_loses_to_the_user() {
 
     let _ = std::fs::remove_dir_all(&d);
 }
+
+// ── add-app-properties: 属性与旋钮分表 ─────────────────────────────────────
+
+#[test]
+fn properties_are_read_alongside_runtime_but_kept_separate() {
+    let f = write_cfg("props", "[runtime]\ngc-mode = \"concurrent\"\n\n\
+        [properties]\napi = \"https://x\"\nretries = 3\nflags = [\"a\", \"b\"]\n\
+        [properties.limits]\nmax = 9\n");
+    let (rt, props) = load_config_tables(&f, "Z42_APP_CONFIG").unwrap();
+    assert_eq!(rt.as_ref().and_then(|t| t.get("gc-mode")).and_then(|v| v.as_str()),
+               Some("concurrent"));
+    let props = props.expect("[properties] parsed");
+    assert_eq!(props.get("api").and_then(|v| v.as_str()), Some("https://x"));
+    assert_eq!(props.get("retries").and_then(|v| v.as_integer()), Some(3));
+    assert!(props.get("flags").and_then(|v| v.as_array()).is_some(), "arrays survive");
+    assert!(props.get("limits").and_then(|v| v.as_table()).is_some(), "nested tables survive");
+    let _ = std::fs::remove_file(f);
+}
+
+#[test]
+fn property_keys_never_trigger_the_unknown_knob_diagnostic() {
+    // 分表的**全部理由**：若属性与旋钮同住 `[runtime]`，`gc-mdoe` 这种 typo 就会被
+    // 当成一个合法的用户属性静默收下，「未知旋钮就明确报出来」的诊断随之失效。
+    let f = write_cfg("props-sep", "[runtime]\ngc-mode = \"stw\"\n\
+        [properties]\nmy-own-thing = 1\n");
+    let (rt, props) = load_config_tables(&f, "Z42_APP_CONFIG").unwrap();
+    assert!(unknown_table_keys(rt.as_ref().unwrap()).is_empty(),
+        "属性不在 [runtime] 里，故不会被当成未知旋钮");
+    assert!(props.unwrap().contains_key("my-own-thing"));
+    // 而 [runtime] 里真正的未知键**仍然**被抓。
+    let g = write_cfg("props-typo", "[runtime]\ngc-mdoe = \"stw\"\n");
+    let (rt2, _) = load_config_tables(&g, "Z42_APP_CONFIG").unwrap();
+    assert_eq!(unknown_table_keys(rt2.as_ref().unwrap()), vec!["gc-mdoe".to_string()]);
+    for p in [f, g] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn properties_must_be_a_table() {
+    let f = write_cfg("props-scalar", "[runtime]\ngc-mode = \"stw\"\nproperties = 1\n");
+    // 顶层 `properties = 1`（非表）—— [runtime] 之外，故是文档顶层的键。
+    let (_, props) = load_config_tables(&f, "Z42_APP_CONFIG").unwrap_or((None, None));
+    assert!(props.is_none());
+    let g = write_cfg("props-bad", "[properties]\nok = 1\n");
+    let (_, p2) = load_config_tables(&g, "Z42_APP_CONFIG").unwrap();
+    assert!(p2.is_some(), "没有 [runtime] 段也能有 [properties]");
+    for p in [f, g] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn app_properties_are_not_knobs() {
+    // 属性不在登记表里——所以 `--set my-own-thing=1` 会按未知旋钮报错，
+    // 而不是悄悄变成一个属性。
+    assert!(knob_by_key("my-own-thing").is_none());
+    assert!(knob_by_env_name("properties").is_none());
+    // 也不占 RuntimeConfig 的解析链：默认构造时为空。
+    assert!(RuntimeConfig::default().app_properties.is_none());
+}

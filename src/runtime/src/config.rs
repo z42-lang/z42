@@ -185,6 +185,18 @@ pub struct RuntimeConfig {
     /// `Z42_REPL_NATIVE` — REPL 行编辑 cdylib 的路径覆盖（文件或其所在目录）。
     pub repl_native: Option<PathBuf>,
 
+    // ── add-app-properties (2026-09-05) ──────────────────────────────────
+    /// 应用自定义配置属性——**app 侧车的 `[properties]` 段原样搬来**。
+    ///
+    /// 它**不是旋钮**：不在 `KNOWN_KNOBS` 里、不进 `resolved`、不参与五层分层、
+    /// 不校验、未知键不是错误。VM 不理解它的含义，只把它交给
+    /// `Std.Runtime.AppProperties` 供 app 自己读（对照 .NET 的
+    /// `runtimeOptions.configProperties` + `AppContext.GetData`）。
+    ///
+    /// 只从 **app-config 层**（`Z42_APP_CONFIG` 或由 app 文件推导的侧车）来——
+    /// 按设计它是**项目**配置，不是运行时旋钮，所以没有 CLI / env / 用户配置的覆盖。
+    pub app_properties: Option<toml::Table>,
+
     // ── complete-runtime-settings P1: provenance ─────────────────────────
     /// 每个旋钮的生效值 + 来源层 + 被丢弃的值。由 [`RuntimeConfig::resolve_with`]
     /// 一次产出，`--info` / `--show-config` / `__cfg_*` builtin 纯读——优先级链
@@ -223,6 +235,7 @@ impl Default for RuntimeConfig {
             fusion_debug: false,
             stackalloc: None,
             repl_native: None,
+            app_properties: None,
             resolved: Vec::new(),
         }
     }
@@ -356,8 +369,18 @@ impl RuntimeConfig {
             stackalloc:          get("Z42_STACKALLOC"),
             repl_native:         get("Z42_REPL_NATIVE").map(PathBuf::from),
 
+            // 属性不参与解析链——由调用方在装配后单独装入（见 `with_app_properties`）。
+            app_properties: None,
+
             resolved: res.knobs.clone(),
         }
+    }
+
+    /// 装入 app 侧车的 `[properties]` 段。与旋钮分开是因为它不参与分层解析：
+    /// 没有优先级、没有校验、没有 provenance——就是一张原样搬运的表。
+    pub fn with_app_properties(mut self, props: Option<toml::Table>) -> Self {
+        self.app_properties = props;
+        self
     }
 }
 
