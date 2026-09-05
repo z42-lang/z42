@@ -15,12 +15,40 @@ z42 目前**没有任何在代码里精确指代一个方法的手段**。`typeo
 |---|---|---|
 | 方法不存在 | 运行期才发现，或**静默找不到** | **编译错误** |
 | 方法被重命名 | **静默失效**，无任何提示 | **编译错误**，改名处立刻红 |
-| IDE 重命名重构 | 不跟随（字符串字面量） | **自动更新**（真符号引用） |
+| IDE 重命名重构 | 不跟随（字符串字面量） | 见下「IDE 支持的诚实边界」 |
 | 重载 | 指不明 | 参数类型列表精确选中 |
 | 签名漂移（参数改了） | 运行期 `Invoke` 才炸 | 编译期匹配不上即报错 |
 
 「函数名改了不容易检查出来」正是这个特性要根治的问题——把一个**运行期的、静默的**失效模式
 变成**编译期的、必然暴露**的错误。
+
+### IDE 支持的诚实边界（2026-09-06 更正）
+
+初版本节曾写「`methodof` 让 IDE 重命名重构自动更新（真符号引用）」，**这是错的，已更正**。实测现状：
+
+- z42 **没有任何 LSP 实现**（`textDocument/references` 等协议关键词全仓零命中）；VSCode 扩展
+  （`src/toolchain/devtools/vscode/package.json`）**连 `main` 字段都没有**，`contributes` 只有
+  `languages` + `grammars`，即纯 TextMate 语法高亮、无法承载任何语义能力。
+- roadmap 把 `z42-lsp` 排在 **0.5.7**，且 Q13「LSP server 用 .NET 还是 Rust 写」**连选型都未定**。
+- **`typeof(T)` 今天同样不能被查找引用 / 被 rename 跟随**：`MemberExpr` 的 span 直接复用 target 的
+  span（`ExprParser.z42:23`），成员名自身的字节区间**根本没被记录**；`MethodSymbol` / `FieldSymbol`
+  连声明位置（`Span`）都不存（`Symbol.z42:9-56`）；`BoundMember` 持有的是 `string MemberName`
+  而非符号引用。
+- 全仓最接近「引用索引」的只有 `AccessChecker.z42:69-77` 的 deprecated 检查——它确实同时拿到了
+  `(符号, use-site span)`，但只即时报警告、不落任何表。
+
+**所以本提案对「一侧改了能发现问题」的交付是分层的**：
+
+| 能力 | 本提案交付？ | 说明 |
+|---|---|---|
+| 方法改名 / 删除 / 签名漂移 → **引用点编译报错** | ✅ **本提案完整交付** | 这是 `methodof` 的核心价值，`xtask test` 必红 |
+| IDE 里 Find All References 列出 `methodof` 位置 | ❌ 需 LSP | 依赖 0.5.7 里程碑 |
+| IDE rename 自动更新 `methodof` 位置 | ❌ 需 LSP | 同上 |
+
+本提案**顺带铺两块共用地基**（User 2026-09-06 裁决）：AST **名字级 span** 与 **符号声明位置**。
+为避免「铺了没人走的路、无法验证铺对没有」，这两块地基在本提案内即接一个**可断言的消费方**：
+把成员解析类诊断的下划线区间从「整个表达式」收窄到「成员名本身」，由 golden 诊断位置断言守住。
+LSP 本体与引用索引留给独立变更。
 
 **这不是 z42 独有的困境，但 z42 有别人没有的解法。** C# 和 Java 都做不到，而原因**不在语言、在
 元数据格式**：
@@ -217,25 +245,38 @@ Lippert 的分析对 z42 同样成立，以下情形 **v1 明确报错、不假�
 | 自引用 `typeof(SelfRef)`（attribute 指向被标注的类本身） | `Demo.SelfRef` | `Demo.SelfRef` | ✅ |
 | 数组 `typeof(int[])` | `Std.Array` | `Std.Array` | ✅ |
 | 构造泛型 `typeof(Box<int>)` | `Demo.Box` | `Demo.Box` | ✅ |
-| 仅 `using` 短名可见、且**所属 zpkg 未被加载**的类 `typeof(StringBuilder)` | 空名 | 空名 | ✅（见下） |
+| **写错的** `typeof(StringBuilder)`（只 `using Std;`，而它在 `Std.Text`） | 哨兵 `<unknown>` | 哨兵 `<unknown>` | ✅（见下） |
 | attribute 挂在**字段 / 方法**上（非类上） | 与挂类上一致 | — | ✅ |
 
 **结论：合成工厂路径引入零偏差。** 记忆里担心的「工厂函数是顶层 static 自由函数、看不见类内作用域
 与 CU usings」**没有发生**——`at.Args` 的原始 AST 被原样搬进工厂体后仍在同一 CU 的绑定环境里解析。
 「零元数据改动」的支点成立，设计不需返工。
 
-> **附带发现（pre-existing，与本提案无关，不在 Scope 内）**：`typeof(X)` 当 `X` 所属 zpkg
-> **未被当前模块加载**时，编译**不报错**，运行期得到一个非 null 但**完全空**的 `Type`
-> （`Name` / `FullName` 空串、`GetMethods()` 为 0、`BaseType` 为 null）。实测
-> `typeof(Std.Exception)`（z42.core，已加载）完全正常，`typeof(Std.StringBuilder)`
-> （z42.text，未加载）全空；`Type.GetType("Std.StringBuilder")` 则名字对但成员为 0。
-> 根因是**编译期索引看得见全部 libs、运行期只加载已声明依赖**的不对称。全仓库零个测试断言过
-> 「跨 zpkg `typeof` 的名字」，故长期未暴露。
+> **附带挖出一个 pre-existing 缺陷（已拆独立前置变更 `fix-emit-zbc-swallows-diagnostics`，
+> 本提案 rebase 到其上）**：上表第 5 行那句 `typeof(StringBuilder)` **本来就是错代码**——
+> `StringBuilder` 在 `Std.Text`，而测试只写了 `using Std;`。编译器判断完全正确、E0443 也确实
+> raise 了，问题在**错误没能到达任何人眼前**：
 >
-> **对本提案的影响**：`methodof` 走同一条编译期解析 + 运行期按 qualified 名查表的路径，
-> 会继承同一不对称——`methodof(未加载包.M)` 同样会静默产出坏 `MethodInfo`。因此
-> tasks 6.4（跨 zpkg 用例）必须**显式覆盖「依赖已声明」与「未声明」两种情形**，
-> 且若判定需要诊断，应作为**独立变更**修 `typeof`/`methodof` 共用的产出端，不在本提案内打补丁。
+> 1. **`--emit-zbc` 丢弃全部诊断、exit 0，且照样写出产物**。实测一个内容为
+>    `NoSuchTypeAtAll x = null;` 的文件，`--emit-zbc` 返回 0 并写出 285 字节的 `.zbc`。
+>    `IrDump.ZbcBytesD` 拿到带 `DiagMsgs`/`ErrorCount` 的 `CompiledModuleZ` 后只取
+>    `cm.Module`，其余全丢（`IrDump.z42:99-102`）；对比 build 路径是逐条打印 + 非零退出
+>    （`Main.z42:341-353`）。**这条与 typeof 无关，影响所有走单文件路径的编译错误**，
+>    而 e2e 单文件用例正是走这条路。
+> 2. **`<unknown>` 哨兵被当成合法类型名 intern 进 zbc**：`ExprEmitter._typeofName` 对
+>    `Z42UnknownType` 落到 `return t.Name()`，而 `Z42UnknownType.Name()` 就是字面串
+>    `"<unknown>"`。运行期 `make_type_from_name` 见它 `<` 开头 `>` 结尾，**误判为构造泛型**，
+>    拆出 base=`""` 去造类型 → 得到名字全空、`GetMethods()`=0、`BaseType`=null 的 Type。
+>    指纹：`GetGenericArguments().Length == 1`（实参是 `"unknown"`）——已实测确认。
+>    这正是 philosophy.md 点名的反模式「解析失败时降级为 sentinel 值，让下游用启发式去猜」。
+>
+> **不涉及依赖声明**：标准库（`z42.*`）本就无需在 `[dependencies]` 声明，这是既定设计且工作正常——
+> 实测写对 `using Std.Text;`、不声明 `z42.text` 时 `typeof(StringBuilder)` 得
+> `Std.Text.StringBuilder` + 24 个方法。曾一度怀疑的「依赖声明校验缺失」**不是缺陷，已排除**。
+>
+> **对本提案的影响**：`methodof` 走同一条「编译期解析 → 发射名字 → 运行期查表」的路径，
+> 必须保证解析失败时**在编译期就报错**、绝不把哨兵发进 IR。前置变更修好 P1/P2 后，
+> `methodof` 只需遵循同一约束即可，不必自己再造一套。
 
 ## 参数签名可省略（无重载时）
 

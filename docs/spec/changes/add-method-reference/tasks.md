@@ -11,9 +11,10 @@
       attribute 实参位置与普通代码的 `typeof` **逐条行为一致**（本地类 / 自引用 / 数组 /
       构造泛型 / 字段·方法上的 attribute 全部一致），合成工厂路径**零偏差**，
       担心的作用域问题**没有发生**。「零元数据改动」支点成立，设计不返工。
-      附带发现一个 pre-existing 的跨 zpkg 空 `Type` 不对称（详见 proposal「验证项 0 的实测结果」），
-      不在本提案 Scope，但 6.4 的跨包用例须显式覆盖两种依赖声明情形。
-      原始担忧记录如下：
+      附带挖出一个 pre-existing 缺陷（`--emit-zbc` 吞诊断 + `<unknown>` 哨兵泄漏进 IR），
+      已拆**独立前置变更** `fix-emit-zbc-swallows-diagnostics`，本提案 rebase 到其上。
+      注意：**不涉及依赖声明**——标准库无需声明依赖是既定设计且工作正常，该怀疑已排除。
+      详见 proposal「验证项 0 的实测结果」。原始担忧记录如下：
       —— 这是整个「零元数据改动」的支点。已确认的事实：`AttributeSynth._synthFactory`
       (`AttributeSynth.z42:129-142`) 把 `at.Args` 原始 `Expr[]` 原样塞进 `ObjNewExpr`，
       全仓库**无任何 attribute 实参常量性校验**。但现有 attribute 实参**全是字面量**
