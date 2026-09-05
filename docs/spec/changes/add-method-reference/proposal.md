@@ -201,10 +201,56 @@ Lippert 的分析对 z42 同样成立，以下情形 **v1 明确报错、不假�
 
 | # | 验什么 | 为什么关键 |
 |---|---|---|
-| **0** | **`[Foo(typeof(Bar))]` 端到端能否工作** | 330 个 `typeof` 用例**没有一个在 attribute 实参位置**；现有 attribute 实参全是字面量。`methodof` 会是第一个在该位置放非平凡表达式的特性。最可能的坑是**作用域**——工厂函数被合成为**顶层 static 自由函数**（`_synthFactory` 传 `new Param[0], 0, true, body`），而 attribute 可能写在类内部并引用该类可见的类型。**typeof 不通则 methodof 更不通，须先修工厂路径** |
+| **0** | ✅ **已验通过（2026-09-06）** —— `[Foo(typeof(Bar))]` 端到端工作，且**与普通代码里的 `typeof` 行为逐条一致**。详见下节 | 330 个 `typeof` 用例**没有一个在 attribute 实参位置**；现有 attribute 实参全是字面量。`methodof` 会是第一个在该位置放非平凡表达式的特性。最可能的坑是**作用域**——工厂函数被合成为**顶层 static 自由函数**（`_synthFactory` 传 `new Param[0], 0, true, body`），而 attribute 可能写在类内部并引用该类可见的类型。**typeof 不通则 methodof 更不通，须先修工厂路径** |
 | 1 | `TypeNameResolver.SurfaceTypeName` 对泛型参数 `T` 能否正确拼回 | 参数类型匹配依赖它；已知它输出 TSIG 规范名（`byte[]`→`u8[]`），泛型参数路径未验 |
 | 2 | `typeof` 的 emit 具体走哪条 runtime 路径 | `methodof` 要照抄；决定新 builtin 的形状 |
 | 3 | 模块级驻留缓存放在哪层 | 反射侧现在**零缓存**（`invoke.rs:169-200` 每次查 HashMap），`FieldIC`/`VCallIC` 在 `corelib/` 零命中，没有现成 IC 可复用 |
+
+### 验证项 0 的实测结果（2026-09-06）
+
+用主树种子工具链（`.z42/bin/z42c --emit-zbc` + `.z42/bin/z42vm`，即 e2e 单文件用例的同一条路径）
+跑了 **attribute 组** 与 **普通代码对照组**，同样的 6 个 `typeof` 形态逐条比对：
+
+| 形态 | attribute 实参位置 | 普通代码（对照组） | 一致？ |
+|---|---|---|---|
+| 同 CU 本地类 `typeof(Handler)` | `Demo.Handler` | `Demo.Handler` | ✅ |
+| 自引用 `typeof(SelfRef)`（attribute 指向被标注的类本身） | `Demo.SelfRef` | `Demo.SelfRef` | ✅ |
+| 数组 `typeof(int[])` | `Std.Array` | `Std.Array` | ✅ |
+| 构造泛型 `typeof(Box<int>)` | `Demo.Box` | `Demo.Box` | ✅ |
+| 仅 `using` 短名可见、且**所属 zpkg 未被加载**的类 `typeof(StringBuilder)` | 空名 | 空名 | ✅（见下） |
+| attribute 挂在**字段 / 方法**上（非类上） | 与挂类上一致 | — | ✅ |
+
+**结论：合成工厂路径引入零偏差。** 记忆里担心的「工厂函数是顶层 static 自由函数、看不见类内作用域
+与 CU usings」**没有发生**——`at.Args` 的原始 AST 被原样搬进工厂体后仍在同一 CU 的绑定环境里解析。
+「零元数据改动」的支点成立，设计不需返工。
+
+> **附带发现（pre-existing，与本提案无关，不在 Scope 内）**：`typeof(X)` 当 `X` 所属 zpkg
+> **未被当前模块加载**时，编译**不报错**，运行期得到一个非 null 但**完全空**的 `Type`
+> （`Name` / `FullName` 空串、`GetMethods()` 为 0、`BaseType` 为 null）。实测
+> `typeof(Std.Exception)`（z42.core，已加载）完全正常，`typeof(Std.StringBuilder)`
+> （z42.text，未加载）全空；`Type.GetType("Std.StringBuilder")` 则名字对但成员为 0。
+> 根因是**编译期索引看得见全部 libs、运行期只加载已声明依赖**的不对称。全仓库零个测试断言过
+> 「跨 zpkg `typeof` 的名字」，故长期未暴露。
+>
+> **对本提案的影响**：`methodof` 走同一条编译期解析 + 运行期按 qualified 名查表的路径，
+> 会继承同一不对称——`methodof(未加载包.M)` 同样会静默产出坏 `MethodInfo`。因此
+> tasks 6.4（跨 zpkg 用例）必须**显式覆盖「依赖已声明」与「未声明」两种情形**，
+> 且若判定需要诊断，应作为**独立变更**修 `typeof`/`methodof` 共用的产出端，不在本提案内打补丁。
+
+## 参数签名可省略（无重载时）
+
+`methodof(X.M)` **不带参数类型列表**是一等写法，合法**当且仅当** `M` 在候选集里唯一。
+
+- **候选集 = 按名字收齐后的全集**，含**继承链**与 **imported（跨包）** 成员（tasks 3.2）。
+  基类有同名方法即算重载，不能只看本类。
+- `methodof(X.M)`（不给列表）与 `methodof(X.M())`（显式零参重载）**语义不同**，AST 必须分得开
+  （`HasParamList` 标志，tasks 2.4）。
+- 候选 ≥ 2 时**报错，绝不静默选一个**（tasks 3.3 / 诊断 5.3）——静默择一会把本特性要根治的
+  「静默失效」原样搬进来。
+
+**已知代价（预期行为，非缺陷）**：给目标方法**新增一个重载**，会让所有已写的 `methodof(X.M)`
+从合法变成编译错误。这与本特性的目标一致——签名面变化就该在引用点暴露，而不是静默改绑到另一个
+重载。诊断必须直接给出补签名的写法（逃生口，tasks 5.3）。
 
 ## 自举纪律
 
