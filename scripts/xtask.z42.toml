@@ -31,9 +31,8 @@ hooks      = "hooks"
 dist_dir   = "${output_dir}"
 cache_dir  = "${output_dir}/.cache"
 
-[profile.release]
-mode     = "interp"
-optimize = 2
+[profile.release.runtime]
+mode = "interp"
 
 # apphost-as-config (2026-06-17): `z42 publish scripts/xtask.z42.toml` (--rid
 # defaults to host) reads [platform.desktop] and emits a native `./xtask` apphost that runs the
@@ -42,6 +41,7 @@ optimize = 2
 #   apphost = true  → the gate: only then does publish emit an apphost.
 #   publish_dir     → output LOCATION only (project-dir-relative; ".." = repo root,
 #                     this toml lives in scripts/). Not the gate.
+
 [platform.desktop]
 apphost     = true
 publish_dir = ".."

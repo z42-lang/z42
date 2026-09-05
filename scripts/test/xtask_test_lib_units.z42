@@ -341,11 +341,10 @@ string _renderSyntheticManifest(string projName, string includeGlob,
         + "# z42b that drives it) can only load packed zpkgs; default\n"
         + "# debug pack=false would land us with an indexed zpkg + scattered .zbc\n"
         + "# files which the runner refuses with `indexed zpkg cannot be loaded\n"
-        + "# directly by the VM; use packed mode`.\n"
-        + "[profile.debug]\n"
-        + "pack = true\n"
-        + "[profile.release]\n"
-        + "pack = true\n";
+        + "# directly by the VM; use packed mode`.\n";
+        // 此处曾写 `[profile.*] pack = true`——**那一直是空操作**：被消费的是
+        // `[project].pack`，`Profile.Pack` 从无人读（restructure-profile-sections 已删该
+        // 死字段）。删掉是行为等价的；若这些目标真需要 packed，该写进 `[project]`。
     if (deps.Count > 0) {
         body = body + "\n[dependencies]\n";
         int i = 0;
