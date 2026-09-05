@@ -52,7 +52,7 @@ public sealed class ConstraintChecker {
                     "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + c.Name + "`",
                     this._noSpan());
             } else {
-                this._fillBundle(symbols, c, bundles[pi], wc, pnames, pc);
+                this._fillBundle(symbols, c.Name, bundles[pi], wc, pnames, pc);
             }
             w = w + 1;
         }
@@ -60,7 +60,9 @@ public sealed class ConstraintChecker {
     }
 
     // 把一条 where 子句的各约束项填进 bundle。可行子集外的约束（interface/enum/new()/func/泛型 base）静默延后。
-    private void _fillBundle(SymbolTable symbols, ClassDecl c, ConstraintBundle bundle, WhereClause wc,
+    // 类级与方法级**共用本函数**（此前是逐字重复的两份，改校验必须同时改两处 → 已合并）；
+    // 差异只有 owner 名（类名 / 方法名），参数化即可。
+    private void _fillBundle(SymbolTable symbols, string ownerName, ConstraintBundle bundle, WhereClause wc,
                              string[] pnames, int pc) {
         int k = 0;
         while (k < wc.Count) {
@@ -71,7 +73,7 @@ public sealed class ConstraintChecker {
                 // new() → 延后（无 ctor 收集）
             } else if (con.Type is NamedType) {
                 NamedType nt = con.Type as NamedType;
-                if (this._isParam(nt.Name, pnames, pc)) {
+                if (this._indexOfName(pnames, pc, nt.Name) >= 0) {
                     bundle.HasTypeParamRef = true; bundle.TypeParamRef = nt.Name;
                 } else if (nt.ArgCount == 0 && symbols.HasClass(nt.Name)) {
                     bundle.HasBaseClass = true; bundle.BaseClassName = nt.Name;
@@ -82,15 +84,9 @@ public sealed class ConstraintChecker {
         }
         if (bundle.RequiresClass && bundle.RequiresStruct) {
             this._diags.Error(DiagnosticCodes.TypeMismatch,
-                "type parameter `" + wc.TypeParam + "` cannot be both `class` and `struct` on `" + c.Name + "`",
+                "type parameter `" + wc.TypeParam + "` cannot be both `class` and `struct` on `" + ownerName + "`",
                 this._noSpan());
         }
-    }
-
-    private bool _isParam(string n, string[] pnames, int pc) {
-        int i = 0;
-        while (i < pc) { if (pnames[i] == n) { return true; } i = i + 1; }
-        return false;
     }
 
     // ════ Check（call-site 校验）═══════════════════════════════════════════════
@@ -103,35 +99,41 @@ public sealed class ConstraintChecker {
         int i = 0;
         while (i < n) {
             ConstraintBundle b = cs.Bundles[i];
-            if (!b.IsEmpty()) { this._checkBundle(symbols, cs, inst, b, inst.TypeArgs[i], cname, i); }
+            if (!b.IsEmpty()) {
+                this._checkBundle(symbols, cs.ParamNames, cs.Count, inst.TypeArgs, inst.ArgCount,
+                                  b, inst.TypeArgs[i], cname, i, this._noSpan());
+            }
             i = i + 1;
         }
     }
 
-    private void _checkBundle(SymbolTable symbols, ConstraintSet cs, Z42InstantiatedType inst,
-                              ConstraintBundle b, Z42Type arg, string cname, int idx) {
-        string pn = cs.ParamNames[idx];
+    // 逐 (bundle, 实参) 校验。类级与方法级**共用本函数**（此前是两份，差异仅「型参名/实参从
+    // ConstraintSet+Z42InstantiatedType 取 还是 从平行数组取」+ 诊断 Span）——统一改用平行数组
+    // + 显式 Span 参数，类级调用方把 cs.ParamNames / inst.TypeArgs 传进来即可，行为逐字等价。
+    private void _checkBundle(SymbolTable symbols, string[] pnames, int pc, Z42Type[] args, int argCount,
+                              ConstraintBundle b, Z42Type arg, string ownerName, int idx, Span sp) {
+        string pn = pnames[idx];
         if (b.HasBaseClass && !this._satisfiesBase(symbols, arg, b.BaseClassName)) {
-            this._err(arg, pn, b.BaseClassName, cname);
+            this._err(arg, pn, b.BaseClassName, ownerName, sp);
         }
         if (b.RequiresClass && !this._isClassArg(arg)) {
-            this._err(arg, pn, "class", cname);
+            this._err(arg, pn, "class", ownerName, sp);
         }
         if (b.RequiresStruct && !this._isStructArg(arg)) {
-            this._err(arg, pn, "struct", cname);
+            this._err(arg, pn, "struct", ownerName, sp);
         }
         if (b.HasTypeParamRef) {
-            int j = cs.IndexOf(b.TypeParamRef);
-            if (j >= 0 && j < inst.ArgCount && !this._satisfiesParamRef(symbols, arg, inst.TypeArgs[j])) {
-                this._err(arg, pn, b.TypeParamRef, cname);
+            int j = this._indexOfName(pnames, pc, b.TypeParamRef);
+            if (j >= 0 && j < argCount && !this._satisfiesParamRef(symbols, arg, args[j])) {
+                this._err(arg, pn, b.TypeParamRef, ownerName, sp);
             }
         }
     }
 
-    private void _err(Z42Type arg, string param, string constraint, string cls) {
+    private void _err(Z42Type arg, string param, string constraint, string owner, Span sp) {
         this._diags.Error(DiagnosticCodes.TypeMismatch,
-            "type argument `" + arg.Name() + "` for `" + param + "` does not satisfy constraint `" + constraint + "` on `" + cls + "`",
-            this._noSpan());
+            "type argument `" + arg.Name() + "` for `" + param + "` does not satisfy constraint `" + constraint + "` on `" + owner + "`",
+            sp);
     }
 
     // arg 满足 base-class 约束：arg 是 baseName 或其子类（prim/array 不满足）。
@@ -183,14 +185,16 @@ public sealed class ConstraintChecker {
         while (w < md.WhereCount) {
             WhereClause wc = md.Wheres[w];
             int pi = this._indexOfName(pnames, pc, wc.TypeParam);
-            if (pi >= 0) { this._fillBundleM(symbols, md.Name, bundles[pi], wc, pnames, pc); }
+            if (pi >= 0) { this._fillBundle(symbols, md.Name, bundles[pi], wc, pnames, pc); }
             w = w + 1;
         }
         int n = argCount; if (n > pc) { n = pc; }
         int i = 0;
         while (i < n) {
             ConstraintBundle bun = bundles[i];
-            if (!bun.IsEmpty()) { this._checkBundleM(symbols, pnames, pc, args, argCount, bun, args[i], md.Name, i, sp); }
+            if (!bun.IsEmpty()) {
+                this._checkBundle(symbols, pnames, pc, args, argCount, bun, args[i], md.Name, i, sp);
+            }
             i = i + 1;
         }
     }
@@ -199,59 +203,6 @@ public sealed class ConstraintChecker {
         int i = 0;
         while (i < pc) { if (pnames[i] == name) { return i; } i = i + 1; }
         return -1;
-    }
-
-    // 镜像 _fillBundle，但 owner 用方法名（无 ClassDecl）。
-    private void _fillBundleM(SymbolTable symbols, string ownerName, ConstraintBundle bundle, WhereClause wc,
-                              string[] pnames, int pc) {
-        int k = 0;
-        while (k < wc.Count) {
-            WhereConstraint con = wc.Constraints[k];
-            if (!con.IsType) {
-                if (con.Special == "class")  { bundle.RequiresClass = true; }
-                if (con.Special == "struct") { bundle.RequiresStruct = true; }
-            } else if (con.Type is NamedType) {
-                NamedType nt = con.Type as NamedType;
-                if (this._isParam(nt.Name, pnames, pc)) {
-                    bundle.HasTypeParamRef = true; bundle.TypeParamRef = nt.Name;
-                } else if (nt.ArgCount == 0 && symbols.HasClass(nt.Name)) {
-                    bundle.HasBaseClass = true; bundle.BaseClassName = nt.Name;
-                }
-            }
-            k = k + 1;
-        }
-        if (bundle.RequiresClass && bundle.RequiresStruct) {
-            this._diags.Error(DiagnosticCodes.TypeMismatch,
-                "type parameter `" + wc.TypeParam + "` cannot be both `class` and `struct` on `" + ownerName + "`",
-                this._noSpan());
-        }
-    }
-
-    // 镜像 _checkBundle，但用 pnames+args 数组（无 Z42InstantiatedType）。
-    private void _checkBundleM(SymbolTable symbols, string[] pnames, int pc, Z42Type[] args, int argCount,
-                               ConstraintBundle b, Z42Type arg, string ownerName, int idx, Span sp) {
-        string pn = pnames[idx];
-        if (b.HasBaseClass && !this._satisfiesBase(symbols, arg, b.BaseClassName)) {
-            this._errAt(arg, pn, b.BaseClassName, ownerName, sp);
-        }
-        if (b.RequiresClass && !this._isClassArg(arg)) {
-            this._errAt(arg, pn, "class", ownerName, sp);
-        }
-        if (b.RequiresStruct && !this._isStructArg(arg)) {
-            this._errAt(arg, pn, "struct", ownerName, sp);
-        }
-        if (b.HasTypeParamRef) {
-            int j = this._indexOfName(pnames, pc, b.TypeParamRef);
-            if (j >= 0 && j < argCount && !this._satisfiesParamRef(symbols, arg, args[j])) {
-                this._errAt(arg, pn, b.TypeParamRef, ownerName, sp);
-            }
-        }
-    }
-
-    private void _errAt(Z42Type arg, string param, string constraint, string owner, Span sp) {
-        this._diags.Error(DiagnosticCodes.TypeMismatch,
-            "type argument `" + arg.Name() + "` for `" + param + "` does not satisfy constraint `" + constraint + "` on `" + owner + "`",
-            sp);
     }
 
     private Decl _unwrap(Decl d) {
