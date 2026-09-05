@@ -1,0 +1,287 @@
+// xtask — embedded test-host：语料枚举 / 分片 / bundle 组装
+//
+// 扫描 src/tests + stdlib tests 得到 _CorpusCase 全集，按 filter/rid 排除、按 shard 切片，
+// 再调上面 golden 文件里的发射器逐个产出 .zbc，最后写 manifest.json 成 test-bundle。
+//
+// 从 xtask_test_embedded.z42 拆出（原文件 848 行 = 500 行硬限的 1.7 倍，三个职责混装）。
+// 同 Z42Xtask 命名空间，跨文件裸名互调。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+// One enumerated corpus case (structural descriptor, rid-independent). Shared SoT
+// for both the embedded bundle builder (_buildTestBundle) and the `test list`
+// catalog (_testList) — one enumeration, two consumers, no drift.
+//   kind: "golden"   → direct-run (src/tests + lib goldens) via _goldenEntry
+//         "unit"     → stdlib [Test] file  (tests/<f>.z42)   via _emitUnitZbc
+//         "dir-unit" → stdlib [Test] dir   (tests/<nm>/)     via _emitDirUnit
+class _CorpusCase {
+    public string name;        // caseName, e.g. "classes/basic_class" | "z42.io/env_cwd"
+    public string bucket;      // grouping key (src/tests <cat> or stdlib <lib>)
+    public string kind;        // golden | unit | dir-unit
+    public string src;         // source .z42 path (golden/unit); "" for dir-unit
+    public string exp;         // expected-output text (goldens only)
+    public string lib;         // owning lib (unit/dir-unit)
+    public string leaf;        // leaf name for safe-name / emit (unit base, dir-unit subdir)
+    public string dir;         // case dir (golden dir-mode / dir-unit / lib-golden)
+    public bool interpOnly;    // golden has an `interp_only` sidecar → no jit run
+    public _CorpusCase() {
+        this.name = ""; this.bucket = ""; this.kind = "";
+        this.src = ""; this.exp = ""; this.lib = "";
+        this.leaf = ""; this.dir = ""; this.interpOnly = false;
+    }
+}
+
+// Growable _CorpusCase[] append (mirrors _appendCase).
+_CorpusCase[] _appendCorpus(_CorpusCase[] arr, int n, _CorpusCase c) {
+    if (n < arr.Length) { arr[n] = c; return arr; }
+    _CorpusCase[] bigger = new _CorpusCase[arr.Length * 2 + 8];
+    int i = 0; while (i < n) { bigger[i] = arr[i]; i = i + 1; }
+    bigger[n] = c;
+    return bigger;
+}
+
+// Enumerate the full corpus (goldens + stdlib [Test] units/dir-units/lib-goldens)
+// as descriptors — filter by name substring, but rid-INDEPENDENT (no capability
+// exclusion, no cap): those are bundle-time policy applied by _buildTestBundle.
+// Emission order is stable (sorted cats, then per-lib units→dir-units→lib-goldens),
+// so a bucket's cases stay CONTIGUOUS — which _sampleCorpus relies on.
+_CorpusCase[] _enumerateCorpus(string root, string filter) {
+    _CorpusCase[] cs = new _CorpusCase[64];
+    int n = 0;
+
+    // 1. golden e2e — dir-mode (<cat>/<name>/source.z42 + expected_output.txt) AND
+    // flat-mode (<cat>/<name>.z42 + <name>.expected_output.txt).
+    string testsRoot = Path.Join(root, "src/tests");
+    foreach (var cat in _sortedStrings(Directory.Enumerate(testsRoot))) {
+        string catDir = Path.Join(testsRoot, cat);
+        if (!Directory.Exists(catDir)) { continue; }
+        if (_isNonRunnableCat(cat)) { continue; }
+        foreach (var name in _sortedStrings(Directory.Enumerate(catDir))) {
+            string full = Path.Join(catDir, name);
+            _CorpusCase c = new _CorpusCase();
+            if (Directory.Exists(full)) {
+                if (!File.Exists(Path.Join(full, "source.z42"))) { continue; }
+                if (_isExcludedDirName(cat, name)) { continue; }
+                c.name = cat + "/" + name;
+                c.src = Path.Join(full, "source.z42");
+                c.exp = _readExpected(Path.Join(full, "expected_output.txt"));
+                c.dir = full;
+                c.interpOnly = File.Exists(Path.Join(full, "interp_only"));
+            } else if (name.EndsWith(".z42")) {
+                string nm = name.Substring(0, name.Length - 4);
+                c.name = cat + "/" + nm;
+                c.src = full;
+                c.exp = _readExpected(Path.Join(catDir, nm + ".expected_output.txt"));
+                c.dir = catDir;
+            } else {
+                continue;   // sidecar (.expected_output.txt / .interp_only) or non-source
+            }
+            if (filter.Length > 0 && !c.name.Contains(filter)) { continue; }
+            c.bucket = cat; c.kind = "golden";
+            cs = _appendCorpus(cs, n, c); n = n + 1;
+        }
+    }
+
+    // 2. stdlib per-lib: [Test] file units (2), [Test] dir units (2b), lib goldens (2c).
+    string libsRoot = Path.Join(root, "src/libraries");
+    foreach (var lib in _sortedStrings(Directory.Enumerate(libsRoot))) {
+        string tdir = Path.Join(libsRoot, lib, "tests");
+        if (!Directory.Exists(tdir)) { continue; }
+        // 2. file units (tests/*.z42)
+        foreach (var f in _sortedStrings(Directory.Enumerate(tdir))) {
+            if (!f.EndsWith(".z42")) { continue; }
+            string caseName = lib + "/" + f.Substring(0, f.Length - 4);
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            _CorpusCase c = new _CorpusCase();
+            c.name = caseName; c.bucket = lib; c.kind = "unit";
+            c.src = Path.Join(tdir, f); c.lib = lib;
+            c.leaf = f.Substring(0, f.Length - 4);
+            cs = _appendCorpus(cs, n, c); n = n + 1;
+        }
+        // 2b. dir-mode [Test] units (tests/<nm>/ with [Test] methods)
+        foreach (var nm in _sortedStrings(Directory.Enumerate(tdir))) {
+            string dpath = Path.Join(tdir, nm);
+            if (!Directory.Exists(dpath)) { continue; }
+            if (!_dirHasTestMethods(dpath)) { continue; }
+            string caseName = lib + "/" + nm;
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            _CorpusCase c = new _CorpusCase();
+            c.name = caseName; c.bucket = lib; c.kind = "dir-unit";
+            c.lib = lib; c.leaf = nm; c.dir = dpath;
+            cs = _appendCorpus(cs, n, c); n = n + 1;
+        }
+        // 2c. lib-mode goldens (tests/<nm>/source.z42 WITHOUT [Test])
+        foreach (var nm in _sortedStrings(Directory.Enumerate(tdir))) {
+            string dpath = Path.Join(tdir, nm);
+            if (!Directory.Exists(dpath)) { continue; }
+            if (_dirHasTestMethods(dpath)) { continue; }
+            string gsrc = Path.Join(dpath, "source.z42");
+            if (!File.Exists(gsrc)) { continue; }
+            string caseName = lib + "/" + nm;
+            if (filter.Length > 0 && !caseName.Contains(filter)) { continue; }
+            _CorpusCase c = new _CorpusCase();
+            c.name = caseName; c.bucket = lib; c.kind = "golden";
+            c.src = gsrc; c.exp = _readExpected(Path.Join(dpath, "expected_output.txt"));
+            c.lib = lib; c.leaf = nm; c.dir = dpath;
+            c.interpOnly = File.Exists(Path.Join(dpath, "interp_only"));
+            cs = _appendCorpus(cs, n, c); n = n + 1;
+        }
+    }
+
+    _CorpusCase[] outc = new _CorpusCase[n];
+    int i = 0; while (i < n) { outc[i] = cs[i]; i = i + 1; }
+    return outc;
+}
+
+// Per-category sampling for the embed smoke cap: pick up to `cap` cases spread
+// EVENLY across buckets (round-robin) instead of the old "first `cap` in sort
+// order" (which starved alphabetically-late categories). cap<=0 or total<=cap →
+// return all (desktop = full coverage). Deterministic: buckets are the contiguous
+// runs from _enumerateCorpus (first-appearance/sorted order), within-bucket order
+// preserved, and the result is emitted in original enumeration order.
+_CorpusCase[] _sampleCorpus(_CorpusCase[] cases, int cap) {
+    int total = cases.Length;
+    if (cap <= 0 || total <= cap) { return cases; }
+    // Bucket boundaries: contiguous runs of equal .bucket.
+    int[] starts = new int[total];
+    int[] lens   = new int[total];
+    int nb = 0;
+    int i = 0;
+    while (i < total) {
+        int j = i;
+        while (j < total && cases[j].bucket == cases[i].bucket) { j = j + 1; }
+        starts[nb] = i; lens[nb] = j - i; nb = nb + 1;
+        i = j;
+    }
+    // Round-robin one case per bucket per round until `cap` reached (or all drained).
+    bool[] selected = new bool[total];
+    int[] cursor = new int[nb];
+    int picked = 0;
+    bool progress = true;
+    while (picked < cap && progress) {
+        progress = false;
+        int b = 0;
+        while (b < nb && picked < cap) {
+            if (cursor[b] < lens[b]) {
+                selected[starts[b] + cursor[b]] = true;
+                cursor[b] = cursor[b] + 1;
+                picked = picked + 1;
+                progress = true;
+            }
+            b = b + 1;
+        }
+    }
+    // Emit in original enumeration order (stable bundle / manifest ordering).
+    _CorpusCase[] outc = new _CorpusCase[picked];
+    int k = 0; i = 0;
+    while (i < total) { if (selected[i]) { outc[k] = cases[i]; k = k + 1; } i = i + 1; }
+    return outc;
+}
+
+// Full-coverage sharding for parallel tier-2 CI (tier2-shard-full-coverage).
+// Partition the (already capability-filtered) corpus into n DISJOINT slices by
+// stable enumeration index: shard k gets every case where index % n == k-1. No
+// cap — the union of shards 1..n is the FULL runnable corpus (100% coverage),
+// with zero overlap. index%n interleaves across the contiguous bucket runs from
+// _enumerateCorpus, so each shard stays category-balanced. Deterministic: keyed
+// on enumeration order only, so re-runs and shard boundaries are reproducible.
+_CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
+    int total = cases.Length;
+    int cnt = 0;
+    int i = 0;
+    while (i < total) { if ((i % n) == (k - 1)) { cnt = cnt + 1; } i = i + 1; }
+    _CorpusCase[] outc = new _CorpusCase[cnt];
+    int o = 0; i = 0;
+    while (i < total) { if ((i % n) == (k - 1)) { outc[o] = cases[i]; o = o + 1; } i = i + 1; }
+    return outc;
+}
+
+// Build the test bundle. Returns the manifest.json path ("" if no cases matched).
+// Pipeline: enumerate full corpus → exclude cases needing caps the target lacks
+// (_targetExcludes) → SELECT (shard slice OR per-category smoke sample) → compile
+// the selection. Desktop (cap=0, no shard) compiles the full included set unchanged.
+//
+// Two select modes on tier-2 (wasm/ios/android):
+//   • shardN>0  → full-coverage slice k/n (_shardCorpus, NO cap). Nightly CI
+//     fans out n parallel shard jobs; their union = 100% of the runnable corpus.
+//     (tier2-shard-full-coverage — replaces the smoke-only tier-2 coverage.)
+//   • shardN==0 → per-category smoke sample to embedCap=60 (_sampleCorpus). This
+//     is the fast local/manual default: fix-wasm-embed-timeout / android-emu cap
+//     kept the whole corpus (~433 cases) from blowing the emulator/browser job
+//     wall (>20min; android hit 60min). tidy-test-system spread the cap per
+//     category (round-robin) so late-sorted categories still get representation.
+string _buildTestBundle(string root, string filter, string rid, int shardK, int shardN) {
+    string bundleDir = Path.Join(root, "artifacts/build/embedded-test/bundle");
+    Directory.Create(bundleDir);
+    _cleanGlob(bundleDir, "*.zbc");
+    int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
+
+    // enumerate (structural) → capability-exclude → select (shard slice | smoke sample).
+    _CorpusCase[] all = _enumerateCorpus(root, filter);
+    _CorpusCase[] incl = new _CorpusCase[all.Length];
+    int ni = 0;
+    int excluded = 0;
+    int a = 0;
+    while (a < all.Length) {
+        if (_targetExcludes(rid, all[a].name)) { excluded = excluded + 1; }
+        else { incl[ni] = all[a]; ni = ni + 1; }
+        a = a + 1;
+    }
+    _CorpusCase[] included = new _CorpusCase[ni];
+    int c0 = 0; while (c0 < ni) { included[c0] = incl[c0]; c0 = c0 + 1; }
+    // --shard k/n wins over the smoke cap: run the full 1/n slice, no cap.
+    _CorpusCase[] sel;
+    if (shardN > 0) { sel = _shardCorpus(included, shardK, shardN); }
+    else            { sel = _sampleCorpus(included, embedCap); }
+    int capped = (shardN > 0) ? 0 : (ni - sel.Length);
+
+    // compile the selection → manifest items.
+    string items = "";
+    int count = 0;
+    int si = 0;
+    while (si < sel.Length) {
+        _CorpusCase c = sel[si];
+        string entry = "";
+        if (c.kind == "unit") {
+            string safe = _bundleSafeName(c.name);
+            string zbc = _emitUnitZbc(root, c.src, safe, bundleDir);
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + c.name); si = si + 1; continue; }
+            entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zbc\"}";
+        } else if (c.kind == "dir-unit") {
+            string safe = _bundleSafeName(c.name);
+            string zbc = _emitDirUnit(root, c.lib, c.leaf, c.dir, safe, bundleDir);
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + c.name); si = si + 1; continue; }
+            entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zpkg\"}";
+        } else {   // golden
+            entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir);
+            if (entry.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + c.name); si = si + 1; continue; }
+        }
+        if (count > 0) { items = items + ",\n"; }
+        items = items + entry;
+        count = count + 1;
+        si = si + 1;
+    }
+
+    if (excluded > 0) {
+        Console.WriteLine("  (excluded " + excluded.ToString() + " case(s) requiring caps '"
+            + rid + "' lacks — socket/threads/native-fs)");
+    }
+    if (shardN > 0) {
+        Console.WriteLine("  (embed shard " + shardK.ToString() + "/" + shardN.ToString()
+            + ": full-coverage slice — selected " + sel.Length.ToString() + " of "
+            + ni.ToString() + " runnable case(s); union of all " + shardN.ToString()
+            + " shards = 100%)");
+    }
+    if (capped > 0) {
+        Console.WriteLine("  (embed smoke: sampled " + sel.Length.ToString() + " of "
+            + ni.ToString() + " per-category (cap " + embedCap.ToString() + "); skipped "
+            + capped.ToString() + " — full coverage runs on desktop or via --shard)");
+    }
+    if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
+    string mpath = Path.Join(bundleDir, "manifest.json");
+    File.WriteAllText(mpath, "{\n  \"cases\": [\n" + items + "\n  ]\n}\n");
+    Console.WriteLine("  bundle: " + count.ToString() + " cases → " + mpath);
+    return mpath;
+}
