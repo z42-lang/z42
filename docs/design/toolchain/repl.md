@@ -80,8 +80,11 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   并纳入 LibsDirs（使后续轮 DepScan 能引用前轮 Vars 类），但那让每轮重扫整个世界（~3.5s）。现改为：
   首轮建一次静态 `DepScanResult` 缓存于 `ScriptState.CachedScan`；每个 var 声明轮把刚编出的 `Vars{N}`
   包经 `DepScan.ExtendWithPackage` **增量并入缓存 scan**（不落盘、不重扫）；后续轮经
-  `CompileInputs.CachedScan` 复用。详见 [self-hosting.md] 邻近的 compile-pipeline 说明与
-  `bench/repl/BASELINE.md`。
+  `CompileInputs.CachedScan` 复用。详见 [self-hosting.md] 邻近的 compile-pipeline 说明。
+  复现手段：`bench/repl/run.sh`（0/1/5-eval 三点，把每轮边际成本与进程启动分开）。
+  > 曾有一份 `bench/repl/BASELINE.md` 记录优化**前**的数字（2026-07-26，per-eval ~3.5 s）。
+  > 那些数字早已失真——同一路径现在是每轮 ~72 ms（见本页「剩余瓶颈」），留着只会误导，故已删除。
+  > 机制说明以本页为准，要拿新数字就跑 `run.sh`。
   - **内存包的驻留识别（fix-repl-inmemory-dep-warn）**：声明轮的包（`repl_r{N}`）只在内存加载、
     从不落盘，但后续轮引用其类型时编出的依赖仍按规范文件名 `repl_r{N}.zpkg` 记录。VM lazy loader
     加载任一包时会把 `<包名>.zpkg` 记进 `loaded_zpkgs`（驻留集），使依赖方的依赖解析循环在驻留集
@@ -606,7 +609,7 @@ libs/ + programs/z42c/ + programs/z42i/
   改静态）→ 每表达式轮从 ~3500ms 降到 **~72ms 恒定**、抹平了原 O(n) 增长。剩余仅：(a) 首轮
   一次性 ~3.3s 静态 scan 构建（见 `repl-future-persist-static-scan`）、(b) 每轮 ~72ms 中约 50ms 是
   `ImportedSymbolLoader.Load` 遍历全导出集（可进一步缓存）。真·增量（每行=一个 context、旧版
-  supersede）仍是这两项的终极解，但已非「不可用」级瓶颈。bench：`bench/repl/`。
+  supersede）仍是这两项的终极解，但已非「不可用」级瓶颈。复现：`bench/repl/run.sh`。
 
 ### repl-future-persist-static-scan
 
