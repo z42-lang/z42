@@ -20,7 +20,7 @@ entry   = "Z42Builder.Main"
 pack    = true
 
 [sources]
-include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder_device_ios.z42", "builder_device_android.z42", "builder_publish.z42", "builder_apphost.z42",
+include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder_device_ios.z42", "builder_device_android.z42", "builder_publish.z42", "builder_publish_sidecar.z42", "builder_apphost.z42",
            "builder.z42", "builder_commands.z42", "builder_new.z42", "builder_hooks.z42"]
 
 [dependencies]

@@ -35,6 +35,17 @@ flowchart TD
 
 **逐 key 独立**：环境里设了 `Z42_LOG`、侧车里写了 `gc-mode`，两个都生效——不是整层二选一。
 
+**五层对 `z42vm` 与嵌入方都成立**。CLI 层是 `z42vm` 二进制独有的（`--set` 由它解析）；
+其余四层由 `RuntimeConfig::from_env()` 装配，所有走 `z42_host_run_app` 的入口
+（desktop 自包含 apphost / wasm / iOS / Android / testhost）经 `runtime_config()` 懒初始化
+落在这条路径上。区别只在**诊断严重度**：`z42vm` 的 `main()` 对坏配置致命退出并提供
+`--strict-config`；库入口一律 warn 后继续——它可能跑在宿主进程里，因一个配置 typo
+杀掉宿主不是它该做的事。
+
+> 这一点此前不成立（sidecar-reaches-published-apps 2026-09-05 修）：`from_env()` 是
+> `resolve(get, None)`，文件层只在 `z42vm` 的 `main()` 里单独装配，于是**每个嵌入方都
+> 静默忽略 `Z42_CONFIG` 与 `Z42_APP_CONFIG`**——文档承诺的链在 z42vm 二进制之外根本没接上。
+
 **L3 与 L4 是同一种东西的两个实例**：格式相同、解析器相同（`[runtime]` TOML 表），
 区别只在**谁写的**。L3 是用户手写（"我这台机器上想改这个"），L4 由 `z42c build` 生成、
 随产物分发（"这个应用需要这样跑"）。所以它们叠加而不是互斥——用户改一个旋钮不该丢掉
@@ -80,8 +91,20 @@ mode = "interp"
 - **不覆盖手写侧车**。目标路径已存在且不含生成标记头 → build 报错，提示把内容移进
   manifest 的 `[profile.*]`。
 
-> **已知缺口**：apphost 直跑路径不读侧车（`simplify-apphost-direct-run` 的既有代价），
-> `z42 publish` 也尚未把侧车拷进 publish 布局。需要 profile 配置的 app 走 `z42 run`。
+### 侧车怎么到达已发布的 app
+
+`z42 publish` 把侧车与 zpkg 一起搬进部署布局（自包含布局把 zpkg 改名成 `app.zpkg`，
+侧车跟着改成 `app.runtimeconfig.toml`——发现约定是「同目录、同 stem」）。运行时由
+**apphost** 按同一约定发现它、设进 `Z42_APP_CONFIG` 交给 z42vm；调用方显式设过就不覆盖。
+
+apphost 只**找**文件、传路径：解析 TOML、判定可用性、产生诊断都属于 VM。它刻意不经
+launcher（`simplify-apphost-direct-run`：部署一个 app 只需 apphost + app.zpkg + 运行时），
+所以这条发现逻辑在两处各有一份——重复的是一行路径拼接，不是逻辑。
+
+> 这条链此前是断的（sidecar-reaches-published-apps 2026-09-05 修）：publish 不拷侧车、
+> apphost 不传路径，于是工程在 manifest 里声明的运行时设置在**用户实际发布的形态上
+> 完全无效且无提示**。`xtask test dist` 的 apphost smoke 现在断言
+> `RuntimeConfig.Source("mode") == "app-config"`，链上任何一环断掉都会红。
 
 ## 登记表：唯一 SoT
 
