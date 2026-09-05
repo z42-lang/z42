@@ -35,17 +35,12 @@ const NOT_WASM: PlatformAvail = PlatformAvail::Except(&["wasm"]);
 /// `Z42_STACKALLOC` 的可辨识取值（其余一切值 → on，见 interp/stack_alloc.rs）。
 const STACKALLOC_MODES: &[&str] = &["on", "off", "0", "heap", "stats"];
 
-/// 尚未收编进 `RuntimeConfig` 的子系统旋钮基线——**只从 env 读**。
+/// 机制内部件 / 调试开关：四层可设，但默认视图隐藏。
 ///
-/// 这些旋钮在各自的 `consumed_by` 处直接 `std::env::var` / `var_os`，CLI 与配置
-/// 文件层根本到不了那行代码。若给它们标 `LayerMask::ALL`，`--list-knobs` 就会
-/// 声称能从命令行设、而 `--set` 静默无效——比不登记更坏。故如实标 `ENV_ONLY`：
-/// `--set jit-threshold=5` 会明确报「cannot be set from [cli]; accepted layers: env」。
-/// 收编到 `RuntimeConfig` 后再放开层（见 tasks.md 的 deferred 项）。
-const INLINE_ENV: KnobSpec = KnobSpec { sources: LayerMask::ENV_ONLY, ..TUNING };
-
-/// 同 [`INLINE_ENV`]，但属机制内部件 / 调试开关，默认视图隐藏。
-const INLINE_ENV_INTERNAL: KnobSpec = KnobSpec { tier: Tier::Internal, ..INLINE_ENV };
+/// adopt-inline-env-knobs（2026-09-05）：这些旋钮此前是 `ENV_ONLY`——它们在各自
+/// `consumed_by` 处直接 `std::env::var`，CLI 与配置文件层到不了那行代码，标成四层
+/// 全收会让 `--list-knobs` 说谎。消费点改读 `runtime_config()` 后限制解除。
+const DEBUG_KNOB: KnobSpec = KnobSpec { tier: Tier::Internal, ..PUBLIC };
 
 pub const KNOWN_KNOBS: &[KnobSpec] = &[
     KnobSpec {
@@ -76,11 +71,11 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
     KnobSpec {
         name: "Z42_FUSION_DEBUG",
         toml_key: "fusion-debug",
-        value: ValueKind::Flag,
-        description: "dump superinstruction fusion decisions to stderr (presence enables)",
+        value: ValueKind::Bool,
+        description: "dump superinstruction fusion decisions to stderr",
         default_hint: "unset; no fusion dump",
-        consumed_by: "metadata/superinstr.rs (inline env read)",
-        ..INLINE_ENV_INTERNAL
+        consumed_by: "metadata/superinstr.rs",
+        ..DEBUG_KNOB
     },
     KnobSpec {
         name: "Z42_GC_MAX_BYTES",
@@ -167,12 +162,12 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
     KnobSpec {
         name: "Z42_JIT_DEBUG_PROMOTE",
         toml_key: "jit-debug-promote",
-        value: ValueKind::Flag,
+        value: ValueKind::Bool,
         requires: &["jit"],
-        description: "log every interp->JIT promotion decision (presence enables)",
+        description: "log every interp->JIT promotion decision",
         default_hint: "unset; promotions are silent",
-        consumed_by: "jit/translate/mod.rs (inline env read)",
-        ..INLINE_ENV_INTERNAL
+        consumed_by: "jit/translate/mod.rs",
+        ..DEBUG_KNOB
     },
     KnobSpec {
         name: "Z42_JIT_PROFILE",
@@ -191,8 +186,8 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         requires: &["jit"],
         description: "call count at which a function is queued for JIT compilation",
         default_hint: "unset; defaults to 2 (lower-jit-threshold-default)",
-        consumed_by: "jit/mod.rs (inline env read)",
-        ..INLINE_ENV
+        consumed_by: "jit/mod.rs",
+        ..TUNING
     },
     KnobSpec {
         name: "Z42_LIBS",
@@ -235,20 +230,20 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
     KnobSpec {
         name: "Z42_NO_FUSION",
         toml_key: "no-fusion",
-        value: ValueKind::Flag,
-        description: "disable interpreter superinstruction fusion (presence disables; a `0` value still disables)",
+        value: ValueKind::Bool,
+        description: "disable interpreter superinstruction fusion (kill-switch / A-B knob)",
         default_hint: "unset; fusion enabled",
-        consumed_by: "metadata/superinstr.rs (inline env read)",
-        ..INLINE_ENV_INTERNAL
+        consumed_by: "metadata/superinstr.rs",
+        ..DEBUG_KNOB
     },
     KnobSpec {
         name: "Z42_NO_TYPED_FUSION",
         toml_key: "no-typed-fusion",
-        value: ValueKind::Flag,
-        description: "disable the type-specialised half of superinstruction fusion (presence disables)",
+        value: ValueKind::Bool,
+        description: "disable the type-specialised half of superinstruction fusion",
         default_hint: "unset; typed fusion enabled",
-        consumed_by: "metadata/superinstr.rs (inline env read)",
-        ..INLINE_ENV_INTERNAL
+        consumed_by: "metadata/superinstr.rs",
+        ..DEBUG_KNOB
     },
     KnobSpec {
         name: "Z42_OSR_THRESHOLD",
@@ -257,8 +252,8 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         requires: &["jit"],
         description: "back-edge count that triggers on-stack replacement of a running interp activation",
         default_hint: "unset; defaults to 10000",
-        consumed_by: "jit/mod.rs (inline env read)",
-        ..INLINE_ENV
+        consumed_by: "jit/mod.rs",
+        ..TUNING
     },
     KnobSpec {
         name: "Z42_PATH",
@@ -277,8 +272,8 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         platforms: NOT_WASM,
         description: "override path to the REPL line-editor cdylib (libz42_repl); accepts the file or its directory",
         default_hint: "unset; searched relative to the z42vm binary",
-        consumed_by: "corelib/repl_native.rs (inline env read)",
-        ..INLINE_ENV_INTERNAL
+        consumed_by: "corelib/repl_native.rs",
+        ..DEBUG_KNOB
     },
     KnobSpec {
         name: "Z42_SAFEPOINT_THROTTLE",
@@ -315,13 +310,14 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Enum(STACKALLOC_MODES),
         description: "escape-analysis stack allocation: `off`/`0`/`heap` disables, `stats` prints per-run counts, anything else enables",
         default_hint: "unset; stack allocation on",
-        consumed_by: "interp/stack_alloc.rs (inline env read)",
-        ..INLINE_ENV
+        consumed_by: "interp/stack_alloc.rs",
+        ..TUNING
     },
     KnobSpec {
         name: "Z42_STRESS_ITERS",
         toml_key: "stress-iters",
         value: ValueKind::Int { min: 1, max: i64::MAX },
+        // 测试脚手架：不进 CLI 表面（那等于暗示它是个正经旋钮），也不随产物分发。
         sources: LayerMask::ENV_ONLY,
         build: BuildAvail::DebugOnly,
         tier: Tier::Internal,

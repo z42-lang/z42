@@ -206,3 +206,17 @@ where F: Fn(&str) -> Option<String> {
         None => false,
     }
 }
+
+/// `u32` 阈值旋钮（`Z42_JIT_THRESHOLD` / `Z42_OSR_THRESHOLD`）。
+///
+/// 语义与它们收编前的内联读取逐字相同：解析失败落 `default`，任何值 clamp 到 ≥ 1
+/// （`0` 意味着"每次都编译"，那是 `1`）。解析失败此前是**静默**的；现在解析层的
+/// `ValueKind::Int` 校验会先给出一条诊断，这里只剩兜底。
+/// adopt-inline-env-knobs（2026-09-05）。
+pub(super) fn parse_u32_knob<F>(get: &F, name: &str, default: u32) -> u32
+where F: Fn(&str) -> Option<String> {
+    get(name)
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(default)
+        .max(1)
+}

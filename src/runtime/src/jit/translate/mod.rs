@@ -247,7 +247,7 @@ pub fn translate_function(
     // under `Z42_OSR_THRESHOLD=1` (forces every loop through OSR).
     let promoted = compute_promotable_regs(z42_func, true);
     let any_promoted = promoted.iter().any(|&p| p);
-    if std::env::var_os("Z42_JIT_DEBUG_PROMOTE").is_some() {
+    if crate::config::runtime_config().jit_debug_promote {
         let cnt = promoted.iter().filter(|&&p| p).count();
         eprintln!("[2C] {} promoted {}/{} int regs (osr={})",
             z42_func.name, cnt, promoted.len(), osr_entry.is_some());

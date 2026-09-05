@@ -89,18 +89,15 @@ impl JitModule {
         // z42c.semantics build 12.80 → 12.83 s (no loss — anything worth compiling
         // is called at least twice). N=2..10 are indistinguishable; 2 keeps the
         // "compile early" spirit of lower-jit-threshold-default.
-        let jit_threshold = std::env::var("Z42_JIT_THRESHOLD").ok()
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(2)
-            .max(1);
+        // adopt-inline-env-knobs (2026-09-05): was a direct `env::var` here, which
+        // meant `--set jit-threshold=` and `[runtime].jit-threshold` could never
+        // reach it. Now it comes off the layered config like every other knob.
+        let jit_threshold = crate::config::runtime_config().jit_threshold;
         // add-osr-loop-tiering: back-edge count that triggers OSR of the running
         // interp activation. Default 10_000 — high enough that short loops finish in
         // the interpreter before paying a compile, low enough that a genuinely hot
         // loop (millions of iterations) upgrades within its first fraction of a %.
-        let osr_threshold = std::env::var("Z42_OSR_THRESHOLD").ok()
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(10_000)
-            .max(1);
+        let osr_threshold = crate::config::runtime_config().osr_threshold;
         let ctx = Box::new(JitModuleCtx {
             fn_entries_by_id,
             module: module as *const Module,

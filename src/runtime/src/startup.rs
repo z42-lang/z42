@@ -19,8 +19,13 @@ use z42::config::KNOWN_KNOBS;
 ///   4. `<cwd>/artifacts/build/libraries/dist/debug/`                 — dev flat view (debug profile)
 ///   5. `<cwd>/artifacts/z42/libs/`                         — legacy fallback (pre-2026-05-12)
 pub fn resolve_libs_dir() -> Option<PathBuf> {
-    // 1. $Z42_LIBS
-    if let Ok(v) = std::env::var("Z42_LIBS") {
+    // 1. the `libs` knob (Z42_LIBS / --set libs= / [runtime].libs)
+    //
+    // adopt-inline-env-knobs (2026-09-05): this used to be a bare `env::var`, so the
+    // knob advertised four layers but only ever observed one — `--set libs=/x` and
+    // `[runtime].libs` were silently ignored here.
+    if let Some(v) = z42::config::runtime_config().libs_dir.as_ref()
+        .map(|p| p.display().to_string()) {
         let p = PathBuf::from(v);
         if p.is_dir() {
             return Some(p);
@@ -167,7 +172,9 @@ pub fn install_panic_hook() {
         eprint!("{report}");
 
         // Optionally persist to Z42_CRASH_DIR for offline analysis
-        if let Ok(dir) = std::env::var("Z42_CRASH_DIR") {
+        // adopt-inline-env-knobs: the `crash-dir` knob, not a raw env read.
+        if let Some(dir) = z42::config::runtime_config().crash_dir.as_ref()
+            .map(|p| p.display().to_string()) {
             let dir = std::path::PathBuf::from(dir);
             // Best-effort: create dir, write file, swallow errors (already panicking).
             let _ = std::fs::create_dir_all(&dir);
@@ -259,13 +266,15 @@ pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config:
 pub fn resolve_module_paths() -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
 
-    // 1. Z42_PATH entries
-    if let Ok(z42_path) = std::env::var("Z42_PATH") {
-        for part in z42_path.split(':') {
-            let p = PathBuf::from(part.trim());
-            if p.is_dir() && !paths.contains(&p) {
-                paths.push(p);
-            }
+    // 1. the `path` knob (Z42_PATH / --set path= / [runtime].path)
+    //
+    // adopt-inline-env-knobs (2026-09-05): was a bare `env::var` + manual `:` split,
+    // so the knob advertised four layers while only observing the environment — and
+    // the split was hardcoded to `:`, which is wrong on Windows. `RuntimeConfig`
+    // already stores the platform-split list; use it.
+    for p in &z42::config::runtime_config().module_path {
+        if p.is_dir() && !paths.contains(p) {
+            paths.push(p.clone());
         }
     }
 
