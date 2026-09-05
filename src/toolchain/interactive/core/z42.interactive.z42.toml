@@ -30,13 +30,13 @@ include = ["interactive_main.z42"]
 # From this toml's dir (src/toolchain/interactive/core) up 4 levels to repo root.
 dist_dir = "../../../../artifacts/build/toolchain/interactive"
 
-[profile.release]
-mode     = "interp"
-optimize = 2
+[profile.release.runtime]
+mode = "interp"
 
 # apphost-as-config: publishes the z42i desktop apphost into the shared artifacts
 # tree (unified toolchain/<comp>/publish layout, add-build-toolchain 2026-07-05).
 # bin/payload mirrors z42b's SDK package layout (add-package-layout-config).
+
 [platform.desktop]
 apphost     = true
 publish_dir = "../../../../artifacts/build/toolchain/interactive/publish"

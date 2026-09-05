@@ -35,14 +35,14 @@ include = ["*.z42"]
 # cascade from it (dist = ${output_dir}/dist; publish_dir set explicitly below).
 output_dir = "../../../../artifacts/build/toolchain/launcher"
 
-[profile.release]
-mode     = "interp"
-optimize = 2
+[profile.release.runtime]
+mode = "interp"
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
 #   publish_dir 缺省 = ${output_dir}/publish（仅输出位置，非 gate）。
 #   bin/payload（add-package-layout-config）：根 launcher 特例——bin 落部署根 `z42`。
+
 [platform.desktop]
 apphost = true
 bin     = "z42"

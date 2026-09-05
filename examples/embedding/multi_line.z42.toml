@@ -15,12 +15,8 @@ entry = "MultiLine.Main"
 [build]
 # Cascade defaults: dist_dir = ${output_dir}/dist (== ./dist)
 
-[profile.debug]
-mode     = "interp"
-optimize = 0
-debug    = true
+[profile.debug.runtime]
+mode = "interp"
 
-[profile.release]
-mode     = "interp"
-optimize = 3
-strip    = true
+[profile.release.runtime]
+mode = "interp"

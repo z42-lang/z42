@@ -1,9 +1,17 @@
 // 泛型约束模型（port-z42c-semantics 2B）。镜像 C# `GenericConstraintBundle` 的可行子集。
-// z42c 当前类型模型可干净检查：base-class（where T : C）/ class / struct / 型参引用（where U : T）
+//
+// 判定规则的唯一真相源是**运行期** `src/runtime/src/corelib/reflection/generics.rs::
+// validate_type_arg_constraint`（七项俱全）——编译期照抄，不另立规则。当前落地：
+//   base-class（where T : C）/ class / struct / 型参引用（where U : T）/ **interface**
 //   + class·struct 互斥。
-// 延后（z42c 缺对应类型/信息，与既有延后一致）：
-//   · interface 约束（无 Z42InterfaceType）          · enum 约束（无 Z42EnumType）
-//   · new() 约束（SymbolCollector 暂跳 ctor 收集）   · func-type 约束（闭包延后，E0422/E0423 未触达）
+// 延后（complete-where-constraints 后续阶段）：
+//   · enum 约束（PR-2）        · new() 约束（PR-2）
+//   · func-type 约束（E0422/E0423 已定义但从未发出；Deferred where-constraint-future-func-constraint）
+//
+// > 注：原注释称「z42c 缺 Z42InterfaceType / 缺 ctor 收集」——**均已过时**。
+// > `Z42InterfaceType` 是独立类型、`SymbolTable.Implements` 早被 Conversion/DeclBinder 消费；
+// > ctor 也早已由 MemberCollector 收集为方法（名=类名）。接口约束因此是**接线**而非造能力。
+//
 // 受限写法：class + public 字段；约束集用 typed array + int count（类字段不能带泛型）。
 namespace Z42.Semantics;
 
@@ -15,15 +23,34 @@ public sealed class ConstraintBundle {
     public bool   RequiresStruct;  // where T : struct
     public bool   HasTypeParamRef; // where U : T
     public string TypeParamRef;    // 引用的型参名（"T"）
+    // where T : IFoo —— **裸名**（去 `<...>`，见 design D1）。一个型参可有多条接口约束
+    // （`where T : IFoo + IBar`），故用 typed array + count（类字段不能带泛型）。
+    public string[] InterfaceNames;
+    public int      InterfaceCount;
 
     public ConstraintBundle() {
         this.HasBaseClass = false; this.BaseClassName = "";
         this.RequiresClass = false; this.RequiresStruct = false;
         this.HasTypeParamRef = false; this.TypeParamRef = "";
+        this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
+    }
+
+    public void AddInterface(string name) {
+        if (this.InterfaceCount == this.InterfaceNames.Length) {
+            int cap = this.InterfaceNames.Length * 2;
+            if (cap < 2) { cap = 2; }
+            string[] bigger = new string[cap];
+            int i = 0;
+            while (i < this.InterfaceCount) { bigger[i] = this.InterfaceNames[i]; i = i + 1; }
+            this.InterfaceNames = bigger;
+        }
+        this.InterfaceNames[this.InterfaceCount] = name;
+        this.InterfaceCount = this.InterfaceCount + 1;
     }
 
     public bool IsEmpty() {
-        return !this.HasBaseClass && !this.RequiresClass && !this.RequiresStruct && !this.HasTypeParamRef;
+        return !this.HasBaseClass && !this.RequiresClass && !this.RequiresStruct
+            && !this.HasTypeParamRef && this.InterfaceCount == 0;
     }
 }
 

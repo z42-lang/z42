@@ -21,7 +21,7 @@
 //! Rule 2 debounces on *growth*, which is not enough on its own: when the live
 //! set genuinely exceeds the budget, every collection reclaims ~nothing, the
 //! heap keeps growing anyway, and the growth gate re-arms forever. Measured on
-//! `bench/scenarios/09_alloc_ctorless` (whose 1.5M objects are all live) with a
+//! `src/tests/perf/scenarios/09_alloc_ctorless` (whose 1.5M objects are all live) with a
 //! 64MB budget: a full mark-sweep every ~6MB of growth, each freeing 0 bytes at
 //! ~75ms, turning a 0.29s run into one that had not finished in 9 minutes.
 //!
