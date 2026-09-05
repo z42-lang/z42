@@ -256,24 +256,3 @@ harness = false
 opt-level = 3
 lto = true
 codegen-units = 1
-
-# lighten-criterion-ab (2026-09-05)：criterion bench 二进制不跟 release 用 fat LTO。
-#
-# `[profile.bench]` 默认继承上面的 release 设置，于是每次 `cargo bench` 都要对整个
-# z42 crate 做一次 fat-LTO + codegen-units=1 的链接。CI 的 criterion A/B 要**base 和
-# pr 各编一次**，实测这一段（最后一个 Compiling → 第一条 Benchmarking）单侧 73s，
-# 两侧 146s —— 占 criterion 步骤 531s 的 27%。本机同一棵树实测（改一行 lib.rs 后重链）：
-#
-#   lto=true  cgu=1  （原设置）      68s
-#   lto=true  cgu=16                 60s   ← fat LTO 的链接本身是串行大头，cgu 救不动
-#   lto="thin" cgu=16                20s
-#   lto=false cgu=16                 10s
-#
-# 取 thin：保留跨 crate 内联（不像 lto=false 那样彻底放弃），链接成本降到 1/3。
-# **这只作用于 bench 二进制，出货的 z42vm 仍走上面的 release profile（fat LTO）。**
-# 对判红的影响：A/B 两侧用同一个 profile 编译，比值仍然对称有效；实测同源码下
-# thin 与 fat 的绝对值差 1.8~4.9%（三条 GC bench），与跑间漂移同量级。
-# 详见 docs/book/src/dev/benchmarking.md「criterion 成本分解」。
-[profile.bench]
-lto = "thin"
-codegen-units = 16

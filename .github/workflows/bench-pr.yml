@@ -48,13 +48,15 @@ name: Bench PR Regression
 # lighten-criterion-ab (2026-09-05)：慢路径 1227s 的大头 criterion A/B 531s，先分解再削
 # （逐行日志时间戳，两次 run 吻合 ±3s）：base 编译 115s + base 测量 148s + pr 编译 116s +
 # pr 测量 151s ⇒ 编译 233s(44%) / 测量 297s(56%)，测量里 concurrent_* 占 75s(14%) 却从不判红。
-# 三刀（只动成本、不动判红语义）：① [profile.bench] 改 thin-LTO/cgu=16 —— 它原先继承
-# [profile.release] 的 fat LTO + cgu=1，单侧链接 73s；实测重链 68s→20s，且只影响 bench 二进制，
-# 出货 z42vm 仍 fat LTO。② 本 job 用自己的 cache key（原先与 CI 共用 host-v2 ⇒ 每次 exact hit、
-# 从不回存，bench profile 的依赖产物和 base-src 的 target 从来没进过缓存）。③ concurrent_*
-# 用 Z42_BENCH_SKIP_INFORMATIONAL 排除在测量之外。没做：砍 sample_size（区间变宽=判红变钝）、
-# 再收窄 criterion 守卫（gc_cycle_bench 链接整个 crate，收窄=假阴性）。见 book 判红语义页
-# 「criterion 成本分解与省时三刀」。
+# 落地两刀（只动成本、不动判红语义）：① 本 job 用自己的 cache key（原先与 CI 共用 host-v2 ⇒ 每次
+# exact hit、从不回存，bench profile 的依赖产物和 base-src 的 target 从来没进过缓存）；② concurrent_*
+# 用 Z42_BENCH_SKIP_INFORMATIONAL 排除在测量之外（实测 pr 侧 151s→103s）。
+# **试过并回退**：把 [profile.bench] 从继承 release 的 fat-LTO 改成 thin-LTO+cgu16——本机重链
+# 68s→20s，但 CI 上 base(fat) 116s vs pr(thin) 132s **更慢**（4 vCPU 吃不满并行，且换 profile 多编
+# 82 个依赖 crate），同时把 gc_alloc/array_throughput_10k 的测值挪了 +16.8%。教训：**编译耗时的
+# 本机对照不可外推到 CI runner**，只有省「总工作量」的改法才跨机器成立。
+# 没做：砍 sample_size（区间变宽=判红变钝）、再收窄 criterion 守卫（gc_cycle_bench 链接整个 crate，
+# 收窄=假阴性）。见 book 判红语义页「criterion 成本分解与削减」。
 
 on:
   pull_request:

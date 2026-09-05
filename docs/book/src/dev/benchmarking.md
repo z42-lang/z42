@@ -322,7 +322,7 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 = 457s、criterion 0s）；碰 VM 的 PR 仍是 20.5 min，大头换成了 criterion A/B（531s，占 43%）——
 分解与削法见下一节。
 
-### criterion 成本分解与「省时三刀」（lighten-criterion-ab，2026-09-05）
+### criterion 成本分解与削减（lighten-criterion-ab，2026-09-05）
 
 削它之前先分解（两次慢路径 run 的逐行日志时间戳，33941190557 / 33938670206，两次吻合到 ±3s）：
 
@@ -342,26 +342,41 @@ CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步�
 **一次都没回存过**，所以这份产物从来没进过缓存。base-src 的 target 目录同理（「建 base 工具链」
 那 190s 里，cargo 建 base z42vm 占 117s，其中 34s 是依赖）。
 
-三刀（都只动成本、不动判红语义）：
+两刀（都只动成本、不动判红语义）：
 
-1. **`[profile.bench] lto = "thin", codegen-units = 16`**（`src/runtime/Cargo.toml`）。它默认继承
-   `[profile.release]` 的 `lto = true, codegen-units = 1`，于是每次 `cargo bench` 都要 fat-LTO 链接
-   整个 crate。本机同棵树实测（改一行 `lib.rs` 后重链）：
+1. **bench job 用自己的缓存 key**（`shared-key: bench-ab-v1`），并把 `base-src/src/runtime` 一并纳入
+   `workspaces`。此后本 job 自己维护缓存：首次（及每次 `Cargo.lock` 变动）冷编一轮——实测 bootstrap
+   201s → 230s，代价约 +30s——之后省下上面那两份依赖编译（base 42.5s + pr 43s）。
+2. **`concurrent_*` 退出 CI 测量**（见上「criterion(Rust) 同-runner A/B」节）。实测 pr 侧测量
+   151s → **103.4s（−48s）**；合并后 base 侧也带上这个开关，两侧合计 −95s。
 
-   | `[profile.bench]` | 重链耗时 |
-   |---|---|
-   | `lto=true, cgu=1`（原） | 68s |
-   | `lto=true, cgu=16` | 60s ← fat LTO 的串行链接是大头，cgu 救不动 |
-   | `lto="thin", cgu=16` | **20s** |
-   | `lto=false, cgu=16` | 10s |
+### 试过并回退：`[profile.bench]` 改 thin-LTO（2026-09-05，别再试）
 
-   取 thin（保留跨 crate 内联，不像 `lto=false` 那样彻底放弃）。**只作用于 bench 二进制，出货的
-   z42vm 仍是 fat LTO。** 对判红的影响：A/B 两侧同 profile，比值对称有效；实测同源码下 thin 与 fat
-   的绝对值差 1.8~4.9%（三条 GC bench），与跑间漂移同量级。
-2. **bench job 用自己的缓存 key**（`shared-key: bench-ab-v1`），并把 `base-src/src/runtime` 一并纳入
-   `workspaces`。此后本 job 自己维护缓存：首次（及每次 `Cargo.lock` 变动）冷编一轮，之后省下上面
-   那两份依赖编译。
-3. **`concurrent_*` 退出 CI 测量**（见上「criterion(Rust) 同-runner A/B」节）。
+`[profile.bench]` 默认继承 `[profile.release]` 的 `lto = true, codegen-units = 1`，每次 `cargo bench`
+都要 fat-LTO 链接整个 crate（单侧 73s）。**本机实测**改一行 `lib.rs` 后重链：`lto=true,cgu=1` 68s /
+`lto=true,cgu=16` 60s / `lto="thin",cgu=16` **20s** / `lto=false,cgu=16` 10s —— 看起来能省 ~100s。
+
+**但在 CI 上实测（run 33953459076）是负收益，已回退**：
+
+| 侧 | profile | `cargo bench` 全程 | 依赖编译 | codegen+链接尾段 |
+|----|---------|-------------------|---------|-----------------|
+| base（main） | `lto=true, cgu=1` | **116s** | 112 crate / 42.5s | 74.1s |
+| pr | `lto="thin", cgu=16` | **132s** | **194 crate** / 54.5s | 77.6s |
+
+两条原因：
+
+- **本机的加速不可外推**。本机 10+ 核能把 16 个 codegen unit 并行掉，`ubuntu-latest` 只有 4 vCPU，
+  并行度吃不满 ⇒ 尾段 74.1s vs 77.6s，**基本持平**。
+- **换 profile 反而多编一轮依赖**：bench profile 的设置一变，依赖产物哈希全变，从 112 个 crate 变成
+  194 个（+12s）。
+
+而它的代价是实打实的：这一跑的 base 是 fat、pr 是 thin，等于一次 thin/fat 对照——
+`gc_alloc/array_throughput_10k` **偏移 +16.8%（CI 下界 +15.4%）**，远超本机三条 GC bench 测出的
+1.8~4.9%。**没省到时间，却把 alloc 路径的测值挪了 17%** ⇒ 回退，`[profile.bench]` 保持继承 release。
+
+> 教训（比结论本身更值钱）：**编译耗时的本机对照不能直接外推到 CI runner**——核数差 3 倍时，
+> 「靠并行换速度」的改法（cgu 拆分、并行链接）在 CI 上会原地踏步。要削 CI 的编译时间，先问
+> 「这个改法省的是**总工作量**还是**并行度**」；只有前者才跨机器成立。
 
 **没做、且不要凭印象去做的两条**：
 
