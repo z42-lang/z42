@@ -178,6 +178,14 @@ impl LazyLoader {
 /// defer-class-initialization: 单个 `__static_init__` 的执行状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InitState {
+    /// **已被某线程从待跑队列取走、但还没开始执行**；记录持有线程。
+    ///
+    /// fix-static-init-claim-window：没有这个状态时，`run_pending_static_inits` 先
+    /// `mem::take` 清空队列、之后才在 `run_one_static_init` 里写 `Running` —— 这两步
+    /// 之间锁是放开的，另一个线程会看到「队列空 + 无 Running + 计数 0」，据此判定
+    /// 「初始化已静止」并放行，接着读到还没赋值的静态字段（`static_init_concurrent`
+    /// 在负载下约 1.4% 复现）。取走时就地写 `Claimed` 把这个窗口关掉。
+    Claimed(std::thread::ThreadId),
     /// 正在执行；记录持有线程，用于区分「同线程重入」与「他线程需等待」。
     Running(std::thread::ThreadId),
     /// 已执行完毕。
