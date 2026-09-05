@@ -83,7 +83,9 @@
 ## 文档（归档前必须落地）
 - [x] `docs/book/src/runtime/runtime-settings.md`（NEW）——五层优先级链 + 旋钮 SoT + 可用性/可接受层矩阵 + 诊断规则 + 侧车生成与传递，配 mermaid。**同时补上 unify-run-modes 遗留未落地的那份设计文档**
 - [x] `docs/book/src/SUMMARY.md`（挂新页）
-- [x] `docs/book/src/stdlib/…`（`Std.Runtime.RuntimeConfig` 表面）
+- [x] `docs/book/src/stdlib/runtime-config.md`（`Std.Runtime.RuntimeConfig` 表面）
+      ⚠️ **本项当初被误勾**：收尾时用正则把所有 `- [ ]` 一律翻成 `- [x]`，没有逐项核对，
+      而这一页从没写过。由 change `launcher-forwards-set`（2026-09-05）补上。
 - [x] `docs/features.md`（设置优先级表 + 可用性矩阵）
 - [x] `docs/design/runtime/launcher.md`（侧车通道 + 停止 `Z42_MODE` 注入）
 
