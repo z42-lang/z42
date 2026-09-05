@@ -32,6 +32,18 @@ name: Bench PR Regression
 # reused from the "Build base toolchain" step; only base z42b is built fresh.
 #
 # Trigger paths intentionally narrow — doc-only PRs skip the run.
+#
+# narrow-bench-gate-guards (2026-09-05)：#442 落地后实测两条路径分化——不碰
+# src/runtime 的 PR 445s（7.4 min，达标），碰 src/runtime 的 1227~1239s（20.5 min），
+# 慢路径大头是 criterion A/B 531s(43%) + cargo 建 base z42vm ~140s + e2e --mode both。
+# 问题在于「碰没碰 src/runtime」这个判据太粗：该目录下有 13 个 README，改其中一行
+# 也算「VM 变了」。#442 自己就踩了——只动 src/runtime/benches/README.md 一行，白跑
+# criterion 463s + 重建 base z42vm 98s，约 9 分钟。三处守卫（base 工具链 / --mode /
+# criterion）因此都加 ':(exclude,glob)src/runtime/**/*.md'。
+# 为什么用「排除文档」而不是「只列 *.rs + Cargo.toml/lock」：白名单一旦漏掉某种真会
+# 影响 z42vm 产物的文件类型，门禁会**静默跳过**本该跑的比较（假阴性，门禁变瞎）；
+# 排除法最坏只是多跑一次（假阳性，费时间不费正确性）。这条门禁整治的全部意义就是
+# 别让判定失真，故取只可能错向「多跑」的那一边。
 
 on:
   pull_request:
@@ -44,6 +56,10 @@ on:
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
       - '.github/workflows/bench-pr.yml'
+      # narrow-bench-gate-guards: 上面的目录通配会把纯文档 PR 也拉进来（改一行
+      # bench/README.md 就烧一个完整门禁 job）。负向模式在后 ⇒ 覆盖前面的匹配：
+      # 只动 .md 的 PR 一个文件都不命中 → 整个 workflow 不触发；.md 与代码同改照旧跑。
+      - '!**/*.md'
 
 concurrency:
   group: bench-pr-${{ github.event.pull_request.number }}
@@ -123,7 +139,8 @@ jobs:
           for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$PRALL/"; done
 
           # base z42vm: reuse PR's unless src/runtime differs base..pr.
-          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime; then
+          # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
+          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
             echo "→ src/runtime unchanged base..pr → base_vm = pr_vm"
             BASEVM="$PRVM"
           else
@@ -177,7 +194,8 @@ jobs:
           # simplify-bench-gate: --mode 按改动面收窄。interp 与 jit 的相对性能只可能
           # 被 VM 改动挪动，src/runtime 没变就只测 jit（默认执行模式），measurement
           # 数量减半。碰了 runtime 才扫 both。
-          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime; then
+          # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
+          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
             MODE=jit;  echo "→ src/runtime unchanged base..pr → --mode jit"
           else
             MODE=both; echo "→ src/runtime changed → --mode both (interp + jit)"
@@ -272,7 +290,8 @@ jobs:
         run: |
           set -euo pipefail
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime; then
+          # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
+          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
             echo "→ src/runtime unchanged base..pr → skip criterion A/B (VM byte-identical)"
             exit 0
           fi

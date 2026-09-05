@@ -1368,3 +1368,115 @@ fn gc_max_bytes_is_a_string_knob_because_it_takes_unit_suffixes() {
     assert_eq!(cfg.gc_max_bytes, Some(512 * 1024 * 1024));
     assert!(res.diagnostics.is_empty());
 }
+
+// ── sidecar-reaches-published-apps P0: 库入口也读文件层 ────────────────────
+//
+// `from_env` 是唯一真正读进程环境的入口，也是每个**非 z42vm** 入口的必经之路
+// （`runtime_config()` 懒初始化 → `z42_host_run_app` → desktop 自包含 apphost /
+// wasm / iOS / Android / testhost）。它此前只读 env，于是嵌入方静默丢掉 L3/L4。
+//
+// 这些测试要动真实进程环境，故串行（`env_lock`）并在结束时还原。
+
+use std::sync::Mutex;
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// 在受控的真实环境变量下跑 `f`，结束还原。`from_env` 只认真实 env，无法注入。
+fn with_env<R>(pairs: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
+    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let saved: Vec<(String, Option<String>)> =
+        pairs.iter().map(|(k, _)| ((*k).to_string(), std::env::var(k).ok())).collect();
+    for (k, v) in pairs {
+        // Safety: serialised by ENV_LOCK; these tests do not spawn threads.
+        match v {
+            Some(v) => unsafe { std::env::set_var(k, v) },
+            None => unsafe { std::env::remove_var(k) },
+        }
+    }
+    let out = f();
+    for (k, v) in saved {
+        match v {
+            Some(v) => unsafe { std::env::set_var(&k, v) },
+            None => unsafe { std::env::remove_var(&k) },
+        }
+    }
+    out
+}
+
+#[test]
+fn from_env_reads_the_user_config_layer() {
+    let f = write_cfg("fromenv-user", "[runtime]\ngc-mode = \"concurrent\"\n");
+    let got = with_env(
+        &[("Z42_CONFIG", f.to_str()), ("Z42_APP_CONFIG", None), ("Z42_GC_MODE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::ConcurrentMarkSweep, "embedders must see Z42_CONFIG");
+    assert_eq!(got.resolved.iter().find(|r| r.name == "Z42_GC_MODE").unwrap().source,
+               Layer::UserConfig);
+    let _ = std::fs::remove_file(f);
+}
+
+#[test]
+fn from_env_reads_the_app_sidecar_layer() {
+    let f = write_cfg("fromenv-app", "[runtime]\ngc-mode = \"generational\"\n");
+    let got = with_env(
+        &[("Z42_CONFIG", None), ("Z42_APP_CONFIG", f.to_str()), ("Z42_GC_MODE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::GenerationalMarkSweep, "embedders must see Z42_APP_CONFIG");
+    assert_eq!(got.resolved.iter().find(|r| r.name == "Z42_GC_MODE").unwrap().source,
+               Layer::AppConfig);
+    let _ = std::fs::remove_file(f);
+}
+
+#[test]
+fn from_env_layers_user_over_app_and_env_over_both() {
+    let user = write_cfg("fromenv-both-u", "[runtime]\nmode = \"jit\"\n");
+    let app = write_cfg("fromenv-both-a", "[runtime]\nmode = \"interp\"\nsafepoint-throttle = 64\n");
+    let got = with_env(
+        &[("Z42_CONFIG", user.to_str()), ("Z42_APP_CONFIG", app.to_str()),
+          ("Z42_MODE", None), ("Z42_SAFEPOINT_THROTTLE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.mode.as_deref(), Some("jit"), "same key -> user layer wins");
+    assert_eq!(got.safepoint_throttle, 64, "app-only key still applies");
+
+    // env beats both.
+    let got = with_env(
+        &[("Z42_CONFIG", user.to_str()), ("Z42_APP_CONFIG", app.to_str()),
+          ("Z42_MODE", Some("aot")), ("Z42_SAFEPOINT_THROTTLE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.mode.as_deref(), Some("aot"));
+    for p in [user, app] { let _ = std::fs::remove_file(p); }
+}
+
+#[test]
+fn from_env_downgrades_a_broken_config_file_instead_of_dying() {
+    // The whole point of the lenient path: an embedder must not lose its process
+    // over a config typo. Malformed TOML -> that layer is gone, everything else works.
+    let bad = write_cfg("fromenv-bad", "[runtime\ngc-mode = ");
+    let got = with_env(
+        &[("Z42_CONFIG", bad.to_str()), ("Z42_APP_CONFIG", None), ("Z42_GC_MODE", Some("concurrent"))],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::ConcurrentMarkSweep, "env layer must still apply");
+    let _ = std::fs::remove_file(bad);
+
+    // Same for the JSON migration error — a hint, not a hard stop.
+    let got = with_env(
+        &[("Z42_CONFIG", Some("/tmp/nope.runtimeconfig.json")), ("Z42_APP_CONFIG", None),
+          ("Z42_GC_MODE", None)],
+        RuntimeConfig::from_env,
+    );
+    assert_eq!(got.gc_mode, GcMode::default());
+}
+
+#[test]
+fn from_getter_still_has_no_file_layer() {
+    // Non-breaking guarantee: the injectable path is unchanged — it reads nothing
+    // off disk, which is what keeps the rest of this file hermetic.
+    let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_CONFIG", "/definitely/not/read.toml")]));
+    assert_eq!(cfg.gc_mode, GcMode::default());
+    assert!(cfg.resolved.iter().all(|r| r.source != Layer::UserConfig
+                                     && r.source != Layer::AppConfig));
+}
