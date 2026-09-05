@@ -25,13 +25,23 @@
 - [x] 0.6 跨包 / 多文件负例门（真正仍缺的那部分）登记 Deferred
       `where-constraint-future-crosspkg-negative-gate`（design §7）
 
-## Phase A — 修 ZbcReader 漏读 bit2（PR-A，独立 bug fix）⚪
+## Phase A — 修 ZbcReader 漏读 bit2（PR-A，独立 bug fix）🟢
 
-- [ ] A.1 `ZbcReader.z42` TYPE 约束段：补读 `bit2 base u32`、`bit6 funcSig`，
-      与 `ZpkgReader._skipConstraintBundle` 的布局对齐
-- [ ] A.2 加一条 zbc round-trip 回归：构造置了 bit2 的 bundle → 读回不错位
-- **GREEN**：`xtask test` 全绿 + `zbc-format` / `zpkg-format` 用例不动
+- [x] A.1 `ZbcReader.z42` TYPE 约束段：抽出 `_readConstraintBundle(c, pool)`（对称 Rust
+      `read_constraint_bundle`），补读 `bit2 base u32` + `bit6 funcSig`，与
+      `ZpkgReader._skipConstraintBundle` 的布局对齐。bit2/bit6 载荷**读而不存**——
+      `IrConstraintDesc` 无承载位，加字段属 PR-3；本函数职责是对齐字节流
+- [x] A.2 回归用例：`tests/zbcreader/constraint_bundle_tests.z42`（5 条）。
+      **不走往返**——writer 今天只写 bit3，往返永远走不到 bit2/bit6 路径，正是它长期漏读
+      无人发现的原因。改为按格式权威手拼 TYPE 段字节喂 `ZbcReader.ReadTypeAt`，并断言
+      **bundle 之后**的字段（类级 Interfaces）作错位探针
+- [x] A.3 **变异验证**：删掉 bit2 读取那一行 → 恰好 2 条 bit2 用例变红
+      （`expected 1 but got 2` / `expected T but got Base`），其余 3 条仍绿 → 用例真能抓回归
+      且无过度耦合；随后恢复
+- **GREEN**：`xtask test compiler` 全绿（含自举字节不动点 gen1==gen2 3/3）
 - **注**：这条是 PR-3 的硬前置；本轮即使不做 PR-3 也应先修（格式契约单侧退化）
+- **踩坑记录**：手拼 TYPE 段最初漏了**对象全字段布局块**（`(Flags & 116) == 0` 时恒存在，
+      非 gated），5 条用例全 OOB。写字节级 fixture 前必须把 `ReadTypeAt` 读到尾
 
 ## Phase 1 — 接口约束（PR-1，主体）⚪
 
