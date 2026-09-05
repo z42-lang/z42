@@ -171,3 +171,131 @@ void test_method_level_interface_constraint_satisfied() {
         + "}\n";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── `where T : enum`（PR-2） ────────────────────────────────────────────────
+//
+// parser 此前**没有** enum 特判：`enum` 落进 `_parseType()` 兜底变成 `NamedType("enum")`，
+// 语义层查不到同名类/接口 → 整条静默丢弃。
+
+[Test]
+void test_enum_constraint_satisfied() {
+    string src = "enum Color { Red, Green }\n"
+        + "class Box<T> where T : enum { }\n"
+        + "class Use { void f() { var b = new Box<Color>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_enum_constraint_violated_by_class() {
+    string src = "class NotAnEnum { }\n"
+        + "class Box<T> where T : enum { }\n"
+        + "class Use { void f() { var b = new Box<NotAnEnum>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_enum_constraint_violated_by_primitive() {
+    // 基元不是 enum（运行期判据 td.is_enum()，int 不满足）。
+    string src = "class Box<T> where T : enum { }\n"
+        + "class Use { void f() { var b = new Box<int>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── `where T : new()`（PR-2） ───────────────────────────────────────────────
+//
+// 语义照抄运行期 generics.rs：基元满足；类须非 abstract 且有可零实参调用的 ctor；
+// **完全没有显式 ctor = 默认构造 = 满足**。
+
+[Test]
+void test_new_constraint_no_explicit_ctor_satisfies() {
+    // 一个 ctor 都没声明 → 默认构造 → 满足（这条最容易被写反）。
+    string src = "class Plain { }\n"
+        + "class Box<T> where T : new() { }\n"
+        + "class Use { void f() { var b = new Box<Plain>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_new_constraint_explicit_noarg_ctor_satisfies() {
+    string src = "class HasNoArg { public HasNoArg() { } }\n"
+        + "class Box<T> where T : new() { }\n"
+        + "class Use { void f() { var b = new Box<HasNoArg>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_new_constraint_only_arg_ctor_violates() {
+    // 声明了 ctor 但没有一个能零实参调用 → 不满足。
+    string src = "class NeedsArg { public NeedsArg(int x) { } }\n"
+        + "class Box<T> where T : new() { }\n"
+        + "class Use { void f() { var b = new Box<NeedsArg>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_new_constraint_all_default_params_satisfies() {
+    // 形参全带默认值 → 可零实参调用 → 满足（复用 ConstructTyper 的同款判据）。
+    string src = "class AllDefault { public AllDefault(int x = 1) { } }\n"
+        + "class Box<T> where T : new() { }\n"
+        + "class Use { void f() { var b = new Box<AllDefault>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_new_constraint_primitive_satisfies() {
+    string src = "class Box<T> where T : new() { }\n"
+        + "class Use { void f() { var b = new Box<int>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 组合：多个 special 同时生效 ─────────────────────────────────────────────
+
+[Test]
+void test_struct_and_new_combined() {
+    string src = "class Ref { }\n"
+        + "class Box<T> where T : struct + new() { }\n"
+        + "class Use { void f() { var b = new Box<Ref>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 诊断质量（PR-4） ────────────────────────────────────────────────────────
+
+[Test]
+void test_misspelled_constraint_name_reports_E0443() {
+    // 拼错约束名此前**完全静默**——写错名字等于没写约束，而使用者以为约束生效了。
+    string src = "interface IFoo { }\n"
+        + "class Box<T> where T : IFooo { }\n";
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_where_on_unknown_type_param_reports() {
+    string src = "interface IFoo { }\n"
+        + "class Box<T> where U : IFoo { }\n";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_and_struct_conflict_reports() {
+    string src = "class Box<T> where T : class + struct { }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_constraint_diagnostic_carries_real_span() {
+    // 此前全程 _noSpan() → 诊断恒指向 `<sem> 0:0`，使用者拿到一条不知道看哪行的错误。
+    // 约束声明在第 2 行 → Span 的行号必须是 2，不能是 0/1。
+    string src = "interface IFoo { }\n"
+        + "class Box<T> where T : IFooo { }\n";
+    Assert.Equal("2", SemanticDump.FirstErrorPos(src).Split(":")[0]);
+}
+
+[Test]
+void test_violation_span_points_at_instantiation_site() {
+    // 违反约束的诊断应指向**实例化点**（第 4 行的 `new Box<D>()`），而非声明处。
+    string src = "interface IFoo { }\n"
+        + "class D { }\n"
+        + "class Box<T> where T : IFoo { }\n"
+        + "class Use { void f() { var b = new Box<D>(); } }\n";
+    Assert.Equal("4", SemanticDump.FirstErrorPos(src).Split(":")[0]);
+}

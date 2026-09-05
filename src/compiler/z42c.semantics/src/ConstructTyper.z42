@@ -153,7 +153,10 @@ public sealed class ConstructTyper {
             this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access + 未定义类型 E0443：new 类型引用
         }
         if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
-            this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType);
+            // 真 Span：优先指向 `new Box<D>()` 的类型位；**target-typed `new()`（add-target-typed-new）
+            // 没有类型节点**（`List<int> a = new();` → n.Type == null）→ 回落到 new 表达式自身的 Span。
+            Span csp = (n.Type != null) ? n.Type.Span : n.Span;
+            this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType, csp);
         }
         // ctor 重载键（镜像 C# ResolveCtorName：单 ctor bare、重载 Name$argCount）
         Z42ClassType cls = null;
