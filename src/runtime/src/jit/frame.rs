@@ -319,10 +319,10 @@ impl JitModuleCtx {
     /// a `JitModule::run` (set at construction; `lazy` never null).
     pub unsafe fn resolve_fn_by_id(&self, id: usize) -> Option<&FnEntry> {
         if id < self.merged_len {
-            self.resolve_merged_slot(id, false)
+            self.resolve_merged_slot(id, 0)
         } else {
             // make-vm-loading-lazy: synthetic id → lazily-loaded function.
-            self.resolve_lazy_slot(id - self.merged_len, false)
+            self.resolve_lazy_slot(id - self.merged_len, 0)
         }
     }
 
@@ -335,15 +335,15 @@ impl JitModuleCtx {
     /// The tri-state negative cache applies in BOTH variants.
     pub unsafe fn resolve_fn_by_id_tiered(&self, id: usize) -> Option<&FnEntry> {
         if id < self.merged_len {
-            self.resolve_merged_slot(id, true)
+            self.resolve_merged_slot(id, self.jit_threshold)
         } else {
-            self.resolve_lazy_slot(id - self.merged_len, true)
+            self.resolve_lazy_slot(id - self.merged_len, self.jit_threshold)
         }
     }
 
     /// Merged-module path: slot `idx` in the pre-sized `fn_entries_by_id`. Compiles
     /// `module.functions[idx]` on first call (hot path = lock-free `OnceLock::get`).
-    unsafe fn resolve_merged_slot(&self, idx: usize, tier: bool) -> Option<&FnEntry> {
+    unsafe fn resolve_merged_slot(&self, idx: usize, thr: u32) -> Option<&FnEntry> {
         let slot = self.fn_entries_by_id.get(idx)?;
         if let Some(e) = slot.get() {
             // runtime-jit-tiering Phase 1 tri-state: filled slot is Compiled or
@@ -355,10 +355,10 @@ impl JitModuleCtx {
         // Tiered path only: count this call; below threshold → cold tier (interp via
         // jit_call's fallback), don't compile/scan yet. Non-tiered callers
         // (vcall/closure/ctor/entry) compile on first call as before.
-        if tier {
+        if thr > 0 {
             if let Some(cnt) = self.call_counts.get(idx) {
                 let n = cnt.fetch_add(1, Ordering::Relaxed) + 1;
-                if n < self.jit_threshold { return None; }
+                if n < thr { return None; }
             }
         }
         // Threshold reached: scan translatability ONCE, then compile or cache
@@ -401,7 +401,7 @@ impl JitModuleCtx {
     /// function materialized by the lazy loader. Compiles it on first call. The slot's
     /// `OnceLock` (in a boxed `LazySlot` → stable address) hands out a `&FnEntry`
     /// valid for the run; the compile is deduped under the compiler lock.
-    unsafe fn resolve_lazy_slot(&self, i: usize, tier: bool) -> Option<&FnEntry> {
+    unsafe fn resolve_lazy_slot(&self, i: usize, thr: u32) -> Option<&FnEntry> {
         // Stable raw pointers into the boxed slot (survive `Vec` growth), so the
         // table lock is released before the (slow) compile.
         let (name_ptr, entry_ptr, count_ptr):
@@ -423,9 +423,9 @@ impl JitModuleCtx {
         // first call as before. `resolve_id_by_name` already verified the function
         // is translatable before registering this slot, so a cold return here just
         // defers a definitely-compilable function, never hides an error.
-        if tier {
+        if thr > 0 {
             let n = (*count_ptr).fetch_add(1, Ordering::Relaxed) + 1;
-            if n < self.jit_threshold { return None; }
+            if n < thr { return None; }
         }
         if self.vm_ctx.is_null() { return None; }
         let func = (*self.vm_ctx).try_lookup_function(&*name_ptr)?;
@@ -504,6 +504,12 @@ impl JitModuleCtx {
     /// Tiered by-name resolve (runtime-jit-tiering Phase 1b): applies the tier-up
     /// threshold. Used by `jit_vcall`'s vtable path, whose `None`-arm robustly
     /// interps the resolved method (receiver + args) for cold callees.
+    pub unsafe fn resolve_fn_by_name_tiered_thr(&self, name: &str, thr: u32) -> Option<&FnEntry> {
+        let id = self.resolve_id_by_name(name)? as usize;
+        if id < self.merged_len { self.resolve_merged_slot(id, thr) }
+        else { self.resolve_lazy_slot(id - self.merged_len, thr) }
+    }
+
     pub unsafe fn resolve_fn_by_name_tiered(&self, name: &str) -> Option<&FnEntry> {
         let id = self.resolve_id_by_name(name)?;
         self.resolve_fn_by_id_tiered(id as usize)

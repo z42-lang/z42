@@ -167,6 +167,25 @@ pub struct RuntimeConfig {
     pub jit_threshold: u32,
     /// `Z42_OSR_THRESHOLD` — 触发 OSR（把运行中的 interp 帧换成 JIT 帧）的回边次数。clamp ≥ 1。
     pub osr_threshold: u32,
+    /// `Z42_JIT_INTERP_TIERUP` — 让**解释器的中央 divert** 也参与 tier-up 计数：
+    /// 0（默认）= 只 peek「是否已编译」，与历史行为一致；N ≥ 1 = 在解释器里第 N 次
+    /// 进入某函数时把它编译掉。
+    ///
+    /// 为什么需要它：tier-up 计数原本只发生在**从 JIT 代码发起的调用**上，而程序是从
+    /// 解释器起跑的 —— 于是形成鸡生蛋，实测 z42c 编一个包全程只有 58 个方法被编译，
+    /// 其余全程解释。打开后（N=2）编译 1325 个方法。
+    ///
+    /// 为什么默认关：这是一笔**按负载而定**的交易。实测 z42c 编 z42c.semantics
+    /// （95 文件、约 6 秒）指令数 −10%、墙钟 −10%；但编 z42.core（约 1.7 秒）
+    /// 反而 +36% —— 编译 1300 个方法的固定成本（约 900 ms / 7.5 G 指令 / +85 MB RSS）
+    /// 只有长任务摊得回。中间阈值没有用武之地：N=4 时只编 300 个，大负载的收益就塌回 −2.5%
+    /// （那 1000 个函数「只被调用 2-3 次、但每次跑很久」，按调用次数分不开大小负载）。
+    ///
+    /// 那笔固定成本里很大一块来自 cranelift-jit 的 `finalize_definitions()`：本 VM 每编
+    /// 一个函数就调一次，而它每次都 `finish_current()` —— 于是**每个函数独占一个内存块**
+    /// （1325 × 64 KB ≈ 85 MB，正好对上 RSS 增量），并各付一次 mmap + mprotect + icache
+    /// 清理。批量化编译能把这块砍掉，届时可以重新评估默认值。
+    pub jit_interp_tierup: u32,
     /// `Z42_JIT_DEBUG_PROMOTE` — 打印每次 interp→JIT 晋升决策。
     pub jit_debug_promote: bool,
     /// `Z42_NO_FUSION` — 关掉解释器超级指令融合（kill-switch / A-B 用）。
@@ -229,6 +248,7 @@ impl Default for RuntimeConfig {
             trace_out: None,
             jit_threshold: 2,
             osr_threshold: 10_000,
+            jit_interp_tierup: 0,
             jit_debug_promote: false,
             no_fusion: false,
             no_typed_fusion: false,
@@ -362,6 +382,9 @@ impl RuntimeConfig {
             // （两个 threshold 仍 clamp ≥1；四个开关现在是真布尔，见 knob_table）。
             jit_threshold:       parse_u32_knob(&get, "Z42_JIT_THRESHOLD", 2),
             osr_threshold:       parse_u32_knob(&get, "Z42_OSR_THRESHOLD", 10_000),
+            // 允许 0（= 关），所以不用 clamp ≥1 的 parse_u32_knob。
+            jit_interp_tierup:   get("Z42_JIT_INTERP_TIERUP")
+                                    .and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0),
             jit_debug_promote:   parse_bool_knob(&get, "Z42_JIT_DEBUG_PROMOTE"),
             no_fusion:           parse_bool_knob(&get, "Z42_NO_FUSION"),
             no_typed_fusion:     parse_bool_knob(&get, "Z42_NO_TYPED_FUSION"),
