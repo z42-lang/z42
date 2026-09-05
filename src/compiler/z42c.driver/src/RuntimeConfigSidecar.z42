@@ -38,6 +38,21 @@ static class RcSidecar {
 // 返回 ExitCode.Ok（含"什么都没写"）或 ExitCode.BuildError（撞上用户手写文件）。
 int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, bool isRelease) {
     string profName = isRelease ? "release" : "debug";
+    // 旧形状（`[profile.X]` 下直接写键）明确报错——静默忽略会让迁移的人遇到
+    // 「`mode = "interp"` 突然不生效且无提示」，与本系统在旋钮那边坚持的
+    // 「未知就明确告知」自相矛盾。restructure-profile-sections（2026-09-05）。
+    int bp = 0;
+    while (bp < pm.ProfileCount) {
+        Profile pr = pm.Profiles[bp];
+        if (pr.BadKeys.Length > 0) {
+            ConsoleError.WriteLine("z42c build: [profile." + pr.Name + "] 不接受直接写键（`"
+                + pr.BadKeys[0] + "`）——");
+            ConsoleError.WriteLine("  运行时旋钮写进 [profile." + pr.Name + ".runtime]，");
+            ConsoleError.WriteLine("  应用配置写进 [profile." + pr.Name + ".properties]。");
+            return ExitCode.BuildError;
+        }
+        bp = bp + 1;
+    }
     string[] knobs = _profileKnobsOf(pm, profName);
     TomlValue props = _mergedProperties(pm, profName);
     bool hasProps = props.Keys().Length > 0;

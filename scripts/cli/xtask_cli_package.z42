@@ -1,0 +1,71 @@
+// xtask CLI — `package` 命令族：router + dispatch。拆分背景见
+// scripts/cli/xtask_cli_build.z42 头部。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// merge-package-release: `package` 收成 name 驱动 router（对齐 build compiler|stdlib|
+// toolchain），`release` 删除。profile 降为 --profile 选项（旧 `package release` 的
+// "release" 是 profile 位置参数，与子命令名冲突）。
+SubcommandRouter _packageRouter() {
+    SubcommandRouter pkg = new SubcommandRouter("xtask package", "assemble release packages");
+
+    ArgParser sdk = new ArgParser("xtask package sdk", "assemble the host SDK package");
+    sdk.AddOption("profile", "", "release|debug (default release)", "release");
+    sdk.AddOption("variant", "", "package variant suffix", "");
+    sdk.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (CI warm)");
+    pkg.Add("sdk", "assemble the host SDK package", sdk);
+
+    ArgParser rt = new ArgParser("xtask package runtime", "assemble the runtime package (native+stdlib; platform via --rid)");
+    rt.AddOption("rid", "", "target RID (default: host)", "");
+    rt.AddOption("profile", "", "release|debug (default release)", "release");
+    rt.AddOption("variant", "", "package variant suffix", "");
+    rt.AddFlag("no-build", "", "assemble from existing z42c+stdlib artifacts (CI warm)");
+    pkg.Add("runtime", "assemble the runtime package (native+stdlib; --rid for platform)", rt);
+
+    // dual-mode: `--rid <rid>` builds one per-RID desktop workload package
+    // (_buildDesktopWorkload); a `<label>` positional merges the 4 per-RID workloads
+    // into one RID-agnostic archive (_releaseAssembleDesktop).
+    ArgParser wl = new ArgParser("xtask package workload", "build a per-RID desktop workload (--rid) or merge all into one archive (<label>)");
+    wl.AddOption("rid", "", "build ONE per-RID desktop workload for this RID", "");
+    wl.AddOption("profile", "", "release|debug (default release)", "release");
+    wl.AddOptionalPositional("label", "merge mode: <LABEL> (e.g. 0.3.0 or nightly)");
+    wl.AddOptionalPositional("dist", "merge mode: dist dir (default: dist)");
+    pkg.Add("workload", "build per-RID desktop workload (--rid) or merge all → archive (<label>)", wl);
+
+    ArgParser idx = new ArgParser("xtask package index", "generate release-index.json from SHA256SUMS");
+    idx.AddOptionalPositional("label", "<LABEL> (e.g. 0.3.0 or nightly)");
+    idx.AddOptionalPositional("dist", "dist dir (default: dist)");
+    idx.AddOptionalPositional("channel", "channel (default: stable)");
+    idx.AddOptionalPositional("tag", "tag (default: v<LABEL>)");
+    idx.AddOptionalPositional("version", "version (default: <LABEL>)");
+    pkg.Add("index", "generate release-index.json (launcher supply contract)", idx);
+
+    return pkg;
+}
+
+int _dispatchPackage(string[] p, ParseResult r) {
+    string sub = p.Length > 1 ? p[1] : "";
+    if (sub == "sdk")     { return _packageSdk(r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
+    if (sub == "runtime") { return _packageRuntime(r.GetOption("rid"), r.GetOption("profile"), r.GetOption("variant"), r.GetFlag("no-build")); }
+    if (sub == "workload") {
+        // `workload test <version>` — the payload-only capability workload
+        // (package-test-workload). Reserved first-positional, checked before the
+        // desktop label-merge form below.
+        string a0 = r.GetPositional(0);
+        if (a0 == "test") {
+            string ver = r.GetPositional(1);
+            if (ver.Length == 0) { ver = _versionsGet(_root()); }
+            return _buildTestWorkload(_root(), ver, r.GetOption("profile"));
+        }
+        // A <label> positional selects MERGE mode (combine per-RID workloads → archive);
+        // otherwise BUILD mode (one per-RID workload; --rid or host default).
+        if (a0.Length > 0) { return _releaseAssembleDesktop(a0, r.GetPositional(1)); }
+        return _packageWorkloadBuild(r.GetOption("rid"), r.GetOption("profile"));
+    }
+    if (sub == "index")   { return _releaseGenIndex(r.GetPositional(0), r.GetPositional(1), r.GetPositional(2), r.GetPositional(3), r.GetPositional(4)); }
+    ConsoleError.WriteLine("usage: xtask package {sdk|runtime|workload|index}");
+    return 2;
+}

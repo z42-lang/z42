@@ -1,0 +1,92 @@
+// xtask CLI — `bench` 命令族：router + dispatch，外加 default-action 那一路
+// （`bench` 不带子命令 = e2e）的 parser 与入口 _benchE2e，_runCli 在 Resolve
+// 之前直接调它。拆分背景见 scripts/cli/xtask_cli_build.z42 头部。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+using Std.Time;   // Stopwatch — bench 进程计时标记
+
+SubcommandRouter _benchRouter() {
+    SubcommandRouter bn = new SubcommandRouter("xtask bench", "benchmarks");
+    ArgParser stdlib = new ArgParser("xtask bench stdlib", "per-lib [Benchmark]");
+    stdlib.AddFlag("no-build", "", "skip tooling rebuild");
+    stdlib.AddOption("filter", "k", "bench-name filter", "");
+    stdlib.AddOption("jobs", "", "parallel unit batch width", "");
+    stdlib.AddOption("mode", "", "interp|jit (default: interp)", "");
+    // shard 与 test stdlib 同款——_testLib 共用实现、无条件读该选项；漏注册会在
+    // dispatch 即抛 CliException 'shard not registered'（pre-existing，随 bench 用例补充修复）。
+    stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
+    // add-stdlib-bench-baseline: 捕获聚合 bench_stats 到 schema-v1 baseline 文件（median_ns 主指标）。
+    stdlib.AddOption("json", "", "capture aggregated bench_stats to a schema-v1 baseline file", "");
+    // extend-ab-bench-micro-criterion Part B: explicit toolchain override so the
+    // micro A/B base capture reuses the pre-built base toolchain (same as e2e A/B).
+    stdlib.AddOption("vm", "", "override: prebuilt z42vm (with --driver/--libs → skip in-tree build)", "");
+    stdlib.AddOption("driver", "", "override: prebuilt z42c.driver.zpkg", "");
+    stdlib.AddOption("libs", "", "override: prebuilt flat libs dir (stdlib + z42c siblings)", "");
+    stdlib.AddOptionalPositional("lib", "single lib (default: all)");
+    bn.Add("stdlib", "per-lib [Benchmark]", stdlib);
+    ArgParser btargets = new ArgParser("xtask bench targets", "manifest [[bench]] target fixtures (src/tests/manifest-targets)");
+    btargets.AddFlag("no-build", "", "skip tooling rebuild");
+    btargets.AddOptionalPositional("name", "single target name (default: all)");
+    bn.Add("targets", "manifest [[bench]] target fixtures (all or one by name)", btargets);
+    return bn;
+}
+
+// The `bench` default-action e2e parser (used by _benchE2e + `bench -h`).
+ArgParser _benchE2eParser() {
+    ArgParser p = new ArgParser("xtask bench", "e2e hyperfine scenarios (no subcommand; subcommand: stdlib [lib])");
+    p.AddFlag("quick", "", "fewer runs/warmup");
+    // add-exec-profile-matrix: sweep the measured VM's execution mode. `both`
+    // runs each scenario under interp AND jit (two profile-tagged results).
+    p.AddOption("mode", "", "interp|jit|both (default: jit; measured-run mode)", "");
+    // simplify-bench-gate: 场景分层。`gate` = PR 门禁那一小组代表性场景，
+    // `full` = 其余（本地/按需），默认 all（不过滤，本地行为不变）。
+    // 场景在源码头部用 `// tier: gate` 声明；未声明按 full 记。
+    p.AddOption("tier", "", "gate|full|all — scenario tier to run (default: all)", "");
+    p.AddFlag("diff", "", "compare two result sets");
+    p.AddOption("current", "", "current result path", "");
+    p.AddOption("baseline", "", "baseline result path", "");
+    p.AddOption("threshold-time", "", "time regression threshold", "");
+    p.AddOption("threshold-memory", "", "memory regression threshold", "");
+    p.AddFlag("quiet", "", "quiet output");
+    // add-same-runner-ab-bench-gate: same-runner A/B regression gate. `--ab`
+    // compiles + measures each scenario under BOTH the base and PR toolchains on
+    // this runner (cross-runner drift cancels in the ratio). `--ab-selftest`
+    // unit-checks the pure verdict function (no z42vm scenarios; locally runnable).
+    p.AddFlag("ab", "", "same-runner A/B gate (needs --base-vm/--base-libs/--base-driver)");
+    p.AddFlag("ab-selftest", "", "unit-check the _abVerdict pure function and exit");
+    // extend-ab-bench-micro-criterion Part B: micro/stdlib tier same-runner A/B —
+    // diff two `bench stdlib --json` baselines (base tree vs PR tree, same runner).
+    p.AddFlag("micro-diff", "", "micro A/B: diff two bench-stdlib --json baselines (--current/--baseline)");
+    p.AddOption("base-vm", "", "A/B: base z42vm binary", "");
+    p.AddOption("base-libs", "", "A/B: base flat libs dir (stdlib + z42c siblings)", "");
+    p.AddOption("base-driver", "", "A/B: base z42c.driver.zpkg", "");
+    return p;
+}
+
+int _benchE2e(string[] argv) {
+    ArgParser p = _benchE2eParser();
+    ParseResult r;
+    try { r = p.Parse(_sliceFrom(argv, 1)); }
+    catch (CliException e) {
+        ConsoleError.WriteLine("xtask bench: " + e.Message);
+        return 2;
+    }
+    if (r.ShowHelp()) { Console.WriteLine(p.HelpText()); return 0; }
+    if (r.GetFlag("ab-selftest")) { return _abSelfTest(); }
+    if (r.GetFlag("micro-diff")) { return _benchMicroDiff(r); }
+    Stopwatch sw = _procStart("bench");
+    int __rc = r.GetFlag("ab") ? _benchAb(r)
+             : (r.GetFlag("diff") ? _benchDiff(r) : _bench(r));
+    if (__rc == 0) { _procEnd("bench", sw); }
+    return __rc;
+}
+
+int _dispatchBench(string[] p, ParseResult r) {
+    string sub = p.Length > 1 ? p[1] : "";
+    if (sub == "stdlib") { return _testLib(r, "bench"); }
+    if (sub == "targets") { return _testTargetsCore("bench", r.GetPositional(0), r.GetFlag("no-build")); }
+    return 2;
+}

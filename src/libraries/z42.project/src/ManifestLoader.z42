@@ -227,6 +227,13 @@ public static class ManifestLoader {
     }
 
     // ── [profile.<name>] ─────────────────────────────────────────────────────
+    //
+    // `[profile.<n>]` 本身只是命名空间，内容是两个具名子表（restructure-profile-sections）：
+    //   [profile.<n>.runtime]      运行时旋钮 → 侧车 [runtime]
+    //   [profile.<n>.properties]   应用属性   → 侧车 [properties]
+    //
+    // 边界是**结构性**的——不再有「哪些键名不算旋钮」的排除清单，因此新增任何一边都
+    // 不会泄到另一边。
     private static Profile[] _parseProfiles(TomlValue root) {
         if (!root.ContainsKey("profile")) { return new Profile[0]; }
         var pt = root.Get("profile");
@@ -235,45 +242,55 @@ public static class ManifestLoader {
         int i = 0;
         while (i < names.Length) {
             var pv = pt.Get(names[i]);
-            bool pack = false; bool strip = false; string mode = "interp";
-            int opt = 0; bool debug = false;
-            if (pv.ContainsKey("pack"))     { pack = pv.Get("pack").AsBool(); }
-            if (pv.ContainsKey("strip"))    { strip = pv.Get("strip").AsBool(); }
-            if (pv.ContainsKey("mode"))     { mode = pv.Get("mode").AsString(); }
-            if (pv.ContainsKey("optimize")) { opt = (int)pv.Get("optimize").AsLong(); }
-            if (pv.ContainsKey("debug"))    { debug = pv.Get("debug").AsBool(); }
-            r[i] = new Profile(names[i], pack, strip, mode, opt, debug, _profileKnobs(pv));
-            // `[profile.<n>.properties]`：应用自定义属性，原样保留（完整 TOML 类型）。
-            // 与 Knobs 的区别见 Profile.z42。add-app-properties。
+            // `[profile.X]` 自己不接受任何键——但**校验归消费方**（仓内约定：z42.project
+            // 只搬运，报错在 driver，同 `[[exe]]` 缺 entry 的处理）。这里只把违规键搬出来。
+            // 静默忽略对正在迁移的人是最坏手感（`mode = "interp"` 突然不生效且无提示），
+            // 所以 driver 见到非空就明确报错并给出正确位置。
+            string[] bad = new string[pv.Keys().Length];
+            int badN = 0;
+            string[] direct = pv.Keys();
+            int d = 0;
+            while (d < direct.Length) {
+                string dk = direct[d];
+                if (dk != "runtime" && dk != "properties") { bad[badN] = dk; badN = badN + 1; }
+                d = d + 1;
+            }
+            string[] knobs = new string[0];
+            if (pv.ContainsKey("runtime")) {
+                TomlValue rt = pv.Get("runtime");
+                if (rt.IsTable()) { knobs = _profileKnobs(rt); }
+            }
+            TomlValue props = TomlValue.OfTable();
             if (pv.ContainsKey("properties")) {
                 TomlValue pp = pv.Get("properties");
-                if (pp.IsTable()) { r[i].Properties = pp; }
+                if (pp.IsTable()) { props = pp; }
             }
+            string[] badKeys = new string[badN];
+            int bi = 0;
+            while (bi < badN) { badKeys[bi] = bad[bi]; bi = bi + 1; }
+            r[i] = new Profile(names[i], knobs, props, badKeys);
             i = i + 1;
         }
         return r;
     }
 
-    // `[profile.<n>]` 里的**运行时**旋钮（complete-runtime-settings P5）。
-    // 构建期键（pack/strip/optimize/debug）指挥编译器，不是运行时设置，排除在外；
-    // 其余一律原样收下（含 mode），由 z42vm 的旋钮登记表判定认不认——manifest 侧
-    // 不复制一份旋钮清单，否则加一个旋钮要改两处。
-    private static string[] _profileKnobs(TomlValue pv) {
-        string[] keys = pv.Keys();
+    // `[profile.<n>.runtime]` 的标量键，扁平 `"key=value"`。非标量（子表 / 数组）跳过
+    // ——旋钮都是标量，结构化的东西属于 `.properties`。旋钮名的合法性由 **VM 的登记表**
+    // 判定，manifest 侧不复制一份清单（否则加一个旋钮要改两处）。
+    private static string[] _profileKnobs(TomlValue rt) {
+        string[] keys = rt.Keys();
         string[] tmp = new string[keys.Length];
         int n = 0;
         int i = 0;
         while (i < keys.Length) {
             string k = keys[i];
-            if (k != "pack" && k != "strip" && k != "optimize" && k != "debug") {
-                TomlValue v = pv.Get(k);
-                string s = "";
-                if (v.IsString())      { s = v.AsString(); }
-                else if (v.IsLong())   { s = v.AsLong().ToString(); }
-                else if (v.IsBool())   { s = v.AsBool() ? "true" : "false"; }
-                else if (v.IsDouble()) { s = v.AsDouble().ToString(); }
-                if (s.Length > 0) { tmp[n] = k + "=" + s; n = n + 1; }
-            }
+            TomlValue v = rt.Get(k);
+            string s = "";
+            if (v.IsString())      { s = v.AsString(); }
+            else if (v.IsLong())   { s = v.AsLong().ToString(); }
+            else if (v.IsBool())   { s = v.AsBool() ? "true" : "false"; }
+            else if (v.IsDouble()) { s = v.AsDouble().ToString(); }
+            if (s.Length > 0) { tmp[n] = k + "=" + s; n = n + 1; }
             i = i + 1;
         }
         string[] outv = new string[n];

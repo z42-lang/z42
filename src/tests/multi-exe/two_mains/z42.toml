@@ -23,5 +23,5 @@ entry = "App.Farewell.Main"
 # strip/debug) stay compiler-side and are not written to the sidecar.
 # so the debug run defaults to interp; exercised by the launcher smoke's
 # `z42 run --bin` path.
-[profile.debug]
+[profile.debug.runtime]
 mode = "interp"
