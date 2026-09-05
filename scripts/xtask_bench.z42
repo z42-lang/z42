@@ -168,9 +168,13 @@ class AbVerdict {
     public string Verdict;    // "regression" | "faster" | "overlap" | "no-data"
     public bool IsRegression;
     public bool HasCi;        // false = stddev/n missing → bare-ratio fallback (no-ci)
+    public int Rounds;        // measurement rounds behind the interval: 1 = single-round
+                              // SEM; k>1 = ab-resample-on-suspicion, interval from the
+                              // BETWEEN-ROUND ratio dispersion (see _abResampleVerdict).
     public AbVerdict() {
         this.Ratio = 1.0; this.RLower = 1.0; this.RUpper = 1.0;
         this.Verdict = "overlap"; this.IsRegression = false; this.HasCi = true;
+        this.Rounds = 1;
     }
 }
 
@@ -213,12 +217,85 @@ void _abClassify(AbVerdict v, double thr) {
     else { v.Verdict = "overlap"; }
 }
 
+// ── ab-resample-on-suspicion (2026-09-06) ───────────────────────────────────
+// Final verdict for an entry that round 1 flagged as a regression, recomputed
+// from k INDEPENDENT same-runner ratios (one per round).
+//
+// WHY this exists — the defect it fixes. `_abVerdict`'s interval comes from the
+// WITHIN-run sample variance of one hyperfine invocation, but base and pr are two
+// separate processes, so the between-process variance (CPU frequency, page cache,
+// allocator + GC start state, code-layout lottery) is not modelled at all. The
+// claimed intervals are therefore ~3x too narrow (measured on two perf-neutral
+// PRs: claimed 4.8% median vs a real noise floor of ±13~16%), which is why the
+// "intervals separated" safety net never actually held and the threshold had to
+// sit at 0.25, above the noise floor, to keep the gate quiet.
+//
+// Re-measuring the SAME two binaries k times and taking the dispersion OF THE
+// RATIOS is the one estimate that does see that between-process variance — it is
+// the whole point, not an accuracy tweak. Because only entries that round 1
+// already flagged get resampled (1~2 per PR in practice, capped by the caller's
+// budget), the cost is +30~60s rather than k×.
+//
+//   R_lower = mean(ratios) − t(1-sided 95%, df=k-1) · sd(ratios)/sqrt(k)
+//   regression ⟺ R_lower > 1 + thr        (same rule as every other path)
+//
+// ONE-SIDED on purpose, unlike `_abVerdict`'s two-sided Z=1.96. The gate asks a
+// one-sided question ("is pr slower by more than thr?"), and at k=3 the two-sided
+// quantile (4.303) would make the margin 2.48·sd instead of 1.69·sd — blunt enough
+// that a real +20% regression would be waved through. The two paths are not
+// inconsistent in strictness the way the constants suggest: `_abVerdict` applies a
+// nominally stricter quantile to a dispersion that is known to be ~3x too small,
+// so its EFFECTIVE coverage is the looser of the two.
+//
+// COVERED BY `bench --ab-selftest` (pure function; four cases, see _abSelfTest).
+AbVerdict _abResampleVerdict(double[] ratios, double thr) {
+    AbVerdict v = new AbVerdict();
+    int k = ratios.Length;
+    v.Rounds = k;
+    // k<2 has no between-round dispersion to speak of — the caller must not get a
+    // verdict that looks resampled when it is not.
+    if (k < 2) { v.Verdict = "no-data"; v.HasCi = false; return v; }
+    double sum = 0.0;
+    for (int i = 0; i < k; i = i + 1) {
+        if (ratios[i] <= 0.0) { v.Verdict = "no-data"; v.HasCi = false; return v; }
+        sum = sum + ratios[i];
+    }
+    double mean = sum / (double)k;
+    double ss = 0.0;
+    for (int i = 0; i < k; i = i + 1) { double d = ratios[i] - mean; ss = ss + d * d; }
+    double sd = Math.Sqrt(ss / (double)(k - 1));
+    double se = sd / Math.Sqrt((double)k);
+    double t = _abTCrit95(k - 1);
+    v.Ratio = mean;
+    v.RLower = mean - t * se;
+    v.RUpper = mean + t * se;
+    _abClassify(v, thr);
+    return v;
+}
+
+// One-sided 95% Student-t critical value, by degrees of freedom. Small df is the
+// whole point here (k=3 ⇒ df=2 ⇒ 2.920), so the table is exact where it matters
+// and falls back to the normal quantile once df is large enough not to.
+double _abTCrit95(int df) {
+    if (df <= 1) { return 6.314; }
+    if (df == 2) { return 2.920; }
+    if (df == 3) { return 2.353; }
+    if (df == 4) { return 2.132; }
+    if (df == 5) { return 2.015; }
+    if (df == 6) { return 1.943; }
+    if (df == 7) { return 1.895; }
+    if (df == 8) { return 1.860; }
+    if (df == 9) { return 1.833; }
+    return 1.645;
+}
+
 // Result of running one scenario×mode A/B comparison.
 class AbOutcome {
     public int Rc;            // 0 = ok, 2 = tool error (compile/hyperfine failed)
     public bool IsRegression;
+    public bool Resampled;    // consumed one unit of the caller's resample budget
     public string Json;       // one ab.json result fragment ("" on error)
-    public AbOutcome() { this.Rc = 0; this.IsRegression = false; this.Json = ""; }
+    public AbOutcome() { this.Rc = 0; this.IsRegression = false; this.Resampled = false; this.Json = ""; }
 }
 
 // Compile `src` to a .zbc with the given toolchain (vm+driver, Z42_LIBS=libs).
@@ -227,23 +304,26 @@ int _abEmitZbc(string vm, string driver, string libs, string src, string zbc) {
         .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", libs));
 }
 
-// One scenario×mode A/B: compile base.zbc + pr.zbc, then hyperfine BOTH commands
-// in a single invocation (same runner, adjacent → between-run drift cancels).
+// One measurement round of one scenario×mode: hyperfine BOTH commands in a single
+// invocation (same runner, adjacent → between-run drift cancels within the round).
 // The `env Z42_LIBS=… <vm> …` prefix lets one hyperfine invocation run each side
 // under its own libs (--shell=none execs `env`, a real binary; CI/dev are unix).
-AbOutcome _abOneScenario(string work, string name, string ns, string m, string src,
-    string baseVm, string baseDriver, string baseLibs,
-    string prVm, string prDriver, string prLibs,
-    string warmup, string runs, double thr) {
-    AbOutcome o = new AbOutcome();
-    string baseZbc = Path.Join(work, name + "-base.zbc");
-    string prZbc   = Path.Join(work, name + "-pr.zbc");
-    if (_abEmitZbc(baseVm, baseDriver, baseLibs, src, baseZbc) != 0) { o.Rc = 2; return o; }
-    if (_abEmitZbc(prVm,   prDriver,   prLibs,   src, prZbc)   != 0) { o.Rc = 2; return o; }
-    string outJson = Path.Join(work, name + "-" + m + "-ab.json");
-    string baseCmd = "env Z42_LIBS=" + baseLibs + " " + baseVm + " " + baseZbc + " " + ns + ".Main --mode " + m;
-    string prCmd   = "env Z42_LIBS=" + prLibs   + " " + prVm   + " " + prZbc   + " " + ns + ".Main --mode " + m;
-    Console.WriteLine("→ A/B " + name + " [" + m + "] (warmup=" + warmup + ", runs=" + runs + ")...");
+class AbRound {
+    public int Rc;            // 0 = ok, 2 = tool error (hyperfine failed / unusable means)
+    public double BaseMean; public double BaseSd;   // seconds
+    public double PrMean;   public double PrSd;
+    public AbRound() {
+        this.Rc = 0; this.BaseMean = 0.0; this.BaseSd = 0.0; this.PrMean = 0.0; this.PrSd = 0.0;
+    }
+    public double Ratio() { return this.PrMean / this.BaseMean; }
+}
+
+AbRound _abOneRound(string work, string name, string m, int round,
+    string baseCmd, string prCmd, string warmup, string runs) {
+    AbRound o = new AbRound();
+    string outJson = Path.Join(work, name + "-" + m + "-ab-r" + round.ToString() + ".json");
+    Console.WriteLine("→ A/B " + name + " [" + m + "] round " + round.ToString()
+        + " (warmup=" + warmup + ", runs=" + runs + ")...");
     int hc = _exec(new Process("hyperfine")
         .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
         .Arg("--export-json").Arg(outJson).Arg("--shell=none")
@@ -253,24 +333,70 @@ AbOutcome _abOneScenario(string work, string name, string ns, string m, string s
     JsonValue res = JsonValue.Parse(File.ReadAllText(outJson)).Get("results");
     JsonValue b = res.At(0);
     JsonValue p = res.At(1);
+    o.BaseMean = b.Get("mean").AsDouble();   o.BaseSd = b.Get("stddev").AsDouble();
+    o.PrMean   = p.Get("mean").AsDouble();   o.PrSd   = p.Get("stddev").AsDouble();
+    if (o.BaseMean <= 0.0 || o.PrMean <= 0.0) { o.Rc = 2; }
+    return o;
+}
+
+// One scenario×mode A/B: compile base.zbc + pr.zbc, measure round 1, and — when
+// round 1 says "regression" and the caller still has resample budget — re-measure
+// the SAME two binaries `extraRounds` more times and re-decide from the
+// between-round ratio dispersion (ab-resample-on-suspicion; see _abResampleVerdict
+// for why the single-round interval cannot be trusted on its own).
+//
+// Only a round-1 REGRESSION is resampled. `faster` and `overlap` are not: the gate
+// is one-sided, so spending 2 extra rounds to refine a verdict that cannot fail the
+// job buys nothing, and the whole cost argument for this feature is that suspicion
+// is rare (1~2 entries per PR).
+AbOutcome _abOneScenario(string work, string name, string ns, string m, string src,
+    string baseVm, string baseDriver, string baseLibs,
+    string prVm, string prDriver, string prLibs,
+    string warmup, string runs, double thr, int extraRounds) {
+    AbOutcome o = new AbOutcome();
+    string baseZbc = Path.Join(work, name + "-base.zbc");
+    string prZbc   = Path.Join(work, name + "-pr.zbc");
+    if (_abEmitZbc(baseVm, baseDriver, baseLibs, src, baseZbc) != 0) { o.Rc = 2; return o; }
+    if (_abEmitZbc(prVm,   prDriver,   prLibs,   src, prZbc)   != 0) { o.Rc = 2; return o; }
+    string baseCmd = "env Z42_LIBS=" + baseLibs + " " + baseVm + " " + baseZbc + " " + ns + ".Main --mode " + m;
+    string prCmd   = "env Z42_LIBS=" + prLibs   + " " + prVm   + " " + prZbc   + " " + ns + ".Main --mode " + m;
+    AbRound r1 = _abOneRound(work, name, m, 1, baseCmd, prCmd, warmup, runs);
+    if (r1.Rc != 0) { o.Rc = 2; return o; }
     double nRuns = Double.Parse(runs);
-    AbVerdict v = _abVerdict(b.Get("mean").AsDouble(), b.Get("stddev").AsDouble(), nRuns,
-                             p.Get("mean").AsDouble(), p.Get("stddev").AsDouble(), nRuns, thr);
+    AbVerdict v = _abVerdict(r1.BaseMean, r1.BaseSd, nRuns, r1.PrMean, r1.PrSd, nRuns, thr);
+    string ratios = r1.Ratio().ToString();
+    if (v.IsRegression && extraRounds > 0) {
+        Console.WriteLine("  ? " + name + " [" + m + "] round-1 regression (ratio="
+            + r1.Ratio().ToString() + ") → resampling " + extraRounds.ToString()
+            + " more round(s); the verdict comes from the between-round dispersion");
+        double[] rs = new double[extraRounds + 1];
+        rs[0] = r1.Ratio();
+        for (int i = 0; i < extraRounds; i = i + 1) {
+            AbRound rn = _abOneRound(work, name, m, i + 2, baseCmd, prCmd, warmup, runs);
+            if (rn.Rc != 0) { o.Rc = 2; return o; }
+            rs[i + 1] = rn.Ratio();
+            ratios = ratios + "," + rs[i + 1].ToString();
+        }
+        o.Resampled = true;
+        v = _abResampleVerdict(rs, thr);
+    }
     o.IsRegression = v.IsRegression;
-    o.Json = _abResultJson(name, m, b, p, v);
+    o.Json = _abResultJson(name, m, r1, v, ratios);
     _abPrint(name, m, v);
     return o;
 }
 
-// one ab.json result object (hyperfine means/stddevs are seconds → ms).
-string _abResultJson(string name, string m, JsonValue b, JsonValue p, AbVerdict v) {
-    string bMean = (b.Get("mean").AsDouble() * 1000.0).ToString();
-    string bSd   = (b.Get("stddev").AsDouble() * 1000.0).ToString();
-    string pMean = (p.Get("mean").AsDouble() * 1000.0).ToString();
-    string pSd   = (p.Get("stddev").AsDouble() * 1000.0).ToString();
+// one ab.json result object. Means/stddevs are ROUND 1's (hyperfine seconds → ms);
+// `round_ratios` carries every round's ratio so a resampled verdict can be re-derived
+// from the artifact without re-running the job.
+string _abResultJson(string name, string m, AbRound r1, AbVerdict v, string ratios) {
     return "    {\n      \"name\": \"" + name + "\",\n      \"mode\": \"" + m + "\""
-        + ",\n      \"base_mean_ms\": " + bMean + ",\n      \"base_stddev_ms\": " + bSd
-        + ",\n      \"pr_mean_ms\": " + pMean + ",\n      \"pr_stddev_ms\": " + pSd
+        + ",\n      \"base_mean_ms\": " + (r1.BaseMean * 1000.0).ToString()
+        + ",\n      \"base_stddev_ms\": " + (r1.BaseSd * 1000.0).ToString()
+        + ",\n      \"pr_mean_ms\": " + (r1.PrMean * 1000.0).ToString()
+        + ",\n      \"pr_stddev_ms\": " + (r1.PrSd * 1000.0).ToString()
+        + ",\n      \"rounds\": " + v.Rounds.ToString()
+        + ",\n      \"round_ratios\": [" + ratios + "]"
         + ",\n      \"ratio\": " + v.Ratio.ToString() + ",\n      \"r_lower\": " + v.RLower.ToString()
         + ",\n      \"r_upper\": " + v.RUpper.ToString() + ",\n      \"verdict\": \"" + v.Verdict + "\"\n    }";
 }
@@ -281,6 +407,9 @@ void _abPrint(string name, string m, AbVerdict v) {
     if (v.Verdict == "regression") { sym = "↑"; }
     else if (v.Verdict == "faster") { sym = "↓"; }
     string tag = v.HasCi ? "" : " (no-ci)";
+    // k>1 ⇒ the interval came from between-round dispersion, not the within-run SEM.
+    // Say so on the line: the two are not the same evidence and read identically otherwise.
+    if (v.Rounds > 1) { tag = tag + " (resampled k=" + v.Rounds.ToString() + ")"; }
     Console.WriteLine("  " + name + " [" + m + "]  " + sym + " " + v.Verdict + tag
         + "  ratio=" + v.Ratio.ToString() + "  R_lower=" + v.RLower.ToString()
         + "  R_upper=" + v.RUpper.ToString());
@@ -305,6 +434,24 @@ int _benchAb(ParseResult r) {
     double thr = 0.10;
     string tt = r.GetOption("threshold-time");
     if (tt.Length > 0) { thr = Double.Parse(tt); }
+    // ab-resample-on-suspicion: extra rounds for an entry round 1 flagged (0 = off,
+    // the rollback knob). Default 2 ⇒ k=3 ratios ⇒ df=2. Cost lands only on flagged
+    // entries, so a clean PR pays nothing at all.
+    int extraRounds = 2;
+    string rr = r.GetOption("resample-rounds");
+    if (rr.Length > 0) {
+        try { extraRounds = int.Parse(rr); }
+        catch (Exception ex) {
+            ConsoleError.WriteLine("error: --resample-rounds must be an integer >= 0 (got '" + rr + "')");
+            return 2;
+        }
+        if (extraRounds < 0) { ConsoleError.WriteLine("error: --resample-rounds must be >= 0"); return 2; }
+    }
+    // Budget cap. Resampling is priced on suspicion being RARE; if a PR flags more
+    // entries than this, that is itself evidence of a real, broad regression, so the
+    // remaining entries keep their round-1 verdict (which fails the job) instead of
+    // spending unbounded runner time to confirm what is already the likely answer.
+    int resampleBudget = 3;
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
@@ -350,9 +497,15 @@ int _benchAb(ParseResult r) {
                 Console.WriteLine("  ⊘ skip " + name + " [" + m + "]: not runnable on this VM");
                 continue;
             }
+            int mayResample = resampleBudget > 0 ? extraRounds : 0;
             AbOutcome o = _abOneScenario(work, name, ns, m, src,
-                baseVm, baseDriver, baseLibs, prVm, prDriver, prFlat, warmup, runs, thr);
+                baseVm, baseDriver, baseLibs, prVm, prDriver, prFlat, warmup, runs, thr, mayResample);
             if (o.Rc != 0) { toolErr = toolErr + 1; continue; }
+            if (o.Resampled) { resampleBudget = resampleBudget - 1; }
+            if (o.IsRegression && mayResample == 0 && extraRounds > 0) {
+                Console.WriteLine("  ⚠️  resample budget exhausted — this verdict is the "
+                    + "single-round one (see _abResampleVerdict on why that interval is optimistic)");
+            }
             if (nb > 0) { items = items + ",\n"; }
             items = items + o.Json; nb = nb + 1;
             if (o.IsRegression) { regr = regr + 1; }
@@ -407,6 +560,22 @@ int _abFinish(int nb, int regr, int toolErr) {
 //   noisy-overlap             +15% but 20x the stddev ⇒ interval spans 1 ⇒ noise
 //   faster                    -20% tight ⇒ never a red
 //   no-ci-regression          stddev 0 ⇒ bare-ratio fallback, HasCi=false
+//
+// ab-resample-on-suspicion adds four more for `_abResampleVerdict` — the function
+// that DECIDES the flagged entries once resampling is on, so leaving it unguarded
+// would put the hard gate's final say outside the self-check again:
+//   resample-real-regression  three tight ratios ~+30% ⇒ red even at thr 0.15
+//   resample-drift-rescued    THE case this feature exists for: round 1 saw +60%,
+//       rounds 2-3 saw +5%/+10% ⇒ the between-round dispersion swallows it ⇒ NOT red.
+//       Under the single-round rule this is exactly the false red we kept shipping.
+//       Its mean ratio (1.25) is deliberately ABOVE 1+thr so the case fails if the
+//       interval width is ever lost — a drift case whose mean sits under the
+//       threshold would pass either way and assert nothing.
+//   resample-threshold-sensitive  the same +20% numbers red at 0.15, quiet at 0.25 —
+//       the thr-sensitivity guard for THIS path (see the fixture note in bench-pr.yml:
+//       without such a pair the suite passes even if the threshold stops being read).
+//   resample-too-few-rounds   k=1 ⇒ no-data + HasCi=false, so a degenerate call can
+//       never come back looking like a resampled verdict.
 int _abSelfTest() {
     int fails = 0;
     AbVerdict a = _abVerdict(100.0, 1.0, 10.0, 120.0, 1.0, 10.0, 0.10);
@@ -420,8 +589,33 @@ int _abSelfTest() {
     AbVerdict d = _abVerdict(100.0, 0.0, 10.0, 120.0, 0.0, 10.0, 0.10);
     fails = fails + _abExpect("no-ci-regression", d, "regression", true);
     if (d.HasCi) { Console.WriteLine("  FAIL no-ci-regression: expected HasCi=false"); fails = fails + 1; }
-    if (fails == 0) { Console.WriteLine("✅ _abVerdict selftest: 5/5 passed"); return 0; }
-    Console.WriteLine("❌ _abVerdict selftest: " + fails.ToString() + " failure(s)");
+
+    // ── _abResampleVerdict (ab-resample-on-suspicion) ──
+    double[] tight = new double[3]; tight[0] = 1.30; tight[1] = 1.32; tight[2] = 1.29;
+    AbVerdict f = _abResampleVerdict(tight, 0.15);
+    fails = fails + _abExpect("resample-real-regression", f, "regression", true);
+    if (f.Rounds != 3) { Console.WriteLine("  FAIL resample-real-regression: expected Rounds=3"); fails = fails + 1; }
+
+    // mean(ratios) = 1.25 is ITSELF above 1+0.15 — only the between-round dispersion
+    // rescues it, so this case falsifies "the interval width got lost" (t=0 / SEM
+    // substituted in), which a drift case with a below-threshold mean cannot do.
+    double[] drift = new double[3]; drift[0] = 1.60; drift[1] = 1.05; drift[2] = 1.10;
+    AbVerdict g = _abResampleVerdict(drift, 0.15);
+    fails = fails + _abExpect("resample-drift-rescued", g, "overlap", false);
+
+    double[] mid = new double[3]; mid[0] = 1.20; mid[1] = 1.21; mid[2] = 1.19;
+    fails = fails + _abExpect("resample-threshold-sensitive@0.15",
+        _abResampleVerdict(mid, 0.15), "regression", true);
+    fails = fails + _abExpect("resample-threshold-sensitive@0.25",
+        _abResampleVerdict(mid, 0.25), "overlap", false);
+
+    double[] one = new double[1]; one[0] = 1.30;
+    AbVerdict h = _abResampleVerdict(one, 0.15);
+    fails = fails + _abExpect("resample-too-few-rounds", h, "no-data", false);
+    if (h.HasCi) { Console.WriteLine("  FAIL resample-too-few-rounds: expected HasCi=false"); fails = fails + 1; }
+
+    if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict selftest: 10/10 passed"); return 0; }
+    Console.WriteLine("❌ _abVerdict + _abResampleVerdict selftest: " + fails.ToString() + " failure(s)");
     return 1;
 }
 
@@ -456,15 +650,17 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
 // no base counterpart to compare against. Exit: 0 = no regression, 1 = regression(s),
 // 2 = bad args / missing file.
 //
-// COVERED BY FIXTURES: src/tests/perf/testdata/micro-base.json + micro-*.json,
-// run by bench-pr.yml's verdict self-check at BOTH thr 0.25 and 0.10 (pure JSON,
-// seconds, before the ~20 min of measurement). Seven cases, each guarding a
-// different piece: regress / overlap / improve on the SEM path,
-// separated-under-threshold (the only thr-sensitive one: pass at 0.25, red at
-// 0.10), fallback-regress / fallback-overlap on the no-SEM interval path, and
-// unmatched (three entries whose name or mode key has no base counterpart, each
-// blown up 3x — if matching ever went loose they would turn red instead of
-// being skipped). Change the rule ⇒ update the fixtures and the expected table.
+// COVERED BY FIXTURES: src/tests/perf/testdata/micro-base.json + micro-*.json
+// (single round) and micro-rs-*-r{1,2,3}.json (resampled), run by bench-pr.yml's
+// verdict self-check at BOTH thr 0.15 (the one the gate uses) and 0.25 — pure
+// JSON, seconds, before the ~20 min of measurement. Single round, seven cases:
+// regress / overlap / improve on the SEM path, separated-under-threshold (the
+// thr-sensitive one: red at 0.15, pass at 0.25), fallback-regress /
+// fallback-overlap on the no-SEM interval path, and unmatched (three entries
+// whose name or mode key has no base counterpart, each blown up 3x — if matching
+// ever went loose they would turn red instead of being skipped). Resampled, four:
+// rs-drift / rs-real / rs-mid / rs-missing (see the self-check step for what each
+// one guards). Change the rule ⇒ update the fixtures and the expected table.
 int _benchMicroDiff(ParseResult r) {
     string root = _root();
     string current = r.GetOption("current");
@@ -474,16 +670,44 @@ int _benchMicroDiff(ParseResult r) {
     double thr = 0.10;
     string tt = r.GetOption("threshold-time");
     if (tt.Length > 0) { thr = Double.Parse(tt); }
-    string curPath  = _absUnder(root, current);
-    string basePath = _absUnder(root, baseline);
-    if (!File.Exists(curPath))  { ConsoleError.WriteLine("error: micro current not found: " + current); return 2; }
-    if (!File.Exists(basePath)) { ConsoleError.WriteLine("error: micro baseline not found: " + baseline); return 2; }
+    // ab-resample-on-suspicion: comma-separated round files, pr and base in lockstep.
+    // One file each = the single-round SEM path (unchanged). k>=2 = the resampled
+    // path: the interval comes from the between-round dispersion of the ratios.
+    string[] curPaths  = current.Split(",");
+    string[] basePaths = baseline.Split(",");
+    if (curPaths.Length != basePaths.Length) {
+        ConsoleError.WriteLine("error: --current and --baseline must list the same number of rounds ("
+            + curPaths.Length.ToString() + " vs " + basePaths.Length.ToString() + ")");
+        return 2;
+    }
+    int k = curPaths.Length;
+    JsonValue[] curDocs  = new JsonValue[k];
+    JsonValue[] baseDocs = new JsonValue[k];
+    for (int i = 0; i < k; i = i + 1) {
+        string cp = _absUnder(root, curPaths[i].Trim());
+        string bp = _absUnder(root, basePaths[i].Trim());
+        if (!File.Exists(cp)) { ConsoleError.WriteLine("error: micro current not found: " + curPaths[i]); return 2; }
+        if (!File.Exists(bp)) { ConsoleError.WriteLine("error: micro baseline not found: " + basePaths[i]); return 2; }
+        curDocs[i]  = JsonValue.Parse(File.ReadAllText(cp)).Get("benchmarks");
+        baseDocs[i] = JsonValue.Parse(File.ReadAllText(bp)).Get("benchmarks");
+    }
+    JsonValue curBs  = curDocs[0];
+    JsonValue baseBs = baseDocs[0];
+    if (k > 1) {
+        Console.WriteLine("Micro A/B RESAMPLED (" + k.ToString()
+            + " rounds, interval from between-round dispersion; gate: R_lower > 1+" + thr.ToString() + "):");
+    } else {
+        Console.WriteLine("Micro A/B (same-runner base vs pr; gate: R_lower > 1+" + thr.ToString() + "):");
+    }
 
-    JsonValue curBs  = JsonValue.Parse(File.ReadAllText(curPath)).Get("benchmarks");
-    JsonValue baseBs = JsonValue.Parse(File.ReadAllText(basePath)).Get("benchmarks");
-    Console.WriteLine("Micro A/B (same-runner base vs pr; gate: R_lower > 1+" + thr.ToString() + "):");
+    // `--suspects <path>`: names of entries this (round-1) pass flags, one per line,
+    // for the caller to decide whether resampling is worth starting. Always written
+    // when asked — an empty file is the "nothing suspicious" answer, and callers test
+    // it with `[ -s ]`, so not writing it would read as "no suspects" on a crash.
+    string suspectsPath = r.GetOption("suspects");
+    string suspects = "";
 
-    int regr = 0; int compared = 0; int newb = 0;
+    int regr = 0; int compared = 0; int newb = 0; int dropped = 0;
     int j = 0;
     while (j < curBs.Count()) {
         JsonValue c = curBs.At(j);
@@ -493,14 +717,32 @@ int _benchMicroDiff(ParseResult r) {
         JsonValue b = _findBenchObj(baseBs, name, metric, mkey);
         if (b == null) { newb = newb + 1; j = j + 1; continue; }
         AbVerdict v = _microVerdict(b, c, thr);
+        if (k > 1) {
+            AbVerdict rv = _microResampled(curDocs, baseDocs, k, name, metric, mkey, thr);
+            if (rv.Verdict == "no-data") {
+                // Present in round 1 but not in every round. A benchmark that comes and
+                // goes between rounds is not evidence of a regression — keep it OUT of
+                // the gate, but say so: silently dropping gate entries is how a gate
+                // goes blind (the empty-VmCaps failure this suite already fixed once).
+                Console.WriteLine("  ⚠️  " + name + " [" + mkey + "]: missing from some round — excluded from the gate");
+                dropped = dropped + 1;
+                j = j + 1;
+                continue;
+            }
+            v = rv;
+        }
         compared = compared + 1;
         _abPrint(name, mkey, v);
-        if (v.IsRegression) { regr = regr + 1; }
+        if (v.IsRegression) { regr = regr + 1; suspects = suspects + name + "\n"; }
         j = j + 1;
     }
     if (newb > 0) {
         Console.WriteLine("  (" + newb.ToString() + " new benchmark(s) with no base match — skipped)");
     }
+    if (dropped > 0) {
+        Console.WriteLine("  (" + dropped.ToString() + " benchmark(s) excluded — not present in every round)");
+    }
+    if (suspectsPath.Length > 0) { File.WriteAllText(_absUnder(root, suspectsPath), suspects); }
     Console.WriteLine("");
     if (regr > 0) {
         Console.WriteLine("❌ " + regr.ToString() + " micro regression(s) — R_lower > 1+thr (of "
@@ -509,6 +751,24 @@ int _benchMicroDiff(ParseResult r) {
     }
     Console.WriteLine("✅ no micro regression (same-runner A/B; " + compared.ToString() + " compared)");
     return 0;
+}
+
+// One benchmark's resampled verdict: its ratio in EVERY round, then
+// `_abResampleVerdict`. Returns a "no-data" verdict when the entry is not matched
+// in all k rounds (the caller excludes it from the gate and says so).
+AbVerdict _microResampled(JsonValue[] curDocs, JsonValue[] baseDocs, int k,
+                          string name, string metric, string mkey, double thr) {
+    double[] ratios = new double[k];
+    for (int i = 0; i < k; i = i + 1) {
+        JsonValue ci = _findBenchObj(curDocs[i], name, metric, mkey);
+        JsonValue bi = _findBenchObj(baseDocs[i], name, metric, mkey);
+        if (ci == null || bi == null) { AbVerdict miss = new AbVerdict(); miss.Verdict = "no-data"; miss.HasCi = false; return miss; }
+        double bm = _microMean(bi);
+        double cm = _microMean(ci);
+        if (bm <= 0.0 || cm <= 0.0) { AbVerdict miss = new AbVerdict(); miss.Verdict = "no-data"; miss.HasCi = false; return miss; }
+        ratios[i] = cm / bm;
+    }
+    return _abResampleVerdict(ratios, thr);
 }
 
 // Per-benchmark micro verdict. Prefer the SEM path (Bencher mean/stddev) when
