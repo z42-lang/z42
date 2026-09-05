@@ -255,9 +255,9 @@ fn main() -> Result<()> {
     }
 
     init_tracing(cli.verbose, &cfg);
-    install_panic_hook();
+    install_panic_hook(cfg.crash_dir.clone());
     #[cfg(unix)]
-    z42::signal_handler::install();
+    z42::signal_handler::install(cfg.crash_dir.as_deref());
 
     // Verbose-mode startup banner (docs/review.md D5 item 2, 2026-05-26).
     // One-line tracing::info — gated by EnvFilter / `--verbose` so the
@@ -291,12 +291,12 @@ fn main() -> Result<()> {
 
     // --info: print build info to stdout and exit before doing any module loading.
     if cli.info {
-        print_build_info(&resolution, &build_ctx);
+        print_build_info(&resolution, &build_ctx, &cfg);
         return Ok(());
     }
 
     // Resolve module search paths (Z42_PATH + cwd + cwd/modules); log only for now.
-    let module_paths = resolve_module_paths();
+    let module_paths = resolve_module_paths(&cfg);
     if cli.verbose {
         log_module_paths(&module_paths);
     }
@@ -309,7 +309,7 @@ fn main() -> Result<()> {
     tracing::debug!("z42vm loading {}", file);
 
     // Locate stdlib libs directory.
-    let libs_dir = resolve_libs_dir();
+    let libs_dir = resolve_libs_dir(&cfg);
 
     // Publish the resolved dir into $Z42_LIBS so an in-process program (notably
     // the z42c compiler, which reads $Z42_LIBS directly for cross-package dep
@@ -368,3 +368,6 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod main_tests;
+
+#[cfg(test)]
+mod startup_tests;

@@ -70,7 +70,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Path,
         description: "directory for panic + signal crash report files",
         default_hint: "unset; reports go to stderr only",
-        consumed_by: "main.rs (panic hook) + signal_handler.rs",
+        consumed_by: "startup.rs (panic hook) + signal_handler.rs",
         ..PUBLIC
     },
     KnobSpec {
@@ -200,7 +200,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::Path,
         description: "stdlib zpkg search directory",
         default_hint: "unset; falls back to artifacts/build/libraries/dist/release relative to z42vm binary",
-        consumed_by: "main.rs",
+        consumed_by: "startup.rs (resolve_libs_dir)",
         ..PUBLIC
     },
     KnobSpec {
@@ -266,7 +266,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         value: ValueKind::PathList,
         description: "module search paths (platform-separated)",
         default_hint: "unset; falls back to <cwd>, <cwd>/modules",
-        consumed_by: "main.rs",
+        consumed_by: "startup.rs (resolve_module_paths)",
         ..PUBLIC
     },
     KnobSpec {

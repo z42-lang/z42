@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use crate::pal::signal::{self, sigsafe, signal_name};
 
 /// File descriptor for the optional `Z42_CRASH_DIR` persistence file.
-/// `-1` = no file (env var not set or open failed). Opened once at
+/// `-1` = no file (knob unset or open failed). Opened once at
 /// [`install`] time; the OS reclaims it at process exit.
 static SIGNAL_CRASH_FD: AtomicI32 = AtomicI32::new(-1);
 
@@ -48,13 +48,18 @@ static INSTALLED: AtomicI32 = AtomicI32::new(0);
 
 /// Install signal handlers for the 5 covered POSIX signals.
 /// Safe to call multiple times — only first call has effect.
-pub fn install() {
+///
+/// `crash_dir` is the **resolved** `Z42_CRASH_DIR` knob. Passing it in (rather
+/// than reading the env var here) is what lets `[runtime].crash-dir` from a
+/// config file reach this path — see fix-phase1-knobs-bypass-config
+/// (2026-09-05). `None` = crash reports go to stderr only.
+pub fn install(crash_dir: Option<&std::path::Path>) {
     if INSTALLED.swap(1, Ordering::SeqCst) != 0 {
         return;
     }
 
-    // Open crash_report fd from Z42_CRASH_DIR (if set + writable)
-    open_crash_report_fd();
+    // Open crash_report fd from the resolved crash dir (if set + writable)
+    open_crash_report_fd(crash_dir);
 
     // Register the z42 crash `handler` for the 5 fatal signals (OS primitive).
     signal::register_fatal_handlers(handler);
@@ -62,11 +67,10 @@ pub fn install() {
     tracing::debug!("OS signal handlers installed for SIGSEGV/SIGABRT/SIGFPE/SIGILL/SIGBUS");
 }
 
-fn open_crash_report_fd() {
+fn open_crash_report_fd(crash_dir: Option<&std::path::Path>) {
     use std::os::fd::IntoRawFd;
 
-    let Ok(dir) = std::env::var("Z42_CRASH_DIR") else { return };
-    let dir_path = std::path::PathBuf::from(&dir);
+    let Some(dir_path) = crash_dir else { return };
     let ts_ns = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())

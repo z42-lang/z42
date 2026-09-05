@@ -8,22 +8,29 @@
 //! 编排，这里放它调用的启动步骤。
 
 use std::path::PathBuf;
-use z42::config::KNOWN_KNOBS;
+use z42::config::{RuntimeConfig, KNOWN_KNOBS};
 
 /// Locate the stdlib libs/ directory.
 ///
 /// Search order (redesign-artifact-layout, 2026-05-12):
-///   1. `$Z42_LIBS`                                         — env override
+///   1. `Z42_LIBS` knob (env / `[runtime].libs` / `--set libs=`)  — explicit override
 ///   2. `<binary-dir>/../libs/`                             — packages/<pkg>/libs/ adjacent
 ///   3. `<cwd>/artifacts/build/libraries/dist/release/`               — dev flat view (xtask build stdlib)
 ///   4. `<cwd>/artifacts/build/libraries/dist/debug/`                 — dev flat view (debug profile)
 ///   5. `<cwd>/artifacts/z42/libs/`                         — legacy fallback (pre-2026-05-12)
-pub fn resolve_libs_dir() -> Option<PathBuf> {
-    // 1. $Z42_LIBS
-    if let Ok(v) = std::env::var("Z42_LIBS") {
-        let p = PathBuf::from(v);
+///
+/// fix-phase1-knobs-bypass-config (2026-09-05): step 1 reads the **resolved**
+/// `cfg.libs_dir`, not `std::env::var("Z42_LIBS")`. The raw env read silently
+/// dropped every non-env layer, so `[runtime].libs` in a config file resolved
+/// into `RuntimeConfig` (and was reported as `[user-config]` by `--info`) while
+/// the actual lookup never saw it — `--info` contradicted itself in one run.
+/// The knob's own spec declares `toml_key: "libs"` + `consumed_by: "main.rs"`,
+/// so honouring the file layer is the documented contract, not a new feature.
+pub fn resolve_libs_dir(cfg: &RuntimeConfig) -> Option<PathBuf> {
+    // 1. Z42_LIBS knob (all layers)
+    if let Some(p) = cfg.libs_dir.as_ref() {
         if p.is_dir() {
-            return Some(p);
+            return Some(p.clone());
         }
     }
     // 2. <binary-dir>/../libs/  (packages 布局)
@@ -134,7 +141,13 @@ pub fn default_filter(verbose: bool) -> &'static str {
 /// Hook composes (not replaces) the default — calls default print first,
 /// then appends z42-specific context, then aborts to preserve "panic = bug,
 /// can't be caught" semantics.
-pub fn install_panic_hook() {
+///
+/// fix-phase1-knobs-bypass-config (2026-09-05): the crash directory is captured
+/// from the resolved `cfg.crash_dir` at install time rather than read from
+/// `std::env::var("Z42_CRASH_DIR")` inside the hook. Besides honouring the
+/// config-file layer, resolving *before* the hook runs keeps the panic path off
+/// `getenv` — one less thing to go wrong while already panicking.
+pub fn install_panic_hook(crash_dir: Option<PathBuf>) {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default(info);
@@ -166,9 +179,8 @@ pub fn install_panic_hook() {
         // Always print to stderr
         eprint!("{report}");
 
-        // Optionally persist to Z42_CRASH_DIR for offline analysis
-        if let Ok(dir) = std::env::var("Z42_CRASH_DIR") {
-            let dir = std::path::PathBuf::from(dir);
+        // Optionally persist to the resolved crash dir for offline analysis
+        if let Some(dir) = crash_dir.as_ref() {
             // Best-effort: create dir, write file, swallow errors (already panicking).
             let _ = std::fs::create_dir_all(&dir);
             let ts_ns = std::time::SystemTime::now()
@@ -201,7 +213,11 @@ pub fn build_feature_tag() -> String {
 /// per line). docs/review.md Part 4 D5 (2026-05-25) + D1 RuntimeConfig
 /// migration (2026-05-26): enumerates `config::KNOWN_KNOBS` so adding a
 /// new knob is one table edit instead of also updating this function.
-pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config::BuildCtx) {
+pub fn print_build_info(
+    resolution: &z42::config::Resolution,
+    ctx: &z42::config::BuildCtx,
+    cfg: &RuntimeConfig,
+) {
     println!("z42vm {}", env!("CARGO_PKG_VERSION"));
     println!("target: {}", std::env::consts::OS);
     println!("arch: {}", std::env::consts::ARCH);
@@ -243,8 +259,10 @@ pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config:
         println!("unavailable in this build: {}", unavailable.join(", "));
     }
 
-    // Effective libs dir lookup result.
-    match resolve_libs_dir() {
+    // Effective libs dir lookup result. Uses the same resolved `cfg` the real
+    // boot path uses, so this line can no longer contradict the knob table above
+    // (fix-phase1-knobs-bypass-config).
+    match resolve_libs_dir(cfg) {
         Some(dir) => println!("libs dir: {}", dir.display()),
         None => println!("libs dir: (not found — run xtask build stdlib or set Z42_LIBS)"),
     }
@@ -256,16 +274,17 @@ pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config:
 ///   1. Each entry in `Z42_PATH` (colon-separated on Unix)
 ///   2. `<cwd>/`
 ///   3. `<cwd>/modules/`
-pub fn resolve_module_paths() -> Vec<PathBuf> {
+///
+/// fix-phase1-knobs-bypass-config (2026-09-05): entries come from the resolved
+/// `cfg.module_path` (which already split on the platform separator), not a raw
+/// `std::env::var("Z42_PATH")` — same config-layer bypass as `resolve_libs_dir`.
+pub fn resolve_module_paths(cfg: &RuntimeConfig) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
 
-    // 1. Z42_PATH entries
-    if let Ok(z42_path) = std::env::var("Z42_PATH") {
-        for part in z42_path.split(':') {
-            let p = PathBuf::from(part.trim());
-            if p.is_dir() && !paths.contains(&p) {
-                paths.push(p);
-            }
+    // 1. Z42_PATH knob entries (all layers)
+    for p in &cfg.module_path {
+        if p.is_dir() && !paths.contains(p) {
+            paths.push(p.clone());
         }
     }
 

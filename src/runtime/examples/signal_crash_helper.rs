@@ -11,8 +11,13 @@
 fn main() {
     use std::process::ExitCode;
 
-    // Install hooks like a real z42vm boot would.
-    z42::signal_handler::install();
+    // Install hooks like a real z42vm boot would. `install` now takes the
+    // resolved crash dir instead of reading `Z42_CRASH_DIR` itself
+    // (fix-phase1-knobs-bypass-config); this helper has no config-file layer,
+    // so the process-wide config — which lazily falls back to env-only — gives
+    // exactly the behaviour the parent test's `cmd.env("Z42_CRASH_DIR", ..)`
+    // expects.
+    z42::signal_handler::install(z42::config::runtime_config().crash_dir.as_deref());
 
     // Create a VmContext so the stack-walk has something to report. We do
     // NOT push any frames — empty call_stack still proves the walk worked.

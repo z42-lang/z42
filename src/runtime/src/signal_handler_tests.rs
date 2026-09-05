@@ -9,6 +9,9 @@ fn install_is_idempotent() {
     // register handlers. signal-hook-registry queues all handlers and runs
     // them in order — duplicate registration just means our handler runs
     // twice, harmless but wasteful. Reaching the end = no panic = pass.
-    super::install();
-    super::install();
+    // `None` = no crash-report file, which is what this test wants: it is about
+    // registration idempotency, not report persistence (fix-phase1-knobs-bypass-config
+    // moved the crash dir from an inline env read to a caller-supplied argument).
+    super::install(None);
+    super::install(None);
 }

@@ -136,6 +136,23 @@ launcher（`simplify-apphost-direct-run`：部署一个 app 只需 apphost + app
     处直接 `std::env::var`）标 **ENV_ONLY**——CLI 与配置文件层根本到不了那行内联读取，
     标成"四层全收"会让 `--list-knobs` 声称能 `--set` 而实际静默无效，**比不登记更坏**。
 
+> **标 PUBLIC 就必须真的从 `RuntimeConfig` 读**（fix-phase1-knobs-bypass-config，2026-09-05）。
+> 上面那条的反面同样会咬人：`Z42_LIBS` / `Z42_PATH` / `Z42_CRASH_DIR` 早已标 `PUBLIC` +
+> 带 `toml_key`，但它们的消费点仍在 `std::env::var` 直读，于是配置文件里的
+> `[runtime].libs` 解析进了 `RuntimeConfig`、`--show-config` 也如实报 `[user-config]`，
+> **实际查找却完全看不到它**——同一次 `--info` 自相矛盾：
+>
+> ```
+> libs = /path/to/libs        [user-config]      ← 解析层读到了
+> libs dir: (not found — ...)                    ← 消费点没读
+> ```
+>
+> 两条出路只能二选一：**要么**标 `ENV_ONLY`（承认只认 env），**要么**把消费点改成读
+> `cfg.<field>`（放开层）。本次选后者。这类漂移**解析层的单测抓不到**——`src/config/`
+> 把四层优先级测得很透，但没有任何测试断言"解析出来的值就是启动路径实际用的值"。守在
+> 这条缝上的是 `startup_tests.rs`（传一个只有 `libs_dir` 的 `RuntimeConfig`，断言
+> `resolve_libs_dir` 返回它）。
+
 登记表有一道**源码扫描防腐门**（`config_tests.rs`）：走 `src/` 找 `"Z42_*"` 字面量，
 不在表内即红。加这道门是因为表曾经漂移过——8 个 VM 真在读的旋钮不在表里，于是
 `--info` / `--list-knobs` 根本看不到它们。
