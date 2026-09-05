@@ -206,31 +206,7 @@ int _testCompiler(bool noBuild) {
     return __rc;
 }
 
-// reset 一个私有目录（删后建）。
-void _resetDir(string d) {
-    if (Directory.Exists(d)) { Directory.Delete(d, true); }
-    Directory.Create(d);
-}
-
-// COPY（非 hard-link）srcDir 下匹配文件到 dstDir。私有目录 + 拷贝避免 _linkAll
-// 的 hard-link inode 别名污染（共享目录被 rebuild 会把 per-member 源弄坏）。
-void _copyAll(string srcDir, string dstDir, string pattern) {
-    if (!Directory.Exists(srcDir)) { return; }
-    string[] hits = Path.Glob(srcDir, pattern);
-    int i = 0;
-    while (i < hits.Length) {
-        string dstPath = Path.Join(dstDir, Path.GetFileName(hits[i]));
-        // Guard self-copy: File.Copy(X, X) opens the dest for write FIRST (truncating
-        // X to 0) then reads the now-empty source → silently zeroes the file. Reachable
-        // when a caller's src and dst resolve to the same dir (e.g. _ensureSeed staging
-        // stdlib while Z42_LIBS already points at the flat dist). Skip it.
-        if (hits[i] != dstPath) {
-            try { File.Copy(hits[i], dstPath); }
-            catch (Exception e) { /* skip */ }
-        }
-        i = i + 1;
-    }
-}
+// `_resetDir` / `_copyAll` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。
 
 // Build + run each z42c [Test] unit through z42b.
 //
