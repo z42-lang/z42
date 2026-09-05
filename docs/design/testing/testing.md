@@ -712,7 +712,7 @@ artifacts/bench/                         # 结果输出（artifacts/ 整体 giti
 **发现逻辑的显式排除**（两个枚举器各一处，都以 `perf` 为名单项）：
 
 - `_isNonRunnableCat`（`scripts/common/xtask_golden.z42`）—— golden 运行器 + embedded corpus 共用
-- `_isNonRegenCat`（`scripts/build/xtask_test_assets.z42`）—— `xtask build test` 资产编译
+- `_isNonRegenCat`（`scripts/build/xtask_golden_assets.z42`）—— `xtask build test` 资产编译
 
 perf 的文件都比 golden 深一层（`perf/scenarios/*.z42` 而非 `perf/*.z42`，且无 `source.z42`），
 所以两个枚举器**今天**本来就抓不到它。名单项是为了**声明**这个排除，而不是依赖布局巧合 ——

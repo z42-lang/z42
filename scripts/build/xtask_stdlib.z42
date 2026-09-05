@@ -4,7 +4,7 @@
 //
 // Compiles the z42 stdlib workspace and assembles the flat dist view. The stdlib
 // is built by z42c (the self-hosting z42 compiler) — C# was fully removed
-// 2026-06-26 (remove-dotnet-from-builds). Flow (_buildStdlibCore):
+// 2026-06-26 (remove-dotnet-from-builds). Flow (_buildStdlib):
 //
 //   1. ensure seed — warm tree reuses in-tree z42c.driver.zpkg + stdlib dist; a
 //      cold tree stages them from an SDK toolchain via _ensureSeed (see
@@ -20,7 +20,7 @@
 // Cold-bootstrap note: this runs INSIDE xtask.zpkg, so xtask (and the stdlib it
 // depends on) must already exist. The CI/local cold bootstrap downloads the
 // previous nightly's z42c seed and builds xtask FIRST (see .github/actions/
-// ci-bootstrap); _buildStdlibCore's step 1 then stages that seed into the in-tree
+// ci-bootstrap); _buildStdlib's step 1 then stages that seed into the in-tree
 // layout before the z42c-takeover rebuild.
 namespace Z42Xtask;
 
@@ -44,7 +44,8 @@ void _assembleStdlibFlatView(string root, string profile) {
     }
 }
 
-int _buildStdlibCore() {
+// `build stdlib` 命令入口（同时被 build compiler / build sdk / 多个 test stage 直接调用）。
+int _buildStdlib() {
     string root = _root();
     string profile = "release";
     string flatDir = _libsFlatDist(root, profile);
@@ -308,18 +309,4 @@ void _stageCopyExt(string srcDir, string dstDir, string pattern) {
         _copyIfExists(fs[i], Path.Join(dstDir, Path.GetFileName(fs[i])));
         i = i + 1;
     }
-}
-
-// ── `build stdlib` 命令入口（relocate-xtask-handlers, 2026-09-05 从 xtask.z42 搬来） ──
-
-// `build stdlib` — in-process (unify-scripts-into-xtask). Folded from the former
-// standalone scripts/build-stdlib.z42 into xtask_stdlib.z42 (_buildStdlibCore):
-// z42c build --workspace (release) + verify + flat-view (no namespace index —
-// the VM + embedding hosts read each zpkg's NSPC section). `build --workspace`
-// compiles stdlib from source, so it's self-sufficient once xtask is running. The
-// COLD bootstrap (CI composite / fresh clone) downloads the previous nightly's
-// z42c seed and builds xtask FIRST (to satisfy xtask's own `using Std.*`), then
-// runs `xtask build stdlib` afterward. No dotnet (C# removed 2026-06-26).
-int _buildStdlib() {
-    return _buildStdlibCore();
 }

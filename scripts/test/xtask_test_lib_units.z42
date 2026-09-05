@@ -102,7 +102,7 @@ bool _dirHasTestMethods(string dir) {
     return false;
 }
 
-// Parent-toml dep harvest moved to xtask_test_targets.z42 (_baseDeps / _targetDeps,
+// Parent-toml dep harvest moved to xtask_manifest_targets.z42 (_baseDeps / _targetDeps,
 // ManifestLoader-based 3-layer merge; add-tests-bench-manifest-config P2). DepBundle
 // (above) stays here — it's the merged (name,version) shape both the harness=true
 // synthetic-manifest writer and the new exit-target compiler consume.
