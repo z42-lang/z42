@@ -4,12 +4,12 @@
 // (Was scripts/xtask_regen.z42; the standalone `regen` command was folded into
 // `build test` — redesign-xtask-test, 2026-07-07.)
 //
-// Recompiles golden test source.z42 → source.zbc in two layouts:
-//   Dir mode:  <root>/<cat>/<name>/source.z42 → <...>/source.zbc
-//   Flat mode: src/tests/<cat>/<name>.z42     → src/tests/<cat>/<name>.zbc
-// where <root> ∈ {src/tests, src/libraries/<lib>/tests}; excluded categories
-// under src/tests: errors / parse / cross-zpkg. Tally + return 1 on any failure.
-// Shared enumeration helpers come from common/xtask_golden.z42.
+// Recompiles every golden `.z42` the shared corpus walk finds (_walkGoldenCorpus,
+// common/xtask_golden.z42 — see there for the segments, and for how the four
+// consumers' inclusion policies differ). Output goes to the artifacts mirror, with
+// ONE exception: the `zbc-format` category's `.zbc` is a checked-in byte baseline,
+// overwritten in place so `git diff` flags format drift. Categories skipped here:
+// _isNonRegenCat. Tally + return 1 on any failure.
 namespace Z42Xtask;
 
 using Std;
@@ -50,7 +50,9 @@ int _regenJobs() {
     return cpu > 8 ? cpu : 8;
 }
 
-// Golden regen cases: parallel growable arrays (name / source .z42 / output .zbc) + count.
+// Golden regen cases: parallel arrays (name / source .z42 / output .zbc) + count.
+// Sized to the corpus-walk upper bound, so `count` — NOT `.Length` — is the number
+// of cases; the tail is unused.
 class _GoldenCases {
     public string[] names;
     public string[] sources;
@@ -64,9 +66,7 @@ class _GoldenCases {
     }
 }
 
-// Enumerate golden cases across the three layouts (dir-mode src/tests + per-library
-// tests, flat-mode src/tests) into parallel arrays. Split out of _regenGolden (was
-// ~100 lines inline) to keep that function within the size limit (review §2.8).
+// Select the regen set out of the shared corpus walk, into parallel arrays.
 _GoldenCases _collectGoldenCases(string root) {
     return _collectGoldenCasesF(root, "", "");
 }
@@ -76,111 +76,45 @@ _GoldenCases _collectGoldenCases(string root) {
 // --toolchain path regenerates ONLY the matched case's .zbc instead of all ~333.
 // Both filters empty = the full set (`build test` + gate build-wave — unchanged).
 _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilter) {
-    string[] caseNames    = new string[64];
-    string[] caseSources  = new string[64];
-    string[] caseOutputs  = new string[64];
+    _GoldenEntry[] entries = _walkGoldenCorpus(root);
+    string[] caseNames    = new string[entries.Length];
+    string[] caseSources  = new string[entries.Length];
+    string[] caseOutputs  = new string[entries.Length];
     int      caseCount    = 0;
 
-    // Dir mode part 1: src/tests/<cat>/<name>/source.z42
-    string testsRoot = Path.Join(root, "src/tests");
-    string[] testCats = _enumDirsSorted(testsRoot);
-    int ci = 0;
-    while (ci < testCats.Length) {
-        string cat = testCats[ci];
-        if (_isNonRegenCat(cat)) { ci = ci + 1; continue; }
-        string catDir = Path.Join(testsRoot, cat);
-        string[] names = _enumDirsSorted(catDir);
-        int ni = 0;
-        while (ni < names.Length) {
-            string name = names[ni];
-            string caseDir = Path.Join(catDir, name);
-            string src = Path.Join(caseDir, "source.z42");
-            if (!_e2eIncluded(cat, name, src, dirFilter, fileFilter)) { ni = ni + 1; continue; }
-            if (File.Exists(src)) {
-                // zbc-format: checked-in byte baseline → regen overwrites in place
-                // (git diff = format drift). All other run-goldens redirect to the
-                // artifacts mirror (redirect-golden-zbc-to-artifacts, 2026-06-16).
-                string outPath = "";
-                if (cat == "zbc-format") {
-                    outPath = Path.Join(caseDir, "source.zbc");
-                } else {
-                    string mirrorDir = _goldenArtifactDir(root,
-                        Path.Join(Path.Join("tests", cat), name));
-                    Directory.Create(mirrorDir);
-                    outPath = Path.Join(mirrorDir, "source.zbc");
-                }
-                caseNames   = _append(caseNames,   caseCount, name);
-                caseSources = _append(caseSources, caseCount, src);
-                caseOutputs = _append(caseOutputs, caseCount, outPath);
-                caseCount = caseCount + 1;
-            }
-            ni = ni + 1;
+    int i = 0;
+    while (i < entries.Length) {
+        _GoldenEntry e = entries[i];
+        i = i + 1;
+        if (e.seg == "lib-file") { continue; }   // stdlib [Test] file units — z42b's, not golden
+        if (!e.hasSource) { continue; }
+        if (e.isLib) {
+            // --dir <cat> excludes library golden tests entirely (mirrors _enumerateCasesF).
+            if (dirFilter.Length > 0) { continue; }
+            // Skip [Test]/[Benchmark] dir tests — run by `xtask test stdlib` (z42b),
+            // not golden regen (no Main → no golden output).
+            if (e.hasTestMethods) { continue; }
+            if (fileFilter.Length > 0 && !_e2eIncluded("", e.name, e.src, "", fileFilter)) { continue; }
+        } else {
+            if (_isNonRegenCat(e.cat)) { continue; }
+            if (!_e2eIncluded(e.cat, e.name, e.src, dirFilter, fileFilter)) { continue; }
         }
-        ci = ci + 1;
-    }
-
-    // Dir mode part 2: src/libraries/<lib>/tests/<name>/source.z42
-    string libsRoot = Path.Join(root, "src/libraries");
-    // --dir <cat> excludes library golden tests entirely (mirrors _enumerateCasesF).
-    string[] libs = (dirFilter.Length > 0) ? new string[0] : _enumDirsSorted(libsRoot);
-    int li = 0;
-    while (li < libs.Length) {
-        string libTestsDir = Path.Join(libsRoot, libs[li] + "/tests");
-        if (Directory.Exists(libTestsDir)) {
-            string[] names = _enumDirsSorted(libTestsDir);
-            int ni = 0;
-            while (ni < names.Length) {
-                string name = names[ni];
-                string caseDir = Path.Join(libTestsDir, name);
-                // Skip [Test]/[Benchmark] dir tests — run by `xtask test stdlib`
-                // (z42b), not golden regen (no Main → no golden output). Mirrors
-                // _enumerateCases.
-                if (_dirHasTestMethods(caseDir)) { ni = ni + 1; continue; }
-                string src = Path.Join(caseDir, "source.z42");
-                if (fileFilter.Length > 0 && !_e2eIncluded("", name, src, "", fileFilter)) { ni = ni + 1; continue; }
-                if (File.Exists(src)) {
-                    // run-golden → artifacts mirror (no zbc-format under libraries).
-                    string mirrorDir = _goldenArtifactDir(root,
-                        Path.Join(Path.Join(Path.Join("libraries", libs[li]), "tests"), name));
-                    Directory.Create(mirrorDir);
-                    string outPath = Path.Join(mirrorDir, "source.zbc");
-                    caseNames   = _append(caseNames,   caseCount, name);
-                    caseSources = _append(caseSources, caseCount, src);
-                    caseOutputs = _append(caseOutputs, caseCount, outPath);
-                    caseCount = caseCount + 1;
-                }
-                ni = ni + 1;
-            }
+        // zbc-format: checked-in byte baseline → regen overwrites in place (git diff
+        // = format drift). All other goldens redirect to the artifacts mirror
+        // (redirect-golden-zbc-to-artifacts, 2026-06-16). zbc-format is dir-mode
+        // under src/tests only — never flat, never under libraries.
+        string outPath = "";
+        if (e.seg == "tests-dir" && e.cat == "zbc-format") {
+            outPath = Path.Join(e.dir, "source.zbc");
+        } else {
+            string mirrorDir = _goldenArtifactDir(root, e.relUnderSrc);
+            Directory.Create(mirrorDir);
+            outPath = Path.Join(mirrorDir, e.zbcName);
         }
-        li = li + 1;
-    }
-
-    // Flat mode: src/tests/<cat>/<name>.z42 (one level, not source.z42 in subdir)
-    ci = 0;
-    while (ci < testCats.Length) {
-        string cat = testCats[ci];
-        if (_isNonRegenCat(cat)) { ci = ci + 1; continue; }
-        if (dirFilter.Length > 0 && cat != dirFilter) { ci = ci + 1; continue; }
-        string catDir = Path.Join(testsRoot, cat);
-        string[] entries = Path.Glob(catDir, "*.z42");
-        int ei = 0;
-        while (ei < entries.Length) {
-            string flatPath = entries[ei];
-            if (File.Exists(flatPath)) {
-                string name = Path.GetFileNameWithoutExtension(flatPath);
-                if (fileFilter.Length > 0 && !_e2eIncluded(cat, name, flatPath, dirFilter, fileFilter)) { ei = ei + 1; continue; }
-                // flat run-golden → artifacts mirror (zbc-format is dir-mode only).
-                string mirrorDir = _goldenArtifactDir(root, Path.Join("tests", cat));
-                Directory.Create(mirrorDir);
-                string outPath = Path.Join(mirrorDir, name + ".zbc");
-                caseNames   = _append(caseNames,   caseCount, name);
-                caseSources = _append(caseSources, caseCount, flatPath);
-                caseOutputs = _append(caseOutputs, caseCount, outPath);
-                caseCount = caseCount + 1;
-            }
-            ei = ei + 1;
-        }
-        ci = ci + 1;
+        caseNames[caseCount]   = e.name;
+        caseSources[caseCount] = e.src;
+        caseOutputs[caseCount] = outPath;
+        caseCount = caseCount + 1;
     }
 
     _GoldenCases gc = new _GoldenCases();
@@ -319,7 +253,15 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
 // Categories with no single-source golden .zbc to regenerate: errors / parse
 // expect compile/parse failure (no .zbc), cross-zpkg / multi-exe are multi-
 // package / multi-target project builds handled by their own runners.
-// Distinct from golden's _isNonRunnableCat (cross-zpkg / multi-exe / zbc-format / zpkg-format).
+//
+// Deliberately NOT the same set as the runners' _isNonRunnableCat: this one KEEPS
+// zbc-format / zpkg-format (they are exactly the byte baselines regen must
+// refresh) while the runners drop them (no stdout to diff). That asymmetry is the
+// point, not drift.
+//
+// `errors` / `parse` do not exist under src/tests today — that negative-test corpus
+// evaporated when the C# compiler was removed. The guards stay as the landing pad
+// for restoring it (nothing else here depends on them being live).
 bool _isNonRegenCat(string cat) {
     return cat == "errors" || cat == "parse" || cat == "cross-zpkg" || cat == "multi-exe"
         || cat == "manifest-targets";

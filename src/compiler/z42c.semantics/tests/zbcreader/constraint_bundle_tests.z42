@@ -1,0 +1,142 @@
+// ZbcReader 型参约束 bundle 的**布局对齐**单测（complete-where-constraints PR-A）。
+//
+// 为什么需要手工拼字节而不是走往返：约束 bundle 的 flag 位早已在格式里规约齐全
+// （bit0 class / bit1 struct / bit2 base / bit3 tpRef / bit4 new() / bit5 enum / bit6 funcSig），
+// 但**今天的 ZbcWriter 只写 bit3 + 接口名列表**。于是「writer 置了别的位」这条路径
+// 在往返测试里根本走不到——ZbcReader 曾因此长期漏读 bit2 的 base u32 而无人发现
+// （不炸纯属 writer 恰好不写它）。故这里绕开 writer，直接按格式权威
+// （Rust `type_reader.rs::read_constraint_bundle` / `ZpkgReader._skipConstraintBundle`）
+// 拼出置位的字节，喂给 `ZbcReader.ReadTypeAt` 验证游标不错位。
+//
+// 判据设计：把**约束 bundle 之后**的字段（类级 Interfaces）也填上并断言。少吃/多吃任何
+// 一个字节都会让后续字段读歪 → 用例变红。只断言 bundle 自身是抓不到错位的。
+namespace Z42cIrConstraintBundleTests;
+
+using Std;
+using Std.Test;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+
+// 常量池：索引与下面拼装的 u32 一一对应。
+string[] _pool() {
+    string[] p = new string[5];
+    p[0] = "C"; p[1] = "T"; p[2] = "Base"; p[3] = "IFoo"; p[4] = "IBar";
+    return p;
+}
+
+// TYPE 段体：1 个类 `C`，无基类，无字段，1 个型参 `T`（约束 bundle 由调用方拼），
+// 类级实现 1 个接口 `IBar`。`bundle` 已写好 flags/载荷，整段追加在型参名之后。
+//
+// 布局（ReadTypeAt）：n u32 → [name u32, base u32, fieldCount u16, tpCount u8,
+//   (tpName u32 + bundle)×tpc, attrCount u16, Flags u8, Visibility u8,
+//   staticFieldCount u16, ifaceCount u16 + u32×n, <Flags-gated 块…>, 对象布局块]
+//
+// Flags=0（普通引用类）→ enum(bit5)/接口方法(bit4)/struct(bit2)/内联(bit7) 四个 gated 块都不出现，
+// 但**对象全字段布局块必须写**：条件是 `(Flags & 116) == 0`，即普通类恒有。漏了它 → 读越界。
+byte[] _typeSection(ByteWriter bundle) {
+    ByteWriter w = new ByteWriter();
+    w.WriteU32(1);            // class count
+    w.WriteU32(0);            // name → "C"
+    w.WriteU32(0xFFFFFFFF);   // base → NONE 哨兵（_isNoneU32）
+    w.WriteU16(0);            // field count
+    w.WriteU8(1);             // type-param count
+    w.WriteU32(1);            // type-param name → "T"
+    w.AppendWriter(bundle);   // ← 被测：约束 bundle
+    w.WriteU16(0);            // class attr count
+    w.WriteU8(0);             // Flags（gated 块全关）
+    w.WriteU8(0);             // Visibility
+    w.WriteU16(0);            // static field count
+    w.WriteU16(1);            // 类级接口数
+    w.WriteU32(4);            // → "IBar"
+    w.WriteU32(0);            // 对象布局：ObjectSize
+    w.WriteU16(0);            // 对象布局：字段条目数
+    w.WriteU16(0);            // 对象布局：ref 槽条目数
+    return w.ToBytes();
+}
+
+// 读回后统一断言「型参名 + 类级接口」这两个 bundle 前后的锚点没被冲掉。
+IrClassDesc _readOne(ByteWriter bundle) {
+    IrClassDesc[] cs = ZbcReader.ReadTypeAt(_typeSection(bundle), 0, _pool());
+    Assert.Equal(1, cs.Length);
+    IrClassDesc cd = cs[0];
+    Assert.Equal("C", cd.Name);
+    Assert.Equal(1, cd.TypeParamCount);
+    Assert.Equal("T", cd.TypeParams[0]);
+    // bundle 之后的字段——错位的第一现场。
+    Assert.Equal(1, cd.InterfaceCount);
+    Assert.Equal("IBar", cd.Interfaces[0]);
+    return cd;
+}
+
+// ── bit2 base-class：本次修的漏读 ──────────────────────────────────────────
+
+[Test]
+void test_bit2_base_class_payload_is_consumed() {
+    // flags=bit2 → 载荷 base u32；随后 ifaceCount=1 + "IFoo"。
+    // 漏读 base 的旧实现会把 base 的低字节（=2）当成 ifaceCount → 读 2 个接口 → 全线错位。
+    ByteWriter b = new ByteWriter();
+    b.WriteU8(0x04);
+    b.WriteU32(2);    // "Base"
+    b.WriteU8(1);
+    b.WriteU32(3);    // "IFoo"
+    IrClassDesc cd = _readOne(b);
+    IrConstraintDesc bundle = cd.TypeParamConstraints[0];
+    Assert.Equal(1, bundle.InterfaceCount);
+    Assert.Equal("IFoo", bundle.Interfaces[0]);
+}
+
+[Test]
+void test_bit2_and_bit3_together_keep_read_order() {
+    // 读取序是 base 在前、tpRef 在后（flags → [bit2 base] → [bit3 tpRef] → ifaceCount）。
+    // 两位同时置位可抓「顺序写反」这类回归。
+    ByteWriter b = new ByteWriter();
+    b.WriteU8(0x0C);  // bit2 | bit3
+    b.WriteU32(2);    // base → "Base"
+    b.WriteU32(1);    // tpRef → "T"
+    b.WriteU8(0);     // 无接口
+    IrClassDesc cd = _readOne(b);
+    Assert.Equal("T", cd.TypeParamConstraints[0].TypeParamConstraint);
+    Assert.Equal(0, cd.TypeParamConstraints[0].InterfaceCount);
+}
+
+// ── bit6 funcSig：同款漏读（在接口名列表**之后**） ────────────────────────
+
+[Test]
+void test_bit6_func_signature_payload_is_consumed() {
+    // funcSig 布局：pc u8 + u32×pc + ret u32，位置在 ifaceCount/ifaces 之后。
+    ByteWriter b = new ByteWriter();
+    b.WriteU8(0x40);
+    b.WriteU8(0);     // 无接口
+    b.WriteU8(2);     // 参数 2 个
+    b.WriteU32(2); b.WriteU32(3);
+    b.WriteU32(1);    // ret
+    _readOne(b);      // 锚点断言即判据：funcSig 少吃 13 字节则类级接口读歪
+}
+
+// ── 无载荷位（bit0/1/4/5）：只占 flags，不得多吃字节 ──────────────────────
+
+[Test]
+void test_payloadless_flags_consume_nothing() {
+    // class|struct|new()|enum 四位都无载荷。若哪天误加了读取，锚点会立刻变红。
+    ByteWriter b = new ByteWriter();
+    b.WriteU8(0x33);  // bit0 | bit1 | bit4 | bit5
+    b.WriteU8(1);
+    b.WriteU32(3);    // "IFoo"
+    IrClassDesc cd = _readOne(b);
+    Assert.Equal(1, cd.TypeParamConstraints[0].InterfaceCount);
+    Assert.Equal("IFoo", cd.TypeParamConstraints[0].Interfaces[0]);
+}
+
+// ── 全零 flags：今天 z42c writer 的常见形态，防修复引入回归 ────────────────
+
+[Test]
+void test_plain_interface_only_bundle_still_reads() {
+    ByteWriter b = new ByteWriter();
+    b.WriteU8(0);
+    b.WriteU8(2);
+    b.WriteU32(3); b.WriteU32(4);
+    IrClassDesc cd = _readOne(b);
+    Assert.Equal(2, cd.TypeParamConstraints[0].InterfaceCount);
+    Assert.Equal("IFoo", cd.TypeParamConstraints[0].Interfaces[0]);
+    Assert.Equal("IBar", cd.TypeParamConstraints[0].Interfaces[1]);
+}
