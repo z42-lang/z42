@@ -1276,3 +1276,95 @@ fn unset_config_vars_mean_no_file_layer() {
     assert_eq!(load_runtime_toml(&get), Ok(None));
     assert_eq!(load_app_config(&get), Ok(None));
 }
+
+// ── add-gc-runtime-knobs (2026-09-05) ────────────────────────────────────────
+
+#[test]
+fn gc_max_bytes_accepts_plain_counts_and_binary_suffixes() {
+    let cases: &[(&str, Option<u64>)] = &[
+        ("536870912", Some(536870912)),
+        ("512MB",     Some(512 * 1024 * 1024)),
+        ("512mb",     Some(512 * 1024 * 1024)),
+        ("512 MB",    Some(512 * 1024 * 1024)),
+        ("2G",        Some(2 * 1024 * 1024 * 1024)),
+        ("64k",       Some(64 * 1024)),
+        // Explicitly-unlimited spellings, and the historical "unset" default.
+        ("0",         None),
+        ("unlimited", None),
+        ("none",      None),
+        ("",          None),
+    ];
+    for (raw, want) in cases {
+        let env = fake_env(&[("Z42_GC_MAX_BYTES", raw)]);
+        assert_eq!(parse_gc_max_bytes(&env), *want, "Z42_GC_MAX_BYTES={raw:?}");
+    }
+}
+
+#[test]
+fn gc_max_bytes_rejects_garbage_as_unlimited_rather_than_guessing() {
+    // A wrong budget is worse than none: guessing here would silently change
+    // collection behaviour on a typo.
+    for raw in ["abc", "12x", "1.5GB", "-1", "99999999999999999999G"] {
+        let env = fake_env(&[("Z42_GC_MAX_BYTES", raw)]);
+        assert_eq!(parse_gc_max_bytes(&env), None, "Z42_GC_MAX_BYTES={raw:?}");
+    }
+}
+
+#[test]
+fn bool_knob_honours_falsey_spellings() {
+    for raw in ["0", "false", "FALSE", "off", "no", " ", ""] {
+        let env = fake_env(&[("Z42_GC_TRACE", raw)]);
+        assert!(!parse_bool_knob(&env, "Z42_GC_TRACE"), "{raw:?} must be off");
+    }
+    for raw in ["1", "true", "on", "yes", "anything"] {
+        let env = fake_env(&[("Z42_GC_TRACE", raw)]);
+        assert!(parse_bool_knob(&env, "Z42_GC_TRACE"), "{raw:?} must be on");
+    }
+    let empty = fake_env(&[]);
+    assert!(!parse_bool_knob(&empty, "Z42_GC_TRACE"), "unset must be off");
+}
+
+#[test]
+fn new_gc_knobs_are_registered_in_known_knobs() {
+    let names: Vec<&str> = KNOWN_KNOBS.iter().map(|k| k.name).collect();
+    for required in ["Z42_GC_MAX_BYTES", "Z42_GC_TRACE"] {
+        assert!(names.contains(&required), "{required} missing from KNOWN_KNOBS");
+    }
+}
+
+#[test]
+fn bool_knobs_are_type_checked_one_layer_above_parse_bool_knob() {
+    // `parse_bool_knob` is deliberately permissive ("anything but 0/false/off/no
+    // is on") — the test above pins that. But both bool knobs now declare
+    // `ValueKind::Bool`, so a non-boolean is caught in `resolve_knobs` and never
+    // reaches the parser: it becomes an explicit diagnostic + the default.
+    //
+    // Net effect vs. add-gc-runtime-knobs alone: `Z42_GC_TRACE=ture` (a typo) used
+    // to silently turn tracing ON; it now says "expected a boolean" and stays off.
+    // Deliberate tightening — a typo that silently changes behaviour is worse than
+    // one that is reported.
+    assert_eq!(spec_named("Z42_GC_TRACE").value, ValueKind::Bool);
+    assert_eq!(spec_named("Z42_JIT_PROFILE").value, ValueKind::Bool);
+
+    let c = full_ctx();
+    let (cfg, res) = resolve_all(&[], &[("Z42_GC_TRACE", "ture")], None, None, &c);
+    assert!(!cfg.gc_trace, "a non-boolean must not enable tracing");
+    assert!(res.diagnostics[0].message.contains("expected a boolean"), "{:?}", res.diagnostics[0]);
+
+    // Valid spellings still work end to end.
+    for (raw, want) in [("1", true), ("on", true), ("false", false), ("0", false)] {
+        let (cfg, res) = resolve_all(&[], &[("Z42_GC_TRACE", raw)], None, None, &c);
+        assert_eq!(cfg.gc_trace, want, "Z42_GC_TRACE={raw}");
+        assert!(res.diagnostics.is_empty());
+    }
+}
+
+#[test]
+fn gc_max_bytes_is_a_string_knob_because_it_takes_unit_suffixes() {
+    // Declaring it Int would reject `512MB` at the resolve layer before
+    // parse_gc_max_bytes ever sees it.
+    assert_eq!(spec_named("Z42_GC_MAX_BYTES").value, ValueKind::Str);
+    let (cfg, res) = resolve_all(&[], &[("Z42_GC_MAX_BYTES", "512MB")], None, None, &full_ctx());
+    assert_eq!(cfg.gc_max_bytes, Some(512 * 1024 * 1024));
+    assert!(res.diagnostics.is_empty());
+}

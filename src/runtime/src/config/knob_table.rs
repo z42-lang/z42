@@ -83,6 +83,16 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..INLINE_ENV_INTERNAL
     },
     KnobSpec {
+        name: "Z42_GC_MAX_BYTES",
+        toml_key: "gc-max-bytes",
+        // 不是 Int：接受 `512MB` / `2G` 这类带单位后缀的写法（parse_gc_max_bytes 解析）。
+        value: ValueKind::Str,
+        description: "soft heap budget that ARMS automatic collection; the gc-*-ratio knobs are fractions of it and are inert without it. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
+        default_hint: "unset; NO automatic collection happens at all (collect only on an explicit Std.GC.Collect())",
+        consumed_by: "vm_context/construct.rs (set_max_heap_bytes) → gc/arc_heap/alloc.rs",
+        ..PUBLIC
+    },
+    KnobSpec {
         name: "Z42_GC_MINOR_THRESHOLD",
         toml_key: "gc-minor-threshold",
         value: ValueKind::Float { min: 0.0, max: 1.0 },
@@ -144,6 +154,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         default_hint: "unset; defaults to 0.10",
         consumed_by: "gc/arc_heap/alloc.rs",
         ..TUNING
+    },
+    KnobSpec {
+        name: "Z42_GC_TRACE",
+        toml_key: "gc-trace",
+        value: ValueKind::Bool,
+        description: "print one stderr line per collection (kind, heap used before/after, bytes reclaimed, pause ms) plus near-limit / over-budget edges",
+        default_hint: "unset; off. No observer installed when off (zero cost)",
+        consumed_by: "gc/trace.rs, installed by vm_context/construct.rs",
+        ..PUBLIC
     },
     KnobSpec {
         name: "Z42_JIT_DEBUG_PROMOTE",

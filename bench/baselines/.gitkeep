@@ -1,2 +1,0 @@
-# Placeholder so bench/baselines/ exists in the repo.
-# Real baseline files (main-<os>.json) are gitignored; CI publishes them to gh-pages or release artifacts (P1.D).

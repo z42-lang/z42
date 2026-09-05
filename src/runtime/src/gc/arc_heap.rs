@@ -158,6 +158,14 @@ struct RcHeapInner {
     /// **Phase 3d**: 上次 auto-collect 触发时的 `used_bytes`，用于 throttle
     /// 自动 collect —— 仅当当前 used 距上次增长 >= 10% limit 才再次自动触发。
     last_auto_collect_used: u64,
+    /// add-gc-runtime-knobs (2026-09-05): `stats.reclaimed_bytes` as of the last
+    /// auto-collect trip. The delta since tells `maybe_auto_collect` whether the
+    /// previous collection actually bought room — see `auto_collect.rs`.
+    last_auto_collect_reclaimed: u64,
+    /// Multiplier on the auto-collect growth gate. Doubles on each unproductive
+    /// collection (capped), resets to 1 on a productive one, so an over-budget
+    /// live set stops re-collecting forever.
+    auto_collect_backoff: u32,
     /// **Phase 3-OOM**: strict OOM 模式开关。true 时 alloc 越界返回 Value::Null
     /// 不入 registry / 不 bump used_bytes（撤销分配）；false（默认）兼容历史
     /// 行为：alloc 仍成功，只 fire 事件。
@@ -189,6 +197,7 @@ impl std::fmt::Debug for RcHeapInner {
             .field("pause_count",       &self.pause_count)
             .field("near_limit_warned", &self.near_limit_warned)
             .field("last_auto_collect_used", &self.last_auto_collect_used)
+            .field("auto_collect_backoff", &self.auto_collect_backoff)
             .finish()
     }
 }
@@ -326,6 +335,13 @@ pub struct ArcMagrGC {
     /// (z42 typical 1-2 mutators); lock-free upgrade is a deferred
     /// perf spec. Stays empty when mode == StwMarkSweep.
     mark_queue: Mutex<Vec<Value>>,
+    /// **investigate-concurrent-gc-stale-mark-race 3.2a (2026-09-04)**:
+    /// marking-period allocate-black. True for exactly the span of a
+    /// `ConcurrentMarkSweep` cycle in which mutators can be running; every
+    /// allocation made while it is set is born `marked = 1`. See
+    /// [`super::arc_heap::alloc_black`] for why this exists, why the span must
+    /// include `Marking`, and what it costs.
+    alloc_black: std::sync::atomic::AtomicBool,
     /// **add-gc-pause-histogram (2026-05-22)**: aggregate pause-time
     /// histogram. Recorded into at the end of every `collect_cycles` /
     /// `collect_cycles_with_context` / `force_collect` path, right
@@ -388,40 +404,6 @@ pub struct ArcMagrGC {
 /// `1` so `0` stays the "no ambient heap" sentinel ([`crate::gc::ambient::current_heap_epoch`]).
 static NEXT_HEAP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-/// **add-concurrent-gc P0 (2026-05-22)**: manual `Default` impl so the
-/// `mode` field is initialized from `GcMode::from_env()` (reads
-/// `Z42_GC_MODE`). Other fields fall back to their own `Default`.
-impl Default for ArcMagrGC {
-    fn default() -> Self {
-        Self {
-            inner: Mutex::new(RcHeapInner::default()),
-            external_root_scanner: Mutex::new(None),
-            context_reclaimer: Mutex::new(None),
-            categorized_root_scanner: Mutex::new(None),
-            external_needs_collect: Mutex::new(None),
-            mode: std::sync::atomic::AtomicU8::new(super::GcMode::from_env() as u8),
-            region_object: Mutex::new(super::region::Region::new()),
-            region_array:  Mutex::new(super::region::Region::new()),
-            region_var:    Mutex::new(VarRegion::with_drop_glue(var_drop_glue)),
-            mark_queue: Mutex::new(Vec::new()),
-            pause_histogram: Mutex::new(super::types::PauseHistogram::default()),
-            #[cfg(test)]
-            barrier_observer: Mutex::new(None),
-            #[cfg(debug_assertions)]
-            debug_stw_no_push: std::sync::atomic::AtomicBool::new(false),
-            // fix-wasm-string-ops: claim a fresh, never-reused epoch for this heap.
-            epoch: NEXT_HEAP_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            // add-gc-tlab (option B): live counters start at 0 (no allocations yet).
-            used_bytes: std::sync::atomic::AtomicU64::new(0),
-            allocations: std::sync::atomic::AtomicU64::new(0),
-            // add-gc-tlab (stage 2): mirrors of inner config, defaults match
-            // `RcHeapInner::default` (strict_oom=false, no limit, no sampler).
-            strict_oom_atomic: std::sync::atomic::AtomicBool::new(false),
-            max_bytes_atomic: std::sync::atomic::AtomicU64::new(u64::MAX),
-            sampler_active: std::sync::atomic::AtomicBool::new(false),
-        }
-    }
-}
 
 /// **add-write-barriers (2026-05-21)**: discriminant for a single
 /// barrier dispatch event captured by [`BarrierObserver`]. Used by
@@ -471,6 +453,9 @@ impl std::fmt::Debug for ArcMagrGC {
 // 每个子模块以 `impl ArcMagrGC` 承载一组职责的 inherent 方法；跨模块调用的方法标
 // `pub(super)`（arc_heap 子树内可见）。GC 公共 trait 接口在 `interface.rs`（薄委托）。
 mod alloc;
+mod alloc_black;
+mod construct;
+mod auto_collect;
 mod collect;
 mod control;
 mod generational;

@@ -205,6 +205,18 @@ public sealed class MemberCollector {
                 // add-partial-types：decl-only partial method → 擦除（无实现即不存在，不注册桩/体）。
                 if (md.IsPartial && !md.HasBody) {
                     // 擦除：跳过注册。若某碎片有实现，其 impl 会在自己的碎片正常注册。
+                    // unify-regkey-source-of-truth：虽不注册，仍登记键——消费方（TSIG 导出 /
+                    // 暴露检查）要问的是「这个声明该解析到哪个键」，答案正是实现碎片注册的那个。
+                    // 两侧键为何一致（`emittedInst` tracker 是 per-碎片的，故要分开看）：
+                    //   · 静态：上面 `mst && !staticVirtual` 分支照常算全签名 MangleKey —— 只依赖签名，
+                    //     与在哪个碎片、前面有没有同名兄弟都无关 → 必然相同。
+                    //   · 实例：`tracks` 为 false → primary 决议整块跳过 → 恒裸 md.Name；实现碎片里该名
+                    //     若是首个声明也拿裸键 → 相同。**同名重载分处两碎片时不成立**，但那本就是
+                    //     partial v1 的既有限制（重载须同碎片，见 partial-types.md「边界与限制」+
+                    //     src/tests/partial-types/partial_protocol_overload.z42），不由本变更引入。
+                    // unify-regkey-phase2：读侧回落删除后，**本行是这类方法唯一的键来源**——删了它
+                    // MethodKeyOf 会抛。跨-CU 场景由 src/tests/cross-zpkg/partial_crosscu_export 守住。
+                    md.RegKey = regName;
                 } else {
                     // add-partial-types / fix-partial-protocol-overload-e0433：partial 跨/同碎片重复成员检测。
                     // 只在【完整签名相同】时报 E0433——真重复。协议豁免重载（Equals(object?)/Equals(string) 等
@@ -216,9 +228,9 @@ public sealed class MemberCollector {
                         this._sc.Diags.Error(DiagnosticCodes.PartialDuplicateMember,
                             "partial type `" + c.Name + "` defines member `" + md.Name + "` in more than one fragment", md.Span);
                     }
-                    msym.RegKey = regName;
-                    md.RegKey = regName;          // 单一真相源：body 绑定 / IrGen / 导出 / 派发全复用此键
-                    ct.Methods.Put(regName, msym);
+                    // unify-regkey-source-of-truth：注册走单一入口——算键与写键绑死，
+                    // 结构上不可能「注册了却没填 RegKey」（旧代码里 _passImpls 正是这么漏的）。
+                    SymbolCollector.RegisterMethod(ct, md, msym, regName);
                     // add-user-conversions ②：声明期冲突检测（同 (源→目标) 重复 / implicit+explicit 同对 → E0440）。
                     if (SymbolCollector._isConvOp(md.Name) && mst && msym.Signature.ParamCount == 1) {
                         string srcN = Z42Type.Canon(msym.Signature.ParamTypes[0].Name());

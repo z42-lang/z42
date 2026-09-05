@@ -116,11 +116,63 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 **格式**：一次性迁移 bump zbc 1.37→1.38 / zpkg 0.42→0.43，`ci-bootstrap` 版本差 gate 走两代自举吸收（gen1==gen2 字节不动点）。此后加/删重载永久 additive、不再 bump。设计全文（含泛型 H2/H3/H5 降为前向守卫、D4a 决议优先级）见变更归档 `docs/spec/archive/…-stabilize-instance-dispatch-keys`。
 
+#### 注册键的单一 owner（写侧唯一入口 + 读侧不变量）
+
+上一节那套键规则，此前**被手抄了 7 份**（`ClassExtractor` ×2 / `DeclBinder` ×3 / `IrGenTypeEmitter` / `IrGenMemberEmitter`），每份都长这样：「先试 `md.RegKey`，空则试 `Name$arity`，再空则退回裸名」。#414 改键规则时漏同步其中一份（祖先方法的 TSIG 导出），拿错 symbol 后越界，gen2 z42c 建 `z42.core` 直接崩——**那次返工的直接成因就是这份复制**。
+
+收敛成两个口子，各自只有一个实现：
+
+| 方向 | 唯一实现 | 职责 |
+|------|---------|------|
+| **写** | `SymbolCollector.RegisterMethod(ct, md, sym, key)` | `sym.RegKey = key` + `md.RegKey = key` + `ct.Methods.Put(key, sym)` 三件事绑成一个动作 → 结构上不可能「注册了却没填键」（旧 `InheritanceResolver._passImpls` 正是只 `Put` 不写，害得 impl-block 方法的 `RegKey` 恒空、逼出上面那圈兜底） |
+| **读** | `OverloadResolver.MethodKeyOf(md)` | 直接返回 `md.RegKey`；**为空即抛**，不再按名字猜 |
+
+**为什么读侧宁可抛也不回落**：猜出来的裸名在 primary/非-primary 规则下可能恰好命中**另一个同名重载**（primary 才是裸键）——编译成功、跑起来才派发错人。派发缺陷的典型失败模式就是这种「静默派发到错误目标」，编译期炸出调用栈远好过运行期查半天。
+
+**不变量**：凡进入语义层的 class/struct/impl 方法，`RegKey` 必非空。两类容易误判为反例的：
+
+- **impl-block 方法**：不参与 primary/非-primary，恒用裸名（并入需 rekey + 格式 bump，是独立的语义扩展）；由 `_passImpls` 走写侧入口补齐。
+- **被擦除的 decl-only partial**：它自己不注册符号，但 `MemberCollector` 的擦除分支**照样写键**——消费方（TSIG 导出 / 暴露检查）要问的是「该解析到哪个键」，答案正是实现碎片注册的那个。两侧键一致：静态走全签名 mangle（只依赖签名）；实例恒裸名（decl-only 不进 primary tracker）。**同名重载分处两碎片时不成立**，但那是 partial v1 的既有限制（重载须同碎片）。
+
+回归守卫：`src/tests/cross-zpkg/partial_crosscu_export/`（跨-CU partial 的导出面）+ `src/tests/partial-types/partial_static_method.z42`（`static partial`）。
+
 ### IR 生成（IrGen）
 
 Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 `Class.Method`（类方法）或函数名（顶层函数）为键。
 
 代码生成只依赖 `SemanticModel` 这一接口，与前端类型检查解耦。观察：`--dump-ir`。
+
+#### 字节布局表（StructLayout）是包级单例，不随 CU 重建
+
+`StructLayout`（struct blob 布局 / class 合成内联布局 / 对象全字段布局）由
+`StructLayout.BuildFromSymbols(symbols)` **一次性全量预计算**：先抽符号表里每个类型的
+`OwnFieldNames`/`OwnFieldSpellings`，再依次填满 `_cache`（struct）、`_inlineCache`、
+`_objectCache` 三张表。ClassDescBuilder（写 zbc 布局块）与 ExprEmitter/AccessEmitter/
+PatternEmitter（烘焙 `struct_fget_prim` 等指令的立即数 offset）**同源查这一张表** → 写侧与
+读侧偏移必然一致。
+
+这张表的输入只有 `SymbolTable.Classes` / `SymbolTable.Interfaces`，二者是**包级**数据：
+
+- 唯一的写入口 `Z42ClassType.AddOwnField` 只在 `SymbolCollector`（本包源码）与
+  `ImportedSymbolLoader`（跨包导入符号）阶段调用，二者都在 per-file 编译循环**之前**跑完；
+  `TypeChecker.Infer` / `IrGen.Generate` 全程不写。
+- 每个 CU 拿到的 `model.Symbols` 是 `SymbolTable.WithAliases` 的**浅拷贝视图**——只换
+  `CurrentAliases`，`Classes`/`Interfaces` 与包级表**共享同一引用**。
+
+所以「逐 CU 各建一份」与「整包建一份」结果恒等。故布局表由 `IrDump.BuildPackageCus`
+在 per-file 循环前算一次，经 `CuCompile._compileCu` 注入 `IrGen.Layouts`；`IrGen.Generate`
+只在**未注入**时（单文件 `--dump-ir` / 单测路径）自行计算。
+
+> **为什么这不是可有可无的微优化**：此前每个 CU 都要把**整包 + 全部导入符号**的布局重算一遍
+> ——编译 `z42c.semantics`（95 个文件）就是重建 95 次，实测占该编译总指令数的 31.8%。
+> 提出循环后指令数 165.0 G → 114.7 G（−30.5%）、峰值 RSS 2.96 GB → 1.42 GB（−52%），
+> 产物逐字节不变。
+
+**并行安全的前提是「预计算后只读」**，改动这张表时必须守住：`LayoutOf` 对 `_defs` 里的键
+必命中 `_cache`（预计算已填满），缺失的键返回**不入缓存**的空布局；`InlineLayoutOf` /
+`ObjectLayoutOf` 纯查表。即 per-file 循环（`ParallelFor` 并行段）里没有任何一条路径会写这
+三张表。若日后新增惰性计算路径，要么在 `BuildFromSymbols` 里一并预计算，要么退回 per-CU
+建表——不能让并行 worker 共享一张会被写的表。
 
 #### try/catch/finally 的控制流下沉（finally 非局部退出）
 

@@ -52,16 +52,9 @@ TargetTooling _prepFixtureTooling(string root, bool noBuild) {
     t.Vm = _builtVm(root, "release");
     t.DriverZpkg = _driverZpkg(root);
     t.Libs = _assembleAllLibs(root, "release");
-    t.BuilderZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    t.BuilderZpkg = _toolchainZpkg(root, _z42bToml());
     Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
-    int bc = _exec(new Process(t.Vm).Arg(t.DriverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg("src/toolchain/builder/core/z42.builder.z42.toml").Arg("--release")
-        .Env("Z42_LIBS", t.Libs).WorkingDirectory(root));
-    if (bc != 0) { return t; }
-    if (!File.Exists(t.BuilderZpkg)) {
-        ConsoleError.WriteLine("error: z42.builder.zpkg not found at " + t.BuilderZpkg);
-        return t;
-    }
+    if (_buildZ42bWith(root, t.Vm, t.DriverZpkg, t.Libs) != 0) { return t; }
     t.Ok = true;
     return t;
 }

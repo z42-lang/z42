@@ -112,7 +112,7 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
         "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml",
         "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml",
         "src/toolchain/launcher/core/z42.launcher.z42.toml",
-        "src/toolchain/builder/core/z42.builder.z42.toml",
+        _z42bToml(),
         // devtools (z42d): scaffold placeholder — subcommand prints "planned" but
         // builds+publishes through the same path. interactive (z42i) is built
         // separately below (after z42.repl) since it depends on z42.repl.
@@ -137,7 +137,7 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     string apphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
     // z42b zpkg from its toml (SoT: no hardcoded path — _toolchainZpkg = [build]
     // dist_dir cascade + project.name). z42b publishes itself deploy-only (no recompile).
-    string z42bZpkg = _toolchainZpkg(root, "src/toolchain/builder/core/z42.builder.z42.toml");
+    string z42bZpkg = _toolchainZpkg(root, _z42bToml());
     // `z42` = apphost stub patched to run programs/launcher/launcher.zpkg.
     c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/launcher/core/z42.launcher.z42.toml", rid, _pkgStageDir(root, "launcher"));
     if (c != 0) { return c; }
@@ -147,7 +147,7 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     if (c != 0) { return c; }
     Console.WriteLine("      ✓ staged z42c/ (bin/z42c apphost + programs/z42c/z42c.driver.zpkg + siblings)");
     // bin/z42b = apphost trampoline → programs/z42b/z42.builder.zpkg.
-    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/builder/core/z42.builder.z42.toml", rid, _pkgStageDir(root, "z42b"));
+    c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, _z42bToml(), rid, _pkgStageDir(root, "z42b"));
     if (c != 0) { return c; }
     Console.WriteLine("      ✓ staged z42b/ (bin/z42b apphost + programs/z42b/z42.builder.zpkg)");
     // bin/z42d = apphost trampoline → programs/z42d/z42.devtools.zpkg (scaffold).

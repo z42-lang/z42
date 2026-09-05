@@ -1,0 +1,16 @@
+namespace Demo.PCalcApp;
+
+using Std.IO;        // Console（z42.io）
+using Demo.PCalc;
+using Demo.PCalcExt;
+
+// 直接调用（一层跨包）+ 经 demo.pcalcext 调用（两层跨包）两条路径都要通：
+// 两者都只能看见 demo.pcalc 的 TSIG，而 Double/Triple 的声明碎片在那边被擦除。
+void Main() {
+    var c = new Calc();
+    Console.WriteLine(c.Double(2).ToString());                  // 4
+    Console.WriteLine(c.Quad(5).ToString());                    // Double(Double(5)) = 20
+    Console.WriteLine(Calc.Triple(3).ToString());               // 9
+    Console.WriteLine(Helper.DoubleThenQuad(3).ToString());     // Quad(6) = 24
+    Console.WriteLine(Helper.TripleTwice(2).ToString());        // Triple(Triple(2)) = 18
+}

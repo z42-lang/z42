@@ -75,6 +75,28 @@ graph LR
 `test-host` 正是先经 bootstrap 集中构建、再 `test all --no-build` 消费的形态。
 JIT 一致性不在本地默认路径内，由 CI `test-vm-jit` 专腿覆盖（本地可用 `test e2e --mode jit` 手动跑）。
 
+### stage 耗时归因（无条件输出）
+
+每个 stage 结束时打印自身墙钟，gate 末尾再给一张**降序**表 + 占比：
+
+```
+── stage wall-clock (降序) ──
+  build wave (debug vm + regen)                   2m47s  (47%)
+  stdlib [Test]                                   1m23s  (23%)
+  compiler                                        51.7s  (14%)
+  ...
+  TOTAL                                           5m52s
+```
+
+**为什么无条件打印**（而不是挂在 `-v diagnostic` 下）：`_procStart` / `_procEnd` 的耗时只在
+verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity —— 于是 `xtask test` 在 CI 日志里是个黑盒，
+只有一个总时长；想知道「哪个 stage 吃掉了墙钟」必须本地复现或调高 verbosity 重跑一次。
+stage 数是个位数、边界天然清晰，多打 N 行的成本远低于「排查 CI 变慢得先重跑一次」的成本。
+**构建波也计入**——它常是最大的一块（上例占 47%），不计的话各 stage 之和对不上 TOTAL，反而误导。
+
+实现：`StageLogZ` + `_stageStart` / `_stageEnd` / `_stageSummary`（`scripts/test/xtask_test.z42`），
+时长格式化 `_fmtDur`（`scripts/common/xtask_common.z42`）。
+
 ### 单 stage / `--no-build`：手动缩窄
 
 直接跑单个 stage（`test e2e --dir <cat>` / `--file <p>`、`test stdlib <lib>`、`test compiler`）

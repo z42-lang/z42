@@ -20,18 +20,20 @@ sealed class CompileCuTask : IParallelBody {
     StrMap _classNs; StrMap _localClasses; bool _isRelease;
     StrMap _partialMerged; int _optSet; IrModule[] _cached;
     ExportedFuncZ[] _allFuncs; int _afc; StrMap _pkgClassMap;
+    StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读共享）
     CompiledModuleZ[] _r;
     public CompileCuTask(CompilationUnit[] cus, string[] files, SymbolTable symbols,
                          DependencyIndex deps, ImportedSymbols imported,
                          StrMap classNs, StrMap localClasses, bool isRelease,
                          StrMap partialMerged, int optSet, IrModule[] cached,
                          ExportedFuncZ[] allFuncs, int afc, StrMap pkgClassMap,
-                         CompiledModuleZ[] r) {
+                         StructLayout layouts, CompiledModuleZ[] r) {
         this._cus = cus; this._files = files; this._symbols = symbols;
         this._deps = deps; this._imported = imported;
         this._classNs = classNs; this._localClasses = localClasses; this._isRelease = isRelease;
         this._partialMerged = partialMerged; this._optSet = optSet; this._cached = cached;
         this._allFuncs = allFuncs; this._afc = afc; this._pkgClassMap = pkgClassMap;
+        this._layouts = layouts;
         this._r = r;
     }
     public void Run(int i) {
@@ -43,7 +45,8 @@ sealed class CompileCuTask : IParallelBody {
             this._r[i].DiagMsgs = new string[0]; this._r[i].DiagCount = 0;
         } else {
             this._r[i] = CuCompile._compileCu(this._cus[i], this._files[i], this._symbols, this._deps,
-                this._imported, this._classNs, this._localClasses, this._isRelease, this._partialMerged, this._optSet);
+                this._imported, this._classNs, this._localClasses, this._isRelease, this._partialMerged,
+                this._optSet, this._layouts);
         }
         CuPreprocess._enforceFileScope(this._cus[i], this._files[i], this._r[i]);   // 跨包未-using 报错
         string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
@@ -209,9 +212,21 @@ public static class IrDump {
         // parallelize-package-compile ★②：per-file typecheck+codegen 并行（同层前置已冻结共享态：
         // symbols 数据字段只读 + 约束已 hoist + 别名 per-file 视图）。每项写 r[i]，确定性。
         // 并行度 ParallelConfig.Jobs（--jobs / CpuCount）；jobs<=1 串行内联（逃生舱 / 调试）。
+        // perf-layouts-once：struct/class 字节布局表只依赖 symbols.Classes/Interfaces（包级、此后只读——
+        // AddOwnField 仅在 SymbolCollector/ImportedSymbolLoader 阶段写，Infer/Generate 不写），且 IrGen
+        // 拿到的 `model.Symbols` 是 WithAliases 浅拷贝、与此处共享同一 Classes/Interfaces ⇒ 逐 CU 重建
+        // 结果恒等。故整包算一次注入（此前 count 个 CU 各重建一遍整包符号表布局）。预计算后全部访问器
+        // 只读（LayoutOf 对 _defs 内键必命中缓存，缺失键返回不入缓存的空布局）⇒ 并行段共享安全。
+        // 全 cached（增量命中）时无 CU 走 codegen → 不建，保持零开销。
+        bool _anyFresh = false;
+        int _cf = 0;
+        while (_cf < count) { if (cachedModules == null || cachedModules[_cf] == null) { _anyFresh = true; } _cf = _cf + 1; }
+        StructLayout layouts = null;
+        if (_anyFresh) { layouts = StructLayout.BuildFromSymbols(symbols); }
         CompiledModuleZ[] r = new CompiledModuleZ[count];
         CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported, classNs,
-            localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap, r);
+            localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
+            layouts, r);
         ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
         // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。

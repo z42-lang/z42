@@ -42,33 +42,14 @@ int _testMultiExeImpl(string mode) {
     // assertions + overflow-checks coverage on real execution; compiling on debug adds
     // no coverage). One fixture here, so the win is small — but it keeps the harness
     // consistent and trims every test-host leg (multi-exe isn't skipped on any leg).
-    string tc = _toolchainDir(root);
-    string stdlibDist;
-    string driverHome;
-    string compileVm;
-    string runVm;
-    if (tc.Length > 0) {
-        stdlibDist = _toolchainLibs(tc);
-        driverHome = _toolchainDriverHome(tc);
-        compileVm = _toolchainVm(tc);
-        runVm = compileVm;                        // toolchain ships release vm only
-    } else {
-        stdlibDist = _libsDir(root);
-        driverHome = _assembleDriverHome(root);
-        runVm = _builtVm(root, "debug");
-        compileVm = _builtVm(root, "release");
-        if (!File.Exists(compileVm)) { compileVm = runVm; }   // rare local fallback
-    }
-    if (driverHome.Length == 0) {
-        ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist)");
-        ConsoleError.WriteLine("       Build it via: ./xtask test compiler  (or build stdlib)");
-        return 1;
-    }
-    string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
-    if (!File.Exists(compileVm) || !File.Exists(runVm)) {
-        ConsoleError.WriteLine("error: z42vm not found (compile=" + compileVm + " run=" + runVm + ")");
-        return 1;
-    }
+    // 与 cross-zpkg 共用 _resolveToolset（scripts/common/xtask_toolset.z42）——
+    // 这两处此前是逐字相同的两份拷贝。
+    ToolsetZ ts = _resolveToolset(root);
+    if (!ts.Ok) { return 1; }
+    string stdlibDist = ts.StdlibDist;
+    string compileVm  = ts.CompileVm;
+    string runVm      = ts.RunVm;
+    string driverZpkg = ts.DriverZpkg;
 
     string[] names = _enumDirsSorted(testsDir);
     int pass = 0;

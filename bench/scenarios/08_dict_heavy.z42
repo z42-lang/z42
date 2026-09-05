@@ -8,6 +8,7 @@
 // Insert N entries, then do M lookups (mostly hits, some misses),
 // summing found values for a deterministic checksum.
 // Expected output (deterministic): 24656667
+// tier: gate — 字典 string-key hash + Equals 探测
 namespace Bench.DictHeavy;
 
 using Std.IO;

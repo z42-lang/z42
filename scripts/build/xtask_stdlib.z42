@@ -257,6 +257,26 @@ int _stageToolchain(string dest) {
     string xtDst = Path.Join(dest, "artifacts/xtask");
     Directory.Create(xtDst);
     _copyIfExists(_xtaskZpkg(root), Path.Join(xtDst, "xtask.zpkg"));
+    // 5. z42b（z42.builder.zpkg）—— 单-target 执行器（unify-test-pipeline-z42b）。
+    //
+    // 为什么必须进这个 artifact：`test embedded` / `test platform {ios,android}`
+    // 都经 _z42bDevice 调 z42b，而消费方（tier-2 的 test-ios/test-android 等）只
+    // 跑 xtask-bootstrap-artifact —— 它只还原 stdlib + z42c + xtask。此前 z42b 既
+    // 不在 artifact 里、CI 也从没有一个 `build toolchain` 步骤去建它，于是那些 job
+    // 恒定死在 `error: z42b (z42.builder.zpkg) not built`。因为 tier-2 是 nightly-only
+    // （PR 上 skip），这个洞在 nightly 里连红了很多晚都没人看见。
+    // 建一次、随 artifact 分发给所有消费方，比让每个 job 各自 `build toolchain` 便宜得多
+    // （后者还要重编 workload + apphost stub + 4 个 apphost publish）。
+    int zc = _ensureZ42b(root); if (zc != 0) { return zc; }
+    string bDst = Path.Join(dest, "artifacts/build/toolchain/builder");
+    Directory.Create(bDst);
+    string bSrc = Path.GetDirectoryName(_toolchainZpkg(root, _z42bToml()));
+    string[] bFiles = Path.Glob(bSrc, "*");
+    int bi = 0;
+    while (bi < bFiles.Length) {
+        _copyIfExists(bFiles[bi], Path.Join(bDst, Path.GetFileName(bFiles[bi])));
+        bi = bi + 1;
+    }
     Console.WriteLine("staged toolchain -> " + dest);
     _procEnd("build stage-toolchain", sw);
     return 0;

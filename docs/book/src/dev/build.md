@@ -105,6 +105,34 @@ xtask 驱动 z42c（`z42vm z42c.driver --mode <m>`）编 stdlib / 自建 z42c / 
 > 引入：change `consolidate-z42c-invocations`（§2.1 收敛调用面 → B 步翻默认 jit）；证据链（benchmark +
 > 4 平台字节一致）见 `docs/xtask_review.md` 附录 A。
 
+### Rust 构建 ↔ z42c 产物：一条被刻意切断的构建期环
+
+`src/runtime/build.rs` 会用 z42vm + z42c 把两个 `.z42` 测试 fixture 编成 `.zbc`，并 emit
+`--cfg z42_have_z42c` / `z42_have_embedding_hello` 给约 10 个 Rust 测试当开关。为此它需要
+`rerun-if-changed=<z42c.driver.zpkg>`——于是构建期出现一个**环**：
+
+```
+z42vm (Rust) ──要它才能跑──> z42c ──产出──> z42c.driver.zpkg
+     ↑                                            │
+     └────── build.rs rerun-if-changed ───────────┘
+```
+
+环本身不致命（build script 读任意文件是允许的），**致命的是 mtime 语义**：
+`xtask build compiler` 每轮都重写 `z42c.driver.zpkg` → 下一次 cargo 判定 build script 陈旧
+→ 整个 crate graph（lib `z42` → `z42vm` → 各 cdylib）**全量重编**。
+
+实测（2026-09-05，fix-build-rs-zpkg-invalidation）：warm 树上仅 `touch` 一下 driver.zpkg，
+release 重编就要 **62s**；`xtask build compiler` 的 92s 里 62s 是它。debug 只 ~3.5s（无优化），
+故只在 release 上致命——而 CI 的 `ci-bootstrap` 走的正是 release，一次 run 有 7 个 job 各踩一次。
+
+**处置**：整块由 cargo feature **`z42-test-fixtures`** 门控，**默认关闭**。普通 `cargo build`
+根本不声明这条依赖 → 环在非测试路径上断开（`build compiler` 92s → **31s**，cargo 步 61.7s → 0.12s）。
+只有 `xtask test runtime`（= CI 的 Rust 单测步骤，也是全仓唯一的 `cargo test` 调用点）显式带上
+该 feature 时才接上，被门控的 10 个测试照跑，覆盖面不变。
+
+> 一般教训：**不要让「纯测试便利设施」进入所有人的构建关键路径**。build script 里对
+> 「本构建系统自己会重写的文件」声明 `rerun-if-changed`，等于给每一轮构建都埋一次全量重编。
+
 ### strict-pin：为什么改格式必须 bump 版本 + regen
 
 z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`src/runtime/src/metadata/zbc_reader/`）

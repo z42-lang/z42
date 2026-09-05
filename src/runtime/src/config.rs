@@ -99,6 +99,18 @@ pub struct RuntimeConfig {
     /// which SoftHandle refs become GC-eligible. Falls back to 0.80 on
     /// missing / invalid.
     pub gc_soft_threshold: f64,
+    /// `Z42_GC_MAX_BYTES` — soft heap budget that **arms auto-collect**
+    /// (add-gc-runtime-knobs, 2026-09-05). `None` (the historical default) means
+    /// *no automatic collection ever happens*: `maybe_auto_collect` bails out
+    /// while this is unset, so a long-running program grows until it exits.
+    /// The three ratios below are fractions of this budget and are inert
+    /// without it. Accepts `512MB` / `2G` / a plain byte count.
+    pub gc_max_bytes: Option<u64>,
+    /// `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs,
+    /// 2026-09-05): one line per cycle with kind, heap used before/after,
+    /// bytes reclaimed and pause µs. Any non-empty value except `0`/`false`
+    /// turns it on. Off = zero cost (no observer installed).
+    pub gc_trace: bool,
     /// `Z42_GC_NEAR_LIMIT_RATIO` (0.0–1.0) — heap-used fraction of the
     /// max-bytes limit at/above which the allocator trips an auto-collect
     /// and fires `NearHeapLimit`. Falls back to 0.90; clamped to `[0,1]`.
@@ -165,6 +177,8 @@ impl Default for RuntimeConfig {
             gc_minor_threshold: 0.75,
             gc_pause_window: 1024,
             gc_soft_threshold: 0.80,
+            gc_max_bytes: None,
+            gc_trace: false,
             gc_near_limit_ratio: 0.90,
             gc_pressure_ratio: 0.75,
             gc_throttle_ratio: 0.10,
@@ -250,13 +264,18 @@ impl RuntimeConfig {
             gc_minor_threshold:  parse_gc_minor_threshold(&get),
             gc_pause_window:     parse_gc_pause_window(&get),
             gc_soft_threshold:   parse_gc_soft_threshold(&get),
+            gc_max_bytes:        parse_gc_max_bytes(&get),
             gc_near_limit_ratio: parse_gc_ratio(&get, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
             gc_pressure_ratio:   parse_gc_ratio(&get, "Z42_GC_PRESSURE_RATIO",   0.75),
             gc_throttle_ratio:   parse_gc_ratio(&get, "Z42_GC_THROTTLE_RATIO",   0.10),
             safepoint_throttle:  parse_safepoint_throttle(&get),
             native_search_paths: parse_native_search_paths(&get),
-            // Real boolean parse — see the field doc for the divergence this fixed.
-            jit_profile:         get("Z42_JIT_PROFILE").and_then(|s| parse_bool(&s)).unwrap_or(false),
+            // 两个 bool 旋钮共用 add-gc-runtime-knobs 引入的 `parse_bool_knob`。
+            // 它对"非 0/false/off/no 即真"是宽松的，但两者都声明了
+            // `ValueKind::Bool`，非布尔字符串在 `resolve_knobs` 就被判 Invalid +
+            // 诊断、根本到不了这里——宽松与严格在这条链上不冲突。
+            gc_trace:            parse_bool_knob(&get, "Z42_GC_TRACE"),
+            jit_profile:         parse_bool_knob(&get, "Z42_JIT_PROFILE"),
             mode:                get("Z42_MODE"),
             sample_hz:           parse_sample_hz(&get),
             sample_out:          get("Z42_SAMPLE_OUT").map(PathBuf::from)

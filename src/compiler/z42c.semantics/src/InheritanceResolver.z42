@@ -30,7 +30,12 @@ public sealed class InheritanceResolver {
                     while (m < implD.MethodCount) {
                         if (implD.Methods[m] is MethodDecl) {
                             MethodDecl md = implD.Methods[m] as MethodDecl;
-                            target.Methods.Put(md.Name, this._sc._methodSymbol(table, md, targetName, new string[0], 0));
+                            // unify-regkey-source-of-truth：走单一注册入口。此处原先只 Put、
+                            // **不写 md.RegKey** —— impl-block 方法的 RegKey 因此恒为空串，
+                            // 逼得所有消费点挂「退回裸名」兜底。键仍是裸 md.Name（impl 方法不参与
+                            // primary/非-primary），与兜底算出的值逐字相同 → 字节中性。
+                            SymbolCollector.RegisterMethod(target, md,
+                                this._sc._methodSymbol(table, md, targetName, new string[0], 0), md.Name);
                             target.AddOwnMethod(md.Name, this._sc._hasWord(md.Mods, "virtual"), false);
                         }
                         m = m + 1;

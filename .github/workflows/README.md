@@ -9,9 +9,8 @@
 | 文件 | 触发条件 | 职责 |
 |------|---------|------|
 | `ci.yml` (job: `build-and-test`) | `pull_request` 到 main / `push` 到 main | linux/macos/windows 三平台跑 `just build` + `just test`（Windows 退化为 smoke test） |
-| `bench-pr.yml` (job: `bench-regression`) | `pull_request` 到 main（perf 敏感路径，仅 ubuntu） | 全量 `xtask bench` → diff `bench-baselines` 基线，>10% 时间回归即 fail（gating）。前身 ci.yml `bench-e2e`（informational `--quick`）于 2026-07-16 删除（review §3.2 二留一）|
+| `bench-pr.yml` (job: `bench-regression`) | `pull_request` 到 main（perf 敏感路径，仅 ubuntu） | 同-runner A/B：`xtask bench --ab --tier gate --threshold-time 0.25`，>25% 时间回归且区间分离即 fail（gating）。micro 层跑但只打印不判红。阈值/分层的依据见 book 页「噪声底与阈值」|
 | `ci.yml` (job: `publish-nightly`) | `push` 到 main（仅 ubuntu） | 汇总 9 个 RID 的 package artifact → tar.gz / zip → 强制覆盖 `nightly` GitHub Release（unsigned，prerelease，URL 永远稳定）|
-| `bench-update.yml` | `push` 到 main（仅 ubuntu） | 跑 `just bench-e2e` 全量 → 把 `bench/results/e2e.json` 提交到 `bench-baselines` 分支的 `baselines/e2e-ubuntu-latest.json`。首次自动 bootstrap 该分支。 |
 
 ## 设计约定
 

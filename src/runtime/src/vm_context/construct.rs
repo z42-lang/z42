@@ -219,6 +219,23 @@ impl VmContext {
         // concurrent mutators' frame.regs writes).
         core.heap.set_external_needs_collect_flag(Arc::clone(&core.needs_auto_collect));
 
+        // add-gc-runtime-knobs (2026-09-05): apply the process-wide GC knobs.
+        //
+        // `Z42_GC_MAX_BYTES` is what *arms* automatic collection at all —
+        // `maybe_auto_collect` returns immediately while `max_bytes` is `None`,
+        // and the three `Z42_GC_*_RATIO` knobs are fractions of this budget, so
+        // without it they are inert. Unset keeps the historical behaviour
+        // (collect only on an explicit `Std.GC.Collect()`).
+        {
+            let cfg = crate::config::runtime_config();
+            if let Some(max) = cfg.gc_max_bytes {
+                core.heap.set_max_heap_bytes(Some(max));
+            }
+            if cfg.gc_trace {
+                core.heap.add_observer(Arc::new(crate::gc::trace::GcTracer::default()));
+            }
+        }
+
         // External GC root scanner — invoked by the cycle collector during
         // mark phase. Walks all out-of-heap Value sources so cycles whose
         // only roots are static fields / pending exception / live frame

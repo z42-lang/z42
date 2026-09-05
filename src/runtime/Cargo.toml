@@ -152,6 +152,15 @@ dhat-heap            = ["dep:dhat"]
 # the plain `arc.lock()` (zero cost). `xtask profile` builds a throwaway VM with
 # this feature when contention data is requested. No extra deps.
 profile-contention   = []
+# z42-test-fixtures: build.rs 用 z42vm + z42c 把两个 .z42 测试 fixture 编成 .zbc，
+# 并 emit `--cfg z42_have_z42c` / `z42_have_embedding_hello` 供对应 Rust 测试开关。
+# 默认 **OFF**：开启它会让 build.rs `rerun-if-changed` 到 z42c.driver.zpkg —— 而那个
+# 文件被 `xtask build compiler` 每轮重写，于是下一次 cargo 判定 build script 陈旧、
+# 整个 crate graph 全量重编（release 实测 62s/次；CI 的 ci-bootstrap 每 run 踩 7 次）。
+# 一个纯测试便利设施不该挂在所有人的构建关键路径上，故改为按需开启：
+# `xtask test runtime`（= CI 的 Rust 单测步骤）显式带上它，测试覆盖面不变。
+# 详见 build.rs 同名注释。
+z42-test-fixtures    = []
 jit                  = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 native-interop       = ["dep:libffi", "dep:libloading"]
 aot                  = []

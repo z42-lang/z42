@@ -11,6 +11,43 @@ using Std.IO;
 using Std.Json;
 using Std.Cli;
 
+// ── 场景分层（simplify-bench-gate）────────────────────────────────────────────
+// 每个场景在头部注释里声明 `// tier: gate` 或 `// tier: full`：
+//   gate —— PR 门禁测量的那一小组代表性场景（`bench --tier gate`）。
+//   full —— 其余场景，本地 / 按需跑（`bench` 默认 --tier all，行为不变）。
+// 分层不只是省时间：它把每个 PR 的比较次数从 22 条降到 6 条，直接压掉「87 次
+// 比较不做多重比较校正 ⇒ 期望假红 ~2 条/PR」里的多重比较项（见 book 判红语义页）。
+// 未声明 tier 的场景按 `full` 记 —— 新场景必须**显式选择加入**门禁，且跳过时
+// 一定打印（与 requires-caps 的跳过同款），不做静默排除。
+string _benchScenarioTier(string src) {
+    string[] lines = src.Split("\n");
+    for (int i = 0; i < lines.Length; i = i + 1) {
+        string ln = lines[i].Trim();
+        if (ln.StartsWith("// tier:")) {
+            // 只取第一个词 —— 声明行后面允许接理由（`// tier: gate — 为什么在门禁里`）。
+            string rest = ln.Substring(8).Trim();
+            int sp = rest.IndexOf(" ");
+            string t = sp >= 0 ? rest.Substring(0, sp) : rest;
+            if (t == "gate") { return "gate"; }
+            return "full";
+        }
+    }
+    return "full";
+}
+
+// 场景 tier 是否命中 `--tier` 选择器（空 / "all" = 全要）。
+bool _benchTierWanted(string want, string have) {
+    if (want.Length == 0 || want == "all") { return true; }
+    return want == have;
+}
+
+// 校验 `--tier` 取值；非法返回 false 并已打印错误。
+bool _benchTierValid(string want) {
+    if (want.Length == 0 || want == "all" || want == "gate" || want == "full") { return true; }
+    ConsoleError.WriteLine("error: --tier must be gate|full|all (got '" + want + "')");
+    return false;
+}
+
 // `bench` (no subcommand) — e2e hyperfine scenario runner. The `stdlib`
 // subcommand (per-lib [Benchmark]) routes via _dispatchBench → _testLib, and
 // `--diff` routes via _benchE2e → _benchDiff (both in xtask_cli.z42). This
@@ -19,6 +56,8 @@ int _bench(ParseResult r) {
     bool quick = r.GetFlag("quick");
     string warmup = quick ? "1" : "3";
     string runs = quick ? "3" : "10";
+    string tier = r.GetOption("tier");
+    if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
     string scenDir = Path.Join(root, "bench/scenarios");
     string resultsDir = Path.Join(root, "bench/results");
@@ -60,6 +99,13 @@ int _bench(ParseResult r) {
         string srcText = File.ReadAllText(src);
         string ns = _extractNamespace(srcText);
         if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
+        // simplify-bench-gate: 分层选择（--tier gate 时只跑门禁那一组）。
+        string stier = _benchScenarioTier(srcText);
+        if (!_benchTierWanted(tier, stier)) {
+            Console.WriteLine("  ⊘ skip " + name + ": tier=" + stier + " (--tier " + tier + ")");
+            count = count + 1;
+            continue;
+        }
         // add-bench-speedup-cap-gating: skip scenarios whose declared
         // `// requires-caps:` are not all present on the measured VM (e.g. a
         // threads scenario on a wasm/interp-only build) — explicit skip, no crash.
@@ -259,6 +305,8 @@ int _benchAb(ParseResult r) {
     double thr = 0.10;
     string tt = r.GetOption("threshold-time");
     if (tt.Length > 0) { thr = Double.Parse(tt); }
+    string tier = r.GetOption("tier");
+    if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
     string scenDir = Path.Join(root, "bench/scenarios");
     string resultsDir = Path.Join(root, "bench/results");
@@ -284,6 +332,13 @@ int _benchAb(ParseResult r) {
         string srcText = File.ReadAllText(src);
         string ns = _extractNamespace(srcText);
         if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
+        // simplify-bench-gate: 门禁只测 gate 层（CI 传 --tier gate）。
+        string stier = _benchScenarioTier(srcText);
+        if (!_benchTierWanted(tier, stier)) {
+            Console.WriteLine("  ⊘ skip " + name + ": tier=" + stier + " (--tier " + tier + ")");
+            count = count + 1;
+            continue;
+        }
         string[] missing = _epCapsMissing(_epScenarioRequiredCaps(srcText), vmc.Caps);
         if (missing.Length > 0) {
             Console.WriteLine("  ⊘ skip " + name + ": missing cap(s) " + _epJsonStrArr(missing));
@@ -511,7 +566,14 @@ int _benchDiff(ParseResult r) {
     string tm = r.GetOption("threshold-memory");
     if (tm.Length > 0) { thrMem = Double.Parse(tm); }
     bool quiet = r.GetFlag("quiet");
-    if (baseline.Length == 0) { baseline = "bench/baselines/main-" + _osTag() + ".json"; }
+    // simplify-bench-gate: `bench/baselines/` 目录与它的持续产出（bench-update.yml +
+    // bench-baselines 孤儿分支）已删，故不再有「自动挑一份主分支基线」的默认值 ——
+    // `--diff` 现在必须显式给 --baseline <path>（本地优化前后对比的正常用法）。
+    if (baseline.Length == 0) {
+        ConsoleError.WriteLine("error: bench --diff requires an explicit --baseline <path>");
+        ConsoleError.WriteLine("  hint: capture one first, e.g. `xtask bench` then copy bench/results/e2e.json aside");
+        return 2;
+    }
     string curPath  = _absUnder(root, current);
     string basePath = _absUnder(root, baseline);
     if (!File.Exists(curPath))  { ConsoleError.WriteLine("error: current results not found: " + current); return 2; }
@@ -708,12 +770,6 @@ string _gitOut(string root, string a, string b, string c) {
     ProcessResult r = new Process("git").Arg(a).Arg(b).Arg(c).WorkingDirectory(root).Run();
     if (r.ExitCode == 0) { return r.Stdout.Trim(); }
     return "unknown";
-}
-
-string _osTag() {
-    ProcessResult r = new Process("uname").Arg("-sm").Run();
-    if (r.ExitCode != 0) { return "unknown"; }
-    return r.Stdout.Trim().ToLower().Replace(" ", "-");
 }
 
 // add-stdlib-bench-baseline: aggregate per-module z42b `--format json` bench_stats

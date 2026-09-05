@@ -113,3 +113,150 @@ linux(x64/arm64) 本轮仍过，暂不 ignore、留观察。
 2. loom 模型下设计并验证：**marking 期 allocate-black**（出生 marked=1，消除"可达新对象被 sweep"）
    + **注册—首safepoint 窗口封闭**（避开上次改"谁成为 collector"时序的 deadlock）。
 3. 模型绿后落地实现，CI 全腿去 ignore 回归。
+
+## 更新 2026-09-04：collector 仲裁建模落地（模型 B），2026-06-01 的 deadlock 变成确定性本地测试
+
+阶段 3.1 的「未做」项已补齐：`gc_registration_race_loom.rs` 现在有**两个**模型，
+共用一套按 `gc/safepoint.rs` 建模的协议原语（`request_gc_pause` 的 `collector_active`
+CAS + handshake、`release_pause`、`park_until_idle`）：
+
+| 模型 | 场景 | 搜索 | 绿了代表什么 |
+|---|---|---|---|
+| A — stale mark | 单 collector + 一个迟注册 mutator | preemption-bounded(3) | fix 关上了 注册→sweep 窗口 |
+| B — arbitration | 活跃 collector 在 worker 已 park 时释放 | **穷举**（34 条交错） | fix **没有**重新引入 2026-06-01 deadlock |
+
+模型 B 逐字复刻 `safepoint_tests::second_collector_falls_back_to_mutator_park_returns_none`：
+test-main 冒充活跃 collector（`collector_active=true` + phase `Marking`），等 worker park，
+按单测的顺序释放（先清 claim 再开世界+notify），然后 `join()`。
+**关键建模点：join 之后 test-main 永不再 park，但它的 `VmContext` 仍在 `vm_contexts` 里、
+仍计入后来者的 `need`。** 这个不对称就是 deadlock 的全部。
+
+实测（本机，0.14 s 跑完全部 4 个测试）：
+
+- `arbitration_baseline_has_no_deadlock`（对照组）**绿**：baseline 下 worker 是在 CAS
+  **已经输掉之后**才 park，永远抢不到 collector 角色 → 返回 None → join 干净。
+- `registration_close_reintroduces_2026_06_01_deadlock` **确定性复现**
+  （loom `deadlock; threads = [(Id(0), Blocked), (Id(1), Blocked)]`）：注册封闭把 park 移到了
+  **仲裁 CAS 之前**，worker 醒来时 claim 已被释放 → 赢得 collector 角色 → 等 `need = 1`
+  个永远不会来的 parker，而 test-main 卡在 `join()`。
+
+⇒ **修复的硬约束（模型已固化为门禁）**：注册窗口封闭**不得把任何 context 的 park 移到
+collector 仲裁 CAS 之前**。候选 fix 必须让 `registration_close_eliminates_race` 转绿的**同时**
+保持 `arbitration_*` 不死锁。对照组的存在是这个门有判别力的前提——一个两边都死锁的模型
+证明不了任何东西。
+
+### loom 0.7.2 陷阱（踩过，别重走）
+
+检测到 deadlock 后展开时若 drop 一个 `loom::sync::Arc`，其 Drop 会调
+`rt::arc::Arc::branch` 对已拆除的 execution `unwrap()` → **析构中二次 panic → 进程 abort**
+（`thread caused non-unwinding panic. aborting.`，且残留 `UE` 状态的僵尸进程）。
+表现是「跑几百秒不结束」，极易误判成「状态空间爆炸、模型太慢」——实际 deadlock 是
+**毫秒级**就命中的。解法：模型状态改用 `Box::leak` 的 `&'static Gc`（无析构），
+panic 就能正常展开、`#[should_panic]` 接得住。每条交错泄漏一个小结构体，可忽略。
+
+### 仍未建模（下一增量）
+
+**marking 期 allocate-black**。`alloc_object` 出生 marked=0（白），当前正确性依赖 barrier
+**同步**染灰；只关注册窗口而不配 allocate-black 的 fix 仍不健全（可达新对象会被进行中的
+cycle 当垃圾 sweep 掉——比 stale mark 更严重）。
+
+## 更新 2026-09-04（二）：新对象 sweep hazard 建模（模型 C）+ 一个比原记录更强的事实
+
+阶段 3.1c。新文件 `src/runtime/tests/gc_alloc_black_loom.rs`（自成一体，因为它需要
+模型 A/B 都没建的**并发 cycle 全流程**：snapshot → yield → handshake → sweep）。
+
+### 更正：这个 hazard 不依赖 naive B，它无条件成立
+
+上文「关键新发现 2」把 allocate-black 说成是**朴素候选 B 的前提**（barrier 先 park
+再染色才会出事）。读码后确认范围更大 —— **今天的 ConcurrentMarkSweep 就有这个洞**：
+
+- `finish_alloc` / `alloc_array_obj`（`gc/arc_heap/alloc.rs`）发布 region entry 时
+  **完全不碰 mark bit**，新对象一律出生白色；
+- write barrier（`generational.rs:288`）只染**被写入堆字段的那个 ref**，覆盖不到
+  「只被 frame reg 持有」的新对象；
+- `snapshot_roots_into_mark_queue`（`roots.rs:21`）**确实**会走每个 VmContext 的
+  frame regs（`vm_context/construct.rs:234` 装的 external root scanner），但并发路径
+  **只在 Phase 1 调它一次**，Phase 6 sweep 之前**再也不重扫 roots**
+  （`control.rs:183-208`）。
+
+⇒ 在 Phase 2–4 的并发窗口里分配、且只被 frame reg 持有的对象，没有任何机制会染它，
+Phase 6 直接把它 tombstone —— **可达对象被回收，mutator 手里还攥着句柄**。
+比 stale mark 严重。STW 路径不受影响，因为 `mark_phase`（`collect.rs:22`）在 collect
+时**重扫 roots**；而 `StwMarkSweep` 正是生产默认，这解释了为什么它没在生产里炸。
+
+### 模型钉死了策略边界
+
+`AllocBlack` 三档，**穷举 2105 条交错**：
+
+| 策略 | 结果 |
+|---|---|
+| `Never`（今日生产） | 可达新对象被 sweep |
+| `ConcurrentOnly`（phase == ConcurrentMarking） | **仍然**被 sweep |
+| `ConcurrentAndMarking` | 绿 |
+
+中间那档是建这个模型的**全部理由**：「并发 mark 期出生即黑」是最自然的读法，而它是**错的**
+—— `request_handshake_pause` 先把 phase 翻成 `Marking` **然后才等** mutator park，
+mutator 在抵达下一个 safepoint 之前仍能分配，此时读到的是 `Marking`。
+⇒ design 上文写的 `phase ∈ {ConcurrentMarking, Marking}` 从**断言**变成**已证必要**。
+`allocate_black_on_concurrent_marking_alone_is_insufficient` 就是防止它被收窄回去的门。
+
+**归因是差分式的、不靠插桩**：`ConcurrentAndMarking` 与 `ConcurrentOnly` 的唯一差别就是
+「`Marking` 期算不算黑」，前者绿后者红 ⇒ 故障必然来自 `Marking` 窗口。
+
+### 绿不是空过（已量化）
+
+插桩统计 `ConcurrentAndMarking` 那一档：2105 条交错里，分配落在
+**Idle 724 / Requested 481 / ConcurrentMarking 828 / Marking 72** —— 四个 phase 全都走到了，
+包括那 72 次危险窗口。模型确实进入了危险状态，只是被 allocate-black 挡住。
+
+顺带：在 `Idle` / `Requested` 分配**不需要** allocate-black 也安全，因为 Phase 1 快照
+还没跑、会把它当 frame-reg root 染掉。模型也覆盖了这条（否则 `ConcurrentAndMarking`
+会是「碰巧绿」）。
+
+## 更新 2026-09-04（三）：3.2a allocate-black 已落地；3.2b 注册窗口封闭的三条硬事实
+
+### 3.2a 已落地
+
+`ArcMagrGC::alloc_black`（`AtomicBool`）在并发 cycle 的 `request_gc_pause` →
+`sweep_phase` 结束之间为真，期间所有分配出生即 `marked = 1`。
+
+- **跨度必须含 `Marking`**，不能只含 `ConcurrentMarking` —— 模型 C 已证（见上一节）。
+- **落点是全部 5 个分配 chokepoint**：`finish_alloc` 与 `alloc_array_obj` 各自的
+  TLAB 快路径 + ambient 路径，加 `acquire_var_block`。最后一个容易漏：strings /
+  closures / 数组载荷都是 `region_var` 块，被 `VarRegion::sweep` 同样 mark-sweep。
+- **关窗时机**：必须在 `sweep_phase()` **之后**、mutator 仍 parked 时。sweep 会清掉所有
+  survivor 的 mark，所以本 cycle 出生的黑对象离开 cycle 时是白的 —— 保守存活**一个** cycle，
+  不是永久。回归测试对这一点有断言。
+- **热路径代价**：一次 relaxed load，默认 `StwMarkSweep` 下恒为 false。
+
+回归测试是**单线程确定性**的（这个 hazard 不是 race，不需要交错），手工驱动
+snapshot → 分配 → drain → sweep。已做变异验证：`allocating_black()` 改成恒 false，
+两条测试都红。
+
+### 3.2b（注册窗口封闭）比预想难 —— 三条硬事实
+
+**事实 1：write barrier 是 post-write（Steele 式），不是 pre-write。**
+所有调用点（`interp/exec_object.rs:339` 等、`jit/helpers/object_field.rs`、
+`corelib/reflection/accessors.rs`）都是**先 `set_field_value` 再调 barrier**。
+⇒ 在 barrier 里 park 必然把「已写入但未染色」的状态暴露给 sweep（禁区 2）。
+把全仓约 10 个调用点改成 pre-write 是一次独立的、有风险的改造，不是本 fix 的搭头。
+
+**事实 2：「注册即算 parked」（born-parked）只是把窗口挪了个位置，没关上。**
+让新 context 在注册时同时进 `vm_contexts` 并 `parked_count += 1`，确实能保证它不会
+漏出 handshake；但它在抵达第一个 safepoint 之前仍然在跑，而此时 collector **以为它已
+parked**、可以放心 sweep —— 比今天更糟。要真正关上，新 context 必须在**任何堆操作之前**
+完成「born-parked → running」的转换，而这个转换点若放在 `new_with_core` 末尾，就等价于
+2026-06-01 那次 park-at-registration（禁区 1/3）。
+（附带坑：`check_safepoint` 的 throttle 快路径只是递减计数器，新 context 的
+`safepoint_skip` 若不特殊置 1，头 1024 次调用根本不进慢路径。）
+
+**事实 3：2026-06-01 的 deadlock 是一个先于本 fix 存在的隐患的症状。**
+真正的不变量缺口是：**一个线程阻塞（`join()` / 未包 `NativeParkGuard` 的 native 调用）
+时，它的 `VmContext` 仍留在 `vm_contexts` 里、仍计入任何后来 collector 的 `need`。**
+在 `second_collector_falls_back_to_mutator_park_returns_none` 里主线程正是这样，
+测试只是靠「worker 必输 CAS」这个构造避开了它。注册封闭之所以炸，是因为它让 worker
+赢了 CAS，把这个既有隐患**暴露**了出来 —— 不是它**制造**了这个隐患。
+
+⇒ 3.2b 的正道多半是先补上事实 3 的缺口（阻塞线程必须是 GC-safe：要么退出
+`vm_contexts`，要么进 `native_park` 计数），而这会牵动 `NativeParkGuard` 的适用范围。
+**需要 User 裁决方向后再动**；三个 loom 模型已就位，任何候选都能先在模型里判生死。
