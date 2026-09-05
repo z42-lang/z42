@@ -65,8 +65,12 @@ pub fn install() {
 fn open_crash_report_fd() {
     use std::os::fd::IntoRawFd;
 
-    let Ok(dir) = std::env::var("Z42_CRASH_DIR") else { return };
-    let dir_path = std::path::PathBuf::from(&dir);
+    // adopt-inline-env-knobs (2026-09-05): the `crash-dir` knob off the layered
+    // config, not a raw env read — `--set crash-dir=` / `[runtime].crash-dir` were
+    // silently ignored here. (This runs at `install()` time, pre-opening the fd; the
+    // signal handler itself only writes to the already-open fd, so nothing about
+    // async-signal-safety changes.)
+    let Some(dir_path) = crate::config::runtime_config().crash_dir.clone() else { return };
     let ts_ns = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())

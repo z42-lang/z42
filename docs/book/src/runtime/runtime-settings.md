@@ -127,14 +127,23 @@ launcher（`simplify-apphost-direct-run`：部署一个 app 只需 apphost + app
 - **`aliases` 而不是"env 名自动等价"**：`--set` 只认 `toml_key` 或表里显式写出的短名。
   自动接受 `Z42_GC_MODE` 会建立一条隐式双写法约定，将来某个旋钮的 env 名与 kebab key
   一旦不再是机械映射（为兼容改名），"自动等价"就失效或产生歧义。
-- **`ValueKind::Flag` 与 `Bool` 分开**：`Z42_NO_FUSION=0` 今天的语义是**关闭 fusion**
-  （历史实现是 `env::var(..).is_ok()`，存在即生效）。把它标成 `Bool` 会悄悄反转语义。
+- **`ValueKind::Flag` 与 `Bool` 分开**：`Flag` 是"存在即启用"（连 `=0` 也算开），
+  忠实描述用 `env::var(..).is_ok()` 实现的旋钮。但这条 shell 惯例**活不过配置文件**：
+  一旦旋钮能写进 `[runtime]`，`no-fusion = false` 必须表示"不要关"。所以
+  `adopt-inline-env-knobs` 在放开这四个开关旋钮的层时，同一刻把它们转成了真 `Bool`
+  ——**开放层与转换类型必须一起发生**。`Flag` 变体保留，但当前无使用者；将来若有旋钮
+  要用它，得说明为什么这条配置文件陷阱对它不适用。
 - **`sources` 不是所有旋钮都给全**：
   - 元旋钮（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG`）只收 CLI/env——
     它们决定**读哪个文件**和**诊断有多严格**，写进配置文件会自指；
-  - 尚未收编进 `RuntimeConfig` 的旋钮（`Z42_JIT_THRESHOLD` 等仍在各自 `consumed_by`
-    处直接 `std::env::var`）标 **ENV_ONLY**——CLI 与配置文件层根本到不了那行内联读取，
-    标成"四层全收"会让 `--list-knobs` 声称能 `--set` 而实际静默无效，**比不登记更坏**。
+  - `Z42_STRESS_ITERS` 标 **ENV_ONLY**：GC 压力测试脚手架，进 CLI 表面等于向用户暗示
+    它是个正经旋钮。
+  - 其余**全部四层可设**。曾有 8 个旋钮（`Z42_JIT_THRESHOLD` / `Z42_STACKALLOC` 等）
+    在各自 `consumed_by` 处直接 `std::env::var`，那时它们如实标 ENV_ONLY——CLI 与配置
+    文件层根本到不了那行内联读取，标成"四层全收"会让 `--list-knobs` 声称能 `--set`
+    而实际静默无效，**比不登记更坏**。`adopt-inline-env-knobs`（2026-09-05）把消费点
+    改读 `runtime_config()` 后限制解除，并留了一道反向门：**任何新的内联 env 读都会
+    让测试变红**（`no_knob_is_read_inline_from_the_environment_any_more`）。
 
 登记表有一道**源码扫描防腐门**（`config_tests.rs`）：走 `src/` 找 `"Z42_*"` 字面量，
 不在表内即红。加这道门是因为表曾经漂移过——8 个 VM 真在读的旋钮不在表里，于是

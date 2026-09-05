@@ -141,8 +141,8 @@ mod native {
     fn candidates() -> Vec<PathBuf> {
         let file = lib_filename();
         let mut out = Vec::new();
-        if let Some(over) = std::env::var_os("Z42_REPL_NATIVE") {
-            let p = PathBuf::from(over);
+        if let Some(over) = crate::config::runtime_config().repl_native.as_ref() {
+            let p = over.clone();
             // Accept either a direct file path or a directory containing the lib.
             out.push(p.join(&file));
             out.push(p);
