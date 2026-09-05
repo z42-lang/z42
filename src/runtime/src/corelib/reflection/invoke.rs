@@ -14,10 +14,30 @@ pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
 }
 
 /// `__type_get_type(fqn: str) -> Type` — FQN string → `Std.Type` (null if unknown).
-/// Thin wrapper over `make_type_from_name` (main registry + lazy loader + synthetic).
+///
+/// fix-emit-zbc-swallows-diagnostics: honour the documented "null if unknown"
+/// contract (`Type.z42`: "Resolve a Type by fully-qualified name …; null if
+/// unknown"). `make_type_from_name` never returns Null — on a total miss it
+/// synthesises a handle-less `Type` carrying just the name, so a typo'd FQN used
+/// to come back as an object whose `GetMethods()` is empty and whose `BaseType`
+/// is null, indistinguishable from a real-but-memberless type.
+///
+/// Only *qualified class names* are held to this: a name containing `.` that is
+/// neither an array (`[]`) nor a constructed generic (`<…>`) must resolve to a
+/// real `TypeHandle`. Arrays, constructed generics, primitives and unqualified
+/// simple names keep their existing synthetic-Type semantics — those are load-
+/// bearing (e.g. `typeof(int[])`, cross-package generic type-arg names).
 pub fn builtin_type_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
-        Some(Value::Str(s)) => Ok(make_type_from_name(ctx, s)),
+        Some(Value::Str(s)) => {
+            let t = make_type_from_name(ctx, s);
+            let qualified_class =
+                s.contains('.') && !s.ends_with("[]") && !s.contains('<');
+            if qualified_class && type_handle(std::slice::from_ref(&t)).is_none() {
+                return Ok(Value::Null);
+            }
+            Ok(t)
+        }
         _ => Ok(Value::Null),
     }
 }

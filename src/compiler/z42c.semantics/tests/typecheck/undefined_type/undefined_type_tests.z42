@@ -98,3 +98,48 @@ void test_builtin_type_no_E0443() {
     // 内建类型（int/string）→ BuiltinType（非 Unknown）→ 不报
     Assert.Equal(false, hasCode(collectDiags("class A { int x; string s; }"), "E0443"));
 }
+
+// ── fix-emit-zbc-swallows-diagnostics ──────────────────────────────────────
+//
+// E0443 一直**被正确 raise**，问题在于它到不了任何人眼前：`--emit-zbc` 拿到
+// `CompiledModuleZ` 后只取 `.Module`，把 `ErrorCount` / `DiagMsgs` 整个丢掉，于是
+// 返回 exit 0 **并照样写出产物**（实测 `NoSuchTypeAtAll x = null;` → 0 + 285 字节 .zbc）。
+// e2e 单文件用例 / golden regen / bench 直编全走这条路 ⇒ 这些路径上的编译错误一律静默。
+//
+// driver 现在据 `cm.ErrorCount` 决定「打印诊断 + 非零退出 + 不写产物」。下面几条锁住
+// driver 所依赖的**数据契约**：错误必须真的出现在 CompiledModuleZ 上、且能被读出来。
+
+[Test]
+void test_build_module_surfaces_error_count() {
+    // driver 的判据。此前这个字段被算出来了却没人读。
+    CompiledModuleZ cm = IrDump.BuildModuleD("class A { void f() { NoSuchType c; } }", "t.z42", null, null);
+    Assert.Equal(true, cm.ErrorCount > 0);
+}
+
+[Test]
+void test_build_module_surfaces_diag_messages() {
+    // driver 逐条打印 DiagMsgs；空数组等于「报了个寂寞」。
+    CompiledModuleZ cm = IrDump.BuildModuleD("class A { void f() { NoSuchType c; } }", "t.z42", null, null);
+    Assert.Equal(true, cm.DiagCount > 0);
+    Assert.Equal(true, cm.DiagMsgs[0].Contains("E0443"));
+}
+
+[Test]
+void test_null_deps_still_compiles() {
+    // 两条 emit 路径合一的前提：deps / imported 传 null（无 Z42_LIBS 时）必须可用。
+    // 契约见 IrGen.Deps 的 `null=无`；消费点 CallEmitter 均有 null 守卫。
+    CompiledModuleZ cm = IrDump.BuildModuleD("class A { int f() { return 1; } }", "t.z42", null, null);
+    Assert.Equal(0, cm.ErrorCount);
+    Assert.Equal(true, cm.Module != null);
+}
+
+[Test]
+void test_unresolved_typeof_emits_no_angle_bracket_sentinel() {
+    // P2：`Z42UnknownType.Name()` 是字面串 `<unknown>`。它若进了 IR，运行期
+    // `make_type_from_name` 会因「`<` 开头 `>` 结尾」把它**误判为构造泛型**，拆出 base=""
+    // 造出 Name/FullName 全空、GetMethods()==0、BaseType==null 的「非 null 但全空」Type
+    // （指纹：GetGenericArguments().Length == 1，实参为 "unknown"）。沿用 FunctionEmitter
+    // 既有的 SIGS 约定收敛为 "unknown"（无尖括号）→ 运行期无法再把它当泛型解析。
+    string ir = IrDump.DumpModule("class A { void f() { var t = typeof(NoSuchType); } }");
+    Assert.Equal(false, ir.Contains("<unknown>"));
+}

@@ -91,8 +91,15 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     // name). Parse base + top-level args (bracket-depth aware) and build a constructed
     // Type via `make_constructed_type`, whose per-arg resolution re-enters here → nested
     // generics resolve to arbitrary depth (each arg keeps its own `__typeArgs`).
+    // fix-emit-zbc-swallows-diagnostics: only treat this as a constructed generic when
+    // there is a non-empty base before the `<`. A name that *starts* with `<` is not a
+    // generic — it is an internal sentinel that leaked out of the compiler (the concrete
+    // case was `<unknown>`, z42c's spelling for an unresolved type). Parsing it as a
+    // generic yielded base "" → a `Type` with empty Name/FullName, zero methods and a
+    // null BaseType, i.e. a broken object silently presented as a valid one. Fall through
+    // instead, so the name takes the normal "unresolved" path below.
     if let Some(lt) = name.find('<') {
-        if name.ends_with('>') {
+        if lt > 0 && name.ends_with('>') {
             let base = &name[..lt];
             let inner = &name[lt + 1..name.len() - 1];
             let args = split_generic_args(inner);
