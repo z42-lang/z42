@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
+use z42::config::KNOWN_KNOBS;
 use std::path::PathBuf;
 
 // z42c self-compile is malloc-bound (~31% in the system allocator, profiled).
@@ -52,6 +53,31 @@ struct Cli {
     #[arg(long)]
     info: bool,
 
+    /// Set a runtime knob for this run: `--set <key>=<value>`, repeatable.
+    /// Highest-precedence layer (above `Z42_*` env vars and config files).
+    /// Keys are the knob's `[runtime]` key (e.g. `gc-mode`); run
+    /// `z42vm --list-knobs` for the full list.
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    set: Vec<String>,
+
+    /// Print every runtime knob's schema (type / settable layers / availability /
+    /// default) and exit. `--all` additionally lists unsupported + internal knobs.
+    #[arg(long)]
+    list_knobs: bool,
+
+    /// Print each knob's effective value with its source layer — and, for values
+    /// that did not take effect, why — then exit.
+    #[arg(long)]
+    show_config: bool,
+
+    /// Include unsupported + internal knobs in `--list-knobs` / `--show-config`.
+    #[arg(long)]
+    all: bool,
+
+    /// Emit `--list-knobs` / `--show-config` as JSON instead of text.
+    #[arg(long)]
+    json: bool,
+
     /// Treat config problems from env / config files as fatal instead of
     /// warning + falling back to the default. Equivalent to
     /// `Z42_STRICT_CONFIG=1`. CLI (`--set`) problems are always fatal.
@@ -102,6 +128,18 @@ enum ExecMode {
     Jit,
     #[cfg(feature = "aot")]
     Aot,
+}
+
+/// `--mode` value as the knob's string form — used to report a `--mode` /
+/// `--set mode=` conflict in the user's own words.
+fn exec_mode_name(m: &ExecMode) -> &'static str {
+    match m {
+        ExecMode::Interp => "interp",
+        #[cfg(feature = "jit")]
+        ExecMode::Jit => "jit",
+        #[cfg(feature = "aot")]
+        ExecMode::Aot => "aot",
+    }
 }
 
 /// Locate the stdlib libs/ directory.
@@ -295,9 +333,7 @@ fn build_feature_tag() -> String {
 /// per line). docs/review.md Part 4 D5 (2026-05-25) + D1 RuntimeConfig
 /// migration (2026-05-26): enumerates `config::KNOWN_KNOBS` so adding a
 /// new knob is one table edit instead of also updating this function.
-fn print_build_info() {
-    use z42::config::KNOWN_KNOBS;
-
+fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config::BuildCtx) {
     println!("z42vm {}", env!("CARGO_PKG_VERSION"));
     println!("target: {}", std::env::consts::OS);
     println!("arch: {}", std::env::consts::ARCH);
@@ -316,44 +352,28 @@ fn print_build_info() {
     #[cfg(feature = "aot")] modes.push("aot");
     println!("exec modes: {}", modes.join(", "));
 
-    // Effective [runtime] config-file layer (Z42_CONFIG). Loaded the same way
-    // boot does so --info reflects what a real run would see. A malformed file
-    // reports the error here instead of a value. Loaded once and reused for the
-    // per-knob provenance below.
-    let runtime_table = match std::env::var("Z42_CONFIG") {
-        Ok(p) if !p.trim().is_empty() => match z42::config::load_runtime_toml(|n| std::env::var(n).ok()) {
-            Ok(t @ Some(_)) => { println!("config file: {p} ([runtime] applied)"); t }
-            Ok(None)        => { println!("config file: {p} (no [runtime] table)"); None }
-            Err(e)          => { println!("config file: {p} (error: {e})"); None }
-        },
-        _ => { println!("config file: (unset; env + built-in defaults only)"); None }
-    };
-
-    // Runtime knobs — enumerate from KNOWN_KNOBS so this stays automatically in
-    // sync as new env vars get registered. Each line shows the env name, its
-    // [runtime] TOML key, and the *effective* value with provenance following
-    // the real precedence chain: [env] > [config] > [default].
-    println!("--- runtime knobs ({}) ---", KNOWN_KNOBS.len());
-    for knob in KNOWN_KNOBS {
-        let toml = if knob.toml_key.is_empty() { "-".to_string() } else { format!("[runtime].{}", knob.toml_key) };
-        match std::env::var(knob.name) {
-            Ok(v) if !v.trim().is_empty() => println!("{} ({toml}): {v} [env]", knob.name),
-            _ => {
-                let from_cfg = (!knob.toml_key.is_empty())
-                    .then(|| runtime_table.as_ref().and_then(|t| t.get(knob.toml_key)))
-                    .flatten()
-                    .map(|v| match v {
-                        toml::Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    });
-                match from_cfg {
-                    Some(val) => println!("{} ({toml}): {val} [config]", knob.name),
-                    None => println!("{} ({toml}): ({}) [default]", knob.name, knob.default_hint),
-                }
-            }
+    // Config-file layers actually in play.
+    for (var, label) in [("Z42_CONFIG", "user config"), ("Z42_APP_CONFIG", "app config")] {
+        match std::env::var(var) {
+            Ok(p) if !p.trim().is_empty() => println!("{label}: {p}"),
+            _ => println!("{label}: (unset)"),
         }
     }
+
+    // Knob block — rendered from the SAME Resolution the VM is actually running
+    // with, by the same renderer --show-config uses. It used to re-read the
+    // environment here and re-derive provenance, which meant the precedence chain
+    // had two implementations that could drift (complete-runtime-settings P3).
+    println!("--- runtime knobs ({}) ---", KNOWN_KNOBS.len());
+    print!("{}", z42::config::show_config_text(resolution, true));
     println!("---");
+    let unavailable: Vec<&str> = KNOWN_KNOBS.iter()
+        .filter(|k| !z42::config::is_available(k, ctx))
+        .map(|k| if k.toml_key.is_empty() { k.name } else { k.toml_key })
+        .collect();
+    if !unavailable.is_empty() {
+        println!("unavailable in this build: {}", unavailable.join(", "));
+    }
 
     // Effective libs dir lookup result.
     match resolve_libs_dir() {
@@ -469,10 +489,26 @@ fn main() -> Result<()> {
     // [runtime] layer is visible everywhere. Z42_CONFIG unset → resolve(env,
     // None) == the previous env-only from_env() (non-breaking).
     let getenv = |n: &str| std::env::var(n).ok();
+
+    // CLI layer (complete-runtime-settings P2) — parsed before anything reads the
+    // config, since `--set log=...` has to be visible to init_tracing below.
+    let cli_knobs = match z42::config::parse_set_args(&cli.set) {
+        Ok(m) => m,
+        Err(msg) => { eprintln!("{msg}"); std::process::exit(2); }
+    };
+    // `--mode` and `--set mode=` are the same precedence layer; refuse to guess.
+    if let Err(msg) = z42::config::reject_flag_conflict(
+        &cli_knobs, "Z42_MODE", "--mode", cli.mode.as_ref().map(exec_mode_name)
+    ) {
+        eprintln!("{msg}");
+        std::process::exit(2);
+    }
+
     let runtime_table = z42::config::load_runtime_toml(&getenv)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let build_ctx = z42::config::BuildCtx::current();
     let inputs = z42::config::Inputs {
+        cli: cli_knobs,
         user_config: runtime_table.as_ref(),
         ..Default::default()
     };
@@ -501,6 +537,7 @@ fn main() -> Result<()> {
         eprintln!("{msg}");
         std::process::exit(2);
     }
+    let resolution = resolution;
 
     if z42::config::init_runtime_config(cfg.clone()).is_err() {
         eprintln!("z42: runtime config already initialised before main(); [runtime] layer may be ignored");
@@ -522,9 +559,28 @@ fn main() -> Result<()> {
         std::process::id(),
     );
 
+    // Knob query surfaces (complete-runtime-settings P3). Like --info they run
+    // before any module loading and do not need a <FILE>.
+    if cli.list_knobs {
+        print!("{}", if cli.json {
+            z42::config::list_knobs_json(cli.all, &build_ctx)
+        } else {
+            z42::config::list_knobs_text(cli.all, &build_ctx)
+        });
+        return Ok(());
+    }
+    if cli.show_config {
+        print!("{}", if cli.json {
+            z42::config::show_config_json(&resolution, cli.all)
+        } else {
+            z42::config::show_config_text(&resolution, cli.all)
+        });
+        return Ok(());
+    }
+
     // --info: print build info to stdout and exit before doing any module loading.
     if cli.info {
-        print_build_info();
+        print_build_info(&resolution, &build_ctx);
         return Ok(());
     }
 
@@ -538,7 +594,7 @@ fn main() -> Result<()> {
     // unless --info" cleanly, so enforce it here.
     let file = cli.file.as_deref()
         .ok_or_else(|| anyhow::anyhow!(
-            "missing required argument <FILE> (or pass --info to print build info)"))?;
+            "missing required argument <FILE> (or pass --info / --list-knobs / --show-config)"))?;
     tracing::debug!("z42vm loading {}", file);
 
     // Locate stdlib libs directory.

@@ -1,6 +1,6 @@
 //! `config.rs` 的单测（runtime-rust.md：测试独立文件；refactor-split-config 自内联 `mod tests` 搬出）。
 use super::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Build a fake env getter from a static map — avoids global env-var
 /// race when cargo runs tests in parallel. Returns owned strings so
@@ -1046,4 +1046,165 @@ fn parse_bool_is_closed_not_truthy() {
     for v in ["1", "TRUE", "Yes", " on "] { assert_eq!(parse_bool(v), Some(true), "{v}"); }
     for v in ["0", "False", "no", "OFF"] { assert_eq!(parse_bool(v), Some(false), "{v}"); }
     for v in ["", "2", "sure", "null"] { assert_eq!(parse_bool(v), None, "{v}"); }
+}
+
+// ── complete-runtime-settings P2: CLI --set ─────────────────────────────────
+
+fn set_args(a: &[&str]) -> Vec<String> {
+    a.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn set_parses_key_value_pairs() {
+    let m = parse_set_args(&set_args(&["gc-mode=concurrent", "safepoint-throttle=64"])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("concurrent"));
+    assert_eq!(m.get("Z42_SAFEPOINT_THROTTLE").map(String::as_str), Some("64"));
+}
+
+#[test]
+fn set_splits_on_the_first_equals_only() {
+    // Path lists and log directives legitimately contain '='.
+    let m = parse_set_args(&set_args(&["path=/a=b:/c", "log=z42::jit=debug,z42=warn"])).unwrap();
+    assert_eq!(m.get("Z42_PATH").map(String::as_str), Some("/a=b:/c"));
+    assert_eq!(m.get("Z42_LOG").map(String::as_str), Some("z42::jit=debug,z42=warn"));
+}
+
+#[test]
+fn set_empty_value_is_kept_as_an_explicit_clear() {
+    let m = parse_set_args(&set_args(&["gc-mode="])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some(""));
+}
+
+#[test]
+fn set_rejects_a_missing_equals_sign() {
+    let err = parse_set_args(&set_args(&["gc-mode"])).unwrap_err();
+    assert!(err.contains("expects KEY=VALUE"), "{err}");
+}
+
+#[test]
+fn set_rejects_unknown_keys_with_a_suggestion() {
+    let err = parse_set_args(&set_args(&["gc-mod=stw"])).unwrap_err();
+    assert!(err.contains("unknown runtime knob `gc-mod`"), "{err}");
+    assert!(err.contains("did you mean `gc-mode`?"), "{err}");
+    assert!(err.contains("--list-knobs"), "{err}");
+}
+
+#[test]
+fn set_rejects_the_env_var_spelling() {
+    // Decision: only the declared key (or an explicit alias) — never an implicit
+    // Z42_* equivalence (User U2).
+    let err = parse_set_args(&set_args(&["Z42_GC_MODE=stw"])).unwrap_err();
+    assert!(err.contains("unknown runtime knob"), "{err}");
+}
+
+#[test]
+fn set_last_occurrence_wins() {
+    let m = parse_set_args(&set_args(&["gc-mode=stw", "gc-mode=concurrent"])).unwrap();
+    assert_eq!(m.get("Z42_GC_MODE").map(String::as_str), Some("concurrent"));
+}
+
+#[test]
+fn suggestions_do_not_fire_for_unrelated_input() {
+    assert_eq!(suggest_key("gc-mod"), Some("gc-mode"));
+    assert_eq!(suggest_key("gcmode"), Some("gc-mode"));
+    assert_eq!(suggest_key("completely-different-thing"), None);
+    assert_eq!(suggest_key("x"), None, "a 1-char key must not match everything");
+}
+
+#[test]
+fn dedicated_flag_and_set_for_the_same_knob_is_an_error() {
+    let m = parse_set_args(&set_args(&["mode=jit"])).unwrap();
+    let err = reject_flag_conflict(&m, "Z42_MODE", "--mode", Some("interp")).unwrap_err();
+    assert!(err.contains("--mode interp"), "{err}");
+    assert!(err.contains("--set mode=jit"), "{err}");
+    assert!(err.contains("same precedence layer"), "{err}");
+    // Either alone is fine.
+    assert!(reject_flag_conflict(&m, "Z42_MODE", "--mode", None).is_ok());
+    assert!(reject_flag_conflict(&BTreeMap::new(), "Z42_MODE", "--mode", Some("interp")).is_ok());
+}
+
+// ── complete-runtime-settings P3: 查询表面 ─────────────────────────────────
+
+#[test]
+fn list_knobs_hides_non_public_tiers_by_default() {
+    let default_view: Vec<&str> = visible_knobs(false).map(|k| k.name).collect();
+    let all_view: Vec<&str> = visible_knobs(true).map(|k| k.name).collect();
+    assert_eq!(all_view.len(), KNOWN_KNOBS.len(), "--all must list everything");
+    assert!(default_view.len() < all_view.len(), "default view must filter something");
+    assert!(default_view.contains(&"Z42_GC_MODE"), "a public knob must be listed");
+    assert!(!default_view.contains(&"Z42_STRESS_ITERS"), "test scaffolding must be hidden");
+    assert!(!default_view.contains(&"Z42_CONFIG"), "meta knobs must be hidden");
+    assert!(!default_view.contains(&"Z42_GC_SOFT_THRESHOLD"), "tuning knobs must be hidden");
+}
+
+#[test]
+fn list_knobs_text_shows_the_schema_a_user_needs() {
+    let text = list_knobs_text(false, &full_ctx());
+    assert!(text.contains("gc-mode"), "{text}");
+    assert!(text.contains("Z42_GC_MODE"));
+    assert!(text.contains("set from    cli, env, user-config, app-config"));
+    assert!(text.contains("enum(stw|"));
+    assert!(text.contains("status      available"));
+}
+
+#[test]
+fn list_knobs_marks_knobs_this_build_cannot_use() {
+    let no_jit = ctx(true, &["native-interop"], "linux");
+    let text = list_knobs_text(true, &no_jit);
+    assert!(text.contains("UNAVAILABLE (needs feature jit)"), "{text}");
+    let wasm = ctx(true, &[], "wasm");
+    assert!(list_knobs_text(true, &wasm).contains("not on wasm"));
+}
+
+#[test]
+fn list_knobs_json_is_valid_and_stable() {
+    let v: serde_json::Value =
+        serde_json::from_str(&list_knobs_json(true, &full_ctx())).expect("valid JSON");
+    let knobs = v["knobs"].as_array().unwrap();
+    assert_eq!(knobs.len(), KNOWN_KNOBS.len());
+    let gc = knobs.iter().find(|k| k["env"] == "Z42_GC_MODE").unwrap();
+    for field in ["key", "env", "aliases", "type", "sources", "tier", "available",
+                  "build", "requires", "platforms", "default", "consumed_by", "description"] {
+        assert!(!gc[field].is_null(), "missing schema field `{field}`");
+    }
+    assert_eq!(gc["sources"], serde_json::json!(["cli", "env", "user-config", "app-config"]));
+    assert_eq!(v["build"]["os"], "linux");
+}
+
+#[test]
+fn show_config_explains_why_a_value_did_not_take_effect() {
+    let c = ctx(true, &["native-interop"], "linux"); // no jit
+    let user = rt_table("gc-mode = \"stw\"");
+    let (_, res) = resolve_all(
+        &[("Z42_GC_MODE", "concurrent")],
+        &[("Z42_JIT_PROFILE", "1")],
+        Some(&user), None, &c,
+    );
+    let text = show_config_text(&res, true);
+    assert!(text.contains("gc-mode = concurrent  [cli]"), "{text}");
+    assert!(text.contains("ignored [user-config] \"stw\"  (overridden by a higher layer)"), "{text}");
+    assert!(text.contains("ignored [env] \"1\"  (unavailable in this build)"), "{text}");
+}
+
+#[test]
+fn show_config_default_view_still_surfaces_ignored_values() {
+    // A knob the user set but that did not take effect must be visible even when
+    // its tier would normally hide it — that is exactly the case worth showing.
+    let c = ctx(false, &[], "linux"); // release: Z42_STRESS_ITERS is debug-only
+    let (_, res) = resolve_all(&[], &[("Z42_STRESS_ITERS", "5")], None, None, &c);
+    let text = show_config_text(&res, false);
+    assert!(text.contains("stress-iters"), "internal knob with an ignored value must show: {text}");
+    assert!(text.contains("unavailable in this build"), "{text}");
+}
+
+#[test]
+fn show_config_json_is_valid() {
+    let (_, res) = resolve_all(&[("Z42_GC_MODE", "concurrent")], &[], None, None, &full_ctx());
+    let v: serde_json::Value =
+        serde_json::from_str(&show_config_json(&res, true)).expect("valid JSON");
+    let gc = v["knobs"].as_array().unwrap().iter()
+        .find(|k| k["env"] == "Z42_GC_MODE").unwrap();
+    assert_eq!(gc["value"], "concurrent");
+    assert_eq!(gc["source"], "cli");
+    assert!(gc["ignored"].as_array().unwrap().is_empty());
 }

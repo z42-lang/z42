@@ -39,13 +39,17 @@ use std::sync::OnceLock;
 // complete-runtime-settings P0（2026-09-05）：schema 类型层 → `config/knobs.rs`，
 // 旋钮登记表 → `config/knob_table.rs`，可用性求值 → `config/availability.rs`。
 mod availability;
+mod cli;
 mod knob_table;
 mod knobs;
 mod parse;
+mod render;
 mod resolve;
 pub use availability::*;
+pub use cli::*;
 pub use knob_table::{knob_by_env_name, knob_by_key, KNOWN_KNOBS};
 pub use knobs::*;
+pub use render::*;
 pub use resolve::*;
 pub(crate) use parse::*;
 
