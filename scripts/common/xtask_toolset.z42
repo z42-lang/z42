@@ -17,7 +17,7 @@
 // 形状：慢得不明不白，还得靠人去量才发现）。现在回落时明确 warn 一行。
 //
 // 未纳入（形状不同，刻意不硬凑）：
-//   - `_regenGoldenF`（xtask_test_assets.z42）：单 vm，且用的是 tc-aware 的 `_activeVm`；
+//   - `_regenGoldenF`（xtask_golden_assets.z42）：单 vm，且用的是 tc-aware 的 `_activeVm`；
 //   - `_platformAssets`（xtask_test_platform.z42）：**完全不看 toolchain**，改成看是行为变更。
 // 两者若要并入，须单独评估 + 各自的 GREEN 覆盖，别顺手改。
 //

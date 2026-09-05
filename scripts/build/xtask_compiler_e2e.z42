@@ -311,6 +311,62 @@ int _e2eOracleChecks(string vm, string driverZpkg, string e2eDir, string flat, s
     return 0;
 }
 
+// `[profile.*.runtime]` 旋钮名的构建期校验（compiler-checks-knob-names）。三件事：
+//   ① 未知旋钮名 → **warning 且 build 仍成功**（旧工具链为新 VM 构建时要能过），带最近邻建议；
+//   ② 名字对了就一声不吭（防"每次构建都刷一行"的误报回归）；
+//   ③ 旧形状 `[profile.X]` 直接写键 → **致命**，且**库工程也管**——这条检查从前埋在侧车
+//      写出里、只在 isExe 时跑，库工程写错没人说。
+// 全部用 kind=lib：不产侧车也照样校验，正是要证明校验不再挂在侧车路径上。
+int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
+    string kdir = Path.Join(e2eDir, "knobcheck");
+    Directory.Create(kdir);
+    File.WriteAllText(Path.Join(kdir, "k.z42"),
+        "namespace Check.Knob;\n\npublic static class K {\n    public static int One() { return 1; }\n}\n");
+    string ktoml = Path.Join(kdir, "check.knob.z42.toml");
+    string head = "[project]\nname    = \"check.knob\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+                + "[sources]\ninclude = [\"*.z42\"]\n\n";
+
+    // ① typo。**不传 --release**：校验扫全部 profile，`[profile.release.runtime]` 的 typo
+    //    在只跑 debug 构建时也必须报——那正是它最容易活到发布的路径。
+    File.WriteAllText(ktoml, head + "[profile.release.runtime]\ngc-mdoe = \"stw\"\n");
+    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r1.ExitCode != 0) {
+        Console.WriteLine("  ✗ 未知旋钮名把 build 判红了（应只 warning）: rc=" + r1.ExitCode.ToString());
+        return 1;
+    }
+    if (r1.Stderr.IndexOf("gc-mdoe") < 0) {
+        Console.WriteLine("  ✗ 未知旋钮名 `gc-mdoe` 没有被报出来");
+        return 1;
+    }
+    if (r1.Stderr.IndexOf("gc-mode") < 0) {
+        Console.WriteLine("  ✗ 未知旋钮名报了但没给最近邻建议 `gc-mode`");
+        return 1;
+    }
+    Console.WriteLine("  ✓ [profile.*.runtime] typo → warning + 最近邻建议，build 不红");
+
+    // ② 名字正确 → 零噪音。
+    File.WriteAllText(ktoml, head + "[profile.release.runtime]\nmode = \"interp\"\ngc-mode = \"stw\"\n");
+    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r2.ExitCode != 0 || r2.Stderr.IndexOf("未知运行时旋钮") >= 0) {
+        Console.WriteLine("  ✗ 合法旋钮名被误报（rc=" + r2.ExitCode.ToString() + "）: " + r2.Stderr.Trim());
+        return 1;
+    }
+    Console.WriteLine("  ✓ 合法旋钮名零噪音");
+
+    // ③ 旧形状，库工程。
+    File.WriteAllText(ktoml, head + "[profile.release]\nmode = \"interp\"\n");
+    ProcessResult r3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(ktoml)
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r3.ExitCode == 0 || r3.Stderr.IndexOf("不接受直接写键") < 0) {
+        Console.WriteLine("  ✗ 库工程的旧形状 [profile.X] 直接写键没有被拒（rc=" + r3.ExitCode.ToString() + "）");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 库工程的旧形状 [profile.X] 直接写键 → 致命");
+    return 0;
+}
+
 int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
@@ -327,6 +383,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
     // z42c 自身的 byte-identical 由 self-host 不动点（gen1==gen2）覆盖（见 _testSelfHostByteIdentical）。
 
     if (_e2eBuildChecks(root, vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
+    if (_e2eKnobChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }

@@ -44,14 +44,16 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 |------|------|------|
 | **PR 门禁比法** | **同-runner A/B**（base 与 pr 同机相邻测量，比比值）| 跨-runner baseline 快照被 ±26–60% between-run 偏移主导，门禁失明；同机测量让 `k` 约掉，才既不假报又能抓真回归 |
 | **A/B 判红准则** | **比值 95% 下界 R_lower > 1+thr**（SEM 误差传播）| 同机抵消后 within-run SEM 才有效；对商做误差传播得比值置信区间，下界超阈值 = 有把握判回归 |
+| **可疑即复测** | 初判回归的条目**再测 2 轮**，区间改由**跑间比值离散度**给出 | 单轮区间只见得到跑内方差，跨进程那部分（CPU 频率 / page cache / GC 起始状态 / 布局彩票）压根没被建模 ⇒ 低估约三倍。重测同一份二进制、看比值散多开，是唯一能把那部分**量出来**的办法。只有被标记的条目付这个代价 ⇒ 干净 PR 零开销（见「可疑即复测」）|
 | **A/B 交错** | hyperfine 双命令单 invocation（`env Z42_LIBS=… vm …` 前缀）| 两侧相邻数秒、各带自己的 libs；逐次交错属过度工程 |
 | 区间感知 diff（本地） | `bench --diff`：**区间分离 AND 均值超阈值** | 旧 PR 门禁准则（P0）；现降级为本地「优化前后对比」工具，需显式 `--baseline <path>` |
 | 区间来源 | 复用结果 JSON 已有的 `ci_lower`/`ci_upper` | e2e 由 hyperfine 的 min/max 产、micro 用采样 min/max 充当；不采集新数据，零额外成本 |
 | 缺区间回落 | 任一侧缺 `ci_lower`/`ci_upper` → 裸均值比值门禁，标 `(no-ci)` | 老格式 / 外部结果无 CI 时仍可判，只是回到宽松语义，显式标注让读者知道判据降级了 |
-| **阈值** | 时间 5%（`--threshold-time` 默认）/ **CI 用 0.25** / 内存 10% | **阈值必须高于噪声底**：实测噪声底 ±13~16%，10% 的旧值画在其下 ⇒ 假红是数学必然（见「噪声底与阈值」）。内存指标暂为 informational |
+| **阈值** | 时间 5%（`--threshold-time` 默认）/ **CI 用 0.15** / 内存 10% | **阈值必须高于噪声底**，否则假红是数学必然（见「噪声底与阈值」）。0.25 是**在噪声底之上躲着走**的权宜之计；有了可疑即复测把不确定度真的量出来，才有依据收回 0.15。**收阈值与复测是同一件事的两半**——单独收阈值就是退回假红。内存指标暂为 informational |
 | **场景分层** | `// tier: gate \| full` 头部声明；CI 传 `--tier gate` | 门禁只需一小组代表性场景。**这同时把每 PR 的比较次数从 87 降到 6~12**，多重比较的假红概率随之降一个量级——分层不只是省时间 |
 | 画像键 | `(name, metric, mode_label@os/arch)` | interp/jit、跨平台结果隔离，杜绝 interp 的数字被拿去比 jit 基线 |
-| **micro 进 CI** | **跑，但只打印、不判红**（informational） | Bencher 的 stddev 是**进程内**批次样本方差，而 base/pr 是两个独立进程 ⇒ 区间被低估约三倍，「区间分离」这道保险不成立（见「噪声底与阈值」）。要重新硬门禁，先做「可疑即复测」 |
+| **micro 进 CI** | **硬门禁**（2026-09-06 恢复；此前只打印不判红） | 降级的原因是区间不可信：Bencher 的 stddev 是**进程内**批次样本方差，而 base/pr 是两个独立进程 ⇒ 低估约三倍，「区间分离」这道保险不成立。可疑即复测把缺的那部分方差**测出来**了，硬门禁靠的是这个，不是把阈值调松 |
+| **criterion 进 CI** | **只打印、不判红**（2026-09-06 降级；此前硬门禁） | 它的 bootstrap CI 同样是**跑内**的，`--baseline` 比的却是两次独立跑 ⇒ 与 micro 同源的缺陷。战绩为证：至今 **0 次真阳性、3 次假红**。这一层不上复测是因为代价不成比例（一轮约 390s，重采两轮 ≈ +780s）；保留测量与打印作诊断材料 |
 | 基线存放 | **不存**（`bench-update.yml` + `bench-baselines` 分支已删） | 它早已不喂门禁，却每次 push main 烧一个 job、往孤儿分支累积了 1249 条机器提交。趋势记录若要恢复，应落在独立的数据仓，而不是代码仓的分支 |
 
 ## 三层度量 tier
@@ -59,12 +61,16 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | tier | 工具 | 位置 | 粒度 | 进 CI 门禁 |
 |------|------|------|------|-----------|
 | **z42 e2e** | hyperfine + 自建 harness | `src/tests/perf/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ `bench-pr.yml` 硬门禁（**只测 `--tier gate`**） |
-| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ⚠️ **只打印、不判红**（`bench --micro-diff`；理由见「噪声底与阈值」②） |
-| **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke）| ✅ criterion 原生 A/B（仅 src/runtime 改动时） |
+| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ **硬门禁**（`bench --micro-diff` + 可疑即复测；2026-09-06 恢复） |
+| **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke）| ⚠️ **只打印、不判红**（2026-09-06 降级；仅 src/runtime 改动时才测） |
 
-**e2e** 捕获全管线回归（启动开销 / dispatch / 整体吞吐），是**唯一的硬门禁守护面**；**micro** 把回归
-定位到具体函数、守 stdlib 热路径，但它的置信区间不可信（进程内样本方差 vs 跨进程比较，低估约三倍），
-故**只作诊断材料、不判红**——改 stdlib 热路径后自己去 CI 日志里看那 65 条比值。
+**e2e** 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；**micro** 把回归定位到具体函数、守 stdlib
+热路径。两层现在都是硬门禁，且都由[可疑即复测](#可疑即复测ab-resample-on-suspicion2026-09-06)决定最终判定
+——它们此前的共同病根是「区间低估约三倍」，复测把那部分方差测出来之后病根就没了。
+
+**criterion 是唯一只打印不判红的一层**：同样的病根，但它的复测代价不成比例（一轮 A/B 约 390s），
+而 GC 热路径的真回归会在 e2e 的 gate 场景里露头（`gc_cycle_bench` 链接整个 crate，挪得动它的
+VM 改动也挪得动场景）。改 GC 后自己去 CI 日志里看那几条区间。
 
 ### micro 同-runner A/B（`bench --micro-diff`，Part B）
 
@@ -107,11 +113,20 @@ Rust VM 内部热路径（`src/runtime/benches/gc_cycle_bench.rs`：cycle_heavy 
 
 1. **base(merge-base) 树**：`cargo bench --bench gc_cycle_bench -- --save-baseline ab-base`。
 2. **PR 树**：`cargo bench --bench gc_cycle_bench -- --baseline ab-base`（criterion 报每个基准的均值变化 %）。
-3. 共享 `CRITERION_HOME` 让两树的结果相遇；门禁读 `<bench>/change/estimates.json` 的
-   `mean.confidence_interval`——**整个 95% 区间在 +25% 之上（`lower_bound > thr`）** → 判红
-   （阈值 2026-09-05 从 0.10 抬到 0.25，与 e2e 对齐，见「[criterion 的噪声底](#criterion-层的噪声底也在-16-2026-09-05)」）。
-   点估计不单独参与判定：它落在区间里，**区间才是结论**。区间没整体过阈值、但点估计过了的条目
-   打印成 `?`（「可疑」），正是[可疑即复测](#已知局限与后续)该接手的输入。
+3. 共享 `CRITERION_HOME` 让两树的结果相遇；读 `<bench>/change/estimates.json` 的
+   `mean.confidence_interval`——**整个 95% 区间在 +25% 之上（`lower_bound > thr`）** 的条目被
+   标记出来。点估计不单独参与判定：它落在区间里，**区间才是结论**。
+
+   > ⚠️ **2026-09-06 起这一层只打印、不 fail job**（demote-criterion-to-informational）。
+   > 判定条件原样保留——它仍是「这条值得人看一眼」的最好线索，只是不再替人做拦不拦的决定。
+   > 依据是它自己的战绩：至今 **0 次真阳性、3 次假红**（#423 一次；#457 两次，且那两次是在
+   > base 与 pr 的 VM 代码**逐字节相同**的对照上判的）。它判红所依赖的证据与 micro 被降级时
+   > 同源：bootstrap CI 也是**跑内**的，而 `--baseline` 比的是两次独立跑，跑间漂移（实测单条
+   > 极差 15~32pp）它结构性地看不见。
+   >
+   > 那为什么不像 e2e/micro 一样上[可疑即复测](#可疑即复测ab-resample-on-suspicion2026-09-06)？
+   > 代价不成比例：一轮 criterion A/B 约 390s，重采两轮 ≈ +780s，比它守住的东西贵得多。
+   > **但别顺手把测量也删掉**——删了就再没有 GC 内部热路径的观测点。
 
    > ⚠️ **2026-09-05 前这里是 `pe > thr and lo > 0.0`**，把「CI 分离」实现成了「下界大于**零**」，
    > 于是 `[+0.5%, +60%]` 这种毫无信息量的宽区间照样算「分离」——实测踩中两次全是假红，见
@@ -191,10 +206,83 @@ else:                   → ≈ overlap       (noise, 放行)
 缺 stddev/n（n≤1 或 stddev≤0）→ 回落裸比值 ratio>1+thr，标 (no-ci)
 ```
 
-- `thr` 默认 **0.10**；**CI 用 0.25**——见下「噪声底与阈值」，10% 画在噪声底之下，假红是数学必然。`Z=1.96`。
+- `thr` 默认 **0.10**；**CI 用 0.15**——见下「噪声底与阈值」与「可疑即复测」。`Z=1.96`。
 - 结果落 `artifacts/bench/ab.json`（`ab-v1` schema：每场景 base/pr mean·stddev、ratio、r_lower/r_upper、
   verdict），信息性 artifact，不复用 baseline-schema。
 - **同机抵消让 within-run SEM 在此统计有效**——这是 P0 跨-runner 比法下不成立、A/B 下才成立的关键。
+  但**只到跑内为止**：跨进程那部分方差它仍看不见，所以初判之后还有下一节这一道。
+
+### 可疑即复测（ab-resample-on-suspicion，2026-09-06）
+
+**它治的缺陷**：上面那个 SEM 来自**一次** hyperfine invocation 的跑内样本方差，而 base 与 pr 是
+两个独立进程。进程间那部分方差（CPU 频率、page cache、分配器与 GC 起始状态、代码布局彩票）
+**根本没进模型**，于是声称区间比真实窄约三倍——这就是「[噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)」
+的缺陷 ②，也是阈值此前只能停在 0.25（噪声底之上）的原因。
+
+**做法**：第一轮照常测；**只对初判 `R_lower > 1+thr` 的条目**，把同一份二进制再测 2 轮，拿到
+k=3 个独立比值，用**它们之间的离散度**重算区间：
+
+```
+ratio_i = pr_mean_i / base_mean_i          # 第 i 轮，i = 1..k
+R_lower = mean(ratio) − t(单侧 95%, df=k−1) · sd(ratio)/sqrt(k)
+regression ⟺ R_lower > 1 + thr             # 与其他各路同一条规则
+```
+
+- **单侧**，与 `_abVerdict` 的双侧 Z=1.96 不同：门禁问的本来就是单侧问题（「pr 是不是慢了超过
+  thr」），而 k=3 时双侧分位数 4.303 会把余量做到 2.48·sd（单侧 2.920 是 1.69·sd），钝到连
+  真的 +20% 回归都放过去。两者的严格度并不像常数看上去那样矛盾：`_abVerdict` 把名义上更严的
+  分位数用在一个**已知偏小三倍**的离散度上，实际覆盖率反而是两者中更松的那个。
+- **成本只落在被标记的条目上**：干净 PR 一分钱不花；实际标记通常 1~2 条 ⇒ e2e +30~60s。
+  e2e 的复测在 `xtask bench --ab` 进程内完成；micro 因为是整进程一次采 65 条，按**整轮**重采
+  （见下）。
+- **预算上限**：e2e 一次最多复测 3 条（`_benchAb` 的 `resampleBudget`）。标记数超过上限本身
+  就是「广泛真回归」的证据，剩下的条目保留初判（即判红），而不是烧掉无上界的 runner 时间去
+  确认一个已经很可能的答案。
+- **关掉它**：`bench --ab --resample-rounds 0`（回滚旋钮）。**但阈值必须同时退回 0.25**——
+  0.15 是复测换来的，不是可以单独享用的。
+
+**实测证据**（本机，`--quick`，base 与 pr 是**同一份二进制**，`01_fibonacci`）：三轮比值
+**1.058 / 0.978 / 0.828**，跨 23pp。第 1 轮那个 1.058 配上很窄的跑内区间就是一条假红；复测
+给出 `R_lower=0.758 / R_upper=1.151` ⇒ overlap 放行。**跑间漂移不是理论，它就是这么大。**
+
+### 跑间离散度到底多大（2026-09-06 实测，**别再重新采**）
+
+复测的两个参数（k=3、单侧 95%）此前是按「跑间离散度约 6%」推的，而那个 6% 来自**跨 PR**
+样本。真正该测的是：同一份二进制在同一台机器上重测，比值散多开。实测（本机 macOS/arm64，
+`bench stdlib` 六次捕获 = 三轮 × 两侧，**两侧同一套工具链**，65 条全部匹配）：
+
+| 比值的跑间相对标准差 `sd/mean` | 中位 | p90 | 最大 |
+|---|---|---|---|
+| | **2.90%** | **7.02%** | **12.32%** |
+
+换算成判红余量 `t·sd/√k = 2.920·sd/1.732`，以及「要多大的真回归才判得动」：
+
+| | 余量 | 实际判红门槛（thr=0.15）|
+|---|---|---|
+| 中位条目 | 4.89% | **+20%** |
+| p90 条目 | 11.8% | +27% |
+| 最噪的那条 | 20.8% | +36% |
+
+**怎么读这张表**：对多数 benchmark，0.15 是**真的** 0.15 —— 中位条目在 +20% 就判得动。
+但**最噪的那一成保留了实际更松的门**。这正是复测该有的行为（门槛按**每条自己的噪声**走，
+而不是全场一个拍脑袋的常数），但**别把「阈值 0.15」读成「超过 15% 就一定拦得住」**。
+
+⚠️ 这组数是**本机 macOS/arm64**测的，不是 CI 的 linux runner。方向性可信，量级待 CI 上
+用 `ab.json` 的 `round_ratios` 继续攒。
+
+⚠️ 另一个实测现象：在一个**两侧完全同源**的对照上，第 1 轮在 0.15 下仍会标记到条目
+（本机 65 条里标了 2 条）。**这正是第 1 轮只配用来点名、不配判红的证据** —— 它就是那个
+被低估三倍的区间。
+
+**为什么 micro 不按 benchmark 名过滤重采**：`bench stdlib --filter` 过滤的是**文件名**而不是
+benchmark 名，要按名重采就得新造一层 benchmark→文件 的映射——映射错了是**静默少测**（门禁
+变瞎），而整轮重采最坏只是多花时间（约 +180s，且只在标记时发生）。与
+[改动面守卫](#改动面守卫为什么是排除文档而不是列白名单)同一条取向：宁可多做，不可漏。
+
+**接口**：`bench --micro-diff --current a.json,b.json,c.json --baseline x.json,y.json,z.json`
+——两侧轮数必须相等（不等 = 用法错误 exit 2，不是「没有回归」）。给一份就是原来的单轮路径。
+某条 benchmark 没有出现在**每一轮**里 ⇒ 打警告并**排除出门禁**（来来去去的条目不构成回归证据；
+静默丢弃则是门禁变瞎的老路）。
 
 ### 区间感知 diff（`bench --diff`；历史 dashboard 对比，非 PR 门禁）
 
@@ -207,7 +295,7 @@ else:                   → ≈ overlap       (noise, 放行)
 
 ```
 delta = (cur.value - base.value) / base.value       # 相对均值变化
-thr   = 内存指标 ? threshold-memory : threshold-time  # 默认 时间 5% / 内存 10%；CI 显式传 0.25
+thr   = 内存指标 ? threshold-memory : threshold-time  # 默认 时间 5% / 内存 10%；CI 显式传 0.15
 
 if 双方都有置信区间 (_hasCi):                          # 主路径
     if delta > thr   AND cur.ci_lower > base.ci_upper:  → ↑ 回归   (regressions++)
@@ -242,11 +330,14 @@ exit = regressions > 0 ? 1 : 0
 | e2e（22 条） | 编译器注册键重构 | 0.932 – 1.239 | **±13%** | 中位 7.9% |
 | micro（65 条） | GC loom 建模（不碰 crypto） | 0.747 – 1.115 | **±16%** | 中位 4.8%、最窄 **0.25%** |
 
-旧阈值 10% 低于这个噪声底 ⇒ 筛出来的必然主要是噪声。**现 CI 用 0.25**（留安全边际）。
+旧阈值 10% 低于这个噪声底 ⇒ 筛出来的必然主要是噪声。**2026-09-05 抬到 0.25**（留安全边际），
+**2026-09-06 收回 0.15** —— 收得动的唯一原因是[可疑即复测](#可疑即复测ab-resample-on-suspicion2026-09-06)
+把不确定度真的量出来了，不是因为噪声变小了。
 
-> **代价说清楚**：抓不到 25% 以下的真回归。但旧门禁**也抓不到**——真信号淹在假红里，没人认真看。
-> 而历史上真正需要拦住的量级（把 #421 的负缓存 revert = **1.93×**）远超 25%。
-> **一个 25% 阈值但没人忽略的门禁，强过一个 10% 阈值但被当噪声跳过的门禁。**
+> **代价说清楚**：抓不到阈值以下的真回归。0.25 时期这个代价是自觉付的——旧门禁**也抓不到**，
+> 真信号淹在假红里没人认真看，而历史上真正需要拦住的量级（把 #421 的负缓存 revert = **1.93×**）
+> 远超 25%。**一个 25% 阈值但没人忽略的门禁，强过一个 10% 阈值但被当噪声跳过的门禁。**
+> 复测把这个代价降到 15%，且**没有**用「调松判据」换——判据反而更严了（跑间离散度 > 跑内）。
 
 **② 声称的置信区间被系统性低估 ⇒「区间分离」这道保险失效。** micro 声称的区间中位仅 4.8%，
 而真实噪声 ±16%——**低估约三倍**。根因：`Bencher` 的 `stddev` 是**单个进程内批次样本**的离散度，
@@ -267,10 +358,17 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 `87 × 0.025 ≈ 2.2` 条；只要任意一条撞上，整个 job 红。**场景分层（`--tier gate`）把比较数降到 6~12**，
 这是分层最容易被低估的收益。
 
-**尚未做（下一步，是收紧阈值的前提）——「可疑即复测」**：今天 base 与 pr 各测**一次**，比值的不确定度
-只能从进程内样本方差推（即缺陷 ②）。正解是第一轮照常测，**只对初判 `R_lower > 1+thr` 的那 1~2 条**
-再交替测 k=3 轮，用**三个独立比值之间的离散度**重算区间——那才是真实的不确定度。因为复测只发生在少数
-条目上，成本约 +30~60s 而非 ×3。有了它，阈值才有依据从 25% 收回 15%、micro 才有依据重新硬门禁。
+**已落地（2026-09-06）——「可疑即复测」**：缺陷 ② 的正解是第一轮照常测，**只对初判
+`R_lower > 1+thr` 的那 1~2 条**再测 k=3 轮，用**三个独立比值之间的离散度**重算区间——那才是真实的
+不确定度。因为复测只发生在少数条目上，成本约 +30~60s 而非 ×3。做法与实测证据见
+「[可疑即复测](#可疑即复测ab-resample-on-suspicion2026-09-06)」。
+
+随之而来的两项，都是**它换来的**、不能单独享用：
+- **阈值 0.25 → 0.15**（e2e 与 micro 同）。0.25 是在噪声底之上躲着走；有了真实不确定度才有依据收。
+- **micro 恢复硬门禁**。缺陷 ② 是它当初被降级的唯一原因，原因消失了。
+
+缺陷 ③（多重比较）**未变**，仍靠场景分层压：e2e 6~12 条比较。micro 那 65 条比较没有分层，
+它现在能硬门禁靠的是复测把每条的区间做实，不是比较数变少了——这两条要分开记。
 
 ### 判定结果的四种标注
 
@@ -307,35 +405,52 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 
    | 路径 | 怎么测 | 用例 |
    |---|---|---|
-   | `_abVerdict`（e2e，唯一硬门禁） | `bench --ab-selftest` 单测纯函数 | 5 |
+   | `_abVerdict` + `_abResampleVerdict`（纯函数） | `bench --ab-selftest` 单测 | 10（5 + 5）|
    | `_benchDiff`（`--diff`，历史/本地对比） | `testdata/current-*.json` vs `baseline.json` | 4 |
-   | `_microDiff`（`--micro-diff`，micro A/B） | `testdata/micro-*.json` vs `micro-base.json` | 7 |
+   | `_microDiff` 单轮（`--micro-diff`） | `testdata/micro-*.json` vs `micro-base.json` | 7 |
+   | `_microDiff` **复测**（三轮 × 两侧） | `testdata/micro-rs-*-r{1,2,3}.json` | 4 + 1 用法错误 |
 
-   `_abVerdict` **喂不了 JSON fixture**（需两套同机实测的真工具链），但它是纯函数 ⇒ 单测是它
-   唯一的机械覆盖。两套 fixture 都跑 **thr 0.25 与 0.10 两遍**：各有一个 `separated-under-threshold`
-   （区间分离但只 +20%）是**唯一对阈值本身敏感**的用例 —— 没有它，把 `--threshold-time` 降到
-   0.001 结果都纹丝不动（实测过），即门禁根本没在看阈值；`_abVerdict` 的对应用例是同一组数字
-   在 thr 0.25 下**不判红**。micro 侧另有两条 `fallback-*` 行使**无 SEM 的区间回退路径**
-   （base 侧 `mean_ns=-1`），和一条 `unmatched`：三个各放大 3× 的条目，其 name 或 mode key
-   在 base 无对应 ⇒ 必须被**跳过**，匹配一旦放松就翻红。
+   `_abVerdict` 与 `_abResampleVerdict` **喂不了 JSON fixture**（需两套同机实测的真工具链），
+   但它们是纯函数 ⇒ 单测是它们唯一的机械覆盖。所有 fixture 都跑 **thr 0.15（门禁在用的那个）
+   与 0.25 两遍**：每条套件里都有一个只在其中一个阈值下翻红的用例（单轮的
+   `separated-under-threshold`、复测的 `rs-mid`），它是**唯一对阈值本身敏感**的用例 —— 没有它，
+   把 `--threshold-time` 降到 0.001 结果都纹丝不动（实测过），即门禁根本没在看阈值。
+   micro 单轮另有两条 `fallback-*` 行使**无 SEM 的区间回退路径**（base 侧 `mean_ns=-1`），
+   和一条 `unmatched`：三个各放大 3× 的条目，其 name 或 mode key 在 base 无对应 ⇒ 必须被
+   **跳过**，匹配一旦放松就翻红。
 
-   **反向验证**（做过两次，别只信正向绿）：把 `_abClassify` 的 `RLower > 1+thr` 改成
-   `> 1.0`，`--ab-selftest` 与 3 条 micro 用例立刻红（`_benchDiff` 不受影响 —— 它有自己的
-   门，不走 `_abClassify`）；把 `_microVerdict` 回退分支的 `cLo/bHi` 换成裸比值，
-   `fallback-overlap` 立刻红。
+   > ⚠️ **0.15 那一列必须跟着门禁实际用的阈值走。**改了 `--threshold-time` 而没改自检，
+   > 等于自检不再检门禁在跑的那套规则。
+
+   复测四例各守一件事：`rs-drift`（第 1 轮 +60%、后两轮 +5%/+10%，**均值 1.25 本身在阈值之上**
+   ⇒ 只有区间宽度真的算了才放行 —— 这就是复测要杀的那条假红）、`rs-real`（每轮都 +30% ⇒ 仍判红，
+   证明复测没把门禁弄瞎）、`rs-mid`（对阈值敏感的那条）、`rs-missing`（回归条目缺席第 3 轮 ⇒ 必须
+   被排除 ⇒ 放行）。**base 三轮的数值故意各不相同**，所以轮次配错会改变比值。
+
+   **反向验证**（做过五次，别只信正向绿 —— 正向绿只证明 fixture 与当前实现一致，不证明实现坏掉时它会叫）：
+
+   | 注入缺陷 | 谁抓住 | 谁**没**抓住（值得记） |
+   |---|---|---|
+   | `_abClassify` 的 `RLower > 1+thr` → `> 1.0` | `--ab-selftest` + 3 条 micro + `rs-mid@0.25` | `_benchDiff`（有自己的门，不走 `_abClassify`）|
+   | `_microVerdict` 回退分支 `cLo/bHi` → 裸比值 | `fallback-overlap` | — |
+   | `_abResampleVerdict` 的 `t` → 0（区间宽度算没了）| `--ab-selftest` + `rs-drift@0.15` | 均值在阈值**之下**的 drift 用例（所以 fixture 特意选了均值在阈值之上的）|
+   | 轮次错配（base 恒取第 1 轮）| **只有** `rs-mid@0.15` | `--ab-selftest`（纯函数不受影响）⇒ **纯函数自测与接线 fixture 两层缺一不可** |
 
    **覆盖边界**：守的是**判定规则**，不是测量与编排 —— `_abOneScenario` 的 hyperfine 调用、
    base 工具链构建、micro 基线采集只能靠真 run 行使。
 4. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime`（排除 `*.md`）无变更 → base_vm=pr_vm，否则
    cargo 建 base z42vm；PR z42c 编 `base-src/src/compiler`→base z42c，base z42c 编 `base-src/src/libraries`→base stdlib
-5. **e2e A/B（唯一硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`。
+5. **e2e A/B（硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.15 --base-vm/-libs/-driver …`。
    `MODE` 按改动面收窄：`src/runtime`（排除 `*.md`）无变更 → `jit`（interp/jit 的相对性能只可能被 VM 改动挪动），
-   否则 `both`。`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `artifacts/bench/ab.json`
-6. **micro A/B（informational，永不 fail）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树
-   复用 3 建的工具链、仅新建 base z42b）→ `bench --micro-diff` 打印全部比值。降级理由见「噪声底与阈值」②
-7. **criterion A/B**（Part C，仅 `src/runtime` 非文档改动时）：base 树 `--save-baseline ab-base`、PR 树
-   `--baseline ab-base`（共享 `CRITERION_HOME`），读 `change/estimates.json` 判红
-   （**整个区间在 +25% 之上**；阈值 0.10→0.25 见 #465，与 e2e 同一个理由——它的噪声底同样在 ±16%）
+   否则 `both`。初判回归的条目在**进程内**自动复测 2 轮（见「可疑即复测」），最终 `R_lower > 1+thr`
+   → exit 1 → fail workflow；上传 `artifacts/bench/ab.json`（含每轮比值 `round_ratios`）
+6. **micro A/B（硬门禁）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树复用 3 建的工具链、
+   仅新建 base z42b）→ 第 1 轮 `bench --micro-diff --suspects …` **只点名不判红**；
+   `suspects` 为空 ⇒ 直接通过（**零额外开销**，与降级时期同价）；非空 ⇒ 再采两轮（两棵树各一次，
+   约 +180s），最后用三轮做 `--micro-diff --current a,b,c --baseline x,y,z` **判红**
+7. **criterion A/B（informational，永不 fail）**（Part C，仅 `src/runtime` 非文档改动时）：base 树
+   `--save-baseline ab-base`、PR 树 `--baseline ab-base`（共享 `CRITERION_HOME`），读
+   `change/estimates.json` 标记**整个区间在 +25% 之上**的条目并打印。降级理由见上面 criterion 小节
 
 **耗时构成**（全部实测；`gh run list` 看到的 2000s+ 是**排队**不是执行，要看 job 的
 `started_at`→`completed_at`）。#442 前的两个样本（run 33930770961 / 33923733669）**都没碰
@@ -551,6 +666,12 @@ xtask bench --tier gate           # 只跑 PR 门禁那 6 条（CI 用的就是�
 xtask bench --tier full           # 只跑非门禁场景
 xtask bench --mode both           # 每场景各测 interp 与 jit（各一条 profile 结果）
 xtask bench --quick               # sanity：只跑前 2 个场景、runs=3 warmup=1（< 60s）
+
+# 同-runner A/B（门禁那条路径，本地复现需要两套工具链）
+xtask bench --ab --tier gate --threshold-time 0.15 \
+  --base-vm <base z42vm> --base-libs <base flat libs> --base-driver <base driver.zpkg>
+xtask bench --ab … --resample-rounds 0   # 关掉可疑即复测（回滚旋钮；关了就得把阈值退回 0.25）
+xtask bench --ab-selftest                # 判定纯函数单测（10 例，CI 每次跑）
 ```
 
 `--mode both` 就是 interp/jit 对比的正规做法：同一份 `.zbc`（编译产物与模式无关）在两种模式下
@@ -585,14 +706,15 @@ xtask bench && cp artifacts/bench/e2e.json /tmp/before-e2e.json   # e2e
 # 3. 改之后再捕获并 diff（--baseline 必须显式给）
 xtask bench stdlib --json /tmp/after.json
 xtask bench --diff --current /tmp/after.json --baseline /tmp/before.json \
-            --threshold-time 0.25
+            --threshold-time 0.15
 #   → ↑ 回归(exit 1) / ↓ 改进 / ≈ 持平 / (new)/(removed)
 ```
 
 > **`--diff` 与 `--micro-diff` 别混**：`--diff` 是**本地/历史**用法（跨快照裸比值，宽阈值）；
 > PR 门禁走 `--ab`（e2e）与 `--micro-diff`（micro，同-runner base vs pr）。阈值语义见本页
 > [噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)——**不要**沿用早期文档里
-> 「5% 时间 / 10% 内存」那组数字，它们画在噪声底之下，已于 2026-09-05 统一抬到 0.25。
+> 「5% 时间 / 10% 内存」那组数字，它们画在噪声底之下；2026-09-05 统一抬到 0.25，
+> 2026-09-06 随可疑即复测收回 **0.15**。
 
 ### criterion（Rust 微基准，未接入 xtask）
 
@@ -619,23 +741,32 @@ cargo bench --manifest-path src/runtime/Cargo.toml
 
 ## 已知局限与后续
 
-- ⚠️ **「可疑即复测」尚未实现——这是收紧阈值与恢复 micro 硬门禁的唯一前提**（Deferred
-  `ab-resample-on-suspicion`）。今天 base 与 pr 各测**一次**，比值的不确定度只能从进程内样本方差推，
-  这正是「[噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)」缺陷 ② 的根。做法：第一轮照常测，
-  只对初判 `R_lower > 1+thr` 的 1~2 条再交替测 k=3 轮，用**跑间比值离散度**重算区间（成本 +30~60s，
-  不是 ×3）。落地后阈值可从 0.25 收回 0.15、micro 可重新判红。
-- **micro tier 只打印不判红**（simplify-bench-gate 降级）；criterion 仍硬门禁，但 2026-09-05 起
-  它的判红条件是**整个区间在 +25% 之上**（区间语义修正 + 阈值与 e2e 对齐，见上面两节）。
-- ⚠️ **criterion 硬门禁的历史命中率待观察**：2026-09-01~09-04 的 34 次 bench-pr 失败逐条归类——
+- ✅ **「可疑即复测」已落地**（2026-09-06，见
+  「[可疑即复测](#可疑即复测ab-resample-on-suspicion2026-09-06)」）。随之阈值 0.25 → **0.15**、
+  micro 恢复硬门禁。**这三件是一件事**：`--resample-rounds 0` 关掉复测就必须把阈值退回 0.25。
+- ⚠️ **0.15 不是均匀保证**。跑间离散度已实测（见
+  「[跑间离散度到底多大](#跑间离散度到底多大2026-09-06-实测别再重新采)」）：中位 2.90%
+  ⇒ 中位条目 +20% 判得动；但 p90 需 +27%、最噪的一条需 +36%。门槛按每条自己的噪声走是
+  对的，但别把阈值读成一刀切的保证。
+- ⚠️ **那组离散度是本机 macOS/arm64 测的，不是 CI 的 linux runner**。要在 CI 上继续攒，
+  材料是 `artifacts/bench/ab.json` 的 `round_ratios`。离散度若显著大于本机，症状是
+  **真回归被放过**（不是假红）——那时该加 k，不是松阈值。
+- ⚠️ **micro 的 65 条比较仍不做多重比较校正**。它能恢复硬门禁靠的是每条的区间被做实，
+  不是比较数变少了（e2e 有 `--tier gate` 压到 6~12 条，micro 没有对应机制）。
+  若 micro 层开始零星假红，先查这一条，别急着动阈值。
+- **criterion tier 只打印不判红**（2026-09-06 降级，见上面 criterion 小节）；它的判定条件
+  （**整个区间在 +25% 之上**）原样保留作诊断标记。
+- ⚠️ **criterion 的历史命中率就是它被降级的依据**：2026-09-01~09-04 的 34 次 bench-pr 失败逐条归类——
   micro 层 12 次、基础设施故障（建 base 工具链 / 采 base micro 基线）19 次、e2e 2 次、
   **criterion 1 次**；那唯一一次（#423，`gc_cycle/large_array_10k +13.2%`、CI 下界 +4.5%）作者五分钟后
   照常合并，即按假红处理（一个「ObjNew 处缓存无构造函数」的改动让 GC 扫 10k 数组慢 13% 不可信，属
   「[布局彩票](#启动类微小回归先排除布局彩票cache-failed-name-resolution2026-09-04)」那一类）。
   它的缺陷与 micro 同源（跑内区间抓不到跑间漂移），只是 `--save-baseline` 的 outlier 检测遮掩得更好。
   **#457 自己又贡献了两例**（一行 VM 代码没改，先报 +20.9%、修完区间语义后再报 +15.9%），
-  至今 criterion 的每一次判红都是假的。两个根因都已修：区间语义（`lo > thr`）+ 阈值抬到
-  噪声底之上（0.25），见上面两节。**「可疑即复测」落地时仍应复核它是否该继续硬判**——
-  今天它的成本是每个碰 VM 的 PR 约 390s，而至今 0 次真阳性。
+  至今 criterion 的每一次判红都是假的。两个根因当时都修了：区间语义（`lo > thr`）+ 阈值抬到
+  噪声底之上（0.25）。但**跑内区间对上跑间漂移**这个结构性缺陷修不掉，而复测在这一层的
+  代价不成比例（+780s）⇒ 2026-09-06 降级为 informational。成本仍是每个碰 VM 的 PR 约 390s，
+  换的是 GC 热路径的观测材料。**要重新硬门禁，前提是先把它的跑间漂移量出来，不是调阈值。**
 - **`full` 层场景当前只在本地跑**：`bench-update.yml` 删除后，非 gate 层的 5 个场景没有 CI 落点。
   这是本次的**已知取舍**——需要时用 `xtask bench`（默认 `--tier all`）本地全跑；若要恢复定期全量，
   应落在独立的数据仓 / 定时 workflow，而不是回到「每次 push main 烧一个 job」。

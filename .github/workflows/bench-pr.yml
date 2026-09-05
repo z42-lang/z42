@@ -159,21 +159,28 @@ jobs:
       #                    **喂不了 JSON fixture**；但它是纯函数 ⇒ `bench --ab-selftest`
       #                    单测（五例，见 scripts/xtask_bench.z42 的函数头）。
       #   `_benchDiff`  —— `bench --diff`，历史/本地对比路径。四个 fixture。
-      #   `_microDiff`  —— `bench --micro-diff`，micro 层 A/B（现为信息性，不 fail；
-      #                    「可疑即复测」落地后它要重新变硬门禁 ⇒ 先把规则守住）。
-      #                    七个 fixture，含 SEM 路径与无 SEM 的区间回退路径。
+      #   `_microDiff`  —— `bench --micro-diff`，micro 层 A/B（ab-resample-on-suspicion
+      #                    之后重新是**硬门禁**）。单轮七个 fixture（SEM 路径 + 无 SEM 的
+      #                    区间回退路径），复测四个（见下）。
+      #   `_abResampleVerdict` —— 复测后的最终判定，e2e 与 micro 共用。它是纯函数
+      #                    ⇒ 进 `--ab-selftest`（四例）；接线后的形态另有 micro 三轮
+      #                    fixture 守（`micro-rs-*`），两层缺一不可 —— 实测「轮次错配」
+      #                    这种缺陷纯函数自测抓不到，只有接线后的 fixture 会翻。
       #
-      # 每个 fixture 套件都跑 **thr 0.25 和 0.10 两遍**。这不是冗余：两条套件里各有
-      # 一个 `separated-under-threshold`，区间分离但只 +20% ⇒ 0.25 放行、0.10 判红。
-      # 它是**唯一对阈值本身敏感**的用例——没有它，把 --threshold-time 一路降到 0.001
-      # 结果都纹丝不动（接线时实测过），即门禁根本没在看阈值。这正是 #457 修的
-      # `lo > 0` vs `lo > thr` 那一类缺陷。其余用例在两个阈值下结论必须一致，
-      # 顺带证明它们判的是区间/方向而不是阈值噪声。
+      # 每个 fixture 套件都跑 **thr 0.15（门禁在用的那个）和 0.25 两遍**。这不是冗余：
+      # 每条套件里都有一个只在其中一个阈值下翻红的用例（`separated-under-threshold`
+      # 的 +20%、resample 的 `rs-mid`）——它是**唯一对阈值本身敏感**的用例。没有它，
+      # 把 --threshold-time 一路降到 0.001 结果都纹丝不动（接线时实测过），即门禁根本
+      # 没在看阈值。这正是 #457 修的 `lo > 0` vs `lo > thr` 那一类缺陷。其余用例在两个
+      # 阈值下结论必须一致，顺带证明它们判的是区间/方向而不是阈值噪声。
+      #
+      # ⚠️ 0.15 这一列必须跟着门禁实际用的阈值走。改了 --threshold-time 而没改这里，
+      # 等于自检不再检门禁在跑的那套规则。
       #
       # 覆盖边界（别误以为门禁都被守住了）：守的是**判定规则**，不是测量与编排
       # ——`_abOneScenario` 的 hyperfine 调用、base 工具链构建、micro 基线采集
       # 都只能靠真 run 行使。
-      - name: Verdict logic self-check (_abVerdict + _benchDiff + _microDiff fixtures)
+      - name: Verdict logic self-check (_abVerdict/_abResampleVerdict + _benchDiff + _microDiff fixtures)
         shell: bash
         run: |
           set -uo pipefail
@@ -194,34 +201,67 @@ jobs:
             fi
           }
 
-          # 1) _abVerdict pure-function unit check (the e2e hard gate).
+          # 1) _abVerdict + _abResampleVerdict pure-function unit check (10 cases).
           expect "ab-selftest" 0 "$(xt bench --ab-selftest)"
 
           # 2) _benchDiff — gate is `delta > thr AND cur.ci_lower > base.ci_upper`.
-          for c in overlap:0:0 regress:1:1 improve:0:0 separated-under-threshold:0:1; do
-            name="${c%%:*}"; rest="${c#*:}"; w25="${rest%%:*}"; w10="${rest##*:}"
+          for c in overlap:0:0 regress:1:1 improve:0:0 separated-under-threshold:1:0; do
+            name="${c%%:*}"; rest="${c#*:}"; w15="${rest%%:*}"; w25="${rest##*:}"
+            expect "diff/$name@0.15" "$w15" \
+              "$(xt bench --diff --current "$T/current-$name.json" --baseline "$T/baseline.json" --threshold-time 0.15)"
             expect "diff/$name@0.25" "$w25" \
               "$(xt bench --diff --current "$T/current-$name.json" --baseline "$T/baseline.json" --threshold-time 0.25)"
-            expect "diff/$name@0.10" "$w10" \
-              "$(xt bench --diff --current "$T/current-$name.json" --baseline "$T/baseline.json" --threshold-time 0.10)"
           done
 
-          # 3) _microDiff — gate is R_lower > 1+thr, per name+metric+mode key.
+          # 3) _microDiff single round — gate is R_lower > 1+thr, per name+metric+mode key.
           #    fallback-* drive the no-SEM interval path (base carries mean_ns=-1);
           #    unmatched holds three 3x-blown-up entries whose name or mode key has
           #    no base counterpart — they must be SKIPPED, so a loosened match
           #    turns this case red.
-          for c in regress:1:1 overlap:0:0 improve:0:0 separated-under-threshold:0:1 \
+          for c in regress:1:1 overlap:0:0 improve:0:0 separated-under-threshold:1:0 \
                    fallback-regress:1:1 fallback-overlap:0:0 unmatched:0:0; do
-            name="${c%%:*}"; rest="${c#*:}"; w25="${rest%%:*}"; w10="${rest##*:}"
+            name="${c%%:*}"; rest="${c#*:}"; w15="${rest%%:*}"; w25="${rest##*:}"
+            expect "micro/$name@0.15" "$w15" \
+              "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.15)"
             expect "micro/$name@0.25" "$w25" \
               "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.25)"
-            expect "micro/$name@0.10" "$w10" \
-              "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.10)"
           done
 
+          # 4) _microDiff RESAMPLED (ab-resample-on-suspicion) — three rounds per side,
+          #    verdict from the BETWEEN-ROUND ratio dispersion. Each case guards one thing:
+          #      rs-drift   round 1 saw +60%, rounds 2-3 saw +5%/+10%. Its MEAN ratio (1.25)
+          #                 is above 1+0.15 on purpose, so it stays green only if the
+          #                 interval width is really computed — this is the false red the
+          #                 whole feature exists to kill (round 1 alone is a screaming red).
+          #      rs-real    +30% in every round ⇒ tight dispersion ⇒ still red. The proof
+          #                 that resampling did not simply blind the gate.
+          #      rs-mid     +20%-ish, the thr-sensitive one: red at 0.15, quiet at 0.25.
+          #      rs-missing rs-real's rounds with the regressing entry absent from round 3
+          #                 ⇒ must be EXCLUDED (with a warning) ⇒ green. Red would mean an
+          #                 entry that is not in every round still gets to fail the job.
+          #    The base rounds carry DIFFERENT values per round, so pairing round i's pr
+          #    with the wrong round's base changes the ratios — rs-mid@0.15 flips green
+          #    when that is broken (verified by injecting exactly that defect).
+          RSB="$T/micro-rs-base-r1.json,$T/micro-rs-base-r2.json,$T/micro-rs-base-r3.json"
+          for c in drift:0:0 real:1:1 mid:1:0; do
+            name="${c%%:*}"; rest="${c#*:}"; w15="${rest%%:*}"; w25="${rest##*:}"
+            cur="$T/micro-rs-$name-r1.json,$T/micro-rs-$name-r2.json,$T/micro-rs-$name-r3.json"
+            expect "micro-resample/$name@0.15" "$w15" \
+              "$(xt bench --micro-diff --current "$cur" --baseline "$RSB" --threshold-time 0.15)"
+            expect "micro-resample/$name@0.25" "$w25" \
+              "$(xt bench --micro-diff --current "$cur" --baseline "$RSB" --threshold-time 0.25)"
+          done
+          MISS="$T/micro-rs-real-r1.json,$T/micro-rs-real-r2.json,$T/micro-rs-missing-r3.json"
+          expect "micro-resample/missing@0.15" 0 \
+            "$(xt bench --micro-diff --current "$MISS" --baseline "$RSB" --threshold-time 0.15)"
+          expect "micro-resample/missing@0.25" 0 \
+            "$(xt bench --micro-diff --current "$MISS" --baseline "$RSB" --threshold-time 0.25)"
+          # 轮数不匹配必须是**用法错误**（exit 2），不能被当成「没有回归」放行。
+          expect "micro-resample/round-count-mismatch" 2 \
+            "$(xt bench --micro-diff --current "$MISS" --baseline "$T/micro-rs-base-r1.json" --threshold-time 0.15)"
+
           [ "$fail" -eq 0 ] || { echo "❌ 判红规则与 fixture 不符 —— 改了阈值或区间条件?"; exit 1; }
-          echo "✅ verdict logic matches all fixtures (_abVerdict 5 cases + 11 fixtures x 2 thresholds)"
+          echo "✅ verdict logic matches all fixtures (10 pure-function cases + 15 fixtures x 2 thresholds + 1 usage-error case)"
 
       # Build the base (merge-base) toolchain on THIS runner. The PR z42c
       # (newer) compiles the older base source — the staged-bootstrap discipline
@@ -306,7 +346,7 @@ jobs:
           echo "base_libs=$BASEALL"      >> "$GITHUB_OUTPUT"
           echo "base_driver=$BASEDRIVER" >> "$GITHUB_OUTPUT"
 
-      - name: Same-runner A/B regression gate (>25% time fails)
+      - name: Same-runner A/B regression gate (>15% time fails)
         shell: bash
         run: |
           set -euo pipefail
@@ -323,12 +363,15 @@ jobs:
           # --tier gate: 只测门禁那 6 条代表性场景（其余 tier=full 的场景本地/按需跑）。
           # 这同时把每个 PR 的比较次数从 22 条降到 6–12 条 —— 多重比较的假红概率随之
           # 降一个量级，不只是省时间。
-          # --threshold-time 0.25: 实测噪声底 ±13~16%（见 book 判红语义页「噪声底与阈值」），
-          # 10% 的旧阈值画在噪声底之下，假红是数学必然。25% 留安全边际。
+          # --threshold-time 0.15 (ab-resample-on-suspicion, 2026-09-06)：#442 把阈值抬到
+          # 0.25 是**在噪声底之上躲着走**的权宜之计 —— 真实噪声 ±13~16%，而单轮区间低估
+          # 约三倍，所以除了抬阈值没有别的办法。现在初判回归的条目会被再测 2 轮、用**跑间**
+          # 比值离散度重算区间（`--resample-rounds`，0 = 关掉），不确定度第一次被真的量出来，
+          # 阈值因此有依据收回 0.15。收阈值与复测是**同一件事的两半**：单独收阈值 = 退回假红。
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench --ab --tier gate --mode "$MODE" --threshold-time 0.25 \
+            bench --ab --tier gate --mode "$MODE" --threshold-time 0.15 \
               --base-vm     "${{ steps.base.outputs.base_vm }}" \
               --base-libs   "${{ steps.base.outputs.base_libs }}" \
               --base-driver "${{ steps.base.outputs.base_driver }}"
@@ -368,28 +411,71 @@ jobs:
               --driver "${{ steps.base.outputs.base_driver }}" \
               --libs   "${{ steps.base.outputs.base_libs }}" )
 
-      # simplify-bench-gate: micro 层**降级为信息性，不再 fail job**。
-      # 依据（实测，见 book 判红语义页「噪声底与阈值」）：micro 声称的置信区间宽度
-      # 中位仅 4.8%、最窄 0.25%，而同一批数据反推的真实噪声是 ±16% —— **低估约三倍**。
-      # 根因：`Bencher` 的 stddev 是单个进程内批次样本的离散度，而 base 与 pr 是两个
-      # 独立进程，进程间那部分方差（CPU 频率 / page cache / 分配器与 GC 起始状态 /
-      # 代码布局）完全没被建模。区间既然不可信，「区间分离」这道保险就不成立，判红
-      # 退化成「谁的区间碰巧最窄」的抽签 —— 实测现场：同一批里 sha256_4k(+11.5%) 判红、
-      # sha256_small(+11.0%) 放过，而 aes_cbc_4k 报「快 19%，区间 ±0.06%」（GC 改动
-      # 不可能让 AES 快 19%）。最近 4 次 bench-pr 失败有 3 次在这一层，逐条核对全是假红。
-      # 仍然每次跑、仍然打印全部 65 条比值（改 stdlib 热路径后眼看一下的材料），
-      # 丢掉的只是它 fail job 的权力。要重新硬门禁，需先做「可疑即复测」（见 book 页）。
-      - name: Micro A/B (informational — never fails)
+      # ab-resample-on-suspicion (2026-09-06)：micro 层**恢复硬门禁**。
+      #
+      # 它在 #442 被降级是因为区间不可信：`Bencher` 的 stddev 是单个进程内批次样本的
+      # 离散度，而 base 与 pr 是两个独立进程，进程间那部分方差（CPU 频率 / page cache /
+      # 分配器与 GC 起始状态 / 代码布局）完全没被建模 —— 声称宽度中位 4.8%、最窄 0.25%，
+      # 真实噪声却是 ±16%，**低估约三倍**。区间既然不可信，「区间分离」这道保险就不成立，
+      # 判红退化成「谁的区间碰巧最窄」的抽签（同一批里 sha256_4k +11.5% 判红、
+      # sha256_small +11.0% 放过，aes_cbc_4k 报「快 19%、区间 ±0.06%」）。
+      #
+      # 复测把那个缺失的方差**真的测出来**：整轮重采 2 次，比值的离散度取自**跑间**而非
+      # 跑内。恢复硬门禁靠的是这个，不是把阈值调松。
+      #
+      # 成本形状（这是它能负担的原因）：第 1 轮什么都没标 ⇒ **零额外开销**，与今天一样；
+      # 只有标了才多花约 180s（两轮 × 两棵树的整份捕获）。这里**不按 benchmark 名过滤**
+      # 重采：`bench stdlib --filter` 过滤的是**文件名**而不是 benchmark 名，要按名重采
+      # 就得新造一层 benchmark→文件 映射 —— 映射错了是静默少测（门禁变瞎），
+      # 而整轮重采最坏只是多花时间。与 #447「排除文档而非白名单」同一条取向。
+      - name: Micro A/B gate (resample-on-suspicion; >15% time fails)
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-            "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench --micro-diff --threshold-time 0.25 \
-              --current  "$PWD/artifacts/bench/micro-pr.json" \
-              --baseline "$PWD/artifacts/bench/micro-base.json" || true
-          echo "── micro tier is informational; it never fails this job ──"
+          A="$PWD/artifacts/bench"
+          ROOT="$PWD"
+          xt() {
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
+              "$vm" "$ROOT/artifacts/xtask/xtask.zpkg" -- "$@"
+          }
+          # 一轮 base 侧捕获：跑 PR 的 xtask，但 cwd=base-src 且**显式**传 base 工具链
+          # （与上面「Capture base micro baseline」逐字同构 —— 改一处必须改两处）。
+          capture_base() { # <out.json>
+            ( cd base-src && \
+              Z42_PORTABLE_VM="$vm" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
+              "$vm" "$ROOT/artifacts/xtask/xtask.zpkg" -- \
+              bench stdlib --json "$1" --no-build --mode interp \
+                --vm     "${{ steps.base.outputs.base_vm }}" \
+                --driver "${{ steps.base.outputs.base_driver }}" \
+                --libs   "${{ steps.base.outputs.base_libs }}" )
+          }
+
+          # 第 1 轮：只用来点名可疑条目，**不判红**（它的区间正是不可信的那个）。
+          xt bench --micro-diff --threshold-time 0.15 \
+              --current  "$A/micro-pr.json" \
+              --baseline "$A/micro-base.json" \
+              --suspects "$A/micro-suspects.txt" || true
+          # `--suspects` 总会写出文件（没有可疑就是空文件）⇒ 文件不存在 = xtask 崩了，
+          # 不能读成「没有可疑」。set -e 已经拦住崩溃，这里再显式确认一次。
+          [ -f "$A/micro-suspects.txt" ] || { echo "::error::micro round 1 未写出 suspects 文件"; exit 1; }
+          if [ ! -s "$A/micro-suspects.txt" ]; then
+            echo "✅ micro round 1 未标记任何条目 —— 无需复测（零额外开销）"
+            exit 0
+          fi
+          echo "── round 1 标记了以下条目，进入复测 ──"
+          cat "$A/micro-suspects.txt"
+
+          for r in 2 3; do
+            echo "── micro resample round $r ──"
+            xt bench stdlib --json "$A/micro-pr-r$r.json" --no-build --mode interp
+            capture_base "$A/micro-base-r$r.json"
+          done
+
+          # 最终判定：三轮比值的**跑间**离散度重算区间。这一步才是硬门禁。
+          xt bench --micro-diff --threshold-time 0.15 \
+              --current  "$A/micro-pr.json,$A/micro-pr-r2.json,$A/micro-pr-r3.json" \
+              --baseline "$A/micro-base.json,$A/micro-base-r2.json,$A/micro-base-r3.json"
 
       # ── extend-ab-bench-micro-criterion Part C: criterion(Rust) tier A/B ──
       # Only when the PR touched src/runtime (VM unchanged ⇒ criterion result cannot
@@ -403,9 +489,26 @@ jobs:
       # for threaded GC the between-run thread-scheduling noise on a shared CI runner
       # is large (validated: a perf-neutral comment-only PR saw the concurrent benches
       # swing +6–33% while single-threaded ones centred on 0). criterion's tight
-      # within-run CI does not capture that drift, so gating them false-reds. They are
-      # printed but never fail the job; single-threaded GC benches remain hard-gated.
-      - name: Criterion(Rust) A/B gate (gc_cycle_bench; only if src/runtime changed)
+      # within-run CI does not capture that drift, so gating them false-reds.
+      # demote-criterion-to-informational (2026-09-06): 这个理由后来被推广到**整层** ——
+      # 单线程 GC 基准同样只是跑内 CI 对上跑间漂移，如今也只打印不判红（见下面那步的注释）。
+      # demote-criterion-to-informational (2026-09-06)：criterion 层**不再 fail job**。
+      #
+      # 依据是它自己的战绩：至今 **0 次真阳性、3 次假红**（#423 一次、#457 两次 —— 后两次
+      # 是在 base 与 pr 的 VM 代码**逐字节相同**的对照上判的红）。而它判红所依赖的证据，
+      # 与 micro 被降级的那个是同一个：criterion 的 bootstrap CI 也是**跑内**的，
+      # `--baseline` 比的却是两次独立跑，跑间漂移（实测单条极差 15~32pp）它结构性地看不见。
+      # 也就是说这一层的硬判从来没建立在能支撑它的证据上。
+      #
+      # 那为什么不跟 e2e/micro 一样上复测？因为这一层的复测代价完全不同：一轮 criterion
+      # A/B 约 390s，重采两轮 ≈ +780s，比它守住的东西贵得多 —— 而 GC 热路径的真回归会
+      # 在 e2e 的 gate 场景里露头（`gc_cycle_bench` 链接整个 crate，VM 改动挪得动它，
+      # 也就挪得动场景）。所以这一层保留**测量与打印**（改 GC 后眼看一下的材料），
+      # 只收回它 fail job 的权力。
+      #
+      # ⚠️ 别顺手把测量也删掉：删了就再没有 GC 内部热路径的观测点，回归只能靠 e2e 间接
+      # 反映。要重新硬门禁，前提是先把跑间漂移量出来（同 e2e 的复测思路），不是调阈值。
+      - name: Criterion(Rust) A/B (informational — never fails; only if src/runtime changed)
         shell: bash
         run: |
           set -euo pipefail
@@ -430,7 +533,7 @@ jobs:
           CRITERION_HOME="$CRITERION_HOME" \
             cargo bench --locked --manifest-path src/runtime/Cargo.toml \
               --bench gc_cycle_bench -- --baseline ab-base
-          echo "── gate: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 回归 ──"
+          echo "── informational: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 标记，但不 fail ──"
           python3 - "$CRITERION_HOME" <<'PY'
           # fix-criterion-ci-separation (2026-09-05)：判红条件是**整个区间**在阈值之上
           # （lower_bound > thr），不是「点估计过阈值 + 下界大于零」。
@@ -477,10 +580,15 @@ jobs:
                   print(f"  ? {bench}: {tag} — 点估计过阈值但区间未分离，判为噪声（见 book「可疑即复测」）")
               else:
                   print(f"  ≈ {bench}: {tag}")
+          # demote-criterion-to-informational: 只打印，不 sys.exit(1)。判定条件原样保留 ——
+          # 它仍是「这条值得人看一眼」的最好线索，只是不再替人做拦不拦的决定。
           if regr:
-              print(f"❌ {len(regr)} criterion regression(s) — 整个区间在 +{int(thr*100)}% 之上"); sys.exit(1)
-          print("✅ no criterion regression")
+              print(f"⚠️  {len(regr)} criterion 条目整个区间在 +{int(thr*100)}% 之上 —— "
+                    f"informational，不 fail job；改了 GC 请人工看一眼上面的区间")
+          else:
+              print("✅ no criterion regression")
           PY
+          echo "── criterion tier is informational; it never fails this job ──"
 
       - name: Upload A/B results
         if: always()
@@ -491,4 +599,7 @@ jobs:
             artifacts/bench/ab.json
             artifacts/bench/micro-pr.json
             artifacts/bench/micro-base.json
+            artifacts/bench/micro-pr-r*.json
+            artifacts/bench/micro-base-r*.json
+            artifacts/bench/micro-suspects.txt
           if-no-files-found: ignore

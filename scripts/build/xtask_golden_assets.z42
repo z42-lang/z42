@@ -1,8 +1,12 @@
 // xtask — `build test` golden test-asset compilation. Impl of the `build test`
 // command (_buildTest) + the shared golden-regen machinery (_regenGolden) used by
-// the `test` gate build-wave (_regenForTest → _regenCore in xtask_test.z42).
+// the `test` gate build-wave (_regenForTest in xtask_test.z42 → _regenCore below).
 // (Was scripts/xtask_regen.z42; the standalone `regen` command was folded into
 // `build test` — redesign-xtask-test, 2026-07-07.)
+//
+// 文件名不带 `xtask_test_` 前缀是有意的（scripts-batch3-naming, 2026-09-06）：那个前缀
+// 专表「`test <x>` 命令的实现」，而本文件是 `build test` 的实现——它*编译*测试资产、
+// 自己不含测试。命名规则全表见 scripts/README.md。
 //
 // Recompiles every golden `.z42` the shared corpus walk finds (_walkGoldenCorpus,
 // common/xtask_golden.z42 — see there for the segments, and for how the four

@@ -90,7 +90,7 @@ z42c.driver 实现了自己的 `build --workspace`（`Main._buildWorkspace` + `z
 
 ### z42c 构建 stdlib（replace-csharp-compiler S3：✅ 生产接管已落地 2026-06-22）
 
-**S3 目标（已达成）**：`xtask build stdlib` 的产出端从 C# 换成 z42c。`_buildStdlibCore`（`scripts/build/xtask_stdlib.z42`）现序列为：**① C# 种子（`_csharpBuildStdlibSeed`，z42c.driver 运行期依赖）→ ② build z42c（C# driver 编 7 包）→ ③ run-libs 组装（C#-种子 stdlib + z42c 7 包，copy）→ ④ z42c 重编 stdlib（z42vm `--mode interp` 跑 z42c.driver.zpkg `build --workspace --release`，M2 per-member 覆盖 canonical 布局）→ ⑤ verify + flat view**。`_testCompilerStdlib`（S2.1）改调 `_csharpBuildStdlibSeed`（只要 C# 种子，不触发递归全接管）。
+**S3 目标（已达成）**：`xtask build stdlib` 的产出端从 C# 换成 z42c。`_buildStdlib`（`scripts/build/xtask_stdlib.z42`）现序列为：**① C# 种子（`_csharpBuildStdlibSeed`，z42c.driver 运行期依赖）→ ② build z42c（C# driver 编 7 包）→ ③ run-libs 组装（C#-种子 stdlib + z42c 7 包，copy）→ ④ z42c 重编 stdlib（z42vm `--mode interp` 跑 z42c.driver.zpkg `build --workspace --release`，M2 per-member 覆盖 canonical 布局）→ ⑤ verify + flat view**。`_testCompilerStdlib`（S2.1）改调 `_csharpBuildStdlibSeed`（只要 C# 种子，不触发递归全接管）。
 
 **full GREEN gate 全绿（z42c-built stdlib）**：C# 1571/1571（含 sidecar+multicast）+ vm goldens interp 169/jit 165 + cross-zpkg 2 + **stdlib 272/272（z42c-built）** + compiler 7/7 byte-identical + 17 z42c units + e2e。
 
@@ -293,7 +293,7 @@ xtask 绝不能依赖本提交新加的语法/stdlib API。
 
 **种子分发**（2026-07-01 修订）：种子随 **SDK package**（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/`（z42c-written z42c.* 7 zpkg，apphost 布局，`_packageDesktop`）分发，而非 runtime package——z42c 是 host 平台工具，runtime package 定位为纯嵌入式运行时（`native/` + `libs/`，见 `_buildRuntimePackage`），可能被跨 host 使用（如 android runtime 装在 Windows/macOS host 上），塞一个单一 host 平台意义的 z42c 没有意义。CI job `bootstrap-no-csharp (linux-x64)`：**无 setup-dotnet**（dotnet 缺席 = 结构性无 C#）→ `gh release download nightly z42-sdk-nightly-<rid>.tar.gz` → 取 `programs/z42c/*.zpkg` + `libs/*.zpkg` 组装 seed → 跑脚本。
 
-**鸡蛋滚动**：种子由 source-bootstrapped publish-nightly（用 C# 造）产 —— S4 期允许（C# 造种子，下游重建不用 C#）。新 nightly 携 z42c/ 前，bootstrap-no-csharp 在旧 nightly transient 失败（明确 error）→ publish-nightly republish 后自愈。S5 删 C# 后 publish-nightly 自身改用前夜种子（自持闭环，S5 收尾）；生产 `xtask build stdlib`（flip `_buildStdlibCore`）的 C# 种子步亦移交 S5 脱 C#。
+**鸡蛋滚动**：种子由 source-bootstrapped publish-nightly（用 C# 造）产 —— S4 期允许（C# 造种子，下游重建不用 C#）。新 nightly 携 z42c/ 前，bootstrap-no-csharp 在旧 nightly transient 失败（明确 error）→ publish-nightly republish 后自愈。S5 删 C# 后 publish-nightly 自身改用前夜种子（自持闭环，S5 收尾）；生产 `xtask build stdlib`（flip `_buildStdlib`）的 C# 种子步亦移交 S5 脱 C#。
 
 ## C# 彻底移除（replace-csharp S5，✅ 完成 2026-06-26）
 
@@ -337,10 +337,10 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
 ### self-hosting-future-z42c-stdlib-jit
 
 - **来源**：dogfood-z42c-stdlib-build（replace-csharp-compiler S3，2026-06-21）
-- **触发原因**：S3 已落地——`_buildStdlibCore` 用 z42c **interp** 重编 stdlib（~30s）加到每次 `build stdlib`（dogfood 税）。换 z42c `--mode jit` 可显著加速。
+- **触发原因**：S3 已落地——`_buildStdlib` 用 z42c **interp** 重编 stdlib（~30s）加到每次 `build stdlib`（dogfood 税）。换 z42c `--mode jit` 可显著加速。
 - **前置依赖**：z42c `--mode jit` 实测 22 库 jit-built == interp-built 功能等价（fix-jit-cross-zpkg-call 已修 JIT 跨包，理论可行）；需验证 jit 编 stdlib workload 无 cross-zpkg undefined-fn。
 - **触发条件**：stdlib 构建成迭代瓶颈时（S3 已落地，interp 税现已存在）。
-- **当前 workaround**：`_buildStdlibCore` step 4 用 `--mode interp`（稳）；C# 种子 step 仍快，z42c 重编是增量税。
+- **当前 workaround**：`_buildStdlib` step 4 用 `--mode interp`（稳）；C# 种子 step 仍快，z42c 重编是增量税。
 
 > **~~self-hosting-future-s3-remaining-codegen-bugs~~ ✅ 已全解（2026-06-22，S3 落地）**：dogfood S3 暴露的全部 z42c codegen bug 均已修复并各自独立归档——① 「blake3 多块 codegen」实为测试 golden 误写（无 codegen bug）；② 静态字段 mutation 不持久 → fix-z42c-static-field-assign；③ ctor `: this(...)` 委托误编为 base → fix-z42c-ctor-this-delegation。S3 full gate 全绿（stdlib 272/272 z42c-built）。
 

@@ -126,10 +126,10 @@ test ──► _testAll
 > examples 三个）。现在该页的清单由 `_checkGateStageDoc` 与代码 `_gateStageNames()` 对账守着，
 > 每个 stage 落在哪个文件见下面的「源码结构」。
 
-### `build stdlib`（`build/xtask_stdlib.z42 :: _buildStdlibCore`）
+### `build stdlib`（`build/xtask_stdlib.z42 :: _buildStdlib`）
 
 ```
-build stdlib ──► _buildStdlibCore
+build stdlib ──► _buildStdlib
   ① 校验 warm 种子 (z42c.driver.zpkg + stdlib dist 存在)   缺 → _ensureSeed 冷启动供种 (SDK)
   ② z42c 自建 7 个 z42c 成员    _buildCompilerViaZ42c (build/xtask_compiler.z42)
        └ z42c build --workspace（driver dist 自包含 6 个 z42c.* 兄弟包）
@@ -139,7 +139,7 @@ build stdlib ──► _buildStdlibCore
   ⑤ verify 产物 + flat view (hard-link)    _assembleStdlibFlatView → libraries/dist/release
 ```
 
-### `build test`（`build/xtask_test_assets.z42 :: _buildTest → _regenGolden`）
+### `build test`（`build/xtask_golden_assets.z42 :: _buildTest → _regenGolden`）
 
 ```
 build test ──► _buildTest
@@ -248,14 +248,13 @@ scripts/
 │   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   └── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用）
-├── build/              build stdlib / compiler / runtime / test-assets + clean + 自举边界检查
+├── build/              build stdlib / compiler / runtime / golden-assets + clean + 自举边界检查
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）+ build sdk / stage-toolchain
 │   ├── xtask_compiler.z42       build/test compiler（自建 + 不动点 + units）
 │   ├── xtask_compiler_e2e.z42   z42c 自举 e2e oracle 套件（div-by-zero 验证）
 │   ├── xtask_runtime.z42        build runtime（cargo z42vm）+ feature-matrix（逐 feature 组合编译）
 │   ├── xtask_toolchain.z42      build workload / build toolchain（apphost publish，路径从各 toml 读）
-│   ├── xtask_test_assets.z42    **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
-│   │                            ——名字里的 "test assets" 指它*编译的*产物，不是它含有的测试
+│   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
 │   ├── xtask_clean.z42          clean（按 target 删 artifacts/build/ 下的产物目录）
 │   └── xtask_bootstrap_check.z42 上一版 nightly z42c 能否编当前源（分阶段纪律边界检查）
 ├── test/               test 命令族（注意：`test compiler` / `packages` / `vscode-syntax` /
@@ -266,9 +265,10 @@ scripts/
 │   ├── xtask_test_multiexe.z42  e2e multi-exe（一工程 → N 个 exe zpkg）
 │   ├── xtask_test_lib.z42       stdlib [Test]/[Benchmark] 编排（per-lib + 分片）
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）
-│   ├── xtask_test_targets.z42   manifest [[test]]/[[bench]]/[[example]] target **引擎**
-│   │                            ——`test targets` 命令的入口反而在 xtask_test_fixtures.z42
-│   ├── xtask_test_fixtures.z42  `test targets` 入口（_testTargetsCore）+ fixture 工程与 tooling 准备
+│   ├── xtask_manifest_targets.z42  manifest [[test]]/[[bench]]/[[example]] target **引擎**
+│   │                            （被 lib / targets / example 三个 flow 共用，不对应任何命令）
+│   ├── xtask_test_targets.z42   `test targets` / `bench targets` 入口（_testTargetsCore）
+│   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
 │   ├── xtask_test_example.z42   examples 编译 gate + `xtask example <name>`
 │   ├── xtask_test_embedded.z42  `test embedded`：嵌入式 test-host 调度（desktop/wasm/ios/android）
 │   ├── xtask_test_embedded_corpus.z42  语料枚举 SoT（`test embedded` 与 `test list` 共用）
@@ -286,9 +286,9 @@ scripts/
 │   ├── xtask_stage_components.z42    组件 staging（z42vm / native / stdlib → artifacts/publish/）
 │   ├── xtask_package_assemble.z42    组装引擎（把 staged 子树并进包目录，从不构建）
 │   ├── xtask_package_test.z42        **`package workload test`**：打 payload-only 的 test workload
-│   │                                 ——不是测试，名字与下面三个自检文件容易混
+│   │                                 （与 _desktop/_ios/_android/_wasm 同族：`test` 是 workload 名）
 │   ├── xtask_test_packages.z42       `test packages` 聚合入口（opt-in，不在 GREEN gate 内）
-│   ├── xtask_test_{packages_config,stage_components,package_assemble}.z42
+│   ├── xtask_selfcheck_{packages_config,stage_components,package_assemble}.z42
 │   │                                 上面三个模块各自的 throw-on-mismatch 自检层
 │   └── xtask_release.z42             package workload(merge) / index 发行档组装
 ├── install/            deps install 各平台 / 编辑器资产
@@ -301,10 +301,24 @@ scripts/
 
 每个命令的详细 Usage 见 `xtask -h`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
 
-> **命名提醒**：`xtask_test_*` 这个前缀在本目录下有三种含义——① `test <x>` 命令的实现
-> （`test/` 下多数）、② `build test` 的实现（`build/xtask_test_assets.z42`）、③ 某模块的
-> 自检层（`package/xtask_test_*.z42`）。另有 `package/xtask_package_test.z42` 是「打 test
-> workload」而与测试无关。这几处名实不符已登记，待后续重构 PR 正名。
+### 文件命名规则（scripts-batch3-naming, 2026-09-06）
+
+**`xtask_test_<x>.z42` 这个前缀在全 `scripts/` 下只有一个含义：`test <x>` 命令的实现**
+（`xtask_test_<x>_<y>.z42` = 该命令拆出的子文件）。新增文件时按下表取名：
+
+| 文件承担的角色 | 命名 | 例 |
+|---|---|---|
+| `test <x>` 命令的实现 | `xtask_test_<x>.z42` | `test/xtask_test_dist.z42`、`package/xtask_test_packages.z42` |
+| `<族> <x>` 命令的实现（族 ≠ test） | `xtask_<x>.z42` / `xtask_<族>_<x>.z42` | `build/xtask_stdlib.z42`、`package/xtask_package_wasm.z42` |
+| 被多个命令共用的**引擎**（不对应任何命令） | `xtask_<领域>_<名>.z42`，**不带 `test_` 前缀** | `test/xtask_manifest_targets.z42` |
+| 某模块的 throw-on-mismatch **自检层** | `xtask_selfcheck_<模块>.z42` | `package/xtask_selfcheck_packages_config.z42` |
+
+> 此前 `xtask_test_*` 一名三义（命令 / `build test` 实现 / 自检层），已在本次统一：
+> `build/xtask_test_assets.z42` → `build/xtask_golden_assets.z42`（它编译的是 golden 资产，
+> 不含测试）、`package/xtask_test_{packages_config,stage_components,package_assemble}.z42`
+> → `xtask_selfcheck_*.z42`、`test/xtask_test_{targets↔fixtures}.z42` 的引擎/入口反向命名对调。
+> `package/xtask_package_test.z42` 保持原名——它与 `_desktop`/`_ios`/`_android`/`_wasm`
+> 同族，`test` 是 workload 名而非「测试」。
 
 ## 迭代注意点（自举边界与验证）
 

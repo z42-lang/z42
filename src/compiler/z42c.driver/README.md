@@ -1,7 +1,7 @@
 # z42c.driver
 
 ## 职责
-CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z42c` 命令。命令面：前端 dump（`--dump-tokens` / `--dump-ast` / `--dump-bound`）、`--emit-zbc`（源 → IrGen → ZbcWriter → `.zbc`）、`build <project.z42.toml>`（产 zpkg，含文件级增量）、`build --workspace`（多包拓扑序）、manifest-check。
+CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z42c` 命令。命令面：前端 dump（`--dump-tokens` / `--dump-ast` / `--dump-bound`）、`--emit-zbc`（源 → IrGen → ZbcWriter → `.zbc`）、`build <project.z42.toml>`（产 zpkg，含文件级增量 + 运行配置侧车 + `[profile.*.runtime]` 旋钮名校验）、`build --workspace`（多包拓扑序）、manifest-check。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -9,6 +9,8 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 | `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`、`build` → `_build`（`namespace Z42.Driver`）|
 | `src/IndexedDist.z42` | indexed dist 投影（add-indexed-zpkg-min-patch）：散装 zbc 原样落盘（字节相等不触碰→最小 patch）+ FILE 主文件 + 孤儿清理 |
 | `src/BuildPaths.z42` | dist/cache 级联解析 + pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）|
+| `src/ProfileKnobs.z42` | 构建期旋钮名校验（compiler-checks-knob-names）：`_validateProfileKnobs` 在 `_build` 早期扫全部 `[profile.<n>.runtime]`——未知名 → warning + 最近邻建议（全集问 `Std.Runtime.RuntimeConfig.Names()`，不留第二份清单）；`[profile.<n>]` 下直接写键 → 致命，库工程同样管 |
+| `src/RuntimeConfigSidecar.z42` | `dist/<name>.runtimeconfig.toml` 侧车生成（`[runtime]` 旋钮 + `[properties]` 应用属性，分表）|
 | `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → token 边闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc` |
 
 ## 入口点

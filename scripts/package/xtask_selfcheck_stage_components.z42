@@ -1,6 +1,6 @@
 // xtask — staging handler self-check (add-package-layout-config, 阶段 3.3).
 //
-// Same rationale as xtask_test_packages_config.z42: xtask is an exe, so the
+// Same rationale as xtask_selfcheck_packages_config.z42: xtask is an exe, so the
 // [Test]-attribute reflection runner can't see it — this is a plain
 // throw-on-mismatch self-check, not [Test]-discovered.
 //

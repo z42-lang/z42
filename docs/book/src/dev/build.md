@@ -1,6 +1,6 @@
 # 构建编排（build / regen）
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/build/`（含 `xtask_test_assets.z42` = golden 重生，前 `xtask_regen.z42`）
+> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/build/`（含 `xtask_golden_assets.z42` = golden 重生，前 `xtask_regen.z42`）
 > **相关**: [xtask](xtask.md) · 编译器·自举与种子（待写）｜ **对齐**: 2026-07-07
 
 ## 概述
@@ -253,12 +253,12 @@ API。(B) 轨换成仓库当前工具链、仅作"源码本身没写坏"的对�
 
 | 组件 | 位置 | 要点 |
 |------|------|------|
-| stdlib 三阶段编排 | `scripts/build/xtask_stdlib.z42` 的 `_buildStdlibCore` | 种子校验 → 七包自建 → self-contained driver 编 stdlib（`.stdlib-run` 快照）→ 扁平视图 |
+| stdlib 三阶段编排 | `scripts/build/xtask_stdlib.z42` 的 `_buildStdlib` | 种子校验 → 七包自建 → self-contained driver 编 stdlib（`.stdlib-run` 快照）→ 扁平视图 |
 | z42c 七包自建 + 不动点 | `scripts/build/xtask_compiler.z42` 的 `_buildCompilerViaZ42c` / `_testCompilerUnits` | `z42c build --workspace`（driver dist 自包含兄弟包）；gen1==gen2 逐字节比对 |
 | 自举 e2e oracle | `scripts/build/xtask_compiler_e2e.z42` | div-by-zero 等行为校验（500 行限制拆出） |
 | 跨版本边界检查 | `scripts/build/xtask_bootstrap_check.z42` 的 `_bootstrapCheck` / `_bcRunWorkspace` | 双轨编七包，退出码 = nightly 轨（见"机制·test bootstrap"） |
-| golden 重生 | `scripts/build/xtask_test_assets.z42` 的 `_regenGolden` | 枚举三布局 → `_compileCaseSpawn` 并批 |
-| 测试资产编译（`build test`）| `scripts/build/xtask_test_assets.z42` 的 `_buildTest` | ensure z42c/stdlib/z42vm（缺则自建）→ `_regenGolden`（golden 编译，不重建工具链） |
+| golden 重生 | `scripts/build/xtask_golden_assets.z42` 的 `_regenGolden` | 枚举三布局 → `_compileCaseSpawn` 并批 |
+| 测试资产编译（`build test`）| `scripts/build/xtask_golden_assets.z42` 的 `_buildTest` | ensure z42c/stdlib/z42vm（缺则自建）→ `_regenGolden`（golden 编译，不重建工具链） |
 | 工具链 apphost / 完整 SDK | `scripts/build/xtask_toolchain.z42`（`_buildWorkload`/`_buildToolchain`/`_sdkMergeApphosts`）| `build workload\|toolchain\|sdk`：publish 各 apphost → **toml 的 publish_dir**（路径从 toml 读）；sdk 合并成完整可运行 SDK |
 
 ## 边界与限制

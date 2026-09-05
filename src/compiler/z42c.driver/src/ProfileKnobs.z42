@@ -1,0 +1,115 @@
+// z42c driver —— `[profile.<n>.runtime]` 旋钮名的**构建期**校验
+// （compiler-checks-knob-names，2026-09-06）。
+//
+// 为什么挪到构建期：旋钮名写错（`gc-mdoe`）此前只有运行时发现得了——它被原样烤进
+// `dist/<app>.runtimeconfig.toml`，目标机的 VM 每次启动刷一行 `unknown runtime knob`
+// 然后忽略。写 manifest 的人和看见那行的人往往不是同一个，中间还隔着一次发布。
+//
+// **旋钮全集直接问 VM**：z42c 自己就跑在 z42vm 上，`Std.Runtime.RuntimeConfig.Names()`
+// 返回的就是这台 VM 的登记表——零新增数据文件、零 SoT 复制，也就无从漂移。
+// （ManifestLoader 那句「旋钮名的合法性由 VM 的登记表判定，manifest 侧不复制一份清单」
+// 说的正是这个分工。）
+//
+// **只抓"未知旋钮名"，且只 warning**：
+//   - 未知名＝typo，是 95% 的情况，也是唯一一类「构建机与目标机答案必然相同」的错。
+//   - 「已知但本 build 不可用 / 这一层不能设」**留给运行时**——构建机的 VM 与目标机的
+//     VM 可能是不同 build（在带 jit 的机器上为 interp-only 目标构建），可用性只有运行时
+//     有真答案；在这里判会把"合法的交叉构建"判红。
+//   - warning 而非 error：用旧工具链为新 VM 构建时，新旋钮还不在旧登记表里，必须能过。
+//
+// 两个 profile **都查**（不只当前构建的那个）：typo 的代价是发布后才炸，而
+// `[profile.release.runtime]` 恰恰是本地只跑 debug 时最容易写错又最晚发现的地方。
+//
+// `[profile.<n>]` 下**直接写键**是另一回事——那是 restructure-profile-sections 之前的
+// 旧形状，明确报错。该检查此前埋在 `_writeRuntimeConfigSidecar` 里、且只在 `isExe` 时
+// 跑（库工程写错了没人说），一并挪到这里，且在编译前 fail fast。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Std.Runtime;
+using Std.Text;
+using Z42.Build.Project;
+
+// 校验全部 `[profile.*]`。返回 ExitCode.Ok，或 ExitCode.BuildError（旧形状，致命）。
+// 未知旋钮名只 warn，不影响返回值。
+int _validateProfileKnobs(ProjectManifest pm) {
+    string[] known = _fileSettableKnobs();
+    int p = 0;
+    while (p < pm.ProfileCount) {
+        Profile pr = pm.Profiles[p];
+        if (pr.BadKeys.Length > 0) {
+            ConsoleError.WriteLine("z42c build: [profile." + pr.Name + "] 不接受直接写键（`"
+                + pr.BadKeys[0] + "`）——");
+            ConsoleError.WriteLine("  运行时旋钮写进 [profile." + pr.Name + ".runtime]，");
+            ConsoleError.WriteLine("  应用配置写进 [profile." + pr.Name + ".properties]。");
+            return ExitCode.BuildError;
+        }
+        int k = 0;
+        while (k < pr.Knobs.Length) {
+            string entry = pr.Knobs[k];
+            int eq = entry.IndexOf("=");
+            string key = eq > 0 ? entry.Substring(0, eq) : entry;
+            if (!_isKnownKnob(known, key)) {
+                string near = _nearestKnob(key, known);
+                string tail = near.Length > 0 ? "——是不是 `" + near + "`？" : "。";
+                ConsoleError.WriteLine("z42c build: warning: [profile." + pr.Name
+                    + ".runtime] 未知运行时旋钮 `" + key + "`" + tail);
+                ConsoleError.WriteLine("  它仍会被烤进侧车，目标机 VM 每次启动都会警告并忽略它；"
+                    + "`z42vm --list-knobs --all` 列出全部旋钮。");
+            }
+            k = k + 1;
+        }
+        p = p + 1;
+    }
+    return ExitCode.Ok;
+}
+
+// 能写进配置文件的旋钮 key 全集 ＝ 登记表全集 − 元旋钮。
+//
+// `Names()` 对元旋钮（`Z42_CONFIG` / `Z42_APP_CONFIG` / `Z42_STRICT_CONFIG`）返回的是
+// **环境变量名**——它们没有配置文件 key 形式（写进配置文件会自指），只收 cli+env。留着
+// 会让 `Z42_CONFIG = "..."` 这种写法在构建期被默许、运行时照样报未知。元旋钮是登记表里
+// 仅有的 `Z42_` 开头对外名，其余旋钮的 key 一律 kebab-case。
+string[] _fileSettableKnobs() {
+    string[] all = RuntimeConfig.Names();
+    string[] tmp = new string[all.Length];
+    int n = 0;
+    int i = 0;
+    while (i < all.Length) {
+        if (!all[i].StartsWith("Z42_")) { tmp[n] = all[i]; n = n + 1; }
+        i = i + 1;
+    }
+    string[] outv = new string[n];
+    int j = 0;
+    while (j < n) { outv[j] = tmp[j]; j = j + 1; }
+    return outv;
+}
+
+bool _isKnownKnob(string[] known, string key) {
+    int i = 0;
+    while (i < known.Length) {
+        if (known[i] == key) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+// 最近的已知 key；不够近返回 ""。阈值逐字对齐 VM 侧 `config/cli.rs::suggest_key`
+// （编辑距离 ≤ 3 且不超过 key 长度的一半、下限 1）——同一个 typo 在 `--set` 和 manifest
+// 里应当得到同一句建议，两处给不同答案比不给建议更让人怀疑自己。
+string _nearestKnob(string key, string[] known) {
+    int bestD = -1;
+    string best = "";
+    int i = 0;
+    while (i < known.Length) {
+        int d = Levenshtein.Distance(key, known[i]);
+        if (bestD < 0 || d < bestD) { bestD = d; best = known[i]; }
+        i = i + 1;
+    }
+    if (bestD < 0) { return ""; }
+    int limit = (key.Length + 1) / 2;
+    if (limit > 3) { limit = 3; }
+    if (limit < 1) { limit = 1; }
+    return bestD <= limit ? best : "";
+}

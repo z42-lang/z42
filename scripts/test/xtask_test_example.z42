@@ -10,7 +10,7 @@
 // Discovery scans every project (stdlib libs + manifest-target fixtures) that
 // declares examples: section `[examples]` auto glob (convention dir `examples/`)
 // + explicit `[[example]]`. Reuses the exit-target compiler (_runExitTarget,
-// xtask_test_targets.z42) and the fixture tooling prep (_prepFixtureTooling).
+// xtask_manifest_targets.z42) and the fixture tooling prep (_prepFixtureTooling).
 namespace Z42Xtask;
 
 using Std;
