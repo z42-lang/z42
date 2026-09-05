@@ -43,15 +43,15 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 # From this toml's dir (src/toolchain/builder/core) up 4 levels to repo root.
 dist_dir = "../../../../artifacts/build/toolchain/builder"
 
-[profile.release]
-mode     = "interp"
-optimize = 2
+[profile.release.runtime]
+mode = "interp"
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
 #   publish_dir 落共享 artifacts 树（toolchain/<组件>/publish 统一格式，
 #   add-build-toolchain 2026-07-05）。缺省即 ${output_dir}/publish。
 #   bin/payload（add-package-layout-config）：镜像现状布局。
+
 [platform.desktop]
 apphost     = true
 publish_dir = "../../../../artifacts/build/toolchain/builder/publish"

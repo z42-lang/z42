@@ -20,6 +20,5 @@ include = ["src/**/*.z42"]
 [build]
 # cascade defaults (output_dir = this dir; dist/.cache under it)
 
-[profile.release]
-mode     = "interp"    # embedded on-device baseline is interp (mobile/wasm); desktop may override
-optimize = 2
+[profile.release.runtime]
+mode = "interp"   # embedded on-device baseline is interp (mobile/wasm); desktop may override
