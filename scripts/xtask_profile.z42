@@ -12,7 +12,7 @@
 //   --all      run all four → write report.md
 //
 // P0 was the "native world" pass (external tools, read DWARF, ~zero VM change) +
-// the JSON counter surface (`z42vm --print-stats-on-exit --stats-format=json`,
+// the JSON counter surface (`z42vm --stats=json`,
 // scraped off stderr). P2 (add-sampling-profiler) adds z42-source-function
 // attribution: `--cpu` now also runs the VM under Z42_SAMPLE_HZ → folded stacks
 // (inferno flamegraph) + a perfetto sample-trace. The design lives in
@@ -215,7 +215,7 @@ string _profileHeap(ProfileCtx c) {
     string dhatVm = Path.Join(tdir, Path.Join("release", "z42vm"));
     // dhat writes dhat-heap.json to cwd → run in outDir so it lands there.
     ProcessResult pr = new Process(dhatVm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-        .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+        .Arg("--stats=json")
         .WorkingDirectory(c.outDir)
         .Env("Z42_LIBS", c.libs).Run();
     string heapJson = Path.Join(c.outDir, "dhat-heap.json");
@@ -244,7 +244,7 @@ string _profileThreads(ProfileCtx c) {
     Console.WriteLine("── threads / concurrency ──");
     // 1) Default VM: park histogram + all counters (contention fields = 0 here).
     ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-        .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+        .Arg("--stats=json")
         .Env("Z42_LIBS", c.libs).Run();
     string stats = _counterSummary(pr.Stderr);
     Console.WriteLine("  counters (park always-on): " + stats);
@@ -260,7 +260,7 @@ string _profileThreads(ProfileCtx c) {
     if (bc == 0) {
         string cvm = Path.Join(tdir, Path.Join("release", "z42vm"));
         ProcessResult cpr = new Process(cvm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-            .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+            .Arg("--stats=json")
             .Env("Z42_LIBS", c.libs).Run();
         contention = _counterSummary(cpr.Stderr);
         Console.WriteLine("  counters (contention on): " + contention);
@@ -300,7 +300,7 @@ string _profileE2e(ProfileCtx c) {
     Console.WriteLine("  peak RSS: " + rss);
 
     ProcessResult pr = new Process(c.vm).Arg(c.zbc).Arg(c.entry).Arg("--mode").Arg(c.mode)
-        .Arg("--print-stats-on-exit").Arg("--stats-format").Arg("json")
+        .Arg("--stats=json")
         .Env("Z42_LIBS", c.libs).Run();
     string stats = _counterSummary(pr.Stderr);
     Console.WriteLine("  counters: " + stats);
