@@ -228,10 +228,10 @@ xtask test dist               # 端到端验证发行包（packaged z42c/z42vm �
 
 ```
 scripts/
-├── xtask.z42            入口 Main + 顶层 handler（run / clean / feature-matrix）
+├── xtask.z42            **只有入口**：Main（校验 VM → _runCli）+ `run` 直通（Resolve 前拦截）
 ├── xtask.z42.toml       工程清单（glob include；output → artifacts/xtask/）
 ├── xtask_cli.z42        CLI **核心**：全局选项剥离 + 根命令树 + 顶层 dispatch 分流（每层 -h 自动生成）
-├── xtask_deps.z42       deps check 版本漂移检查
+├── xtask_deps.z42       deps check 版本漂移检查（`_depsCheck` 入口 + `_depsCheckRun` 实现）
 ├── xtask_bench.z42      bench 基准 / --diff 回归对比
 ├── xtask_profile.z42    profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ├── cli/                每个命令族的 router（叶子的 flag/option 声明）+ dispatch（→ handler）
@@ -248,13 +248,15 @@ scripts/
 │   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   └── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用）
-├── build/              build stdlib / compiler / test-assets + 自举边界检查
+├── build/              build stdlib / compiler / runtime / test-assets + clean + 自举边界检查
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）+ build sdk / stage-toolchain
 │   ├── xtask_compiler.z42       build/test compiler（自建 + 不动点 + units）
 │   ├── xtask_compiler_e2e.z42   z42c 自举 e2e oracle 套件（div-by-zero 验证）
+│   ├── xtask_runtime.z42        build runtime（cargo z42vm）+ feature-matrix（逐 feature 组合编译）
 │   ├── xtask_toolchain.z42      build workload / build toolchain（apphost publish，路径从各 toml 读）
-│   ├── xtask_test_assets.z42    **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden）
+│   ├── xtask_test_assets.z42    **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
 │   │                            ——名字里的 "test assets" 指它*编译的*产物，不是它含有的测试
+│   ├── xtask_clean.z42          clean（按 target 删 artifacts/build/ 下的产物目录）
 │   └── xtask_bootstrap_check.z42 上一版 nightly z42c 能否编当前源（分阶段纪律边界检查）
 ├── test/               test 命令族（注意：`test compiler` / `packages` / `vscode-syntax` /
 │   │                   `bootstrap` 四个子命令的实现**不在**本目录，见 build/ install/ package/）

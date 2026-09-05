@@ -18,6 +18,7 @@ using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Regex;
+using Std.Cli;
 
 int _depsCheckRun(string os) {
     if (os.Length > 0 && os != "android" && os != "ios" && os != "wasm") {
@@ -200,4 +201,17 @@ string _extractCargoWorkspaceVersion(string cargoText) {
         i = i + 1;
     }
     return "";
+}
+
+// ── `deps check` 命令入口（relocate-xtask-handlers, 2026-09-05 从 xtask.z42 搬来） ──
+
+// `deps check [--os <p>]` — 唯一只读校验：presence + versions.toml drift（逻辑在
+// xtask_deps.z42 :: _depsCheckRun，in-process 直调）。presence 仅显式 --os 时计入
+// 退出码——CI 的 build-and-test 在无平台 SDK 的 runner 上裸跑本命令（只把 drift
+// 当门禁），语义详见 xtask_deps.z42 头注释。
+int _depsCheck(ParseResult r) {
+    Stopwatch sw = _procStart("deps check");
+    int __rc = _depsCheckRun(r.GetOption("os"));
+    if (__rc == 0) { _procEnd("deps check", sw); }
+    return __rc;
 }

@@ -1,0 +1,36 @@
+// xtask — `build runtime` 与 `feature-matrix`：两个直接驱动 cargo 的命令。
+// 从 xtask.z42 搬来（relocate-xtask-handlers, 2026-09-05）：它们是 build 族的
+// handler，不是 CLI 入口的一部分，xtask.z42 只该留 Main 与 run 直通。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Time;   // Stopwatch — _procStart/_procEnd 进程计时标记
+
+int _buildRuntime() {
+    Stopwatch sw = _procStart("build runtime (cargo z42vm)");
+    int __rc = _exec(_cargoRelease()
+        .Arg("--manifest-path").Arg(_runtimeManifest()));
+    if (__rc == 0) { _procEnd("build runtime (cargo z42vm)", sw); }
+    return __rc;
+}
+
+// 编译器自举：用 _buildCompiler（z42c 种子自建，src/compiler）。
+
+// feature-matrix (CI P4.1): verify each Cargo feature combo compiles (host target).
+int _featureMatrix() {
+    Stopwatch sw = _procStart("feature-matrix");
+    int c = _cargoFeature("interp-only"); if (c != 0) { return c; }
+    c = _cargoFeature("wasm");            if (c != 0) { return c; }
+    c = _cargoFeature("ios");             if (c != 0) { return c; }
+    int __rc = _cargoFeature("android");
+    if (__rc == 0) { _procEnd("feature-matrix", sw); }
+    return __rc;
+}
+
+int _cargoFeature(string feat) {
+    Console.WriteLine("== cargo build --no-default-features --features " + feat + " ==");
+    return _exec(_cargoRelease()
+        .Arg("--manifest-path").Arg(_runtimeManifest())
+        .Arg("--no-default-features").Arg("--features").Arg(feat));
+}
