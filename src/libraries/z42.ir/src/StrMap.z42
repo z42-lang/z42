@@ -53,6 +53,10 @@ public sealed class StrMap {
     public bool   UsedAt(int i)   { return this._used[i]; }
     public string KeyAt(int i)    { return this._keys[i]; }
     public object ValAt(int i)    { return this._vals[i]; }
+    // 批量视图：整表扫描的调用方拿一次数组，就不必每槽两次 z42 方法调用（UsedAt + ValAt）。
+    // ⚠ 返回的是内部数组本体，只可读、且只在扫描期间持有 —— 任何 Put 都可能触发 _grow 换掉它们。
+    public bool[]   UsedArr()     { return this._used; }
+    public object[] ValArr()      { return this._vals; }
 
     public string[] Keys() {
         string[] r = new string[this._count];
