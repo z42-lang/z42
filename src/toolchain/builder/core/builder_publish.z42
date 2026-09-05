@@ -167,7 +167,7 @@ int _pubDesktop(ParseResult r, string rid) {
         appZpkg = Path.Join(root, payloadRel);
         string payloadDir = Path.GetDirectoryName(appZpkg);
         if (payloadDir.Length > 0) { Directory.Create(payloadDir); }
-        File.Copy(zpkgSrc, appZpkg);
+        _pubStageApp(zpkgSrc, appZpkg);   // + 同 stem 的 runtimeconfig 侧车
         _pubCopyDistDeps(distDir, projName, payloadDir);
     }
 
@@ -246,7 +246,7 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
     string exe = Path.Join(appDir, isWin ? (projName + ".exe") : projName);
     File.Copy(host, exe, true);
     if (!isWin) { new Process("chmod").Arg("+x").Arg(exe).Run(); }   // File.Copy drops the mode bit
-    File.Copy(zpkgSrc, Path.Join(appDir, "app.zpkg"), true);
+    _pubStageApp(zpkgSrc, Path.Join(appDir, "app.zpkg"));   // 侧车随之改名为 app.runtimeconfig.toml
     string libsOut = Path.Join(appDir, "libs");
     Directory.Create(libsOut);
     foreach (var p in Path.Glob(libsSrc, "*.zpkg")) {               // stdlib
