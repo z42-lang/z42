@@ -50,12 +50,27 @@ impl LazyCompiler {
         // Cranelift 无法跨 op 去箱来消除,故 speed 档零计算提升却多 ~4-5ms 冷编译
         // （arith compute 50.4→52.9ms、poly 1024→1028ms flat、startup 54→59ms）。
         // 真正的 JIT 杠杆是结构性去箱 + 内联 helper,不是让 Cranelift 更用力优化
-        // 现有形状。故保留默认档。详见 bench/results/MODE-COMPARISON.md。
+        // 现有形状。故保留默认档。
+        // （原引的 bench/results/MODE-COMPARISON.md 是 perf-vm-iteration 时期
+        // compare-modes.sh 的产物，早已不在仓库；该脚本本身也随 move-bench-into-tests
+        // 删除——interp/jit 对比现在是 `xtask bench --mode both`。上面括号里的
+        // 数字就是当时的结论，无需再去找那份文件。）
+        //
+        // disable-cranelift-verifier（2026-09-05）：`enable_verifier` 在 Cranelift 里默认
+        // **true**（见 cranelift-codegen-meta 的 shared/settings.rs），于是我们每编一个函数
+        // 都白跑一遍 IR 校验 —— 编译期原生采样里 `Verifier::run` 是最大的单个叶子，实测占
+        // 翻译总耗时的 31%（1325 个函数 903 ms → 619 ms，每 op 19.75 → 13.55 µs）。
+        //
+        // 它检查的是**我们生成的 CLIF 是否格式良好**，属于翻译层的自检，不是运行期安全网。
+        // 所以按 `debug_assertions` 门控：debug 构建继续验（写翻译层时立刻报错），release
+        // 关掉。真出翻译 bug 时，release 侧由产物逐字节门 + self-host 不动点 + `test all` 兜。
+        use cranelift_codegen::settings::Configurable as _;
+        let mut flags = cranelift_codegen::settings::builder();
+        flags.set("enable_verifier", if cfg!(debug_assertions) { "true" } else { "false" })
+            .map_err(|e| anyhow::anyhow!("cranelift setting enable_verifier: {}", e))?;
         let isa = cranelift_native::builder()
             .map_err(|e| anyhow::anyhow!("native ISA unavailable: {}", e))?
-            .finish(cranelift_codegen::settings::Flags::new(
-                cranelift_codegen::settings::builder(),
-            ))?;
+            .finish(cranelift_codegen::settings::Flags::new(flags))?;
         let mut jit_builder =
             JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         // Single source of truth for the helper set lives in `helpers::registry`.

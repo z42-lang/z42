@@ -121,7 +121,14 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
     // primary call sites. The tiered resolve here double-counted a cold callee
     // (jit_call's counter, then this fallback's) — halving the effective threshold.
     let (max_reg, ptr, name, file) = {
-        let entry = unsafe { (*jit_ctx).resolve_fn_by_name_peek(&func.name) }?;
+        // Z42_JIT_INTERP_TIERUP：0（默认）= 只 peek，与历史行为逐字一致；N ≥ 1 = 本路径
+        // 也参与 tier-up 计数，第 N 次进入即编译。默认关的理由见 config.rs 的字段文档。
+        let dthr = crate::config::runtime_config().jit_interp_tierup;
+        let entry = if dthr == 0 {
+            unsafe { (*jit_ctx).resolve_fn_by_name_peek(&func.name) }?
+        } else {
+            unsafe { (*jit_ctx).resolve_fn_by_name_tiered_thr(&func.name, dthr) }?
+        };
         (entry.max_reg, entry.ptr, entry.name.clone(), entry.file.clone())
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

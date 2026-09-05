@@ -43,7 +43,7 @@ int _testDistRun(string modeArg) {
     if (distDir.Length == 0) { distDir = _latestReleasePkg(root); }
     if (distDir.Length == 0 || !Directory.Exists(distDir)) {
         ConsoleError.WriteLine("error: no packaged distribution found at artifacts/packages/z42-*-release");
-        ConsoleError.WriteLine("       Run: z42 xtask.zpkg build package release");
+        ConsoleError.WriteLine("       Run: xtask package sdk");
         return 1;
     }
     string z42c    = Path.Join(distDir, "bin/z42c");
@@ -554,10 +554,11 @@ int[] _apphostSmoke(string distDir, string work) {
 }
 
 // ── Case shape + enumeration ───────────────────────────────────────────────
-// _DistCase / _enumerateDistCases / _appendDistCase are dist-specific (they walk
-// .z42 SOURCE files to compile with the packaged z42c). The VM runner's _Case /
-// _enumerateCases / _appendCase (xtask_test_vm.z42, same namespace) walk prebuilt
-// .zbc artifacts instead — distinct shape, so kept under distinct names.
+// _DistCase is dist-specific: it names the `.z42` SOURCE to compile with the
+// packaged z42c, where the VM runner's _Case (xtask_test_vm.z42, same namespace)
+// names a prebuilt `.zbc`. Both are now mapped from the ONE shared corpus walk
+// (_walkGoldenCorpus, common/xtask_golden.z42) — only the selection policy and
+// the record shape stay local.
 
 class _DistCase {
     public string name;
@@ -588,82 +589,28 @@ bool _isTestRunnerSource(string src) {
     return false;
 }
 
+// Golden selection over the shared walk (_walkGoldenCorpus, common/xtask_golden.z42).
+// Unlike the VM runner, dist compiles the `.z42` SOURCE with the PACKAGED z42c, so
+// selection keys off source presence, not the artifacts mirror.
 _DistCase[] _enumerateDistCases(string root, string mode) {
-    _DistCase[] cases = new _DistCase[64];
+    _GoldenEntry[] entries = _walkGoldenCorpus(root);
+    _DistCase[] cases = new _DistCase[entries.Length];
     int n = 0;
 
-    string testsDir = Path.Join(root, "src/tests");
-    string[] cats = _enumDirsSorted(testsDir);
-
-    // Dir mode part 1: src/tests/<cat>/<name>/source.z42
-    int ci = 0;
-    while (ci < cats.Length) {
-        if (!_isNonRunnableCat(cats[ci])) {
-            string catDir = Path.Join(testsDir, cats[ci]);
-            string[] names = _enumDirsSorted(catDir);
-            int ni = 0;
-            while (ni < names.Length) {
-                string dir = Path.Join(catDir, names[ni]);
-                string src = Path.Join(dir, "source.z42");
-                if (File.Exists(src)) {
-                    if (!(mode == "jit" && File.Exists(Path.Join(dir, "interp_only")))) {
-                        cases = _appendDistCase(cases, n, new _DistCase(names[ni], src, Path.Join(dir, "expected_output.txt"), _deriveEntry(src)));
-                        n = n + 1;
-                    }
-                }
-                ni = ni + 1;
-            }
-        }
-        ci = ci + 1;
-    }
-
-    // Dir mode part 2: src/libraries/<lib>/tests/<name>/source.z42
-    string libsRoot = Path.Join(root, "src/libraries");
-    string[] libs = _enumDirsSorted(libsRoot);
-    int li = 0;
-    while (li < libs.Length) {
-        string libTests = Path.Join(libsRoot, libs[li] + "/tests");
-        if (Directory.Exists(libTests)) {
-            string[] names = _enumDirsSorted(libTests);
-            int ni = 0;
-            while (ni < names.Length) {
-                string dir = Path.Join(libTests, names[ni]);
-                string src = Path.Join(dir, "source.z42");
-                // Skip [Test]/[Benchmark]-based lib test dirs — owned by
-                // `xtask test stdlib` (z42b), not golden-runnable (no Main; may be
-                // multi-file like secp256k1's source.z42 + vectors.z42).
-                if (File.Exists(src) && !_isTestRunnerSource(src)) {
-                    if (!(mode == "jit" && File.Exists(Path.Join(dir, "interp_only")))) {
-                        cases = _appendDistCase(cases, n, new _DistCase(names[ni], src, Path.Join(dir, "expected_output.txt"), _deriveEntry(src)));
-                        n = n + 1;
-                    }
-                }
-                ni = ni + 1;
-            }
-        }
-        li = li + 1;
-    }
-
-    // Flat mode: src/tests/<cat>/<name>.z42 (exclude errors / parse / cross-zpkg).
-    ci = 0;
-    while (ci < cats.Length) {
-        string cat = cats[ci];
-        if (cat != "errors" && cat != "parse" && !_isNonRunnableCat(cat)) {
-            string catDir = Path.Join(testsDir, cat);
-            string[] hits = Path.Glob(catDir, "*.z42");
-            int hi = 0;
-            while (hi < hits.Length) {
-                string src = hits[hi];
-                string name = Path.GetFileNameWithoutExtension(src);
-                string interpMarker = Path.Join(catDir, name + ".interp_only");
-                if (!(mode == "jit" && File.Exists(interpMarker))) {
-                    cases = _appendDistCase(cases, n, new _DistCase(name, src, Path.Join(catDir, name + ".expected_output.txt"), _deriveEntry(src)));
-                    n = n + 1;
-                }
-                hi = hi + 1;
-            }
-        }
-        ci = ci + 1;
+    int i = 0;
+    while (i < entries.Length) {
+        _GoldenEntry e = entries[i];
+        i = i + 1;
+        if (e.seg == "lib-file") { continue; }   // stdlib [Test] file units — z42b's, not golden
+        if (!e.hasSource) { continue; }
+        if (!e.isLib && _isNonRunnableCat(e.cat)) { continue; }
+        // Skip [Test]/[Benchmark]-based lib test dirs — owned by `xtask test stdlib`
+        // (z42b), not golden-runnable (no Main; may be multi-file like secp256k1's
+        // source.z42 + vectors.z42).
+        if (e.isLib && _isTestRunnerSource(e.src)) { continue; }
+        if (mode == "jit" && e.interpOnly) { continue; }
+        cases[n] = new _DistCase(e.name, e.src, e.expected, _deriveEntry(e.src));
+        n = n + 1;
     }
 
     _DistCase[] tight = new _DistCase[n];
@@ -682,13 +629,3 @@ string _envOpt(string name, string fallback) {
     return nonNull;
 }
 
-_DistCase[] _appendDistCase(_DistCase[] arr, int count, _DistCase v) {
-    if (count < arr.Length) { arr[count] = v; return arr; }
-    int newCap = arr.Length * 2;
-    if (newCap < 4) { newCap = 4; }
-    _DistCase[] bigger = new _DistCase[newCap];
-    int i = 0;
-    while (i < count) { bigger[i] = arr[i]; i = i + 1; }
-    bigger[count] = v;
-    return bigger;
-}

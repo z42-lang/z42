@@ -81,7 +81,9 @@ z42 repl --config <file>          # 指定 runtime config（设 Z42_CONFIG）
   首轮建一次静态 `DepScanResult` 缓存于 `ScriptState.CachedScan`；每个 var 声明轮把刚编出的 `Vars{N}`
   包经 `DepScan.ExtendWithPackage` **增量并入缓存 scan**（不落盘、不重扫）；后续轮经
   `CompileInputs.CachedScan` 复用。详见 [self-hosting.md] 邻近的 compile-pipeline 说明。
-  复现手段：`bench/repl/run.sh`（0/1/5-eval 三点，把每轮边际成本与进程启动分开）。
+  复现手段：拿 `z42 repl` 喂一份定长输入会话，用 hyperfine 测 0/1/5-eval 三点——0-eval 是
+  进程+VM 启动，斜率才是每轮边际成本。（曾有一份 `bench/repl/run.sh` 固化这三点，
+  2026-09-05 随 bench 目录整理删除：REPL 已非瓶颈，脚本是三行 hyperfine，要测时现写即可。）
   > 曾有一份 `bench/repl/BASELINE.md` 记录优化**前**的数字（2026-07-26，per-eval ~3.5 s）。
   > 那些数字早已失真——同一路径现在是每轮 ~72 ms（见本页「剩余瓶颈」），留着只会误导，故已删除。
   > 机制说明以本页为准，要拿新数字就跑 `run.sh`。
@@ -609,7 +611,7 @@ libs/ + programs/z42c/ + programs/z42i/
   改静态）→ 每表达式轮从 ~3500ms 降到 **~72ms 恒定**、抹平了原 O(n) 增长。剩余仅：(a) 首轮
   一次性 ~3.3s 静态 scan 构建（见 `repl-future-persist-static-scan`）、(b) 每轮 ~72ms 中约 50ms 是
   `ImportedSymbolLoader.Load` 遍历全导出集（可进一步缓存）。真·增量（每行=一个 context、旧版
-  supersede）仍是这两项的终极解，但已非「不可用」级瓶颈。复现：`bench/repl/run.sh`。
+  supersede）仍是这两项的终极解，但已非「不可用」级瓶颈。复现见本页上文的 hyperfine 三点法。
 
 ### repl-future-persist-static-scan
 

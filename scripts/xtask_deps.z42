@@ -11,7 +11,7 @@
 //
 // 从 versions.toml 拿期望值，扫"投影"文件（Cargo.toml / build.gradle.kts /
 // ios/Package.swift）验证一致性。scalar 解析复用 shared xtask_versions.z42 的
-// _scalarStr。Entry: `z42 xtask.zpkg deps check [--os <p>]`.
+// _scalarStr。Entry: `xtask deps check [--os <p>]`.
 namespace Z42Xtask;
 
 using Std;
@@ -71,7 +71,7 @@ int _depsCheckVerdict(string os, int driftFail, int presenceFail) {
     }
     if (presenceFail > 0) {
         if (os.Length > 0) {
-            ConsoleError.WriteLine("error: missing " + os + " deps — run: z42 xtask.zpkg deps install --os " + os);
+            ConsoleError.WriteLine("error: missing " + os + " deps — run: xtask deps install --os " + os);
             return 1;
         }
         Console.WriteLine("note: some platform deps missing (informational on a bare run; `deps check --os <p>` enforces, `deps install --os <p>` installs)");

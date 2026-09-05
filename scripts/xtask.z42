@@ -1,24 +1,26 @@
 // xtask — the z42 repo's unified dev CLI (add-xtask-cli, 2026-06-04).
 //
-// Run via the launcher:  z42 xtask.zpkg <command> [args]
+// Run the native apphost at the repo root:  xtask <command> [args]
+// (equivalent, still supported: `z42 xtask.zpkg <command> [args]` via the launcher;
+//  cold start with no z42 on PATH: `Z42_PORTABLE_VM=$vm Z42_LIBS=$libs $vm
+//  artifacts/xtask/xtask.zpkg -- <command>` — the form CI uses.)
 //
-//   build  runtime | compiler | stdlib [lib] | launcher | package [--rid R] | all
-//   test   (empty=all) | stdlib [lib] | vm [interp|jit] | cross-zpkg | compiler | changed
-//   run    <app.zpkg|script.z42> [-- args]
-//   deps   check | install
-//   bench  [--diff]
-//   help   (also -h / --help)
+// 顶层命令面（**权威来源是 `xtask -h`，由 Std.Cli 命令树自动生成**——本注释是导航用的
+// 概览，不是清单；具体 flag/positional 一律看各层 `-h`，别在这里复列以免又漂）：
 //
-// MVP (Stream 3): each subcommand cd's to the repo root and delegates to the
-// existing script/.z42, forwarding stdout/stderr + exit code. Stream 2
-// (migrate-scripts-to-z42) replaces each delegation with native z42 and
-// deletes the corresponding .sh.
-// migrate-xtask-launcher-to-std-cli (2026-06-10): Main delegates to the
-// Std.Cli nested router in xtask_cli.z42 (_runCli). The command tree, every
-// leaf's flags/positionals, per-level `-h` help, and unknown-command errors
-// are all handled there. `package` / `feature-matrix` are now top-level
-// (were under `build`); the `test lib` / `bench lib` aliases are dropped
-// (use `stdlib`). Handlers below read their args from a Std.Cli ParseResult.
+//   build   runtime | compiler | stdlib | sdk | stage-toolchain | workload | toolchain | test | all
+//   test    (empty=all) | e2e | stdlib | targets | runtime | list | embedded | dist
+//           | compiler | packages | bootstrap | vscode-syntax | incremental | lines
+//           | changed | platform <p>
+//   package sdk | runtime | workload | index
+//   deps    check | install | env
+//   bench   (empty=e2e) | stdlib | targets
+//   run / profile / example / clean / feature-matrix
+//
+// 命令树、每个叶子的 flag/positional、逐层 `-h`、未知命令报错都在 xtask_cli.z42
+// （`_runCli` + 各 `_xRouter()` / `_dispatchX`）——Main 只做 argv 取用与转发。
+// 各命令的 handler 分散在 build/ test/ package/ install/ 子目录，映射见
+// `scripts/README.md` 的源码结构表。
 namespace Z42Xtask;
 
 using Std;

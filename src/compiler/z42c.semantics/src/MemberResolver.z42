@@ -51,7 +51,16 @@ public sealed class MemberResolver {
         return this._bindInstanceMember(m, target, tt, env);
     }
 
-    private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+    // `call` 仅用于把**已解析出的 MethodSymbol** 接进 `_applyMethodTypeArgs`
+    // （complete-where-constraints PR-1）。此前实例路径的类型实参是由 `_bindCall` 的兜底以
+    // `ms = null` 附加的 —— 那让 `_applyMethodTypeArgs` 里 `ms != null && ms.HasDecl` 恒不成立，
+    // **arity 校验 E0445 与方法级 where 约束在 `this.m<T>()` 上双双静默**（实测：连 `this.g<K,K>()`
+    // 的 arity 都不报）。兜底注释「无本地 Decl」只对 imported / prim 成立；同类实例方法这里明明
+    // 已经解析出 ms，只是没往外透。
+    //
+    // **刻意不改重载决议**：下方 `_resolveOverload` 的 typeArgCount 仍传 0。把它改成
+    // `call.TypeArgCount` 会改变重载选择 → 撼动 codegen 与自举字节不动点，属另一件事。
+    private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
         // unify-value-types Phase 1：翻转后基元/string/object 为 Z42ClassType——**排除内建**，让其
         // 继续走下方 prim-wrapper 派发路径（declClass 用 keyword 名、键用 _overloadKey），与翻转前
         // Z42PrimType 收者逐字节同义。用户 class/struct（非内建）仍走此类分支。
@@ -71,7 +80,9 @@ public sealed class MemberResolver {
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
-                return new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+                BoundCall ibc = new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+                this._applyMethodTypeArgs(ibc, call, ms, env);   // 带真 ms → arity + where 约束真校验
+                return ibc;
             }
             if (_stub) {   // 懒加载 stub 受者、主符号表无真类 → loose 绑定（镜像翻转前 prim 路径 fallthrough，无 "no method"）
                 args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
@@ -113,10 +124,13 @@ public sealed class MemberResolver {
                 // 触发 _emitConvert AsCast 拆箱臂）。
                 Z42Type ubR = this._tc.StructUnboxTarget(itms.Signature.Ret, instRecv);
                 if (ubR != null) {
-                    BoundExpr rawM = new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, new Z42UnknownType(), sp);
+                    BoundCall rawM = new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, new Z42UnknownType(), sp);
+                    this._applyMethodTypeArgs(rawM, call, itms, env);
                     return new BoundConvert(rawM, ubR, sp);
                 }
-                return new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, itRet, sp);
+                BoundCall gbc = new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, itRet, sp);
+                this._applyMethodTypeArgs(gbc, call, itms, env);   // 泛型受者上的实例泛型方法同款
+                return gbc;
             }
             args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
@@ -423,8 +437,10 @@ public sealed class MemberResolver {
         // 成员调用：obj.m(args) / Class.m(args)
         if (call.Callee is MemberExpr) {
             BoundExpr mr = this._bindMemberCall(call.Callee as MemberExpr, args, call.ArgCount, call.Args, env, call.Span, call);
-            // add-generic-methods：兜底——静态 Class.m 路径已在 _bindMemberCall 内校验；此处为 instance /
-            // imported / prim 等余下路径附加类型实参（无本地 Decl → 仅解析、不校验），保证运行期拿到 type_args。
+            // add-generic-methods：兜底——静态 Class.m 与（complete-where-constraints 起）有本地 Decl 的
+            // instance 路径都已在 _bindMemberCall / _bindInstanceMemberCall 内**带真 ms** 校验过，
+            // 此处对它们因 `MethodTypeArgCount > 0` 幂等早退。剩下真正无本地 Decl 的路径
+            // （imported / prim / loose 绑定）在此仅解析类型实参、不校验，保证运行期拿到 type_args。
             if (mr is BoundCall) { this._applyMethodTypeArgs(mr as BoundCall, call, null, env); }
             return mr;
         }
@@ -507,7 +523,7 @@ public sealed class MemberResolver {
         // 实例：bind target 为值
         BoundExpr recv = this._tc._expr._bindExpr(mem.Target, env);
         Z42Type rt = recv.Type();
-        return this._bindInstanceMemberCall(mem, recv, rt, args, argCount, rawArgs, env, sp);
+        return this._bindInstanceMemberCall(mem, recv, rt, args, argCount, rawArgs, env, sp, call);
     }
 
 }

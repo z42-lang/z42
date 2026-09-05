@@ -68,20 +68,88 @@ public sealed class SymbolTable {
     public Z42InterfaceType GetInterface(string name) { return this.Interfaces.Get(name) as Z42InterfaceType; }
 
     // class（含 base 链）是否实现接口（可赋性 class→iface）。
+    //
+    // 两层遍历：① 沿类的 base 链收集各层**直接**接口名；② 对收集到的每个接口再沿其
+    // **父接口链**展开（complete-where-constraints PR-1）。此前只有 ①——
+    // `interface IDerived : IBase` + `class C : IDerived` 时 `Implements("C","IBase")` 返回
+    // **false**，因为传递闭包只在 IR 发射期由 `ClassDescBuilder._expandIfaces` 算、不在符号表里。
+    //
+    // 注意不对称：**导入类型不受此影响**——生产端写进 zbc 的已是 `_expandIfaces` 后的传递闭包，
+    // 导入类的接口名单比本地类还全。缺口只伤本地类，故 ② 是补齐而非改变导入侧语义。
     public bool Implements(string clsName, string ifaceName) {
         string cur = clsName;
+        // 待展开的接口队列（BFS）+ 去重；接口继承一般极浅，初始容量 8 足够。
+        string[] queue = new string[8];
+        int qt = 0;
         int hops = 0;
         while (hops < 32) {
-            if (!this.Classes.ContainsKey(cur)) { return false; }
+            if (!this.Classes.ContainsKey(cur)) { break; }
             Z42ClassType ct = this.Classes.Get(cur) as Z42ClassType;
             int i = 0;
             while (i < ct.InterfaceCount) {
                 if (ct.InterfaceNames[i] == ifaceName) { return true; }
+                if (qt == queue.Length) {
+                    string[] bigger = new string[queue.Length * 2];
+                    int z = 0; while (z < qt) { bigger[z] = queue[z]; z = z + 1; }
+                    queue = bigger;
+                }
+                queue[qt] = ct.InterfaceNames[i]; qt = qt + 1;
                 i = i + 1;
             }
-            if (!ct.HasBase || ct.BaseName == "") { return false; }
+            if (!ct.HasBase || ct.BaseName == "") { break; }
             cur = ct.BaseName;
             hops = hops + 1;
+        }
+        return this._anyInterfaceDerivesFrom(queue, qt, ifaceName);
+    }
+
+    // 接口 → 接口的继承判定（`IDerived` 是否派生自 `IBase`；不含自身）。
+    // 供约束校验里「接口本身作为类型实参」的场景用。
+    public bool InterfaceDerivesFrom(string ifaceName, string target) {
+        if (!this.Interfaces.ContainsKey(ifaceName)) { return false; }
+        Z42InterfaceType it = this.Interfaces.Get(ifaceName) as Z42InterfaceType;
+        string[] seeds = new string[8];
+        int n = 0;
+        int b = 0;
+        while (b < it.BaseCount) {
+            if (n == seeds.Length) {
+                string[] bigger = new string[seeds.Length * 2];
+                int z = 0; while (z < n) { bigger[z] = seeds[z]; z = z + 1; }
+                seeds = bigger;
+            }
+            seeds[n] = it.BaseNames[b]; n = n + 1;
+            b = b + 1;
+        }
+        return this._anyInterfaceDerivesFrom(seeds, n, target);
+    }
+
+    // 从 `seeds`（类的直接接口名，可含重复）出发沿父接口链 BFS，命中 target 返回 true。
+    // `queue` 原地扩展兼作 seen 检查的载体——接口数极少（个位数），线性去重比建 StrMap 便宜。
+    private bool _anyInterfaceDerivesFrom(string[] queue, int count, string target) {
+        int qh = 0;
+        int qt = count;
+        int guard = 0;
+        while (qh < qt && guard < 256) {
+            guard = guard + 1;
+            string name = queue[qh]; qh = qh + 1;
+            // 线性去重：本项此前是否已出现过（含 seeds 里的重复声明）。
+            bool dup = false;
+            int s = 0;
+            while (s < qh - 1) { if (queue[s] == name) { dup = true; break; } s = s + 1; }
+            if (dup) { continue; }
+            if (name == target) { return true; }
+            if (!this.Interfaces.ContainsKey(name)) { continue; }
+            Z42InterfaceType it = this.Interfaces.Get(name) as Z42InterfaceType;
+            int b = 0;
+            while (b < it.BaseCount) {
+                if (qt == queue.Length) {
+                    string[] bigger = new string[queue.Length * 2];
+                    int z = 0; while (z < qt) { bigger[z] = queue[z]; z = z + 1; }
+                    queue = bigger;
+                }
+                queue[qt] = it.BaseNames[b]; qt = qt + 1;
+                b = b + 1;
+            }
         }
         return false;
     }

@@ -78,20 +78,38 @@ public sealed class StubCollector {
                         if (c.IsPartial || prev.IsPartial) {
                             if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
                             // 保留 prev（首碎片），不覆盖 → _fillInterface 各碎片方法并入同一接口。
+                            this._addIfaceBases(prev, c);   // 父接口按碎片累积（与方法同）
                         } else {
                             Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
                             itw.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                            this._addIfaceBases(itw, c);
                             table.Interfaces.Put(c.Name, itw);
                         }
                     } else {
                         Z42InterfaceType it = new Z42InterfaceType(c.Name);
                         if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
                         it.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                        this._addIfaceBases(it, c);
                         table.Interfaces.Put(c.Name, it);
                     }
                 }
             }
             i = i + 1;
+        }
+    }
+
+    // `interface IDerived : IBase` 的父接口裸名 → Z42InterfaceType.BaseNames
+    // （complete-where-constraints PR-1：让 `SymbolTable.Implements` 能走接口继承闭包）。
+    // 存裸名，与类的 InterfaceNames 一致（`IComparable<char>` → `IComparable`，见本文件 Pass A）。
+    // 去重交给 Implements 的 BFS（seen 集），这里只管累积——partial 碎片会重复声明同一父接口。
+    private void _addIfaceBases(Z42InterfaceType target, ClassDecl c) {
+        int b = 0;
+        while (b < c.BaseCount) {
+            string bn = c.Bases[b].Dump();
+            int ltIdx = bn.IndexOf("<");
+            if (ltIdx >= 0) { bn = bn.Substring(0, ltIdx); }
+            target.AddBase(bn);
+            b = b + 1;
         }
     }
 

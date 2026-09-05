@@ -3,8 +3,8 @@
 > 对齐：2026-07-31（add-exec-profile-matrix）。
 > 统一 test / bench 描述「一次运行在什么执行画像下」的共享词汇 + 支持矩阵。
 > 实现：`scripts/common/xtask_exec_profile.z42`（共享模块）、`src/runtime/src/corelib/platform.rs`
-> + `src/libraries/z42.core/src/Platform.z42`（能力查询）、`bench/probe/capabilities.z42`（探针）、
-> `bench/baseline-schema.json`（schema v2）。
+> + `src/libraries/z42.core/src/Platform.z42`（能力查询）、`src/tests/perf/probe/capabilities.z42`（探针）、
+> `src/tests/perf/baseline-schema.json`（schema v2）。
 
 ## 1. 动机
 
@@ -78,7 +78,7 @@ stub）。非 runnable 格子由 harness **显式打印跳过原因**，绝不�
 
 ```mermaid
 flowchart LR
-  probe["bench/probe/capabilities.z42<br/>调 Std.Platform.Capabilities()/ExecModes()"]
+  probe["src/tests/perf/probe/capabilities.z42<br/>调 Std.Platform.Capabilities()/ExecModes()"]
   vm["被测 VM 二进制<br/>__platform_caps builtin"]
   mod["xtask_exec_profile.z42<br/>_epProbe → VmCaps<br/>_epCellStatus / _epModeLabel / _epProfileJson"]
   bench["xtask bench (e2e / micro)<br/>--mode 扫描 → 每格 hyperfine + profile 打标"]
@@ -95,7 +95,7 @@ harness 对**要测量的那个 VM 二进制**跑一次探针，缓存 `VmCaps`�
 
 ## 5. schema v2
 
-`bench/baseline-schema.json`（`schema_version:2`）：顶层去 `os` 串、加 `z42vm_version`；每条
+`src/tests/perf/baseline-schema.json`（`schema_version:2`）：顶层去 `os` 串、加 `z42vm_version`；每条
 benchmark 必带 `profile{ mode{tiers,aot_pkgs}, mode_label, platform{os,arch}, caps }`。删除 C#
 时代残留（`csharp-throughput` tier、`dotnet_version`）。`--diff` 按
 `(name, metric, mode_label@os/arch)` 匹配——interp-vs-jit / 跨平台**绝不互比**。
