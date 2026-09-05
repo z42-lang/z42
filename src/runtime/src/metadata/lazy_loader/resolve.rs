@@ -4,6 +4,24 @@
 use super::*;
 
 impl LazyLoader {
+    /// **fix-lazy-lookup-contention**: 只读探测 —— 命中已注册的函数就直接给答案，
+    /// 完全不碰可变状态，因此调用方可以只持**读锁**。返回 `None` 表示「这里定不了」
+    /// （负缓存 / 需要加载 zpkg），交给下面 `&mut self` 的完整路径。
+    ///
+    /// 为什么 `Some` 一定与 `resolve_function` 同解：registry 命中是那边的第一步，
+    /// 且 registry 只增不减；负缓存以 registry 指纹为条件失效，所以「当前指纹下是负」
+    /// 蕴含「当前 registry 里没有」——两者不可能同时成立。
+    pub fn probe_function(&self, func_name: &str) -> Option<Arc<Function>> {
+        self.function_table.get(func_name).map(Arc::clone)
+    }
+
+    /// 同上，类型版。额外要求基类链已完整 —— 这正是 `resolve_type` 的快路径条件；
+    /// 不完整时要 `ensure_base_chain_loaded`（会加载 zpkg），只能走写锁。
+    pub fn probe_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
+        let td = self.type_registry.get(class_name)?;
+        if self.base_chain_complete(class_name) { Some(Arc::clone(td)) } else { None }
+    }
+
     /// Look up a function by FQ name; triggers lazy load if needed.
     pub fn resolve_function(&mut self, func_name: &str) -> Option<Arc<Function>> {
         if let Some(f) = self.function_table.get(func_name) {

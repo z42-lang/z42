@@ -29,7 +29,13 @@ pub struct VmCore {
     /// On-demand zpkg loader. `None` until `install_lazy_loader[_with_deps]`
     /// is called (typically from `bootstrap.rs`). Shared across threads
     /// since zpkg resolution + module loading is a process-global operation.
-    pub(crate) lazy_loader:        Mutex<Option<LazyLoader>>,
+    ///
+    /// **fix-lazy-lookup-contention (2026-09-05)**: `RwLock`, not `Mutex`. 符号查找
+    /// （ConstStr / 函数 / 类型）在**稳态下是纯读** —— registry 已命中就不碰任何可变状态，
+    /// 只有真要加载 zpkg 才需要独占。原来一律取独占锁，导致多线程编译时所有 worker 在
+    /// 这里串行化：`--jobs 8` 的原生采样里 7662 个阻塞样本落在 `try_lookup_string` /
+    /// `try_lookup_function` / `try_lookup_type` 上，而 GC 分配锁只有 6 个。
+    pub(crate) lazy_loader:        RwLock<Option<LazyLoader>>,
     /// defer-class-initialization: 待初始化的**所属类** FQN 队列。由
     /// `metadata::resolver` 解析 `StaticGet`/`StaticSet` 时入队（字段名去掉最后一段），
     /// 在 `VmContext::run_pending_static_inits` 里逐个 `try_lookup_type` 触发所属包加载

@@ -20,7 +20,7 @@ impl VmContext {
         declared: Vec<(String, ZpkgCandidate)>,
         initially_loaded: Vec<String>,
     ) {
-        *self.core.lazy_loader.lock() = Some(LazyLoader::new(
+        *self.core.lazy_loader.write() = Some(LazyLoader::new(
             search_dirs,
             main_pool_len,
             declared,
@@ -32,7 +32,7 @@ impl VmContext {
 
     /// Clear the lazy loader (used in tests).
     pub fn uninstall_lazy_loader(&self) {
-        *self.core.lazy_loader.lock() = None;
+        *self.core.lazy_loader.write() = None;
         crate::metadata::resolver::note_fn_registration();
     }
 
@@ -52,7 +52,7 @@ impl VmContext {
     /// fixup pass can find eagerly-loaded base classes when lazy-loading a
     /// subclass.
     pub fn seed_lazy_loader_types(&self, types: &FxHashMap<String, Arc<TypeDesc>>) {
-        let mut state = self.core.lazy_loader.lock();
+        let mut state = self.core.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
             loader.seed_types_for_lookup(types);
         }
@@ -62,7 +62,7 @@ impl VmContext {
     /// from an eagerly-loaded artifact (main zpkg / eagerly-loaded deps) into
     /// the lazy loader's impls registry. Companion of `seed_lazy_loader_types`.
     pub fn seed_lazy_loader_impls(&self, pairs: &[(String, String)]) {
-        let mut state = self.core.lazy_loader.lock();
+        let mut state = self.core.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
             loader.seed_impls(pairs);
         }
@@ -85,7 +85,7 @@ impl VmContext {
         // don't clear; only these explicit loads do.
         self.subclass_memo.lock().clear();
         self.isa_cache.clear();
-        let mut state = self.core.lazy_loader.lock();
+        let mut state = self.core.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadModule: no lazy loader installed (cannot register loaded module)")
         })?;
@@ -111,7 +111,7 @@ impl VmContext {
     ) -> anyhow::Result<Vec<String>> {
         self.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
         self.isa_cache.clear();
-        let mut state = self.core.lazy_loader.lock();
+        let mut state = self.core.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")
         })?;
@@ -123,8 +123,25 @@ impl VmContext {
     }
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
+        // fix-lazy-lookup-contention：稳态命中走读锁 —— 没有加载任何 zpkg，所以
+        // `newly_loaded` 恒空；静态初始化的排空判定仍照旧（`loader_quiet` 同样在锁内读）。
+        let fast = {
+            let state = self.core.lazy_loader.read();
+            match state.as_ref() {
+                Some(loader) => loader
+                    .probe_function(func_name)
+                    .map(|f| (f, loader.pending_static_inits.is_empty())),
+                None => return None,
+            }
+        };
+        if let Some((f, loader_quiet)) = fast {
+            if !self.static_init_drain_is_noop(&[], loader_quiet) {
+                self.run_pending_static_inits();
+            }
+            return Some(f);
+        }
         let (result, newly_loaded, loader_quiet) = {
-            let mut state = self.core.lazy_loader.lock();
+            let mut state = self.core.lazy_loader.write();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain the loader's `newly_loaded` scratch
             // buffer around the resolve, instead of cloning + diffing the whole
@@ -152,8 +169,25 @@ impl VmContext {
     /// Look up a class TypeDesc by FQ name; triggers lazy load if needed.
     /// Same `ModuleLoaded` emit semantics as `try_lookup_function`.
     pub fn try_lookup_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
+        // fix-lazy-lookup-contention：同 try_lookup_function —— registry 命中且基类链完整
+        // 时是纯读，走读锁。
+        let fast = {
+            let state = self.core.lazy_loader.read();
+            match state.as_ref() {
+                Some(loader) => loader
+                    .probe_type(class_name)
+                    .map(|td| (td, loader.pending_static_inits.is_empty())),
+                None => return None,
+            }
+        };
+        if let Some((td, loader_quiet)) = fast {
+            if !self.static_init_drain_is_noop(&[], loader_quiet) {
+                self.run_pending_static_inits();
+            }
+            return Some(td);
+        }
         let (result, newly_loaded, loader_quiet) = {
-            let mut state = self.core.lazy_loader.lock();
+            let mut state = self.core.lazy_loader.write();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain scratch buffer (see try_lookup_function).
             loader.newly_loaded.clear();
@@ -226,7 +260,7 @@ impl VmContext {
 
             // ② 待跑的初始化器。
             let names: Vec<String> = {
-                let mut state = self.core.lazy_loader.lock();
+                let mut state = self.core.lazy_loader.write();
                 match state.as_mut() {
                     Some(loader) => std::mem::take(&mut loader.pending_static_inits),
                     None => Vec::new(),
@@ -262,7 +296,7 @@ impl VmContext {
                 return;
             }
             let busy = {
-                let state = self.core.lazy_loader.lock();
+                let state = self.core.lazy_loader.write();
                 match state.as_ref() {
                     Some(loader) => loader.static_init_state.values().any(|st| {
                         matches!(st, crate::metadata::lazy_loader::InitState::Running(t) if *t != me)
@@ -287,7 +321,7 @@ impl VmContext {
         let me = std::thread::current().id();
         loop {
             let claimed = {
-                let mut state = self.core.lazy_loader.lock();
+                let mut state = self.core.lazy_loader.write();
                 let Some(loader) = state.as_mut() else { return };
                 match loader.static_init_state.get(name) {
                     Some(InitState::Done) => return,
@@ -327,7 +361,7 @@ impl VmContext {
         };
 
         {
-            let mut state = self.core.lazy_loader.lock();
+            let mut state = self.core.lazy_loader.write();
             if let Some(loader) = state.as_mut() {
                 loader.static_init_state.insert(name.to_string(), InitState::Done);
             }
@@ -344,7 +378,7 @@ impl VmContext {
     /// defer-class-initialization: 该类是否已在 registry 中（即所属包已加载 + 初始化过）。
     /// 只读，不触发任何加载——供 T3 入队前的快速过滤。
     pub fn has_loaded_type(&self, class_fq: &str) -> bool {
-        let state = self.core.lazy_loader.lock();
+        let state = self.core.lazy_loader.write();
         match state.as_ref() {
             Some(loader) => loader.has_type(class_fq),
             None => false,
@@ -373,7 +407,7 @@ impl VmContext {
     /// resolved from already-loaded types. See `LazyLoader::force_load_all`.
     pub fn force_load_all_packages(&self) {
         let newly = {
-            let mut state = self.core.lazy_loader.lock();
+            let mut state = self.core.lazy_loader.write();
             match state.as_mut() {
                 Some(loader) => {
                     loader.newly_loaded.clear();
@@ -397,7 +431,7 @@ impl VmContext {
     /// package's IMPL section (returns owned Vec — the registry lives behind
     /// the lazy-loader lock). Empty when no loader / no impls.
     pub fn impl_traits_for(&self, target_fq: &str) -> Vec<String> {
-        let state = self.core.lazy_loader.lock();
+        let state = self.core.lazy_loader.write();
         match state.as_ref() {
             Some(loader) => loader.impl_traits_for(target_fq).to_vec(),
             None => Vec::new(),
@@ -418,7 +452,7 @@ impl VmContext {
             }
         }
         {
-            let state = self.core.lazy_loader.lock();
+            let state = self.core.lazy_loader.write();
             if let Some(loader) = state.as_ref() {
                 for name in loader.iter_type_names() {
                     set.insert(name.clone());
@@ -460,14 +494,16 @@ impl VmContext {
     /// Returns `Arc<str>` (review.md C3 Phase 1, 2026-06-03) so callers can
     /// wrap directly into `Value::Str` without a second allocation.
     pub fn try_lookup_string(&self, absolute_idx: usize) -> Option<crate::metadata::vstr::Str> {
-        let state = self.core.lazy_loader.lock();
+        // fix-lazy-lookup-contention：`LazyLoader::try_lookup_string` 只读 string_pool，
+        // 不碰任何可变状态 —— 读锁即可，多线程可并发。
+        let state = self.core.lazy_loader.read();
         let loader = state.as_ref()?;
         loader.try_lookup_string(absolute_idx)
     }
 
     /// All namespaces declared by lazy-loadable zpkgs (for static-init scan).
     pub fn declared_namespaces(&self) -> Vec<String> {
-        let state = self.core.lazy_loader.lock();
+        let state = self.core.lazy_loader.write();
         match state.as_ref() {
             Some(loader) => loader.declared_namespaces(),
             None         => Vec::new(),
