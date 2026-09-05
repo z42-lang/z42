@@ -247,6 +247,7 @@ scripts/
 │   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）
 │   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
+│   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_cleanGlob/_copyIfExists/_makeExe）
 │   └── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用）
 ├── build/              build stdlib / compiler / runtime / golden-assets + clean + 自举边界检查
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）+ build sdk / stage-toolchain
@@ -300,6 +301,23 @@ scripts/
 ```
 
 每个命令的详细 Usage 见 `xtask -h`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
+
+### 目录分层规则（scripts-batch3-layering, 2026-09-06）
+
+**依赖只有一个方向：`build/` `test/` `package/` `install/` `cli/` 各族 → `common/`。
+族与族之间不得互相调用，`common/` 更不得反调任何族。**
+
+被两个以上族用到的东西，就该上移到 `common/`——最底层的文件系统原语在
+`common/xtask_fs.z42`，路径布局在 `xtask_layout.z42`，外部工具探测在 `xtask_toolset.z42`。
+
+> ⚠️ **编译器不会拦你**：namespace 扁平（`Z42Xtask`）+ `include = ["**/*.z42"]`，
+> 任何文件都能裸名调任何文件的函数，反向依赖不会报错、只会让人读代码时在目录间打转。
+> 这条规则只能靠 review 守。此前就积了三条：`common/` 反调 `build/` 的 `_copyAll`、
+> `build/` 反调 `package/` 的 `_makeExe`、`package/` 反调 `build/` 的 `_resetDir`。
+>
+> **已知余项**：`_pkgCopyLibs`（`package/xtask_package.z42`）仍被 `build/` 的 `_buildSdk`
+> 调用。它不是纯原语（带 `<dir>/libs` 布局语义 + 报错文案 + 返回码），该去的是将来的
+> 「SDK 布局组装」共用层（与 `_stageToolchain` 同处），不是 `xtask_fs.z42`。
 
 ### 文件命名规则（scripts-batch3-naming, 2026-09-06）
 

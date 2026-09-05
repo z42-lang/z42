@@ -1,0 +1,83 @@
+// Murmur3（MurmurHash3 x86_128）对拍单测 —— 向量由 smhasher 参考实现产出（seed=0，
+// h1..h4 各按小端拼接成 32 个 hex 字符）。
+//
+// 覆盖点（这三处最容易写错，所以逐条钉死）：
+//   1. 长度 0..33 全枚举 —— 尾部 fallthrough 的 15 条分支、整块循环、块+尾混合各走一遍；
+//   2. 高位字节（UTF-8 非 ASCII）—— z42 的 byte 走 `(int)b & 0xFF` 拆包，漏掩码会出负数；
+//   3. `_rotl` 的逻辑右移语义 —— z42 无 `>>>`，靠 `& 0xFFFFFFFF` 保持非负来让 `>>` 等价。
+namespace Z42IrMurmur3Tests;
+
+using Std;
+using Std.Test;
+using Std.Encoding;
+using Z42.IR;
+using Z42.Project;   // ZpkgBuilder.SourceHashHex
+
+string _h(string text) { return Murmur3.Hash128Hex(Utf8.GetBytes(text)); }
+
+// 长度 0..33：0 个整块（0..15）、1 个整块 + 0..15 尾（16..31）、2 个整块 + 尾（32..33）。
+[Test]
+void test_murmur3_all_tail_lengths() {
+    Assert.Equal("00000000000000000000000000000000", _h(""));
+    Assert.Equal("3c9394a71bb056551bb056551bb05655", _h("a"));
+    Assert.Equal("df5184151030be251030be251030be25", _h("ab"));
+    Assert.Equal("d1c6cd75a506b0a2a506b0a2a506b0a2", _h("abc"));
+    Assert.Equal("aaccb6962ec6af452ec6af452ec6af45", _h("abcd"));
+    Assert.Equal("fb2e40c5bcc5245d7701725a7701725a", _h("abcde"));
+    Assert.Equal("0ab97ce12127afa1f9dfbea9f9dfbea9", _h("abcdef"));
+    Assert.Equal("d941b590de3a86092869774a2869774a", _h("abcdefg"));
+    Assert.Equal("3611f4ae8714b1ad92806cfa92806cfa", _h("abcdefgh"));
+    Assert.Equal("1c8c05ad6f590622107dd2147c4194dd", _h("abcdefghi"));
+    Assert.Equal("a72ed9f50e90379a2aaa92c77ff12f69", _h("abcdefghij"));
+    Assert.Equal("ddc9c8a01e111fca2df1fe8257975ebd", _h("abcdefghijk"));
+    Assert.Equal("fe038573c02482f4addfd42753e58cd2", _h("abcdefghijkl"));
+    Assert.Equal("15a23ac1eca1aedb66351cf470de2cd9", _h("abcdefghijklm"));
+    Assert.Equal("8e11ec75d71f5d60f4456f944d89d4f1", _h("abcdefghijklmn"));
+    Assert.Equal("691d6deeaed51a4a5714ce84a861a7ad", _h("abcdefghijklmno"));
+    Assert.Equal("2776d29f5612b990218bcee445ba93d1", _h("abcdefghijklmnop"));
+    Assert.Equal("d3a445046f5c51642adc6dd99d07111d", _h("abcdefghijklmnopq"));
+    Assert.Equal("aa5493a0da291d966a9e7128585841d9", _h("abcdefghijklmnopqr"));
+    Assert.Equal("281b6a4f9c45b9bfc3b77850930f2c20", _h("abcdefghijklmnopqrs"));
+    Assert.Equal("19342546a8216db62873b49e545dcb1f", _h("abcdefghijklmnopqrst"));
+    Assert.Equal("a6c0f30d6c738620e7b9590d2e088d99", _h("abcdefghijklmnopqrstu"));
+    Assert.Equal("a7d421d9095cdcea393cbba908342384", _h("abcdefghijklmnopqrstuv"));
+    Assert.Equal("c3a93d572b014949317bad7ee809158f", _h("abcdefghijklmnopqrstuvw"));
+    Assert.Equal("802381d77956833791f87149326e4801", _h("abcdefghijklmnopqrstuvwx"));
+    Assert.Equal("0ac619a5302315755a80d74adefaa842", _h("abcdefghijklmnopqrstuvwxy"));
+    Assert.Equal("1306343e662f6f666e56f6172c3de344", _h("abcdefghijklmnopqrstuvwxyz"));
+    Assert.Equal("52da2a44d6b5f8550b054853caeb2566", _h("abcdefghijklmnopqrstuvwxyz0"));
+    Assert.Equal("00c33128f66e4fe78dc0fad4039bfca3", _h("abcdefghijklmnopqrstuvwxyz01"));
+    Assert.Equal("62bfc4c80a9a03631df251a678b78449", _h("abcdefghijklmnopqrstuvwxyz012"));
+    Assert.Equal("378a1860eb0779dc4a940c81382b41b7", _h("abcdefghijklmnopqrstuvwxyz0123"));
+    Assert.Equal("534e35101b0fd7451bf7c6132a2630b1", _h("abcdefghijklmnopqrstuvwxyz01234"));
+    Assert.Equal("5230abdbdfe574d0eaad2e7f427f40c5", _h("abcdefghijklmnopqrstuvwxyz012345"));
+    Assert.Equal("8597c45e0596b07a403cd0ff6bb3c02e", _h("abcdefghijklmnopqrstuvwxyz0123456"));
+}
+
+// 高位字节（UTF-8）：_rd32 / _put32 的 `& 0xFF` 掩码，以及 fmix 的移位在带高位时仍是逻辑右移。
+[Test]
+void test_murmur3_high_bit_bytes() {
+    Assert.Equal("813c01b29cc6cee69cc6cee69cc6cee6", _h("é"));                    // 2 字节
+    Assert.Equal("cc9ac9270e14377ce54dd703e54dd703", _h("中文"));                  // 6 字节
+    Assert.Equal("1900bc092422956842aa894dc392a0cd", _h("héllo 世界 😀"));         // 18 字节
+    Assert.Equal("486f98a867ce1eb560ffa27ef549591c", _h("中文中文中文中文中文"));    // 30 字节
+}
+
+// 长输入（多整块）+ 摘要形态：32 个小写 hex，且雪崩（1 比特翻转 → 完全不同）。
+[Test]
+void test_murmur3_long_input_and_shape() {
+    string a = "The quick brown fox jumps over the lazy dog";
+    string b = "The quick brown fox jumps over the lazy dof";   // 末字节差 1 比特
+    Assert.Equal("c383152f672ceeec6cf67b5d2c1de9e5", _h(a));
+    Assert.Equal(32, _h(a).Length);
+    Assert.True(_h(a) != _h(b));
+}
+
+// `ZpkgBuilder.SourceHashHex` —— zpkg MODS 里源变更检测字段的最终形态：`"mmh3:"` + 32 hex。
+// 前缀本身是失效开关：与 2026-09-06 前的 `"sha256:"` 天然不等 ⇒ 混版本缓存一次全量重编。
+[Test]
+void test_source_hash_hex_form() {
+    Assert.Equal("mmh3:d1c6cd75a506b0a2a506b0a2a506b0a2", ZpkgBuilder.SourceHashHex("abc"));
+    Assert.True(ZpkgBuilder.SourceHashHex("abc").StartsWith("mmh3:"));
+    Assert.True(ZpkgBuilder.SourceHashHex("abc") != ZpkgBuilder.SourceHashHex("abd"));
+}

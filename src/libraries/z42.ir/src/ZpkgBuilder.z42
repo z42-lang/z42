@@ -206,7 +206,20 @@ public static class ZpkgBuilder {
         return ns + "." + export;
     }
 
-    // 源文本哈希（真 C# CLI 字节实测："sha256:" 前缀 + 小写 hex；fixture 的大写无前缀是测试合成形态）。
+    // 源文本哈希（增量变更检测）：MurmurHash3 x86_128，`"mmh3:"` 前缀。
+    //
+    // 非密码学是**有意的** —— 这个值只做相等性比较（「这个文件变了没有，要不要重编」），
+    // 不参与任何信任决策；Rust 侧的 `formats.rs` 只把它当不透明字段存取、从不重算或校验。
+    // 而解释执行的 SHA-256 很贵（800 KB 输入 6.38 G 指令 vs 本实现 0.41 G）。
+    //
+    // 前缀与旧 `"sha256:"` 天然不等 ⇒ 混版本产物一次全量重编，正是想要的失效语义。
+    // 需要密码学强度时用下面的 `Sha256Hex` / `Std.Crypto`，别用这个。
+    public static string SourceHashHex(string text) {
+        return "mmh3:" + Murmur3.Hash128Hex(Utf8.GetBytes(text));
+    }
+
+    // SHA-256 十六进制（"sha256:" 前缀 + 小写 hex，真 C# CLI 字节实测形态）。
+    // 源变更检测已切到上面的 `SourceHashHex`；此入口留给需要密码学强度的调用方。
     public static string Sha256Hex(string text) {
         byte[] hash = Sha256.Hash(Utf8.GetBytes(text));
         string digits = "0123456789abcdef";

@@ -2,11 +2,10 @@
 // 段序铁律：META → STRS → NSPC → EXPT → DEPS → SIGS → MODS；intern 序 1:1 C#
 // （zpkg 元串[namespaces→exports→deps] → 逐模块[ns→src→hash→InternPoolStrings]）。
 // strip-symbols（split-debug，port-z42c-strip-symbols）：release 时主 zpkg MODS dbug_len=0
-// + 末尾 BLID（BLAKE3-128 build_id）+ 配套 .zsym sidecar（META+STRS(symPool)+MDBG+BLID）。
+// + 末尾 BLID（MurmurHash3 x86_128 build_id）+ 配套 .zsym sidecar（META+STRS(symPool)+MDBG+BLID）。
 // 延后：indexed/FILE。
 namespace Z42.Project;
 
-using Std.Crypto;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 
@@ -67,8 +66,11 @@ public static class ZpkgWriterZ {
         while (i < n) { stags[i] = s.Tags[i]; sdatas[i] = s.Datas[i]; i = i + 1; }
         stags[n] = "BLID"; sdatas[n] = ZpkgWriterZ._zeros(16);
         byte[] mainBytes = ZpkgWriterZ._assemble(stags, sdatas, n + 1, s.Flags).ToBytes();
-        // build_id = BLAKE3-128 over 主字节（末尾 16B BLID 占位为零，等价 C# BuildId.Compute）。
-        byte[] buildId = Blake3.HashLen(mainBytes, 16);
+        // build_id = MurmurHash3 x86_128 over 主字节（末尾 16B BLID 占位为零）。
+        // 非密码学 —— build_id 只做「zpkg ↔ zsym 配对识别」，不参与信任决策，Rust 侧只读取
+        // 两个值比相等、从不重算（`metadata::build_id::compute` 全 runtime 无调用点）。解释执行
+        // 的 BLAKE3 在这条路径上占编译负载约 6.7%，换掉后近乎归零（见 Murmur3.z42 头注）。
+        byte[] buildId = Murmur3.Hash128(mainBytes);
         int k = 0;
         while (k < 16) { mainBytes[mainBytes.Length - 16 + k] = buildId[k]; k = k + 1; }
         // ── sidecar（META + STRS(symPool) + MDBG + BLID）──

@@ -180,7 +180,7 @@ Packed mode 的核心优化：所有模块共享同一 STRS pool，跨模块重�
 
 #### BLID — Build ID（仅 sym-only sidecar）
 
-16 字节 BLAKE3-128 hash of main zpkg bytes（BLID 写入时该字段先归零参与哈希，回填）。主 zpkg + sidecar 通过 BLID 配对。
+16 字节 MurmurHash3 x86_128 hash of main zpkg bytes（BLID 写入时该字段先归零参与哈希，回填）。主 zpkg + sidecar 通过 BLID 配对。（2026-09-06 前为 BLAKE3-128，见 [book zpkg-format BLID](../../book/src/compiler/zpkg-format.md)。）
 
 ## Packed vs Indexed mode
 

@@ -30,7 +30,7 @@ void _writeEntry(string cacheDir, string rel, string text) {
     if (parent.Length > 0) { Directory.Create(parent); }
     File.WriteAllBytes(zbcPath, ZbcWriter.Write(cm.Module).ToBytes());
     CacheMeta m = new CacheMeta(rel);
-    m.SourceHash = ZpkgBuilder.Sha256Hex(text);
+    m.SourceHash = ZpkgBuilder.SourceHashHex(text);
     m.Namespace = "T";
     CacheStore.Save(cacheDir, m);
 }
@@ -53,7 +53,7 @@ IncrFilePlan _probe(string proj, string textA, string textB) {
     srcs[0] = Path.Join(proj, "a.z42");
     srcs[1] = Path.Join(proj, "b.z42");
     string[] hashes = new string[2];
-    hashes[0] = ZpkgBuilder.Sha256Hex(textA); hashes[1] = ZpkgBuilder.Sha256Hex(textB);
+    hashes[0] = ZpkgBuilder.SourceHashHex(textA); hashes[1] = ZpkgBuilder.SourceHashHex(textB);
     return IncrementalBuild.ProbeFiles(srcs, hashes, 2, proj, Path.Join(proj, "cache"));
 }
 
@@ -144,7 +144,7 @@ void test_close_no_edge_keeps_cached() {
 
 CacheMeta _meta() {
     CacheMeta m = new CacheMeta("sub/a.z42");
-    m.SourceHash = ZpkgBuilder.Sha256Hex(_src());
+    m.SourceHash = ZpkgBuilder.SourceHashHex(_src());
     m.Namespace = "T";
     m.UsedDepNs = new string[2]; m.UsedDepNs[0] = "Std"; m.UsedDepNs[1] = "Std.IO";
     m.UsedDepNsCount = 2;
@@ -165,7 +165,7 @@ void test_cache_meta_roundtrip() {
     File.WriteAllBytes(CacheStore.ZbcPath(dir, "sub/a.z42"), new byte[1]);   // 条目 = zbc+meta 成对
     CacheMeta m = CacheStore.Load(dir, "sub/a.z42");
     Assert.True(m != null);
-    Assert.Equal(ZpkgBuilder.Sha256Hex(_src()), m.SourceHash);
+    Assert.Equal(ZpkgBuilder.SourceHashHex(_src()), m.SourceHash);
     Assert.Equal("T", m.Namespace);
     Assert.Equal(2, m.UsedDepNsCount);
     Assert.Equal("Std.IO", m.UsedDepNs[1]);
@@ -236,7 +236,7 @@ void test_read_source_hashes() {
     while (e < cm.Module.FuncCount) { exports[e] = cm.Module.Functions[e].Name; e = e + 1; }
     string ns = cm.Namespace == "" ? "main" : cm.Namespace;
     ZbcFileZ[] mods = new ZbcFileZ[1];
-    mods[0] = new ZbcFileZ("t.z42", ZpkgBuilder.Sha256Hex(_src()), ns, exports, cm.Module.FuncCount, cm.Module);
+    mods[0] = new ZbcFileZ("t.z42", ZpkgBuilder.SourceHashHex(_src()), ns, exports, cm.Module.FuncCount, cm.Module);
     ZpkgFileZ z = ZpkgBuilder.BuildPackedD("incrpkg", "0.1.0", false, false, "", mods, 1, new ZpkgDepZ[0], 0);
     ExportedModuleZ[] ex = new ExportedModuleZ[1];
     ex[0] = IrDump.ExtractExports(_src(), "t.z42", ns);
@@ -248,7 +248,7 @@ void test_read_source_hashes() {
     Assert.Equal(1, hs.Length);
     Assert.Equal("t.z42", hs[0].SourceFile);
     Assert.Equal("T", hs[0].Namespace);
-    Assert.Equal(ZpkgBuilder.Sha256Hex(_src()), hs[0].SourceHash);
+    Assert.Equal(ZpkgBuilder.SourceHashHex(_src()), hs[0].SourceHash);
 }
 
 // ── indexed 主文件写→读往返（add-indexed-zpkg-min-patch）────────────────────
@@ -259,7 +259,7 @@ void test_indexed_main_roundtrip() {
     string[] exports = new string[cm.Module.FuncCount];
     int e = 0;
     while (e < cm.Module.FuncCount) { exports[e] = cm.Module.Functions[e].Name; e = e + 1; }
-    ZbcFileZ f = new ZbcFileZ("t.z42", ZpkgBuilder.Sha256Hex(_src()), "T",
+    ZbcFileZ f = new ZbcFileZ("t.z42", ZpkgBuilder.SourceHashHex(_src()), "T",
                               exports, cm.Module.FuncCount, cm.Module);
     ZbcFileZ[] mods = new ZbcFileZ[1];
     mods[0] = f;

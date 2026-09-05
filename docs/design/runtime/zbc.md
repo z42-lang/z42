@@ -363,10 +363,10 @@ strs:   str_count × { varint seg_n, seg_n × varint seg_idx }   每串 = 段索
 ### BLID（Build ID；1.2 split-debug-symbols；可选；总是最后一个 section）
 
 ```
-[16] BLAKE3-128(zbc with BLID payload zeroed)
+[16] MurmurHash3-x86-128(zbc with BLID payload zeroed)
 ```
 
-写入时机：strip 模式产 zbc 时追加 BLID section 为最后一个，初始 16 字节占位 0，AssembleFile 完成后回填 BLAKE3-128。sidecar 共享相同字节，runtime 据此配对。
+写入时机：strip 模式产 zbc 时追加 BLID section 为最后一个，初始 16 字节占位 0，AssembleFile 完成后回填 MurmurHash3 x86_128（2026-09-06 前为 BLAKE3-128；非密码学用途、runtime 只比相等不重算，理由见 [book zpkg-format BLID](../../book/src/compiler/zpkg-format.md)）。sidecar 共享相同字节，runtime 据此配对。
 
 ### sidecar zbc（`.zsym`）
 

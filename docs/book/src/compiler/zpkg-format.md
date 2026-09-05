@@ -79,6 +79,12 @@ tidx_len  u32 + tidx 体      （无测试则 0）
 
 五个 `len + 体` 即各模块内嵌的 zbc section 字节，用同一套 `ZbcWriter` 构建器产出，但共享 zpkg 全局字符串池（加 per-module remap 与 token 分配）。
 
+`hash` 是**源码哈希**，形如 `mmh3:<32 hex>`（`Z42.Project.ZpkgBuilder.SourceHashHex`，MurmurHash3
+x86_128）。它只服务增量构建的**变更检测**——「这个 `.z42` 与上次编译时是否一字不差」，纯相等性比较，
+不参与信任决策；Rust 侧 `formats.rs` 只把它当不透明字段存取，从不重算或校验。理由与 [BLID](#blid--build-id)
+同（解释执行下 SHA-256 需 6.38 G 指令 / 800 KB，Murmur3 只需 0.41 G）。算法前缀带在值里：`mmh3:` 与
+2026-09-06 前的 `sha256:` 天然不等 ⇒ 跨版本混用的缓存一次全量失效，正是想要的语义。
+
 ### FILE — 模块目录（仅 indexed）
 
 `u32 module_count`，每条：
@@ -113,7 +119,17 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 
 ### BLID — Build ID
 
-16 字节 BLAKE3-128。release strip 的主 packed 包先写 16 字节占位、装配后对全字节 hash 回填；sidecar 直接写同一 build id。runtime 据此把 sidecar 与主包配对。
+16 字节 **MurmurHash3 x86_128**（`Z42.IR.Murmur3.Hash128`）。release strip 的主 packed 包先写 16 字节占位、装配后对全字节 hash 回填；sidecar 直接写同一 build id。runtime 据此把 sidecar 与主包配对。
+
+> **为什么不是密码学哈希**：build_id 只做「这个 `.zsym` 配不配这个 `.zpkg`」的**配对识别**，不参与
+> 任何信任决策；runtime 只**读取两个值比相等**，从不重算（`metadata::build_id::compute` 在整个
+> runtime 里没有调用点）。而 z42c 是解释执行的，BLAKE3 在这条路径上贵得离谱——800 KB 输入实测
+> BLAKE3-128 需 6.21 G 指令，MurmurHash3 x86_128 只需 0.41 G（**15×**）。选 x86 而非 x64 变体是因为
+> z42 没有逻辑右移也没有无符号整数：x86 的 lane 是 32 位，用 `long` 承载 + `& 0xFFFFFFFF` 掩码即可
+> 保证值恒非负、`>>` 等价逻辑右移，无需模拟 64 位无符号移位。（2026-09-06 前为 BLAKE3-128。）
+>
+> **注意**：indexed 包的散装 `.zbc` 内容哈希（`FILE` 段的 `zbc_hash`）**仍是 BLAKE3-128** ——
+> 那个值 Rust 侧 `loader/artifact.rs` 会**重算校验**，是真的跨语言契约，与本节的 BLID 无关。
 
 ## Packed vs Indexed
 

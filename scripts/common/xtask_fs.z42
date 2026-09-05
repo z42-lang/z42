@@ -1,0 +1,87 @@
+// xtask — 文件系统原语（scripts-batch3-layering, 2026-09-06）。
+//
+// 这些是**不属于任何命令族**、被 common/ build/ test/ package/ 多方共用的最底层
+// 操作。此前它们散落在各命令族的实现文件里，造成三条反向依赖：
+//
+//   common/xtask_common.z42  ──_copyAll──►  build/xtask_compiler.z42   ❌ 底层反调上层
+//   build/xtask_stdlib.z42   ──_makeExe─►  package/xtask_package.z42  ❌ 平级族互调
+//   package/xtask_release.z42──_resetDir►  build/xtask_compiler.z42   ❌ 平级族互调
+//
+// 收拢到 common/ 后依赖只剩一个方向：**build / test / package / install 各族 → common/**，
+// 族与族之间不再互相 include。namespace 扁平 + 裸名互调，所以「谁定义」纯粹是可读性
+// 问题——但恰恰因为编译器不会拦，反向依赖只能靠这条约定守住。规则见 scripts/README.md
+// 「目录分层」一节。
+//
+// 刻意**没有**收进来的（判据：只有一个文件用，或语义属于某个族而非通用原语）：
+//   - `_copyIfNewer`（build/xtask_compiler.z42）—— 只在同文件用；
+//   - `_stageCopyExt`（build/xtask_stdlib.z42）—— 只在同文件用，且**故意不吞异常**
+//     （staging CI artifact，拷贝失败必须炸而非静默产出残包），与下面 best-effort 的
+//     `_copyAll` 语义相反，不能合并；
+//   - `_rmIfExists`（build/xtask_clean.z42）—— 只在同文件用；
+//   - `_pkgCopyLibs` / `_copyNativeLibs`（package/xtask_package.z42）—— 不是原语：带
+//     `<dir>/libs` `<dir>/native` 的**布局语义** + 报错文案 + 返回码。`_pkgCopyLibs`
+//     被 build/ 的 `_buildSdk` 调用，仍是一条反向依赖，但它该去的是将来的「SDK 布局
+//     组装」共用层（与 `_stageToolchain` 同处），不是本文件。**已知余项，见 README。**
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// reset 一个私有目录（删后建）。
+void _resetDir(string d) {
+    if (Directory.Exists(d)) { Directory.Delete(d, true); }
+    Directory.Create(d);
+}
+
+// COPY（非 hard-link）srcDir 下匹配文件到 dstDir。私有目录 + 拷贝避免 _linkAll
+// 的 hard-link inode 别名污染（共享目录被 rebuild 会把 per-member 源弄坏）。
+void _copyAll(string srcDir, string dstDir, string pattern) {
+    if (!Directory.Exists(srcDir)) { return; }
+    string[] hits = Path.Glob(srcDir, pattern);
+    int i = 0;
+    while (i < hits.Length) {
+        string dstPath = Path.Join(dstDir, Path.GetFileName(hits[i]));
+        // Guard self-copy: File.Copy(X, X) opens the dest for write FIRST (truncating
+        // X to 0) then reads the now-empty source → silently zeroes the file. Reachable
+        // when a caller's src and dst resolve to the same dir (e.g. _ensureSeed staging
+        // stdlib while Z42_LIBS already points at the flat dist). Skip it.
+        if (hits[i] != dstPath) {
+            try { File.Copy(hits[i], dstPath); }
+            catch (Exception e) { /* skip */ }
+        }
+        i = i + 1;
+    }
+}
+
+// Hard-link srcDir's matches into flatDir; fall back to Copy across filesystems
+// (mirrors bash `cp -l ... || cp`).
+void _linkAll(string srcDir, string flatDir, string pattern) {
+    if (!Directory.Exists(srcDir)) { return; }
+    string[] hits = Path.Glob(srcDir, pattern);
+    int i = 0;
+    while (i < hits.Length) {
+        string dst = Path.Join(flatDir, Path.GetFileName(hits[i]));
+        try { File.Link(hits[i], dst); }
+        catch (Exception e) {
+            try { File.Copy(hits[i], dst); } catch (Exception e2) { /* skip */ }
+        }
+        i = i + 1;
+    }
+}
+
+void _cleanGlob(string dir, string pattern) {
+    string[] hits = Path.Glob(dir, pattern);
+    int i = 0;
+    while (i < hits.Length) {
+        try { File.Delete(hits[i]); } catch (Exception e) { /* best-effort */ }
+        i = i + 1;
+    }
+}
+
+void _copyIfExists(string src, string dst) {
+    if (File.Exists(src)) { File.Copy(src, dst); }
+}
+
+void _makeExe(string path) {
+    if (File.Exists(path)) { File.MakeExecutable(path); }
+}
