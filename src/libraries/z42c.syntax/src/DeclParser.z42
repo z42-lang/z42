@@ -11,7 +11,7 @@ public sealed class DeclParser {
     internal Decl[] _growDecls(Decl[] a, int n) {
         if (n < a.Length) { return a; }
         Decl[] b = new Decl[a.Length * 2];
-        int i = 0; while (i < n) { b[i] = a[i]; i = i + 1; }
+        Array.Copy(a, b, n);
         return b;
     }
 
@@ -51,7 +51,7 @@ public sealed class DeclParser {
                         while (true) {
                             if (ac == args.Length) {
                                 Expr[] b = new Expr[args.Length * 2];
-                                int i = 0; while (i < ac) { b[i] = args[i]; i = i + 1; }
+                                Array.Copy(args, b, ac);
                                 args = b;
                             }
                             // 命名实参 `name: value` → AssignExpr(ident, value)（镜像 C# 属性命名参数；
@@ -73,7 +73,7 @@ public sealed class DeclParser {
                 }
                 if (n == items.Length) {
                     Attr[] b = new Attr[items.Length * 2];
-                    int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
+                    Array.Copy(items, b, n);
                     items = b;
                 }
                 items[n] = new Attr(name, args, ac, asp); items[n].TypeArg = typeArg; n = n + 1;
@@ -281,7 +281,7 @@ public sealed class DeclParser {
             }
             if (mc == members.Length) {
                 EnumMember[] b = new EnumMember[members.Length * 2];
-                int i = 0; while (i < mc) { b[i] = members[i]; i = i + 1; }
+                Array.Copy(members, b, mc);
                 members = b;
             }
             members[mc] = new EnumMember(mName, hasValue, value, msp); mc = mc + 1;
@@ -337,7 +337,7 @@ public sealed class DeclParser {
             this._p._advance();
             if (n == items.Length) {
                 TypeExpr[] b = new TypeExpr[items.Length * 2];
-                int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
+                Array.Copy(items, b, n);
                 items = b;
             }
             items[n] = this._p._typeP._parseType(); n = n + 1;

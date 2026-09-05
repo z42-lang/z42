@@ -193,8 +193,43 @@ impl ArrayObj {
     /// call instead of `n` interpreted `ArrayGet`/`ArraySet` round trips.
     /// Caller bounds-checks both ranges.
     pub fn copy_elems_from(&mut self, src: &ArrayObj, si: usize, di: usize, n: usize) {
-        for k in 0..n {
-            self.set_boxed(di + k, src.get_boxed(si + k));
+        // Fast path: two arrays with the **same** packed backing are just a `memcpy`
+        // of the element range (`copy_from_slice`). This is what makes the primitive
+        // pay off for the big `int[]` / `byte[]` buffers (ByteWriter grow + append).
+        // `Boxed` uses `clone_from_slice` — still one pass, no per-element re-dispatch.
+        macro_rules! bulk {
+            ($ty:ty, $sb:expr, $sl:expr, $db:expr, $dl:expr, $copy:ident) => {{
+                // SAFETY (both): live blocks of exactly `len` `$ty`s; ranges are
+                // caller-bounds-checked, and `src`/`self` are distinct arrays here.
+                let s = unsafe { Self::slice_of::<$ty>($sb, $sl) };
+                let d = unsafe { Self::slice_of_mut::<$ty>($db, $dl) };
+                d[di..di + n].$copy(&s[si..si + n]);
+                true
+            }};
+        }
+        let done = match (&src.backing, &mut self.backing) {
+            (ArrayBacking::Bytes { block: sb, len: sl }, ArrayBacking::Bytes { block: db, len: dl }) =>
+                bulk!(u8, sb, *sl, db, *dl, copy_from_slice),
+            (ArrayBacking::I32 { block: sb, len: sl }, ArrayBacking::I32 { block: db, len: dl }) =>
+                bulk!(i32, sb, *sl, db, *dl, copy_from_slice),
+            (ArrayBacking::I64 { block: sb, len: sl }, ArrayBacking::I64 { block: db, len: dl }) =>
+                bulk!(i64, sb, *sl, db, *dl, copy_from_slice),
+            (ArrayBacking::Chars { block: sb, len: sl }, ArrayBacking::Chars { block: db, len: dl }) =>
+                bulk!(char, sb, *sl, db, *dl, copy_from_slice),
+            (ArrayBacking::F64 { block: sb, len: sl }, ArrayBacking::F64 { block: db, len: dl }) =>
+                bulk!(f64, sb, *sl, db, *dl, copy_from_slice),
+            (ArrayBacking::Bool { block: sb, len: sl }, ArrayBacking::Bool { block: db, len: dl }) =>
+                bulk!(bool, sb, *sl, db, *dl, copy_from_slice),
+            (ArrayBacking::Boxed { block: sb, len: sl }, ArrayBacking::Boxed { block: db, len: dl }) =>
+                bulk!(Value, sb, *sl, db, *dl, clone_from_slice),
+            _ => false,
+        };
+        // Mixed / struct / stack backings: element-wise, so every conversion stays
+        // exactly what the single-element path defines.
+        if !done {
+            for k in 0..n {
+                self.set_boxed(di + k, src.get_boxed(si + k));
+            }
         }
     }
 
@@ -202,15 +237,41 @@ impl ArrayObj {
     /// destination range starts above the source range, so overlapping moves do not
     /// clobber elements they have yet to read. `di == si` is a no-op.
     pub fn copy_elems_within(&mut self, si: usize, di: usize, n: usize) {
-        if di > si {
-            for k in (0..n).rev() {
-                let v = self.get_boxed(si + k);
-                self.set_boxed(di + k, v);
-            }
-        } else if di < si {
-            for k in 0..n {
-                let v = self.get_boxed(si + k);
-                self.set_boxed(di + k, v);
+        if di == si || n == 0 {
+            return;
+        }
+        // Packed backings: `slice::copy_within` is a `memmove` and already handles
+        // overlap in both directions.
+        macro_rules! within {
+            ($ty:ty, $b:expr, $l:expr) => {{
+                // SAFETY: live block of exactly `len` `$ty`s; range caller-checked.
+                let d = unsafe { Self::slice_of_mut::<$ty>($b, $l) };
+                d.copy_within(si..si + n, di);
+                true
+            }};
+        }
+        let done = match &mut self.backing {
+            ArrayBacking::Bytes { block, len } => within!(u8, block, *len),
+            ArrayBacking::I32 { block, len } => within!(i32, block, *len),
+            ArrayBacking::I64 { block, len } => within!(i64, block, *len),
+            ArrayBacking::Chars { block, len } => within!(char, block, *len),
+            ArrayBacking::F64 { block, len } => within!(f64, block, *len),
+            ArrayBacking::Bool { block, len } => within!(bool, block, *len),
+            _ => false,
+        };
+        // `Value` is not `Copy`, so the boxed/struct backings walk the range in the
+        // direction that does not clobber elements it has yet to read.
+        if !done {
+            if di > si {
+                for k in (0..n).rev() {
+                    let v = self.get_boxed(si + k);
+                    self.set_boxed(di + k, v);
+                }
+            } else {
+                for k in 0..n {
+                    let v = self.get_boxed(si + k);
+                    self.set_boxed(di + k, v);
+                }
             }
         }
     }

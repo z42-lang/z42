@@ -74,11 +74,7 @@ public class SortedSet<T> : IBasicCollection<T> where T: IComparable<T> + IEquat
 
     public T[] ToArray() {
         T[] result = new T[this.count];
-        int i = 0;
-        while (i < this.count) {
-            result[i] = this.items[i];
-            i = i + 1;
-        }
+        Array.Copy(this.items, result, this.count);
         return result;
     }
 
@@ -105,11 +101,7 @@ public class SortedSet<T> : IBasicCollection<T> where T: IComparable<T> + IEquat
     public void Grow() {
         int newCap = this.capacity * 2;
         T[] bigger = new T[newCap];
-        int i = 0;
-        while (i < this.count) {
-            bigger[i] = this.items[i];
-            i = i + 1;
-        }
+        Array.Copy(this.items, bigger, this.count);
         this.items = bigger;
         this.capacity = newCap;
     }
