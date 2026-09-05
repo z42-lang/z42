@@ -21,7 +21,14 @@ public sealed class LoopCfg {
     public int[]  S0;        // 后继 0（-1=无）
     public int[]  S1;        // 后继 1（-1=无）
     public bool[] PredMat;   // predMat[b*N+p] = p 是 b 的前驱
-    public bool[] Dom;       // dom[b*N+x] = x 支配 b
+    // 支配集位图：x 支配 b ⟺ `(Dom[b*DW + (x>>4)] & (1 << (x & 15))) != 0`。
+    // 原来是 bool[N*N]，改成每 **16** 个块一个 int —— 交集/写回的内层循环宽度 /16，分配量同理。
+    // ⚠ 为什么是 16 而不是 32：z42 的整数运算在运行时走 i64（`1 << 31` = 2147483648），
+    // 但 `int[]` 是 packed **i32** 存储 —— 存进去再读回来是 -2147483648。32 位/字会让第 31 位
+    // 存读不一致，迭代不动点永不收敛（实测挂死）。16 位/字让所有字值恒在 [0, 65535]，
+    // 不碰符号位，存读逐位相等。点查询只有 4 处（Headers ×2、LoopBody ×1、IrLicm ×1）。
+    public int[]  Dom;
+    public int    DW;        // = (N + 15) / 16，Dom 的行宽（字数）
 }
 
 public sealed class IrLoopUtil {
@@ -58,9 +65,10 @@ public sealed class IrLoopUtil {
             b = b + 1;
         }
         // ② 支配
-        bool[] dom = IrLoopUtil._computeDom(n, predMat);
+        int dw = (n + 15) / 16;
+        int[] dom = IrLoopUtil._computeDom(n, dw, predMat);
         LoopCfg cfg = new LoopCfg();
-        cfg.N = n; cfg.S0 = s0; cfg.S1 = s1; cfg.PredMat = predMat; cfg.Dom = dom;
+        cfg.N = n; cfg.S0 = s0; cfg.S1 = s1; cfg.PredMat = predMat; cfg.Dom = dom; cfg.DW = dw;
         return cfg;
     }
 
@@ -70,8 +78,8 @@ public sealed class IrLoopUtil {
         bool[] isHeader = new bool[n];
         int b = 0;
         while (b < n) {
-            if (cfg.S0[b] >= 0 && cfg.S0[b] < n && cfg.Dom[b * n + cfg.S0[b]]) { isHeader[cfg.S0[b]] = true; }
-            if (cfg.S1[b] >= 0 && cfg.S1[b] < n && cfg.Dom[b * n + cfg.S1[b]]) { isHeader[cfg.S1[b]] = true; }
+            if (cfg.S0[b] >= 0 && cfg.S0[b] < n && IrLoopUtil.DomHas(cfg, b, cfg.S0[b])) { isHeader[cfg.S0[b]] = true; }
+            if (cfg.S1[b] >= 0 && cfg.S1[b] < n && IrLoopUtil.DomHas(cfg, b, cfg.S1[b])) { isHeader[cfg.S1[b]] = true; }
             b = b + 1;
         }
         return isHeader;
@@ -86,7 +94,7 @@ public sealed class IrLoopUtil {
         int top = 0;
         int b = 0;
         while (b < n) {
-            if ((cfg.S0[b] == h || cfg.S1[b] == h) && cfg.Dom[b * n + h] && b != h && !inLoop[b]) {
+            if ((cfg.S0[b] == h || cfg.S1[b] == h) && IrLoopUtil.DomHas(cfg, b, h) && b != h && !inLoop[b]) {
                 inLoop[b] = true; stack[top] = b; top = top + 1;
             }
             b = b + 1;
@@ -131,15 +139,20 @@ public sealed class IrLoopUtil {
         return -1;
     }
 
-    // ② 支配：dom[b*n+x] = x 支配 b。迭代 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=0。
+    // 支配位图点查询：x 是否支配 b。
+    public static bool DomHas(LoopCfg cfg, int b, int x) {
+        return (cfg.Dom[b * cfg.DW + (x >> 4)] & (1 << (x & 15))) != 0;
+    }
+
+    // ② 支配：位图，x 支配 b ⟺ Dom 里对应位为 1。迭代 `dom[b] = {b} ∪ (∩ dom[preds])`，entry=0。
     // 不动点结果与前驱访问序无关（交是可交换可结合的），故建表/换序不改变输出。
-    private static bool[] _computeDom(int n, bool[] predMat) {
-        bool[] dom = new bool[n * n];
-        dom[0] = true;
+    private static int[] _computeDom(int n, int dw, bool[] predMat) {
+        int[] dom = new int[n * dw];
+        dom[0] = 1;                       // entry 只被自己支配
         int b = 1;
         while (b < n) {
             int x = 0;
-            while (x < n) { dom[b * n + x] = true; x = x + 1; }
+            while (x < dw) { dom[b * dw + x] = 65535; x = x + 1; }   // 其余先取全集（尾字的填充位永不被查询）
             b = b + 1;
         }
         // 前驱邻接表（CSR）：稠密 predMat 每轮每块都要 O(n) 扫一遍才知道谁是前驱，而多数块
@@ -161,7 +174,7 @@ public sealed class IrLoopUtil {
             while (p < n) { if (predMat[b * n + p]) { preds[w] = p; w = w + 1; } p = p + 1; }
             b = b + 1;
         }
-        bool[] inter = new bool[n];   // 提到迭代外复用：原来每块每轮 new 一个 bool[n]
+        int[] inter = new int[dw];   // 提到迭代外复用：原来每块每轮 new 一个数组
         bool changed = true;
         while (changed) {
             changed = false;
@@ -171,19 +184,19 @@ public sealed class IrLoopUtil {
                 int hi = predOff[b + 1];
                 if (lo < hi) {
                     int y = 0;
-                    int o = preds[lo] * n;
-                    while (y < n) { inter[y] = dom[o + y]; y = y + 1; }   // 首个前驱直接拷贝（取代「全填 true 再与」）
+                    int o = preds[lo] * dw;
+                    while (y < dw) { inter[y] = dom[o + y]; y = y + 1; }   // 首个前驱直接拷贝（取代「全填 true 再与」）
                     int k = lo + 1;
                     while (k < hi) {
-                        o = preds[k] * n;
+                        o = preds[k] * dw;
                         y = 0;
-                        while (y < n) { inter[y] = inter[y] && dom[o + y]; y = y + 1; }
+                        while (y < dw) { inter[y] = inter[y] & dom[o + y]; y = y + 1; }
                         k = k + 1;
                     }
-                    inter[b] = true;
-                    o = b * n;
+                    inter[b >> 4] = inter[b >> 4] | (1 << (b & 15));   // {b} ∪ ...
+                    o = b * dw;
                     y = 0;
-                    while (y < n) {
+                    while (y < dw) {
                         if (dom[o + y] != inter[y]) { dom[o + y] = inter[y]; changed = true; }
                         y = y + 1;
                     }
