@@ -26,7 +26,7 @@ public sealed class TypeParser {
                     else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected type-param name", this._p._peek().Span); this._p._advance(); }
                     if (n == names.Length) {
                         string[] b = new string[names.Length * 2];
-                        int i = 0; while (i < n) { b[i] = names[i]; i = i + 1; }
+                        Array.Copy(names, b, n);
                         names = b;
                     }
                     names[n] = nm; n = n + 1;
@@ -56,14 +56,14 @@ public sealed class TypeParser {
                 this._p._advance();
                 if (cn == cons.Length) {
                     WhereConstraint[] b = new WhereConstraint[cons.Length * 2];
-                    int i = 0; while (i < cn) { b[i] = cons[i]; i = i + 1; }
+                    Array.Copy(cons, b, cn);
                     cons = b;
                 }
                 cons[cn] = this._parseConstraint(); cn = cn + 1;
             }
             if (n == items.Length) {
                 WhereClause[] b = new WhereClause[items.Length * 2];
-                int i = 0; while (i < n) { b[i] = items[i]; i = i + 1; }
+                Array.Copy(items, b, n);
                 items = b;
             }
             items[n] = new WhereClause(tp, cons, cn, wsp); n = n + 1;
@@ -105,7 +105,7 @@ public sealed class TypeParser {
                 while (true) {
                     if (ac == args.Length) {
                         TypeExpr[] b = new TypeExpr[args.Length * 2];
-                        int i = 0; while (i < ac) { b[i] = args[i]; i = i + 1; }
+                        Array.Copy(args, b, ac);
                         args = b;
                     }
                     args[ac] = this._parseType(); ac = ac + 1;
@@ -139,7 +139,7 @@ public sealed class TypeParser {
             while (true) {
                 if (pc == ps.Length) {
                     TypeExpr[] b = new TypeExpr[ps.Length * 2];
-                    int i = 0; while (i < pc) { b[i] = ps[i]; i = i + 1; }
+                    Array.Copy(ps, b, pc);
                     ps = b;
                 }
                 ps[pc] = this._parseType(); pc = pc + 1;
@@ -157,7 +157,7 @@ public sealed class TypeParser {
             // 元组类型 → 合成 ValueTupleN 泛型实例化（z42.core prelude 恒加载，短名恒可解析；
             // FQ `Std.ValueTupleN` 反而不经 using 解析，故用短名）。后端沿用泛型 struct record 机制。
             TypeExpr[] elems = new TypeExpr[pc];
-            int i = 0; while (i < pc) { elems[i] = ps[i]; i = i + 1; }
+            Array.Copy(ps, elems, pc);
             return new NamedType("ValueTuple" + pc.ToString(), elems, pc, sp);
         }
         if (pc == 1) { return ps[0]; }   // 括号分组类型 `(T)` = T
@@ -186,7 +186,7 @@ public sealed class TypeParser {
             if (sk != TokenKind.Identifier && !this._p._isTypeKeyword(sk) && sk != TokenKind.LParen) { return null; }
             if (ac == args.Length) {
                 TypeExpr[] b = new TypeExpr[args.Length * 2];
-                int i = 0; while (i < ac) { b[i] = args[i]; i = i + 1; }
+                Array.Copy(args, b, ac);
                 args = b;
             }
             args[ac] = this._parseType(); ac = ac + 1;
@@ -195,7 +195,7 @@ public sealed class TypeParser {
         }
         if (!this._tryCloseTypeArgs()) { return null; }      // 未整齐闭合 → 非泛型调用
         TypeExpr[] outp = new TypeExpr[ac];
-        int j = 0; while (j < ac) { outp[j] = args[j]; j = j + 1; }
+        Array.Copy(args, outp, ac);
         return outp;
     }
 

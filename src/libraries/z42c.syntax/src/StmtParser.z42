@@ -83,14 +83,14 @@ public sealed class StmtParser {
                 && this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
                 if (bc == body.Length) {
                     Stmt[] b = new Stmt[body.Length * 2];
-                    int i = 0; while (i < bc) { b[i] = body[i]; i = i + 1; }
+                    Array.Copy(body, b, bc);
                     body = b;
                 }
                 body[bc] = this._p.ParseStatement(); bc = bc + 1;
             }
             if (cc == cases.Length) {
                 SwitchCase[] bigger = new SwitchCase[cases.Length * 2];
-                int i = 0; while (i < cc) { bigger[i] = cases[i]; i = i + 1; }
+                Array.Copy(cases, bigger, cc);
                 cases = bigger;
             }
             cases[cc] = new SwitchCase(hasPattern, pattern, guard, body, bc, csp); cc = cc + 1;
@@ -125,7 +125,7 @@ public sealed class StmtParser {
             Stmt cbody = this._parseBlock();
             if (cc == catches.Length) {
                 CatchClause[] bigger = new CatchClause[catches.Length * 2];
-                int i = 0; while (i < cc) { bigger[i] = catches[i]; i = i + 1; }
+                Array.Copy(catches, bigger, cc);
                 catches = bigger;
             }
             catches[cc] = new CatchClause(hasType, exType, hasVar, varName, cbody, ksp); cc = cc + 1;
@@ -150,7 +150,7 @@ public sealed class StmtParser {
             }
             if (n == stmts.Length) {
                 Stmt[] bigger = new Stmt[stmts.Length * 2];
-                int i = 0; while (i < n) { bigger[i] = stmts[i]; i = i + 1; }
+                Array.Copy(stmts, bigger, n);
                 stmts = bigger;
             }
             stmts[n] = this._p.ParseStatement(); n = n + 1;

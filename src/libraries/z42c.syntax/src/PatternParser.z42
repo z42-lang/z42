@@ -32,7 +32,7 @@ public sealed class PatternParser {
             this._p._advance();
             if (ac == alts.Length) {
                 Pattern[] big = new Pattern[alts.Length * 2];
-                int i = 0; while (i < ac) { big[i] = alts[i]; i = i + 1; }
+                Array.Copy(alts, big, ac);
                 alts = big;
             }
             alts[ac] = this._parsePrimaryPattern(); ac = ac + 1;
@@ -122,7 +122,7 @@ public sealed class PatternParser {
         while (this._p._peek().Kind != TokenKind.RParen && this._p._peek().Kind != TokenKind.Eof) {
             if (ec == elems.Length) {
                 Pattern[] big = new Pattern[elems.Length * 2];
-                int i = 0; while (i < ec) { big[i] = elems[i]; i = i + 1; }
+                Array.Copy(elems, big, ec);
                 elems = big;
             }
             elems[ec] = this._parsePattern(); ec = ec + 1;
@@ -142,7 +142,7 @@ public sealed class PatternParser {
         while (this._p._peek().Kind != TokenKind.RParen && this._p._peek().Kind != TokenKind.Eof) {
             if (ec == elems.Length) {
                 Pattern[] big = new Pattern[elems.Length * 2];
-                int i = 0; while (i < ec) { big[i] = elems[i]; i = i + 1; }
+                Array.Copy(elems, big, ec);
                 elems = big;
             }
             elems[ec] = this._parsePattern(); ec = ec + 1;
@@ -162,7 +162,7 @@ public sealed class PatternParser {
             if (fc == names.Length) {
                 string[]  bn = new string[names.Length * 2];
                 Pattern[] bp = new Pattern[pats.Length * 2];
-                int i = 0; while (i < fc) { bn[i] = names[i]; bp[i] = pats[i]; i = i + 1; }
+                Array.Copy(names, bn, fc); Array.Copy(pats, bp, fc);
                 names = bn; pats = bp;
             }
             string fname = this._p._peek().Text;

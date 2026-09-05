@@ -276,7 +276,7 @@ public sealed class MemberParser {
                 else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected parameter name", this._p._peek().Span); }
                 if (pc == ps.Length) {
                     Param[] b = new Param[ps.Length * 2];
-                    int i = 0; while (i < pc) { b[i] = ps[i]; i = i + 1; }
+                    Array.Copy(ps, b, pc);
                     ps = b;
                 }
                 Param prm = new Param(pt, pn, pt.Span);
@@ -347,7 +347,7 @@ public sealed class MemberParser {
                     while (true) {
                         if (ban == ba.Length) {
                             Expr[] bg = new Expr[ba.Length * 2];
-                            int bi = 0; while (bi < ban) { bg[bi] = ba[bi]; bi = bi + 1; }
+                            Array.Copy(ba, bg, ban);
                             ba = bg;
                         }
                         ba[ban] = this._p._exprP._parseExpr(0); ban = ban + 1;

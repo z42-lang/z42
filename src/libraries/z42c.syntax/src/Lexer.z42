@@ -414,8 +414,7 @@ public sealed class Lexer {
     private void _growToks() {
         int n = this._toks.Length * 2;
         Token[] bigger = new Token[n];
-        int i = 0;
-        while (i < this._tokCount) { bigger[i] = this._toks[i]; i = i + 1; }
+        Array.Copy(this._toks, bigger, this._tokCount);
         this._toks = bigger;
     }
 

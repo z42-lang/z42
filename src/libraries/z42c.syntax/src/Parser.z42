@@ -76,7 +76,7 @@ public sealed class Parser {
         if (this._supOpenCount == this._supOpenIds.Length) {
             int cap = this._supOpenIds.Length * 2; if (cap == 0) { cap = 4; }
             string[] ni = new string[cap]; int[] nst = new int[cap];
-            int i = 0; while (i < this._supOpenCount) { ni[i] = this._supOpenIds[i]; nst[i] = this._supOpenStarts[i]; i = i + 1; }
+            Array.Copy(this._supOpenIds, ni, this._supOpenCount); Array.Copy(this._supOpenStarts, nst, this._supOpenCount);
             this._supOpenIds = ni; this._supOpenStarts = nst;
         }
         this._supOpenIds[this._supOpenCount] = id;
@@ -120,7 +120,7 @@ public sealed class Parser {
         if (this._supCount == this._supRegions.Length) {
             int cap = this._supRegions.Length * 2; if (cap == 0) { cap = 4; }
             SuppressRegion[] nr = new SuppressRegion[cap];
-            int i = 0; while (i < this._supCount) { nr[i] = this._supRegions[i]; i = i + 1; }
+            Array.Copy(this._supRegions, nr, this._supCount);
             this._supRegions = nr;
         }
         this._supRegions[this._supCount] = new SuppressRegion(id, start, end);

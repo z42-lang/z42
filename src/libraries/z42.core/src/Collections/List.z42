@@ -78,11 +78,7 @@ public partial class List<T> {
         int newCap = this.capacity * 2;
         if (newCap < min) newCap = min;
         T[] bigger = new T[newCap];
-        int i = 0;
-        while (i < this.Count) {
-            bigger[i] = this.items[i];
-            i = i + 1;
-        }
+        Array.Copy(this.items, bigger, this.Count);
         this.items = bigger;
         this.capacity = newCap;
     }
@@ -90,31 +86,19 @@ public partial class List<T> {
     // Snapshot copy of the list's elements (a fresh array, safe to mutate).
     public T[] ToArray() {
         T[] result = new T[this.Count];
-        int i = 0;
-        while (i < this.Count) {
-            result[i] = this.items[i];
-            i = i + 1;
-        }
+        Array.Copy(this.items, result, this.Count);
         return result;
     }
 
     public void Insert(int index, T item) {
         if (this.Count == this.capacity) this.Grow();
-        int i = this.Count;
-        while (i > index) {
-            this.items[i] = this.items[i - 1];
-            i = i - 1;
-        }
+        Array.Copy(this.items, index, this.items, index + 1, this.Count - index);
         this.items[index] = item;
         this.Count = this.Count + 1;
     }
 
     public void RemoveAt(int index) {
-        int i = index;
-        while (i < this.Count - 1) {
-            this.items[i] = this.items[i + 1];
-            i = i + 1;
-        }
+        Array.Copy(this.items, index + 1, this.items, index, this.Count - index - 1);
         this.Count = this.Count - 1;
         this.items[this.Count] = default(T);   // perf-stdlib-hot-paths：清尾槽引用（镜像 C# List.RemoveAt）
     }
@@ -233,11 +217,7 @@ public partial class List<T> {
     public void Grow() {
         int newCap = this.capacity * 2;
         T[] bigger = new T[newCap];
-        int i = 0;
-        while (i < this.Count) {
-            bigger[i] = this.items[i];
-            i = i + 1;
-        }
+        Array.Copy(this.items, bigger, this.Count);
         this.items = bigger;
         this.capacity = newCap;
     }
