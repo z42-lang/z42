@@ -147,57 +147,81 @@ jobs:
           rid: linux-x64
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Verdict-logic self-check (move-bench-into-tests, 2026-09-05).
+      # Verdict-logic self-check (move-bench-into-tests / cover-micro-verdict,
+      # 2026-09-05).
       #
-      # The fixtures under src/tests/perf/testdata/ encode the outcomes the
-      # interval-aware rule must produce. Until now nothing ran them, so a bad
-      # edit could only be caught by noticing weird numbers on a real PR. Pure
-      # JSON comparison — no VM, no scenarios, a few seconds — and it runs BEFORE
-      # the ~20 minutes of measurement so a broken rule fails fast.
+      # 判红规则是这个 job 的**全部价值**，但它此前只在真 PR 上被间接行使——规则
+      # 改坏了，症状是「数字看着怪」，没人守。这一步把三条判红路径都用可复现的输入
+      # 钉住。纯 JSON / 纯函数，几秒，且跑在二十分钟的测量**之前**，规则坏了立刻失败。
       #
-      # WHAT IT COVERS: `bench --diff` → `_benchDiff`, whose gate is
-      # `delta > thr AND cLo > bHi` (both halves, see below). That is the
-      # historical/dashboard comparison path.
-      # WHAT IT DOES NOT: `_abVerdict` (the `--ab` e2e PR gate) needs two real
-      # toolchains measured on one runner, so no JSON fixture can drive it;
-      # `_microDiff` could be fixture-driven but has none yet. Both are gaps.
+      # 三条路径与它们的可测性各不相同：
+      #   `_abVerdict`  —— e2e A/B，本 job 唯一的硬门禁。吃两套同机实测的真工具链，
+      #                    **喂不了 JSON fixture**；但它是纯函数 ⇒ `bench --ab-selftest`
+      #                    单测（五例，见 scripts/xtask_bench.z42 的函数头）。
+      #   `_benchDiff`  —— `bench --diff`，历史/本地对比路径。四个 fixture。
+      #   `_microDiff`  —— `bench --micro-diff`，micro 层 A/B（现为信息性，不 fail；
+      #                    「可疑即复测」落地后它要重新变硬门禁 ⇒ 先把规则守住）。
+      #                    七个 fixture，含 SEM 路径与无 SEM 的区间回退路径。
       #
-      # The four cases are chosen so that each half of the AND has a case that
-      # flips when that half breaks:
-      #   overlap    → 0  intervals overlap ⇒ noise, however big delta looks
-      #   regress    → 1  separated AND over threshold ⇒ the one real red
-      #   improve    → 0  separated downward ⇒ improvement, never a red
-      #   separated-under-threshold → 0  separated but only +20% (< 0.25).
-      #       ^ this is the ONLY case sensitive to the threshold itself: drop thr
-      #         to 0.10 and it turns red. Without it the suite passes unchanged
-      #         at thr=0.001 — i.e. it would not notice the threshold at all,
-      #         which is exactly the `lo > 0` vs `lo > thr` class of bug #457 fixed.
-      - name: Verdict logic self-check (bench --diff over four fixtures)
+      # 每个 fixture 套件都跑 **thr 0.25 和 0.10 两遍**。这不是冗余：两条套件里各有
+      # 一个 `separated-under-threshold`，区间分离但只 +20% ⇒ 0.25 放行、0.10 判红。
+      # 它是**唯一对阈值本身敏感**的用例——没有它，把 --threshold-time 一路降到 0.001
+      # 结果都纹丝不动（接线时实测过），即门禁根本没在看阈值。这正是 #457 修的
+      # `lo > 0` vs `lo > thr` 那一类缺陷。其余用例在两个阈值下结论必须一致，
+      # 顺带证明它们判的是区间/方向而不是阈值噪声。
+      #
+      # 覆盖边界（别误以为门禁都被守住了）：守的是**判定规则**，不是测量与编排
+      # ——`_abOneScenario` 的 hyperfine 调用、base 工具链构建、micro 基线采集
+      # 都只能靠真 run 行使。
+      - name: Verdict logic self-check (_abVerdict + _benchDiff + _microDiff fixtures)
         shell: bash
         run: |
           set -uo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           T="src/tests/perf/testdata"
-          run_case() {
+          fail=0
+          xt() {
             Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
-              "$vm" artifacts/xtask/xtask.zpkg -- \
-              bench --diff --current "$T/current-$1.json" --baseline "$T/baseline.json" \
-              --threshold-time 0.25 >/dev/null 2>&1
+              "$vm" artifacts/xtask/xtask.zpkg -- "$@" >/dev/null 2>&1
             echo $?
           }
-          fail=0
-          for c in overlap:0 regress:1 improve:0 separated-under-threshold:0; do
-            name="${c%%:*}"; want="${c##*:}"
-            got="$(run_case "$name")"
-            if [ "$got" = "$want" ]; then
-              echo "✅ $name → exit $got (expected $want)"
+          expect() { # <label> <want> <got>
+            if [ "$3" = "$2" ]; then
+              echo "✅ $1 → exit $3"
             else
-              echo "::error::verdict self-check: $name exited $got, expected $want"
+              echo "::error::verdict self-check: $1 exited $3, expected $2"
               fail=1
             fi
+          }
+
+          # 1) _abVerdict pure-function unit check (the e2e hard gate).
+          expect "ab-selftest" 0 "$(xt bench --ab-selftest)"
+
+          # 2) _benchDiff — gate is `delta > thr AND cur.ci_lower > base.ci_upper`.
+          for c in overlap:0:0 regress:1:1 improve:0:0 separated-under-threshold:0:1; do
+            name="${c%%:*}"; rest="${c#*:}"; w25="${rest%%:*}"; w10="${rest##*:}"
+            expect "diff/$name@0.25" "$w25" \
+              "$(xt bench --diff --current "$T/current-$name.json" --baseline "$T/baseline.json" --threshold-time 0.25)"
+            expect "diff/$name@0.10" "$w10" \
+              "$(xt bench --diff --current "$T/current-$name.json" --baseline "$T/baseline.json" --threshold-time 0.10)"
           done
-          [ "$fail" -eq 0 ] || { echo "❌ 判红规则与 fixture 不符 —— 改了 _benchDiff 的阈值或区间条件?"; exit 1; }
-          echo "✅ verdict logic matches all four fixtures"
+
+          # 3) _microDiff — gate is R_lower > 1+thr, per name+metric+mode key.
+          #    fallback-* drive the no-SEM interval path (base carries mean_ns=-1);
+          #    unmatched holds three 3x-blown-up entries whose name or mode key has
+          #    no base counterpart — they must be SKIPPED, so a loosened match
+          #    turns this case red.
+          for c in regress:1:1 overlap:0:0 improve:0:0 separated-under-threshold:0:1 \
+                   fallback-regress:1:1 fallback-overlap:0:0 unmatched:0:0; do
+            name="${c%%:*}"; rest="${c#*:}"; w25="${rest%%:*}"; w10="${rest##*:}"
+            expect "micro/$name@0.25" "$w25" \
+              "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.25)"
+            expect "micro/$name@0.10" "$w10" \
+              "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.10)"
+          done
+
+          [ "$fail" -eq 0 ] || { echo "❌ 判红规则与 fixture 不符 —— 改了阈值或区间条件?"; exit 1; }
+          echo "✅ verdict logic matches all fixtures (_abVerdict 5 cases + 11 fixtures x 2 thresholds)"
 
       # Build the base (merge-base) toolchain on THIS runner. The PR z42c
       # (newer) compiles the older base source — the staged-bootstrap discipline

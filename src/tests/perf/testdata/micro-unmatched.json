@@ -1,0 +1,75 @@
+{
+  "schema_version": 2,
+  "commit": "ccccccc",
+  "branch": "pr",
+  "z42vm_version": "0.5.0",
+  "timestamp": "2026-09-06T00:00:00Z",
+  "benchmarks": [
+    {
+      "name": "z42.core.Array.push", "tier": "z42-micro", "metric": "time",
+      "value": 1000, "unit": "ns", "ci_lower": 950, "ci_upper": 1100,
+      "mean_ns": 1000, "stddev_ns": 10, "samples": 50,
+      "profile": {
+        "mode": { "tiers": ["interp"], "aot_pkgs": [] },
+        "mode_label": "interp",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    },
+    {
+      "name": "z42.core.Array.push", "tier": "z42-micro", "metric": "time",
+      "value": 4000, "unit": "ns", "ci_lower": 3900, "ci_upper": 4200,
+      "mean_ns": 4000, "stddev_ns": 40, "samples": 50,
+      "profile": {
+        "mode": { "tiers": ["interp", "jit"], "aot_pkgs": [] },
+        "mode_label": "jit",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    },
+    {
+      "name": "z42.text.Utf8.decode", "tier": "z42-micro", "metric": "time",
+      "value": 2000, "unit": "ns", "ci_lower": 1900, "ci_upper": 2100,
+      "mean_ns": -1, "stddev_ns": -1, "samples": 50,
+      "profile": {
+        "mode": { "tiers": ["interp"], "aot_pkgs": [] },
+        "mode_label": "interp",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    },
+    {
+      "name": "z42.core.Array.push", "tier": "z42-micro", "metric": "time",
+      "value": 3000, "unit": "ns", "ci_lower": 2900, "ci_upper": 3100,
+      "mean_ns": 3000, "stddev_ns": 30, "samples": 50,
+      "profile": {
+        "mode": { "tiers": ["interp", "jit"], "aot_pkgs": ["z42.core"] },
+        "mode_label": "jit+aot[z42.core]",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    },
+    {
+      "name": "z42.core.Array.push", "tier": "z42-micro", "metric": "time",
+      "value": 3000, "unit": "ns", "ci_lower": 2900, "ci_upper": 3100,
+      "mean_ns": 3000, "stddev_ns": 30, "samples": 50,
+      "profile": {
+        "mode": { "tiers": ["interp"], "aot_pkgs": [] },
+        "mode_label": "interp",
+        "platform": { "os": "macos", "arch": "arm64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    },
+    {
+      "name": "z42.core.Map.insert", "tier": "z42-micro", "metric": "time",
+      "value": 3000, "unit": "ns", "ci_lower": 2900, "ci_upper": 3100,
+      "mean_ns": 3000, "stddev_ns": 30, "samples": 50,
+      "profile": {
+        "mode": { "tiers": ["interp"], "aot_pkgs": [] },
+        "mode_label": "interp",
+        "platform": { "os": "linux", "arch": "x64" },
+        "caps": ["jit", "native-interop", "threads"]
+      }
+    }
+  ]
+}
