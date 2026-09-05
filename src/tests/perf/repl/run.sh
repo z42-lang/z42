@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bench/repl/run.sh — REPL per-eval latency bench (perf-optimize-repl-eval).
+# src/tests/perf/repl/run.sh — REPL per-eval latency bench (perf-optimize-repl-eval).
 #
 # Drives the *real* `z42 repl` binary with a fixed input session and measures
 # end-to-end wall-clock via hyperfine. The REPL's per-eval cost is dominated by
@@ -13,7 +13,7 @@
 # faithfully. Driving `z42 repl` measures exactly what a user feels.
 #
 # Usage:
-#   bench/repl/run.sh [z42-launcher] [runs] [warmup]
+#   src/tests/perf/repl/run.sh [z42-launcher] [runs] [warmup]
 # Defaults: launcher=.z42/z42, runs=5, warmup=1.
 #
 # Records the 0/1/5-eval points so the per-eval slope (marginal cost) is separable
@@ -21,18 +21,18 @@
 # number the optimization must move.
 set -euo pipefail
 
-root="$(cd "$(dirname "$0")/../.." && pwd)"
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$here/../../../.." && pwd)"
 z42="${1:-$root/.z42/z42}"
 runs="${2:-5}"
 warmup="${3:-1}"
-here="$root/bench/repl"
 
 if ! command -v hyperfine >/dev/null 2>&1; then
-  echo "bench/repl: hyperfine not found (brew install hyperfine)" >&2
+  echo "perf/repl: hyperfine not found (brew install hyperfine)" >&2
   exit 2
 fi
 if [ ! -x "$z42" ]; then
-  echo "bench/repl: launcher not found/executable: $z42" >&2
+  echo "perf/repl: launcher not found/executable: $z42" >&2
   echo "  (run: ./scripts/install-z42.sh --version nightly, or xtask build sdk)" >&2
   exit 2
 fi

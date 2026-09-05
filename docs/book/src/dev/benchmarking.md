@@ -1,13 +1,13 @@
 # 性能基准与回归门禁（benchmark / bench gate）
 
-> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/xtask_bench.z42` · `bench/` · `.github/workflows/bench-pr.yml`
+> **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/xtask_bench.z42` · `src/tests/perf/` · `.github/workflows/bench-pr.yml`
 > **相关**: [xtask](xtask.md) · [测试门禁](test-gate.md) ｜ **对齐**: 2026-09-05
 
 ## 概述
 
 benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？** 它由三部分组成：
 
-1. **度量**——`xtask bench` 跑一组端到端场景（`bench/scenarios/*.z42`），每条产出带
+1. **度量**——`xtask bench` 跑一组端到端场景（`src/tests/perf/scenarios/*.z42`），每条产出带
    置信区间的结构化结果（schema v2）；`xtask bench stdlib <lib>` 跑库内 `[Benchmark]` 微基准。
 2. **分层**——场景在源码头部声明 `// tier: gate | full`。`gate` 是 PR 门禁测量的那一小组代表性场景，
    `full` 是其余（本地 / 按需）。`xtask bench` 默认 `--tier all`，CI 传 `--tier gate`。
@@ -16,8 +16,10 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
    比值 95% 下界判红。这取代了旧的「拉另一台 runner 的 baseline 快照做跨-runner diff」——那种比法
    被 ±26–60% 的 between-run 系统偏移主导，区间几乎总重叠、门禁近乎失明。
 
-> **本页是 bench 判红语义的权威（SoT）。** `bench/README.md` 是操作速查（怎么跑命令），
-> 判红规则、数据流、为什么这样设计以此页为准。改门禁语义 → 改这里。
+> **本页是 bench 的权威（SoT）**——判红规则、数据流、为什么这样设计，以及末尾的
+> [操作速查](#操作速查)（跑哪条命令、怎么加场景）。改门禁语义 → 改这里。
+> （2026-09-05 起：原先分担操作速查的 `bench/README.md` 已随顶层 `bench/` 目录一并删除，
+> 内容并入本页；资产现居 `src/tests/perf/`，见 `docs/design/testing/testing.md`。）
 
 ## 设计目标与约束
 
@@ -56,7 +58,7 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 
 | tier | 工具 | 位置 | 粒度 | 进 CI 门禁 |
 |------|------|------|------|-----------|
-| **z42 e2e** | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ `bench-pr.yml` 硬门禁（**只测 `--tier gate`**） |
+| **z42 e2e** | hyperfine + 自建 harness | `src/tests/perf/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ `bench-pr.yml` 硬门禁（**只测 `--tier gate`**） |
 | **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib `bench/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ⚠️ **只打印、不判红**（`bench --micro-diff`；理由见「噪声底与阈值」②） |
 | **Rust micro** | criterion | `src/runtime/benches/` | VM 内部热路径（GC cycle / smoke）| ✅ criterion 原生 A/B（仅 src/runtime 改动时） |
 
@@ -142,7 +144,7 @@ informational 的才可能被跳过——同「[改动面守卫](#改动面守�
   = 预编 AOT 的 zpkg 子集（今天恒空，待 roadmap M9）。派生 `mode_label`：`interp` / `jit`。
 - **platform**：`{os, arch}`（arch 归一化 `x64`/`arm64`/`wasm`）。
 - **caps**：由 `Std.Platform.Capabilities()` 在**被测 VM 二进制**下探测
-  （`bench/probe/capabilities.z42`）——`jit` / `native-interop` / `threads` 等真实能力。
+  （`src/tests/perf/probe/capabilities.z42`）——`jit` / `native-interop` / `threads` 等真实能力。
 
 `xtask bench --mode interp|jit|both`（含 `--ab`）：`both` 每场景各测 interp 与 jit，产两条结果。
 A/B 门禁对**同一 scenario×mode** 在 base/pr 两套工具链间比较，interp 与 jit 各自比、从不交叉；
@@ -190,7 +192,7 @@ else:                   → ≈ overlap       (noise, 放行)
 ```
 
 - `thr` 默认 **0.10**；**CI 用 0.25**——见下「噪声底与阈值」，10% 画在噪声底之下，假红是数学必然。`Z=1.96`。
-- 结果落 `bench/results/ab.json`（`ab-v1` schema：每场景 base/pr mean·stddev、ratio、r_lower/r_upper、
+- 结果落 `artifacts/bench/ab.json`（`ab-v1` schema：每场景 base/pr mean·stddev、ratio、r_lower/r_upper、
   verdict），信息性 artifact，不复用 baseline-schema。
 - **同机抵消让 within-run SEM 在此统计有效**——这是 P0 跨-runner 比法下不成立、A/B 下才成立的关键。
 
@@ -295,7 +297,7 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `bench` /
 `scripts/**/*.z42` / 本 workflow），末尾再加一条负向模式 `!**/*.md`（负向在后 ⇒ 覆盖前面的匹配），
 使**纯文档 PR 一个文件都不命中、整个 workflow 不触发**；`.md` 与代码同改则照旧跑。
-（没有这条负向模式时，上面的目录通配会把「改一行 `bench/README.md`」也拉进来烧一个完整 job。）步骤：
+（没有这条负向模式时，上面的目录通配会把「改一行 `src/tests/perf/` 下的说明」也拉进来烧一个完整 job。）步骤：
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`）
 2. bootstrap PR 工具链（`ci-bootstrap`：nightly z42c 种子 → 当前源码 warm 自建）
@@ -303,7 +305,7 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
    cargo 建 base z42vm；PR z42c 编 `base-src/src/compiler`→base z42c，base z42c 编 `base-src/src/libraries`→base stdlib
 4. **e2e A/B（唯一硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`。
    `MODE` 按改动面收窄：`src/runtime`（排除 `*.md`）无变更 → `jit`（interp/jit 的相对性能只可能被 VM 改动挪动），
-   否则 `both`。`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `bench/results/ab.json`
+   否则 `both`。`_abVerdict` 判红 → 回归 exit 1 → fail workflow；上传 `artifacts/bench/ab.json`
 5. **micro A/B（informational，永不 fail）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树
    复用 3 建的工具链、仅新建 base z42b）→ `bench --micro-diff` 打印全部比值。降级理由见「噪声底与阈值」②
 6. **criterion A/B**（Part C，仅 `src/runtime` 非文档改动时）：base 树 `--save-baseline ab-base`、PR 树
@@ -510,6 +512,85 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
 
 （cache-failed-name-resolution 差点因为这条被误判成 −6% 启动回归而砍掉一条 1.94× 的优化。）
 
+## 操作速查
+
+> 2026-09-05 从 `bench/README.md` 并入（该文件与顶层 `bench/` 目录已删）。仓库无 `justfile`；
+> 旧 `just bench-*` 别名早已不存在。资产在 `src/tests/perf/`，结果写 `artifacts/bench/`。
+
+### e2e（hyperfine 跑 .zbc）
+
+```bash
+xtask bench                       # 全 11 个场景，默认 jit，默认 --tier all
+xtask bench --tier gate           # 只跑 PR 门禁那 6 条（CI 用的就是这条）
+xtask bench --tier full           # 只跑非门禁场景
+xtask bench --mode both           # 每场景各测 interp 与 jit（各一条 profile 结果）
+xtask bench --quick               # sanity：只跑前 2 个场景、runs=3 warmup=1（< 60s）
+```
+
+`--mode both` 就是 interp/jit 对比的正规做法：同一份 `.zbc`（编译产物与模式无关）在两种模式下
+各测一次，结果按 `profile.mode_label` 分开，`--diff` 按 mode key 匹配，两模式永不互相比较。
+（曾有一个 `bench/scripts/compare-modes.sh` 做同样的事，已随本次整理删除。）
+
+### micro（各 lib 的 `[Benchmark]`）
+
+各 lib 的 `src/libraries/<lib>/bench/*_bench.z42` 里的 `[Benchmark]` 方法由 z42b
+（`z42.builder.zpkg`）派发，每个自报 warmup/samples/min/median/max：
+
+```bash
+xtask bench stdlib <lib>          # 单库；省略 <lib> 跑全部
+```
+
+`bench_stats` 来自 `Bencher.printSummary(label)`，JSON 模式由 `Std.Test.Runner` 经
+`BenchStats.parse` 捕获；人类可读的 `bench[label] min=… median=… max=…` 行走 pretty 模式。
+两种 `[Benchmark]` 签名均可：form-1（自建 `Bencher`）与 form-2（`void f(Bencher b)`，
+z42c AST-desugar 成零参 wrapper）。
+
+### 本地「优化前后」对比
+
+micro 与 e2e 共用同一套 schema 与 `--diff`：
+
+```bash
+# 1. 改之前捕获基线
+xtask bench stdlib --json /tmp/before.json      # micro
+xtask bench && cp artifacts/bench/e2e.json /tmp/before-e2e.json   # e2e
+
+# 2. 改优化…
+
+# 3. 改之后再捕获并 diff（--baseline 必须显式给）
+xtask bench stdlib --json /tmp/after.json
+xtask bench --diff --current /tmp/after.json --baseline /tmp/before.json \
+            --threshold-time 0.25
+#   → ↑ 回归(exit 1) / ↓ 改进 / ≈ 持平 / (new)/(removed)
+```
+
+> **`--diff` 与 `--micro-diff` 别混**：`--diff` 是**本地/历史**用法（跨快照裸比值，宽阈值）；
+> PR 门禁走 `--ab`（e2e）与 `--micro-diff`（micro，同-runner base vs pr）。阈值语义见本页
+> [噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)——**不要**沿用早期文档里
+> 「5% 时间 / 10% 内存」那组数字，它们画在噪声底之下，已于 2026-09-05 统一抬到 0.25。
+
+### criterion（Rust 微基准，未接入 xtask）
+
+```bash
+cargo bench --manifest-path src/runtime/Cargo.toml
+```
+
+### 添加新 scenario
+
+1. 在 `src/tests/perf/scenarios/` 加 `<NN>_<name>.z42`
+2. **首行注释声明 tier**：`// tier: gate` 或 `// tier: full`（解析只取声明行第一个词，见
+   `scripts/xtask_bench.z42` 的 `_benchScenarioTier`），并写一句选择理由
+3. 顶部注释说明 workload 与预期输出
+4. 用 `Console.WriteLine` 打印一个稳定结果（便于验证编译器输出未漂移）
+5. workload 大小让单次运行时间 ≥ 50 ms（避免 hyperfine 抖动）
+6. 需要特定能力的场景加 `// requires-caps: <cap>`（如 `threads`），VM 不具备时自动跳过
+
+### 设计约定
+
+- 场景里不做文件 IO / 网络（避免抖动）
+- 度量单位统一：时间 ms（hyperfine 输出 s 后转换），内存 KB
+- 场景是**性能载体不是 correctness 测试**：它们被 golden 发现逻辑显式排除
+  （`_isNonRunnableCat` / `_isNonRegenCat` 两处名单项），改动只触发 `xtask bench --quick`
+
 ## 已知局限与后续
 
 - ⚠️ **「可疑即复测」尚未实现——这是收紧阈值与恢复 micro 硬门禁的唯一前提**（Deferred
@@ -541,7 +622,7 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
 
 ## 参考
 
-- 操作速查（跑哪条命令、加 scenario）：`bench/README.md`
-- schema 定义：`bench/baseline-schema.json`（JSON Schema Draft 2020-12）
+- 布局与「benchmark / test 分离」原则：`docs/design/testing/testing.md`
+- schema 定义：`src/tests/perf/baseline-schema.json`（JSON Schema Draft 2020-12）
 - 同-runner A/B 门禁提案 / 设计：`docs/spec/changes/add-same-runner-ab-bench-gate/`
 - 区间感知门禁（P0，已退休为 dashboard 对比）提案 / 设计：`docs/spec/archive/2026-08-24-add-interval-aware-bench-gate/`

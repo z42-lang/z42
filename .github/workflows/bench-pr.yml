@@ -77,12 +77,15 @@ on:
       - 'src/runtime/**'
       - 'src/libraries/**'
       - 'src/compiler/**'
-      - 'bench/**'
+      # move-bench-into-tests (2026-09-05): 顶层 bench/ 已并入 src/tests/perf/
+      # （场景 / 探针 / 判红 fixture / schema / repl 脚本）。这里只列 perf 子树 ——
+      # src/tests/ 其余是正确性 golden，动它们不影响性能测量。
+      - 'src/tests/perf/**'
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
       - '.github/workflows/bench-pr.yml'
       # narrow-bench-gate-guards: 上面的目录通配会把纯文档 PR 也拉进来（改一行
-      # bench/README.md 就烧一个完整门禁 job）。负向模式在后 ⇒ 覆盖前面的匹配：
+      # docs 里的 .md 就烧一个完整门禁 job）。负向模式在后 ⇒ 覆盖前面的匹配：
       # 只动 .md 的 PR 一个文件都不命中 → 整个 workflow 不触发；.md 与代码同改照旧跑。
       - '!**/*.md'
 
@@ -267,7 +270,7 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench stdlib --json "$PWD/bench/results/micro-pr.json" --no-build --mode interp
+            bench stdlib --json "$PWD/artifacts/bench/micro-pr.json" --no-build --mode interp
 
       - name: Capture base micro baseline (base tree, same runner)
         shell: bash
@@ -284,7 +287,7 @@ jobs:
           ( cd base-src && \
             Z42_PORTABLE_VM="$PRVM" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
             "$PRVM" "$ROOT/artifacts/xtask/xtask.zpkg" -- \
-            bench stdlib --json "$ROOT/bench/results/micro-base.json" --no-build --mode interp \
+            bench stdlib --json "$ROOT/artifacts/bench/micro-base.json" --no-build --mode interp \
               --vm     "${{ steps.base.outputs.base_vm }}" \
               --driver "${{ steps.base.outputs.base_driver }}" \
               --libs   "${{ steps.base.outputs.base_libs }}" )
@@ -308,8 +311,8 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
             bench --micro-diff --threshold-time 0.25 \
-              --current  "$PWD/bench/results/micro-pr.json" \
-              --baseline "$PWD/bench/results/micro-base.json" || true
+              --current  "$PWD/artifacts/bench/micro-pr.json" \
+              --baseline "$PWD/artifacts/bench/micro-base.json" || true
           echo "── micro tier is informational; it never fails this job ──"
 
       # ── extend-ab-bench-micro-criterion Part C: criterion(Rust) tier A/B ──
@@ -409,7 +412,7 @@ jobs:
         with:
           name: bench-ab-results
           path: |
-            bench/results/ab.json
-            bench/results/micro-pr.json
-            bench/results/micro-base.json
+            artifacts/bench/ab.json
+            artifacts/bench/micro-pr.json
+            artifacts/bench/micro-base.json
           if-no-files-found: ignore

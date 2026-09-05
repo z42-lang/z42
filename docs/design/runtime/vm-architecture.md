@@ -940,7 +940,7 @@ zbc 1.7→1.8 / zpkg 0.8→0.9）。translate.rs 在 emit 每条 op 前查
 4. Object / Array / Closure 路径 — heap allocation / vcall dispatch /
    IC slot 管理，complexity 远超 inline 阈值。
 
-**性能验证**: `bench/scenarios/04_c2_p1_arith_loop.z42` 跑 10M-iter
+**性能验证**: `src/tests/perf/scenarios/04_c2_p1_arith_loop.z42` 跑 10M-iter
 SumSquares loop（每 iter 一次 mul + 两次 add + 一次 lt + 一次 brif），
 M-series macOS 5-run 平均：
 

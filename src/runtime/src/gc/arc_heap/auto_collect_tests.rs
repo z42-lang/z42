@@ -34,7 +34,7 @@ fn a_budget_arms_automatic_collection() {
 fn futile_collections_back_off_instead_of_repeating_forever() {
     // Grow a *live* set past the budget so every collection reclaims almost
     // nothing. Without the backoff the growth gate re-arms forever: measured on
-    // `bench/scenarios/09_alloc_ctorless` with a 64MB budget, a 0.29s run had
+    // `src/tests/perf/scenarios/09_alloc_ctorless` with a 64MB budget, a 0.29s run had
     // not finished after 9 minutes, doing a 0-byte 75ms mark-sweep every ~6MB.
     //
     // Each retained allocation is made with the budget disarmed: the inline

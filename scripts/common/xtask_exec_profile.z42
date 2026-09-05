@@ -10,7 +10,7 @@
 //              M9 implements AOT execution + its per-zpkg config. This change
 //              only MODELS the shape so results tag it and the matrix reserves it.
 //
-// caps come from the target VM itself: the harness runs bench/probe/capabilities.z42
+// caps come from the target VM itself: the harness runs src/tests/perf/probe/capabilities.z42
 // (→ Std.Platform.Capabilities()/ExecModes()) under the binary being measured, so
 // each result carries real caps — never a static guess.
 //
@@ -215,15 +215,48 @@ string _epBenchModeKey(JsonValue b) {
 
 // ── probing the target VM ────────────────────────────────────────────────────
 
-// Compile bench/probe/capabilities.z42 to a cached .zbc (idempotent), return path.
+// Compile the capabilities probe to a cached .zbc (idempotent), return its path
+// — or "" if the probe could not be produced, which callers must treat as "no
+// profile" (see _epProbe).
+//
+// Source location: `src/tests/perf/probe/` since move-bench-into-tests
+// (2026-09-05); `bench/probe/` before it. The fallback exists for ONE caller
+// shape: `bench stdlib --json` run with cwd=base-src (bench-pr.yml's "Capture
+// base micro baseline"), where `root` is a checkout of the PR's merge base. On
+// the PR that performs the move, that base predates it and only has the old
+// path. Once the move is in main, every base carries the new layout —
+// **delete this fallback then** (grep BENCH-LAYOUT-MIGRATION).
+//
+// Both the missing-source and failed-compile paths used to be silent: this
+// function ignored the compiler's exit code and _epProbe turned any unparseable
+// output into an empty VmCaps. An empty profile still yields a mode key
+// ("@/"), so base and PR rows stop matching and the whole micro diff degrades
+// to (new)/(removed) — invisible, because the micro tier is informational.
+// Hence the explicit checks and the loud warnings.
 string _epEnsureProbe(string root, string vm, string driver, string libs) {
-    string src = Path.Join(root, "bench/probe/capabilities.z42");
+    string src = Path.Join(root, "src/tests/perf/probe/capabilities.z42");
+    if (!File.Exists(src)) {
+        // BENCH-LAYOUT-MIGRATION: pre-move tree (base-src on the moving PR).
+        string legacy = Path.Join(root, "bench/probe/capabilities.z42");
+        if (File.Exists(legacy)) { src = legacy; }
+        else {
+            ConsoleError.WriteLine("warning: exec-profile probe source not found under "
+                + root + " (tried src/tests/perf/probe/ and bench/probe/) — "
+                + "results will carry an empty profile and will NOT match across trees");
+            return "";
+        }
+    }
     string outDir = Path.Join(root, "artifacts/.scratch/exec-profile");
     Directory.Create(outDir);
     string zbc = Path.Join(outDir, "capabilities.zbc");
-    new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+    int cc = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
         .Arg("--emit-zbc").Arg(src).Arg(zbc).Env("Z42_LIBS", libs)
-        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    if (cc != 0) {
+        ConsoleError.WriteLine("warning: exec-profile probe failed to compile (exit "
+            + cc + ", source " + src + ") — results will carry an empty profile");
+        return "";
+    }
     return zbc;
 }
 
@@ -231,6 +264,8 @@ string _epEnsureProbe(string root, string vm, string driver, string libs) {
 // one-line JSON into a VmCaps. Scans for the line starting with '{' so leader
 // warnings (lazy_loader on stderr are already separate) never trip parsing.
 VmCaps _epProbe(string vm, string libs, string probeZbc) {
+    // "" ⇒ _epEnsureProbe already warned and gave up; don't spawn the VM on it.
+    if (probeZbc.Length == 0) { return new VmCaps(); }
     ProcessResult r = new Process(vm).Arg(probeZbc).Arg("Bench.Probe.Capabilities.Main")
         .Env("Z42_LIBS", libs).Run();
     string[] lines = r.Stdout.Split("\n");
@@ -240,7 +275,11 @@ VmCaps _epProbe(string vm, string libs, string probeZbc) {
         if (ln.StartsWith("{")) { json = ln; }
     }
     VmCaps c = new VmCaps();
-    if (json.Length == 0) { return c; }
+    if (json.Length == 0) {
+        ConsoleError.WriteLine("warning: exec-profile probe produced no JSON (exit "
+            + r.ExitCode + ", vm " + vm + ") — results will carry an empty profile");
+        return c;
+    }
     JsonValue v = JsonValue.Parse(json);
     c.Os = v.Get("os").AsString();
     c.Arch = v.Get("arch").AsString();

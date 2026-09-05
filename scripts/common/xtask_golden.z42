@@ -258,9 +258,17 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
 // own runners; zbc-format / zpkg-format are byte-format goldens (no stdout).
 // Deliberately NOT the same set as regen's _isNonRegenCat, which KEEPS the two
 // format categories (they are the byte baselines it exists to refresh).
+//
+// `perf` is the benchmark subtree (move-bench-into-tests, 2026-09-05) — timing
+// scenarios owned by `xtask bench`, never correctness goldens. Its files sit a
+// level deeper (perf/scenarios/*.z42, perf/probe/, perf/testdata/), so no
+// segment of the walk reaches them today: "tests-dir" needs
+// <cat>/<name>/source.z42 and "tests-flat" only takes <cat>/*.z42. This entry
+// states the exclusion instead of relying on that layout accident, so a later
+// `perf/<name>.z42` can't silently enlist a benchmark as a golden test.
 bool _isNonRunnableCat(string cat) {
     return cat == "cross-zpkg" || cat == "multi-exe" || cat == "zbc-format" || cat == "zpkg-format"
-        || cat == "manifest-targets";
+        || cat == "manifest-targets" || cat == "perf";
 }
 
 // ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─
