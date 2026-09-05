@@ -24,9 +24,9 @@ feature-flags = ["x", "y"]
 [properties.limits]
 max-retries = 3
 
-[profile.debug]
-mode = "interp"                    # ← 这是 VM 旋钮，进 [runtime]
-[profile.debug.properties]         # ← 这是应用属性，逐 key 浅覆盖基表
+[profile.debug.runtime]            # ← VM 旋钮，进侧车 [runtime]
+mode = "interp"
+[profile.debug.properties]         # ← 应用属性，逐 key 浅覆盖基表
 api-endpoint = "http://localhost:8080"
 ```
 

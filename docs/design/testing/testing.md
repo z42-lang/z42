@@ -665,44 +665,61 @@ R2 完整版实施时碰到的语言/反射 bug，多数同会话内已修复：
 
 ## Benchmark 与 Test 分离原则
 
-z42 **不**把 benchmark 放到 `src/tests/` 下，而是分离两个不同的目录树。这与 Rust / C++ / .NET / Java / Haskell 等主流静态语言一致。
+z42 把 benchmark 与 correctness test **在职责与驱动上分离**：两者由不同的命令驱动、
+用不同的判定语义、走不同的 CI 门禁。它们的**源码位置**则同处 `src/tests/` 之下 ——
+`src/tests/perf/` 是 benchmark 子树，与 correctness 类别平级但被发现逻辑显式排除。
 
-### 当前 bench 目录布局
+> **2026-09-05 布局变更（move-bench-into-tests）**：顶层 `bench/` 目录已删除，内容并入
+> `src/tests/perf/`。**这不是对分离原则的推翻，只是取消了"再开一个顶层目录"这个物理选择** ——
+> 动机是不额外维护一个顶层目录。下面「架构红线」一节记录了原决定与改动理由。
+
+### 当前 bench 布局
 
 ```
-bench/                                   # 顶层（性能 + 基线 + 工具）
-├── README.md
-├── baseline-schema.json                 # 跨工具的 baseline JSON Schema
-├── scenarios/                           # z42 端到端场景 (.z42)
-│   ├── 01_fibonacci.z42
-│   ├── 02_math_loop.z42
-│   └── 03_startup.z42
-├── baselines/                           # gitignored；CI publish 到 bench-baselines branch
-└── results/                             # gitignored；当前 run 输出
+src/tests/perf/                          # benchmark 子树（xtask bench 独占驱动）
+├── baseline-schema.json                 # 结果文档的 JSON Schema (Draft 2020-12, v2)
+├── scenarios/                           # z42 端到端场景 (.z42)，01..11
+│   ├── 01_fibonacci.z42 … 11_type_test_chain.z42
+│   └──                                  # 首行 `// tier: gate|full` 决定是否进 PR 门禁
+├── probe/capabilities.z42               # 被测 VM 能力探针 → 结果的 profile 字段
+└── testdata/*.json                      # 判红 fixture（4 个），bench-pr.yml 每次跑断言退出码
 
+src/libraries/<lib>/bench/*_bench.z42    # micro：[Benchmark] + Std.Test.Bencher，z42b 派发
+                                         # （`.bench.` infix 是 zpkg 命名硬约束，与本节无关）
 src/runtime/benches/                     # Rust criterion (cargo 框架强约定位置)
-├── README.md
-└── smoke_bench.rs
+├── README.md  smoke_bench.rs  gc_cycle_bench.rs
 
-src/compiler/z42.Bench/                  # C# BenchmarkDotNet (独立 csproj)
-├── z42.Bench.csproj
-├── CompileBenchmarks.cs
-└── Inputs/{small,medium}.z42
+artifacts/bench/                         # 结果输出（artifacts/ 整体 gitignored）
 
-./xtask bench                     # hyperfine 调度 + 写 results/e2e.json
-./xtask bench --diff              # 比对当前与 baseline (5% 时间 / 10% 内存阈值)
+./xtask bench                     # hyperfine 调度 11 个场景 → artifacts/bench/e2e.json
+./xtask bench --tier gate         # 只跑 PR 门禁那 6 条（CI 用的就是这条）
+./xtask bench --mode both         # 每场景各测 interp 与 jit（各一条 profile 结果）
+./xtask bench --ab …              # 同-runner A/B 回归门禁 → artifacts/bench/ab.json
+./xtask bench --diff --baseline P # 与一份历史结果比对（阈值见 book 判红语义页）
 ```
 
-### 为什么分离（与 `src/tests/` 不同处）
+### 为什么职责上分离（与 correctness 类别不同处）
 
-| 维度 | `src/tests/` (correctness) | `bench/` (perf) |
+| 维度 | `src/tests/<cat>/` (correctness) | `src/tests/perf/` (perf) |
 |------|---------------------------|-----------------|
-| 入口 | `<case>/run.sh` exit 0/1 | `cargo bench` / `dotnet run -c Release` / `./xtask bench` |
+| 驱动 | `xtask test e2e`（golden：跑 z42vm、diff stdout） | `xtask bench`（hyperfine 测时） |
+| 发现 | dir-mode `<cat>/<name>/source.z42` + flat `<cat>/*.z42` | 显式排除，见下 |
 | 编译 profile | Debug 即可 | **必须 Release** |
 | 输出 | 通过 / 失败 + 诊断 | metrics JSON + 置信区间 |
 | 噪声容忍 | 必须确定性 | 可重跑 / warmup / 多 sample |
-| CI 门禁 | hard fail | informational + 5% 阈值 |
-| baseline 跟踪 | 无 | 跨 commit 持久化（独立 `bench-baselines` 分支） |
+| CI 门禁 | hard fail | 见 book 判红语义页（e2e 硬门禁 / micro 信息性） |
+
+**发现逻辑的显式排除**（两个枚举器各一处，都以 `perf` 为名单项）：
+
+- `_isNonRunnableCat`（`scripts/common/xtask_golden.z42`）—— golden 运行器 + embedded corpus 共用
+- `_isNonRegenCat`（`scripts/build/xtask_test_assets.z42`）—— `xtask build test` 资产编译
+
+perf 的文件都比 golden 深一层（`perf/scenarios/*.z42` 而非 `perf/*.z42`，且无 `source.z42`），
+所以两个枚举器**今天**本来就抓不到它。名单项是为了**声明**这个排除，而不是依赖布局巧合 ——
+否则日后有人在 `perf/` 顶层放一个 `.z42`，就会静默把一条 benchmark 登记成 golden 测试。
+
+`xtask test changed` 同理：`src/tests/perf/` 映射到 `xtask bench --quick`（前 2 个场景、
+runs=3，< 60s，验"场景还能编译运行"），而不是把整个 e2e 套件扫一遍。
 
 ### 主流语言调研（2026-04-30）
 
@@ -717,14 +734,23 @@ src/compiler/z42.Bench/                  # C# BenchmarkDotNet (独立 csproj)
 | **Python (pytest-benchmark)** | `tests/test_*.py` | 同文件 fixture | **统一**（少数派） |
 | **Go** | `*_test.go` | `*_test.go` 内 `BenchmarkX` | **统一**（极简哲学，唯一） |
 
-z42 已接入 **criterion**（Rust）+ **BenchmarkDotNet**（C#）+ **hyperfine**（z42 e2e）三套独立框架，每套有自己的 baseline / diff / 报告流。"统一"模式（Go-style）建立在"唯一一套 testing 库 + 没有 baseline 概念"的前提上，z42 不具备。所以采用主流分离式。
+这些语言的"分离"首先是**驱动与判定的分离**（独立 runner、独立 baseline/diff 流），
+目录平行只是其外在形式；z42 保留前者，放弃后者的顶层目录形式。
 
 ### 架构红线
 
-- `bench/` 顶层目录**不**移到 `src/tests/`
-- `src/runtime/benches/` 与 `src/compiler/z42.Bench/` **不**移动（cargo / dotnet 框架约定）
-- `src/tests/` 不放性能场景（即不出现 `perf-*` 子目录）
-- `bench/scenarios/*.z42` 性能场景不混入 correctness `src/tests/<case>/`
+- `src/tests/perf/` 由 `xtask bench` 独占驱动，**不**进 golden 发现（两处名单项，见上）
+- `src/runtime/benches/` **不**移动（cargo 框架约定位置）
+- correctness 类别 `src/tests/<cat>/` 里**不**放性能场景；性能场景只落 `src/tests/perf/`
+- 反向亦然：`src/tests/perf/` 下**不**放 correctness golden（无 `expected_output.txt` 语义）
+
+> **已推翻的红线（2026-09-05）**：原文两条为「`bench/` 顶层目录**不**移到 `src/tests/`」与
+> 「`src/tests/` 不放性能场景（即不出现 `perf-*` 子目录）」。改动理由：顶层多一个只有
+> `xtask bench` 消费的目录，维护成本（.gitignore 条目、CI paths、三处文档目录树）大于
+> 它换来的可见性；而分离原则真正要防的"benchmark 被当成 correctness test 跑"，由发现
+> 逻辑里的显式排除保证，比靠目录位置隔离更直接、也可被测试覆盖。同期一并删除的还有
+> `bench/README.md`（内容并入 book 判红语义页）与 `bench/scripts/compare-modes.sh`
+> （其能力已被 `xtask bench --mode both` 覆盖）。
 
 ---
 

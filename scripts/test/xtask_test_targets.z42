@@ -370,7 +370,11 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
     body = body + "]\n\n[build]\noutput_dir = \"" + outputDir + "\"\n"
         + "dist_dir   = \"${output_dir}/dist\"\n"
         + "cache_dir  = \"${output_dir}/cache\"\n\n"
-        + "[profile.debug]\npack = true\n[profile.release]\npack = true\n";
+        // 此处曾写 `[profile.debug] pack = true`——**那一直是空操作**：被消费的是
+        // `[project].pack`（`ProjectInfo.Pack` → `Main.z42` 的 isPacked），
+        // `Profile.Pack` 解析后从无人读。restructure-profile-sections 删掉了那个死字段，
+        // 这里同步删掉这两行（行为等价：本来就没生效）。
+        ;
     if (deps.Count > 0) {
         body = body + "\n[dependencies]\n";
         i = 0;

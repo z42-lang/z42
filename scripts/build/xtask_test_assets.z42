@@ -262,9 +262,14 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
 // `errors` / `parse` do not exist under src/tests today — that negative-test corpus
 // evaporated when the C# compiler was removed. The guards stay as the landing pad
 // for restoring it (nothing else here depends on them being live).
+//
+// `perf` (move-bench-into-tests, 2026-09-05): the benchmark subtree has no goldens
+// to regen — `xtask bench` compiles perf/scenarios/*.z42 itself, to a scratch .zbc,
+// as part of measuring. Excluded here for the same reason as in _isNonRunnableCat:
+// state it, don't lean on the nested layout.
 bool _isNonRegenCat(string cat) {
     return cat == "errors" || cat == "parse" || cat == "cross-zpkg" || cat == "multi-exe"
-        || cat == "manifest-targets";
+        || cat == "manifest-targets" || cat == "perf";
 }
 
 // z42c 编译单个 golden（z42vm 跑 z42c.driver.zpkg --emit-zbc）。golden 的 stdlib 依赖

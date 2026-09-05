@@ -1,7 +1,7 @@
 // xtask — e2e benchmarks (migrate-scripts-to-z42). Native port of
 // the former scripts/bench-run.sh + scripts/_merge-bench-results.py. Compiles
-// bench/scenarios/*.z42, runs hyperfine on z42vm per scenario, then merges the
-// hyperfine JSONs into bench/results/e2e.json — parse with native Std.Json,
+// src/tests/perf/scenarios/*.z42, runs hyperfine on z42vm per scenario, then merges the
+// hyperfine JSONs into artifacts/bench/e2e.json — parse with native Std.Json,
 // output string-built (replacing python3). Same Z42Xtask namespace; calls
 // _exec/_root/_buildRuntime/_utcNow in xtask.z42 / xtask_package.z42.
 namespace Z42Xtask;
@@ -59,8 +59,8 @@ int _bench(ParseResult r) {
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
-    string scenDir = Path.Join(root, "bench/scenarios");
-    string resultsDir = Path.Join(root, "bench/results");
+    string scenDir = Path.Join(root, "src/tests/perf/scenarios");
+    string resultsDir = Path.Join(root, "artifacts/bench");
     Directory.Create(resultsDir);
     // Bench needs z42vm + stdlib (scenarios `using Std.IO.Console`, resolved at
     // `libs`) + the self-contained z42c driver (scenarios compile via z42c, not
@@ -289,7 +289,7 @@ void _abPrint(string name, string m, AbVerdict v) {
 // `bench --ab --base-vm V --base-libs L --base-driver D [--mode M] [--threshold-time T] [--quick]`
 // Same-runner A/B regression gate. For each scenario×mode: compile with the base
 // toolchain and the PR toolchain, hyperfine both on this runner, and verdict via
-// `_abVerdict`. Writes bench/results/ab.json. Exit: 0 = no regression, 1 =
+// `_abVerdict`. Writes artifacts/bench/ab.json. Exit: 0 = no regression, 1 =
 // regression(s), 2 = tool error / bad args. bench-baselines/bench-update untouched.
 int _benchAb(ParseResult r) {
     string baseVm = r.GetOption("base-vm");
@@ -308,8 +308,8 @@ int _benchAb(ParseResult r) {
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
-    string scenDir = Path.Join(root, "bench/scenarios");
-    string resultsDir = Path.Join(root, "bench/results");
+    string scenDir = Path.Join(root, "src/tests/perf/scenarios");
+    string resultsDir = Path.Join(root, "artifacts/bench");
     Directory.Create(resultsDir);
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
     string prVm = _builtVm(root, "release");
@@ -363,7 +363,7 @@ int _benchAb(ParseResult r) {
     return _abFinish(nb, regr, toolErr);
 }
 
-// wrap accumulated A/B result fragments in the ab-v1 envelope → bench/results/ab.json.
+// wrap accumulated A/B result fragments in the ab-v1 envelope → artifacts/bench/ab.json.
 void _abWriteJson(string root, string resultsDir, string items) {
     string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
     string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
@@ -441,9 +441,9 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
 int _benchMicroDiff(ParseResult r) {
     string root = _root();
     string current = r.GetOption("current");
-    if (current.Length == 0) { current = "bench/results/micro-pr.json"; }
+    if (current.Length == 0) { current = "artifacts/bench/micro-pr.json"; }
     string baseline = r.GetOption("baseline");
-    if (baseline.Length == 0) { baseline = "bench/results/micro-base.json"; }
+    if (baseline.Length == 0) { baseline = "artifacts/bench/micro-base.json"; }
     double thr = 0.10;
     string tt = r.GetOption("threshold-time");
     if (tt.Length > 0) { thr = Double.Parse(tt); }
@@ -547,7 +547,7 @@ double _microN(JsonValue b) {
 
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
 // Native port of the former scripts/bench-diff.sh. Compares current bench results
-// against a baseline (both conform to bench/baseline-schema.json): per-benchmark
+// against a baseline (both conform to src/tests/perf/baseline-schema.json): per-benchmark
 // delta = (cur - base) / base. Interval-aware gate — a regression requires BOTH
 // delta > --threshold-time (default 0.05) / --threshold-memory (default 0.10) AND
 // the current confidence interval separated from the baseline's (cur.ci_lower >
@@ -557,7 +557,7 @@ double _microN(JsonValue b) {
 int _benchDiff(ParseResult r) {
     string root = _root();
     string current = r.GetOption("current");
-    if (current.Length == 0) { current = "bench/results/e2e.json"; }
+    if (current.Length == 0) { current = "artifacts/bench/e2e.json"; }
     string baseline = r.GetOption("baseline");
     double thrTime = 0.05;
     string tt = r.GetOption("threshold-time");
@@ -571,7 +571,7 @@ int _benchDiff(ParseResult r) {
     // `--diff` 现在必须显式给 --baseline <path>（本地优化前后对比的正常用法）。
     if (baseline.Length == 0) {
         ConsoleError.WriteLine("error: bench --diff requires an explicit --baseline <path>");
-        ConsoleError.WriteLine("  hint: capture one first, e.g. `xtask bench` then copy bench/results/e2e.json aside");
+        ConsoleError.WriteLine("  hint: capture one first, e.g. `xtask bench` then copy artifacts/bench/e2e.json aside");
         return 2;
     }
     string curPath  = _absUnder(root, current);

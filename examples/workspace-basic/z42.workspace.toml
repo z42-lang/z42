@@ -32,11 +32,8 @@ description = "z42 workspace-basic example"
 # root; omit the fields for clarity. To override either, set
 # `output_dir` (root) or `dist_dir` / `cache_dir` (independent override).
 
-[profile.debug]
-mode  = "interp"
-debug = true
+[profile.debug.runtime]
+mode = "interp"
 
-[profile.release]
-mode     = "jit"
-optimize = 3
-strip    = true
+[profile.release.runtime]
+mode = "jit"

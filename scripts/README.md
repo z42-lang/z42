@@ -230,10 +230,17 @@ xtask test dist               # 端到端验证发行包（packaged z42c/z42vm �
 scripts/
 ├── xtask.z42            入口 Main + 顶层 handler（run / clean / feature-matrix）
 ├── xtask.z42.toml       工程清单（glob include；output → artifacts/xtask/）
-├── xtask_cli.z42        Std.Cli 命令树构建 + dispatch（每层 -h 自动生成）
+├── xtask_cli.z42        CLI **核心**：全局选项剥离 + 根命令树 + 顶层 dispatch 分流（每层 -h 自动生成）
 ├── xtask_deps.z42       deps check 版本漂移检查
 ├── xtask_bench.z42      bench 基准 / --diff 回归对比
 ├── xtask_profile.z42    profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
+├── cli/                每个命令族的 router（叶子的 flag/option 声明）+ dispatch（→ handler）
+│   │                   ——两者成对出现、族间零耦合，故按族分文件，而非「router 一段 / dispatch 一段」
+│   ├── xtask_cli_build.z42    `build` 族
+│   ├── xtask_cli_package.z42  `package` 族
+│   ├── xtask_cli_test.z42     `test` 族（含嵌套的 `test platform` 子 router）
+│   ├── xtask_cli_deps.z42     `deps` 族
+│   └── xtask_cli_bench.z42    `bench` 族 + default-action（`bench` 不带子命令 = e2e）的 parser 与入口
 ├── common/             共享基建（非某个命令专属）
 │   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析
 │   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）

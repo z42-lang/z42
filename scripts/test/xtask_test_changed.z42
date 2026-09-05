@@ -7,8 +7,9 @@
 // parses the legacy CLI (base ref positional + --dry-run) and calls
 // `_testChangedRun(base_, dryRun)` directly.
 //
-// Each mapped plan command is a logical `xtask test …` (run by re-entering the
-// in-process test router `_test`, NOT by shelling out) or a raw `cargo …`
+// Each mapped plan command is a logical `xtask …` verb — `test …`, or `bench
+// --quick` for the perf subtree (run by re-entering the in-process CLI router,
+// NOT by shelling out) — or a raw `cargo …`
 // (run via `_exec(new Process("cargo")…)`). First failing command
 // short-circuits the remainder.
 //
@@ -157,10 +158,12 @@ int _executeChangedPlan(string[] cmds) {
     return exitCode;
 }
 
-// Run one plan command in-process. Logical `xtask test …` re-enters the
-// Std.Cli router via `_runCli` (argv[0] == "test"); raw `cargo …` runs via
-// _exec. Returns the command's exit code (2 on an unrecognized prefix, which
-// shouldn't occur given the mapping only ever emits these two shapes).
+// Run one plan command in-process. Any logical `xtask …` re-enters the Std.Cli
+// router via `_runCli` with the verb as argv[0] — usually "test", also "bench"
+// since move-bench-into-tests mapped the perf subtree to `bench --quick`; raw
+// `cargo …` runs via _exec. Returns the command's exit code (2 on an
+// unrecognized prefix, which shouldn't occur given the mapping only ever emits
+// an `xtask` or a `cargo` command).
 int _runPlanCmd(string cmd) {
     string[] toks = _splitWords(cmd);
     if (toks.Length == 0) { return 0; }
@@ -239,6 +242,20 @@ _MapResult _mapFile(string f) {
         return _mapCmds(new string[]{ "xtask test runtime" });
     }
     if (f.StartsWith("src/tests/cross-zpkg/")) { return _mapCmds(new string[]{ "xtask test e2e --dir cross-zpkg" }); }
+    // perf subtree (move-bench-into-tests, 2026-09-05). Two things it is NOT:
+    //   - not the e2e golden suite: these are timing scenarios, excluded from
+    //     golden discovery, so `test e2e` below would be pure cost here;
+    //   - not _mapSkip either, which is what the old top-level `bench/` prefix
+    //     got. **This is a deliberate tightening.** Skipping meant a scenario
+    //     broken by an edit (won't compile, or its Main moved) stayed invisible
+    //     until bench-pr.yml ran it — on a VM-touching PR that job is ~1030s.
+    //     `bench --quick` (first 2 scenarios, runs=3, warmup=1) answers "does a
+    //     scenario still compile and run" in under a minute, locally.
+    // Whole subtree, not just scenarios/: probe/ and the schema feed the same
+    // pipeline, and per the exclusion-not-allowlist rule (simplify-bench-gate) a
+    // missed file type would silently skip the check, while over-matching only
+    // costs one quick run.
+    if (f.StartsWith("src/tests/perf/"))       { return _mapCmds(new string[]{ "xtask bench --quick" }); }
     if (f.StartsWith("src/tests/"))            { return _mapCmds(new string[]{ "xtask test e2e" }); }
 
     // z42c self-host compiler (src/compiler).
@@ -260,8 +277,10 @@ _MapResult _mapFile(string f) {
     // Anything else under src/ → full sweep (defensive).
     if (f.StartsWith("src/")) { return _mapFull(); }
 
-    // Examples / artifacts / bench — no test impact.
-    if (f.StartsWith("examples/") || f.StartsWith("artifacts/") || f.StartsWith("bench/")) { return _mapSkip(); }
+    // Examples / artifacts — no test impact. (The former `bench/` prefix here went
+    // away with the top-level directory in move-bench-into-tests; its successor
+    // `src/tests/perf/` is handled above.)
+    if (f.StartsWith("examples/") || f.StartsWith("artifacts/")) { return _mapSkip(); }
 
     // Unknown root-level file → full sweep (safe default).
     return _mapFull();

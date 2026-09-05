@@ -18,5 +18,5 @@ entry = "ProbeA.Main"
 name  = "probe_b"
 entry = "ProbeB.Main"
 
-[profile.debug]
+[profile.debug.runtime]
 mode = "interp"
