@@ -76,12 +76,37 @@ managed 布局的 `Z42_HOME` 不符 SDK-toolchain 布局时自动回落 build-tr
 | 组件 | 位置 | 要点 |
 |------|------|------|
 | 入口 + 顶层 handler | `scripts/xtask.z42` | `Main` → `_ensureDriverVm` 校验 VM → `_runCli` |
-| 路由树 + 分发 | `scripts/xtask_cli.z42` | `_cliRoot` 构造树；`_applyToolchainOpt` 剥离全局标志 |
+| CLI 核心 | `scripts/xtask_cli.z42` | `_applyToolchainOpt`/`_applyVerbosityOpt` 剥离全局标志 → `_cliRoot` 构造根树 → `_dispatch` 按顶层命令分流 |
+| 各命令族的 router + dispatch | `scripts/cli/xtask_cli_<族>.z42` | build / package / test / deps / bench 各一文件（见下节） |
 | 共享基建 | `scripts/common/` | 路径解析、进程执行、versions.toml、golden 枚举 |
 | 构建编排 | `scripts/build/` | 见[构建编排](build.md) |
 | 测试编排 | `scripts/test/` | 见[测试门禁](test-gate.md) |
 | 打包引擎 | `scripts/package/` + `scripts/packages.toml` | 见[打包引擎](packaging.md) |
 | 依赖安装 | `scripts/install/` + `scripts/xtask_deps.z42` | 依赖两层模型 + `deps check/install/env` 三正交子命令（见下节） |
+
+### CLI 分层：核心 + 每族一文件（split-xtask-cli, 2026-09-05）
+
+每个命令族有两件东西：**router**（声明该族每个叶子的 flag / option / positional，`-h`
+文本由此生成）和 **dispatch**（把已解析的命令转给 handler）。二者**成对出现、族间零耦合**
+——`build` 的 router 与 `test` 的 dispatch 之间没有任何引用。所以按**族**分文件，而不是
+按「所有 router 一段、所有 dispatch 一段」：
+
+```
+scripts/xtask_cli.z42              核心：全局选项剥离 → _cliRoot 根树 → _dispatch 分流
+scripts/cli/xtask_cli_build.z42    _buildRouter    + _dispatchBuild
+scripts/cli/xtask_cli_package.z42  _packageRouter  + _dispatchPackage
+scripts/cli/xtask_cli_test.z42     _testRouter (+_platformRouter) + _dispatchTest
+scripts/cli/xtask_cli_deps.z42     _depsRouter     + _dispatchDeps
+scripts/cli/xtask_cli_bench.z42    _benchRouter    + _dispatchBench + default-action e2e 入口
+```
+
+**加一个命令族** = `scripts/cli/` 加一个文件 + `_cliRoot` 加一行 `AddRouter` +
+`_dispatch` 加一行。namespace 扁平（`Z42Xtask`）、`include = ["**/*.z42"]` 递归收录，
+所以拆文件不需要改任何 import。
+
+> 两个 **default-action** 命令（`test` 空子命令 = 全 gate、`bench` 空子命令 = e2e）
+> 是路由树表达不了的，由 `_runCli` 在 `Resolve` 之前拦截；它们仍注册在树里，好让
+> `xtask -h` 列出、`xtask bench stdlib -h` 正常工作。
 
 ### 依赖两层模型（`deps`，simplify-xtask-deps 2026-07-07）
 

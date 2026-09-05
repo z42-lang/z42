@@ -1,0 +1,134 @@
+// xtask CLI — `test` 命令族：router（含嵌套的 `test platform` 子 router）+
+// dispatch。拆分背景见 scripts/cli/xtask_cli_build.z42 头部。
+namespace Z42Xtask;
+
+using Std;
+using Std.Cli;
+
+SubcommandRouter _testRouter() {
+    SubcommandRouter t = new SubcommandRouter("xtask test", "run tests");
+    ArgParser allP = new ArgParser("xtask test all", "full gate");
+    allP.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
+    allP.AddOption("skip", "", "skip named stages (csv: stdlib,cross-zpkg,compiler,vscode) — CI uses per-leg skip lists to offload stages to parallel jobs; local runs omit this for the full gate", "");
+    t.Add("all", "e2e + stdlib + compiler (runtime 独立，见 test runtime)", allP);
+    ArgParser stdlib = new ArgParser("xtask test stdlib", "stdlib [Test] (all or one)");
+    stdlib.AddFlag("no-build", "", "skip tooling rebuild");
+    stdlib.AddOption("filter", "k", "test-name filter", "");
+    stdlib.AddOption("jobs", "", "parallel unit batch width", "");
+    stdlib.AddOption("mode", "", "interp|jit (default: interp; jit forks z42vm)", "");
+    stdlib.AddOption("shard", "", "k/n: run shard k of n libs (balanced; for parallel CI)", "");
+    // extend-ab-bench-micro-criterion: _testLib 无条件读这三个 → test/bench 两侧都注册。
+    stdlib.AddOption("vm", "", "override: prebuilt z42vm (with --driver/--libs → skip in-tree build)", "");
+    stdlib.AddOption("driver", "", "override: prebuilt z42c.driver.zpkg", "");
+    stdlib.AddOption("libs", "", "override: prebuilt flat libs dir (stdlib + z42c siblings)", "");
+    stdlib.AddOptionalPositional("lib", "single lib (default: all)");
+    t.Add("stdlib", "stdlib [Test] (all or one)", stdlib);
+    ArgParser targets = new ArgParser("xtask test targets", "manifest [[test]] target fixtures (harness true/false; src/tests/manifest-targets)");
+    targets.AddFlag("no-build", "", "skip tooling rebuild");
+    targets.AddOptionalPositional("name", "single target name (default: all)");
+    t.Add("targets", "manifest [[test]] target fixtures (all or one by name)", targets);
+    t.Add("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)",
+        new ArgParser("xtask test runtime", "Rust VM unit/integration harness (--test-threads=1)"));
+    ArgParser e2e = new ArgParser("xtask test e2e", "src/tests end-to-end suite (goldens + cross-zpkg)");
+    e2e.AddFlag("no-rebuild", "", "skip rebuild before run");
+    e2e.AddFlag("no-build", "", "regen goldens only — skip z42c+stdlib rebuild (consume bootstrap output)");
+    e2e.AddOption("dir", "", "run only src/tests/<cat> (e.g. classes, cross-zpkg)", "");
+    e2e.AddOption("file", "", "run one case (name or source-path substring)", "");
+    e2e.AddOption("mode", "", "interp|jit (default: both)", "");
+    e2e.AddOption("jobs", "", "parallel jobs", "");
+    e2e.AddOption("shard", "", "k/n: run shard k of n golden cases (for parallel CI)", "");
+    t.Add("e2e", "src/tests end-to-end (goldens + cross-zpkg; --dir/--file to narrow)", e2e);
+    // read-only catalog of the case-granular corpus (tidy-test-system): what cases
+    // exist, how to run one, which platforms can run it — no source-reading needed.
+    ArgParser list = new ArgParser("xtask test list", "list the case-granular test corpus (goldens + stdlib [Test])");
+    list.AddOption("dir", "", "only this bucket (src/tests <cat> or stdlib <lib>)", "");
+    list.AddOption("filter", "", "only cases whose name contains this substring", "");
+    list.AddOption("kind", "", "golden | test | all (default: all)", "");
+    list.AddOption("rid", "", "annotate platform exclusion for a target RID (e.g. browser-wasm)", "");
+    list.AddFlag("json", "", "emit JSON instead of the human table");
+    t.Add("list", "catalog the case-granular corpus (--dir/--filter/--kind/--rid/--json)", list);
+    // wire-embedded-testhost: run a compiled test module through the embedded
+    // test-host (build agent + desktop testhost shell + run → structured result).
+    ArgParser embedded = new ArgParser("xtask test embedded", "run tests through the embedded test-host (desktop / wasm)");
+    embedded.AddOption("format", "", "json|pretty|tap (default: json)", "");
+    embedded.AddOption("case", "", "build+run one case by name (e.g. basic/zlib_format)", "");
+    embedded.AddOption("filter", "", "build+run cases whose name contains this substring", "");
+    embedded.AddOption("rid", "", "target RID: host desktop (default, in-process) | browser-wasm | ios-arm64 | iossim-arm64 | android-arm64 | android-x64", "");
+    embedded.AddOption("shard", "", "k/n: run shard k of n corpus cases (full slice, NO smoke cap; for parallel tier-2 CI)", "");
+    // --run (device RID): run the already-built deployable on the device (z42b-device-run
+    // PR-1). For browser-wasm: delegate to z42b's wasm driver (spawn playwright embedded).
+    // Without --run a device RID only BUILDS the deployable (compile-once, RUN separate).
+    embedded.AddFlag("run", "", "device RID: run the already-built deployable on the device (delegates to z42b --run)");
+    embedded.AddOptionalPositional("target", ".zbc / golden-case dir (omit → build+run full bundle)");
+    t.Add("embedded", "run tests via the embedded test-agent (bundle all / --case / --filter / single)", embedded);
+    ArgParser dist = new ArgParser("xtask test dist", "distribution verification");
+    dist.AddOptionalPositional("mode", "interp|jit (default: both)");
+    t.Add("dist", "distribution verification", dist);
+    t.Add("compiler", "z42c 自举不动点 + smoke",
+        new ArgParser("xtask test compiler", "z42c fixpoint"));
+    t.Add("packages", "packages.toml self-checks (parse + staging + assembly)",
+        new ArgParser("xtask test packages", "packages.toml parse + staging + assembly self-checks"));
+    ArgParser bootstrap = new ArgParser("xtask test bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)");
+    bootstrap.AddOptionalPositional("rid", "target RID (default: host)");
+    t.Add("bootstrap", "staged-bootstrap boundary check (nightly z42c → current source)", bootstrap);
+    t.Add("vscode-syntax", "VSCode grammar <-> Lexer keyword-table sync check",
+        new ArgParser("xtask test vscode-syntax", "regen grammar in-memory + diff vs committed"));
+    ArgParser lines = new ArgParser("xtask test lines", "file line-count hard-limit lint (ratchet baseline)");
+    lines.AddFlag("update", "", "rewrite scripts/test/line-limit-baseline.txt from the current tree");
+    t.Add("lines", "file line-count hard-limit lint (>500 lines: new/grown = red, known = warn)", lines);
+    t.Add("incremental", "file-level incremental reconciler (per-file touch: incr == full, byte-exact)",
+        new ArgParser("xtask test incremental", "brute-force reconcile incremental vs full builds + timing"));
+    ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
+    changed.AddFlag("dry-run", "", "print the plan, don't run");
+    changed.AddOptionalPositional("base", "git base ref (default: HEAD)");
+    t.Add("changed", "only changed-area tests", changed);
+    t.AddRouter("platform", "platform 3-phase tests (wasm/ios/android)", _platformRouter());
+    return t;
+}
+
+// `test platform <wasm|ios|android|all> [build|assets|run]` — three-phase
+// (build project / build test assets / run tests). Empty step = full pipeline.
+SubcommandRouter _platformRouter() {
+    SubcommandRouter pr = new SubcommandRouter("xtask test platform", "platform 3-phase tests");
+    ArgParser desktop = new ArgParser("xtask test platform desktop", "desktop C-ABI pipeline");
+    desktop.AddOptionalPositional("step", "build|assets|run (default: all)");
+    pr.Add("desktop", "desktop 3-phase pipeline (Tier-1 C ABI R1–R7)", desktop);
+    ArgParser wasm = new ArgParser("xtask test platform wasm", "wasm pipeline");
+    wasm.AddOptionalPositional("step", "build|assets|run (default: all)");
+    pr.Add("wasm", "wasm 3-phase pipeline", wasm);
+    ArgParser ios = new ArgParser("xtask test platform ios", "iOS pipeline");
+    ios.AddOptionalPositional("step", "build|assets|run (default: all)");
+    pr.Add("ios", "iOS 3-phase pipeline", ios);
+    ArgParser android = new ArgParser("xtask test platform android", "Android pipeline");
+    android.AddOptionalPositional("step", "build|assets|run (default: all)");
+    pr.Add("android", "Android 3-phase pipeline", android);
+    ArgParser all = new ArgParser("xtask test platform all", "all platforms");
+    all.AddOptionalPositional("step", "build|assets|run (default: all)");
+    pr.Add("all", "all platforms", all);
+    return pr;
+}
+
+int _dispatchTest(string[] p, ParseResult r) {
+    string sub = p.Length > 1 ? p[1] : "";
+    if (sub == "all")          { return _testAll(r.GetFlag("no-build"), r.GetOption("skip")); }
+    if (sub == "stdlib")       { return _testLib(r, "test"); }
+    if (sub == "targets")      { return _testTargetsCore("test", r.GetPositional(0), r.GetFlag("no-build")); }
+    if (sub == "runtime")      { return _testRuntime(); }
+    if (sub == "e2e")          { return _testE2e(r); }
+    if (sub == "list")         { return _testList(r); }        // read-only case catalog
+
+    if (sub == "embedded")     { return _testEmbedded(r); }   // 嵌入式 test-host 跑 .zbc（desktop harness）
+    if (sub == "dist")         { return _testDist(r); }
+    if (sub == "compiler") { return _testCompiler(false); }   // 自举不动点
+    if (sub == "packages")     { return _testPackages(); }    // packages.toml parse + staging + assembly 三自检
+    if (sub == "bootstrap")    { return _bootstrapCheck(r.GetPositional(0)); }   // staged-bootstrap 边界检查
+    if (sub == "vscode-syntax") { return _testVscodeSyntax(); }   // grammar ↔ Lexer 关键字一致性
+    if (sub == "lines")        { return _testLines(r.GetFlag("update")); }          // 文件行数硬上限（棘轮基线）
+    if (sub == "incremental")  { return _testIncremental(r); }   // 文件级增量暴力对账（D4/D8）
+    if (sub == "changed")      { return _testChanged(r); }
+    if (sub == "platform") {
+        string plat = p.Length > 2 ? p[2] : "";
+        return _platformDispatch(plat, r.GetPositional(0), _root());
+    }
+    return 2;
+}

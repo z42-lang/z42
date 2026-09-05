@@ -158,18 +158,50 @@ z42c（writer）在每个 `.zbc`/`.zpkg` 头写版本常量；z42vm（reader，`
 
 > 完整"改动类型 → 验证"速查见 [`verify-by-change.md`](../../../workflow/testing/verify-by-change.md)。
 
+### golden 语料枚举：唯一一次遍历，四个消费者
+
+golden 语料被 **4 条命令**消费，它们此前各有一份 ~100 行的同款遍历、靠注释里的
+「mirrors XXX」人工同步（并且**已经漂过**）。现在只有一次遍历——
+`_walkGoldenCorpus(root)`（`scripts/common/xtask_golden.z42`）——产出中性的
+`_GoldenEntry[]`，四个消费者各自 map 成自己的记录类型。
+
+**walk 本身不含准入策略**，只报「找到了什么 + 判断所需的事实」（类别、sidecar、
+artifacts 镜像位置、目录里有没有 `[Test]`）。四个段，按此顺序发射，段内类别/库排序 +
+用例名排序（确定序，[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)）：
+
+| 段 | 位置 |
+|----|------|
+| `tests-dir` | `src/tests/<cat>/<name>/source.z42` |
+| `lib-dir` | `src/libraries/<lib>/tests/<name>/`（golden 或 `[Test]` dir-unit） |
+| `tests-flat` | `src/tests/<cat>/<name>.z42` |
+| `lib-file` | `src/libraries/<lib>/tests/<name>.z42`（stdlib `[Test]` 文件单元） |
+
+**准入策略留在调用点**——四套集合本就有意不同，摆在调用点比藏进四份遍历里可读：
+
+| 消费者 | 排除类别 | 额外过滤 |
+|--------|---------|---------|
+| `build test`（regen） | `_isNonRegenCat` | — |
+| `test e2e`（VM golden） | `_isNonRunnableCat` | `_isExcludedDirName`、镜像 `.zbc` 存在、`interp_only` |
+| `test dist` | `_isNonRunnableCat` | `_isTestRunnerSource`、`interp_only` |
+| `test embedded` / `test list` | `_isNonRunnableCat` | `_isExcludedDirName` |
+
+两套类别谓词的差异**是有意的**：`_isNonRegenCat` **保留** `zbc-format` / `zpkg-format`
+（它们正是要被重生成的字节基线），三个 runner 则排除它们（没有 stdout 可比对）；
+`cross-zpkg` / `multi-exe` / `manifest-targets` 两边都排除（多包 / 多目标，非单 source
+产物，各有自己的 runner）。库测试目录里带 `[Test]` / `[Benchmark]` 的没有 `Main`，
+归 `test stdlib`（z42b）跑，四路都跳过。
+
+> `test embedded` / `test list` 的**发射顺序是 load-bearing 的**（分片切片与
+> `_sampleCorpus` 依赖「同 bucket 连续」，且 src/tests 桶内 dir 与 flat 两种模式按原始
+> basename **交错**排序），所以它在共享 walk 之上做一次按桶重组，而非单遍扫描。
+
 ### regen：golden 基线重生
 
-三种枚举布局合并成一个 case 清单，逐 case spawn z42c 编译（8 路并批）：
+`build test` 拿上面的清单，逐 case spawn z42c 编译（并发度 `max(8, CpuCount())`，
+`Z42_REGEN_JOBS` 可覆盖）。输出一律写 artifacts 镜像，**唯一例外**是 `zbc-format` 类——
+它的 `.zbc` 是签入仓库的字节基线，原地覆盖，好让 `git diff` 直接暴露格式漂移。
 
-| 布局 | 位置 | 输出 |
-|------|------|------|
-| dir 模式 | `src/tests/<cat>/<name>/source.z42` | artifacts 镜像；`zbc-format` 类例外原地 |
-| 库测试 dir 模式 | `src/libraries/<lib>/tests/<name>/source.z42` | artifacts 镜像（跳过 `[Test]`/`[Benchmark]` 目录——无 Main，归 `test stdlib` 跑） |
-| flat 模式 | `src/tests/<cat>/<name>.z42` | artifacts 镜像 |
-
-**排除类**：`errors` / `parse`（预期编译/解析失败，本就无 `.zbc` 可产）、`cross-zpkg`
-（多包协作，非单 source 产物）。工具链选择尊重 `Z42_HOME`（`--toolchain` 设它，见 [xtask](xtask.md)），
+工具链选择尊重 `Z42_HOME`（`--toolchain` 设它，见 [xtask](xtask.md)），
 未设或非 SDK-toolchain 布局时用 build-tree 的 z42c + stdlib + z42vm。
 
 ### test bootstrap：跨版本自举边界检查

@@ -1,0 +1,173 @@
+// 泛型 `where` 约束的校验单测（complete-where-constraints）。
+//
+// 为什么这个文件必须存在：`where T : IFoo` 长期「写了等于没写」——不报错也不校验，比不支持
+// 更糟（不支持会报错，假实现让使用者以为拿到了类型保护）。根因之一是**没有任何门盯着它**：
+// 负例语料原在 `src/tests/errors/`，2026-05-12 搬进 C# 测试项目 `z42.Tests/Fixtures/`，
+// 2026-06-26 C# 编译器移除时随之蒸发。自举迁移只搬了「能编过」的正例。
+//
+// 载体沿用既有机制（`SemanticDump` + `[Test]`，由 `xtask test compiler` stage 驱动），
+// 不另造第二套：`ConstraintChecker` 与 `TypeChecker` 共用同一个 `DiagnosticBag`
+// （TypeChecker.z42 构造 + 驱动 Resolve；校验落在 ConstructTyper 的 `new` 点与
+// MemberResolver 的显式型参调用点），故约束诊断对 `SemanticDump` 天然可见。
+//
+// 断言口径：`FirstErrorCode` 返回**首条诊断**的码（不分 error/warning），空串 = 一条诊断都没有。
+// 故「满足约束」的正例断言 `""`，比只断言 ErrorCount==0 更严——后者看不见 warning。
+namespace Z42cSemanticsConstraintTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 接口约束：非泛型接口 ────────────────────────────────────────────────────
+
+[Test]
+void test_interface_constraint_satisfied_reports_nothing() {
+    string src = "interface IFoo { }\n"
+        + "class C : IFoo { }\n"
+        + "class Box<T> where T : IFoo { }\n"
+        + "class Use { void f() { var b = new Box<C>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_interface_constraint_violated_is_reported() {
+    // D 不实现 IFoo。此前**静默通过**——本用例就是那条静默的门。
+    string src = "interface IFoo { }\n"
+        + "class D { }\n"
+        + "class Box<T> where T : IFoo { }\n"
+        + "class Use { void f() { var b = new Box<D>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 泛型接口约束：ArgCount 过滤曾把这一整类丢弃 ─────────────────────────────
+
+[Test]
+void test_generic_interface_constraint_satisfied() {
+    // 全仓真实约束绝大多数长这样（IEquatable<T> / IComparable<T> / INumber<T>）。
+    // `_fillBundle` 此前的 `nt.ArgCount == 0` 条件在接口判定**之前**就整条丢弃它们，
+    // 这才是接口约束全体静默的直接原因。
+    string src = "interface IEq<T> { }\n"
+        + "class F : IEq<F> { }\n"
+        + "class Bag<T> where T : IEq<T> { }\n"
+        + "class Use { void f() { var b = new Bag<F>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_generic_interface_constraint_violated_is_reported() {
+    string src = "interface IEq<T> { }\n"
+        + "class G { }\n"
+        + "class Bag<T> where T : IEq<T> { }\n"
+        + "class Use { void f() { var b = new Bag<G>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 接口继承闭包：`class C : IDerived` 满足 `where T : IBase` ────────────────
+
+[Test]
+void test_inherited_interface_satisfies_base_interface_constraint() {
+    // 符号表此前**根本不记接口继承**（传递闭包只在 IR 发射期由 ClassDescBuilder._expandIfaces
+    // 算），`Implements("E","IB")` 返回 false → 误报。Z42InterfaceType.BaseNames + Implements
+    // 走 BFS 后应满足。
+    string src = "interface IB { }\n"
+        + "interface ID : IB { }\n"
+        + "class E : ID { }\n"
+        + "class Box<T> where T : IB { }\n"
+        + "class Use { void f() { var b = new Box<E>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_two_level_interface_inheritance_closure() {
+    // 三层：IC : IB : IA，class 只声明 IC → 仍应满足 `where T : IA`。
+    string src = "interface IA { }\n"
+        + "interface IB : IA { }\n"
+        + "interface IC : IB { }\n"
+        + "class H : IC { }\n"
+        + "class Box<T> where T : IA { }\n"
+        + "class Use { void f() { var b = new Box<H>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_unrelated_interface_still_violates() {
+    // 闭包不能过度放宽：J 实现 IC（→IB→IA），但约束要 IZ，仍须报。
+    string src = "interface IA { }\n"
+        + "interface IB : IA { }\n"
+        + "interface IC : IB { }\n"
+        + "interface IZ { }\n"
+        + "class J : IC { }\n"
+        + "class Box<T> where T : IZ { }\n"
+        + "class Use { void f() { var b = new Box<J>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 基类链上的接口 ──────────────────────────────────────────────────────────
+
+[Test]
+void test_interface_from_base_class_satisfies() {
+    string src = "interface IFoo { }\n"
+        + "class Base : IFoo { }\n"
+        + "class Derived : Base { }\n"
+        + "class Box<T> where T : IFoo { }\n"
+        + "class Use { void f() { var b = new Box<Derived>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 泛型类内部转发：型参作实参时不得误报 ────────────────────────────────────
+
+[Test]
+void test_type_param_forwarded_as_arg_is_not_reported() {
+    // `Outer<T>` 内部 `new Box<T>()`——此处 T 未解析，无从判定；它的约束由 Outer 自己的
+    // 实例化点校验。若这里报错，每个泛型类的内部转发都会误报。
+    string src = "interface IFoo { }\n"
+        + "class Box<T> where T : IFoo { }\n"
+        + "class Outer<T> where T : IFoo { void f() { var b = new Box<T>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 多接口约束：`where T : IFoo + IBar`（z42 用 + 分隔） ────────────────────
+
+[Test]
+void test_multiple_interface_constraints_all_checked() {
+    string src = "interface IFoo { }\n"
+        + "interface IBar { }\n"
+        + "class OnlyFoo : IFoo { }\n"
+        + "class Box<T> where T : IFoo + IBar { }\n"
+        + "class Use { void f() { var b = new Box<OnlyFoo>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_multiple_interface_constraints_satisfied() {
+    string src = "interface IFoo { }\n"
+        + "interface IBar { }\n"
+        + "class Both : IFoo, IBar { }\n"
+        + "class Box<T> where T : IFoo + IBar { }\n"
+        + "class Use { void f() { var b = new Box<Both>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 方法级 where（显式写类型实参才校验，见 Deferred inferred-method-args） ──
+
+[Test]
+void test_method_level_interface_constraint_violated() {
+    string src = "interface IFoo { }\n"
+        + "class K { }\n"
+        + "class Use {\n"
+        + "    void g<T>(T x) where T : IFoo { }\n"
+        + "    void f() { K k = new K(); this.g<K>(k); }\n"
+        + "}\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_method_level_interface_constraint_satisfied() {
+    string src = "interface IFoo { }\n"
+        + "class L : IFoo { }\n"
+        + "class Use {\n"
+        + "    void g<T>(T x) where T : IFoo { }\n"
+        + "    void f() { L l = new L(); this.g<L>(l); }\n"
+        + "}\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

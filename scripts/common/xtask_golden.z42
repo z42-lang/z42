@@ -65,15 +65,210 @@ string[] _append(string[] arr, int count, string v) {
     return bigger;
 }
 
+// ── unified golden-corpus walk (unify-golden-corpus-walk, 2026-09-05) ────────
+//
+// ONE filesystem traversal of the golden corpus, shared by all four consumers
+// (`build test` regen, `test e2e`, `test dist`, `test embedded` / `test list`).
+// Before this, each consumer had its own ~100-line copy of the same three-layout
+// walk, kept in sync by hand via "mirrors XXX" comments — and they HAD drifted.
+//
+// The walk is deliberately policy-FREE: it reports every case it finds plus the
+// facts a consumer needs to decide (category, sidecars, artifact-mirror
+// location, whether the dir holds `[Test]` methods). Inclusion policy stays at
+// the four call sites, where the sets differ ON PURPOSE:
+//
+//   consumer             excluded cats        extra filters
+//   build test  (assets) _isNonRegenCat       —
+//   test e2e    (vm)     _isNonRunnableCat    _isExcludedDirName · mirror .zbc exists · interp_only
+//   test dist            _isNonRunnableCat    _isTestRunnerSource · interp_only
+//   test embedded/list   _isNonRunnableCat    _isExcludedDirName
+//
+// (`_isNonRegenCat` keeps zbc-format / zpkg-format — those ARE regenerated as
+// byte baselines — while the three runners drop them: no stdout to diff.)
+//
+// Segments, emitted in this order (the pre-existing regen / e2e / dist order):
+//   "tests-dir"   src/tests/<cat>/<name>/source.z42
+//   "lib-dir"     src/libraries/<lib>/tests/<name>/       (golden OR [Test] dir-unit)
+//   "tests-flat"  src/tests/<cat>/<name>.z42
+//   "lib-file"    src/libraries/<lib>/tests/<name>.z42    (stdlib [Test] file unit)
+// Within a segment: category/lib sorted, then case name sorted — determinism per
+// common-pitfalls.md §1 (this also replaces the unsorted `Path.Glob` the flat
+// walks used to trust).
+class _GoldenEntry {
+    public string seg;            // tests-dir | lib-dir | tests-flat | lib-file
+    public string cat;            // src/tests category, or lib name for lib-*
+    public string name;           // case name (dir name / file basename, no ext)
+    public string entryName;      // raw directory-entry basename (name, or name + ".z42")
+    public string dir;            // dir holding the sidecars (case dir; cat/tests dir when flat)
+    public string src;            // source .z42 path (may not exist — see hasSource)
+    public string expected;       // expected_output.txt path (dir-mode) / <name>.expected_output.txt (flat)
+    public string relUnderSrc;    // path under src/ for _goldenArtifactDir (dir of the .zbc)
+    public string zbcName;        // "source.zbc" (dir-mode) / "<name>.zbc" (flat)
+    public bool   isLib;          // came from src/libraries/<lib>/tests
+    public bool   hasSource;      // src exists on disk
+    public bool   interpOnly;     // interp_only sidecar present → no jit run
+    public bool   hasTestMethods; // lib-dir only: some .z42 in dir declares [Test]
+
+    public _GoldenEntry() {
+        this.seg = ""; this.cat = ""; this.name = ""; this.entryName = "";
+        this.dir = ""; this.src = ""; this.expected = ""; this.relUnderSrc = "";
+        this.zbcName = ""; this.isLib = false; this.hasSource = false;
+        this.interpOnly = false; this.hasTestMethods = false;
+    }
+}
+
+// Absolute path of this entry's golden .zbc in the artifacts mirror.
+string _entryZbc(string root, _GoldenEntry e) {
+    return Path.Join(_goldenArtifactDir(root, e.relUnderSrc), e.zbcName);
+}
+
+_GoldenEntry[] _appendEntry(_GoldenEntry[] arr, int n, _GoldenEntry v) {
+    if (n < arr.Length) { arr[n] = v; return arr; }
+    _GoldenEntry[] bigger = new _GoldenEntry[arr.Length * 2 + 8];
+    int i = 0;
+    while (i < n) { bigger[i] = arr[i]; i = i + 1; }
+    bigger[n] = v;
+    return bigger;
+}
+
+_GoldenEntry[] _walkGoldenCorpus(string root) {
+    _GoldenEntry[] es = new _GoldenEntry[512];
+    int n = 0;
+
+    string testsRoot = Path.Join(root, "src/tests");
+    string[] cats = _enumDirsSorted(testsRoot);
+    string libsRoot = Path.Join(root, "src/libraries");
+    string[] libs = _enumDirsSorted(libsRoot);
+
+    // 1. src/tests/<cat>/<name>/source.z42
+    int ci = 0;
+    while (ci < cats.Length) {
+        string cat = cats[ci];
+        string catDir = Path.Join(testsRoot, cat);
+        string[] names = _enumDirsSorted(catDir);
+        int ni = 0;
+        while (ni < names.Length) {
+            string name = names[ni];
+            string dir = Path.Join(catDir, name);
+            _GoldenEntry e = new _GoldenEntry();
+            e.seg = "tests-dir"; e.cat = cat; e.name = name; e.entryName = name;
+            e.dir = dir;
+            e.src = Path.Join(dir, "source.z42");
+            e.expected = Path.Join(dir, "expected_output.txt");
+            e.relUnderSrc = Path.Join(Path.Join("tests", cat), name);
+            e.zbcName = "source.zbc";
+            e.hasSource = File.Exists(e.src);
+            e.interpOnly = File.Exists(Path.Join(dir, "interp_only"));
+            es = _appendEntry(es, n, e); n = n + 1;
+            ni = ni + 1;
+        }
+        ci = ci + 1;
+    }
+
+    // 2. src/libraries/<lib>/tests/<name>/ — golden dirs AND [Test] dir-units.
+    int li = 0;
+    while (li < libs.Length) {
+        string lib = libs[li];
+        string tdir = Path.Join(libsRoot, lib + "/tests");
+        if (Directory.Exists(tdir)) {
+            string[] names = _enumDirsSorted(tdir);
+            int ni = 0;
+            while (ni < names.Length) {
+                string name = names[ni];
+                string dir = Path.Join(tdir, name);
+                _GoldenEntry e = new _GoldenEntry();
+                e.seg = "lib-dir"; e.cat = lib; e.name = name; e.entryName = name;
+                e.dir = dir; e.isLib = true;
+                e.src = Path.Join(dir, "source.z42");
+                e.expected = Path.Join(dir, "expected_output.txt");
+                e.relUnderSrc = Path.Join(Path.Join(Path.Join("libraries", lib), "tests"), name);
+                e.zbcName = "source.zbc";
+                e.hasSource = File.Exists(e.src);
+                e.interpOnly = File.Exists(Path.Join(dir, "interp_only"));
+                e.hasTestMethods = _dirHasTestMethods(dir);
+                es = _appendEntry(es, n, e); n = n + 1;
+                ni = ni + 1;
+            }
+        }
+        li = li + 1;
+    }
+
+    // 3. src/tests/<cat>/<name>.z42 (flat mode; sidecars are <name>.<sidecar>)
+    ci = 0;
+    while (ci < cats.Length) {
+        string cat = cats[ci];
+        string catDir = Path.Join(testsRoot, cat);
+        string[] entries = _sortedStrings(Directory.Enumerate(catDir));
+        int ei = 0;
+        while (ei < entries.Length) {
+            string f = entries[ei];
+            if (f.EndsWith(".z42")) {
+                string name = f.Substring(0, f.Length - 4);
+                _GoldenEntry e = new _GoldenEntry();
+                e.seg = "tests-flat"; e.cat = cat; e.name = name; e.entryName = f;
+                e.dir = catDir;
+                e.src = Path.Join(catDir, f);
+                e.expected = Path.Join(catDir, name + ".expected_output.txt");
+                e.relUnderSrc = Path.Join("tests", cat);
+                e.zbcName = name + ".zbc";
+                e.hasSource = File.Exists(e.src);
+                e.interpOnly = File.Exists(Path.Join(catDir, name + ".interp_only"));
+                es = _appendEntry(es, n, e); n = n + 1;
+            }
+            ei = ei + 1;
+        }
+        ci = ci + 1;
+    }
+
+    // 4. src/libraries/<lib>/tests/<name>.z42 — stdlib [Test] file units.
+    li = 0;
+    while (li < libs.Length) {
+        string lib = libs[li];
+        string tdir = Path.Join(libsRoot, lib + "/tests");
+        if (Directory.Exists(tdir)) {
+            string[] entries = _sortedStrings(Directory.Enumerate(tdir));
+            int ei = 0;
+            while (ei < entries.Length) {
+                string f = entries[ei];
+                if (f.EndsWith(".z42")) {
+                    string name = f.Substring(0, f.Length - 4);
+                    _GoldenEntry e = new _GoldenEntry();
+                    e.seg = "lib-file"; e.cat = lib; e.name = name; e.entryName = f;
+                    e.dir = tdir; e.isLib = true;
+                    e.src = Path.Join(tdir, f);
+                    e.hasSource = true;
+                    es = _appendEntry(es, n, e); n = n + 1;
+                }
+                ei = ei + 1;
+            }
+        }
+        li = li + 1;
+    }
+
+    _GoldenEntry[] tight = new _GoldenEntry[n];
+    int t = 0;
+    while (t < n) { tight[t] = es[t]; t = t + 1; }
+    return tight;
+}
+
 // ── golden-walk exclusions (added by test-vm fold) ───────────────────────────
 
 // Categories whose golden is NOT "run z42vm and diff stdout": cross-zpkg and
 // multi-exe are multi-package / multi-target project e2e runs handled by their
 // own runners; zbc-format / zpkg-format are byte-format goldens (no stdout).
-// Distinct from regen's _isNonRegenCat, which excludes a different set.
+// Deliberately NOT the same set as regen's _isNonRegenCat, which KEEPS the two
+// format categories (they are the byte baselines it exists to refresh).
+//
+// `perf` is the benchmark subtree (move-bench-into-tests, 2026-09-05) — timing
+// scenarios owned by `xtask bench`, never correctness goldens. Its files sit a
+// level deeper (perf/scenarios/*.z42, perf/probe/, perf/testdata/), so no
+// segment of the walk reaches them today: "tests-dir" needs
+// <cat>/<name>/source.z42 and "tests-flat" only takes <cat>/*.z42. This entry
+// states the exclusion instead of relying on that layout accident, so a later
+// `perf/<name>.z42` can't silently enlist a benchmark as a golden test.
 bool _isNonRunnableCat(string cat) {
     return cat == "cross-zpkg" || cat == "multi-exe" || cat == "zbc-format" || cat == "zpkg-format"
-        || cat == "manifest-targets";
+        || cat == "manifest-targets" || cat == "perf";
 }
 
 // ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─

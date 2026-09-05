@@ -77,12 +77,15 @@ on:
       - 'src/runtime/**'
       - 'src/libraries/**'
       - 'src/compiler/**'
-      - 'bench/**'
+      # move-bench-into-tests (2026-09-05): 顶层 bench/ 已并入 src/tests/perf/
+      # （场景 / 探针 / 判红 fixture / schema / repl 脚本）。这里只列 perf 子树 ——
+      # src/tests/ 其余是正确性 golden，动它们不影响性能测量。
+      - 'src/tests/perf/**'
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
       - '.github/workflows/bench-pr.yml'
       # narrow-bench-gate-guards: 上面的目录通配会把纯文档 PR 也拉进来（改一行
-      # bench/README.md 就烧一个完整门禁 job）。负向模式在后 ⇒ 覆盖前面的匹配：
+      # docs 里的 .md 就烧一个完整门禁 job）。负向模式在后 ⇒ 覆盖前面的匹配：
       # 只动 .md 的 PR 一个文件都不命中 → 整个 workflow 不触发；.md 与代码同改照旧跑。
       - '!**/*.md'
 
@@ -143,6 +146,58 @@ jobs:
         with:
           rid: linux-x64
           gh-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Verdict-logic self-check (move-bench-into-tests, 2026-09-05).
+      #
+      # The fixtures under src/tests/perf/testdata/ encode the outcomes the
+      # interval-aware rule must produce. Until now nothing ran them, so a bad
+      # edit could only be caught by noticing weird numbers on a real PR. Pure
+      # JSON comparison — no VM, no scenarios, a few seconds — and it runs BEFORE
+      # the ~20 minutes of measurement so a broken rule fails fast.
+      #
+      # WHAT IT COVERS: `bench --diff` → `_benchDiff`, whose gate is
+      # `delta > thr AND cLo > bHi` (both halves, see below). That is the
+      # historical/dashboard comparison path.
+      # WHAT IT DOES NOT: `_abVerdict` (the `--ab` e2e PR gate) needs two real
+      # toolchains measured on one runner, so no JSON fixture can drive it;
+      # `_microDiff` could be fixture-driven but has none yet. Both are gaps.
+      #
+      # The four cases are chosen so that each half of the AND has a case that
+      # flips when that half breaks:
+      #   overlap    → 0  intervals overlap ⇒ noise, however big delta looks
+      #   regress    → 1  separated AND over threshold ⇒ the one real red
+      #   improve    → 0  separated downward ⇒ improvement, never a red
+      #   separated-under-threshold → 0  separated but only +20% (< 0.25).
+      #       ^ this is the ONLY case sensitive to the threshold itself: drop thr
+      #         to 0.10 and it turns red. Without it the suite passes unchanged
+      #         at thr=0.001 — i.e. it would not notice the threshold at all,
+      #         which is exactly the `lo > 0` vs `lo > thr` class of bug #457 fixed.
+      - name: Verdict logic self-check (bench --diff over four fixtures)
+        shell: bash
+        run: |
+          set -uo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          T="src/tests/perf/testdata"
+          run_case() {
+            Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+              "$vm" artifacts/xtask/xtask.zpkg -- \
+              bench --diff --current "$T/current-$1.json" --baseline "$T/baseline.json" \
+              --threshold-time 0.25 >/dev/null 2>&1
+            echo $?
+          }
+          fail=0
+          for c in overlap:0 regress:1 improve:0 separated-under-threshold:0; do
+            name="${c%%:*}"; want="${c##*:}"
+            got="$(run_case "$name")"
+            if [ "$got" = "$want" ]; then
+              echo "✅ $name → exit $got (expected $want)"
+            else
+              echo "::error::verdict self-check: $name exited $got, expected $want"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || { echo "❌ 判红规则与 fixture 不符 —— 改了 _benchDiff 的阈值或区间条件?"; exit 1; }
+          echo "✅ verdict logic matches all four fixtures"
 
       # Build the base (merge-base) toolchain on THIS runner. The PR z42c
       # (newer) compiles the older base source — the staged-bootstrap discipline
@@ -267,7 +322,7 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench stdlib --json "$PWD/bench/results/micro-pr.json" --no-build --mode interp
+            bench stdlib --json "$PWD/artifacts/bench/micro-pr.json" --no-build --mode interp
 
       - name: Capture base micro baseline (base tree, same runner)
         shell: bash
@@ -284,7 +339,7 @@ jobs:
           ( cd base-src && \
             Z42_PORTABLE_VM="$PRVM" Z42_LIBS="$ROOT/artifacts/build/libraries/dist/release" \
             "$PRVM" "$ROOT/artifacts/xtask/xtask.zpkg" -- \
-            bench stdlib --json "$ROOT/bench/results/micro-base.json" --no-build --mode interp \
+            bench stdlib --json "$ROOT/artifacts/bench/micro-base.json" --no-build --mode interp \
               --vm     "${{ steps.base.outputs.base_vm }}" \
               --driver "${{ steps.base.outputs.base_driver }}" \
               --libs   "${{ steps.base.outputs.base_libs }}" )
@@ -308,8 +363,8 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
             bench --micro-diff --threshold-time 0.25 \
-              --current  "$PWD/bench/results/micro-pr.json" \
-              --baseline "$PWD/bench/results/micro-base.json" || true
+              --current  "$PWD/artifacts/bench/micro-pr.json" \
+              --baseline "$PWD/artifacts/bench/micro-base.json" || true
           echo "── micro tier is informational; it never fails this job ──"
 
       # ── extend-ab-bench-micro-criterion Part C: criterion(Rust) tier A/B ──
@@ -409,7 +464,7 @@ jobs:
         with:
           name: bench-ab-results
           path: |
-            bench/results/ab.json
-            bench/results/micro-pr.json
-            bench/results/micro-base.json
+            artifacts/bench/ab.json
+            artifacts/bench/micro-pr.json
+            artifacts/bench/micro-base.json
           if-no-files-found: ignore

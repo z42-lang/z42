@@ -180,7 +180,7 @@ RAII guard：
 
 只加预算是个陷阱。原策略的去抖条件是「自上次回收以来 used 增长 >= `throttle_ratio × 预算`」，
 **只看增长、不看成效**：当活跃集本身就超过预算时，每次回收都几乎回收不到东西、堆继续涨、
-增长门再次满足 —— 无限循环。实测 `bench/scenarios/09_alloc_ctorless`（150 万对象全部存活）
+增长门再次满足 —— 无限循环。实测 `src/tests/perf/scenarios/09_alloc_ctorless`（150 万对象全部存活）
 配 64MB 预算：每涨约 6MB 就做一次全量 mark-sweep，每次回收 **0 字节**、耗时约 75ms，
 **0.29 s 的程序 9 分钟没跑完**。
 
