@@ -169,16 +169,17 @@ public sealed class Z42ClassType : Z42Type {
     // 逐键 Get 再哈希（重载决议对每个调用点沿 base 链反复调用本方法）。
     public MethodSymbol[] OverloadsOf(string name) {
         int cap = this.Methods.Capacity();
+        // 槽位直扫走批量视图：原来每槽两次 z42 方法调用（UsedAt + ValAt），而本方法在重载决议里
+        // 对每个调用点沿 base 链反复调用。扫描期间不写表，数组引用始终有效。
+        bool[] used = this.Methods.UsedArr();
+        object[] vals = this.Methods.ValArr();
         MethodSymbol[] tmp = new MethodSymbol[this.Methods.Count()];
         int n = 0;
         int i = 0;
         while (i < cap) {
-            if (this.Methods.UsedAt(i)) {
-                object v = this.Methods.ValAt(i);
-                if (v is MethodSymbol) {
-                    MethodSymbol ms = v as MethodSymbol;
-                    if (ms.Name == name) { tmp[n] = ms; n = n + 1; }
-                }
+            if (used[i]) {
+                MethodSymbol ms = vals[i] as MethodSymbol;   // 非 MethodSymbol / null → null，与原 `is` 判等价
+                if (ms != null && ms.Name == name) { tmp[n] = ms; n = n + 1; }
             }
             i = i + 1;
         }
