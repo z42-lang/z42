@@ -119,7 +119,7 @@ z42 通过 zsym sidecar 实现 release 构建的"小体积 + 离线可符号化"
 
 - **debug 构建**（默认）：`.zpkg` 内嵌 DBUG section（含 LineTable + LocalVarTable）；trace 直接显示 `at <FQN>(<sig>) (<file>:<line>:<col>)`
 - **release 构建**（`[profile.release].strip = true` 或 `--strip-symbols=true`）：
-  - `<name>.zpkg`：剥离 DBUG bodies + 写 16 字节 BLID section（BLAKE3-128）
+  - `<name>.zpkg`：剥离 DBUG bodies + 写 16 字节 BLID section（MurmurHash3 x86_128）
   - `<name>.zsym`：sidecar zpkg（`ZpkgFlags.SymOnly`）+ 单独 STRS（debug 字符串子集）+ MDBG（per-module DBUG）+ BLID
   - 两者通过 BLID 字节配对（runtime 加载时校验，离线工具同样依赖）
 

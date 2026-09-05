@@ -187,7 +187,7 @@ z42vm <file>
 |------|------|------|
 | eager vs lazy | **eager** | 异常路径（trace 构造）必须零 IO；startup 开销可控（典型 sidecar < 100KB） |
 | sidecar 路径 | `<basename>.zsym` 同目录 | 不需要 search path 概念；CI/CD 部署单一目录即可 |
-| BLID 算法 | BLAKE3-128 截 16B + payload 零填 hash | Rust/C# 生态成熟；payload 零填使 sidecar 与 main 字节同步 |
+| BLID 算法 | MurmurHash3 x86_128 + payload 零填 hash | 只做配对识别、runtime 从不重算 ⇒ 不需密码学强度；解释执行下比 BLAKE3 快 15×。payload 零填使 sidecar 与 main 字节同步 |
 | BLID 不匹配 | warn + ignore，加载继续 | 调试符号缺失不应让程序无法启动 |
 
 ### 合并机制：直接在已加载的 `Module` 上 mutate

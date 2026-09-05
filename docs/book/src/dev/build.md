@@ -84,7 +84,7 @@ compare:       逐成员 _sectionsEqualIgnoreBlid(gen1, gen2)
    与 gen1 的 `--workspace` 分歧——单包胖-flat 构建从目录里拉入的依赖闭包更大、且扫描顺序非确定
    （[common-pitfalls §1](../../../../.claude/rules/common-pitfalls.md)），于是 gen2>gen1 且逐次漂移，
    CI 全红。教训：**不动点两代必须同路径**，否则测的是"两条不同构建是否巧合一致"而非"编译器复现自身"。
-2. **忽略 BLID**：zpkg 末尾 16B 是 BLAKE3-128 build-id（内容哈希尾），天然每次不同；比对在 section
+2. **忽略 BLID**：zpkg 末尾 16B 是 MurmurHash3 x86_128 build-id（内容哈希尾），天然每次不同；比对在 section
    级别做、跳过 BLID，只验代码/元数据段一致。
 
 ### z42c 编译执行模式：默认 jit（Z42C_BUILD_MODE 逃生舱）

@@ -75,7 +75,7 @@
 {
   "zbc_version": [0, 1],
   "source_file": "src/greet.z42",
-  "source_hash": "sha256:e3b0c44298fc1c149...",
+  "source_hash": "mmh3:d1c6cd75a506b0a2a506b0a2a506b0a2",
   "namespace": "Demo.Greet",
   "exports": ["Greet"],
   "imports": [],
@@ -89,7 +89,7 @@
 [4 bytes]  magic:        0x5A 0x42 0x43 0x00  ("ZBC\0")
 [2 bytes]  version_major
 [2 bytes]  version_minor
-[32 bytes] source_hash   (SHA-256 of source .z42 file)
+[32 bytes] source_hash   (MurmurHash3 x86_128 of source .z42 file, hex)
 [4 bytes]  section_count
 [sections...]
   STRINGS  — string pool
@@ -102,7 +102,7 @@
 
 **增量编译语义**：
 
-- 加载 `.zbc` 时对比 `source_hash` 与当前 `.z42` 文件的 SHA-256
+- 加载 `.zbc` 时对比 `source_hash` 与当前 `.z42` 文件的 MurmurHash3 x86_128（非密码学；只做相等性比较，理由见 [book zpkg-format MODS](../../book/src/compiler/zpkg-format.md)）
 - 若哈希一致 → 跳过重编译
 - 若哈希变化 → 仅重编译该文件，不触碰其他 `.zbc`
 
@@ -126,13 +126,13 @@
     {
       "source": "src/greet.z42",
       "bytecode": ".cache/src/greet.zbc",
-      "source_hash": "sha256:e3b0c44298fc1c149...",
+      "source_hash": "mmh3:d1c6cd75a506b0a2a506b0a2a506b0a2",
       "exports": ["Greet"]
     },
     {
       "source": "src/util.z42",
       "bytecode": ".cache/src/util.zbc",
-      "source_hash": "sha256:a665a45920422f9d4...",
+      "source_hash": "mmh3:a044242bf7de91dbb631db9ab631db9a",
       "exports": ["StringUtil"]
     }
   ],

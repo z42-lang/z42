@@ -1,0 +1,138 @@
+// MurmurHash3 x86_128 —— 供 zpkg 的**内部内容标识**使用（BLID build_id、源文件变更检测）。
+//
+// 为什么不是密码学哈希：这两处用途都不是安全边界 —— build_id 只用来把 `main.zpkg` 与
+// `sidecar.zsym` 配成一对，source hash 只做相等性比较判断某个文件要不要重编。二者都不
+// 参与信任决策，也没有跨语言互操作要求（Rust 侧只**读取并比较**这两个值，从不重算：
+// `metadata::build_id::compute` 在整个 runtime 里一次都没被调用）。而解释执行的
+// BLAKE3/SHA-256 很贵 —— 实测 800 KB 输入 BLAKE3-128 要 6.21 G 指令、SHA-256 6.38 G，
+// 本实现 0.41 G，**15×**。z42.crypto 的 Sha256 / Blake3 保持原样，它们仍是给真正需要
+// 密码学强度的调用方用的。
+//
+// 为什么选 x86_128 而不是 x64_128：z42 **没有逻辑右移，也没有无符号整数**。x64 版本要
+// 模拟 64 位无符号移位，极易出符号 bug；x86 版本的 lane 是 32 位，这里用 `long` 承载并
+// `& MASK32` 掩码 —— 值恒为非负，`>>` 就等于逻辑右移，全程无符号语义都是显式的。
+// 乘法按 wrapping 语义取低位（z42 的 imul 是 wrapping，见 runtime semantics）。
+//
+// 输出 16 字节：h1..h4 各按小端写出，与参考实现（smhasher 的 MurmurHash3_x86_128）一致。
+namespace Z42.IR;
+
+using Std;
+
+public static class Murmur3 {
+    private const long MASK32 = 0xFFFFFFFFL;
+
+    // 32 位左循环。x 已掩码到 32 位（非负），故 `x >> (32-r)` 就是逻辑右移。
+    private static long _rotl(long x, int r) {
+        return ((x << r) | (x >> (32 - r))) & Murmur3.MASK32;
+    }
+
+    private static long _mul(long x, long c) { return (x * c) & Murmur3.MASK32; }
+
+    private static long _fmix(long h) {
+        long x = h & Murmur3.MASK32;
+        x = x ^ (x >> 16); x = Murmur3._mul(x, 0x85EBCA6BL);
+        x = x ^ (x >> 13); x = Murmur3._mul(x, 0xC2B2AE35L);
+        x = x ^ (x >> 16);
+        return x;
+    }
+
+    private static long _rd32(byte[] d, int o) {
+        return ((long)((int)d[o] & 0xFF))
+             | (((long)((int)d[o + 1] & 0xFF)) << 8)
+             | (((long)((int)d[o + 2] & 0xFF)) << 16)
+             | (((long)((int)d[o + 3] & 0xFF)) << 24);
+    }
+
+    /// 128 位摘要（16 字节，小端 h1..h4）。seed 固定 0。
+    public static byte[] Hash128(byte[] data) {
+        long c1 = 0x239B961BL; long c2 = 0xAB0E9789L; long c3 = 0x38B34AE5L; long c4 = 0xA1E38B93L;
+        long h1 = 0; long h2 = 0; long h3 = 0; long h4 = 0;
+        int n = data.Length;
+        int nblocks = n / 16;
+        int i = 0;
+        while (i < nblocks) {
+            int o = i * 16;
+            long k1 = Murmur3._rd32(data, o);
+            long k2 = Murmur3._rd32(data, o + 4);
+            long k3 = Murmur3._rd32(data, o + 8);
+            long k4 = Murmur3._rd32(data, o + 12);
+            k1 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k1, c1), 15), c2); h1 = h1 ^ k1;
+            h1 = Murmur3._rotl(h1, 19); h1 = (h1 + h2) & Murmur3.MASK32;
+            h1 = (Murmur3._mul(h1, 5L) + 0x561CCD1BL) & Murmur3.MASK32;
+            k2 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k2, c2), 16), c3); h2 = h2 ^ k2;
+            h2 = Murmur3._rotl(h2, 17); h2 = (h2 + h3) & Murmur3.MASK32;
+            h2 = (Murmur3._mul(h2, 5L) + 0x0BCAA747L) & Murmur3.MASK32;
+            k3 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k3, c3), 17), c4); h3 = h3 ^ k3;
+            h3 = Murmur3._rotl(h3, 15); h3 = (h3 + h4) & Murmur3.MASK32;
+            h3 = (Murmur3._mul(h3, 5L) + 0x96CD1C35L) & Murmur3.MASK32;
+            k4 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k4, c4), 18), c1); h4 = h4 ^ k4;
+            h4 = Murmur3._rotl(h4, 13); h4 = (h4 + h1) & Murmur3.MASK32;
+            h4 = (Murmur3._mul(h4, 5L) + 0x32AC3B17L) & Murmur3.MASK32;
+            i = i + 1;
+        }
+        // 尾部（< 16 字节），按参考实现的 fallthrough 次序。
+        int t = nblocks * 16;
+        int tl = n - t;
+        long q1 = 0; long q2 = 0; long q3 = 0; long q4 = 0;
+        if (tl >= 15) { q4 = q4 ^ (((long)((int)data[t + 14] & 0xFF)) << 16); }
+        if (tl >= 14) { q4 = q4 ^ (((long)((int)data[t + 13] & 0xFF)) << 8); }
+        if (tl >= 13) {
+            q4 = q4 ^ ((long)((int)data[t + 12] & 0xFF));
+            q4 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q4, c4), 18), c1); h4 = h4 ^ q4;
+        }
+        if (tl >= 12) { q3 = q3 ^ (((long)((int)data[t + 11] & 0xFF)) << 24); }
+        if (tl >= 11) { q3 = q3 ^ (((long)((int)data[t + 10] & 0xFF)) << 16); }
+        if (tl >= 10) { q3 = q3 ^ (((long)((int)data[t + 9] & 0xFF)) << 8); }
+        if (tl >= 9) {
+            q3 = q3 ^ ((long)((int)data[t + 8] & 0xFF));
+            q3 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q3, c3), 17), c4); h3 = h3 ^ q3;
+        }
+        if (tl >= 8) { q2 = q2 ^ (((long)((int)data[t + 7] & 0xFF)) << 24); }
+        if (tl >= 7) { q2 = q2 ^ (((long)((int)data[t + 6] & 0xFF)) << 16); }
+        if (tl >= 6) { q2 = q2 ^ (((long)((int)data[t + 5] & 0xFF)) << 8); }
+        if (tl >= 5) {
+            q2 = q2 ^ ((long)((int)data[t + 4] & 0xFF));
+            q2 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q2, c2), 16), c3); h2 = h2 ^ q2;
+        }
+        if (tl >= 4) { q1 = q1 ^ (((long)((int)data[t + 3] & 0xFF)) << 24); }
+        if (tl >= 3) { q1 = q1 ^ (((long)((int)data[t + 2] & 0xFF)) << 16); }
+        if (tl >= 2) { q1 = q1 ^ (((long)((int)data[t + 1] & 0xFF)) << 8); }
+        if (tl >= 1) {
+            q1 = q1 ^ ((long)((int)data[t] & 0xFF));
+            q1 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q1, c1), 15), c2); h1 = h1 ^ q1;
+        }
+        long ln = ((long)n) & Murmur3.MASK32;
+        h1 = h1 ^ ln; h2 = h2 ^ ln; h3 = h3 ^ ln; h4 = h4 ^ ln;
+        h1 = (h1 + h2) & Murmur3.MASK32; h1 = (h1 + h3) & Murmur3.MASK32; h1 = (h1 + h4) & Murmur3.MASK32;
+        h2 = (h2 + h1) & Murmur3.MASK32; h3 = (h3 + h1) & Murmur3.MASK32; h4 = (h4 + h1) & Murmur3.MASK32;
+        h1 = Murmur3._fmix(h1); h2 = Murmur3._fmix(h2); h3 = Murmur3._fmix(h3); h4 = Murmur3._fmix(h4);
+        h1 = (h1 + h2) & Murmur3.MASK32; h1 = (h1 + h3) & Murmur3.MASK32; h1 = (h1 + h4) & Murmur3.MASK32;
+        h2 = (h2 + h1) & Murmur3.MASK32; h3 = (h3 + h1) & Murmur3.MASK32; h4 = (h4 + h1) & Murmur3.MASK32;
+        byte[] o2 = new byte[16];
+        Murmur3._put32(o2, 0, h1); Murmur3._put32(o2, 4, h2);
+        Murmur3._put32(o2, 8, h3); Murmur3._put32(o2, 12, h4);
+        return o2;
+    }
+
+    private static void _put32(byte[] o, int at, long v) {
+        o[at]     = (byte)(v & 0xFFL);
+        o[at + 1] = (byte)((v >> 8) & 0xFFL);
+        o[at + 2] = (byte)((v >> 16) & 0xFFL);
+        o[at + 3] = (byte)((v >> 24) & 0xFFL);
+    }
+
+    /// 32 个小写 hex 字符（无前缀）。拼接方式对齐同包的 `ZpkgBuilder.Sha256Hex`
+    /// （z42.ir 不依赖 z42.text，也不值得为 32 个字符引入 StringBuilder）。
+    public static string Hash128Hex(byte[] data) {
+        byte[] h = Murmur3.Hash128(data);
+        string digits = "0123456789abcdef";
+        string s = "";
+        int i = 0;
+        while (i < 16) {
+            int b = (int)h[i];
+            s = s + digits.Substring((b >> 4) & 0xF, 1) + digits.Substring(b & 0xF, 1);
+            i = i + 1;
+        }
+        return s;
+    }
+}
