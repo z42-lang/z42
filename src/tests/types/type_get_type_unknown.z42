@@ -1,0 +1,47 @@
+namespace Demo;
+
+using Std;
+
+// fix-emit-zbc-swallows-diagnostics：`Type.GetType(fqn)` 的文档承诺是「null if unknown」
+// （`Type.z42`），但实现从不返回 null —— `make_type_from_name` 在彻底查不到时会**合成**一个
+// handle-less `Type`，只带名字。于是一个拼错的 FQN 回来是个对象：`GetMethods()` 为空、
+// `BaseType` 为 null，与「真实存在但没有成员的类型」完全无法区分，调用方只能靠启发式去猜。
+//
+// 现在只对**限定类名**（含 `.`、非数组 `[]`、非构造泛型 `<…>`）执行该契约：必须解析到真
+// TypeHandle，否则返回 null。数组 / 构造泛型 / 基元 / 无点简名维持既有合成语义——那些是
+// 承重的（`typeof(int[])`、跨包泛型实参的简名解析都依赖它）。
+
+class Widget {
+    public int Id;
+}
+
+void Main() {
+    // ── 契约：未知的限定类名 → null ──
+    Assert.Null(Type.GetType("No.Such.Type"));
+    Assert.Null(Type.GetType("Std.DefinitelyNotARealType"));
+
+    // ── 回归：真实存在的类型仍正常解析（带 handle → 有成员） ──
+    Type w = Type.GetType("Demo.Widget");
+    Assert.NotNull(w);
+    Assert.Equal("Demo.Widget", w.FullName);
+
+    Type sb = Type.GetType("Std.Exception");
+    Assert.NotNull(sb);
+    Assert.Equal("Std.Exception", sb.FullName);
+    Assert.True(sb.GetMethods().Length > 0);
+
+    // ── 承重的合成语义不受影响：数组 / 无点简名仍返回合成 Type，不被判 null ──
+    Assert.NotNull(Type.GetType("int[]"));
+    Assert.NotNull(Type.GetType("Widget"));
+
+    // ── 空 base 守卫：`<…>` 形态的名字，`<` 前若没有 base，就不是构造泛型 ──
+    // 此前 runtime 见「`<` 开头 `>` 结尾」即按构造泛型解析，拆出 base = "" 递归造类型，
+    // 得到 Name / FullName **全空**、GetMethods()==0、BaseType==null 的对象，并且还挂着
+    // 一个凭空捏造的类型实参（GetGenericArguments().Length == 1，实参名 "unknown"）。
+    // 这正是编译器哨兵 `<unknown>` 泄漏进 IR 后在运行期呈现出来的样子。
+    // 守卫后它走普通的「解析不到」路径：名字被如实保留，且不再伪装成泛型。
+    Type sentinel = Type.GetType("<unknown>");
+    Assert.NotNull(sentinel);
+    Assert.Equal(0, sentinel.GetGenericArguments().Length);
+    Assert.Equal("<unknown>", sentinel.FullName);
+}

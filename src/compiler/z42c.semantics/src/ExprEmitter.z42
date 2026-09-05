@@ -481,6 +481,17 @@ public sealed class ExprEmitter {
         if (t is Z42ClassType) { return this._ctx.QualifyClass(t.Name()); }
         if (t is Z42InterfaceType) { return this._ctx.QualifyClass(t.Name()); }
         if (t is Z42InstantiatedType) { return this._ctx.QualifyClass((t as Z42InstantiatedType).Def.Name()); }
+        // fix-emit-zbc-swallows-diagnostics：未解析类型的内部哨兵**不得以尖括号形态**进 IR。
+        // `Z42UnknownType.Name()` 是字面串 `<unknown>`，落到下面的 `t.Name()` 后被 intern 进 zbc
+        // 的字符串池；运行期 `make_type_from_name` 见它 `<` 开头 `>` 结尾 → **误判为构造泛型**，
+        // 拆出 base="" 去造类型 → 得到 Name/FullName 全空、GetMethods()==0、BaseType==null 的
+        // 「非 null 但全空」Type（指纹：GetGenericArguments().Length == 1，实参为 "unknown"）。
+        // 沿用仓库既有约定 —— `FunctionEmitter` 的 SIGS 拼写早已是 `<unknown>` → `"unknown"` ——
+        // 去掉尖括号即让运行期无法再把它当泛型解析。
+        //
+        // 注：类型未解析时 `_chkTypeRef` 已 raise E0443，且 P1 落地后有错即不写产物，故正常路径
+        // 走不到这里；本分支是**纵深防御**，防「未来某条路径在有错状态下仍继续 emit」。
+        if (t is Z42UnknownType) { return "unknown"; }
         return t.Name();
     }
 
