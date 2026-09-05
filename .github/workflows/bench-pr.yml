@@ -44,6 +44,26 @@ name: Bench PR Regression
 # 影响 z42vm 产物的文件类型，门禁会**静默跳过**本该跑的比较（假阴性，门禁变瞎）；
 # 排除法最坏只是多跑一次（假阳性，费时间不费正确性）。这条门禁整治的全部意义就是
 # 别让判定失真，故取只可能错向「多跑」的那一边。
+#
+# lighten-criterion-ab (2026-09-05)：慢路径 1227s 的大头 criterion A/B 531s，先分解再削
+# （逐行日志时间戳，两次 run 吻合 ±3s）：base 编译 115s + base 测量 148s + pr 编译 116s +
+# pr 测量 151s ⇒ 编译 233s(44%) / 测量 297s(56%)，测量里 concurrent_* 占 75s(14%) 却从不判红。
+# 落地两刀（只动成本、不动判红语义）：① 本 job 用自己的 cache key（原先与 CI 共用 host-v2 ⇒ 每次
+# exact hit、从不回存，bench profile 的依赖产物和 base-src 的 target 从来没进过缓存）；② concurrent_*
+# 用 Z42_BENCH_SKIP_INFORMATIONAL 排除在测量之外（实测 pr 侧 151s→103s）。
+# **试过并回退**：把 [profile.bench] 从继承 release 的 fat-LTO 改成 thin-LTO+cgu16——本机重链
+# 68s→20s，但 CI 上 base(fat) 116s vs pr(thin) 132s **更慢**（4 vCPU 吃不满并行，且换 profile 多编
+# 82 个依赖 crate），同时把 gc_alloc/array_throughput_10k 的测值挪了 +16.8%。教训：**编译耗时的
+# 本机对照不可外推到 CI runner**，只有省「总工作量」的改法才跨机器成立。
+# 没做：砍 sample_size（区间变宽=判红变钝）、再收窄 criterion 守卫（gc_cycle_bench 链接整个 crate，
+# 收窄=假阴性）。见 book 判红语义页「criterion 成本分解与削减」。
+# 实测（#457 自身，冷缓存 run 33954602385 / 暖缓存 33955693181）：criterion 531s → 480s → **427s**
+# （暖缓存下 base/pr 编译各 115s→84s，只剩编 z42 crate 本身；缓存回存 469MB），bootstrap 181s、
+# 建 base 工具链 120s，job 合计 1227s → **1047s**；合并后 base 侧也带上跳过开关 ⇒ criterion ≈390s。
+#
+# fix-criterion-ci-separation (2026-09-05)：暖缓存那跑 criterion 打出一次**教科书级假红**——
+# 本 PR 一行 VM 代码没动，却报 gc_cycle/large_array_10k +20.9%。根因不在 criterion 而在下面的
+# 判红脚本，详见该处注释与 book「判红规则的一处实现偏差」。
 
 on:
   pull_request:
@@ -96,11 +116,20 @@ jobs:
           wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine_1.20.0_amd64.deb
           sudo dpkg -i hyperfine_1.20.0_amd64.deb
 
+      # lighten-criterion-ab (2026-09-05)：这个 job 需要**自己的** cache key。
+      # 原先和 CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步骤
+      # 恒为 "Cache up-to-date"、**一次都没回存过**。后果：`cargo bench` 用的那份依赖
+      # 产物（dev-deps 参与 feature 统一 ⇒ 与 `cargo build --bin z42vm` 的哈希不同）
+      # 每次从零编 112 个 crate（实测 base/pr 各 43s），base-src 的依赖同理（另 34s）。
+      # 换成独立 key 后本 job 自己维护缓存：首次（含每次 Cargo.lock 变动）会冷编一轮，
+      # 此后每次省下这 ~120s。base-src 也纳入 workspaces —— 它的 target 目录同样从零。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src/runtime -> ../../artifacts/build/runtime
-          shared-key: host-v2
+          workspaces: |
+            src/runtime -> ../../artifacts/build/runtime
+            base-src/src/runtime -> ../../artifacts/build/runtime
+          shared-key: bench-ab-v1
 
       # Seed from the prev nightly + build current source warm (xtask bench
       # rebuilds stdlib via the warm self-build). Same path as CI build-and-test.
@@ -295,6 +324,11 @@ jobs:
             echo "→ src/runtime unchanged base..pr → skip criterion A/B (VM byte-identical)"
             exit 0
           fi
+          # lighten-criterion-ab: `concurrent_*` 三条本就是 informational（下面的判红
+          # 脚本对它们只打印不 fail），却占掉本步骤 75s / 531s = 14%。用 bench 源码里的
+          # 排除开关把它们排除在**测量**之外（见 gc_cycle_bench.rs `skip_informational`：
+          # 排除法而非白名单，跳过时打印不静默）。
+          export Z42_BENCH_SKIP_INFORMATIONAL=1
           export CRITERION_HOME="$PWD/.criterion-ab"
           rm -rf "$CRITERION_HOME"; mkdir -p "$CRITERION_HOME"
           echo "── base: save criterion baseline 'ab-base' (base tree) ──"
@@ -305,27 +339,44 @@ jobs:
           CRITERION_HOME="$CRITERION_HOME" \
             cargo bench --locked --manifest-path src/runtime/Cargo.toml \
               --bench gc_cycle_bench -- --baseline ab-base
-          echo "── gate: mean change >10% AND CI-separated (lower_bound>0) = regression ──"
+          echo "── gate: 整个 95% 区间在 +10% 之上（lower_bound > thr）= 回归 ──"
           python3 - "$CRITERION_HOME" <<'PY'
+          # fix-criterion-ci-separation (2026-09-05)：判红条件是**整个区间**在阈值之上
+          # （lower_bound > thr），不是「点估计过阈值 + 下界大于零」。
+          #
+          # 旧条件 `pe > thr and lo > 0.0` 把 book 里写的「CI 分离」实现成了「下界大于**零**」，
+          # 于是 [+0.5%, +60%] 这种毫无信息量的宽区间照样算「分离」。实测踩中两次，全是假红：
+          #   · #457 自身（run 33955693181）：gc_cycle/large_array_10k 报 +20.9%（下界 +0.5%），
+          #     而该 PR 只改 workflow + bench harness + book，**一行 VM 代码都没动**；原始值
+          #     base 200.0µs vs pr 207.9µs（真实差 +4%），criterion 自己的 p = 0.24 > 0.05
+          #     （即「无显著变化」）；同一条 bench 上一跑是 +0.6%、区间 [+0.35%, +0.93%]。
+          #   · #423：+13.2%（下界 +4.5%）→ 作者按假红照常合并。
+          # 新条件 `lo > thr` 对这两例都不判红，而一条测准的真回归（如区间 [+18%, +22%]）照红。
+          # 点估计不再单独参与判定——它落在区间里，区间才是结论。
           import json, os, sys, glob
           home = sys.argv[1]; thr = 0.10; regr = []
           for est in glob.glob(os.path.join(home, "**", "change", "estimates.json"), recursive=True):
               with open(est) as f: d = json.load(f)
               mean = d.get("mean", {}); pe = mean.get("point_estimate")
-              lo = mean.get("confidence_interval", {}).get("lower_bound")
-              if pe is None or lo is None: continue
+              ci = mean.get("confidence_interval", {})
+              lo, hi = ci.get("lower_bound"), ci.get("upper_bound")
+              if pe is None or lo is None or hi is None: continue
               bench = est.split(os.sep)[-3]
-              tag = f"{pe*100:+.1f}% (CI lower {lo*100:+.1f}%)"
+              # 区间宽度是这层的关键信息（旧输出只打下界，看不出 [+0.5%, +60%] 有多没用）
+              tag = f"{pe*100:+.1f}% (CI [{lo*100:+.1f}%, {hi*100:+.1f}%], 宽 {(hi-lo)*100:.1f}pp)"
               noisy = "concurrent" in bench   # threaded → between-run scheduling noise; informational only
-              if pe > thr and lo > 0.0:
+              if lo > thr:
                   if noisy:
                       print(f"  ~ {bench}: {tag} (concurrent — informational, not gated)")
                   else:
                       regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
+              elif pe > thr:
+                  # 点估计过阈值但区间没整体过 —— 正是「可疑」，也正是「可疑即复测」该接手的地方
+                  print(f"  ? {bench}: {tag} — 点估计过阈值但区间未分离，判为噪声（见 book「可疑即复测」）")
               else:
                   print(f"  ≈ {bench}: {tag}")
           if regr:
-              print(f"❌ {len(regr)} criterion regression(s) — mean >{int(thr*100)}% AND CI-separated"); sys.exit(1)
+              print(f"❌ {len(regr)} criterion regression(s) — 整个区间在 +{int(thr*100)}% 之上"); sys.exit(1)
           print("✅ no criterion regression")
           PY
 
