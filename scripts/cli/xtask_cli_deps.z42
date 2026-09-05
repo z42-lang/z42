@@ -1,0 +1,33 @@
+// xtask CLI — `deps` 命令族：router + dispatch。拆分背景见
+// scripts/cli/xtask_cli_build.z42 头部。
+namespace Z42Xtask;
+
+using Std;
+using Std.Cli;
+
+// deps 三正交子命令（simplify-xtask-deps, 2026-07-07）：check = 唯一只读校验
+// （presence + drift）；install = 纯安装平台必备；env = 环境导出。重型依赖
+// （android emulator tier）零命令面——`test platform android run` 用到才自动装。
+SubcommandRouter _depsRouter() {
+    SubcommandRouter d = new SubcommandRouter("xtask deps", "toolchain deps");
+    ArgParser check = new ArgParser("xtask deps check", "presence + versions.toml drift check (read-only)");
+    check.AddOption("os", "", "platform: android|ios|wasm (default: all; presence strict only with --os)", "");
+    d.Add("check", "toolchain presence + version drift check", check);
+    ArgParser install = new ArgParser("xtask deps install", "install platform-essential deps / a component");
+    install.AddOption("os", "", "platform: android|ios|wasm (default: host base only, no cross stacks)", "");
+    install.AddFlag("force", "", "force reinstall");
+    install.AddOptionalPositional("component", "vscode (editor assets; default: platform essentials)");
+    d.Add("install", "install platform-essential deps / vscode assets", install);
+    ArgParser env = new ArgParser("xtask deps env", "print eval-able env exports (android NDK)");
+    env.AddOption("os", "", "platform (default: android)", "");
+    d.Add("env", "print env exports", env);
+    return d;
+}
+
+int _dispatchDeps(string[] p, ParseResult r) {
+    string sub = p.Length > 1 ? p[1] : "";
+    if (sub == "check")   { return _depsCheck(r); }
+    if (sub == "install") { return _depsInstall(r); }
+    if (sub == "env")     { return _depsEnv(r); }
+    return 2;
+}
