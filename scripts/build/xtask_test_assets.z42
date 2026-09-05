@@ -26,6 +26,30 @@ int _buildTest() {
     return _regenGolden();
 }
 
+// golden regen 的并发度。此前硬编码 8、且 CLI/环境都调不了。
+//
+// 这批 case 的成本由**每个进程的 z42c 启动**主导（载 driver.zpkg + 7 个兄弟包 +
+// stdlib），不是编译本身——所以并发度远超核数仍能继续获益。本地实测（24 核，295 case）：
+//     jobs=4 → 40s   jobs=8 → 20s   jobs=16 → 12s   jobs=24 → 10s
+// 硬编码 8 在开发机上白白浪费一半以上的时间。
+//
+// 取 max(8, CpuCount())：**对少核机器（GitHub 标准 runner 4 核）保持原样 8，不冒进**——
+// 上面那条曲线是在 24 核机上测的，不能外推到 4 核；CI 是否该更高须在 CI 上实测。
+// `Z42_REGEN_JOBS` 逃生舱正是为此：不改代码就能在 CI 上试一个值再决定
+//（同 Z42C_BUILD_MODE 的既有逃生舱写法）。
+int _regenJobs() {
+    string ov = Environment.GetEnvironmentVariable("Z42_REGEN_JOBS") ?? "";
+    if (ov.Length > 0) {
+        try {
+            int v = int.Parse(ov);
+            if (v > 0) { return v; }
+        } catch (Exception e) { }
+        _vNormal("  ⚠ Z42_REGEN_JOBS 值非法（" + ov + "），回落到默认并发度");
+    }
+    int cpu = OperatingSystem.CpuCount();
+    return cpu > 8 ? cpu : 8;
+}
+
 // Golden regen cases: parallel growable arrays (name / source .z42 / output .zbc) + count.
 class _GoldenCases {
     public string[] names;
@@ -233,7 +257,7 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     // stdlib), not the compile itself, so the ~333 cases parallelize well.
     // Batches of `jobs`: spawn jobs compiles → wait → collect. Outputs are
     // independent .zbc files, so order doesn't matter. Mirrors _runUnitsBatched.
-    int jobs = 8;
+    int jobs = _regenJobs();
     int pass = 0;
     int fail = 0;
     string[] failures = new string[8];
