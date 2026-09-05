@@ -178,6 +178,28 @@ fn bench_large_array_10k(c: &mut Criterion) {
     });
 }
 
+// ── lighten-criterion-ab (2026-09-05): informational bench 的排除开关 ────────
+//
+// CI 的 criterion A/B（bench-pr.yml Part C）里，`concurrent_*` 三条**从不判红**
+// —— 判红脚本对含 "concurrent" 的条目只打印不 fail：多线程 GC 在共享 runner 上
+// 的**跑间**线程调度噪声，criterion 的 within-run CI 完全没建模（实测一个
+// perf-neutral PR 上它们摆动 +6~33%，而单线程那些围绕 0）。但它们照样占掉每个
+// 碰 `src/runtime` 的 PR **75s**（criterion 步骤 531s 的 14%）。CI 因此设
+// `Z42_BENCH_SKIP_INFORMATIONAL=1` 把它们排除在测量之外；本地 `cargo bench`
+// 不设这个变量，照常全跑。
+//
+// **是「排除」不是「白名单」**（同 bench-pr.yml 的改动面守卫）：新加的 bench 默认
+// 进门禁，只有在这里显式标成 informational 的才可能被跳过 —— 最坏错向「多跑一条」
+// （费时间不费正确性），不会错向「静默少跑」（门禁变瞎且不报错）。
+// 跳过时**打印一行**，绝不静默（同 e2e 的 `--tier` 跳过语义）。
+fn skip_informational(id: &str) -> bool {
+    if std::env::var_os("Z42_BENCH_SKIP_INFORMATIONAL").is_none() {
+        return false;
+    }
+    println!("  \u{21b3} skipped {id} (informational; Z42_BENCH_SKIP_INFORMATIONAL=1)");
+    true
+}
+
 // ── add-concurrent-gc P6 (2026-05-22): ConcurrentMarkSweep variants ────────
 //
 // Mirror of the 3 STW benches above but routes through VmContext +
@@ -189,7 +211,11 @@ fn bench_large_array_10k(c: &mut Criterion) {
 // concurrent flow's overhead is in the right order of magnitude.
 
 fn bench_cycle_heavy_100_concurrent(c: &mut Criterion) {
-    c.bench_function("gc_cycle/concurrent_cycle_heavy_100", |b| {
+    const ID: &str = "gc_cycle/concurrent_cycle_heavy_100";
+    if skip_informational(ID) {
+        return;
+    }
+    c.bench_function(ID, |b| {
         b.iter_batched(
             || {
                 let ctx = VmContext::new();
@@ -209,7 +235,11 @@ fn bench_cycle_heavy_100_concurrent(c: &mut Criterion) {
 }
 
 fn bench_shallow_tree_1k_concurrent(c: &mut Criterion) {
-    c.bench_function("gc_cycle/concurrent_shallow_tree_1k", |b| {
+    const ID: &str = "gc_cycle/concurrent_shallow_tree_1k";
+    if skip_informational(ID) {
+        return;
+    }
+    c.bench_function(ID, |b| {
         b.iter_batched(
             || {
                 let ctx = VmContext::new();
@@ -230,7 +260,11 @@ fn bench_shallow_tree_1k_concurrent(c: &mut Criterion) {
 }
 
 fn bench_large_array_10k_concurrent(c: &mut Criterion) {
-    c.bench_function("gc_cycle/concurrent_large_array_10k", |b| {
+    const ID: &str = "gc_cycle/concurrent_large_array_10k";
+    if skip_informational(ID) {
+        return;
+    }
+    c.bench_function(ID, |b| {
         b.iter_batched(
             || {
                 let ctx = VmContext::new();

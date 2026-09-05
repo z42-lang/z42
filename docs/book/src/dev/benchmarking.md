@@ -105,13 +105,26 @@ Rust VM 内部热路径（`src/runtime/benches/gc_cycle_bench.rs`：cycle_heavy 
 
 1. **base(merge-base) 树**：`cargo bench --bench gc_cycle_bench -- --save-baseline ab-base`。
 2. **PR 树**：`cargo bench --bench gc_cycle_bench -- --baseline ab-base`（criterion 报每个基准的均值变化 %）。
-3. 共享 `CRITERION_HOME` 让两树的结果相遇；门禁读 `<bench>/change/estimates.json` 的 `mean.point_estimate`
-   与 `confidence_interval.lower_bound`——**变化 > +10% 且 CI 下界 > 0**（criterion 确信真慢）→ 判红。
+3. 共享 `CRITERION_HOME` 让两树的结果相遇；门禁读 `<bench>/change/estimates.json` 的
+   `mean.confidence_interval`——**整个 95% 区间在 +10% 之上（`lower_bound > thr`）** → 判红。
+   点估计不单独参与判定：它落在区间里，**区间才是结论**。区间没整体过阈值、但点估计过了的条目
+   打印成 `?`（「可疑」），正是[可疑即复测](#已知局限与后续)该接手的输入。
+
+   > ⚠️ **2026-09-05 前这里是 `pe > thr and lo > 0.0`**，把「CI 分离」实现成了「下界大于**零**」，
+   > 于是 `[+0.5%, +60%]` 这种毫无信息量的宽区间照样算「分离」——实测踩中两次全是假红，见
+   > 「[判红规则的一处实现偏差](#判红规则的一处实现偏差2026-09-05修)」。
 
 **`concurrent_*`（多线程）基准仅信息性、不判红**：criterion 的 `--baseline` 比的是**两次独立跑**（base 先存、
 pr 再比），线程 GC 基准在共享 runner 上的**跑间线程调度噪声**很大（实测：一个 perf-中立的纯注释 PR，
 concurrent 基准摆动 +6~33%，单线程基准却居 0 附近）。criterion 紧的**跑内** CI 抓不到这种跑间漂移，硬判会
-假红。故 concurrent 基准打印但不 fail job；单线程 GC 基准照常硬门禁。
+假红。故 concurrent 基准不 fail job；单线程 GC 基准照常硬门禁。
+
+**且 CI 里连测都不测**（lighten-criterion-ab，2026-09-05）：既然从不判红，每个碰 VM 的 PR 为它们花的
+75s（criterion 步骤的 14%）就是纯开销。workflow 设 `Z42_BENCH_SKIP_INFORMATIONAL=1`，
+`gc_cycle_bench.rs` 的 `skip_informational()` 据此跳过并**打印一行**（不静默）；本地 `cargo bench`
+不设这个变量，照常全跑。**这是排除法不是白名单**：新加的 bench 默认进门禁，只有在源码里显式标成
+informational 的才可能被跳过——同「[改动面守卫](#改动面守卫为什么是排除文档而不是列白名单)」的取向，
+最坏错向「多跑一条」，不会错向「静默少跑」。
 
 **仅当 PR 触碰 `src/runtime` 的非文档文件时跑**（`git diff --quiet base..HEAD -- src/runtime
 ':(exclude,glob)src/runtime/**/*.md'` 为真则跳过——VM 字节相同、结果必不动）。**`*.md` 的排除是必要的**：
@@ -311,10 +324,118 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 
 样本：未碰 VM = run 33937108536；碰 VM = run 33941190557 / 33938670206。
 
-两条路径分化很大，**结论要分开说**：未碰 VM 的 PR 已达标（−57%，7.4 min）；碰 VM 的 PR 仍是
-20.5 min，大头换成了 criterion A/B（531s，占 43%）——那是**下一块**值得攻的成本，但削它之前
-必须先有「哪个 bench 花在编译、哪个花在跑、informational 的 `concurrent_*` 占多少」的分解数据，
-不能凭印象砍（砍错方向 = 门禁变瞎，正是本轮整治要根除的）。
+两条路径分化很大，**结论要分开说**：未碰 VM 的 PR 已达标（−57%，7.4 min；#447 自身的 run 33946467207
+= 457s、criterion 0s）；碰 VM 的 PR 仍是 20.5 min，大头换成了 criterion A/B（531s，占 43%）——
+分解与削法见下一节。
+
+### criterion 成本分解与削减（lighten-criterion-ab，2026-09-05）
+
+削它之前先分解（两次慢路径 run 的逐行日志时间戳，33941190557 / 33938670206，两次吻合到 ±3s）：
+
+| 段 | 耗时 | 内容 |
+|----|------|------|
+| base `cargo bench` | 115s | 43s 编 112 个依赖 crate + **73s z42 crate codegen + fat-LTO 链接** |
+| base 测量 | 148s | 13 条 bench × ~11.4s（criterion 默认 warm-up 3s + measurement 5s + 分析） |
+| pr `cargo bench` | 116s | 同上 |
+| pr 测量 | 151s | 同上 |
+| 判红脚本 | ~0s | 读 `change/estimates.json` |
+
+⇒ **编译 233s（44%）／测量 297s（56%）**；测量里 `concurrent_*` 三条占 **75s（14%）而从不判红**。
+
+依赖为什么每次从零编 112 个 crate：`cargo bench` 让 dev-dependencies 参与 feature 统一，产物哈希
+与 `cargo build --bin z42vm` 不同，**不能复用 bootstrap 那一步的 release 产物**；而这个 job 原先和
+CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步骤恒为 "Cache up-to-date"、
+**一次都没回存过**，所以这份产物从来没进过缓存。base-src 的 target 目录同理（「建 base 工具链」
+那 190s 里，cargo 建 base z42vm 占 117s，其中 34s 是依赖）。
+
+两刀（都只动成本、不动判红语义）：
+
+1. **bench job 用自己的缓存 key**（`shared-key: bench-ab-v1`），并把 `base-src/src/runtime` 一并纳入
+   `workspaces`。此后本 job 自己维护缓存：首次（及每次 `Cargo.lock` 变动）冷编一轮——实测 bootstrap
+   201s → 230s，代价约 +30s——之后省下上面那两份依赖编译（base 42.5s + pr 43s）。
+2. **`concurrent_*` 退出 CI 测量**（见上「criterion(Rust) 同-runner A/B」节）。实测 pr 侧测量
+   151s → **103.4s（−48s）**；合并后 base 侧也带上这个开关，两侧合计 −95s。
+
+**实测（PR #457 自身的三次跑）**：criterion 531s → 冷缓存 480s → **暖缓存 421~427s**；
+job 合计 1227–1239s → **1030s**。
+
+| 段 | 基线 | 冷缓存跑 | 暖缓存跑 |
+|----|------|---------|---------|
+| bootstrap | 189–201s | 246s | **173–181s** |
+| 建 base 工具链 | 188–190s | 187s | **119–120s** |
+| criterion·base 编译 | 115s（112 crate） | 119s | **84s（只编 3 个 crate）** |
+| criterion·base 测量 | 148s（13 条） | 136s | 148s（13 条，base=main 还没这个开关） |
+| criterion·pr 编译 | 116s | 125s | **85s** |
+| criterion·pr 测量 | 151s（13 条） | **101s（10 条）** | 111s（10 条） |
+| **criterion 合计** | **531s** | 480s | **421–427s** |
+| **job 合计** | **1227–1239s** | 1319s（runner 偏慢） | **1030s** |
+
+合并后 base 侧也带上跳过开关（base 测量 148s → ~110s）⇒ criterion 稳态 **≈385s**、job **≈995s**。
+
+⚠️ **跨 run 比总时长要留 runner 余量**：同一份改动的两跑里，e2e 一次 193s、一次 271s（**+40%**），
+纯粹是 runner 快慢。只有**同一跑内的两侧**（base vs pr）和**同一步骤的多跑中位**才值得直接比。
+
+判红侧的反证也在这一跑：`[profile.bench]` 回退后两侧同 profile，10 条全部落在 **±1.8%** 内，
+其中 `gc_alloc/array_throughput_10k` 从 +16.8% 变成 **−0.0%** —— 坐实了那 16.8% 是 thin/fat 的
+codegen 差，不是噪声、更不是回归。
+
+### 判红规则的一处实现偏差（2026-09-05 修）
+
+本页一直写着 criterion 层「变化 > +10% **且 CI 分离**」，但代码写的是 `pe > thr and lo > 0.0`
+——**「分离」被实现成「下界大于零」而不是「下界大于阈值」**。区间只要不跨零就算数，宽度不设限，
+于是一条点估计被离群值拉高、区间宽到 60pp 的测量，照样满足条件。
+
+实测踩中两次，两次都是假红：
+
+| 现场 | 报数 | 为什么是假的 |
+|------|------|-------------|
+| #457 自身（run 33955693181） | `gc_cycle/large_array_10k` **+20.9%**，CI `[+0.5%, +60.2%]` | 该 PR 只改 workflow + bench harness + book，**一行 VM 代码都没动**；原始值 base 200.0 µs vs pr 207.9 µs（真实差 +4%）；criterion 自己的 **p = 0.24 > 0.05**（无显著变化）；同一条 bench 上一跑 +0.6%、区间 `[+0.35%, +0.93%]` |
+| #423 | `gc_cycle/large_array_10k` +13.2%，CI 下界 +4.5% | 「ObjNew 处缓存无构造函数」的改动不可能让 GC 扫 10k 数组慢 13%；作者五分钟后照常合并 |
+
+改成 **`lo > thr`（整个区间在阈值之上）** 后：这两例都不判红，而一条测准的真回归
+（如区间 `[+18%, +22%]`）照红。同时输出改成打印**完整区间与宽度**——旧输出只打下界，
+看不出 `[+0.5%, +60%]` 有多没用。
+
+> 这条与「[噪声底与阈值](#噪声底与阈值simplify-bench-gate2026-09-05)」缺陷 ② 是同一个病灶的两面：
+> 那边是**区间被低估**，这边是**区间宽得没意义却仍被当成证据**。共同的处方仍是
+> [可疑即复测](#已知局限与后续)——把「可疑」的那一两条重测，用跑间离散度给出**可信的**区间。
+
+### 试过并回退：`[profile.bench]` 改 thin-LTO（2026-09-05，别再试）
+
+`[profile.bench]` 默认继承 `[profile.release]` 的 `lto = true, codegen-units = 1`，每次 `cargo bench`
+都要 fat-LTO 链接整个 crate（单侧 73s）。**本机实测**改一行 `lib.rs` 后重链：`lto=true,cgu=1` 68s /
+`lto=true,cgu=16` 60s / `lto="thin",cgu=16` **20s** / `lto=false,cgu=16` 10s —— 看起来能省 ~100s。
+
+**但在 CI 上实测（run 33953459076）是负收益，已回退**：
+
+| 侧 | profile | `cargo bench` 全程 | 依赖编译 | codegen+链接尾段 |
+|----|---------|-------------------|---------|-----------------|
+| base（main） | `lto=true, cgu=1` | **116s** | 112 crate / 42.5s | 74.1s |
+| pr | `lto="thin", cgu=16` | **132s** | **194 crate** / 54.5s | 77.6s |
+
+两条原因：
+
+- **本机的加速不可外推**。本机 10+ 核能把 16 个 codegen unit 并行掉，`ubuntu-latest` 只有 4 vCPU，
+  并行度吃不满 ⇒ 尾段 74.1s vs 77.6s，**基本持平**。
+- **换 profile 反而多编一轮依赖**：bench profile 的设置一变，依赖产物哈希全变，从 112 个 crate 变成
+  194 个（+12s）。
+
+而它的代价是实打实的：这一跑的 base 是 fat、pr 是 thin，等于一次 thin/fat 对照——
+`gc_alloc/array_throughput_10k` **偏移 +16.8%（CI 下界 +15.4%）**，远超本机三条 GC bench 测出的
+1.8~4.9%。**没省到时间，却把 alloc 路径的测值挪了 17%** ⇒ 回退，`[profile.bench]` 保持继承 release。
+
+> 教训（比结论本身更值钱）：**编译耗时的本机对照不能直接外推到 CI runner**——核数差 3 倍时，
+> 「靠并行换速度」的改法（cgu 拆分、并行链接）在 CI 上会原地踏步。要削 CI 的编译时间，先问
+> 「这个改法省的是**总工作量**还是**并行度**」；只有前者才跨机器成立。
+
+**没做、且不要凭印象去做的两条**：
+
+- **砍 `sample_size` / `measurement_time`**：省的是测量时间，代价是区间变宽 ⇒ 判红更钝。方向与
+  「[可疑即复测](#已知局限与后续)」相反——真正的问题是 criterion 的**跑内**区间抓不到跑间漂移，
+  而不是样本不够。
+- **把 criterion 的触发守卫再收窄**（例如「只有改了 GC 相关文件才跑」）：`gc_cycle_bench` 链接整个
+  crate，任何 VM 改动都可能挪动它；收窄 = 假阴性，正是[改动面守卫](#改动面守卫为什么是排除文档而不是列白名单)
+  那一节拒绝的错向。
 
 ### 改动面守卫：为什么是排除文档而不是列白名单
 
@@ -369,6 +490,15 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
   不是 ×3）。落地后阈值可从 0.25 收回 0.15、micro 可重新判红。
 - **micro tier 只打印不判红**（simplify-bench-gate 降级）；criterion 仍硬门禁（它自带 outlier 检测 +
   bootstrap CI，且只在 `src/runtime` 非文档改动时跑）。
+- ⚠️ **criterion 硬门禁的历史命中率待观察**：2026-09-01~09-04 的 34 次 bench-pr 失败逐条归类——
+  micro 层 12 次、基础设施故障（建 base 工具链 / 采 base micro 基线）19 次、e2e 2 次、
+  **criterion 1 次**；那唯一一次（#423，`gc_cycle/large_array_10k +13.2%`、CI 下界 +4.5%）作者五分钟后
+  照常合并，即按假红处理（一个「ObjNew 处缓存无构造函数」的改动让 GC 扫 10k 数组慢 13% 不可信，属
+  「[布局彩票](#启动类微小回归先排除布局彩票cache-failed-name-resolution2026-09-04)」那一类）。
+  它的缺陷与 micro 同源（跑内区间抓不到跑间漂移），只是 `--save-baseline` 的 outlier 检测遮掩得更好。
+  **第二例出现在 #457 自己身上**（一行 VM 代码没改却报 +20.9%），两次判红都是假的——直接根因已修
+  （见「[判红规则的一处实现偏差](#判红规则的一处实现偏差2026-09-05修)」）。
+  「可疑即复测」落地时应一并复核它是否该继续硬判。
 - **`full` 层场景当前只在本地跑**：`bench-update.yml` 删除后，非 gate 层的 5 个场景没有 CI 落点。
   这是本次的**已知取舍**——需要时用 `xtask bench`（默认 `--tier all`）本地全跑；若要恢复定期全量，
   应落在独立的数据仓 / 定时 workflow，而不是回到「每次 push main 烧一个 job」。
