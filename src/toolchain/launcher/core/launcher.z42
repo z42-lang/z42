@@ -316,15 +316,13 @@ void _cmdRun(string[] rest) {
         .Stdout(Stdio.Inherit())
         .Stderr(Stdio.Inherit());
     if (libs.Length > 0) { proc = proc.Env("Z42_LIBS", libs); }
-    // Point z42vm at a `[runtime]` config file (P0 resolution). Precedence for
-    // "which file": explicit `--config` (repl-run-config) > user's env
-    // Z42_CONFIG > the app's `.runtimeconfig.toml` sidecar (P1).
-    if (cfgOpt != null && cfgOpt.Length > 0) {
-        proc = proc.Env("Z42_CONFIG", cfgOpt);
-    } else if (hasCfg) {
-        string existingCfg = Environment.GetEnvironmentVariable("Z42_CONFIG") ?? "";
-        if (existingCfg.Length == 0) { proc = proc.Env("Z42_CONFIG", rcPath); }
-    }
+    // 两个**独立**的配置文件层（complete-runtime-settings P5）：
+    //   Z42_CONFIG     = 用户配置（`--config`，否则继承用户自己 export 的）
+    //   Z42_APP_CONFIG = 应用侧车 `<app>.runtimeconfig.toml`（随产物分发）
+    // z42vm 侧逐 key 叠加、用户层赢。此前两者共用 Z42_CONFIG 一个通道且只在用户
+    // 没设时才塞侧车——于是用户一 export Z42_CONFIG，侧车就被整份丢弃。
+    if (cfgOpt != null && cfgOpt.Length > 0) { proc = proc.Env("Z42_CONFIG", cfgOpt); }
+    if (hasCfg) { proc = proc.Env("Z42_APP_CONFIG", rcPath); }
     // Forward the program's own args after `--`.
     if (appArgs.Length > 0) {
         proc = proc.Arg("--");
@@ -429,16 +427,14 @@ string _buildAndResolveRun(string app, string binName) {
     }
 
     ProjectManifest pm = ManifestLoader.Load(manifest);
-    // (unify-run-modes P2b) profile-driven default mode: when neither `--mode`
-    // (z42vm CLI) nor `Z42_MODE` is set by the user, use the debug profile's
-    // `mode` as the run's default — the child z42vm reads it via the P2a
-    // `Z42_MODE`/[runtime] layer (below `--mode` CLI). z42c built debug (no
-    // `--release`), so the [profile.debug] mode applies. User `Z42_MODE` wins.
-    string existingMode = Environment.GetEnvironmentVariable("Z42_MODE") ?? "";
-    if (existingMode.Length == 0) {
-        string pmode = _profileMode(pm, "debug");
-        if (pmode.Length > 0) { Environment.SetEnvironmentVariable("Z42_MODE", pmode); }
-    }
+    // `[profile.*]` 的运行时旋钮（含 mode）由 **z42c build 烤进
+    // `dist/<name>.runtimeconfig.toml`**，运行时经 Z42_APP_CONFIG 交给 z42vm，落在
+    // 优先级链的「应用配置」层（complete-runtime-settings P5）。
+    //
+    // 此前这里是把 `[profile.debug].mode` 注入成 `Z42_MODE` 环境变量的
+    // （unify-run-modes P2b）——那让工程 profile 落在 **env 层**、反过来压过用户
+    // 自己的 `Z42_CONFIG` 配置文件，与文档承诺的链方向相反；而且只能带 mode 一个
+    // 旋钮。侧车路线两个问题一起解决。
     string projDir = Path.GetDirectoryName(manifest);
     string distDir = Path.Join(projDir, "dist");
 
@@ -470,17 +466,6 @@ string _buildAndResolveRun(string app, string binName) {
         return "";
     }
     return binZpkg;
-}
-
-// The `mode` (interp/jit/aot) of the named `[profile.<name>]`, "" if absent
-// (unify-run-modes P2b).
-string _profileMode(ProjectManifest pm, string profName) {
-    int i = 0;
-    while (i < pm.ProfileCount) {
-        if (pm.Profiles[i].Name == profName) { return pm.Profiles[i].Mode; }
-        i = i + 1;
-    }
-    return "";
 }
 
 void _listExes(ProjectManifest pm) {

@@ -1,0 +1,97 @@
+// z42c driver —— workspace 构建编排（`_buildWorkspace*` / `_findWorkspaceToml`）。
+// refactor-split-driver-main（complete-runtime-settings P5 前置，2026-09-05）：
+// `Main.z42` 长期 636 行、在 line-limit 棘轮基线上，任何增长都会让 `xtask test lines`
+// 变红。本文件是从它逐行搬出的**纯移动**（无逻辑改动），同包同 namespace，调用方
+// 不变；搬完 Main.z42 回到 500 行硬限之下、可从基线剔除。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Z42.Project;
+using Z42.Build.Project;
+using Z42.Pipeline;
+
+// Milestone 2（drop-in，无 --output-dir）：按 [workspace.build].output_dir 模板展开
+// per-member 布局（artifacts/.../<name>/<profile>/dist），各成员产物落各自 dist；
+// 兄弟解析扫全成员 dist 列表 + Z42_LIBS（外部 stdlib）。镜像 C# WorkspaceBuildOrchestrator
+// 的 workspaceLibDirs（成员 EffectiveDistDir 透传）。
+int _buildWorkspace(bool isRelease, string outputDir, int optSet) {
+    string cwd = Environment.GetCurrentDirectory();
+    string wsToml = _findWorkspaceToml(cwd);
+    if (wsToml == "") {
+        ConsoleError.WriteLine("z42c build --workspace: no z42.workspace.toml from CWD upward (" + cwd + ")");
+        return ExitCode.UsageError;
+    }
+    if (outputDir != "") {
+        return _buildWorkspaceFlat(wsToml, isRelease, outputDir, optSet);
+    }
+    return _buildWorkspacePerMember(wsToml, isRelease, optSet);
+}
+
+// Milestone 1：flat dist（显式 --output-dir）。
+int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int optSet) {
+    Directory.Create(outputDir);
+    string[] flat = new string[1];
+    flat[0] = outputDir;
+    string[] ordered = WorkspaceBuild.Plan(wsToml);
+    Console.WriteLine("workspace: " + wsToml + " (" + ordered.Length.ToString() + " members, topo order, flat)");
+    int i = 0;
+    while (i < ordered.Length) {
+        Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
+        int rc = _build(ordered[i], isRelease, outputDir, flat, 1, true, optSet, false);   // workspace 暂不支持 --fix
+        if (rc != 0) {
+            ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
+            return rc;
+        }
+        i = i + 1;
+    }
+    Console.WriteLine("workspace build OK -> " + outputDir);
+    return ExitCode.Ok;
+}
+
+// Milestone 2：per-member 布局（drop-in 替代 C# stdlib build）。
+int _buildWorkspacePerMember(string wsToml, bool isRelease, int optSet) {
+    string profile = isRelease ? "release" : "debug";
+    WsPlan plan = WorkspaceBuild.PlanLayout(wsToml, profile);
+    if (plan == null) {
+        ConsoleError.WriteLine("z42c build --workspace: no --output-dir and no [workspace.build].output_dir in " + wsToml);
+        return ExitCode.UsageError;
+    }
+    // libsDirs = 全成员 dist + Z42_LIBS（外部 stdlib，如 z42c.* → z42.core）。
+    string env = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    int extra = (env.Length > 0) ? 1 : 0;
+    string[] libsDirs = new string[plan.Count + extra];
+    int i = 0;
+    while (i < plan.Count) { libsDirs[i] = plan.DistDirs[i]; i = i + 1; }
+    if (extra == 1) { libsDirs[plan.Count] = env; }
+    int libsN = plan.Count + extra;
+    // 先建全部成员 dist（空目录）→ DepScan 多目录扫描可见（后续成员 dist 在建本成员时尚空）。
+    i = 0;
+    while (i < plan.Count) { Directory.Create(plan.DistDirs[i]); i = i + 1; }
+    Console.WriteLine("workspace: " + wsToml + " (" + plan.Count.ToString() + " members, topo order, per-member " + profile + ")");
+    i = 0;
+    while (i < plan.Count) {
+        Console.WriteLine("  [" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Tomls[i] + " -> " + plan.DistDirs[i]);
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN, true, optSet, false);   // workspace 暂不支持 --fix
+        if (rc != 0) {
+            ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
+            return rc;
+        }
+        i = i + 1;
+    }
+    Console.WriteLine("workspace build OK (per-member layout)");
+    return ExitCode.Ok;
+}
+
+// 从 startDir 向上找 z42.workspace.toml；返回路径或 ""（镜像 C# DiscoverWorkspaceRoot）。
+string _findWorkspaceToml(string startDir) {
+    string dir = startDir;
+    while (dir.Length > 0) {
+        string cand = Path.Join(dir, "z42.workspace.toml");
+        if (File.Exists(cand)) { return cand; }
+        string parent = Path.GetDirectoryName(dir);
+        if (parent == dir || parent == "") { break; }
+        dir = parent;
+    }
+    return "";
+}

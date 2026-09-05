@@ -34,7 +34,7 @@ flowchart TD
 
 | 规则 | 行为 | 状态 |
 |------|------|------|
-| (a) 非代码改动（`docs/**` / `**/*.md` / `.claude/**`）| **不触发 CI**（`on.paths-ignore`）→ 不发起、不取消在跑的 CI；`ci.yml` + `bench-update.yml` 都覆盖 | ✅ |
+| (a) 非代码改动（`docs/**` / `**/*.md` / `.claude/**`）| **不触发 CI**（`on.paths-ignore`）→ 不发起、不取消在跑的 CI；`ci.yml` 覆盖（`bench-pr.yml` 用窄 `paths:` allowlist，纯文档 PR 天然跳过） | ✅ |
 | (b) 未改 z42c（`src/compiler/**`）| 跳过 `verify-selfhost` + `compiler-checks`（自举不动点 + vscode 关键字）| ✅ |
 | (c) 未改 VM（`src/runtime/**`）| 跳过 `test-vm-jit` / `verify-features` / Rust VM 单测；stdlib-* 仅在 stdlib 也未改时跳过 | ✅ |
 | (d) 未改 stdlib（`src/libraries/**`）| 跳过 `test-stdlib-jit` / `test-stdlib-interp`（vm 也未改时）| ✅ |

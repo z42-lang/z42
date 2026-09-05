@@ -10,6 +10,7 @@
 //
 // Expected output (deterministic): 20000000
 
+// tier: gate — 单态虚调用，隔离 dispatch 成本
 namespace Bench.MonoVcall;
 
 using Std.IO;

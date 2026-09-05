@@ -21,12 +21,6 @@ where F: Fn(&str) -> Option<String> {
     }
 }
 
-/// Look up a knob's `[runtime]` TOML key from its env name via [`KNOWN_KNOBS`].
-/// Returns `None` for names not in the table (defensive; all real knobs are).
-pub(super) fn toml_key_for(env_name: &str) -> Option<&'static str> {
-    KNOWN_KNOBS.iter().find(|k| k.name == env_name).map(|k| k.toml_key)
-}
-
 /// Render a scalar TOML value the way the env-string parsers expect. Non-scalar
 /// values (array / table / datetime) are not valid knob values → `None`.
 pub(super) fn toml_scalar_to_string(v: &toml::Value) -> Option<String> {

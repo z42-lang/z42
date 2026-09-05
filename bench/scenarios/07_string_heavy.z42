@@ -9,6 +9,7 @@
 //
 // No IO / allocation-in-loop beyond what's under measurement.
 // Expected output (deterministic): 5175
+// tier: gate — String 热路径（自占用 33%，已知弱项）
 namespace Bench.StringHeavy;
 
 using Std.IO;

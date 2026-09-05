@@ -1,0 +1,41 @@
+using Std.Runtime;
+
+// complete-runtime-settings P4：Std.Runtime.RuntimeConfig 的只读查询面。
+//
+// 本用例不设任何 Z42_* 环境变量，断言的是「无输入时链末端的行为」+ 结构性不变式
+// ——若断言某个旋钮的具体值，用例会随开发者 shell 里的 Z42_* 变红。带 env / CLI /
+// 配置文件的优先级断言在 Rust 侧（src/runtime/src/config_tests.rs）。
+void Main() {
+    // 登记表被读到了，且每个旋钮都有 key。
+    string[] names = RuntimeConfig.Names();
+    Assert.True(names.Length > 10);
+
+    // 已知旋钮：有说明、来源标签是五个层之一。
+    Assert.NotNull(RuntimeConfig.Describe("gc-mode"));
+    string src = RuntimeConfig.Source("gc-mode");
+    Assert.True(src == "default" || src == "env" || src == "cli"
+             || src == "user-config" || src == "app-config");
+
+    // 未知旋钮：null / "unknown" / false，不抛异常。
+    Assert.Null(RuntimeConfig.Get("no-such-knob"));
+    Assert.Equal("unknown", RuntimeConfig.Source("no-such-knob"));
+    Assert.Null(RuntimeConfig.Describe("no-such-knob"));
+    Assert.False(RuntimeConfig.IsAvailable("no-such-knob"));
+
+    // 查询面比 `--set` 宽松：环境变量名形式也解析（这里没有 typo 要抓）。
+    Assert.NotNull(RuntimeConfig.Describe("Z42_GC_MODE"));
+
+    // 无平台 / feature 约束的旋钮在任何 build 上都存在。
+    Assert.True(RuntimeConfig.IsAvailable("gc-mode"));
+
+    // GetOrDefault 在 Get 返回 null 时兜底。
+    Assert.Equal("fallback", RuntimeConfig.GetOrDefault("no-such-knob", "fallback"));
+
+    // Dump 形状：条数与 Names 一致，每条含 '=' 与 '|'。
+    string[] dump = RuntimeConfig.Dump();
+    Assert.Equal(names.Length, dump.Length);
+    for (int i = 0; i < dump.Length; i = i + 1) {
+        Assert.True(dump[i].Contains("="));
+        Assert.True(dump[i].Contains("|"));
+    }
+}

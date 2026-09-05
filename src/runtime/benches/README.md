@@ -39,7 +39,7 @@ cargo bench -- --quick       # 快速模式（每个 bench 总耗时上限缩短
 ## 与 baseline 的对比（P1.D 加）
 
 P1.D 引入：
-- `bench/baselines/<branch>-<os>.json` 持久化基线
+- criterion 原生 `--save-baseline` / `--baseline`（同-runner 对照，见 `.github/workflows/bench-pr.yml` Part C）
 - `z42 xtask.zpkg bench --diff` 与 baseline diff
 - CI PR 阶段 quick 子集 + diff 性能门禁
 

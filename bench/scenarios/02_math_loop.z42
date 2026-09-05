@@ -1,6 +1,7 @@
 // E2E benchmark scenario: tight integer arithmetic loop.
 // Workload: 100k iterations of (mul + add). Exercises interp dispatch + i32 ops.
 // Expected output: 333328333350000
+// tier: full — 算术循环，与 01/04 覆盖面重叠
 namespace Bench.MathLoop;
 using Std.IO;
 

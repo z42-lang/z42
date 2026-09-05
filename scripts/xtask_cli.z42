@@ -421,6 +421,10 @@ ArgParser _benchE2eParser() {
     // add-exec-profile-matrix: sweep the measured VM's execution mode. `both`
     // runs each scenario under interp AND jit (two profile-tagged results).
     p.AddOption("mode", "", "interp|jit|both (default: jit; measured-run mode)", "");
+    // simplify-bench-gate: 场景分层。`gate` = PR 门禁那一小组代表性场景，
+    // `full` = 其余（本地/按需），默认 all（不过滤，本地行为不变）。
+    // 场景在源码头部用 `// tier: gate` 声明；未声明按 full 记。
+    p.AddOption("tier", "", "gate|full|all — scenario tier to run (default: all)", "");
     p.AddFlag("diff", "", "compare two result sets");
     p.AddOption("current", "", "current result path", "");
     p.AddOption("baseline", "", "baseline result path", "");
