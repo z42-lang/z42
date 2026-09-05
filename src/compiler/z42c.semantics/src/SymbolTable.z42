@@ -152,8 +152,8 @@ public sealed class SymbolTable {
                 return new Z42FuncType(pps, 1, Z42ClassType.Builtin("bool"));
             }
             if (this.EnumTypes.ContainsKey(n)) { return new Z42ClassType(n, false, ""); }
-            if (this.Delegates.ContainsKey(n)) { return this.Delegates.Get(n) as Z42FuncType; }   // 用户 delegate → 函数类型
-            if (this.Interfaces.ContainsKey(n)) { return this.Interfaces.Get(n) as Z42InterfaceType; }
+            int _sl0 = this.Delegates.Find(n); if (_sl0 >= 0) { return this.Delegates.ValAt(_sl0) as Z42FuncType; }   // 用户 delegate → 函数类型
+            int _sl1 = this.Interfaces.Find(n); if (_sl1 >= 0) { return this.Interfaces.ValAt(_sl1) as Z42InterfaceType; }
             // arity-mangle：泛型实例化 `C<T...>` 对 arity-overloaded 同名类（arity-0 base
             // shadow 着 arity-N 泛型，泛型版注册键 `Name$N`，如 MulticastException$1）须取 `Name$N`，
             // 否则误取 arity-0 base → new/throw 出非泛型 base，catch `C<int>` 失配。镜像
@@ -208,7 +208,7 @@ public sealed class SymbolTable {
                 }
                 string plusKey = n.Replace(".", "+");
                 if (this.EnumTypes.ContainsKey(plusKey)) { return new Z42ClassType(plusKey, false, ""); }
-                if (this.Interfaces.ContainsKey(plusKey)) { return this.Interfaces.Get(plusKey) as Z42InterfaceType; }
+                int _sl2 = this.Interfaces.Find(plusKey); if (_sl2 >= 0) { return this.Interfaces.ValAt(_sl2) as Z42InterfaceType; }
                 if (nt.ArgCount > 0) {
                     string pm = plusKey + "$" + nt.ArgCount.ToString();
                     if (this.Classes.ContainsKey(pm)) {
@@ -242,7 +242,7 @@ public sealed class SymbolTable {
             }
             if (lastDot >= 0) {
                 string bare = n.Substring(lastDot + 1);
-                if (this.Interfaces.ContainsKey(bare)) { return this.Interfaces.Get(bare) as Z42InterfaceType; }
+                int _sl3 = this.Interfaces.Find(bare); if (_sl3 >= 0) { return this.Interfaces.ValAt(_sl3) as Z42InterfaceType; }
                 if (nt.ArgCount > 0) {   // arity-mangle（同上，限定名路径）
                     string bmangled = bare + "$" + nt.ArgCount.ToString();
                     if (this.Classes.ContainsKey(bmangled)) {

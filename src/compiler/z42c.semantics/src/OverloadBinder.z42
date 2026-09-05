@@ -193,7 +193,7 @@ public sealed class OverloadBinder {
         Z42ClassType cur = ct;
         bool more = true;
         while (more) {
-            if (cur.Methods.ContainsKey(name)) { return cur.Methods.Get(name) as MethodSymbol; }
+            int _sl0 = cur.Methods.Find(name); if (_sl0 >= 0) { return cur.Methods.ValAt(_sl0) as MethodSymbol; }
             if (!cur.HasBase) {
                 // 无显式 base 的 class 隐式继承 Object（mirror C# object root；struct 无 Object 方法）。
                 if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }

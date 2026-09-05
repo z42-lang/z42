@@ -393,7 +393,7 @@ public sealed class FunctionEmitter {
         int ci = 0;
         while (ci < lfn.CaptureCount) {
             string cn = lfn.Captures[ci].Name;
-            if (this._ctx.Locals.ContainsKey(cn)) { caps[ci] = this._ctx.Locals.Get(cn) as TypedReg; }
+            int _sl0 = this._ctx.Locals.Find(cn); if (_sl0 >= 0) { caps[ci] = this._ctx.Locals.ValAt(_sl0) as TypedReg; }
             else { TypedReg ph = this._ctx.Alloc(IrType.Ref); this._ctx.Emit(new ConstNullInstr(ph)); caps[ci] = ph; }
             ci = ci + 1;
         }

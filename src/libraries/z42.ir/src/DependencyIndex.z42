@@ -27,7 +27,7 @@ public sealed class DependencyIndex {
     // 静态查找：先全键 "Cls.Method"，cls 带 ns 前缀则再试短类名键（镜像 TryGetStatic）。
     public DepCallEntry GetStatic(string cls, string method) {
         string key = cls + "." + method;
-        if (this.Statics.ContainsKey(key)) { return this.Statics.Get(key) as DepCallEntry; }
+        int _sl0 = this.Statics.Find(key); if (_sl0 >= 0) { return this.Statics.ValAt(_sl0) as DepCallEntry; }
         int cut = 0 - 1;
         int i = cls.Length - 1;
         bool more = i >= 0;
@@ -38,7 +38,7 @@ public sealed class DependencyIndex {
         if (cut >= 0) {
             string shortCls = cls.Substring(cut + 1, cls.Length - cut - 1);
             string k2 = shortCls + "." + method;
-            if (this.Statics.ContainsKey(k2)) { return this.Statics.Get(k2) as DepCallEntry; }
+            int _sl1 = this.Statics.Find(k2); if (_sl1 >= 0) { return this.Statics.ValAt(_sl1) as DepCallEntry; }
         }
         return null;
     }
@@ -78,8 +78,8 @@ public sealed class DependencyIndex {
     // 实例查找：арity 键优先，bare 兜底（镜像 TryGetInstance）。
     public DepCallEntry GetInstance(string method, int userArgCount) {
         string k = method + "$" + userArgCount.ToString();
-        if (this.Instances.ContainsKey(k)) { return this.Instances.Get(k) as DepCallEntry; }
-        if (this.Instances.ContainsKey(method)) { return this.Instances.Get(method) as DepCallEntry; }
+        int _sl2 = this.Instances.Find(k); if (_sl2 >= 0) { return this.Instances.ValAt(_sl2) as DepCallEntry; }
+        int _sl3 = this.Instances.Find(method); if (_sl3 >= 0) { return this.Instances.ValAt(_sl3) as DepCallEntry; }
         return null;
     }
 

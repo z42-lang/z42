@@ -335,10 +335,10 @@ public static class ImportedSymbolLoader {
         }
         if (name == "void") { return new Z42VoidType(); }
         if (ImportedSymbolLoader._isPrim(name)) { return Z42ClassType.Builtin(name); }
-        if (r.Classes.ContainsKey(name)) { return r.Classes.Get(name) as Z42ClassType; }
+        int _sl0 = r.Classes.Find(name); if (_sl0 >= 0) { return r.Classes.ValAt(_sl0) as Z42ClassType; }
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
-        if (r.Interfaces.ContainsKey(name)) { return r.Interfaces.Get(name) as Z42InterfaceType; }
+        int _sl1 = r.Interfaces.Find(name); if (_sl1 >= 0) { return r.Interfaces.ValAt(_sl1) as Z42InterfaceType; }
         // 根因修复（infer-crosspkg-generic-instantiation）：泛型实例化串 `List<int>` /
         // `Dictionary<string,int>` → 解析基类（r.Classes）+ 递归解析类型参数 → Z42InstantiatedType。
         // 否则落 fallback prim(name) 垃圾类型；一旦该字段被跨轮 carry-forward（`var v = Other.f;`）
@@ -348,7 +348,7 @@ public static class ImportedSymbolLoader {
         if (ltIdx > 0 && name.EndsWith(">")) {
             string baseN = name.Substring(0, ltIdx);
             Z42ClassType gdef = null;
-            if (r.Classes.ContainsKey(baseN)) { gdef = r.Classes.Get(baseN) as Z42ClassType; }
+            int _sl2 = r.Classes.Find(baseN); if (_sl2 >= 0) { gdef = r.Classes.ValAt(_sl2) as Z42ClassType; }
             else {
                 string gbs = ImportedSymbolLoader._shortName(baseN);
                 if (gbs != baseN && r.Classes.ContainsKey(gbs)) { gdef = r.Classes.Get(gbs) as Z42ClassType; }
@@ -372,8 +372,8 @@ public static class ImportedSymbolLoader {
         // 成员访问报 "member access on non-class"。FQ miss 后按短名回退，解析为真类型。
         string shortN = ImportedSymbolLoader._shortName(name);
         if (shortN != name) {
-            if (r.Classes.ContainsKey(shortN)) { return r.Classes.Get(shortN) as Z42ClassType; }
-            if (r.Interfaces.ContainsKey(shortN)) { return r.Interfaces.Get(shortN) as Z42InterfaceType; }
+            int _sl3 = r.Classes.Find(shortN); if (_sl3 >= 0) { return r.Classes.ValAt(_sl3) as Z42ClassType; }
+            int _sl4 = r.Interfaces.Find(shortN); if (_sl4 >= 0) { return r.Interfaces.ValAt(_sl4) as Z42InterfaceType; }
         }
         // GS6: 泛型型参（T/K/V 等）→ Z42GenericParamType，避免降级为 Z42PrimType
         int tp = 0;

@@ -284,7 +284,7 @@ public sealed class MemberResolver {
         Z42ClassType cur = ct;
         bool more = true;
         while (more) {
-            if (cur.Fields.ContainsKey(name)) { return cur.Fields.Get(name) as FieldSymbol; }
+            int _sl0 = cur.Fields.Find(name); if (_sl0 >= 0) { return cur.Fields.ValAt(_sl0) as FieldSymbol; }
             if (!cur.HasBase) {
                 // 无显式 base 的 class 隐式继承 Object（struct 不继承，但字段不含在 Object）。
                 if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
