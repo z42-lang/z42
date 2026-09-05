@@ -375,7 +375,7 @@ int[] _apphostSmoke(string distDir, string work) {
         "dist_dir = \".\"\n" +
         "[platform.desktop]\n" +
         "publish_dir = \".\"\n" +
-        "[profile.release]\n" +
+        "[profile.release.runtime]\n" +
         "mode = \"interp\"\n";
 
     string ad = Path.Join(work, "ahsmoke");
@@ -528,7 +528,7 @@ int[] _apphostSmoke(string distDir, string work) {
             "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"z42.io\" = \"0.1.0\"\n\"pnlib\" = { path = \"../pnlib\" }\n" +
             "[build]\ndist_dir = \"dist\"\n" +
             "[platform.desktop]\napphost = true\npublish_dir = \".\"\npayload = \"payload/pnapp.zpkg\"\n" +
-            "[profile.release]\nmode = \"interp\"\n");
+            "[profile.release.runtime]\nmode = \"interp\"\n");
         int pcn = new Process(launcher).Arg("publish").Arg(Path.Join(pnappDir, "pnapp.z42.toml"))
             .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
             .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
