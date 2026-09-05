@@ -177,7 +177,7 @@ z42c 编 `base-src/src/libraries` → base stdlib。**只测 scenario 运行时*
 其字节码这点对测量零影响——它跑的仍是 base 的 codegen 逻辑，产 base 风格的 scenario .zbc。z42vm 复用：
 `git diff base..pr -- src/runtime`（排除 `*.md`）无变更时 base_vm = pr_vm，省最重的 cargo 建。
 
-判红纯函数 `_abVerdict`（`scripts/xtask_bench.z42`，可 `bench --ab-selftest` 单测）：
+判红纯函数 `_abVerdict`（`scripts/xtask_bench.z42`；`bench --ab-selftest` 单测五例，**CI 每次跑**，见下「CI 门禁接线」第 3 步）：
 
 ```
 SEM_b = stddev_b / sqrt(n_b);   SEM_p = stddev_p / sqrt(n_p)
@@ -294,20 +294,38 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 
 ### CI 门禁接线（bench-pr.yml）
 
-触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `bench` /
+触发路径刻意收窄（`src/runtime` / `src/libraries` / `src/compiler` / `src/tests/perf` /
 `scripts/**/*.z42` / 本 workflow），末尾再加一条负向模式 `!**/*.md`（负向在后 ⇒ 覆盖前面的匹配），
 使**纯文档 PR 一个文件都不命中、整个 workflow 不触发**；`.md` 与代码同改则照旧跑。
 （没有这条负向模式时，上面的目录通配会把「改一行 `src/tests/perf/` 下的说明」也拉进来烧一个完整 job。）步骤：
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`）
 2. bootstrap PR 工具链（`ci-bootstrap`：nightly z42c 种子 → 当前源码 warm 自建）
-3. **判红逻辑自检**（move-bench-into-tests，2026-09-05）：拿 `src/tests/perf/testdata/` 的四个
-   fixture 跑 `bench --diff`，断言退出码 `overlap 0 / regress 1 / improve 0 /
-   separated-under-threshold 0`。纯 JSON 比较、几秒，放在测量之前 ⇒ 规则改坏立刻失败而不是
-   等二十分钟。**覆盖 `_benchDiff` 的两半条件**（`delta > thr` 与 `cLo > bHi`）——
-   `separated-under-threshold` 是唯一对阈值本身敏感的一条（+20%，把 thr 降到 0.10 就翻红），
-   没有它整套 fixture 在 `thr=0.001` 下也照过，等于不看阈值。**不覆盖** `_abVerdict`
-   （`--ab` 需两套真工具链，fixture 喂不了）与 `_microDiff`（可以喂但尚无 fixture）。
+3. **判红逻辑自检**（move-bench-into-tests / cover-micro-verdict，2026-09-05）：把**三条判红
+   路径**都用可复现输入钉住。纯 JSON / 纯函数，实测 **1.2s**，放在测量之前 ⇒ 规则改坏立刻
+   失败而不是等二十分钟。
+
+   | 路径 | 怎么测 | 用例 |
+   |---|---|---|
+   | `_abVerdict`（e2e，唯一硬门禁） | `bench --ab-selftest` 单测纯函数 | 5 |
+   | `_benchDiff`（`--diff`，历史/本地对比） | `testdata/current-*.json` vs `baseline.json` | 4 |
+   | `_microDiff`（`--micro-diff`，micro A/B） | `testdata/micro-*.json` vs `micro-base.json` | 7 |
+
+   `_abVerdict` **喂不了 JSON fixture**（需两套同机实测的真工具链），但它是纯函数 ⇒ 单测是它
+   唯一的机械覆盖。两套 fixture 都跑 **thr 0.25 与 0.10 两遍**：各有一个 `separated-under-threshold`
+   （区间分离但只 +20%）是**唯一对阈值本身敏感**的用例 —— 没有它，把 `--threshold-time` 降到
+   0.001 结果都纹丝不动（实测过），即门禁根本没在看阈值；`_abVerdict` 的对应用例是同一组数字
+   在 thr 0.25 下**不判红**。micro 侧另有两条 `fallback-*` 行使**无 SEM 的区间回退路径**
+   （base 侧 `mean_ns=-1`），和一条 `unmatched`：三个各放大 3× 的条目，其 name 或 mode key
+   在 base 无对应 ⇒ 必须被**跳过**，匹配一旦放松就翻红。
+
+   **反向验证**（做过两次，别只信正向绿）：把 `_abClassify` 的 `RLower > 1+thr` 改成
+   `> 1.0`，`--ab-selftest` 与 3 条 micro 用例立刻红（`_benchDiff` 不受影响 —— 它有自己的
+   门，不走 `_abClassify`）；把 `_microVerdict` 回退分支的 `cLo/bHi` 换成裸比值，
+   `fallback-overlap` 立刻红。
+
+   **覆盖边界**：守的是**判定规则**，不是测量与编排 —— `_abOneScenario` 的 hyperfine 调用、
+   base 工具链构建、micro 基线采集只能靠真 run 行使。
 4. **建 base 工具链**（同 runner）：`git diff base..pr -- src/runtime`（排除 `*.md`）无变更 → base_vm=pr_vm，否则
    cargo 建 base z42vm；PR z42c 编 `base-src/src/compiler`→base z42c，base z42c 编 `base-src/src/libraries`→base stdlib
 5. **e2e A/B（唯一硬门禁）**：`xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`。

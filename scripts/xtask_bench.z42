@@ -390,12 +390,29 @@ int _abFinish(int nb, int regr, int toolErr) {
 }
 
 // `bench --ab-selftest` — unit-check the `_abVerdict` pure function (locally
-// runnable; no z42vm scenario spawning). Four cases: real regression, noisy
-// overlap, faster, no-ci fallback. Exit 0 = all pass, 1 = failure(s).
+// runnable; no z42vm scenario spawning). Exit 0 = all pass, 1 = failure(s).
+//
+// `_abVerdict` is the e2e A/B gate — the ONE hard red in bench-pr.yml — and it
+// cannot be driven by a JSON fixture the way `_benchDiff`/`_microDiff` are (it
+// takes two real toolchains measured on one runner), so this unit check is its
+// only mechanical coverage. bench-pr.yml runs it in the verdict self-check step.
+//
+// The five cases are chosen so each ingredient of the rule has one that flips
+// when that ingredient breaks:
+//   real-regression           +20% tight, thr 0.10 ⇒ red
+//   separated-under-threshold THE SAME NUMBERS at thr 0.25 ⇒ NOT red. The only
+//       pair that differs solely in thr — without it the suite would still pass
+//       if the threshold stopped being consulted at all (the `lo > 0` vs
+//       `lo > thr` class of bug fix-criterion-ci-separation found in criterion).
+//   noisy-overlap             +15% but 20x the stddev ⇒ interval spans 1 ⇒ noise
+//   faster                    -20% tight ⇒ never a red
+//   no-ci-regression          stddev 0 ⇒ bare-ratio fallback, HasCi=false
 int _abSelfTest() {
     int fails = 0;
     AbVerdict a = _abVerdict(100.0, 1.0, 10.0, 120.0, 1.0, 10.0, 0.10);
     fails = fails + _abExpect("real-regression", a, "regression", true);
+    AbVerdict e = _abVerdict(100.0, 1.0, 10.0, 120.0, 1.0, 10.0, 0.25);
+    fails = fails + _abExpect("separated-under-threshold", e, "overlap", false);
     AbVerdict b = _abVerdict(100.0, 20.0, 10.0, 115.0, 20.0, 10.0, 0.10);
     fails = fails + _abExpect("noisy-overlap", b, "overlap", false);
     AbVerdict c = _abVerdict(100.0, 1.0, 10.0, 80.0, 1.0, 10.0, 0.10);
@@ -403,7 +420,7 @@ int _abSelfTest() {
     AbVerdict d = _abVerdict(100.0, 0.0, 10.0, 120.0, 0.0, 10.0, 0.10);
     fails = fails + _abExpect("no-ci-regression", d, "regression", true);
     if (d.HasCi) { Console.WriteLine("  FAIL no-ci-regression: expected HasCi=false"); fails = fails + 1; }
-    if (fails == 0) { Console.WriteLine("✅ _abVerdict selftest: 4/4 passed"); return 0; }
+    if (fails == 0) { Console.WriteLine("✅ _abVerdict selftest: 5/5 passed"); return 0; }
     Console.WriteLine("❌ _abVerdict selftest: " + fails.ToString() + " failure(s)");
     return 1;
 }
@@ -438,6 +455,16 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
 // benchmark present in PR but absent from base (renamed / newly added) is skipped —
 // no base counterpart to compare against. Exit: 0 = no regression, 1 = regression(s),
 // 2 = bad args / missing file.
+//
+// COVERED BY FIXTURES: src/tests/perf/testdata/micro-base.json + micro-*.json,
+// run by bench-pr.yml's verdict self-check at BOTH thr 0.25 and 0.10 (pure JSON,
+// seconds, before the ~20 min of measurement). Seven cases, each guarding a
+// different piece: regress / overlap / improve on the SEM path,
+// separated-under-threshold (the only thr-sensitive one: pass at 0.25, red at
+// 0.10), fallback-regress / fallback-overlap on the no-SEM interval path, and
+// unmatched (three entries whose name or mode key has no base counterpart, each
+// blown up 3x — if matching ever went loose they would turn red instead of
+// being skipped). Change the rule ⇒ update the fixtures and the expected table.
 int _benchMicroDiff(ParseResult r) {
     string root = _root();
     string current = r.GetOption("current");
