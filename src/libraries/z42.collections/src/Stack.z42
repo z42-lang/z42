@@ -63,11 +63,7 @@ public class Stack<T> : IBasicCollection<T> {
     public void Grow() {
         int newCap = this.capacity * 2;
         T[] bigger = new T[newCap];
-        int i = 0;
-        while (i < this.count) {
-            bigger[i] = this.items[i];
-            i = i + 1;
-        }
+        Array.Copy(this.items, bigger, this.count);
         this.items = bigger;
         this.capacity = newCap;
     }
