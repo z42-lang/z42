@@ -49,6 +49,15 @@ public sealed class Array {
     [Native("__array_set")]
     public extern void SetValue(Object value, int index);
 
+    // perf-bulk-array-copy：区间批量拷贝原语（对标 C# 非泛型
+    // `System.Array.Copy(Array, int, Array, int, int)`）。下面的泛型 `Copy<T>` 只做参数
+    // 校验，搬运本身落到这一次 native 调用 —— 原来每个元素都要一次解释执行的
+    // ArrayGet + ArraySet。同一数组内区间重叠按 memmove 语义处理。
+    // script-first：这是**一个** bulk 原语（同 `__str_to_chars` / `__str_substring`），
+    // 算法（校验、边界、重叠方向的语义约定）仍在 script。
+    [Native("__array_copy")]
+    public static extern void CopyRange(Array source, int sourceIndex, Array destination, int destinationIndex, int length);
+
     // ── Static algorithms (library-review PR-D, 2026-08-31) ───────────────────
     // 兑现本类顶部注释里预告的「静态算法 Sort/IndexOf/...」。C# `System.Array.*`
     // 对标，纯脚本泛型（同 List<T> 的 CompareTo / Func 比较器模型）。
@@ -68,7 +77,7 @@ public sealed class Array {
         if (length < 0 || length > source.Length || length > destination.Length) {
             throw new Exception($"Array.Copy: length {length} out of range (src={source.Length}, dst={destination.Length})");
         }
-        for (int i = 0; i < length; i++) { destination[i] = source[i]; }
+        Array.CopyRange(source, 0, destination, 0, length);
     }
 
     // Set every element to `value`.
@@ -373,12 +382,7 @@ public sealed class Array {
             || destinationIndex + length > destination.Length) {
             throw new Exception($"Array.Copy: range out of bounds (srcIdx={sourceIndex}, dstIdx={destinationIndex}, len={length}, src={source.Length}, dst={destination.Length})");
         }
-        if (destinationIndex > sourceIndex) {
-            int i = length - 1;
-            while (i >= 0) { destination[destinationIndex + i] = source[sourceIndex + i]; i = i - 1; }
-        } else {
-            for (int i = 0; i < length; i++) { destination[destinationIndex + i] = source[sourceIndex + i]; }
-        }
+        Array.CopyRange(source, sourceIndex, destination, destinationIndex, length);
     }
 
     // First index of `value` at or after `startIndex` (by `.Equals`), or -1.

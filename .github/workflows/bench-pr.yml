@@ -207,8 +207,15 @@ jobs:
           # below then overwrites these for the actual measurement.
           for f in "$ROOT/artifacts/build/libraries/dist/release/"*.zpkg; do cp -f "$f" "$BASEALL/"; done
           BASEDRIVER="$BASEALL/z42c.driver.zpkg"
+          # ⚠ 这一步用 **PR 的 VM** 跑，不是 BASEVM。上面刚把 PR stdlib 塞进 BASEALL（理由见
+          # 紧邻的注释：BASEDRIVER 是 PR z42c 编的，要 PR stdlib 才跑得起来）—— 而 PR stdlib
+          # 可能用到本 PR 新增的 builtin，base VM 里还没有（perf-bulk-array-copy 实证：
+          # `unknown builtin __array_copy`，栈在 ByteWriter._grow → Array.Copy）。
+          # 「BASEDRIVER + PR stdlib + PR VM」才是自洽的三件套。产物不受影响：base stdlib
+          # 的字节由 BASEDRIVER 的代码决定，与执行它的 VM 无关。BASEVM 仍然只用于下面的
+          # 实测环节（那时 BASEALL 已被 base stdlib 覆盖，不再引用新 builtin）。
           ( cd base-src/src/libraries && \
-            Z42_LIBS="$BASEALL" "$BASEVM" "$BASEDRIVER" --mode jit -- build --workspace --release )
+            Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build --workspace --release )
           for f in "$ROOT/base-src/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
 
           echo "base_vm=$BASEVM"         >> "$GITHUB_OUTPUT"

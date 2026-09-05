@@ -137,6 +137,63 @@ pub fn builtin_array_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::Null)
 }
 
+/// `__array_copy(src, srcIndex, dst, dstIndex, length)` — bulk element move,
+/// mirroring `System.Array.Copy(Array, int, Array, int, int)`. perf-bulk-array-copy:
+/// the script-side `Array.Copy<T>` was a per-element `for` loop, so every copied
+/// element paid an interpreted `ArrayGet` + `ArraySet`. This is the same
+/// "one bulk primitive, the algorithm stays in script" shape as `__str_to_chars`
+/// / `__str_substring`: it copies a range and nothing else.
+///
+/// Overlapping ranges within one array get `memmove` semantics (see
+/// `ArrayObj::copy_elems_within`). Element conversion is exactly what the
+/// single-element `get_boxed`/`set_boxed` pair already defines, so a copy is
+/// indistinguishable from the loop it replaces.
+pub fn builtin_array_copy(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    fn arr(v: Option<&Value>, what: &str) -> Result<crate::gc::GcRef<ArrayObj>> {
+        match v {
+            Some(Value::Array(rc)) => Ok(rc.clone()),
+            Some(Value::Null) => bail!("__array_copy: null {what} array reference"),
+            other => bail!("__array_copy: expected an array for {what}, got {other:?}"),
+        }
+    }
+    fn idx(v: Option<&Value>, what: &str) -> Result<usize> {
+        match v {
+            Some(Value::I64(n)) if *n >= 0 => Ok(*n as usize),
+            _ => bail!("__array_copy: {what} must be a non-negative int"),
+        }
+    }
+    let src = arr(args.first(), "source")?;
+    let si = idx(args.get(1), "sourceIndex")?;
+    let dst = arr(args.get(2), "destination")?;
+    let di = idx(args.get(3), "destinationIndex")?;
+    let n = idx(args.get(4), "length")?;
+    if n == 0 {
+        return Ok(Value::Null);
+    }
+    // Same array → one lock (borrow + borrow_mut on the same GcRef would deadlock:
+    // both take the entry's blocking Mutex).
+    if crate::gc::GcRef::ptr_eq(&src, &dst) {
+        let mut a = dst.borrow_mut();
+        let len = a.len();
+        if si + n > len || di + n > len {
+            bail!("__array_copy: range out of bounds (len {len}, src {si}+{n}, dst {di}+{n})");
+        }
+        a.copy_elems_within(si, di, n);
+        return Ok(Value::Null);
+    }
+    let s = src.borrow();
+    let mut d = dst.borrow_mut();
+    if si + n > s.len() || di + n > d.len() {
+        bail!(
+            "__array_copy: range out of bounds (src len {}, dst len {}, src {si}+{n}, dst {di}+{n})",
+            s.len(),
+            d.len()
+        );
+    }
+    d.copy_elems_from(&s, si, di, n);
+    Ok(Value::Null)
+}
+
 /// `Std.Array.Clone()` — shallow copy of the receiver array. Reference-type
 /// elements are shared (the new array's slots reference the same heap objects).
 /// Empty arrays return another empty array (not the same reference).

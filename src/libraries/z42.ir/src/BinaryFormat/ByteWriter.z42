@@ -19,8 +19,7 @@ public sealed class ByteWriter {
         int cap = this._buf.Length;
         while (cap < need) { cap = cap * 2; }
         int[] bigger = new int[cap];
-        int i = 0;
-        while (i < this._len) { bigger[i] = this._buf[i]; i = i + 1; }
+        Array.Copy(this._buf, bigger, this._len);   // bulk 原语；原来逐元素解释执行
         this._buf = bigger;
     }
 
@@ -130,10 +129,8 @@ public sealed class ByteWriter {
     public void AppendWriter(ByteWriter other) {
         int m = other._len;
         if (this._len + m > this._buf.Length) { this._grow(this._len + m); }
-        int p = this._len;
-        int i = 0;
-        while (i < m) { this._buf[p + i] = other._buf[i]; i = i + 1; }
-        this._len = p + m;
+        Array.Copy(other._buf, 0, this._buf, this._len, m);   // bulk 原语；packed zpkg 多级嵌套下每字节要复制 3-4 层
+        this._len = this._len + m;
     }
 
     // byte[]（File.WriteAllBytes 写盘；driver --emit-zbc）。
