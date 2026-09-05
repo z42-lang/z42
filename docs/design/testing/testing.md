@@ -707,7 +707,7 @@ artifacts/bench/                         # 结果输出（artifacts/ 整体 giti
 | 编译 profile | Debug 即可 | **必须 Release** |
 | 输出 | 通过 / 失败 + 诊断 | metrics JSON + 置信区间 |
 | 噪声容忍 | 必须确定性 | 可重跑 / warmup / 多 sample |
-| CI 门禁 | hard fail | 见 book 判红语义页（e2e 硬门禁 / micro 信息性） |
+| CI 门禁 | hard fail | 见 book 判红语义页（e2e / micro 硬门禁，均走「可疑即复测」；criterion 信息性）|
 
 **发现逻辑的显式排除**（两个枚举器各一处，都以 `perf` 为名单项）：
 

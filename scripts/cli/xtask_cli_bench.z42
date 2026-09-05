@@ -46,8 +46,11 @@ ArgParser _benchE2eParser() {
     // 场景在源码头部用 `// tier: gate` 声明；未声明按 full 记。
     p.AddOption("tier", "", "gate|full|all — scenario tier to run (default: all)", "");
     p.AddFlag("diff", "", "compare two result sets");
-    p.AddOption("current", "", "current result path", "");
-    p.AddOption("baseline", "", "baseline result path", "");
+    // --micro-diff takes a comma-separated LIST of round files (pr and base in
+    // lockstep): one each = single-round SEM, k>=2 = ab-resample-on-suspicion.
+    p.AddOption("current", "", "current result path (--micro-diff: comma-separated rounds)", "");
+    p.AddOption("baseline", "", "baseline result path (--micro-diff: comma-separated rounds)", "");
+    p.AddOption("suspects", "", "--micro-diff: write flagged benchmark names here (empty file = none)", "");
     p.AddOption("threshold-time", "", "time regression threshold", "");
     p.AddOption("threshold-memory", "", "memory regression threshold", "");
     p.AddFlag("quiet", "", "quiet output");
@@ -60,6 +63,10 @@ ArgParser _benchE2eParser() {
     // extend-ab-bench-micro-criterion Part B: micro/stdlib tier same-runner A/B —
     // diff two `bench stdlib --json` baselines (base tree vs PR tree, same runner).
     p.AddFlag("micro-diff", "", "micro A/B: diff two bench-stdlib --json baselines (--current/--baseline)");
+    // ab-resample-on-suspicion: an entry round 1 flags as a regression is re-measured
+    // this many extra times, and the verdict is recomputed from the BETWEEN-ROUND ratio
+    // dispersion. 0 turns it off (rollback knob); default 2 ⇒ k=3.
+    p.AddOption("resample-rounds", "", "A/B: extra rounds for a round-1 regression (0 = off, default 2)", "");
     p.AddOption("base-vm", "", "A/B: base z42vm binary", "");
     p.AddOption("base-libs", "", "A/B: base flat libs dir (stdlib + z42c siblings)", "");
     p.AddOption("base-driver", "", "A/B: base z42c.driver.zpkg", "");
