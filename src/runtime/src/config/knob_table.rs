@@ -170,6 +170,16 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..DEBUG_KNOB
     },
     KnobSpec {
+        name: "Z42_JIT_INTERP_TIERUP",
+        toml_key: "jit-interp-tierup",
+        value: ValueKind::Int { min: 0, max: u32::MAX as i64 },
+        requires: &["jit"],
+        description: "let the interpreter's central divert tier up too: 0 = peek only (default), N = compile on the Nth interp entry",
+        default_hint: "unset; 0 (off) — a workload trade, see the field doc in config.rs",
+        consumed_by: "interp/exec_support.rs",
+        ..TUNING
+    },
+    KnobSpec {
         name: "Z42_JIT_PROFILE",
         toml_key: "jit-profile",
         value: ValueKind::Bool,
