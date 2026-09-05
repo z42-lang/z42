@@ -1,6 +1,7 @@
 // E2E benchmark scenario: recursive Fibonacci.
 // Workload: ~2^25 recursive calls, exercises function-call dispatch.
 // Expected output: 75025
+// tier: gate — 函数调用派发的主探针（interp/JIT 调用路径）
 namespace Bench.Fibonacci;
 using Std.IO;
 

@@ -68,12 +68,13 @@ src/tests/cross-zpkg/*/*/libs/
 # BenchmarkDotNet output (auto-created in CWD when running `dotnet run` from any dir)
 BenchmarkDotNet.Artifacts/
 
-# Bench output / baseline files (only .gitkeep tracked; CI publishes real baselines elsewhere)
-# Match ALL result artifacts, not just *.json — a stray *.md snapshot (MODE-COMPARISON.md)
-# once slipped through the .json-only gap into the repo.
+# Bench output (only .gitkeep tracked). Match ALL result artifacts, not just *.json —
+# a stray *.md snapshot (MODE-COMPARISON.md) once slipped through the .json-only gap
+# into the repo. simplify-bench-gate 删掉了 bench/baselines/ 目录本身：主分支基线的
+# 持续产出（bench-update.yml + bench-baselines 孤儿分支）已一并移除，`bench --diff`
+# 改为只吃显式 --baseline <path>。
 bench/results/*
 !bench/results/.gitkeep
-bench/baselines/*.json
 
 # Claude scheduler local state
 .claude/scheduled_tasks.lock

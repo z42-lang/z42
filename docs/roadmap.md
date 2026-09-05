@@ -469,7 +469,8 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | ~~`ab-bench-micro`（Stage 2）~~ ✅ | 已落地 `extend-ab-bench-micro-criterion` Part A（Bencher mean/stddev + 自适应采样）+ Part B（`bench --micro-diff`：两隔离 `bench stdlib --json` 基线 + `_abVerdict`）| [changes/extend-ab-bench-micro-criterion/design.md](spec/changes/extend-ab-bench-micro-criterion/design.md) |
 | ~~`ab-bench-criterion`（Stage 3）~~ ✅ | 已落地 `extend-ab-bench-micro-criterion` Part C：criterion 原生 `--save-baseline`/`--baseline` 同-runner 对照（gc_cycle_bench 纳入门禁、smoke_bench 保留不门禁，仅 src/runtime 改动时跑）| [changes/extend-ab-bench-micro-criterion/design.md](spec/changes/extend-ab-bench-micro-criterion/design.md) |
 | `ab-interleave-per-run` | 逐次交错采样（比 hyperfine 双命令「base 全跑→pr 全跑」更抗 job 内漂移）；当前同机相邻已足够抵消 between-run，非必要 | [changes/add-same-runner-ab-bench-gate/design.md](spec/changes/add-same-runner-ab-bench-gate/design.md) Deferred 段 |
-| `retire-baseline-branch` | 若历史 dashboard 另有承载，彻底删 `bench-baselines`/`bench-update.yml`（A/B 门禁已不依赖它）+ e2e 死字段（`metric:"memory"`）/ `blackBox` no-op | [changes/add-same-runner-ab-bench-gate/design.md](spec/changes/add-same-runner-ab-bench-gate/design.md) Deferred 段 |
+| `ab-resample-on-suspicion` | **同-runner A/B 的「可疑即复测」**：只对初判 `R_lower > 1+thr` 的 1~2 条再交替测 k=3 轮、用**跑间比值离散度**重算区间（成本 +30~60s，非 ×3）。今天 base/pr 各只测一次，不确定度只能从进程内样本方差推 ⇒ 区间低估约三倍。**这是把 CI 阈值从 0.25 收回 0.15、以及让 micro tier 重新硬门禁的唯一前提** | [dev/benchmarking.md「噪声底与阈值」](book/src/dev/benchmarking.md) |
+| ~~`retire-baseline-branch`~~ ✅ 2026-09-05 | ~~彻底删 `bench-baselines`/`bench-update.yml`~~ 已由 simplify-bench-gate 落地；剩余：e2e 死字段（`metric:"memory"`）/ `blackBox` no-op | [changes/add-same-runner-ab-bench-gate/design.md](spec/changes/add-same-runner-ab-bench-gate/design.md) Deferred 段 |
 
 ### 实施期延后（D-* 系列）
 

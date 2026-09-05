@@ -9,9 +9,8 @@
 | Rust 微基准 | criterion | `src/runtime/benches/` | ✅ 同-runner A/B（criterion 原生 baseline 对照；仅 src/runtime 改动时）|
 | z42 端到端 | hyperfine + 自建 harness | `bench/scenarios/` + `xtask bench` | ✅ |
 | **z42 进程内微基准** | **`[Benchmark]` + `Std.Test.Bencher`（z42b 派发）** | **各 lib `bench/*_bench.z42`** | **✅ 同-runner A/B（`bench --micro-diff`）** |
-| **PR 回归门禁（同-runner A/B）** | **`xtask bench --ab`（e2e）+ `--micro-diff`（micro）+ criterion baseline** | **`.github/workflows/bench-pr.yml`** | **✅** |
-| 基线对比（本地 / 历史 dashboard） | `xtask bench --diff` | `bench/baselines/` | ✅（不再是 PR 门禁）|
-| 主分支 baseline 持久化 | `.github/workflows/bench-update.yml` | — | ✅（降级 dashboard）|
+| **PR 回归门禁（同-runner A/B）** | **`xtask bench --ab --tier gate`（e2e，唯一硬门禁）+ criterion baseline** | **`.github/workflows/bench-pr.yml`** | **✅** |
+| 基线对比（本地优化前后） | `xtask bench --diff --baseline <path>` | 你自己挑的路径 | ✅（不是 PR 门禁）|
 
 > **C# 编译器吞吐（BenchmarkDotNet / `z42.Bench`）已随 C# bootstrap 移除**（2026-06-26）——
 > 该 tier 不复存在；schema 不再有 `csharp-throughput`。
@@ -47,7 +46,7 @@ wasm/mobile 等无线程 VM 安全略过 `06_thread_scaling` 之类场景。
 | 粒度 | 单个操作（`String.Replace` / `SortedSet.Add` / `JsonValue.Parse`），ns 级 | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 |
 | 用途 | 把回归**定位到具体函数**；守护 stdlib 热路径；量化单操作优化 | 捕获**全管线**回归（启动开销 / dispatch / 整体吞吐）|
 | 运行 | `xtask bench stdlib <lib>`（本地/按需）| `xtask bench`（本地 + CI）|
-| CI | ✅ **同-runner A/B**（`bench --micro-diff`：base 树 vs pr 树同机各测一遍）| ✅ 同-runner A/B（`bench --ab`）|
+| CI | ⚠️ 跑但**只打印不判红**（`bench --micro-diff`）| ✅ 同-runner A/B 硬门禁（`bench --ab --tier gate`）|
 
 > **micro 如何进 CI**（extend-ab-bench-micro-criterion）：ns 级**单快照跨-runner** 比确实过敏，
 > 故 micro 走**同-runner A/B**——PR 树 + base 树在同一 job 各跑一遍 `bench stdlib --json`，
@@ -77,7 +76,7 @@ micro-bench 的「优化前基线」可固化成 schema-v2 文件（每项带 pr
 
 ```bash
 # 1. 优化前：捕获聚合 baseline（各库 [Benchmark] 走 z42b --format json，median_ns 为主指标）
-xtask bench stdlib --json bench/baselines/stdlib-before.json
+xtask bench stdlib --json /tmp/stdlib-before.json
 #    → {schema_version:2, …, benchmarks:[{name:"<lib>.<label>", tier:"z42-micro",
 #       metric:"time", value:<median_ns>, unit:"ns", ci_lower:<min>, ci_upper:<max>, samples,
 #       profile:{mode,mode_label,platform,caps}}]}  ← profile 由被测 VM 探针填（mode 随 --mode）
@@ -88,7 +87,7 @@ xtask bench stdlib --json bench/baselines/stdlib-before.json
 # 3. 优化后：再捕获 + 复用 e2e 的 diff（micro 噪声大 → 阈值放宽到 0.25）
 z42 xtask.zpkg bench stdlib --json /tmp/after.json
 z42 xtask.zpkg bench --diff --current /tmp/after.json \
-    --baseline bench/baselines/stdlib-before.json --threshold-time 0.25
+    --baseline /tmp/stdlib-before.json --threshold-time 0.25
 #    → ↑ 回归(exit 1) / ↓ 改进 / ≈ 持平 / (new)/(removed)
 ```
 
@@ -119,20 +118,23 @@ bench/
 │   ├── 10_mono_vcall.z42      # 单态虚调用紧循环 (IC 恒命中，隔离 dispatch 成本)
 │   └── 11_type_test_chain.z42 # 8 路 is 链 + 接口 is + as (类型判定 IsaCache，perf-vm-isa-cache)
 ├── probe/                     # capabilities.z42 — 被测 VM 能力探针（profile.caps 来源）
-├── baselines/                 # main 分支的历史基线（gitignored，CI 上传到 gh-pages）
-│   └── .gitkeep
 └── results/                   # 当前 run 输出（gitignored）
     └── .gitkeep
 ```
+
+> `baselines/` 目录已删（simplify-bench-gate）——它的持续产出（`bench-update.yml` + `bench-baselines`
+> 孤儿分支）早已不喂门禁，却每次 push main 烧一个 job。`--diff` 现在必须显式给 `--baseline <path>`。
 
 ## 使用
 
 > 注：仓库无 `justfile`；下列是实际命令（旧 `just bench-*` 别名已不存在）。
 
 ```bash
-# z42 端到端（hyperfine on .zbc）——默认测 jit，加 --mode 扫描
+# z42 端到端（hyperfine on .zbc）——默认测 jit、默认 --tier all（全部 11 个场景）
 xtask bench                       # 全场景，jit
 xtask bench --mode both           # 每场景各测 interp 与 jit（各一条 profile 结果）
+xtask bench --tier gate           # 只跑 PR 门禁那 6 个代表性场景（CI 用的就是这条）
+xtask bench --tier full           # 只跑非门禁场景
 xtask bench stdlib <lib>          # 某 lib 的 [Benchmark] 微基准（本地/按需）
 
 # 快速 sanity（< 60s）
@@ -154,42 +156,28 @@ PR 触碰性能敏感路径（`src/runtime` / `src/libraries` / `src/compiler` /
 1. checkout PR + checkout `base.sha`（`path: base-src`）
 2. bootstrap PR 工具链；再在**同一 runner** 用 PR z42c 编 base 源建 base 工具链
    （`src/runtime` 无变更时 base_vm 复用 pr_vm）
-3. `xtask bench --ab --mode both --threshold-time 0.10 --base-vm/-libs/-driver …`：每场景×mode 在
-   base/pr 两套工具链下**同机相邻**编译+测量（hyperfine 双命令），比值 95% 下界 `R_lower > 1+thr` →
-   回归 → exit 1 → **workflow fail**；结果落 `bench/results/ab.json` 并上传 artifact
-4. 另跑一个 informational allocations 探针（确定性指标，只打印不 fail）
+3. `xtask bench --ab --tier gate --mode $MODE --threshold-time 0.25 --base-vm/-libs/-driver …`：
+   gate 层每场景×mode 在 base/pr 两套工具链下**同机相邻**编译+测量（hyperfine 双命令），比值 95% 下界
+   `R_lower > 1+thr` → 回归 → exit 1 → **workflow fail**；结果落 `bench/results/ab.json` 并上传 artifact。
+   `MODE` 按改动面收窄：`src/runtime` 没变就只测 `jit`，碰了才 `both`
+4. micro 层（`bench --micro-diff`）仍跑，但**只打印不 fail**；criterion 层仅 `src/runtime` 改动时跑、仍硬门禁
+
+⚠️ **阈值 0.25 不是随手放宽**：实测噪声底 ±13~16%，旧的 0.10 画在噪声底之下 ⇒ 假红是数学必然。
+完整数据、三个缺陷的推导、以及「阈值何时能收回 15%」的前提条件，见 book 页
+[「噪声底与阈值」](../docs/book/src/dev/benchmarking.md)。**改阈值前必须先读那一节。**
 
 判红准则（`R_lower > 1+thr`，SEM 误差传播）与「为什么同机比才有效」见 book 页。纯文档 PR 因路径过滤自动跳过。
 本地自验判红纯函数：`z42 xtask.zpkg bench --ab-selftest`（4 例，不跑 z42vm 场景）。
 
-**历史 dashboard（不再喂门禁）**：每次 push 到 main，`bench-update.yml` 仍自动跑全量 e2e 并把结果提交到
-`bench-baselines` 分支，作趋势记录 / 本地 `--diff` 对比源：
-
-```
-bench-baselines/
-├── README.md
-└── baselines/
-    └── e2e-ubuntu-latest.json   # auto-updated by bench-update.yml
-```
-
-手动获取最新 main baseline：
+## 与 baseline 对比（本地优化前后）
 
 ```bash
-git fetch origin bench-baselines:bench-baselines
-git show bench-baselines:baselines/e2e-ubuntu-latest.json > /tmp/main.json
-z42 xtask.zpkg bench --diff --baseline /tmp/main.json
-```
+# 1. 改之前：跑一遍，把结果挪到别处当 baseline
+z42 xtask.zpkg bench && cp bench/results/e2e.json /tmp/before.json
 
-## 与 baseline 对比
-
-```bash
-# 1. 把当前结果保存为 baseline（首次或重置）
-cp bench/results/e2e.json bench/baselines/main-darwin-arm64.json
-
-# 2. 后续跑 bench 后对比
+# 2. 改完之后：再跑一遍并对比（--baseline 必须显式给）
 z42 xtask.zpkg bench
-z42 xtask.zpkg bench --diff                              # 自动选 main-<os>.json
-z42 xtask.zpkg bench --diff --baseline bench/baselines/main-x.json   # 显式 baseline
+z42 xtask.zpkg bench --diff --baseline /tmp/before.json
 ```
 
 退化判定（**区间感知**，add-interval-aware-bench-gate 2026-08-24；完整语义与数据流见 book 页
@@ -259,6 +247,5 @@ z42 xtask.zpkg bench --diff --baseline bench/baselines/main-x.json   # 显式 ba
 ## 设计约定
 
 - 不在 bench 里 IO 文件 / 网络（避免抖动）
-- bench/baselines/ 目录用 .gitkeep 占位；实际 baselines 由 CI 上传到独立位置（P1.D）
 - 度量单位统一：时间用 ms（hyperfine 输出 s 后转换），内存用 KB
 - diff 阈值默认 5%（时间） / 10%（内存）

@@ -8,16 +8,28 @@ name: Bench PR Regression
 # within-run SEM is statistically valid. A regression = ratio 95% lower bound
 # R_lower > 1 + threshold. This replaces the old cross-runner baseline diff
 # (bench-baselines snapshot on ANOTHER runner ⇒ ±26–60% between-run drift that
-# made the gate near-blind). bench-update.yml + bench-baselines are UNTOUCHED —
-# they stay as an informational historical dashboard, no longer feeding the gate.
+# made the gate near-blind).
 #
-# extend-ab-bench-micro-criterion: after the e2e A/B, the micro/stdlib tier is
-# gated the same way — two isolated `bench stdlib --json` baselines (PR tree +
-# base tree, same runner) diffed by `bench --micro-diff` (per-benchmark SEM from
-# Bencher mean/stddev). base's toolchain is reused from the "Build base toolchain"
-# step; only base z42b is built fresh.
+# simplify-bench-gate (2026-09-05)：门禁此前**每个 PR 期望假红约 2 条**，实测最近
+# 4 次失败逐条核对全是假红 —— 三个叠加缺陷（完整数据与推导见 book 判红语义页
+# docs/book/src/dev/benchmarking.md「噪声底与阈值」）：
+#   ① 判红阈值 10% 画在**噪声底之下**：两个 perf-neutral PR 上实测比值对数标准差
+#      6.4%（e2e）/ 8.1%（micro）⇒ 真实噪声 ±13~16%。
+#   ② 声称的置信区间被系统性低估（micro 中位 4.8% vs 真实 ±16%，约三倍），
+#      「区间分离」这道保险因此失效。
+#   ③ 每个 PR 做 22+65=87 次比较、不做多重比较校正。
+# 对策（本次落地，与上面三条一一对应）：
+#   ① --threshold-time 0.25（抬到噪声底之上）。
+#   ② micro 层降级为**信息性、不再 fail**（见下面那一步的注释）。
+#   ③ e2e 只测 --tier gate 的 6 条场景 + --mode 按改动面收窄 ⇒ 比较数 87 → 6~12。
+# 同时删掉 allocations 探针（informational、从不 fail，却占单次 job 的 26%）。
+# 单次 job 执行墙钟 17~18 min → 约 8~10 min。
+# 未做（下一步）：「可疑即复测」—— 只对初判超阈值的条目做 k=3 交替重测、用跑间
+# 比值离散度重算区间。那是让阈值从 25% 收回 15%、以及让 micro 重新硬门禁的前提。
 #
-# Threshold: 10% time per the 0.2.3 退出标准 (`--threshold-time 0.10`).
+# extend-ab-bench-micro-criterion: micro/stdlib tier 仍每次采两份隔离基线
+# （PR 树 + base 树，同 runner）并 diff，但**只打印不判红**。base's toolchain is
+# reused from the "Build base toolchain" step; only base z42b is built fresh.
 #
 # Trigger paths intentionally narrow — doc-only PRs skip the run.
 
@@ -157,17 +169,28 @@ jobs:
           echo "base_libs=$BASEALL"      >> "$GITHUB_OUTPUT"
           echo "base_driver=$BASEDRIVER" >> "$GITHUB_OUTPUT"
 
-      - name: Same-runner A/B regression gate (>10% time fails)
+      - name: Same-runner A/B regression gate (>25% time fails)
         shell: bash
         run: |
           set -euo pipefail
-          # add-exec-profile-matrix: --mode both measures each scenario under
-          # interp AND jit. Each scenario is compiled + run under BOTH toolchains
-          # on this runner; a regression fails the job (exit 1).
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          # simplify-bench-gate: --mode 按改动面收窄。interp 与 jit 的相对性能只可能
+          # 被 VM 改动挪动，src/runtime 没变就只测 jit（默认执行模式），measurement
+          # 数量减半。碰了 runtime 才扫 both。
+          if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime; then
+            MODE=jit;  echo "→ src/runtime unchanged base..pr → --mode jit"
+          else
+            MODE=both; echo "→ src/runtime changed → --mode both (interp + jit)"
+          fi
+          # --tier gate: 只测门禁那 6 条代表性场景（其余 tier=full 的场景本地/按需跑）。
+          # 这同时把每个 PR 的比较次数从 22 条降到 6–12 条 —— 多重比较的假红概率随之
+          # 降一个量级，不只是省时间。
+          # --threshold-time 0.25: 实测噪声底 ±13~16%（见 book 判红语义页「噪声底与阈值」），
+          # 10% 的旧阈值画在噪声底之下，假红是数学必然。25% 留安全边际。
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench --ab --mode both --threshold-time 0.10 \
+            bench --ab --tier gate --mode "$MODE" --threshold-time 0.25 \
               --base-vm     "${{ steps.base.outputs.base_vm }}" \
               --base-libs   "${{ steps.base.outputs.base_libs }}" \
               --base-driver "${{ steps.base.outputs.base_driver }}"
@@ -207,16 +230,28 @@ jobs:
               --driver "${{ steps.base.outputs.base_driver }}" \
               --libs   "${{ steps.base.outputs.base_libs }}" )
 
-      - name: Same-runner micro A/B gate (>10% time fails)
+      # simplify-bench-gate: micro 层**降级为信息性，不再 fail job**。
+      # 依据（实测，见 book 判红语义页「噪声底与阈值」）：micro 声称的置信区间宽度
+      # 中位仅 4.8%、最窄 0.25%，而同一批数据反推的真实噪声是 ±16% —— **低估约三倍**。
+      # 根因：`Bencher` 的 stddev 是单个进程内批次样本的离散度，而 base 与 pr 是两个
+      # 独立进程，进程间那部分方差（CPU 频率 / page cache / 分配器与 GC 起始状态 /
+      # 代码布局）完全没被建模。区间既然不可信，「区间分离」这道保险就不成立，判红
+      # 退化成「谁的区间碰巧最窄」的抽签 —— 实测现场：同一批里 sha256_4k(+11.5%) 判红、
+      # sha256_small(+11.0%) 放过，而 aes_cbc_4k 报「快 19%，区间 ±0.06%」（GC 改动
+      # 不可能让 AES 快 19%）。最近 4 次 bench-pr 失败有 3 次在这一层，逐条核对全是假红。
+      # 仍然每次跑、仍然打印全部 65 条比值（改 stdlib 热路径后眼看一下的材料），
+      # 丢掉的只是它 fail job 的权力。要重新硬门禁，需先做「可疑即复测」（见 book 页）。
+      - name: Micro A/B (informational — never fails)
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
-            bench --micro-diff --threshold-time 0.10 \
+            bench --micro-diff --threshold-time 0.25 \
               --current  "$PWD/bench/results/micro-pr.json" \
-              --baseline "$PWD/bench/results/micro-base.json"
+              --baseline "$PWD/bench/results/micro-base.json" || true
+          echo "── micro tier is informational; it never fails this job ──"
 
       # ── extend-ab-bench-micro-criterion Part C: criterion(Rust) tier A/B ──
       # Only when the PR touched src/runtime (VM unchanged ⇒ criterion result cannot
@@ -285,30 +320,3 @@ jobs:
             bench/results/micro-pr.json
             bench/results/micro-base.json
           if-no-files-found: ignore
-
-      # ── expose-diagnostics-counters (script-profiling P1c) ────────────────
-      # INFORMATIONAL allocations probe. Unlike wall-time (±60% cross-runner
-      # noise, see docs/design/testing), `allocations` is deterministic — it is
-      # the intended signal for a future hard alloc-regression gate. This step
-      # only PRINTS the count (per scenario × GC-mode); it never fails the job.
-      # Observe 3-5 rounds of cross-GC-mode stability here before a follow-up
-      # change turns it into a threshold gate (Decision D4). `|| true` guards
-      # every probe so a profiler hiccup can't red the bench job.
-      - name: Allocations probe (informational — never fails)
-        shell: bash
-        run: |
-          set -uo pipefail
-          vm="$PWD/artifacts/build/runtime/release/z42vm"
-          export Z42_PORTABLE_VM="$vm"
-          export Z42_LIBS="$PWD/artifacts/build/libraries/dist/release"
-          echo "── allocations (informational; deterministic; not a gate) ──"
-          # alloc-heavy + call-heavy scenarios, each under two GC modes.
-          for scn in bench/scenarios/08_dict_heavy.z42 bench/scenarios/01_fibonacci.z42; do
-            for gc in stw generational; do
-              out="$(Z42_GC_MODE="$gc" "$vm" artifacts/xtask/xtask.zpkg -- \
-                       profile --threads "$scn" --mode interp 2>/dev/null \
-                     | grep -oE 'alloc=[0-9]+' | head -1 || true)"
-              printf 'informational: %-40s gc=%-13s %s\n' "$(basename "$scn")" "$gc" "${out:-alloc=?}"
-            done
-          done
-          echo "── end allocations probe ──"
