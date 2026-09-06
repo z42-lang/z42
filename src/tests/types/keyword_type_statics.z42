@@ -1,0 +1,50 @@
+// 小写类型关键字上的静态成员调用：`string.Join` / `int.Parse` / `double.Parse` 等，
+// 解析到与首字母大写的类型名（String / int32 / double）同一个类型。
+// 这测的是**语言侧**的「关键字 → 类型」解析，不是 String 的库行为——后者归
+// src/libraries/z42.core/tests/string_methods.z42。
+//
+// 由 strings/string_static_methods + strings/string_params_methods 合并而来
+// （tidy-test-layout，2026-09-06）。那两例的库行为部分与 z42.core 的 String 单测
+// 完全重合，唯一不可替代的是「小写关键字作接收者」这一条——因为 [Test] 单测里
+// 也能写 `String.Join`，写 `string.Join` 却只有这里在验。原本用
+// Console.WriteLine + expected_output.txt 表达，断言的却全是可直接比较的值，
+// 故改成 assert-only，侧车文件随之删除。
+namespace Demo.KeywordTypeStatics;
+
+void Main() {
+    // ── string.*（小写关键字）────────────────────────────────────────────
+    Assert.True(string.IsNullOrEmpty(""));
+    Assert.False(string.IsNullOrEmpty("hi"));
+
+    string[] parts = new string[] { "a", "b", "c" };
+    Assert.Equal("a, b, c", string.Join(", ", parts));       // normal form（数组直传）
+    Assert.Equal("x-y-z", string.Join("-", "x", "y", "z"));  // expanded form
+
+    Assert.Equal("Hello, World", string.Concat("Hello", ", ", "World"));
+    Assert.Equal("solo", string.Concat("solo"));
+    Assert.Equal("abcd", string.Concat("a", "b", "c", "d")); // 超原三元固定 arity → params
+    string[] xs = new string[] { "x", "y", "z" };
+    Assert.Equal("xyz", string.Concat(xs));
+
+    Assert.Equal("7", string.Format("{0}", 7));              // int 装箱
+    Assert.Equal("1+2+3", string.Format("{0}+{1}+{2}", 1, 2, 3));
+    Assert.Equal("dup and dup", string.Format("{0} and {0}", "dup"));
+    Assert.Equal("age is 42", string.Format("{0} is {1}", "age", 42));
+
+    // ── int. / double.（小写关键字）──────────────────────────────────────
+    int n = int.Parse("123");
+    Assert.Equal(123, n);
+    double d = double.Parse("3.14");
+    Assert.True(d > 3.13);
+    Assert.True(d < 3.15);
+
+    // ── ToString 形态 ────────────────────────────────────────────────────
+    // 这几条是原 golden 的 expected_output.txt 唯一在验、别处没有覆盖的东西：
+    // Console.WriteLine 打印 bool / double 时所依赖的格式契约。
+    bool t = true;
+    bool f = false;
+    Assert.Equal("true", t.ToString());
+    Assert.Equal("false", f.ToString());
+    Assert.Equal("123", n.ToString());
+    Assert.Equal("3.14", d.ToString());
+}

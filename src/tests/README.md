@@ -17,6 +17,12 @@
 - VM Rust 集成测试（zbc_compat / native interop / manifest schema）→ [src/runtime/tests/](../runtime/tests/)
 - stdlib 库本地测试 → [src/libraries/<lib>/tests/](../libraries/)
 
+> **归属判据（tidy-test-layout，2026-09-06）**：本目录测的是**语言 / VM 特性**——
+> 语法、类型系统、派发、GC、优化 pass、自举格式。一个用例若在测**某个库的 API 行为**
+> （`String.Trim`、`Enum.Parse`、`List<T>`、`Std.Assert` …），它属于那个库的
+> `src/libraries/<lib>/tests/`，不属于这里，哪怕该 API 由 VM builtin 实现。
+> 判据是「这条断言在描述谁的契约」，不是「实现落在哪一层」。
+
 ## 类别
 
 | 类别 | 内容 |
@@ -34,7 +40,7 @@
 | `operators/` | bitwise / 增量 / parse / postfix / 逻辑 / 比较 / 重载 |
 | `refs/` | ref / out / in / nested ref |
 | `classes/` | class / namespace / access / static / auto-property / ctor / indexer |
-| `strings/` | string builtin / 方法 / 静态方法 / 边界 / script-mode |
+| `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42)，不在这里 |
 | `cross-zpkg/` | 多 zpkg 端到端（target / ext / main 三方协作；由 `z42 xtask.zpkg test cross-zpkg` 跑） |
 
 > **期望编译报错的用例不在本目录**：写成 `z42c.semantics` 自己的 `[Test]` 单测
@@ -58,10 +64,20 @@
 | `source.z42` | 必须 | z42 源码 |
 | `source.zbc` | run / parse | 由 `z42 xtask.zpkg regen` 生成，按组件镜像落 `artifacts/build/tests/<rel>/source.zbc`（**不与源同处**，gitignored，不污染 src）。例外：`zbc-format/*/source.zbc` 是 check-in 字节基线，就地重写 |
 | `source.zasm` | 可选 | ZASM 调试文本 |
-| `expected_output.txt` | run | stdout 期望（**空 = 删除**；缺失 = assert-only 模式：用例靠 `Std.Assert` 抛异常表达失败，期望空 stdout）|
+| `expected_output.txt` | run | stdout 期望。**默认不要有这个文件**——见下方「先写 assert-only」。空文件 = 删除；缺失 = assert-only 模式（用例靠 `Std.Assert` 抛异常表达失败，期望空 stdout）|
 | `expected.zasm` | parse | IR ZASM 期望 |
 | `features.toml` | 可选 | LanguageFeatures override |
 | `interp_only` | 可选 marker | 跳过 JIT 模式 |
+
+> **先写 assert-only，别默认加 `expected_output.txt`**（tidy-test-layout，2026-09-06）。
+> 把断言写成 `Assert.Equal(...)` 而不是「打印一行、再拿侧车比对」有三个好处：期望值就在
+> 断言旁边（不必在两个文件间来回对照）、失败信息直接指出哪一条不符（而不是一份 diff）、
+> 少一个文件。**「某个分支不该被执行」这类否定命题尤其要用断言**：golden 只能靠「输出里
+> 没有那一行」间接表达，计数器 + `Assert.Equal(0, hits)` 才是正面证明。
+>
+> 侧车只在 **stdout 本身就是被测契约**时才该存在，例如：异常栈迹文本、`Console` 对某类型的
+> 格式化、多 exe 的输出顺序、REPL 会话记录。判据：「把它改写成断言，会不会丢掉只有 stdout
+> 能表达的东西？」不会 → 就该是 assert-only。
 
 ### Flat 模式（`<category>/<name>.z42`）
 

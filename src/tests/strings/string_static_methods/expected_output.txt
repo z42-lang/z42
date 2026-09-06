@@ -1,8 +1,0 @@
-true
-false
-a, b, c
-x-y-z
-Hello, World
-age is 42
-123
-3.14

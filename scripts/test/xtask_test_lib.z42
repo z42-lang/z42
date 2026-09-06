@@ -194,6 +194,40 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     }
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");
+    // False-GREEN guard (2026-09-06): a named lib whose <subdir>/ HOLDS .z42
+    // sources yet yielded no unit. That combination is always a bug — sources
+    // that no discovery rule claims — and it used to print "all 0 file(s)
+    // passed (in 0 lib(s))" and exit 0. That is how z42.ir / z42c.core /
+    // z42c.syntax sat unrun for months: their [Test] dirs failed the old
+    // source.z42 gate in _discoverTestUnits and nothing said so.
+    //
+    // Deliberately narrow on three axes, so the guard only ever fires on the
+    // real defect:
+    //   · named libs only (nReq > 0) — the unnamed sweep (`test stdlib`,
+    //     `test all`) legitimately walks libs that have no tests at all;
+    //   · sources must actually EXIST under <subdir>/ — a lib with no tests/
+    //     dir (z42.build) is a normal test-less lib, and `test changed` runs
+    //     `test stdlib <lib>` for whichever lib you edited, so failing there
+    //     would be a false alarm, not a finding;
+    //   · no -k filter — a filter matching nothing is the filter's business.
+    if (nReq > 0 && totalFiles == 0 && filter.Length == 0) {
+        string orphaned = "";
+        int qi = 0;
+        while (qi < nReq) {
+            string sd = Path.Join(Path.Join(libsRoot, reqLibsIn[qi]), subdir);
+            if (Directory.Exists(sd) && Path.GlobRecursive(sd, "*.z42").Length > 0) {
+                orphaned = orphaned + (orphaned.Length > 0 ? ", " : "") + reqLibsIn[qi];
+            }
+            qi = qi + 1;
+        }
+        if (orphaned.Length > 0) {
+            ConsoleError.WriteLine("  ❌ stdlib " + label + ": " + orphaned + " has .z42 sources under "
+                + subdir + "/ but no " + label + " unit was discovered — every source there is dead."
+                + " A unit is either <lib>/" + subdir + "/<name>.z42 or a <lib>/" + subdir
+                + "/<name>/ dir declaring [Test] methods.");
+            return 1;
+        }
+    }
     if (totalFailed > 0) {
         Console.WriteLine("  ❌ stdlib " + label + ": " + totalFailed.ToString()
             + " file(s) failed (of " + totalFiles.ToString() + " in " + libsTested.ToString() + " lib(s))");
