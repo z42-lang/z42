@@ -11,7 +11,23 @@
 //!
 //! 1. `used >= gc_near_limit_ratio × max_bytes` — we are near the budget;
 //! 2. `used` has grown by at least `gc_throttle_ratio × max_bytes` since the
-//!    last trip — debounces back-to-back collections.
+//!    *end of the last collection* — debounces back-to-back collections.
+//!
+//! Rule 2's baseline matters more than it looks. It used to be the `used` read
+//! at the last *trip* — i.e. the pre-collect high-water mark, which sits at
+//! `gc_near_limit_ratio × max_bytes` by construction (rule 1 just let it
+//! through). Re-tripping then demanded
+//! `(near_limit_ratio + throttle_ratio) × max_bytes` = **100% of the budget**
+//! with the multiplier at 1, and more once it doubled — a bar a working
+//! collector keeps the heap below, so the second cycle never came. Measured on
+//! `z42c.semantics --release --no-incremental` with a 256MB budget: cycle 1
+//! freed 186.3MB at 230.4MB used, the gate then wanted 295.3MB (110% of
+//! budget, the multiplier having already doubled — see below), and the run
+//! ended at 273.6MB having collected exactly once.
+//!
+//! The baseline is recovered without a hook into the collect paths: the
+//! previous trip's collection freed `reclaimed_since` bytes, so `last -
+//! reclaimed_since` is where `used` stood when it finished.
 //!
 //! `max_bytes` comes from `Z42_GC_MAX_BYTES`. **Unset means no automatic
 //! collection at all** — the historical default, kept for compatibility.
@@ -32,6 +48,11 @@
 //!
 //! Productivity is read back from `stats.reclaimed_bytes` — the total is already
 //! maintained by every collect path, so this needs no hook in any of them.
+//! It always describes the collection the *previous* trip asked for, which
+//! leaves the very first trip with nothing to judge: reading 0 reclaimed there
+//! penalised a heap that had never been collected at all, so the multiplier
+//! was already 2 before the first cycle had run. `gc_cycles == 0` now means
+//! "neutral", not "futile".
 
 use std::sync::atomic::Ordering;
 
@@ -50,7 +71,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// falls back to the inline collect, leaving single-threaded behaviour
     /// unchanged.
     pub(super) fn maybe_auto_collect(&self) {
-        let (max_opt, last, paused, reclaimed_mark, backoff, total_reclaimed) = {
+        let (max_opt, last, paused, reclaimed_mark, backoff, total_reclaimed, cycles) = {
             let i = self.inner.lock();
             (i.stats.max_bytes, i.last_auto_collect_used, i.pause_count > 0,
              i.last_auto_collect_reclaimed,
@@ -59,7 +80,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
              // impl for a 20-field struct (0 would zero the growth gate and
              // trip a collect on every allocation).
              i.auto_collect_backoff.max(1),
-             i.stats.reclaimed_bytes)
+             i.stats.reclaimed_bytes,
+             i.stats.gc_cycles)
         };
         let used = self.used_bytes_atomic();
         if paused { return; }
@@ -68,17 +90,37 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let near_threshold = (limit as f64 * cfg.gc_near_limit_ratio) as u64;
         if used < near_threshold { return; }
         let base_delta = (limit as f64 * cfg.gc_throttle_ratio) as u64;
-        if used.saturating_sub(last) < base_delta.saturating_mul(backoff as u64) { return; }
 
-        // How much did the *previous* trip's collection actually reclaim? Less
-        // than one growth-gate's worth means it did not buy us room; back off so
-        // an over-budget live set stops re-collecting on every gate.
+        // How much did the *previous* trip's collection actually reclaim?
         let reclaimed_since = total_reclaimed.saturating_sub(reclaimed_mark);
-        let next_backoff = if reclaimed_since < base_delta {
+        // `last` is a pre-collect reading; the collection it tripped then freed
+        // `reclaimed_since`. Growth is measured from where that left the heap,
+        // so the gate asks for one throttle-ratio of *new* allocation rather
+        // than for the heap to climb back past its own high-water mark.
+        let baseline = last.saturating_sub(reclaimed_since);
+        if used.saturating_sub(baseline) < base_delta.saturating_mul(backoff as u64) { return; }
+
+        // Less than one growth-gate's worth reclaimed means the last collection
+        // did not buy us room; back off so an over-budget live set stops
+        // re-collecting on every gate. With no cycle behind us there is nothing
+        // to judge — stay neutral rather than reading the absent collection as
+        // a futile one.
+        let next_backoff = if cycles == 0 {
+            1
+        } else if reclaimed_since < base_delta {
             backoff.saturating_mul(2).min(MAX_BACKOFF)
         } else {
             1
         };
+
+        // A collect this path already asked for may still be pending at the
+        // safepoint. Re-tripping would overwrite the watermarks with readings
+        // taken before it ran, losing that cycle from the accounting — and
+        // would not buy a second collection anyway, the flag is already set.
+        let pending = self.external_needs_collect.lock().clone();
+        if let Some(f) = &pending {
+            if f.load(Ordering::Acquire) { return; }
+        }
 
         {
             // Mark the pre-collect watermarks so we don't re-trip on every
@@ -90,7 +132,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
 
         // Defer to safepoint when wired (multi-thread safe path).
-        if let Some(flag) = self.external_needs_collect.lock().clone() {
+        if let Some(flag) = pending {
             flag.store(true, Ordering::Release);
             return;
         }
