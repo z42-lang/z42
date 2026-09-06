@@ -148,10 +148,17 @@
 
 ### 3B Parser
 
-- [ ] 3B.1 `MemberParser._parseMemberBody:107-133` —— 在 `_parseType()` **之前**的拦截区加 `type Item;` 三 token 前瞻分支（上下文关键字，**不进 lexer**）
-- [ ] 3B.2 `TypeParser._parseType:105-122` —— 类型实参位支持 `Name = Type` 命名绑定
-- [ ] 3B.3 `TypeExpr.z42` / `Decl.z42` —— 承载绑定与关联类型声明节点
-- [ ] 3B.4 回归确认 `type` 仍可作普通标识符
+- [x] 3B.1 `MemberParser._parseMemberBody` 拦截区加 `type Item;` / `type Item = X;` 三 token 前瞻
+      （上下文关键字，**不进 lexer**）。⚠️ 已实测并**刻意接受**一处代价：类型名恰好叫 `type` 的
+      字段声明（`type x;`）会被吃掉——全仓 `src/`+`examples/` 零命中、且无任何名为 `type` 的类型；
+      换来 `type` 不进 lexer（进 lexer 会废掉所有把 `type` 当变量/参数/属性名的源码）
+- [x] 3B.2 `TypeParser` 类型实参位支持 `Name = Type` 命名绑定，**且仅在 where 约束位开**
+      （`_allowAssocBindings` 门控，`_parseConstraint` 进出成对开关）。普通类型位
+      `List<Item = int>` 仍是语法错误——`=` 在类型位一旦全局放开就再收不回来
+- [x] 3B.3 新增 `AssocBindingType : TypeExpr`（`Item = int`，长在 Args 槽里 ⇒ `NamedType` 一行不改）
+      + `AssocTypeDecl : Decl`（`type Item;` / `type Item = int;`）
+- [x] 3B.4 `decl.z42` +5 条：3 条正例 + 「普通类型位不得接受绑定」+ 「`type` 仍是普通标识符」。
+      **3 条正例已实证是真门**（把两处支持改成 `if (false)` 后精确变红，两条守卫按预期保持绿）
 
 ### 3C 语义
 

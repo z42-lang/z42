@@ -112,6 +112,33 @@ public sealed class MemberParser {
             return this._p._declP._parseTypeDecl(mods, nkind, attrs);
         }
         if (nk == TokenKind.Enum)   { return this._p._declP._parseEnum(mods); }
+        // add-associated-types PR-3：关联类型成员 `type Item;` / `type Item = int;`。
+        // `type` **不是关键字**（全仓大量用它作普通标识符：变量名、参数名、属性名），加进 lexer 会
+        // 一次性破坏所有那些源码。故与 class/enum/implicit 同款，在 `_parseType()` **之前**前瞻拦截；
+        // 且要求三个 token 全中（`type` + 标识符 + `;`/`=`）。
+        //
+        // ⚠️ 这条前瞻**确实会**吃掉一种既有写法：类型名恰好叫 `type` 的字段声明
+        // （`type x;` / `type x = ...;`）。已实测全仓（`src/` + `examples/`）**零命中**，且没有任何
+        // 名为 `type` 的 class/struct/interface/enum ⇒ 今天不存在这种声明。这是**刻意接受的**代价：
+        // 换来 `type` 不进 lexer（进 lexer 会一次性废掉所有把 `type` 当变量/参数/属性名的源码，
+        // 那才是真的破坏面）。方法与属性不受影响——`type Foo() {…}` / `type Foo { get; }` 的第三个
+        // token 是 `(` / `{`，前瞻不命中。
+        if (this._p._peek().Kind == TokenKind.Identifier && this._p._peek().Text == "type"
+            && this._p._peekAt(1).Kind == TokenKind.Identifier
+            && (this._p._peekAt(2).Kind == TokenKind.Semicolon || this._p._peekAt(2).Kind == TokenKind.Eq)) {
+            this._p._advance();                          // 'type'
+            string atName = this._p._peek().Text;
+            this._p._advance();                          // 名
+            bool atHasBound = false;
+            TypeExpr atBound = this._p._typeP._emptyType();
+            if (this._p._peek().Kind == TokenKind.Eq) {
+                this._p._advance();                      // '='
+                atBound = this._p._typeP._parseType();
+                atHasBound = true;
+            }
+            this._p._expect(TokenKind.Semicolon, ";");
+            return new AssocTypeDecl(mods, atName, atHasBound, atBound, sp);
+        }
         // 构造器：标识符(==类名) 紧跟 '('
         if (this._p._peek().Kind == TokenKind.Identifier && this._p._peek().Text == className
             && this._p._peekAt(1).Kind == TokenKind.LParen) {
