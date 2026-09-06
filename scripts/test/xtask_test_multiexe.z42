@@ -12,21 +12,10 @@ namespace Z42Xtask;
 using Std;
 using Std.IO;
 
-// Build prep mirror of _testCrossZpkgCore: ensure z42vm + z42c + stdlib exist,
-// then run the cases. `noBuild` skips the build wave (toolchain/consume path or
-// an earlier golden run already built everything).
+// 构建前置与 cross-zpkg 共用 _ensureFixtureToolchain（test/xtask_test.z42）——
+// 此前是逐行相同的两份拷贝（dedupe-cross-multiexe）。
 int _testMultiExeCore(string mode, bool noBuild) {
-    bool haveTc = _toolchainDir(_root()).Length > 0;
-    if (!noBuild && !haveTc) {
-        int cr = _exec(new Process("cargo").Arg("build").Arg("-q")
-            .Arg("--manifest-path").Arg(_runtimeManifest()));
-        if (cr != 0) { return cr; }
-        string root = _root();
-        if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {
-            int cs = _buildStdlib(); if (cs != 0) { return cs; }
-        }
-        int cz = _buildCompiler(); if (cz != 0) { return cz; }
-    }
+    int c = _ensureFixtureToolchain(noBuild); if (c != 0) { return c; }
     return _testMultiExeImpl(mode);
 }
 

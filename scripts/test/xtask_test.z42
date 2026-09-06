@@ -213,21 +213,31 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
 // noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test all` already prepared
 // them in its build wave (z42c was being self-built a 2nd time here). `test e2e`
 // passes noBuild per its --no-rebuild/--no-build flags (or true after a golden run).
-int _testCrossZpkgCore(string mode, bool noBuild) {
-    // --toolchain (compile-once P3): an active toolchain supplies z42c+stdlib+z42vm,
-    // so skip the build-tree rebuild entirely (consume path: nothing to build).
-    bool haveTc = _toolchainDir(_root()).Length > 0;
-    // cross-zpkg：debug z42vm（cargo）跑 fixtures；z42c（种子自建）编 fixtures。
-    if (!noBuild && !haveTc) {
-        int cr = _exec(new Process("cargo").Arg("build").Arg("-q")
-            .Arg("--manifest-path").Arg(_runtimeManifest()));
-        if (cr != 0) { return cr; }
-        string root = _root();
-        if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {
-            int cs = _buildStdlib(); if (cs != 0) { return cs; }
-        }
-        int cz = _buildCompiler(); if (cz != 0) { return cz; }   // z42c 自建（种子）
+// cross-zpkg 与 multi-exe 两个 fixture harness 的**共用**构建前置：确保 debug z42vm
+// （cargo，跑 fixtures）+ stdlib + z42c（种子自建，编 fixtures）就位。
+//
+// `--toolchain` 激活时（compile-once P3 的 consume 路径）整个跳过——工具链已供给
+// z42c+stdlib+z42vm，没有可建的东西。`noBuild` 同理（调用方已建过）。
+// 返回 0 = 就位；非 0 = 构建失败的 rc，调用方直接透传。
+//
+// 收敛自 _testCrossZpkgCore / _testMultiExeCore 两份**逐行相同**的拷贝
+// （dedupe-cross-multiexe, 2026-09-06）。这里的**次序**尤其不该存两份：z42vm 必须先于
+// stdlib 自建（stdlib 正是用 z42vm 建的），两份拷贝意味着改一处漏一处——#497 修的
+// 就是另一条构建波上的同类次序问题。
+int _ensureFixtureToolchain(bool noBuild) {
+    if (noBuild || _toolchainDir(_root()).Length > 0) { return 0; }
+    int cr = _exec(new Process("cargo").Arg("build").Arg("-q")
+        .Arg("--manifest-path").Arg(_runtimeManifest()));
+    if (cr != 0) { return cr; }
+    string root = _root();
+    if (!File.Exists(Path.Join(_libsDir(root), "z42.core.zpkg"))) {
+        int cs = _buildStdlib(); if (cs != 0) { return cs; }
     }
+    return _buildCompiler();   // z42c 自建（种子）
+}
+
+int _testCrossZpkgCore(string mode, bool noBuild) {
+    int c = _ensureFixtureToolchain(noBuild); if (c != 0) { return c; }
     return _testCrossZpkgImpl(mode);
 }
 

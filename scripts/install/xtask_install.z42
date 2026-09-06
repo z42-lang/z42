@@ -139,7 +139,7 @@ int _depsInstallNode(bool force) {
     string tmp = Directory.CreateTempDir("node-dl");
     string tarball = Path.Join(tmp, name + ".tar.gz");
     Console.WriteLine("fetching " + url);
-    int dc = _exec(new Process("curl").Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error").Arg("-o").Arg(tarball).Arg(url));
+    int dc = _curlDownload(url, tarball);
     if (dc != 0) { ConsoleError.WriteLine("error: node download failed"); return dc; }
 
     Console.WriteLine("extracting to " + installDir);
@@ -237,6 +237,21 @@ string _nthDot(string s, int n) {
     string[] p = s.Split(".");
     if (n < p.Length) { return p[n]; }
     return "";
+}
+
+// ── 下载 ─────────────────────────────────────────────────────────────────────
+
+// `curl` 下载到 outPath。三个 install 下载点（node / android cmdline-tools / gradle）
+// 此前各自拼一遍完全相同的 4 个 flag——这里收成一处（dedupe-cross-multiexe, 2026-09-06）。
+//
+// **这四个 flag 不是可选装饰**，尤其 `--fail`：没有它，curl 遇到 4xx/5xx 会把错误页
+// **以 0 退出码**写进 outPath，于是一个 HTML 错误页被当成 tarball/zip 交给下游解压
+// （android 那两处还会先过 sha256 校验，报出来的是「哈希不符」而非「下载失败」——
+// 指不到真因）。新增下载点一律走本函数，别再手拼。
+int _curlDownload(string url, string outPath) {
+    return _exec(new Process("curl")
+        .Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error")
+        .Arg("-o").Arg(outPath).Arg(url));
 }
 
 // ── rust target / cargo crate ensure ─────────────────────────────────────────
