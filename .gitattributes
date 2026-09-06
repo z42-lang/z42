@@ -31,6 +31,16 @@ Makefile    text eol=lf
 # stable cross-platform.
 *.z42       text eol=lf
 
+# Golden 期望输出：与 .z42 同理必须强制 LF（fix-more-silent-gates, 2026-09-06）。
+# 上面的 `*.txt text` 不带 eol=lf ⇒ Windows checkout（autocrlf=true）把这些文件
+# 转成 CRLF，而 z42vm 的输出是 LF（Rust println! 不做行尾转换）⇒ golden 的**逐字节**
+# 比对在 Windows 上全线失败。这个洞一直没暴露，因为消费它的两条腿都不在 Windows 上跑：
+# test-host(windows) 用 --skip 跳过 test all，而 `test dist` 的 golden 腿此前根本没人跑
+# （见 xtask_test_dist.z42）。接通后 Windows 立刻 93 failed，且 expected/actual 打印出来
+# 一模一样——差异全在不可见的 \r。修行尾而不是在比对里容忍，是因为容忍会掏空
+# golden「逐字节」的语义。
+*expected_output.txt text eol=lf
+
 # Cross-platform binary artifacts that must never be EOL-converted.
 *.zpkg      binary
 *.zbc       binary
