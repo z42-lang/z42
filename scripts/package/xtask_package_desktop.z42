@@ -244,7 +244,11 @@ int _buildRuntimePackage(string root, string rid, string version, string profile
     if (c != 0) { return c; }
 
     Console.WriteLine("  ✓ runtime package (native/ + libs): " + pkgDir);
-    return 0;
+    // source-identity 门（fix-silent-gates, 2026-09-06）。此前这里直接 `return 0`，
+    // 而 _packageRuntime 的 desktop 分支又在 _pkgFinish 之前就 return 了 → **这个已发布
+    // 产物从不跑一致性门**，偏偏它装的正是规则表前两类（libs/ + native/include）。
+    // 调用方那句 "finishes internally" 当时是错的，已一并改正。
+    return _pkgFinish(root, pkgDir);
 }
 
 // ── manifest (desktop SDK) ───────────────────────────────────────────────────

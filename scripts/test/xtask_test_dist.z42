@@ -57,6 +57,23 @@ int _testDistRun(string modeArg) {
     if (!File.Exists(z42c))      { ConsoleError.WriteLine("error: z42c not found at " + z42c); bad = true; }
     if (!File.Exists(z42vm))     { ConsoleError.WriteLine("error: z42vm not found at " + z42vm); bad = true; }
     if (!Directory.Exists(libsDir)) { ConsoleError.WriteLine("error: libs not found at " + libsDir); bad = true; }
+    // 三个 smoke 套件各自的被测对象也必须 preflight（fix-silent-gates, 2026-09-06）。
+    // 此前它们缺件时是「静默 SKIP + 返回 [0,0]」，而终判只看 overallFail>0 ——
+    // 于是**全部 SKIP 也返回绿**。而 SKIP 的条件字面上就是「被测对象从包里消失了」，
+    // 那恰恰是这个 job 存在的理由。缺件必须红在这里，不能退化成 no-op。
+    string pfLauncher = Path.Join(distDir, "z42");
+    if (!File.Exists(pfLauncher)) { pfLauncher = pfLauncher + ".exe"; }
+    string pfApphost = Path.Join(distDir, "bin/apphost");
+    if (!File.Exists(pfApphost)) { pfApphost = pfApphost + ".exe"; }
+    if (!File.Exists(pfLauncher)) {
+        ConsoleError.WriteLine("error: launcher (z42) not in package at " + distDir); bad = true;
+    }
+    if (!File.Exists(Path.Join(distDir, "programs/launcher/launcher.zpkg"))) {
+        ConsoleError.WriteLine("error: programs/launcher/launcher.zpkg not in package at " + distDir); bad = true;
+    }
+    if (!File.Exists(pfApphost)) {
+        ConsoleError.WriteLine("error: bin/apphost not in package at " + distDir); bad = true;
+    }
     if (bad) { return 1; }
 
     Console.WriteLine("z42 Distribution Test Runner");
