@@ -14,26 +14,53 @@ public sealed class ZpkgCursor {
     public byte[] Data;
     public int    Pos;
     public ZpkgCursor(byte[] data, int pos) { this.Data = data; this.Pos = pos; }
+    // ⚠️ 性能（perf/zpkg-cursor）：U16/U32/Varint/I64 **刻意不复用 U8/U16**，字节展开是有意的重复。
+    // 解释执行下建一个 VmFrame 的成本与被调函数体大小无关（一层纯转发 ≈ 0.5% 全负载），
+    // 原写法读一个 u32 = U32+2×U16+4×U8 = 7 个帧；`.zpkg` 全是 u32 池索引，量级极大。
+    // 位运算逐位等价于原转发版（U32 仍按两个 16 位半字合成）。**别"重构"回转发。**
     public int U8()  { int v = (int)this.Data[this.Pos]; this.Pos = this.Pos + 1; return v; }
-    public int U16() { int a = this.U8(); int b = this.U8(); return a | (b << 8); }
-    public int U32() { int a = this.U16(); int b = this.U16(); return a | (b << 16); }
+    public int U16() {
+        byte[] d = this.Data;
+        int p = this.Pos;
+        this.Pos = p + 2;
+        return ((int)d[p]) | (((int)d[p + 1]) << 8);
+    }
+    public int U32() {
+        byte[] d = this.Data;
+        int p = this.Pos;
+        this.Pos = p + 4;
+        int a = ((int)d[p])     | (((int)d[p + 1]) << 8);
+        int b = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
+        return a | (b << 16);
+    }
     // 无符号 LEB128（STRS segment-dict）。最多 5 字节防越界死循环。
     public int Varint() {
+        byte[] d = this.Data;
+        int p = this.Pos;
         int result = 0;
         int shift = 0;
         int guard = 0;
         while (guard < 5) {
-            int b = this.U8();
+            int b = (int)d[p];
+            p = p + 1;
             result = result | ((b & 0x7F) << shift);
-            if ((b & 0x80) == 0) { return result; }
+            if ((b & 0x80) == 0) { this.Pos = p; return result; }
             shift = shift + 7;
             guard = guard + 1;
         }
+        this.Pos = p;
         return result;
     }
     public long I64() {
-        long lo = (long)this.U32();
-        long hi = (long)this.U32();
+        byte[] d = this.Data;
+        int p = this.Pos;
+        this.Pos = p + 8;
+        int loA = ((int)d[p])     | (((int)d[p + 1]) << 8);
+        int loB = ((int)d[p + 2]) | (((int)d[p + 3]) << 8);
+        int hiA = ((int)d[p + 4]) | (((int)d[p + 5]) << 8);
+        int hiB = ((int)d[p + 6]) | (((int)d[p + 7]) << 8);
+        long lo = (long)(loA | (loB << 16));
+        long hi = (long)(hiA | (hiB << 16));
         return (lo & 0xFFFFFFFFL) | (hi << 32);
     }
 }
