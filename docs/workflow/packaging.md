@@ -126,8 +126,20 @@ file artifacts/packages/z42-0.1.0-browser-wasm-release/native/z42_wasm_bg.wasm
 | `js/{index.js,index.d.ts,stdlib-resolver.js}` | `src/toolchain/workload/wasm/platform/js/` | `_packageWasm` |
 
 包内不存在的类别整条跳过（一张表服务全部包类别）。任一 mismatch → 报出具体文件
-+ exit 1；某条规则的路径存在却 0 个文件可比 → ⚠ 告警（规则与拷贝点脱钩的信号）。
++ exit 1；某条规则的**路径存在却 0 个文件可比 → 也是失败**（规则与拷贝点脱钩）。
 源侧无对应物的包内文件不在本门管辖内（跳过）。
+
+> **「路径存在 ⇒ 本包有这一类」这个判据依赖「不预建空目录」**（fix-package-gates-false-red,
+> 2026-09-06）。此前 `_pkgSetupDir` / `_runtimePkgScaffold` 无条件预建 `libs/` 与
+> `native/include/`，而 ios/android/wasm 的 **workload pack** 根本不装这两类（它们在
+> 另一个 **runtime pack** 里）→ 门看见空壳，把「本包没有这一类」误判成「规则脱钩」，
+> 三个平台的 package job 全红。现在改为**谁写谁建**：`_pkgCopyLibs` / `_copyAbiHeaders` /
+> `_copyNativeLibs` 各自 ensure 自己的目标目录，空目录不再出现在发布包里。
+
+**门跑在哪些包上**：`_pkgFinish` 对 SDK pack、desktop runtime pack、ios/android/wasm
+的 **runtime pack** 与 workload pack 都跑。移动端/wasm 的 runtime pack 是 `libs/` +
+`native/include/` 的**真正落点**，此前却是唯一没接门的一类（#508 只补了 desktop），
+于 fix-package-gates-false-red 一并接上。
 
 > ⚠️ ios `Sources/Z42VMC/` 与 android `…/cpp/` **不能整棵目录递归比**：它们的 `include/`
 > 装的是 `_copyAbiHeaders` 拷进去的**真 runtime 头**，而源树同名目录里是

@@ -22,8 +22,12 @@ string _pkgSetupDir(string root, string rid, string version, string profile, str
     Console.WriteLine("");
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
     Directory.Create(Path.Join(pkgDir, "bin"));
-    Directory.Create(Path.Join(pkgDir, "libs"));
-    Directory.Create(Path.Join(pkgDir, "native/include"));
+    // libs/ 与 native/include/ **不在这里建**（fix-package-gates-false-red, 2026-09-06）：
+    // 谁写谁建（_pkgCopyLibs / _copyAbiHeaders / _copyNativeLibs 各自 ensure 自己的
+    // 目标目录）。此前无条件预建，使 ios/android/wasm 的 workload pack（只装 Sources/
+    // + manifest，libs/headers 全在**另一个** runtime pack 里）带着两个空目录发布，
+    // 而 source-identity 门用「路径存在 ⇒ 本包有这一类」判存在 → 空壳被判成「规则与
+    // 拷贝点脱钩」，三个平台的 package job 全红。空目录消失后该判据重新成立。
     return pkgDir;
 }
 // source-identity check + success message on an assembled pkgDir.
@@ -244,6 +248,7 @@ void _pkgEmitBinReadmePlaceholder(string pkgDir, string targetLabel) {
 // only in their own mobile runtime packs.
 void _copyNativeLibs(string cargoOut, string pkgDir) {
     if (!Directory.Exists(cargoOut)) { return; }
+    Directory.Create(Path.Join(pkgDir, "native"));   // 谁写谁建（见 _pkgSetupDir 注释）
     foreach (var f in Directory.Enumerate(cargoOut)) {
         if (f.StartsWith("libz42_platform")) { continue; }   // mobile facade — not desktop SDK
         // libz42_repl / z42_repl.dll — host-only REPL editor cdylib. Ships in
@@ -266,6 +271,7 @@ int _pkgCopyLibs(string libsDir, string pkgDir) {
         ConsoleError.WriteLine("error: stdlib not built at " + libsDir + "; run build stdlib");
         return 1;
     }
+    Directory.Create(Path.Join(pkgDir, "libs"));   // 谁写谁建（见 _pkgSetupDir 注释）
     foreach (var f in Directory.Enumerate(libsDir)) {
         if (f.EndsWith(".zpkg") || f.EndsWith(".zsym")) {
             File.Copy(Path.Join(libsDir, f), Path.Join(pkgDir, "libs/" + f));
