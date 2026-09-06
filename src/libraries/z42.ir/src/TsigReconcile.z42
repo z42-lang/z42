@@ -521,6 +521,39 @@ public static class TsigReconcile {
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
         ecz.IsDeprecated = IrDeprecation.Has(cd.Attrs, cd.AttrCount); ecz.DeprecationMsg = IrDeprecation.Msg(cd.Attrs, cd.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
         ecz.Visibility = TsigReconcile._visStr(cd.Visibility);   // enforce-class-access：类可见性字节 → 字符串（跨包 internal 类引用强制）
+        // add-associated-types PR-1：泛型 where 约束搬运（此前 cd.TypeParamConstraints 在整个
+        // TsigReconcile 里一次都没被读过 —— 这就是「跨包约束 100% 不校验」的断点所在）。
+        //
+        // bundle 里**接口名是裸名、基类名是 FQ**，这个不对称是有原因的、不要「顺手统一」：
+        //   · 接口名裸名 —— design D1 的裸名匹配，且运行期 loader 的 check_one 有「`I`+大写开头
+        //     放行」的启发式兜着（registry 只装类，接口 soft-allow）。
+        //   · 基类名 FQ  —— 基类**没有**那层豁免：check_one 直接查 module.type_registry（键为 FQ），
+        //     裸名查不到就 bail，整个模块加载失败。故写端必须写 FQ（见 ClassDescBuilder）。
+        // 消费侧（ImportedSymbolLoader → _satisfiesBase → symbols.IsSubclassOf）比的是裸名，
+        // 故此处把基类名剥回裸名，与类级 cd.Interfaces 的处理完全同款。
+        //
+        // **拷贝而非共享**：cd.TypeParamConstraints 属于 IrClassDesc，原地改会污染调用方
+        // （DepScan 的 ReconcileOneFromDesc 复用同一 cd）。
+        if (cd.TypeParamConstraints != null && cd.TypeParamConstraints.Length > 0) {
+            int bn = cd.TypeParamConstraints.Length;
+            IrConstraintDesc[] copy = new IrConstraintDesc[bn];
+            int bi = 0;
+            while (bi < bn) {
+                IrConstraintDesc src = cd.TypeParamConstraints[bi];
+                IrConstraintDesc dst = new IrConstraintDesc();
+                if (src != null) {
+                    dst.Interfaces = src.Interfaces; dst.InterfaceCount = src.InterfaceCount;
+                    dst.TypeParamConstraint = src.TypeParamConstraint;
+                    dst.RequiresClass = src.RequiresClass; dst.RequiresStruct = src.RequiresStruct;
+                    dst.RequiresCtor = src.RequiresCtor;   dst.RequiresEnum = src.RequiresEnum;
+                    if (src.BaseClass != "") { dst.BaseClass = TsigReconcile._shortName(src.BaseClass); }
+                }
+                copy[bi] = dst;
+                bi = bi + 1;
+            }
+            ecz.TypeParamConstraints = copy;
+            ecz.TpConstraintCount = bn;
+        }
         return ecz;
     }
 

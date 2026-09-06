@@ -333,7 +333,7 @@ public sealed class OverloadBinder {
                 }
                 if (ok) {
                     // unify-value-types Phase 1：params object[] 泛化层判别（翻转后 object→Z42ClassType(Object)，Canon 归一）。
-                    if (PrimModel.Canon(at.Elem.Name()) == "object") { objectTier[no] = cand[i]; no = no + 1; }
+                    if (at.Elem.CanonName() == "object") { objectTier[no] = cand[i]; no = no + 1; }
                     else { specific[ns] = cand[i]; ns = ns + 1; }
                 }
             }
@@ -407,7 +407,7 @@ public sealed class OverloadBinder {
         int i = 0;
         while (i < s.ParamTypes.Length) {
             if (s.ParamsFrom >= 0 && i == s.ParamsFrom) { k = k + "..."; }
-            k = k + (s.ParamTypes[i] == null ? "?" : Z42Type.Canon(s.ParamTypes[i].Name())) + ",";
+            k = k + (s.ParamTypes[i] == null ? "?" : s.ParamTypes[i].CanonName()) + ",";
             i = i + 1;
         }
         return k;

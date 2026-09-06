@@ -1,0 +1,9 @@
+[project]
+name = "demo.cext"
+version = "0.1.0"
+kind = "lib"
+pack = true
+[sources]
+include = ["src/**/*.z42"]
+[dependencies]
+"demo.ctarget" = "0.1.0"

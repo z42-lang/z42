@@ -135,7 +135,7 @@ int _androidCmdlineTools(bool force, string sdkDir, string cmdlineUrlTmpl, strin
     string tmp = Directory.CreateTempDir("android-cmdline");
     string zip = Path.Join(tmp, "cmdline-tools.zip");
     string url = cmdlineUrlTmpl.Replace("{os}", hostOs);   // versions.toml pins the version
-    int dc = _exec(new Process("curl").Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error").Arg("-o").Arg(zip).Arg(url));
+    int dc = _curlDownload(url, zip);
     if (dc != 0) { return dc; }
     if (_verifySha256(zip, cmdlineSha, "cmdline-tools (" + hostOs + ")", hostOs) != 0) { return 1; }
     int uc = _exec(new Process("unzip").Arg("-q").Arg(zip).Arg("-d").Arg(tmp));
@@ -198,8 +198,7 @@ int _androidEmulatorExtras(bool wantEmu, bool force, string avdmanager, string a
         Console.WriteLine("[6/6] downloading Gradle " + gradleVer);
         string tmp2 = Directory.CreateTempDir("gradle-dl");
         string gzip = Path.Join(tmp2, "gradle.zip");
-        int dc = _exec(new Process("curl").Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error").Arg("-o").Arg(gzip)
-            .Arg("https://services.gradle.org/distributions/gradle-" + gradleVer + "-bin.zip"));
+        int dc = _curlDownload("https://services.gradle.org/distributions/gradle-" + gradleVer + "-bin.zip", gzip);
         if (dc != 0) { return dc; }
         if (_verifySha256(gzip, gradleSha, "gradle " + gradleVer, hostOs) != 0) { return 1; }
         if (Directory.Exists(gradleDir)) { Directory.Delete(gradleDir, true); }

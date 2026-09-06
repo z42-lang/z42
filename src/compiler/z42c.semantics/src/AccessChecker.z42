@@ -104,7 +104,7 @@ public sealed class AccessChecker {
             Z42ClassType ct = resolved as Z42ClassType;
             // unify（删 Z42PrimType）后基元 `int`≡`Std.Int32` 是 phantom Z42ClassType——永远可访问
             // （镜像旧模型：旧 Z42PrimType 本就被 `!(is Z42ClassType)` 跳过），否则会误拒所有 `int` 引用。
-            if (PrimModel.IsBuiltin(ct.Name())) { return; }
+            if (ct.IsBuiltinType()) { return; }
             AccessChecker._checkVisRef(ct.Visibility, ct.Name(), ct.IsImported, "class", currentClass, symbols, diags, sp);
             return;
         }
@@ -212,7 +212,7 @@ public sealed class AccessChecker {
         string exKind = "type";
         if (exposed is Z42ClassType) {
             Z42ClassType ct = exposed as Z42ClassType;
-            if (PrimModel.IsBuiltin(ct.Name())) { return; }   // unify：基元 phantom class 恒 public，不算暴露
+            if (ct.IsBuiltinType()) { return; }   // unify：基元 phantom class 恒 public，不算暴露
             exVis = ct.Visibility; exName = ct.Name(); exKind = "class";
         }
         else if (exposed is Z42InterfaceType) { Z42InterfaceType ift = exposed as Z42InterfaceType; exVis = ift.Visibility; exName = ift.Name(); exKind = "interface"; }

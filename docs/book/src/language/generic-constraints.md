@@ -1,6 +1,6 @@
 # 泛型约束（`where` 子句）
 
-> 对齐：2026-09-05（change `complete-where-constraints`）
+> 对齐：2026-09-06（change `add-associated-types` PR-1；前序 `complete-where-constraints`）
 >
 > 本页是**泛型约束语义与校验范围的 SoT**。泛型的整体设计（代码共享策略、reified 类型、
 > 跨 zpkg 元数据）见 [`docs/design/language/generics.md`](../../../design/language/generics.md)；
@@ -53,26 +53,55 @@ class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
 
 | 时机 | 位置 | 报什么 |
 |------|------|--------|
-| 声明期 | 每个泛型类的 `where` 子句解析成约束集 | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、**未知约束名 `E0443`** |
+| 声明期 | 每个泛型类 / **接口**的 `where` 子句解析成约束集 | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、**未知约束名 `E0443`** |
 | 实例化点 | `new Box<D>()` | 违反约束 `E0402`，Span 指向实例化处 |
 | 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（**显式**写类型实参时） | 违反约束 `E0402` |
 
 诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
 
+**本包与跨包同口径**：导入类型的约束走同一个校验函数，判定规则完全一致（见下节）。
+
+## 跨包约束是怎么传过来的
+
+约束的载体是 **zbc `TYPE` 段的型参约束 bundle**——不是 zpkg 的 TSIG（该段已随 `drop-tsig-expt`
+删除，`ExportedClassZ` 由 `TsigReconcile` 从 `TYPE` + `SIGS` 重建）。整条链路：
+
+```
+源码 where 子句
+   │  ConstraintChecker.Resolve（包级 hoist，早于 per-file 并行段）
+   ▼
+SymbolTable.ClassConstraints          ← 键统一经 SymbolTable.ConstraintKey()
+   │  ClassDescBuilder 直接复用这份分类（不从 AST 重推 → writer 与 checker 不会漂移）
+   ▼
+IrConstraintDesc[]  ──ZbcWriter──▶  zbc TYPE 段 bundle
+                                        flags u8：bit0 class / bit1 struct / bit2 base
+                                                  bit3 型参引用 / bit4 new() / bit5 enum
+                                                  bit6 funcSig（尚未产出）
+                                        载荷序：base → 型参引用 → iface_count + 名列表
+   │  ZbcReader._readConstraintBundle
+   ▼
+IrClassDesc.TypeParamConstraints ──TsigReconcile──▶ ExportedClassZ.TypeParamConstraints
+   │  ImportedSymbolLoader._constraintSetOf
+   ▼
+SymbolTable.ClassConstraints（导入侧 seed，local-wins）→ 与本包**同一个** _checkBundle
+```
+
+三点值得记住：
+
+- **bit0–bit6 的 wire 布局早已规约**，三方 reader（Rust `type_reader.rs`、`ZbcReader`、
+  `ZpkgReader._skipConstraintBundle`）一直按完整布局消费。所以接通跨包**没有格式 bump**——
+  只是写端从「仅置 bit3」改成置全位。
+- **键规则只有一处**：`SymbolTable.ConstraintKey(bareName, tpCount)`，规则与 `Classes` 相同
+  （同短名多 arity 才带 `$N`）。写入 / 查询 / 导入三处都调它，否则 `Foo<T>` 与 `Foo<T,U>`
+  的约束会互相覆盖。
+- **local-wins 有守卫**：导入约束只在该键上的赢家确实是导入类时才 seed，避免本地同名类
+  （可能压根没有 `where`）被别的包的约束污染。
+
 ## 已知限制（诚实标注）
 
 这些不是 bug，是当前实现的**明确边界**。踩到时不要以为约束在保护你。
 
-### 1. 跨包约束完全不校验
-
-**导入类型的泛型实例化，`where` 约束一条都不检查**——不只是本页新补的几项，连基类 /
-`class` / `struct` / 型参引用也一样。原因是约束集只对本包编译单元里的类声明登记，导入类型
-走另一条加载链、全程不携带约束信息。
-
-⇒ `Dictionary<K,V>` 这类来自 stdlib 的泛型，你传什么实参都不会被拦。
-Deferred：`where-constraint-future-crosspkg`。
-
-### 2. 接口约束只比裸名，不校验类型实参
+### 1. 接口约束只比裸名，不校验类型实参
 
 `where T : IEquatable<T>` 只检查「T 实现了名为 `IEquatable` 的接口」，**不检查实参是否是
 T 自己**。故 `class Foo : IEquatable<string>` 也能满足 `where T : IEquatable<T>`。
@@ -81,22 +110,22 @@ T 自己**。故 `class Foo : IEquatable<string>` 也能满足 `where T : IEquat
 消掉了 F-bounded 自引用（`interface INumber<T> where T : INumber<T>`）朴素展开会无限递归的
 问题。Deferred：`where-constraint-future-type-arg-matching`。
 
-### 3. 方法级约束只在显式写类型实参时校验
+### 2. 方法级约束只在显式写类型实参时校验
 
 `Max<int>(a, b)` 校验；`Max(a, b)`（靠推断）**不**校验。
 Deferred：`where-constraint-future-inferred-method-args`。
 
-### 4. 顶层函数的 `where` 不校验
+### 3. 顶层函数的 `where` 不校验
 
 只有类的成员方法走方法级校验路径。
 Deferred：`where-constraint-future-toplevel-func`。
 
-### 5. 函数类型约束从未发出诊断
+### 4. 函数类型约束从未发出诊断
 
 `E0422` / `E0423` 已定义但没有代码路径会发出它们。注意代码生成依赖该约束把参数当 func 值走
 间接调用，改动需谨慎。Deferred：`where-constraint-future-func-constraint`。
 
-### 6. 关联类型 / 嵌套约束**未实现**
+### 5. 关联类型 / 嵌套约束**未实现**
 
 `where T : IAdd<Output=T>`、`where T : IIterator<Item=U>, U : IDisplay` 这类 Rust 风格表达力
 **当前不支持**——parser 没有 `Name=Type` 的解析。`docs/design/language/generics.md` 的设计

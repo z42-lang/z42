@@ -437,7 +437,7 @@ public static class ZbcReader {
     }
 
     // 型参约束 bundle（zbc WriteConstraintBundle 的**完整**布局；本读取器必须消费全部
-    // 已规约的 flag 位，哪怕当前 z42c writer 只写其中两位）：
+    // 已规约的 flag 位。add-associated-types PR-1 起 z42c writer 真写 bit0-5，仅 bit6 未产出）：
     //
     //   flags u8
     //     → [bit0 requires_class]  [bit1 requires_struct]        （无载荷）
@@ -452,19 +452,22 @@ public static class ZbcReader {
     // bit3；任何 writer 一旦置了 bit2，这里就少吃 4 字节 → `ifaceCount` 读歪 → 整个 TYPE 段
     // 错位。complete-where-constraints PR-A 修正：按完整布局消费。
     //
-    // 注：bit2 的 base / bit6 的 funcSig 目前**读而不存**——`IrConstraintDesc` 只有
-    // `Interfaces` + `TypeParamConstraint` 两个承载位，加字段属于「让 writer 真写这些位」
-    // 那一步（design §6 PR-3 / Deferred `where-constraint-future-func-constraint`）的工作。
-    // 本函数的职责是**对齐字节流**，不是提前造承载结构。做 PR-3 时从这里接。
+    // add-associated-types PR-1：bit0/1/2/4/5 现已**读而存之**（`IrConstraintDesc` 补齐了承载位，
+    // ZbcWriter 也开始真写这些位）。只剩 bit6 funcSig 仍读而不存 —— 它没有承载位，属 Deferred
+    // `where-constraint-future-func-constraint`；本函数对它的职责仍只是**对齐字节流**，做那一步时从这里接。
     private static IrConstraintDesc _readConstraintBundle(ZbcCursor c, string[] pool) {
         IrConstraintDesc bundle = new IrConstraintDesc();
         int cflags = c.U8();
-        if ((cflags & 0x04) != 0) { c.U32(); }   // bit2 base-class：读而不存（见上）
-        if ((cflags & 0x08) != 0) { bundle.TypeParamConstraint = ZbcReader._p(pool, c.U32()); }
+        bundle.RequiresClass  = (cflags & 0x01) != 0;   // bit0（无载荷）
+        bundle.RequiresStruct = (cflags & 0x02) != 0;   // bit1（无载荷）
+        if ((cflags & 0x04) != 0) { bundle.BaseClass = ZbcReader._p(pool, c.U32()); }             // bit2
+        if ((cflags & 0x08) != 0) { bundle.TypeParamConstraint = ZbcReader._p(pool, c.U32()); }   // bit3
         int ifc = c.U8();
         bundle.Interfaces = new string[ifc]; bundle.InterfaceCount = ifc;
         int ifi = 0;
         while (ifi < ifc) { bundle.Interfaces[ifi] = ZbcReader._p(pool, c.U32()); ifi = ifi + 1; }
+        bundle.RequiresCtor = (cflags & 0x10) != 0;     // bit4（无载荷）
+        bundle.RequiresEnum = (cflags & 0x20) != 0;     // bit5（无载荷）
         if ((cflags & 0x40) != 0) {              // bit6 funcSig：读而不存（见上）
             int pc = c.U8();
             int pi = 0;

@@ -301,10 +301,16 @@ ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDi
 // `xtask build stdlib && xtask build test`.
 
 int _regenCore(bool rebuildStdlib) {
+    // ⚠ release z42vm FIRST —— stdlib 是**用 z42vm 自建**的，VM 一旦旧于 src/runtime/，
+    // 第一个 stage 就炸在指不到真因的 `unknown builtin __x` →
+    // `z42c --workspace self-build failed` 上（本轮源码新加的 builtin 不在已建 VM 里）。
+    // `_buildStdlib` 自己的 VM 兜底是 build-if-MISSING（`if (!File.Exists(vm))`），
+    // 判不了「旧」；cargo 才是唯一知道 runtime 源码变没变的东西，且没变时是 ~0.2s 空转。
+    // 与上面 `_buildDebugVmAndCompression` 先于 regen 是同一条道理（debug VM 那条已修）。
+    int cr = _buildRuntime(); if (cr != 0) { return cr; }   // cargo build --release
     // golden 编译走 z42c。
     // _buildStdlib（warm 路径）顺带把 z42c per-member dist 建好，_regenGolden 据此组 driver-home。
     if (rebuildStdlib) { int c = _buildStdlib(); if (c != 0) { return c; } }
-    int cr = _buildRuntime(); if (cr != 0) { return cr; }   // cargo build --release (launcher runtime needs z42vm)
     // in-process (unify-scripts-into-xtask): regen logic folded into xtask_regen.z42（_regenGolden，z42c）。
     return _regenGolden();
 }

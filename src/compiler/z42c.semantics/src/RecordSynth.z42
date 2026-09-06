@@ -107,7 +107,7 @@ public sealed class RecordSynthEmitter {
     }
 
     private bool _isScalar(Z42Type t) {
-        return t != null && PrimModel.IsScalarValue(t.Name());
+        return t != null && t.IsScalarType();
     }
 
     // ═══ class：Equals(object) —— type-exact + 逐字段值相等 ═══════════════════════════════

@@ -291,14 +291,14 @@ public sealed class CallEmitter {
     private bool _isStructOrEnumStatic(Z42Type t) {
         if (t is Z42ClassType) {
             Z42ClassType ct = t as Z42ClassType;
-            if (ct.IsStruct && !PrimModel.IsScalarValue(ct.Name())) { return true; }
+            if (ct.IsStruct && !ct.IsScalarType()) { return true; }
             if (this._ctx.Symbols != null && this._ctx.Symbols.EnumTypes.ContainsKey(ct.Name())) { return true; }
             return false;
         }
         if (t is Z42InstantiatedType) {
             // 泛型 struct receiver（`Pair<int,int> p; p.GetType()`）：Def 是 struct → 值类型。
             Z42Type def = (t as Z42InstantiatedType).Def;
-            return (def is Z42ClassType) && (def as Z42ClassType).IsStruct && !PrimModel.IsScalarValue(def.Name());
+            return (def is Z42ClassType) && (def as Z42ClassType).IsStruct && !def.IsScalarType();
         }
         return false;
     }

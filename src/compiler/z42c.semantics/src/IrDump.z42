@@ -260,6 +260,12 @@ public static class IrDump {
         var symbols = coll.CollectAll(one, oneFile, 1, imported);
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
+        // add-associated-types PR-1：单文件路径也必须跑约束 Resolve。包路径在 BuildPackageCus 里做
+        // 这一步（包级 hoist，早于 per-file 并行段），两条单文件路径此前**整个跳过** →
+        // ClassConstraints 为空 → Check 第一行即返回 ⇒ **同一份源码 `--emit-zbc` 能过、放进工程就红**。
+        // golden 语料（src/tests/**）走的正是这条路径，于是 where 约束在整个 golden 面上形同虚设，
+        // 「GREEN 全绿」也就不构成「真实工程无违反」的证据。
+        new ConstraintChecker(diags).Resolve(cu, symbols.WithAliases(SymbolTable.BuildAliases(cu)));
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.Deps = deps;
@@ -361,6 +367,12 @@ public static class IrDump {
         var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
+        // add-associated-types PR-1：单文件路径也必须跑约束 Resolve。包路径在 BuildPackageCus 里做
+        // 这一步（包级 hoist，早于 per-file 并行段），两条单文件路径此前**整个跳过** →
+        // ClassConstraints 为空 → Check 第一行即返回 ⇒ **同一份源码 `--emit-zbc` 能过、放进工程就红**。
+        // golden 语料（src/tests/**）走的正是这条路径，于是 where 约束在整个 golden 面上形同虚设，
+        // 「GREEN 全绿」也就不构成「真实工程无违反」的证据。
+        new ConstraintChecker(diags).Resolve(cu, symbols.WithAliases(SymbolTable.BuildAliases(cu)));
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.SourceStem = CuPreprocess._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致
