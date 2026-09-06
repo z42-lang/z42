@@ -463,12 +463,18 @@ int[] _apphostSmoke(string distDir, string work, string tmpl) {
         }
         Console.WriteLine("  ✓ z42 publish → " + producedExe);
 
-        // 3. run the produced exe with Z42_HOME → a symlink at <ahome>/launcher
-        //    pointing at the package (portable-style: launcher.zpkg + bin/z42vm).
+        // 3. run the produced exe with Z42_HOME → <ahome>/launcher 是包的一份**真拷贝**
+        //    (portable-style: launcher.zpkg + bin/z42vm)。
+        //    这里曾用 File.SymLink，而它**在 Windows 上未实现**（pal/fs.rs 的 non-unix
+        //    分支直接 bail "not implemented on this platform"）⇒ 这条 smoke 一接通就在
+        //    Windows 上抛（fix-more-silent-gates 续，2026-09-06）。改用目录拷贝：跨平台
+        //    行为一致、无需 symlink 特权，而且更贴近真实安装形态（用户的 Z42_HOME 下是
+        //    真目录不是链接）。代价是每次拷 ~56MB，CI 上几秒。
+        //    （`File.SymLink` 缺 Windows 实现本身是独立的 stdlib 缺口，不在本轮射程。）
         string ahome = Path.Join(work, "ahome");
         Directory.Create(ahome);
         string lnk = Path.Join(ahome, "launcher");
-        if (!File.Exists(lnk)) { File.SymLink(distDir, lnk); }
+        if (!Directory.Exists(lnk)) { Directory.Copy(distDir, lnk, true); }
         ProcessResult r = new Process(producedExe).Arg("x")
             .Env("Z42_HOME", ahome).EnvRemove("Z42_PORTABLE_VM").EnvRemove("Z42_PORTABLE_LIBS").EnvRemove("Z42_LIBS")
             .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
