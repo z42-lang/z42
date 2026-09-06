@@ -557,11 +557,37 @@ impl VmContext {
     /// Returns `Arc<str>` (review.md C3 Phase 1, 2026-06-03) so callers can
     /// wrap directly into `Value::Str` without a second allocation.
     pub fn try_lookup_string(&self, absolute_idx: usize) -> Option<crate::metadata::vstr::Str> {
-        // fix-lazy-lookup-contention：`LazyLoader::try_lookup_string` 只读 string_pool，
-        // 不碰任何可变状态 —— 读锁即可，多线程可并发。
-        let state = self.core.lazy_loader.read();
-        let loader = state.as_ref()?;
-        loader.try_lookup_string(absolute_idx)
+        // intern-overflow-const-str：溢出池的 ConstStr **也走 per-context intern 缓存**，
+        // 与主池（`intern_const_str`）对称。此前这条路完全没有缓存 —— 每命中一次就
+        // ① 拿一次 `lazy_loader` 读锁、② 重新 `alloc_str` 一个新的 GC 串块。
+        //
+        // 两者都很贵：默认从不 GC ⇒ **RSS ≈ 总分配量**，重复分配直接变成常驻内存；
+        // 而 z42c 自编时执行的代码几乎全来自惰性加载的 zpkg，所以走的全是这条路
+        // （`--jobs 16` 采样：`lock_shared_slow` 占 30.3% 线程时间，`try_lookup_string`
+        // 自身另占 7.5%）。
+        //
+        // 复用 `interned_cache` 而不是新起一张表，正好一次解决三件事：
+        //   · **GC 根**——它已经在根扫描里（`construct.rs` 的 `interned_cache.lock().values()`）；
+        //   · **作用域**——它 per-VmContext，而每个线程都是 `new_with_core` 各持一个；
+        //   · **锁争用**——同理，这把 Mutex 每线程各一把，天然不争。
+        //
+        // 键的安全性：主池条目的键是 `module as *const Module as usize`，恒非 0；
+        // 这里用 0 当哨兵，不可能撞。索引装不下 u32 时（实际不会，ConstStr 的 idx 本就是 u32）
+        // 直接绕过缓存，语义不变。
+        let key = u32::try_from(absolute_idx).ok().map(|i| (0usize, i));
+        if let Some(k) = key {
+            if let Some(s) = self.interned_cache.lock().get(&k) {
+                return Some(*s);
+            }
+        }
+        let s = {
+            let state = self.core.lazy_loader.read();
+            state.as_ref()?.try_lookup_string(absolute_idx)
+        }?;
+        if let Some(k) = key {
+            self.interned_cache.lock().insert(k, s);
+        }
+        Some(s)
     }
 
     /// All namespaces declared by lazy-loadable zpkgs (for static-init scan).
