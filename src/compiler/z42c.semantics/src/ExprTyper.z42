@@ -415,6 +415,26 @@ public sealed class ExprTyper {
         // 必须**排除 Scalar 值类型**，让 int+int 走下方原生算术表（BinaryTypeTable）而非派发 op_X 方法
         // 调用（否则算术全变方法调用，codegen 巨变）。用户 struct/class 的 op 重载不受影响（非 Scalar）。
         string opMethod = TypeFactsTc._operatorMethodNameTc(bin.Op);
+        // fix-generic-operator-constraint-dispatch：**型参**左操作数（`T a` 且 `where T : INumber<T>`）
+        // → 派发到约束接口声明的 `op_X`。此前这里只认 `Z42ClassType`，型参落到下方 BinaryTypeTable：
+        // 类型检查报「operator `+` requires numeric operand, got `T`」，而 emitter 照发**裸 `add i32`**
+        // 打在 struct blob 上 —— `where T : INumber<T>` 对用户类型从来没有生效过（`int`/`double` 能跑
+        // 纯属解释器 `add` 动态派发的意外）。约束整条**从未被读**：删掉 where 子句诊断逐字节相同。
+        // 发射形状与既有可用写法 `a.op_Add(b)` 完全一致（MemberResolver 的 Z42GenericParamType 分支）：
+        // 接收者驱动的 VCall，运行期由 a 的具体类决定跑哪个 op_Add（见 INumber.z42 抬头）。
+        if (opMethod != "" && (lt is Z42GenericParamType)) {
+            MethodSymbol gopMs = this._constraintOperatorMethod(env, lt.Name(), opMethod);
+            if (gopMs != null) {
+                BoundExpr[] gopArgs = new BoundExpr[1];
+                gopArgs[0] = right;
+                // 结果类型恒为**左操作数的型参**。依据是运算符协议本身：INumber 抬头写明
+                // 「Mixed-type arithmetic is not supported (T + T → T only)」。
+                // ⚠️ 不能改读 `gopMs.Signature.Ret`：INumber 来自 z42.core，是**导入**接口，其签名经
+                // ImportedSymbolLoader 还原后返回类型已不是 Z42GenericParamType → 链式 `a + b + c`
+                // 的第二个 `+` 拿到非型参左类型就落不回本分支，退化成裸算术（实测 Money 链式炸在这）。
+                return new BoundCall("instance", true, left, lt.Name(), opMethod, gopArgs, 1, lt, bin.Span);
+            }
+        }
         if (opMethod != "" && (lt is Z42ClassType) && !lt.IsScalarType()) {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
@@ -431,6 +451,73 @@ public sealed class ExprTyper {
         this._tc._checkOperand(rule.Left,  rule.Requirement, lt, bin.Op, bin.Left.Span);
         this._tc._checkOperand(rule.Right, rule.Requirement, rt, bin.Op, bin.Right.Span);
         return new BoundBinary(bin.Op, left, right, BinaryTypeTable.ResultType(rule.Out, lt, rt), bin.Span);
+    }
+
+    // fix-generic-operator-constraint-dispatch：型参 `paramName` 的 where 约束里，哪个接口声明了
+    // `opMethod`（`op_Add` / `op_Subtract` / …）。查不到返回 null（调用方回落既有算术表判据）。
+    //
+    // 两个约束来源，都必须查：
+    //   - **方法级** `T Sum<T>(T a, T b) where T : INumber<T>` —— 方法约束**不预登记**符号表
+    //     （ConstraintChecker.CheckMethod 每个调用点即席建 bundle），只能从当前 MethodDecl 现读。
+    //   - **类级** `class Calc<T> where T : INumber<T>` —— 经 SymbolTable.ClassConstraints 取
+    //     ConstraintSet（键须走 ConstraintKey，裸名查询会让同短名多 arity 泛型类互相串味）。
+    private MethodSymbol _constraintOperatorMethod(TypeEnv env, string paramName, string opMethod) {
+        MethodDecl md = this._tc._curMethodDecl;
+        if (md != null) {
+            int w = 0;
+            while (w < md.WhereCount) {
+                WhereClause wc = md.Wheres[w];
+                if (wc.TypeParam == paramName) {
+                    int k = 0;
+                    while (k < wc.Count) {
+                        WhereConstraint con = wc.Constraints[k];
+                        if (con.IsType && (con.Type is NamedType)) {
+                            MethodSymbol hit = this._ifaceOperator(env, (con.Type as NamedType).Name, opMethod);
+                            if (hit != null) { return hit; }
+                        }
+                        k = k + 1;
+                    }
+                }
+                w = w + 1;
+            }
+        }
+        string cls = env.CurrentClass();
+        if (cls != "") {
+            // ConstraintKey 的 arity 必须是**类级**型参数（TypeParamCount 是类级+方法级合并后的扁平数）。
+            string ckey = env.Symbols.ConstraintKey(cls, env.ClassTypeParamCount);
+            if (env.Symbols.HasConstraints(ckey)) {
+                ConstraintSet cs = env.Symbols.GetConstraints(ckey);
+                int pi = cs.IndexOf(paramName);
+                if (pi >= 0) {
+                    ConstraintBundle b = cs.Bundles[pi];
+                    int i = 0;
+                    while (i < b.InterfaceCount) {
+                        MethodSymbol hit = this._ifaceOperator(env, b.InterfaceNames[i], opMethod);
+                        if (hit != null) { return hit; }
+                        i = i + 1;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // 接口（含其父接口闭包）是否声明了 `opMethod`。接口方法按**裸名**登记（MemberCollector），
+    // 故直接查 Methods。
+    private MethodSymbol _ifaceOperator(TypeEnv env, string ifaceName, string opMethod) {
+        if (!env.Symbols.HasInterface(ifaceName)) { return null; }
+        Z42InterfaceType it = env.Symbols.GetInterface(ifaceName);
+        if (it.Methods.ContainsKey(opMethod)) {
+            MethodSymbol ms = it.Methods.Get(opMethod) as MethodSymbol;
+            if (ms != null && ms.Signature != null) { return ms; }
+        }
+        int i = 0;
+        while (i < it.BaseCount) {
+            MethodSymbol up = this._ifaceOperator(env, it.BaseNames[i], opMethod);
+            if (up != null) { return up; }
+            i = i + 1;
+        }
+        return null;
     }
 
     private BoundExpr _bindUnary(UnaryExpr u, TypeEnv env) {

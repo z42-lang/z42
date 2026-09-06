@@ -1,8 +1,24 @@
 // Test: L3 静态抽象接口 — generic operator dispatch `a + b` on T: INumber<T>.
-// Complements generic_inumber (which tests `x.op_Add(x)` method syntax) by exercising
-// the operator-sugar path: TryBindOperatorCall sees a Z42GenericParamType and
-// finds the static abstract member in the constraint interface, then emits
-// BoundCall(Virtual) whose IR VCall dispatches at runtime to the concrete type.
+// 与 generic_inumber（`x.op_Add(x)` 方法写法）互补，验证**运算符糖**这条路：`ExprTyper._bindBinary`
+// 见左操作数是 `Z42GenericParamType`，就去型参的 where 约束接口里找 static abstract `op_X`，
+// 发接收者驱动的 VCall，运行期按 a 的具体类派发。
+//
+// ⚠️ 事实校正（fix-generic-operator-constraint-dispatch）：本文件抬头此前写着
+// 「TryBindOperatorCall sees a Z42GenericParamType and finds the static abstract member」——
+// **该代码路径当时并不存在**。`_bindBinary` 的运算符重载分支要求 `lt is Z42ClassType`，型参不匹配
+// → 落到 BinaryTypeTable，类型检查报 E0402、emitter 照发**裸 `add i32`**。下面 int/double 的断言
+// 之所以一直绿，纯粹因为解释器的 `add` 对 Value 动态派发；换成**用户类型**（Money）就会拿 struct
+// blob 去做整数加法。故本文件补上 Money 一组——那才是真正会炸的形态。
+
+struct Money : INumber<Money> {
+    public long Cents;
+    public Money(long c) { this.Cents = c; }
+    public static override Money op_Add(Money a, Money b)      { return new Money(a.Cents + b.Cents); }
+    public static override Money op_Subtract(Money a, Money b) { return new Money(a.Cents - b.Cents); }
+    public static override Money op_Multiply(Money a, Money b) { return new Money(a.Cents * b.Cents); }
+    public static override Money op_Divide(Money a, Money b)   { return new Money(a.Cents / b.Cents); }
+    public static override Money op_Modulo(Money a, Money b)   { return new Money(a.Cents % b.Cents); }
+}
 
 T Add<T>(T a, T b) where T: INumber<T> { return a + b; }
 T Sub<T>(T a, T b) where T: INumber<T> { return a - b; }
@@ -16,4 +32,11 @@ void Main() {
     Assert.Equal(42,  Mul(6, 7));
     Assert.Equal(10.0, Mul(2.5, 4.0));
     Assert.Equal(42,  Chain3(10, 20, 12));
+
+    // 用户类型：此前发裸 `add i32` 打在 struct blob 上，解释器的 int_binop 收不了
+    Assert.Equal(7,  Add(new Money(3), new Money(4)).Cents);
+    Assert.Equal(6,  Sub(new Money(10), new Money(4)).Cents);
+    Assert.Equal(12, Mul(new Money(3), new Money(4)).Cents);
+    // 链式：`a + b` 的结果类型须仍是 T，否则第二个 `+` 落不回约束派发
+    Assert.Equal(9,  Chain3(new Money(2), new Money(3), new Money(4)).Cents);
 }
