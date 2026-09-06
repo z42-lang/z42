@@ -242,13 +242,20 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     if (outputDirOverride.Length == 0 && !noIncremental) {
         string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
         string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
-        prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache);
-        ConsoleError.WriteLine("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         // preserved 跳过要求 dist 主文件的 pack 模式与本次决议一致（packed↔indexed 切换
         // 时布局必须重投影，不能拿旧模式的 dist 当"未变"——add-indexed-zpkg-min-patch）。
         // 多目标（ExeCount>0）不走 preserved：其产物是 dist/<exe>.zpkg（非 <Name>.zpkg），
-        // 增量 preserved 尚未建模多产物，多 exe 一律全量（unify-run-modes P3）。
-        if (pm.ExeCount == 0 && prep.Plan.AllCached && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked)) {
+        // 增量 preserved 尚未建模多产物（unify-run-modes P3）。
+        // fix-incr-allcached-cache-drop：这三个条件必须**在 probe 之前**就算好并交给 Prepare——
+        // 它据此决定「全命中」时是走廉价早退（调用方马上要 preserved，不需要 IrModule），还是照常
+        // 把 64 份 cached zbc 读回来。此前 Prepare 无条件早退、返回 Cus=null + 全 null 的 cached[]，
+        // 于是「全命中但不能 preserved」（dist 被清 / pack 模式切换 / 多 exe）会落进 Main 的全量
+        // parse 分支、cachedMods 全 null → **缓存整份作废、全部重编**（实测 xtask 3.7s vs 应有 2.25s；
+        // 多 exe 工程更是永远全量）。
+        bool canPreserve = pm.ExeCount == 0 && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
+        prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache, canPreserve);
+        ConsoleError.WriteLine("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
+        if (canPreserve && prep.Plan.AllCached) {
             if (isExe) {
                 int sbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }

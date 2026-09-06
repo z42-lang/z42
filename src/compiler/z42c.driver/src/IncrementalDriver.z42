@@ -65,11 +65,16 @@ public static class IncrementalDriver {
 
     // 全流程：种子 → parse-all（顺手捕获 fresh 行标识符）→ 闭包 → cached 读回+回填
     //（失败降级 fresh + 重闭包）。noIncremental / workspace 路径由调用方拦截，不进本函数。
+    //
+    // canPreserve = 调用方**已经确认**「一旦全命中就直接沿用上次 dist、不再装配」（dist 主文件在、
+    // pack 模式一致、非多 exe）。只有此时全命中才可以廉价早退——因为调用方压根不会用到 IrModule。
+    // canPreserve=false 时**必须走完整路径**把 cached zbc 读回来：调用方还要装配一次 dist，
+    // 拿不到 IrModule 就只能全部重编，缓存白存（fix-incr-allcached-cache-drop 修的正是这条）。
     public static IncrPrep Prepare(string[] srcs, string[] texts, string[] hashes, int n,
-                                   string projectDir, string cacheDir) {
+                                   string projectDir, string cacheDir, bool canPreserve) {
         IncrFilePlan plan = IncrementalBuild.ProbeFiles(srcs, hashes, n, projectDir, cacheDir);
         IrModule[] cached = new IrModule[n];
-        if (plan.AllCached) { return new IncrPrep(plan, null, cached); }   // 调用方决定跳过或继续
+        if (plan.AllCached && canPreserve) { return new IncrPrep(plan, null, cached); }   // 调用方马上 preserved → 不必读回
 
         // 降级前留存 meta 引用（Close/降级会把 Metas[i] 置 null，而其 token 集是该行
         // 之后写回 meta 时的零成本来源——源未变，token 集不变）。
