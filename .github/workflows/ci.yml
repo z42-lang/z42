@@ -66,6 +66,12 @@ jobs:
               - 'src/runtime/**'
               - 'src/toolchain/workload/**'
               - 'examples/embedding/**'
+              # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
+              # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
+              # **根本不跑 package job** —— 打包坏了 PR 照样绿，要等合并进 main 才炸。
+              # 本 PR 自己就是靠恰好动了 ci.yml 才侥幸触发的。
+              - 'scripts/package/**'
+              - 'scripts/test/xtask_test_dist.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_wasm.z42'
               - 'scripts/test/xtask_test_ios.z42'
