@@ -69,8 +69,18 @@ jobs:
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
               # **根本不跑 package job** —— 打包坏了 PR 照样绿，要等合并进 main 才炸。
-              # 本 PR 自己就是靠恰好动了 ci.yml 才侥幸触发的。
+              # 补充（fix-more-silent-gates，同日）：上一轮补 `scripts/package/**` 时**自己
+              # 又漏了同一形状的两处** —— packages.toml 是打包的注册表 SoT 却在 scripts/ 根
+              # （不在 scripts/package/ 下，一字之差），以及 package 子命令的 CLI 面；
+              # 而 launcher/devtools/interactive 三个 toolchain 组件**只在 package sdk 的
+              # desktop 管线里被编译**，不进这张表就等于「改了 z42 launcher 本体，没有任何
+              # job 编译过它」。
               - 'scripts/package/**'
+              - 'scripts/packages.toml'
+              - 'scripts/cli/xtask_cli_package.z42'
+              - 'src/toolchain/launcher/**'
+              - 'src/toolchain/devtools/**'
+              - 'src/toolchain/interactive/**'
               - 'scripts/test/xtask_test_dist.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_wasm.z42'
@@ -97,6 +107,11 @@ jobs:
               - 'src/compiler/**'
               - 'src/libraries/z42c.core/**'
               - 'src/libraries/z42c.syntax/**'
+              # vscode 语法门（compiler-checks 的 `test vscode-syntax`）比对的是
+              # 「入库的生成产物 ↔ 模板 + Lexer 关键字表」。产物与模板都在这个目录下，
+              # 却不在本 filter 里 ⇒ 只手改模板/产物的 PR，唯一守它的门静默 skip
+              # （fix-more-silent-gates, 2026-09-06）。
+              - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'
             # change-detect rule (c): gates the Rust VM unit harness (cargo test)
             # + JIT consistency. Only a src/runtime change can affect it.
@@ -449,8 +464,12 @@ jobs:
               echo "error: native/libz42_compression.{dylib,so,dll} missing — z42.compression facade will fail with 'unknown builtin' at runtime"
               ls -la "$pkg_dir/native/"; exit 1
           fi
+          # `A && echo` 在 set -e 下**永不失败**（非末位命令），于是这条断言此前缺件时
+          # 既不打印也不报错——邻近每条都是 `|| { exit 1; }`，只有它写反了
+          # （fix-more-silent-gates, 2026-09-06）。
           test -f "$pkg_dir/native/libz42_compression.a" \
-              && echo "✓ native/libz42_compression.a (staticlib for mobile / future bundled link)"
+              || { echo "error: native/libz42_compression.a missing — mobile / bundled-link consumers lose the staticlib"; ls -la "$pkg_dir/native/"; exit 1; }
+          echo "✓ native/libz42_compression.a (staticlib for mobile / future bundled link)"
           test -f "$pkg_dir/libs/z42.compression.zpkg" \
               || { echo "error: libs/z42.compression.zpkg missing"; exit 1; }
           echo "✓ libs/z42.compression.zpkg"
@@ -559,6 +578,7 @@ jobs:
       # so downstream interp + jit consumers run the SAME prebuilt bytecode
       # (.zbc is execution-mode-agnostic) via `test e2e --no-build`.
       - name: Build golden .zbc test assets (compile shared assets once)
+        id: regen_assets
         continue-on-error: true
         shell: bash
         run: |
@@ -581,6 +601,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # 本门的**全部前提**是上一步刚就地重写过基线。上一步是 continue-on-error
+          # （本 job 定位为 additive validation），它失败时什么都没重写 → git diff 干净
+          # → 本门会打印「OK: baselines match」变绿，恰好在最该报警时最安静
+          # （fix-more-silent-gates, 2026-09-06；这正是 #424 要根治的基线腐坏形状）。
+          if [ "${{ steps.regen_assets.outcome }}" != "success" ]; then
+            echo "::error::regen 步骤未成功（outcome=${{ steps.regen_assets.outcome }}）——"
+            echo "本门比对的是「重生后的基线 vs 已提交的基线」，没重生就比对等于恒真通过。"
+            exit 1
+          fi
           if ! git diff --quiet -- src/tests/zbc-format; then
             echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
             echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
