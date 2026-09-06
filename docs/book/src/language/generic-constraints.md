@@ -97,6 +97,37 @@ SymbolTable.ClassConstraints（导入侧 seed，local-wins）→ 与本包**同�
 - **local-wins 有守卫**：导入约束只在该键上的赢家确实是导入类时才 seed，避免本地同名类
   （可能压根没有 `where`）被别的包的约束污染。
 
+## 运算符如何在型参上派发
+
+`where T : INumber<T>` 让泛型代码直接写 `a + b`，而不必写 `a.op_Add(b)`：
+
+```z42
+T Sum<T>(T a, T b) where T : INumber<T> { return a + b; }
+```
+
+绑定路径（`ExprTyper._bindBinary`）：左操作数是 `Z42GenericParamType` → 到该型参的 where 约束
+接口里找 `static abstract op_Add`（沿父接口链找；方法级与类级约束都查）→ 发**接收者驱动的
+VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个实现。与手写 `a.op_Add(b)`
+（`generic_inumber.z42` 的写法）**发同一条指令**，只是省掉了显式方法名。
+
+两条必须知道的规则：
+
+- **结果类型恒为 `T`**。依据是协议本身——`INumber` 抬头写明「Mixed-type arithmetic is not
+  supported（T + T → T only）」。这条不是可选的：`a + b + c` 的第二个 `+` 需要左侧仍是型参才能
+  再次落回约束派发，否则退化成裸算术。（不能改读接口方法的声明返回类型：`INumber` 是**导入**
+  接口，其签名经 `ImportedSymbolLoader` 还原后返回类型已不是型参形态。）
+- **实现方必须写 `static override`**：`public static override T op_Add(T a, T b)`。只写 `static`
+  的方法注册到另一个键，运行期会 `VCall: function X.op_Add not found`。
+
+> **历史（`fix-generic-operator-constraint-dispatch`）**：这条路径**一度整个不存在**。
+> `_bindBinary` 的运算符重载分支要求 `lt is Z42ClassType`，型参不匹配 → 落到 `BinaryTypeTable`，
+> 类型检查报「operator `+` requires numeric operand, got `T`」，而 emitter 照发**裸 `add i32`**。
+> `int` / `double` 的用例之所以一直绿，纯粹因为解释器的 `add` 对 `Value` 动态派发；换成用户
+> struct 就是拿 blob 去做整数加法。约束**从未被读过**——删掉整条 where 子句，诊断逐字节相同。
+> `static_abstract_operator.z42` 的抬头注释当时已经把这条路径描述得一清二楚，但那是**设计意图**
+> 而非现状。这正是 `--emit-zbc` 吞诊断能掩盖的那类缺陷：binder 报的错没人看见，emitter 那半边
+> 碰巧能跑，测试就绿。
+
 ## 已知限制（诚实标注）
 
 这些不是 bug，是当前实现的**明确边界**。踩到时不要以为约束在保护你。
