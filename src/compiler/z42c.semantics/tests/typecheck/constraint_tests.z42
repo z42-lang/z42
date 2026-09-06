@@ -365,3 +365,73 @@ void test_same_name_different_arity_still_reports_real_violation() {
         + "class Use { void f() { var b = new Foo<D>(); } }\n";
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
 }
+
+// ── `Self` 类型（add-associated-types PR-2）──────────────────────────────────
+//
+// `Self` 在接口内指代**实现类型**，实现上是把它当隐式型参塞进 `ResolveTypeP` 的 paramNames
+// （design D5）——与真型参 `T` 走完全同一条路，不新造类型。
+//
+// ⚠️ **本组的真门是下面两条 DumpBody 用例，不是那些断言 `""` 的**。原因：接口方法签名位置的
+// 未定义类型诊断（E0443）由 **SymbolCollector 相位**的 `_chkTypeRef` 发出，而 `SemanticDump`
+// 给 TypeChecker 另建 DiagnosticBag、**从不合并 collector 那份**（SemanticDump.z42:154-157）
+// ⇒ 签名位置写任何未定义类型，FirstErrorCode 都恒返回 ""。实测对照：`class C { Undef f(){…} }`
+// / `void f(Undef x)` / `public Undef x;` 三者全是 ""，只有局部变量声明与 `new` 才报 E0443。
+// 所以「接口里写 Self 不报错」这类断言在修改前后**同样绿**，是空测试。真正能区分的是**解析结果**：
+// 无 `Self` 支持时推断出 `:<unknown>`，有支持时是 `:Self`——已实测两态（见下）。
+// 该 harness 缺口本身是既存欠债，不在本 PR 范围（roadmap Deferred `semanticdump-skips-collector-diags`）。
+
+[Test]
+void test_self_return_type_resolves_to_generic_param_not_unknown() {
+    // 🔒 真门：`Self` 支持退回（不把 "Self" 并进 paramNames）后，两处 `:Self` 都变 `:<unknown>`，本用例变红。
+    string src = "interface IClone { Self Clone(); }\n"
+        + "class Use { void f(IClone c) { var x = c.Clone(); } }\n";
+    Assert.Equal("(block (decl x :Self (call-inst (ident c :IClone) Clone :Self)))",
+                 SemanticDump.DumpBody(src, "Use.f"));
+}
+
+[Test]
+void test_self_coexists_with_interface_own_type_param() {
+    // 🔒 真门（同上），另守：`Self` 是**追加**的隐式型参，不得顶掉接口自己的 `T`
+    // （`_withSelf` 拷贝新数组而非就地改 `TypeParams.Names`——后者被 ClassExtractor / IrGen 按 Count 复用）。
+    string src = "interface IBox<T> { Self With(T v); }\n"
+        + "class Use2 { void f(IBox<int> b) { var x = b.With(1); } }\n";
+    Assert.Equal("(block (decl x :Self (call-inst (ident b :IBox) With (lit-int 1 :int) :Self)))",
+                 SemanticDump.DumpBody(src, "Use2.f"));
+}
+
+[Test]
+void test_self_in_class_body_is_undefined_type() {
+    // 作用域**仅接口**（User 裁决）：类里写 `Self` 落到 ResolveTypeP 具名未命中 → 携名 Unknown → E0443，
+    // 与其它未定义类型同码，不新增错误码。
+    // 定位：改动前后同绿（`Self` 在类里本来就没定义）——这是**作用域回归守卫**，不是本 PR 的门：
+    // 将来若有人把 `Self` 提升成全局可写（或误加进 `_fillClass` 的 paramNames），这两条会变红。
+    string src = "class C { void f() { Self x = null; } }\n";
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_self_in_class_new_is_undefined_type() {
+    string src = "class C { void f() { var x = new Self(); } }\n";
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_self_bearing_interface_still_usable_as_constraint() {
+    // `Self` 的兑现点：约束侧从此不必写 `where T : IEq<T>` 的 F-bounded 样板。
+    // 定位：无误报守卫（裸名匹配下改动前后同绿）——保证带 `Self` 的接口不因新解析路径把约束校验搅坏。
+    string src = "interface IEq { bool Equals(Self other); }\n"
+        + "class P : IEq { public bool Equals(P other) { return true; } }\n"
+        + "class Box<T> where T : IEq { }\n"
+        + "class Use { void f() { var b = new Box<P>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_self_bearing_interface_constraint_still_rejects_non_implementer() {
+    // 与上一条对偶：证明「带 `Self` 的接口能当约束」不是把该接口的约束校验整个关掉了。
+    string src = "interface IEq { bool Equals(Self other); }\n"
+        + "class Q { }\n"
+        + "class Box<T> where T : IEq { }\n"
+        + "class Use { void f() { var b = new Box<Q>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}

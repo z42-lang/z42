@@ -1,0 +1,10 @@
+[project]
+name = "demo.sapp"   # 命名为 *app 使其在 dist glob 中排在 demo.sext/demo.starget 之前
+                     # ——cross-zpkg 驱动取字母序首个 zpkg 当 exe 运行（约定：exe 排首）
+version = "0.1.0"
+kind = "exe"
+entry = "DemoSApp.Main"
+pack = true
+[dependencies]
+"demo.starget" = "0.1.0"
+"demo.sext" = "0.1.0"
