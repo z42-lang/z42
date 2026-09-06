@@ -261,9 +261,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     int i = 0;
     CompilationUnit[] cus;
     NameListZ[] metaIdents = null;
+    string[] metaSurfaces = null;
     if (prep != null && prep.Cus != null) {
         cus = prep.Cus;
         metaIdents = prep.Idents;
+        metaSurfaces = prep.Surfaces;
     } else {
         // 全量路径（--no-incremental / 增量未启）：parse 时捕获标识符供 meta 写盘
         //（D8 修正——零第二遍 lex）；workspace/flat 不落 cache → 不捕获。
@@ -276,6 +278,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, srcs.Length, want);
         cus = pk.Cus;
         metaIdents = pk.Idents;
+        metaSurfaces = pk.Surfaces;
     }
     // ── 编译核心（PackageCompile：⑥依赖解析 → ⑧包级编译 → ⑩组装；extract-compile-pipeline-api）──
     //    落盘 / 诊断呈现 / 增量 probe / cache 落盘留本 CLI；核心只吃内存源 + 依赖目录 + manifest 派生标量。
@@ -455,7 +458,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
             }
             // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
             IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
-                                         cms, mods, prep != null ? prep.Plan : null, metaIdents);
+                                         cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces);
             ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
         } catch (Exception e) {
             ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);

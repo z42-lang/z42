@@ -11,7 +11,8 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 | `src/BuildPaths.z42` | dist/cache 级联解析 + pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）|
 | `src/ProfileKnobs.z42` | 构建期旋钮名校验（compiler-checks-knob-names）：`_validateProfileKnobs` 在 `_build` 早期扫全部 `[profile.<n>.runtime]`——未知名 → warning + 最近邻建议（全集问 `Std.Runtime.RuntimeConfig.Names()`，不留第二份清单）；`[profile.<n>]` 下直接写键 → 致命，库工程同样管 |
 | `src/RuntimeConfigSidecar.z42` | `dist/<name>.runtimeconfig.toml` 侧车生成（`[runtime]` 旋钮 + `[properties]` 应用属性，分表）|
-| `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → token 边闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc` |
+| `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → **声明面闸门** → token 边闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc` |
+| `src/SurfaceHash.z42` | 声明面指纹（fix-z42c-incremental-closure）：token 流去掉方法/属性/索引器**体内** token 后哈希 —— 增量传播闸门的输入，让「改注释 / 改函数体」不波及引用方 |
 
 ## 入口点
 `Z42.Driver.Main`（auto-detected exe 入口）。
