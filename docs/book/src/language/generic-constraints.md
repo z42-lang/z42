@@ -234,6 +234,17 @@ Deferred：`where-constraint-future-toplevel-func`。
 今天这些语义由 `src/compiler/z42c.semantics/tests/typecheck/constraint_tests.z42` 的负例
 用例守着——那是 `where` 约束第一次有门盯着。
 
+**这个故事在 2026-09-06 又演了一遍，值得写下来**：给 `Self` 补的头一批用例**全是空测试**——
+把 `Self` 的支持改动整个退回，7 条断言仍然 7/7 全绿。根因同样是「一句自洽的说明掩盖了一个洞」：
+`SemanticDump` 只收 `TypeChecker` 的诊断、把 `SymbolCollector` 那份整个丢掉，而**声明签名位置**
+（方法返回类型 / 形参类型 / 字段类型 / 基类表）的未定义类型 `E0443` 恰恰由 collector 发出
+⇒ 凡以「签名位置写坏类型应当报错」为断言的用例，无论实现对错都恒绿。
+
+两条教训：**新写的负例必须做「退回对照」才算门**（不会变红的断言不是门）；
+**诊断只要在链路上被丢过一次，它守的所有约定都会跟着静默腐坏**。该洞已修
+（`SemanticDump._model` 合并两份诊断），并由 `typecheck_tests.z42` 的
+`test_undefined_type_in_declaration_signature_positions_reported` 盯着。
+
 ## 相关
 
 - [泛型方法](generic-methods.md) —— 方法级类型参数与 `<` 歧义消解

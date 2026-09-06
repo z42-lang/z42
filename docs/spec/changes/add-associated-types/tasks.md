@@ -92,8 +92,9 @@
 - [x] 2.6 `ImportedSymbolLoader` 接口方法解析改四参版，型参集 = 接口 `TypeParams` ∪ `{"Self"}`
       （**顺带修既有缺口**：跨包接口方法里的 `T` 此前落 `Z42ClassType.Builtin("T")` 垃圾类型）
 - [x] 2.7 类里写 `Self` 落 E0443、不新增错误码 —— 已实证（`Self x = null;` / `new Self()` 两个位置）
-- [x] 2.8 `constraint_tests.z42` 33 → **39** 条：`Self` 6 条。⚠️ **首轮 7 条全是空测试，已推翻重写**——
-      见下「实施期发现」①；现在的真门是两条 `DumpBody` 用例（`:<unknown>` ↔ `:Self` 两态实测）
+- [x] 2.8 `constraint_tests.z42` 33 → **38** 条：`Self` 5 条。⚠️ **首轮 7 条全是空测试，已推翻重写**——
+      见下「实施期发现」①；真门是两条 `DumpBody` 用例（`:<unknown>` ↔ `:Self` 两态实测），
+      作用域守卫合并成一条多断言用例（签名位 + 表达式位共 5 行）
 - [x] 2.9 `src/tests/cross-zpkg/self_type_cross_pkg/` NEW —— target 声明带 `Self` 的接口（含泛型接口
       `IBox<T>` 同时守 `T`）、ext 经接口静态类型跨包调用、main 具体类调用。**已实证是真门**：
       把 2.6 退回单参版后该用例以 `FAIL self_type_cross_pkg (ext build)` 变红
@@ -117,8 +118,14 @@
    只有 `Undef x = null;` 与 `new Undef()` 报 E0443。
    **本 PR 首轮写的 7 条 `Self` 用例把支持改动整个退回后仍然 7/7 全绿** —— 全是空测试。
    改用 `DumpBody` 断言**解析结果**（无支持 `:<unknown>` / 有支持 `:Self`）才成真门。
-   已登记 Deferred `semanticdump-skips-collector-diags`（与 `emit-zbc-no-error-gate` 同族，
-   修前须先量爆炸半径）。**不在本 PR 修**——Scope 外，且会点亮未知数量的潜伏诊断。
+   **→ 已修**，独立 change `fix-semanticdump-collector-diags`（PR-2 合并后紧接着落，
+   User 追问「要不要先修」后先量了爆炸半径）：
+   `SemanticDump._model` 合并 `sc.Diags`，6 个入口收敛到单一口径（原来 6 份复制粘贴的 preamble
+   正是「其中一份忘了合并」能长期不被发现的土壤）。**实测爆炸半径 = 0**：584 条既有 compiler
+   用例零失败 —— 与 `emit-zbc-no-error-gate` 不同，本洞只影响 `SemanticDump` 这一个测试 harness
+   与人工 `--dump-bound`，**不经过 golden 语料**，故不必等那条线排队。
+   新门 `typecheck_tests.z42::test_undefined_type_in_declaration_signature_positions_reported`
+   已实证是真门（注掉 `MergeFrom` 即红）。roadmap 那条 Deferred 随之撤销登记。
 2. **`Self` 返回位不做替换**：`IClone c; var x = c.Copy();` 里 `x` 的类型是型参 `Self` 本身，
    不替换成接收者静态类型。具体类上调用不受影响。已登记 Deferred `self-return-type-substitution`。
 
