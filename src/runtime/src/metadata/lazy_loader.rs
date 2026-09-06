@@ -266,6 +266,36 @@ impl LazyLoader {
         self.negative_cache().is_some_and(|n| n.types.contains(name))
     }
 
+    /// fix-negative-cache-under-read-lock：负缓存的**只读**版本。
+    ///
+    /// `is_known_unresolved_*` 要 `&mut` 只是因为 `negative_cache()` 顺手做惰性失效
+    /// （fingerprint 变了就清空）。而「fingerprint 未变 **且** 名字在集合里」本身是纯读
+    /// 判断 —— 于是可以在**读锁**下回答「这个名字在当前 registry 状态下必然解析不出来」。
+    ///
+    /// 保守且与写路径同义：fingerprint 一旦变过就返回 false，落回写锁走原路（那里会清缓存）。
+    /// 清理仍然只发生在写路径，读侧不欠任何维护。
+    ///
+    /// 为什么值得：`probe_*` 在 registry miss 时返回 `None`，调用方就去拿**独占**锁，
+    /// 而 `resolve_*` 的第一件事却是查这个负缓存、直接返回 `None` —— 一次纯记忆化的「否」
+    /// 付了一次独占锁，把所有读者堵住。而这条路极热（`resolve_type` 注释：`obj_new` 每次
+    /// 分配都要探一次类名；`resolve_function` 注释：无构造函数类合成的 `..ctor$0` 每次
+    /// `new` 都查一次）。多线程下这是主要的读者阻塞源（`--jobs 16` 原生采样：
+    /// `try_lookup_type` 独占等待 945 样本）。
+    #[inline]
+    pub(crate) fn known_unresolved_function_ro(&self, name: &str) -> bool {
+        self.negative.as_ref().is_some_and(|n| {
+            n.fingerprint == self.registry_fingerprint() && n.functions.contains(name)
+        })
+    }
+
+    /// 同上，类型版。
+    #[inline]
+    pub(crate) fn known_unresolved_type_ro(&self, name: &str) -> bool {
+        self.negative.as_ref().is_some_and(|n| {
+            n.fingerprint == self.registry_fingerprint() && n.types.contains(name)
+        })
+    }
+
     /// Record a failed function resolve. The fingerprint is re-read here (not
     /// reused from the probe) because the resolve itself may have loaded zpkgs.
     fn note_unresolved_function(&mut self, name: &str) {
