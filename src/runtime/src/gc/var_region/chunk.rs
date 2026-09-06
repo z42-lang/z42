@@ -199,20 +199,6 @@ impl VarRegion {
         self.chunks.len() - 1
     }
 
-    /// **add-gc-tlab stage 3**: the chunk index owning `ptr` (address ∈ `[base, base+cap)`),
-    /// or `None` for an oversized/dedicated chunk not eligible for pooling. Linear over chunks
-    /// (typically few tens); used only at reclaim (STW, off the hot path).
-    fn chunk_of(&self, ptr: NonNull<GcBlockHeader>) -> Option<usize> {
-        let addr = ptr.as_ptr() as usize;
-        for (ci, c) in self.chunks.iter().enumerate() {
-            let base = c.base.as_ptr() as usize;
-            if addr >= base && addr < base + c.cap {
-                return Some(ci);
-            }
-        }
-        None
-    }
-
     /// **add-gc-tlab stage 3**: hand a whole bump chunk's write ownership to a mutator's TLAB
     /// (design D4). Recycles a fully-dead chunk from `var_free_chunk_pool` (its `reuse_gen`
     /// already bumped past every prior occupant) or grows a fresh `CHUNK_BYTES` one. Marks the
@@ -254,12 +240,35 @@ impl VarRegion {
     /// chunks. Runs under STW at the sweep tail. Returns the count reclaimed.
     pub fn reclaim_dead_var_chunks(&mut self) -> usize {
         let n_chunks = self.chunks.len();
+        // Address → chunk index in O(log C). This used to call [`chunk_of`],
+        // whose linear scan over `chunks` ran once per block in `all_blocks`,
+        // making the loop below O(blocks × chunks) — and the loop runs at every
+        // sweep, over a chunk count that only grows. Measured on
+        // `z42c.semantics --release --no-incremental` with a 128MB budget, this
+        // one call was 92–98% of every GC pause and doubled each cycle
+        // (494ms → 975ms → 1490ms → 3072ms out of pauses of 536ms → 3143ms).
+        // Same shape as the `young_list` scan fixed by #519, different region.
+        let mut by_addr: Vec<(usize, usize, usize)> = (0..n_chunks)
+            .map(|ci| {
+                let base = self.chunks[ci].base.as_ptr() as usize;
+                (base, base + self.chunks[ci].cap, ci)
+            })
+            .collect();
+        by_addr.sort_unstable_by_key(|&(lo, _, _)| lo);
+        // Chunks never overlap, so the only candidate for `addr` is the last
+        // entry whose base is ≤ it; `None` for a block in no chunk at all
+        // (never happens for chunk-owned blocks, kept as `chunk_of`'s contract).
+        let locate = |addr: usize| -> Option<usize> {
+            let i = by_addr.partition_point(|&(lo, _, _)| lo <= addr);
+            let (_, hi, ci) = *by_addr.get(i.checked_sub(1)?)?;
+            (addr < hi).then_some(ci)
+        };
         // Per-chunk: has any live block? and the max generation seen (for the reuse_gen bump).
         let mut has_live = vec![false; n_chunks];
         let mut max_gen = vec![0u32; n_chunks];
         let mut any_block = vec![false; n_chunks];
         for &ptr in &self.all_blocks {
-            let Some(ci) = self.chunk_of(ptr) else { continue };
+            let Some(ci) = locate(ptr.as_ptr() as usize) else { continue };
             any_block[ci] = true;
             // SAFETY: all_blocks pointers are chunk-owned, valid for the region's lifetime.
             let header = unsafe { ptr.as_ref() };
@@ -290,17 +299,16 @@ impl VarRegion {
         if reclaim.is_empty() {
             return 0;
         }
-        // Snapshot reclaimed chunks' address ranges so the retain closures don't borrow `self`.
-        let ranges: Vec<(usize, usize)> = reclaim
-            .iter()
-            .map(|&ci| {
-                let base = self.chunks[ci].base.as_ptr() as usize;
-                (base, base + self.chunks[ci].cap)
-            })
-            .collect();
+        // Flag the reclaimed chunks by index so the retain closures below are a
+        // binary search + one lookup per block, not a scan of every reclaimed
+        // range (the second O(blocks × chunks) term in this function). Indexing
+        // also keeps the closures off `self`, as the range snapshot did.
+        let mut is_reclaimed = vec![false; n_chunks];
+        for &ci in &reclaim {
+            is_reclaimed[ci] = true;
+        }
         let in_reclaimed = |p: NonNull<GcBlockHeader>| {
-            let addr = p.as_ptr() as usize;
-            ranges.iter().any(|&(lo, hi)| addr >= lo && addr < hi)
+            locate(p.as_ptr() as usize).is_some_and(|ci| is_reclaimed[ci])
         };
         // Purge reclaimed chunks' blocks from all_blocks + free_lists (they're being recycled).
         self.all_blocks.retain(|&p| !in_reclaimed(p));

@@ -302,3 +302,46 @@ fn block_type_all_variants_roundtrip() {
         assert_eq!(r.resolve(h).unwrap().block_type(), ty);
     }
 }
+
+#[test]
+fn reclaim_dead_var_chunks_pools_dead_bump_chunks_among_dedicated_ones() {
+    // `reclaim_dead_var_chunks` resolves each block's owning chunk from the
+    // block's address. That lookup is a binary search over chunk address
+    // ranges (it was a linear scan per block, which made the whole function
+    // O(blocks × chunks) and swallowed the GC pause). Dedicated chunks for
+    // oversized blocks are sized to their payload, not `CHUNK_BYTES`, and land
+    // in `chunks` interleaved with the 64K bump chunks — so the search must key
+    // on each chunk's own range and never assume a uniform stride.
+    let mut r = VarRegion::new();
+    let mut oversized = Vec::new();
+    let mut small = Vec::new();
+    for _ in 0..6 {
+        // Dedicated chunk (payload > CHUNK_BYTES), then enough small blocks to
+        // fill a bump chunk or two.
+        oversized.push(r.alloc(96 * 1024, BlockType::Str));
+        for _ in 0..64 {
+            small.push(r.alloc(1024, BlockType::Str));
+        }
+    }
+    assert!(r.chunk_count() > 12, "expected bump chunks beyond the 6 dedicated ones");
+    assert_eq!(r.free_chunk_pool_len(), 0);
+
+    // One small block survives; everything else dies.
+    let survivor = small[0];
+    assert!(survivor.mark());
+    r.sweep();
+    assert_eq!(r.live_count(), 1);
+
+    let pooled = r.reclaim_dead_var_chunks();
+    assert!(pooled > 0, "fully-dead bump chunks must be pooled");
+    assert_eq!(r.free_chunk_pool_len(), pooled);
+    // Dedicated chunks are never pooled (they are not `CHUNK_BYTES` wide), and
+    // the survivor's chunk is still live — so not every chunk is reclaimable.
+    assert!(pooled < r.chunk_count(), "dedicated + still-live chunks stay out of the pool");
+    // The survivor is untouched by the purge of reclaimed chunks' blocks.
+    assert!(r.resolve(survivor).is_some(), "live block survives chunk reclaim");
+
+    // Reclaiming again is a no-op: the pooled chunks are already in the pool.
+    assert_eq!(r.reclaim_dead_var_chunks(), 0);
+    assert_eq!(r.free_chunk_pool_len(), pooled);
+}

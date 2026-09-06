@@ -1,7 +1,9 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 对齐：2026-08-24（change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议）。
-> 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/alloc.rs`（阈值触发）、
+> 对齐：2026-09-07（change `fix-gc-budget-not-enforced` 修增长闸门基线 + 补退避策略一节；
+> 原 change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议）。
+> 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/auto_collect.rs`（自动回收策略）、
+> `gc/arc_heap/alloc.rs`（压力事件），
 > `gc/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`MagrGC` trait 协议文档）。
 
 ## 为什么
@@ -22,9 +24,9 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 
 | Knob | 默认 | 语义 | 消费点 |
 |------|------|------|--------|
-| `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | heap-used 达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/alloc.rs` |
+| `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | heap-used 达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
 | `Z42_GC_PRESSURE_RATIO` | 0.75 | heap-used 落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
-| `Z42_GC_THROTTLE_RATIO` | 0.10 | 距上次自动回收，heap-used 至少再增长 max-bytes 的此比率，才允许下一次自动回收（去抖，防连发） | `arc_heap/alloc.rs` |
+| `Z42_GC_THROTTLE_RATIO` | 0.10 | **距上次回收结束时的 used**，heap-used 至少再增长 max-bytes 的此比率，才允许下一次自动回收（去抖，防连发；基线为何必须是「回收后」见下节） | `arc_heap/auto_collect.rs` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
@@ -34,12 +36,49 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 > 三个比率各自独立 clamp 到 `[0,1]`，**不强制跨 knob 排序**（若把 pressure 设得高于 near，
 > pressure-事件分支自然变死代码，无害）——保持每个 knob 独立可预测，不做"惊喜"式静默改写。
 
-比率的三处消费点（都在 `alloc.rs`）：
-- `maybe_auto_collect`：near-limit（触发）+ throttle（去抖）；
-- `check_pressure`：near-limit（发 `NearHeapLimit`）+ pressure（发 `AllocationPressure`）；
-- `maybe_reset_near_limit_warned`：near-limit（回收后 used 降到阈值下 → 复位事件闩，使下次跨阈值能再发）。
+比率的三处消费点：
+- `maybe_auto_collect`（`auto_collect.rs`）：near-limit（触发）+ throttle（去抖）；
+- `check_pressure`（`alloc.rs`）：near-limit（发 `NearHeapLimit`）+ pressure（发 `AllocationPressure`）；
+- `maybe_reset_near_limit_warned`（`alloc.rs`）：near-limit（回收后 used 降到阈值下 → 复位事件闩，使下次跨阈值能再发）。
 
 三处共用 `runtime_config().gc_near_limit_ratio` 同一比率——保证「发事件」与「复位事件闩」用同一阈值、不错位。
+
+## 增长闸门的基线：必须是「上次回收**结束**时」，不是「上次触发时」
+
+throttle 去抖比 near-limit 触发更容易写错，且错了不会报错、只会**静默不回收**。
+
+触发要同时满足两条：① `used ≥ near_limit_ratio × budget`；② `used` 距上次至少再涨
+`throttle_ratio × budget`。**②的基线取哪个时刻，决定了这个预算是不是真预算**：
+
+- ❌ 取**上次 trip 时**的 `used`——那是回收**前**的高水位，而条件 ① 恰好把它钉在
+  `near_limit_ratio × budget`。于是再次触发要求
+  `used ≥ (near_limit_ratio + throttle_ratio) × budget` = **整个预算**起步，且每回收一次，
+  触发点就再自涨一格 `throttle_ratio × budget`。一个能干活的回收器把堆压在预算以下，
+  于是第二次回收**永远不来**；真涨上去的场景里，触发点也在无限棘轮，`used` 随之无界增长。
+- ✅ 取**上次回收结束时**的 `used`——闸门问的是「上次收完之后又新分配了多少」，触发点稳定
+  停在 `near_limit_ratio × budget`，预算才真正封顶。
+
+这个基线不需要往各条回收路径里插钩子：上次 trip 记下的 `used` 减去那次回收 `reclaimed` 的
+字节数，就是它收完时的水位（`stats.reclaimed_bytes` 的增量，每条回收路径本就在维护）。
+
+> 实测（`z42c.semantics --release --no-incremental`，256MB 预算）：基线取 trip 时，全程只收
+> **一次**——cycle 1 在 230.4MB 处释放 186.3MB，闸门随即要 295.3MB（110% 预算，倍数已被下面
+> 的退避翻倍过一次），而这次编译分配 450MB、退出时 `used` 停在 273.6MB，够不着。改成收完时
+> 的水位后，同一次编译收 2 次，`used` 全程被压在 230MB 附近。
+
+## 徒劳回收的退避
+
+去抖只看**增长**，这在存活集真的超过预算时不够用：每次回收都收不出东西，堆照涨，增长闸门
+无限复位。实测 `src/tests/perf/scenarios/09_alloc_ctorless`（150 万对象全存活）配 64MB 预算，
+每涨 6MB 就来一次 75ms 的零收益 mark-sweep，0.29s 的程序 9 分钟没跑完。
+
+所以每次**无产出**的回收把闸门要求的增长量翻倍（上限 `MAX_BACKOFF = 64`），一次有产出的回收
+复位为 1。「无产出」= 上次回收释放的字节数不足一个增长闸门。软预算于是表现得像软预算：
+尽量守住，一旦证明守不住就别再烧 CPU。
+
+⚠️ 产出率读的永远是**上一次 trip 所要求的那次回收**的战果，因此第一次 trip 没有可判之物——
+把那里读到的 0 当作「徒劳」，会让退避倍数在第一次回收发生之前就已经是 2。`gc_cycles == 0`
+判为中性，不是徒劳。
 
 ## 自动回收 / safepoint 三态协议
 

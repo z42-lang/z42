@@ -63,3 +63,30 @@ fn futile_collections_back_off_instead_of_repeating_forever() {
          (this workload does 57 with the backoff disabled)");
     drop(pins);
 }
+
+#[test]
+fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
+    // The growth gate (rule 2) measures from the *end* of the last collection.
+    // Measured from the last trip instead — the pre-collect high-water, which
+    // rule 1 pins at `near_limit_ratio × budget` — re-tripping demanded
+    // `(0.90 + 0.10) × budget` and up, i.e. the heap had to climb past the
+    // whole budget before a second cycle. A collector doing its job keeps it
+    // below that, so the budget silently stopped being enforced after cycle 1:
+    // `z42c.semantics --release --no-incremental` under a 256MB budget
+    // collected exactly once in a run that allocated 450MB, ending 17MB over.
+    //
+    // Nothing here is rooted, so every cycle reclaims essentially all of it and
+    // the heap refills from near zero — the case the old baseline could not see.
+    let heap = ArcMagrGC::new();
+    let budget = 64 * 1024;
+    heap.set_max_heap_bytes(Some(budget));
+    for _ in 0..20_000 {
+        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+    }
+    let used = heap.stats().used_bytes;
+    assert!(cycles(&heap) > 0, "auto-collect should fire");
+    assert!(used <= budget,
+        "a reclaimable heap must be held at its budget; ended at {used} bytes over a \
+         {budget}-byte budget (the pre-trip baseline ends at 163392 — 2.5x over, having \
+         ratcheted its own trip point up by one growth gate per cycle)");
+}

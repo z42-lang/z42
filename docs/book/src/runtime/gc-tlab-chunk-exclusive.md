@@ -1,6 +1,7 @@
 # GC TLAB：线程本地分配（chunk 独占）
 
-> 对齐：2026-08-29（change `add-gc-tlab`，阶段 1–5）。
+> 对齐：2026-09-07（change `fix-gc-budget-not-enforced` 补 D7 的代价一节；
+> 原 change `add-gc-tlab`，阶段 1–5）。
 > 代码：`gc/tlab.rs`（Tlab + thread-local + arm 门）、`gc/region.rs`（`ChunkClaim` + borrow/retire/reclaim，定长对象/数组）、
 > `gc/var_region.rs`（`VarChunkClaim` + borrow/retire/reclaim，变长字符串/闭包）、
 > `gc/arc_heap/alloc.rs`（fast path）、`gc/safepoint.rs`（retire-on-park）。
@@ -76,6 +77,23 @@ flowchart TB
 
 sweep 尾（STW）扫全死 chunk（所有已初始化槽 dead）→ 移入 `free_chunk_pool` 供 borrow 复用。
 短命对象密集 workload（编译器正是）的大头内存靠此回收；**slot 级复用留 Deferred**（见下）。
+
+⚠️ **变长 region 的这一步曾是整个 GC 停顿本身**。`VarRegion` 的块变长，没有「地址 → 槽下标」
+的算术，判某块属于哪个 chunk 只能查地址区间。原实现对 `all_blocks` 里**每个块**线性扫一遍
+`chunks`，收尾清理 `all_blocks` / `free_lists` 时又对每块线性扫一遍被回收的区间——两个
+`O(块数 × chunk 数)` 项，且 chunk 数只增不减。实测 `z42c.semantics` 配 128MB 预算，
+`reclaim_dead_var_chunks` 一处占每次停顿的 **92–98%**，并逐周期翻倍（494ms → 975ms →
+1490ms → 3072ms），同期 mark 加两个定长 region 的 sweep 合计只有 15–45ms。
+
+改法是每次回收先按 base 地址排一份 chunk 区间表，之后按块二分（`partition_point`）；
+「是否属于被回收的 chunk」也改成查下标位表而非扫区间。同一形状的平方项 #519 在定长 region
+的 `young_list` 上刚修过一次——**「按块线性扫另一个只增不减的表」是这套 region 代码的惯犯，
+新增每块一次的查找时先问它是不是 O(1)/O(log n)**。
+
+定长 `Region<T>` 的 `reclaim_dead_chunks` 没有这个问题：槽定长，chunk 归属是下标除法。
+
+回收只把 chunk **还给池子**，不 `dealloc` 还给 OS（`VarRegion::drop` 才释放）。所以 GC 压低的
+是 RSS 的**高水位**（靠复用少要新内存），不是「回收后把内存交回系统」。
 
 ## ⚠️ 变长块复用的 ABA：per-chunk `reuse_gen`
 
