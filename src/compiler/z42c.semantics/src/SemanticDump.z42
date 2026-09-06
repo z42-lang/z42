@@ -7,6 +7,35 @@ using Z42.Core;
 using Z42.IR;
 
 public static class SemanticDump {
+    // ── 诊断口径的单一来源（fix-semanticdump-drops-collector-diags）──────────────
+    //
+    // 🔴 这里此前有个安静的洞：每个入口各自 `new SymbolCollector().Collect(cu)`，随即**丢掉**
+    // 那个 collector 的 `Diags`，只把 TypeChecker 的诊断收进新建的 bag。可 `_chkTypeRef` 发出的
+    // 未定义类型 E0443 恰恰在 **collector 相位**——方法返回类型 / 形参类型 / 字段类型 / 基类表
+    // 这些**声明签名位置**全归它管。结果：签名位置写任何未定义类型，`FirstErrorCode` 都返回 ""。
+    //
+    // 后果不是「少报一条」，而是**一整类单测静默失效**：凡以「签名位置写坏类型应当报错」为断言的
+    // 用例，无论实现对错都恒绿 = 空测试。add-associated-types PR-2 为 `Self` 写的头一批用例
+    // 就整批撞上（把支持改动全退回后仍 7/7 全绿），这才把洞挖出来。
+    //
+    // 修法即本函数：**合并 collector 的 Diags**，并让 6 个入口共用同一条口径，不再各写各的
+    // ——原来那 6 份复制粘贴的 preamble 正是「其中一份忘了合并」能长期不被发现的土壤。
+    // 合并序 = parse → collector → typecheck（相位序），故 `FirstErrorCode` 取到的仍是**最早**那条。
+    private static DiagnosticBag _diags(CompilationUnit cu) {
+        var diags = new DiagnosticBag();
+        SemanticDump._model(cu, diags);
+        return diags;
+    }
+
+    // 同上，但把 bound 模型也带出来（DumpBody / DumpAll 用）。诊断合并逻辑只此一处。
+    private static SemanticModel _model(CompilationUnit cu, DiagnosticBag diags) {
+        var sc = new SymbolCollector();
+        var symbols = sc.Collect(cu);
+        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
+        diags.MergeFrom(sc.Diags);   // 收集期诊断（签名位置的 E0443 等）——曾整批被丢弃
+        return new TypeChecker(diags).Infer(cu, symbols);
+    }
+
     // 导出类型签名（TSIG 形态）确定性 dump：每类 `Name(Base) F:[n:t(s?),...] M:[n(/flags)?,...]`。
     // flags：s=static / v=virtual / a=abstract。验证继承字段展开 + 方法合并序 + override flags（G18 回归守护）。
     public static string DumpExports(string src) {
@@ -102,10 +131,8 @@ public static class SemanticDump {
     public static string DumpBody(string src, string key) {
         var p = new Parser(src, "<input>");
         var cu = p.ParseCompilationUnit();
-        var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        var model = new TypeChecker(diags).Infer(cu, symbols);
+        var model = SemanticDump._model(cu, diags);
         if (model.HasBody(key)) { return model.GetBody(key).Dump(); }
         return "(no-body " + key + ")";
     }
@@ -114,10 +141,8 @@ public static class SemanticDump {
     public static string DumpAll(string src) {
         var p = new Parser(src, "<input>");
         var cu = p.ParseCompilationUnit();
-        var symbols = new SymbolCollector().Collect(cu);
         var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        var model = new TypeChecker(diags).Infer(cu, symbols);
+        var model = SemanticDump._model(cu, diags);
         string[] keys = model.Bodies.Keys();
         string s = "";
         int i = 0;
@@ -137,11 +162,7 @@ public static class SemanticDump {
     // 首条诊断的 "line:col"（span 链验证；无诊断 → ""）。
     public static string FirstErrorPos(string src) {
         var p = new Parser(src, "<input>");
-        var cu = p.ParseCompilationUnit();
-        var symbols = new SymbolCollector().Collect(cu);
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        new TypeChecker(diags).Infer(cu, symbols);
+        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
         if (diags.Count() == 0) { return ""; }
         Diagnostic d = diags.Get(0);
         return d.Span.Line.ToString() + ":" + d.Span.Column.ToString();
@@ -150,11 +171,7 @@ public static class SemanticDump {
     // 首条诊断的错误码（错误用例精确断言，如 E0426；无诊断 → ""）。
     public static string FirstErrorCode(string src) {
         var p = new Parser(src, "<input>");
-        var cu = p.ParseCompilationUnit();
-        var symbols = new SymbolCollector().Collect(cu);
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        new TypeChecker(diags).Infer(cu, symbols);
+        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
         if (diags.Count() == 0) { return ""; }
         return diags.Get(0).Code;
     }
@@ -162,11 +179,7 @@ public static class SemanticDump {
     // 首条诊断的消息文本（错误用例断言消息内容用，如 add-user-conversions ③ 的走中间类型提示）。
     public static string FirstErrorMessage(string src) {
         var p = new Parser(src, "<input>");
-        var cu = p.ParseCompilationUnit();
-        var symbols = new SymbolCollector().Collect(cu);
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);
-        new TypeChecker(diags).Infer(cu, symbols);
+        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
         if (diags.Count() == 0) { return ""; }
         return diags.Get(0).Message;
     }
@@ -174,11 +187,7 @@ public static class SemanticDump {
     // 类型检查诊断错误条数（错误用例断言）。
     public static int ErrorCount(string src) {
         var p = new Parser(src, "<input>");
-        var cu = p.ParseCompilationUnit();
-        var symbols = new SymbolCollector().Collect(cu);
-        var diags = new DiagnosticBag();
-        cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
-        new TypeChecker(diags).Infer(cu, symbols);
+        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
         return diags.ErrorCount();
     }
 }

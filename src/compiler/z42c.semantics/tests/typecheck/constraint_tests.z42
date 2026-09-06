@@ -371,14 +371,17 @@ void test_same_name_different_arity_still_reports_real_violation() {
 // `Self` 在接口内指代**实现类型**，实现上是把它当隐式型参塞进 `ResolveTypeP` 的 paramNames
 // （design D5）——与真型参 `T` 走完全同一条路，不新造类型。
 //
-// ⚠️ **本组的真门是下面两条 DumpBody 用例，不是那些断言 `""` 的**。原因：接口方法签名位置的
-// 未定义类型诊断（E0443）由 **SymbolCollector 相位**的 `_chkTypeRef` 发出，而 `SemanticDump`
-// 给 TypeChecker 另建 DiagnosticBag、**从不合并 collector 那份**（SemanticDump.z42:154-157）
-// ⇒ 签名位置写任何未定义类型，FirstErrorCode 都恒返回 ""。实测对照：`class C { Undef f(){…} }`
-// / `void f(Undef x)` / `public Undef x;` 三者全是 ""，只有局部变量声明与 `new` 才报 E0443。
-// 所以「接口里写 Self 不报错」这类断言在修改前后**同样绿**，是空测试。真正能区分的是**解析结果**：
-// 无 `Self` 支持时推断出 `:<unknown>`，有支持时是 `:Self`——已实测两态（见下）。
-// 该 harness 缺口本身是既存欠债，不在本 PR 范围（roadmap Deferred `semanticdump-skips-collector-diags`）。
+// ⚠️ **本组的真门是下面两条 DumpBody 用例**（其余是无误报 / 作用域回归守卫）。判据不是「写了断言」
+// 而是「把支持改动退回后会变红」——已逐条实测：`_withSelf` 退回后两条 DumpBody 用例以
+// `:Self` → `:<unknown>` 变红，断言 `""` 的那几条则修改前后同绿。
+//
+// 📌 这一组的历史值得留着：首轮写的 7 条用例**全是空测试**（退回改动后 7/7 仍绿）。根因是
+// `SemanticDump` 当时丢弃 `SymbolCollector` 的诊断，而签名位置的 E0443 恰由 collector 发出
+// ⇒ 接口里写任何未定义类型都返回 ""。该 harness 洞已由紧接着的 change
+// `fix-semanticdump-collector-diags` 修掉（`SemanticDump._model` 合并 `sc.Diags`；门在
+// typecheck_tests.z42 的 `test_undefined_type_in_declaration_signature_positions_reported`）。
+// **DumpBody 这两条仍然保留**——它们断言的是「`Self` 解析成什么」，比「不报错」强一档，
+// 不因 harness 修好而失去价值。
 
 [Test]
 void test_self_return_type_resolves_to_generic_param_not_unknown() {
@@ -400,19 +403,18 @@ void test_self_coexists_with_interface_own_type_param() {
 }
 
 [Test]
-void test_self_in_class_body_is_undefined_type() {
-    // 作用域**仅接口**（User 裁决）：类里写 `Self` 落到 ResolveTypeP 具名未命中 → 携名 Unknown → E0443，
-    // 与其它未定义类型同码，不新增错误码。
+void test_self_outside_interface_is_undefined_type() {
+    // 作用域**仅接口**（User 裁决）：接口以外写 `Self` 落到 ResolveTypeP 具名未命中 → 携名 Unknown
+    // → E0443，与其它未定义类型同码，不新增错误码。
+    //
     // 定位：改动前后同绿（`Self` 在类里本来就没定义）——这是**作用域回归守卫**，不是本 PR 的门：
-    // 将来若有人把 `Self` 提升成全局可写（或误加进 `_fillClass` 的 paramNames），这两条会变红。
-    string src = "class C { void f() { Self x = null; } }\n";
-    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
-}
-
-[Test]
-void test_self_in_class_new_is_undefined_type() {
-    string src = "class C { void f() { var x = new Self(); } }\n";
-    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
+    // 将来若有人把 `Self` 提升成全局可写（或误加进 `_fillClass` 的 paramNames），这几条会变红。
+    // 覆盖签名位与表达式位两类（签名位的可见性依赖同 PR 修的 collector 诊断合并）。
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C { Self f() { return null; } }\n"));
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C { void f(Self x) { } }\n"));
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("struct S { public Self x; }\n"));
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C { void f() { Self x = null; } }\n"));
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C { void f() { var x = new Self(); } }\n"));
 }
 
 [Test]
