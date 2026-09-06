@@ -254,7 +254,22 @@ public sealed class SymbolTable {
             }
             if (this.EnumTypes.ContainsKey(n)) { return new Z42ClassType(n, false, ""); }
             int _sl0 = this.Delegates.Find(n); if (_sl0 >= 0) { return this.Delegates.ValAt(_sl0) as Z42FuncType; }   // 用户 delegate → 函数类型
-            int _sl1 = this.Interfaces.Find(n); if (_sl1 >= 0) { return this.Interfaces.ValAt(_sl1) as Z42InterfaceType; }
+            // add-associated-types PR-3：泛型接口引用 `IFoo<int>` 解析成**实例化接口类型**，把类型
+            // 实参带上。此前这里恒返回裸 `Z42InterfaceType`、`nt.Args` 整条丢弃 —— 那正是「接口约束
+            // 只比裸名」（Deferred where-constraint-future-type-arg-matching）在类型模型层面的根。
+            // ⚠️ `Z42InstantiatedInterfaceType` 是 `Z42InterfaceType` 的**子类**且 `Name()` 仍返回
+            // 裸名 ⇒ 既有全部 `is/as Z42InterfaceType` 路径与元数据拼写**逐字节不变**（见该类注释）。
+            int _sl1 = this.Interfaces.Find(n);
+            if (_sl1 >= 0) {
+                Z42InterfaceType idef = this.Interfaces.ValAt(_sl1) as Z42InterfaceType;
+                if (nt.ArgCount > 0) {
+                    Z42Type[] itargs = new Z42Type[nt.ArgCount];
+                    int ia = 0;
+                    while (ia < nt.ArgCount) { itargs[ia] = this.ResolveTypeP(nt.Args[ia], paramNames, paramCount); ia = ia + 1; }
+                    return new Z42InstantiatedInterfaceType(idef, itargs, nt.ArgCount);
+                }
+                return idef;
+            }
             // arity-mangle：泛型实例化 `C<T...>` 对 arity-overloaded 同名类（arity-0 base
             // shadow 着 arity-N 泛型，泛型版注册键 `Name$N`，如 MulticastException$1）须取 `Name$N`，
             // 否则误取 arity-0 base → new/throw 出非泛型 base，catch `C<int>` 失配。镜像

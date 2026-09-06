@@ -135,9 +135,16 @@
 
 ### 3A 地基：泛型接口实例化
 
-- [ ] 3A.1 `Z42Type.z42` —— `Z42InstantiatedType.Def` 提升为可承载 `Z42ClassType` 或 `Z42InterfaceType`
-- [ ] 3A.2 `SymbolTable.ResolveTypeP` —— 泛型接口引用解析成实例化接口类型
-- [ ] 3A.3 确认既有裸名匹配路径（`_satisfiesInterface`）不因地基变化而回归
+- [x] 3A.1 ~~`Z42InstantiatedType.Def` 提升为可承载 `Z42ClassType` 或 `Z42InterfaceType`~~ →
+      **改为新增子类 `Z42InstantiatedInterfaceType : Z42InterfaceType`**（design D6 订正）：
+      原方案要审 49 处 `.Def` + 44 处 `is Z42InstantiatedType`，子类方案 **0 处必改**。
+      配套：`Z42InterfaceType` 去 `sealed` + 加 `TypeParamNames/TypeParamCount`；
+      `Name()` **仍返回裸名**（带实参拼写会漂移 TSIG 字节，另给 `NameWithArgs()`）
+- [x] 3A.2 `SymbolTable.ResolveTypeP` —— 泛型接口引用 `IFoo<int>` 解析成实例化接口类型
+      （此前 `Interfaces.Find` 命中即返回裸接口、`nt.Args` 整条丢弃）。导入侧
+      `ImportedSymbolLoader` 同步填型参名，与本包 `StubCollector` 对称
+- [x] 3A.3 既有裸名匹配路径不回归 —— **完整 GREEN 全绿 + 自举字节不动点保持**（3/3 gen1==gen2），
+      这是子类 + 裸名 `Name()` 两个选择共同保证的
 
 ### 3B Parser
 

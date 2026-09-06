@@ -181,10 +181,25 @@ error 后，warning 才随之显形。（analyzer 警告同病：`PackageCompile
 （`Z42Type.z42:324`）⇒ **只能承载泛型 class/struct 实例化**；`Z42InterfaceType` 连型参名字段都没有
 （`Z42ClassType` 才有 `GenericParamNames`）。`where T : IEnumerable<Item = U>` 今天**无处落脚**。
 
-**决定**：PR-3 的第一阶段先补地基——给 `Z42InterfaceType` 加型参名槽，并让 `Z42InstantiatedType`
-能承载接口（`Def` 提升为可承载 `Z42ClassType` 或 `Z42InterfaceType`）。这块地基本身独立有价值
-（今天 `IEquatable<string>` 与 `IEquatable<int>` 在类型模型里无法区分，正是 Deferred
-`where-constraint-future-type-arg-matching` 的根）。
+**决定**：PR-3 的第一阶段先补地基——给 `Z42InterfaceType` 加型参名槽，并让泛型接口引用
+`IFoo<int>` 能承载类型实参。这块地基本身独立有价值（今天 `IEquatable<string>` 与
+`IEquatable<int>` 在类型模型里无法区分，正是 Deferred `where-constraint-future-type-arg-matching`
+的根）。
+
+> **🔴 实施期订正（2026-09-06）：承载方式改为「子类」，不动 `Z42InstantiatedType.Def`。**
+> 上面原写「`Def` 提升为可承载 `Z42ClassType` 或 `Z42InterfaceType`」。实测两条路半径差一个数量级：
+>
+> | 方案 | 必须审计的既有站点 |
+> |---|---|
+> | 提升 `Def`（原计划） | **49 处 `.Def`**（直接当类用：`OverloadsOf` / `IsAbstract` / `Fqn()`…）+ **44 处 `is Z42InstantiatedType`** 分支要重新判定「类还是接口」 |
+> | 新增子类（改后） | **0 处**——`Z42InstantiatedInterfaceType : Z42InterfaceType`，既有 16 处 `is` + 18 处 `as` `Z42InterfaceType` 全部照旧命中、行为不变 |
+>
+> 每一处判错都会静默改变自举字节，所以「0 处必改」不只是省工，是**把风险面归零**。
+>
+> 配套的第二个决定：**`Name()` 仍返回裸名**（`"IFoo"` 而非 `"IFoo<int>"`）。接口名会流进 TSIG /
+> 成员元数据（`TypeNameResolver._resolvedTypeName` → 导出串），带实参的拼写会直接漂移自举字节。
+> 实参走 `TypeArgs` 侧带，要带实参的拼写用 `NameWithArgs()`。
+> 已实证：改后完整 GREEN 全绿，**自举字节不动点保持**（3/3 packages gen1==gen2）。
 
 **绑定：显式声明，不推断**（`type Item = int;` 而非从方法签名反推）。理由：① 推断需要跨成员的
 统一算法（要处理 F-bounded 递归），代价与收益不成比例；② 显式声明与 Rust 一致，可读；
