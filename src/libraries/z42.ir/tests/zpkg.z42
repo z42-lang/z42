@@ -1,0 +1,91 @@
+// zpkg 组装/写入单测（port-z42c-zpkg-build BP-5）。
+// 全文件 byte-identical 对真 C# CLI 由 xtask e2e 承担（TSIG/IMPL follow-up 后升级为全等）。
+namespace Z42cProjectZpkgTests;
+
+using Std;
+using Std.Test;
+using Z42.Project;
+using Z42.IR;
+
+ZbcFileZ _mod(string ns, string fname) {
+    string[] exports = new string[1];
+    exports[0] = fname;
+    string[] pool = new string[1];
+    IrClassDesc[] classes = new IrClassDesc[0];
+    IrFunction[] fns = new IrFunction[0];
+    var irm = new IrModule(ns, pool, 1, classes, 0, fns, 0);
+    return new ZbcFileZ("a.z42", "HASH", ns, exports, 1, irm);
+}
+
+// A u16 rendered little-endian as 4 lowercase hex chars — the shape ToHex()
+// produces for one 2-byte header field.
+string _hexU16le(int v) {
+    string digits = "0123456789abcdef";
+    int lo = v % 256;
+    int hi = (v / 256) % 256;
+    return digits.Substring(lo / 16, 1) + digits.Substring(lo % 16, 1)
+         + digits.Substring(hi / 16, 1) + digits.Substring(hi % 16, 1);
+}
+
+[Test]
+void test_sha256_hex_form() {
+    // SHA256("abc") 标准向量（"sha256:" 前缀 + 小写——真 C# CLI 字节实测形态，port-z42c-tsig 校准）
+    Assert.Equal("sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                 ZpkgBuilder.Sha256Hex("abc"));
+}
+
+[Test]
+void test_entry_autodetect_priority() {
+    // FQ .Main 优先于裸 main
+    var e1 = new ZpkgExportZ[2];
+    e1[0] = new ZpkgExportZ("main", "func");
+    e1[1] = new ZpkgExportZ("Demo.Main", "func");
+    Assert.Equal("Demo.Main", ZpkgBuilder.AutoDetectEntry(e1, 2));
+    // 仅裸 main
+    var e2 = new ZpkgExportZ[1];
+    e2[0] = new ZpkgExportZ("main", "func");
+    Assert.Equal("main", ZpkgBuilder.AutoDetectEntry(e2, 1));
+    // 同级歧义
+    var e3 = new ZpkgExportZ[2];
+    e3[0] = new ZpkgExportZ("A.Main", "func");
+    e3[1] = new ZpkgExportZ("B.Main", "func");
+    Assert.Equal("<ambiguous>", ZpkgBuilder.AutoDetectEntry(e3, 2));
+    // 无候选
+    Assert.Equal("", ZpkgBuilder.AutoDetectEntry(new ZpkgExportZ[0], 0));
+}
+
+[Test]
+void test_build_packed_namespaces_and_exports() {
+    var mods = new ZbcFileZ[2];
+    mods[0] = _mod("Demo", "Demo.F");    // 已 FQ → 幂等不再加前缀
+    mods[1] = _mod("Demo", "G");         // 短名 → 限定为 Demo.G
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", false, false, "", mods, 2);
+    Assert.Equal(1, z.NsCount);                       // 同 ns 去重
+    Assert.Equal("Demo", z.Namespaces[0]);
+    Assert.Equal("Demo.F", z.Exports[0].Symbol);
+    Assert.Equal("Demo.G", z.Exports[1].Symbol);
+    Assert.Equal("", z.Entry);                        // lib 无 entry
+}
+
+[Test]
+void test_write_packed_header() {
+    var mods = new ZbcFileZ[1];
+    mods[0] = _mod("Demo", "Demo.Main");
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", true, false, "", mods, 1);
+    Assert.Equal("Demo.Main", z.Entry);               // exe 自动检测
+    string hex = ZpkgWriterZ.WritePacked(z, false).ToHex();
+    // Header layout: "ZPK\0" magic | major u16 LE | minor u16 LE | flags u16 LE
+    // | secCount u32 LE. secCount 6 since drop-tsig-expt removed the EXPT section.
+    //
+    // The version fields are DERIVED from ZpkgWriterZ.Major/.Minor, never spelled
+    // out: this assertion carried the literal minor 0x21 (33) while the format had
+    // bumped to 43, and never went red because the whole unit was undiscovered
+    // until 2026-09-06 (see _discoverTestUnits). Deriving them keeps the test
+    // asserting the header *shape*, which is what it is for, and takes it off
+    // version-bumping.md's manual-sync list.
+    Assert.Equal("5a504b00", hex.Substring(0, 8));                     // magic
+    Assert.Equal(_hexU16le(ZpkgWriterZ.Major), hex.Substring(8, 4));   // major
+    Assert.Equal(_hexU16le(ZpkgWriterZ.Minor), hex.Substring(12, 4));  // minor
+    Assert.Equal("0300", hex.Substring(16, 4));                        // flags Packed|Exe
+    Assert.Equal("06000000", hex.Substring(20, 8));                    // secCount
+}

@@ -136,7 +136,7 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
     bool isWin = rid.StartsWith("windows-");
     string apphostStub = Path.Join(cargoOut, isWin ? "apphost.exe" : "apphost");
     // z42b zpkg from its toml (SoT: no hardcoded path — _toolchainZpkg = [build]
-    // dist_dir cascade + project.name). z42b publishes itself deploy-only (no recompile).
+    // dist_dir cascade + project.name). z42b publishes itself deploy-only (`--no-build`).
     string z42bZpkg = _toolchainZpkg(root, _z42bToml());
     // `z42` = apphost stub patched to run programs/launcher/launcher.zpkg.
     c = _z42bPublish(hostVm, z42bZpkg, libs, apphostStub, "src/toolchain/launcher/core/z42.launcher.z42.toml", rid, _pkgStageDir(root, "launcher"));
@@ -331,10 +331,16 @@ int _z42cBuildToml(string vm, string z42cDir, string libs, string toml) {
 // is forwarded as Z42_APPHOST_TEMPLATE (the raw, unpatched apphost binary that
 // z42b's publish command patches — mirrors the launcher's Z42_APPHOST_TEMPLATE
 // forwarding for `z42 publish`, Decision 3.5).
+// `--no-build`（fix-publish-stale-payload）：publish 缺省会先过一遍 z42c 增量编译，
+// 这里**必须关掉**——每个调用点都已用 `_z42cBuildToml`（in-tree 自建 z42c + 自建 libs）
+// 编好了产物，若让 publish 拿 SDK 种子 z42c 再编一遍，自举 gen2 字节不动点当场就破。
+// 「publish 只负责部署已编好的字节」正是本函数一贯的契约，此前靠「zpkg 存在就不编」
+// 隐式成立；那条隐式规则就是 stale payload 的病根，故这里改成显式声明。
 int _z42bPublish(string vm, string z42bZpkg, string libs, string apphostStub, string toml, string rid, string outputDir) {
     return _exec(new Process(vm)
         .Arg(z42bZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("publish").Arg(toml).Arg("--rid").Arg(rid).Arg("--output").Arg(outputDir)
+        .Arg("--no-build")
         .Env("Z42_LIBS", libs)
         .Env("Z42_APPHOST_TEMPLATE", apphostStub));
 }

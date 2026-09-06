@@ -1,0 +1,34 @@
+// 2026-05-04 D-1b CompositeRef.Mode.Weak 用例。
+// 验证 CompositeRef(handler, Once | Weak) 复合 mode：listener 的分配帧退出 +
+// GC.ForceCollect() 后，Weak 路径 IsAlive=false 短路——即便 Once 尚未被消费，
+// 两次 invoke 也都不该调到 handler。
+//
+// tidy-test-layout (2026-09-06)：原 golden 的 expected_output.txt 只有一行 `end`
+// 哨兵，「没调用」靠输出里没有 L1 那行间接表达。改成静态计数器 + Assert.Equal(0, ...)。
+namespace Demo;
+using Std;
+
+public class Listener {
+    public static int Calls = 0;
+    public int Id;
+    public Listener(int id) { this.Id = id; }
+    public void OnTick(int x) { Listener.Calls = Listener.Calls + 1; }
+}
+
+void BindOnceWeak(MulticastAction<int> bus, int id) {
+    var l = new Listener(id);
+    var modes = ModeFlags.Once | ModeFlags.Weak;
+    bus.SubscribeAdvanced(new CompositeRef<Action<int>>(l.OnTick, modes));
+}
+
+void Main() {
+    var bus = new MulticastAction<int>();
+    BindOnceWeak(bus, 1);
+
+    // listener 由 BindOnceWeak 局部持有，返回后 weak 是唯一路径。
+    GC.ForceCollect();
+
+    bus.Invoke(10);                 // Weak: lapsed → 不调用
+    bus.Invoke(20);                 // 同上
+    Assert.Equal(0, Listener.Calls);
+}

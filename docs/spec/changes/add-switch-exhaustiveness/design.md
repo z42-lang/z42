@@ -79,3 +79,9 @@ semantics 单测 `tests/exhaust/exhaust_tests.z42`（10 例）经 `SemanticDump.
 含 warning）断言。**switch-stmt 测试源不写 `break`**——独立 Infer 路径无循环深度上下文，`break` 会触发
 无关 `E0410`（"break outside loop"）排在 W0700 前遮蔽它（该 E0410 是最小 Infer 路径的产物，非真错：
 带 break 的 switch 在完整管线正常编译，如 `pattern_core`）。无 break 时唯一诊断即 W0700。
+
+> **事实校正（2026-09-06，`fix-switch-break-diagnostic`）**：上一段括号里的判断**是错的**。该 `E0410`
+> 不是"最小 Infer 路径的产物"，而是一个**真编译器 bug**——`_bindSwitchStmt` 从不建立 break 上下文，
+> 于是**任何不在循环里的** `switch` 内 `break` 都被误报，完整管线同样中招（`pattern_core` 幸免只是
+> 因为它的 switch 恰好在循环内）。已修。"测试源不写 break"的做法仍保留，但理由改为"让 W0700 成为
+> 唯一诊断"，与 break 是否合法无关。

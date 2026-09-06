@@ -23,7 +23,11 @@
 
 ## 入口点
 `Z42.Syntax.Parser`（`new Parser(src,file)`）：`ParseExpression()` → `Expr` / `ParseStatement()` → `Stmt` / `ParseCompilationUnit()` → `CompilationUnit`（均 `.Dump()` 出 s-expression）；`Z42.Syntax.Lexer`：`Tokenize()` → `TokenCount()`/`TokenAt(i)`。
-测试：`tests/{lexer 17, parser 20, stmt 15, decl 25, dump 2}`（共 79），经 `xtask test compiler`。
+测试：`tests/{lexer.z42 27, decl.z42 33, parser.z42 23, stmt.z42 21, incomplete_at_eof.z42 8,
+dump.z42 2}`（共 114 个 `[Test]`），经 **`xtask test stdlib z42c.syntax`**（本库住
+`src/libraries/`，走 stdlib [Test] 门禁；`xtask test compiler` 只扫
+`src/compiler/<member>/tests/`，扫不到这里——2026-09-06 前这些单元因此从未运行，
+见 change `tidy-test-layout`）。
 **z42c driver 已接前端**：`z42c --dump-tokens|--dump-ast <file.z42>`（调用 `DumpTool`）——自举编译器前端作为真实 CLI 可跑（0.3.4 lex/parse 解锁）。
 **incr 6d 全部完成**：类型全部结构化（TypeExpr + TypeParamList + WhereClause；is/as/new/var-decl/foreach/声明位/catch/where 全切；`_parseTypeText`/`_consumeAngles` 已移除）。
 待移植（incr 6e+）：byte-identical 对账（最硬，强依赖 AST 形态）；lambda；Visitor（并入后端 semantics）；转义 `\0`/`\uXXXX` 解码。

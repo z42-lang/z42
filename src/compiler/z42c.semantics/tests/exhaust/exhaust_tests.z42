@@ -1,7 +1,8 @@
 // 模式匹配 C：switch 穷尽性诊断单测。封闭域（bool / enum）的 switch（语句 + 表达式）未覆盖全部情形
 // 且无兜底 → W0700 warning。经 SemanticDump.FirstErrorCode（返回首条诊断码，含 warning）断言。
-// 注：独立 Infer 路径不链 stdlib、switch `break` 会触发无关 E0410（最小路径无循环深度）——故
-// switch-stmt 测试源**不写 break**（仅测穷尽性诊断，不测运行时；无 break 时唯一诊断即 W0700）。
+// 注：独立 Infer 路径不链 stdlib，故测试源不用 Std。switch-stmt 测试源**不写 break**，仅为让 W0700
+// 成为唯一诊断（本组只测穷尽性，不测运行时）——**不是**因为 break 不合法：switch 臂内 break 自
+// fix-switch-break-diagnostic 起合法（此前被误报 E0410；契约见 typecheck/break_context_tests.z42）。
 // 覆盖：enum 缺成员 / bool 缺分支 / switch-stmt / switch-expr / or 覆盖 / default 兜底 / 通配兜底 /
 //       全覆盖不报 / 守卫不计覆盖 / 开放域（int）不检查。
 namespace Z42cSemanticsExhaustTests;

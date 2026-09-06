@@ -4,6 +4,25 @@
 
 所有 z42 程序隐式依赖的基础类型，对应 .NET `System` 命名空间核心部分。
 
+## 如何测试验证
+
+```bash
+xtask test stdlib z42.core                      # 本库全部 [Test] 单元
+xtask test stdlib z42.core -k string_methods    # 只跑一个单元
+xtask test e2e --dir libraries/z42.core         # 本库的 Main-based golden 用例
+```
+
+`tests/` 下两种形态并存，选哪种由**断言要绑到哪个 `Assert`** 决定：
+
+| 形态 | 例子 | 说明 |
+|------|------|------|
+| `tests/<name>.z42`（`[Test]` 单元） | `string_methods.z42` | 绝大多数库 API 行为都写成这个。文件里 `using Std.Test` → 裸名 `Assert` 是 **Std.Test.Assert**（抛 `TestFailure`）|
+| `tests/<name>/source.z42`（Main golden） | `std_assert/`、`math/` | 只在**需要 prelude 那份 `Std.Assert`**、或需要 sidecar（`expected_output.txt` / `interp_only`）时用。`std_assert` 正是前者：它测的就是 `Std.Assert` 本身，写成 `[Test]` 会被 `using Std.Test` 抢走裸名，反而测不到 |
+
+> String 的库行为（Length / ByteLength / Trim / Split / Join / Format / Object 协议…）
+> 集中在 `tests/string_methods.z42` + `tests/string_bcl_augment.z42`。字符串**字面量语法**
+> （raw string、插值、拼接）不在这里，归 [src/tests/strings/](../../tests/strings/)。
+
 ## src/ 核心文件
 
 | 文件 | 内容 |

@@ -311,6 +311,8 @@ SubcommandRouter _launcherRoot() {
     pub.AddPositional("project", "<project.z42.toml>");
     pub.AddOption("rid", "", "target RID (default: host; e.g. macos-arm64 / ios-arm64)", "");
     pub.AddOption("output", "", "output dir (overrides [platform.*].publish_dir)", "");
+    pub.AddFlag("no-build", "", "deploy the already-built zpkg as-is (default: compile first, "
+        + "rebuilding only what changed)");
     root.Add("publish", "produce a release deployable (--rid selects platform)", pub);
 
     ArgParser exp = new ArgParser("z42 export", "generate a native IDE project (--rid selects the platform)");

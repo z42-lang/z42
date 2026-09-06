@@ -8,11 +8,11 @@
 // zpkg at explicit relative paths under the deploy root (add-package-layout-config);
 // unset → legacy flat (apphost at root/<name>, embed built zpkg in place).
 //
-// build-if-needed (move-publish-to-z42b stage 3): if the expected zpkg is missing,
-// `_pubEnsureBuilt` compiles it via z42c, then publish produces the apphost — so
-// `z42 publish` alone does build+deploy. When the zpkg already exists (xtask
-// assembly path), no compile runs and bytes stay controlled. Stage 1 ships the
-// resolve-or-error form; stage 3 adds the z42c spawn.
+// build-always (fix-publish-stale-payload): `_pubEnsureBuilt` (builder_publish_build.z42)
+// hands every publish through `z42c build`, whose content-hash incremental cache is the
+// only thing that actually knows whether a source changed — so `z42 publish` alone does
+// build+deploy AND picks up edits (it used to skip the compile whenever the zpkg merely
+// existed, re-signing a stale payload). `--no-build` keeps the bytes caller-controlled.
 namespace Z42Builder;
 
 using Std;
@@ -94,6 +94,9 @@ int _pubDesktop(ParseResult r, string rid) {
 
     string publishDir = r.GetOption("output");
     if (publishDir.Length == 0) { publishDir = _pubPlatformStr(toml, "desktop", "publish_dir", ""); }
+    // --no-build：不经 z42c、直接部署现成字节（xtask 的 SDK 组装 / 自举不动点路径）。
+    // 缺省（false）下每次 publish 都过一遍 z42c 的增量编译，源码变了就重出产物。
+    bool noBuild = r.GetFlag("no-build");
     bool isWin = rid.StartsWith("windows-");
     string projDir = Path.GetDirectoryName(tomlPath);
     // `root` = the deploy root that bin/payload are relative to.
@@ -116,10 +119,10 @@ int _pubDesktop(ParseResult r, string rid) {
         int xi = 0;
         while (xi < exeNames.Length) {
             string exName = exeNames[xi];
-            string exZpkg = _pubEnsureBuilt(tomlPath, toml, exName);
+            string exZpkg = _pubEnsureBuilt(tomlPath, toml, exName, noBuild);
             if (exZpkg.Length == 0) { return 1; }
             if (!bundled) {   // deps are shared across exes in the one dist/ — bundle once
-                int bc2 = _pubBundleProjectDeps(tomlPath, toml, Path.GetDirectoryName(exZpkg));
+                int bc2 = _pubBundleProjectDeps(tomlPath, toml, Path.GetDirectoryName(exZpkg), noBuild);
                 if (bc2 != 0) { return bc2; }
                 bundled = true;
             }
@@ -135,13 +138,13 @@ int _pubDesktop(ParseResult r, string rid) {
         return 0;
     }
 
-    // build-if-needed: ensure the expected zpkg exists (compile via z42c if missing).
-    string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName);
+    // build-always: ensure the zpkg is built AND current (z42c decides via its incremental cache).
+    string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName, noBuild);
     if (zpkgSrc.Length == 0) { return 1; }   // ensure failed (compile error / still missing)
 
     // Colocate non-stdlib transitive deps into dist/ so `z42 run dist/<name>.zpkg` works.
     string distDir = Path.GetDirectoryName(zpkgSrc);
-    int brc = _pubBundleProjectDeps(tomlPath, toml, distDir);
+    int brc = _pubBundleProjectDeps(tomlPath, toml, distDir, noBuild);
     if (brc != 0) { return brc; }
     // Colocate transitive private native deps beside the zpkg (add-native-dep-config):
     // run each native-carrying dep's ProvideNative, flatten its target-rid artifact here.
@@ -227,10 +230,10 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
     }
 
     // build app.zpkg + colocate non-stdlib transitive deps into dist/
-    string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName);
+    string zpkgSrc = _pubEnsureBuilt(tomlPath, toml, projName, r.GetFlag("no-build"));
     if (zpkgSrc.Length == 0) { return 1; }
     string distDir = Path.GetDirectoryName(zpkgSrc);
-    int brc = _pubBundleProjectDeps(tomlPath, toml, distDir);
+    int brc = _pubBundleProjectDeps(tomlPath, toml, distDir, r.GetFlag("no-build"));
     if (brc != 0) { return brc; }
 
     // output app dir (same resolution as the spawn path's `root`)
@@ -335,49 +338,6 @@ bool _pubPlatformBool(TomlValue root, string platform, string key, bool dflt) {
     TomlValue v = p.Get(key);
     if (v.IsBool()) { return v.AsBool(); }
     return dflt;
-}
-
-// Ensure the expected zpkg exists, returning its path ("" on failure). build-if-needed
-// (move-publish-to-z42b): if the zpkg is missing, compile it via z42c, then re-check
-// — so `z42 publish` alone does build+deploy. When the zpkg already exists (the xtask
-// assembly path), NO compile runs and the bytes stay controlled by the caller. If
-// z42c can't be located, degrade to a build-first hint (the pre-build-if-needed form).
-string _pubEnsureBuilt(string tomlPath, TomlValue toml, string projName) {
-    string zpkgSrc = _pubResolveZpkg(tomlPath, toml, projName);
-    if (File.Exists(zpkgSrc)) { return zpkgSrc; }
-
-    string z42c = _pubFindZ42c();
-    if (z42c.Length == 0) {
-        ConsoleError.WriteLine("z42b publish: built zpkg not found: " + zpkgSrc
-            + "  (build it first: z42 build " + tomlPath + ")");
-        return "";
-    }
-    Console.WriteLine("z42b publish: zpkg not built — compiling via z42c first…");
-    ProcessResult pr = new Process(z42c).Arg("build").Arg(tomlPath).Arg("--release")
-        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
-    if (pr.ExitCode != 0) {
-        ConsoleError.WriteLine("z42b publish: z42c build failed (rc=" + pr.ExitCode.ToString() + ")");
-        return "";
-    }
-    if (!File.Exists(zpkgSrc)) {
-        ConsoleError.WriteLine("z42b publish: zpkg still missing after build: " + zpkgSrc);
-        return "";
-    }
-    return zpkgSrc;
-}
-
-// Locate the SDK's `bin/z42c` apphost from Z42_PORTABLE_VM (<home>/bin/z42vm →
-// <home>/bin/z42c). "" if not resolvable (then publish degrades to a build-first
-// hint). The apphost colocates the driver's siblings + resolves stdlib itself.
-string _pubFindZ42c() {
-    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
-    if (vm.Length == 0) { return ""; }
-    string home = Path.GetDirectoryName(Path.GetDirectoryName(vm));   // <home>/bin/z42vm → <home>
-    if (home.Length == 0) { return ""; }
-    string z42c = Path.Join(home, "bin/z42c");
-    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }
-    if (!File.Exists(z42c)) { return ""; }
-    return z42c;
 }
 
 // Default publish root when neither --output nor [platform.desktop].publish_dir is
@@ -563,7 +523,7 @@ string[] _pubProjectDepNames(string tomlPath, TomlValue toml) {
     return result;
 }
 
-// build-if-needed each workspace-sibling dependency of `tomlPath`, then copy its
+// build (via z42c, incremental) each workspace-sibling dependency of `tomlPath`, then copy its
 // zpkg into `payloadDir`. 0 on success.
 //
 // .zsym sidecars are intentionally NOT bundled here (User decision 2026-07-01,
@@ -586,7 +546,7 @@ string[] _pubProjectDepNames(string tomlPath, TomlValue toml) {
 //    触达其隐藏的传递非框架依赖（z42c.*）。
 //
 // 取代原「仅同-workspace 成员」逻辑（跟不进跨-workspace 传递链，z42i 因此丢 z42c.*）。
-int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
+int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir, bool noBuild) {
     string srcRoot = _pubSrcRoot(tomlPath);
     string libsDir = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
     string ownName = _pubTomlStr(toml, "project", "name", "");
@@ -610,10 +570,10 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir) {
         // 复制判定：不在 shipped libs/ 才复制。
         bool inLibs = (libsDir.Length > 0) && File.Exists(Path.Join(libsDir, name + ".zpkg"));
         if (!inLibs) {
-            string depZpkg = _pubEnsureBuilt(depTomlPath, depToml, name);
+            string depZpkg = _pubEnsureBuilt(depTomlPath, depToml, name, noBuild);
             if (depZpkg.Length == 0) { return 1; }
             string dst = Path.Join(payloadDir, name + ".zpkg");
-            if (depZpkg != dst && !File.Exists(dst)) { File.Copy(depZpkg, dst); }
+            if (depZpkg != dst) { File.Copy(depZpkg, dst, true); }   // overwrite：dst 已存在 = 上一次的旧字节（fix-publish-stale-payload）
         }
         // 递归本依赖的依赖（穿透越界 lib）。
         string[] sub = _pubDepNames(depToml);
@@ -751,7 +711,7 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
     while (i < outs.Length) {
         if (outs[i].Kind == "native" && File.Exists(outs[i].Path)) {
             string dst = Path.Join(distDir, Path.GetFileName(outs[i].Path));   // flatten (strip <rid>/)
-            if (outs[i].Path != dst && !File.Exists(dst)) { File.Copy(outs[i].Path, dst); }
+            if (outs[i].Path != dst) { File.Copy(outs[i].Path, dst, true); }   // overwrite（同上）
         }
         i = i + 1;
     }
@@ -794,7 +754,7 @@ int _pubCopyPrebuiltNative(string depTomlPath, TomlValue depToml, string depName
             continue;
         }
         string dst = Path.Join(distDir, fname);   // flatten (strip <rid>/), same as _pubRunDepProvideNative
-        if (src != dst && !File.Exists(dst)) { File.Copy(src, dst); }
+        if (src != dst) { File.Copy(src, dst, true); }   // overwrite（同上）
     }
     return 0;
 }
@@ -823,7 +783,7 @@ void _pubCopyDistDeps(string distDir, string projName, string targetDir) {
         if (take) {
             string src = Path.Join(distDir, name);
             string dst = Path.Join(targetDir, name);
-            if (src != dst && !File.Exists(dst)) { File.Copy(src, dst); }
+            if (src != dst) { File.Copy(src, dst, true); }   // overwrite（同上）
         }
         i = i + 1;
     }

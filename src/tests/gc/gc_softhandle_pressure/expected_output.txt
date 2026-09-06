@@ -1,3 +1,0 @@
-before gc: alive
-after gc: cleared
-done

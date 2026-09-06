@@ -1,0 +1,41 @@
+// 2026-05-04 D-1b add-weak-ref-subscription-wrapper 用例。
+// 端到端验证 Std.WeakRef<TD>：lapsed listener 在 GC 后被自动短路，多播 invoke
+// 不再调用其 handler。复用 D-1a WeakHandle + builtin __delegate_target /
+// __delegate_fn_name / __make_closure，配合 D-1b Phase 1 instance method group
+// conversion（receiver 进 env[0]）。
+//
+// tidy-test-layout (2026-09-06)：原 golden 的 expected_output.txt 只有一行 `end`
+// 哨兵——「handler 没被调用」全靠「输出里没有 L1 那一行」间接表达。改成静态计数器 +
+// Assert.Equal(0, ...) 后这件事被正面断言，哨兵与侧车都不再需要。
+namespace Demo;
+using Std;
+
+public class Listener {
+    public static int Calls = 0;
+    public int Id;
+    public Listener(int id) { this.Id = id; }
+    public void OnTick(int x) { Listener.Calls = Listener.Calls + 1; }
+}
+
+// 用独立函数限定 listener 作用域，确保返回后只剩 WeakHandle 持 listener。
+// Main 帧的 slot semantics 可能延迟清空 local，独立函数避免这个问题。
+void BindWeak(MulticastAction<int> bus, int id) {
+    var l = new Listener(id);
+    bus.SubscribeAdvanced(new WeakRef<Action<int>>(l.OnTick));
+    // l 在函数返回后不再被外部强持
+}
+
+void Main() {
+    var bus = new MulticastAction<int>();
+
+    // 1) 先订阅 weak listener
+    BindWeak(bus, 1);
+
+    // 2) GC 前：listener 可能已被 z42 GC eagerly 收（帧已退出）；
+    //    即便没收，正式 GC.ForceCollect() 后必失效
+    GC.ForceCollect();
+
+    // 3) Invoke：weak handler 已 lapsed → IsAlive 返回 false → 跳过
+    bus.Invoke(42);
+    Assert.Equal(0, Listener.Calls);
+}
