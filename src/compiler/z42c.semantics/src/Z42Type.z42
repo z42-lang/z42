@@ -428,7 +428,37 @@ public sealed class Z42FuncType : Z42Type {
     }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
-        return (other is Z42FuncType) && this.Dump() == other.Dump();
+        // add-argument-type-check R7（欠债表 bug C）：此前是 `this.Dump() == other.Dump()` 逐字比 →
+        // `Func<int>` ≠ `Func<Int32>`（同一类型的两种拼写），甚至 `Action` ≠ `Action`（一侧是 imported
+        // 退化成的 Z42ClassType）。`Z42ArrayType` 早已按 `CanonName()` 归一 + 吸收 unknown/error，此处
+        // 补齐同款口径：**逐位结构比较**（arity + 各形参 + 返回），叶子按 CanonName 归一。
+        // 实测既存现场：`closure_l3_loops.z42:58` 今天在**赋值**上下文就报 `Func<int>`→`Func<Int32>`。
+        if (other is Z42FuncType) {
+            Z42FuncType o = other as Z42FuncType;
+            if (this.ParamCount != o.ParamCount) { return false; }
+            int i = 0;
+            while (i < this.ParamCount) {
+                if (!Z42FuncType._partEq(this.ParamTypes[i], o.ParamTypes[i])) { return false; }
+                i = i + 1;
+            }
+            return Z42FuncType._partEq(this.Ret, o.Ret);
+        }
+        // 双路桥接：imported 委托类型可能退化成同名的 Z42ClassType（`Action` / `Func<int, bool>`），
+        // 与 Conversion._sameBuiltin 的桥接同款——规范名相同即视作同一类型。
+        if (other is Z42ClassType) { return this.CanonName() == other.CanonName(); }
+        return false;
+    }
+
+    // 逐位比较：任一侧 unknown/error 吸收（镜像 Z42ArrayType 的元素判定）；数组/func 递归；叶子按 Canon。
+    private static bool _partEq(Z42Type a, Z42Type b) {
+        if (a == null || b == null) { return a == b; }
+        if ((a is Z42UnknownType) || (a is Z42ErrorType)) { return true; }
+        if ((b is Z42UnknownType) || (b is Z42ErrorType)) { return true; }
+        if ((a is Z42ArrayType) && (b is Z42ArrayType)) {
+            return Z42FuncType._partEq((a as Z42ArrayType).Elem, (b as Z42ArrayType).Elem);
+        }
+        if ((a is Z42FuncType) && (b is Z42FuncType)) { return a.IsAssignableTo(b); }
+        return a.CanonName() == b.CanonName();
     }
 }
 

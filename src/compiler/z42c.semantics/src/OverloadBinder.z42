@@ -31,7 +31,67 @@ public sealed class OverloadBinder {
             }
             i = i + 1;
         }
+        this._checkArgTypes(args, rawArgs, argCount, sig, env);
         return args;
+    }
+
+    // add-argument-type-check：实参 → 形参的**隐式可转**检查，与赋值 / return / var-decl 同一条门
+    // （`Conversion.Classify(...).ImplicitOk()`，经 `TypeChecker.CheckImplicitConvert`）。
+    //
+    // 为什么挂在这里：本方法是全部调用形态（free / local-fn / static / instance / interface /
+    // instantiated / prim-wrapper / indirect）绑定实参的**通用汇聚点**，且恰好在构造 BoundCall 之前、
+    // 默认值填充与 params 打包**之前**——即实参仍是「原始位置形状」的时刻，正是该检查的位置。
+    // `sig == null` 的调用点（错误路径 / 懒加载 stub 接收者 loose-bind / Error·Unknown 接收者）
+    // 签名确实不可知，故 `sig != null` 恰好等价于「签名已知、可检查」，无需逐站点接线也不会漏。
+    //
+    // 不短路：同一调用里多个实参不符逐条报（诊断对用户更有用）。
+    private void _checkArgTypes(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
+        if (sig == null) { return; }
+        int fixedEnd = argCount;                              // 定长段上界
+        if (sig.ParamCount < fixedEnd) { fixedEnd = sig.ParamCount; }
+        if (sig.ParamsFrom >= 0 && sig.ParamsFrom < fixedEnd) { fixedEnd = sig.ParamsFrom; }
+        int i = 0;
+        while (i < fixedEnd) {
+            this._checkOneArg(args, rawArgs, i, sig.ParamTypes[i], env);
+            i = i + 1;
+        }
+        // params 尾位：展开形态逐位按**元素**类型检查；规范形态（直接传数组）由下方 IsAssignableTo 放行。
+        if (sig.ParamsFrom >= 0) {
+            int pf = sig.ParamsFrom;
+            Z42ArrayType at = sig.ParamTypes[pf] as Z42ArrayType;
+            if (at != null) {
+                bool normalForm = (argCount == sig.ParamCount) && args[pf] != null
+                                  && args[pf].Type() != null && args[pf].Type().IsAssignableTo(at);
+                if (!normalForm) {
+                    int t = pf;
+                    while (t < argCount) { this._checkOneArg(args, rawArgs, t, at.Elem, env); t = t + 1; }
+                }
+            }
+        }
+    }
+
+    private void _checkOneArg(BoundExpr[] args, Expr[] rawArgs, int i, Z42Type pt, TypeEnv env) {
+        if (args[i] == null || pt == null) { return; }
+        // 🕳 残留洞（**有意**，见 design D5/D6）：enum 位暂不检查。
+        // z42 现行是 **enum-as-int 模型**（`MemberResolver` 把 `E.Member` 绑成 `BoundLitInt(long)`，
+        // book `runtime/struct-value-semantics.md` 有 SoT），而 enum **类型名**在类型位置解析成一个
+        // 孤立 `Z42ClassType`——两者在转换格里无边相连 ⇒ `Alloc(target, GCHandleType.Weak)` 会被判
+        // `long → GCHandleType` 不可转。这不是「用户少写 cast」，是 enum 模型自身的不自洽（欠债表 bug D，
+        // 实测 `Color c = Color.Blue;` 今天在 **var-decl** 就编不过，与本变更无关）。
+        // 该不该让 enum 成为独立类型是**语言语义裁决**，已拆为独立 change（见 tasks 备注）；在它落地前
+        // 本检查不对 enum 位发声——**绝不用「在调用点补 cast」把红变绿**（那是拿 cast 掩盖编译器 bug）。
+        if (OverloadBinder._isEnumSide(args[i], pt, env)) { return; }
+        // span 指到**实参本身**（而非调用点），定位更准。
+        Span sp = args[i].Span;
+        if (rawArgs != null && i < rawArgs.Length && rawArgs[i] != null) { sp = rawArgs[i].Span; }
+        this._tc.CheckImplicitConvert(args[i], pt, env.Symbols, sp, "argument");
+    }
+
+    // 任一侧涉及 enum：形参类型名是已知 enum 类型，或实参是 enum 成员字面量（`BoundLitInt.EnumTypeName`）。
+    private static bool _isEnumSide(BoundExpr a, Z42Type pt, TypeEnv env) {
+        if (env.Symbols != null && pt != null && env.Symbols.EnumTypes.ContainsKey(pt.Name())) { return true; }
+        if (a is BoundLitInt) { return (a as BoundLitInt).EnumTypeName != ""; }
+        return false;
     }
 
     internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {

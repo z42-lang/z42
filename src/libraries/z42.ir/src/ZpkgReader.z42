@@ -242,9 +242,13 @@ public static class ZpkgReader {
                 j = j + 1;
             }
             int tpc = c.U8();
+            string[] tpNames = new string[tpc];   // add-argument-type-check R1：tp 名此前读弃（见下）。
             j = 0;
             while (j < tpc) {
-                c.U32();                       // tp 名
+                tpNames[j] = z.Pool[c.U32()];  // tp 名。**R1**：此前是裸 `c.U32()`（读出即丢）→ 跨包
+                                               // imported 签名里的 `T` 在 ImportedSymbolLoader._resolve
+                                               // 查不到型参表 → 降级成名为 "T" 的普通 Z42ClassType，
+                                               // 型参身份丢失 ⇒ Conversion 分支 B 的擦除放行不触发。
                 ZpkgReader._skipConstraintBundle(c);
                 j = j + 1;                     // add-reflective-invoke：曾漏增（tpc 恒 0 时无害）；
                                                // 方法级泛型 tpc>0 后不增 → 无限读越界。
@@ -275,6 +279,7 @@ public static class ZpkgReader {
                                     new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
             stub.Visibility = vis; stub.MethodFlags = mflags;
             stub.TypeParamCount = tpc;   // add-array-paired-sort：跨包方法级泛型形参个数（tpc 早已读、此前只弃）→ 供泛型 arity 重载过滤
+            stub.TypeParams = tpNames;   // add-argument-type-check R1：连**名**一并带出 → ImportedSymbolLoader 还原 Z42GenericParamType
             stub.MinArg = minArg; stub.ParamsFrom = paramsFrom;
             stub.ParamNames = pnames; stub.ParamDefaultKinds = pdKinds;
             stub.ParamDefaultVals = pdVals; stub.ParamDefaultStrs = pdStrs;

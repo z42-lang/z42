@@ -53,13 +53,32 @@ Object 方法。因此 `sig != null` 恰好等价于「签名已知」，无需�
 开启检查后 stdlib / z42c **编不过**。这不是"检查制造的错误"，而是既存缺陷第一次被看见。
 必须同批修，否则无法达成 GREEN。逐条根因与修法：
 
+> 🔧 **实施期校正（2026-09-07，以实测为准，覆盖本节初稿的三处判断）**：
+>
+> 1. **跨包路径是 `ZpkgReader` 而非 `ZbcReader`**。初稿把修复链写在 zbc SIGS reader 上——错。
+>    `ImportedSymbolLoader` 的输入来自 `DepScan → TsigReconcile.Rebuild(ZpkgInfo)`，型参名读弃点在
+>    [`ZpkgReader.z42:220`](../../../../src/libraries/z42.ir/src/ZpkgReader.z42) 的 `c.U32(); // tp 名`。
+>    （`SigEntryZ.TypeParamCount` 全仓无消费方，是另一处独立的死字段。）
+> 2. **R1 是两半，只修型参身份不够**。对照实验：修完身份后跨包**裸 `T`** 转绿、**`T[]` 全数仍红**
+>    ⇒ 还缺 **R1b 递归擦除**（`Conversion` 分支 B 只看顶层是不是 `Z42GenericParamType`，
+>    `Byte[]` 与 `T[]` 两侧都是 `Z42ArrayType`，判定恒相等 ⇒ 擦除永不触发）。
+> 3. **R5 的根因不是"lambda 推断"，而是 imported 委托类型退化**。给 lambda 接上目标定型后
+>    `Thread.Start(() => {…})` 依旧红——因为形参类型 `Action` 本身经 `ImportedSymbolLoader` 退化成了
+>    `Z42ClassType("Action")`，`target is Z42FuncType` 根本不成立。本地解析器
+>    `SymbolTable.ResolveTypeP:238-254` 早有 Func/Action/Predicate 分支，imported 侧没有——完全对称的缺口。
+>
+> ⇒ **R1 / R3 / R5 / R7 四条其实同属一族：`ImportedSymbolLoader` 的类型保真度**。跨包读回时把
+> 结构化类型降级成"名字对但种类错"的 `Z42ClassType`（型参 → 普通类、委托 → 普通类、限定名 → 名叫
+> `"unknown"` 的类）。这解释了为什么它们只在**传参**处暴露：赋值上下文很少跨包构造出这些形状。
+
 | # | 根因 | 命中 | 修在哪 | 性质 |
 |---|---|---|---|---|
-| **R1** | **跨包 imported 泛型签名丢失型参身份**：`Array.Copy<T>(T[],T[],int)` 经 `ImportedSymbolLoader` 读回后 `T` 成了名为 `"T"` 的普通 `Z42ClassType`，不是 `Z42GenericParamType` → `Conversion` 分支 B 的擦除放行不触发 | **79** | 见下「R1 修复链」 | 🆕 本次发现 |
+| **R1a** | **跨包 imported 泛型签名丢失型参身份**：`Array.Copy<T>(T[],T[],int)` 的 `T` 读回成名为 `"T"` 的普通 `Z42ClassType` | （与 R1b 合计 79） | 见下「R1 修复链」 | 🆕 本次发现 |
+| **R1b** | **擦除判定不递归**：`Conversion` 分支 B 只看顶层，`Byte[]` vs `T[]` 两侧同为 `Z42ArrayType` ⇒ 擦除永不触发 | 同上 | `Conversion._hasGenericParam`（结构化递归） | 🆕 实施期发现 |
 | **R2** | `X[]` / `T[]` → `Array` 不放行（`_classifyBuiltin` 只特判 `object`，没管数组基类 `Array`） | 4 | `Conversion.z42:124` 邻近加分支 | 已知 **bug A** |
-| **R3** | 限定类型名固化成字面量 `"unknown"`，且读回成 `Z42ClassType.Builtin("unknown")` 而非 `Z42UnknownType` → Absorb 守卫失效 | 4 | `ImportedSymbolLoader.z42:376` | 已知 **bug B3** |
-| **R5** | **无目标 lambda 实参**推成 `Func<<unknown>>`：`_bindLambdaArg` 硬编码返回类型为 `Z42UnknownType`，而 lambda 实参在重载决议**之前**就被绑定，永远拿不到目标签名 | 3 | `ExprTyper.z42:136` + `MemberResolver._bindCall:345-349` | 🆕 本次发现 |
-| **R6** | enum ↔ 底层整数不可转（`GCHandle.z42` 传 `long` 给 `GCHandleType` 形参） | 2 | `Conversion` 新增 `ExplicitEnum` 种类（**Q2 已裁决：要求显式 cast**） | 已知 **bug D** |
+| **R3** | 限定类型名固化成字面量 `"unknown"`，读回成 `Z42ClassType.Builtin("unknown")`（一个**名叫 unknown 的类**）而非 `Z42UnknownType` → Absorb 守卫失效 | 4 | **消费端半边**：`_resolve` 把 `"unknown"` 还原为 `Z42UnknownType`。**产出端半边留作独立 change**（见下） | 已知 **bug B3** |
+| **R5** | **imported 委托类型退化**：`Action`/`Func<…>` 经 `ImportedSymbolLoader` 成了普通 `Z42ClassType` ⇒ lambda 实参拿不到 `Z42FuncType` 目标，只能落 `_bindLambdaArg` 的 Unknown 返回 | 3 | ① `ImportedSymbolLoader._resolveDelegate`（对齐本地 `SymbolTable.ResolveTypeP:238-254`）② `BindWithTarget` 加 lambda 目标分支 ③ `_bindCall` 延迟 lambda 实参 | 🆕 本次发现 |
+| **R6** | enum ↔ 底层整数不可转 | 2 | 🕳 **本变更跳过 enum 位并登记残留洞**；语义归独立 lang change [`make-enum-distinct-type`](../make-enum-distinct-type/) | 已知 **bug D** |
 | **R7** | `Func<int>` ≠ `Func<Int32>`；极端形态连 `Action` → `Action` 都判不可赋 | 4 | `Z42Type.z42:304-307` `Z42FuncType.IsAssignableTo` 用 `Dump()` 逐字比、不 `Canon`（`Z42ArrayType` 就 Canon 了） | 已知 **bug C** |
 
 ### R1 修复链（已核实，无格式 bump）
@@ -127,7 +146,31 @@ Conversion._classifyBuiltin 分支 B「恰一侧泛型形参 → GenericErase」
 反复在清理的那类洞。**决定：同批接**，在 `ConstructTyper` 解析出 ctor 的 `MethodSymbol` 后调用
 同一个检查函数。
 
-### D6: enum ↔ 底层整数要求显式 cast（Q2 已裁决）
+### D6: enum —— 本变更**跳过 enum 位**，语义拆为独立 lang change（Q2 裁决落地方式，2026-09-07 修正）
+
+**问题**：Q2 裁定「enum ↔ 整数要求显式 cast（对标 C#）」。但实施时发现该裁决建立在**错误前提**上——
+我在提问时把现场描述成「用户把 `long` 传给 `GCHandleType` 形参」，**实际是
+`GCHandle.Alloc(target, GCHandleType.Weak)`，实参是枚举成员引用本身**。
+
+**事实**（实测 + SoT）：
+
+- `MemberResolver.z42:36-46` **刻意**把 `E.Member` 绑成 `BoundLitInt(long)`，注释写明「保 z42
+  **enum-as-int 模型**……静态类型仍 long」；book `runtime/struct-value-semantics.md:232` 有对应 SoT。
+- `SymbolTable.z42:255` 把 enum **类型名**解析成孤立 `Z42ClassType`。
+- 两者在转换格里**无边相连** ⇒ 实测 `Color c = Color.Blue;` **今天在 var-decl 就编不过**
+  （与本变更无关，只是 `--emit-zbc` 一直吞了诊断）。即**今天无法产生任何 enum 类型的值**。
+
+**决定**：按 Q2 执行会变成在调用点写 `(GCHandleType)GCHandleType.Weak` —— 那是**拿 cast 掩盖
+「enum 成员产不出 enum 类型值」这个 bug**，违反本程序铁律。故：
+
+- **本变更**：`_checkOneArg` 对 enum 位跳过（`_isEnumSide`），代码里写明这是**有意的残留洞**并指向下条。
+- **独立 lang change [`make-enum-distinct-type`](../make-enum-distinct-type/)**：实现 Q2 选定的 C# 语义
+  （成员定型为 enum 类型 + 双向显式 cast），并**摘掉本变更留的跳过**。它要改写 book 的 enum-as-int SoT
+  与 `src/tests/types/enum.z42` 里 4 条成文断言，半径远超实参检查，按 Spec-First 必须自带 proposal/spec/design。
+
+> 下面这节是**初稿**的写法（把 R6 当成本变更内的一条转换规则），已被上面取代，保留作决策留痕。
+>
+> ~~### D6-初稿: enum ↔ 底层整数要求显式 cast~~
 
 **问题**：`Conversion._classifyBuiltin` 今天对 enum ↔ 整数给出 `None`（"根本无转换"），
 导致 `GCHandle.z42` 把 `long` 传给 `GCHandleType` 形参时报 `E0402`。

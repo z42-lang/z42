@@ -94,32 +94,23 @@
 - **WHEN** `Array a = new int[3];`
 - **THEN** **无诊断**（回归 bug A）
 
-### Requirement: enum ↔ 底层整数为**显式**转换（R6 / bug D 的传参片）
+### Requirement: enum 位**不检查**（有意的残留洞，2026-09-07 修正）
 
-**Before:** enum ↔ 整数被判为 `ConvKind.None`（"根本无转换"）→ 报 `E0402`，且诊断不给出任何指引。
+**Before（本 spec 初稿）**：拟在本变更内新增 `ConvKind.ExplicitEnum`，enum ↔ 整数报 E0439。
 
-**After:** 判为新种类 `ConvKind.ExplicitEnum` —— **不在** `ImplicitOk` 白名单、**在** `Exists()` 内
-（Q2 裁决：对标 C#，要求显式 cast）。
+**After**：本变更**不对 enum 位发声**。理由见 design D6——实测 `Color c = Color.Blue;` 今天在
+**var-decl** 就报 `E0402`，即 z42 今天**无法产生任何 enum 类型的值**；在调用点补 cast 只会掩盖
+该 bug。Q2 选定的 C# 语义改由独立 lang change
+[`make-enum-distinct-type`](../../../make-enum-distinct-type/) 实现，并由它摘掉本跳过。
 
-#### Scenario: 整数实参传 enum 形参（缺 cast）
-- **WHEN** `void Take(GCHandleType t) {}`，`long n = 1;`，调用 `Take(n)`
-- **THEN** 报 **`E0439`**（`an explicit conversion exists (are you missing a cast?)`），
-  **不是** `E0402`「无转换」
+#### Scenario: enum 成员传 enum 形参 —— 本变更不报
+- **WHEN** `GCHandle.Alloc(target, GCHandleType.Weak)`
+- **THEN** **无实参诊断**（跳过；`_isEnumSide` 命中）
+- **AND** 跳过点必须带注释指向 `make-enum-distinct-type`，**不得静默**
 
-#### Scenario: 显式 cast 放行
-- **WHEN** 调用 `Take((GCHandleType)n)`
-- **THEN** **无诊断**
-
-#### Scenario: enum → 整数同样需显式
-- **WHEN** `void TakeL(long v) {}`、`GCHandleType t = ...`，调用 `TakeL(t)`
-- **THEN** 报 `E0439`；`TakeL((long)t)` 放行
-
-#### Scenario: enum 成员引用不受影响
-- **WHEN** `GCHandleType t = GCHandleType.Weak;`
-- **THEN** **无诊断**（enum 类型自身，非整数转换）
-
-> **不在本 Scope**：bug D 的完整面（`Color c = Color.Blue` / `long n = c` 今天**两个方向都报错**，
-> 根因是 enum 名解析成孤立 `Z42ClassType`、成员却是 `long`）。本变更只覆盖传参触达的这一片。
+#### Scenario: 跳过范围限于 enum
+- **WHEN** 形参类型是已知 enum 类型，或实参是 enum 成员字面量（`BoundLitInt.EnumTypeName != ""`）
+- **THEN** 跳过；**其余位照常检查**
 
 ### Requirement: lambda 实参按形参类型定型（R5）
 
