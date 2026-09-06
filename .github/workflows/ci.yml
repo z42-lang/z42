@@ -66,6 +66,12 @@ jobs:
               - 'src/runtime/**'
               - 'src/toolchain/workload/**'
               - 'examples/embedding/**'
+              # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
+              # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
+              # **根本不跑 package job** —— 打包坏了 PR 照样绿，要等合并进 main 才炸。
+              # 本 PR 自己就是靠恰好动了 ci.yml 才侥幸触发的。
+              - 'scripts/package/**'
+              - 'scripts/test/xtask_test_dist.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_wasm.z42'
               - 'scripts/test/xtask_test_ios.z42'
@@ -398,19 +404,24 @@ jobs:
               "$runner" artifacts/xtask/xtask.zpkg -- package workload test
           fi
 
-      - name: Launcher run smoke (z42 run <dir> --bin — unify-run-modes P4)
+      - name: Dist test (launcher + desktop-publish + golden legs)
         # Runs on all RIDs incl. Windows (P5 cleanup fixed the dist-test preflight +
         # launcher-smoke `.exe`-suffix gaps: bin/z42c[.exe] / z42[.exe] / z42vm[.exe]).
+        #
+        # fix-package-gates-false-red (2026-09-06): 此前这一步带 DIST_SMOKE_ONLY=launcher，
+        # 注释说是「跳过更 flaky 的 desktop-publish/golden 腿」。但全仓**只有这一处**调
+        # `test dist` —— 所谓「跳过」的实际效果不是换个地方覆盖，而是那两条腿**永远没人跑**：
+        #   · desktop-publish smoke 自 apphost 迁进 desktop workload 后判据恒不满足 → 静默 SKIP；
+        #   · golden 腿调 z42c 的 CLI 根本不存在（`--emit zbc -o`）→ 282 个 case 全 compile fail。
+        # 两条都是「从不打印、从不失败的门」。判据修好后在这里接通，让它真的会红。
+        # Consumes the SDK package + desktop workload produced above.
         shell: bash
         run: |
           set -euo pipefail
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           runner="$vm"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
-          # Runs only the launcher smoke (portable `z42 which` + `z42 run <dir> --bin`),
-          # skipping the heavier desktop-publish/golden legs (DIST_SMOKE_ONLY=launcher).
-          # Consumes the SDK package produced above (auto-resolved via _latestReleasePkg).
-          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" DIST_SMOKE_ONLY=launcher \
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$runner" artifacts/xtask/xtask.zpkg -- test dist
 
       - name: Verify package manifest + native artifacts
