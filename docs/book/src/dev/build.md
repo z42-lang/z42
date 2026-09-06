@@ -54,7 +54,7 @@ stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LI
 单工程 `z42c build <toml>` 的判定与组装 SoT = **cache**（`<rel>.zbc` fullMode + `<rel>.meta`
 + 包级源清单；`[build].cache_dir` → `${output_dir}/.cache` → `<projectDir>/.cache` 级联）。
 粒度**文件级**：种子（hash / 条目缺失·pin / 源清单不一致→全量）→ token 保守边传递闭包
-（标识符 token ∩ 包内定义名，**经声明面闸门起跳**，见下）→ 只重编失效闭包，其余文件 IrModule 经 **ZbcReader** 从
+（标识符 token ∩ 包内定义名，**判据下沉到名字粒度**，见下）→ 只重编失效闭包，其余文件 IrModule 经 **ZbcReader** 从
 cache 读回（meta 回填 zbc wire 不携带的 writer 残留：块 label 原文/模块池原序/TIDX idx）；
 TSIG/符号恒全包重算（每文件 TSIG 全包耦合）→ 组装零分叉。全命中 → `no changes; preserved`。
 省下的是失效外文件的 typecheck+codegen（最贵相位）；parse/TSIG/组装恒做（Amdahl 上界）。
@@ -63,34 +63,59 @@ TSIG/符号恒全包重算（每文件 TSIG 全包耦合）→ 组装零分叉�
 （上图阶段一/二）不落 cache、不 probe**——gen1/gen2 字节对比路径零扰动；布线见 roadmap
 Deferred `incremental-future-workspace-wiring`。机制细节：[project.md 增量编译节](../../../design/compiler/project.md)。
 
-#### 声明面闸门（fix-z42c-incremental-closure，2026-09-06）
+#### 名字级失效判据（incr-name-level-invalidation，2026-09-06）
 
 token 保守边极粗：`_definedOf` 把**成员名**也登记成属主名，于是任一定义了 `Name()` 的文件一变，
-全包凡是提到 `Name` 的文件统统失效——xtask 工程（64 文件）**只加一行注释**就 `cached: 0/64`。
-闸门只收紧**传播的起点**：
+全包凡是提到 `Name` 的文件统统失效——xtask 工程（64 文件）**加一行注释、或新增一个类型 / 一个函数 /
+给某个类加一个方法，一律 `cached: 0/64`**。判据现在下沉到**名字**：
 
-- 每个 cache 条目多存一个**声明面指纹**（`CacheMeta.SurfaceHash`，meta v4）= 该文件 token 流
-  把方法 / 构造 / 计算属性 getter / 索引器的**体**各压成一个 `{}` 记号后的哈希
-  （`z42c.driver/src/SurfaceHash.z42`）。注释与空白本就不是 token，天然不参与。
-- `Close` 的传播条件加一项 `SurfaceChanged[j]`：**源变了但声明面相等**的文件（改注释 / 改函数体）
-  只重编它自己，不把失效传给引用方。`Z42_INCR_DEBUG=1` 打印 `[surface-equal] <rel>`。
-- **一旦传播起来就照旧全传递**：被波及而转 fresh 的行 `SurfaceChanged` 保持默认 `true`，
-  于是「A 继承 B、C 用 A」这类**布局经中间文件透传**的链条与闸门前完全一致地整条失效。
-  闸门不去猜哪些扩散可以省，只掐掉「本来就不该起跳的那一跳」。
+- 每个 cache 条目存 `名字 → 该名字自己的声明面指纹`（`nsurf` 行，meta v5）+ 该文件**声明面里**的
+  标识符去重集（`sident` 行）。「声明面」= token 流把方法 / 构造 / 计算属性 getter / 索引器的**体**
+  各压成一个 `{}` 记号；注释与空白本就不是 token，天然不参与。指纹算法见
+  `z42c.driver/src/SurfaceHash.z42`。
+- **失效**：`seedChanged` = 种子失效文件里「指纹变了 / 新增 / 删除」的名字；文件 i 失效 ⟺ i 的标识符
+  token 集（含体内）碰到其中任一名字。
+- **传播**：文件 i 失效后，**只有当它的声明面提到了「别人的」已变名字**，才把自己的全部定义名并入
+  已变集继续传。`Z42_INCR_DEBUG=1` 打印 `[name-changed]` / `[name-removed]` / `[invalidated] … uses-changed-name X` / `[spread]`。
 
-**为什么「声明面没变 ⇒ 引用方的 cached zbc 仍然有效」**——跨文件依赖只经声明面：内联
-（`IrInline`）只在同一 `IrModule`（= 单 CU）内解析 callee；逃逸 / 纯度摘要（`IrEscapeSummary` /
-`IrPureFunctionTable`）同为模块级不动点，跨模块调用无摘要即保守处理；泛型不单态化进调用方
-（类型实参以名字随 `CallInstr.MethodTypeArgs` 走运行期）；唯一把别处体内的值抄进消费方的
-`const` 字段，其初值写在**字段声明**里、不在方法体内，本就留在声明面中。
+名字口径与增量边一致：类型名 / enum 名 / 自由函数名 / 成员方法名 / 成员字段名 / enum 成员名。
+**类型名的指纹覆盖整个类型声明的签名面**（修饰符、基类、类型参数、全部成员签名、字段声明含初值），
+所以给类加一个方法会波及引用该类型的文件——这是必要的（重载集 / vtable / 布局都可能变）。
+**每个名字的指纹都带「文件头」前缀**（`namespace` + 全部 `using`）：它们不属于任何名字，却决定
+该文件里的类型名解析到谁。
 
-保守方向也是稳的：**漏**登记一种带体的声明形态，只会让那段 token 留在指纹里 → 该文件体一改
-照旧全波及（多编不错编）；**多**挖 token 才危险，故只按「AST 亲口给出的体起始 `{` 偏移 +
-token 层大括号配平」挖，不做猜测式跳过。
+**为什么传播规则是这个形状**：
 
-实测（xtask 64 文件，单文件注释 touch）：`cached: 0/64` → `cached: 63/64`；
-`xtask test incremental` 对账器 65/65 文件与 `--no-incremental` 全量**逐字节相等**，
-per-touch 墙钟 4125ms → 2428ms（−41%；余下是恒做的全包 parse + 组装 + zpkg 落盘，Amdahl 上界）。
+- 必需——`A: class Foo : Bar`，`Bar` 变了则 `Foo` 的布局/vtable 跟着变，用 `Foo` 的 C 必须重编；
+  A 的源没动、`Foo` 的指纹反映不了这一点，靠这条规则接上。
+- 足够——若 A 与 `Bar` 的唯一关联在某个**方法体**里，A 的任何声明都没变，A 的消费方看到的 A 仍是
+  原来那个 A（跨文件依赖只经声明面），不必重编。
+- **必须排除「自己定义的名字」**——种子文件的声明面天然提到它刚改的名字，不排除的话种子第一轮就把
+  自己全部成员名并进已变集，粒度当场退回文件级。
+
+**为什么跨文件依赖只经声明面**：内联（`IrInline`）只在同一 `IrModule`（= 单 CU）内解析 callee；
+逃逸 / 纯度摘要（`IrEscapeSummary` / `IrPureFunctionTable`）同为模块级不动点，跨模块调用无摘要即
+保守处理；泛型不单态化进调用方（类型实参以名字随 `CallInstr.MethodTypeArgs` 走运行期）；唯一把别处
+体内的值抄进消费方的 `const` 字段，其初值写在**字段声明**里、不在方法体内，本就留在声明面中。
+
+保守方向也是稳的：**漏**登记一种带体的声明形态，只会让那段 token 留在指纹里 → 该文件体一改照旧
+波及（多编不错编）；**多**挖 token 才危险，故只按「AST 亲口给出的体起始 `{` 偏移 + token 层大括号
+配平」挖。切片定界同理只认「上一个声明的收尾符」（`;` / `}` / `{` / 折叠体记号），因为
+`ClassDecl.Span` 指向 `class` 关键字、**修饰符与 `[Attr]` 都在它之前**——按声明起点直接切会把
+`public` 划给上一个名字，改可见性就归错人。
+
+实测（xtask 64 文件）：
+
+| 改动 | 判据下沉前 | 之后 |
+|---|---|---|
+| 新增类型 / 新增自由函数 | `cached: 0/64` | **63/64** |
+| 给某个类新增成员函数 | `0/64` | **62/64** |
+| 改成员函数签名 / 改可见性 | `0/64` | **56/64** |
+| 只改注释 / 只改函数体 | 63/64 | 63/64 |
+
+硬验收：`xtask test incremental` 三轮对账（逐文件注释 touch / **逐文件追加一个新自由函数** /
+dist 清空后全命中重装配），每轮都要求增量 dist 与 `--no-incremental` 全量**逐字节相等**。
+第二轮是名字级判据的主战场——注释轮压根碰不到声明面。
 
 ### 不动点验证（test compiler 的核心）
 

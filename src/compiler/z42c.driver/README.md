@@ -11,8 +11,8 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 | `src/BuildPaths.z42` | dist/cache 级联解析 + pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）|
 | `src/ProfileKnobs.z42` | 构建期旋钮名校验（compiler-checks-knob-names）：`_validateProfileKnobs` 在 `_build` 早期扫全部 `[profile.<n>.runtime]`——未知名 → warning + 最近邻建议（全集问 `Std.Runtime.RuntimeConfig.Names()`，不留第二份清单）；`[profile.<n>]` 下直接写键 → 致命，库工程同样管 |
 | `src/RuntimeConfigSidecar.z42` | `dist/<name>.runtimeconfig.toml` 侧车生成（`[runtime]` 旋钮 + `[properties]` 应用属性，分表）|
-| `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → **声明面闸门** → token 边闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc`。**`Prepare(..., canPreserve)`**：`canPreserve` 由调用方按「dist 主文件在 + pack 模式一致 + 非多 exe」预先算好——只有它为真时，全命中才可廉价早退（调用方马上 preserved、用不到 IrModule）；为假时**必须**把 cached zbc 读回来，否则调用方装配 dist 时拿不到模块只能全部重编（fix-incr-allcached-cache-drop） |
-| `src/SurfaceHash.z42` | 声明面指纹（fix-z42c-incremental-closure）：token 流去掉方法/属性/索引器**体内** token 后哈希 —— 增量传播闸门的输入，让「改注释 / 改函数体」不波及引用方 |
+| `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → **名字级指纹 diff** → 失效闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc`。**`Prepare(..., canPreserve)`**：`canPreserve` 由调用方按「dist 主文件在 + pack 模式一致 + 非多 exe」预先算好——只有它为真时，全命中才可廉价早退（调用方马上 preserved、用不到 IrModule）；为假时**必须**把 cached zbc 读回来，否则调用方装配 dist 时拿不到模块只能全部重编（fix-incr-allcached-cache-drop） |
+| `src/SurfaceHash.z42` | **名字级**声明面指纹（incr-name-level-invalidation）：token 流剥掉方法/属性/索引器**体内** token 后，按「上一个声明的收尾符」切片，逐名字（类型/enum/自由函数/成员方法/成员字段/enum 成员）各出一个指纹 + 该文件声明面标识符集。增量闭包的判据来源——「改注释 / 改函数体」零波及、「新增类型 / 新增函数」只波及真正提到新名字的文件 |
 
 ## 入口点
 `Z42.Driver.Main`（auto-detected exe 入口）。

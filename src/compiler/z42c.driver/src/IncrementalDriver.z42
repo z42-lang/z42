@@ -21,7 +21,7 @@ public sealed class IncrPrep {
     public CompilationUnit[]  Cus;
     public IrModule[]         Cached;
     public NameListZ[]        Idents;
-    public string[]           Surfaces;   // fresh 行的声明面指纹（WriteMetas 消费）；其余 null
+    public NameSurfacesZ[]    Surfaces;   // fresh 行的名字级声明面（WriteMetas 消费）；其余 null
     public IncrPrep(IncrFilePlan plan, CompilationUnit[] cus, IrModule[] cached) {
         this.Plan = plan; this.Cus = cus; this.Cached = cached;
         this.Idents = null;
@@ -33,8 +33,8 @@ public sealed class IncrPrep {
 public sealed class ParsedPkg {
     public CompilationUnit[] Cus;
     public NameListZ[]       Idents;
-    public string[]          Surfaces;
-    public ParsedPkg(CompilationUnit[] cus, NameListZ[] idents, string[] surfaces) {
+    public NameSurfacesZ[]   Surfaces;
+    public ParsedPkg(CompilationUnit[] cus, NameListZ[] idents, NameSurfacesZ[] surfaces) {
         this.Cus = cus; this.Idents = idents; this.Surfaces = surfaces;
     }
 }
@@ -48,7 +48,7 @@ public static class IncrementalDriver {
     public static ParsedPkg ParseAllTk(string[] texts, string[] srcs, int n, bool[] want) {
         CompilationUnit[] cus = new CompilationUnit[n];
         NameListZ[] idents = new NameListZ[n];
-        string[] surfaces = new string[n];
+        NameSurfacesZ[] surfaces = new NameSurfacesZ[n];
         int i = 0;
         while (i < n) {
             var pp = new Parser(texts[i], srcs[i]);
@@ -84,38 +84,37 @@ public static class IncrementalDriver {
 
         ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, n, plan.Fresh);
         CompilationUnit[] cus = pk.Cus;
-        // 声明面闸门（fix-z42c-incremental-closure）：种子失效行里，只有**声明面**也变了的才
-        // 够格把失效传给引用方——改注释 / 改函数体只重编它自己。没有上次指纹（首建 / meta 换版）
-        // → 保持默认 true（保守）。被波及转 fresh 的行不动（默认 true = 照旧全传递，见
-        // IncrementalBuild.Close 头注）。
         bool incrDebug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
+
+        // 闭包三份输入（incr-name-level-invalidation）。**cached 行一律从上次 meta 取**——源未变，
+        // 这三样都不变，零重算（D8 教训：为闭包对全部文件多走一遍 lex，增量会反比全量慢）。
+        NameListZ[] tokens = new NameListZ[n];      // 全部标识符（含体内）—— 失效判据
+        NameListZ[] surfIdents = new NameListZ[n];  // 声明面标识符 —— 传播判据
+        NameListZ[] names = new NameListZ[n];       // 本文件定义的名字
         i = 0;
         while (i < n) {
-            if (plan.Fresh[i] && pk.Surfaces[i] != null && plan.PrevSurface[i].Length > 0
-                && pk.Surfaces[i] == plan.PrevSurface[i]) {
-                plan.SurfaceChanged[i] = false;
-                if (incrDebug) {
-                    ConsoleError.WriteLine("  [surface-equal] " + IncrementalBuild.Rel(projectDir, srcs[i])
-                        + " (comment/body-only) -> not a propagation source");
+            if (plan.Fresh[i]) {
+                // 种子失效行：token 集 Close 用不到（只查 !Fresh 行），给空表省内存。
+                tokens[i] = new NameListZ(new string[0], 0);
+                if (pk.Surfaces[i] != null) {
+                    surfIdents[i] = new NameListZ(pk.Surfaces[i].SurfIdents, pk.Surfaces[i].SurfIdentCount);
+                    names[i] = new NameListZ(pk.Surfaces[i].Names, pk.Surfaces[i].Count);
+                } else if (plan.Prev[i] != null) {
+                    surfIdents[i] = new NameListZ(plan.Prev[i].SurfIdents, plan.Prev[i].SurfIdentCount);
+                    names[i] = new NameListZ(plan.Prev[i].NsNames, plan.Prev[i].NsCount);
                 }
+            } else {
+                tokens[i] = new NameListZ(plan.Metas[i].Tokens, plan.Metas[i].TokenCount);
+                surfIdents[i] = new NameListZ(plan.Metas[i].SurfIdents, plan.Metas[i].SurfIdentCount);
+                names[i] = new NameListZ(plan.Metas[i].NsNames, plan.Metas[i].NsCount);
             }
             i = i + 1;
         }
-        NameListZ[] tokens = new NameListZ[n];
-        NameListZ[] defined = new NameListZ[n];
-        i = 0;
-        while (i < n) {
-            // 闭包只消费 **cached 行**的 token 集（Close 只查 !Fresh[i] 的边）——cached
-            // 文件源未变，token 集从 meta 读（v2 起入 meta），零重 lex；fresh 行给空表。
-            // D8 实测教训：原实现对全部文件独立重 lex（ParseAll 之外的第二遍），42 文件
-            // 语料上增量反比全量慢 17%——lex 恒定成本吃掉全部增量收益。
-            if (plan.Fresh[i]) { tokens[i] = new NameListZ(new string[0], 0); }
-            else { tokens[i] = new NameListZ(plan.Metas[i].Tokens, plan.Metas[i].TokenCount); }
-            defined[i] = IncrementalDriver._definedOf(cus[i]);
-            i = i + 1;
-        }
-        NameListZ partialNames = IncrementalDriver._partialNamesOf(cus, n);   // add-partial-types：碎片 clique 输入
-        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined, partialNames);
+
+        // 种子已变名字：逐名字 diff 当前指纹 vs 上次 meta（新增 / 删除 / 指纹变 三者都算变）。
+        // 没有上次条目（首建 / 换 meta 版本）→ 该文件当前全部名字计入，保守。
+        NameListZ seedChanged = IncrementalDriver._seedChangedNames(plan, pk.Surfaces, n, srcs, projectDir, incrDebug);
+        IncrementalBuild.Close(plan, srcs, projectDir, tokens, surfIdents, names, seedChanged);
 
         // cached 读回 + 残留回填；任一失败 → 该文件 fresh + 重闭包（依赖方连带失效）。
         bool stable = false;
@@ -134,11 +133,11 @@ public static class IncrementalDriver {
                     if (m == null) {
                         ConsoleError.WriteLine("  [degrade/unreadable-cache] " + rel + " -> fresh");
                         plan.Fresh[i] = true; plan.FreshCount = plan.FreshCount + 1;
-                        // 降级只因 zbc 读不回来——源、声明面均未变 → 不当传播源（否则「缓存坏一个」
-                        // 会退化成全包重编）。
-                        plan.SurfaceChanged[i] = false;
+                        // 降级只因 zbc 读不回来——源、声明面均未变 → 不引入任何已变名字
+                        //（否则「缓存坏一个」会退化成全包重编）。重跑闭包只为让**已有**的已变名字
+                        // 波及到本行新暴露的依赖方。
                         plan.Metas[i] = null;
-                        IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined, partialNames);
+                        IncrementalBuild.Close(plan, srcs, projectDir, tokens, surfIdents, names, seedChanged);
                         stable = false;
                     } else {
                         cached[i] = m;
@@ -160,14 +159,17 @@ public static class IncrementalDriver {
             }
             i = i + 1;
         }
-        // 同款来源规则给声明面指纹：种子 fresh = parse 时算的；闭包/降级转 fresh 的行源未变
+        // 同款来源规则给名字级声明面：种子 fresh = parse 时算的；闭包/降级转 fresh 的行源未变
         // → 沿用上次 meta 里的值（零重算）。两者皆无 → WriteMetas 兜底重算。
-        string[] surfaces = new string[n];
+        NameSurfacesZ[] surfaces = new NameSurfacesZ[n];
         i = 0;
         while (i < n) {
             if (plan.Fresh[i]) {
                 if (pk.Surfaces[i] != null) { surfaces[i] = pk.Surfaces[i]; }
-                else if (metas0[i] != null) { surfaces[i] = metas0[i].SurfaceHash; }
+                else if (metas0[i] != null) {
+                    surfaces[i] = new NameSurfacesZ(metas0[i].NsNames, metas0[i].NsHashes, metas0[i].NsCount,
+                                                   metas0[i].SurfIdents, metas0[i].SurfIdentCount);
+                }
             }
             i = i + 1;
         }
@@ -181,7 +183,7 @@ public static class IncrementalDriver {
     // 残留 pool/labels）+ 包级源清单。任何写失败由调用方 try/catch 吞（cache 非致命）。
     public static void WriteMetas(string cacheDir, string projectDir, string[] srcs, string[] texts,
                                   string[] hashes, int n, CompiledModuleZ[] cms, ZbcFileZ[] mods,
-                                  IncrFilePlan plan, NameListZ[] idents, string[] surfaces) {
+                                  IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces) {
         string[] rels = new string[n];
         int i = 0;
         while (i < n) {
@@ -195,10 +197,12 @@ public static class IncrementalDriver {
                 NameListZ tk = (idents != null && idents[i] != null)
                     ? idents[i] : IncrementalDriver._tokensOf(texts[i], srcs[i]);
                 m.Tokens = tk.Items; m.TokenCount = tk.Count;
-                // 声明面指纹：parse 时已算（或从上次 meta 沿用）；无捕获（异常路径 / 全量
+                // 名字级声明面：parse 时已算（或从上次 meta 沿用）；无捕获（异常路径 / 全量
                 // 且未落 want）才兜底重 parse 一次。
-                m.SurfaceHash = (surfaces != null && surfaces[i] != null)
+                NameSurfacesZ ns = (surfaces != null && surfaces[i] != null)
                     ? surfaces[i] : IncrementalDriver._surfaceOfText(texts[i], srcs[i]);
+                m.NsNames = ns.Names; m.NsHashes = ns.Hashes; m.NsCount = ns.Count;
+                m.SurfIdents = ns.SurfIdents; m.SurfIdentCount = ns.SurfIdentCount;
                 IrModule irm = cms[i].Module;
                 string[] pool = new string[irm.StringCount > 1 ? irm.StringCount - 1 : 0];
                 int p = 1;
@@ -351,6 +355,63 @@ public static class IncrementalDriver {
 
     // 标识符 token 集（去重；Lexer 只取 Identifier——关键字/字面量/符号天然排除）。
     // 兜底路径（正常路径 = parse 时经 Parser.Tokens() 捕获，见 ParseAllTk）。
+    // 种子已变名字集：逐名字 diff「当前源算出的指纹」vs「上次 meta 里的指纹」。
+    // 三种情况都算变：**新增**的名字（上次没有）、**删除**的名字（上次有、这次没有）、
+    // 指纹**不同**的名字。没有上次条目（首建 / 换 meta 版本）→ 该文件当前全部名字保守计入。
+    // 只有**种子**失效行（源 hash 真的变了）才可能引入已变名字：闭包/降级转 fresh 的行源未变，
+    // 它们的名字要不要计入由 Close 的「声明面提到已变名字才继续传」那条规则决定。
+    private static NameListZ _seedChangedNames(IncrFilePlan plan, NameSurfacesZ[] surfaces, int n,
+                                               string[] srcs, string projectDir, bool debug) {
+        StrMap seen = new StrMap();
+        string[] items = new string[16];
+        int cnt = 0;
+        int i = 0;
+        while (i < n) {
+            NameSurfacesZ cur = surfaces[i];
+            if (plan.Fresh[i] && cur != null) {
+                CacheMeta prev = plan.Prev[i];
+                StrMap prevH = new StrMap();
+                if (prev != null) {
+                    int p = 0;
+                    while (p < prev.NsCount) { prevH.Put(prev.NsNames[p], prev.NsHashes[p]); p = p + 1; }
+                }
+                StrMap curH = new StrMap();
+                int k = 0;
+                while (k < cur.Count) { curH.Put(cur.Names[k], cur.Hashes[k]); k = k + 1; }
+                k = 0;
+                while (k < cur.Count) {
+                    bool diff = prev == null || !prevH.ContainsKey(cur.Names[k])
+                             || (prevH.Get(cur.Names[k]) as string) != cur.Hashes[k];
+                    if (diff && !seen.ContainsKey(cur.Names[k])) {
+                        seen.Put(cur.Names[k], cur);
+                        cnt = IncrementalDriver._add(items, cnt, cur.Names[k]); items = IncrementalDriver._last;
+                        if (debug) {
+                            ConsoleError.WriteLine("  [name-changed] " + IncrementalBuild.Rel(projectDir, srcs[i])
+                                + " :: " + cur.Names[k]);
+                        }
+                    }
+                    k = k + 1;
+                }
+                if (prev != null) {
+                    int q = 0;
+                    while (q < prev.NsCount) {
+                        if (!curH.ContainsKey(prev.NsNames[q]) && !seen.ContainsKey(prev.NsNames[q])) {
+                            seen.Put(prev.NsNames[q], cur);
+                            cnt = IncrementalDriver._add(items, cnt, prev.NsNames[q]); items = IncrementalDriver._last;
+                            if (debug) {
+                                ConsoleError.WriteLine("  [name-removed] " + IncrementalBuild.Rel(projectDir, srcs[i])
+                                    + " :: " + prev.NsNames[q]);
+                            }
+                        }
+                        q = q + 1;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        return new NameListZ(items, cnt);
+    }
+
     private static NameListZ _tokensOf(string text, string file) {
         var lx = new Lexer(text, file);
         lx.Tokenize();
@@ -358,7 +419,7 @@ public static class IncrementalDriver {
     }
 
     // 声明面指纹的兜底重算（需要 AST 定体边界 → 重 parse 一次；正常路径走 ParseAllTk 的捕获）。
-    private static string _surfaceOfText(string text, string file) {
+    private static NameSurfacesZ _surfaceOfText(string text, string file) {
         var pp = new Parser(text, file);
         CompilationUnit raw = pp.ParseCompilationUnit();
         return SurfaceHash.Of(raw, pp.Tokens());
@@ -386,60 +447,7 @@ public static class IncrementalDriver {
         return new NameListZ(items, n);
     }
 
-    // 包内定义名集：类型名（class/struct/interface/record/enum）+ 自由函数名 +
-    // 成员名（方法/字段/枚举成员）。成员名入集是保守边的完备性关键——`var x = c.GetB();
-    // x.Method()` 型推断透传引用只在成员名上露头。
-    private static NameListZ _definedOf(CompilationUnit cu) {
-        string[] items = new string[16];
-        int n = 0;
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = cu.Decls[i];
-            if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                n = IncrementalDriver._add(items, n, c.Name); items = IncrementalDriver._last;
-                int m = 0;
-                while (m < c.MemberCount) {
-                    Decl md = c.Members[m];
-                    if (md is AttributedDecl) { md = (md as AttributedDecl).Inner; }
-                    if (md is MethodDecl) { n = IncrementalDriver._add(items, n, (md as MethodDecl).Name); items = IncrementalDriver._last; }
-                    if (md is FieldDecl) { n = IncrementalDriver._add(items, n, (md as FieldDecl).Name); items = IncrementalDriver._last; }
-                    m = m + 1;
-                }
-            }
-            if (d is EnumDecl) {
-                EnumDecl e = d as EnumDecl;
-                n = IncrementalDriver._add(items, n, e.Name); items = IncrementalDriver._last;
-                int m = 0;
-                while (m < e.MemberCount) { n = IncrementalDriver._add(items, n, e.Members[m].Name); items = IncrementalDriver._last; m = m + 1; }
-            }
-            if (d is MethodDecl) { n = IncrementalDriver._add(items, n, (d as MethodDecl).Name); items = IncrementalDriver._last; }
-            i = i + 1;
-        }
-        return new NameListZ(items, n);
-    }
 
-    // add-partial-types：全包 partial 类型名集（任一碎片声明 partial 的类型名）。Close 用它给同名
-    // partial 碎片文件连 clique 边——触任一碎片 → 整组 fresh（主碎片据全碎片当前成员发合并 record）。
-    private static NameListZ _partialNamesOf(CompilationUnit[] cus, int n) {
-        string[] items = new string[4];
-        int c = 0;
-        int i = 0;
-        while (i < n) {
-            int di = 0;
-            while (di < cus[i].DeclCount) {
-                Decl d = cus[i].Decls[di];
-                if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
-                if (d is ClassDecl && (d as ClassDecl).IsPartial) {
-                    c = IncrementalDriver._add(items, c, (d as ClassDecl).Name); items = IncrementalDriver._last;
-                }
-                di = di + 1;
-            }
-            i = i + 1;
-        }
-        return new NameListZ(items, c);
-    }
 
     // 追加（扩容经 _last 旁路返回新数组；z42 无 ref 参）。
     private static string[] _last = null;

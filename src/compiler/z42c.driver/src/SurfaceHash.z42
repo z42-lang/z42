@@ -1,37 +1,52 @@
-// 声明面（surface）指纹 —— 文件级增量「传播闸门」的输入
-// （fix-z42c-incremental-closure；落地 add-file-level-incremental design D3 的 Deferred
-//  `incremental-future-tsig-level-invalidation`）。
+// 名字级声明面指纹 —— 文件级增量「失效闭包」的输入
+// （incr-name-level-invalidation；接续 fix-z42c-incremental-closure 的文件级闸门，
+//  落地 add-file-level-incremental design D3 的 Deferred `incremental-future-tsig-level-invalidation`）。
 //
-// 定义：把一个 CU 的 **token 流**去掉方法 / 构造 / 计算属性 getter / 索引器 **体内**的 token
-// （每个体压成一个 `{}` 记号）后哈希。于是：
-//   - 改注释、改空白        → token 流本就不含 trivia → 指纹不变
-//   - 只改函数体            → 体被压成 `{}` → 指纹不变
-//   - 改签名 / 加删成员 /
-//     改字段（含 const 初值）/ 改基类 / 改 using / 改 attribute → 指纹变
+// 产出（每个 CU 一份）：
+//   ① Names/Hashes —— 该文件**每个定义名**各自的声明面指纹。名字口径与增量边一致：
+//      类型名 / enum 名 / 自由函数名 / 成员方法名 / 成员字段名 / enum 成员名。
+//   ② SurfIdents  —— 该文件**声明面里**出现过的标识符去重集（方法体已剥掉）。
+//      传播用：文件被波及后，只有「声明面提到了某个已变名字」才继续把失效传下去。
 //
-// 为什么这就够（= 为什么「声明面没变 ⇒ 引用方的 cached zbc 仍然有效」）：
-// 跨文件依赖**只**经声明面——
-//   ① 内联 `IrInline` 只在**同一 IrModule = 单 CU** 内解析 callee（跨文件不内联）；
-//   ② 逃逸 / 纯度摘要（`IrEscapeSummary` / `IrPureFunctionTable`）同样是模块级不动点，
-//      跨模块调用无摘要 → 保守处理；
-//   ③ 泛型不单态化进调用方（类型实参以名字随 `CallInstr.MethodTypeArgs` 走运行期）；
-//   ④ 唯一「把别的文件体内的值抄进消费方」的是 `const` 字段（`ExprEmitter` 字面量替换），
-//      而 const 的初值写在**字段声明**里，不在方法体内 → 本来就留在声明面中。
+// 「声明面」= token 流去掉方法 / 构造 / 计算属性 getter / 索引器**体内**的 token
+// （每个体压成一个 `{}` 记号）。注释与空白本就不是 token，天然不参与。于是：
+//   - 改注释、改空白、只改函数体 → 没有任何名字的指纹变 → 零传播
+//   - 新增类型 / 新增函数 / 新增成员函数 → 只有**新名字**与**它所属类型名**的指纹变
+//     → 只有提到这两者的文件失效；提到同名但没变的其它成员（`Name`/`Run`…）的文件不再被误伤
 //
-// 保守方向：**漏**记一个体 span，只会让那段 token 留在指纹里 → 该文件体一改就照旧全波及
-// （多编不错编）。因此以后新增带体的声明形态时忘了在 `_collectBodies` 登记也不会编错，
-// 只是少一份收益。反过来，**多**挖了本该留下的 token 才是危险方向，故这里只按
-// 「Decl 亲口给出的体起始 `{` 偏移 + token 层大括号配平」挖，不做任何猜测式跳过。
+// 为什么名字级是对的（= 为什么「我引用到的名字没变 ⇒ 我的 cached zbc 仍然成立」）：
+// 一个文件只可能通过它 token 流里出现过的名字依赖别处；跨文件依赖又只经声明面
+//（内联 `IrInline` 限同一 IrModule = 单 CU、逃逸/纯度摘要亦模块级、泛型走运行期类型实参
+//  不单态化进调用方；唯一把值抄进消费方的 const 字段，其初值写在字段声明里 → 本就在声明面内）。
 //
-// 用 **raw CU**（`HandlerRegistry.RunAst` 之前）取体起点：attribute handler 合成出来的成员
-// 没有真实 token 区间，拿它们的 Span 去挖会挖错位置。handler 自身的身份已由
+// **每个名字的指纹都带上「文件头」前缀**（`namespace` + 全部 `using`）：它们不属于任何名字，
+// 却决定该文件里的类型名解析到谁 —— 换了 ns / 换了 using，同一份签名文本的**含义**就变了。
+//
+// 保守方向：**漏**记一种带体的声明形态 → 那段体 token 留在指纹里 → 该文件体一改就照旧波及
+//（多编不错编）。**多**挖才危险，故只按「Decl 亲口给出的体起始 `{` + token 层大括号配平」挖。
+// 嵌套类型（add-nested-types）只切到两层：内层类型作为外层的一个「成员」拿到自己的名字指纹，
+// 内层的成员不再单独切 —— 粒度更粗但方向仍是保守。
+//
+// 用 **raw CU**（`HandlerRegistry.RunAst` 之前）取体起点与声明起点：attribute handler 合成出来的
+// 成员没有真实 token 区间，拿它们的 Span 去切会切错位置。handler 身份已由
 // `Main._handlerFingerprint` 揉进每个文件的源 hash，不需要在这里体现。
 namespace Z42.Driver;
 
 using Std;
-using Z42.Core;     // Span（token / 体的 byte offset [Start, End)）
+using Z42.Core;     // Span（token / 声明的 byte offset [Start, End)）
 using Z42.Syntax;
-using Z42.Project;   // ZpkgBuilder.SourceHashHex（MurmurHash3；只作相等性比较）
+using Z42.IR;       // StrMap（名字 → 桶下标 / 指纹）
+using Z42.Project;  // ZpkgBuilder.SourceHashHex（MurmurHash3；只作相等性比较）
+
+// 一个 CU 的名字级声明面。
+public sealed class NameSurfacesZ {
+    public string[] Names;      public string[] Hashes;   public int Count;
+    public string[] SurfIdents; public int SurfIdentCount;
+    public NameSurfacesZ(string[] names, string[] hashes, int count, string[] idents, int identCount) {
+        this.Names = names; this.Hashes = hashes; this.Count = count;
+        this.SurfIdents = idents; this.SurfIdentCount = identCount;
+    }
+}
 
 // 分段字符串累加器：段内 `+`、段满入列、末尾二级合并。
 // （单串 `+` 累加是 O(总长²) 拷贝——一个 CU 几千个 token，直接拼会成为增量的新大头。）
@@ -39,7 +54,7 @@ sealed class SurfaceBufZ {
     private string[] _chunks;
     private int      _n;
     private string   _cur;
-    public SurfaceBufZ() { this._chunks = new string[16]; this._n = 0; this._cur = ""; }
+    public SurfaceBufZ() { this._chunks = new string[8]; this._n = 0; this._cur = ""; }
     public void Put(string s) {
         this._cur = this._cur + s;
         if (this._cur.Length >= 4096) { this._flush(); }
@@ -60,6 +75,25 @@ sealed class SurfaceBufZ {
         int i = 0;
         while (i < this._n) { r = r + this._chunks[i]; i = i + 1; }
         return r;
+    }
+}
+
+// 「名字 + 起点」表（源序；起点 = 该声明的 `Span.Start`，尚未回退到修饰符/attribute 之前）。
+sealed class DeclSitesZ {
+    public string[] Names;
+    public int[]    Starts;
+    public int      Count;
+    public DeclSitesZ() { this.Names = new string[16]; this.Starts = new int[16]; this.Count = 0; }
+    public void Add(string name, Span sp) {
+        if (name == null || name.Length == 0 || sp == null || sp.Start < 0) { return; }
+        if (this.Count == this.Names.Length) {
+            string[] bn = new string[this.Count * 2];
+            int[]    bs = new int[this.Count * 2];
+            int k = 0;
+            while (k < this.Count) { bn[k] = this.Names[k]; bs[k] = this.Starts[k]; k = k + 1; }
+            this.Names = bn; this.Starts = bs;
+        }
+        this.Names[this.Count] = name; this.Starts[this.Count] = sp.Start; this.Count = this.Count + 1;
     }
 }
 
@@ -84,36 +118,216 @@ sealed class BodyStartsZ {
     }
 }
 
+// 剥掉体之后活下来的 token 流（并行数组；z42 无嵌套结构数组字段）。
+// Kind == SurviveZ.BodyMark 表示「这里原本是一个被折叠掉的体」。
+sealed class SurviveZ {
+    public static int BodyMark = -1;
+    public int[]    Kinds;
+    public string[] Texts;
+    public int[]    Offs;
+    public int      Count;
+    public SurviveZ() { this.Kinds = new int[64]; this.Texts = new string[64]; this.Offs = new int[64]; this.Count = 0; }
+    public void Add(int kind, string text, int off) {
+        if (this.Count == this.Kinds.Length) {
+            int[] bk = new int[this.Count * 2]; string[] bt = new string[this.Count * 2]; int[] bo = new int[this.Count * 2];
+            int k = 0;
+            while (k < this.Count) { bk[k] = this.Kinds[k]; bt[k] = this.Texts[k]; bo[k] = this.Offs[k]; k = k + 1; }
+            this.Kinds = bk; this.Texts = bt; this.Offs = bo;
+        }
+        this.Kinds[this.Count] = kind; this.Texts[this.Count] = text; this.Offs[this.Count] = off;
+        this.Count = this.Count + 1;
+    }
+}
+
 public static class SurfaceHash {
 
-    // CU 的声明面指纹（hex）。lx = 该 CU 的词法器（token 流，parse 后固定不变）。
-    public static string Of(CompilationUnit raw, Lexer lx) {
+    // CU 的名字级声明面。lx = 该 CU 的词法器（token 流，parse 后固定不变）。
+    public static NameSurfacesZ Of(CompilationUnit raw, Lexer lx) {
+        // ① 体起点 + 声明起点（顶层一层、成员一层；两层都按源序）。
         BodyStartsZ bodies = new BodyStartsZ();
+        DeclSitesZ  tops   = new DeclSitesZ();
+        DeclSitesZ  mems   = new DeclSitesZ();
+        DeclSitesZ  heads  = new DeclSitesZ();   // using / using alias：不属于任何名字，进「文件头」
         int d = 0;
-        while (d < raw.DeclCount) { SurfaceHash._collectBodies(raw.Decls[d], bodies); d = d + 1; }
+        while (d < raw.DeclCount) {
+            SurfaceHash._collect(raw.Decls[d], bodies, tops, mems, heads);
+            d = d + 1;
+        }
 
-        SurfaceBufZ buf = new SurfaceBufZ();
-        // 命名空间进指纹：`namespace X;` 是 using 之外另一条影响解析的顶层信息，且它不是 Decl。
-        buf.Put(raw.HasNamespace ? ("ns:" + raw.Namespace + "\n") : "ns:\n");
+        // ② 剥体 → 活下来的 token 流（+ 声明面标识符去重集）。
+        SurviveZ sv = new SurviveZ();
+        StrMap seen = new StrMap();
+        string[] idents = new string[16];
+        int identN = 0;
         int n = lx.TokenCount();
         int ti = 0;
         int bi = 0;
         while (ti < n) {
             Token t = lx.TokenAt(ti);
-            // 对齐体表（源序单调；落后的条目直接丢——它没能与任何 `{` token 对上）。
             while (bi < bodies.Count && bodies.Items[bi] < t.Span.Start) { bi = bi + 1; }
             if (bi < bodies.Count && bodies.Items[bi] == t.Span.Start && t.Kind == TokenKind.LBrace) {
-                buf.Put("{}\n");          // 体压成记号：体在 / 不在（抽象声明）本身属于声明面
+                sv.Add(SurviveZ.BodyMark, "{}", t.Span.Start);   // 体在 / 不在（抽象声明）本身属于声明面
                 ti = SurfaceHash._skipBody(lx, ti, n);
                 bi = bi + 1;
                 continue;
             }
-            // `kind:len:text` —— 带长度前缀，任何 token 文本（含 raw string / 插值串里的换行）
-            // 都无法伪造出分隔边界 → 不同 token 流不会撞出同一条串。
-            buf.Put(t.Kind.ToString() + ":" + t.Text.Length.ToString() + ":" + t.Text + "\n");
+            // Eof 不进声明面：它永远落在**最后一个**声明的切片里，于是「在文件尾追加一个声明」
+            // 会把 Eof 挪走 → 原最后一个声明（及其外层类型）的指纹平白漂移。实测正是它让
+            // 「追加一个无关类型」多波及了两个名字。
+            if (t.Kind == TokenKind.Eof) { ti = ti + 1; continue; }
+            sv.Add(t.Kind, t.Text, t.Span.Start);
+            if (t.Kind == TokenKind.Identifier && !seen.ContainsKey(t.Text)) {
+                seen.Put(t.Text, t);
+                if (identN == idents.Length) {
+                    string[] b = new string[identN * 2];
+                    int k = 0; while (k < identN) { b[k] = idents[k]; k = k + 1; }
+                    idents = b;
+                }
+                idents[identN] = t.Text; identN = identN + 1;
+            }
             ti = ti + 1;
         }
-        return ZpkgBuilder.SourceHashHex(buf.Take());
+
+        // ③ 声明起点回退到它自己的修饰符 / attribute 之前。
+        //    `ClassDecl.Span` 指向 `class` 关键字、`MethodDecl.Span` 指向返回类型——**修饰符与
+        //    `[Attr]` 都在它之前**。若直接按声明起点切片，`public` 会被划给上一个声明，于是
+        //    「把某个成员从 public 改成 private」会算成**上一个名字**变了，真正的消费方反而不失效。
+        //    上一个声明的内容必然以 `;` / `}` / 折叠体记号收尾 → 从起点向前扫到最近的那个收尾符，
+        //    其后第一条就是本声明真正的起点。
+        int[] topAt = SurfaceHash._alignStarts(sv, tops);
+        int[] memAt = SurfaceHash._alignStarts(sv, mems);
+        int[] headAt = SurfaceHash._alignStarts(sv, heads);
+
+        // ④ 文件头前缀：namespace + 全部 using。它们不属于任何名字，却决定本文件里的类型名
+        //    解析到谁 —— 换 ns / 换 using，同一份签名文本的含义就变了，故并进**每个**名字的指纹。
+        // 文件头必须**止于第一个真正的声明**。少了这条右边界，最后一个 `using` 的区间会一路吞到
+        // 文件末尾 —— 而文件头是**每个**名字指纹的前缀，于是「在文件尾追加一个类型」会让全文件
+        // 所有名字的指纹一起漂移，名字粒度当场退化回文件粒度（实测复现过：追加一个类型 → 该文件
+        // 6 个名字全部报 changed）。
+        int headLimit = sv.Count;
+        if (tops.Count > 0 && topAt[0] < headLimit) { headLimit = topAt[0]; }
+        if (mems.Count > 0 && memAt[0] < headLimit) { headLimit = memAt[0]; }
+        SurfaceBufZ head = new SurfaceBufZ();
+        head.Put(raw.HasNamespace ? ("ns:" + raw.Namespace + "\n") : "ns:\n");
+        int hi = 0;
+        while (hi < heads.Count) {
+            int lo = headAt[hi];
+            int hiEnd = (hi + 1 < heads.Count) ? headAt[hi + 1] : headLimit;
+            if (hiEnd > headLimit) { hiEnd = headLimit; }
+            int p = lo;
+            while (p < hiEnd) { head.Put(SurfaceHash._enc(sv, p)); p = p + 1; }
+            hi = hi + 1;
+        }
+        string headerStr = head.Take();
+
+        // ⑤ 单遍派发：每条活 token 进「它所属的顶层名」与「它所属的成员名」两个桶。
+        //    同名（重载 / 成员名与顶层名撞名）合并进同一个桶 —— 保守且与增量边的名字口径一致。
+        // 成员的区间必须**止于所属类型的末尾**，不能顺延到下一个顶层声明——否则「类 A 的最后一个
+        // 成员」会把类 B 的头吞进自己的桶里：改 B 的头 = 改 A 那个成员的指纹，凡提到该成员名
+        // （`Name` 这种）的文件全被误伤，正是本 change 要消灭的那个症状。
+        int[] memEnd = new int[mems.Count];
+        int me = 0;
+        while (me < mems.Count) {
+            int lim = (me + 1 < mems.Count) ? memAt[me + 1] : sv.Count;
+            int tk = 0;
+            while (tk < tops.Count) {
+                if (topAt[tk] > memAt[me] && topAt[tk] < lim) { lim = topAt[tk]; }
+                tk = tk + 1;
+            }
+            memEnd[me] = lim;
+            me = me + 1;
+        }
+        StrMap slot = new StrMap();
+        string[] bufNames = new string[16];
+        SurfaceBufZ[] bufs = new SurfaceBufZ[16];
+        int bufN = 0;
+        int tc = 0;
+        int mc = 0;
+        int si = 0;
+        while (si < sv.Count) {
+            while (tc + 1 < tops.Count && si >= topAt[tc + 1]) { tc = tc + 1; }
+            while (mc + 1 < mems.Count && si >= memAt[mc + 1]) { mc = mc + 1; }
+            string piece = SurfaceHash._enc(sv, si);
+            if (tops.Count > 0 && si >= topAt[tc]) {
+                int bt = SurfaceHash._slotOf(slot, tops.Names[tc], bufNames, bufs, bufN);
+                if (bt == bufN) { bufNames = SurfaceHash._lastNames; bufs = SurfaceHash._lastBufs; bufN = bufN + 1; }
+                bufs[bt].Put(piece);
+            }
+            if (mems.Count > 0 && si >= memAt[mc] && si < memEnd[mc]) {
+                int bm = SurfaceHash._slotOf(slot, mems.Names[mc], bufNames, bufs, bufN);
+                if (bm == bufN) { bufNames = SurfaceHash._lastNames; bufs = SurfaceHash._lastBufs; bufN = bufN + 1; }
+                bufs[bm].Put(piece);
+            }
+            si = si + 1;
+        }
+
+        string[] names = new string[bufN];
+        string[] hashes = new string[bufN];
+        int q = 0;
+        while (q < bufN) {
+            names[q] = bufNames[q];
+            hashes[q] = ZpkgBuilder.SourceHashHex(headerStr + bufs[q].Take());
+            q = q + 1;
+        }
+        return new NameSurfacesZ(names, hashes, bufN, idents, identN);
+    }
+
+    // 单条活 token 的编码：`kind:len:text` —— 带长度前缀，任何 token 文本（含 raw string /
+    // 插值串里的换行）都无法伪造出分隔边界 → 不同 token 流不会撞出同一条串。
+    private static string _enc(SurviveZ sv, int i) {
+        return sv.Kinds[i].ToString() + ":" + sv.Texts[i].Length.ToString() + ":" + sv.Texts[i] + "\n";
+    }
+
+    // 名字 → 桶下标；新名字时追加（数组按需扩容，扩容后的数组经 _lastNames/_lastBufs 交回）。
+    private static string[]      _lastNames;
+    private static SurfaceBufZ[] _lastBufs;
+    private static int _slotOf(StrMap slot, string name, string[] bufNames, SurfaceBufZ[] bufs, int bufN) {
+        if (slot.ContainsKey(name)) {
+            SurfaceHash._lastNames = bufNames; SurfaceHash._lastBufs = bufs;
+            return (slot.Get(name) as IntBoxZ).Value;   // IntBoxZ 复用 IncrementalDriver.z42 里那一个（同 ns，勿重复定义）
+        }
+        string[] bn = bufNames;
+        SurfaceBufZ[] bb = bufs;
+        if (bufN == bn.Length) {
+            bn = new string[bufN * 2];
+            bb = new SurfaceBufZ[bufN * 2];
+            int k = 0;
+            while (k < bufN) { bn[k] = bufNames[k]; bb[k] = bufs[k]; k = k + 1; }
+        }
+        bn[bufN] = name; bb[bufN] = new SurfaceBufZ();
+        slot.Put(name, new IntBoxZ(bufN));
+        SurfaceHash._lastNames = bn; SurfaceHash._lastBufs = bb;
+        return bufN;
+    }
+
+    // 把「声明起点（byte offset）」对齐成「活 token 流下标」，并向前回退到修饰符 / attribute 之前。
+    // 上一个声明的内容必以 `;` / `}` / 折叠体记号收尾，故从起点往前扫到最近的收尾符、取其后一条。
+    private static int[] _alignStarts(SurviveZ sv, DeclSitesZ sites) {
+        int[] at = new int[sites.Count];
+        int cur = 0;
+        int i = 0;
+        while (i < sites.Count) {
+            while (cur < sv.Count && sv.Offs[cur] < sites.Starts[i]) { cur = cur + 1; }
+            int p = cur;
+            while (p > 0) {
+                int pk = sv.Kinds[p - 1];
+                // 停止集含 `{`：类型体的**左花括号**是「类头结束」的标志。漏了它，类的第一个成员
+                // 会一路回退穿过类头、和类型自己的切片重叠（实测：类型与其首成员算出同一个指纹，
+                // 且在文件尾追加声明时整批成员的指纹一起漂移）。
+                if (pk == TokenKind.Semicolon || pk == TokenKind.RBrace
+                    || pk == TokenKind.LBrace || pk == SurviveZ.BodyMark) { break; }
+                p = p - 1;
+            }
+            at[i] = p;
+            i = i + 1;
+        }
+        // 单调化（回退可能越过上一条的起点——空声明等退化形态；保持非降序，切片才不会错位）。
+        int j = 1;
+        while (j < sites.Count) {
+            if (at[j] < at[j - 1]) { at[j] = at[j - 1]; }
+            j = j + 1;
+        }
+        return at;
     }
 
     // 从 `{`（下标 open）起按 token 层大括号配平跳到匹配 `}` 之后。
@@ -133,39 +347,70 @@ public static class SurfaceHash {
         return n;   // 不配平（parse 已报错）→ 吞到末尾，保守
     }
 
-    // 登记「该丢弃体内 token」的起始 `{` 偏移。漏登记 = 保守（见文件头）。
-    private static void _collectBodies(Decl d, BodyStartsZ out_) {
+    // 登记体起点 + 名字起点。漏登记 = 保守（见文件头）。
+    private static void _collect(Decl d, BodyStartsZ bodies, DeclSitesZ tops, DeclSitesZ mems, DeclSitesZ heads) {
         if (d == null) { return; }
         Decl inner = d;
         if (inner is AttributedDecl) { inner = (inner as AttributedDecl).Inner; }
         if (inner == null) { return; }
+        if (inner is UsingDecl || inner is UsingAliasDecl) { heads.Add("using", d.Span); return; }
         if (inner is ClassDecl) {
             ClassDecl c = inner as ClassDecl;
+            tops.Add(c.Name, d.Span);
             int m = 0;
-            while (m < c.MemberCount) { SurfaceHash._collectBodies(c.Members[m], out_); m = m + 1; }
+            while (m < c.MemberCount) { SurfaceHash._collectMember(c.Members[m], bodies, mems); m = m + 1; }
+            return;
+        }
+        if (inner is EnumDecl) {
+            EnumDecl e = inner as EnumDecl;
+            tops.Add(e.Name, d.Span);
+            int m = 0;
+            while (m < e.MemberCount) { mems.Add(e.Members[m].Name, e.Members[m].Span); m = m + 1; }
             return;
         }
         if (inner is ImplDecl) {
             ImplDecl im = inner as ImplDecl;
             int k = 0;
-            while (k < im.MethodCount) { SurfaceHash._collectBodies(im.Methods[k], out_); k = k + 1; }
+            while (k < im.MethodCount) { SurfaceHash._collectMember(im.Methods[k], bodies, mems); k = k + 1; }
             return;
         }
+        if (inner is MethodDecl) {                       // 顶层自由函数
+            MethodDecl md = inner as MethodDecl;
+            tops.Add(md.Name, d.Span);
+            if (md.HasBody && md.Body != null && md.Body.Span != null) { bodies.Add(md.Body.Span.Start); }
+            return;
+        }
+        if (inner is DelegateDecl) { tops.Add((inner as DelegateDecl).Name, d.Span); return; }
+    }
+
+    // 类型成员：登记名字起点 + 体起点。嵌套类型作为「一个成员名」登记（其内成员不再单独切——
+    // 粒度更粗，方向仍保守）。
+    private static void _collectMember(Decl d, BodyStartsZ bodies, DeclSitesZ mems) {
+        if (d == null) { return; }
+        Decl inner = d;
+        if (inner is AttributedDecl) { inner = (inner as AttributedDecl).Inner; }
+        if (inner == null) { return; }
         if (inner is MethodDecl) {
             MethodDecl md = inner as MethodDecl;
-            if (md.HasBody && md.Body != null && md.Body.Span != null) { out_.Add(md.Body.Span.Start); }
+            mems.Add(md.IsCtor ? "$ctor" : md.Name, d.Span);
+            if (md.HasBody && md.Body != null && md.Body.Span != null) { bodies.Add(md.Body.Span.Start); }
             return;
         }
+        if (inner is FieldDecl) { mems.Add((inner as FieldDecl).Name, d.Span); return; }
         if (inner is PropertyDecl) {
             PropertyDecl pd = inner as PropertyDecl;
-            if (pd.HasGetBody && pd.GetBody != null && pd.GetBody.Span != null) { out_.Add(pd.GetBody.Span.Start); }
+            mems.Add(pd.Name, d.Span);
+            if (pd.HasGetBody && pd.GetBody != null && pd.GetBody.Span != null) { bodies.Add(pd.GetBody.Span.Start); }
             return;
         }
         if (inner is IndexerDecl) {
             IndexerDecl ix = inner as IndexerDecl;
-            if (ix.HasGet && ix.GetBody != null && ix.GetBody.Span != null) { out_.Add(ix.GetBody.Span.Start); }
-            if (ix.HasSet && ix.SetBody != null && ix.SetBody.Span != null) { out_.Add(ix.SetBody.Span.Start); }
+            mems.Add("$indexer", d.Span);
+            if (ix.HasGet && ix.GetBody != null && ix.GetBody.Span != null) { bodies.Add(ix.GetBody.Span.Start); }
+            if (ix.HasSet && ix.SetBody != null && ix.SetBody.Span != null) { bodies.Add(ix.SetBody.Span.Start); }
             return;
         }
+        if (inner is ClassDecl) { mems.Add((inner as ClassDecl).Name, d.Span); return; }   // 嵌套类型
+        if (inner is EnumDecl)  { mems.Add((inner as EnumDecl).Name, d.Span);  return; }
     }
 }
