@@ -35,9 +35,10 @@ class DepBundle {
 
 /// Discover test units in `testsDir`. Single-file convention: a top-level
 /// `*.z42` file becomes one unit. Dir-mode convention (Phase 3.1.1):
-/// a sub-directory containing `source.z42` becomes one unit (the directory
-/// name supplies UnitName). `filter` matches against the unit's display
-/// name (file basename or dir basename) — substring match.
+/// a sub-directory declaring `[Test]` methods becomes one unit (the directory
+/// name supplies UnitName; every `*.z42` under it compiles into that unit).
+/// `filter` matches against the unit's display name (file basename or dir
+/// basename) — substring match.
 TestUnit[] _discoverTestUnits(string testsDir, string[] entries, string filter) {
     int n = entries.Length;
     TestUnit[] tmp = new TestUnit[n];
@@ -48,19 +49,28 @@ TestUnit[] _discoverTestUnits(string testsDir, string[] entries, string filter) 
         string full = Path.Join(testsDir, e);
         bool isDir = Directory.Exists(full);
         if (isDir) {
-            string sourceZ42 = Path.Join(full, "source.z42");
-            // A tests/<name>/source.z42 dir is a [Test] unit ONLY when it
-            // actually declares [Test] methods. Main-based dirs (source.z42 with
-            // void Main()) are VM golden cases — run by `test e2e` from
+            // A tests/<name>/ dir is a [Test] unit iff it declares [Test]
+            // methods. Main-based dirs (source.z42 with void Main()) are VM
+            // golden cases — run by `test e2e` from
             // src/libraries/<lib>/tests/<name>/source.zbc, NOT [Test] units. The
             // z42b reports "no tests found" (exit 3) on a Main-based
             // zpkg, which _testLib would otherwise miscount as a failure.
-            if (File.Exists(sourceZ42) && _dirHasTestMethods(full)) {
+            //
+            // The gate is [Test]-methods ONLY — deliberately the same predicate
+            // _enumerateCorpus (xtask_test_embedded_corpus.z42 §2b) uses. It
+            // additionally demanded a `source.z42` entry file until 2026-09-06,
+            // which silently dropped every [Test] dir whose sources are named
+            // otherwise: z42.ir / z42c.core / z42c.syntax were listed by
+            // `test list` yet never ran, and `test stdlib z42.ir` reported
+            // "all 0 file(s) passed" — a false GREEN. The entry filename is
+            // irrelevant anyway: dir-mode compiles the whole dir through the
+            // synthetic manifest's `**/*.z42` glob, never through u.SourceFile.
+            if (_dirHasTestMethods(full)) {
                 string display = e;
                 if (filter.Length == 0 || display.Contains(filter)) {
                     TestUnit u = new TestUnit();
                     u.UnitName = display;
-                    u.SourceFile = sourceZ42;
+                    u.SourceFile = Path.Join(full, "source.z42");   // dir-mode: unused
                     u.DirPath = full;
                     u.IsDirMode = true;
                     tmp[count] = u;

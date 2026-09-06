@@ -68,7 +68,7 @@ driver    ◄── pipeline, ir, core
 |------|--------|-------------|------|
 | **无 `enum` 关键字** | `enum DiagnosticSeverity { ... }` | `static class` + `int` 常量 | stdlib `SplitOptions` / `SeekOrigin` / `FileMode` |
 | **无交错数组 `int[][]`** | `var remaps = new int[n][];` | 循环内按需重算（如 zpkg remap 借 `Intern` 幂等性）或平铺单数组+偏移 | ZpkgWriterZ._buildMods |
-| **`new T[n]` 不能在实参位置** | `F(new string[1], ...)` | 先提升局部变量再传 | zpkg_tests |
+| **`new T[n]` 不能在实参位置** | `F(new string[1], ...)` | 先提升局部变量再传 | `z42.ir/tests/zpkg.z42` |
 | **`fn` / `module` 是保留字** | 参数/变量名随意 | 改名（fname / irm） | 多处 |
 | **类字段不能带泛型参数**（`private List<X> f;` 的 `<X>` 被 parser 静默丢弃 → 取元素退化为无约束 `T`，无法调其方法）| `List<Diagnostic> _items` | **typed array + count**：`Diagnostic[] _items; int _count;` + 手动 `Grow()` | stdlib `TomlValue._arrayItems` / `Process._args`（typed array 元素访问会正确单态化）|
 | ~~**`List<T>` 过度约束** `where T: IEquatable<T> + IComparable<T>`~~（**已解除**：stdlib-structure-batch 2026-09-03 去掉类级约束，对齐 C#）| `List<T>` 任意元素 | 历史规避：typed array（同上）。约束已放松，编译器代码可按需迁回 `List<T>`（仍受上一条「类字段不能带泛型参数」限制）| List.z42 头注释 |

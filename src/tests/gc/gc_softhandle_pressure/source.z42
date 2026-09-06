@@ -1,10 +1,15 @@
 namespace Demo;
-using Std.IO;
 using Std;
 
 // add-gc-softref: soft handle cleared when heap pressure >= threshold (80%).
 // Strategy: create soft ref, let strong ref go out of scope, then set
 // max_heap_bytes = current_used_bytes (ratio = 1.0 >= 0.80) and force GC.
+//
+// tidy-test-layout (2026-09-06): the golden's three printed lines were liveness
+// predicates plus a "done" sentinel; asserted directly now, sidecar deleted.
+// The frame discipline below is load-bearing and unchanged — the Box must never
+// be reachable from Main's registers when ForceCollect runs, or the soft ref is
+// rescued by a strong ref and the test silently proves nothing.
 
 class Box {
     public int Value;
@@ -31,11 +36,7 @@ void Main() {
     SoftHandle h = MakeHandle(7);
 
     // Confirm alive before GC. Use IsAlive so no Box ref stays in Main's regs.
-    if (IsAlive(h)) {
-        Console.WriteLine("before gc: alive");
-    } else {
-        Console.WriteLine("before gc: null");
-    }
+    Assert.True(IsAlive(h));
 
     // Set max_heap_bytes = current usage so pressure ratio = 1.0 >= 0.80.
     long used = GC.UsedBytes();
@@ -43,15 +44,8 @@ void Main() {
 
     // Force GC — revive pass should not rescue the soft ref.
     GC.ForceCollect();
-
-    object after = h.Get();
-    if (after == null) {
-        Console.WriteLine("after gc: cleared");
-    } else {
-        Console.WriteLine("after gc: alive");
-    }
+    Assert.False(IsAlive(h));
 
     // Restore unlimited heap.
     GC.SetMaxHeapBytes(0);
-    Console.WriteLine("done");
 }

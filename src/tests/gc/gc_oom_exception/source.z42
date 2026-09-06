@@ -1,8 +1,12 @@
 // add-gc-oom-exception (2026-05-25): verify Std.OutOfMemoryException is
 // thrown and catchable when strict OOM mode rejects an object allocation.
+//
+// tidy-test-layout (2026-09-06): the golden printed "caught OOM / ok / done";
+// all three restate one predicate, now asserted directly. The heap limit is
+// restored BEFORE asserting — under a 1-byte strict-OOM heap even the assertion
+// machinery would be at the mercy of the limit it is testing.
 namespace Demo;
 using Std;
-using Std.IO;
 
 public class BigObj {
     public int X;
@@ -18,15 +22,17 @@ void Main() {
     bool caught = false;
     try {
         var obj = new BigObj(42);
-        Console.WriteLine("no exception");
     } catch (OutOfMemoryException e) {
         caught = true;
-        Console.WriteLine("caught OOM");
     }
-    Console.WriteLine(caught ? "ok" : "fail");
 
-    // Restore unlimited heap so subsequent code runs normally.
+    // Restore unlimited heap so the assertion below runs unconstrained.
     GC.SetMaxHeapBytes(0);
     GC.SetStrictOOM(false);
-    Console.WriteLine("done");
+
+    Assert.True(caught);
+
+    // Allocation works again once the limit is lifted.
+    var ok = new BigObj(7);
+    Assert.Equal(7, ok.X);
 }

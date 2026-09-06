@@ -1,9 +1,10 @@
 namespace Demo;
-using Std.IO;
 using Std;
 
 // add-gc-softref: strong ref prevents soft-ref target from being cleared
 // even when heap pressure >= threshold.
+//
+// tidy-test-layout (2026-09-06): printed liveness → asserted liveness; sidecar deleted.
 
 class Box {
     public int Value;
@@ -19,13 +20,8 @@ void Main() {
     GC.ForceCollect();
 
     // strong is still in scope — object must not be swept.
-    object got = h.Get();
-    if (got != null) {
-        Console.WriteLine("strong survives: alive");
-    } else {
-        Console.WriteLine("strong survives: null");
-    }
+    Assert.NotNull(h.Get());
+    Assert.Equal(55, strong.Value);
 
     GC.SetMaxHeapBytes(0);
-    Console.WriteLine("done");
 }
