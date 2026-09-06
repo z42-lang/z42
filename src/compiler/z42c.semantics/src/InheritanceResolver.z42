@@ -312,6 +312,10 @@ public sealed class InheritanceResolver {
     private void _checkOneIfaceAssoc(SymbolTable table, Z42ClassType ct, ClassDecl c, string ifaceName) {
         Z42InterfaceType it = table.GetInterface(ifaceName);
         if (it == null) { return; }
+        // 跨包接口同理跳过：导入侧的 `AssocTypeNames` 还没有 wire 来源（恒空），照常走也只会
+        // 什么都不查；显式跳过是为了让「本轮只落同包」这件事在代码里看得见，而不是靠恰好为空。
+        // Deferred：`assoc-type-crosspkg`。
+        if (it.IsImported) { return; }
         int a = 0;
         while (a < it.AssocTypeCount) {
             if (ct.AssocBindingOf(it.AssocTypeNames[a]) == "") {

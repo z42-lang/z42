@@ -1,0 +1,7 @@
+[project]
+name = "demo.aext"
+version = "0.1.0"
+kind = "lib"
+pack = true
+[dependencies]
+"demo.atarget" = "0.1.0"

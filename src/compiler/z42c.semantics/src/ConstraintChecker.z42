@@ -116,8 +116,14 @@ public sealed class ConstraintChecker {
                             Z42Type abResolved = symbols.ResolveTypeP(abt.Bound, pnames, pc);
                             bundle.AddAssocBinding(abt.Name, TypeNameResolver.SurfaceTypeName(abResolved));
                             // 绑定的名字必须真是该接口声明过的关联类型，否则是笔误 → 早报，别静默。
+                            // 🔴 **跨包接口必须跳过**：导入侧的 `AssocTypeNames` 还没有 wire 来源、恒空
+                            // ⇒ 不跳过则「另一个包里 `where T : IEnum<Item = int>`」这种完全合法的写法
+                            // 会被判成「IEnum 没有关联类型 Item」——假红。这条守卫是
+                            // `src/tests/cross-zpkg/assoc_type_cross_pkg/` 抓出来的（我最初只守了
+                            // 使用点 `_checkAssocBinding` 与补齐强制，漏了这个**声明点**）。
+                            // Deferred：`assoc-type-crosspkg`（独立 change，含双 bump）。
                             Z42InterfaceType abIface = symbols.GetInterface(nt.Name);
-                            if (abIface != null && !abIface.HasAssocType(abt.Name)) {
+                            if (abIface != null && !abIface.IsImported && !abIface.HasAssocType(abt.Name)) {
                                 this._diags.Error("E0453",
                                     "interface `" + nt.Name + "` has no associated type `" + abt.Name + "`",
                                     abt.Span);
@@ -224,6 +230,12 @@ public sealed class ConstraintChecker {
         if (arg is Z42ClassType) { cls = arg as Z42ClassType; }
         else if (arg is Z42InstantiatedType) { cls = (arg as Z42InstantiatedType).Def; }
         if (cls == null) { return; }                       // 数组 / func / void：无处安放绑定，不误报
+        // 🔴 跨包实参一律放行（本轮只落同包，见 tasks「范围裁决」）：类的关联类型绑定还没有 wire
+        // 表示（要 zbc bit7 + 双格式 bump），导入类的 `AssocBindingCount` 恒为 0。若在这里照常校验，
+        // 合法的跨包代码会被判成「未绑定」——**假红**，比漏报更糟。故按 `IsImported` 跳过，
+        // 与 `_satisfiesInterface` 对信息不足者放行的既有口径一致。
+        // Deferred：`assoc-type-crosspkg`（独立 change，含双 bump）。
+        if (cls.IsImported) { return; }
         string got = cls.AssocBindingOf(bindName);
         if (got == "") {
             this._diags.Error("E0453",

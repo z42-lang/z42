@@ -1,0 +1,18 @@
+// 关联类型的跨包行为（add-associated-types PR-3）。
+//
+// 本轮**只落同包**校验：类的关联类型绑定与接口的关联类型名单都还没有 wire 表示
+// （要 zbc bit7 + zbc/zpkg 双格式 bump，已拆为独立 change `assoc-type-crosspkg`）。
+//
+// 于是这个用例守的是**别把跨包判红**：`ConstraintChecker._checkAssocBinding` 见
+// `AssocBindingOf()==""` 就报 E0453，而导入类的绑定恒为空 —— 没有 `IsImported` 守卫的话，
+// 下面 main 里那句完全合法的实例化会被判「未绑定」而编译失败。**能编过本身就是断言。**
+namespace DemoATarget;
+
+public interface IEnum { type Item; }
+
+public class IntBag : IEnum {
+    type Item = int;
+    public int v;
+    public IntBag(int v0) { this.v = v0; }
+    public int Get() { return this.v; }
+}
