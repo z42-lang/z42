@@ -1,8 +1,13 @@
 namespace Demo;
-using Std.IO;
 using Std;
 
 // add-gc-softref: basic soft handle — unlimited heap keeps target alive.
+//
+// tidy-test-layout (2026-09-06): was a Console.WriteLine golden whose
+// expected_output.txt spelled out "before gc: alive / after gc: alive /
+// null target: null". Every line was a liveness predicate printed as prose, so
+// asserting the predicate directly says the same thing and drops the sidecar.
+// The `interp_only` marker stays — soft-handle timing is interpreter-specific.
 
 class Box {
     public int Value;
@@ -15,29 +20,14 @@ void Main() {
     SoftHandle h = SoftHandle.Create(b);
 
     // Before GC — target should be alive.
-    object got1 = h.Get();
-    if (got1 != null) {
-        Console.WriteLine("before gc: alive");
-    } else {
-        Console.WriteLine("before gc: null");
-    }
+    Assert.NotNull(h.Get());
 
     // Force GC on unlimited heap — soft ref must survive.
     GC.ForceCollect();
+    Assert.NotNull(h.Get());
+    Assert.Equal(42, b.Value);
 
-    object got2 = h.Get();
-    if (got2 != null) {
-        Console.WriteLine("after gc: alive");
-    } else {
-        Console.WriteLine("after gc: null");
-    }
-
-    // Create null soft handle.
+    // A soft handle over a null target reads back null.
     SoftHandle hn = SoftHandle.Create(null);
-    object gotn = hn.Get();
-    if (gotn == null) {
-        Console.WriteLine("null target: null");
-    } else {
-        Console.WriteLine("null target: alive");
-    }
+    Assert.Null(hn.Get());
 }

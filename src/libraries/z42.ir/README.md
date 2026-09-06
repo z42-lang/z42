@@ -24,5 +24,17 @@ IR 由 z42c.semantics 的 IrGen 构建；本库只提供模型 + 序列化。
 z42.core（prelude）+ z42.encoding（Utf8）+ z42.io（zpkg 文件）+ z42.crypto（ZpkgBuilder 构建 id）。**无** z42c.* 反依赖（叶子）。
 
 ## 测试
-`tests/smoke`（自包含单元）· `tests/depindex`（DependencyIndex）· `tests/zpkg`（zpkg 后端）——均不依赖 IrGen。
+`tests/smoke.z42`（自包含单元，3）· `tests/depindex.z42`（DependencyIndex，5）·
+`tests/zpkg.z42`（zpkg 后端，4）——共 12 个 `[Test]`，均不依赖 IrGen。
 完整 IR→zbc 往返（需 IrGen）在 `z42c.semantics/tests/zbcreader`。
+
+```bash
+xtask test stdlib z42.ir          # 本库全部单元
+xtask test stdlib z42.ir -k zpkg  # 只跑一个
+```
+
+> 这三个单元 2026-09-06 前**从未跑过**：它们曾是 `tests/<name>/<name>_tests.z42` +
+> 手写 `.z42.toml`，而 stdlib 的 dir 单元发现要求目录里有 `source.z42`，于是三个目录
+> 全被静默跳过，`test stdlib z42.ir` 报「all 0 file(s) passed」。改成 flat 单文件后
+> 才真正入门禁——首次运行即抓出 `zpkg.z42` 里钉死的 zpkg minor 已过期 10 个版本。
+> 详见 change `tidy-test-layout`。

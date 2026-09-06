@@ -18,10 +18,20 @@ void test_length_ascii() {
 
 [Test]
 void test_length_vs_bytelength_multibyte() {
-    // "你好" = 2 个 Unicode scalar，UTF-8 下每字 3 字节 = 6 字节。
-    string s = "你好";
-    Assert.Equal(2, s.Length);
-    Assert.Equal(6, s.ByteLength);
+    // 逐档覆盖 UTF-8 的四种编码宽度（并自 src/tests/strings/string_byte_length 合入，
+    // 该用例与本文件重复，只有 2/4 字节两档是它独有的）。
+    // 2 字节（Latin-1 补充）：é
+    Assert.Equal(4, "café".Length);
+    Assert.Equal(5, "café".ByteLength);
+    // 3 字节（CJK）：每字 3 字节
+    Assert.Equal(2, "你好".Length);
+    Assert.Equal(6, "你好".ByteLength);
+    // 4 字节（星际平面 / emoji）
+    Assert.Equal(1, "🎉".Length);
+    Assert.Equal(4, "🎉".ByteLength);
+    // 混合：1 (ASCII) + 3 (CJK) + 4 (emoji) = 8 字节，3 个 scalar
+    Assert.Equal(3, "a好🎉".Length);
+    Assert.Equal(8, "a好🎉".ByteLength);
 }
 
 [Test]
@@ -179,6 +189,7 @@ void test_to_char_array_roundtrip() {
     Assert.Equal('c', cs[2]);
     Assert.Equal("abc", String.FromChars(cs));
     Assert.Equal(0, "".ToCharArray().Length);
+    Assert.Equal(0, String.FromChars(new char[0]).Length);   // 空 char[] → 空串
 }
 
 // ── Split（单参）──────────────────────────────────────────────────────────
@@ -220,7 +231,11 @@ void test_join_array_and_expanded() {
 
 [Test]
 void test_concat() {
+    Assert.Equal("solo", String.Concat("solo"));            // 单实参
     Assert.Equal("abc", String.Concat("a", "b", "c"));
+    // 4 参：超出 params 化之前那版固定的 Concat(a,b,c) 三元上限，走 expanded form
+    // （自 src/tests/strings/string_params_methods 合入的唯一独有断言）。
+    Assert.Equal("abcd", String.Concat("a", "b", "c", "d"));
     Assert.Equal("", String.Concat(new string[0]));
     string[] arr = new string[2];
     arr[0] = "foo"; arr[1] = "bar";

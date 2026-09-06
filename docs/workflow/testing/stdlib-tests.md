@@ -31,6 +31,30 @@ compile（直接 z42c.driver.zpkg）+ run（仿 VM golden 的 `_runVmBatch`）�
 
 ## 测试发现机制
 
+### 什么算一个 unit
+
+`src/libraries/<lib>/tests/` 下，两种形态各算一个编译 + 运行单元：
+
+| 形态 | 何时用 |
+|------|--------|
+| `tests/<name>.z42` | **默认**。单文件、自包含（自己的 namespace + 辅助函数），`--emit-zbc` 直接编 |
+| `tests/<name>/`（目录内**任一** `.z42` 声明了 `[Test]`）| 一个 unit 要拆多文件、或需要 sidecar 时。目录内 `**/*.z42` 全部编进同一个 unit |
+
+目录形态的判据**只是「里面有没有 `[Test]`」**，与入口文件叫什么无关（dir unit 经合成
+mini-manifest 的 `**/*.z42` glob 编译，不看某个固定入口名）。含 `source.z42` 但**没有**
+`[Test]`、只有 `void Main()` 的目录不是 unit，而是本库的 **golden 用例**，由
+`xtask test e2e` 跑。
+
+> **踩过的坑（tidy-test-layout，2026-09-06）**：目录判据曾额外要求存在 `source.z42`。
+> 于是 `z42.ir` / `z42c.core` / `z42c.syntax` 那些以 `<name>_tests.z42` 命名的目录
+> 全被静默跳过——`xtask test list` 照常把它们列出来（列表用的是「有没有 `[Test]`」这条
+> 判据），`xtask test stdlib <lib>` 却报 “all 0 file(s) passed”，绿得毫无破绽。29 个
+> `[Test]` 就这样躺了几个月，首次真跑即抓出两处腐坏的断言。两条判据现已统一，另加了
+> 门禁：**点名某个库、其 `tests/` 下有 `.z42` 源却发现不到任何 unit → 直接判红**
+> （无名扫库和「库根本没有 tests/」不受影响）。
+
+### 从注解到执行
+
 1. 编译期 — 每个测试 `.z42` 文件含 `[Test]` / `[Benchmark]` / `[Skip]` / `[ShouldThrow<E>]` 注解的 free function
 2. 编译器把这些 metadata 写到 zbc 的 TIDX section
 3. `z42b` 从 zbc 读 TIDX，**默认 in-process**（R3b：`runner.rs` 直调
@@ -54,7 +78,7 @@ z42b <unit>.zbc --format tap
 ## 加新测试
 
 ```z42
-// src/libraries/<lib>/tests/MyFeatureTests.z42
+// src/libraries/<lib>/tests/my_feature.z42   ← 单文件即一个 unit
 namespace Std.<Lib>.Tests;
 
 [Test]
@@ -70,13 +94,17 @@ public static void test_throws_on_invalid_input() {
 }
 ```
 
-写完后 `./xtask test stdlib <lib>` 即可发现。
+写完后 `./xtask test stdlib <lib>` 即可发现（`-k <name>` 只跑这一个）。
+
+**该不该写在这里**：判据是「这条断言在描述谁的契约」。测某个库 API 的行为（`String.Trim`、
+`Enum.Parse`、`List<T>`）→ 就写在那个库的 `tests/`，哪怕它由 VM builtin 实现；测语言 / VM
+特性（语法、派发、GC、优化 pass）→ 写 [`src/tests/`](../../../src/tests/README.md)。
 
 ## 与编译器单测的区别
 
 | 维度 | 编译器单测（`unit-tests.md`）| stdlib `[Test]`（本文）|
 |------|---|---|
-| 写在 | z42c 源码 `[Test]` units / Rust `*_tests.rs` | z42 `*Tests.z42` |
+| 写在 | z42c 源码 `[Test]` units / Rust `*_tests.rs` | `src/libraries/<lib>/tests/<name>.z42` |
 | 测什么 | 编译器内部（lexer / parser / TC / IR），经 z42c 自举不动点 | stdlib 源码（运行时行为）|
 | Runner | `./xtask test compiler` / `cargo test` | z42b |
 | 加入 GREEN | ✅ | ✅ |

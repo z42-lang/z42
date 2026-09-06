@@ -1,0 +1,25 @@
+// add-osr-loop-tiering: a function called exactly ONCE but running a hot inner
+// loop. Call-count tiering never upgrades it (count = 1), so under --mode jit it
+// starts on the interpreter and OSR (on-stack replacement) takes it native once the
+// loop's back-edge count crosses Z42_OSR_THRESHOLD. The result must be identical to
+// the pure interpreter run — that equivalence is what this case pins, and the runner
+// executes every case under both modes, so the assertion below is checked twice.
+namespace OsrTest;
+
+long HotSum(long n) {
+    long total = 0L;
+    long i = 0L;
+    while (i < n) {
+        total = total + i;
+        i = i + 1L;
+    }
+    return total;
+}
+
+void Main() {
+    // 50000 iterations comfortably crosses the default OSR threshold (10000):
+    // the tail of the loop runs as native code, the head on the interpreter.
+    long r = HotSum(50000L);
+    Assert.Equal(1249975000L, r);        // 49999 * 50000 / 2
+    Assert.Equal("1249975000", r.ToString());
+}
