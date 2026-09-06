@@ -125,20 +125,30 @@ impl VmContext {
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
         // fix-lazy-lookup-contention：稳态命中走读锁 —— 没有加载任何 zpkg，所以
         // `newly_loaded` 恒空；静态初始化的排空判定仍照旧（`loader_quiet` 同样在锁内读）。
+        //
+        // fix-negative-cache-under-read-lock：**miss 也走读锁**。`resolve_function` 的第一件事
+        // 就是查负缓存并直接返回 `None`（热点是无构造函数类合成的 `..ctor$0`，每次 `new` 查一次）——
+        // 那是一次纯记忆化的「否」，却要付一次独占锁并堵住所有读者。这里在读锁下先答掉。
         let fast = {
             let state = self.core.lazy_loader.read();
             match state.as_ref() {
-                Some(loader) => loader
-                    .probe_function(func_name)
-                    .map(|f| (f, loader.pending_static_inits.is_empty())),
+                Some(loader) => {
+                    let quiet = loader.pending_static_inits.is_empty();
+                    match loader.probe_function(func_name) {
+                        Some(f) => Some((Some(f), quiet)),
+                        None if loader.known_unresolved_function_ro(func_name) => Some((None, quiet)),
+                        None => None,
+                    }
+                }
                 None => return None,
             }
         };
-        if let Some((f, loader_quiet)) = fast {
+        // `resolved` 已经是最终答案（`Some` = 命中，`None` = 负缓存里的确定性「否」）。
+        if let Some((resolved, loader_quiet)) = fast {
             if !self.static_init_drain_is_noop(&[], loader_quiet) {
                 self.run_pending_static_inits();
             }
-            return Some(f);
+            return resolved;
         }
         let (result, newly_loaded, loader_quiet) = {
             let mut state = self.core.lazy_loader.write();
@@ -171,20 +181,28 @@ impl VmContext {
     pub fn try_lookup_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
         // fix-lazy-lookup-contention：同 try_lookup_function —— registry 命中且基类链完整
         // 时是纯读，走读锁。
+        // fix-negative-cache-under-read-lock：同 try_lookup_function —— 已知解析不出来的类名
+        // （`obj_new` 每次分配都要探一次）也在读锁下答掉，别为一个记忆化的「否」拿独占锁。
         let fast = {
             let state = self.core.lazy_loader.read();
             match state.as_ref() {
-                Some(loader) => loader
-                    .probe_type(class_name)
-                    .map(|td| (td, loader.pending_static_inits.is_empty())),
+                Some(loader) => {
+                    let quiet = loader.pending_static_inits.is_empty();
+                    match loader.probe_type(class_name) {
+                        Some(td) => Some((Some(td), quiet)),
+                        None if loader.known_unresolved_type_ro(class_name) => Some((None, quiet)),
+                        None => None,
+                    }
+                }
                 None => return None,
             }
         };
-        if let Some((td, loader_quiet)) = fast {
+        // 同上：`resolved` 即最终答案。
+        if let Some((resolved, loader_quiet)) = fast {
             if !self.static_init_drain_is_noop(&[], loader_quiet) {
                 self.run_pending_static_inits();
             }
-            return Some(td);
+            return resolved;
         }
         let (result, newly_loaded, loader_quiet) = {
             let mut state = self.core.lazy_loader.write();
