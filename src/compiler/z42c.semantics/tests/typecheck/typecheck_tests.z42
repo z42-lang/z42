@@ -628,7 +628,7 @@ void test_int_literal_decimal_over_range_is_long() {
 // first-wins 静默吞掉第二个方法体、零诊断；现报 E0408 duplicate declaration。
 [Test]
 void test_error_duplicate_overload_type_alias_collision() {
-    // int 与 i32 是同一基本类型的两种拼写（Z42Type.Canon 归一）→ 签名键碰撞
+    // int 与 i32 是同一基本类型的两种拼写（PrimModel.Canon 归一）→ 签名键碰撞
     string src = "class C { static void F(int a) { } static void F(i32 a) { } }";
     Assert.Equal(1, SemanticDump.ErrorCount(src));
 }

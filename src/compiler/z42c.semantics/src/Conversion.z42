@@ -88,8 +88,8 @@ public static class Conversion {
     private static ConvResult _findConvOn(string clsName, Z42Type from, Z42Type to, SymbolTable symbols) {
         if (!symbols.HasClass(clsName)) { return new ConvResult(ConvKind.None); }
         Z42ClassType ct = symbols.GetClass(clsName);
-        string fromC = Z42Type.Canon(from.Name());
-        string toC = Z42Type.Canon(to.Name());
+        string fromC = from.CanonName();
+        string toC = to.CanonName();
         int cap = ct.Methods.Capacity();   // perf-compiler-lookup-tables：槽位直扫（同 Keys() 序），免分配
         bool[] used = ct.Methods.UsedArr();          // 批量视图：免每槽两次 z42 方法调用
         object[] vals = ct.Methods.ValArr();
@@ -99,8 +99,8 @@ public static class Conversion {
                 MethodSymbol ms = vals[i] as MethodSymbol;
                 if (ms != null && ms.IsStatic && SymbolCollector._isConvOp(ms.Name) && ms.Signature != null
                     && ms.Signature.ParamCount == 1
-                    && Z42Type.Canon(ms.Signature.ParamTypes[0].Name()) == fromC
-                    && Z42Type.Canon(ms.Signature.Ret.Name()) == toC) {
+                    && ms.Signature.ParamTypes[0].CanonName() == fromC
+                    && ms.Signature.Ret.CanonName() == toC) {
                     int kind = ConvKind.UserExplicit;
                     if (ms.Name == "op_Implicit") { kind = ConvKind.UserImplicit; }
                     ConvResult res = new ConvResult(kind);
@@ -177,41 +177,41 @@ public static class Conversion {
     // unify-value-types Phase 1（双路）：翻转后基元为 Z42ClassType(Scalar)——追加 Scalar 判定
     // （IsScalarValue = 六个基元 wrapper = 数值∪bool∪char，与历史 numeric∪bool 等价）。翻转前中立。
     public static bool _isValuePrim(Z42Type t) {
-        return (t is Z42ClassType) && PrimModel.IsScalarValue(t.Name());
+        return (t is Z42ClassType) && t.IsScalarType();
     }
 
     // unify-value-types Phase 1：翻转后 object→Z42ClassType(Object)——追加 Canon=="object" 判定
     // （拆箱源判别用；翻转前无该拼写 Z42ClassType → 中立）。
     public static bool _isObjectPrim(Z42Type t) {
-        return (t is Z42ClassType) && (PrimModel.Canon(t.Name()) == "object");
+        return (t is Z42ClassType) && (t.CanonName() == "object");
     }
 
     // 双路辅助：两侧是同一 canonical 内建类型（跨 Z42PrimType / 翻转后 Z42ClassType 混用态）。
     // 用于桥接「本地翻转成 ClassType，imported/字面量仍是 Prim」的同类型赋值。
     private static bool _sameBuiltin(Z42Type a, Z42Type b) {
         if (a == null || b == null) { return false; }
-        bool aB = (a is Z42ClassType) && PrimModel.IsBuiltin(a.Name());
-        bool bB = (b is Z42ClassType) && PrimModel.IsBuiltin(b.Name());
+        bool aB = (a is Z42ClassType) && a.IsBuiltinType();
+        bool bB = (b is Z42ClassType) && b.IsBuiltinType();
         if (!aB || !bB) { return false; }
-        return PrimModel.Canon(a.Name()) == PrimModel.Canon(b.Name());
+        return a.CanonName() == b.CanonName();
     }
 
     // 双路辅助：是内建 object（Z42PrimType("object") 或翻转后 Z42ClassType(Object)）。
     private static bool _isObjectBuiltin(Z42Type t) {
-        return (t is Z42ClassType) && (PrimModel.Canon(t.Name()) == "object");
+        return (t is Z42ClassType) && (t.CanonName() == "object");
     }
 
     // 双路辅助：是数值内建（Z42PrimType 或翻转后 Z42ClassType(Scalar)，且名归一为数值基元）。
     // Z42ClassType 分支用 PrimModel.IsNumeric（Canon 归一 wrapper 名 Int32→i32）；_isNumericPrim 只认
     // keyword/短名，翻转后 Name()="Int32" 会漏。二者在 keyword/短名输入上语义相同 → 当前中立。
     private static bool _isNumericBuiltin(Z42Type t) {
-        return (t is Z42ClassType) && PrimModel.IsNumeric(t.Name());
+        return (t is Z42ClassType) && t.IsNumericType();
     }
 
     // 数值 prim 对 → 种类。同型 → Identity；无损拓宽 → ImplicitNumeric；否则（窄化 / 有损浮点）→ ExplicitNumeric。
     public static int _numericKind(string from, string to) {
-        string f = Z42Type.Canon(from);
-        string t = Z42Type.Canon(to);
+        string f = PrimModel.Canon(from);
+        string t = PrimModel.Canon(to);
         if (f == t) { return ConvKind.Identity; }
         if (Conversion._widensLossless(f, t)) { return ConvKind.ImplicitNumeric; }
         return ConvKind.ExplicitNumeric;

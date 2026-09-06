@@ -190,7 +190,7 @@ public sealed class ConstraintChecker {
         if (arg is Z42ClassType) { cls = arg as Z42ClassType; }
         else if (arg is Z42InstantiatedType) { cls = (arg as Z42InstantiatedType).Def; }
         if (cls == null) { return false; }              // 数组 / func / void
-        if (PrimModel.IsScalarValue(cls.Name())) { return true; }   // 基元恒满足（同运行期）
+        if (cls.IsScalarType()) { return true; }   // 基元恒满足（同运行期）
         if (cls.IsAbstract) { return false; }
         MethodSymbol[] ctors = cls.OverloadsOf(cls.Name());
         bool anyDeclared = false;
@@ -262,7 +262,7 @@ public sealed class ConstraintChecker {
         // （值类型非引用）。故排除 IsScalarValue 的 ClassType；string/object（IsScalarValue=false，引用类型）
         // 与用户 class/instantiated 仍满足。翻转前 scalar 是 Z42PrimType（本就 `is Z42ClassType`=false 不满足），
         // 逐字节同义。
-        if ((arg is Z42ClassType) && PrimModel.IsScalarValue(arg.Name())) { return false; }
+        if ((arg is Z42ClassType) && arg.IsScalarType()) { return false; }
         return (arg is Z42ClassType) || (arg is Z42InstantiatedType);
     }
 
@@ -271,7 +271,7 @@ public sealed class ConstraintChecker {
         // unify-value-types Phase 1（2.6 双路）：翻转后基元（int→Z42ClassType(Int32,Scalar)）仍算值类型——
         // 追加 Scalar 值类型判定（IsScalarValue 只认六个基元 wrapper，用户 struct 不命中，保持现行为）。
         // 翻转前无 Scalar 名 Z42ClassType 流经此处 → 当前中立。
-        return (arg is Z42ClassType) && PrimModel.IsScalarValue(arg.Name());
+        return (arg is Z42ClassType) && arg.IsScalarType();
     }
 
     // ════ 方法级 where 约束（add-generic-methods，call-site）═══════════════════════

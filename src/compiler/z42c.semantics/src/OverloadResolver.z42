@@ -1,7 +1,7 @@
 // 方法重载决议 + 签名键派生（add-type-based-overloads）。
 //
 // z42c 方法身份 = 精确函数签名（name + 形参类型序列）。签名键统一派生、可序列化、跨包可复算：
-//   key = Name$arity[$T1$T2...]，Ti = Z42Type.Canon(paramType.Name())（剥空白）。
+//   key = Name$arity[$T1$T2...]，Ti = PrimModel.Canon(paramType.Name())（剥空白）。
 //   用 Canon 归一基本类型别名 + 剥 nullable → imported（keyword 拼写）与本地（canonical）两侧一致。
 //
 // 决议：候选集（同名所有重载，沿 base 链聚合）→ 适用性（arity + 每位 IsAssignableTo）→
@@ -84,7 +84,7 @@ public sealed class OverloadResolver {
         if ((t is Z42ArrayType) || (t is Z42InstantiatedType) || (t is Z42FuncType)) {
             return OverloadResolver._stripSpaces(OverloadResolver._compositeKeyName(t));
         }
-        return OverloadResolver._stripSpaces(Z42Type.Canon(t.Name()));
+        return OverloadResolver._stripSpaces(t.CanonName());
     }
 
     // 复合类型名重建（镜像各 Z42Type.Name() 的字符串格式），但内建叶子映射回 keyword 拼写。
@@ -108,7 +108,7 @@ public sealed class OverloadResolver {
             return s + ">";
         }
         // 叶子：内建 → keyword 拼写（复刻翻转前 Z42PrimType 名）；其余 → 原名。
-        if ((t is Z42ClassType) && PrimModel.IsBuiltin(t.Name())) { return PrimModel.Keyword(t.Name()); }
+        if (t is Z42ClassType) { int _c = t.PrimCode(); if (_c >= 0) { return PrimModel.KeywordOfCode(_c); } }
         return t.Name();
     }
 
@@ -216,7 +216,7 @@ public sealed class OverloadResolver {
     // 类型相等（规范名比较，归一别名）。
     private static bool _sameType(Z42Type a, Z42Type b) {
         if (a == null || b == null) { return false; }
-        return Z42Type.Canon(a.Name()) == Z42Type.Canon(b.Name());
+        return a.CanonName() == b.CanonName();
     }
 
     // 实参类型可赋值到形参类型（复用 Z42Type.IsAssignableTo + 精确名等价兜底）。
@@ -225,14 +225,14 @@ public sealed class OverloadResolver {
         // 任意 → object 装箱/上转。阶段 3：object 形参现恒 Z42ClassType(Object)（Name()="Object"），
         // 须按 PrimModel.Canon 归一（与 _assignable2:193 同款），否则 raw "object" 失配 → object 形参
         // 重载（如 StrMap.Put(string,object)）对任意实参判不适用。
-        if (param != null && PrimModel.Canon(param.Name()) == "object") { return true; }
+        if (param != null && param.CanonName() == "object") { return true; }
         if (arg == null) { return false; }
         return arg.IsAssignableTo(param);
     }
     private static bool _assignable2(Z42Type a, Z42Type b) {
         if (OverloadResolver._sameType(a, b)) { return true; }
         // unify-value-types Phase 1：任意 → object（翻转后 object→Z42ClassType(Object)，Canon 归一）。
-        if (b != null && PrimModel.Canon(b.Name()) == "object") { return true; }
+        if (b != null && b.CanonName() == "object") { return true; }
         if (a == null) { return false; }
         return a.IsAssignableTo(b);
     }
