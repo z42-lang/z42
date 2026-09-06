@@ -1,0 +1,27 @@
+// 装箱/拆箱（add-boxing-conversions）：原始值 ↔ object 往返（方案 A：类型系统层，
+// Value 已是 tagged union，装箱零分配；拆箱复用 Convert 受检解析）。
+namespace Demo;
+
+void Main() {
+    // 标量装箱 → 受检拆箱
+    object o = 5;
+    int x = (int)o;
+    Assert.Equal(5, x);
+
+    object flag = true;          // bool 装箱（拆箱靠 add-boxing-conversions 的 Bool 恒等）
+    bool b = (bool)flag;
+    Assert.True(b);
+
+    // object[] 逐元素装箱 / 拆箱
+    object[] a = new object[2];
+    a[0] = 42;
+    a[1] = (char)122;
+    Assert.Equal(42, (int)a[0]);
+    Assert.Equal('z', (char)a[1]);
+
+    // 拆箱后的值走 Object 协议（原 golden 靠 Console.WriteLine 打印这两个形态，
+    // 是它唯一在验、别处没覆盖的东西——直接断言 ToString 把它留住）。
+    char c = (char)a[1];
+    Assert.Equal("true", b.ToString());
+    Assert.Equal("z", c.ToString());
+}

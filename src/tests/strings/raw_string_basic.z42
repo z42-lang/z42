@@ -1,0 +1,27 @@
+// add-raw-string-literal (2026-05-27)：`"""..."""` 的词法端到端。
+// tidy-test-layout (2026-09-06)：原本是 Console.WriteLine + expected_output.txt 的
+// dir-mode golden，但每一行打印的都是可直接比较的字符串值——改成 assert-only 后
+// 语义不变，少一个目录 + 一个侧车文件。
+void Main() {
+    // 单行
+    Assert.Equal("hello", """hello""");
+
+    // 多行：换行原样保留
+    string b = """line1
+line2
+line3""";
+    Assert.Equal("line1\nline2\nline3", b);
+
+    // 内部可含单个 / 成对引号，无需转义
+    Assert.Equal("has \"quotes\" and \"\" pairs", """has "quotes" and "" pairs""");
+
+    // 反斜杠序列不解码（raw 的要点）
+    Assert.Equal("backslash-n \\n stays literal", """backslash-n \n stays literal""");
+
+    // 空 raw 串
+    Assert.Equal("", """""");
+    Assert.Equal(0, """""".Length);
+
+    // 与普通串 / 其它 raw 串拼接
+    Assert.Equal("foo|bar", """foo""" + "|" + """bar""");
+}

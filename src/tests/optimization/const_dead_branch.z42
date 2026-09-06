@@ -1,0 +1,31 @@
+// add-const-keyword e2e：常量条件死分支消除。const bool 条件 → br.cond(常量)→br 折叠 +
+// 不可达块移除。**优化前后行为一致**（死分支本就不该执行）。
+//
+// tidy-test-layout (2026-09-06)：原为 golden，靠「死分支的 Console.WriteLine 不出现在
+// expected_output.txt 里」间接证明不可达。改成计数器 + Assert.Equal(0, ...) 后，
+// 「死分支没跑」变成一条显式断言（而不是靠人核对一份输出里少了哪行），侧车随之删除。
+class Flags {
+    const bool Debug = false;
+    const bool Release = true;
+}
+
+class Probe { public static int deadHits = 0; }
+
+void heavy() { Probe.deadHits = Probe.deadHits + 1; }
+
+void Main() {
+    if (Flags.Debug) { heavy(); }          // const false → then 块（含 heavy 调用）不可达
+    Assert.Equal(0, Probe.deadHits);       // 死分支确实没执行
+
+    string taken = "";
+    if (Flags.Release) { taken = "release-on"; }
+    else { taken = "release-else"; Probe.deadHits = Probe.deadHits + 1; }
+    Assert.Equal("release-on", taken);
+
+    const bool localOff = false;
+    if (localOff) { taken = "local-then"; Probe.deadHits = Probe.deadHits + 1; }
+    else { taken = "local-else"; }
+    Assert.Equal("local-else", taken);
+
+    Assert.Equal(0, Probe.deadHits);       // 全程没有任何死分支被执行
+}

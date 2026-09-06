@@ -1,8 +1,0 @@
-hello
-line1
-line2
-line3
-has "quotes" and "" pairs
-backslash-n \n stays literal
-[]
-foo|bar

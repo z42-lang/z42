@@ -19,6 +19,13 @@
   - 此前是 **build-if-needed**：「zpkg 文件存在」就当「已最新」直接跳过编译——改完源码再 publish 会静默把**旧 payload** 重新签进 apphost（退出码 0、无提示）。这是所有 publish 路径共有的洞，非某个工程特有。
   - **`--no-build`**：显式声明「就用现成的字节」，给自己已用特定编译器编好、要求字节不被动的调用方（xtask 的 SDK 组装 / 自举不动点路径）。旧行为的显式化版本。
   - 依赖 / native / payload 的**拷贝**同样改为 overwrite（此前 `if (!File.Exists(dst))` → dst 在就不覆盖，同一类陈旧）。
+- **launcher 的 publish 旗标必须逐个转发**（`_publishForwardArgv` 手工重建 z42b 的 argv）：注册在
+  `launcher_cli.z42` 却没重建进 argv 的旗标会**被静默吞掉**。`--self-contained` 曾整条缺失
+  （launcher 连注册都没有 → `z42 publish --self-contained` 直接报未知旗标，只有 `z42b publish`
+  能走到嵌入路径，与 embed-workload-publish「开箱即用」的目标不符），fix-publish-self-contained-forward
+  2026-09-06 补齐。
+  > 嵌入三件套（embed apphost / stdlib libs / libz42）来自工程的 `[build] hooks` 或 `Z42_EMBED_*` env
+  > —— **desktop workload 只带 spawn 用的 apphost stub**，不带嵌入件；把它们打进 workload 是尚未做的缺口。
 - **apphost stub 解析留 launcher**（它管已装 runtime/workload），经 `Z42_APPHOST_TEMPLATE` 传 z42b，故 z42b 的 publish **不含任何 runtime/workload 解析**，也**不依赖 z42.project/z42.build**（不触发自举串味）。
 
 ## 问题

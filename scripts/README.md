@@ -83,7 +83,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `build toolchain` | 改了 launcher/z42b/z42d/z42i 源 | 同上 + 自动 `build workload` | 4 个 apphost `publish <toml>` → **各 toml 的 `[platform.desktop].publish_dir`**（路径从 toml 读，不硬编码） |
 | `build test` | 改了 golden 测试源 | z42c/stdlib（缺则自建） | `src/tests/**` → `.zbc` 镜像到 `artifacts/build/tests/`（golden 编译，不重建工具链；含 `regen` 命令旧职能） |
 | `build sdk [--out D] [--no-build]` | 组装完整可运行 SDK | z42c/stdlib/z42vm + `build toolchain` | `.z42` 布局：`bin/{z42vm,z42c,z42b,z42d,z42i}` + `z42`(launcher 根) + `programs/*` + `libs/*`；apphost 从各 publish_dir 合并 |
-| `package sdk [--profile] [--no-build]` | 打 host SDK 发行包 | `cargo` + z42c | `artifacts/packages/z42-<ver>-<host>-release/{bin,libs,native}`（末尾 SHA-256 invariant） |
+| `package sdk [--profile] [--no-build]` | 打 host SDK 发行包 | `cargo` + z42c | `artifacts/packages/z42-<ver>-<host>-release/{bin,libs,native}`（末尾 source-identity 门） |
 | `package runtime [--rid R]` | runtime 包（native+stdlib，平台随 rid） | `cargo` + z42c | host: `z42-runtime-<ver>-<rid>`；平台: `z42-<ver>-<rid>-release` |
 | `package workload [--rid R] \| <label> [dist]` | `--rid`/无参：建 per-RID desktop workload；`<label>`：合并 4 个 per-RID → 单 archive | `cargo` | workload 包 / 合并 archive |
 | `package index <label> [dist] …` | 生成 release-index.json（launcher 供给契约） | SHA256SUMS | `release-index.json` |
@@ -170,7 +170,7 @@ package runtime [--rid R] [--profile P] ──► 按 RID 分类 dispatch
   ├─ ios      → package/xtask_package_ios.z42      cargo rustc (staticlib) + SwiftPM facade
   ├─ android  → package/xtask_package_android.z42  cargo-ndk rustc (cdylib) + Gradle facade
   └─ wasm     → package/xtask_package_wasm.z42     cargo rustc (wasm) + npm facade
-  ──► artifacts/packages/z42-<ver>-<rid>-<config>/ + manifest.toml + SHA-256 invariant
+  ──► artifacts/packages/z42-<ver>-<rid>-<config>/ + manifest.toml + source-identity 门
 ```
 
 ### `deps`（三正交子命令；`install/xtask_install.z42` + `xtask_deps.z42`）

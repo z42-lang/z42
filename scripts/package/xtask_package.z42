@@ -26,13 +26,12 @@ string _pkgSetupDir(string root, string rid, string version, string profile, str
     Directory.Create(Path.Join(pkgDir, "native/include"));
     return pkgDir;
 }
-// SHA-256 invariant check + success message on an assembled pkgDir.
+// source-identity check + success message on an assembled pkgDir.
 int _pkgFinish(string root, string pkgDir) {
     Console.WriteLine("");
-    Console.WriteLine("SHA-256 invariant check:");
-    int c = _pkgSha256Check(root, pkgDir);
-    if (c != 0) { ConsoleError.WriteLine("  ✗ SHA-256 invariant FAILED"); return c; }
-    Console.WriteLine("  ✓ SHA-256 invariants OK");
+    Console.WriteLine("source-identity check (package copies vs repo source):");
+    int c = _pkgSourceIdentityCheck(root, pkgDir);
+    if (c != 0) { ConsoleError.WriteLine("  ✗ source-identity check FAILED"); return c; }
     Console.WriteLine("");
     Console.WriteLine("✅ Package assembled: " + pkgDir);
     return 0;
@@ -273,34 +272,121 @@ int _pkgCopyLibs(string libsDir, string pkgDir) {
     return 0;
 }
 
-// ── SHA-256 invariant (native byte compare) ─────────────────────────────────
+// ── source-identity invariant（包内副本 vs 仓库源，逐字节） ───────────────────
+//
+// **不是哈希**：直接读两个文件比字节（比 hash 更强——无碰撞面、不依赖外部工具）。
+// 本函数曾名 `_pkgSha256Check`，源自最初 bash `package.sh` 里真的算 sha256sum 的
+// `pkg_sha256_check`（add-host-package-conform design D4）；移植到 z42 时实现换成了
+// 字节比较，名字留了下来，2026-09-06 正名（fix-package-identity-gate）。
+//
+// **为什么是「包 vs 源」而不是「包 vs 包」**：下表每一类文件，各个包里的副本都拷自
+// 仓库里**同一份源**，故 `A==源 ∧ B==源 ⟹ A==B`——「跨包 byte-identical」是本检查的
+// **推论**。反过来不成立：两两比对只能证明「大家一样」，证不了「大家都对」（所有包
+// 一致地拷了一份陈旧副本时，跨包比对全绿）。且各包在独立 xtask 进程 / 独立 CI job
+// 里打，`_pkgFinish` 只见得到一个 pkgDir，真做跨包比对得先改 CI 拓扑。
+// 论证全文见 docs/spec/changes/fix-package-identity-gate/proposal.md。
 
-int _pkgSha256Check(string root, string pkgDir) {
-    bool fail = false;
-    // 1. libs/* vs the flat dist source of truth
-    string libsSrc = _libsDir(root);
-    string pkgLibs = Path.Join(pkgDir, "libs");
-    if (Directory.Exists(pkgLibs)) {
-        foreach (var f in Directory.Enumerate(pkgLibs)) {
-            string src = Path.Join(libsSrc, f);
-            if (File.Exists(src) && !_filesEqual(Path.Join(pkgLibs, f), src)) {
-                ConsoleError.WriteLine("  ✗ libs/" + f + " differs from source"); fail = true;
-            }
+// 一条规则 = 包内相对路径 ↔ 仓库源绝对路径。
+// PkgRel 落在目录上 → **递归**比对以 Suffix 结尾的文件（Suffix="" 表示全部）；
+// 落在文件上 → 直接比对。包内不存在该路径 → 整条规则跳过（一张表服务全部包类别：
+// desktop 没有 Sources/、ios 没有 js/）。
+class _PkgIdentityRule {
+    public string Label  { get; set; }
+    public string PkgRel { get; set; }
+    public string SrcAbs { get; set; }
+    public string Suffix { get; set; }
+}
+
+class _PkgIdentityTally {
+    public int Compared { get; set; }
+    public int Mismatch { get; set; }
+}
+
+_PkgIdentityRule _pkgRule(string label, string pkgRel, string srcAbs, string suffix) {
+    _PkgIdentityRule r = new _PkgIdentityRule();
+    r.Label = label; r.PkgRel = pkgRel; r.SrcAbs = srcAbs; r.Suffix = suffix;
+    return r;
+}
+
+// ⚠️ 规则必须与**实际拷贝的那一行**同源，否则门会验一个不相干的文件（= 假保障）。
+// 每条右侧注明拷贝点。特别注意 ios `Sources/Z42VMC/` 与 android `.../cpp/` **不能**
+// 整棵目录递归比：它们的 `include/` 装的是 `_copyAbiHeaders` 拷进去的**真 runtime 头**，
+// 而源树同名目录里是 `#include "../../.."` 的转发 stub，整棵比会假红。故那两处用
+// 显式文件规则 + 单独一条指向 src/runtime/include 的 include 规则。
+_PkgIdentityRule[] _pkgIdentityRules(string root) {
+    string rtInc   = Path.Join(root, "src/runtime/include");
+    string iosSrc  = Path.Join(root, "src/toolchain/workload/ios/platform");
+    string andProj = Path.Join(root, "src/toolchain/workload/android/platform");
+    string wasmJs  = Path.Join(root, "src/toolchain/workload/wasm/platform/js");
+    _PkgIdentityRule[] rs = new _PkgIdentityRule[10];
+    // stdlib zpkg/zsym（_pkgCopyLibs）
+    rs[0] = _pkgRule("stdlib libs",        "libs",                          _libsDir(root), "");
+    // C ABI 头，三个落点同一份源（_copyAbiHeaders）
+    rs[1] = _pkgRule("C ABI headers",      "native/include",                rtInc, ".h");
+    rs[2] = _pkgRule("C ABI headers (ios)", "Sources/Z42VMC/include",       rtInc, ".h");
+    rs[3] = _pkgRule("C ABI headers (android)", "z42vm/src/main/cpp/include", rtInc, ".h");
+    // iOS（_packageIos:95,97）
+    rs[4] = _pkgRule("iOS Swift",          "Sources/Z42VM",                 Path.Join(iosSrc, "Sources/Z42VM"), ".swift");
+    rs[5] = _pkgRule("iOS Z42VMC dummy.c", "Sources/Z42VMC/dummy.c",        Path.Join(iosSrc, "Sources/Z42VMC/dummy.c"), "");
+    // Android（_pkgEmitAndroidGradleProject:178,182,183）
+    rs[6] = _pkgRule("Android Kotlin",     "z42vm/src/main/java",           Path.Join(andProj, "z42vm/src/main/java"), ".kt");
+    rs[7] = _pkgRule("Android JNI bridge", "z42vm/src/main/cpp/z42vm_jni.c", Path.Join(andProj, "z42vm/src/main/cpp/z42vm_jni.c"), "");
+    rs[8] = _pkgRule("Android CMakeLists", "z42vm/src/main/cpp/CMakeLists.txt", Path.Join(andProj, "z42vm/src/main/cpp/CMakeLists.txt"), "");
+    // wasm（_packageWasm:87）
+    rs[9] = _pkgRule("wasm js facade",     "js",                            wasmJs, "");
+    return rs;
+}
+
+int _pkgSourceIdentityCheck(string root, string pkgDir) {
+    _PkgIdentityRule[] rules = _pkgIdentityRules(root);
+    _PkgIdentityTally t = new _PkgIdentityTally();
+    string covered = "";
+    int i = 0;
+    while (i < rules.Length) {
+        _PkgIdentityRule r = rules[i];
+        string pkgPath = Path.Join(pkgDir, r.PkgRel);
+        int before = t.Compared;
+        if (Directory.Exists(pkgPath))  { _pkgIdentityWalk(pkgPath, r.SrcAbs, r.Suffix, r.PkgRel, t); }
+        else if (File.Exists(pkgPath))  { _pkgIdentityOne(pkgPath, r.SrcAbs, r.PkgRel, t); }
+        else                            { i = i + 1; continue; }   // 本包没有这一类
+        int n = t.Compared - before;
+        if (n == 0) {
+            // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了（正是本次要修的「假保障」形状）。
+            ConsoleError.WriteLine("  ⚠ " + r.Label + ": " + r.PkgRel + " 存在但 0 个文件可比对 —— 规则可能已与拷贝点脱钩");
+        } else {
+            covered = covered + (covered.Length > 0 ? ", " : "") + r.Label + " " + n.ToString();
+        }
+        i = i + 1;
+    }
+    if (t.Mismatch > 0) { return 1; }
+    if (t.Compared == 0) {
+        Console.WriteLine("  ✓ no source-derived files in this package (nothing to compare)");
+    } else {
+        Console.WriteLine("  ✓ " + t.Compared.ToString() + " file(s) match repo source (" + covered + ")");
+    }
+    return 0;
+}
+
+// 递归比对 pkgDir 子树内以 suffix 结尾的文件与 srcDir 下的同名对应文件。
+// **源侧缺失 → 跳过**（沿用原 libs 行为：包里可以有源树没有的产物，如 workload 自带件）。
+void _pkgIdentityWalk(string pkgDir, string srcDir, string suffix, string rel, _PkgIdentityTally t) {
+    foreach (var name in Directory.Enumerate(pkgDir)) {
+        string p = Path.Join(pkgDir, name);
+        if (Directory.Exists(p)) {
+            _pkgIdentityWalk(p, Path.Join(srcDir, name), suffix, rel + "/" + name, t);
+        } else if (suffix.Length == 0 || name.EndsWith(suffix)) {
+            _pkgIdentityOne(p, Path.Join(srcDir, name), rel + "/" + name, t);
         }
     }
-    // 2. native/include/*.h vs src/runtime/include/ — only when present. Split
-    //    (workload-tooling) packages carry no native/include; the headers live in
-    //    the separate runtime pack (ios Sources/Z42VMC/include, android z42vm cpp/include).
-    if (File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h"))
-        && !_filesEqual(Path.Join(pkgDir, "native/include/z42_abi.h"), Path.Join(root, "src/runtime/include/z42_abi.h"))) {
-        ConsoleError.WriteLine("  ✗ native/include/z42_abi.h differs"); fail = true;
+}
+
+void _pkgIdentityOne(string pkgFile, string srcFile, string rel, _PkgIdentityTally t) {
+    if (!File.Exists(srcFile)) { return; }   // 源侧没有对应物 → 不在本门管辖内
+    t.Compared = t.Compared + 1;
+    if (!_filesEqual(pkgFile, srcFile)) {
+        ConsoleError.WriteLine("  ✗ " + rel + " differs from " + srcFile);
+        t.Mismatch = t.Mismatch + 1;
     }
-    if (File.Exists(Path.Join(pkgDir, "native/include/z42_host.h"))
-        && !_filesEqual(Path.Join(pkgDir, "native/include/z42_host.h"), Path.Join(root, "src/runtime/include/z42_host.h"))) {
-        ConsoleError.WriteLine("  ✗ native/include/z42_host.h differs"); fail = true;
-    }
-    if (fail) { return 1; }
-    return 0;
 }
 
 bool _filesEqual(string a, string b) {
