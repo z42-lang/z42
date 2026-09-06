@@ -268,7 +268,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     int i = 0;
     CompilationUnit[] cus;
     NameListZ[] metaIdents = null;
-    string[] metaSurfaces = null;
+    NameSurfacesZ[] metaSurfaces = null;
     if (prep != null && prep.Cus != null) {
         cus = prep.Cus;
         metaIdents = prep.Idents;

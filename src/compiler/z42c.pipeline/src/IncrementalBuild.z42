@@ -4,23 +4,24 @@
 // 两段式：
 //   ① ProbeFiles —— 失效种子：源 hash ≠ meta / 条目缺失·pin 不符 / 包级源清单不一致
 //      （增删文件 → 全量，spec 场景）。
-//   ② Close —— 传递失效闭包：token 保守边（design D3 实现形态）——文件 i 的标识符
-//      token 命中文件 j 的包内定义名（类型/自由函数/成员名）→ 边 i→j；j fresh **且 j 的
-//      声明面变了** → i fresh。
-//      边每次 build 从当前源重算（源不变 → 边不变），不入 meta。
-//      **声明面闸门（fix-z42c-incremental-closure，落地 design D3 的 Deferred
-//      `incremental-future-tsig-level-invalidation`）**：token 边极粗——`_definedOf` 把**成员名**
-//      也登记成属主名，于是任一定义了 `Name()` 的文件一变，全包凡是提到 `Name` 的文件统统失效
-//      （实测 xtask：改一行注释 → `cached: 0/64`）。闸门只收紧**传播的起点**：源变了但
-//      **声明面**（= 去掉方法/属性/索引器体后的 token 流，见 driver 的 SurfaceHash.z42）没变的
-//      文件不当传播源——改注释 / 改函数体只重编它自己。
-//      依据：跨文件依赖只经声明面（内联限同 IrModule = 单 CU、逃逸/纯度摘要亦模块级、泛型走
-//      运行期类型实参不单态化进调用方；唯一把值抄进消费方的 const 字段，其初值写在字段声明里
-//      → 本就在声明面内）。
-//      **一旦传播起来就照旧全传递**：被波及而转 fresh 的行 SurfaceChanged 保持默认 true，
-//      于是「A 继承 B、C 用 A」这类**布局经中间文件透传**的链条与闸门前完全一致地失效
-//      （只把「本来就不该扩散的那一跳」掐掉，不去猜哪些扩散可以省）。driver 只在两处把它
-//      压成 false：种子失效但声明面相等、以及 cache 读不回来的降级行（两者源/声明面均未变）。
+//   ② Close —— 传递失效闭包，**判据在「名字」粒度上**（incr-name-level-invalidation；
+//      落地 design D3 的 Deferred `incremental-future-tsig-level-invalidation`）：
+//        · seedChanged = 种子失效文件里「声明面指纹变了 / 新增 / 删除」的**名字**集合；
+//        · 文件 i 失效 ⟺ i 的标识符 token 集碰到 seedChanged 里任一名字；
+//        · 文件 i 失效后**只有当它的声明面（方法体已剥）也提到了某个已变名字**，才把自己的
+//          全部定义名并入已变集、把波继续传下去。
+//      前身是「文件粒度」：`_definedOf` 把**成员名**也登记成属主名，于是任一定义了 `Name()` 的
+//      文件一变，全包凡是提到 `Name` 的文件统统失效（实测 xtask：加一个方法 → `cached: 0/64`）。
+//      名字粒度把「同名但没变的成员」这条假边彻底去掉：新增类型 / 新增函数 / 新增成员函数只波及
+//      真正提到**新名字**或**其所属类型名**的文件。
+//
+//      为什么「声明面提到已变名字才继续传」是必需的、也是足够的：
+//        · 必需——`A: class Foo : Bar`，`Bar` 变了则 `Foo` 的布局/vtable 跟着变，用 `Foo` 的 C
+//          必须重编。A 的源没动，`Foo` 的**指纹**却不足以反映这一点，故靠这条规则接上。
+//        · 足够——若 A 与 `Bar` 的唯一关联在某个**方法体**里，A 的任何声明都没变，A 的消费方
+//          看到的 A 仍是原来那个 A（跨文件依赖只经声明面），不必重编。
+//      粒度取「整文件的声明面」而非「逐名字的声明面」：够用且省一份 meta，方向是保守。
+//
 // Z42_INCR_DEBUG=1 → 种子原因 + 传播链（A invalidated-by B）。
 namespace Z42.Pipeline;
 using Z42.IR;
@@ -44,21 +45,15 @@ public sealed class IncrFilePlan {
     public int         FreshCount;
     public CacheMeta[] Metas;
     public int         Total;
-    // 上次构建记录的声明面指纹（cache 条目存在即有值，**不论** Fresh——种子失效行正是要拿它比对）；
-    // 无条目 → ""。
-    public string[]    PrevSurface;
-    // 该文件可否当传播源。默认全 true（= 闸门前的保守行为）；driver 算出「源变了但声明面没变」
-    // 的行才把它压成 false。非 Fresh 行的取值无意义（Close 只看 Fresh 行）。
-    public bool[]      SurfaceChanged;
+    // 上次构建的 cache 条目，**不论 Fresh 与否**都留着（种子失效行正是要拿它比对名字级指纹，
+    // 而 Metas[i] 对失效行是 null）。无条目 → null。
+    public CacheMeta[] Prev;
     public IncrFilePlan(int n) {
         this.AllCached = false;
         this.Fresh = new bool[n]; this.FreshCount = 0;
         this.Metas = new CacheMeta[n];
         this.Total = n;
-        this.PrevSurface = new string[n];
-        this.SurfaceChanged = new bool[n];
-        int i = 0;
-        while (i < n) { this.PrevSurface[i] = ""; this.SurfaceChanged[i] = true; i = i + 1; }
+        this.Prev = new CacheMeta[n];
     }
 }
 
@@ -96,11 +91,11 @@ public static class IncrementalBuild {
                 plan.Fresh[fi] = true; plan.FreshCount = plan.FreshCount + 1;
                 if (debug) { ConsoleError.WriteLine("  [seed/no-entry] " + rel); }
             } else if (hashes[fi] != m.SourceHash) {
-                plan.PrevSurface[fi] = m.SurfaceHash;   // 种子失效行留着比对声明面（Metas 仍置 null）
+                plan.Prev[fi] = m;   // 种子失效行留着比对名字级指纹（Metas 仍置 null）
                 plan.Fresh[fi] = true; plan.FreshCount = plan.FreshCount + 1;
                 if (debug) { ConsoleError.WriteLine("  [seed/hash-diff] " + rel); }
             } else {
-                plan.PrevSurface[fi] = m.SurfaceHash;
+                plan.Prev[fi] = m;
                 plan.Metas[fi] = m;
             }
             fi = fi + 1;
@@ -109,90 +104,97 @@ public static class IncrementalBuild {
         return plan;
     }
 
-    // ② 传递失效闭包。tokens[i] = 文件 i 标识符 token 集（去重）；defined[i] = 文件 i
-    // 包内定义名集。O(轮数 × N²) 朴素迭代（包内 N 小）；命中边即扩散直至不动。
+    // ② 传递失效闭包（名字粒度；见文件头）。
+    //   tokens[i]     = 文件 i 的标识符 token 去重集（**含方法体内**）—— 失效判据
+    //   surfIdents[i] = 文件 i **声明面**里的标识符去重集（体已剥）—— 传播判据
+    //   names[i]      = 文件 i 定义的名字集（当前源；cached 行取自上次 meta，源未变即不变）
+    //   seedChanged   = 种子失效文件里指纹变了/新增/删除的名字（调用方 diff 得出）
+    // 朴素不动点迭代（包内 N 小，判据是 StrMap 命中而非 N² 边矩阵，比前身更快）。
     public static void Close(IncrFilePlan plan, string[] srcs, string projectDir,
-                             NameListZ[] tokens, NameListZ[] defined, NameListZ partialNames) {
+                             NameListZ[] tokens, NameListZ[] surfIdents, NameListZ[] names,
+                             NameListZ seedChanged) {
         bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
         int n = plan.Total;
-        // 边矩阵一次算好：edge[i*n+j] = i 引用 j 的定义名（i≠j）。
-        // 全局定义名 → 属主文件列表（StrMap 哈希；value = IntBoxZ 链）。
-        StrMap owners = new StrMap();
-        int j = 0;
-        while (j < n) {
-            int k = 0;
-            while (k < defined[j].Count) {
-                string name = defined[j].Items[k];
-                object cur = owners.ContainsKey(name) ? owners.Get(name) : null;
-                owners.Put(name, new OwnerNodeZ(j, cur as OwnerNodeZ));
-                k = k + 1;
-            }
-            j = j + 1;
-        }
-        bool[] edge = new bool[n * n];
-        int i = 0;
-        while (i < n) {
-            int t = 0;
-            while (t < tokens[i].Count) {
-                if (owners.ContainsKey(tokens[i].Items[t])) {
-                    OwnerNodeZ node = owners.Get(tokens[i].Items[t]) as OwnerNodeZ;
-                    while (node != null) {
-                        if (node.FileIdx != i) { edge[i * n + node.FileIdx] = true; }
-                        node = node.Next;
-                    }
-                }
-                t = t + 1;
-            }
-            i = i + 1;
-        }
-        // add-partial-types：partial 碎片组 clique——同名 partial 类型的全部碎片文件两两互连（双向边）。
-        // 主碎片按**全碎片当前成员**发合并 TYPE record，故触任一碎片必须连带整组重编（否则主碎片 cache
-        // 会残留旧布局）。owners[name] 已含该名全部属主文件（partial 碎片各自 _definedOf 都注册了类名）。
-        int pn = 0;
-        while (pn < partialNames.Count) {
-            string pnm = partialNames.Items[pn];
-            if (owners.ContainsKey(pnm)) {
-                OwnerNodeZ ca = owners.Get(pnm) as OwnerNodeZ;
-                while (ca != null) {
-                    OwnerNodeZ cb = owners.Get(pnm) as OwnerNodeZ;
-                    while (cb != null) {
-                        if (ca.FileIdx != cb.FileIdx) { edge[ca.FileIdx * n + cb.FileIdx] = true; }
-                        cb = cb.Next;
-                    }
-                    ca = ca.Next;
-                }
-            }
-            pn = pn + 1;
-        }
-        // 闭包迭代。
-        bool changed = true;
-        while (changed) {
-            changed = false;
-            i = 0;
+        StrMap changed = new StrMap();
+        int c = 0;
+        while (c < seedChanged.Count) { changed.Put(seedChanged.Items[c], seedChanged); c = c + 1; }
+        // spread[i]：该文件的定义名是否已整体并入 changed（每文件至多一次，保证迭代收敛）。
+        bool[] spread = new bool[n];
+        bool moved = true;
+        while (moved) {
+            moved = false;
+            int i = 0;
             while (i < n) {
-                if (!plan.Fresh[i]) {
-                    j = 0;
-                    while (j < n) {
-                        // 闸门：j 只有在**声明面**也变了时才够格当传播源。源没变的行
-                        //（闭包/降级转 fresh）声明面必然没变 → 传播天然在一跳内收敛。
-                        if (plan.Fresh[j] && plan.SurfaceChanged[j] && edge[i * n + j]) {
-                            plan.Fresh[i] = true;
-                            plan.FreshCount = plan.FreshCount + 1;
-                            plan.Metas[i] = null;
-                            changed = true;
-                            if (debug) {
-                                ConsoleError.WriteLine("  [invalidated] "
-                                    + IncrementalBuild.Rel(projectDir, srcs[i])
-                                    + " invalidated-by " + IncrementalBuild.Rel(projectDir, srcs[j]));
-                            }
-                            j = n;   // break：本文件已失效
-                        } else { j = j + 1; }
+                if (!plan.Fresh[i] && IncrementalBuild._hits(tokens[i], changed)) {
+                    plan.Fresh[i] = true;
+                    plan.FreshCount = plan.FreshCount + 1;
+                    plan.Metas[i] = null;
+                    moved = true;
+                    if (debug) {
+                        ConsoleError.WriteLine("  [invalidated] " + IncrementalBuild.Rel(projectDir, srcs[i])
+                            + " uses-changed-name " + IncrementalBuild._firstHit(tokens[i], changed));
+                    }
+                }
+                // 种子行与被波及行一视同仁：只有**声明面**提到了**别人**的已变名字，才把自己的
+                // 定义名并入已变集继续传（`class Foo : Bar` 这类布局透传链靠它接上；只在函数体里
+                // 用到则到此为止）。
+                // **必须排除「自己定义的名字」**：种子文件的声明面天然提到它自己刚改的那些名字，
+                // 不排除的话种子第一轮就把自己全部成员名并进已变集 —— 粒度当场退回文件级，
+                // 「加一个方法 → 全包提到 `Name` 的文件统统失效」这个症状原样复发（实测复现过）。
+                if (plan.Fresh[i] && !spread[i] && names[i] != null
+                    && IncrementalBuild._hitsExternal(surfIdents[i], names[i], changed)) {
+                    spread[i] = true;
+                    int k = 0;
+                    while (k < names[i].Count) {
+                        if (!changed.ContainsKey(names[i].Items[k])) {
+                            changed.Put(names[i].Items[k], seedChanged);
+                            moved = true;
+                        }
+                        k = k + 1;
+                    }
+                    if (debug) {
+                        ConsoleError.WriteLine("  [spread] " + IncrementalBuild.Rel(projectDir, srcs[i])
+                            + " declares against a changed name -> its own names now suspect");
                     }
                 }
                 i = i + 1;
             }
         }
         plan.AllCached = plan.FreshCount == 0;
+    }
+
+    // 命中「别人的」已变名字：跳过本文件自己定义的名字（见 spread 处的说明）。
+    private static bool _hitsExternal(NameListZ list, NameListZ own, StrMap changed) {
+        if (list == null) { return false; }
+        StrMap mine = new StrMap();
+        int k = 0;
+        while (own != null && k < own.Count) { mine.Put(own.Items[k], own); k = k + 1; }
+        int i = 0;
+        while (i < list.Count) {
+            if (!mine.ContainsKey(list.Items[i]) && changed.ContainsKey(list.Items[i])) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static bool _hits(NameListZ list, StrMap changed) {
+        if (list == null) { return false; }
+        int i = 0;
+        while (i < list.Count) {
+            if (changed.ContainsKey(list.Items[i])) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static string _firstHit(NameListZ list, StrMap changed) {
+        if (list == null) { return "?"; }
+        int i = 0;
+        while (i < list.Count) {
+            if (changed.ContainsKey(list.Items[i])) { return list.Items[i]; }
+            i = i + 1;
+        }
+        return "?";
     }
 
     // 源路径 → 项目相对（fwd-slash 归一 + projectDir 前缀剥离；镜像 driver _writeCacheZbc）。
@@ -203,11 +205,4 @@ public static class IncrementalBuild {
         if (rel.StartsWith(prefix)) { return rel.Substring(prefix.Length); }
         return rel;
     }
-}
-
-// 定义名属主链表节点（同名定义可散多文件：partial 风格 / 短名撞名——全都连边，保守）。
-public sealed class OwnerNodeZ {
-    public int        FileIdx;
-    public OwnerNodeZ Next;
-    public OwnerNodeZ(int fileIdx, OwnerNodeZ next) { this.FileIdx = fileIdx; this.Next = next; }
 }

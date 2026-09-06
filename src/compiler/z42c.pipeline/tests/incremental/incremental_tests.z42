@@ -23,9 +23,18 @@ string _tmpRoot() {
     return Path.Join(t, "z42c-incr-tests");
 }
 
-// 夹具用的「声明面指纹」：单测不跑真 parse，取一个与文本解耦的稳定值即可
-//（真实取值见 driver 的 SurfaceHash.Of；这里只验闸门的判定逻辑）。
+// 夹具用的「名字级声明面」：单测不跑真 parse，取与文本解耦的稳定值即可
+//（真实取值见 driver 的 SurfaceHash.Of；这里只验闭包的判定逻辑）。
 string _surf(string tag) { return ZpkgBuilder.SourceHashHex("surface:" + tag); }
+
+// 给 meta 填一份「两个名字」的名字级声明面 + 声明面标识符集。
+void _fillNames(CacheMeta m, string rel, string n1, string n2) {
+    m.NsNames = new string[2];  m.NsNames[0] = n1;          m.NsNames[1] = n2;
+    m.NsHashes = new string[2]; m.NsHashes[0] = _surf(rel + ":" + n1); m.NsHashes[1] = _surf(rel + ":" + n2);
+    m.NsCount = 2;
+    m.SurfIdents = new string[2]; m.SurfIdents[0] = n1; m.SurfIdents[1] = n2;
+    m.SurfIdentCount = 2;
+}
 
 // 造一个 cache 条目：编译 text → zbc + meta。
 void _writeEntry(string cacheDir, string rel, string text) {
@@ -36,7 +45,7 @@ void _writeEntry(string cacheDir, string rel, string text) {
     File.WriteAllBytes(zbcPath, ZbcWriter.Write(cm.Module).ToBytes());
     CacheMeta m = new CacheMeta(rel);
     m.SourceHash = ZpkgBuilder.SourceHashHex(text);
-    m.SurfaceHash = _surf(rel);
+    _fillNames(m, rel, "Add", "Mul");
     m.Namespace = "T";
     CacheStore.Save(cacheDir, m);
 }
@@ -70,7 +79,8 @@ void test_probe_all_cached() {
     Assert.True(p.AllCached);
     Assert.Equal(0, p.FreshCount);
     Assert.True(p.Metas[0] != null);
-    Assert.Equal(_surf("a.z42"), p.PrevSurface[0]);   // 命中行也带上次声明面指纹
+    Assert.True(p.Prev[0] != null);                      // 命中行也留着上次条目
+    Assert.Equal(2, p.Prev[0].NsCount);
 }
 
 [Test]
@@ -81,10 +91,10 @@ void test_probe_hash_diff_seed() {
     Assert.Equal(1, p.FreshCount);
     Assert.True(p.Fresh[0]);
     Assert.False(p.Fresh[1]);
-    // 种子失效行的 Metas 置 null，但 PrevSurface 必须留着——闸门要拿它比对。
+    // 种子失效行的 Metas 置 null，但 Prev 必须留着——逐名字 diff 要拿它比对。
     Assert.True(p.Metas[0] == null);
-    Assert.Equal(_surf("a.z42"), p.PrevSurface[0]);
-    Assert.True(p.SurfaceChanged[0]);   // 默认保守：driver 未压低前一律可当传播源
+    Assert.True(p.Prev[0] != null);
+    Assert.Equal(_surf("a.z42:Add"), p.Prev[0].NsHashes[0]);
 }
 
 [Test]
@@ -118,21 +128,63 @@ NameListZ _names(string a, string b) {
 
 [Test]
 void test_close_chain_propagation() {
-    // C 引用 A 的定义，A 引用 B 的定义；B 是种子 → 三个全失效（两轮扩散）。
+    // C 引用 A 的定义、A 引用 B 的定义，且 A/C 的**声明面**都提到上游名字（`class A : FromB` 那类）
+    // → 波沿链条传到底，三个全失效。
     string proj = Path.Join(_tmpRoot(), "cl-chain");
     string[] srcs = new string[3];
     srcs[0] = Path.Join(proj, "a.z42"); srcs[1] = Path.Join(proj, "b.z42"); srcs[2] = Path.Join(proj, "c.z42");
     IncrFilePlan p = new IncrFilePlan(3);
     p.Fresh[1] = true; p.FreshCount = 1;   // 种子 = B
     NameListZ[] tokens = new NameListZ[3];
-    NameListZ[] defined = new NameListZ[3];
-    tokens[0] = _names("FromB", "");   defined[0] = _names("FromA", "");
-    tokens[1] = _names("own", "");     defined[1] = _names("FromB", "");
-    tokens[2] = _names("FromA", "");   defined[2] = _names("FromC", "");
-    IncrementalBuild.Close(p, srcs, proj, tokens, defined, new NameListZ(new string[0], 0));   // add-partial-types：无 partial 类型
+    NameListZ[] surf = new NameListZ[3];
+    NameListZ[] names = new NameListZ[3];
+    tokens[0] = _names("FromB", "");   surf[0] = _names("FromB", "");   names[0] = _names("FromA", "");
+    tokens[1] = _names("own", "");     surf[1] = _names("own", "");     names[1] = _names("FromB", "");
+    tokens[2] = _names("FromA", "");   surf[2] = _names("FromA", "");   names[2] = _names("FromC", "");
+    IncrementalBuild.Close(p, srcs, proj, tokens, surf, names, _names("FromB", ""));
     Assert.Equal(3, p.FreshCount);
     Assert.True(p.Fresh[0]);
     Assert.True(p.Fresh[2]);
+}
+
+[Test]
+void test_close_body_only_reference_stops_the_wave() {
+    // 同一张图，但 A 只在**函数体**里用到 `FromB`（声明面不提）→ A 自己重编，波到此为止，C 保留。
+    // 这是名字级判据相对文件级的关键收益：不再「一跳之后无脑全传」。
+    string proj = Path.Join(_tmpRoot(), "cl-bodyonly");
+    string[] srcs = new string[3];
+    srcs[0] = Path.Join(proj, "a.z42"); srcs[1] = Path.Join(proj, "b.z42"); srcs[2] = Path.Join(proj, "c.z42");
+    IncrFilePlan p = new IncrFilePlan(3);
+    p.Fresh[1] = true; p.FreshCount = 1;
+    NameListZ[] tokens = new NameListZ[3];
+    NameListZ[] surf = new NameListZ[3];
+    NameListZ[] names = new NameListZ[3];
+    tokens[0] = _names("FromB", "");   surf[0] = _names("only", "");    names[0] = _names("FromA", "");
+    tokens[1] = _names("own", "");     surf[1] = _names("own", "");     names[1] = _names("FromB", "");
+    tokens[2] = _names("FromA", "");   surf[2] = _names("FromA", "");   names[2] = _names("FromC", "");
+    IncrementalBuild.Close(p, srcs, proj, tokens, surf, names, _names("FromB", ""));
+    Assert.Equal(2, p.FreshCount);
+    Assert.True(p.Fresh[0]);
+    Assert.False(p.Fresh[2]);
+}
+
+[Test]
+void test_close_unchanged_name_keeps_cached() {
+    // 种子文件定义了 `FromB` 与 `Name` 两个名字，但**只有 `FromB` 变了**：只提到 `Name` 的文件
+    // 不该被牵连（文件粒度时代正是这条假边把全包拖下水）。
+    string proj = Path.Join(_tmpRoot(), "cl-namegrain");
+    string[] srcs = new string[2];
+    srcs[0] = Path.Join(proj, "a.z42"); srcs[1] = Path.Join(proj, "b.z42");
+    IncrFilePlan p = new IncrFilePlan(2);
+    p.Fresh[1] = true; p.FreshCount = 1;
+    NameListZ[] tokens = new NameListZ[2];
+    NameListZ[] surf = new NameListZ[2];
+    NameListZ[] names = new NameListZ[2];
+    tokens[0] = _names("Name", "");    surf[0] = _names("Name", "");    names[0] = _names("A1", "");
+    tokens[1] = _names("own", "");     surf[1] = _names("own", "");     names[1] = _names("FromB", "Name");
+    IncrementalBuild.Close(p, srcs, proj, tokens, surf, names, _names("FromB", ""));
+    Assert.Equal(1, p.FreshCount);
+    Assert.False(p.Fresh[0]);
 }
 
 [Test]
@@ -143,10 +195,11 @@ void test_close_no_edge_keeps_cached() {
     IncrFilePlan p = new IncrFilePlan(2);
     p.Fresh[1] = true; p.FreshCount = 1;
     NameListZ[] tokens = new NameListZ[2];
-    NameListZ[] defined = new NameListZ[2];
-    tokens[0] = _names("x", "y");   defined[0] = _names("A1", "");
-    tokens[1] = _names("z", "");    defined[1] = _names("B1", "");
-    IncrementalBuild.Close(p, srcs, proj, tokens, defined, new NameListZ(new string[0], 0));   // add-partial-types：无 partial 类型
+    NameListZ[] surf = new NameListZ[2];
+    NameListZ[] names = new NameListZ[2];
+    tokens[0] = _names("x", "y");   surf[0] = _names("x", "y");   names[0] = _names("A1", "");
+    tokens[1] = _names("z", "");    surf[1] = _names("z", "");    names[1] = _names("B1", "");
+    IncrementalBuild.Close(p, srcs, proj, tokens, surf, names, _names("B1", ""));
     Assert.Equal(1, p.FreshCount);
     Assert.False(p.Fresh[0]);
 }
@@ -156,7 +209,7 @@ void test_close_no_edge_keeps_cached() {
 CacheMeta _meta() {
     CacheMeta m = new CacheMeta("sub/a.z42");
     m.SourceHash = ZpkgBuilder.SourceHashHex(_src());
-    m.SurfaceHash = _surf("sub/a.z42");
+    _fillNames(m, "sub/a.z42", "Add", "Rect");
     m.Namespace = "T";
     m.UsedDepNs = new string[2]; m.UsedDepNs[0] = "Std"; m.UsedDepNs[1] = "Std.IO";
     m.UsedDepNsCount = 2;
@@ -178,7 +231,11 @@ void test_cache_meta_roundtrip() {
     CacheMeta m = CacheStore.Load(dir, "sub/a.z42");
     Assert.True(m != null);
     Assert.Equal(ZpkgBuilder.SourceHashHex(_src()), m.SourceHash);
-    Assert.Equal(_surf("sub/a.z42"), m.SurfaceHash);   // v4：声明面指纹入 meta
+    Assert.Equal(2, m.NsCount);                                    // v5：名字级指纹入 meta
+    Assert.Equal("Rect", m.NsNames[1]);
+    Assert.Equal(_surf("sub/a.z42:Rect"), m.NsHashes[1]);
+    Assert.Equal(2, m.SurfIdentCount);
+    Assert.Equal("Rect", m.SurfIdents[1]);
     Assert.Equal("T", m.Namespace);
     Assert.Equal(2, m.UsedDepNsCount);
     Assert.Equal("Std.IO", m.UsedDepNs[1]);
@@ -210,51 +267,9 @@ void test_cache_meta_pin_and_corrupt() {
     Assert.True(CacheStore.Parse(stale, "a.z42") == null);
     Assert.True(CacheStore.Parse(good + "future x\n", "a.z42") == null);
     Assert.True(CacheStore.Parse("z42c-meta 1\n", "a.z42") == null);
-    // v4 不变式：缺 surface 行（= v3 遗留条目）一律作废，宁全量不误命中。
-    string noSurface = good.Replace("surface " + _surf("sub/a.z42") + "\n", "");
-    Assert.True(CacheStore.Parse(noSurface, "a.z42") == null);
-}
-
-// ── 声明面闸门（fix-z42c-incremental-closure）─────────────────────────────────
-
-[Test]
-void test_close_surface_equal_blocks_propagation() {
-    // 与 test_close_chain_propagation 同一张图，只是种子 B 的**声明面没变**
-    //（改注释 / 改函数体）→ B 自己重编，A / C 一个都不波及。
-    string proj = Path.Join(_tmpRoot(), "cl-gate");
-    string[] srcs = new string[3];
-    srcs[0] = Path.Join(proj, "a.z42"); srcs[1] = Path.Join(proj, "b.z42"); srcs[2] = Path.Join(proj, "c.z42");
-    IncrFilePlan p = new IncrFilePlan(3);
-    p.Fresh[1] = true; p.FreshCount = 1;
-    p.SurfaceChanged[1] = false;
-    NameListZ[] tokens = new NameListZ[3];
-    NameListZ[] defined = new NameListZ[3];
-    tokens[0] = _names("FromB", "");   defined[0] = _names("FromA", "");
-    tokens[1] = _names("own", "");     defined[1] = _names("FromB", "");
-    tokens[2] = _names("FromA", "");   defined[2] = _names("FromC", "");
-    IncrementalBuild.Close(p, srcs, proj, tokens, defined, new NameListZ(new string[0], 0));
-    Assert.Equal(1, p.FreshCount);
-    Assert.False(p.Fresh[0]);
-    Assert.False(p.Fresh[2]);
-}
-
-[Test]
-void test_close_surface_changed_still_transitive() {
-    // 闸门只掐**起点**：一旦声明面真变了，照旧全传递（A 继承 B、C 用 A 这类布局透传链
-    // 必须整条失效）——与闸门前完全一致。
-    string proj = Path.Join(_tmpRoot(), "cl-gate-on");
-    string[] srcs = new string[3];
-    srcs[0] = Path.Join(proj, "a.z42"); srcs[1] = Path.Join(proj, "b.z42"); srcs[2] = Path.Join(proj, "c.z42");
-    IncrFilePlan p = new IncrFilePlan(3);
-    p.Fresh[1] = true; p.FreshCount = 1;
-    p.SurfaceChanged[1] = true;
-    NameListZ[] tokens = new NameListZ[3];
-    NameListZ[] defined = new NameListZ[3];
-    tokens[0] = _names("FromB", "");   defined[0] = _names("FromA", "");
-    tokens[1] = _names("own", "");     defined[1] = _names("FromB", "");
-    tokens[2] = _names("FromA", "");   defined[2] = _names("FromC", "");
-    IncrementalBuild.Close(p, srcs, proj, tokens, defined, new NameListZ(new string[0], 0));
-    Assert.Equal(3, p.FreshCount);
+    // `nsurf` 行必须是 `<name> <hash>` 两段，缺一即坏条目（宁全量不误命中）。
+    string badNsurf = good.Replace("nsurf Add ", "nsurfAdd");
+    Assert.True(CacheStore.Parse(badNsurf, "a.z42") == null);
 }
 
 [Test]

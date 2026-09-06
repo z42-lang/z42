@@ -4,8 +4,10 @@
 // `--no-incremental` 全量 build 的 **dist 全部文件（主 zpkg + 散装 zbc）逐文件字节**
 // 比对 → 还原。任一不等即红并指名文件。语料 toml 无 pack → debug 默认 indexed，
 // 故最小 patch 面（散装 zbc 字节稳定）天然纳入对账。
-// 逐文件轮之后再跑一轮 **dist 被清空 + cache 全命中**（`_reconcileDistWiped`）——那条
-// 「全命中但必须重新装配」的路径由 fix-incr-allcached-cache-drop 才真正接上 cache，需单独盯。
+// 逐文件注释轮之后再跑两轮：**改声明**（`_reconcileDeclTouch`，逐文件追加一个新自由函数——
+// 注释轮碰不到声明面，名字级失效判据的主战场全靠它）与 **dist 被清空 + cache 全命中**
+// （`_reconcileDistWiped`，那条「全命中但必须重新装配」的路径由 fix-incr-allcached-cache-drop
+// 才真正接上 cache）。
 // 同时输出 D8 计时（增量 vs 全量墙钟，逐工程汇总）——「更快」是被测量的事实。
 //
 // 语料（实施期修订，见 change tasks 备注）：z42c 7 包经 --workspace 路径不落 cache
@@ -83,7 +85,39 @@ int _reconcileProject(string vm, string driver, string libs, string projDir, str
         + " files byte-identical (whole dist); wall-clock incr=" + incrMs.ToString() + "ms full=" + fullMs.ToString()
         + "ms (D8: per-touch avg " + (incrMs / (double)srcs.Length).ToString() + "ms vs "
         + (fullMs / (double)srcs.Length).ToString() + "ms)");
+    int dc = _reconcileDeclTouch(vm, driver, libs, projDir, toml, srcs);
+    if (dc != 0) { return dc; }
     return _reconcileDistWiped(vm, driver, libs, projDir, toml);
+}
+
+// 「改声明」轮（incr-name-level-invalidation）。上面那轮只 append 注释——**压根碰不到声明面**，
+// 于是名字级失效判据的主战场（新增名字 / 名字指纹变化 / 传播）全程没有门看着。
+// 本轮逐文件在末尾追加一个**新的自由函数声明**（= 新名字 + 该文件声明面变化），再做同款
+// 「增量 dist == 全量 dist 逐字节」对账。名字每轮唯一、且随即还原，故不会跨文件撞名。
+int _reconcileDeclTouch(string vm, string driver, string libs, string projDir, string toml, string[] srcs) {
+    int i = 0;
+    while (i < srcs.Length) {
+        string f = srcs[i];
+        string orig = File.ReadAllText(f);
+        File.WriteAllText(f, orig + "\nint __incrDeclProbe" + i.ToString() + "() { return " + i.ToString() + "; }\n");
+        int c1 = _incrBuild(vm, driver, libs, toml, false);
+        if (c1 != 0) { ConsoleError.WriteLine("  ✗ decl-touch incr build failed after " + f); File.WriteAllText(f, orig); return 1; }
+        DistSnapZ snapA = _distSnapshot(projDir);
+        int c2 = _incrBuild(vm, driver, libs, toml, true);
+        if (c2 != 0) { ConsoleError.WriteLine("  ✗ decl-touch full build failed after " + f); File.WriteAllText(f, orig); return 1; }
+        DistSnapZ snapB = _distSnapshot(projDir);
+        string mism = _snapshotDiff(snapA, snapB);
+        if (mism.Length > 0) {
+            ConsoleError.WriteLine("  ✗ MISMATCH: incremental != full after declaring a new function in " + f + " (" + mism + ")");
+            File.WriteAllText(f, orig);
+            return 1;
+        }
+        File.WriteAllText(f, orig);
+        i = i + 1;
+    }
+    Console.WriteLine("  ✓ decl-touch (new free function per file): " + srcs.Length.ToString() + "/" + srcs.Length.ToString()
+        + " byte-identical to full");
+    return 0;
 }
 
 // 「全命中 + 必须重新装配」这一轮（fix-incr-allcached-cache-drop）。
