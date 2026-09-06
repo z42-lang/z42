@@ -402,6 +402,7 @@ public sealed class DeclBinder {
         // PR6b：记录当前 enclosing 成员名，供 caller_member!() 在本体内的调用点注入（三挂载点
         // 均经此：类方法 / impl / free func；lambda 走 _bindStmt 不重置 → 继承外层成员名，同 C#）。
         this._tc._curMemberName = md.Name;
+        this._tc._curMethodDecl = md;   // fix-generic-operator-constraint-dispatch：体内 `a+b` 查方法级 where
         // PR6b：定义侧校验 caller 宏参数默认值——名字白名单 + 参数类型（member/file/module→string，
         // line→int）。未知宏名 / 类型不符 → E0450（字面量发码，避 core→semantics 冷启动 F2）。
         this._validateCallerMacroDefaults(env, md);

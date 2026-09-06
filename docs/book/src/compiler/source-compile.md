@@ -81,6 +81,48 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 回归守卫：`src/compiler/z42c.semantics/tests/typecheck/break_context_tests.z42`（9 例，覆盖 switch/循环/
 裸语句/lambda 四类上下文的正负例）。
 
+#### 属性的「源名 ↔ 后备字段名」落差（binder ↔ emitter 对称）
+
+属性在符号表里以**源名** `X` 登记一个 `FieldSymbol`（`MemberCollector` 处理 `PropertyDecl` 时
+`ct.Fields.Put(pd.Name, …)`）——这样类型检查可以像字段一样查它的类型。但**存储不叫 `X`**：
+`MemberCollector` 另外合成一个后备字段 `__prop_X`（`ct.AddOwnField("__prop_" + pd.Name, …)`），
+`get_X` / `set_X` 访问器读写的都是它。计算属性（`X { get {..} }`，`HasGetBody`）**没有存储**，
+getter 是真实函数体。
+
+于是有一条**不变量**：凡是属性，发射端要么走访问器（`vcall get_X` / `vcall set_X`），要么落到
+`__prop_X`——**永远不能按源名 `X` 发 `field_get` / `field_set`**，那是一个不存在的字段。
+
+这条不变量此前有四个漏口，全部表现为**编译干净、运行期读回 `null` 或写入丢失**：
+
+| 路径 | 旧行为 | 根因 |
+|------|--------|------|
+| `this.X = v`，`X` 无 setter | 按源名 `field_set` | setter 派发只在 `ct.Methods` 有 `set_X` 时触发 |
+| 类内裸写 `X = v` | 当成「首次赋值一个新局部」，属性根本没被写 | 裸 ident 路径只认 `_ctx.Fields`，未命中就落局部分配 |
+| 类内裸读 `X` | `field_get %0.X` → 恒 `Null` | 同上，`_ctx.Fields` 由 `owner.Fields.Keys()`（**源名**）填 |
+| 经子类引用读/写基类属性 | `field_get obj.X` → 恒 `Null` | `ct.Methods` **不含继承来的**访问器（只有 `_passInheritFields` 把基类 `FieldSymbol` 并进子类 `Fields`） |
+
+修复方式是把这条落差**显式带给下游**，而不是在每个发射点各自猜（`fix-autoprop-getonly-backing-write`）：
+
+- `FieldSymbol` 带三个标志：`IsProp`（这其实是属性）/ `IsPropNoSetter`（没有 setter）/
+  `PropBackingName`（`__prop_X`；计算属性为 `""`）。**继承自动带过来**——`_passInheritFields`
+  把基类的 `FieldSymbol` **对象本身**放进子类 `Fields`，所以子类那份带着同样的标志。
+- 成员路径（`obj.X`）的 getter / setter 判据，从「`ct.Methods` 有 `get_X`/`set_X`」放宽为
+  「有 `get_X`/`set_X` **或** 该成员是属性」——继承来的访问器编译期不在 `ct.Methods`，但运行期经
+  vtable 找得到。无 setter 的属性落 `field_set obj.__prop_X`。
+- 裸 ident 路径（`X`）：`EmitContext` 新增 `InstProps` / `InstPropHasSet`（`FunctionEmitter` 从
+  `owner.Fields` 填），判定**先于** `_ctx.Fields`，让裸 `X` 与 `this.X` 同义。局部遮蔽不受影响——
+  `Locals` 的查找本来就在更前面。**struct 属主（`OwnerStructName != ""`）保守不启用**，其 blob
+  布局另有一套 `StructFieldGet/SetPrim` 翻转路径。
+
+配套的**合法性**判据在 binder 侧（`AssignTyper`，新码 **E0452**）：get-only auto-property 只能在
+构造函数内经 `this` 写（对标 C# CS0200 的只读自动属性），计算属性任何位置都不可赋值。没有它，
+上面「无 setter 就落 `__prop_X`」会把 `{ get; }` 变成一个**处处可写**的字段——修好存储反而放大了洞。
+两者必须同批落地。
+
+回归守卫：`src/tests/classes/auto_property_access.z42`（e2e，四条路径 + 继承）+
+`src/compiler/z42c.semantics/tests/typecheck/property_access_tests.z42`（E0452 边界 9 例，含
+「普通字段 / `readonly` 字段不受影响」的不回归断言）。
+
 #### prim 接收者实例方法的 type-based 重载决议
 
 基元接收者（`string` / `int` / `char` …）的实例方法调用，绑定走 `MemberResolver._bindInstanceMemberCall` 的 **prim-wrapper 分支**（`z42c.semantics/src/MemberResolver.z42:129`）：把关键字名映射到 stdlib 包装类（`"string"→"String"`，`TypeFactsTc._primWrapper`），在包装类上解析方法、取真实返回类型，产出 `BoundCall(OwnerClass=PrimModel.Keyword(...), MethodName=派发键)`。
