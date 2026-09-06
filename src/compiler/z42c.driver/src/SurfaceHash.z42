@@ -1,0 +1,171 @@
+// 声明面（surface）指纹 —— 文件级增量「传播闸门」的输入
+// （fix-z42c-incremental-closure；落地 add-file-level-incremental design D3 的 Deferred
+//  `incremental-future-tsig-level-invalidation`）。
+//
+// 定义：把一个 CU 的 **token 流**去掉方法 / 构造 / 计算属性 getter / 索引器 **体内**的 token
+// （每个体压成一个 `{}` 记号）后哈希。于是：
+//   - 改注释、改空白        → token 流本就不含 trivia → 指纹不变
+//   - 只改函数体            → 体被压成 `{}` → 指纹不变
+//   - 改签名 / 加删成员 /
+//     改字段（含 const 初值）/ 改基类 / 改 using / 改 attribute → 指纹变
+//
+// 为什么这就够（= 为什么「声明面没变 ⇒ 引用方的 cached zbc 仍然有效」）：
+// 跨文件依赖**只**经声明面——
+//   ① 内联 `IrInline` 只在**同一 IrModule = 单 CU** 内解析 callee（跨文件不内联）；
+//   ② 逃逸 / 纯度摘要（`IrEscapeSummary` / `IrPureFunctionTable`）同样是模块级不动点，
+//      跨模块调用无摘要 → 保守处理；
+//   ③ 泛型不单态化进调用方（类型实参以名字随 `CallInstr.MethodTypeArgs` 走运行期）；
+//   ④ 唯一「把别的文件体内的值抄进消费方」的是 `const` 字段（`ExprEmitter` 字面量替换），
+//      而 const 的初值写在**字段声明**里，不在方法体内 → 本来就留在声明面中。
+//
+// 保守方向：**漏**记一个体 span，只会让那段 token 留在指纹里 → 该文件体一改就照旧全波及
+// （多编不错编）。因此以后新增带体的声明形态时忘了在 `_collectBodies` 登记也不会编错，
+// 只是少一份收益。反过来，**多**挖了本该留下的 token 才是危险方向，故这里只按
+// 「Decl 亲口给出的体起始 `{` 偏移 + token 层大括号配平」挖，不做任何猜测式跳过。
+//
+// 用 **raw CU**（`HandlerRegistry.RunAst` 之前）取体起点：attribute handler 合成出来的成员
+// 没有真实 token 区间，拿它们的 Span 去挖会挖错位置。handler 自身的身份已由
+// `Main._handlerFingerprint` 揉进每个文件的源 hash，不需要在这里体现。
+namespace Z42.Driver;
+
+using Std;
+using Z42.Core;     // Span（token / 体的 byte offset [Start, End)）
+using Z42.Syntax;
+using Z42.Project;   // ZpkgBuilder.SourceHashHex（MurmurHash3；只作相等性比较）
+
+// 分段字符串累加器：段内 `+`、段满入列、末尾二级合并。
+// （单串 `+` 累加是 O(总长²) 拷贝——一个 CU 几千个 token，直接拼会成为增量的新大头。）
+sealed class SurfaceBufZ {
+    private string[] _chunks;
+    private int      _n;
+    private string   _cur;
+    public SurfaceBufZ() { this._chunks = new string[16]; this._n = 0; this._cur = ""; }
+    public void Put(string s) {
+        this._cur = this._cur + s;
+        if (this._cur.Length >= 4096) { this._flush(); }
+    }
+    private void _flush() {
+        if (this._n == this._chunks.Length) {
+            string[] b = new string[this._chunks.Length * 2];
+            int i = 0;
+            while (i < this._n) { b[i] = this._chunks[i]; i = i + 1; }
+            this._chunks = b;
+        }
+        this._chunks[this._n] = this._cur; this._n = this._n + 1;
+        this._cur = "";
+    }
+    public string Take() {
+        if (this._cur.Length > 0) { this._flush(); }
+        string r = "";
+        int i = 0;
+        while (i < this._n) { r = r + this._chunks[i]; i = i + 1; }
+        return r;
+    }
+}
+
+// 体起始偏移表（升序；`{` 的字节偏移，与 Token.Span.Start 同坐标）。
+sealed class BodyStartsZ {
+    public int[] Items;
+    public int   Count;
+    public BodyStartsZ() { this.Items = new int[16]; this.Count = 0; }
+    // 有序插入（源序天然升序，插入排序只是防御——嵌套类型 / 未来的乱序遍历）。
+    public void Add(int off) {
+        if (off < 0) { return; }
+        if (this.Count == this.Items.Length) {
+            int[] b = new int[this.Items.Length * 2];
+            int k = 0;
+            while (k < this.Count) { b[k] = this.Items[k]; k = k + 1; }
+            this.Items = b;
+        }
+        int j = this.Count;
+        while (j > 0 && this.Items[j - 1] > off) { this.Items[j] = this.Items[j - 1]; j = j - 1; }
+        this.Items[j] = off;
+        this.Count = this.Count + 1;
+    }
+}
+
+public static class SurfaceHash {
+
+    // CU 的声明面指纹（hex）。lx = 该 CU 的词法器（token 流，parse 后固定不变）。
+    public static string Of(CompilationUnit raw, Lexer lx) {
+        BodyStartsZ bodies = new BodyStartsZ();
+        int d = 0;
+        while (d < raw.DeclCount) { SurfaceHash._collectBodies(raw.Decls[d], bodies); d = d + 1; }
+
+        SurfaceBufZ buf = new SurfaceBufZ();
+        // 命名空间进指纹：`namespace X;` 是 using 之外另一条影响解析的顶层信息，且它不是 Decl。
+        buf.Put(raw.HasNamespace ? ("ns:" + raw.Namespace + "\n") : "ns:\n");
+        int n = lx.TokenCount();
+        int ti = 0;
+        int bi = 0;
+        while (ti < n) {
+            Token t = lx.TokenAt(ti);
+            // 对齐体表（源序单调；落后的条目直接丢——它没能与任何 `{` token 对上）。
+            while (bi < bodies.Count && bodies.Items[bi] < t.Span.Start) { bi = bi + 1; }
+            if (bi < bodies.Count && bodies.Items[bi] == t.Span.Start && t.Kind == TokenKind.LBrace) {
+                buf.Put("{}\n");          // 体压成记号：体在 / 不在（抽象声明）本身属于声明面
+                ti = SurfaceHash._skipBody(lx, ti, n);
+                bi = bi + 1;
+                continue;
+            }
+            // `kind:len:text` —— 带长度前缀，任何 token 文本（含 raw string / 插值串里的换行）
+            // 都无法伪造出分隔边界 → 不同 token 流不会撞出同一条串。
+            buf.Put(t.Kind.ToString() + ":" + t.Text.Length.ToString() + ":" + t.Text + "\n");
+            ti = ti + 1;
+        }
+        return ZpkgBuilder.SourceHashHex(buf.Take());
+    }
+
+    // 从 `{`（下标 open）起按 token 层大括号配平跳到匹配 `}` 之后。
+    // 插值串 `$"...{e}..."` 是**单 token**（Lexer 保证），故串内大括号不会扰动深度。
+    private static int _skipBody(Lexer lx, int open, int n) {
+        int depth = 0;
+        int i = open;
+        while (i < n) {
+            int k = lx.TokenAt(i).Kind;
+            if (k == TokenKind.LBrace) { depth = depth + 1; }
+            else if (k == TokenKind.RBrace) {
+                depth = depth - 1;
+                if (depth == 0) { return i + 1; }
+            }
+            i = i + 1;
+        }
+        return n;   // 不配平（parse 已报错）→ 吞到末尾，保守
+    }
+
+    // 登记「该丢弃体内 token」的起始 `{` 偏移。漏登记 = 保守（见文件头）。
+    private static void _collectBodies(Decl d, BodyStartsZ out_) {
+        if (d == null) { return; }
+        Decl inner = d;
+        if (inner is AttributedDecl) { inner = (inner as AttributedDecl).Inner; }
+        if (inner == null) { return; }
+        if (inner is ClassDecl) {
+            ClassDecl c = inner as ClassDecl;
+            int m = 0;
+            while (m < c.MemberCount) { SurfaceHash._collectBodies(c.Members[m], out_); m = m + 1; }
+            return;
+        }
+        if (inner is ImplDecl) {
+            ImplDecl im = inner as ImplDecl;
+            int k = 0;
+            while (k < im.MethodCount) { SurfaceHash._collectBodies(im.Methods[k], out_); k = k + 1; }
+            return;
+        }
+        if (inner is MethodDecl) {
+            MethodDecl md = inner as MethodDecl;
+            if (md.HasBody && md.Body != null && md.Body.Span != null) { out_.Add(md.Body.Span.Start); }
+            return;
+        }
+        if (inner is PropertyDecl) {
+            PropertyDecl pd = inner as PropertyDecl;
+            if (pd.HasGetBody && pd.GetBody != null && pd.GetBody.Span != null) { out_.Add(pd.GetBody.Span.Start); }
+            return;
+        }
+        if (inner is IndexerDecl) {
+            IndexerDecl ix = inner as IndexerDecl;
+            if (ix.HasGet && ix.GetBody != null && ix.GetBody.Span != null) { out_.Add(ix.GetBody.Span.Start); }
+            if (ix.HasSet && ix.SetBody != null && ix.SetBody.Span != null) { out_.Add(ix.SetBody.Span.Start); }
+            return;
+        }
+    }
+}

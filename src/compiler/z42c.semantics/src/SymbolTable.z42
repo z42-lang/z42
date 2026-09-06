@@ -392,7 +392,7 @@ public sealed class SymbolTable {
     // unify-value-types Phase 1（D1 翻转）：基元关键字 → 符号表里已存在的 `Std.*` phantom struct
     // 的 Z42ClassType（int→Int32、bool→Boolean、string→String、object→Object…；byte/short/... 经
     // PrimModel.Wrapper 归到对应 wrapper）。使基元与用户 struct 走同一 Z42ClassType 承载（消灭二元）。
-    // 名承载 wrapper 短名（"Int32"）；可赋性/拓宽经中心化 Z42Type.Canon(=PrimModel.Canon) 归一，
+    // 名承载 wrapper 短名（"Int32"）；可赋性/拓宽经中心化 PrimModel.Canon(=PrimModel.Canon) 归一，
     // IR 标签经 ToIrType 的 IsBuiltin 分支保留（Scalar→PrimTag、string→Str、object→Ref）。
     // 兜底：phantom 未加载（无 prelude 的独立上下文）→ 退回轻量 Z42PrimType（阶段 3 删类后此兜底移除）。
     public Z42Type BuiltinType(string n) {

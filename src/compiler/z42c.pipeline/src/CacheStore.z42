@@ -7,6 +7,7 @@
 //   zbc <ZbcVersion.Minor>          ← writer 版本 pin：任一不符 → 条目作废（Load 返回 null）
 //   zpkg <ZpkgWriterZ.Minor>
 //   hash <sha256hex(源文本)>
+//   surface <hex(声明面 token 流)>  ← 传播闸门：源变了但声明面没变 → 不波及引用方（v4 起）
 //   ns <模块 namespace>            ← no-ns 单元与 build 路径同款 "main"
 //   useddep <ns>                   ← 0..n 行（typecheck 实际用到的外部依赖 ns）
 //   token <ident>                  ← 0..n 行（标识符 token 去重集——D3 闭包边输入；
@@ -33,6 +34,7 @@ using Z42.IR.BinaryFormat;
 public sealed class CacheMeta {
     public string   Rel;
     public string   SourceHash;
+    public string   SurfaceHash;   // 声明面指纹（体内 token 剔除后的哈希；D3 传播闸门）
     public string   Namespace;
     public string[] UsedDepNs;
     public int      UsedDepNsCount;
@@ -42,6 +44,7 @@ public sealed class CacheMeta {
     public CacheMeta(string rel) {
         this.Rel = rel;
         this.SourceHash = "";
+        this.SurfaceHash = "";
         this.Namespace = "main";
         this.UsedDepNs = new string[0]; this.UsedDepNsCount = 0;
         this.Tokens = new string[0];    this.TokenCount = 0;
@@ -51,10 +54,12 @@ public sealed class CacheMeta {
 }
 
 public static class CacheStore {
+    // v4（2026-09-06 fix-z42c-incremental-closure）：+surface 行（声明面指纹）——传播闸门的输入。
+    //     旧条目无该行 → v3 条目失效（一次全量后即恢复增量）。
     // v3（2026-08-11 add-compiler-fingerprint-cache）：+z42c-fp 行（编译器语义指纹进 key）。v2 条目失效。
     // v2（2026-07-08）：+token 行——D8 计时实测 42 文件语料增量比全量慢 17%，根因 =
     // 闭包边输入对全部文件独立重 lex；token 入 meta 后 cached 文件零 lex。v1 条目失效。
-    public static int MetaVersion = 3;
+    public static int MetaVersion = 4;
 
     // 编译器语义指纹：z42c 的 codegen / 优化 / typecheck / lowering 行为变化，但 zbc/zpkg 格式
     // Minor **不** bump 时，手动 +1。它进 cache key → 编译器语义一变即令旧 .meta 全部失效，堵住
@@ -84,6 +89,7 @@ public static class CacheStore {
                  + "zbc " + ZbcVersion.Minor.ToString() + "\n"
                  + "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n"
                  + "hash " + m.SourceHash + "\n"
+                 + "surface " + m.SurfaceHash + "\n"
                  + "ns " + m.Namespace + "\n";
         int i = 0;
         while (i < m.UsedDepNsCount) { s = s + "useddep " + m.UsedDepNs[i] + "\n"; i = i + 1; }
@@ -118,6 +124,7 @@ public static class CacheStore {
             else if (key == "zbc")     { zbcOk = (val == ZbcVersion.Minor.ToString()); }
             else if (key == "zpkg")    { zpkgOk = (val == ZpkgWriterZ.Minor.ToString()); }
             else if (key == "hash")    { m.SourceHash = val; }
+            else if (key == "surface") { m.SurfaceHash = val; }
             else if (key == "ns")      { m.Namespace = val; }
             else if (key == "useddep") {
                 m.UsedDepNs = CacheStore._append(m.UsedDepNs, m.UsedDepNsCount, val);
@@ -139,6 +146,7 @@ public static class CacheStore {
         }
         if (!verOk || !fpOk || !zbcOk || !zpkgOk) { return null; }
         if (m.SourceHash.Length == 0) { return null; }
+        if (m.SurfaceHash.Length == 0) { return null; }
         return m;
     }
 
