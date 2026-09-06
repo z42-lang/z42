@@ -41,7 +41,18 @@ public sealed class MemberCollector {
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._sc._unwrap(c.Members[j]);
-            if (mem is MethodDecl) {
+            if (mem is AssocTypeDecl) {
+                // add-associated-types PR-3：接口里的 `type Item;` —— 声明一个由**实现方**决定的类型。
+                // 接口侧只登记名字；带绑定（`type Item = int;`）写在接口里是没意义的，报诊断。
+                AssocTypeDecl atd = mem as AssocTypeDecl;
+                if (atd.HasBound) {
+                    this._sc.Diags.Error("E0453",
+                        "interface `" + c.Name + "` cannot bind associated type `" + atd.Name
+                        + "` — the binding belongs to the implementing type", atd.Span);
+                } else {
+                    it.AddAssocType(atd.Name);
+                }
+            } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
                 it.Methods.Put(md.Name, this._sc._methodSymbol(table, md, c.Name, tp, tpc));
             } else if (mem is PropertyDecl) {
@@ -97,7 +108,20 @@ public sealed class MemberCollector {
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._sc._unwrap(c.Members[j]);
-            if (mem is FieldDecl) {
+            if (mem is AssocTypeDecl) {
+                // add-associated-types PR-3：实现类里的 `type Item = int;` —— 给出绑定。
+                // 类里写不带绑定的 `type Item;` 是没意义的（类不能把它再往下延），报诊断。
+                AssocTypeDecl catd = mem as AssocTypeDecl;
+                if (!catd.HasBound) {
+                    this._sc.Diags.Error("E0453",
+                        "`" + c.Name + "` must bind associated type `" + catd.Name
+                        + "` with `type " + catd.Name + " = <type>;`", catd.Span);
+                } else {
+                    Z42Type bt = table.ResolveTypeP(catd.Bound, tp, tpc);
+                    this._sc._chkTypeRef(bt, c.Name, table, catd.Bound.Span);
+                    ct.AddAssocBinding(catd.Name, TypeNameResolver.SurfaceTypeName(bt));
+                }
+            } else if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
                 Z42Type ft = table.ResolveTypeP(fd.Type, tp, tpc);
                 this._sc._chkTypeRef(ft, c.Name, table, fd.Type.Span);   // enforce-class-access：字段类型引用

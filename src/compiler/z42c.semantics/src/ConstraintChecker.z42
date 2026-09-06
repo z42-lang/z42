@@ -107,6 +107,24 @@ public sealed class ConstraintChecker {
                     // 之前就把它们整条丢弃，这才是接口约束全体静默的直接原因。
                     // 按裸名匹配（design D1）：`nt.Name` 已是裸名（泛型实参在 nt.Args）。
                     bundle.AddInterface(nt.Name);
+                    // add-associated-types PR-3：接口约束的类型实参位可写 `Item = int` 命名绑定。
+                    // 只收 AssocBindingType 那些实参（普通实参仍按 design D1 裸名匹配、被忽略）。
+                    int ab = 0;
+                    while (ab < nt.ArgCount) {
+                        if (nt.Args[ab] is AssocBindingType) {
+                            AssocBindingType abt = nt.Args[ab] as AssocBindingType;
+                            Z42Type abResolved = symbols.ResolveTypeP(abt.Bound, pnames, pc);
+                            bundle.AddAssocBinding(abt.Name, TypeNameResolver.SurfaceTypeName(abResolved));
+                            // 绑定的名字必须真是该接口声明过的关联类型，否则是笔误 → 早报，别静默。
+                            Z42InterfaceType abIface = symbols.GetInterface(nt.Name);
+                            if (abIface != null && !abIface.HasAssocType(abt.Name)) {
+                                this._diags.Error("E0453",
+                                    "interface `" + nt.Name + "` has no associated type `" + abt.Name + "`",
+                                    abt.Span);
+                            }
+                        }
+                        ab = ab + 1;
+                    }
                 } else if (symbols.HasClass(nt.Name)) {
                     // 泛型 base（`where T : Box<int>`）仍只记裸名——本轮不校验其类型实参
                     // （与接口的裸名匹配同口径，design D1）。
@@ -188,6 +206,35 @@ public sealed class ConstraintChecker {
         }
         if (b.RequiresCtor && !this._hasNoArgCtor(symbols, arg)) {
             this._err(arg, pn, "new()", ownerName, sp);
+        }
+        // add-associated-types PR-3：关联类型绑定要求 `where T : IEnum<Item = int>`。
+        int ai = 0;
+        while (ai < b.AssocBindingCount) {
+            this._checkAssocBinding(symbols, arg, pn, b.AssocBindingNames[ai], b.AssocBindingTypeNames[ai], ownerName, sp);
+            ai = ai + 1;
+        }
+    }
+
+    // `where T : IEnum<Item = int>` —— 实参 T 的类必须给出 `type Item = int;` 且绑定类型一致。
+    // 未解析型参 / error / unknown 一律放行（同 _satisfiesInterface：信息不足不误报）。
+    private void _checkAssocBinding(SymbolTable symbols, Z42Type arg, string pn,
+                                    string bindName, string wantType, string ownerName, Span sp) {
+        if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return; }
+        Z42ClassType cls = null;
+        if (arg is Z42ClassType) { cls = arg as Z42ClassType; }
+        else if (arg is Z42InstantiatedType) { cls = (arg as Z42InstantiatedType).Def; }
+        if (cls == null) { return; }                       // 数组 / func / void：无处安放绑定，不误报
+        string got = cls.AssocBindingOf(bindName);
+        if (got == "") {
+            this._diags.Error("E0453",
+                "type argument `" + arg.Name() + "` for `" + pn + "` on `" + ownerName
+                + "` does not bind associated type `" + bindName + "`", sp);
+            return;
+        }
+        if (PrimModel.Canon(got) != PrimModel.Canon(wantType)) {
+            this._diags.Error("E0453",
+                "type argument `" + arg.Name() + "` for `" + pn + "` on `" + ownerName
+                + "` binds `" + bindName + "` to `" + got + "`, but `" + wantType + "` is required", sp);
         }
     }
 

@@ -67,6 +67,11 @@ public sealed class Z42ClassType : Z42Type {
     // receiver（List<string>）调方法/取字段时，把签名里的类形参 T 按名映射到 receiver 的 TypeArgs
     // （T→string），修复 `list.ToArray()` 返回 `T[]` 不替换致 E0402（导入泛型「方法返回轴」缺陷）。
     public string[] GenericParamNames; public int GenericParamCount;
+    // add-associated-types PR-3：本类给出的**关联类型绑定**（`class C : IEnum { type Item = int; }`）。
+    // 两条平行数组 + count（类字段不能带泛型）。存**已解析类型的 Name()**（而非 AST 拼写）——
+    // 与约束侧 `ConstraintBundle.AssocBindingTypeNames` 同一口径，比对才有意义；也直接就是 3D 要
+    // 持久化进 zbc 的形态。
+    public string[] AssocBindingNames; public string[] AssocBindingTypeNames; public int AssocBindingCount;
     // impl-sealed-semantics-devirt：sealed class（不可被继承）。默认 false；本地由 SymbolCollector 从
     // Mods 设置，导入由 ImportedSymbolLoader 从 CLASS_FLAG_SEALED 还原。供 ① 继承强制 + ④ receiver
     // 静态类型为 sealed 类时的去虚化查询。
@@ -95,6 +100,30 @@ public sealed class Z42ClassType : Z42Type {
     // Canon/内建码的惰性记忆（见基类 CanonName 注释）。哨兵：_canon=="" 未算（Canon 对非空名恒非空；
     // 名为空的退化类型只是每次重算，无正确性影响）、_code==-2 未算（-1 是「非内建」这个合法结果）。
     private string _canon; private int _code;
+    // add-associated-types PR-3：登记一条关联类型绑定（`type Item = int;`）。
+    public void AddAssocBinding(string name, string typeName) {
+        if (this.AssocBindingCount == this.AssocBindingNames.Length) {
+            int cap = this.AssocBindingNames.Length * 2;
+            if (cap < 2) { cap = 2; }
+            string[] bn = new string[cap]; string[] bt = new string[cap];
+            int i = 0;
+            while (i < this.AssocBindingCount) { bn[i] = this.AssocBindingNames[i]; bt[i] = this.AssocBindingTypeNames[i]; i = i + 1; }
+            this.AssocBindingNames = bn; this.AssocBindingTypeNames = bt;
+        }
+        this.AssocBindingNames[this.AssocBindingCount] = name;
+        this.AssocBindingTypeNames[this.AssocBindingCount] = typeName;
+        this.AssocBindingCount = this.AssocBindingCount + 1;
+    }
+    // 该关联类型名绑定到的类型名；未绑定返回 ""。
+    public string AssocBindingOf(string name) {
+        int i = 0;
+        while (i < this.AssocBindingCount) {
+            if (this.AssocBindingNames[i] == name) { return this.AssocBindingTypeNames[i]; }
+            i = i + 1;
+        }
+        return "";
+    }
+
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._canon = ""; this._code = -2;
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
@@ -107,6 +136,7 @@ public sealed class Z42ClassType : Z42Type {
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
         this.IsPartial = false; this.PartialMainFile = "";
         this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
+        this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
         this.IsStruct = false;
         this.IsRecord = false;
         this.IsSealed = false;
@@ -271,7 +301,10 @@ public class Z42InterfaceType : Z42Type {
     // （PR-2 是从 `ExportedInterfaceZ.TypeParams` 现取的）。绑定关联类型也要以它为基准。
     public string[] TypeParamNames;
     public int      TypeParamCount;
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; }
+    // add-associated-types PR-3：本接口声明的关联类型名（`type Item;` 的 Item），声明序。
+    public string[] AssocTypeNames;
+    public int      AssocTypeCount;
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; }
 
     public void AddBase(string name) {
         if (this.BaseCount == this.BaseNames.Length) {
@@ -284,6 +317,23 @@ public class Z42InterfaceType : Z42Type {
         }
         this.BaseNames[this.BaseCount] = name;
         this.BaseCount = this.BaseCount + 1;
+    }
+    public void AddAssocType(string name) {
+        if (this.AssocTypeCount == this.AssocTypeNames.Length) {
+            int cap = this.AssocTypeNames.Length * 2;
+            if (cap < 2) { cap = 2; }
+            string[] bigger = new string[cap];
+            int i = 0;
+            while (i < this.AssocTypeCount) { bigger[i] = this.AssocTypeNames[i]; i = i + 1; }
+            this.AssocTypeNames = bigger;
+        }
+        this.AssocTypeNames[this.AssocTypeCount] = name;
+        this.AssocTypeCount = this.AssocTypeCount + 1;
+    }
+    public bool HasAssocType(string name) {
+        int i = 0;
+        while (i < this.AssocTypeCount) { if (this.AssocTypeNames[i] == name) { return true; } i = i + 1; }
+        return false;
     }
     public override string Name() { return this._name; }
     public override bool IsAssignableTo(Z42Type other) {

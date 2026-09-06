@@ -162,17 +162,28 @@
 
 ### 3C 语义
 
-- [ ] 3C.1 `MemberCollector` —— 收集接口的关联类型声明
-- [ ] 3C.2 `Z42InterfaceType` —— 关联类型槽
-- [ ] 3C.3 `GenericConstraint.ConstraintBundle` —— 承载关联类型绑定
-- [ ] 3C.4 `ConstraintChecker` —— 绑定解析与校验；实现方未绑定报诊断
+- [x] 3C.1 `MemberCollector` —— 接口收 `type Item;` 进 `Z42InterfaceType.AssocTypeNames`；类收
+      `type Item = X;` 进 `Z42ClassType.AssocBinding*`（存**已解析类型的 Name()**，与约束侧同口径）
+- [x] 3C.2 `Z42InterfaceType.AssocTypeNames/AssocTypeCount` + `AddAssocType`/`HasAssocType`；
+      `Z42ClassType.AssocBinding*` + `AddAssocBinding`/`AssocBindingOf`
+- [x] 3C.3 `ConstraintBundle.AssocBinding*` + `AddAssocBinding`；`IsEmpty()` 一并计入
+- [x] 3C.4 `ConstraintChecker._fillBundle` 收 `AssocBindingType` 实参 → bundle；`_checkBundle`
+      逐条 `_checkAssocBinding`（未绑 / 绑错都报）。**声明期补齐强制**落在
+      `InheritanceResolver._passSealedEnforce` 的同一循环（新增 `_checkAssocBindingsComplete`，
+      走接口继承闭包）—— 不能放 `_fillClass` 末尾，因为接口与类在同一个 `_passMembers` 循环里、
+      声明序与跨 CU 都不保证接口先到。全部诊断走 **E0453**（新码；语义层发**字面量**，遵循
+      E0449/E0450/E0451/E0452 的既定手法，避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache）
 
 ### 3D 格式（**双 bump**）
 
 - [ ] 3D.1 `IrModule.IrConstraintDesc` —— 承载绑定
 - [ ] 3D.2 `ZbcWriter` —— bit7 = `has_assoc_bindings` + `count u8` + `(name_idx, type_idx) × n`
 - [ ] 3D.3 `ZbcReader` + Rust `type_reader.rs` + `ZpkgReader._skipConstraintBundle` —— **三方 reader 同步**（memory 教训：改 producer 必核 3 个 reader）
-- [ ] 3D.4 `ExportedInterfaceZ` + `TsigReconcile` —— 关联类型名单跨包重建
+- [ ] 3D.4 `ExportedInterfaceZ` + `TsigReconcile` —— 接口的关联类型**名单**跨包重建
+- [ ] 3D.7 **（计划遗漏，实施期补）** `ExportedClassZ` + 类 TYPE record —— 类给出的关联类型
+      **绑定**跨包重建。原 3D 只列了「约束侧要求」(3D.2) 与「接口侧名单」(3D.4)，漏了这第三样。
+      🔴 漏了会**假红而非漏报**：`_checkAssocBinding` 见 `AssocBindingOf()==""` 就报 E0453，
+      跨包实参的绑定若没过线，合法代码会被误判「未绑定」
 - [ ] 3D.5 zbc minor 38→39 + zpkg minor 43→44，按 `version-bumping.md` checklist 同步 `versions.rs` / changelog / 10 个 committed fixture regen
 - [ ] 3D.6 `cargo test --test format_fixture_versions` 绿
 

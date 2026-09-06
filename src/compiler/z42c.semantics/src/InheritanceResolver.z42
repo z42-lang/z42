@@ -196,6 +196,12 @@ public sealed class InheritanceResolver {
                     if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (table.Classes.ContainsKey(mk)) { ctKey = mk; } }
                     Z42ClassType ct = table.Classes.Get(ctKey) as Z42ClassType;
                     if (ct != null) {
+                        // ⑤ add-associated-types PR-3：实现了带关联类型的接口，就必须把每个关联类型
+                        //    绑上。**放在这个 pass 里**是因为它要求「接口的 `type Item;` 已收集完」——
+                        //    `_fillInterface` 与 `_fillClass` 在同一个 `_passMembers` 循环里，声明序 /
+                        //    跨 CU 都不保证接口先到，故不能在 `_fillClass` 末尾就地查。本 pass 在成员
+                        //    填充全部结束后跑，且三条入口路径（单文件 / 包级 / deps）都调它。
+                        this._checkAssocBindingsComplete(table, ct, c);
                         // ① 继承 sealed 类
                         if (ct.HasBase && ct.BaseName != "" && table.Classes.ContainsKey(ct.BaseName)) {
                             Z42ClassType baseCt = table.Classes.Get(ct.BaseName) as Z42ClassType;
@@ -287,6 +293,41 @@ public sealed class InheritanceResolver {
     // 实例属性 / 实例构造器 / 索引器均非法（static 类只容纳静态成员）。`const` 字段隐含静态（放行）；
     // 嵌套类型（class/struct/enum/interface）不是实例成员（不匹配下列 Decl 分支，天然放行）。
     // 发码用字面量 "E0451"（见 _passSealedEnforce ④ 注释）。
+    // add-associated-types PR-3：`class C : IEnum` 且 IEnum 声明了 `type Item;` ⇒ C 必须写
+    // `type Item = <某类型>;`。走接口继承闭包（`SymbolTable.Implements` 的同一份 BaseNames 链），
+    // 因为父接口的关联类型同样要绑。
+    //
+    // ⚠️ 这是 z42 **第一条**「实现接口必须补齐某成员」的强制。今天没有接口方法齐备性校验
+    // （`InheritanceResolver` 开头自陈「严格校验留待后续」），所以这条**不构成先例扩散**：
+    // 它只管关联类型，因为关联类型不绑就根本无法参与约束匹配（不像方法缺失还能靠动态派发兜底）。
+    // 零回归风险 —— 全仓今天没有任何 `type X;` 声明。
+    private void _checkAssocBindingsComplete(SymbolTable table, Z42ClassType ct, ClassDecl c) {
+        int i = 0;
+        while (i < ct.InterfaceCount) {
+            this._checkOneIfaceAssoc(table, ct, c, ct.InterfaceNames[i]);
+            i = i + 1;
+        }
+    }
+
+    private void _checkOneIfaceAssoc(SymbolTable table, Z42ClassType ct, ClassDecl c, string ifaceName) {
+        Z42InterfaceType it = table.GetInterface(ifaceName);
+        if (it == null) { return; }
+        int a = 0;
+        while (a < it.AssocTypeCount) {
+            if (ct.AssocBindingOf(it.AssocTypeNames[a]) == "") {
+                this._sc.Diags.Error("E0453",
+                    "`" + c.Name + "` implements `" + ifaceName + "` but does not bind associated type `"
+                    + it.AssocTypeNames[a] + "` — add `type " + it.AssocTypeNames[a] + " = <type>;`", c.Span);
+            }
+            a = a + 1;
+        }
+        int b = 0;
+        while (b < it.BaseCount) {   // 父接口的关联类型同样要绑
+            this._checkOneIfaceAssoc(table, ct, c, it.BaseNames[b]);
+            b = b + 1;
+        }
+    }
+
     private void _checkStaticClassMember(string clsName, Decl mem) {
         if (mem is MethodDecl) {
             MethodDecl md = mem as MethodDecl;
