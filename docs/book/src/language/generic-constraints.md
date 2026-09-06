@@ -153,8 +153,17 @@ Deferred：`where-constraint-future-toplevel-func`。
 
 ### 4. 函数类型约束从未发出诊断
 
-`E0422` / `E0423` 已定义但没有代码路径会发出它们。注意代码生成依赖该约束把参数当 func 值走
-间接调用，改动需谨慎。Deferred：`where-constraint-future-func-constraint`。
+`E0422` / `E0423` 已定义但没有代码路径会发出它们，即 `where T : Func<int,int>` 传进去什么都行、
+**约束本身不校验**。Deferred：`where-constraint-future-func-constraint`。
+
+> **事实校正（`fix-generic-func-param-indirect-call`）**：本节原写着「代码生成依赖该约束把参数当
+> func 值走间接调用，改动需谨慎」——**不成立**。`CallEmitter` 从不看约束，它只查
+> `Locals.ContainsKey(名字)`。真正决定 `f(x)` 走间接调用的是 binder（`MemberResolver` 的
+> `Z42GenericParamType` 分支），而那条分支**一度不存在**：binder 把 `f(x)` 绑成自由函数调用并报
+> E0401，只是诊断被 `--emit-zbc` 吞了，而 emitter 靠名字侥幸补救，于是直接调用能跑。
+> 名字一旦不在当前帧 Locals 里（**被 lambda 捕获**）侥幸就没了——不发 `mk_clos`、lambda 体里发
+> `call @f` 调一个不存在的自由函数，运行期 `undefined function`。
+> 回归守卫：`src/tests/generics/func_constraint_captured.z42`。
 
 ### 5. 关联类型 / 嵌套约束**未实现**
 

@@ -4,9 +4,14 @@
 // validate_type_arg_constraint`（七项俱全）——编译期照抄，不另立规则。当前落地：
 //   base-class（where T : C）/ class / struct / 型参引用（where U : T）/ interface（含继承闭包）
 //   / enum / new()  + class·struct 互斥。
-// 延后：func-type 约束（E0422/E0423 已定义但从未发出；
-//   Deferred where-constraint-future-func-constraint——注意 CallEmitter 靠该约束把参数当
-//   func 值走 CallIndirect，改动需谨慎）。
+// 延后：func-type 约束的**校验**（E0422/E0423 已定义但从未发出；Deferred
+//   where-constraint-future-func-constraint）。
+//   ⚠️ **事实校正（fix-generic-func-param-indirect-call）**：原注有一句「注意 CallEmitter 靠该约束
+//   把参数当 func 值走 CallIndirect，改动需谨慎」——**不成立**。`CallEmitter` 从不看约束，它只查
+//   `Locals.ContainsKey(名字)`；真正把 `f(x)` 绑成间接调用的是 `MemberResolver` 的
+//   `Z42GenericParamType` 分支（本次补齐）。那句话曾让人以为这条路已接通，实际 binder 一直在报
+//   E0401（被 `--emit-zbc` 吞掉），emitter 那半边靠名字侥幸救回——名字一旦不在当前帧 Locals 里
+//   （被 lambda 捕获）就发 `call @f` 硬炸。
 //
 // > 注：原注释称「z42c 缺 Z42InterfaceType / 缺 ctor 收集」——**均已过时**。
 // > `Z42InterfaceType` 是独立类型、`SymbolTable.Implements` 早被 Conversion/DeclBinder 消费；
