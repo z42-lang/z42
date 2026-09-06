@@ -298,3 +298,44 @@ void test_params_valid_no_error() {
     // 合法形态（非末 params 之前的普通参数 + 末位 params T[]）→ 无诊断
     Assert.Equal("", parseErrorCodes("class C { void F(int a, params int[] xs) {} }"));
 }
+
+// ── 关联类型（add-associated-types PR-3）──────────────────────────────────────
+//
+// `type` **不是关键字**（全仓大量把它当普通标识符：变量名/参数名/属性名），所以它只能靠
+// `MemberParser._parseMemberBody` 的三 token 前瞻拦截（`type` + 标识符 + `;`/`=`）。
+// 这组用例守的正是「拦得住 + 不误拦」两侧。
+
+[Test]
+void test_assoc_type_decl_in_interface() {
+    string src = "interface IEnum { type Item; }";
+    Assert.Equal(true, parseUnit(src).Contains("(assoc-type Item)"));
+}
+
+[Test]
+void test_assoc_type_binding_in_class() {
+    string src = "class C : IEnum { type Item = int; }";
+    Assert.Equal(true, parseUnit(src).Contains("(assoc-type Item = int)"));
+}
+
+[Test]
+void test_assoc_type_binding_in_where_clause() {
+    // 命名绑定只在**约束位**允许（TypeParser._allowAssocBindings 门控）。
+    string src = "class Use<T> where T : IEnum<Item = int> { }";
+    Assert.Equal(true, parseUnit(src).Contains("Item = int"));
+}
+
+[Test]
+void test_assoc_binding_not_allowed_in_ordinary_type_position() {
+    // 普通类型位写 `Item = int` 不得被当成绑定——`List<Item = int>` 里的 `=` 应触发解析错误，
+    // 而不是被静默吃掉。（门控退出即关，这条守的是「没有全局放开」。）
+    string src = "class C { List<Item = int> f; }";
+    Assert.Equal(true, parseErrorCodes(src) != "");
+}
+
+[Test]
+void test_type_as_identifier_still_parses() {
+    // 🔒 回归守卫：`type` 仍是普通标识符。方法名/参数名/局部变量名叫 type 都不受前瞻影响
+    // （第三个 token 分别是 `(` / `,`|`)` / 非 `;=`）。
+    string src = "class C { int type(int type) { int x = type; return x; } }";
+    Assert.Equal("", parseErrorCodes(src));
+}

@@ -437,3 +437,67 @@ void test_self_bearing_interface_constraint_still_rejects_non_implementer() {
         + "class Use { void f() { var b = new Box<Q>(); } }\n";
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
 }
+
+// ── 关联类型（add-associated-types PR-3）─────────────────────────────────────
+//
+// `type Item;` 声明一个**由实现方决定**的类型；`where T : IEnum<Item = int>` 要求实参
+// 绑到指定类型。全部诊断走 E0453（语义层发字面量，见 DiagnosticCodes 注释里的 F2 冷启动约定）。
+
+[Test]
+void test_assoc_type_bound_and_constraint_satisfied() {
+    string src = "interface IEnum { type Item; }\n"
+        + "class IntBag : IEnum { type Item = int; }\n"
+        + "class Use<T> where T : IEnum<Item = int> { }\n"
+        + "class Go { void f() { var u = new Use<IntBag>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_assoc_binding_mismatch_is_reported() {
+    // 绑成 string、约束要 int ⇒ 不满足。这是关联类型相对「裸名匹配」真正多出来的判别力。
+    string src = "interface IEnum { type Item; }\n"
+        + "class StrBag : IEnum { type Item = string; }\n"
+        + "class Use<T> where T : IEnum<Item = int> { }\n"
+        + "class Go { void f() { var u = new Use<StrBag>(); } }\n";
+    Assert.Equal("E0453", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_implementer_missing_binding_is_reported() {
+    // 实现了带关联类型的接口却不绑 ⇒ 声明期就报，不等到用作类型实参。
+    string src = "interface IEnum { type Item; }\n"
+        + "class Bad : IEnum { }\n";
+    Assert.Equal("E0453", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_unknown_assoc_type_name_in_constraint_is_reported() {
+    // 约束里绑一个该接口根本没声明的关联类型名 = 笔误，早报。
+    string src = "interface IEnum { type Item; }\n"
+        + "class Use<T> where T : IEnum<Itme = int> { }\n";
+    Assert.Equal("E0453", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_interface_cannot_bind_its_own_assoc_type() {
+    // 绑定是实现方的事；接口里写 `type Item = int;` 没有意义。
+    string src = "interface IEnum { type Item = int; }\n";
+    Assert.Equal("E0453", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_assoc_type_without_binding_is_reported() {
+    // 类里写不带绑定的 `type Item;` —— 类不能把关联类型再往下延。
+    string src = "interface IEnum { type Item; }\n"
+        + "class C : IEnum { type Item; }\n";
+    Assert.Equal("E0453", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_parent_interface_assoc_type_must_also_be_bound() {
+    // 关联类型的补齐要求走**接口继承闭包**，与 Implements 同一份 BaseNames 链。
+    string src = "interface IBase { type Item; }\n"
+        + "interface IDerived : IBase { }\n"
+        + "class C : IDerived { }\n";
+    Assert.Equal("E0453", SemanticDump.FirstErrorCode(src));
+}

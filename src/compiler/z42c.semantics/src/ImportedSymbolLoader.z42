@@ -173,6 +173,8 @@ public static class ImportedSymbolLoader {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.IsImported = true;                 // complete-class-access-control ④：来自依赖 zpkg（跨包）→ internal 接口不可引用
                         nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
+                        // add-associated-types PR-3：导入接口的型参名进符号表（与本包 StubCollector 对称）。
+                        nift.TypeParamNames = iz.TypeParams; nift.TypeParamCount = iz.TpCount;
                         r.Interfaces.Put(iz.Name, nift);
                         // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
                         // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →

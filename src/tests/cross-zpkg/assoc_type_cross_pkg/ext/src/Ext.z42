@@ -1,0 +1,12 @@
+// ext → target：在**另一个包**里以导入类作类型实参，穿过带关联类型绑定要求的约束。
+// 这是守卫真正被压到的那条路（main 那条也走同一守卫，两侧都覆盖）。
+namespace DemoAExt;
+
+using DemoATarget;
+
+public class Holder<T> where T : IEnum<Item = int> {
+    public T item;
+    public Holder(T v) { this.item = v; }
+}
+
+int viaExt(IntBag b) { var h = new Holder<IntBag>(b); return h.item.Get(); }

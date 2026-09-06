@@ -1,0 +1,9 @@
+[project]
+name = "demo.aapp"   # *app 排在 aext/atarget 之前——cross-zpkg 驱动取字母序首个 zpkg 当 exe
+version = "0.1.0"
+kind = "exe"
+entry = "DemoAApp.Main"
+pack = true
+[dependencies]
+"demo.atarget" = "0.1.0"
+"demo.aext" = "0.1.0"

@@ -37,6 +37,21 @@ public sealed class NamedType : TypeExpr {
     }
 }
 
+// 关联类型的**命名绑定**，只出现在类型实参位：`where T : IEnumerable<Item = int>` 里的
+// `Item = int`（add-associated-types PR-3）。做成一种 TypeExpr 而不是给 NamedType 加平行数组，
+// 是因为它天然就长在 Args 槽里——`NamedType` 一行不用改，消费方按类型判别即可。
+//
+// ⚠️ 只有约束位的 `_parseType` 才接受它（`TypeParser._assocDepth` 门控）。普通类型位写
+// `List<Item = int>` 仍是语法错误 —— 否则 `=` 会与赋值表达式在别处抢词法。
+public sealed class AssocBindingType : TypeExpr {
+    public string   Name;    // 关联类型名（`Item`）
+    public TypeExpr Bound;   // 绑定到的类型（`int`）
+    public AssocBindingType(string name, TypeExpr bound, Span span) { this.Span = span;
+        this.Name = name; this.Bound = bound;
+    }
+    public override string Dump() { return this.Name + " = " + this.Bound.Dump(); }
+}
+
 public sealed class ArrayType : TypeExpr {
     public TypeExpr Elem;
     public ArrayType(TypeExpr elem, Span span) { this.Span = span; this.Elem = elem; }

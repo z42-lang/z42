@@ -107,6 +107,30 @@ public sealed class ConstraintChecker {
                     // 之前就把它们整条丢弃，这才是接口约束全体静默的直接原因。
                     // 按裸名匹配（design D1）：`nt.Name` 已是裸名（泛型实参在 nt.Args）。
                     bundle.AddInterface(nt.Name);
+                    // add-associated-types PR-3：接口约束的类型实参位可写 `Item = int` 命名绑定。
+                    // 只收 AssocBindingType 那些实参（普通实参仍按 design D1 裸名匹配、被忽略）。
+                    int ab = 0;
+                    while (ab < nt.ArgCount) {
+                        if (nt.Args[ab] is AssocBindingType) {
+                            AssocBindingType abt = nt.Args[ab] as AssocBindingType;
+                            Z42Type abResolved = symbols.ResolveTypeP(abt.Bound, pnames, pc);
+                            bundle.AddAssocBinding(abt.Name, TypeNameResolver.SurfaceTypeName(abResolved));
+                            // 绑定的名字必须真是该接口声明过的关联类型，否则是笔误 → 早报，别静默。
+                            // 🔴 **跨包接口必须跳过**：导入侧的 `AssocTypeNames` 还没有 wire 来源、恒空
+                            // ⇒ 不跳过则「另一个包里 `where T : IEnum<Item = int>`」这种完全合法的写法
+                            // 会被判成「IEnum 没有关联类型 Item」——假红。这条守卫是
+                            // `src/tests/cross-zpkg/assoc_type_cross_pkg/` 抓出来的（我最初只守了
+                            // 使用点 `_checkAssocBinding` 与补齐强制，漏了这个**声明点**）。
+                            // Deferred：`assoc-type-crosspkg`（独立 change，含双 bump）。
+                            Z42InterfaceType abIface = symbols.GetInterface(nt.Name);
+                            if (abIface != null && !abIface.IsImported && !abIface.HasAssocType(abt.Name)) {
+                                this._diags.Error("E0453",
+                                    "interface `" + nt.Name + "` has no associated type `" + abt.Name + "`",
+                                    abt.Span);
+                            }
+                        }
+                        ab = ab + 1;
+                    }
                 } else if (symbols.HasClass(nt.Name)) {
                     // 泛型 base（`where T : Box<int>`）仍只记裸名——本轮不校验其类型实参
                     // （与接口的裸名匹配同口径，design D1）。
@@ -188,6 +212,41 @@ public sealed class ConstraintChecker {
         }
         if (b.RequiresCtor && !this._hasNoArgCtor(symbols, arg)) {
             this._err(arg, pn, "new()", ownerName, sp);
+        }
+        // add-associated-types PR-3：关联类型绑定要求 `where T : IEnum<Item = int>`。
+        int ai = 0;
+        while (ai < b.AssocBindingCount) {
+            this._checkAssocBinding(symbols, arg, pn, b.AssocBindingNames[ai], b.AssocBindingTypeNames[ai], ownerName, sp);
+            ai = ai + 1;
+        }
+    }
+
+    // `where T : IEnum<Item = int>` —— 实参 T 的类必须给出 `type Item = int;` 且绑定类型一致。
+    // 未解析型参 / error / unknown 一律放行（同 _satisfiesInterface：信息不足不误报）。
+    private void _checkAssocBinding(SymbolTable symbols, Z42Type arg, string pn,
+                                    string bindName, string wantType, string ownerName, Span sp) {
+        if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return; }
+        Z42ClassType cls = null;
+        if (arg is Z42ClassType) { cls = arg as Z42ClassType; }
+        else if (arg is Z42InstantiatedType) { cls = (arg as Z42InstantiatedType).Def; }
+        if (cls == null) { return; }                       // 数组 / func / void：无处安放绑定，不误报
+        // 🔴 跨包实参一律放行（本轮只落同包，见 tasks「范围裁决」）：类的关联类型绑定还没有 wire
+        // 表示（要 zbc bit7 + 双格式 bump），导入类的 `AssocBindingCount` 恒为 0。若在这里照常校验，
+        // 合法的跨包代码会被判成「未绑定」——**假红**，比漏报更糟。故按 `IsImported` 跳过，
+        // 与 `_satisfiesInterface` 对信息不足者放行的既有口径一致。
+        // Deferred：`assoc-type-crosspkg`（独立 change，含双 bump）。
+        if (cls.IsImported) { return; }
+        string got = cls.AssocBindingOf(bindName);
+        if (got == "") {
+            this._diags.Error("E0453",
+                "type argument `" + arg.Name() + "` for `" + pn + "` on `" + ownerName
+                + "` does not bind associated type `" + bindName + "`", sp);
+            return;
+        }
+        if (PrimModel.Canon(got) != PrimModel.Canon(wantType)) {
+            this._diags.Error("E0453",
+                "type argument `" + arg.Name() + "` for `" + pn + "` on `" + ownerName
+                + "` binds `" + bindName + "` to `" + got + "`, but `" + wantType + "` is required", sp);
         }
     }
 

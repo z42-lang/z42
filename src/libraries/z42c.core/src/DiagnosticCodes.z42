@@ -81,6 +81,7 @@ public static class DiagnosticCodes {
     public static string GeneratorDependencyCycle    = "E0449";  // generator 的 consumes/produces 依赖成环——拓扑分层无法定序（attribute-handler-registry PR4e 有界多轮护栏）。PR4e-wire 起 GeneratorDriver 已由字面量切回常量引用（E0449 随 nightly 载入 z42c.core）。
     public static string CallerMacroInvalid          = "E0450";  // 编译期宏 `name!()` 误用（attribute-handler-registry PR6b）：未知宏名 / 参数类型不符 / 出现在非参数默认值位。**语义层用字面量 "E0450" 发码**（不引用本常量），避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache（同 PR4e E0449 手法，待随 nightly 载入后可切常量）。
     public static string PropertyNoSetter            = "E0452";  // 给没有 setter 的属性赋值：`X { get; }` 只读自动属性仅可在构造函数内经 `this` 写（对标 C# CS0200），`X { get {..} }` 计算属性任何位置都不可赋值（fix-autoprop-getonly-backing-write）。**语义层用字面量 "E0452" 发码**（同 E0449/E0450/E0451 手法，避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache，待随 nightly 载入后可切常量）。
+    public static string AssocTypeBinding            = "E0453";  // 关联类型（add-associated-types PR-3）：接口里 `type Item;` 未被实现方绑定 / 实现方写了不带绑定的 `type Item;` / 接口自己写了绑定 / `where T : IFoo<Zzz = int>` 里 Zzz 不是该接口的关联类型 / 实参绑定与约束要求不符。**语义层用字面量 "E0453" 发码**（同 E0449/E0450/E0451/E0452 手法，避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache，待随 nightly 载入后可切常量）。
     public static string StaticClassInstanceMember   = "E0451";  // static 类含实例成员（方法/字段/属性/构造器）、声明基类、或实现接口——static 类只容纳静态成员（对标 C# CS0708/0710/0713/0714；fix-static-class-instance-members）。**语义层用字面量 "E0451" 发码**（同 E0449/E0450 手法，避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache，待随 nightly 载入后可切常量）。
 
     // IrGen

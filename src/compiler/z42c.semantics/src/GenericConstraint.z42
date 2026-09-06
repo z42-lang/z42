@@ -34,12 +34,17 @@ public sealed class ConstraintBundle {
     // （`where T : IFoo + IBar`），故用 typed array + count（类字段不能带泛型）。
     public string[] InterfaceNames;
     public int      InterfaceCount;
+    // add-associated-types PR-3：`where T : IEnum<Item = int>` 的关联类型绑定要求。
+    // 两条平行数组 + count；与 `Z42ClassType.AssocBinding*` 同一口径（存已解析类型的 Name()），
+    // 校验即「实参类型对该关联类型给出的绑定 == 这里要求的」。
+    public string[] AssocBindingNames; public string[] AssocBindingTypeNames; public int AssocBindingCount;
 
     public ConstraintBundle() {
         this.HasBaseClass = false; this.BaseClassName = "";
         this.RequiresClass = false; this.RequiresStruct = false;
         this.HasTypeParamRef = false; this.TypeParamRef = "";
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
+        this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
         this.RequiresEnum = false; this.RequiresCtor = false;
     }
 
@@ -56,10 +61,25 @@ public sealed class ConstraintBundle {
         this.InterfaceCount = this.InterfaceCount + 1;
     }
 
+    public void AddAssocBinding(string name, string typeName) {
+        if (this.AssocBindingCount == this.AssocBindingNames.Length) {
+            int cap = this.AssocBindingNames.Length * 2;
+            if (cap < 2) { cap = 2; }
+            string[] bn = new string[cap]; string[] bt = new string[cap];
+            int i = 0;
+            while (i < this.AssocBindingCount) { bn[i] = this.AssocBindingNames[i]; bt[i] = this.AssocBindingTypeNames[i]; i = i + 1; }
+            this.AssocBindingNames = bn; this.AssocBindingTypeNames = bt;
+        }
+        this.AssocBindingNames[this.AssocBindingCount] = name;
+        this.AssocBindingTypeNames[this.AssocBindingCount] = typeName;
+        this.AssocBindingCount = this.AssocBindingCount + 1;
+    }
+
     public bool IsEmpty() {
         return !this.HasBaseClass && !this.RequiresClass && !this.RequiresStruct
             && !this.HasTypeParamRef && this.InterfaceCount == 0
-            && !this.RequiresEnum && !this.RequiresCtor;
+            && !this.RequiresEnum && !this.RequiresCtor
+            && this.AssocBindingCount == 0;
     }
 }
 

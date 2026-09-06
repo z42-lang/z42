@@ -1,0 +1,13 @@
+namespace DemoAApp;
+
+using Std.IO;
+using DemoATarget;
+using DemoAExt;
+
+void Main() {
+    var b = new IntBag(7);
+    Console.WriteLine("" + b.Get());                    // 7
+    var h = new Holder<IntBag>(new IntBag(9));          // 跨包：约束带 Item = int 绑定要求
+    Console.WriteLine("" + h.item.Get());               // 9
+    Console.WriteLine("" + viaExt(new IntBag(11)));     // 11 —— ext 侧同一条路
+}

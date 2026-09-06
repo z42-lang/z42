@@ -67,6 +67,11 @@ public sealed class Z42ClassType : Z42Type {
     // receiver（List<string>）调方法/取字段时，把签名里的类形参 T 按名映射到 receiver 的 TypeArgs
     // （T→string），修复 `list.ToArray()` 返回 `T[]` 不替换致 E0402（导入泛型「方法返回轴」缺陷）。
     public string[] GenericParamNames; public int GenericParamCount;
+    // add-associated-types PR-3：本类给出的**关联类型绑定**（`class C : IEnum { type Item = int; }`）。
+    // 两条平行数组 + count（类字段不能带泛型）。存**已解析类型的 Name()**（而非 AST 拼写）——
+    // 与约束侧 `ConstraintBundle.AssocBindingTypeNames` 同一口径，比对才有意义；也直接就是 3D 要
+    // 持久化进 zbc 的形态。
+    public string[] AssocBindingNames; public string[] AssocBindingTypeNames; public int AssocBindingCount;
     // impl-sealed-semantics-devirt：sealed class（不可被继承）。默认 false；本地由 SymbolCollector 从
     // Mods 设置，导入由 ImportedSymbolLoader 从 CLASS_FLAG_SEALED 还原。供 ① 继承强制 + ④ receiver
     // 静态类型为 sealed 类时的去虚化查询。
@@ -95,6 +100,30 @@ public sealed class Z42ClassType : Z42Type {
     // Canon/内建码的惰性记忆（见基类 CanonName 注释）。哨兵：_canon=="" 未算（Canon 对非空名恒非空；
     // 名为空的退化类型只是每次重算，无正确性影响）、_code==-2 未算（-1 是「非内建」这个合法结果）。
     private string _canon; private int _code;
+    // add-associated-types PR-3：登记一条关联类型绑定（`type Item = int;`）。
+    public void AddAssocBinding(string name, string typeName) {
+        if (this.AssocBindingCount == this.AssocBindingNames.Length) {
+            int cap = this.AssocBindingNames.Length * 2;
+            if (cap < 2) { cap = 2; }
+            string[] bn = new string[cap]; string[] bt = new string[cap];
+            int i = 0;
+            while (i < this.AssocBindingCount) { bn[i] = this.AssocBindingNames[i]; bt[i] = this.AssocBindingTypeNames[i]; i = i + 1; }
+            this.AssocBindingNames = bn; this.AssocBindingTypeNames = bt;
+        }
+        this.AssocBindingNames[this.AssocBindingCount] = name;
+        this.AssocBindingTypeNames[this.AssocBindingCount] = typeName;
+        this.AssocBindingCount = this.AssocBindingCount + 1;
+    }
+    // 该关联类型名绑定到的类型名；未绑定返回 ""。
+    public string AssocBindingOf(string name) {
+        int i = 0;
+        while (i < this.AssocBindingCount) {
+            if (this.AssocBindingNames[i] == name) { return this.AssocBindingTypeNames[i]; }
+            i = i + 1;
+        }
+        return "";
+    }
+
     public Z42ClassType(string name, bool hasBase, string baseName) {
         this._canon = ""; this._code = -2;
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
@@ -107,6 +136,7 @@ public sealed class Z42ClassType : Z42Type {
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
         this.IsPartial = false; this.PartialMainFile = "";
         this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
+        this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
         this.IsStruct = false;
         this.IsRecord = false;
         this.IsSealed = false;
@@ -246,8 +276,11 @@ public sealed class Z42ClassType : Z42Type {
 }
 
 // 接口类型（port-z42c-interface）：方法签名表（MethodSymbol，同类方法形态——D1）。
-public sealed class Z42InterfaceType : Z42Type {
-    private string _name;
+//
+// add-associated-types PR-3：**去 sealed**，让 `Z42InstantiatedInterfaceType` 作子类承载
+// `IFoo<int>` 的类型实参（design D6 修订，见该类注释）。本类自身语义不变。
+public class Z42InterfaceType : Z42Type {
+    protected string _name;
     public StrMap Methods;    // name → MethodSymbol
     public bool   IsPartial;       // add-partial-types：由多个 partial 接口碎片合并而成
     public string PartialMainFile; // 主碎片文件（min-path）；仅主碎片 emit 合并接口 TYPE record
@@ -263,7 +296,15 @@ public sealed class Z42InterfaceType : Z42Type {
     // 受限写法：typed array + int count（类字段不能带泛型）。
     public string[] BaseNames;
     public int      BaseCount;
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; }
+    // add-associated-types PR-3：接口自身的型参名（`interface IBox<T>` 的 T）。此前只有
+    // `Z42ClassType` 有型参名槽，接口一律无 —— 故跨包导入接口方法时无从建立型参上下文
+    // （PR-2 是从 `ExportedInterfaceZ.TypeParams` 现取的）。绑定关联类型也要以它为基准。
+    public string[] TypeParamNames;
+    public int      TypeParamCount;
+    // add-associated-types PR-3：本接口声明的关联类型名（`type Item;` 的 Item），声明序。
+    public string[] AssocTypeNames;
+    public int      AssocTypeCount;
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; }
 
     public void AddBase(string name) {
         if (this.BaseCount == this.BaseNames.Length) {
@@ -277,10 +318,68 @@ public sealed class Z42InterfaceType : Z42Type {
         this.BaseNames[this.BaseCount] = name;
         this.BaseCount = this.BaseCount + 1;
     }
+    public void AddAssocType(string name) {
+        if (this.AssocTypeCount == this.AssocTypeNames.Length) {
+            int cap = this.AssocTypeNames.Length * 2;
+            if (cap < 2) { cap = 2; }
+            string[] bigger = new string[cap];
+            int i = 0;
+            while (i < this.AssocTypeCount) { bigger[i] = this.AssocTypeNames[i]; i = i + 1; }
+            this.AssocTypeNames = bigger;
+        }
+        this.AssocTypeNames[this.AssocTypeCount] = name;
+        this.AssocTypeCount = this.AssocTypeCount + 1;
+    }
+    public bool HasAssocType(string name) {
+        int i = 0;
+        while (i < this.AssocTypeCount) { if (this.AssocTypeNames[i] == name) { return true; } i = i + 1; }
+        return false;
+    }
     public override string Name() { return this._name; }
     public override bool IsAssignableTo(Z42Type other) {
         if (other is Z42ErrorType) { return true; }
         return (other is Z42InterfaceType) && this._name == other.Name();
+    }
+}
+
+// 实例化接口类型（add-associated-types PR-3 地基）：`IFoo<int>` 的类型实参承载。
+//
+// 🔴 **为什么是子类，而不是 design D6 原写的「把 `Z42InstantiatedType.Def` 提升为可承载
+// `Z42ClassType` 或 `Z42InterfaceType`」** —— 实测两条路的半径差一个数量级：
+//   · 提升 `Def`：`Def` 的静态类型今天是 `Z42ClassType`，全仓 **49 处 `.Def`** 直接当类用
+//     （取 `OverloadsOf` / `IsAbstract` / `Fqn()` …），外加 **44 处 `is Z42InstantiatedType`**
+//     分支要重新判定「这是类还是接口」。逐处审计，且每一处判错都会静默改变自举字节。
+//   · 子类：`Z42InstantiatedInterfaceType is Z42InterfaceType` 恒真 ⇒ 既有
+//     **16 处 `is` + 18 处 `as` Z42InterfaceType** 一行不改、行为不变；只有想要实参的新代码
+//     才多问一句。
+// 结论：同样的表达力，改动面从「93 处逐个审」降到「0 处必改」。design D6 已同步订正。
+//
+// 🔴 **`Name()` 刻意仍返回裸名**（`"IFoo"` 而非 `"IFoo<int>"`）：接口名会流进 TSIG / 成员元数据
+// （`TypeNameResolver._resolvedTypeName` → 导出串），改成带实参的拼写会**直接漂移自举字节**。
+// 实参走 `TypeArgs` 侧带，不进名字。要「带实参的名字」用 `NameWithArgs()`。
+public sealed class Z42InstantiatedInterfaceType : Z42InterfaceType {
+    public Z42InterfaceType Def;        // 接口定义（Methods/BaseNames/TypeParamNames 的真身）
+    public Z42Type[]        TypeArgs;
+    public int              ArgCount;
+    public Z42InstantiatedInterfaceType(Z42InterfaceType def, Z42Type[] typeArgs, int argCount)
+        : base(def.Name()) {
+        this.Def = def; this.TypeArgs = typeArgs; this.ArgCount = argCount;
+        // 成员/父接口/型参名共享定义那份引用（只读消费；不复制以免与后续填充脱节）。
+        this.Methods = def.Methods;
+        this.BaseNames = def.BaseNames; this.BaseCount = def.BaseCount;
+        this.TypeParamNames = def.TypeParamNames; this.TypeParamCount = def.TypeParamCount;
+        this.Visibility = def.Visibility; this.IsImported = def.IsImported;
+    }
+    // 带实参的拼写（诊断 / 关联类型绑定匹配用；**不要**拿它去写元数据，见上）。
+    public string NameWithArgs() {
+        string s = this._name + "<";
+        int i = 0;
+        while (i < this.ArgCount) {
+            if (i > 0) { s = s + ", "; }
+            s = s + this.TypeArgs[i].Name();
+            i = i + 1;
+        }
+        return s + ">";
     }
 }
 

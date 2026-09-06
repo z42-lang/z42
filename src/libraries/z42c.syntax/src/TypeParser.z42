@@ -7,7 +7,11 @@ using Z42.Core;
 
 public sealed class TypeParser {
     private Parser _p;
-    public TypeParser(Parser p) { this._p = p; }
+    // add-associated-types PR-3：类型实参位是否接受关联类型的命名绑定 `Item = int`。
+    // **只在 where 约束里开**（`_parseConstraint` 开、退出即关）——普通类型位 `List<Item = int>`
+    // 仍是语法错误。不开全局是因为 `=` 在类型位没有别的含义、一旦全放开就再也收不回来了。
+    private bool _allowAssocBindings;
+    public TypeParser(Parser p) { this._p = p; this._allowAssocBindings = false; }
 
     internal TypeExpr _emptyType() { return new NamedType("", new TypeExpr[0], 0, this._p._peek().Span); }
 
@@ -85,7 +89,28 @@ public sealed class TypeParser {
         // `where T : enum`——此前**没有**这个特判，`enum` 落进下面的 `_parseType()` 兜底变成
         // `NamedType("enum")`，语义层查不到同名类/接口 → 整条静默丢弃（complete-where-constraints PR-2）。
         if (k == TokenKind.Enum)   { this._p._advance(); return new WhereConstraint(false, this._emptyType(), "enum", sp); }
-        return new WhereConstraint(true, this._parseType(), "", sp);
+        // add-associated-types PR-3：约束位（且仅此处）允许类型实参写成 `Item = int` 命名绑定。
+        bool savedAssoc = this._allowAssocBindings;
+        this._allowAssocBindings = true;
+        TypeExpr conType = this._parseType();
+        this._allowAssocBindings = savedAssoc;
+        return new WhereConstraint(true, conType, "", sp);
+    }
+
+    // 单个类型实参：约束位允许 `Name = Type`（关联类型绑定），其余位置退化为普通类型。
+    // add-associated-types PR-3。前瞻两个 token（标识符 + `=`）即可判别，无歧义：类型位不可能
+    // 以 `Ident =` 开头。绑定的**值**照常走 `_parseType`，故 `Item = List<int>` 之类合法。
+    private TypeExpr _parseTypeArg() {
+        if (this._allowAssocBindings
+            && this._p._peek().Kind == TokenKind.Identifier
+            && this._p._peekAt(1).Kind == TokenKind.Eq) {
+            Span bsp = this._p._peek().Span;
+            string bname = this._p._peek().Text;
+            this._p._advance();   // 名
+            this._p._advance();   // '='
+            return new AssocBindingType(bname, this._parseType(), bsp);
+        }
+        return this._parseType();
     }
 
     internal TypeExpr _parseType() {
@@ -111,7 +136,7 @@ public sealed class TypeParser {
                         Array.Copy(args, b, ac);
                         args = b;
                     }
-                    args[ac] = this._parseType(); ac = ac + 1;
+                    args[ac] = this._parseTypeArg(); ac = ac + 1;
                     if (this._p._pendingGt == 0 && this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); continue; }
                     break;
                 }

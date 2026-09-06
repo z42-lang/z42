@@ -101,6 +101,26 @@ public sealed class UsingAliasDecl : Decl {
     public override string Dump() { return "(using-alias " + this.Name + " = " + this.Target.Dump() + ")"; }
 }
 
+// 关联类型成员（add-associated-types PR-3）：
+//   接口里 `type Item;`        —— 声明一个由**实现方**决定的类型（HasBound=false）
+//   实现类里 `type Item = int;` —— 给出绑定（HasBound=true）
+//
+// `type` **不是关键字**（全仓大量把它当普通标识符用），故由 `MemberParser._parseMemberBody`
+// 在 `_parseType()` 之前做三 token 前瞻拦截，与 `class`/`enum`/`implicit` 同款。
+public sealed class AssocTypeDecl : Decl {
+    public string   Mods;
+    public string   Name;
+    public bool     HasBound;
+    public TypeExpr Bound;
+    public AssocTypeDecl(string mods, string name, bool hasBound, TypeExpr bound, Span span) { this.Span = span;
+        this.Mods = mods; this.Name = name; this.HasBound = hasBound; this.Bound = bound;
+    }
+    public override string Dump() {
+        if (this.HasBound) { return "(assoc-type " + this.Name + " = " + this.Bound.Dump() + ")"; }
+        return "(assoc-type " + this.Name + ")";
+    }
+}
+
 public sealed class FieldDecl : Decl {
     public string   Mods;
     public TypeExpr Type;

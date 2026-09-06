@@ -1,14 +1,21 @@
 # Tasks: 泛型表达力 —— 跨包约束持久化 + `Self` + 关联类型
 
-> 状态：🟡 进行中 | 创建：2026-09-05 | 范围裁决：2026-09-06
+> 状态：🟢 完成（已归档）| 创建：2026-09-05 | 范围裁决：2026-09-06 | 归档：2026-09-06
 
 ## 进度概览
 
 - [x] **PR-1** 跨包约束持久化 + flag 位 + 认知修正（零格式 bump）✅ 已合并 **#499**
 - [x] **PR-2** `Self` 类型（仅接口）✅ 实现完成（GREEN 全绿 + JIT 双模式 + bootstrap 边界门），待开 PR
-- [ ] **PR-3** 关联类型（含泛型接口实例化地基，双格式 bump）
+- [x] **PR-3** 关联类型（含泛型接口实例化地基）—— **同包**落地；跨包（双格式 bump）经 User 裁决拆出为独立 change `assoc-type-crosspkg`
 
 > 三个 PR 顺序落地，每个独立 GREEN、独立合并。PR-3 依赖 PR-1 建好的跨包通道。
+>
+> **范围裁决（2026-09-06，User）**：PR-3 **只落同包**关联类型，跨包（zbc bit7 + zbc/zpkg 双 minor
+> bump + 三方 reader + 10 fixture regen）拆为独立 change。依据三条：① 本 change 的定位本就是
+> 「只落 support + 测试」，真实源码改写要等下一 nightly；② 实测关联类型今天**零个真实受益点**，
+> 跨包更是零；③ 双 bump 后本地建不动（新格式 VM 读不了旧种子），按 version-bumping.md 唯一已验证
+> 的路径要先推一个**明知会红**的 PR 去拿 CI 工具链 artifact ——这轮往返不值得为零受益点付。
+> 已登记 Deferred `assoc-type-crosspkg`；三个跳过点在代码里显式写明（见 3D 段）。
 
 ---
 
@@ -63,7 +70,7 @@
 
 - [x] 1G.1 `docs/book/src/language/generic-constraints.md` —— 已知限制 §1 由「不校验」改为「已校验」；补跨包链路机制（含 ASCII 链路图）
 - [x] 1G.2 `docs/roadmap.md` —— 关掉 `where-constraint-future-crosspkg` + `-runtime-flags`（两条同一链路，一并兑现）；§编号顺移；新登记 4 条 Deferred（loader 接口启发式 / 跨包 `new T()` / 跨包 enum ToString / driver 隐藏 warning）
-- [x] 1G.3 ~~归档随本 PR~~ → **本 change 拆三个 PR，归档只在最后一个（PR-3）里做**：`changes/` → `archive/` 是整个 change 完成时的动作，PR-1/PR-2 各自只带自己的文档同步。铁律「归档与代码同 PR」仍然满足——归档与 PR-3 同 PR
+- [x] 1G.3 ~~归档随本 PR~~ → **本 change 拆三个 PR，归档只在最后一个（PR-3）里做**：`changes/` → `archive/` 是整个 change 完成时的动作，PR-1/PR-2 各自只带自己的文档同步。铁律「归档与代码同 PR」仍然满足——归档与 PR-3 同 PR（✅ 已随 PR-3 归档）
 
 ---
 
@@ -135,42 +142,72 @@
 
 ### 3A 地基：泛型接口实例化
 
-- [ ] 3A.1 `Z42Type.z42` —— `Z42InstantiatedType.Def` 提升为可承载 `Z42ClassType` 或 `Z42InterfaceType`
-- [ ] 3A.2 `SymbolTable.ResolveTypeP` —— 泛型接口引用解析成实例化接口类型
-- [ ] 3A.3 确认既有裸名匹配路径（`_satisfiesInterface`）不因地基变化而回归
+- [x] 3A.1 ~~`Z42InstantiatedType.Def` 提升为可承载 `Z42ClassType` 或 `Z42InterfaceType`~~ →
+      **改为新增子类 `Z42InstantiatedInterfaceType : Z42InterfaceType`**（design D6 订正）：
+      原方案要审 49 处 `.Def` + 44 处 `is Z42InstantiatedType`，子类方案 **0 处必改**。
+      配套：`Z42InterfaceType` 去 `sealed` + 加 `TypeParamNames/TypeParamCount`；
+      `Name()` **仍返回裸名**（带实参拼写会漂移 TSIG 字节，另给 `NameWithArgs()`）
+- [x] 3A.2 `SymbolTable.ResolveTypeP` —— 泛型接口引用 `IFoo<int>` 解析成实例化接口类型
+      （此前 `Interfaces.Find` 命中即返回裸接口、`nt.Args` 整条丢弃）。导入侧
+      `ImportedSymbolLoader` 同步填型参名，与本包 `StubCollector` 对称
+- [x] 3A.3 既有裸名匹配路径不回归 —— **完整 GREEN 全绿 + 自举字节不动点保持**（3/3 gen1==gen2），
+      这是子类 + 裸名 `Name()` 两个选择共同保证的
 
 ### 3B Parser
 
-- [ ] 3B.1 `MemberParser._parseMemberBody:107-133` —— 在 `_parseType()` **之前**的拦截区加 `type Item;` 三 token 前瞻分支（上下文关键字，**不进 lexer**）
-- [ ] 3B.2 `TypeParser._parseType:105-122` —— 类型实参位支持 `Name = Type` 命名绑定
-- [ ] 3B.3 `TypeExpr.z42` / `Decl.z42` —— 承载绑定与关联类型声明节点
-- [ ] 3B.4 回归确认 `type` 仍可作普通标识符
+- [x] 3B.1 `MemberParser._parseMemberBody` 拦截区加 `type Item;` / `type Item = X;` 三 token 前瞻
+      （上下文关键字，**不进 lexer**）。⚠️ 已实测并**刻意接受**一处代价：类型名恰好叫 `type` 的
+      字段声明（`type x;`）会被吃掉——全仓 `src/`+`examples/` 零命中、且无任何名为 `type` 的类型；
+      换来 `type` 不进 lexer（进 lexer 会废掉所有把 `type` 当变量/参数/属性名的源码）
+- [x] 3B.2 `TypeParser` 类型实参位支持 `Name = Type` 命名绑定，**且仅在 where 约束位开**
+      （`_allowAssocBindings` 门控，`_parseConstraint` 进出成对开关）。普通类型位
+      `List<Item = int>` 仍是语法错误——`=` 在类型位一旦全局放开就再收不回来
+- [x] 3B.3 新增 `AssocBindingType : TypeExpr`（`Item = int`，长在 Args 槽里 ⇒ `NamedType` 一行不改）
+      + `AssocTypeDecl : Decl`（`type Item;` / `type Item = int;`）
+- [x] 3B.4 `decl.z42` +5 条：3 条正例 + 「普通类型位不得接受绑定」+ 「`type` 仍是普通标识符」。
+      **3 条正例已实证是真门**（把两处支持改成 `if (false)` 后精确变红，两条守卫按预期保持绿）
 
 ### 3C 语义
 
-- [ ] 3C.1 `MemberCollector` —— 收集接口的关联类型声明
-- [ ] 3C.2 `Z42InterfaceType` —— 关联类型槽
-- [ ] 3C.3 `GenericConstraint.ConstraintBundle` —— 承载关联类型绑定
-- [ ] 3C.4 `ConstraintChecker` —— 绑定解析与校验；实现方未绑定报诊断
+- [x] 3C.1 `MemberCollector` —— 接口收 `type Item;` 进 `Z42InterfaceType.AssocTypeNames`；类收
+      `type Item = X;` 进 `Z42ClassType.AssocBinding*`（存**已解析类型的 Name()**，与约束侧同口径）
+- [x] 3C.2 `Z42InterfaceType.AssocTypeNames/AssocTypeCount` + `AddAssocType`/`HasAssocType`；
+      `Z42ClassType.AssocBinding*` + `AddAssocBinding`/`AssocBindingOf`
+- [x] 3C.3 `ConstraintBundle.AssocBinding*` + `AddAssocBinding`；`IsEmpty()` 一并计入
+- [x] 3C.4 `ConstraintChecker._fillBundle` 收 `AssocBindingType` 实参 → bundle；`_checkBundle`
+      逐条 `_checkAssocBinding`（未绑 / 绑错都报）。**声明期补齐强制**落在
+      `InheritanceResolver._passSealedEnforce` 的同一循环（新增 `_checkAssocBindingsComplete`，
+      走接口继承闭包）—— 不能放 `_fillClass` 末尾，因为接口与类在同一个 `_passMembers` 循环里、
+      声明序与跨 CU 都不保证接口先到。全部诊断走 **E0453**（新码；语义层发**字面量**，遵循
+      E0449/E0450/E0451/E0452 的既定手法，避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache）
 
-### 3D 格式（**双 bump**）
+### 3D 跨包（**已拆出**：独立 change `assoc-type-crosspkg`）
 
-- [ ] 3D.1 `IrModule.IrConstraintDesc` —— 承载绑定
-- [ ] 3D.2 `ZbcWriter` —— bit7 = `has_assoc_bindings` + `count u8` + `(name_idx, type_idx) × n`
-- [ ] 3D.3 `ZbcReader` + Rust `type_reader.rs` + `ZpkgReader._skipConstraintBundle` —— **三方 reader 同步**（memory 教训：改 producer 必核 3 个 reader）
-- [ ] 3D.4 `ExportedInterfaceZ` + `TsigReconcile` —— 关联类型名单跨包重建
-- [ ] 3D.5 zbc minor 38→39 + zpkg minor 43→44，按 `version-bumping.md` checklist 同步 `versions.rs` / changelog / 10 个 committed fixture regen
-- [ ] 3D.6 `cargo test --test format_fixture_versions` 绿
+本轮**不做**，但把「不做」做干净——否则跨包会**假红**而不是漏报。
+
+- [x] 3D.0 **三处 `IsImported` 守卫**（本轮实际交付的部分）：导入类型在
+      ① `ConstraintChecker._fillBundle` 的「绑定名合法性」检查处
+      ② `ConstraintChecker._checkAssocBinding` 的「绑定匹配」使用点
+      ③ `InheritanceResolver._checkOneIfaceAssoc` 的补齐强制
+      一律跳过。**不跳则 `AssocBindingOf()` 恒空 ⇒ 合法跨包代码被判「未绑定」**。
+      ⚠️ 我最初只守了 ②③，漏了 ①（**声明点**）—— 由新加的 `assoc_type_cross_pkg` fixture
+      以 `FAIL (ext build)` 抓出来。这条 fixture 因此本身就是守卫的真门。
+- [ ] ~~3D.1–3D.7 双 bump 全套~~ → 移交 `assoc-type-crosspkg`（roadmap Deferred 已登记，
+      含实测结论「**bit7 未被三方 reader 预留**，`type_reader.rs:296-335` 只解析 bit0–6
+      ⇒ 与 PR-1 的『只是写端置位、零 bump』不同，这次是真 wire 变更」）
 
 ### 3E 测试与文档
 
-- [ ] 3E.1 `constraint_tests.z42` —— 关联类型正/负例
-- [ ] 3E.2 `src/tests/cross-zpkg/assoc_type_cross_pkg/` NEW
-- [ ] 3E.3 `docs/book/src/language/generic-constraints.md` + `docs/design/language/generics.md`（L3-G3a 改为已实现）
-- [ ] 3E.4 `docs/roadmap.md` —— 关掉 L3-G3a
-- [ ] 3E.5 `./xtask test bootstrap` + 完整 GREEN
-
----
+- [x] 3E.1 `constraint_tests.z42` +7 条（1 正 6 负）。**6 条负例已实证是真门**（关掉校验与补齐强制
+      后精确全红）；`decl.z42` +5 条 parser 用例，**3 条正例同样实证**（支持改 `if (false)` 即红）
+- [x] 3E.2 `src/tests/cross-zpkg/assoc_type_cross_pkg/` NEW —— 守的是**别把跨包判红**；
+      它抓出了 3D.0 漏掉的第三个守卫
+- [x] 3E.3 `docs/book/src/language/generic-constraints.md` 新增「关联类型」章节（规则 / 两处语法
+      取舍 / 唯一一条成员补齐强制的理由）；已知限制 §5 由「未实现」改为「同包已实现、跨包不校验」。
+      `docs/design/language/generics.md` 对比表两行更新（关联类型 / 自引用约束）+ Status 行
+- [x] 3E.4 `docs/roadmap.md` —— 关掉 L3-G3a；新登记 `assoc-type-crosspkg` /
+      `assoc-type-nested-constraint`
+- [x] 3E.5 完整 GREEN 全绿（自举字节不动点保持）+ `xtask test bootstrap`
 
 ## 备注
 

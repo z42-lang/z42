@@ -82,6 +82,7 @@ public sealed class StubCollector {
                         } else {
                             Z42InterfaceType itw = new Z42InterfaceType(c.Name);   // 均非 partial：维持既有 last-wins
                             itw.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                            StubCollector._setIfaceTypeParams(itw, c);   // add-associated-types PR-3
                             this._addIfaceBases(itw, c);
                             table.Interfaces.Put(c.Name, itw);
                         }
@@ -89,6 +90,7 @@ public sealed class StubCollector {
                         Z42InterfaceType it = new Z42InterfaceType(c.Name);
                         if (c.IsPartial) { it.IsPartial = true; it.PartialMainFile = file; }
                         it.Visibility = IrGenFacts.classVis(c.Mods, c.Name.IndexOf("+") >= 0);   // complete-class-access-control ④
+                        StubCollector._setIfaceTypeParams(it, c);   // add-associated-types PR-3
                         this._addIfaceBases(it, c);
                         table.Interfaces.Put(c.Name, it);
                     }
@@ -96,6 +98,15 @@ public sealed class StubCollector {
             }
             i = i + 1;
         }
+    }
+
+    // add-associated-types PR-3：接口自身的型参名进符号表（`interface IBox<T>` → ["T"]）。
+    // 此前接口没有型参名槽 —— PR-2 跨包补型参上下文时只能临时从 `ExportedInterfaceZ.TypeParams`
+    // 现取，本包侧则压根拿不到。partial 碎片：以首碎片为准（各碎片型参列表须一致，另有 partial 校验管）。
+    private static void _setIfaceTypeParams(Z42InterfaceType target, ClassDecl c) {
+        if (target.TypeParamCount > 0) { return; }   // 已由首碎片填过
+        target.TypeParamNames = c.TypeParams.Names;
+        target.TypeParamCount = c.TypeParams.Count;
     }
 
     // `interface IDerived : IBase` 的父接口裸名 → Z42InterfaceType.BaseNames

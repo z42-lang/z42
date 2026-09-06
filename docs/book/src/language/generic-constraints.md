@@ -168,6 +168,47 @@ VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个�
 > 而非现状。这正是 `--emit-zbc` 吞诊断能掩盖的那类缺陷：binder 报的错没人看见，emitter 那半边
 > 碰巧能跑，测试就绿。
 
+## 关联类型（`type Item;`）
+
+接口可以声明一个**由实现方决定**的类型，约束侧再要求它绑到具体类型：
+
+```z42
+interface IEnum {
+    type Item;                       // 由实现方决定
+}
+
+class IntBag : IEnum { type Item = int; }
+class StrBag : IEnum { type Item = string; }
+
+class Use<T> where T : IEnum<Item = int> { }
+
+new Use<IntBag>()   // ✅
+new Use<StrBag>()   // ❌ E0453：binds `Item` to `string`, but `int` is required
+```
+
+这是关联类型相对 [已知限制 §1](#1-接口约束只比裸名不校验类型实参) 的「接口只比裸名」真正多出来的
+**判别力**：裸名匹配下 `IntBag` 与 `StrBag` 都只是「实现了 IEnum」，无法区分。
+
+### 规则
+
+- **绑定是实现方的事**：接口里写 `type Item = int;` 报错；类里写不带绑定的 `type Item;` 也报错。
+- **必须绑齐**：实现了带关联类型的接口就得给出绑定，走**接口继承闭包**（父接口的关联类型同样要绑）。
+  这是 z42 目前**唯一**一条「实现接口必须补齐某成员」的强制——接口方法的齐备性今天仍不校验。
+  之所以对关联类型例外：方法缺失还能靠动态派发在运行期兜底，关联类型不绑则**根本无法参与约束匹配**。
+- **绑定显式声明，不推断**：`type Item = int;`，而不是从方法签名反推。推断需要跨成员的统一算法
+  （且要处理 F-bounded 递归），代价与收益不成比例。
+- 全部相关诊断都是 **`E0453`**。
+
+### 语法边界（两处刻意的取舍）
+
+**`type` 不是关键字。** 全仓大量把 `type` 当变量名 / 参数名 / 属性名用，把它加进 lexer 会一次性
+废掉那些源码。所以它是**上下文关键字**：靠「`type` + 标识符 + `;`/`=`」三 token 前瞻拦截。
+代价是类型名恰好叫 `type` 的**字段声明**（`type x;`）会被当成关联类型——已实测全仓零命中，
+接受。方法与属性不受影响（第三个 token 是 `(` / `{`）。
+
+**`Name = Type` 只在 `where` 约束位可写。** 普通类型位 `List<Item = int>` 仍是语法错误。
+`=` 在类型位没有别的含义，一旦全局放开就再也收不回来了。
+
 ## 已知限制（诚实标注）
 
 这些不是 bug，是当前实现的**明确边界**。踩到时不要以为约束在保护你。
@@ -209,11 +250,15 @@ Deferred：`where-constraint-future-toplevel-func`。
 > `call @f` 调一个不存在的自由函数，运行期 `undefined function`。
 > 回归守卫：`src/tests/generics/func_constraint_captured.z42`。
 
-### 5. 关联类型 / 嵌套约束**未实现**
+### 5. 关联类型：同包已实现，**跨包尚未校验**
 
-`where T : IAdd<Output=T>`、`where T : IIterator<Item=U>, U : IDisplay` 这类 Rust 风格表达力
-**当前不支持**——parser 没有 `Name=Type` 的解析。`docs/design/language/generics.md` 的设计
-目标一节曾按已实现描述，那是**设计意图而非现状**。
+同包已可用（见上「关联类型」一节）。**跨包不校验**——类给出的绑定与接口的关联类型名单都还没有
+wire 表示（需要 zbc 约束 bundle 的 bit7 + zbc/zpkg 双格式 bump）。导入类型参与带绑定的约束时，
+编译器**主动跳过**而不是报错：不跳的话，`AssocBindingOf()` 恒返回空，合法的跨包代码会被判成
+「未绑定」——**假红比漏报更糟**。三个跳过点：约束声明处（绑定名合法性）、使用点（绑定匹配）、
+实现方补齐强制。Deferred：`assoc-type-crosspkg`。
+
+嵌套约束（`where T : IIterator<Item = U>, U : IDisplay` 里 `U` 再被约束）仍未实现。
 
 ## 为什么这些约束曾经集体失效
 
