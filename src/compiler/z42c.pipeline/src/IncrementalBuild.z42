@@ -5,9 +5,22 @@
 //   ① ProbeFiles —— 失效种子：源 hash ≠ meta / 条目缺失·pin 不符 / 包级源清单不一致
 //      （增删文件 → 全量，spec 场景）。
 //   ② Close —— 传递失效闭包：token 保守边（design D3 实现形态）——文件 i 的标识符
-//      token 命中文件 j 的包内定义名（类型/自由函数/成员名）→ 边 i→j；j fresh → i fresh。
+//      token 命中文件 j 的包内定义名（类型/自由函数/成员名）→ 边 i→j；j fresh **且 j 的
+//      声明面变了** → i fresh。
 //      边每次 build 从当前源重算（源不变 → 边不变），不入 meta。
-//      过近似只多编不错编（宁 fresh 不误命中）；「TSIG-equal 不失效」细化留 Deferred。
+//      **声明面闸门（fix-z42c-incremental-closure，落地 design D3 的 Deferred
+//      `incremental-future-tsig-level-invalidation`）**：token 边极粗——`_definedOf` 把**成员名**
+//      也登记成属主名，于是任一定义了 `Name()` 的文件一变，全包凡是提到 `Name` 的文件统统失效
+//      （实测 xtask：改一行注释 → `cached: 0/64`）。闸门只收紧**传播的起点**：源变了但
+//      **声明面**（= 去掉方法/属性/索引器体后的 token 流，见 driver 的 SurfaceHash.z42）没变的
+//      文件不当传播源——改注释 / 改函数体只重编它自己。
+//      依据：跨文件依赖只经声明面（内联限同 IrModule = 单 CU、逃逸/纯度摘要亦模块级、泛型走
+//      运行期类型实参不单态化进调用方；唯一把值抄进消费方的 const 字段，其初值写在字段声明里
+//      → 本就在声明面内）。
+//      **一旦传播起来就照旧全传递**：被波及而转 fresh 的行 SurfaceChanged 保持默认 true，
+//      于是「A 继承 B、C 用 A」这类**布局经中间文件透传**的链条与闸门前完全一致地失效
+//      （只把「本来就不该扩散的那一跳」掐掉，不去猜哪些扩散可以省）。driver 只在两处把它
+//      压成 false：种子失效但声明面相等、以及 cache 读不回来的降级行（两者源/声明面均未变）。
 // Z42_INCR_DEBUG=1 → 种子原因 + 传播链（A invalidated-by B）。
 namespace Z42.Pipeline;
 using Z42.IR;
@@ -31,11 +44,21 @@ public sealed class IncrFilePlan {
     public int         FreshCount;
     public CacheMeta[] Metas;
     public int         Total;
+    // 上次构建记录的声明面指纹（cache 条目存在即有值，**不论** Fresh——种子失效行正是要拿它比对）；
+    // 无条目 → ""。
+    public string[]    PrevSurface;
+    // 该文件可否当传播源。默认全 true（= 闸门前的保守行为）；driver 算出「源变了但声明面没变」
+    // 的行才把它压成 false。非 Fresh 行的取值无意义（Close 只看 Fresh 行）。
+    public bool[]      SurfaceChanged;
     public IncrFilePlan(int n) {
         this.AllCached = false;
         this.Fresh = new bool[n]; this.FreshCount = 0;
         this.Metas = new CacheMeta[n];
         this.Total = n;
+        this.PrevSurface = new string[n];
+        this.SurfaceChanged = new bool[n];
+        int i = 0;
+        while (i < n) { this.PrevSurface[i] = ""; this.SurfaceChanged[i] = true; i = i + 1; }
     }
 }
 
@@ -73,9 +96,11 @@ public static class IncrementalBuild {
                 plan.Fresh[fi] = true; plan.FreshCount = plan.FreshCount + 1;
                 if (debug) { ConsoleError.WriteLine("  [seed/no-entry] " + rel); }
             } else if (hashes[fi] != m.SourceHash) {
+                plan.PrevSurface[fi] = m.SurfaceHash;   // 种子失效行留着比对声明面（Metas 仍置 null）
                 plan.Fresh[fi] = true; plan.FreshCount = plan.FreshCount + 1;
                 if (debug) { ConsoleError.WriteLine("  [seed/hash-diff] " + rel); }
             } else {
+                plan.PrevSurface[fi] = m.SurfaceHash;
                 plan.Metas[fi] = m;
             }
             fi = fi + 1;
@@ -148,7 +173,9 @@ public static class IncrementalBuild {
                 if (!plan.Fresh[i]) {
                     j = 0;
                     while (j < n) {
-                        if (plan.Fresh[j] && edge[i * n + j]) {
+                        // 闸门：j 只有在**声明面**也变了时才够格当传播源。源没变的行
+                        //（闭包/降级转 fresh）声明面必然没变 → 传播天然在一跳内收敛。
+                        if (plan.Fresh[j] && plan.SurfaceChanged[j] && edge[i * n + j]) {
                             plan.Fresh[i] = true;
                             plan.FreshCount = plan.FreshCount + 1;
                             plan.Metas[i] = null;
