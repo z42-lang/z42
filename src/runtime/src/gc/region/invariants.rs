@@ -32,6 +32,10 @@ pub enum Violation {
     /// `card_dirty.len()` 与 `chunks.len()` 不一致（generational invariant；
     /// alloc-time grow 应保持一一对应）.
     CardDirtyLengthMismatch { expected: usize, actual: usize },
+    /// **fix-young-list-quadratic-sweep (2026-09-06)**: `young_list[i]` 指向的
+    /// entry 自记的 `young_idx` 不等于 `i`（O(1) 移除的 back-pointer 失同步 —
+    /// 说明有 push 绕过了 `push_young`，或某处直接改了 `young_list`）.
+    YoungIndexMismatch { chunk_idx: u32, entry_idx: u16, expected: usize, recorded: Option<usize> },
 }
 
 #[cfg(debug_assertions)]
@@ -56,6 +60,9 @@ impl std::fmt::Display for Violation {
             Self::CardDirtyLengthMismatch { expected, actual } =>
                 write!(f, "card_dirty length mismatch: expected {}, actual {}",
                     expected, actual),
+            Self::YoungIndexMismatch { chunk_idx, entry_idx, expected, recorded } =>
+                write!(f, "young_idx back-pointer mismatch at ({}, {}): young_list[{}] but entry records {:?}",
+                    chunk_idx, entry_idx, expected, recorded),
         }
     }
 }
@@ -83,7 +90,7 @@ impl<T> Region<T> {
         //    location matches.
         let mut in_young: std::collections::HashSet<(u32, u16)> =
             std::collections::HashSet::with_capacity(self.young_list.len());
-        for &(ci, ei) in &self.young_list {
+        for (idx, &(ci, ei)) in self.young_list.iter().enumerate() {
             if !in_young.insert((ci, ei)) {
                 return Err(Violation::DuplicateInYoungList { chunk_idx: ci, entry_idx: ei });
             }
@@ -92,6 +99,15 @@ impl<T> Region<T> {
             let entry = unsafe {
                 self.chunks[ci as usize][ei as usize].assume_init_ref()
             };
+            // fix-young-list-quadratic-sweep: the entry's back-index must name
+            // its own slot, or O(1) removal would silently no-op (or evict the
+            // wrong entry — that one is caught defensively at removal time).
+            if entry.young_idx() != Some(idx) {
+                return Err(Violation::YoungIndexMismatch {
+                    chunk_idx: ci, entry_idx: ei,
+                    expected: idx, recorded: entry.young_idx(),
+                });
+            }
             if entry.gen_age() >= PROMOTION_THRESHOLD {
                 return Err(Violation::OldEntryInYoungList {
                     chunk_idx: ci, entry_idx: ei, gen_age: entry.gen_age(),

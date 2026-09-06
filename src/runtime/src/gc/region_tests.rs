@@ -677,3 +677,86 @@ fn finalizer_reinstall_drops_the_previous_box() {
         "dropping the entry must free an un-taken finalizer",
     );
 }
+
+// ── fix-young-list-quadratic-sweep (2026-09-06) ─────────────────────────────
+
+/// Count the entries that *should* be in `young_list`: alive and below the
+/// promotion threshold. `validate()` proves every such entry is listed and
+/// that every listed entry's back-index is right, but it does not prove the
+/// list is free of **stranded** rows (dead entries left behind by a removal
+/// that silently no-op'd), so the tests below compare the length too.
+fn expected_young_count<T>(r: &Region<T>) -> usize {
+    let mut n = 0;
+    r.iterate_alive(|_, e| {
+        if e.gen_age() < PROMOTION_THRESHOLD {
+            n += 1;
+        }
+    });
+    n
+}
+
+/// `remove_from_young_list` is a `swap_remove`, so removing a non-tail row
+/// moves the **tail** row into the hole. That moved entry's back-index must be
+/// repaired — otherwise its recorded index points past the end (or at someone
+/// else's row) and the next removal of it silently no-ops, stranding a dead
+/// entry in `young_list` forever.
+#[test]
+fn swap_remove_repairs_moved_entry_back_pointer() {
+    let mut r: Region<u64> = Region::new();
+    let a = r.alloc(1);
+    let b = r.alloc(2);
+    let c = r.alloc(3);
+    assert_eq!(r.young_count(), 3);
+
+    // Remove the head → `c` (the tail, recorded index 2) swaps into index 0.
+    r.tombstone(a);
+    assert_eq!(r.young_count(), 2);
+    assert_eq!(r.validate(), Ok(()), "the moved tail's back-index must be repaired");
+
+    // Remove the moved entry itself. With a stale index of 2 this would find
+    // nothing at that position and no-op.
+    r.tombstone(c);
+    assert_eq!(r.young_count(), 1, "the moved entry must still be removable");
+    assert_eq!(r.validate(), Ok(()));
+    assert_eq!(r.young_count(), expected_young_count(&r));
+    let _ = b;
+}
+
+/// Interleaved alloc / tombstone / promote across several chunks (including
+/// free-list slot reuse, which re-pushes a recycled slot). Every back-index
+/// must stay in sync: `validate()` catches a wrong one, and the length check
+/// catches a removal that silently did nothing.
+#[test]
+fn young_list_back_pointers_survive_alloc_tombstone_promote_churn() {
+    let mut r: Region<u64> = Region::new();
+    let mut live: Vec<RegionHandle> = Vec::new();
+    // Deterministic LCG — a fixed sequence so a failure is reproducible.
+    let mut rng: u64 = 0x2545_F491_4F6C_DD1D;
+    let mut next = |rng: &mut u64| {
+        *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (*rng >> 33) as usize
+    };
+
+    for step in 0..4000usize {
+        match next(&mut rng) % 4 {
+            0 | 1 => live.push(r.alloc(step as u64)),
+            2 if !live.is_empty() => {
+                let h = live.swap_remove(next(&mut rng) % live.len());
+                r.tombstone(h);
+            }
+            _ if !live.is_empty() => {
+                let h = live[next(&mut rng) % live.len()];
+                r.promote(h);
+            }
+            _ => {}
+        }
+        if step % 97 == 0 {
+            assert_eq!(r.validate(), Ok(()), "invariants broke at step {step}");
+            assert_eq!(r.young_count(), expected_young_count(&r),
+                "young_list length drifted at step {step} (stranded or missing row)");
+        }
+    }
+    assert_eq!(r.validate(), Ok(()));
+    assert_eq!(r.young_count(), expected_young_count(&r));
+    assert!(r.chunks_count_for_test() > 1, "churn should span more than one chunk");
+}
