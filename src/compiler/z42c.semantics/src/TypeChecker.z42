@@ -11,6 +11,9 @@ using Z42.IR.BinaryFormat;
 public sealed class TypeChecker {
     public DiagnosticBag      _diags;
     public int                _loopDepth;    // break/continue 越界检查（1B）
+    // switch 臂体深度：`break` 在 switch 内合法（跳出 switch，镜像 StmtEmitter._emitSwitch 的
+    // PushLoop），`continue` 仍只认 _loopDepth（switch 不是循环，continue 须有外层循环）。
+    public int                _switchDepth;
     // lambda 捕获 frame（port-z42c-closures）：active 时 Ident 钩子检测外层命中。
     public bool _lambdaActive;
     public StrMap _lambdaLocals;
@@ -37,6 +40,7 @@ public sealed class TypeChecker {
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
         this._loopDepth = 0;
+        this._switchDepth = 0;
         this._lambdaActive = false;
         this._constraints = new ConstraintChecker(diags);
         this._currentNs = "";

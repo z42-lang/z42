@@ -1,6 +1,7 @@
 // complete-pattern-engine 诊断单测：属性形态解构声明的 irrefutable 校验 + struct record 解构的 defer
 // 守卫（嵌套 struct 字段 / boxed struct）。经 SemanticDump.FirstErrorCode（返回首条诊断码）断言。
-// 注：独立 Infer 路径不链 stdlib → 测试源**不用 Std**、switch-stmt **不写 break**（避无关 E0410）。
+// 注：独立 Infer 路径不链 stdlib → 测试源**不用 Std**；switch-stmt 不写 break 只为让首条诊断唯一，
+// 非因 break 不合法（switch 内 break 自 fix-switch-break-diagnostic 起合法，此前误报 E0410）。
 // E0402 = TypeMismatch（irrefutable 违反 / struct 解构 defer 共用）。
 namespace Z42cSemanticsPatternTests;
 
