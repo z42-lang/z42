@@ -181,7 +181,7 @@ public sealed class MemberCollector {
                     // add-user-conversions Decision 4（根因）：转换运算符按 (param,return) 唯一——静态 mangle 仅按
                     // 参数类型，`op_Implicit(Foo)->int` 与 `->string` 会撞键 → RegKey 附返回类型消歧。
                     if (SymbolCollector._isConvOp(md.Name)) {
-                        regName = regName + "$to$" + Z42Type.Canon(msym.Signature.Ret.Name());
+                        regName = regName + "$to$" + msym.Signature.Ret.CanonName();
                     }
                 } else {
                     // stabilize-instance-dispatch-keys：primary/非-primary 键。声明序**首个**同名（实例或静态虚）
@@ -233,8 +233,8 @@ public sealed class MemberCollector {
                     SymbolCollector.RegisterMethod(ct, md, msym, regName);
                     // add-user-conversions ②：声明期冲突检测（同 (源→目标) 重复 / implicit+explicit 同对 → E0440）。
                     if (SymbolCollector._isConvOp(md.Name) && mst && msym.Signature.ParamCount == 1) {
-                        string srcN = Z42Type.Canon(msym.Signature.ParamTypes[0].Name());
-                        string tgtN = Z42Type.Canon(msym.Signature.Ret.Name());
+                        string srcN = msym.Signature.ParamTypes[0].CanonName();
+                        string tgtN = msym.Signature.Ret.CanonName();
                         string pairK = srcN + "->" + tgtN;
                         string curKind = "implicit";
                         if (md.Name == "op_Explicit") { curKind = "explicit"; }
@@ -278,7 +278,7 @@ public sealed class MemberCollector {
         if (a.Signature.ParamCount != b.Signature.ParamCount) { return false; }
         int i = 0;
         while (i < a.Signature.ParamCount) {
-            if (Z42Type.Canon(a.Signature.ParamTypes[i].Name()) != Z42Type.Canon(b.Signature.ParamTypes[i].Name())) {
+            if (a.Signature.ParamTypes[i].CanonName() != b.Signature.ParamTypes[i].CanonName()) {
                 return false;
             }
             i = i + 1;

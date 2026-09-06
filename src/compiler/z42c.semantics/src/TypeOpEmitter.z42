@@ -113,7 +113,7 @@ public sealed class TypeOpEmitter {
         // unify-value-types Phase 1：翻转后整数基元为 Z42ClassType(Scalar)——追加 Scalar 值类型判定，
         // 使其仍走下方 __box_prim（否则误透传、丢装箱）。翻转前无 Scalar 名 Z42ClassType → 当前中立。
         Z42Type _bet = b.E.Type();
-        bool _boxScalar = (_bet is Z42ClassType) && PrimModel.IsScalarValue(_bet.Name());
+        bool _boxScalar = (_bet is Z42ClassType) && _bet.IsScalarType();
         if (!_boxScalar) { return val; }
         int idx = this._ctx.Gen.Intern(b.PrimFQ);
         TypedReg cls = this._ctx.Alloc(IrType.Str);

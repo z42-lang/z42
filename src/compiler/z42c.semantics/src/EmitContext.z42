@@ -512,7 +512,7 @@ public sealed class EmitContext {
         // 承载——按名归一到内建 IR 标签，须在通用 ClassType→Ref 之前。IsBuiltin 覆盖 Scalar 值类型 +
         // string/object；IrTag 保留 string→Str、object→Ref（与历史 PrimTag 逐字节同义）。翻转前无内建名
         // Z42ClassType 流经此处（源码不以 wrapper/FQ 名声明类型），故此分支当前对 self-host 输出中立。
-        if ((t is Z42ClassType) && PrimModel.IsBuiltin(t.Name())) { return PrimModel.IrTag(t.Name()); }
+        if (t is Z42ClassType) { int _c = t.PrimCode(); if (_c >= 0) { return PrimModel.IrTagOfCode(_c); } }
         if (t is Z42ClassType) { return IrType.Ref; }
         if (t is Z42ArrayType) { return IrType.Ref; }
         // Interface / InstantiatedType / GenericParam / Error / func → Unknown(0x00)

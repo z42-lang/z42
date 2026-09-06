@@ -10,15 +10,23 @@ public class Z42Type {
     public virtual bool   IsAssignableTo(Z42Type other) { return false; }
     public virtual string Dump() { return this.Name(); }
 
-    // 规范化基本类型名用于可赋性比较：剥 nullable `?`（z42 nullable 在类型模型擦除）+
-    // 基本类型别名归一（`byte`≡`u8` 等；imported TSIG 用 keyword 拼写、本地用 canonical，须等价）。
-    // unify-value-types Phase 1（D3 收敛）：委托 PrimModel.Canon——它是历史此表的**超集**（额外认
-    // 包装名 Int32/FQ Std.Int32 → 短名），使翻转后 `int`（→Z42ClassType(Int32)）与 keyword `int` 归一
-    // 到同一 canonical 短名（可赋性/拓宽比较不破）。对历史输入（keyword/短名/用户类名）结果逐条同义，
-    // 故 self-host codegen 逐字节不变；超集部分（wrapper/FQ）翻转前无类型以该拼写流经此处 → 当前中立。
-    public static string Canon(string n) {
-        return PrimModel.Canon(n);
-    }
+    // 规范化基本类型名的唯一入口是 `PrimModel.Canon`（剥 nullable `?` + 别名归一：`byte`≡`u8`、
+    // wrapper `Int32` / FQ `Std.Int32` → 短名 `i32`；imported TSIG 用 keyword 拼写、本地用 canonical，
+    // 须等价）。此处历史上有一个同名转发器 `Z42Type.Canon`，2026-09-06 删除 —— 纯转发也要付一整个
+    // z42 调用帧，profile 里它**自身**就占 0.53%；调用点一律直呼 PrimModel.Canon。
+
+    // 规范名 / 内建码的**每实例记忆**（perf，2026-09-06）：`PrimModel.Canon` 是 profile 里最热的
+    // 字符串工具之一（子树 4.7%），而绝大多数调用形如 `PrimModel.X(t.Name())` —— 同一个类型对象在
+    // 绑定 / 转换 / 发射三个阶段被反复问同一个名字，每次都重扫一遍字符串。基类默认现算（Array /
+    // Func / Instantiated 的 `Name()` 本就是现拼的，缓存无意义）；`Z42ClassType` 覆写成惰性字段
+    // （`_name` 私有且无 setter，构造后不变 → 缓存恒有效）。
+    public virtual string CanonName() { return PrimModel.Canon(this.Name()); }
+    public virtual int    PrimCode()  { return PrimModel.Code(this.CanonName()); }
+    // 下面四个 = PrimModel 同名谓词的「类型对象」版本（逐条同义，只是省掉重复 Canon）。
+    public bool IsBuiltinType() { return this.PrimCode() >= 0; }
+    public bool IsScalarType()  { int c = this.PrimCode(); return c >= 0 && c <= 11; }
+    public bool IsNumericType() { int c = this.PrimCode(); return (c >= 0 && c <= 9) || c == 11; }
+    public bool IsIntegerType() { int c = this.PrimCode(); return c >= 0 && c <= 7; }
 }
 
 // unify-value-types 阶段 3（2026-08-13）：`Z42PrimType` 已删除——内建基元/string/object 统一由
@@ -84,7 +92,11 @@ public sealed class Z42ClassType : Z42Type {
     // StubCollector 从 Mods 回填（镜像 IsSealed）。供封闭层次穷尽性诊断从「必须覆盖的具体类集」排除
     // abstract 类（值的运行期类型恒为具体叶子）。**仅本地回填**——非 public 基类无 imported 子类。
     public bool   IsAbstract;
+    // Canon/内建码的惰性记忆（见基类 CanonName 注释）。哨兵：_canon=="" 未算（Canon 对非空名恒非空；
+    // 名为空的退化类型只是每次重算，无正确性影响）、_code==-2 未算（-1 是「非内建」这个合法结果）。
+    private string _canon; private int _code;
     public Z42ClassType(string name, bool hasBase, string baseName) {
+        this._canon = ""; this._code = -2;
         this._name = name; this.HasBase = hasBase; this.BaseName = baseName;
         this.Namespace = "";   // fix-type-ref-ns-collision：默认全局；注册端按声明 ns 覆写
         this.Fields = new StrMap();
@@ -117,7 +129,11 @@ public sealed class Z42ClassType : Z42Type {
         // 全漂成 wrapper 名。IsBuiltin(name) 恒真 → MemberResolver 走 prim-wrapper 路径（按名查真类），
         // 与旧 Z42PrimType 逐字节同义。IsScalarValue → IsStruct 复刻真 phantom（scalar wrapper=struct）。
         Z42ClassType ct = new Z42ClassType(name, false, "");
-        ct.IsStruct = PrimModel.IsScalarValue(name);
+        // perf：内建合成是热点（profile 里 IsScalarValue 的 64% 来自这里）。Canon 只扫一遍，
+        // 结果顺手灌进实例记忆 —— 后续 CanonName/PrimCode/IsStruct 三个问题共用这一次扫描。
+        ct._canon = PrimModel.Canon(name);
+        ct._code  = PrimModel.Code(ct._canon);
+        ct.IsStruct = ct._code >= 0 && ct._code <= 11;
         return ct;
     }
 
@@ -189,6 +205,14 @@ public sealed class Z42ClassType : Z42Type {
         return r;
     }
     public override string Name() { return this._name; }
+    public override string CanonName() {
+        if (this._canon == "") { this._canon = PrimModel.Canon(this._name); }
+        return this._canon;
+    }
+    public override int PrimCode() {
+        if (this._code == -2) { this._code = PrimModel.Code(this.CanonName()); }
+        return this._code;
+    }
     // IR 名：arity-mangled 时返回 Name$N（镜像 C# Z42ClassType.IrName）。
     public string IrName() {
         if (this.HasArityMangle) { return this._name + "$" + this.ArityMangleCount.ToString(); }
@@ -208,12 +232,14 @@ public sealed class Z42ClassType : Z42Type {
         // unify-value-types Phase 1：桥接混用态——本类是翻转后内建 Z42ClassType（String/Int32/Double…），
         // 目标是同一 canonical 内建（Z42PrimType 或 ClassType，imported/字面量仍是 Prim）→ 可赋。
         // 覆盖 return-type / var-decl 等**直接调 IsAssignableTo**（不走 Conversion._sameBuiltin）的检查点。
-        if (PrimModel.IsBuiltin(this._name) && PrimModel.Canon(this._name) == PrimModel.Canon(other.Name())) { return true; }
+        int mc = this.PrimCode();
+        if (mc >= 0 && this.CanonName() == other.CanonName()) { return true; }
         // unify-value-types Phase 1（D7）：翻转后 Scalar 值类型（int→Int32…）的数值拓宽——迁自旧
         // Z42PrimType._canWiden。仅两侧均 Scalar 值类型时按 keyword 名走拓宽表；翻转前无 Scalar 名
         // Z42ClassType 流经 → 当前中立（且与旧 Z42PrimType 路径逐字面同义）。
-        if (PrimModel.IsScalarValue(this._name) && PrimModel.IsScalarValue(other.Name())) {
-            return PrimModel.CanWiden(PrimModel.Keyword(this._name), PrimModel.Keyword(other.Name()));
+        int oc = other.PrimCode();
+        if (mc >= 0 && mc <= 11 && oc >= 0 && oc <= 11) {
+            return PrimModel.CanWiden(PrimModel.KeywordOfCode(mc), PrimModel.KeywordOfCode(oc));
         }
         return false;
     }
@@ -357,7 +383,7 @@ public sealed class Z42ArrayType : Z42Type {
             // codegen 经 DepIndex 真实解析）。否则元素名规范等价（byte[]≡u8[] 等）。
             if ((this.Elem is Z42UnknownType) || (this.Elem is Z42ErrorType)) { return true; }
             if ((o.Elem is Z42UnknownType) || (o.Elem is Z42ErrorType)) { return true; }
-            return Z42Type.Canon(this.Elem.Name()) == Z42Type.Canon(o.Elem.Name());
+            return this.Elem.CanonName() == o.Elem.CanonName();
         }
         return false;
     }

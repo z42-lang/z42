@@ -73,7 +73,7 @@ public sealed class TypeChecker {
         }
         // 非整数 Scalar（bool/char/double/float，Z42PrimType 或翻转后 Z42ClassType(Scalar)）→ 不装箱
         // （独立 Value 变体自带身份，特例保留）。string（引用）同不装箱。
-        if ((vt is Z42ClassType) && PrimModel.IsScalarValue(vt.Name())) { return value; }
+        if ((vt is Z42ClassType) && vt.IsScalarType()) { return value; }
         // add-struct-object-boxing (PR2a)：值 struct（Blob）擦除到 object/接口/泛型形参 → 装箱（否则裸拷帧
         // 作用域 StructRef 句柄逃逸创建帧 → use-after-free）。真装箱（blob struct）由 codegen `_emitBox`
         // 按 `IsBlobStruct` 决定——非 blob（单字段等）struct 的 BoundBox 在 codegen 退化为透传。
@@ -201,7 +201,7 @@ public sealed class TypeChecker {
 
     // 运行期表示类：f32/f64 → 1(FLOAT，运行期同 F64)；char → 2(CHAR，Value::Char)；其余整数族 → 0(INT，运行期同 I64)。
     private static int _repClass(string n) {
-        string c = Z42Type.Canon(n);
+        string c = PrimModel.Canon(n);
         if (c == "f32" || c == "f64") { return 1; }
         if (c == "char") { return 2; }
         return 0;
@@ -233,18 +233,18 @@ public sealed class TypeChecker {
 
     // 数值 Scalar 值类型（Z42PrimType 或翻转后 Z42ClassType(Scalar)，名归一为数值基元）。
     private static bool _isScalarNumeric(Z42Type t) {
-        return (t is Z42ClassType) && PrimModel.IsNumeric(t.Name());
+        return (t is Z42ClassType) && t.IsNumericType();
     }
 
     // 编译期常量整数且落在目标整数/char 范围内？（浮点目标恒 false → 有损浮点无例外，决策 3）。
     private bool _constIntInRange(BoundExpr value, Z42Type target) {
         // unify-value-types Phase 1：目标为整数/char 基元（Z42PrimType 或翻转后 Z42ClassType(Scalar)）；
-        // 下方按 Z42Type.Canon(=PrimModel.Canon，wrapper-aware) 归一短名做范围判定，翻转前中立。
-        bool _tScalar = (target is Z42ClassType) && PrimModel.IsScalarValue(target.Name());
+        // 下方按 PrimModel.Canon(=PrimModel.Canon，wrapper-aware) 归一短名做范围判定，翻转前中立。
+        bool _tScalar = (target is Z42ClassType) && target.IsScalarType();
         if (!_tScalar) { return false; }
         if (!TypeChecker._isConstInt(value)) { return false; }
         long v = TypeChecker._constIntValue(value);
-        string t = Z42Type.Canon(target.Name());
+        string t = target.CanonName();
         if (t == "i8")   { return v >= (0 - 128) && v <= 127; }
         if (t == "u8")   { return v >= 0 && v <= 255; }
         if (t == "i16")  { return v >= (0 - 32768) && v <= 32767; }

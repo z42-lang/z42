@@ -402,7 +402,7 @@ public sealed class ExprTyper {
         // unify-value-types Phase 1：经 PrimModel.Canon 归一（翻转后 string→Z42ClassType(String)，
         // Name()="String"）；翻转前 Canon("string")=="string" 逐字节同义。
         if (bin.Op == "+") {
-            if (PrimModel.Canon(lt.Name()) == "string" || PrimModel.Canon(rt.Name()) == "string") {
+            if (lt.CanonName() == "string" || rt.CanonName() == "string") {
                 return new BoundBinary(bin.Op, left, right, Z42ClassType.Builtin("string"), bin.Span);
             }
         }
@@ -415,7 +415,7 @@ public sealed class ExprTyper {
         // 必须**排除 Scalar 值类型**，让 int+int 走下方原生算术表（BinaryTypeTable）而非派发 op_X 方法
         // 调用（否则算术全变方法调用，codegen 巨变）。用户 struct/class 的 op 重载不受影响（非 Scalar）。
         string opMethod = TypeFactsTc._operatorMethodNameTc(bin.Op);
-        if (opMethod != "" && (lt is Z42ClassType) && !PrimModel.IsScalarValue(lt.Name())) {
+        if (opMethod != "" && (lt is Z42ClassType) && !lt.IsScalarType()) {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
             opArgs[0] = left; opArgs[1] = right;

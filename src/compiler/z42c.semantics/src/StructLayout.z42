@@ -150,8 +150,8 @@ public sealed class StructLayout {
                 // 但绝不作为 blob struct 布局类型**——它们是裸 Value 标量（Repr=Scalar，不进字节 arena）。
                 // 否则（Canon 收敛后 Int32→"i32"）`int` 字段的 _kindOf 会误判为嵌套 struct（IsStructType("int")
                 // ＝ ContainsKey("i32")）→ 布局尺寸/偏移全错。排除后 int 字段走 _isPrim → Prim 叶子（正确）。
-                if (ct.IsStruct && !PrimModel.IsScalarValue(keys[i])) { defs.Put(Z42Type.Canon(keys[i]), def); }
-                else if (!ct.IsStruct) { classDefs.Put(Z42Type.Canon(keys[i]), def); }
+                if (ct.IsStruct && !PrimModel.IsScalarValue(keys[i])) { defs.Put(PrimModel.Canon(keys[i]), def); }
+                else if (!ct.IsStruct) { classDefs.Put(PrimModel.Canon(keys[i]), def); }
             }
             i = i + 1;
         }
@@ -166,7 +166,7 @@ public sealed class StructLayout {
         string[] ikeys = table.Interfaces.Keys();
         int ii = 0;
         while (ii < ikeys.Length) {
-            erasure.Put(StructLayout._baseName(Z42Type.Canon(ikeys[ii])), "1");
+            erasure.Put(StructLayout._baseName(PrimModel.Canon(ikeys[ii])), "1");
             ii = ii + 1;
         }
         sl._erasureNames = erasure;
@@ -187,7 +187,7 @@ public sealed class StructLayout {
 
     // 某类型名是不是 struct（值类型）。
     public bool IsStructType(string typeName) {
-        return this._defs.ContainsKey(Z42Type.Canon(typeName));
+        return this._defs.ContainsKey(PrimModel.Canon(typeName));
     }
 
     // A-use codegen flip 谓词：某类型是否翻转到 **blob 值语义**（emit StructAlloc/Copy/FieldGet/SetPrim）。
@@ -288,9 +288,9 @@ public sealed class StructLayout {
 
     // 某 class 的合成内联布局（无内联字段 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo InlineLayoutOf(string className) {
-        object c = this._inlineCache.Get(Z42Type.Canon(className));
+        object c = this._inlineCache.Get(PrimModel.Canon(className));
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
-        return new StructLayoutInfo(Z42Type.Canon(className));
+        return new StructLayoutInfo(PrimModel.Canon(className));
     }
 
     // 某 class 是否有内联 struct 字段（→ 设 CLASS_FLAG_HAS_INLINE_STRUCT + emit 内联块）。
@@ -338,7 +338,7 @@ public sealed class StructLayout {
     // 8B 引用版 struct 展平布局（内联 struct 字段扁平进对象布局时用）。twin of LayoutOf/_compute，
     // 但引用叶子 8B。环检测在途集独立于 16B 版（_objStructInProgress），命中返回空布局打断递归。
     private StructLayoutInfo _objLayoutOfStruct(string structName) {
-        string key = Z42Type.Canon(structName);
+        string key = PrimModel.Canon(structName);
         object cached = this._objStructCache.Get(key);
         if (cached is StructLayoutInfo) { return cached as StructLayoutInfo; }
         if (this._objStructInProgress.ContainsKey(key)) { return new StructLayoutInfo(key); }
@@ -415,9 +415,9 @@ public sealed class StructLayout {
 
     // 某非-struct class 的对象全字段布局（无缓存 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo ObjectLayoutOf(string className) {
-        object c = this._objectCache.Get(Z42Type.Canon(className));
+        object c = this._objectCache.Get(PrimModel.Canon(className));
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
-        return new StructLayoutInfo(Z42Type.Canon(className));
+        return new StructLayoutInfo(PrimModel.Canon(className));
     }
 
     // 某 class 是否有对象布局（有直接字段 → 设 CLASS_FLAG_HAS_OBJECT_LAYOUT + emit 对象块）。
@@ -427,7 +427,7 @@ public sealed class StructLayout {
 
     // 计算（或取缓存）某 struct 类型的布局。环检测命中 → 记 ErrorType 并返回空布局（size 0）打断递归。
     public StructLayoutInfo LayoutOf(string typeName) {
-        string key = Z42Type.Canon(typeName);
+        string key = PrimModel.Canon(typeName);
         object cached = this._cache.Get(key);
         if (cached is StructLayoutInfo) { return cached as StructLayoutInfo; }
         if (this._inProgress.ContainsKey(key)) {
@@ -497,7 +497,7 @@ public sealed class StructLayout {
     // FieldKinds，见 `_refineDirectRefKind` + `_computeObjFields`）。
     private int _kindOf(string typeName) {
         if (this.IsStructType(typeName)) { return StructLeafKind.Struct; }
-        string c = Z42Type.Canon(typeName);
+        string c = PrimModel.Canon(typeName);
         if (c == "string") { return StructLeafKind.ArcString; }
         if (StructLayout._isPrim(c)) { return StructLeafKind.Prim; }
         // 数组 / 非-struct class / interface / func / unknown → 8B GcRef 托管句柄（粗粒度）。
@@ -512,7 +512,7 @@ public sealed class StructLayout {
     private int _refineDirectRefKind(string ftype) {
         // 数组 T[]：运行时 Value::Array（8B GcRef<ArrayObj>）→ 可内联，重建为 Array。
         if (StructLayout._isArraySpelling(ftype)) { return StructLeafKind.GcRefArray; }
-        string bn = StructLayout._baseName(Z42Type.Canon(ftype));
+        string bn = StructLayout._baseName(PrimModel.Canon(ftype));
         // **object / interface 字段是多态擦除目标**（TypeChecker 装箱边界 = is Interface || _isObjectName）：
         // 可持装箱值（BoxedStruct/Array/Str/Closure）——运行时 Value 变体不定。8B 裸指针**丢变体判别**，
         // 读回只能重建 Value::Object（≠ BoxedStruct，unbox 失败）→ **不可安全内联，留侧表(GcRefClosure)**。
@@ -542,7 +542,7 @@ public sealed class StructLayout {
     // 注：泛型类在 _classDefs 若以 `Name$N` 存则不匹配 → 该泛型 object 字段落 GcRefClosure（侧表，安全次优）。
     private static string _baseName(string canonName) {
         int lt = canonName.IndexOf("<");
-        if (lt >= 0) { return Z42Type.Canon(canonName.Substring(0, lt)); }
+        if (lt >= 0) { return PrimModel.Canon(canonName.Substring(0, lt)); }
         return canonName;
     }
 
@@ -552,7 +552,7 @@ public sealed class StructLayout {
         // 引用已内联 8B（chunk 2b），此处把 struct 字节布局的引用宽度也塌到 8B → 全局 8B 引用一致
         // （消除 D13 的 struct=16B / 对象=8B 分裂）。runtime 反射镜像 `struct_reflect.rs::_sizeOf` 同步。
         if (StructLeafKind.IsRef(kind)) { return 8; }
-        string c = Z42Type.Canon(typeName);
+        string c = PrimModel.Canon(typeName);
         if (c == "i8" || c == "u8" || c == "bool") { return 1; }
         if (c == "i16" || c == "u16") { return 2; }
         if (c == "i32" || c == "u32" || c == "f32" || c == "char") { return 4; }

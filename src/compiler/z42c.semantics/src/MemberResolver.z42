@@ -64,7 +64,7 @@ public sealed class MemberResolver {
         // unify-value-types Phase 1：翻转后基元/string/object 为 Z42ClassType——**排除内建**，让其
         // 继续走下方 prim-wrapper 派发路径（declClass 用 keyword 名、键用 _overloadKey），与翻转前
         // Z42PrimType 收者逐字节同义。用户 class/struct（非内建）仍走此类分支。
-        if ((rt is Z42ClassType) && !PrimModel.IsBuiltin(rt.Name())) {
+        if ((rt is Z42ClassType) && !rt.IsBuiltinType()) {
             Z42ClassType ct = rt as Z42ClassType;
             // 阶段 3：受者可能是**空方法 stub**——`ImportedSymbolLoader._resolve` 对未在 per-import
             // `r.Classes` 加载的类名（如无 `using Z42.IR` 时经字段类型间接可知的 StrMap）落兜底产
@@ -192,7 +192,7 @@ public sealed class MemberResolver {
     private BoundExpr _bindInstanceMember(MemberExpr m, BoundExpr target, Z42Type tt, TypeEnv env) {
         // unify-value-types Phase 1：排除内建 Z42ClassType，让 string.Length（下方特例）+ 其余基元成员
         // 走 prim-wrapper 路径，与翻转前 Z42PrimType 收者同款。用户 class/struct 仍走类成员访问。
-        if ((tt is Z42ClassType) && !PrimModel.IsBuiltin(tt.Name())) { return this._bindClassMemberAccess(m, target, tt as Z42ClassType, env); }
+        if ((tt is Z42ClassType) && !tt.IsBuiltinType()) { return this._bindClassMemberAccess(m, target, tt as Z42ClassType, env); }
         // 接口收者属性访问：get_<Name>() 虚调用（接口 getter 已注册为 get_X 方法符号）。
         if (tt is Z42InterfaceType) {
             Z42InterfaceType it = tt as Z42InterfaceType;
@@ -206,7 +206,7 @@ public sealed class MemberResolver {
         // `m.Member is "Length" && (target.Type is Z42ArrayType || target.Type == Z42Type.String)`）。
         // unify-value-types Phase 1：翻转后 string→Z42ClassType(String)——追加 Canon=="string" 判定
         // （翻转前无该拼写 Z42ClassType 流经 → 中立）。
-        if (m.Name == "Length" && ((tt is Z42ArrayType) || ((tt is Z42ClassType) && PrimModel.Canon(tt.Name()) == "string"))) {
+        if (m.Name == "Length" && ((tt is Z42ArrayType) || ((tt is Z42ClassType) && tt.CanonName() == "string"))) {
             return new BoundMember(target, m.Name, Z42ClassType.Builtin("int"), m.Span);
         }
         if (m.Name == "Count") {
