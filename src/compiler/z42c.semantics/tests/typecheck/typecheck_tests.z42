@@ -315,6 +315,24 @@ void test_new_unknown_type_error() {
     Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
 }
 
+[Test]
+void test_undefined_type_in_declaration_signature_positions_reported() {
+    // 🔒 **这条守的是 harness 本身**，不是某条语义规则。
+    //
+    // 上一条注释里「与其它类型注解位置统一」这句话，在 2026-09-06 之前只对**表达式位置**成立：
+    // 声明签名位置（方法返回类型 / 形参类型 / 字段类型 / 基类表）的 E0443 由 **SymbolCollector
+    // 相位**的 `_chkTypeRef` 发出，而 `SemanticDump` 只把 **TypeChecker** 的诊断收进 bag、
+    // 把 collector 那份整个丢掉 ⇒ 下面这三行以前全部返回 ""。
+    //
+    // 危害不是「少报一条」：凡以「签名位置写坏类型应当报错」为断言的用例，**无论实现对错都恒绿**
+    // ——即空测试。add-associated-types PR-2 为 `Self` 写的头一批用例整批撞上（把支持改动全退回后
+    // 仍 7/7 全绿），这才把洞挖出来。修在 `SemanticDump._model` 的 `diags.MergeFrom(sc.Diags)`。
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C { Undef f() { return null; } }"));
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C { void f(Undef x) { } }"));
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C { public Undef x; }"));
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode("class C : Undef { }"));
+}
+
 // ── 1D-2：数组类型 + 索引 ──────────────────────────────────────────────────
 [Test]
 void test_array_index() {
