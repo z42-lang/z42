@@ -1,0 +1,82 @@
+// break / continue 合法上下文单测（fix-switch-break-diagnostic）。
+// 契约：`break` 在**循环或 switch 臂**内合法（与 StmtEmitter._emitSwitch 的 PushLoop 对称）；
+// `continue` 只认循环（switch 不是循环）。两者都**不跨函数边界**——lambda 体发码成独立函数，
+// 其 EmitContext 的 InLoop() 恒 false，故 lambda 内的 break/continue 必须报 E0410 而非静默丢弃。
+// switch subject 用 int（开放域）以避开穷尽性 W0700 干扰首条诊断。
+namespace Z42cSemanticsBreakContextTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── switch 臂内 break：合法（跳出 switch），不需要外层循环 ──────────
+[Test]
+void test_break_in_switch_without_loop_ok() {
+    string src = "namespace D; class C { int M(int x) { int r = 0;"
+        + " switch (x) { case 1: r = 10; break; default: r = 99; break; } return r; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── switch 臂内 continue 但无外层循环：E0410（switch 不是循环）──────
+[Test]
+void test_continue_in_switch_without_loop_errors() {
+    string src = "namespace D; class C { int M(int x) { int r = 0;"
+        + " switch (x) { case 1: continue; default: r = 99; break; } return r; } }";
+    Assert.Equal("E0410", SemanticDump.FirstErrorCode(src));
+}
+
+// ── switch 在循环内，臂内 continue：合法（转发外层循环）────────────
+[Test]
+void test_continue_in_switch_inside_loop_ok() {
+    string src = "namespace D; class C { int M(int n) { int r = 0; int i = 0;"
+        + " while (i < n) { i = i + 1; switch (i) { case 1: continue; default: r = r + i; break; } }"
+        + " return r; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 既不在循环也不在 switch 的裸 break：E0410 ────────────────────
+[Test]
+void test_break_outside_loop_or_switch_errors() {
+    string src = "namespace D; class C { int M(int x) { int r = 0; if (x > 0) { break; } return r; } }";
+    Assert.Equal("E0410", SemanticDump.FirstErrorCode(src));
+}
+
+// ── switch 出去后 break 不再合法（_switchDepth 已回退）──────────────
+[Test]
+void test_break_after_switch_errors() {
+    string src = "namespace D; class C { int M(int x) { int r = 0;"
+        + " switch (x) { case 1: r = 1; break; default: r = 2; break; } break; return r; } }";
+    Assert.Equal("E0410", SemanticDump.FirstErrorCode(src));
+}
+
+// ── lambda 体内 break，外层是 switch 臂：E0410（上下文不跨函数边界）──
+[Test]
+void test_break_in_lambda_inside_switch_errors() {
+    string src = "namespace D; class C { void M(int x) {"
+        + " switch (x) { case 1: () -> void f = () => { break; }; break; default: break; } } }";
+    Assert.Equal("E0410", SemanticDump.FirstErrorCode(src));
+}
+
+// ── lambda 体内 break，外层是真循环：E0410（同上）──────────────────
+[Test]
+void test_break_in_lambda_inside_loop_errors() {
+    string src = "namespace D; class C { void M(int n) { int i = 0;"
+        + " while (i < n) { i = i + 1; () -> void f = () => { break; }; } } }";
+    Assert.Equal("E0410", SemanticDump.FirstErrorCode(src));
+}
+
+// ── lambda 体内 continue，外层是真循环：E0410（同上）────────────────
+[Test]
+void test_continue_in_lambda_inside_loop_errors() {
+    string src = "namespace D; class C { void M(int n) { int i = 0;"
+        + " while (i < n) { i = i + 1; () -> void f = () => { continue; }; } } }";
+    Assert.Equal("E0410", SemanticDump.FirstErrorCode(src));
+}
+
+// ── lambda 绑完恢复外层上下文：lambda 之后的 break 仍合法 ────────────
+[Test]
+void test_break_after_lambda_inside_loop_ok() {
+    string src = "namespace D; class C { void M(int n) { int i = 0;"
+        + " while (i < n) { i = i + 1; () -> void f = () => { }; break; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

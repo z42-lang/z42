@@ -1,0 +1,73 @@
+// z42b publish —— 「产物是否最新」这一步。
+//
+// 病灶（fix-publish-stale-payload，2026-09-06）：原 `_pubEnsureBuilt` 把
+// **「zpkg 文件存在」当成「zpkg 是最新的」**——
+//
+//     string zpkgSrc = _pubResolveZpkg(...);
+//     if (File.Exists(zpkgSrc)) { return zpkgSrc; }   // ← 改了源码也走这里
+//
+// 于是改完源码再 `z42 publish <toml>`，publish 一声不吭地把**上一次的旧 payload**
+// 重新签进 apphost，退出码 0、无任何提示。这不是 xtask 一家的毛病：`_pubEnsureBuilt`
+// 是所有 `z42 publish`（单 app / 多 exe / --self-contained / 依赖闭包）唯一的产物入口，
+// 每条路径都带着同一个洞。xtask 之所以最先被发现，只是因为 `z42 publish
+// scripts/xtask.z42.toml` 是它文档化的**唯一**构建方式（scripts/README.md），
+// 没有第二条路盖过去。
+//
+// 修法：publish **不再自己判断新旧**，把决定权整个交回 z42c。z42c 的文件级
+// 内容哈希增量缓存（IncrementalDriver）是工具链里唯一真正知道「源码变没变」的东西；
+// 未变时它自己就是空转（`cached: N/N files` / `no changes; preserved -> ...`，实测
+// ~0.5s，且一个字节都不重写），所以「无条件调 z42c」不需要任何额外的新旧判据——
+// 少一套判据，就少一个会和真相跑偏的判据。
+//
+// `noBuild`（`publish --no-build`）保留旧的「就用现成的字节」契约，给**自己已经用
+// 特定编译器编好、且要求字节不被动**的调用方：xtask 的 SDK 组装 / 自举不动点路径
+// （`_z42bPublish`，见 scripts/package/xtask_package_desktop.z42）——那里若让 publish
+// 拿 SDK 种子 z42c 重编一遍，gen2 字节不动点当场就破了。
+//
+// 本文件独立存在的原因同 builder_publish_sidecar.z42：`builder_publish.z42` 在
+// line-limit 棘轮基线上（967 行），越界文件不得增长，故这两个函数整体搬出。
+namespace Z42Builder;
+
+using Std;
+using Std.IO;
+using Std.Toml;
+
+// 确保 `tomlPath` 的 zpkg **已构建且为最新**，返回其路径（失败返 ""）。
+// z42c 可定位 → 无条件 `z42c build <toml> --release`（增量，未变即空转）。
+// z42c 不可定位（或 noBuild）→ 只能用现成的：有就用，没有就给出 build-first 提示。
+string _pubEnsureBuilt(string tomlPath, TomlValue toml, string projName, bool noBuild) {
+    string zpkgSrc = _pubResolveZpkg(tomlPath, toml, projName);
+    string z42c = noBuild ? "" : _pubFindZ42c();
+    if (z42c.Length == 0) {
+        if (File.Exists(zpkgSrc)) { return zpkgSrc; }
+        ConsoleError.WriteLine("z42b publish: built zpkg not found: " + zpkgSrc
+            + "  (build it first: z42 build " + tomlPath + ")");
+        return "";
+    }
+    ProcessResult pr = new Process(z42c).Arg("build").Arg(tomlPath).Arg("--release")
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
+    if (pr.ExitCode != 0) {
+        ConsoleError.WriteLine("z42b publish: z42c build failed (rc=" + pr.ExitCode.ToString() + ")");
+        return "";
+    }
+    if (!File.Exists(zpkgSrc)) {
+        ConsoleError.WriteLine("z42b publish: zpkg still missing after build: " + zpkgSrc);
+        return "";
+    }
+    return zpkgSrc;
+}
+
+// Locate the SDK's `bin/z42c` apphost from Z42_PORTABLE_VM (<home>/bin/z42vm →
+// <home>/bin/z42c). "" if not resolvable (then publish degrades to publishing
+// whatever is already built, or a build-first hint). The apphost colocates the
+// driver's siblings + resolves stdlib itself.
+string _pubFindZ42c() {
+    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (vm.Length == 0) { return ""; }
+    string home = Path.GetDirectoryName(Path.GetDirectoryName(vm));   // <home>/bin/z42vm → <home>
+    if (home.Length == 0) { return ""; }
+    string z42c = Path.Join(home, "bin/z42c");
+    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }
+    if (!File.Exists(z42c)) { return ""; }
+    return z42c;
+}

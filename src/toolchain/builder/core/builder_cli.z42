@@ -57,6 +57,8 @@ SubcommandRouter _builderRoot() {
     pub.AddOption("output", "", "output dir (overrides [platform.desktop].publish_dir)", "");
     pub.AddFlag("self-contained", "", "embed the z42 runtime (self-contained app; no external z42vm); "
         + "static/dynamic link via [platform.desktop] link");
+    pub.AddFlag("no-build", "", "deploy the already-built zpkg as-is (default: run z42c first, "
+        + "which rebuilds only what changed)");
     root.Add("publish", "produce a release deployable", pub);
 
     ArgParser exp = new ArgParser("z42b export", "generate a native IDE project (ios/android)");

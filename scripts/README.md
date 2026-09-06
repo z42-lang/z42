@@ -12,6 +12,11 @@ z42 publish scripts/xtask.z42.toml             # 构建+部署 → 仓库根 ./x
 xtask <command> [args]                         # 直接运行
 ```
 
+> 改了 `scripts/*.z42` 后**直接重跑上面这条 publish 就够了**：publish 每次都过一遍 z42c
+> 的增量编译，改了什么重编什么、没改就空转（~0.5s，一个字节都不重写），无需先 `z42 build`。
+> （2026-09-06 前不是这样：publish 见 `xtask.zpkg` 已存在就跳过编译，改完源码 publish 会
+> 静默把**旧 payload** 重新签一遍——见 change `fix-publish-stale-payload`。）
+
 xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分（launcher 保持通用
 运行时）。冷启动如何先产出 xtask 见下文「冷启动 bootstrap」。
 

@@ -29,5 +29,8 @@
   → 必 `rm -rf artifacts/build/compiler` 再建才可靠（本次 C 多次踩，含 SemanticDump 改动未生效）。
 - **测试助手别改 SemanticDump/编译器内部**：给 SemanticDump 加 helper 会踩 bootstrap shadowing（driver 运行时
   用自身 bundled 的 Z42.Semantics 遮蔽 Z42_LIBS 的 fresh dist → E0401 找不到新方法）。改用既有 `FirstErrorCode`。
-- **FirstErrorCode 最小 Infer 路径**：不链 stdlib（Std.* 报 undefined）、switch break 报 E0410——warning 用例
-  须避开这些噪声（不用 Std、switch-stmt 不写 break），使 W0700 成为唯一/首条诊断。
+- **FirstErrorCode 最小 Infer 路径**：不链 stdlib（Std.* 报 undefined）——warning 用例须避开该噪声
+  （不用 Std），使 W0700 成为唯一/首条诊断。
+  > **校正（2026-09-06，`fix-switch-break-diagnostic`）**：本条原把"switch break 报 E0410"也算作
+  > 最小 Infer 路径的噪声，**错**——那是真编译器 bug（binder 不给 switch 建 break 上下文），完整管线
+  > 同样误报，已修。switch-stmt 测试源仍不写 break，但只为收敛首条诊断，与 break 合法性无关。
