@@ -23,8 +23,11 @@ public sealed class StrIndex {
     public int Count() { return this._count; }
 
     // 命中返回值；未命中 -1（调用方的值域皆为非负下标）。
+    // perf（2026-09-06）：`_hash` 那层转发 + `%` 整除一并去掉 —— `_cap` 恒为 2 的幂
+    // （32 起、_grow 翻倍）⇒ `(h & 0x7FFFFFFF) % _cap` 与 `h & (_cap-1)` **逐位等值**
+    // （低位掩码本就落在 0x7FFFFFFF 之内，清符号位对结果无影响）⇒ 槽布局不变。
     public int Get(string key) {
-        int slot = this._hash(key) % this._cap;
+        int slot = key.GetHashCode() & (this._cap - 1);
         int probes = 0;
         while (probes < this._cap) {
             if (!this._used[slot]) { return -1; }
@@ -39,7 +42,7 @@ public sealed class StrIndex {
     // 插入或覆盖。
     public void Put(string key, int val) {
         if (this._count * 2 >= this._cap) { this._grow(); }
-        int slot = this._hash(key) % this._cap;
+        int slot = key.GetHashCode() & (this._cap - 1);
         while (this._used[slot] && this._keys[slot] != key) {
             slot = slot + 1;
             if (slot >= this._cap) { slot = 0; }
@@ -48,11 +51,6 @@ public sealed class StrIndex {
         this._keys[slot] = key;
         this._vals[slot] = val;
         this._used[slot] = true;
-    }
-
-    private int _hash(string key) {
-        int h = key.GetHashCode();
-        return h & 0x7FFFFFFF;
     }
 
     private void _grow() {
@@ -67,7 +65,20 @@ public sealed class StrIndex {
         this._count = 0;
         int i = 0;
         while (i < oldCap) {
-            if (oldUsed[i]) { this.Put(oldKeys[i], oldVals[i]); }
+            if (oldUsed[i]) {
+                // 内联 Put（等价性同 StrMap._grow 的说明：重排期不会嵌套 _grow，且旧表键互异
+                // ⇒ 探测必停在第一个空槽，槽布局与逐条走 Put 相同）。
+                string k = oldKeys[i];
+                int slot = k.GetHashCode() & (this._cap - 1);
+                while (this._used[slot]) {
+                    slot = slot + 1;
+                    if (slot >= this._cap) { slot = 0; }
+                }
+                this._keys[slot] = k;
+                this._vals[slot] = oldVals[i];
+                this._used[slot] = true;
+                this._count = this._count + 1;
+            }
             i = i + 1;
         }
     }

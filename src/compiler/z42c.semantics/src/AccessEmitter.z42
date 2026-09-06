@@ -43,6 +43,23 @@ public sealed class AccessEmitter {
                 }
                 return existing;
             }
+            // fix-autoprop-getonly-backing-write：裸 `X = v`（X 是本类实例属性）与 `this.X = v` 同义。
+            // 此前落到下面的 Fields 分支按**源名**发 field_set（存储实为 __prop_X）→ 写进不存在的字段；
+            // 属性名甚至没进 Fields 时更糟——被当成「首次赋值一个新局部」，属性完全没被写。
+            // 须先于 Fields 判定。合法性（get-only 仅 ctor 内）由 AssignTyper 的 E0452 把关。
+            if (this._ctx.OwnerStructName == "" && this._ctx.InstProps.ContainsKey(tid.Name)) {
+                if (this._ctx.InstPropHasSet.ContainsKey(tid.Name)) {
+                    TypedReg pVoid = this._ctx.Alloc(IrType.Void);
+                    TypedReg[] pSet = new TypedReg[1]; pSet[0] = val;
+                    this._ctx.Emit(new VCallInstr(pVoid, new TypedReg(0, IrType.Ref), "set_" + tid.Name, pSet, 1));
+                    return val;
+                }
+                string pBack = this._ctx.InstProps.Get(tid.Name) as string;
+                if (pBack.Length > 0) {
+                    this._ctx.Emit(new FieldSetInstr(new TypedReg(0, IrType.Ref), pBack, val));
+                    return val;
+                }
+            }
             if (this._ctx.Fields.ContainsKey(tid.Name)) {
                 // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）写翻转为 StructFieldSetPrim(reg0=句柄)。
                 if (this._ctx.OwnerStructName != "") {
@@ -104,15 +121,23 @@ public sealed class AccessEmitter {
             }
             // auto-property setter dispatch（镜像 _emitMember getter dispatch）：
             // class 有 set_MemberName → v_call（镜像 C# SynthesizeClassAutoProp setter 路径）。
+            // fix-autoprop-getonly-backing-write：判据补继承情形 —— `ct.Methods` 不含继承来的 set_X，
+            // 但继承来的 FieldSymbol 带 IsProp/IsPropNoSetter；有 setter 的属性一律 VCall（运行期经
+            // vtable 解析），无 setter 的落到下面写后备字段。
             Z42ClassType setCt = this._ee._receiverClassType(tm.Target.Type());
-            if (setCt != null && setCt.Methods.ContainsKey("set_" + tm.MemberName)) {
+            if (setCt != null && (setCt.Methods.ContainsKey("set_" + tm.MemberName)
+                                  || this._isPropWithSetter(setCt, tm.MemberName))) {
                 TypedReg voidDst = this._ctx.Alloc(IrType.Void);
                 TypedReg[] setArgs = new TypedReg[1];
                 setArgs[0] = val;
                 this._ctx.Emit(new VCallInstr(voidDst, obj, "set_" + tm.MemberName, setArgs, 1));
                 return val;
             }
-            this._ctx.Emit(new FieldSetInstr(obj, tm.MemberName, val));
+            // fix-autoprop-getonly-backing-write：get-only auto-property（`X { get; }`）没有 set_X，
+            // 此前直接按**源名** X 发 field_set —— 而存储在 __prop_X（getter 就是读它），于是 ctor 里的
+            // `this.X = v` 写进一个不存在的字段、读回恒 null。改按符号携带的后备名发射，与 getter 对称。
+            // 合法性（仅 ctor 内 this）由 AssignTyper 的 E0452 把关，此处只管落到正确的存储。
+            this._ctx.Emit(new FieldSetInstr(obj, this._propBackingName(setCt, tm.MemberName), val));
             return val;
         }
         if (a.Target is BoundIndex) {
@@ -193,8 +218,13 @@ public sealed class AccessEmitter {
             return dst;
         }
         // Issue B：auto-property getter dispatch — class 有 get_MemberName → VCall（镜像 C#）
+        // fix-autoprop-getonly-backing-write：判据补 `_isPropMember` —— `ct.Methods` **不含继承来的**
+        // 访问器（只有 `_passInheritFields` 把基类 FieldSymbol 并进子类 Fields），故经子类引用读基类属性
+        // （`t.Height` / 子类方法内 `this.Height`）此前落到下面按源名 FieldGet → 读回 Null。
+        // FieldSymbol 随继承带过来且带 IsProp，用它判定即可覆盖继承；get_X 在运行期经 vtable 找得到。
         Z42ClassType propCt = this._ee._receiverClassType(m.Target.Type());
-        if (propCt != null && propCt.Methods.ContainsKey("get_" + m.MemberName)) {
+        if (propCt != null && (propCt.Methods.ContainsKey("get_" + m.MemberName)
+                               || this._isPropMember(propCt, m.MemberName))) {
             TypedReg[] noArgs = new TypedReg[0];
             this._ctx.Emit(new VCallInstr(dst, obj, "get_" + m.MemberName, noArgs, 0));
             return dst;
@@ -270,6 +300,35 @@ public sealed class AccessEmitter {
         TypedReg dst = this._ctx.Alloc(IrType.Unknown);
         this._ctx.Emit(new StaticGetInstr(dst, this._ctx.QualifyClass(sg.ClassName) + "." + sg.FieldName));
         return dst;
+    }
+
+    // fix-autoprop-getonly-backing-write：把「属性源名」翻译成实际存储名。
+    // auto-property 的存储是 `__prop_X`（MemberCollector 合成，getter 读的就是它），而符号表以源名 X
+    // 登记 FieldSymbol 供类型检查 → 没有 set_X 时若按源名 X 发 field_set 就写进不存在的字段。
+    // 普通字段 / 计算属性（无后备存储）/ 拿不到类型 → 原样返回源名。
+    private string _propBackingName(Z42ClassType ct, string memberName) {
+        FieldSymbol pf = this._propSymbol(ct, memberName);
+        if (pf == null || pf.PropBackingName.Length == 0) { return memberName; }
+        return pf.PropBackingName;
+    }
+
+    // 该成员是不是属性（含**继承来的**——基类 FieldSymbol 被 _passInheritFields 并进子类 Fields）。
+    private bool _isPropMember(Z42ClassType ct, string memberName) {
+        return this._propSymbol(ct, memberName) != null;
+    }
+
+    // 该成员是不是**带 setter** 的属性（同上，含继承）。
+    private bool _isPropWithSetter(Z42ClassType ct, string memberName) {
+        FieldSymbol pf = this._propSymbol(ct, memberName);
+        return pf != null && !pf.IsPropNoSetter;
+    }
+
+    private FieldSymbol _propSymbol(Z42ClassType ct, string memberName) {
+        if (ct == null) { return null; }
+        if (!ct.Fields.ContainsKey(memberName)) { return null; }
+        FieldSymbol pf = ct.Fields.Get(memberName) as FieldSymbol;
+        if (pf == null || !pf.IsProp) { return null; }
+        return pf;
     }
 
     // add-static-struct-bytecization (PR-2 S)：整写 static struct 字段前 `__box_struct` 全局化——把帧 arena
@@ -438,9 +497,21 @@ public sealed class AccessEmitter {
 
     internal TypedReg _lookupIdent(BoundIdent id) {
         // add-const-keyword：局部 const 裸引用 → 字面量替换（须先于 Locals：const 也占存储槽，存储由 DCE 清）。
-        int _sl0 = this._ctx.ConstLocals.Find(id.Name); if (_sl0 >= 0) { return this._ee._emitConstVal(this._ctx.ConstLocals.ValAt(_sl0) as ConstValue, this._ctx.ToIrType(id.Type())); }
-        int _sl1 = this._ctx.Locals.Find(id.Name); if (_sl1 >= 0) { return this._ctx.Locals.ValAt(_sl1) as TypedReg; }
-        if (this._ctx.Fields.ContainsKey(id.Name)) {
+        // perf：同一个键连查三张表（const 局部 / 局部 / 属性·字段）—— `GetHashCode` 是 O(n) FNV-1a
+        // 且每次调用都重算，取一次逐表传进去。
+        int _h = id.Name.GetHashCode();
+        int _sl0 = this._ctx.ConstLocals.FindHashed(id.Name, _h); if (_sl0 >= 0) { return this._ee._emitConstVal(this._ctx.ConstLocals.ValAt(_sl0) as ConstValue, this._ctx.ToIrType(id.Type())); }
+        int _sl1 = this._ctx.Locals.FindHashed(id.Name, _h); if (_sl1 >= 0) { return this._ctx.Locals.ValAt(_sl1) as TypedReg; }
+        // fix-autoprop-getonly-backing-write：裸 `X`（X 是本类实例属性）与 `this.X` 同义 → VCall get_X。
+        // 此前落到下面 Fields 分支发 `field_get reg0.X`，而存储叫 __prop_X → 恒读回 Null。
+        // 须先于 Fields 判定；局部遮蔽已由上面的 Locals 优先命中处理。
+        if (this._ctx.OwnerStructName == "" && this._ctx.InstProps.ContainsKeyHashed(id.Name, _h)) {
+            TypedReg pDst = this._ctx.Alloc(this._ctx.ToIrType(id.Type()));
+            TypedReg[] pNoArgs = new TypedReg[0];
+            this._ctx.Emit(new VCallInstr(pDst, new TypedReg(0, IrType.Ref), "get_" + id.Name, pNoArgs, 0));
+            return pDst;
+        }
+        if (this._ctx.Fields.ContainsKeyHashed(id.Name, _h)) {
             // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）读翻转为 StructFieldGetPrim(reg0=句柄)。
             if (this._ctx.OwnerStructName != "") {
                 // add-struct-nested-fields：裸 owner 字段本身是 struct（`P p = a;`）→ 值复制出（reg0=this，off=字段 offset）。

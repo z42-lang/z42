@@ -397,6 +397,21 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
 // Updates totalFiles / libsTested by ref. Preserves the legacy convention scan
 // (auto sections) for every existing stdlib lib while overlaying any explicit
 // `[[test]]`/`[[bench]]` targets (harness=true reflect / harness=false exit-code).
+// 孤儿源守卫的**棘轮基线**（fix-silent-gates, 2026-09-06）。
+//
+// 这里只列「已经存在、尚未接通」的欠债；**新增的孤儿源一律判红**，不许往这张表里加
+// 而不说明理由。形态同 `test lines` 的 line-limit-baseline.txt：已知的每轮响亮打印
+// （不静默），新出现的立刻红。
+//
+//   · z42.scripting/tests/ —— 11 个 `<name>/driver.z42`，**零个 source.z42、零个
+//     [Test]**：它们是 Main 型 REPL 驱动，两种发现规则都不认领，实际没有任何东西在跑。
+//     接通它们属 fix-repl-eval-exception-program 的范围（REPL e2e 需要真 tty），
+//     不在本次「让门会红」的 change 里做。**这条守卫正是把这笔欠债从笔记里逼到
+//     每轮输出上的东西**——在它之前，这 11 个文件在 gate 里完全隐形。
+bool _isKnownOrphanLib(string lib, string subdir) {
+    return lib == "z42.scripting" && subdir == "tests";
+}
+
 int _runLibKind(string root, string libsRoot, string lib, string subdir, string kind,
                 string label, string filter, string builderZpkg, int jobsN, string mode,
                 string vm, string driverZpkg, string libs, MicroBenchAgg agg,
@@ -412,7 +427,39 @@ int _runLibKind(string root, string libsRoot, string lib, string subdir, string 
     RunTarget[] reflectT = _explicitByHarness(tgts, tgts.Length, true, filter);
     RunTarget[] falseT   = _explicitByHarness(tgts, tgts.Length, false, filter);
     int shown = units.Length + reflectT.Length + falseT.Length;
-    if (shown == 0) { return 0; }
+    if (shown == 0) {
+        // ── 孤儿源守卫（fix-silent-gates, 2026-09-06）─────────────────────────
+        // 本 lib 一个单元都没产出。若它的 <subdir>/ 下**确实躺着 .z42 源**，那就是
+        // 「有源、但没有任何发现规则认领」——总是 bug（z42.ir / z42c.core /
+        // z42c.syntax 正是这样静默数月）。
+        //
+        // 这条守卫此前在 _testLibCore 里，但装错了路：它要求 `nReq > 0`（只在显式
+        // 点名 lib 时查）且用**全局** totalFiles 判零，而 GREEN gate 走的是不点名的
+        // 全扫（nReq==0 → 那个 while 循环空转；totalFiles 全局必 >0）→ 两条独立原因
+        // 让它在唯一重要的路径上永不触发。挪到这里逐 lib 判定即可覆盖全扫。
+        //
+        // filter 非空时不判：过滤器匹配不到是过滤器的事，不是发现规则的 bug。
+        if (filter.Length == 0) {
+            string sd = Path.Join(projDir, subdir);
+            if (Directory.Exists(sd) && Path.GlobRecursive(sd, "*.z42").Length > 0) {
+                if (_isKnownOrphanLib(lib, subdir)) {
+                    // 棘轮基线：已知欠债每轮响亮打印，但不阻断（形态同 test lines 的
+                    // line-limit-baseline）。新增的一律红。
+                    Console.WriteLine("  ⚠ " + lib + ": " + subdir + "/ 有 .z42 源但无单元（已知欠债，见 _isKnownOrphanLib）");
+                } else {
+                    // 提示必须与 _discoverTestUnits 的真实规则一致：单文件模式是
+                    // <subdir>/<name>.z42；目录模式要求该目录下**直接**有 .z42 含
+                    // [Test] 标注（_dirHasTestMethods，非递归、且是朴素全文子串匹配
+                    // ——注释里出现该标注也会被算上）。文件名不重要。
+                    ConsoleError.WriteLine("  ❌ " + lib + ": " + subdir + "/ 下有 .z42 源，却没产出任何 "
+                        + label + " 单元 —— 发现规则没认领它们（假绿）。单元须是 "
+                        + subdir + "/<name>.z42，或 " + subdir + "/<name>/ 目录下直接有带 [Test] 的 .z42。");
+                    return -1;   // -1 = 让调用方中止整个 stage
+                }
+            }
+        }
+        return 0;
+    }
     libsTested = libsTested + 1;
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");
