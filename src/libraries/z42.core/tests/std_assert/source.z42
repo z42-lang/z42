@@ -2,10 +2,16 @@
 //
 // tidy-test-layout (2026-09-06)：从 src/tests/basic/assert.z42 搬来——它测的是
 // z42.core 的一个 API，归属就在这里。**保持 Main-based golden 形态、不改写成
-// [Test] 单元**：[Test] 文件必须 `using Std.Test`，那会把裸名 `Assert` 绑到
+// 测试框架单元**：那种文件必须 `using Std.Test`，会把裸名 `Assert` 绑到
 // Std.Test.Assert（抛 TestFailure 的测试框架断言），于是 Std.Assert 反而没人测了。
 // 无 using 的 Main 用例经 prelude 拿到的才是 Std.Assert 这一份。
 // assert-only（无 stdout）→ 不需要 expected_output.txt。
+//
+// ⚠️ 本文件（含注释）**不得出现测试框架的属性字面量**（fix-more-silent-gates,
+// 2026-09-06）：单元发现规则 `_dirHasTestMethods` 是朴素全文子串匹配、**连注释也算**。
+// 原注释为了解释「不写成那种单元」而把该字面量写了出来，于是本目录被判成框架单元 →
+// golden 腿按 `hasTestMethods` 直接 skip、框架腿发现 0 个方法退 0 ⇒ 下面 15 条
+// Std.Assert 断言一条都没跑，却全绿。讽刺的是引入它的正是 #495「修单元发现假绿」。
 void Main() {
     // Assert.Equal — primitives
     Assert.Equal(42, 40 + 2);
