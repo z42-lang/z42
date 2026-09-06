@@ -34,8 +34,11 @@ int _testDistRun(string modeArg) {
     string root = _root();
     // DIST_SMOKE_ONLY=launcher → run only the launcher smoke (portable which +
     // `z42 run <dir> --bin`), skipping the heavier desktop-publish + golden legs.
-    // CI uses this to give the P4 run-front-door smoke per-PR coverage without
-    // the flakier apphost/publish path (unify-run-modes P4).
+    // 保留作本地快跑的开关；**CI 不再用它**（fix-package-gates-false-red, 2026-09-06）——
+    // 它曾是 CI 唯一的 `test dist` 调用形态，于是另两条腿永远没人跑，双双烂掉而无人知：
+    // apphost 腿的模板判据停在 apphost 迁进 workload 之前（恒 SKIP，见
+    // _distApphostTemplate），golden 腿调 z42c 的 CLI 根本不存在（`--emit zbc -o`，
+    // 282 个 case 全 compile fail）。
     string smokeOnly = _envOpt("DIST_SMOKE_ONLY", "");
 
     // ── Resolve the packaged distribution dir ────────────────────────────
@@ -61,18 +64,26 @@ int _testDistRun(string modeArg) {
     // 此前它们缺件时是「静默 SKIP + 返回 [0,0]」，而终判只看 overallFail>0 ——
     // 于是**全部 SKIP 也返回绿**。而 SKIP 的条件字面上就是「被测对象从包里消失了」，
     // 那恰恰是这个 job 存在的理由。缺件必须红在这里，不能退化成 no-op。
+    //
+    // ⚠️ preflight 只断言**本次真要跑的那几条腿**的被测对象
+    // （fix-package-gates-false-red, 2026-09-06）：DIST_SMOKE_ONLY=launcher 时
+    // apphost 腿根本不跑，为它的模板报错是纯误报（CI package-host 正是这么红的）。
     string pfLauncher = Path.Join(distDir, "z42");
     if (!File.Exists(pfLauncher)) { pfLauncher = pfLauncher + ".exe"; }
-    string pfApphost = Path.Join(distDir, "bin/apphost");
-    if (!File.Exists(pfApphost)) { pfApphost = pfApphost + ".exe"; }
     if (!File.Exists(pfLauncher)) {
         ConsoleError.WriteLine("error: launcher (z42) not in package at " + distDir); bad = true;
     }
     if (!File.Exists(Path.Join(distDir, "programs/launcher/launcher.zpkg"))) {
         ConsoleError.WriteLine("error: programs/launcher/launcher.zpkg not in package at " + distDir); bad = true;
     }
-    if (!File.Exists(pfApphost)) {
-        ConsoleError.WriteLine("error: bin/apphost not in package at " + distDir); bad = true;
+    string apphostTmpl = "";
+    if (smokeOnly != "launcher") {
+        apphostTmpl = _distApphostTemplate(root);
+        if (apphostTmpl.Length == 0) {
+            ConsoleError.WriteLine("error: desktop workload apphost stub not built at "
+                + _distWorkloadDir(root) + " — run: xtask package workload");
+            bad = true;
+        }
     }
     if (bad) { return 1; }
 
@@ -94,7 +105,7 @@ int _testDistRun(string modeArg) {
 
     if (smokeOnly != "launcher") {
         // ── desktop-publish smoke (build app → z42 publish → run produced exe) ──────
-        int[] ah = _apphostSmoke(distDir, work);
+        int[] ah = _apphostSmoke(distDir, work, apphostTmpl);
         overallPass = overallPass + ah[0];
         overallFail = overallFail + ah[1];
 
@@ -137,7 +148,7 @@ int[] _runDistMode(string mode, string root, string z42c, string z42vm, string l
         // Compile source.z42 → zbc with the packaged z42c.
         int cc = -1;
         try {
-            cc = new Process(z42c).Arg(c.source).Arg("--emit").Arg("zbc").Arg("-o").Arg(zbc)
+            cc = new Process(z42c).Arg("--emit-zbc").Arg(c.source).Arg(zbc)
                 .Env("Z42_LIBS", libsDir)
                 .Stdout(Stdio.Null()).Stderr(Stdio.Null())
                 .Run().ExitCode;
@@ -338,26 +349,46 @@ int[] _launcherSmoke(string distDir, string work) {
     int[] res = new int[2]; res[0] = pass; res[1] = fail; return res;
 }
 
+// ── apphost stub 模板的真实位置 ──────────────────────────────────────────────
+// Decision 9（add-desktop-workload）：stub 随 **desktop workload** 发布，SDK 包里
+// **没有** bin/apphost —— 生产端见 `_buildDesktopWorkload`（"lands here, not in SDK
+// bin/"），消费端见 launcher 的 `_desktopApphostStub`（读 installed workload 或
+// Z42_APPHOST_TEMPLATE 覆盖）。
+//
+// ⚠️ 这条曾是本文件里一个「不会红的门」：`_apphostSmoke` 一直拿 `<pkg>/bin/apphost`
+// 当模板，而 apphost 早已迁到 workload —— 判据恒不满足 ⇒ desktop-publish smoke
+// 自迁移起**一次都没跑过**（静默 SKIP + 返回 [0,0]）。fix-silent-gates 把它升成硬
+// preflight，却照抄了那条过时路径，于是变成「为包里本就不该有的东西报错」。
+// 这里改回真实位置，让这条 smoke 真的跑起来。
+string _distWorkloadDir(string root) {
+    string rid = _detectHostRid();
+    return Path.Join(_packagesDir(root), "z42-workload-" + _versionsGet(root) + "-desktop-" + rid);
+}
+
+// "" = 未构建（调用方按缺件处理）。
+string _distApphostTemplate(string root) {
+    string rid = _detectHostRid();
+    string name = rid.StartsWith("windows-") ? ("apphost-" + rid + ".exe") : ("apphost-" + rid);
+    string p = Path.Join(_distWorkloadDir(root), name);
+    if (File.Exists(p)) { return p; }
+    return "";
+}
+
 // ── desktop-publish smoke: returns [pass, fail] ────────────────────────────────────
-// Build a tiny app.zpkg with the packaged z42c, `z42 publish` it (the
-// portable trampoline finds the stub template in bin/apphost), then run the
+// Build a tiny app.zpkg with the packaged z42c, `z42 publish` it (with
+// Z42_APPHOST_TEMPLATE pointing at the desktop workload's apphost-<rid>, which is
+// exactly what an installed workload would hand the launcher), then run the
 // produced native exe against a Z42_HOME pointing at the package and assert it
 // runs the app. Exercises patch + macOS re-sign + local-first resolution.
-int[] _apphostSmoke(string distDir, string work) {
+// `tmpl` is preflight-verified non-empty by the caller — no SKIP path here.
+int[] _apphostSmoke(string distDir, string work, string tmpl) {
     int pass = 0;
     int fail = 0;
     string launcher = Path.Join(distDir, "z42");
     if (!File.Exists(launcher)) { launcher = launcher + ".exe"; }   // Windows
     string z42c = Path.Join(distDir, "bin/z42c");
     if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }               // Windows
-    string tmpl = Path.Join(distDir, "bin/apphost");
-    if (!File.Exists(tmpl)) { tmpl = tmpl + ".exe"; }               // Windows
     string libs = Path.Join(distDir, "libs");
-    if (!File.Exists(launcher) || !File.Exists(z42c) || !File.Exists(tmpl)) {
-        Console.WriteLine("desktop-publish smoke: SKIP (z42 / bin/z42c / bin/apphost not in package)");
-        Console.WriteLine("");
-        int[] r0 = new int[2]; r0[0] = 0; r0[1] = 0; return r0;
-    }
     Console.WriteLine("desktop-publish smoke: " + tmpl);
 
     // The app prints where its `mode` knob came from. `[profile.release] mode` below
@@ -390,7 +421,11 @@ int[] _apphostSmoke(string distDir, string work) {
         "\"z42.io\" = \"0.1.0\"\n" +
         "[build]\n" +
         "dist_dir = \".\"\n" +
+        // apphost = true 是 gate-apphost-on-config 之后 publish 的准入条件（缺它 z42b
+        // 直接 rc=2）。这条 fixture 停在门加上之前的写法 —— 因为 smoke 自己也从没跑过，
+        // 没有任何东西会因为它过时而变红（fix-package-gates-false-red, 2026-09-06）。
         "[platform.desktop]\n" +
+        "apphost = true\n" +
         "publish_dir = \".\"\n" +
         "[profile.release.runtime]\n" +
         "mode = \"interp\"\n";
@@ -412,12 +447,14 @@ int[] _apphostSmoke(string distDir, string work) {
             int[] rf = new int[2]; rf[0] = pass; rf[1] = fail + 1; return rf;
         }
         // 2. z42 publish — portable trampoline (drop Z42_HOME / Z42_PORTABLE_VM
-        //    so it resolves the package itself and finds bin/apphost as template).
+        //    so it resolves the package itself). Z42_APPHOST_TEMPLATE stands in for
+        //    an installed desktop workload (same env the launcher itself forwards to
+        //    z42b after resolving `runtimes/<ver>/workloads/desktop/apphost-<rid>`).
         //    apphost-as-config: desktop publish is `publish <toml>` (--rid defaults
         //    to host) reading [platform.desktop].publish_dir (= "." → exe beside the
         //    built zpkg). unify-platform-deploy-rid removed the `desktop` subcommand.
         int pc = new Process(launcher).Arg("publish").Arg(Path.Join(ad, "app.z42.toml"))
-            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_APPHOST_TEMPLATE", tmpl)
             .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
         if (pc != 0 || !File.Exists(producedExe)) {
             Console.WriteLine("  FAIL: z42 publish (rc=" + pc.ToString() + ")");
@@ -474,7 +511,7 @@ int[] _apphostSmoke(string distDir, string work) {
             "[[exe]]\nname = \"aexe\"\nentry = \"App.A.Main\"\n" +
             "[[exe]]\nname = \"bexe\"\nentry = \"App.B.Main\"\n");
         int pcm = new Process(launcher).Arg("publish").Arg(Path.Join(mpd, "app.z42.toml"))
-            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_APPHOST_TEMPLATE", tmpl)
             .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
         bool winPkg = distDir.IndexOf("windows-") >= 0;
         string aexe = Path.Join(mpd, winPkg ? "aexe.exe" : "aexe");
@@ -547,7 +584,7 @@ int[] _apphostSmoke(string distDir, string work) {
             "[platform.desktop]\napphost = true\npublish_dir = \".\"\npayload = \"payload/pnapp.zpkg\"\n" +
             "[profile.release.runtime]\nmode = \"interp\"\n");
         int pcn = new Process(launcher).Arg("publish").Arg(Path.Join(pnappDir, "pnapp.z42.toml"))
-            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
+            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").Env("Z42_APPHOST_TEMPLATE", tmpl)
             .Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run().ExitCode;
         // native colocated beside the built zpkg (dist/) by _pubCopyPrebuiltNative, then carried
         // into the payload dir by _pubCopyDistDeps.

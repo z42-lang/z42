@@ -63,7 +63,11 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     Console.WriteLine("  [4/4] libs/");
     c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ runtime package: " + pkgDir);
-    return 0;
+    // runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里
+    // （fix-package-gates-false-red, 2026-09-06）。desktop 的 runtime pack 已于 #508
+    // 接上，ios/android/wasm 当时漏了：它们的 workload pack 跑了门却一个
+    // source-derived 文件都没装，真装了的这个包反而从未被检查。
+    return _pkgFinish(root, pkgDir);
 }
 
 // ── workload tooling: Sources/ + Package.swift (placeholder) + manifest ──

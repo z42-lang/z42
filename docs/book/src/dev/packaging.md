@@ -37,11 +37,12 @@ graph LR
         C[stdlib-glob<br/>hard-link 全部 zpkg] --> S
     end
     S -->|按 package.include 拷贝<br/>{version}/{rid} 展开| P[artifacts/packages/<br/>z42-&lt;ver&gt;-&lt;rid&gt;-&lt;config&gt;/]
-    P --> M[manifest 生成<br/>+ SHA-256 校验]
+    P --> M[manifest 生成<br/>+ source-identity 门]
 ```
 
 第一段各组件独立产出到暂存根（producer 互不依赖，可并行）；第二段按包定义的 include
-清单逐组件拷贝、展开 `{version}` / `{rid}` 占位符、生成 manifest 与 SHA-256。
+清单逐组件拷贝、展开 `{version}` / `{rid}` 占位符、生成 manifest，最后跑 source-identity 门
+（**逐字节**比对，不是哈希 —— 旧名 SHA-256 源自最初的 bash 实现，2026-09-06 已正名）。
 
 ### 清单的三层结构
 
@@ -77,7 +78,7 @@ CI 合并四 RID）。包内布局的用户视角描述见工具链部分（待�
 | 顶层分发（按 RID） | `scripts/package/xtask_package.z42` | desktop / ios / android / wasm 四管道 |
 | 清单解析 | `scripts/package/xtask_packages_config.z42` | `[package.*]` + `[component.*]` 读取、include 名解析 |
 | 固定 staging handler | `scripts/package/xtask_stage_components.z42` | z42vm / native / stdlib 三个产出函数 |
-| desktop 管道 | `scripts/package/xtask_package_desktop.z42` | SDK 分段组装 + manifest + SHA-256 |
+| desktop 管道 | `scripts/package/xtask_package_desktop.z42` | SDK 分段组装 + manifest + source-identity 门 |
 | 移动/浏览器管道 | `xtask_package_{ios,android,wasm}.z42` | native 产物 + 平台 facade（SwiftPM / Gradle / npm） |
 | 自检 | `test packages` | 解析、staging、组装三层各一个 harness，一条命令顺序跑完 |
 
@@ -85,7 +86,11 @@ CI 合并四 RID）。包内布局的用户视角描述见工具链部分（待�
 
 - 组件落点全局唯一（无 per-package dest override）
 - workload-desktop 单机只产 host RID，四 RID 合并发生在 CI（`package workload <label>`）
-- 发行包正确性验证依赖 `test dist`（需先打 host-RID 包）
+- 发行包正确性验证依赖 `test dist`（需先打 host-RID 包 **+ desktop workload** —— apphost 腿
+  的 stub 模板来自 workload 包的 `apphost-<rid>`，SDK 包按 Decision 9 不带它）
+- 每个包组装完都跑 **source-identity 门**（逐字节比包内副本 vs 仓库源，见
+  [workflow/packaging.md](../../../workflow/packaging.md)）；移动/wasm 的 **runtime pack**
+  才是 `libs/` + `native/include/` 的落点，workload pack 只装平台 facade
 
 ## Deferred
 
