@@ -131,7 +131,11 @@ public sealed class StmtBinder {
                 }
                 BoundStmt[] cbody = new BoundStmt[sc.BodyCount];
                 int bi = 0;
+                // 臂体内 `break` 合法（跳出 switch）——与 StmtEmitter._emitSwitch 的 PushLoop 对称。
+                // 只包臂体：subject / guard / 模式里不可能出现 break。
+                this._tc._switchDepth = this._tc._switchDepth + 1;
                 while (bi < sc.BodyCount) { cbody[bi] = this._bindStmt(sc.Body[bi], caseScope, ret); bi = bi + 1; }
+                this._tc._switchDepth = this._tc._switchDepth - 1;
                 cases[ci] = new BoundSwitchCase(sc.HasPattern, pat, guard, cbody, sc.BodyCount, sc.Span);
                 ci = ci + 1;
             }
@@ -343,8 +347,8 @@ public sealed class StmtBinder {
         if (s is DoWhileStmt) { return this._bindDoWhile(s as DoWhileStmt, env, ret); }
         if (s is SwitchStmt) { return this._bindSwitchStmt(s as SwitchStmt, env, ret); }
         if (s is BreakStmt) {
-            if (this._tc._loopDepth == 0) {
-                this._tc._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`break` outside of loop", s.Span);
+            if (this._tc._loopDepth == 0 && this._tc._switchDepth == 0) {
+                this._tc._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`break` outside of loop or switch", s.Span);
             }
             return new BoundBreak(s.Span);
         }
@@ -413,10 +417,15 @@ public sealed class StmtBinder {
         while (i < lam.ParamCount) { this._tc._lambdaLocals.Put(pnames[i], ptypes[i]); i = i + 1; }
         this._tc._lambdaCaps = new BoundCapture[2];
         this._tc._lambdaCapCount = 0;
+        // break/continue 上下文不跨函数边界：lambda 体发码成独立函数（自己的 EmitContext，
+        // InLoop() 恒 false → break/continue 静默不发码），故绑定期须归零、绑完恢复外层。
+        int savedLoopDepth = this._tc._loopDepth; int savedSwitchDepth = this._tc._switchDepth;
+        this._tc._loopDepth = 0; this._tc._switchDepth = 0;
         BoundExpr exprBody = null;
         BoundStmt blockBody = null;
         if (lam.HasBlock) { blockBody = this._bindStmt(lam.BlockBody, lenv, expected.Ret); }
         else { exprBody = this._tc._expr._bindExpr(lam.ExprBody, lenv); }
+        this._tc._loopDepth = savedLoopDepth; this._tc._switchDepth = savedSwitchDepth;
         int thisCapCount = this._tc._lambdaCapCount;
         BoundCapture[] caps = new BoundCapture[thisCapCount];
         i = 0;
