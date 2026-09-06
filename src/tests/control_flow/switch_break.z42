@@ -1,0 +1,72 @@
+// `break` 跳出 switch 的端到端行为（fix-switch-break-diagnostic 回归）。
+// 此前 binder 对不在循环内的 switch 内 `break` 误报 E0410 → 这条路径**从未被 e2e 覆盖过**
+// （既有 switch_statement.z42 每个 case 都用 return 绕开）。这里验的是真正的落点：
+// break 之后继续执行 switch 之后的语句，且不落进后续 case。
+namespace Demo;
+
+int Classify(int x) {
+    int r = 0;
+    switch (x) {
+        case 1:
+            r = 10;
+            break;
+        case 2:
+            r = 20;
+            break;
+        default:
+            r = 99;
+            break;
+    }
+    return r + 1;   // break 落到这里（而非跳出函数）
+}
+
+// switch 在循环内：break 只跳出 switch，循环继续；continue 转发外层循环。
+int SumSkippingTwos(int n) {
+    int sum = 0;
+    int i = 0;
+    while (i < n) {
+        i = i + 1;
+        switch (i) {
+            case 2:
+                continue;      // 跳过 2，回到 while
+            default:
+                sum = sum + i;
+                break;         // 只跳出 switch，循环继续
+        }
+        sum = sum + 100;       // break 后仍在循环体内 → 每个未 continue 的迭代都加
+    }
+    return sum;
+}
+
+// 嵌套 switch：内层 break 只跳出内层。
+int Nested(int a, int b) {
+    int r = 0;
+    switch (a) {
+        case 1:
+            switch (b) {
+                case 1: r = 11; break;
+                default: r = 19; break;
+            }
+            r = r + 1000;      // 内层 break 落到这里
+            break;
+        default:
+            r = 90;
+            break;
+    }
+    return r;
+}
+
+void Main() {
+    // break 跳出 switch 后继续执行后续语句（r+1），且不 fall-through 到下个 case
+    Assert.Equal(11, Classify(1));
+    Assert.Equal(21, Classify(2));
+    Assert.Equal(100, Classify(7));
+
+    // i=1,3 走 default：sum += i 再 += 100；i=2 continue 跳过两者
+    Assert.Equal(1 + 100 + 3 + 100, SumSkippingTwos(3));
+
+    // 内层 break 只跳出内层 switch，外层的 r+1000 仍执行
+    Assert.Equal(1011, Nested(1, 1));
+    Assert.Equal(1019, Nested(1, 5));
+    Assert.Equal(90, Nested(2, 1));
+}

@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-08-31
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-06
 
 ## 概述
 
@@ -58,6 +58,28 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 > **Deferred**：① 导入跨包同短名类型（`using` 两个包各有 `Foo`）当前只对**本地**类做 FQN keying；②
 > 非限定同短名（`using A; using B;` 后裸写 `Foo`）仍 first/last-wins 静默选一，C# 语义应报歧义诊断。
+
+#### `break` / `continue` 的合法上下文（binder ↔ emitter 对称）
+
+`StmtBinder` 用两个计数器判定 `break` / `continue` 是否合法，二者**不等价**：
+
+| 语句 | 合法条件 | 计数器 |
+|------|---------|--------|
+| `break` | 在**循环或 `switch` 臂**内 | `_loopDepth > 0 \|\| _switchDepth > 0` |
+| `continue` | 只在**循环**内（`switch` 不是循环） | `_loopDepth > 0` |
+
+`_switchDepth` 由 `_bindSwitchStmt` 只包住**臂体**（subject / guard / 模式里不可能出现 `break`）。
+这条判据必须与发射端对称：`StmtEmitter._emitSwitch` 本就 `PushLoop(outerCont, endL, …)` 把 switch
+登记为 break 目标（`continue` 转发外层循环），**binder 却一度只看 `_loopDepth`** → `switch` 内的
+`break` 被误报 `E0410`（`fix-switch-break-diagnostic`）。凡改一侧必须同步另一侧。
+
+**两个计数器都不跨函数边界**：lambda 体发射成独立函数、有自己的 `EmitContext`，其 `InLoop()` 恒 false，
+而 `StmtEmitter` 对 `!InLoop()` 的 `break` / `continue` **什么也不发**。故 `_bindLambda` 在绑定体之前把
+两个计数器**归零**、绑完恢复——否则外层循环 / switch 的上下文会泄漏进 lambda，让 lambda 内的
+`break` 通过类型检查后**静默编译成 no-op**（同一次修复一并根治）。
+
+回归守卫：`src/compiler/z42c.semantics/tests/typecheck/break_context_tests.z42`（9 例，覆盖 switch/循环/
+裸语句/lambda 四类上下文的正负例）。
 
 #### prim 接收者实例方法的 type-based 重载决议
 
