@@ -55,5 +55,8 @@ binder 把 `f(n)` 绑成 `BoundCall "free"` → 闭包捕获分析**根本没看
   抬头的「TryBindOperatorCall 已处理型参」同型。
 - **自举安全**：z42c / stdlib 无 func-type 约束写法；纯 binder 侧改动、无格式 bump、无新语法。
 - **本修复是 [[restore-emit-zbc-diagnostics-program]] 的第 4 步第 3 项**（口令「推进诊断可见性」），
-  三条静默错误代码之三。之一 = `fix-autoprop-getonly-backing-write`（PR #502），
-  之二 = `fix-generic-operator-constraint-dispatch`（PR #505）。
+  三条静默错误代码之三。之一 = `fix-autoprop-getonly-backing-write`，
+  之二 = `fix-generic-operator-constraint-dispatch`。
+- **三条合成一个 PR 落地**（User 2026-09-06 裁决）：main 被并发会话高频推进，每条单独走 PR 就要
+  各 rebase 一次、各重跑一轮完整 GREEN；三条同属「binder 不认、emitter 照发」一类，合并后只需
+  rebase 一次、跑一轮 GREEN。曾短暂开过 PR #502 / #505（分别对应之一 / 之二），已由合并 PR 取代。
