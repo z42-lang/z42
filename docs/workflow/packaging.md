@@ -109,18 +109,40 @@ file artifacts/packages/z42-0.1.0-browser-wasm-release/native/z42_wasm_bg.wasm
 # → "WebAssembly (wasm) binary module"
 ```
 
-### 4. SHA-256 invariant（xtask package 末尾自动跑 SHA-256 invariant，原生 byte compare）
+### 4. source-identity 门（`xtask package` 末尾自动跑，逐字节）
 
-`xtask package` 末尾会自动跑 SHA-256 invariant（原生 byte compare），确保跨 9 包 byte-identical：
+`xtask package` 末尾自动比对**包内每一份从仓库拷进去的副本 vs 仓库源**，逐字节
+（`_pkgSourceIdentityCheck`，`scripts/package/xtask_package.z42`）。规则表：
 
-- `libs/*.zpkg` — stdlib 二进制（平台无关；无 namespace 索引——读 NSPC）
-- `native/include/z42_abi.h` + `z42_host.h` — Tier 1 C ABI 头
-- `examples/hello_c/main.c` — C 嵌入示例（同一份源码）
-- iOS: `Sources/Z42VM/*.swift` 跨 2 slice 一致
-- Android: `kotlin/io/z42/vm/*.kt` + `cpp/z42vm_jni.c` + `cpp/CMakeLists.txt` 跨 2 ABI 一致
-- wasm: `js/{index.js,index.d.ts,stdlib-resolver.js}` 与 `platforms/wasm/js/` 一致
+| 包内路径 | 仓库源 | 拷贝点 |
+|---|---|---|
+| `libs/*`（zpkg + zsym） | `_libsDir(root)`（flat stdlib dist） | `_pkgCopyLibs` |
+| `native/include/*.h` | `src/runtime/include/` | `_copyAbiHeaders` |
+| `Sources/Z42VMC/include/*.h`（ios） | 同上 | `_copyAbiHeaders` |
+| `z42vm/src/main/cpp/include/*.h`（android） | 同上 | `_copyAbiHeaders` |
+| `Sources/Z42VM/*.swift`、`Sources/Z42VMC/dummy.c` | `src/toolchain/workload/ios/platform/Sources/…` | `_packageIos` |
+| `z42vm/src/main/java/**/*.kt`（递归） | `…/android/platform/z42vm/src/main/java/` | `_pkgCopyKtTree` |
+| `z42vm/src/main/cpp/{z42vm_jni.c,CMakeLists.txt}` | `…/android/platform/z42vm/src/main/cpp/` | `_pkgEmitAndroidGradleProject` |
+| `js/{index.js,index.d.ts,stdlib-resolver.js}` | `src/toolchain/workload/wasm/platform/js/` | `_packageWasm` |
 
-任一 mismatch → exit 1 + 报告具体哪个文件。
+包内不存在的类别整条跳过（一张表服务全部包类别）。任一 mismatch → 报出具体文件
++ exit 1；某条规则的路径存在却 0 个文件可比 → ⚠ 告警（规则与拷贝点脱钩的信号）。
+源侧无对应物的包内文件不在本门管辖内（跳过）。
+
+> ⚠️ ios `Sources/Z42VMC/` 与 android `…/cpp/` **不能整棵目录递归比**：它们的 `include/`
+> 装的是 `_copyAbiHeaders` 拷进去的**真 runtime 头**，而源树同名目录里是
+> `#include "../../.."` 的转发 stub，整棵比会假红。故那两处是显式文件规则 + 单独一条
+> 指向 `src/runtime/include` 的 include 规则。
+
+> **不是哈希**：直接读字节比较，比 hash 更强（无碰撞面、不依赖外部工具）。旧名
+> `SHA-256 invariant` 源自最初 bash `package.sh` 里真算 sha256sum 的实现，移植到
+> z42 时换成了字节比较、名字留到 2026-09-06 才正（fix-package-identity-gate）。
+>
+> **为什么是「包 vs 源」而不是「包 vs 包」**：上表每一类文件，各包里的副本都拷自
+> **同一份仓库源**，故 `A==源 ∧ B==源 ⟹ A==B`——**跨包 byte-identical 是本门的推论**。
+> 反过来不成立：两两比对只能证明「大家一样」，证不了「大家都对」（所有包一致地
+> 拷了陈旧副本时跨包比对全绿）。且各包在独立 xtask 进程 / 独立 CI job 里打，
+> 真做跨包比对得先改 CI 拓扑。
 
 ## 平台 smoke 路径（可选）
 
