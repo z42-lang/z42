@@ -90,8 +90,10 @@ public sealed class SymbolTable {
         int qt = 0;
         int hops = 0;
         while (hops < 32) {
-            if (!this.Classes.ContainsKey(cur)) { break; }
-            Z42ClassType ct = this.Classes.Get(cur) as Z42ClassType;
+            // perf：`ContainsKey(k)` 紧跟 `Get(k)` = 两次 hash + 两次探测；Find/ValAt 只走一次
+            // （StrMap 头注释里就是这么写的既定用法）。
+            int _cs = this.Classes.Find(cur); if (_cs < 0) { break; }
+            Z42ClassType ct = this.Classes.ValAt(_cs) as Z42ClassType;
             int i = 0;
             while (i < ct.InterfaceCount) {
                 if (ct.InterfaceNames[i] == ifaceName) { return true; }
@@ -113,8 +115,8 @@ public sealed class SymbolTable {
     // 接口 → 接口的继承判定（`IDerived` 是否派生自 `IBase`；不含自身）。
     // 供约束校验里「接口本身作为类型实参」的场景用。
     public bool InterfaceDerivesFrom(string ifaceName, string target) {
-        if (!this.Interfaces.ContainsKey(ifaceName)) { return false; }
-        Z42InterfaceType it = this.Interfaces.Get(ifaceName) as Z42InterfaceType;
+        int _is = this.Interfaces.Find(ifaceName); if (_is < 0) { return false; }
+        Z42InterfaceType it = this.Interfaces.ValAt(_is) as Z42InterfaceType;
         string[] seeds = new string[8];
         int n = 0;
         int b = 0;
@@ -145,8 +147,8 @@ public sealed class SymbolTable {
             while (s < qh - 1) { if (queue[s] == name) { dup = true; break; } s = s + 1; }
             if (dup) { continue; }
             if (name == target) { return true; }
-            if (!this.Interfaces.ContainsKey(name)) { continue; }
-            Z42InterfaceType it = this.Interfaces.Get(name) as Z42InterfaceType;
+            int _is2 = this.Interfaces.Find(name); if (_is2 < 0) { continue; }
+            Z42InterfaceType it = this.Interfaces.ValAt(_is2) as Z42InterfaceType;
             int b = 0;
             while (b < it.BaseCount) {
                 if (qt == queue.Length) {
@@ -218,9 +220,12 @@ public sealed class SymbolTable {
             }
             // add-type-alias：文件级别名替换（裸名、0 类型实参）。类型形参优先（上），别名次之。
             // 解析目标（可含泛型实参 / 再引别名 → 递归）。
-            if (this.CurrentAliases != null && nt.ArgCount == 0 && this.CurrentAliases.ContainsKey(n)) {
-                TypeExpr target = this.CurrentAliases.Get(n) as TypeExpr;
-                if (target != null) { return this.ResolveTypeP(target, paramNames, paramCount); }
+            if (this.CurrentAliases != null && nt.ArgCount == 0) {
+                int _as = this.CurrentAliases.Find(n);
+                if (_as >= 0) {
+                    TypeExpr target = this.CurrentAliases.ValAt(_as) as TypeExpr;
+                    if (target != null) { return this.ResolveTypeP(target, paramNames, paramCount); }
+                }
             }
             if (n == "void") { return new Z42VoidType(); }
             // `var` 是推断哨兵、非类型名——返回**匿名** Unknown（不携名），使字段级 `var`

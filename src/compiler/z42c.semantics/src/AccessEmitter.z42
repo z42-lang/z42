@@ -438,9 +438,12 @@ public sealed class AccessEmitter {
 
     internal TypedReg _lookupIdent(BoundIdent id) {
         // add-const-keyword：局部 const 裸引用 → 字面量替换（须先于 Locals：const 也占存储槽，存储由 DCE 清）。
-        int _sl0 = this._ctx.ConstLocals.Find(id.Name); if (_sl0 >= 0) { return this._ee._emitConstVal(this._ctx.ConstLocals.ValAt(_sl0) as ConstValue, this._ctx.ToIrType(id.Type())); }
-        int _sl1 = this._ctx.Locals.Find(id.Name); if (_sl1 >= 0) { return this._ctx.Locals.ValAt(_sl1) as TypedReg; }
-        if (this._ctx.Fields.ContainsKey(id.Name)) {
+        // perf：同一个键连查三张表（const 局部 / 局部 / 字段）—— `GetHashCode` 是 O(n) FNV-1a
+        // 且每次调用都重算，取一次逐表传进去。
+        int _h = id.Name.GetHashCode();
+        int _sl0 = this._ctx.ConstLocals.FindHashed(id.Name, _h); if (_sl0 >= 0) { return this._ee._emitConstVal(this._ctx.ConstLocals.ValAt(_sl0) as ConstValue, this._ctx.ToIrType(id.Type())); }
+        int _sl1 = this._ctx.Locals.FindHashed(id.Name, _h); if (_sl1 >= 0) { return this._ctx.Locals.ValAt(_sl1) as TypedReg; }
+        if (this._ctx.Fields.ContainsKeyHashed(id.Name, _h)) {
             // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）读翻转为 StructFieldGetPrim(reg0=句柄)。
             if (this._ctx.OwnerStructName != "") {
                 // add-struct-nested-fields：裸 owner 字段本身是 struct（`P p = a;`）→ 值复制出（reg0=this，off=字段 offset）。

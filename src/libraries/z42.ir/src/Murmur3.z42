@@ -36,13 +36,6 @@ public static class Murmur3 {
         return x;
     }
 
-    private static long _rd32(byte[] d, int o) {
-        return ((long)((int)d[o] & 0xFF))
-             | (((long)((int)d[o + 1] & 0xFF)) << 8)
-             | (((long)((int)d[o + 2] & 0xFF)) << 16)
-             | (((long)((int)d[o + 3] & 0xFF)) << 24);
-    }
-
     /// 128 位摘要（16 字节，小端 h1..h4）。seed 固定 0。
     public static byte[] Hash128(byte[] data) {
         long c1 = 0x239B961BL; long c2 = 0xAB0E9789L; long c3 = 0x38B34AE5L; long c4 = 0xA1E38B93L;
@@ -50,24 +43,35 @@ public static class Murmur3 {
         int n = data.Length;
         int nblocks = n / 16;
         int i = 0;
+        // ⚠⚠ perf（2026-09-06）：内环**手工内联** `_rd32` / `_mul` / `_rotl`。
+        // 原写法每 16 字节要付 **24 个 z42 调用帧**（4 次 _rd32 + 每 lane 3 次 _mul/_rotl ×4
+        // + 4 次 _rotl + 4 次 _mul），而每个 helper 的函数体只有「一次乘法 + 一次掩码」——
+        // 解释执行下帧成本远大于函数体本身。BLID 要把整个 zpkg 过一遍（800 KB ≈ 5 万块），
+        // 这里省的是 ~120 万个帧。尾部与 `_fmix` 调用频次是每次哈希一次，仍走 helper。
+        // 等价性：`_rotl(x,r) = ((x<<r)|(x>>(32-r))) & MASK32`、`_mul(x,c) = (x*c) & MASK32`，
+        // 逐字面展开；`(_mul(h,5) + K) & MASK32` 保留内层掩码，与原式逐字面同形。
         while (i < nblocks) {
             int o = i * 16;
-            long k1 = Murmur3._rd32(data, o);
-            long k2 = Murmur3._rd32(data, o + 4);
-            long k3 = Murmur3._rd32(data, o + 8);
-            long k4 = Murmur3._rd32(data, o + 12);
-            k1 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k1, c1), 15), c2); h1 = h1 ^ k1;
-            h1 = Murmur3._rotl(h1, 19); h1 = (h1 + h2) & Murmur3.MASK32;
-            h1 = (Murmur3._mul(h1, 5L) + 0x561CCD1BL) & Murmur3.MASK32;
-            k2 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k2, c2), 16), c3); h2 = h2 ^ k2;
-            h2 = Murmur3._rotl(h2, 17); h2 = (h2 + h3) & Murmur3.MASK32;
-            h2 = (Murmur3._mul(h2, 5L) + 0x0BCAA747L) & Murmur3.MASK32;
-            k3 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k3, c3), 17), c4); h3 = h3 ^ k3;
-            h3 = Murmur3._rotl(h3, 15); h3 = (h3 + h4) & Murmur3.MASK32;
-            h3 = (Murmur3._mul(h3, 5L) + 0x96CD1C35L) & Murmur3.MASK32;
-            k4 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(k4, c4), 18), c1); h4 = h4 ^ k4;
-            h4 = Murmur3._rotl(h4, 13); h4 = (h4 + h1) & Murmur3.MASK32;
-            h4 = (Murmur3._mul(h4, 5L) + 0x32AC3B17L) & Murmur3.MASK32;
+            long k1 = ((long)((int)data[o]      & 0xFF)) | (((long)((int)data[o +  1] & 0xFF)) << 8)
+                    | (((long)((int)data[o +  2] & 0xFF)) << 16) | (((long)((int)data[o +  3] & 0xFF)) << 24);
+            long k2 = ((long)((int)data[o +  4] & 0xFF)) | (((long)((int)data[o +  5] & 0xFF)) << 8)
+                    | (((long)((int)data[o +  6] & 0xFF)) << 16) | (((long)((int)data[o +  7] & 0xFF)) << 24);
+            long k3 = ((long)((int)data[o +  8] & 0xFF)) | (((long)((int)data[o +  9] & 0xFF)) << 8)
+                    | (((long)((int)data[o + 10] & 0xFF)) << 16) | (((long)((int)data[o + 11] & 0xFF)) << 24);
+            long k4 = ((long)((int)data[o + 12] & 0xFF)) | (((long)((int)data[o + 13] & 0xFF)) << 8)
+                    | (((long)((int)data[o + 14] & 0xFF)) << 16) | (((long)((int)data[o + 15] & 0xFF)) << 24);
+            k1 = (k1 * c1) & Murmur3.MASK32; k1 = ((k1 << 15) | (k1 >> 17)) & Murmur3.MASK32; k1 = (k1 * c2) & Murmur3.MASK32; h1 = h1 ^ k1;
+            h1 = ((h1 << 19) | (h1 >> 13)) & Murmur3.MASK32; h1 = (h1 + h2) & Murmur3.MASK32;
+            h1 = (((h1 * 5L) & Murmur3.MASK32) + 0x561CCD1BL) & Murmur3.MASK32;
+            k2 = (k2 * c2) & Murmur3.MASK32; k2 = ((k2 << 16) | (k2 >> 16)) & Murmur3.MASK32; k2 = (k2 * c3) & Murmur3.MASK32; h2 = h2 ^ k2;
+            h2 = ((h2 << 17) | (h2 >> 15)) & Murmur3.MASK32; h2 = (h2 + h3) & Murmur3.MASK32;
+            h2 = (((h2 * 5L) & Murmur3.MASK32) + 0x0BCAA747L) & Murmur3.MASK32;
+            k3 = (k3 * c3) & Murmur3.MASK32; k3 = ((k3 << 17) | (k3 >> 15)) & Murmur3.MASK32; k3 = (k3 * c4) & Murmur3.MASK32; h3 = h3 ^ k3;
+            h3 = ((h3 << 15) | (h3 >> 17)) & Murmur3.MASK32; h3 = (h3 + h4) & Murmur3.MASK32;
+            h3 = (((h3 * 5L) & Murmur3.MASK32) + 0x96CD1C35L) & Murmur3.MASK32;
+            k4 = (k4 * c4) & Murmur3.MASK32; k4 = ((k4 << 18) | (k4 >> 14)) & Murmur3.MASK32; k4 = (k4 * c1) & Murmur3.MASK32; h4 = h4 ^ k4;
+            h4 = ((h4 << 13) | (h4 >> 19)) & Murmur3.MASK32; h4 = (h4 + h1) & Murmur3.MASK32;
+            h4 = (((h4 * 5L) & Murmur3.MASK32) + 0x32AC3B17L) & Murmur3.MASK32;
             i = i + 1;
         }
         // 尾部（< 16 字节），按参考实现的 fallthrough 次序。
