@@ -1,0 +1,41 @@
+// 跨包 where 约束：消费方实例化 target 包的六类约束泛型类，实参**全部满足**约束。
+//
+// 这个用例的价值在**编译期**：add-associated-types PR-1 之前，跨包约束 100% 不校验
+// （约束数据到不了消费方），`ShowBox<不实现IShow的类型>` 同样静默通过。现在六类约束
+// （接口 / 基类 / class / struct / enum / new()）都会在这里被真正检查——**能编过本身就是断言**。
+// 运行只是为了让 harness 有可比对的 stdout。
+//
+// 负例侧不放在 cross-zpkg（该 harness 比对 stdout，装不下编译期负例），跨包负例门是登记在案的
+// Deferred `where-constraint-future-crosspkg-negative-gate`。
+//
+// ⚠️ 刻意**不**调 `CtorBox.Make()`（泛型 `new T()`）、也不对跨包 enum 调 `ToString()`：
+// 这两处各有一个与本 change 无关的既有缺口（见 tasks.md 备注），会把无关失败混进这个用例。
+// 约束校验发生在实例化点，构造出来即已断言，无需再调用其成员。
+namespace DemoCMain;
+using Std.IO;
+using DemoCTarget;
+using DemoCExt;
+
+void Main() {
+    var a = new ShowBox<Widget>(new Widget());      // 接口约束
+    Console.WriteLine(a.item.Show());
+
+    var b = new AnimalBox<Dog>(new Dog());          // base-class 约束（bit2，唯一带载荷的新位）
+    Console.WriteLine(b.item.Kind());
+
+    var c = new RefBox<Widget>(new Widget());       // class 约束
+    Console.WriteLine(c.item.Show());
+
+    var d = new ValBox<int>(42);                    // struct 约束
+    Console.WriteLine(d.item.ToString());
+
+    var e = new EnumBox<Color>(Color.Green);        // enum 约束
+    Console.WriteLine("enum-ok");
+
+    var f = new CtorBox<NoArgCtor>();               // new() 约束
+    Console.WriteLine("ctor-ok");
+
+    // 三包链路：约束在 ctarget、Gadget 在 cext、实例化在本包
+    var g = new ShowBox<Gadget>(new Gadget());
+    Console.WriteLine(g.item.Show());
+}

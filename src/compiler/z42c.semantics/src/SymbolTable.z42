@@ -14,7 +14,12 @@ public sealed class SymbolTable {
     public StrMap ClassesByFqn;
     public StrMap Interfaces;       // name → Z42InterfaceType（port-z42c-interface）
     public StrMap Functions;        // name → MethodSymbol（顶层 func）
-    public StrMap ClassConstraints; // name → ConstraintSet（2B；仅有 where 子句的泛型类登记）
+    public StrMap ClassConstraints; // ConstraintKey() → ConstraintSet（2B；仅有 where 子句的泛型类/结构登记）
+    // add-associated-types PR-1：泛型**接口**的 where 约束。与 ClassConstraints 分开存，因为类与接口
+    // 同名（`Foo` 类 + `Foo` 接口）在各自的 Classes/Interfaces 里合法共存，混进一张表会互相遮蔽——
+    // 而 Check 的查询侧只认类（`Z42InstantiatedType.Def` 是 Z42ClassType），被接口条目遮蔽会静默错检。
+    // 接口从不 arity-mangle（ImportedSymbolLoader/StubCollector 都按裸名登记），故此表键恒为裸名。
+    public StrMap InterfaceConstraints;
     public StrMap EnumTypes;        // name → "enum" 标记（枚举类型名注册）
     public StrMap EnumConsts;       // "EnumName.MemberName" → 整数值字符串
     public StrMap Delegates;        // name → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
@@ -25,6 +30,7 @@ public sealed class SymbolTable {
         this.Interfaces = new StrMap();
         this.Functions = new StrMap();
         this.ClassConstraints = new StrMap();
+        this.InterfaceConstraints = new StrMap();
         this.EnumTypes = new StrMap();
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
@@ -41,6 +47,7 @@ public sealed class SymbolTable {
         t.Interfaces = this.Interfaces;
         t.Functions = this.Functions;
         t.ClassConstraints = this.ClassConstraints;
+        t.InterfaceConstraints = this.InterfaceConstraints;
         t.EnumTypes = this.EnumTypes;
         t.EnumConsts = this.EnumConsts;
         t.Delegates = this.Delegates;
@@ -158,6 +165,27 @@ public sealed class SymbolTable {
     public MethodSymbol  GetFunc(string name)  { return this.Functions.Get(name) as MethodSymbol; }
     public bool          HasConstraints(string name) { return this.ClassConstraints.ContainsKey(name); }
     public ConstraintSet GetConstraints(string name) { return this.ClassConstraints.Get(name) as ConstraintSet; }
+    public bool          HasIfaceConstraints(string name) { return this.InterfaceConstraints.ContainsKey(name); }
+    public ConstraintSet GetIfaceConstraints(string name) { return this.InterfaceConstraints.Get(name) as ConstraintSet; }
+
+    // ClassConstraints 的**唯一**键推导（add-associated-types PR-1）。写入侧（ConstraintChecker.Resolve）、
+    // 查询侧（ConstraintChecker.Check）、导入侧（ImportedSymbolLoader seed）三处都必须经过这里。
+    //
+    // 规则与 `Classes` 完全一致（条件 arity-mangle：同短名多 arity 才带 `$N`）。实现方式是**探测
+    // `Classes` 里实际存的是哪一种键**——StubCollector（本地）/ ImportedSymbolLoader（导入）已二选一
+    // 地登记过，探测即复现其判定，无需把 multiArityMap 传进来，也就不会与它们漂移。
+    //
+    // 修前三套规则并存：`Classes` 条件 mangle、`ClassConstraints` 恒裸名、查询侧恒裸名（`inst.Def.Name()`）。
+    // 写入与查询恰好都用裸名，故本包能跑；但同短名多 arity 的泛型类（`Foo<T>` / `Foo<T,U>`）其约束在
+    // ClassConstraints 里**last-wins 互相覆盖** —— `Foo<Widget>` 可能被拿去校验 `Foo<T,U>` 的约束。
+    // 且导入侧一旦接进来，`Name$N` 与裸名直接对不上，跨包约束全部落空。
+    public string ConstraintKey(string bareName, int tpCount) {
+        if (tpCount > 0) {
+            string mangled = bareName + "$" + tpCount.ToString();
+            if (this.Classes.ContainsKey(mangled)) { return mangled; }
+        }
+        return bareName;
+    }
 
     // sub 是否为 baseName 的子类（含自身）。走 base 链（迭代——self-type 字段不可递归调本类方法）。
     public bool IsSubclassOf(string sub, string baseName) {

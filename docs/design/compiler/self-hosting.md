@@ -216,10 +216,27 @@ z42c **运行期依赖 `z42.ir`**——它建任何 zpkg 都要调 `Z42.Project.
 （`undefined function ...Sha256Hex`，即 main CI 冷启动全红根因）。破环：`_buildCompilerViaZ42c`
 在 workspace build **前**先用当前 driver（冷启动=上一 nightly 种子，自带等价 `ZpkgBuilder`）把
 当前源码的 `z42.ir` **单独编进 build-libs**（`build <toml> --output-dir <flat>`），fresh z42c 就
-对着**真 `z42.ir`** 编译+运行，一致。**幂等**：warm 树（`z42.ir` 已在 flat dist）直接跳过——故
-warm 构建与 byte-identical 不动点**逐字节不受影响**；随后的 `build stdlib` 全量 workspace 构建
-用 fresh z42c 把 `z42.ir` 覆盖为规范产物。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非
-格式 bump。
+对着**真 `z42.ir`** 编译+运行，一致。随后的 `build stdlib` 全量 workspace 构建用 fresh z42c 把
+`z42.ir` 覆盖为规范产物。与轴 ② 的两代自举同构，但触发条件是**包结构收敛**而非格式 bump。
+
+> **不 warm-skip**（`07596b57`，2026-07-30 改；此前是「已在 flat dist 就跳过」）。早先那个幂等假设
+> 等价于「z42c 不消费 `z42.ir` 的**新** API」——当 z42c 源用到当前源 `z42.ir` 新增的类型/方法，而
+> flat dist 里躺的是上一 nightly 种子带来的旧 `z42.ir`（CI 冷启动 stage 的正是它）时，warm-skip 会让
+> workspace self-build 对着旧库编 → `unknown type` / `no field` 编译失败。故**总是**用当前 driver 把
+> 当前源 `z42.ir` 建进 build-libs。
+>
+> ⭐ **这条直接推论出轴 ③ 的一个例外，务必与轴 ③ 的纪律区分**：对**这 6 个自依赖库**
+> （`z42.core` / `z42.project` / `z42.build` / `z42.ir` / `z42c.core` / `z42c.syntax`），
+> 「z42c 源用它们的新 API」**由预建自动破环，无需等一个 nightly**——这已是日常操作，先例包括
+> `ExportedClassZ.IsSealed`(2026-08-07) / `Visibility`(08-13) / `IsDeprecated`(08-23) /
+> `ExportedMethodZ.TypeParamCount`(`a71278b5`, 09-03) / `StrMap.Find`(`04719bbb`, 09-05)，
+> 全部「z42.ir 加成员 + z42c 源**同 commit** 消费」且 CI 绿。轴 ③ 的「晚一个 nightly」纪律
+> 仍适用于**其余 stdlib 库**（`z42.collections` / `z42.threading` / …）与 **xtask 源**
+> （xtask 在 `ci-bootstrap` step [2] 用种子 stdlib 编，不受预建保护）。
+>
+> 仍然有效的残余约束是**种子 ABI**：给这些库的既有导出类型加字段时，新字段**不得进构造函数签名**，
+> 须在 ctor 内给默认值 + 由消费方构造后赋值（`ExportedTypes.z42` 的 `IsSealed`/`Visibility`/
+> `IsDeprecated` 三处注释即此约定）。
 
 > **A1 扩展（consolidate-core-intrinsics，2026-08-03）**：`z42.ir` 现调 `Std.BitConverter`（当前源
 > `z42.core` 新增门面，位转换 intrinsic 单一声明点）。冷/首暖构建时 flat 里躺的是种子/上一次的旧

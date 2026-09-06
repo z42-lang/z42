@@ -275,47 +275,59 @@ public sealed class ClassDescBuilder {
             cd2.ObjFieldKinds = ol.FieldKinds; cd2.ObjFieldCount = ol.FieldCount;
             cd2.ObjRefOffsets = ol.RefLeafOffsets; cd2.ObjRefKinds = ol.RefLeafKinds; cd2.ObjRefCount = ol.RefLeafCount;
         }
-        // TypeParams + constraint bundles（zbc L3-G1/G3a；镜像 C# BuildConstraintList）
+        // TypeParams + constraint bundles（zbc L3-G1/G3a）
         if (c.TypeParams.Count > 0) {
             cd2.TypeParams = c.TypeParams.Names;
             cd2.TypeParamCount = c.TypeParams.Count;
-            IrConstraintDesc[] descs = new IrConstraintDesc[c.TypeParams.Count];
-            int ti = 0;
-            while (ti < c.TypeParams.Count) { descs[ti] = new IrConstraintDesc(); ti = ti + 1; }
-            int wi = 0;
-            while (wi < c.WhereCount) {
-                WhereClause wc = c.Wheres[wi];
-                int tpi = 0;
-                while (tpi < c.TypeParams.Count) {
-                    if (c.TypeParams.Names[tpi] == wc.TypeParam) { break; }
-                    tpi = tpi + 1;
-                }
-                if (tpi < c.TypeParams.Count) {
-                    string[] ifaces = new string[wc.Count];
-                    int ifc = 0;
-                    int ci = 0;
-                    while (ci < wc.Count) {
-                        WhereConstraint wcon = wc.Constraints[ci];
-                        if (wcon.IsType && wcon.Type is NamedType) {
-                            NamedType wnt = wcon.Type as NamedType;
-                            // `where U: T`：T 是本类型形参 → type-param-ref 约束（zbc bit3），
-                            // 否则按接口/基类约束（裸名进 Interfaces，镜像 C# i.Name）。
-                            bool isTpRef = false;
-                            int tk = 0;
-                            while (tk < c.TypeParams.Count) { if (c.TypeParams.Names[tk] == wnt.Name) { isTpRef = true; } tk = tk + 1; }
-                            if (isTpRef) { descs[tpi].TypeParamConstraint = wnt.Name; }
-                            else { ifaces[ifc] = wnt.Name; ifc = ifc + 1; }
-                        }
-                        ci = ci + 1;
-                    }
-                    descs[tpi].Interfaces = ifaces;
-                    descs[tpi].InterfaceCount = ifc;
-                }
-                wi = wi + 1;
+            SymbolTable st = this._g._symbols;
+            ConstraintSet cs = null;
+            if (st != null) {
+                string ck = st.ConstraintKey(c.Name, c.TypeParams.Count);
+                if (st.HasConstraints(ck)) { cs = st.GetConstraints(ck); }
             }
-            cd2.TypeParamConstraints = descs;
+            cd2.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
         }
         return cd2;
+    }
+
+    // ConstraintSet（语义侧，八类承载）→ IrConstraintDesc[]（IR 侧，与 zbc flag 位一一对应）。
+    //
+    // add-associated-types PR-1：此前这里**从 AST 重新推导**一遍分类，导致两处硬缺陷——
+    //   ① `!IsType` 的 special 约束（class / struct / enum / new()）**整条丢弃**（无 else 分支）；
+    //   ② base-class 与 interface **混塞进同一个 Interfaces 数组**（`else { ifaces[ifc] = ... }`），
+    //      因为这里没有符号表、区分不了「这个名字是接口还是类」。
+    // 而 ConstraintChecker._fillBundle 早就用 symbols.HasInterface/HasClass 正确分好了类。改为直接
+    // 复用那份结果：writer 与 checker 从此共用**同一个判定**，不可能再漂移；上面两个缺陷一并消失。
+    private IrConstraintDesc[] _constraintDescs(ConstraintSet cs, int tpCount) {
+        IrConstraintDesc[] descs = new IrConstraintDesc[tpCount];
+        int ti = 0;
+        while (ti < tpCount) { descs[ti] = new IrConstraintDesc(); ti = ti + 1; }
+        if (cs == null) { return descs; }
+        int n = tpCount;
+        if (cs.Count < n) { n = cs.Count; }
+        int i = 0;
+        while (i < n) {
+            ConstraintBundle b = cs.Bundles[i];
+            IrConstraintDesc d = descs[i];
+            d.RequiresClass  = b.RequiresClass;      // bit0
+            d.RequiresStruct = b.RequiresStruct;     // bit1
+            // bit2 base-class：**必须写 FQ 名**，不能像 bundle 里的接口名那样写裸名。
+            // 运行期 metadata/loader/constraints.rs::check_one 在**加载期**就校验约束引用，
+            // 查的是 module.type_registry（键为 FQ）；查不到直接 bail → 整个模块加载失败 →
+            // 「class X not found in module registry」+ 所有字段写入被丢弃。接口约束之所以
+            // 从没暴露这点，是因为 check_one 有一条「`I` + 大写开头就放行」的启发式兜住了它们
+            // （见该文件注释：registry 目前只装类，接口 soft-allow）——基类没有这层豁免。
+            // 与类级 cd.Interfaces 的既有约定一致：TYPE 段存 FQ，读端（TsigReconcile）剥回裸名。
+            if (b.HasBaseClass)    { d.BaseClass = this._g._qClass(b.BaseClassName); }   // bit2
+            if (b.HasTypeParamRef) { d.TypeParamConstraint = b.TypeParamRef; }   // bit3
+            d.RequiresCtor = b.RequiresCtor;         // bit4
+            d.RequiresEnum = b.RequiresEnum;         // bit5
+            if (b.InterfaceCount > 0) {
+                d.Interfaces = b.InterfaceNames; d.InterfaceCount = b.InterfaceCount;
+            }
+            i = i + 1;
+        }
+        return descs;
     }
 
     internal IrClassDesc _interfaceDesc(ClassDecl c) {
@@ -338,10 +350,13 @@ public sealed class ClassDescBuilder {
         if (c.TypeParams.Count > 0) {
             cd.TypeParams = c.TypeParams.Names;
             cd.TypeParamCount = c.TypeParams.Count;
-            IrConstraintDesc[] descs = new IrConstraintDesc[c.TypeParams.Count];
-            int ti = 0;
-            while (ti < c.TypeParams.Count) { descs[ti] = new IrConstraintDesc(); ti = ti + 1; }
-            cd.TypeParamConstraints = descs;
+            // add-associated-types PR-1：接口的 where 此前恒建**全空** bundle —— 不是「接口没有约束」，
+            // 而是 ConstraintChecker.Resolve 当时压根不处理接口（条件只认 class/struct），这里无从取值。
+            // Resolve 放宽后接口约束存在 InterfaceConstraints（独立表，键恒裸名），此处按同一 ClassDecl.Name 取回。
+            SymbolTable st = this._g._symbols;
+            ConstraintSet cs = null;
+            if (st != null && st.HasIfaceConstraints(c.Name)) { cs = st.GetIfaceConstraints(c.Name); }
+            cd.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
         }
         // 接口方法签名（zbc 1.28，fix-crosspkg-interface-impl）：从成员 MethodDecl 抽名/返回/参数类型
         // （源拼写，同 _typeFieldName 字段策略——TsigReconcile 重建后经 ImportedSymbolLoader._resolve 消费）。

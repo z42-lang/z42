@@ -1,17 +1,29 @@
 // add-struct-generic-boxing (P3a)：blob 值 struct 作泛型容器键/值/元素端到端。
 //   泛型边界装箱（存入）+ 拆箱（取出）——Dictionary<P,int> / List<P> / string 叶子键。
+//
+// add-associated-types PR-1 起，`Dictionary<TKey,TValue> where TKey : IEquatable<TKey>` 的约束
+// **真正跨包生效**了，故键类型必须实现 IEquatable —— 否则本文件放进真实工程会 E0402
+// （单文件 `--emit-zbc` 路径今天还看不出来，那是独立的 Deferred，见 roadmap）。
+// ⚠️ **覆盖点因此发生了偏移**：原先这里测的是「**不**实现 IEquatable 的 blob struct 靠装箱后的
+// 默认 GetHashCode/Equals 当键」；现在走的是用户自己的 Equals/GetHashCode。blob 值跨泛型边界的
+// 装箱/拆箱（P3a 的本意）仍被覆盖，但「boxed 默认相等语义」这一条不再由本用例守。
+// 契约上这是对的：Dictionary 声明就要求键实现 IEquatable，依赖违反契约的用法不该被当作被保障行为。
 namespace Demo;
 
-struct P {
+struct P : IEquatable<P> {
     int x;
     int y;
     P(int x, int y) { this.x = x; this.y = y; }
+    public bool Equals(P other) { return this.x == other.x && this.y == other.y; }
+    public int GetHashCode() { return this.x * 31 + this.y; }
 }
 
-struct Tagged {
+struct Tagged : IEquatable<Tagged> {
     int n;
     string label;
     Tagged(int n, string label) { this.n = n; this.label = label; }
+    public bool Equals(Tagged other) { return this.n == other.n && this.label == other.label; }
+    public int GetHashCode() { return this.n * 31 + this.label.GetHashCode(); }
 }
 
 void Main() {
