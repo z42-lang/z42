@@ -22,7 +22,8 @@ git clone https://github.com/z42-lang/z42 && cd z42
 
 ## 2. Build the xtask CLI, then drive everything through it
 
-`z42 publish` compiles the project if needed and emits a native `./xtask` apphost.
+`z42 publish` compiles the project (every run, incrementally — edit a source and the
+payload is rebuilt) and emits a native `./xtask` apphost.
 xtask carries a **build hook** (`scripts/hooks/`, declared via `[build] hooks` in
 `scripts/xtask.z42.toml`) that produces the apphost stub on the fly during publish —
 so **no `z42 workload install desktop` is needed**. The produced `./xtask`

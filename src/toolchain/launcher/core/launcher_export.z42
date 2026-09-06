@@ -175,7 +175,7 @@ string _requireDesktopApphost(string cmd, string rid) {
 // platform (default host). desktop → forwarded to z42b, which owns the publish verb
 // (move-publish-to-z42b). The launcher resolves the installed desktop workload
 // apphost stub and passes it via Z42_APPHOST_TEMPLATE (Decision 3.5); z42b gates
-// `apphost = true` + bin/payload layout + build-if-needed. other platforms → B5.
+// `apphost = true` + bin/payload layout + build-always. other platforms → B5.
 void _cmdPublish(ParseResult r) {
     string rid = r.GetOption("rid");
     if (rid.Length == 0) { rid = _hostRid(); }
@@ -196,17 +196,19 @@ void _cmdPublish(ParseResult r) {
     // forward to z42b with --rid + Z42_APPHOST_TEMPLATE. "" stub → z42b reports the
     // "install the desktop workload" hint after its apphost-gate check.
     string stub = _desktopApphostStub(rid);
-    string[] fargv = _publishForwardArgv(r.GetPositional(0), rid, r.GetOption("output"));
+    string[] fargv = _publishForwardArgv(r.GetPositional(0), rid, r.GetOption("output"), r.GetFlag("no-build"));
     Environment.Exit(_forwardZ42bEnv(fargv, "Z42_APPHOST_TEMPLATE", stub));
 }
 
-// Reconstruct the z42b argv: `publish <toml> --rid <rid> [--output <out>]`.
-string[] _publishForwardArgv(string tomlPath, string rid, string output) {
+// Reconstruct the z42b argv: `publish <toml> --rid <rid> [--output <out>] [--no-build]`.
+string[] _publishForwardArgv(string tomlPath, string rid, string output, bool noBuild) {
     bool hasOut = output.Length > 0;
-    int n = 4 + (hasOut ? 2 : 0);
+    int n = 4 + (hasOut ? 2 : 0) + (noBuild ? 1 : 0);
     string[] a = new string[n];
     a[0] = "publish"; a[1] = tomlPath; a[2] = "--rid"; a[3] = rid;
-    if (hasOut) { a[4] = "--output"; a[5] = output; }
+    int k = 4;
+    if (hasOut) { a[k] = "--output"; a[k + 1] = output; k = k + 2; }
+    if (noBuild) { a[k] = "--no-build"; }
     return a;
 }
 
