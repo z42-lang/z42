@@ -282,7 +282,7 @@ impl<T> Region<T> {
             // The old's Drop runs as part of the assignment.
             *slot = new_entry;
             // add-generational-gc P0: reused slot starts at gen_age=0 (young).
-            self.young_list.push((ci, ei));
+            self.push_young(ci, ei);
             return RegionHandle { chunk_idx: ci, entry_idx: ei, generation: generation };
         }
 
@@ -298,7 +298,7 @@ impl<T> Region<T> {
         chunk[ei as usize] = MaybeUninit::new(RegionEntry::new(value, (ci, ei)));
         self.initialized[ci as usize][ei as usize] = true;
         // add-generational-gc P0: track newly-allocated entry as young.
-        self.young_list.push((ci, ei));
+        self.push_young(ci, ei);
         // Advance the ambient cursor (ei+1 == CHUNK_SIZE → next alloc grows fresh).
         self.ambient_cur = Some((ci, ei + 1));
 
@@ -373,13 +373,59 @@ impl<T> Region<T> {
         true
     }
 
+    /// **fix-young-list-quadratic-sweep (2026-09-06)**: the single entry point
+    /// for appending to `young_list`. Records the new slot's index inside the
+    /// entry itself (`RegionEntry::young_idx`) — that back-pointer is what lets
+    /// [`remove_from_young_list`](Self::remove_from_young_list) skip the linear
+    /// scan. Every push must go through here; a missed one leaves an entry that
+    /// can never be removed in O(1) (it degrades to a silent no-op removal,
+    /// caught by `validate`'s `YoungIndexMismatch`).
+    fn push_young(&mut self, ci: u32, ei: u16) {
+        let idx = self.young_list.len();
+        self.young_list.push((ci, ei));
+        // SAFETY: callers push only slots they have just initialized
+        // (`alloc`) or merged back from a filled TLAB chunk (`retire_chunk`),
+        // so the slot holds a constructed entry.
+        let entry = unsafe { self.chunks[ci as usize][ei as usize].assume_init_ref() };
+        entry.set_young_idx(idx);
+    }
+
     /// **add-generational-gc P0 (2026-05-22)**: helper to remove a
-    /// `(chunk_idx, entry_idx)` pair from `young_list` via
-    /// `swap_remove` (O(young_list.len()) lookup — acceptable since
-    /// tombstone is sweep-time work, not the alloc hot path).
+    /// `(chunk_idx, entry_idx)` pair from `young_list` via `swap_remove`.
+    ///
+    /// **fix-young-list-quadratic-sweep (2026-09-06)**: O(1). This used to be
+    /// `young_list.iter().position(...)`, justified as "acceptable since
+    /// tombstone is sweep-time work, not the alloc hot path" — but sweep calls
+    /// `tombstone` **once per dead object**, so a linear scan here made sweep
+    /// O(dead x young). Measured: a single collection of a 230 MB heap
+    /// (187 MB of it garbage) spent **137 s** STW with 100% of native-stack
+    /// samples inside this function, which is why `Z42_GC_MAX_BYTES` — the
+    /// switch that arms automatic collection at all — was left unset by
+    /// default. `promote` had the same problem against the *survivor* count.
+    ///
+    /// The entry stores its own index into `young_list`, so removal is a
+    /// `swap_remove` plus one back-pointer fixup on the element that moved
+    /// into the hole.
     fn remove_from_young_list(&mut self, ci: u32, ei: u16) {
-        if let Some(pos) = self.young_list.iter().position(|&p| p == (ci, ei)) {
-            self.young_list.swap_remove(pos);
+        // SAFETY: every caller has already resolved this slot (it is a
+        // constructed entry it just tombstoned/promoted).
+        let entry = unsafe { self.chunks[ci as usize][ei as usize].assume_init_ref() };
+        let Some(pos) = entry.young_idx() else { return };
+        entry.clear_young_idx();
+        // Defensive: a desynchronized back-index (the test-only
+        // `clear_young_list_for_test` corruption injection produces one) must
+        // degrade to a no-op — never a panic, and never evicting another
+        // entry's slot.
+        if self.young_list.get(pos) != Some(&(ci, ei)) {
+            return;
+        }
+        self.young_list.swap_remove(pos);
+        // `swap_remove` moved the tail element into `pos` (no move happened if
+        // we removed the tail itself) — repair its back-pointer.
+        if let Some(&(mci, mei)) = self.young_list.get(pos) {
+            // SAFETY: presence in `young_list` implies a constructed slot.
+            let moved = unsafe { self.chunks[mci as usize][mei as usize].assume_init_ref() };
+            moved.set_young_idx(pos);
         }
     }
 
@@ -623,7 +669,12 @@ impl<T> Region<T> {
         let init_row = &mut self.initialized[ci as usize];
         for ei in 0..hw {
             init_row[ei] = true;
-            self.young_list.push((ci, ei as u16));
+        }
+        // fix-young-list-quadratic-sweep: separate loop so `push_young` (which
+        // takes `&mut self` to record each entry's back-index) doesn't collide
+        // with the `init_row` borrow.
+        for ei in 0..hw {
+            self.push_young(ci, ei as u16);
         }
         self.borrowed[ci as usize] = false;
     }

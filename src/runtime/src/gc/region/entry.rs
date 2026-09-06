@@ -83,6 +83,19 @@ pub struct RegionEntry<T> {
     /// `SeqCst` ordering to keep soft-ref count visible across threads
     /// (GC and mutator run concurrently in `ConcurrentMarkSweep`).
     pub(crate) soft_ref_count: AtomicU32,
+
+    /// **fix-young-list-quadratic-sweep (2026-09-06)**: this entry's own index
+    /// inside `Region::young_list`, or [`Self::NOT_IN_YOUNG_LIST`] when it is
+    /// not listed (old, dead, or standalone). Turns `remove_from_young_list`
+    /// from an O(young_list.len()) `position()` scan into an O(1)
+    /// `swap_remove`, which is what made sweep O(dead x young) — a 137 s STW
+    /// pause on a 230 MB heap, the reason automatic GC was never armed.
+    ///
+    /// Maintained **only** under the region lock (`push_young` /
+    /// `remove_from_young_list` / `retire_chunk`), so the atomic is for
+    /// field-through-`&self` mutation, not for cross-thread coordination —
+    /// `Relaxed` throughout.
+    pub(crate) young_idx: AtomicU32,
 }
 
 /// shrink-object-footprint P1: the finalizer slot owns a `Box<FinalizerFn>`
@@ -131,6 +144,7 @@ impl<T> RegionEntry<T> {
             finalizer:      AtomicPtr::new(std::ptr::null_mut()),
             location,
             soft_ref_count: AtomicU32::new(0),
+            young_idx:      AtomicU32::new(Self::NOT_IN_YOUNG_LIST),
         }
     }
 
@@ -159,6 +173,35 @@ impl<T> RegionEntry<T> {
     /// Whether a finalizer is currently installed (no ownership transfer).
     pub(crate) fn has_finalizer(&self) -> bool {
         !self.finalizer.load(Ordering::Acquire).is_null()
+    }
+
+    /// **fix-young-list-quadratic-sweep**: sentinel for `young_idx` meaning
+    /// "this entry is not in `Region::young_list`". `young_list` can never
+    /// reach `u32::MAX` entries (a chunk index is itself a `u32`).
+    pub(crate) const NOT_IN_YOUNG_LIST: u32 = u32::MAX;
+
+    /// **fix-young-list-quadratic-sweep**: read this entry's `young_list`
+    /// slot, or `None` when it is not listed.
+    #[inline]
+    pub(crate) fn young_idx(&self) -> Option<usize> {
+        match self.young_idx.load(Ordering::Relaxed) {
+            Self::NOT_IN_YOUNG_LIST => None,
+            i => Some(i as usize),
+        }
+    }
+
+    /// **fix-young-list-quadratic-sweep**: record this entry's `young_list`
+    /// slot. Callers hold the region lock.
+    #[inline]
+    pub(crate) fn set_young_idx(&self, idx: usize) {
+        self.young_idx.store(idx as u32, Ordering::Relaxed);
+    }
+
+    /// **fix-young-list-quadratic-sweep**: mark this entry as absent from
+    /// `young_list`.
+    #[inline]
+    pub(crate) fn clear_young_idx(&self) {
+        self.young_idx.store(Self::NOT_IN_YOUNG_LIST, Ordering::Relaxed);
     }
 
     /// **add-generational-gc P0 (2026-05-22)**: read current gen_age.
