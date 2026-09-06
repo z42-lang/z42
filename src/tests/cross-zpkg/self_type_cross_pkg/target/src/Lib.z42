@@ -1,0 +1,27 @@
+// `Self` 类型的跨包往返（add-associated-types PR-2）。
+//
+// `Self` 在接口内指代**实现类型**。跨包时它与真型参 `T` 走完全同一条编码：以**裸字符串**
+// 写进 zbc TYPE 段的接口方法签名块，导入侧由 ImportedSymbolLoader 还原成 Z42GenericParamType。
+// 本 PR 之前那条导入路径**没有型参上下文**（走 `_resolve` 单参版）⇒ 连既有的 `T` 都退化成
+// `Z42ClassType.Builtin("T")` 垃圾类型，`Self` 会踩同一个坑。故这个用例同时守两者。
+namespace DemoSTarget;
+
+// 非泛型接口 + `Self`：这是 `Self` 的头号形态——把 `IEquatable<T> where T : IEquatable<T>`
+// 的 F-bounded 样板消成不带型参的接口。
+public interface IEq { bool Same(Self other); }
+
+// 泛型接口 + `Self`：`Self` 是**追加**的隐式型参，不得顶掉接口自己的 `T`。
+public interface IBox<T> { T Get(); Self Copy(); }
+
+public class Point : IEq {
+    public int x;
+    public Point(int v) { this.x = v; }
+    public bool Same(Point other) { return this.x == other.x; }
+}
+
+public class IntBox : IBox<int> {
+    public int v;
+    public IntBox(int v0) { this.v = v0; }
+    public int Get() { return this.v; }
+    public IntBox Copy() { return new IntBox(this.v); }
+}

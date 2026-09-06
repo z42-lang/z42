@@ -1,6 +1,6 @@
 # 泛型约束（`where` 子句）
 
-> 对齐：2026-09-06（change `add-associated-types` PR-1；前序 `complete-where-constraints`）
+> 对齐：2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
 >
 > 本页是**泛型约束语义与校验范围的 SoT**。泛型的整体设计（代码共享策略、reified 类型、
 > 跨 zpkg 元数据）见 [`docs/design/language/generics.md`](../../../design/language/generics.md)；
@@ -97,6 +97,47 @@ SymbolTable.ClassConstraints（导入侧 seed，local-wins）→ 与本包**同�
 - **local-wins 有守卫**：导入约束只在该键上的赢家确实是导入类时才 seed，避免本地同名类
   （可能压根没有 `where`）被别的包的约束污染。
 
+## `Self` 类型（仅接口）
+
+接口内可以写 `Self`，它指代**实现该接口的那个类型**：
+
+```z42
+interface IEq { bool Same(Self other); }          // 不必写成 IEq<T> where T : IEq<T>
+interface IClone { Self Copy(); }
+interface IBox<T> { T Get(); Self With(T v); }     // 与接口自己的型参共存
+
+class Point : IEq {
+    public int x;
+    public bool Same(Point other) { return this.x == other.x; }   // Self 落地成 Point
+}
+
+class Bag<T> where T : IEq { }                     // 约束侧不必再写类型实参
+```
+
+**为什么加它**：全仓实测，真实存在的 `where` 约束 100% 是 `X<T> where T : Something<T>` 这种
+F-bounded 自引用形态（`IEquatable<T>` / `IComparable<T>` / `INumber<T>`）。那个类型实参不携带
+任何信息，纯粹是「我指我自己」的样板。`Self` 把它消掉。
+
+**作用域限定为接口**（不进类）：类里写 `Self` 是未定义类型 `E0443`，与其它拼错的类型名同码。
+这条边界是刻意的——`Self` 进类会牵出协变返回类型那一整块设计面，不在本轮范围。
+
+### 实现模型（以及它带来的边界）
+
+`Self` **不是一个新类型**：解析时它被当作接口的一个**隐式类型参数**（追加在接口自己的
+`TypeParams` 之后），随后与真型参 `T` 走完全同一条路。这个选择让约束位、成员签名匹配、
+方法派发键三处**零改动**。
+
+直接后果，需要知道：
+
+- **实现类不必也不能写 `Self`**：实现方在自己的签名里写具体类型（上例的 `Point`）。
+  今天没有「类实现接口时的成员签名齐备性校验」，所以写错也不会被抓——那是另一件事的欠债。
+- **经接口静态类型调用返回 `Self` 的方法，结果类型就是 `Self` 本身**，不会被替换成接收者的
+  静态类型：`IClone c; var x = c.Copy();` 里 `x` 的类型是型参 `Self`，还不能当具体类型用。
+  要拿到可用的类型，在**具体类**上调用（`Point p; p.Copy()` → `Point`，走的是实现方的签名）。
+  这一步的替换属于表达力的下一档，本轮不做。
+- **跨包**：`Self` 与型参 `T` 一样以裸字符串写进 zbc 接口方法签名块，导入侧还原成型参，
+  **零格式改动**。
+
 ## 已知限制（诚实标注）
 
 这些不是 bug，是当前实现的**明确边界**。踩到时不要以为约束在保护你。
@@ -109,6 +150,10 @@ T 自己**。故 `class Foo : IEquatable<string>` 也能满足 `where T : IEquat
 这与运行期行为一致（它拿到的同样是常量池里的裸名），故两边不产生分歧。裸名匹配还顺带
 消掉了 F-bounded 自引用（`interface INumber<T> where T : INumber<T>`）朴素展开会无限递归的
 问题。Deferred：`where-constraint-future-type-arg-matching`。
+
+> [`Self`](#self-类型仅接口) 给了一条**绕开**这个限制的写法（`where T : IEq` 根本不写类型实参，
+> 就没有实参可以写错），但**没有消除**它：`IEquatable<T>` 这类带实参的接口今天仍然全部按裸名匹配，
+> 且标准库现有声明尚未改写成 `Self` 写法。所以这条 Deferred 仍然开着。
 
 ### 2. 方法级约束只在显式写类型实参时校验
 

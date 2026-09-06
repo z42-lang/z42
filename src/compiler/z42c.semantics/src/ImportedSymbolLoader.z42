@@ -241,14 +241,20 @@ public static class ImportedSymbolLoader {
                     ExportedInterfaceZ iz2 = em.Interfaces[ifi2];
                     Z42InterfaceType it2 = r.Interfaces.Get(iz2.Name) as Z42InterfaceType;
                     if (it2 != null) {
+                        // add-associated-types PR-2：接口方法签名的型参上下文 = 接口 TypeParams ∪ {"Self"}。
+                        // **顺带修既有缺口**：此前这里走 `_resolve(r, name)` 单参版（无型参上下文）⇒ 跨包
+                        // 泛型接口方法里的 `T` 落到 `Z42ClassType.Builtin("T")` 兜底垃圾类型，而非
+                        // Z42GenericParamType。`Self` 会踩同一个坑，故一并接上（design D5）。
+                        string[] itp2 = MemberCollector._withSelf(iz2.TypeParams, iz2.TpCount);
+                        int itpc2 = iz2.TpCount + 1;
                         int im2 = 0;
                         while (im2 < iz2.MethodCount) {
                             ExportedMethodZ mz = iz2.Methods[im2];
                             if (!it2.Methods.ContainsKey(mz.Name)) {
                                 Z42Type[] mps = new Z42Type[mz.ParamCount];
                                 int mj2 = 0;
-                                while (mj2 < mz.ParamCount) { mps[mj2] = ImportedSymbolLoader._resolve(r, mz.Params[mj2].TypeName); mj2 = mj2 + 1; }
-                                var msig = new Z42FuncType(mps, mz.ParamCount, ImportedSymbolLoader._resolve(r, mz.ReturnType));
+                                while (mj2 < mz.ParamCount) { mps[mj2] = ImportedSymbolLoader._resolve(r, mz.Params[mj2].TypeName, itp2, itpc2); mj2 = mj2 + 1; }
+                                var msig = new Z42FuncType(mps, mz.ParamCount, ImportedSymbolLoader._resolve(r, mz.ReturnType, itp2, itpc2));
                                 ImportedSymbolLoader._fillParamDefaults(msig, mz.Params, mz.ParamCount);   // PR6
                                 it2.Methods.Put(mz.Name, new MethodSymbol(mz.Name, "public", msig, false, iz2.Name, false, null));
                             }

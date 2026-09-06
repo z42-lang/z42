@@ -4,8 +4,8 @@
 
 ## 进度概览
 
-- [x] **PR-1** 跨包约束持久化 + flag 位 + 认知修正（零格式 bump）✅ 实现完成，待开 PR
-- [ ] **PR-2** `Self` 类型（仅接口）
+- [x] **PR-1** 跨包约束持久化 + flag 位 + 认知修正（零格式 bump）✅ 已合并 **#499**
+- [x] **PR-2** `Self` 类型（仅接口）✅ 实现完成（GREEN 全绿 + JIT 双模式 + bootstrap 边界门），待开 PR
 - [ ] **PR-3** 关联类型（含泛型接口实例化地基，双格式 bump）
 
 > 三个 PR 顺序落地，每个独立 GREEN、独立合并。PR-3 依赖 PR-1 建好的跨包通道。
@@ -69,18 +69,58 @@
 
 ## PR-2：`Self` 类型（仅接口）
 
-- [ ] 2.1 `Z42Type.z42` —— `Z42InterfaceType` 加型参名槽（今天只有 `Z42ClassType` 有 `GenericParamNames`）
-- [ ] 2.2 `SymbolTable.ResolveTypeP` —— 「当前所属类型是接口」时把 `NamedType("Self")` 解析成 `Z42GenericParamType("Self")`
-- [ ] 2.3 `TypeEnv.z42` —— 透传「当前所属接口」上下文（已有 `ClassName` 字段与 :86-97 的改写先例可参照）
-- [ ] 2.4 `MemberCollector._fillInterface` —— 建立 `Self` 绑定并传入成员解析
-- [ ] 2.5 `ClassExtractor._extractInterface` —— 导出时 `Self` 编码为裸字符串（与型参 `T` 同款）
-- [ ] 2.6 `ImportedSymbolLoader` —— 接口方法解析改用**带型参上下文**的 `_resolve` 四参版，型参集 = 接口 `TypeParams` ∪ `{"Self"}`（**顺带修既有缺口**：今天跨包接口方法里的 `T` 落到 `Z42ClassType.Builtin("T")` 兜底）
-- [ ] 2.7 确认类里写 `Self` 落到 E0443，不新增错误码
-- [ ] 2.8 `constraint_tests.z42` —— `Self` 正/负例（含 `where K : IEquatable` 省略实参、类里用 `Self` 报错）
-- [ ] 2.9 `src/tests/cross-zpkg/self_type_cross_pkg/` NEW —— 跨包 `Self` 往返
-- [ ] 2.10 `docs/book/src/language/generic-constraints.md` —— `Self` 语义与「仅接口」作用域
-- [ ] 2.11 `docs/roadmap.md` —— 关掉 `where-constraint-future-type-arg-matching`
-- [ ] 2.12 `./xtask test bootstrap` —— 新语法必跑（确认没在 z42c 源里越界使用）
+> **实施结论：半径比计划还小——12 项里 4 项被证明「无需改动」，真正的代码改动只有 2 处。**
+> 关键简化：`ResolveTypeP` **本来就**有「名字命中 paramNames → `Z42GenericParamType`」分支
+> （`SymbolTable.z42:214-218`），所以 `Self` 只要在解析接口成员时被**并进 paramNames** 即可，
+> 不需要在 `ResolveTypeP` 里特判、不需要 `TypeEnv` 透传接口上下文、不需要给
+> `Z42InterfaceType` 加槽。design D5「复用既有型参机制」原来可以走得更彻底。
+
+- [x] 2.1 `Z42Type.z42` `Z42InterfaceType` 加型参名槽 —— **无需改动**：本包侧型参名直接来自
+      `ClassDecl.TypeParams`（`_fillInterface` 手上就有），跨包侧 `ExportedInterfaceZ` 早已携
+      `TypeParams`/`TpCount` 且 `TsigReconcile._rebuildInterface:382-383` 已从 `cd.TypeParams` 填。
+      两条路都不经过 `Z42InterfaceType`，加槽是多余状态
+- [x] 2.2 `SymbolTable.ResolveTypeP` 特判 `Self` —— **无需改动**（改走 2.4 的 paramNames 注入，见上）
+- [x] 2.3 `TypeEnv.z42` 透传接口上下文 —— **无需改动**：接口无方法体（`IrGenAuxEmitter` 只发
+      `_interfaceDesc` 描述符，不发函数），`Self` 只出现在**签名位置**，而签名解析全部发生在
+      `_fillInterface` 内部，上下文天然在手
+- [x] 2.4 `MemberCollector._fillInterface` —— **唯一本包改动点**：`tp = _withSelf(TypeParams.Names, Count)`、
+      `tpc = Count + 1`。新增 `_withSelf` 辅助（拷贝新数组，**不就地追加**——原 `TypeParams.Names`
+      被 ClassExtractor / IrGen 按 Count 复用，就地改会串味）
+- [x] 2.5 `ClassExtractor._extractInterface` 导出 `Self` 为裸字符串 —— **无需改动**：
+      `_hybridTypeName` → `_resolvedTypeName` 末尾 `PrimModel.SurfaceName(t.Name())` 对非基元名原样返回
+      ⇒ `Z42GenericParamType("Self")` 自动导出成 `"Self"`，与型参 `T` 完全同款
+- [x] 2.6 `ImportedSymbolLoader` 接口方法解析改四参版，型参集 = 接口 `TypeParams` ∪ `{"Self"}`
+      （**顺带修既有缺口**：跨包接口方法里的 `T` 此前落 `Z42ClassType.Builtin("T")` 垃圾类型）
+- [x] 2.7 类里写 `Self` 落 E0443、不新增错误码 —— 已实证（`Self x = null;` / `new Self()` 两个位置）
+- [x] 2.8 `constraint_tests.z42` 33 → **39** 条：`Self` 6 条。⚠️ **首轮 7 条全是空测试，已推翻重写**——
+      见下「实施期发现」①；现在的真门是两条 `DumpBody` 用例（`:<unknown>` ↔ `:Self` 两态实测）
+- [x] 2.9 `src/tests/cross-zpkg/self_type_cross_pkg/` NEW —— target 声明带 `Self` 的接口（含泛型接口
+      `IBox<T>` 同时守 `T`）、ext 经接口静态类型跨包调用、main 具体类调用。**已实证是真门**：
+      把 2.6 退回单参版后该用例以 `FAIL self_type_cross_pkg (ext build)` 变红
+- [x] 2.10 `docs/book/src/language/generic-constraints.md` —— 新增 `Self` 章节（语义 / 仅接口作用域 /
+      实现模型与其三条边界）；已知限制 §1 补注「`Self` 是绕开不是消除」
+- [x] 2.11 ~~关掉 `where-constraint-future-type-arg-matching`~~ → **校正为不关**：`Self` 让**新写法**
+      不必写类型实参，但带实参的接口仍全部按裸名匹配，且 stdlib 现有声明这一轮**不改写**
+      （bootstrap-seed 轴① ）⇒ 关掉它就是把「绕开」写成「已解决」，正是本条线在清的那种文档腐坏。
+      改为：该条目补注说明 + 新登记两条 Deferred（`self-return-type-substitution` /
+      `semanticdump-skips-collector-diags`）
+- [x] 2.12 `./xtask test bootstrap` —— 绿（nightly z42c 编通当前源，无越界）。`Self` 无 lexer/parser
+      改动，`TypeParser._parseType` 今天就把它解析成 `NamedType("Self")` ⇒ 结构上零越界风险，仍按规矩跑
+
+### 实施期发现（PR-2）
+
+1. 🔴 **`SemanticDump` 看不见 collector 相位诊断 ⇒ 一整类单测是空测试**。
+   `SemanticDump.FirstErrorCode` 给 TypeChecker 另建 DiagnosticBag、从不合并 `SymbolCollector.Diags`
+   （SemanticDump.z42:154-157），而**方法返回类型 / 形参类型 / 字段类型**位置的未定义类型 E0443
+   恰恰由 collector 的 `_chkTypeRef` 发出 ⇒ 这些位置写任何未定义类型，FirstErrorCode 都返回 `""`。
+   实测对照：`class C { Undef f(){…} }` / `void f(Undef x)` / `public Undef x;` 全 `""`，
+   只有 `Undef x = null;` 与 `new Undef()` 报 E0443。
+   **本 PR 首轮写的 7 条 `Self` 用例把支持改动整个退回后仍然 7/7 全绿** —— 全是空测试。
+   改用 `DumpBody` 断言**解析结果**（无支持 `:<unknown>` / 有支持 `:Self`）才成真门。
+   已登记 Deferred `semanticdump-skips-collector-diags`（与 `emit-zbc-no-error-gate` 同族，
+   修前须先量爆炸半径）。**不在本 PR 修**——Scope 外，且会点亮未知数量的潜伏诊断。
+2. **`Self` 返回位不做替换**：`IClone c; var x = c.Copy();` 里 `x` 的类型是型参 `Self` 本身，
+   不替换成接收者静态类型。具体类上调用不受影响。已登记 Deferred `self-return-type-substitution`。
 
 ---
 
