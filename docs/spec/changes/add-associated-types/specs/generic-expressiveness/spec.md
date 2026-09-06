@@ -104,6 +104,12 @@ F-bounded 模式 `interface I<T> where T : I<T>` 里的 `T`。
 - **WHEN** 解析 `IEquatable<int>` 这个类型引用
 - **THEN** 得到携带类型实参 `int` 的实例化接口类型，而非今天的裸 `Z42InterfaceType`
 
+#### Scenario: 接口约束的 call-site 校验（自 PR-1 移入）
+- **WHEN** 定义 `interface IBox<T> where T : IShow`，并声明 `class C : IBox<Widget>` 而 `Widget` 未实现 `IShow`
+- **THEN** 报 `TypeMismatch`（今天静默通过）
+- **注**：本场景原列于 `generic-constraints`(PR-1)，实施期实测发现它依赖本节的泛型接口实例化地基
+  （`ConstructTyper` 只对 `Z42InstantiatedType` 调 `Check`；`Z42InterfaceType` 丢弃类型实参），故移至 PR-3
+
 ## IR Mapping（PR-3）
 
 约束 bundle 新增 **bit7 = has_assoc_bindings**（bit0–bit6 已用满）：

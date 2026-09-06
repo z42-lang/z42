@@ -137,6 +137,20 @@ public sealed class SymbolCollector {
             if (!table.Functions.ContainsKey(fns[i])) { table.Functions.Put(fns[i], imported.Functions.Get(fns[i])); }
             i = i + 1;
         }
+        // add-associated-types PR-1：导入类的 where 约束 seed（跨包约束校验的落地点）。
+        // **只在该键上的赢家确实是导入类时才 seed**：上面的类循环是 local-wins，本地同名类若压根没有
+        // where 子句，把导入类的约束挂到这个键上会让本地 `Foo<int>` 被拿去校验**另一个包**的 Foo 的
+        // 约束 → 凭空报错。ConstraintChecker.Resolve 在 CollectAll **之后**才跑，本地有 where 的类会
+        // 覆写同键条目，故「本地有 where」的情形天然 local-wins，无需在此特殊处理。
+        string[] cks = imported.Constraints.Keys();
+        i = 0;
+        while (i < cks.Length) {
+            Z42ClassType winner = table.Classes.Get(cks[i]) as Z42ClassType;
+            if (winner != null && winner.IsImported && !table.ClassConstraints.ContainsKey(cks[i])) {
+                table.ClassConstraints.Put(cks[i], imported.Constraints.Get(cks[i]));
+            }
+            i = i + 1;
+        }
     }
 
     // 全包合并收集（PS-1）：多 CU 同表（接口 stub 全包 → 类 stub 全包 → 成员/函数全包）。

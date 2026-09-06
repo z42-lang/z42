@@ -119,13 +119,31 @@ ctor 内给默认值、由 `TsigReconcile` 构造后赋值（种子 ABI 兼容�
 的预防）。本包写入侧 `Resolve` 需先经符号表拿到 `Z42ClassType` 才能应用该规则——这是 C 相对
 A 的唯一额外成本，可接受。
 
-### D4: PR-1 的落地强度 —— 先 warning 探针，零误报才翻 error
+### D4: PR-1 的落地强度 —— warning 探针在本项目收不到数据，改为「error + 完整 GREEN」
 
-**沿用 `complete-where-constraints` 已由 User 裁决的做法**（勿重问）：新接通的跨包校验先以
-**warning** 落地，跑完整 GREEN + 自举不动点，确认零误报后再在**同一 PR 内**翻成 error。
+**原计划**（沿用 `complete-where-constraints` 已由 User 裁决的做法）：新接通的跨包校验先以
+**warning** 落地，确认零误报后再翻 error。
 
-**这一轮为什么格外重要**：上一轮的两轮探针都是零误报，但**覆盖面只有同包**——`complete-where-constraints`
-的 memory 明确记载「本轮探针零误报不构成证据」。真正的 🔴 风险（D7）只在跨包接通后才暴露。
+**实施期实测推翻了这个做法**：`z42c.driver` 的诊断呈现被
+[`Main.z42:345`](../../../../src/compiler/z42c.driver/src/Main.z42) 的 `if (art.ErrorCount > 0)`
+**整体门控** —— 只要没有 error，**所有 warning 一条都不打印**。实测：一个真实违反跨包约束的
+fixture，以 warning 落地时构建 `EXIT=0` 且输出里**完全没有该诊断**；同一 fixture 补一个无关
+error 后，warning 才随之显形。（analyzer 警告同病：`PackageCompile.z42:356` 注释自称
+「不 fail 编译，仅可见」，实际在 CLI 上不可见。）
+
+⇒ **warning 探针在本项目是空操作，零命中不构成任何证据** —— 这恰好是 memory 里
+「本轮探针零误报不构成证据」那条教训的同一形状，差点二次踩中。
+
+**改用的做法（更强）**：直接以 **error** 落地，然后跑**完整 GREEN**。全绿即证明零违反——error
+一旦触发必然中断构建，不可能被静默吞掉。相应地 `soft`/`IsImported` 那套探针管道已全部移除
+（不留无用形参与死字段）。
+
+> 驱动隐藏 warning 是**独立的既有缺陷**，不在本 change Scope 内顺手修，登记 Deferred
+> `driver-hides-warnings`。
+
+**阳性对照（必做，否则「零违反」与「通道没通」不可区分）**：单独构造一个跨包违反 fixture，
+确认它**确实被报出**且 Span 正确。实测通过：
+`Main.z42(6,21): E0402: type argument \`Widget\` for \`T\` does not satisfy constraint \`IShow\` on \`Box\``。
 
 ### D5: `Self` 的语义模型 —— 复用既有型参机制，不新造类型
 
@@ -252,4 +270,9 @@ zbc bump 必同步 zpkg bump），并同步三方 reader（Rust `type_reader.rs`
 | `exported-class-struct-ness-encoding` | struct-ness 复用 `HasBase` 编码（`ExportedTypeExtractor` 写 / `ImportedSymbolLoader` 读），D1 已确认可改为显式字段，但属独立技术债 |
 | `bootstrap-check-door-purpose` | `xtask test bootstrap` 整体该守什么 + 是否接进 CI（D2 只做「接上预建」这一处） |
 | `interface-member-completeness-check` | 类实现接口时的成员签名齐备性校验（`InheritanceResolver.z42:14` 自陈留待后续；D5 依赖它「不存在」这一事实） |
+| `driver-hides-warnings` | `z42c.driver` `Main.z42:345` 的 `if (art.ErrorCount > 0)` 门控了**全部**诊断呈现 ⇒ 无 error 时 warning 一条都不打印。影响面不止本 change：analyzer 的 Warning 级诊断（`PackageCompile.z42:356` 注释自称「不 fail 编译，仅可见」）在 CLI 上同样不可见，「warning 先行」这类落地策略在本项目整体失效 |
+| `loader-constraint-iface-heuristic` | `metadata/loader/constraints.rs::check_one` 用「`I` + 大写开头就放行」豁免接口约束（registry 只装类）。⇒ **不以 `I` 开头的接口**用作约束会让整个模块加载 `bail!`。本 change 只让 base 写 FQ 绕开，未动该启发式 |
+| `crosspkg-generic-new-t` | 跨包泛型里的 `new T()`（`where T : new()` 的实际用法）报 `class <ns>.T not found in module registry` —— 把型参名当类名解析 |
+| `emit-zbc-no-error-gate` | `IrDump.ZbcBytesD` 丢弃 `cm.ErrorCount`/`DiagMsgs` ⇒ `--emit-zbc` 对任何语义错误都退 0 并产出 .zbc。golden 语料一直无编译错误门。**User 裁决：单独立项**，PR-1 只补第一层（两条单文件路径缺 `ConstraintChecker.Resolve`） |
+| `crosspkg-enum-tostring` | 跨包 enum 的 `ToString()` 返回序号而非成员名（`Color.Green` → `1`） |
 | `where-constraint-future-inferred-method-args` / `-toplevel-func` / `-func-constraint` | 上一轮已登记，本轮不动 |

@@ -62,11 +62,29 @@
 **Before:** `ConstraintChecker.Resolve` 只处理 `Kind == "class" || "struct"`，接口的 `where`
 子句根本不进约束模型；`ClassDescBuilder._interfaceDesc` 只建全空 bundle。
 
-**After:** 接口的 `where` 子句与类同样被 resolve、持久化、校验。
+**After:** 接口的 `where` 子句与类同样被 resolve、持久化，并获得**声明期**诊断。
 
-#### Scenario: 接口约束被校验
-- **WHEN** 定义 `interface IBox<T> where T : IShow`，并声明 `class C : IBox<Widget>` 而 `Widget` 未实现 `IShow`
-- **THEN** 报 `TypeMismatch`（今天静默通过）
+> ⚠️ **本 PR 只到「resolve + 持久化 + 声明期诊断」**。接口约束的 **call-site 校验**
+> （`class C : IBox<Widget>` 时校验 `Widget`）**不在 PR-1**——实施期实测确认
+> `ConstructTyper.z42:155-159` 只对 `Z42InstantiatedType` 调 `Check`，而 `IBox<Widget>` 经
+> `SymbolTable.ResolveTypeP:224` 解析成 `Z42InterfaceType` 时**类型实参被直接丢弃**（`Z42InterfaceType`
+> 无型参槽）。该场景依赖 PR-3 的「泛型接口实例化」地基，已移至 `generic-expressiveness` spec。
+
+#### Scenario: 接口 where 的未知型参被诊断
+- **WHEN** 定义 `interface IBox<T> where U : IShow`（`U` 不是该接口的型参）
+- **THEN** 报 `UndefinedSymbol`（今天完全静默——接口的 where 根本不进 `Resolve`）
+
+#### Scenario: 接口 where 的拼错约束名被诊断
+- **WHEN** 定义 `interface IBox<T> where T : IShoww`（不存在的接口名）
+- **THEN** 报 `UndefinedType` / E0443（今天完全静默）
+
+#### Scenario: 接口 where 的 class/struct 互斥被诊断
+- **WHEN** 定义 `interface IBox<T> where T : class + struct`
+- **THEN** 报 `TypeMismatch`（今天完全静默）
+
+#### Scenario: 接口约束持久化到 zbc
+- **WHEN** 一个带 `where` 的泛型接口被编译进 zpkg
+- **THEN** 其 TYPE 记录的型参约束 bundle 非空（今天 `_interfaceDesc` 恒建全空 bundle）
 
 ## ADDED Requirements
 

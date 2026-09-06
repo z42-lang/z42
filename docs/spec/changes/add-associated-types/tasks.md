@@ -4,7 +4,7 @@
 
 ## 进度概览
 
-- [ ] **PR-1** 跨包约束持久化 + flag 位 + 认知修正（零格式 bump）
+- [x] **PR-1** 跨包约束持久化 + flag 位 + 认知修正（零格式 bump）✅ 实现完成，待开 PR
 - [ ] **PR-2** `Self` 类型（仅接口）
 - [ ] **PR-3** 关联类型（含泛型接口实例化地基，双格式 bump）
 
@@ -25,45 +25,45 @@
 
 ### 1B IR 与格式层（写端 → 读端）
 
-- [ ] 1B.1 `src/libraries/z42.ir/src/IrModule.z42` —— `IrConstraintDesc` 加 5 个承载位（`RequiresClass` / `RequiresStruct` / `BaseClass` / `RequiresCtor` / `RequiresEnum`）
-- [ ] 1B.2 `src/compiler/z42c.semantics/src/ClassDescBuilder.z42:278-317` —— special 约束不再丢弃；base 与 interface 分开承载（今天混塞进同一 `Interfaces` 数组）
-- [ ] 1B.3 `ClassDescBuilder._interfaceDesc:341-344` —— 接口 bundle 不再恒空，填入接口自身的 where（依赖 1C.1）
-- [ ] 1B.4 `src/libraries/z42.ir/src/BinaryFormat/ZbcWriter.z42:280-298` —— 置全 bit0/1/2/4/5（今天只写 bit3）
-- [ ] 1B.5 `src/libraries/z42.ir/src/BinaryFormat/ZbcReader.z42:459-476` —— bit2 base 由「读而不存」改为存入承载位（注释已留接口）
-- [ ] 1B.6 实测确认**零格式 bump**：regen fixture 后 `cargo test --test format_fixture_versions` 绿，zbc 仍 38 / zpkg 仍 43
+- [x] 1B.1 `src/libraries/z42.ir/src/IrModule.z42` —— `IrConstraintDesc` 加 5 个承载位（`RequiresClass` / `RequiresStruct` / `BaseClass` / `RequiresCtor` / `RequiresEnum`）
+- [x] 1B.2 `ClassDescBuilder` —— **改为复用 `ConstraintChecker` 已算好的 `ConstraintSet`**（`IrGen._symbols` 可达），而非从 AST 重推分类。比原计划更根治：writer 与 checker 共用同一判定，special 丢弃与 base/iface 混同两个缺陷一并消失
+- [x] 1B.3 `ClassDescBuilder._interfaceDesc:341-344` —— 接口 bundle 不再恒空，填入接口自身的 where（依赖 1C.1）
+- [x] 1B.4 `src/libraries/z42.ir/src/BinaryFormat/ZbcWriter.z42:280-298` —— 置全 bit0/1/2/4/5（今天只写 bit3）
+- [x] 1B.5 `src/libraries/z42.ir/src/BinaryFormat/ZbcReader.z42:459-476` —— bit2 base 由「读而不存」改为存入承载位（注释已留接口）
+- [x] 1B.6 实测确认**零格式 bump**：regen fixture 后 `cargo test --test format_fixture_versions` 绿，zbc 仍 38 / zpkg 仍 43
 
 ### 1C 语义层（约束模型 + 键规则）
 
-- [ ] 1C.1 `ConstraintChecker.Resolve:38` —— 条件由 `class || struct` 扩到含 `interface`（design D8）
-- [ ] 1C.2 `SymbolTable.z42` —— 新增 `ConstraintKey(Z42ClassType)` 单一辅助（规则同 `Classes` 的条件 arity-mangle）
-- [ ] 1C.3 `ConstraintChecker.z42:40 / :122` —— 写入与查询改调 `ConstraintKey`，消掉同名多 arity 的 last-wins 串味
-- [ ] 1C.4 `GenericConstraint.z42` —— 新增「从导入元数据构造 `ConstraintSet`」的入口
+- [x] 1C.1 `ConstraintChecker.Resolve:38` —— 条件由 `class || struct` 扩到含 `interface`（design D8）
+- [x] 1C.2 `SymbolTable.z42` —— 新增 `ConstraintKey(Z42ClassType)` 单一辅助（规则同 `Classes` 的条件 arity-mangle）
+- [x] 1C.3 `ConstraintChecker.z42:40 / :122` —— 写入与查询改调 `ConstraintKey`，消掉同名多 arity 的 last-wins 串味
+- [x] 1C.4 入口落在 `ImportedSymbolLoader._constraintSetOf`（离使用点最近），`GenericConstraint.z42` 无需改动
 
 ### 1D 跨包搬运
 
-- [ ] 1D.1 `src/libraries/z42.ir/src/ExportedTypes.z42` —— `ExportedClassZ` 加约束字段（**不进 ctor 签名、ctor 给默认值、构造后赋值**）
-- [ ] 1D.2 `src/libraries/z42.ir/src/TsigReconcile.z42:508-523` —— `_rebuildClass` 读 `cd.TypeParamConstraints` 搬进 `ExportedClassZ`（今天一次都没读过）
-- [ ] 1D.3 `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` —— seed 导入类型的约束进 `SymbolTable.ClassConstraints`（用 1C.2 的键）
+- [x] 1D.1 `src/libraries/z42.ir/src/ExportedTypes.z42` —— `ExportedClassZ` 加约束字段（**不进 ctor 签名、ctor 给默认值、构造后赋值**）
+- [x] 1D.2 `src/libraries/z42.ir/src/TsigReconcile.z42:508-523` —— `_rebuildClass` 读 `cd.TypeParamConstraints` 搬进 `ExportedClassZ`（今天一次都没读过）
+- [x] 1D.3 `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` —— seed 导入类型的约束进 `SymbolTable.ClassConstraints`（用 1C.2 的键）
 
 ### 1E 落地强度与 🔴 风险（design D4 / D7）
 
-- [ ] 1E.1 新接通的跨包校验**先以 warning 落地**，不翻 error
-- [ ] 1E.2 跑完整 `xtask test` + 自举，收集探针输出
-- [ ] 1E.3 若出现 `Dictionary<int,int>` 一类基元误报 —— **不绕过、不加特例**，查 `_satisfiesInterface` 对基元实参的归一路径，与运行期 `generics.rs::constraint_satisfied_by` 对账
-- [ ] 1E.4 零误报后，**同一 PR 内**翻成 error
-- [ ] 1E.5 给 `src/tests/types/struct_generic_container.z42` 的 `struct P` / `struct Tagged` 补 `: IEquatable<>`（上一轮顺延来的处置）
+- [x] 1E.1 ~~先以 warning 落地~~ → **改为直接 error**：实测 driver `Main.z42:345` 的 `if (art.ErrorCount > 0)` 门控全部诊断呈现，warning 在 CLI 上根本不打印 ⇒ 探针是空操作。见 design D4
+- [x] 1E.2 **阳性对照**：跨包违反 fixture 确实报出 `E0402 … does not satisfy constraint \`IShow\` on \`Box\``（Span 正确）⇒ 通道确已打通，「零违反」与「通道没通」可区分。error 模式下 `build compiler` + `build stdlib` 均 0 违反
+- [x] 1E.3 **未触发**：error 模式下 `build compiler` + `build stdlib` + 完整 GREEN 均零违反，🔴「基元 wrapper 归一偏差」风险未兑现
+- [x] 1E.4 直接以 error 落地（warning 探针在本项目不可见，见 design D4）
+- [x] 1E.5 `struct P` / `struct Tagged` 补 `: IEquatable<>` + `Equals`/`GetHashCode`。⚠️ 注释里写明**覆盖点偏移**：原测「不实现 IEquatable 的 blob struct 靠装箱默认相等当键」，现走用户 Equals；P3a 的装箱/拆箱本意仍覆盖
 
 ### 1F 测试
 
-- [ ] 1F.1 `constraint_tests.z42` —— 补本包正/负例（含接口 where、同名多 arity 不串味）
-- [ ] 1F.2 `src/tests/cross-zpkg/generic_constraint_cross_pkg/` NEW —— 七类约束跨包各一条正例 + 负例
-- [ ] 1F.3 `xtask test stdlib --mode jit` —— 运行期五个死分支首次被执行，须补跑 JIT 模式
+- [x] 1F.1 `constraint_tests.z42` 27 → **33** 条：接口 where 三条声明期诊断 + 一条不误报 + 同名多 arity 双向。**已实证是真门**——临时把 `ConstraintKey` 退回恒裸名后，两条 arity 用例分别以「凭空误报 E0402」和「漏报」变红
+- [x] 1F.2 `src/tests/cross-zpkg/generic_constraint_cross_pkg/` NEW —— target/ext/main 三包，六类约束各一条正例 + **三包链路**（约束在 A、类型在 B、实例化在 C）。负例不放这里（harness 比对 stdout，装不下编译期负例）
+- [x] 1F.3 JIT 模式补跑：`test stdlib --mode jit` + `test e2e --dir cross-zpkg --mode jit` 均 0
 
 ### 1G 文档与归档
 
-- [ ] 1G.1 `docs/book/src/language/generic-constraints.md` —— 已知限制 §1 由「不校验」改为「已校验」；补跨包链路机制（含 ASCII 链路图）
-- [ ] 1G.2 `docs/roadmap.md` —— 关掉 `where-constraint-future-crosspkg` 与 `-runtime-flags`；登记 design 的三条新 Deferred
-- [ ] 1G.3 归档动作随 PR 内落地（**禁止合并后单独 push 归档**）
+- [x] 1G.1 `docs/book/src/language/generic-constraints.md` —— 已知限制 §1 由「不校验」改为「已校验」；补跨包链路机制（含 ASCII 链路图）
+- [x] 1G.2 `docs/roadmap.md` —— 关掉 `where-constraint-future-crosspkg` + `-runtime-flags`（两条同一链路，一并兑现）；§编号顺移；新登记 4 条 Deferred（loader 接口启发式 / 跨包 `new T()` / 跨包 enum ToString / driver 隐藏 warning）
+- [x] 1G.3 ~~归档随本 PR~~ → **本 change 拆三个 PR，归档只在最后一个（PR-3）里做**：`changes/` → `archive/` 是整个 change 完成时的动作，PR-1/PR-2 各自只带自己的文档同步。铁律「归档与代码同 PR」仍然满足——归档与 PR-3 同 PR
 
 ---
 
@@ -126,6 +126,19 @@
 ---
 
 ## 备注
+
+### 实施期发现的 Scope 外缺口（**未修**，按规矩不顺手改）
+
+1. **运行期加载校验只认 FQ、接口靠启发式豁免** —— `src/runtime/src/metadata/loader/constraints.rs`
+   的 `check_one` 查 `module.type_registry`（键为 FQ），查不到就 `bail!` 让**整个模块加载失败**。
+   接口约束一直没暴露这点，是因为它有一条「`I` + 大写开头就放行」的启发式（注释自陈 registry
+   只装类、接口 soft-allow）。⇒ 一个**不以 `I` 开头的接口**用作约束，今天就会让模块加载炸。
+   本 change 只按既有约定让 base 写 FQ 绕开，没动这条启发式。
+2. **跨包泛型 `new T()` 不工作** —— `CtorBox<T> where T : new()` 的 `Make()` 里 `new T()` 报
+   `class DemoCTarget.T not found in module registry`（把型参名当类名找）。
+3. **跨包 enum 的 `ToString()` 返回序号** —— `Color.Green` 打印成 `1` 而非 `Green`。
+
+2/3 与约束校验无关，只是 cross-zpkg 用例顺带撞上；用例已收窄为「构造即断言」避开它们。
 
 - **support ≠ use**：本 change 全程**不改写真实源码使用新语法**（`INumber` / `Dictionary` /
   `Protocols` 保持旧写法）。use 改写等下一个 nightly 发布后另开 change（bootstrap-seed 轴① 铁律）。

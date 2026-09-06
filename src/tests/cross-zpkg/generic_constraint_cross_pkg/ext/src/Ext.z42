@@ -1,0 +1,9 @@
+// 三包链路的中间一跳：本包提供一个实现 target 包接口的类型，供 main 包拿去实例化
+// target 包的受约束泛型 —— 即「约束来自包 A、满足约束的类型来自包 B、实例化发生在包 C」。
+// 比两包场景更严：Implements 判定要跨两层导入（ext 的类携带的接口名单本身也是跨包恢复的）。
+namespace DemoCExt;
+using DemoCTarget;
+
+public class Gadget : IShow {
+    public string Show() { return "gadget"; }
+}

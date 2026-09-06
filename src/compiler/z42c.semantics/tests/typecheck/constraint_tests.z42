@@ -299,3 +299,69 @@ void test_violation_span_points_at_instantiation_site() {
         + "class Use { void f() { var b = new Box<D>(); } }\n";
     Assert.Equal("4", SemanticDump.FirstErrorPos(src).Split(":")[0]);
 }
+
+// ── 接口声明上的 where：此前整条不进约束模型（add-associated-types PR-1）──────────
+//
+// `ConstraintChecker.Resolve` 的条件曾是 `Kind == "class" || "struct"`，于是
+// `interface INumber<T> where T : INumber<T>` 这类声明的 where **完全静默**：
+// 型参写错、约束名拼错、class+struct 互斥，一律不报。下面三条就是那三处静默的门。
+
+[Test]
+void test_interface_where_unknown_type_param_reports() {
+    string src = "interface IFoo { }\n"
+        + "interface IBox<T> where U : IFoo { }\n";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_interface_where_unknown_constraint_name_reports() {
+    string src = "interface IBox<T> where T : IShoww { }\n";
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_interface_where_class_struct_conflict_reports() {
+    string src = "interface IBox<T> where T : class + struct { }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_interface_where_satisfiable_reports_nothing() {
+    // 放宽到接口后不得引入误报：合法的接口 where（含 F-bounded 自引用，全仓 INumber 的形态）应零诊断。
+    string src = "interface IEq<T> { }\n"
+        + "interface IBox<T> where T : IEq<T> { }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 约束键：同短名多 arity 不得串味（SymbolTable.ConstraintKey）────────────────
+//
+// `ClassConstraints` 的键此前恒裸名，而 `Classes` 是条件 arity-mangle（`Name$N`）。
+// 同短名多 arity 的泛型类因此在约束表里 **last-wins 互相覆盖**——`Foo<T>` 的实例化
+// 会被拿去校验 `Foo<T,U>` 的约束。三处（写入/查询/导入）统一走 ConstraintKey 后消失。
+
+[Test]
+void test_same_name_different_arity_constraints_do_not_bleed() {
+    // Foo<T,U> 只要求 T : class（D 满足）；Foo<T> 要求 T : IFoo（D 不满足）。
+    // `new Foo<D, D>()` 应当零诊断。
+    //
+    // ⚠️ 声明序是这条用例的**关键**，不要「顺手」调换：修前两者共用裸名键 "Foo"，last-wins ⇒
+    // 后声明的 Foo<T> 的 {T:IFoo} 覆盖赢家，`new Foo<D,D>()` 会被拿去比 IFoo → 凭空 E0402。
+    // 若把 Foo<T> 写在前面，赢家变成 {T:class}，这条用例修前修后都绿 —— 就成了空测试。
+    string src = "interface IFoo { }\n"
+        + "class D { }\n"
+        + "class Foo<T, U> where T : class { }\n"
+        + "class Foo<T> where T : IFoo { }\n"
+        + "class Use { void f() { var b = new Foo<D, D>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_same_name_different_arity_still_reports_real_violation() {
+    // 与上一条对偶：一元的那个仍须报错，证明键分离不是把校验整个关掉了。
+    string src = "interface IFoo { }\n"
+        + "class D { }\n"
+        + "class Foo<T> where T : IFoo { }\n"
+        + "class Foo<T, U> where T : class { }\n"
+        + "class Use { void f() { var b = new Foo<D>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}

@@ -71,6 +71,14 @@ public sealed class ExportedClassZ {
     // 默认 "public"，TsigReconcile 从 cd.Visibility（zbc TYPE 可见性字节）构造后赋值；ImportedSymbolLoader 据此填 Z42ClassType.Visibility（跨包 internal 类引用强制）。
     public bool     IsDeprecated;    // add-deprecated-directive：类级 `[Deprecated]`（CLASS_FLAG_DEPRECATED，TYPE Flags bit6）。
     public string   DeprecationMsg;  // ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 从 (cd.Flags & 64) 构造后赋值。
+    // add-associated-types PR-1：泛型 where 约束（与 TypeParams 按下标对齐；null = 无约束）。
+    // 修前跨包泛型实例化的 where 约束 **100% 不校验** —— 不只接口，连 base-class / class / struct /
+    // 型参引用也不查：SymbolTable.ClassConstraints 的唯一写入点只遍历本包 CU 的 ClassDecl，导入类型
+    // 全程不碰，Check 第一行 HasConstraints 即返回。约束数据本就在 zbc TYPE 段（bit0-6 早已规约），
+    // 只是 TsigReconcile 从不读、这里也无处承载。
+    // 直接复用 IrConstraintDesc（同库同 namespace），不另造一套平行编码 —— 少一层转换就少一处漂移点。
+    // 种子 ABI：**不进构造函数签名**，ctor 内给默认值，由 TsigReconcile 构造后赋值（同 IsSealed/Visibility/IsDeprecated）。
+    public IrConstraintDesc[] TypeParamConstraints; public int TpConstraintCount;
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -83,6 +91,7 @@ public sealed class ExportedClassZ {
         this.IsSealed = false;
         this.Visibility = "public";   // enforce-class-access：默认 public（reconcile 后赋值；未赋值即 public，绝不误拒）
         this.IsDeprecated = false; this.DeprecationMsg = "";
+        this.TypeParamConstraints = null; this.TpConstraintCount = 0;   // add-associated-types PR-1（reconcile 后赋值）
     }
 }
 
