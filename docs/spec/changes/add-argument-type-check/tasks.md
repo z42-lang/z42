@@ -1,20 +1,24 @@
 # Tasks: 调用实参类型检查
 
-> 状态：🔴 DRAFT 待 User 确认 | 创建：2026-09-06
+> 状态：🟡 规范已确认（Q1/Q2/Q3 已裁决 2026-09-06），待 6.5 gate 放行进 IMPL | 创建：2026-09-06
 >
 > 归属程序：[[restore-emit-zbc-diagnostics-program]] 第 ⑤ 步。
 > **未获 6.5 确认前不得写实现代码**（lang 类变更，见 workflow.md Spec-First Self-Check）。
+>
+> **裁决**：Q1 = **一个 PR 全做**（阶段 1–4 同一交付）；Q2 = enum ↔ 整数**要求显式 cast**；
+> Q3 = **构造器同批接**。
 
 ## 进度概览
-- [ ] 阶段 0: 探索与量测（**已完成**，见 proposal 爆炸半径表）
+- [x] 阶段 0: 探索与量测（见 proposal 爆炸半径表）
 - [ ] 阶段 1: R1 型参身份修复链（占 84%）
 - [ ] 阶段 2: R2 / R7 —— 赋值上下文已可复现的既存 bug
 - [ ] 阶段 3: R3 / R5 / R6
-- [ ] 阶段 4: 接线开检查 + 负例门
+- [ ] 阶段 4: 接线开检查 + 构造器 + 负例门
 - [ ] 阶段 5: 验证与归档
 
-> 阶段 1–2 与阶段 3–4 的 PR 切分取决于 **Q1 裁决**（proposal Open Questions）。
-> 推荐 A：PR-1 = 阶段 1+2，PR-2 = 阶段 3+4。
+> **Q1 = 单 PR**：阶段 1–4 一次交付，任何提交点上树都自洽。
+> ⚠️ **rebase 纪律**（单 PR 的代价）：main 被并发会话高频推进，每次 rebase 要重跑 ~10 分钟 GREEN
+> → **实施期间不中途 rebase**，只在**合并前一次性** `git fetch && git rebase origin/main` + 完整 GREEN。
 
 ## 阶段 0: 探索与量测 ✅（本轮已做，无需重做）
 - [x] 0.1 复现「实参零检查」：`TakeS(42)` rc=0、产物照写、运行期不报错
@@ -52,7 +56,12 @@
 - [ ] 3.3 R5 风险核：全仓 grep 是否存在「同 arity ≥2 重载 + lambda 实参」的调用（会落 E0437）
 - [ ] 3.4 R5 副作用确认：lambda 的 IR 类型标注由 `-> unknown` 变真实类型 →
       **golden `.zbc` 基线可能需 regen**，自举不动点须重新确认
-- [ ] 3.5 R6：enum ↔ 底层整数（**按 Q2 裁决**实施：隐式双向 / 要求显式 cast）
+- [ ] 3.5 R6（Q2 = 显式 cast）：`Conversion` 增 `ConvKind.ExplicitEnum`——**不进** `ImplicitOk`
+      白名单、**进** `Exists()` ⇒ 隐式上下文落 `CheckImplicitConvert` 的 `r.Exists()` 分支报
+      **E0439**（"missing a cast?"）而非 E0402「无转换」
+- [ ] 3.6 R6 调用点：`z42.core/src/GC/GCHandle.z42` 两处加 `(GCHandleType)` / `(long)` 显式 cast
+- [ ] 3.7 R6 边界回归：enum **成员**引用（`GCHandleType.Weak`）不受影响；
+      `Take((GCHandleType)n)` 放行、`Take(n)` 报 E0439；反向 `TakeL(t)` / `TakeL((long)t)` 同
 
 ## 阶段 4: 接线开检查 + 负例门
 - [ ] 4.1 `FillDeferredArgs` → 更名 `BindArgsToSignature`，21 处调用点同步
@@ -60,7 +69,10 @@
 - [ ] 4.3 `params` 尾位按元素类型逐位检查；定长段 `[0, ParamsFrom)`
 - [ ] 4.4 检查须在 `BoxArgs` / `_withParamsExpansion` **之前**
 - [ ] 4.5 **不短路**：同一调用多个不符实参逐条报
-- [ ] 4.6 构造器：`ConstructTyper` 解析出 ctor `MethodSymbol` 后调同一检查（design D4）
+- [ ] 4.6 构造器（Q3 = 同批接）：`ConstructTyper` 解析出 ctor `MethodSymbol` 后调同一检查函数；
+      与既有 arity 检查（E0426）并存——arity 不符仍 E0426，arity 对但类型不符报 E0402/E0439
+- [ ] 4.6b 构造器需覆盖 `_adaptArgs` 命名实参 / 默认值路径（`ConstructTyper.z42:168` 直接调
+      `_adaptArgs`，**不经** `FillDeferredArgs` 汇聚点 → 须单独接线，勿漏）
 - [ ] 4.7 新增 `z42c.semantics/tests/typecheck/argument_type/argument_type_tests.z42`
       —— spec 场景逐条覆盖（free/static/instance/ctor × 不符/窄化/常量例外/上转/装箱/接口）
 - [ ] 4.8 🔴 **测试必须用 `DumpBody` / `collectDiags` 断言，禁止只用 `SemanticDump.FirstErrorCode`**

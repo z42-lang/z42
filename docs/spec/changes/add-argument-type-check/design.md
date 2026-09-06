@@ -59,7 +59,7 @@ Object 方法。因此 `sig != null` 恰好等价于「签名已知」，无需�
 | **R2** | `X[]` / `T[]` → `Array` 不放行（`_classifyBuiltin` 只特判 `object`，没管数组基类 `Array`） | 4 | `Conversion.z42:124` 邻近加分支 | 已知 **bug A** |
 | **R3** | 限定类型名固化成字面量 `"unknown"`，且读回成 `Z42ClassType.Builtin("unknown")` 而非 `Z42UnknownType` → Absorb 守卫失效 | 4 | `ImportedSymbolLoader.z42:376` | 已知 **bug B3** |
 | **R5** | **无目标 lambda 实参**推成 `Func<<unknown>>`：`_bindLambdaArg` 硬编码返回类型为 `Z42UnknownType`，而 lambda 实参在重载决议**之前**就被绑定，永远拿不到目标签名 | 3 | `ExprTyper.z42:136` + `MemberResolver._bindCall:345-349` | 🆕 本次发现 |
-| **R6** | enum ↔ 底层整数不可转（`GCHandle.z42` 传 `long` 给 `GCHandleType` 形参） | 2 | `Conversion`（语义待 Q2 裁决） | 已知 **bug D** |
+| **R6** | enum ↔ 底层整数不可转（`GCHandle.z42` 传 `long` 给 `GCHandleType` 形参） | 2 | `Conversion` 新增 `ExplicitEnum` 种类（**Q2 已裁决：要求显式 cast**） | 已知 **bug D** |
 | **R7** | `Func<int>` ≠ `Func<Int32>`；极端形态连 `Action` → `Action` 都判不可赋 | 4 | `Z42Type.z42:304-307` `Z42FuncType.IsAssignableTo` 用 `Dump()` 逐字比、不 `Canon`（`Z42ArrayType` 就 Canon 了） | 已知 **bug C** |
 
 ### R1 修复链（已核实，无格式 bump）
@@ -120,12 +120,37 @@ Conversion._classifyBuiltin 分支 B「恰一侧泛型形参 → GenericErase」
 **风险**：重载决议对 lambda 实参将无类型可用（同 target-typed new），同 arity ≥2 时会走 E0437
 让用户写显式类型。全仓需确认无此类现存调用（tasks.md 3.x 核）。
 
-### D4: 构造器实参 —— 同批接，不留不对称
+### D4: 构造器实参 —— 同批接，不留不对称（Q3 已裁决）
 
 `ConstructTyper` 自绑实参、不经本汇聚点；今天只有 **arity** 检查（E0426），无类型检查。
 若本变更只接方法/函数而放过构造器，就留下一个"`f(x)` 查、`new C(x)` 不查"的不对称——正是本程序
 反复在清理的那类洞。**决定：同批接**，在 `ConstructTyper` 解析出 ctor 的 `MethodSymbol` 后调用
 同一个检查函数。
+
+### D6: enum ↔ 底层整数要求显式 cast（Q2 已裁决）
+
+**问题**：`Conversion._classifyBuiltin` 今天对 enum ↔ 整数给出 `None`（"根本无转换"），
+导致 `GCHandle.z42` 把 `long` 传给 `GCHandleType` 形参时报 `E0402`。
+
+**选项**：A — 隐式双向放行；B — 要求显式 cast（对标 C#）。
+
+**决定：B**。理由：
+1. 与 z42 已确立的 `tighten-implicit-conversions`（窄化 / 有损浮点须显式）**同向**——
+   enum→整数丢的是"语义标签"，整数→enum 更是可能落在任何未定义值上，正属该收紧的一类。
+2. 保住 enum 的类型区分度；隐式双向等于把 enum 退化成整数别名。
+
+**实现**：`Conversion` 增 `ConvKind.ExplicitEnum`（**不进** `ImplicitOk` 白名单，进 `Exists()`）
+→ 隐式上下文落 `CheckImplicitConvert` 的 `r.Exists()` 分支 → 报 **E0439**
+（"an explicit conversion exists (are you missing a cast?)"），而非 E0402「无转换」。
+这条消息正是用户需要的指引。
+
+**边界**：enum **成员**引用（`GCHandleType.Weak`）不受影响——那是 enum 类型自身，非整数转换。
+`GCHandle.z42` 两处调用点加 `(GCHandleType)` / `(long)` 显式 cast。
+
+> ⚠️ 欠债表的 **bug D** 面比这里大（`Color c = Color.Blue` 与 `long n = c` 今天**两个方向都报错**，
+> 即 enum 成员引用本身也坏）。本变更只处理**传参触达的这一片**（`ExplicitEnum` 种类 + 两处 cast）；
+> bug D 的完整修复（enum 名解析成孤立 `Z42ClassType`、成员却是 `long`，转换格里无边相连）
+> 仍属独立 change，不在本 Scope。
 
 ### D5: 残留洞必须写进文档，不得静默
 

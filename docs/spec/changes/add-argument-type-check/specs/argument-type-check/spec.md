@@ -94,15 +94,32 @@
 - **WHEN** `Array a = new int[3];`
 - **THEN** **无诊断**（回归 bug A）
 
-### Requirement: enum 与其底层整数互转（R6 / bug D）
+### Requirement: enum ↔ 底层整数为**显式**转换（R6 / bug D 的传参片）
 
-**Before:** enum 形参收整数实参报 `E0402`（`GCHandle.z42` 实测）。
+**Before:** enum ↔ 整数被判为 `ConvKind.None`（"根本无转换"）→ 报 `E0402`，且诊断不给出任何指引。
 
-**After:** enum ↔ 底层整数按 C# 规则（显式）/ z42 既定规则放行。
+**After:** 判为新种类 `ConvKind.ExplicitEnum` —— **不在** `ImplicitOk` 白名单、**在** `Exists()` 内
+（Q2 裁决：对标 C#，要求显式 cast）。
 
-#### Scenario: 整数传 enum 形参
-- **WHEN** `GCHandle` 内部把 `long` 传给 `GCHandleType` 形参
-- **THEN** 按裁定规则放行或要求显式 cast，**不得**是"无转换"
+#### Scenario: 整数实参传 enum 形参（缺 cast）
+- **WHEN** `void Take(GCHandleType t) {}`，`long n = 1;`，调用 `Take(n)`
+- **THEN** 报 **`E0439`**（`an explicit conversion exists (are you missing a cast?)`），
+  **不是** `E0402`「无转换」
+
+#### Scenario: 显式 cast 放行
+- **WHEN** 调用 `Take((GCHandleType)n)`
+- **THEN** **无诊断**
+
+#### Scenario: enum → 整数同样需显式
+- **WHEN** `void TakeL(long v) {}`、`GCHandleType t = ...`，调用 `TakeL(t)`
+- **THEN** 报 `E0439`；`TakeL((long)t)` 放行
+
+#### Scenario: enum 成员引用不受影响
+- **WHEN** `GCHandleType t = GCHandleType.Weak;`
+- **THEN** **无诊断**（enum 类型自身，非整数转换）
+
+> **不在本 Scope**：bug D 的完整面（`Color c = Color.Blue` / `long n = c` 今天**两个方向都报错**，
+> 根因是 enum 名解析成孤立 `Z42ClassType`、成员却是 `long`）。本变更只覆盖传参触达的这一片。
 
 ### Requirement: lambda 实参按形参类型定型（R5）
 
