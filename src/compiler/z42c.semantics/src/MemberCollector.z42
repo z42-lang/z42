@@ -110,12 +110,21 @@ public sealed class MemberCollector {
                 Z42Type pft = table.ResolveTypeP(pd.Type, tp, tpc);
                 this._sc._chkTypeRef(pft, c.Name, table, pd.Type.Span);   // enforce-class-access：属性类型引用
                 bool pfstatic = this._sc._hasWord(pd.Mods, "static");
-                ct.Fields.Put(pd.Name, new FieldSymbol(pd.Name, this._sc._vis(pd.Mods, "private"), pft, pfstatic, c.Name));
+                FieldSymbol pfsym = new FieldSymbol(pd.Name, this._sc._vis(pd.Mods, "private"), pft, pfstatic, c.Name);
+                ct.Fields.Put(pd.Name, pfsym);
                 // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
                 // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。
                 bool pfExtern = this._sc._hasWord(pd.Mods, "extern");
                 // add-property-getter：计算属性（HasGetBody）无后备字段——getter 是真实函数体，不读 __prop_X。
-                if (!pfstatic && !pfExtern && !pd.HasGetBody) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? TypeNameResolver.TsigTypeName(pd.Type) : TypeNameResolver.SurfaceTypeName(pft); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
+                bool pfHasBacking = !pfstatic && !pfExtern && !pd.HasGetBody;
+                if (pfHasBacking) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? TypeNameResolver.TsigTypeName(pd.Type) : TypeNameResolver.SurfaceTypeName(pft); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
+                // fix-autoprop-getonly-backing-write：属性打标，让「源名 X ↔ 存储 __prop_X」的落差
+                // 对下游可见 —— AssignTyper 据此限制无 setter 的赋值，FunctionEmitter/AccessEmitter 据此
+                // 让裸 ident `X` 与 `this.X` 一样走访问器（此前裸 ident 按源名发 field_get/field_set，
+                // 打在不存在的字段上：读回 Null、写进虚空）。
+                pfsym.IsProp = true;
+                if (pfHasBacking) { pfsym.PropBackingName = "__prop_" + pd.Name; }
+                if (!pd.HasSet) { pfsym.IsPropNoSetter = true; }
                 // get_X / set_X accessor 方法符号（IrGen 发 builtin stub 或编译体；镜像 C# SynthesizeClassAutoProp）。
                 string pvis = this._sc._vis(pd.Mods, "private");
                 Z42Type[] getPs0 = new Z42Type[0];

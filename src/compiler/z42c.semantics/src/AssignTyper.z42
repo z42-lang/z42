@@ -168,6 +168,21 @@ public sealed class AssignTyper {
                     "cannot assign to readonly field `" + fs.Name + "` outside constructor", a.Span);
             }
         }
+        // fix-autoprop-getonly-backing-write：没有 setter 的属性此前**任何位置**都能赋值且静默写丢
+        // （落到「按源名 X 发 field_set」，而存储在 __prop_X）。这里补上唯一合法的写法边界：
+        //   `X { get; }`（auto，有后备字段）→ 仅 ctor 内 `this.X = v`（对标 C# CS0200 只读自动属性）；
+        //   `X { get {..} }`（计算，无存储）→ 任何位置都不可赋值。
+        // 静态属性无后备字段也无 set_X，同样落这里（PropBackingName == ""）。
+        if (fs != null && fs.IsPropNoSetter) {
+            bool inCtorThis = recvIsThis && env.InCtor();
+            if (fs.PropBackingName.Length == 0) {
+                this._tc._diags.Error("E0452",
+                    "cannot assign to property `" + fs.Name + "`: it has no setter", a.Span);
+            } else if (!inCtorThis) {
+                this._tc._diags.Error("E0452",
+                    "cannot assign to get-only property `" + fs.Name + "` outside constructor", a.Span);
+            }
+        }
     }
 
     // 从接收者类型取字段符号（class / 泛型实例）；非类或无此字段 → null。

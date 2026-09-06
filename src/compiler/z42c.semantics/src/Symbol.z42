@@ -49,12 +49,22 @@ public sealed class FieldSymbol {
     public ConstValue ConstVal;  // add-const-keyword：IsConst 时的求值结果（引用替换用）；否则 null。
     public bool       IsDeprecated;   // add-deprecated-directive：`[Deprecated]` 字段。use-site 告警用。
     public string     DeprecationMsg; // 本地由 SymbolCollector 从 attr 设置，导入由 ImportedSymbolLoader 还原。
+    // fix-autoprop-getonly-backing-write：属性也以 FieldSymbol 形式登记（键=源名 X），但**没有 setter**
+    // 时赋值此前落到「按源名 X 发 field_set」——而存储在 __prop_X，于是写进一个不存在的字段、静默丢失。
+    // 两个标志把「这是个没有 setter 的属性」带给 AssignTyper（限制赋值）与 AccessEmitter（改写后备名）：
+    //   IsProp           — 这个 FieldSymbol 其实是个属性（裸 ident 访问须走访问器，不能当字段读写）。
+    //   IsPropNoSetter   — `X { get; }` / `X { get {..} }`，赋值须受限（不是普通字段）。
+    //   PropBackingName  — auto-property 的后备字段名 `__prop_X`；计算属性（有 get 体）无存储 → ""。
+    public bool       IsProp;
+    public bool       IsPropNoSetter;
+    public string     PropBackingName;
     public FieldSymbol(string name, string visibility, Z42Type fieldType, bool isStatic, string containingTypeName) {
         this.Name = name; this.Visibility = visibility; this.FieldType = fieldType;
         this.IsStatic = isStatic; this.ContainingTypeName = containingTypeName;
         this.IsReadonly = false;
         this.IsConst = false; this.ConstVal = null;
         this.IsDeprecated = false; this.DeprecationMsg = "";
+        this.IsProp = false; this.IsPropNoSetter = false; this.PropBackingName = "";
     }
     public string Dump() { return "(field " + this.Name + " " + this.FieldType.Dump() + ")"; }
 }

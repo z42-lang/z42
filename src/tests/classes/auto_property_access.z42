@@ -1,0 +1,63 @@
+// fix-autoprop-getonly-backing-write：属性的**存储**是合成后备字段 `__prop_X`，而符号表以**源名** X
+// 登记 FieldSymbol 供类型检查。这个落差此前没被发射端消费，于是四条路径全部打在不存在的字段上：
+//   ① ctor 内 `this.Label = l`（get-only 无 set_X）→ 按源名 field_set → 读回 null
+//   ② 类内裸写 `Width = w`      → 名字不在 emit 侧字段集 → 被当「首次赋值一个新局部」，属性没被写
+//   ③ 类内裸读 `return Width`   → `field_get %0.Width` → 恒 Null
+//   ④ 经子类引用读基类属性       → `ct.Methods` 不含继承访问器 → 落 `field_get obj.Height` → 恒 Null
+// 本用例把四条都钉住：裸名与 `this.` 前缀同义，继承来的属性与自有属性同义。
+namespace Demo;
+
+class Box {
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public string Label { get; }        // get-only：仅 ctor 内可写
+
+    public Box(int w, int h, string label) {
+        this.Width = w;                 // this. 前缀 + 有 setter → vcall set_Width
+        Height = h;                     // 裸名 + 有 setter → 同样 vcall set_Height
+        this.Label = label;             // this. 前缀 + 无 setter → 落 __prop_Label
+    }
+
+    // ③ 裸名读：必须 vcall get_X，不能 field_get 源名
+    public int BareArea() { return Width * Height; }
+    public string BareLabel() { return Label; }
+
+    // ② 裸名写（有 setter）：必须 vcall set_X，不能新建局部
+    public void BareGrow(int dw) { Width = Width + dw; }
+}
+
+// ④ 继承：子类读基类属性（this. 前缀与裸名两种写法）
+class TallBox : Box {
+    public TallBox(int w, string label) : base(w, 100, label) { }
+    public int Doubled() { return this.Height * 2; }
+    public string InheritedBareLabel() { return Label; }
+}
+
+void Main() {
+    var b = new Box(3, 4, "first");
+    Assert.Equal(3, b.Width);
+    Assert.Equal(4, b.Height);
+    Assert.Equal("first", b.Label);
+
+    // 裸名读与外部成员读一致
+    Assert.Equal(12, b.BareArea());
+    Assert.Equal("first", b.BareLabel());
+
+    // 裸名写走 setter，外部可见
+    b.BareGrow(7);
+    Assert.Equal(10, b.Width);
+    Assert.Equal(40, b.BareArea());
+
+    // 外部 setter 派发不回归
+    b.Width = 2;
+    Assert.Equal(2, b.Width);
+    Assert.Equal(8, b.BareArea());
+
+    // 继承来的属性：外部读、子类内 this. 读、子类内裸读，三者一致
+    var t = new TallBox(5, "tall");
+    Assert.Equal(5, t.Width);
+    Assert.Equal(100, t.Height);
+    Assert.Equal("tall", t.Label);
+    Assert.Equal(200, t.Doubled());
+    Assert.Equal("tall", t.InheritedBareLabel());
+}

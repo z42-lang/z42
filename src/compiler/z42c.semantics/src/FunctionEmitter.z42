@@ -77,6 +77,12 @@ public sealed class FunctionEmitter {
                     // add-readonly-fields-opt：记 readonly 字段名 → 裸 ident field_get 打 Readonly 标志
                     FieldSymbol ofs = owner.Fields.Get(fnames[fi]) as FieldSymbol;
                     if (ofs != null && ofs.IsReadonly) { this._ctx.ReadonlyFields.Put(fnames[fi], "1"); }
+                    // fix-autoprop-getonly-backing-write：实例属性另记一表 —— 裸 ident 须走访问器而非字段
+                    // （属性以源名 X 登记 FieldSymbol，存储却叫 __prop_X）。静态属性不入表（不经 reg0）。
+                    if (ofs != null && ofs.IsProp && !ofs.IsStatic) {
+                        this._ctx.InstProps.Put(fnames[fi], ofs.PropBackingName);
+                        if (owner.Methods.ContainsKey("set_" + fnames[fi])) { this._ctx.InstPropHasSet.Put(fnames[fi], "1"); }
+                    }
                     fi = fi + 1;
                 }
             }
