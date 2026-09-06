@@ -202,40 +202,16 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     }
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");
-    // False-GREEN guard (2026-09-06): a named lib whose <subdir>/ HOLDS .z42
-    // sources yet yielded no unit. That combination is always a bug — sources
-    // that no discovery rule claims — and it used to print "all 0 file(s)
-    // passed (in 0 lib(s))" and exit 0. That is how z42.ir / z42c.core /
-    // z42c.syntax sat unrun for months: their [Test] dirs failed the old
-    // source.z42 gate in _discoverTestUnits and nothing said so.
+    // 孤儿源守卫（「<subdir>/ 有 .z42 源、却没产出任何单元」= 发现规则没认领 = 假绿）
+    // 已移到 _runLibKind（xtask_manifest_targets.z42）里**逐 lib** 判定。
     //
-    // Deliberately narrow on three axes, so the guard only ever fires on the
-    // real defect:
-    //   · named libs only (nReq > 0) — the unnamed sweep (`test stdlib`,
-    //     `test all`) legitimately walks libs that have no tests at all;
-    //   · sources must actually EXIST under <subdir>/ — a lib with no tests/
-    //     dir (z42.build) is a normal test-less lib, and `test changed` runs
-    //     `test stdlib <lib>` for whichever lib you edited, so failing there
-    //     would be a false alarm, not a finding;
-    //   · no -k filter — a filter matching nothing is the filter's business.
-    if (nReq > 0 && totalFiles == 0 && filter.Length == 0) {
-        string orphaned = "";
-        int qi = 0;
-        while (qi < nReq) {
-            string sd = Path.Join(Path.Join(libsRoot, reqLibsIn[qi]), subdir);
-            if (Directory.Exists(sd) && Path.GlobRecursive(sd, "*.z42").Length > 0) {
-                orphaned = orphaned + (orphaned.Length > 0 ? ", " : "") + reqLibsIn[qi];
-            }
-            qi = qi + 1;
-        }
-        if (orphaned.Length > 0) {
-            ConsoleError.WriteLine("  ❌ stdlib " + label + ": " + orphaned + " has .z42 sources under "
-                + subdir + "/ but no " + label + " unit was discovered — every source there is dead."
-                + " A unit is either <lib>/" + subdir + "/<name>.z42 or a <lib>/" + subdir
-                + "/<name>/ dir declaring [Test] methods.");
-            return 1;
-        }
-    }
+    // 它原本就在这里，但**装错了路**（fix-silent-gates, 2026-09-06 修）：条件是
+    // `nReq > 0 && totalFiles == 0` ——
+    //   ① `nReq > 0` = 只在**显式点名 lib** 时查；而 GREEN gate 走的是不点名全扫
+    //      （`nReq == 0` → 内层 `while (qi < nReq)` 空转，orphaned 恒为空）；
+    //   ② `totalFiles` 是**全局**计数，全扫时必然 > 0，条件根本不成立。
+    // 两条独立原因让它在唯一重要的那条路径上永不触发。而它本就是为
+    // 「z42.ir / z42c.core / z42c.syntax 静默数月」而加的——修补存在，却没装在漏过去的路上。
     if (totalFailed > 0) {
         Console.WriteLine("  ❌ stdlib " + label + ": " + totalFailed.ToString()
             + " file(s) failed (of " + totalFiles.ToString() + " in " + libsTested.ToString() + " lib(s))");
