@@ -31,8 +31,13 @@ public sealed class MemberCollector {
     // 接口方法签名（体可无；签名同类方法解析）（port-z42c-interface）。
     private void _fillInterface(SymbolTable table, ClassDecl c) {
         Z42InterfaceType it = table.Interfaces.Get(c.Name) as Z42InterfaceType;
-        string[] tp = c.TypeParams.Names;    // 接口类型形参（泛型接口 IFoo<T>：T 列入 paramNames 解析签名）
-        int tpc = c.TypeParams.Count;
+        // add-associated-types PR-2（`Self`）：接口内 `Self` 指代**实现类型**，实现方式是把它当成一个
+        // 隐式类型形参塞进 paramNames —— ResolveTypeP 的形参命中分支随即把 `Self` 解析成
+        // Z42GenericParamType("Self")，与真型参 `T` 走**完全同一条路**：不新造类型、约束位/成员签名
+        // 匹配/派发键三处零改动（design D5）。作用域**仅接口**：类的 _fillClass 不加这一项 ⇒ 类里写
+        // `Self` 在 ResolveTypeP 具名路径未命中 → 携名 Z42UnknownType → E0443（与其它未定义类型同码）。
+        string[] tp = MemberCollector._withSelf(c.TypeParams.Names, c.TypeParams.Count);
+        int tpc = c.TypeParams.Count + 1;
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._sc._unwrap(c.Members[j]);
@@ -51,6 +56,16 @@ public sealed class MemberCollector {
             }
             j = j + 1;
         }
+    }
+
+    // add-associated-types PR-2：接口型参名单 ∪ {"Self"}（拷贝新数组，不改原 TypeParams.Names——
+    // 那份被 ClassExtractor / IrGen 等按 Count 复用，就地追加会串味）。
+    internal static string[] _withSelf(string[] names, int count) {
+        string[] r = new string[count + 1];
+        int i = 0;
+        while (i < count) { r[i] = names[i]; i = i + 1; }
+        r[count] = "Self";
+        return r;
     }
 
     private void _fillClass(SymbolTable table, ClassDecl c) {

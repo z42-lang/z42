@@ -1,0 +1,10 @@
+// ext → target：经**接口静态类型**调用带 `Self` / `T` 的方法。这条路走的正是
+// ImportedSymbolLoader 填充的 imported 接口方法签名（本 PR 给它接上型参上下文），
+// 与 main 直接在具体类上调用是两条不同的解析路径，故两侧都要覆盖。
+namespace DemoSExt;
+
+using DemoSTarget;
+
+bool eqVia(IEq a, IEq b) { return a.Same(b); }
+
+int getVia(IBox<int> b) { return b.Get(); }

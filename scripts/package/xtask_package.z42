@@ -63,7 +63,9 @@ int _packageRuntime(string rid, string profile, string variant, bool noBuild) {
     string version = _versionsGet(root);
     if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
     if (category == "desktop") {
-        // host runtime pack owns its z42-runtime-<rid> dir + finishes internally.
+        // host runtime pack 自带 z42-runtime-<rid> 目录，并**自己调 _pkgFinish**
+        // （fix-silent-gates, 2026-09-06 补上——此前它直接 return 0，而这条注释写的
+        // "finishes internally" 是错的，于是这个已发布产物从不跑 source-identity 门）。
         int rc = _buildRuntimePackage(root, rid, version, profile);
         if (rc == 0) { _procEnd("package runtime", sw); }
         return rc;
@@ -351,8 +353,12 @@ int _pkgSourceIdentityCheck(string root, string pkgDir) {
         else                            { i = i + 1; continue; }   // 本包没有这一类
         int n = t.Compared - before;
         if (n == 0) {
-            // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了（正是本次要修的「假保障」形状）。
-            ConsoleError.WriteLine("  ⚠ " + r.Label + ": " + r.PkgRel + " 存在但 0 个文件可比对 —— 规则可能已与拷贝点脱钩");
+            // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了。**这是失败，不是警告**
+            // （fix-silent-gates, 2026-09-06 收紧）：#496 初版只打 ⚠ 不计入 Mismatch，
+            // 于是「本门要防的那个形状」自己复发时门是黄的不是红的——正是本轮审计
+            // 要根除的「不会红的门」。规则失联必须让 package 命令挂掉。
+            ConsoleError.WriteLine("  ✗ " + r.Label + ": " + r.PkgRel + " 存在但 0 个文件可比对 —— 规则已与拷贝点脱钩");
+            t.Mismatch = t.Mismatch + 1;
         } else {
             covered = covered + (covered.Length > 0 ? ", " : "") + r.Label + " " + n.ToString();
         }

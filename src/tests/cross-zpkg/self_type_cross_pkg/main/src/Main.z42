@@ -1,0 +1,21 @@
+// `Self` 跨包往返：main 消费 target 的带 `Self` 接口与其实现类，并经 ext 走接口静态类型一次。
+//
+// 这个用例的价值在**编译期**——能编过本身就是断言：`Self` 若在跨包导入侧还原不出来
+// （落 `Z42ClassType.Builtin("Self")` 垃圾类型），带它的接口方法签名就是坏的。运行只是
+// 为了让 harness 有可比对的 stdout。
+namespace DemoSApp;
+
+using Std.IO;
+using DemoSTarget;
+using DemoSExt;
+
+void Main() {
+    var p = new Point(3);
+    var q = new Point(3);
+    Console.WriteLine("" + p.Same(q));      // true —— 具体类上的实现方法
+    Console.WriteLine("" + eqVia(p, q));    // true —— ext 经接口静态类型跨包调用（Self 形参位）
+    var b = new IntBox(42);
+    Console.WriteLine("" + b.Get());        // 42
+    Console.WriteLine("" + getVia(b));      // 42 —— 泛型接口的 T（此前跨包退化成垃圾类型）
+    Console.WriteLine("" + b.Copy().Get()); // 42 —— Self 返回位
+}
