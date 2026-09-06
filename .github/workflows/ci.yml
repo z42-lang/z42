@@ -467,9 +467,19 @@ jobs:
           # `A && echo` 在 set -e 下**永不失败**（非末位命令），于是这条断言此前缺件时
           # 既不打印也不报错——邻近每条都是 `|| { exit 1; }`，只有它写反了
           # （fix-more-silent-gates, 2026-09-06）。
-          test -f "$pkg_dir/native/libz42_compression.a" \
-              || { echo "error: native/libz42_compression.a missing — mobile / bundled-link consumers lose the staticlib"; ls -la "$pkg_dir/native/"; exit 1; }
-          echo "✓ native/libz42_compression.a (staticlib for mobile / future bundled link)"
+          #
+          # ⚠️ 静态库名按平台分叉，必须像上面 dlopen 那条一样写成 or：Windows 上 MSVC
+          # 产的是 `z42_compression.lib`，没有 `lib` 前缀也不是 `.a`。改硬断言的那一版
+          # 只写了 Unix 名 → Windows 立刻红。**这条断言写反的那天起就一直在掩盖这个
+          # 平台差异**：它当初若生效，Windows 早就红了。（`z42_compression.dll.lib` 是
+          # import lib、不是静态库，故精确匹配而非通配。）
+          if [ -f "$pkg_dir/native/libz42_compression.a" ] \
+             || [ -f "$pkg_dir/native/z42_compression.lib" ]; then
+              echo "✓ native/libz42_compression.{a,lib} (staticlib for mobile / future bundled link)"
+          else
+              echo "error: native/libz42_compression.{a,lib} missing — mobile / bundled-link consumers lose the staticlib"
+              ls -la "$pkg_dir/native/"; exit 1
+          fi
           test -f "$pkg_dir/libs/z42.compression.zpkg" \
               || { echo "error: libs/z42.compression.zpkg missing"; exit 1; }
           echo "✓ libs/z42.compression.zpkg"
