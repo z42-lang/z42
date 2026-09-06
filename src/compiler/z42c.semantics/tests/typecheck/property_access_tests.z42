@@ -1,0 +1,75 @@
+// 属性访问契约单测（fix-autoprop-getonly-backing-write）。
+// 背景：属性以**源名** X 登记 FieldSymbol 供类型检查，存储却是合成后备字段 `__prop_X`。这个落差
+// 此前没被下游消费 → 无 setter 的赋值按源名发 field_set（写进不存在的字段）、裸 ident 读发
+// field_get 源名（恒 Null）。本文件锁住两条契约：
+//   ① 赋值合法性（E0452）：get-only auto-property 仅 ctor 内经 `this` 可写；计算属性任何位置不可写。
+//   ② 裸名与 `this.` 前缀同义（运行期行为由 e2e src/tests/classes/auto_property_access.z42 钉住）。
+namespace Z42cSemanticsPropertyAccessTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── get-only auto-property：ctor 内经 this 写，合法 ────────────────
+[Test]
+void test_getonly_autoprop_write_in_ctor_ok() {
+    string src = "namespace D; class C { public string L { get; } C(string s) { this.L = s; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── get-only auto-property：ctor 内裸名写，同样合法（与 this. 同义）──
+[Test]
+void test_getonly_autoprop_bare_write_in_ctor_ok() {
+    string src = "namespace D; class C { public string L { get; } C(string s) { L = s; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── get-only auto-property：普通方法内写 → E0452 ──────────────────
+[Test]
+void test_getonly_autoprop_write_in_method_errors() {
+    string src = "namespace D; class C { public string L { get; } C() { } void M(string s) { this.L = s; } }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+}
+
+// ── get-only auto-property：类外写 → E0452 ───────────────────────
+[Test]
+void test_getonly_autoprop_write_from_outside_errors() {
+    string src = "namespace D; class C { public string L { get; } C(string s) { this.L = s; } }"
+        + " void Main() { var c = new C(\"a\"); c.L = \"b\"; }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 计算属性（有 get 体、无存储）：ctor 内也不可写 → E0452 ─────────
+[Test]
+void test_computed_property_write_in_ctor_errors() {
+    string src = "namespace D; class C { public int N { get { return 42; } } C() { this.N = 1; } }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 读写 auto-property：处处可写，无诊断（不回归）────────────────
+[Test]
+void test_readwrite_autoprop_write_anywhere_ok() {
+    string src = "namespace D; class C { public int W { get; set; } C(int w) { this.W = w; } void M() { this.W = 9; } }"
+        + " void Main() { var c = new C(1); c.W = 2; }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 读写 auto-property 裸名写：无诊断 ────────────────────────────
+[Test]
+void test_readwrite_autoprop_bare_write_ok() {
+    string src = "namespace D; class C { public int W { get; set; } C(int w) { W = w; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 普通字段不受影响：readonly 仍走 E0415、非 readonly 处处可写 ────
+[Test]
+void test_plain_field_unaffected() {
+    string src = "namespace D; class C { public int F; C() { } void M() { this.F = 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_readonly_field_still_e0415() {
+    string src = "namespace D; class C { public readonly int F; C() { this.F = 1; } void M() { this.F = 2; } }";
+    Assert.Equal("E0415", SemanticDump.FirstErrorCode(src));
+}

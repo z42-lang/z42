@@ -112,10 +112,13 @@ public sealed class TypeEnv {
     // add-const-keyword：局部 const 值登记 / 父链查找。IsConstName 供赋值检查（不可对 const 赋值）。
     public void DefineConst(string name, ConstValue cv) { this.Consts.Put(name, cv); }
     public ConstValue LookupConst(string name) {
+        // perf：父链逐层查同一个键 —— `GetHashCode` 是 O(n) FNV-1a 且每次调用都重算，
+        // 逐层 `Find` 会把它白算 k 遍。这里取一次，逐表传给 `FindHashed`。
+        int _h = name.GetHashCode();
         TypeEnv e = this;
         bool more = true;
         while (more) {
-            int _sl0 = e.Consts.Find(name); if (_sl0 >= 0) { return e.Consts.ValAt(_sl0) as ConstValue; }
+            int _sl0 = e.Consts.FindHashed(name, _h); if (_sl0 >= 0) { return e.Consts.ValAt(_sl0) as ConstValue; }
             if (e.HasParent) { e = e.Parent; } else { more = false; }
         }
         return null;
@@ -138,10 +141,13 @@ public sealed class TypeEnv {
     // impl-local-fn-l2：局部函数签名注册 / 父链查找（null = 非局部函数）。
     public void DefineLocalFn(string name, Z42FuncType sig) { this.LocalFns.Put(name, sig); }
     public Z42FuncType LookupLocalFn(string name) {
+        // perf：父链逐层查同一个键 —— `GetHashCode` 是 O(n) FNV-1a 且每次调用都重算，
+        // 逐层 `Find` 会把它白算 k 遍。这里取一次，逐表传给 `FindHashed`。
+        int _h = name.GetHashCode();
         TypeEnv e = this;
         bool more = true;
         while (more) {
-            int _sl1 = e.LocalFns.Find(name); if (_sl1 >= 0) { return e.LocalFns.ValAt(_sl1) as Z42FuncType; }
+            int _sl1 = e.LocalFns.FindHashed(name, _h); if (_sl1 >= 0) { return e.LocalFns.ValAt(_sl1) as Z42FuncType; }
             if (e.HasParent) { e = e.Parent; } else { more = false; }
         }
         return null;
@@ -150,10 +156,13 @@ public sealed class TypeEnv {
     // 本层 → 父链查找；未找到返回 null。
     // 迭代（非递归）：z42 无法在自身方法内对 self-type 字段调自身方法（编译中类型未就绪）→ 走字段读循环。
     public Z42Type LookupVar(string name) {
+        // perf：父链逐层查同一个键 —— `GetHashCode` 是 O(n) FNV-1a 且每次调用都重算，
+        // 逐层 `Find` 会把它白算 k 遍。这里取一次，逐表传给 `FindHashed`。
+        int _h = name.GetHashCode();
         TypeEnv e = this;
         bool more = true;
         while (more) {
-            int _sl2 = e.Vars.Find(name); if (_sl2 >= 0) { return e.Vars.ValAt(_sl2) as Z42Type; }
+            int _sl2 = e.Vars.FindHashed(name, _h); if (_sl2 >= 0) { return e.Vars.ValAt(_sl2) as Z42Type; }
             if (e.HasParent) { e = e.Parent; }
             else { more = false; }
         }

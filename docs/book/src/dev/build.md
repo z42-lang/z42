@@ -54,7 +54,7 @@ stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LI
 单工程 `z42c build <toml>` 的判定与组装 SoT = **cache**（`<rel>.zbc` fullMode + `<rel>.meta`
 + 包级源清单；`[build].cache_dir` → `${output_dir}/.cache` → `<projectDir>/.cache` 级联）。
 粒度**文件级**：种子（hash / 条目缺失·pin / 源清单不一致→全量）→ token 保守边传递闭包
-（标识符 token ∩ 包内定义名）→ 只重编失效闭包，其余文件 IrModule 经 **ZbcReader** 从
+（标识符 token ∩ 包内定义名，**经声明面闸门起跳**，见下）→ 只重编失效闭包，其余文件 IrModule 经 **ZbcReader** 从
 cache 读回（meta 回填 zbc wire 不携带的 writer 残留：块 label 原文/模块池原序/TIDX idx）；
 TSIG/符号恒全包重算（每文件 TSIG 全包耦合）→ 组装零分叉。全命中 → `no changes; preserved`。
 省下的是失效外文件的 typecheck+codegen（最贵相位）；parse/TSIG/组装恒做（Amdahl 上界）。
@@ -62,6 +62,35 @@ TSIG/符号恒全包重算（每文件 TSIG 全包耦合）→ 组装零分叉�
 `--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 打印种子与传播链。**workspace/flat 构建
 （上图阶段一/二）不落 cache、不 probe**——gen1/gen2 字节对比路径零扰动；布线见 roadmap
 Deferred `incremental-future-workspace-wiring`。机制细节：[project.md 增量编译节](../../../design/compiler/project.md)。
+
+#### 声明面闸门（fix-z42c-incremental-closure，2026-09-06）
+
+token 保守边极粗：`_definedOf` 把**成员名**也登记成属主名，于是任一定义了 `Name()` 的文件一变，
+全包凡是提到 `Name` 的文件统统失效——xtask 工程（64 文件）**只加一行注释**就 `cached: 0/64`。
+闸门只收紧**传播的起点**：
+
+- 每个 cache 条目多存一个**声明面指纹**（`CacheMeta.SurfaceHash`，meta v4）= 该文件 token 流
+  把方法 / 构造 / 计算属性 getter / 索引器的**体**各压成一个 `{}` 记号后的哈希
+  （`z42c.driver/src/SurfaceHash.z42`）。注释与空白本就不是 token，天然不参与。
+- `Close` 的传播条件加一项 `SurfaceChanged[j]`：**源变了但声明面相等**的文件（改注释 / 改函数体）
+  只重编它自己，不把失效传给引用方。`Z42_INCR_DEBUG=1` 打印 `[surface-equal] <rel>`。
+- **一旦传播起来就照旧全传递**：被波及而转 fresh 的行 `SurfaceChanged` 保持默认 `true`，
+  于是「A 继承 B、C 用 A」这类**布局经中间文件透传**的链条与闸门前完全一致地整条失效。
+  闸门不去猜哪些扩散可以省，只掐掉「本来就不该起跳的那一跳」。
+
+**为什么「声明面没变 ⇒ 引用方的 cached zbc 仍然有效」**——跨文件依赖只经声明面：内联
+（`IrInline`）只在同一 `IrModule`（= 单 CU）内解析 callee；逃逸 / 纯度摘要（`IrEscapeSummary` /
+`IrPureFunctionTable`）同为模块级不动点，跨模块调用无摘要即保守处理；泛型不单态化进调用方
+（类型实参以名字随 `CallInstr.MethodTypeArgs` 走运行期）；唯一把别处体内的值抄进消费方的
+`const` 字段，其初值写在**字段声明**里、不在方法体内，本就留在声明面中。
+
+保守方向也是稳的：**漏**登记一种带体的声明形态，只会让那段 token 留在指纹里 → 该文件体一改
+照旧全波及（多编不错编）；**多**挖 token 才危险，故只按「AST 亲口给出的体起始 `{` 偏移 +
+token 层大括号配平」挖，不做猜测式跳过。
+
+实测（xtask 64 文件，单文件注释 touch）：`cached: 0/64` → `cached: 63/64`；
+`xtask test incremental` 对账器 65/65 文件与 `--no-incremental` 全量**逐字节相等**，
+per-touch 墙钟 4125ms → 2428ms（−41%；余下是恒做的全包 parse + 组装 + zpkg 落盘，Amdahl 上界）。
 
 ### 不动点验证（test compiler 的核心）
 

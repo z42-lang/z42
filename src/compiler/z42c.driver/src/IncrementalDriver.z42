@@ -21,38 +21,46 @@ public sealed class IncrPrep {
     public CompilationUnit[]  Cus;
     public IrModule[]         Cached;
     public NameListZ[]        Idents;
+    public string[]           Surfaces;   // fresh 行的声明面指纹（WriteMetas 消费）；其余 null
     public IncrPrep(IncrFilePlan plan, CompilationUnit[] cus, IrModule[] cached) {
         this.Plan = plan; this.Cus = cus; this.Cached = cached;
         this.Idents = null;
+        this.Surfaces = null;
     }
 }
 
-// parse-all 产物束：CU + 按需捕获的标识符集（want[i] 为真才提取）。
+// parse-all 产物束：CU + 按需捕获的标识符集与声明面指纹（want[i] 为真才提取）。
 public sealed class ParsedPkg {
     public CompilationUnit[] Cus;
     public NameListZ[]       Idents;
-    public ParsedPkg(CompilationUnit[] cus, NameListZ[] idents) {
-        this.Cus = cus; this.Idents = idents;
+    public string[]          Surfaces;
+    public ParsedPkg(CompilationUnit[] cus, NameListZ[] idents, string[] surfaces) {
+        this.Cus = cus; this.Idents = idents; this.Surfaces = surfaces;
     }
 }
 
 public static class IncrementalDriver {
 
-    // 全文件 parse（+ AttributeSynth，镜像 IrDump.ParseAll）+ 按需标识符捕获：
-    // want[i] 为真的文件从 Parser 已 lex 的 token 流提取标识符集（D8 修正——全链路
-    // 零第二遍 lex）；want == null → 全不捕获（workspace 等不落 cache 的路径）。
+    // 全文件 parse（+ AttributeSynth，镜像 IrDump.ParseAll）+ 按需标识符 / 声明面捕获：
+    // want[i] 为真的文件从 Parser 已 lex 的 token 流提取标识符集与声明面指纹（D8 修正——
+    // 全链路零第二遍 lex）；want == null → 全不捕获（workspace 等不落 cache 的路径）。
+    // 声明面指纹取 **RunAst 之前**的 raw CU（合成成员无真实 token 区间，见 SurfaceHash.z42）。
     public static ParsedPkg ParseAllTk(string[] texts, string[] srcs, int n, bool[] want) {
         CompilationUnit[] cus = new CompilationUnit[n];
         NameListZ[] idents = new NameListZ[n];
+        string[] surfaces = new string[n];
         int i = 0;
         while (i < n) {
             var pp = new Parser(texts[i], srcs[i]);
             CompilationUnit raw = pp.ParseCompilationUnit();
-            if (want != null && want[i]) { idents[i] = IncrementalDriver._identsOf(pp.Tokens()); }
+            if (want != null && want[i]) {
+                idents[i] = IncrementalDriver._identsOf(pp.Tokens());
+                surfaces[i] = SurfaceHash.Of(raw, pp.Tokens());
+            }
             cus[i] = HandlerRegistry.RunAst(raw);   // attribute-handler-registry：AST-phase 单一入口（内建 Generator + store-meta 合成）
             i = i + 1;
         }
-        return new ParsedPkg(cus, idents);
+        return new ParsedPkg(cus, idents, surfaces);
     }
 
     // 全流程：种子 → parse-all（顺手捕获 fresh 行标识符）→ 闭包 → cached 读回+回填
@@ -71,6 +79,23 @@ public static class IncrementalDriver {
 
         ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, n, plan.Fresh);
         CompilationUnit[] cus = pk.Cus;
+        // 声明面闸门（fix-z42c-incremental-closure）：种子失效行里，只有**声明面**也变了的才
+        // 够格把失效传给引用方——改注释 / 改函数体只重编它自己。没有上次指纹（首建 / meta 换版）
+        // → 保持默认 true（保守）。被波及转 fresh 的行不动（默认 true = 照旧全传递，见
+        // IncrementalBuild.Close 头注）。
+        bool incrDebug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
+        i = 0;
+        while (i < n) {
+            if (plan.Fresh[i] && pk.Surfaces[i] != null && plan.PrevSurface[i].Length > 0
+                && pk.Surfaces[i] == plan.PrevSurface[i]) {
+                plan.SurfaceChanged[i] = false;
+                if (incrDebug) {
+                    ConsoleError.WriteLine("  [surface-equal] " + IncrementalBuild.Rel(projectDir, srcs[i])
+                        + " (comment/body-only) -> not a propagation source");
+                }
+            }
+            i = i + 1;
+        }
         NameListZ[] tokens = new NameListZ[n];
         NameListZ[] defined = new NameListZ[n];
         i = 0;
@@ -104,6 +129,9 @@ public static class IncrementalDriver {
                     if (m == null) {
                         ConsoleError.WriteLine("  [degrade/unreadable-cache] " + rel + " -> fresh");
                         plan.Fresh[i] = true; plan.FreshCount = plan.FreshCount + 1;
+                        // 降级只因 zbc 读不回来——源、声明面均未变 → 不当传播源（否则「缓存坏一个」
+                        // 会退化成全包重编）。
+                        plan.SurfaceChanged[i] = false;
                         plan.Metas[i] = null;
                         IncrementalBuild.Close(plan, srcs, projectDir, tokens, defined, partialNames);
                         stable = false;
@@ -127,8 +155,20 @@ public static class IncrementalDriver {
             }
             i = i + 1;
         }
+        // 同款来源规则给声明面指纹：种子 fresh = parse 时算的；闭包/降级转 fresh 的行源未变
+        // → 沿用上次 meta 里的值（零重算）。两者皆无 → WriteMetas 兜底重算。
+        string[] surfaces = new string[n];
+        i = 0;
+        while (i < n) {
+            if (plan.Fresh[i]) {
+                if (pk.Surfaces[i] != null) { surfaces[i] = pk.Surfaces[i]; }
+                else if (metas0[i] != null) { surfaces[i] = metas0[i].SurfaceHash; }
+            }
+            i = i + 1;
+        }
         IncrPrep prep = new IncrPrep(plan, cus, cached);
         prep.Idents = idents;
+        prep.Surfaces = surfaces;
         return prep;
     }
 
@@ -136,7 +176,7 @@ public static class IncrementalDriver {
     // 残留 pool/labels）+ 包级源清单。任何写失败由调用方 try/catch 吞（cache 非致命）。
     public static void WriteMetas(string cacheDir, string projectDir, string[] srcs, string[] texts,
                                   string[] hashes, int n, CompiledModuleZ[] cms, ZbcFileZ[] mods,
-                                  IncrFilePlan plan, NameListZ[] idents) {
+                                  IncrFilePlan plan, NameListZ[] idents, string[] surfaces) {
         string[] rels = new string[n];
         int i = 0;
         while (i < n) {
@@ -150,6 +190,10 @@ public static class IncrementalDriver {
                 NameListZ tk = (idents != null && idents[i] != null)
                     ? idents[i] : IncrementalDriver._tokensOf(texts[i], srcs[i]);
                 m.Tokens = tk.Items; m.TokenCount = tk.Count;
+                // 声明面指纹：parse 时已算（或从上次 meta 沿用）；无捕获（异常路径 / 全量
+                // 且未落 want）才兜底重 parse 一次。
+                m.SurfaceHash = (surfaces != null && surfaces[i] != null)
+                    ? surfaces[i] : IncrementalDriver._surfaceOfText(texts[i], srcs[i]);
                 IrModule irm = cms[i].Module;
                 string[] pool = new string[irm.StringCount > 1 ? irm.StringCount - 1 : 0];
                 int p = 1;
@@ -306,6 +350,13 @@ public static class IncrementalDriver {
         var lx = new Lexer(text, file);
         lx.Tokenize();
         return IncrementalDriver._identsOf(lx);
+    }
+
+    // 声明面指纹的兜底重算（需要 AST 定体边界 → 重 parse 一次；正常路径走 ParseAllTk 的捕获）。
+    private static string _surfaceOfText(string text, string file) {
+        var pp = new Parser(text, file);
+        CompilationUnit raw = pp.ParseCompilationUnit();
+        return SurfaceHash.Of(raw, pp.Tokens());
     }
 
     // 从已 lex 的 token 流提取标识符去重集（零额外 lex）。

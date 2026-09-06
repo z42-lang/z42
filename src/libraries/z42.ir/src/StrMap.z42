@@ -20,24 +20,93 @@ public sealed class StrMap {
 
     public int Count() { return this._count; }
 
-    public bool ContainsKey(string key) { return this._find(key) >= 0; }
+    // ⚠⚠ perf（2026-09-06）：下面四个查找入口各自**内联**探测循环，不再共用一个 private `_find`。
+    // 解释执行下**一层纯转发就是一整个 z42 调用帧**（含 VmFrame 两次 `Arc<str>` 克隆）——
+    // 采样 profile 实测 `Find` / `ContainsKey` 这两个转发器**自身**合计占全负载 **2.21%**，
+    // 而它们的函数体只有一行。重复的是循环文本，省下的是每次查找一整个帧。
+    public bool ContainsKey(string key) {
+        int slot = key.GetHashCode() & (this._cap - 1);
+        int probes = 0;
+        while (probes < this._cap) {
+            if (!this._used[slot]) { return false; }
+            if (this._keys[slot] == key) { return true; }
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+            probes = probes + 1;
+        }
+        return false;
+    }
 
     // 命中槽号（未命中 -1）。`ContainsKey(k)` 紧跟 `Get(k)` 这种成对写法要走**两次** hash +
     // 两次探测；改成 `Find` 一次拿槽号、再 `ValAt` 取值，只走一次。槽号语义与 UsedAt/KeyAt/ValAt
     // 一致，且对「值本身是 null」的键也正确（Get 的 null 返回分不清「无此键」与「值为 null」）。
     // ⚠ 槽号只在下一次 Put 之前有效（Put 可能触发 _grow 重排整表）。
-    public int Find(string key) { return this._find(key); }
+    public int Find(string key) {
+        int slot = key.GetHashCode() & (this._cap - 1);
+        int probes = 0;
+        while (probes < this._cap) {
+            if (!this._used[slot]) { return -1; }
+            if (this._keys[slot] == key) { return slot; }
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+            probes = probes + 1;
+        }
+        return -1;
+    }
+
+    // 同 `Find`，但哈希由调用方传入 —— 用于**同一个键连查多张表**：作用域父链
+    // （`TypeEnv.LookupVar` 逐层 `e.Vars.Find(name)`）、「const 局部 / 局部 / 字段」三连查。
+    // `Std.String.GetHashCode` 是 **O(n) FNV-1a 且每次调用都重算**（字符串对象里没地方存哈希，
+    // 底层是 `Arc<str>`），profile 里自占 1.93%、其中 1.45% 来自本类的探测入口 ⇒ 连查 k 张表
+    // 就白算 k-1 遍。调用方用 `key.GetHashCode()` 取一次再逐表传进来。
+    public int FindHashed(string key, int h) {
+        int slot = h & (this._cap - 1);
+        int probes = 0;
+        while (probes < this._cap) {
+            if (!this._used[slot]) { return -1; }
+            if (this._keys[slot] == key) { return slot; }
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+            probes = probes + 1;
+        }
+        return -1;
+    }
+
+    // 同 `ContainsKey`，哈希由调用方传入（同上）。同样内联，不转发。
+    public bool ContainsKeyHashed(string key, int h) {
+        int slot = h & (this._cap - 1);
+        int probes = 0;
+        while (probes < this._cap) {
+            if (!this._used[slot]) { return false; }
+            if (this._keys[slot] == key) { return true; }
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+            probes = probes + 1;
+        }
+        return false;
+    }
 
     // 不存在返回 null（调用方 `as`-下行前 ContainsKey 或判 null）。
     public object Get(string key) {
-        int i = this._find(key);
-        if (i >= 0) { return this._vals[i]; }
+        int slot = key.GetHashCode() & (this._cap - 1);
+        int probes = 0;
+        while (probes < this._cap) {
+            if (!this._used[slot]) { return null; }
+            if (this._keys[slot] == key) { return this._vals[slot]; }
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+            probes = probes + 1;
+        }
         return null;
     }
 
     public void Put(string key, object val) {
         if (this._count * 2 >= this._cap) { this._grow(); }
-        int slot = this._slotFor(key);
+        int slot = key.GetHashCode() & (this._cap - 1);
+        while (this._used[slot] && this._keys[slot] != key) {
+            slot = slot + 1;
+            if (slot >= this._cap) { slot = 0; }
+        }
         if (!this._used[slot]) { this._count = this._count + 1; }
         this._keys[slot] = key;
         this._vals[slot] = val;
@@ -78,31 +147,6 @@ public sealed class StrMap {
     // 槽号：`_cap` 恒为 2 的幂（16 起、_grow 翻倍）⇒ `h % _cap` 等价于 `h & (_cap-1)`，
     // 省掉每次查找一次整除。与旧式 `(h & 0x7FFFFFFF) % _cap` 逐位等值：低位掩码本就落在
     // 0x7FFFFFFF 之内，清符号位那一步对结果没有影响，结果恒非负。探测序不变 ⇒ 槽布局不变。
-    // 原来还外套一层 `_hash` 方法调用，每次查找一次 —— 一并内联掉。
-
-    // 查找已有 key 的槽（命中返回槽号，未命中 -1）。
-    private int _find(string key) {
-        int slot = key.GetHashCode() & (this._cap - 1);
-        int probes = 0;
-        while (probes < this._cap) {
-            if (!this._used[slot]) { return -1; }
-            if (this._keys[slot] == key) { return slot; }
-            slot = slot + 1;
-            if (slot >= this._cap) { slot = 0; }
-            probes = probes + 1;
-        }
-        return -1;
-    }
-
-    // 为 Put 找槽：命中 key 的槽（更新）或第一个空槽（负载 <0.5 必有空）。
-    private int _slotFor(string key) {
-        int slot = key.GetHashCode() & (this._cap - 1);
-        while (this._used[slot] && this._keys[slot] != key) {
-            slot = slot + 1;
-            if (slot >= this._cap) { slot = 0; }
-        }
-        return slot;
-    }
 
     private void _grow() {
         int oldCap = this._cap;
@@ -116,7 +160,23 @@ public sealed class StrMap {
         this._count = 0;
         int i = 0;
         while (i < oldCap) {
-            if (oldUsed[i]) { this.Put(oldKeys[i], oldVals[i]); }
+            if (oldUsed[i]) {
+                // 内联 Put（重排期每条都要一个 z42 帧，是 _grow 的主要自占成本）。
+                // 等价性：① 重排期 `_count*2 >= _cap` **恒不成立** —— 旧表负载 <0.5 ⇒ 至多
+                // oldCap/2 条，而新 _cap = 2*oldCap，`_count` 到不了 oldCap ⇒ 不会嵌套 _grow；
+                // ② 旧表键互异 ⇒ Put 的 `_used[slot] && _keys[slot] != key` 条件退化成
+                // `_used[slot]`，探测必停在第一个空槽 ⇒ 槽布局与逐条走 Put 完全相同。
+                string k = oldKeys[i];
+                int slot = k.GetHashCode() & (this._cap - 1);
+                while (this._used[slot]) {
+                    slot = slot + 1;
+                    if (slot >= this._cap) { slot = 0; }
+                }
+                this._keys[slot] = k;
+                this._vals[slot] = oldVals[i];
+                this._used[slot] = true;
+                this._count = this._count + 1;
+            }
             i = i + 1;
         }
     }

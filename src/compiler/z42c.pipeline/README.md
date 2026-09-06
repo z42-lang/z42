@@ -9,7 +9,7 @@
 | `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现（wire-z42b）——对外编译入口。尊重 `req.Kind`（exe 默认需 Main / lib 免 Main，供 compile-then-test 直接编测试工程，`add-z42b-compile-then-test`）|
 | `src/Z42cReplCompiler.z42` | REPL 增量编译路径（累积声明 + 惰性符号世界）|
 | `src/PackageCompile.z42` | 单包编译编排（源发现 → sem → emit → zpkg）|
-| `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）|
+| `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）；条目 meta = 源 hash + **声明面指纹**（v4）+ ns/useddep/token + writer 残留 |
 | `src/GeneratorLoader.z42` | source generator 加载 + 运行 |
 | `src/DepScan.z42` | **扫描编排 hub**（refactor-depscan-concern-split：854→409）：公开扫描 API（`Scan`/`ScanDirs`/`ScanDirsLazy`/`ExtendWithPackage`/`EnsurePackageLoaded`/`ReconcileCandidatesInNs`）+ 共享叶子辅助（`_nsIndexOf`/`_shortOf`/`_nameOfBasename`）。DependencyIndex / nsMap / 跨包类型世界（prelude-first + Ordinal 排序）；`ScanDirsLazy` REPL 惰性路径——`LazyReconWorld` 按包懒填、基类链按 ns 路由只解析引用闭包（lazy-type-world，O(引用) 不随库总量增长）。`ScanDirs` 的 `ZpkgReader.Open` + `TsigReconcile.Rebuild` 经 `DepScanCache` memo（见下）。各簇经 `DepScan._nsIndexOf`/`_shortOf` 单向委回 hub、零簇间边；`Z42C_TRACE_DEPSCAN=1` 把 `ScanDirs` 的 open / sigs / tsig 三段耗时打到 stderr（perf-tsig-reconcile-index 的测量口径）|
 | `src/DepScanTypes.z42` | DepScan 产物数据类（refactor-depscan-concern-split 从 DepScan 拆出）：`DepScanResult`（扫描产物束：Index/nsMap/Exported/惰性 world/惰性 libOpened/类型→ns 索引）+ `NsIndexEntry`（ns 索引条目）。纯数据无逻辑 |
@@ -19,7 +19,7 @@
 | `src/DepScanCache.z42` | **F2** 进程级 zpkg memo：按 path 缓存打开的 `ZpkgInfo` + 该包 `TsigReconcile.Rebuild` 结果，把 workspace 逐成员重复解同一 zpkg 的 O(N²) 降成 O(N)（DepScan -71%）。算法/排序/过滤不变 → 字节不动点天然成立；正确性依赖「进程内 path→内容稳定」不变式（头注） |
 | `src/WorkspaceBuild.z42` | workspace 成员发现 + 拓扑序 + per-member 布局（WsPlan）|
 | `src/PathDepPlan.z42` | 本地 path 依赖闭包（add-path-dependencies）：沿 `DepEntry.Path` 边 post-order DFS（环检测 + 规范化路径去重）→ 叶子在前的传递闭包（`PathDepClosure`）。driver `_build` 据此逐成员现建 + 累积 libsDirs + colocate 私有 zpkg。机制见 book `compiler/project-model.md` 路径依赖闭包 |
-| `src/IncrementalBuild.z42` | 文件级增量 probe（add-file-level-incremental）：`ProbeFiles` 种子（hash/条目·pin/包级源清单）+ `Close` token 保守边传递闭包（标识符 token ∩ 包内定义名）；`Z42_INCR_DEBUG` 种子+传播链；单测见 `tests/incremental/` |
+| `src/IncrementalBuild.z42` | 文件级增量 probe（add-file-level-incremental）：`ProbeFiles` 种子（hash/条目·pin/包级源清单）+ `Close` token 保守边传递闭包（标识符 token ∩ 包内定义名），传播起点经**声明面闸门**过滤（fix-z42c-incremental-closure：源变但声明面没变 → 不波及引用方）；`Z42_INCR_DEBUG` 种子+传播链+`[surface-equal]`；单测见 `tests/incremental/` |
 
 ## 入口点
 `Z42.Pipeline`（命名空间）。
