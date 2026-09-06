@@ -176,6 +176,10 @@ string _requireDesktopApphost(string cmd, string rid) {
 // (move-publish-to-z42b). The launcher resolves the installed desktop workload
 // apphost stub and passes it via Z42_APPHOST_TEMPLATE (Decision 3.5); z42b gates
 // `apphost = true` + bin/payload layout + build-always. other platforms → B5.
+// `--self-contained` selects z42b's embed path instead (runtime linked into the
+// exe; the embed apphost + stdlib come from the project's [build] hooks or the
+// Z42_EMBED_* env — not from the desktop workload, which carries only the spawn
+// apphost stub).
 void _cmdPublish(ParseResult r) {
     string rid = r.GetOption("rid");
     if (rid.Length == 0) { rid = _hostRid(); }
@@ -196,19 +200,27 @@ void _cmdPublish(ParseResult r) {
     // forward to z42b with --rid + Z42_APPHOST_TEMPLATE. "" stub → z42b reports the
     // "install the desktop workload" hint after its apphost-gate check.
     string stub = _desktopApphostStub(rid);
-    string[] fargv = _publishForwardArgv(r.GetPositional(0), rid, r.GetOption("output"), r.GetFlag("no-build"));
+    string[] fargv = _publishForwardArgv(r.GetPositional(0), rid, r.GetOption("output"),
+        r.GetFlag("no-build"), r.GetFlag("self-contained"));
     Environment.Exit(_forwardZ42bEnv(fargv, "Z42_APPHOST_TEMPLATE", stub));
 }
 
-// Reconstruct the z42b argv: `publish <toml> --rid <rid> [--output <out>] [--no-build]`.
-string[] _publishForwardArgv(string tomlPath, string rid, string output, bool noBuild) {
+// Reconstruct the z42b argv:
+// `publish <toml> --rid <rid> [--output <out>] [--no-build] [--self-contained]`.
+// Every publish flag the launcher accepts must be forwarded here — a flag that is
+// parsed but not reconstructed is silently dropped (`--self-contained` was: the
+// launcher never registered it, so `z42 publish --self-contained` errored out as an
+// unknown flag and only `z42b publish` could reach the embed path).
+string[] _publishForwardArgv(string tomlPath, string rid, string output, bool noBuild,
+                             bool selfContained) {
     bool hasOut = output.Length > 0;
-    int n = 4 + (hasOut ? 2 : 0) + (noBuild ? 1 : 0);
+    int n = 4 + (hasOut ? 2 : 0) + (noBuild ? 1 : 0) + (selfContained ? 1 : 0);
     string[] a = new string[n];
     a[0] = "publish"; a[1] = tomlPath; a[2] = "--rid"; a[3] = rid;
     int k = 4;
     if (hasOut) { a[k] = "--output"; a[k + 1] = output; k = k + 2; }
-    if (noBuild) { a[k] = "--no-build"; }
+    if (noBuild) { a[k] = "--no-build"; k = k + 1; }
+    if (selfContained) { a[k] = "--self-contained"; }
     return a;
 }
 
