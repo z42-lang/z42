@@ -399,6 +399,21 @@ public sealed class MemberResolver {
                 args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, vfn as Z42FuncType, env);
                 return new BoundIndirectCall(callee, args, call.ArgCount, (vfn as Z42FuncType).Ret, call.Span);
             }
+            // fix-generic-func-param-indirect-call：**型参**局部/形参被当函数调用（`T f` 且
+            // `where T : Func<int,int>`）→ 同样是间接调用。镜像下方 :456 已有的 Z42GenericParamType
+            // 分支（那条服务 `arr[i](x)` / `m()(x)` 这类**非** IdentExpr callee——不对称就只在这一支）。
+            //
+            // 此前落到下面的自由函数查找 → E0401「undefined function: f」，而 `CallEmitter` 靠
+            // `Locals.ContainsKey("f")` 侥幸救回、发 CallIndirect，于是直接调用能跑、诊断没人看。
+            // 但**一旦 f 被 lambda 捕获就真炸**：binder 绑成 BoundCall "free" → 捕获分析压根没看见
+            // f 是被捕获变量 → 不发 mk_clos，lambda 体里发 `call @f` 调一个不存在的自由函数，
+            // 运行期 `undefined function`。返回类型取 Unknown（与 :456 同口径；func-type 约束本身
+            // 仍是 Deferred，拿不到 R）。
+            if (vfn != null && (vfn is Z42GenericParamType)) {
+                BoundExpr gcallee = this._tc._expr._bindExpr(call.Callee, env);
+                args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, null, env);
+                return new BoundIndirectCall(gcallee, args, call.ArgCount, new Z42UnknownType(), call.Span);
+            }
             // impl-local-fn-l2：局部函数调用 → BoundCall "free"（local 名；emit 期改写为 lifted 名）。
             Z42FuncType lfsig = env.LookupLocalFn(id.Name);
             if (lfsig != null) {

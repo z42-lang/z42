@@ -1,0 +1,48 @@
+// Test: fix-generic-func-param-indirect-call —— func 约束的**型参形参被 lambda 捕获**。
+//
+// 既有 func_constraint_* 用例只覆盖**直接**调用 `f(x)`。那条路径此前之所以能跑，靠的是
+// `CallEmitter` 见 `Locals.ContainsKey("f")` 就发 CallIndirect —— 而 binder 那边其实把 `f(x)`
+// 绑成了 BoundCall "free" 并报 E0401「undefined function: f」（`--emit-zbc` 把诊断吞了，没人看见）。
+//
+// 名字一旦不在当前帧 Locals 里，这个侥幸就没了：`f` 被 lambda 捕获时，binder 没把它认成
+// 被捕获变量 → 不发 mk_clos → lambda 体里发 `call @f` 调一个不存在的自由函数 →
+// 运行期 `undefined function: Demo.f`。本用例把这条路径钉住。
+
+R Apply<T, R>(T f, int x) where T: Func<int, R> { return f(x); }
+
+// f 被 lambda 捕获（本修复前硬炸）
+int ApplyViaLambda<T>(T f, int x) where T: Func<int, int> {
+    Func<int, int> g = n => f(n);
+    return g(x);
+}
+
+// 捕获后再嵌一层 lambda
+int ApplyNested<T>(T f, int x) where T: Func<int, int> {
+    Func<int, int> outer = n => {
+        Func<int, int> inner = m => f(m);
+        return inner(n) + 1;
+    };
+    return outer(x);
+}
+
+// Action 形态：捕获后在 lambda 里调用（无返回值）
+class Sink { public int n = 0; }
+
+void RunViaLambda<T>(T handler, int x) where T: Action<int> {
+    Action<int> g = v => { handler(v); };
+    g(x);
+}
+
+void Main() {
+    // 直接调用不回归
+    Assert.Equal(10, Apply((int n) => n * 2, 5));
+
+    // 捕获形态
+    Assert.Equal(6,  ApplyViaLambda((int n) => n * 2, 3));
+    Assert.Equal(21, ApplyNested((int n) => n * 4, 5));
+
+    var s = new Sink();
+    RunViaLambda((int v) => { s.n = s.n + v; }, 7);
+    RunViaLambda((int v) => { s.n = s.n + v; }, 3);
+    Assert.Equal(10, s.n);
+}
