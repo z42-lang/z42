@@ -1,0 +1,48 @@
+// 跨包 where 约束校验的正例侧：本包声明带各类约束的泛型类，供 main 包实例化。
+// add-associated-types PR-1 之前，main 包对这些约束的实例化 100% 不校验（约束数据
+// 根本到不了消费方）；现在 zbc TYPE 段 → TsigReconcile → ExportedClassZ →
+// ImportedSymbolLoader → SymbolTable.ClassConstraints 这条链已接通。
+namespace DemoCTarget;
+
+public interface IShow { string Show(); }
+
+public class Widget : IShow {
+    public string Show() { return "widget"; }
+}
+
+public class Animal { public string Kind() { return "animal"; } }
+public class Dog : Animal { }
+
+public enum Color { Red, Green }
+
+public class NoArgCtor { public int v; public NoArgCtor() { this.v = 7; } }
+
+// 接口约束
+public class ShowBox<T> where T : IShow {
+    public T item;
+    public ShowBox(T v) { this.item = v; }
+}
+// base-class 约束（此前跨包完全不查，连这类都不查）
+public class AnimalBox<T> where T : Animal {
+    public T item;
+    public AnimalBox(T v) { this.item = v; }
+}
+// class 约束
+public class RefBox<T> where T : class {
+    public T item;
+    public RefBox(T v) { this.item = v; }
+}
+// struct 约束
+public class ValBox<T> where T : struct {
+    public T item;
+    public ValBox(T v) { this.item = v; }
+}
+// enum 约束
+public class EnumBox<T> where T : enum {
+    public T item;
+    public EnumBox(T v) { this.item = v; }
+}
+// new() 约束
+public class CtorBox<T> where T : new() {
+    public T Make() { return new T(); }
+}

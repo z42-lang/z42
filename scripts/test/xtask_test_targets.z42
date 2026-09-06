@@ -46,9 +46,9 @@ TargetTooling _prepFixtureTooling(string root, bool noBuild) {
     TargetTooling t = new TargetTooling();
     t.Ok = false;
     if (!noBuild) {
-        Console.WriteLine("→ Preparing tooling (stdlib + z42vm; release)...");
-        int c = _buildStdlib();  if (c != 0) { return t; }
-        c = _buildRuntime();     if (c != 0) { return t; }
+        Console.WriteLine("→ Preparing tooling (z42vm + stdlib; release)...");
+        int c = _buildRuntime(); if (c != 0) { return t; }   // ⚠ VM first — see _testLibCore
+        c = _buildStdlib();      if (c != 0) { return t; }
     }
     t.Vm = _builtVm(root, "release");
     t.DriverZpkg = _driverZpkg(root);

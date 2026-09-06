@@ -11,13 +11,19 @@
 //         **enum** / **new()** —— 与运行期 validate_type_arg_constraint 的七项对齐。
 // 延后：func-type 约束（E0422/E0423 已定义但从未发出）—— 见 GenericConstraint.z42。
 //
-// **落地强度（complete-where-constraints 1c）**：接口约束先以 warning 跑了两轮全仓探针
-// （第一轮同包路径、第二轮加上实例调用路径），新增诊断均为 **0 条**、GREEN 全绿，故翻成 error。
-// 需要留意的是「零误报」的**真实覆盖面**：design §6 已定性**跨包约束今天 100% 不校验**
-// （`symbols.ClassConstraints` 的唯一写入点只遍历本包 CU 的 ClassDecl，导入类型全程不碰，
-// `Check` 第一行 `HasConstraints` 即返回）。故 DRAFT 风险表那条 🔴「基元 wrapper 归一偏差 →
-// `Dictionary<int,int>` 编不过 → 自举链断」**本轮根本没被触及**，它要到 PR-5 跨包持久化才浮现。
-// 别把这轮的零误报读成「wrapper 归一没问题」。
+// **跨包约束（add-associated-types PR-1）**：此前「跨包 100% 不校验」——`ClassConstraints` 的唯一
+// 写入点只遍历本包 CU 的 ClassDecl，导入类型全程不碰，`Check` 第一行 `HasConstraints` 即返回。
+// 现已接通：zbc TYPE 段的约束 bundle → ZbcReader → TsigReconcile → ExportedClassZ →
+// ImportedSymbolLoader._constraintSetOf → SymbolTable.ClassConstraints（键统一走 ConstraintKey）。
+// 本包与导入走**同一个** _checkBundle，判定口径完全一致。
+//
+// 落地强度：complete-where-constraints 那轮定的「先 warning 探针再翻 error」在本项目**收不到数据**——
+// z42c.driver Main.z42 的诊断呈现被 `if (art.ErrorCount > 0)` 整体门控，warning 在 CLI 上根本不打印
+// （analyzer 警告同病）。故改为直接以 error 落地 + 跑完整 GREEN：全绿即零违反，证据强于看不见的
+// warning。驱动隐藏 warning 本身是独立缺陷，已登记 Deferred。
+//
+// 🔴 DRAFT 风险表那条「基元 wrapper 归一偏差 → `Dictionary<int,int>` 编不过 → 自举链断」正是在
+// 这一轮首次被真正触及（上一轮零误报只覆盖同包、不构成跨包证据）。
 namespace Z42.Semantics;
 using Z42.IR;
 
@@ -35,9 +41,19 @@ public sealed class ConstraintChecker {
             Decl d = this._unwrap(cu.Decls[i]);
             if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
-                if ((c.Kind == "class" || c.Kind == "struct") && c.TypeParams.Count > 0 && c.WhereCount > 0) {
+                // add-associated-types PR-1：条件由 `class || struct` 放宽到**含 interface**。此前
+                // 泛型接口声明上的 where（`interface INumber<T> where T : INumber<T>`）根本不进约束
+                // 模型 → 既无声明期诊断（型参写错/约束名拼错/class+struct 互斥全静默），也无从持久化
+                // （ClassDescBuilder._interfaceDesc 只能建全空 bundle）。接口存独立表，见 SymbolTable。
+                if (c.TypeParams.Count > 0 && c.WhereCount > 0) {
                     ConstraintSet cs = this._buildSet(symbols, c);
-                    if (cs.AnyNonEmpty()) { symbols.ClassConstraints.Put(c.Name, cs); }
+                    if (cs.AnyNonEmpty()) {
+                        if (c.Kind == "interface") {
+                            symbols.InterfaceConstraints.Put(c.Name, cs);
+                        } else {
+                            symbols.ClassConstraints.Put(symbols.ConstraintKey(c.Name, c.TypeParams.Count), cs);
+                        }
+                    }
                 }
             }
             i = i + 1;
@@ -119,9 +135,13 @@ public sealed class ConstraintChecker {
     // `sp` = 实例化点（`new Box<D>()` 的类型位）。此前全程 `_noSpan()` → 诊断指向 `<sem> 0:0`，
     // 使用者拿到一条不知道该看哪一行的错误（complete-where-constraints PR-4）。
     public void Check(SymbolTable symbols, Z42InstantiatedType inst, Span sp) {
+        // 查询键必须经 ConstraintKey（与写入侧同一函数）——裸名查询会让同短名多 arity 的泛型类
+        // 互相串味（`Foo<T>` 的实例化被拿去校验 `Foo<T,U>` 的约束）。见 SymbolTable.ConstraintKey。
+        // `cname` 仍用**裸名**：它只流进诊断文案，用户不该看到 `Foo$2` 这种内部键。
         string cname = inst.Def.Name();
-        if (!symbols.HasConstraints(cname)) { return; }
-        ConstraintSet cs = symbols.GetConstraints(cname);
+        string ckey = symbols.ConstraintKey(cname, inst.ArgCount);
+        if (!symbols.HasConstraints(ckey)) { return; }
+        ConstraintSet cs = symbols.GetConstraints(ckey);
         int n = inst.ArgCount;
         if (n > cs.Count) { n = cs.Count; }
         int i = 0;

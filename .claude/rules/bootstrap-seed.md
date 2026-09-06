@@ -142,14 +142,30 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
 收敛成 stdlib 单库 `z42.ir`），就出现**自依赖环**：z42c 建任何 zpkg 都要调 `z42.ir` 的
 `ZpkgBuilder`，而 `z42.ir` 本身由 z42c 构建。冷启动 flat dist 里还没有它，且上一 nightly 种子只把
 等价代码作**旧包名**（`z42c.ir`/`z42c.project`）携带 → fresh z42c 被编成钉在种子旧包上的调用，
-运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test bootstrap` 只验语法/格式/API
-越界，不跑 z42c 的运行期自依赖**）。
+运行期加载真库时 `undefined function`（**这类漏网正因 `xtask test bootstrap` 只「编」不「跑」
+新建出来的 z42c**——它验语法/格式/非自依赖库的 API 越界，但从不执行产物，故运行期自依赖问题看不见；
+这条只能靠 CI 的 `verify-selfhost` 冷启动全栈重建暴露）。
 
 - **判据**：本次改动是否让 z42c 的**源**新 `using` 一个「z42c 运行期就要加载」的 stdlib 库，而该库
   **上一 nightly 种子里不以同名 zpkg 存在**？是 → 踩轴 ④。
-- **破环**（已实现，非纪律）：`_ensureBootstrapZ42Ir`（`scripts/build/xtask_compiler.z42`）在建 z42c
-  **前**用种子 driver 先把当前源的该库单独编进 build-libs（两代自举，warm 幂等跳过）。机制全文见
+- **破环**（已实现，非纪律）：`_ensureBootstrapSelfDepLibs`（`scripts/build/xtask_compiler.z42`，
+  旧名 `_ensureBootstrapZ42Ir`）在建 z42c **前**用当前 driver 把当前源的
+  `z42.core` → `z42.project` → `z42.build` → `z42.ir` → `z42c.core` → `z42c.syntax`
+  逐个单独编进 build-libs。**不 warm-skip**（`07596b57`，2026-07-30 改）。机制全文见
   [`docs/design/compiler/self-hosting.md` 轴 ④](../../docs/design/compiler/self-hosting.md)。
+
+> ⭐ **轴 ③ 对这 6 个自依赖库不成立（2026-09-06 add-associated-types 澄清）**：破环预建总是用
+> **当前源**重建它们，故「z42c 源用这 6 个库的**新 API**」**无需等一个 nightly**，加 API 与用 API
+> 可以同一个 commit。这已是日常操作——先例 `ExportedClassZ.IsSealed`(08-07) / `Visibility`(08-13) /
+> `IsDeprecated`(08-23) / `ExportedMethodZ.TypeParamCount`(`a71278b5`, 09-03) /
+> `StrMap.Find`(`04719bbb`, 09-05)，全部同 commit 加+用、CI 绿。
+>
+> **轴 ③ 的「晚一个 nightly」纪律仍然适用于**：① **其余 stdlib 库**（`z42.collections` /
+> `z42.threading` / …，预建不覆盖）；② **xtask 源**（`ci-bootstrap` step [2] 用种子 stdlib 编 xtask，
+> 早于任何预建 → xtask 最受约束，见 self-hosting.md「为什么 xtask 最受约束」）。
+>
+> **残余真约束**：给这 6 个库的既有导出类型加字段，新字段**不得进 ctor 签名**，须 ctor 内给默认值 +
+> 消费方构造后赋值（种子 ABI）。违反 = 旧种子构造调用元数对不上。
 - **教训**：**新增/收敛「z42c 自依赖的 stdlib 库」的 change，冷启动路径本地必验**（下载上一 nightly
   作种子跑一遍 cold `build compiler` + `build stdlib`），别只验 warm 就推 main。
 

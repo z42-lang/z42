@@ -1,0 +1,7 @@
+widget
+animal
+widget
+42
+enum-ok
+ctor-ok
+gadget

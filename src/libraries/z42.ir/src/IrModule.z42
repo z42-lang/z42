@@ -73,12 +73,36 @@ public sealed class IrFieldDesc {
     }
 }
 
-// 类型参数约束描述（仅接口约束列表；足以覆盖 z42.core where 子句）。
+// 类型参数约束描述 —— 与语义侧 ConstraintBundle 和运行期 validate_type_arg_constraint 的七项一一对应。
+//
+// 承载位与 zbc 约束 bundle 的 flag 位对应关系（权威定义见 runtime 的
+// metadata/zbc_reader/type_reader.rs::read_constraint_bundle）：
+//   bit0 0x01 requires_class       → RequiresClass
+//   bit1 0x02 requires_struct      → RequiresStruct
+//   bit2 0x04 has_base             → BaseClass（"" = 无）
+//   bit3 0x08 has_type_param       → TypeParamConstraint（"" = 无）
+//   bit4 0x10 requires_constructor → RequiresCtor
+//   bit5 0x20 requires_enum        → RequiresEnum
+//   bit6 0x40 has_func_sig         → 尚未承载（Deferred where-constraint-future-func-constraint）
+//   （无 flag）iface_count + 名列表 → Interfaces / InterfaceCount（裸名，design D1）
+//
+// add-associated-types PR-1 之前这里只有 Interfaces + TypeParamConstraint 两个承载位，ZbcWriter
+// 也只写 bit3 —— 运行期那五个分支因此是死代码，且跨包约束 100% 不校验。bit0-6 的 wire 布局早已
+// 规约完毕、三方 reader 均按完整布局消费，故补齐承载位与写端置位**不改 layout、无需格式 bump**。
 public sealed class IrConstraintDesc {
     public string[] Interfaces;
     public int      InterfaceCount;
     public string   TypeParamConstraint;   // `where U: T` 的 T（裸类型形参名）；"" 表无（zbc flags bit3）
-    public IrConstraintDesc() { this.Interfaces = new string[0]; this.InterfaceCount = 0; this.TypeParamConstraint = ""; }
+    public bool     RequiresClass;         // `where T : class`（bit0）
+    public bool     RequiresStruct;        // `where T : struct`（bit1）
+    public string   BaseClass;             // `where T : SomeClass` 的基类裸名；"" 表无（bit2）
+    public bool     RequiresCtor;          // `where T : new()`（bit4）
+    public bool     RequiresEnum;          // `where T : enum`（bit5）
+    public IrConstraintDesc() {
+        this.Interfaces = new string[0]; this.InterfaceCount = 0; this.TypeParamConstraint = "";
+        this.RequiresClass = false; this.RequiresStruct = false; this.BaseClass = "";
+        this.RequiresCtor = false; this.RequiresEnum = false;
+    }
 }
 
 // 类/结构描述：名 + 基类 + 字段（slot 序）。

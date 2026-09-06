@@ -95,6 +95,10 @@ public static class ZbcWriter {
                         int cbifi = 0;
                         while (cbifi < cb.InterfaceCount) { pool.Intern(cb.Interfaces[cbifi]); cbifi = cbifi + 1; }
                         if (cb.TypeParamConstraint != "") { pool.Intern(cb.TypeParamConstraint); }   // 镜像 C# InternConstraintBundle：iface 后 intern tp 约束
+                        // bit2 base-class 约束名（add-associated-types PR-1）。**追加在最后**而非按 wire 顺序
+                        // 插到 tpRef 前：BaseClass 为空时（今天全仓所有约束都是这种）常量池索引分配逐字节不变，
+                        // 不给自举不动点引入无谓的字节漂移。
+                        if (cb.BaseClass != "") { pool.Intern(cb.BaseClass); }
                     }
                     cbi = cbi + 1;
                 }
@@ -282,12 +286,28 @@ public static class ZbcWriter {
                 if (cd.TypeParamConstraints != null && tpi < cd.TypeParamConstraints.Length) {
                     cDesc = cd.TypeParamConstraints[tpi];
                 }
-                // 约束 flags：bit3 = type-param-ref（`where U: T`）；其余 z42c 暂仅接口约束。
-                bool hasTpRef = (cDesc != null) && cDesc.TypeParamConstraint != "";
+                // 约束 flags（add-associated-types PR-1 起写**全部** bit0-5；此前只写 bit3，故运行期
+                // validate_type_arg_constraint 的 class/struct/base/new()/enum 五个分支是死代码，
+                // 且跨包约束无从恢复）。bit6 funcSig 仍未承载 —— Deferred where-constraint-future-func-constraint。
+                // wire 布局早已规约、三方 reader（Rust type_reader.rs / ZbcReader / ZpkgReader）均按完整
+                // 布局消费，故置位**不改 layout、无需格式 bump**。
+                bool reqClass  = (cDesc != null) && cDesc.RequiresClass;
+                bool reqStruct = (cDesc != null) && cDesc.RequiresStruct;
+                bool hasBase   = (cDesc != null) && cDesc.BaseClass != "";
+                bool hasTpRef  = (cDesc != null) && cDesc.TypeParamConstraint != "";
+                bool reqCtor   = (cDesc != null) && cDesc.RequiresCtor;
+                bool reqEnum   = (cDesc != null) && cDesc.RequiresEnum;
                 int cflags = 0;
-                if (hasTpRef) { cflags = cflags + 8; }   // bit3 has_type_param
+                if (reqClass)  { cflags = cflags + 1; }    // bit0 requires_class
+                if (reqStruct) { cflags = cflags + 2; }    // bit1 requires_struct
+                if (hasBase)   { cflags = cflags + 4; }    // bit2 has_base
+                if (hasTpRef)  { cflags = cflags + 8; }    // bit3 has_type_param
+                if (reqCtor)   { cflags = cflags + 16; }   // bit4 requires_constructor
+                if (reqEnum)   { cflags = cflags + 32; }   // bit5 requires_enum
                 w.WriteU8(cflags);
-                if (hasTpRef) { w.WriteU32(pool.Idx(cDesc.TypeParamConstraint)); }   // 读取序：flags 后、iface_count 前
+                // 载荷顺序必须是 base → tpRef → iface_count（三方 reader 的一致读取序）。
+                if (hasBase)  { w.WriteU32(pool.Idx(cDesc.BaseClass)); }
+                if (hasTpRef) { w.WriteU32(pool.Idx(cDesc.TypeParamConstraint)); }
                 int ifc = (cDesc != null) ? cDesc.InterfaceCount : 0;
                 w.WriteU8(ifc);
                 int ifi = 0;
