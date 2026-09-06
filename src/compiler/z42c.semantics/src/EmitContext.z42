@@ -25,6 +25,13 @@ public sealed class EmitContext {
     public int         RetStructSize;
     public TypedReg    SretReg;
     public StrMap      ReadonlyFields; // add-readonly-fields-opt：其中声明为 readonly 的字段名子集（裸 ident field_get 打 Readonly 标志）
+    // fix-autoprop-getonly-backing-write：本类**实例属性**名 → 后备字段名（auto-property 为 `__prop_X`；
+    // 计算属性无存储 → ""）。属性在符号表以**源名**登记 FieldSymbol 供类型检查，但存储叫 __prop_X ——
+    // 裸 ident 若走 Fields 的 field_get/field_set 就打在不存在的字段上（读回 Null / 写进虚空）。
+    // 有了这张表，裸 `X` 与 `this.X` 一样走访问器：读 VCall get_X；写 VCall set_X，无 setter 则落 __prop_X。
+    // 静态属性不入表（其访问不经 reg0），维持既有行为。
+    public StrMap      InstProps;
+    public StrMap      InstPropHasSet;   // 上表中额外有 set_X 的子集
     public StrMap      ConstLocals;    // add-const-keyword：局部 const 名 → ConstValue（裸 ident 引用替换为字面量；存储正常发射，全替换后 DCE 清理）
     public IrBlock[]   Blocks;   public int BlockCount;
     public IrInstr[]   Cur;      public int CurCount;     // 当前块指令累积
@@ -54,6 +61,7 @@ public sealed class EmitContext {
     public EmitContext(SymbolTable symbols, IrGen gen) {
         this.Symbols = symbols; this.Gen = gen;
         this.Locals = new StrMap(); this.Fields = new StrMap(); this.ReadonlyFields = new StrMap();
+        this.InstProps = new StrMap(); this.InstPropHasSet = new StrMap();
         this.OwnerStructName = "";
         this.OwnerClassName = "";
         this.RetIsStruct = false; this.RetStructSize = 0; this.SretReg = null;

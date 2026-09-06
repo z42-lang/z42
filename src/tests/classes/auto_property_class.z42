@@ -8,8 +8,10 @@ class Box {
     Box(int w, int h, string label) {
         this.Width  = w;
         this.Height = h;
-        // Label is read-only externally; ctor can still write the backing field.
-        this.__prop_Label = label;
+        // get-only property: writable only inside the ctor, by its source name.
+        // (Writing `__prop_Label` directly used to be the workaround — `this.Label = label`
+        // silently wrote a phantom field; fix-autoprop-getonly-backing-write.)
+        this.Label = label;
     }
 }
 
