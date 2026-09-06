@@ -29,7 +29,8 @@ class Person {
 ```
 
 - **per-accessor 可见性**：`get` / `set` 前可各自加可见性修饰（如 `private set`）。
-- **只读属性**：只写 `{ get; }`。
+- **只读属性**：只写 `{ get; }`。**只能在本类构造函数内经 `this` 赋值**（对标 C# CS0200 的只读
+  自动属性），其它位置赋值报 **E0452**；计算属性（`get { ... }`）无存储，**任何位置**都不可赋值。
 - **初始化器**：`T Name { get; set; } = expr;` 给后备字段一个初值。
 
 ```z42
@@ -64,6 +65,10 @@ public class Box {
 - `T get_Name()`（有 `get` 时）、`void set_Name(T value)`（有 `set` 时）。
 - 使用点 `obj.Name` / `obj.Name = v` 由 `MemberResolver` 绑定为 `get_Name()` / `set_Name(v)`
   实例虚调用（导入类只有 `__prop_Name` + `get_/set_`，没有裸 `Name` 字段）。
+- **类内裸名 `Name` 与 `this.Name` 完全同义**——同样走访问器；ctor 内写只读属性（无 `set_Name`）
+  时落到 `__prop_Name`。**任何情况下都不会按源名 `Name` 读写字段**（那是不存在的字段）。
+  这条不变量的四个历史漏口与修复见
+  [源码编译：属性的「源名 ↔ 后备字段名」落差](../compiler/source-compile.md)。
 - **接口属性** `T Name { get; }` → 要求实现类提供 `get_Name`（如 `IEnumerator<T>.Current`
   → `get_Current`）。
 
