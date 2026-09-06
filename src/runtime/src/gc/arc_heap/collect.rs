@@ -2,9 +2,7 @@
 //! 编排/控制 API 见 `control.rs`（refactor-arc-heap-modularization）。
 
 use crate::metadata::Value;
-use crate::metadata::types::{ClosureData};
 use crate::gc::refs::{GcRef};
-use crate::gc::var_region::GcBlockHeader;
 use crate::gc::types::{FinalizerFn};
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -264,10 +262,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // sweep does not touch region_var, so closures are reclaimed at full GC (never freed
         // prematurely — safe).
         {
-            let reclaimed = self.region_var.lock().sweep();
-            // Rough byte estimate (region_var holds only closures in PR-2).
-            freed_bytes += reclaimed as u64
-                * (GcBlockHeader::DATA_OFFSET + std::mem::size_of::<ClosureData>()) as u64;
+            // fix-var-sweep-accounting: `sweep` returns the bytes that were actually
+            // charged to `used_bytes` when these blocks were allocated (variable-length
+            // Str payloads at their true length; array element blocks at zero, since the
+            // owning array header both charged and credits them). The old estimate —
+            // reclaimed_count × sizeof(ClosureData) — was a constant applied to
+            // variable-length blocks and double-counted array storage, so `freed` could
+            // exceed `used_before` and the auto-collect budget read low.
+            let (_reclaimed, credited) = self.region_var.lock().sweep();
+            freed_bytes += credited;
         }
 
         // **add-gc-tlab (stage 2, D7)**: chunk-level reclaim — move every
