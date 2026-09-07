@@ -132,6 +132,15 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref().mark() }
     }
 
+    /// **fix-minor-gc-skips-var-region (2026-09-08)**: generation age of the block behind
+    /// this handle. `< PROMOTION_THRESHOLD` = young. Read by `ArcMagrGC::gen_age_of` so the
+    /// minor mark phase can skip old blocks instead of treating every one as young.
+    #[inline]
+    pub fn gen_age(&self) -> u8 {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref().gen_age() }
+    }
+
     /// Identity equality: two handles are equal iff they name the same block *and* generation
     /// (the tagged word covers both on 64-bit).
     #[cfg(target_pointer_width = "64")]
@@ -235,7 +244,7 @@ impl VarGcRef {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: block_type as u8,
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
                 size_class,
             });
             std::ptr::write_bytes(payload_ptr_of(header), 0, payload);
@@ -263,7 +272,7 @@ impl VarGcRef {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: block_type as u8,
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
                 size_class,
             });
             payload_ptr_of(header).cast::<T>().write(value);

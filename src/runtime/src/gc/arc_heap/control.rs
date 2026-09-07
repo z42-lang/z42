@@ -273,7 +273,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let young_before = {
                     let r_obj = self.region_object.lock();
                     let r_arr = self.region_array.lock();
-                    r_obj.young_count() + r_arr.young_count()
+                    let r_var = self.region_var.lock();
+                    // fix-minor-gc-skips-var-region: the var region is a minor participant
+                    // now, so it belongs in the denominator too. Leaving it out made the
+                    // survival ratio systematically wrong — it measured two of the three
+                    // regions the sweep actually touches, and escalation to major fired off
+                    // that partial view.
+                    r_obj.young_count() + r_arr.young_count() + r_var.young_count()
                 };
 
                 let mut freed_bytes = self.run_cycle_collection_minor();
@@ -286,7 +292,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let young_after = {
                     let r_obj = self.region_object.lock();
                     let r_arr = self.region_array.lock();
-                    r_obj.young_count() + r_arr.young_count()
+                    let r_var = self.region_var.lock();
+                    r_obj.young_count() + r_arr.young_count() + r_var.young_count()
                 };
 
                 if young_before > 0 {

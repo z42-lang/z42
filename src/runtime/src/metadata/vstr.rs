@@ -108,6 +108,14 @@ impl Str {
         self.block.mark()
     }
 
+    /// **fix-minor-gc-skips-var-region (2026-09-08)**: generation age of this string's GC
+    /// block, for the minor mark phase's young/old child filter. Strings used to report 0
+    /// unconditionally, so every reachable string was re-marked at every minor.
+    #[inline]
+    pub fn gen_age(&self) -> u8 {
+        self.block.gen_age()
+    }
+
     /// Allocate a **standalone leaked** GC string block (no ambient heap: unit
     /// tests / mock heaps). Never GC-managed, never freed — acceptable there (see
     /// [`VarGcRef::alloc_leaked`]).

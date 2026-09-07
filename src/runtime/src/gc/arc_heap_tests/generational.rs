@@ -647,3 +647,157 @@ fn cycle_collection_under_generational_mode_still_frees_garbage() {
     heap.iterate_live_objects(&mut |_| alive += 1);
     assert_eq!(alive, 0, "generational mode (P1 stub) still frees unrooted cycle via STW dispatch");
 }
+
+// ---------------------------------------------------------------------------------------
+// fix-minor-gc-skips-var-region: the variable-length region joins minor collection
+// ---------------------------------------------------------------------------------------
+
+/// The headline defect: `region_var` — strings, closures, and every array's element
+/// storage, roughly 45% of RSS — used to sit out every minor and wait for a major.
+#[test]
+fn minor_gc_reclaims_unrooted_young_string_block() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let before = heap.used_bytes();
+    for i in 0..64 {
+        // Long enough that the payload dominates the 16-byte header, so the drop is
+        // unambiguous rather than lost in size-class rounding.
+        let _ = heap.alloc_str(&format!("{i}{}", "x".repeat(512)));
+    }
+    let peak = heap.used_bytes();
+    assert!(peak > before, "allocating strings must charge used_bytes");
+
+    heap.force_collect(); // generational mode → minor
+
+    let after = heap.used_bytes();
+    assert!(
+        after < peak,
+        "minor GC must reclaim unrooted young string blocks (before={before} peak={peak} after={after})"
+    );
+}
+
+/// An array's element storage lives in a `region_var` block owned by its header. Before this
+/// change the minor freed the header and left the (much larger) element block behind until a
+/// major — while still crediting the element bytes as freed.
+#[test]
+fn minor_gc_reclaims_array_header_and_element_block_together() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let before = heap.used_bytes();
+    for _ in 0..32 {
+        let _ = heap.alloc_array(vec![Value::Null; 256]);
+    }
+    let peak = heap.used_bytes();
+
+    heap.force_collect();
+
+    let after = heap.used_bytes();
+    let mut live_arrays = 0;
+    heap.iterate_live_objects(&mut |v| {
+        if matches!(v, Value::Array(_)) {
+            live_arrays += 1;
+        }
+    });
+    assert_eq!(live_arrays, 0, "unrooted young array headers are reclaimed");
+    assert!(
+        after < peak,
+        "the element blocks must go in the same cycle as their headers \
+         (before={before} peak={peak} after={after})"
+    );
+}
+
+/// Regression for a use-after-free, not a leak.
+///
+/// The minor never cleared the mark bit on var blocks. A closure block marked during one
+/// minor kept that bit, so at the *next* minor its `mark()` CAS failed, `just_marked` came
+/// back false, and its children were never traced — leaving the closure's still-young `env`
+/// array unmarked, and therefore swept, while the closure went on pointing at it.
+///
+/// `gen_age_of` made this reachable: it reported the *env's* age for a closure, and 0 for
+/// every string, so old var blocks kept being pushed into minor mark phases.
+#[test]
+fn closure_env_survives_repeated_minors() {
+    use crate::metadata::types::ClosureData;
+
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let env = heap.alloc_array(vec![Value::I64(7); 4]);
+    let env_ref = match &env {
+        Value::Array(gc) => gc.clone(),
+        _ => unreachable!("alloc_array returns Value::Array"),
+    };
+    let closure = heap.alloc_closure(ClosureData {
+        env: env_ref.clone(),
+        fn_name: heap.alloc_str("captures_env"),
+    });
+    let _pin = heap.pin_root(closure.clone());
+    // Only the closure is rooted — the env is reachable *solely* through the closure block.
+    drop(env);
+
+    for round in 1..=(PROMOTION_THRESHOLD + 2) {
+        heap.force_collect();
+        let mut live_arrays = 0;
+        heap.iterate_live_objects(&mut |v| {
+            if matches!(v, Value::Array(_)) {
+                live_arrays += 1;
+            }
+        });
+        assert_eq!(
+            live_arrays, 1,
+            "round {round}: the closure's env array must stay alive — it is reachable only \
+             through the closure block, so a stale mark that suppresses tracing frees it"
+        );
+    }
+}
+
+/// Old var blocks are not visited by a minor — that is what "minor" means. Before the fix
+/// `gen_age_of` reported 0 for every string, so they were all treated as young forever.
+#[test]
+fn minor_gc_does_not_treat_old_strings_as_young() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let s = heap.alloc_str("survivor");
+    let _pin = heap.pin_root(Value::Str(s.clone()));
+    assert_eq!(s.gen_age(), 0, "freshly allocated string is young");
+
+    for expected in 1..=PROMOTION_THRESHOLD {
+        heap.force_collect();
+        assert_eq!(s.gen_age(), expected, "each survived minor ages the block");
+    }
+    // At the threshold it is old: further minors must leave it alone entirely.
+    heap.force_collect();
+    assert_eq!(
+        s.gen_age(),
+        PROMOTION_THRESHOLD,
+        "an old block is not aged further — the minor no longer visits it"
+    );
+}
+
+/// The accounting half of the bug: the minor credited `array_size_estimate` (which includes
+/// `elem_storage_bytes()`) for every reclaimed array header, while those bytes lived in a
+/// `region_var` block the minor never swept. The credit could therefore exceed the memory
+/// actually released, and the auto-collect budget read a recovery that had not happened.
+#[test]
+fn minor_freed_bytes_never_exceeds_the_actual_used_bytes_drop() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    for _ in 0..32 {
+        let _ = heap.alloc_array(vec![Value::Null; 128]);
+        let _ = heap.alloc_str(&"y".repeat(256));
+    }
+    let before = heap.used_bytes();
+    let freed = heap.force_collect().freed_bytes;
+    let after = heap.used_bytes();
+
+    let actual_drop = before.saturating_sub(after);
+    assert!(
+        freed <= actual_drop,
+        "reported freed_bytes ({freed}) must not exceed the real drop in used_bytes \
+         ({before} - {after} = {actual_drop})"
+    );
+}

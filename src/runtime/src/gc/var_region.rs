@@ -82,6 +82,14 @@ pub use var_ref::VarGcRef;
 
 use chunk::{Chunk, NUM_CLASSES};
 
+// The packed `gen_age` in `GcBlockHeader::type_tag` is two bits wide. If the promotion
+// threshold ever outgrows that, the age needs a new home — fail the build here rather than
+// silently saturating and never promoting.
+const _: () = assert!(
+    crate::gc::region::PROMOTION_THRESHOLD <= block::MAX_GEN_AGE,
+    "PROMOTION_THRESHOLD exceeds the gen_age bits packed into GcBlockHeader::type_tag"
+);
+
 /// Variable-length GC block allocator. See the module docs for the block / allocation /
 /// sweep model.
 pub struct VarRegion {
@@ -99,6 +107,33 @@ pub struct VarRegion {
     all_blocks: Vec<NonNull<GcBlockHeader>>,
     /// Per-size-class free lists of tombstoned slots available for reuse (LIFO).
     free_lists: Vec<Vec<NonNull<GcBlockHeader>>>,
+    /// **fix-minor-gc-skips-var-region (2026-09-08)**: blocks the minor GC must visit —
+    /// everything with `gen_age < PROMOTION_THRESHOLD`. Minor scans this instead of
+    /// `all_blocks`, which is what makes its cost O(young) rather than O(heap).
+    ///
+    /// Maintained by **rebuild, not incremental removal**: `alloc` pushes, and
+    /// [`Self::sweep_young`] — which has to walk the whole list anyway — writes back only
+    /// the entries that are still both alive and young. Tombstone leaves stale entries
+    /// behind on purpose; they cost one `is_alive()` check at the next sweep. The
+    /// alternative (a `young_idx` per block for O(1) `swap_remove`, as `Region<T>` does) has
+    /// nowhere to live: the block header is full. Rebuilding is also strictly cheaper —
+    /// #524 had to gate `Region<T>`'s incremental maintenance behind generational mode
+    /// because it cost measurable instructions on every alloc.
+    ///
+    /// Duplicate protection is the header's `IN_YOUNG_BIT`, not a search of this list.
+    ///
+    /// Maintained **only while [`Self::generational`] is set** — see that field.
+    young_list: Vec<NonNull<GcBlockHeader>>,
+    /// Whether [`Self::young_list`] is maintained. Minor GC is the list's only consumer and
+    /// runs only under `GcMode::GenerationalMarkSweep`, so under any other mode the list is
+    /// pure overhead — and not cheap overhead: this region sees ~2.7 M live blocks on a
+    /// `z42c.semantics` build, so an unconsumed list costs 20 MB+ of RSS and a push per
+    /// alloc. Measured at +48 MB of RSS under `stw-mark-sweep` before this gate existed.
+    ///
+    /// Same shape and same reason as `Region<T>::generational` (#524) — flipped by
+    /// [`Self::set_generational`], which `ArcMagrGC::set_mode` calls alongside the fixed
+    /// regions'.
+    generational: bool,
     /// Count of live (alive=true) blocks, for diagnostics + auto-collect heuristics.
     live_count: usize,
     /// Optional payload finalizer run once when a block is reclaimed (tombstone) or when the
@@ -139,6 +174,10 @@ impl Default for VarRegion {
             bump_off: 0,
             all_blocks: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
+            young_list: Vec::new(),
+            // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
+            // heaps) maintains the list; the heap narrows it via `set_generational`.
+            generational: true,
             live_count: 0,
             drop_glue: None,
             borrowed: Vec::new(),
@@ -153,6 +192,15 @@ impl VarRegion {
         Self::default()
     }
 
+    /// Construct a region whose non-POD payloads are finalized by `glue` on reclaim, with
+    /// young-list maintenance set for `generational` (see [`Self::generational`]). Used by
+    /// the heap, which knows its mode at construction. Mirrors `Region::new_for_mode`.
+    pub fn with_drop_glue_for_mode(glue: PayloadDropGlue, generational: bool) -> Self {
+        let mut r = Self::with_drop_glue(glue);
+        r.generational = generational;
+        r
+    }
+
     /// Construct a region whose non-POD payloads are finalized by `glue` on reclaim. Used by
     /// the heap for the closure region (`ClosureData` owns a `String` that must be dropped).
     pub fn with_drop_glue(glue: PayloadDropGlue) -> Self {
@@ -164,6 +212,10 @@ impl VarRegion {
             bump_off: 0,
             all_blocks: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
+            young_list: Vec::new(),
+            // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
+            // heaps) maintains the list; the heap narrows it via `set_generational`.
+            generational: true,
             live_count: 0,
             drop_glue: Some(glue),
             borrowed: Vec::new(),
@@ -204,14 +256,18 @@ impl VarRegion {
             }
         }
 
+
         // Slow path: bump (or a dedicated chunk for oversized).
         let header_ptr = if size_class == OVERSIZED_CLASS {
             self.alloc_dedicated(footprint)
         } else {
             self.bump(footprint)
         };
-        self.write_fresh_header(header_ptr, payload, block_type, size_class, 0);
+        self.write_fresh_header(header_ptr, payload, block_type, size_class, 0, self.generational);
         self.all_blocks.push(header_ptr);
+        if self.generational {
+            self.young_list.push(header_ptr);
+        }
         self.live_count += 1;
         VarGcRef::pack(header_ptr, 0)
     }
@@ -228,8 +284,18 @@ impl VarRegion {
     ) -> VarGcRef {
         // SAFETY: `slot` came from this region's free list → it points at a valid, chunk-
         // owned, tombstoned header whose generation was bumped at tombstone time.
-        let generation = unsafe { slot.as_ref().generation() };
-        self.write_fresh_header(slot, payload, block_type, size_class, generation);
+        let (generation, already_listed) = {
+            let h = unsafe { slot.as_ref() };
+            (h.generation(), h.is_in_young())
+        };
+        // The recycled block is young again (gen_age 0), but the young list uses lazy
+        // deletion: if this slot died *after* the last minor sweep it is still listed, and
+        // pushing it a second time would age it twice per minor and grow the list without
+        // bound. `already_listed` is the header's own `IN_YOUNG_BIT`, so the check is O(1).
+        self.write_fresh_header(slot, payload, block_type, size_class, generation, self.generational);
+        if self.generational && !already_listed {
+            self.young_list.push(slot);
+        }
         self.live_count += 1;
         VarGcRef::pack(slot, generation)
     }
@@ -243,6 +309,7 @@ impl VarRegion {
         block_type: BlockType,
         size_class: u8,
         generation: u32,
+        in_young: bool,
     ) {
         // SAFETY: `ptr` addresses freshly-carved (bump) or recycled (free-list) space large
         // enough for the header + `payload` bytes; we own exclusive access (`&mut self`).
@@ -252,7 +319,7 @@ impl VarRegion {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: block_type as u8,
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, in_young)),
                 size_class,
             });
             // Zero the payload so a consumer never reads uninitialized bytes. Derive the
@@ -320,6 +387,119 @@ impl VarRegion {
             let h = VarGcRef::pack(ptr, header.generation());
             visit(h, header);
         }
+    }
+
+    /// **fix-minor-gc-skips-var-region (2026-09-08)**: flip young-list maintenance, bringing
+    /// the list in line with the new setting. Mirrors `Region<T>::set_generational` (#524).
+    ///
+    /// Turning it **on** rebuilds the list from every live young block, so a heap switched to
+    /// `GenerationalMarkSweep` after it has already allocated still sees a complete young
+    /// set. Turning it **off** drops the list and clears every block's membership bit.
+    ///
+    /// No-op when already in the requested state.
+    pub fn set_generational(&mut self, generational: bool) {
+        if self.generational == generational {
+            return;
+        }
+        self.generational = generational;
+        if !generational {
+            for &ptr in &self.young_list {
+                // SAFETY: young_list only holds chunk-owned block pointers.
+                unsafe { ptr.as_ref() }.set_in_young(false);
+            }
+            self.young_list.clear();
+            self.young_list.shrink_to_fit();
+            return;
+        }
+        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let mut rebuilt = Vec::new();
+        for &ptr in &self.all_blocks {
+            // SAFETY: see `iterate_alive`.
+            let header = unsafe { ptr.as_ref() };
+            if header.is_alive() && header.gen_age() < threshold {
+                header.set_in_young(true);
+                rebuilt.push(ptr);
+            }
+        }
+        self.young_list = rebuilt;
+    }
+
+    /// Visit every block currently listed as young, skipping ones already tombstoned (the
+    /// young list uses lazy deletion — see the field docs). Read-only; ordering is
+    /// allocation order within the list.
+    pub fn iterate_young(&self, mut visit: impl FnMut(VarGcRef, &GcBlockHeader)) {
+        for &ptr in &self.young_list {
+            // SAFETY: young_list only ever holds chunk-owned block pointers, and chunks
+            // outlive the region; reclaimed chunks purge their blocks from this list.
+            let header = unsafe { ptr.as_ref() };
+            if !header.is_alive() {
+                continue;
+            }
+            visit(VarGcRef::pack(ptr, header.generation()), header);
+        }
+    }
+
+    /// How many blocks the next minor GC would visit. Includes stale (tombstoned) entries
+    /// that the next sweep will drop, so it is an upper bound on real young blocks — the
+    /// same shape as `Region<T>::young_count`, and it is only used as the denominator of the
+    /// minor-survival heuristic.
+    pub fn young_count(&self) -> usize {
+        self.young_list.len()
+    }
+
+    /// **fix-minor-gc-skips-var-region (2026-09-08)**: minor sweep. Walks only `young_list`
+    /// (not `all_blocks`), which is what bounds minor cost at O(young):
+    ///
+    /// - marked → clear the mark and age it; on reaching `PROMOTION_THRESHOLD` it leaves the
+    ///   young list (promotion is a label change — var blocks never move, see
+    ///   `VarGcRef`'s address-as-identity contract);
+    /// - unmarked → finalize + tombstone, crediting the bytes it was charged at alloc;
+    /// - already tombstoned → a stale entry from lazy deletion; just drop it.
+    ///
+    /// The list is **rebuilt** from the survivors rather than element-wise mutated, and the
+    /// header's `IN_YOUNG_BIT` is cleared for everything that leaves, so a recycled slot
+    /// knows to re-list itself.
+    ///
+    /// Old blocks are never visited — that is the definition of a minor collection. They are
+    /// reachable as minor roots only through the dirty-card set.
+    pub fn sweep_young(&mut self) -> (usize, u64) {
+        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let mut reclaimed = 0usize;
+        let mut credited: u64 = 0;
+        // Tombstoning mutates `free_lists` / `live_count`, so it cannot run while
+        // `young_list` is borrowed — collect first, then apply (mirrors `sweep`).
+        let mut to_reclaim: Vec<(VarGcRef, u64)> = Vec::new();
+        let mut survivors: Vec<NonNull<GcBlockHeader>> = Vec::with_capacity(self.young_list.len());
+
+        for &ptr in &self.young_list {
+            // SAFETY: see `iterate_young`.
+            let header = unsafe { ptr.as_ref() };
+            if !header.is_alive() {
+                header.set_in_young(false);
+                continue;
+            }
+            if header.is_marked() {
+                header.clear_mark();
+                if header.bump_gen_age() >= threshold {
+                    header.set_in_young(false);
+                } else {
+                    survivors.push(ptr);
+                }
+            } else {
+                header.set_in_young(false);
+                let charge = Self::alloc_charge_bytes(header);
+                to_reclaim.push((VarGcRef::pack(ptr, header.generation()), charge));
+            }
+        }
+        self.young_list = survivors;
+
+        for (h, charge) in to_reclaim {
+            if self.tombstone(h) {
+                reclaimed += 1;
+                credited += charge;
+            }
+        }
+        (reclaimed, credited)
     }
 
     /// STW sweep: tombstone every unmarked live block, clear the mark on survivors. Returns
