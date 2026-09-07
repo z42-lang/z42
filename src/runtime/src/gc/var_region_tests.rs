@@ -339,18 +339,23 @@ fn reclaim_dead_var_chunks_pools_dead_bump_chunks_among_dedicated_ones() {
     r.sweep();
     assert_eq!(r.live_count(), 1);
 
-    let pooled = r.reclaim_dead_var_chunks();
-    assert!(pooled > 0, "fully-dead bump chunks must be pooled");
-    assert_eq!(r.free_chunk_pool_len(), pooled);
-    // Dedicated chunks are never pooled (they are not `CHUNK_BYTES` wide), and
-    // the survivor's chunk is still live — so not every chunk is reclaimable.
-    assert!(pooled < r.chunk_count(), "dedicated + still-live chunks stay out of the pool");
+    let before = r.chunk_count();
+    let got = r.reclaim_dead_var_chunks();
+    assert!(got.pooled > 0, "fully-dead bump chunks must be pooled");
+    assert_eq!(r.free_chunk_pool_len(), got.pooled);
+    // Dedicated chunks are never pooled (they are not `CHUNK_BYTES` wide) — fix-loh-never-freed
+    // frees them outright instead, so they leave `chunk_count` altogether.
+    assert_eq!(got.freed_chunks, 6, "every dead dedicated chunk is freed");
+    assert_eq!(r.chunk_count(), before - got.freed_chunks);
+    // The survivor's chunk is still live, so not every remaining chunk is in the pool.
+    assert!(got.pooled < r.chunk_count(), "still-live chunks stay out of the pool");
     // The survivor is untouched by the purge of reclaimed chunks' blocks.
     assert!(r.resolve(survivor).is_some(), "live block survives chunk reclaim");
 
-    // Reclaiming again is a no-op: the pooled chunks are already in the pool.
-    assert_eq!(r.reclaim_dead_var_chunks(), 0);
-    assert_eq!(r.free_chunk_pool_len(), pooled);
+    // Reclaiming again is a no-op: the pooled chunks are already in the pool and the
+    // dedicated ones no longer exist.
+    assert_eq!(r.reclaim_dead_var_chunks(), VarChunkReclaim::default());
+    assert_eq!(r.free_chunk_pool_len(), got.pooled);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -575,7 +580,7 @@ fn reclaimed_chunk_purges_young_list() {
     // Tombstone alone does not shrink the list — deletion is lazy by design.
     assert_eq!(region.young_count(), 384);
 
-    let pooled = region.reclaim_dead_var_chunks();
+    let pooled = region.reclaim_dead_var_chunks().pooled;
     assert!(pooled > 0, "fully-dead bump chunks must be pooled");
     assert!(
         region.young_count() < 384,
@@ -587,5 +592,131 @@ fn reclaimed_chunk_purges_young_list() {
     let tracked: std::collections::HashSet<_> = region.all_blocks.iter().copied().collect();
     for p in &region.young_list {
         assert!(tracked.contains(p), "young list holds a pointer into a recycled chunk");
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// fix-loh-never-freed: dead oversized (dedicated-chunk) blocks give their memory back
+// ---------------------------------------------------------------------------------------
+
+/// Payload comfortably past `CHUNK_BYTES` (64 KB) → always a dedicated chunk.
+const OVERSIZED_PAYLOAD: usize = 96 * 1024;
+
+#[test]
+fn dead_oversized_chunk_is_freed_and_its_slot_reused() {
+    // Before this change a dedicated chunk was pinned until `VarRegion::drop`: `tombstone`
+    // refused to free-list `OVERSIZED_CLASS` and `reclaim_dead_var_chunks` skipped anything
+    // whose `cap != CHUNK_BYTES`. A dead 1 MB array kept its megabyte until the VM exited.
+    let mut r = VarRegion::new();
+    let h = r.alloc(OVERSIZED_PAYLOAD, BlockType::ArrayPrim);
+    assert_eq!(r.chunk_count(), 1, "one dedicated chunk, no bump chunk yet");
+    let slots = r.chunk_slot_count();
+
+    r.sweep(); // nothing marked → the block dies
+    assert!(r.resolve(h).is_none());
+
+    let got = r.reclaim_dead_var_chunks();
+    assert_eq!(got.pooled, 0, "a dedicated chunk is never pooled (D-3)");
+    assert_eq!(got.freed_chunks, 1);
+    assert!(
+        got.freed_bytes >= (GcBlockHeader::DATA_OFFSET + OVERSIZED_PAYLOAD) as u64,
+        "freed bytes must cover the whole block: {}",
+        got.freed_bytes
+    );
+    assert_eq!(r.chunk_count(), 0, "the chunk's memory is back with the allocator");
+    assert_eq!(r.chunk_slot_count(), slots, "the slot stays as a tombstone (indices are ids)");
+
+    // The freed block must be gone from every list that holds raw pointers — each one is a
+    // use-after-free waiting for the next sweep / minor / alloc.
+    assert!(r.all_blocks.is_empty(), "all_blocks still points into freed memory");
+    assert!(r.young_list.is_empty(), "young_list still points into freed memory");
+    assert!(r.free_lists.iter().all(|fl| fl.is_empty()));
+
+    // The tombstoned slot is reused rather than leaked.
+    r.alloc(OVERSIZED_PAYLOAD, BlockType::Str);
+    assert_eq!(r.chunk_slot_count(), slots, "push_chunk must recycle the tombstoned slot");
+    assert_eq!(r.chunk_count(), 1);
+}
+
+#[test]
+fn live_oversized_chunk_is_never_freed() {
+    let mut r = VarRegion::new();
+    let live = r.alloc(OVERSIZED_PAYLOAD, BlockType::Str);
+    let dead = r.alloc(OVERSIZED_PAYLOAD, BlockType::Str);
+    // SAFETY: fresh handle into this region.
+    unsafe { live.payload_mut().expect("resolves")[OVERSIZED_PAYLOAD - 1] = 0x5A };
+
+    assert!(live.mark());
+    r.sweep();
+
+    let got = r.reclaim_dead_var_chunks();
+    assert_eq!(got.freed_chunks, 1, "only the unmarked one is freed");
+    // NB: `dead` must NOT be resolved here — its chunk's memory is back with the allocator,
+    // so `resolve` would dereference freed memory. That is design decision D-3's accepted
+    // cost, and miri catches it if this line ever comes back.
+    let _ = dead;
+    // The survivor's chunk is untouched — its payload still reads back.
+    // SAFETY: still alive; the region held it across the reclaim.
+    let tail = unsafe { live.payload().expect("survivor resolves")[OVERSIZED_PAYLOAD - 1] };
+    assert_eq!(tail, 0x5A, "surviving oversized block must keep its memory");
+}
+
+#[test]
+fn oversized_churn_does_not_grow_the_per_chunk_tables() {
+    // The invariant behind "RSS stops climbing": allocating and killing large objects over
+    // and over must reach a steady state, both in chunk memory and in the parallel per-chunk
+    // bookkeeping (`chunks` / `borrowed` / `reuse_gen`, ~29 B per slot).
+    let mut r = VarRegion::new();
+    let mut slots_after_first_round = 0usize;
+    for round in 0..8 {
+        for _ in 0..4 {
+            r.alloc(OVERSIZED_PAYLOAD, BlockType::ArrayPrim);
+        }
+        r.sweep();
+        let got = r.reclaim_dead_var_chunks();
+        assert_eq!(got.freed_chunks, 4, "round {round}");
+        assert_eq!(r.chunk_count(), 0, "round {round}: no chunk memory should survive");
+        if round == 0 {
+            slots_after_first_round = r.chunk_slot_count();
+        } else {
+            assert_eq!(
+                r.chunk_slot_count(),
+                slots_after_first_round,
+                "round {round}: slot table must not grow across churn"
+            );
+        }
+    }
+}
+
+#[test]
+fn freeing_a_dedicated_chunk_leaves_bump_chunk_indices_valid() {
+    // `bump_chunk`, `borrowed`, `reuse_gen` and `var_free_chunk_pool` all address chunks by
+    // index, so a freed dedicated chunk must leave a hole rather than shift its neighbours.
+    // Interleave the two kinds so a naive `Vec::remove` would renumber the bump chunks.
+    let mut r = VarRegion::new();
+    let mut small = Vec::new();
+    for _ in 0..4 {
+        r.alloc(OVERSIZED_PAYLOAD, BlockType::Str);
+        for _ in 0..64 {
+            small.push(r.alloc(1024, BlockType::Str));
+        }
+    }
+    let survivor = small[small.len() - 1];
+    assert!(survivor.mark());
+    r.sweep();
+
+    let got = r.reclaim_dead_var_chunks();
+    assert_eq!(got.freed_chunks, 4);
+    assert!(got.pooled > 0);
+    // The survivor still resolves and its payload is still writable — proof that the pooled
+    // and freed sets did not get crossed.
+    // SAFETY: alive, exclusive access via `&mut r` being released above.
+    unsafe { survivor.payload_mut().expect("survivor resolves")[0] = 0x11 };
+    // Every pointer still tracked must live in a chunk the region still owns.
+    for p in r.all_blocks.iter().chain(r.young_list.iter()) {
+        assert!(
+            r.owns_addr(p.as_ptr() as usize),
+            "tracked block points outside every owned chunk"
+        );
     }
 }

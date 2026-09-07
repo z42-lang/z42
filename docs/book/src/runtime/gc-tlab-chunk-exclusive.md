@@ -183,8 +183,44 @@ sweep 尾（STW）扫全死 chunk（所有已初始化槽 dead）→ 移入 `fre
 
 定长 `Region<T>` 的 `reclaim_dead_chunks` 没有这个问题：槽定长，chunk 归属是下标除法。
 
-回收只把 chunk **还给池子**，不 `dealloc` 还给 OS（`VarRegion::drop` 才释放）。所以 GC 压低的
-是 RSS 的**高水位**（靠复用少要新内存），不是「回收后把内存交回系统」。
+### chunk 的三种归宿（2026-09-08 fix-loh-never-freed）
+
+sweep 尾的 `reclaim_dead_var_chunks` 现在按 chunk 的**种类**分流，不再只有「入池 / 不动」两种：
+
+| 条件 | 归宿 | 内存 |
+|---|---|---|
+| 还有活块 | 原样留着，下一轮再看 | 保留 |
+| 整块死 & `cap == CHUNK_BYTES`（bump chunk） | `var_free_chunk_pool` | **保留**，抬高 `reuse_gen` 后重新 bump |
+| 整块死 & `cap != CHUNK_BYTES`（dedicated chunk） | `dealloc` | **还给分配器** |
+
+**dedicated chunk** 是超过 `CHUNK_BYTES`（64 KB）的块专用的、按 payload 精确定尺的独立
+malloc。在这之前它死后无路可走：`tombstone` 不把 `OVERSIZED_CLASS` 放进任何 free list
+（尺寸各异、没有可复用的 size class），`reclaim_dead_var_chunks` 用 `cap != CHUNK_BYTES`
+把它排除在池子外，而全仓唯一的 `dealloc` 在 `VarRegion::drop` 里 ——
+**一个死掉的大对象把内存攥到 VM 退出为止**。
+
+不给它做池子是刻意的：实测这一路的块尺寸跨 80 KB–1.3 MB，离散得没有复用规律，
+按 size 分桶的池子命中率极低，本身就会变成一笔不还的内存。件数少（一次
+`z42c.semantics` 构建里百量级），交给 mimalloc 复用即可。
+
+⚠️ **释放是原地的，槽位必须留下。** `chunks` 的**下标就是 chunk 的身份** ——
+`bump_chunk` / `borrowed` / `reuse_gen` / `var_free_chunk_pool` 全按下标寻址，
+`Vec::remove` 会把它后面每个 chunk 悄悄改号（`bump_chunk` 指向别人、池子里的下标错位）。
+所以 `Chunk::free_in_place` 只是 `dealloc` + `base` 置 dangling + `cap = 0`，槽位留在原位当
+**墓碑**（`is_freed()` 即 `cap == 0`）。三处必须认得墓碑：`VarRegion::drop` 跳过（否则
+double free）、`ChunkIndex` 不给它建地址区间、`partition_dead_chunks` 不重复释放。
+墓碑槽位进 `free_chunk_slots` 由 `push_chunk` 复用 —— 否则三张 per-chunk 表会按每个死大块
+~29 B 只增不减，RSS 依然单调增、只是慢三千倍。
+
+⚠️ **释放会让这一类块失去 generation 守卫**。入池的 chunk 内存还在，陈旧 `VarGcRef`
+解引用读到的是有效块头、`reuse_gen` 对不上 → `resolve` 干净地返回 `None`（#533 那次
+分代崩溃呈现成 `expected string, got Null` 就是这层网兜的）。释放掉的 chunk 没有这层网：
+陈旧句柄就是 use-after-free。之所以可接受，是因为块走到这一步的前提是**刚刚那次 sweep
+把它 tombstone 了**（从任何根都不可达），且三个 region 的 sweep 都在 mutator 停住时跑。
+准确的代价表述：**一个标记 bug 在 oversized 块上的现场，从「一个 `Null`」变成「内存损坏」**。
+
+bump chunk 的回收仍只**还给池子**，不 `dealloc` 还给 OS。所以对小块而言 GC 压低的是 RSS 的
+**高水位**（靠复用少要新内存），不是「回收后把内存交回系统」；只有大对象堆这一路是真交回去。
 
 ## ⚠️ 变长块复用的 ABA：per-chunk `reuse_gen`
 
