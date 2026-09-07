@@ -57,19 +57,43 @@ ci-bootstrap 两代自举。
 > ⚠️ `.claude/skills/add-ir-op/SKILL.md` 已严重过时（只列 3 步、指向已重构掉的路径、
 > 完全没提 version bump）。**不要照着它做**；本 change 顺带在 tasks 里记一条修正它。
 
-### Decision 2: 键的形态 —— 与 dispatch 同源
+### Decision 2: 键的形态 —— 与 dispatch 同源（**IMPL 期细化：不自己拼键，复用调用发射的同一次查找**）
 
 `ConstStr` 里存什么，决定加载期能否精确判定。
 
-- **方法**：用与运行期 dispatch **完全同源**的 mangled 全签名键（zbc 1.27 / zpkg 0.32
-  `stabilize-dispatch-keys 方案A` 之后是全签名 mangled）。这样加载期的判定与实际调用能否
-  成功**是同一个问题**，不会出现「探测说有、调用却炸」。
+- **方法**：与运行期 dispatch **完全同源**的键。
 - **类型**：FQN。
 - 前缀区分 kind：`"m:"` / `"t:"`（未来 `"f:"` 静态字段）。
 
 **反例（不采用）**：用短名或 `Class.Method` 无签名形式——那正是
 [common-pitfalls.md §1](../../../../.claude/rules/common-pitfalls.md) 记载的
 「同短名跨 ns 串味」和「重载塌缩」两个历史 bug 的形状。
+
+#### D2.1（IMPL 期发现，2026-09-08）：同源性靠**构造**保证，不靠「照着拼一遍」
+
+原设想是「按 dispatch 的规则拼出 mangled 全签名键」。勘察后否决——那等于**手抄第 N 份键推导**，
+正是 `unify-regkey-phase2` 刚刚收敛掉的反模式（键推导曾散在 7 处手抄）。
+
+真实结构是：
+
+- **同包方法**的键 = `MethodDecl.RegKey`，唯一注册入口 `SymbolCollector.RegisterMethod`，
+  读取口径 `OverloadResolver.MethodKeyOf`（[OverloadResolver.z42:56](../../../../src/compiler/z42c.semantics/src/OverloadResolver.z42)
+  对空 RegKey 直接 throw —— 「命中即抛」的探针）。
+- **跨包方法**的键 = `DepCallEntry.QualifiedName`
+  （[DependencyIndex.z42](../../../../src/libraries/z42.ir/src/DependencyIndex.z42)），
+  由 `Deps.GetStaticScoped(activeNs, activeCount, shortCls, method)` 按**调用方活跃命名空间集**
+  解析得到。`CallEmitter` 发 `CallInstr` 时用的就是它
+  （[CallEmitter.z42:241-247](../../../../src/compiler/z42c.semantics/src/CallEmitter.z42)）。
+
+**故 `available!` 的键必须由同一次查找产出，而不是另拼一份**：
+
+| 阶段 | 做什么 |
+|---|---|
+| **bind（ExprTyper）** | 只解析「符号存在 + 唯一」，产 `BoundSymAvailable(ownerClassShortName, memberName, kind)`。不存在 → E0401；重载 → 码 A |
+| **emit** | 走**与真实调用完全相同**的 `Deps.GetStaticScoped(...)` / 同包 `RegKey` 路径拿 key → `ConstStr` → `BuiltinInstr` |
+
+这样「探测说有」与「调用能成」在**同一个查找**上闭合，不可能漂移。
+`Deps` 只在 emit 上下文（`_ctx.Deps`）可用，也正好把这个约束坐实。
 
 ### Decision 3: v1 的符号粒度 —— 类型 + **唯一**方法（⚠️ Open Question 1）
 
