@@ -134,8 +134,13 @@ fn sweep_reclaims_unmarked_keeps_marked() {
     assert!(keep.mark());
     assert!(keep2.mark());
 
-    let reclaimed = r.sweep();
+    let (reclaimed, credited) = r.sweep();
     assert_eq!(reclaimed, 2, "two unmarked blocks reclaimed");
+    // fix-var-sweep-accounting: only the Str block was charged to `used_bytes` at alloc
+    // (header + its true payload length); the ArrayPrim block's bytes were charged — and
+    // are credited — by the owning array header, so it contributes nothing here.
+    assert_eq!(credited, (GcBlockHeader::DATA_OFFSET + 16) as u64,
+        "credit the dead Str's real payload; array element blocks credit zero");
     assert_eq!(r.live_count(), 2);
     // Survivors resolve; reclaimed do not.
     assert!(r.resolve(keep).is_some());
@@ -143,8 +148,10 @@ fn sweep_reclaims_unmarked_keeps_marked() {
     assert!(r.resolve(drop1).is_none());
 
     // Marks cleared on survivors → a second sweep with no marks reclaims them.
-    let reclaimed2 = r.sweep();
+    let (reclaimed2, credited2) = r.sweep();
     assert_eq!(reclaimed2, 2);
+    assert_eq!(credited2, (GcBlockHeader::DATA_OFFSET + 16) as u64,
+        "the surviving Str, now dead, credits its own payload — not the ArrayPrim's");
     assert_eq!(r.live_count(), 0);
 }
 
@@ -272,7 +279,7 @@ fn drop_glue_finalizes_payload_on_reclaim_and_teardown() {
         let _b = alloc_counter(&mut r);
         let keep = alloc_counter(&mut r);
         assert!(keep.mark());
-        let reclaimed = r.sweep();
+        let (reclaimed, _) = r.sweep();
         assert_eq!(reclaimed, 1);
         assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 2, "sweep finalizes the unmarked block");
 

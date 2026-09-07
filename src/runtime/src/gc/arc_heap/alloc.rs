@@ -516,7 +516,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
             | Value::I64(_) | Value::F64(_) => size_of::<Value>(),
             Value::Str(s) => size_of::<Value>() + s.len(),
             Value::Array(rc) => {
-                size_of::<Value>() + size_of::<Vec<Value>>()
+                // fix-var-sweep-accounting: charge the header at `size_of::<ArrayObj>()`,
+                // the same figure `array_size_estimate` credits back at sweep. It used to
+                // charge `size_of::<Vec<Value>>()` — a leftover from before the element
+                // buffer moved into `region_var` — so every array credited more than it
+                // ever charged.
+                size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
                     + rc.borrow().elem_storage_bytes()
             }
             Value::Object(rc) => {

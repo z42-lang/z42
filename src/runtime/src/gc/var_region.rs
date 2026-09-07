@@ -322,12 +322,19 @@ impl VarRegion {
     }
 
     /// STW sweep: tombstone every unmarked live block, clear the mark on survivors. Returns
-    /// the number of blocks reclaimed. (v1 = STW only; generational minor sweep is a later
-    /// PR.)
-    pub fn sweep(&mut self) -> usize {
+    /// `(blocks reclaimed, bytes credited)`. (v1 = STW only; generational minor sweep is a
+    /// later PR.)
+    ///
+    /// **fix-var-sweep-accounting**: the byte figure must mirror exactly what `used_bytes`
+    /// was *charged* at alloc, or the auto-collect budget reads a number that drifts from
+    /// the heap. See [`Self::alloc_charge_bytes`] for the per-`BlockType` rule.
+    pub fn sweep(&mut self) -> (usize, u64) {
         let mut reclaimed = 0;
+        let mut credited: u64 = 0;
         // Collect the slots to reclaim first (can't tombstone while borrowing all_blocks).
-        let mut to_reclaim: Vec<VarGcRef> = Vec::new();
+        // The charge is read here, while the header is still readable (tombstone bumps the
+        // generation and may hand the slot straight back to a free list).
+        let mut to_reclaim: Vec<(VarGcRef, u64)> = Vec::new();
         for &ptr in &self.all_blocks {
             // SAFETY: see `iterate_alive`.
             let header = unsafe { ptr.as_ref() };
@@ -337,15 +344,36 @@ impl VarRegion {
             if header.is_marked() {
                 header.clear_mark();
             } else {
-                to_reclaim.push(VarGcRef::pack(ptr, header.generation()));
+                let charge = Self::alloc_charge_bytes(header);
+                to_reclaim.push((VarGcRef::pack(ptr, header.generation()), charge));
             }
         }
-        for h in to_reclaim {
+        for (h, charge) in to_reclaim {
             if self.tombstone(h) {
                 reclaimed += 1;
+                credited += charge;
             }
         }
-        reclaimed
+        (reclaimed, credited)
+    }
+
+    /// The number of `used_bytes` a block of this kind added when it was allocated — the
+    /// only figure sweep may credit back.
+    ///
+    /// - `Str` / `Closure` — `alloc_str_in_region` / `alloc_closure_in_region` charge
+    ///   `DATA_OFFSET + payload`, so that is what comes back.
+    /// - `ArrayValue` / `ArrayPrim` / `ArrayStruct` — **zero**. `alloc_var_block` records
+    ///   no stats at all (by design); the owning array header charged the element storage
+    ///   through `object_size_bytes`, and `array_size_estimate` credits it back when the
+    ///   header is tombstoned. Crediting the block here as well would refund it twice.
+    #[inline]
+    fn alloc_charge_bytes(header: &GcBlockHeader) -> u64 {
+        match header.block_type() {
+            BlockType::Str | BlockType::Closure => {
+                (GcBlockHeader::DATA_OFFSET + header.size()) as u64
+            }
+            BlockType::ArrayValue | BlockType::ArrayPrim | BlockType::ArrayStruct => 0,
+        }
     }
 
     /// Number of live blocks (diagnostics).
