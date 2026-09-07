@@ -64,28 +64,37 @@ sweep 在同一轮里如实计入，不再由数组头代记。
 - **WHEN** 任意 `BlockType` 变体与任意 `gen_age`（0..=PROMOTION_THRESHOLD）组合
 - **THEN** 两者都能无损读回；未知位模式仍走 `BlockType::from_u8` 的损坏保护路径
 
-### Requirement: 变长区的跨代写屏障
+### Requirement: minor 不得在变长块上留下陈旧的 mark 位
 
-老变长块（如一个已晋升的 `ArrayValue`）写入一个年轻对象的引用时，必须留下记录，
-否则该年轻对象在 minor 中无根可达 → 被误回收。
+一个块若带着上一轮 minor 的 mark 位进入下一轮，它的 `mark()` CAS 会失败，
+追踪逻辑据此判定「已访问」而**跳过它的子节点**。对 `Closure`（唯一自身是变长块又有出边的类型）
+这意味着它引用的对象不再被标记 —— 会被当作垃圾回收掉。
 
-#### Scenario: 老变长块写入年轻引用会脏卡
-- **WHEN** 一个 `gen_age >= PROMOTION_THRESHOLD` 的 `ArrayValue` 块的某个元素
-  被写入一个 `gen_age == 0` 的对象引用
-- **THEN** 该块所在 `VarRegion` chunk 的卡位被置脏
+#### Scenario: 闭包的 env 连续多轮 minor 后仍存活
+- **WHEN** 一个 `env` 数组**只**经由闭包块可达，闭包被 pin，连续触发
+  `PROMOTION_THRESHOLD + 2` 次 minor GC
+- **THEN** 该 `env` 数组每一轮之后都仍然存活
+  （修复前在**第 2 轮**被释放 —— 第 1 轮设下的 mark 位在第 2 轮抑制了追踪）
 
-#### Scenario: 脏卡是 minor 的根
-- **WHEN** 上一场景之后触发 minor GC
-- **THEN** 脏 chunk 里的存活块被当作额外根扫描，那个年轻对象被标记存活、不被回收
+#### Scenario: 存活的变长块在 sweep 后 mark 位被清
+- **WHEN** 一个年轻变长块被标记并熬过一次 `sweep_young`
+- **THEN** 对它重新发起 mark CAS 必须能成功（说明位已被清）
 
-#### Scenario: 叶子块不需要卡
-- **WHEN** 写入的 owner 是 `Str` 或 `ArrayPrim` 块
-- **THEN** 不脏卡（这两类没有出边，物理上不可能持有跨代引用）
+### Requirement: gen_age_of 认得变长块的年龄
 
-#### Scenario: major 清卡
-- **WHEN** 一次 major GC 结束
-- **THEN** `region_var` 的卡表被清空（与 `region_object` / `region_array` 同步），
-  下一轮 minor 从干净的脏集合开始
+**Before:** `Value::Str` / `Value::FuncRef` 落到 `_ => 0`，恒被当作年轻；
+`Value::Closure` 报的是它 `env` 数组的年龄，而不是闭包块自己的。
+
+**After:** 三者都报所属变长块的真实 `gen_age`。
+
+#### Scenario: 老字符串不再被 minor 反复重标
+- **WHEN** 一个被 pin 的字符串熬过 `PROMOTION_THRESHOLD` 次 minor 后再触发一次 minor
+- **THEN** 它的 `gen_age` 停在 `PROMOTION_THRESHOLD` 不再增长（minor 已不访问它）
+
+> **不做卡表**：变长块不产生跨代写 —— `Str` / `ArrayPrim` 是叶子，
+> `ArrayValue` / `ArrayStruct` 只经 `Value::Array` owner 写入（已被 `region_array` 的卡覆盖），
+> `ClosureData` 创建后不可变。老数组头经脏卡重新入根后，
+> `trace_children` 的 `mark_backing()` 会标记其元素块，覆盖已经完整。
 
 ## Pipeline Steps
 

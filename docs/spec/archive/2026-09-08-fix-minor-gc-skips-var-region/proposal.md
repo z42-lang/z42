@@ -25,23 +25,27 @@
 - `VarRegion` 维护 young 块集合 + `iterate_young` / `promote`，与 `Region<T>` 的形状对齐
 - `mark_phase_minor` 把变长块纳入追踪（`ArrayValue` / `Closure` 有出边；`Str` / `ArrayPrim` 是叶子）
 - `sweep_phase_young_only` 增加变长区的 young 扫描
-- `VarRegion` 自带 per-chunk 卡表，支持变长块作为 owner 的跨代写（决策 D-2）
+- `gen_age_of` 改读变长块的真实年龄；修掉由此暴露的**陈旧 mark 位 use-after-free**
+  （闭包的 `env` 在第 2 次 minor 被提前释放 —— 见 design.md 决策 3b）
 - 修 `freed_bytes` 口径：minor 不再把未回收的 `elem_storage_bytes()` 计入
 
 ## Scope（允许改动的文件）
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
-| `src/runtime/src/gc/var_region/block.rs` | MODIFY | `gen_age` 打包进 `type_tag` 空闲位 + 访问器；`BlockType` 编解码收窄到 3 位 |
-| `src/runtime/src/gc/var_region.rs` | MODIFY | young 块集合、`iterate_young`、`promote`、tombstone 时移出；卡表字段与 `mark_card_dirty` / `iterate_dirty_cards` / `clear_card_dirty` |
-| `src/runtime/src/gc/var_region/chunk.rs` | MODIFY | `fill()` 写 header 时带 `gen_age = 0`；per-chunk 卡位随 `push_chunk` 增长 |
+| `src/runtime/src/gc/var_region/block.rs` | MODIFY | `gen_age` + `IN_YOUNG_BIT` 打包进 `type_tag`（换 `AtomicU8`）+ 访问器；`BlockType` 编解码收窄到 3 位 |
+| `src/runtime/src/gc/var_region.rs` | MODIFY | `young_list` 字段、`iterate_young` / `young_count` / `sweep_young`；`alloc` 两条路径登记 young |
+| `src/runtime/src/gc/var_region/chunk.rs` | MODIFY | `fill()` 写 header 时带 `gen_age = 0`；`retire_chunk` 登记 young；`reclaim_dead_var_chunks` purge `young_list` |
 | `src/runtime/src/gc/var_region/var_ref.rs` | MODIFY | `alloc_leaked` / `leak_block_for_test` 两处 header 写入点同步带 `gen_age` |
-| `src/runtime/src/gc/arc_heap/generational.rs` | MODIFY | minor mark / sweep 纳入变长区；`maybe_mark_cross_gen_card` 支持 var owner；修 `freed_bytes` |
+| `src/runtime/src/gc/arc_heap/generational.rs` | MODIFY | `gen_age_of` 读变长块真实年龄（修 UAF）；`sweep_phase_young_only` 调 `region_var.sweep_young()` |
 | `src/runtime/src/gc/arc_heap/control.rs` | MODIFY | `young_count` 统计含变长区（升级启发式的分母） |
-| `src/runtime/src/gc/arc_heap/collect.rs` | MODIFY | major 路径同步清变长区卡表 |
+| `src/runtime/src/gc/arc_heap/interface.rs` | MODIFY | `set_mode` 把 `set_generational` 转发给 `region_var`（**实施期追加**：young 表非分代模式下多吃 20 MB） |
+| `src/runtime/src/gc/arc_heap/construct.rs` | MODIFY | 按模式构造 `VarRegion`（**实施期追加**，同上） |
+| `src/runtime/src/metadata/vstr.rs` | MODIFY | `Str::gen_age()` 转发到块头（**实施期追加进 Scope**：`Value::Str` 持的是 `vstr::Str` 而非 `VarGcRef`，`gen_age_of` 需要这个转发） |
+| `src/runtime/src/gc/mode.rs` | MODIFY | `GenerationalMarkSweep` 的契约注释更新（三个 region 都参与、变长块不需要卡表） |
 | `src/runtime/src/gc/var_region_tests.rs` | MODIFY | 变长块年龄 / 晋升 / young 扫描 / 卡表的单测 |
 | `src/runtime/src/gc/arc_heap_tests/generational.rs` | MODIFY | minor 回收变长区的端到端断言 + `freed_bytes` 口径断言 |
-| `docs/book/src/runtime/gc-tlab-chunk-exclusive.md` | MODIFY | 变长区分代的机制说明（数据结构 + 卡表 + 晋升流程） |
+| `docs/book/src/runtime/gc-tlab-chunk-exclusive.md` | MODIFY | 变长区分代的机制说明（位布局 + young 表的重建式维护 + 陈旧 mark 的坑） |
 | `docs/spec/changes/fix-minor-gc-skips-var-region/` | NEW | 本变更容器（proposal / design / specs / tasks） |
 
 **只读引用**（理解上下文必须读，但不修改）：
@@ -62,7 +66,8 @@
 
 ## Open Questions
 
-- [x] 变长块的卡表放哪 → **决策 D-2：`VarRegion` 自带一套**。让数组元素块借数组头的卡覆盖不全
-      （`Str` / `Closure` 没有可借的头），会留下一类漏记的跨代写
+- [x] 变长块的卡表放哪 → **实施期推翻：不需要卡表**。变长块不产生跨代写（`Closure` 创建后不可变、
+      数组元素只经 `Value::Array` owner 写、其余是叶子），且 `mark_backing()` 早已覆盖标记。
+      详见 design.md 决策 3；原阶段 3 取消
 - [x] `PROMOTION_THRESHOLD` 是否给变长块独立阈值 → **决策 D-4：先统一**，无数据支持拆分；
       注意 2 位 `gen_age` 最大只能表达到 3

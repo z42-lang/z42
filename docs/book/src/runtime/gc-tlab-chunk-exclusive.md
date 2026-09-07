@@ -95,6 +95,75 @@ flowchart TB
 `32 >> 2 = 8` 刚好卡在下限；再细成 8 档步长就变成 4 字节，直接破坏对齐。
 所以理论上更省的 8 档（浪费可降到 34.5 MB）**在当前 16 字节块头下不可取**。
 
+### 变长区的分代（2026-09-08 fix-minor-gc-skips-var-region）
+
+在此之前，minor GC 只扫两个定长区，`region_var` 完全不参与——而它占 RSS 约 45%，
+只能等 major。同时数组头 tombstone 时把 `array_size_estimate`（含 `elem_storage_bytes()`）
+计进 `freed_bytes`，那些字节却住在变长块里、这一轮并没被回收：**账退了、内存没退**。
+
+**年龄塞在哪。** `GcBlockHeader` 被 `assert!(size_of == 16)` 钉死，头涨到 24 会把
+180 万个 total 恰好 32 字节的块推进下一个 size class，吐回 15 MB+（见 `class_for` 的实测）。
+所以年龄挤进 `type_tag` 的空闲位：
+
+```
+type_tag: AtomicU8
+  bit 0..2  BlockType（5 个变体，3 位）
+  bit 3..4  gen_age（2 位 → 上限 3；PROMOTION_THRESHOLD = 2 卡在下面）
+  bit 5     IN_YOUNG_BIT（是否在 young_list 里）
+  bit 6..7  未用，恒 0
+```
+
+换 `AtomicU8` 是因为写屏障要在 mutator 线程无锁读 `gen_age`，而晋升写在 STW——
+`u8` 上的并发读写是数据竞争。`AtomicU8` 与 `u8` 同 size/align，布局不变。
+
+**young 表是「重建」而不是「增量维护」。** 定长区靠每个 entry 上的 `young_idx` 做 O(1)
+`swap_remove`；变长块没地方放这个下标（头已填满）。改成：`alloc` 只 push，
+`sweep_young` 反正要走完整张表，顺路把「仍然存活且仍然年轻」的写回一张新表。
+tombstone 故意留下陈旧条目，代价是下次 sweep 一次 `is_alive()` 检查。
+
+⚠️ **懒删除会产生重复条目**：major sweep 会 tombstone 年轻块，它们留在表里；
+该槽若在下次 minor 之前被 free-list 复用，`alloc` 会再 push 一次，同一地址出现两次
+——每次 minor 连升两级、表还会无界增长。`IN_YOUNG_BIT` 就是为此存在：已在表里就不重复 push。
+
+⚠️ **`reclaim_dead_var_chunks` 必须连 `young_list` 一起 purge**（和 `all_blocks` /
+`free_lists` 同一个 `retain`）。回收的 chunk 会从 offset 0 重新 bump，漏掉的条目会悬垂
+到下一个占用者身上，被 minor 拿去老化或 tombstone。
+
+⚠️ **young 表只在分代模式下维护**（`set_generational`，与 `Region<T>` 的 #524 同款）。
+这个区有 270 万个块，非分代模式下一张没人消费的表实测多吃 **20 MB** RSS。
+
+**不需要卡表。** 变长块不产生跨代写：`Str` / `ArrayPrim` 是叶子；
+`ArrayValue` / `ArrayStruct` 只经 `Value::Array` owner 写入，已被 `region_array` 的卡覆盖；
+`ClosureData` **创建后不可变**。老数组头经脏卡重新入根后，`trace_children` 里的
+`arr.mark_backing()` 会标记它的元素块——标记覆盖早就完整。
+
+### ⚠️ 陈旧 mark 位曾导致 use-after-free
+
+同一次改动查出的真缺陷，比上面两条都严重。minor 从不清变长块的 mark 位，
+而 `gen_age_of` 对变长块是瞎的（`Value::Str` 落到 `_ => 0` 恒为「年轻」，
+`Value::Closure` 读的是 **env 的**年龄而非闭包块自己的）：
+
+```
+minor #1: 标记闭包块 → mark 位留着没人清
+minor #2: c.mark() CAS 失败 → just_marked = false → children 不再被追
+        → 仅经它可达的年轻 env 数组没被标记 → 当场被 sweep 掉
+        → 闭包还引用着的数组被提前释放
+```
+
+`Str` / `ArrayPrim` 是叶子，陈旧 mark 只造成一轮浮动垃圾；`Value::Array` 走头节点、
+mark 位被正常清理。**这条只打在 `Closure` 上**——唯一「自身是变长块又有出边」的类型。
+两处同修：`sweep_young` 清 survivor 的 mark 位，`gen_age_of` 读真实年龄（老块不再被推入）。
+回归测试 `closure_env_survives_repeated_minors` 锁住它：不修则第 2 轮必红。
+
+**残留（已知、有界）**：从脏卡以老数组头入根时 `mark_backing()` 仍会标记一个**老**元素块，
+minor 不清老块的 mark，该块若随后成为垃圾会多活一个 major 周期。是浮动垃圾，不是正确性问题。
+
+**minor 不做 chunk 级回收**——`reclaim_dead_chunks` / `reclaim_dead_var_chunks` 只在
+`run_cycle_collection_stw`（major）里调。所以 minor 释放的槽只进 free-list 供复用，
+压不下 chunk 高水位。实测 `z42c.semantics` 配 256MB 预算跑分代模式：0 次 major，
+RSS 966 MB，比纯 STW 的 743 MB 还高——老垃圾一次都没被收。这是升级启发式
+（存活率 ≥ `gc-minor-threshold`）从未触发的后果，待 `add-bounded-nursery` 处理。
+
 ### chunk 级回收（D7）
 
 sweep 尾（STW）扫全死 chunk（所有已初始化槽 dead）→ 移入 `free_chunk_pool` 供 borrow 复用。

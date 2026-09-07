@@ -155,7 +155,7 @@ impl VarChunkClaim {
                 size: payload as u32,
                 marked: AtomicU8::new(0),
                 alive: AtomicBool::new(true),
-                type_tag: block_type as u8,
+                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, true)),
                 size_class,
             });
             let data = payload_ptr_of(header_ptr);
@@ -245,6 +245,13 @@ impl VarRegion {
     /// and is reclaimed (bounded ≤ CHUNK_BYTES per safepoint retire).
     pub fn retire_chunk(&mut self, claim: &mut VarChunkClaim) {
         let n = claim.local_blocks.len();
+        // fix-minor-gc-skips-var-region: TLAB-filled blocks are freshly allocated, so they
+        // are young by definition (`fill` stamps `gen_age = 0` and the young bit). They join
+        // `young_list` here for the same reason they join `all_blocks` here — until retire,
+        // the region cannot see them at all.
+        if self.generational {
+            self.young_list.extend(claim.local_blocks.iter().copied());
+        }
         self.all_blocks.extend(claim.local_blocks.drain(..));
         self.live_count += n;
         self.borrowed[claim.chunk_idx] = false;
@@ -334,6 +341,11 @@ impl VarRegion {
         for fl in &mut self.free_lists {
             fl.retain(|&p| !in_reclaimed(p));
         }
+        // fix-minor-gc-skips-var-region: `young_list` holds the same kind of chunk-owned
+        // pointers and must be purged with them. A recycled chunk gets re-bumped from offset
+        // 0, so a surviving entry would dangle onto whatever lands at that address next —
+        // and the minor sweep would happily age or tombstone the new occupant.
+        self.young_list.retain(|&p| !in_reclaimed(p));
         for &ci in &reclaim {
             // Bump reuse_gen above every generation this chunk's blocks reached, so a fresh
             // re-bump can't mint an (address, generation) pair matching a stale VarGcRef.

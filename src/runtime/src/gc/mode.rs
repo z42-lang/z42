@@ -31,6 +31,13 @@ pub enum GcMode {
     /// `young_list` + cross-gen dirty cards (O(young) pause); major
     /// GC scans whole heap. Write barrier records old→young writes
     /// via per-chunk dirty bitmap. Promotion threshold N=2.
+    ///
+    /// **fix-minor-gc-skips-var-region (2026-09-08)**: all three regions take part —
+    /// `region_var` (strings / closures / array element storage, ~45% of RSS) used to sit
+    /// out every minor and wait for a major. Var blocks carry their age packed into
+    /// `GcBlockHeader::type_tag` and keep their own young list; they need no card table of
+    /// their own (they are never the source of a cross-generation write — see
+    /// `docs/book/src/runtime/gc-tlab-chunk-exclusive.md`).
     /// Mutually exclusive with `ConcurrentMarkSweep` in v1.
     /// Landing across `add-generational-gc` P0–P4.
     GenerationalMarkSweep = 2,

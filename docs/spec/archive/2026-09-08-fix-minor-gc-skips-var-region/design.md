@@ -25,10 +25,10 @@ minor 周期改造后的形状：
 run_cycle_collection_minor()
   ├─ retire_thread_tlab()                    # 不变
   ├─ mark_phase_minor()
-  │    ├─ 根：pinned roots + external scanner
-  │    ├─ 根：region_object / region_array 的脏卡条目      # 不变
-  │    └─ 根：region_var 的脏卡块                          # ★新增
-  │       BFS 只把「年轻的子节点」入队（含变长块）          # ★扩展
+  │    ├─ 根：pinned roots + external scanner              # 不变
+  │    ├─ 根：region_object / region_array 的脏卡条目      # 不变（变长区不需要卡，见决策 3）
+  │    └─ BFS 只把「年轻的子节点」入队 —— gen_age_of 现在
+  │       读得懂变长块的年龄，老块不再被误当年轻推入        # ★修正（决策 3b）
   └─ sweep_phase_young_only()
        ├─ region_object 的 young 槽                        # 不变
        ├─ region_array  的 young 槽                        # 不变
@@ -85,27 +85,61 @@ type_tag: AtomicU8
 而增量维护的代价是实打实的——#524 正是因为 `young_list` 的维护开销（指令 −0.17%）
 才把它改成只在分代模式下维护。变长区直接跳过这笔开销。
 
+**实施期补充（重复条目）：** 懒删除有个设计时没想到的后果——major sweep 会 tombstone 年轻块，
+它们作为陈旧条目留在表里；该槽若在下次 minor 之前被 free-list 复用，`alloc` 会**再 push 一次**，
+同一地址在表里出现两次 → 每次 minor 连升两级、表还会无界增长。
+解法是 `type_tag` 的 bit 5 做 `IN_YOUNG_BIT`：已在表里就不重复 push，O(1) 去重，
+不需要 `young_idx` 侧表。测试 `recycled_slot_is_not_listed_twice` 锁住这条。
+
 **必须配套的一处：** `reclaim_dead_var_chunks` 已经在 purge `all_blocks` 和 `free_lists`，
 `young_list` 要加进同一个 `retain`（复用现成的 `in_reclaimed` 闭包，不新增查找成本）。
 漏了这一步 = 悬垂指针。
 
-### Decision 3: 卡表放 `VarRegion` 自己，不借数组头的卡
+### Decision 3（**实施期推翻**）: 变长区不需要卡表
 
-**问题：** 变长块进分代后，「老变长块 → 年轻对象」的写必须被记录，否则那个年轻对象
-在 minor 里无根可达 → 被误回收。今天 `maybe_mark_cross_gen_card` 只认
-`Object` / `BoxedStruct` / `Array` 作为 owner。
+**原决定：** 给 `VarRegion` 自带一套 per-chunk 脏位，理由是「`Closure` 块的出边没有可借的
+数组头，借卡会漏掉一整类跨代写」。
 
-**选项：**
-- **A —— `VarRegion` 自带一套 per-chunk 脏位**（与 `Region<T>` 的 `card_dirty` 同形状）。
-- **B —— 让 `ArrayValue` 块借它的数组头（在 `region_array`）的卡。** 复用现成机制，不加新表。
+**推翻依据：** 那条理由不成立——**变长块根本不会被写**：
 
-**决定：** 选 A。B 覆盖不全：`Closure` 块的出边（`env` 数组 + `fn_name` 字符串）
-没有可借的数组头，`Str` / `ArrayPrim` 虽是叶子不需要卡，但 `Closure` 这一类会留下
-**一整类漏记的跨代写**——那是最难查的一种 GC bug（表现为随机的 use-after-free）。
-多一套 per-chunk 位表的代价是可控的：chunk 数量级在千，位表随 `push_chunk` 增长即可。
+| 块类型 | 写入路径 | 卡覆盖 |
+|--------|---------|--------|
+| `Str` / `ArrayPrim` | 叶子，无出边 | 不需要 |
+| `ArrayValue` / `ArrayStruct` | 只经 `Value::Array` owner（`exec_array.rs:274` 的 `write_barrier_array_elem`） | `region_array` 的卡已覆盖 |
+| `Closure` | **创建后不可变**（`value_aux.rs:94`、`value.rs:77`、`value.rs:220` 三处注释一致） | 不需要 |
 
-实际需要脏位的只有 `ArrayValue` / `Closure` 两类；`Str` / `ArrayPrim` 是叶子，
-屏障里直接短路返回（与今天对非堆 owner 的处理一致）。
+而 minor 的脏卡根扫描重新以老数组头为根，`trace_children` 里的
+`arr.mark_backing()`（`value.rs:282`）会标记它的元素块——**现有 mark 机制早就覆盖变长块了**。
+闭包与其 `env` 同时创建、同批老化，只可能产生 young→old 边，不可能 old→young。
+
+**新决定：** 不做卡表。原方案的整个阶段 3 取消。
+
+### Decision 3b（**实施期新增**）: 陈旧 mark 位导致的 use-after-free
+
+查证 Decision 3 时发现的真缺陷，比原本要修的两条都严重：
+
+`sweep_phase_young_only` 从不清变长块的 mark 位，而 `gen_age_of` 对变长块是瞎的
+（`Value::Str` 落到 `_ => 0` 恒为「年轻」，`Value::Closure` 读的是 **env 的**年龄而非闭包块自己的）。
+于是：
+
+```
+minor #1: 标记闭包块 → mark 位留着没人清
+minor #2: c.mark() CAS 失败 → just_marked = false → children 不再被追
+        → 它仍然年轻的 env 数组没被标记 → 当场被 region_array 的 young sweep 掉
+        → 闭包还引用着的数组被提前释放
+```
+
+`Str` / `ArrayPrim` 是叶子，陈旧 mark 只造成一轮浮动垃圾；`Value::Array` 走头节点、
+mark 位被正常清理。**这条只打在 `Closure` 上**——唯一「自身是变长块又有出边」的类型。
+
+**决定：** 两处同修——`sweep_young` 清 survivor 的 mark 位（Decision 2 的实现自带），
+`gen_age_of` 改读变长块的真实年龄（老块不再被 minor 推入，从源头不产生陈旧 mark）。
+回归测试 `closure_env_survives_repeated_minors` 已验证：不修则 **round 2** 必红
+（`live_arrays: 0 vs 1`）。
+
+**残留（已知、有界）：** 从脏卡重新以老数组头为根时，`mark_backing()` 仍会标记一个**老**元素块，
+而 minor 不清老块的 mark。该块若随后变成垃圾，会多活一个 major 周期后才被回收
+（`sweep()` 清 mark 并保留 → 下一轮 major 才无标记）。是浮动垃圾，不是正确性问题，不在本 change 处理。
 
 ### Decision 4: 晋升阈值先统一，不给变长块开小灶
 
@@ -141,8 +175,6 @@ type_tag: AtomicU8
   `gen_age = 0` 且重新入 young 表（与 `Region<T>` 的 `reused slot starts at gen_age=0` 对齐）。
 - **`BlockType::from_u8` 的损坏保护**：解包时先 `& 0b111` 再查表，
   高位不再参与判定；`debug_assert` 保留。
-- **major 路径**：`run_cycle_collection_major` 末尾清 `region_object` / `region_array`
-  的卡，要同步加上 `region_var`。
 - **`young_count`**：`control.rs` 的升级启发式用 `young_before / young_after` 算存活率，
   分母要含变长区，否则存活率被系统性低估、major 升级不触发。
 
@@ -153,12 +185,14 @@ type_tag: AtomicU8
   - `size_of::<GcBlockHeader>() == 16` 静态断言仍在（已有测试，确认未被破坏）
   - 三条分配路径产出的块都是 `gen_age == 0` 且在 young 表里
   - 晋升：连续 `PROMOTION_THRESHOLD` 次后移出 young 表
-  - `reclaim_dead_var_chunks` 同时 purge `young_list`（构造被回收 chunk 里的 young 块）
+  - `reclaim_dead_var_chunks` 同时 purge `young_list`（断言 `young_list ⊆ all_blocks`）
+  - 复用的槽不会在 young 表里出现两次
 - **单元测试（`arc_heap_tests/generational.rs`）**
   - 年轻的 `Str` 块在 minor 里被回收（`used_bytes` 实际下降）
   - 数组头与其 `ArrayValue` 元素块在**同一次** minor 内一起回收
   - 已晋升的变长块不被 minor 访问
-  - 跨代写：老 `Closure` 块写入年轻引用 → 脏卡 → 该年轻对象在 minor 中存活
+  - **UAF 回归**：闭包的 `env` 只经闭包块可达，连跑 `PROMOTION_THRESHOLD + 2` 次 minor 仍存活
+  - 老字符串不再被当作年轻块反复重标
   - `freed_bytes ≤ used_before − used_after`（口径断言）
 - **VM 验证**：`./xtask test` 完整 GREEN gate
 - **实测对账**：`Z42_GC_MODE=generational Z42_GC_MAX_BYTES=256M` 跑

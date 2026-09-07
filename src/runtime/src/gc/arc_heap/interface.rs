@@ -251,6 +251,10 @@ impl MagrGC for ArcMagrGC {
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
         self.region_object.lock().set_generational(generational);
         self.region_array.lock().set_generational(generational);
+        // fix-minor-gc-skips-var-region: the var region keeps a young list now too, and it
+        // is the largest of the three — leaving it maintained under non-generational modes
+        // cost +48 MB of RSS on a `z42c.semantics` build.
+        self.region_var.lock().set_generational(generational);
     }
 
     /// **add-custom-allocator P2**: explicit finalize; impl in `ArcMagrGC::finalize_now`.
