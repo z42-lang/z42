@@ -520,3 +520,64 @@ void test_parent_interface_assoc_type_must_also_be_bound() {
         + "class C : IDerived { }\n";
     Assert.Equal("E0453", SemanticDump.FirstErrorCode(src));
 }
+
+// ── 接口成员齐备性（add-interface-satisfaction-check）────────────────────────────
+//
+// z42 此前**完全不查**「声明了接口有没有真的实现它」：`class C : I { }` 缺成员不报、签名不符也
+// 不报，两者静默通过（`InheritanceResolver` 抬头自陈「严格校验留待后续」，E0412 声明了却零引用）。
+// 本组把那条欠债关掉。
+//
+// ⚠️ 判据不是「写了断言」而是「把校验退回后会变红」——已逐条实测：`_checkIfaceMembersComplete`
+// 调用点注释掉后，本组除 `_ok_` 两条外全部变红；`_ok_` 两条是**无误报守卫**（两态同绿），
+// 它们守的是「别把正确代码判成违反」，尤其是 `Self`/接口型参替换那两处最容易写错的地方。
+
+[Test]
+void test_missing_interface_member_is_reported() {
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { void M(); }\nclass C : I { }\n"));
+}
+
+[Test]
+void test_wrong_signature_for_interface_member_is_reported() {
+    // 名字在、签名不符 —— 与「完全没有」分开报，消息里带期望的 mangled key 便于定位。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int N(string s); }\nclass C : I { public int N(int s) { return 0; } }\n"));
+}
+
+[Test]
+void test_self_typed_interface_member_must_match_implementing_type() {
+    // `Self` 替换成实现类：`class Q : IEq` 必须提供 `Same(Q)`，写 `Same(int)` 不算。
+    // 这正是 apply-self-to-core-protocols 那轮**受益于**校验缺失的写法，现在被抓住了。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface IEq { bool Same(Self other); }\nclass Q : IEq { public bool Same(int other) { return true; } }\n"));
+}
+
+[Test]
+void test_ok_self_typed_interface_member_matching_is_not_reported() {
+    // 🛡 无误报守卫（两态同绿）：`Self := P` 后 `Same(P)` 应当匹配。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface IEq { bool Same(Self other); }\nclass P : IEq { public bool Same(P other) { return true; } }\n"));
+}
+
+[Test]
+void test_ok_generic_interface_type_arg_substituted_is_not_reported() {
+    // 🛡 无误报守卫（两态同绿）——**本组最容易写错的一条**：接口型参与实现类型参**拼写不同**
+    // （接口 `T`、类 `U`）。`ct.InterfaceNames` 只存裸名、类型实参被 StubCollector 丢掉，所以校验
+    // 必须从 AST 的 `c.Bases` 重解析拿回 TypeArgs，否则这里会误报 `AddOne$1$U` vs `AddOne$1$T`。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface IColl<T> { void AddOne(T item); }\nclass Bag<U> : IColl<U> { public void AddOne(U item) { } }\n"));
+}
+
+[Test]
+void test_inherited_implementation_satisfies_interface() {
+    // 🛡 实现继承自基类同样算数（沿 base 链上溯），不能只看本类自己的成员表。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface I { void M(); }\nclass Base { public void M() { } }\nclass D : Base, I { }\n"));
+}
+
+[Test]
+void test_parent_interface_member_must_also_be_implemented() {
+    // 成员齐备性同样走**接口继承闭包**（与关联类型那条同一份 BaseNames 链）。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface IBase { void M(); }\ninterface IDerived : IBase { }\nclass C : IDerived { }\n"));
+}

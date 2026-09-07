@@ -263,7 +263,13 @@ public static class ImportedSymbolLoader {
                                 while (mj2 < mz.ParamCount) { mps[mj2] = ImportedSymbolLoader._resolve(r, mz.Params[mj2].TypeName, itps, itpc); mj2 = mj2 + 1; }
                                 var msig = new Z42FuncType(mps, mz.ParamCount, ImportedSymbolLoader._resolve(r, mz.ReturnType, itps, itpc));
                                 ImportedSymbolLoader._fillParamDefaults(msig, mz.Params, mz.ParamCount);   // PR6
-                                it2.Methods.Put(mz.Name, new MethodSymbol(mz.Name, "public", msig, false, iz2.Name, false, null));
+                                // add-interface-satisfaction-check：`isStatic` 此前硬编码 `false`，
+                                // 而 `mz.IsStatic` 明明就在手上 ⇒ 跨包看 `INumber.op_Add` 这类
+                                // **static abstract** 接口成员会被当成实例方法。与 #523 修的四条
+                                // 「imported 类型保真度」同族：元数据带着信息，导入侧把它抹平了。
+                                // （`IsAbstract` 没有对应槽——`MethodSymbol` 无该字段，抽象性一律靠
+                                //  `Decl.Mods` 嗅探，而导入符号 `HasDecl=false`；故只还原 IsStatic。）
+                                it2.Methods.Put(mz.Name, new MethodSymbol(mz.Name, "public", msig, mz.IsStatic, iz2.Name, false, null));
                             }
                             im2 = im2 + 1;
                         }

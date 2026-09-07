@@ -152,7 +152,8 @@ public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不�
 直接后果，需要知道：
 
 - **实现类不必也不能写 `Self`**：实现方在自己的签名里写具体类型（上例的 `Point`）。
-  今天没有「类实现接口时的成员签名齐备性校验」，所以写错也不会被抓——那是另一件事的欠债。
+  写错**会被抓**：`class Q : IEq` 若把 `bool Same(Self other)` 实现成 `Same(int)`，报
+  **E0412**（change `add-interface-satisfaction-check`，2026-09-07——在此之前这里确实无人看守）。
 - **经接口静态类型调用返回 `Self` 的方法，结果类型 = 该接口本身**（change
   `self-return-type-substitution`，2026-09-07）：`IClone c; var x = c.Copy();` 里 `x : IClone`。
   这是可靠**上界**——实现方必然实现该接口，所以把结果当接口用一定成立；但它**不是**具体类型，
