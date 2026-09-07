@@ -101,7 +101,7 @@
 **After**：本变更**不对 enum 位发声**。理由见 design D6——实测 `Color c = Color.Blue;` 今天在
 **var-decl** 就报 `E0402`，即 z42 今天**无法产生任何 enum 类型的值**；在调用点补 cast 只会掩盖
 该 bug。Q2 选定的 C# 语义改由独立 lang change
-[`make-enum-distinct-type`](../../../make-enum-distinct-type/) 实现，并由它摘掉本跳过。
+独立 change `make-enum-distinct-type` 实现，并由它摘掉本跳过。
 
 #### Scenario: enum 成员传 enum 形参 —— 本变更不报
 - **WHEN** `GCHandle.Alloc(target, GCHandleType.Weak)`

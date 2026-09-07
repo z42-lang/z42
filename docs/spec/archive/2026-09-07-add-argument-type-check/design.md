@@ -78,7 +78,7 @@ Object 方法。因此 `sig != null` 恰好等价于「签名已知」，无需�
 | **R2** | `X[]` / `T[]` → `Array` 不放行（`_classifyBuiltin` 只特判 `object`，没管数组基类 `Array`） | 4 | `Conversion.z42:124` 邻近加分支 | 已知 **bug A** |
 | **R3** | 限定类型名固化成字面量 `"unknown"`，读回成 `Z42ClassType.Builtin("unknown")`（一个**名叫 unknown 的类**）而非 `Z42UnknownType` → Absorb 守卫失效 | 4 | **消费端半边**：`_resolve` 把 `"unknown"` 还原为 `Z42UnknownType`。**产出端半边留作独立 change**（见下） | 已知 **bug B3** |
 | **R5** | **imported 委托类型退化**：`Action`/`Func<…>` 经 `ImportedSymbolLoader` 成了普通 `Z42ClassType` ⇒ lambda 实参拿不到 `Z42FuncType` 目标，只能落 `_bindLambdaArg` 的 Unknown 返回 | 3 | ① `ImportedSymbolLoader._resolveDelegate`（对齐本地 `SymbolTable.ResolveTypeP:238-254`）② `BindWithTarget` 加 lambda 目标分支 ③ `_bindCall` 延迟 lambda 实参 | 🆕 本次发现 |
-| **R6** | enum ↔ 底层整数不可转 | 2 | 🕳 **本变更跳过 enum 位并登记残留洞**；语义归独立 lang change [`make-enum-distinct-type`](../make-enum-distinct-type/) | 已知 **bug D** |
+| **R6** | enum ↔ 底层整数不可转 | 2 | 🕳 **本变更跳过 enum 位并登记残留洞**；语义归独立 lang change `make-enum-distinct-type` | 已知 **bug D** |
 | **R7** | `Func<int>` ≠ `Func<Int32>`；极端形态连 `Action` → `Action` 都判不可赋 | 4 | `Z42Type.z42:304-307` `Z42FuncType.IsAssignableTo` 用 `Dump()` 逐字比、不 `Canon`（`Z42ArrayType` 就 Canon 了） | 已知 **bug C** |
 
 ### R1 修复链（已核实，无格式 bump）
@@ -164,7 +164,7 @@ Conversion._classifyBuiltin 分支 B「恰一侧泛型形参 → GenericErase」
 「enum 成员产不出 enum 类型值」这个 bug**，违反本程序铁律。故：
 
 - **本变更**：`_checkOneArg` 对 enum 位跳过（`_isEnumSide`），代码里写明这是**有意的残留洞**并指向下条。
-- **独立 lang change [`make-enum-distinct-type`](../make-enum-distinct-type/)**：实现 Q2 选定的 C# 语义
+- **独立 lang change `make-enum-distinct-type`**：实现 Q2 选定的 C# 语义
   （成员定型为 enum 类型 + 双向显式 cast），并**摘掉本变更留的跳过**。它要改写 book 的 enum-as-int SoT
   与 `src/tests/types/enum.z42` 里 4 条成文断言，半径远超实参检查，按 Spec-First 必须自带 proposal/spec/design。
 
