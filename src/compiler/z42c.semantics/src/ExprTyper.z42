@@ -83,8 +83,8 @@ public sealed class ExprTyper {
             // 那两条路径（同包 OverloadBinder._adaptArgs / 跨包 _crossPkgDefault / 持久化 ClassDescBuilder）
             // 都在此之前截住。落到这里 = 出现在普通表达式位（方法体 / 字段初始化等）→ E0450。
             // 发码用字面量（避 core→semantics 冷启动 F2，同 DeclBinder）。
-            if (CallerMacro.IsMacro(id)) {
-                string mn = CallerMacro.NameOf(id);
+            if (MacroRegistry.IsMacro(id)) {
+                string mn = MacroRegistry.NameOf(id);
                 this._tc._diags.Error("E0450", "compile-time macro '" + mn + "!()' is only valid as a parameter default value", id.Span);
                 return new BoundError("misplaced macro " + mn, new Z42ErrorType(), id.Span);
             }
