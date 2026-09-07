@@ -240,173 +240,6 @@ fn test_resolve_namespace_cross_tier_override() {
     assert_eq!(path.extension().and_then(|e| e.to_str()), Some("zbc"));
 }
 
-// ── Phase 3 S1: type_registry_vec + Module API ───────────────────────────────
-
-/// Build a minimal Module with two classes and verify build_type_registry
-/// populates both `type_registry` (HashMap by name) and `type_registry_vec`
-/// (Vec by TypeId), and that the Vec[id] index agrees with the HashMap.
-#[test]
-fn type_registry_vec_invariant_after_build() {
-    use crate::metadata::bytecode::{ClassDesc, Module};
-
-    let mut module = Module {
-        name: "Demo".to_owned(),
-        string_pool: vec![],
-        classes: vec![
-            ClassDesc {
-                static_fields: vec![].into(),
-                interfaces: vec![].into(),
-                enum_members: vec![].into(),
-                iface_methods: vec![].into(),
-                struct_layout: None,
-            inline_layout: None,
-            object_layout: None,
-                class_flags: 0,
-                visibility: 0,
-                name: "Demo.Aaa".to_owned(),
-                base_class: None,
-                fields: Box::new([]),
-                type_params: Box::new([]),
-                type_param_constraints: Box::new([]),
-                attributes: Box::new([]),
-            },
-            ClassDesc {
-                static_fields: vec![].into(),
-                interfaces: vec![].into(),
-                enum_members: vec![].into(),
-                iface_methods: vec![].into(),
-                struct_layout: None,
-            inline_layout: None,
-            object_layout: None,
-                class_flags: 0,
-                visibility: 0,
-                name: "Demo.Bbb".to_owned(),
-                base_class: Some("Demo.Aaa".to_owned()),
-                fields: Box::new([]),
-                type_params: Box::new([]),
-                type_param_constraints: Box::new([]),
-                attributes: Box::new([]),
-            },
-        ],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
-        type_registry_vec: Vec::new(),
-        func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
-    };
-
-    crate::metadata::loader::build_type_registry(&mut module);
-
-    // Both views populated and consistent.
-    assert_eq!(module.type_registry.len(), 2, "by-name HashMap has 2 types");
-    assert_eq!(module.type_registry_vec.len(), 2, "by-id Vec has 2 types");
-
-    // Topo order: Aaa (no base) → Bbb (extends Aaa). TypeId.0 == Vec index.
-    let aaa = module.type_registry.get("Demo.Aaa").expect("Aaa registered");
-    let bbb = module.type_registry.get("Demo.Bbb").expect("Bbb registered");
-    assert_eq!(aaa.id.0, 0, "Aaa got TypeId 0 (topo first)");
-    assert_eq!(bbb.id.0, 1, "Bbb got TypeId 1 (topo second)");
-
-    // Vec[id.0] yields the same Arc as the HashMap entry.
-    assert!(std::sync::Arc::ptr_eq(&module.type_registry_vec[0], aaa));
-    assert!(std::sync::Arc::ptr_eq(&module.type_registry_vec[1], bbb));
-
-    // Module::type_by_id lookup returns the same Arc.
-    assert!(std::sync::Arc::ptr_eq(
-        module.type_by_id(crate::metadata::tokens::TypeId(0)).unwrap(),
-        aaa
-    ));
-    assert!(std::sync::Arc::ptr_eq(
-        module.type_by_id(crate::metadata::tokens::TypeId(1)).unwrap(),
-        bbb
-    ));
-}
-
-#[test]
-fn type_by_id_unresolved_returns_none() {
-    let module = crate::metadata::bytecode::Module {
-        name: String::new(),
-        string_pool: vec![],
-        classes: vec![],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
-        type_registry_vec: Vec::new(),
-        func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
-    };
-
-    assert!(module.type_by_id(crate::metadata::tokens::TypeId::UNRESOLVED).is_none());
-    assert!(module.type_by_id(crate::metadata::tokens::TypeId(99)).is_none());
-}
-
-#[test]
-fn register_lazy_type_appends_with_next_id() {
-    use crate::metadata::types::TypeDesc;
-    let mut module = crate::metadata::bytecode::Module {
-        name: "Demo".to_owned(),
-        string_pool: vec![],
-        classes: vec![],
-        functions: vec![],
-        type_registry: rustc_hash::FxHashMap::default(),
-        type_registry_vec: Vec::new(),
-        func_index: rustc_hash::FxHashMap::default(),
-        func_ref_cache_slots: 0,
-    };
-
-    // Lazy type carrying a foreign id (simulating cross-zpkg arrival).
-    let foreign = std::sync::Arc::new(TypeDesc {
-        class_flags: 0,
-        visibility: 0,
-        name: "Lazy.Foreign".to_owned(),
-        id: crate::metadata::tokens::TypeId(42),
-        base_name: None,
-        fields: vec![],
-        field_index: crate::metadata::NameIndex::new(),
-        vtable: vec![],
-        vtable_index: crate::metadata::NameIndex::new(),
-        cold: None,
-    });
-
-    let assigned = module.register_lazy_type(foreign);
-
-    // Module-local id is the next available slot (= 0 for first registration),
-    // not the foreign incoming id of 42.
-    assert_eq!(assigned.0, 0, "first lazy gets id 0");
-    assert_eq!(module.type_registry_vec.len(), 1);
-    assert_eq!(module.type_registry_vec[0].id, assigned, "stored TypeDesc rebuilt with module-local id");
-    assert!(module.type_registry.contains_key("Lazy.Foreign"));
-
-    // Re-registering the same name returns the existing id (idempotent).
-    let dup = std::sync::Arc::new(TypeDesc {
-        class_flags: 0,
-        visibility: 0,
-        name: "Lazy.Foreign".to_owned(),
-        id: crate::metadata::tokens::TypeId(99),
-        base_name: None, fields: vec![], field_index: crate::metadata::NameIndex::new(),
-        vtable: vec![], vtable_index: crate::metadata::NameIndex::new(),
-        cold: None,
-    });
-    let dup_id = module.register_lazy_type(dup);
-    assert_eq!(dup_id, assigned, "re-register returns existing id");
-    assert_eq!(module.type_registry_vec.len(), 1, "no duplicate Vec slot");
-}
-
-/// resolve_dependency locates a zpkg by file name in the libs_paths.
-#[test]
-fn test_resolve_dependency_by_file_name() {
-    let tmp = std::env::temp_dir().join(format!("z42_test_dep_{}", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    make_fake_zpkg(&tmp, "z42.fake.zpkg", &["z42.fake"]);
-
-    let hit = crate::metadata::loader::resolve_dependency("z42.fake.zpkg", &[tmp.clone()]).unwrap();
-    let miss = crate::metadata::loader::resolve_dependency("does.not.exist.zpkg", &[tmp.clone()]).unwrap();
-    std::fs::remove_dir_all(&tmp).ok();
-
-    assert!(hit.is_some());
-    assert_eq!(hit.unwrap().file_name().and_then(|n| n.to_str()), Some("z42.fake.zpkg"));
-    assert!(miss.is_none());
-}
-
 // ── fix-cross-pkg-subclass-fields (2026-05-14) ────────────────────────────────
 
 /// Build a minimal Module containing a single class declaration. Used by
@@ -441,7 +274,6 @@ fn module_with_one_class(
         }],
         functions: vec![],
         type_registry: rustc_hash::FxHashMap::default(),
-        type_registry_vec: Vec::new(),
         func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
@@ -472,8 +304,6 @@ fn fixup_inherits_base_fields_from_separate_module() {
         rustc_hash::FxHashMap::default();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
-    mod_a.type_registry_vec.clear();
-    mod_b.type_registry_vec.clear();
 
     let fixed = crate::metadata::loader::try_fixup_inheritance(&mut global);
     assert_eq!(fixed, 1, "Sub should be the single newly-fixed type");
@@ -500,7 +330,6 @@ fn fixup_handles_three_level_chain() {
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
     for m in [&mut mod_a, &mut mod_b, &mut mod_c] {
-        m.type_registry_vec.clear();  // drop second Arc refs so fixup can mutate
     }
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
@@ -533,7 +362,6 @@ fn fixup_deferred_until_base_loads() {
 
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
-    mod_b.type_registry_vec.clear();
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
     // First fixup pass: base "Base" unresolvable — Sub stays own-only.
@@ -544,7 +372,6 @@ fn fixup_deferred_until_base_loads() {
     // Now A loads, bringing Base into the global registry.
     let mut mod_a = module_with_one_class("Base", None, vec![("b", "str")]);
     crate::metadata::loader::build_type_registry(&mut mod_a);
-    mod_a.type_registry_vec.clear();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
 
     // Second fixup pass: Sub now resolvable, gets inherited slot.
@@ -563,7 +390,6 @@ fn fixup_idempotent_when_no_new_resolutions() {
     let mut mod_b = module_with_one_class("Sub", Some("Base"), vec![]);
     for m in [&mut mod_a, &mut mod_b] {
         crate::metadata::loader::build_type_registry(m);
-        m.type_registry_vec.clear();
     }
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
@@ -593,7 +419,6 @@ fn fixup_converges_with_duplicate_field_names() {
         vec![("dup", "str"), ("dup", "str"), ("x", "i64")]);
     for m in [&mut mod_a, &mut mod_b] {
         crate::metadata::loader::build_type_registry(m);
-        m.type_registry_vec.clear();
     }
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
@@ -657,7 +482,6 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
         classes: vec![],
         functions,
         type_registry: rustc_hash::FxHashMap::default(),
-        type_registry_vec: Vec::new(),
         func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }
@@ -1025,8 +849,6 @@ fn object_layout_composed_crosspkg_fixup() {
     // Merge into a global registry + fixup.
     let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> =
         rustc_hash::FxHashMap::default();
-    mod_a.type_registry_vec.clear();
-    mod_b.type_registry_vec.clear();
     for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
     for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
 
@@ -1040,4 +862,82 @@ fn object_layout_composed_crosspkg_fixup() {
     assert_eq!(&*sub_after.field_kinds, &[STRUCT_REF_ARC_STRING, 0]);
     assert_eq!(&*sub_after.ref_offsets, &[0], "only the base's ref leaf @0");
     assert_eq!(&*sub_after.ref_kinds, &[STRUCT_REF_ARC_STRING]);
+}
+
+// ── TypeId global uniqueness (fix-crosspkg-typeid-collision, 2026-09-08) ──────
+
+/// A minimal `Module` holding `names` as field-less, base-less classes.
+fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::bytecode::Module {
+    use crate::metadata::bytecode::{ClassDesc, Module};
+    Module {
+        name: name.to_owned(),
+        string_pool: vec![],
+        classes: names.iter().map(|n| ClassDesc {
+            static_fields: vec![].into(),
+            interfaces: vec![].into(),
+            enum_members: vec![].into(),
+            iface_methods: vec![].into(),
+            struct_layout: None,
+            inline_layout: None,
+            object_layout: None,
+            class_flags: 0,
+            visibility: 0,
+            name: (*n).to_owned(),
+            base_class: None,
+            fields: Box::new([]),
+            type_params: Box::new([]),
+            type_param_constraints: Box::new([]),
+            attributes: Box::new([]),
+        }).collect(),
+        functions: vec![],
+        type_registry: rustc_hash::FxHashMap::default(),
+        func_index: rustc_hash::FxHashMap::default(),
+        func_ref_cache_slots: 0,
+    }
+}
+
+/// `TypeId`s must be unique across **modules**, not just within one.
+///
+/// They used to restart at 0 per module, which made e.g. z42c.driver's 1st class and
+/// z42c.semantics' 1st class indistinguishable to `VCallIC` / `FieldIC` — both key on the
+/// bare `u32`, and nothing renumbers a `TypeDesc` when it crosses a zpkg boundary. A call
+/// site reached by both then ran the wrong method against the wrong fields, silently.
+/// Observed for real: deleting one unrelated class from z42.core lined the ids up and the
+/// bootstrap chain died inside `File.ReadAllText(<CompilationUnit>)`.
+///
+/// This test fails on the pre-fix allocator: both modules would hand out {0, 1}.
+#[test]
+fn type_ids_are_unique_across_modules() {
+    use std::collections::HashSet;
+
+    let mut a = module_with_class_names("PkgA", &["A.One", "A.Two", "A.Three"]);
+    let mut b = module_with_class_names("PkgB", &["B.One", "B.Two", "B.Three"]);
+    crate::metadata::loader::build_type_registry(&mut a);
+    crate::metadata::loader::build_type_registry(&mut b);
+
+    let ids = |m: &crate::metadata::bytecode::Module| -> HashSet<u32> {
+        m.type_registry.values().map(|td| td.id.0).collect()
+    };
+    let (ids_a, ids_b) = (ids(&a), ids(&b));
+    assert_eq!(ids_a.len(), 3, "each class gets its own id");
+    assert_eq!(ids_b.len(), 3);
+    assert!(
+        ids_a.is_disjoint(&ids_b),
+        "TypeIds must be globally unique; PkgA got {ids_a:?}, PkgB got {ids_b:?}"
+    );
+}
+
+/// Ids stay inside the low band — the import-table / primitive / sentinel bands above
+/// `IMPORT_BASE` must never be handed out as real type ids.
+#[test]
+fn allocated_type_ids_stay_below_import_base() {
+    let mut m = module_with_class_names("PkgC", &["C.One", "C.Two"]);
+    crate::metadata::loader::build_type_registry(&mut m);
+    for td in m.type_registry.values() {
+        assert!(
+            td.id.0 < crate::metadata::tokens::IMPORT_BASE,
+            "type id {} escaped the intra-module band", td.id.0
+        );
+        assert!(td.id.is_resolved());
+    }
 }

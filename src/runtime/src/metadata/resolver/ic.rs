@@ -236,3 +236,35 @@ pub fn ctorless_note(mark: Option<&std::sync::atomic::AtomicUsize>, mark_before:
         slot.store(mark_before, std::sync::atomic::Ordering::Release);
     }
 }
+
+// ── PIC correctness tripwires (fix-crosspkg-typeid-collision, 2026-09-08) ───
+//
+// Both PICs identify a receiver by a bare `u32` `TypeId`, so they are only sound
+// while that id is globally unique (see `tokens::alloc_type_id_block`). It was
+// not: `TypeId`s used to restart at 0 per module, nothing renumbered a
+// `TypeDesc` crossing a zpkg boundary, and a site that saw two same-id classes
+// ran the wrong method / read the wrong field slot — silently, with the damage
+// surfacing arbitrarily far from the call site.
+//
+// These checks make any future regression of that invariant panic *at* the
+// mis-dispatch. Debug builds only (`cargo test` carries them); compiled out of
+// release, so the hot path is byte-identical to before.
+
+/// Assert a `FieldIC` hit resolved to the slot this receiver really holds under
+/// `field_name`. A mismatch means two distinct types share a `TypeId`.
+#[cfg(debug_assertions)]
+pub fn assert_field_ic_slot(td: &crate::metadata::TypeDesc, field_name: &str, slot: u32) {
+    if td.field_index.get(field_name) == Some(&(slot as usize)) {
+        return;
+    }
+    panic!(
+        "FieldIC mis-hit: receiver `{}` (TypeId {}) field `{}` cached at slot {}, \
+         but its field_index says {:?}. Two distinct types share a TypeId — \
+         see tokens::alloc_type_id_block.",
+        td.name, td.id.0, field_name, slot, td.field_index.get(field_name)
+    );
+}
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+pub fn assert_field_ic_slot(_td: &crate::metadata::TypeDesc, _field_name: &str, _slot: u32) {}
