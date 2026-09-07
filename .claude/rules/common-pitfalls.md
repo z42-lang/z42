@@ -37,6 +37,12 @@
 - macOS：z42.core 字母序在前 → 用户写 `Assert.Equal(1, 2)` emit 到 `Std.Assert.Equal` ✓
 - Linux/Windows CI：枚举顺序不同 → emit 到 `Std.Test.Assert.Equal` ✗ → zbc 字节漂移 + 测试输出从 "AssertionError" 变成 "values not equal"
 
+> **本案例的起因已消除（2026-09-08 unify-assert-api）**：两份 `Assert` 已合并成一份
+> （`Std.Assert`，命名空间 `Std`、打包在 z42.test），`Assert` 曾是**整个 stdlib 唯一**的跨命名
+> 空间同短名类 —— 现在一个都没有了。
+> **但本节规则一字不改、继续遵守**：规则管的是「first-wins + 非确定迭代序」这个**模式**，不是
+> 这一对类。任何新加的同短名对都会立刻把它带回来，而下一次未必有 CI 帮你在另一个 OS 上炸出来。
+
 > **根治（2026-07-16 fix-crosspkg-static-ns-collision）**：这个「同短类名跨 ns → 短键 first-wins
 > 串味」的**根因**已修——z42c 的 `DependencyIndex.GetStaticScoped` 按调用方**活跃命名空间集**
 > （usings + 本 ns）解析静态调用，只命中调用方 `using` 到的那份 FQN，不再靠排序碰巧选对。sort

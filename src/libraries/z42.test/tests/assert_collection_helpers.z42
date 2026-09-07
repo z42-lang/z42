@@ -92,15 +92,15 @@ void test_is_not_empty_fail() {
 
 [Test]
 void test_string_contains_still_works() {
-    // Note: bare `Assert.Contains` resolves to z42.core's Std.Assert.Contains
-    // (not z42.test's) due to DependencyIndex first-wins behavior across
-    // packages (.claude/rules/common-pitfalls.md §1). z42.core's Contains
-    // throws plain `Std.Exception` rather than `TestFailure`, so the fail-
-    // path catches `Exception` not `TestFailure`. The test still verifies
-    // the pre-spec string Contains overload remains reachable and throws
-    // on missing-substring — that's the regression invariant.
+    // 不变量：`(string, string)` 这个 overload 必须与 `Array*` 集合助手并存、
+    // 仍然可达，且缺子串时抛。
+    //
+    // 期望 `TestFailure`（unify-assert-api）：合并前有两个 Assert，裸
+    // `Assert.Contains` 因跨包 first-wins 命中 z42.core 那份、抛裸 `Exception`，
+    // 所以这里原本 catch 的是 `Exception`。两份合并后只剩一个 `Std.Assert`，
+    // 断言一律抛 `TestFailure`。
     Assert.Contains("foo", "foobar");      // pass-path
-    Assert.Throws("Exception", () => {
+    Assert.Throws("TestFailure", () => {
         Assert.Contains("baz", "foobar");  // fail-path
     });
 }

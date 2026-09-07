@@ -106,9 +106,12 @@ public static class CuPreprocess {
     // path C：本 CU 的活跃命名空间集 = 全部 `using` 名 + 本 CU 命名空间（若有）+ **prelude 命名空间**。
     // 静态调用 using-scoped 消歧用：只在这些 ns 内解析短类名，跨 ns 同短名（未 using 的那份）不参与。
     // **prelude（z42.core，namespace Std / Std.Runtime）必须纳入**——它免 `using` 恒可见；漏掉会让
-    // 「`using Std.Test` 但裸 `Assert.Equal`（靠 prelude 的 Std.Assert）」被唯一命中误消歧到 Std.Test.Assert
-    // （common-pitfalls §1 的「AssertionError→values not equal」回归）。纳入后 Std.Assert 与 Std.Test.Assert
-    // 同时活跃 → 歧义 → GetStaticScoped 返回 null → 回落短键 prelude-first → Std.Assert（既有行为，字节不动）。
+    // 「本文件没 `using` 到、但靠 prelude 可见」的那份类被排除在活跃集外，于是同短名的另一份
+    // 成为唯一命中 → 被误消歧过去。
+    // 历史现场：`using Std.Test` 但裸 `Assert.Equal` 曾因此从 prelude 的 `Std.Assert` 漂到
+    // `Std.Test.Assert`（common-pitfalls §1 的「AssertionError→values not equal」回归）。
+    // 那一对类已于 unify-assert-api (2026-09-08) 合并，本仓不再有语料能触发；
+    // **规则本身不变**——prelude ns 属于活跃集，是这个消歧算法的正确性前提，不是为某一对类打的补丁。
     // add-global-using：收集全包 `global using` 名，注入到每个 CU 的 Decls（缺则补），
     // 使其对每个文件的名字解析生效。既有 per-CU using 提取点（_activeNamespaces 等）自动纳入。
     // 幂等：注入的 UsingDecl.IsGlobal=false，重复调用时"已存在"检查跳过。

@@ -1,6 +1,6 @@
 # z42.test
 
-z42 标准测试库 —— 给 stdlib 自身和用户脚本提供 attribute 注解（[Test] / [Skip] / [ShouldThrow<E>] 等）+ Assert + TestIO + Bencher，配合 [z42-test-runner](../../toolchain/test-runner/) 运行。
+z42 标准测试库 —— 给 stdlib 自身和用户脚本提供 attribute 注解（[Test] / [Skip] / [ShouldThrow<E>] 等）+ TestIO + Bencher + Runner，配合 [z42-test-runner](../../toolchain/test-runner/) 运行。
 
 ## 现状（v0.5, 2026-05-05）
 
@@ -11,9 +11,10 @@ R 系列基础设施已落（R1 / R2 minimal / R2 完整版 / R3 minimal+R3a+R3c
 | Attribute 注解 | ✅ R1.C / R4.A / R4.B / add-test-timeout-attribute / add-test-skip-platform-feature-eval | `[Test]` / `[Skip(reason:, platform?:, feature?:)]` (平台/特性条件实际生效) / `[Ignore]` / `[Setup]` / `[Teardown]` / `[Benchmark]` / `[ShouldThrow<E>]` / `[Timeout(milliseconds: N)]` |
 | 失败位置展示 | ✅ surface-test-failure-source-location | runner pretty/TAP/JSON 均自动展示 `failure_location` + 完整 `stack_trace`；reason 字段保持向前兼容（in-process; subprocess + JIT 待跟进 spec） |
 | Assert 数值比较 | ✅ extend-assert-numeric-and-collection-helpers | `Greater` / `Less` / `GreaterOrEqual` / `LessOrEqual` / `InRange` × `{long, double}`；浮点 NaN guard |
-| Assert 数组集合助手 | ✅ 同上 | `ArrayContains` / `ArrayDoesNotContain` / `ArrayIsEmpty` / `ArrayIsNotEmpty` (`object[]`)；前缀 `Array` 避开 z42.core 跨包 overload-resolution 限制 |
+| Assert 数组集合助手 | ✅ 同上 | `ArrayContains` / `ArrayDoesNotContain` / `ArrayIsEmpty` / `ArrayIsNotEmpty` (`object[]`)；`Array` 前缀原为避开与 z42.core 那份 Assert 的跨包 overload-resolution 限制，两份合并后（unify-assert-api）只剩命名惯例 |
 | Assert 基础（9 方法） | ✅ R2 minimal | Equal / NotEqual / True / False / Null / NotNull / Contains / Fail / Skip |
 | Assert 扩展（lambda） | ✅ R2 完整版 | Throws / DoesNotThrow / EqualApprox |
+| ⚠️ `Assert *`（上面 4 行） | **已迁出本包** | unify-assert-api (2026-09-08) 把本包的 `Std.Test.Assert` 与 z42.core 的 `Std.Assert` 合并成唯一一份，落在 **z42.core**（`src/Assert.z42` + `src/Failure.z42`）——断言必须 prelude 可见。能力清单保留在此仅作历史索引 |
 | TestIO（捕获 console） | ✅ R2 完整版 | captureStdout / captureStderr / captureBoth |
 | Bencher（基准测量） | ✅ R2 完整版 | Bencher.iter(Action) / printSummary / Min·Max·Median·Total·Samples + BenchHelpers.blackBox |
 | Imperative TestRunner（旧） | ✅ v0 保留 | Begin / Fail / Summary（lambda 前的兼容路径）|
@@ -140,7 +141,9 @@ public class MyTests {
 
 ## 不做（明确否决）
 
-- ❌ 自定义 Assert 类 —— 复用 `Std.Assert`，不重复发明
+- ❌ 第二个 Assert 类 —— 全仓只有一个 `Std.Assert`（在 **z42.core**：断言必须 prelude 可见），不重复发明。
+  曾经有两个（本包的 `Std.Test.Assert` + z42.core 的 `Std.Assert`），那是 stdlib 里唯一的跨
+  命名空间同短名类，代价见 [unify-assert-api](../../../docs/spec/archive/2026-09-08-unify-assert-api/) 与 common-pitfalls §1
 - ❌ 异步测试支持 —— 等 L3 async/await
 - ❌ 参数化测试 —— 等 lambda + collection literals
 - ❌ 测试发现 / 自动注册 —— 等 reflection

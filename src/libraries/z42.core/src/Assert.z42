@@ -1,50 +1,387 @@
 namespace Std;
 
-// Test assertion helpers.
-// Throws Exception with "AssertionError: ..." message on failure.
+// `Std.Assert` —— **全仓唯一**的断言 API（unify-assert-api，2026-09-08）。
 //
-// 2026-04-27 wave1-assert-script: 全部 6 个方法从 [Native] 迁脚本（BCL/Rust 对标 —
-// `Debug.Assert` / `assert!` 都是脚本实现）。错误消息格式与原 __assert_* builtin 等价。
+// 失败一律抛结构化的 `TestFailure`（同包 `Failure.z42`，同为 `namespace Std`），
+// 让 runner 在 catch 边界上区分「故意的断言失败」与「意外的运行期错误」（其它
+// Exception 子类）。`Skip(reason)` 抛 `SkipSignal` 表示运行期跳过。
+//
+// ── 为什么合并（推翻 2026-05 的「平行 API」选型）─────────────────────────────
+//
+// 此前有两份同短名的 Assert：`Std.Assert`（z42.core，抛裸
+// `Exception("AssertionError: ...")`）与 `Std.Test.Assert`（z42.test，抛
+// `TestFailure`，即本文件的前身）。当初分开的理由是「`TestFailure` 在 z42.test，
+// 改 `Std.Assert` 会让 prelude 包 z42.core 依赖 z42.test」。
+//
+// 解法不是并存两份，而是把 **`Assert.z42` + `Failure.z42` 一起搬进 z42.core**：
+// 两个文件都只用 core 符号（`Exception` / `Action` / 基元），搬包不产生任何新依赖，
+// 命名空间也一个字没变（`Failure.z42` 本来就是 `namespace Std`）。
+// 600 个 `Assert.` 调用点一处不动。
+//
+// ⚠️ **必须住在 z42.core，留在 z42.test 走不通** —— 这不是洁癖，是硬约束：
+// `ImportedSymbolLoader._isPrelude` 判的是**包名**（`pkg == "z42.core"`），非 prelude 包
+// 得靠 `using` 命中它的某个 ns 才激活；而 `src/tests/` 下有 **188 个 golden 一行 `using`
+// 都不写**、纯靠 prelude 拿到 `Assert`。实测把本文件留在 z42.test：那 188 个用例全部
+// 解析不到 `Assert` → 落进实例路径 → 运行期 `VCall: expected object, got Null`
+// （而当时 `--emit-zbc` 还吞诊断，编译期 exit 0 照写产物 —— 正是本程序在修的那个洞）。
+//
+// 而分开的代价是实打实的：`Assert` 是**整个 stdlib 唯一**的跨命名空间同短名类，
+// 一对类撑起了三处特判——
+//   - `.claude/rules/common-pitfalls.md` §1 的「加载顺序 first-wins」现场案例
+//   - `CuPreprocess._activeNamespaces` 必须把 prelude ns 纳入活跃集，否则
+//     `using Std.Test` 会把裸 `Assert.Equal` 误消歧过去（AssertionError→values not equal 回归）
+//   - `DependencyIndex.GetStaticScoped` 的「活跃集内仍歧义 → 返回 null → 回落短键」分支
+// 并且它让 binder 与 emitter 长期不一致：emitter 按 `<短类名>.<方法名>` 组合键解析
+// （`Assert.Greater` 只有 z42.test 一条命中 → 绑对），binder 先定类再找成员（定到 `Std.Assert` →
+// 「no static method Greater」）。这条不对称被 `--emit-zbc` 吞诊断掩盖了很久，
+// 一开门就是 216 条 E0401。合并即从根上消掉这唯一的同短名对。
+//
+// ⚠️ 合并 ≠ 修好了那条 binder/emitter 不对称——它只是让本仓不再有语料能触发。
+// 编译器侧的裸名解析（按活跃 ns 集 + 歧义诊断）单独修，并配 `src/tests/` 的
+// 双-ns 同短名 fixture 当负例门，别让这道门变成「没有东西盯着」的空门。
+//
+// R2 完整版（2026-05-05）：补齐 lambda 依赖的方法：
+// - `Throws(typeName, action)`：z42 generic-E 反射受限，API 用 string 比对类型名
+// - `DoesNotThrow(action)`：lambda 直接接 Action
+// - `EqualApprox(actual, expected, eps)`：浮点容差（不依赖 closure，本期顺带加）
+//
+// 仍未支持（需要更深的反射 / 泛型约束）：
+// - `Throws<E>` 真正泛型版本（typeof(E) 在 generic body 内当前是 parse-time
+//   string desugar，返回字面 "E"；`is E` 同样在 IR 层固定为编译期类名）
+// - `Equal<T: Equatable>` 泛型约束（object 重载够用）
+
 public static class Assert {
+    // ── 相等性 ────────────────────────────────────────────────────────────
     public static void Equal(object expected, object actual) {
         if (!expected.Equals(actual)) {
-            throw new Exception($"AssertionError: expected {expected} but got {actual}");
-        }
-    }
-
-    public static void True(bool condition) {
-        if (!condition) {
-            throw new Exception("AssertionError: expected true but got False");
-        }
-    }
-
-    public static void False(bool condition) {
-        if (condition) {
-            throw new Exception("AssertionError: expected false but got True");
-        }
-    }
-
-    public static void Null(object? value) {
-        if (value != null) {
-            throw new Exception($"AssertionError: expected null but got {value}");
-        }
-    }
-
-    public static void NotNull(object? value) {
-        if (value == null) {
-            throw new Exception("AssertionError: expected non-null but got null");
-        }
-    }
-
-    public static void Contains(string expected, string actual) {
-        if (!actual.Contains(expected)) {
-            throw new Exception($"AssertionError: expected \"{actual}\" to contain \"{expected}\"");
+            throw new TestFailure(
+                "values not equal",
+                actual.ToString(),
+                expected.ToString());
         }
     }
 
     public static void NotEqual(object expected, object actual) {
         if (expected.Equals(actual)) {
-            throw new Exception($"AssertionError: expected values to differ but both were {expected}");
+            throw new TestFailure(
+                $"expected values to differ but both were {expected}");
+        }
+    }
+
+    // ── 布尔 ──────────────────────────────────────────────────────────────
+    public static void True(bool condition) {
+        if (!condition) {
+            throw new TestFailure("expected true but got false", "false", "true");
+        }
+    }
+
+    public static void False(bool condition) {
+        if (condition) {
+            throw new TestFailure("expected false but got true", "true", "false");
+        }
+    }
+
+    public static void Null(object? value) {
+        if (value != null) {
+            throw new TestFailure(
+                $"expected null but got {value}",
+                value.ToString(),
+                "null");
+        }
+    }
+
+    public static void NotNull(object? value) {
+        if (value == null) {
+            throw new TestFailure("expected non-null but got null", "null", "<non-null>");
+        }
+    }
+
+    // ── 字符串包含 ────────────────────────────────────────────────────────
+    public static void Contains(string expected, string actual) {
+        if (!actual.Contains(expected)) {
+            throw new TestFailure(
+                $"expected substring not found",
+                actual,
+                $"<contains \"{expected}\">");
+        }
+    }
+
+    // ── 主动控制 ──────────────────────────────────────────────────────────
+    // Test-method-side 显式失败（如不可达分支）。
+    public static void Fail(string message) {
+        throw new TestFailure(message);
+    }
+
+    // 运行时跳过（与 [Skip(...)] 编译时跳过互补：本方法用于运行期才能判定的
+    // 跳过条件，例如"环境变量缺失"、"硬件不支持"等）。
+    public static void Skip(string reason) {
+        throw new SkipSignal(reason);
+    }
+
+    // ── 异常断言 (R2 完整版) ──────────────────────────────────────────────
+    //
+    // 2026-05-05 update：早期 R2 完整版因 z42 三个反射限制（is-cross-module /
+    // GetType vtable / generic-extern infer）改为 untyped Throws；同会话后续
+    // fix-is-cross-module + fix-vcall-cross-zpkg 修好前两条，于是补回类型敏感
+    // 版本。`Throws(string typeName, Action)` 通过 `e.GetType().__name` 精确
+    // 比对，避免依赖未修好的 generic-E IsInstance。
+
+    /// Assert that `body` throws an exception whose runtime type's short name
+    /// equals `expectedTypeName`. Use `[ShouldThrow<E>]` for whole-test-level
+    /// throw assertions where the type is statically known at attribute time.
+    public static void Throws(string expectedTypeName, Action body) {
+        try {
+            body();
+        } catch (Exception e) {
+            var actual = e.GetType().__name;
+            if (actual == expectedTypeName) {
+                return;
+            }
+            throw new TestFailure(
+                $"expected to throw {expectedTypeName} but got {actual}: {e.Message}",
+                actual,
+                expectedTypeName);
+        }
+        throw new TestFailure(
+            $"expected to throw {expectedTypeName} but no exception was thrown",
+            "<no throw>",
+            expectedTypeName);
+    }
+
+    /// Assert any exception is thrown. Less type-safe than the typed overload;
+    /// use when the test only cares "did this throw at all".
+    public static void ThrowsAny(Action body) {
+        try {
+            body();
+        } catch (Exception e) {
+            return;
+        }
+        throw new TestFailure("expected to throw but no exception was thrown");
+    }
+
+    public static void DoesNotThrow(Action body) {
+        try {
+            body();
+        } catch (Exception e) {
+            var actual = e.GetType().__name;
+            throw new TestFailure(
+                $"expected no exception but got {actual}: {e.Message}",
+                actual,
+                "<no throw>");
+        }
+    }
+
+    // ── 浮点容差 ──────────────────────────────────────────────────────────
+    //
+    // 绝对容差比较；NaN 永不命中（NaN != NaN by definition）。
+    public static void EqualApprox(double actual, double expected, double eps) {
+        var diff = actual - expected;
+        if (diff < 0.0) { diff = -diff; }
+        if (diff > eps) {
+            throw new TestFailure(
+                $"values differ beyond eps: |{actual} - {expected}| = {diff} > {eps}",
+                actual.ToString(),
+                expected.ToString());
+        }
+    }
+
+    // ── 数值排序 / 范围（extend-assert-numeric-and-collection-helpers, 2026-05-30）─
+    //
+    // 直接表达"应当大于 / 小于 / 在范围内"的断言，替代过往
+    // `Assert.True(x > N)` / `Assert.True(x > low && x < high)` 复合写法。
+    // 参数顺序为 (actual, expected) 反映读法："port greater than 0"；
+    // 这与 `Equal(expected, actual)` 的顺序*故意*不同 — equality 对称所以
+    // 顺序无关，ordering 有方向所以顺序就是被断言的不等式。
+    //
+    // double overload 对 NaN 显式 guard：IEEE-754 下 NaN 与任何值的 <,>
+    // 比较都是 false，朴素 `actual <= expected` 检查会让 `Greater(NaN, x)`
+    // 静默通过（断言被绕过）。我们在 double 路径上先 reject NaN。
+    //
+    // 何时用 Greater vs EqualApprox：
+    //   - strict ordering（端口号 > 0 / count > 0）→ Greater
+    //   - "approximately equal" / 浮点容差 → EqualApprox
+    // 不要把 ordering helper 偷塞容差语义。
+
+    public static void Greater(long actual, long expected) {
+        if (actual <= expected) {
+            throw new TestFailure(
+                $"expected {actual} > {expected}",
+                actual.ToString(),
+                $"> {expected}");
+        }
+    }
+
+    public static void Greater(double actual, double expected) {
+        if (actual != actual || expected != expected) {
+            throw new TestFailure(
+                $"Greater(double, double): NaN operand never satisfies ordering",
+                actual.ToString(),
+                $"> {expected}");
+        }
+        if (actual <= expected) {
+            throw new TestFailure(
+                $"expected {actual} > {expected}",
+                actual.ToString(),
+                $"> {expected}");
+        }
+    }
+
+    public static void Less(long actual, long expected) {
+        if (actual >= expected) {
+            throw new TestFailure(
+                $"expected {actual} < {expected}",
+                actual.ToString(),
+                $"< {expected}");
+        }
+    }
+
+    public static void Less(double actual, double expected) {
+        if (actual != actual || expected != expected) {
+            throw new TestFailure(
+                $"Less(double, double): NaN operand never satisfies ordering",
+                actual.ToString(),
+                $"< {expected}");
+        }
+        if (actual >= expected) {
+            throw new TestFailure(
+                $"expected {actual} < {expected}",
+                actual.ToString(),
+                $"< {expected}");
+        }
+    }
+
+    public static void GreaterOrEqual(long actual, long expected) {
+        if (actual < expected) {
+            throw new TestFailure(
+                $"expected {actual} >= {expected}",
+                actual.ToString(),
+                $">= {expected}");
+        }
+    }
+
+    public static void GreaterOrEqual(double actual, double expected) {
+        if (actual != actual || expected != expected) {
+            throw new TestFailure(
+                $"GreaterOrEqual(double, double): NaN operand never satisfies ordering",
+                actual.ToString(),
+                $">= {expected}");
+        }
+        if (actual < expected) {
+            throw new TestFailure(
+                $"expected {actual} >= {expected}",
+                actual.ToString(),
+                $">= {expected}");
+        }
+    }
+
+    public static void LessOrEqual(long actual, long expected) {
+        if (actual > expected) {
+            throw new TestFailure(
+                $"expected {actual} <= {expected}",
+                actual.ToString(),
+                $"<= {expected}");
+        }
+    }
+
+    public static void LessOrEqual(double actual, double expected) {
+        if (actual != actual || expected != expected) {
+            throw new TestFailure(
+                $"LessOrEqual(double, double): NaN operand never satisfies ordering",
+                actual.ToString(),
+                $"<= {expected}");
+        }
+        if (actual > expected) {
+            throw new TestFailure(
+                $"expected {actual} <= {expected}",
+                actual.ToString(),
+                $"<= {expected}");
+        }
+    }
+
+    // InRange — inclusive bounds: `min <= actual <= max` passes.
+    // Exclusive variant intentionally omitted — caller composes `Greater` +
+    // `Less` if needed.
+    public static void InRange(long actual, long min, long max) {
+        if (actual < min || actual > max) {
+            throw new TestFailure(
+                $"expected {actual} in [{min}, {max}]",
+                actual.ToString(),
+                $"[{min}, {max}]");
+        }
+    }
+
+    public static void InRange(double actual, double min, double max) {
+        if (actual != actual || min != min || max != max) {
+            throw new TestFailure(
+                $"InRange(double, double, double): NaN operand never satisfies range",
+                actual.ToString(),
+                $"[{min}, {max}]");
+        }
+        if (actual < min || actual > max) {
+            throw new TestFailure(
+                $"expected {actual} in [{min}, {max}]",
+                actual.ToString(),
+                $"[{min}, {max}]");
+        }
+    }
+
+    // ── 数组集合助手（extend-assert-numeric-and-collection-helpers, 2026-05-30）──
+    //
+    // 仅 `object[]` overload — z42 Phase 1 无泛型，无法表达
+    // `Contains<T>(T, ICollection<T>)`。`object[]` 通过 boxing 覆盖
+    // int[] / string[] / 对象引用数组等常见 stdlib 测试场景。
+    // List / Set / Dictionary 的对应 helper 留待 L2 泛型落地后引入。
+    //
+    // 比对用默认 `==`：reference-equal for objects, value-equal for boxed
+    // primitives — 与 List.Contains 等 stdlib 集合一致语义。
+    //
+    // **`Array` 前缀的由来（历史；merge-assert-into-core 后已只是命名惯例）**：
+    // 原先加前缀是为了绕开跨 package first-wins —— z42.core 的
+    // `Std.Assert.Contains(string, string)` 会先 win，bare `Assert.Contains`
+    // 永远命中 z42.core 而看不到本文件的 `(object, object[])` overload
+    // （见 .claude/rules/common-pitfalls.md §1）。两份 Assert 合并后同类同包、
+    // 走正常重载决议，该理由消失；保留前缀只为不制造无谓的调用点 churn，且
+    // `ArrayContains` 读起来也确实比 `Contains` 更明确。L2 加 generics 后
+    // 可以引入真正的 `Contains<T>(T, IList<T>)` 并把这些 alias 弃用。
+
+    public static void ArrayContains(object needle, object[] haystack) {
+        for (int i = 0; i < haystack.Length; i++) {
+            if (haystack[i] == needle) {
+                return;
+            }
+        }
+        throw new TestFailure(
+            $"array does not contain expected element",
+            $"<array of length {haystack.Length}>",
+            needle.ToString());
+    }
+
+    public static void ArrayDoesNotContain(object needle, object[] haystack) {
+        for (int i = 0; i < haystack.Length; i++) {
+            if (haystack[i] == needle) {
+                throw new TestFailure(
+                    $"array unexpectedly contains element",
+                    $"<contains {needle}>",
+                    $"<does not contain {needle}>");
+            }
+        }
+    }
+
+    public static void ArrayIsEmpty(object[] coll) {
+        if (coll.Length != 0) {
+            throw new TestFailure(
+                $"expected empty array but length = {coll.Length}",
+                coll.Length.ToString(),
+                "0");
+        }
+    }
+
+    public static void ArrayIsNotEmpty(object[] coll) {
+        if (coll.Length == 0) {
+            throw new TestFailure(
+                $"expected non-empty array but got empty",
+                "0",
+                "> 0");
         }
     }
 }

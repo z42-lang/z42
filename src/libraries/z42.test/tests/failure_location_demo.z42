@@ -20,15 +20,16 @@ using Std.Test;
 
 [Test]
 void test_runtime_populates_stack_trace_on_assert_failure() {
-    // Note on the catch type: `Assert.Equal` here resolves to z42.core's
-    // `Std.Assert.Equal` (not z42.test's `Std.Test.Assert.Equal`) because
-    // DependencyIndex first-wins on the `"Assert.Equal"` short key
-    // (.claude/rules/common-pitfalls.md §1; sorted load order picks
-    // z42.core which alphabetically precedes z42.test). z42.core's Assert
-    // throws a plain `Std.Exception`, not `Std.TestFailure`, so we catch
-    // `Exception` here. The interp populates `StackTrace` on every
-    // Exception-subclass throw regardless of which Assert flavor —
-    // that's exactly the invariant this test exercises.
+    // Note on the catch type: we catch `Exception`, not `TestFailure`, on
+    // purpose — the invariant under test is "the interp populates
+    // `StackTrace` on **every** Exception-subclass throw", so the broader
+    // catch is the right net. (`Assert.Equal` throws `Std.TestFailure`,
+    // which is an `Exception` subclass, so it lands here either way.)
+    //
+    // unify-assert-api (2026-09-08)：这段注释原本解释的是「裸 `Assert.Equal`
+    // 因跨包 first-wins 命中 z42.core 那份、抛裸 Exception，所以 catch Exception」。
+    // 两份 Assert 合并后只剩一个 `Std.Assert`（统一抛 `TestFailure`），那条推理
+    // 作废；catch `Exception` 依然正确，只是理由换成了上面那条。
     bool caught = false;
     try {
         Assert.Equal(2, 3);

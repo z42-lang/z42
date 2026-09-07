@@ -57,10 +57,15 @@ public class TestRunner {
     }
 
     // 标记当前 case 失败（用 try/catch 在异常处调用）。
+    //
+    // 用 `ToString()` 而非 `Message`：`Assert` 统一抛 `TestFailure` 后
+    // （unify-assert-api），`Message` 只是概括语（"values not equal"），
+    // actual/expected 要经 `TestFailure.ToString()` 才带得出来。裸 `Exception`
+    // 的 `ToString()` 是 `"Exception: <msg>"`，同样不丢信息。
     public void Fail(Exception e) {
         this.CurrentFailed = true;
         Console.WriteLine($"  ✗ FAIL: {this.CurrentName}");
-        Console.WriteLine($"          {e.Message}");
+        Console.WriteLine($"          {e.ToString()}");
     }
 
     // 收尾 + 打印汇总。返回 failed 计数（适合做 process exit code）。

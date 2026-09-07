@@ -5,21 +5,23 @@ namespace Std;
 // These exception types let the R3 z42-test-runner distinguish test outcomes
 // at the catch boundary:
 //
-//   - `TestFailure` thrown by Assert.* (z42.test 增强版；R2.D 接 Std.Assert
-//     的 TestFailure 升级)；runner 标记 `Outcome::Failed`，附 actual/expected
-//     诊断信息
-//   - `SkipSignal` thrown by Assert.skip(reason)（运行时跳过；与 [Skip(...)]
+//   - `TestFailure` —— `Std.Assert.*` 失败时抛（unify-assert-api 之后**所有**断言
+//     都抛它）；runner 标记 `Outcome::Failed`，附 actual/expected 诊断信息
+//   - `SkipSignal` thrown by `Assert.Skip(reason)`（运行时跳过；与 [Skip(...)]
 //     注解的"编译时已知跳过"互补）；runner 标记 `Outcome::Skipped`
 //   - 任意其他 Std.Exception 子类型 → runner 标记 `Outcome::Failed`，提示为
 //     未预期错误
 //
-// 当前状态（R2.A）：仅类型骨架；尚未被任何 Assert 实现使用（R2.D 升级
-// Std.Assert.* 抛 TestFailure 而非裸 Exception）。R3 runner 已在 spec design.md
-// 中按字符串匹配 type name 分类（"z42.test.SkipSignal" / "z42.test.TestFailure"），
-// 与本类的 fully-qualified name 对齐。
+// runner 按 `ex.GetType().FullName` 分类（`Runner._invoke` 填 `InvokeOutcome.ErrType`）。
+// FullName 取自**命名空间**（`Std.TestFailure`），与打包在哪个 zpkg 无关。
 //
-// 选型说明：放在 z42.test 而非 z42.core 是因为 z42.core 是 prelude（隐式
-// 导入到所有模块）；TestFailure / SkipSignal 是测试专属语义，不应进 prelude。
+// 选型说明（unify-assert-api，2026-09-08 **推翻原判**）：本文件原先放在 z42.test，
+// 理由是「z42.core 是 prelude，测试专属语义不应进 prelude」。合并两份 Assert 时改放
+// 这里，因为**唯一那份 `Std.Assert` 必须在 prelude 包**——`ImportedSymbolLoader._isPrelude`
+// 判的是**包名**（`pkg == "z42.core"`），而 `src/tests/` 有 188 个 golden 一行 `using`
+// 都不写、纯靠 prelude 拿到 `Assert`。`Assert` 抛的就是这两个类型，只能一起过来。
+// 搬包零代价：本文件只依赖 `Exception`（core），命名空间 `Std` 一个字没变，
+// FQN（`Std.TestFailure`）因而不变，runner 的类型名分类不受影响。
 
 public class TestFailure : Exception {
     // 失败的实际值（字符串化）。空字符串表示无值（如 Assert.fail("...")）。
