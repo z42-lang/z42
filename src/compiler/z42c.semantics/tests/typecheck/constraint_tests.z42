@@ -384,12 +384,29 @@ void test_same_name_different_arity_still_reports_real_violation() {
 // 不因 harness 修好而失去价值。
 
 [Test]
-void test_self_return_type_resolves_to_generic_param_not_unknown() {
-    // 🔒 真门：`Self` 支持退回（不把 "Self" 并进 paramNames）后，两处 `:Self` 都变 `:<unknown>`，本用例变红。
+void test_self_return_type_substituted_to_receiver_interface() {
+    // 🔒 真门，**两个方向都钉**：
+    //   ① `Self` 支持退回（不把 "Self" 并进 paramNames）→ `:<unknown>`，红；
+    //   ② self-return-type-substitution 退回（接口收者分支不调 `_substSelf`）→ `:Self`，红。
+    // 期望值 `:IClone` 同时锁住「Self 被识别」与「Self 被替换成接收者静态类型」两件事。
+    //
+    // 语义：经**接口静态类型**调用返回 `Self` 的方法，结果 = 该接口本身。这是可靠上界（实现方
+    // 必然实现该接口），比原先漏出型参 `Self` 可用得多——`Self` 在调用方作用域里根本没有意义。
     string src = "interface IClone { Self Clone(); }\n"
         + "class Use { void f(IClone c) { var x = c.Clone(); } }\n";
-    Assert.Equal("(block (decl x :Self (call-inst (ident c :IClone) Clone :Self)))",
+    Assert.Equal("(block (decl x :IClone (call-inst (ident c :IClone) Clone :IClone)))",
                  SemanticDump.DumpBody(src, "Use.f"));
+}
+
+[Test]
+void test_self_on_concrete_receiver_still_gives_concrete_type() {
+    // 对照面：具体类收者走**实现方签名**，压根不经过 `_substSelf`——改动前后都必须是 `:Point`。
+    // 这条守的是「别为了修接口路径把具体类路径一起拖下水」（具体类才是能拿到真类型的那条路）。
+    string src = "interface IClone { Self Clone(); }\n"
+        + "class Point : IClone { public Point Clone() { return this; } }\n"
+        + "class Use3 { void f(Point p) { var x = p.Clone(); } }\n";
+    Assert.Equal("(block (decl x :Point (call-inst (ident p :Point) Clone :Point)))",
+                 SemanticDump.DumpBody(src, "Use3.f"));
 }
 
 [Test]
@@ -398,7 +415,9 @@ void test_self_coexists_with_interface_own_type_param() {
     // （`_withSelf` 拷贝新数组而非就地改 `TypeParams.Names`——后者被 ClassExtractor / IrGen 按 Count 复用）。
     string src = "interface IBox<T> { Self With(T v); }\n"
         + "class Use2 { void f(IBox<int> b) { var x = b.With(1); } }\n";
-    Assert.Equal("(block (decl x :Self (call-inst (ident b :IBox) With (lit-int 1 :int) :Self)))",
+    // `Self` 同样替换成接收者接口（`Z42InstantiatedInterfaceType.Name()` 返回裸名 → `IBox`）；
+    // 接口自己的 `T` 不受影响，仍由实参 `1` 按 `int` 绑定。
+    Assert.Equal("(block (decl x :IBox (call-inst (ident b :IBox) With (lit-int 1 :int) :IBox)))",
                  SemanticDump.DumpBody(src, "Use2.f"));
 }
 

@@ -98,7 +98,10 @@ public sealed class MemberResolver {
             MethodSymbol ims = it.Methods.Get(mem.Name) as MethodSymbol;
             if (ims != null) {
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
-                return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount, ims.Signature.Ret, sp);
+                // self-return-type-substitution：返回类型里的 `Self` 换成接收者的静态接口类型，
+                // 否则型参 `Self` 会裸奔到调用方（`var x = c.Copy()` 得到 `:Self`，不可用）。
+                return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
+                                     MemberResolver._substSelf(ims.Signature.Ret, it), sp);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no method `" + mem.Name + "` on interface `" + it.Name() + "`", sp);
@@ -198,7 +201,9 @@ public sealed class MemberResolver {
             Z42InterfaceType it = tt as Z42InterfaceType;
             MethodSymbol ig = it.Methods.Get("get_" + m.Name) as MethodSymbol;
             if (ig != null && ig.Signature != null) {
-                return new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0, ig.Signature.Ret, m.Span);
+                // self-return-type-substitution：属性 getter 同款（`interface IBox { Self Inner { get; } }`）
+                return new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
+                                     MemberResolver._substSelf(ig.Signature.Ret, it), m.Span);
             }
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
         }
@@ -329,6 +334,34 @@ public sealed class MemberResolver {
             Z42Type[] na = new Z42Type[it2.ArgCount];
             int i = 0;
             while (i < it2.ArgCount) { na[i] = MemberResolver._substGeneric(it2.TypeArgs[i], inst); i = i + 1; }
+            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
+        }
+        return t;
+    }
+
+    // self-return-type-substitution：把签名里的隐式型参 `Self` 换成 `selfT`。
+    //
+    // `Self` 由 MemberCollector._withSelf 作为**接口的隐式类型参数**并进 paramNames，所以它在签名里
+    // 就是一个名叫 "Self" 的 Z42GenericParamType、与真型参 `T` 无差别 —— 但 `T` 有
+    // Z42InstantiatedType.TypeArgs 可按下标查（_substGeneric 走的就是那条），`Self` 没有：它绑的是**接收者**。
+    //
+    // 经**接口静态类型**调用时 selfT = 该接口本身：`IClone c; c.Copy()` → `IClone`，而非型参 `Self` 裸奔。
+    // 这是可靠的上界——任何实现方都实现了该接口，故把结果当接口用一定成立。要拿到具体类型就在**具体类**
+    // 上调用，那条路走实现方签名、本函数不参与（`Point p; p.Copy()` → `Point`，改动前后都对）。
+    // 结构与 _substGeneric 一致（数组 / 泛型实参递归），只是判据从「Def 形参表命中」换成「名叫 Self」。
+    public static Z42Type _substSelf(Z42Type t, Z42Type selfT) {
+        if (t is Z42GenericParamType) {
+            if (t.Name() == "Self") { return selfT; }
+            return t;
+        }
+        if (t is Z42ArrayType) {
+            return new Z42ArrayType(MemberResolver._substSelf((t as Z42ArrayType).Elem, selfT));
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it2 = t as Z42InstantiatedType;
+            Z42Type[] na = new Z42Type[it2.ArgCount];
+            int i = 0;
+            while (i < it2.ArgCount) { na[i] = MemberResolver._substSelf(it2.TypeArgs[i], selfT); i = i + 1; }
             return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
         }
         return t;
