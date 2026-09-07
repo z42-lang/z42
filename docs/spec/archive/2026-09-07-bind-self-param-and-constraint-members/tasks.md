@@ -26,7 +26,7 @@
     **两态同绿 = 假测试**（形参标注也贡献 `:T`）；改钉在 call 节点 `Copy :T` 上才成真门
 - 🟢 1.6 完整 GREEN
 
-## 阶段 2 —— Part B：接口静态类型收者禁止 `Self` 形参（🟡）
+## 阶段 2 —— Part B：接口静态类型收者禁止 `Self` 形参（🟢）
 
 - 🟢 2.1 `DiagnosticCodes.SelfParamThroughInterface = "E0454"`（语义层发**字面量**，同 E0449–E0453 手法）
 - 🟢 2.2 `MemberResolver` 接口收者分支：`_sigHasSelfParam` → E0454 + 诊断消息给出替代写法
@@ -42,15 +42,15 @@
 - 🟢 2.5 🔒 **真实构建面破坏性对照**（#528 那道最值钱的）：把 fixture 退回 `eqVia(IEq, IEq)` 形态，
   `test e2e --dir cross-zpkg` 立即 `FAIL self_type_cross_pkg (ext build)` ⇒ E0454 活在真实构建路径上，
   不只在单测 harness 里
-- 🟡 2.6 完整 GREEN + `test stdlib --mode jit` + `test e2e --dir cross-zpkg --mode jit` + `test bootstrap`
+- 🟢 2.6 完整 GREEN + `test stdlib --mode jit` + `test e2e --dir cross-zpkg --mode jit` + `test bootstrap`
 
-## 阶段 3 —— 文档与归档（🟡）
+## 阶段 3 —— 文档与归档（🟢）
 
 - 🟢 3.1 `docs/book/src/language/generic-constraints.md`：`Self` 实现模型节改写形参位规则（禁止 + 替代
   写法）；新增「型参收者上的约束成员绑定」整节 + 「已知限制：形参本身是型参时仍不检查」
 - 🟢 3.2 `docs/roadmap.md`：关掉两条（`Self` 形参位 / 型参收者约束成员）；**新登记两条**
   `tighten-bare-type-param-target-erasure` + `imported-generic-func-type-param-fidelity`
-- ⚪ 3.3 归档 `changes/` → `archive/2026-09-07-bind-self-param-and-constraint-members/`
+- 🟢 3.3 归档 `changes/` → `archive/2026-09-07-bind-self-param-and-constraint-members/`
 
 ## 不在本轮（已登记 Deferred）
 
