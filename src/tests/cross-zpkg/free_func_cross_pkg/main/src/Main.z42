@@ -12,4 +12,7 @@ using Demo.FreeFuncExt;
 void Main() {
     Console.WriteLine(Square(5));
     Console.WriteLine(SquareViaExt(6));
+    // imported-generic-func-type-param-fidelity：跨包调用**泛型**自由函数。
+    Console.WriteLine(IdOf(7));
+    Console.WriteLine(IdOf<string>("gen"));
 }

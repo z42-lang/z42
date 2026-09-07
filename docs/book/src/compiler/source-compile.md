@@ -204,7 +204,14 @@ CallExpr ─► MemberResolver._bindCall / _bindMemberCall
 | 懒加载 stub 接收者 loose-bind | 签名不可知，运行期经 DepIndex 解析 |
 | `Z42ErrorType` / `Z42UnknownType` 接收者 | 级联抑制 |
 | **enum 位** | z42 现行 enum-as-int 模型自身不自洽（成员是 `long`、类型名是孤立类，转换格里无边相连）——在调用点补 cast 只会掩盖它；语义归独立 change `make-enum-distinct-type` |
-| 泛型**自由函数** | `ExportedFuncZ` 不带型参名（当前 stdlib 无泛型自由函数，无现场） |
+
+> **泛型自由函数已补齐**（2026-09-08，`fix-imported-generic-func-fidelity`）：上表原有第四行
+> 「`ExportedFuncZ` 不带型参名」已解决。它当时不只是「少检查一处」——**跨包调用泛型自由函数根本编不过**
+> （`T IdOf<T>(T a)` 在包 A，包 B 调 `IdOf(7)` 报 `E0402: cannot assign int to T`，显式类型实参也不救），
+> 因为型参 `T` 退化成普通类后连**擦除放行**都不触发。承载位（zbc SIGS 的 tp 块）与 `IrFunction.TypeParams`
+> 本就现成，缺的是 `ExportedFuncZ` 的槽 + `TsigReconcile` 的搬运 + `ImportedSymbolLoader` 的型参上下文
+> ——即上表「方法级型参 `T` → 名叫 `"T"` 的普通类」那一行在**自由函数**上的同款漏网（#523 的 `_tpsWith`
+> 注释已列出自由函数，但那批只修了方法与接口/trait-impl 方法）。零格式 bump。
 
 #### 实例派发键稳定化（primary 裸键 / 非-primary 全签名键）
 

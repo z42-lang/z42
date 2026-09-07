@@ -262,6 +262,11 @@ public static class TsigReconcile {
                     ExportedParamZ[] ps = TsigReconcile._params(f, false);
                     ExportedFuncZ ef = new ExportedFuncZ(rest, f.RetType, f.MinArg, ps, ps.Length);
                     ef.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
+                    // imported-generic-func-type-param-fidelity：自由函数的型参名/个数（镜像
+                    // _methodFromSig 对 ExportedMethodZ 的同款搬运）。漏了这两行 → 跨包泛型自由
+                    // 函数的 `T` 在导入侧退化成普通类 ⇒ 调用点 E0402。
+                    ef.TypeParamCount = f.TypeParamCount;
+                    ef.TypeParams = f.TypeParams;
                     if (afc == allFuncs.Length) { ExportedFuncZ[] b = new ExportedFuncZ[allFuncs.Length * 2]; int k = 0; while (k < afc) { b[k] = allFuncs[k]; k = k + 1; } allFuncs = b; }
                     allFuncs[afc] = ef; afc = afc + 1;
                 }
