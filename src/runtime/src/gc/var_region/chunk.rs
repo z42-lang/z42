@@ -15,44 +15,63 @@ pub(crate) const OVERSIZED_CLASS: u8 = u8::MAX;
 
 /// Smallest total block footprint (header + payload), a power of two. 32 = 16 B header + up
 /// to 16 B payload.
-const MIN_BLOCK: usize = 32;
+pub(super) const MIN_BLOCK: usize = 32;
 
 /// Byte capacity of a bump chunk (payloads larger than this get a dedicated chunk).
-const CHUNK_BYTES: usize = 64 * 1024;
+pub(super) const CHUNK_BYTES: usize = 64 * 1024;
 
 /// Chunk alignment — 16 so every block start (bumped to 8) and the header (align 8) are
 /// satisfied with margin.
 pub(super) const CHUNK_ALIGN: usize = 16;
 
-/// The largest in-chunk size class (index). `1 << MAX_CLASS <= CHUNK_BYTES`.
-const MAX_CLASS: u8 = {
-    // trailing_zeros of the largest power of two that fits a chunk.
-    let mut c = MIN_BLOCK;
-    let mut idx = MIN_BLOCK.trailing_zeros();
-    while c << 1 <= CHUNK_BYTES {
-        c <<= 1;
-        idx += 1;
-    }
-    idx as u8
-};
+/// Sub-classes per octave, as a log2. `0` would be plain powers of two; `2` splits every
+/// octave into four (32/40/48/56, 64/80/96/112, …) — the mimalloc / jemalloc shape.
+///
+/// **shrink-var-size-classes (2026-09-07)**: plain powers of two rounded the average live
+/// block from 118 B of payload+header up to 188 B of footprint. Measured over a
+/// `z42c.semantics --release --no-incremental` build (2.74 M live var blocks): 516.4 MB of
+/// footprint against 323.4 MB of logical bytes — 193.0 MB of pure rounding waste, 17% of the
+/// process RSS. Quarter-octave classes cut that to 57.9 MB. The waste was concentrated in a
+/// few shapes the octave boundaries straddled badly, above all the 293 849 blocks of 257..320
+/// total bytes that each took a 512-byte slot (~59 MB on their own).
+pub(super) const SUB_LOG2: u32 = 2;
+
+/// The largest in-chunk size class index. Class indices pack as `octave << SUB_LOG2 | sub`,
+/// so the top one is the class of a `CHUNK_BYTES` footprint (`sub == 0`).
+const MAX_CLASS: u8 = (CHUNK_BYTES.trailing_zeros() << SUB_LOG2) as u8;
 
 /// Round a requested payload size up to its total block footprint + size class.
 /// Returns `(total_footprint_bytes, size_class)`. `size_class == OVERSIZED_CLASS` when the
 /// block needs a dedicated chunk.
+///
+/// Each class holds exactly one footprint, which is what lets `alloc` hand a free-list slot
+/// straight to a new block of any payload in the class without re-checking capacity.
 #[inline]
 pub(crate) fn class_for(payload: usize) -> (usize, u8) {
     let total = GcBlockHeader::DATA_OFFSET + payload;
-    let footprint = total.max(MIN_BLOCK).next_power_of_two();
+    let t = total.max(MIN_BLOCK);
+    // Round up to the next quarter-octave step. `t >= MIN_BLOCK` puts `oct` at 5 or more, so
+    // `step` is at least 8 and every footprint stays 8-aligned — the bump and TLAB offsets
+    // are only ever advanced by a footprint, and their alignment rests on that.
+    let oct = usize::BITS - 1 - t.leading_zeros();
+    let step = (1usize << oct) >> SUB_LOG2;
+    let footprint = (t + step - 1) & !(step - 1);
     if footprint > CHUNK_BYTES {
         // Oversized: dedicated chunk sized to exactly hold header + payload, 16-aligned.
         let dedicated = (total + CHUNK_ALIGN - 1) & !(CHUNK_ALIGN - 1);
-        (dedicated, OVERSIZED_CLASS)
-    } else {
-        (footprint, footprint.trailing_zeros() as u8)
+        return (dedicated, OVERSIZED_CLASS);
     }
+    // Rounding can carry into the next octave (57..64 → 64), so take the octave off the
+    // rounded footprint rather than reusing `oct`.
+    let oct = usize::BITS - 1 - footprint.leading_zeros();
+    let sub = (footprint - (1usize << oct)) >> (oct - SUB_LOG2);
+    (footprint, ((oct << SUB_LOG2) | sub as u32) as u8)
 }
 
-/// Number of size-class free-list buckets (indices `0..=MAX_CLASS`).
+/// Number of size-class free-list buckets (indices `0..=MAX_CLASS`). The bottom
+/// `MIN_BLOCK.trailing_zeros() << SUB_LOG2` buckets are unreachable (no footprint is smaller
+/// than `MIN_BLOCK`) and stay empty — indexing directly by the packed class beats folding the
+/// range down on every alloc, and an empty `Vec` costs 24 bytes.
 pub(super) const NUM_CLASSES: usize = MAX_CLASS as usize + 1;
 
 /// A raw, owned chunk of GC block memory. Freed in [`VarRegion::drop`].
@@ -155,7 +174,7 @@ impl VarChunkClaim {
 }
 
 impl VarRegion {
-    /// Bump-allocate `footprint` bytes (already a power of two ≤ CHUNK_BYTES) from the
+    /// Bump-allocate `footprint` bytes (already rounded to a size class ≤ CHUNK_BYTES) from the
     /// current chunk, growing a new chunk when it doesn't fit. Returns the block header ptr.
     pub(super) fn bump(&mut self, footprint: usize) -> NonNull<GcBlockHeader> {
         let need_new = match self.bump_chunk {
@@ -169,8 +188,8 @@ impl VarRegion {
         }
         let ci = self.bump_chunk.expect("bump chunk set above");
         let off = self.bump_off;
-        // Footprint is a power of two ≥ 32 and the chunk base is 16-aligned, so `base + off`
-        // is at least 8-aligned (off is a multiple of the footprint, itself a multiple of 8).
+        // Every footprint is a multiple of 8 and ≥ 32 (see `class_for`) and the chunk base is
+        // 16-aligned, so `base + off` stays at least 8-aligned.
         debug_assert_eq!(off % 8, 0, "bump offset must stay 8-aligned");
         self.bump_off += footprint;
         // SAFETY: `off + footprint <= cap` (ensured above), so `base + off` is in-bounds and

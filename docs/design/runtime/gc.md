@@ -358,7 +358,7 @@ closure 的 `ClosureData`、array 的元素后端原本各自在 GC **外**（�
 **单块 `{GcBlockHeader, inline payload…}` 单次分配**（等价原 thin-Arc 的紧凑度，但纳入 GC）。
 
 ```
-VarRegion 变长块（16B 对齐原始 chunk + 2 的幂 size-class free-list + oversized 专用块）
+VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class free-list + oversized 专用块）
 ┌──────────────── GcBlockHeader (16B, repr(C,align8)) ────────────────┐┌── payload (8B 对齐) ──┐
 │ generation │ size │ marked │ alive │ type_tag(BlockType) │ size_class ││  inline bytes / [T;n]  │
 └─────────────────────────────────────────────────────────────────────┘└───────────────────────┘

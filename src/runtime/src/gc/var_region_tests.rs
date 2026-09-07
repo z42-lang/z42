@@ -352,3 +352,92 @@ fn reclaim_dead_var_chunks_pools_dead_bump_chunks_among_dedicated_ones() {
     assert_eq!(r.reclaim_dead_var_chunks(), 0);
     assert_eq!(r.free_chunk_pool_len(), pooled);
 }
+
+// ---------------------------------------------------------------------------------------
+// shrink-var-size-classes: quarter-octave size classes
+// ---------------------------------------------------------------------------------------
+
+/// Every in-chunk class index must name exactly ONE footprint. `alloc` pops a free-list slot
+/// by class alone and reinitializes it for the new payload without re-checking capacity — if
+/// two footprints ever collided on one index, a small slot could be handed to a larger block
+/// and the payload would run off the end of it.
+#[test]
+fn each_size_class_index_names_exactly_one_footprint() {
+    use super::chunk::{CHUNK_BYTES, MIN_BLOCK};
+    let mut footprint_of: std::collections::BTreeMap<u8, usize> = Default::default();
+    for payload in 0..=(CHUNK_BYTES - GcBlockHeader::DATA_OFFSET) {
+        let (footprint, class) = class_for(payload);
+        if class == OVERSIZED_CLASS {
+            continue;
+        }
+        match footprint_of.entry(class) {
+            std::collections::btree_map::Entry::Vacant(e) => {
+                e.insert(footprint);
+            }
+            std::collections::btree_map::Entry::Occupied(e) => {
+                assert_eq!(
+                    *e.get(),
+                    footprint,
+                    "class {class} claimed by both {} and {footprint} (payload {payload})",
+                    e.get()
+                );
+            }
+        }
+        assert!(footprint >= GcBlockHeader::DATA_OFFSET + payload, "class must fit the payload");
+        assert!(footprint >= MIN_BLOCK, "footprint below MIN_BLOCK");
+        assert_eq!(footprint % 8, 0, "footprint {footprint} breaks the 8-aligned bump invariant");
+        assert!(footprint <= CHUNK_BYTES, "in-chunk footprint must fit a chunk");
+    }
+    // Quarter-octave classes: 32/40/48/56, 64/80/96/112, … up to 65536.
+    assert_eq!(footprint_of.values().copied().collect::<Vec<_>>().first(), Some(&MIN_BLOCK));
+    assert!(footprint_of.values().copied().eq({
+        let mut v = footprint_of.values().copied().collect::<Vec<_>>();
+        v.sort_unstable();
+        v
+    }), "class index must be monotonic in footprint");
+}
+
+#[test]
+fn class_for_rounds_to_quarter_octave_steps() {
+    // Exactly at MIN_BLOCK — payload 16 fills the 32-byte block with no waste.
+    assert_eq!(class_for(16).0, 32);
+    // One byte over rounds to the next quarter step, not the next power of two.
+    assert_eq!(class_for(17).0, 40);
+    assert_eq!(class_for(24).0, 40);
+    assert_eq!(class_for(25).0, 48);
+    // Carry into the next octave: 57..64 total → 64 (octave 6, sub 0).
+    assert_eq!(class_for(41).0, 64);
+    assert_eq!(class_for(48).0, 64);
+    // The shape that dominated the waste: 304 payload = 320 total, was a 512-byte slot.
+    assert_eq!(class_for(304).0, 320);
+    // Anything ≤ MIN_BLOCK still gets MIN_BLOCK.
+    assert_eq!(class_for(0).0, 32);
+}
+
+#[test]
+fn class_for_oversized_boundary() {
+    use super::chunk::CHUNK_BYTES;
+    let largest_in_chunk = CHUNK_BYTES - GcBlockHeader::DATA_OFFSET;
+    let (footprint, class) = class_for(largest_in_chunk);
+    assert_eq!(footprint, CHUNK_BYTES);
+    assert_ne!(class, OVERSIZED_CLASS);
+    // One byte more needs a dedicated chunk sized to the exact block, 16-aligned.
+    let (footprint, class) = class_for(largest_in_chunk + 1);
+    assert_eq!(class, OVERSIZED_CLASS);
+    assert_eq!(footprint, CHUNK_BYTES + 16);
+}
+
+/// A free-list slot recycled for a *different* payload in the same class must still hold it.
+#[test]
+fn recycled_slot_fits_any_payload_of_its_class() {
+    let mut region = VarRegion::new();
+    // 33 and 40 both land in the 56-byte class (49..56 total).
+    let (fp_a, class_a) = class_for(33);
+    let (fp_b, class_b) = class_for(40);
+    assert_eq!((fp_a, class_a), (fp_b, class_b));
+
+    let small = write_read_roundtrip(&mut region, &[0xAAu8; 33], BlockType::Str);
+    region.tombstone(small);
+    // Same class, larger payload — must reuse the slot and still round-trip all 40 bytes.
+    write_read_roundtrip(&mut region, &[0xBBu8; 40], BlockType::Str);
+}
