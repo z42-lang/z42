@@ -1,6 +1,6 @@
 # Proposal: 形参位的 `Self` + 型参收者的约束成员绑定
 
-> 类型：lang（类型检查语义）｜ 创建：2026-09-07 ｜ 状态：**DRAFT（待 User 裁决 Q1/Q2）**
+> 类型：lang（类型检查语义）｜ 创建：2026-09-07 ｜ 状态：**IMPL（Q1/Q2 已裁决）**
 > 前置：`add-associated-types` PR-2 落 `Self`（#506）、`apply-self-to-core-protocols` 落 use（#525）、
 > `self-return-type-substitution` 落返回位（#527）、`add-argument-type-check` 接线实参检查（#523）
 
@@ -73,7 +73,48 @@ z42 今天的「泛型参数」这条路**同样零检查**，所以只堵洞 1 
 
 见下方 **Q1**，两个候选语义要 User 裁决。
 
-## 🔴 待 User 裁决
+## ✅ User 裁决（2026-09-07，勿重问）
+
+**Q1 = 1b（Rust 式禁止）**｜**Q2 = Q2-b（返回类型一并换真）**。
+
+## 🔴 实施期查明的两件事（都推翻了本 proposal 起草时的假设）
+
+### ① 「golden 用例能当编译错误的门」是假的 —— 我最初的探针全部无效
+
+起草阶段我用 `xtask test e2e` / `--emit-zbc` 跑探针，看到「编译零诊断」就下了结论。**校准实验推翻了它**：
+
+```z42
+void f(int x) { }
+void Main() { f("definitely wrong"); }     // 放进 src/tests/generics/ → `OK: zzprobe_gp`，build test exit 0
+```
+
+`xtask build test` 走 `z42c --emit-zbc`（`scripts/test/xtask_test_targets.z42:157`），而 `--emit-zbc`
+**至今丢弃全部编译诊断、exit 0 照写产物** —— 这正是 [[restore-emit-zbc-diagnostics-program]] 的未修项
+`emit-zbc-no-error-gate`，不在本 change 范围。⇒ **本 change 的编译期断言一律走 `SemanticDump` 单测**
+（`src/compiler/z42c.semantics/tests/`），golden 那条路只用来观察**运行期**行为。
+
+> 教训：探针跑出「没报错」时，先证明这个 harness **有能力报错**。我在洞 1/洞 2 上各浪费了一轮。
+> （运行期证据与源码阅读独立成立，故两个洞的结论不受影响，但过程是错的。）
+
+### ② `Self → T` 精确替换**不能**恢复形参位的实参检查（诚实记账）
+
+Part A 把约束接口方法签名里的 `Self` 换成型参 `T` 后，形参类型是**裸 `Z42GenericParamType`**，于是
+`Conversion._classifyBuiltin` 的**分支 B**（`_hasGenericParam(from) != _hasGenericParam(to)` →
+`GenericErase`）照旧放行：
+
+```z42
+bool bad<T>(T a) where T : IEq { return a.Same("nope"); }   // Part A 之后**仍然**零诊断
+```
+
+⇒ **Part A 的实参检查收益只覆盖「形参类型是具体类型」的约束接口方法**（`void Add(int)` 这类，
+已由 3 条真门守住）；形参位是型参 / `Self` 的那半仍被擦除放行。**返回类型换真那半是完整生效的。**
+
+要连这半也堵上，得收紧分支 B「目标是裸型参、来源是具体类型 → 不可隐式转」（C# 的 CS1503 就是这条
+规则）。那是对**通用擦除规则**动刀，爆炸半径未量，**已登记为独立 Deferred
+`tighten-bare-type-param-target-erasure`，不在本轮**。本 proposal 不把 Part A 写成「泛型代码的实参
+检查已补齐」——它没有。
+
+## 已裁决的原始选项（存档）
 
 ### Q1：洞 1 取哪种语义？
 
