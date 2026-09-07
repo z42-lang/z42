@@ -296,6 +296,42 @@ fn promote_stale_handle_is_noop() {
     assert_eq!(r.resolve(h2).gen_age(), 0);
 }
 
+/// **fix-young-list-only-when-generational (2026-09-07)**: a non-generational
+/// region pays nothing for the young list, and turning maintenance on rebuilds
+/// it from the entries that are still alive and still young.
+#[test]
+fn non_generational_region_skips_young_list_until_switched_on() {
+    let mut r: Region<i32> = Region::new_for_mode(false);
+    let a = r.alloc(10);
+    let b = r.alloc(20);
+    let dead = r.alloc(30);
+    assert_eq!(r.young_count(), 0, "no young list maintained while off");
+
+    // Deaths and promotions must stay no-ops rather than corrupt anything.
+    assert!(r.tombstone(dead));
+    assert!(!r.promote(a), "promote can't tenure an unlisted entry in one call");
+
+    r.set_generational(true);
+    // `a` was bumped to gen_age 1 by the promote above — still young, so both
+    // survivors are listed; the tombstoned one is not.
+    assert_eq!(r.young_count(), 2, "rebuild lists exactly the live young entries");
+    let mut seen: Vec<i32> = Vec::new();
+    r.iterate_young(|_h, e| seen.push(*e.value.lock()));
+    seen.sort();
+    assert_eq!(seen, vec![10, 20]);
+    let _ = b;
+
+    // From here on it behaves like any generational region.
+    let c = r.alloc(40);
+    assert_eq!(r.young_count(), 3, "alloc lists again once maintenance is on");
+    assert!(r.tombstone(c));
+    assert_eq!(r.young_count(), 2);
+
+    r.set_generational(false);
+    assert_eq!(r.young_count(), 0, "switching off drops the list");
+    assert!(r.validate().is_ok(), "an unlisted live young entry is not a violation while off");
+}
+
 #[test]
 fn iterate_young_yields_only_young_entries() {
     let mut r: Region<u64> = Region::new();

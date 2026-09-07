@@ -135,8 +135,10 @@ impl<T> Region<T> {
                         recorded: entry.location,
                     });
                 }
-                // Alive young entries must be in young_list.
-                if entry.alive.load(Ordering::Acquire)
+                // Alive young entries must be in young_list — but only when the
+                // region maintains one (fix-young-list-only-when-generational).
+                if self.generational
+                    && entry.alive.load(Ordering::Acquire)
                     && entry.gen_age() < PROMOTION_THRESHOLD
                     && !in_young.contains(&(ci as u32, ei as u16))
                 {

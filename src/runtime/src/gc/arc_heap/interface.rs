@@ -243,6 +243,14 @@ impl MagrGC for ArcMagrGC {
     /// on the rare config call.
     fn set_mode(&self, mode: crate::gc::GcMode) {
         self.mode.store(mode as u8, std::sync::atomic::Ordering::Relaxed);
+        // fix-young-list-only-when-generational: `Region::young_list` is minor
+        // GC's index, and minor GC runs only in this mode — so the regions'
+        // maintenance flag is part of the mode, set here in the same breath as
+        // the store. Switching *to* generational rebuilds the list from the
+        // live entries, so a heap that has already allocated collects correctly.
+        let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
+        self.region_object.lock().set_generational(generational);
+        self.region_array.lock().set_generational(generational);
     }
 
     /// **add-custom-allocator P2**: explicit finalize; impl in `ArcMagrGC::finalize_now`.

@@ -53,6 +53,8 @@ pub use entry::*;
 mod invariants;
 pub use invariants::*;
 
+mod generation;
+
 /// Opaque handle into a `Region<T>`. Encodes (chunk index, entry
 /// index within chunk, generation snapshot). 12 bytes total —
 /// `Copy`-able primitive components but the public `GcRef<T>` wrapper
@@ -192,7 +194,30 @@ pub struct Region<T> {
     /// promote (swap_remove once threshold reached), and tombstone
     /// (swap_remove if was young). Minor GC iterates this list for
     /// O(young) cost instead of walking all chunks.
+    ///
+    /// **fix-young-list-only-when-generational (2026-09-07)**: maintained only
+    /// while [`Self::generational`] is set — see that field.
     young_list: Vec<(u32, u16)>,
+
+    /// **fix-young-list-only-when-generational (2026-09-07)**: whether this
+    /// region maintains [`Self::young_list`] at all.
+    ///
+    /// `young_list` is read by exactly one consumer — minor GC, which runs only
+    /// under `GcMode::GenerationalMarkSweep`. Under the production default
+    /// (`StwMarkSweep`) `promote` is never called, so nothing ever leaves the
+    /// list and it grows to hold *every* live entry: measured 830 k entries
+    /// (6.5 MB) compiling `z42c.semantics`, for a list no one reads. Gating the
+    /// two maintenance points on this flag measured −0.22% instructions and
+    /// −12.2 MB peak RSS on that workload.
+    ///
+    /// **Invariant**: this must equal "the owning heap's `GcMode` is
+    /// `GenerationalMarkSweep`". It is set once at construction from the
+    /// resolved mode and thereafter changed *only* by
+    /// [`Self::set_generational`], which `ArcMagrGC::set_mode` calls under the
+    /// region lock in the same breath as the mode store — so the two cannot
+    /// drift. Turning it on rebuilds the list from the live entries, so a heap
+    /// switched to generational mid-run collects correctly.
+    generational: bool,
 
     /// **add-generational-gc P0 (2026-05-22)**: per-chunk dirty card
     /// bitmap. Bit `ci` set when an old→young write happened to an
@@ -239,6 +264,11 @@ impl<T> Default for Region<T> {
             free_list:   Vec::new(),
             initialized: Vec::new(),
             young_list:  Vec::new(),
+            // fix-young-list-only-when-generational: `Default` (and therefore
+            // `new()`) keeps the pre-2026-09-07 behaviour — maintain the list.
+            // The heap passes the resolved mode via `new_for_mode`; only tests
+            // and other direct constructors land here.
+            generational: true,
             card_dirty:  Vec::new(),
             borrowed:        Vec::new(),
             free_chunk_pool: Vec::new(),
@@ -371,185 +401,6 @@ impl<T> Region<T> {
             self.remove_from_young_list(handle.chunk_idx, handle.entry_idx);
         }
         true
-    }
-
-    /// **fix-young-list-quadratic-sweep (2026-09-06)**: the single entry point
-    /// for appending to `young_list`. Records the new slot's index inside the
-    /// entry itself (`RegionEntry::young_idx`) — that back-pointer is what lets
-    /// [`remove_from_young_list`](Self::remove_from_young_list) skip the linear
-    /// scan. Every push must go through here; a missed one leaves an entry that
-    /// can never be removed in O(1) (it degrades to a silent no-op removal,
-    /// caught by `validate`'s `YoungIndexMismatch`).
-    fn push_young(&mut self, ci: u32, ei: u16) {
-        let idx = self.young_list.len();
-        self.young_list.push((ci, ei));
-        // SAFETY: callers push only slots they have just initialized
-        // (`alloc`) or merged back from a filled TLAB chunk (`retire_chunk`),
-        // so the slot holds a constructed entry.
-        let entry = unsafe { self.chunks[ci as usize][ei as usize].assume_init_ref() };
-        entry.set_young_idx(idx);
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: helper to remove a
-    /// `(chunk_idx, entry_idx)` pair from `young_list` via `swap_remove`.
-    ///
-    /// **fix-young-list-quadratic-sweep (2026-09-06)**: O(1). This used to be
-    /// `young_list.iter().position(...)`, justified as "acceptable since
-    /// tombstone is sweep-time work, not the alloc hot path" — but sweep calls
-    /// `tombstone` **once per dead object**, so a linear scan here made sweep
-    /// O(dead x young). Measured: a single collection of a 230 MB heap
-    /// (187 MB of it garbage) spent **137 s** STW with 100% of native-stack
-    /// samples inside this function, which is why `Z42_GC_MAX_BYTES` — the
-    /// switch that arms automatic collection at all — was left unset by
-    /// default. `promote` had the same problem against the *survivor* count.
-    ///
-    /// The entry stores its own index into `young_list`, so removal is a
-    /// `swap_remove` plus one back-pointer fixup on the element that moved
-    /// into the hole.
-    fn remove_from_young_list(&mut self, ci: u32, ei: u16) {
-        // SAFETY: every caller has already resolved this slot (it is a
-        // constructed entry it just tombstoned/promoted).
-        let entry = unsafe { self.chunks[ci as usize][ei as usize].assume_init_ref() };
-        let Some(pos) = entry.young_idx() else { return };
-        entry.clear_young_idx();
-        // Defensive: a desynchronized back-index (the test-only
-        // `clear_young_list_for_test` corruption injection produces one) must
-        // degrade to a no-op — never a panic, and never evicting another
-        // entry's slot.
-        if self.young_list.get(pos) != Some(&(ci, ei)) {
-            return;
-        }
-        self.young_list.swap_remove(pos);
-        // `swap_remove` moved the tail element into `pos` (no move happened if
-        // we removed the tail itself) — repair its back-pointer.
-        if let Some(&(mci, mei)) = self.young_list.get(pos) {
-            // SAFETY: presence in `young_list` implies a constructed slot.
-            let moved = unsafe { self.chunks[mci as usize][mei as usize].assume_init_ref() };
-            moved.set_young_idx(pos);
-        }
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: increment the entry's
-    /// `gen_age`. If the new age reaches `PROMOTION_THRESHOLD`, the
-    /// entry is "promoted" — removed from `young_list` so subsequent
-    /// minor GCs don't visit it. Returns `true` iff the entry was
-    /// promoted in this call (transitioned `< threshold` →
-    /// `>= threshold`).
-    ///
-    /// Called by minor GC after sweep, on each surviving young entry.
-    pub fn promote(&mut self, handle: RegionHandle) -> bool {
-        let entry = self.resolve(handle);
-        // Guard against stale handle: only promote alive entries with
-        // matching generation.
-        if !entry.alive.load(Ordering::Acquire)
-            || entry.generation.load(Ordering::Acquire) != handle.generation
-        {
-            return false;
-        }
-        let prev = entry.gen_age.fetch_add(1, Ordering::AcqRel);
-        let new_age = prev.saturating_add(1);
-        if prev < PROMOTION_THRESHOLD && new_age >= PROMOTION_THRESHOLD {
-            // Transition: young → old. Remove from young_list.
-            self.remove_from_young_list(handle.chunk_idx, handle.entry_idx);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: walk every entry in
-    /// `young_list`. O(young) iteration cost. Order: insertion order
-    /// (last-promoted entries swap-removed; insertion order otherwise).
-    pub fn iterate_young(&self, mut visit: impl FnMut(RegionHandle, &RegionEntry<T>)) {
-        for &(ci, ei) in &self.young_list {
-            if !self.initialized[ci as usize][ei as usize] {
-                continue;
-            }
-            let slot = &self.chunks[ci as usize][ei as usize];
-            let entry = unsafe { slot.assume_init_ref() };
-            if !entry.alive.load(Ordering::Acquire) {
-                continue;
-            }
-            let h = RegionHandle {
-                chunk_idx:  ci,
-                entry_idx:  ei,
-                generation: entry.generation.load(Ordering::Acquire),
-            };
-            visit(h, entry);
-        }
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: number of entries in
-    /// young_list (for diagnostics + escalation heuristic).
-    pub fn young_count(&self) -> usize {
-        self.young_list.len()
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: mark a chunk's card
-    /// as dirty. Called by write barrier override under
-    /// `GenerationalMarkSweep` when an old entry writes a young
-    /// reference into one of its slots. The minor GC re-roots from
-    /// dirty cards so the young target isn't incorrectly swept.
-    pub fn mark_card_dirty(&mut self, chunk_idx: u32) {
-        let ci = chunk_idx as usize;
-        if ci < self.card_dirty.len() {
-            self.card_dirty[ci] |= 1u32;
-        }
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: query a chunk's
-    /// card-dirty state. Mostly for tests; minor GC iterates via
-    /// `iterate_dirty_cards`.
-    pub fn is_card_dirty(&self, chunk_idx: u32) -> bool {
-        let ci = chunk_idx as usize;
-        ci < self.card_dirty.len() && (self.card_dirty[ci] & 1u32) != 0
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: reset all card-dirty
-    /// bits. Called at end of minor / major GC so the next minor
-    /// cycle starts fresh.
-    pub fn clear_card_dirty(&mut self) {
-        for bit in &mut self.card_dirty {
-            *bit = 0;
-        }
-    }
-
-    /// **add-generational-gc P0 (2026-05-22)**: walk every entry in
-    /// dirty chunks. Minor GC uses this to re-root entries in
-    /// chunks that received old→young writes since the last collect.
-    ///
-    /// Callback receives entries regardless of `gen_age` — the
-    /// caller filters (typically: re-root old entries to find their
-    /// young children for marking).
-    pub fn iterate_dirty_cards(&self, mut visit: impl FnMut(RegionHandle, &RegionEntry<T>)) {
-        for (ci, card) in self.card_dirty.iter().enumerate() {
-            if (*card & 1u32) == 0 {
-                continue;
-            }
-            if ci >= self.chunks.len() {
-                continue;
-            }
-            // add-gc-tlab: skip borrowed chunks (invisible to GC until retire).
-            if self.borrowed[ci] {
-                continue;
-            }
-            for ei in 0..CHUNK_SIZE {
-                if !self.initialized[ci][ei] {
-                    continue;
-                }
-                let slot = &self.chunks[ci][ei];
-                let entry = unsafe { slot.assume_init_ref() };
-                if !entry.alive.load(Ordering::Acquire) {
-                    continue;
-                }
-                let h = RegionHandle {
-                    chunk_idx:  ci as u32,
-                    entry_idx:  ei as u16,
-                    generation: entry.generation.load(Ordering::Acquire),
-                };
-                visit(h, entry);
-            }
-        }
     }
 
     /// Iterate every currently-alive entry. Skips uninit slots in
@@ -753,14 +604,6 @@ impl<T> Region<T> {
     #[cfg(test)]
     pub(crate) fn chunks_count_for_test(&self) -> usize {
         self.chunks.len()
-    }
-
-    /// **add-gc-debug-invariants P1 (2026-05-22)**: test-only corruption
-    /// injection helper — clears `young_list` directly so the next
-    /// `validate()` reports `YoungEntryNotInList`.
-    #[cfg(test)]
-    pub(crate) fn clear_young_list_for_test(&mut self) {
-        self.young_list.clear();
     }
 
     /// Number of free slots available without growing (`free_list +
