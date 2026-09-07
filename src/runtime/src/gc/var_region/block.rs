@@ -25,8 +25,10 @@ pub enum BlockType {
 }
 
 impl BlockType {
-    /// Reconstruct from the raw `u8` stored in a header. Returns `None` on an unknown tag
-    /// (corruption guard — a valid block always carries one of the variants above).
+    /// Reconstruct from the tag bits of a header's `type_tag` byte. Returns `None` on an
+    /// unknown tag (corruption guard — a valid block always carries one of the variants
+    /// above). Callers pass the already-masked low [`TAG_BITS`]; values 5..=7 are unused
+    /// and reaching one means the byte is corrupt.
     #[inline]
     pub(super) fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -39,6 +41,33 @@ impl BlockType {
         }
     }
 }
+
+/// Width of the [`BlockType`] field inside a header's `type_tag` byte. 5 variants → 3 bits.
+const TAG_BITS: u32 = 3;
+/// Mask selecting the [`BlockType`] bits of a `type_tag` byte.
+const TAG_MASK: u8 = (1 << TAG_BITS) - 1;
+/// Bit offset of the packed `gen_age` inside a `type_tag` byte.
+const AGE_SHIFT: u32 = TAG_BITS;
+/// Mask (post-shift) selecting the `gen_age` bits. **Two bits — ages above 3 do not fit.**
+const AGE_MASK: u8 = 0b11;
+
+/// Bit marking "this block is currently listed in `VarRegion::young_list`".
+///
+/// The young list uses **lazy deletion** — a tombstoned block stays in it until the next
+/// minor sweep filters it out. Without this flag, a slot that dies and is then handed back
+/// out by the free list before that sweep would be pushed a second time, so one block would
+/// sit in the list twice: aged twice per minor, and the list would grow without bound.
+/// `alloc` consults the flag and only pushes when it is clear.
+const IN_YOUNG_BIT: u8 = 1 << 5;
+
+/// Largest `gen_age` a block header can represent (see [`AGE_MASK`]).
+///
+/// `region::PROMOTION_THRESHOLD` is 2, so ages only ever reach 2 today. If a future
+/// `PROMOTION_AGE` knob wants to exceed this, the age needs more room than `type_tag`'s
+/// spare bits provide — `size_class` has one spare bit (its largest index is 64), or the
+/// header has to grow, which costs far more than it sounds (see the note on `DATA_OFFSET`
+/// in `chunk::class_for`).
+pub(crate) const MAX_GEN_AGE: u8 = AGE_MASK;
 
 /// Fixed header preceding a variable-length block's inline payload. `#[repr(C, align(8))]`
 /// pins the field order and pads to 16 bytes so the payload always starts 8-aligned at
@@ -56,8 +85,20 @@ pub struct GcBlockHeader {
     pub(super) marked: AtomicU8,
     /// Tombstone flag: `true` while live, `false` after sweep reclaims the slot.
     pub(super) alive: AtomicBool,
-    /// Payload kind ([`BlockType`] as `u8`) — tells the tracer how to scan the payload.
-    pub(super) type_tag: u8,
+    /// Packed payload kind + generation age + young-list membership. Low [`TAG_BITS`] hold
+    /// the [`BlockType`] (tells the tracer how to scan the payload); the next two bits hold
+    /// `gen_age`; bit 5 is [`IN_YOUNG_BIT`]. Bits 6-7 are unused (always 0).
+    ///
+    /// **fix-minor-gc-skips-var-region (2026-09-08)**: the age had to live *inside* an
+    /// existing byte — the header is pinned at 16 by the assert below, and growing it to 24
+    /// would push the 1.8 M blocks whose total is exactly `MIN_BLOCK` into the next size
+    /// class, giving back 15 MB+ of what PR #526 saved.
+    ///
+    /// `AtomicU8` (same size and align as `u8`, so the layout is unchanged) because the
+    /// write barrier reads `gen_age` lock-free on the mutator hot path while promotion
+    /// writes it during STW sweep — a plain `u8` there is a data race. Mirrors
+    /// `RegionEntry::gen_age`, which is atomic for the same reason.
+    pub(super) type_tag: AtomicU8,
     /// Size-class index (`octave << SUB_LOG2 | sub` of the total footprint — see
     /// `chunk::class_for`), or [`OVERSIZED_CLASS`] for a dedicated chunk. Lets tombstone
     /// return the slot to the right free list and lets iteration know the slot's footprint.
@@ -80,13 +121,61 @@ impl GcBlockHeader {
         self.size as usize
     }
 
+    /// Pack a [`BlockType`] and a `gen_age` into the `type_tag` byte. The single place the
+    /// layout is encoded — every header construction site goes through it.
+    #[inline]
+    pub(super) fn pack_tag(block_type: BlockType, gen_age: u8, in_young: bool) -> u8 {
+        debug_assert!(gen_age <= MAX_GEN_AGE, "gen_age {gen_age} exceeds the 2 bits available");
+        (block_type as u8)
+            | ((gen_age & AGE_MASK) << AGE_SHIFT)
+            | if in_young { IN_YOUNG_BIT } else { 0 }
+    }
+
     /// Payload kind.
     #[inline]
     pub fn block_type(&self) -> BlockType {
+        let tag = self.type_tag.load(Ordering::Relaxed) & TAG_MASK;
         // A live block always carries a valid tag (set at alloc); fall back to `Str` only to
         // avoid a panic on a corrupted read (debug builds assert instead).
-        debug_assert!(BlockType::from_u8(self.type_tag).is_some(), "corrupt block type_tag");
-        BlockType::from_u8(self.type_tag).unwrap_or(BlockType::Str)
+        debug_assert!(BlockType::from_u8(tag).is_some(), "corrupt block type_tag");
+        BlockType::from_u8(tag).unwrap_or(BlockType::Str)
+    }
+
+    /// Generation age: `< PROMOTION_THRESHOLD` means young, `>=` means promoted to old.
+    /// Read `Relaxed` from the write barrier's cross-generation check — promotion writes
+    /// happen under STW, so there is nothing to synchronize with.
+    #[inline]
+    pub fn gen_age(&self) -> u8 {
+        (self.type_tag.load(Ordering::Relaxed) >> AGE_SHIFT) & AGE_MASK
+    }
+
+    /// Increment `gen_age`, saturating at [`MAX_GEN_AGE`]. Returns the new age. Called by
+    /// the minor sweep on survivors — **STW only**, so the read-modify-write needs no CAS
+    /// (nothing else writes this byte after alloc).
+    #[inline]
+    pub(super) fn bump_gen_age(&self) -> u8 {
+        let cur = self.type_tag.load(Ordering::Relaxed);
+        let age = ((cur >> AGE_SHIFT) & AGE_MASK).saturating_add(1).min(MAX_GEN_AGE);
+        let keep = cur & (TAG_MASK | IN_YOUNG_BIT);
+        self.type_tag.store(keep | (age << AGE_SHIFT), Ordering::Relaxed);
+        age
+    }
+
+    /// Whether this block is currently listed in `VarRegion::young_list`. See
+    /// [`IN_YOUNG_BIT`] for why membership is tracked on the header rather than by
+    /// searching the list.
+    #[inline]
+    pub(super) fn is_in_young(&self) -> bool {
+        self.type_tag.load(Ordering::Relaxed) & IN_YOUNG_BIT != 0
+    }
+
+    /// Set / clear the young-list membership bit. **STW only** (alloc holds the region lock;
+    /// the minor sweep runs stopped-the-world), so no CAS is needed.
+    #[inline]
+    pub(super) fn set_in_young(&self, yes: bool) {
+        let cur = self.type_tag.load(Ordering::Relaxed);
+        let next = if yes { cur | IN_YOUNG_BIT } else { cur & !IN_YOUNG_BIT };
+        self.type_tag.store(next, Ordering::Relaxed);
     }
 
     /// True while the block is live (not yet swept).

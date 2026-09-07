@@ -223,13 +223,21 @@ public static class ImportedSymbolLoader {
                 while (f < em.FunctionCount) {
                     ExportedFuncZ fz = em.Functions[f];
                     if (!r.Functions.ContainsKey(fz.Name)) {
+                        // imported-generic-func-type-param-fidelity：自由函数的**函数级**型参
+                        // （`T IdOf<T>(T a)`）。这是 R1 当初列出却漏修的第四处（见 _tpsWith 注释）：
+                        // 不喂型参表 → `T` 落 `_resolve` 末尾的 Builtin 兜底成普通类 ⇒ 调用点 E0402。
+                        // 自由函数无外层类 ⇒ outer 为空，与 trait-impl 方法那支同形。
+                        string[] ftps = ImportedSymbolLoader._tpsWith(new string[0], 0, fz.TypeParams);
+                        int ftpc = ftps.Length;
                         Z42Type[] ps = new Z42Type[fz.ParamCount];
                         int j = 0;
-                        while (j < fz.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, fz.Params[j].TypeName); j = j + 1; }
-                        var sig = new Z42FuncType(ps, fz.ParamCount, ImportedSymbolLoader._resolve(r, fz.ReturnType));
+                        while (j < fz.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, fz.Params[j].TypeName, ftps, ftpc); j = j + 1; }
+                        var sig = new Z42FuncType(ps, fz.ParamCount, ImportedSymbolLoader._resolve(r, fz.ReturnType, ftps, ftpc));
                         sig.ParamsFrom = fz.ParamsFrom;
                         ImportedSymbolLoader._fillParamDefaults(sig, fz.Params, fz.ParamCount);   // PR6：跨包默认值/ caller
-                        r.Functions.Put(fz.Name, new MethodSymbol(fz.Name, "public", sig, false, "", false, null));
+                        var fsym = new MethodSymbol(fz.Name, "public", sig, false, "", false, null);
+                        fsym.TypeParamCount = fz.TypeParamCount;   // 供泛型 arity 重载过滤（镜像方法侧）
+                        r.Functions.Put(fz.Name, fsym);
                         // 记源 ns（与 ClassNamespaces 对称）→ 发射期 QualifyFreeFunc 跨包裸调按源 ns 限定。
                         r.FunctionNamespaces.Put(fz.Name, new StrBox(em.Namespace));
                     }

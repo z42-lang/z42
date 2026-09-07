@@ -7,3 +7,10 @@ namespace Demo.FreeFuncBase;
 int Square(int x) {
     return x * x;
 }
+
+// imported-generic-func-type-param-fidelity：**泛型**自由函数，跨包调用。
+// 修复前导入侧型参 `T` 退化成名为 "T" 的普通类 ⇒ `IdOf(p)` 报
+// `E0402: cannot assign int to T (argument)`（显式实参 `IdOf<int>(p)` 同样不救）。
+T IdOf<T>(T a) {
+    return a;
+}

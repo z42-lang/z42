@@ -13,10 +13,10 @@ using DemoSExt;
 // `bool eqVia(IEq a, IEq b)` —— 经接口静态类型调用 `Self` 形参方法，今天报 E0454（不健全，见
 // book generic-constraints.md）。改成型参写法，这才是推荐形态：`Self ≡ T` 精确，实参真校验。
 //
-// ⚠️ 它放在 **main**（与调用点同包）而不是 ext，不是随意选择：**跨包**泛型自由函数今天调不了——
-// 导入侧型参退化成普通类，`eqVia(p, q)` 报 `E0402: cannot assign Point to T`。实测与 `Self` 无关
-// （`int idOf<T>(T a)` 一样炸），是既存缺陷，已登记 Deferred `imported-generic-func-type-param-fidelity`。
-// 本行的编译期断言不受影响：`IEq` 仍是**跨包导入**的接口，Part A 的约束查找要从导入元数据里
+// 它放在 **main**（与调用点同包）是历史原因：当时**跨包**泛型自由函数根本调不了（导入侧型参退化成
+// 普通类 → `E0402`）。该缺陷已由 `fix-imported-generic-func-fidelity`（2026-09-08）修掉，跨包形态
+// 的回归归 `src/tests/cross-zpkg/free_func_cross_pkg/` 专管，本 fixture 保持同包写法不动。
+// 本行的编译期断言与那条正交：`IEq` 仍是**跨包导入**的接口，Part A 的约束查找要从导入元数据里
 // 还原出 `Same(Self)` 才能编过。
 bool eqVia<T>(T a, T b) where T : IEq { return a.Same(b); }
 

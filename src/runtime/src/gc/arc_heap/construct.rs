@@ -26,7 +26,7 @@ impl Default for ArcMagrGC {
             // `set_mode` keeps this in step if the mode changes later.
             region_object: Mutex::new(crate::gc::region::Region::new_for_mode(generational)),
             region_array:  Mutex::new(crate::gc::region::Region::new_for_mode(generational)),
-            region_var:    Mutex::new(VarRegion::with_drop_glue(var_drop_glue)),
+            region_var:    Mutex::new(VarRegion::with_drop_glue_for_mode(var_drop_glue, generational)),
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
             pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),

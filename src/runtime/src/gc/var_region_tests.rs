@@ -441,3 +441,151 @@ fn recycled_slot_fits_any_payload_of_its_class() {
     // Same class, larger payload — must reuse the slot and still round-trip all 40 bytes.
     write_read_roundtrip(&mut region, &[0xBBu8; 40], BlockType::Str);
 }
+
+// ---------------------------------------------------------------------------------------
+// fix-minor-gc-skips-var-region: generation age, young list, minor sweep
+// ---------------------------------------------------------------------------------------
+
+use crate::gc::region::PROMOTION_THRESHOLD;
+
+const ALL_BLOCK_TYPES: [BlockType; 5] = [
+    BlockType::Str,
+    BlockType::ArrayValue,
+    BlockType::ArrayPrim,
+    BlockType::ArrayStruct,
+    BlockType::Closure,
+];
+
+/// `block_type`, `gen_age` and the young-list bit share one byte. A packing mistake here
+/// would silently mis-tag payloads for the tracer — the worst kind of GC bug, because the
+/// wrong scan function reads the wrong bytes as pointers.
+#[test]
+fn gen_age_and_block_type_share_a_byte_without_interference() {
+    let mut region = VarRegion::new();
+    for ty in ALL_BLOCK_TYPES {
+        let h = region.alloc(24, ty);
+        // SAFETY: freshly allocated, region alive.
+        let header = unsafe { h.header_ptr().as_ref() };
+        assert_eq!(header.block_type(), ty, "type survives packing");
+        assert_eq!(header.gen_age(), 0, "fresh block is age 0");
+        for expected in 1..=PROMOTION_THRESHOLD {
+            assert_eq!(header.bump_gen_age(), expected);
+            assert_eq!(header.block_type(), ty, "aging must not disturb the type bits");
+        }
+    }
+    // The header must not have grown to buy those bits.
+    assert_eq!(std::mem::size_of::<GcBlockHeader>(), 16);
+}
+
+#[test]
+fn fresh_blocks_are_young_and_listed() {
+    let mut region = VarRegion::new();
+    assert_eq!(region.young_count(), 0);
+    for i in 0..5 {
+        region.alloc(8 * (i + 1), BlockType::Str);
+    }
+    assert_eq!(region.young_count(), 5, "every fresh block joins the young list");
+    let mut seen = 0;
+    region.iterate_young(|_, h| {
+        assert_eq!(h.gen_age(), 0);
+        seen += 1;
+    });
+    assert_eq!(seen, 5);
+}
+
+#[test]
+fn sweep_young_reclaims_unmarked_and_keeps_marked() {
+    let mut region = VarRegion::new();
+    let keep = region.alloc(16, BlockType::Str);
+    let drop_me = region.alloc(16, BlockType::Str);
+    keep.mark();
+
+    let (reclaimed, _credited) = region.sweep_young();
+    assert_eq!(reclaimed, 1, "only the unmarked block is reclaimed");
+    // SAFETY: the region outlives this borrow and the block is still alive.
+    assert!(unsafe { keep.payload() }.is_some(), "marked block survives");
+    // SAFETY: the region outlives this borrow; the slot is chunk-owned either way.
+    assert!(!unsafe { drop_me.header_ptr().as_ref() }.is_alive());
+    assert_eq!(region.young_count(), 1, "the dead block leaves the young list");
+}
+
+/// The mark bit must be cleared by the minor sweep. Leaving it set is what let a closure
+/// block fail its `mark()` CAS on the *next* minor, so its children were never traced and a
+/// still-referenced young `env` array got swept.
+#[test]
+fn sweep_young_clears_the_mark_on_survivors() {
+    let mut region = VarRegion::new();
+    let h = region.alloc(16, BlockType::Closure);
+    h.mark();
+    region.sweep_young();
+    assert!(h.mark(), "mark was cleared, so a fresh mark CAS must win again");
+}
+
+#[test]
+fn sweep_young_promotes_after_threshold_survivals() {
+    let mut region = VarRegion::new();
+    let h = region.alloc(16, BlockType::Str);
+    for i in 1..=PROMOTION_THRESHOLD {
+        h.mark();
+        region.sweep_young();
+        // SAFETY: block still alive (it was marked each round).
+        assert_eq!(unsafe { h.header_ptr().as_ref() }.gen_age(), i);
+    }
+    assert_eq!(region.young_count(), 0, "promoted block leaves the young list");
+    // Still alive — promotion is a label change, never a move or a free.
+    // SAFETY: survived every sweep above; the region is still borrowed here.
+    assert!(unsafe { h.payload() }.is_some());
+}
+
+/// Regression: the young list uses lazy deletion, so a slot that dies and is then handed
+/// back out by the free list before the next sweep would be listed twice — aged twice per
+/// minor, with the list growing without bound. The header's young bit is what prevents it.
+#[test]
+fn recycled_slot_is_not_listed_twice() {
+    let mut region = VarRegion::new();
+    let h = region.alloc(16, BlockType::Str);
+    assert_eq!(region.young_count(), 1);
+    region.tombstone(h);
+    // Still listed (lazy deletion) — the entry is stale, not removed.
+    assert_eq!(region.young_count(), 1);
+    // Same size class → reuses the very slot that is still sitting in the young list.
+    let reused = region.alloc(16, BlockType::Str);
+    assert_eq!(region.young_count(), 1, "recycled slot must not be pushed a second time");
+    // SAFETY: freshly allocated.
+    assert_eq!(unsafe { reused.header_ptr().as_ref() }.gen_age(), 0);
+}
+
+#[test]
+fn reclaimed_chunk_purges_young_list() {
+    // A recycled chunk is re-bumped from offset 0, so any young-list entry pointing into it
+    // would dangle onto whatever lands at that address next — and the minor sweep would
+    // happily age or tombstone the new occupant. `young_list` must be purged by the same
+    // retain that already purges `all_blocks` and `free_lists`.
+    let mut region = VarRegion::new();
+    // Enough blocks to fill several bump chunks, so some are not the ambient one (the
+    // ambient chunk is never reclaimed).
+    for _ in 0..384 {
+        region.alloc(1024, BlockType::Str);
+    }
+    assert!(region.chunk_count() > 2, "expected several bump chunks");
+    assert_eq!(region.young_count(), 384);
+
+    // Nothing is marked → every block dies, so whole chunks become reclaimable.
+    region.sweep();
+    // Tombstone alone does not shrink the list — deletion is lazy by design.
+    assert_eq!(region.young_count(), 384);
+
+    let pooled = region.reclaim_dead_var_chunks();
+    assert!(pooled > 0, "fully-dead bump chunks must be pooled");
+    assert!(
+        region.young_count() < 384,
+        "young list must shed the blocks whose chunks were recycled"
+    );
+    // The invariant that actually matters: nothing in the young list points at memory the
+    // region no longer tracks. `all_blocks` and `young_list` are purged by the same pass, so
+    // a missed purge shows up as an entry here that `all_blocks` has already dropped.
+    let tracked: std::collections::HashSet<_> = region.all_blocks.iter().copied().collect();
+    for p in &region.young_list {
+        assert!(tracked.contains(p), "young list holds a pointer into a recycled chunk");
+    }
+}

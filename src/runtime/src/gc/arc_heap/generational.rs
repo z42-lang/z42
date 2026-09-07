@@ -14,9 +14,20 @@ impl crate::gc::arc_heap::ArcMagrGC {
         match v {
             Value::Object(gc) => GcRef::gen_age(gc),
             Value::Array(gc)  => GcRef::gen_age(gc),
-            // unify-gc-heap PR-2: the closure block (region_var) is non-generational (STW); the
-            // generational-relevant object is its `env` array (region_array), as before.
-            Value::Closure(c) => GcRef::gen_age(&crate::metadata::types::closure_data_of(c).env),
+            // fix-minor-gc-skips-var-region (2026-09-08): the closure block carries its own
+            // age now, so report *its* age rather than its `env` array's.
+            //
+            // This is load-bearing, not tidiness. Reporting 0 for a block the minor sweep
+            // never visits left a **stale mark bit** on it: the next minor popped the same
+            // closure, its `mark()` CAS failed, `just_marked` came back false — and its
+            // children were therefore never traced. A still-young `env` array reachable only
+            // through that closure went unmarked and was swept out from under it.
+            Value::Closure(c) => c.gen_age(),
+            // Strings / func-refs are var blocks too. They used to fall through to `_ => 0`
+            // (always "young"), so every reachable string was re-marked at every minor and
+            // kept a stale mark. They are leaves, so that only cost floating garbage rather
+            // than correctness — but there is no reason to pay it now that the age is real.
+            Value::Str(s) | Value::FuncRef(s) => s.gen_age(),
             // add-boxed-struct-identity (P4b): gen-age of the boxed struct's shared object.
             Value::BoxedStruct(gc) => GcRef::gen_age(gc),
             // make-value-copy: `Ref` handle carries no direct heap allocation to age
@@ -178,6 +189,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // reclaimed by `region_var.sweep()` (drop-glue drops the boxed Values) in
             // the same cycle. Tombstoning the header just releases the region_array slot.
             self.region_array.lock().tombstone(h);
+        }
+
+        // fix-minor-gc-skips-var-region (2026-09-08): the variable-length region — strings,
+        // closures and every array's element storage, ~45% of RSS — used to sit out every
+        // minor and wait for a major. It sweeps here with the other two now.
+        //
+        // This also settles the phantom-accounting half of the bug. The array header above
+        // credits `array_size_estimate`, which includes `elem_storage_bytes()` — bytes that
+        // live in a `region_var` block. That credit was a lie only because the block itself
+        // survived the cycle; now that it is reclaimed in the same sweep, the account and the
+        // memory move together. (Per `VarRegion::alloc_charge_bytes`, array element blocks
+        // are charged zero on their own, so nothing is double-counted here.)
+        {
+            let (_reclaimed, credited) = self.region_var.lock().sweep_young();
+            freed_bytes += credited;
         }
 
         freed_bytes
