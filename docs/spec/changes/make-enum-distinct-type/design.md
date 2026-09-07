@@ -37,7 +37,8 @@
 - A — 新增 `Z42EnumType : Z42Type`（带 `UnderlyingType`）。语义最清楚，但要在所有 `is Z42ClassType`
   的分支上补一条（`Conversion` / `MemberResolver` / `StructLayout` / codegen / `OverloadResolver.TypeKey`…）
   ——半径大，且**签名键会变**（`TypeKey` 走 `Name()`，名不变则键不变，但分支漏改就静默降级）。
-- B — 沿用 `Z42ClassType`，加 `IsEnum` 标记 + `EnumUnderlying`。所有既有 `is Z42ClassType` 分支自动
+- B — 沿用 `Z42ClassType`，加 `IsEnum` 标记（~~+ `EnumUnderlying`~~ —— **不需要**：`Type.z42:104`
+  明写「z42 一律以 i64 背书 enum」，无 per-enum 底层类型）。所有既有 `is Z42ClassType` 分支自动
   继续工作（enum 仍是 class 家族），只在需要区分的少数点查标记。
 
 **决定：B**。理由：z42 的 enum 运行期就是整数、没有成员方法，不需要独立的类型种类；
@@ -107,8 +108,11 @@ enum 静态类型的值必须继续发 **i64**：`ExprEmitter` 遇到 enum 静�
 - **前置依赖**：本变更
 - **触发条件**：出现真实需要位标志 enum 或非 i64 底层宽度的用例时
 
-### make-enum-distinct-type-future-tostring
+### make-enum-distinct-type-future-enum-tostring
 
 - **来源**：本 design Out of Scope
-- **触发原因**：enum 的 `ToString()` / 名字反射表需要在元数据里存成员名，属独立能力。
+- **触发原因**：~~名字反射表需要在元数据里存成员名~~ —— **已存在**（`Enum.GetName`/`GetNames`，
+  元数据在 TYPE 记录尾部）。真正缺的只是**把它接到 `ToString()`**：`Color.Red.ToString()` 今天
+  返回序号而非成员名（roadmap 另有一条 `crosspkg-enum-tostring` 记同一现象的跨包侧）。
+- **前置依赖**：本变更（enum 成为独立类型后，`ToString()` 才有稳定的类型可派发）
 - **触发条件**：需要打印 enum 名（日志 / 序列化）时

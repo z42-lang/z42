@@ -86,7 +86,16 @@ TakeL(Color.Red);       // ✅
 ## Out of Scope
 
 - **不改运行期表示**（仍 i64）；不引入 `[Flags]`、不引入显式底层类型语法（`enum E : byte`）。
-- 不做 enum 的 `ToString()` / 反射名字表（另议）。
+- **enum 反射面不动**——`Type.GetEnumUnderlyingType()` / `Enum.Parse` / `Enum.IsDefined` 与 zbc 的
+  enum 元数据（`Flags` bit5 + 成员名·i64 值）**main 已有**，本变更只动类型系统与转换格，不碰它们。
+- **反射名字表也已存在**（`Enum.GetNames` / `GetValues` / `GetName` / `Parse` / `IsDefined`，
+  `z42.core/src/Enum.z42`）——起草时误写成"另议"。本变更同样不碰。
+- ⭐ **`Type.z42:104` 是明确的 SoT：「z42 一律以 i64（long）背书 enum」**（值存 i64、`GetValues`
+  返 `long[]`）⇒ **不存在 per-enum 底层类型** ⇒ design D1 里的 `EnumUnderlying` 字段是多余的，
+  只需 `IsEnum`。
+- ⚠️ **边界**：反射 API 的签名是 long 本位（`Parse`→`long`、`IsDefined(Type, long)`）。enum 成为
+  独立类型后，这些调用点要么加显式 cast、要么反射面维持 long 本位（反射本就无类型）——**须在
+  阶段 0 一并定，别等实现到一半才发现**。
 
 ## Open Questions
 

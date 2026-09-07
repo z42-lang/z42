@@ -17,16 +17,36 @@
 - [ ] 阶段 3: 摘跳过 + 调用点/测试改写
 - [ ] 阶段 4: 验证与归档
 
+## 🔧 开工前的前提修正（2026-09-07，`add-argument-type-check` 合并后核查 main 得出）
+
+**proposal / design 起草时低估了 main 已有的 enum 基础设施。以下为核实结果，阶段 0 据此收窄：**
+
+| 我起草时的假设 | 实际（`origin/main` 核实） |
+|---|---|
+| enum 反射 / 底层类型属 Out of Scope、"另议" | ❌ **已存在**：`Type.GetEnumUnderlyingType()`（`add-enum-underlying-type`，`[Native("__type_enum_underlying")]`）+ `z42.core/src/Enum.z42`（`Parse` / `IsDefined`）+ `tests/enum_parse_isdefined.z42` |
+| 需要新建 enum 元数据来承载"底层是 i64" | ❌ **zbc 早有**：`IrClassDesc.Flags` **bit5 = enum**；`add-enum-type-metadata` 让 TYPE 记录尾部随带**成员名 + i64 值**（供反射 `IsEnum`/`GetNames`/`GetValues` + `typeof`） |
+| Q3「跨包 enum 的 TSIG 表示要不要带底层类型」未知 | 🔎 已有半个答案：`ImportedSymbolLoader` 有 `EnumTypeNames` / `EnumConsts` 两张表（镜像 `SymbolTable` 同名表），imported 枚举常量本就能解析。**待测的是「跨包 enum 的类型名还原成什么」**，不是"有没有元数据" |
+
+⇒ **design D1（`IsEnum` 标记）多半不用新造**——先查 `Z42ClassType` / `SymbolTable.EnumTypes` 与
+`Flags bit5` 之间今天已经连到哪一步。阶段 0 的问题从「有没有」变成「链路断在哪一环」。
+
+> ⚠️ 另：worktree `../z42-reflinst` 的分支 `feat/enum-underlying-type`（`fcc2be51`）**未合并进 main**
+> 且提交号是 `(#28)/(#29)` 级别的陈旧物——**不要**把它当作在飞工作或参考基线。
+
 ## 阶段 0: 摸清未知（不写实现，只测）
 - [ ] 0.1 实测 `PrimModel.IsScalarValue` / `StructLayout` / `BoxIfNeeded` 今天怎么看待 enum 的
       `Z42ClassType`（design D4 标为最大未知）
-- [ ] 0.2 实测 `ImportedSymbolLoader` 今天怎么还原**跨包** enum 类型名（Q3）——若也退化成普通
+- [ ] 0.2 实测 `ImportedSymbolLoader` 今天怎么还原**跨包** enum 类型名（Q3）——已知它有
+      `EnumTypeNames`/`EnumConsts` 两张表，待测的是**类型名**落到什么 `Z42Type`——若也退化成普通
       `Z42ClassType`，属 R1/R3/R5 同族的 imported 保真度缺口，须一并补
 - [ ] 0.3 实测 `Color.Red.GetType()` 折叠今天走哪条路径（`EnumTypeName`）
-- [ ] 0.4 把 0.1–0.3 结论写回 design.md D4 —— **不得先写实现再补结论**
+- [ ] 0.3b **定反射面边界**：`Enum.Parse`→`long`、`IsDefined(Type,long)`、`GetValues`→`long[]`
+      —— enum 独立类型后这些调用点加 cast，还是反射面维持 long 本位？**阶段 0 就要定**
+- [ ] 0.4 把 0.1–0.3b 结论写回 design.md D4 —— **不得先写实现再补结论**
 
 ## 阶段 1: enum 类型表示
-- [ ] 1.1 `Z42ClassType` 加 `IsEnum` + `EnumUnderlying`（design D1 选项 B）
+- [ ] 1.1 `Z42ClassType` 加 `IsEnum`（design D1 选项 B；**不加 `EnumUnderlying`**——
+      `Type.z42:104` 明写 z42 一律以 i64 背书 enum，无 per-enum 底层类型）
 - [ ] 1.2 `SymbolTable.z42:255` enum 名解析时置标记
 - [ ] 1.3 `MemberResolver.z42:36-46` `E.Member` 的 `BoundLitInt` 类型改为 enum 类型
       （`EnumTypeName` 字段保留，`GetType()` 折叠沿用）
