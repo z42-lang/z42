@@ -149,13 +149,14 @@ public sealed class MemberResolver {
                 // 代换一旦回灌，这四条**每一条都是确定性的自举字节漂移**，前两条在 stdlib 容器里遍地触发。
                 // 故代换结果只作为诊断入参存在：`_withDefaults` 拿到的仍是原始 itms.Signature。
                 //
-                // 上面那次 `_withDefaults` 内部的 CheckArgTypes 用裸形参 `T`，被 Conversion 分支 B
-                // 「恰一侧含型参 → GenericErase」全部放行 ⇒ 本次才是真正产生诊断的一次，不会重复报。
+                // ⚠️ 走 `CheckSubstitutedArgs` 而非 `CheckArgTypes`：**只补查原签名含型参的那些位**。
+                // 形参是具体类型的位（`void PutAt(T v, int i)` 的 `int`）在 `_withDefaults` 内部那次
+                // 已经查过并报过，整条签名重查会同 span 同消息报两条 —— 实测过（本阶段初版就是这样）。
                 //
                 // **方法级**型参（`U` 这种不在 Def.GenericParamNames 里的）在 `_substGeneric` 下退化成
                 // Z42UnknownType（见其 :365）⇒ 落 Conversion 分支 A 的 Absorb ⇒ 放行。所以「类级 + 方法级
                 // 混合泛型」在本阶段不产生假红，要等阶段 C 求出方法级绑定后才真检查。
-                this._tc._overload.CheckArgTypes(fa, rawArgs, argCount,
+                this._tc._overload.CheckSubstitutedArgs(fa, rawArgs, argCount, itms.Signature,
                     MemberResolver._substGenericSig(itms.Signature, instRecv), env);
                 // add-struct-generic-boxing (P3a)：方法返回 type-param 且 subst 为 blob 值 struct（如
                 // `List<P>.First()`）→ 返回装箱值 → 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown
@@ -537,8 +538,67 @@ public sealed class MemberResolver {
                     + " type argument(s) but got " + call.TypeArgCount.ToString(), call.Span);
             } else {
                 this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, targs, call.TypeArgCount, call.Span);
+                // add-generic-type-arg-inference 阶段 B：**形参位**也按已解析的类型实参代换，再补查实参。
+                // 此前 targs 只用来写 bc.MethodTypeArgs + 校 arity/where，从不代回签名 ⇒ 形参仍是裸型参
+                // ⇒ Conversion 分支 B 擦除放行 ⇒ `IdOf<string>(7)` 编译期零诊断（#531 正面留下的口子）。
+                //
+                // **刻意不调整执行顺序**：本方法在 `_withDefaults` 之后跑，所以代换结果天然只能影响
+                // 诊断、进不了 target-typed new / lambda 绑定 / 装箱决策（不变式 I1）。把它提到
+                // `_withDefaults` 之前会立刻打开那四条字节漂移通道。
+                //
+                // 只对**方法级**型参代换（按 Decl.TypeParams.Names 匹配）；类级型参原样留着，
+                // 由阶段 A 那条路负责。导入方法（无 Decl）拿不到有序型参名 ⇒ 本分支进不来，
+                // 与既有的 arity/where 校验同一道门，不新增跨包能力。
+                MemberResolver._checkSubstMethodArgs(this._tc, bc, ms.Signature, ms.Decl.TypeParams.Names,
+                                                    declTp, targs, env);
             }
         }
+    }
+
+    // add-generic-type-arg-inference 阶段 B：按方法级型参名做代换后补查实参。
+    private static void _checkSubstMethodArgs(TypeChecker tc, BoundCall bc, Z42FuncType sig,
+                                              string[] names, int nameCount, Z42Type[] targs, TypeEnv env) {
+        if (sig == null) { return; }
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int i = 0;
+        while (i < sig.ParamCount) {
+            np[i] = MemberResolver._substByName(sig.ParamTypes[i], names, nameCount, targs);
+            i = i + 1;
+        }
+        Z42FuncType subst = new Z42FuncType(np, sig.ParamCount,
+            MemberResolver._substByName(sig.Ret, names, nameCount, targs));
+        subst.ParamsFrom = sig.ParamsFrom;
+        subst.ParamDefaults = sig.ParamDefaults;
+        subst.ParamCallers = sig.ParamCallers;
+        // rawArgs 传 null：本方法在 BoundCall 构造之后，原始实参表达式已不可得；
+        // `_checkOneArg` 的 span 会回落到 args[i].Span（仍指向实参本身，够用）。
+        tc._overload.CheckSubstitutedArgs(bc.Args, null, bc.ArgCount, sig, subst, env);
+    }
+
+    // 按**名字**把型参替换成对应类型实参（方法级型参用；类级型参走 `_substGeneric` 按下标那条）。
+    // 名字不在表里 → **原样返回**（不是 Unknown）：那多半是类级型参，留着让分支 B 继续擦除放行，
+    // 由阶段 A 负责。递归面与 `_substGeneric` 一致（数组元素 / 实例化类型实参）。
+    private static Z42Type _substByName(Z42Type t, string[] names, int nameCount, Z42Type[] targs) {
+        if (t == null) { return t; }
+        if (t is Z42GenericParamType) {
+            int i = 0;
+            while (i < nameCount) {
+                if (names[i] == t.Name() && i < targs.Length) { return targs[i]; }
+                i = i + 1;
+            }
+            return t;
+        }
+        if (t is Z42ArrayType) {
+            return new Z42ArrayType(MemberResolver._substByName((t as Z42ArrayType).Elem, names, nameCount, targs));
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            Z42Type[] na = new Z42Type[it.ArgCount];
+            int i = 0;
+            while (i < it.ArgCount) { na[i] = MemberResolver._substByName(it.TypeArgs[i], names, nameCount, targs); i = i + 1; }
+            return new Z42InstantiatedType(it.Def, na, it.ArgCount);
+        }
+        return t;
     }
 
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {

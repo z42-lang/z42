@@ -68,6 +68,59 @@ void test_generic_instance_method_two_good_args_report_nothing() {
     Assert.Equal(0, bodyDiags(src).Count());
 }
 
+// ── 阶段 B：显式方法类型实参也代换进形参位 ────────────────────────────────
+//
+// 此前 targs 只用来写 bc.MethodTypeArgs + 校 arity/where，从不代回签名 ⇒ 形参仍是裸型参
+// ⇒ `IdOf<string>(7)` 编译期零诊断（#531 正面留下的口子）。
+
+[Test]
+void test_explicit_type_arg_makes_param_concrete_reports_E0402() {
+    string src = "T IdOf<T>(T a) { return a; } class Use { void f() { IdOf<string>(7); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_explicit_type_arg_matching_reports_nothing() {
+    string src = "T IdOf<T>(T a) { return a; } class Use { void f() { IdOf<int>(7); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_explicit_type_arg_static_method_path() {
+    string src = "class H { public static T Pick<T>(T a, T b) { return a; } } "
+        + "class Use { void f() { H.Pick<string>(\"a\", 7); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_explicit_type_arg_array_position() {
+    // 递归面：T[] 形参位按元素代换。
+    string src = "int Len<T>(T[] xs) { return xs.Length; } "
+        + "class Use { void f() { int[] a = new int[2]; Len<string>(a); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── 回归：具体类型形参位**不得**被报两次 ──────────────────────────────────
+//
+// 🔴 阶段 A 初版就踩了这个：代换后对**整条签名**再调一次 CheckArgTypes，而形参是具体类型的位
+// （`int i`）在 `_withDefaults` 内部那次已经查过并报过 ⇒ 同 span 同消息报 2 条。
+// 实测确认过（`b.PutAt("ok", "bad")` → 2 条一模一样的 E0402）。修法 = `CheckSubstitutedArgs`
+// 按位门控，只补查「原签名含型参」的位。我最初的 6 条用例全是泛型形参位，正好绕开了这个形状。
+
+[Test]
+void test_concrete_param_position_reported_once_not_twice() {
+    string src = "class Box<T> { public void PutAt(T v, int i) { } } "
+        + "class Use { void f() { var b = new Box<string>(); b.PutAt(\"ok\", \"bad\"); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_generic_and_concrete_both_bad_report_one_each() {
+    string src = "class Box<T> { public void PutAt(T v, int i) { } } "
+        + "class Use { void f() { var b = new Box<string>(); b.PutAt(1, \"bad\"); } }";
+    Assert.Equal(2, countCode(bodyDiags(src), "E0402"));
+}
+
 // ── 阶段 A 的边界：类级 + 方法级混合泛型不产生假红 ────────────────────────
 //
 // `_substGeneric` 对不在 Def.GenericParamNames 里的名字（= 方法级型参 U）返回 Z42UnknownType

@@ -70,6 +70,46 @@ public sealed class OverloadBinder {
         }
     }
 
+    // add-generic-type-arg-inference：**代换后补检查**——只查那些「原签名里含泛型形参、因而被
+    // `Conversion` 分支 B 擦除放行」的形参位，用代换后的具体类型重查一遍。
+    //
+    // 🔴 为什么必须按位门控，不能直接对代换后的整条签名再调一次 `CheckArgTypes`：
+    // 形参类型是**具体类型**的位（`void PutAt(T v, int i)` 里的 `int`）在 `_withDefaults` 内部
+    // 那次 `CheckArgTypes` 里**已经查过并报过**了，再查一遍就是同一 span、同一消息报两条。
+    // 实测过（阶段 A 初版）：`b.PutAt("ok", "bad")` 报 2 条一模一样的 E0402。
+    // 用 `_hasGenericParam(orig)` 作门 ⇒ 「补的正好是原先漏的那些位」，零重复由构造保证。
+    //
+    // orig 与 subst 必须是同一条签名的代换前/后（ParamCount / ParamsFrom 一致）。
+    internal void CheckSubstitutedArgs(BoundExpr[] args, Expr[] rawArgs, int argCount,
+                                       Z42FuncType orig, Z42FuncType subst, TypeEnv env) {
+        if (orig == null || subst == null) { return; }
+        int fixedEnd = argCount;
+        if (subst.ParamCount < fixedEnd) { fixedEnd = subst.ParamCount; }
+        if (subst.ParamsFrom >= 0 && subst.ParamsFrom < fixedEnd) { fixedEnd = subst.ParamsFrom; }
+        int i = 0;
+        while (i < fixedEnd) {
+            if (Conversion._hasGenericParam(orig.ParamTypes[i])) {
+                this._checkOneArg(args, rawArgs, i, subst.ParamTypes[i], env);
+            }
+            i = i + 1;
+        }
+        // params 尾位：同款门控（原元素类型含型参才补查），其余镜像 CheckArgTypes。
+        if (subst.ParamsFrom >= 0) {
+            int pf = subst.ParamsFrom;
+            if (pf < orig.ParamCount && Conversion._hasGenericParam(orig.ParamTypes[pf])) {
+                Z42ArrayType at = subst.ParamTypes[pf] as Z42ArrayType;
+                if (at != null) {
+                    bool normalForm = (argCount == subst.ParamCount) && args[pf] != null
+                                      && args[pf].Type() != null && args[pf].Type().IsAssignableTo(at);
+                    if (!normalForm) {
+                        int t = pf;
+                        while (t < argCount) { this._checkOneArg(args, rawArgs, t, at.Elem, env); t = t + 1; }
+                    }
+                }
+            }
+        }
+    }
+
     // 单个实参的检查入口（供不经本汇聚点的路径复用：ctor 位置实参、`_adaptArgs` 的命名实参/可选参）。
     internal void CheckArg(BoundExpr a, Z42Type pt, Span sp, TypeEnv env) {
         if (a == null || pt == null) { return; }

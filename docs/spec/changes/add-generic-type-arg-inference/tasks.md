@@ -9,7 +9,7 @@
 |---|---|---|
 | 0 | 前置调研与爆炸半径实测 | 🟢 已完成（见下） |
 | A | 泛型类实例方法形参位代换 | 🟢 已完成（欠债 0，三道对照全过，不动点 3/3） |
-| B | 显式方法类型实参形参位代换 | ⬜ |
+| B | 显式方法类型实参形参位代换 | 🟢 已完成（欠债 0，退回对照精确命中，不动点 3/3） |
 | C | 方法级类型实参推断 + 推断调用的 where 校验 | ⬜ |
 | D | callee 消费型参时要求显式类型实参（User 裁决：**本轮做**） | ⬜ |
 | E | 规范冲突处置 + `design/language/generics.md` **原样迁入** book | ⬜ |
@@ -47,13 +47,29 @@
 
 ## 阶段 B —— 显式方法类型实参形参位代换
 
-- [ ] B.1 `MemberResolver._applyMethodTypeArgs`：用已解析的 `targs` 对 `ms.Signature` 做**方法级**
-      型参代换（按 `ms.Decl.TypeParams` 名序对齐），产出诊断专用签名
-- [ ] B.2 就地追加一次 `CheckArgTypes`。**不调整 `_applyMethodTypeArgs` 与 `_withDefaults` 的执行顺序**
-      （reorder 会改 target-typed new / lambda 绑定 → 字节漂移）
-- [ ] B.3 单测：`IdOf<string>(7)` 报 E0402；`IdOf<int>(7)` 不报
-- [ ] B.4 **退回对照（同源）**：只回退 B.2 一处 → 单独 `build compiler` → 复现逐字相同诊断
-- [ ] B.5 `xtask test` 全绿 + 两轮收敛
+- [x] B.1 `MemberResolver._applyMethodTypeArgs`：用已解析的 `targs` 按 `ms.Decl.TypeParams.Names`
+      做**方法级**型参代换（新增 `_substByName` + `_checkSubstMethodArgs`），产出诊断专用签名
+- [x] B.2 就地追加检查。**未调整 `_applyMethodTypeArgs` 与 `_withDefaults` 的执行顺序** ——
+      本方法本就在 `_withDefaults` 之后跑，代换结果天然进不了发射决策
+- [x] B.3 单测 4 条：自由函数 / 静态方法 / 数组形参位 / 正例
+- [x] B.4 **同源退回对照**：只回退 B.2 一处 → `build compiler` + `test compiler` →
+      **恰好 3 条阶段 B 负例 FAIL，阶段 A 的 6 条全部仍 PASS**（证明两阶段互不依赖）
+- [x] B.5 `xtask test compiler` 全绿：**669 PASS / 0 FAIL**；不动点 3/3 `gen1==gen2`
+- [x] B.6 **欠债实测 = 0**（`build compiler` + `build stdlib` 全量）
+
+### 🔴 阶段 B 期间修掉的一个阶段 A 缺陷（务必留档）
+
+阶段 A 初版对**代换后的整条签名**再调一次 `CheckArgTypes` ⇒ 形参是**具体类型**的位
+（`void PutAt(T v, int i)` 里的 `int`）被报**两次**（同 span 同消息）——`_withDefaults` 内部
+那次已经查过并报过了。实测复现：`b.PutAt("ok", "bad")` → 2 条一模一样的 E0402。
+
+**根治** = 新增 `OverloadBinder.CheckSubstitutedArgs`，按位门控
+`Conversion._hasGenericParam(orig.ParamTypes[i])` ⇒ **只补查原先被擦除放行的那些位**，零重复由构造保证。
+
+⚠️ **教训**：我最初的 6 条用例**全是泛型形参位**，正好绕开了这个形状 —— 单测只覆盖了我设想的
+那条路。已补两条回归（`test_concrete_param_position_reported_once_not_twice` /
+`test_generic_and_concrete_both_bad_report_one_each`）。**新增检查时要问：它与既有检查的
+覆盖面重叠吗？重叠处会不会报两遍？**
 
 ## 阶段 C —— 方法级类型实参推断
 
