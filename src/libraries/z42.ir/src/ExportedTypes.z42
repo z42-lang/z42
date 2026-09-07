@@ -137,10 +137,18 @@ public sealed class ExportedFuncZ {
     public int              ParamCount;
     public int              ParamsFrom;   // add-params-varargs：变长形参索引（0-based，= ParamCount-1）；-1 = 非变长。
     // add-params-varargs：ParamsFrom 保持累加式，理由同 ExportedMethodZ（见其注释）。
+    // imported-generic-func-type-param-fidelity：自由函数的泛型形参**名 + 个数**，
+    // 与 ExportedMethodZ.TypeParams/TypeParamCount 同款（承载位同为 SIGS 的 tp 块，无格式 bump）。
+    // 缺了它，跨包 `T IdOf<T>(T a)` 的 `T` 在 ImportedSymbolLoader._resolve 里落到
+    // `Z42ClassType.Builtin("T")` 兜底 → 型参身份丢失 → `IdOf(7)` 报 E0402。
+    // 同 ParamsFrom：ctor 元数保持不变（旧种子 ABI），默认空/0，TsigReconcile 构造后赋值。
+    public string[]         TypeParams;
+    public int              TypeParamCount;
     public ExportedFuncZ(string name, string returnType, int minArgCount,
                          ExportedParamZ[] params_, int paramCount) {
         this.Name = name; this.ReturnType = returnType; this.MinArgCount = minArgCount;
         this.Params = params_; this.ParamCount = paramCount; this.ParamsFrom = 0 - 1;
+        this.TypeParams = new string[0]; this.TypeParamCount = 0;
     }
 }
 
