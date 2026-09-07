@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-06
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-07
 
 ## 概述
 
@@ -149,6 +149,62 @@ getter 是真实函数体。
 **缺陷（`add-scalar-static-fields` 前）**：标量基元（`int` / `double` / …）在符号表里**只以包装名 keying**（`Int32` / `Double`，`SymbolTable.Classes`），关键字别名 `int` 的 `HasClass("int")` 为 false → 该分支跳过 → `int.MaxValue` 落到实例 `FieldGet`（受者为裸类型名求值出的 Null）→ 运行期 `FieldGet: not an object or known value type, got Null`。
 
 **方案**：`MemberResolver.z42:17-27` 在 `HasClass` 前加一步——`!HasClass(name) && PrimModel.IsBuiltin(name)` 时把 `name` 归一到 `PrimModel.Wrapper(name)`（`"int"→"Int32"`），并用归一后的包装名产 `BoundStaticGet`（其 `QualifyClass` 得 `Std.Int32`、匹配 `Std.Int32.__static_init__` 写入的键）。于是 `int.MaxValue` 与 `Int32.MaxValue` 绑定到同一静态字段。跨包 `Int32.MaxValue` 本就走 `HasClass("Int32")` 命中的原分支（static 字段随 zbc 类型段导入），无需改动。**字节中性**：非标量类 `clsName==name` 不变；仅新增「标量关键字 + 存在 static 字段」这一命中，既有代码无此形态。const 字段不适用（跨包不序列化值、`IsStatic` 亦为 false）——故 `Int32.MaxValue` 等采用 `static` 字段（值单一真相源在 `Primitives/*.z42`，经 `__static_init__` 落地；`Double.NaN`/`±Infinity` 借 `BitConverter` 在 init 期构造，const 折叠做不到）。
+
+#### 调用实参的类型检查（与赋值同一条门）
+
+调用实参的可转检查与**赋值 / `return` / 变量初始化走同一条门**——`Conversion.Classify(from, to).ImplicitOk()`，
+经 `TypeChecker.CheckImplicitConvert`，因此**没有实参专用的诊断码**：无转换报 `E0402`，
+存在显式转换但缺 cast 报 `E0439`（并自动继承「常量在范围内例外」，`TakeByte(48)` 与 `byte b = 48;` 同待遇）。
+
+**汇聚点**：`OverloadBinder.BindArgsToSignature`（`z42c.semantics/src/OverloadBinder.z42`）。
+全仓 20+ 处调用它，覆盖 free / local-fn / static / instance / interface / instantiated /
+prim-wrapper / indirect 全部调用形态；每处都在构造 `BoundCall` **之前**、默认值填充与 params 打包
+**之前**——即实参仍是「原始位置形状」的时刻。
+
+关键不变量：**`sig != null` ⟺ 签名已知 ⟺ 可检查**。传 `sig = null` 的调用点（错误路径、懒加载
+stub 接收者 loose-bind、`Z42ErrorType`/`Z42UnknownType` 接收者、泛型形参接收者查无 Object 方法）
+签名确实不可知。因此无需逐站点接线，也不会漏站点。
+
+```
+CallExpr ─► MemberResolver._bindCall / _bindMemberCall
+                      │
+                      ▼
+     OverloadBinder.BindArgsToSignature(args, rawArgs, n, sig, env)
+         ① 回填延迟位（target-typed `new` / lambda 实参）
+         ② CheckArgTypes：定长段逐位；params 尾位按元素类型
+                      │
+                      ▼   CheckImplicitConvert(arg, paramType, …, "argument")
+              Conversion.Classify(...).ImplicitOk()
+```
+
+两条**不经**该汇聚点、需单独接线的路径：**构造器位置实参**（`ConstructTyper` 自绑实参，复用
+`CheckArgTypes` 以统一处理 params 尾位）与 **`_adaptArgs` 的命名实参 / 可选参**（就地 `CheckArg`）。
+构造器此前只有 arity 检查（`E0426`），类型不符静默通过。
+
+诊断的 span 指向**实参本身**而非调用点；同一调用里多个不符实参**逐条**报，不在第一条短路。
+
+> **为什么这条检查缺席了这么久**：`--emit-zbc` 路径长期丢弃全部编译诊断（见
+> [CLI 与诊断工具](tools.md)），而单文件 e2e / golden / bench 全走那条路 —— 于是「binder 报的错没人
+> 看见、emitter 那半边碰巧能跑」成了常态。补上检查时暴露的问题**没有一条是真实的用户类型错误**，
+> 全部落在既存的编译器缺陷上，其中四条同属一族：**`ImportedSymbolLoader` 的类型保真度**——跨包读回
+> 时把结构化类型降级成「名字对但种类错」的 `Z42ClassType`：
+>
+> | 降级 | 后果 |
+> |---|---|
+> | 方法级型参 `T` → 名叫 `"T"` 的普通类 | 擦除放行不触发（型参名本就在 SIGS 的 tp 块里，只是 `ZpkgReader` 读出即丢） |
+> | 委托 `Action` / `Func<…>` → 同名普通类 | lambda 实参拿不到 `Z42FuncType` 目标；`Func<int>` 与 `Func<Int32>` 判不相等 |
+> | 限定名 `Std.Type` → 名叫 `"unknown"` 的类 | `"unknown"` 本是**哨兵**，被物化成类后 `Conversion` 的 Absorb 守卫失效 |
+>
+> 它们只在**传参**处暴露，因为赋值上下文很少跨包构造出这些形状。
+
+**残留洞**（有意，代码内均有注释指向去处，不静默）：
+
+| 洞 | 原因 |
+|---|---|
+| 懒加载 stub 接收者 loose-bind | 签名不可知，运行期经 DepIndex 解析 |
+| `Z42ErrorType` / `Z42UnknownType` 接收者 | 级联抑制 |
+| **enum 位** | z42 现行 enum-as-int 模型自身不自洽（成员是 `long`、类型名是孤立类，转换格里无边相连）——在调用点补 cast 只会掩盖它；语义归独立 change `make-enum-distinct-type` |
+| 泛型**自由函数** | `ExportedFuncZ` 不带型参名（当前 stdlib 无泛型自由函数，无现场） |
 
 #### 实例派发键稳定化（primary 裸键 / 非-primary 全签名键）
 

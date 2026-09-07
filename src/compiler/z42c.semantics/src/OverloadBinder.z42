@@ -16,7 +16,7 @@ public sealed class OverloadBinder {
     // add-target-typed-new：回填延迟绑定的 target-typed new 实参（`_bindCall` 留 null 占位）。
     // 按选中签名 sig 的形参类型定型；params 尾位用元素类型；sig=null 或越界位 → 目标 null → 报 E0437。
     // 检测靠 args[i]==null（延迟位），rawArgs 提供原始 AST。已绑定位（非 null）跳过，幂等。
-    public BoundExpr[] FillDeferredArgs(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
+    public BoundExpr[] BindArgsToSignature(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
         int i = 0;
         while (i < argCount) {
             if (args[i] == null) {
@@ -31,7 +31,7 @@ public sealed class OverloadBinder {
             }
             i = i + 1;
         }
-        this._checkArgTypes(args, rawArgs, argCount, sig, env);
+        this.CheckArgTypes(args, rawArgs, argCount, sig, env);
         return args;
     }
 
@@ -45,7 +45,7 @@ public sealed class OverloadBinder {
     // 签名确实不可知，故 `sig != null` 恰好等价于「签名已知、可检查」，无需逐站点接线也不会漏。
     //
     // 不短路：同一调用里多个实参不符逐条报（诊断对用户更有用）。
-    private void _checkArgTypes(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
+    internal void CheckArgTypes(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType sig, TypeEnv env) {
         if (sig == null) { return; }
         int fixedEnd = argCount;                              // 定长段上界
         if (sig.ParamCount < fixedEnd) { fixedEnd = sig.ParamCount; }
@@ -68,6 +68,13 @@ public sealed class OverloadBinder {
                 }
             }
         }
+    }
+
+    // 单个实参的检查入口（供不经本汇聚点的路径复用：ctor 位置实参、`_adaptArgs` 的命名实参/可选参）。
+    internal void CheckArg(BoundExpr a, Z42Type pt, Span sp, TypeEnv env) {
+        if (a == null || pt == null) { return; }
+        if (OverloadBinder._isEnumSide(a, pt, env)) { return; }   // 见 _checkOneArg 的残留洞说明
+        this._tc.CheckImplicitConvert(a, pt, env.Symbols, sp, "argument");
     }
 
     private void _checkOneArg(BoundExpr[] args, Expr[] rawArgs, int i, Z42Type pt, TypeEnv env) {
@@ -97,7 +104,7 @@ public sealed class OverloadBinder {
     internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
         // add-target-typed-new：先回填延迟的 target-typed new 实参（按 ms 形参类型），再走装箱/默认值。
         // 必须在 BoxArgs 之前——BoxArgs 遍历 args 会对 null 位崩。
-        args = this.FillDeferredArgs(args, rawArgs, rawArgCount, ms.Signature, env);
+        args = this.BindArgsToSignature(args, rawArgs, rawArgCount, ms.Signature, env);
         // add-primitive-value-boxing: 实参整数 → object/接口 形参 装箱（本方法是 5 处调用点的
         // 公共汇聚步——就地按 ms 形参类型逐位装箱；BoxArgs 对非整数/非 object·接口位 no-op）。
         // params 尾包（object[]/T[] 元素）不在此覆盖：ParamTypes[pf] 是数组类型 → BoxIfNeeded no-op（罕见）。
@@ -200,11 +207,18 @@ public sealed class OverloadBinder {
                 if (idx < 0) { return null; }                 // 命名实参无匹配形参 → 不可适配
                 if (filled[idx]) { return null; }
                 // add-target-typed-new：命名实参按对应形参类型绑定（支持 `f(x: new())`）。
-                slots[idx] = this._tc._expr.BindWithTarget(ae.Value, env.ResolveType(md.Params[idx].Type), env); filled[idx] = true;
+                Z42Type npt = env.ResolveType(md.Params[idx].Type);
+                slots[idx] = this._tc._expr.BindWithTarget(ae.Value, npt, env); filled[idx] = true;
+                // add-argument-type-check：命名实参路径不经 `_checkArgTypes` 汇聚点（本方法直接产
+                // 形参序 slots），须就地检查——否则 `f(x: wrongType)` 与 ctor 的命名实参成为漏网。
+                this.CheckArg(slots[idx], npt, ae.Value.Span, env);
             } else {
                 if (pos >= pc) { return null; }
                 // add-target-typed-new：位置实参按对应形参类型绑定（支持 `f(new())`）。
-                slots[pos] = this._tc._expr.BindWithTarget(a, env.ResolveType(md.Params[pos].Type), env); filled[pos] = true; pos = pos + 1;
+                Z42Type ppt = env.ResolveType(md.Params[pos].Type);
+                slots[pos] = this._tc._expr.BindWithTarget(a, ppt, env); filled[pos] = true;
+                this.CheckArg(slots[pos], ppt, a.Span, env);
+                pos = pos + 1;
             }
             i = i + 1;
         }

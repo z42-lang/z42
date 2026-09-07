@@ -85,28 +85,28 @@ public sealed class MemberResolver {
                 return ibc;
             }
             if (_stub) {   // 懒加载 stub 受者、主符号表无真类 → loose 绑定（镜像翻转前 prim 路径 fallthrough，无 "no method"）
-                args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                 return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
-            args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);   // add-target-typed-new：错误路径清 null 占位
+            args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // add-target-typed-new：错误路径清 null 占位
             return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
         if (rt is Z42InterfaceType) {                                // 接口收者（port-z42c-interface）
             Z42InterfaceType it = rt as Z42InterfaceType;
             MethodSymbol ims = it.Methods.Get(mem.Name) as MethodSymbol;
             if (ims != null) {
-                args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
+                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
                 return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount, ims.Signature.Ret, sp);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no method `" + mem.Name + "` on interface `" + it.Name() + "`", sp);
-            args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+            args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
         if ((rt is Z42ErrorType) || (rt is Z42UnknownType)) {
-            args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+            args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, "<?>", mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
         // GS6: 泛型实例化类型（List<string>.ToArray() / LinkedList<T>.Next() 等）→ 查 Def 类方法，
@@ -132,7 +132,7 @@ public sealed class MemberResolver {
                 this._applyMethodTypeArgs(gbc, call, itms, env);   // 泛型受者上的实例泛型方法同款
                 return gbc;
             }
-            args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+            args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
         }
         // Z42GenericParamType：T.GetHashCode() 等继承自 Object 的方法 → 查 Object 类取真实返回类型。
@@ -142,11 +142,11 @@ public sealed class MemberResolver {
                 string gpMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
                 MethodSymbol gpMs = this._tc._overload._findMethod(env.Symbols, objCt, gpMkey);
                 if (gpMs != null) {
-                    args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, gpMs.Signature, env);
+                    args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, gpMs.Signature, env);
                     return new BoundCall("instance", true, recv, rt.Name(), gpMkey, args, argCount, gpMs.Signature.Ret, sp);
                 }
             }
-            args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+            args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
         }
         // fix-value-type-object-methods ④：数组收者的 Object 继承方法（GetType/ToString/Equals/
@@ -159,7 +159,7 @@ public sealed class MemberResolver {
                 string aMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
                 MethodSymbol aMs = this._tc._overload._findMethod(env.Symbols, objCt, aMkey);
                 if (aMs != null) {
-                    args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, aMs.Signature, env);
+                    args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, aMs.Signature, env);
                     return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp);
                 }
             }
@@ -185,7 +185,7 @@ public sealed class MemberResolver {
                 return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp);
             }
         }
-        args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+        args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
         return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mem.Name, args, argCount, new Z42UnknownType(), sp);
     }
 
@@ -397,7 +397,7 @@ public sealed class MemberResolver {
             Z42Type vfn = env.LookupVar(id.Name);
             if (vfn != null && (vfn is Z42FuncType)) {              // Func 值间接调用（port-z42c-closures）
                 BoundExpr callee = this._tc._expr._bindExpr(call.Callee, env);
-                args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, vfn as Z42FuncType, env);
+                args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, vfn as Z42FuncType, env);
                 return new BoundIndirectCall(callee, args, call.ArgCount, (vfn as Z42FuncType).Ret, call.Span);
             }
             // fix-generic-func-param-indirect-call：**型参**局部/形参被当函数调用（`T f` 且
@@ -412,13 +412,13 @@ public sealed class MemberResolver {
             // 仍是 Deferred，拿不到 R）。
             if (vfn != null && (vfn is Z42GenericParamType)) {
                 BoundExpr gcallee = this._tc._expr._bindExpr(call.Callee, env);
-                args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, null, env);
+                args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, null, env);
                 return new BoundIndirectCall(gcallee, args, call.ArgCount, new Z42UnknownType(), call.Span);
             }
             // impl-local-fn-l2：局部函数调用 → BoundCall "free"（local 名；emit 期改写为 lifted 名）。
             Z42FuncType lfsig = env.LookupLocalFn(id.Name);
             if (lfsig != null) {
-                args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, lfsig, env);
+                args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, lfsig, env);
                 return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span);
             }
             if (env.Symbols.HasFunc(id.Name)) {
@@ -437,7 +437,7 @@ public sealed class MemberResolver {
                     if (sms != null && sms.IsStatic) {
                         // add-params-varargs：本路径（同类无限定静态调用）不经 _withDefaults，
                         // 但仍须为选中的 params 重载打包 trailing 实参，否则 codegen 收到未打包实参形状。
-                        args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, sms.Signature, env);
+                        args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, sms.Signature, env);
                         BoundExpr[] fa = args;
                         if (sms.Signature.ParamsFrom >= 0) { fa = this._tc._overload._withParamsExpansion(sms, args, call.ArgCount, call.Span, env.Symbols); }
                         BoundCall bc = new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
@@ -447,7 +447,7 @@ public sealed class MemberResolver {
                 }
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined function: " + id.Name, call.Span);
-            args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, null, env);   // add-target-typed-new：错误路径清 null 占位
+            args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, null, env);   // add-target-typed-new：错误路径清 null 占位
             return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, new Z42ErrorType(), call.Span);
         }
         // 成员调用：obj.m(args) / Class.m(args)
@@ -466,11 +466,11 @@ public sealed class MemberResolver {
             BoundExpr callee = this._tc._expr._bindExpr(call.Callee, env);
             Z42Type ct = callee.Type();
             if (ct is Z42FuncType) {
-                args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, ct as Z42FuncType, env);
+                args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, ct as Z42FuncType, env);
                 return new BoundIndirectCall(callee, args, call.ArgCount, (ct as Z42FuncType).Ret, call.Span);
             }
             if (ct is Z42GenericParamType) {
-                args = this._tc._overload.FillDeferredArgs(args, call.Args, call.ArgCount, null, env);   // 类型未知 → target-typed 实参报 E0437
+                args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, null, env);   // 类型未知 → target-typed 实参报 E0437
                 return new BoundIndirectCall(callee, args, call.ArgCount, new Z42UnknownType(), call.Span);
             }
         }
@@ -486,7 +486,7 @@ public sealed class MemberResolver {
             if (this._tc._currentNs != "" && nsId.Name == this._tc._currentNs
                 && env.LookupVar(nsId.Name) == null && env.Symbols.HasFunc(mem.Name)) {
                 MethodSymbol nfs = env.Symbols.GetFunc(mem.Name);
-                args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, nfs.Signature, env);
+                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, nfs.Signature, env);
                 return new BoundCall("free", false, null, "", mem.Name, args, argCount, nfs.Signature.Ret, sp);
             }
         }
@@ -506,7 +506,7 @@ public sealed class MemberResolver {
                 }
                 this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                     "no static method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
-                args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                 return new BoundCall("static", false, null, tid.Name, mem.Name, args, argCount, new Z42ErrorType(), sp);
             }
         }
@@ -531,7 +531,7 @@ public sealed class MemberResolver {
                     }
                     this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                         "no static method `" + mem.Name + "` on `" + pwrap2 + "`", sp);
-                    args = this._tc._overload.FillDeferredArgs(args, rawArgs, argCount, null, env);
+                    args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                     return new BoundCall("static", false, null, pwrap2, mem.Name, args, argCount, new Z42ErrorType(), sp);
                 }
             }

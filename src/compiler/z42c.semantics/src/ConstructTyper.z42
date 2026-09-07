@@ -214,6 +214,12 @@ public sealed class ConstructTyper {
             args[i] = this._et.BindWithTarget(n.Args[i], ptv, env);
             i = i + 1;
         }
+        // add-argument-type-check（Q3）：构造器实参与 `f(x)` 同口径。此前 `new C(x)` **只有 arity
+        // 检查**（E0426），类型不符静默通过；不接就留下「f(x) 查、new C(x) 不查」的不对称。
+        // 复用与调用路径**同一个** CheckArgTypes（而非逐位 CheckArg）——它统一处理 params 尾位
+        // （`P(params int[] xs)` 接 `new P(1,2,3)`：形参是 int[]、实参是元素，逐位比会误报）
+        // 与定长/越界位。cms==null（imported / 无 Decl，签名不可知）→ 自身 no-op。
+        if (cms != null) { this._tc._overload.CheckArgTypes(args, n.Args, n.ArgCount, cms.Signature, env); }
         return new BoundNew(t.Name(), ctorName, args, n.ArgCount, t, n.Span);
     }
 }
