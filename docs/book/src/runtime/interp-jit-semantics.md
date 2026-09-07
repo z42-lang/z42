@@ -51,6 +51,39 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 无锁无哈希；直接映射、冲突覆盖；与 memo 一起在显式模块 (re)load（REPL 重定义）时清空。此前 JIT 侧自带一份
 `is_subclass_or_eq_walk` + `iface_reaches_mod`（按 `module.classes` 线性查找的等价遍历），随本 change 删除。
 
+#### PIC 的键必须是**全局**类型身份（fix-crosspkg-typeid-collision, 2026-09-08）
+
+上表两行的缓存键取向不同，这个差别是有代价的教训：
+
+- `IsaCache` 键的是**指针身份**（`*const TypeDesc`）——天然全局唯一。
+- 两条 PIC（`VCallIC` / `FieldIC`）为了「命中 = 两次 relaxed load」，键的是
+  `TypeDesc.id` 这个裸 `u32`。
+
+于是 PIC 的正确性完全押在**「`TypeId` 在比较发生的范围内唯一」**上。而它曾经不是：
+`TypeId` 每个 `Module` 从 0 重开（当时文档契约就写「per module」），跨 zpkg 的 `TypeDesc`
+由惰性加载器**原样返回**、保留外来模块的号。任何**跨 zpkg 多态**的站点因此会把后到的
+receiver 误命中先到者的条目：
+
+```
+site: body.Run(i)            // IParallelBody 接口调用，z42c.semantics
+  第一次: receiver = SrcReadHashTask (z42c.driver,    TypeId 139) → 装 PIC
+  第二次: receiver = CompileCuTask   (z42c.semantics, TypeId 139) → 误命中
+      ⇒ 跑 SrcReadHashTask.Run，其 this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]
+      ⇒ File.ReadAllText(<CompilationUnit>)，自举链当场崩
+```
+
+`FieldIC` 撞键更隐蔽：拿到**错误的字段槽**，不崩不报错，直接静默读写错数据。
+
+**现在的不变量**：`TypeId` 由进程级发号器 `tokens::alloc_type_id_block` 批量分配、**全进程
+唯一**，号段限定 `[0, IMPORT_BASE)`，越界 panic（回绕等于把 bug 放回来）。debug 构建在两条
+PIC 的命中点各设一道常驻断言（`vcall_resolve::assert_pic_target` 校验 callee 归属；
+`resolver::assert_field_ic_slot` 校验槽位），违反即**在误派发当场** panic；release 编译掉，
+热路径不变。
+
+> **可迁移的判据**：任何「在作用域 S 内发号、却拿到 S 之外做相等比较」的 id 都是这个形状的
+> bug。要么把发号范围提升到比较范围（本次选择），要么改用天然全局的身份（指针，`IsaCache`
+> 的做法）。
+
 ### 路径 3：注释锚定 + 差分测试（无法运行期调 Rust）
 
 内联路径发的是机器码，不能在运行期 `call` 一个 Rust 标量函数（那正是它要绕开的开销）。
