@@ -1,10 +1,14 @@
-// ext → target：经**接口静态类型**调用带 `Self` / `T` 的方法。这条路走的正是
-// ImportedSymbolLoader 填充的 imported 接口方法签名（本 PR 给它接上型参上下文），
-// 与 main 直接在具体类上调用是两条不同的解析路径，故两侧都要覆盖。
+// ext → target：经**接口静态类型**调用带 `T` 的方法。这条路走的正是 ImportedSymbolLoader
+// 填充的 imported 接口方法签名，与 main 直接在具体类上调用是两条不同的解析路径，故两侧都要覆盖。
 namespace DemoSExt;
 
 using DemoSTarget;
 
-bool eqVia(IEq a, IEq b) { return a.Same(b); }
-
+// bind-self-param-and-constraint-members Part B：这里**原本**还有一条
+// `bool eqVia(IEq a, IEq b) { return a.Same(b); }` —— 经接口静态类型调用 `Self` 形参方法，正是本
+// change 实测出运行期类型混淆的那个不健全形态（`P.Same` 拿到 `Q` 后 `other.V` 读出 null、静默返回
+// false）。今天它报 E0454，已改写成型参形态并搬到 main（搬家原因见 Main.z42 的注释）。
+//
+// 留在这里的 `getVia` 因此升格为 Part B 的**无误报守卫**：同一批 imported 接口上，**没有** `Self`
+// 形参的方法照常经接口静态类型跨包调用 —— 这条解析路径的覆盖没有随 `eqVia` 一起丢。
 int getVia(IBox<int> b) { return b.Get(); }

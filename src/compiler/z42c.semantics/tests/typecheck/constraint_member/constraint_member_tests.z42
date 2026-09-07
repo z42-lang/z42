@@ -1,0 +1,173 @@
+// bind-self-param-and-constraint-members Part A：**型参收者**上的 where 约束接口成员绑定。
+//
+// 改动前 `MemberResolver` 的 `Z42GenericParamType` 分支只查 `Object` 类，查不到就
+// `BindArgsToSignature(..., sig = null, ...)` 松绑 —— 而 `OverloadBinder.CheckArgTypes` 第一行就是
+// `if (sig == null) { return; }` ⇒ 泛型代码里对约束接口方法的调用**实参一律不检查、返回类型一律
+// Unknown**。本文件是这条通道的门。
+//
+// 🔴 断言口径与 argument_type_tests 同款：读整袋诊断断言**码 + 条数**，不只看 FirstErrorCode
+// （见该文件抬头）。返回类型那半用 `SemanticDump.DumpBody` 断言解析结果——签名位置的诊断走
+// SymbolCollector 那条，与本文件无关。
+namespace Z42cSemanticsConstraintMemberTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+DiagnosticBag bodyDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int countCode(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 约束接口 + 一个实现类。`Add(int)` 是**具体形参类型**，`Same(Self)` 是型参形参类型——
+// 两者在 `Conversion` 的判定里走不同分支，必须分开验。
+string pre() {
+    return "interface IColl { void Add(int x); bool Same(Self other); int Size(); } "
+         + "class P : IColl { public int V; public void Add(int x) { } public bool Same(P o) { return true; } public int Size() { return 0; } } ";
+}
+
+// ── 真门 1：具体形参类型的约束接口方法，实参不符 → E0402 ─────────────────────
+
+[Test]
+void test_constraint_member_concrete_param_mismatch_reports_E0402() {
+    string src = pre() + "void bad<T>(T a) where T : IColl { a.Add(\"nope\"); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// 类级约束（`class C<T> where T : IColl`）与方法级是两个来源，`_constraintIfaceMethod` 都查。
+[Test]
+void test_class_level_constraint_member_mismatch_reports_E0402() {
+    string src = pre() + "class Box<T> where T : IColl { public T It; public void Go() { this.It.Add(\"nope\"); } } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// 父接口闭包：约束写的是子接口，方法声明在父接口上。
+[Test]
+void test_constraint_member_via_base_interface_mismatch_reports_E0402() {
+    string src = "interface IBase { void Add(int x); } interface IDer : IBase { } "
+               + "class P : IDer { public void Add(int x) { } } "
+               + "void bad<T>(T a) where T : IDer { a.Add(\"nope\"); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── 无误报守卫：正确写法不得报 ──────────────────────────────────────────
+
+[Test]
+void test_constraint_member_correct_arg_reports_nothing() {
+    string src = pre() + "void ok<T>(T a) where T : IColl { a.Add(1); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// `Self` 形参位实参传同一个型参 T —— 这是 `Self ≡ T` 精确替换后应当放行的形态。
+[Test]
+void test_self_param_with_same_type_param_reports_nothing() {
+    string src = pre() + "void ok<T>(T a, T b) where T : IColl { a.Same(b); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// 无约束的型参收者：查不到约束接口 → 仍走原来的松绑，不得因本改动开始误报。
+[Test]
+void test_unconstrained_type_param_receiver_reports_nothing() {
+    string src = pre() + "void loose<T>(T a) { a.Add(\"whatever\"); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// ── 真门 2：返回类型不再是 Unknown（Q2-b 裁决：连返回位一起换真）────────────
+
+// ⚠️ 断言必须钉在 **call 节点自己**（`Size :int`）上，不能只断言 body 里出现 `:int` ——
+// 形参 / 局部声明的类型标注也会贡献 `:int`，那样退回态照样绿（我第一版就这么写，退回对照当场
+// 抓出它两态同绿 = 假测试）。退回态这里是 `Size :<unknown>`。
+[Test]
+void test_constraint_member_return_type_is_real() {
+    string src = pre() + "void f<T>(T a) where T : IColl { var n = a.Size(); }";
+    string body = SemanticDump.DumpBody(src, "f");
+    Assert.True(body.Contains("Size :int"), "expected `Size :int` on the call node, got: " + body);
+}
+
+// `Self` 返回位在型参收者上替换成**该型参本身**（不是接口上界——约束断言了 T 就是实现类型）。
+// 同上：钉在 `Copy :T` 上，退回态是 `Copy :<unknown>`。
+[Test]
+void test_self_return_on_type_param_receiver_substitutes_to_type_param() {
+    string src = "interface IClone { Self Copy(); } class P : IClone { public P Copy() { return this; } } "
+               + "void f<T>(T a) where T : IClone { var x = a.Copy(); }";
+    string body = SemanticDump.DumpBody(src, "f");
+    Assert.True(body.Contains("Copy :T"), "expected `Self` substituted to `Copy :T`, got: " + body);
+}
+
+// ── Part B：经接口静态类型调用 `Self` 形参方法 → E0454（Rust 式禁止）────────────
+
+// 真门。实测的类型混淆形态：两个不同实现类都是 IColl，上界替换拦不住，只能禁止。
+[Test]
+void test_self_param_call_through_interface_reports_E0454() {
+    string src = pre() + "void f(IColl a, IColl b) { a.Same(b); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0454"));
+}
+
+// 实参换成具体实现类也一样禁止 —— 编译期无从知道**接收者**运行期是谁。
+[Test]
+void test_self_param_call_through_interface_with_concrete_arg_still_reports_E0454() {
+    string src = pre() + "void f(IColl a, P b) { a.Same(b); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0454"));
+}
+
+// 无误报守卫 ①：同一接口上**没有** `Self` 形参的方法，经接口静态类型调用照常放行。
+[Test]
+void test_non_self_param_call_through_interface_reports_nothing() {
+    string src = pre() + "void f(IColl a) { a.Add(1); int n = a.Size(); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// 无误报守卫 ②：**具体类**收者上调用同一方法不受影响（走实现方签名 `Same(P)`，不经接口分支）。
+[Test]
+void test_self_param_call_on_concrete_receiver_reports_nothing() {
+    string src = pre() + "void f(P a, P b) { a.Same(b); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// 无误报守卫 ③：**型参**收者是 Part B 明确推荐的替代写法，必须放行（Part A 那条路）。
+[Test]
+void test_self_param_call_on_type_param_receiver_reports_nothing() {
+    string src = pre() + "void f<T>(T a, T b) where T : IColl { a.Same(b); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// 真门：`Self` 藏在 **func 类型形参**里（`void Apply(Func<Self,int> f)`）也要被抓 ——
+// `_containsSelf` 比 `_substSelf` 多下钻一层 `Z42FuncType`，正是为了这条（禁令漏一种形态就是漏洞）。
+[Test]
+void test_self_nested_in_func_param_call_through_interface_reports_E0454() {
+    string src = "interface IApply { void Apply(Func<Self, int> f); } "
+               + "class P : IApply { public void Apply(Func<P, int> f) { } } "
+               + "void f(IApply a, Func<P, int> g) { a.Apply(g); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0454"));
+}
+
+// 无误报守卫：func 类型形参里**没有** `Self` → 照常放行（守 `_containsSelf` 的 func 分支不过度触发）。
+[Test]
+void test_func_param_without_self_through_interface_reports_nothing() {
+    string src = "interface IApply2 { void Apply(Func<int, int> f); } "
+               + "class P2 : IApply2 { public void Apply(Func<int, int> f) { } } "
+               + "void f(IApply2 a, Func<int, int> g) { a.Apply(g); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// `Self` 返回位经接口静态类型调用**不受 Part B 影响**（协变、有唯一安全上界，#527 已处理）。
+[Test]
+void test_self_return_through_interface_still_allowed() {
+    string src = "interface IClone { Self Copy(); } class P : IClone { public P Copy() { return this; } } "
+               + "void f(IClone c) { var x = c.Copy(); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}

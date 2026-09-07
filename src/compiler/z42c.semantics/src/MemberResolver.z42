@@ -97,6 +97,23 @@ public sealed class MemberResolver {
             Z42InterfaceType it = rt as Z42InterfaceType;
             MethodSymbol ims = it.Methods.Get(mem.Name) as MethodSymbol;
             if (ims != null) {
+                // bind-self-param-and-constraint-members Part B：**形参位**的 `Self` 经接口静态类型
+                // 调用一律禁止（对标 Rust object-safety）。返回位（#527）能取接口作**上界**是因为它
+                // 协变——任何实现方都实现了该接口；形参位是**逆变**，接口只保证实参「也实现了该接口」，
+                // 而实现方的签名要的是「它自己」⇒ 放行即运行期类型混淆。
+                //
+                // 实测（本 change 阶段 0）：`IEq a = new P(1); IEq b = new Q("hello"); a.Same(b)`
+                // 编译期零诊断，运行期派发到 `P.Same(P)`、`other.V` 从 Q 上读出 **null**，静默返回 false。
+                // ⚠️ 上界替换（把 `Self` 换成 `IEq`）**拦不住它**——P 和 Q 都是 IEq。故只能禁止。
+                //
+                // 替代写法就在隔壁：`bool f<T>(T a, T b) where T : IEq` 走型参收者那条，`Self ≡ T`
+                // 精确、且实参经 Part A 真校验。诊断消息直接把这条路给出来。
+                if (MemberResolver._sigHasSelfParam(ims.Signature)) {
+                    this._tc._diags.Error("E0454",
+                        "cannot call `" + mem.Name + "` through interface type `" + it.Name()
+                        + "`: a `Self` parameter has no safe bound here — use a type parameter instead, e.g. `where T : "
+                        + it.Name() + "`", sp);
+                }
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
                 // self-return-type-substitution：返回类型里的 `Self` 换成接收者的静态接口类型，
                 // 否则型参 `Self` 会裸奔到调用方（`var x = c.Copy()` 得到 `:Self`，不可用）。
@@ -148,6 +165,27 @@ public sealed class MemberResolver {
                     args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, gpMs.Signature, env);
                     return new BoundCall("instance", true, recv, rt.Name(), gpMkey, args, argCount, gpMs.Signature.Ret, sp);
                 }
+            }
+            // bind-self-param-and-constraint-members Part A：Object 查不到 → 按该型参的 **where 约束
+            // 接口**（含父接口闭包、方法级 + 类级两个来源）找同名方法，拿真签名。
+            //
+            // 为什么必须补这一步：不补就落到下方 `sig = null` 的松绑，而 `OverloadBinder.CheckArgTypes`
+            // 第一行就是 `if (sig == null) { return; }` ⇒ **泛型代码里对约束接口方法的调用，实参一律
+            // 不检查**。实测 `bool badGen<T>(T a) where T : IEq { return a.Same("nope"); }` 编译期零
+            // 诊断、运行期才炸 `string has no field 'V'`。这不限于 `Self`——`where T : IComparable` 的
+            // `CompareTo`、`INumber` 的 `op_Add` 全都如此，而 PriorityQueue / SortedSet 正走这条路。
+            //
+            // **Object 优先于约束接口**（顺序不能反）：`where T : IEquatable` 的 `a.Equals(b)` 今天派发
+            // 到 `Object.Equals` 的 `gpMkey`，反过来会改派发键 → 撼动自举字节。
+            //
+            // 签名里的 `Self` 在这条路上**精确替换为该型参本身**（不是上界）：约束 `T : IEq` 就是
+            // 「运行期 T 即那个实现类型」的断言 ⇒ `Self ≡ T`。与接口静态类型收者那条（只能取接口作
+            // 上界，见 _substSelf 抬头）本质不同。
+            MethodSymbol cms = this._tc._expr._constraintIfaceMethod(env, rt.Name(), mem.Name);
+            if (cms != null && cms.Signature != null) {
+                Z42FuncType csig = MemberResolver._substSelfSig(cms.Signature, rt);
+                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, csig, env);
+                return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, csig.Ret, sp);
             }
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
@@ -365,6 +403,58 @@ public sealed class MemberResolver {
             return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
         }
         return t;
+    }
+
+    // bind-self-param-and-constraint-members Part B：签名的**形参位**是否出现 `Self`（含数组元素 /
+    // 泛型实参嵌套）。返回位不算——那条由 `_substSelf` 上界替换处理（#527）。
+    private static bool _sigHasSelfParam(Z42FuncType sig) {
+        int i = 0;
+        while (i < sig.ParamCount) {
+            if (MemberResolver._containsSelf(sig.ParamTypes[i])) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 结构与 `_substSelf` 同构（数组 / 泛型实参递归），只是「换」改成「找」——**但多下钻一层
+    // `Z42FuncType`**（`void Apply(Func<Self,int> f)`）。两者刻意不对称：本函数守的是一条**禁令**，
+    // 漏一种形态就是漏一个洞；`_substSelf` 少覆盖一种形态只是少换一次、不产生错误结论。
+    // 「禁止侧比替换侧更宽」是安全方向。（镜像 `Conversion._hasGenericParam` 的递归面。）
+    private static bool _containsSelf(Z42Type t) {
+        if (t == null) { return false; }
+        if (t is Z42GenericParamType) { return t.Name() == "Self"; }
+        if (t is Z42ArrayType) { return MemberResolver._containsSelf((t as Z42ArrayType).Elem); }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            int i = 0;
+            while (i < it.ArgCount) { if (MemberResolver._containsSelf(it.TypeArgs[i])) { return true; } i = i + 1; }
+            return false;
+        }
+        if (t is Z42FuncType) {
+            Z42FuncType ft = t as Z42FuncType;
+            int i = 0;
+            while (i < ft.ParamCount) { if (MemberResolver._containsSelf(ft.ParamTypes[i])) { return true; } i = i + 1; }
+            return MemberResolver._containsSelf(ft.Ret);
+        }
+        return false;
+    }
+
+    // bind-self-param-and-constraint-members Part A：整条签名（形参位 + 返回位）做 `Self` 替换。
+    // `_substSelf` 只处理单个类型；约束接口方法要连**形参**一起换，否则 `BindArgsToSignature` 拿到的
+    // 形参类型仍是裸型参 `Self` ⇒ `Conversion` 分支 B「恰一侧含型参 → GenericErase」照旧放行，
+    // 等于白接。
+    //
+    // ParamsFrom / ParamDefaults / ParamCallers 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
+    // 漏搬会让 params 变长形参在这条路上退化成定长（CheckArgTypes 的 params 尾位分支读的就是它）。
+    private static Z42FuncType _substSelfSig(Z42FuncType sig, Z42Type selfT) {
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int i = 0;
+        while (i < sig.ParamCount) { np[i] = MemberResolver._substSelf(sig.ParamTypes[i], selfT); i = i + 1; }
+        Z42FuncType r = new Z42FuncType(np, sig.ParamCount, MemberResolver._substSelf(sig.Ret, selfT));
+        r.ParamsFrom = sig.ParamsFrom;
+        r.ParamDefaults = sig.ParamDefaults;
+        r.ParamCallers = sig.ParamCallers;
+        return r;
     }
 
     // Def 的有序泛型形参名里查 name 的下标（与 Z42InstantiatedType.TypeArgs 按索引对齐）；无则 -1。

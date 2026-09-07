@@ -163,10 +163,68 @@ public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不�
   > 等于类型信息整个丢失。Rust 的对应做法是干脆禁止（`-> Self` 非 object-safe）；z42 选上界替换，
   > 因为 z42 接口没有 object-safety 概念，禁止会平白砍掉一类安全可用的写法。
   >
-  > **形参位的 `Self` 尚未替换**（`interface IEq { bool Same(Self other); }` 经接口调用）：
-  > 那是逆变方向、没有唯一安全上界，属独立议题。
+- 🔴 **形参位的 `Self` 不能经接口静态类型调用 —— 报 E0454**（change
+  `bind-self-param-and-constraint-members`，2026-09-07）。返回位能取上界是因为它**协变**；
+  形参位是**逆变**：接口只保证实参「也实现了该接口」，而实现方的签名要的是「它自己」。
+
+  ```z42
+  interface IEq { bool Same(Self other); }
+  class P : IEq { public int V;    public bool Same(P other) { … } }
+  class Q : IEq { public string S; public bool Same(Q other) { … } }
+
+  IEq a = new P(1);
+  IEq b = new Q("hello");
+  a.Same(b);        // ❌ E0454
+  ```
+
+  > 这里**没有**可用的上界：把 `Self` 换成 `IEq` 一个字也拦不住上例 —— `P` 和 `Q` 都是 `IEq`。
+  > 放行的后果是实测过的：派发到 `P.Same(P)`、`other.V` 从一个 `Q` 上读出 **null**，静默返回
+  > `false`，全程无报错。故这里与 Rust 的 object-safety 同一选择：**禁止**，而不是假装收紧。
+
+  **替代写法（推荐，也正是诊断消息给出的那条）**——把接口静态类型换成型参：
+
+  ```z42
+  bool eqVia<T>(T a, T b) where T : IEq { return a.Same(b); }   // ✅
+  ```
+
+  型参这条路上 `Self ≡ T` 是**精确**的（约束断言了运行期 `T` 就是那个实现类型），不是上界。
+  同一接口上**没有** `Self` 形参的方法不受影响，照常经接口静态类型调用。
 - **跨包**：`Self` 与型参 `T` 一样以裸字符串写进 zbc 接口方法签名块，导入侧还原成型参，
   **零格式改动**。
+
+## 型参收者上的约束成员绑定
+
+`where T : IColl` 之后，在 `T` 类型的值上调用 `IColl` 的成员，编译期会**按约束接口解析出真签名**
+（change `bind-self-param-and-constraint-members`，2026-09-07）：
+
+```z42
+interface IColl { void Add(int x); int Size(); }
+
+void f<T>(T a) where T : IColl {
+    a.Add("nope");        // ❌ E0402：实参 string 不可隐式转 int
+    var n = a.Size();     // n : int（不再是 <unknown>）
+}
+```
+
+查找覆盖**方法级**（`f<T>() where T : I`）与**类级**（`class C<T> where T : I`）两个约束来源，
+并沿**父接口闭包**递归。`Object` 的成员（`ToString` / `GetHashCode` / `Equals`）**优先**于约束
+接口——这个顺序不能反，它决定派发键。
+
+> **此前这里完全没有检查**：型参收者查不到 `Object` 成员就松绑成 `sig = null`，而实参检查的第一行
+> 就是 `if (sig == null) return;` ⇒ 泛型代码里对约束接口方法的调用，实参一律不检查、返回类型一律
+> `<unknown>`。`PriorityQueue` / `SortedSet` / `Dictionary` 走的正是这条路。
+
+### 已知限制：形参本身是型参时仍不检查
+
+```z42
+bool bad<T>(T a) where T : IEq { return a.Same("nope"); }   // ⚠️ 今天仍无诊断
+```
+
+`Self` 替换成 `T` 之后形参类型是**裸型参**，而隐式转换判定里有一条「恰一侧含泛型形参 → 擦除放行」
+的通用规则，这里照旧命中。⇒ 上面的实参检查**只覆盖形参类型是具体类型的成员**（`Add(int)` 那种）。
+收紧那条擦除规则（C# 的对应诊断是 CS1503）是对通用规则动刀、爆炸半径未量，登记为 Deferred
+`tighten-bare-type-param-target-erasure`。
+
 ## 运算符如何在型参上派发
 
 `where T : INumber` 让泛型代码直接写 `a + b`，而不必写 `a.op_Add(b)`：

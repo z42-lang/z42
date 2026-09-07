@@ -9,11 +9,22 @@ using Std.IO;
 using DemoSTarget;
 using DemoSExt;
 
+// bind-self-param-and-constraint-members Part B：原来这条路在 ext 里写成
+// `bool eqVia(IEq a, IEq b)` —— 经接口静态类型调用 `Self` 形参方法，今天报 E0454（不健全，见
+// book generic-constraints.md）。改成型参写法，这才是推荐形态：`Self ≡ T` 精确，实参真校验。
+//
+// ⚠️ 它放在 **main**（与调用点同包）而不是 ext，不是随意选择：**跨包**泛型自由函数今天调不了——
+// 导入侧型参退化成普通类，`eqVia(p, q)` 报 `E0402: cannot assign Point to T`。实测与 `Self` 无关
+// （`int idOf<T>(T a)` 一样炸），是既存缺陷，已登记 Deferred `imported-generic-func-type-param-fidelity`。
+// 本行的编译期断言不受影响：`IEq` 仍是**跨包导入**的接口，Part A 的约束查找要从导入元数据里
+// 还原出 `Same(Self)` 才能编过。
+bool eqVia<T>(T a, T b) where T : IEq { return a.Same(b); }
+
 void Main() {
     var p = new Point(3);
     var q = new Point(3);
     Console.WriteLine("" + p.Same(q));      // true —— 具体类上的实现方法
-    Console.WriteLine("" + eqVia(p, q));    // true —— ext 经接口静态类型跨包调用（Self 形参位）
+    Console.WriteLine("" + eqVia(p, q));    // true —— 型参收者 + 跨包导入接口约束（Part A）
     var b = new IntBox(42);
     Console.WriteLine("" + b.Get());        // 42
     Console.WriteLine("" + getVia(b));      // 42 —— 泛型接口的 T（此前跨包退化成垃圾类型）
