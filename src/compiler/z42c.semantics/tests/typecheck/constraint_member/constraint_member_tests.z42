@@ -107,3 +107,67 @@ void test_self_return_on_type_param_receiver_substitutes_to_type_param() {
     string body = SemanticDump.DumpBody(src, "f");
     Assert.True(body.Contains("Copy :T"), "expected `Self` substituted to `Copy :T`, got: " + body);
 }
+
+// ── Part B：经接口静态类型调用 `Self` 形参方法 → E0454（Rust 式禁止）────────────
+
+// 真门。实测的类型混淆形态：两个不同实现类都是 IColl，上界替换拦不住，只能禁止。
+[Test]
+void test_self_param_call_through_interface_reports_E0454() {
+    string src = pre() + "void f(IColl a, IColl b) { a.Same(b); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0454"));
+}
+
+// 实参换成具体实现类也一样禁止 —— 编译期无从知道**接收者**运行期是谁。
+[Test]
+void test_self_param_call_through_interface_with_concrete_arg_still_reports_E0454() {
+    string src = pre() + "void f(IColl a, P b) { a.Same(b); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0454"));
+}
+
+// 无误报守卫 ①：同一接口上**没有** `Self` 形参的方法，经接口静态类型调用照常放行。
+[Test]
+void test_non_self_param_call_through_interface_reports_nothing() {
+    string src = pre() + "void f(IColl a) { a.Add(1); int n = a.Size(); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// 无误报守卫 ②：**具体类**收者上调用同一方法不受影响（走实现方签名 `Same(P)`，不经接口分支）。
+[Test]
+void test_self_param_call_on_concrete_receiver_reports_nothing() {
+    string src = pre() + "void f(P a, P b) { a.Same(b); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// 无误报守卫 ③：**型参**收者是 Part B 明确推荐的替代写法，必须放行（Part A 那条路）。
+[Test]
+void test_self_param_call_on_type_param_receiver_reports_nothing() {
+    string src = pre() + "void f<T>(T a, T b) where T : IColl { a.Same(b); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// 真门：`Self` 藏在 **func 类型形参**里（`void Apply(Func<Self,int> f)`）也要被抓 ——
+// `_containsSelf` 比 `_substSelf` 多下钻一层 `Z42FuncType`，正是为了这条（禁令漏一种形态就是漏洞）。
+[Test]
+void test_self_nested_in_func_param_call_through_interface_reports_E0454() {
+    string src = "interface IApply { void Apply(Func<Self, int> f); } "
+               + "class P : IApply { public void Apply(Func<P, int> f) { } } "
+               + "void f(IApply a, Func<P, int> g) { a.Apply(g); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0454"));
+}
+
+// 无误报守卫：func 类型形参里**没有** `Self` → 照常放行（守 `_containsSelf` 的 func 分支不过度触发）。
+[Test]
+void test_func_param_without_self_through_interface_reports_nothing() {
+    string src = "interface IApply2 { void Apply(Func<int, int> f); } "
+               + "class P2 : IApply2 { public void Apply(Func<int, int> f) { } } "
+               + "void f(IApply2 a, Func<int, int> g) { a.Apply(g); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}
+
+// `Self` 返回位经接口静态类型调用**不受 Part B 影响**（协变、有唯一安全上界，#527 已处理）。
+[Test]
+void test_self_return_through_interface_still_allowed() {
+    string src = "interface IClone { Self Copy(); } class P : IClone { public P Copy() { return this; } } "
+               + "void f(IClone c) { var x = c.Copy(); } void Main() { }";
+    Assert.Equal(0, bodyDiags(src).ErrorCount());
+}

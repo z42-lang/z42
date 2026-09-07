@@ -159,13 +159,36 @@ bool bad<T>(T a) where T : IEq { return a.Same("nope"); }   // Part A 之后**�
 - **跨包关联类型**（Deferred `assoc-type-crosspkg`）：双格式 bump，与本轮正交。
 - **static-vs-instance 种类校验**（#528 留的口子）：卡在 `MethodSymbol` 无 `IsAbstract` 槽。
 
-## 验证（计划）
+## 验证（已做）
 
-- 🔒 **真门 + 退回对照**（[[add-associated-types-program]] 的硬教训：新负例一律先做退回对照）：
-  - Part A：`badGen` 那条负例在改动前**必须实测是绿的**（即它今天确实不报），改动后变红。
-  - Part B（若选 1b）：`eqVia(IEq, IEq)` 形态改动前绿、改动后红。
-- 🔒 **真实构建面破坏性对照**（#528 最值钱那道）：Part A 会给**大量既有泛型 stdlib 代码**首次接上
-  实参检查 ⇒ **必须先量欠债**（`build stdlib` + 全仓），零欠债不能当默认假设。
-- 对照组：具体类收者路径不经过任何新逻辑，应两态同绿。
-- 完整 GREEN + `test stdlib --mode jit` + `test e2e --dir cross-zpkg --mode jit` + `test bootstrap`
-  + 自举字节不动点。
+- 🔒 **退回对照，两 Part 各做一轮**：Part A 撤掉后 5 条真门全红（3×E0402 + 2 条返回类型）、
+  3 条无误报守卫两态同绿；Part B 撤掉后 2 条 E0454 真门全红、4 条守卫两态同绿。
+  - ⚠️ **第一版有一条假测试被退回对照当场抓出**：`test_self_return_..._substitutes_to_type_param`
+    断言 `body.Contains(":T")` —— 形参标注 `(ident a :T)` 也贡献 `:T` ⇒ 两态同绿。改成钉在
+    call 节点上（`Copy :T` ↔ 退回态 `Copy :<unknown>`）才成真门。
+- 🔒 **真实构建面破坏性对照**（#528 那道最值钱的）：把 cross-zpkg fixture 退回
+  `bool eqVia(IEq a, IEq b)` 形态，`test e2e --dir cross-zpkg` 立即
+  `FAIL self_type_cross_pkg (ext build)` ⇒ **E0454 活在真实构建路径上**，不只在单测 harness 里。
+- 🎯 **欠债实测 = 0**：Part A 给既有泛型代码首次接上实参检查 + 返回类型换真，
+  `build stdlib` 25/25、`build compiler` 全过、GREEN 全绿、自举字节不动点 3/3。
+- 对照组：具体类收者路径不经过任何新逻辑 → 两态同绿（已在用例注释里写明它不是门）。
+- 完整 GREEN + `test stdlib --mode jit` + `test e2e --dir cross-zpkg --mode jit` + `test bootstrap`。
+
+## 🔴 顺带挖出的既存缺陷（已登记，不在本轮修）
+
+改写 cross-zpkg fixture 时发现：**跨包泛型自由函数今天根本调不了**。
+
+```z42
+// 包 A（ext）
+int idOf<T>(T a) { return 1; }
+// 包 B（main）
+idOf(p);        // E0402: cannot assign Point to T (argument) —— 显式 idOf<Point>(p) 也一样
+```
+
+与 `Self` / 约束**完全无关**（上面这个形态既无 `Self` 也无 `where`）。导入侧型参退化成普通类
+⇒ `_hasGenericParam` 判 false ⇒ 落结构比对。同族于 #523 修的 `ImportedSymbolLoader` 四条类型
+保真度，但那批修的是**方法**、自由函数漏网；#523 接上实参检查后它才从静默变成可见的红。
+
+⇒ 本 change 的 `eqVia<T>` 因此放在 **main 同包**而非 ext；跨包接口静态类型的解析路径覆盖由
+`getVia(IBox<int>)` 保住（它同时升格为 Part B 的无误报守卫）。
+Deferred：`imported-generic-func-type-param-fidelity`。
