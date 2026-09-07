@@ -339,7 +339,7 @@ ingest（失败高亮 / 历史趋势 / flaky 检测）。一次 `.zbc` run = 一
     <testcase name="MyMod.test_fail" classname="MyMod" time="0.000">
       <failure message="values not equal (expected 3, actual 2)">values not equal (expected 3, actual 2)
   at MyMod.test_fail (my_test.z42:42)
-  at Std.Test.Assert.Equal (Assert.z42:38)</failure>
+  at Std.Assert.Equal (Assert.z42:38)</failure>
     </testcase>
   </testsuite>
 </testsuites>
@@ -940,8 +940,8 @@ populate_stack_trace`），但 runner `format_value` 之前**只读 Message 字�
       TestFailure: values not equal (expected 3, actual 2)
       stack:
         at MyTests.test_arithmetic (my_test.z42:42)
-        at Std.Test.Assert.Equal (Assert.z42:38)
-        at Std.Test.AssertCore.checkEqual (AssertCore.z42:17)
+        at Std.Assert.Equal (Assert.z42:38)
+        at Std.AssertCore.checkEqual (AssertCore.z42:17)
 ```
 
 **TAP 13**:
@@ -953,8 +953,8 @@ not ok 3 - MyTests.test_arithmetic
   location: 'my_test.z42:42'
   stack: |
       at MyTests.test_arithmetic (my_test.z42:42)
-      at Std.Test.Assert.Equal (Assert.z42:38)
-      at Std.Test.AssertCore.checkEqual (AssertCore.z42:17)
+      at Std.Assert.Equal (Assert.z42:38)
+      at Std.AssertCore.checkEqual (AssertCore.z42:17)
   ...
 ```
 
@@ -967,7 +967,7 @@ not ok 3 - MyTests.test_arithmetic
   "duration_ms": 7,
   "reason": "TestFailure: values not equal (expected 3, actual 2)",
   "failure_location": "my_test.z42:42",
-  "stack_trace": "  at MyTests.test_arithmetic (my_test.z42:42)\n  at Std.Test.Assert.Equal (Assert.z42:38)\n  at Std.Test.AssertCore.checkEqual (AssertCore.z42:17)"
+  "stack_trace": "  at MyTests.test_arithmetic (my_test.z42:42)\n  at Std.Assert.Equal (Assert.z42:38)\n  at Std.AssertCore.checkEqual (AssertCore.z42:17)"
 }
 ```
 
@@ -1021,7 +1021,7 @@ not ok 3 - MyTests.test_arithmetic
   catch 一个 Assert.Equal 失败、断言其 StackTrace 字段非空 + 包含 Assert 帧
   + 包含 test 方法名 → 验证 runtime 仍在跑 + user-frame 捕获正确
 
-### Std.Test.Assert API quick reference (2026-05-30, extended)
+### Std.Assert API quick reference (2026-05-30, extended)
 
 由 [extend-assert-numeric-and-collection-helpers](../../spec/archive/2026-05-31-extend-assert-numeric-and-collection-helpers/)
 扩充。完整方法列表分组：

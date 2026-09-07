@@ -1,9 +1,10 @@
-// Spec R5 — z42.core 库本地测试。覆盖 Std.Assert（z42.core 提供的通用断言）
-// 与基础类型行为。注意这里测的是 Std.Assert（z42.core）而非 Std.Test.Assert
-// （z42.test）—— 后者只在测试代码里使用。
+// Spec R5 — z42.core 库本地测试。覆盖 `Std.Assert` 与基础类型行为。
+//
+// unify-assert-api (2026-09-08)：此前抬头强调「测的是 Std.Assert 而非
+// Std.Test.Assert」——两份 Assert 已合并成一份，该区分不复存在。
 namespace Z42CoreTests;
 
-using Std.Test;  // 测试框架的 Assert（抛 TestFailure）
+using Std.Test;
 
 [Test]
 void test_string_equality() {

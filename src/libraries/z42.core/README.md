@@ -12,12 +12,13 @@ xtask test stdlib z42.core -k string_methods    # 只跑一个单元
 xtask test e2e --dir libraries/z42.core         # 本库的 Main-based golden 用例
 ```
 
-`tests/` 下两种形态并存，选哪种由**断言要绑到哪个 `Assert`** 决定：
+`tests/` 下两种形态并存，选哪种由**要不要 sidecar 文件**决定
+（unify-assert-api 之前还多一条「断言绑到哪个 `Assert`」的考量——两份 Assert 已合并，那条没了）：
 
 | 形态 | 例子 | 说明 |
 |------|------|------|
-| `tests/<name>.z42`（`[Test]` 单元） | `string_methods.z42` | 绝大多数库 API 行为都写成这个。文件里 `using Std.Test` → 裸名 `Assert` 是 **Std.Test.Assert**（抛 `TestFailure`）|
-| `tests/<name>/source.z42`（Main golden） | `std_assert/`、`math/` | 只在**需要 prelude 那份 `Std.Assert`**、或需要 sidecar（`expected_output.txt` / `interp_only`）时用。`std_assert` 正是前者：它测的就是 `Std.Assert` 本身，写成 `[Test]` 会被 `using Std.Test` 抢走裸名，反而测不到 |
+| `tests/<name>.z42`（`[Test]` 单元） | `string_methods.z42` | 绝大多数库 API 行为都写成这个。裸名 `Assert` = 唯一那份 `Std.Assert`（命名空间 `Std`、打包在 z42.test，失败抛 `TestFailure`）|
+| `tests/<name>/source.z42`（Main golden） | `std_assert/`、`math/` | 需要 sidecar（`expected_output.txt` / `interp_only`）时用。`std_assert` 顺带是「零 `using` 也能拿到 `Assert`」的守卫（`src/tests/` 下另有 188 个同款 golden 依赖这条）|
 
 > String 的库行为（Length / ByteLength / Trim / Split / Join / Format / Object 协议…）
 > 集中在 `tests/string_methods.z42` + `tests/string_bcl_augment.z42`。字符串**字面量语法**
@@ -39,7 +40,6 @@ xtask test e2e --dir libraries/z42.core         # 本库的 Main-based golden �
 | `Char.z42` | `struct char` — 字符（`CompareTo` / `Equals` / `GetHashCode` / `ToString` / `IsWhiteSpace` / `ToLower` / `ToUpper` + ASCII 分类 `IsDigit` / `IsLetter` / `IsLetterOrDigit` / `IsUpper` / `IsLower` / `IsPunctuation`；上述分类与 casing 均有 C# 风格静态形式 `Char.IsDigit(c)` 等）|
 | `Type.z42` | 运行时类型对象（`typeof` 运算符返回值）|
 | `Array.z42` | `T[]` 基类（`Length` / `Clone` / 反射 `CreateInstance` / `GetValue` / `SetValue`）+ 静态算法（C# `System.Array` 对标）：排序 `Sort<T>` / `Sort<T>(cmp)` / `Sort<T>(index,length)` / `Sort<TKey,TValue>(keys,items)`（配对排序）、查找 `IndexOf` / `IndexOf(start[,count])` / `LastIndexOf` / `LastIndexOf(start)` / `Contains` / `BinarySearch` / `BinarySearch(index,length,value)` / `BinarySearch(value,cmp)`、谓词 `Find` / `FindLast` / `FindIndex` / `FindLastIndex` / `FindAll` / `Exists` / `TrueForAll`、变换 `ConvertAll` / `ForEach` / `Copy` / `Copy(srcIdx,dstIdx,len)` / `Fill` / `Fill(value,start,count)` / `Reverse` / `Reverse(index,length)` / `Clear` / `Resize` / `Empty`、只读视图 `AsReadOnly<T>`（→ `Collections.ReadOnlyCollection<T>`） |
-| `Assert.z42` | 断言工具（`Assert.True`、`Assert.Equal` 等）|
 | `Convert.z42` | 类型转换工具：`ToInt32` / `ToInt64` / `ToDouble` / `ToString`（native）+ `ToByte` / `ToInt16` / `ToSingle` / `ToBoolean` / `ToChar`（纯脚本）|
 | `Math.z42` | `static Math` — 常量 `Pi` / `E` / `Tau`；纯脚本 `Abs` / `Max` / `Min` / `Sign` / `Clamp`（+ `*Int` 变体）/ `Truncate` / `Round(x,digits)`；native (libm) `Pow` / `Sqrt` / `Floor` / `Ceiling` / `Round` / `Log` / `Log10` / `Log2` / `Exp` / `Sin` / `Cos` / `Tan` / `Asin` / `Acos` / `Atan` / `Atan2` / `Sinh` / `Cosh` / `Tanh` / `Cbrt`（C# `System.Math` 对标）|
 | `IEquatable.z42` | 相等性接口 |
@@ -52,6 +52,8 @@ xtask test e2e --dir libraries/z42.core         # 本库的 Main-based golden �
 | `IFormattable.z42` | 自定义格式化契约（Wave 3）|
 | `INumber.z42` | 数值约束接口（`op_Add` / `op_Subtract` / `op_Multiply` / `op_Divide` / `op_Modulo`）|
 | `Exception.z42` | 异常基类（`Message` / `StackTrace` / `InnerException`）|
+| `Assert.z42` | **全仓唯一**的断言 API（`Equal` / `True` / `Null` / `Contains` / `Fail` / `Skip` / `Throws` / `EqualApprox` / `Greater` 族 / `InRange` / `Array*` 共 23 个）；失败抛 `TestFailure`。unify-assert-api 把 z42.test 那份并了进来 —— 必须在 prelude 包，见文件抬头 |
+| `Failure.z42` | `TestFailure` / `SkipSignal` —— runner 据此区分「故意的断言失败 / 运行期跳过」与「意外崩溃」|
 
 ## src/Exceptions/ — 标准异常子类（Wave 2 2026-04-25）
 

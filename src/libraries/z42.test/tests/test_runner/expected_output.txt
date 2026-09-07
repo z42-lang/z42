@@ -4,7 +4,7 @@
   ✓ Addition
   ✓ Concatenation
   ✗ FAIL: DeliberateFail
-          AssertionError: expected 1 but got 2
+          TestFailure: values not equal (expected 1, actual 2)
   ✓ AfterFail
 ──────────────────────────────────────
  Result: 3 passed, 1 failed

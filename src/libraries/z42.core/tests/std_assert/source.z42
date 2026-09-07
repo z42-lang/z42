@@ -1,10 +1,18 @@
-// Std.Assert（z42.core 的运行期断言）本身的覆盖。
+// `Std.Assert` 本身的覆盖 + **零 using 可达性守卫**。
 //
-// tidy-test-layout (2026-09-06)：从 src/tests/basic/assert.z42 搬来——它测的是
-// z42.core 的一个 API，归属就在这里。**保持 Main-based golden 形态、不改写成
-// 测试框架单元**：那种文件必须 `using Std.Test`，会把裸名 `Assert` 绑到
-// Std.Test.Assert（抛 TestFailure 的测试框架断言），于是 Std.Assert 反而没人测了。
-// 无 using 的 Main 用例经 prelude 拿到的才是 Std.Assert 这一份。
+// tidy-test-layout (2026-09-06)：从 src/tests/basic/assert.z42 搬来。
+//
+// **保持 Main-based golden 形态、不改写成测试框架单元**——理由在 unify-assert-api
+// (2026-09-08) 之后换了一条，但结论不变：
+//   - 旧理由（已失效）：那种文件必须 `using Std.Test`，会把裸名 `Assert` 绑到另一份
+//     `Std.Test.Assert`，于是 z42.core 那份反而没人测。两份 Assert 已合并成一份，
+//     不再有"抢名"这回事。
+//   - 新理由（现行）：本文件**一行 `using` 都不写**，走的是「纯靠 prelude 拿到 `Assert`」
+//     这条路径 —— `src/tests/` 下另有 188 个同款 golden 依赖它。改写成带 `using` 的框架
+//     单元，这条路径在 z42.core 自己的测试里就没人走了。
+//     （实施期实测：`Assert` 一旦搬出 prelude 包 z42.core，这 188 个用例全部运行期炸
+//     `VCall: expected object, got Null` —— 见 unify-assert-api tasks.md）
+//
 // assert-only（无 stdout）→ 不需要 expected_output.txt。
 //
 // ⚠️ 本文件（含注释）**不得出现测试框架的属性字面量**（fix-more-silent-gates,

@@ -13,7 +13,7 @@ z42 测试基础设施：测试框架（z42.test）、测试运行器（z42b = z
 
 | 文件 | 职责 |
 |------|------|
-| [`testing.md`](testing.md) | R 系列测试基础设施：单机框架、attribute 校验、Std.Test.Assert / Bencher；runner = z42b（顶部说明） |
+| [`testing.md`](testing.md) | R 系列测试基础设施：单机框架、attribute 校验、Std.Assert / Bencher；runner = z42b（顶部说明） |
 | [`test-runner-bootstrap.md`](test-runner-bootstrap.md) | Rust→z42 runner 迁移（✅ 已落地 retire-test-runner）的历史决策记录 |
 | [`cross-platform-testing.md`](cross-platform-testing.md) | 同一 .zbc 多平台运行 + 平台 Skip 机制（runner-as-Rust-library 部分已被 z42b 取代） |
 

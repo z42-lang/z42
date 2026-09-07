@@ -14,7 +14,7 @@ z42 的长期目标是自举（compiler 用 z42 重写）。test-runner 是 tool
 | 组件 | 实现语言 | 位置 |
 |---|---|---|
 | 测试 attribute（`[Test]` / `[Skip]` / `[Benchmark]` / `[Setup]` / `[Teardown]` / `[ShouldThrow<E>]`） | z42 注解 | 编译期 attribute binder（C#） |
-| Assert 库（`Std.Test.Assert.*`） | **z42** | [src/libraries/z42.test/src/Assert.z42](../../src/libraries/z42.test/src/Assert.z42) |
+| Assert 库（`Std.Assert.*`） | **z42** | [src/libraries/z42.test/src/Assert.z42](../../src/libraries/z42.test/src/Assert.z42) |
 | TestIO（`captureStdout` / `captureStderr` / `captureBoth`） | **z42** + native shim | [src/libraries/z42.test/src/TestIO.z42](../../src/libraries/z42.test/src/TestIO.z42) |
 | Bencher（warmup + 统计） | **z42** | [src/libraries/z42.test/src/Bencher.z42](../../src/libraries/z42.test/src/Bencher.z42) |
 | Discovery（TIDX 读取） | Rust | `src/runtime/src/metadata/test_index.rs` |
