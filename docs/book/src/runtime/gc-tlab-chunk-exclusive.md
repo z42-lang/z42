@@ -73,6 +73,28 @@ flowchart TB
   `{base 裸指针, off, local_blocks}`；retire 把 `local_blocks` append 进 `all_blocks`。
 - **oversized 块**（> chunk）/ **free-list 复用**走旧锁路径（低频，不进 TLAB）。
 
+### ⚠️ size class：四分之一八度，不是 2 的幂
+
+`class_for(payload)` 把「头 16B + payload」向上取整到一个 **size class 的 footprint**，
+块实际占的就是这个 footprint。free-list 按 class 分桶，`alloc` 弹槽时**不复查容量** ——
+这条捷径成立的前提是**一个 class 索引只对应唯一一个 footprint**。改分档规则时这是首要不变量。
+
+分档规则是**每八度 4 档**（32/40/48/56、64/80/96/112、128/160/192/224 …），
+索引编码 `octave << 2 | sub`。原实现是**纯 2 的幂**（索引直接是 `log2(footprint)`），
+2026-09-07 换掉，原因是实测浪费大得离谱：
+
+`z42c.semantics --release --no-incremental` 一次构建里 274 万个活块，逻辑字节
+（头+payload）共 **323.4 MB**，2 的幂分档后实占 **516.4 MB** —— **193.0 MB 是纯取整浪费，
+占进程 RSS 的 17%**。浪费不是均匀摊开的，而是撞在几个恰好越过八度边界的形状上：
+仅 total 落在 257..320 字节的 **293,849** 个块（各占一个 512 字节槽）就吃掉约 59 MB。
+换成四分之一八度后浪费降到 57.9 MB，实测 RSS 未武装 1026.7 → 884.8 MB（**−13.8%**）、
+武装 256M 预算 818.7 → 736.8 MB（**−10.0%**），指令数与墙钟均持平。
+
+⚠️ **每八度不能超过 4 档**。bump 与 TLAB 的偏移只按 footprint 前移，其 8 对齐完全依赖
+「每个 footprint 都是 8 的倍数」。最小八度是 `MIN_BLOCK = 32`（`oct == 5`），4 档时步长
+`32 >> 2 = 8` 刚好卡在下限；再细成 8 档步长就变成 4 字节，直接破坏对齐。
+所以理论上更省的 8 档（浪费可降到 34.5 MB）**在当前 16 字节块头下不可取**。
+
 ### chunk 级回收（D7）
 
 sweep 尾（STW）扫全死 chunk（所有已初始化槽 dead）→ 移入 `free_chunk_pool` 供 borrow 复用。

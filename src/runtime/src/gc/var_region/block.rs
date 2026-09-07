@@ -50,8 +50,7 @@ pub struct GcBlockHeader {
     /// reused → stale handle. Mirrors `RegionEntry::generation`.
     pub(super) generation: AtomicU32,
     /// Payload byte length (immutable after alloc). Note this is the *requested* payload
-    /// size; the slot's physical capacity is `size_class`'s power-of-two footprint, which
-    /// may be larger.
+    /// size; the slot's physical capacity is `size_class`'s footprint, which may be larger.
     pub(super) size: u32,
     /// Mark bit (0 = unmarked). CAS 0→1 by the mark phase; reset by sweep on survivors.
     pub(super) marked: AtomicU8,
@@ -59,9 +58,9 @@ pub struct GcBlockHeader {
     pub(super) alive: AtomicBool,
     /// Payload kind ([`BlockType`] as `u8`) — tells the tracer how to scan the payload.
     pub(super) type_tag: u8,
-    /// Size-class index (`log2(total_footprint)`), or [`OVERSIZED_CLASS`] for a dedicated
-    /// chunk. Lets tombstone return the slot to the right free list and lets iteration know
-    /// the slot's footprint.
+    /// Size-class index (`octave << SUB_LOG2 | sub` of the total footprint — see
+    /// `chunk::class_for`), or [`OVERSIZED_CLASS`] for a dedicated chunk. Lets tombstone
+    /// return the slot to the right free list and lets iteration know the slot's footprint.
     pub(super) size_class: u8,
 }
 

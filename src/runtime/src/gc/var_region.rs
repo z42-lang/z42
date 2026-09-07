@@ -30,9 +30,10 @@
 //!
 //! # Allocation model
 //!
-//! - **Size classes**: total block size (header + payload) is rounded up to the next power
-//!   of two (≥ `MIN_BLOCK` = 32). `free_lists[size_class]` recycles tombstoned slots of the
-//!   same class.
+//! - **Size classes**: total block size (header + payload) is rounded up to the next
+//!   quarter-octave step — 32/40/48/56, 64/80/96/112, … (≥ `MIN_BLOCK` = 32).
+//!   `free_lists[size_class]` recycles tombstoned slots of the same class, and because each
+//!   class carries exactly one footprint, any slot in it fits any payload in it.
 //! - **Fast path**: pop a same-size-class tombstoned slot from its free list (generation was
 //!   bumped at tombstone → stale `VarGcRef` can't resolve it).
 //! - **Slow path**: bump-allocate within the current 64 KB chunk; grow a fresh chunk when
