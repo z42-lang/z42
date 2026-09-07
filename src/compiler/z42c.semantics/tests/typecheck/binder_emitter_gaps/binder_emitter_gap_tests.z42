@@ -1,0 +1,141 @@
+// fix-binder-emitter-gaps-batch2：四条「binder 不认 / emitter 照发」缺口的负例门
+// （欠债表 bug B / B5 / B1 / B7，来自 restore-emit-zbc-diagnostics 程序阶段 ⑥）。
+//
+// 为什么这些门必须建在**语义单测**里而不是 `src/tests/` 的 e2e 单文件里：
+// e2e 单文件走 `--emit-zbc`，它**丢弃全部诊断并以 exit 0 写出产物**（该程序阶段 ⑧ 才修）⇒
+// 「本该报错却没报」和「本该不报却报了」在 e2e 侧都看不见。四条 bug 里有三条的 emitter 半边
+// 碰巧还能跑（delegate 类型擦除 / 元组 blob），所以 e2e 断言照样绿 —— `tuples/tuple_basic.z42`
+// 与 `delegates/nested_delegate_dotted.z42` 今天就是这样的**假绿**测试。
+// 本文件读的是 `TypeChecker.Infer` 的诊断袋，会真变红。
+//
+// 🔴 断言口径同 argument_type_tests：读整袋、断言**码 + 条数**，不只看 FirstErrorCode。
+// ⚠️ 只覆盖**体内**位置（局部 var-decl / 调用点）—— 签名位置（形参 / 返回 / 字段）的诊断走
+// `SymbolCollector.Diags`，`SemanticDump` 与本文件的 `bodyDiags` 都不合并
+// （见 semanticdump-errorcount-skips-collector-diags），那条路径的门另需机制。
+namespace Z42cSemanticsBinderGapTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+// 体内诊断（TypeChecker.Infer 产出）——与 argument_type_tests.bodyDiags 同构。
+DiagnosticBag gapDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int gapCount(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// ── bug B：泛型基类 ─────────────────────────────────────────────────────────
+// 根因是 `StubCollector` 把基类名连泛型实参一起存（`"GBase<T>"`），而每个消费方都拿它当
+// `Classes` 的键 ⇒ 整条 base 链在泛型基类处静默截断。修前这三条分别报 E0402 / E0401 / E0401。
+
+// 泛型子类实例化 → 泛型基类实例化（Conversion 此前独缺 inst→inst 分支）。
+[Test]
+void test_generic_subclass_assignable_to_generic_base() {
+    string src = "class GBase<T> { } class GSub<T> : GBase<T> { } void Main() { GBase<int> b = new GSub<int>(); }";
+    Assert.Equal(0, gapCount(gapDiags(src), "E0402"));
+}
+
+// 泛型基类的继承成员（泛型派生方）。
+[Test]
+void test_generic_derived_finds_member_of_generic_base() {
+    string src = "class GBase<T> { public int Tag() { return 1; } } class GSub<T> : GBase<T> { } "
+               + "void Main() { int n = new GSub<int>().Tag(); }";
+    Assert.Equal(0, gapCount(gapDiags(src), "E0401"));
+}
+
+// 泛型基类的继承成员（**非泛型**派生方——`class C : GBase<int>`）。
+[Test]
+void test_plain_derived_finds_member_of_generic_base() {
+    string src = "class GBase<T> { public int Tag() { return 1; } } class CSub : GBase<int> { } "
+               + "void Main() { int n = new CSub().Tag(); }";
+    Assert.Equal(0, gapCount(gapDiags(src), "E0401"));
+}
+
+// 反向仍须报错：类不变量（`GBase<string>` 不接受 `GSub<int>`）。这条**修前修后都红**，
+// 用来钉住 H2 分支没有把实参检查一起放过（退回对照时它保持红 = 证明上面几条不是靠放水变绿）。
+[Test]
+void test_generic_type_args_still_invariant() {
+    string src = "class GBase<T> { } class GSub<T> : GBase<T> { } void Main() { GBase<string> b = new GSub<int>(); }";
+    Assert.Equal(1, gapCount(gapDiags(src), "E0402"));
+}
+
+// ── bug B5：泛型 delegate ───────────────────────────────────────────────────
+// `StubCollector._passDelegates` 的 `TypeParams.Count == 0` 守卫把泛型 delegate 整条跳过，
+// 而 `IrGenAuxEmitter.EmitDelegates` 照发 TYPE 元数据 + `Invoke(...) -> R`（未解析型参名）。
+
+[Test]
+void test_generic_delegate_type_resolves() {
+    string src = "delegate R Mapper<T, R>(T x); string Show(int v) { return \"x\"; } "
+               + "void Main() { Mapper<int, string> m = Show; }";
+    Assert.Equal(0, gapCount(gapDiags(src), "E0443"));
+}
+
+[Test]
+void test_non_generic_delegate_still_resolves() {
+    string src = "delegate int IntFn(int x); int Twice(int v) { return v * 2; } "
+               + "void Main() { IntFn f = Twice; }";
+    Assert.Equal(0, gapCount(gapDiags(src), "E0443"));
+}
+
+// 负控：真正未定义的类型仍须报 E0443。上面几条「断言 0 条 E0443」若因为 `gapCount` /
+// 诊断袋失效而恒为 0，就成了空门；本条（恒红侧）钉住 E0443 确实可被观测到。
+// 同理 `test_generic_type_args_still_invariant`（E0402）与
+// `test_unknown_prefix_is_not_treated_as_ns`（E0401）分别是那两个码的负控。
+[Test]
+void test_truly_undefined_type_still_reports_E0443() {
+    string src = "void Main() { NoSuchDelegateAtAll m = null; }";
+    Assert.Equal(1, gapCount(gapDiags(src), "E0443"));
+}
+
+// ── bug B1：嵌套 delegate 声明 ──────────────────────────────────────────────
+// `MemberParser._parseMemberBody` 无 `delegate` 分支 ⇒ `delegate` 落到 `_parseType()`
+// 被当成一个名叫 `delegate` 的类型，整条声明报废、该 delegate 类型**整体消失**。
+// 引用形式与嵌套 class/enum 一致：dotted-path（`Btn.OnClick`），裸名不解析。
+
+[Test]
+void test_nested_delegate_declaration_survives() {
+    string src = "class Btn { public delegate int Compute(int a, int b); } "
+               + "void Main() { Btn.Compute f = (int a, int b) => a + b; }";
+    Assert.Equal(0, gapCount(gapDiags(src), "E0443"));
+}
+
+// 嵌套 delegate 声明本身不再产生解析错误（修前 `delegate` 被当类型名 → E0202 三连）。
+[Test]
+void test_nested_delegate_declaration_parses_clean() {
+    string src = "class Btn { public delegate void OnClick(int x); } void Main() { }";
+    Assert.Equal(0, gapDiags(src).Count());
+}
+
+// ── bug B7：ns 限定静态调用 ─────────────────────────────────────────────────
+// `_bindMemberCall` 的三条静态分支都要求 target 是**裸** IdentExpr，限定形式的 target 是
+// 嵌套 MemberExpr ⇒ 全落空、直冲实例路径 → 最里层 `N` 被当变量查 → `E0401: undefined: N`。
+
+[Test]
+void test_ns_qualified_static_call_resolves() {
+    string src = "namespace N; class C { public static int F() { return 1; } } "
+               + "void Main() { int x = N.C.F(); }";
+    Assert.Equal(0, gapCount(gapDiags(src), "E0401"));
+}
+
+// 前缀不是本 CU 可见的 ns 时**不得**被当成 ns 限定（否则真实例链 `a.b.M()` 会被劫持）。
+// 这条修前修后都红，钉住窄修的判别条件。
+[Test]
+void test_unknown_prefix_is_not_treated_as_ns() {
+    string src = "namespace N; class C { public static int F() { return 1; } } "
+               + "void Main() { int x = Nope.C.F(); }";
+    Assert.Equal(1, gapCount(gapDiags(src), "E0401"));
+}

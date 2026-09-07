@@ -10,16 +10,20 @@ namespace Std;
 // Aligned with C# System.ValueTuple (struct value tuples, not the deprecated reference Tuple<>).
 // Arities 2..8 (a 1-element `(x)` is a parenthesised expression, not a tuple).
 
-[Record] struct ValueTuple2<T1, T2>(T1 Item1, T2 Item2);
+// 必须 `public`：`(a, b)` 的脱糖目标由**用户工程**的代码引用，默认 internal 会让
+// 任何 z42.core 之外的包写元组就撞 E0404（欠债表 bug B2）。编译器脱糖引用的其余类型
+// （Attribute / Dictionary / List / Type / IDisposable / InvalidOperationException / Bencher）
+// 早已 public，只漏了这一组。
+[Record] public struct ValueTuple2<T1, T2>(T1 Item1, T2 Item2);
 
-[Record] struct ValueTuple3<T1, T2, T3>(T1 Item1, T2 Item2, T3 Item3);
+[Record] public struct ValueTuple3<T1, T2, T3>(T1 Item1, T2 Item2, T3 Item3);
 
-[Record] struct ValueTuple4<T1, T2, T3, T4>(T1 Item1, T2 Item2, T3 Item3, T4 Item4);
+[Record] public struct ValueTuple4<T1, T2, T3, T4>(T1 Item1, T2 Item2, T3 Item3, T4 Item4);
 
-[Record] struct ValueTuple5<T1, T2, T3, T4, T5>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5);
+[Record] public struct ValueTuple5<T1, T2, T3, T4, T5>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5);
 
-[Record] struct ValueTuple6<T1, T2, T3, T4, T5, T6>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6);
+[Record] public struct ValueTuple6<T1, T2, T3, T4, T5, T6>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6);
 
-[Record] struct ValueTuple7<T1, T2, T3, T4, T5, T6, T7>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7);
+[Record] public struct ValueTuple7<T1, T2, T3, T4, T5, T6, T7>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7);
 
-[Record] struct ValueTuple8<T1, T2, T3, T4, T5, T6, T7, T8>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7, T8 Item8);
+[Record] public struct ValueTuple8<T1, T2, T3, T4, T5, T6, T7, T8>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7, T8 Item8);

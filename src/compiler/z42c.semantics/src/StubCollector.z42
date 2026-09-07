@@ -10,7 +10,8 @@ public sealed class StubCollector {
     public StubCollector(SymbolCollector sc) { this._sc = sc; }
 
     // Pass A-1：枚举类型 + 成员常量（先于类 stub——成员类型解析可能用到枚举）。
-    // 用户 delegate → Z42FuncType（委托类型即函数类型）。非泛型注册；泛型暂跳（运行期擦除）。
+    // 用户 delegate → Z42FuncType（委托类型即函数类型）。泛型与非泛型都注册，键恒裸名
+    // （泛型的型参解析成 Z42GenericParamType；实参在类型位擦除，同运行期）。
     // _passClassStubs 后调用，使签名 prim/类类型可解析。
     internal void _passDelegates(SymbolTable table, CompilationUnit cu) {
         int i = 0;
@@ -18,11 +19,22 @@ public sealed class StubCollector {
             Decl d = this._sc._unwrap(cu.Decls[i]);
             if (d is DelegateDecl) {
                 DelegateDecl dd = d as DelegateDecl;
-                if (dd.TypeParams.Count == 0 && !table.Delegates.ContainsKey(dd.Name)) {
+                // fix-generic-delegate-symbol（欠债表 bug B5）：泛型 delegate 也必须注册。
+                // 此前 `TypeParams.Count == 0` 守卫把它整条跳过 ⇒ 类型位写 `Mapper<int,string>`
+                // 报 `E0443: undefined type: Mapper`，而 `IrGenAuxEmitter.EmitDelegates` **照发**
+                // TYPE 元数据 + `Invoke(...) -> R`（未解析的型参名）——又一处 binder/emitter 不对称。
+                // 签名用 `ResolveTypeP` 带上 delegate 自己的型参 ⇒ `T`/`R` 解析成 Z42GenericParamType
+                // 而非 Unknown；键仍是**裸名**（z42 泛型类型擦除，`ResolveTypeP` 查 Delegates 也用裸名，
+                // 实参在类型位被丢弃 → 与运行期擦除一致）。
+                if (!table.Delegates.ContainsKey(dd.Name)) {
                     Z42Type[] ps = new Z42Type[dd.ParamCount];
                     int p = 0;
-                    while (p < dd.ParamCount) { ps[p] = table.ResolveType(dd.Params[p].Type); p = p + 1; }
-                    table.Delegates.Put(dd.Name, new Z42FuncType(ps, dd.ParamCount, table.ResolveType(dd.RetType)));
+                    while (p < dd.ParamCount) {
+                        ps[p] = table.ResolveTypeP(dd.Params[p].Type, dd.TypeParams.Names, dd.TypeParams.Count);
+                        p = p + 1;
+                    }
+                    Z42Type dret = table.ResolveTypeP(dd.RetType, dd.TypeParams.Names, dd.TypeParams.Count);
+                    table.Delegates.Put(dd.Name, new Z42FuncType(ps, dd.ParamCount, dret));
                 }
             }
             i = i + 1;
@@ -166,7 +178,16 @@ public sealed class StubCollector {
                         int ltIdx = bn.IndexOf("<");
                         if (ltIdx >= 0) { bnLookup = bn.Substring(0, ltIdx); }
                         if (table.Interfaces.ContainsKey(bnLookup)) { ifaces[ifc] = bnLookup; ifc = ifc + 1; }
-                        else if (!hasBase) { hasBase = true; baseName = bn; }
+                        // fix-generic-base-name（欠债表 bug B 真根因）：**基类**也必须存裸名。
+                        // `BaseName` 的每一个消费方都拿它当 `Classes` 的键用（IsSubclassOf /
+                        // InheritanceResolver / DeclBinder / EmitContext / AccessChecker /
+                        // ClassExtractor），而 `Classes` 的键是裸短名（或 `Name$N`）——存 `"Bag<T>"`
+                        // 就永远查不到，整条 base 链在泛型基类处**静默截断**：继承成员找不到、
+                        // IsSubclassOf 恒 false（⇒ `Bag<int> b = sub;` 报 E0402）。
+                        // 上面接口分支早已算出裸名，这里此前却用了带实参的 `bn`。
+                        // 遗留限制：同短名多 arity 的泛型基类（`Classes` 键带 `$N`）仍对不上——
+                        // 与接口侧（同样存裸名）一致，不在本次修复范围。
+                        else if (!hasBase) { hasBase = true; baseName = bnLookup; }
                         b = b + 1;
                     }
                     bool needsMangle = c.TypeParams.Count > 0 && multiArityMap.ContainsKey(c.Name);

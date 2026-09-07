@@ -1,0 +1,42 @@
+// fix-binder-emitter-gaps-batch2（欠债表 bug B5）：泛型 delegate。
+//
+// 修前 `StubCollector._passDelegates` 的 `TypeParams.Count == 0` 守卫把泛型 delegate
+// 整条跳过 ⇒ 类型位 `Mapper<int,string>` 报 `E0443: undefined type: Mapper`；而
+// `IrGenAuxEmitter.EmitDelegates` **照发** TYPE 元数据 + `Invoke(...) -> R`（未解析的型参名）
+// ⇒ 形参/字段/返回位「零诊断但类型 Unknown」，JIT 丢类型。又一处 binder/emitter 不对称。
+//
+// ⚠️ 编译期那一半的门在 z42c.semantics 的 binder_emitter_gaps 单测里（本文件走 --emit-zbc，吞诊断）。
+namespace Demo;
+
+delegate int IntFn(int x);                 // 非泛型（对照）
+delegate R   Mapper<T, R>(T x);            // 泛型
+delegate void Sink<T>(T x);                // 泛型 + void 返回
+
+int twice(int v) { return v * 2; }
+string show(int v) { return "v=" + v; }
+
+class Box { public static int Last = -1; }
+void remember(int v) { Box.Last = v; }
+
+// 泛型 delegate 作形参类型
+string applyMapper(Mapper<int, string> f, int v) { return f(v); }
+void applySink(Sink<int> f, int v) { f(v); }
+
+void Main() {
+    IntFn f = twice;
+    Assert.Equal(42, f(21));
+
+    Mapper<int, string> m = show;
+    Assert.Equal("v=7", m(7));
+    Assert.Equal("v=9", applyMapper(show, 9));
+
+    Sink<int> s = remember;
+    s(5);
+    Assert.Equal(5, Box.Last);
+    applySink(remember, 8);
+    Assert.Equal(8, Box.Last);
+
+    // lambda 赋给泛型 delegate
+    Mapper<int, string> lam = (int x) => "L" + x;
+    Assert.Equal("L3", lam(3));
+}

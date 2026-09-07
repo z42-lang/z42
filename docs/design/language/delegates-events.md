@@ -130,7 +130,19 @@ Btn.OnClick MakePrinter() { return (int x) => Console.WriteLine(x); }
 void Run(Btn.OnClick h, int v) { h(v); }
 ```
 
-实现细节：
+> 🔴 **本节的「实现细节」与上面「类内部继续支持 simple-name 引用」均已过期**（2026-09-07
+> `fix-binder-emitter-gaps-batch2` 实测校正）。下面四条描述的是 **C# 编译器时代**的实现：
+> z42 自举迁移时 `MemberType` AST 节点没有移植，`MemberParser._parseMemberBody` 也没有
+> `delegate` 分支 ⇒ **嵌套 delegate 声明在自举编译器里根本没被解析过**（`delegate` 被当成一个
+> 类型名，整条声明报废、该 delegate 类型整体消失）。本节的 D-6 golden
+> （`src/tests/delegates/nested_delegate_dotted.z42`）因此带着 12+ 条编译错误却"通过"了四个月
+> —— `--emit-zbc` 吞诊断所致。现行实现与限制（走 `NestedFlatten` 的 `Outer+Inner` 展平、
+> **类内部裸名不解析**、泛型嵌套已可用）见
+> [`docs/book/src/compiler/source-compile.md`「名字与『拿名字当键』的三条纪律」](../../book/src/compiler/source-compile.md)。
+> 按 [doc-system.md 决策 D2](../../agent/rules/doc-system.md)，`docs/design/` 不再更新，此处只留
+> 指针、不改写正文。
+
+实现细节（**C# 时代，已不适用**）：
 - AST 节点 `MemberType(Left, Right)` 表达 `Outer.Inner` —— 与 expression-level member access 同结构
 - TypeParser 在 `NamedType / GenericType` 后 lookahead `.` + Identifier，左结合 wrap MemberType 链
 - SymbolTable 在嵌套 delegate 注册时早已写入 qualified key（`Btn.OnClick` / `Btn.OnClick$N`），ResolveType 把 `MemberType` 拍平成该 key 查 `Delegates` map

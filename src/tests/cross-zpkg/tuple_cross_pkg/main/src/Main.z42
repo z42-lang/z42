@@ -1,0 +1,30 @@
+namespace Demo.TupleApp;
+
+using Std.IO;
+using Demo.TupleBase;
+using Demo.TupleExt;
+
+// 元组在 z42.core 之外可用（欠债表 bug B2）：`Std.ValueTuple2..8` 此前无访问修饰符
+// → 默认 internal → **任何**用户工程写 `(1, 2)` 都 E0404。
+//
+// 这条 fixture 是 B2 的**真门**：cross-zpkg runner 走 `z42c build`（诊断可见、非零退出即失败），
+// 不像 `src/tests/` 的单文件 golden 走 `--emit-zbc`（吞诊断 → 假绿，`tuples/tuple_basic.z42`
+// 修前就是那样）。三包链路 target → ext → main 让元组类型经 TSIG 往返两次。
+void Main() {
+    Pairs p = new Pairs();
+
+    (int, string) n = p.Named();            // 跨包返回元组
+    Console.WriteLine("" + n.Item1);        // 7
+    Console.WriteLine(n.Item2);             // hi
+
+    (int, int) s = p.Sum2((1, 2), (30, 40));   // 跨包元组形参（字面量在消费方构造）
+    Console.WriteLine("" + s.Item1);        // 31
+    Console.WriteLine("" + s.Item2);        // 42
+
+    Relay r = new Relay();                  // 第三跳：经 ext 中转
+    (int, string) f = r.Forward();
+    Console.WriteLine("" + f.Item1);        // 7
+    (int, int) d = r.Doubled((5, 6));
+    Console.WriteLine("" + d.Item1);        // 10
+    Console.WriteLine("" + d.Item2);        // 12
+}

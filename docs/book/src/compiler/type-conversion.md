@@ -73,9 +73,26 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 4. 两侧数值 prim                 → 数值矩阵（Identity / ImplicitNumeric / ExplicitNumeric）
 5. from.IsAssignableTo(to)       → Identity（同名类 / 接口 / 数组 / func / 别名 prim）
 6. class/instantiated → 基/接口  → 命中 symbols 上转查询则 ImplicitRef；下转则 ExplicitRef；否则 None
+   6a. instantiated → 接口（G）  6b. instantiated → 裸 class（H）
+   6c. instantiated → instantiated（H2）  6d. 裸 class → instantiated（I）
 7. object/接口 → 值 prim         → Unboxing
 8. 否则                          → None
 ```
+
+> **步 6c（H2）是后补的**（`fix-binder-emitter-gaps-batch2`，欠债表 bug B）。G/H/I 三条早就在，
+> **独缺 inst→inst**，而步 5 的 `Z42InstantiatedType.IsAssignableTo` 只比 `Name()` 全等 ⇒
+> `Bag<int> b = new SubBag<int>();` 直接 E0402。H2 的判定 = **类型实参逐位规范同名**
+> （C# 类不变量：`Bag<string> b = subBagOfInt` 必须继续报错）**且** `Def` 名有子类关系。
+>
+> ⚠️ H2 只有在**基类链本身可走**时才有意义。同一次变更修掉了更深的一层：`Z42ClassType.BaseName`
+> 此前存的是**带泛型实参的基类文本**（`"Bag<T>"`），而它的每个消费方都拿它当 `Classes` 的键用
+> ⇒ base 链在泛型基类处**静默截断**（`IsSubclassOf` 恒 false、继承成员找不到）。详见
+> [source-compile.md「基类名裸名化」](source-compile.md)。
+>
+> **未覆盖**：基类声明处换了实参（`class Sub<T> : Bag<string>`）。`BaseName` 只存名字、不存基类
+> **实参**，无从代换 ⇒ 仍报 E0402（与修前同，无回归）。同因 `GBase<int> b = new CSub();`
+> （非泛型派生 → 泛型基类实例化，步 6d 要求 `Def` 同名）也仍不通。要修得正确需在类符号上存
+> 「已解析的基类型」而非基类**名字**，属类型模型改动。
 
 > **关键设计**：数值 prim 对（步 4）**提前到结构判定（步 5）之前**——否则有损拓宽（`int→float`）
 > 会被 `IsAssignableTo`（其 `_canWiden` 判其为拓宽）笼统当成 `Identity`，丢掉"有损"信息。提前后

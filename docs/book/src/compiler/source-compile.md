@@ -256,6 +256,68 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 回归守卫：`src/tests/cross-zpkg/partial_crosscu_export/`（跨-CU partial 的导出面）+ `src/tests/partial-types/partial_static_method.z42`（`static partial`）。
 
+#### 名字与「拿名字当键」的三条纪律
+
+符号表里大量字段存的是**名字字符串**，消费方拿它当 `Classes` / `Delegates` 的键回查。凡是「名字里
+可能带修饰（泛型实参 / 命名空间前缀 / 嵌套路径）」的地方，存进去的必须是**能当键用的那一种**，
+否则回查恒 miss ——而 miss 的表现往往不是报错，是**静默截断**。三条都真出过 bug
+（`fix-binder-emitter-gaps-batch2`，欠债表 bug B / B5 / B1 / B7）：
+
+**① 基类名裸名化（bug B）**。`Z42ClassType.BaseName` 此前存 `c.Bases[b].Dump()`，即**带泛型实参的
+源文本**（`"Bag<T>"` / `"Bag<int>"`）；而 `Classes` 的键是裸短名（或同短名多 arity 时的 `Name$N`）。
+于是 `class Sub<T> : Bag<T>` 的 base 链在第一跳就断：
+
+| 消费方 | 断链后果 |
+|---|---|
+| `SymbolTable.IsSubclassOf` | 恒 false ⇒ `Bag<int> b = new Sub<int>();` 报 E0402 |
+| `InheritanceResolver` / `DeclBinder` / `ClassExtractor` | 继承成员找不到（非泛型派生方报 `E0401: no method`；**泛型**派生方连诊断都没有——实例化类型的成员查找是宽松的） |
+| `ClassDescBuilder`（发射侧，**同一行错法**） | CLASS base 写成 `"Ns.Bag<T>"` ⇒ VM 建 vtable 时按该名找不到任何类 ⇒ 继承来的方法**运行期** `VCall: function Ns.Sub.Tag not found` |
+
+两侧都**早已算出裸名**（为了先查「这个基表项是不是接口」），却都接着用了带实参的那个。修法就是
+改用已有的裸名变量。z42 泛型是类型擦除的，基类实参在这两处本无用途。
+
+> 遗留限制：同短名多 arity 的泛型基类（`Classes` 键带 `$N`）仍对不上——与接口侧（同样存裸名）
+> 一致；以及基类**实参**没地方存，故 `class Sub<T> : Bag<string>` 与 `GBase<int> b = new CSub();`
+> 仍不通（见 [type-conversion.md 步 6c](type-conversion.md)）。
+
+**② delegate 注册的两个漏口（bug B5 / B1）**。`Delegates` 是 `name → Z42FuncType` 一张表，键恒裸名：
+
+- **泛型 delegate** 此前被 `TypeParams.Count == 0` 守卫整条跳过 ⇒ 类型位 `Mapper<int,string>` 报
+  `E0443: undefined type: Mapper`。签名改用 `ResolveTypeP` 带上 delegate 自己的型参即可（`T`/`R` →
+  `Z42GenericParamType` 而非 Unknown）；键仍裸名，实参在类型位擦除，与运行期一致。
+- **嵌套 delegate 声明**此前**根本没被解析**：`MemberParser._parseMemberBody` 无 `delegate` 分支 ⇒
+  `delegate` 落到 `_parseType()` 被当成一个名叫 `delegate` 的类型，整条声明报废、该类型**整体消失**。
+  修法沿用 `add-nested-types` 的展平机制：`NestedFlatten` 把它改名 `Outer+Inner` 提升为顶层，
+  `ResolveTypeP` 的 dots→`+` 兜底再补一条查 `Delegates`。引用形式因此与嵌套 class/enum 完全一致
+  ——**dotted-path `Outer.Inner`，裸名不解析**（裸名限制是展平方案的通例，不是 delegate 特有）。
+
+> 这两条都是「binder 不认 / emitter 照发」的同族：`IrGenAuxEmitter.EmitDelegates` 一直在为泛型
+> delegate 发 TYPE 元数据 + `Invoke(...) -> R`（未解析的型参名），只有 binder 那半边缺席。
+
+**③ ns 限定静态调用（bug B7）**。`MemberResolver._bindMemberCall` 的三条静态分支都要求
+`mem.Target is IdentExpr`（**裸**类名）。写 `Std.IO.Console.WriteLine("hi")` 时 target 是嵌套
+`MemberExpr` ⇒ 三条全落空、直冲实例路径 → 递归到最里层把 `Std` 当变量查 →
+`E0401: undefined: Std`。判别补法：把点串拍平成 `<prefix>.<Short>`，`prefix` 须是**本 CU 可见的
+命名空间**（`using` 集 ∪ 本 ns，由 `TypeChecker._collectUsings` 逐 CU 采集），且链根标识符不是局部
+变量（否则真实例链 `a.b.M()` 会被劫持）。命中后按短名走与裸名**同一条**决议路径。
+
+> 因此它**不做歧义消解**：同短名跨 ns 时仍是 `Classes` 的 first-wins 赢家，与今天写裸名等价。
+> 要靠限定名消歧，得先让 imported 类带上 `Namespace`（今天 `ImportedSymbolLoader` **没有**设它，
+> 尽管 `Z42Type.z42` 的字段注释声称设了），那会改变 `Fqn()` 对所有 imported 类的返回值 → 全仓
+> 发射面变动，属独立变更。
+
+回归守卫：`src/compiler/z42c.semantics/tests/typecheck/binder_emitter_gaps/`（编译期那一半——
+含 E0402 / E0401 / E0443 三个码各一条**负控**，钉住「断言 0 条」不是空门）+
+`src/tests/generics/generic_base_inheritance.z42`（运行期那一半：泛型基类继承一旦回归就 VCall 崩）
++ `src/tests/delegates/generic_delegate.z42` + `src/tests/classes/ns_qualified_static_call.z42`。
+
+> ⚠️ **为什么编译期的门必须建在语义单测里**：`src/tests/` 的单文件 golden 走 `--emit-zbc`，
+> 它**丢弃全部诊断、以 exit 0 照写产物**（`restore-emit-zbc-diagnostics` 程序阶段 ⑧ 才修）⇒
+> 「本该报错却没报」在那侧看不见。上面几条 bug 的 emitter 半边碰巧还能跑（delegate 类型擦除 /
+> 元组 blob），所以 e2e 断言照样绿——`src/tests/tuples/tuple_basic.z42` 与
+> `src/tests/delegates/nested_delegate_dotted.z42` 修前就是这样的**假绿**测试（后者带 12+ 条
+> 编译错误却"通过"了四个月）。
+
 ### IR 生成（IrGen）
 
 Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 `Class.Method`（类方法）或函数名（顶层函数）为键。

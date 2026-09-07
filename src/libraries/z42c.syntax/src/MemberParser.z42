@@ -112,6 +112,12 @@ public sealed class MemberParser {
             return this._p._declP._parseTypeDecl(mods, nkind, attrs);
         }
         if (nk == TokenKind.Enum)   { return this._p._declP._parseEnum(mods); }
+        // fix-nested-delegate-decl（欠债表 bug B1）：嵌套 `delegate` 声明。此前这里无分支 ⇒
+        // `delegate` 落到下方 `_parseType()` 被当成一个名叫 `delegate` 的类型 ⇒ 整条声明报废
+        // （E0202 三连 + `undefined type: delegate`），该 delegate 类型**整体消失**。
+        // 展平沿用 NestedFlatten（改名 `Outer+Inner`，与嵌套 class/enum 同机制），
+        // 引用侧写 `Outer.Inner`（SymbolTable.ResolveTypeP 的 dots→`+` 兜底）。
+        if (nk == TokenKind.Delegate) { return this._p._declP._parseDelegate(mods); }
         // add-associated-types PR-3：关联类型成员 `type Item;` / `type Item = int;`。
         // `type` **不是关键字**（全仓大量用它作普通标识符：变量名、参数名、属性名），加进 lexer 会
         // 一次性破坏所有那些源码。故与 class/enum/implicit 同款，在 `_parseType()` **之前**前瞻拦截；

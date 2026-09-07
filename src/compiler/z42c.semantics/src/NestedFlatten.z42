@@ -69,6 +69,12 @@ public sealed class NestedFlatten {
                 EnumDecl ie = m as EnumDecl;
                 ie.Name = prefix + "+" + ie.Name;
                 this._push(outer.Members[i], prefix);
+            } else if (m is DelegateDecl) {
+                // fix-nested-delegate-decl（bug B1）：嵌套 delegate 与嵌套 enum 同处理——就地改名
+                // 提升为顶层，StubCollector._passDelegates 遍历 cu.Decls 才看得到它。
+                DelegateDecl idl = m as DelegateDecl;
+                idl.Name = prefix + "+" + idl.Name;
+                this._push(outer.Members[i], prefix);
             }
             i = i + 1;
         }

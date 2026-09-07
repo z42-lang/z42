@@ -325,6 +325,9 @@ public sealed class SymbolTable {
                 string plusKey = n.Replace(".", "+");
                 if (this.EnumTypes.ContainsKey(plusKey)) { return new Z42ClassType(plusKey, false, ""); }
                 int _sl2 = this.Interfaces.Find(plusKey); if (_sl2 >= 0) { return this.Interfaces.ValAt(_sl2) as Z42InterfaceType; }
+                // fix-nested-delegate-decl（bug B1）：嵌套 delegate `Outer.Inner` → `Outer+Inner` 键。
+                // 与上面嵌套 enum / 接口的 plusKey 兜底同款（NestedFlatten 已按 `+` 名注册）。
+                int _sld = this.Delegates.Find(plusKey); if (_sld >= 0) { return this.Delegates.ValAt(_sld) as Z42FuncType; }
                 if (nt.ArgCount > 0) {
                     string pm = plusKey + "$" + nt.ArgCount.ToString();
                     if (this.Classes.ContainsKey(pm)) {

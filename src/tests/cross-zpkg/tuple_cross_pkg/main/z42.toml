@@ -1,0 +1,10 @@
+[project]
+name    = "demo.tupleapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.TupleApp.Main"
+pack    = true
+
+[dependencies]
+"demo.tuplebase" = "0.1.0"
+"demo.tupleext"  = "0.1.0"
