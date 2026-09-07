@@ -10,7 +10,7 @@
 | 0 | 前置调研与爆炸半径实测 | 🟢 已完成（见下） |
 | A | 泛型类实例方法形参位代换 | 🟢 已完成（欠债 0，三道对照全过，不动点 3/3） |
 | B | 显式方法类型实参形参位代换 | 🟢 已完成（欠债 0，退回对照精确命中，不动点 3/3） |
-| C | 方法级类型实参推断 + 推断调用的 where 校验 | ⬜ |
+| C | 方法级类型实参推断 + 推断调用的 where 校验 | 🟢 已完成（欠债 0，阳性+退回对照全过，不动点 3/3） |
 | D | callee 消费型参时要求显式类型实参（User 裁决：**本轮做**） | ⬜ |
 | E | 规范冲突处置 + `design/language/generics.md` **原样迁入** book | ⬜ |
 | F | 完整 GREEN + 文档同步 + 归档 | ⬜ |
@@ -73,17 +73,37 @@
 
 ## 阶段 C —— 方法级类型实参推断
 
-- [ ] C.1 新建 `src/compiler/z42c.semantics/src/TypeArgInference.z42`：结构化 unify（design D6）
-- [ ] C.2 递归面与 `Conversion._hasGenericParam:213` **逐项对齐**；`Z42FuncType` 分支的取舍
-      写进注释（`_substGeneric` 今天没有该分支）
-- [ ] C.3 保守收口三条：未绑定 → 整体失败；冲突绑定 → 整体失败；`Unknown`/`Error` 实参位 → 跳过
-- [ ] C.4 `MemberResolver._applyMethodTypeArgs`：早退前接线。推断成功 → 代换 + `CheckArgTypes`
-      + `ConstraintChecker.CheckMethod`；**不写 `bc.MethodTypeArgs`**（design D4）
-- [ ] C.5 单测：`IdOf(7)` 无诊断 / `Copy(byteArr,…)` 无诊断 / `Pair("s",7)` 推断失败无诊断 /
-      `Make(3)` 型参未覆盖无诊断 / 推断出的实参不符报 E0402 / 推断出的类型实参违反 where 报诊断
-- [ ] C.6 **欠债量测**：`build stdlib` + `build compiler` 全量，统计新增诊断数；非 0 逐条核对是真是假
-- [ ] C.7 **真实构建面破坏性对照** + **退回对照（同源）**
-- [ ] C.8 `xtask test` 全绿 + 两轮收敛 + `xtask test bootstrap`
+- [x] C.1 新建 `src/compiler/z42c.semantics/src/TypeArgInference.z42`：结构化 unify + `TypeArgBindings`
+- [x] C.2 递归面与 `Conversion._hasGenericParam` 对齐（裸型参 / 数组元素 / 实例化实参 / func 形参·返回）；
+      已注释留档**唯一有意的不对称**：`_substGeneric` 今天没有 `Z42FuncType` 分支 ⇒ func 位推得出绑定
+      却换不进去（少换一次，不出错）
+- [x] C.3 保守收口三条：未绑定 → 整体失败；冲突绑定 → 整体失败；`Unknown`/`Error` 实参位 → 跳过。
+      另加一条：**params 尾位整段跳过**（规范形态与展开形态在推断处无法区分，误判会污染绑定）
+- [x] C.4 `MemberResolver._applyMethodTypeArgs` 早退分支接线。推断成功 → `ConstraintChecker.CheckMethod`
+      + `_checkSubstMethodArgs`；**不写 `bc.MethodTypeArgs`**（design D4）
+- [x] C.5 单测 6 条（累计 18 条）
+- [x] C.6 **欠债实测 = 0**（`build compiler` + `build stdlib` 全量）
+- [x] C.7 **阳性对照**：`test_inferred_type_arg_violating_where_is_reported` —— `g(new D())` 违反
+      `where T : IFoo` 现在报 E0402，**改动前零诊断**。这条同时是「推断通道真的通了」的证据
+- [x] C.8 **同源退回对照**：把 `if (inf.Ok)` 改成 `if (false)` → **恰好 2 条负例 FAIL**
+      （where 违反 / 形状不匹配），4 条正例与保守收口用例仍 PASS
+- [x] C.9 `xtask test compiler` 全绿：**675 PASS / 0 FAIL**；不动点 3/3 `gen1==gen2`
+
+### 诚实记账：阶段 C 的实参检查覆盖面比看上去窄
+
+推断成功 ⇒ 各**裸 T 位**按构造必然一致（不一致就是冲突 → 整体失败 → 静默）。所以
+`_checkSubstMethodArgs` 在推断路径上**只在「形状不匹配」的位**才报得出来
+（`void h<T>(T a, T[] b)` 调 `h(1, 2)`：`T[]` vs `int` 推不出信息，T 由前一位定为 int
+⇒ 代换后 `int[]` vs `int` → E0402）。
+
+⇒ **阶段 C 真正的新诊断是 where 约束校验**，不是实参检查。这一点在 proposal/design 里写得
+比实际乐观，此处更正。
+
+### 无误报守卫 ≠ 真门
+
+`test_conflicting_bindings_fail_inference_silently` / `test_uncovered_type_param_fails_inference_silently`
+断言的是「**不**报诊断」，退回后照样绿 —— 它们守的是保守收口边界（防过度报错），**不是**
+阶段 C 的真门。真门只有 C.8 里变红的那 2 条。（同 #530「4 真门全红 / 3 无误报守卫全绿」。）
 
 ## 阶段 D —— callee 消费型参时要求显式类型实参（可裁）
 

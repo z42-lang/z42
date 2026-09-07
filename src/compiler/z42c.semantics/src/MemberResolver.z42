@@ -511,7 +511,31 @@ public sealed class MemberResolver {
     // 与 where 约束（复用 ConstraintChecker.CheckMethod）；ms=null / 无 Decl（导入 / 间接）→ 仅解析、跳过校验。
     // 幂等：已附加（MethodTypeArgCount>0）或非泛型调用（TypeArgCount==0）即返回。
     private void _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env) {
-        if (call.TypeArgCount == 0 || bc.MethodTypeArgCount > 0) { return; }
+        if (call.TypeArgCount == 0 || bc.MethodTypeArgCount > 0) {
+            // add-generic-type-arg-inference 阶段 C：**省略尖括号**的泛型方法调用 → 从实参推断。
+            // 推断成功 ⇒ ① 复用同一条 ConstraintChecker.CheckMethod 校验 where 约束（关掉 Deferred
+            // where-constraint-future-inferred-method-args）② 按推断结果代换形参位后真查实参。
+            // 推断失败 ⇒ 什么都不做 = 今天行为，不发任何诊断。
+            //
+            // ⚠️ **不写 bc.MethodTypeArgs**：写了 emit 就从 Op.Call 换成 Op.CallGeneric(0xB4)、
+            // 重排 zbc 串池、并关掉 `exec_call.rs` 的 native 快路径门。全仓 112 处隐式泛型调用
+            // 全是 `Array.Copy<T>`，其 T 不被运行期消费 ⇒ 回灌是纯回归。callee 真消费型参的情形
+            // 由阶段 D 报错要求显式写出（把静默错值换成编译错误）。
+            //
+            // 与既有 arity/where 校验同一道门（ms.HasDecl）：导入方法拿不到有序型参名，
+            // 本分支进不来 ⇒ 不新增跨包能力。
+            if (call.TypeArgCount == 0 && bc.MethodTypeArgCount == 0
+                && ms != null && ms.HasDecl && ms.Decl != null && ms.Decl.TypeParams.Count > 0) {
+                TypeArgBindings inf = TypeArgInference.Infer(ms.Signature, ms.Decl.TypeParams.Names,
+                                                             ms.Decl.TypeParams.Count, bc.Args, bc.ArgCount);
+                if (inf.Ok) {
+                    this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, inf.Args, inf.Count, call.Span);
+                    MemberResolver._checkSubstMethodArgs(this._tc, bc, ms.Signature,
+                                                         ms.Decl.TypeParams.Names, inf.Count, inf.Args, env);
+                }
+            }
+            return;
+        }
         Z42Type[] targs = new Z42Type[call.TypeArgCount];
         int[] fwd = new int[call.TypeArgCount];
         int i = 0;
