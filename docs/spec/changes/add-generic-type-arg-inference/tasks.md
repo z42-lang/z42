@@ -1,0 +1,117 @@
+# Tasks: 方法级类型实参推断 + 形参位类型实参代换
+
+> 状态：🔴 DRAFT（待阶段 6.5 确认）｜ 创建：2026-09-08
+> 分支：`tighten-bare-type-param-erasure` ｜ worktree：`../z42-erasure`（基于 `origin/main` 54c8a1df）
+
+## 进度概览
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 0 | 前置调研与爆炸半径实测 | 🟢 已完成（见下） |
+| A | 泛型类实例方法形参位代换 | ⬜ |
+| B | 显式方法类型实参形参位代换 | ⬜ |
+| C | 方法级类型实参推断 + 推断调用的 where 校验 | ⬜ |
+| D | callee 消费型参时要求显式类型实参（User 裁决：**本轮做**） | ⬜ |
+| E | 规范冲突处置 + `design/language/generics.md` **原样迁入** book | ⬜ |
+| F | 完整 GREEN + 文档同步 + 归档 | ⬜ |
+
+## 阶段 0 —— 已完成的实测（DRAFT 依据，勿重跑）
+
+- [x] 0.1 环境：`../z42-erasure` 基于 `origin/main` 54c8a1df，nightly SDK（63d7d5fb）冷种子供种，
+      两轮构建波收敛，基线 `xtask test` 全绿（3m22s，`REAL_EXIT=0`）
+- [x] 0.2 **P3 探针**（roadmap 字面写法）：分支 B 判 None → `build stdlib` 头 3 包即崩，
+      33 条 E0402 **全是合法代码**，真欠债 0 ⇒ 条目前提不成立
+- [x] 0.3 **P1 探针**（根因修法）：形参位代换 → 欠债 **0**（stdlib 25 库 + compiler 全量自建）
+- [x] 0.4 三道对照全过：阳性（`l.Add(42)` 报 / `l.Add("ok")` 不报）、退回（基线只剩无关 E0436）、
+      **真实构建面破坏性**（改坏 `Z42cReplCompiler.z42:172` → `build compiler` REAL_EXIT=1）
+- [x] 0.5 **P4 普查**：隐式泛型调用全仓 **112 处，全部是 `Array.Copy<T>`**，其 `T` 不被运行期消费
+      ⇒ 回灌 `MethodTypeArgs` 是纯回归（design D4）
+- [x] 0.6 规范冲突已定位：`design/language/generics.md:380` vs book `generic-methods.md:109` vs 实现
+
+## 阶段 A —— 泛型类实例方法形参位代换
+
+- [ ] A.1 `MemberResolver.z42`：新增 `_substGenericSig(sig, inst)`，镜像 `_substSelfSig:449`；
+      **`ParamsFrom` / `ParamDefaults` / `ParamCallers` 原样搬运**（漏搬 → params 退化成定长）
+- [ ] A.2 `MemberResolver.z42` `Z42InstantiatedType` 分支（:136-156）：`_withDefaults` 之后追加一次
+      `CheckArgTypes(fa, rawArgs, argCount, substSig, env)`。**`_withDefaults` 入参保持原签名**（不变式 I1）
+- [ ] A.3 确认方法级型参在 `_substGeneric` 下退化为 `Z42UnknownType`（`MemberResolver.z42:365`）
+      → `Conversion` 分支 A Absorb → 放行 ⇒ 类级+方法级混合泛型不产生假红。写成注释留档
+- [ ] A.4 单测：`generic_inference_tests.z42` 阳性 + 正例（自建 `bodyDiags`/`countCode` helper，
+      照抄 `argument_type_tests.z42:22-37`；**不用 `FirstErrorCode`**）
+- [ ] A.5 **真实构建面破坏性对照**：改坏一处真实调用点 → `build compiler` 必须红 → 改回
+- [ ] A.6 `xtask test` 全绿 + `build compiler` 两轮收敛（gen1 == gen2）
+
+## 阶段 B —— 显式方法类型实参形参位代换
+
+- [ ] B.1 `MemberResolver._applyMethodTypeArgs`：用已解析的 `targs` 对 `ms.Signature` 做**方法级**
+      型参代换（按 `ms.Decl.TypeParams` 名序对齐），产出诊断专用签名
+- [ ] B.2 就地追加一次 `CheckArgTypes`。**不调整 `_applyMethodTypeArgs` 与 `_withDefaults` 的执行顺序**
+      （reorder 会改 target-typed new / lambda 绑定 → 字节漂移）
+- [ ] B.3 单测：`IdOf<string>(7)` 报 E0402；`IdOf<int>(7)` 不报
+- [ ] B.4 **退回对照（同源）**：只回退 B.2 一处 → 单独 `build compiler` → 复现逐字相同诊断
+- [ ] B.5 `xtask test` 全绿 + 两轮收敛
+
+## 阶段 C —— 方法级类型实参推断
+
+- [ ] C.1 新建 `src/compiler/z42c.semantics/src/TypeArgInference.z42`：结构化 unify（design D6）
+- [ ] C.2 递归面与 `Conversion._hasGenericParam:213` **逐项对齐**；`Z42FuncType` 分支的取舍
+      写进注释（`_substGeneric` 今天没有该分支）
+- [ ] C.3 保守收口三条：未绑定 → 整体失败；冲突绑定 → 整体失败；`Unknown`/`Error` 实参位 → 跳过
+- [ ] C.4 `MemberResolver._applyMethodTypeArgs`：早退前接线。推断成功 → 代换 + `CheckArgTypes`
+      + `ConstraintChecker.CheckMethod`；**不写 `bc.MethodTypeArgs`**（design D4）
+- [ ] C.5 单测：`IdOf(7)` 无诊断 / `Copy(byteArr,…)` 无诊断 / `Pair("s",7)` 推断失败无诊断 /
+      `Make(3)` 型参未覆盖无诊断 / 推断出的实参不符报 E0402 / 推断出的类型实参违反 where 报诊断
+- [ ] C.6 **欠债量测**：`build stdlib` + `build compiler` 全量，统计新增诊断数；非 0 逐条核对是真是假
+- [ ] C.7 **真实构建面破坏性对照** + **退回对照（同源）**
+- [ ] C.8 `xtask test` 全绿 + 两轮收敛 + `xtask test bootstrap`
+
+## 阶段 D —— callee 消费型参时要求显式类型实参（可裁）
+
+> ✅ User 裁决（2026-09-08）：**本轮做**。理由——不做就等于明知有静默错值洞而不堵，
+> 且它是 design D4「不回灌 `MethodTypeArgs`」的配套：不回灌把语义责任转移给了这条诊断。
+
+- [ ] D.1 先 grep `DiagnosticCodes.z42` 既有码表 —— **可能不用新造码**（#528 的先例：E0412 早已声明、全仓零引用）
+- [ ] D.2 「方法体是否消费方法级型参」判定：复用 `TypeOpTyper.z42:61-64` / `CallEmitter.z42:355-364`
+      / `ExprTyper.z42:546` 三个现成入口的判据
+- [ ] D.3 判定不到（无本地 `Decl`）→ 放行；写成注释留档「= 今天行为，严格无回归」
+- [ ] D.4 单测：消费型参的 callee 隐式调用报错 / `Array.Copy` 不报 / 无 `Decl` 放行
+- [ ] D.5 欠债量测（预计 0）+ 三道对照
+
+## 阶段 E —— 规范冲突处置 + 文档迁移
+
+> ✅ User 裁决（2026-09-08）：取「**原样迁入 + 修正失效段**」，**不借机按 book 口径重写**
+> （重写与本 change 主线无关，成本不相称）。
+
+- [ ] E.1 `docs/book/src/language/generics.md` NEW：`docs/design/language/generics.md` 内容**原样**迁入
+- [ ] E.2 修正失效段：`:380`「T 从实参推断」按本 change 落地后的真实语义改写；
+      `:382 ### 限制（本阶段）` 补上此前漏列的边界
+- [ ] E.3 `docs/design/language/generics.md` DELETE
+- [ ] E.4 `docs/book/src/SUMMARY.md` 挂载新页；`docs/book/src/language/README.md:31` 迁移状态打勾
+- [ ] E.5 grep 全仓对 `design/language/generics.md` 的引用，逐条改指 book 新页（清零）
+
+## 阶段 F —— 验收
+
+- [ ] F.1 `cargo build`（runtime 未改动，确认无连带破坏）
+- [ ] F.2 `xtask test compiler`
+- [ ] F.3 `xtask test e2e` + `xtask test e2e --dir cross-zpkg --mode jit`
+- [ ] F.4 `xtask test stdlib --mode jit`（本地 GREEN 只跑 interp，派发面改动必补）
+- [ ] F.5 `xtask test bootstrap`（先确认分支不落后 main，否则报错极具误导性）
+- [ ] F.6 spec scenarios 逐条覆盖确认（`specs/generic-type-arg-inference/spec.md` 共 15 个 Scenario）
+- [ ] F.7 文档同步（按 workflow 阶段 9 触发矩阵）：
+      `book/language/generic-methods.md`（`:109` 改写）、
+      `book/language/generic-constraints.md`（已知限制 §2 + `:58` 表格 + `:217-226` 形参位边界）、
+      `docs/features.md`、所改页页头「对齐」日期刷新
+- [ ] F.8 `docs/roadmap.md`：改写 `tighten-bare-type-param-target-erasure` 的根因与前置；
+      关掉 `where-constraint-future-inferred-method-args` 与 `generic-methods-future-type-inference`；
+      新增 4 条 Deferred（见 design 末表）
+- [ ] F.9 归档：`git mv docs/spec/changes/add-generic-type-arg-inference docs/spec/archive/2026-09-XX-add-generic-type-arg-inference`
+      —— **必须在开 PR 之前 commit 到本分支**，禁止合并后单独推 `docs: 归档`
+- [ ] F.10 **最终态重跑一次完整 GREEN**（中途做退回对照重建过编译器 ⇒ 早先的绿不算数）
+
+## 验收标准
+
+1. 阶段 A/B/C 各自欠债经实测确认（非 0 则逐条核对真假，真欠债就地修、假红回设计）
+2. 三道对照（阳性 / **真实构建面破坏性** / **同源退回**）每阶段都真跑
+3. 自举字节不动点：`build compiler` 两轮 gen1 == gen2
+4. `xtask test` 全绿（最终态重跑）+ jit 双补 + `test bootstrap` 绿
+5. spec 的 15 个 Scenario 逐条有对应测试或明确的「本轮不做」标注
