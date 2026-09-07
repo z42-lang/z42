@@ -1,0 +1,89 @@
+// add-generic-type-arg-inference：形参位类型实参代换 + 方法级类型实参推断。
+//
+// 🔴 断言口径（照抄 argument_type_tests.z42 的教训，别退回 FirstErrorCode）：
+// `FirstErrorCode` 只看第一条，「多实参逐条报」与「本该无诊断」两类都验不到。故本文件用
+// `bodyDiags` 直接读诊断袋，断言**码 + 条数**。
+//
+// 🔴 这些用例必须是**真门**：每一条负例都做过退回对照（把消费端改动退回后必须变绿），
+// 每一条正例都确认过在改动前后都绿。写「断言钉在被改的那个节点上」而不是整段文本里。
+namespace Z42cSemanticsGenericInferenceTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+// 体内诊断（TypeChecker.Infer 产出）——镜像 SemanticDump.FirstErrorCode 的构建序，但返回整袋。
+DiagnosticBag bodyDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int countCode(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 单型参容器 + 双型参容器（z42 顶层只允许声明，故用函数返回源码前缀）。
+string pre() {
+    return "class Box<T> { public void Put(T v) { } public T Get() { return null; } } "
+         + "class Map<K, V> { public void Set(K k, V v) { } } ";
+}
+
+// ── 阶段 A：泛型类实例方法的形参位按 receiver 的 TypeArgs 代换 ──────────────
+
+[Test]
+void test_generic_instance_method_arg_mismatch_reports_E0402() {
+    // 形参 T 在 Box<string> 上代换为 string；实参 int 不可隐式转 ⇒ 报错。
+    // 退回对照：撤掉 MemberResolver 的 _substGenericSig 接线后本条变 0（裸 T 被 GenericErase 放行）。
+    string src = pre() + "class Use { void f() { var b = new Box<string>(); b.Put(42); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_generic_instance_method_arg_match_reports_nothing() {
+    string src = pre() + "class Use { void f() { var b = new Box<string>(); b.Put(\"ok\"); } }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_generic_instance_method_two_bad_args_report_each() {
+    // 不短路：同一调用里多个实参不符逐条报（对用户更有用）。
+    string src = pre() + "class Use { void f() { var m = new Map<string, Box<string>>(); m.Set(1, 2); } }";
+    Assert.Equal(2, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_generic_instance_method_two_good_args_report_nothing() {
+    string src = pre()
+        + "class Use { void f() { var m = new Map<string, Box<string>>(); m.Set(\"k\", new Box<string>()); } }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// ── 阶段 A 的边界：类级 + 方法级混合泛型不产生假红 ────────────────────────
+//
+// `_substGeneric` 对不在 Def.GenericParamNames 里的名字（= 方法级型参 U）返回 Z42UnknownType
+// ⇒ 落 Conversion 分支 A 的 Absorb ⇒ 放行。要等阶段 C 求出方法级绑定后 U 位才真检查。
+
+[Test]
+void test_method_level_type_param_position_not_checked_in_stage_a() {
+    string src = "class Bag<T> { public void PutBoth<U>(U u, T t) { } } "
+        + "class Use { void f() { var b = new Bag<string>(); b.PutBoth(1, \"ok\"); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_class_level_position_still_checked_when_method_generic_present() {
+    // 同一个调用里 U 位放行、T 位仍真检查 —— 证明代换是逐位的，不是整条签名放弃。
+    string src = "class Bag<T> { public void PutBoth<U>(U u, T t) { } } "
+        + "class Use { void f() { var b = new Bag<string>(); b.PutBoth(1, 2); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}

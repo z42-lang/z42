@@ -8,7 +8,7 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 前置调研与爆炸半径实测 | 🟢 已完成（见下） |
-| A | 泛型类实例方法形参位代换 | ⬜ |
+| A | 泛型类实例方法形参位代换 | 🟢 已完成（欠债 0，三道对照全过，不动点 3/3） |
 | B | 显式方法类型实参形参位代换 | ⬜ |
 | C | 方法级类型实参推断 + 推断调用的 where 校验 | ⬜ |
 | D | callee 消费型参时要求显式类型实参（User 裁决：**本轮做**） | ⬜ |
@@ -30,16 +30,20 @@
 
 ## 阶段 A —— 泛型类实例方法形参位代换
 
-- [ ] A.1 `MemberResolver.z42`：新增 `_substGenericSig(sig, inst)`，镜像 `_substSelfSig:449`；
+- [x] A.1 `MemberResolver.z42`：新增 `_substGenericSig(sig, inst)`，镜像 `_substSelfSig`；
       **`ParamsFrom` / `ParamDefaults` / `ParamCallers` 原样搬运**（漏搬 → params 退化成定长）
-- [ ] A.2 `MemberResolver.z42` `Z42InstantiatedType` 分支（:136-156）：`_withDefaults` 之后追加一次
+- [x] A.2 `MemberResolver.z42` `Z42InstantiatedType` 分支：`_withDefaults` 之后追加一次
       `CheckArgTypes(fa, rawArgs, argCount, substSig, env)`。**`_withDefaults` 入参保持原签名**（不变式 I1）
-- [ ] A.3 确认方法级型参在 `_substGeneric` 下退化为 `Z42UnknownType`（`MemberResolver.z42:365`）
-      → `Conversion` 分支 A Absorb → 放行 ⇒ 类级+方法级混合泛型不产生假红。写成注释留档
-- [ ] A.4 单测：`generic_inference_tests.z42` 阳性 + 正例（自建 `bodyDiags`/`countCode` helper，
-      照抄 `argument_type_tests.z42:22-37`；**不用 `FirstErrorCode`**）
-- [ ] A.5 **真实构建面破坏性对照**：改坏一处真实调用点 → `build compiler` 必须红 → 改回
-- [ ] A.6 `xtask test` 全绿 + `build compiler` 两轮收敛（gen1 == gen2）
+- [x] A.3 确认方法级型参在 `_substGeneric` 下退化为 `Z42UnknownType`（`MemberResolver.z42:365`）
+      → `Conversion` 分支 A Absorb → 放行 ⇒ 类级+方法级混合泛型不产生假红。已写成调用点注释留档
+- [x] A.4 单测 6 条：`generic_inference_tests.z42`（自建 `bodyDiags`/`countCode`，**不用 `FirstErrorCode`**）
+- [x] A.5 **真实构建面破坏性对照**：`Z42cReplCompiler.z42:172` 实参改成 `12345` →
+      `xtask build compiler` `REAL_EXIT=1` + `E0402: cannot assign int to String` → 已改回
+- [x] A.6 **同源退回对照**：只回退消费端一处（保留 `_substGenericSig`）→ 单独 `build compiler` →
+      **3 条负例全 FAIL、3 条正例仍 PASS** ⇒ 负例是真门、正例不是靠改动才绿
+- [x] A.7 `xtask test compiler` 全绿：**663 PASS / 0 FAIL**；
+      **自举字节不动点 3/3 `gen1==gen2`**（z42c.semantics / z42c.pipeline / z42c.driver）
+- [x] A.8 **欠债实测 = 0**（`build compiler` + `build stdlib` 全量，E0402/E0439 各 0 条）
 
 ## 阶段 B —— 显式方法类型实参形参位代换
 

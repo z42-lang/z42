@@ -139,6 +139,24 @@ public sealed class MemberResolver {
             if (itms != null) {
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
                 BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
+                // add-generic-type-arg-inference 阶段 A：形参位也按 receiver 的 TypeArgs 代换，再查一遍实参。
+                //
+                // 为什么必须**另起一次检查**而不是把代换后的签名喂给上面的 `_withDefaults`（不变式 I1）：
+                // `_withDefaults` 里有四条对形参类型敏感、且会改发射的通道 —— params 的 normal/expanded
+                // 翻转（`OverloadBinder:178` 的 `IsAssignableTo(T[])` 今天恒 false ⇒ 恒走 expanded 合成
+                // BoundArrayLit）、值 struct 装箱（`TypeChecker:136` 的 `target is Z42GenericParamType`
+                // 今天恒装箱）、ConvertInstr / op_Implicit 的插入、以及 lambda 按 expected 重绑。
+                // 代换一旦回灌，这四条**每一条都是确定性的自举字节漂移**，前两条在 stdlib 容器里遍地触发。
+                // 故代换结果只作为诊断入参存在：`_withDefaults` 拿到的仍是原始 itms.Signature。
+                //
+                // 上面那次 `_withDefaults` 内部的 CheckArgTypes 用裸形参 `T`，被 Conversion 分支 B
+                // 「恰一侧含型参 → GenericErase」全部放行 ⇒ 本次才是真正产生诊断的一次，不会重复报。
+                //
+                // **方法级**型参（`U` 这种不在 Def.GenericParamNames 里的）在 `_substGeneric` 下退化成
+                // Z42UnknownType（见其 :365）⇒ 落 Conversion 分支 A 的 Absorb ⇒ 放行。所以「类级 + 方法级
+                // 混合泛型」在本阶段不产生假红，要等阶段 C 求出方法级绑定后才真检查。
+                this._tc._overload.CheckArgTypes(fa, rawArgs, argCount,
+                    MemberResolver._substGenericSig(itms.Signature, instRecv), env);
                 // add-struct-generic-boxing (P3a)：方法返回 type-param 且 subst 为 blob 值 struct（如
                 // `List<P>.First()`）→ 返回装箱值 → 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown
                 // 触发 _emitConvert AsCast 拆箱臂）。
@@ -375,6 +393,26 @@ public sealed class MemberResolver {
             return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
         }
         return t;
+    }
+
+    // add-generic-type-arg-inference 阶段 A：整条签名（形参位 + 返回位）按 receiver 的 TypeArgs
+    // 做**类泛型形参**代换。与 `_substSelfSig` 同构，只是逐类型的代换函数换成 `_substGeneric`。
+    //
+    // ⚠️ 产物是**诊断专用**签名：只喂 `CheckArgTypes`，绝不回灌 `_withDefaults` / `BoxArgs` /
+    // `ConvertIfNeeded` / `_withParamsExpansion` / 重载决议（不变式 I1，理由见调用点注释）。
+    //
+    // `ParamsFrom` / `ParamDefaults` / `ParamCallers` 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
+    // 漏搬会让 params 变长形参在这条路上退化成定长（CheckArgTypes 的 params 尾位分支读的就是它）。
+    // 这条是照抄 `_substSelfSig` 的教训，别重踩。
+    private static Z42FuncType _substGenericSig(Z42FuncType sig, Z42InstantiatedType recv) {
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int i = 0;
+        while (i < sig.ParamCount) { np[i] = MemberResolver._substGeneric(sig.ParamTypes[i], recv); i = i + 1; }
+        Z42FuncType r = new Z42FuncType(np, sig.ParamCount, MemberResolver._substGeneric(sig.Ret, recv));
+        r.ParamsFrom = sig.ParamsFrom;
+        r.ParamDefaults = sig.ParamDefaults;
+        r.ParamCallers = sig.ParamCallers;
+        return r;
     }
 
     // self-return-type-substitution：把签名里的隐式型参 `Self` 换成 `selfT`。
