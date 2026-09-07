@@ -5,10 +5,10 @@ namespace Std.Collections;
 // 与 `Dictionary<TKey, TValue>` 同款线性探测 + 掩码 hash 短路实现，但只存元素、
 // 不存值：摊还 O(1) 平均 Add / Remove / Contains，负载因子 > 0.75 时 2 倍扩容。
 // 约束：T 必须 hashable + equatable（primitive 走 VM builtin，用户类型实现
-// IEquatable<T>），与 Dictionary 的 TKey 约束一致。
+// IEquatable），与 Dictionary 的 TKey 约束一致。
 //
 // 迭代：用 `ToArray()` 取快照后 foreach（专用 enumerator 见 Deferred）。
-public class HashSet<T> where T: IEquatable<T> {
+public class HashSet<T> where T: IEquatable {
     T[] elems;
     bool[] occupied;
     // 每槽存其元素的掩码 hash（`GetHashCode() & 0x7FFFFFFF`），探测时先比 int

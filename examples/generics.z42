@@ -38,10 +38,10 @@ public class Option<T> {
 
 // ── 泛型方法与约束 ─────────────────────────────────────────────────────────
 
-T Min<T>(T a, T b) where T : IComparable<T> =>
+T Min<T>(T a, T b) where T : IComparable =>
     a.CompareTo(b) <= 0 ? a : b;
 
-T Max<T>(T a, T b) where T : IComparable<T> =>
+T Max<T>(T a, T b) where T : IComparable =>
     a.CompareTo(b) >= 0 ? a : b;
 
 List<T> Filter<T>(IEnumerable<T> source, Predicate<T> predicate) {

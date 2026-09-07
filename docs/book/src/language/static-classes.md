@@ -37,7 +37,7 @@ static class Bad {
     public int Next() { return 0; }   // ✗ E0451: static class `Bad` cannot declare instance method `Next`
 }
 
-static class Also : IComparable<int> {   // ✗ E0451: static class `Also` cannot implement interfaces
+static class Also : IComparable {   // ✗ E0451: static class `Also` cannot implement interfaces
 }
 ```
 

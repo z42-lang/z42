@@ -10,8 +10,8 @@ using Std.Test;
 using Std.Collections;
 
 // GetHashCode() == int.MinValue (built as -2147483647 - 1 to avoid relying on
-// an overflowing i32 literal). IEquatable<T> is required by Dictionary<TKey,_>.
-class MinHashKey : IEquatable<MinHashKey> {
+// an overflowing i32 literal). IEquatable is required by Dictionary<TKey,_>.
+class MinHashKey : IEquatable {
     public int Id;
     public MinHashKey(int id) { this.Id = id; }
     public bool Equals(MinHashKey other) { return this.Id == other.Id; }

@@ -40,9 +40,13 @@ public static class BuiltinTypeDefs {
         m[2] = ExportedTypeExtractor._im("Clear", "void", BuiltinTypeDefs._t0(), 0);
         m[3] = ExportedTypeExtractor._im("AddOne", "void", BuiltinTypeDefs._t1("T"), 1);   // 2026-06-11 prelude 漂移（并行流）
         r[1] = BuiltinTypeDefs._iface("IBasicCollection", BuiltinTypeDefs._t1("T"), 1, m, 4);
+        // apply-self-to-core-protocols：IComparable / IEquatable / INumber 已 Self 化 ⇒
+        // tpc=0（非泛型），签名里的「实现方自己」写作 "Self"。此表必须与
+        // z42.core/src/Protocols/*.z42 的声明**逐字锁步**，否则冷启动 prelude 与真实
+        // 元数据打架。
         m = new ExportedMethodZ[1];
-        m[0] = ExportedTypeExtractor._im("CompareTo", "int", BuiltinTypeDefs._t1("T"), 1);
-        r[2] = BuiltinTypeDefs._iface("IComparable", BuiltinTypeDefs._t1("T"), 1, m, 1);
+        m[0] = ExportedTypeExtractor._im("CompareTo", "int", BuiltinTypeDefs._t1("Self"), 1);
+        r[2] = BuiltinTypeDefs._iface("IComparable", BuiltinTypeDefs._t0(), 0, m, 1);
         m = new ExportedMethodZ[1];
         m[0] = ExportedTypeExtractor._im("Compare", "int", BuiltinTypeDefs._t2("T", "T"), 2);
         r[3] = BuiltinTypeDefs._iface("IComparer", BuiltinTypeDefs._t1("T"), 1, m, 1);
@@ -61,20 +65,20 @@ public static class BuiltinTypeDefs {
         m[1] = ExportedTypeExtractor._im("GetHashCode", "int", BuiltinTypeDefs._t1("T"), 1);
         r[7] = BuiltinTypeDefs._iface("IEqualityComparer", BuiltinTypeDefs._t1("T"), 1, m, 2);
         m = new ExportedMethodZ[2];
-        m[0] = ExportedTypeExtractor._im("Equals", "bool", BuiltinTypeDefs._t1("T"), 1);
+        m[0] = ExportedTypeExtractor._im("Equals", "bool", BuiltinTypeDefs._t1("Self"), 1);
         m[1] = ExportedTypeExtractor._im("GetHashCode", "int", BuiltinTypeDefs._t0(), 0);
-        r[8] = BuiltinTypeDefs._iface("IEquatable", BuiltinTypeDefs._t1("T"), 1, m, 2);
+        r[8] = BuiltinTypeDefs._iface("IEquatable", BuiltinTypeDefs._t0(), 0, m, 2);
         m = new ExportedMethodZ[1];
         m[0] = ExportedTypeExtractor._im("ToString", "string", BuiltinTypeDefs._t1("string"), 1);
         r[9] = BuiltinTypeDefs._iface("IFormattable", BuiltinTypeDefs._t0(), 0, m, 1);
         m = new ExportedMethodZ[5];
         // INumber 五方法是 static abstract 接口成员（C# 11 形态）：flags = static|abstract（=5，非 virtual）
-        m[0] = BuiltinTypeDefs._ims("op_Add", "T", BuiltinTypeDefs._t2("T", "T"), 2);
-        m[1] = BuiltinTypeDefs._ims("op_Subtract", "T", BuiltinTypeDefs._t2("T", "T"), 2);
-        m[2] = BuiltinTypeDefs._ims("op_Multiply", "T", BuiltinTypeDefs._t2("T", "T"), 2);
-        m[3] = BuiltinTypeDefs._ims("op_Divide", "T", BuiltinTypeDefs._t2("T", "T"), 2);
-        m[4] = BuiltinTypeDefs._ims("op_Modulo", "T", BuiltinTypeDefs._t2("T", "T"), 2);
-        r[10] = BuiltinTypeDefs._iface("INumber", BuiltinTypeDefs._t1("T"), 1, m, 5);
+        m[0] = BuiltinTypeDefs._ims("op_Add", "Self", BuiltinTypeDefs._t2("Self", "Self"), 2);
+        m[1] = BuiltinTypeDefs._ims("op_Subtract", "Self", BuiltinTypeDefs._t2("Self", "Self"), 2);
+        m[2] = BuiltinTypeDefs._ims("op_Multiply", "Self", BuiltinTypeDefs._t2("Self", "Self"), 2);
+        m[3] = BuiltinTypeDefs._ims("op_Divide", "Self", BuiltinTypeDefs._t2("Self", "Self"), 2);
+        m[4] = BuiltinTypeDefs._ims("op_Modulo", "Self", BuiltinTypeDefs._t2("Self", "Self"), 2);
+        r[10] = BuiltinTypeDefs._iface("INumber", BuiltinTypeDefs._t0(), 0, m, 5);
         return r;
     }
 

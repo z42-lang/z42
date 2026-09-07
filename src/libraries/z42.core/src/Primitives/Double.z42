@@ -4,7 +4,7 @@ namespace Std;
 // per BCL convention; source keyword `double` is preserved as alias.
 //
 // L3-G4b primitive-as-struct: `double` declared as a struct (C# BCL parity).
-public struct Double : IComparable<double>, IEquatable<double>, INumber<double> {
+public struct Double : IComparable, IEquatable, INumber {
     // C# BCL parity. Special values via IEEE-754 bit patterns (runtime
     // __static_init__ can call BitConverter, unlike a const-folded literal).
     public static double MaxValue = 1.7976931348623157E+308;
@@ -63,7 +63,7 @@ public struct Double : IComparable<double>, IEquatable<double>, INumber<double> 
         return 0;
     }
 
-    // INumber<double> static override — primitive float add/sub/mul/div/rem.
+    // INumber static override — primitive float add/sub/mul/div/rem.
     public static override double op_Add(double a, double b)      { return a + b; }
     public static override double op_Subtract(double a, double b) { return a - b; }
     public static override double op_Multiply(double a, double b) { return a * b; }

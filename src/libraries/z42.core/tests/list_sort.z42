@@ -11,7 +11,7 @@ using Std.Collections;
 
 // Sort key is `Key` only; `Seq` records insertion order so a *stable* sort must
 // keep equal-Key elements in their original relative order.
-class KV : IEquatable<KV>, IComparable<KV> {
+class KV : IEquatable, IComparable {
     public int Key;
     public int Seq;
     public KV(int key, int seq) { this.Key = key; this.Seq = seq; }

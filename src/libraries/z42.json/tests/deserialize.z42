@@ -21,7 +21,7 @@ class Bag {
 class PointMap {
     public Dictionary<string, Point> Pts;
 }
-class Item : IEquatable<Item>, IComparable<Item> {
+class Item : IEquatable, IComparable {
     public int id;
     public bool Equals(Item other) { return this.id == other.id; }
     public int GetHashCode() { return this.id; }

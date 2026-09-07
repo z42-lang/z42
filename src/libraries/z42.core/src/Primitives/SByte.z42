@@ -6,7 +6,7 @@ namespace Std;
 // add-narrow-int-primitives (2026-05-15): `i8` / `sbyte` (signed 8-bit,
 // -128..=127). Underlying runtime Value is i64; Parse range-checks input.
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
-public struct SByte : IComparable<i8>, IEquatable<i8>, INumber<i8> {
+public struct SByte : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
     public static i8 MaxValue = 127;

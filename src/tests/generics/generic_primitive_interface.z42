@@ -1,11 +1,11 @@
-// Test: L3-G4b primitive types satisfy IComparable<T> / IEquatable<T>.
+// Test: L3-G4b primitive types satisfy IComparable / IEquatable.
 // Max<int>(3, 7) dispatches CompareTo to __int_compare_to at runtime.
 
-T Max<T>(T a, T b) where T: IComparable<T> {
+T Max<T>(T a, T b) where T: IComparable {
     return a.CompareTo(b) > 0 ? a : b;
 }
 
-bool Eq<T>(T a, T b) where T: IEquatable<T> {
+bool Eq<T>(T a, T b) where T: IEquatable {
     return a.Equals(b);
 }
 

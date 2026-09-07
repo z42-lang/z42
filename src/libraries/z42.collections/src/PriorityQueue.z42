@@ -10,7 +10,7 @@ using Std;
 // inverting `CompareTo`.
 //
 // Constraint:
-//   T : IComparable<T> — for sift-up / sift-down ordering.
+//   T : IComparable — for sift-up / sift-down ordering.
 //
 // Single-param shape (T = priority key) matches Rust `BinaryHeap<T>` and
 // pre-.NET-6 `PriorityQueue`. The newer .NET 6+ split-key form
@@ -18,7 +18,7 @@ using Std;
 // use case that needs the indirection.
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
 // to opt into Std.Test.Contracts.BasicCollectionContract coverage.
-public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable<T> {
+public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
     T[] items;
     int count;
     int capacity;

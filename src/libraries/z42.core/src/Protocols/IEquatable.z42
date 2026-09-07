@@ -1,9 +1,13 @@
 namespace Std;
 
-// Generic equality interface (L3-G2).
+// Self-equality interface (L3-G2).
 // Pairs Equals with GetHashCode — types implementing IEquatable must provide both
 // so they can be used as dictionary keys / hash-set entries (L3-G4g HashMap<K,V>).
-public interface IEquatable<T> {
-    bool Equals(T other);
+//
+// `Self` 指代实现方自己，故本接口非泛型：约束位写 `where T : IEquatable` 即可，
+// 不必再写 F-bounded 样板 `where T : IEquatable<T>`。
+// 要比较**两个不同类型**，用 IEqualityComparer<T>（外部比较器形态）——那正是它与本接口的分工。
+public interface IEquatable {
+    bool Equals(Self other);
     int GetHashCode();
 }

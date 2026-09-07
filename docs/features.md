@@ -128,7 +128,7 @@ Lambda 是 delegate / event 体系的前置依赖；完整 delegate / 多播 / e
 **Decision:** Type parameters with `where` constraints. Monomorphized at compile time.
 
 ```z42
-T Max<T>(T a, T b) where T : IComparable<T> { ... }
+T Max<T>(T a, T b) where T : IComparable { ... }
 class Stack<T> { ... }
 ```
 

@@ -6,7 +6,7 @@ namespace Std;
 // add-narrow-int-primitives (2026-05-15): `i16` / `short` (signed 16-bit,
 // -32768..=32767). Underlying runtime Value is i64; Parse range-checks input.
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
-public struct Int16 : IComparable<i16>, IEquatable<i16>, INumber<i16> {
+public struct Int16 : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
     public static i16 MaxValue = 32767;

@@ -9,7 +9,7 @@ namespace Std.Collections;
 //
 // 支持 foreach：提供 `Count` 字段 + get-only 索引器 → 走 z42 的索引快路径（无需 GetEnumerator）。
 // 不加泛型约束：Contains / IndexOf 用 `Object.Equals`（所有 T 均可用），故任意 `T[]` 都能包装，
-// 不像 `List<T>` 那样要求 `T: IEquatable<T>`。
+// 不像 `List<T>` 那样要求 `T: IEquatable`。
 public sealed class ReadOnlyCollection<T> {
     T[] items;
     public int Count;

@@ -1,18 +1,18 @@
-// Test: L3 静态抽象接口 — generic numeric algorithms via where T: INumber<T>.
-// INumber<T> declares `static abstract T op_Add(T a, T b)` etc. (C# 11 alignment).
+// Test: L3 静态抽象接口 — generic numeric algorithms via where T: INumber.
+// INumber declares `static abstract T op_Add(T a, T b)` etc. (C# 11 alignment).
 // primitive int/double/etc. implement via `public static override T op_Add(T a, T b) { return a + b; }`.
 // Generic `x.op_Add(x)` lowers to VCall, which dispatches on x's runtime class
 // to the concrete `Std.Int32.op_Add(a, b)` — zero VM builtin, zero codegen special.
 
-T Double<T>(T x) where T: INumber<T> {
+T Double<T>(T x) where T: INumber {
     return x.op_Add(x);
 }
 
-T Product3<T>(T a, T b, T c) where T: INumber<T> {
+T Product3<T>(T a, T b, T c) where T: INumber {
     return a.op_Multiply(b).op_Multiply(c);
 }
 
-T DivMod<T>(T a, T b) where T: INumber<T> {
+T DivMod<T>(T a, T b) where T: INumber {
     return a.op_Divide(b).op_Subtract(a.op_Modulo(b));
 }
 

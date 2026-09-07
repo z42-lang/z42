@@ -6,6 +6,14 @@
 > （add-associated-types PR-1 接通 zbc 约束 bundle 全链路）；`Self`（仅接口）与关联类型
 > **同包已实现**，关联类型**跨包尚未校验**、嵌套约束未实现。以
 > [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md) 为准。
+>
+> 🔴 **本页下文的 `IComparable<T>` / `IEquatable<T>` / `INumber<T>` 写法已全部过时**
+> （change `apply-self-to-core-protocols`，2026-09-07）：这三个协议接口已改写成**非泛型 + `Self`**
+> （`interface IComparable { int CompareTo(Self other); }`），实现方写 `struct Int32 : IComparable`，
+> 约束侧写 `where T : IComparable`。本页属 `docs/design/`（**冻结不再维护**，见
+> [doc-system.md 决策 D2](../../agent/rules/doc-system.md)），示例未逐条改写；当前写法一律以
+> [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md) 为准。
+> `IComparer<T>` / `IEqualityComparer<T>`（外部比较器形态）**仍是泛型**，本页相关示例依然有效。
 
 > **方法级类型参数（2026-08-21 add-generic-methods M1）**：`Foo<T>()` 直接调用 + 方法体 `typeof(T)`/`new T()`/`default(T)` 具化为调用点类型——载体是 `Frame.method_type_args`（与类级实例 `type_args` 对称）。实现原理、决策、`<` 歧义消解见 **[book/src/language/generic-methods.md](../../book/src/language/generic-methods.md)**（SoT）。
 

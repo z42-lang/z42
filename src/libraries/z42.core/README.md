@@ -35,7 +35,7 @@ xtask test e2e --dir libraries/z42.core         # 本库的 Main-based golden �
 | `Double.z42` | `struct double` — 双精度浮点（同 Int32，含 `TryParse`→`double?` + IEEE-754 分类 `IsNaN` / `IsInfinity` / `IsPositiveInfinity` / `IsNegativeInfinity` / `IsFinite` + 常量 `MaxValue` / `MinValue` / `Epsilon` / `NaN` / `PositiveInfinity` / `NegativeInfinity`）|
 | `Single.z42` | `struct float` — 单精度浮点（VM 用 F64 存储；常量 `MaxValue` / `MinValue` / `Epsilon`）|
 | `SByte/Byte/Int16/UInt16/UInt32/UInt64.z42` | 其余整数基元家族（`Parse` / `TryParse` / 协议方法 + `MaxValue` / `MinValue` 常量，C# BCL 对标）|
-| `Bool.z42` | `struct bool` — 布尔（只实现 `IEquatable<bool>`）|
+| `Bool.z42` | `struct bool` — 布尔（只实现 `IEquatable`）|
 | `Char.z42` | `struct char` — 字符（`CompareTo` / `Equals` / `GetHashCode` / `ToString` / `IsWhiteSpace` / `ToLower` / `ToUpper` + ASCII 分类 `IsDigit` / `IsLetter` / `IsLetterOrDigit` / `IsUpper` / `IsLower` / `IsPunctuation`；上述分类与 casing 均有 C# 风格静态形式 `Char.IsDigit(c)` 等）|
 | `Type.z42` | 运行时类型对象（`typeof` 运算符返回值）|
 | `Array.z42` | `T[]` 基类（`Length` / `Clone` / 反射 `CreateInstance` / `GetValue` / `SetValue`）+ 静态算法（C# `System.Array` 对标）：排序 `Sort<T>` / `Sort<T>(cmp)` / `Sort<T>(index,length)` / `Sort<TKey,TValue>(keys,items)`（配对排序）、查找 `IndexOf` / `IndexOf(start[,count])` / `LastIndexOf` / `LastIndexOf(start)` / `Contains` / `BinarySearch` / `BinarySearch(index,length,value)` / `BinarySearch(value,cmp)`、谓词 `Find` / `FindLast` / `FindIndex` / `FindLastIndex` / `FindAll` / `Exists` / `TrueForAll`、变换 `ConvertAll` / `ForEach` / `Copy` / `Copy(srcIdx,dstIdx,len)` / `Fill` / `Fill(value,start,count)` / `Reverse` / `Reverse(index,length)` / `Clear` / `Resize` / `Empty`、只读视图 `AsReadOnly<T>`（→ `Collections.ReadOnlyCollection<T>`） |
@@ -111,7 +111,7 @@ partial 解决文件可读性，类型整体尺寸作为记录在案的例外接
 ### Deferred（本次未纳入的 C# 成员）
 
 - **`List<T>.ConvertAll<TOut>(Func<T,TOut>)`**：返回 `List<TOut>`，而 `List<>` 的类型
-  约束要求 `TOut` 也满足 `IEquatable<TOut> + IComparable<TOut>` —— 需在方法级泛型上
+  约束要求 `TOut` 也满足 `IEquatable + IComparable` —— 需在方法级泛型上
   传播该约束，留独立 follow-up。
 - **`List<T>.AsReadOnly()`**：`ReadOnlyCollection<T>` 已存在，但 C# 语义是**活视图**
   （随原 List 变化），而本类内部为容量数组，直接包装需决定「快照 vs 活视图」，留决策。

@@ -6,7 +6,7 @@ namespace Std;
 // 2026-04-27 wave1-bool-script: 3 个方法从 [Native] 迁纯脚本（BCL/Rust 对标 —
 // `bool::Display` / `bool.GetHashCode` 都是常量返回）。`ToString` 输出小写
 // `"true" / "false"` 与 Rust 一致（与 BCL `"True"/"False"` 不同）。
-public struct Boolean : IEquatable<bool> {
+public struct Boolean : IEquatable {
     public bool Equals(bool other) {
         return this == other;
     }

@@ -6,7 +6,7 @@ namespace Std;
 // L3 primitive-as-struct: `float` (32-bit floating point) with arithmetic + comparison.
 // VM represents both float and double as Value::F64 at runtime; builtin names reuse
 // the `__double_*` implementations.
-public struct Single : IComparable<float>, IEquatable<float>, INumber<float> {
+public struct Single : IComparable, IEquatable, INumber {
     // C# BCL parity — finite range + smallest denormal (NaN/±Infinity deferred).
     public static float MaxValue = 3.40282347E+38F;
     public static float MinValue = -3.40282347E+38F;
@@ -26,7 +26,7 @@ public struct Single : IComparable<float>, IEquatable<float>, INumber<float> {
         return 0;
     }
 
-    // INumber<float> static override.
+    // INumber static override.
     public static override float op_Add(float a, float b)      { return a + b; }
     public static override float op_Subtract(float a, float b) { return a - b; }
     public static override float op_Multiply(float a, float b) { return a * b; }

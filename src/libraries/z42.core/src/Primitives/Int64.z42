@@ -7,7 +7,7 @@ namespace Std;
 // Equals / GetHashCode / ToString share `__int32_*` builtins because the VM
 // stores both `int` and `long` as Value::I64 — the underlying i64 routines work
 // for both BCL wrapper types.
-public struct Int64 : IComparable<long>, IEquatable<long>, INumber<long> {
+public struct Int64 : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
     public static long MaxValue = 9223372036854775807;
@@ -37,7 +37,7 @@ public struct Int64 : IComparable<long>, IEquatable<long>, INumber<long> {
         return 0;
     }
 
-    // INumber<long> static override.
+    // INumber static override.
     public static override long op_Add(long a, long b)      { return a + b; }
     public static override long op_Subtract(long a, long b) { return a - b; }
     public static override long op_Multiply(long a, long b) { return a * b; }
