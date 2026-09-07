@@ -121,7 +121,11 @@ public sealed class ClassDescBuilder {
             int ltIdx = bn.IndexOf("<");
             if (ltIdx >= 0) { barebn = bn.Substring(0, ltIdx); }
             if (!this._g._symbols.HasInterface(barebn)) {
-                baseName = bn;
+                // fix-generic-base-name：发射的 CLASS base 也必须是裸名。写 `"Ns.Bag<T>"` 进元数据，
+                // VM 建 vtable 时按该名找不到任何类 ⇒ 继承来的方法在运行期 `VCall: function
+                // Ns.Sub.Tag not found`（binder 那半边同时静默放行，正是「binder 不认 / emitter
+                // 照发」的同一族）。z42 泛型是类型擦除的，实参在此毫无用处。
+                baseName = barebn;
                 if (!this._hasDot(baseName)) { baseName = this._g._qClass(baseName); }   // 镜像 QualifyClassName
                 hasBase = true;
                 bi2 = c.BaseCount;        // 取首个类即止

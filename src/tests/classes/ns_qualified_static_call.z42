@@ -1,0 +1,49 @@
+// fix-binder-emitter-gaps-batch2（欠债表 bug B7）：**ns 限定**静态调用。
+//
+// 修前 `MemberResolver._bindMemberCall` 的三条静态分支都要求 target 是**裸** IdentExpr，
+// 而 `Std.IO.Console.WriteLine(...)` 的 target 是嵌套 MemberExpr ⇒ 全落空、直冲实例路径
+// → 递归到最里层把 `Std` 当变量查 → `E0401: undefined: Std`。裸名一直正常，故全仓无人
+// 这么写、长期没暴露。
+//
+// 窄修判别：点串拍平后前缀须是本 CU 可见的 ns（`using` 集 ∪ 本 ns），且根标识符不是局部变量。
+// 命中后按短名走与裸名**同一条**静态决议路径 ⇒ 不改变歧义语义（同短名跨 ns 仍 first-wins）。
+namespace Demo.NsQual;
+
+using Std;
+using Std.IO;
+
+class Helper {
+    public static int Twice(int v) { return v * 2; }
+    public static string Tag() { return "h"; }
+}
+
+// 真实例链（`n.Child.Five()`）的判别对照：链根是局部变量，不得被当成 ns 限定。
+class Leaf { public int Five() { return 5; } }
+class Node {
+    public Leaf Child;
+    Node() { this.Child = new Leaf(); }
+}
+
+void Main() {
+    // ① 裸名（对照，一直正常）
+    Assert.Equal(4, Helper.Twice(2));
+
+    // ② 本 CU 自己的 ns 限定
+    Assert.Equal(6, Demo.NsQual.Helper.Twice(3));
+    Assert.Equal("h", Demo.NsQual.Helper.Tag());
+
+    // ③ using 进来的多段 ns 限定（stdlib 静态类）。本文件是纯 Assert golden（无 expected 文件
+    //    = 期望空 stdout），故 void 返回那条用 `Write("")`：走通 void 限定静态调用又不产 stdout。
+    Std.IO.Console.Write("");
+    Assert.Equal(3, Std.Math.AbsInt(0 - 3));   // AbsInt 而非 Abs：后者返 double，Assert.Equal(int,double) 不相等
+
+    // ④ 真实例链不受影响（链根是局部变量 → 不当 ns 处理）
+    Node n = new Node();
+    Assert.Equal(5, n.Child.Five());
+}
+
+// ⚠️ 这里**刻意不用** `new Std.Text.StringBuilder()` 之类的 ns 限定**类型引用**：
+// 那条路今天是坏的（`ResolveTypeP` 的 FQN 视图 `ClassesByFqn` 只登记本地类 ⇒ 限定名引用
+// imported 类解析成 Unknown → 运行期 `VCall: function <ns>.<unknown>.Append not found`）。
+// 那是与 B3-产出端 / imported 类缺 `Namespace` 同根的独立缺口，见
+// docs/spec/changes/fix-binder-emitter-gaps-batch2/tasks.md「后续」。本文件只管**静态调用**。

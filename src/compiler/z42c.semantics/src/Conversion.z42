@@ -174,12 +174,38 @@ public static class Conversion {
             if (symbols.IsSubclassOf((from as Z42InstantiatedType).Def.Name(), to.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
             return new ConvResult(ConvKind.None);
         }
+        // H2（欠债表 bug B）: instantiated → instantiated（子类实例化 → 基类实例化）。
+        // 此前 G / H / I 覆盖了 inst→接口 / inst→裸 class / 裸 class→inst，**独缺这一条**，
+        // 而分支 D 只认同名同实参（Identity）⇒ `Bag<int> b = new SubBag<int>();` 直接 E0402。
+        // 类型实参要求逐位规范同名（C# 类不变量：`Bag<string> b = subBagOfInt` 必须继续报错）。
+        // 未覆盖：基类声明处换了实参（`class Sub<T> : Bag<string>`）——`BaseName` 只存名字不存
+        // 基类实参，无从代换，仍报 E0402（与修改前同，无回归）。
+        if ((from is Z42InstantiatedType) && (to is Z42InstantiatedType)) {
+            Z42InstantiatedType fInst = from as Z42InstantiatedType;
+            Z42InstantiatedType tInst = to as Z42InstantiatedType;
+            if (Conversion._sameTypeArgs(fInst, tInst)) {
+                if (symbols.IsSubclassOf(fInst.Def.Name(), tInst.Def.Name())) { return new ConvResult(ConvKind.ImplicitRef); }
+                if (symbols.IsSubclassOf(tInst.Def.Name(), fInst.Def.Name())) { return new ConvResult(ConvKind.ExplicitRef); }
+            }
+            return new ConvResult(ConvKind.None);
+        }
         // I: class（裸）→ instantiated（同 def，`this` → 实例化返回类型）
         if ((from is Z42ClassType) && (to is Z42InstantiatedType)) {
             if (from.Name() == (to as Z42InstantiatedType).Def.Name()) { return new ConvResult(ConvKind.ImplicitRef); }
             return new ConvResult(ConvKind.None);
         }
         return new ConvResult(ConvKind.None);
+    }
+
+    // 两个实例化类型的类型实参是否逐位规范同名（arity 也须一致）。供 H2 分支判定类不变量。
+    private static bool _sameTypeArgs(Z42InstantiatedType a, Z42InstantiatedType b) {
+        if (a.ArgCount != b.ArgCount) { return false; }
+        int i = 0;
+        while (i < a.ArgCount) {
+            if (a.TypeArgs[i].CanonName() != b.TypeArgs[i].CanonName()) { return false; }
+            i = i + 1;
+        }
+        return true;
     }
 
     // add-argument-type-check R1b：类型里（含数组元素 / 实例化类型实参 / func 形参·返回）是否出现

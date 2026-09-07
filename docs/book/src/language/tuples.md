@@ -27,10 +27,20 @@ z42 **不引入原生元组 opcode / 类型 tag**。元组在编译器前端**�
 泛型 `[Record] struct`：
 
 ```z42
-[Record] struct ValueTuple2<T1, T2>(T1 Item1, T2 Item2);
-[Record] struct ValueTuple3<T1, T2, T3>(T1 Item1, T2 Item2, T3 Item3);
+[Record] public struct ValueTuple2<T1, T2>(T1 Item1, T2 Item2);
+[Record] public struct ValueTuple3<T1, T2, T3>(T1 Item1, T2 Item2, T3 Item3);
 // ... 直到 ValueTuple8（元数 2..8；单元素 `(x)` 是括号分组、不是元组）
 ```
+
+> 🔴 **`public` 是必需的，不是修饰性的**（`fix-binder-emitter-gaps-batch2`，欠债表 bug B2）。
+> 脱糖目标由**用户工程的代码**引用，而 z42 类的默认可见性是 internal（= 包内）⇒ 这七个类型
+> 一旦漏掉 `public`，**任何 z42.core 之外的包写 `(1, 2)` 都撞 E0404**
+> `cannot access internal class ValueTuple2 from another package`——修前正是如此，且**每一种
+> 元组写法都撞**（`var t = (1,2)` / `(int,int) t = (1,2)` / 跨包元组形参与返回一律）。
+> 编译器脱糖引用的其余类型（`Attribute` / `Dictionary` / `List` / `Type` / `IDisposable` /
+> `InvalidOperationException` / `Bencher`）早已 public，只漏了这一组。
+> 门在 `src/tests/cross-zpkg/tuple_cross_pkg/`——它走 `z42c build`（诊断可见、非零退出即失败）；
+> `src/tests/tuples/tuple_basic.z42` 走 `--emit-zbc`（吞诊断），修前是**假绿**。
 
 它们定义在 `src/libraries/z42.core/src/ValueTuple.z42`（隐式 prelude，任何程序自动可见）。这样元组
 **复用了泛型 `struct` record 的全部既有机制**——blob 值布局、值语义 `Equals`/`GetHashCode`/`ToString`

@@ -20,6 +20,11 @@ public sealed class TypeChecker {
     public BoundCapture[] _lambdaCaps; public int _lambdaCapCount;
     public ConstraintChecker _constraints;  // 泛型 where 约束解析 + call-site 校验（2B）
     public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用；PR6b module_path!() 注入源）
+    // fix-ns-qualified-static-call（欠债表 bug B7）：本 CU 的 `using` 命名空间集（含 global using）。
+    // `Std.IO.Console.WriteLine(...)` 这类**ns 限定静态调用**要判「点串前缀是不是一个命名空间」，
+    // 唯一可靠依据就是本文件 import 了哪些 ns（与 DependencyIndex.GetStaticScoped 的活跃 ns 集同思路，
+    // 见 common-pitfalls §1 的根治说明）。语义内构造 → F2 安全。
+    public string[] _currentUsings; public int _currentUsingCount;
     public string _curMemberName;           // PR6b：当前 enclosing 成员名（DeclBinder._bindMethodBody 设）；caller_member!() 注入源。语义内、F2 安全
     // fix-generic-operator-constraint-dispatch：当前正在绑体的方法声明（DeclBinder._bindMethodBody 设）。
     // 方法级 `where` **不预登记**符号表（ConstraintChecker.CheckMethod 每个调用点即席建 bundle），
@@ -41,6 +46,36 @@ public sealed class TypeChecker {
         AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
         if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
     }
+    // fix-ns-qualified-static-call（bug B7）：扫本 CU 的 `using`（含 global using——它们已被注入进
+    // 每个 CU，见 add-global-using）填 _currentUsings。`using A = B;`（UsingAliasDecl）不算 ns。
+    private void _collectUsings(CompilationUnit cu) {
+        string[] buf = new string[8];
+        int n = 0;
+        int i = 0;
+        while (i < cu.DeclCount) {
+            if (cu.Decls[i] is UsingDecl) {
+                if (n == buf.Length) {
+                    string[] bigger = new string[buf.Length * 2];
+                    int z = 0; while (z < n) { bigger[z] = buf[z]; z = z + 1; }
+                    buf = bigger;
+                }
+                buf[n] = (cu.Decls[i] as UsingDecl).Name; n = n + 1;
+            }
+            i = i + 1;
+        }
+        this._currentUsings = buf; this._currentUsingCount = n;
+    }
+
+    // p 是否为本 CU 可见的命名空间前缀：`using` 进来的任一 ns，或本 CU 自己的 ns。
+    // 只做「是不是 ns」的判别，不做歧义消解——限定名命中后仍按短名查类（与写裸名同语义）。
+    public bool _isVisibleNs(string p) {
+        if (p == "") { return false; }
+        if (p == this._currentNs) { return true; }
+        int i = 0;
+        while (i < this._currentUsingCount) { if (this._currentUsings[i] == p) { return true; } i = i + 1; }
+        return false;
+    }
+
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;
         this._loopDepth = 0;
@@ -48,6 +83,7 @@ public sealed class TypeChecker {
         this._lambdaActive = false;
         this._constraints = new ConstraintChecker(diags);
         this._currentNs = "";
+        this._currentUsings = new string[0]; this._currentUsingCount = 0;
         this._curMemberName = "";   // PR6b：caller_member!() 注入源，进 method body 前由 _bindMethodBody 设
         this._curMethodDecl = null; // fix-generic-operator-constraint-dispatch：型参运算符约束查找源
         this._curCu = null; this._curSuppress = null;   // add-deprecated-directive
@@ -311,6 +347,7 @@ public sealed class TypeChecker {
             _sr = _sr + 1;
         }
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";
+        this._collectUsings(cu);   // fix-ns-qualified-static-call：本 CU 的 using ns 集（bug B7）
         if (resolveConstraints) { this._constraints.Resolve(cu, view); }   // Pass 0.5：泛型 where 约束解析（单文件路径）
         this._decl._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
         int i = 0;

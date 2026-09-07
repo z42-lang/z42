@@ -1,0 +1,53 @@
+// fix-binder-emitter-gaps-batch2（欠债表 bug B）：**继承自泛型 class 基类**。
+//
+// 修前两个半边各错一次，且都是同一行「算了裸名却用了带实参的名」：
+//   ① StubCollector 把基类名连泛型实参一起存（`"GBase<T>"`），而 BaseName 的每个消费方
+//      （IsSubclassOf / InheritanceResolver / DeclBinder / EmitContext / AccessChecker /
+//      ClassExtractor）都拿它当 `Classes` 的键 ⇒ base 链在泛型基类处**静默截断**。
+//   ② ClassDescBuilder 发射的 CLASS base 同样带实参 ⇒ VM 建 vtable 时按 `Ns.GBase<T>`
+//      找不到任何类 ⇒ 继承来的方法**运行期** `VCall: function Ns.GSub.Tag not found`。
+//
+// ⚠️ 本文件走 `--emit-zbc`（丢弃诊断、exit 0），所以「本该报错却没报」在这里看不见；
+// 真正让本文件成为**门**的是 ①/② 之后的**运行期**行为：泛型派生方一旦回归就 VCall 崩，
+// Assert 根本跑不到。编译期那一半（inst→inst 可赋、继承成员可解析）的门在
+// `src/compiler/z42c.semantics/tests/typecheck/binder_emitter_gaps/`。
+namespace Demo;
+
+class GBase<T> {
+    public int Tag() { return 11; }
+    public virtual string Kind() { return "base"; }
+}
+
+// 泛型派生 + 泛型基（同实参）
+class GSub<T> : GBase<T> {
+    public override string Kind() { return "gsub"; }
+}
+
+// 非泛型派生 + 泛型基
+class CSub : GBase<int> {
+    public override string Kind() { return "csub"; }
+}
+
+// 对照：非泛型基（修前也正常）
+class NBase { public int Tag() { return 22; } }
+class NSub<T> : NBase { }
+
+void Main() {
+    // ① 继承成员（修前：GSub 运行期 VCall not found；CSub 连编译期都 E0401）
+    Assert.Equal(11, new GSub<int>().Tag());
+    Assert.Equal(11, new CSub().Tag());
+    Assert.Equal(22, new NSub<int>().Tag());
+
+    // ② virtual override 经泛型基类正常派发
+    Assert.Equal("gsub", new GSub<int>().Kind());
+    Assert.Equal("csub", new CSub().Kind());
+
+    // ③ inst → inst 上转（Conversion 此前独缺这条分支 → E0402）
+    GBase<int> up = new GSub<int>();
+    Assert.Equal(11, up.Tag());
+    Assert.Equal("gsub", up.Kind());
+
+    // ④ inst → 裸 class 上转（分支 H，靠 base 链修好后才真能走通）
+    NBase nb = new NSub<int>();
+    Assert.Equal(22, nb.Tag());
+}

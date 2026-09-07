@@ -1,0 +1,8 @@
+namespace Demo.TupleBase;
+
+// 生产方也在 z42.core 之外 —— 元组脱糖目标 `Std.ValueTupleN` 必须 public，
+// 否则这里与 main 两侧都撞 E0404（fix-binder-emitter-gaps-batch2 / 欠债表 bug B2）。
+public class Pairs {
+    public (int, string) Named() { return (7, "hi"); }
+    public (int, int) Sum2((int, int) a, (int, int) b) { return (a.Item1 + b.Item1, a.Item2 + b.Item2); }
+}

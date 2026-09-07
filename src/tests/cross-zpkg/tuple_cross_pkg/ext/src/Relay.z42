@@ -1,0 +1,10 @@
+namespace Demo.TupleExt;
+
+using Demo.TupleBase;
+
+// 第三跳：ext 既**消费**来自 target 的元组、又**再导出**元组。
+// 三包链路（target → ext → main）确保元组类型经 TSIG 往返两次仍可用。
+public class Relay {
+    public (int, string) Forward() { return new Pairs().Named(); }
+    public (int, int) Doubled((int, int) a) { return new Pairs().Sum2(a, a); }
+}

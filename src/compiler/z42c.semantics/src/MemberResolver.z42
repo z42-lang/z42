@@ -569,10 +569,64 @@ public sealed class MemberResolver {
                 }
             }
         }
+        // fix-ns-qualified-static-call（欠债表 bug B7）：**ns 限定**静态调用 `Std.IO.Console.WriteLine(…)`。
+        // 上面三条静态分支都要求 `mem.Target is IdentExpr`，而限定形式的 target 是嵌套 MemberExpr
+        // （`Std.IO.Console`）⇒ 全部落空 → 直冲下方实例路径 → 递归到最里层把 `Std` 当变量查
+        // → `E0401: undefined: Std`（裸名 `Console.WriteLine` 一直正常，故全仓无人这么写、长期没暴露）。
+        //
+        // 判别：点串拍平成 `<prefix>.<Short>`，prefix 须是本 CU 可见的 ns（using 集 ∪ 本 ns），
+        // 且根标识符不能是局部变量（否则 `a.b.M()` 这类真实例链会被劫持）。命中就按短名走
+        // 与裸名**完全同一条**静态决议路径 —— 即不改变歧义语义（同短名跨 ns 仍 first-wins，
+        // 消歧要等 imported 类补上 Namespace，见 tasks.md「后续」）。
+        string qpath = MemberResolver._dottedPath(mem.Target);
+        if (qpath != "") {
+            int lastDot = qpath.LastIndexOf(".");
+            if (lastDot > 0) {
+                string qns = qpath.Substring(0, lastDot);
+                string qcls = qpath.Substring(lastDot + 1);
+                if (this._tc._isVisibleNs(qns) && env.Symbols.HasClass(qcls)
+                    && env.LookupVar(MemberResolver._rootIdent(mem.Target)) == null) {
+                    Z42ClassType qct = env.Symbols.GetClass(qcls);
+                    MethodSymbol qms = this._tc._overload._resolveOverload(env.Symbols, qct, mem.Name, args, argCount, call.TypeArgCount, sp);
+                    if (qms != null) {
+                        this._tc._access.CheckAccess(qms.Visibility, qms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
+                        this._tc._access.CheckDeprecatedM(qms, mem.Name, sp);
+                        BoundExpr[] qfa = this._tc._overload._withDefaults(qms, args, rawArgs, argCount, env, sp);
+                        BoundCall qbc = new BoundCall("static", false, null, qct.Name(), qms.RegKey, qfa, qfa.Length, qms.Signature.Ret, sp);
+                        this._applyMethodTypeArgs(qbc, call, qms, env);
+                        return qbc;
+                    }
+                    this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                        "no static method `" + mem.Name + "` on `" + qct.Name() + "`", sp);
+                    args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
+                    return new BoundCall("static", false, null, qcls, mem.Name, args, argCount, new Z42ErrorType(), sp);
+                }
+            }
+        }
         // 实例：bind target 为值
         BoundExpr recv = this._tc._expr._bindExpr(mem.Target, env);
         Z42Type rt = recv.Type();
         return this._bindInstanceMemberCall(mem, recv, rt, args, argCount, rawArgs, env, sp, call);
+    }
+
+    // 纯 Ident/Member 链 → 点串（`Std.IO.Console`）。链上出现任何别的表达式（调用 / 下标 / this…）
+    // 返回 ""——只有纯名字链才可能是 ns 限定。
+    private static string _dottedPath(Expr e) {
+        if (e is IdentExpr) { return (e as IdentExpr).Name; }
+        if (e is MemberExpr) {
+            MemberExpr m = e as MemberExpr;
+            string head = MemberResolver._dottedPath(m.Target);
+            if (head == "") { return ""; }
+            return head + "." + m.Name;
+        }
+        return "";
+    }
+
+    // 点串链最里层的标识符名（`Std.IO.Console` → `Std`）；非名字链返回 ""。
+    private static string _rootIdent(Expr e) {
+        if (e is IdentExpr) { return (e as IdentExpr).Name; }
+        if (e is MemberExpr) { return MemberResolver._rootIdent((e as MemberExpr).Target); }
+        return "";
     }
 
 }
