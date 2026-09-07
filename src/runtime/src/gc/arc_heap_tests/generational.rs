@@ -236,6 +236,51 @@ fn minor_gc_tombstones_unrooted_young_entry() {
     assert_eq!(post, 0, "minor GC tombstones the unrooted young entry");
 }
 
+/// **fix-young-list-only-when-generational (2026-09-07)**: a heap that allocated
+/// while in the default STW mode maintains no young list. Switching to
+/// generational must rebuild it from the live entries — otherwise minor GC walks
+/// an empty list and reclaims nothing.
+#[test]
+fn set_mode_to_generational_rebuilds_young_list_from_live_entries() {
+    let heap = ArcMagrGC::new();
+    assert_eq!(heap.mode(), GcMode::StwMarkSweep);
+
+    // Allocated *before* the switch, so nothing listed it as young.
+    let _ephemeral = alloc_obj(&heap, "AllocatedBeforeSwitch");
+    let pre = {
+        let mut n = 0; heap.iterate_live_objects(&mut |_| n += 1); n
+    };
+    assert_eq!(pre, 1);
+
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    heap.force_collect();
+
+    let post = {
+        let mut n = 0; heap.iterate_live_objects(&mut |_| n += 1); n
+    };
+    assert_eq!(post, 0,
+        "minor GC must reclaim an entry allocated before the mode switch \
+         — set_mode has to rebuild young_list, not start from empty");
+}
+
+/// The mirror of the above: switching back off drops the list, and switching on
+/// again rebuilds it. Guards the flag/mode invariant against a one-way flip.
+#[test]
+fn set_mode_round_trip_keeps_young_list_in_step_with_mode() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    let _live = alloc_obj(&heap, "Live");
+    assert_eq!(heap.region_object_for_test().lock().young_count(), 1);
+
+    heap.set_mode(GcMode::StwMarkSweep);
+    assert_eq!(heap.region_object_for_test().lock().young_count(), 0,
+        "leaving generational mode drops the young list");
+
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    assert_eq!(heap.region_object_for_test().lock().young_count(), 1,
+        "re-entering generational mode rebuilds it from the live entries");
+}
+
 #[test]
 fn minor_gc_preserves_pinned_young_entry() {
     let heap = ArcMagrGC::new();

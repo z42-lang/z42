@@ -122,6 +122,10 @@ fn validation_detects_stale_mark_in_region_object() {
 #[should_panic(expected = "invariant violation")]
 fn validation_detects_region_object_corruption() {
     let heap = ArcMagrGC::new();
+    // fix-young-list-only-when-generational: `young_list` is maintained — and so
+    // the "alive young entry must be listed" invariant only holds — in
+    // generational mode. Arm it before corrupting the list.
+    heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
     let v = heap.alloc_object(dummy_type_desc("Corrupt"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
 

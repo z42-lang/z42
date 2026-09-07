@@ -12,15 +12,20 @@ use super::*;
 /// `Z42_GC_MODE`). Other fields fall back to their own `Default`.
 impl Default for ArcMagrGC {
     fn default() -> Self {
+        let mode = crate::gc::GcMode::from_env();
+        let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
         Self {
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
             context_reclaimer: Mutex::new(None),
             categorized_root_scanner: Mutex::new(None),
             external_needs_collect: Mutex::new(None),
-            mode: std::sync::atomic::AtomicU8::new(crate::gc::GcMode::from_env() as u8),
-            region_object: Mutex::new(crate::gc::region::Region::new()),
-            region_array:  Mutex::new(crate::gc::region::Region::new()),
+            mode: std::sync::atomic::AtomicU8::new(mode as u8),
+            // fix-young-list-only-when-generational: the young list is minor GC's
+            // private index, so only a generational heap pays to maintain it.
+            // `set_mode` keeps this in step if the mode changes later.
+            region_object: Mutex::new(crate::gc::region::Region::new_for_mode(generational)),
+            region_array:  Mutex::new(crate::gc::region::Region::new_for_mode(generational)),
             region_var:    Mutex::new(VarRegion::with_drop_glue(var_drop_glue)),
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
