@@ -112,6 +112,26 @@
 
 ⇒ 新编译器**自身是稳定不动点**；CI 的构建顺序不受影响。**不需要格式 bump、不需要两代自举**。
 
+### 5.y rebase 后立刻抓到一条真实窄化（检查的价值实证）
+
+rebase 到 `cc239fab` 后，main **新落地**的 `tests/zbcreader/constraint_bundle_tests.z42:40` 被本检查
+拦下：`w.WriteU32(0xFFFFFFFF)` —— 字面量越 `int` 界 → 定型为 `long` → 传 `WriteU32(int)` 是窄化 → **E0439**。
+
+**不是误报**：被测的**写侧** `ZbcWriter.z42:631` 发同一个 NONE 哨兵用的就是 `w.WriteU32(0 - 1)`。
+测试那份靠的是 `long → int` 静默截断。已改成与写侧同款 `0 - 1`（同一位模式，无需截断）。
+
+⇒ 检查上线后**在新代码上立刻兑现**的第一例：它拦住的正是「今天碰巧能跑」的写法。
+
+### 5.z ⚠️ rebase 后种子太旧（踩坑，配方已记 memory）
+
+`../z42-autoprop` 基于 36c02e62，rebase 到 cc239fab 后 `build compiler` **两次都失败**
+（`undefined type: AssocBindingType` / `no field Prev on IncrFilePlan` / `no field NsNames on CacheMeta`），
+**而后续 `xtask test` 照跑、用的是陈旧产物 = 假 GREEN**。
+
+根因：`AssocBindingType` 定义在 **`src/libraries/z42c.syntax/`（stdlib 包）**，我却按冷启动的 CI 顺序
+先 `build compiler` 后 `build stdlib` ⇒ 编译器编译时 stdlib 还是旧的。
+→ **配方：跨 rebase 后先 `build stdlib` 再 `build compiler`**（与冷启动顺序相反），且**每次 build 后 grep `✗`**。
+
 ## 备注
 
 - **本变更不开 P1 的门**（`--emit-zbc` 打印诊断）——那是本程序第 ⑧ 步，仍排最后。

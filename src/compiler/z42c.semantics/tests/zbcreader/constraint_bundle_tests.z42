@@ -37,7 +37,10 @@ byte[] _typeSection(ByteWriter bundle) {
     ByteWriter w = new ByteWriter();
     w.WriteU32(1);            // class count
     w.WriteU32(0);            // name → "C"
-    w.WriteU32(0xFFFFFFFF);   // base → NONE 哨兵（_isNoneU32）
+    // base → NONE 哨兵（_isNoneU32）。用 `0 - 1` 与**写侧** `ZbcWriter.z42:631` 同款：
+    // 原写法 `0xFFFFFFFF` 越 int 界 → 字面量定型为 long → 传 `WriteU32(int)` 是窄化，
+    // add-argument-type-check 起报 E0439。同一位模式，`0 - 1` 无需截断。
+    w.WriteU32(0 - 1);
     w.WriteU16(0);            // field count
     w.WriteU8(1);             // type-param count
     w.WriteU32(1);            // type-param name → "T"
