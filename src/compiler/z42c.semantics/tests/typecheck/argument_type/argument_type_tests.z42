@@ -1,0 +1,198 @@
+// add-argument-type-check：调用实参 → 形参的隐式可转检查（E0402 无转换 / E0439 缺 cast）。
+//
+// 检查点 = `OverloadBinder.BindArgsToSignature` 的 `_checkArgTypes`（全部调用形态的通用汇聚点）
+// + `CheckArg`（ctor 位置实参 / `_adaptArgs` 命名实参·可选参这两条不经汇聚点的路径）。
+// 判定门与赋值 / return / var-decl **同一条**：`Conversion.Classify(...).ImplicitOk()`，
+// 经 `TypeChecker.CheckImplicitConvert`，故不新增诊断码。
+//
+// 🔴 断言口径：实参诊断是**体内**诊断（TypeChecker._diags），`SemanticDump` 可见。但**不能只断言
+// FirstErrorCode**——它只看第一条，「多实参逐条报」和「本该无诊断」两类都验不到。故本文件用
+// `bodyDiags` 直接读诊断袋，断言**码 + 条数**。
+// （签名位置的诊断走 SymbolCollector.Diags、SemanticDump 不合并，见
+//  semanticdump-errorcount-skips-collector-diags——本文件不涉及那条路径。）
+namespace Z42cSemanticsArgumentTypeTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+// 体内诊断（TypeChecker.Infer 产出）——镜像 SemanticDump.FirstErrorCode 的构建序，但返回整袋。
+DiagnosticBag bodyDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int countCode(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 共用前缀（z42 顶层只允许声明，故用函数而非顶层变量）。
+string pre() { return "class A { } class B { } class D : A { } interface I { } class L : I { } "; }
+
+// ── 负例：引用类型不相容 → E0402 ─────────────────────────────────────────
+
+[Test]
+void test_free_func_arg_type_mismatch_reports_E0402() {
+    string src = pre() + "void TakeA(A a) { } void Main() { TakeA(new B()); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_prim_to_ref_arg_mismatch_reports_E0402() {
+    string src = pre() + "void TakeS(string s) { } void Main() { TakeS(42); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_instance_method_arg_mismatch_reports_E0402() {
+    string src = pre() + "class C { public void M(A a) { } } void Main() { C c = new C(); c.M(new B()); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_static_method_arg_mismatch_reports_E0402() {
+    string src = pre() + "class C { public static void S(A a) { } } void Main() { C.S(new B()); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// Q3：构造器与 f(x) 同口径（此前 `new C(x)` 只有 arity 检查 E0426，类型不符静默通过）。
+[Test]
+void test_ctor_arg_type_mismatch_reports_E0402() {
+    string src = pre() + "class C { public C(A a) { } } void Main() { C c = new C(new B()); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// params 构造器：形参是 `int[]`、实参是元素——逐位比会误报，须走 params 尾位规则。
+// （接 ctor 检查时**实测踩过**：`typecheck_tests.test_ctor_params_variadic_ok` 当场变红。）
+[Test]
+void test_params_ctor_expanded_args_is_clean() {
+    string src = "class P { P(params int[] xs) { } } void Main() { P p = new P(1, 2, 3); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// params 方法同款（规范形态：直接传数组）。
+[Test]
+void test_params_method_normal_form_is_clean() {
+    string src = "void Sum(params int[] xs) { } void Main() { int[] a = new int[2]; Sum(a); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// 多个不符实参**逐条**报，不在第一条短路。
+[Test]
+void test_multiple_bad_args_report_each() {
+    string src = pre() + "void Take2(A a, string s) { } void Main() { Take2(new B(), 42); }";
+    Assert.Equal(2, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── 负例：窄化需显式 cast → E0439（不是 E0402） ──────────────────────────
+
+[Test]
+void test_narrowing_arg_reports_E0439() {
+    string src = "void TakeB(byte b) { } void Main() { long v = 300; TakeB(v); }";
+    DiagnosticBag d = bodyDiags(src);
+    Assert.Equal(1, countCode(d, "E0439"));
+    Assert.Equal(0, countCode(d, "E0402"));
+}
+
+// ── 正例：本该放行的一律无诊断 ───────────────────────────────────────────
+
+[Test]
+void test_exact_match_arg_is_clean() {
+    string src = pre() + "void TakeA(A a) { } void Main() { TakeA(new A()); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_derived_to_base_arg_is_clean() {
+    string src = pre() + "void TakeA(A a) { } void Main() { TakeA(new D()); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_boxing_to_object_arg_is_clean() {
+    string src = "void TakeO(object o) { } void Main() { TakeO(42); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_impl_to_interface_arg_is_clean() {
+    string src = pre() + "void TakeI(I i) { } void Main() { TakeI(new L()); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// C# 常量在范围内例外（同 `byte b = 48;`）——窄化常量不报。
+[Test]
+void test_const_in_range_arg_is_clean() {
+    string src = "void TakeB(byte b) { } void Main() { TakeB(48); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_explicit_cast_arg_is_clean() {
+    string src = "void TakeB(byte b) { } void Main() { long v = 300; TakeB((byte)v); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// 无损数值拓宽照常放行。
+[Test]
+void test_widening_arg_is_clean() {
+    string src = "void TakeL(long v) { } void Main() { int i = 7; TakeL(i); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// ── 根因回归：修好后这些必须放行（此前各自因一条根因报错） ───────────────
+
+// R1b：具体数组 → 泛型形参数组（擦除放行）。同包也覆盖，跨包由 e2e/stdlib 自建覆盖。
+[Test]
+void test_concrete_array_to_generic_array_param_is_clean() {
+    string src = "void Fill<T>(T[] a) { } void Main() { byte[] b = new byte[2]; Fill(b); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// R1b：泛型实参出现在嵌套位置（Func 形参内）同样擦除放行。
+[Test]
+void test_generic_param_nested_in_func_is_clean() {
+    string src = "void Take<T>(Func<T, bool> f) { } void Main() { Take<int>((int x) => x > 0); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// R5：语句体 lambda 传 Action 形参 —— 目标定型后是 Action，不再是 Func<<unknown>>。
+[Test]
+void test_statement_lambda_to_action_param_is_clean() {
+    string src = "void Run(Action a) { } void Main() { int n = 0; Run(() => { n = n + 1; }); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// R5：带返回值 lambda 按形参类型定型。
+[Test]
+void test_expression_lambda_to_func_param_is_clean() {
+    string src = "void Take(Func<int> f) { } void Main() { Take(() => 1); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// R7：`Func<int>` 与 `Func<Int32>` 是同一类型（此前 Dump() 逐字比判不等）。
+[Test]
+void test_func_int_and_func_Int32_are_same_type() {
+    string src = "void Take(Func<Int32> f) { } void Main() { Func<int> g = () => 1; Take(g); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// ── 残留洞：签名不可知 / enum 位不报（有意，须锁住以免将来静默改口径） ────
+
+// enum 位跳过（design D6）——enum 语义归独立 change make-enum-distinct-type，
+// 在它落地前本检查不对 enum 位发声。**该 change 落地时本用例应当反转。**
+[Test]
+void test_enum_arg_is_skipped_pending_enum_change() {
+    string src = "enum Color { Red, Blue } void TakeC(Color c) { } void Main() { TakeC(Color.Blue); }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}

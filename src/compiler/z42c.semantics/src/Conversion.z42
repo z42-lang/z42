@@ -118,14 +118,23 @@ public static class Conversion {
         // A: error / unknown 吸收
         if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }
         if ((to is Z42ErrorType) || (to is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }
-        // B: 恰一侧泛型形参 → 擦除放行
-        if ((from is Z42GenericParamType) != (to is Z42GenericParamType)) { return new ConvResult(ConvKind.GenericErase); }
+        // B: 恰一侧**含**泛型形参 → 擦除放行。
+        // add-argument-type-check R1b：判定从「顶层是否 Z42GenericParamType」改为**结构化递归**
+        // （数组元素 / 实例化类型实参 / func 形参·返回）。裸型参的行为逐位不变（裸 GP 自身即"含"），
+        // 新覆盖的是 `Byte[]` → `T[]` 这类——两侧都是 Z42ArrayType，顶层判定恒相等 ⇒ 擦除永不触发 ⇒
+        // 落 D 的 `Z42ArrayType.IsAssignableTo` 按元素 CanonName 比（`"u8" != "T"`）→ None。
+        // 该缺口**只能经传参触达**（泛型方法体内无法凭空造出具体元素类型的值赋给 `T[]`），故长期无人发现。
+        if (Conversion._hasGenericParam(from) != Conversion._hasGenericParam(to)) { return new ConvResult(ConvKind.GenericErase); }
         // C: to == object（任意 → object）
         // unify-value-types Phase 1（双路）：翻转后 object→Z42ClassType(Object)；按 canonical 名归一。
         if (Conversion._isObjectBuiltin(to)) {
             if (Conversion._isValuePrim(from)) { return new ConvResult(ConvKind.Boxing); }
             return new ConvResult(ConvKind.ImplicitRef);
         }
+        // C2（add-argument-type-check R2 / 欠债表 bug A）：任意数组 → 其基类 `Array`（对标 C# System.Array）。
+        // 此前只特判 object，数组基类漏掉 ⇒ `Array a = new int[3];` 在 **var-decl** 就报 E0402
+        // （既存 bug，与实参检查无关；stdlib `Array.CopyRange(Array,int,Array,int,int)` 是其现场）。
+        if ((from is Z42ArrayType) && Conversion._isArrayBase(to)) { return new ConvResult(ConvKind.ImplicitRef); }
         // 数值 prim 对（两侧均数值 prim）→ 数值矩阵（Identity / ImplicitNumeric / ExplicitNumeric，永不 None）
         // 双路：翻转后数值基元为 Z42ClassType(Scalar)——_isNumericBuiltin 认 Prim ∪ Scalar 值类型。
         if (Conversion._isNumericBuiltin(from) && Conversion._isNumericBuiltin(to)) {
@@ -173,6 +182,27 @@ public static class Conversion {
         return new ConvResult(ConvKind.None);
     }
 
+    // add-argument-type-check R1b：类型里（含数组元素 / 实例化类型实参 / func 形参·返回）是否出现
+    // 未具化的泛型形参。裸 `Z42GenericParamType` 返回 true ⇒ 分支 B 对裸型参的判定与改动前逐位等价。
+    public static bool _hasGenericParam(Z42Type t) {
+        if (t == null) { return false; }
+        if (t is Z42GenericParamType) { return true; }
+        if (t is Z42ArrayType) { return Conversion._hasGenericParam((t as Z42ArrayType).Elem); }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            int i = 0;
+            while (i < it.ArgCount) { if (Conversion._hasGenericParam(it.TypeArgs[i])) { return true; } i = i + 1; }
+            return false;
+        }
+        if (t is Z42FuncType) {
+            Z42FuncType ft = t as Z42FuncType;
+            int i = 0;
+            while (i < ft.ParamCount) { if (Conversion._hasGenericParam(ft.ParamTypes[i])) { return true; } i = i + 1; }
+            return Conversion._hasGenericParam(ft.Ret);
+        }
+        return false;
+    }
+
     // 值类型 prim（可装箱）：数值（含 char）+ bool。object / string 是引用，不算。
     // unify-value-types Phase 1（双路）：翻转后基元为 Z42ClassType(Scalar)——追加 Scalar 判定
     // （IsScalarValue = 六个基元 wrapper = 数值∪bool∪char，与历史 numeric∪bool 等价）。翻转前中立。
@@ -194,6 +224,12 @@ public static class Conversion {
         bool bB = (b is Z42ClassType) && b.IsBuiltinType();
         if (!aB || !bB) { return false; }
         return a.CanonName() == b.CanonName();
+    }
+
+    // add-argument-type-check R2：目标是数组基类 `Array`（z42.core 的 `public sealed class Array`，
+    // 用作 `CopyRange(Array source, …)` 这类「任意数组」形参；对标 C# System.Array）。
+    private static bool _isArrayBase(Z42Type t) {
+        return (t is Z42ClassType) && (t.Name() == "Array");
     }
 
     // 双路辅助：是内建 object（Z42PrimType("object") 或翻转后 Z42ClassType(Object)）。

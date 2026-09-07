@@ -31,6 +31,9 @@ public sealed class ExportedMethodZ {
     public string           DeprecationMsg;  // 同 IsSealed：ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 构造后赋值。
     public int              TypeParamCount;  // add-array-paired-sort：方法级泛型形参个数（SIGS 早已存 tp 块，无格式 bump）。
     // 同 IsSealed/ParamsFrom：ctor 元数不变（旧种子 ABI），默认 0，构造后由 SigEntryZ 赋值。供泛型 arity 重载过滤。
+    public string[]         TypeParams;      // add-argument-type-check R1：方法级泛型形参**名**（与 Count 同在 tp 块）。
+    // 同上：ctor 元数不变（旧种子 ABI），默认空数组，构造后由 SigEntryZ 赋值。
+    // 供 ImportedSymbolLoader._resolve 把跨包签名里的 `T` 还原成 Z42GenericParamType（而非名为 "T" 的普通类）。
     public ExportedMethodZ(string name, string returnType, string visibility,
                            bool isStatic, bool isVirtual, bool isAbstract, int minArgCount,
                            ExportedParamZ[] params_, int paramCount) {
@@ -40,7 +43,7 @@ public sealed class ExportedMethodZ {
         this.ParamsFrom = 0 - 1;
         this.IsSealed = false;
         this.IsDeprecated = false; this.DeprecationMsg = "";
-        this.TypeParamCount = 0;
+        this.TypeParamCount = 0; this.TypeParams = new string[0];
     }
 }
 

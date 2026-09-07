@@ -570,7 +570,20 @@ public sealed class ExprTyper {
     public BoundExpr BindWithTarget(Expr e, Z42Type target, TypeEnv env) {
         if (e is ObjNewExpr && (e as ObjNewExpr).Type == null)   { return this._construct._bindNew(e as ObjNewExpr, env, target); }
         if (e is ObjInitExpr && (e as ObjInitExpr).Type == null) { return this._construct._bindObjInit(e as ObjInitExpr, env, target); }
+        // add-argument-type-check R5：**目标定型的 lambda 实参**。`_bindLambda` 本就接受 expected 签名
+        // （形参未标注时取 expected.ParamTypes、block 体按 expected.Ret 绑体），只是调用点从不喂目标——
+        // lambda 实参在重载决议**之前**被急切 `_bindExpr`，只能落 `_bindLambdaArg` 的 Unknown 返回
+        // ⇒ 语句体 lambda 得 `Func<<unknown>>`，传 `Action` 形参失败（`Thread.Start(() => {...})`）。
+        // 经 `BindArgsToSignature` 的延迟位把形参类型喂进来后，此处按目标定型。
+        if ((e is LambdaExpr) && (target is Z42FuncType)) {
+            return this._tc._stmt._bindLambda(e as LambdaExpr, target as Z42FuncType, env);
+        }
         return this._bindExpr(e, env);
     }
+
+    // add-argument-type-check R5：lambda 实参须**延迟**到重载决议之后再绑（同 target-typed `new`），
+    // 否则拿不到形参类型。`_bindCall` 据此留 null 占位，`BindArgsToSignature` 按选定签名回填；
+    // 签名不可知（sig=null）时回落 `_bindExpr` → 与改动前逐位一致。
+    public static bool IsLambdaArg(Expr e) { return e is LambdaExpr; }
 
 }

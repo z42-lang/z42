@@ -253,10 +253,15 @@ public static class ImportedSymbolLoader {
                         while (im2 < iz2.MethodCount) {
                             ExportedMethodZ mz = iz2.Methods[im2];
                             if (!it2.Methods.ContainsKey(mz.Name)) {
+                                // R1：接口级型参（**含 `Self`**，add-self-type 的 `itp2`）∪ **方法级**型参。
+                                // 此前方法级一个都没喂 → `IBasicCollection<T>.AddOne(T)` 的 `T` 降级成
+                                // 名为 "T" 的普通类 ⇒ `AddOne(1)` 报 `int → T`。
+                                string[] itps = ImportedSymbolLoader._tpsWith(itp2, itpc2, mz.TypeParams);
+                                int itpc = itps.Length;
                                 Z42Type[] mps = new Z42Type[mz.ParamCount];
                                 int mj2 = 0;
-                                while (mj2 < mz.ParamCount) { mps[mj2] = ImportedSymbolLoader._resolve(r, mz.Params[mj2].TypeName, itp2, itpc2); mj2 = mj2 + 1; }
-                                var msig = new Z42FuncType(mps, mz.ParamCount, ImportedSymbolLoader._resolve(r, mz.ReturnType, itp2, itpc2));
+                                while (mj2 < mz.ParamCount) { mps[mj2] = ImportedSymbolLoader._resolve(r, mz.Params[mj2].TypeName, itps, itpc); mj2 = mj2 + 1; }
+                                var msig = new Z42FuncType(mps, mz.ParamCount, ImportedSymbolLoader._resolve(r, mz.ReturnType, itps, itpc));
                                 ImportedSymbolLoader._fillParamDefaults(msig, mz.Params, mz.ParamCount);   // PR6
                                 it2.Methods.Put(mz.Name, new MethodSymbol(mz.Name, "public", msig, false, iz2.Name, false, null));
                             }
@@ -299,10 +304,13 @@ public static class ImportedSymbolLoader {
         while (m < im.MethodCount) {
             ExportedMethodZ me = im.Methods[m];
             if (!ct.Methods.ContainsKey(me.Name)) {
+                // R1：trait-impl 方法的方法级型参（此前不喂 → 同款降级）。
+                string[] etps = ImportedSymbolLoader._tpsWith(new string[0], 0, me.TypeParams);
+                int etpc = etps.Length;
                 Z42Type[] ps = new Z42Type[me.ParamCount];
                 int j = 0;
-                while (j < me.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, me.Params[j].TypeName); j = j + 1; }
-                var sig = new Z42FuncType(ps, me.ParamCount, ImportedSymbolLoader._resolve(r, me.ReturnType));
+                while (j < me.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, me.Params[j].TypeName, etps, etpc); j = j + 1; }
+                var sig = new Z42FuncType(ps, me.ParamCount, ImportedSymbolLoader._resolve(r, me.ReturnType, etps, etpc));
                 sig.ParamsFrom = me.ParamsFrom;
                 ImportedSymbolLoader._fillParamDefaults(sig, me.Params, me.ParamCount);   // PR6：跨包默认值/ caller
                 var sym = new MethodSymbol(me.Name, me.Visibility, sig, me.IsStatic, ct.Name(), false, null);
@@ -331,6 +339,26 @@ public static class ImportedSymbolLoader {
         return fq.Substring(dot + 1, fq.Length - dot - 1);
     }
 
+    // add-argument-type-check R1：类/接口级型参 ∪ **方法级**型参 → `_resolve` 的型参表。
+    // 此前只喂类级（`_fillClass` 的 tps）或压根不喂（接口方法 / trait-impl 方法 / 自由函数），
+    // 于是 `Array.Copy<T>(T[],T[],int)`、`IBasicCollection<T>.AddOne(T)` 这类签名里的 `T` 落到
+    // `_resolve` 末尾的 `Z42ClassType.Builtin(name)` 兜底 → **型参身份丢失**（成了名为 "T" 的普通类）
+    // ⇒ `Conversion._classifyBuiltin` 分支 B「恰一侧泛型形参 → 擦除放行」永不触发。
+    // 合并而非替换：类级与方法级可同时在场（`class C<T> { void M<U>(T t, U u) }`）。
+    private static string[] _tpsWith(string[] outer, int outerCount, string[] methodTps) {
+        int mc = 0;
+        if (methodTps != null) { mc = methodTps.Length; }
+        if (mc == 0) { return outer == null ? new string[0] : outer; }
+        int oc = outerCount;
+        if (outer == null) { oc = 0; }
+        string[] merged = new string[oc + mc];
+        int i = 0;
+        while (i < oc) { merged[i] = outer[i]; i = i + 1; }
+        int k = 0;
+        while (k < mc) { merged[oc + k] = methodTps[k]; k = k + 1; }
+        return merged;
+    }
+
     private static void _fillClass(ImportedSymbols r, Z42ClassType ct, ExportedClassZ cl) {
         string[] tps = cl.TypeParams;
         int tpc = cl.TpCount;
@@ -351,10 +379,13 @@ public static class ImportedSymbolLoader {
         while (i < cl.MethodCount) {
             ExportedMethodZ m = cl.Methods[i];
             if (!ct.Methods.ContainsKey(m.Name)) {              // bare+arity 键并存，bare first-wins
+                // R1：类级 tps ∪ 方法级 m.TypeParams（`Array.Copy<T>` 是「类无型参 + 方法级型参」）。
+                string[] mtps = ImportedSymbolLoader._tpsWith(tps, tpc, m.TypeParams);
+                int mtpc = mtps.Length;
                 Z42Type[] ps = new Z42Type[m.ParamCount];
                 int j = 0;
-                while (j < m.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, m.Params[j].TypeName, tps, tpc); j = j + 1; }
-                var sig = new Z42FuncType(ps, m.ParamCount, ImportedSymbolLoader._resolve(r, m.ReturnType, tps, tpc));
+                while (j < m.ParamCount) { ps[j] = ImportedSymbolLoader._resolve(r, m.Params[j].TypeName, mtps, mtpc); j = j + 1; }
+                var sig = new Z42FuncType(ps, m.ParamCount, ImportedSymbolLoader._resolve(r, m.ReturnType, mtps, mtpc));
                 sig.ParamsFrom = m.ParamsFrom;
                 ImportedSymbolLoader._fillParamDefaults(sig, m.Params, m.ParamCount);   // PR6：跨包默认值/ caller（静态+实例主路径）
                 // z42c 既有约定：静态/实例同进 Methods（IsStatic 标真值）——D3
@@ -385,6 +416,36 @@ public static class ImportedSymbolLoader {
     // 手写的循环每字符要 `s.Length` + `s.CharAt(i)` 两次 builtin 分发。
     private static int _dollarAt(string s) { return s.IndexOf('$'); }
 
+    // add-argument-type-check R5/R7：委托类型名 → Z42FuncType；非委托名返回 null（调用方继续原流程）。
+    // 名字形态与 `Z42FuncType.Name()` 的产物**互逆**（Action / Action<A,…> / Func<A,…,Ret> / Predicate<A>），
+    // 故 TSIG 里的委托类型串能无损还原。语义逐条对齐 `SymbolTable.ResolveTypeP:238-254`。
+    private static Z42Type _resolveDelegate(ImportedSymbols r, string name, string[] typeParams, int tpCount) {
+        if (name == "Action") { return new Z42FuncType(new Z42Type[0], 0, new Z42VoidType()); }
+        int lt = name.IndexOf("<");
+        if (lt <= 0 || !name.EndsWith(">")) { return null; }
+        string b = name.Substring(0, lt);
+        if (b != "Action" && b != "Func" && b != "Predicate") { return null; }
+        string[] argStrs = ImportedSymbolLoader._splitTypeArgs(name.Substring(lt + 1, name.Length - lt - 2));
+        int n = argStrs.Length;
+        if (b == "Action") {
+            Z42Type[] ps = new Z42Type[n];
+            int i = 0;
+            while (i < n) { ps[i] = ImportedSymbolLoader._resolve(r, argStrs[i], typeParams, tpCount); i = i + 1; }
+            return new Z42FuncType(ps, n, new Z42VoidType());
+        }
+        if (b == "Predicate") {
+            if (n != 1) { return null; }
+            Z42Type[] ps = new Z42Type[1];
+            ps[0] = ImportedSymbolLoader._resolve(r, argStrs[0], typeParams, tpCount);
+            return new Z42FuncType(ps, 1, Z42ClassType.Builtin("bool"));
+        }
+        if (n < 1) { return null; }                     // Func 至少要有返回类型
+        Z42Type[] ps = new Z42Type[n - 1];
+        int i = 0;
+        while (i < n - 1) { ps[i] = ImportedSymbolLoader._resolve(r, argStrs[i], typeParams, tpCount); i = i + 1; }
+        return new Z42FuncType(ps, n - 1, ImportedSymbolLoader._resolve(r, argStrs[n - 1], typeParams, tpCount));
+    }
+
     // TypeResolver 子集（镜像 C# 优先级）：数组后缀 → prim/void → imported class → 泛型型参 → fallback prim(name)。
     // typeParams/tpCount：当前类的类型形参列表（如 ["T"] for Channel<T>）；无则传空数组 + 0。
     private static Z42Type _resolve(ImportedSymbols r, string name, string[] typeParams, int tpCount) {
@@ -392,7 +453,27 @@ public static class ImportedSymbolLoader {
             return new Z42ArrayType(ImportedSymbolLoader._resolve(r, name.Substring(0, name.Length - 2), typeParams, tpCount));
         }
         if (name == "void") { return new Z42VoidType(); }
+        // add-argument-type-check R3（欠债表 bug B3 的**消费端**半边）：`"unknown"` 是**哨兵**，不是类名。
+        // 发射端 `FunctionEmitter._sigTypeName` 对含点的限定名（`Std.Type`）刻意写字面量 "unknown"，
+        // 此处却读成 `Z42ClassType.Builtin("unknown")`——一个「名叫 unknown 的类」⇒ `Conversion` 分支 A
+        // 的 error/unknown **Absorb 守卫失效** ⇒ `f.GetAttribute(typeof(X))` 被判 `Type → unknown` 不可转。
+        // 还原成 Z42UnknownType 后 Absorb 生效、级联抑制恢复正常。
+        // 🕳 **产出端半边仍是欠债**（让 SIGS 写出真实限定名）：那会改 SIGS 字节、波及 golden 与自举
+        // 不动点，且反射面 `FieldType.Name == "unknown"` 有运行期后果 → 保留为独立 change（bug B3）。
+        if (name == "unknown") { return new Z42UnknownType(); }
         if (ImportedSymbolLoader._isPrim(name)) { return Z42ClassType.Builtin(name); }
+        // add-argument-type-check R5/R7：**imported 委托类型名 → Z42FuncType**。
+        // 本地解析器 `SymbolTable.ResolveTypeP:238-254` 早已把 Func/Action/Predicate 映射成结构
+        // Z42FuncType（这三个名是内建、全仓无对应 class/interface 声明），imported 侧却没有同款分支 →
+        // 退化成同名 `Z42ClassType("Action")`。后果两条：
+        //   ① lambda 实参拿不到 Z42FuncType 目标 ⇒ `Thread.Start(() => {…})` 的 lambda 定不了型
+        //      （`Func<<unknown>>` → `Action` 失败）；
+        //   ② `Func<int>` 与 `Func<Int32>` 判不相等（一侧结构、一侧退化类）。
+        // 这与 R1（型参身份）/ R3（"unknown" 固化）同属 imported **类型保真度**缺口，按根因修产出端。
+        {
+            Z42Type dg = ImportedSymbolLoader._resolveDelegate(r, name, typeParams, tpCount);
+            if (dg != null) { return dg; }
+        }
         int _sl0 = r.Classes.Find(name); if (_sl0 >= 0) { return r.Classes.ValAt(_sl0) as Z42ClassType; }
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
