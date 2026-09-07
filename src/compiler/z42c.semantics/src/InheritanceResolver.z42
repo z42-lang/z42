@@ -11,7 +11,10 @@ public sealed class InheritanceResolver {
 
     // impl-block 收集（port-z42c-impl-block，镜像 C# CollectImpls）：
     // 解析 target（NamedType→已注册类）+ trait（接口名）→ 把方法并入 target.Methods、
-    // trait 并入 target.InterfaceNames。严格校验（接口方法齐备/arity）留待后续。
+    // trait 并入 target.InterfaceNames。
+    // ⚠️ 接口成员齐备性校验（pass ⑥ `_checkIfaceMembersComplete`）**看不到经 impl 块获得的接口**：
+    // 本 pass 在 `_passSealedEnforce` **之后**跑，那时 trait 还没并进 `InterfaceNames`。
+    // 不是回归（add-interface-satisfaction-check 之前一条都不查），但要扩到 impl 块得先调这个次序。
     internal void _passImpls(SymbolTable table, CompilationUnit cu) {
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
         int i = 0;
@@ -202,6 +205,9 @@ public sealed class InheritanceResolver {
                         //    跨 CU 都不保证接口先到，故不能在 `_fillClass` 末尾就地查。本 pass 在成员
                         //    填充全部结束后跑，且三条入口路径（单文件 / 包级 / deps）都调它。
                         this._checkAssocBindingsComplete(table, ct, c);
+                        // ⑥ add-interface-satisfaction-check：实现接口就必须**补齐其成员**（名字在 +
+                        //    签名匹配）。与 ⑤ 同一时机、同一理由（要求接口成员已收集完）。
+                        this._checkIfaceMembersComplete(table, ct, c);
                         // ① 继承 sealed 类
                         if (ct.HasBase && ct.BaseName != "" && table.Classes.ContainsKey(ct.BaseName)) {
                             Z42ClassType baseCt = table.Classes.Get(ct.BaseName) as Z42ClassType;
@@ -330,6 +336,104 @@ public sealed class InheritanceResolver {
             this._checkOneIfaceAssoc(table, ct, c, it.BaseNames[b]);
             b = b + 1;
         }
+    }
+
+    // ── add-interface-satisfaction-check ─────────────────────────────────────────────
+    // 「声明了接口就必须补齐其成员」。此前 z42 **完全不查**（本文件抬头自陈「严格校验留待后续」）：
+    // `class C : I { }` 缺成员不报、签名与 `Self` 不符也不报，两者都静默通过。
+    //
+    // 走 **AST 的 `c.Bases`** 而不是 `ct.InterfaceNames`：后者在 `StubCollector` 把 `<...>` 剥成裸名
+    // 存下，类型实参**丢了** ⇒ `class Foo<U> : IBasicCollection<U>` 无从知道接口的 `T` 绑到了 `U`，
+    // 朴素比签名会误报。从 AST 重解析能拿回 `Z42InstantiatedInterfaceType.TypeArgs`。
+    private void _checkIfaceMembersComplete(SymbolTable table, Z42ClassType ct, ClassDecl c) {
+        int i = 0;
+        while (i < c.BaseCount) {
+            Z42Type bt = table.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
+            if (bt is Z42InterfaceType) { this._checkOneIfaceMembers(table, ct, c, bt as Z42InterfaceType); }
+            i = i + 1;
+        }
+    }
+
+    private void _checkOneIfaceMembers(SymbolTable table, Z42ClassType ct, ClassDecl c, Z42InterfaceType it) {
+        string[] keys = it.Methods.Keys();
+        int k = 0;
+        while (k < keys.Length) {
+            MethodSymbol ims = it.Methods.Get(keys[k]) as MethodSymbol;
+            if (ims != null && ims.Signature != null) { this._checkOneIfaceMethod(table, ct, c, it, ims); }
+            k = k + 1;
+        }
+        int b = 0;
+        while (b < it.BaseCount) {   // 父接口的成员同样要补齐（与 ⑤ 的闭包同一条链）
+            Z42InterfaceType bit = table.GetInterface(it.BaseNames[b]);
+            if (bit != null) { this._checkOneIfaceMembers(table, ct, c, bit); }
+            b = b + 1;
+        }
+    }
+
+    private void _checkOneIfaceMethod(SymbolTable table, Z42ClassType ct, ClassDecl c, Z42InterfaceType it, MethodSymbol ims) {
+        int pc = ims.Signature.ParamCount;
+        Z42Type[] want = new Z42Type[pc];
+        int p = 0;
+        while (p < pc) { want[p] = this._substForIface(ims.Signature.ParamTypes[p], ct, it); p = p + 1; }
+        string wantKey = OverloadResolver.MangleKey(ims.Name, want, pc);
+        // **按名取全部重载**，不能 `Methods.Get(name)`：非-primary 重载登记在 mangled 键上
+        // （如 `String` 的 `Equals(object?)` 占裸键、`Equals(string)` 占 `Equals$1$string`），
+        // 按名索引会拿到错的那个 → 假阳性。沿 base 链上溯（继承来的实现同样算数）。
+        Z42ClassType cur = ct;
+        bool nameSeen = false;
+        while (cur != null) {
+            MethodSymbol[] cands = cur.OverloadsOf(ims.Name);
+            int j = 0;
+            while (j < cands.Length) {
+                nameSeen = true;
+                MethodSymbol cm = cands[j];
+                if (cm.Signature != null
+                    && OverloadResolver.MangleKey(cm.Name, cm.Signature.ParamTypes, cm.Signature.ParamCount) == wantKey) { return; }
+                j = j + 1;
+            }
+            if (cur.HasBase && cur.BaseName != "" && table.Classes.ContainsKey(cur.BaseName)) {
+                cur = table.Classes.Get(cur.BaseName) as Z42ClassType;
+            } else { cur = null; }
+        }
+        if (!nameSeen) {
+            this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
+                "`" + c.Name + "` implements `" + it.Name() + "` but does not define member `"
+                + ims.Name + "`", c.Span);
+            return;
+        }
+        this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
+            "`" + c.Name + "` implements `" + it.Name() + "` but no overload of `" + ims.Name
+            + "` matches the interface signature (want `" + wantKey + "`)", c.Span);
+    }
+
+    // 接口成员签名 → 实现方视角的期望签名。两处替换：
+    //   ① `Self` → 实现类自己（`interface IEq { bool Same(Self other); }` + `class P : IEq`
+    //      ⇒ 期望 `Same(P)`）。基元同样成立：`Self := Int32`，而 `Int32` 与源码写的 `int` 经
+    //      `CanonName()` 同为 `i32`，故 `bool Equals(int other)` 匹配得上（已实测 12 个基元全过）。
+    //   ② 接口自己的型参 `T` → 该实现子句给的实参（`class Foo<U> : IBasicCollection<U>` ⇒ T := U）。
+    //      只有解析出 `Z42InstantiatedInterfaceType` 时才有实参可代；裸写（非泛型接口）无需代。
+    private Z42Type _substForIface(Z42Type t, Z42ClassType ct, Z42InterfaceType it) {
+        if (t is Z42GenericParamType) {
+            if (t.Name() == "Self") { return ct; }
+            if (it is Z42InstantiatedInterfaceType) {
+                Z42InstantiatedInterfaceType iit = it as Z42InstantiatedInterfaceType;
+                int i = 0;
+                while (i < iit.TypeParamCount && i < iit.ArgCount) {
+                    if (iit.TypeParamNames[i] == t.Name()) { return iit.TypeArgs[i]; }
+                    i = i + 1;
+                }
+            }
+            return t;
+        }
+        if (t is Z42ArrayType) { return new Z42ArrayType(this._substForIface((t as Z42ArrayType).Elem, ct, it)); }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it2 = t as Z42InstantiatedType;
+            Z42Type[] na = new Z42Type[it2.ArgCount];
+            int i = 0;
+            while (i < it2.ArgCount) { na[i] = this._substForIface(it2.TypeArgs[i], ct, it); i = i + 1; }
+            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
+        }
+        return t;
     }
 
     private void _checkStaticClassMember(string clsName, Decl mem) {
