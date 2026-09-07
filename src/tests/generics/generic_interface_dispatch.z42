@@ -1,19 +1,22 @@
 // Generic interface dispatch — TypeArgs substitute on method args + return.
-// Validates: IEquatable<int> + IComparer<int> 经接口变量调用工作.
+// Validates: IEqualityComparer<int> + IComparer<int> 经接口变量调用工作.
+//
+// apply-self-to-core-protocols：本用例原先用 `MyInt : IEquatable<int>`（把 MyInt 与 int 比）
+// 承载「泛型接口的类型实参在方法参数位被替换」这一断言。`IEquatable` Self 化后该异型写法
+// 不再可表达，改用 **IEqualityComparer<int>** —— 它本就是「外部比较器」形态、`T` 是被比较
+// 对象而非实现方自己，故仍是货真价实的泛型接口，原断言意图（TypeArgs 替换）完整保留。
 
-class MyInt : IEquatable<int> {
-    public int V;
-    MyInt(int v) { this.V = v; }
-    bool Equals(int other) { return this.V == other; }
-    int GetHashCode() { return this.V; }
+class IntEqComparer : IEqualityComparer<int> {
+    bool Equals(int x, int y) { return x == y; }
+    int GetHashCode(int obj) { return obj; }
 }
 
 class IntDescComparer : IComparer<int> {
     int Compare(int x, int y) { return y - x; }
 }
 
-bool CheckEq(IEquatable<int> e, int v) {
-    return e.Equals(v);
+bool CheckEq(IEqualityComparer<int> e, int a, int b) {
+    return e.Equals(a, b);
 }
 
 int CallCmp(IComparer<int> c, int a, int b) {
@@ -21,9 +24,9 @@ int CallCmp(IComparer<int> c, int a, int b) {
 }
 
 void Main() {
-    var m = new MyInt(42);
-    Assert.True(CheckEq(m, 42));
-    Assert.False(CheckEq(m, 99));
+    var e = new IntEqComparer();
+    Assert.True(CheckEq(e, 42, 42));
+    Assert.False(CheckEq(e, 42, 99));
 
     var c = new IntDescComparer();
     Assert.Equal(2,  CallCmp(c, 3, 5));   // 5-3 desc

@@ -11,8 +11,8 @@
 ```z42
 class Box<T> where T : IFoo { }                  // 接口约束
 class Box<T> where T : IFoo + IBar { }           // 多约束用 `+` 分隔（Rust 风格，非 C# 的 `,`）
-class Map<K, V> where K : IEquatable<K> where V : class { }   // 每个型参一条 where
-void Sort<T>(T[] xs) where T : IComparable<T> { }             // 方法级
+class Map<K, V> where K : IEquatable where V : class { }      // 每个型参一条 where
+void Sort<T>(T[] xs) where T : IComparable { }                // 方法级
 ```
 
 多个型参各写各的 `where`；同一型参的多条约束用 `+` 连接。
@@ -118,6 +118,28 @@ class Bag<T> where T : IEq { }                     // 约束侧不必再写类�
 F-bounded 自引用形态（`IEquatable<T>` / `IComparable<T>` / `INumber<T>`）。那个类型实参不携带
 任何信息，纯粹是「我指我自己」的样板。`Self` 把它消掉。
 
+**标准库已改写完毕**（change `apply-self-to-core-protocols`，2026-09-07）——三个协议接口
+现在都是**非泛型 + `Self`**：
+
+```z42
+public interface IEquatable  { bool Equals(Self other); int GetHashCode(); }
+public interface IComparable { int CompareTo(Self other); }
+public interface INumber     { static abstract Self op_Add(Self a, Self b); … }
+
+public struct Int32 : IComparable, IEquatable, INumber { … }          // 不再写 <int>
+public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不再写 <TKey>
+```
+
+**代价（刻意接受）**：`class MyInt : IEquatable<int>`——让一个类型与**别的**类型比较——不再
+可表达。该能力由两个专职接口承载，它们的 `T` 是被比较对象而非实现方自己，**保持泛型不变**：
+
+| 形态 | 接口 | `T` 的含义 |
+|---|---|---|
+| 自比较（实例知道怎么比自己） | `IComparable` / `IEquatable` | 无型参；`Self` = 实现方 |
+| 外部比较器（第三方知道怎么比两个） | `IComparer<T>` / `IEqualityComparer<T>` | 被比较对象 |
+
+与 Rust 的 `Ord` / `PartialOrd`（`Self` 化）vs 显式 comparator 的分工一致。
+
 **作用域限定为接口**（不进类）：类里写 `Self` 是未定义类型 `E0443`，与其它拼错的类型名同码。
 这条边界是刻意的——`Self` 进类会牵出协变返回类型那一整块设计面，不在本轮范围。
 
@@ -139,10 +161,10 @@ F-bounded 自引用形态（`IEquatable<T>` / `IComparable<T>` / `INumber<T>`）
   **零格式改动**。
 ## 运算符如何在型参上派发
 
-`where T : INumber<T>` 让泛型代码直接写 `a + b`，而不必写 `a.op_Add(b)`：
+`where T : INumber` 让泛型代码直接写 `a + b`，而不必写 `a.op_Add(b)`：
 
 ```z42
-T Sum<T>(T a, T b) where T : INumber<T> { return a + b; }
+T Sum<T>(T a, T b) where T : INumber { return a + b; }
 ```
 
 绑定路径（`ExprTyper._bindBinary`）：左操作数是 `Z42GenericParamType` → 到该型参的 where 约束
@@ -152,8 +174,9 @@ VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个�
 
 两条必须知道的规则：
 
-- **结果类型恒为 `T`**。依据是协议本身——`INumber` 抬头写明「Mixed-type arithmetic is not
-  supported（T + T → T only）」。这条不是可选的：`a + b + c` 的第二个 `+` 需要左侧仍是型参才能
+- **结果类型恒为 `T`**（即左操作数那个型参，**不是**接口声明里的 `Self`）。依据是协议本身——
+  `INumber` 抬头写明「Mixed-type arithmetic is not supported（Self + Self → Self only）」。
+  这条不是可选的：`a + b + c` 的第二个 `+` 需要左侧仍是型参才能
   再次落回约束派发，否则退化成裸算术。（不能改读接口方法的声明返回类型：`INumber` 是**导入**
   接口，其签名经 `ImportedSymbolLoader` 还原后返回类型已不是型参形态。）
 - **实现方必须写 `static override`**：`public static override T op_Add(T a, T b)`。只写 `static`
@@ -215,16 +238,18 @@ new Use<StrBag>()   // ❌ E0453：binds `Item` to `string`, but `int` is requir
 
 ### 1. 接口约束只比裸名，不校验类型实参
 
-`where T : IEquatable<T>` 只检查「T 实现了名为 `IEquatable` 的接口」，**不检查实参是否是
-T 自己**。故 `class Foo : IEquatable<string>` 也能满足 `where T : IEquatable<T>`。
+`where T : IFoo<T>` 只检查「T 实现了名为 `IFoo` 的接口」，**不检查实参是否是 T 自己**。
+故 `class Foo : IFoo<string>` 也能满足 `where T : IFoo<T>`。
 
 这与运行期行为一致（它拿到的同样是常量池里的裸名），故两边不产生分歧。裸名匹配还顺带
-消掉了 F-bounded 自引用（`interface INumber<T> where T : INumber<T>`）朴素展开会无限递归的
-问题。Deferred：`where-constraint-future-type-arg-matching`。
+消掉了 F-bounded 自引用朴素展开会无限递归的问题。
+Deferred：`where-constraint-future-type-arg-matching`。
 
 > [`Self`](#self-类型仅接口) 给了一条**绕开**这个限制的写法（`where T : IEq` 根本不写类型实参，
-> 就没有实参可以写错），但**没有消除**它：`IEquatable<T>` 这类带实参的接口今天仍然全部按裸名匹配，
-> 且标准库现有声明尚未改写成 `Self` 写法。所以这条 Deferred 仍然开着。
+> 就没有实参可以写错）。标准库的三个协议接口已于 `apply-self-to-core-protocols` 全部改写成
+> `Self`，**它们自己不再踩这个坑**。但这条 Deferred **仍然开着**——`Self` 是绕开、不是消除：
+> 任何**其它**带类型实参的接口约束（`IEnumerable<T>` / `IComparer<T>` / 用户自定义泛型接口）
+> 今天照旧按裸名匹配。
 
 ### 2. 方法级约束只在显式写类型实参时校验
 

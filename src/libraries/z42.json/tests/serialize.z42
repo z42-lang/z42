@@ -17,8 +17,8 @@ class Bag {
     public List<int> Nums;
     public Dictionary<string, int> Scores;
 }
-// List 元素为对象——List<T> 约束 T: IEquatable<T> + IComparable<T>。
-class Item : IEquatable<Item>, IComparable<Item> {
+// List 元素为对象——List<T> 约束 T: IEquatable + IComparable。
+class Item : IEquatable, IComparable {
     public int id;
     public bool Equals(Item other) { return this.id == other.id; }
     public int GetHashCode() { return this.id; }

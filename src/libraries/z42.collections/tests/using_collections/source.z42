@@ -3,7 +3,7 @@ using Std.IO;
 //
 // 修前：用户显式写 `using Std.Collections;` 后，TypeChecker 只看 Std.Collections
 // 命名空间，丢失 Std 命名空间的 IEquatable，导致 Dictionary 的 `where K:
-// IEquatable<K>` 约束验证失败。
+// IEquatable` 约束验证失败。
 // 修后：Std 命名空间自动作为隐式 prelude 包含。
 
 using Std.Collections;

@@ -1,5 +1,5 @@
 namespace Std.Collections;
-[Record] public struct DictionaryEnumerator<TKey, TValue>(Dictionary<TKey, TValue> _dict) where TKey: IEquatable<TKey> {
+[Record] public struct DictionaryEnumerator<TKey, TValue>(Dictionary<TKey, TValue> _dict) where TKey: IEquatable {
     int _scan;
     int _cur;
     public bool MoveNext() {

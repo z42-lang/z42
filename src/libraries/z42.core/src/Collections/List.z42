@@ -9,7 +9,7 @@ namespace Std.Collections;
 // 无类型约束（stdlib-structure-batch，对齐 C# `System.Collections.Generic.List<T>`）：
 //   Contains / IndexOf / Remove 用 `Equals`（Object 协议，任意 T 可用）；Sort() 用 `CompareTo`，
 //   与 C# 一样是**运行期**要求——元素不可比较时在 Sort 处失败，而非在类型上一刀切。此前的
-//   `where T: IEquatable<T> + IComparable<T>` 使 `List<JsonValue>` 等 stdlib 自身用法都不满足约束
+//   `where T: IEquatable + IComparable` 使 `List<JsonValue>` 等 stdlib 自身用法都不满足约束
 //   （编译器暂未校验接口约束才没暴露），故移除。
 // add-list-dict-lookup-family (2026-09-02): the C#-parity query/predicate
 // surface (Find* / Exists / TrueForAll / RemoveAll / FindAll / GetRange /

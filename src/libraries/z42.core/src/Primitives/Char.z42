@@ -4,7 +4,7 @@ namespace Std;
 // per BCL convention; source keyword `char` is preserved as alias.
 //
 // L3-G4b primitive-as-struct: declares Char's interface conformance.
-public struct Char : IComparable<char>, IEquatable<char> {
+public struct Char : IComparable, IEquatable {
     [Native("__char_to_string")]      public extern string ToString();
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。

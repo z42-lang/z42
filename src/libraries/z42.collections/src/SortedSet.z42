@@ -8,7 +8,7 @@ namespace Std.Collections;
 // perf upgrade for data sets that exceed ~1k elements.
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
 // to opt into Std.Test.Contracts.BasicCollectionContract coverage.
-public class SortedSet<T> : IBasicCollection<T> where T: IComparable<T> + IEquatable<T> {
+public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatable {
     T[] items;
     int count;
     int capacity;

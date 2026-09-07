@@ -5,9 +5,9 @@ namespace Std;
 //
 // L3-G4b primitive-as-struct: `int` declared as struct `Int32` (C# BCL parity).
 // Semantic type system still uses Z42PrimType("int") for identity; this struct
-// is consulted by TypeChecker to answer "does int satisfy IComparable<int>?"
+// is consulted by TypeChecker to answer "does int satisfy IComparable?"
 // and by the VM to dispatch methods on Value::I64 receivers.
-public struct Int32 : IComparable<int>, IEquatable<int>, INumber<int> {
+public struct Int32 : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
     public static int MaxValue = 2147483647;
@@ -38,7 +38,7 @@ public struct Int32 : IComparable<int>, IEquatable<int>, INumber<int> {
         return 0;
     }
 
-    // INumber<int> static override (C# 11 static abstract). VCall passes
+    // INumber static override (C# 11 static abstract). VCall passes
     // (receiver, extra) as (a, b); `a + b` is primitive add (skip-overload fast path).
     public static override int op_Add(int a, int b)      { return a + b; }
     public static override int op_Subtract(int a, int b) { return a - b; }

@@ -1,6 +1,6 @@
-// Test: L3-G2 generic constraints — where T: IComparable<T>
+// Test: L3-G2 generic constraints — where T: IComparable
 
-class Num : IComparable<Num> {
+class Num : IComparable {
     int value;
     Num(int v) { this.value = v; }
     public int CompareTo(Num other) {
@@ -10,7 +10,7 @@ class Num : IComparable<Num> {
     }
 }
 
-T Max<T>(T a, T b) where T: IComparable<T> {
+T Max<T>(T a, T b) where T: IComparable {
     return a.CompareTo(b) > 0 ? a : b;
 }
 

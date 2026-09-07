@@ -1,7 +1,11 @@
 namespace Std;
 
-// Generic comparison interface (L3-G2).
+// Self-comparison interface (L3-G2).
 // Returns negative / 0 / positive per C#/Rust convention.
-public interface IComparable<T> {
-    int CompareTo(T other);
+//
+// `Self` 指代实现方自己，故本接口非泛型：约束位写 `where T : IComparable` 即可，
+// 不必再写 F-bounded 样板 `where T : IComparable<T>`。
+// 要比较**两个不同类型**，用 IComparer<T>（外部比较器形态）——那正是它与本接口的分工。
+public interface IComparable {
+    int CompareTo(Self other);
 }

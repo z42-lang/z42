@@ -1,4 +1,4 @@
-// Test: L3 静态抽象接口 — generic operator dispatch `a + b` on T: INumber<T>.
+// Test: L3 静态抽象接口 — generic operator dispatch `a + b` on T: INumber.
 // 与 generic_inumber（`x.op_Add(x)` 方法写法）互补，验证**运算符糖**这条路：`ExprTyper._bindBinary`
 // 见左操作数是 `Z42GenericParamType`，就去型参的 where 约束接口里找 static abstract `op_X`，
 // 发接收者驱动的 VCall，运行期按 a 的具体类派发。
@@ -10,7 +10,7 @@
 // 之所以一直绿，纯粹因为解释器的 `add` 对 Value 动态派发；换成**用户类型**（Money）就会拿 struct
 // blob 去做整数加法。故本文件补上 Money 一组——那才是真正会炸的形态。
 
-struct Money : INumber<Money> {
+struct Money : INumber {
     public long Cents;
     public Money(long c) { this.Cents = c; }
     public static override Money op_Add(Money a, Money b)      { return new Money(a.Cents + b.Cents); }
@@ -20,10 +20,10 @@ struct Money : INumber<Money> {
     public static override Money op_Modulo(Money a, Money b)   { return new Money(a.Cents % b.Cents); }
 }
 
-T Add<T>(T a, T b) where T: INumber<T> { return a + b; }
-T Sub<T>(T a, T b) where T: INumber<T> { return a - b; }
-T Mul<T>(T a, T b) where T: INumber<T> { return a * b; }
-T Chain3<T>(T a, T b, T c) where T: INumber<T> { return a + b + c; }
+T Add<T>(T a, T b) where T: INumber { return a + b; }
+T Sub<T>(T a, T b) where T: INumber { return a - b; }
+T Mul<T>(T a, T b) where T: INumber { return a * b; }
+T Chain3<T>(T a, T b, T c) where T: INumber { return a + b + c; }
 
 void Main() {
     Assert.Equal(42,  Add(20, 22));

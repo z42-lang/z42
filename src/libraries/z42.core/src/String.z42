@@ -35,7 +35,7 @@ namespace Std;
 //
 // 另一条纪律：**新重载必须追加在同名既有重载之后**——primary（= 裸键 = seed 与跨包既有
 // 调用的锚点）取声明序首个，插到前面会让 primary 易主、把既有裸键挪走。
-public sealed partial class String : IComparable<string>, IEquatable<string> {
+public sealed partial class String : IComparable, IEquatable {
     // ── Intrinsic core (extern) ──────────────────────────────────────────────
 
     // Number of Unicode scalar values (characters) in this string. O(n) —

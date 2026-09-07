@@ -4,8 +4,8 @@ namespace Std.Collections;
 //
 // 线性探测，负载因子 > 0.75 时 2 倍扩容；摊还 O(1) 平均操作。
 // 约束：TKey 必须 hashable + equatable。primitive TKey 通过 VM builtin 路由 GetHashCode / Equals；
-// 用户自定义 TKey 必须实现 IEquatable<TKey> —— GetHashCode 走 Object 协议。
-public class Dictionary<TKey, TValue> where TKey: IEquatable<TKey> {
+// 用户自定义 TKey 必须实现 IEquatable —— GetHashCode 走 Object 协议。
+public class Dictionary<TKey, TValue> where TKey: IEquatable {
     TKey[] keys;
     TValue[] values;
     bool[] occupied;

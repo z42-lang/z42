@@ -7,10 +7,10 @@ namespace Std.Collections;
 // keeps `head` / `tail` / `count` for constant-time end operations.
 //
 // Constraint:
-//   T: IEquatable<T>   — for Find / Contains equality check (mirrors
-//                        Std.Collections.List<T>).
+//   T: IEquatable   — for Find / Contains equality check (mirrors
+//                     Std.Collections.List<T>).
 // Primitive types (int / long / double / char / string) auto-satisfy via
-// stdlib `struct int : IEquatable<int>` etc. (L3-G4b primitive-as-struct).
+// stdlib `struct int : IEquatable` etc. (L3-G4b primitive-as-struct).
 public class LinkedListNode<T> {
     public T Value;
 
@@ -39,7 +39,7 @@ public class LinkedListNode<T> {
 
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
 // to opt into Std.Test.Contracts.BasicCollectionContract coverage.
-public class LinkedList<T> : IBasicCollection<T> where T: IEquatable<T> {
+public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
     LinkedListNode<T> head;
     LinkedListNode<T> tail;
     int count;

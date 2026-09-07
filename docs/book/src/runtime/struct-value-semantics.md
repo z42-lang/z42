@@ -253,7 +253,7 @@ vcall Equals，代价不值）。
 - **struct 作泛型容器键**（`Dictionary<P,V>`/`HashSet<P>`）+ **VCall on 未装箱 StructRef receiver**——泛型路径
   把 struct 键当未装箱 StructRef 传入（`key.GetHashCode()`=对 StructRef 的 VCall，且存进容器堆数组=帧作用域
   句柄逃逸 use-after-free）。正确解 = **泛型边界装箱** / P3 容器内联（**PR2b 前本就不工作**，非回归）。
-- ToString 字段 dump；`IEquatable<T>.Equals(P)` typed 重载；反射 GetMethods 报告合成方法（SIGS 元数据，
+- ToString 字段 dump；`IEquatable.Equals(P)` typed 重载；反射 GetMethods 报告合成方法（SIGS 元数据，
   可选、动 SIGS 有自举字节稳定性风险，留后续）。
 
 ## struct 泛型容器装箱（add-struct-generic-boxing P3a）
