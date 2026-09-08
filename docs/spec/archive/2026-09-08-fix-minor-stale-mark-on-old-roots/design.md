@@ -76,7 +76,33 @@ use-after-free**。major 一次构建里也就个位数次，多一遍 `iterate_
 
 反证（临时去掉年龄判断后）：测试 1、2 均红。
 
-## 实测
+## ⚠️ 更正（2026-09-08，由 `fix-promotion-creates-uncarded-old-to-young` 补上）
+
+**下面这张实测表和「本 change 之后暴露的下一个问题」那一节都是错的**，两处都源于同一个
+zsh 坑：那些 run 写成
+
+```zsh
+for cfg in "generational 128M"; do set -- $cfg; env Z42_GC_MODE=$1 Z42_GC_MAX_BYTES=$2 … ; done
+```
+
+而 **zsh 对未加引号的参数展开不做分词**（和 bash 相反）——`$1` 是整串
+`"generational 128M"`、`$2` 是空。于是 `Z42_GC_MODE` 拿到非法值被忽略、
+`Z42_GC_MAX_BYTES` 空 = **未武装**。所谓「三档 RSS 几乎一样」正是因为它们本来就是
+同一次未武装的 STW 跑。
+
+因此：
+
+- ❌ **「三档预算下 generational 都能编完」不成立** —— 本 change 只修掉了一层缺陷
+  （陈旧 mark 位，真实且已由单测反证）；分代模式当时**仍然 6/6 必崩**，
+  第二层缺陷（晋升造出没有卡的 old→young 边）由
+  `fix-promotion-creates-uncarded-old-to-young` 修掉。
+- ❌ **「分代收得比 STW 还少：905 MB vs 596 MB」这个对比无效**（跨配置且跨 seed）。
+  同 seed、逐条显式 `env` 的诚实数据见那个 change 的 design.md。
+
+**教训**：量 GC 前先确认那一跑真的按你以为的配置在跑 —— `Z42_GC_TRACE=1` 数周期数，
+0 周期就是没武装。
+
+## （已作废）原实测
 
 `z42c.semantics --release --no-incremental`：
 

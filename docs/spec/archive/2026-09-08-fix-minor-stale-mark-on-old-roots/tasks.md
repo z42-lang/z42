@@ -35,15 +35,19 @@
 ## 阶段 4: GREEN + 实测 + 文档 + 归档
 
 - [x] `./xtask test` 全绿
-- [x] 三档预算下 `generational` 编 `z42c.semantics` 全部通过（见 design.md）
+- [x] ~~三档预算下 `generational` 编 `z42c.semantics` 全部通过~~ —— ❌ **该结论作废**，
+      见 design.md 顶部的更正：那几跑其实未武装。本 change 修掉的是第一层缺陷
+      （陈旧 mark 位，已由单测反证），第二层由 `fix-promotion-creates-uncarded-old-to-young` 修
 - [x] `docs/book/src/runtime/gc-tuning-and-safepoint.md` 写下不变量与违反后果
 - [x] 归档
 
 ## 交给后续 change 的发现
 
-1. 🔴 **分代模式回收得比 STW 还少**：128M 下分代只跑 3 个周期 / RSS 905 MB，
-   STW 跑 10+ 个 / RSS 596 MB；而且 64M / 128M / 256M 三档 RSS 几乎一样（903–905 MB），
-   预算旋钮基本失效。归 `add-bounded-nursery` / `arm-gc-by-default`。
+1. ❌ ~~**分代模式回收得比 STW 还少**：128M 下分代只跑 3 个周期 / RSS 905 MB，
+   STW 跑 10+ 个 / RSS 596 MB；三档 RSS 几乎一样（903–905 MB）~~ ——
+   **已作废**：那些 run 因 zsh 不分词而实际是未武装的 STW，见 design.md 顶部的更正。
+   同 seed 的诚实数据在 `fix-promotion-creates-uncarded-old-to-young` 的 design.md 里
+   （分代 128M：18 次 minor、**0 次 major**、RSS 1034.6 MB，比未武装的 902.9 MB 还高）。
 2. ⚠️ **规范冲突待裁决**：`docs/book/src/runtime/gc-tuning-and-safepoint.md` 有一节
    「刻意不做：`PROMOTION_THRESHOLD` 不入 config」，理由是写屏障热路径成本 + 约 20 处测试
    把它当编译期常量；而三堆设计的旋钮总表要求把它开成 `Z42_GC_PROMOTION_AGE`。
