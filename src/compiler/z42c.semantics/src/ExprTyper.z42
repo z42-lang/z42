@@ -436,7 +436,7 @@ public sealed class ExprTyper {
                 return new BoundError("available undefined " + cn, new Z42ErrorType(), call.Span);
             }
             Z42ClassType ct = env.Symbols.GetClass(cn);
-            int hits = ExprTyper._countMethodsNamed(ct, me.Name);
+            int hits = ExprTyper._countOverloads(ct, me.Name);
             if (hits == 0) {
                 this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                     "undefined method in available!(): " + cn + "." + me.Name, a.Span);
@@ -462,10 +462,19 @@ public sealed class ExprTyper {
     // 类内叫某个名字的方法数（含 arity/签名 mangle 的各重载）。注册键形如 `Foo` 或 `Foo$2`，
     // 故按「裸名相等 或 以 `名$` 开头」计数。v1 只看本类（不追基类链）——available! 的目标
     // 是「某个 API 在不在」，追继承链会把 object 的成员也算进来，反而制造歧义。
-    // ⚠️ 源必须是 `ct.Methods`（注册表全集），**不能**用 OwnMethodNames —— 后者只登记
-    // **非 static** 方法（ImportedSymbolLoader 的 `if (!me.IsStatic)`）+ impl-block 方法，
-    // 是给虚派发/override 跟踪用的子集。用它会让 `available!(C.StaticMethod)` 一律误报 E0401。
-    private static int _countMethodsNamed(Z42ClassType ct, string name) {
+    // 叫某个名字的方法有几个**重载**。
+    //
+    // ⚠️ 两个都踩过的坑：
+    // ① 源必须是 `ct.Methods`（注册全集），**不能**用 OwnMethodNames —— 后者只登记
+    //    **非 static** 方法（ImportedSymbolLoader 的 `if (!me.IsStatic)`）+ impl-block 方法，
+    //    是给虚派发/override 跟踪用的子集。用它会让 `available!(C.StaticMethod)` 一律误报 E0401。
+    // ② **不能数键**：同一个方法会被注册在多个键下（裸名 + mangled，见
+    //    stabilize-instance-dispatch-keys 的 primary 裸 / 非-primary 全签名键制），数键会把
+    //    单个方法误判成多重载（实测：单方法的 `NewApi.Feature` 报 "2 overloads"）。
+    //    `MethodSymbol.RegKey` 才是权威规范键（其注释：= Methods 映射键 = IR 名 = BoundCall 目标名），
+    //    按它去重。
+    private static int _countOverloads(Z42ClassType ct, string name) {
+        string[] seen = new string[16];
         int n = 0;
         int i = 0;
         int cap = ct.Methods.Capacity();
@@ -473,14 +482,20 @@ public sealed class ExprTyper {
         while (i < cap) {
             if (ct.Methods.UsedAt(i)) {
                 string k = ct.Methods.KeyAt(i);
-                if (k == name || k.StartsWith(pfx)) { n = n + 1; }
+                if (k == name || k.StartsWith(pfx)) {
+                    string rk = ExprTyper._regKeyAt(ct, i, k);
+                    bool dup = false;
+                    int j = 0;
+                    while (j < n) { if (seen[j] == rk) { dup = true; } j = j + 1; }
+                    if (!dup && n < 16) { seen[n] = rk; n = n + 1; }
+                }
             }
             i = i + 1;
         }
         return n;
     }
 
-    // 唯一命中时的**注册键**（`Foo` 或 `Foo$2`）。调用方须先确认 _countMethodsNamed == 1。
+    // 唯一重载的**规范注册键**。调用方须先确认 _countOverloads == 1。
     private static string _uniqueMethodKey(Z42ClassType ct, string name) {
         int i = 0;
         int cap = ct.Methods.Capacity();
@@ -488,11 +503,21 @@ public sealed class ExprTyper {
         while (i < cap) {
             if (ct.Methods.UsedAt(i)) {
                 string k = ct.Methods.KeyAt(i);
-                if (k == name || k.StartsWith(pfx)) { return k; }
+                if (k == name || k.StartsWith(pfx)) { return ExprTyper._regKeyAt(ct, i, k); }
             }
             i = i + 1;
         }
         return name;
+    }
+
+    // 槽 i 上的 MethodSymbol.RegKey；缺失则回落到映射键本身。
+    private static string _regKeyAt(Z42ClassType ct, int i, string fallbackKey) {
+        object v = ct.Methods.ValAt(i);
+        if (v is MethodSymbol) {
+            MethodSymbol ms = v as MethodSymbol;
+            if (ms.RegKey != "") { return ms.RegKey; }
+        }
+        return fallbackKey;
     }
 
     private BoundExpr _bindInterpolatedStr(InterpolatedStringExpr e, TypeEnv env) {
