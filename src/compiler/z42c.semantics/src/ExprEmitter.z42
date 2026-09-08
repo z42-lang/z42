@@ -180,6 +180,8 @@ public sealed class ExprEmitter {
         if (e is BoundCast) { return this._top._emitCast(e as BoundCast); }
         if (e is BoundBox) { return this._top._emitBox(e as BoundBox); }
         if (e is BoundConvert) { return this._top._emitConvert(e as BoundConvert); }
+        // add-symbol-availability-macro：`available!(X)` → Builtin("__sym_available", ConstStr(key))
+        if (e is BoundSymAvailable) { return this._top._emitSymAvailable(e as BoundSymAvailable); }
         if (e is BoundConditional) { return this._op._emitConditional(e as BoundConditional); }
         if (e is BoundSwitchExpr) { return this._op._emitSwitchExpr(e as BoundSwitchExpr); }
         if (e is BoundFuncRef) {   // 方法组：LoadFn @<qualified 自由函数名>（与 free-call 同名限定）

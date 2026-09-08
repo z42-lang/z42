@@ -267,10 +267,10 @@ public sealed class OverloadBinder {
             if (!filled[k]) {
                 Expr dflt = md.Params[k].Default;
                 if (dflt == null) { return null; }   // 缺实参且无默认 → 不可适配
-                if (CallerMacro.IsMacro(dflt)) {
+                if (MacroRegistry.IsMacro(dflt)) {
                     // PR6b：同包 caller 宏注入（跨包对称走 _crossPkgDefault）。截在 _bindExpr 前——
                     // 否则 IdentExpr("$macro:*") 会落到 ExprTyper._bindIdent 报 E0450（误用检测）。
-                    slots[k] = this._callerLiteral(CallerMacro.KindOf(CallerMacro.NameOf(dflt)), env.ResolveType(md.Params[k].Type), sp);
+                    slots[k] = this._callerLiteral(MacroRegistry.KindOf(MacroRegistry.NameOf(dflt)), env.ResolveType(md.Params[k].Type), sp);
                 } else {
                     slots[k] = this._tc._expr._bindExpr(dflt, env);
                 }

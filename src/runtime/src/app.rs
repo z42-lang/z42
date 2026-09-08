@@ -213,7 +213,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
     modules.push(user_artifact.module);
 
-    let final_module = if modules.len() == 1 {
+    let mut final_module = if modules.len() == 1 {
         modules.into_iter().next().unwrap()
     } else {
         let mut m = crate::metadata::merge_modules(modules)
@@ -226,6 +226,24 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         crate::metadata::loader::build_func_index(&mut m);
         m
     };
+
+    // add-symbol-availability-macro：`available!(X)` 折成常量 + 剪死分支。
+    //
+    // 位置是**硬约束**，不能随便挪：
+    //   - 必须在 type_registry / func_index 建好之后（判定要查它们）；
+    //   - 必须在 `VmContext::with_module` 之前——那之后 Module 进 Arc 就不可变了，
+    //     原地 CFG 剪枝的窗口只有这里；
+    //   - 必须在任何 token 解析 / 执行之前，这样被剪掉分支里的 call site 永不被解析，
+    //     后续 `fix-silent-symbol-resolution` 的急切校验也就不会对它抛出。
+    //     `available!` 正是那条校验的唯一显式豁免通道。
+    let avail_stats =
+        crate::metadata::loader::fold_availability(&mut final_module, &declared_candidates);
+    if !avail_stats.is_noop() {
+        // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
+        crate::metadata::loader::build_block_indices(&mut final_module);
+        crate::metadata::loader::build_func_index(&mut final_module);
+        tracing::debug!("available!: {avail_stats:?}");
+    }
 
     // Construct the VmContext (owns static-fields / pending-exception / lazy_loader).
     let string_pool_len = final_module.string_pool.len();
