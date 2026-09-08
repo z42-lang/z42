@@ -398,6 +398,33 @@ pub struct ArcMagrGC {
     strict_oom_atomic: std::sync::atomic::AtomicBool,
     max_bytes_atomic: std::sync::atomic::AtomicU64,
     sampler_active: std::sync::atomic::AtomicBool,
+    /// **add-bounded-nursery (2026-09-08)**: bytes that have been **promoted into the old
+    /// generation** since the last major collection. This is the only signal in the heap that
+    /// tracks old-generation growth, and therefore the only sound trigger for a major.
+    ///
+    /// `used_bytes` cannot do that job: it counts **live** bytes, and a minor keeps it low by
+    /// reclaiming young garbage — so a budget gate reading it is satisfied forever while dead
+    /// *old* objects (which only a major sweeps) pile up unseen. Measured on
+    /// `z42c.semantics --release --no-incremental` at a 128M budget before this change:
+    /// `used` ≈ 90 MB, 18 minors, **0 majors**, peak RSS 1031 MB — against 607 MB for plain
+    /// STW. Old-gen garbage is bounded by what flowed into it, which is exactly this counter.
+    ///
+    /// Maintained in the minor sweep (where the promoted set is already being computed) and
+    /// reset by [`Self::run_cycle_collection_major`] — **zero cost on the allocation path**.
+    promoted_bytes_since_major: std::sync::atomic::AtomicU64,
+    /// **add-bounded-nursery (2026-09-08)**: set by `maybe_auto_collect` when the promoted-byte
+    /// gate trips, consumed (and cleared) by the generational arm of
+    /// `collect_cycles_with_context`. The auto-collect policy decides *which kind* of
+    /// collection it wants; the deferred safepoint path only knows "collect".
+    pending_major: std::sync::atomic::AtomicBool,
+}
+
+impl ArcMagrGC {
+    /// Bytes promoted into the old generation since the last major (tests).
+    #[cfg(test)]
+    pub(crate) fn promoted_bytes_for_test(&self) -> u64 {
+        self.promoted_bytes_since_major.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 /// **fix-wasm-string-ops**: process-global monotonic source for [`ArcMagrGC::epoch`]. Starts at

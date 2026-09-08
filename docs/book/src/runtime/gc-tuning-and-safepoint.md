@@ -27,6 +27,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | heap-used 达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
 | `Z42_GC_PRESSURE_RATIO` | 0.75 | heap-used 落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
 | `Z42_GC_THROTTLE_RATIO` | 0.10 | **距上次回收结束时的 used**，heap-used 至少再增长 max-bytes 的此比率，才允许下一次自动回收（去抖，防连发；基线为何必须是「回收后」见下节） | `arc_heap/auto_collect.rs` |
+| `Z42_GC_NURSERY_BYTES` | `gc-max-bytes / 4` | **分代专用**：自上次回收以来分配这么多字节就触发 minor —— 买停顿上界的那个旋钮 | `arc_heap/auto_collect` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
@@ -144,6 +145,67 @@ minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位
 顺带补上了 `reset_all_marks_in_regions` 漏掉的变长区：它和另外两个 region 一样带 mark 位
 （`mark_backing` / `shade_var_newborn` 置位），少这一行就意味着一次中途放弃或换模式的回收
 留下的位会让下一次 `mark_phase` 跳过某个闭包的 `env`。
+
+## 分代的两个闸门：新生代按分配量，老年代按晋升量
+
+分代堆有两个独立的容量，就该有两个独立的闸门：
+
+```
+   分配 ──► used - baseline ≥ NURSERY_BYTES ──────────────► minor
+   晋升 ──► promoted_since_major ≥ MAX_BYTES ─────────────► major
+```
+
+**为什么不能只用一个。** 原来的唯一闸门是 `used ≥ near_limit × MAX_BYTES`，而
+`used_bytes` 记的是**活字节**。minor 回收年轻垃圾把活字节压得很低 —— 于是这个闸门在
+分代模式下既不是新生代的容量（要等堆整体接近预算才开），也**看不见老年代的增长**
+（死掉的老对象不在活字节里）。实测 `z42c.semantics`：`used` 稳定在 90 MB 上下，
+而 RSS 到 1 GB。
+
+**晋升字节数是堆里唯一看得见老年代增长的量**（老年代垃圾的上界就是流进去的量），
+而且它的维护点在 minor sweep 里 —— 那里本来就在算「这一轮谁跨过了阈值」，
+所以**分配路径零成本**。`Z42_GC_NURSERY_BYTES` 不设时取 `MAX_BYTES / 4`：
+比例而非绝对值，同一个设置在任何预算下含义相同。
+
+### ⚠️ minor 也必须还 chunk —— RSS 的主修
+
+`reclaim_dead_chunks` / `reclaim_dead_var_chunks` 原本**只在 major 里调**。minor 把条目
+tombstone 掉进 free list，但一块 chunk 都不还 —— 而 TLAB 是**整块**发给 mutator 的，
+一阵短命对象通常整块死，正是 minor 最该收的形状。
+
+| 128M 预算 | 周期 | 峰值 RSS |
+|---|---|---|
+| 分代（minor 不还 chunk） | 15 minor / 1 major | 986.3 MB |
+| 分代（minor 还 chunk） | 15 minor / 1 major | **607.9 MB** |
+
+同样的回收次数，**−38%**。「分代内存大是因为 major 跑得不够多」这个直觉是错的。
+
+⚠️ **代价**：这个 pass 是 **O(堆)** 而不是 O(young)，是 minor 停顿的大头（中位 ~30 → ~75 ms），
+给「nursery 越小停顿越低」压了一个由堆大小决定的地板。要拿到设计里
+「p99 随 nursery 容量线性变化」，得先把它做成增量的（只看这一轮碰过的 chunk）。
+
+### 两处曾经算错的量
+
+- **升级启发式把「晋升」当成了「死亡」**：存活率原本算 `young_after / young_before`，
+  而熬过阈值的幸存者**会离开 young 表** —— 阈值是 2，于是幸存者大多被算成死了，
+  存活率永远低于 `Z42_GC_MINOR_THRESHOLD`，**升级从没触发过**。
+  正确口径是 `1 - 本次 tombstone 数 / 回收前 young 数`。
+- **徒劳退避的判据不能跟着增长闸门走**：退避问的是「上一次回收值不值」，固定对着
+  `throttle_ratio × limit` 比；增长闸门问的是「再试之前要有多少新分配」。分代下把后者
+  换成 nursery（预算四分之一）之后，一次收掉大半个 32M nursery 的**健康** minor 也会被判
+  「徒劳」，退避每次翻倍 —— 实测 minor 从 18 次掉到 8 次，堆干脆不收了。
+
+### 实测（`z42c.semantics --release --no-incremental`）
+
+| 配置 | 周期 | minor/major | 停顿中位/最大 | 墙钟 | 峰值 RSS |
+|---|---|---|---|---|---|
+| 未武装 | 0 | — | — | 8.31 s | 1013.8 MB |
+| stw 128M | 14 | 0/14 | 78.7 / 113.5 ms | 7.47 s | 606.8 MB |
+| stw 256M | 3 | 0/3 | 131.0 / 138.0 ms | 6.75 s | 763.2 MB |
+| **gen 128M** | 15 | 15/1 | **76.7 / 84.1 ms** | 7.33 s | **618.7 MB** |
+| gen 256M | 7 | 7/1 | 90.0 / 128.7 ms | 6.96 s | 728.1 MB |
+
+nursery 旋钮（128M 预算）：8M → 27 周期 / 最大停顿 78.5 ms / RSS 609.2 MB；
+64M → 8 周期 / 最大停顿 127.8 ms / RSS 679.8 MB。停顿与 RSS 朝相反方向单调走。
 
 ## 卡表的不变量：老条目指着年轻的，卡就必须是脏的
 

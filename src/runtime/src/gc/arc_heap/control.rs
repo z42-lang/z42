@@ -46,7 +46,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // `force_collect`) get a minor cycle here. Major is
                 // P3's expansion (auto-collect young pressure trigger
                 // + escalation heuristic).
-                self.run_cycle_collection_minor()
+                self.run_cycle_collection_minor().freed_bytes
             }
         }
     }
@@ -282,27 +282,38 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     r_obj.young_count() + r_arr.young_count() + r_var.young_count()
                 };
 
-                let mut freed_bytes = self.run_cycle_collection_minor();
+                // add-bounded-nursery (2026-09-08): the auto-collect policy decides the kind
+                // (the deferred safepoint path only knows "collect") and hands it over here.
+                // A promoted-byte gate trip means the old generation needs sweeping, which a
+                // minor cannot do at all.
+                let want_major = self
+                    .pending_major
+                    .swap(false, std::sync::atomic::Ordering::AcqRel);
+
+                let minor = self.run_cycle_collection_minor();
+                let mut freed_bytes = minor.freed_bytes;
                 let mut did_major = false;
+                if want_major {
+                    freed_bytes += self.run_cycle_collection_major();
+                    did_major = true;
+                }
 
-                // Survival rate: how much of young survived (not
-                // tombstoned) AND was promoted out. Easier measured:
-                // 1 - tombstoned_fraction; even easier: post young_count
-                // / young_before. High survival → escalate.
-                let young_after = {
-                    let r_obj = self.region_object.lock();
-                    let r_arr = self.region_array.lock();
-                    let r_var = self.region_var.lock();
-                    r_obj.young_count() + r_arr.young_count() + r_var.young_count()
-                };
-
-                if young_before > 0 {
-                    // survival_rate = young_after / young_before (the
-                    // entries still classed as young after minor —
-                    // promoted entries also "survive" but leave
-                    // young_list, so this is roughly the
-                    // "not-tombstoned-and-not-promoted" rate).
-                    let survival = young_after as f32 / young_before as f32;
+                // fix-minor-survival-counts-promotion-as-death (2026-09-08): survival is
+                // `1 - reclaimed / young_before` — the fraction of the young set the sweep
+                // did **not** tombstone.
+                //
+                // It used to be `young_after / young_before`, reading the young list's size
+                // after the sweep. But a survivor that reaches `PROMOTION_THRESHOLD` leaves
+                // the young list, so that ratio counted **promotion as death**. With the
+                // threshold at 2, most survivors of any given minor are promoted out, so the
+                // ratio sat far below `Z42_GC_MINOR_THRESHOLD` no matter how little was
+                // actually collected — escalation never fired. Measured on
+                // `z42c.semantics --release --no-incremental` at 128M: **18 minors, 0 majors**,
+                // old garbage never collected, peak RSS 1034.6 MB against 902.9 MB for not
+                // collecting at all and 606.6 MB for plain STW.
+                if !did_major && young_before > 0 {
+                    let survival =
+                        1.0 - (minor.reclaimed_entries as f32 / young_before as f32);
                     if survival >= Self::minor_escalation_threshold() {
                         // Major in same pause window.
                         freed_bytes += self.run_cycle_collection_major();

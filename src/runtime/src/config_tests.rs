@@ -1774,3 +1774,29 @@ fn app_properties_are_not_knobs() {
     // 也不占 RuntimeConfig 的解析链：默认构造时为空。
     assert!(RuntimeConfig::default().app_properties.is_none());
 }
+
+// ── add-bounded-nursery (2026-09-08) ─────────────────────────────────────────
+
+#[test]
+fn gc_nursery_bytes_parses_the_same_suffixes_as_gc_max_bytes() {
+    for (raw, want) in [
+        ("32M", Some(32 * 1024 * 1024u64)),
+        ("32MB", Some(32 * 1024 * 1024)),
+        ("1G", Some(1024 * 1024 * 1024)),
+        ("4096", Some(4096)),
+        ("0", None),
+        ("none", None),
+        ("bogus", None),
+    ] {
+        let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_GC_NURSERY_BYTES", raw)]));
+        assert_eq!(cfg.gc_nursery_bytes, want, "Z42_GC_NURSERY_BYTES={raw:?}");
+    }
+}
+
+#[test]
+fn gc_nursery_bytes_is_unset_by_default() {
+    // `None` means "a quarter of the budget" at the use site — a ratio rather than an
+    // absolute, so the same setting means the same thing at any budget.
+    let cfg = RuntimeConfig::from_getter(fake_env(&[]));
+    assert_eq!(cfg.gc_nursery_bytes, None);
+}
