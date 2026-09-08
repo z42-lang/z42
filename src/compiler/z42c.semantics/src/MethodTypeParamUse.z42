@@ -1,0 +1,337 @@
+// add-generic-type-arg-inference 阶段 D：方法体是否**运行期消费**方法级型参。
+//
+// 为什么需要它：阶段 C 的推断**不回灌** `BoundCall.MethodTypeArgs`（design D4——回灌会把
+// opcode 从 Op.Call 换成 Op.CallGeneric、重排 zbc 串池、并关掉 native 快路径门，而全仓 112 处
+// 隐式泛型调用全是不消费型参的 `Array.Copy<T>`）。不回灌的代价是：**若 callee 体内真的消费型参**，
+// 省略尖括号的调用会让运行期读到空的 `frame.method_type_args` ⇒ 静默错值（同
+// generic-new-array-value-type-null-tail 那条坑的形状）。本判定把静默错值换成编译错误 E0455。
+//
+// 运行期真正读 `frame.method_type_args` 的四种形态（`exec_address.rs:91-106` / `exec_array.rs:80-90`）：
+//   typeof(T) / new T() / default(T) / new T[n]
+// 外加**第五种、最容易漏的**：`Foo<T>() { Bar<T>(); }` —— 把自己的型参转发给嵌套泛型调用，
+// emit 期发 `$mta:<idx>` 标记，运行期按调用方 frame 解析 ⇒ **也是消费**。
+//
+// 🔴 完备性是本文件的全部价值：**漏一种形态 = 漏一个静默洞**。故：
+//   ① 表达式 / 语句 / 模式 / 类型 四个层面**逐节点类**覆盖，不留 fallthrough 猜测；
+//   ② 判定方向刻意**过近似**（宁可多判「消费」）——多判只会要求用户显式写 `<T>`（响亮、可改），
+//      漏判会产生静默错值（安静、难查）。同 #530「守禁令的一侧必须比替换的一侧更宽」。
+//   ③ 节点全集有配套的完备性门（见 tests/typecheck/generic_inference/），AST 加新节点类会变红。
+//
+// 覆盖基线（2026-09-08 从源码机械枚举）：Ast.z42 36 个 Expr 子类 / Stmt.z42 16 个 Stmt 子类 /
+// Pattern.z42 10 个 Pattern 子类 / TypeExpr.z42 6 个 TypeExpr 子类。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public static class MethodTypeParamUse {
+    // md 的方法体是否消费其**方法级**型参。无型参 / 无方法体（abstract、extern、[Native]）→ false。
+    public static bool Consumes(MethodDecl md) {
+        if (md == null || md.TypeParams == null || md.TypeParams.Count == 0) { return false; }
+        if (!md.HasBody || md.Body == null) { return false; }
+        return MethodTypeParamUse._stmt(md.Body, md.TypeParams.Names, md.TypeParams.Count);
+    }
+
+    // ── 类型层：类型表达式里是否出现某个方法级型参名 ──────────────────────────
+    // `typeof(List<T>)` 同样要 T ⇒ 必须递归下钻，不能只看顶层名。
+    private static bool _type(TypeExpr t, string[] ns, int nc) {
+        if (t == null) { return false; }
+        if (t is NamedType) {
+            NamedType nt = t as NamedType;
+            if (nt.ArgCount == 0 && MethodTypeParamUse._isName(nt.Name, ns, nc)) { return true; }
+            int i = 0;
+            while (i < nt.ArgCount) { if (MethodTypeParamUse._type(nt.Args[i], ns, nc)) { return true; } i = i + 1; }
+            return false;
+        }
+        if (t is ArrayType)    { return MethodTypeParamUse._type((t as ArrayType).Elem, ns, nc); }
+        if (t is NullableType) { return MethodTypeParamUse._type((t as NullableType).Inner, ns, nc); }
+        if (t is AssocBindingType) { return MethodTypeParamUse._type((t as AssocBindingType).Bound, ns, nc); }
+        if (t is FuncTypeExpr) {
+            FuncTypeExpr ft = t as FuncTypeExpr;
+            int i = 0;
+            while (i < ft.ParamCount) { if (MethodTypeParamUse._type(ft.Params[i], ns, nc)) { return true; } i = i + 1; }
+            return MethodTypeParamUse._type(ft.Ret, ns, nc);
+        }
+        return false;   // TypeExpr 基类本身（不会出现在真实 AST 里）
+    }
+
+    private static bool _isName(string n, string[] ns, int nc) {
+        int i = 0;
+        while (i < nc) { if (ns[i] == n) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // ── 语句层：Stmt.z42 的 16 个子类逐个覆盖 ────────────────────────────────
+    private static bool _stmt(Stmt s, string[] ns, int nc) {
+        if (s == null) { return false; }
+        if (s is BlockStmt) {
+            BlockStmt b = s as BlockStmt;
+            int i = 0;
+            while (i < b.Count) { if (MethodTypeParamUse._stmt(b.Stmts[i], ns, nc)) { return true; } i = i + 1; }
+            return false;
+        }
+        if (s is ExprStmt)   { return MethodTypeParamUse._expr((s as ExprStmt).E, ns, nc); }
+        if (s is ThrowStmt)  { return MethodTypeParamUse._expr((s as ThrowStmt).E, ns, nc); }
+        if (s is ReturnStmt) {
+            ReturnStmt r = s as ReturnStmt;
+            if (!r.HasValue) { return false; }
+            return MethodTypeParamUse._expr(r.Value, ns, nc);
+        }
+        if (s is VarDeclStmt) {
+            // 注解位的 `T x;` **不算消费**（只是静态类型，不读 frame）；但 init 里可能有 new T() 等。
+            return MethodTypeParamUse._expr((s as VarDeclStmt).Init, ns, nc);
+        }
+        if (s is DeconstructDeclStmt) {
+            DeconstructDeclStmt d = s as DeconstructDeclStmt;
+            if (MethodTypeParamUse._pat(d.Pat, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(d.Init, ns, nc);
+        }
+        if (s is IfStmt) {
+            IfStmt f = s as IfStmt;
+            if (MethodTypeParamUse._expr(f.Cond, ns, nc)) { return true; }
+            if (MethodTypeParamUse._stmt(f.Then, ns, nc)) { return true; }
+            if (f.HasElse) { return MethodTypeParamUse._stmt(f.Else, ns, nc); }
+            return false;
+        }
+        if (s is WhileStmt) {
+            WhileStmt w = s as WhileStmt;
+            if (MethodTypeParamUse._expr(w.Cond, ns, nc)) { return true; }
+            return MethodTypeParamUse._stmt(w.Body, ns, nc);
+        }
+        if (s is DoWhileStmt) {
+            DoWhileStmt d = s as DoWhileStmt;
+            if (MethodTypeParamUse._stmt(d.Body, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(d.Cond, ns, nc);
+        }
+        if (s is ForStmt) {
+            ForStmt f = s as ForStmt;
+            if (f.HasInit && MethodTypeParamUse._stmt(f.Init, ns, nc)) { return true; }
+            if (f.HasCond && MethodTypeParamUse._expr(f.Cond, ns, nc)) { return true; }
+            if (f.HasIncr && MethodTypeParamUse._expr(f.Incr, ns, nc)) { return true; }
+            return MethodTypeParamUse._stmt(f.Body, ns, nc);
+        }
+        if (s is ForeachStmt) {
+            ForeachStmt f = s as ForeachStmt;
+            if (MethodTypeParamUse._expr(f.Iter, ns, nc)) { return true; }
+            return MethodTypeParamUse._stmt(f.Body, ns, nc);
+        }
+        if (s is SwitchStmt) {
+            SwitchStmt sw = s as SwitchStmt;
+            if (MethodTypeParamUse._expr(sw.Subject, ns, nc)) { return true; }
+            int i = 0;
+            while (i < sw.CaseCount) {
+                SwitchCase c = sw.Cases[i];
+                if (c.HasPattern && MethodTypeParamUse._pat(c.Pattern, ns, nc)) { return true; }
+                if (MethodTypeParamUse._expr(c.Guard, ns, nc)) { return true; }
+                int j = 0;
+                while (j < c.BodyCount) { if (MethodTypeParamUse._stmt(c.Body[j], ns, nc)) { return true; } j = j + 1; }
+                i = i + 1;
+            }
+            return false;
+        }
+        if (s is TryCatchStmt) {
+            TryCatchStmt t = s as TryCatchStmt;
+            if (MethodTypeParamUse._stmt(t.TryBody, ns, nc)) { return true; }
+            int i = 0;
+            while (i < t.CatchCount) {
+                if (MethodTypeParamUse._stmt(t.Catches[i].Body, ns, nc)) { return true; }
+                i = i + 1;
+            }
+            if (t.HasFinally) { return MethodTypeParamUse._stmt(t.Finally, ns, nc); }
+            return false;
+        }
+        if (s is LocalFunctionStmt) {
+            // 局部函数体引用外层型参 → 过近似判「消费」（见抬头 ②：宁可多判）。
+            LocalFunctionStmt lf = s as LocalFunctionStmt;
+            if (lf.Decl != null && lf.Decl.HasBody) { return MethodTypeParamUse._stmt(lf.Decl.Body, ns, nc); }
+            return false;
+        }
+        if (s is BreakStmt)    { return false; }
+        if (s is ContinueStmt) { return false; }
+        return false;
+    }
+
+    // ── 表达式层：Ast.z42 的 36 个子类逐个覆盖 ───────────────────────────────
+    private static bool _expr(Expr e, string[] ns, int nc) {
+        if (e == null) { return false; }
+        // ★ 五种**消费点**（其余节点只是递归容器）
+        if (e is TypeofExpr)  { return MethodTypeParamUse._type((e as TypeofExpr).Type, ns, nc); }
+        if (e is DefaultExpr) { return MethodTypeParamUse._type((e as DefaultExpr).Target, ns, nc); }
+        if (e is ArrayNewExpr) {
+            ArrayNewExpr a = e as ArrayNewExpr;
+            if (MethodTypeParamUse._type(a.Elem, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(a.Size, ns, nc);
+        }
+        if (e is ArrayInitExpr) {
+            ArrayInitExpr a = e as ArrayInitExpr;
+            if (MethodTypeParamUse._type(a.Elem, ns, nc)) { return true; }
+            return MethodTypeParamUse._exprs(a.Elems, a.ElemCount, ns, nc);
+        }
+        if (e is ObjNewExpr) {
+            ObjNewExpr o = e as ObjNewExpr;
+            if (MethodTypeParamUse._type(o.Type, ns, nc)) { return true; }   // Type 可为 null（target-typed new）
+            return MethodTypeParamUse._exprs(o.Args, o.ArgCount, ns, nc);
+        }
+        if (e is ObjInitExpr) {
+            ObjInitExpr o = e as ObjInitExpr;
+            if (MethodTypeParamUse._type(o.Type, ns, nc)) { return true; }
+            if (MethodTypeParamUse._exprs(o.Args, o.ArgCount, ns, nc)) { return true; }
+            return MethodTypeParamUse._exprs(o.FieldValues, o.FieldCount, ns, nc);
+        }
+        if (e is CallExpr) {
+            // ★ 第五种消费：把自身型参**转发**给嵌套泛型调用（emit 期发 `$mta:<idx>`）。
+            CallExpr c = e as CallExpr;
+            int t = 0;
+            while (t < c.TypeArgCount) { if (MethodTypeParamUse._type(c.TypeArgs[t], ns, nc)) { return true; } t = t + 1; }
+            if (MethodTypeParamUse._expr(c.Callee, ns, nc)) { return true; }
+            return MethodTypeParamUse._exprs(c.Args, c.ArgCount, ns, nc);
+        }
+        // ── 以下纯递归容器 ────────────────────────────────────────────────
+        if (e is UnaryExpr)  { return MethodTypeParamUse._expr((e as UnaryExpr).Operand, ns, nc); }
+        if (e is RefArgExpr) { return MethodTypeParamUse._expr((e as RefArgExpr).Inner, ns, nc); }
+        if (e is BinaryExpr) {
+            BinaryExpr b = e as BinaryExpr;
+            if (MethodTypeParamUse._expr(b.Left, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(b.Right, ns, nc);
+        }
+        if (e is AssignExpr) {
+            AssignExpr a = e as AssignExpr;
+            if (MethodTypeParamUse._expr(a.Target, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(a.Value, ns, nc);
+        }
+        if (e is MemberExpr)         { return MethodTypeParamUse._expr((e as MemberExpr).Target, ns, nc); }
+        if (e is NullCondMemberExpr) { return MethodTypeParamUse._expr((e as NullCondMemberExpr).Target, ns, nc); }
+        if (e is IndexExpr) {
+            IndexExpr ix = e as IndexExpr;
+            if (MethodTypeParamUse._expr(ix.Target, ns, nc)) { return true; }
+            return MethodTypeParamUse._exprs(ix.Indices, ix.IndexCount, ns, nc);
+        }
+        if (e is TernaryExpr) {
+            TernaryExpr t = e as TernaryExpr;
+            if (MethodTypeParamUse._expr(t.Cond, ns, nc)) { return true; }
+            if (MethodTypeParamUse._expr(t.Then, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(t.Else, ns, nc);
+        }
+        if (e is IsExpr) {
+            // `x is T` 的类型位是**静态**判定（is-check 走 type_registry），不读 frame ⇒ 不算消费；
+            // 但过近似方向下仍判进来（宁可多判，见抬头 ②）。
+            IsExpr i = e as IsExpr;
+            if (MethodTypeParamUse._type(i.Type, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(i.E, ns, nc);
+        }
+        if (e is AsExpr) {
+            AsExpr a = e as AsExpr;
+            if (MethodTypeParamUse._type(a.Type, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(a.E, ns, nc);
+        }
+        if (e is CastExpr) {
+            CastExpr c = e as CastExpr;
+            if (MethodTypeParamUse._type(c.Type, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(c.E, ns, nc);
+        }
+        if (e is IsPatternExpr) {
+            IsPatternExpr ip = e as IsPatternExpr;
+            if (MethodTypeParamUse._pat(ip.Pat, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(ip.E, ns, nc);
+        }
+        if (e is SwitchExpr) {
+            SwitchExpr sw = e as SwitchExpr;
+            if (MethodTypeParamUse._expr(sw.Subject, ns, nc)) { return true; }
+            int i = 0;
+            while (i < sw.ArmCount) {
+                SwitchArm a = sw.Arms[i];
+                if (a.HasPattern && MethodTypeParamUse._pat(a.Pattern, ns, nc)) { return true; }
+                if (MethodTypeParamUse._expr(a.Guard, ns, nc)) { return true; }
+                if (MethodTypeParamUse._expr(a.Body, ns, nc)) { return true; }
+                i = i + 1;
+            }
+            return false;
+        }
+        if (e is WithExpr) {
+            WithExpr w = e as WithExpr;
+            if (MethodTypeParamUse._expr(w.Target, ns, nc)) { return true; }
+            return MethodTypeParamUse._exprs(w.FieldValues, w.FieldCount, ns, nc);
+        }
+        if (e is LambdaExpr) {
+            LambdaExpr l = e as LambdaExpr;
+            int i = 0;
+            while (i < l.ParamCount) {
+                if (l.Params[i].HasType && MethodTypeParamUse._type(l.Params[i].Type, ns, nc)) { return true; }
+                i = i + 1;
+            }
+            if (l.HasBlock) { return MethodTypeParamUse._stmt(l.BlockBody, ns, nc); }
+            return MethodTypeParamUse._expr(l.ExprBody, ns, nc);
+        }
+        if (e is ArrayLitExpr)    { ArrayLitExpr a = e as ArrayLitExpr;    return MethodTypeParamUse._exprs(a.Elems, a.ElemCount, ns, nc); }
+        if (e is ListLitExpr)     { ListLitExpr  l = e as ListLitExpr;     return MethodTypeParamUse._exprs(l.Elems, l.ElemCount, ns, nc); }
+        if (e is TupleExpr)       { TupleExpr    t = e as TupleExpr;       return MethodTypeParamUse._exprs(t.Elems, t.Count, ns, nc); }
+        if (e is ArrayRepeatExpr) {
+            ArrayRepeatExpr a = e as ArrayRepeatExpr;
+            if (MethodTypeParamUse._expr(a.Value, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(a.Count, ns, nc);
+        }
+        if (e is DictLitExpr) {
+            DictLitExpr d = e as DictLitExpr;
+            if (MethodTypeParamUse._exprs(d.Keys, d.Count, ns, nc)) { return true; }
+            return MethodTypeParamUse._exprs(d.Values, d.Count, ns, nc);
+        }
+        if (e is InterpolatedStringExpr) {
+            InterpolatedStringExpr s = e as InterpolatedStringExpr;
+            int i = 0;
+            while (i < s.PartCount) {
+                if (s.Parts[i] is InterpHole) {
+                    if (MethodTypeParamUse._expr((s.Parts[i] as InterpHole).Inner, ns, nc)) { return true; }
+                }
+                i = i + 1;
+            }
+            return false;
+        }
+        // 叶子（无子节点、无类型位）：IntLit / FloatLit / StringLit / CharLit / BoolLit / NullLit /
+        // Ident / EmptyBraceLit。
+        return false;
+    }
+
+    private static bool _exprs(Expr[] xs, int n, string[] ns, int nc) {
+        if (xs == null) { return false; }
+        int i = 0;
+        while (i < n) { if (MethodTypeParamUse._expr(xs[i], ns, nc)) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // ── 模式层：Pattern.z42 的 10 个子类逐个覆盖 ─────────────────────────────
+    private static bool _pat(Pattern p, string[] ns, int nc) {
+        if (p == null) { return false; }
+        if (p is ConstantPattern) { return MethodTypeParamUse._expr((p as ConstantPattern).Value, ns, nc); }
+        if (p is NamePattern)     { return MethodTypeParamUse._type((p as NamePattern).Type, ns, nc); }
+        if (p is PositionalPattern) {
+            PositionalPattern pp = p as PositionalPattern;
+            if (MethodTypeParamUse._type(pp.Type, ns, nc)) { return true; }
+            return MethodTypeParamUse._pats(pp.Elems, pp.ElemCount, ns, nc);
+        }
+        if (p is PropertyPattern) {
+            PropertyPattern pp = p as PropertyPattern;
+            if (pp.HasType && MethodTypeParamUse._type(pp.Type, ns, nc)) { return true; }
+            return MethodTypeParamUse._pats(pp.FieldPats, pp.FieldCount, ns, nc);
+        }
+        if (p is TuplePattern) { TuplePattern tp = p as TuplePattern; return MethodTypeParamUse._pats(tp.Elems, tp.Count, ns, nc); }
+        if (p is OrPattern)    { OrPattern op = p as OrPattern;       return MethodTypeParamUse._pats(op.Alts, op.Count, ns, nc); }
+        if (p is AtPattern)    { return MethodTypeParamUse._pat((p as AtPattern).Sub, ns, nc); }
+        if (p is RangePattern) {
+            RangePattern r = p as RangePattern;
+            if (MethodTypeParamUse._expr(r.Lo, ns, nc)) { return true; }
+            return MethodTypeParamUse._expr(r.Hi, ns, nc);
+        }
+        if (p is RelationalPattern) { return MethodTypeParamUse._expr((p as RelationalPattern).Value, ns, nc); }
+        if (p is WildcardPattern)   { return false; }
+        return false;
+    }
+
+    // ⚠️ 按显式 Count 迭代，**不用 `.Length`** —— 这些数组按增长策略超额分配，尾部是 null。
+    private static bool _pats(Pattern[] ps, int n, string[] ns, int nc) {
+        if (ps == null) { return false; }
+        int i = 0;
+        while (i < n) { if (MethodTypeParamUse._pat(ps[i], ns, nc)) { return true; } i = i + 1; }
+        return false;
+    }
+}

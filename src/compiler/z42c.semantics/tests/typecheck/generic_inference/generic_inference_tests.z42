@@ -1,0 +1,268 @@
+// add-generic-type-arg-inference：形参位类型实参代换 + 方法级类型实参推断。
+//
+// 🔴 断言口径（照抄 argument_type_tests.z42 的教训，别退回 FirstErrorCode）：
+// `FirstErrorCode` 只看第一条，「多实参逐条报」与「本该无诊断」两类都验不到。故本文件用
+// `bodyDiags` 直接读诊断袋，断言**码 + 条数**。
+//
+// 🔴 这些用例必须是**真门**：每一条负例都做过退回对照（把消费端改动退回后必须变绿），
+// 每一条正例都确认过在改动前后都绿。写「断言钉在被改的那个节点上」而不是整段文本里。
+namespace Z42cSemanticsGenericInferenceTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+// 体内诊断（TypeChecker.Infer 产出）——镜像 SemanticDump.FirstErrorCode 的构建序，但返回整袋。
+DiagnosticBag bodyDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int countCode(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 单型参容器 + 双型参容器（z42 顶层只允许声明，故用函数返回源码前缀）。
+string pre() {
+    return "class Box<T> { public void Put(T v) { } public T Get() { return null; } } "
+         + "class Map<K, V> { public void Set(K k, V v) { } } ";
+}
+
+// ── 阶段 A：泛型类实例方法的形参位按 receiver 的 TypeArgs 代换 ──────────────
+
+[Test]
+void test_generic_instance_method_arg_mismatch_reports_E0402() {
+    // 形参 T 在 Box<string> 上代换为 string；实参 int 不可隐式转 ⇒ 报错。
+    // 退回对照：撤掉 MemberResolver 的 _substGenericSig 接线后本条变 0（裸 T 被 GenericErase 放行）。
+    string src = pre() + "class Use { void f() { var b = new Box<string>(); b.Put(42); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_generic_instance_method_arg_match_reports_nothing() {
+    string src = pre() + "class Use { void f() { var b = new Box<string>(); b.Put(\"ok\"); } }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_generic_instance_method_two_bad_args_report_each() {
+    // 不短路：同一调用里多个实参不符逐条报（对用户更有用）。
+    string src = pre() + "class Use { void f() { var m = new Map<string, Box<string>>(); m.Set(1, 2); } }";
+    Assert.Equal(2, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_generic_instance_method_two_good_args_report_nothing() {
+    string src = pre()
+        + "class Use { void f() { var m = new Map<string, Box<string>>(); m.Set(\"k\", new Box<string>()); } }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+// ── 阶段 B：显式方法类型实参也代换进形参位 ────────────────────────────────
+//
+// 此前 targs 只用来写 bc.MethodTypeArgs + 校 arity/where，从不代回签名 ⇒ 形参仍是裸型参
+// ⇒ `IdOf<string>(7)` 编译期零诊断（#531 正面留下的口子）。
+
+[Test]
+void test_explicit_type_arg_makes_param_concrete_reports_E0402() {
+    string src = "T IdOf<T>(T a) { return a; } class Use { void f() { IdOf<string>(7); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_explicit_type_arg_matching_reports_nothing() {
+    string src = "T IdOf<T>(T a) { return a; } class Use { void f() { IdOf<int>(7); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_explicit_type_arg_static_method_path() {
+    string src = "class H { public static T Pick<T>(T a, T b) { return a; } } "
+        + "class Use { void f() { H.Pick<string>(\"a\", 7); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_explicit_type_arg_array_position() {
+    // 递归面：T[] 形参位按元素代换。
+    string src = "int Len<T>(T[] xs) { return xs.Length; } "
+        + "class Use { void f() { int[] a = new int[2]; Len<string>(a); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── 回归：具体类型形参位**不得**被报两次 ──────────────────────────────────
+//
+// 🔴 阶段 A 初版就踩了这个：代换后对**整条签名**再调一次 CheckArgTypes，而形参是具体类型的位
+// （`int i`）在 `_withDefaults` 内部那次已经查过并报过 ⇒ 同 span 同消息报 2 条。
+// 实测确认过（`b.PutAt("ok", "bad")` → 2 条一模一样的 E0402）。修法 = `CheckSubstitutedArgs`
+// 按位门控，只补查「原签名含型参」的位。我最初的 6 条用例全是泛型形参位，正好绕开了这个形状。
+
+[Test]
+void test_concrete_param_position_reported_once_not_twice() {
+    string src = "class Box<T> { public void PutAt(T v, int i) { } } "
+        + "class Use { void f() { var b = new Box<string>(); b.PutAt(\"ok\", \"bad\"); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_generic_and_concrete_both_bad_report_one_each() {
+    string src = "class Box<T> { public void PutAt(T v, int i) { } } "
+        + "class Use { void f() { var b = new Box<string>(); b.PutAt(1, \"bad\"); } }";
+    Assert.Equal(2, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── 阶段 C：省略尖括号 → 从实参推断方法级类型实参 ──────────────────────────
+
+[Test]
+void test_inferred_call_matching_reports_nothing() {
+    string src = "T IdOf<T>(T a) { return a; } class Use { void f() { IdOf(7); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+// 🔴 **阳性对照**——这条是「推断通道真的通了」的证据。阶段 C 之前 `g(new D())` 零诊断
+// （`_applyMethodTypeArgs` 在 TypeArgCount==0 时第一行早退，where 约束根本不校验）。
+// 它同时关掉 Deferred `where-constraint-future-inferred-method-args`。
+[Test]
+void test_inferred_type_arg_violating_where_is_reported() {
+    string src = "interface IFoo { } class D { } void g<T>(T a) where T : IFoo { } "
+        + "class Use { void f() { g(new D()); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_inferred_type_arg_satisfying_where_reports_nothing() {
+    string src = "interface IFoo { } class L : IFoo { } void g<T>(T a) where T : IFoo { } "
+        + "class Use { void f() { g(new L()); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+// 形状不匹配位：unify 推不出信息（T[] vs int），但 T 已由前一位定为 int ⇒ 代换后 int[] vs int。
+[Test]
+void test_inferred_binding_makes_shape_mismatch_visible() {
+    string src = "void h<T>(T a, T[] b) { } class Use { void f() { h(1, 2); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── 阶段 C 的保守收口：推断失败 = 完全按今天行为，不发任何诊断 ──────────────
+
+[Test]
+void test_conflicting_bindings_fail_inference_silently() {
+    // 同一型参绑到 string 与 int ⇒ 整体失败（v1 不做「最佳公共类型」，见 Deferred
+    // generic-inference-best-common-type）。失败即静默，与改动前逐字节一致。
+    string src = "void p<T>(T a, T b) { } class Use { void f() { p(\"s\", 7); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_uncovered_type_param_fails_inference_silently() {
+    // T 不出现在任何形参位 ⇒ 无从推断 ⇒ 整体失败 ⇒ 静默。
+    string src = "T mk<T>(int n) { return null; } class Use { void f() { mk(3); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── 阶段 D：callee 真消费型参时，省略尖括号报 E0455 ────────────────────────
+//
+// 推断刻意不回灌 MethodTypeArgs（design D4）⇒ 这类 callee 运行期会读到**空**的
+// frame.method_type_args（静默错值）。本诊断把它换成编译错误。
+
+[Test]
+void test_consuming_callee_implicit_call_requires_explicit_type_arg() {
+    string src = "T[] MakeArr<T>(int n) { return new T[n]; } class Use { void f() { MakeArr(3); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_consuming_callee_with_explicit_type_arg_is_fine() {
+    string src = "T[] MakeArr<T>(int n) { return new T[n]; } class Use { void f() { MakeArr<int>(3); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_non_consuming_callee_implicit_call_is_fine() {
+    // `Array.Copy<T>` 的形状：体内只转发，T 纯粹是编译期类型安全装置 ⇒ 不报。
+    // 这条守的是「全仓 112 处隐式泛型调用不被判红」这个不变量。
+    string src = "void Cp<T>(T[] a, T[] b) { } "
+        + "class Use { void f() { int[] x = new int[2]; int[] y = new int[2]; Cp(x, y); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_typeof_type_param_counts_as_consuming() {
+    string src = "int Tag<T>(int n) { return typeof(T).GetHashCode(); } "
+        + "class Use { void f() { Tag(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_default_type_param_counts_as_consuming() {
+    string src = "T Zero<T>(int n) { return default(T); } class Use { void f() { Zero(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+// 🔴 第五种、最容易漏的形态：把自身型参**转发**给嵌套泛型调用（emit 期发 `$mta:<idx>`，
+// 运行期按调用方 frame 解析）⇒ 也是消费。
+[Test]
+void test_forwarding_type_param_to_nested_generic_call_counts_as_consuming() {
+    string src = "void Inner<U>(int n) { } void Outer<T>(int n) { Inner<T>(n); } "
+        + "class Use { void f() { Outer(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+// 嵌套容器：消费点藏在 if / while / lambda / switch 表达式里也要能找到（walker 递归面）。
+[Test]
+void test_consumption_nested_in_control_flow_is_found() {
+    string src = "int Deep<T>(int n) { if (n > 0) { while (n > 0) { return typeof(T).GetHashCode(); } } return 0; } "
+        + "class Use { void f() { Deep(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_consumption_nested_in_lambda_body_is_found() {
+    string src = "int Lam<T>(int n) { var g = () => typeof(T).GetHashCode(); return n; } "
+        + "class Use { void f() { Lam(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_consumption_nested_in_try_finally_is_found() {
+    string src = "int Tf<T>(int n) { try { n = n + 1; } finally { var z = default(T); } return n; } "
+        + "class Use { void f() { Tf(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+// 类型注解位的 `T x;` **不算**消费（只是静态类型，不读 frame）——防过度报错。
+[Test]
+void test_type_annotation_alone_is_not_consumption() {
+    string src = "int Ann<T>(T a) { T x = a; return 0; } class Use { void f() { Ann(1); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0455"));
+}
+
+// ── 阶段 A 的边界：类级 + 方法级混合泛型不产生假红 ────────────────────────
+//
+// `_substGeneric` 对不在 Def.GenericParamNames 里的名字（= 方法级型参 U）返回 Z42UnknownType
+// ⇒ 落 Conversion 分支 A 的 Absorb ⇒ 放行。要等阶段 C 求出方法级绑定后 U 位才真检查。
+
+[Test]
+void test_method_level_type_param_position_not_checked_in_stage_a() {
+    string src = "class Bag<T> { public void PutBoth<U>(U u, T t) { } } "
+        + "class Use { void f() { var b = new Bag<string>(); b.PutBoth(1, \"ok\"); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_class_level_position_still_checked_when_method_generic_present() {
+    // 同一个调用里 U 位放行、T 位仍真检查 —— 证明代换是逐位的，不是整条签名放弃。
+    string src = "class Bag<T> { public void PutBoth<U>(U u, T t) { } } "
+        + "class Use { void f() { var b = new Bag<string>(); b.PutBoth(1, 2); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}

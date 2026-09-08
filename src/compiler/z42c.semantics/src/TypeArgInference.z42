@@ -1,0 +1,126 @@
+// add-generic-type-arg-inference 阶段 C：方法级类型实参推断。
+//
+// 从**已绑定的实参类型**反推方法级型参，使省略 `<...>` 的调用也能得到与显式写出相同的
+// 类型检查结果。此前 z42c 完全没有推断：`MemberResolver._applyMethodTypeArgs` 在
+// `call.TypeArgCount == 0` 时第一行就早退，`typeArgCount` 的唯一用途是重载 arity 过滤。
+//
+// ⚠️ 三条硬性边界（爆炸半径全部来自这里，故都取最保守）：
+//   ① 任一型参未被绑定 → **整体失败**（不做 partial 代换）
+//   ② 同一型参绑到两个不同类型 → **整体失败**（不做 C# 式「最佳公共类型」）
+//   ③ 实参类型是 Unknown / Error（含 lambda、target-typed new 的延迟位）→ **跳过该位**；
+//      若因此有型参未绑定 → 落 ①
+// **失败 = 完全按今天行为，不发任何诊断** ⇒ 行为变化被锁在「推断成功」这个子集内。
+//
+// ⚠️ 推断只驱动**诊断**：调用方不把结果写进 `BoundCall.MethodTypeArgs`。写了会让 emit 从
+// `Op.Call` 换成 `Op.CallGeneric`(0xB4) + 重排 zbc 字符串池 + 关掉 `exec_call.rs` 的
+// native 快路径门（`method_type_args.is_empty()`）。全仓普查显示隐式泛型调用 112 处**全部**是
+// `Array.Copy<T>`，而它的 T 不被运行期消费 ⇒ 回灌是纯回归。详见 change 的 design D4。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Core;
+
+// 推断结果：Ok=false 时 Args 无意义（调用方必须原样按今天行为继续）。
+public sealed class TypeArgBindings {
+    public bool      Ok;
+    public Z42Type[] Args;    // 按型参**声明序**对齐，供 ConstraintChecker.CheckMethod / 代换直接消费
+    public int       Count;
+    public TypeArgBindings(bool ok, Z42Type[] args, int count) {
+        this.Ok = ok; this.Args = args; this.Count = count;
+    }
+}
+
+public static class TypeArgInference {
+    // sig       —— 被调方法的**未代换**签名
+    // names     —— 方法级型参名（声明序），nameCount = 个数
+    // args      —— 已绑定的实参（BoundExpr），argCount = 个数
+    public static TypeArgBindings Infer(Z42FuncType sig, string[] names, int nameCount,
+                                        BoundExpr[] args, int argCount) {
+        if (sig == null || names == null || nameCount == 0) {
+            return new TypeArgBindings(false, new Z42Type[0], 0);
+        }
+        Z42Type[] bound = new Z42Type[nameCount];
+        // 只在**定长段**上推断：params 尾位的规范形态（直接传数组）与展开形态在这里无法区分，
+        // 误判会污染绑定 ⇒ v1 整段跳过。若型参只出现在 params 尾位 → 落边界 ①（整体失败）。
+        int fixedEnd = argCount;
+        if (sig.ParamCount < fixedEnd) { fixedEnd = sig.ParamCount; }
+        if (sig.ParamsFrom >= 0 && sig.ParamsFrom < fixedEnd) { fixedEnd = sig.ParamsFrom; }
+        int i = 0;
+        while (i < fixedEnd) {
+            if (args[i] != null) {
+                Z42Type at = args[i].Type();
+                // 边界 ③：Unknown / Error 不携带信息，跳过（不算冲突）。
+                if (at != null && !(at is Z42UnknownType) && !(at is Z42ErrorType)) {
+                    if (!TypeArgInference._unify(sig.ParamTypes[i], at, names, nameCount, bound)) {
+                        return new TypeArgBindings(false, new Z42Type[0], 0);   // 边界 ②
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        // 边界 ①：必须全部绑定。
+        int k = 0;
+        while (k < nameCount) {
+            if (bound[k] == null) { return new TypeArgBindings(false, new Z42Type[0], 0); }
+            k = k + 1;
+        }
+        return new TypeArgBindings(true, bound, nameCount);
+    }
+
+    // 结构化 unify：把形参类型 p 与实参类型 a 对齐，命中型参名即记绑定。
+    // 返回 false 仅表示**冲突**（同一型参绑到两个不同类型）；「没推出信息」返回 true。
+    //
+    // ⚠️ 递归面刻意与 `Conversion._hasGenericParam` 对齐——两者描述的是同一件事「类型里哪里会
+    // 出现型参」。不齐会出现「分支 B 认为含型参、推断却没覆盖到」的错配：那种位既不被擦除放行
+    // 检查（因为代换没发生），也拿不到绑定，属于最难查的静默不一致。
+    // 唯一的有意差异：`_hasGenericParam` 还下钻 `Z42FuncType`，这里也下钻（见下），而
+    // `MemberResolver._substGeneric` 今天**没有** Z42FuncType 分支 —— 故 func 位即使推出了绑定，
+    // 代换时也换不进去。这不会出错（只是少换一次），但要知道它是个已知的不对称。
+    private static bool _unify(Z42Type p, Z42Type a, string[] names, int nameCount, Z42Type[] bound) {
+        if (p == null || a == null) { return true; }
+        if (p is Z42GenericParamType) {
+            int idx = TypeArgInference._nameIndex(names, nameCount, p.Name());
+            if (idx < 0) { return true; }          // 类级型参 / `Self` —— 不归本推断管
+            if (bound[idx] == null) { bound[idx] = a; return true; }
+            return bound[idx].CanonName() == a.CanonName();   // 边界 ②：冲突即整体失败
+        }
+        if ((p is Z42ArrayType) && (a is Z42ArrayType)) {
+            return TypeArgInference._unify((p as Z42ArrayType).Elem, (a as Z42ArrayType).Elem,
+                                           names, nameCount, bound);
+        }
+        if ((p is Z42InstantiatedType) && (a is Z42InstantiatedType)) {
+            Z42InstantiatedType pi = p as Z42InstantiatedType;
+            Z42InstantiatedType ai = a as Z42InstantiatedType;
+            // 不同 Def 或不同 arity → 无信息（不是冲突：实参可能是子类实例化，交给可转检查去判）。
+            if (pi.Def.Name() != ai.Def.Name() || pi.ArgCount != ai.ArgCount) { return true; }
+            int i = 0;
+            while (i < pi.ArgCount) {
+                if (!TypeArgInference._unify(pi.TypeArgs[i], ai.TypeArgs[i], names, nameCount, bound)) {
+                    return false;
+                }
+                i = i + 1;
+            }
+            return true;
+        }
+        if ((p is Z42FuncType) && (a is Z42FuncType)) {
+            Z42FuncType pf = p as Z42FuncType;
+            Z42FuncType af = a as Z42FuncType;
+            if (pf.ParamCount != af.ParamCount) { return true; }
+            int i = 0;
+            while (i < pf.ParamCount) {
+                if (!TypeArgInference._unify(pf.ParamTypes[i], af.ParamTypes[i], names, nameCount, bound)) {
+                    return false;
+                }
+                i = i + 1;
+            }
+            return TypeArgInference._unify(pf.Ret, af.Ret, names, nameCount, bound);
+        }
+        return true;   // 形状不匹配 → 无信息可推（是否可赋由 CheckImplicitConvert 另行判定）
+    }
+
+    private static int _nameIndex(string[] names, int nameCount, string n) {
+        int i = 0;
+        while (i < nameCount) { if (names[i] == n) { return i; } i = i + 1; }
+        return 0 - 1;
+    }
+}

@@ -20,7 +20,7 @@ z42 语言设计文档：语法、语义、类型系统、内置协议与 FFI �
 
 | 文件 | 内容 |
 |------|------|
-| [`generics.md`](generics.md) | 泛型 + where 约束 + 关联类型 + 具化策略 |
+| ~~`generics.md`~~ → [book/src/language/generics.md](../../book/src/language/generics.md) | 泛型 + where 约束 + 关联类型 + 具化策略（**2026-09-08 已迁入 book**，change `add-generic-type-arg-inference`） |
 | [`closure.md`](closure.md) | 闭包：捕获语义 / 三档实现策略 / 单目标 |
 | [`delegates-events.md`](delegates-events.md) | delegate 类型 + multicast + event 关键字 + ISubscription wrapper |
 | [`static-abstract-interface.md`](static-abstract-interface.md) | C# 11 风静态抽象接口成员（INumber<T> 等）|

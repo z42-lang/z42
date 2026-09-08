@@ -1,21 +1,29 @@
 # z42 泛型设计
 
+> 对齐：2026-09-08（change `add-generic-type-arg-inference`——类型实参推断落地 + 更正本页
+> §语义 里那条「T 从实参推断」的失效陈述）
+>
+> 📦 **本页 2026-09-08 从 `docs/design/language/generics.md` 原样迁入**，完成
+> [language/README.md](README.md) 迁移表里「generics.md → 类型系统」那一格。迁入时只修正了失效
+> 段落与相对链接，正文未按 book 口径重写 —— 沿革与 C# 时代的实现引用（`*.cs` 路径）保持原样，
+> 作历史记录读。当前语义一律以本页顶部各「更新」注与 [generic-constraints.md](generic-constraints.md) 为准。
+
 > **Status**: L3-G1/G2/G2.5/G3a/G3d/G4 ✅ ｜ 泛型函数 + 泛型类 + 约束体系 + 跨 zpkg 元数据传播；关联类型 / 协变逆变 / 反射见 Deferred
 >
 > **约束体系的真实校验范围**（2026-09-06 更新）：同包七项已校验，**跨包七项亦已校验**
 > （add-associated-types PR-1 接通 zbc 约束 bundle 全链路）；`Self`（仅接口）与关联类型
 > **同包已实现**，关联类型**跨包尚未校验**、嵌套约束未实现。以
-> [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md) 为准。
+> [book/src/language/generic-constraints.md](generic-constraints.md) 为准。
 >
 > 🔴 **本页下文的 `IComparable<T>` / `IEquatable<T>` / `INumber<T>` 写法已全部过时**
 > （change `apply-self-to-core-protocols`，2026-09-07）：这三个协议接口已改写成**非泛型 + `Self`**
 > （`interface IComparable { int CompareTo(Self other); }`），实现方写 `struct Int32 : IComparable`，
 > 约束侧写 `where T : IComparable`。本页属 `docs/design/`（**冻结不再维护**，见
-> [doc-system.md 决策 D2](../../agent/rules/doc-system.md)），示例未逐条改写；当前写法一律以
-> [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md) 为准。
+> [doc-system.md 决策 D2](../../../agent/rules/doc-system.md)），示例未逐条改写；当前写法一律以
+> [book/src/language/generic-constraints.md](generic-constraints.md) 为准。
 > `IComparer<T>` / `IEqualityComparer<T>`（外部比较器形态）**仍是泛型**，本页相关示例依然有效。
 
-> **方法级类型参数（2026-08-21 add-generic-methods M1）**：`Foo<T>()` 直接调用 + 方法体 `typeof(T)`/`new T()`/`default(T)` 具化为调用点类型——载体是 `Frame.method_type_args`（与类级实例 `type_args` 对称）。实现原理、决策、`<` 歧义消解见 **[book/src/language/generic-methods.md](../../book/src/language/generic-methods.md)**（SoT）。
+> **方法级类型参数（2026-08-21 add-generic-methods M1）**：`Foo<T>()` 直接调用 + 方法体 `typeof(T)`/`new T()`/`default(T)` 具化为调用点类型——载体是 `Frame.method_type_args`（与类级实例 `type_args` 对称）。实现原理、决策、`<` 歧义消解见 **[book/src/language/generic-methods.md](generic-methods.md)**（SoT）。
 
 > L3 核心特性。本文档定义泛型的语法、约束体系、编译策略和 VM 运行时支持。
 
@@ -117,7 +125,7 @@ interface IEnumerable<T> {
 ## 约束体系
 
 > **约束的语义与校验范围的 SoT 已上浮到
-> [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md)**
+> [book/src/language/generic-constraints.md](generic-constraints.md)**
 > （change `complete-where-constraints`，2026-09-05）。本节只保留**选型意图**；
 > 「哪些真的会被校验、边界在哪」一律以 book 页为准。
 
@@ -148,7 +156,7 @@ interface IEnumerable<T> {
 > 沿革：本节此前把关联类型 / 嵌套约束按**已实现**描述（含语法示例），实为**设计意图**；
 > 2026-09-05 按实况订正为「未实现」。2026-09-06 `add-associated-types` PR-3 把**同包**关联类型
 > 真正落地，本表随之再更新一次。语义与边界的 SoT 是
-> [book/src/language/generic-constraints.md](../../book/src/language/generic-constraints.md)，
+> [book/src/language/generic-constraints.md](generic-constraints.md)，
 > 本文件只留选型与对比。
 
 ### 关联类型
@@ -377,13 +385,44 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 - 泛型体内 `t.Method()` 在 constraint 接口的方法表中查找，dispatch 为 VCall
 - 调用点（泛型函数 / `new Class<T>(...)`）编译期校验类型参数实现所有约束
 - 未约束的 T 上任何方法调用直接报错（E0402）
-- 自由函数调用时 T 从实参推断后做约束校验；返回类型也按推断做 T → 具体类型替换（`Max<T>(T, T) → T` 调用时返回类型替换为推断出的 T）
+- 自由函数调用时 T 从实参推断后做约束校验（见下方「类型实参推断」）
+
+> 🔴 **上面这条曾长期是失效陈述**（2026-09-08 `add-generic-type-arg-inference` 更正）：
+> 原文写「T 从实参推断后做约束校验；**返回类型也按推断做 T → 具体类型替换**」，语气是已落地的
+> 语义约定，但**推断当时根本没有实现**——`MemberResolver._applyMethodTypeArgs` 在
+> `call.TypeArgCount == 0` 时第一行就早退，全仓无任何回推 T 的代码路径；同节「限制（本阶段）」
+> 也**漏列**了这一条。与 book SoT [`generic-methods.md`](generic-methods.md)「类型推断留后续」
+> 三方冲突。推断已于该 change 落地，但**返回类型仍不按推断代换**（推断只驱动诊断，见下）。
+
+### 类型实参推断（2026-09-08 `add-generic-type-arg-inference`）
+
+省略尖括号的泛型方法调用 `IdOf(7)` 会从**已绑定的实参类型**结构化 unify 出方法级型参绑定
+（裸型参 / 数组元素 / 实例化类型实参 / func 形参·返回四个层面递归）。推断成功后：
+
+- 形参位按绑定代换 → 实参走与赋值 / `return` / var-decl **同一条**可转检查门；
+- 复用 `ConstraintChecker.CheckMethod` 校验 `where` 约束（此前只有显式写类型实参才校验）。
+
+**保守收口四条**（爆炸半径全部来自这里）：型参未全绑定 → 整体失败；同一型参绑到不同类型 →
+整体失败（v1 不做「最佳公共类型」，`Max(1, 2L)` 照旧不校验）；实参类型是 `Unknown`/`Error`
+（含 lambda、target-typed new 的延迟位）→ 跳过该位；`params` 尾位整段跳过。
+**失败 = 完全按改动前行为、不发任何诊断。**
+
+**推断结果刻意不回灌 `BoundCall.MethodTypeArgs`**：回灌会把 opcode 从 `Op.Call` 换成
+`Op.CallGeneric`、重排 zbc 字符串池、并关掉 `exec_call.rs` 的 native 快路径门；而全仓普查显示
+隐式泛型调用 **112 处全部是 `Array.Copy<T>`**，其 `T` 纯粹是编译期类型安全装置（函数体只做参数
+校验，搬运落到非泛型 native 原语 `CopyRange`）⇒ 回灌是纯回归。代价由 **E0455** 兜住：callee 体内
+真消费型参（`typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` **转发**给嵌套泛型调用）
+时，省略尖括号直接报错、要求显式写出——把静默错值换成编译错误。
 
 ### 限制（本阶段）
 
 - primitive 类型（int/string/...）**未**实现 interface，`Max<int>(1, 2)` 暂不可用（L3-G4 配合 stdlib 泛型化同步放开）
 - 约束不写入 zbc 二进制（仅编译期使用），VM 不做运行时校验（**L3-G3 必须补齐**）
 - 其他约束范式排期见 L3-G2.5 子迭代（见下）
+- **返回类型不按推断代换**：推断只驱动诊断，不进入任何发射决策（不变式：代换结果绝不回灌
+  `_withDefaults` / 装箱 / params 打包 / 重载决议——那四条通道每条都是确定性的自举字节漂移）
+- **推断不参与重载决议**：一律在决议选定唯一候选**之后**做（提前会把 `void F(int)` 与
+  `void F<T>(T)` 变歧义，让今天能编的代码编不过）
 
 ## L3-G2.5 基类约束（2026-04-22 增量）
 
@@ -557,7 +596,7 @@ string Greet<T>(T t) where T: IGreet { return t.Hello(); }
 **永久禁止：impl 块内 `extern` 方法**（Decision 2026-04-26）：
 
 `extern` 关键字的语义是"VM intrinsic / host FFI 绑定"，是类型本身的一部分（与
-类型同生命周期）。`int.op_Add` 的 native 绑定属于 [Int.z42](../../src/libraries/z42.core/src/Int.z42)
+类型同生命周期）。`int.op_Add` 的 native 绑定属于 [Int.z42](../../../src/libraries/z42.core/src/Int.z42)
 的 struct body，**不应该被任何外部包通过 impl 块追加**。
 
 理由：
@@ -1259,11 +1298,11 @@ void Print<T>(T item) where T: Display {
 
 ## Class arity overloading（2026-05-07）
 
-由 [`docs/spec/archive/2026-05-07-add-class-arity-overloading/`](../../spec/archive/2026-05-07-add-class-arity-overloading/) 落地（D-8b-0）。修复 `class Foo` + `class Foo<R>` 同源名冲突的结构性 type-system gap，与 delegate 的 `Action$N` 命名约定对齐。
+由 [`docs/spec/archive/2026-05-07-add-class-arity-overloading/`](../../../spec/archive/2026-05-07-add-class-arity-overloading/) 落地（D-8b-0）。修复 `class Foo` + `class Foo<R>` 同源名冲突的结构性 type-system gap，与 delegate 的 `Action$N` 命名约定对齐。
 
 ### 设计：shadow-only mangling
 
-[`Z42ClassType`](../../src/compiler/z42.Semantics/TypeCheck/Z42Type.cs) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
+[`Z42ClassType`](../../../src/compiler/z42.Semantics/TypeCheck/Z42Type.cs) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
 
 | 场景 | Registry key | `IrName` | `HasArityMangle` |
 |------|-------------|---------|-----------------|
@@ -1296,13 +1335,13 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 ### 实施触点（C# 编译器侧）
 
-- [`SymbolCollector.Classes.cs`](../../src/compiler/z42.Semantics/TypeCheck/SymbolCollector.Classes.cs) `K(cls)` / `KeyFor(cls)` helpers + 2-pass pre-pass + 5 个 pass 用 KeyFor
-- [`SymbolCollector.cs`](../../src/compiler/z42.Semantics/TypeCheck/SymbolCollector.cs) `ResolveType` GenericType — `Name$N` shadow lookup
-- [`SymbolTable.cs`](../../src/compiler/z42.Semantics/TypeCheck/SymbolTable.cs) 镜像 ResolveType
-- [`TypeChecker.cs::BindClassMethods`](../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.cs) IrName-aware classKey
-- [`TypeChecker.Exprs.cs::case NewExpr`](../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.Exprs.cs) qualName 用 resolved class IrName
-- [`TypeChecker.Exprs.Members.cs::ResolveCtorName`](../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.Exprs.Members.cs) ctor 名查找用 cls.Name (bare) 而非 className (可能 mangled)
-- [`IrGen.cs`](../../src/compiler/z42.Semantics/Codegen/IrGen.cs) `ClassIrShortName` helper + EmitClassDesc / EmitMethod / EmitImplicitCtor / `_funcParams` 注册全用 IrName
+- [`SymbolCollector.Classes.cs`](../../../src/compiler/z42.Semantics/TypeCheck/SymbolCollector.Classes.cs) `K(cls)` / `KeyFor(cls)` helpers + 2-pass pre-pass + 5 个 pass 用 KeyFor
+- [`SymbolCollector.cs`](../../../src/compiler/z42.Semantics/TypeCheck/SymbolCollector.cs) `ResolveType` GenericType — `Name$N` shadow lookup
+- [`SymbolTable.cs`](../../../src/compiler/z42.Semantics/TypeCheck/SymbolTable.cs) 镜像 ResolveType
+- [`TypeChecker.cs::BindClassMethods`](../../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.cs) IrName-aware classKey
+- [`TypeChecker.Exprs.cs::case NewExpr`](../../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.Exprs.cs) qualName 用 resolved class IrName
+- [`TypeChecker.Exprs.Members.cs::ResolveCtorName`](../../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.Exprs.Members.cs) ctor 名查找用 cls.Name (bare) 而非 className (可能 mangled)
+- [`IrGen.cs`](../../../src/compiler/z42.Semantics/Codegen/IrGen.cs) `ClassIrShortName` helper + EmitClassDesc / EmitMethod / EmitImplicitCtor / `_funcParams` 注册全用 IrName
 
 ### 限制 / 后续
 
@@ -1314,11 +1353,11 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 
 ## Deferred / Future Work
 
-> 索引也存于 [docs/roadmap.md](../../roadmap.md) "Deferred Backlog Index"。
+> 索引也存于 [docs/roadmap.md](../../../roadmap.md) "Deferred Backlog Index"。
 
 ### D-4: 协变 / 逆变（`<in T, out R>` 等）
 
-- **来源**：[docs/spec/archive/2026-05-02-add-delegate-type/](../../spec/archive/2026-05-02-add-delegate-type/)
+- **来源**：[docs/spec/archive/2026-05-02-add-delegate-type/](../../../spec/archive/2026-05-02-add-delegate-type/)
 - **关联设计文档**：[`delegates-events.md`](delegates-events.md) §12 明确"推迟到 L3 后期"
 - **触发原因**：协变 / 逆变涉及泛型 type-arg 关系约束，z42 当前 generic 系统未做这类规则，加进来牵扯 ImportedSymbols / RebuildFuncType / 子类型规则全链路。
 - **前置依赖**：L3 后期完整 type-system 规划；与 `generics.md` / `static-abstract-interface.md` 协同。

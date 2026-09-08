@@ -19,6 +19,7 @@
   - [sealed 修饰符](language/sealed.md)
   - [static 类（只容纳静态成员）](language/static-classes.md)
   - [target-typed new（省略构造类名）](language/target-typed-new.md)
+  - [泛型总体设计（类型系统）](language/generics.md)
   - [泛型方法（方法级类型参数）](language/generic-methods.md)
   - [泛型约束（`where` 子句）](language/generic-constraints.md)
   - [属性与索引器（成员访问器）](language/member-accessors.md)
