@@ -11,7 +11,7 @@
 > 🔴 **未获 6.5 确认前不得写实现代码。**
 
 ## 进度概览
-- [ ] 阶段 0: 摸清未知（codegen / 装箱 / 跨包 enum）——**先量再动手**
+- [x] 阶段 0: 摸清未知（codegen / 装箱 / 跨包 enum）——**已完成**，结论见 design D4
 - [ ] 阶段 1: enum 类型表示（`IsEnum` 标记）
 - [ ] 阶段 2: 转换与运算符
 - [ ] 阶段 3: 摘跳过 + 调用点/测试改写
@@ -33,16 +33,23 @@
 > ⚠️ 另：worktree `../z42-reflinst` 的分支 `feat/enum-underlying-type`（`fcc2be51`）**未合并进 main**
 > 且提交号是 `(#28)/(#29)` 级别的陈旧物——**不要**把它当作在飞工作或参考基线。
 
-## 阶段 0: 摸清未知（不写实现，只测）
-- [ ] 0.1 实测 `PrimModel.IsScalarValue` / `StructLayout` / `BoxIfNeeded` 今天怎么看待 enum 的
-      `Z42ClassType`（design D4 标为最大未知）
-- [ ] 0.2 实测 `ImportedSymbolLoader` 今天怎么还原**跨包** enum 类型名（Q3）——已知它有
-      `EnumTypeNames`/`EnumConsts` 两张表，待测的是**类型名**落到什么 `Z42Type`——若也退化成普通
-      `Z42ClassType`，属 R1/R3/R5 同族的 imported 保真度缺口，须一并补
-- [ ] 0.3 实测 `Color.Red.GetType()` 折叠今天走哪条路径（`EnumTypeName`）
-- [ ] 0.3b **定反射面边界**：`Enum.Parse`→`long`、`IsDefined(Type,long)`、`GetValues`→`long[]`
-      —— enum 独立类型后这些调用点加 cast，还是反射面维持 long 本位？**阶段 0 就要定**
-- [ ] 0.4 把 0.1–0.3b 结论写回 design.md D4 —— **不得先写实现再补结论**
+## 阶段 0: 摸清未知（不写实现，只测）—— ✅ **已完成 2026-09-08**
+- [x] 0.1 实测 `PrimModel.IsScalarValue` / `StructLayout` / `BoxIfNeeded` 今天怎么看待 enum 的
+      `Z42ClassType`（design D4 标为最大未知）——**`IsScalarValue`=false；关系运算今天就红；
+      `==` 今天就过；装箱退化成 `Int32`**
+- [x] 0.2 实测 `ImportedSymbolLoader` 今天怎么还原**跨包** enum 类型名（Q3）——**答案：跨包 enum
+      压根不走 TSIG 类型还原**，`SymbolCollector._mergeImportedEnums` 在 typecheck 前把导入 enum
+      灌进 `table.EnumTypes`，与本地共用 `SymbolTable:255` 一个解析点 ⇒ **不属 R1/R3/R5 保真度族**
+- [x] 0.3 实测 `Color.Red.GetType()` 折叠今天走哪条路径（`EnumTypeName`）——**折叠正确，得 `Color`**
+- [x] 0.3b **定反射面边界**：`Enum.Parse`→`long`、`IsDefined(Type,long)`、`GetValues`→`long[]`
+      —— 已量清现状，**取舍待 Q3 裁决**（见 proposal Open Questions）
+- [x] 0.4 把 0.1–0.3b 结论写回 design.md D4 —— 已写入「阶段 0 实测结论」表
+
+> 🔴 **阶段 0 改写了后续计划，开工前必读 design D4 的结论表**：
+> ① **1.4 可删**（跨包与本地共用一个解析点，`IsEnum` 置一处即可）；
+> ② **最大未知的真身是装箱**（enum 类型值装箱 → `Int32`，与 `Type.z42:104` 的 i64 承诺矛盾），
+>    本变更会把更多值赶进这条退化路径，**装箱须同批修**；
+> ③ **2.4 的关系比较是必做项**（今天 `a < b` 就报 E0402），`examples/patterns.z42:65` 会当场红。
 
 ## 阶段 1: enum 类型表示
 - [ ] 1.1 `Z42ClassType` 加 `IsEnum`（design D1 选项 B；**不加 `EnumUnderlying`**——
@@ -50,7 +57,12 @@
 - [ ] 1.2 `SymbolTable.z42:255` enum 名解析时置标记
 - [ ] 1.3 `MemberResolver.z42:36-46` `E.Member` 的 `BoundLitInt` 类型改为 enum 类型
       （`EnumTypeName` 字段保留，`GetType()` 折叠沿用）
-- [ ] 1.4 `ImportedSymbolLoader` 跨包 enum 还原带标记（按 0.2 结论）
+- [ ] ~~1.4 `ImportedSymbolLoader` 跨包 enum 还原带标记~~ —— **阶段 0 判定不需要**：
+      `SymbolCollector._mergeImportedEnums:107-120` 已把导入 enum 灌进 `table.EnumTypes`，
+      与本地共用 `SymbolTable:255` 解析点 ⇒ 1.2 置位即覆盖跨包。保留条目仅作留痕
+- [ ] 1.5 🔴 **装箱路径**（阶段 0 新增）：enum 类型值装箱后 `GetType()` 今天得 `Int32`。
+      本变更会把更多值赶进这条路径 ⇒ 须让装箱保留 enum 身份（或至少与 `Type.z42:104` 的
+      i64 承诺自洽）。**先查 `Int32` vs i64 的矛盾是不是独立既存 bug**
 
 ## 阶段 2: 转换与运算符
 - [ ] 2.1 `Conversion` 新增 `ConvKind.ExplicitEnum`：**不进** `ImplicitOk`、**进** `Exists()`

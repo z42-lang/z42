@@ -74,6 +74,40 @@ enum 静态类型的值必须继续发 **i64**：`ExprEmitter` 遇到 enum 静�
 > 跨包 TSIG 还原 各自怎么看待"带 IsEnum 标记的 Z42ClassType"，须在 tasks 阶段 1 先**实测摸清**再动手，
 > 不得先写实现再验。
 
+#### 阶段 0 实测结论（2026-09-08，基于 `origin/main` df333b05 + nightly 种子）
+
+探针在 `scratch/enumrepro/`（最小工程走 **`z42c build`** 而非 `--emit-zbc`——后者吞诊断）。
+今天唯一能造出 enum **类型**值的路径是显式 cast `(Color)1`，据此把未知逐条量掉：
+
+| # | 量什么 | 实测结果 | 对实现的意味 |
+|---|---|---|---|
+| 0.1a | `PrimModel.IsScalarValue("Color")` | **false**（`PrimModel.z42:116` 只认 code 0–11 = 六个基元 wrapper） | enum 的 `Z42ClassType` 不是 scalar ⇒ 一切走 `_structPrimName` 的表都对它返 `""` |
+| 0.1b | 关系运算 `a < b`（两侧 enum 类型） | ❌ **今天就报** `E0402: operator '<' requires orderable … got 'Color'` | **D3 的关系比较是必做项**，不是锦上添花 |
+| 0.1c | `s >= HttpStatus.BadRequest` | ❌ 同上，`got 'HttpStatus'` | `examples/patterns.z42:65` 今天能过**只因两侧都还是 long**；E.Member 一旦变 enum 类型它当场红 |
+| 0.1d | `a == b`（两侧 enum 类型） | ✅ **今天就过** | 相等路径不经 `IsOrderable` ⇒ D3 的 `==`/`!=` 半边**可能零改动**，待实现时确认 |
+| 0.1e | 装箱 `object o = c; o.GetType().Name` | ⚠️ **`Int32`** | enum 身份在装箱处**丢失**；且与 `Type.z42:104`「一律 i64 背书」**自相矛盾**（应是 Int64 才对） |
+| 0.3 | `Color.Blue.GetType().Name` | ✅ **`Color`** | 成员引用的折叠（`BoundLitInt.EnumTypeName` + `CallEmitter:107-112`）**是对的** |
+| 0.2 | 跨包 enum（`GCHandleType`） | 类型位解析 ✅ / cast ✅ / 成员 `GetType()` → `GCHandleType` ✅ / 装箱 → `Int32` ⚠️ | **与本地 enum 逐项同构** |
+
+**两条结论直接改写实现计划：**
+
+1. ⭐ **tasks 1.4「`ImportedSymbolLoader` 跨包 enum 还原带标记」可以删**。
+   `SymbolCollector._mergeImportedEnums`（`:107-120`）在 **typecheck 之前**把
+   `imported.EnumTypeNames` 灌进 `table.EnumTypes`，于是本地与导入 enum **共用同一个解析点**
+   `SymbolTable.z42:255`。⇒ **`IsEnum` 只需在这一处置位，本地 + 跨包一起覆盖**。
+   这也说明 enum **不属于** R1/R3/R5 那族「imported 保真度」缺口（那族是跨包读回时降级，
+   enum 压根不走 TSIG 类型还原，走的是独立的 EnumTypes 表）。
+
+2. 🔴 **最大未知的真身是「装箱」，不是「scalar 判定」**。0.1e/0.2 显示：enum 类型值装箱后
+   `GetType()` 得 **`Int32`** —— 说明它今天被当**普通 i32 基元**装箱。而成员引用那半边
+   （0.3）折叠得对。⇒ **本变更把 `E.Member` 改成 enum 类型后，会把更多值从「折叠正确的那半边」
+   赶到「装箱退化的这半边」**，装箱路径必须同批修，否则是把一个已知不自洽换成另一个。
+   `Int32` vs `Type.z42:104` 承诺的 i64 之间的矛盾亦须一并查清（可能是独立既存 bug）。
+
+> 方法论备注：上面每一条都是**跑出来的**，不是读代码推的。0.1d（`==` 今天就过）与 0.1b/c
+> （`<` 今天就红）这对反差只有实测才拿得到——只读 `BinaryTypeTable` 会误判成「两者都走同一道
+> scalar 门、应当都红」。
+
 ## Implementation Notes
 
 - `MemberResolver` 的 enum 分支已把来源 enum 记在 `BoundLitInt.EnumTypeName`——**改类型即可复用该字段**
