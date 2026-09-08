@@ -160,12 +160,30 @@ public sealed class AssignTyper {
             string nm = (target as BoundIdent).Name;
             Z42Type thisT = env.LookupVar("this");
             if (thisT != null) { fs = this._fieldOf(thisT, nm); recvIsThis = true; }
+        } else if (target is BoundStaticGet) {
+            // fix-static-readonly-not-enforced：**静态**字段的 readonly 此前完全没进这个检查
+            // （只覆盖 BoundMember / BoundIdent 两种实例写法）→ `C.A = 99` 静默放行，
+            // `readonly` 加在静态字段上只是个装饰品、说了不算。查法镜像 _checkConstAssign 的
+            // BoundStaticGet 分支（那条一直是对的）。
+            BoundStaticGet sg = target as BoundStaticGet;
+            if (env.Symbols.HasClass(sg.ClassName)) {
+                fs = env.Symbols.GetClass(sg.ClassName).Fields.Get(sg.FieldName) as FieldSymbol;
+            }
+            // recvIsThis 保持 false —— 静态字段没有 `this`。唯一合法写点是字段初始化器，
+            // 而初始化器由 FunctionEmitter 直接合成成 __static_init__ 里的 StaticSet，
+            // **不经过 AssignExpr 绑定** → 不会在这里被误报。
         }
         if (fs != null && fs.IsReadonly) {
-            bool ok = recvIsThis && env.InCtor();
+            bool isStatic = (target is BoundStaticGet);
+            // ⚠️ 与「静态构造函数不执行」那个 bug 的**耦合点**：C# 允许静态 ctor 给
+            // static readonly 赋值。z42 今天静态 ctor 体根本不跑，故此处对静态一律报错是
+            // 正确的。修好静态 ctor 时**必须回到这里**：给 TypeEnv 加 InStaticCtor 并在此放行，
+            // 否则合法的静态 ctor 赋值会被误报。写在这里而不是留个 TODO，是为了让耦合可见。
+            bool ok = !isStatic && recvIsThis && env.InCtor();
             if (!ok) {
+                string whereTxt = isStatic ? "outside its initializer" : "outside constructor";
                 this._tc._diags.Error(DiagnosticCodes.ReadonlyAssignment,
-                    "cannot assign to readonly field `" + fs.Name + "` outside constructor", a.Span);
+                    "cannot assign to readonly field `" + fs.Name + "` " + whereTxt, a.Span);
             }
         }
         // fix-autoprop-getonly-backing-write：没有 setter 的属性此前**任何位置**都能赋值且静默写丢
