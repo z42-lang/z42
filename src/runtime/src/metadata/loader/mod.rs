@@ -36,12 +36,15 @@ mod namespace;
 mod type_registry;
 mod constraints;
 mod indices;
+// add-symbol-availability-macro：available!() 的加载期折叠 + CFG 剪枝。
+mod availability;
 
 pub use self::artifact::*;
 pub use self::namespace::*;
 pub use self::type_registry::*;
 pub use self::constraints::*;
 pub use self::indices::*;
+pub use self::availability::*;
 
 
 #[cfg(test)]
