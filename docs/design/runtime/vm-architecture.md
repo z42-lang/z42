@@ -982,7 +982,7 @@ mixed-type sites 调用，删除会让那些 sites 慢一档。
 // metadata/tokens.rs — 6 个 newtype + UNRESOLVED sentinel
 pub const UNRESOLVED: u32 = u32::MAX;
 pub struct MethodId(pub u32);     // → Module.functions[id]
-pub struct TypeId(pub u32);       // → Module.classes order
+pub struct TypeId(pub u32);       // → 进程内全局唯一（见下「TypeId 的作用域」）
 pub struct BuiltinId(pub u32);    // → BUILTINS[id] 全局静态表
 pub struct FieldId(pub u32);      // → TypeDesc.fields[id]
 pub struct StaticFieldId(pub u32);// → VmContext.static_fields[id]
@@ -1002,7 +1002,7 @@ pub struct ResolvedTokens {
 
 ### 解析时序
 
-1. **`metadata::loader::build_type_registry`**: 在 topo order 中给每个 `TypeDesc.id` 分配（0..N）
+1. **`metadata::loader::build_type_registry`**: 在 topo order 中给每个 `TypeDesc.id` 分配 —— 号从 **进程级全局发号器** `tokens::alloc_type_id_block(n)` 批量取（每模块一次 `fetch_add`，模块内连续），**不是每模块从 0 重开**（见下）
 2. **`vm.rs::Vm::run`**: 调 `resolver::resolve_module(&module, ctx)`：
    - 走每个 Function 的每个 (block, instr) 元组
    - 对每个 token-bearing instruction 分配 per-kind site_idx
@@ -1027,6 +1027,35 @@ pub struct ResolvedTokens {
 
 > **C4 P2 + C5 P2 (jit-polymorphic-ic, 2026-05-28)**：原单态 IC（一对 `(type_id, slot, fn_idx)`）升级为 4-slot polymorphic IC。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。所有 atomic 操作均为 `Relaxed` —— `type_id` 守门 payload，torn-read 等价于"刚好遇到迁移中的同型 dispatch"，下一次会收敛到稳定态。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `metadata::resolver` 公开，供 interp + JIT helpers 共用。
 >
+#### TypeId 的作用域：为什么必须进程内全局唯一（fix-crosspkg-typeid-collision, 2026-09-08）
+
+六个 token 里，`MethodId` / `FieldId` / `VTableSlot` / `StaticFieldId` 都是**某个模块或某个
+类内部的下标**，出了那个范围没有意义；`BuiltinId` 索引全局静态表。**`TypeId` 是唯一一个
+「在一个作用域里发号、却要在跨作用域的比较中当身份用」的 token** —— 上面两条 PIC 都靠
+`recv.type_desc.id == entry.type_id` 这一个 u32 相等来判定「是不是同一个 receiver 类型」。
+
+这就要求发号范围 ⊇ 比较范围。**曾经不满足**：`TypeId` 每个 `Module` 从 0 重开（当时的
+文档契约就写着「per module」），而跨 zpkg 的 `TypeDesc` 由 `VmContext::try_lookup_type`
+**原样返回**、保留外来模块的号（会重新发号的 `Module::register_lazy_type` 从未接线，已随
+本次修复删除）。于是不同 zpkg 的两个类routinely 共号，任何**跨 zpkg 多态**的站点都会把
+后到的 receiver 误命中先到者的缓存条目：
+
+- `VCallIC` 撞键 → **调用另一个类的方法**，`this` 却是本类对象 ⇒ 按错误的字段布局解释内存
+- `FieldIC` 撞键 → **读写错误的字段槽**，不崩不报错，**静默数据损坏**
+
+真实现场：`Z42.Semantics.ParallelFor.Run` 的 `body.Run(i)`（`IParallelBody` 接口调用）同时
+接 `CompileCuTask`（z42c.semantics）与 `SrcReadHashTask`（z42c.driver）。两者共号 139 时，
+`CompileCuTask` 的 receiver 跑进 `SrcReadHashTask.Run`，其首行 `File.ReadAllText(this._srcs[i])`
+读到槽 0 上的 `CompilationUnit[] _cus` ⇒ 自举链崩在
+`__file_read_text: arg 0 expected string, got CompilationUnit`。触发条件只是「从 z42.core
+删掉一个无关的类」把两边的号对齐了。
+
+**现在**：`alloc_type_id_block` 从进程级 `AtomicU32` 批量发号，号段限定在
+`[0, IMPORT_BASE)`，越界即 panic（回绕会把这个 bug 原样带回来）。debug 构建下两条 PIC
+的命中点各有一道常驻断言（`vcall_resolve::assert_pic_target` /
+`resolver::assert_field_ic_slot`），任何再次违反该不变量的改动会**在误派发当场 panic**，
+而不是变成一个远在天边的崩溃或错数据；release 构建下这两道断言被编译掉，热路径不变。
+
 > **extract-typedesc-from-mutex (2026-05-31)**：PIC scan 读 receiver `type_id` 不再走 Mutex lock。`GcRef<ScriptObject>::type_desc()` 通过 `parking_lot::Mutex::data_ptr()` 直接读 type_desc（write-once-at-alloc invariant 锁定 safety），跳过 ~5–10 ns 的 atomic CAS。详见 `docs/design/runtime/gc.md` "extract-typedesc-from-mutex" 节。这一步是 PIC inline 入 Cranelift IR（Phase 4 future）的前置条件 —— 之前 PIC 因为要 lock 不能 inline。
 
 ### 跨 zpkg 时序

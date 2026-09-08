@@ -145,6 +145,7 @@ pub(super) fn vcall(
 
     // ── PIC hit: straight to the module-local callee (no name work at all) ──────────
     if let Some(idx) = vcall_ic_hit(vcall_ic, &obj_val) {
+        super::vcall_resolve::assert_pic_target(ctx, module, &obj_val, method, idx);
         return invoke_local(ctx, module, frame, dst, idx, &obj_val, args, method_type_args);
     }
 

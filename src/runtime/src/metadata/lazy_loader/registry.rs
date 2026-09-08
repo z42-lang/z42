@@ -57,7 +57,6 @@ impl LazyLoader {
         // has strong_count = 1 in the lazy_loader's registry. Otherwise the
         // fixup pass below can't use `Arc::get_mut` to mutate inherited
         // field layouts in place.
-        artifact.module.type_registry_vec.clear();
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
             if self.type_registry.contains_key(&name) {
                 tracing::warn!(
@@ -309,7 +308,6 @@ impl LazyLoader {
             // cache-ctorless-objnew: same funnel (first-wins handled inside).
             self.insert_function(name, Arc::new(fn_));
         }
-        artifact.module.type_registry_vec.clear();
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
             if self.type_registry.contains_key(&name) {
                 continue;
