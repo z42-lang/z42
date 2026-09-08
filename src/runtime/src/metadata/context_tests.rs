@@ -39,7 +39,6 @@ fn mk_module(type_names: &[&str]) -> Module {
         classes: Vec::new(),
         functions: Vec::new(),
         type_registry,
-        type_registry_vec: Vec::new(),
         func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: 0,
     }

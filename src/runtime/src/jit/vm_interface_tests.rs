@@ -68,11 +68,9 @@ fn module_with(
         .collect();
     let string_pool: Vec<String> = pool.iter().map(|s| s.to_string()).collect();
     let mut type_registry = rustc_hash::FxHashMap::default();
-    let mut type_registry_vec = Vec::new();
     for (idx, class_name) in classes.iter().enumerate() {
         let td = empty_type_desc(class_name, TypeId(idx as u32));
-        type_registry.insert((*class_name).to_string(), td.clone());
-        type_registry_vec.push(td);
+        type_registry.insert((*class_name).to_string(), td);
     }
     Module {
         name: name.to_string(),
@@ -80,7 +78,6 @@ fn module_with(
         classes: Vec::new(),
         functions,
         type_registry,
-        type_registry_vec,
         func_index,
         func_ref_cache_slots: 0,
     }

@@ -192,6 +192,7 @@ pub(super) fn field_get(
                 if let Some(ic) = field_ic {
                     let recv_type = obj.type_desc.id.0;
                     if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                        crate::metadata::resolver::assert_field_ic_slot(&obj.type_desc, field_name, slot);
                         return obj.field_value(slot as usize);
                     }
                     if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
@@ -212,6 +213,7 @@ pub(super) fn field_get(
             if let Some(ic) = field_ic {
                 let recv_type = borrowed.type_desc.id.0;
                 if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                    crate::metadata::resolver::assert_field_ic_slot(&borrowed.type_desc, field_name, slot);
                     let v = borrowed.field_value(slot as usize);
                     drop(borrowed);
                     frame.set(dst, v);
@@ -306,6 +308,7 @@ pub(super) fn field_set(
                 let slot_opt: Option<usize> = if let Some(ic) = field_ic {
                     let recv_type = obj.type_desc.id.0;
                     if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                        crate::metadata::resolver::assert_field_ic_slot(&obj.type_desc, field_name, slot);
                         Some(slot as usize)
                     } else if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
                         field_ic_install(ic, recv_type, slot as u32);
@@ -330,6 +333,7 @@ pub(super) fn field_set(
             if let Some(ic) = field_ic {
                 let recv_type = borrowed.type_desc.id.0;
                 if let Some(slot) = field_ic_lookup(ic, recv_type) {
+                    crate::metadata::resolver::assert_field_ic_slot(&borrowed.type_desc, field_name, slot);
                     let slot = slot as usize;
                     // unify-object-byte-layout (PR-2): `set_field_value` returns whether
                     // a reference slot was written — fire the barrier only for a heap ref.

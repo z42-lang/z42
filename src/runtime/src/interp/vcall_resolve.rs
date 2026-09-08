@@ -77,6 +77,45 @@ pub(crate) fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usiz
     Some(fn_idx as usize)
 }
 
+/// fix-crosspkg-typeid-collision (2026-09-08): tripwire for "the PIC handed back a callee
+/// that does not belong to this receiver".
+///
+/// The PIC compares receiver types by a bare `u32` `TypeId`, so its correctness rests
+/// entirely on that id being globally unique (see `tokens::alloc_type_id_block`). When it
+/// was not, a hit silently ran another zpkg's method against this receiver's fields — no
+/// crash at the call site, just wrong behaviour surfacing arbitrarily far away. This check
+/// turns any future regression of that invariant into a panic *at the mis-dispatch*.
+///
+/// Debug builds only (`cargo test` carries it); compiled out of release, so the hot path
+/// is unchanged.
+#[cfg(debug_assertions)]
+pub(crate) fn assert_pic_target(
+    ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, idx: usize,
+) {
+    // Only object receivers key the PIC on a real `TypeDesc.id`; primitives / boxes use
+    // synthetic ids and resolve through `Std.Object` fallbacks, which this check would
+    // wrongly flag.
+    let Value::Object(rc) = obj_val else { return };
+    let td = rc.type_desc();
+    let Some(callee) = module.functions.get(idx).map(|f| f.name.as_str()) else { return };
+    let Some(declaring) = callee.rfind('.').map(|p| &callee[..p]) else { return };
+    if super::dispatch::is_subclass_or_eq_td(ctx, &module.type_registry, &td.name, declaring) {
+        return;
+    }
+    panic!(
+        "VCall PIC mis-dispatch: receiver `{}` (TypeId {}) calling `{}` resolved to `{}`, \
+         declared on `{}` which is not in the receiver's hierarchy. This means two distinct \
+         types share a TypeId — see tokens::alloc_type_id_block.",
+        td.name, td.id.0, method, callee, declaring
+    );
+}
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+pub(crate) fn assert_pic_target(
+    _ctx: &VmContext, _module: &Module, _obj_val: &Value, _method: &str, _idx: usize,
+) {}
+
 /// Slow path (PIC miss): walk the receiver-kind ladder and resolve the callee. `arity` is the
 /// explicit argument count (excluding `this`). Installs the PIC entry when possible.
 pub(crate) fn resolve_vcall(

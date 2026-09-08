@@ -3,24 +3,28 @@ use super::*;
 // ── TypeDesc registry ─────────────────────────────────────────────────────────
 
 /// Pre-build a `TypeDesc` for every class in `module.classes` and store the
-/// results in `module.type_registry` (by-name HashMap) **and**
-/// `module.type_registry_vec` (by-`TypeId` Vec, Phase 3 S1, 2026-05-09).
+/// results in `module.type_registry` (by-name HashMap).
 ///
 /// Algorithm (CoreCLR-inspired):
 ///   1. Topological sort: each class is processed after its base class.
 ///   2. Field slots: base fields first (already in base TypeDesc), then derived.
 ///   3. vtable: start with base vtable, override entries where derived defines
 ///      the same method name, append new methods at the end.
-///   4. Both views populated: by-name HashMap and by-TypeId Vec[id] = Arc.
+///   4. `TypeId`s come from the process-global allocator — see the comment on
+///      `next_type_id` below, and `tokens::alloc_type_id_block`.
 pub fn build_type_registry(module: &mut Module) {
     let order = topo_sort_classes(module);
     let mut registry: FxHashMap<String, Arc<TypeDesc>> = FxHashMap::default();
-    let mut registry_vec: Vec<Arc<TypeDesc>> = Vec::with_capacity(order.len());
     // introduce-method-token 2026-05-08: assign TypeId in topo order so that
-    // each TypeDesc has a stable per-module id. VCallIC / FieldIC compare
-    // receiver TypeId via single u32 equality (no name hash).
-    // Phase 3 S1: TypeId.0 is also the index in `registry_vec` (invariant).
-    let mut next_type_id: u32 = 0;
+    // each TypeDesc has a stable id. VCallIC / FieldIC compare receiver TypeId
+    // via single u32 equality (no name hash).
+    //
+    // fix-crosspkg-typeid-collision 2026-09-08: the block is drawn from the
+    // **process-global** allocator, not restarted at 0 per module. Those ICs key
+    // on the bare u32 and nothing renumbers a TypeDesc when it crosses a zpkg
+    // boundary, so per-module numbering made two zpkgs' classes collide and
+    // dispatch into each other. See `tokens::alloc_type_id_block`.
+    let mut next_type_id: u32 = crate::metadata::tokens::alloc_type_id_block(order.len() as u32);
 
     for class_name in &order {
         let desc = match module.classes.iter().find(|c| &c.name == class_name) {
@@ -178,16 +182,10 @@ pub fn build_type_registry(module: &mut Module) {
             cold,
             id: type_id,
         });
-        debug_assert_eq!(
-            registry_vec.len() as u32, type_id.0,
-            "type_registry_vec invariant: index == TypeId.0"
-        );
-        registry_vec.push(arc.clone());
         registry.insert(class_name.clone(), arc);
     }
 
     module.type_registry = registry;
-    module.type_registry_vec = registry_vec;
 }
 
 // ── fix-cross-pkg-subclass-fields (2026-05-14) ─────────────────────────────

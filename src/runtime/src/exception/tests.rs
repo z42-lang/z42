@@ -108,7 +108,6 @@ mod make_stdlib_exception_tests {
             classes: vec![],
             functions: vec![],
             type_registry: rustc_hash::FxHashMap::default(),
-            type_registry_vec: Vec::new(),
             func_index: rustc_hash::FxHashMap::default(),
             func_ref_cache_slots: 0,
         }

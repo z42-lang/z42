@@ -439,7 +439,6 @@ fn make_void_action_module(fn_name: &str) -> Module {
         classes:             vec![],
         functions:           vec![func],
         type_registry:       rustc_hash::FxHashMap::default(),
-        type_registry_vec:   Vec::new(),
         func_index,
         func_ref_cache_slots: 0,
     }
