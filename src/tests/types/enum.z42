@@ -34,6 +34,22 @@ string describe(int d) {
     };
 }
 
+// 模式匹配面：常量模式 / or-链 / **关系模式**，subject 与模式两侧都是 enum 类型。
+// 关系模式是本变更的必做项——改前 `a < b` 在 enum 上直接 E0402（`IsOrderable` 不认 enum）。
+//
+// ⚠️ 这里自带一份，**不靠 `examples/patterns.z42`**。那个文件里的
+// `>= HttpStatus.BadRequest and < HttpStatus.ServerError` 是 **C# 语法**，z42 的模式用
+// Rust 风格的 `|`、根本没有 `and` 组合子——它一行都编不过，只是顶层 `examples/` 除
+// hello.z42 外**没有任何门在编**，所以没人发现（属 audit-silent-gates 的账）。
+string classify(Status s) {
+    return s switch {
+        Status.Ok => "ok",
+        Status.NotFound | Status.ServerError => "error",
+        >= Status.NotFound => "at-or-past-404",
+        _ => "unknown",
+    };
+}
+
 void main() {
     // 底层值（自动编号，0 基）——读底层整数须显式 (long)
     Assert.Equal(0L, (long)Direction.North);
@@ -91,4 +107,11 @@ void main() {
     Assert.Equal("East", $"{dir}");              // 插值
     // 未定义值（越界 cast）→ 数字，同 C#
     Assert.Equal("9", ((Direction)9).ToString());
+
+    // ── 模式匹配：常量 / or-链 / 关系模式（2.4 的 IsOrderable 在 PatternBinder 一侧的兑现）──
+    Assert.Equal("ok",             classify(Status.Ok));
+    Assert.Equal("error",          classify(Status.NotFound));
+    Assert.Equal("error",          classify(Status.ServerError));
+    Assert.Equal("at-or-past-404", classify((Status)450));   // 关系臂：只有它能命中
+    Assert.Equal("unknown",        classify((Status)7));
 }

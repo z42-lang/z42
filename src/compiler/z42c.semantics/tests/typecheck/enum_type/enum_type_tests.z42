@@ -1,0 +1,124 @@
+// make-enum-distinct-type：enum 是**独立类型**，不是整数别名。
+//
+// 本文件是这条语义的负例门。改前 z42 **无法产生任何 enum 类型的值**——`E.Member` 绑成
+// `BoundLitInt(long)`，而类型位置的 `E` 解析成一个转换格里没有任何边相连的孤立类，于是
+// `Color c = Color.Blue;` 在 var-decl 就 E0402。修好「产得出值」的同时必须锁住「不许乱转」，
+// 否则 enum 会退回成 long 的别名。
+//
+// 🔴 断言口径：用 `bodyDiags` 直接读诊断袋断言**码 + 条数**，**不用**
+// `SemanticDump.FirstErrorCode`——它只看第一条，「本该无诊断」和「多处逐条报」两类都验不到
+// （同 argument_type_tests 的口径说明）。
+//
+// 🔴 这道门为什么必须在**单测**里而不是 e2e：`xtask test e2e --dir types` 走 `--emit-zbc`，
+// 那条路**吞诊断**（restore-emit-zbc-diagnostics 正在修的洞）——本变更实施期实测过，
+// `enum.z42` 还写着旧模型断言时 e2e 就 126/126 全过。负例面在那里是看不见的。
+namespace Z42cSemanticsEnumTypeTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+// 体内诊断（TypeChecker.Infer 产出）——镜像 SemanticDump.FirstErrorCode 的构建序，但返回整袋。
+DiagnosticBag bodyDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int countCode(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 两个 enum + 一个消费函数。异种 enum 是关键——底层都是 i64，旧模型下最容易串味的一对。
+string pre() { return "enum Color { Red, Blue } enum Mood { Sad, Glad } "; }
+
+string body(string stmts) { return pre() + "void Main() { " + stmts + " }"; }
+
+// ── 正例：enum 现在产得出值（改前这些全在 var-decl 就 E0402）─────────────────
+
+[Test]
+void test_enum_member_initializes_enum_variable() {
+    Assert.Equal(0, bodyDiags(body("Color c = Color.Blue;")).Count());
+}
+
+[Test]
+void test_enum_value_flows_through_param_and_return() {
+    string src = pre() + "Color pick(Color c) { return c; } void Main() { Color c = pick(Color.Red); }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_same_enum_equality_and_relational_are_clean() {
+    Assert.Equal(0, bodyDiags(body("bool a = Color.Red == Color.Blue; bool b = Color.Red < Color.Blue;")).Count());
+}
+
+[Test]
+void test_explicit_casts_round_trip() {
+    Assert.Equal(0, bodyDiags(body("long n = (long)Color.Blue; Color c = (Color)n;")).Count());
+}
+
+// ── 负例：双向都要显式 cast（Q1 裁决，`0` 字面量无例外）──────────────────────
+
+[Test]
+void test_enum_to_integer_without_cast_reports_E0439() {
+    Assert.Equal(1, countCode(bodyDiags(body("long n = Color.Red;")), "E0439"));
+}
+
+[Test]
+void test_integer_to_enum_without_cast_reports_E0439() {
+    Assert.Equal(1, countCode(bodyDiags(body("Color c = 1;")), "E0439"));
+}
+
+[Test]
+void test_zero_literal_to_enum_is_not_exempt() {
+    // C# 给 `0` 开的那个后门这里**不开**（Q1 裁决）——否则 enum 又变回「0 是它、别的不是」的怪物。
+    Assert.Equal(1, countCode(bodyDiags(body("Color c = 0;")), "E0439"));
+}
+
+// ── 负例：跨操作数配对（改前 `==` 的 BinaryRule 根本没有配对维度）──────────────
+
+[Test]
+void test_enum_compared_with_integer_reports_diagnostic() {
+    // `Color.Red == 0` 改前一路放行——BinaryRule 不带操作数约束，`_checkOperand` 又逐侧看，
+    // 「左右配不配」这个维度**零覆盖**。现由 `TypeChecker._checkEnumOperands` 兜住。
+    Assert.Equal(1, bodyDiags(body("bool b = Color.Red == 0;")).Count());
+}
+
+[Test]
+void test_foreign_enum_comparison_reports_diagnostic() {
+    Assert.Equal(1, bodyDiags(body("bool b = Color.Red == Mood.Glad;")).Count());
+}
+
+[Test]
+void test_foreign_enum_assignment_reports_diagnostic() {
+    Assert.Equal(1, bodyDiags(body("Color c = Mood.Glad;")).Count());
+}
+
+// ── 负例：enum 不参与算术 ────────────────────────────────────────────────────
+
+// 这两条同时是**发射端的前提**：`OperatorEmitter` 的字符串 `+` 对 enum 操作数装箱时
+// 不判「结果是不是 string」，靠的正是「带 enum 操作数的算术 `+` 到不了发射」。这里塌了那边就错。
+//
+// 条数按 `_checkOperand` 的**逐侧**口径（两侧 enum → 两条，一侧 enum → 一条），且**只有**
+// 这一条通道：`_checkEnumOperands` 的配对检查已限定在比较运算符上。不限定的话
+// `Color.Red + 1` 会同一位置报两遍（逐侧的「requires numeric operand」+ 配对的「cannot mix」）
+// ——这条断言就是那道闸门的门闩，把「新检查与既有检查重叠」钉死在 1。
+
+[Test]
+void test_enum_plus_enum_reports_E0402_per_operand() {
+    Assert.Equal(2, countCode(bodyDiags(body("long n = (long)(Color.Red + Color.Blue);")), "E0402"));
+}
+
+[Test]
+void test_enum_plus_integer_reports_exactly_one_diagnostic() {
+    Assert.Equal(1, bodyDiags(body("long n = (long)(Color.Red + 1);")).Count());
+}

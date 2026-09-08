@@ -1,21 +1,23 @@
 # Tasks: enum 成为独立类型
 
-> 状态：🔴 DRAFT 待 User 确认 | 创建：2026-09-07
+> 状态：🟢 已完成 | 创建：2026-09-07 | 完成：2026-09-09
 >
 > **来源**：User 在 `add-argument-type-check` 的 Q2 裁决中选了「C# 语义」。因其为**语言语义变更**、
 > 半径远超实参检查，按 [workflow.md](../../../../.claude/rules/workflow.md) Spec-First 拆为本独立 lang change。
+> 同时它是 [[restore-emit-zbc-diagnostics-program]] 欠债表的 **bug D**。
 >
 > **依赖**：`add-argument-type-check` 先合（它已把 enum 位跳过并留了指向本变更的注释）。
-> 本变更**必须摘掉**那个跳过（阶段 3.1），否则 enum 位永远不检查。
+> 本变更**必须摘掉**那个跳过（阶段 3.1），否则 enum 位永远不检查。—— 已摘。
 >
-> 🔴 **未获 6.5 确认前不得写实现代码。**
+> **语义 SoT 落在 [`docs/book/src/language/enums.md`](../../../book/src/language/enums.md)**；
+> 本文件只留实施过程与踩坑记录。
 
 ## 进度概览
 - [x] 阶段 0: 摸清未知（codegen / 装箱 / 跨包 enum）——**已完成**，结论见 design D4
-- [x] 阶段 1: enum 类型表示（`IsEnum` 标记）—— 1.1/1.2/1.3 完成；**1.5 装箱未做**
+- [x] 阶段 1: enum 类型表示（`IsEnum` 标记）—— 1.1/1.2/1.3/1.5 全部完成
 - [x] 阶段 2: 转换与运算符 —— 全部完成
-- [ ] 阶段 3: 摘跳过 + 调用点/测试改写 —— 3.1/3.2 完成，3.3–3.5 待办
-- [ ] 阶段 4: 验证与归档
+- [x] 阶段 3: 摘跳过 + 调用点/测试改写 —— 全部完成
+- [x] 阶段 4: 验证与归档 —— 全部完成
 
 ## 🔧 开工前的前提修正（2026-09-07，`add-argument-type-check` 合并后核查 main 得出）
 
@@ -82,21 +84,42 @@
 - [x] 3.2 `src/tests/types/enum.z42` 全文按新语义改写（不止 4 条：补了 enum 变量/关系比较/往返 cast 的正例）
       （`Assert.Equal(404, (long)Status.NotFound)` / `(long)Direction.North == 0`）——
       **这 4 条成文断言的正是旧模型，必须改，不得绕**
-- [ ] 3.3 `examples/patterns.z42:65` 关系模式确认可用
-- [ ] 3.4 `z42.core/src/GC/GCHandle.z42` 按新语义确认（预期**无需改动**——两侧都是 `GCHandleType`）
-- [ ] 3.5 全仓扫其余 79 处 enum 成员引用，逐处确认新语义下正确
+- [x] 3.3 ✅ enum 的模式匹配面已确认可用，并**自带用例**（`src/tests/types/enum.z42`）：
+      常量模式 / or-链 / 关系模式三种，subject 与模式两侧都是 enum。
+      🔎 **但 `examples/patterns.z42:65` 本身编不过，且与本变更无关**：那行写的是 C# 语法
+      `>= HttpStatus.BadRequest and < HttpStatus.ServerError`，而 z42 的模式是 Rust 风格
+      （or 用 `|`，**没有 `and` 组合子**）。它一行都没编过，只是顶层 `examples/` 除
+      `hello.z42` 外**没有任何门在编**（只有它有 toml），所以从来没人发现。
+      → 归 [[audit-silent-gates-program]]，不在本变更修
+- [x] 3.4 ✅ `z42.core/src/GC/GCHandle.z42` 无需改动（两侧都是 `GCHandleType`），GREEN 的
+      `gc_handle` / `heap_retention` 用例通过即为实证
+- [x] 3.5 ✅ 全仓 enum 成员引用逐处确认：`grep` 得 5 个 enum 类型（`Color` / `GCHandleType` /
+      `Palette` / `RootKind` / `TypeVisibility`）、23 个文件、57 处引用，**全部随完整 GREEN 编过并通过**。
+      需要改的只有两处，都是**成文写着旧模型**的测试：`src/tests/types/enum.z42`（3.2 已改）与
+      `src/tests/cross-zpkg/enum_cross_pkg`（本轮改，见 ⑤）。生产代码（stdlib / 编译器）**零改动**
 
 ## 阶段 4: 验证与归档
-- [ ] 4.1 新增负例/正例测试（spec 场景逐条），🔴 用 `DumpBody`/`collectDiags` 断言，
-      **不得只用 `SemanticDump.FirstErrorCode`**（不合并 collector 诊断 → 空门）
-- [ ] 4.2 🔴 **反向自检**：整体退回改动，新增负例必须全红
-- [ ] 4.3 完整 `xtask test` 全绿
-- [ ] 4.4 🔴 **自举字节不动点**：gen1 == gen2 —— 实证 design D1 的「签名键不变」，不得靠推理
-- [ ] 4.5 `xtask test stdlib --mode jit`（本地 `xtask test` 只跑 interp；enum 表示相关须验 JIT 面）
-- [ ] 4.6 `xtask test bootstrap`（无新语法/无格式改动，上一 nightly 应照常编过）
-- [ ] 4.7 文档：**改写** `docs/book/src/runtime/struct-value-semantics.md:232` 的 enum-as-int SoT 段；
-      新建 `docs/book/src/language/enums.md` 并挂进 `SUMMARY.md`
-- [ ] 4.8 归档 + 随 PR 一起提交
+- [x] 4.1 ✅ 负例/正例门落地：新建
+      `src/compiler/z42c.semantics/tests/typecheck/enum_type/enum_type_tests.z42`（12 条）
+      + 反转 `argument_type_tests.z42` 里那条「enum 位跳过」的留洞用例（原文写明「该 change
+      落地时本用例应当反转」）为 4 条。断言口径用 `bodyDiags` 读整袋、断言**码 + 条数**，
+      **不用** `FirstErrorCode`
+- [x] 4.2 ✅ **反向自检**（把 `z42c.semantics/src` + `runtime/src` 整体退回 origin/main 重建再跑）：
+      **12 条里 8 条翻红**。逐条对账见下「4.2 反向对照结果」——**有 4 条不翻**，其中 3 条是正例
+      （本就不该翻），**1 条负例双向都过**，已注明它验的是语义不是回归
+- [x] 4.3 ✅ 完整 `xtask test` REAL_EXIT=0（e2e 287 / cross-zpkg 21 / multi-exe 2 / stdlib
+      [Test]+[Benchmark] / manifest / examples / compiler / vscode-syntax / lines 全过）
+- [x] 4.4 ✅ **自举字节不动点**：`✅ z42c self-host 不动点: 3/3 packages gen1==gen2 (--workspace)`
+      —— 实证 design D1 的「签名键不变」
+- [x] 4.5 ✅ `xtask test stdlib --mode jit` REAL_EXIT=0；另：enum 全套行为探针在
+      `--mode jit` 下与 interp **逐行相同**
+- [x] 4.6 ✅ `xtask test bootstrap`：`✅ nightly z42c compiles current source — NO
+      staged-bootstrap boundary violation`（无新语法/无格式改动，符合预期）
+- [x] 4.7 ✅ 文档：新建 **`docs/book/src/language/enums.md`**（enum 语义 SoT：为什么改 / 转换 /
+      比较 / 运行期表示与身份 / 字符串化及其实现原理 / `Equals` / 跨包 / 反射面 / 已知边角）
+      并挂进 `SUMMARY.md`；**改写** `docs/book/src/runtime/struct-value-semantics.md` 里
+      「`E.Red` 静态类型是 long（enum-as-int 模型）」那段，标注模型已废除并指回新页
+- [x] 4.8 ✅ 归档 + 随 PR 一起提交（`changes/` → `archive/2026-09-09-make-enum-distinct-type`）
 
 ## 1.5 实施记录（2026-09-09）——装箱牵出的四件事
 
@@ -188,6 +211,22 @@ Check → Box → Convert，诊断仍基于未装箱原值，不变）。
 - ⚠️ 判"是不是 enum"**只认 `IsEnum` 标志**（唯一置位点 `Z42ClassType.Enum`），不查
   `EnumTypes` 表——拦截必须与本变更建立的类型身份同源。
 
+## 4.2 反向对照结果（`z42c.semantics/src` + `runtime/src` 整体退回 origin/main 重建）
+
+**12 条里 8 条翻红。** 不翻的 4 条逐条交代——这类「门装好了但其实不会红」正是本仓反复吃亏的地方，
+不能只报一个总数就过去：
+
+| 不翻的用例 | 性质 | 为什么不翻 |
+|---|---|---|
+| `test_enum_value_flows_through_param_and_return` | 正例 | 改前也 0 诊断，但**理由不同**：`pick(Color.Red)` 当时被 `_isEnumSide` 跳过、`Color c = pick(...)` 是同名类恒等赋值。正例本就不该翻 |
+| `test_same_enum_equality_and_relational_are_clean` | 正例 | 改前成员是 long，`Color.Red < Color.Blue` 就是 `long < long` |
+| `test_explicit_casts_round_trip` | 正例 | 改前 `(long)Color.Blue` 是 long→long 恒等 |
+| `test_foreign_enum_assignment_reports_diagnostic` | **负例，双向都过** | 改前 `Color c = Mood.Glad` 也报 1 条——但那是「long 赋给孤立类」的 E0402，与新语义的「异种 enum 不互转」**碰巧同码同数**。它锁的是语义、**不构成本变更的回归探针** |
+
+翻红的 8 条覆盖了本变更真正新增的判定面：**能产出 enum 值**（`Color c = Color.Blue`）、
+**双向都要 cast**（含 `0` 无例外）、**跨操作数配对**（`Color.Red == 0` / 异种 enum 比较）、
+**算术拒绝且不重复报**。
+
 ## 备注
 
 - **本变更会让 `Color c = Color.Blue;` 第一次能编过**——那是今天就编不过的既存 bug（欠债表 bug D），
@@ -213,6 +252,19 @@ imported 类型保真度缺口**，已按根因在 `_resolve` 补 `EnumTypeNames
 
 暴露它的是**跨文件扫描**（`type_visibility.z42` / `gc_handle.z42` / `heap_retention.z42` 同时红），
 不是单点探针——教训：**「共用一个解析点」这类全称结论，必须把所有入口都枚举一遍再下**。
+
+## 🔴 那个「吞诊断」的洞又咬了一次（2026-09-09，现场记录）
+
+写 3.3 的模式用例时我按 `examples/patterns.z42` 抄了 C# 的 `and` 组合子。结果：
+
+- `z42c build` 路径：**31 条 parse 错误**，一眼看到。
+- e2e golden 路径（`--emit-zbc`）：**诊断全被吞掉、照样产出 zbc**，最后以
+  `type mismatch in comparison: Null vs I64(500)` 这种毫不相干的**运行期**报错现身。
+
+要不是我顺手用 `z42c build` 复现了一遍，光看 e2e 那条错误信息会往完全错误的方向查。
+**教训不变且再次被证实：本变更（以及任何编译期语义变更）的负例面必须用 `z42c build` 路径扫，
+e2e 只能验「跑起来对不对」。** 这也是本变更把负例门放进**单测**（`enum_type_tests.z42`）而不是
+e2e 的原因。
 
 ## 🔴 验证方法论：GREEN gate 验不了本变更的负例面
 

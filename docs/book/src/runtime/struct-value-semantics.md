@@ -228,10 +228,15 @@ runtime 才认（`is_instance` 无裸 `StructRef` 臂）。因此调用点**必�
   编译期静态类型 == 运行期类型，GetType 结果编译期已知；发 `TypeofInstr(FQN)`（复用 typeof codegen，真句柄），
   **无装箱开销**。判据 `_isStructOrEnumStatic`：`Z42ClassType.IsStruct && !IsScalarValue`（用户 struct；scalar
   基元的 `IsStruct` 亦 true，但 `5.GetType()` 已由运行期正确处理，故排除以免自举字节漂移）或名在 `EnumTypes`
-  表（enum 变量 receiver，其 `Z42ClassType.IsStruct=false`）。**enum 字面量 `E.Red`** 静态类型是 `long`（z42
-  的 enum-as-int 模型：`E.Red == 0` / 传 int 参不变）——`MemberResolver` 绑成 `BoundLitInt` 时打
-  `EnumTypeName` **origin 标记**，`CallEmitter` 据此折叠回 `typeof(E)`。标记只被 GetType 折叠读取，codegen
-  仍发整数字面量 → 不改任何 int-context 语义、不扰自举字节。
+  表（enum 变量 receiver，其 `Z42ClassType.IsStruct=false`）。**enum 成员引用 `E.Red`** 的载体仍是
+  `BoundLitInt`（codegen 照发整数字面量），绑定时打的 `EnumTypeName` **origin 标记**让 `CallEmitter`
+  折叠回 `typeof(E)`。
+  > ⚠️ 本段原先写「`E.Red` 静态类型是 `long`（z42 的 **enum-as-int 模型**：`E.Red == 0` / 传 int 参
+  > 不变）」——**该模型已于 `make-enum-distinct-type`（2026-09-09）废除**。`E.Red` 的静态类型现在
+  > 就是 `E`；`E.Red == 0` 与「传 int 参」都不再成立（双向都要显式 cast）。**载体是 `BoundLitInt`、
+  > 运行期表示是 i64** 这两点不变，变的是**身份**：擦除到 `object` 时装箱成挂 enum 自己 `TypeDesc`
+  > 的盒，`GetType()` 因此与这里的编译期折叠答案一致。
+  > enum 的完整语义 SoT 见 [`language/enums.md`](../language/enums.md)。
 - **`ToString`/`Equals`/`GetHashCode`（struct 未自声明时）→ `__box_struct(recv)` 装箱 + VCall**
   （`_emitBoxedStructObjectCall`），命中上面的 runtime 装箱-struct 协议。**自声明**（record 合成 / 用户覆写，
   `EmitContext.ChainHasMethod` 命中）仍走各自静态 `Call`——保 record 的 `ToString`（`R { A = 1, B = 2 }`）/

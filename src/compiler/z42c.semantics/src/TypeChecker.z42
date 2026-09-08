@@ -514,6 +514,12 @@ public sealed class TypeChecker {
     //
     // error/unknown 一侧直接跳过（防级联，与 `_checkOperand` 同口径）。
     public void _checkEnumOperands(Z42Type lt, Z42Type rt, string op, Span sp) {
+        // 只管**比较**运算符。上面那段说明「算术不必在此拦，`_checkOperand` 已先报」——但那只是
+        // 意图，不加这道闸门就没被实现：`Color.Red + 1` 会同时收到 `_checkOperand` 的
+        // 「requires numeric operand」和本检查的「cannot mix」，同一位置同一个错报两遍。
+        // 新加的检查先问「与既有检查覆盖面重叠吗」，这里的答案是：比较运算符**不重叠**
+        // （`==` 的 rule 是 OperandKind.None，逐侧检查放行一切），算术**完全重叠**。
+        if (!TypeChecker._isComparisonOp(op)) { return; }
         if ((lt is Z42UnknownType) || (lt is Z42ErrorType)) { return; }
         if ((rt is Z42UnknownType) || (rt is Z42ErrorType)) { return; }
         bool le = TypeFacts.IsEnum(lt);
@@ -523,6 +529,11 @@ public sealed class TypeChecker {
         this._diags.Error(DiagnosticCodes.TypeMismatch,
             "operator `" + op + "` cannot mix `" + lt.Name() + "` and `" + rt.Name()
             + "`; enum needs an explicit cast (e.g. `(long)x`)", sp);
+    }
+
+    // 相等 / 关系运算符 —— `_checkEnumOperands` 的适用面（enum 在这些位置**合法**，只有配对要管）。
+    private static bool _isComparisonOp(string op) {
+        return op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=";
     }
 
     // 条件必须 bool（if/while）。error/unknown 吸收。镜像 C# RequireBool。
