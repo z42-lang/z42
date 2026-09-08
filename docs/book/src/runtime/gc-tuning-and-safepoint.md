@@ -108,6 +108,43 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
 safepoint 本身的相位状态机（`Idle → Requested → Marking`，concurrent 模式多一个 `ConcurrentMarking`）
 见 `gc/safepoint.rs` 顶注 + `GcPhase` 文档。
 
+## 分代 minor 的标记不变量：**minor 不给老对象留标记**
+
+`mark_phase_minor` 的根 = 固定根 + external scanner + **脏卡里的每一条**。脏卡的根天然是
+**老**对象（写屏障只在 owner 是老、被写值是年轻时才置脏），而 minor 从不清扫老对象。
+于是有一条不变量：
+
+> **一次 minor 结束时，堆里不应留下任何被置位的 mark。**
+> 年轻的幸存者由 `sweep_phase_young_only` / `VarRegion::sweep_young` 清位；
+> 老对象**根本不该被置位** —— minor 不清扫它们，标记它们买不到任何东西。
+
+违反它的后果不是「多留点浮动垃圾」，而是**把还被引用的对象扫掉**：
+
+```
+minor N    : 老 owner 作为脏卡根出队 → mark_if_unmarked 置位 → 追踪它的孩子 ✓
+（sweep_phase_young_only 只清年轻幸存者的位；老 owner 的位留着）
+minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位 → 返回 false
+             → 循环 `continue` → **它的孩子一个都没被追踪**
+             → 只经由它可达的年轻对象全部未标记 → 当场清掉
+```
+
+`Z42_GC_MODE=generational` 因此在**第二次 minor 之后**就开始丢对象，编 `z42c.semantics`
+挂在 `__str_hash_code: arg 0 expected string, got Null`（一个老的 `StrMap` 桶数组持有的
+年轻 `Str` 被提前回收）。预算越小 minor 越多，128M 必炸、256M 因为只跑得到 2 次 minor 反而侥幸通过。
+
+修法是**老对象直接穿透**：出队时先看年龄，老的不 mark、直接 `trace_children`。终止性仍然成立
+—— 老的**孩子**从来不入队（只有 `gen_age < PROMOTION_THRESHOLD` 的才入），所以老对象只可能来自
+有限的根集合；同一个老对象在根集合里出现两次的代价是 O(它的字段数)，不是 O(它的子图)。
+
+⚠️ 同一族的第三次了：[gc-tlab-chunk-exclusive.md](gc-tlab-chunk-exclusive.md) 记的
+**陈旧 mark 位导致的 use-after-free**（闭包的 `env`）是第二次。
+**「mark 位活过了它那一轮回收」是这套 GC 的惯犯 —— 任何新增的「置位但不由本轮清扫负责清位」的
+路径，先问它谁来清。**
+
+顺带补上了 `reset_all_marks_in_regions` 漏掉的变长区：它和另外两个 region 一样带 mark 位
+（`mark_backing` / `shade_var_newborn` 置位），少这一行就意味着一次中途放弃或换模式的回收
+留下的位会让下一次 `mark_phase` 跳过某个闭包的 `env`。
+
 ## 刻意不做：`PROMOTION_THRESHOLD` 不入 config
 
 runtime_review §M3 曾把「晋升阈值 2」列为候选 knob，复核后**刻意不做**，判据同 §M3/M4/M5 的

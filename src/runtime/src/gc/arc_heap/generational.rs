@@ -85,9 +85,24 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
         let mut marked = 0usize;
         while let Some(v) = queue.pop() {
-            let just_marked = Self::mark_if_unmarked(&v);
-            if !just_marked { continue; }
-            marked += 1;
+            // fix-minor-stale-mark-on-old-roots (2026-09-08): **only young entries are
+            // marked.** A minor never sweeps old ones, so a mark on them buys nothing —
+            // and it is actively wrong. `sweep_phase_young_only` clears the mark on *young*
+            // survivors only; nothing else clears it before the next major. So the mark an
+            // old root picked up in minor N was still set in minor N+1, `mark_if_unmarked`
+            // returned `false`, and this loop `continue`d **without tracing its children**.
+            // Every young object reachable only through that root then went unmarked and was
+            // swept while still referenced — the `expected string, got Null` crash that made
+            // `Z42_GC_MODE=generational` unusable past its second minor.
+            //
+            // Old roots are seeded from a finite set (pinned roots + external scanner +
+            // dirty cards) and old *children* are never enqueued below, so tracing them
+            // unmarked still terminates; the only cost is re-tracing an old object that
+            // appears in the root set twice, which is O(its fields), not O(its subgraph).
+            if Self::gen_age_of(&v) < threshold {
+                if !Self::mark_if_unmarked(&v) { continue; }
+                marked += 1;
+            }
 
             v.trace_children(&mut |child| {
                 // Only enqueue young children. Old children that need
