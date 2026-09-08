@@ -77,7 +77,7 @@ mod var_ref;
 pub use block::{BlockType, GcBlockHeader, PayloadDropGlue};
 pub(crate) use block::payload_ptr_of;
 pub(crate) use chunk::{class_for, OVERSIZED_CLASS};
-pub use chunk::VarChunkClaim;
+pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use var_ref::VarGcRef;
 
 use chunk::{Chunk, NUM_CLASSES};
@@ -159,6 +159,11 @@ pub struct VarRegion {
     /// variable-size chunk reuse (fixed-slot `Region<T>` preserves per-slot generation instead;
     /// var blocks don't re-align on reuse so a per-chunk base is used).
     reuse_gen: Vec<u32>,
+    /// **fix-loh-never-freed (2026-09-08)**: indices of `chunks` slots whose memory was
+    /// `dealloc`'d (a dead dedicated/oversized chunk). The slot itself must survive — every
+    /// other per-chunk table is addressed by index — so it stays as a `cap == 0` tombstone
+    /// and lands here for [`Self::push_chunk`] to reuse.
+    free_chunk_slots: Vec<usize>,
 }
 
 // SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
@@ -183,6 +188,7 @@ impl Default for VarRegion {
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
+            free_chunk_slots: Vec::new(),
         }
     }
 }
@@ -221,6 +227,7 @@ impl VarRegion {
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
+            free_chunk_slots: Vec::new(),
         }
     }
 
@@ -563,9 +570,16 @@ impl VarRegion {
         self.live_count
     }
 
-    /// Total chunk count (tests / diagnostics).
+    /// Count of chunks that currently own memory (tests / diagnostics). Slots tombstoned by
+    /// `Chunk::free_in_place` are excluded — they are bookkeeping, not footprint.
     #[cfg(test)]
     pub(crate) fn chunk_count(&self) -> usize {
+        self.chunks.iter().filter(|c| !c.is_freed()).count()
+    }
+
+    /// Number of `chunks` slots including freed tombstones (tests: proves slot reuse).
+    #[cfg(test)]
+    pub(crate) fn chunk_slot_count(&self) -> usize {
         self.chunks.len()
     }
 
@@ -591,6 +605,11 @@ impl Drop for VarRegion {
             }
         }
         for chunk in &self.chunks {
+            // fix-loh-never-freed: a tombstoned slot's memory is already back with the
+            // allocator (`Chunk::free_in_place`) — freeing it again would be a double free.
+            if chunk.is_freed() {
+                continue;
+            }
             // SAFETY: each chunk was allocated with `chunk.layout()`; freed exactly once here.
             unsafe { dealloc(chunk.base.as_ptr(), chunk.layout()) }
         }
