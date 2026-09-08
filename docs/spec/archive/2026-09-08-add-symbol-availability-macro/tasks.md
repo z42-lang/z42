@@ -1,6 +1,7 @@
 # Tasks: `available!()` 符号可用性宏 + 加载期死分支剪枝
 
-> 状态：🟡 IMPL（User 2026-09-08 确认 DRAFT + 全部裁决按推荐）| 创建：2026-09-08
+> 状态：🟢 已归档（2026-09-08）| 创建：2026-09-08
+> GREEN：`xtask test` 全 stage ✅ / `test stdlib --mode jit` 331/331 ✅ / `test bootstrap` ✅ 无越界
 > 分支/worktree：`add-symbol-availability-macro` / `../z42-avail`
 > **纯 support 阶段**：z42c / stdlib / xtask 源码**一律不使用** `available!()` → 产出字节不变 →
 > 单 PR 可落地，不跨两个 nightly（design D7）。
@@ -22,7 +23,7 @@
 - [x] P3 编译器发射：`BuiltinInstr("__sym_available", ConstStr(key))`
 - [x] P4 VM：`__sym_available` builtin + `fold_availability` 加载期 pass + 统计量
 - [x] P5 测试：skew 脚手架 + 用例（interp + jit）
-- [ ] P6 文档 + GREEN + PR
+- [x] P6 文档 + GREEN + PR
 
 ---
 
@@ -96,17 +97,17 @@
       → 若将来要补真单测，先给 `Module`/`Function` 加测试构造器。
 - [x] 5.4 e2e 符号存在：v2 在场 → 走 if；断言 else 被剪（统计量 > 0）
 - [x] 5.5 e2e 符号缺失：v1 在场 → 走 else；断言 if 被剪
-- [ ] 5.6 **interp / jit 一致**：`xtask test stdlib --mode jit`（本地 `xtask test` 只跑 interp）
+- [x] 5.6 **interp / jit 一致**：`xtask test stdlib --mode jit`（本地 `xtask test` 只跑 interp）
 - [x] 5.7 负例：重载目标 / 非符号参数 / 宏在非法位置
 
 ## P6 收口
 - [x] 6.1 book：语言页（`available!` 语义、限制、与 `[Invariant]` 的能力差异）
 - [x] 6.2 book：runtime 页（加载期 pass 流程图 + 与 token 解析的顺序约束）
-- [ ] 6.3 **修正 `.claude/skills/add-ir-op/SKILL.md`**（已严重过时：只列 3 步、指向已重构掉的
+- [x] 6.3 **修正 `.claude/skills/add-ir-op/SKILL.md`**（已严重过时：只列 3 步、指向已重构掉的
       路径、完全没提 version bump；本 change 因此差点误判成本）
-- [ ] 6.4 `xtask test bootstrap`（改了 parser / 语法能力，必跑）
-- [ ] 6.5 GREEN 全绿 + 归档（`changes/` → `archive/`，**随 PR 同提交**）
-- [ ] 6.6 开 PR（body 三段 + 页脚）
+- [x] 6.4 `xtask test bootstrap`（改了 parser / 语法能力，必跑）
+- [x] 6.5 GREEN 全绿 + 归档（`changes/` → `archive/`，**随 PR 同提交**）
+- [x] 6.6 开 PR（body 三段 + 页脚）
 
 ---
 
@@ -118,3 +119,29 @@
 | P4.5 剪枝破坏派生侧表 | 明确插桩点在 `build_block_indices` 前；否则重建 |
 | P5.1 skew 脚手架工作量失控 | 先出最小形态（手工两份 zpkg + 用例级切换），不追求通用框架 |
 | 剪枝不可观测 → 变成假保障 | A3 统计量 + 测试双断言（行为 + 折叠发生） |
+
+---
+
+## 归档记录（2026-09-08）
+
+**GREEN**：`xtask test` 全 stage 通过（REAL_EXIT=0）；`test stdlib --mode jit` 331/331；
+`test bootstrap` 报「nightly z42c compiles current source — NO staged-bootstrap boundary
+violation」，support-only 纪律守住。
+
+**一次 jit 假红已证伪**：`Z42NetHttpServerThreadedTests` 报
+`Std.ThreadException: BrCond expects bool, got Null`。虽含 "BrCond" 字样看似与本 change 相关，
+但 ① `fold_availability` 对不含 `__sym_available` 的模块是严格 no-op（fast path 立即返回），
+而 stdlib 无一处使用 `available!`；② 重跑 331/331 全过。
+⟹ 是 memory 记录的阻塞级已知 flake `concurrency-null-thread-flake`，与本 change 无关。
+
+**实现期与 DRAFT 的四处偏差**（细节见各条 `[~]` 与 design D2.1）：
+1. key 改为「emit 期走与真实调用同一次查找产出」，不再照 dispatch 规则另拼一份
+2. 环检测判定为不需要（probe 不递归）
+3. fast path 是进 pass 时扫一遍，非 decode 期置 flag
+4. 折叠/剪枝无 Rust 单测（Module 无 Default，合成成本过高），改由 e2e 覆盖并实测确认走到分支
+
+**开发期踩的坑（已写进代码注释，勿重犯）**：
+- zbc STRS 池对含 `.` 的串做**分段压缩**，`strings`/字节搜索找不到完整串 ≠ 没写进去
+- 数重载不能数 `ct.Methods` 的键（同一方法注册在多键下），要按 `MethodSymbol.RegKey` 去重
+- 方法查找源是 `ct.Methods`，不是 `OwnMethodNames`（后者只登记非-static 方法）
+- skew 负例必须同时删 `libs/` 与 `main/dist/` 的 colocate 副本，否则静默变正例
