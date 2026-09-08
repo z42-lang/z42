@@ -312,6 +312,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn reset_all_marks_in_regions(&self) {
         self.region_object.lock().iterate_alive(|_h, e| e.clear_mark());
         self.region_array.lock().iterate_alive(|_h, e| e.clear_mark());
+        // fix-minor-stale-mark-on-old-roots (2026-09-08): the variable-length region was
+        // missing here. It carries mark bits like the other two — `mark_backing` /
+        // `shade_var_newborn` set them, `sweep` clears them on survivors — so a block left
+        // marked by an aborted or mode-switched cycle would make the next `mark_phase` skip
+        // tracing a closure's `env` (exactly the use-after-free #533 fixed from the other
+        // end). Majors are rare (single digits per build), so one pass over the block list
+        // is the cheap half of the defensive reset the other two regions already got.
+        self.region_var.lock().iterate_alive(|_h, hdr| hdr.clear_mark());
     }
 
     /// Snapshot all alive Values across the heap's regions. Order:

@@ -801,3 +801,137 @@ fn minor_freed_bytes_never_exceeds_the_actual_used_bytes_drop() {
          ({before} - {after} = {actual_drop})"
     );
 }
+
+// ---------------------------------------------------------------------------------------
+// fix-minor-stale-mark-on-old-roots: a minor must not leave a mark on an old entry
+// ---------------------------------------------------------------------------------------
+
+/// The defect that made `Z42_GC_MODE=generational` unusable: `mark_phase_minor` marked every
+/// entry it visited, **including old ones**, but `sweep_phase_young_only` clears the mark on
+/// *young* survivors only. Nothing else cleared it before the next major — so from the second
+/// minor onward `mark_if_unmarked` on an old root returned `false` and the loop `continue`d
+/// **without tracing its children**. Every young object reachable only through that root was
+/// then swept while still referenced.
+///
+/// The existing `cross_gen_write_target_survives_minor_via_dirty_card` misses this twice
+/// over: it runs a single minor, and its child lands in the owner's own chunk — cards are
+/// chunk-granular, so the child was a dirty-card root in its own right rather than something
+/// that had to be *reached* from the owner.
+#[test]
+fn old_root_traces_its_young_children_at_every_minor() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let owner = alloc_obj(&heap, "Owner");
+    let _pin_owner = heap.pin_root(owner.clone());
+    for _ in 0..PROMOTION_THRESHOLD {
+        heap.force_collect();
+    }
+    assert_eq!(gen_age_of(&owner), PROMOTION_THRESHOLD, "owner promoted to old");
+
+    // Cards are chunk-granular (256 entries). Push the child well past the owner's chunk with
+    // pinned filler, so the only way a minor can reach it is by tracing the owner.
+    let _fillers: Vec<_> = (0..600)
+        .map(|_| heap.pin_root(alloc_obj(&heap, "Filler")))
+        .collect();
+
+    let child = alloc_obj(&heap, "Child");
+    {
+        let Value::Object(owner_gc) = &owner else { panic!() };
+        owner_gc.borrow_mut().refs_mut()[0] = child.clone();
+    }
+    heap.write_barrier_field(&owner, 0, &child); // interp/JIT fires this in production
+    drop(child); // owner.refs[0] is now the child's only reference
+
+    // Three minors: the first one used to work, the second one used to reclaim the child.
+    for round in 1..=3 {
+        heap.force_collect();
+        let Value::Object(owner_gc) = &owner else { panic!() };
+        let borrow = owner_gc.borrow();
+        let Value::Object(child_gc) = &borrow.refs()[0] else {
+            panic!("minor {round}: owner.refs[0] is no longer an object");
+        };
+        assert!(
+            !child_gc.borrow().type_desc.name.is_empty(),
+            "minor {round}: child reclaimed while still referenced by a live old object"
+        );
+    }
+}
+
+/// The invariant behind the fix, asserted directly: **a minor leaves no mark behind.** Old
+/// entries are traced without being marked (they are never swept by a minor, so the bit buys
+/// nothing), and young survivors have theirs cleared by `sweep_phase_young_only`.
+#[test]
+fn minor_leaves_no_mark_on_any_entry() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let old_owner = alloc_obj(&heap, "OldOwner");
+    let _pin = heap.pin_root(old_owner.clone());
+    for _ in 0..PROMOTION_THRESHOLD {
+        heap.force_collect();
+    }
+    assert_eq!(gen_age_of(&old_owner), PROMOTION_THRESHOLD);
+
+    let young = alloc_obj(&heap, "Young");
+    let _pin_young = heap.pin_root(young.clone());
+    {
+        let Value::Object(g) = &old_owner else { panic!() };
+        g.borrow_mut().refs_mut()[0] = young.clone();
+    }
+    heap.write_barrier_field(&old_owner, 0, &young);
+
+    heap.force_collect();
+
+    for v in [&old_owner, &young] {
+        let Value::Object(g) = v else { panic!() };
+        assert!(!GcRef::is_marked(g), "a minor must not leave a mark bit set");
+    }
+}
+
+/// A wider net than the two tests above: a set of old owners, each handed a **fresh** young
+/// child between every minor, over enough rounds that any "the mark bit outlived its cycle"
+/// defect shows up. Nothing here is reachable except through an old owner, which is exactly
+/// the shape the compiler workload hits (an old `StrMap` bucket array holding young `Str`s)
+/// and the shape that made `Z42_GC_MODE=generational` die on
+/// `__str_hash_code: arg 0 expected string, got Null`.
+#[test]
+fn generational_minors_keep_old_to_young_graphs_intact() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let owners: Vec<Value> = (0..8).map(|_| alloc_obj(&heap, "Owner")).collect();
+    let _pins: Vec<_> = owners.iter().map(|o| heap.pin_root(o.clone())).collect();
+    for _ in 0..PROMOTION_THRESHOLD {
+        heap.force_collect();
+    }
+    for o in &owners {
+        assert_eq!(gen_age_of(o), PROMOTION_THRESHOLD, "owners must be old");
+    }
+    // Chunk-granular cards again: keep the children out of the owners' chunk.
+    let _fillers: Vec<_> = (0..600)
+        .map(|_| heap.pin_root(alloc_obj(&heap, "Filler")))
+        .collect();
+
+    for round in 1..=6 {
+        for (i, o) in owners.iter().enumerate() {
+            let child = alloc_obj(&heap, "Child");
+            let Value::Object(owner_gc) = o else { panic!() };
+            owner_gc.borrow_mut().refs_mut()[0] = child.clone();
+            heap.write_barrier_field(o, 0, &child);
+            let _ = i;
+        }
+        heap.force_collect();
+        for (i, o) in owners.iter().enumerate() {
+            let Value::Object(owner_gc) = o else { panic!() };
+            let borrow = owner_gc.borrow();
+            let Value::Object(child_gc) = &borrow.refs()[0] else {
+                panic!("round {round}, owner {i}: slot no longer holds an object");
+            };
+            assert_eq!(
+                child_gc.borrow().type_desc.name, "Child",
+                "round {round}, owner {i}: child reclaimed while still referenced"
+            );
+        }
+    }
+}
