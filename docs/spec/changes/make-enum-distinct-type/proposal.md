@@ -97,11 +97,25 @@ TakeL(Color.Red);       // ✅
   独立类型后，这些调用点要么加显式 cast、要么反射面维持 long 本位（反射本就无类型）——**须在
   阶段 0 一并定，别等实现到一半才发现**。
 
-## Open Questions
+## Open Questions —— ✅ 全部已裁决（2026-09-08，阶段 6.5）
 
-- [ ] **Q1**：enum ↔ 整数是**双向都要 cast**，还是允许 `enum → 整数`隐式（C# 要求双向 cast，
-      `0` 字面量除外）？建议**对齐 C#：双向都要**，唯一例外是常量 `0`。
-- [ ] **Q2**：`Direction.North == 0` 这类既有断言，改写成 `(long)Direction.North == 0` 还是
-      `Direction.North == (Direction)0`？建议前者（意图是"验底层值"）。
-- [ ] **Q3**：跨包 enum（`GCHandleType` 在 z42.core、被 z42c 使用）的 TSIG 表示要不要带底层类型？
-      需先确认 `ImportedSymbolLoader` 今天怎么还原 enum 类型名。
+- [x] **Q1**：enum ↔ 整数的转换方向。
+      → **裁决：双向都要 cast，且不做 `0` 字面量例外。** `(long)c` 与 `(Color)n` 都必须显式写；
+      `Color c = 0` 仍需写成 `(Color)0`。理由：特例最少、转换格最干净；C# 的 `0` 例外是为
+      `[Flags]` 与 `default` 场景服务的历史包袱，z42 无此需求（`[Flags]` 明确在 Deferred）。
+- [x] **Q2**：`Direction.North == 0` 类既有断言的改写形式。
+      → **裁决：`(long)Direction.North == 0`**（取"验底层值"的意图；而非
+      `Direction.North == (Direction)0`，那是"验枚举相等"，与原断言意图不符）。
+- [x] **Q3**：跨包 enum 的 TSIG 表示 / 反射面边界。
+      → **阶段 0 实测自解**：跨包 enum **压根不走 TSIG 类型还原**
+      （`SymbolCollector._mergeImportedEnums` 在 typecheck 前灌进 `table.EnumTypes`，
+      与本地共用 `SymbolTable:255`）⇒ 无需带底层类型、无需单独接线。
+      **反射面维持 long 本位**：全仓 `Enum.GetNames/GetValues/GetName/Parse/IsDefined` 的调用点
+      **全在测试里且无一处传 enum 成员**（全是 `0L`/`5`/`long v`）⇒ **零调用点改动**。
+
+## 阶段 6.5 追加裁决（2026-09-08）
+
+- [x] **装箱矛盾的处置**：阶段 0 测出 enum 类型值装箱后 `GetType()` 得 **`Int32`**
+      （与 `Type.z42:104`「z42 一律以 i64 背书 enum」矛盾），而成员引用折叠得 `Color`。
+      → **裁决：本变更同批修**（tasks 1.5）。理由：本变更会把**更多**值从「折叠正确」那半边
+      赶到「装箱退化」这半边，不同批修等于把一个不自洽换成另一个。

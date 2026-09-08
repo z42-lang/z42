@@ -1,3 +1,14 @@
+// enum 语义（make-enum-distinct-type, 2026-09-08 起）：enum 是**独立类型**，不是整数别名。
+//
+// 本文件此前成文断言的正是旧的 **enum-as-int** 模型（`Assert.Equal(404, Status.NotFound)` /
+// `Direction.North == 0` 直接拿枚举成员当整数用）。那个模型自相矛盾——成员是 long、类型名却是
+// 一个谁也转不进去的孤立类，导致 `Direction d = Direction.North;` 在 var-decl 就编不过，即
+// 「z42 无法产生任何 enum 类型的值」。新语义下：
+//   · `E.Member` 的静态类型就是 `E`  ⇒ 可赋值 / 传参 / return / 作字段
+//   · enum ↔ 整数**双向都要显式 cast**（对齐 C#，`0` 字面量无例外）
+//   · `==`/`!=`/关系比较要求两侧同一个 enum；与整数比较须先 cast
+// 验「底层值是多少」的断言因此一律写成 `(long)E.Member`——意图是读底层整数，就把它显式读出来。
+
 namespace Test;
 
 enum Direction {
@@ -24,23 +35,35 @@ string describe(int d) {
 }
 
 void main() {
-    // Auto-numbered enum values (0-based)
-    Assert.Equal(0, Direction.North);
-    Assert.Equal(1, Direction.South);
-    Assert.Equal(2, Direction.East);
-    Assert.Equal(3, Direction.West);
+    // 底层值（自动编号，0 基）——读底层整数须显式 (long)
+    Assert.Equal(0L, (long)Direction.North);
+    Assert.Equal(1L, (long)Direction.South);
+    Assert.Equal(2L, (long)Direction.East);
+    Assert.Equal(3L, (long)Direction.West);
 
-    // Explicit values
-    Assert.Equal(0, Status.Ok);
-    Assert.Equal(404, Status.NotFound);
-    Assert.Equal(500, Status.ServerError);
+    // 显式赋值的底层值
+    Assert.Equal(0L,   (long)Status.Ok);
+    Assert.Equal(404L, (long)Status.NotFound);
+    Assert.Equal(500L, (long)Status.ServerError);
 
-    // Use enum in switch expression
-    var dir = Direction.East;
-    Assert.Equal("east", describe(dir));
+    // enum 成员现在能产生 enum 类型的值（旧模型下这行 var-decl 就编不过）
+    Direction dir = Direction.East;
+    Assert.Equal("east", describe((int)dir));
 
-    // Enum comparison
-    Assert.Equal(true, Direction.North == 0);
-    Assert.Equal(true, Status.NotFound == 404);
+    // enum 之间比较：同类型直接比，无须 cast
     Assert.Equal(false, Direction.South == Direction.North);
+    Assert.Equal(true,  Direction.North == Direction.North);
+    Assert.Equal(true,  Direction.North != Direction.South);
+
+    // 与整数比较须显式 cast（`Direction.North == 0` 现在是编译错误）
+    Assert.Equal(true, (long)Direction.North == 0L);
+    Assert.Equal(true, (long)Status.NotFound == 404L);
+
+    // 关系比较（C# 允许 enum 比大小；底层按 i64 比）
+    Assert.Equal(true, Direction.North < Direction.West);
+    Assert.Equal(true, Status.ServerError >= Status.NotFound);
+
+    // 双向 cast 往返
+    Direction back = (Direction)2;
+    Assert.Equal(true, back == Direction.East);
 }

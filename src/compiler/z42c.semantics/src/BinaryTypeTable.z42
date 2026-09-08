@@ -58,8 +58,18 @@ public static class TypeFacts {
 
     public static bool IsOrderable(Z42Type t) {
         if (TypeFacts.IsNumeric(t)) { return true; }
+        // make-enum-distinct-type：enum 可比大小（对齐 C#）。底层恒 i64，`<`/`<=`/`>`/`>=` 按底层整数
+        // 比较，发射端无须改。**两侧必须同一个 enum** 由 `TypeChecker._checkEnumOperands` 另行把关
+        // ——本谓词只回答「这一侧允许参与排序吗」，跨操作数的配对是另一个问题。
+        // 同一谓词也喂 `PatternBinder` 的关系模式（`>= HttpStatus.BadRequest`），那条路一并通。
+        if (TypeFacts.IsEnum(t)) { return true; }
         string n = TypeFacts._asPrimName(t);
         return n == "char";
+    }
+
+    // make-enum-distinct-type：是 enum 类型（带 IsEnum 标志的 Z42ClassType）。
+    public static bool IsEnum(Z42Type t) {
+        return (t is Z42ClassType) && (t as Z42ClassType).IsEnum;
     }
 
     public static bool IsBool(Z42Type t) {

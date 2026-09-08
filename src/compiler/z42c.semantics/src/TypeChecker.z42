@@ -483,6 +483,32 @@ public sealed class TypeChecker {
         }
     }
 
+    // make-enum-distinct-type：二元运算的**跨操作数** enum 配对检查。
+    //
+    // 为什么单独一道：`_checkOperand` 是**逐侧**的（"这一侧是不是 numeric/orderable"），而
+    // `==`/`!=` 的 BinaryRule 压根不带操作数约束（OperandKind.None）⇒ 两者合起来对
+    // 「左右两侧类型配不配」零覆盖。enum-as-int 时代这没问题（成员就是 long，`Color.Red == 0`
+    // 实际是 `long == int`）；enum 成为独立类型后，那行就是「拿枚举比整数」，C# 要求先 cast。
+    //
+    // 规则（对齐 C#）：只要**任一侧**是 enum，就要求**两侧是同一个 enum**。
+    //   `Color.Red == Color.Blue`  ✅        `c1 < c2`（同 enum）✅
+    //   `Color.Red == 0`           ❌ 补 `(long)`   `Color.Red == Direction.North` ❌ 异种 enum
+    // 算术（`+`/`-`/…）不必在此拦：`IsNumeric(enum)` 为 false，`_checkOperand` 已先报
+    // 「requires numeric operand」——这里只补它盖不到的「配对」维度。
+    //
+    // error/unknown 一侧直接跳过（防级联，与 `_checkOperand` 同口径）。
+    public void _checkEnumOperands(Z42Type lt, Z42Type rt, string op, Span sp) {
+        if ((lt is Z42UnknownType) || (lt is Z42ErrorType)) { return; }
+        if ((rt is Z42UnknownType) || (rt is Z42ErrorType)) { return; }
+        bool le = TypeFacts.IsEnum(lt);
+        bool re = TypeFacts.IsEnum(rt);
+        if (!le && !re) { return; }
+        if (le && re && lt.Name() == rt.Name()) { return; }
+        this._diags.Error(DiagnosticCodes.TypeMismatch,
+            "operator `" + op + "` cannot mix `" + lt.Name() + "` and `" + rt.Name()
+            + "`; enum needs an explicit cast (e.g. `(long)x`)", sp);
+    }
+
     // 条件必须 bool（if/while）。error/unknown 吸收。镜像 C# RequireBool。
     public void _requireBool(Z42Type t, string context, Span sp) {
         if ((t is Z42ErrorType) || (t is Z42UnknownType)) { return; }

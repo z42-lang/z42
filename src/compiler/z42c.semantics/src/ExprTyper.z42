@@ -602,6 +602,10 @@ public sealed class ExprTyper {
         }
         this._tc._checkOperand(rule.Left,  rule.Requirement, lt, bin.Op, bin.Left.Span);
         this._tc._checkOperand(rule.Right, rule.Requirement, rt, bin.Op, bin.Right.Span);
+        // make-enum-distinct-type：跨操作数的 enum 配对检查。**此前完全没有这道检查**——`_checkOperand`
+        // 是逐侧的，而 `==`/`!=` 的 rule 不带操作数约束，于是 `Color.Red == 0` 一路放行（enum-as-int
+        // 时代它确实是 `long == int`、无害；enum 成为独立类型后它就是「拿枚举比整数」，必须报错）。
+        this._tc._checkEnumOperands(lt, rt, bin.Op, bin.Span);
         return new BoundBinary(bin.Op, left, right, BinaryTypeTable.ResultType(rule.Out, lt, rt), bin.Span);
     }
 
