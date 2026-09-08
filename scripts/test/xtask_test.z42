@@ -337,6 +337,7 @@ string[] _gateStageNames() {
         "e2e cross-zpkg",
         "e2e multi-exe",
         "stdlib [Test]",
+        "stdlib [Benchmark]",
         "manifest targets ([[test]])",
         "examples (compile gate + test=true run)",
         "compiler",
@@ -469,6 +470,24 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("stdlib [Test]");
         c = _testLibCore("test", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
         _stageEnd(slog, "stdlib [Test]", swStage);
+    }
+    // stage 4a2: stdlib [Benchmark] —— 只验**语料能不能跑**，不看快慢。
+    //
+    // 为什么它必须在 GREEN gate 里（fix-bench-corpus-using-stdtest, 2026-09-08）：
+    // bench 语料此前唯一的看门人是 `bench-regression`(bench-pr.yml)，而那个 job **不在
+    // 分支保护的 required 列表里**。#532 把 `Failure.z42` 搬出 z42.test，14/19 个 bench
+    // 文件当场跑不起来（`Bencher` 解析成 `<unknown>`），门红了、PR 照合，此后连红 3 个 PR
+    // 无人过问 —— **会红但不挡人的门等价于没有门**。
+    // 把它提进 required 不可行：bench-pr.yml 是 path-filtered，纯文档 PR 上根本不触发 ⇒
+    // required check 恒 pending ⇒ PR 永远合不了。正确的收口是拆两层：
+    //   「语料能不能跑」→ 本 stage（确定性；只有跑挂才红，不判时间 ⇒ 零噪声）
+    //   「跑多快」      → 留给 bench-regression 那套 A/B 判红（噪声治理是另一条线）
+    // 成本：本机 `bench stdlib --no-build` 全量 14.6s / 19 文件 / 66 条 benchmark。
+    // host-independent ⇒ CI 只在 linux-x64 腿跑，其余腿 `--skip bench`（同 cross-zpkg 的处置）。
+    if (!_skipHas(skip, "bench")) {
+        swStage = _stageStart("stdlib [Benchmark]");
+        c = _testLibCore("bench", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
+        _stageEnd(slog, "stdlib [Benchmark]", swStage);
     }
     // stage 4b: manifest-target fixtures (add-tests-bench-manifest-config P4 —
     // [[test]] harness true/false exit-code + explicit-overlay). noBuild=true:

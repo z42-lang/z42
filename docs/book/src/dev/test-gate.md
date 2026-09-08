@@ -1,7 +1,7 @@
 # 测试门禁（test gate）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/test/`
-> **相关**: [xtask](xtask.md) · [构建编排](build.md) ｜ **对齐**: 2026-09-05
+> **相关**: [xtask](xtask.md) · [构建编排](build.md) ｜ **对齐**: 2026-09-08
 
 ## 概述
 
@@ -22,7 +22,8 @@
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 完整 gate 的内容 | build wave + e2e（goldens / cross-zpkg / multi-exe）/ stdlib / manifest targets / examples / compiler / vscode-syntax / lines —— 逐条清单见下「完整 gate 的 stage 流水」 | 每个 stage 守一类回归面：端到端语义与跨包行为、库正确性、清单驱动的 target 契约、示例可编译、编译器自举、生成产物一致性、代码规模棘轮（Rust VM 单测独立于 gate，见 `test runtime`） |
+| 完整 gate 的内容 | build wave + e2e（goldens / cross-zpkg / multi-exe）/ stdlib `[Test]` / stdlib `[Benchmark]` / manifest targets / examples / compiler / vscode-syntax / lines —— 逐条清单见下「完整 gate 的 stage 流水」 | 每个 stage 守一类回归面：端到端语义与跨包行为、库正确性、**bench 语料可运行性**、清单驱动的 target 契约、示例可编译、编译器自举、生成产物一致性、代码规模棘轮（Rust VM 单测独立于 gate，见 `test runtime`） |
+| bench 语料归 gate 管、bench **性能**不归 | `stdlib [Benchmark]` 只跑语料（跑挂才红，不看快慢）；A/B 判红仍留在 `bench-regression`(bench-pr.yml) | 语料可运行性是确定性事实（本机全量 14.6s，零噪声），适合硬门禁；性能比值有 ±13~16% 噪声底，两者混在一个 job 里 ⇒ 噪声让人对整个 job 脱敏。**实证**：#532 打坏语料后 `bench-regression` 连红 3 个 PR 无人过问——它不在 required 列表，而它是 path-filtered workflow、**提 required 会让纯文档 PR 恒 pending**，所以只能拆层 |
 | stage 清单不漂移 | 代码 `_gateStageNames()` 与本页 `gate-stages` 区互为副本，gate 开跑前对账（`_checkGateStageDoc`） | 本页曾自称 SoT 却漏了 3 个 stage —— 纪律守不住无人盯的清单，改成会变红的门 |
 | 加速机制 | `test changed`（命令级）+ 单 stage / `--no-build` | changed 按文件精确到单库命令，适合小步迭代；单 stage / `--no-build` 反复跑同一测试免重编 |
 | changed 的保守坍缩 | 任一改动文件映射为 full → 整个计划坍缩为 `test all` | 宁可多跑不可漏跑；xtask 自身与 workspace 配置改动一律 full |
@@ -55,7 +56,8 @@ graph LR
     S1 --> S2[e2e cross-zpkg<br/>编译=release·运行=debug]
     S2 --> S2b[e2e multi-exe<br/>一工程 → N 个 exe zpkg]
     S2b --> S3[stdlib Test 用例]
-    S3 --> S3b[manifest targets<br/>&#91;&#91;test&#93;&#93; fixture]
+    S3 --> S3a2[stdlib Benchmark<br/>语料能跑 · 不判时间]
+    S3a2 --> S3b[manifest targets<br/>&#91;&#91;test&#93;&#93; fixture]
     S3b --> S3c[examples<br/>编译 gate + test=true 运行]
     S3c --> S4[compiler 自举<br/>七包 + 不动点 + units]
     S4 --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
@@ -72,6 +74,7 @@ graph LR
 - `e2e cross-zpkg`
 - `e2e multi-exe`
 - `stdlib [Test]`
+- `stdlib [Benchmark]`
 - `manifest targets ([[test]])`
 - `examples (compile gate + test=true run)`
 - `compiler`
@@ -79,7 +82,7 @@ graph LR
 - `lines`
 <!-- gate-stages:end -->
 
-先备工具链与基线（build wave），再依序跑九个验证 stage；任一步失败立即终止。
+先备工具链与基线（build wave），再依序跑十个验证 stage；任一步失败立即终止。
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <name>` 下放到独立 CI job
 （见 `_skipHas`；skip 名是短名，如 `vscode` / `targets`，不等于 banner 全名）——skip 只影响
 **在哪跑**，不改变 gate 的 stage 组成，故上面的清单不随 `--skip` 变化。
@@ -153,6 +156,7 @@ stage 数是个位数、边界天然清晰，多打 N 行的成本远低于「�
 |---------|---------|
 | `src/libraries/<lib>/src/` | `test stdlib <lib>` + `test e2e` |
 | `src/libraries/<lib>/tests/` 或该库 `.toml` | `test stdlib <lib>` |
+| `src/libraries/<lib>/bench/` | `bench stdlib <lib>` |
 | `src/runtime/src/`、`Cargo.toml/lock`、`build.rs` | `test runtime` + `test e2e` |
 | `src/runtime/tests/` | `test runtime` |
 | `src/tests/cross-zpkg/` | `test e2e --dir cross-zpkg` |
@@ -160,7 +164,7 @@ stage 数是个位数、边界天然清晰，多打 N 行的成本远低于「�
 | `src/compiler/` | `test compiler` + `test e2e` |
 | `src/toolchain/` | `test stdlib`（工具链影响 [Test] 执行方式，全库扫） |
 | `scripts/xtask*`、`*.workspace.toml`、未识别路径 | **full**（坍缩为 `test all`） |
-| 文档 / `.claude/` / examples / bench / artifacts | 跳过 |
+| 文档 / `.claude/` / examples / artifacts | 跳过 |
 
 changed 是"逐文件求命令并集"（能精确到单个库），任一未识别路径即保守坍缩为完整 `test all`。
 
@@ -168,11 +172,12 @@ changed 是"逐文件求命令并集"（能精确到单个库），任一未识�
 
 | 组件 | 位置 | 要点 |
 |------|------|------|
-| gate 编排 | `scripts/test/xtask_test.z42` 的 `_testAll` | 构建波 → 九个验证 stage 串联；开跑前先 `_checkGateStageDoc` 对账本页清单 |
+| gate 编排 | `scripts/test/xtask_test.z42` 的 `_testAll` | 构建波 → 十个验证 stage 串联；开跑前先 `_checkGateStageDoc` 对账本页清单 |
 | stage 清单 SoT | 同上的 `_gateStageNames()` ↔ 本页 `gate-stages` 区 | 两份互为副本；`_stageStart` 另断言 banner 名已登记 |
 | VM goldens | `scripts/test/xtask_test_vm.z42` | 枚举 + 并发跑分 + 汇总 |
 | cross-zpkg e2e | `scripts/test/xtask_test_cross.z42` | 多 zpkg 协作场景 |
 | stdlib [Test] | `scripts/test/xtask_test_lib.z42` + `_lib_units.z42` | 属性发现、批量编译、分片 |
+| stdlib [Benchmark] | 同上（`_testLibCore("bench", …)`，skip 名 `bench`） | 与 [Test] 同一条发现/编译/运行流水，只换 `bench/` 子目录与 `[bench.dependencies]`；gate 里**只判跑没跑挂**，时间数据留给 `bench-regression` 的 A/B |
 | changed 计划 | `scripts/test/xtask_test_changed.z42` 的 `_buildChangedPlan` / `_mapFile` | git diff → 命令并集 → in-process 执行 |
 | 发行版 e2e | `scripts/test/xtask_test_dist.z42` | 打包产物跑 goldens + launcher 冒烟 |
 | 平台三段测试 | `scripts/test/xtask_test_platform.z42` + 四平台后端 | build / assets / run |

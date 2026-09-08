@@ -216,12 +216,18 @@ _MapResult _mapFull() {
 }
 _MapResult _mapSkip() { return new _MapResult(); }
 
-// src/libraries/<lib>/... → lib [+ vm] tests. Non-src/test/toml paths inside a
-// lib (workspace.toml at root, README inside lib root, etc.) → no test impact.
+// src/libraries/<lib>/... → lib [+ vm] tests. Non-src/test/bench/toml paths inside
+// a lib (workspace.toml at root, README inside lib root, etc.) → no test impact.
+//
+// `/bench/` 此前落在 `_mapSkip()`：改一个 bench 文件，`test changed` 判定「无测试影响」，
+// 什么都不跑。而 bench 语料唯一的另一个看门人（`bench-regression`）不在 required 列表
+// ⇒ 这类改动实际上零验证。fix-bench-corpus-using-stdtest (2026-09-08) 接上：映射到
+// `bench stdlib <lib>`（与 gate 的 `stdlib [Benchmark]` stage 同一条流水，只是收窄到本库）。
 _MapResult _mapLibraryFile(string f) {
     string lib = _segment(f, 2);
     if (f.Contains("/src/"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib, "xtask test e2e" }); }
     if (f.Contains("/tests/")) { return _mapCmds(new string[]{ "xtask test stdlib " + lib }); }
+    if (f.Contains("/bench/")) { return _mapCmds(new string[]{ "xtask bench stdlib " + lib }); }
     if (f.EndsWith(".toml"))   { return _mapCmds(new string[]{ "xtask test stdlib " + lib }); }
     return _mapSkip();
 }

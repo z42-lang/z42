@@ -10,6 +10,7 @@
 namespace Z42PureCallBench;
 
 using Std;
+using Std.Test;
 
 int rp_fib(int n) { if (n < 2) { return n; } return rp_fib(n - 1) + rp_fib(n - 2); }
 

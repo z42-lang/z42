@@ -17,6 +17,7 @@ Z42_TEST_CHANGED_BASE=origin/main ./xtask test changed
 |------|------|
 | `src/libraries/<lib>/src/*` | `./xtask test stdlib <lib>` + `./xtask test e2e` |
 | `src/libraries/<lib>/tests/*` | `./xtask test stdlib <lib>` |
+| `src/libraries/<lib>/bench/*` | `./xtask bench stdlib <lib>` |
 | `src/runtime/src/*` / `Cargo.toml` / `build.rs` | `cargo test` + `./xtask test e2e` |
 | `src/runtime/tests/*` | `cargo test` |
 | `src/tests/cross-zpkg/*` | `./xtask test e2e --dir cross-zpkg` |

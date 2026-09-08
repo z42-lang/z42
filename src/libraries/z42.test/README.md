@@ -59,6 +59,15 @@ class Counter { public int n; public Counter() { this.n = 0; } }
 
 跑测试：`just test-stdlib mylib`（默认串行，in-process VM 保留 [Setup]/[Teardown]）。
 
+> 🔴 **`using Std.Test;` 必写，别靠搭便车**（fix-bench-corpus-using-stdtest, 2026-09-08）。
+> `Assert` 在 **z42.core**（prelude，免 `using` 恒可见）；但 `Bencher` / `BenchHelpers` /
+> `TestIO` / `BenchStats` 都在 **z42.test** 的 `Std.Test` 命名空间，**必须显式 `using Std.Test;`**。
+> 包激活是**整包**粒度的（同包任一模块 ns 命中你任一 `using` → 整包激活），历史上 14 个 bench
+> 文件只写 `using Std;` 也能编过，纯粹因为 `z42.test` 里有个 `namespace Std;` 的文件替它们
+> 开了门；那个文件一搬走，`Bencher` 当场解析失败、且**编译期静默**、运行期才炸
+> （`VCall: … .<unknown>.get_WarmupIters not found`）。机制与现场见
+> [book/compiler/project-model.md「激活是整包粒度」](../../../docs/book/src/compiler/project-model.md)。
+
 **并行执行**（add-test-runner-parallel 2026-05-27）：`z42 xtask.zpkg test lib --jobs N mylib`
 或 `--jobs 0` 自动用 `available_parallelism()`。N > 1 强制 subprocess 模式 —
 速度上 4–8× 但 [Setup]/[Teardown] 不会运行（VmContext 是 `!Send`，无法跨线程

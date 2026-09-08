@@ -278,9 +278,15 @@ jobs:
           #   vscode   → compiler-checks (linux, 1×; host-independent keyword sync)
           # cross-zpkg: runs on linux-x64 only (host-independent, bytecode-level
           # zpkg linking — one OS is sufficient). Other legs skip it.
+          # bench: same treatment (fix-bench-corpus-using-stdtest, 2026-09-08).
+          # The stage only asks "does the [Benchmark] corpus still RUN" — that is
+          # host-independent, so one leg suffices; and test-host(linux-x64) IS a
+          # required check, which is the whole point (bench-regression is not,
+          # and cannot be — it is path-filtered, so requiring it would leave
+          # doc-only PRs pending forever). Perf verdicts stay in bench-pr.yml.
           SKIP="stdlib,compiler,vscode"
           if [ "${{ matrix.platform }}" != "linux-x64" ]; then
-            SKIP="stdlib,cross-zpkg,compiler,vscode"
+            SKIP="stdlib,cross-zpkg,bench,compiler,vscode"
           fi
           Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
           Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
