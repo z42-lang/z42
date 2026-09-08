@@ -6,6 +6,17 @@ use crate::metadata::{Value};
 use crate::gc::refs::{GcRef};
 use crate::gc::types::{FinalizerFn};
 
+/// What one minor collection reclaimed. `reclaimed_entries` is what the escalation heuristic
+/// needs: **the number of young entries the sweep actually tombstoned**, across all three
+/// regions. Survival can only be read off that — see `collect_cycles_with_context`.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct MinorSweepResult {
+    pub(crate) freed_bytes: u64,
+    pub(crate) reclaimed_entries: usize,
+    /// Bytes this minor moved into the old generation (add-bounded-nursery).
+    pub(crate) promoted_bytes: u64,
+}
+
 impl crate::gc::arc_heap::ArcMagrGC {
     /// **add-generational-gc P2 (2026-05-22)**: read the gen_age of
     /// any `Value`. Returns 0 for primitives + stack refs (irrelevant
@@ -202,8 +213,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         found
     }
 
-    pub(super) fn sweep_phase_young_only(&self) -> u64 {
+    pub(super) fn sweep_phase_young_only(&self) -> MinorSweepResult {
         let mut freed_bytes: u64 = 0;
+        let mut reclaimed_entries: usize = 0;
+        let mut promoted_bytes: u64 = 0;
 
         // Object region
         let mut tombstones_object: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> = Vec::new();
@@ -231,8 +244,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 newly_old_object.push(h);
             }
         }
+        // add-bounded-nursery: everything that just crossed into the old generation counts
+        // towards the next major's trigger — see `promoted_bytes_since_major`.
+        promoted_bytes += self.promoted_size_of_objects(&newly_old_object);
         self.dirty_cards_for_newly_old_objects(&newly_old_object);
         // Tombstone dead young entries.
+        reclaimed_entries += tombstones_object.len();
         for (h, fin, size) in tombstones_object {
             if let Some(f) = fin { f(); }
             freed_bytes += size;
@@ -278,7 +295,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 newly_old_array.push(h);
             }
         }
+        promoted_bytes += self.promoted_size_of_arrays(&newly_old_array);
         self.dirty_cards_for_newly_old_arrays(&newly_old_array);
+        reclaimed_entries += tombstones_array.len();
         for (h, fin, size) in tombstones_array {
             if let Some(f) = fin { f(); }
             freed_bytes += size;
@@ -300,11 +319,54 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // memory move together. (Per `VarRegion::alloc_charge_bytes`, array element blocks
         // are charged zero on their own, so nothing is double-counted here.)
         {
-            let (_reclaimed, credited) = self.region_var.lock().sweep_young();
+            let (reclaimed, credited) = self.region_var.lock().sweep_young();
             freed_bytes += credited;
+            reclaimed_entries += reclaimed;
         }
 
-        freed_bytes
+        // **add-bounded-nursery (2026-09-08)**: chunk-level reclaim at the minor tail.
+        //
+        // Without this a minor tombstones entries but never gives a chunk back, and only a
+        // major (`sweep_phase`) called these. The TLAB hands each mutator a whole chunk at a
+        // time, so a chunk filled with one burst of short-lived objects usually dies whole —
+        // exactly the shape a minor produces, and exactly what these three calls recover.
+        //
+        // This, not the major-collection rate, is what made generational mode's footprint
+        // explode: measured on `z42c.semantics --release --no-incremental` at a 128M budget,
+        // peak RSS 986.3 MB without these three lines and **607.9 MB with them** (plain STW:
+        // 606.7 MB), at the same 15 minors / 1 major.
+        //
+        // ⚠️ It is also the minor's dominant cost: the pass is O(heap), not O(young), so it
+        // takes the median minor pause from ~30 ms to ~75 ms and puts a floor under what the
+        // nursery size can buy. Making it incremental (only chunks this minor touched) is the
+        // next lever — see the change's design notes.
+        self.region_object.lock().reclaim_dead_chunks();
+        self.region_array.lock().reclaim_dead_chunks();
+        self.region_var.lock().reclaim_dead_var_chunks();
+        self.promoted_bytes_since_major
+            .fetch_add(promoted_bytes, std::sync::atomic::Ordering::Relaxed);
+        MinorSweepResult { freed_bytes, reclaimed_entries, promoted_bytes }
+    }
+
+    /// Bytes the just-promoted object entries carry into the old generation. Uses the same
+    /// estimator the sweep credits back, so promotion and reclamation speak one unit.
+    fn promoted_size_of_objects(&self, handles: &[crate::gc::region::RegionHandle]) -> u64 {
+        if handles.is_empty() { return 0; }
+        let region = self.region_object.lock();
+        handles.iter().map(|&h| {
+            let entry = region.resolve(h);
+            Self::script_object_size_estimate(&entry.value.lock())
+        }).sum()
+    }
+
+    /// Array-region twin of [`Self::promoted_size_of_objects`].
+    fn promoted_size_of_arrays(&self, handles: &[crate::gc::region::RegionHandle]) -> u64 {
+        if handles.is_empty() { return 0; }
+        let region = self.region_array.lock();
+        handles.iter().map(|&h| {
+            let entry = region.resolve(h);
+            Self::array_size_estimate(&entry.value.lock())
+        }).sum()
     }
 
     /// **add-generational-gc P2 (2026-05-22)**: full minor GC cycle.
@@ -314,7 +376,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// the next major GC. This preserves correctness for stable
     /// old→young references (whose cards were dirtied at the time of
     /// the write but the target young object hasn't yet been promoted).
-    pub(super) fn run_cycle_collection_minor(&self) -> u64 {
+    pub(super) fn run_cycle_collection_minor(&self) -> MinorSweepResult {
         // add-gc-tlab (stage 2, D5): retire the collecting thread's own TLAB so
         // its freshly-allocated (young, still-borrowed) chunk is merged into the
         // region before the minor mark/sweep — otherwise those young objects sit
@@ -343,6 +405,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // **"an old entry referring to anything young has a dirty card"**, and it has to be
         // re-established here rather than assumed away.
         self.rebuild_card_table();
+        // add-bounded-nursery: the old generation was just fully swept, so the budget that
+        // decides when to sweep it again starts over.
+        self.promoted_bytes_since_major
+            .store(0, std::sync::atomic::Ordering::Relaxed);
         freed
     }
 

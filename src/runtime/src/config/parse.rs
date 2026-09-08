@@ -155,7 +155,32 @@ where F: Fn(&str) -> Option<String> {
 /// `None` rather than guessing a budget.
 pub(super) fn parse_gc_max_bytes<F>(get: &F) -> Option<u64>
 where F: Fn(&str) -> Option<String> {
-    let raw = get("Z42_GC_MAX_BYTES").filter(|s| !s.trim().is_empty())?;
+    parse_byte_size(get, "Z42_GC_MAX_BYTES")
+}
+
+/// `Z42_GC_NURSERY_BYTES` — how much a generational heap may allocate before a **minor**
+/// collection is tripped (add-bounded-nursery, 2026-09-08).
+///
+/// This is the knob that buys a pause bound: minor work is proportional to the *surviving*
+/// young set, and the nursery caps how much young there can be. `None` (the default) means
+/// **`Z42_GC_MAX_BYTES / 4`** — a ratio rather than an absolute so the same setting means the
+/// same thing at any budget (a fixed 32 MB would be half the heap at a 64 MB budget and an
+/// eighth of it at 256 MB). Inert outside `GcMode::GenerationalMarkSweep`, and — like every
+/// other knob in this family — inert without a budget.
+///
+/// Same syntax as `Z42_GC_MAX_BYTES` (byte count or K/KB/M/MB/G/GB suffix).
+pub(super) fn parse_gc_nursery_bytes<F>(get: &F) -> Option<u64>
+where F: Fn(&str) -> Option<String> {
+    parse_byte_size(get, "Z42_GC_NURSERY_BYTES")
+}
+
+/// Shared byte-size parser for the `Z42_GC_*_BYTES` family. Accepts a plain byte count or a
+/// `K`/`KB`/`M`/`MB`/`G`/`GB` suffix (binary units, case-insensitive, optional space).
+/// `0` / `unlimited` / `none` → `None`; invalid input warns and yields `None` rather than
+/// guessing a number.
+fn parse_byte_size<F>(get: &F, name: &str) -> Option<u64>
+where F: Fn(&str) -> Option<String> {
+    let raw = get(name).filter(|s| !s.trim().is_empty())?;
     let t = raw.trim().to_ascii_lowercase();
     if t == "0" || t == "unlimited" || t == "none" {
         return None;
@@ -175,15 +200,15 @@ where F: Fn(&str) -> Option<String> {
             Some(v) if v > 0 => Some(v),
             // 0 was handled above; only an overflowing product lands here.
             _ => {
-                eprintln!("z42: Z42_GC_MAX_BYTES={raw:?} overflows u64; treating as unlimited");
+                eprintln!("z42: {name}={raw:?} overflows u64; treating as unset");
                 None
             }
         },
         Err(_) => {
             eprintln!(
-                "z42: invalid Z42_GC_MAX_BYTES={raw:?} \
+                "z42: invalid {name}={raw:?} \
                  (expected a byte count, optionally suffixed K/KB/M/MB/G/GB); \
-                 treating as unlimited"
+                 treating as unset"
             );
             None
         }

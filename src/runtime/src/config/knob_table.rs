@@ -115,6 +115,16 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..TUNING
     },
     KnobSpec {
+        name: "Z42_GC_NURSERY_BYTES",
+        toml_key: "gc-nursery-bytes",
+        // 同 Z42_GC_MAX_BYTES：接受带单位后缀的写法。
+        value: ValueKind::Str,
+        description: "generational only: bytes allocated before a MINOR collection trips. This is the knob that bounds minor pause time. Accepts a byte count or a K/KB/M/MB/G/GB suffix",
+        default_hint: "unset; defaults to gc-max-bytes / 4 (a ratio, so it means the same at any budget)",
+        consumed_by: "gc/arc_heap/auto_collect.rs",
+        ..TUNING
+    },
+    KnobSpec {
         name: "Z42_GC_PAUSE_WINDOW",
         toml_key: "gc-pause-window",
         value: ValueKind::Int { min: 1, max: 65536 },

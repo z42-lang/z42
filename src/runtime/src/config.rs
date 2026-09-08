@@ -106,6 +106,10 @@ pub struct RuntimeConfig {
     /// The three ratios below are fractions of this budget and are inert
     /// without it. Accepts `512MB` / `2G` / a plain byte count.
     pub gc_max_bytes: Option<u64>,
+    /// `Z42_GC_NURSERY_BYTES` — bytes a generational heap may allocate before a **minor**
+    /// collection is tripped (add-bounded-nursery, 2026-09-08). `None` = `gc_max_bytes / 4`.
+    /// Inert outside `GcMode::GenerationalMarkSweep` and without a budget.
+    pub gc_nursery_bytes: Option<u64>,
     /// `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs,
     /// 2026-09-05): one line per cycle with kind, heap used before/after,
     /// bytes reclaimed and pause µs. Any non-empty value except `0`/`false`
@@ -235,6 +239,7 @@ impl Default for RuntimeConfig {
             gc_pause_window: 1024,
             gc_soft_threshold: 0.80,
             gc_max_bytes: None,
+            gc_nursery_bytes: None,
             gc_trace: false,
             gc_near_limit_ratio: 0.90,
             gc_pressure_ratio: 0.75,
@@ -361,6 +366,7 @@ impl RuntimeConfig {
             gc_pause_window:     parse_gc_pause_window(&get),
             gc_soft_threshold:   parse_gc_soft_threshold(&get),
             gc_max_bytes:        parse_gc_max_bytes(&get),
+            gc_nursery_bytes:    parse_gc_nursery_bytes(&get),
             gc_near_limit_ratio: parse_gc_ratio(&get, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
             gc_pressure_ratio:   parse_gc_ratio(&get, "Z42_GC_PRESSURE_RATIO",   0.75),
             gc_throttle_ratio:   parse_gc_ratio(&get, "Z42_GC_THROTTLE_RATIO",   0.10),

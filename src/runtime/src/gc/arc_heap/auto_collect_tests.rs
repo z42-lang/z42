@@ -90,3 +90,47 @@ fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
          {budget}-byte budget (the pre-trip baseline ends at 163392 — 2.5x over, having \
          ratcheted its own trip point up by one growth gate per cycle)");
 }
+
+// ── add-bounded-nursery (2026-09-08) ─────────────────────────────────────────
+
+/// The nursery gate is a *separate* trip condition from the budget gate: under
+/// `GenerationalMarkSweep` a minor fires once `Z42_GC_NURSERY_BYTES` has been allocated,
+/// without waiting for `used` to climb to `gc_near_limit_ratio × budget`. That is what bounds
+/// minor work — and therefore minor pause — by the nursery rather than by the whole heap.
+#[test]
+fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
+    use crate::gc::GcMode;
+    // A budget large enough that `used` never gets near `0.90 × budget`: under the old
+    // single gate this workload collected zero times.
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    const BUDGET: u64 = 8 * 1024 * 1024; // nursery defaults to a quarter → 2 MB
+    heap.set_max_heap_bytes(Some(BUDGET));
+    for _ in 0..20_000 {
+        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+    }
+    let used = heap.stats().used_bytes;
+    assert!(
+        used < BUDGET * 9 / 10,
+        "test setup: `used` must stay below the near-limit gate (got {used})"
+    );
+    assert!(
+        cycles(&heap) > 0,
+        "the nursery gate must trip a minor before the budget gate would"
+    );
+}
+
+/// The same workload under `StwMarkSweep` must be untouched: the nursery gate is generational
+/// only, so a heap far below its near-limit still does not collect.
+#[test]
+fn the_nursery_gate_is_generational_only() {
+    let heap = ArcMagrGC::new();
+    heap.set_max_heap_bytes(Some(8 * 1024 * 1024));
+    for _ in 0..20_000 {
+        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+    }
+    assert_eq!(
+        cycles(&heap), 0,
+        "STW mode keeps the single near-limit gate — no nursery trips"
+    );
+}
