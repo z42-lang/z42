@@ -113,32 +113,26 @@ public sealed class OverloadBinder {
     // 单个实参的检查入口（供不经本汇聚点的路径复用：ctor 位置实参、`_adaptArgs` 的命名实参/可选参）。
     internal void CheckArg(BoundExpr a, Z42Type pt, Span sp, TypeEnv env) {
         if (a == null || pt == null) { return; }
-        if (OverloadBinder._isEnumSide(a, pt, env)) { return; }   // 见 _checkOneArg 的残留洞说明
+        // make-enum-distinct-type：`_isEnumSide` 跳过已摘除（理由见 `_checkOneArg`）。
+        // 这条路（ctor 位置实参 / 命名实参 / 可选参）**不经**上面的汇聚点，当年的跳过是两处各写
+        // 一遍的——摘的时候必须同样两处都摘；只摘汇聚点那处，enum 形参在 ctor 与命名实参位就仍然
+        // 不检查（"看着修好了、其实半边还瞎"）。
         this._tc.CheckImplicitConvert(a, pt, env.Symbols, sp, "argument");
     }
 
     private void _checkOneArg(BoundExpr[] args, Expr[] rawArgs, int i, Z42Type pt, TypeEnv env) {
         if (args[i] == null || pt == null) { return; }
-        // 🕳 残留洞（**有意**，见 design D5/D6）：enum 位暂不检查。
-        // z42 现行是 **enum-as-int 模型**（`MemberResolver` 把 `E.Member` 绑成 `BoundLitInt(long)`，
-        // book `runtime/struct-value-semantics.md` 有 SoT），而 enum **类型名**在类型位置解析成一个
-        // 孤立 `Z42ClassType`——两者在转换格里无边相连 ⇒ `Alloc(target, GCHandleType.Weak)` 会被判
-        // `long → GCHandleType` 不可转。这不是「用户少写 cast」，是 enum 模型自身的不自洽（欠债表 bug D，
-        // 实测 `Color c = Color.Blue;` 今天在 **var-decl** 就编不过，与本变更无关）。
-        // 该不该让 enum 成为独立类型是**语言语义裁决**，已拆为独立 change（见 tasks 备注）；在它落地前
-        // 本检查不对 enum 位发声——**绝不用「在调用点补 cast」把红变绿**（那是拿 cast 掩盖编译器 bug）。
-        if (OverloadBinder._isEnumSide(args[i], pt, env)) { return; }
+        // make-enum-distinct-type（2026-09-08）：**`_isEnumSide` 跳过已摘除**。
+        // add-argument-type-check 当时在这里留了个有意的洞——enum-as-int 模型下 `E.Member` 是
+        // `BoundLitInt(long)`、enum 类型名却是孤立 `Z42ClassType`，转换格里无边相连，于是
+        // `Alloc(target, GCHandleType.Weak)` 会被误判成 `long → GCHandleType` 不可转。那是模型
+        // 自身的不自洽（欠债表 bug D），不是用户少写 cast，所以当时选择不发声而非逼用户补 cast。
+        // 现在 enum 已是独立类型（`E.Member` 的静态类型就是 `E`），该实参**天然匹配**，洞的前提
+        // 消失 ⇒ 跳过必须摘掉，否则 enum 形参位永远不检查 = 又一道从不发声的假保障。
         // span 指到**实参本身**（而非调用点），定位更准。
         Span sp = args[i].Span;
         if (rawArgs != null && i < rawArgs.Length && rawArgs[i] != null) { sp = rawArgs[i].Span; }
         this._tc.CheckImplicitConvert(args[i], pt, env.Symbols, sp, "argument");
-    }
-
-    // 任一侧涉及 enum：形参类型名是已知 enum 类型，或实参是 enum 成员字面量（`BoundLitInt.EnumTypeName`）。
-    private static bool _isEnumSide(BoundExpr a, Z42Type pt, TypeEnv env) {
-        if (env.Symbols != null && pt != null && env.Symbols.EnumTypes.ContainsKey(pt.Name())) { return true; }
-        if (a is BoundLitInt) { return (a as BoundLitInt).EnumTypeName != ""; }
-        return false;
     }
 
     internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {

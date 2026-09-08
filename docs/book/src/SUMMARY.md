@@ -27,6 +27,7 @@
   - [模式匹配（Rust 风格结构化模式）](language/pattern-matching.md)
   - [`available!()` 符号可用性探测](language/available-macro.md)
   - [元组（值元组 `(a, b)`）](language/tuples.md)
+  - [enum（枚举）](language/enums.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）

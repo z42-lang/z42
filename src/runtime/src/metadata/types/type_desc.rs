@@ -193,6 +193,27 @@ impl TypeDesc {
     #[inline] pub fn interfaces(&self)             -> &[Box<str>]                               { self.cold_slice(|c| &c.interfaces) }
     /// add-enum-type-metadata: enum member (name, value) pairs (reflection only).
     #[inline] pub fn enum_members(&self)           -> &[(String, i64)]                          { self.cold_slice(|c| &c.enum_members) }
+    /// make-enum-distinct-type 1.5: the declared member name for `raw` — C#
+    /// `Enum.ToString()`. `None` if this type is not an enum, so callers can use it
+    /// as the enum test too. An undefined value (out-of-range cast) renders as the
+    /// number, same as C#.
+    ///
+    /// Lives on `TypeDesc`, not `ScriptObject`, so the hot callers can reach it via
+    /// the **lockless** `GcRef::type_desc()`: taking a second `borrow()` while an
+    /// outer `borrow()` guard is alive deadlocks (the entry `Mutex` is not
+    /// reentrant) — which is exactly how the first cut of this hung.
+    pub fn enum_member_name(&self, raw: i64) -> Option<String> {
+        if self.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM == 0 {
+            return None;
+        }
+        Some(
+            self.enum_members()
+                .iter()
+                .find(|(_, v)| *v == raw)
+                .map(|(n, _)| n.clone())
+                .unwrap_or_else(|| raw.to_string()),
+        )
+    }
     /// add-struct-value-semantics: the value-struct byte + reference layout, if
     /// this is a struct with a delivered TYPE-section struct block. Cloned `Arc`
     /// (cheap) so `StructAlloc` can share one layout across all blobs of the type.

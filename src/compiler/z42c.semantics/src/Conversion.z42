@@ -24,6 +24,11 @@ public static class ConvKind {
     public static int ExplicitRef     = 9;   // 引用下转（基→派生，显式）
     public static int UserImplicit    = 10;  // 用户 implicit operator（PR3 预留）
     public static int UserExplicit    = 11;  // 用户 explicit operator（PR3 预留）
+    // make-enum-distinct-type：enum ↔ 其底层整数（**双向**都只作显式，对齐 C#）。
+    // 进 Exists() 不进 ImplicitOk()/ImplicitOkPermissive() ⇒ 隐式上下文（赋值 / return / 传参）
+    // 落 CheckImplicitConvert 的「存在显式转换」分支报 **E0439**（"are you missing a cast?"）
+    // 而非 E0402「无转换」——后者对用户零指引，前者直接告诉他补 `(long)` / `(Color)`。
+    public static int ExplicitEnum    = 12;
 }
 
 // 分类结果：种类 + 可选转换方法（Method 仅 User* 非 null；PR1 恒 null）。
@@ -125,6 +130,26 @@ public static class Conversion {
         // 落 D 的 `Z42ArrayType.IsAssignableTo` 按元素 CanonName 比（`"u8" != "T"`）→ None。
         // 该缺口**只能经传参触达**（泛型方法体内无法凭空造出具体元素类型的值赋给 `T[]`），故长期无人发现。
         if (Conversion._hasGenericParam(from) != Conversion._hasGenericParam(to)) { return new ConvResult(ConvKind.GenericErase); }
+        // B2（make-enum-distinct-type）：enum ↔ 整数 / enum ↔ 异种 enum ⇒ **ExplicitEnum**（只显式）。
+        //
+        // 必须排在 C（→object 装箱）**之后**吗？不——本分支的两侧判定已把 object 排除在外
+        // （object 不是 IsInteger、也不是 enum），故位置只需保证在 A/B 之后、在结构判定 D 之前：
+        // D 会按 CanonName 比名，`Color` vs `Int64` 不等 → None（今天正是这样报 E0402「无转换」）。
+        // 抢在 D 前面分类成 ExplicitEnum，用户拿到的才是「补个 cast」而不是「此路不通」。
+        //
+        // **同名 enum 不进本分支**（两侧同为 Color）——留给既有 Identity/结构判定，行为不变。
+        // 异种 enum（Color ↔ Direction）走 ExplicitEnum：对齐 C#，`(Direction)color` 可写、隐式不行。
+        bool fromEnum = Conversion._isEnumType(from);
+        bool toEnum   = Conversion._isEnumType(to);
+        if (fromEnum || toEnum) {
+            if (fromEnum && toEnum) {
+                if (from.Name() != to.Name()) { return new ConvResult(ConvKind.ExplicitEnum); }
+            } else if (fromEnum && Conversion._isIntegerPrim(to)) {
+                return new ConvResult(ConvKind.ExplicitEnum);
+            } else if (toEnum && Conversion._isIntegerPrim(from)) {
+                return new ConvResult(ConvKind.ExplicitEnum);
+            }
+        }
         // C: to == object（任意 → object）
         // unify-value-types Phase 1（双路）：翻转后 object→Z42ClassType(Object)；按 canonical 名归一。
         if (Conversion._isObjectBuiltin(to)) {
@@ -268,6 +293,22 @@ public static class Conversion {
     // keyword/短名，翻转后 Name()="Int32" 会漏。二者在 keyword/短名输入上语义相同 → 当前中立。
     private static bool _isNumericBuiltin(Z42Type t) {
         return (t is Z42ClassType) && t.IsNumericType();
+    }
+
+    // make-enum-distinct-type 辅助 ——
+    // 「是 enum 类型」：只认带 IsEnum 标志的 Z42ClassType（唯一置位点 Z42ClassType.Enum，
+    // 由 SymbolTable 两个 EnumTypes 命中处与 MemberResolver 的 E.Member 共用）。
+    private static bool _isEnumType(Z42Type t) {
+        return (t is Z42ClassType) && (t as Z42ClassType).IsEnum;
+    }
+
+    // 「是整数基元」：enum 的底层恒为 i64（Type.z42:104 SoT），但**允许与任意整数宽度互 cast**
+    // ——`(int)color` / `(Color)someByte` 都该可写，对齐 C#（那里 enum 可 cast 到任一整型）。
+    // 浮点不在此列：`(double)color` 在 C# 也要先过整型，z42 暂不铺这条路（Deferred）。
+    private static bool _isIntegerPrim(Z42Type t) {
+        if (!(t is Z42ClassType)) { return false; }
+        if ((t as Z42ClassType).IsEnum) { return false; }   // enum 自身不算「整数基元」
+        return PrimModel.IsInteger(t.Name());
     }
 
     // 数值 prim 对 → 种类。同型 → Identity；无损拓宽 → ImplicitNumeric；否则（窄化 / 有损浮点）→ ExplicitNumeric。

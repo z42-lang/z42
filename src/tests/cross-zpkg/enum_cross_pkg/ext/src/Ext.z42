@@ -4,6 +4,13 @@ using Demo.EnumBase;
 
 // ext package cross-uses the imported enum's member (a cross-zpkg enum access,
 // ext -> base). Before the TsigReconcile fix this was `undefined: Color`.
+//
+// make-enum-distinct-type: `Color.Green` is now a value of type `Color`, not a
+// long in disguise — reading its underlying integer takes an explicit cast, and
+// that holds for an *imported* enum exactly as for a local one. This line is the
+// cross-package half of that guarantee: it only compiles if `ImportedSymbolLoader`
+// restored `Color` as an enum type (a plain imported class would have no
+// enum→integer conversion at all).
 long greenValue() {
-    return Color.Green;   // 1
+    return (long)Color.Green;   // 1
 }

@@ -38,7 +38,18 @@ pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result
     let td = ctx.try_lookup_type(class).ok_or_else(|| {
         anyhow::anyhow!("__box_prim: unknown prim wrapper type `{class}`")
     })?;
-    let (width, _signed) = int_wrapper_scalar_spec(&td.name).unwrap_or((8, true));
+    // make-enum-distinct-type 1.5: enums box through this same path, but with the
+    // *enum's own* TypeDesc instead of a `Std.*` wrapper — so `object o = Color.Blue;
+    // o.GetType()` yields `Color`, matching the already-correct `typeof(Color)` /
+    // `Color.Blue.GetType()` folds. Width is 8/signed because z42 backs every enum
+    // with i64 (`z42.core/src/Type.z42` — `GetEnumUnderlyingType()` is always `long`);
+    // stated explicitly rather than leaning on the "shouldn't happen" fallback below.
+    let is_enum = td.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0;
+    let (width, _signed) = if is_enum {
+        (8, true)
+    } else {
+        int_wrapper_scalar_spec(&td.name).unwrap_or((8, true))
+    };
     let struct_bytes: Box<[u8]> = raw.to_le_bytes()[..width].to_vec().into_boxed_slice();
     match ctx.heap().alloc_boxed_prim(td, struct_bytes) {
         Value::Object(gc) => Ok(Value::BoxedStruct(gc)),
@@ -248,10 +259,22 @@ pub fn value_to_str(v: &Value) -> String {
         // （恢复 add-primitive-value-boxing 的 `value_to_str(inner)` 语义——`WriteLine(object)` 把
         // int 实参装箱后须打印 "5" 而非 "Std.Int32{...}"）。boxed struct 的完整 ToString（值格式）由
         // PR2b 合成方法经 VCall 提供；此原始路径给类型名占位（比 StructRef 占位更具体）。
-        Value::BoxedStruct(gc) => match gc.borrow().boxed_prim_i64() {
-            Some(n) => n.to_string(),
-            None => format!("{}{{...}}", gc.type_desc().name),
-        },
+        // make-enum-distinct-type 1.5: an enum box stringifies as its member name
+        // (C# `Enum.ToString`) — checked before the scalar arm, which would otherwise
+        // print the raw i64. Keeps `Console.WriteLine(Color.Blue)` and
+        // `((object)Color.Blue).ToString()` (resolve_vcall) saying the same thing.
+        // NB: one `borrow()` for both queries — re-borrowing under the first guard
+        // deadlocks (the entry `Mutex` is not reentrant).
+        Value::BoxedStruct(gc) => {
+            let o = gc.borrow();
+            match o.boxed_enum_name() {
+                Some(name) => name,
+                None => match o.boxed_prim_i64() {
+                    Some(n) => n.to_string(),
+                    None => format!("{}{{...}}", gc.type_desc().name),
+                },
+            }
+        }
         // make-value-copy: a struct[] element handle — arena-resident, no ctx here;
         // placeholder (ToString on the element dispatches via VCall, not this raw path).
         Value::StructRefHeap { .. } => "<struct value>".to_string(),

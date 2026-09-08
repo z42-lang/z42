@@ -1,3 +1,14 @@
+// enum 语义（make-enum-distinct-type, 2026-09-08 起）：enum 是**独立类型**，不是整数别名。
+//
+// 本文件此前成文断言的正是旧的 **enum-as-int** 模型（`Assert.Equal(404, Status.NotFound)` /
+// `Direction.North == 0` 直接拿枚举成员当整数用）。那个模型自相矛盾——成员是 long、类型名却是
+// 一个谁也转不进去的孤立类，导致 `Direction d = Direction.North;` 在 var-decl 就编不过，即
+// 「z42 无法产生任何 enum 类型的值」。新语义下：
+//   · `E.Member` 的静态类型就是 `E`  ⇒ 可赋值 / 传参 / return / 作字段
+//   · enum ↔ 整数**双向都要显式 cast**（对齐 C#，`0` 字面量无例外）
+//   · `==`/`!=`/关系比较要求两侧同一个 enum；与整数比较须先 cast
+// 验「底层值是多少」的断言因此一律写成 `(long)E.Member`——意图是读底层整数，就把它显式读出来。
+
 namespace Test;
 
 enum Direction {
@@ -23,24 +34,84 @@ string describe(int d) {
     };
 }
 
+// 模式匹配面：常量模式 / or-链 / **关系模式**，subject 与模式两侧都是 enum 类型。
+// 关系模式是本变更的必做项——改前 `a < b` 在 enum 上直接 E0402（`IsOrderable` 不认 enum）。
+//
+// ⚠️ 这里自带一份，**不靠 `examples/patterns.z42`**。那个文件里的
+// `>= HttpStatus.BadRequest and < HttpStatus.ServerError` 是 **C# 语法**，z42 的模式用
+// Rust 风格的 `|`、根本没有 `and` 组合子——它一行都编不过，只是顶层 `examples/` 除
+// hello.z42 外**没有任何门在编**，所以没人发现（属 audit-silent-gates 的账）。
+string classify(Status s) {
+    return s switch {
+        Status.Ok => "ok",
+        Status.NotFound | Status.ServerError => "error",
+        >= Status.NotFound => "at-or-past-404",
+        _ => "unknown",
+    };
+}
+
 void main() {
-    // Auto-numbered enum values (0-based)
-    Assert.Equal(0, Direction.North);
-    Assert.Equal(1, Direction.South);
-    Assert.Equal(2, Direction.East);
-    Assert.Equal(3, Direction.West);
+    // 底层值（自动编号，0 基）——读底层整数须显式 (long)
+    Assert.Equal(0L, (long)Direction.North);
+    Assert.Equal(1L, (long)Direction.South);
+    Assert.Equal(2L, (long)Direction.East);
+    Assert.Equal(3L, (long)Direction.West);
 
-    // Explicit values
-    Assert.Equal(0, Status.Ok);
-    Assert.Equal(404, Status.NotFound);
-    Assert.Equal(500, Status.ServerError);
+    // 显式赋值的底层值
+    Assert.Equal(0L,   (long)Status.Ok);
+    Assert.Equal(404L, (long)Status.NotFound);
+    Assert.Equal(500L, (long)Status.ServerError);
 
-    // Use enum in switch expression
-    var dir = Direction.East;
-    Assert.Equal("east", describe(dir));
+    // enum 成员现在能产生 enum 类型的值（旧模型下这行 var-decl 就编不过）
+    Direction dir = Direction.East;
+    Assert.Equal("east", describe((int)dir));
 
-    // Enum comparison
-    Assert.Equal(true, Direction.North == 0);
-    Assert.Equal(true, Status.NotFound == 404);
+    // enum 之间比较：同类型直接比，无须 cast
     Assert.Equal(false, Direction.South == Direction.North);
+    Assert.Equal(true,  Direction.North == Direction.North);
+    Assert.Equal(true,  Direction.North != Direction.South);
+
+    // 与整数比较须显式 cast（`Direction.North == 0` 现在是编译错误）
+    Assert.Equal(true, (long)Direction.North == 0L);
+    Assert.Equal(true, (long)Status.NotFound == 404L);
+
+    // 关系比较（C# 允许 enum 比大小；底层按 i64 比）
+    Assert.Equal(true, Direction.North < Direction.West);
+    Assert.Equal(true, Status.ServerError >= Status.NotFound);
+
+    // 双向 cast 往返
+    Direction back = (Direction)2;
+    Assert.Equal(true, back == Direction.East);
+
+    // ── 装箱：盒带 enum 自己的类型描述（1.5）────────────────────────────────
+    // 改前 enum 值擦除到 object 会退化成 `Int32`——与同一个值 `typeof` / `GetType()`
+    // 都答 `Direction` 自相矛盾。装箱后运行期表示仍是 i64（`Type.z42` 的 i64 承诺不变），
+    // 变的只是盒上挂的 TypeDesc。
+    object boxed = dir;
+    Assert.Equal("Direction", boxed.GetType().Name);
+    Assert.Equal(true, boxed is Direction);
+    Assert.Equal(2L, (long)((Direction)boxed));      // 拆箱往返
+    Assert.Equal("Direction", dir.GetType().Name);   // 未装箱的静态折叠，与上面同答案
+
+    // 数组元素 store 也是擦除点（此前**整条 assign 路径没有装箱点**，对 long 一样错）
+    object[] slot = new object[2];
+    slot[0] = dir;
+    slot[1] = 7L;
+    Assert.Equal("Direction", slot[0].GetType().Name);
+    Assert.Equal("Int64", slot[1].GetType().Name);   // 改前得 "Int32"
+
+    // ── 字符串化：四条路必须同答案（C# `Enum.ToString`）─────────────────────
+    Assert.Equal("East", dir.ToString());        // 直接调用
+    Assert.Equal("East", boxed.ToString());      // 经 object
+    Assert.Equal("East", "" + dir);              // 字符串拼接
+    Assert.Equal("East", $"{dir}");              // 插值
+    // 未定义值（越界 cast）→ 数字，同 C#
+    Assert.Equal("9", ((Direction)9).ToString());
+
+    // ── 模式匹配：常量 / or-链 / 关系模式（2.4 的 IsOrderable 在 PatternBinder 一侧的兑现）──
+    Assert.Equal("ok",             classify(Status.Ok));
+    Assert.Equal("error",          classify(Status.NotFound));
+    Assert.Equal("error",          classify(Status.ServerError));
+    Assert.Equal("at-or-past-404", classify((Status)450));   // 关系臂：只有它能命中
+    Assert.Equal("unknown",        classify((Status)7));
 }

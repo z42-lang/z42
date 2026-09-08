@@ -189,6 +189,17 @@ public static class ImportedSymbolLoader {
                     ExportedEnumZ ez = em.Enums[ec];
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
+                        // make-enum-distinct-type 1.5：imported enum 也要记源 ns。此前只填
+                        // EnumTypeNames/EnumConsts（够把 `Color.Green` 折成常量），但**类名限定**
+                        // 查的是 ClassNamespaces —— 缺了它，消费方的 `QualifyClass("Color")` 落回
+                        // **当前** ns，发出 `Demo.EnumApp.Color` 这种根本不存在的 FQ 名。
+                        // 以前不炸，只因没人拿这个名字去运行期查类型（imported enum 的 typeof /
+                        // GetType 拿到的是个查不到的合成 Type，静默错）；装箱会真去 try_lookup_type
+                        // ⇒ 立刻 `__box_prim: unknown prim wrapper type`。又一处「装箱把静默的错
+                        // 变成响的错」。同短名的真类优先（与本 loader 通篇 first-wins 一致，不覆盖）。
+                        if (!r.ClassNamespaces.ContainsKey(ez.Name)) {
+                            r.ClassNamespaces.Put(ez.Name, new StrBox(em.Namespace));
+                        }
                         int emi = 0;
                         while (emi < ez.MemberCount) {
                             ExportedEnumMemberZ emem = ez.Members[emi];
@@ -488,6 +499,21 @@ public static class ImportedSymbolLoader {
             Z42Type dg = ImportedSymbolLoader._resolveDelegate(r, name, typeParams, tpCount);
             if (dg != null) { return dg; }
         }
+        // make-enum-distinct-type：**imported enum 名 → 带 IsEnum 标志的 Z42ClassType**。
+        //
+        // 与 R1（型参身份）/ R3（"unknown" 固化）/ R5（委托退化）同族的 imported **类型保真度**缺口：
+        // 本函数此前从不查 `EnumTypeNames`，于是导入**成员签名里**的 enum（如 z42.core `Type` 的
+        // `public extern TypeVisibility Visibility { get; }`）落到末尾 prim fallback，还原成名字对、
+        // 标志丢的普通 `Z42ClassType` ⇒ 与源码里写出的 `TypeVisibility`（走 `SymbolTable.EnumTypes`
+        // → `Z42ClassType.Enum`，带标志）**不是同一形状** ⇒ `t.Visibility == TypeVisibility.Public`
+        // 被判成「enum 比非 enum」而报错。
+        //
+        // ⚠️ 这条**推翻了本 change 阶段 0 的一个结论**。当时量的是「源码里写出的类型引用」——那条
+        // 确实本地/跨包共用 `SymbolTable:255`；但**导入成员签名里的类型**走的是本函数，是另一条路。
+        // 教训：「跨包 enum 怎么还原」有两条独立路径，只量了一条就下了全称结论。
+        //
+        // 放在 `r.Classes` **之前**：万一同名既进 Classes 又进 EnumTypeNames，也保证标志不被丢。
+        if (r.EnumTypeNames.ContainsKey(name)) { return Z42ClassType.Enum(name); }
         int _sl0 = r.Classes.Find(name); if (_sl0 >= 0) { return r.Classes.ValAt(_sl0) as Z42ClassType; }
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
