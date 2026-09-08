@@ -620,7 +620,7 @@ public struct int : ..., INumber<int> {
 
 ## 11. 相关文档
 
-- `docs/design/language/generics.md` — L3-G 泛型总体设计
+- `docs/book/src/language/generics.md` — L3-G 泛型总体设计
 - `docs/design/philosophy.md` §8 — Simplicity First + Script-First
 - `docs/spec/archive/2026-04-23-add-inumber-script-first/` — INumber iter 1（将被本设计替代）
 - `docs/spec/archive/2026-04-24-add-operator-overload-csharp/` — operator 重载语法（本设计扩展）

@@ -36,7 +36,7 @@ z42 泛型是 **C# 式具化类型擦除（reified erasure）**，不是单态�
 | `docs/roadmap.md` | MODIFY | 0.4.x G 流条目细化（G0 完成 + G1–G3 量级重估为"轻，无 codegen"）|
 
 **只读引用**：
-- `docs/design/language/generics.md`（具化擦除模型）
+- `docs/book/src/language/generics.md`（具化擦除模型）
 - `src/runtime/src/corelib/reflection.rs`（`make_constructed_type` / `builtin_activator_create` / `builtin_type_generic_args`）
 - `src/runtime/src/interp/exec_object.rs`（`ObjNew` 填 `instance.type_args`）+ `exec_address.rs`（`typeof(T)` 读 type_args）
 

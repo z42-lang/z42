@@ -3,7 +3,7 @@
 > 对齐：2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
 >
 > 本页是**泛型约束语义与校验范围的 SoT**。泛型的整体设计（代码共享策略、reified 类型、
-> 跨 zpkg 元数据）见 [`docs/design/language/generics.md`](../../../design/language/generics.md)；
+> 跨 zpkg 元数据）见 [`docs/book/src/language/generics.md`](generics.md)；
 > 方法级类型参数见 [泛型方法](generic-methods.md)。
 
 ## 语法
@@ -55,7 +55,7 @@ class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
 |------|------|--------|
 | 声明期 | 每个泛型类 / **接口**的 `where` 子句解析成约束集 | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、**未知约束名 `E0443`** |
 | 实例化点 | `new Box<D>()` | 违反约束 `E0402`，Span 指向实例化处 |
-| 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（**显式**写类型实参时） | 违反约束 `E0402` |
+| 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（显式写类型实参）**及 `m(...)`（推断成功时）** | 违反约束 `E0402` |
 
 诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
 
@@ -317,10 +317,15 @@ Deferred：`where-constraint-future-type-arg-matching`。
 > 任何**其它**带类型实参的接口约束（`IEnumerable<T>` / `IComparer<T>` / 用户自定义泛型接口）
 > 今天照旧按裸名匹配。
 
-### 2. 方法级约束只在显式写类型实参时校验
+### ~~2. 方法级约束只在显式写类型实参时校验~~ ✅ 已解决
 
-`Max<int>(a, b)` 校验；`Max(a, b)`（靠推断）**不**校验。
-Deferred：`where-constraint-future-inferred-method-args`。
+**2026-09-08（change `add-generic-type-arg-inference`）**：`Max(a, b)` 现在也校验 —— 从实参
+结构化 unify 出型参绑定后，复用**同一条** `ConstraintChecker.CheckMethod` 路径。
+
+**残留边界**（推断失败即完全按改动前行为、不发任何诊断）：型参未被任何形参位覆盖 /
+同一型参绑到不同类型（v1 不做「最佳公共类型」，`Max(1, 2L)` 仍不校验）/ 实参是 lambda 或
+target-typed `new` 这类延迟位 / `params` 尾位。Deferred：`generic-inference-best-common-type`、
+`generic-inference-lambda-args`。
 
 ### 3. 顶层函数的 `where` 不校验
 
@@ -384,5 +389,5 @@ wire 表示（需要 zbc 约束 bundle 的 bit7 + zbc/zpkg 双格式 bump）。�
 ## 相关
 
 - [泛型方法](generic-methods.md) —— 方法级类型参数与 `<` 歧义消解
-- [`docs/design/language/generics.md`](../../../design/language/generics.md) —— 泛型整体设计与选型
+- [`docs/book/src/language/generics.md`](generics.md) —— 泛型整体设计与选型
 - change [`complete-where-constraints`](../../../spec/archive/2026-09-05-complete-where-constraints/proposal.md) —— 本页所述行为的引入过程（含三层塌陷的完整定位）

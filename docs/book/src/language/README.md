@@ -22,7 +22,7 @@ z42 的语法、类型系统、内存模型、内置协议与 FFI 表面——�
 |--------|---------|------|
 | language-overview.md | （贯穿全部；参考手册基线） | ⬜ |
 | syntax-config.md / raw-string-literal.md / string-builtins.md / compound-assign.md | 语法与词法 | ⬜ |
-| generics.md / boxing.md / static-abstract-interface.md | 类型系统 | ⬜ |
+| ~~generics.md~~ ✅ / boxing.md / static-abstract-interface.md | 类型系统 | 🟡 部分（generics.md 已于 2026-09-08 迁入 [generics.md](generics.md)） |
 | object-protocol.md / customization.md / iteration.md / properties.md | 内置协议 | ⬜ |
 | exceptions.md | 异常与错误处理 | ⬜ |
 | namespace-using.md / access-control.md / naming-conventions.md | 命名空间与访问控制 | ⬜ |

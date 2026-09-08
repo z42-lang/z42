@@ -1,6 +1,6 @@
 # Tasks: 方法级类型实参推断 + 形参位类型实参代换
 
-> 状态：🔴 DRAFT（待阶段 6.5 确认）｜ 创建：2026-09-08
+> 状态：🟢 已完成（2026-09-08）｜ 创建：2026-09-08
 > 分支：`tighten-bare-type-param-erasure` ｜ worktree：`../z42-erasure`（基于 `origin/main` 54c8a1df）
 
 ## 进度概览
@@ -12,8 +12,8 @@
 | B | 显式方法类型实参形参位代换 | 🟢 已完成（欠债 0，退回对照精确命中，不动点 3/3） |
 | C | 方法级类型实参推断 + 推断调用的 where 校验 | 🟢 已完成（欠债 0，阳性+退回对照全过，不动点 3/3） |
 | D | callee 消费型参时要求显式类型实参（User 裁决：**本轮做**） | 🟢 已完成（欠债 0，退回对照 7 负例全红，不动点 3/3） |
-| E | 规范冲突处置 + `design/language/generics.md` **原样迁入** book | ⬜ |
-| F | 完整 GREEN + 文档同步 + 归档 | ⬜ |
+| E | 规范冲突处置 + `design/language/generics.md` **原样迁入** book | 🟢 已完成 |
+| F | 完整 GREEN + 文档同步 + 归档 | 🟢 已完成 |
 
 ## 阶段 0 —— 已完成的实测（DRAFT 依据，勿重跑）
 
@@ -149,31 +149,48 @@ statement 级（`AnalyzerDriver._walkStmt`），而消费形态分散在 `Typeof
 > ✅ User 裁决（2026-09-08）：取「**原样迁入 + 修正失效段**」，**不借机按 book 口径重写**
 > （重写与本 change 主线无关，成本不相称）。
 
-- [ ] E.1 `docs/book/src/language/generics.md` NEW：`docs/design/language/generics.md` 内容**原样**迁入
-- [ ] E.2 修正失效段：`:380`「T 从实参推断」按本 change 落地后的真实语义改写；
-      `:382 ### 限制（本阶段）` 补上此前漏列的边界
-- [ ] E.3 `docs/design/language/generics.md` DELETE
-- [ ] E.4 `docs/book/src/SUMMARY.md` 挂载新页；`docs/book/src/language/README.md:31` 迁移状态打勾
-- [ ] E.5 grep 全仓对 `design/language/generics.md` 的引用，逐条改指 book 新页（清零）
+- [x] E.1 `git mv docs/design/language/generics.md docs/book/src/language/generics.md`（**原样**迁入，
+      保留 C# 时代的实现引用作历史记录；页头补 book 的「对齐」注 + 迁入说明）
+- [x] E.2 修正失效段：`:380`「T 从实参推断」改写为真实语义 + 显式标注它**曾长期是失效陈述**
+      （语气是已落地、实则零实现，且同节「限制」漏列）；新增「类型实参推断」小节；
+      「限制（本阶段）」补两条（返回类型不按推断代换 / 推断不参与重载决议）
+- [x] E.3 旧路径已随 `git mv` 消失（`RM docs/design/language/generics.md -> docs/book/src/language/generics.md`）
+- [x] E.4 `SUMMARY.md` 挂载新页；`book/src/language/README.md` 迁移表改 🟡 部分；
+      `docs/design/language/README.md` 索引行改指 book
+- [x] E.5 全仓旧引用清零：`docs/roadmap.md:498` / `design/language/static-abstract-interface.md:623` /
+      `spec/changes/plan-generic-reflection/proposal.md:39` / `book/.../generic-constraints.md:6,387`
+      全部改指新路径；迁入文件内 18 处相对链接按新深度重写（`../../` → `../../../`，
+      指向 book 同目录的改成裸文件名）。**唯一剩余提及**是迁移说明里的历史路径（有意保留）
 
 ## 阶段 F —— 验收
 
-- [ ] F.1 `cargo build`（runtime 未改动，确认无连带破坏）
-- [ ] F.2 `xtask test compiler`
-- [ ] F.3 `xtask test e2e` + `xtask test e2e --dir cross-zpkg --mode jit`
-- [ ] F.4 `xtask test stdlib --mode jit`（本地 GREEN 只跑 interp，派发面改动必补）
-- [ ] F.5 `xtask test bootstrap`（先确认分支不落后 main，否则报错极具误导性）
-- [ ] F.6 spec scenarios 逐条覆盖确认（`specs/generic-type-arg-inference/spec.md` 共 15 个 Scenario）
-- [ ] F.7 文档同步（按 workflow 阶段 9 触发矩阵）：
-      `book/language/generic-methods.md`（`:109` 改写）、
-      `book/language/generic-constraints.md`（已知限制 §2 + `:58` 表格 + `:217-226` 形参位边界）、
-      `docs/features.md`、所改页页头「对齐」日期刷新
-- [ ] F.8 `docs/roadmap.md`：改写 `tighten-bare-type-param-target-erasure` 的根因与前置；
-      关掉 `where-constraint-future-inferred-method-args` 与 `generic-methods-future-type-inference`；
-      新增 4 条 Deferred（见 design 末表）
-- [ ] F.9 归档：`git mv docs/spec/changes/add-generic-type-arg-inference docs/spec/archive/2026-09-XX-add-generic-type-arg-inference`
-      —— **必须在开 PR 之前 commit 到本分支**，禁止合并后单独推 `docs: 归档`
-- [ ] F.10 **最终态重跑一次完整 GREEN**（中途做退回对照重建过编译器 ⇒ 早先的绿不算数）
+- [x] F.1 `cargo build`（runtime 未改动；build wave 内已建 z42vm，无连带破坏）
+- [x] F.2 **完整 `xtask test` 全绿**：`✅ GREEN — all stages passed`，2m35s，`REAL_EXIT=0`
+      （含 `z42c self-host 不动点 3/3 gen1==gen2`）
+- [x] F.3 `xtask test e2e --dir cross-zpkg --mode jit` —— **21 passed, 0 failed**
+- [x] F.4 `xtask test stdlib --mode jit` —— **3228 条 PASS，0 failed**（`✔ test stdlib`）
+- [x] F.5 `xtask test bootstrap` —— **`✅ nightly z42c compiles current source — NO staged-bootstrap
+      boundary violation`** + `✅ repo z42c self-build OK`（分支与 origin/main 同步，0 behind）
+- [x] F.6 spec scenarios 逐条对账（`specs/generic-type-arg-inference/spec.md` 共 15 个）：
+      **13 个有对应单测**（28 条 `generic_inference_tests.z42` 覆盖），2 个由构建期证据覆盖 ——
+      「隐式泛型调用的 opcode 不变」与「全仓自举字节不动点」由 `xtask test` 的
+      `z42c self-host 不动点 3/3 gen1==gen2` 直接证明。
+      ⚠️ 唯一**未逐条建用例**的是 spec 里 `Array.Copy` 那条具名场景 —— 用等价形状
+      （`test_non_consuming_callee_implicit_call_is_fine` 的 `void Cp<T>(T[] a, T[] b)`）覆盖，
+      真实 `Array.Copy` 由全仓 112 处调用在 `build stdlib` 里持续守着。
+- [x] F.7 文档同步（按 workflow 阶段 9 触发矩阵）：
+      `book/language/generic-methods.md`（M1 边界那条「推断留后续」标 ✅ 已落地 + 写明不回灌）、
+      `book/language/generic-constraints.md`（已知限制 §2 关闭 + 校验发生点表格 + 页头对齐日期）、
+      `book/language/generics.md`（迁入页新增「类型实参推断」小节 + 更正失效陈述）、
+      `docs/features.md` §7 Generics
+- [x] F.8 `docs/roadmap.md`：改写 `tighten-bare-type-param-target-erasure` 根因（记浅了）；
+      关闭 `where-constraint-future-inferred-method-args`（推断调用部分）与
+      `generic-methods-future-type-inference`；**新增 5 条 Deferred**
+      （best-common-type / lambda-args / in-overload-resolution / unify-emission-gate /
+      **ast-walker-completeness-gate**）
+- [x] F.9 归档：`git mv` 到 `docs/spec/archive/2026-09-08-add-generic-type-arg-inference`
+      —— **在开 PR 之前** commit 到本分支
+- [x] F.10 **最终态重跑完整 GREEN**：`✅ GREEN — all stages passed`（2m35s）+ jit 双补 + bootstrap
 
 ## 验收标准
 

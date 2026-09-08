@@ -106,7 +106,13 @@ flowchart LR
 - **M1 只做直接调用** `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 由 **G2**
   （add-reflective-invoke）补齐，见下节。
 - **类级 `typeof(T)` 的具体化不在本 Scope**（当前仍产占位名）；本 change 只补方法级。
-- 类型**推断**（从实参推 `T`，省略 `<...>`）留后续；M1 要求显式写 `Foo<T>()`。
+- ~~类型**推断**（从实参推 `T`，省略 `<...>`）留后续；M1 要求显式写 `Foo<T>()`。~~
+  ✅ **已落地**（2026-09-08，change `add-generic-type-arg-inference`）：省略尖括号会从实参结构化
+  unify 出型参绑定，用于**形参位实参检查**与 **`where` 约束校验**。但推断结果**刻意不回灌**
+  `BoundCall.MethodTypeArgs` —— 回灌会把 opcode 从 `Op.Call` 换成 `Op.CallGeneric`、重排 zbc
+  串池、并关掉 native 快路径门，而全仓 112 处隐式泛型调用全是不消费型参的 `Array.Copy<T>`
+  ⇒ 纯回归。⇒ **本页「非泛型调用逐字节不变」的不变量不受推断影响**；callee 真消费型参时
+  由 **E0455** 要求显式写出 `<T>`。语义细节见 [generics.md §类型实参推断](generics.md)。
 
 ## 方法级形参转发（add-generic-activator）
 

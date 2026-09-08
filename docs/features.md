@@ -136,6 +136,19 @@ class Stack<T> { ... }
 
 **L1 workaround:** `List<T>` and `Dictionary<K, V>` are provided via a pseudo-class strategy (hardcoded handling in the type checker and IR codegen) until generic infrastructure is ready.
 
+**Type argument inference (2026-09-08, change `add-generic-type-arg-inference`):** omitting `<...>`
+at a generic method call site infers the method-level type arguments by structurally unifying parameter
+types against bound argument types (bare type params, array elements, instantiated type arguments,
+func params/return). Inference drives **diagnostics only** — argument checking and `where` constraint
+validation — and is deliberately **not** written back into the emitted call: doing so would flip the
+opcode from `Op.Call` to `Op.CallGeneric`, reshuffle the zbc string pool, and disable the interpreter's
+native fast path, while every implicit generic call in the tree (112 sites, all `Array.Copy<T>`) has a
+type parameter that is purely a compile-time device. When a callee genuinely consumes its type parameter
+at runtime (`typeof(T)` / `new T()` / `default(T)` / `new T[n]`, or forwarding it to a nested generic
+call), **E0455** requires the type argument to be written explicitly — turning a silent wrong value into
+a compile error. Inference failure degrades to the pre-change behaviour with no diagnostic.
+See [book: generics.md](book/src/language/generics.md).
+
 **Phase:** L3
 
 ---
