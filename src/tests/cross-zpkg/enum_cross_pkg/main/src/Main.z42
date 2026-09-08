@@ -5,13 +5,24 @@ using Demo.EnumBase;
 using Demo.EnumExt;
 
 // Cross-zpkg enum use (regression for add-repl-decls-multiline TsigReconcile fix):
-//   Color.Green   : app -> base directly (imported enum member = long constant)
+//   Color.Green   : app -> base directly
 //   greenValue()  : app -> ext -> base (ext's own cross-zpkg enum access re-exposed)
 // Before the fix, imported enums were excluded from export metadata -> undefined.
+//
+// make-enum-distinct-type: an imported enum must behave like a local one on every
+// axis, so this also pins the *new* semantics across the package boundary. The last
+// two lines are the ones that bite: they need the enum's **real** FQ name at runtime,
+// and imported enums used to register no namespace at all — `QualifyClass("Color")`
+// fell back to the consumer's own ns and emitted `Demo.EnumApp.Color`, a type that
+// does not exist. That stayed silent while nothing looked the name up.
 void Main() {
-    long g = Color.Green;
+    long g = (long)Color.Green;
     Console.WriteLine(g);                              // 1
     Console.WriteLine("" + greenValue());              // 1
-    Console.WriteLine("" + Color.Blue);                // 2
+    Console.WriteLine("" + (long)Color.Blue);          // 2
     Console.WriteLine("" + (Color.Red == Color.Red));  // true
+    Console.WriteLine(typeof(Color).FullName);         // Demo.EnumBase.Color — not Demo.EnumApp.Color
+    Console.WriteLine("" + Color.Blue);                // Blue — imported enum stringifies by name
+    object boxed = Color.Green;
+    Console.WriteLine(boxed.GetType().FullName);       // Demo.EnumBase.Color
 }

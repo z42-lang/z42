@@ -115,6 +115,16 @@ public sealed class CallEmitter {
                     return this._emitValueTypeGetType(c, enumFqn);
                 }
             }
+            // make-enum-distinct-type 1.5：enum receiver 的 `ToString()` → 装箱 + VCall，命中
+            // runtime 的 enum 盒协议（成员名，C# `Enum.ToString`）。不拦的话 receiver 是裸 i64，
+            // 派发到 Int64.ToString 出数字——与同一个值经 `object` 装箱后出成员名互相矛盾。
+            if (c.MethodName == "ToString" && c.ArgCount == 0 && this._isEnumStatic(c.Receiver.Type())) {
+                TypedReg ev = this._ee.Emit(c.Receiver);
+                TypedReg eboxed = this._ee._boxEnumForStr(ev, c.Receiver.Type());
+                TypedReg edst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+                this._ctx.Emit(new VCallInstr(edst, eboxed, c.MethodName, new TypedReg[0], 0));
+                return edst;
+            }
             // add-struct-value-semantics A-use：blob 值 struct 实例方法调用 → **静态 Call 传 handle**
             // （struct 无继承/虚方法；receiver 是 StructRef 句柄非 object，走 VCall 会崩）。含返回 struct 的
             // sret。绕过下方 devirt/DepIndex/VCall。实参先于 receiver（保发射序）+ struct 实参 copy-in。
@@ -283,6 +293,13 @@ public sealed class CallEmitter {
         int i = 0;
         while (i < c.ArgCount) { args[i] = this._ee.Emit(c.Args[i]); i = i + 1; }
         return args;
+    }
+
+    // make-enum-distinct-type 1.5：静态类型就是 enum 本身？只认 `IsEnum` 标志（唯一置位点
+    // `Z42ClassType.Enum`），不查 `EnumTypes` 表——ToString 拦截必须与本变更建立的类型身份同源，
+    // 用名字查表会把「名字碰巧撞上某 enum 的非 enum 类型」也拦下来。
+    private bool _isEnumStatic(Z42Type t) {
+        return (t is Z42ClassType) && (t as Z42ClassType).IsEnum;
     }
 
     // fix-value-type-object-methods：静态类型是 **用户 struct 或 enum**（值类型，非 scalar 基元）？

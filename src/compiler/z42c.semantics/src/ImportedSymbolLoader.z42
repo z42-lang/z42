@@ -189,6 +189,17 @@ public static class ImportedSymbolLoader {
                     ExportedEnumZ ez = em.Enums[ec];
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
+                        // make-enum-distinct-type 1.5：imported enum 也要记源 ns。此前只填
+                        // EnumTypeNames/EnumConsts（够把 `Color.Green` 折成常量），但**类名限定**
+                        // 查的是 ClassNamespaces —— 缺了它，消费方的 `QualifyClass("Color")` 落回
+                        // **当前** ns，发出 `Demo.EnumApp.Color` 这种根本不存在的 FQ 名。
+                        // 以前不炸，只因没人拿这个名字去运行期查类型（imported enum 的 typeof /
+                        // GetType 拿到的是个查不到的合成 Type，静默错）；装箱会真去 try_lookup_type
+                        // ⇒ 立刻 `__box_prim: unknown prim wrapper type`。又一处「装箱把静默的错
+                        // 变成响的错」。同短名的真类优先（与本 loader 通篇 first-wins 一致，不覆盖）。
+                        if (!r.ClassNamespaces.ContainsKey(ez.Name)) {
+                            r.ClassNamespaces.Put(ez.Name, new StrBox(em.Namespace));
+                        }
                         int emi = 0;
                         while (emi < ez.MemberCount) {
                             ExportedEnumMemberZ emem = ez.Members[emi];

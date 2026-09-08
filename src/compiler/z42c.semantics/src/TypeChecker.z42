@@ -101,6 +101,9 @@ public sealed class TypeChecker {
     // （int/long/short/byte 运行时同为 I64，装箱才能辨宽度做强类型 is/as/GetType）；
     // bool/char/double/string 已是独立运行时表示，无需装箱。返回原 expr 或包 BoundBox。
     // 各强转兼容处（var-decl / return / call-arg / assign / array-store）统一调用本方法保一致。
+    // （make-enum-distinct-type 1.5：assign 与 array-store 两处此前是**空头支票**——`AssignTyper`
+    //  只调 CheckImplicitConvert/ConvertIfNeeded，从不装箱，于是 `object[] a; a[0] = 5L;` 存裸
+    //  i64。已补上，五处现在名副其实。）
     public BoundExpr BoxIfNeeded(BoundExpr value, Z42Type target) {
         if (value == null || target == null) { return value; }
         Z42Type vt = value.Type();
@@ -111,6 +114,19 @@ public sealed class TypeChecker {
             bool erases = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
             if (!erases) { return value; }
             return new BoundBox(value, fq, target, value.Span);
+        }
+        // make-enum-distinct-type 1.5：enum 值擦除到 object/接口 → 装箱，盒的类型描述用 **enum 自身**
+        // （而非 Std.Int32）。不装的话裸 i64 落进 object 槽，`GetType()` 退化成 `Int32`——与同一变更下
+        // `typeof(Color)` / `Color.Red.GetType()` 都得 `Color` 自相矛盾（该退化在本变更前就存在，
+        // 见 tasks 1.5：改前 enum 成员按 int 静态类型装成 Std.Int32，同样错）。
+        // 擦除面**与整数基元逐字一致**（object/接口，**不含**泛型形参）——泛型形参位今天对 `List<int>`
+        // 就不装箱（存裸 i64），enum 跟着走同一条路，容器里外表示不变、无需拆箱对偶。
+        // PrimFQ 存 enum **短名**，FQ 化留给 codegen 的 `QualifyClass`（同 `CallEmitter` 的 GetType 折叠：
+        // enum 名在语义期未必带 ns，限定得在 emit 期按 using/ImportedClassNs 做）。
+        if ((vt is Z42ClassType) && (vt as Z42ClassType).IsEnum) {
+            bool erasesE = (target is Z42InterfaceType) || TypeChecker._isObjectName(target.Name());
+            if (!erasesE) { return value; }
+            return new BoundBox(value, vt.Name(), target, value.Span);
         }
         // 非整数 Scalar（bool/char/double/float，Z42PrimType 或翻转后 Z42ClassType(Scalar)）→ 不装箱
         // （独立 Value 变体自带身份，特例保留）。string（引用）同不装箱。

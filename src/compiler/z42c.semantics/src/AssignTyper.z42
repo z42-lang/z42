@@ -117,6 +117,13 @@ public sealed class AssignTyper {
                 value = new BoundBinary(binop, target, value, target.Type(), a.Span);
             }
             this._tc.CheckImplicitConvert(value, target.Type(), env.Symbols, a.Value.Span, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
+            // make-enum-distinct-type 1.5：**赋值**（含 `arr[i] = v` 数组元素 store、字段 store、
+            // 局部再赋值）此前根本没有装箱点——`TypeChecker.BoxIfNeeded` 头注释宣称的「var-decl /
+            // return / call-arg / assign / array-store 五处统一」里，assign 与 array-store 两处是空的。
+            // 后果与 enum 无关、对所有整数都错：`object[] a; a[0] = 5L;` 存裸 i64 → `GetType()` 得
+            // `Int32` 而非 `Int64`（数组**字面量** `new object[]{5L}` 走 CollectionTyper 则是对的）。
+            // 顺序照 var-decl（StmtBinder）：先 Check（诊断基于未装箱的原值，不变）→ Box → Convert。
+            value = this._tc.BoxIfNeeded(value, target.Type());
             value = this._tc.ConvertIfNeeded(value, target.Type(), env.Symbols);   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
             return new BoundAssign(target, value, target.Type(), a.Span);
     }

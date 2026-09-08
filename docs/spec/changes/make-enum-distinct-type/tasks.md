@@ -60,9 +60,10 @@
 - [ ] ~~1.4 `ImportedSymbolLoader` 跨包 enum 还原带标记~~ —— **阶段 0 判定不需要**：
       `SymbolCollector._mergeImportedEnums:107-120` 已把导入 enum 灌进 `table.EnumTypes`，
       与本地共用 `SymbolTable:255` 解析点 ⇒ 1.2 置位即覆盖跨包。保留条目仅作留痕
-- [ ] 1.5 🔴 **装箱路径**（阶段 0 新增，**未做**）：enum 类型值装箱后 `GetType()` 今天得 `Int32`。
-      本变更会把更多值赶进这条路径 ⇒ 须让装箱保留 enum 身份（或至少与 `Type.z42:104` 的
-      i64 承诺自洽）。**先查 `Int32` vs i64 的矛盾是不是独立既存 bug**
+- [x] 1.5 ✅ **装箱路径**（2026-09-09 完成，实测驱动，见下「1.5 实施记录」）：
+      enum 擦除到 object/接口 → 装箱成**带 enum 自己 TypeDesc** 的盒；运行期表示仍是 i64。
+      连带落地：拆箱、`is`、`Equals`、四条字符串化路径统一到成员名、以及一个顺带挖出的
+      既存洞（**assign/array-store 从来没有装箱点**）
 
 ## 阶段 2: 转换与运算符
 - [x] 2.1 `Conversion` 新增 `ConvKind.ExplicitEnum`：**不进** `ImplicitOk`、**进** `Exists()`
@@ -70,7 +71,10 @@
 - [x] 2.3 ~~`TypeOpTyper` cast 路径~~ —— **实测无需改动**：cast 路径对任何非 None 分类都落 `BoundConvert`，ExplicitEnum 天然放行
 - [x] 2.4 `TypeFacts.IsOrderable` 认 enum + **新增 `TypeChecker._checkEnumOperands` 跨操作数配对检查**（此前 `==` 完全没有配对维度，`Color.Red == 0` 一路放行）
 - [x] 2.5 `PatternBinder` 关系模式 —— 复用同一个 `IsOrderable` 谓词，2.4 落地即通
-- [ ] 2.6 `ExprEmitter`：enum 静态类型仍发 i64；装箱按 i64（按 0.1 结论）
+- [x] 2.6 `ExprEmitter`：enum 静态类型仍发 i64 ✅；**装箱不按 i64 wrapper 而按 enum 自己的
+      TypeDesc**（0.1 当时的结论在此被 1.5 的实测修正——盒的宽度/编码确实是 i64，但盒上挂
+      `Std.Int64` 会让 `GetType()` 答 `Int64`，与 `typeof(Color)` 仍不自洽；挂 enum 自己既保
+      i64 承诺又保身份）
 
 ## 阶段 3: 摘跳过 + 调用点/测试改写
 - [x] 3.1 🔴 **已摘掉** `OverloadBinder._checkOneArg` 里 `add-argument-type-check` 留的 `_isEnumSide` 跳过
@@ -93,6 +97,96 @@
 - [ ] 4.7 文档：**改写** `docs/book/src/runtime/struct-value-semantics.md:232` 的 enum-as-int SoT 段；
       新建 `docs/book/src/language/enums.md` 并挂进 `SUMMARY.md`
 - [ ] 4.8 归档 + 随 PR 一起提交
+
+## 1.5 实施记录（2026-09-09）——装箱牵出的四件事
+
+**先回答 tasks 原本挂着的那个问题：`Int32` vs i64 的矛盾是不是独立既存 bug？是。**
+用**改前**的种子编译器实测：`object o = 5L` → `Int64` ✓，`object o = Color.Red` → `Int32` ✗。
+改前 enum 成员的静态类型是 int，于是按 `Std.Int32` 装箱——数字对、身份错、宽度也错。
+
+### ① 装箱身份（1.5 本体）
+
+| 层 | 改动 |
+|---|---|
+| `TypeChecker.BoxIfNeeded` | 新增 enum 分支。擦除面**与整数基元逐字一致**（object/接口，**不含泛型形参**）——`List<Color>` 与 `List<int>` 一样存裸 i64，容器内外表示不变、不需要拆箱对偶 |
+| `TypeOpEmitter._emitBox` | 认 enum；类名走 `QualifyClass`（语义期存短名，限定必须在 emit 期做）。顺手把 `__box_prim` 的发射抽成 `_emitBoxPrim` 原语，与新的 `_emitEnumBox` 共用 |
+| `convert.rs::box_prim_to_heap` | enum → 显式 (8, signed)，不再落"不该发生"的兜底 |
+| `ScriptObject::boxed_prim_i64` | 认 enum 盒 ⇒ **拆箱在所有调用方一次性透明**（cast / 比较 / 反射），不必每处加 enum 臂 |
+
+实测：`GetType()`/`arg`/`is Color`/`(Color)o` 往返 —— interp 与 **JIT 逐行相同**。
+
+### ② 字符串化：四条路统一到成员名（User 裁决"统一到成员名"）
+
+装箱一做完就暴露分叉：走盒的（`((object)c).ToString()` / `WriteLine(c)`）能拿到 TypeDesc，
+不走盒的（`c.ToString()` / `"" + c` / `$"{c}"`）只有裸 i64。**统一做法 = 字符串化前先装箱**：
+
+- runtime：`TypeDesc::enum_member_name` 一处查表；`resolve_vcall`（ToString）与
+  `value_to_str`（WriteLine/拼接）两个入口共用。未定义值 → 数字，同 C#。
+- compiler：`_emitEnumBox` 一个原语，挂在插值洞 / 字符串 `+` / `e.ToString()` 三处。
+  字符串 `+` **不需要判"结果是不是 string"**——enum 的算术 `+` 已被转换格拒掉（E0439），
+  能走到发射的带 enum 操作数的 `+` 只可能是拼接，这是类型系统给的不变式。
+
+### ③ `Equals`：enum 盒按**底层类型**解析
+
+enum 不声明任何方法 ⇒ `Equals`/`GetHashCode` 的候选走查落到 `Std.Object.Equals` →
+`__obj_equals` 的 `_ => false` ⇒ **`Color.Green.Equals(Color.Green)` 答 false**。
+修法不是新写一个 builtin，而是让 enum 盒的候选类名换成 `Std.Int64`——`Std.Int64.Equals(long)`
+正是想要的值比较，与装箱 `long` 走同一个方法（`ToString` 不受影响，前面的 enum 臂已拦下）。
+
+> 这条**只有 GREEN 抓到**（`generic_enum_constraint`）：`T Identity<T>(T x) where T: enum`
+> 的返回值在擦除下是裸 i64，与装箱后的 `Color.Green` 一起进 `Assert.Equal(object,object)`。
+> 单点 enum 探针不会碰到"一侧盒一侧裸"这个组合。
+
+### ④ 顺带修好的既存洞：assign / array-store 从来没有装箱点
+
+`TypeChecker.BoxIfNeeded` 头注释宣称"var-decl / return / call-arg / assign / array-store
+五处统一调用"，实际 `AssignTyper` 只调 `CheckImplicitConvert` + `ConvertIfNeeded`，**从不装箱**。
+后果与 enum 无关、对所有整数都错：
+
+```z42
+object[] a = new object[1];
+a[0] = 5L;          a[0].GetType().Name  // 改前 "Int32"（应 "Int64"）
+object o; o = 9L;   o.GetType().Name     // 同上
+new object[]{ 5L }                       // 数组**字面量**走 CollectionTyper，一直是对的
+```
+
+User 裁决"本 change 一并修" ⇒ 在 `AssignTyper` 补一次 `BoxIfNeeded`（顺序照 var-decl：
+Check → Box → Convert，诊断仍基于未装箱原值，不变）。
+
+**它的连锁**：反射调用的实参此前靠"assign 不装箱"才拿到裸标量，补上装箱后
+`MethodInfo.Invoke(inst, new object[]{ 5 })` 就把**盒**塞进 `int by` 形参 ⇒
+`activator_create` / `method_invoke` 两个测试红。修法与 `FieldInfo.SetValue` 已有的做法
+对齐：在反射实参边界统一拆箱（`unbox_reflective_arg`）。不按形参声明类型区分，是因为
+`param_types` 是 cold/debug 元数据、release 可能没有——行为随调试符号变化比这更糟。
+
+### ⑤ 又一个既存静默错：imported enum 从不登记源 ns
+
+`ImportedSymbolLoader` 给 imported enum 填了 `EnumTypeNames`/`EnumConsts`（够把
+`Color.Green` 折成常量），但**类名限定查的是 `ClassNamespaces`**，那里没有 enum ⇒
+消费方 `QualifyClass("Color")` 落回**当前** ns，发出 `Demo.EnumApp.Color` —— 一个不存在的类型。
+
+以前不炸，是因为**没人拿这个名字去运行期查类型**：imported enum 的 `typeof` / `GetType`
+拿到的是查不到 handle 的合成 `Type`，静默给个空壳。装箱会真的 `try_lookup_type` ⇒
+`__box_prim: unknown prim wrapper type` 当场炸。修法是在同一处补登 `ClassNamespaces`
+（同短名真类优先，与该 loader 通篇 first-wins 一致）。
+
+`enum_cross_pkg` 已加两条断言把它钉死：`typeof(Color).FullName` 与
+`((object)Color.Green).GetType().FullName` 都必须是 `Demo.EnumBase.Color`。
+
+> ⭐ 与 ④ 同一个形状：**装箱把一批静默错误变成了响错误**。这条和
+> `restore-emit-zbc-diagnostics` 是一个主题——本变更等于顺手开了一道小门。
+> ⚠️ 上一轮的负例扫描 `grep -v /cross-zpkg/` 把跨包用例整个排除了，所以这两条都只能靠
+> GREEN 抓。**下次扫调用点别再排除 cross-zpkg。**
+
+### 踩过的坑（别再踩）
+
+- 🔴 **`gc.borrow()` 不可重入**：`if let Some(x) = gc.borrow().f()` 的临时守卫活到整个
+  `if let` 体结束，体内再 `gc.borrow()` 直接**死锁**（parking_lot，非重入）。第一版
+  `resolve_vcall` 与 `value_to_str` 各踩一次，现象是程序挂住不是崩。
+  **`gc.type_desc()` 是无锁访问器**——查类型信息一律走它。定位靠 `sample <pid>`
+  一眼看到 `lock_slow` → `__psynch_cvwait`，比读代码快得多。
+- ⚠️ 判"是不是 enum"**只认 `IsEnum` 标志**（唯一置位点 `Z42ClassType.Enum`），不查
+  `EnumTypes` 表——拦截必须与本变更建立的类型身份同源。
 
 ## 备注
 

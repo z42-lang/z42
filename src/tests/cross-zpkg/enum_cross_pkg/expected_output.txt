@@ -2,3 +2,6 @@
 1
 2
 true
+Demo.EnumBase.Color
+Blue
+Demo.EnumBase.Color

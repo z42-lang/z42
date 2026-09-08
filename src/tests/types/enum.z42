@@ -66,4 +66,29 @@ void main() {
     // 双向 cast 往返
     Direction back = (Direction)2;
     Assert.Equal(true, back == Direction.East);
+
+    // ── 装箱：盒带 enum 自己的类型描述（1.5）────────────────────────────────
+    // 改前 enum 值擦除到 object 会退化成 `Int32`——与同一个值 `typeof` / `GetType()`
+    // 都答 `Direction` 自相矛盾。装箱后运行期表示仍是 i64（`Type.z42` 的 i64 承诺不变），
+    // 变的只是盒上挂的 TypeDesc。
+    object boxed = dir;
+    Assert.Equal("Direction", boxed.GetType().Name);
+    Assert.Equal(true, boxed is Direction);
+    Assert.Equal(2L, (long)((Direction)boxed));      // 拆箱往返
+    Assert.Equal("Direction", dir.GetType().Name);   // 未装箱的静态折叠，与上面同答案
+
+    // 数组元素 store 也是擦除点（此前**整条 assign 路径没有装箱点**，对 long 一样错）
+    object[] slot = new object[2];
+    slot[0] = dir;
+    slot[1] = 7L;
+    Assert.Equal("Direction", slot[0].GetType().Name);
+    Assert.Equal("Int64", slot[1].GetType().Name);   // 改前得 "Int32"
+
+    // ── 字符串化：四条路必须同答案（C# `Enum.ToString`）─────────────────────
+    Assert.Equal("East", dir.ToString());        // 直接调用
+    Assert.Equal("East", boxed.ToString());      // 经 object
+    Assert.Equal("East", "" + dir);              // 字符串拼接
+    Assert.Equal("East", $"{dir}");              // 插值
+    // 未定义值（越界 cast）→ 数字，同 C#
+    Assert.Equal("9", ((Direction)9).ToString());
 }
