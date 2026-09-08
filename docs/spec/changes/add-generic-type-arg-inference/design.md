@@ -230,3 +230,4 @@ unify(P, A, bindings):
 | `generic-inference-best-common-type` | 同一型参绑到多个类型时取最佳公共类型（C# 口径）。v1 一律判失败 |
 | `generic-inference-lambda-args` | lambda 实参参与推断（要动延迟绑定通道，牵扯字节漂移） |
 | `generic-inference-in-overload-resolution` | 推断参与重载决议（今天会把可编代码变歧义，见 D3） |
+| `ast-walker-completeness-gate` | 🔴 `MethodTypeParamUse` 的 AST 遍历完备性**没有自动门**——覆盖是 2026-09-08 从源码机械枚举建立的（Expr 36 / Stmt 16 / Pattern 10 / TypeExpr 6），将来给 AST 加新节点类**不会让任何测试变红**，漏了就是一个静默洞。需要一道「节点类全集 vs walker 已处理集」的门（源码级 grep 对账，或行为级逐节点用例） |

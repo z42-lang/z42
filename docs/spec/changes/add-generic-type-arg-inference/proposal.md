@@ -108,7 +108,8 @@ z42c.pipeline/src/Z42cReplCompiler.z42(172,65):  E0402: cannot assign string to 
 | `src/compiler/z42c.semantics/src/MemberResolver.z42` | MODIFY | 阶段 A `_substGenericSig` + 实例化分支接线；阶段 B/C/D 在 `_applyMethodTypeArgs` 接线 |
 | `src/compiler/z42c.semantics/src/TypeArgInference.z42` | NEW | 阶段 C：结构化 unify + 绑定求解 |
 | `src/compiler/z42c.semantics/src/OverloadBinder.z42` | MODIFY | 阶段 A/B/C：若需要一个「只做诊断、不重复装箱」的检查入口 |
-| `src/compiler/z42c.core/src/DiagnosticCodes.z42` | MODIFY | 阶段 D 新错误码（先 grep 既有码表，可能无需新造） |
+| `src/libraries/z42c.core/src/DiagnosticCodes.z42` | MODIFY | 阶段 D 新错误码 **E0455**（已 grep 既有码表：E0446–E0454 全被占用，确需新造） |
+| `src/compiler/z42c.semantics/src/MethodTypeParamUse.z42` | NEW | **阶段 D 实施期追加进 Scope**：完整 AST 表达式 walker，判定方法体是否消费方法级型参。DRAFT 时误以为有现成遍历设施，实测 `z42c.syntax` 只有 statement 级（`AnalyzerDriver._walkStmt`），表达式面 36 个节点类无遍历 ⇒ User 裁决走 D-1（补完整 walker） |
 | `src/compiler/z42c.semantics/tests/typecheck/generic_inference/generic_inference_tests.z42` | NEW | 单测：阳性 + 正例 + 推断失败降级 |
 | `src/compiler/z42c.semantics/tests/typecheck/generic_inference/z42c.semantics.test.typecheck.z42.toml` | NEW | 仅当子目录需要独立 toml；否则复用父级 `include = ["**/*.z42"]` |
 | `docs/book/src/language/generics.md` | NEW | 阶段 E：`docs/design/language/generics.md` 迁入 + 修正失效段 |

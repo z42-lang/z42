@@ -533,6 +533,19 @@ public sealed class MemberResolver {
                     MemberResolver._checkSubstMethodArgs(this._tc, bc, ms.Signature,
                                                          ms.Decl.TypeParams.Names, inf.Count, inf.Args, env);
                 }
+                // 阶段 D：callee 体内**真的消费**型参时（typeof(T)/new T()/default(T)/new T[n]/
+                // 把 T 转发给嵌套泛型调用），省略尖括号会让运行期读到**空**的 frame.method_type_args
+                // ⇒ 静默错值。把它换成编译错误并直接给出修法。
+                //
+                // 与推断是否成功**无关**（推断成功也照报）：推断只驱动诊断、刻意不回灌类型实参
+                // （design D4），所以运行期照样拿不到 —— 这正是本诊断存在的理由。
+                if (MethodTypeParamUse.Consumes(ms.Decl)) {
+                    this._tc._diags.Error("E0455",
+                        "generic method `" + ms.Name + "` uses its type parameter at runtime "
+                        + "(`typeof(T)` / `new T()` / `default(T)` / `new T[n]`, or forwards it to a nested "
+                        + "generic call) — write the type argument explicitly, e.g. `"
+                        + ms.Name + "<" + ms.Decl.TypeParams.Names[0] + ">(...)`", call.Span);
+                }
             }
             return;
         }

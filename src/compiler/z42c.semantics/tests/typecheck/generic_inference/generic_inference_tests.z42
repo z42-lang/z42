@@ -170,6 +170,83 @@ void test_uncovered_type_param_fails_inference_silently() {
     Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
 }
 
+// ── 阶段 D：callee 真消费型参时，省略尖括号报 E0455 ────────────────────────
+//
+// 推断刻意不回灌 MethodTypeArgs（design D4）⇒ 这类 callee 运行期会读到**空**的
+// frame.method_type_args（静默错值）。本诊断把它换成编译错误。
+
+[Test]
+void test_consuming_callee_implicit_call_requires_explicit_type_arg() {
+    string src = "T[] MakeArr<T>(int n) { return new T[n]; } class Use { void f() { MakeArr(3); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_consuming_callee_with_explicit_type_arg_is_fine() {
+    string src = "T[] MakeArr<T>(int n) { return new T[n]; } class Use { void f() { MakeArr<int>(3); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_non_consuming_callee_implicit_call_is_fine() {
+    // `Array.Copy<T>` 的形状：体内只转发，T 纯粹是编译期类型安全装置 ⇒ 不报。
+    // 这条守的是「全仓 112 处隐式泛型调用不被判红」这个不变量。
+    string src = "void Cp<T>(T[] a, T[] b) { } "
+        + "class Use { void f() { int[] x = new int[2]; int[] y = new int[2]; Cp(x, y); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_typeof_type_param_counts_as_consuming() {
+    string src = "int Tag<T>(int n) { return typeof(T).GetHashCode(); } "
+        + "class Use { void f() { Tag(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_default_type_param_counts_as_consuming() {
+    string src = "T Zero<T>(int n) { return default(T); } class Use { void f() { Zero(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+// 🔴 第五种、最容易漏的形态：把自身型参**转发**给嵌套泛型调用（emit 期发 `$mta:<idx>`，
+// 运行期按调用方 frame 解析）⇒ 也是消费。
+[Test]
+void test_forwarding_type_param_to_nested_generic_call_counts_as_consuming() {
+    string src = "void Inner<U>(int n) { } void Outer<T>(int n) { Inner<T>(n); } "
+        + "class Use { void f() { Outer(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+// 嵌套容器：消费点藏在 if / while / lambda / switch 表达式里也要能找到（walker 递归面）。
+[Test]
+void test_consumption_nested_in_control_flow_is_found() {
+    string src = "int Deep<T>(int n) { if (n > 0) { while (n > 0) { return typeof(T).GetHashCode(); } } return 0; } "
+        + "class Use { void f() { Deep(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_consumption_nested_in_lambda_body_is_found() {
+    string src = "int Lam<T>(int n) { var g = () => typeof(T).GetHashCode(); return n; } "
+        + "class Use { void f() { Lam(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+[Test]
+void test_consumption_nested_in_try_finally_is_found() {
+    string src = "int Tf<T>(int n) { try { n = n + 1; } finally { var z = default(T); } return n; } "
+        + "class Use { void f() { Tf(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0455"));
+}
+
+// 类型注解位的 `T x;` **不算**消费（只是静态类型，不读 frame）——防过度报错。
+[Test]
+void test_type_annotation_alone_is_not_consumption() {
+    string src = "int Ann<T>(T a) { T x = a; return 0; } class Use { void f() { Ann(1); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0455"));
+}
+
 // ── 阶段 A 的边界：类级 + 方法级混合泛型不产生假红 ────────────────────────
 //
 // `_substGeneric` 对不在 Def.GenericParamNames 里的名字（= 方法级型参 U）返回 Z42UnknownType
