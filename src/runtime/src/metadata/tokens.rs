@@ -13,6 +13,12 @@
 //!      indexes a flat `Vec<Function>` / `Vec<Value>` / etc directly,
 //!      replacing per-call `HashMap<&str, _>::get()`.
 //!
+//! Scope differs per kind: `MethodId` / `FieldId` / `VTableSlot` index into one
+//! module / type and are only meaningful there, whereas **`TypeId` is
+//! process-global** — the dispatch inline caches compare receiver types by bare
+//! `u32`, so a per-module id would make two zpkgs' classes indistinguishable.
+//! See [`alloc_type_id_block`].
+//!
 //! See `docs/spec/changes/introduce-method-token/` (or its archived form) for the
 //! full design rationale, including the Decision 6 flip that brought
 //! Field/Static into Phase 1 alongside method dispatch.
@@ -101,8 +107,12 @@ define_token!(
 );
 
 define_token!(
-    /// Identifies one `ClassDef` / `TypeDesc` in `Module.classes` (per module).
-    /// Resolved at load by `module.type_registry[name]`.
+    /// Identifies one `ClassDef` / `TypeDesc`. Resolved at load by
+    /// `module.type_registry[name]`.
+    ///
+    /// **Invariant: globally unique within the process** — allocated by
+    /// [`alloc_type_id_block`], never per-module from 0. See that function for
+    /// why; violating this silently dispatches to another zpkg's method.
     TypeId
 );
 
@@ -134,6 +144,44 @@ define_token!(
     /// (per type). Stored inside `VCallIC` after the receiver-type IC fires.
     VTableSlot
 );
+
+/// fix-crosspkg-typeid-collision (2026-09-08): allocate `n` consecutive
+/// **globally unique** `TypeId`s and return the first.
+///
+/// `TypeId` used to be handed out per module starting at 0 ("per module" was
+/// even its documented contract). That is unsound, because `VCallIC` /
+/// `FieldIC` — the two dispatch inline caches — key on the bare `u32`:
+///
+/// ```text
+/// vcall_ic_lookup(ic, recv_type) → first entry whose type_id == recv_type
+/// ```
+///
+/// Nothing re-numbers a `TypeDesc` when it crosses a zpkg boundary
+/// (`VmContext::try_lookup_type` hands back the foreign `Arc` as-is), so two
+/// classes from two zpkgs routinely share an id. A call site that sees both —
+/// e.g. `ParallelFor.Run`'s `body.Run(i)`, reached with `CompileCuTask`
+/// (z42c.semantics) *and* `SrcReadHashTask` (z42c.driver) — then dispatches the
+/// second receiver into the first receiver's method. Observed for real: removing
+/// one unrelated class from z42.core lined the ids up and the bootstrap chain
+/// died in `File.ReadAllText(<CompilationUnit>)`. `FieldIC` has the same hazard
+/// and is worse: it returns the wrong field slot, silently.
+///
+/// Allocating in blocks keeps a module's ids consecutive (readable in dumps)
+/// while costing one atomic per module rather than one per class.
+///
+/// Ids live in the low band `[0, IMPORT_BASE)`; running past it is a hard error
+/// rather than a wrap, because a wrap would reintroduce exactly this bug.
+pub fn alloc_type_id_block(n: u32) -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT_TYPE_ID: AtomicU32 = AtomicU32::new(0);
+    let first = NEXT_TYPE_ID.fetch_add(n, Ordering::Relaxed);
+    assert!(
+        u64::from(first) + u64::from(n) <= u64::from(IMPORT_BASE),
+        "TypeId space exhausted: tried to allocate {n} ids starting at {first} \
+         (limit {IMPORT_BASE:#x}); ids must stay below IMPORT_BASE"
+    );
+    first
+}
 
 #[cfg(test)]
 #[path = "tokens_tests.rs"]

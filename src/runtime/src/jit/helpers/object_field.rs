@@ -124,6 +124,7 @@ pub unsafe extern "C" fn jit_field_get(
                 if !ic_ptr.is_null() {
                     let recv_type = obj.type_desc.id.0;
                     if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
+                        crate::metadata::resolver::assert_field_ic_slot(&obj.type_desc, field_name, slot);
                         return obj.field_value(slot as usize);
                     }
                     if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
@@ -148,6 +149,7 @@ pub unsafe extern "C" fn jit_field_get(
             if !ic_ptr.is_null() {
                 let recv_type = b.type_desc.id.0;
                 if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
+                    crate::metadata::resolver::assert_field_ic_slot(&b.type_desc, field_name, slot);
                     let v = b.field_value(slot as usize);
                     (*frame).regs[dst as usize] = v;
                     return 0;
@@ -217,6 +219,7 @@ pub unsafe extern "C" fn jit_field_set(
                 let slot_opt: Option<usize> = if !ic_ptr.is_null() {
                     let recv_type = obj.type_desc.id.0;
                     if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
+                        crate::metadata::resolver::assert_field_ic_slot(&obj.type_desc, field_name, slot);
                         Some(slot as usize)
                     } else if let Some(&slot) = obj.type_desc.field_index.get(field_name) {
                         crate::metadata::resolver::field_ic_install(&*ic_ptr, recv_type, slot as u32);
@@ -242,6 +245,7 @@ pub unsafe extern "C" fn jit_field_set(
             if !ic_ptr.is_null() {
                 let recv_type = b.type_desc.id.0;
                 if let Some(slot) = crate::metadata::resolver::field_ic_lookup(&*ic_ptr, recv_type) {
+                    crate::metadata::resolver::assert_field_ic_slot(&b.type_desc, field_name, slot);
                     let slot = slot as usize;
                     let wrote_ref = b.set_field_value(slot, &v);
                     drop(b);

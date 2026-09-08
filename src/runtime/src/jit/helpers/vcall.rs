@@ -49,6 +49,10 @@ pub unsafe extern "C" fn jit_vcall(
     // A cold / untranslatable cached target yields `None` and falls through to the slow
     // path, whose Local arm interps it.
     if let Some(idx) = vcall_ic_hit(ic, &obj_val) {
+        crate::interp::vcall_resolve::assert_pic_target(
+            vm_ctx, module, &obj_val,
+            std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
+            idx);
         if let Some(entry) = ctx_ref.resolve_fn_by_id_tiered(idx) {
             // Move `obj_val` in — this branch always returns.
             return invoke_entry(frame_ref, ctx, dst, entry, obj_val, arg_regs);

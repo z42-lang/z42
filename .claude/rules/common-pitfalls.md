@@ -122,6 +122,53 @@ let cache: BTreeMap<String, Value> = ...;  // 迭代时按 key 字母序
 
 ---
 
+## 2. 在作用域 S 内发的号，不得拿到 S 之外做相等比较（2026-09-08）
+
+**任何「计数器发出来的 id」都只在它的发号作用域内唯一。把它拿到更大的范围里当身份用
+（相等比较、缓存 key、去重），就是一个必然会撞、且撞了通常静默的 bug。**
+
+### 现场案例（2026-09-08 fix-crosspkg-typeid-collision）
+
+z42 VM 的 `TypeId` 每个 `Module`（≈每个 zpkg）从 0 重开——文档契约当时就写着「per module」，
+本身没错。错在两条派发内联缓存（`VCallIC` / `FieldIC`）拿这个裸 `u32` 当**全局**类型身份：
+
+```
+site: body.Run(i)              // IParallelBody 接口调用，位于 z42c.semantics
+  第一次 receiver = SrcReadHashTask (z42c.driver,    TypeId 139) → 装入 PIC
+  第二次 receiver = CompileCuTask   (z42c.semantics, TypeId 139) → 误命中
+      ⇒ 跑了 SrcReadHashTask.Run，this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]
+```
+
+- 症状离根因十万八千里：`__file_read_text: arg 0 expected string, got CompilationUnit`。
+- 触发条件荒谬到没人会怀疑：**从 z42.core 删掉一个无关的类**，把两边的号对齐了而已。
+- `FieldIC` 那条更糟：撞键 = 拿到**错误的字段槽**，不崩不报错，**静默读写错数据**。
+- 之所以拖到现在才炸，只是因为绝大多数派发站点是**单态**的——撞键要求同一站点先后见到
+  两个同号的类。这是运气，不是设计保证。
+
+> 与 §1「加载顺序非确定性」同族：都是**拿一个不保证唯一/稳定的东西当身份用**。
+> §1 是顺序不稳，本条是范围不够。
+
+### 强制规则
+
+给任何 id / handle / token 定义**「发号作用域」**和**「比较作用域」**，并保证
+**发号作用域 ⊇ 比较作用域**。两者不等时，只有两条出路：
+
+1. **把发号范围提上去**（本次的选择：进程级 `AtomicU32` 批量发号）。
+2. **改用天然全局的身份**——指针 / UUID / (scope, id) 复合键。
+   同仓先例：`IsaCache` 键 `*const TypeDesc`，正因为它不敢信 id。
+
+写代码时的自查问题只有一句：**「这个 id 是谁发的？会不会有第二个发号者？」**
+若答案是「每个模块 / 每个文件 / 每个连接各发各的」，那它就**不能**单独当 key。
+
+### 兜底：让撞键当场炸
+
+范围对齐之后仍要留一道**会响的门**，否则下一次回归又是静默的。做法是在**用这个 id 的
+地方**校验一次身份的其它侧面（本次：debug 构建下核对 callee 的 declaring class /
+字段槽名），不匹配即 panic。
+**代价放 debug 构建、release 编译掉**，热路径不受影响。
+
+---
+
 ## 添加新规则的标准
 
 新规则进 `common-pitfalls.md` 要满足**全部**三条：

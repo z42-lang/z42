@@ -286,6 +286,32 @@ fn tlab_var_chunk_reclaim_bounds_growth() {
     );
 }
 
+/// **fix-loh-never-freed (2026-09-08)**: an **oversized** block's dedicated chunk goes back
+/// to the global allocator when the block dies, so large-object churn reaches a steady state
+/// instead of climbing. Before this, `tombstone` refused to free-list `OVERSIZED_CLASS` and
+/// `reclaim_dead_var_chunks` skipped every chunk whose `cap != CHUNK_BYTES` — the crate's only
+/// `dealloc` was `VarRegion::drop`, so a dead 1 MB string held its megabyte until VM exit.
+#[test]
+fn oversized_var_blocks_are_freed_not_leaked() {
+    let heap = ArcMagrGC::new();
+    let _g = ArmGuard::new(&heap);
+    let big = "L".repeat(200 * 1024); // > CHUNK_BYTES (64 KB) → dedicated chunk each time
+    let mut per_round = Vec::new();
+    for _ in 0..6 {
+        for _ in 0..4 {
+            let _ = heap.alloc_str(&big); // never rooted → dies at the next collect
+        }
+        heap.force_collect();
+        per_round.push(heap.region_var_for_test().lock().chunk_count());
+    }
+    // Steady state, not a ramp: round 6 must not hold more chunks than round 2 (round 1 can
+    // still be warming up bump chunks for the small allocations the harness makes).
+    assert!(
+        per_round[5] <= per_round[1],
+        "dedicated chunks accumulate across rounds: {per_round:?}"
+    );
+}
+
 /// After chunk reclaim + re-bump, a stale handle to a recycled slot must NOT
 /// resolve to the new occupant — the per-chunk `reuse_gen` ABA guard.
 #[test]

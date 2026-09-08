@@ -64,7 +64,6 @@ pub fn merge_modules(modules: Vec<Module>) -> Result<Module> {
     let merged = Module {
         name, string_pool, classes, functions,
         type_registry: rustc_hash::FxHashMap::default(),
-        type_registry_vec: Vec::new(),
         func_index: rustc_hash::FxHashMap::default(),
         func_ref_cache_slots: func_ref_slot_total,
     };
