@@ -1,7 +1,7 @@
 # 工程模型、依赖解析与工作区编译
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42.project/` · `src/compiler/z42c.pipeline/` · `src/libraries/z42.ir/DependencyIndex.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) ｜ **对齐**: 2026-07-18
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) ｜ **对齐**: 2026-09-08
 
 ## 概述
 
@@ -84,6 +84,21 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 - **TSIG 池** — 各依赖包导出的类型签名（`ExportedModuleZ`）。
 
 类型检查阶段由 `ImportedSymbolLoader` 消费 TSIG 池：先按导出签名还原出短名类型骨架，再填入方法、字段与自由函数。为避免把不相关的包全部拉进符号表，激活范围限定为 **prelude 包 ∪ 被当前编译单元 `using` 到的包**。
+
+#### 激活是「整包」粒度，不是「按命名空间」粒度
+
+判定在 `ImportedSymbolLoader._pkgProvidesUsing`：遍历包 `P` 的**每个**导出模块，只要**任一**模块的 `Namespace` 等于本 CU 的**任一** `using` 名，`P` 就整包激活——随后 `P` 的**全部**类都按短名进符号表，**不管它们各自在哪个命名空间**。
+
+```
+P 激活  ⟺  ∃ m ∈ modules(P), ∃ u ∈ usings(CU) : m.Namespace == u
+P 激活  ⟹  P 的所有类（含 ns 未被 using 到的那些）短名可见
+```
+
+这是有意的简化（激活是「拉不拉这个包」的开关，不是逐 ns 过滤），但有个**反直觉后果**：一个类可能仅仅因为**同包某个不相干的文件**恰好声明在你 `using` 到的命名空间里，才对你可见。这种可见性是**搭便车**，不是契约——同包任何一次文件搬迁都可能抽走它。
+
+> **现场案例（2026-09-08 fix-bench-corpus-using-stdtest）**：14 个 stdlib bench 文件只写了 `using Std;`，却用着 `Std.Test.Bencher`。它们能编过，是因为 `z42.test` 里的 `Failure.z42` 声明为 `namespace Std;` ⇒ `using Std;` 命中它 ⇒ 整个 `z42.test` 激活 ⇒ `Bencher` 短名可见。`unify-assert-api`（#532）把 `Failure.z42` 搬进 `z42.core` 后，`z42.test` 只剩 `Std.Test` / `Std.Test.Contracts` 两个 ns，便车没了：`Bencher` 解析成 `Z42UnknownType`（`Name()` = `"<unknown>"`），而**发射端照发** `newobj Z42XxxBench.<unknown>` ⇒ 运行期合成空 TypeDesc ⇒ `VCall: function 'Z42XxxBench.<unknown>.get_WarmupIters' not found`。编译期之所以静默 exit 0，是 `--emit-zbc` 吞诊断那个洞（见 `restore-emit-zbc-diagnostics`）。
+>
+> 两条教训：① **用哪个 ns 的类型就 `using` 哪个 ns**，别依赖同包搭便车；② 「binder 解析失败 → Unknown → emitter 照发占位名」这条不对称是本仓的系统性形状，诊断被吞时它一律推迟到运行期才爆。
 
 #### 加载顺序确定性
 

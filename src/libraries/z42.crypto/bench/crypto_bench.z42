@@ -5,6 +5,7 @@
 namespace Z42CryptoBench;
 
 using Std;
+using Std.Test;
 using Std.Crypto;
 
 byte[] _mkPayload(int n) {

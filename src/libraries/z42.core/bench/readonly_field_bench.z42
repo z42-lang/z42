@@ -13,6 +13,7 @@
 namespace Z42ReadonlyBench;
 
 using Std;
+using Std.Test;
 
 class RoScaler {
     readonly int factor;

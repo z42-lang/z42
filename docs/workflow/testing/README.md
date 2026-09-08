@@ -53,9 +53,12 @@ CI 按模块变更检测（`dorny/paths-filter`）有条件地跳过无关 job�
 
 ## iteration 期加速手段
 
-`./xtask test` 默认跑全部 stage（cargo build (z42vm) / test e2e /
-test e2e --dir cross-zpkg / test stdlib / test compiler）≈ 3-5 min，是 commit 前的
-完整 GREEN gate。iteration 期常只改一个 area，现行的缩窄手段有三种（都**不构成
+`./xtask test` 默认跑全部 stage ≈ 3-5 min，是 commit 前的完整 GREEN gate。
+**stage 组成不在本页复列**——唯一权威清单见
+[`book/dev/test-gate.md`](../../book/src/dev/test-gate.md)（有 `_checkGateStageDoc`
+对账门盯着：代码 `_gateStageNames()` 与该页不一致即红）。本页原先复列的那份已漂成停在
+5 个、而 gate 实跑 10 个，正是那道门要根除的模式。
+iteration 期常只改一个 area，现行的缩窄手段有三种（都**不构成
 GREEN**，commit 前必须跑完整 `xtask test`）：
 
 | 手段 | 命令 | 作用 |
