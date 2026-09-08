@@ -127,6 +127,81 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Old entries are NOT visited — major GC handles them.
     /// card_dirty is NOT cleared by minor (stable old→young refs need
     /// to keep their cards dirty until major scans them).
+    /// **fix-promotion-creates-uncarded-old-to-young (2026-09-08)**: the write barrier records
+    /// an old→young edge **at the moment of the write**. Promotion creates such edges with no
+    /// write at all: a parent allocated before its child ages out first, and the instant it
+    /// crosses `PROMOTION_THRESHOLD` it is an old object holding a young one — with a clean
+    /// card, because the store that put the child there was young→young.
+    ///
+    /// Measured shape: an old `Z42.IR.StrMap` (age 2) holding the bucket array it grew into
+    /// later (age 1). The next minor did not root the map, nothing else reached the array, and
+    /// the array was swept while still referenced — surfacing as
+    /// `__str_hash_code: arg 0 expected string, got Null`.
+    ///
+    /// So promotion has to do the barrier's job: an entry that just became old and still
+    /// refers to something young gets its card dirtied, exactly as a write would have.
+    /// Only entries that actually cross the threshold are examined, once each, and only those
+    /// with a young child dirty a card — dirtying every promoted entry's chunk would turn the
+    /// next minor into a full-heap scan (cards are chunk-granular, 256 entries wide).
+    fn dirty_cards_for_newly_old_objects(&self, handles: &[crate::gc::region::RegionHandle]) {
+        if handles.is_empty() { return; }
+        let mut to_dirty = Vec::new();
+        {
+            let region = self.region_object.lock();
+            for &h in handles {
+                let entry = region.resolve(h);
+                // SAFETY: `promote` returned true for this handle in this same STW window, so
+                // the entry is alive and its generation matches.
+                let gc = unsafe {
+                    GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation)
+                };
+                if Self::refers_to_young(&Value::Object(gc)) {
+                    to_dirty.push(h.chunk_idx);
+                }
+            }
+        }
+        let mut region = self.region_object.lock();
+        for ci in to_dirty {
+            region.mark_card_dirty(ci);
+        }
+    }
+
+    /// Array-region twin of [`Self::dirty_cards_for_newly_old_objects`].
+    fn dirty_cards_for_newly_old_arrays(&self, handles: &[crate::gc::region::RegionHandle]) {
+        if handles.is_empty() { return; }
+        let mut to_dirty = Vec::new();
+        {
+            let region = self.region_array.lock();
+            for &h in handles {
+                let entry = region.resolve(h);
+                // SAFETY: see the object twin.
+                let gc = unsafe {
+                    GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation)
+                };
+                if Self::refers_to_young(&Value::Array(gc)) {
+                    to_dirty.push(h.chunk_idx);
+                }
+            }
+        }
+        let mut region = self.region_array.lock();
+        for ci in to_dirty {
+            region.mark_card_dirty(ci);
+        }
+    }
+
+    /// Whether `v` has at least one child the minor GC would consider young. Stops at the
+    /// first hit — this runs once per entry that crosses the promotion threshold.
+    fn refers_to_young(v: &Value) -> bool {
+        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let mut found = false;
+        v.trace_children(&mut |child| {
+            if !found && Self::gen_age_of(child) < threshold {
+                found = true;
+            }
+        });
+        found
+    }
+
     pub(super) fn sweep_phase_young_only(&self) -> u64 {
         let mut freed_bytes: u64 = 0;
 
@@ -150,9 +225,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
             });
         }
         // Promote survivors (may remove some from young_list at threshold).
+        let mut newly_old_object = Vec::new();
         for h in survivors_object {
-            self.region_object.lock().promote(h);
+            if self.region_object.lock().promote(h) {
+                newly_old_object.push(h);
+            }
         }
+        self.dirty_cards_for_newly_old_objects(&newly_old_object);
         // Tombstone dead young entries.
         for (h, fin, size) in tombstones_object {
             if let Some(f) = fin { f(); }
@@ -193,9 +272,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             });
         }
+        let mut newly_old_array = Vec::new();
         for h in survivors_array {
-            self.region_array.lock().promote(h);
+            if self.region_array.lock().promote(h) {
+                newly_old_array.push(h);
+            }
         }
+        self.dirty_cards_for_newly_old_arrays(&newly_old_array);
         for (h, fin, size) in tombstones_array {
             if let Some(f) = fin { f(); }
             freed_bytes += size;
@@ -248,12 +331,72 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// for the next round of minors).
     pub(super) fn run_cycle_collection_major(&self) -> u64 {
         let freed = self.run_cycle_collection_stw();
-        // Major scanned the whole heap → cards no longer track
-        // anything we don't already know. Clear so the next minor
-        // starts with a fresh dirty set.
-        self.region_object.lock().clear_card_dirty();
-        self.region_array.lock().clear_card_dirty();
+        // Major scanned the whole heap → every card the old set accumulated is stale. Clear,
+        // then **rebuild from the surviving graph**.
+        //
+        // fix-promotion-creates-uncarded-old-to-young (2026-09-08): the blanket clear on its
+        // own dropped every old→young edge that outlived the major. A major does not promote
+        // (it only marks and sweeps), so young objects are still young afterwards and old
+        // objects still point at them — with, after the clear, no card. The next minor then
+        // had no way to re-root those owners and swept their children. Same defect as the
+        // promotion one, through a different door: the card table's invariant is
+        // **"an old entry referring to anything young has a dirty card"**, and it has to be
+        // re-established here rather than assumed away.
+        self.rebuild_card_table();
         freed
+    }
+
+    /// Clear every card, then re-dirty the chunk of each live **old** entry that still refers
+    /// to something young. Runs at the tail of a major, under STW.
+    ///
+    /// Cost is one `trace_children` per live old entry, once per major — majors are single
+    /// digits per compiler build, against 10–20 minors that each get a minimal dirty set out
+    /// of it. Keeping the pre-major cards instead would be correct but monotonic: the dirty
+    /// set would only grow and minors would drift towards full-heap scans.
+    fn rebuild_card_table(&self) {
+        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let mut obj_chunks = Vec::new();
+        {
+            let region = self.region_object.lock();
+            region.iterate_alive(|h, e| {
+                if e.gen_age() < threshold { return; }
+                // SAFETY: `iterate_alive` only yields alive entries whose generation matches.
+                let gc = unsafe {
+                    GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
+                };
+                if Self::refers_to_young(&Value::Object(gc)) {
+                    obj_chunks.push(h.chunk_idx);
+                }
+            });
+        }
+        let mut arr_chunks = Vec::new();
+        {
+            let region = self.region_array.lock();
+            region.iterate_alive(|h, e| {
+                if e.gen_age() < threshold { return; }
+                // SAFETY: see above.
+                let gc = unsafe {
+                    GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
+                };
+                if Self::refers_to_young(&Value::Array(gc)) {
+                    arr_chunks.push(h.chunk_idx);
+                }
+            });
+        }
+        {
+            let mut region = self.region_object.lock();
+            region.clear_card_dirty();
+            for ci in obj_chunks {
+                region.mark_card_dirty(ci);
+            }
+        }
+        {
+            let mut region = self.region_array.lock();
+            region.clear_card_dirty();
+            for ci in arr_chunks {
+                region.mark_card_dirty(ci);
+            }
+        }
     }
 
     /// **add-generational-gc P3 (2026-05-22)**: escalation threshold.

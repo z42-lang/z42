@@ -935,3 +935,147 @@ fn generational_minors_keep_old_to_young_graphs_intact() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// fix-promotion-creates-uncarded-old-to-young
+// ---------------------------------------------------------------------------------------
+
+/// Pin `n` filler objects so a subsequently allocated entry lands outside the chunk(s) the
+/// test cares about. Cards are chunk-granular (256 entries), so a child sharing its parent's
+/// chunk is a dirty-card root in its own right and proves nothing.
+fn pin_filler(heap: &ArcMagrGC, n: usize) -> Vec<crate::gc::types::RootHandle> {
+    (0..n).map(|_| heap.pin_root(alloc_obj(heap, "Filler"))).collect()
+}
+
+/// The write barrier records an old→young edge **at the moment of the write**. Promotion
+/// creates one with no write at all: a parent allocated before its child ages out first, and
+/// the instant it crosses `PROMOTION_THRESHOLD` it is an old object holding a young one — with
+/// a clean card, because the store that put the child there was young→young.
+///
+/// Note the parent must be reachable *through* another object rather than pinned directly:
+/// a pinned old root is traced anyway (minors trace old roots without marking them), so the
+/// defect only shows on an old object in the middle of the graph — which is what
+/// `Z42.IR.StrMap` is in the compiler.
+#[test]
+fn promoted_owner_keeps_the_young_child_it_was_holding() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let root = alloc_obj(&heap, "Root");
+    let owner = alloc_obj(&heap, "Owner");
+    let _pin_root = heap.pin_root(root.clone());
+    {
+        let Value::Object(g) = &root else { panic!() };
+        g.borrow_mut().refs_mut()[0] = owner.clone();
+    }
+    heap.write_barrier_field(&root, 0, &owner); // young → young: no card, correctly
+
+    heap.force_collect(); // minor 1: both age to 1, still young
+    assert_eq!(gen_age_of(&owner), 1);
+
+    let _fillers = pin_filler(&heap, 600);
+    let child = alloc_obj(&heap, "Child");
+    {
+        let Value::Object(g) = &owner else { panic!() };
+        g.borrow_mut().refs_mut()[0] = child.clone();
+    }
+    heap.write_barrier_field(&owner, 0, &child); // young owner → young child: no card
+    drop(child); // owner.refs[0] is the child's only reference
+
+    heap.force_collect(); // minor 2: owner crosses to old; child ages to 1, still young
+    assert_eq!(gen_age_of(&owner), PROMOTION_THRESHOLD, "owner must have been promoted");
+
+    // minor 3: `owner` is old and is *not* a root — the only thing that can re-root it is a
+    // dirty card, and only promotion could have set one.
+    heap.force_collect();
+    let Value::Object(owner_gc) = &owner else { panic!() };
+    let borrow = owner_gc.borrow();
+    let Value::Object(child_gc) = &borrow.refs()[0] else {
+        panic!("owner.refs[0] is no longer an object");
+    };
+    assert_eq!(
+        child_gc.borrow().type_desc.name, "Child",
+        "the child was swept although a live old object still referenced it"
+    );
+}
+
+/// The array-region twin: a promoted array header holding a young element.
+#[test]
+fn promoted_array_keeps_the_young_element_it_was_holding() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let root = alloc_obj(&heap, "Root");
+    let arr = alloc_arr(&heap, 1);
+    let _pin_root = heap.pin_root(root.clone());
+    {
+        let Value::Object(g) = &root else { panic!() };
+        g.borrow_mut().refs_mut()[0] = arr.clone();
+    }
+    heap.write_barrier_field(&root, 0, &arr);
+
+    heap.force_collect();
+    assert_eq!(gen_age_of(&arr), 1);
+
+    let _fillers = pin_filler(&heap, 600);
+    let elem = alloc_obj(&heap, "Elem");
+    {
+        let Value::Array(g) = &arr else { panic!() };
+        g.borrow_mut().set_boxed(0, elem.clone());
+    }
+    heap.write_barrier_array_elem(&arr, 0, &elem);
+    drop(elem);
+
+    heap.force_collect();
+    assert_eq!(gen_age_of(&arr), PROMOTION_THRESHOLD, "array header must have been promoted");
+
+    heap.force_collect();
+    let Value::Array(arr_gc) = &arr else { panic!() };
+    let borrow = arr_gc.borrow();
+    let Some(Value::Object(elem_gc)) = borrow.get(0) else {
+        panic!("arr[0] is no longer an object");
+    };
+    assert_eq!(
+        elem_gc.borrow().type_desc.name, "Elem",
+        "the element was swept although a live old array still referenced it"
+    );
+}
+
+/// The same invariant through the other door: a major **clears** every card, but a major does
+/// not promote — young objects are still young afterwards and old objects still point at them.
+/// Blanket-clearing therefore dropped every surviving old→young edge, and the next minor swept
+/// the children. The card table has to be rebuilt from the surviving graph, not assumed empty.
+#[test]
+fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let root = alloc_obj(&heap, "Root");
+    let owner = alloc_obj(&heap, "Owner");
+    let _pin_root = heap.pin_root(root.clone());
+    {
+        let Value::Object(g) = &root else { panic!() };
+        g.borrow_mut().refs_mut()[0] = owner.clone();
+    }
+    heap.write_barrier_field(&root, 0, &owner);
+    for _ in 0..PROMOTION_THRESHOLD { heap.force_collect(); }
+    assert_eq!(gen_age_of(&owner), PROMOTION_THRESHOLD);
+
+    let _fillers = pin_filler(&heap, 600);
+    let child = alloc_obj(&heap, "Child");
+    {
+        let Value::Object(g) = &owner else { panic!() };
+        g.borrow_mut().refs_mut()[0] = child.clone();
+    }
+    heap.write_barrier_field(&owner, 0, &child); // old -> young: card dirtied
+    drop(child);
+
+    heap.run_cycle_collection_major(); // clears every card
+    heap.force_collect();              // minor: can anything re-root `owner`?
+
+    let Value::Object(owner_gc) = &owner else { panic!() };
+    let b = owner_gc.borrow();
+    let Value::Object(child_gc) = &b.refs()[0] else { panic!("slot no longer an object") };
+    assert_eq!(child_gc.borrow().type_desc.name, "Child",
+        "major cleared the card while the old->young edge was still there");
+}
