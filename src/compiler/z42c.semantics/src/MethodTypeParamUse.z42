@@ -15,10 +15,14 @@
 //   ① 表达式 / 语句 / 模式 / 类型 四个层面**逐节点类**覆盖，不留 fallthrough 猜测；
 //   ② 判定方向刻意**过近似**（宁可多判「消费」）——多判只会要求用户显式写 `<T>`（响亮、可改），
 //      漏判会产生静默错值（安静、难查）。同 #530「守禁令的一侧必须比替换的一侧更宽」。
-//   ③ 节点全集有配套的完备性门（见 tests/typecheck/generic_inference/），AST 加新节点类会变红。
+//   ③ 完备性由 `xtask test walkers` gate 兜底（ast-walker-completeness-gate，登记在
+//      `scripts/test/xtask_test_walkers.z42` 的 `_walkerRegistry()`）：本文件被登记为「穷举
+//      Expr/Stmt/Pattern/TypeExpr 四族」，只有 8 个 Expr 叶子在白名单里 fall-through；给任一族
+//      加新节点子类而这里漏 `is` 分支 → gate 变红。（2026-09-09 前此处曾自称有门实为没有——那时
+//      的兜底只有 generic_inference_tests.z42 的行为用例，无法在新增节点类时报警。）
 //
-// 覆盖基线（2026-09-08 从源码机械枚举）：Ast.z42 36 个 Expr 子类 / Stmt.z42 16 个 Stmt 子类 /
-// Pattern.z42 10 个 Pattern 子类 / TypeExpr.z42 6 个 TypeExpr 子类。
+// 覆盖基线（源码活体枚举，见上 gate）：Ast.z42 36 个 Expr 子类 / Stmt.z42 16 个 Stmt 子类 /
+// Pattern.z42 10 个 Pattern 子类 / TypeExpr.z42 5 个 TypeExpr 子类。
 namespace Z42.Semantics;
 using Z42.IR;
 

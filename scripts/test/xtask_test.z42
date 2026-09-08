@@ -342,7 +342,8 @@ string[] _gateStageNames() {
         "examples (compile gate + test=true run)",
         "compiler",
         "vscode-syntax",
-        "lines"
+        "lines",
+        "walkers"
     };
 }
 
@@ -526,6 +527,13 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("lines");
         c = _testLines(false); if (c != 0) { return c; }
         _stageEnd(slog, "lines", swStage);
+    }
+    // stage 8: AST walker 完备性对账（ast-walker-completeness-gate）：注册的穷举 walker 漏一个
+    // 节点子类 → 红。纯文本扫描（~1s），host-independent。Skippable: "walkers"。
+    if (!_skipHas(skip, "walkers")) {
+        swStage = _stageStart("walkers");
+        c = _testWalkers(); if (c != 0) { return c; }
+        _stageEnd(slog, "walkers", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

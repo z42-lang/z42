@@ -1,0 +1,220 @@
+// xtask — `test walkers` gate stage（ast-walker-completeness-gate）。
+//
+// 为什么要这道门：z42c 里有若干**手写穷举** AST walker（一串 `if (x is SomeExpr) { ... }`），
+// 它们的**全部价值就是完备**——漏处理一个节点子类 = 一个静默洞（MethodTypeParamUse 漏一种
+// 型参消费形态 → 省略 `<T>` 的调用运行期读空 `method_type_args`、静默错值；ExprTyper/StmtBinder/
+// PatternBinder 漏一类 → 撞 LOUD fallback，但那只在编译器运行期才炸，不是编译期保障）。
+// 这些 walker 的覆盖基线以前是**从源码机械枚举**建立的，将来给 `Ast.z42`/`Stmt.z42`/`Pattern.z42`/
+// `TypeExpr.z42` 加一个新子类，**没有任何测试会变红**——正是「没有测试盯着的约定迟早会烂」。
+// （MethodTypeParamUse.z42 抬头一度自称有这道门、其实没有；本 stage 才是它真正的兜底。）
+//
+// 机制：**活体对账**——从 z42c.syntax 源码枚举节点类全集（不信任何硬编码计数，那种计数本身
+// 就在漂：walker 抬头写「TypeExpr 6 个」实为 5 个），逐个注册的 walker 文件里找 `is <类名>`，
+// 全集里既不被 `is`-匹配、又不在该 walker 白名单里的类 → 红。所有登记 walker 今天都 100% 覆盖
+// ⇒ 这是**硬门**（不是棘轮），无基线文件。
+//
+// 加一个新 walker：往 `_walkerRegistry()` 添一行（文件 + 覆盖哪几族 + 故意跳过的白名单）。
+// 加一个新 AST 节点类：本门变红，直到每个登记 walker 处理它（或显式加白名单）。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+using Std.Time;
+
+// 一个登记 walker：要求它对所标记的节点族做到穷举，Allow 是故意不处理的类（叶子等）。
+sealed class WalkerEntryZ {
+    public string Label;
+    public string File;      // repo-relative
+    public bool Expr; public bool Stmt; public bool Pat; public bool Type;
+    public string[] Allow; public int AllowN;
+    public WalkerEntryZ(string label, string file, bool e, bool s, bool p, bool t, string[] allow, int an) {
+        this.Label = label; this.File = file;
+        this.Expr = e; this.Stmt = s; this.Pat = p; this.Type = t;
+        this.Allow = allow; this.AllowN = an;
+    }
+    public bool Covers(string baseName) {
+        if (baseName == "Expr") { return this.Expr; }
+        if (baseName == "Stmt") { return this.Stmt; }
+        if (baseName == "Pattern") { return this.Pat; }
+        if (baseName == "TypeExpr") { return this.Type; }
+        return false;
+    }
+    public bool Allows(string name) {
+        int i = 0; while (i < this.AllowN) { if (this.Allow[i] == name) { return true; } i = i + 1; }
+        return false;
+    }
+}
+
+// 登记表（唯一 SoT）。分类依据见 ast-walker-completeness-gate proposal 的 walker 分类表：
+// 只登记「穷举一个 AST 节点族、漏一类即静默/错值」的 walker；按类型-lattice / 目标-shape 分派的
+// （MemberResolver / AssignTyper）与「按设计部分覆盖、null→诊断兜底」的（ConstEval）不登记。
+WalkerEntryZ[] _walkerRegistry() {
+    WalkerEntryZ[] r = new WalkerEntryZ[4];
+    // MethodTypeParamUse 过近似地穷举全四族；8 个 Expr 叶子（无子节点、无类型位）故意 fall-through。
+    string[] mtpuAllow = new string[]{
+        "IntLitExpr", "FloatLitExpr", "StringLitExpr", "CharLitExpr",
+        "BoolLitExpr", "NullLitExpr", "IdentExpr", "EmptyBraceLitExpr" };
+    r[0] = new WalkerEntryZ("MethodTypeParamUse.Consumes",
+        "src/compiler/z42c.semantics/src/MethodTypeParamUse.z42", true, true, true, true, mtpuAllow, 8);
+    string[] none = new string[]{};
+    r[1] = new WalkerEntryZ("ExprTyper._bindExpr",
+        "src/compiler/z42c.semantics/src/ExprTyper.z42", true, false, false, false, none, 0);
+    r[2] = new WalkerEntryZ("StmtBinder._bindStmt",
+        "src/compiler/z42c.semantics/src/StmtBinder.z42", false, true, false, false, none, 0);
+    r[3] = new WalkerEntryZ("PatternBinder.Bind",
+        "src/compiler/z42c.semantics/src/PatternBinder.z42", false, false, true, false, none, 0);
+    return r;
+}
+
+// `xtask test walkers`
+int _testWalkers() {
+    Stopwatch sw = _procStart("test walkers");
+    string root = _root();
+
+    // ① 活体枚举节点类全集（name/base 并行数组）。
+    string[] nName = new string[128]; string[] nBase = new string[128];
+    int nc = _wgCollectNodes(root, nName, nBase);
+    if (nc == 0) {
+        ConsoleError.WriteLine("  ✗ found 0 AST node subclasses under src/libraries/z42c.syntax/src — enumeration broke");
+        return 1;
+    }
+
+    // ② 逐 walker 对账。
+    WalkerEntryZ[] reg = _walkerRegistry();
+    string[] viol = new string[128]; int vc = 0;
+    int checked = 0;
+    int w = 0;
+    while (w < reg.Length) {
+        WalkerEntryZ e = reg[w];
+        string text = "";
+        try { text = File.ReadAllText(Path.Join(root, e.File)); }
+        catch (Exception ex) {
+            ConsoleError.WriteLine("  ✗ " + e.Label + ": cannot read " + e.File + ": " + ex.Message);
+            vc = vc + 1; viol[vc - 1] = e.Label + " (unreadable)";
+            w = w + 1; continue;
+        }
+        int i = 0;
+        while (i < nc) {
+            if (e.Covers(nBase[i])) {
+                checked = checked + 1;
+                if (!_wgIsMatched(text, nName[i]) && !e.Allows(nName[i])) {
+                    if (vc == viol.Length) { viol = _wgGrow(viol, vc); }
+                    viol[vc] = e.Label + ": " + nName[i] + " (" + nBase[i] + ") not handled and not whitelisted";
+                    vc = vc + 1;
+                }
+            }
+            i = i + 1;
+        }
+        w = w + 1;
+    }
+
+    _wgSort(viol, vc);
+    int j = 0;
+    while (j < vc) { ConsoleError.WriteLine("  ✗ " + viol[j]); j = j + 1; }
+
+    Console.WriteLine("  scanned " + nc.ToString() + " AST node class(es) across " + reg.Length.ToString()
+        + " registered walker(s): " + checked.ToString() + " (walker, node) pair(s) checked, "
+        + vc.ToString() + " gap(s)");
+    if (vc > 0) {
+        ConsoleError.WriteLine("  a registered walker must handle every subclass of the node families it covers "
+            + "(ast-walker-completeness-gate) — add the `is <Class>` arm, or whitelist it in _walkerRegistry() if the skip is intentional");
+        return 1;
+    }
+    Console.WriteLine("  ✓ every registered walker covers its node families");
+    _procEnd("test walkers", sw);
+    return 0;
+}
+
+// ── 节点类全集：扫 z42c.syntax/src/*.z42 的 `public sealed class NAME : BASE`（BASE ∈ 四族）──
+int _wgCollectNodes(string root, string[] outName, string[] outBase) {
+    string dir = Path.Join(root, "src/libraries/z42c.syntax/src");
+    string[] rel = Directory.EnumerateRecursive(dir);
+    int n = 0;
+    int f = 0;
+    while (f < rel.Length) {
+        string p = Path.Join(dir, rel[f]);
+        if (p.EndsWith(".z42")) {
+            string t = "";
+            try { t = File.ReadAllText(p); } catch (Exception ex) { t = ""; }
+            string[] lines = t.Split("\n");
+            int i = 0;
+            while (i < lines.Length) {
+                string l = lines[i].Trim();
+                int ci = _wgIndexOf(l, "class ", 0);
+                if (ci >= 0 && (l.StartsWith("public ") || l.StartsWith("sealed ") || l.StartsWith("class "))) {
+                    string rest = l.Substring(ci + 6, l.Length - ci - 6);   // 跳过 "class "
+                    int colon = _wgIndexOf(rest, " : ", 0);
+                    if (colon >= 0) {
+                        string name = rest.Substring(0, colon).Trim();
+                        string after = rest.Substring(colon + 3, rest.Length - colon - 3);
+                        string bas = _wgFirstToken(after);
+                        if (bas == "Expr" || bas == "Stmt" || bas == "Pattern" || bas == "TypeExpr") {
+                            if (n < outName.Length) { outName[n] = name; outBase[n] = bas; n = n + 1; }
+                        }
+                    }
+                }
+                i = i + 1;
+            }
+        }
+        f = f + 1;
+    }
+    return n;
+}
+
+// walker 文件里是否出现 `is <name>`（前后都要词边界，避免 "axis IntLitExpr" 假命中）。
+bool _wgIsMatched(string text, string name) {
+    string target = "is " + name;
+    int from = 0;
+    int len = text.Length; int tl = target.Length;
+    while (true) {
+        int at = _wgIndexOf(text, target, from);
+        if (at < 0) { return false; }
+        bool frontOk = (at == 0) || !_wgIsIdent(text.CharAt(at - 1));
+        int endPos = at + tl;
+        bool backOk = (endPos >= len) || !_wgIsIdent(text.CharAt(endPos));
+        if (frontOk && backOk) { return true; }
+        from = at + 1;
+    }
+}
+
+bool _wgIsIdent(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+// s 中从 start 起 sub 的下标，无则 -1。
+int _wgIndexOf(string s, string sub, int start) {
+    int n = s.Length; int m = sub.Length;
+    if (m == 0) { return start; }
+    int i = start;
+    while (i + m <= n) {
+        int j = 0;
+        while (j < m && s.CharAt(i + j) == sub.CharAt(j)) { j = j + 1; }
+        if (j == m) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+// s 的第一个标识符 token（到首个非标识符字符为止）。
+string _wgFirstToken(string s) {
+    int i = 0; int n = s.Length;
+    while (i < n && _wgIsIdent(s.CharAt(i))) { i = i + 1; }
+    return s.Substring(0, i);
+}
+
+string[] _wgGrow(string[] a, int c) {
+    string[] b = new string[c * 2];
+    int k = 0; while (k < c) { b[k] = a[k]; k = k + 1; }
+    return b;
+}
+
+void _wgSort(string[] a, int c) {
+    int i = 1;
+    while (i < c) {
+        string k = a[i]; int j = i - 1;
+        while (j >= 0 && a[j].CompareTo(k) > 0) { a[j + 1] = a[j]; j = j - 1; }
+        a[j + 1] = k;
+        i = i + 1;
+    }
+}
