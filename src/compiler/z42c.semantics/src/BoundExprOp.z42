@@ -341,3 +341,28 @@ public sealed class BoundIndirectCall : BoundExpr {
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(call-ind " + this.Callee.Dump() + " :" + this._t.Name() + ")"; }
 }
+
+// add-symbol-availability-macro：`available!(X)` 的绑定结果。
+//
+// 语义：求值为 bool —— 「X 这个符号在**运行期实际加载到的**依赖图里是否可解析」。
+// 编译期 X 必须存在（否则 E0401）；真正的答案由 VM 在**加载期**给出并折成常量。
+//
+// ⚠️ 本节点**不携带 dispatch key**，只携带「怎么去查」的坐标（Kind/Owner/Member）。
+// key 必须由 emit 期走**与真实调用完全相同**的那次查找产出（跨包 Deps.GetStaticScoped /
+// 同包 RegKey），而不是在 bind 期另拼一份——见 design D2.1。手抄第二份键推导正是
+// unify-regkey-phase2 刚收敛掉的反模式。
+public sealed class BoundSymAvailable : BoundExpr {
+    public string Kind;     // "t" = 类型；"m" = 方法
+    public string Owner;    // 类型名（Kind=="t"）或方法的属主类名（Kind=="m"），源码里的书写形式
+    public string Member;   // 方法名（Kind=="m"）；Kind=="t" 时为 ""
+    private Z42Type _t;
+    public BoundSymAvailable(string kind, string owner, string member, Z42Type t, Span span) {
+        this.Span = span; this.Kind = kind; this.Owner = owner; this.Member = member; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() {
+        string s = "(sym-available " + this.Kind + ":" + this.Owner;
+        if (this.Member != "") { s = s + "." + this.Member; }
+        return s + ")";
+    }
+}
