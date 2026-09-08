@@ -67,7 +67,7 @@ const IN_YOUNG_BIT: u8 = 1 << 5;
 /// spare bits provide — `size_class` has one spare bit (its largest index is 64), or the
 /// header has to grow, which costs far more than it sounds (see the note on `DATA_OFFSET`
 /// in `chunk::class_for`).
-pub(crate) const MAX_GEN_AGE: u8 = AGE_MASK;
+pub const MAX_GEN_AGE: u8 = AGE_MASK;
 
 /// Fixed header preceding a variable-length block's inline payload. `#[repr(C, align(8))]`
 /// pins the field order and pads to 16 bytes so the payload always starts 8-aligned at

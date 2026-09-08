@@ -76,19 +76,21 @@ mod var_ref;
 
 pub use block::{BlockType, GcBlockHeader, PayloadDropGlue};
 pub(crate) use block::payload_ptr_of;
-pub(crate) use chunk::{class_for, OVERSIZED_CLASS};
+pub(crate) use chunk::{class_for, class_for_with_limit, OVERSIZED_CLASS};
+pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use var_ref::VarGcRef;
 
 use chunk::{Chunk, NUM_CLASSES};
 
-// The packed `gen_age` in `GcBlockHeader::type_tag` is two bits wide. If the promotion
-// threshold ever outgrows that, the age needs a new home — fail the build here rather than
-// silently saturating and never promoting.
+// The packed `gen_age` in `GcBlockHeader::type_tag` is two bits wide, so the **default**
+// promotion age has to fit in it. `Z42_GC_PROMOTION_AGE` is clamped to the same ceiling at
+// construction (`gc::promotion_age_from_config`); this guards the compile-time default.
 const _: () = assert!(
     crate::gc::region::PROMOTION_THRESHOLD <= block::MAX_GEN_AGE,
     "PROMOTION_THRESHOLD exceeds the gen_age bits packed into GcBlockHeader::type_tag"
 );
+pub use block::MAX_GEN_AGE;
 
 /// Variable-length GC block allocator. See the module docs for the block / allocation /
 /// sweep model.
@@ -159,6 +161,9 @@ pub struct VarRegion {
     /// variable-size chunk reuse (fixed-slot `Region<T>` preserves per-slot generation instead;
     /// var blocks don't re-align on reuse so a per-chunk base is used).
     reuse_gen: Vec<u32>,
+    /// **add-promotion-age-knob (2026-09-08)**: minor GCs a block must survive before
+    /// promotion — the region's cached copy of the heap's `promotion_age`.
+    promotion_age: u8,
     /// **fix-loh-never-freed (2026-09-08)**: indices of `chunks` slots whose memory was
     /// `dealloc`'d (a dead dedicated/oversized chunk). The slot itself must survive — every
     /// other per-chunk table is addressed by index — so it stays as a `cap == 0` tombstone
@@ -188,6 +193,7 @@ impl Default for VarRegion {
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
+            promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
             free_chunk_slots: Vec::new(),
         }
     }
@@ -201,9 +207,14 @@ impl VarRegion {
     /// Construct a region whose non-POD payloads are finalized by `glue` on reclaim, with
     /// young-list maintenance set for `generational` (see [`Self::generational`]). Used by
     /// the heap, which knows its mode at construction. Mirrors `Region::new_for_mode`.
-    pub fn with_drop_glue_for_mode(glue: PayloadDropGlue, generational: bool) -> Self {
+    pub fn with_drop_glue_for_mode(
+        glue: PayloadDropGlue,
+        generational: bool,
+        promotion_age: u8,
+    ) -> Self {
         let mut r = Self::with_drop_glue(glue);
         r.generational = generational;
+        r.promotion_age = promotion_age;
         r
     }
 
@@ -227,6 +238,7 @@ impl VarRegion {
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
+            promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
             free_chunk_slots: Vec::new(),
         }
     }
@@ -418,7 +430,7 @@ impl VarRegion {
             self.young_list.shrink_to_fit();
             return;
         }
-        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let threshold = self.promotion_age;
         let mut rebuilt = Vec::new();
         for &ptr in &self.all_blocks {
             // SAFETY: see `iterate_alive`.
@@ -470,7 +482,7 @@ impl VarRegion {
     /// Old blocks are never visited — that is the definition of a minor collection. They are
     /// reachable as minor roots only through the dirty-card set.
     pub fn sweep_young(&mut self) -> (usize, u64) {
-        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let threshold = self.promotion_age;
         let mut reclaimed = 0usize;
         let mut credited: u64 = 0;
         // Tombstoning mutates `free_lists` / `live_count`, so it cannot run while

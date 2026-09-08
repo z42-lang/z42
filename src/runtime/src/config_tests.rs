@@ -1800,3 +1800,21 @@ fn gc_nursery_bytes_is_unset_by_default() {
     let cfg = RuntimeConfig::from_getter(fake_env(&[]));
     assert_eq!(cfg.gc_nursery_bytes, None);
 }
+
+#[test]
+fn gc_promotion_age_parses_a_small_integer() {
+    for (raw, want) in [("1", Some(1u8)), ("3", Some(3)), ("9", Some(9)), ("x", None), ("", None)] {
+        let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_GC_PROMOTION_AGE", raw)]));
+        assert_eq!(cfg.gc_promotion_age, want, "Z42_GC_PROMOTION_AGE={raw:?}");
+    }
+    // Out-of-range values are *parsed* here and clamped at the use site, where the ceiling
+    // (the two spare gen_age bits) is known — see `gc::promotion_age_from_config`.
+}
+
+#[test]
+fn gc_loh_bytes_parses_the_same_suffixes_as_gc_max_bytes() {
+    for (raw, want) in [("32K", Some(32 * 1024u64)), ("64KB", Some(64 * 1024)), ("0", None), ("x", None)] {
+        let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_GC_LOH_BYTES", raw)]));
+        assert_eq!(cfg.gc_loh_bytes, want, "Z42_GC_LOH_BYTES={raw:?}");
+    }
+}

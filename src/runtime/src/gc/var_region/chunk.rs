@@ -4,7 +4,7 @@
 
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering};
 
 use super::block::{payload_ptr_of, BlockType, GcBlockHeader};
 use super::{VarGcRef, VarRegion};
@@ -46,8 +46,49 @@ const MAX_CLASS: u8 = (CHUNK_BYTES.trailing_zeros() << SUB_LOG2) as u8;
 ///
 /// Each class holds exactly one footprint, which is what lets `alloc` hand a free-list slot
 /// straight to a new block of any payload in the class without re-checking capacity.
+/// **add-loh-bytes-knob (2026-09-08)**: the block-footprint threshold above which a block gets
+/// its own exactly-sized chunk instead of a size class inside a bump chunk (`Z42_GC_LOH_BYTES`).
+///
+/// **Process-global on purpose.** `class_for` is called from the lock-free TLAB fast path
+/// (`arc_heap/alloc.rs`), which has no region and no heap reference at hand, so a per-heap
+/// field is not reachable there. A process with several VMs shares one setting — the same as
+/// before this knob existed, when it was a `const`.
+///
+/// Never above [`CHUNK_BYTES`]: a block larger than a bump chunk cannot be bump-allocated at
+/// all, so raising the threshold past it would route blocks nowhere. Lowering it sends more
+/// blocks down the dedicated-chunk path, where death returns the memory to the allocator
+/// immediately (see `reclaim_dead_var_chunks`) at the cost of a `malloc` per block.
+static LOH_BYTES: AtomicUsize = AtomicUsize::new(CHUNK_BYTES);
+
+/// Set the large-object threshold for this process. Called once from VM construction; clamped
+/// to `[MIN_BLOCK, CHUNK_BYTES]`.
+pub fn set_loh_bytes(bytes: usize) {
+    LOH_BYTES.store(clamp_loh_bytes(bytes), Ordering::Relaxed);
+}
+
+/// The clamp [`set_loh_bytes`] applies, as a pure function so it can be tested without storing
+/// into the process-global threshold (which would race every concurrently running test that
+/// allocates a var block).
+#[inline]
+pub(crate) fn clamp_loh_bytes(bytes: usize) -> usize {
+    bytes.clamp(MIN_BLOCK, CHUNK_BYTES)
+}
+
+/// The large-object threshold currently in force (diagnostics / tests).
+pub fn loh_bytes() -> usize {
+    LOH_BYTES.load(Ordering::Relaxed)
+}
+
 #[inline]
 pub(crate) fn class_for(payload: usize) -> (usize, u8) {
+    class_for_with_limit(payload, LOH_BYTES.load(Ordering::Relaxed))
+}
+
+/// [`class_for`] with the large-object threshold passed in — the testable core (the live
+/// threshold is process-global, so a test that stored into it would race every other test
+/// allocating a var block).
+#[inline]
+pub(crate) fn class_for_with_limit(payload: usize, loh_bytes: usize) -> (usize, u8) {
     let total = GcBlockHeader::DATA_OFFSET + payload;
     let t = total.max(MIN_BLOCK);
     // Round up to the next quarter-octave step. `t >= MIN_BLOCK` puts `oct` at 5 or more, so
@@ -56,7 +97,7 @@ pub(crate) fn class_for(payload: usize) -> (usize, u8) {
     let oct = usize::BITS - 1 - t.leading_zeros();
     let step = (1usize << oct) >> SUB_LOG2;
     let footprint = (t + step - 1) & !(step - 1);
-    if footprint > CHUNK_BYTES {
+    if footprint > loh_bytes {
         // Oversized: dedicated chunk sized to exactly hold header + payload, 16-aligned.
         let dedicated = (total + CHUNK_ALIGN - 1) & !(CHUNK_ALIGN - 1);
         return (dedicated, OVERSIZED_CLASS);

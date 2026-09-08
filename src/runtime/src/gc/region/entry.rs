@@ -112,10 +112,17 @@ impl<T> Drop for RegionEntry<T> {
     }
 }
 
-/// **add-generational-gc P0 (2026-05-22)**: number of minor GCs an
-/// entry must survive before being promoted to old generation
-/// (removed from `young_list`). Default = 2 (industry-standard Java
-/// tenure). Configurable via `Z42_GC_TENURE` env var (P3 wiring).
+/// **add-generational-gc P0 (2026-05-22)**: the **default** number of minor GCs an entry must
+/// survive before being promoted to the old generation (removed from `young_list`). 2 is the
+/// industry-standard Java tenure.
+///
+/// **add-promotion-age-knob (2026-09-08)**: this is now a default, not the value. Each heap
+/// reads `Z42_GC_PROMOTION_AGE` **once at construction** and caches it (`ArcMagrGC` /
+/// `Region` / `VarRegion` all carry a `promotion_age` field); nothing reads a global on the
+/// write-barrier hot path. Tests keep using this constant as "the default age".
+///
+/// (An older comment claimed `Z42_GC_TENURE` configured it — that env var never existed
+/// anywhere in the repo.)
 pub const PROMOTION_THRESHOLD: u8 = 2;
 
 impl<T> RegionEntry<T> {

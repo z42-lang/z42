@@ -84,6 +84,24 @@ where F: Fn(&str) -> Option<String> {
     }
 }
 
+/// `Z42_GC_PROMOTION_AGE` — minor GCs an entry must survive before promotion
+/// (add-promotion-age-knob, 2026-09-08). `None` = the compile-time default (2).
+///
+/// Range checking + clamping lives at the use site (`gc::promotion_age_from_config`), which
+/// is where the ceiling (`MAX_GEN_AGE`, the two spare bits in `GcBlockHeader::type_tag`) is
+/// known. Here an unparseable value simply reads as unset.
+pub(super) fn parse_gc_promotion_age<F>(get: &F) -> Option<u8>
+where F: Fn(&str) -> Option<String> {
+    let raw = get("Z42_GC_PROMOTION_AGE").filter(|s| !s.trim().is_empty())?;
+    match raw.trim().parse::<u8>() {
+        Ok(n) => Some(n),
+        Err(_) => {
+            eprintln!("z42: invalid Z42_GC_PROMOTION_AGE={raw:?} (expected a small integer); ignoring");
+            None
+        }
+    }
+}
+
 pub(super) fn parse_gc_soft_threshold<F>(get: &F) -> f64
 where F: Fn(&str) -> Option<String> {
     let Some(raw) = get("Z42_GC_SOFT_THRESHOLD").filter(|s| !s.trim().is_empty()) else {
@@ -172,6 +190,14 @@ where F: Fn(&str) -> Option<String> {
 pub(super) fn parse_gc_nursery_bytes<F>(get: &F) -> Option<u64>
 where F: Fn(&str) -> Option<String> {
     parse_byte_size(get, "Z42_GC_NURSERY_BYTES")
+}
+
+/// `Z42_GC_LOH_BYTES` — block-footprint threshold for the dedicated-chunk (large object) path
+/// (add-loh-bytes-knob, 2026-09-08). `None` = the bump-chunk size, which is also the ceiling.
+/// Same syntax as `Z42_GC_MAX_BYTES`.
+pub(super) fn parse_gc_loh_bytes<F>(get: &F) -> Option<u64>
+where F: Fn(&str) -> Option<String> {
+    parse_byte_size(get, "Z42_GC_LOH_BYTES")
 }
 
 /// Shared byte-size parser for the `Z42_GC_*_BYTES` family. Accepts a plain byte count or a

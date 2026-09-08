@@ -110,6 +110,16 @@ pub struct RuntimeConfig {
     /// collection is tripped (add-bounded-nursery, 2026-09-08). `None` = `gc_max_bytes / 4`.
     /// Inert outside `GcMode::GenerationalMarkSweep` and without a budget.
     pub gc_nursery_bytes: Option<u64>,
+    /// `Z42_GC_PROMOTION_AGE` — minor GCs an entry must survive before promotion
+    /// (add-promotion-age-knob, 2026-09-08). `None` = the compile-time default
+    /// (`PROMOTION_THRESHOLD` = 2). Read **once per heap at construction**, never on the
+    /// write-barrier hot path. Clamped to `1..=MAX_GEN_AGE` at that read.
+    pub gc_promotion_age: Option<u8>,
+    /// `Z42_GC_LOH_BYTES` — block-footprint threshold above which a variable-length block gets
+    /// its own exactly-sized chunk (add-loh-bytes-knob, 2026-09-08). `None` = the bump-chunk
+    /// size (64 KB), which is also the hard ceiling. Process-global: applied once at VM
+    /// construction because the TLAB fast path has no heap reference.
+    pub gc_loh_bytes: Option<u64>,
     /// `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs,
     /// 2026-09-05): one line per cycle with kind, heap used before/after,
     /// bytes reclaimed and pause µs. Any non-empty value except `0`/`false`
@@ -240,6 +250,8 @@ impl Default for RuntimeConfig {
             gc_soft_threshold: 0.80,
             gc_max_bytes: None,
             gc_nursery_bytes: None,
+            gc_promotion_age: None,
+            gc_loh_bytes: None,
             gc_trace: false,
             gc_near_limit_ratio: 0.90,
             gc_pressure_ratio: 0.75,
@@ -367,6 +379,8 @@ impl RuntimeConfig {
             gc_soft_threshold:   parse_gc_soft_threshold(&get),
             gc_max_bytes:        parse_gc_max_bytes(&get),
             gc_nursery_bytes:    parse_gc_nursery_bytes(&get),
+            gc_promotion_age:    parse_gc_promotion_age(&get),
+            gc_loh_bytes:        parse_gc_loh_bytes(&get),
             gc_near_limit_ratio: parse_gc_ratio(&get, "Z42_GC_NEAR_LIMIT_RATIO", 0.90),
             gc_pressure_ratio:   parse_gc_ratio(&get, "Z42_GC_PRESSURE_RATIO",   0.75),
             gc_throttle_ratio:   parse_gc_ratio(&get, "Z42_GC_THROTTLE_RATIO",   0.10),

@@ -252,6 +252,12 @@ pub struct Region<T> {
     /// workloads (the compiler) recycle chunk memory instead of growing
     /// unboundedly. Slot-level reuse of partial-live chunks stays Deferred.
     free_chunk_pool: Vec<u32>,
+    /// **add-promotion-age-knob (2026-09-08)**: how many minor GCs an entry must survive
+    /// before promotion. Read once from `Z42_GC_PROMOTION_AGE` when the heap is built and
+    /// cached here — the alternative (a global read) would land on the write-barrier hot
+    /// path, which is exactly why this knob was "deliberately not done" before.
+    /// Defaults to [`PROMOTION_THRESHOLD`].
+    promotion_age: u8,
 
     _phantom: PhantomData<T>,
 }
@@ -272,6 +278,7 @@ impl<T> Default for Region<T> {
             card_dirty:  Vec::new(),
             borrowed:        Vec::new(),
             free_chunk_pool: Vec::new(),
+            promotion_age: PROMOTION_THRESHOLD,
             _phantom:    PhantomData,
         }
     }
@@ -393,7 +400,7 @@ impl<T> Region<T> {
         if !entry.alive.load(Ordering::Acquire) {
             return false;
         }
-        let was_young = entry.gen_age() < PROMOTION_THRESHOLD;
+        let was_young = entry.gen_age() < self.promotion_age;
         entry.alive.store(false, Ordering::Release);
         entry.generation.fetch_add(1, Ordering::AcqRel);
         self.free_list.push((handle.chunk_idx, handle.entry_idx));
@@ -449,7 +456,7 @@ impl<T> Region<T> {
         if !entry.alive.swap(false, Ordering::Release) {
             return false;
         }
-        let was_young = entry.gen_age() < PROMOTION_THRESHOLD;
+        let was_young = entry.gen_age() < self.promotion_age;
         entry.generation.fetch_add(1, Ordering::AcqRel);
         let (ci, ei) = entry.location;
         if ci != u32::MAX {

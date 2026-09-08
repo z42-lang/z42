@@ -417,6 +417,11 @@ pub struct ArcMagrGC {
     /// `collect_cycles_with_context`. The auto-collect policy decides *which kind* of
     /// collection it wants; the deferred safepoint path only knows "collect".
     pending_major: std::sync::atomic::AtomicBool,
+    /// **add-promotion-age-knob (2026-09-08)**: minor GCs an entry must survive before it is
+    /// promoted. Read once from `Z42_GC_PROMOTION_AGE` at construction (see
+    /// `construct.rs`) and never changed — a plain `u8`, so the write barrier's cross-gen
+    /// check stays a field read rather than a global lookup.
+    promotion_age: u8,
 }
 
 impl ArcMagrGC {

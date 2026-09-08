@@ -720,3 +720,39 @@ fn freeing_a_dedicated_chunk_leaves_bump_chunk_indices_valid() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// add-loh-bytes-knob: the large-object threshold is a knob, not a constant
+// ---------------------------------------------------------------------------------------
+
+/// Lowering `Z42_GC_LOH_BYTES` sends more blocks down the dedicated-chunk path — the path
+/// whose memory goes straight back to the allocator when the block dies (fix-loh-never-freed).
+/// Exercised through `class_for_with_limit`: the live threshold is process-global, so a test
+/// that stored into it would race every other test allocating a var block.
+#[test]
+fn a_lower_loh_threshold_makes_more_blocks_oversized() {
+    use super::chunk::{class_for_with_limit, CHUNK_BYTES};
+    let payload = 40 * 1024; // comfortably inside a 64 KB chunk, past a 32 KB threshold
+
+    let (_, class_default) = class_for_with_limit(payload, CHUNK_BYTES);
+    assert_ne!(class_default, OVERSIZED_CLASS, "in-chunk at the default threshold");
+
+    let (footprint, class_low) = class_for_with_limit(payload, 32 * 1024);
+    assert_eq!(class_low, OVERSIZED_CLASS, "oversized once the threshold drops below it");
+    assert!(
+        footprint >= GcBlockHeader::DATA_OFFSET + payload,
+        "a dedicated chunk is sized to hold the whole block"
+    );
+}
+
+/// The threshold never exceeds `CHUNK_BYTES`: a block bigger than a bump chunk cannot be
+/// bump-allocated at all, so a higher setting would route blocks nowhere.
+#[test]
+fn the_loh_threshold_is_clamped_to_the_chunk_size() {
+    use super::chunk::{clamp_loh_bytes, CHUNK_BYTES, MIN_BLOCK};
+    assert_eq!(clamp_loh_bytes(usize::MAX), CHUNK_BYTES, "never above a bump chunk");
+    assert_eq!(clamp_loh_bytes(0), MIN_BLOCK, "never below the smallest block");
+    assert_eq!(clamp_loh_bytes(32 * 1024), 32 * 1024, "in-range values pass through");
+    // Default stays where the `static` was initialised.
+    assert_eq!(super::loh_bytes(), CHUNK_BYTES);
+}
