@@ -294,3 +294,41 @@ fn remove_unreachable_blocks(module: &mut Module, fi: usize) -> usize {
     module.functions[fi].blocks.retain(|_| *it.next().unwrap());
     nblocks - keep
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // namespace_of：key 的属主 namespace = 去掉最后一段。
+    #[test]
+    fn namespace_of_strips_last_segment() {
+        assert_eq!(namespace_of("A.B.C.Member").as_deref(), Some("A.B.C"));
+        assert_eq!(namespace_of("A.Member").as_deref(), Some("A"));
+    }
+
+    // 无点 = 全局命名空间：没有候选包能「认领」它，probe 无从下手 → None。
+    #[test]
+    fn namespace_of_bare_name_is_none() {
+        assert_eq!(namespace_of("Member"), None);
+    }
+
+    // 候选声明 `A.B` 覆盖 `A.B` 与其子 ns，但**不覆盖** `A.BC`（前缀相似不等于父子）。
+    #[test]
+    fn claims_namespace_matches_self_and_descendants() {
+        assert!(claims_namespace("A.B", "A.B"));
+        assert!(claims_namespace("A.B", "A.B.C"));
+        assert!(!claims_namespace("A.B", "A"));
+        assert!(!claims_namespace("A.B", "A.BC"));
+        assert!(!claims_namespace("A.B", "X.B"));
+    }
+
+    // 统计量的 is_noop 决定 app.rs 是否重建派生侧表——折了或剪了都必须非 noop。
+    #[test]
+    fn stats_is_noop_only_when_nothing_happened() {
+        assert!(AvailabilityStats::default().is_noop());
+        let folded = AvailabilityStats { folded: 1, ..Default::default() };
+        assert!(!folded.is_noop());
+        let pruned = AvailabilityStats { blocks_removed: 1, ..Default::default() };
+        assert!(!pruned.is_noop());
+    }
+}

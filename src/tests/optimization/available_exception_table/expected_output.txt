@@ -1,0 +1,5 @@
+in-try-available
+in-catch-available
+caught: boom
+finally
+done
