@@ -118,6 +118,15 @@ void test_empty_catch_reported() {
 }
 
 [Test]
+void test_empty_catch_inside_local_function_reported() {
+    // 局部函数体内的空 catch —— analyzer 必须能看到（analyzer-driver-walk-local-function）。
+    // 修前：_walkStmt 把 LocalFunctionStmt 当无子语句、不下钻 → catch 从不被遍历 → 零诊断（静默漏）。
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { void helper() { try { risky(); } catch (Error e) { } } } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
 void test_nonempty_catch_not_reported() {
     // 非空 catch → 不报
     var bag = _run(new NoEmptyCatchAnalyzer(),
