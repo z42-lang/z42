@@ -1,9 +1,12 @@
 # z42 泛型设计
 
-> 对齐：2026-09-09（change `fix-inferred-type-arg-not-resolved`——推断出的类型实参归一到
+> 对齐：2026-09-10（change `generic-inference-best-common-type`——数值型参冲突取算术拓宽公共类型，
+> `Max(1, 2L)` 现在推出 `T = long` 并真校验；更正 §类型实参推断 里「v1 不做最佳公共类型」的失效陈述）
+>
+> 上一次：2026-09-09（change `fix-inferred-type-arg-not-resolved`——推断出的类型实参归一到
 > 「已解析形态」的不变式 + 更正 §限制 里那条「基元未实现 interface」的失效陈述）
 >
-> 上一次：2026-09-08（change `add-generic-type-arg-inference`——类型实参推断落地 + 更正本页
+> 更早：2026-09-08（change `add-generic-type-arg-inference`——类型实参推断落地 + 更正本页
 > §语义 里那条「T 从实参推断」的失效陈述）
 >
 > 📦 **本页 2026-09-08 从 `docs/design/language/generics.md` 原样迁入**，完成
@@ -406,9 +409,17 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 - 复用 `ConstraintChecker.CheckMethod` 校验 `where` 约束（此前只有显式写类型实参才校验）。
 
 **保守收口四条**（爆炸半径全部来自这里）：型参未全绑定 → 整体失败；同一型参绑到不同类型 →
-整体失败（v1 不做「最佳公共类型」，`Max(1, 2L)` 照旧不校验）；实参类型是 `Unknown`/`Error`
+见下「数值取最佳公共类型」；实参类型是 `Unknown`/`Error`
 （含 lambda、target-typed new 的延迟位）→ 跳过该位；`params` 尾位整段跳过。
 **失败 = 完全按改动前行为、不发任何诊断。**
+
+**数值冲突取最佳公共类型**（2026-09-10 `generic-inference-best-common-type`）：同一型参在多个形参位
+绑到不同类型时，若**双方都是数值**，取算术拓宽公共类型（`double > float > long > int`，复用二元
+`int + long` 的同一张 `TypeFacts.ArithmeticResult` 表）而非整体失败 —— `Max(1, 2L)` 现在推出 `T = long`
+并真正校验 where / 实参（`long` 归一同 `_resolvedForm`，与显式 `<long>` 同形）；3+ 参的折叠与顺序无关
+（数值拓宽是格上的 max）。**边界**：无数值公共类型的冲突（`string` + `int`、`int` + `uint` 等）仍按
+上面「整体失败、静默」处理 —— 把这类冲突改成响亮的 E0402 是独立的爆炸半径问题，留待单独 change。
+**仍不回灌 `MethodTypeArgs`**（见下）⇒ 发射零改动、无格式 bump。
 
 **不变式：推断出的类型实参必须与显式写出的同形**（2026-09-09 `fix-inferred-type-arg-not-resolved`）。
 内建基元在 z42c 里**两种拼写并存**（`unify-value-types` 阶段 3 删掉 `Z42PrimType` 后的遗留）：
