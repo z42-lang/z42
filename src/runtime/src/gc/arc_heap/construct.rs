@@ -54,6 +54,14 @@ impl Default for ArcMagrGC {
             promoted_bytes_since_major: std::sync::atomic::AtomicU64::new(0),
             pending_major: std::sync::atomic::AtomicBool::new(false),
             promotion_age,
+            // 0 = "consult the policy on the first allocation", which then arms it properly.
+            next_collect_at: std::sync::atomic::AtomicU64::new(0),
+            nursery_bytes: std::sync::atomic::AtomicU64::new(
+                crate::config::runtime_config()
+                    .gc_nursery_bytes
+                    .unwrap_or(super::auto_collect::DEFAULT_NURSERY_BYTES)
+                    .max(1),
+            ),
         }
     }
 }

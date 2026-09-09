@@ -422,9 +422,39 @@ pub struct ArcMagrGC {
     /// `construct.rs`) and never changed — a plain `u8`, so the write barrier's cross-gen
     /// check stays a field read rather than a global lookup.
     promotion_age: u8,
+    /// **arm-gc-by-default (2026-09-09)**: the `used_bytes` reading at which the auto-collect
+    /// policy wants to be consulted again — Mono SGen's `major_collection_trigger_size`.
+    ///
+    /// This is what makes arming-by-default affordable. `maybe_auto_collect` takes the heap's
+    /// `inner` mutex to read its watermarks, so calling it on every allocation would put a
+    /// lock acquire on the hottest path in the VM; before this, the only thing keeping that
+    /// off the path was "no budget set ⇒ never collect". Now every allocation instead does
+    /// **one relaxed load and a compare** against this, and the slow path runs at most once
+    /// per growth gate.
+    ///
+    /// Maintained by `maybe_auto_collect` on every exit (so a declined trip cannot re-enter
+    /// on the next allocation) and by `rearm_auto_collect` after every collection.
+    /// `0` — the initial value — means "consult on the first allocation", which arms it.
+    next_collect_at: std::sync::atomic::AtomicU64,
+    /// **arm-gc-by-default (2026-09-09)**: bytes that may be allocated before a **minor**
+    /// trips, and the unit the major allowance is floored in. `Z42_GC_NURSERY_BYTES` when
+    /// set, else [`auto_collect::DEFAULT_NURSERY_BYTES`] — read once at construction, like
+    /// `promotion_age`, so the policy never does a `runtime_config()` lookup.
+    ///
+    /// An `AtomicU64` rather than a plain field only so tests can size it: the policy is all
+    /// about ratios between this and the live set, and a test that has to allocate 16 MB to
+    /// see one collection is not a test of the policy.
+    nursery_bytes: std::sync::atomic::AtomicU64,
 }
 
 impl ArcMagrGC {
+    /// Resize the nursery (tests only). See [`ArcMagrGC::nursery_bytes`].
+    #[cfg(test)]
+    pub(crate) fn set_nursery_bytes_for_test(&self, n: u64) {
+        self.nursery_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
+        self.rearm_auto_collect();
+    }
+
     /// Bytes promoted into the old generation since the last major (tests).
     #[cfg(test)]
     pub(crate) fn promoted_bytes_for_test(&self) -> u64 {

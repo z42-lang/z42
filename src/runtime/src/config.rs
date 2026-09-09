@@ -99,16 +99,18 @@ pub struct RuntimeConfig {
     /// which SoftHandle refs become GC-eligible. Falls back to 0.80 on
     /// missing / invalid.
     pub gc_soft_threshold: f64,
-    /// `Z42_GC_MAX_BYTES` — soft heap budget that **arms auto-collect**
-    /// (add-gc-runtime-knobs, 2026-09-05). `None` (the historical default) means
-    /// *no automatic collection ever happens*: `maybe_auto_collect` bails out
-    /// while this is unset, so a long-running program grows until it exits.
-    /// The three ratios below are fractions of this budget and are inert
-    /// without it. Accepts `512MB` / `2G` / a plain byte count.
+    /// `Z42_GC_MAX_BYTES` — **soft heap cap** (add-gc-runtime-knobs, 2026-09-05).
+    ///
+    /// **arm-gc-by-default (2026-09-09)**: this is no longer the arming switch. It used to be
+    /// — `maybe_auto_collect` bailed out while it was unset, so by default a long-running
+    /// program grew until it exited. The policy's thresholds are relative now (Mono SGen's
+    /// shape), so it runs without a cap; setting one only squeezes the collection allowance
+    /// and adds a near-limit trip. Accepts `512MB` / `2G` / a plain byte count.
     pub gc_max_bytes: Option<u64>,
-    /// `Z42_GC_NURSERY_BYTES` — bytes a generational heap may allocate before a **minor**
-    /// collection is tripped (add-bounded-nursery, 2026-09-08). `None` = `gc_max_bytes / 4`.
-    /// Inert outside `GcMode::GenerationalMarkSweep` and without a budget.
+    /// `Z42_GC_NURSERY_BYTES` — the unit the auto-collect policy is denominated in
+    /// (add-bounded-nursery, 2026-09-08; made absolute by arm-gc-by-default, 2026-09-09):
+    /// bytes allocated before a **minor** trips, and — times `ALLOWANCE_NURSERY_RATIO` — the
+    /// floor under a **major**'s allowance in either mode. `None` = 32 MB.
     pub gc_nursery_bytes: Option<u64>,
     /// `Z42_GC_PROMOTION_AGE` — minor GCs an entry must survive before promotion
     /// (add-promotion-age-knob, 2026-09-08). `None` = the compile-time default
