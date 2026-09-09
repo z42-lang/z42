@@ -32,6 +32,31 @@ public static class IrDeprecation {
     }
 }
 
+// add-static-constructors（零格式-bump）：类带静态构造器时，在**类级** attr-ref 块挂 `$Cctor` 哨兵，
+// FactoryFunc = cctor 的**发射函数名**（FQ，如 `Ns.C.C`）。
+//
+// 为什么要带函数名而不只是个布尔：运行期屏障命中后要直接调它，带上就省掉「按约定拼名 + 查找」
+// 这一步，也避免编译期命名约定与运行期拼名两处规则漂移（同 available! 的 D2.1 教训）。
+//
+// 为什么走哨兵而不是 class_flags 位：`class_flags` 是 u8 且**已用满 8 位**
+// （runtime `bytecode.rs` 注释：Last free class_flags bit）。哨兵零格式-bump，先例 $Deprecated。
+//
+// 屏障方案 B：只有挂了本哨兵的类型才付「首次使用前初始化」的检查代价；没有静态构造器的类型
+// （绝大多数）在运行期只多一次布尔判断。
+public static class IrStaticCtor {
+    public static string Sentinel = "$Cctor";
+    // 类是否有静态构造器。
+    public static bool Has(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrStaticCtor.Sentinel) { return true; } i = i + 1; }
+        return false;
+    }
+    // 静态构造器的发射函数名（哨兵的 FactoryFunc）；无哨兵 → ""。
+    public static string FuncOf(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrStaticCtor.Sentinel) { return attrs[i].FactoryFunc; } i = i + 1; }
+        return "";
+    }
+}
+
 // 参数默认值统一常量表示（PR6，零格式-bump）：`$Default`（ConstBlob）/ `$Caller:*` 哨兵经 param attr-ref
 // 块持久化。生产方 ClassDescBuilder._paramAttrRefs 追加、消费方 TsigReconcile._params / OverloadBinder / 反射
 // 按 TypeName 识别。常量放 z42.ir（叶子库）供 z42c.semantics（生产）与 z42.ir/TsigReconcile（消费）共用。
