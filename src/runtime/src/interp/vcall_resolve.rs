@@ -133,7 +133,34 @@ pub(crate) fn resolve_vcall(
                 let ty = crate::corelib::object::builtin_obj_get_type(ctx, &[obj_val.clone()])?;
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(ty), this: obj_val.clone() });
             }
-            let class_name = gc.type_desc().name.clone();
+            // make-enum-distinct-type 1.5: an enum box carries the enum's own TypeDesc, so
+            // `ToString` resolves to the member name (C# `Enum.ToString`) off the existing
+            // `enum_members` metadata. Without this arm the candidate walk below finds no
+            // `Color.ToString`, falls back to `Std.Object.ToString` with `this = I64` and
+            // dies in `__obj_to_str: expected an object`. Undefined value → the number,
+            // same as C#.
+            // NB: `type_desc()` is the lockless accessor — `gc.borrow()` here would
+            // deadlock against the guard still held by the `if let` above.
+            if method == "ToString" && arity == 0 {
+                if let Some(name) = gc.type_desc().enum_member_name(scalar) {
+                    return Ok(ResolvedVCall {
+                        target: VCallTarget::Immediate(Value::Str(name.into())),
+                        this: obj_val.clone(),
+                    });
+                }
+            }
+            // make-enum-distinct-type 1.5: an enum declares no methods of its own, so the
+            // remaining `Object` protocol (`Equals` / `GetHashCode`) has nothing to walk to
+            // and used to land on `Std.Object.Equals` → `__obj_equals`, whose `_ => false`
+            // arm answered **false even for `Color.Green.Equals(Color.Green)`**. Resolve
+            // against the underlying type instead — z42 backs every enum with i64
+            // (`z42.core/src/Type.z42`), and `Std.Int64.Equals(long)` is exactly the
+            // value comparison wanted, the same method a boxed `long` would reach.
+            // (`ToString` never gets here: the enum arm above returns the member name.)
+            let mut class_name = gc.type_desc().name.clone();
+            if gc.type_desc().class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM != 0 {
+                class_name = "Std.Int64".to_string();
+            }
             match resolve_by_candidates(ctx, module, &class_name, method, arity, true, None, ic) {
                 Some(target) => return Ok(ResolvedVCall { target, this: Value::I64(scalar) }),
                 None => bail!("VCall on boxed `{}`: method `{}` (arity {}) not found", class_name, method, arity),

@@ -455,22 +455,40 @@ public sealed class DeclBinder {
     }
 
     // PR6b：定义侧校验 caller 宏参数默认值。宏经 parser 译成 IdentExpr("$macro:<name>") 哨兵
-    // （见 CallerMacro）。未知宏名 或 参数类型不符（member/file/module 须 string、line 须 int）→ E0450。
+    // （见 MacroRegistry）。未知宏名 或 参数类型不符（member/file/module 须 string、line 须 int）→ E0450。
     // 发码用字面量 "E0450"（不引用新 DiagnosticCodes 常量 → 避 core→semantics 冷启动 F2 stale-cache，
     // 同 PR4e E0449 手法）。合法 caller 宏在此不产码——持久化由 ClassDescBuilder、注入由 OverloadBinder。
     private void _validateCallerMacroDefaults(TypeEnv env, MethodDecl md) {
         int i = 0;
         while (i < md.ParamCount) {
             Expr dv = md.Params[i].Default;
-            if (dv != null && CallerMacro.IsMacro(dv)) {
-                string mn = CallerMacro.NameOf(dv);
-                string kind = CallerMacro.KindOf(mn);
-                if (kind == "") {
-                    this._tc._diags.Error("E0450", "unknown compile-time macro '" + mn + "!()'", dv.Span);
+            // add-symbol-availability-macro：**两种表面形态都要认**。
+            // 无参 `name!()` → 裸 IdentExpr(哨兵)；带参 `name!(x)` → CallExpr(哨兵, args)。
+            // 此前只认前者，于是 `available!(X)` 出现在参数默认值位会**静默放行**——而参数默认值
+            // 必须是编译期常量（走 ConstBlob），available! 的值到加载期才定，绝不能进那条通道。
+            if (dv != null && MacroRegistry.IsMacroCall(dv)) {
+                string cmn = MacroRegistry.NameOf((dv as CallExpr).Callee);
+                string cpos = MacroRegistry.PositionOf(cmn);
+                if (cpos == "") {
+                    this._tc._diags.Error("E0450", "unknown compile-time macro '" + cmn + "!()'", dv.Span);
                 } else {
+                    // 已知的带参宏一律不是参数默认值位宏（caller 族全是无参形态）。
+                    this._tc._diags.Error("E0450", "'" + cmn + "!()' is not valid as a parameter default value", dv.Span);
+                }
+            } else if (dv != null && MacroRegistry.IsMacro(dv)) {
+                string mn = MacroRegistry.NameOf(dv);
+                // add-symbol-availability-macro：判「未知宏」改用 PositionOf——KindOf 返回 "" 不再
+                // 等价于未知（available 也返回 ""）。表达式位宏落到参数默认值位 → 精确报「位置不对」。
+                string pos = MacroRegistry.PositionOf(mn);
+                if (pos == "") {
+                    this._tc._diags.Error("E0450", "unknown compile-time macro '" + mn + "!()'", dv.Span);
+                } else if (pos != "param-default") {
+                    this._tc._diags.Error("E0450", "'" + mn + "!()' is not valid as a parameter default value", dv.Span);
+                } else {
+                    string kind = MacroRegistry.KindOf(mn);
                     Z42Type pt = env.ResolveType(md.Params[i].Type);
                     // 归一到表面 keyword（Int32/Std.String… → int/string）再比对。
-                    if (!CallerMacro.ParamTypeOk(kind, PrimModel.SurfaceName(pt.Name()))) {
+                    if (!MacroRegistry.ParamTypeOk(kind, PrimModel.SurfaceName(pt.Name()))) {
                         string need = (kind == "line") ? "int" : "string";
                         this._tc._diags.Error("E0450", "'" + mn + "!()' requires a " + need + " parameter", dv.Span);
                     }

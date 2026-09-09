@@ -46,6 +46,12 @@ public sealed class OperatorEmitter {
         else if (op == "<<") { this._ctx.Emit(new ShlInstr(d, a, c)); }
         else if (op == ">>") { this._ctx.Emit(new ShrInstr(d, a, c)); }
         else if (op == "+") {
+            // make-enum-distinct-type 1.5：enum 操作数先装箱，让运行期拼出成员名而非裸 i64。
+            // **无需判「结果是不是 string」**：enum 的算术 `+`（enum+enum / enum+整数）已被
+            // typecheck 的转换格拒掉（E0439），所以能走到这里带 enum 操作数的 `+` 只可能是
+            // 字符串拼接——这是类型系统给的不变式，不是此处的假设。
+            a = this._ee._boxEnumForStr(a, b.Left.Type());
+            c = this._ee._boxEnumForStr(c, b.Right.Type());
             // 字符串拼接也走 Add（tag=str；C# 字节实证 0x10 非 0x85——StrConcatInstr 留作他途）
             this._ctx.Emit(new AddInstr(d, a, c));
         }

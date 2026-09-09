@@ -44,6 +44,8 @@ impl Default for ArcMagrGC {
             strict_oom_atomic: std::sync::atomic::AtomicBool::new(false),
             max_bytes_atomic: std::sync::atomic::AtomicU64::new(u64::MAX),
             sampler_active: std::sync::atomic::AtomicBool::new(false),
+            promoted_bytes_since_major: std::sync::atomic::AtomicU64::new(0),
+            pending_major: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }

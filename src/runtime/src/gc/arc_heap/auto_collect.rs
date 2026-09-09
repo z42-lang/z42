@@ -87,9 +87,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if paused { return; }
         let Some(limit) = max_opt else { return };
         let cfg = crate::config::runtime_config();
-        let near_threshold = (limit as f64 * cfg.gc_near_limit_ratio) as u64;
-        if used < near_threshold { return; }
-        let base_delta = (limit as f64 * cfg.gc_throttle_ratio) as u64;
+
+        // **add-bounded-nursery (2026-09-08)**: under `GenerationalMarkSweep` the trip
+        // condition is a different one, because `used_bytes` measures the wrong thing there.
+        // See [`Self::generational_trip`].
+        let generational = crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep;
+        let base_delta = if generational {
+            self.nursery_bytes(limit, &cfg)
+        } else {
+            let near_threshold = (limit as f64 * cfg.gc_near_limit_ratio) as u64;
+            if used < near_threshold { return; }
+            (limit as f64 * cfg.gc_throttle_ratio) as u64
+        };
 
         // How much did the *previous* trip's collection actually reclaim?
         let reclaimed_since = total_reclaimed.saturating_sub(reclaimed_mark);
@@ -98,16 +107,32 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // so the gate asks for one throttle-ratio of *new* allocation rather
         // than for the heap to climb back past its own high-water mark.
         let baseline = last.saturating_sub(reclaimed_since);
-        if used.saturating_sub(baseline) < base_delta.saturating_mul(backoff as u64) { return; }
+        let nursery_full =
+            used.saturating_sub(baseline) >= base_delta.saturating_mul(backoff as u64);
+        // The old-generation gate is independent of the nursery one: it watches bytes
+        // *promoted* since the last major, the only quantity in the heap that tracks
+        // old-generation growth. Either gate on its own is enough to collect.
+        let old_gen_full = generational
+            && self.promoted_bytes_since_major.load(Ordering::Relaxed) >= limit;
+        if !nursery_full && !old_gen_full { return; }
 
-        // Less than one growth-gate's worth reclaimed means the last collection
+        // Less than one *throttle*-gate's worth reclaimed means the last collection
         // did not buy us room; back off so an over-budget live set stops
         // re-collecting on every gate. With no cycle behind us there is nothing
         // to judge — stay neutral rather than reading the absent collection as
         // a futile one.
+        //
+        // add-bounded-nursery: futility is judged against `throttle_ratio × limit`, **not**
+        // against the growth gate. Under a generational heap the growth gate is the nursery
+        // (a quarter of the budget), and a healthy minor reclaiming most of a 32 MB nursery
+        // would read as "less than 32 MB reclaimed → futile" and double the backoff every
+        // time. Measured: minors dropped from 18 to 8 and the heap stopped being collected
+        // at all. The two quantities answer different questions — how much new allocation
+        // before trying again, versus whether the last try was worth anything.
+        let futility_delta = (limit as f64 * cfg.gc_throttle_ratio) as u64;
         let next_backoff = if cycles == 0 {
             1
-        } else if reclaimed_since < base_delta {
+        } else if reclaimed_since < futility_delta {
             backoff.saturating_mul(2).min(MAX_BACKOFF)
         } else {
             1
@@ -131,6 +156,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
             i.auto_collect_backoff = next_backoff;
         }
 
+        // Which kind of collection the policy is asking for. The deferred safepoint path only
+        // knows "collect", so the choice is handed over through `pending_major`.
+        if old_gen_full {
+            self.pending_major.store(true, Ordering::Release);
+        }
+
         // Defer to safepoint when wired (multi-thread safe path).
         if let Some(flag) = pending {
             flag.store(true, Ordering::Release);
@@ -139,6 +170,19 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Fallback: legacy inline collect — preserves GC unit-test behaviour
         // (those tests construct ArcMagrGC::new() without VmCore wiring).
         self.collect_cycles();
+    }
+}
+
+impl crate::gc::arc_heap::ArcMagrGC {
+    /// **add-bounded-nursery (2026-09-08)**: how many bytes a generational heap may allocate
+    /// before a **minor** trips. `Z42_GC_NURSERY_BYTES` when set, otherwise `limit / 4`.
+    ///
+    /// A ratio rather than an absolute default so the same setting means the same thing at any
+    /// budget: a fixed 32 MB would be half the heap at a 64 MB budget and an eighth of it at
+    /// 256 MB. Never zero — a zero nursery would trip a collection on every allocation.
+    #[inline]
+    fn nursery_bytes(&self, limit: u64, cfg: &crate::config::RuntimeConfig) -> u64 {
+        cfg.gc_nursery_bytes.unwrap_or(limit / 4).max(1)
     }
 }
 

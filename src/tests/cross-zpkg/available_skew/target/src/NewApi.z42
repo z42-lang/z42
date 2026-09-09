@@ -1,0 +1,6 @@
+namespace Demo.AvskewTarget;
+
+// add-symbol-availability-macro：模拟「依赖 v2 才有」的新 API。
+public class NewApi {
+    public static int Feature() { return 7; }
+}

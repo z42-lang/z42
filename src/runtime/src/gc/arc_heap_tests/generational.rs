@@ -1079,3 +1079,55 @@ fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
     assert_eq!(child_gc.borrow().type_desc.name, "Child",
         "major cleared the card while the old->young edge was still there");
 }
+
+// ---------------------------------------------------------------------------------------
+// add-bounded-nursery
+// ---------------------------------------------------------------------------------------
+
+/// A minor must give **whole chunks** back, not just tombstone entries. The TLAB hands each
+/// mutator a chunk at a time, so a burst of short-lived objects usually dies as a whole chunk
+/// — and before this, only a major ever called `reclaim_dead_chunks`, so a generational heap
+/// grew new chunks forever. Measured on `z42c.semantics --release --no-incremental` at a 128M
+/// budget: peak RSS 986.3 MB without the minor-tail reclaim, 607.9 MB with it.
+#[test]
+fn minor_reclaims_whole_dead_chunks() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    // Enough unrooted arrays to fill several chunks (256 entries each).
+    for _ in 0..2000 {
+        alloc_arr(&heap, 4);
+    }
+    let before = heap.region_array_for_test().lock().chunks_count_for_test();
+    assert!(before > 4, "test setup: expected several array chunks, got {before}");
+
+    heap.force_collect(); // minor — nothing is rooted, so whole chunks die
+
+    let pool = heap.region_array_for_test().lock().free_chunk_pool_len_for_test();
+    assert!(pool > 0, "a minor must return fully-dead chunks to the pool (pool={pool})");
+}
+
+/// The promoted-byte gate is the only signal that tracks old-generation growth: `used_bytes`
+/// counts live bytes, which a minor keeps low by reclaiming young garbage, so a budget gate
+/// reading it stays satisfied while dead *old* objects — which only a major sweeps — pile up.
+/// Promotion feeds the counter; a major resets it.
+#[test]
+fn promotion_feeds_the_old_gen_budget_and_a_major_resets_it() {
+    use std::sync::atomic::Ordering;
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    let pins: Vec<_> = (0..64).map(|_| heap.pin_root(alloc_obj(&heap, "Kept"))).collect();
+
+    assert_eq!(heap.promoted_bytes_for_test(), 0);
+    for _ in 0..PROMOTION_THRESHOLD {
+        heap.force_collect();
+    }
+    let promoted = heap.promoted_bytes_for_test();
+    assert!(promoted > 0, "surviving entries crossing the threshold must be counted");
+
+    heap.run_cycle_collection_major();
+    assert_eq!(
+        heap.promoted_bytes_for_test(), 0,
+        "a major sweeps the old generation, so its budget starts over"
+    );
+    let _ = (pins, Ordering::Relaxed);
+}

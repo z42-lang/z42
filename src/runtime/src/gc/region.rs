@@ -606,6 +606,13 @@ impl<T> Region<T> {
         self.chunks.len()
     }
 
+    /// **add-bounded-nursery (2026-09-08)**: how many fully-dead chunks are waiting in the
+    /// pool for `borrow_chunk` to recycle (tests: proves a minor gave chunks back).
+    #[cfg(test)]
+    pub(crate) fn free_chunk_pool_len_for_test(&self) -> usize {
+        self.free_chunk_pool.len()
+    }
+
     /// Number of free slots available without growing (`free_list +
     /// remaining bump capacity in current chunk`). Used by P3 bench
     /// + diagnostics.

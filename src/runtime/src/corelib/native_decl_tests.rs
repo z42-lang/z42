@@ -26,6 +26,11 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // Emitted directly by the compiler (value boxing lowering), never spelled in stdlib source.
     ("__box_prim",   "compiler-emitted: add-primitive-value-boxing"),
     ("__box_struct", "compiler-emitted: add-struct-value-semantics"),
+    // Emitted by the compiler for `available!(X)`. Doubly undeclarable: it is never spelled in
+    // stdlib source, AND on the normal path it never *executes* — `fold_availability` replaces
+    // the call with a `ConstBool` at module load. The runtime impl is a diagnostic fallback
+    // (debug_assert on reach) whose whole job is to make "the fold pass didn't run" loud.
+    ("__sym_available", "compiler-emitted: add-symbol-availability-macro"),
     // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in vcall_resolve).
     ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
     // Host-only surfaces (REPL line editor, wasm virtual filesystem) wired by their hosts.

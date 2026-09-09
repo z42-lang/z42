@@ -1,0 +1,9 @@
+[project]
+name    = "demo.avskewapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.AvskewApp.Main"
+pack    = true
+
+[dependencies]
+"demo.avskewtarget" = "0.2.0"

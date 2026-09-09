@@ -25,7 +25,9 @@
   - [属性与索引器（成员访问器）](language/member-accessors.md)
   - [`[Record]` attribute 与主构造器](language/record-attribute.md)
   - [模式匹配（Rust 风格结构化模式）](language/pattern-matching.md)
+  - [`available!()` 符号可用性探测](language/available-macro.md)
   - [元组（值元组 `(a, b)`）](language/tuples.md)
+  - [enum（枚举）](language/enums.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）
@@ -49,6 +51,7 @@
   - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
   - [解释器 / JIT 标量语义单一真相源](runtime/interp-jit-semantics.md)
   - [优化管线（编译期 IR 优化 + 运行时分层）](runtime/optimization-pipeline.md)
+  - [加载期可用性折叠与死分支剪枝](runtime/availability-folding.md)
   - [逃逸分析与栈上分配](runtime/escape-analysis-stack-alloc.md)
   - [struct 值语义（内联字节 blob）](runtime/struct-value-semantics.md)
   - [反射 Type 身份（Type 对象 GetType / 数组类型名）](runtime/reflection-type-identity.md)

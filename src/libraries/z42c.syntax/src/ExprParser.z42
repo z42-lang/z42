@@ -434,13 +434,29 @@ public sealed class ExprParser {
             // 标识符 → 零撞名，同本 change `$Default`/`$Caller` 哨兵哲学）。这样 z42c.semantics 只需靠
             // 既有 IdentExpr.Name 识别、**不引用任何新 syntax 类型** → 避免 syntax→semantics 新跨包符号
             // 撞 F2 冷启动 stale-cache（见 design「caller 宏语法」节 + bootstrap-seed 轴②/④ 教训）。
-            // 白名单认名 + 「仅参数默认值位」由语义层强制（E0450）。v1 仅 `!()`（无参）。
+            // 白名单认名 + 位置合法性由语义层强制（E0450）。
+            //
+            // add-symbol-availability-macro：扩出**带参**形态 `name!(args)`（如 `available!(B.Foo)`）。
+            // 仍零新 token、零新 AST 节点——见到 `Bang + LParen` 时**只吞 `!`**，把 `(` 留给上面的
+            // postfix 循环（`k == TokenKind.LParen` → `_parseCall`），由它自然产出
+            // `CallExpr(IdentExpr("$macro:<name>"), args)`。语义层在 ExprTyper 的 CallExpr 分发点
+            // 前拦一句「Callee 是宏哨兵」即可，同样不引用任何新 syntax 类型 → 继续 F2-安全。
+            //
+            // 无参形态 `name!()` 必须保持原样吞三个 token 返回**裸 IdentExpr** —— caller 类宏的
+            // 三条既有消费路径（ClassDescBuilder / DeclBinder / OverloadBinder）都按裸 IdentExpr 识别，
+            // 若改成 CallExpr(哨兵, []) 会全部失配。
+            //
+            // 占用 `ident!(` 零回归：`Bang` 在 z42 里只有前缀一元语义（`_parseUnary`），无后缀/中缀
+            // 用法，故 `a!(b)` 此前一律是语法错。
             if (this._p._peek().Kind == TokenKind.Bang
-                && this._p._peekAt(1).Kind == TokenKind.LParen
-                && this._p._peekAt(2).Kind == TokenKind.RParen) {
-                this._p._advance();   // !
-                this._p._advance();   // (
-                this._p._advance();   // )
+                && this._p._peekAt(1).Kind == TokenKind.LParen) {
+                if (this._p._peekAt(2).Kind == TokenKind.RParen) {
+                    this._p._advance();   // !
+                    this._p._advance();   // (
+                    this._p._advance();   // )
+                    return new IdentExpr("$macro:" + t.Text, t.Span);
+                }
+                this._p._advance();       // 只吞 `!`；`(` 交给 postfix 循环建 CallExpr
                 return new IdentExpr("$macro:" + t.Text, t.Span);
             }
             return new IdentExpr(t.Text, t.Span);

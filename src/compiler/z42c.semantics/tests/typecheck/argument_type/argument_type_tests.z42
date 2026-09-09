@@ -187,12 +187,35 @@ void test_func_int_and_func_Int32_are_same_type() {
     Assert.Equal(0, bodyDiags(src).Count());
 }
 
-// ── 残留洞：签名不可知 / enum 位不报（有意，须锁住以免将来静默改口径） ────
+// ── enum 位：跳过已摘掉（make-enum-distinct-type 落地，design D6 的留洞已填）────
 
-// enum 位跳过（design D6）——enum 语义归独立 change make-enum-distinct-type，
-// 在它落地前本检查不对 enum 位发声。**该 change 落地时本用例应当反转。**
+// 原用例 `test_enum_arg_is_skipped_pending_enum_change` 锁的是「enum 位一律不发声」这个
+// 有意留的洞，并写明「该 change 落地时本用例应当反转」。现按约定反转：匹配的 enum 位当然
+// 仍无诊断（但现在是因为类型真的匹配，不再是因为被跳过），**不**匹配的 enum 位则必须报出
+// 来——正是旧口径下永远沉默的那几类。
+
 [Test]
-void test_enum_arg_is_skipped_pending_enum_change() {
+void test_enum_arg_matching_param_is_clean() {
     string src = "enum Color { Red, Blue } void TakeC(Color c) { } void Main() { TakeC(Color.Blue); }";
-    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+    Assert.Equal(0, bodyDiags(src).Count());
+}
+
+[Test]
+void test_int_literal_to_enum_param_reports_E0439() {
+    // 旧口径：enum 位跳过 → 静默通过。新口径：整数→enum 要显式 cast（`0` 也无例外）。
+    string src = "enum Color { Red, Blue } void TakeC(Color c) { } void Main() { TakeC(0); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0439"));
+}
+
+[Test]
+void test_enum_arg_to_integer_param_reports_E0439() {
+    string src = "enum Color { Red, Blue } void TakeL(long n) { } void Main() { TakeL(Color.Blue); }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0439"));
+}
+
+[Test]
+void test_foreign_enum_arg_reports_diagnostic() {
+    // 异种 enum 之间也不隐式互转（两者底层都是 i64，正是旧模型下最容易串味的一对）。
+    string src = "enum Color { Red, Blue } enum Mood { Sad, Glad } void TakeC(Color c) { } void Main() { TakeC(Mood.Glad); }";
+    Assert.Equal(1, bodyDiags(src).Count());
 }

@@ -80,9 +80,10 @@ graph LR
 - `compiler`
 - `vscode-syntax`
 - `lines`
+- `walkers`
 <!-- gate-stages:end -->
 
-先备工具链与基线（build wave），再依序跑十个验证 stage；任一步失败立即终止。
+先备工具链与基线（build wave），再依序跑十一个验证 stage；任一步失败立即终止。
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <name>` 下放到独立 CI job
 （见 `_skipHas`；skip 名是短名，如 `vscode` / `targets`，不等于 banner 全名）——skip 只影响
 **在哪跑**，不改变 gate 的 stage 组成，故上面的清单不随 `--skip` 变化。
@@ -109,6 +110,12 @@ graph LR
 > ⚠️ 本页此前写的是「**文件 500 行硬上限**」——**不对**：500 从来只是软限、永不变红，
 > 写个 600 行的新文件 gate 并不会拦。软/硬两档是 2026-09-05 在 code-organization.md 里
 > 有意分开的（软 300→500、硬 500→886），本页当时没跟上。fix-silent-gates 修正。）
+（`walkers` 守 z42c 里**手写穷举** AST walker 的完备性（ast-walker-completeness-gate）：活体扫
+`src/libraries/z42c.syntax/src` 的节点类全集（`Expr`/`Stmt`/`Pattern`/`TypeExpr` 的子类），
+逐个登记的 walker 文件里找 `is <类名>`，全集里既不被匹配、又不在该 walker 白名单里的类 → **红**。
+登记表在 `scripts/test/xtask_test_walkers.z42` 的 `_walkerRegistry()`（当前 4 个：MethodTypeParamUse /
+ExprTyper._bindExpr / StmtBinder._bindStmt / PatternBinder.Bind），加新 walker 加一行、加新 AST
+节点类若有 walker 漏处理即变红。不硬编码计数（那种计数本身在漂）。纯文本扫描 <1 s，host-independent。）
 （`test runtime` = Rust VM 单测 cargo test **不在** gate 内 —— 它的 signal_handler_e2e
 在信号受限的沙箱里会挂;改由每条 CI 腿单独一步 + 本地 `xtask test runtime` 按需跑。）
 设 `--no-build`（或 `--toolchain <sdk>`）时**跳过构建波、直接消费既有产物**——CI 的

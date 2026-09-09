@@ -25,6 +25,7 @@
 /// `Std.Assert` methods are now pure z42 scripts (`if (!cond) throw new
 /// Exception(...)`), matching BCL `Debug.Assert` / Rust `assert!`.
 
+mod symavail;
 pub mod convert;
 pub mod io;
 pub mod repl;

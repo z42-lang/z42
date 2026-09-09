@@ -126,4 +126,11 @@ public static class DiagnosticCodes {
     public static string DuplicateArgumentName    = "E1003";
     public static string ParameterDoublySpecified = "E1004";
     public static string MissingRequiredArgument  = "E1005";
+
+    // E11xx: add-symbol-availability-macro —— `available!(X)` 专属。
+    // ⚠️ 与 E0450 同款纪律：**语义层用字面量发码，不引用这两个常量** —— 新增 core→semantics
+    // 跨成员符号会撞 F2 冷启动 stale-cache（见 CallerMacroInvalid 注 + PR4e E0449 手法）。
+    // 待本 change 随 nightly 载入后可切常量引用。
+    public static string AvailableAmbiguous   = "E1101";  // 目标解析到多个重载，无法唯一确定（v1 不支持签名消歧）
+    public static string AvailableBadArgument = "E1102";  // 参数不是符号引用（字面量/任意表达式），或参数个数不为 1
 }
