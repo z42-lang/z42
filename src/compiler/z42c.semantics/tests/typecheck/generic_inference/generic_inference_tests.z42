@@ -266,3 +266,52 @@ void test_class_level_position_still_checked_when_method_generic_present() {
         + "class Use { void f() { var b = new Bag<string>(); b.PutBoth(1, 2); } }";
     Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
 }
+
+// ── 推断结果归一到「已解析形态」（fix-inferred-type-arg-not-resolved）──────────
+//
+// 内建基元在 z42c 里**两种拼写并存**（unify-value-types 阶段 3 的遗留）：
+//   · 表达式类型 —— `21` 的 `.Type().Name()` 是**关键字** `"int"`；
+//   · 显式 `<int>` —— 经 `env.ResolveType` → `SymbolTable.BuiltinType` 查到**包装类** `Int32`。
+// `ConstraintChecker._satisfiesInterface` 走 `symbols.Implements(arg.Name(), …)` 查 `Classes`
+// 表（键是 `Int32`）⇒ 推断路径喂进 `"int"` **恒 miss** ⇒ `where T : I` 下 `f(1)` 误报，
+// 而同义的 `f<int>(1)` 却过。这是阶段 C 把推断结果接上 `CheckMethod` 之后才浮出的洞
+// （此前推断路径根本不做约束校验），且因 `--emit-zbc` 吞诊断而在 golden 面上完全静默。
+//
+// 本组用例在源码里自带 `struct Int32 : I` / `struct String : I`（真实工程里由 z42.core 的
+// 基元 wrapper 提供），从而在**不依赖导入符号**的单测 harness 里精确复现那条归一。
+
+string primWrappers() {
+    return "interface I { } struct Int32 : I { } struct String : I { } ";
+}
+
+[Test]
+void test_inferred_prim_type_arg_satisfies_interface_constraint() {
+    // 退回对照：撤掉 `TypeArgInference._resolvedForm` 后本条变 1（报「`int` 不满足 `I`」）。
+    string src = primWrappers() + "void f<T>(T x) where T: I { } class Use { void g() { f(1); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_explicit_prim_type_arg_satisfies_interface_constraint() {
+    // 对照组：显式写出时**修改前后都绿** —— 证明缺口只在推断这一条路上，不是约束判定本身坏了。
+    string src = primWrappers() + "void f<T>(T x) where T: I { } class Use { void g() { f<int>(1); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_inferred_string_type_arg_satisfies_interface_constraint() {
+    // `string` 的 PrimCode 是 12：落在 `IsBuiltinType`（0..13）内、在 `IsScalarType`（0..11）外。
+    // 用 IsScalarType 作门就会漏掉这一格 —— 而 `where T : IComparable` 下的 `Max("a","b")`
+    // 正是它（欠债扫描里 generic_primitive_interface.z42 的 string 位）。
+    string src = primWrappers() + "void f<T>(T x) where T: I { } class Use { void g() { f(\"s\"); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_inferred_prim_type_arg_still_reports_unimplemented_interface() {
+    // 归一**不是**「一律放行」：归一后的包装类真的没实现该接口时照报。
+    // （本条修改前后都是 1；它守的是「别把这条洞修成一道从不响的门」。）
+    string src = "interface I { } interface J { } struct Int32 : I { } "
+        + "void f<T>(T x) where T: J { } class Use { void g() { f(1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}

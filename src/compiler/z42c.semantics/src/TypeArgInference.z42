@@ -31,10 +31,11 @@ public sealed class TypeArgBindings {
 }
 
 public static class TypeArgInference {
+    // symbols   —— 用于把推断结果归一到「已解析形态」（见 _resolvedForm）；null 则跳过归一
     // sig       —— 被调方法的**未代换**签名
     // names     —— 方法级型参名（声明序），nameCount = 个数
     // args      —— 已绑定的实参（BoundExpr），argCount = 个数
-    public static TypeArgBindings Infer(Z42FuncType sig, string[] names, int nameCount,
+    public static TypeArgBindings Infer(SymbolTable symbols, Z42FuncType sig, string[] names, int nameCount,
                                         BoundExpr[] args, int argCount) {
         if (sig == null || names == null || nameCount == 0) {
             return new TypeArgBindings(false, new Z42Type[0], 0);
@@ -62,9 +63,36 @@ public static class TypeArgInference {
         int k = 0;
         while (k < nameCount) {
             if (bound[k] == null) { return new TypeArgBindings(false, new Z42Type[0], 0); }
+            bound[k] = TypeArgInference._resolvedForm(symbols, bound[k]);
             k = k + 1;
         }
         return new TypeArgBindings(true, bound, nameCount);
+    }
+
+    // 归一到「已解析形态」——**推断结果必须与显式写出 `<int>` 得到的类型对象同形**。
+    //
+    // 为什么必须做：内建基元在 z42c 里有两种拼写并存（unify-value-types 阶段 3 的遗留）——
+    //   · 表达式类型（`21` 的 `.Type()`）是 `Z42ClassType.Builtin`，`Name()` = **关键字** `"int"`；
+    //   · 显式 `<int>` 经 `env.ResolveType` → `SymbolTable.BuiltinType` → 查到**包装类**
+    //     `Std.Int32` 那个真 `Z42ClassType`，`Name()` = `"Int32"`。
+    // 推断把前者直接交给 `ConstraintChecker.CheckMethod`，而 `_satisfiesInterface` 走
+    // `symbols.Implements(arg.Name(), …)` → `Classes.Find("int")` **恒 miss**（表里的键是 `Int32`）
+    // ⇒ `where T : INumber` 下 `Double(21)` 报「int 不满足 INumber」，而 `Double<int>(21)` 却过。
+    // 实测：用户 struct 两条路都过、`Double<Int32>(21)` 过，只有「推断 + 基元」这一格坏 ⇒
+    // 缺的正是这一步归一，不是约束判定本身。
+    //
+    // 归一放在**推断出口**而不是 `_satisfiesInterface` 里：后者只是众多消费方之一
+    // （还有 `_satisfiesBase` / `_satisfiesParamRef` / 以及阶段 B 的形参位代换），逐个打补丁
+    // 等于承认「型参实参有两种形态」；在出口归一才是让两条路彻底同形的那一刀。
+    private static Z42Type _resolvedForm(SymbolTable symbols, Z42Type t) {
+        if (symbols == null || t == null) { return t; }
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            // IsBuiltinType 覆盖 0..13（含 string / object），比 IsScalarType（0..11）宽一档 ——
+            // `where T : IComparable` 下的 `Max("a","b")` 正落在 string 上。
+            if (ct.IsBuiltinType()) { return symbols.BuiltinType(ct.Name()); }
+        }
+        return t;
     }
 
     // 结构化 unify：把形参类型 p 与实参类型 a 对齐，命中型参名即记绑定。
