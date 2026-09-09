@@ -113,15 +113,71 @@ public sealed class TypeOpEmitter {
         // unify-value-types Phase 1：翻转后整数基元为 Z42ClassType(Scalar)——追加 Scalar 值类型判定，
         // 使其仍走下方 __box_prim（否则误透传、丢装箱）。翻转前无 Scalar 名 Z42ClassType → 当前中立。
         Z42Type _bet = b.E.Type();
+        bool _boxEnum = (_bet is Z42ClassType) && (_bet as Z42ClassType).IsEnum;
         bool _boxScalar = (_bet is Z42ClassType) && _bet.IsScalarType();
-        if (!_boxScalar) { return val; }
-        int idx = this._ctx.Gen.Intern(b.PrimFQ);
+        if (!_boxScalar && !_boxEnum) { return val; }
+        // make-enum-distinct-type 1.5：enum 走同一条 `__box_prim`（值仍是裸 i64，只是盒的 type_desc
+        // 换成 enum 自身）——runtime `box_prim_to_heap` 对非 wrapper 名按 8 字节 signed 存，正合
+        // `Type.z42`「z42 一律以 i64 背书 enum」。类名须 emit 期 `QualifyClass`（语义期存的是短名）。
+        if (_boxEnum) { return this._emitBoxPrim(val, this._ctx.QualifyClass(b.PrimFQ)); }
+        return this._emitBoxPrim(val, b.PrimFQ);
+    }
+
+    // `__box_prim(%value, %classFQ)` 的发射原语——`_emitBox`（擦除点装箱）与 `_emitEnumBox`
+    // （字符串化前装箱）共用，保证两条路发的指令序列逐字节同形。
+    private TypedReg _emitBoxPrim(TypedReg val, string classFQ) {
+        int idx = this._ctx.Gen.Intern(classFQ);
         TypedReg cls = this._ctx.Alloc(IrType.Str);
         this._ctx.Emit(new ConstStrInstr(cls, idx));
         TypedReg[] args = new TypedReg[2];
         args[0] = val; args[1] = cls;
         TypedReg dst = this._ctx.Alloc(IrType.Ref);   // Boxed 落 object 槽（引用）
         this._ctx.Emit(new BuiltinInstr(dst, "__box_prim", args, 2));
+        return dst;
+    }
+
+    // make-enum-distinct-type 1.5：把一个 **enum 静态类型**的值寄存器装箱成带 enum TypeDesc 的盒。
+    // 用在**字符串化**入口（`ToStr` / 字符串 `+` / 插值洞 / `e.ToString()`）：运行期的 i64 不带类型，
+    // 不装箱就只能打印数字；装箱后 `value_to_str` / `resolve_vcall` 认出 enum 盒 → 打印成员名
+    // （C# `Enum.ToString`）。非 enum 静态类型原样返回（no-op），故调用点可无条件套用。
+    internal TypedReg _emitEnumBox(TypedReg val, Z42Type t) {
+        if (!((t is Z42ClassType) && (t as Z42ClassType).IsEnum)) { return val; }
+        return this._emitBoxPrim(val, this._ctx.QualifyClass(t.Name()));
+    }
+
+    // add-symbol-availability-macro：`available!(X)` → `BuiltinInstr("__sym_available", ConstStr(key))`。
+    // 复用 Builtin opcode + 常量字符串参数编码语义，零新 IR opcode、零格式 bump（`__box_prim` 同款先例）。
+    //
+    // ⭐ key 的产出**必须走与真实调用完全相同的那次查找**（design D2.1），不能另拼一份——否则
+    // 「探测说有」与「调用能成」会是两套规则、迟早漂移。下面这段是 CallEmitter 静态调用路径的
+    // 镜像，包括那条 `ownerIsLocal` local-wins 守卫（本包自有类恒不查 DepIndex，防同短类名串味）。
+    //
+    // 正常路径这条 Builtin 在**加载期就被 VM 折成 ConstBool 并剪枝**，运行期永不执行。
+    internal TypedReg _emitSymAvailable(BoundSymAvailable s) {
+        string key = "";
+        if (s.Kind == "t") {
+            key = "t:" + this._ctx.QualifyClass(s.Owner);
+        } else {
+            bool ownerIsLocal = this._ctx.LocalClasses != null
+                                && this._ctx.LocalClasses.ContainsKey(s.Owner);
+            string q = "";
+            if (this._ctx.Deps != null && !ownerIsLocal) {
+                // s.Member 已是**注册键**（可能含 `$N` mangle），故只查该键，不做 arity→bare 回落。
+                DepCallEntry de = this._ctx.Deps.GetStaticScoped(
+                    this._ctx.ActiveNs, this._ctx.ActiveNsCount, s.Owner, s.Member);
+                if (de == null) { de = this._ctx.Deps.GetStatic(s.Owner, s.Member); }
+                if (de != null) { this._ctx.TrackDepNamespace(de.Namespace); q = de.QualifiedName; }
+            }
+            if (q == "") { q = this._ctx.QualifyClass(s.Owner) + "." + s.Member; }
+            key = "m:" + q;
+        }
+        int idx = this._ctx.Gen.Intern(key);
+        TypedReg kreg = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(kreg, idx));
+        TypedReg[] args = new TypedReg[1];
+        args[0] = kreg;
+        TypedReg dst = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new BuiltinInstr(dst, "__sym_available", args, 1));
         return dst;
     }
 

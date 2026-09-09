@@ -83,8 +83,8 @@ public sealed class ExprTyper {
             // 那两条路径（同包 OverloadBinder._adaptArgs / 跨包 _crossPkgDefault / 持久化 ClassDescBuilder）
             // 都在此之前截住。落到这里 = 出现在普通表达式位（方法体 / 字段初始化等）→ E0450。
             // 发码用字面量（避 core→semantics 冷启动 F2，同 DeclBinder）。
-            if (CallerMacro.IsMacro(id)) {
-                string mn = CallerMacro.NameOf(id);
+            if (MacroRegistry.IsMacro(id)) {
+                string mn = MacroRegistry.NameOf(id);
                 this._tc._diags.Error("E0450", "compile-time macro '" + mn + "!()' is only valid as a parameter default value", id.Span);
                 return new BoundError("misplaced macro " + mn, new Z42ErrorType(), id.Span);
             }
@@ -357,6 +357,10 @@ public sealed class ExprTyper {
         if (e is SwitchExpr) { return this._bindSwitchExpr(e as SwitchExpr, env); }
         if (e is IndexExpr) { return this._bindIndex(e as IndexExpr, env); }
         if (e is CallExpr) {
+            // add-symbol-availability-macro：带参编译期宏 `name!(args)` 被 parser 译成
+            // CallExpr(IdentExpr("$macro:name"), args)。必须在 _bindCall **之前**截住——否则
+            // 会去把哨兵名当函数解析、报 "undefined: $macro:available"。
+            if (MacroRegistry.IsMacroCall(e)) { return this._bindMacroCall(e as CallExpr, env); }
             return this._tc._member._bindCall(e as CallExpr, env);
         }
         if (e is InterpolatedStringExpr) {
@@ -366,6 +370,154 @@ public sealed class ExprTyper {
         if (e is LambdaExpr) { return this._bindLambdaArg(e as LambdaExpr, env); }
         this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported expression (1A)", e.Span);
         return new BoundError("unsupported expr", new Z42ErrorType(), e.Span);
+    }
+
+    // add-symbol-availability-macro：带参编译期宏 `name!(args)` 的分发。
+    // 发码全用字面量（不引用新 DiagnosticCodes 常量 → 避 core→semantics 冷启动 F2 stale-cache，
+    // 同 E0450 / PR4e E0449 手法）。
+    private BoundExpr _bindMacroCall(CallExpr call, TypeEnv env) {
+        string mn = MacroRegistry.NameOf(call.Callee);
+        string pos = MacroRegistry.PositionOf(mn);
+        if (pos == "") {
+            this._tc._diags.Error("E0450", "unknown compile-time macro '" + mn + "!()'", call.Span);
+            return new BoundError("unknown macro " + mn, new Z42ErrorType(), call.Span);
+        }
+        if (pos != "expr") {
+            // caller 族只合法于参数默认值位，且只有无参形态；带参出现在表达式位 → 位置错。
+            this._tc._diags.Error("E0450", "'" + mn + "!()' is only valid as a parameter default value", call.Span);
+            return new BoundError("misplaced macro " + mn, new Z42ErrorType(), call.Span);
+        }
+        if (mn == MacroRegistry.AvailableName) { return this._bindAvailable(call, env); }
+        // PositionOf 认了但这里没分支 = 注册表与实现失配，属编译器内部不一致。
+        this._tc._diags.Error("E0900", "compile-time macro '" + mn + "!()' has no binder", call.Span);
+        return new BoundError("unbound macro " + mn, new Z42ErrorType(), call.Span);
+    }
+
+    // `available!(X)`：X 必须是**符号引用**——`SomeType` 或 `SomeType.Method`。
+    //
+    // 编译期语义 = 「X 必须存在」（不存在 → E0401）。运行期语义 = 「X 在实际加载到的依赖图里
+    // 是否可解析」，由 VM 加载期折成常量（见 design D1）。二者不矛盾：编译时依赖是 v2、运行时
+    // 可能加载到 v1，这正是本 change 要解决的 skew 场景。
+    //
+    // 本方法**不产 dispatch key**，只落坐标（Kind/Owner/Member）——key 由 emit 期走与真实调用
+    // 相同的那次查找产出（design D2.1）。
+    private BoundExpr _bindAvailable(CallExpr call, TypeEnv env) {
+        Z42Type bt = env.Symbols.BuiltinType("bool");
+        if (call.ArgCount != 1) {
+            this._tc._diags.Error("E1102", "'available!(...)' takes exactly one symbol reference", call.Span);
+            return new BoundError("available arity", new Z42ErrorType(), call.Span);
+        }
+        Expr a = call.Args[0];
+
+        // 形态 ①：`available!(SomeType)`
+        if (a is IdentExpr) {
+            string tn = (a as IdentExpr).Name;
+            if (env.Symbols.HasClass(tn) || env.Symbols.HasInterface(tn)
+                || env.Symbols.EnumTypes.ContainsKey(tn)) {
+                return new BoundSymAvailable("t", tn, "", bt, call.Span);
+            }
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "undefined type in available!(): " + tn, a.Span);
+            return new BoundError("available undefined " + tn, new Z42ErrorType(), call.Span);
+        }
+
+        // 形态 ②：`available!(SomeType.Method)`
+        if (a is MemberExpr) {
+            MemberExpr me = a as MemberExpr;
+            if (!(me.Target is IdentExpr)) {
+                this._tc._diags.Error("E1102",
+                    "'available!(...)' argument must be `Type` or `Type.Method`", a.Span);
+                return new BoundError("available bad arg", new Z42ErrorType(), call.Span);
+            }
+            string cn = (me.Target as IdentExpr).Name;
+            if (!env.Symbols.HasClass(cn)) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                    "undefined type in available!(): " + cn, me.Target.Span);
+                return new BoundError("available undefined " + cn, new Z42ErrorType(), call.Span);
+            }
+            Z42ClassType ct = env.Symbols.GetClass(cn);
+            int hits = ExprTyper._countOverloads(ct, me.Name);
+            if (hits == 0) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                    "undefined method in available!(): " + cn + "." + me.Name, a.Span);
+                return new BoundError("available undefined member", new Z42ErrorType(), call.Span);
+            }
+            if (hits > 1) {
+                // v1 不支持签名消歧（design D3）——重载场景请改用 available!(Type) 或等消歧语法。
+                this._tc._diags.Error("E1101",
+                    "'available!(" + cn + "." + me.Name + ")' is ambiguous: " + hits.ToString()
+                    + " overloads; signature disambiguation is not supported yet", a.Span);
+                return new BoundError("available ambiguous", new Z42ErrorType(), call.Span);
+            }
+            // 落**实际注册键**而非源码写法：唯一重载也可能被登记成 mangled 形式（`Foo$2`），
+            // emit 期若拿裸名去 Deps/本地查会落空。键的口径必须与注册口径一致。
+            return new BoundSymAvailable("m", cn, ExprTyper._uniqueMethodKey(ct, me.Name), bt, call.Span);
+        }
+
+        this._tc._diags.Error("E1102",
+            "'available!(...)' argument must be a symbol reference (`Type` or `Type.Method`)", a.Span);
+        return new BoundError("available bad arg", new Z42ErrorType(), call.Span);
+    }
+
+    // 类内叫某个名字的方法数（含 arity/签名 mangle 的各重载）。注册键形如 `Foo` 或 `Foo$2`，
+    // 故按「裸名相等 或 以 `名$` 开头」计数。v1 只看本类（不追基类链）——available! 的目标
+    // 是「某个 API 在不在」，追继承链会把 object 的成员也算进来，反而制造歧义。
+    // 叫某个名字的方法有几个**重载**。
+    //
+    // ⚠️ 两个都踩过的坑：
+    // ① 源必须是 `ct.Methods`（注册全集），**不能**用 OwnMethodNames —— 后者只登记
+    //    **非 static** 方法（ImportedSymbolLoader 的 `if (!me.IsStatic)`）+ impl-block 方法，
+    //    是给虚派发/override 跟踪用的子集。用它会让 `available!(C.StaticMethod)` 一律误报 E0401。
+    // ② **不能数键**：同一个方法会被注册在多个键下（裸名 + mangled，见
+    //    stabilize-instance-dispatch-keys 的 primary 裸 / 非-primary 全签名键制），数键会把
+    //    单个方法误判成多重载（实测：单方法的 `NewApi.Feature` 报 "2 overloads"）。
+    //    `MethodSymbol.RegKey` 才是权威规范键（其注释：= Methods 映射键 = IR 名 = BoundCall 目标名），
+    //    按它去重。
+    private static int _countOverloads(Z42ClassType ct, string name) {
+        string[] seen = new string[16];
+        int n = 0;
+        int i = 0;
+        int cap = ct.Methods.Capacity();
+        string pfx = name + "$";
+        while (i < cap) {
+            if (ct.Methods.UsedAt(i)) {
+                string k = ct.Methods.KeyAt(i);
+                if (k == name || k.StartsWith(pfx)) {
+                    string rk = ExprTyper._regKeyAt(ct, i, k);
+                    bool dup = false;
+                    int j = 0;
+                    while (j < n) { if (seen[j] == rk) { dup = true; } j = j + 1; }
+                    if (!dup && n < 16) { seen[n] = rk; n = n + 1; }
+                }
+            }
+            i = i + 1;
+        }
+        return n;
+    }
+
+    // 唯一重载的**规范注册键**。调用方须先确认 _countOverloads == 1。
+    private static string _uniqueMethodKey(Z42ClassType ct, string name) {
+        int i = 0;
+        int cap = ct.Methods.Capacity();
+        string pfx = name + "$";
+        while (i < cap) {
+            if (ct.Methods.UsedAt(i)) {
+                string k = ct.Methods.KeyAt(i);
+                if (k == name || k.StartsWith(pfx)) { return ExprTyper._regKeyAt(ct, i, k); }
+            }
+            i = i + 1;
+        }
+        return name;
+    }
+
+    // 槽 i 上的 MethodSymbol.RegKey；缺失则回落到映射键本身。
+    private static string _regKeyAt(Z42ClassType ct, int i, string fallbackKey) {
+        object v = ct.Methods.ValAt(i);
+        if (v is MethodSymbol) {
+            MethodSymbol ms = v as MethodSymbol;
+            if (ms.RegKey != "") { return ms.RegKey; }
+        }
+        return fallbackKey;
     }
 
     private BoundExpr _bindInterpolatedStr(InterpolatedStringExpr e, TypeEnv env) {
@@ -450,6 +602,10 @@ public sealed class ExprTyper {
         }
         this._tc._checkOperand(rule.Left,  rule.Requirement, lt, bin.Op, bin.Left.Span);
         this._tc._checkOperand(rule.Right, rule.Requirement, rt, bin.Op, bin.Right.Span);
+        // make-enum-distinct-type：跨操作数的 enum 配对检查。**此前完全没有这道检查**——`_checkOperand`
+        // 是逐侧的，而 `==`/`!=` 的 rule 不带操作数约束，于是 `Color.Red == 0` 一路放行（enum-as-int
+        // 时代它确实是 `long == int`、无害；enum 成为独立类型后它就是「拿枚举比整数」，必须报错）。
+        this._tc._checkEnumOperands(lt, rt, bin.Op, bin.Span);
         return new BoundBinary(bin.Op, left, right, BinaryTypeTable.ResultType(rule.Out, lt, rt), bin.Span);
     }
 

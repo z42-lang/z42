@@ -117,6 +117,13 @@ public sealed class AssignTyper {
                 value = new BoundBinary(binop, target, value, target.Type(), a.Span);
             }
             this._tc.CheckImplicitConvert(value, target.Type(), env.Symbols, a.Value.Span, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
+            // make-enum-distinct-type 1.5：**赋值**（含 `arr[i] = v` 数组元素 store、字段 store、
+            // 局部再赋值）此前根本没有装箱点——`TypeChecker.BoxIfNeeded` 头注释宣称的「var-decl /
+            // return / call-arg / assign / array-store 五处统一」里，assign 与 array-store 两处是空的。
+            // 后果与 enum 无关、对所有整数都错：`object[] a; a[0] = 5L;` 存裸 i64 → `GetType()` 得
+            // `Int32` 而非 `Int64`（数组**字面量** `new object[]{5L}` 走 CollectionTyper 则是对的）。
+            // 顺序照 var-decl（StmtBinder）：先 Check（诊断基于未装箱的原值，不变）→ Box → Convert。
+            value = this._tc.BoxIfNeeded(value, target.Type());
             value = this._tc.ConvertIfNeeded(value, target.Type(), env.Symbols);   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
             return new BoundAssign(target, value, target.Type(), a.Span);
     }
@@ -160,12 +167,30 @@ public sealed class AssignTyper {
             string nm = (target as BoundIdent).Name;
             Z42Type thisT = env.LookupVar("this");
             if (thisT != null) { fs = this._fieldOf(thisT, nm); recvIsThis = true; }
+        } else if (target is BoundStaticGet) {
+            // fix-static-readonly-not-enforced：**静态**字段的 readonly 此前完全没进这个检查
+            // （只覆盖 BoundMember / BoundIdent 两种实例写法）→ `C.A = 99` 静默放行，
+            // `readonly` 加在静态字段上只是个装饰品、说了不算。查法镜像 _checkConstAssign 的
+            // BoundStaticGet 分支（那条一直是对的）。
+            BoundStaticGet sg = target as BoundStaticGet;
+            if (env.Symbols.HasClass(sg.ClassName)) {
+                fs = env.Symbols.GetClass(sg.ClassName).Fields.Get(sg.FieldName) as FieldSymbol;
+            }
+            // recvIsThis 保持 false —— 静态字段没有 `this`。唯一合法写点是字段初始化器，
+            // 而初始化器由 FunctionEmitter 直接合成成 __static_init__ 里的 StaticSet，
+            // **不经过 AssignExpr 绑定** → 不会在这里被误报。
         }
         if (fs != null && fs.IsReadonly) {
-            bool ok = recvIsThis && env.InCtor();
+            bool isStatic = (target is BoundStaticGet);
+            // ⚠️ 与「静态构造函数不执行」那个 bug 的**耦合点**：C# 允许静态 ctor 给
+            // static readonly 赋值。z42 今天静态 ctor 体根本不跑，故此处对静态一律报错是
+            // 正确的。修好静态 ctor 时**必须回到这里**：给 TypeEnv 加 InStaticCtor 并在此放行，
+            // 否则合法的静态 ctor 赋值会被误报。写在这里而不是留个 TODO，是为了让耦合可见。
+            bool ok = !isStatic && recvIsThis && env.InCtor();
             if (!ok) {
+                string whereTxt = isStatic ? "outside its initializer" : "outside constructor";
                 this._tc._diags.Error(DiagnosticCodes.ReadonlyAssignment,
-                    "cannot assign to readonly field `" + fs.Name + "` outside constructor", a.Span);
+                    "cannot assign to readonly field `" + fs.Name + "` " + whereTxt, a.Span);
             }
         }
         // fix-autoprop-getonly-backing-write：没有 setter 的属性此前**任何位置**都能赋值且静默写丢

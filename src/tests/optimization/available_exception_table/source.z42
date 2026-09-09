@@ -1,0 +1,35 @@
+using Std.IO;
+
+// add-symbol-availability-macro：available!() 出现在**带异常表**的函数里。
+//
+// 覆盖 fold_availability 的 `funcs_kept_for_exceptions` 分支：这类函数**只折不剪**——
+// z42 IR 的 CFG 只从终结子构建、不含异常隐式边（try→catch/finally），贸然移除
+// 「按 CFG 不可达」的块会删掉 handler 实际可达的块 → miscompile。
+// 与编译器侧 IrDeadBranch（ExcCount>0 时只折不移）是同一条铁律。
+//
+// 期望：条件仍被折成常量（走对分支），且 try/catch/finally 语义完好无损。
+class Helper {
+    static int Answer() { return 42; }
+}
+
+void Main() {
+    try {
+        if (available!(Helper.Answer)) {
+            Console.WriteLine("in-try-available");
+        } else {
+            Console.WriteLine("in-try-missing");
+        }
+        throw new Exception("boom");
+    } catch (Exception e) {
+        // catch 块里也放一个——handler 可达性必须不受剪枝影响
+        if (available!(Helper)) {
+            Console.WriteLine("in-catch-available");
+        } else {
+            Console.WriteLine("in-catch-missing");
+        }
+        Console.WriteLine("caught: " + e.Message);
+    } finally {
+        Console.WriteLine("finally");
+    }
+    Console.WriteLine("done");
+}

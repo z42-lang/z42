@@ -160,9 +160,19 @@ impl ScriptObject {
     /// 否则（多字段 struct 装箱 / 非整数 wrapper）返 `None`。按 wrapper 宽度 + 有无符号从
     /// `struct_bytes` 前 `width` 字节还原（signed narrow → 符号扩展，unsigned → 零扩展）。
     /// 让装箱整数盒与 struct 装箱盒共用 `Value::BoxedStruct`，同时保留整数的透明拆箱语义。
+    /// make-enum-distinct-type 1.5: an **enum box** is the same shape (i64 LE bytes,
+    /// `TypeDesc` = the enum itself instead of a `Std.*` wrapper), so it unboxes here
+    /// too — that is what makes `(Color)o` / `(long)o` transparent for every caller of
+    /// this method (cast, compare, …) without each of them growing an enum arm.
     pub fn boxed_prim_i64(&self) -> Option<i64> {
-        let (width, signed) =
-            crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?;
+        let (width, signed) = if self.type_desc.class_flags
+            & crate::metadata::bytecode::CLASS_FLAG_ENUM
+            != 0
+        {
+            (8usize, true)
+        } else {
+            crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?
+        };
         if self.bytes().len() < width {
             return None;
         }
@@ -174,6 +184,15 @@ impl ScriptObject {
             v = (v << shift) >> shift; // 符号扩展窄整数
         }
         Some(v)
+    }
+
+    /// make-enum-distinct-type 1.5: if this object is an **enum box**, the declared
+    /// member name for the value it carries — C# `Enum.ToString()`; `None` for every
+    /// other box, so callers keep their existing behaviour. Convenience for code that
+    /// already holds the `borrow()` guard; the real lookup is
+    /// [`TypeDesc::enum_member_name`], which lock-free callers use directly.
+    pub fn boxed_enum_name(&self) -> Option<String> {
+        self.type_desc.enum_member_name(self.boxed_prim_i64()?)
     }
 
     /// unify-object-byte-layout (PR-2): the resolved `FieldAccess` for a direct field

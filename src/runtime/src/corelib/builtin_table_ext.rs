@@ -258,4 +258,9 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     ("__app_prop_has",    appprops::builtin_app_prop_has),
     ("__app_prop_names",  appprops::builtin_app_prop_names),
     ("__app_props_toml",  appprops::builtin_app_props_toml),
+
+    // ── add-symbol-availability-macro (2026-09-08) — appended to preserve existing BuiltinIds ──
+    // `available!(X)` 的运行期回落。正常路径**永不执行**——加载期 fold_availability
+    // 已把它折成 ConstBool 并剪掉死分支。走到这里 = pass 没跑，debug 下 panic 点名。
+    ("__sym_available",   symavail::builtin_sym_available),
 ];

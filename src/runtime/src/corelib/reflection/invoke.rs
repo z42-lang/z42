@@ -2,6 +2,31 @@ use super::*;
 
 // ── Reflective invocation (add-method-invoke-non-generic, 0.3.12) ────────────
 
+/// make-enum-distinct-type 1.5: unwrap a boxed integer / enum back to its bare scalar
+/// for a reflective call argument.
+///
+/// The reflective boundary is untyped by construction (`object[]`), but the VM's calling
+/// convention passes primitive parameters as bare `I64` — a method compiled for `int by`
+/// reads reg 1 as a scalar and would otherwise do arithmetic on a heap box. Callers used
+/// to get away without this because **assignment never boxed**: `object[] a; a[0] = 5;`
+/// stored a bare i64. Now that the array-element store boxes like every other erasure
+/// point (the gap this change closed), the unwrap has to happen here — the same call
+/// `FieldInfo.SetValue` already makes, for the same reason (`accessors.rs`).
+///
+/// Uniform rather than driven by the callee's declared parameter types: `param_types` is
+/// cold/debug metadata a release build may not carry, and behaviour that changed with
+/// debug symbols would be worse than this. The cost is that a genuinely `object`-typed
+/// parameter receives the bare scalar instead of the box — exactly what it received
+/// before this change, so nothing regresses.
+fn unbox_reflective_arg(v: Value) -> Value {
+    if let Value::BoxedStruct(gc) = &v {
+        if let Some(n) = gc.borrow().boxed_prim_i64() {
+            return Value::I64(n);
+        }
+    }
+    v
+}
+
 /// Read a named slot from any ScriptObject `Value` (e.g. a `MethodInfo`'s hidden
 /// `__qualified` / `IsStatic`). `Null` if not an object or no such field.
 pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
@@ -67,7 +92,7 @@ pub fn builtin_method_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
     if let Value::Array(rc) = &args_arr {
         for e in rc.borrow().iter_boxed() {
-            call_args.push(e.clone());
+            call_args.push(unbox_reflective_arg(e.clone()));
         }
     }
 
@@ -391,7 +416,7 @@ pub fn builtin_ctor_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let mut call_args: Vec<Value> = vec![obj.clone()];
     if let Value::Array(rc) = &args_arr {
         for e in rc.borrow().iter_boxed() {
-            call_args.push(e);
+            call_args.push(unbox_reflective_arg(e));
         }
     }
     let module_arc = ctx

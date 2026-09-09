@@ -779,6 +779,36 @@ void test_readonly_bare_method_assign_error() {
     string src = "class C { readonly int x; C(int a){ this.x=a; } void set(int a) { x = a; } }";
     Assert.True(SemanticDump.ErrorCount(src) > 0);
 }
+// ── fix-static-readonly-not-enforced：**静态** readonly 此前完全不被强制 ──────────────
+// _checkReadonlyAssign 只覆盖 BoundMember / BoundIdent 两种实例写法，静态字段赋值走
+// BoundStaticGet → 落不进检查 → `C.S = 99` 静默放行，readonly 加在静态字段上说了不算。
+
+[Test]
+void test_static_readonly_assign_error() {
+    // 类外写 static readonly → E0415（静态无 ctor-this 豁免，唯一合法写点是初始化器）。
+    string src = "class C { public static readonly int S = 8; } class U { void f() { C.S = 99; } }";
+    Assert.Equal("E0415", SemanticDump.FirstErrorCode(src));
+}
+[Test]
+void test_static_readonly_assign_from_own_method_error() {
+    // 声明类**自己的**方法里写也不行——静态字段没有「ctor 内」这一说。
+    string src = "class C { public static readonly int S = 8; void f() { C.S = 99; } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+[Test]
+void test_static_readonly_initializer_ok() {
+    // 只有初始化器 → 合法。初始化器由 FunctionEmitter 合成进 __static_init__ 的 StaticSet，
+    // 不经 AssignExpr 绑定，故不会被本检查误报。
+    string src = "class C { public static readonly int S = 8; }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+[Test]
+void test_static_nonreadonly_assign_ok() {
+    // 非 readonly 静态字段照常可写（不误伤）。
+    string src = "class C { public static int S = 8; } class U { void f() { C.S = 99; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
 [Test]
 void test_readonly_cross_object_ctor_error() {
     // ctor 内经**另一对象**（非 this）写 readonly → E0415（只允许 this.<field>）。

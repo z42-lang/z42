@@ -1,0 +1,20 @@
+namespace Demo.AvskewApp;
+
+using Std.IO;
+using Demo.AvskewTarget;
+
+// add-symbol-availability-macro：available!() 保护跨包新 API。
+//
+// 编译期 NewApi.Feature **必须存在**（否则 E0401）；运行期是否存在由**实际加载到的
+// 依赖图**决定，VM 在加载期把 available!() 折成常量并剪掉未走的那条分支。
+// 于是**同一份编译产物**在两种依赖图下走不同路径——这正是依赖版本 skew 的兼容机制。
+//
+// 本 fixture（skew）：见同目录 expected_output.txt；skew 变体另有 skew-absent.txt
+// 声明「运行前把该依赖 zpkg 删掉」。
+void Main() {
+    if (available!(NewApi.Feature)) {
+        Console.WriteLine("new-path " + NewApi.Feature().ToString());
+    } else {
+        Console.WriteLine("legacy-path");
+    }
+}

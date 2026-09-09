@@ -450,10 +450,10 @@ public sealed class ClassDescBuilder {
             // kind 路径；常量-性诊断 E04xx 在 typecheck 相位补，Phase D）。
             Expr pd = md.Params[j].Default;
             if (pd != null) {
-                if (CallerMacro.IsMacro(pd)) {
+                if (MacroRegistry.IsMacro(pd)) {
                     // PR6b：caller 宏默认值 → `$Caller:<kind>` 哨兵（FactoryFunc 空）。未知宏名（KindOf==""）
                     // 已由 typecheck 报 E0450 → 此处不追加哨兵（保守，不产坏元数据）。
-                    string ck = CallerMacro.KindOf(CallerMacro.NameOf(pd));
+                    string ck = MacroRegistry.KindOf(MacroRegistry.NameOf(pd));
                     if (ck != "") {
                         IrAttrRef[] pc = new IrAttrRef[pa.Length + 1];
                         int t = 0; while (t < pa.Length) { pc[t] = pa[t]; t = t + 1; }

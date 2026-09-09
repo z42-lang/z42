@@ -118,6 +118,15 @@ void test_empty_catch_reported() {
 }
 
 [Test]
+void test_empty_catch_inside_local_function_reported() {
+    // 局部函数体内的空 catch —— analyzer 必须能看到（analyzer-driver-walk-local-function）。
+    // 修前：_walkStmt 把 LocalFunctionStmt 当无子语句、不下钻 → catch 从不被遍历 → 零诊断（静默漏）。
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { void helper() { try { risky(); } catch (Error e) { } } } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
 void test_nonempty_catch_not_reported() {
     // 非空 catch → 不报
     var bag = _run(new NoEmptyCatchAnalyzer(),
@@ -358,6 +367,65 @@ void test_caller_macro_unknown_name() {
 void test_caller_macro_misused_in_body() {
     // caller 宏出现在普通表达式位（非参数默认值）→ E0450
     string src = "class L { void m() { string x = caller_member!(); } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E0450"));
+}
+
+// ── add-symbol-availability-macro：`available!(X)` 诊断 ──────────────────────────────────
+// available 是**表达式位**宏（与 caller 族相反），故位置校验按 MacroRegistry.PositionOf 分流。
+// 编译期语义 = 「X 必须存在」；运行期是否存在由 VM 加载期判定，与本组诊断无关。
+
+[Test]
+void test_available_valid_no_error() {
+    // 合法：类型 + 唯一静态方法两种形态，均在表达式位 → 无诊断
+    string src = "class H { static int A() { return 1; } } "
+               + "class L { bool m() { return available!(H) && available!(H.A); } }";
+    var bag = _depDiags(src);
+    Assert.Equal(false, _hasCode(bag, "E0450"));
+    Assert.Equal(false, _hasCode(bag, "E1101"));
+    Assert.Equal(false, _hasCode(bag, "E1102"));
+    Assert.Equal(false, _hasCode(bag, "E0401"));
+}
+
+[Test]
+void test_available_undefined_symbol() {
+    // 目标编译期不存在 → E0401（防拼写错误 / 重构失配；不是「运行期缺失」那回事）
+    string src = "class L { bool m() { return available!(NoSuchType); } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E0401"));
+}
+
+[Test]
+void test_available_undefined_member() {
+    // 类在但方法不在 → E0401
+    string src = "class H { static int A() { return 1; } } "
+               + "class L { bool m() { return available!(H.Nope); } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E0401"));
+}
+
+[Test]
+void test_available_ambiguous_overload() {
+    // 重载 → E1101（v1 不支持签名消歧，design D3）
+    string src = "class H { static int A() { return 1; } static int A(int x) { return x; } } "
+               + "class L { bool m() { return available!(H.A); } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E1101"));
+}
+
+[Test]
+void test_available_bad_argument() {
+    // 参数不是符号引用（字面量）→ E1102
+    string src = "class L { bool m() { return available!(42); } }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "E1102"));
+}
+
+[Test]
+void test_available_misused_as_param_default() {
+    // 表达式位宏出现在参数默认值位 → E0450（且文案是「位置不对」而非「不认识」——
+    // 判据已从 KindOf 迁到 PositionOf，见 MacroRegistry）
+    string src = "class L { void m(bool b = available!(L)) { } }";
     var bag = _depDiags(src);
     Assert.Equal(true, _hasCode(bag, "E0450"));
 }

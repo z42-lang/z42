@@ -187,7 +187,14 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                 string dir = Path.Join(testsDir, act[idx]);
                 string pkgDir = Path.Join(dir, stage);
                 string toml = "";
-                if (stage == "target") {
+                // add-symbol-availability-macro：`ext` 是**可选**中间层——只有 target + main 的
+                // 两包 fixture 合法（如 available_present / available_skew：一个依赖包就够演示
+                // 跨包 available!）。此前无条件要求三包，缺 ext 直接判失败。
+                // ⚠️ 判断必须在 _prepPkgLibs **之前**：它会创建 <pkg>/libs，调用后目录必然存在。
+                bool extMissing = (stage == "ext") && !Directory.Exists(pkgDir);
+                if (extMissing) {
+                    hs[b].Skipped = true;   // 有意跳过，非失败——await 波不得判它红
+                } else if (stage == "target") {
                     toml = _prepPkgLibs(pkgDir, "");
                 } else if (stage == "ext") {
                     toml = _prepPkgLibs(pkgDir, _fixtureDist(Path.Join(dir, "target")));
@@ -197,7 +204,10 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                     toml = _prepPkgLibs(pkgDir, _fixtureDist(Path.Join(dir, "target")));
                     _copyZpkgs(_fixtureDist(Path.Join(dir, "ext")), Path.Join(pkgDir, "libs"));
                 }
-                if (toml.Length == 0) {
+                if (extMissing) {
+                    // 上面已置 Live=false，本波跳过它；main 波的 _copyZpkgs(ext dist) 对不存在的
+                    // 目录是 no-op，故两包 fixture 全程无碍。
+                } else if (toml.Length == 0) {
                     label[idx] = act[idx] + " (" + stage + ": no toml)";
                 } else {
                     hs[b] = _spawnBuildPkg(vmBin, driverZpkg, stdlibDist, pkgDir, toml);
@@ -209,7 +219,9 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
         while (b < bsz) {
             int idx = k + b;
             if (label[idx].Length == 0) {
-                if (!_awaitBuildPkg(hs[b])) { label[idx] = act[idx] + " (" + stage + " build)"; }
+                if (!hs[b].Skipped && !_awaitBuildPkg(hs[b])) {
+                    label[idx] = act[idx] + " (" + stage + " build)";
+                }
             }
             b = b + 1;
         }
@@ -256,6 +268,7 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
                     _copyStdlibZpkgs(stdlibDist, testLibs);
                     _copyZpkgs(_fixtureDist(Path.Join(dir, "target")), testLibs);
                     _copyZpkgs(_fixtureDist(Path.Join(dir, "ext")), testLibs);
+                    _applySkewAbsent(dir, testLibs, _fixtureDist(mainDir));
                     tmpLibs[b] = testLibs;
                     try {
                         hs[b] = new Process(runVm)
@@ -301,11 +314,40 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
 
 // ── 分波并发（parallel-cross-zpkg, 2026-09-05）────────────────────────────
 //
+// add-symbol-availability-macro：可选 `skew-absent.txt` —— 每行一个 zpkg 文件名，
+// 运行**前**从两处删除，模拟「编译时依赖在场、运行时不在场」的版本 skew。
+//
+// ⚠️ 必须两处都删：packed exe build 会把依赖 zpkg **colocate 进 main/dist**，而 VM 的
+// 惰性加载器先搜 entry zpkg 同目录再搜 Z42_LIBS —— 只删 libs 里那份，colocate 副本仍会
+// 被找到，负例会静默变成正例（本 change 开发期实测踩过：以为 pass 有 bug，实为测试没删干净）。
+//
+// 只影响声明了本文件的 fixture；其余用例零行为变化。
+void _applySkewAbsent(string caseDir, string testLibs, string mainDist) {
+    string marker = Path.Join(caseDir, "skew-absent.txt");
+    if (!File.Exists(marker)) { return; }
+    string[] lines = File.ReadAllText(marker).Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string nm = lines[i].Trim();
+        if (nm.Length > 0) {
+            string a = Path.Join(testLibs, nm);
+            if (File.Exists(a)) { File.Delete(a); }
+            string c = Path.Join(mainDist, nm);
+            if (File.Exists(c)) { File.Delete(c); }
+        }
+        i = i + 1;
+    }
+}
+
 // 一次 fixture build 的 spawn 句柄 + 待清理的临时 libs 目录。
 class XpkgJobZ {
     public ProcessHandle H { get; set; }
     public string Libs { get; set; }   // Wait 后要删的临时 Z42_LIBS
     public bool Live { get; set; }     // false = 本 fixture 已在更早的波次失败/跳过
+    // add-symbol-availability-macro：true = 本波**有意**不跑（如两包 fixture 没有 ext 中间层）。
+    // 与 Live=false 的区别是关键：Live=false 兼指「spawn 失败」，await 波会判红；
+    // Skipped 则明确表示「不该跑，也不该红」。
+    public bool Skipped { get; set; }
 }
 
 // _invokeBuildCompiler 的 spawn 版：准备好 outDir + 临时 libs 后**不等待**，

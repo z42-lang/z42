@@ -57,6 +57,21 @@ public sealed class Z42ClassType : Z42Type {
     // add-struct-value-semantics：值类型标志（Kind=="struct"）。SymbolCollector._putClassStub 从 ClassDecl.Kind
     // 回填。供 StructLayout 判定字段是否递归展平（值内联）+ 未来 codegen 值语义分流。record 暂不算（引用）。
     public bool IsStruct;
+    // make-enum-distinct-type：枚举类型标志。enum 在类型位置解析成 Z42ClassType（无基类、无成员），
+    // 靠本标志与普通类区分——转换格（enum ↔ 底层整数须显式 cast）、运算符表（enum 的 ==/!=/关系比较）、
+    // 装箱（须保住 enum 身份，别退化成 Int32）三处据此分流。
+    //
+    // **为什么是标志而非独立 Z42EnumType**（design D1 选项 B）：z42 的 enum 运行期就是 i64、没有成员
+    // 方法，独立种类会逼着每个 `is Z42ClassType` 分支补一条（漏改即静默降级）；标志让改动收敛到
+    // 上述三处，其余分支继续把 enum 当 class 家族处理，行为不变。
+    //
+    // ⚠️ **不带 per-enum 底层类型**：`z42.core/src/Type.z42:104` 是 SoT——「z42 一律以 i64 背书 enum」
+    // （声明的 `: byte` 当前被忽略、`GetValues` 恒返 long[]）⇒ 底层类型恒为 i64，无须逐 enum 记录。
+    //
+    // 置位点唯一：`SymbolTable.EnumTypes` 命中处（`_enumType`）。**本地与跨包 enum 共用该点**——
+    // `SymbolCollector._mergeImportedEnums` 在 typecheck 前已把导入 enum 灌进同一张 EnumTypes 表，
+    // 故跨包无须单独接线（阶段 0 实测结论，见 design D4）。
+    public bool IsEnum;
     // add-partial-types：由多个 `partial` 声明碎片合并而成。IsPartial=true 时，PartialMainFile 记录
     // **主碎片**文件（项目相对路径 Ordinal 最小；SymbolCollector 按发现序即 Ordinal 序，首碎片=主）。
     // IrGen/ExportedTypeExtractor 据此让**唯一**主碎片 CU 发出/导出完整 TYPE record（其余碎片只发方法体）。
@@ -134,6 +149,7 @@ public sealed class Z42ClassType : Z42Type {
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
         this.OwnFieldNames = new string[0]; this.OwnFieldSpellings = new string[0]; this.OwnFieldVis = new string[0]; this.OwnFieldCount = 0;
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
+        this.IsEnum = false;
         this.IsPartial = false; this.PartialMainFile = "";
         this.GenericParamNames = new string[0]; this.GenericParamCount = 0;
         this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
@@ -164,6 +180,22 @@ public sealed class Z42ClassType : Z42Type {
         ct._canon = PrimModel.Canon(name);
         ct._code  = PrimModel.Code(ct._canon);
         ct.IsStruct = ct._code >= 0 && ct._code <= 11;
+        return ct;
+    }
+
+    // make-enum-distinct-type：枚举类型的**唯一**合成入口。`SymbolTable` 的两个 EnumTypes 命中点
+    // （裸名 / 嵌套 plusKey）与 `MemberResolver` 的 `E.Member` 绑定共用它，保证「类型位置的 E」与
+    // 「成员引用的静态类型」是同一形状——否则 `Color c = Color.Blue;` 会在两个都叫 Color、但一个
+    // 带标志一个不带的类型之间比较，转换格照样连不上（正是本变更要根除的那种不自洽）。
+    //
+    // ⚠️ **IsStruct 保持 false**（= 今天 enum 的 Z42ClassType 逐字同形）。看着 enum 是值类型「应该」
+    // 置 true，但 IsStruct 还喂 `StructLayout` 的**字段值内联展平**，而 enum 没有任何字段——置 true
+    // 有把 enum 字段铺成零字段内联 blob（而非一个 i64 槽）的风险。本变更只改**类型身份**，表示与布局
+    // 一个字节不动；装箱/布局单独走 tasks 1.5 用实测定夺，不在这里靠直觉改。
+    // （`CallEmitter._isStructOrEnumStatic` 不受影响：它另有 `EnumTypes.ContainsKey` 分支恒命中。）
+    public static Z42ClassType Enum(string name) {
+        Z42ClassType ct = new Z42ClassType(name, false, "");
+        ct.IsEnum = true;
         return ct;
     }
 

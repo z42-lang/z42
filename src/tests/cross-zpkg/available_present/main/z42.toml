@@ -1,0 +1,9 @@
+[project]
+name    = "demo.avpresentapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.AvpresentApp.Main"
+pack    = true
+
+[dependencies]
+"demo.avpresenttarget" = "0.2.0"

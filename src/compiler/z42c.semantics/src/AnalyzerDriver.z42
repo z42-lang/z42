@@ -265,7 +265,16 @@ public static class AnalyzerDriver {
             if (t.HasFinally) { AnalyzerDriver._walkStmt(t.Finally, a, kinds, sink); }
             return;
         }
-        // 其余语句（Expr/Return/VarDecl/Throw/Break/Continue/LocalFunction）无子语句 → PR3a 无需深入。
+        if (s is LocalFunctionStmt) {
+            // 局部函数**带方法体** —— 必须下钻，否则 analyzer 永远看不到局部函数内部的
+            // loop / try-catch 等被观察节点（历史遗漏：PR3a 把 LocalFunctionStmt 误归入
+            // 「无子语句」）。只遍历体、不把局部函数自身当 MethodDecl 分派——「局部函数算不算
+            // 方法级 lint 的对象」是独立取舍，不在本修范围。
+            LocalFunctionStmt lf = s as LocalFunctionStmt;
+            if (lf.Decl != null && lf.Decl.HasBody) { AnalyzerDriver._walkStmt(lf.Decl.Body, a, kinds, sink); }
+            return;
+        }
+        // 其余语句（Expr/Return/VarDecl/Throw/Break/Continue/Deconstruct）无子语句 → 无需深入。
     }
 
     // 分派：节点 kind 在 analyzer 的 ObservedKinds 内即调 OnSyntaxNode（纯虚接口调用，无 delegate）。
