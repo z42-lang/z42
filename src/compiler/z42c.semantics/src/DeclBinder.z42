@@ -240,6 +240,9 @@ public sealed class DeclBinder {
                     // add-generic-methods：allParams = 类形参(前 c.TypeParams.Count 个) + 方法形参(后 mtpc 个)。
                     var env = TypeEnv.Root(symbols).WithClassGenericMethod(
                         ct.Name(), allParams, c.TypeParams.Count + mtpc, c.TypeParams.Count, inCtor);
+                    // add-static-constructors：静态 ctor 体 → 放行本类 static readonly 赋值（C# 语义）。
+                    // 这是 fix-static-readonly-not-enforced（#544）在 AssignTyper 里显式标注的耦合点。
+                    if (md.IsCtor && ms.IsStatic) { env.InStaticCtor = true; }
                     if (!ms.IsStatic) {
                         env.Define("this", ct);
                         string[] fnames = ct.Fields.Keys();

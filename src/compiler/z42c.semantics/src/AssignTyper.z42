@@ -186,7 +186,16 @@ public sealed class AssignTyper {
             // static readonly 赋值。z42 今天静态 ctor 体根本不跑，故此处对静态一律报错是
             // 正确的。修好静态 ctor 时**必须回到这里**：给 TypeEnv 加 InStaticCtor 并在此放行，
             // 否则合法的静态 ctor 赋值会被误报。写在这里而不是留个 TODO，是为了让耦合可见。
-            bool ok = !isStatic && recvIsThis && env.InCtor();
+            // add-static-constructors：兑现 #544 在此标注的耦合点——C# 允许**静态 ctor** 给
+            // 本类的 static readonly 赋值。限「本类」：静态 ctor 里写**别的类**的 static readonly
+            // 仍是错（对标 C#），故要比对 ClassName。
+            bool ok = false;
+            if (isStatic) {
+                BoundStaticGet sgt = target as BoundStaticGet;
+                ok = env.InStaticCtor && sgt.ClassName == env.ClassName;
+            } else {
+                ok = recvIsThis && env.InCtor();
+            }
             if (!ok) {
                 string whereTxt = isStatic ? "outside its initializer" : "outside constructor";
                 this._tc._diags.Error(DiagnosticCodes.ReadonlyAssignment,
