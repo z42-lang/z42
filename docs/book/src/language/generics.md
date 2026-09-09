@@ -1,6 +1,9 @@
 # z42 泛型设计
 
-> 对齐：2026-09-08（change `add-generic-type-arg-inference`——类型实参推断落地 + 更正本页
+> 对齐：2026-09-09（change `fix-inferred-type-arg-not-resolved`——推断出的类型实参归一到
+> 「已解析形态」的不变式 + 更正 §限制 里那条「基元未实现 interface」的失效陈述）
+>
+> 上一次：2026-09-08（change `add-generic-type-arg-inference`——类型实参推断落地 + 更正本页
 > §语义 里那条「T 从实参推断」的失效陈述）
 >
 > 📦 **本页 2026-09-08 从 `docs/design/language/generics.md` 原样迁入**，完成
@@ -407,6 +410,22 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 （含 lambda、target-typed new 的延迟位）→ 跳过该位；`params` 尾位整段跳过。
 **失败 = 完全按改动前行为、不发任何诊断。**
 
+**不变式：推断出的类型实参必须与显式写出的同形**（2026-09-09 `fix-inferred-type-arg-not-resolved`）。
+内建基元在 z42c 里**两种拼写并存**（`unify-value-types` 阶段 3 删掉 `Z42PrimType` 后的遗留）：
+
+| 来源 | 类型对象 | `Name()` |
+|---|---|---|
+| 表达式类型（`21` 的 `.Type()`） | `Z42ClassType.Builtin` 轻量合成 | 关键字 `"int"` |
+| 显式 `<int>`（`env.ResolveType` → `SymbolTable.BuiltinType`） | `Classes` 表里的包装类 `Std.Int32` | `"Int32"` |
+
+而下游判定只认后者（`ConstraintChecker._satisfiesInterface` → `symbols.Implements(裸名)` →
+`Classes.Find`）。推断的绑定值直接取自 `args[i].Type()`（上表第一行），若不归一就会出现
+**`Double<int>(21)` 过、`Double(21)` 报「`int` 不满足 `INumber`」——差别只有一个尖括号**。
+故 `TypeArgInference.Infer` 在**推断出口**统一过一次 `_resolvedForm`
+（门取 `IsBuiltinType()`，码 0..13，含 `string`=12 / `object`=13；用 `IsScalarType()`（0..11）
+会漏掉 `where T : IComparable` 下的 `Max("a", "b")`）。归一放出口而不是放各判定函数：
+后者只是众多消费方之一，逐个打补丁等于承认「型参实参有两种形态」。
+
 **推断结果刻意不回灌 `BoundCall.MethodTypeArgs`**：回灌会把 opcode 从 `Op.Call` 换成
 `Op.CallGeneric`、重排 zbc 字符串池、并关掉 `exec_call.rs` 的 native 快路径门；而全仓普查显示
 隐式泛型调用 **112 处全部是 `Array.Copy<T>`**，其 `T` 纯粹是编译期类型安全装置（函数体只做参数
@@ -416,7 +435,12 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 
 ### 限制（本阶段）
 
-- primitive 类型（int/string/...）**未**实现 interface，`Max<int>(1, 2)` 暂不可用（L3-G4 配合 stdlib 泛型化同步放开）
+- ~~primitive 类型（int/string/...）**未**实现 interface，`Max<int>(1, 2)` 暂不可用~~
+  ✅ **已失效**（2026-09-09 核实更正）：`src/libraries/z42.core/src/Primitives/` 下每个 wrapper
+  都写着 `struct Int32 : IComparable, IEquatable, INumber`，`Max<int>(1, 2)` / `Double<int>(21)`
+  编译期与运行期都正常。这条限制在实现落地后**一直没有被撤**——而 `Max(1, 2)`（省略尖括号）
+  当时确实报「`int` 不满足 `IComparable`」，那不是本条限制，是
+  `fix-inferred-type-arg-not-resolved` 修掉的归一缺口。
 - 约束不写入 zbc 二进制（仅编译期使用），VM 不做运行时校验（**L3-G3 必须补齐**）
 - 其他约束范式排期见 L3-G2.5 子迭代（见下）
 - **返回类型不按推断代换**：推断只驱动诊断，不进入任何发射决策（不变式：代换结果绝不回灌

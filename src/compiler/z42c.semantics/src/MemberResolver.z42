@@ -534,7 +534,7 @@ public sealed class MemberResolver {
             // 本分支进不来 ⇒ 不新增跨包能力。
             if (call.TypeArgCount == 0 && bc.MethodTypeArgCount == 0
                 && ms != null && ms.HasDecl && ms.Decl != null && ms.Decl.TypeParams.Count > 0) {
-                TypeArgBindings inf = TypeArgInference.Infer(ms.Signature, ms.Decl.TypeParams.Names,
+                TypeArgBindings inf = TypeArgInference.Infer(env.GetSymbols(), ms.Signature, ms.Decl.TypeParams.Names,
                                                              ms.Decl.TypeParams.Count, bc.Args, bc.ArgCount);
                 if (inf.Ok) {
                     this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, inf.Args, inf.Count, call.Span);
