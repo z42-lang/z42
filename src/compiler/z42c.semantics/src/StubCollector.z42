@@ -209,10 +209,37 @@ public sealed class StubCollector {
                         if (c.IsPartial && !prev.IsPartial) { prev.IsPartial = true; prev.PartialMainFile = file; }
                         // 保留 prev（首碎片），不覆盖 → 成员按 Ordinal 序累积进同一 CT（_fillClass 各碎片查同名命中此 CT）。
                     } else {
-                        // 新键 OR 碰撞但均非 partial（后者维持既有 last-wins 覆盖，无回归）。
+                        // 新键 OR 碰撞但均非 partial。
+                        //
+                        // report-duplicate-type-name（E0458）：**同一命名空间里重复声明同一个类型**
+                        // 此前是静默 last-wins —— 上面那行注释「维持既有 last-wins 覆盖，无回归」
+                        // 说的正是它。实测：同 ns 两个 `class Dup`，单文件与跨 CU 两种形态都
+                        // **rc=0 零诊断**，后声明的那个赢，前一个连同它的成员一起消失。
+                        // 跨 CU 形态在真实工程里更危险：两个文件各写一个 `class Config`，
+                        // 谁也不会注意到其中一个从来没生效过。对齐 C# CS0101。
+                        //
+                        // 🔴 判据必须是 **(ns, 名字, arity) 三者都相同**，不能只看 `Classes` 的裸名键：
+                        //   · 裸名键在**同短名跨 ns**（`A.Foo` / `B.Foo`，同一个包里）也会撞 —— 那是
+                        //     **使用点**的歧义（E0456 管），不是重复声明；故按 `ClassesByFqn` 判。
+                        //   · arity 也必须比：arity 预扫是 **per-CU** 的（见本方法开头），而符号表是
+                        //     per-package —— 于是「a.z42 的 `class Foo` + b.z42 的 `class Foo<T>`」两者
+                        //     都拿裸键 `Foo`、撞进同一个 FQN。实测那种写法今天能编过，把它报成
+                        //     「重复定义」是**错的诊断**（真问题是 arity 键没跨 CU 生效）。
+                        //     登记 Deferred：`arity-mangle-not-package-wide`。
+                        string dupNs = cu.HasNamespace ? cu.Namespace : "";
+                        string fqnKey = dupNs == "" ? key : dupNs + "." + key;
+                        int fqAt = table.ClassesByFqn.Find(fqnKey);
+                        if (fqAt >= 0) {
+                            Z42ClassType prevFq = table.ClassesByFqn.ValAt(fqAt) as Z42ClassType;
+                            if (prevFq != null && prevFq.GenericParamCount == c.TypeParams.Count) {
+                                this._sc.Diags.Error("E0458",
+                                    "the " + (dupNs == "" ? "global namespace" : "namespace `" + dupNs + "`")
+                                    + " already contains a definition for `" + c.Name + "`"
+                                    + " — rename one of them, or mark both `partial` to merge them", c.Span);
+                            }
+                        }
                         this._putClassStub(table, key, c, hasBase, baseName, ifaces, ifc, needsMangle, file,
-                                           cu.HasNamespace ? cu.Namespace : "");   // fix-type-ref-ns-collision
-
+                                           dupNs);   // fix-type-ref-ns-collision
                     }
                     // add-deprecated-directive：本地类级 `[Deprecated]`（任一碎片带即标记）。stub 已注册 → 回查设位。
                     if (HandlerRegistry.HasDeprecated(cu.Decls[i])) {

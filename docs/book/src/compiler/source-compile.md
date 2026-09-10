@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -65,12 +65,29 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 >
 > **Deferred**：① 导入跨包同短名类型的 **FQN keying** 仍只对本地类做（`ClassesByFqn` 不登记 imported）——
 > 歧义现在会报，但「限定名精确解析到 imported 的那一份」还没接通。
-> ③ 🔴 **同一 ns 内重复类名**（两个 `class Foo` 在同一个命名空间）今天仍**静默 last-wins**、零诊断
-> （C# 报 CS0101）。Deferred：`dup-type-name-in-namespace`。
+> **③ 已修**（2026-09-10 `report-duplicate-type-name`）：同一命名空间内重复声明同一个类型
+> （同 ns、同名、同 arity，且并非全部 `partial`）此前**静默 last-wins**——后声明的赢，前一个
+> 连同成员一起消失，**单文件与跨 CU 两种形态都零诊断**。现在报 **E0458**（对齐 C# CS0101）。
+> 判据是 **(ns, 名字, arity)** 三者都相同，见下。
 >
 > **④ 已修**（2026-09-10 `fix-multiple-file-scoped-namespaces`）：一个文件里写多个 `namespace X;`
 > 此前**静默 last-wins** —— 全部声明被登记进 **最后**那个 ns，连限定名都随之解析错
 > （实测 `A.Helper.Who()` 打印 `"B"`）。现在报 **E0457**，见下「文件级 `namespace` 的位置约束」。
+
+#### 同一命名空间内的重复类型声明（E0458）
+
+`StubCollector._passClassStubs` 注册类 stub 时，碰撞分两种：任一侧是 `partial` → 合并碎片；
+**均非 partial → 此前直接 last-wins 覆盖**（那行注释写着「维持既有 last-wins 覆盖，无回归」）。
+于是同 ns 两个 `class Dup` 会静默留下后一个 —— 跨 CU 形态在真实工程里更危险：两个文件各写一个
+`class Config`，谁也不会注意到其中一个从来没生效过。
+
+🔴 **判据必须是 `(ns, 名字, arity)` 三者都相同**，三个维度各有一个不能踩的坑：
+
+| 维度 | 为什么不能只看它 |
+|---|---|
+| ns | `SymbolTable.Classes` 是**裸名**键，同短名跨 ns（`A.Foo` / `B.Foo`，同一个包里）也会撞 —— 那是**使用点**的歧义（[E0456](#文件级-namespace-的位置约束e0457)，见上节旁）而非重复声明。故按 `ClassesByFqn` 判。 |
+| arity | arity-mangle 的预扫是 **per-CU** 的（`_passClassStubs` 开头），而符号表是 per-package ⇒ 「a.z42 的 `class Foo` + b.z42 的 `class Foo<T>`」两者都拿裸键 `Foo`、撞进同一个 FQN。**实测那种写法今天能编过**，把它报成「重复定义」是错的诊断。Deferred：`arity-mangle-not-package-wide`。 |
+| partial | `partial` 的重复是**合并**，由上面那条分支处理，不进重复判定。 |
 
 #### 文件级 `namespace` 的位置约束（E0457）
 
