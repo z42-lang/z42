@@ -255,8 +255,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
             crate::gc::GcMode::GenerationalMarkSweep => {
                 // add-generational-gc P3 (2026-05-22): minor + escalation.
-                // Run a minor first; if survival rate >= threshold,
-                // escalate to major in the same STW pause window.
+                // fix-minor-and-major-in-one-pause (2026-09-10): one cycle runs a minor **or**
+                // a major, never both — escalation now asks for the major on the *next* cycle
+                // (see the note further down).
                 let _pause = match crate::gc::safepoint::request_gc_pause(ctx) {
                     Some(p) => p,
                     None => return,
@@ -290,42 +291,65 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     .pending_major
                     .swap(false, std::sync::atomic::Ordering::AcqRel);
 
-                let minor = self.run_cycle_collection_minor();
-                let mut freed_bytes = minor.freed_bytes;
-                let mut did_major = false;
-                if want_major {
-                    freed_bytes += self.run_cycle_collection_major();
-                    did_major = true;
-                }
-
-                // fix-minor-survival-counts-promotion-as-death (2026-09-08): survival is
-                // `1 - reclaimed / young_before` — the fraction of the young set the sweep
-                // did **not** tombstone.
+                // **fix-minor-and-major-in-one-pause (2026-09-10)**: a major marks the whole
+                // heap from the roots and sweeps every region — everything a minor reclaims and
+                // more. Running the minor *first* and the major on top of it, in one pause, pays
+                // for the young set twice and reclaims nothing extra.
                 //
-                // It used to be `young_after / young_before`, reading the young list's size
-                // after the sweep. But a survivor that reaches `PROMOTION_THRESHOLD` leaves
-                // the young list, so that ratio counted **promotion as death**. With the
-                // threshold at 2, most survivors of any given minor are promoted out, so the
-                // ratio sat far below `Z42_GC_MINOR_THRESHOLD` no matter how little was
-                // actually collected — escalation never fired. Measured on
-                // `z42c.semantics --release --no-incremental` at 128M: **18 minors, 0 majors**,
-                // old garbage never collected, peak RSS 1034.6 MB against 902.9 MB for not
-                // collecting at all and 606.6 MB for plain STW.
-                if !did_major && young_before > 0 {
-                    let survival =
-                        1.0 - (minor.reclaimed_entries as f32 / young_before as f32);
-                    if survival >= Self::minor_escalation_threshold() {
-                        // Major in same pause window.
-                        freed_bytes += self.run_cycle_collection_major();
-                        did_major = true;
+                // The only thing the skipped minor would have done that the major does not is
+                // **promotion** (`gen_age` bumps, young-list removal). Aging is driven by minors
+                // by design, so the survivors simply age on the next one; nothing is promoted
+                // merely because a major happened, which is the more defensible rule anyway.
+                //
+                // Measured on `src/tests/perf/scenarios/09_alloc_ctorless` (a 100%-survival
+                // allocation loop, where escalation fires on *every* cycle): each cycle was
+                // `minor 156.7 ms + major 188.5 ms` — 370 ms of pause to free 0 bytes.
+                let (mut freed_bytes, mut did_major) = (0u64, false);
+                if want_major {
+                    freed_bytes = self.run_cycle_collection_major();
+                    did_major = true;
+                } else {
+                    let minor = self.run_cycle_collection_minor();
+                    freed_bytes = minor.freed_bytes;
+
+                    // fix-minor-survival-counts-promotion-as-death (2026-09-08): survival is
+                    // `1 - reclaimed / young_before` — the fraction of the young set the sweep
+                    // did **not** tombstone.
+                    //
+                    // It used to be `young_after / young_before`, reading the young list's size
+                    // after the sweep. But a survivor that reaches `PROMOTION_THRESHOLD` leaves
+                    // the young list, so that ratio counted **promotion as death**. With the
+                    // threshold at 2, most survivors of any given minor are promoted out, so the
+                    // ratio sat far below `Z42_GC_MINOR_THRESHOLD` no matter how little was
+                    // actually collected — escalation never fired. Measured on
+                    // `z42c.semantics --release --no-incremental` at 128M: **18 minors,
+                    // 0 majors**, old garbage never collected, peak RSS 1034.6 MB against
+                    // 902.9 MB for not collecting at all and 606.6 MB for plain STW.
+                    if young_before > 0 {
+                        let survival =
+                            1.0 - (minor.reclaimed_entries as f32 / young_before as f32);
+                        if survival >= Self::minor_escalation_threshold() {
+                            // The nursery is not producing garbage, so the garbage — if any —
+                            // is in the old generation. Ask for a major on the **next** trip
+                            // rather than running one on top of the minor just done (see the
+                            // note above); the old generation waits at most one more nursery.
+                            self.pending_major
+                                .store(true, std::sync::atomic::Ordering::Release);
+                        }
                     }
                 }
 
                 {
                     let mut i = self.inner.lock();
                     i.stats.gc_cycles += 1;
-                    i.stats.minor_collections += 1;
-                    if did_major { i.stats.major_collections += 1; }
+                    // fix-minor-and-major-in-one-pause: the two are exclusive now — a cycle
+                    // that wanted a major skips the minor entirely, so counting both would
+                    // report a minor that never ran.
+                    if did_major {
+                        i.stats.major_collections += 1;
+                    } else {
+                        i.stats.minor_collections += 1;
+                    }
                     i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
                     self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
                 }

@@ -126,7 +126,7 @@ fn from_getter_crash_dir_set() {
 #[test]
 fn from_getter_default_values_match_documented_defaults() {
     let cfg = RuntimeConfig::from_getter(fake_env(&[]));
-    assert_eq!(cfg.gc_mode,             GcMode::StwMarkSweep);
+    assert_eq!(cfg.gc_mode,             GcMode::GenerationalMarkSweep);
     assert_eq!(cfg.gc_minor_threshold,  0.75);
     assert_eq!(cfg.gc_pause_window,     1024);
     assert_eq!(cfg.gc_soft_threshold,   0.80);
@@ -155,9 +155,11 @@ fn from_getter_gc_mode_recognised_aliases() {
 }
 
 #[test]
-fn from_getter_gc_mode_unknown_falls_back_to_stw() {
+fn from_getter_gc_mode_unknown_falls_back_to_the_default() {
     let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_GC_MODE", "bogus-algo")]));
-    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
+    // flip-gc-default-to-generational: an unrecognized value falls back to *the* default,
+    // whatever that currently is — not to a hard-coded mode.
+    assert_eq!(cfg.gc_mode, GcMode::default());
 }
 
 #[test]
@@ -300,7 +302,7 @@ fn from_getter_ignores_unrelated_env_vars() {
     ]));
     assert!(cfg.libs_dir.is_none());
     assert!(cfg.log_filter.is_none());
-    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
+    assert_eq!(cfg.gc_mode, GcMode::GenerationalMarkSweep);
 }
 
 // ── unify-run-modes P0: layered resolution + [runtime] config file ────────
@@ -351,7 +353,7 @@ fn resolve_table_wins_over_default() {
 fn resolve_all_unset_uses_defaults() {
     let t = rt_table("");
     let cfg = RuntimeConfig::resolve(fake_env(&[]), Some(&t));
-    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep);
+    assert_eq!(cfg.gc_mode, GcMode::GenerationalMarkSweep);
     assert_eq!(cfg.gc_minor_threshold, 0.75);
     assert!(!cfg.jit_profile);
 }
@@ -931,7 +933,7 @@ fn full_five_layer_priority_chain() {
         (&[],                              &[("Z42_GC_MODE", "concurrent")], true, true, GcMode::ConcurrentMarkSweep, Layer::Env),
         (&[],                              &[],  true,  true, GcMode::GenerationalMarkSweep, Layer::UserConfig),
         (&[],                              &[],  false, true, GcMode::StwMarkSweep,          Layer::AppConfig),
-        (&[],                              &[],  false, false, GcMode::StwMarkSweep,         Layer::Default),
+        (&[],                              &[],  false, false, GcMode::GenerationalMarkSweep, Layer::Default),
     ];
     for (cli, env, with_user, with_app, want_mode, want_layer) in cases {
         let (cfg, res) = resolve_all(
@@ -1014,7 +1016,7 @@ fn a_value_overridden_by_a_higher_layer_is_never_diagnosed() {
 #[test]
 fn invalid_typed_value_is_rejected_with_a_diagnostic() {
     let (cfg, res) = resolve_all(&[], &[("Z42_GC_MODE", "quantum")], None, None, &full_ctx());
-    assert_eq!(cfg.gc_mode, GcMode::StwMarkSweep, "falls back to the default");
+    assert_eq!(cfg.gc_mode, GcMode::default(), "falls back to the default");
     let k = res.get("Z42_GC_MODE").unwrap();
     assert!(matches!(k.ignored[0].reason, IgnoreReason::Invalid(_)));
     assert!(res.diagnostics[0].message.contains("expected one of"), "{:?}", res.diagnostics[0]);

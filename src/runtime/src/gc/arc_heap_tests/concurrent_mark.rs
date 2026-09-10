@@ -128,6 +128,7 @@ fn mark_queue_starts_empty_in_default_heap() {
 #[test]
 fn barrier_field_no_op_in_stw_mode() {
     let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::StwMarkSweep);   // flip-gc-default-to-generational: opt in explicitly
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
     let owner = heap.alloc_object(dummy_type_desc("O"), vec![Value::Null], NativeData::None);
@@ -239,11 +240,14 @@ fn collect_cycles_with_context_routes_concurrent_under_concurrent_mode() {
 }
 
 #[test]
-fn collect_cycles_with_context_default_stw_unchanged() {
-    // STW mode (default) routes to the same `collect_cycles()` path as
-    // pre-this-spec. Verify cycle still freed (parity with STW).
+fn collect_cycles_with_context_stw_unchanged() {
+    // STW mode routes to the same `collect_cycles()` path as pre-this-spec.
+    // Verify the cycle is still freed (parity with STW).
+    // flip-gc-default-to-generational (2026-09-10): STW is no longer the default, so select
+    // it explicitly — this test is about the STW path, not about what the default is.
     use crate::vm_context::VmContext;
     let ctx = VmContext::new();
+    ctx.heap().set_mode(GcMode::StwMarkSweep);
     assert_eq!(ctx.heap().mode(), GcMode::StwMarkSweep);
 
     let heap_dyn = ctx.heap();

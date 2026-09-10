@@ -62,6 +62,9 @@ fn promote_to_old(v: &Value) {
 #[test]
 fn generational_mode_set_observable() {
     let heap = ArcMagrGC::new();
+    // flip-gc-default-to-generational: generational is the default now, so drive the
+    // transition from an explicitly-STW heap to keep this a real mode *change*.
+    heap.set_mode(GcMode::StwMarkSweep);
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
     heap.set_mode(GcMode::GenerationalMarkSweep);
     assert_eq!(heap.mode(), GcMode::GenerationalMarkSweep);
@@ -163,6 +166,7 @@ fn barrier_no_op_in_stw_mode_even_under_cross_gen_setup() {
     // Even with manually-set gen_age values, the STW mode barrier
     // never marks cards. Regression guard.
     let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::StwMarkSweep);   // flip-gc-default-to-generational: opt in explicitly
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
     let owner = alloc_obj(&heap, "Owner");
@@ -237,12 +241,15 @@ fn minor_gc_tombstones_unrooted_young_entry() {
 }
 
 /// **fix-young-list-only-when-generational (2026-09-07)**: a heap that allocated
-/// while in the default STW mode maintains no young list. Switching to
-/// generational must rebuild it from the live entries — otherwise minor GC walks
-/// an empty list and reclaims nothing.
+/// while in STW mode maintains no young list. Switching to generational must rebuild it
+/// from the live entries — otherwise minor GC walks an empty list and reclaims nothing.
+///
+/// flip-gc-default-to-generational (2026-09-10): STW is no longer the default, so the
+/// starting mode is now set explicitly — the scenario under test is unchanged.
 #[test]
 fn set_mode_to_generational_rebuilds_young_list_from_live_entries() {
     let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::StwMarkSweep);
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
     // Allocated *before* the switch, so nothing listed it as young.
@@ -572,14 +579,96 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
         pins.push(heap_dyn.pin_root(v));
     }
 
-    heap_dyn.collect_cycles_with_context(&ctx);
+    // fix-minor-and-major-in-one-pause (2026-09-10): escalation now asks for a major on the
+    // **next** trip instead of running one on top of the minor just done (which paid for the
+    // whole heap twice in a single pause). So this takes two cycles: the first minor observes
+    // the high survival rate and requests the major, the second runs it — and a `want_major`
+    // cycle skips the minor entirely, since a major reclaims everything a minor would.
+    heap_dyn.collect_cycles_with_context(&ctx);   // minor → requests a major
+    heap_dyn.collect_cycles_with_context(&ctx);   // the major itself
 
-    // Target should have been freed by the major escalation.
+    // Target should have been freed by the major.
     // Survivors: 10 pinned new objs (still young or just promoted).
     let mut alive = 0;
     heap_dyn.iterate_live_objects(&mut |_| alive += 1);
     assert_eq!(alive, 10,
-        "major escalation freed the unrooted old Target; 10 pinned survive");
+        "the escalated major freed the unrooted old Target; 10 pinned survive");
+}
+
+// ── fix-minor-and-major-in-one-pause (2026-09-10) ───────────────────────────
+
+/// A cycle runs a minor **or** a major, never both.
+///
+/// Escalation used to run a full major *on top of* the minor it had just done, in the same
+/// pause — paying for the whole heap twice and reclaiming nothing the major would not have
+/// reclaimed alone. Measured on `09_alloc_ctorless` (a 100%-survival allocation loop, where
+/// escalation fires every cycle): `minor 156.7 ms + major 188.5 ms` per cycle, to free 0 bytes.
+#[test]
+fn escalation_defers_the_major_to_the_next_cycle_instead_of_running_both() {
+    use crate::vm_context::VmContext;
+    let ctx = VmContext::new();
+    ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+    let heap = ctx.heap();
+
+    // Everything pinned ⇒ survival 100% ⇒ escalation fires.
+    let mut pins = Vec::new();
+    for i in 0..10 {
+        let v = heap.alloc_object(dummy_type_desc(&format!("Pinned{i}")), vec![], NativeData::None);
+        pins.push(heap.pin_root(v));
+    }
+
+    heap.collect_cycles_with_context(&ctx);
+    let s = heap.stats();
+    assert_eq!((s.minor_collections, s.major_collections), (1, 0),
+        "the escalating cycle runs the minor only, and *asks* for a major");
+
+    heap.collect_cycles_with_context(&ctx);
+    let s = heap.stats();
+    assert_eq!((s.minor_collections, s.major_collections), (1, 1),
+        "the next cycle runs the major and skips the minor (a major reclaims everything a \
+         minor would)");
+
+    let _ = pins;
+}
+
+/// A major ages its survivors, exactly as a minor's sweep does.
+///
+/// Aging is the only thing that drains the young list. Once a major can run *without* a minor
+/// in front of it (see the test above), a major that does not age leaves every live entry
+/// young — and the next minor re-marks the entire heap (measured on `09_alloc_ctorless`:
+/// 1 498 866 entries, 192.6 ms, for a nursery that should have held a fraction of that).
+#[test]
+fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
+    use crate::vm_context::VmContext;
+    let ctx = VmContext::new();
+    ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+    let heap = ctx.heap();
+
+    let mut pins = Vec::new();
+    let mut vals = Vec::new();
+    for i in 0..10 {
+        let v = heap.alloc_object(dummy_type_desc(&format!("Pinned{i}")), vec![], NativeData::None);
+        vals.push(v.clone());
+        pins.push(heap.pin_root(v));
+    }
+    for v in &vals {
+        let Value::Object(g) = v else { panic!("expected Object") };
+        assert_eq!(GcRef::gen_age(g), 0, "test setup: all ten start young");
+    }
+
+    // Cycle 1: minor (ages 0 → 1, and escalation requests a major). Cycle 2: the major.
+    heap.collect_cycles_with_context(&ctx);
+    heap.collect_cycles_with_context(&ctx);
+
+    // PROMOTION_THRESHOLD is 2, so after two *aging* collections every survivor is old — which
+    // only holds if the **major** aged them too.
+    for v in &vals {
+        let Value::Object(g) = v else { panic!("expected Object") };
+        assert!(GcRef::gen_age(g) >= PROMOTION_THRESHOLD,
+            "the major must age its survivors like a minor does; got age {}",
+            GcRef::gen_age(g));
+    }
+    let _ = pins;
 }
 
 #[test]

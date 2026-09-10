@@ -34,8 +34,9 @@
 //! (`finish_alloc` and `alloc_array_obj`, each with a TLAB and an ambient path,
 //! plus `acquire_var_block` for every `region_var` block — strings, closures and
 //! array backings are mark-swept by `VarRegion::sweep` just like region entries).
-//! The flag is `false` for the entire life of a `StwMarkSweep` heap, which is
-//! the production default.
+//! The flag is `false` for the entire life of any heap that is not concurrently marking —
+//! which is every `StwMarkSweep` and `GenerationalMarkSweep` heap, i.e. the production
+//! default (`generational` since 2026-09-10) and its opt-in sibling alike.
 //!
 //! ## Why shading *after* publishing the entry is sound
 //!

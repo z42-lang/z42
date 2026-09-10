@@ -214,44 +214,89 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
     return _runVmGoldensF(modeList, jobsN, sh[0], sh[1], dirFilter, fileFilter);
 }
 
-// add-ci-generational-coverage (2026-09-10): compile one real package under
-// `Z42_GC_MODE=generational`, with a nursery small enough to force hundreds of collections.
+// add-ci-generational-coverage (2026-09-10) / flip-gc-default-to-generational (2026-09-10):
+// compile one real package under each GC mode, with the collector tuned to fire hundreds of
+// times, and require that it actually did.
 //
 // **Why a compiler build and not the golden suite**: the goldens were tried first and are
 // *vacuous* here — each case is a short-lived program that never collects. Reintroducing
 // #539's defect left the whole golden suite green; the same defect crashes this build.
 //
-// **Why 1 MB** (fix-callee-entry-safepoint-drops-args, 2026-09-10): the nursery is what sets
-// how many collections happen, and every defect this guards against needs objects to survive
-// several of them. The number of collections over one `z42c.semantics` build:
+// **Why both modes.** `generational` is the default now, so every other stage exercises it —
+// but only at the 32 MB default nursery, which is ~26 collections spread over the run and has
+// been proved twice to be too few (it missed #539, and it missed #557). And `stw` went from
+// "the default, covered by everything" to "covered by nothing" — which is exactly the state
+// that let three premature-collection defects live for months before #555.
 //
-//   32M (default) 26 collections — misses #539 *and* the callee-entry safepoint defect
-//   16M           26 collections — catches #539; misses the callee-entry one (needs ~128)
-//   1M           365 collections — catches both, +6.6 s (6.8 → 13.4 s)
+// **Why these settings** — collections over one `z42c.semantics` build, and what each buys:
 //
-// 16 MB was the previous setting, chosen when 1 MB was still red on a clean tree — that was
-// the callee-entry safepoint defect, now fixed, and this stage is what keeps it fixed.
-int _testGenerationalWorkload() {
+//   default (generational), nursery 1M   ~440 collections  ← catches #557 (which needed ~128)
+//   Z42_GC_MODE=stw, budget 32M           ~67 collections  ← the knee: 8M is ~700 but 2x the
+//                                                             wall time for the same shape
+//
+// The floors below are set well under the observed counts — their job is to catch a *collapse*
+// (a flipped default, a policy change that stops the collector firing), not to pin an exact
+// number, which drifts with the workload.
+//
+// The generational leg deliberately leaves `Z42_GC_MODE` **unset**: it is testing *the
+// default*, so hard-coding the mode here would let a flipped default go unnoticed. The
+// asserted collection floor is what makes that safe — if the default changes, or a policy
+// change stops the collector firing, the count collapses and this stage goes red rather than
+// silently testing nothing.
+int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string budgetEnv,
+                        int minCycles) {
     string root = _root();
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
     string flat = _assembleAllLibs(root, "release");
     string toml = root + "/src/compiler/z42c.semantics/z42c.semantics.z42.toml";
-    Console.WriteLine("  ▶ z42c.semantics --release --no-incremental "
-        + "(Z42_GC_MODE=generational, nursery 1M)");
-    ProcessResult r = new Process(vm)
+    Console.WriteLine("  ▶ z42c.semantics --release --no-incremental (" + label + ")");
+    Process p = new Process(vm)
         .Arg(driver).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
         .Env("Z42_LIBS", flat)
-        .Env("Z42_GC_MODE", "generational")
-        .Env("Z42_GC_NURSERY_BYTES", "1M")
-        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
+        .Env("Z42_GC_TRACE", "1");
+    if (modeEnv != "")    { p = p.Env("Z42_GC_MODE", modeEnv); }
+    if (nurseryEnv != "") { p = p.Env("Z42_GC_NURSERY_BYTES", nurseryEnv); }
+    if (budgetEnv != "")  { p = p.Env("Z42_GC_MAX_BYTES", budgetEnv); }
+    // stderr is piped so the `z42-gc:` trace lines can be counted; stdout stays inherited so
+    // build progress is still visible in the log.
+    ProcessResult r = p.Stdout(Stdio.Inherit()).Stderr(Stdio.Pipe()).Run();
     if (r.ExitCode != 0) {
-        Console.WriteLine("  x generational build failed (exit " + r.ExitCode.ToString() + ")");
+        Console.WriteLine(r.Stderr);
+        Console.WriteLine("  x " + label + " build failed (exit " + r.ExitCode.ToString() + ")");
         return 1;
     }
-    Console.WriteLine("  ok generational build clean");
+    int cycles = _countGcCycles(r.Stderr);
+    if (cycles < minCycles) {
+        Console.WriteLine("  x " + label + ": only " + cycles.ToString() + " GC cycles (want >= "
+            + minCycles.ToString() + ") — the collector is not being exercised, so this stage "
+            + "is not testing what it claims. Check Z42_GC_MODE's default and the auto-collect "
+            + "policy before relaxing this floor.");
+        return 1;
+    }
+    Console.WriteLine("  ok " + label + ": clean, " + cycles.ToString() + " GC cycles");
     return 0;
+}
+
+// Count `z42-gc: <Kind> …` cycle lines in a captured `Z42_GC_TRACE=1` stderr. The other trace
+// shapes (`near heap limit`, `over budget`) are not cycles and must not be counted.
+int _countGcCycles(string stderrText) {
+    int n = 0;
+    string[] lines = stderrText.Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        if (lines[i].StartsWith("z42-gc: ") && lines[i].Contains("  (cycle ")) { n = n + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+int _testGcModes() {
+    // The default leg: mode UNSET on purpose — see the note above.
+    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 200);
+    if (c != 0) { return c; }
+    return _testGcModeWorkload("Z42_GC_MODE=stw, budget 32M", "stw", "", "32M", 40);
 }
 
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
@@ -381,7 +426,7 @@ string[] _gateStageNames() {
         "manifest targets ([[test]])",
         "examples (compile gate + test=true run)",
         "compiler",
-        "gc generational (z42c.semantics build)",
+        "gc modes (z42c.semantics build)",
         "vscode-syntax",
         "lines",
         "walkers"
@@ -555,8 +600,8 @@ int _testAll(bool noBuild, string skip) {
         c = _testCompiler(true); if (c != 0) { return c; }
         _stageEnd(slog, "compiler", swStage);
     }
-    // stage 5b: recompile one real package with the **generational** collector armed.
-    // Skippable: host-independent, CI runs it 1x.
+    // stage 5b: recompile one real package under each GC mode, with the collector tuned to
+    // fire hundreds of times. Skippable: host-independent, CI runs it 1x.
     //
     // add-ci-generational-coverage (2026-09-10): nothing in CI had ever run
     // `Z42_GC_MODE=generational` — `grep Z42_GC_MODE` found only a concurrent-mode smoke —
@@ -564,10 +609,14 @@ int _testAll(bool noBuild, string skip) {
     // months (#537 stale marks on old roots; #539 promotion and major card-clear each
     // creating uncarded old→young edges). All three surfaced the same way: the compiler
     // crashing mid-build on a dangling reference. So that is what this runs.
+    //
+    // flip-gc-default-to-generational (2026-09-10): generational became the default, which
+    // moved `stw` into exactly the uncovered seat generational used to occupy — so both modes
+    // run here now, each with an asserted collection floor.
     if (!_skipHas(skip, "gcgen")) {
-        swStage = _stageStart("gc generational (z42c.semantics build)");
-        c = _testGenerationalWorkload(); if (c != 0) { return c; }
-        _stageEnd(slog, "gc generational (z42c.semantics build)", swStage);
+        swStage = _stageStart("gc modes (z42c.semantics build)");
+        c = _testGcModes(); if (c != 0) { return c; }
+        _stageEnd(slog, "gc modes (z42c.semantics build)", swStage);
     }
     // stage 6: VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
     // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext, 2026-07-07）

@@ -150,6 +150,36 @@ fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
     );
 }
 
+/// **flip-gc-default-to-generational (2026-09-10)**: a soft cap has to be enforced under the
+/// generational collector too.
+///
+/// The generational gate is the **nursery** — an absolute 32 MB by default, deliberately
+/// independent of any budget — so with a budget far below one nursery the policy was never
+/// consulted: `next_collect_at` sat at `live + 32 MB` and the heap sailed past its cap without
+/// collecting once. (`decide_trip` would have called for a major on `near_cap`; it just never
+/// got asked.) The fix is `minor_gate` = `min(nursery, allowance)`, and the allowance is what a
+/// soft cap squeezes.
+///
+/// This was invisible while STW was the default — its gate is the allowance, already squeezed.
+#[test]
+fn generational_enforces_a_soft_cap_far_below_one_nursery() {
+    use crate::gc::GcMode;
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+    // Deliberately does NOT touch the nursery: a 64 KB budget against the 32 MB default is
+    // exactly the shape that went unenforced.
+    let budget = 64 * 1024;
+    heap.set_max_heap_bytes(Some(budget));
+    for _ in 0..20_000 {
+        heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);
+    }
+    let used = heap.stats().used_bytes;
+    assert!(cycles(&heap) > 0, "a budget below one nursery must still trip a collection");
+    assert!(used <= budget,
+        "a reclaimable generational heap must be held at its budget; ended at {used} bytes \
+         over a {budget}-byte budget (before the fix it ran to ~32MB before collecting once)");
+}
+
 /// The two modes size their growth gate differently, and that is the whole point of the
 /// nursery: a minor only has to look at the young set, so it may run after one nursery's
 /// worth of allocation, while a full collection has to earn its cost and waits for a whole
@@ -158,9 +188,13 @@ fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
 fn generational_collects_more_often_than_stw_on_the_same_workload() {
     fn cycles_for(generational: bool) -> u64 {
         let heap = ArcMagrGC::new();
-        if generational {
-            heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
-        }
+        // flip-gc-default-to-generational: both arms select their mode explicitly — leaving
+        // one to the default made this compare generational against generational.
+        heap.set_mode(if generational {
+            crate::gc::GcMode::GenerationalMarkSweep
+        } else {
+            crate::gc::GcMode::StwMarkSweep
+        });
         heap.set_nursery_bytes_for_test(64 * 1024);
         for _ in 0..20_000 {
             heap.alloc_array(vec![crate::metadata::Value::I64(0); 16]);

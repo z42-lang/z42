@@ -513,12 +513,54 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // promotion one, through a different door: the card table's invariant is
         // **"an old entry referring to anything young has a dirty card"**, and it has to be
         // re-established here rather than assumed away.
+        // **fix-minor-and-major-in-one-pause (2026-09-10)**: age the young survivors, exactly as
+        // the minor sweep does. A major is a superset collection, so surviving one is as much
+        // evidence of longevity as surviving a minor — and aging is the only thing that drains
+        // the young list. Before escalation was deferred a major always had a minor in front of
+        // it, which did the aging; now that a major can run alone, it has to do it itself, or
+        // every live entry stays young and the **next** minor re-marks the whole heap
+        // (measured on `09_alloc_ctorless`: 1 498 866 entries, 192.6 ms).
+        //
+        // Runs before `rebuild_card_table` on purpose: promotion is what creates old→young
+        // edges, and the rebuild is what records them.
+        self.age_survivors_after_major();
         self.rebuild_card_table();
         // add-bounded-nursery: the old generation was just fully swept, so the budget that
         // decides when to sweep it again starts over.
         self.promoted_bytes_since_major
             .store(0, std::sync::atomic::Ordering::Relaxed);
         freed
+    }
+
+    /// **fix-minor-and-major-in-one-pause (2026-09-10)**: the major's counterpart of the aging
+    /// half of [`Self::sweep_phase_young_only`]. Entries were already swept by `sweep_phase`;
+    /// this only bumps the survivors' ages and lets those that cross the threshold leave the
+    /// young list. Newly-old entries still holding young references get their cards dirtied,
+    /// the same way promotion does in a minor (`fix-promotion-creates-uncarded-old-to-young`).
+    fn age_survivors_after_major(&self) {
+        let mut young_obj = Vec::new();
+        {
+            let region = self.region_object.lock();
+            region.iterate_young(|h, _| young_obj.push(h));
+        }
+        let mut newly_old_obj = Vec::new();
+        for h in young_obj {
+            if self.region_object.lock().promote(h) { newly_old_obj.push(h); }
+        }
+        self.dirty_cards_for_newly_old_objects(&newly_old_obj);
+
+        let mut young_arr = Vec::new();
+        {
+            let region = self.region_array.lock();
+            region.iterate_young(|h, _| young_arr.push(h));
+        }
+        let mut newly_old_arr = Vec::new();
+        for h in young_arr {
+            if self.region_array.lock().promote(h) { newly_old_arr.push(h); }
+        }
+        self.dirty_cards_for_newly_old_arrays(&newly_old_arr);
+
+        self.region_var.lock().age_young_survivors();
     }
 
     /// Clear every card, then re-dirty the chunk of each live **old** entry that still refers
@@ -654,7 +696,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.fire_barrier_field(owner, slot, new);
 
         match self.mode() {
-            crate::gc::GcMode::StwMarkSweep => {} // no-op (production default)
+            crate::gc::GcMode::StwMarkSweep => {} // no-op (one generation → no cross-gen edge)
             crate::gc::GcMode::ConcurrentMarkSweep => {
                 debug_assert!(
                     new.is_heap_ref(),

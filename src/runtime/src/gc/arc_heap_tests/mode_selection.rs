@@ -8,15 +8,16 @@ use super::*;
 use crate::gc::{GcMode, MagrGC};
 
 #[test]
-fn mode_default_is_stw_mark_sweep() {
+fn mode_default_is_generational_mark_sweep() {
+    // flip-gc-default-to-generational (2026-09-10).
     let heap = ArcMagrGC::new();
-    assert_eq!(heap.mode(), GcMode::StwMarkSweep);
+    assert_eq!(heap.mode(), GcMode::GenerationalMarkSweep);
 }
 
 #[test]
 fn set_mode_changes_observable_mode() {
     let heap = ArcMagrGC::new();
-    assert_eq!(heap.mode(), GcMode::StwMarkSweep);
+    assert_eq!(heap.mode(), GcMode::default());
     heap.set_mode(GcMode::ConcurrentMarkSweep);
     assert_eq!(heap.mode(), GcMode::ConcurrentMarkSweep);
     heap.set_mode(GcMode::StwMarkSweep);

@@ -1,9 +1,9 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 对齐：2026-09-10（change `fix-callee-entry-safepoint-drops-args` 补「safepoint 只能放在
-> 活值已经是根的位置」一节 + CI 分代 stage 收紧到 1M nursery；`fix-gc-budget-not-enforced`
-> 修增长闸门基线 + 退避策略一节；原 change `add-gc-tuning-config`，落地 runtime_review
-> §M3 GC 调参 + §M6 safepoint 协议）。
+> 对齐：2026-09-10（change `flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
+> 执行 + 修「一个 pause 跑两次回收」/「major 不升龄」+ 徒劳退避分级 + gate stage 改跑两种模式；`fix-callee-entry-safepoint-drops-args` 补「safepoint 只能
+> 放在活值已经是根的位置」一节；`fix-gc-budget-not-enforced` 修增长闸门基线 + 退避策略一节；
+> 原 change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议）。
 > 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/auto_collect.rs`（自动回收策略）、
 > `gc/arc_heap/alloc.rs`（压力事件），
 > `gc/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`MagrGC` trait 协议文档）、
@@ -38,7 +38,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
 | `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `gc/safepoint.rs` |
-| `Z42_GC_MODE` | `stw-mark-sweep` | GC 算法：`stw` / `concurrent` / `generational` | `gc/mode.rs` |
+| `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `concurrent` / `generational`。默认自 2026-09-10 由 `stw` 改为 `generational`（见下「为什么分代成了默认」） | `gc/mode.rs` |
 
 > 三个比率各自独立 clamp 到 `[0,1]`，**不强制跨 knob 排序**（若把 pressure 设得高于 near，
 > pressure-事件分支自然变死代码，无害）——保持每个 knob 独立可预测，不做"惊喜"式静默改写。
@@ -197,18 +197,30 @@ minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位
 （`mark_backing` / `shade_var_newborn` 置位），少这一行就意味着一次中途放弃或换模式的回收
 留下的位会让下一次 `mark_phase` 跳过某个闭包的 `env`。
 
-## ⚠️ 分代模式的 CI 覆盖
+## ⚠️ GC 模式的 CI 覆盖（gate stage `gc modes`）
 
-`Z42_GC_MODE=generational` **从来没有被 CI 跑过**（`grep Z42_GC_MODE` 全仓只有一个
+`Z42_GC_MODE=generational` **曾经从来没有被 CI 跑过**（`grep Z42_GC_MODE` 全仓只有一个
 concurrent 的 smoke）——这是 #537 / #539 **三个「丢对象」缺陷能活几个月**的直接原因。
-现在 gate 里有一个 stage 用分代收集器重编 `z42c.semantics`。
+gate 里因此有一个 stage 用高频回收重编 `z42c.semantics`。
+
+**翻默认之后它跑两条腿**：分代成了默认，于是 `stw` 掉进了分代原来那个「没人覆盖」的位置 ——
+同一个坑不能踩第二次。
+
+| 腿 | 设置 | 回收次数 | 它防的是 |
+|---|---|---|---|
+| 默认模式 | `Z42_GC_NURSERY_BYTES=1M`（**`Z42_GC_MODE` 不设**） | ~440 | #557 那类过早回收（需要 ~128 次才显形） |
+| STW | `Z42_GC_MODE=stw`、`Z42_GC_MAX_BYTES=32M` | ~67 | 非默认模式的同类缺陷 |
+
+🔑 **默认那条腿故意不设 `Z42_GC_MODE`** —— 它测的就是「默认是什么」；写死模式会让一次
+默认翻转悄悄溜过去。**两条腿都断言了一个回收次数下界**：默认被改、或者哪次策略调整让
+收集器不再触发，次数会塌掉、stage 变红，而不是继续绿着却什么都没测。
 
 **为什么是编译器自建、不是 golden 套件**：golden 版先做过，**是空转的** ——
 把 #537 的缺陷放回去，整套 golden 依然全绿（每个 golden 都是短命小程序，一次 minor 都不做）。
 三个缺陷当年都是以「编 z42c.semantics 编到一半崩在悬垂引用上」的形式暴露的，所以就跑那件事。
 
-**为什么 nursery 定 1M**：nursery 决定跑多少次回收，而这些缺陷都要**对象熬过好几次回收**
-才显形。一次 `z42c.semantics` 构建：
+**为什么默认腿的 nursery 定 1M**：nursery 决定跑多少次回收，而这些缺陷都要**对象熬过好几次
+回收**才显形。一次 `z42c.semantics` 构建：
 
 | nursery | 回收次数 | 放回 #539 的缺陷 | 放回 callee-entry safepoint 缺陷 | 干净树 | 墙钟 |
 |---|---|---|---|---|---|
@@ -299,10 +311,81 @@ helper 一直都发，这三处从来不发：
 **一次都不回收**。设了软上限时相对策略也更好（墙钟 −8.1%）：allowance 随活集自适应，
 不像固定的 `throttle_ratio × limit` 那样在活集变大后仍按同一格触发。
 
-⚠️ **`Z42_GC_MODE` 默认仍是 `stw`**：今天翻到分代，墙钟和内存**两头都不占优**
-（7.34 s / 758.5 MB vs 7.07 s / 756.2 MB）。分代该赢在「minor 便宜所以能勤跑」，
-而 z42 的 minor 还背着 O(堆) 的 chunk 回收 —— 那也是 nursery 只能停在 32M（而 Mono 是 4M）
-的原因。**顺序是：增量 chunk 回收 → 补 CI 的分代覆盖 → 翻默认。**
+## 为什么分代成了默认（flip-gc-default-to-generational，2026-09-10）
+
+**`Z42_GC_MODE` 的默认已从 `stw` 改为 `generational`。** 这条曾长期不成立，而且原因不是保守 ——
+分代当时**两头都输**（7.34 s / 758.5 MB vs STW 的 7.07 s / 756.2 MB）。翻过来靠的是四件事：
+
+| # | change | 它解掉的那一环 |
+|---|---|---|
+| #552 | 增量 chunk 回收 | minor 的 `O(堆)` 那一趟从停顿里拿掉（中位 −57%） |
+| #553 | 一 chunk 32 张卡 + 扫过即清 | 脏卡根集缩 32×（分代中位再 −29%） |
+| #555 | CI 补分代覆盖 | 堵上「三个丢对象缺陷活了几个月」的那个洞 |
+| #557 | 被调函数入口 safepoint | 唯一剩下的丢对象缺陷 —— **而且它根本不是分代的** |
+
+**实测**（`z42c.semantics --release --no-incremental`，各 3 跑，同一台机同一棵树）：
+
+| | 墙钟 | 峰值 RSS | 回收次数 | 中位停顿 | 最大停顿 |
+|---|---|---|---|---|---|
+| `stw`（旧默认） | 6.52 s | 949 MB | 3 | 59.4 ms | 84.8 ms |
+| **`generational`（新默认）** | 6.74 s（**+3.4%**） | **777 MB（−18.1%）** | 16 | **20.5 ms（−65%）** | 85.5 ms |
+
+**内存和中位停顿两个都赢**，代价是 3.4% 墙钟 —— 多做了 5 倍的回收。最大停顿不动：它由
+major 决定，两种模式都要跑 major。
+
+🔑 **这张表和上面那段「两头都不占优」的差别几乎全在 RSS 一栏**，而 RSS 那栏变好不是分代变强了，
+是 STW 变差了：`arm-gc-by-default` 之后不设预算的 STW 只跑 3 次 full collection（相对余量
+`live × 0.33` 随活集一起长），而分代的 minor 闸门是**绝对**的一个 nursery，所以它按分配量勤跑。
+**「谁更省内存」在武装策略换成相对余量之后才倒过来 —— 别拿更早的数据推论。**
+
+⚠️ **`Z42_GC_MAX_BYTES` 与分代闸门的交互**（同一个 change 里修的）：分代的 minor 闸门是
+nursery（默认 32M 绝对值，刻意与预算无关），于是一个远小于 nursery 的软上限**根本不会被执行**
+—— `next_collect_at` 停在 `live + 32M`，策略在堆冲过上限之前一次都没被问过。
+（`decide_trip` 本来会因为 `near_cap` 要一次 major，只是没人问它。）修法是把 minor 闸门改成
+`min(nursery, allowance)`，而 allowance 正是软上限压的那个量；没设上限时 allowance ≥ 4 个
+nursery，`min` 恒等于 nursery，**默认路径逐字节不变**。
+STW 那侧的闸门本来就是 allowance，所以这个洞在它当默认的时候看不见。
+
+### 一个周期跑 minor **或** major，绝不两个都跑
+
+升级启发式（`Z42_GC_MINOR_THRESHOLD`，年轻代存活率高 → 该收老年代了）**曾经在同一个 pause 里
+紧接着跑一次完整 major**，源码注释就写着 `Major in same pause window.`。`want_major` 那条
+（晋升字节闸门）也一样：想要 major 时仍然先跑一遍 minor。
+
+**那次 minor 是纯白干** —— major 从固定根标记全堆、清扫所有 region，minor 能回收的它全包含。
+
+```text
+旧：  minor(全部年轻代)  →  major(全堆)        一个 pause 付两遍
+新：  想要 major → 只跑 major
+      minor 发现存活率高 → 把 major 排到下一个周期（pending_major）
+```
+
+实测 `src/tests/perf/scenarios/09_alloc_ctorless`（存活率 100% 的分配循环，升级**每个周期**都
+触发）：每周期 `minor 156.7 ms + major 188.5 ms` = 370 ms 停顿，`freed` 0 字节。
+
+⚠️ **代价是 major 必须自己升龄**（下一节）—— 以前 major 前面永远有一个 minor 替它做。
+
+### major 也要给幸存者升龄
+
+**升龄是唯一能排空 young 表的东西**（幸存者年龄到 `PROMOTION_THRESHOLD` 才离开）。
+一旦 major 能单独跑，不升龄就意味着**所有存活条目都留在 young 表里**，下一次 minor
+直接重标全堆 —— 实测 1 498 866 条、192.6 ms，本该只有一个 nursery 那么多。
+
+语义上这也更对：**熬过一次 major 和熬过一次 minor 是同样强的长寿证据**。
+`age_survivors_after_major` 放在 `rebuild_card_table` **之前**：晋升产生 old→young 边，
+而 rebuild 负责记录它们。
+
+### 徒劳退避：「白干一场」比「回收得不够」退得更狠
+
+原来两者都是 ×2。它们性质不同：白干一场说明活集根本不产生垃圾，而下一次回收要多标记整整一个
+闸门的对象、回报仍是零 —— **每多退一格，下一次白干就更贵**。所以
+`reclaimed < gate/16` → ×4，`< gate/2` → ×2，其余重置为 1。
+1/16 远低于健康回收的回报（健康 minor 能收回大半个 nursery），也远高于 100% 存活时还回来的
+那几百字节，两种情形不会重叠。
+
+**三条合起来**（本地双二进制 A/B，base = 翻默认前）：`09_alloc_ctorless` 从
+**1.93× 回到 0.885×**（比 STW 还快），其余场景全在 ±3.3% 内，而编译器负载的
+RSS −18.2% / 中位停顿 −64% 一分没丢。
 
 ## 分代的两个闸门：新生代按分配量，老年代按晋升量
 

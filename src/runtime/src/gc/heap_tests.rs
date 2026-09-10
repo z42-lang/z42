@@ -6,11 +6,18 @@
 use crate::gc::{HeapStats, MagrGC, ArcMagrGC};
 use crate::metadata::Value;
 
+// flip-gc-default-to-generational (2026-09-10): these two used to pass a **primitive** as the
+// written value. That is a contract violation — `write_barrier_*` documents "caller must filter
+// primitives via `Value::is_heap_ref`" and debug-asserts it — which went unnoticed only because
+// the then-default STW arm ignores its arguments entirely. Under the generational default the
+// assert fires. The subject here is "a barrier does not perturb heap stats", and the primitive
+// was incidental, so these now pass a heap reference and hold in *every* mode.
+
 #[test]
 fn default_write_barrier_field_is_noop() {
     let heap = ArcMagrGC::new();
     let owner = heap.alloc_array(vec![Value::I64(1)]);
-    let new   = Value::I64(42);
+    let new   = heap.alloc_array(vec![]);
     let stats_before = heap.stats();
     heap.write_barrier_field(&owner, 0, &new);
     assert_eq!(heap.stats(), stats_before);
@@ -20,7 +27,7 @@ fn default_write_barrier_field_is_noop() {
 fn default_write_barrier_array_elem_is_noop() {
     let heap = ArcMagrGC::new();
     let arr  = heap.alloc_array(vec![Value::I64(0); 3]);
-    let new  = Value::I64(99);
+    let new  = heap.alloc_array(vec![]);
     let stats_before = heap.stats();
     heap.write_barrier_array_elem(&arr, 1, &new);
     assert_eq!(heap.stats(), stats_before);

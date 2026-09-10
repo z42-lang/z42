@@ -64,7 +64,14 @@ fn observer_records_new_is_heap_metadata_correctly() {
     // The trait method itself doesn't filter primitives — it just records
     // what it sees. Call sites are responsible for the is_heap_ref filter
     // (Decision 1). This test pins the observer's classification logic.
+    //
+    // flip-gc-default-to-generational (2026-09-10): it therefore *deliberately* calls the
+    // barrier the way a caller that forgot to filter would — which the generational and
+    // concurrent arms debug-assert against. STW is the one arm that tolerates it, so select it
+    // explicitly; the observer fires ahead of the mode match either way, so the classification
+    // under test is unaffected.
     let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     let obs = Arc::new(BarrierObserver::new());
     heap.install_barrier_observer(obs.clone());
 
