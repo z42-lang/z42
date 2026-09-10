@@ -1,0 +1,205 @@
+// enforce-test-attr-placement —— `[Test]`/`[Benchmark]`/`[Setup]`/`[Teardown]` 的位置 + 签名强制
+// （DeclEnforcer._passTestAttrEnforce）。逐条覆盖 spec R1–R7：
+//   specs/test-attribute-placement/spec.md（docs/spec/changes/enforce-test-attr-placement/）
+//
+// 补回的是自举迁移中丢失的 TestAttributeValidator（E0911/E0912/E0915 三码此前定义齐全、零引用）。
+namespace Z42cSemanticsTestAttrEnforceTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+// 单 CU 收集期诊断（同 collect_tests.collectDiags；本文件自带一份避免跨文件耦合）。
+DiagnosticBag teDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var coll = new SymbolCollector();
+    coll.Collect(cu);
+    return coll.Diags;
+}
+
+bool teHas(DiagnosticBag d, string code) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { return true; } i = i + 1; }
+    return false;
+}
+
+// 某码的诊断条数（R7「R2+R3 并发报出」用）。
+int teCount(DiagnosticBag d, string code) {
+    int n = 0; int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 首条 `code` 诊断的消息（断言消息含允许集 / 被贴声明形态）。
+string teMsg(DiagnosticBag d, string code) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { return d.Get(i).Message; } i = i + 1; }
+    return "";
+}
+
+// ── R1 零接收者 ─────────────────────────────────────────────────────────────
+
+[Test]
+void test_r1_free_function_ok() {
+    Assert.Equal(false, teHas(teDiags("[Test] void t() { }"), "E0911"));
+}
+
+[Test]
+void test_r1_static_method_ok() {
+    Assert.Equal(false, teHas(teDiags("class T { [Test] public static void t() { } }"), "E0911"));
+}
+
+[Test]
+void test_r1_instance_method_error() {
+    var d = teDiags("class MathTests { [Test] void test_add() { } }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    var m = teMsg(d, "E0911");
+    // 消息须带允许集 + 被贴声明的形态和限定名 + 修复提示
+    Assert.Equal(true, m.Contains("free function or a `static` method"));
+    Assert.Equal(true, m.Contains("instance method `MathTests.test_add`"));
+    Assert.Equal(true, m.Contains("add `static`"));
+}
+
+// 嵌套类型：NestedFlatten 先把 Inner 提升为顶层（名 `Outer+Inner`）但仍留在 Outer.Members，
+// 故本 pass 必须跳过嵌套类型成员，否则同一声明报两次。限定名还原为源码拼法 `Outer.Inner`。
+[Test]
+void test_r1_nested_class_instance_method_error() {
+    var d = teDiags("class Outer { class Inner { [Test] void t() { } } }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    Assert.Equal(1, teCount(d, "E0911"));   // 不重复报
+    Assert.Equal(true, teMsg(d, "E0911").Contains("instance method `Outer.Inner.t`"));
+}
+
+[Test]
+void test_r1_impl_block_instance_method_error() {
+    var d = teDiags("interface Tr { } class Target { } impl Tr for Target { [Test] void t() { } }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    Assert.Equal(true, teMsg(d, "E0911").Contains("instance method `Target.t`"));
+}
+
+[Test]
+void test_r1_constructor_error() {
+    var d = teDiags("class Foo { [Test] public Foo() { } }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    Assert.Equal(true, teMsg(d, "E0911").Contains("constructor `Foo.Foo`"));
+}
+
+// R1 违规后不再报 R2–R5：贴错位置时只报一条。
+[Test]
+void test_r1_short_circuits_signature_checks() {
+    // 实例方法 + 有返回值 + 有参数 —— 只应报 R1 那一条
+    var d = teDiags("class C { [Test] int t(int x) { return x; } }");
+    Assert.Equal(1, teCount(d, "E0911"));
+    Assert.Equal(true, teMsg(d, "E0911").Contains("free function or a `static` method"));
+}
+
+// ── R2 返回 void ────────────────────────────────────────────────────────────
+
+[Test]
+void test_r2_non_void_return_error() {
+    var d = teDiags("[Test] int t() { return 1; }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    var m = teMsg(d, "E0911");
+    Assert.Equal(true, m.Contains("must return `void`"));
+    Assert.Equal(true, m.Contains("`int`"));
+}
+
+// ── R3 无参数 ───────────────────────────────────────────────────────────────
+
+[Test]
+void test_r3_with_parameter_error() {
+    var d = teDiags("[Test] void t(int x) { }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    Assert.Equal(true, teMsg(d, "E0911").Contains("must take no parameters"));
+}
+
+// ── R4 非泛型 ───────────────────────────────────────────────────────────────
+
+[Test]
+void test_r4_generic_method_error() {
+    var d = teDiags("[Test] void t<T>() { }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    Assert.Equal(true, teMsg(d, "E0911").Contains("generic method"));
+}
+
+// ── R5 有方法体 ─────────────────────────────────────────────────────────────
+
+[Test]
+void test_r5_no_body_error() {
+    var d = teDiags("class C { [Test] public static extern void t(); }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    Assert.Equal(true, teMsg(d, "E0911").Contains("method body"));
+}
+
+// ── R6 诊断码按 kind attr 分派 ──────────────────────────────────────────────
+
+[Test]
+void test_r6_benchmark_uses_e0912() {
+    var d = teDiags("class C { [Benchmark] void b() { } }");
+    Assert.Equal(true, teHas(d, "E0912"));
+    Assert.Equal(false, teHas(d, "E0911"));
+}
+
+[Test]
+void test_r6_setup_uses_e0915() {
+    var d = teDiags("class C { [Setup] void s() { } }");
+    Assert.Equal(true, teHas(d, "E0915"));
+}
+
+[Test]
+void test_r6_teardown_uses_e0915() {
+    var d = teDiags("class C { [Teardown] void s() { } }");
+    Assert.Equal(true, teHas(d, "E0915"));
+}
+
+// 多个 kind attr 同贴 → 按首个出现者定码，只报一次。
+[Test]
+void test_r6_first_kind_attr_wins() {
+    var d = teDiags("class C { [Test] [Benchmark] void t() { } }");
+    Assert.Equal(1, teCount(d, "E0911"));
+    Assert.Equal(0, teCount(d, "E0912"));
+}
+
+// ── R7 不越界 ───────────────────────────────────────────────────────────────
+
+// 修饰类 attribute 单独出现 → 本 pass 不管（孤儿修饰归 Out of Scope）。
+[Test]
+void test_r7_modifier_attr_alone_not_checked() {
+    var d = teDiags("class C { [Skip(reason: \"x\")] void f() { } }");
+    Assert.Equal(false, teHas(d, "E0911"));
+    Assert.Equal(false, teHas(d, "E0912"));
+    Assert.Equal(false, teHas(d, "E0915"));
+}
+
+// kind attr 贴在非方法声明上 → 本 pass 不管（Inner 非 MethodDecl）。
+[Test]
+void test_r7_attr_on_class_not_checked() {
+    Assert.Equal(false, teHas(teDiags("[Test] class Foo { }"), "E0911"));
+}
+
+[Test]
+void test_r7_attr_on_field_not_checked() {
+    Assert.Equal(false, teHas(teDiags("class C { [Test] int f; }"), "E0911"));
+}
+
+// R2–R5 可并发报出：位置合法但同时「有返回值」+「有参数」→ 两条。
+[Test]
+void test_r7_signature_violations_reported_together() {
+    var d = teDiags("[Test] int t(int x) { return x; }");
+    Assert.Equal(2, teCount(d, "E0911"));
+}
+
+// ── 相位回归（design §3.2）：form-2 benchmark 必须编译通过 ────────────────────
+// [Benchmark] void f(Bencher b) 是**合法**写法，BenchmarkDesugar 会脱糖成零参 wrapper。
+// 本 pass 若被移到 RunAst 之前，这条会红 —— 它是相位约束的哨兵。
+[Test]
+void test_phase_form2_benchmark_survives_desugar() {
+    var p = new Parser("class Bencher { } [Benchmark] void b(Bencher bb) { }", "t.z42");
+    var cu = HandlerRegistry.RunAst(p.ParseCompilationUnit());
+    var coll = new SymbolCollector();
+    coll.Collect(cu);
+    Assert.Equal(false, teHas(coll.Diags, "E0912"));
+}

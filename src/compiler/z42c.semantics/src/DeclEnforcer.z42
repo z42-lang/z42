@@ -164,6 +164,123 @@ public sealed class DeclEnforcer {
         }
     }
 
+    // ── [Test] 家族的位置 + 签名强制（fix-test-attr-placement）──────────────────────────────
+    // 补回自举迁移中丢失的 TestAttributeValidator（E0911/E0912/E0915）：那套校验随 C# 编译器退休
+    // 一起被删、从未移植到 z42c，而 docs/design/compiler/error-codes.md 至今写着「已启用」。
+    // 后果实测：`[Test]` 贴实例方法编译期全绿 → TestIndexBuilder 照写 TIDX entry → 运行期
+    // `__invoke_static` 撞 `expects 1 argument(s) (incl. receiver), got 0`（runner 按 FQN 无参调用，
+    // 见 z42.test/src/Runner.z42 头注的不变量）。同一失败模式在 BenchmarkDesugar 上已发生过一次。
+    //
+    // 五条规则（全纯语法，不查符号表 → 与 E0444/E0445/E0447 同级、first-pass 可用）：
+    //   R1 零接收者：顶层自由函数 或 static 方法      R4 非泛型
+    //   R2 返回 void                                   R5 有方法体
+    //   R3 无参数
+    //
+    // ⚠️⚠️ 相位：本 pass **必须**在 HandlerRegistry.RunAst 之后跑（三个挂载点在 SymbolCollector，
+    //    天然满足）。RunAst 里的 BenchmarkDesugar 会把**合法**的 form-2 `[Benchmark] void f(Bencher b)`
+    //    改写成 `f$impl(Bencher b)` + 零参 wrapper `[Benchmark] void f()`；在它之前查 R3 会让全仓
+    //    66 处 benchmark 全红。移动本 pass 位置前先读
+    //    docs/spec/changes/add-attribute-usage/design.md §3.2。
+    internal void _passTestAttrEnforce(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            this._teWalk(cu.Decls[i], "");
+            i = i + 1;
+        }
+    }
+
+    // 递归下降：顶层 → 类成员（含嵌套类型）→ impl 块方法。
+    // owner = 外层类型名（"" = 顶层），只用于诊断消息里的限定名。
+    private void _teWalk(Decl raw, string owner) {
+        // ① 本节点若是「带 attribute 的方法」，先查它。
+        if (raw is AttributedDecl) {
+            AttributedDecl ad = raw as AttributedDecl;
+            if (ad.Inner is MethodDecl) { this._teCheck(ad, ad.Inner as MethodDecl, owner); }
+        }
+        // ② 再下沉到容器（AttributedDecl 也可能包着 ClassDecl，故先 _unwrap）。
+        Decl d = this._sc._unwrap(raw);
+        if (d is ClassDecl) {
+            ClassDecl c = d as ClassDecl;
+            int j = 0;
+            while (j < c.MemberCount) {
+                // ⚠️ 跳过嵌套类型成员：NestedFlatten（本 pass 之前跑）已把它们**提升为顶层**
+                // （改名 `Outer+Inner`）**但仍留在 outer.Members**——不跳会把同一个声明访问两次、
+                // 报重复诊断。与其它成员 pass 的既有约定一致（「成员处理阶段忽略 ClassDecl/EnumDecl
+                // 成员」，见 NestedFlatten 头注）；嵌套类型的成员由那份顶层副本覆盖。
+                Decl mem = this._sc._unwrap(c.Members[j]);
+                if (!(mem is ClassDecl) && !(mem is EnumDecl)) { this._teWalk(c.Members[j], c.Name); }
+                j = j + 1;
+            }
+        } else if (d is ImplDecl) {
+            ImplDecl im = d as ImplDecl;
+            string tn = "";
+            if (im.TargetType is NamedType) { tn = (im.TargetType as NamedType).Name; }
+            int j = 0;
+            while (j < im.MethodCount) { this._teWalk(im.Methods[j], tn); j = j + 1; }
+        }
+    }
+
+    // 诊断锚在 **attribute 的 span**（指着 `[Test]`），不是方法 span——本 parser 的 decl span 只覆盖
+    // 起始 token，且一个方法可能贴多个 attribute。
+    private void _teCheck(AttributedDecl ad, MethodDecl md, string owner) {
+        Attr kind = this._teKindAttr(ad);
+        if (kind == null) { return; }
+        string code = this._teCode(kind.Name);
+        string use = "`[" + kind.Name + "]`";
+
+        // R1 —— 位置错了就**只报这一条并返回**：贴错地方时再说「还得返回 void」只会刷屏。
+        if (!md.IsFree && !this._sc._hasWord(md.Mods, "static")) {
+            this._sc.Diags.Error(code,
+                use + " must be applied to a free function or a `static` method (got: "
+                    + this._teShape(md, owner) + "); add `static`, or move it to a top-level function",
+                kind.Span);
+            return;
+        }
+        // R2..R5 各报一次 —— 一个方法可能同时「有返回值」且「有参数」，都说出来比只说第一条有用。
+        if (!(md.RetType is NamedType) || (md.RetType as NamedType).Name != "void") {
+            this._sc.Diags.Error(code,
+                use + " must return `void` (got: `" + md.RetType.Dump() + "`)", kind.Span);
+        }
+        if (md.ParamCount != 0) {
+            this._sc.Diags.Error(code,
+                use + " must take no parameters (got: " + md.ParamCount.ToString() + ")", kind.Span);
+        }
+        if (md.TypeParams.Count != 0) {
+            this._sc.Diags.Error(code, use + " cannot be applied to a generic method", kind.Span);
+        }
+        if (!md.HasBody) {
+            this._sc.Diags.Error(code, use + " must have a method body", kind.Span);
+        }
+    }
+
+    // 首个命中的 kind attr（它决定诊断码）；无 → null。修饰类 attr（Skip/Ignore/ShouldThrow/Timeout）
+    // 不单独触发：它们骑在同一声明上，由 kind attr 的检查覆盖。
+    private Attr _teKindAttr(AttributedDecl ad) {
+        int a = 0;
+        while (a < ad.AttrCount) {
+            if (HandlerRegistry.IsTestKindAttr(ad.Attrs[a].Name)) { return ad.Attrs[a]; }
+            a = a + 1;
+        }
+        return null;
+    }
+
+    // 码映射：三个常量早已存在于 z42c.core（非本次新增）→ 可直接引用，无 F2 冷启动顾虑。
+    private string _teCode(string name) {
+        if (name == "Benchmark") { return DiagnosticCodes.BenchmarkSignatureInvalid; }
+        if (name == "Setup" || name == "Teardown") { return DiagnosticCodes.SetupTeardownSignatureInvalid; }
+        return DiagnosticCodes.TestSignatureInvalid;
+    }
+
+    // 诊断里的「你贴到了什么」：instance method `MathTests.test_add` / constructor `Foo`
+    private string _teShape(MethodDecl md, string owner) {
+        string q = md.Name;
+        // 嵌套类型经 NestedFlatten 后名为 `Outer+Inner`（元数据拼法）；诊断面向源码作者，
+        // 还原成源码里写的 `Outer.Inner`。
+        if (owner != "") { q = owner.Replace("+", ".") + "." + md.Name; }
+        if (md.IsCtor) { return "constructor `" + q + "`"; }
+        return "instance method `" + q + "`";
+    }
+
     // partial method 配对校验：每个实现必须有匹配声明（同 canonical 签名）；否则=实现无声明/签名不一致。
     // decl-only（有声明无实现）→ 已在 _fillClass 擦除，此处不报错（合法擦除）。
     internal void _passResolvePartialMethods() {
