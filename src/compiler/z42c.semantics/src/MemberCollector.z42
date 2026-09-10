@@ -12,6 +12,14 @@ public sealed class MemberCollector {
 
     // Pass B：成员 + 顶层 func
     internal void _passMembers(SymbolTable table, CompilationUnit cu) {
+        // E0456 声明位：判据要看**引用方**的 ns + usings，故整个 pass 用带作用域的 per-CU 视图。
+        // 视图共享全部数据表（注册照常写进共享表），只多带 ScopeNs/ScopeUsings。
+        //
+        // 顺带的好处：下一行的 `CurrentAliases` 从此写在**视图**而非共享表上，与
+        // `TypeChecker`（见其 Infer 注释「不再覆写共享 CurrentAliases，并行段零共享可变」）同方向。
+        // 已核实无下游依赖：`InheritanceResolver` 的两个 pass 各自重设 CurrentAliases，
+        // 不吃 _passMembers 遗留在共享表上的值。
+        table = table.WithScopeOf(cu);
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias：解析成员类型时本 CU 别名生效
         int i = 0;
         while (i < cu.DeclCount) {
@@ -90,7 +98,7 @@ public sealed class MemberCollector {
         // List<T>→递归实参）；接口若解析为 Z42InterfaceType 则 CheckTypeRef 放行（接口可见性未建模，Deferred）。
         int _bi = 0;
         while (_bi < c.BaseCount) {
-            this._sc._chkTypeRef(table.ResolveTypeP(c.Bases[_bi], tp, tpc), c.Name, table, c.Bases[_bi].Span);
+            this._sc._chkTypeRefT(table.ResolveTypeP(c.Bases[_bi], tp, tpc), c.Bases[_bi], c.Name, table, c.Bases[_bi].Span);
             _bi = _bi + 1;
         }
         // stabilize-instance-dispatch-keys：实例/静态虚方法改「primary（声明序首个同名）裸基线键 / 非-primary
@@ -118,13 +126,13 @@ public sealed class MemberCollector {
                         + "` with `type " + catd.Name + " = <type>;`", catd.Span);
                 } else {
                     Z42Type bt = table.ResolveTypeP(catd.Bound, tp, tpc);
-                    this._sc._chkTypeRef(bt, c.Name, table, catd.Bound.Span);
+                    this._sc._chkTypeRefT(bt, catd.Bound, c.Name, table, catd.Bound.Span);
                     ct.AddAssocBinding(catd.Name, TypeNameResolver.SurfaceTypeName(bt));
                 }
             } else if (mem is FieldDecl) {
                 FieldDecl fd = mem as FieldDecl;
                 Z42Type ft = table.ResolveTypeP(fd.Type, tp, tpc);
-                this._sc._chkTypeRef(ft, c.Name, table, fd.Type.Span);   // enforce-class-access：字段类型引用
+                this._sc._chkTypeRefT(ft, fd.Type, c.Name, table, fd.Type.Span);   // enforce-class-access：字段类型引用 + E0456
                 bool fconst = this._sc._hasWord(fd.Mods, "const");   // add-const-keyword：const 隐式 static、无存储
                 bool fstatic = this._sc._hasWord(fd.Mods, "static") || fconst;
                 // add-partial-types：跨碎片重复字段 → 报错（同碎片内重复是既有语义，不新增判断）。
@@ -147,7 +155,7 @@ public sealed class MemberCollector {
                 // 属性作为字段处理（type-checking 用；auto-property { get;/set; } 等同只读/读写字段）。
                 PropertyDecl pd = mem as PropertyDecl;
                 Z42Type pft = table.ResolveTypeP(pd.Type, tp, tpc);
-                this._sc._chkTypeRef(pft, c.Name, table, pd.Type.Span);   // enforce-class-access：属性类型引用
+                this._sc._chkTypeRefT(pft, pd.Type, c.Name, table, pd.Type.Span);   // enforce-class-access：属性类型引用 + E0456
                 bool pfstatic = this._sc._hasWord(pd.Mods, "static");
                 FieldSymbol pfsym = new FieldSymbol(pd.Name, this._sc._vis(pd.Mods, "private"), pft, pfstatic, c.Name);
                 ct.Fields.Put(pd.Name, pfsym);

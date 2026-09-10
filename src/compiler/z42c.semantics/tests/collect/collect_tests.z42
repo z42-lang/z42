@@ -132,6 +132,19 @@ DiagnosticBag pmergeDiags(string a, string b) {
     coll.CollectAll(cus, files, 2, null);
     return coll.Diags;
 }
+// 3-CU 版（pmergeDiags 只吃 2 个）。声明位 E0456 需要三份：两个 ns 各声明同短名，
+// 第三个 CU `using` 两者并在**声明位**（字段/形参/返回…）引用那个裸名。
+DiagnosticBag pmerge3Diags(string a, string b, string c) {
+    var pa = new Parser(a, "a.z42"); var cua = pa.ParseCompilationUnit();
+    var pb = new Parser(b, "b.z42"); var cub = pb.ParseCompilationUnit();
+    var pc = new Parser(c, "c.z42"); var cuc = pc.ParseCompilationUnit();
+    CompilationUnit[] cus = new CompilationUnit[3]; cus[0] = cua; cus[1] = cub; cus[2] = cuc;
+    string[] files = new string[3]; files[0] = "a.z42"; files[1] = "b.z42"; files[2] = "c.z42";
+    var coll = new SymbolCollector();
+    coll.CollectAll(cus, files, 3, null);
+    return coll.Diags;
+}
+
 bool hasCode(DiagnosticBag d, string code) {
     int i = 0;
     while (i < d.Count()) { if (d.Get(i).Code == code) { return true; } i = i + 1; }
@@ -665,4 +678,65 @@ void test_single_arity_across_cus_stays_unmangled() {
                         "namespace R;\nclass Other { int b; }");
     Assert.Equal(true, t.HasClass("Solo"));
     Assert.Equal(false, t.HasClass("Solo$1"));
+}
+
+// ── E0456 声明位（type-identity-followups）────────────────────────────────────────
+//
+// 背景：E0456 原本 11 个调用点**全在语句/表达式位**（catch / var / typeof / is / as / 模式），
+// 声明位（字段/属性/形参/返回/基类/约束）一个都没有 ⇒ 歧义的 `public Widget w;` 静默选赢家。
+// unify-type-identity-fqn 的发射端守卫只保证「不写错答案」（歧义时退回短名），
+// 报错这半边由本组补上。
+//
+// ⚠️ 这四条是**必需**的：新诊断在现有代码上触发数为 0（实测），零触发 = 零证据。
+// 没有 fixture 就等于装了个从不响的门。
+
+[Test]
+void test_ambiguous_field_type_reports_E0456() {
+    Assert.Equal(true, hasCode(pmerge3Diags(
+        "namespace A;\npublic class Widget { public int a; }",
+        "namespace B;\npublic class Widget { public int b; }",
+        "namespace C;\nusing A;\nusing B;\nclass Holder { public Widget w; }"), "E0456"));
+}
+
+[Test]
+void test_ambiguous_param_type_reports_E0456() {
+    Assert.Equal(true, hasCode(pmerge3Diags(
+        "namespace A;\npublic class Widget { public int a; }",
+        "namespace B;\npublic class Widget { public int b; }",
+        "namespace C;\nusing A;\nusing B;\nclass Holder { void Take(Widget w) { } }"), "E0456"));
+}
+
+[Test]
+void test_ambiguous_return_type_reports_E0456() {
+    Assert.Equal(true, hasCode(pmerge3Diags(
+        "namespace A;\npublic class Widget { public int a; }",
+        "namespace B;\npublic class Widget { public int b; }",
+        "namespace C;\nusing A;\nusing B;\nclass Holder { Widget Make() { return null; } }"), "E0456"));
+}
+
+[Test]
+void test_only_one_using_visible_is_not_ambiguous() {
+    // 只 using 了一个 ns ⇒ 可见集里只有一份 ⇒ 不算歧义。守住不误报。
+    Assert.Equal(false, hasCode(pmerge3Diags(
+        "namespace A;\npublic class Widget { public int a; }",
+        "namespace B;\npublic class Widget { public int b; }",
+        "namespace C;\nusing A;\nclass Holder { public Widget w; }"), "E0456"));
+}
+
+[Test]
+void test_enclosing_ns_declares_it_is_not_ambiguous() {
+    // 外围 ns 自己声明了该名 ⇒ 按语言规则外围优先、无歧义（与 ResolveTypeP 的 ScopeNs 分支同口径）。
+    Assert.Equal(false, hasCode(pmerge3Diags(
+        "namespace A;\npublic class Widget { public int a; }",
+        "namespace B;\npublic class Widget { public int b; }",
+        "namespace A;\nusing B;\nclass Holder { public Widget w; }"), "E0456"));
+}
+
+[Test]
+void test_qualified_declaration_type_is_not_ambiguous() {
+    // 限定名 = 已消歧，声明位同样不该报。
+    Assert.Equal(false, hasCode(pmerge3Diags(
+        "namespace A;\npublic class Widget { public int a; }",
+        "namespace B;\npublic class Widget { public int b; }",
+        "namespace C;\nusing A;\nusing B;\nclass Holder { public A.Widget w; }"), "E0456"));
 }
