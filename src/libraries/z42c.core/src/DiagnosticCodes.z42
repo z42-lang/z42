@@ -136,4 +136,8 @@ public static class DiagnosticCodes {
     // 待本 change 随 nightly 载入后可切常量引用。
     public static string AvailableAmbiguous   = "E1101";  // 目标解析到多个重载，无法唯一确定（v1 不支持签名消歧）
     public static string AvailableBadArgument = "E1102";  // 参数不是符号引用（字面量/任意表达式），或参数个数不为 1
+    public static string MethodOfTargetNotFound  = "E0459";  // `methodof(T.M)` 的目标方法不存在，或没有重载匹配给出的参数类型列表。诊断**必须列出该名字下全部可用重载**（本地候选附声明位置）——本特性的全部价值是把「函数名改了静默失效」变成编译期错误，若只说「找不到」而不给候选，用户就只知道错了、不知道该写什么。**语义层用字面量 "E0459" 发码**（同 E0449–E0458 手法，避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache，待随 nightly 载入后可切常量）。
+    public static string MethodOfAmbiguous       = "E0460";  // `methodof` 无法唯一确定目标：给了参数类型列表却匹配到多个（泛型基类替换后同签名，Lippert 的第一类——参数列表也分不开），或省略了参数列表而候选 ≥2。**绝不静默择一**：静默择一等于把本特性要根治的「悄悄绑到另一个重载」原样搬回来。诊断给出可照抄的补签名写法。**语义层用字面量 "E0460" 发码**（同上）。
+    public static string MethodOfUnreferenceable = "E0461";  // `methodof` 的目标是**指不了**的方法：用户定义的运算符与转换根本没有名字（源码里是 `operator +`，`op_*` 是编译器内部拼写，不属于语言）。必须说「指不了」而非含糊报「找不到」——两者的下一步完全不同。检查**先于候选收集**：运算符压根不进 `ct.Methods`，否则会先撞上「没有这个方法」、诊断答非所问。**语义层用字面量 "E0461" 发码**（同上）。
+    public static string MethodOfMalformed       = "E0462";  // `methodof(...)` 括号内的**签名语法**形态错：缺 `Type.Member`（写成 `methodof(Logger)`）、owner 带类型实参（`methodof(Box<int>.Get)` —— 泛型类共享一份发射，两个实例化产同一个 qualified 名，区分无意义）、方法带类型实参（v1 按名字指代泛型方法）。**语法层用字面量 "E0462" 发码**（同 E0457 手法，避 core→syntax 新跨成员符号撞 F2 冷启动 stale-cache）。
 }
