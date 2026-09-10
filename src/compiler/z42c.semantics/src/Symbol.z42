@@ -25,6 +25,11 @@ public sealed class MethodSymbol {
     public int         TypeParamCount;        // add-array-paired-sort：方法级泛型形参个数（`Sort<T>`=1 / `Sort<TKey,TValue>`=2）。
                                               // 本地由 SymbolCollector 从 Decl.TypeParams.Count 设；导入由 ImportedSymbolLoader
                                               // 从 ExportedMethodZ.TypeParamCount 还原。供泛型 arity 重载过滤（默认 0）。
+    public string[]    TypeParamNames;        // fix-explicit-type-arg-not-substituted：方法级泛型形参**名**（声明序）。
+                                              // 与 TypeParamCount 同源同步设置（本地 Decl.TypeParams.Names；导入
+                                              // ExportedMethodZ.TypeParams）。`TypeParamCount` 只够做 arity 过滤，
+                                              // 而**按名代换**签名（`Sort<int>` 的 `Comparison<T>` → `Comparison<int>`）
+                                              // 必须有名字——导入侧此前把这些名字读出来只当解析上下文用，没留在符号上。
     public MethodSymbol(string name, string visibility, Z42FuncType sig, bool isStatic,
                         string containingTypeName, bool hasDecl, MethodDecl decl) {
         this.Name = name; this.Visibility = visibility; this.Signature = sig; this.IsStatic = isStatic;
@@ -33,6 +38,22 @@ public sealed class MethodSymbol {
         this.IsSealed = false;
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0;
+        this.TypeParamNames = new string[0];
+    }
+    // fix-explicit-type-arg-not-substituted：同一符号、换一条签名的浅拷贝。
+    //
+    // 🔴 **加字段就要在这里补一行**——本方法必须与上面的字段清单逐字段对应。之所以放在
+    // MethodSymbol 自己身上（而不是让调用方就地 `new`），正是为了让「字段清单」与「拷贝清单」
+    // 贴在一起、漏拷时一眼可见：调用方就地拷会让新字段在某条调用路径上静默丢失
+    // （最典型的是 `RegKey` —— 丢了就发错函数名，而且只在重载 mangle 过的方法上才炸）。
+    public MethodSymbol WithSignature(Z42FuncType sig) {
+        var c = new MethodSymbol(this.Name, this.Visibility, sig, this.IsStatic,
+                                 this.ContainingTypeName, this.HasDecl, this.Decl);
+        c.RegKey = this.RegKey;
+        c.IsSealed = this.IsSealed;
+        c.IsDeprecated = this.IsDeprecated; c.DeprecationMsg = this.DeprecationMsg;
+        c.TypeParamCount = this.TypeParamCount; c.TypeParamNames = this.TypeParamNames;
+        return c;
     }
     public string Dump() { return "(method " + this.Name + " " + this.Signature.Dump() + ")"; }
 }

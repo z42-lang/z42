@@ -85,6 +85,7 @@ public sealed class MemberResolver {
             if (_stub && env.Symbols.HasClass(ct.Name())) { ct = env.Symbols.GetClass(ct.Name()); _stub = false; }
             MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, 0, sp);   // 实例成员调用无 CallExpr → typeArgCount=0
             if (ms != null) {
+                ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
@@ -145,6 +146,7 @@ public sealed class MemberResolver {
             Z42ClassType itDef2 = instRecv.Def;
             MethodSymbol itms = this._tc._overload._resolveOverload(env.Symbols, itDef2, mem.Name, args, argCount, 0, sp);
             if (itms != null) {
+                itms = MethodTypeArgSubst.ForExplicitTypeArgs(itms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
                 BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
                 // add-generic-type-arg-inference 阶段 A：形参位也按 receiver 的 TypeArgs 代换，再查一遍实参。
@@ -247,6 +249,7 @@ public sealed class MemberResolver {
             // arity 过滤 + 返回正确 `rms.RegKey`（primary 裸 / 非-primary 全键），根治。唯一方法字节中性（RegKey=裸）。
             MethodSymbol rms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, 0, sp);
             if (rms != null) {
+                rms = MethodTypeArgSubst.ForExplicitTypeArgs(rms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                 this._tc._access.CheckDeprecatedM(rms, mem.Name, sp);
                 BoundExpr[] fa = this._tc._overload._withDefaults(rms, args, rawArgs, argCount, env, sp);
@@ -538,7 +541,7 @@ public sealed class MemberResolver {
                                                              ms.Decl.TypeParams.Count, bc.Args, bc.ArgCount);
                 if (inf.Ok) {
                     this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, inf.Args, inf.Count, call.Span);
-                    MemberResolver._checkSubstMethodArgs(this._tc, bc, ms.Signature,
+                    MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature,
                                                          ms.Decl.TypeParams.Names, inf.Count, inf.Args, env);
                 }
                 // 阶段 D：callee 体内**真的消费**型参时（typeof(T)/new T()/default(T)/new T[n]/
@@ -594,56 +597,10 @@ public sealed class MemberResolver {
                 // 只对**方法级**型参代换（按 Decl.TypeParams.Names 匹配）；类级型参原样留着，
                 // 由阶段 A 那条路负责。导入方法（无 Decl）拿不到有序型参名 ⇒ 本分支进不来，
                 // 与既有的 arity/where 校验同一道门，不新增跨包能力。
-                MemberResolver._checkSubstMethodArgs(this._tc, bc, ms.Signature, ms.Decl.TypeParams.Names,
+                MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature, ms.Decl.TypeParams.Names,
                                                     declTp, targs, env);
             }
         }
-    }
-
-    // add-generic-type-arg-inference 阶段 B：按方法级型参名做代换后补查实参。
-    private static void _checkSubstMethodArgs(TypeChecker tc, BoundCall bc, Z42FuncType sig,
-                                              string[] names, int nameCount, Z42Type[] targs, TypeEnv env) {
-        if (sig == null) { return; }
-        Z42Type[] np = new Z42Type[sig.ParamCount];
-        int i = 0;
-        while (i < sig.ParamCount) {
-            np[i] = MemberResolver._substByName(sig.ParamTypes[i], names, nameCount, targs);
-            i = i + 1;
-        }
-        Z42FuncType subst = new Z42FuncType(np, sig.ParamCount,
-            MemberResolver._substByName(sig.Ret, names, nameCount, targs));
-        subst.ParamsFrom = sig.ParamsFrom;
-        subst.ParamDefaults = sig.ParamDefaults;
-        subst.ParamCallers = sig.ParamCallers;
-        // rawArgs 传 null：本方法在 BoundCall 构造之后，原始实参表达式已不可得；
-        // `_checkOneArg` 的 span 会回落到 args[i].Span（仍指向实参本身，够用）。
-        tc._overload.CheckSubstitutedArgs(bc.Args, null, bc.ArgCount, sig, subst, env);
-    }
-
-    // 按**名字**把型参替换成对应类型实参（方法级型参用；类级型参走 `_substGeneric` 按下标那条）。
-    // 名字不在表里 → **原样返回**（不是 Unknown）：那多半是类级型参，留着让分支 B 继续擦除放行，
-    // 由阶段 A 负责。递归面与 `_substGeneric` 一致（数组元素 / 实例化类型实参）。
-    private static Z42Type _substByName(Z42Type t, string[] names, int nameCount, Z42Type[] targs) {
-        if (t == null) { return t; }
-        if (t is Z42GenericParamType) {
-            int i = 0;
-            while (i < nameCount) {
-                if (names[i] == t.Name() && i < targs.Length) { return targs[i]; }
-                i = i + 1;
-            }
-            return t;
-        }
-        if (t is Z42ArrayType) {
-            return new Z42ArrayType(MemberResolver._substByName((t as Z42ArrayType).Elem, names, nameCount, targs));
-        }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it = t as Z42InstantiatedType;
-            Z42Type[] na = new Z42Type[it.ArgCount];
-            int i = 0;
-            while (i < it.ArgCount) { na[i] = MemberResolver._substByName(it.TypeArgs[i], names, nameCount, targs); i = i + 1; }
-            return new Z42InstantiatedType(it.Def, na, it.ArgCount);
-        }
-        return t;
     }
 
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {
@@ -689,6 +646,7 @@ public sealed class MemberResolver {
             }
             if (env.Symbols.HasFunc(id.Name)) {
                 MethodSymbol ms = env.Symbols.GetFunc(id.Name);
+                ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span);
                 BoundCall bc = new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
                 this._applyMethodTypeArgs(bc, call, ms, env);
@@ -763,6 +721,7 @@ public sealed class MemberResolver {
                 Z42ClassType ct = env.Symbols.GetClass(tid.Name);
                 MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
                 if (ms != null) {
+                    ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                     this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                     BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
@@ -788,6 +747,7 @@ public sealed class MemberResolver {
                     // 查不到已 mangle 的静态方法 → 必须走 _resolveOverload 拿 RegKey。（prim 实例方法不 mangle，走上方裸键路径。）
                     MethodSymbol wms2 = this._tc._overload._resolveOverload(env.Symbols, wct2, mem.Name, args, argCount, call.TypeArgCount, sp);
                     if (wms2 != null) {
+                        wms2 = MethodTypeArgSubst.ForExplicitTypeArgs(wms2, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                         // params 打包 / 默认参数填充（与上方类限定静态调用一致）：keyword 静态调用此前不经
                         // _withDefaults，靠精确 arity 重载兜底；params-for-Join 移除了 `Join(string,string,string,string)`
                         // 精确重载后，`string.Join("-","x","y","z")` 的 expanded form 需在此打包成 string[]，
@@ -822,6 +782,7 @@ public sealed class MemberResolver {
                     Z42ClassType qct = env.Symbols.GetClass(qcls);
                     MethodSymbol qms = this._tc._overload._resolveOverload(env.Symbols, qct, mem.Name, args, argCount, call.TypeArgCount, sp);
                     if (qms != null) {
+                        qms = MethodTypeArgSubst.ForExplicitTypeArgs(qms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                         this._tc._access.CheckAccess(qms.Visibility, qms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                         this._tc._access.CheckDeprecatedM(qms, mem.Name, sp);
                         BoundExpr[] qfa = this._tc._overload._withDefaults(qms, args, rawArgs, argCount, env, sp);

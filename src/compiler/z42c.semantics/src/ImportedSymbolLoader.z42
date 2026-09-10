@@ -248,6 +248,7 @@ public static class ImportedSymbolLoader {
                         ImportedSymbolLoader._fillParamDefaults(sig, fz.Params, fz.ParamCount);   // PR6：跨包默认值/ caller
                         var fsym = new MethodSymbol(fz.Name, "public", sig, false, "", false, null);
                         fsym.TypeParamCount = fz.TypeParamCount;   // 供泛型 arity 重载过滤（镜像方法侧）
+                        fsym.TypeParamNames = ImportedSymbolLoader._tpNames(fz.TypeParams);   // fix-explicit-type-arg-not-substituted
                         r.Functions.Put(fz.Name, fsym);
                         // 记源 ns（与 ClassNamespaces 对称）→ 发射期 QualifyFreeFunc 跨包裸调按源 ns 限定。
                         r.FunctionNamespaces.Put(fz.Name, new StrBox(em.Namespace));
@@ -342,6 +343,7 @@ public static class ImportedSymbolLoader {
                 sym.IsSealed = me.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 sym.IsDeprecated = me.IsDeprecated; sym.DeprecationMsg = me.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
                 sym.TypeParamCount = me.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数，供 arity 重载过滤
+                sym.TypeParamNames = ImportedSymbolLoader._tpNames(me.TypeParams);   // fix-explicit-type-arg-not-substituted
                 ct.Methods.Put(me.Name, sym);
                 if (!me.IsStatic) { ct.AddOwnMethod(me.Name, me.IsVirtual, me.IsAbstract); }
             }
@@ -370,6 +372,15 @@ public static class ImportedSymbolLoader {
     // `_resolve` 末尾的 `Z42ClassType.Builtin(name)` 兜底 → **型参身份丢失**（成了名为 "T" 的普通类）
     // ⇒ `Conversion._classifyBuiltin` 分支 B「恰一侧泛型形参 → 擦除放行」永不触发。
     // 合并而非替换：类级与方法级可同时在场（`class C<T> { void M<U>(T t, U u) }`）。
+    // fix-explicit-type-arg-not-substituted：方法级型参名的**非空**视图。
+    // `_tpsWith` 合并的是「类级 ∪ 方法级」（解析签名时的可见型参上下文），而按显式类型实参
+    // 代换签名时**只能**按方法级的那几个名字代——把类级也代进去会把 `Box<T>.Put(T)` 的 T
+    // 当成方法级型参换掉。故这里单独取 `me.TypeParams`，不复用 `_tpsWith` 的结果。
+    private static string[] _tpNames(string[] tps) {
+        if (tps == null) { return new string[0]; }
+        return tps;
+    }
+
     private static string[] _tpsWith(string[] outer, int outerCount, string[] methodTps) {
         int mc = 0;
         if (methodTps != null) { mc = methodTps.Length; }
@@ -424,6 +435,7 @@ public static class ImportedSymbolLoader {
                 sym.IsSealed = m.IsSealed;   // impl-sealed-semantics-devirt：跨包方法级 sealed（override 强制）
                 sym.IsDeprecated = m.IsDeprecated; sym.DeprecationMsg = m.DeprecationMsg;   // add-deprecated-directive：跨包方法级弃用
                 sym.TypeParamCount = m.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数，供 arity 重载过滤
+                sym.TypeParamNames = ImportedSymbolLoader._tpNames(m.TypeParams);   // fix-explicit-type-arg-not-substituted
                 ct.Methods.Put(m.Name, sym);
                 // G18-import：实例方法入 OwnMethod* 有序元数据（TSIG 方法继承展开；static 不入）。
                 if (!m.IsStatic) { ct.AddOwnMethod(m.Name, m.IsVirtual, m.IsAbstract); }

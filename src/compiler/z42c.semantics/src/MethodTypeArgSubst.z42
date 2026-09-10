@@ -1,0 +1,123 @@
+// 方法级类型实参的**按名代换**（从 MemberResolver 抽出——它已达 886 行硬上限）。
+//
+// 三件事，共用同一条 `ByName` 递归：
+//   · `ForExplicitTypeArgs` —— 显式 `Foo<int>(…)` 时**先换签名再绑实参**，使 lambda 形参拿到具体类型
+//     （fix-explicit-type-arg-not-substituted）；
+//   · `CheckSubstMethodArgs` —— 推断路径的代换**只用于补查实参**，不回灌发射
+//     （add-generic-type-arg-inference 阶段 B/C，design D4）；
+//   · `ByName` —— 递归本体：裸型参 / 数组元素 / 实例化类型实参 / **函数类型的形参与返回**。
+//
+// ⚠️ 与 `MemberResolver._substGeneric`（**类级**型参、按**下标**、依 receiver 的 TypeArgs）是两条路，
+// 别混：本文件全部按**名字**匹配方法级型参名，名字不在表里就原样返回。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public static class MethodTypeArgSubst {
+    // fix-explicit-type-arg-not-substituted：**显式**写出类型实参时，先把签名代换掉再去绑实参。
+    //
+    // 为什么必须在绑实参**之前**：`Array.Sort<int>(xs, (a, b) => b - a)` 的 lambda 形参类型来自
+    // 目标类型（`BindArgsToSignature` → `BindWithTarget(rawArgs[i], sig.ParamTypes[i])`）。签名不代换，
+    // 目标就是 `Comparison<T>`，`a`/`b` 拿到裸 `T` ⇒ 体内 `b - a` 报
+    // `E0402: operator - requires numeric operand, got T`。全仓 18 条 E0402 全是这一个形状，
+    // 且都在 golden 语料里 —— 运行期照常通过（型参在运行期已擦除），只有编译期在报，而
+    // `--emit-zbc` 把它吞了。
+    //
+    // 与 add-generic-type-arg-inference 阶段 B 的分工：那里的代换刻意排在 `_withDefaults`
+    // **之后**，所以「只能影响诊断、进不了 lambda 绑定」（见 `_applyMethodTypeArgs` 注释）。
+    // 那条不变式针对的是**推断**出来的类型实参（不回灌，design D4）；**显式**写出的类型实参
+    // 不受它约束 —— `Sort<int>` 的签名本来就是 `Sort(int[], Comparison<int>)`，让实参照着它绑
+    // 才是正确语义（C# 同）。故本方法只在 `call.TypeArgCount > 0` 时生效，推断路径原样不动。
+    //
+    // 代价（已知并接受）：lambda 形参类型进闭包签名 ⇒ 发射字节会变，自举走两代收敛，无格式 bump。
+    //
+    // 只按**方法级**型参名代换（`ms.TypeParamNames`）；类级型参留给阶段 A 的 `_substGenericSig`。
+    // arity 不符时原样返回 —— 那是 E0445 的活，别在这里悄悄按错的对应关系代换。
+    public static MethodSymbol ForExplicitTypeArgs(MethodSymbol ms, CallExpr call, TypeEnv env) {
+        if (ms == null || call == null || call.TypeArgCount == 0) { return ms; }
+        if (ms.Signature == null || ms.TypeParamNames == null) { return ms; }
+        int n = ms.TypeParamNames.Length;
+        if (n == 0 || n != call.TypeArgCount) { return ms; }
+        Z42Type[] targs = new Z42Type[n];
+        int i = 0;
+        while (i < n) { targs[i] = env.ResolveType(call.TypeArgs[i]); i = i + 1; }
+        Z42FuncType sig = ms.Signature;
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int p = 0;
+        while (p < sig.ParamCount) {
+            np[p] = MethodTypeArgSubst.ByName(sig.ParamTypes[p], ms.TypeParamNames, n, targs);
+            p = p + 1;
+        }
+        Z42FuncType subst = new Z42FuncType(np, sig.ParamCount,
+            MethodTypeArgSubst.ByName(sig.Ret, ms.TypeParamNames, n, targs));
+        subst.ParamsFrom = sig.ParamsFrom;
+        subst.ParamDefaults = sig.ParamDefaults;
+        subst.ParamCallers = sig.ParamCallers;
+        return ms.WithSignature(subst);
+    }
+    // add-generic-type-arg-inference 阶段 B：按方法级型参名做代换后补查实参。
+    public static void CheckSubstMethodArgs(TypeChecker tc, BoundCall bc, Z42FuncType sig,
+                                              string[] names, int nameCount, Z42Type[] targs, TypeEnv env) {
+        if (sig == null) { return; }
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int i = 0;
+        while (i < sig.ParamCount) {
+            np[i] = MethodTypeArgSubst.ByName(sig.ParamTypes[i], names, nameCount, targs);
+            i = i + 1;
+        }
+        Z42FuncType subst = new Z42FuncType(np, sig.ParamCount,
+            MethodTypeArgSubst.ByName(sig.Ret, names, nameCount, targs));
+        subst.ParamsFrom = sig.ParamsFrom;
+        subst.ParamDefaults = sig.ParamDefaults;
+        subst.ParamCallers = sig.ParamCallers;
+        // rawArgs 传 null：本方法在 BoundCall 构造之后，原始实参表达式已不可得；
+        // `_checkOneArg` 的 span 会回落到 args[i].Span（仍指向实参本身，够用）。
+        tc._overload.CheckSubstitutedArgs(bc.Args, null, bc.ArgCount, sig, subst, env);
+    }
+    // 按**名字**把型参替换成对应类型实参（方法级型参用；类级型参走 `_substGeneric` 按下标那条）。
+    // 名字不在表里 → **原样返回**（不是 Unknown）：那多半是类级型参，留着让分支 B 继续擦除放行，
+    // 由阶段 A 负责。递归面 = 数组元素 / 实例化类型实参 / **函数类型的形参与返回**。
+    //
+    // 🔴 **`Z42FuncType` 分支是 fix-explicit-type-arg-not-substituted 补的**。此前没有，而
+    // `TypeArgInference._unify` 的注释把这个不对称记成「这不会出错（只是少换一次）」——**那句话是错的**：
+    // func 位正是 lambda 形参类型的**唯一**来源（`BindArgsToSignature` → `BindWithTarget(rawArg, 形参类型)`），
+    // 少换一次 = `Array.Sort<int>(xs, (a,b) => b - a)` 里的 `a`/`b` 拿到裸 `T` ⇒ 体内 `b - a` 报
+    // `E0402 ... got T`。全仓 18 条 E0402 全是这一条缺失分支造出来的。
+    public static Z42Type ByName(Z42Type t, string[] names, int nameCount, Z42Type[] targs) {
+        if (t == null) { return t; }
+        if (t is Z42GenericParamType) {
+            int i = 0;
+            while (i < nameCount) {
+                if (names[i] == t.Name() && i < targs.Length) { return targs[i]; }
+                i = i + 1;
+            }
+            return t;
+        }
+        if (t is Z42ArrayType) {
+            return new Z42ArrayType(MethodTypeArgSubst.ByName((t as Z42ArrayType).Elem, names, nameCount, targs));
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            Z42Type[] na = new Z42Type[it.ArgCount];
+            int i = 0;
+            while (i < it.ArgCount) { na[i] = MethodTypeArgSubst.ByName(it.TypeArgs[i], names, nameCount, targs); i = i + 1; }
+            return new Z42InstantiatedType(it.Def, na, it.ArgCount);
+        }
+        if (t is Z42FuncType) {
+            Z42FuncType ft = t as Z42FuncType;
+            Z42Type[] fp = new Z42Type[ft.ParamCount];
+            int i = 0;
+            while (i < ft.ParamCount) { fp[i] = MethodTypeArgSubst.ByName(ft.ParamTypes[i], names, nameCount, targs); i = i + 1; }
+            var nf = new Z42FuncType(fp, ft.ParamCount, MethodTypeArgSubst.ByName(ft.Ret, names, nameCount, targs));
+            // 形参元信息随类型走（params 起点 / 默认值 / caller 属性）——丢了会让代换后的签名
+            // 在 params 打包与默认参数填充上与原签名行为不一致。
+            nf.ParamsFrom = ft.ParamsFrom;
+            nf.ParamDefaults = ft.ParamDefaults;
+            nf.ParamCallers = ft.ParamCallers;
+            return nf;
+        }
+        return t;
+    }
+}
