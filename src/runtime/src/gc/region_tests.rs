@@ -301,7 +301,7 @@ fn promote_stale_handle_is_noop() {
 /// it from the entries that are still alive and still young.
 #[test]
 fn non_generational_region_skips_young_list_until_switched_on() {
-    let mut r: Region<i32> = Region::new_for_mode(false);
+    let mut r: Region<i32> = Region::new_for_mode(false, PROMOTION_THRESHOLD);
     let a = r.alloc(10);
     let b = r.alloc(20);
     let dead = r.alloc(30);
@@ -795,4 +795,25 @@ fn young_list_back_pointers_survive_alloc_tombstone_promote_churn() {
     assert_eq!(r.validate(), Ok(()));
     assert_eq!(r.young_count(), expected_young_count(&r));
     assert!(r.chunks_count_for_test() > 1, "churn should span more than one chunk");
+}
+
+// ── add-promotion-age-knob (2026-09-08) ──────────────────────────────────────
+
+/// The promotion age is a per-region field now, not a global constant: a region built with
+/// age 1 promotes after a single minor, one built with age 3 needs three. The value is read
+/// once when the heap is constructed (`gc::promotion_age_from_config`) precisely so the write
+/// barrier — which consults it on every heap reference write — stays a field read.
+#[test]
+fn a_region_promotes_at_the_age_it_was_built_with() {
+    for age in 1..=3u8 {
+        let mut r: Region<i32> = Region::new_for_mode(true, age);
+        assert_eq!(r.promotion_age(), age);
+        let h = r.alloc(7);
+        for round in 1..age {
+            assert!(!r.promote(h), "age {age}: must not promote at round {round}");
+            assert_eq!(r.young_count(), 1, "age {age}: still young at round {round}");
+        }
+        assert!(r.promote(h), "age {age}: the {age}th survival promotes");
+        assert_eq!(r.young_count(), 0, "age {age}: promotion leaves the young list");
+    }
 }

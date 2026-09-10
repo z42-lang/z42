@@ -62,7 +62,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// dirty-card roots. This bounds minor mark work at O(young +
     /// |dirty-card entries|).
     pub(super) fn mark_phase_minor(&self) -> usize {
-        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let threshold = self.promotion_age;
         let mut queue: Vec<Value> = Vec::new();
 
         // Pinned roots + external scanner.
@@ -166,7 +166,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let gc = unsafe {
                     GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation)
                 };
-                if Self::refers_to_young(&Value::Object(gc)) {
+                if self.refers_to_young(&Value::Object(gc)) {
                     to_dirty.push(h.chunk_idx);
                 }
             }
@@ -189,7 +189,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let gc = unsafe {
                     GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation)
                 };
-                if Self::refers_to_young(&Value::Array(gc)) {
+                if self.refers_to_young(&Value::Array(gc)) {
                     to_dirty.push(h.chunk_idx);
                 }
             }
@@ -202,8 +202,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// Whether `v` has at least one child the minor GC would consider young. Stops at the
     /// first hit — this runs once per entry that crosses the promotion threshold.
-    fn refers_to_young(v: &Value) -> bool {
-        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+    fn refers_to_young(&self, v: &Value) -> bool {
+        let threshold = self.promotion_age;
         let mut found = false;
         v.trace_children(&mut |child| {
             if !found && Self::gen_age_of(child) < threshold {
@@ -420,7 +420,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// of it. Keeping the pre-major cards instead would be correct but monotonic: the dirty
     /// set would only grow and minors would drift towards full-heap scans.
     fn rebuild_card_table(&self) {
-        let threshold = crate::gc::region::PROMOTION_THRESHOLD;
+        let threshold = self.promotion_age;
         let mut obj_chunks = Vec::new();
         {
             let region = self.region_object.lock();
@@ -430,7 +430,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let gc = unsafe {
                     GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
                 };
-                if Self::refers_to_young(&Value::Object(gc)) {
+                if self.refers_to_young(&Value::Object(gc)) {
                     obj_chunks.push(h.chunk_idx);
                 }
             });
@@ -444,7 +444,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let gc = unsafe {
                     GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
                 };
-                if Self::refers_to_young(&Value::Array(gc)) {
+                if self.refers_to_young(&Value::Array(gc)) {
                     arr_chunks.push(h.chunk_idx);
                 }
             });
@@ -495,8 +495,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // missed by minor GC and freed prematurely.
             Value::BoxedStruct(gc) => GcRef::gen_age(gc),
             Value::Array(gc)  => GcRef::gen_age(gc),
-            // unify-gc-heap PR-2: closure block non-generational; use its `env` array's age.
-            Value::Closure(c) => GcRef::gen_age(&crate::metadata::types::closure_data_of(c).env),
+            // fix-minor-gc-skips-var-region (#533) gave the closure block its own age, and
+            // `gen_age_of` — the judge the minor mark phase actually uses — reads *that*.
+            // This barrier was still reading the `env` array's age, so the two could disagree
+            // (`env` is allocated before the block, hence never younger): an old-looking
+            // closure stored into an old owner would skip the card while the block itself was
+            // still young. Read the same age the mark phase reads.
+            Value::Closure(c) => c.gen_age(),
             // make-value-copy: a `Ref` handle never escapes into a heap slot (is_heap_ref
             // = false), so a write barrier here is unreachable for it; its target's age is
             // handled via the transient-arena root scan.
@@ -504,14 +509,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         // Only old→young triggers a card. Young→young is in-young
         // scan already; old→old won't reach young.
-        if new_age >= crate::gc::region::PROMOTION_THRESHOLD {
+        if new_age >= self.promotion_age {
             return;
         }
         match owner {
             // add-boxed-struct-identity (P4b): a boxed struct owner is a region_object
             // entry too (reflection SetValue writes a ref leaf into its struct_refs).
             Value::Object(gc) | Value::BoxedStruct(gc) => {
-                if GcRef::gen_age(gc) < crate::gc::region::PROMOTION_THRESHOLD { return; }
+                if GcRef::gen_age(gc) < self.promotion_age { return; }
                 // owner is old; mark its chunk in region_object dirty.
                 let entry_ptr = gc.entry_ptr();
                 // SAFETY: entry pointer valid for GcRef lifetime.
@@ -522,7 +527,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             }
             Value::Array(gc) => {
-                if GcRef::gen_age(gc) < crate::gc::region::PROMOTION_THRESHOLD { return; }
+                if GcRef::gen_age(gc) < self.promotion_age { return; }
                 let entry_ptr = gc.entry_ptr();
                 let entry = unsafe { entry_ptr.as_ref() };
                 let (ci, _) = entry.location;

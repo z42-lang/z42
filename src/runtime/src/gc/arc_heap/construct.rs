@@ -14,6 +14,13 @@ impl Default for ArcMagrGC {
     fn default() -> Self {
         let mode = crate::gc::GcMode::from_env();
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
+        // add-promotion-age-knob (2026-09-08): read `Z42_GC_PROMOTION_AGE` **once, here**, and
+        // hand the value to every part that needs it. The write barrier consults it on every
+        // heap reference write, so a `runtime_config()` lookup there would be a global read on
+        // the hottest path in the VM — the reason this knob was previously "deliberately not
+        // done". A construction-time read costs nothing and keeps the value immutable for the
+        // heap's lifetime, which is also what makes the three copies below safe to cache.
+        let promotion_age = crate::gc::promotion_age_from_config();
         Self {
             inner: Mutex::new(RcHeapInner::default()),
             external_root_scanner: Mutex::new(None),
@@ -24,9 +31,9 @@ impl Default for ArcMagrGC {
             // fix-young-list-only-when-generational: the young list is minor GC's
             // private index, so only a generational heap pays to maintain it.
             // `set_mode` keeps this in step if the mode changes later.
-            region_object: Mutex::new(crate::gc::region::Region::new_for_mode(generational)),
-            region_array:  Mutex::new(crate::gc::region::Region::new_for_mode(generational)),
-            region_var:    Mutex::new(VarRegion::with_drop_glue_for_mode(var_drop_glue, generational)),
+            region_object: Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
+            region_array:  Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
+            region_var:    Mutex::new(VarRegion::with_drop_glue_for_mode(var_drop_glue, generational, promotion_age)),
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
             pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
@@ -46,6 +53,7 @@ impl Default for ArcMagrGC {
             sampler_active: std::sync::atomic::AtomicBool::new(false),
             promoted_bytes_since_major: std::sync::atomic::AtomicU64::new(0),
             pending_major: std::sync::atomic::AtomicBool::new(false),
+            promotion_age,
         }
     }
 }

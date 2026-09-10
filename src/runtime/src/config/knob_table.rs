@@ -78,6 +78,16 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..DEBUG_KNOB
     },
     KnobSpec {
+        name: "Z42_GC_LOH_BYTES",
+        toml_key: "gc-loh-bytes",
+        // 同 Z42_GC_MAX_BYTES：接受带单位后缀的写法。
+        value: ValueKind::Str,
+        description: "block-footprint threshold above which a variable-length GC block gets its own exactly-sized chunk (whose memory goes straight back to the allocator when the block dies). Capped at the 64 KB bump-chunk size",
+        default_hint: "unset; defaults to 64K (the bump-chunk size, which is also the ceiling)",
+        consumed_by: "gc/var_region/chunk.rs (class_for), applied once in vm_context/construct.rs",
+        ..TUNING
+    },
+    KnobSpec {
         name: "Z42_GC_MAX_BYTES",
         toml_key: "gc-max-bytes",
         // 不是 Int：接受 `512MB` / `2G` 这类带单位后缀的写法（parse_gc_max_bytes 解析）。
@@ -140,6 +150,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         description: "heap-used fraction (0.0–1.0) in [pressure, near) that fires an AllocationPressure event; stays below the near-limit ratio",
         default_hint: "unset; defaults to 0.75",
         consumed_by: "gc/arc_heap/alloc.rs",
+        ..TUNING
+    },
+    KnobSpec {
+        name: "Z42_GC_PROMOTION_AGE",
+        toml_key: "gc-promotion-age",
+        value: ValueKind::Int { min: 1, max: 3 },
+        description: "generational only: how many minor GCs an entry must survive before it is promoted to the old generation. Capped at 3 — the age is packed into two spare bits of the variable-length block header",
+        default_hint: "unset; defaults to 2 (industry-standard Java tenure)",
+        consumed_by: "gc/mod.rs (promotion_age_from_config, read once per heap)",
         ..TUNING
     },
     KnobSpec {

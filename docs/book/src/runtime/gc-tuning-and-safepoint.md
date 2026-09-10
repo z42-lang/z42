@@ -27,6 +27,8 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | heap-used 达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
 | `Z42_GC_PRESSURE_RATIO` | 0.75 | heap-used 落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
 | `Z42_GC_THROTTLE_RATIO` | 0.10 | **距上次回收结束时的 used**，heap-used 至少再增长 max-bytes 的此比率，才允许下一次自动回收（去抖，防连发；基线为何必须是「回收后」见下节） | `arc_heap/auto_collect.rs` |
+| `Z42_GC_PROMOTION_AGE` | 2 | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
+| `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
 | `Z42_GC_NURSERY_BYTES` | `gc-max-bytes / 4` | **分代专用**：自上次回收以来分配这么多字节就触发 minor —— 买停顿上界的那个旋钮 | `arc_heap/auto_collect` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
@@ -247,19 +249,49 @@ root 后面，直接 pin owner 的测试是空转的。**
 `Str` / `ArrayPrim` 是叶子；`ArrayValue` / `ArrayStruct` 走的是数组**头**的年龄，
 由上面那两个 helper 覆盖。
 
-## 刻意不做：`PROMOTION_THRESHOLD` 不入 config
+## `PROMOTION_THRESHOLD` 怎么变成旋钮的：构造期读取，不是热路径读取
 
-runtime_review §M3 曾把「晋升阈值 2」列为候选 knob，复核后**刻意不做**，判据同 §M3/M4/M5 的
-「无消费者 / 得不偿失即不做」（philosophy.md 最简实现）：
+`docs/spec/archive/…/runtime_review §M3` 曾把「晋升阈值 2」列为候选 knob，
+**2026-09-05 一度裁定刻意不做**，两条理由都成立：
 
-1. **热路径成本**：`PROMOTION_THRESHOLD`（`gc/region.rs`）现为编译期 `const u8`（零成本立即数）。
-   它被 `gc/arc_heap/generational.rs::maybe_mark_cross_gen_card`——即 **write barrier override**——每次堆引用写读取。
-   改成 `runtime_config()` 读取会给每次引用写注入一次原子 load，为一个几乎无人运行时调的值付热路径代价。
-2. **结构不变量而非运营旋钮**：晋升阈值是分代 GC 的结构参数，约 20 处测试以 `for _ in 0..PROMOTION_THRESHOLD`
-   的形式把它当编译期常量硬编码——只有它固定才成立。它不是「运营期按 workload 调」的旋钮。
+1. **热路径成本**：它被 `gc/arc_heap/generational.rs::maybe_mark_cross_gen_card`
+   —— 即**写屏障** —— 每次堆引用写读取。改成 `runtime_config()` 读取会给每次引用写
+   注入一次全局查找。
+2. **约 20 处测试**以 `for _ in 0..PROMOTION_THRESHOLD` 的形式把它当编译期常量硬编码。
 
-真出现「按 workload 调晋升代数」的需求时，应做成**构造期**（per-heap 一次读取、缓存进 heap 字段），
-而非 write-barrier 热路径的运行时读——留待真实需求出现时再评估。
+**2026-09-08（add-promotion-age-knob）按当时就写下的折中落地**：做成**构造期**读取，
+而不是 write-barrier 的运行时读。
+
+- `Z42_GC_PROMOTION_AGE` 在**建堆时读一次**（`gc::promotion_age_from_config`），
+  值分发给 `ArcMagrGC` / `Region<T>` / `VarRegion` 各存一份 `promotion_age: u8`；
+- 写屏障读的是 `self.promotion_age` —— 一个**普通字段**，不是原子、不是全局，
+  热路径成本为零；
+- `PROMOTION_THRESHOLD` 常量**保留**，语义从「值」变成「默认值」，
+  那 20 处测试一行不用改；
+- 值**在堆的生命周期内不可变** —— 这正是三份缓存副本能安全存在的原因。
+
+**范围**：`1..=MAX_GEN_AGE`（当前 3）。上界是硬的 —— 年龄打包在
+`GcBlockHeader::type_tag` 的两个空闲位里，3 是能表示的最大值。0 会让一切在第一次 minor
+就晋升（等于没有年轻代）。越界**警告并 clamp**，不是饱和：一个饱和的年龄永远
+「到不了」，于是什么都不会被晋升。
+
+> 原来那句「`PROMOTION_THRESHOLD` 可用 `Z42_GC_TENURE` 配」的注释是**假的** ——
+> 那个环境变量在全仓从未存在过。
+
+## 大对象门槛 `Z42_GC_LOH_BYTES`：进程级，因为 TLAB 快路径手里没有堆
+
+变长块的尺寸超过这个门槛就走 **dedicated chunk**（按 payload 精确定尺的独立 malloc），
+死后内存**直接还给分配器**（见 [gc-tlab-chunk-exclusive.md](gc-tlab-chunk-exclusive.md)
+的 chunk 三种归宿）。门槛降低 → 更多块走这条路 → 更快归还，代价是每块一次 `malloc`。
+
+⚠️ **它是进程级的 `static`，不是 per-heap 字段** —— `class_for` 被
+`arc_heap/alloc.rs` 的**无锁 TLAB 快路径**调用，那里既没有 region 也没有堆引用。
+一个进程里的多个 VM 共享同一个设置（和它还是 `const` 的时候一样）。
+在 VM 构造时 `set_loh_bytes` 一次，热路径上只剩一次 relaxed load ——
+**实测代价 +0.023%（78.504 → 78.522 G 指令，三次取中位），落在噪声里**。
+
+**上界硬顶在 `CHUNK_BYTES`（64 KB）**：比一个 bump chunk 还大的块根本没法 bump 分配，
+调高只会把块路由到不存在的地方。
 
 ## 关联
 

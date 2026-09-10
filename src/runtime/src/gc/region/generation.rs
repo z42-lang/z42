@@ -12,11 +12,18 @@ impl<T> Region<T> {
     /// **fix-young-list-only-when-generational (2026-09-07)**: construct a region
     /// that maintains [`Self::young_list`] only when `generational` is set. See
     /// that field for the invariant the caller must uphold.
-    pub fn new_for_mode(generational: bool) -> Self {
+    pub fn new_for_mode(generational: bool, promotion_age: u8) -> Self {
         // `Region` implements `Drop`, so no functional-update from `default()`.
         let mut r = Self::default();
         r.generational = generational;
+        r.promotion_age = promotion_age;
         r
+    }
+
+    /// The promotion age this region was built with (see [`Region::promotion_age`]).
+    #[inline]
+    pub fn promotion_age(&self) -> u8 {
+        self.promotion_age
     }
 
     /// **fix-young-list-only-when-generational (2026-09-07)**: flip young-list
@@ -59,7 +66,7 @@ impl<T> Region<T> {
                 }
                 // SAFETY: `initialized` says this slot holds a constructed entry.
                 let entry = unsafe { chunk[ei].assume_init_ref() };
-                if entry.alive.load(Ordering::Acquire) && entry.gen_age() < PROMOTION_THRESHOLD {
+                if entry.alive.load(Ordering::Acquire) && entry.gen_age() < self.promotion_age {
                     young.push((ci as u32, ei as u16));
                 }
             }
@@ -164,7 +171,7 @@ impl<T> Region<T> {
         }
         let prev = entry.gen_age.fetch_add(1, Ordering::AcqRel);
         let new_age = prev.saturating_add(1);
-        if prev < PROMOTION_THRESHOLD && new_age >= PROMOTION_THRESHOLD {
+        if prev < self.promotion_age && new_age >= self.promotion_age {
             // Transition: young → old. Remove from young_list.
             self.remove_from_young_list(handle.chunk_idx, handle.entry_idx);
             true
