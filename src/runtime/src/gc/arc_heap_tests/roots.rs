@@ -210,3 +210,74 @@ fn cycle_unreachable_from_external_scanner_still_collected() {
     assert_eq!(count, 0, "non-rooted cycle still collected");
 }
 
+// ── GC handle table as a mark root ──────────────────────────────────────────
+
+/// A **strong** `GCHandle` must anchor its target across a collection — that is the entire
+/// difference between `AllocStrong` and `AllocWeak`, and it is what `HandleEntry`'s own doc
+/// comment claims ("strong slots store cloneable references that anchor their target across
+/// collection").
+///
+/// It did not. `handle_slab` lives in `RcHeapInner` and is touched by exactly four methods in
+/// `arc_heap/interface.rs`; **no mark phase ever scanned it**. So `GCHandle.AllocStrong(x)`
+/// left `x` collectable the moment nothing else referenced it, and the only observable
+/// difference between the two kinds was whether `downgrade` was possible.
+#[test]
+fn a_strong_handle_anchors_its_target_across_a_collection() {
+    use crate::gc::types::GcHandleKind;
+    let heap = ArcMagrGC::new();
+
+    let obj = heap.alloc_object(dummy_type_desc("Anchored"), vec![], NativeData::None);
+    let slot = heap.handle_alloc(&obj, GcHandleKind::Strong);
+    assert_ne!(slot, 0, "test setup: the handle must allocate");
+    drop(obj); // the handle is now the only thing referring to it
+
+    heap.force_collect();
+
+    let mut alive = 0;
+    heap.iterate_live_objects(&mut |_| alive += 1);
+    assert_eq!(alive, 1, "a strong GC handle must keep its target alive across a collection");
+}
+
+/// The other side of the contract: a **weak** handle must *not* anchor. Without this, "fix the
+/// strong case" could be done by anchoring every slot, which would silently break `AllocWeak`.
+#[test]
+fn a_weak_handle_does_not_anchor_its_target() {
+    use crate::gc::types::GcHandleKind;
+    let heap = ArcMagrGC::new();
+
+    let obj = heap.alloc_object(dummy_type_desc("NotAnchored"), vec![], NativeData::None);
+    let slot = heap.handle_alloc(&obj, GcHandleKind::Weak);
+    assert_ne!(slot, 0, "test setup: the handle must allocate");
+    drop(obj);
+
+    heap.force_collect();
+
+    let mut alive = 0;
+    heap.iterate_live_objects(&mut |_| alive += 1);
+    assert_eq!(alive, 0, "a weak handle must not keep its target alive");
+    assert!(heap.handle_target(slot).is_none(), "a collected weak slot reads back as None");
+}
+
+/// The same contract on the **minor** path. `mark_phase_minor` has its own root set (pinned +
+/// external scanner + dirty cards), so fixing the full mark alone would leave a strong handle
+/// anchoring nothing under the default collector — where minors are most of the collections.
+#[test]
+fn a_strong_handle_anchors_its_target_across_a_minor() {
+    use crate::gc::types::GcHandleKind;
+    use crate::gc::GcMode;
+    use crate::vm_context::VmContext;
+    let ctx = VmContext::new();
+    ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+    let heap = ctx.heap();
+
+    let obj = heap.alloc_object(dummy_type_desc("AnchoredYoung"), vec![], NativeData::None);
+    let slot = heap.handle_alloc(&obj, GcHandleKind::Strong);
+    assert_ne!(slot, 0, "test setup: the handle must allocate");
+    drop(obj); // young, unrooted except for the handle — exactly what a minor sweeps
+
+    heap.collect_cycles_with_context(&ctx);
+
+    let mut alive = 0;
+    heap.iterate_live_objects(&mut |_| alive += 1);
+    assert_eq!(alive, 1, "a strong GC handle must anchor its target across a minor too");
+}

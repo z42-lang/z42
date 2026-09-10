@@ -65,8 +65,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let threshold = self.promotion_age;
         let mut queue: Vec<Value> = Vec::new();
 
-        // Pinned roots + external scanner.
-        queue.extend(self.inner.lock().roots.values().cloned());
+        // Pinned roots + strong GC handles + external scanner.
+        {
+            let i = self.inner.lock();
+            queue.extend(i.roots.values().cloned());
+            // fix-strong-handles-are-not-roots: a strong handle anchors its target, so it is a
+            // root here exactly as a pinned root is. Old targets are traced-through rather than
+            // marked, same as any other old root (see the note in the BFS below).
+            queue.extend(i.handle_slab.strong_targets());
+        }
         {
             let scanner = self.external_root_scanner.lock();
             if let Some(scan) = scanner.as_ref() {

@@ -122,6 +122,23 @@ impl HandleSlab {
         }
     }
 
+    /// Every **strong** slot's target, as mark roots.
+    ///
+    /// **fix-strong-handles-are-not-roots (2026-09-11)**: this is what makes
+    /// `GCHandle.AllocStrong` mean anything. `handle_slab` was reachable only from the four
+    /// `handle_*` methods in `arc_heap/interface.rs`; **no mark phase ever scanned it**, so a
+    /// strong handle did not anchor its target and the only observable difference from a weak
+    /// one was whether `downgrade` was possible. Weak slots are deliberately absent — a weak
+    /// handle must *not* keep its target alive.
+    fn strong_targets(&self) -> impl Iterator<Item = Value> + '_ {
+        self.entries.iter().flatten().filter_map(|e| match e {
+            HandleEntry::StrongObject(g) => Some(Value::Object(g.clone())),
+            HandleEntry::StrongArray(g)  => Some(Value::Array(g.clone())),
+            HandleEntry::StrongAtomic(v) => Some(v.clone()),
+            HandleEntry::WeakObject(_) | HandleEntry::WeakArray(_) => None,
+        })
+    }
+
     fn get(&self, slot: u64) -> Option<&HandleEntry> {
         self.entries.get(slot as usize).and_then(|e| e.as_ref())
     }
