@@ -168,3 +168,91 @@ fn copy_rejects_non_arrays_and_negative_indices() {
     assert!(copy(&ctx, &src, -1, &dst, 0, 1).is_err());
     assert!(copy(&ctx, &src, 0, &dst, 0, -1).is_err());
 }
+
+// ── fix-missing-array-write-barriers (2026-09-10) ────────────────────────────
+
+/// Storing a reference into an array is a heap write, and an **old** array receiving a
+/// **young** element must dirty its card or the next minor will not re-root it.
+///
+/// The interpreter's `ArraySet` and the JIT's array-store helper have always fired the
+/// barrier; these `Std.Array` builtins never did. `perf-bulk-array-copy` is the sharpest
+/// case: it replaced a script-side `for` loop of `ArraySet` — every iteration of which fired
+/// the barrier — with one primitive that fired none, while its own doc comment claims "a copy
+/// is indistinguishable from the loop it replaces".
+mod write_barriers {
+    use super::*;
+    use crate::gc::{GcMode, MagrGC};
+
+    /// Allocate an array through the heap (so it has a region entry with a card), and age it
+    /// past the promotion threshold so a young element written into it is a cross-gen edge.
+    fn old_array(ctx: &VmContext, len: usize) -> Value {
+        let v = ctx.heap().alloc_array(vec![Value::Null; len]);
+        let Value::Array(gc) = &v else { panic!() };
+        for _ in 0..crate::gc::region::PROMOTION_THRESHOLD {
+            // SAFETY: fresh entry from this heap; ageing it is what a surviving minor does.
+            let e = unsafe { gc.entry_ptr().as_ref() };
+            e.gen_age.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        v
+    }
+
+    fn card_dirty(ctx: &VmContext, arr: &Value) -> bool {
+        let Value::Array(gc) = arr else { panic!() };
+        // SAFETY: live handle from this heap.
+        let (ci, _) = unsafe { gc.entry_ptr().as_ref() }.location;
+        ctx.heap().array_card_dirty_for_test(ci)
+    }
+
+    #[test]
+    fn array_set_value_dirties_the_card() {
+        let ctx = ctx();
+        ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+        let dst = old_array(&ctx, 4);
+        let young = ctx.heap().alloc_array(vec![Value::I64(7)]);
+        assert!(!card_dirty(&ctx, &dst), "test setup: card starts clean");
+
+        builtin_array_set(&ctx, &[dst.clone(), young, Value::I64(0)]).expect("set ok");
+
+        assert!(card_dirty(&ctx, &dst), "Array.SetValue must fire the write barrier");
+    }
+
+    #[test]
+    fn array_copy_dirties_the_card() {
+        let ctx = ctx();
+        ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+        let dst = old_array(&ctx, 4);
+        let src = ctx.heap().alloc_array(vec![Value::Null; 4]);
+        {
+            let Value::Array(s) = &src else { panic!() };
+            let young = ctx.heap().alloc_array(vec![Value::I64(1)]);
+            s.borrow_mut().set_boxed(0, young);
+        }
+        assert!(!card_dirty(&ctx, &dst), "test setup: card starts clean");
+
+        builtin_array_copy(
+            &ctx,
+            &[src, Value::I64(0), dst.clone(), Value::I64(0), Value::I64(4)],
+        )
+        .expect("copy ok");
+
+        assert!(card_dirty(&ctx, &dst), "Array.Copy must fire the write barrier");
+    }
+
+    /// A copy that moves no references must not dirty anything — the barrier is precise, not
+    /// a blanket "this array was written to".
+    #[test]
+    fn a_primitive_only_copy_dirties_nothing() {
+        let ctx = ctx();
+        ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+        let dst = old_array(&ctx, 4);
+        let src = ctx.heap().alloc_array(vec![Value::I64(1); 4]);
+
+        builtin_array_copy(
+            &ctx,
+            &[src, Value::I64(0), dst.clone(), Value::I64(0), Value::I64(4)],
+        )
+        .expect("copy ok");
+
+        assert!(!card_dirty(&ctx, &dst), "a primitive copy has no cross-gen edge to record");
+    }
+}

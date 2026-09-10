@@ -315,12 +315,22 @@ pub(crate) fn store_thru_ref(
             Ok(())
         }
         RefKind::Array { gc_ref, idx } => {
-            let mut arr = gc_ref.borrow_mut();
-            if *idx >= arr.len() {
-                anyhow::bail!(
-                    "ref array index {idx} out of bounds (len={})", arr.len());
+            {
+                let mut arr = gc_ref.borrow_mut();
+                if *idx >= arr.len() {
+                    anyhow::bail!(
+                        "ref array index {idx} out of bounds (len={})", arr.len());
+                }
+                arr.set_boxed(*idx, val.clone());
             }
-            arr.set_boxed(*idx, val);
+            // fix-missing-array-write-barriers (2026-09-10): writing through a `ref` to an
+            // array element is an array store like any other — `ArraySet` fires the barrier,
+            // this path never did.
+            if val.is_heap_ref() {
+                ctx.heap().write_barrier_array_elem(
+                    &Value::Array(gc_ref.clone()), *idx, &val,
+                );
+            }
             Ok(())
         }
         RefKind::Field { gc_ref, field_name } => {

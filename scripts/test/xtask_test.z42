@@ -214,6 +214,44 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
     return _runVmGoldensF(modeList, jobsN, sh[0], sh[1], dirFilter, fileFilter);
 }
 
+// add-ci-generational-coverage (2026-09-10): compile one real package under
+// `Z42_GC_MODE=generational`, with a nursery small enough to force ~26 minor collections.
+//
+// **Why a compiler build and not the golden suite**: the goldens were tried first and are
+// *vacuous* here — each case is a short-lived program that never collects. Reintroducing
+// #539's defect left the whole golden suite green; the same defect crashes this build.
+//
+// **Why 16 MB**: the nursery is what sets how many minors happen, and the defects this
+// guards against only appear once objects have survived several of them. At the 32 MB
+// default the run does 10 minors and #539's defect stays hidden; at 16 MB it does 26 and
+// the build dies on `ArrayGet: expected array, got Null`. Counter-proved both ways.
+//
+// ⚠️ Do **not** lower this to 1 MB without reading the note in
+// `docs/book/src/runtime/gc-tuning-and-safepoint.md`: there is a *known-open* defect that
+// reproduces there (~96 minors) and would make this stage red on a clean tree.
+int _testGenerationalWorkload() {
+    string root = _root();
+    string vm = _builtVm(root, "release");
+    string driver = _driverZpkg(root, "release");
+    string flat = _assembleAllLibs(root, "release");
+    string toml = root + "/src/compiler/z42c.semantics/z42c.semantics.z42.toml";
+    Console.WriteLine("  ▶ z42c.semantics --release --no-incremental "
+        + "(Z42_GC_MODE=generational, nursery 16M)");
+    ProcessResult r = new Process(vm)
+        .Arg(driver).Arg("--")
+        .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
+        .Env("Z42_LIBS", flat)
+        .Env("Z42_GC_MODE", "generational")
+        .Env("Z42_GC_NURSERY_BYTES", "16M")
+        .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
+    if (r.ExitCode != 0) {
+        Console.WriteLine("  x generational build failed (exit " + r.ExitCode.ToString() + ")");
+        return 1;
+    }
+    Console.WriteLine("  ok generational build clean");
+    return 0;
+}
+
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
 
 // noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test all` already prepared
@@ -341,6 +379,7 @@ string[] _gateStageNames() {
         "manifest targets ([[test]])",
         "examples (compile gate + test=true run)",
         "compiler",
+        "gc generational (z42c.semantics build)",
         "vscode-syntax",
         "lines",
         "walkers"
@@ -454,6 +493,7 @@ int _testAll(bool noBuild, string skip) {
     swStage = _stageStart("e2e goldens (interp; jit → vm-jit-consistency)");
     c = _testE2eCore("interp", false, false, "4", "", "", ""); if (c != 0) { return c; }
     _stageEnd(slog, "e2e goldens (interp; jit → vm-jit-consistency)", swStage);
+
     // stage 3: e2e cross-zpkg (skippable: CI offloads to a dedicated cross-zpkg-interp job)
     if (!_skipHas(skip, "cross-zpkg")) {
         swStage = _stageStart("e2e cross-zpkg");
@@ -512,6 +552,20 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("compiler");
         c = _testCompiler(true); if (c != 0) { return c; }
         _stageEnd(slog, "compiler", swStage);
+    }
+    // stage 5b: recompile one real package with the **generational** collector armed.
+    // Skippable: host-independent, CI runs it 1x.
+    //
+    // add-ci-generational-coverage (2026-09-10): nothing in CI had ever run
+    // `Z42_GC_MODE=generational` — `grep Z42_GC_MODE` found only a concurrent-mode smoke —
+    // and that is the direct reason **three** premature-collection defects survived for
+    // months (#537 stale marks on old roots; #539 promotion and major card-clear each
+    // creating uncarded old→young edges). All three surfaced the same way: the compiler
+    // crashing mid-build on a dangling reference. So that is what this runs.
+    if (!_skipHas(skip, "gcgen")) {
+        swStage = _stageStart("gc generational (z42c.semantics build)");
+        c = _testGenerationalWorkload(); if (c != 0) { return c; }
+        _stageEnd(slog, "gc generational (z42c.semantics build)", swStage);
     }
     // stage 6: VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
     // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext, 2026-07-07）

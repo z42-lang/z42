@@ -109,7 +109,7 @@ pub fn builtin_array_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// element `i`, unboxing a boxed primitive into the packed slot. Arg order mirrors
 /// C# `Array.SetValue(object value, int index)` (value first) as an instance method
 /// (`this`=array at args[0]). add-array-property-reflection-api (was value-last).
-pub fn builtin_array_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let rc = match args.first() {
         Some(Value::Array(rc)) => rc.clone(),
         Some(Value::Null) => bail!("Array.SetValue: null array reference"),
@@ -129,11 +129,20 @@ pub fn builtin_array_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
         },
         other => other,
     };
-    let mut a = rc.borrow_mut();
-    if i >= a.len() {
-        bail!("Array.SetValue: index {i} out of bounds (len {})", a.len());
+    {
+        let mut a = rc.borrow_mut();
+        if i >= a.len() {
+            bail!("Array.SetValue: index {i} out of bounds (len {})", a.len());
+        }
+        a.set_boxed(i, raw.clone());
     }
-    a.set_boxed(i, raw);
+    // fix-missing-array-write-barriers (2026-09-10): storing a reference into an array is a
+    // heap write like any other, and an **old** array receiving a **young** element must mark
+    // its card or the next minor will not re-root it. The interpreter's `ArraySet` and the
+    // JIT's array-store helper both fire this; these `Std.Array` builtins never did.
+    if raw.is_heap_ref() {
+        ctx.heap().write_barrier_array_elem(&Value::Array(rc), i, &raw);
+    }
     Ok(Value::Null)
 }
 
@@ -148,7 +157,7 @@ pub fn builtin_array_set(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// `ArrayObj::copy_elems_within`). Element conversion is exactly what the
 /// single-element `get_boxed`/`set_boxed` pair already defines, so a copy is
 /// indistinguishable from the loop it replaces.
-pub fn builtin_array_copy(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     fn arr(v: Option<&Value>, what: &str) -> Result<crate::gc::GcRef<ArrayObj>> {
         match v {
             Some(Value::Array(rc)) => Ok(rc.clone()),
@@ -173,12 +182,15 @@ pub fn builtin_array_copy(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // Same array → one lock (borrow + borrow_mut on the same GcRef would deadlock:
     // both take the entry's blocking Mutex).
     if crate::gc::GcRef::ptr_eq(&src, &dst) {
-        let mut a = dst.borrow_mut();
-        let len = a.len();
-        if si + n > len || di + n > len {
-            bail!("__array_copy: range out of bounds (len {len}, src {si}+{n}, dst {di}+{n})");
+        {
+            let mut a = dst.borrow_mut();
+            let len = a.len();
+            if si + n > len || di + n > len {
+                bail!("__array_copy: range out of bounds (len {len}, src {si}+{n}, dst {di}+{n})");
+            }
+            a.copy_elems_within(si, di, n);
         }
-        a.copy_elems_within(si, di, n);
+        barrier_copied_range(ctx, &dst, di, n);
         return Ok(Value::Null);
     }
     let s = src.borrow();
@@ -191,7 +203,46 @@ pub fn builtin_array_copy(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
         );
     }
     d.copy_elems_from(&s, si, di, n);
+    drop(d);
+    drop(s);
+    barrier_copied_range(ctx, &dst, di, n);
     Ok(Value::Null)
+}
+
+/// **fix-missing-array-write-barriers (2026-09-10)**: fire the array write barrier over the
+/// range a bulk copy just wrote.
+///
+/// `perf-bulk-array-copy` replaced a script-side `for` loop of `ArraySet` with this one
+/// primitive — and every one of those interpreted `ArraySet`s **fired the write barrier**.
+/// The bulk version fired none, so an old destination array that received young references
+/// (a `List` compacting in place, a map rehashing into a retained buffer) never marked its
+/// card and the next minor swept the elements out from under it. Its own doc comment claims
+/// "a copy is indistinguishable from the loop it replaces" — this is what made that true.
+///
+/// The barrier keys its card on the **owning array's** entry, not the element index, so the
+/// first young element is all it takes; the scan stops there.
+fn barrier_copied_range(
+    ctx: &VmContext,
+    dst: &crate::gc::GcRef<ArrayObj>,
+    di: usize,
+    n: usize,
+) {
+    let refs: Vec<(usize, Value)> = {
+        let a = dst.borrow();
+        (0..n)
+            .filter_map(|k| {
+                let v = a.get_boxed(di + k);
+                v.is_heap_ref().then_some((di + k, v))
+            })
+            .collect()
+    };
+    if refs.is_empty() {
+        return;
+    }
+    let owner = Value::Array(dst.clone());
+    for (idx, v) in refs {
+        ctx.heap().write_barrier_array_elem(&owner, idx, &v);
+    }
 }
 
 /// `Std.Array.Clone()` — shallow copy of the receiver array. Reference-type

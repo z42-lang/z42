@@ -149,6 +149,55 @@ minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位
 （`mark_backing` / `shade_var_newborn` 置位），少这一行就意味着一次中途放弃或换模式的回收
 留下的位会让下一次 `mark_phase` 跳过某个闭包的 `env`。
 
+## ⚠️ 分代模式的 CI 覆盖，与一个 known-open 缺陷
+
+`Z42_GC_MODE=generational` **从来没有被 CI 跑过**（`grep Z42_GC_MODE` 全仓只有一个
+concurrent 的 smoke）——这是 #537 / #539 **三个「丢对象」缺陷能活几个月**的直接原因。
+现在 gate 里有一个 stage 用分代收集器重编 `z42c.semantics`。
+
+**为什么是编译器自建、不是 golden 套件**：golden 版先做过，**是空转的** ——
+把 #537 的缺陷放回去，整套 golden 依然全绿（每个 golden 都是短命小程序，一次 minor 都不做）。
+三个缺陷当年都是以「编 z42c.semantics 编到一半崩在悬垂引用上」的形式暴露的，所以就跑那件事。
+
+**为什么 nursery 定 16M**：nursery 决定 minor 跑多少次，而这些缺陷要**对象熬过好几次
+minor** 才显形。
+
+| nursery | minor 次数 | 放回 #539 的缺陷 | 干净树 |
+|---|---|---|---|
+| 32M（默认） | 10 | 绿（**抓不到**） | 绿 |
+| **16M** | **26** | **红** | **绿** ← 选它 |
+| 1M | 96+ | 红 | **红**（见下） |
+
+🔴 **known-open：1M nursery 下仍会丢对象。**
+
+```bash
+env Z42_GC_MODE=generational Z42_GC_NURSERY_BYTES=1M \
+  artifacts/build/runtime/release/z42vm artifacts/.z42/programs/z42c/z42c.driver.zpkg \
+  -- build src/compiler/z42c.semantics/z42c.semantics.z42.toml --release --no-incremental
+# → 96 次 minor 之后：__str_hash_code: arg 0 expected string, got Null   （3/3 必现）
+```
+
+**早于 #552 / #553**，2M 及以上全绿。探针形状（sweep 之后按 GC 自己的 `trace_children`
+走全部活对象、检查孩子是否已死）：**老数组、卡是脏的、chunk 没被 TLAB 借出，孩子却被扫了**
+—— 补完三处漏掉的数组写屏障之后症状不变，**所以不是漏发屏障，是标记阶段走到它之后出的问题**。
+下一步该怎么查见 `docs/spec/archive/2026-09-10-add-ci-generational-coverage/design.md`。
+
+**这就是翻 `Z42_GC_MODE` 默认的前置。**
+
+### 顺带修掉的三处数组写屏障
+
+任何把**堆引用**写进数组元素的路径都必须发写屏障。解释器的 `ArraySet` 与 JIT 的数组存储
+helper 一直都发，这三处从来不发：
+
+| 路径 | 说明 |
+|---|---|
+| `Array.SetValue` | 反射 / `Std.Array` 的单元素写 |
+| **`Array.Copy`** | 最尖锐的一处：`perf-bulk-array-copy` 把脚本侧一个 `ArraySet` 循环换成 bulk 原语，而**那个循环每次迭代都发屏障**，bulk 版一次都不发 |
+| 经 `ref` 写数组元素 | `RefKind::Array` 的写回 |
+
+屏障的卡键在**数组头自己的条目**上、与元素下标无关，所以 bulk copy 只要有一个堆引用元素
+就够了；纯基元的拷贝**不置脏**（有测试盯着——屏障要精确，不能退化成「这个数组被写过」）。
+
 ## 自动回收的触发：**每一个阈值都是相对量**（照 Mono SGen）
 
 ```

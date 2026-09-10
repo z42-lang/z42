@@ -60,7 +60,8 @@ graph LR
     S3a2 --> S3b[manifest targets<br/>&#91;&#91;test&#93;&#93; fixture]
     S3b --> S3c[examples<br/>编译 gate + test=true 运行]
     S3c --> S4[compiler 自举<br/>七包 + 不动点 + units]
-    S4 --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
+    S4 --> S4g[gc generational<br/>z42c.semantics · nursery 16M]
+    S4g --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
     S5 --> S6[lines<br/>文件行数硬上限 棘轮基线]
     S6 --> G((GREEN))
 ```
@@ -78,12 +79,13 @@ graph LR
 - `manifest targets ([[test]])`
 - `examples (compile gate + test=true run)`
 - `compiler`
+- `gc generational (z42c.semantics build)`
 - `vscode-syntax`
 - `lines`
 - `walkers`
 <!-- gate-stages:end -->
 
-先备工具链与基线（build wave），再依序跑十一个验证 stage；任一步失败立即终止。
+先备工具链与基线（build wave），再依序跑十二个验证 stage；任一步失败立即终止。
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <name>` 下放到独立 CI job
 （见 `_skipHas`；skip 名是短名，如 `vscode` / `targets`，不等于 banner 全名）——skip 只影响
 **在哪跑**，不改变 gate 的 stage 组成，故上面的清单不随 `--skip` 变化。
