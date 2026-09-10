@@ -156,6 +156,13 @@ public static class ImportedSymbolLoader {
                         // 机制见 docs/design/compiler/self-hosting.md 轴④ 与 .claude/rules/bootstrap-seed.md。
                         // （struct-ness 继续复用 HasBase 编码属独立技术债，登记 Deferred，不在本 change 内改。）
                         nct.IsStruct = !cl.HasBase;
+                        // unify-type-identity-fqn：**导入类的声明 ns**。此前从未设置 —— 全编译器给
+                        // `Z42ClassType.Namespace` 赋值的点只有 `StubCollector._putClassStub`（本地类），
+                        // 于是 imported 类的 `Fqn()` 恒退化成短名。`Z42Type.z42` 里那句「导入由
+                        // ImportedSymbolLoader 从 em.Namespace 设置」是**过期的假断言**（见 §6 防腐门）。
+                        // 数据本就在手：下方 `r.ClassNamespaces.Put` 用的就是同一个 `em.Namespace`。
+                        // 种子 ABI 安全：Namespace 不进 ctor 签名、ctor 内默认 ""，此处构造后赋值。
+                        nct.Namespace = em.Namespace;
                         if (cl.TpCount > 0) { nct.GenericParamNames = cl.TypeParams; nct.GenericParamCount = cl.TpCount; }
                         if (needsMangle) { nct.HasArityMangle = true; nct.ArityMangleCount = cl.TpCount; }
                         // fix-crosspkg-interface-impl：imported 类带上实现接口表（bare 名，TSIG 恢复）——
