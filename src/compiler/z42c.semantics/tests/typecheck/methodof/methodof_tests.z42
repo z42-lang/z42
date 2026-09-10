@@ -1,0 +1,112 @@
+// methodof 的**诊断面**单测（add-method-reference）。
+//
+// 为什么负例必须落在单测而不是 e2e：诊断码 + 消息文本 + **下划线位置**三样都要断言，
+// 而 e2e 只比对 stdout。SemanticDump.{FirstErrorCode,FirstErrorMessage,FirstErrorPos}
+// 三件套正是为此存在，且在 GREEN gate 内。
+//
+// 本特性的全部价值是「零匹配与多匹配都报错、绝不静默择一」——所以**负例面就是正例面**，
+// 这些用例不是补充，是主体。
+namespace Z42cSemanticsMethodOfTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 两个重载 + 一个独苗，供各用例复用。
+string _src(string expr) {
+    return "class Logger { void Log(string m) { } void Log(int n) { } void Solo() { } "
+         + "object Take() { return " + expr + "; } }";
+}
+
+// ── 正例：能唯一确定时不报错 ────────────────────────────────────────────────
+[Test]
+void test_methodof_unique_method_omits_signature() {
+    // 无重载 → 可省略参数列表
+    Assert.Equal(0, SemanticDump.ErrorCount(_src("methodof(Logger.Solo)")));
+}
+
+[Test]
+void test_methodof_param_list_picks_overload() {
+    Assert.Equal(0, SemanticDump.ErrorCount(_src("methodof(Logger.Log(string))")));
+    Assert.Equal(0, SemanticDump.ErrorCount(_src("methodof(Logger.Log(int))")));
+}
+
+[Test]
+void test_methodof_explicit_empty_param_list_is_not_omission() {
+    // methodof(X.M()) 显式指代零参重载 —— Solo 就是零参，应当命中
+    Assert.Equal(0, SemanticDump.ErrorCount(_src("methodof(Logger.Solo())")));
+}
+
+// ── 负例：每一条都必须报，且必须给出可照抄的下一步 ──────────────────────────
+[Test]
+void test_methodof_unknown_member_is_error() {
+    string src = _src("methodof(Logger.Nope)");
+    Assert.Equal("E0459", SemanticDump.FirstErrorCode(src));
+    // 逃生口：必须列出该类型上可用的方法名，否则用户只知道「错了」不知道「该写什么」
+    Assert.Contains("available methods", SemanticDump.FirstErrorMessage(src));
+    Assert.Contains("Solo", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_methodof_omitted_signature_on_overload_is_error() {
+    // ⭐ 这条是本特性的核心契约：有重载却省略签名 → **报错，不静默选第一个**
+    string src = _src("methodof(Logger.Log)");
+    Assert.Equal("E0460", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("2 overloads", SemanticDump.FirstErrorMessage(src));
+    // 逃生口：诊断里要直接给出补签名的写法
+    Assert.Contains("methodof(Logger.Log(", SemanticDump.FirstErrorMessage(src));
+    Assert.Contains("candidates:", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_methodof_no_matching_overload_is_error() {
+    string src = _src("methodof(Logger.Log(double))");
+    Assert.Equal("E0459", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("no overload", SemanticDump.FirstErrorMessage(src));
+    Assert.Contains("candidates:", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_methodof_operator_is_rejected_with_reason() {
+    // 运算符**根本没有名字**；`op_*` 是编译器内部拼写。必须说「指不了」而非「找不到」。
+    string src = "class Vec { public static Vec operator +(Vec a, Vec b) { return a; } "
+               + "object Take() { return methodof(Vec.op_Addition(Vec, Vec)); } }";
+    Assert.Equal("E0461", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("operator", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_methodof_requires_type_dot_member() {
+    string src = _src("methodof(Logger)");
+    Assert.Equal("E0462", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("Type.Member", SemanticDump.FirstErrorMessage(src));
+    // 一个错误只报一条：不得再追加「没有名为 `` 的方法」的噪声
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_methodof_generic_owner_is_rejected() {
+    // 泛型类共享一份发射 ⇒ Box<int>.Get 与 Box<string>.Get 是同一个 qualified 名，
+    // 允许写类型实参只会给人「这两个不一样」的错觉。
+    string src = "class Box<T> { T Item; T Get() { return this.Item; } } "
+               + "class C { object Take() { return methodof(Box<int>.Get); } }";
+    Assert.Equal("E0462", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("methodof(Box.Get)", SemanticDump.FirstErrorMessage(src));
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_methodof_undefined_owner_type() {
+    string src = _src("methodof(Nope.Whatever)");
+    Assert.Equal("E0443", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 下划线位置：必须落在**成员名本身**，不是整个 methodof 表达式 ──────────────
+// 这条同时是 ⑦ 组「AST 名字级 span」地基的可断言消费方（见 tasks.md）。
+[Test]
+void test_methodof_error_underlines_the_member_name() {
+    string src = "class Logger { void Solo() { } object T() { return methodof(Logger.Nope); } }";
+    // 三个候选位置（1-based 列）：`methodof` 起于 52、owner `Logger` 起于 61、成员 `Nope` 起于 68。
+    // 断言必须是 68 —— 退回「整个表达式」(52) 或「owner」(61) 都会立刻变红。
+    Assert.Equal("1:68", SemanticDump.FirstErrorPos(src));
+}
