@@ -1,6 +1,6 @@
 # Proposal: validate-func-type-constraint
 
-> 状态：📝 DRAFT（待 User 确认） | 创建：2026-09-10 | 类型：lang（新发诊断）
+> 状态：🟢 已实施（User 裁决：E0422+E0423，变性照 spec） | 创建：2026-09-10 | 类型：lang（新发诊断）
 
 ## 一句话
 
