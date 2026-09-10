@@ -253,6 +253,7 @@ public sealed class StubCollector {
         if (needsMangle) { ct.HasArityMangle = true; ct.ArityMangleCount = c.TypeParams.Count; }
         if (c.IsPartial) { ct.IsPartial = true; ct.PartialMainFile = file; }
         table.Classes.Put(key, ct);
+        table.NoteClassNs(key, ns);   // add-bare-name-ambiguity-diagnostic：裸名 → 全部声明 ns（判歧义用）
         // fix-type-ref-ns-collision：同时按 FQN 键登记（`ns.key`；全局 ns 用裸 key）。裸名 Classes 会被同短名
         // 跨 ns 后来者覆盖，此 FQN 视图保留每一份 → `new A.Foo` 的限定名解析命中 ns==A 的那份，不再撞赢家。
         string fqn = ns == "" ? key : ns + "." + key;

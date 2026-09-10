@@ -46,6 +46,22 @@ public sealed class TypeChecker {
         AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
         if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
     }
+
+    // add-bare-name-ambiguity-diagnostic：源 TypeExpr 形态的歧义判定入口。
+    //
+    // 判定必须知道源码写的是**裸名**还是限定名 —— `A.Foo` 恰恰是用来消歧的写法，对它报歧义
+    // 就是假红，而 resolved 的 `Z42Type` 里没有这个信息，只有 `TypeExpr` 有。故凡是手上有
+    // TypeExpr 的类型引用点都在既有 `_chkTypeRef` 之外**再调一次**本方法。
+    //
+    // 刻意**不**把它塞进 `_chkTypeRef`：那样得改它的签名与 10 个调用点的 span 实参，
+    // 会连带改动既有 access-control 诊断的 span（golden 会跟着漂）。加一条独立调用零影响。
+    public void ChkAmbiguousBareNameT(SymbolTable symbols, TypeExpr src, Span sp) {
+        if (src == null) { return; }
+        if (!(src is NamedType)) { return; }
+        NamedType nt = src as NamedType;
+        if (nt.Name.IndexOf(".") >= 0) { return; }   // 限定名 = 已消歧
+        this.ChkAmbiguousBareName(symbols, nt.Name, sp);
+    }
     // fix-ns-qualified-static-call（bug B7）：扫本 CU 的 `using`（含 global using——它们已被注入进
     // 每个 CU，见 add-global-using）填 _currentUsings。`using A = B;`（UsingAliasDecl）不算 ns。
     private void _collectUsings(CompilationUnit cu) {
@@ -75,6 +91,46 @@ public sealed class TypeChecker {
         while (i < this._currentUsingCount) { if (this._currentUsings[i] == p) { return true; } i = i + 1; }
         return false;
     }
+
+    // add-bare-name-ambiguity-diagnostic（E0456）：**非限定**短名同时匹配多个可见 ns 里的类型 → 报歧义。
+    //
+    // 为什么需要：`SymbolTable.Classes` 按裸名单赢家（本地 last-wins / 导入 first-wins），同短名跨 ns
+    // 时**静默择一**，选谁取决于加载顺序。实测三命名空间 fixture：`A.Helper` / `B.Helper` 各有
+    // `Who()`，裸写 `Helper.Who()` 无声输出 "B"、零诊断。C# 在这里报 CS0104。
+    //
+    // 判定（对齐 C#）：
+    //   ① 候选 ns 取自 `SymbolTable.ClassNsAll`（两个生产点在 first-wins 守卫**之外**累积）；
+    //   ② 只算**本 CU 可见**的 ns（using 集 ∪ 本 ns ∪ 全局 ns）——否则「另一个包里也叫 Foo」
+    //      这种完全合法的情况会被判成歧义，那是假红；
+    //   ③ **当前 ns 里的那一份直接胜出**，不算歧义（C# 的「近者优先」）；
+    //   ④ 剩余可见候选 ≥ 2 → 报 E0456。
+    //
+    // 🔴 全局 ns（`""`）必须当作可见：`_isVisibleNs("")` 恒 false（它服务的是 ns **前缀**匹配，
+    // 空前缀无意义），直接复用会漏掉「一份在全局 ns、一份在 using 进来的 ns」这种真歧义。
+    public void ChkAmbiguousBareName(SymbolTable symbols, string name, Span sp) {
+        string[] nss = symbols.ClassNsOf(name);
+        if (nss.Length < 2) { return; }
+        int visible = 0;
+        string first = "";
+        string second = "";
+        int i = 0;
+        while (i < nss.Length) {
+            string ns = nss[i];
+            if (ns == this._currentNs) { return; }                 // ③ 当前 ns 优先，不算歧义
+            if (ns == "" || this._isVisibleNs(ns)) {               // ② 可见集（含全局 ns）
+                visible = visible + 1;
+                if (first == "") { first = ns; }
+                else if (second == "") { second = ns; }
+            }
+            i = i + 1;
+        }
+        if (visible < 2) { return; }
+        this._diags.Error("E0456",
+            "`" + name + "` is an ambiguous reference between `" + TypeChecker._qual(first, name)
+            + "` and `" + TypeChecker._qual(second, name) + "`", sp);
+    }
+
+    private static string _qual(string ns, string name) { return ns == "" ? name : ns + "." + name; }
 
     public TypeChecker(DiagnosticBag diags) {
         this._diags = diags;

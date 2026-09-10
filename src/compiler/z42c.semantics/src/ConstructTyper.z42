@@ -134,6 +134,7 @@ public sealed class ConstructTyper {
             t = expected;
         } else {
             t = env.ResolveType(n.Type);
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, n.Type, n.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456（`new Foo()` 的裸名）
             // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 运行期按 frame 槽具化类型 activator 构造。
             // 不走 _chkTypeRef（泛型形参非可访问性检查对象）/ ctor 解析。要求零实参（无 ctor 签名可校验）。
             if (t is Z42GenericParamType) {

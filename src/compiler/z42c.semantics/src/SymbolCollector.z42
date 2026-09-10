@@ -131,6 +131,17 @@ public sealed class SymbolCollector {
             if (!table.Classes.ContainsKey(cls[i])) { table.Classes.Put(cls[i], imported.Classes.Get(cls[i])); }
             i = i + 1;
         }
+        // add-bare-name-ambiguity-diagnostic：把跨包累积的「短名 → 全部声明 ns」并进符号表。
+        // 注意是**逐 ns 并**而非整表覆盖：本地也可能声明同一短名，两边都要留下。
+        string[] nsk = imported.ClassNsAll.Keys();
+        i = 0;
+        while (i < nsk.Length) {
+            StrBox nb = imported.ClassNsAll.Get(nsk[i]) as StrBox;
+            string[] nss = nb.Value.Split("|");
+            int j = 0;
+            while (j < nss.Length) { table.NoteClassNs(nsk[i], nss[j]); j = j + 1; }
+            i = i + 1;
+        }
         string[] fns = imported.Functions.Keys();
         i = 0;
         while (i < fns.Length) {

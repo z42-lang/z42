@@ -718,6 +718,11 @@ public sealed class MemberResolver {
         if (mem.Target is IdentExpr) {
             IdentExpr tid = mem.Target as IdentExpr;
             if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
+                // add-bare-name-ambiguity-diagnostic：E0456。**这正是当年 216 条 E0401 的形状** ——
+                // `Assert.Greater(...)` 里的 `Assert` 是裸类名，`GetClass` 按裸名 first-wins 定到
+                // `Std.Assert`，于是 z42.test 那份的方法全报「no static method」。#532 合并两份 Assert
+                // 消掉了起因，但**择一本身仍是静默的**：换个同短名跨 ns 的类，照样无声选一份。
+                this._tc.ChkAmbiguousBareName(env.Symbols, tid.Name, sp);
                 Z42ClassType ct = env.Symbols.GetClass(tid.Name);
                 MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
                 if (ms != null) {

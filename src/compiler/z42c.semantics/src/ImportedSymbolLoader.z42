@@ -17,6 +17,9 @@ public sealed class ImportedSymbols {
     public StrMap Classes;          // 短名 → Z42ClassType（成员已填）
     public StrMap Functions;        // 名 → MethodSymbol（自由函数）
     public StrMap ClassNamespaces;  // 短名 → 原 ns（QualifyClassName / 诊断用；值存 StrBox）
+    // add-bare-name-ambiguity-diagnostic：短名 → **全部**声明 ns（"|" 连接）。`ClassNamespaces` 是
+    // 单值、且被 first-wins 守卫盖住，判不了歧义；本表在守卫**之外**累积，每个 active 模块都记一笔。
+    public StrMap ClassNsAll;
     public StrMap FunctionNamespaces; // 自由函数名 → 原 ns（QualifyFreeFunc：跨包裸调按源 ns 限定；值存 StrBox）
     public StrMap Interfaces;       // 短名 → Z42InterfaceType（接口骨架；供 _passClassStubs 基表判别）
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
@@ -29,6 +32,7 @@ public sealed class ImportedSymbols {
         this.Constraints = new StrMap();
         this.Functions = new StrMap();
         this.ClassNamespaces = new StrMap();
+        this.ClassNsAll = new StrMap();
         this.FunctionNamespaces = new StrMap();
         this.Interfaces = new StrMap();
         this.EnumTypeNames = new StrMap();
@@ -123,6 +127,10 @@ public static class ImportedSymbolLoader {
                     ExportedClassZ cl = em.Classes[c];
                     bool needsMangle = cl.TpCount > 0 && impMultiArity.ContainsKey(cl.Name);
                     string clKey = needsMangle ? (cl.Name + "$" + cl.TpCount.ToString()) : cl.Name;
+                    // add-bare-name-ambiguity-diagnostic：**在 first-wins 守卫之外**累积声明 ns ——
+                    // 守卫之内只有赢家能进，那正是「同短名跨 ns 被塌掉」的地方。`active[i]` 已把模块
+                    // 限制在本 CU 可见的那些，所以这里记下的 ns 天然是可见集的子集。
+                    SymbolTable.NoteNsInto(r.ClassNsAll, clKey, em.Namespace);
                     if (!r.Classes.ContainsKey(clKey)) {        // first-wins（输入已 prelude-first 排序）
                         string baseName = "";
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";

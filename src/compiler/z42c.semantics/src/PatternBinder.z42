@@ -153,12 +153,14 @@ public sealed class PatternBinder {
         // 显式 `T x` → 恒类型模式 + 绑定
         if (np.Bind != "") {
             this._tc._chkTypeRef(resolved, env, np.Span);
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, np.Type, np.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             env.Define(np.Bind, resolved);
             return new BoundTypePattern(tn, np.Bind, resolved, np.Span);
         }
         // 无绑定：命中类型名 → 类型模式（不绑定）
         if (!(resolved is Z42UnknownType)) {
             this._tc._chkTypeRef(resolved, env, np.Span);
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, np.Type, np.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             return new BoundTypePattern(tn, "", resolved, np.Span);
         }
         // 非类型：点分名 → 常量（枚举/限定常量）；单裸名 → 新绑定
@@ -218,6 +220,7 @@ public sealed class PatternBinder {
         Z42Type resolved = env.ResolveType(pp.Type);
         string tn = PatternBinder._rawTypeName(pp.Type, resolved);
         this._tc._chkTypeRef(resolved, env, pp.Span);
+        this._tc.ChkAmbiguousBareNameT(env.Symbols, pp.Type, pp.Span);   // add-bare-name-ambiguity-diagnostic：E0456
         Z42InstantiatedType inst = null;
         Z42ClassType ct = null;
         if (resolved is Z42InstantiatedType) { inst = resolved as Z42InstantiatedType; ct = inst.Def; }
@@ -287,6 +290,7 @@ public sealed class PatternBinder {
             resolved = env.ResolveType(pp.Type);
             tn = PatternBinder._rawTypeName(pp.Type, resolved);
             this._tc._chkTypeRef(resolved, env, pp.Span);
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, pp.Type, pp.Span);   // add-bare-name-ambiguity-diagnostic：E0456
         } else {
             resolved = subjType;   // 省类型 `{F:p}` → 用 subject 静态类型解析字段（解构声明 / switch / is 通用）
             tn = subjType.Name();
