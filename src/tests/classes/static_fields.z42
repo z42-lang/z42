@@ -9,11 +9,11 @@ class Counter {
         id = Counter.count;
     }
 
-    static int GetCount() {
+    public static int GetCount() {
         return Counter.count;
     }
 
-    int GetId() {
+    public int GetId() {
         return id;
     }
 }

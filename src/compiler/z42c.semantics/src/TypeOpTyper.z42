@@ -18,6 +18,7 @@ public sealed class TypeOpTyper {
             BoundExpr operand = this._et._bindExpr(cx.E, env);
             Z42Type target = env.ResolveType(cx.Type);
             this._tc._chkTypeRef(target, env, cx.Type.Span);   // enforce-class-access：cast 目标类型引用
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, cx.Type, cx.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             // add-user-conversions：显式 (T)x 接受 implicit 与 explicit 用户转换 → lower 成 op_Implicit/op_Explicit 调用。
             // 数值/引用 cast（非用户转换）维持 BoundConvert，codegen 不变。
             ConvResult ur = Conversion.Classify(operand.Type(), target, env.Symbols);
@@ -46,12 +47,14 @@ public sealed class TypeOpTyper {
             else { tn = env.ResolveType(ax.Type).Name(); }
             Z42Type asTarget = env.ResolveType(ax.Type);
             this._tc._chkTypeRef(asTarget, env, ax.Type.Span);   // enforce-class-access：as 目标类型引用
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, ax.Type, ax.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             return new BoundCast(operand, asTarget, tn, ax.Span);
     }
 
     internal BoundExpr _bindTypeofExpr(TypeofExpr tox, TypeEnv env) {
             Z42Type toTarget = env.ResolveType(tox.Type);
             this._tc._chkTypeRef(toTarget, env, tox.Type.Span);   // enforce-class-access：typeof 目标类型引用
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, tox.Type, tox.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             // 结果类型 = Std.Type（反射 Type 类；Name/GetFields/FullName 等成员据此解析）。
             Z42Type toType = env.ResolveType(new NamedType("Type", new TypeExpr[0], 0, tox.Span));
             // AST 原始名（typeof-delegate）：delegate 目标解析成结构化 Z42FuncType 丢 FQ 名，
@@ -75,6 +78,7 @@ public sealed class TypeOpTyper {
             if (ix.Type is NamedType) { tn = (ix.Type as NamedType).Name; }
             else { tn = env.ResolveType(ix.Type).Name(); }
             this._tc._chkTypeRef(env.ResolveType(ix.Type), env, ix.Type.Span);   // enforce-class-access：is 目标类型引用
+            this._tc.ChkAmbiguousBareNameT(env.Symbols, ix.Type, ix.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
             // is-pattern 绑定：声明变量（narrowed 类型）使 true 分支可用（同 env，_bindIf 先绑 cond 再绑 then）。
             if (ix.BindName != "") { env.Define(ix.BindName, env.ResolveType(ix.Type)); }
             return new BoundIsExpr(operand, tn, ix.BindName, ix.Span);

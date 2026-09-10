@@ -8,7 +8,7 @@ class Plain {
 
 // Class with ToString override (implicit Object base provides virtual method).
 class Fancy {
-    string Label;
+    public string Label;
     Fancy(string label) { this.Label = label; }
 
     override string ToString() {

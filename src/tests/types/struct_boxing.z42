@@ -4,14 +4,14 @@
 namespace Demo;
 
 struct P {
-    int x;
-    int y;
+    public int x;
+    public int y;
     P(int x, int y) { this.x = x; this.y = y; }
 }
 
 struct Tagged {
-    int n;
-    string label;
+    public int n;
+    public string label;
     Tagged(int n, string label) { this.n = n; this.label = label; }
 }
 

@@ -101,9 +101,12 @@ public static class TypeArgInference {
     // ⚠️ 递归面刻意与 `Conversion._hasGenericParam` 对齐——两者描述的是同一件事「类型里哪里会
     // 出现型参」。不齐会出现「分支 B 认为含型参、推断却没覆盖到」的错配：那种位既不被擦除放行
     // 检查（因为代换没发生），也拿不到绑定，属于最难查的静默不一致。
-    // 唯一的有意差异：`_hasGenericParam` 还下钻 `Z42FuncType`，这里也下钻（见下），而
-    // `MemberResolver._substGeneric` 今天**没有** Z42FuncType 分支 —— 故 func 位即使推出了绑定，
-    // 代换时也换不进去。这不会出错（只是少换一次），但要知道它是个已知的不对称。
+    // ⚠️ **原注「代换时换不进去…这不会出错（只是少换一次）」是错的，已更正**
+    // （fix-explicit-type-arg-not-substituted）：`MethodTypeArgSubst.ByName` 缺 `Z42FuncType` 分支时，
+    // func 位的型参换不掉 ⇒ lambda 实参的目标类型仍是 `Comparison<T>` ⇒ 形参拿到裸 `T` ⇒
+    // 体内算术报 `E0402 ... got T`。全仓 18 条 E0402 全出自那一条缺失分支。
+    // 现在 `MethodTypeArgSubst.ByName` 已补上 func 分支，三者（`_hasGenericParam` / 本 `_unify` / `ByName`）
+    // 递归面一致；`_substGeneric`（类级、按下标）仍无 func 分支，那是另一条路、另算。
     private static bool _unify(Z42Type p, Z42Type a, string[] names, int nameCount, Z42Type[] bound) {
         if (p == null || a == null) { return true; }
         if (p is Z42GenericParamType) {

@@ -7,7 +7,7 @@ class Greeter {
         this.name = n;
     }
 
-    string Greet() {
+    public string Greet() {
         return $"Hello, {this.name}!";
     }
 }

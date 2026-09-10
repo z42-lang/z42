@@ -9,7 +9,7 @@ class Person {
         this.Age = age;
     }
 
-    string Greet() {
+    public string Greet() {
         return $"Hi, I'm {this.Name}, age {this.Age}";
     }
 }

@@ -16,7 +16,7 @@ class Logger {
         this.Prefix = prefix;
     }
 
-    void Log(string msg, bool uppercase = false) {
+    public void Log(string msg, bool uppercase = false) {
         if (uppercase) {
             Console.WriteLine($"[{this.Prefix}] {msg.ToUpper()}");
         } else {

@@ -1,6 +1,8 @@
 # z42 泛型设计
 
-> 对齐：2026-09-10（change `generic-inference-best-common-type`——数值型参冲突取算术拓宽公共类型，
+> 对齐：2026-09-10（change `fix-explicit-type-arg-not-substituted`——显式类型实参先代换签名再绑实参）
+>
+> 同日：2026-09-10（change `generic-inference-best-common-type`——数值型参冲突取算术拓宽公共类型，
 > `Max(1, 2L)` 现在推出 `T = long` 并真校验；更正 §类型实参推断 里「v1 不做最佳公共类型」的失效陈述）
 >
 > 上一次：2026-09-09（change `fix-inferred-type-arg-not-resolved`——推断出的类型实参归一到
@@ -437,6 +439,42 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 会漏掉 `where T : IComparable` 下的 `Max("a", "b")`）。归一放出口而不是放各判定函数：
 后者只是众多消费方之一，逐个打补丁等于承认「型参实参有两种形态」。
 
+### 显式类型实参：**先代换签名，再绑实参**（2026-09-10 `fix-explicit-type-arg-not-substituted`）
+
+写出 `Foo<int>(...)` 时，被调方的签名在**绑定实参之前**就按类型实参代换掉——
+`Array.Sort<int>(xs, (a, b) => b - a)` 的第二个形参目标类型是 `Comparison<int>` 而不是
+`Comparison<T>`，于是 lambda 形参 `a`/`b` 拿到 `int`。
+
+**为什么必须在绑实参之前**：lambda 形参类型**只**来自目标类型
+（`BindArgsToSignature` → `BindWithTarget(rawArg, 形参类型)`）。签名不代换，形参就是裸 `T`，
+体内 `b - a` 报 `E0402: operator - requires numeric operand, got T`。全仓 18 条 E0402
+全是这一个形状，且全在 golden 语料里——运行期照常通过（型参已擦除），只有编译期在报，
+而 `--emit-zbc` 把它吞了。
+
+实现：`MemberResolver._substForExplicitTypeArgs` 在 7 个调用形态（自由函数 / 实例 / 接口 /
+实例化 / 裸类名静态 / prim wrapper 静态 / ns 限定静态）各接一次，产出一个换了签名的
+`MethodSymbol` 浅拷贝（`MethodSymbol.WithSignature`，`RegKey` 原样保留 ⇒ 发射目标不变）。
+按名代换需要方法级型参**名**，故 `MethodSymbol` 新增 `TypeParamNames`（本地取
+`Decl.TypeParams.Names`，跨包取 `ExportedMethodZ.TypeParams`——那些名字早就读进来了，
+只是此前只当解析上下文用、没留在符号上）。
+
+> 🔴 **`_substByName` 的 `Z42FuncType` 分支是这次补的**。此前它只递归数组元素与实例化类型实参，
+> 而 `TypeArgInference._unify` 的注释把这个不对称记成「这不会出错（只是少换一次）」——**那句话是错的**：
+> func 位正是 lambda 形参类型的唯一来源，少换一次就是上面那 18 条。
+
+**与推断路径的分工**（两条不变式并存，别混）：
+
+| | 显式 `Foo<int>(…)` | 推断 `Foo(…)` |
+|---|---|---|
+| 代换时机 | `_withDefaults` **之前** | `_withDefaults` **之后** |
+| 影响面 | 实参绑定（含 lambda 形参类型）+ 诊断 | **仅诊断** |
+| 回灌 `MethodTypeArgs` | 照旧写（本来就写） | **不写**（design D4） |
+| 自举字节 | 会漂（闭包形参类型进 zbc），走两代收敛 | 零漂移，由构造保证 |
+
+推断路径那条「代换结果绝不回灌」的不变式**不受影响**：它针对的是**推断出来**的类型实参
+（不回灌是数据裁决的结果，见下）；显式写出的类型实参不在其约束范围内——`Sort<int>` 的签名
+本来就是 `Sort(int[], Comparison<int>)`，让实参照着它绑才是正确语义（C# 同）。
+
 **推断结果刻意不回灌 `BoundCall.MethodTypeArgs`**：回灌会把 opcode 从 `Op.Call` 换成
 `Op.CallGeneric`、重排 zbc 字符串池、并关掉 `exec_call.rs` 的 native 快路径门；而全仓普查显示
 隐式泛型调用 **112 处全部是 `Array.Copy<T>`**，其 `T` 纯粹是编译期类型安全装置（函数体只做参数
@@ -454,8 +492,10 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
   `fix-inferred-type-arg-not-resolved` 修掉的归一缺口。
 - 约束不写入 zbc 二进制（仅编译期使用），VM 不做运行时校验（**L3-G3 必须补齐**）
 - 其他约束范式排期见 L3-G2.5 子迭代（见下）
-- **返回类型不按推断代换**：推断只驱动诊断，不进入任何发射决策（不变式：代换结果绝不回灌
-  `_withDefaults` / 装箱 / params 打包 / 重载决议——那四条通道每条都是确定性的自举字节漂移）
+- **返回类型不按推断代换**：推断只驱动诊断，不进入任何发射决策（不变式：**推断**的代换结果
+  绝不回灌 `_withDefaults` / 装箱 / params 打包 / 重载决议——那四条通道每条都是确定性的自举
+  字节漂移）。⚠️ 这条只管**推断**路径；**显式**写出类型实参时代换发生在 `_withDefaults`
+  **之前**（见上「显式类型实参」节），那是有意的、且已接受字节漂移代价
 - **推断不参与重载决议**：一律在决议选定唯一候选**之后**做（提前会把 `void F(int)` 与
   `void F<T>(T)` 变歧义，让今天能编的代码编不过）
 

@@ -1,0 +1,120 @@
+// add-bare-name-ambiguity-diagnostic（E0456）：**非限定**短名同时匹配多个可见命名空间里的类型 → 报歧义。
+//
+// 🔴 **本组用例必须是多 CU**，单文件 fixture 造不出这个形状：`StubCollector` 登记类时用的 ns 是
+// `cu.Namespace`（**整个 CU 一份**），一个文件里写多个 `namespace X;` 会把全部声明塌进 CU 的那一个
+// ns —— 于是「A.Helper / B.Helper」变成了「同一 ns 内两个 Helper」（那是另一个 bug，见文件末尾）。
+// 我为此白跑过一轮：单文件 fixture 里 E0456 不响，一度以为实现坏了，实际是 fixture 无效。
+//
+// 🔴 语料里**跨 ns 同短名 = 0**（全仓 914 个类型声明实测），所以这条诊断在真实代码上永远不响 ⇒
+// **本组用例是它唯一的门**。每条都做过退回对照（撤掉 `ClassNsAll` 累积后正例必须变 0）。
+namespace Z42cSemanticsBareNameAmbiguityTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+
+// ⚠️ 辅助函数一律带 `amb` 前缀：同一测试单元（`typecheck` 工程 `include = ["**/*.z42"]`）里
+// 所有文件的自由函数**共享一个平坦命名空间**，而 z42 的自由函数**不按参数类型重载**——
+// 我最初把辅助函数叫 `countCode`，直接被 `generic_inference_tests.z42` 里同名同 arity 的那个
+// 顶掉（报 `cannot assign String[] to DiagnosticBag`）。
+
+// 包级（多 CU）编译 → 汇总全部文件的诊断消息。deps/imported 传 null = 无跨包依赖。
+string[] ambPkgDiags(string[] srcs, string[] files) {
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, srcs.Length, null, null, false);
+    string[] all = new string[16];
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) {
+        CompiledModuleZ cm = cms[i];
+        int j = 0;
+        while (j < cm.DiagCount) {
+            if (n == all.Length) {
+                string[] bigger = new string[all.Length * 2];
+                int z = 0; while (z < n) { bigger[z] = all[z]; z = z + 1; }
+                all = bigger;
+            }
+            all[n] = cm.DiagMsgs[j]; n = n + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    i = 0; while (i < n) { r[i] = all[i]; i = i + 1; }
+    return r;
+}
+
+int ambCountCode(string[] msgs, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 两个 ns 各声明一个 `Helper`，外加一个消费方 CU；`main` 的内容由参数给出。
+string[] ambCus(string mainBody) {
+    string[] srcs = new string[3];
+    srcs[0] = "namespace A; public static class Helper { public static int Who() { return 1; } }";
+    srcs[1] = "namespace B; public static class Helper { public static int Who() { return 2; } }";
+    srcs[2] = mainBody;
+    return srcs;
+}
+
+string[] ambFiles() {
+    string[] files = new string[3];
+    files[0] = "a.z42"; files[1] = "b.z42"; files[2] = "main.z42";
+    return files;
+}
+
+[Test]
+void test_bare_name_across_two_usings_reports_E0456() {
+    // 退回对照：撤掉 `SymbolTable.ClassNsAll` 的累积（或 MemberResolver 的 ChkAmbiguousBareName
+    // 调用）后本条变 0 —— 那正是改动前的行为：无声选一份。
+    string[] srcs = ambCus("namespace R; using A; using B; int f() { return Helper.Who(); }");
+    Assert.Equal(1, ambCountCode(ambPkgDiags(srcs, ambFiles()), "E0456"));
+}
+
+[Test]
+void test_qualified_name_is_never_ambiguous() {
+    // 限定写法就是消歧手段，对它报歧义 = 假红。
+    string[] srcs = ambCus("namespace R; using A; using B; int f() { return A.Helper.Who(); }");
+    Assert.Equal(0, ambCountCode(ambPkgDiags(srcs, ambFiles()), "E0456"));
+}
+
+[Test]
+void test_current_namespace_wins_over_usings() {
+    // C# 的「近者优先」：当前 ns 自己有一份 → 直接胜出，不算歧义。
+    string[] srcs = ambCus("namespace R; using A; using B; "
+        + "public static class Helper { public static int Who() { return 3; } } "
+        + "int f() { return Helper.Who(); }");
+    Assert.Equal(0, ambCountCode(ambPkgDiags(srcs, ambFiles()), "E0456"));
+}
+
+[Test]
+void test_single_visible_declaration_reports_nothing() {
+    // 只 using 一个 → 可见候选只有一份 ⇒ 不歧义。守「别把不可见的那份也算进来」。
+    string[] srcs = ambCus("namespace R; using A; int f() { return Helper.Who(); }");
+    Assert.Equal(0, ambCountCode(ambPkgDiags(srcs, ambFiles()), "E0456"));
+}
+
+[Test]
+void test_ambiguous_type_annotation_reports_E0456() {
+    // 不止静态调用：类型注解位（局部变量声明）走 `_chkTypeRef` 旁边那条 `ChkAmbiguousBareNameT`。
+    string[] srcs = new string[3];
+    srcs[0] = "namespace A; public class Box { public int V; }";
+    srcs[1] = "namespace B; public class Box { public int V; }";
+    srcs[2] = "namespace R; using A; using B; int f() { Box b = null; return 0; }";
+    Assert.Equal(1, ambCountCode(ambPkgDiags(srcs, ambFiles()), "E0456"));
+}
+
+[Test]
+void test_ambiguous_new_expression_reports_E0456() {
+    // `new Foo()` 走 ConstructTyper 那条接线。
+    string[] srcs = new string[3];
+    srcs[0] = "namespace A; public class Box { public int V; }";
+    srcs[1] = "namespace B; public class Box { public int V; }";
+    srcs[2] = "namespace R; using A; using B; int f() { var b = new Box(); return 0; }";
+    Assert.Equal(1, ambCountCode(ambPkgDiags(srcs, ambFiles()), "E0456"));
+}

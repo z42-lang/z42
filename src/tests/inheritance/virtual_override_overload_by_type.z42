@@ -6,10 +6,10 @@
 namespace Demo;
 
 class Base {
-    virtual string Handle(int n) {
+    public virtual string Handle(int n) {
         return $"base-int:{n}";
     }
-    virtual string Handle(string s) {
+    public virtual string Handle(string s) {
         return $"base-str:{s}";
     }
 }

@@ -8,25 +8,25 @@ using Std.IO;
 using Std.Reflection;
 
 struct Point {
-    int x;
-    int y;
-    string tag;
+    public int x;
+    public int y;
+    public string tag;
 }
 
 struct Line {
-    Point a;
-    Point b;
+    public Point a;
+    public Point b;
 }
 
 // add-object-inline-struct-reflection (P4b-B): heap classes with inline struct fields.
 class Widget {
-    int id;
-    Point origin;   // inlined into the object's struct_bytes (dead slot placeholder)
-    string label;
+    public int id;
+    public Point origin;   // inlined into the object's struct_bytes (dead slot placeholder)
+    public string label;
 }
 
 class Frame {
-    Line edge;      // inline struct whose struct itself nests structs + ref leaves
+    public Line edge;      // inline struct whose struct itself nests structs + ref leaves
 }
 
 FieldInfo field(Type t, string name) {

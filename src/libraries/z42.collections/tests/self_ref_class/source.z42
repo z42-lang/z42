@@ -3,8 +3,8 @@ using Std.Collections;
 
 // Self-referential class (linked list Node)
 class Node {
-    int value;
-    Node next;
+    public int value;
+    public Node next;
 
     Node(int v) {
         value = v;
@@ -15,28 +15,28 @@ class Node {
 // Stack using implicit this.field access (no explicit `this.`)
 class Stack {
     Node top;
-    int size;
+    public int size;
 
     Stack() {
         top = null;
         size = 0;
     }
 
-    void Push(int v) {
+    public void Push(int v) {
         var n = new Node(v);
         n.next = top;
         top = n;
         size++;
     }
 
-    int Pop() {
+    public int Pop() {
         var val = top.value;
         top = top.next;
         size--;
         return val;
     }
 
-    bool IsEmpty() {
+    public bool IsEmpty() {
         return top == null;
     }
 }

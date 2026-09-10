@@ -1,15 +1,15 @@
 namespace Demo;
 
 class MathHelper {
-    static int Square(int n) {
+    public static int Square(int n) {
         return n * n;
     }
 
-    static int Add(int a, int b) {
+    public static int Add(int a, int b) {
         return a + b;
     }
 
-    static string Describe(int n) {
+    public static string Describe(int n) {
         if (n > 0) return "positive";
         if (n < 0) return "negative";
         return "zero";

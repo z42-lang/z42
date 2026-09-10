@@ -9,7 +9,7 @@ class Animal {
         age = a;
     }
 
-    string Describe() {
+    public string Describe() {
         return $"{name} (age {age})";
     }
 }
@@ -23,7 +23,7 @@ class Dog : Animal {
         breed = b;
     }
 
-    string Info() {
+    public string Info() {
         // Access inherited fields (name, age) with bare names
         return $"{name} is a {breed}, age {age}";
     }

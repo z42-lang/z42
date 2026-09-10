@@ -1,15 +1,15 @@
 namespace Demo;
 
 class Point {
-    int X;
-    int Y;
+    public int X;
+    public int Y;
 
     Point(int x, int y) {
         this.X = x;
         this.Y = y;
     }
 
-    string ToString() {
+    public string ToString() {
         return $"({this.X}, {this.Y})";
     }
 }

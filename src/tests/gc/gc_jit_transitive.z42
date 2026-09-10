@@ -7,11 +7,11 @@ using Std;
 // 任何 frame reg 直接持有；只能从 Main 的 holder reg → holder.Child → inner）。
 
 class Inner {
-    int Value;
+    public int Value;
 }
 
 class Holder {
-    Inner Child;
+    public Inner Child;
 }
 
 Holder MakeHolder() {

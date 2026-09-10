@@ -1,16 +1,16 @@
 // Test: L3-G4h short-circuit `&&` / `||` — RHS skipped when LHS decides.
 
 class Probe {
-    static int andCalls = 0;
-    static int orCalls = 0;
+    public static int andCalls = 0;
+    public static int orCalls = 0;
 
     // Returns `r`; records that RHS was evaluated.
-    static bool AndRhs(bool r) {
+    public static bool AndRhs(bool r) {
         Probe.andCalls = Probe.andCalls + 1;
         return r;
     }
 
-    static bool OrRhs(bool r) {
+    public static bool OrRhs(bool r) {
         Probe.orCalls = Probe.orCalls + 1;
         return r;
     }

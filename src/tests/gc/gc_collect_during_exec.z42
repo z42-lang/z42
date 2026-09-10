@@ -6,11 +6,11 @@ using Std;
 // 通过它们间接可达的对象，都不应被误清。
 
 class Inner {
-    int Value;
+    public int Value;
 }
 
 class Outer {
-    Inner Child;
+    public Inner Child;
 }
 
 void Main() {

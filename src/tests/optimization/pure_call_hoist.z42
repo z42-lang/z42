@@ -7,7 +7,7 @@
 
 int fib(int n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); }   // 纯（递归+算术+分支）
 
-class Cfg { readonly int factor; public Cfg(int f) { this.factor = f; } }
+class Cfg { public readonly int factor; public Cfg(int f) { this.factor = f; } }
 int scaled(Cfg c, int k) { return k * c.factor; }                             // 纯（读 readonly 字段+参数）
 
 void Main() {

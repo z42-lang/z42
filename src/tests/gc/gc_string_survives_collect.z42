@@ -11,12 +11,12 @@ using Std;
 // (the mark phase reaches the `fn_name` string block via `trace_children`).
 
 class Holder {
-    string Name;
+    public string Name;
 }
 
 class Node {
-    string Label;
-    Node Next;
+    public string Label;
+    public Node Next;
 }
 
 int Apply((int) -> int f, int x) => f(x);

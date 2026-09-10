@@ -9,6 +9,7 @@ using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 using Std.Net.Http;
+using Std.Encoding;
 
 // Helper: drain one HTTP request from a Stream (stops at \r\n\r\n).
 static void _drainReq(Stream s) {

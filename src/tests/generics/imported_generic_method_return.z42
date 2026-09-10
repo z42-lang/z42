@@ -8,9 +8,9 @@ using Std.Collections;
 class Bag {
     List<string> items;
     Bag() { this.items = new List<string>(); }
-    void Add(string s) { this.items.Add(s); }
+    public void Add(string s) { this.items.Add(s); }
     // 方法返回轴：List<string>.ToArray() → string[]（本 fix 的核心场景）。
-    string[] Names() { return this.items.ToArray(); }
+    public string[] Names() { return this.items.ToArray(); }
 }
 
 void Main() {

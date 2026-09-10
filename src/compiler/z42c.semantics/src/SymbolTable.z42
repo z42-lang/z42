@@ -23,6 +23,11 @@ public sealed class SymbolTable {
     public StrMap EnumTypes;        // name → "enum" 标记（枚举类型名注册）
     public StrMap EnumConsts;       // "EnumName.MemberName" → 整数值字符串
     public StrMap Delegates;        // name → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
+    // add-bare-name-ambiguity-diagnostic：**短名 → 声明过它的全部命名空间**（值 StrBox，"|" 连接）。
+    // 为什么必须单独存：`Classes` 是裸名单赢家（同短名跨 ns 只活一份）、`ClassesByFqn` 只登记**本地**类
+    // （imported 从不进）、`ImportedSymbols.ClassNamespaces` 是裸名 → **单个** ns —— 三个生产点都把
+    // 「同一短名有几份」这个信息塌掉了。不重建它就无从判歧义（C# CS0104 的判据）。
+    public StrMap ClassNsAll;
     public StrMap CurrentAliases;   // add-type-alias：当前 CU 的文件级类型别名 name → TypeExpr（null=无）；per-CU 设置
     public SymbolTable() {
         this.Classes = new StrMap();
@@ -34,6 +39,7 @@ public sealed class SymbolTable {
         this.EnumTypes = new StrMap();
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
+        this.ClassNsAll = new StrMap();
         this.CurrentAliases = null;
     }
 
@@ -51,8 +57,36 @@ public sealed class SymbolTable {
         t.EnumTypes = this.EnumTypes;
         t.EnumConsts = this.EnumConsts;
         t.Delegates = this.Delegates;
+        t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
         t.CurrentAliases = aliases;
         return t;
+    }
+
+    // add-bare-name-ambiguity-diagnostic：登记「短名 name 在命名空间 ns 里有一份声明」。
+    // 幂等（同 ns 重复登记不累加）；全局 ns 用空串，读回时保留空串语义。
+    public void NoteClassNs(string name, string ns) { SymbolTable.NoteNsInto(this.ClassNsAll, name, ns); }
+
+    // 同一份累积逻辑给两个生产点共用（本地 StubCollector 走 SymbolTable，跨包 ImportedSymbolLoader
+    // 走 ImportedSymbols.ClassNsAll，最后由 SymbolCollector._mergeImports 并进来）——**别写两份**：
+    // 两份累积逻辑各自演化正是「同短名信息被塌掉」这一类 bug 的温床。
+    public static void NoteNsInto(StrMap m, string name, string ns) {
+        int at = m.Find(name);
+        if (at < 0) { m.Put(name, new StrBox(ns)); return; }
+        StrBox box = m.ValAt(at) as StrBox;
+        string cur = box.Value;
+        // 逐段比对，避免 `Std` 与 `Std.Test` 互相子串命中。
+        string[] parts = cur.Split("|");
+        int i = 0;
+        while (i < parts.Length) { if (parts[i] == ns) { return; } i = i + 1; }
+        box.Value = cur + "|" + ns;
+    }
+
+    // 短名 → 声明过它的命名空间列表（无记录返回空数组）。
+    public string[] ClassNsOf(string name) {
+        int at = this.ClassNsAll.Find(name);
+        if (at < 0) { return new string[0]; }
+        StrBox box = this.ClassNsAll.ValAt(at) as StrBox;
+        return box.Value.Split("|");
     }
 
     // add-type-alias：扫 CU 的 UsingAliasDecl → name → Target TypeExpr（文件级）。无别名返回 null。

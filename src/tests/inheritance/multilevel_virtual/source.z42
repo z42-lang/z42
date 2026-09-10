@@ -8,7 +8,7 @@ class Animal {
         this.Name = name;
     }
 
-    virtual string Speak() {
+    public virtual string Speak() {
         return "...";
     }
 

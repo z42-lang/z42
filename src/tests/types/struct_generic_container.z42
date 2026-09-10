@@ -11,8 +11,8 @@
 namespace Demo;
 
 struct P : IEquatable {
-    int x;
-    int y;
+    public int x;
+    public int y;
     P(int x, int y) { this.x = x; this.y = y; }
     public bool Equals(P other) { return this.x == other.x && this.y == other.y; }
     public int GetHashCode() { return this.x * 31 + this.y; }

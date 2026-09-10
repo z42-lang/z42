@@ -3,7 +3,7 @@ namespace Demo;
 abstract class Shape {
     abstract string Describe();
 
-    string Label() {
+    public string Label() {
         return $"Shape: {this.Describe()}";
     }
 }

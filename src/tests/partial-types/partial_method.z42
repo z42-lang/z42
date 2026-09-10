@@ -2,13 +2,13 @@
 namespace PartialMethodTest;
 
 partial class Calc {
-    partial int Double(int n);                              // 声明侧（无 body）
+    public partial int Double(int n);                              // 声明侧（无 body）
     public int Quad(int n) { return this.Double(this.Double(n)); }
     partial void OnUnused();                                // 无实现 → 擦除（下方无调用点）
 }
 
 partial class Calc {
-    partial int Double(int n) { return n * 2; }            // 实现侧（有 body）
+    public partial int Double(int n) { return n * 2; }     // 实现侧（有 body）——可见性须与声明侧一致
 }
 
 void Main() {

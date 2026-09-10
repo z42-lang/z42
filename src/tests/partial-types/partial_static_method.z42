@@ -5,13 +5,13 @@
 namespace PartialStaticTest;
 
 partial class Util {
-    static partial int Triple(int n);                                  // 声明侧（无 body）
+    public static partial int Triple(int n);                                  // 声明侧（无 body）
     static partial void OnUnusedStatic();                              // 无实现 → 整体擦除
     public static int Nine(int n) { return Util.Triple(Util.Triple(n)); }
 }
 
 partial class Util {
-    static partial int Triple(int n) { return n * 3; }                 // 实现侧
+    public static partial int Triple(int n) { return n * 3; }          // 实现侧——可见性须与声明侧一致
 }
 
 void Main() {

@@ -1,6 +1,6 @@
 // add-const-keyword e2e：const 引用替换为字面量后喂现有 ConstFold —— 折进循环边界与累积。
 // 结果正确即证明常量传播不改语义（优化对结果透明）。
-class K { const int N = 10; }
+class K { public const int N = 10; }
 
 void Main() {
     const int step = 5;

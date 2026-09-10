@@ -7,8 +7,8 @@
 namespace Demo;
 
 class Vec2 {
-    int x;
-    int y;
+    public int x;
+    public int y;
     Vec2(int a, int b) { this.x = a; this.y = b; }
 
     public static Vec2 operator +(Vec2 a, Vec2 b) {
@@ -18,10 +18,10 @@ class Vec2 {
         return new Vec2(a.x + s, a.y + s);
     }
 
-    string Describe(int n) {
+    public string Describe(int n) {
         return $"int:{n}";
     }
-    string Describe(string s) {
+    public string Describe(string s) {
         return $"str:{s}";
     }
 }

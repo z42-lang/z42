@@ -1,7 +1,7 @@
 # CLI 与诊断工具
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（z42b 部分 verb 见状态标注）｜ **代码**: `src/compiler/z42c.driver/src/Main.z42` · `src/toolchain/builder/core/builder_cli.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [项目构建与发布编排](project-build.md) ｜ **对齐**: 2026-07-19
+> **相关**: [源代码编译流程](source-compile.md) · [项目构建与发布编排](project-build.md) ｜ **对齐**: 2026-09-10（`restore-emit-zbc-diagnostics`）
 
 ## 概述
 
@@ -21,9 +21,22 @@ z42c 的一组 `--dump-*` 诊断命令与[源代码编译流程](source-compile.
 | `z42c build <project.z42.toml>` | 编译单个包，产出 packed `.zpkg` 到 `dist/` |
 | `z42c build --workspace [--output-dir <d>]` | 按拓扑序编译工作区全部成员 |
 | `z42c build <project.z42.toml> --fix` | 编译并**就地应用** `[analyzers]` 声明的 analyzer 携带的代码修复到源文件 |
-| `z42c --emit-zbc <file.z42> <out.zbc>` | 把单文件编译为 `.zbc` |
+| `z42c --emit-zbc <file.z42> <out.zbc>` | 把单文件编译为 `.zbc`；有编译错误时**逐条打印诊断 + 非零退出 + 不写产物**（与 `build` 同口径） |
 
 `build` 支持 `--release`、`--no-incremental`、`--fix` 等 flag。
+
+> **`--emit-zbc` 的诊断口径（2026-09-10 `restore-emit-zbc-diagnostics`）**：这条路径此前**丢弃全部
+> 编译诊断、以 exit 0 照写产物**——实测 `NoSuchTypeAtAll x = null;` 返回 0 并写出 285 字节 `.zbc`。
+> 而单文件 e2e / golden regen / bench 直编**全走这条路**，于是这些路径上的编译错误一律静默：binder
+> 报的错没人看见，emitter 那半边碰巧能跑，测试就绿。修复后与 `build` 同口径——**逐条打印诊断、
+> 非零退出、不写产物**。
+>
+> 结构上的保证：`IrDump` 只留 `BuildModuleD`（出编译束，含 `ErrorCount` / `DiagMsgs`）+
+> `ZbcBytesOf`（出字节）两个入口；旧的 `ZbcBytes` / `ZbcBytesD` 把「编译」和「序列化」焊死在一次
+> 调用里、只返回字节 ⇒ 调用方**在类型层面就拿不到诊断**，已删除。「丢诊断」不再是能默默做到的事。
+>
+> 回归守卫：`xtask test compiler` 的 `_e2eEmitDiagChecks`（阳性：有错的源 → 非零退出**且产物不存在**；
+> 阴性：干净的源 → exit 0 且产物存在）。两半缺一不可——只有阳性会被「无条件失败」骗过。
 
 `--fix`：analyzer 在报诊断的同时可携带一个「代码修复」（`CodeFix` = 一组文本编辑）；`z42c build --fix`
 在编译时把这些修复**就地重写**回源文件（无修复的 analyzer / 不加 `--fix` 时源文件不动）。修复由 analyzer

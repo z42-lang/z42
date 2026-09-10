@@ -6,6 +6,7 @@ using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 using Std.Net.Http;
+using Std.Encoding;
 
 [Test]
 void test_post_string_body_with_json_content_type() {

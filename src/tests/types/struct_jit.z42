@@ -5,20 +5,20 @@
 namespace Demo;
 
 struct Point {
-    int x;
-    int y;
+    public int x;
+    public int y;
     Point(int x, int y) { this.x = x; this.y = y; }
 }
 
 struct Line {
-    Point a;
-    Point b;
+    public Point a;
+    public Point b;
     Line(Point a, Point b) { this.a = a; this.b = b; }
 }
 
 struct Tagged {
-    int n;
-    string name;
+    public int n;
+    public string name;
     Tagged(int n, string name) { this.n = n; this.name = name; }
 }
 
