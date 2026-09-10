@@ -138,27 +138,18 @@ public sealed class StubCollector {
 
     // Pass A：类 stub（基表判别：接口入 InterfaceNames，类→base）
     internal void _passClassStubs(SymbolTable table, CompilationUnit cu, string file) {
-        // ── Pre-scan：检测同 CU 内同名不同 arity 的类，泛型版需 arity-mangle（镜像 C# NeedsMangle 逻辑）。
-        // firstArityMap[name] = 首次见到的 arity（字符串）；multiArityMap[name] = "1" 若有多个不同 arity。
-        StrMap firstArityMap = new StrMap();
-        StrMap multiArityMap = new StrMap();
-        int pi = 0;
-        while (pi < cu.DeclCount) {
-            Decl pd = this._sc._unwrap(cu.Decls[pi]);
-            if (pd is ClassDecl) {
-                ClassDecl pc = pd as ClassDecl;
-                if (pc.Kind == "class" || pc.Kind == "struct") {
-                    string arStr = pc.TypeParams.Count.ToString();
-                    if (firstArityMap.ContainsKey(pc.Name)) {
-                        StrBox fa = firstArityMap.Get(pc.Name) as StrBox;
-                        if (fa.Value != arStr) { multiArityMap.Put(pc.Name, "1"); }
-                    } else {
-                        firstArityMap.Put(pc.Name, new StrBox(arStr));
-                    }
-                }
-            }
-            pi = pi + 1;
-        }
+        // arity-mangle 判据（镜像 C# NeedsMangle）：同短名有多个 arity 时，泛型版键带 `$N`。
+        //
+        // fix-arity-mangle-package-wide：**判据来自包级集合** `table.MultiArityNames`
+        // （SymbolCollector 在任何 stub 注册前对全部 CU 喂过 `NoteArities`），不再在这里 per-CU 预扫。
+        // 修前是 per-CU 的，而 `table.Classes` 是 per-package ⇒ 「a.z42 的 `class Foo` +
+        // b.z42 的 `class Foo<T>`」两边都判「本 CU 只有一个 arity」⇒ 都不 mangle ⇒ 撞同一个裸键
+        // ⇒ last-wins。同源对照（同一份程序，只差文件是否拆开）实测：
+        //   同一文件：`g.GetType().Name` = `Foo$1`、`g is Foo` = false、`p.N = 7` 正常；
+        //   拆两文件：`g.GetType().Name` = `Foo`、`g is Foo` = **true**、`p.N = 7` **运行期崩**
+        //             （`VCall: expected object, got Null`）。
+        // 即：**同一份源码，拆不拆文件决定它对不对**。
+        StrMap multiArityMap = table.MultiArityNames;
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._sc._unwrap(cu.Decls[i]);

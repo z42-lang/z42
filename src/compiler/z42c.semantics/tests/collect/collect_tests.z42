@@ -591,3 +591,78 @@ void test_single_declaration_reports_nothing() {
     Assert.Equal(false, hasCode(collectDiags(
         "namespace R;\nclass Solo { int a; }"), "E0458"));
 }
+
+// ── fix-arity-mangle-package-wide：arity-mangle 判据必须是**包级**的 ────────────────
+//
+// `table.Classes` 是 per-package，而 mangle 预扫此前在 `StubCollector._passClassStubs`
+// 与 `ExportedTypeExtractor._extractCore` 各做一份 **per-CU** 的 ⇒「a.z42 的 `class Foo` +
+// b.z42 的 `class Foo<T>`」两边都判「本 CU 只有一个 arity」⇒ 都不 mangle ⇒ 撞同一个裸键
+// ⇒ last-wins，一个类型连同它的成员一起消失。
+//
+// 🔴 同源对照实测（同一份程序，只差文件是否拆开）：
+//   同一文件：`g.GetType().Name` = `Foo$1`、`g is Foo` = false、`p.N = 7` 正常
+//   拆两文件：`g.GetType().Name` = `Foo`、`g is Foo` = **true**、`p.N = 7` **运行期崩**
+//             （`VCall: expected object, got Null`）
+// 即**同一份源码，拆不拆文件决定它对不对**。
+//
+// 全仓「同包跨文件同名不同 arity」实测 **0 组** ⇒ 这条修复对现有代码零影响（键不变、无字节漂移），
+// 下面这几条用例就是它唯一的门。
+
+[Test]
+void test_cross_cu_different_arity_get_distinct_keys() {
+    var t = pmergeTable("namespace R;\nclass Foo { int a; }",
+                        "namespace R;\nclass Foo<T> { int b; }");
+    Assert.Equal(true, t.HasClass("Foo"));     // 非泛型 → 裸名键
+    Assert.Equal(true, t.HasClass("Foo$1"));   // 泛型 → arity-mangle 键
+}
+
+[Test]
+void test_cross_cu_different_arity_generic_first_get_distinct_keys() {
+    // 🔴 **顺序反过来才是真门**。判据累积在**表级**，所以「非泛型在前、泛型在后」即使
+    // 判据是逐 CU 现攒的也能碰巧对：轮到泛型那个 CU 时冲突已经被记下了。
+    // 反过来（泛型在前）就不行——泛型注册时判据还是空的，拿裸键 `Foo`，随后被非泛型覆盖。
+    // 我第一版只写了上面那一种顺序，退回对照**没变红**，才发现门是弱的。
+    var t = pmergeTable("namespace R;\nclass Foo<T> { int b; }",
+                        "namespace R;\nclass Foo { int a; }");
+    Assert.Equal(true, t.HasClass("Foo"));
+    Assert.Equal(true, t.HasClass("Foo$1"));
+}
+
+[Test]
+void test_cross_cu_generic_first_keeps_generic_members() {
+    // 同上顺序，钉「泛型那个没被覆盖掉」——修前它连成员一起消失。
+    var t = pmergeTable("namespace R;\nclass Foo<T> { int genericField; }",
+                        "namespace R;\nclass Foo { int plainField; }");
+    var gen = t.GetClass("Foo$1");
+    Assert.Equal(true, gen != null);
+    Assert.Equal(true, gen.Fields.ContainsKey("genericField"));
+}
+
+[Test]
+void test_cross_cu_different_arity_both_keep_members() {
+    // 真正的损害是「一个类型连同成员一起消失」——这条直接钉成员还在。
+    var t = pmergeTable("namespace R;\nclass Foo { int plainField; }",
+                        "namespace R;\nclass Foo<T> { int genericField; }");
+    var plain = t.GetClass("Foo");
+    var gen = t.GetClass("Foo$1");
+    Assert.Equal(true, plain.Fields.ContainsKey("plainField"));
+    Assert.Equal(true, gen.Fields.ContainsKey("genericField"));
+}
+
+[Test]
+void test_same_cu_different_arity_unchanged() {
+    // 同一 CU 的既有行为不变（回归守卫：修前这条就是绿的，修后也必须绿）。
+    var t = collect("class Foo { int a; } class Foo<T> { int b; }");
+    Assert.Equal(true, t.HasClass("Foo"));
+    Assert.Equal(true, t.HasClass("Foo$1"));
+}
+
+[Test]
+void test_single_arity_across_cus_stays_unmangled() {
+    // 守「别过度 mangle」：只有一个 arity 时键必须仍是裸名 —— 否则全仓现有键都会变，
+    // 那是确定性的字节漂移与跨包 ABI 断裂。
+    var t = pmergeTable("namespace R;\nclass Solo<T> { int a; }",
+                        "namespace R;\nclass Other { int b; }");
+    Assert.Equal(true, t.HasClass("Solo"));
+    Assert.Equal(false, t.HasClass("Solo$1"));
+}

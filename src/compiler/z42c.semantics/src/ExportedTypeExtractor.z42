@@ -91,25 +91,13 @@ public static class ExportedTypeExtractor {
         // 短类名 → ClassDecl（本 CU 内；TSIG 继承方法合并走 base 链需祖先 ClassDecl 取自有方法 AST 序+签名）。
         // z42c.syntax/ir 继承均同文件（Expr+子类 / IrInstr+子类）→ per-CU 图足够；跨文件继承待扩展为包级图。G18。
         // arity-mangle 检测（同 SymbolCollector._passClassStubs）：泛型类以 Name$N 键存入 classMap。
-        StrMap etFirstArityMap = new StrMap();
-        StrMap etMultiArityMap = new StrMap();
-        int mi = 0;
-        while (mi < cu.DeclCount) {
-            Decl etd = ExportedTypeExtractor._unwrap(cu.Decls[mi]);
-            if (etd is ClassDecl) {
-                ClassDecl etcm = etd as ClassDecl;
-                if (etcm.Kind == "class" || etcm.Kind == "struct") {
-                    string etarStr = etcm.TypeParams.Count.ToString();
-                    if (etFirstArityMap.ContainsKey(etcm.Name)) {
-                        StrBox etfa = etFirstArityMap.Get(etcm.Name) as StrBox;
-                        if (etfa.Value != etarStr) { etMultiArityMap.Put(etcm.Name, "1"); }
-                    } else { etFirstArityMap.Put(etcm.Name, new StrBox(etarStr)); }
-                }
-            }
-            mi = mi + 1;
-        }
+        //
+        // fix-arity-mangle-package-wide：与符号表**同一个**包级集合。此前这里也是 per-CU 预扫，
+        // 与 StubCollector 各算一份 —— 两处必须同口径，否则生产端（TSIG 键）与消费端（符号表键）
+        // 对同一个类算出不同的名字。
+        StrMap etMultiArityMap = symbols.MultiArityNames;
         StrMap classMap = new StrMap();
-        mi = 0;
+        int mi = 0;
         while (mi < cu.DeclCount) {
             Decl dm = ExportedTypeExtractor._unwrap(cu.Decls[mi]);
             if (dm is ClassDecl) {

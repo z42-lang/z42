@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -74,6 +74,35 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 > 此前**静默 last-wins** —— 全部声明被登记进 **最后**那个 ns，连限定名都随之解析错
 > （实测 `A.Helper.Who()` 打印 `"B"`）。现在报 **E0457**，见下「文件级 `namespace` 的位置约束」。
 
+#### arity-mangle 的判据必须是包级的
+
+同短名不同 arity（`class Foo` / `class Foo<T>`）是**两个不同的类型**：泛型那个的注册键带
+`$N` 后缀（`Foo$1`），非泛型的用裸名。是否加后缀由「同短名是否出现了多个 arity」决定 ——
+这个判据**必须与符号表同尺度**：`SymbolTable.Classes` 是 per-package 的。
+
+此前判据在两处各算一份、且都只扫**当前 CU**（`StubCollector._passClassStubs` 与
+`ExportedTypeExtractor._extractCore` 的开头预扫）。于是「a.z42 声明 `Foo<T>`、b.z42 声明 `Foo`」
+时，泛型那个注册时判据还是空的 ⇒ 拿裸键 `Foo` ⇒ 随后被非泛型覆盖。
+
+**同源对照**（同一份程序，只差这两个类是否写在同一个文件里）：
+
+| | 同一文件 | 拆两文件（修前） |
+|---|---|---|
+| `g.GetType().Name`（`g` 是 `Foo<int>`） | `Foo$1` | `Foo` |
+| `g is Foo`（非泛型） | `false` | **`true`** |
+| `p.N = 7`（`p` 是非泛型 `Foo`） | `7` | **运行期崩** `VCall: expected object, got Null` |
+
+即**同一份源码，拆不拆文件决定它对不对**。
+
+现在由 `SymbolCollector` 在**任何 stub 注册之前**对全部 CU 跑一遍 `SymbolTable.NoteArities`，
+两个生产点都读同一份 `SymbolTable.MultiArityNames`。两处必须同口径 —— 否则生产端（TSIG 键）
+与消费端（符号表键）会对同一个类算出不同的名字。
+
+> ⚠️ 判据累积在**表级**，所以「非泛型在前、泛型在后」这一种顺序即使判据是逐 CU 现攒的
+> 也会碰巧正确 —— 复现与建门都必须覆盖**两种声明顺序**。
+>
+> 全仓「同包跨文件同名不同 arity」实测 **0 组** ⇒ 现有代码的键完全不变（自举不动点 3/3 验证）。
+
 #### 同一命名空间内的重复类型声明（E0458）
 
 `StubCollector._passClassStubs` 注册类 stub 时，碰撞分两种：任一侧是 `partial` → 合并碎片；
@@ -86,7 +115,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 | 维度 | 为什么不能只看它 |
 |---|---|
 | ns | `SymbolTable.Classes` 是**裸名**键，同短名跨 ns（`A.Foo` / `B.Foo`，同一个包里）也会撞 —— 那是**使用点**的歧义（[E0456](#文件级-namespace-的位置约束e0457)，见上节旁）而非重复声明。故按 `ClassesByFqn` 判。 |
-| arity | arity-mangle 的预扫是 **per-CU** 的（`_passClassStubs` 开头），而符号表是 per-package ⇒ 「a.z42 的 `class Foo` + b.z42 的 `class Foo<T>`」两者都拿裸键 `Foo`、撞进同一个 FQN。**实测那种写法今天能编过**，把它报成「重复定义」是错的诊断。Deferred：`arity-mangle-not-package-wide`。 |
+| arity | 同短名不同 arity（`Foo` / `Foo<T>`）是**两个不同的类型**，键分别是 `Foo` / `Foo$1`，不构成重复声明。（该 mangle 判据一度是 per-CU 的、跨文件时会失效——已由 `fix-arity-mangle-package-wide` 改成包级，见下节。） |
 | partial | `partial` 的重复是**合并**，由上面那条分支处理，不进重复判定。 |
 
 #### 文件级 `namespace` 的位置约束（E0457）
