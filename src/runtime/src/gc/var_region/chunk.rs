@@ -252,6 +252,11 @@ impl VarRegion {
             Some(ci) => self.bump_off + footprint > self.chunks[ci].cap,
         };
         if need_new {
+            // The outgoing ambient bump chunk is finished — shrink its bucket (see the note in
+            // `retire_chunk`). TLAB chunks take the same haircut when they retire.
+            if let Some(prev) = self.bump_chunk {
+                self.all_blocks[prev].shrink_to_fit();
+            }
             let ci = self.push_chunk(CHUNK_BYTES);
             self.bump_chunk = Some(ci);
             self.bump_off = 0;
@@ -297,6 +302,7 @@ impl VarRegion {
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
             self.max_gen_per_chunk[ci] = 0;
+            self.all_blocks[ci] = Vec::new();
             return ci;
         }
         self.chunks.push(chunk);
@@ -305,6 +311,7 @@ impl VarRegion {
         self.blocks_per_chunk.push(0);
         self.live_per_chunk.push(0);
         self.max_gen_per_chunk.push(0);
+        self.all_blocks.push(Vec::new());
         self.chunks.len() - 1
     }
 
@@ -342,7 +349,14 @@ impl VarRegion {
         if self.generational {
             self.young_list.extend(claim.local_blocks.iter().copied());
         }
-        self.all_blocks.extend(claim.local_blocks.drain(..));
+        let bucket = &mut self.all_blocks[claim.chunk_idx];
+        bucket.extend(claim.local_blocks.drain(..));
+        // perf-bucket-all-blocks-by-chunk: a retired chunk is finished — it is never bumped
+        // again (a recycled one is `clear()`ed first). One `Vec` per chunk otherwise carries
+        // `Vec`'s doubling slack, up to 2x, on **every** chunk: measured +20 MB of RSS on
+        // `z42c.semantics` before this line. Shrinking at the one point a bucket stops growing
+        // costs a single realloc per chunk and gives all of it back.
+        bucket.shrink_to_fit();
         self.live_count += n;
         // add-incremental-chunk-reclaim: the TLAB carved these slots lock-free; the region
         // only learns of them here, so this is where its per-chunk census picks them up.
@@ -472,7 +486,17 @@ impl VarRegion {
             let ci = unsafe { p.as_ref() }.chunk_idx as usize;
             ci < is_reclaimed.len() && is_reclaimed[ci]
         };
-        self.all_blocks.retain(|p| !in_reclaimed(p));
+        // perf-bucket-all-blocks-by-chunk: O(reclaimed chunks) instead of a `retain` with one
+        // header dereference per block in the whole region. `free_lists` / `young_list` still
+        // scan — they are not chunk-partitioned — but they are the smaller half.
+        for &ci in pool.iter().chain(free) {
+            // `clear()` would keep the bucket's capacity — and a reclaimed chunk's bucket is
+            // ~256 pointers (2 KB). At ~600 chunks reclaimed per minor that slack accumulates
+            // into the region forever: measured +18 MB of RSS on `z42c.semantics`. Dropping the
+            // Vec hands the memory back; a pooled chunk reallocates its bucket when refilled,
+            // which is one malloc per chunk reuse.
+            self.all_blocks[ci] = Vec::new();
+        }
         for fl in &mut self.free_lists {
             fl.retain(|p| !in_reclaimed(p));
         }
