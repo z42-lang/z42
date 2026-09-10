@@ -1,14 +1,17 @@
 // freeze-zbc-v1 fixture: [Test] attribute triggers TIDX section.
+// 方法必须 static —— [Test] 只能贴零接收者函数（enforce-test-attr-placement，E0911）；
+// 此前这里是实例方法，编译器照写了两条指向 param_count=1 函数的 TIDX entry，
+// runner 一跑就撞 arity 错。本 fixture 是纯字节 golden、从不执行，故长期没被发现。
 using Std.Test;
 
 class MathTests {
     [Test]
-    void test_add() {
+    public static void test_add() {
         Assert.Equal(3, 1 + 2);
     }
 
     [Test]
-    void test_sub() {
+    public static void test_sub() {
         Assert.Equal(5, 10 - 5);
     }
 }

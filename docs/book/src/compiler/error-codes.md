@@ -1,7 +1,7 @@
 # 错误码体系
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.core/src/`（`Diagnostic.z42` / `DiagnosticBag.z42` / `DiagnosticCodes.z42`）
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) ｜ **对齐**: 2026-07-19
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) ｜ **对齐**: 2026-09-11
 
 ## 概述
 
@@ -32,8 +32,16 @@
 | `E04xx` | 类型检查 | 类型不匹配、未定义标识符（`E0401`）、未定义类型（`E0443`）、重载歧义等（本段最密集） |
 | `E05xx` | IR 生成 | `E0501` 代码生成阶段错误 |
 | `E06xx` | 包 / 导入解析 | `E0601` 导入符号冲突；`W0603` / `W0604` 导入相关警告 |
-| `E09xx` | Native / 测试 | `[Native]` FFI 约束、`[Test]` 相关（如 `E0917` 非法 timeout） |
+| `E09xx` | Native / 测试 | `[Native]` FFI 约束；`[Test]` 家族的位置 + 签名强制（`E0911`/`E0912`/`E0915`，见下） |
 | `E10xx` | 调用实参绑定 | `E1001` / `E1002` 参数绑定错误 |
+
+> **`E0911` / `E0912` / `E0915`（测试 attribute 强制）**：`[Test]` / `[Benchmark]` /
+> `[Setup]` / `[Teardown]` 必须是**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、
+> **无参数**、**非泛型**、**有方法体**。由
+> [`DeclEnforcer._passTestAttrEnforce`](../../../../src/compiler/z42c.semantics/src/DeclEnforcer.z42)
+> 强制（纯语法，挂在 `SymbolCollector` 三个入口，与 D8 后缀 pass 并列）。规则来源是 runner 的调用
+> 契约——`Std.Test.Runner` 按 TIDX 全限定名**无参**调用，实例方法的 receiver 对不上。
+> `E0913` / `E0914` / `E0917` 尚**未实现**（需符号表 / 实参语义，属另一相位）。
 
 > `E0203`（意外 EOF）除标示语法错，还兼作 REPL **可恢复不完整**信号：parser 在「缺 token 且当前 token
 > 为 EOF」时置 `DiagnosticBag.IncompleteAtEof` 并报此码，REPL 完整性探针 `Completeness.IsIncomplete`

@@ -62,7 +62,10 @@ R1 已落地 (commits ea54554 / bb2df98 / 5180d21)：编译时发现 + 6 个 att
 
 - **R2** — z42.test 库扩展（Assert API + TestIO.captureStdout + Bencher.iter + native helpers）
 - **R3** — runner（现为 z42b：`Std.Test.Runner` + pretty 输出 + Setup-Teardown 调度 + Bencher 执行）
-- **R4** — 编译期 attribute 校验（Z0911-Z0915）含 `[ShouldThrow<E>]` + `[TestCase(args)]`
+- **R4** — 编译期 attribute 校验：位置 + 签名（E0911/E0912/E0915）**已由
+  [enforce-test-attr-placement](../../spec/archive/2026-09-11-enforce-test-attr-placement/) 在
+  `z42c.semantics/src/DeclEnforcer.z42` 落地**（2026-09-11）；`[ShouldThrow<E>]` 类型校验（E0913）、
+  `[Skip]` reason（E0914）、`[Timeout]` 值域（E0917）、`[TestCase(args)]` 仍未实现
 - **R5** — stdlib 各库 `tests/` 补本地原生测试（不大规模迁移现有 golden）
 
 > **TAP / JUnit / JSON 输出与 `--filter` 等富格式**是原 Rust runner 的能力；z42b 当前
@@ -756,7 +759,8 @@ runs=3，< 60s，验"场景还能编译运行"），而不是把整个 e2e 套�
 
 ## Attribute 系统（R1 已落地 6 个）
 
-每个被 `z42.test.*` attribute 标注的函数会进入 zbc 的 TIDX section。语义校验在 R4。
+每个被 `z42.test.*` attribute 标注的函数会进入 zbc 的 TIDX section。位置 + 签名校验由
+`DeclEnforcer._passTestAttrEnforce` 在符号收集期强制（E0911/E0912/E0915）；实参语义校验仍未实现。
 
 | Attribute | 形式 | 语义（R3 runner 行为） |
 |-----------|------|---------------------|
@@ -1131,7 +1135,7 @@ void test_pi_approximation() {
 | R1.D | 同上 | 🟡 docs（本文件 + ir.md 注 + error-codes 占位）+ archive |  |
 | R2 | [extend-z42-test-library](../../spec/archive/2026-05-05-extend-z42-test-library/) | ✅ Assert API + TestIO + Setup/Teardown | — |
 | R3 | [rewrite-z42-test-runner-compile-time](../../spec/archive/2026-05-12-rewrite-z42-test-runner-compile-time/) | ✅ z42-test-runner lib API | — |
-| R4 | [compiler-validate-test-attributes](../../spec/archive/2026-04-30-compiler-validate-test-attributes/) | ✅ E0911/E0912/E0914/E0915 validation | — |
+| R4 | [compiler-validate-test-attributes](../../spec/archive/2026-04-30-compiler-validate-test-attributes/) | ⚠️ 原 C# 实现随编译器退休丢失、未移植；**2026-09-11 由 [enforce-test-attr-placement](../../spec/archive/2026-09-11-enforce-test-attr-placement/) 在 z42c 重新落地**（E0911/E0912/E0915；E0913/E0914/E0917 仍未实现）| — |
 | R5 | [rewrite-goldens-with-test-mechanism](../../spec/archive/2026-04-30-rewrite-goldens-with-test-mechanism/) | ✅ (scope 缩窄, 部分 stdlib goldens migrated) | — |
 
 ---

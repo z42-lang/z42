@@ -32,13 +32,11 @@
   "functions": [
     {
       "name": "MathTests.test_add",
-      "param_count": 1,
-      "param_types": [
-        "MathTests"
-      ],
+      "param_count": 0,
+      "param_types": null,
       "return_type": "void",
       "exec_mode": "Interp",
-      "is_static": false,
+      "is_static": true,
       "block_count": 1,
       "instr_count": 5,
       "opcodes": [
@@ -51,13 +49,11 @@
     },
     {
       "name": "MathTests.test_sub",
-      "param_count": 1,
-      "param_types": [
-        "MathTests"
-      ],
+      "param_count": 0,
+      "param_types": null,
       "return_type": "void",
       "exec_mode": "Interp",
-      "is_static": false,
+      "is_static": true,
       "block_count": 1,
       "instr_count": 5,
       "opcodes": [
