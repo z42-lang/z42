@@ -268,7 +268,54 @@ Lippert 的分析对 z42 同样成立，以下情形 **v1 明确报错、不假�
 | 2 | ✅ **已验（2026-09-11）** `typeof` 的 emit runtime 路径 | **不需要新 IR 指令**：照 `_emitBox` 的 `BuiltinInstr` 范式走 `ConstStr + __methodof` builtin（表尾追加）。**且 qualified 名不用自己拼**——`MethodSymbol.RegKey` 本就是含重载 mangle 的注册键。详见下节 |
 | 3 | ✅ **已验（2026-09-11）** 模块级驻留缓存放在哪层 | **v1 不做**：实测 `typeof` 自己就零缓存（`typeof(Box)==typeof(Box)` → `false`）。单给 `methodof` 加缓存会让两个「对称」特性行为不对称，并悄悄引入对象身份语义。留作独立优化项 |
 
-### 验证项 0 的实测结果（2026-09-06）
+### 落地结果（2026-09-11）
+
+**已实现并全绿**。相对初稿的三处实质调整（都是实测/查证后的收敛，不是妥协）：
+
+1. **发射不新增 IR 指令**：照 `_emitBox` 的 `BuiltinInstr` 范式走 `ConstStr + __methodof`
+   （builtin 表尾追加）。且 **qualified 名直接复用 `MethodSymbol.RegKey`**——重载身份是既有
+   机制，methodof 没有另造签名编码。
+2. **驻留缓存不做**：实测 `typeof` 自己就零缓存（`typeof(T)==typeof(T)` 为 `false`），单给
+   methodof 加会让两个「对称」特性行为不对称，并悄悄引入对象身份语义。留作独立优化项。
+3. **匹配口径换成 `OverloadResolver.TypeKey`** 而非 `SurfaceTypeName`：前者是**派发口径**、
+   键推导的 SoT，也就是运行期真正用的键；后者是 TSIG 导出口径。诊断展示仍用 `SurfaceTypeName`
+   （人读的表面拼写）。⇒ `TypeNameResolver` 最终**未改动**。
+
+### 初稿漏掉、实测挖出的一条真缺陷
+
+`methodof(Derived.继承来的方法)` 会发出**一个从未发射的函数名**。TSIG 把继承方法展平进每个
+派生类的 `Methods`，所以「派生类上找得到」≠「派生类声明了它」。跨包 fixture 实测：
+`methodof(Leaf.Tag)` 发出 `Mo.Ext.Leaf.Tag`，而 `Tag` 真身在 `Mo.Base.Tagged`。
+
+修法与 `ResolveSealedTarget` 同源（同一个坑）：`EmitContext.ResolveMethodOfTarget` 沿基链上溯 +
+`Deps.Statics` 校验。放发射期是因为绑定期看不到 `Deps`。
+
+**这条能被抓住，是因为 runtime 的 `__methodof` 选了「响错」而不是「宽容」**：
+`build_method_info` 本身缺 SIGS 只会 `sig_found=false` 照样返回一个半填充的 `MethodInfo`——
+那正是本特性要根治的「静默错答案」。存在性检查把它变成了一条指名道姓的异常。
+
+### 交付清单
+
+| 面 | 落点 |
+|---|---|
+| 语法 | `TokenKind.Methodof` / Lexer 关键字 / `MethodOfExpr` / **独立的 `MethodOfParser`**（签名语法与表达式文法分家） |
+| 语义 | `BoundMethodOf` / `TypeOpTyper._bindMethodOfExpr`（重载决议收口）/ `ExprTyper` 分派 / `MethodTypeParamUse` walker |
+| 发射 | `TypeOpEmitter._emitMethodOf` / `EmitContext.ResolveMethodOfTarget` |
+| runtime | `corelib/reflection/methodof.rs` + builtin 表尾追加 + `native_decl` allowlist 登记 |
+| 诊断 | E0459 / E0460 / E0461 / E0462，全部带逃生口（列出候选 + 本地候选附声明位置） |
+| span 地基 | `MemberExpr.NameSpan` + 三处成员解析诊断收窄 + `member_name_span` 门（**已跑退回对照**） |
+| 测试 | 12 条单测（诊断码 + 文案 + 下划线位置）/ 2 条 e2e / 1 条 cross-zpkg（**已跑退回对照**）|
+| 文档 | `docs/book/src/language/methodof.md` + SUMMARY + `DiagnosticCodes.z42` + VSCode 关键字组 |
+
+### GREEN
+
+`xtask test` 13 stage 全绿（3m20s）· `test stdlib --mode jit` 331 文件全过 ·
+`test e2e --mode jit` 全过 · 自举字节不动点 **3/3 gen1==gen2** · `test bootstrap` 无越界 ·
+`test lines` / `test walkers` / `test vscode-syntax` 全绿。
+
+**零格式 bump**（zbc / zpkg 版本未动）。
+
+## 验证项 0 的实测结果（2026-09-06）
 
 用主树种子工具链（`.z42/bin/z42c --emit-zbc` + `.z42/bin/z42vm`，即 e2e 单文件用例的同一条路径）
 跑了 **attribute 组** 与 **普通代码对照组**，同样的 6 个 `typeof` 形态逐条比对：
