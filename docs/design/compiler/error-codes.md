@@ -151,6 +151,12 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 强制五条规则：**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、**无参数**、
 **非泛型**、**有方法体**。位置违规（第一条）只报一条即返回；其余四条各报一次。
 
+**实参语义**（complete-test-attr-arg-checks，2026-09-11 补齐）：同一 pass 追加 **E0914**
+（`[Skip]` 的 `reason` 必填非空；`[Skip]`/`[Ignore]` 必须与 kind attr 同贴）与 **E0917**
+（`[Timeout]` 的 `milliseconds` 必填且 > 0）；**E0913** 因需符号表走基类链，落在相邻的语义相 pass
+`_passTestAttrSemantic`。这三条修的都是**静默降级**——此前编译器读不到合法实参就取默认值继续走
+（skip 没理由、超时静默失效、抛出类型永不匹配），把问题全推到运行期且症状指不回病灶。
+
 > **相位约束**：本 pass 必须在 `HandlerRegistry.RunAst` 之后 —— `BenchmarkDesugar` 会把合法的
 > form-2 `[Benchmark] void f(Bencher b)` 脱糖成零参 wrapper，在其之前查「无参数」会让全仓
 > benchmark 全部误报。
@@ -159,9 +165,10 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 |--------|----------------------------------|----------------|
 | E0911  | TestSignatureInvalid             | `[Test]` 违反五条规则之一（零接收者 / `void` / 无参 / 非泛型 / 有体）|
 | E0912  | BenchmarkSignatureInvalid        | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法）|
-| E0913  | ShouldThrowTypeInvalid           | **未实现（跟进项）**：`[ShouldThrow<E>]` 中 E 不存在 / 非 Exception 子类型。需符号表判继承链，非纯语法 → 属另一相位 |
-| E0914  | SkipReasonMissing                | **未实现（跟进项）**：`[Skip]` 缺 `reason`；或 `[Skip]`/`[Ignore]` 孤儿使用（会让 TIDX 多一条凭空的 skipped entry，但不崩）|
+| E0913  | ShouldThrowTypeInvalid           | `[ShouldThrow]` 缺类型实参；或 `E` **可解析但基类链到不了 `Exception`**。由**语义相** pass `_passTestAttrSemantic` 实施（需符号表）。⚠️ `E` 解析不到时**刻意不报**（跨包/表不完整会误伤）|
+| E0914  | SkipReasonMissing                | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明无 `[Test]`/`[Benchmark]` —— 会让 TIDX 凭空多一条 `Kind=Test` 的 skipped entry）|
 | E0915  | SetupTeardownSignatureInvalid    | `[Setup]` / `[Teardown]` 违反同五条规则 |
+| E0917  | TimeoutValueInvalid              | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 |
 
 ---
 
