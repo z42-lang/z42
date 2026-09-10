@@ -107,7 +107,10 @@ public sealed class TypeChecker {
     //
     // 🔴 全局 ns（`""`）必须当作可见：`_isVisibleNs("")` 恒 false（它服务的是 ns **前缀**匹配，
     // 空前缀无意义），直接复用会漏掉「一份在全局 ns、一份在 using 进来的 ns」这种真歧义。
+    // ⚠️ 判据本身已上移到 `SymbolTable.IsBareNameAmbiguous`（发射端也要用同一口径，见
+    // unify-type-identity-fqn）。此处只在判定为歧义后挑两个 ns 拼消息 —— **别把判据抄回来**。
     public void ChkAmbiguousBareName(SymbolTable symbols, string name, Span sp) {
+        if (!symbols.IsBareNameAmbiguous(name)) { return; }
         string[] nss = symbols.ClassNsOf(name);
         if (nss.Length < 2) { return; }
         int visible = 0;

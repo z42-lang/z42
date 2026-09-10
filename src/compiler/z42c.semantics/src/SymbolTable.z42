@@ -57,12 +57,17 @@ public sealed class SymbolTable {
         this._firstArity = new StrMap();
         this.CurrentAliases = null;
         this.ScopeNs = "";
+        this.ScopeUsings = new string[0];
+        this.ScopeUsingCount = 0;
     }
 
     // unify-type-identity-fqn：**引用方所在的命名空间**（per-CU 视图私有，与 CurrentAliases 同性质）。
     // 供裸名类型引用按「外围 ns 优先」解析——见 ResolveTypeP 里的 ScopeNs 分支。
     // 根表恒为 ""（不参与解析）；由 TypeChecker / ConstraintChecker 建视图时按 cu.Namespace 设。
     public string ScopeNs;
+    // 本 CU 的 `using` ns 集（同为 per-CU 视图私有）。供 IsBareNameAmbiguous 算「可见集」。
+    public string[] ScopeUsings;
+    public int      ScopeUsingCount;
 
     // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余 7 个数据字段的
     // 引用（并行段内只读），仅换 CurrentAliases。每个文件的 typecheck/codegen 持自己的视图 →
@@ -84,6 +89,7 @@ public sealed class SymbolTable {
         t.MultiArityNames = this.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
         t.CurrentAliases = aliases;
         t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
+        t.ScopeUsings = this.ScopeUsings; t.ScopeUsingCount = this.ScopeUsingCount;
         return t;
     }
 
@@ -92,7 +98,57 @@ public sealed class SymbolTable {
     public SymbolTable WithCu(CompilationUnit cu) {
         SymbolTable t = this.WithAliases(SymbolTable.BuildAliases(cu));
         t.ScopeNs = cu.HasNamespace ? cu.Namespace : "";
+        string[] us = new string[8];
+        int un = 0;
+        int ui = 0;
+        while (ui < cu.DeclCount) {
+            if (cu.Decls[ui] is UsingDecl) {
+                if (un == us.Length) {
+                    string[] bigger = new string[us.Length * 2];
+                    int z = 0; while (z < un) { bigger[z] = us[z]; z = z + 1; }
+                    us = bigger;
+                }
+                us[un] = (cu.Decls[ui] as UsingDecl).Name; un = un + 1;
+            }
+            ui = ui + 1;
+        }
+        t.ScopeUsings = us; t.ScopeUsingCount = un;
         return t;
+    }
+
+    // unify-type-identity-fqn：裸名在**本 CU 可见集**内是否歧义。
+    //
+    // 为什么必须有这个判据：发射端把解析结果写成 FQN 前要先确认那个结果**不是猜的**。
+    // 外围 ns 声明了该名 → 按语言规则不算歧义（与 ResolveTypeP 的 ScopeNs 分支同口径）；
+    // 否则若 ≥2 个**可见**命名空间都声明了它，解析只能靠 Classes 的 first/last-wins 撞赢家
+    // ⇒ 此时发射端必须**退回短名**（诚实降级，与本 change 之前的行为一致），
+    // 绝不能写一个「选了赢家」的 FQN —— 那是自信的错答案，比降级更坏。
+    //
+    // ⚠️ 判据只此一份：`TypeChecker.ChkAmbiguousBareName`（E0456）复用本方法，别再写第二套口径。
+    public bool IsBareNameAmbiguous(string name) {
+        if (name.IndexOf(".") >= 0) { return false; }   // 限定名 = 已消歧
+        string[] nss = this.ClassNsOf(name);
+        if (nss.Length < 2) { return false; }
+        int visible = 0;
+        int i = 0;
+        while (i < nss.Length) {
+            string ns = nss[i];
+            if (ns == this.ScopeNs) { return false; }
+            if (ns == "" || this.IsScopeVisibleNs(ns)) { visible = visible + 1; }
+            i = i + 1;
+        }
+        return visible >= 2;
+    }
+
+    public bool IsScopeVisibleNs(string p) {
+        if (p == "") { return false; }
+        if (p == this.ScopeNs) { return true; }
+        int i = 0;
+        while (i < this.ScopeUsingCount) {
+            if (this.ScopeUsings[i] == p) { return true; }
+            i = i + 1;
+        }
+        return false;
     }
 
     // add-bare-name-ambiguity-diagnostic：登记「短名 name 在命名空间 ns 里有一份声明」。

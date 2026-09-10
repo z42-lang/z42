@@ -61,6 +61,11 @@ public sealed class ClassDescBuilder {
     // 只对「用户声明的类」FQ 化：基元（PrimCode>=0）无 ns 且 SIGS/TYPE 沿用关键字拼写；
     // 全局 ns 的类 Fqn() 本就等于裸名，取不取一样。型参 / 接口 / enum 由后续 commit 覆盖。
     private string _fqnOf(NamedType nt) {
+        // unify-type-identity-fqn：**歧义则不写 FQN**。若该裸名在本 CU 可见集内由 ≥2 个 ns 声明，
+        // 解析结果只是 Classes first/last-wins 撞出来的赢家 —— 把它写成 FQN 就是「自信的错答案」。
+        // 退回短名 = 与本 change 之前一致的诚实降级（运行期 resolve_dotless_simple 见歧义会给
+        // 无句柄合成类型，不乱绑）。判据见 SymbolTable.IsBareNameAmbiguous。
+        if (this._g._symbols.IsBareNameAmbiguous(nt.Name)) { return ""; }
         Z42Type rt = this._g._symbols.ResolveType(nt);
         if (rt is Z42ClassType) {
             Z42ClassType ct = rt as Z42ClassType;

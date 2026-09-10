@@ -226,35 +226,40 @@ public sealed class FunctionEmitter {
         }
         Z42Type resolved = this._symbols.ResolveTypeP(te, tp, tpc);
         if (resolved is Z42UnknownType) { return "unknown"; }   // <unknown> → unknown（真·哨兵：确实解析不出来）
-        // unify-type-identity-fqn：用户声明的类 → **全限定名**。短名不是跨命名空间的唯一键
-        // （`A.Foo` 与 `B.Foo` 写进去都是 `Foo`），而消费端 `ImportedSymbolLoader._resolve` 按短名
-        // 查表 ⇒ 谁赢短名竞争就绑谁 = 静默错绑。运行期反过来**本就偏好 FQN**
-        // （`make_type_from_name` 先 `try_lookup_type`，仅在名字不含点时才退到防歧义的
-        // `resolve_dotless_simple` + `force_load_all_packages`）⇒ 给 FQN 直接命中，运行期零改动。
-        // 基元不参与（无 ns、本就无歧义，且 SIGS 对 byte/short… 刻意保源拼写 G18g）：用 PrimCode
-        // 判非基元、Namespace 非空判用户声明，两个条件由构造保证不误伤。
-        if (resolved is Z42ClassType) {
-            Z42ClassType rct = resolved as Z42ClassType;
-            if (rct.PrimCode() < 0 && rct.Namespace != "") { return rct.Fqn(); }
-        }
-        if (resolved is Z42InterfaceType) {
-            Z42InterfaceType rit = resolved as Z42InterfaceType;
-            if (rit.Namespace != "") { return rit.Fqn(); }
-        }
-        // 构造泛型：基名 FQ 化，实参递归套用同一文法（`List<int>` → `Std.List<int>`）。
-        // `Z42InstantiatedType.Name()` 是用 `Def.Name()`（短名）拼的，直接用会漏掉基名的 ns。
-        if (resolved is Z42InstantiatedType) {
-            Z42InstantiatedType rin = resolved as Z42InstantiatedType;
-            Z42ClassType rdef = rin.Def;
-            if (rdef != null && rdef.PrimCode() < 0 && rdef.Namespace != "") {
-                string acc = rdef.Fqn() + "<";
-                int ai = 0;
-                while (ai < rin.ArgCount) {
-                    if (ai > 0) { acc = acc + ", "; }
-                    acc = acc + this._sigArgTypeName(rin.TypeArgs[ai]);
-                    ai = ai + 1;
+        // unify-type-identity-fqn：歧义裸名不写 FQN（理由同 ClassDescBuilder._fqnOf 的守卫）。
+        // 走下方 SurfaceName 回落到既有短名拼写。
+        bool ambiguous = (te is NamedType) && this._symbols.IsBareNameAmbiguous((te as NamedType).Name);
+        if (!ambiguous) {
+            // unify-type-identity-fqn：用户声明的类 → **全限定名**。短名不是跨命名空间的唯一键
+            // （`A.Foo` 与 `B.Foo` 写进去都是 `Foo`），而消费端 `ImportedSymbolLoader._resolve` 按短名
+            // 查表 ⇒ 谁赢短名竞争就绑谁 = 静默错绑。运行期反过来**本就偏好 FQN**
+            // （`make_type_from_name` 先 `try_lookup_type`，仅在名字不含点时才退到防歧义的
+            // `resolve_dotless_simple` + `force_load_all_packages`）⇒ 给 FQN 直接命中，运行期零改动。
+            // 基元不参与（无 ns、本就无歧义，且 SIGS 对 byte/short… 刻意保源拼写 G18g）：用 PrimCode
+            // 判非基元、Namespace 非空判用户声明，两个条件由构造保证不误伤。
+            if (resolved is Z42ClassType) {
+                Z42ClassType rct = resolved as Z42ClassType;
+                if (rct.PrimCode() < 0 && rct.Namespace != "") { return rct.Fqn(); }
+            }
+            if (resolved is Z42InterfaceType) {
+                Z42InterfaceType rit = resolved as Z42InterfaceType;
+                if (rit.Namespace != "") { return rit.Fqn(); }
+            }
+            // 构造泛型：基名 FQ 化，实参递归套用同一文法（`List<int>` → `Std.List<int>`）。
+            // `Z42InstantiatedType.Name()` 是用 `Def.Name()`（短名）拼的，直接用会漏掉基名的 ns。
+            if (resolved is Z42InstantiatedType) {
+                Z42InstantiatedType rin = resolved as Z42InstantiatedType;
+                Z42ClassType rdef = rin.Def;
+                if (rdef != null && rdef.PrimCode() < 0 && rdef.Namespace != "") {
+                    string acc = rdef.Fqn() + "<";
+                    int ai = 0;
+                    while (ai < rin.ArgCount) {
+                        if (ai > 0) { acc = acc + ", "; }
+                        acc = acc + this._sigArgTypeName(rin.TypeArgs[ai]);
+                        ai = ai + 1;
+                    }
+                    return acc + ">";
                 }
-                return acc + ">";
             }
         }
         // unify-value-types Phase 1：翻转后内建 leaf（int/string/object…）ResolveTypeP→Z42ClassType(wrapper)，

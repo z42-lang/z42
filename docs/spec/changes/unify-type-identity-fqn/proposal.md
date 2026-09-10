@@ -228,11 +228,20 @@ imported enum 现场建型不带 ns。三者都补齐。
   不是解析后取名，别照抄。
 - ✅ 已排除：`Fqn()` ≡ `Ns.` + 注册键（`needsMangle` 只在同名多 arity 并存时为真）。
 
-### 8.6 仍欠的一项（**不得静默留下**）
+### 8.6 ✅ 已补：真歧义面不再写「选了赢家」的 FQN
 
 **真歧义面（两个 `using` 都提供同一短名）目前仍会被写进「选了赢家」的 FQN。**
 A1 只解决「外围 ns 能解析」那一类。E0456 的 11 个调用点全在语句/表达式位，
 **声明位（字段/形参/返回类型）一个都没有** —— 判据在 `TypeChecker`（有 `_currentUsings`），
 而声明位的类型检查在 collector 阶段（拿不到 usings）。
-→ 必须给 per-CU 视图补 `ScopeUsings`，发射端用精确可见集判歧义、歧义时**退回短名**（诚实降级，
-不比今天差）；诊断本身（A3）视风险决定是否拆独立 change。
+**已落地**：per-CU 视图补 `ScopeUsings`；判据抽成 `SymbolTable.IsBareNameAmbiguous`
+（外围 ns 声明该名 → 不算歧义；否则 ≥2 个**可见** ns 声明 → 歧义）。两个发射端在写 FQN 前先过这道
+判据，歧义时**退回短名** —— 诚实降级，与本 change 之前一致，绝不写自信的错答案。
+
+⚠️ **判据只此一份**：`TypeChecker.ChkAmbiguousBareName`（E0456）改为复用同一方法，不再各判各的。
+这一步有风险（若某调用点传的 `symbols` 不是 `WithCu` 视图，E0456 会**静默失效**），
+但 #550 为 E0456 留的三条单测替这件事把关 —— GREEN 实测三条全 PASS，守卫仍会响。
+
+> **A3（E0456 补到声明位）拆为独立 Deferred**：判据在 TypeChecker（有 usings），而声明位的类型
+> 引用检查在 collector 阶段（拿不到 usings），且 collector 诊断可见性另有历史包袱。
+> 本 change 的守卫已保证「不写错答案」；让歧义声明**报错**是诊断完备性问题，独立立项。
