@@ -9,7 +9,7 @@ class Circle : Shape {
     int Radius;
     Circle(int r) { this.Radius = r; }
     override string Describe() { return $"circle(r={this.Radius})"; }
-    int GetRadius() { return this.Radius; }
+    public int GetRadius() { return this.Radius; }
 }
 
 class Rectangle : Shape {
@@ -17,7 +17,7 @@ class Rectangle : Shape {
     int H;
     Rectangle(int w, int h) { this.W = w; this.H = h; }
     override string Describe() { return $"rect({this.W}x{this.H})"; }
-    int Area() { return this.W * this.H; }
+    public int Area() { return this.W * this.H; }
 }
 
 void Main() {

@@ -2,8 +2,8 @@
 // Exercises line table density (more DBUG entries) + multiple FUNC bodies.
 class Calculator {
     int Add(int a, int b) { return a + b; }
-    int Sub(int a, int b) { return a - b; }
-    int AddTwice(int a, int b) {
+    public int Sub(int a, int b) { return a - b; }
+    public int AddTwice(int a, int b) {
         return this.Add(a, b) + this.Add(a, b);
     }
 }

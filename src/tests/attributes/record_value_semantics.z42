@@ -18,7 +18,7 @@ using Std;
 // private (block) field participates in equality but NOT in ToString.
 [Record] class Tagged(int X) {
     int secret = 0;                             // default visibility = private
-    void SetSecret(int s) { this.secret = s; }
+    public void SetSecret(int s) { this.secret = s; }
 }
 
 // user-declared ToString must NOT be overwritten by synthesis.

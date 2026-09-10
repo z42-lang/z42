@@ -1,13 +1,13 @@
 namespace Demo;
 
 class Animal {
-    string Name;
+    public string Name;
 
     Animal(string name) {
         this.Name = name;
     }
 
-    string Describe() {
+    public string Describe() {
         return $"Animal: {this.Name}";
     }
 }
@@ -20,7 +20,7 @@ class Dog : Animal {
         this.Breed = breed;
     }
 
-    string Describe() {
+    public string Describe() {
         return $"Dog: {this.Name} ({this.Breed})";
     }
 }

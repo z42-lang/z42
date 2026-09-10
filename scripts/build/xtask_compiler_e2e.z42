@@ -367,6 +367,53 @@ int _e2eKnobChecks(string vm, string driverZpkg, string e2eDir, string flat) {
     return 0;
 }
 
+// restore-emit-zbc-diagnostics：**给「门」本身建的门**。
+//
+// `z42c --emit-zbc` 曾经丢弃全部编译诊断、以 exit 0 照写产物 —— e2e / golden / bench 全走这条路，
+// 于是这些路径上的编译错误一律静默（实测：`NoSuchTypeAtAll x = null;` 返回 0 并写出 285 字节产物）。
+// 本 change 把它改成与 `build` 同口径：逐条打印诊断 + 非零退出 + **不写产物**。
+//
+// 这道 gate 守的正是「别再退回去」：
+//   阳性 —— 有错的源 → 非零退出 **且产物不存在**（只判退出码不够：写了半个产物照样是错的）；
+//   阴性 —— 干净的源 → exit 0 且产物存在（防「一律报错」这种把门焊死的假修复）。
+// 两半缺一不可 —— 只有阳性会被「无条件失败」骗过，只有阴性会被「无条件成功」骗过。
+int _e2eEmitDiagChecks(string vm, string driverZpkg, string e2eDir, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── --emit-zbc 诊断可见性（restore-emit-zbc-diagnostics）──");
+    string badSrc = Path.Join(e2eDir, "emitdiag_bad.z42");
+    string badOut = Path.Join(e2eDir, "emitdiag_bad.zbc");
+    File.WriteAllText(badSrc, "namespace EmitDiag.Bad;\n\nvoid Main() { NoSuchTypeAtAll x = null; }\n");
+    if (File.Exists(badOut)) { File.Delete(badOut); }
+    int rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(badSrc).Arg(badOut)
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
+    if (rc == 0) {
+        Console.WriteLine("  ✗ 有错的源 --emit-zbc 仍 exit 0 —— 诊断又被吞了");
+        return 1;
+    }
+    if (File.Exists(badOut)) {
+        Console.WriteLine("  ✗ 有错的源 --emit-zbc 非零退出，却**照样写出了产物** " + badOut);
+        return 1;
+    }
+    Console.WriteLine("  ✓ 有错的源：非零退出且不写产物");
+
+    string okSrc = Path.Join(e2eDir, "emitdiag_ok.z42");
+    string okOut = Path.Join(e2eDir, "emitdiag_ok.zbc");
+    File.WriteAllText(okSrc, "namespace EmitDiag.Ok;\n\nvoid Main() { int x = 1; }\n");
+    if (File.Exists(okOut)) { File.Delete(okOut); }
+    rc = new Process(vm).Arg(driverZpkg).Arg("--").Arg("--emit-zbc").Arg(okSrc).Arg(okOut)
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+    if (rc != 0) {
+        Console.WriteLine("  ✗ 干净的源 --emit-zbc 退出 " + rc.ToString() + " —— 门焊死了");
+        return 1;
+    }
+    if (!File.Exists(okOut)) {
+        Console.WriteLine("  ✗ 干净的源 --emit-zbc exit 0，却没写出产物");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 干净的源：exit 0 且写出产物");
+    return 0;
+}
+
 int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
@@ -384,6 +431,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
 
     if (_e2eBuildChecks(root, vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     if (_e2eKnobChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
+    if (_e2eEmitDiagChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }

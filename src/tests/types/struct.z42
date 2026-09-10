@@ -1,15 +1,15 @@
 namespace Demo;
 
 struct Point {
-    int X;
-    int Y;
+    public int X;
+    public int Y;
 
     Point(int x, int y) {
         this.X = x;
         this.Y = y;
     }
 
-    int ManhattanDistance(Point other) {
+    public int ManhattanDistance(Point other) {
         int dx = this.X - other.X;
         int dy = this.Y - other.Y;
         if (dx < 0) dx = -dx;
@@ -29,7 +29,7 @@ struct Color {
         this.B = b;
     }
 
-    bool IsGrayscale() {
+    public bool IsGrayscale() {
         return this.R == this.G && this.G == this.B;
     }
 }

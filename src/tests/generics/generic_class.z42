@@ -5,14 +5,14 @@ class Box<T> {
     Box(T v) {
         this.value = v;
     }
-    T Get() {
+    public T Get() {
         return this.value;
     }
 }
 
 class Pair<A, B> {
-    A first;
-    B second;
+    public A first;
+    public B second;
     Pair(A a, B b) {
         this.first = a;
         this.second = b;

@@ -3,8 +3,8 @@
 // Compiler desugars `a + b` / `v * 10` to Vec2.op_Add(a,b) / Vec2.op_Multiply(v, 10) static calls.
 
 public struct Vec2 {
-    int x;
-    int y;
+    public int x;
+    public int y;
     Vec2(int a, int b) { this.x = a; this.y = b; }
 
     public static Vec2 operator +(Vec2 a, Vec2 b) {

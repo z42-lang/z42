@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-07
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -56,8 +56,19 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 - 发射端（`CallEmitter` 的 `ObjNew`）对已解析到的、`Namespace!=""` 的类型直接发 `Fqn()`，绕开
   `EmitContext.QualifyClass` 按短名走 `ImportedClassNs` 的同类撞名歧义；`is`/`as` 本就发 AST 源码原始限定名，天然正确。
 
-> **Deferred**：① 导入跨包同短名类型（`using` 两个包各有 `Foo`）当前只对**本地**类做 FQN keying；②
-> 非限定同短名（`using A; using B;` 后裸写 `Foo`）仍 first/last-wins 静默选一，C# 语义应报歧义诊断。
+> **② 已修**（2026-09-10 `add-bare-name-ambiguity-diagnostic`）：非限定同短名（`using A; using B;`
+> 后裸写 `Foo`）不再静默选一，报 **E0456**（对标 C# CS0104）。判据：候选 ns 取自新表
+> `SymbolTable.ClassNsAll`（本地 `StubCollector` 与跨包 `ImportedSymbolLoader` 都在各自的
+> **first-wins 守卫之外**累积——守卫之内只有赢家能进，那正是信息被塌掉的地方）→ 只算本 CU
+> 可见的 ns（using 集 ∪ 本 ns ∪ 全局 ns）→ **当前 ns 的那份直接胜出**（C# 的近者优先）→
+> 剩余 ≥ 2 才报。限定写法（`A.Foo`）永不歧义。
+>
+> **Deferred**：① 导入跨包同短名类型的 **FQN keying** 仍只对本地类做（`ClassesByFqn` 不登记 imported）——
+> 歧义现在会报，但「限定名精确解析到 imported 的那一份」还没接通。
+> ③ 🔴 **同一 ns 内重复类名**（两个 `class Foo` 在同一个命名空间）今天仍**静默 last-wins**、零诊断
+> （C# 报 CS0101）；④ 🔴 一个文件里写多个 `namespace X;` 时，全部声明被登记进 **`cu.Namespace`
+> 那一个** ns（`StubCollector` 用的就是它），连限定名都会解析错——实测 `A.Helper.Who()` 打印 `"B"`。
+> ③④ 是 `add-bare-name-ambiguity-diagnostic` 造 fixture 时撞出来的，均未修。
 
 #### `break` / `continue` 的合法上下文（binder ↔ emitter 对称）
 
@@ -319,8 +330,10 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 + `src/tests/delegates/generic_delegate.z42` + `src/tests/classes/ns_qualified_static_call.z42`。
 
 > ⚠️ **为什么编译期的门必须建在语义单测里**：`src/tests/` 的单文件 golden 走 `--emit-zbc`，
-> 它**丢弃全部诊断、以 exit 0 照写产物**（`restore-emit-zbc-diagnostics` 程序阶段 ⑧ 才修）⇒
-> 「本该报错却没报」在那侧看不见。上面几条 bug 的 emitter 半边碰巧还能跑（delegate 类型擦除 /
+> 而那条路径**曾经**丢弃全部诊断、以 exit 0 照写产物（已于 2026-09-10 `restore-emit-zbc-diagnostics`
+> 修复，见 [CLI 与诊断工具](tools.md)）⇒ 「本该报错却没报」在那侧看不见。
+> **修好之后这条建议依然成立**：golden 断言的是**输出**，「期望编译报错」的用例放进去只会变成
+> 一个编译失败的测试，表达不了「必须报这一条码」——负例门仍然只能走语义单测。上面几条 bug 的 emitter 半边碰巧还能跑（delegate 类型擦除 /
 > 元组 blob），所以 e2e 断言照样绿——`src/tests/tuples/tuple_basic.z42` 与
 > `src/tests/delegates/nested_delegate_dotted.z42` 修前就是这样的**假绿**测试（后者带 12+ 条
 > 编译错误却"通过"了四个月）。

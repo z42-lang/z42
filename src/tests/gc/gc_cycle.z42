@@ -3,7 +3,7 @@ namespace Demo;
 using Std;
 
 class Node {
-    Node Next;
+    public Node Next;
 }
 
 void MakeCycle() {

@@ -5,15 +5,15 @@
 namespace Demo;
 
 struct Point {
-    int x;
-    int y;
+    public int x;
+    public int y;
     Point(int x, int y) { this.x = x; this.y = y; }
 }
 
 // 含 string 引用叶子的 struct —— 验证数组元素引用叶子走 backing refs 侧表 + 写屏障。
 struct Tagged {
-    int n;
-    string name;
+    public int n;
+    public string name;
     Tagged(int n, string name) { this.n = n; this.name = name; }
 }
 

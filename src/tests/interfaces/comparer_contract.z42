@@ -6,13 +6,13 @@
 // scope 外的独立缺陷；测试用直接具体类调用验证契约。
 
 class DescIntComparer : IComparer<int> {
-    int Compare(int x, int y) {
+    public int Compare(int x, int y) {
         return y - x;
     }
 }
 
 class AscIntComparer : IComparer<int> {
-    int Compare(int x, int y) {
+    public int Compare(int x, int y) {
         return x - y;
     }
 }

@@ -6,6 +6,7 @@ using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 using Std.Net.Http;
+using Std.Encoding;
 
 // Read one HTTP request (headers + optional body) from a Stream.
 // Returns the request text. Drains exactly Content-Length bytes if

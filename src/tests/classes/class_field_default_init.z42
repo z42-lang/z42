@@ -7,27 +7,27 @@
 namespace Demo;
 
 class A {
-    int x = 1;
-    string s = "hello";
-    bool b = true;
+    public int x = 1;
+    public string s = "hello";
+    public bool b = true;
 }
 
 class B {
-    int n;
-    bool flag;
+    public int n;
+    public bool flag;
 }
 
 class C {
-    int n = 5;
+    public int n = 5;
     C(int x) { this.n = x; }
 }
 
 class P {
-    int p = 100;
+    public int p = 100;
 }
 
 class Q : P {
-    int q = 200;
+    public int q = 200;
 }
 
 void Main() {

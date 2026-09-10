@@ -112,16 +112,25 @@ void Main() {
         // replace-csharp Phase C：跨包 dep 解析（Z42_LIBS）→ 调 stdlib 的源（golden 等）emit 正确 FQ
         // 函数名（否则 `<error>` → 运行期 undefined function）。无 Z42_LIBS → 回落无依赖单文件 emit。
         string ezEnv = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        DependencyIndex ezIndex = null;
+        ImportedSymbols ezImported = null;
         if (ezEnv.Length > 0) {
             string[] ezDirs = new string[1]; ezDirs[0] = ezEnv;
             DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0);
             string[] ezUsings = IrDump.ExtractUsings(ezText, file);
-            ImportedSymbols ezImported = ImportedSymbolLoader.Load(
+            ezImported = ImportedSymbolLoader.Load(
                 ezScan.Exported, ezScan.ExportedPkg, ezScan.ExportedCount, ezUsings, ezUsings.Length);
-            File.WriteAllBytes(argv[2], IrDump.ZbcBytesD(ezText, file, ezScan.Index, ezImported));
-        } else {
-            File.WriteAllBytes(argv[2], IrDump.ZbcBytes(ezText, file));
+            ezIndex = ezScan.Index;
         }
+        CompiledModuleZ ezCm = IrDump.BuildModuleD(ezText, file, ezIndex, ezImported);
+        if (ezCm.ErrorCount > 0) {
+            ConsoleError.WriteLine("z42c: " + ezCm.ErrorCount.ToString() + " error(s) in " + file);
+            int ezDi = 0;
+            while (ezDi < ezCm.DiagCount) { ConsoleError.WriteLine("  " + ezCm.DiagMsgs[ezDi]); ezDi = ezDi + 1; }
+            Environment.Exit(ExitCode.BuildError);
+            return;
+        }
+        File.WriteAllBytes(argv[2], IrDump.ZbcBytesOf(ezCm));
         return;
     }
     if (cmd == "--dump-ir") { Console.WriteLine(IrDump.DumpModule(File.ReadAllText(file))); return; }

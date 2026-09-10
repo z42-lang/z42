@@ -1,6 +1,6 @@
 class MyClass {
-    string Describe() { return "MyClass"; }
-    bool SameAs(MyClass other) { return this == other; }
+    public string Describe() { return "MyClass"; }
+    public bool SameAs(MyClass other) { return this == other; }
 }
 
 void Main() {

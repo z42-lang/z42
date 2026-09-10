@@ -1,8 +1,8 @@
 namespace Demo;
 
 class MathHelper {
-    static int Square(int x) { return x * x; }
-    static int SumOfSquares(int a, int b) { return Square(a) + Square(b); }
+    public static int Square(int x) { return x * x; }
+    public static int SumOfSquares(int a, int b) { return Square(a) + Square(b); }
 }
 
 void Main() {

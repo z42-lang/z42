@@ -1,7 +1,7 @@
 namespace Demo;
 
 class Shape {
-    virtual string Area() {
+    public virtual string Area() {
         return "unknown";
     }
 }

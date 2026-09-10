@@ -13,10 +13,10 @@ class Calculator {
     }
 
     // Instance expression body method
-    int Add(int x) => this._base + x;
+    public int Add(int x) => this._base + x;
 
     // Static expression body method
-    static int Multiply(int a, int b) => a * b;
+    public static int Multiply(int a, int b) => a * b;
 
     // Expression body with string interpolation
     override string ToString() => $"Calculator(base={this._base})";

@@ -5,8 +5,8 @@
 // expected_output.txt 里」间接证明不可达。改成计数器 + Assert.Equal(0, ...) 后，
 // 「死分支没跑」变成一条显式断言（而不是靠人核对一份输出里少了哪行），侧车随之删除。
 class Flags {
-    const bool Debug = false;
-    const bool Release = true;
+    public const bool Debug = false;
+    public const bool Release = true;
 }
 
 class Probe { public static int deadHits = 0; }

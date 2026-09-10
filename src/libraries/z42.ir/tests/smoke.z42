@@ -34,7 +34,9 @@ void test_bytewriter_widths_and_patch() {
     int patchPos = w.Len();
     w.WriteU32(0);            // 占位，稍后回填
     w.WriteVarint(300);
-    w.Patch32(patchPos, 0xDEADBEEF);
+    // `0xDEADBEEF` = 3735928559 > int.MaxValue ⇒ 字面量是 long；`Patch32(int, int)` 要显式收窄。
+    // （此前 E0439 被 `--emit-zbc` 吞掉，测试照常绿。）
+    w.Patch32(patchPos, (int)0xDEADBEEF);
     byte[] b = w.ToBytes();
     Assert.Equal(0x34, (int)b[0]);   // U16 LE lo
     Assert.Equal(0x12, (int)b[1]);   // U16 LE hi

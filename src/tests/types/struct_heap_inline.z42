@@ -5,26 +5,26 @@
 namespace Demo;
 
 struct Point {
-    int x;
-    int y;
+    public int x;
+    public int y;
     Point(int x, int y) { this.x = x; this.y = y; }
 }
 
 // 含 string 引用叶子的内联 struct —— 验证内联区引用叶子走 struct_refs 侧表 + 写屏障。
 struct Tagged {
-    int n;
-    string name;
+    public int n;
+    public string name;
     Tagged(int n, string name) { this.n = n; this.name = name; }
 }
 
 // class = 堆对象（引用语义）；pt / tag 是**内联值 struct 字段**（字节内联进对象，非独立堆分配）。
 class Box {
-    Point pt;
-    Tagged tag;
+    public Point pt;
+    public Tagged tag;
     Box() { }
-    void SetPt(int x, int y) { pt.x = x; pt.y = y; }   // owner 方法内裸内联字段叶子写（this.pt.x）
-    int SumPt() { return pt.x + pt.y; }                // owner 裸内联字段叶子读
-    Point GetPt() { return pt; }                        // class 方法返回 struct（值复制出 → sret×VCall）
+    public void SetPt(int x, int y) { pt.x = x; pt.y = y; }   // owner 方法内裸内联字段叶子写（this.pt.x）
+    public int SumPt() { return pt.x + pt.y; }                // owner 裸内联字段叶子读
+    public Point GetPt() { return pt; }                        // class 方法返回 struct（值复制出 → sret×VCall）
 }
 
 void Main() {

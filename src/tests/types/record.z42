@@ -3,7 +3,7 @@ namespace Demo;
 [Record] class Point(int X, int Y);
 
 [Record] class Person(string Name, int Age) {
-    string Greet() {
+    public string Greet() {
         return $"Hi, I'm {this.Name}, age {this.Age}";
     }
 }

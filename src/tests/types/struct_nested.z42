@@ -4,22 +4,22 @@
 namespace Demo;
 
 struct P {
-    int x;
-    int y;
+    public int x;
+    public int y;
     P(int x, int y) { this.x = x; this.y = y; }
 }
 
 struct Line {
-    P a;
-    P b;
+    public P a;
+    public P b;
     Line(P a, P b) { this.a = a; this.b = b; }   // struct 传参 + 整字段 owner 写（this.a = a）
-    int SumAll() { return a.x + a.y + b.x + b.y; } // 嵌套 owner 裸字段读（a.x == this.a.x）
+    public int SumAll() { return a.x + a.y + b.x + b.y; } // 嵌套 owner 裸字段读（a.x == this.a.x）
 }
 
 // 含引用叶子（string）的嵌套 struct —— 验证 _copyRegion 走 ref 叶子分流。
 struct Tagged {
-    P pt;
-    string name;
+    public P pt;
+    public string name;
     Tagged(P pt, string name) { this.pt = pt; this.name = name; }
 }
 

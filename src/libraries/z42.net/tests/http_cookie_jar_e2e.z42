@@ -7,6 +7,7 @@ using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
 using Std.Net.Http;
+using Std.Encoding;
 
 [Test]
 void test_jar_round_trip_against_server() {
