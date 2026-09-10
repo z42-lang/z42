@@ -9,7 +9,8 @@
 //
 // 已校验：base-class / class / struct / 型参引用 where U:T / **interface**（含继承闭包）/
 //         **enum** / **new()** —— 与运行期 validate_type_arg_constraint 的七项对齐。
-// 延后：func-type 约束（E0422/E0423 已定义但从未发出）—— 见 GenericConstraint.z42。
+//         **func-type**（validate-func-type-constraint：E0422 签名不符 / E0423 与其它约束并置）——
+//         这一项运行期**没有**对应判定，只在编译期、只对本包声明的约束生效，见 _checkFuncConstraint。
 //
 // **跨包约束（add-associated-types PR-1）**：此前「跨包 100% 不校验」——`ClassConstraints` 的唯一
 // 写入点只遍历本包 CU 的 ClassDecl，导入类型全程不碰，`Check` 第一行 `HasConstraints` 即返回。
@@ -135,36 +136,59 @@ public sealed class ConstraintChecker {
                     // 泛型 base（`where T : Box<int>`）仍只记裸名——本轮不校验其类型实参
                     // （与接口的裸名匹配同口径，design D1）。
                     bundle.HasBaseClass = true; bundle.BaseClassName = nt.Name;
-                } else if (symbols.ResolveTypeP(con.Type, pnames, pc) is Z42FuncType) {
-                    // fix-func-constraint-reported-unknown：`where T : Action<int>` / `Func<int, R>` /
-                    // `Predicate<U>` / 用户 `delegate` —— 这些是**函数类型**，`SymbolTable.ResolveTypeP`
-                    // 把它们解析成结构化 `Z42FuncType`，**不进 Classes / Interfaces 表** ⇒ 上面两个分支
-                    // 都不命中 ⇒ 掉进下面那条「多半是拼错了」，报 `E0443 unknown constraint type Action`。
-                    //
-                    // 但它们是**合法且被支持**的约束写法（add-generic-func-constraint，
-                    // `src/tests/generics/func_constraint_*.z42` 正在用、运行期也正常）。所以那条 E0443
-                    // 是**事实错误**的诊断，不是「该报而暂时不该报」——本分支把它们摘出来。
-                    //
-                    // ⚠️ 为什么当年的探针没发现：该错误分支落地时以 warning 跑全仓实测「0 条」，
-                    // 而这三个受害文件全在 `src/tests/generics/`，走 `z42c --emit-zbc` —— 那条路
-                    // 丢弃全部诊断。探针看不见的地方，"0 条" 不构成证据。
-                    //
-                    // **校验仍延后**（本文件抬头的 Deferred `where-constraint-future-func-constraint`，
-                    // E0422/E0423 已留号）。⚠️ 补校验不是「加一次 IsAssignableTo」那么简单：
-                    // `R Apply<T, R>(T f, int x) where T : Func<int, R>`（func_constraint_captured.z42）
-                    // 的约束类型里含**另一个型参 R**，判定得把约束里的型参当通配去 unify，属独立一件事。
                 } else {
-                    // 既不是型参、也不是已知接口/类/函数类型 —— 多半是把约束名拼错了（`where T : IFooo`）。
-                    // 此前**完全静默**：写错名字等于没写约束，而使用者以为约束生效了。
-                    //
-                    // 曾担心误报（z42c **不把接口的定义 import 进符号表**——ImportedSymbolLoader，
-                    // 会破坏 byte-identical——故 `where T : 某导入接口` 可能 HasInterface/HasClass
-                    // 皆假）。以 warning 跑全仓 + 全 stdlib 探针实测 **0 条**，故升 error。
-                    this._diags.Error(DiagnosticCodes.UndefinedType,
-                        "unknown constraint type `" + nt.Name + "` on `" + ownerName + "`", con.Span);
+                    Z42Type conT = symbols.ResolveTypeP(con.Type, pnames, pc);
+                    if (conT is Z42FuncType) {
+                        // fix-func-constraint-reported-unknown：`where T : Action<int>` / `Func<int, R>` /
+                        // `Predicate<U>` / 用户 `delegate` —— 这些是**函数类型**，`SymbolTable.ResolveTypeP`
+                        // 把它们解析成结构化 `Z42FuncType`，**不进 Classes / Interfaces 表** ⇒ 上面两个分支
+                        // 都不命中 ⇒ 掉进下面那条「多半是拼错了」，报 `E0443 unknown constraint type Action`。
+                        //
+                        // 但它们是**合法且被支持**的约束写法（add-generic-func-constraint，
+                        // `src/tests/generics/func_constraint_*.z42` 正在用、运行期也正常）。所以那条 E0443
+                        // 是**事实错误**的诊断，不是「该报而暂时不该报」——本分支把它们摘出来。
+                        //
+                        // ⚠️ 为什么当年的探针没发现：该错误分支落地时以 warning 跑全仓实测「0 条」，
+                        // 而这三个受害文件全在 `src/tests/generics/`，走 `z42c --emit-zbc` —— 那条路
+                        // 丢弃全部诊断。探针看不见的地方，"0 条" 不构成证据。
+                        //
+                        // **validate-func-type-constraint：校验已补齐**（E0422/E0423 从留号变成真发出）。
+                        // 此前这里只是「摘出来什么也不做」⇒ 约束是**只被相信、从不被检查**的元数据：
+                        // binder（`MemberResolver` 的 `Z42GenericParamType` 分支）按这条签名把 `t(args)`
+                        // 绑成 CallIndirect 并推断结果类型，而没有任何一处核对实参真是这个签名。
+                        // 实测后果：`where T : Action<int>` 传 `Func<string,int>` 编译干净、运行期
+                        // `VCall: expected object, got I64(3)`（int 被喂进 string 形参）。
+                        // 约束里的型参（`Func<int,R>` 的 R / `Predicate<U>` 的 U）原样存着，
+                        // 到调用点再按已解析的类型实参代换，见 `_checkFuncConstraint`。
+                        bundle.HasFuncType = true; bundle.FuncType = conT;
+                    } else {
+                        // 既不是型参、也不是已知接口/类/函数类型 —— 多半是把约束名拼错了（`where T : IFooo`）。
+                        // 此前**完全静默**：写错名字等于没写约束，而使用者以为约束生效了。
+                        //
+                        // 曾担心误报（z42c **不把接口的定义 import 进符号表**——ImportedSymbolLoader，
+                        // 会破坏 byte-identical——故 `where T : 某导入接口` 可能 HasInterface/HasClass
+                        // 皆假）。以 warning 跑全仓 + 全 stdlib 探针实测 **0 条**，故升 error。
+                        this._diags.Error(DiagnosticCodes.UndefinedType,
+                            "unknown constraint type `" + nt.Name + "` on `" + ownerName + "`", con.Span);
+                    }
                 }
+            } else {
+                // **非 NamedType 的约束类型**——只有字面量函数类型 `(int) -> R` / `() -> void` 走到这里
+                // （`FuncTypeExpr`，见 z42c.syntax/TypeExpr.z42）。此前整条 if 链**落空**：既不报
+                // E0443，也不存任何东西 ⇒ `where T : (int) -> int` 是一条彻底的空约束。
+                Z42Type litT = symbols.ResolveTypeP(con.Type, pnames, pc);
+                if (litT is Z42FuncType) { bundle.HasFuncType = true; bundle.FuncType = litT; }
             }
             k = k + 1;
+        }
+        // v1：函数类型约束与其余七项**互斥**（2026-05-11 add-generic-func-constraint spec）。
+        // 并置本身在今天是**静默无害**的（func 半边根本不校验），补上校验后它就成了一条语义未定义的
+        // 写法——`where T : Func<int,int> + IDisposable` 要求 T 同时是结构化函数类型与实现某接口的类，
+        // z42 的类型模型里没有这种东西。早报好过让它继续看起来合法。
+        if (bundle.HasFuncType && !ConstraintChecker._onlyFuncType(bundle)) {
+            this._diags.Error(DiagnosticCodes.InvalidFuncConstraint,
+                "type parameter `" + wc.TypeParam + "` on `" + ownerName
+                + "` cannot combine a function-type constraint with other constraints", wc.Span);
         }
         if (bundle.RequiresClass && bundle.RequiresStruct) {
             this._diags.Error(DiagnosticCodes.TypeMismatch,
@@ -231,12 +255,104 @@ public sealed class ConstraintChecker {
         if (b.RequiresCtor && !this._hasNoArgCtor(symbols, arg)) {
             this._err(arg, pn, "new()", ownerName, sp);
         }
+        // validate-func-type-constraint：函数类型约束。放在最后一组之前，与其余七项并列。
+        if (b.HasFuncType) {
+            this._checkFuncConstraint(symbols, pnames, pc, args, b.FuncType, arg, pn, ownerName, sp);
+        }
         // add-associated-types PR-3：关联类型绑定要求 `where T : IEnum<Item = int>`。
         int ai = 0;
         while (ai < b.AssocBindingCount) {
             this._checkAssocBinding(symbols, arg, pn, b.AssocBindingNames[ai], b.AssocBindingTypeNames[ai], ownerName, sp);
             ai = ai + 1;
         }
+    }
+
+    // ════ 函数类型约束（validate-func-type-constraint）════════════════════════
+    // `where T : Func<int,R>` / `Action<int>` / `Predicate<U>` / `(int) -> R` / 用户 delegate。
+    //
+    // 判定分三步：
+    //   ① 约束里的型参按**本次调用已解析的类型实参**代换（`Predicate<U>` + U=int → `Predicate<int>`）。
+    //      复用 `MethodTypeArgSubst.ByName`（它已有 Z42FuncType 分支）；代换不掉的位（类级型参等）
+    //      留作**通配**，见 `_funcPosOk`。
+    //   ② 实参必须是函数类型且 arity 相同。
+    //   ③ 逐位比：形参位**逆变**（约束形参可传给实参形参 ⇒ 实参形参更宽）、返回位**协变**
+    //      （实参返回可当约束返回用）。方向照 2026-05-11 spec 的四条 Scenario。
+    //
+    // 🔴 与其余七项不同，**运行期没有对应判定**（`generics.rs::validate_type_arg_constraint` 只有七项，
+    // zbc 约束 flag 位也没有 func 签名槽）⇒ 本项只在编译期成立，且只对**本包声明**的约束生效：
+    // 导入 bundle 恒无 func 约束（`ImportedSymbolLoader._constraintSetOf` 无从取值）⇒ 跨包天然跳过。
+    // 这是「漏报」而非「假红」，与关联类型跨包同一取舍。
+    private void _checkFuncConstraint(SymbolTable symbols, string[] pnames, int pc, Z42Type[] args,
+                                      Z42Type want, Z42Type arg, string pn, string ownerName, Span sp) {
+        // 信息不足一律放行（同 _satisfiesInterface / _isEnumArg）。
+        if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return; }
+        Z42Type w = MethodTypeArgSubst.ByName(want, pnames, pc, args);
+        if (!(w is Z42FuncType)) { return; }        // 代换后不再是函数类型：不该发生，保守放行
+        Z42FuncType wf = w as Z42FuncType;
+        if (!(arg is Z42FuncType)) {
+            this._errFunc(arg, pn, wf, ownerName, sp, "it is not a function type");
+            return;
+        }
+        Z42FuncType af = arg as Z42FuncType;
+        if (af.ParamCount != wf.ParamCount) {
+            this._errFunc(arg, pn, wf, ownerName, sp,
+                "it takes " + af.ParamCount.ToString() + " parameter(s), the constraint requires "
+                + wf.ParamCount.ToString());
+            return;
+        }
+        int i = 0;
+        while (i < wf.ParamCount) {
+            // 逆变：调用方按**约束**的形参类型传值，实参那份必须接得住 ⇒ 约束形参 <: 实参形参。
+            if (!ConstraintChecker._funcPosOk(symbols, wf.ParamTypes[i], af.ParamTypes[i])) {
+                this._errFunc(arg, pn, wf, ownerName, sp,
+                    "parameter " + (i + 1).ToString() + " is `" + af.ParamTypes[i].Name()
+                    + "`, the constraint requires it to accept `" + wf.ParamTypes[i].Name() + "`");
+                return;
+            }
+            i = i + 1;
+        }
+        // 协变：实参返回的东西必须当得了约束声明的返回类型。
+        if (!ConstraintChecker._funcPosOk(symbols, af.Ret, wf.Ret)) {
+            this._errFunc(arg, pn, wf, ownerName, sp,
+                "it returns `" + af.Ret.Name() + "`, the constraint requires `" + wf.Ret.Name() + "`");
+        }
+    }
+
+    // 「sub 可当 sup 用」——用于函数位的单向判定（形参位传 (约束, 实参)，返回位传 (实参, 约束)）。
+    // **信息不足一律放行**：任一侧仍是型参（代换不掉的类级型参 / `Self`）、或 error/unknown。
+    // 数值拓宽**刻意不放行**：间接调用按槽位传值，`Func<int,long>` 与 `Func<int,int>` 不是一回事。
+    private static bool _funcPosOk(SymbolTable symbols, Z42Type sub, Z42Type sup) {
+        if (sub == null || sup == null) { return true; }
+        if ((sub is Z42GenericParamType) || (sup is Z42GenericParamType)) { return true; }
+        if ((sub is Z42ErrorType) || (sup is Z42ErrorType)) { return true; }
+        if ((sub is Z42UnknownType) || (sup is Z42UnknownType)) { return true; }
+        if (sub.CanonName() == sup.CanonName()) { return true; }
+        string subName = ConstraintChecker._defName(sub);
+        if (subName == "") { return false; }        // 数组 / func / void：只认同名
+        if (sup is Z42InterfaceType) { return symbols.Implements(subName, sup.Name()); }
+        if ((sup is Z42ClassType) || (sup is Z42InstantiatedType)) {
+            return symbols.IsSubclassOf(subName, ConstraintChecker._defName(sup));
+        }
+        return false;
+    }
+
+    // 类 / 实例化类型 → 其类定义的裸名；其余（数组 / func / void / 型参）→ ""。
+    private static string _defName(Z42Type t) {
+        if (t is Z42ClassType) { return t.Name(); }
+        if (t is Z42InstantiatedType) { return (t as Z42InstantiatedType).Def.Name(); }
+        return "";
+    }
+
+    private void _errFunc(Z42Type arg, string pn, Z42FuncType want, string ownerName, Span sp, string why) {
+        this._diags.Error(DiagnosticCodes.GenericFuncConstraintViolation,
+            "type argument `" + arg.Name() + "` for `" + pn + "` does not satisfy function-type constraint `"
+            + want.Name() + "` on `" + ownerName + "` — " + why, sp);
+    }
+
+    // bundle 里除 func 约束外一个都没有？（E0423 的判据）
+    private static bool _onlyFuncType(ConstraintBundle b) {
+        return !b.HasBaseClass && !b.RequiresClass && !b.RequiresStruct && !b.HasTypeParamRef
+            && b.InterfaceCount == 0 && !b.RequiresEnum && !b.RequiresCtor && b.AssocBindingCount == 0;
     }
 
     // `where T : IEnum<Item = int>` —— 实参 T 的类必须给出 `type Item = int;` 且绑定类型一致。

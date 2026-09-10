@@ -1,0 +1,11 @@
+// 探针：顶层泛型函数的 where 约束，call-site 校验（_checkBundle）到底跑不跑？
+class Plain { }
+void TakesEnum<T>(T v) where T: enum { }
+void TakesNew<T>(T v) where T: new() { }
+class NeedsArg { public NeedsArg(int x) { } }
+
+void Main() {
+    var p = new Plain();
+    TakesEnum<Plain>(p);          // Plain 不是 enum → 若跑则 E0402
+    TakesNew<NeedsArg>(null);     // NeedsArg 无零实参 ctor → 若跑则 E0402
+}

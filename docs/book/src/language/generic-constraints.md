@@ -1,8 +1,8 @@
 # 泛型约束（`where` 子句）
 
-> 对齐：2026-09-10（change `fix-func-constraint-reported-unknown`）
+> 对齐：2026-09-10（change `validate-func-type-constraint`）
 >
-> 上一次：2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
+> 上一次：2026-09-10（change `fix-func-constraint-reported-unknown`）；2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
 >
 > 本页是**泛型约束语义与校验范围的 SoT**。泛型的整体设计（代码共享策略、reified 类型、
 > 跨 zpkg 元数据）见 [`docs/book/src/language/generics.md`](generics.md)；
@@ -34,9 +34,14 @@ void Sort<T>(T[] xs) where T : IComparable { }                // 方法级
 | 枚举 | `where T : enum` | T 是 `enum` 声明的类型（基元**不**满足） | ✅ |
 | 无参构造 | `where T : new()` | 基元满足；类须**非 abstract** 且可零实参构造 | ✅ |
 | 型参引用 | `where U : T` | U 的实参可赋给 T 的实参 | ✅ |
-| 函数类型 | `where T : Func<int, R>` | — | ❌ 未发出（见下；2026-09-10 前更是**误报 E0443**、合法代码编不过） |
+| 函数类型 | `where T : Func<int, R>` | T 是函数类型，且 arity 相同、**形参逆变 / 返回协变**地匹配 | ✅ **E0422**（签名不符）/ **E0423**（与其它约束并置）；⚠️ 仅编译期、仅本包声明的约束，见下 |
 
-`class` 与 `struct` 同时出现在一个型参上 → 报错（互斥）。
+`class` 与 `struct` 同时出现在一个型参上 → 报错（互斥）。函数类型约束与**其余任何**约束
+并置也报错（`E0423`）——见下「函数类型约束」。
+
+> ⚠️ 上表的「唯一真相源是运行期」对**函数类型约束不成立**：运行期
+> `validate_type_arg_constraint` 只有七项，zbc 的约束 flag 位里也**没有** func 签名槽。
+> 这一项是**纯编译期**规则，且只对本包声明的约束生效（导入 bundle 恒无 func 约束）。
 
 ### `new()` 的一条易错规则
 
@@ -55,9 +60,12 @@ class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
 
 | 时机 | 位置 | 报什么 |
 |------|------|--------|
-| 声明期 | 每个泛型类 / **接口**的 `where` 子句解析成约束集 | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、**未知约束名 `E0443`** |
+| 声明期 | 每个泛型类 / **接口**的 `where` 子句解析成约束集 | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、**未知约束名 `E0443`**、**func 约束并置 `E0423`** |
 | 实例化点 | `new Box<D>()` | 违反约束 `E0402`，Span 指向实例化处 |
-| 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（显式写类型实参）**及 `m(...)`（推断成功时）** | 违反约束 `E0402` |
+| 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（显式写类型实参）**及 `m(...)`（推断成功时）**；顶层自由函数同样走这条 | 违反约束 `E0402`、**函数类型签名不符 `E0422`** |
+
+> 方法级 `where` 的**声明级**诊断也在调用点发出（bundle 每次即席重建）⇒ 会重复、且零调用时不报，
+> 见「已知限制 5」。
 
 诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
 
@@ -329,17 +337,56 @@ Deferred：`where-constraint-future-type-arg-matching`。
 target-typed `new` 这类延迟位 / `params` 尾位。Deferred：`generic-inference-best-common-type`、
 `generic-inference-lambda-args`。
 
-### 3. 顶层函数的 `where` 不校验
+### ~~3. 顶层函数的 `where` 不校验~~ 🔴 **这条是过期断言，已订正**
 
-只有类的成员方法走方法级校验路径。
-Deferred：`where-constraint-future-toplevel-func`。
+**2026-09-10（change `validate-func-type-constraint`）实测**：顶层泛型函数的 `where`
+**声明期与调用点两半都跑**——顶层自由函数的调用同样经 `MemberResolver` 走到
+`ConstraintChecker.CheckMethod`：
 
-### 4. 函数类型约束从未发出诊断
+```
+probe_toplevel.z42(9,5):  E0402: type argument `Plain` for `T` does not satisfy constraint `enum` on `TakesEnum`
+probe_toplevel.z42(10,5): E0402: type argument `NeedsArg` for `T` does not satisfy constraint `new()` on `TakesNew`
+```
 
-`E0422` / `E0423` 已定义但没有代码路径会发出它们，即 `where T : Func<int,int>` 传进去什么都行、
-**约束本身不校验**。Deferred：`where-constraint-future-func-constraint`。
+Deferred `where-constraint-future-toplevel-func` 随之关闭。
+⭐ 又一条「没有东西盯着的断言迟早会烂」：这句话写下时也许为真，但没有任何用例钉住它，
+后来 `add-generic-methods` / `add-generic-type-arg-inference` 把顶层函数接进同一条路径，
+文档却没人改。
 
-> 🔴 **但它一度比「不校验」更糟：`where T : Action<int>` 直接编不过**
+### ~~4. 函数类型约束从未发出诊断~~ ✅ 已解决（2026-09-10 `validate-func-type-constraint`）
+
+判定分三步：
+
+1. 约束里的型参按**本次调用已解析的类型实参**代换（`where T : Predicate<U>` + `U=int`
+   ⇒ 要求 `Predicate<int>`）。代换不掉的位（类级型参、`Self`）当**通配**放行。
+2. 实参必须是函数类型、且 arity 相同。
+3. 逐位比：形参位**逆变**（约束形参可传给实参形参 ⇒ 实参形参更宽）、返回位**协变**。
+   类类型走子类判定，其余按规范名相等；**数值拓宽刻意不放行**（间接调用按槽位传值，
+   `Func<int,long>` 与 `Func<int,int>` 不是一回事）。
+
+```z42
+void Run<T>(T handler, int x) where T : Action<int> { handler(x); }
+
+Func<string,int> g = s => 1;
+Run(g, 3);   // E0422: … parameter 1 is `String`, the constraint requires it to accept `Int32`
+```
+
+> 🔴 **修前不是「宽松」，是有运行期后果的静默错**：上面这段修前**编译干净**，运行期
+> `uncaught exception: VCall: expected object, got I64(3)` —— `int 3` 被直接喂进 `string` 形参。
+> 换成字符串拼接则**连崩都不崩**，静默打印 `got: [3]`，错值一路流下去。
+> 根源是「约束只被相信、从不被检查」：binder（`MemberResolver` 的 `Z42GenericParamType` 分支）
+> 按这条签名把 `handler(x)` 绑成 `CallIndirect` 并推断结果类型，而没有任何一处核对实参真是这个签名。
+
+**残留边界**（都是「漏报」，不会假红）：
+
+| 边界 | 为什么 |
+|------|--------|
+| **跨包 class 级 func 约束不校验** | zbc 约束 bundle 的 flag 位没有 func 签名槽（要双格式 bump）；导入 bundle 恒无 func 约束 ⇒ 天然跳过。与关联类型跨包同一取舍 |
+| **推断失败的调用点完全不校验** | `R Apply<T,R>(T f, int x) where T : Func<int,R>` 的 `R` 不出现在任何形参位 ⇒ `TypeArgInference` 边界 ①（任一型参未绑定即整体失败）⇒ `CheckMethod` 根本不跑 |
+| **实参是 lambda / target-typed `new`** | 延迟位类型是 Unknown ⇒ 推断跳过 ⇒ 同上 |
+| **`E0423` 在从不被调用的泛型方法上不报** | 方法级 `where` 只在调用点被处理，见下「### 5」 |
+
+> 🔴 **前史：它一度比「不校验」更糟——`where T : Action<int>` 直接编不过**
 > （2026-09-10 `fix-func-constraint-reported-unknown` 修）。`complete-where-constraints` 给
 > `_fillBundle` 加的「约束名拼错了」分支（`E0443 unknown constraint type`）把函数类型也网了进去——
 > `Action` / `Func` / `Predicate` / 用户 `delegate` 经 `SymbolTable.ResolveTypeP` 解析成结构化
@@ -350,13 +397,12 @@ Deferred：`where-constraint-future-toplevel-func`。
 > （`src/tests/generics/func_constraint_{action,predicate,captured}.z42`）全走 `z42c --emit-zbc`，
 > 而那条路径当时**丢弃全部诊断**。探针看不见的地方，"0 条" 不构成证据。
 >
-> **为什么这次仍不顺手把校验补上**：`func_constraint_captured.z42` 里有
-> `R Apply<T, R>(T f, int x) where T : Func<int, R>` —— 约束类型里含**另一个型参 `R`**，
-> 判定得把约束里的型参当通配去 unify，不是加一次 `IsAssignableTo` 能了事的，属独立一件事。
->
-> ⚠️ 附带发现（未修）：`ConstraintChecker.CheckMethod` **每个调用点都重建一遍 bundle**，
-> 所以 `_fillBundle` 里这类**声明级**诊断会按调用次数重复——`Run` 被调用 2 次就报 2 条一模一样的
-> E0443。真正的修法是把声明级约束诊断挪到声明期 pass。
+> **当时为什么没顺手补校验、后来怎么补的**：`func_constraint_captured.z42` 里有
+> `R Apply<T, R>(T f, int x) where T : Func<int, R>` —— 约束类型里含**另一个型参 `R`**。
+> 当时判断「得把约束里的型参当通配去 unify」，属独立一件事。实际落地时发现**不需要 unify**：
+> 调用点已经有一份解析好的类型实参（`CheckMethod` 的 `args`），直接用
+> `MethodTypeArgSubst.ByName` 把约束里的型参代换掉即可，代换不掉的位当通配。
+> 而 `Apply<T,R>` 那条根本走不到校验（`R` 推不出 ⇒ 推断整体失败）。
 
 > **事实校正（`fix-generic-func-param-indirect-call`）**：本节原写着「代码生成依赖该约束把参数当
 > func 值走间接调用，改动需谨慎」——**不成立**。`CallEmitter` 从不看约束，它只查
@@ -367,7 +413,23 @@ Deferred：`where-constraint-future-toplevel-func`。
 > `call @f` 调一个不存在的自由函数，运行期 `undefined function`。
 > 回归守卫：`src/tests/generics/func_constraint_captured.z42`。
 
-### 5. 关联类型：同包已实现，**跨包尚未校验**
+### 5. 方法级 `where` 的声明级诊断：按调用次数重复，零调用时完全消失
+
+`ConstraintChecker.CheckMethod` **每个调用点都重建一遍 bundle**，于是 `_fillBundle` 里的
+**声明级**诊断（`E0401` 未知型参 / `E0443` 未知约束名 / `E0402` class·struct 互斥 / `E0423`
+func 约束并置）有两个症状：
+
+- 被调用 2 次 → 同一条报 2 遍（纯噪音）；
+- **从不被调用 → 一条都不报**（真漏报：`where T : IFooo` 拼错了名字，等于没写约束，而没人告诉你）。
+
+类级 `where` 不受影响（`Resolve` 是声明期 Pass 0.5，与是否实例化无关）。
+Deferred：`constraint-decl-diag-per-callsite`。真正的修法是把方法级 `where` 的解析也挪到声明期。
+
+> ⚠️ 另有一条**既有**重复：类级声明诊断在 `--emit-zbc` 这条路上报**两遍**
+> （`where T : class + struct` 实测 2 条）—— `Resolve` 在该管线里跑了两次。与上面是两回事，
+> 一并记在同一个 Deferred 下。
+
+### 6. 关联类型：同包已实现，**跨包尚未校验**
 
 同包已可用（见上「关联类型」一节）。**跨包不校验**——类给出的绑定与接口的关联类型名单都还没有
 wire 表示（需要 zbc 约束 bundle 的 bit7 + zbc/zpkg 双格式 bump）。导入类型参与带绑定的约束时，
