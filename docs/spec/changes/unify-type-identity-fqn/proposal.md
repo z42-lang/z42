@@ -276,3 +276,33 @@ DRAFT §4 Phase 3 原计划 bump（zbc 1.38→1.39 / zpkg 0.43→0.44），依�
 `zbc.md` 的 changelog 缺 **1.38**、`zpkg.md` 缺 **0.43**、且 zpkg.md「当前版本」写着 `minor=42`
 （实际 43）—— 上一次 bump 漏写 changelog，与 version-bumping.md 自己记的「1.37→1.38 漏 fixture」
 是同一次事故的另一半。已补录并标注。
+
+---
+
+## 10. 收尾：跨包限定名解析（本 change 的最后一个洞）
+
+**症状**：源码写**限定的导入类型**（`Demo.FqnBeta.Widget x;`）时仍绑到短名竞争的赢家。
+实测 `Both.fromBeta` 被写成 `Demo.FqnAlpha.Widget` —— 又是「自信的错答案」，
+且我的歧义守卫管不到它（守卫只判**裸名**，含点即视为已消歧）。
+
+**根因（比预想深一层）**：`ImportedSymbolLoader` 里**整个建型过程**都罩在裸名 first-wins 守卫
+`if (!r.Classes.ContainsKey(clKey))` 内 ⇒ 同短名的第二份**压根不建型**，FQN 视图自然也拿不到它。
+所以光给 `_mergeImports` 加 FQN 合并是不够的 —— 源头就没有第二份。
+
+**修法**：把守卫**收窄到只裹裸名表**。每份都建型、按 FQN 各存一份；`r.Classes` /
+`r.ClassNamespaces` / `r.Constraints`（都以裸名 `clKey` 为键）仍 first-wins。
+⚠️ `r.Constraints` 那条容易漏 —— 守卫收窄后必须显式跟上，否则第二份会覆盖赢家的约束。
+再加 `SymbolCollector._mergeImports` 把 `imported.ClassesByFqn` / `InterfacesByFqn` 并进符号表。
+
+> ⭐ **这个洞此前修不了**：修它要算导入类的 FQN，而导入类的 `Namespace` 恒为空 —— 本 change
+> 才补上。（并发会话在记忆索引里把「imported 类不进 ClassesByFqn」列为剩余项最高优先级，
+> 随本 change 一并关闭。）
+
+**门**：`type_identity_fqn` 加 `Both`（限定引用两个导入包的同短名类）。
+判别力已验证 —— 修前该格实测输出 `Demo.FqnAlpha.Widget`（错），修后 `Demo.FqnBeta.Widget`（对）。
+
+**过程中我自己犯的两个错**（留档，别再犯）：
+1. 扩展门时引用了一个**根本不存在**的类（`Both` 只在 scratchpad 的 fixture 里有），
+   `undefined type: Both` 是字面属实，还级联把另外两条也带红了。
+2. **两次手工只编 main、不编依赖**去复现，得到无效结论。
+   有效手段是**用 harness 做变量隔离**（只撤门的扩展、保留代码修复），一步分清是哪一半的问题。

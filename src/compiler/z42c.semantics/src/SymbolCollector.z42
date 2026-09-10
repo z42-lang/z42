@@ -132,6 +132,23 @@ public sealed class SymbolCollector {
             if (!table.Classes.ContainsKey(cls[i])) { table.Classes.Put(cls[i], imported.Classes.Get(cls[i])); }
             i = i + 1;
         }
+        // unify-type-identity-fqn：**导入类/接口也进 FQN 视图**。此前 `SymbolTable.ClassesByFqn`
+        // 只装本地类 ⇒ 源码里写**限定的导入类型**（`Std.Type x;`）时，ResolveTypeP 的 FQN 精确分支
+        // 恒 miss，只能落到「末段剥短名」的有损回退 —— 又绕回短名竞争。
+        // ⚠️ 这一步此前**做不到**：导入类的 Namespace 恒为空（本 change 才补上），算不出 FQN。
+        // 键天然唯一（FQN 不会撞），不需要 local-wins 守卫；本地类由 StubCollector 自己登记。
+        string[] fqk = imported.ClassesByFqn.Keys();
+        i = 0;
+        while (i < fqk.Length) {
+            if (!table.ClassesByFqn.ContainsKey(fqk[i])) { table.ClassesByFqn.Put(fqk[i], imported.ClassesByFqn.Get(fqk[i])); }
+            i = i + 1;
+        }
+        string[] ifqk = imported.InterfacesByFqn.Keys();
+        i = 0;
+        while (i < ifqk.Length) {
+            if (!table.InterfacesByFqn.ContainsKey(ifqk[i])) { table.InterfacesByFqn.Put(ifqk[i], imported.InterfacesByFqn.Get(ifqk[i])); }
+            i = i + 1;
+        }
         // add-bare-name-ambiguity-diagnostic：把跨包累积的「短名 → 全部声明 ns」并进符号表。
         // 注意是**逐 ns 并**而非整表覆盖：本地也可能声明同一短名，两边都要留下。
         string[] nsk = imported.ClassNsAll.Keys();

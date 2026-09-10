@@ -141,7 +141,13 @@ public static class ImportedSymbolLoader {
                     // 守卫之内只有赢家能进，那正是「同短名跨 ns 被塌掉」的地方。`active[i]` 已把模块
                     // 限制在本 CU 可见的那些，所以这里记下的 ns 天然是可见集的子集。
                     SymbolTable.NoteNsInto(r.ClassNsAll, clKey, em.Namespace);
-                    if (!r.Classes.ContainsKey(clKey)) {        // first-wins（输入已 prelude-first 排序）
+                    // unify-type-identity-fqn：**first-wins 只能管裸名表**。此前整个建型都被这道守卫罩着 ⇒
+                    // 同短名的第二份（`Demo.FqnBeta.Widget`）压根不建型，FQN 视图自然也拿不到它 ⇒
+                    // 限定引用只能退回剥短名撞赢家（实测 `Both.fromBeta` 绑成了 `Demo.FqnAlpha.Widget`）。
+                    // 现在把守卫收窄到只裹 `r.Classes.Put`，其余每份都建、按 FQN 各存一份。
+                    string fqnKey = em.Namespace == "" ? clKey : em.Namespace + "." + clKey;
+                    bool bareFree = !r.Classes.ContainsKey(clKey);   // first-wins（输入已 prelude-first 排序）
+                    if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         if (hasBase) { baseName = cl.BaseName; }
@@ -181,15 +187,20 @@ public static class ImportedSymbolLoader {
                             nct.InterfaceNames = cl.Interfaces;
                             nct.InterfaceCount = cl.InterfaceCount;
                         }
-                        r.Classes.Put(clKey, nct);
-                        // unify-type-identity-fqn：FQN 视图与短名表并存。短名表保留 first-wins 语义
-                        // （型参 / 无 ns 的东西仍走它）；FQN 视图每一份都留，供精确解析。
-                        r.ClassesByFqn.Put(nct.Fqn(), nct);
-                        r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace));
+                        // 短名表保留 first-wins（型参 / 无 ns 的东西仍走它）；FQN 视图每一份都留。
+                        if (bareFree) {
+                            r.Classes.Put(clKey, nct);
+                            r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace));
+                        }
+                        r.ClassesByFqn.Put(fqnKey, nct);
                         // add-associated-types PR-1：跨包 where 约束。键与 Classes 同为 clKey，
                         // 与 SymbolTable.ConstraintKey 的条件 arity-mangle 口径一致。
-                        ConstraintSet ics = ImportedSymbolLoader._constraintSetOf(cl);
-                        if (ics != null) { r.Constraints.Put(clKey, ics); }
+                        // 键是 clKey（裸名）⇒ 与 r.Classes 同受 first-wins 约束，否则同短名的第二份
+                        // 会把赢家的约束覆盖掉（守卫收窄后这里必须显式跟上）。
+                        if (bareFree) {
+                            ConstraintSet ics = ImportedSymbolLoader._constraintSetOf(cl);
+                            if (ics != null) { r.Constraints.Put(clKey, ics); }
+                        }
                     }
                     c = c + 1;
                 }

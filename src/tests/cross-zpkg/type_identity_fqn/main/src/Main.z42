@@ -13,6 +13,14 @@ using Std.Reflection;
 using Demo.FqnAlpha;
 using Demo.FqnBeta;
 
+// 限定引用**导入**类型 —— 走 `SymbolTable.ClassesByFqn` 的 FQN 精确分支。
+// 该视图此前只装**本地**类（`_mergeImports` 从不把导入类并进去）⇒ 这条路只能剥末段短名撞赢家，
+// 两个同短名 `Widget` 必有一个绑错。修它的前提是导入类有 Namespace —— 本 change 才补上。
+class Both {
+    public Demo.FqnAlpha.Widget fromAlpha;
+    public Demo.FqnBeta.Widget  fromBeta;
+}
+
 void dump(Type t) {
     FieldInfo[] fs = t.GetFields();
     int i = 0;
@@ -24,6 +32,7 @@ void dump(Type t) {
 }
 
 void Main() {
-    dump(typeof(Demo.FqnAlpha.HolderA));
+    dump(typeof(Both));                      // 限定引用导入类型（跨包 FQN 精确解析）
+    dump(typeof(Demo.FqnAlpha.HolderA));     // 包内非限定引用（外围 ns 优先）
     dump(typeof(Demo.FqnBeta.HolderB));
 }
