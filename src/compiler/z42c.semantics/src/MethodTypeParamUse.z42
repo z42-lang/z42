@@ -161,6 +161,17 @@ public static class MethodTypeParamUse {
         if (e == null) { return false; }
         // ★ 五种**消费点**（其余节点只是递归容器）
         if (e is TypeofExpr)  { return MethodTypeParamUse._type((e as TypeofExpr).Type, ns, nc); }
+        // methodof(X.M(T))：参数类型列表里可以出现方法级型参（add-method-reference）。
+        // owner 名是限定名字符串、不是 TypeExpr，故只走参数列表。
+        if (e is MethodOfExpr) {
+            MethodOfExpr mo = e as MethodOfExpr;
+            int mi = 0;
+            while (mi < mo.ParamCount) {
+                if (MethodTypeParamUse._type(mo.ParamTypes[mi], ns, nc)) { return true; }
+                mi = mi + 1;
+            }
+            return false;
+        }
         if (e is DefaultExpr) { return MethodTypeParamUse._type((e as DefaultExpr).Target, ns, nc); }
         if (e is ArrayNewExpr) {
             ArrayNewExpr a = e as ArrayNewExpr;

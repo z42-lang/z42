@@ -47,6 +47,7 @@ mod type_query;
 mod invoke;
 mod accessors;
 mod module_load;
+mod methodof;
 
 pub use self::type_object::*;
 pub use self::fields::*;
@@ -59,6 +60,7 @@ pub use self::type_query::*;
 pub use self::invoke::*;
 pub use self::accessors::*;
 pub use self::module_load::*;
+pub use self::methodof::*;
 
 #[cfg(test)]
 #[path = "reflection_tests.rs"]

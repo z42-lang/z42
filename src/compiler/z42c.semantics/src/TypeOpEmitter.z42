@@ -80,6 +80,36 @@ public sealed class TypeOpEmitter {
         return dst;
     }
 
+    // methodof(...) → `__methodof(%qualifiedName)` builtin（add-method-reference）。
+    //
+    // **不新增 IR 指令、不 bump 格式**：照 `_emitBoxPrim` 的范式复用既有 Builtin opcode
+    // （ConstStr 进串池 + BuiltinInstr）。重载决议已在绑定期完成，这里只剩一个池索引 —— 体积
+    // 与一次普通 Call 等同，运行期零签名匹配痕迹。
+    //
+    // 名字 = `<声明类 FQN>.<RegKey>`，与 `EmitContext.ResolveSealedTarget` / IrGen 的
+    // `_q(_classIrShortName)+"."+md.RegKey` **逐字节同款** —— methodof 发的就是调用点会发的
+    // 那个名字，故「稳定性 = 普通调用的稳定性」。
+    //
+    // 🔴 用 **DeclOwnerFq（声明该方法的类）** 而非 receiver 类：TSIG 把继承方法展平进每个派生类的
+    // `Methods`，拿派生类拼名会指向一个从未发射的函数（`EmitContext._depHasFunction` 就是为这个
+    // 存在的）。绑定期已沿基链定位到真正的声明类，这里直接用。
+    internal TypedReg _emitMethodOf(BoundMethodOf e) {
+        string owner = e.DeclOwnerFq;
+        if (owner == "") {
+            // 兜底：绑定期没拿到声明类 FQ（理论上不该发生）→ 退回 receiver 类的 Fqn()。
+            owner = (e.OwnerCt != null) ? e.OwnerCt.Fqn() : this._ctx.QualifyClass(e.OwnerName);
+        }
+        string qualified = owner + "." + e.MethodKey;
+        int idx = this._ctx.Gen.Intern(qualified);
+        TypedReg nameReg = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(nameReg, idx));
+        TypedReg[] args = new TypedReg[1];
+        args[0] = nameReg;
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(dst, "__methodof", args, 1));
+        return dst;
+    }
+
     // x as T → as_cast（结果 ref）。目标类型名用 AST 原始名经 QualifyClass 解析（镜像 _emitIs）——
     // 不用 resolved 类型名：imported 接口/内建类 ResolveType 得 Unknown → "<unknown>" 会致目标失配
     // （跨包接口 `as` 恒 null）。含 Array/Object 内建根类归一（同 _emitIs）。

@@ -70,6 +70,238 @@ public sealed class TypeOpTyper {
             return bto;
     }
 
+    // methodof(Type.Member[(签名)]) → Std.Reflection.MethodInfo（add-method-reference）。
+    //
+    // **重载决议全部在这里收口**——落到 IR 时只剩一个已消歧的 qualified 名。这是本特性的
+    // 全部价值所在：零匹配与多匹配**都报错，绝不静默择一**。静默择一会把本特性要根治的
+    // 「函数名/签名改了，引用点悄悄绑到别处」原样搬回来。
+    //
+    // 匹配用 `OverloadResolver.TypeKey`（**派发口径**，键推导的 SoT）而非 `SurfaceTypeName`
+    // （那是 TSIG 导出口径）：两侧都过 TypeKey ⇒ 落在同一套字母表，且就是运行期真正用的键。
+    // 诊断展示反过来用 `SurfaceTypeName`（人读的表面拼写）。
+    internal BoundExpr _bindMethodOfExpr(MethodOfExpr mx, TypeEnv env) {
+            // 结果类型用 **FQ 名**解析：`Std.Reflection.MethodInfo` 无需 using、也无需声明依赖
+            // （标准库既定设计，实测通过）。短名 `MethodInfo` 会强迫用户写 using，与 typeof 不对称。
+            Z42Type resultT = env.ResolveType(new NamedType("Std.Reflection.MethodInfo", new TypeExpr[0], 0, mx.Span));
+            // 语法层已就 `methodof(Logger)`（缺 `.Member`）报过 E0462 —— 不再追加一条
+            // 「没有名为 `` 的方法」的噪声。一个错误一条诊断。
+            if (mx.Member == "") { return new BoundError("methodof malformed", new Z42ErrorType(), mx.Span); }
+            Z42Type ownerT = env.ResolveType(new NamedType(mx.OwnerName, new TypeExpr[0], 0, mx.OwnerSpan));
+            if (!(ownerT is Z42ClassType)) {
+                this._tc._diags.Error("E0443",
+                    "methodof: undefined type `" + mx.OwnerName + "`", mx.OwnerSpan);
+                return new BoundError("methodof owner unresolved", new Z42ErrorType(), mx.Span);
+            }
+            Z42ClassType ownerCt = ownerT as Z42ClassType;
+            this._tc._chkTypeRef(ownerT, env, mx.OwnerSpan);   // enforce-class-access：owner 类型引用
+
+            // ── 指不了的方法（v1 明确报错，不假装支持）──────────────────────────────
+            // 运算符与转换**根本没有名字**：源码里是 `operator +` / `implicit operator T`，
+            // `op_*` 是编译器造的内部名。这条检查必须**先于候选收集**——运算符压根不进
+            // `ct.Methods`（实测 `methodof(Vec.op_Addition)` 的 available 列表里没有它），
+            // 否则会先撞上「没有这个方法」，给出的诊断答非所问。
+            if (TypeOpTyper._startsWith(mx.Member, "op_")) {
+                this._tc._diags.Error("E0461",
+                    "methodof: cannot reference an operator or conversion (`" + mx.Member
+                    + "`) — operators have no source-level name, and `op_*` is a compiler-internal "
+                    + "spelling that is not part of the language. Wrap the operator in a named "
+                    + "method and reference that instead", mx.MemberSpan);
+                return new BoundError("methodof unreferenceable", new Z42ErrorType(), mx.Span);
+            }
+
+            // ── 候选收集：沿继承链，含 imported（TSIG 已把继承方法展平进各派生类 Methods）──
+            // 迭代 StrMap 前**必须按键排序**：hash 顺序非确定，而候选序决定诊断文案的列出顺序
+            // （common-pitfalls §1）。派生类先走 ⇒ override 的那份先入表，基类同 RegKey 不再重复收。
+            MethodSymbol[] cands = new MethodSymbol[8];
+            string[] candKeys = new string[8];
+            string[] candOwnerFq = new string[8];
+            int cc = 0;
+            Z42ClassType cur = ownerCt;
+            int hops = 0;
+            while (cur != null && hops < 32) {
+                string[] keys = cur.Methods.Keys();
+                TypeOpTyper._sortStr(keys);
+                int i = 0;
+                while (i < keys.Length) {
+                    MethodSymbol ms = cur.Methods.Get(keys[i]) as MethodSymbol;
+                    if (ms != null && ms.Name == mx.Member) {
+                        string rk = ms.RegKey;
+                        if (rk == "") { rk = keys[i]; }
+                        if (!TypeOpTyper._hasStr(candKeys, cc, rk)) {
+                            if (cc == cands.Length) {
+                                MethodSymbol[] nb = new MethodSymbol[cands.Length * 2];
+                                string[] kb = new string[cands.Length * 2];
+                                string[] ob = new string[cands.Length * 2];
+                                Array.Copy(cands, nb, cc); Array.Copy(candKeys, kb, cc); Array.Copy(candOwnerFq, ob, cc);
+                                cands = nb; candKeys = kb; candOwnerFq = ob;
+                            }
+                            cands[cc] = ms; candKeys[cc] = rk; candOwnerFq[cc] = cur.Fqn(); cc = cc + 1;
+                        }
+                    }
+                    i = i + 1;
+                }
+                if (!cur.HasBase) { break; }
+                cur = env.Symbols.GetClass(cur.BaseName);
+                hops = hops + 1;
+            }
+
+            if (cc == 0) {
+                this._tc._diags.Error("E0459",
+                    "methodof: type `" + ownerCt.Fqn() + "` has no method named `" + mx.Member + "`"
+                    + TypeOpTyper._availableNames(ownerCt, env), mx.MemberSpan);
+                return new BoundError("methodof target not found", new Z42ErrorType(), mx.Span);
+            }
+
+            // ── 签名消歧 ────────────────────────────────────────────────────────────
+            MethodSymbol chosen = null;
+            string chosenKey = "";
+            string chosenOwnerFq = "";
+            if (mx.HasParamList) {
+                Z42Type[] want = new Z42Type[mx.ParamCount];
+                int i = 0;
+                while (i < mx.ParamCount) { want[i] = env.ResolveType(mx.ParamTypes[i]); i = i + 1; }
+                int matched = 0;
+                int mi = 0;
+                while (mi < cc) {
+                    if (TypeOpTyper._sigMatches(cands[mi], want, mx.ParamCount)) {
+                        matched = matched + 1;
+                        if (chosen == null) { chosen = cands[mi]; chosenKey = candKeys[mi]; chosenOwnerFq = candOwnerFq[mi]; }
+                    }
+                    mi = mi + 1;
+                }
+                if (matched == 0) {
+                    this._tc._diags.Error("E0459",
+                        "methodof: no overload of `" + ownerCt.Fqn() + "." + mx.Member + "` takes ("
+                        + TypeOpTyper._typeListText(want, mx.ParamCount) + ")"
+                        + TypeOpTyper._overloadList(cands, cc), mx.MemberSpan);
+                    return new BoundError("methodof no matching overload", new Z42ErrorType(), mx.Span);
+                }
+                if (matched > 1) {
+                    // 泛型基类替换后同签名（Lippert 的第一类）会落到这里——参数类型列表也分不开。
+                    this._tc._diags.Error("E0460",
+                        "methodof: parameter type list ("
+                        + TypeOpTyper._typeListText(want, mx.ParamCount) + ") matches "
+                        + matched.ToString() + " overloads of `" + ownerCt.Fqn() + "." + mx.Member
+                        + "` — they became identical after generic base substitution, so no parameter "
+                        + "list can separate them" + TypeOpTyper._overloadList(cands, cc), mx.MemberSpan);
+                    return new BoundError("methodof ambiguous", new Z42ErrorType(), mx.Span);
+                }
+            } else {
+                if (cc > 1) {
+                    this._tc._diags.Error("E0460",
+                        "methodof: `" + ownerCt.Fqn() + "." + mx.Member + "` has " + cc.ToString()
+                        + " overloads — add a parameter type list to pick one, e.g. `methodof("
+                        + mx.OwnerName + "." + mx.Member + "("
+                        + TypeOpTyper._sigParamText(cands[0]) + "))`"
+                        + TypeOpTyper._overloadList(cands, cc), mx.MemberSpan);
+                    return new BoundError("methodof needs signature", new Z42ErrorType(), mx.Span);
+                }
+                chosen = cands[0]; chosenKey = candKeys[0]; chosenOwnerFq = candOwnerFq[0];
+            }
+
+            return new BoundMethodOf(mx.OwnerName, ownerCt, chosenOwnerFq, chosenKey, chosen, resultT, mx.Span);
+    }
+
+    // ── methodof 诊断/匹配用的小工具（纯叶子，无状态）────────────────────────────
+    // 形参签名是否与用户给的类型列表逐位相等（派发口径 TypeKey；见 _bindMethodOfExpr 抬头）。
+    private static bool _sigMatches(MethodSymbol ms, Z42Type[] want, int wantCount) {
+        if (ms.Signature == null) { return false; }
+        if (ms.Signature.ParamCount != wantCount) { return false; }
+        int i = 0;
+        while (i < wantCount) {
+            if (OverloadResolver.TypeKey(ms.Signature.ParamTypes[i]) != OverloadResolver.TypeKey(want[i])) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    // 诊断展示用（表面拼写，人读的那套；区别于匹配用的 TypeKey）。
+    private static string _typeListText(Z42Type[] ts, int n) {
+        string s = "";
+        int i = 0;
+        while (i < n) { if (i > 0) { s = s + ", "; } s = s + TypeNameResolver.SurfaceTypeName(ts[i]); i = i + 1; }
+        return s;
+    }
+
+    private static string _sigParamText(MethodSymbol ms) {
+        if (ms.Signature == null) { return ""; }
+        return TypeOpTyper._typeListText(ms.Signature.ParamTypes, ms.Signature.ParamCount);
+    }
+
+    // 逃生口：把该名字下**全部**候选连签名列出来，用户照着补参数类型列表即可。
+    // Swift 的 `@derivative(of:)` 没留这一步，用户撞上 ambiguous 只能干瞪眼。
+    private static string _overloadList(MethodSymbol[] cands, int cc) {
+        string s = "\n  candidates:";
+        int i = 0;
+        while (i < cc) {
+            s = s + "\n    " + cands[i].Name + "(" + TypeOpTyper._sigParamText(cands[i]) + ")";
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // 目标方法压根不存在时，列出该类型上**可用的方法名**（去重、排序、最多 12 个）。
+    private static string _availableNames(Z42ClassType ct, TypeEnv env) {
+        string[] names = new string[32];
+        int n = 0;
+        Z42ClassType cur = ct;
+        int hops = 0;
+        while (cur != null && hops < 32) {
+            string[] keys = cur.Methods.Keys();
+            TypeOpTyper._sortStr(keys);
+            int i = 0;
+            while (i < keys.Length) {
+                MethodSymbol ms = cur.Methods.Get(keys[i]) as MethodSymbol;
+                if (ms != null && !TypeOpTyper._startsWith(ms.Name, "op_") && !TypeOpTyper._hasStr(names, n, ms.Name)) {
+                    if (n == names.Length) {
+                        string[] b = new string[names.Length * 2];
+                        Array.Copy(names, b, n);
+                        names = b;
+                    }
+                    names[n] = ms.Name; n = n + 1;
+                }
+                i = i + 1;
+            }
+            if (!cur.HasBase) { break; }
+            cur = env.Symbols.GetClass(cur.BaseName);
+            hops = hops + 1;
+        }
+        if (n == 0) { return ""; }
+        string[] shown = new string[n];
+        Array.Copy(names, shown, n);
+        TypeOpTyper._sortStr(shown);
+        string s = "\n  available methods:";
+        int j = 0;
+        while (j < n && j < 12) { s = s + " " + shown[j]; j = j + 1; }
+        if (n > 12) { s = s + " … (" + n.ToString() + " total)"; }
+        return s;
+    }
+
+    private static bool _hasStr(string[] a, int n, string v) {
+        int i = 0;
+        while (i < n) { if (a[i] == v) { return true; } i = i + 1; }
+        return false;
+    }
+
+    private static bool _startsWith(string s, string pre) {
+        if (s.Length < pre.Length) { return false; }
+        int i = 0;
+        while (i < pre.Length) { if (s.CharAt(i) != pre.CharAt(i)) { return false; } i = i + 1; }
+        return true;
+    }
+
+    // 插入排序（候选量极小；诊断列出顺序必须确定，见 common-pitfalls §1）。
+    private static void _sortStr(string[] a) {
+        int i = 1;
+        while (i < a.Length) {
+            string k = a[i];
+            int j = i - 1;
+            while (j >= 0 && a[j].CompareTo(k) > 0) { a[j + 1] = a[j]; j = j - 1; }   // CompareTo 是 Ordinal
+            a[j + 1] = k;
+            i = i + 1;
+        }
+    }
+
     internal BoundExpr _bindIsExpr(IsExpr ix, TypeEnv env) {
             BoundExpr operand = this._et._bindExpr(ix.E, env);
             // 用 AST 原始类型名（镜像 C# bin.Right ident → QualifyClassName），不用 resolved 类型：
