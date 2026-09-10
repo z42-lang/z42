@@ -215,20 +215,22 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
 }
 
 // add-ci-generational-coverage (2026-09-10): compile one real package under
-// `Z42_GC_MODE=generational`, with a nursery small enough to force ~26 minor collections.
+// `Z42_GC_MODE=generational`, with a nursery small enough to force hundreds of collections.
 //
 // **Why a compiler build and not the golden suite**: the goldens were tried first and are
 // *vacuous* here — each case is a short-lived program that never collects. Reintroducing
 // #539's defect left the whole golden suite green; the same defect crashes this build.
 //
-// **Why 16 MB**: the nursery is what sets how many minors happen, and the defects this
-// guards against only appear once objects have survived several of them. At the 32 MB
-// default the run does 10 minors and #539's defect stays hidden; at 16 MB it does 26 and
-// the build dies on `ArrayGet: expected array, got Null`. Counter-proved both ways.
+// **Why 1 MB** (fix-callee-entry-safepoint-drops-args, 2026-09-10): the nursery is what sets
+// how many collections happen, and every defect this guards against needs objects to survive
+// several of them. The number of collections over one `z42c.semantics` build:
 //
-// ⚠️ Do **not** lower this to 1 MB without reading the note in
-// `docs/book/src/runtime/gc-tuning-and-safepoint.md`: there is a *known-open* defect that
-// reproduces there (~96 minors) and would make this stage red on a clean tree.
+//   32M (default) 26 collections — misses #539 *and* the callee-entry safepoint defect
+//   16M           26 collections — catches #539; misses the callee-entry one (needs ~128)
+//   1M           365 collections — catches both, +6.6 s (6.8 → 13.4 s)
+//
+// 16 MB was the previous setting, chosen when 1 MB was still red on a clean tree — that was
+// the callee-entry safepoint defect, now fixed, and this stage is what keeps it fixed.
 int _testGenerationalWorkload() {
     string root = _root();
     string vm = _builtVm(root, "release");
@@ -236,13 +238,13 @@ int _testGenerationalWorkload() {
     string flat = _assembleAllLibs(root, "release");
     string toml = root + "/src/compiler/z42c.semantics/z42c.semantics.z42.toml";
     Console.WriteLine("  ▶ z42c.semantics --release --no-incremental "
-        + "(Z42_GC_MODE=generational, nursery 16M)");
+        + "(Z42_GC_MODE=generational, nursery 1M)");
     ProcessResult r = new Process(vm)
         .Arg(driver).Arg("--")
         .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
         .Env("Z42_LIBS", flat)
         .Env("Z42_GC_MODE", "generational")
-        .Env("Z42_GC_NURSERY_BYTES", "16M")
+        .Env("Z42_GC_NURSERY_BYTES", "1M")
         .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
     if (r.ExitCode != 0) {
         Console.WriteLine("  x generational build failed (exit " + r.ExitCode.ToString() + ")");

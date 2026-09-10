@@ -53,22 +53,6 @@ pub(crate) use frame::*;
 pub(crate) use exec_support::*;
 
 fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut frame: Frame) -> Result<ExecOutcome> {
-    // perf-lazy-resolve-tokens (2026-08-18): populate this function's per-site
-    // dispatch caches on first execution. `resolve_module` (Vm::run) only walks
-    // the *entry* module; lazily-loaded packages (all of z42c.semantics /
-    // z42c.syntax during a self-compile) never pass through it, so without this
-    // their VCall PIC / FieldIC / builtin-id / static-id / call-token caches
-    // stay dead and every dispatch falls back to string hashing. One relaxed
-    // atomic load on the hot path (already re-read by the instruction loop);
-    // the resolve body runs once per function (OnceLock-gated). `module` is the
-    // entry module (invariant threaded from Vm::run), matching the runtime
-    // dispatch module so `method_tokens` indices stay valid.
-    if func.resolved.get().is_none() {
-        // defer-class-initialization (T3): `resolve_function_tokens` 内部会在发布
-        // `resolved` 之前排空「静态字段所属类」队列并跑完它们的初始化器，
-        // 所以这里不需要再排空一次（放在那里才对并发安全，见 resolver.rs 的注释）。
-        crate::metadata::resolver::resolve_function_tokens(func, module, ctx);
-    }
     // Spec impl-ref-out-in-runtime (Decision R2 architecture E):
     // 入口 copy-in：扫描 params，对每个持 Value::Ref 的 reg：
     //   1. 通过 RefKind 解引用得到底层值
@@ -126,6 +110,42 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         &frame.env_arena as *const Vec<Vec<Value>>,
     ));
     let _frame_guard = FrameGuard { ctx };
+
+    // add-gc-safepoint (2026-05-20): every newly-entered z42 function immediately respects a
+    // pending GC request — a worker thread spawned mid-collect parks here before touching any
+    // roots.
+    //
+    // **fix-callee-entry-safepoint-drops-args (2026-09-10)**: this check used to sit at the
+    // four `exec_function*` entry points, *before* the frame existed. The callee's arguments
+    // live only in a caller-side temporary there — for `new T(..)` that temporary holds the
+    // sole reference to the just-allocated receiver — so a collection at that point swept
+    // values the mutator was still using. The frame is the thing that makes the callee's
+    // registers a GC root, so the safepoint has to come after `push_frame`, never before.
+    //
+    // Nothing between `Frame::new` and this line can collect: the ref/out copy-in above only
+    // reads, and `resolve_function_tokens` (which *can* run z42 static initialisers, and
+    // therefore reach a safepoint) is deliberately below.
+    crate::gc::safepoint::check_safepoint(ctx);
+
+    // perf-lazy-resolve-tokens (2026-08-18): populate this function's per-site dispatch caches
+    // on first execution. `resolve_module` (Vm::run) only walks the *entry* module; lazily
+    // loaded packages (all of z42c.semantics / z42c.syntax during a self-compile) never pass
+    // through it, so without this their VCall PIC / FieldIC / builtin-id / static-id /
+    // call-token caches stay dead and every dispatch falls back to string hashing. One relaxed
+    // atomic load on the hot path (already re-read by the instruction loop); the resolve body
+    // runs once per function (OnceLock-gated). `module` is the entry module (invariant threaded
+    // from `Vm::run`), matching the runtime dispatch module so `method_tokens` indices stay
+    // valid.
+    //
+    // Runs *after* the frame is enrolled (fix-callee-entry-safepoint-drops-args): it drains the
+    // static-initialiser queue, which executes z42 code and so can reach a safepoint — with the
+    // frame already a root, this callee's arguments survive that collection.
+    if func.resolved.get().is_none() {
+        // defer-class-initialization (T3): `resolve_function_tokens` 内部会在发布
+        // `resolved` 之前排空「静态字段所属类」队列并跑完它们的初始化器，
+        // 所以这里不需要再排空一次（放在那里才对并发安全，见 resolver.rs 的注释）。
+        crate::metadata::resolver::resolve_function_tokens(func, module, ctx);
+    }
 
     // Spec C2: scope `CURRENT_VM` to this z42 frame so `z42_*` extern
     // entry points fired by native callbacks can locate the active VM.
