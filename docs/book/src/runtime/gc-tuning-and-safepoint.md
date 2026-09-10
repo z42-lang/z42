@@ -1,10 +1,13 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 对齐：2026-09-07（change `fix-gc-budget-not-enforced` 修增长闸门基线 + 补退避策略一节；
-> 原 change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议）。
+> 对齐：2026-09-10（change `fix-callee-entry-safepoint-drops-args` 补「safepoint 只能放在
+> 活值已经是根的位置」一节 + CI 分代 stage 收紧到 1M nursery；`fix-gc-budget-not-enforced`
+> 修增长闸门基线 + 退避策略一节；原 change `add-gc-tuning-config`，落地 runtime_review
+> §M3 GC 调参 + §M6 safepoint 协议）。
 > 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/auto_collect.rs`（自动回收策略）、
 > `gc/arc_heap/alloc.rs`（压力事件），
-> `gc/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`MagrGC` trait 协议文档）。
+> `gc/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`MagrGC` trait 协议文档）、
+> `interp/exec_support.rs` + `interp/mod.rs`（被调函数入口 safepoint 的插桩点）。
 
 ## 为什么
 
@@ -112,6 +115,51 @@ allocator 判定「该回收了」后**不在分配线程就地回收**（那会
 safepoint 本身的相位状态机（`Idle → Requested → Marking`，concurrent 模式多一个 `ConcurrentMarking`）
 见 `gc/safepoint.rs` 顶注 + `GcPhase` 文档。
 
+### ⚠️ safepoint 只能放在「活值已经是根」的位置
+
+三态协议保证的是**回收不在分配线程就地发生**，它**不**保证回收发生时每个活值都被根覆盖。
+后者是插桩点自己的责任，而且是一条独立的、更容易被违反的不变量：
+
+> **一个 z42 值在跨越 safepoint 时，必须至少被一个 GC 根引用。**
+> 只被 Rust 局部（`Vec<Value>` 临时、`&[Value]` 形参、返回值在途）持有的值**不是根**。
+
+`fix-callee-entry-safepoint-drops-args`（2026-09-10）就栽在这条上。被调函数入口的
+`check_safepoint` 原本在四个 `exec_function*` 入口里，**都在帧建立之前**：
+
+```text
+exec_function(ctx, module, func, args)
+    check_safepoint(ctx)          ← 回收发生在这里
+    Frame::new(args, …)           ← 参数此刻才被 clone 进 callee 寄存器
+    exec_function_body(…)
+        push_frame(&frame.regs)   ← 寄存器此刻才成为 GC 根
+```
+
+`args` 是**调用方的临时切片**。对 `new T(..)` 而言，那个临时里的 `args[0]` 就是刚分配出来的
+接收者——它还没被写进任何寄存器、任何字段，**堆里没有第二条引用**。于是那次回收把它扫掉，
+构造函数随后往一个已经死掉的对象上写字段，或者把一个已经死掉的实参写进字段：
+
+```text
+z42-gc-probe: STORING A DEAD VALUE at FieldSet: owner=Object[Z42.Syntax.Token]
+              slot=2 value=Object[Z42.Core.Span]
+  at Z42.Syntax.Token.Token(Token,int,string,Span)
+  at Z42.Syntax.Lexer._emit(Lexer,int,string)
+```
+
+对外表现是编译器在几百次回收之后崩在一个悬垂引用上（`FieldGet … got Null` /
+`__str_hash_code: arg 0 expected string, got Null`）——**和 #537 / #539 一模一样的症状，
+但根因完全不在分代那一侧**：STW 模式压小预算（`Z42_GC_MAX_BYTES=8M`）同样复现。
+
+修法：把这一次 check 移进 `exec_function_body`，**紧接在 `push_frame` 之后**。同时
+`resolve_function_tokens` 也挪到了 push 之后——它会排空静态初始化器队列、执行 z42 代码，
+因此本身能到达一个 safepoint。`Frame::new` 到 push 之间就只剩 `ref`/`out` 的 copy-in，
+它只读不分配，够不到 safepoint。
+
+🔑 **两条经验**：
+1. **判「谁是根」要看代码，不要看直觉。** 参数「显然活着」——它在调用方的表达式里刚算出来。
+   但调用方的**寄存器**才是根，临时 `Vec` 不是；`new` 的接收者甚至连调用方寄存器都还没进。
+2. **这不是分代缺陷，是采集频率把它照出来了。** 32M 默认一次构建才 26 次回收，撞不上这个窗口；
+   1M nursery 是 365 次，第 128 次撞上。**「只在小 nursery 下复现」不等于「是分代的锅」。**
+
 ## 分代 minor 的标记不变量：**minor 不给老对象留标记**
 
 `mark_phase_minor` 的根 = 固定根 + external scanner + **脏卡里的每一条**。脏卡的根天然是
@@ -149,7 +197,7 @@ minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位
 （`mark_backing` / `shade_var_newborn` 置位），少这一行就意味着一次中途放弃或换模式的回收
 留下的位会让下一次 `mark_phase` 跳过某个闭包的 `env`。
 
-## ⚠️ 分代模式的 CI 覆盖，与一个 known-open 缺陷
+## ⚠️ 分代模式的 CI 覆盖
 
 `Z42_GC_MODE=generational` **从来没有被 CI 跑过**（`grep Z42_GC_MODE` 全仓只有一个
 concurrent 的 smoke）——这是 #537 / #539 **三个「丢对象」缺陷能活几个月**的直接原因。
@@ -159,30 +207,23 @@ concurrent 的 smoke）——这是 #537 / #539 **三个「丢对象」缺陷能
 把 #537 的缺陷放回去，整套 golden 依然全绿（每个 golden 都是短命小程序，一次 minor 都不做）。
 三个缺陷当年都是以「编 z42c.semantics 编到一半崩在悬垂引用上」的形式暴露的，所以就跑那件事。
 
-**为什么 nursery 定 16M**：nursery 决定 minor 跑多少次，而这些缺陷要**对象熬过好几次
-minor** 才显形。
+**为什么 nursery 定 1M**：nursery 决定跑多少次回收，而这些缺陷都要**对象熬过好几次回收**
+才显形。一次 `z42c.semantics` 构建：
 
-| nursery | minor 次数 | 放回 #539 的缺陷 | 干净树 |
-|---|---|---|---|
-| 32M（默认） | 10 | 绿（**抓不到**） | 绿 |
-| **16M** | **26** | **红** | **绿** ← 选它 |
-| 1M | 96+ | 红 | **红**（见下） |
+| nursery | 回收次数 | 放回 #539 的缺陷 | 放回 callee-entry safepoint 缺陷 | 干净树 | 墙钟 |
+|---|---|---|---|---|---|
+| 32M（默认） | 26 | 绿（**抓不到**） | 绿（**抓不到**） | 绿 | 6.8 s |
+| 16M | 26 | 红 | 绿（**抓不到**，要 ~128 次） | 绿 | 6.8 s |
+| **1M** | **365** | **红** | **红**（第 128 次） | **绿** ← 选它 | 13.4 s |
 
-🔴 **known-open：1M nursery 下仍会丢对象。**
+16M 是上一版的取值，定在那里是因为当时 1M 在干净树上就是红的 —— 那正是
+`fix-callee-entry-safepoint-drops-args`（见上「safepoint 只能放在活值已经是根的位置」），
+已修；这个 stage 就是防它回归的那道门。多花的 6.6 s 换 14× 的回收次数。
 
-```bash
-env Z42_GC_MODE=generational Z42_GC_NURSERY_BYTES=1M \
-  artifacts/build/runtime/release/z42vm artifacts/.z42/programs/z42c/z42c.driver.zpkg \
-  -- build src/compiler/z42c.semantics/z42c.semantics.z42.toml --release --no-incremental
-# → 96 次 minor 之后：__str_hash_code: arg 0 expected string, got Null   （3/3 必现）
-```
-
-**早于 #552 / #553**，2M 及以上全绿。探针形状（sweep 之后按 GC 自己的 `trace_children`
-走全部活对象、检查孩子是否已死）：**老数组、卡是脏的、chunk 没被 TLAB 借出，孩子却被扫了**
-—— 补完三处漏掉的数组写屏障之后症状不变，**所以不是漏发屏障，是标记阶段走到它之后出的问题**。
-下一步该怎么查见 `docs/spec/archive/2026-09-10-add-ci-generational-coverage/design.md`。
-
-**这就是翻 `Z42_GC_MODE` 默认的前置。**
+⚠️ **那个缺陷曾被误记为「1M nursery 下分代仍会丢对象」。它跟分代无关** ——
+STW 模式压到 `Z42_GC_MAX_BYTES=8M`（199 次回收）同样丢对象。定位它的关键一步是一个
+A/B：让 minor 的标记**穿透老对象**（不靠卡表），结果与对照组**逐字节相同** ——
+卡表是清白的，问题在根集合。
 
 ### 顺带修掉的三处数组写屏障
 
