@@ -21,12 +21,29 @@ public sealed class ClassDescBuilder {
         return "unknown";
     }
 
+    // unify-type-identity-fqn：类名成分一律**全限定**。
+    //
+    // 修前这里有两条毛病：① 含点的限定名直接返回字面量 "unknown"（复刻已删除的 C# 编译器的
+    // `MemberType → _`）；② 其余返回源码写的**短名**。短名不是跨 ns 唯一键，消费端
+    // （`ImportedSymbolLoader._resolve` / 运行期 `resolve_dotless_simple`）只能靠短名竞争或
+    // 强制加载全部包去猜。
+    //
+    // ⚠️ **只修 ① 是不够的**：那样 `Std.Type x` 写成 FQN、`using Std; Type x` 写成短名，
+    // 同一个类因源码拼写不同产生两种持久化形式 —— 这本身就是设计缺陷。所以走解析器、
+    // 对**所有**用户声明类型取 `Fqn()`，与源码怎么拼无关。
+    //
+    // 保持不变：prim 别名的源拼写（`byte[]` 非 `u8[]`，G18g）由调用方 `_typeFieldName` 的
+    // `_isAliasPrim` 前置守卫拦住，不进本函数的解析路径；基元本身 PrimCode>=0 也不取 Fqn。
     private string _typeSourceName(NamedType nt) {
         if (nt.ArgCount == 0) {
-            if (this._hasDot(nt.Name)) { return "unknown"; }
+            string fq = this._fqnOf(nt);
+            if (fq != "") { return fq; }
+            if (this._hasDot(nt.Name)) { return "unknown"; }   // 真解析不出来的限定名 → 哨兵（消费端还原成 Z42UnknownType）
             return nt.Name;
         }
-        string s = nt.Name + "<";
+        // 构造泛型：基名同样 FQ 化（`List<int>` → `Std.List<int>`）；实参递归套用同一文法。
+        string baseFq = this._fqnOf(nt);
+        string s = (baseFq != "" ? baseFq : nt.Name) + "<";
         int i = 0;
         while (i < nt.ArgCount) {
             if (i > 0) { s = s + ", "; }
@@ -38,6 +55,33 @@ public sealed class ClassDescBuilder {
             i = i + 1;
         }
         return s + ">";
+    }
+
+    // 解析 `nt` 并取其**全限定名**；不适用时返回 ""（调用方回落原有拼写）。
+    // 只对「用户声明的类」FQ 化：基元（PrimCode>=0）无 ns 且 SIGS/TYPE 沿用关键字拼写；
+    // 全局 ns 的类 Fqn() 本就等于裸名，取不取一样。型参 / 接口 / enum 由后续 commit 覆盖。
+    private string _fqnOf(NamedType nt) {
+        // unify-type-identity-fqn：**歧义则不写 FQN**。若该裸名在本 CU 可见集内由 ≥2 个 ns 声明，
+        // 解析结果只是 Classes first/last-wins 撞出来的赢家 —— 把它写成 FQN 就是「自信的错答案」。
+        // 退回短名 = 与本 change 之前一致的诚实降级（运行期 resolve_dotless_simple 见歧义会给
+        // 无句柄合成类型，不乱绑）。判据见 SymbolTable.IsBareNameAmbiguous。
+        if (this._g._symbols.IsBareNameAmbiguous(nt.Name)) { return ""; }
+        Z42Type rt = this._g._symbols.ResolveType(nt);
+        if (rt is Z42ClassType) {
+            Z42ClassType ct = rt as Z42ClassType;
+            if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
+        }
+        if (rt is Z42InterfaceType) {
+            Z42InterfaceType it = rt as Z42InterfaceType;
+            if (it.Namespace != "") { return it.Fqn(); }
+        }
+        // 构造泛型（`List<int>` → Z42InstantiatedType）：取其定义类的 FQN 作基名；
+        // 实参由调用方递归走同一文法，故此处只负责基名。
+        if (rt is Z42InstantiatedType) {
+            Z42ClassType dct = (rt as Z42InstantiatedType).Def;
+            if (dct != null && dct.PrimCode() < 0 && dct.Namespace != "") { return dct.Fqn(); }
+        }
+        return "";
     }
 
     private bool _isAliasPrim(string n) {

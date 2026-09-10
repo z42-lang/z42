@@ -1,0 +1,25 @@
+namespace App;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+class Both {
+    public Alpha.Widget fromAlpha;
+    public Beta.Widget  fromBeta;
+}
+
+void dump(Type t) {
+    FieldInfo[] fs = t.GetFields();
+    int i = 0;
+    while (i < fs.Length) {
+        Type ft = fs[i].FieldType;
+        Console.WriteLine(t.__name + "." + fs[i].Name + " -> " + (ft == null ? "<null>" : ft.__fullName));
+        i = i + 1;
+    }
+}
+
+void Main() {
+    dump(typeof(Both));                    // 限定拼写
+    dump(typeof(Alpha.HolderA));           // 非限定拼写，期望 Alpha.Widget
+    dump(typeof(Beta.HolderB));            // 非限定拼写，期望 Beta.Widget
+}

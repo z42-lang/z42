@@ -1,0 +1,41 @@
+== Std.Reflection.FieldInfo
+  Name : name=String full=Std.String
+  FieldType : name=Type full=Std.Type
+  IsStatic : name=Boolean full=Std.Boolean
+  IsPublic : name=Boolean full=Std.Boolean
+  IsPrivate : name=Boolean full=Std.Boolean
+  __qualified : name=String full=Std.String
+  __attrCache : name=Attribute[] full=Std.Attribute[]
+== Std.Reflection.MethodInfo
+  Name : name=String full=Std.String
+  IsStatic : name=Boolean full=Std.Boolean
+  __qualified : name=String full=Std.String
+  __parameters : name=ParameterInfo[] full=Std.Reflection.ParameterInfo[]
+  ReturnType : name=Type full=Std.Type
+  IsVirtual : name=Boolean full=Std.Boolean
+  IsAbstract : name=Boolean full=Std.Boolean
+  IsSealed : name=Boolean full=Std.Boolean
+  IsPublic : name=Boolean full=Std.Boolean
+  IsPrivate : name=Boolean full=Std.Boolean
+  __attrCache : name=Attribute[] full=Std.Attribute[]
+  IsGenericMethod : name=Boolean full=Std.Boolean
+  IsGenericMethodDefinition : name=Boolean full=Std.Boolean
+  __typeParamNames : name=String[] full=Std.String[]
+  __typeArgs : name=Type[] full=Std.Type[]
+== Std.Reflection.PropertyInfo
+  Name : name=String full=Std.String
+  PropertyType : name=Type full=Std.Type
+  CanRead : name=Boolean full=Std.Boolean
+  CanWrite : name=Boolean full=Std.Boolean
+  __getterQualified : name=String full=Std.String
+  __setterQualified : name=String full=Std.String
+  __attrCache : name=Attribute[] full=Std.Attribute[]
+== Std.Reflection.ParameterInfo
+  Name : name=String full=Std.String
+  ParameterType : name=Type full=Std.Type
+  Position : name=Int32 full=Std.Int32
+  IsOptional : name=Boolean full=Std.Boolean
+  IsParams : name=Boolean full=Std.Boolean
+  DefaultValue : name=object full=object
+  __qualified : name=String full=Std.String
+  __attrCache : name=Attribute[] full=Std.Attribute[]

@@ -107,7 +107,10 @@ public sealed class TypeChecker {
     //
     // 🔴 全局 ns（`""`）必须当作可见：`_isVisibleNs("")` 恒 false（它服务的是 ns **前缀**匹配，
     // 空前缀无意义），直接复用会漏掉「一份在全局 ns、一份在 using 进来的 ns」这种真歧义。
+    // ⚠️ 判据本身已上移到 `SymbolTable.IsBareNameAmbiguous`（发射端也要用同一口径，见
+    // unify-type-identity-fqn）。此处只在判定为歧义后挑两个 ns 拼消息 —— **别把判据抄回来**。
     public void ChkAmbiguousBareName(SymbolTable symbols, string name, Span sp) {
+        if (!symbols.IsBareNameAmbiguous(name)) { return; }
         string[] nss = symbols.ClassNsOf(name);
         if (nss.Length < 2) { return; }
         int visible = 0;
@@ -407,7 +410,7 @@ public sealed class TypeChecker {
     //     循环前一次性 hoist 到共享 symbols.ClassConstraints，并行段只读 Check、不重复 Resolve。单文件 /
     //     dump / 测试走 2-arg 版（true），行为不变。
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols, bool resolveConstraints) {
-        SymbolTable view = symbols.WithAliases(SymbolTable.BuildAliases(cu));   // 本 CU 文件级别名（per-file 隔离）
+        SymbolTable view = symbols.WithCu(cu);   // 本 CU 文件级别名（per-file 隔离）
         var model = new SemanticModel(view);
         this._curCu = cu;   // add-deprecated-directive：use-site 弃用告警的 #suppress 源
         // 建本 CU 的 #suppress 区间集（cu.SuppressRegions 是 PR3c 既有字段）。语义内构造 → F2 安全。

@@ -1,0 +1,6 @@
+Both.fromAlpha -> Demo.FqnAlpha.Widget
+Both.fromBeta -> Demo.FqnBeta.Widget
+HolderA.w -> Demo.FqnAlpha.Widget
+HolderA.m -> Demo.FqnAlpha.IMark
+HolderA.s -> Demo.FqnAlpha.Shade
+HolderB.w -> Demo.FqnBeta.Widget

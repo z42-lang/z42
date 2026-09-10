@@ -1,0 +1,10 @@
+[project]
+name    = "demo.fqnapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.FqnApp.Main"
+pack    = true
+
+[dependencies]
+"demo.fqnalpha" = "0.1.0"
+"demo.fqnbeta"  = "0.1.0"

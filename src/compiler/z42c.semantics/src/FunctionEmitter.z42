@@ -217,12 +217,51 @@ public sealed class FunctionEmitter {
         if (te is NamedType) {
             NamedType nt = te as NamedType;
             if (nt.ArgCount == 0 && this._isAliasPrim(nt.Name)) { return nt.Name; }
-            // 限定名（含点，如 "Std.Attribute"）→ SIGS 输出 "unknown"（镜像 C# MemberType → _ → "unknown"）。
-            // TypeChecker 内部用 ResolveTypeP 裸名回退做 IR 类型推断，但 SIGS 串不走回退路径。
-            if (nt.ArgCount == 0 && nt.Name.IndexOf(".") >= 0) { return "unknown"; }
+            // unify-type-identity-fqn：**删除了**「含点的限定名 → 字面量 "unknown"」这条短路。
+            // 它镜像的是 C# bootstrap 编译器的 `MemberType → _ → "unknown"`，而那个编译器已于
+            // 2026-06-26 移除 —— 等于在复刻一个不存在的编译器的缺陷。`ResolveTypeP` 本就能解析
+            // 限定名（FQN 精确 → 嵌套 `+` 键 → 末段回退，SymbolTable.z42:335-400），只是从没被调到。
+            // 后果：`Std.Type` / `Std.Attribute[]` 这类声明在反射面读回 "unknown"（实测 z42.core
+            // 四个反射类 37 个字段里 9 个如此），且类型检查被 Unknown 的 Absorb 守卫整片吞掉。
         }
         Z42Type resolved = this._symbols.ResolveTypeP(te, tp, tpc);
-        if (resolved is Z42UnknownType) { return "unknown"; }   // <unknown> → unknown（镜像 C# SIGS 拼写）
+        if (resolved is Z42UnknownType) { return "unknown"; }   // <unknown> → unknown（真·哨兵：确实解析不出来）
+        // unify-type-identity-fqn：歧义裸名不写 FQN（理由同 ClassDescBuilder._fqnOf 的守卫）。
+        // 走下方 SurfaceName 回落到既有短名拼写。
+        bool ambiguous = (te is NamedType) && this._symbols.IsBareNameAmbiguous((te as NamedType).Name);
+        if (!ambiguous) {
+            // unify-type-identity-fqn：用户声明的类 → **全限定名**。短名不是跨命名空间的唯一键
+            // （`A.Foo` 与 `B.Foo` 写进去都是 `Foo`），而消费端 `ImportedSymbolLoader._resolve` 按短名
+            // 查表 ⇒ 谁赢短名竞争就绑谁 = 静默错绑。运行期反过来**本就偏好 FQN**
+            // （`make_type_from_name` 先 `try_lookup_type`，仅在名字不含点时才退到防歧义的
+            // `resolve_dotless_simple` + `force_load_all_packages`）⇒ 给 FQN 直接命中，运行期零改动。
+            // 基元不参与（无 ns、本就无歧义，且 SIGS 对 byte/short… 刻意保源拼写 G18g）：用 PrimCode
+            // 判非基元、Namespace 非空判用户声明，两个条件由构造保证不误伤。
+            if (resolved is Z42ClassType) {
+                Z42ClassType rct = resolved as Z42ClassType;
+                if (rct.PrimCode() < 0 && rct.Namespace != "") { return rct.Fqn(); }
+            }
+            if (resolved is Z42InterfaceType) {
+                Z42InterfaceType rit = resolved as Z42InterfaceType;
+                if (rit.Namespace != "") { return rit.Fqn(); }
+            }
+            // 构造泛型：基名 FQ 化，实参递归套用同一文法（`List<int>` → `Std.List<int>`）。
+            // `Z42InstantiatedType.Name()` 是用 `Def.Name()`（短名）拼的，直接用会漏掉基名的 ns。
+            if (resolved is Z42InstantiatedType) {
+                Z42InstantiatedType rin = resolved as Z42InstantiatedType;
+                Z42ClassType rdef = rin.Def;
+                if (rdef != null && rdef.PrimCode() < 0 && rdef.Namespace != "") {
+                    string acc = rdef.Fqn() + "<";
+                    int ai = 0;
+                    while (ai < rin.ArgCount) {
+                        if (ai > 0) { acc = acc + ", "; }
+                        acc = acc + this._sigArgTypeName(rin.TypeArgs[ai]);
+                        ai = ai + 1;
+                    }
+                    return acc + ">";
+                }
+            }
+        }
         // unify-value-types Phase 1：翻转后内建 leaf（int/string/object…）ResolveTypeP→Z42ClassType(wrapper)，
         // Name()="Int32"/"String"/"Object"；SIGS 须回 baseline keyword 拼写（"int"/"string"/"object"），否则
         // SIGS 泄漏 wrapper 名（`int[]`→`Int32[]`）→ 重建 stdlib 类型名不一致 → z42c 自编译误编。alias-prim
@@ -230,6 +269,43 @@ public sealed class FunctionEmitter {
         // object 逐字复刻 baseline Prim.Name()，非内建原样。
         return PrimModel.SurfaceName(resolved.Name());
     }
+    // unify-type-identity-fqn：**已解析类型** → 持久化文法串（泛型实参递归用；与 _sigTypeName 同口径，
+    // 但入参是 Z42Type 而非 TypeExpr——实参在 Z42InstantiatedType 里已是解析好的类型对象）。
+    private string _sigArgTypeName(Z42Type t) {
+        if (t == null) { return "unknown"; }
+        if (t is Z42UnknownType) { return "unknown"; }
+        if (t is Z42ArrayType) { return this._sigArgTypeName((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
+        }
+        if (t is Z42InterfaceType) {
+            Z42InterfaceType it = t as Z42InterfaceType;
+            if (it.Namespace != "") { return it.Fqn(); }
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it2 = t as Z42InstantiatedType;
+            Z42ClassType d = it2.Def;
+            string bn = (d != null && d.PrimCode() < 0 && d.Namespace != "") ? d.Fqn() : t.Name();
+            if (d != null && d.PrimCode() < 0 && d.Namespace != "") {
+                string acc = bn + "<";
+                int ai = 0;
+                while (ai < it2.ArgCount) {
+                    if (ai > 0) { acc = acc + ", "; }
+                    acc = acc + this._sigArgTypeName(it2.TypeArgs[ai]);
+                    ai = ai + 1;
+                }
+                return acc + ">";
+            }
+        }
+        // ⚠️ **不能**用 PrimModel.SurfaceName —— 那会把实参从 `Int32` 改写成 `int`，等于顺手统一了
+        // SIGS 与 TYPE 的实参拼写差异，违反本 change 的裁决 D2「只 FQ 化类名成分、不动实参拼写」。
+        // 原路径 `Z42InstantiatedType.Name()` 用的就是 `Name()`，此处逐字保持。
+        // （实测破坏：ext 导出签名 `Kv<String, Int32>[]` 变成 `Kv<string, int>[]` ⇒
+        //  generic_struct_array_cross_pkg 的 main 整个导入失效。）
+        return t.Name();
+    }
+
     private bool _isAliasPrim(string n) {
         return n == "byte" || n == "sbyte" || n == "short" || n == "ushort" || n == "uint" || n == "ulong";
     }

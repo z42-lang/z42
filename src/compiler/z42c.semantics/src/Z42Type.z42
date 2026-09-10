@@ -336,7 +336,16 @@ public class Z42InterfaceType : Z42Type {
     // add-associated-types PR-3：本接口声明的关联类型名（`type Item;` 的 Item），声明序。
     public string[] AssocTypeNames;
     public int      AssocTypeCount;
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; }
+    // unify-type-identity-fqn：接口的声明 ns（""=全局）。与 Z42ClassType.Namespace 对称——
+    // 此前接口**完全没有这个槽**，故跨 ns 同短名接口在持久化里无从区分。
+    // 种子 ABI：不进 ctor 签名，ctor 内给默认值 + 注册端构造后赋值。
+    public string Namespace;
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; this.Namespace = ""; }
+    // 全限定名（ns 为空 → 裸名，与 Z42ClassType.Fqn() 同口径）。接口无 arity-mangle，故直接用裸名。
+    public string Fqn() {
+        if (this.Namespace == "") { return this._name; }
+        return this.Namespace + "." + this._name;
+    }
 
     public void AddBase(string name) {
         if (this.BaseCount == this.BaseNames.Length) {

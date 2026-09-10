@@ -1,0 +1,38 @@
+// 跨包类型身份门（unify-type-identity-fqn）。
+//
+// 两个依赖包各声明一个短名同为 `Widget` 的类。短名不是跨命名空间的唯一键 —— 若持久化只写短名，
+// 消费端只能靠短名竞争猜，`HolderA.w` 与 `HolderB.w` 必然有一个绑错（实测修前两者都退化成同一个
+// 无句柄合成类型 `Widget`）。本门断言两者各自绑到**自己 ns 的那份**。
+//
+// 同时覆盖：接口 / enum 的 FQ 身份，以及基元**不**被 FQ 化（保关键字拼写）。
+namespace Demo.FqnApp;
+
+using Std;
+using Std.IO;
+using Std.Reflection;
+using Demo.FqnAlpha;
+using Demo.FqnBeta;
+
+// 限定引用**导入**类型 —— 走 `SymbolTable.ClassesByFqn` 的 FQN 精确分支。
+// 该视图此前只装**本地**类（`_mergeImports` 从不把导入类并进去）⇒ 这条路只能剥末段短名撞赢家，
+// 两个同短名 `Widget` 必有一个绑错。修它的前提是导入类有 Namespace —— 本 change 才补上。
+class Both {
+    public Demo.FqnAlpha.Widget fromAlpha;
+    public Demo.FqnBeta.Widget  fromBeta;
+}
+
+void dump(Type t) {
+    FieldInfo[] fs = t.GetFields();
+    int i = 0;
+    while (i < fs.Length) {
+        Type ft = fs[i].FieldType;
+        Console.WriteLine(t.__name + "." + fs[i].Name + " -> " + (ft == null ? "<null>" : ft.__fullName));
+        i = i + 1;
+    }
+}
+
+void Main() {
+    dump(typeof(Both));                      // 限定引用导入类型（跨包 FQN 精确解析）
+    dump(typeof(Demo.FqnAlpha.HolderA));     // 包内非限定引用（外围 ns 优先）
+    dump(typeof(Demo.FqnBeta.HolderB));
+}

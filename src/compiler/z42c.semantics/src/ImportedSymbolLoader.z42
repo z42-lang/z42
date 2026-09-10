@@ -22,6 +22,13 @@ public sealed class ImportedSymbols {
     public StrMap ClassNsAll;
     public StrMap FunctionNamespaces; // 自由函数名 → 原 ns（QualifyFreeFunc：跨包裸调按源 ns 限定；值存 StrBox）
     public StrMap Interfaces;       // 短名 → Z42InterfaceType（接口骨架；供 _passClassStubs 基表判别）
+    // unify-type-identity-fqn：**FQN 视图**（对称 SymbolTable.ClassesByFqn）。`Classes` / `Interfaces`
+    // 按短名键，同短名跨 ns 只活一份（first-wins）⇒ 无法承载 FQ 名的精确解析。发射端已改发 FQN，
+    // 消费端必须有对应的 FQ 查找，否则 `Std.Type` 在短名表里恒 miss、落到末尾 Builtin 兜底成
+    // 「名叫 Std.Type 的垃圾类」。键 = `<ns>.<clKey>`（clKey 已含条件 arity-mangle）。
+    public StrMap ClassesByFqn;
+    public StrMap InterfacesByFqn;
+    public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
     public StrMap EnumConsts;       // "EnumType.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts）
     // add-associated-types PR-1：导入类的 where 约束（键与 Classes 同一 clKey，即条件 arity-mangle，
@@ -35,6 +42,9 @@ public sealed class ImportedSymbols {
         this.ClassNsAll = new StrMap();
         this.FunctionNamespaces = new StrMap();
         this.Interfaces = new StrMap();
+        this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
+        this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
+        this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
         this.EnumTypeNames = new StrMap();
         this.EnumConsts = new StrMap();
     }
@@ -131,7 +141,13 @@ public static class ImportedSymbolLoader {
                     // 守卫之内只有赢家能进，那正是「同短名跨 ns 被塌掉」的地方。`active[i]` 已把模块
                     // 限制在本 CU 可见的那些，所以这里记下的 ns 天然是可见集的子集。
                     SymbolTable.NoteNsInto(r.ClassNsAll, clKey, em.Namespace);
-                    if (!r.Classes.ContainsKey(clKey)) {        // first-wins（输入已 prelude-first 排序）
+                    // unify-type-identity-fqn：**first-wins 只能管裸名表**。此前整个建型都被这道守卫罩着 ⇒
+                    // 同短名的第二份（`Demo.FqnBeta.Widget`）压根不建型，FQN 视图自然也拿不到它 ⇒
+                    // 限定引用只能退回剥短名撞赢家（实测 `Both.fromBeta` 绑成了 `Demo.FqnAlpha.Widget`）。
+                    // 现在把守卫收窄到只裹 `r.Classes.Put`，其余每份都建、按 FQN 各存一份。
+                    string fqnKey = em.Namespace == "" ? clKey : em.Namespace + "." + clKey;
+                    bool bareFree = !r.Classes.ContainsKey(clKey);   // first-wins（输入已 prelude-first 排序）
+                    if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         if (hasBase) { baseName = cl.BaseName; }
@@ -156,6 +172,13 @@ public static class ImportedSymbolLoader {
                         // 机制见 docs/design/compiler/self-hosting.md 轴④ 与 .claude/rules/bootstrap-seed.md。
                         // （struct-ness 继续复用 HasBase 编码属独立技术债，登记 Deferred，不在本 change 内改。）
                         nct.IsStruct = !cl.HasBase;
+                        // unify-type-identity-fqn：**导入类的声明 ns**。此前从未设置 —— 全编译器给
+                        // `Z42ClassType.Namespace` 赋值的点只有 `StubCollector._putClassStub`（本地类），
+                        // 于是 imported 类的 `Fqn()` 恒退化成短名。`Z42Type.z42` 里那句「导入由
+                        // ImportedSymbolLoader 从 em.Namespace 设置」是**过期的假断言**（见 §6 防腐门）。
+                        // 数据本就在手：下方 `r.ClassNamespaces.Put` 用的就是同一个 `em.Namespace`。
+                        // 种子 ABI 安全：Namespace 不进 ctor 签名、ctor 内默认 ""，此处构造后赋值。
+                        nct.Namespace = em.Namespace;
                         if (cl.TpCount > 0) { nct.GenericParamNames = cl.TypeParams; nct.GenericParamCount = cl.TpCount; }
                         if (needsMangle) { nct.HasArityMangle = true; nct.ArityMangleCount = cl.TpCount; }
                         // fix-crosspkg-interface-impl：imported 类带上实现接口表（bare 名，TSIG 恢复）——
@@ -164,12 +187,20 @@ public static class ImportedSymbolLoader {
                             nct.InterfaceNames = cl.Interfaces;
                             nct.InterfaceCount = cl.InterfaceCount;
                         }
-                        r.Classes.Put(clKey, nct);
-                        r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace));
+                        // 短名表保留 first-wins（型参 / 无 ns 的东西仍走它）；FQN 视图每一份都留。
+                        if (bareFree) {
+                            r.Classes.Put(clKey, nct);
+                            r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace));
+                        }
+                        r.ClassesByFqn.Put(fqnKey, nct);
                         // add-associated-types PR-1：跨包 where 约束。键与 Classes 同为 clKey，
                         // 与 SymbolTable.ConstraintKey 的条件 arity-mangle 口径一致。
-                        ConstraintSet ics = ImportedSymbolLoader._constraintSetOf(cl);
-                        if (ics != null) { r.Constraints.Put(clKey, ics); }
+                        // 键是 clKey（裸名）⇒ 与 r.Classes 同受 first-wins 约束，否则同短名的第二份
+                        // 会把赢家的约束覆盖掉（守卫收窄后这里必须显式跟上）。
+                        if (bareFree) {
+                            ConstraintSet ics = ImportedSymbolLoader._constraintSetOf(cl);
+                            if (ics != null) { r.Constraints.Put(clKey, ics); }
+                        }
                     }
                     c = c + 1;
                 }
@@ -179,11 +210,13 @@ public static class ImportedSymbolLoader {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
+                        nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
                         nift.IsImported = true;                 // complete-class-access-control ④：来自依赖 zpkg（跨包）→ internal 接口不可引用
                         nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
                         // add-associated-types PR-3：导入接口的型参名进符号表（与本包 StubCollector 对称）。
                         nift.TypeParamNames = iz.TypeParams; nift.TypeParamCount = iz.TpCount;
                         r.Interfaces.Put(iz.Name, nift);
+                        r.InterfacesByFqn.Put(nift.Fqn(), nift);   // unify-type-identity-fqn
                         // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
                         // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
                         // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。
@@ -197,6 +230,7 @@ public static class ImportedSymbolLoader {
                     ExportedEnumZ ez = em.Enums[ec];
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
+                        r.EnumTypeNamesByFqn.Put(em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, "enum");   // unify-type-identity-fqn
                         // make-enum-distinct-type 1.5：imported enum 也要记源 ns。此前只填
                         // EnumTypeNames/EnumConsts（够把 `Color.Green` 折成常量），但**类名限定**
                         // 查的是 ClassNamespaces —— 缺了它，消费方的 `QualifyClass("Color")` 落回
@@ -507,6 +541,23 @@ public static class ImportedSymbolLoader {
         // 不动点，且反射面 `FieldType.Name == "unknown"` 有运行期后果 → 保留为独立 change（bug B3）。
         if (name == "unknown") { return new Z42UnknownType(); }
         if (ImportedSymbolLoader._isPrim(name)) { return Z42ClassType.Builtin(name); }
+        // unify-type-identity-fqn：**FQ 名优先精确解析**。发射端现在写全限定名，短名表（按短名键、
+        // 同短名跨 ns 只活一份）承载不了它 —— 不在这里命中就会一路落到末尾 `Builtin(name)` 兜底，
+        // 变成「名叫 Std.Type 的垃圾类」。只对含点的名字走这条，裸名（型参 / 基元 / 无 ns）不受影响。
+        // 与本地侧 `SymbolTable.ResolveTypeP` 的 ClassesByFqn 分支对称。
+        if (name.IndexOf(".") >= 0) {
+            if (r.EnumTypeNamesByFqn.ContainsKey(name)) {
+                // ⚠️ 名字必须是**短名**、FQN 进 Namespace。把 FQN 当名字传给 Enum() 会让 Name() 变成
+                // 全限定串，与另一侧按短名建的同一 enum 比较时报「不能混用 Std.X.E 和 E」（实测
+                // heap_retention 的 RootKind 就这样炸了）。Name() 是全仓等值比较的口径，不能动。
+                string _esn = ImportedSymbolLoader._shortName(name);
+                Z42ClassType _fect = Z42ClassType.Enum(_esn);
+                _fect.Namespace = name.Substring(0, name.Length - _esn.Length - 1);
+                return _fect;
+            }
+            int _fq0 = r.ClassesByFqn.Find(name); if (_fq0 >= 0) { return r.ClassesByFqn.ValAt(_fq0) as Z42ClassType; }
+            int _fq1 = r.InterfacesByFqn.Find(name); if (_fq1 >= 0) { return r.InterfacesByFqn.ValAt(_fq1) as Z42InterfaceType; }
+        }
         // add-argument-type-check R5/R7：**imported 委托类型名 → Z42FuncType**。
         // 本地解析器 `SymbolTable.ResolveTypeP:238-254` 早已把 Func/Action/Predicate 映射成结构
         // Z42FuncType（这三个名是内建、全仓无对应 class/interface 声明），imported 侧却没有同款分支 →
@@ -533,7 +584,14 @@ public static class ImportedSymbolLoader {
         // 教训：「跨包 enum 怎么还原」有两条独立路径，只量了一条就下了全称结论。
         //
         // 放在 `r.Classes` **之前**：万一同名既进 Classes 又进 EnumTypeNames，也保证标志不被丢。
-        if (r.EnumTypeNames.ContainsKey(name)) { return Z42ClassType.Enum(name); }
+        if (r.EnumTypeNames.ContainsKey(name)) {
+            Z42ClassType iect = Z42ClassType.Enum(name);
+            // unify-type-identity-fqn：导入 enum 的声明 ns（数据在 ClassNamespaces —— make-enum-distinct-type
+            // 1.5 已把 imported enum 也记进去了）。缺它则 imported enum 的 Fqn() 退化成短名。
+            StrBox _ens = r.ClassNamespaces.Get(name) as StrBox;
+            if (_ens != null) { iect.Namespace = _ens.Value; }
+            return iect;
+        }
         int _sl0 = r.Classes.Find(name); if (_sl0 >= 0) { return r.Classes.ValAt(_sl0) as Z42ClassType; }
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
@@ -547,10 +605,17 @@ public static class ImportedSymbolLoader {
         if (ltIdx > 0 && name.EndsWith(">")) {
             string baseN = name.Substring(0, ltIdx);
             Z42ClassType gdef = null;
+            // unify-type-identity-fqn：基名也 FQ 优先（`Std.List<int>` → 精确定位 ns==Std 的 List），
+            // 再退到既有的短名 / _shortName 路径（那两条是**有损**的：同短名跨 ns 会撞赢家）。
+            int _fqg = -1;
+            if (baseN.IndexOf(".") >= 0) { _fqg = r.ClassesByFqn.Find(baseN); }
+            if (_fqg >= 0) { gdef = r.ClassesByFqn.ValAt(_fqg) as Z42ClassType; }
+            else {
             int _sl2 = r.Classes.Find(baseN); if (_sl2 >= 0) { gdef = r.Classes.ValAt(_sl2) as Z42ClassType; }
             else {
                 string gbs = ImportedSymbolLoader._shortName(baseN);
                 if (gbs != baseN && r.Classes.ContainsKey(gbs)) { gdef = r.Classes.Get(gbs) as Z42ClassType; }
+            }
             }
             if (gdef != null) {
                 string argsStr = name.Substring(ltIdx + 1, name.Length - ltIdx - 2);

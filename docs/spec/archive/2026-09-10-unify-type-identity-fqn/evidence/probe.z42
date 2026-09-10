@@ -1,0 +1,27 @@
+// Phase 0 探针：观测运行期看到的「字段类型名」（直读 VM 写入的 __name / __fullName 槽）。
+namespace Probe;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+void dumpFields(Type t) {
+    Console.WriteLine("== " + t.__fullName);
+    FieldInfo[] fs = t.GetFields();
+    int i = 0;
+    while (i < fs.Length) {
+        Type ft = fs[i].FieldType;
+        if (ft == null) {
+            Console.WriteLine("  " + fs[i].Name + " : <FieldType is null>");
+        } else {
+            Console.WriteLine("  " + fs[i].Name + " : name=" + ft.__name + " full=" + ft.__fullName);
+        }
+        i = i + 1;
+    }
+}
+
+void Main() {
+    dumpFields(typeof(FieldInfo));
+    dumpFields(typeof(MethodInfo));
+    dumpFields(typeof(PropertyInfo));
+    dumpFields(typeof(ParameterInfo));
+}

@@ -1,0 +1,7 @@
+namespace Demo.FqnBeta;
+
+public class Widget { public string b; }
+
+public class HolderB {
+    public Widget w;
+}
