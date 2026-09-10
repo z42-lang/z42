@@ -226,6 +226,7 @@ impl VarChunkClaim {
                 alive: AtomicBool::new(true),
                 type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, true)),
                 size_class,
+                chunk_idx: self.chunk_idx as u32,
             });
             let data = payload_ptr_of(header_ptr);
             std::ptr::write_bytes(data, 0, payload);
@@ -245,7 +246,7 @@ impl VarChunkClaim {
 impl VarRegion {
     /// Bump-allocate `footprint` bytes (already rounded to a size class ≤ CHUNK_BYTES) from the
     /// current chunk, growing a new chunk when it doesn't fit. Returns the block header ptr.
-    pub(super) fn bump(&mut self, footprint: usize) -> NonNull<GcBlockHeader> {
+    pub(super) fn bump(&mut self, footprint: usize) -> (NonNull<GcBlockHeader>, u32) {
         let need_new = match self.bump_chunk {
             None => true,
             Some(ci) => self.bump_off + footprint > self.chunks[ci].cap,
@@ -265,16 +266,16 @@ impl VarRegion {
         // has room for the whole block.
         let raw = unsafe { self.chunks[ci].base.as_ptr().add(off) };
         // SAFETY: `raw` is non-null (offset into a non-null chunk base) and 8-aligned.
-        unsafe { NonNull::new_unchecked(raw as *mut GcBlockHeader) }
+        (unsafe { NonNull::new_unchecked(raw as *mut GcBlockHeader) }, ci as u32)
     }
 
     /// Allocate a dedicated, exactly-sized chunk for an oversized block. Returns the header
     /// ptr at the chunk base.
-    pub(super) fn alloc_dedicated(&mut self, footprint: usize) -> NonNull<GcBlockHeader> {
+    pub(super) fn alloc_dedicated(&mut self, footprint: usize) -> (NonNull<GcBlockHeader>, u32) {
         let ci = self.push_chunk(footprint);
         let base = self.chunks[ci].base;
         // SAFETY: chunk base is 16-aligned (≥ header align 8) and non-null.
-        unsafe { NonNull::new_unchecked(base.as_ptr() as *mut GcBlockHeader) }
+        (unsafe { NonNull::new_unchecked(base.as_ptr() as *mut GcBlockHeader) }, ci as u32)
     }
 
     /// **add-gc-tlab stage 3**: append a fresh chunk of `cap` bytes and grow every parallel
@@ -293,11 +294,17 @@ impl VarRegion {
             self.chunks[ci] = chunk;
             self.borrowed[ci] = false;
             self.reuse_gen[ci] = 0;
+            self.blocks_per_chunk[ci] = 0;
+            self.live_per_chunk[ci] = 0;
+            self.max_gen_per_chunk[ci] = 0;
             return ci;
         }
         self.chunks.push(chunk);
         self.borrowed.push(false);
         self.reuse_gen.push(0);
+        self.blocks_per_chunk.push(0);
+        self.live_per_chunk.push(0);
+        self.max_gen_per_chunk.push(0);
         self.chunks.len() - 1
     }
 
@@ -337,6 +344,10 @@ impl VarRegion {
         }
         self.all_blocks.extend(claim.local_blocks.drain(..));
         self.live_count += n;
+        // add-incremental-chunk-reclaim: the TLAB carved these slots lock-free; the region
+        // only learns of them here, so this is where its per-chunk census picks them up.
+        self.blocks_per_chunk[claim.chunk_idx] += n as u32;
+        self.live_per_chunk[claim.chunk_idx] += n as u32;
         self.borrowed[claim.chunk_idx] = false;
     }
 
@@ -370,57 +381,39 @@ impl VarRegion {
     /// does mean a marking bug that used to surface as a `None` (a `Null` where a `Str` was
     /// expected) now surfaces as memory corruption, for oversized blocks only.
     pub fn reclaim_dead_var_chunks(&mut self) -> VarChunkReclaim {
-        let index = ChunkIndex::build(&self.chunks);
-        let survey = self.survey_chunks(&index);
-        let (pool, free) = self.partition_dead_chunks(&survey);
+        let (pool, free) = self.partition_dead_chunks();
         if pool.is_empty() && free.is_empty() {
             return VarChunkReclaim::default();
         }
-        self.purge_blocks(&index, &pool, &free);
+        self.purge_blocks(&pool, &free);
         for &ci in &pool {
             // Bump reuse_gen above every generation this chunk's blocks reached, so a fresh
             // re-bump can't mint an (address, generation) pair matching a stale VarGcRef.
-            self.reuse_gen[ci] = survey.max_gen[ci].wrapping_add(1);
+            self.reuse_gen[ci] = self.max_gen_per_chunk[ci].wrapping_add(1);
+            self.blocks_per_chunk[ci] = 0;
+            self.live_per_chunk[ci] = 0;
             self.var_free_chunk_pool.push(ci);
         }
         let mut freed_bytes = 0u64;
         for &ci in &free {
             freed_bytes += self.chunks[ci].cap as u64;
             self.chunks[ci].free_in_place();
+            self.blocks_per_chunk[ci] = 0;
+            self.live_per_chunk[ci] = 0;
             self.free_chunk_slots.push(ci);
         }
         VarChunkReclaim { pooled: pool.len(), freed_chunks: free.len(), freed_bytes }
     }
 
-    /// Per-chunk liveness census, read off `all_blocks` in one pass. Split out of
-    /// [`Self::reclaim_dead_var_chunks`] so that function stays readable.
-    fn survey_chunks(&self, index: &ChunkIndex) -> ChunkSurvey {
-        let n = self.chunks.len();
-        let mut survey = ChunkSurvey {
-            has_live: vec![false; n],
-            max_gen: vec![0u32; n],
-            any_block: vec![false; n],
-        };
-        for &ptr in &self.all_blocks {
-            let Some(ci) = index.locate(ptr.as_ptr() as usize) else { continue };
-            survey.any_block[ci] = true;
-            // SAFETY: all_blocks pointers are chunk-owned, valid for the region's lifetime.
-            let header = unsafe { ptr.as_ref() };
-            let g = header.generation();
-            if g > survey.max_gen[ci] {
-                survey.max_gen[ci] = g;
-            }
-            if header.is_alive() {
-                survey.has_live[ci] = true;
-            }
-        }
-        survey
-    }
-
     /// Split the fully-dead chunks into `(to pool, to free)`. A chunk qualifies only if it
     /// held at least one block (a never-used one has nothing to recycle) and holds no live
     /// one; borrowed chunks, the ambient bump chunk and already-pooled chunks are excluded.
-    fn partition_dead_chunks(&self, survey: &ChunkSurvey) -> (Vec<usize>, Vec<usize>) {
+    ///
+    /// **add-incremental-chunk-reclaim (2026-09-10)**: both questions are answered from the
+    /// per-chunk census (`VarRegion::blocks_per_chunk` / `live_per_chunk`), which alloc,
+    /// retire and tombstone keep current. This used to be a survey pass over `all_blocks` —
+    /// one binary search per block, 2.7 M blocks, **45 ms of a 54 ms minor sweep**.
+    fn partition_dead_chunks(&self) -> (Vec<usize>, Vec<usize>) {
         let ambient = self.bump_chunk;
         let already: std::collections::HashSet<usize> =
             self.var_free_chunk_pool.iter().copied().collect();
@@ -431,8 +424,8 @@ impl VarRegion {
                 || Some(ci) == ambient
                 || already.contains(&ci)
                 || self.chunks[ci].is_freed()
-                || !survey.any_block[ci]
-                || survey.has_live[ci]
+                || self.blocks_per_chunk[ci] == 0
+                || self.live_per_chunk[ci] != 0
             {
                 continue;
             }
@@ -449,29 +442,41 @@ impl VarRegion {
     /// tracked points into memory that was handed back to the allocator).
     #[cfg(test)]
     pub(crate) fn owns_addr(&self, addr: usize) -> bool {
-        ChunkIndex::build(&self.chunks).locate(addr).is_some()
+        self.chunks.iter().any(|c| {
+            !c.is_freed() && {
+                let base = c.base.as_ptr() as usize;
+                addr >= base && addr < base + c.cap
+            }
+        })
     }
 
     /// Drop every block that lives in a chunk being pooled or freed from the three lists that
-    /// hold raw block pointers. Flagging the chunks by index keeps each closure at a binary
-    /// search + one lookup per block, rather than a scan of every reclaimed range (which was
-    /// the second `O(blocks × chunks)` term in this function).
+    /// hold raw block pointers.
+    ///
+    /// **add-incremental-chunk-reclaim (2026-09-10)**: the membership test is now the block
+    /// header's own `chunk_idx` — `O(1)` instead of a binary search over the chunk address
+    /// table. The retain still walks each list once, which is the remaining `O(heap)` term,
+    /// but at roughly a twelfth of the cost per element.
     ///
     /// `young_list` is purged for the same reason as the other two: a pooled chunk is
     /// re-bumped from offset 0, so a surviving entry would dangle onto whatever lands at that
     /// address next — and the minor sweep would happily age or tombstone the new occupant.
-    fn purge_blocks(&mut self, index: &ChunkIndex, pool: &[usize], free: &[usize]) {
+    fn purge_blocks(&mut self, pool: &[usize], free: &[usize]) {
         let mut is_reclaimed = vec![false; self.chunks.len()];
         for &ci in pool.iter().chain(free) {
             is_reclaimed[ci] = true;
         }
-        let in_reclaimed =
-            |p: NonNull<GcBlockHeader>| index.locate(p.as_ptr() as usize).is_some_and(|ci| is_reclaimed[ci]);
-        self.all_blocks.retain(|&p| !in_reclaimed(p));
+        let in_reclaimed = |p: &NonNull<GcBlockHeader>| {
+            // SAFETY: every pointer in these lists is a chunk-owned header, valid until the
+            // chunk is actually reclaimed — which happens after this purge, not before.
+            let ci = unsafe { p.as_ref() }.chunk_idx as usize;
+            ci < is_reclaimed.len() && is_reclaimed[ci]
+        };
+        self.all_blocks.retain(|p| !in_reclaimed(p));
         for fl in &mut self.free_lists {
-            fl.retain(|&p| !in_reclaimed(p));
+            fl.retain(|p| !in_reclaimed(p));
         }
-        self.young_list.retain(|&p| !in_reclaimed(p));
+        self.young_list.retain(|p| !in_reclaimed(p));
     }
 }
 
@@ -488,50 +493,3 @@ pub struct VarChunkReclaim {
     pub freed_bytes: u64,
 }
 
-/// Per-chunk census produced by [`VarRegion::survey_chunks`], indexed by chunk index.
-struct ChunkSurvey {
-    /// Chunk holds at least one still-alive block.
-    has_live: Vec<bool>,
-    /// Highest `generation` any block in the chunk reached (the ABA floor for a re-bump).
-    max_gen: Vec<u32>,
-    /// Chunk holds at least one block at all (a never-used chunk has nothing to recycle).
-    any_block: Vec<bool>,
-}
-
-/// Address → chunk index in `O(log C)`.
-///
-/// This used to be a linear scan over `chunks` run once per block in `all_blocks`, making
-/// the reclaim pass `O(blocks × chunks)` — measured on `z42c.semantics --release
-/// --no-incremental` with a 128MB budget, that one call was 92–98% of every GC pause and
-/// doubled each cycle (494ms → 975ms → 1490ms → 3072ms out of pauses of 536ms → 3143ms).
-/// Same shape as the `young_list` scan fixed by #519, different region.
-struct ChunkIndex {
-    /// `(lo, hi, chunk index)` sorted by `lo`. Freed slots are left out — they own no memory,
-    /// so no block address can fall in them.
-    by_addr: Vec<(usize, usize, usize)>,
-}
-
-impl ChunkIndex {
-    fn build(chunks: &[Chunk]) -> Self {
-        let mut by_addr: Vec<(usize, usize, usize)> = chunks
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| !c.is_freed())
-            .map(|(ci, c)| {
-                let base = c.base.as_ptr() as usize;
-                (base, base + c.cap, ci)
-            })
-            .collect();
-        by_addr.sort_unstable_by_key(|&(lo, _, _)| lo);
-        ChunkIndex { by_addr }
-    }
-
-    /// Chunks never overlap, so the only candidate for `addr` is the last entry whose base is
-    /// ≤ it; `None` for a block in no chunk at all (never happens for chunk-owned blocks).
-    #[inline]
-    fn locate(&self, addr: usize) -> Option<usize> {
-        let i = self.by_addr.partition_point(|&(lo, _, _)| lo <= addr);
-        let (_, hi, ci) = *self.by_addr.get(i.checked_sub(1)?)?;
-        (addr < hi).then_some(ci)
-    }
-}

@@ -258,6 +258,20 @@ pub struct Region<T> {
     /// path, which is exactly why this knob was "deliberately not done" before.
     /// Defaults to [`PROMOTION_THRESHOLD`].
     promotion_age: u8,
+    /// **add-incremental-chunk-reclaim (2026-09-10)**: per-chunk census, maintained
+    /// incrementally so [`Self::reclaim_dead_chunks`] never has to scan slots.
+    ///
+    /// That scan was `O(chunks × CHUNK_SIZE)` — every slot of every chunk, every collection —
+    /// measured at 3.2 ms (objects) + 3.3 ms (arrays) of a 54 ms minor sweep. With these two
+    /// vectors the pass is `O(chunks)`, and the question "is this chunk fully dead?" is a
+    /// single comparison.
+    ///
+    /// `init_per_chunk` counts constructed slots (a never-touched chunk has no storage to
+    /// recycle); `live_per_chunk` counts the ones still alive. A **pooled** chunk keeps its
+    /// `init` count — its slots stay constructed so `ChunkClaim::fill` can preserve their
+    /// tombstone generations (the ABA guard).
+    init_per_chunk: Vec<u32>,
+    live_per_chunk: Vec<u32>,
 
     _phantom: PhantomData<T>,
 }
@@ -279,6 +293,8 @@ impl<T> Default for Region<T> {
             borrowed:        Vec::new(),
             free_chunk_pool: Vec::new(),
             promotion_age: PROMOTION_THRESHOLD,
+            init_per_chunk: Vec::new(),
+            live_per_chunk: Vec::new(),
             _phantom:    PhantomData,
         }
     }
@@ -318,6 +334,8 @@ impl<T> Region<T> {
             // SAFETY: ptr-write replaces the old entry with new.
             // The old's Drop runs as part of the assignment.
             *slot = new_entry;
+            // A recycled slot never moves, so only the live count changes.
+            self.live_per_chunk[ci as usize] += 1;
             // add-generational-gc P0: reused slot starts at gen_age=0 (young).
             self.push_young(ci, ei);
             return RegionHandle { chunk_idx: ci, entry_idx: ei, generation: generation };
@@ -333,7 +351,10 @@ impl<T> Region<T> {
         };
         let chunk = &mut self.chunks[ci as usize];
         chunk[ei as usize] = MaybeUninit::new(RegionEntry::new(value, (ci, ei)));
-        self.initialized[ci as usize][ei as usize] = true;
+        if !std::mem::replace(&mut self.initialized[ci as usize][ei as usize], true) {
+            self.init_per_chunk[ci as usize] += 1;
+        }
+        self.live_per_chunk[ci as usize] += 1;
         // add-generational-gc P0: track newly-allocated entry as young.
         self.push_young(ci, ei);
         // Advance the ambient cursor (ei+1 == CHUNK_SIZE → next alloc grows fresh).
@@ -357,6 +378,8 @@ impl<T> Region<T> {
         let ci = self.chunks.len() as u32;
         self.chunks.push(chunk);
         self.initialized.push(vec![false; CHUNK_SIZE]);
+        self.init_per_chunk.push(0);
+        self.live_per_chunk.push(0);
         self.card_dirty.push(0);
         self.borrowed.push(false);
         ci
@@ -403,6 +426,8 @@ impl<T> Region<T> {
         let was_young = entry.gen_age() < self.promotion_age;
         entry.alive.store(false, Ordering::Release);
         entry.generation.fetch_add(1, Ordering::AcqRel);
+        // add-incremental-chunk-reclaim: O(1) — the handle already names the chunk.
+        self.live_per_chunk[handle.chunk_idx as usize] -= 1;
         self.free_list.push((handle.chunk_idx, handle.entry_idx));
         if was_young {
             self.remove_from_young_list(handle.chunk_idx, handle.entry_idx);
@@ -525,9 +550,16 @@ impl<T> Region<T> {
         let ci = claim.chunk_idx;
         let hw = claim.next as usize;
         let init_row = &mut self.initialized[ci as usize];
+        let mut newly_init = 0u32;
         for ei in 0..hw {
-            init_row[ei] = true;
+            if !std::mem::replace(&mut init_row[ei], true) {
+                newly_init += 1;
+            }
         }
+        // add-incremental-chunk-reclaim: the TLAB filled these lock-free; the region only
+        // learns of them here, so this is where its per-chunk census picks them up.
+        self.init_per_chunk[ci as usize] += newly_init;
+        self.live_per_chunk[ci as usize] += hw as u32;
         // fix-young-list-quadratic-sweep: separate loop so `push_young` (which
         // takes `&mut self` to record each entry's back-index) doesn't collide
         // with the `init_row` borrow.
@@ -554,36 +586,32 @@ impl<T> Region<T> {
     /// Returns the number of chunks reclaimed (diagnostics/tests).
     pub fn reclaim_dead_chunks(&mut self) -> usize {
         let ambient_ci = self.ambient_cur.map(|(c, _)| c);
-        let already_pooled: std::collections::HashSet<u32> =
-            self.free_chunk_pool.iter().copied().collect();
+        // Flag tables rather than hash sets: both of these are probed once per chunk here and
+        // once per free-list entry below, and the free list runs to hundreds of thousands of
+        // slots — a hash lookup per element was the cost left over after the census made the
+        // scan itself `O(chunks)`.
+        let mut already_pooled = vec![false; self.chunks.len()];
+        for &ci in &self.free_chunk_pool {
+            already_pooled[ci as usize] = true;
+        }
         let mut reclaimed: Vec<u32> = Vec::new();
 
         for ci in 0..self.chunks.len() as u32 {
             if self.borrowed[ci as usize]
-                || already_pooled.contains(&ci)
+                || already_pooled[ci as usize]
                 || ambient_ci == Some(ci)
             {
                 continue;
             }
-            // A chunk is reclaimable iff every initialized slot is dead AND it
-            // has at least one initialized slot (never-touched chunks have no
-            // storage to recycle and no free_list entries to purge — skip).
-            let init_row = &self.initialized[ci as usize];
-            let mut any_init = false;
-            let mut all_dead = true;
-            for ei in 0..CHUNK_SIZE {
-                if !init_row[ei] {
-                    continue;
-                }
-                any_init = true;
-                // SAFETY: initialized slot → constructed entry.
-                let entry = unsafe { self.chunks[ci as usize][ei].assume_init_ref() };
-                if entry.alive.load(Ordering::Acquire) {
-                    all_dead = false;
-                    break;
-                }
-            }
-            if any_init && all_dead {
+            // A chunk is reclaimable iff every constructed slot is dead AND it has at least
+            // one (never-touched chunks have no storage to recycle and no free_list entries
+            // to purge — skip).
+            //
+            // **add-incremental-chunk-reclaim (2026-09-10)**: both facts come from the
+            // per-chunk census that alloc / retire / tombstone keep current. This used to
+            // scan every slot of every chunk — `O(chunks × CHUNK_SIZE)` on every collection,
+            // measured at 3.2 ms (objects) + 3.3 ms (arrays) of a 54 ms minor sweep.
+            if self.init_per_chunk[ci as usize] > 0 && self.live_per_chunk[ci as usize] == 0 {
                 reclaimed.push(ci);
             }
         }
@@ -591,10 +619,13 @@ impl<T> Region<T> {
         if reclaimed.is_empty() {
             return 0;
         }
-        let reclaimed_set: std::collections::HashSet<u32> = reclaimed.iter().copied().collect();
+        let mut is_reclaimed = vec![false; self.chunks.len()];
+        for &ci in &reclaimed {
+            is_reclaimed[ci as usize] = true;
+        }
         // Purge free_list of any slot inside a reclaimed chunk (else the ambient
         // slot-reuse path could hand out a slot inside a borrowed chunk).
-        self.free_list.retain(|&(ci, _)| !reclaimed_set.contains(&ci));
+        self.free_list.retain(|&(ci, _)| !is_reclaimed[ci as usize]);
         // No normalization: a reclaimed chunk may be mixed (initialized dead
         // slots + a never-initialized tail). `ChunkClaim::fill` consults the
         // chunk's `initialized` row per slot — preserving the tombstone

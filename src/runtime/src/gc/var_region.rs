@@ -169,6 +169,20 @@ pub struct VarRegion {
     /// other per-chunk table is addressed by index — so it stays as a `cap == 0` tombstone
     /// and lands here for [`Self::push_chunk`] to reuse.
     free_chunk_slots: Vec<usize>,
+    /// **add-incremental-chunk-reclaim (2026-09-10)**: per-chunk census, maintained
+    /// incrementally so [`Self::reclaim_dead_var_chunks`] never has to walk `all_blocks`.
+    ///
+    /// That walk — one binary search per block over 2.7 M blocks — was **45 ms of a 54 ms
+    /// minor sweep**: 85% of the sweep and 60% of the whole pause, and `O(heap)` rather than
+    /// `O(young)`, so shrinking the nursery could not buy any of it back. With these three
+    /// vectors the pass is `O(chunks)`.
+    ///
+    /// `blocks_per_chunk` counts slots ever carved (a never-used chunk has nothing to
+    /// recycle); `live_per_chunk` counts the ones still alive; `max_gen_per_chunk` is the
+    /// ABA floor a recycled chunk's `reuse_gen` must clear.
+    blocks_per_chunk: Vec<u32>,
+    live_per_chunk: Vec<u32>,
+    max_gen_per_chunk: Vec<u32>,
 }
 
 // SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
@@ -195,6 +209,9 @@ impl Default for VarRegion {
             reuse_gen: Vec::new(),
             promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
             free_chunk_slots: Vec::new(),
+            blocks_per_chunk: Vec::new(),
+            live_per_chunk: Vec::new(),
+            max_gen_per_chunk: Vec::new(),
         }
     }
 }
@@ -240,6 +257,9 @@ impl VarRegion {
             reuse_gen: Vec::new(),
             promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
             free_chunk_slots: Vec::new(),
+            blocks_per_chunk: Vec::new(),
+            live_per_chunk: Vec::new(),
+            max_gen_per_chunk: Vec::new(),
         }
     }
 
@@ -277,17 +297,21 @@ impl VarRegion {
 
 
         // Slow path: bump (or a dedicated chunk for oversized).
-        let header_ptr = if size_class == OVERSIZED_CLASS {
+        let (header_ptr, chunk_idx) = if size_class == OVERSIZED_CLASS {
             self.alloc_dedicated(footprint)
         } else {
             self.bump(footprint)
         };
-        self.write_fresh_header(header_ptr, payload, block_type, size_class, 0, self.generational);
+        self.write_fresh_header(
+            header_ptr, payload, block_type, size_class, 0, self.generational, chunk_idx,
+        );
         self.all_blocks.push(header_ptr);
         if self.generational {
             self.young_list.push(header_ptr);
         }
         self.live_count += 1;
+        self.blocks_per_chunk[chunk_idx as usize] += 1;
+        self.live_per_chunk[chunk_idx as usize] += 1;
         VarGcRef::pack(header_ptr, 0)
     }
 
@@ -303,19 +327,23 @@ impl VarRegion {
     ) -> VarGcRef {
         // SAFETY: `slot` came from this region's free list → it points at a valid, chunk-
         // owned, tombstoned header whose generation was bumped at tombstone time.
-        let (generation, already_listed) = {
+        let (generation, already_listed, chunk_idx) = {
             let h = unsafe { slot.as_ref() };
-            (h.generation(), h.is_in_young())
+            (h.generation(), h.is_in_young(), h.chunk_idx)
         };
         // The recycled block is young again (gen_age 0), but the young list uses lazy
         // deletion: if this slot died *after* the last minor sweep it is still listed, and
         // pushing it a second time would age it twice per minor and grow the list without
         // bound. `already_listed` is the header's own `IN_YOUNG_BIT`, so the check is O(1).
-        self.write_fresh_header(slot, payload, block_type, size_class, generation, self.generational);
+        self.write_fresh_header(
+            slot, payload, block_type, size_class, generation, self.generational, chunk_idx,
+        );
         if self.generational && !already_listed {
             self.young_list.push(slot);
         }
         self.live_count += 1;
+        // A recycled slot never moves, so only the live count changes.
+        self.live_per_chunk[chunk_idx as usize] += 1;
         VarGcRef::pack(slot, generation)
     }
 
@@ -329,6 +357,7 @@ impl VarRegion {
         size_class: u8,
         generation: u32,
         in_young: bool,
+        chunk_idx: u32,
     ) {
         // SAFETY: `ptr` addresses freshly-carved (bump) or recycled (free-list) space large
         // enough for the header + `payload` bytes; we own exclusive access (`&mut self`).
@@ -340,6 +369,7 @@ impl VarRegion {
                 alive: AtomicBool::new(true),
                 type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, in_young)),
                 size_class,
+                chunk_idx,
             });
             // Zero the payload so a consumer never reads uninitialized bytes. Derive the
             // payload pointer from the raw `ptr` (whole-allocation provenance), not `as_ref()`.
@@ -384,8 +414,18 @@ impl VarRegion {
         // this call won the alive 1→0 race, before the slot can be recycled.
         // SAFETY: the block is freshly reclaimed and still points at its initialized payload.
         unsafe { self.finalize_payload(ptr) };
-        header.generation.fetch_add(1, Ordering::AcqRel);
+        let generation = header.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.live_count -= 1;
+        // add-incremental-chunk-reclaim: O(1) — the block carries its own chunk index, so the
+        // census stays current without a lookup. `max_gen` is tracked here because tombstone
+        // is the only thing that ever raises a block's generation.
+        let ci = header.chunk_idx as usize;
+        if ci < self.live_per_chunk.len() {
+            self.live_per_chunk[ci] -= 1;
+            if generation > self.max_gen_per_chunk[ci] {
+                self.max_gen_per_chunk[ci] = generation;
+            }
+        }
         let sc = header.size_class;
         if sc != OVERSIZED_CLASS {
             self.free_lists[sc as usize].push(ptr);
@@ -593,6 +633,18 @@ impl VarRegion {
     #[cfg(test)]
     pub(crate) fn chunk_slot_count(&self) -> usize {
         self.chunks.len()
+    }
+
+    /// The per-chunk census (tests: reconciled against a full scan of `all_blocks`).
+    #[cfg(test)]
+    pub(crate) fn live_per_chunk_for_test(&self) -> Vec<u32> {
+        self.live_per_chunk.clone()
+    }
+
+    /// See [`Self::live_per_chunk_for_test`].
+    #[cfg(test)]
+    pub(crate) fn blocks_per_chunk_for_test(&self) -> Vec<u32> {
+        self.blocks_per_chunk.clone()
     }
 
     /// **add-gc-tlab stage 3**: reclaimed-chunk pool size (tests).

@@ -246,6 +246,8 @@ impl VarGcRef {
                 alive: AtomicBool::new(true),
                 type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
                 size_class,
+                // Leaked / test blocks belong to no region chunk.
+                chunk_idx: u32::MAX,
             });
             std::ptr::write_bytes(payload_ptr_of(header), 0, payload);
         }
@@ -274,6 +276,8 @@ impl VarGcRef {
                 alive: AtomicBool::new(true),
                 type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0, false)),
                 size_class,
+                // Leaked / test blocks belong to no region chunk.
+                chunk_idx: u32::MAX,
             });
             payload_ptr_of(header).cast::<T>().write(value);
         }
