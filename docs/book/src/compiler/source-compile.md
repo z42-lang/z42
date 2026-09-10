@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -66,9 +66,27 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 > **Deferred**：① 导入跨包同短名类型的 **FQN keying** 仍只对本地类做（`ClassesByFqn` 不登记 imported）——
 > 歧义现在会报，但「限定名精确解析到 imported 的那一份」还没接通。
 > ③ 🔴 **同一 ns 内重复类名**（两个 `class Foo` 在同一个命名空间）今天仍**静默 last-wins**、零诊断
-> （C# 报 CS0101）；④ 🔴 一个文件里写多个 `namespace X;` 时，全部声明被登记进 **`cu.Namespace`
-> 那一个** ns（`StubCollector` 用的就是它），连限定名都会解析错——实测 `A.Helper.Who()` 打印 `"B"`。
-> ③④ 是 `add-bare-name-ambiguity-diagnostic` 造 fixture 时撞出来的，均未修。
+> （C# 报 CS0101）。Deferred：`dup-type-name-in-namespace`。
+>
+> **④ 已修**（2026-09-10 `fix-multiple-file-scoped-namespaces`）：一个文件里写多个 `namespace X;`
+> 此前**静默 last-wins** —— 全部声明被登记进 **最后**那个 ns，连限定名都随之解析错
+> （实测 `A.Helper.Who()` 打印 `"B"`）。现在报 **E0457**，见下「文件级 `namespace` 的位置约束」。
+
+#### 文件级 `namespace` 的位置约束（E0457）
+
+z42 的编译单元只有**一个**命名空间：`CompilationUnit.Namespace` 是单值，`StubCollector` 登记类时
+用的就是它（`cu.HasNamespace ? cu.Namespace : ""`）。而 parser 的 `namespace` 分支位于**顶层声明
+循环内**，每命中一次就把 `ns` 整个覆盖 —— 于是两种写法会静默错配：
+
+| 写法 | 改动前 | 现在 |
+|---|---|---|
+| `namespace A; class X {} namespace B; …` | 静默 last-wins：`X` 进了 `B`，模块名也是 `B` | **E0457** |
+| `class X {} namespace N;` | 静默回溯生效：`X` 进了 `N` | **E0457** |
+| `namespace X { … }`（块形式） | 本就不支持（`_expectSemi` 报 parse 错） | 不变 |
+
+对齐 C# 的 CS8907 / CS8955。恢复策略保留**第一个** ns（读者对文件顶部那一行的直觉）。
+🔴 全仓实测**两种写法各 0 例**，所以这条诊断在真实代码上永远不响 —— 它唯一的门是
+`src/libraries/z42c.syntax/tests/stmt.z42` 的 5 条用例（含「保留第一个」的恢复策略断言）。
 
 #### `break` / `continue` 的合法上下文（binder ↔ emitter 对称）
 

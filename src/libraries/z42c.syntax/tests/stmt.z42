@@ -188,3 +188,58 @@ void test_top_level_using_still_parses() {
     Assert.Equal(0, countCode(p.Diagnostics(), DiagnosticCodes.DeclarationInStatement));
     Assert.False(p.Diagnostics().HasErrors());
 }
+
+// ── 文件级 `namespace` 的位置约束（2026-09-10 fix-multiple-file-scoped-namespaces）─────
+//
+// z42 的编译单元只有**一个**命名空间（`CompilationUnit.Namespace` 是单值），但 parser 的
+// `namespace` 分支在顶层声明循环里、每命中一次就整个覆盖 `ns` ⇒ 此前**静默 last-wins**：
+// 声明在 `namespace First;` 底下的类被登记进最后那个 ns，连限定名都随之解析错
+// （实测 `A.Helper.Who()` 打印的是 B 的实现）。这不是「少报一条诊断」，是**解析到错误的类型**。
+//
+// 🔴 全仓实测：多 `namespace` 的文件 **0 个**、`namespace` 排在声明之后的文件 **0 个**
+// ⇒ 这条诊断在真实代码上永远不响，**下面这几条用例就是它唯一的门**。
+//
+// ⚠️ 断言用**字面量** "E0457" 而非 `DiagnosticCodes.FileScopedNamespaceMisplaced`：与发码侧同一纪律
+// （新增 core→syntax 跨成员符号会撞 F2 冷启动 stale-cache，见 DiagnosticCodes.z42 该条注释）。
+
+[Test]
+void test_second_file_scoped_namespace_is_reported() {
+    // 退回对照：撤掉 Parser 里的 `if (hasNs)` 分支后本条变 0（静默 last-wins = 改动前行为）。
+    var p = new Parser("namespace First;\nvoid A() { }\nnamespace Last;\nvoid B() { }", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(1, countCode(p.Diagnostics(), "E0457"));
+}
+
+[Test]
+void test_duplicate_namespace_keeps_the_first() {
+    // 恢复策略钉死：保留**第一个**（读者对文件顶部那一行的直觉），不被后来者覆盖。
+    var p = new Parser("namespace First;\nvoid A() { }\nnamespace Last;\n", "t.z42");
+    var cu = p.ParseCompilationUnit();
+    Assert.Equal("First", cu.Namespace);
+}
+
+[Test]
+void test_namespace_after_type_declaration_is_reported() {
+    // 单个 namespace 但排在类声明之后 —— 同一类静默错配（它会回溯作用到上面那个类）。
+    var p = new Parser("class X { }\nnamespace N;\n", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(1, countCode(p.Diagnostics(), "E0457"));
+}
+
+[Test]
+void test_namespace_after_usings_is_fine() {
+    // using / global using / using alias **不算**声明：namespace 排在它们之后合法。
+    var p = new Parser("using Std;\nglobal using Std.IO;\nnamespace N;\nvoid Main() { }", "t.z42");
+    var cu = p.ParseCompilationUnit();
+    Assert.Equal(0, countCode(p.Diagnostics(), "E0457"));
+    Assert.Equal("N", cu.Namespace);
+}
+
+[Test]
+void test_single_namespace_at_top_reports_nothing() {
+    // 正常写法（全仓 100% 是这个形状）不受影响。
+    var p = new Parser("namespace N;\nusing Std;\nclass X { }\nvoid Main() { }", "t.z42");
+    p.ParseCompilationUnit();
+    Assert.Equal(0, countCode(p.Diagnostics(), "E0457"));
+    Assert.False(p.Diagnostics().HasErrors());
+}
