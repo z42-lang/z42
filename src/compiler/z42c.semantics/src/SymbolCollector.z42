@@ -50,6 +50,7 @@ public sealed class SymbolCollector {
         this._stub._passEnums(t, cu);
         this._mergeImportedEnums(t, imported);
         this._mergeImportedInterfaces(t, imported);
+        t.NoteArities(cu);   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
         this._stub._passClassStubs(t, cu, "");   // 单-CU 路径（dump/test）：无 partial 主碎片跟踪
         this._mergeImports(t, imported);
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
@@ -178,6 +179,8 @@ public sealed class SymbolCollector {
         // imported 接口必须在 _passClassStubs 前 seed（基表判别：查 table.Interfaces 区分 iface vs class base）。
         this._mergeImportedInterfaces(table, imported);
         c = 0;
+        int ac = 0;
+        while (ac < cuCount) { table.NoteArities(cus[ac]); ac = ac + 1; }   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
         while (c < cuCount) { this._stub._passClassStubs(table, cus[c], files[c]); c = c + 1; }
         this._enforce._passValidatePartial(cus, files, cuCount);   // add-partial-types：全部标 partial / Kind 一致 / 嵌套 partial 校验
         // seed imported classes + funcs（成员解析前；G18：兄弟包 imported 类字段/方法类型可解析为 Z42ClassType 而非 Unknown）。
@@ -215,6 +218,7 @@ public sealed class SymbolCollector {
         NestedFlatten.Flatten(cu);   // add-nested-types：嵌套类型提升为顶层（幂等）
         this._stub._passInterfaces(table, cu, "");
         this._stub._passEnums(table, cu);
+        table.NoteArities(cu);   // fix-arity-mangle-package-wide：mangle 判据必须与符号表同尺度（见 SymbolTable.NoteArities）
         this._stub._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪
         this._stub._passDelegates(table, cu);
         this._member._passMembers(table, cu);

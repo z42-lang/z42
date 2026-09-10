@@ -28,6 +28,13 @@ public sealed class SymbolTable {
     // （imported 从不进）、`ImportedSymbols.ClassNamespaces` 是裸名 → **单个** ns —— 三个生产点都把
     // 「同一短名有几份」这个信息塌掉了。不重建它就无从判歧义（C# CS0104 的判据）。
     public StrMap ClassNsAll;
+    // fix-arity-mangle-package-wide：**包级**「同短名有多个 arity」集合（name → "1"）。
+    // arity-mangle 的判据必须与符号表同尺度：`Classes` 是 per-package 的，而预扫此前在
+    // `StubCollector._passClassStubs`（per-CU）与 `ExportedTypeExtractor._extractCore`（per-CU）
+    // 各算一份 ⇒ 「a.z42 的 `Foo` + b.z42 的 `Foo<T>`」两边都不 mangle、撞同一个裸键。
+    // 由 SymbolCollector 在**任何** stub 注册之前一次算好，两个生产点都读这里。
+    public StrMap MultiArityNames;
+    private StrMap _firstArity;   // NoteArities 的中间态：短名 → 首次见到的 arity
     public StrMap CurrentAliases;   // add-type-alias：当前 CU 的文件级类型别名 name → TypeExpr（null=无）；per-CU 设置
     public SymbolTable() {
         this.Classes = new StrMap();
@@ -40,6 +47,8 @@ public sealed class SymbolTable {
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
         this.ClassNsAll = new StrMap();
+        this.MultiArityNames = new StrMap();
+        this._firstArity = new StrMap();
         this.CurrentAliases = null;
     }
 
@@ -58,6 +67,7 @@ public sealed class SymbolTable {
         t.EnumConsts = this.EnumConsts;
         t.Delegates = this.Delegates;
         t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
+        t.MultiArityNames = this.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
         t.CurrentAliases = aliases;
         return t;
     }
@@ -65,6 +75,29 @@ public sealed class SymbolTable {
     // add-bare-name-ambiguity-diagnostic：登记「短名 name 在命名空间 ns 里有一份声明」。
     // 幂等（同 ns 重复登记不累加）；全局 ns 用空串，读回时保留空串语义。
     public void NoteClassNs(string name, string ns) { SymbolTable.NoteNsInto(this.ClassNsAll, name, ns); }
+
+    // fix-arity-mangle-package-wide：把 cu 里 class/struct 的 arity 累积进包级 MultiArityNames。
+    // 调用方须在**任何** `_passClassStubs` 之前把全部 CU 都喂一遍（多 CU 路径），
+    // 否则先注册的那些 CU 仍会按不完整的信息决定 mangle —— 那正是修前的形状。
+    public void NoteArities(CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "class" || c.Kind == "struct") {
+                    string ar = c.TypeParams.Count.ToString();
+                    int at = this._firstArity.Find(c.Name);
+                    if (at < 0) { this._firstArity.Put(c.Name, new StrBox(ar)); }
+                    else if ((this._firstArity.ValAt(at) as StrBox).Value != ar) {
+                        this.MultiArityNames.Put(c.Name, "1");
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
 
     // 同一份累积逻辑给两个生产点共用（本地 StubCollector 走 SymbolTable，跨包 ImportedSymbolLoader
     // 走 ImportedSymbols.ClassNsAll，最后由 SymbolCollector._mergeImports 并进来）——**别写两份**：
