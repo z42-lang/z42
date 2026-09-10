@@ -25,10 +25,11 @@ impl Drop for FrameGuard<'_> {
 }
 
 pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<ExecOutcome> {
-    // add-gc-safepoint (2026-05-20): every newly-entered z42 function
-    // immediately respects a pending GC request. A worker thread spawned
-    // mid-collect parks here before touching any roots.
-    crate::gc::safepoint::check_safepoint(ctx);
+    // fix-callee-entry-safepoint-drops-args (2026-09-10): the callee-entry safepoint used
+    // to be **here**, before the frame exists. `args` is a caller-side temporary — for the
+    // `new` path it is the only reference to the freshly allocated receiver — so a
+    // collection at this point swept values the mutator was still using. It now lives in
+    // `exec_function_body`, immediately after the frame is enrolled as a GC root.
     // runtime-jit-tiering Phase 1.5.2 (mixed-mode invariant backstop): if `func`
     // is already JIT-compiled, run its native code instead of interpreting it.
     // `exec_function` is the SINGLE choke point every non-hot-Call/VCall interp
@@ -86,7 +87,8 @@ pub(crate) fn exec_function_with_type_args(
     args: &[Value],
     method_type_args: &[String],
 ) -> Result<ExecOutcome> {
-    crate::gc::safepoint::check_safepoint(ctx);
+    // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body` —
+    // see `exec_function`.
     if method_type_args.is_empty() {
         if let Some(outcome) = try_native_exec(ctx, func, args) {
             return outcome;
@@ -224,7 +226,7 @@ pub(crate) fn exec_function_from_regs(
     // for non-generic). Stored on the callee frame for MethodTypeArg/MethodDefault.
     method_type_args: &[String],
 ) -> Result<ExecOutcome> {
-    crate::gc::safepoint::check_safepoint(ctx);
+    // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body`.
     let mut frame = Frame::new_from_regs(caller_regs, arg_indices, func.max_reg)?;
     if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
     exec_function_body(ctx, module, func, frame)
@@ -239,7 +241,7 @@ pub(crate) fn exec_function_from_receiver_regs(
     receiver: &Value, caller_regs: &[Value], arg_indices: &[u32],
     method_type_args: &[String],   // add-generic-methods: see exec_function_from_regs
 ) -> Result<ExecOutcome> {
-    crate::gc::safepoint::check_safepoint(ctx);
+    // fix-callee-entry-safepoint-drops-args: safepoint moved into `exec_function_body`.
     let mut frame = Frame::new_from_receiver_regs(receiver, caller_regs, arg_indices, func.max_reg)?;
     if !method_type_args.is_empty() { frame.method_type_args = method_type_args.into(); }
     exec_function_body(ctx, module, func, frame)
