@@ -533,3 +533,61 @@ void test_class_access_field_type_own_private_nested_from_outer_ok() {
     var d = collectDiags("class Outer { private class Inner { } Inner head; }");
     Assert.Equal(false, hasCode(d, "E0404"));
 }
+
+// ── report-duplicate-type-name（E0458）：同一命名空间里重复声明同一个类型 ─────────
+//
+// 此前是**静默 last-wins**（`StubCollector` 那行注释「碰撞但均非 partial → 维持既有 last-wins
+// 覆盖」说的正是它）：后声明的赢，前一个连同成员一起消失，**单文件与跨 CU 两种形态都零诊断**。
+// 跨 CU 形态在真实工程里更危险 —— 两个文件各写一个 `class Config`，谁也不会注意到其中一个
+// 从来没生效过。对齐 C# CS0101。
+//
+// 🔴 判据是 **(ns, 名字, arity) 三者都相同**，下面的负例逐条守住这三个维度不被误报。
+// ⚠️ 断言用**字面量** "E0458"（与发码侧同一纪律，见 DiagnosticCodes.z42 该条注释）。
+
+[Test]
+void test_duplicate_type_in_same_namespace_is_reported() {
+    // 退回对照：撤掉 StubCollector 的 E0458 分支后本条变 false（= 改动前的静默 last-wins）。
+    Assert.Equal(true, hasCode(collectDiags(
+        "namespace R;\nclass Dup { int a; }\nclass Dup { int b; }"), "E0458"));
+}
+
+[Test]
+void test_duplicate_type_across_compilation_units_is_reported() {
+    // 真实工程里更常见的形状：两个文件各声明一个同名类型。
+    Assert.Equal(true, hasCode(pmergeDiags(
+        "namespace R;\nclass Dup { int a; }",
+        "namespace R;\nclass Dup { int b; }"), "E0458"));
+}
+
+[Test]
+void test_same_name_in_different_namespaces_is_not_duplicate() {
+    // `Classes` 是**裸名**键，同短名跨 ns 也撞它 —— 但那是**使用点**的歧义（E0456 管），
+    // 不是重复声明。这条守「别拿裸名键当判据」。
+    Assert.Equal(false, hasCode(pmergeDiags(
+        "namespace A;\nclass Dup { int a; }",
+        "namespace B;\nclass Dup { int b; }"), "E0458"));
+}
+
+[Test]
+void test_same_name_different_arity_is_not_duplicate() {
+    // arity 预扫是 per-CU 的，跨 CU 的 `Foo` 与 `Foo<T>` 会撞同一个裸键 —— 实测那种写法今天
+    // 能编过，把它报成「重复定义」是**错的诊断**（真问题是 arity 键没跨 CU 生效，
+    // Deferred `arity-mangle-not-package-wide`）。这条守住不误报。
+    Assert.Equal(false, hasCode(pmergeDiags(
+        "namespace R;\nclass Foo { int a; }",
+        "namespace R;\nclass Foo<T> { int b; }"), "E0458"));
+}
+
+[Test]
+void test_partial_fragments_are_not_duplicate() {
+    // partial 的重复是**合并**，不是重复声明。
+    Assert.Equal(false, hasCode(pmergeDiags(
+        "namespace R;\npartial class P { int a; }",
+        "namespace R;\npartial class P { int b; }"), "E0458"));
+}
+
+[Test]
+void test_single_declaration_reports_nothing() {
+    Assert.Equal(false, hasCode(collectDiags(
+        "namespace R;\nclass Solo { int a; }"), "E0458"));
+}
