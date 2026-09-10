@@ -183,6 +183,60 @@ sweep 尾（STW）扫全死 chunk（所有已初始化槽 dead）→ 移入 `fre
 
 定长 `Region<T>` 的 `reclaim_dead_chunks` 没有这个问题：槽定长，chunk 归属是下标除法。
 
+### per-chunk 普查：「这个 chunk 全死了吗」必须是 O(1)（2026-09-10）
+
+chunk 回收对每个 chunk 只问两件事：**它有过块吗**、**它还有活块吗**。这两个问题原本都是
+**扫出来**的 —— 定长区逐槽扫（`O(chunk 数 × 256)`），变长区逐块扫 `all_blocks` 并对每块
+**二分查找**归属（`O(块数 × log chunk 数)`）。
+
+实测（`z42c.semantics`，分代模式，后几次大堆 minor，给各段套 `Instant`）：
+
+| 段 | 修前 | 修后 |
+|---|---|---|
+| `reclaim_dead_var_chunks` | **45–59 ms** | **6–10 ms** |
+| `reclaim_dead_chunks` ×2（定长） | ~6.5 ms | **0.44 ms** |
+| `mark_phase_minor` | ~23 ms | ~25 ms（未动） |
+
+变长区那一个函数原本占 sweep 的 **85%**、整个停顿的约 **60%**。
+
+改法是把两个问题换成**增量维护的计数器**：
+
+```
+              分配 / retire                tombstone
+                   │                           │
+ blocks_per_chunk[ci] ++                       │
+ live_per_chunk[ci]   ++          live_per_chunk[ci] --
+                                  max_gen_per_chunk[ci] = max(…)
+                   └───────────┬───────────────┘
+                               ▼
+        「全死」= blocks[ci] > 0 && live[ci] == 0   ← 一次比较
+```
+
+🔑 **变长区的归属查询靠块头里的 `chunk_idx: u32`，而它是免费的**：`GcBlockHeader` 是
+`#[repr(C, align(8))]`，六个字段共 12 字节被**填充到 16**，这个 `u32` 正好落进那 4 字节
+padding —— **头仍然是 16 字节**（那是三堆设计的不可动摇约束之一）。
+
+⚠️ **维护点必须穷举**，漏一处就是**把还有活块的 chunk 回收掉**（比慢严重得多）：
+alloc（bump / dedicated / 自由链复用）、`retire_chunk`、`tombstone`、入池、释放、
+`push_chunk` 复用墓碑槽位。两个坑：
+
+- **`retire_chunk` 对复用的 chunk 是幂等写**（`initialized[ei] = true` 可能本来就 true），
+  只能数**跃迁**（`std::mem::replace` 的返回值），不能数填充数；
+- **入池的 chunk 保留「曾构造」计数** —— 它的槽仍是构造好的（`ChunkClaim::fill` 靠这个
+  保留每槽的 tombstone generation，即 ABA 守卫），所以「已在池中」那道 guard 不能删。
+
+⚠️ **顺带一条规律**：普查修完之后定长区还剩 5–9 ms，全是
+`already_pooled: HashSet` 的构建 + `free_list.retain` 里**每条一次哈希查找**
+（free_list 有几十万条）。换成 `vec![false; chunks.len()]` 之后 **→ 0.44 ms**。
+**GC 里凡是「每元素查一次集合」、而键是 chunk 下标的地方，都该是标志表而不是 HashSet。**
+（同一族的第三次：#519 是 `young_list` 线性扫、#521 是 `chunks` 线性扫。）
+
+**结果**：minor 中位停顿 76.1 → **32.5 ms（−57%）**，最大 152.9 → **88.7 ms（−42%）**；
+STW 98.7 → **58.8 ms（−40%）**。RSS 一分不差（回收的**判定**没变，只是变快了）。
+nursery 终于开始买停顿了（分代中位：32M → 32.5 ms、8M → 27.3 ms、4M → 24.3 ms），
+新的地板是 `mark_phase_minor` 的 ~25 ms —— **卡是 chunk 粒度的，一个脏 chunk 里
+256 条活条目全部当根**，那是下一个杠杆。
+
 ### chunk 的三种归宿（2026-09-08 fix-loh-never-freed）
 
 sweep 尾的 `reclaim_dead_var_chunks` 现在按 chunk 的**种类**分流，不再只有「入池 / 不动」两种：

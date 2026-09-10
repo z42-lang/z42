@@ -103,9 +103,21 @@ pub struct GcBlockHeader {
     /// `chunk::class_for`), or [`OVERSIZED_CLASS`] for a dedicated chunk. Lets tombstone
     /// return the slot to the right free list and lets iteration know the slot's footprint.
     pub(super) size_class: u8,
+    /// **add-incremental-chunk-reclaim (2026-09-10)**: index into `VarRegion::chunks` of the
+    /// chunk that owns this block. **Free** — `#[repr(C, align(8))]` was already padding the
+    /// other six fields (12 bytes) out to 16, so this lands in that padding and the header
+    /// stays exactly 16 bytes.
+    ///
+    /// It exists to make "which chunk is this block in?" `O(1)`. That question is asked once
+    /// per block by every chunk-reclaim pass, and answering it with a binary search over the
+    /// chunk address table made `reclaim_dead_var_chunks` **45 ms of a 54 ms minor sweep** —
+    /// 85% of the sweep, 60% of the whole pause. Immutable for the life of the slot: a
+    /// recycled slot stays in the same chunk.
+    pub(super) chunk_idx: u32,
 }
 
-// The header is exactly 16 bytes so the inline payload begins 8-aligned. This mirrors
+// The header is exactly 16 bytes so the inline payload begins 8-aligned. Six of the seven
+// fields total 12 bytes; `align(8)` pads that to 16, and `chunk_idx` occupies the padding. This mirrors
 // `vstr::StrHeader` (also 16 B) — deliberately, so a GC string block and the current
 // thin-Arc string have identical payload offsets, easing the PR-2 migration.
 const _: () = assert!(std::mem::size_of::<GcBlockHeader>() == 16);

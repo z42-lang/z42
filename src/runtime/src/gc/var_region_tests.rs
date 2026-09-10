@@ -756,3 +756,67 @@ fn the_loh_threshold_is_clamped_to_the_chunk_size() {
     // Default stays where the `static` was initialised.
     assert_eq!(super::loh_bytes(), CHUNK_BYTES);
 }
+
+// ---------------------------------------------------------------------------------------
+// add-incremental-chunk-reclaim: the per-chunk census
+// ---------------------------------------------------------------------------------------
+
+/// `chunk_idx` had to be **free**: the 16-byte header is one of the three immovable
+/// constraints of the three-heap design (24 would push the ~1.8 M blocks whose total is
+/// exactly `MIN_BLOCK` into the next size class). It fits because `#[repr(C, align(8))]` was
+/// already padding the other six fields (12 bytes) out to 16.
+#[test]
+fn chunk_idx_fits_in_the_headers_existing_padding() {
+    assert_eq!(std::mem::size_of::<GcBlockHeader>(), 16);
+    assert_eq!(std::mem::align_of::<GcBlockHeader>(), 8);
+}
+
+/// Every block must know which chunk it lives in — that is what makes "is this chunk fully
+/// dead?" `O(1)` instead of a binary search per block.
+#[test]
+fn every_block_carries_its_owning_chunk() {
+    let mut r = VarRegion::new();
+    let small: Vec<_> = (0..600).map(|_| r.alloc(1024, BlockType::Str)).collect();
+    let big = r.alloc(OVERSIZED_PAYLOAD, BlockType::ArrayPrim);
+
+    for h in small.iter().chain(std::iter::once(&big)) {
+        let ci = r.resolve(*h).expect("alive").chunk_idx as usize;
+        assert!(
+            r.owns_addr(h.addr()),
+            "block must live in a chunk the region owns"
+        );
+        assert!(ci < r.chunk_slot_count(), "chunk_idx {ci} out of range");
+    }
+    // The oversized block gets a dedicated chunk, so it cannot share one with the small ones.
+    let big_ci = r.resolve(big).expect("alive").chunk_idx;
+    let small_ci = r.resolve(small[0]).expect("alive").chunk_idx;
+    assert_ne!(big_ci, small_ci, "an oversized block owns its chunk alone");
+}
+
+/// The census is what the reclaim pass reads instead of walking `all_blocks`. If it ever
+/// drifted from the truth the pass would reclaim a chunk that still has live blocks — far
+/// worse than being slow — so reconcile it against a full scan after a churn workload.
+#[test]
+fn the_per_chunk_census_matches_a_full_scan() {
+    let mut r = VarRegion::new();
+    let mut handles: Vec<_> = (0..900).map(|i| r.alloc(512 + i % 64, BlockType::Str)).collect();
+    // Kill half, then reallocate — exercises tombstone, free-list reuse and fresh bumps.
+    for h in handles.iter().step_by(2) {
+        r.tombstone(*h);
+    }
+    handles.extend((0..300).map(|_| r.alloc(512, BlockType::Str)));
+    r.alloc(OVERSIZED_PAYLOAD, BlockType::Closure);
+
+    let mut truth_live = vec![0u32; r.chunk_slot_count()];
+    let mut truth_blocks = vec![0u32; r.chunk_slot_count()];
+    for &p in &r.all_blocks {
+        // SAFETY: `all_blocks` holds chunk-owned headers for the region's lifetime.
+        let h = unsafe { p.as_ref() };
+        truth_blocks[h.chunk_idx as usize] += 1;
+        if h.is_alive() {
+            truth_live[h.chunk_idx as usize] += 1;
+        }
+    }
+    assert_eq!(r.live_per_chunk_for_test(), truth_live, "live census drifted");
+    assert_eq!(r.blocks_per_chunk_for_test(), truth_blocks, "block census drifted");
+}
