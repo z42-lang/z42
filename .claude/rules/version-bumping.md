@@ -165,7 +165,8 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
    VM=$PWD/artifacts/build/runtime/release/z42vm
    Z42C=$(find /tmp/tc -name z42c.driver.zpkg | head -1)
    LIBS=$PWD/artifacts/build/libraries/dist/release
-   # 临时工程：name 匹配 expected.json（demo.minimal/demo.multi/demo.indexed），kind=lib
+   # 临时工程：name 用 demo.minimal / demo.multi / demo.indexed，kind=lib
+   #   （旧注写「匹配 expected.json」—— 那批 expected.json 已随 #424 删除，改按 fixture 目录名对应）
    #   packed → --release；indexed → 无 --release（另产散装 source.zbc）
    Z42_LIBS="$LIBS" "$VM" "$Z42C" -- build <temp>/demo.minimal.z42.toml --release
    cp <temp>/dist/demo.minimal.zpkg src/tests/zpkg-format/packed-minimal/source.zpkg

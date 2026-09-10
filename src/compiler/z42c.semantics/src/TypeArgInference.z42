@@ -19,6 +19,7 @@ namespace Z42.Semantics;
 using Z42.IR;
 
 using Z42.Core;
+using Z42.Syntax;
 
 // 推断结果：Ok=false 时 Args 无意义（调用方必须原样按今天行为继续）。
 public sealed class TypeArgBindings {
@@ -67,6 +68,54 @@ public static class TypeArgInference {
             k = k + 1;
         }
         return new TypeArgBindings(true, bound, nameCount);
+    }
+
+    // generic-inference-lambda-args：绑定 lambda 延迟位**之前**跑的推断，返回**部分**绑定
+    // （按型参声明序对齐，未绑=null）。供 `MethodTypeArgSubst.SubstituteFuncParams` 代换 Func 形参位、
+    // 让 lambda 拿到具体形参类型再绑（design 数据流）。两个源：
+    //   源① 非-null 已绑实参（非-lambda）：unify `sig.ParamTypes[i]` vs 其 `Type()`（同 Infer 定长段）。
+    //   源② null 延迟位且 `rawArgs[i]` 是 LambdaExpr 且形参是 Z42FuncType：用 lambda **AST 里带标注**的
+    //        形参类型 unify 对应 func 形参位（无标注位跳过——无信息；纯 A 靠这条）。
+    // 与 `Infer` 的区别：① 返回部分绑定、**不要求全绑**（`Map<T,U>` 只推出 T 也要能代换 `Func<T,U>`）；
+    // ② lambda 此时未绑 ⇒ 从 **AST** 读标注，不是从 BoundLambda；③ **不做**归一（`_resolvedForm`）——
+    // 结果只进 SubstituteFuncParams 再驱动 lambda 绑定，绑定后的诊断路径 `Infer` 各自归一。
+    // 冲突容忍：`_unify` 返回 false（同型参绑到无公共类型的两值）时**不整体失败**，该型参保留首绑、继续
+    // （部分推断是尽力而为；真冲突由绑定后的诊断路径报）。
+    public static Z42Type[] InferPreBinding(Z42FuncType sig, string[] names, int nameCount,
+                                            BoundExpr[] boundArgs, Expr[] rawArgs, int argCount, TypeEnv env) {
+        if (sig == null || names == null || nameCount == 0) { return new Z42Type[0]; }
+        Z42Type[] bound = new Z42Type[nameCount];
+        int fixedEnd = argCount;
+        if (sig.ParamCount < fixedEnd) { fixedEnd = sig.ParamCount; }
+        if (sig.ParamsFrom >= 0 && sig.ParamsFrom < fixedEnd) { fixedEnd = sig.ParamsFrom; }
+        int i = 0;
+        while (i < fixedEnd) {
+            if (boundArgs[i] != null) {
+                // 源①：已绑非-lambda 实参
+                Z42Type at = boundArgs[i].Type();
+                if (at != null && !(at is Z42UnknownType) && !(at is Z42ErrorType)) {
+                    TypeArgInference._unify(sig.ParamTypes[i], at, names, nameCount, bound);
+                }
+            } else if ((rawArgs != null) && (rawArgs[i] is LambdaExpr) && (sig.ParamTypes[i] is Z42FuncType)) {
+                // 源②：lambda 延迟位，用 AST 里带标注的形参类型（无标注位无信息、跳过）
+                LambdaExpr lam = rawArgs[i] as LambdaExpr;
+                Z42FuncType ff = sig.ParamTypes[i] as Z42FuncType;
+                int upto = lam.ParamCount;
+                if (ff.ParamCount < upto) { upto = ff.ParamCount; }
+                int j = 0;
+                while (j < upto) {
+                    if (lam.Params[j].HasType) {
+                        Z42Type pt = env.ResolveType(lam.Params[j].Type);
+                        if (pt != null && !(pt is Z42UnknownType) && !(pt is Z42ErrorType)) {
+                            TypeArgInference._unify(ff.ParamTypes[j], pt, names, nameCount, bound);
+                        }
+                    }
+                    j = j + 1;
+                }
+            }
+            i = i + 1;
+        }
+        return bound;
     }
 
     // 归一到「已解析形态」——**推断结果必须与显式写出 `<int>` 得到的类型对象同形**。

@@ -135,7 +135,25 @@ public sealed class OverloadBinder {
         this._tc.CheckImplicitConvert(args[i], pt, env.Symbols, sp, "argument");
     }
 
+    // generic-inference-lambda-args：从非-lambda 实参 + lambda 标注推断部分方法级型参，只代换 Func
+    // 形参位得到「绑定用」签名。仅对**有本地 Decl 的泛型方法**生效（导入/间接方法拿不到有序型参名，
+    // 与既有 arity/where 校验同一道门，不新增跨包能力）。InferPreBinding 对无信息位天然跳过、
+    // SubstituteFuncParams 对无绑定/无 Func 位 no-op ⇒ 非泛型/普通调用零开销、零改动。
+    private MethodSymbol _inferFuncParamSubst(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env) {
+        if (ms == null || !ms.HasDecl || ms.Decl == null || ms.Signature == null) { return ms; }
+        if (ms.Decl.TypeParams.Count == 0) { return ms; }
+        Z42Type[] part = TypeArgInference.InferPreBinding(ms.Signature,
+            ms.Decl.TypeParams.Names, ms.Decl.TypeParams.Count, args, rawArgs, rawArgCount, env);
+        return MethodTypeArgSubst.SubstituteFuncParams(ms, ms.Decl.TypeParams.Names, ms.Decl.TypeParams.Count, part);
+    }
+
     internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
+        // generic-inference-lambda-args：绑定 lambda 延迟位**之前**，从非-lambda 实参 + lambda 标注推断
+        // 部分方法级型参、**只代换 Func 形参位** ⇒ 无标注/有标注 lambda 都拿到具体形参类型能编、能跑。
+        // 非-Func 形参位不动 ⇒ 非-lambda 实参绑定/装箱/params/默认值逐字节不变（design I1'/D1）。
+        // 显式 `<>` 路径 ms.Signature 已由 ForExplicitTypeArgs 全代换成具体 ⇒ 此处 InferPreBinding
+        // 推不出型参、SubstituteFuncParams no-op，天然不重复。
+        ms = this._inferFuncParamSubst(ms, args, rawArgs, rawArgCount, env);
         // add-target-typed-new：先回填延迟的 target-typed new 实参（按 ms 形参类型），再走装箱/默认值。
         // 必须在 BoxArgs 之前——BoxArgs 遍历 args 会对 null 位崩。
         args = this.BindArgsToSignature(args, rawArgs, rawArgCount, ms.Signature, env);

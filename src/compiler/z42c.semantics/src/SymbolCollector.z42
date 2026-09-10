@@ -61,6 +61,11 @@ public sealed class SymbolCollector {
         this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
         this._enforce._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
+        // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
+        // ⚠️ 必须在 HandlerRegistry.RunAst 之后（BenchmarkDesugar 把 form-2 [Benchmark] void f(Bencher b)
+        //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
+        //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
+        this._enforce._passTestAttrEnforce(cu);
         this._inherit._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
                                   // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
         this._inherit._passInheritFields(t, cu);
@@ -220,6 +225,10 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._enforce._passAnalyzerSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR3a（D8 analyzer 后缀）
         c = 0;
         while (c < cuCount) { this._enforce._passGeneratorSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR4a（D8 generator 后缀）
+        c = 0;
+        // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
+        // ⚠️ 相位同上：须在 RunAst（BenchmarkDesugar）之后。
+        while (c < cuCount) { this._enforce._passTestAttrEnforce(cus[c]); c = c + 1; }
         // impl-block merge (port-z42c-impl-block)：成员收集后，把 `impl Trait for Target`
         // 的方法并入 target.Methods + Trait 并入 target.InterfaceNames（target 可本地或
         // imported；_mergeImports 已 seed）。镜像 C# SymbolCollector.CollectImpls。
@@ -244,6 +253,11 @@ public sealed class SymbolCollector {
         this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
         this._enforce._passAnalyzerSuffixEnforce(cu);    // attribute-handler-registry PR3a：`: Analyzer` 类名后缀强制（D8）
         this._enforce._passGeneratorSuffixEnforce(cu);   // attribute-handler-registry PR4a：`: Generator` 类名后缀强制（D8）
+        // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
+        // ⚠️ 必须在 HandlerRegistry.RunAst 之后（BenchmarkDesugar 把 form-2 [Benchmark] void f(Bencher b)
+        //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
+        //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
+        this._enforce._passTestAttrEnforce(cu);
         this._inherit._passImpls(table, cu);   // port-z42c-impl-block
         this._inherit._passInheritFields(table, cu);
         return table;
@@ -295,9 +309,9 @@ public sealed class SymbolCollector {
         int allc = tpc + mtpc;
         Z42Type[] ps = new Z42Type[md.ParamCount];
         int k = 0;
-        while (k < md.ParamCount) { ps[k] = table.ResolveTypeP(md.Params[k].Type, all, allc); this._chkTypeRef(ps[k], containing, table, md.Params[k].Type.Span); k = k + 1; }   // enforce-class-access：方法参数类型引用
+        while (k < md.ParamCount) { ps[k] = table.ResolveTypeP(md.Params[k].Type, all, allc); this._chkTypeRefT(ps[k], md.Params[k].Type, containing, table, md.Params[k].Type.Span); k = k + 1; }   // enforce-class-access：方法参数类型引用 + E0456 声明位
         Z42Type ret = table.ResolveTypeP(md.RetType, all, allc);
-        if (!md.IsCtor) { this._chkTypeRef(ret, containing, table, md.RetType.Span); }   // enforce-class-access：方法返回类型引用（ctor RetType 是占位空名，跳过）
+        if (!md.IsCtor) { this._chkTypeRefT(ret, md.RetType, containing, table, md.RetType.Span); }   // enforce-class-access：方法返回类型引用 + E0456（ctor RetType 是占位空名，跳过）
         if (md.IsCtor) { ret = new Z42VoidType(); }   // 构造器返回 void（RetType 是占位空名）
         var sig = new Z42FuncType(ps, md.ParamCount, ret);
         // add-params-varargs：末参标记 params → 记录变长起点（parser 已保证仅末参合法）。
@@ -326,7 +340,25 @@ public sealed class SymbolCollector {
     // enforce-class-access：收集期（声明签名位置）类型引用访问校验——字段/属性/索引器/方法参·返回/基类·接口。
     // 委托静态 AccessChecker.CheckTypeRef，emit 到本 collector 的 Diags（收集期 diag bag）。cls=声明这些签名的类。
     internal void _chkTypeRef(Z42Type t, string cls, SymbolTable table, Span sp) {
+        this._chkTypeRefT(t, null, cls, table, sp);
+    }
+
+    // 带源 TypeExpr 的版本：除访问校验外，**声明位的裸名歧义**（E0456）也在这里判。
+    //
+    // 为什么补这条：E0456 原本 11 个调用点全在语句/表达式位（catch / var / typeof / is / as / 模式），
+    // **声明位（字段 / 属性 / 形参 / 返回 / 基类 / 约束 / 索引器）一个都没有** ⇒ 歧义的
+    // `public Widget w;` 静默选个赢家。unify-type-identity-fqn 的发射端守卫只保证「不写错答案」
+    // （歧义时退回短名），但歧义代码本身仍该报错 —— 这条补的就是那半边。
+    //
+    // 判据与消息都在 `SymbolTable`（IsBareNameAmbiguous / AmbiguousBareNameMsg），此处不重写。
+    // `table` 必须是**带作用域的 per-CU 视图**（_passMembers 顶部建），否则 ScopeNs/ScopeUsings 为空、
+    // 判据恒返回 false —— 那就成了「装了个从不响的门」。
+    internal void _chkTypeRefT(Z42Type t, TypeExpr te, string cls, SymbolTable table, Span sp) {
         AccessChecker.CheckTypeRef(t, cls, table, this.Diags, sp);
+        if (te == null) { return; }
+        if (!(te is NamedType)) { return; }
+        string msg = table.AmbiguousBareNameMsg((te as NamedType).Name);
+        if (msg != "") { this.Diags.Error("E0456", msg, sp); }
     }
 
     internal string _vis(string mods, string dflt) {

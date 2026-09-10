@@ -110,27 +110,8 @@ public sealed class TypeChecker {
     // ⚠️ 判据本身已上移到 `SymbolTable.IsBareNameAmbiguous`（发射端也要用同一口径，见
     // unify-type-identity-fqn）。此处只在判定为歧义后挑两个 ns 拼消息 —— **别把判据抄回来**。
     public void ChkAmbiguousBareName(SymbolTable symbols, string name, Span sp) {
-        if (!symbols.IsBareNameAmbiguous(name)) { return; }
-        string[] nss = symbols.ClassNsOf(name);
-        if (nss.Length < 2) { return; }
-        int visible = 0;
-        string first = "";
-        string second = "";
-        int i = 0;
-        while (i < nss.Length) {
-            string ns = nss[i];
-            if (ns == this._currentNs) { return; }                 // ③ 当前 ns 优先，不算歧义
-            if (ns == "" || this._isVisibleNs(ns)) {               // ② 可见集（含全局 ns）
-                visible = visible + 1;
-                if (first == "") { first = ns; }
-                else if (second == "") { second = ns; }
-            }
-            i = i + 1;
-        }
-        if (visible < 2) { return; }
-        this._diags.Error("E0456",
-            "`" + name + "` is an ambiguous reference between `" + TypeChecker._qual(first, name)
-            + "` and `" + TypeChecker._qual(second, name) + "`", sp);
+        string msg = symbols.AmbiguousBareNameMsg(name);
+        if (msg != "") { this._diags.Error("E0456", msg, sp); }
     }
 
     private static string _qual(string ns, string name) { return ns == "" ? name : ns + "." + name; }

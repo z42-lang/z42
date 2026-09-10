@@ -97,7 +97,20 @@ public sealed class SymbolTable {
     // `WithAliases(BuildAliases(cu))` —— 那种写法只带别名、不带 ns，是裸名解析撞 ns 赢家的入口。
     public SymbolTable WithCu(CompilationUnit cu) {
         SymbolTable t = this.WithAliases(SymbolTable.BuildAliases(cu));
-        t.ScopeNs = cu.HasNamespace ? cu.Namespace : "";
+        t._setScope(cu);
+        return t;
+    }
+
+    // 只设作用域、**不动别名**。collector 阶段用 —— 那里 CurrentAliases 本就是 null，
+    // 借 WithCu 会顺带把别名解析引进收集期，改动面超出本 change（别名在 collector 是否生效是另一件事）。
+    public SymbolTable WithScopeOf(CompilationUnit cu) {
+        SymbolTable t = this.WithAliases(this.CurrentAliases);
+        t._setScope(cu);
+        return t;
+    }
+
+    private void _setScope(CompilationUnit cu) {
+        this.ScopeNs = cu.HasNamespace ? cu.Namespace : "";
         string[] us = new string[8];
         int un = 0;
         int ui = 0;
@@ -112,9 +125,31 @@ public sealed class SymbolTable {
             }
             ui = ui + 1;
         }
-        t.ScopeUsings = us; t.ScopeUsingCount = un;
-        return t;
+        this.ScopeUsings = us; this.ScopeUsingCount = un;
     }
+
+    // E0456 的**消息**也只此一份（判据在 IsBareNameAmbiguous）。不歧义返回 ""。
+    // 两个消费端：TypeChecker（语句/表达式位）与 SymbolCollector（声明位）——
+    // 各写一份消息迟早漂移，这正是本仓库反复吃亏的形状。
+    public string AmbiguousBareNameMsg(string name) {
+        if (!this.IsBareNameAmbiguous(name)) { return ""; }
+        string[] nss = this.ClassNsOf(name);
+        string first = "";
+        string second = "";
+        int i = 0;
+        while (i < nss.Length) {
+            string ns = nss[i];
+            if (ns == "" || this.IsScopeVisibleNs(ns)) {
+                if (first == "") { first = ns; }
+                else if (second == "") { second = ns; }
+            }
+            i = i + 1;
+        }
+        return "`" + name + "` is an ambiguous reference between `" + SymbolTable.QualOf(first, name)
+             + "` and `" + SymbolTable.QualOf(second, name) + "`";
+    }
+
+    public static string QualOf(string ns, string name) { return ns == "" ? name : ns + "." + name; }
 
     // unify-type-identity-fqn：裸名在**本 CU 可见集**内是否歧义。
     //

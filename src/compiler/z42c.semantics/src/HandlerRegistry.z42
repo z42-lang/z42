@@ -155,8 +155,17 @@ public static class HandlerRegistry {
     // Setup/Teardown/Ignore（取代 TestIndexBuilder._isTestAttrName）。注意这是**触发集**，与
     // KindOf 的 Handler 子集（非-store-meta 那 5 名）不同，差集 = 字节不动点陷阱（见文件头注）。
     public static bool IsTestHandlerAttr(string name) {
-        if (name == "Test" || name == "Benchmark" || name == "Setup" || name == "Teardown") { return true; }
+        if (HandlerRegistry.IsTestKindAttr(name)) { return true; }
         if (name == "Ignore" || name == "Skip" || name == "ShouldThrow" || name == "Timeout") { return true; }
         return false;
+    }
+
+    // 上面 8 名触发集里的 **kind 子集**（4 名）——决定 TIDX entry 的 Kind，也决定
+    // DeclEnforcer._passTestAttrEnforce 的诊断码（Test→E0911 / Benchmark→E0912 /
+    // Setup·Teardown→E0915）。修饰类 attr（Skip/Ignore/ShouldThrow/Timeout）不在其中：
+    // 它们骑在同一声明上，位置/签名由所修饰的 kind attr 的检查覆盖。
+    // 名字知识留在注册表（PR1b 原则：逻辑不变，识别改注册表），不散到消费方。
+    public static bool IsTestKindAttr(string name) {
+        return name == "Test" || name == "Benchmark" || name == "Setup" || name == "Teardown";
     }
 }

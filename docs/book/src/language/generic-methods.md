@@ -113,6 +113,10 @@ flowchart LR
   串池、并关掉 native 快路径门，而全仓 112 处隐式泛型调用全是不消费型参的 `Array.Copy<T>`
   ⇒ 纯回归。⇒ **本页「非泛型调用逐字节不变」的不变量不受推断影响**；callee 真消费型参时
   由 **E0455** 要求显式写出 `<T>`。语义细节见 [generics.md §类型实参推断](generics.md)。
+  - ✅ **lambda 实参也参与推断**（2026-09-11，change `generic-inference-lambda-args`）：`Map(nums, n => n*n)`
+    / `Array.Sort(xs, (a,b) => b-a)` 这类**省略 `<>` + 无标注 lambda** 现在能编能跑——从非-lambda 实参或
+    lambda 标注推出型参、只代换 Func 形参位、据此重绑 lambda 拿具体类型。见
+    [generics.md §lambda 实参驱动推断](generics.md)。
 
 ## 方法级形参转发（add-generic-activator）
 

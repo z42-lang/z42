@@ -136,17 +136,32 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 |-------|--------------------------------|----------------|
 | E0916 | NativeImportSynthesisFailure   | (a) `import T from "lib";` 中 `T` 不在 manifest 的 `types[]` 中；(b1, **unsupported-shape**) manifest 某 method 的 `params` / `ret` 用了 C11e 白名单外的类型形态（白名单：primitives / `Self` / `*mut/const Self` / `*const c_char` (param-only) / `*mut/const <Imported>`）——错误信息包含当前已 import 的 native type 列表；(b2, **unknown-type**) `*mut/const <X>` 中 X 不是 `c_char` / `Self`，且未在当前 CompilationUnit 中 `import`——错误信息含 ``import X from "...";`` 提示；(b3) `*const c_char` / `*mut c_char` 出现在 ret 位置——错误信息含 "c_char return"、"C11f"（ownership 协议未定，留 C11f）；(c) 同名 type 被两条 import 声明但 lib 不同；(d) `kind=="method"` 的 entry 第一参数不是 `*mut/const Self`；(e) `DefaultNativeManifestLocator` 在 `<sourceDir>` 与 `Z42_NATIVE_LIBS_PATH` 中均找不到 `<lib>.z42abi` |
 
-### E0911 / E0912 / E0914 / E0915（R4.A 已启用，2026-04-30）
+### E0911 / E0912 / E0915（enforce-test-attr-placement 重新启用，2026-09-11）
 
-由 spec [`compiler-validate-test-attributes`](../../spec/archive/2026-04-30-compiler-validate-test-attributes/) (R4) 钉死；R1.C parser 收集 `[Test]` / `[Benchmark]` / `[Skip]` / `[Setup]` / `[Teardown]` / `[Ignore]` 6 个 attribute 后，本 pass 在 TypeCheck 之后、IrGen 之前校验签名 + 组合合法性。实施位置：[`src/compiler/z42.Semantics/TestAttributeValidator.cs`](../../src/compiler/z42.Semantics/TestAttributeValidator.cs)。
+> ⚠️ **历史更正**：本节此前写「R4.A 已启用（2026-04-30）」并指向
+> `src/compiler/z42.Semantics/TestAttributeValidator.cs`。那份实现属**已退休的 C# 编译器**，
+> **自举迁移时未移植到 z42c** —— 三个码在 `DiagnosticCodes.z42` 定义齐全但**全仓零引用**，
+> 即长期处于**未实现**状态，而本文档一直声称已启用。2026-09-11 由
+> [`enforce-test-attr-placement`](../../spec/archive/2026-09-11-enforce-test-attr-placement/) 补回。
+
+现实施位置：[`src/compiler/z42c.semantics/src/DeclEnforcer.z42`](../../../src/compiler/z42c.semantics/src/DeclEnforcer.z42)
+的 `_passTestAttrEnforce`，挂在 `SymbolCollector` 的三个公开入口（与 E0444/E0445/E0447 三个后缀 pass 并列），
+**纯语法检查**（不依赖符号表）。
+
+强制五条规则：**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、**无参数**、
+**非泛型**、**有方法体**。位置违规（第一条）只报一条即返回；其余四条各报一次。
+
+> **相位约束**：本 pass 必须在 `HandlerRegistry.RunAst` 之后 —— `BenchmarkDesugar` 会把合法的
+> form-2 `[Benchmark] void f(Bencher b)` 脱糖成零参 wrapper，在其之前查「无参数」会让全仓
+> benchmark 全部误报。
 
 | Code   | Title                            | When it occurs |
 |--------|----------------------------------|----------------|
-| E0911  | TestSignatureInvalid             | `[Test]` 函数签名错误：必须 `fn() -> void`、不能泛型；`[Test]` 与 `[Benchmark]` 互斥 |
-| E0912  | BenchmarkSignatureInvalid        | `[Benchmark]` 部分签名校验：返回 void、不能泛型。**完整** "首参为 Bencher" 校验等 R2.C 提供 Bencher 类型后启用 |
-| E0913  | ShouldThrowTypeInvalid           | （**预留**，R4.B）`[ShouldThrow<E>]` 中 E 不存在 / 非 Exception 子类型 / 未搭配 `[Test]`；当前 parser 不支持泛型 attribute 语法，故未被触发 |
-| E0914  | SkipReasonMissing                | `[Skip]` 缺 `reason` 参数（或 reason 为空字符串）；或 `[Skip]` / `[Ignore]` 单独使用（必须搭配 `[Test]` / `[Benchmark]`） |
-| E0915  | SetupTeardownSignatureInvalid    | `[Setup]` / `[Teardown]` 签名错误（需 `fn() -> void`）；或与 `[Test]` / `[Benchmark]` / `[Skip]` / `[Ignore]` 同函数标注（互斥） |
+| E0911  | TestSignatureInvalid             | `[Test]` 违反五条规则之一（零接收者 / `void` / 无参 / 非泛型 / 有体）|
+| E0912  | BenchmarkSignatureInvalid        | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法）|
+| E0913  | ShouldThrowTypeInvalid           | **未实现（跟进项）**：`[ShouldThrow<E>]` 中 E 不存在 / 非 Exception 子类型。需符号表判继承链，非纯语法 → 属另一相位 |
+| E0914  | SkipReasonMissing                | **未实现（跟进项）**：`[Skip]` 缺 `reason`；或 `[Skip]`/`[Ignore]` 孤儿使用（会让 TIDX 多一条凭空的 skipped entry，但不崩）|
+| E0915  | SetupTeardownSignatureInvalid    | `[Setup]` / `[Teardown]` 违反同五条规则 |
 
 ---
 

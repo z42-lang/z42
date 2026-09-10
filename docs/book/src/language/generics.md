@@ -474,10 +474,10 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 
 | | 显式 `Foo<int>(…)` | 推断 `Foo(…)` |
 |---|---|---|
-| 代换时机 | `_withDefaults` **之前** | `_withDefaults` **之后** |
-| 影响面 | 实参绑定（含 lambda 形参类型）+ 诊断 | **仅诊断** |
+| 代换时机 | `_withDefaults` **之前** | 非-Func 位：`_withDefaults` **之后**（仅诊断）；**Func 位：之前**（见下 lambda 节） |
+| 影响面 | 实参绑定（含 lambda 形参类型）+ 诊断 | 非-lambda 位：仅诊断；**lambda 位：实参绑定 + 诊断** |
 | 回灌 `MethodTypeArgs` | 照旧写（本来就写） | **不写**（design D4） |
-| 自举字节 | 会漂（闭包形参类型进 zbc），走两代收敛 | 零漂移，由构造保证 |
+| 自举字节 | 会漂（闭包形参类型进 zbc），走两代收敛 | 零漂移（build 源零命中省略-`<>`+lambda 形态，不动点 3/3 兜底） |
 
 推断路径那条「代换结果绝不回灌」的不变式**不受影响**：它针对的是**推断出来**的类型实参
 （不回灌是数据裁决的结果，见下）；显式写出的类型实参不在其约束范围内——`Sort<int>` 的签名
@@ -489,6 +489,36 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 校验，搬运落到非泛型 native 原语 `CopyRange`）⇒ 回灌是纯回归。代价由 **E0455** 兜住：callee 体内
 真消费型参（`typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` **转发**给嵌套泛型调用）
 时，省略尖括号直接报错、要求显式写出——把静默错值换成编译错误。
+
+### lambda 实参驱动推断（2026-09-11 `generic-inference-lambda-args`）
+
+省略尖括号时，**lambda 实参也参与型参推断**——这是让 `Map(nums, n => n * n)` /
+`Filter(nums, n => n > 4)` / `Array.Sort(xs, (a, b) => b - a)` 这类**无标注 lambda** 能编、能跑的关键。
+两个推断源：
+
+- **源①（非-lambda 实参）**：型参从数组 / seed 等普通实参推出（如 `Array.Sort<T>(T[], Func<T,T,int>)`
+  的 `T` 从 `xs` 推出）。
+- **源②（lambda 自身标注）**：型参**只**出现在 Func 形参位时（`Compose<T>(Func<T,T>, Func<T,T>)`），
+  从 lambda **带标注**的形参类型推出（`Compose((int x) => …, (int y) => …)` ⇒ `T = int`）。
+
+推断出的型参**只代换 Func 形参位**（`MethodTypeArgSubst.SubstituteFuncParams`），据此在**绑定 lambda
+之前**把目标从 `Func<T,…>` 换成 `Func<int,…>`，于是**无标注 lambda 形参拿到具体类型**、体内运算定型、
+发射具体 opcode。**非-Func 形参位保持原裸型参**——非-lambda 实参的绑定 / 装箱 / params 展开 / 默认值
+逐字节不变（`Array.Copy<T>` 等无 Func 位的隐式泛型调用零触碰）。这也解除了一个既存缺陷：此前 lambda
+位的裸 `T` 会与其它实参推出的绑定**冲突**、令整条推断失败（连 `where` 都不校验）。
+
+**两条边界**：
+
+- **无标注纯 A 无解**：型参只在 lambda 里、**且该 lambda 形参无标注**（`Compose((x) => …)`）——鸡蛋
+  依赖（不绑体拿不到型参、不知型参绑不了体），保持今天行为（静默）。C# 靠 target-typing 多阶段推断
+  部分破解，z42 暂不引入。**有标注**（`(int x) => …`）经源②可解。
+- **只在 lambda 返回位的型参不回灌**：`Map<T,U>(source, Func<T,U> f)` 的 `U`——`T` 推出后代换进
+  `Func<T,U>` 使 lambda **体**能编，但 `U` 不回灌（同上「不回灌」原则）⇒ 调用方看到的返回类型
+  `List<U>` 里 `U` 仍是裸型参。
+
+> 与「显式 `<>` 全代换」的区别：显式路径代换**整条**签名（用户显式要求、接受全面字节变化）；
+> 本推断路径**只**放开「lambda 重绑」这一条通道，其余对非-lambda 位一律关闭 ⇒ 对自举 / stdlib 构建
+> 零字节漂移（build 源里没有「省略 `<>` + lambda」形态；不动点 3/3 gen1==gen2 兜底）。
 
 ### 限制（本阶段）
 
