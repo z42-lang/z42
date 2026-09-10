@@ -1,6 +1,6 @@
 # Tasks: `methodof` 方法引用表达式（add-method-reference）
 
-> 状态：🟡 **DRAFT —— 待 User 确认后才进 IMPL** | 创建：2026-09-06 | 见 [proposal.md](proposal.md)
+> 状态：🔵 **IMPL —— User 已确认（2026-09-11）** | 创建：2026-09-06 | 见 [proposal.md](proposal.md)
 >
 > 本变更属 **lang 类**，按 [CLAUDE.md](../../../.claude/CLAUDE.md) 走「DRAFT → User 确认 → IMPL →
 > GREEN → COMMIT」。① 组是**阻塞项**：其中任一条证伪，设计需返工，不得直接进 ② 组。
@@ -24,17 +24,50 @@
       （`_synthFactory` 传 `new Param[0], 0, true, body`），而 attribute 可能写在类内部并引用
       该类可见的类型（嵌套类型 / private 类型 / 该 CU 的 usings）。
       **typeof 不通 ⇒ methodof 更不通，须先修工厂路径，本提案范围随之扩大。**
-- [ ] 1.2 `typeof` 的 emit 具体走哪条 runtime 路径（`TypeOpEmitter.z42:61-64` 往下）
-      —— `methodof` 要照抄；决定新 builtin 的形状与注册位置。
-- [ ] 1.3 `TypeNameResolver.SurfaceTypeName` 对**泛型参数 `T`** 能否正确拼回 `T`
-      —— 参数类型匹配依赖它。已知它输出 TSIG 规范名（`byte[]` → `u8[]`），
-      泛型参数走 `t.Name()` 兜底路径（`TypeNameResolver.z42:86-89`），未验。
-      同时确认用户输入侧的 alias 归一（用户写 `byte[]`，渲染出 `u8[]`）能否复用
-      `PrimModel.SurfaceName` 的映射——**不做归一会出现「明明写对了却报不存在」**。
-- [ ] 1.4 模块级驻留缓存放在哪一层
-      —— 反射侧现在**零缓存**：`invoke.rs:169-200` 每次 `module.func_index.get(qualified)`
-      查 HashMap，`FieldIC`/`VCallIC` 在 `corelib/` 下零命中，无现成 IC 可复用。
-      参照 `bytecode.rs:530 resolved: OnceLock<ResolvedTokens>` + `tokens.rs:26 UNRESOLVED` 哨兵。
+- [x] 1.2 **`typeof` 的 emit runtime 路径** —— ✅ **2026-09-11 查清，结论比预想省事**：
+      发射侧不需要新 IR 指令。`TypeOpEmitter._emitBox`（同文件 :100-112）已证明范式——
+      `BuiltinInstr(dst, "__box_struct", args, n)` **复用既有 Builtin opcode，零新 opcode、零格式 bump**。
+      ⇒ `methodof` 走 `ConstStr(qualified)` + `BuiltinInstr(dst, "__methodof", [strReg], 1)`。
+      builtin 注册在 `src/runtime/src/corelib/builtin_table_ext.rs` 的 `PART2` **表尾追加**
+      （BuiltinId = 表下标、会烤进 zbc，**只可表尾追加**，见 builtin_table.rs:1-8）。
+      runtime 侧 `build_method_info(ctx, simple, qualified, is_virtual)`
+      （`reflection/methods.rs:206`）直接吃 qualified 名，**不新造类型**。
+      **⭐ 最大发现：qualified 名不用自己拼签名编码。** `MethodSymbol.RegKey`
+      （`Symbol.z42:17`）本就是「注册键 = Methods 映射键 = IR 名 = BoundCall 目标名」，
+      形态 `Name` / `Name$arity` / `Name$arity$typesig`（方案A 全签名 mangle，
+      stabilize-instance-dispatch-keys）——**重载身份是既有机制**。发射名 =
+      `QualifyClass(_classShortName(ct)) + "." + ms.RegKey`，与 `EmitContext.ResolveSealedTarget`
+      （:280）和 `TestIndexBuilder`（:61-63）**逐字节同款**。实测佐证：`Demo.Main.Main$0`
+      是本轮实跑通的 VM 入口名。
+- [x] 1.2b **🔴 新发现的实现约束（proposal 未记）：imported 类的继承方法必须查 `Deps` 校验。**
+      TSIG 把**继承**方法展平进每个派生类的 `Methods`（`ImportedSymbolLoader._fillClass:266-293`）
+      ⇒ `ct.Methods` 命中**不等于**本类声明 ⇒ `QualifyClass(派生类)+"."+RegKey` 可能指向
+      **一个从未发射的函数** → 运行期 `undefined function`。`ResolveSealedTarget` 已用
+      `Deps.Statics.ContainsKey(fq)`（`_depHasFunction`，EmitContext.z42:264）解决同一问题并
+      沿基链上溯找真正声明类。**`methodof` 必须照做**，否则 `methodof(Derived.继承来的方法)`
+      会静默发出坏名字——正是本特性要根治的那类静默失效。
+- [x] 1.3 **`SurfaceTypeName` 对泛型参数 + 用户输入侧 alias 归一** —— ✅ **2026-09-11 查清，
+      两侧都已现成，`TypeNameResolver` 无需改动**（可从 Scope 表移除 MODIFY 标记）：
+      · **泛型参数 `T`**：`_resolvedTypeName` 末尾落到 `PrimModel.SurfaceName(n)`，而
+        `SurfaceName`（`PrimModel.z42:141-145`）对非内建名 `Code(...) < 0` → **原样返回**
+        ⇒ `T` 拼回 `T`，幂等。
+      · **用户输入侧归一**：`TypeNameResolver.TsigTypeName(TypeExpr)`（:16-33）**已经**做了
+        `_canonName` 别名归一（`byte→u8` / `sbyte→i8` / `short→i16` / `ushort→u16` /
+        `uint→u32` / `ulong→u64`），且数组/泛型实参递归同款。
+      ⇒ 匹配算法两侧落在**同一套字母表**：用户 `TypeExpr` 走 `TsigTypeName`，
+        候选签名 `Z42Type` 走 `SurfaceTypeName`，逐位字符串比对即可。
+        「明明写对却报不存在」的坑**不会发生**。
+- [x] 1.4 **驻留缓存放哪层** —— ✅ **2026-09-11 查清，结论是 v1 不做，且这是「对称」而非「偷懒」**：
+      实测 **`typeof` 今天自己就零缓存**——`exec_instr.rs:234-241` 每次执行都
+      `make_constructed_type` **重新分配一个新 `Std.Type`**。本轮实跑确认
+      `typeof(Box) == typeof(Box)` → **`false`**。
+      ⇒ 给 `methodof` 单独加驻留缓存会造成两个后果：① `methodof(X.M) == methodof(X.M)`
+      变 `true` 而 `typeof(T) == typeof(T)` 仍 `false`，**两个号称对称的特性行为不对称**；
+      ② 悄悄给 `MethodInfo` 引入了对象身份语义，而这该是一次**显式的语义决策**。
+      **裁决：v1 与 `typeof` 严格对称、不缓存。** 反射对象驻留是独立优化项，
+      要做就 `typeof` / `methodof` 一起做、并同时定清对象身份语义。
+      （原 tasks 4.3「驻留缓存」随之删除；反射侧零缓存的事实记录保留：
+      `invoke.rs:169-200` 每次查 HashMap、`FieldIC`/`VCallIC` 在 `corelib/` 下零命中。）
 
 ## ② 语法层
 
@@ -68,7 +101,8 @@
       运行期零签名匹配痕迹。体积与一次普通 `Call` 等同。
 - [ ] 4.2 runtime 新 builtin `__methodof(qualified)` → `MethodInfo`
       —— 复用 `methods.rs:206 build_method_info`，**不新造类型**
-- [ ] 4.3 驻留缓存（按 1.4 的结论落地）；顺带给反射 `Invoke` 一条句柄化快路径
+- [x] 4.3 ~~驻留缓存~~ —— **按 1.4 结论取消**：与 `typeof` 对称即不缓存。反射对象驻留
+      （含 `Invoke` 句柄化快路径）留作独立优化项，需与对象身份语义一并裁决。
 
 ## ⑤ 诊断（码待分配，E04xx 段）
 
@@ -91,19 +125,42 @@
 - [ ] 6.5 **jit 双验**：`xtask test stdlib --mode jit`
       —— 本地 `xtask test` 只跑 interp，新增反射路径必须补跑
 
-## ⑦ 文档
+## ⑦ span 地基（User 2026-09-06 裁决；2026-09-11 补记进 tasks）
 
-- [ ] 7.1 `docs/book/src/language/methodof.md`：语法 / 与 `typeof` 对称 / 重载消歧 /
+> **为什么在本 PR 内**：proposal「IDE 支持的诚实边界」节记录了 User 的裁决——本提案顺带铺
+> 「AST 名字级 span」与「符号声明位置」两块共用地基，**且必须在本 PR 内接一个可断言的消费方**，
+> 否则就是「铺了没人走的路、无法验证铺对没有」。这条裁决此前**只写进了 proposal、没进 tasks**
+> （2026-09-11 开工前核对时发现的提案内部不一致，已补齐）。
+>
+> 消费方选定为 **`methodof` 自己的诊断下划线**：⑤ 组要求「列出全部可用重载」，若下划线指在整个
+> `methodof(...)` 表达式上而不是出问题的成员名上，诊断质量直接打折 —— 地基与特性是同一件事。
+
+- [ ] 7.1 `MemberExpr` 记录**成员名自身的 span**（现状：`ExprParser.z42:23` 直接复用 target 的
+      span，成员名的字节区间根本没被记录）。新增字段而非改写既有 `Span`，避免动既有诊断位置。
+- [ ] 7.2 `MethodSymbol` / `FieldSymbol` 记录**声明位置 span**（现状：`Symbol.z42:9-56` 连声明
+      位置都不存）。本地符号由 `SymbolCollector` 填；**imported 符号无 span**（跨包元数据不带
+      位置信息）→ 显式留空并注释说明，不假装有。
+- [ ] 7.3 **接上可断言的消费方**：把成员解析类诊断的下划线区间从「整个表达式」收窄到「成员名
+      本身」，含 `methodof` 的 ⑤ 组诊断。
+- [ ] 7.4 **门**：golden 诊断位置断言守住 7.3（位置回退即红）。**必须先跑退回对照**——
+      把收窄改回去、确认 golden 真的变红，否则就是又一个「从不失败的门」
+      （见 memory `audit-silent-gates-program`）。
+- [ ] 7.5 **不做**：LSP 本体、引用索引、find-references / rename —— 依赖 roadmap 0.5.7 的
+      `z42-lsp` 里程碑，独立立项。本组只铺地基 + 兑现一个消费方。
+
+## ⑧ 文档
+
+- [ ] 8.1 `docs/book/src/language/methodof.md`：语法 / 与 `typeof` 对称 / 重载消歧 /
       指不了的方法 / **`&` 留给非托管函数指针的分工与理由**
-- [ ] 7.2 `docs/book/src/SUMMARY.md` 挂目录
-- [ ] 7.3 归档（`changes/` → `archive/`）**随本 PR 一起提交**，不得合并后单独直推 main
+- [ ] 8.2 `docs/book/src/SUMMARY.md` 挂目录
+- [ ] 8.3 归档（`changes/` → `archive/`）**随本 PR 一起提交**，不得合并后单独直推 main
 
-## ⑧ 自举纪律（必须遵守）
+## ⑨ 自举纪律（必须遵守）
 
-- [ ] 8.1 本变更只落「z42c **支持** `methodof`」；z42c 自身源码 / stdlib / xtask
+- [ ] 9.1 本变更只落「z42c **支持** `methodof`」；z42c 自身源码 / stdlib / xtask
       **一律不得使用** `methodof`——按 [bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md)
       的 support 先行、use 晚一个 nightly 纪律。
-- [ ] 8.2 落地后跑 `xtask test bootstrap` 确认无语法越界（上一版 nightly 的 z42c 仍能编当前源）
+- [ ] 9.2 落地后跑 `xtask test bootstrap` 确认无语法越界（上一版 nightly 的 z42c 仍能编当前源）
 
 ## GREEN 门
 
@@ -112,3 +169,4 @@
 - [ ] G3 自举字节不动点 gen1 == gen2
 - [ ] G4 `xtask test lines` 全绿（超限文件只能缩不能涨）
 - [ ] G5 `xtask test bootstrap` 无越界
+- [ ] G6 ⑦ 组的 golden 诊断位置门**跑过退回对照**（改回旧位置必须变红）

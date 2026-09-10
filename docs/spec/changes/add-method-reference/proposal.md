@@ -146,6 +146,40 @@ zbc 的 **STRS 段就是字符串池**（`ZbcWriter.z42:38,58` `InternPoolString
 「保留 AST 原始名、发射时 `QualifyClass` 回 FQ 名」的手法，正是为了解决「结构化后 FQN 蒸发」。
 `methodof` 需要同一件事，**照抄即可，不是新机制**。
 
+### 发射形态：复用 `RegKey` + `BuiltinInstr`（2026-09-11 前置验证 2 的产出）
+
+前置验证 2 查清后，发射侧比初稿设想的更省事——**两样都不用新造**：
+
+**① 不新造 IR 指令。** `TypeOpEmitter._emitBox` 已经确立范式：`__box_struct` / `__box_prim`
+都是 `BuiltinInstr(dst, "<name>", args, n)`，**复用既有 Builtin opcode，零新 opcode、零格式
+bump**。`methodof` 同样走 `ConstStr(qualified)` + `BuiltinInstr(dst, "__methodof", [s], 1)`。
+builtin 在 `builtin_table_ext.rs` 的 `PART2` **表尾追加**（BuiltinId = 表下标、会烤进 zbc，
+只可表尾追加），runtime 侧复用 `build_method_info(ctx, simple, qualified, is_virtual)`。
+
+**② 不新造签名编码。** `MethodSymbol.RegKey`（`Symbol.z42:17`）本就是
+「注册键 = `Methods` 映射键 = IR 名 = `BoundCall` 目标名」，形态为
+`Name` / `Name$arity` / `Name$arity$typesig`（方案A 全签名 mangle）。**重载身份是既有机制**，
+`methodof` 的发射名就是：
+
+```
+QualifyClass(_classShortName(ownerCt)) + "." + ms.RegKey
+```
+
+与 `EmitContext.ResolveSealedTarget`（:280）和 `TestIndexBuilder`（:61-63）**逐字节同款**——
+这也再次印证「稳定性 = 普通调用的稳定性」：`methodof` 发的就是调用点会发的那个名字。
+（实跑佐证：本轮验证里 VM 入口名正是 `Demo.Main.Main$0`。）
+
+#### 🔴 由此带出的一条实现约束（初稿未记）
+
+TSIG 会把**继承**方法展平进每个派生类的 `Methods`（`ImportedSymbolLoader._fillClass:266-293`），
+所以 **`ct.Methods` 命中 ≠ 该方法声明于本类**。对 imported 类直接拼
+`QualifyClass(派生类)+"."+RegKey`，可能指向**一个从未发射的函数** → 运行期 `undefined function`。
+
+`ResolveSealedTarget` 早已遇到并解决了同一问题：用 `Deps.Statics.ContainsKey(fq)`
+（`_depHasFunction`，`EmitContext.z42:264`）校验该 FQ 确为真实发射的函数，未命中就沿基链上溯
+找真正的声明类。**`methodof` 必须照做**——否则 `methodof(Derived.继承来的方法)` 会静默发出一个
+坏名字，而「静默失效」正是本特性要根治的东西。
+
 ### `&` 保留给将来的非托管函数指针
 
 `&` **不用于**方法引用。分工按语义划线：
@@ -230,9 +264,9 @@ Lippert 的分析对 z42 同样成立，以下情形 **v1 明确报错、不假�
 | # | 验什么 | 为什么关键 |
 |---|---|---|
 | **0** | ✅ **已验通过（2026-09-06）** —— `[Foo(typeof(Bar))]` 端到端工作，且**与普通代码里的 `typeof` 行为逐条一致**。详见下节 | 330 个 `typeof` 用例**没有一个在 attribute 实参位置**；现有 attribute 实参全是字面量。`methodof` 会是第一个在该位置放非平凡表达式的特性。最可能的坑是**作用域**——工厂函数被合成为**顶层 static 自由函数**（`_synthFactory` 传 `new Param[0], 0, true, body`），而 attribute 可能写在类内部并引用该类可见的类型。**typeof 不通则 methodof 更不通，须先修工厂路径** |
-| 1 | `TypeNameResolver.SurfaceTypeName` 对泛型参数 `T` 能否正确拼回 | 参数类型匹配依赖它；已知它输出 TSIG 规范名（`byte[]`→`u8[]`），泛型参数路径未验 |
-| 2 | `typeof` 的 emit 具体走哪条 runtime 路径 | `methodof` 要照抄；决定新 builtin 的形状 |
-| 3 | 模块级驻留缓存放在哪层 | 反射侧现在**零缓存**（`invoke.rs:169-200` 每次查 HashMap），`FieldIC`/`VCallIC` 在 `corelib/` 零命中，没有现成 IC 可复用 |
+| 1 | ✅ **已验（2026-09-11）** `SurfaceTypeName` 对泛型参数 `T` + 用户输入侧 alias 归一 | **两侧都已现成，`TypeNameResolver` 无需改动**：`PrimModel.SurfaceName` 对非内建名原样返回（`T`→`T`）；`TsigTypeName(TypeExpr)` 已含 `byte→u8` 等归一。匹配两侧落在同一套字母表 |
+| 2 | ✅ **已验（2026-09-11）** `typeof` 的 emit runtime 路径 | **不需要新 IR 指令**：照 `_emitBox` 的 `BuiltinInstr` 范式走 `ConstStr + __methodof` builtin（表尾追加）。**且 qualified 名不用自己拼**——`MethodSymbol.RegKey` 本就是含重载 mangle 的注册键。详见下节 |
+| 3 | ✅ **已验（2026-09-11）** 模块级驻留缓存放在哪层 | **v1 不做**：实测 `typeof` 自己就零缓存（`typeof(Box)==typeof(Box)` → `false`）。单给 `methodof` 加缓存会让两个「对称」特性行为不对称，并悄悄引入对象身份语义。留作独立优化项 |
 
 ### 验证项 0 的实测结果（2026-09-06）
 
@@ -252,8 +286,8 @@ Lippert 的分析对 z42 同样成立，以下情形 **v1 明确报错、不假�
 与 CU usings」**没有发生**——`at.Args` 的原始 AST 被原样搬进工厂体后仍在同一 CU 的绑定环境里解析。
 「零元数据改动」的支点成立，设计不需返工。
 
-> **附带挖出一个 pre-existing 缺陷（已拆独立前置变更 `fix-emit-zbc-swallows-diagnostics`，
-> 本提案 rebase 到其上）**：上表第 5 行那句 `typeof(StringBuilder)` **本来就是错代码**——
+> **附带挖出一个 pre-existing 缺陷 —— ✅ 已由 PR #550 修复并合入 main（2026-09-11 核实）**，
+> 本提案已 rebase 到其上，无需再等：上表第 5 行那句 `typeof(StringBuilder)` **本来就是错代码**——
 > `StringBuilder` 在 `Std.Text`，而测试只写了 `using Std;`。编译器判断完全正确、E0443 也确实
 > raise 了，问题在**错误没能到达任何人眼前**：
 >
@@ -274,9 +308,12 @@ Lippert 的分析对 z42 同样成立，以下情形 **v1 明确报错、不假�
 > 实测写对 `using Std.Text;`、不声明 `z42.text` 时 `typeof(StringBuilder)` 得
 > `Std.Text.StringBuilder` + 24 个方法。曾一度怀疑的「依赖声明校验缺失」**不是缺陷，已排除**。
 >
-> **对本提案的影响**：`methodof` 走同一条「编译期解析 → 发射名字 → 运行期查表」的路径，
-> 必须保证解析失败时**在编译期就报错**、绝不把哨兵发进 IR。前置变更修好 P1/P2 后，
-> `methodof` 只需遵循同一约束即可，不必自己再造一套。
+> **对本提案的影响（P1/P2 均已修复，2026-09-11 核实）**：`methodof` 走同一条
+> 「编译期解析 → 发射名字 → 运行期查表」的路径，必须保证解析失败时**在编译期就报错**、
+> 绝不把哨兵发进 IR。#550 已把 `--emit-zbc` 的诊断门打开、并还清它掀开的欠债，
+> `methodof` 只需遵循同一约束，不必自己再造一套。
+> 另注：#559 已把**持久化类型身份改为全限定名**（短名不是跨命名空间的唯一键），
+> 与本提案「FQN 保全」的方向同源，进一步加固了 `methodof` 发射名的正确性。
 
 ## 参数签名可省略（无重载时）
 
