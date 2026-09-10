@@ -235,7 +235,19 @@ public sealed class NullCondMemberExpr : Expr {
 public sealed class MemberExpr : Expr {
     public Expr   Target;
     public string Name;
-    public MemberExpr(Expr target, string name, Span span) { this.Span = span; this.Target = target; this.Name = name; }
+    // 成员名**自身**的源区间（add-method-reference ⑦ span 地基）。
+    //
+    // 此前只有 `Span`，而 `Span` 直接复用 target 的 span（`ExprParser` 的 `.` 分支），
+    // 于是「没有这个成员」的诊断下划线画在**接收者**上、指不到出问题的那个名字。
+    //
+    // **默认 = Span**，只在真正的源码解析点由 parser 覆写（post-construction，镜像
+    // `MethodDecl.RegKey` 的做法）：desugar 合成的 MemberExpr（event 访问器、primary ctor
+    // 字段赋值等）没有真实名字区间，保持与 Span 一致即可，无需逐点改造。
+    public Span   NameSpan;
+    public MemberExpr(Expr target, string name, Span span) {
+        this.Span = span; this.Target = target; this.Name = name;
+        this.NameSpan = span;
+    }
     public override string Dump() { return "(. " + this.Target.Dump() + " " + this.Name + ")"; }
 }
 

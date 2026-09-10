@@ -230,11 +230,19 @@ public sealed class TypeOpTyper {
 
     // 逃生口：把该名字下**全部**候选连签名列出来，用户照着补参数类型列表即可。
     // Swift 的 `@derivative(of:)` 没留这一步，用户撞上 ambiguous 只能干瞪眼。
+    //
+    // ⑦ span 地基的第二个消费方：本地候选**附上声明位置**（`ms.Decl.Span`），让「去哪儿看」
+    // 也有答案。跨包候选没有 Decl —— 而且跨包元数据里**本来就不带源位置**（TSIG 只有签名），
+    // 所以那里如实留空、不编一个假位置出来。
     private static string _overloadList(MethodSymbol[] cands, int cc) {
         string s = "\n  candidates:";
         int i = 0;
         while (i < cc) {
             s = s + "\n    " + cands[i].Name + "(" + TypeOpTyper._sigParamText(cands[i]) + ")";
+            MethodSymbol ms = cands[i];
+            if (ms.HasDecl && ms.Decl != null) {
+                s = s + "   [declared at " + ms.Decl.Span.Line.ToString() + ":" + ms.Decl.Span.Column.ToString() + "]";
+            }
             i = i + 1;
         }
         return s;

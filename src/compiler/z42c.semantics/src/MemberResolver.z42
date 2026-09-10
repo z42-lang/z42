@@ -97,8 +97,10 @@ public sealed class MemberResolver {
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                 return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
             }
+            // ⑦ span 地基：下划线收窄到**成员名本身**（mem.NameSpan），不再画在整个调用
+            // 表达式（sp）上——「没有这个方法」指的是那个名字，不是整个调用。
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                "no method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
+                "no method `" + mem.Name + "` on `" + ct.Name() + "`", mem.NameSpan);
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // add-target-typed-new：错误路径清 null 占位
             return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
@@ -130,7 +132,7 @@ public sealed class MemberResolver {
                                      MemberResolver._substSelf(ims.Signature.Ret, it), sp);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                "no method `" + mem.Name + "` on interface `" + it.Name() + "`", sp);
+                "no method `" + mem.Name + "` on interface `" + it.Name() + "`", mem.NameSpan);   // ⑦ 同上
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
@@ -362,8 +364,10 @@ public sealed class MemberResolver {
                 this._tc._access.CheckDeprecatedM(mg, m.Name, m.Span);   // add-deprecated-directive
                 return new BoundMethodGroup(target, ct.Name(), m.Name, mg.Signature, m.Span);
             }
+            // ⑦ span 地基：m.Span 复用的是 target 的区间（下划线画在接收者上），
+            // m.NameSpan 才是那个不存在的字段名自己。
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                "no field `" + m.Name + "` on `" + ct.Name() + "`", m.Span);
+                "no field `" + m.Name + "` on `" + ct.Name() + "`", m.NameSpan);
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
     }
 

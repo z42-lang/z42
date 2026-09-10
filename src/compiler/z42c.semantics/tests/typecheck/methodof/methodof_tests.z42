@@ -56,6 +56,8 @@ void test_methodof_omitted_signature_on_overload_is_error() {
     // 逃生口：诊断里要直接给出补签名的写法
     Assert.Contains("methodof(Logger.Log(", SemanticDump.FirstErrorMessage(src));
     Assert.Contains("candidates:", SemanticDump.FirstErrorMessage(src));
+    // ⑦ span 地基的第二个消费方：本地候选附声明位置，逃生口连「去哪儿看」都答了。
+    Assert.Contains("[declared at", SemanticDump.FirstErrorMessage(src));
 }
 
 [Test]
