@@ -66,6 +66,16 @@ public sealed class ClassDescBuilder {
             Z42ClassType ct = rt as Z42ClassType;
             if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
         }
+        if (rt is Z42InterfaceType) {
+            Z42InterfaceType it = rt as Z42InterfaceType;
+            if (it.Namespace != "") { return it.Fqn(); }
+        }
+        // 构造泛型（`List<int>` → Z42InstantiatedType）：取其定义类的 FQN 作基名；
+        // 实参由调用方递归走同一文法，故此处只负责基名。
+        if (rt is Z42InstantiatedType) {
+            Z42ClassType dct = (rt as Z42InstantiatedType).Def;
+            if (dct != null && dct.PrimCode() < 0 && dct.Namespace != "") { return dct.Fqn(); }
+        }
         return "";
     }
 

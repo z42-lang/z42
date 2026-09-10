@@ -1,0 +1,4 @@
+namespace Alpha;
+public class Widget { public int a; }
+// 在自己的 ns 里用**非限定**短名引用 —— 修前持久化成 "Widget"，与 Beta.Widget 撞键。
+public class HolderA { public Widget w; }

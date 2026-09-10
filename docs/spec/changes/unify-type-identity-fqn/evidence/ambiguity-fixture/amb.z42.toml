@@ -1,0 +1,10 @@
+[project]
+version = "0.1.0"
+description = "cross-ns same-short-name type identity gate"
+
+[sources]
+include = ["*.z42"]
+
+[[exe]]
+name  = "amb"
+entry = "App.Main"

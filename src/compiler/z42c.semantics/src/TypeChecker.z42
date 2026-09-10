@@ -407,7 +407,7 @@ public sealed class TypeChecker {
     //     循环前一次性 hoist 到共享 symbols.ClassConstraints，并行段只读 Check、不重复 Resolve。单文件 /
     //     dump / 测试走 2-arg 版（true），行为不变。
     public SemanticModel Infer(CompilationUnit cu, SymbolTable symbols, bool resolveConstraints) {
-        SymbolTable view = symbols.WithAliases(SymbolTable.BuildAliases(cu));   // 本 CU 文件级别名（per-file 隔离）
+        SymbolTable view = symbols.WithCu(cu);   // 本 CU 文件级别名（per-file 隔离）
         var model = new SemanticModel(view);
         this._curCu = cu;   // add-deprecated-directive：use-site 弃用告警的 #suppress 源
         // 建本 CU 的 #suppress 区间集（cu.SuppressRegions 是 PR3c 既有字段）。语义内构造 → F2 安全。

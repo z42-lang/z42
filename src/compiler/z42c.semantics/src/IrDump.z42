@@ -206,7 +206,7 @@ public static class IrDump {
         ConstraintChecker _cc = new ConstraintChecker(coll.Diags);
         int cci = 0;
         while (cci < count) {
-            _cc.Resolve(cus[cci], symbols.WithAliases(SymbolTable.BuildAliases(cus[cci])));
+            _cc.Resolve(cus[cci], symbols.WithCu(cus[cci]));
             cci = cci + 1;
         }
         // parallelize-package-compile ★②：per-file typecheck+codegen 并行（同层前置已冻结共享态：
@@ -268,7 +268,7 @@ public static class IrDump {
         // ClassConstraints 为空 → Check 第一行即返回 ⇒ **同一份源码 `--emit-zbc` 能过、放进工程就红**。
         // golden 语料（src/tests/**）走的正是这条路径，于是 where 约束在整个 golden 面上形同虚设，
         // 「GREEN 全绿」也就不构成「真实工程无违反」的证据。
-        new ConstraintChecker(diags).Resolve(cu, symbols.WithAliases(SymbolTable.BuildAliases(cu)));
+        new ConstraintChecker(diags).Resolve(cu, symbols.WithCu(cu));
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.Deps = deps;
@@ -375,7 +375,7 @@ public static class IrDump {
         // ClassConstraints 为空 → Check 第一行即返回 ⇒ **同一份源码 `--emit-zbc` 能过、放进工程就红**。
         // golden 语料（src/tests/**）走的正是这条路径，于是 where 约束在整个 golden 面上形同虚设，
         // 「GREEN 全绿」也就不构成「真实工程无违反」的证据。
-        new ConstraintChecker(diags).Resolve(cu, symbols.WithAliases(SymbolTable.BuildAliases(cu)));
+        new ConstraintChecker(diags).Resolve(cu, symbols.WithCu(cu));
         var model = new TypeChecker(diags).Infer(cu, symbols);
         var gen = new IrGen();
         gen.SourceStem = CuPreprocess._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致

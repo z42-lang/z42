@@ -237,6 +237,26 @@ public sealed class FunctionEmitter {
             Z42ClassType rct = resolved as Z42ClassType;
             if (rct.PrimCode() < 0 && rct.Namespace != "") { return rct.Fqn(); }
         }
+        if (resolved is Z42InterfaceType) {
+            Z42InterfaceType rit = resolved as Z42InterfaceType;
+            if (rit.Namespace != "") { return rit.Fqn(); }
+        }
+        // 构造泛型：基名 FQ 化，实参递归套用同一文法（`List<int>` → `Std.List<int>`）。
+        // `Z42InstantiatedType.Name()` 是用 `Def.Name()`（短名）拼的，直接用会漏掉基名的 ns。
+        if (resolved is Z42InstantiatedType) {
+            Z42InstantiatedType rin = resolved as Z42InstantiatedType;
+            Z42ClassType rdef = rin.Def;
+            if (rdef != null && rdef.PrimCode() < 0 && rdef.Namespace != "") {
+                string acc = rdef.Fqn() + "<";
+                int ai = 0;
+                while (ai < rin.ArgCount) {
+                    if (ai > 0) { acc = acc + ", "; }
+                    acc = acc + this._sigArgTypeName(rin.TypeArgs[ai]);
+                    ai = ai + 1;
+                }
+                return acc + ">";
+            }
+        }
         // unify-value-types Phase 1：翻转后内建 leaf（int/string/object…）ResolveTypeP→Z42ClassType(wrapper)，
         // Name()="Int32"/"String"/"Object"；SIGS 须回 baseline keyword 拼写（"int"/"string"/"object"），否则
         // SIGS 泄漏 wrapper 名（`int[]`→`Int32[]`）→ 重建 stdlib 类型名不一致 → z42c 自编译误编。alias-prim
@@ -244,6 +264,38 @@ public sealed class FunctionEmitter {
         // object 逐字复刻 baseline Prim.Name()，非内建原样。
         return PrimModel.SurfaceName(resolved.Name());
     }
+    // unify-type-identity-fqn：**已解析类型** → 持久化文法串（泛型实参递归用；与 _sigTypeName 同口径，
+    // 但入参是 Z42Type 而非 TypeExpr——实参在 Z42InstantiatedType 里已是解析好的类型对象）。
+    private string _sigArgTypeName(Z42Type t) {
+        if (t == null) { return "unknown"; }
+        if (t is Z42UnknownType) { return "unknown"; }
+        if (t is Z42ArrayType) { return this._sigArgTypeName((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
+        }
+        if (t is Z42InterfaceType) {
+            Z42InterfaceType it = t as Z42InterfaceType;
+            if (it.Namespace != "") { return it.Fqn(); }
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it2 = t as Z42InstantiatedType;
+            Z42ClassType d = it2.Def;
+            string bn = (d != null && d.PrimCode() < 0 && d.Namespace != "") ? d.Fqn() : t.Name();
+            if (d != null && d.PrimCode() < 0 && d.Namespace != "") {
+                string acc = bn + "<";
+                int ai = 0;
+                while (ai < it2.ArgCount) {
+                    if (ai > 0) { acc = acc + ", "; }
+                    acc = acc + this._sigArgTypeName(it2.TypeArgs[ai]);
+                    ai = ai + 1;
+                }
+                return acc + ">";
+            }
+        }
+        return PrimModel.SurfaceName(t.Name());
+    }
+
     private bool _isAliasPrim(string n) {
         return n == "byte" || n == "sbyte" || n == "short" || n == "ushort" || n == "uint" || n == "ulong";
     }

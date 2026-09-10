@@ -22,6 +22,13 @@ public sealed class ImportedSymbols {
     public StrMap ClassNsAll;
     public StrMap FunctionNamespaces; // 自由函数名 → 原 ns（QualifyFreeFunc：跨包裸调按源 ns 限定；值存 StrBox）
     public StrMap Interfaces;       // 短名 → Z42InterfaceType（接口骨架；供 _passClassStubs 基表判别）
+    // unify-type-identity-fqn：**FQN 视图**（对称 SymbolTable.ClassesByFqn）。`Classes` / `Interfaces`
+    // 按短名键，同短名跨 ns 只活一份（first-wins）⇒ 无法承载 FQ 名的精确解析。发射端已改发 FQN，
+    // 消费端必须有对应的 FQ 查找，否则 `Std.Type` 在短名表里恒 miss、落到末尾 Builtin 兜底成
+    // 「名叫 Std.Type 的垃圾类」。键 = `<ns>.<clKey>`（clKey 已含条件 arity-mangle）。
+    public StrMap ClassesByFqn;
+    public StrMap InterfacesByFqn;
+    public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
     public StrMap EnumConsts;       // "EnumType.Member" → StrBox(long 值)（镜像 SymbolTable.EnumConsts）
     // add-associated-types PR-1：导入类的 where 约束（键与 Classes 同一 clKey，即条件 arity-mangle，
@@ -35,6 +42,9 @@ public sealed class ImportedSymbols {
         this.ClassNsAll = new StrMap();
         this.FunctionNamespaces = new StrMap();
         this.Interfaces = new StrMap();
+        this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
+        this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
+        this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
         this.EnumTypeNames = new StrMap();
         this.EnumConsts = new StrMap();
     }
@@ -172,6 +182,9 @@ public static class ImportedSymbolLoader {
                             nct.InterfaceCount = cl.InterfaceCount;
                         }
                         r.Classes.Put(clKey, nct);
+                        // unify-type-identity-fqn：FQN 视图与短名表并存。短名表保留 first-wins 语义
+                        // （型参 / 无 ns 的东西仍走它）；FQN 视图每一份都留，供精确解析。
+                        r.ClassesByFqn.Put(nct.Fqn(), nct);
                         r.ClassNamespaces.Put(clKey, new StrBox(em.Namespace));
                         // add-associated-types PR-1：跨包 where 约束。键与 Classes 同为 clKey，
                         // 与 SymbolTable.ConstraintKey 的条件 arity-mangle 口径一致。
@@ -186,11 +199,13 @@ public static class ImportedSymbolLoader {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
+                        nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
                         nift.IsImported = true;                 // complete-class-access-control ④：来自依赖 zpkg（跨包）→ internal 接口不可引用
                         nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
                         // add-associated-types PR-3：导入接口的型参名进符号表（与本包 StubCollector 对称）。
                         nift.TypeParamNames = iz.TypeParams; nift.TypeParamCount = iz.TpCount;
                         r.Interfaces.Put(iz.Name, nift);
+                        r.InterfacesByFqn.Put(nift.Fqn(), nift);   // unify-type-identity-fqn
                         // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把
                         // `: IFace` / `as IFace` 正确 FQ 化为「声明包.IFace」（否则退化当前包 ns →
                         // 实现类与 cast 目标名各自错限定、跨包 is/as/接口派发失配）。
@@ -204,6 +219,7 @@ public static class ImportedSymbolLoader {
                     ExportedEnumZ ez = em.Enums[ec];
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
+                        r.EnumTypeNamesByFqn.Put(em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, "enum");   // unify-type-identity-fqn
                         // make-enum-distinct-type 1.5：imported enum 也要记源 ns。此前只填
                         // EnumTypeNames/EnumConsts（够把 `Color.Green` 折成常量），但**类名限定**
                         // 查的是 ClassNamespaces —— 缺了它，消费方的 `QualifyClass("Color")` 落回
@@ -514,6 +530,15 @@ public static class ImportedSymbolLoader {
         // 不动点，且反射面 `FieldType.Name == "unknown"` 有运行期后果 → 保留为独立 change（bug B3）。
         if (name == "unknown") { return new Z42UnknownType(); }
         if (ImportedSymbolLoader._isPrim(name)) { return Z42ClassType.Builtin(name); }
+        // unify-type-identity-fqn：**FQ 名优先精确解析**。发射端现在写全限定名，短名表（按短名键、
+        // 同短名跨 ns 只活一份）承载不了它 —— 不在这里命中就会一路落到末尾 `Builtin(name)` 兜底，
+        // 变成「名叫 Std.Type 的垃圾类」。只对含点的名字走这条，裸名（型参 / 基元 / 无 ns）不受影响。
+        // 与本地侧 `SymbolTable.ResolveTypeP` 的 ClassesByFqn 分支对称。
+        if (name.IndexOf(".") >= 0) {
+            if (r.EnumTypeNamesByFqn.ContainsKey(name)) { return Z42ClassType.Enum(name); }
+            int _fq0 = r.ClassesByFqn.Find(name); if (_fq0 >= 0) { return r.ClassesByFqn.ValAt(_fq0) as Z42ClassType; }
+            int _fq1 = r.InterfacesByFqn.Find(name); if (_fq1 >= 0) { return r.InterfacesByFqn.ValAt(_fq1) as Z42InterfaceType; }
+        }
         // add-argument-type-check R5/R7：**imported 委托类型名 → Z42FuncType**。
         // 本地解析器 `SymbolTable.ResolveTypeP:238-254` 早已把 Func/Action/Predicate 映射成结构
         // Z42FuncType（这三个名是内建、全仓无对应 class/interface 声明），imported 侧却没有同款分支 →
@@ -554,10 +579,17 @@ public static class ImportedSymbolLoader {
         if (ltIdx > 0 && name.EndsWith(">")) {
             string baseN = name.Substring(0, ltIdx);
             Z42ClassType gdef = null;
+            // unify-type-identity-fqn：基名也 FQ 优先（`Std.List<int>` → 精确定位 ns==Std 的 List），
+            // 再退到既有的短名 / _shortName 路径（那两条是**有损**的：同短名跨 ns 会撞赢家）。
+            int _fqg = -1;
+            if (baseN.IndexOf(".") >= 0) { _fqg = r.ClassesByFqn.Find(baseN); }
+            if (_fqg >= 0) { gdef = r.ClassesByFqn.ValAt(_fqg) as Z42ClassType; }
+            else {
             int _sl2 = r.Classes.Find(baseN); if (_sl2 >= 0) { gdef = r.Classes.ValAt(_sl2) as Z42ClassType; }
             else {
                 string gbs = ImportedSymbolLoader._shortName(baseN);
                 if (gbs != baseN && r.Classes.ContainsKey(gbs)) { gdef = r.Classes.Get(gbs) as Z42ClassType; }
+            }
             }
             if (gdef != null) {
                 string argsStr = name.Substring(ltIdx + 1, name.Length - ltIdx - 2);

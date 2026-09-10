@@ -50,7 +50,13 @@ public sealed class SymbolTable {
         this.MultiArityNames = new StrMap();
         this._firstArity = new StrMap();
         this.CurrentAliases = null;
+        this.ScopeNs = "";
     }
+
+    // unify-type-identity-fqn：**引用方所在的命名空间**（per-CU 视图私有，与 CurrentAliases 同性质）。
+    // 供裸名类型引用按「外围 ns 优先」解析——见 ResolveTypeP 里的 ScopeNs 分支。
+    // 根表恒为 ""（不参与解析）；由 TypeChecker / ConstraintChecker 建视图时按 cu.Namespace 设。
+    public string ScopeNs;
 
     // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余 7 个数据字段的
     // 引用（并行段内只读），仅换 CurrentAliases。每个文件的 typecheck/codegen 持自己的视图 →
@@ -69,6 +75,15 @@ public sealed class SymbolTable {
         t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
         t.MultiArityNames = this.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
         t.CurrentAliases = aliases;
+        t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
+        return t;
+    }
+
+    // unify-type-identity-fqn：per-CU 视图（别名 + 引用方 ns 一次设齐）。取代散在各处的
+    // `WithAliases(BuildAliases(cu))` —— 那种写法只带别名、不带 ns，是裸名解析撞 ns 赢家的入口。
+    public SymbolTable WithCu(CompilationUnit cu) {
+        SymbolTable t = this.WithAliases(SymbolTable.BuildAliases(cu));
+        t.ScopeNs = cu.HasNamespace ? cu.Namespace : "";
         return t;
     }
 
@@ -342,6 +357,29 @@ public sealed class SymbolTable {
             // 否则误取 arity-0 base → new/throw 出非泛型 base，catch `C<int>` 失配。镜像
             // TypeChecker arity-mangle 取 CT。非 overloaded 泛型（如 Box<T>，仅注册 bare）未命中
             // `Name$N` → 回退 bare，不受影响。
+            // unify-type-identity-fqn：**外围命名空间优先**（C# 作用域规则：enclosing ns 胜过 usings）。
+            // 裸名类走下方 `Classes` 是按裸名键、同短名跨 ns **first/last-wins** ⇒ `namespace Alpha`
+            // 里写的 `Widget` 可能绑到 `Beta.Widget`。fix-type-ref-ns-collision 当年只根治了**限定**
+            // 引用（ClassesByFqn），裸名至今仍撞赢家 —— 以前没人把解析结果持久化，所以只表现为运行期
+            // 降级；一旦把它写进元数据就变成「自信的错答案」（实测：HolderA.w 被写成 Beta.Widget）。
+            // 只在外围 ns **确实声明了该名字**时改道 —— 那种情形按语言规则本就无歧义，不会误伤。
+            if (this.ScopeNs != "") {
+                if (nt.ArgCount > 0) {
+                    string sfqm = this.ScopeNs + "." + n + "$" + nt.ArgCount.ToString();
+                    string sfqb = this.ScopeNs + "." + n;
+                    string sfq = this.ClassesByFqn.ContainsKey(sfqm) ? sfqm : sfqb;
+                    if (this.ClassesByFqn.ContainsKey(sfq)) {
+                        Z42ClassType sdef = this.ClassesByFqn.Get(sfq) as Z42ClassType;
+                        Z42Type[] stargs = new Z42Type[nt.ArgCount];
+                        int sa = 0;
+                        while (sa < nt.ArgCount) { stargs[sa] = this.ResolveTypeP(nt.Args[sa], paramNames, paramCount); sa = sa + 1; }
+                        return new Z42InstantiatedType(sdef, stargs, nt.ArgCount);
+                    }
+                } else {
+                    string sfq0 = this.ScopeNs + "." + n;
+                    if (this.ClassesByFqn.ContainsKey(sfq0)) { return this.ClassesByFqn.Get(sfq0) as Z42ClassType; }
+                }
+            }
             if (nt.ArgCount > 0) {
                 string mangled = n + "$" + nt.ArgCount.ToString();
                 if (this.Classes.ContainsKey(mangled)) {
