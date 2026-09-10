@@ -1,0 +1,75 @@
+// methodof 在 attribute 实参位置（add-method-reference）——**本特性的主用例**。
+//
+// 为什么这在别的平台做不到：C# / Java 的注解实参是**常量 blob**，格式里根本没有方法引用
+// 编码（ECMA-335 II.23.3 / JVM element_value），所以 roslyn#128 的 infoof/methodof 被 LDM
+// 正式否决。z42 的 attribute 不走 blob 走**工厂函数**：AttributeSynth 把实参 AST 原样塞进
+// 合成的 `__attr$…()` 里编译，实参本就是任意表达式 ⇒ methodof 只需是合法表达式，
+// 元数据侧零工作、零格式 bump。
+namespace Demo;
+
+using Std;
+using Std.Reflection;
+
+class HandlerAttribute : Attribute {
+    public MethodInfo Target;
+    public HandlerAttribute(MethodInfo target) { this.Target = target; }
+}
+
+class Api {
+    public string HandleGet(string path) { return "GET " + path; }
+    public string HandleGet(int id)      { return "GET #" + id.ToString(); }
+    public string HandlePost(string path) { return "POST " + path; }
+}
+
+[Handler(methodof(Api.HandleGet(string)))]
+class GetRoute { }
+
+[Handler(methodof(Api.HandleGet(int)))]
+class GetByIdRoute { }
+
+[Handler(methodof(Api.HandlePost))]
+class PostRoute { }
+
+class Field {
+    [Handler(methodof(Api.HandlePost))]
+    public int Tagged;
+}
+
+void Main() {
+    Api api = new Api();
+    object[] s = new object[1]; s[0] = "/users";
+    object[] i = new object[1]; i[0] = 7;
+
+    // 类上的 attribute：读回 MethodInfo 并调用
+    Attribute ga = typeof(GetRoute).GetAttribute(typeof(HandlerAttribute));
+    HandlerAttribute g = (HandlerAttribute) ga;
+    Assert.NotNull(g);
+    Assert.Equal("HandleGet", g.Target.Name);
+    Assert.Equal("GET /users", g.Target.Invoke(api, s) as string);
+
+    // ⭐ 同名不同签名的两个重载，在 attribute 里被**分别**精确指代 ——
+    //    字符串方案在这里根本无从表达（两个都叫 "HandleGet"）。
+    Attribute ba = typeof(GetByIdRoute).GetAttribute(typeof(HandlerAttribute));
+    HandlerAttribute b = (HandlerAttribute) ba;
+    Assert.Equal("HandleGet", b.Target.Name);
+    Assert.Equal("GET #7", b.Target.Invoke(api, i) as string);
+
+    // 无重载 → 省略签名
+    Attribute pa = typeof(PostRoute).GetAttribute(typeof(HandlerAttribute));
+    HandlerAttribute p = (HandlerAttribute) pa;
+    Assert.Equal("POST /users", p.Target.Invoke(api, s) as string);
+
+    // 字段上的 attribute（工厂函数路径与类上一致）
+    FieldInfo[] fields = typeof(Field).GetFields();
+    FieldInfo fi = null;
+    int fx = 0;
+    while (fx < fields.Length) {
+        if (fields[fx].Name == "Tagged") { fi = fields[fx]; }
+        fx = fx + 1;
+    }
+    Assert.NotNull(fi);
+    Attribute[] fattrs = fi.GetCustomAttributes();
+    Assert.Equal(1, fattrs.Length);
+    HandlerAttribute fh = (HandlerAttribute) fattrs[0];
+    Assert.Equal("POST /users", fh.Target.Invoke(api, s) as string);
+}

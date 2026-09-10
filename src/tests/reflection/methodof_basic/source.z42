@@ -1,0 +1,59 @@
+// methodof(Type.Member(签名)) 端到端（add-method-reference）：与 typeof 对称的方法引用。
+//
+// 对照 method_invoke 那条用例的写法差别就是本特性的全部动机：那里要手写一个 find(t, name)
+// 循环去**按字符串名筛** MethodInfo，重载根本筛不开、名字打错要到运行期才发现；
+// 这里一行 methodof 就拿到、重载由参数类型列表精确选中、名字写错是**编译错误**。
+namespace Demo;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+class Logger {
+    public int Level;
+    public string Log(string m) { return "str:" + m; }
+    public string Log(int n)    { return "int:" + n.ToString(); }
+    public string Log(string m, int n) { return "both:" + m + n.ToString(); }
+    public string Solo() { return "solo"; }
+    public static string Stat(int n) { return "stat:" + n.ToString(); }
+    public int Prop { get { return this.Level; } }
+}
+
+class Base    { public string Who() { return "base"; } }
+class Derived : Base { public string Mine() { return "mine"; } }
+
+void Main() {
+    Logger lg = new Logger();
+    lg.Level = 9;
+
+    // ① 参数类型列表消歧：三个同名重载各自精确命中
+    MethodInfo a1 = methodof(Logger.Log(string));
+    MethodInfo a2 = methodof(Logger.Log(int));
+    MethodInfo a3 = methodof(Logger.Log(string, int));
+    object[] s1 = new object[1]; s1[0] = "x";
+    object[] i1 = new object[1]; i1[0] = 3;
+    object[] b2 = new object[2]; b2[0] = "y"; b2[1] = 4;
+    Console.WriteLine(a1.Invoke(lg, s1) as string);
+    Console.WriteLine(a2.Invoke(lg, i1) as string);
+    Console.WriteLine(a3.Invoke(lg, b2) as string);
+
+    // ② 无重载 → 省略签名；显式空参列表等价（Solo 就是零参那个重载）
+    Console.WriteLine(methodof(Logger.Solo).Invoke(lg, new object[0]) as string);
+    Console.WriteLine(methodof(Logger.Solo()).Invoke(lg, new object[0]) as string);
+
+    // ③ 静态方法：IsStatic 为真，Invoke 的 receiver 传 null
+    MethodInfo st = methodof(Logger.Stat(int));
+    Console.WriteLine(st.IsStatic.ToString());
+    Console.WriteLine(st.Invoke(null, i1) as string);
+
+    // ④ 属性访问器按方法名指代（v1 不引入 getter: 标签形式）
+    Console.WriteLine((methodof(Logger.get_Prop).Invoke(lg, new object[0]) as object).ToString());
+
+    // ⑤ 继承链：基类方法可经派生类指代，且指向基类那份真身
+    Derived d = new Derived();
+    Console.WriteLine(methodof(Derived.Who).Invoke(d, new object[0]) as string);
+    Console.WriteLine(methodof(Derived.Mine).Invoke(d, new object[0]) as string);
+
+    // ⑥ 与 typeof 对称：都是每次求值新建的反射对象（本 v1 不驻留）
+    Console.WriteLine((methodof(Logger.Solo) == methodof(Logger.Solo)).ToString());
+    Console.WriteLine(methodof(Logger.Solo).Name);
+}

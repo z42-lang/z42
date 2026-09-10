@@ -1,0 +1,9 @@
+namespace Mo.Base;
+using Std;
+
+// 基类的方法**只在本包发射**。派生包的 TSIG 会把它展平进派生类的 Methods —— 若
+// methodof 拿派生类拼名（`mo.ext.Leaf.Tag`），会指向一个从未发射的函数。
+public class Tagged {
+    public virtual string Tag() { return "base-tag"; }
+    public string Only(int n) { return "only:" + n.ToString(); }
+}

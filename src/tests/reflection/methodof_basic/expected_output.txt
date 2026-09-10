@@ -1,0 +1,12 @@
+str:x
+int:3
+both:y4
+solo
+solo
+true
+stat:3
+9
+base
+mine
+false
+Solo

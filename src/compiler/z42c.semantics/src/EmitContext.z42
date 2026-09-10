@@ -265,6 +265,38 @@ public sealed class EmitContext {
         return this.Deps != null && this.Deps.Statics.ContainsKey(fq);
     }
 
+    // add-method-reference：解析 `methodof(T.M)` 的目标 FQ 名 —— **必须沿基链找真正的声明类**。
+    //
+    // 为什么不能直接用 receiver 类拼名：TSIG 把**继承**方法展平进每个派生类的 `Methods`
+    // （`ImportedSymbolLoader._fillClass`），所以 `ct.Methods` 命中 **≠** 该方法声明于本类。
+    // 跨包实测（`src/tests/cross-zpkg/methodof_cross_pkg`）：`methodof(Leaf.Tag)` 里 Tag 声明在
+    // 另一个包的基类 `Mo.Base.Tagged`，拿 Leaf 拼名得到 `Mo.Ext.Leaf.Tag` —— 一个**从未发射的
+    // 函数**，运行期才炸。这与 `ResolveSealedTarget` 遇到的是同一个坑，解法也同一个：用
+    // `Deps.Statics`（跨包已发射函数按 FQ 建键）校验，未命中就继续上溯。
+    //
+    // 本地类不查 Deps（Deps 不含本包函数）：`SymbolCollector` 只把**声明于本类**的方法填进
+    // `Methods`，故本地类命中即声明类。
+    //
+    // 返回 "" = 没找到可发射的目标 → 调用方按 BoundMethodOf.DeclOwnerFq 兜底（并由 runtime 的
+    // `__methodof` 存在性检查兜最后一道，宁可响错也不静默半填充）。
+    public string ResolveMethodOfTarget(Z42ClassType startCt, string methodKey) {
+        Z42ClassType ct = startCt;
+        int hops = 0;
+        while (ct != null && hops < 32) {
+            if (ct.Methods.ContainsKey(methodKey)) {
+                string fq = ct.Fqn() + "." + methodKey;
+                if (this.LocalClasses != null && this.LocalClasses.ContainsKey(ct.Name())) { return fq; }
+                if (this._depHasFunction(fq)) { return fq; }
+                // imported 且 Deps 无此 FQ ⇒ 本类只是继承、并未声明 → 继续沿基链上溯。
+            }
+            if (!ct.HasBase) { return ""; }
+            if (this.Symbols == null) { return ""; }
+            ct = this.Symbols.GetClass(ct.BaseName);
+            hops = hops + 1;
+        }
+        return "";
+    }
+
     // 解析 sealed receiver 上方法调用的**直接目标 FQ 名**（`QualifyClass(定义类)+"."+RegKey`，
     // 逐字节匹配 IrGen 的 `_q(_classIrShortName)+"."+md.RegKey`）。methodKey = BoundCall.MethodName
     // （MemberResolver 已置为**解析后 ms.RegKey**，重载已消歧、无需重解析）。沿 startCt→base 链找

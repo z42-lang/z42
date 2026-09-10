@@ -17,10 +17,15 @@ public sealed class ExprParser {
             // 后缀（最紧）
             if (k == TokenKind.Dot) {
                 this._p._advance();
-                string name = this._p._peek().Text;
+                Token nameTok = this._p._peek();
+                string name = nameTok.Text;
                 if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
                 else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '.'", this._p._peek().Span); }
-                left = new MemberExpr(left, name, left.Span);
+                // Span 仍复用 target 的（既有诊断位置不变）；NameSpan 记成员名自身区间，
+                // 供成员解析类诊断把下划线收窄到出问题的那个名字（⑦ span 地基）。
+                MemberExpr me = new MemberExpr(left, name, left.Span);
+                me.NameSpan = nameTok.Span;
+                left = me;
                 continue;
             }
             if (k == TokenKind.QuestionDot) {
@@ -324,6 +329,11 @@ public sealed class ExprParser {
             TypeExpr tty = this._p._typeP._parseType();
             this._p._expect(TokenKind.RParen, ")");
             return new TypeofExpr(tty, t.Span);
+        }
+        if (k == TokenKind.Methodof) {
+            this._p._advance();
+            this._p._expect(TokenKind.LParen, "(");
+            return this._p._methodOfP._parseTarget(t.Span);
         }
         if (k == TokenKind.New) {
             this._p._advance();
@@ -789,5 +799,7 @@ public sealed class ExprParser {
         if (decoded.Length > 0) { return decoded.CharAt(0); }
         return '?';
     }
+
+
 
 }

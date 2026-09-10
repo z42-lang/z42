@@ -23,6 +23,7 @@ public sealed class Parser {
     private bool  _lexMerged;              // lexer 诊断是否已并入 _diags（merge-once 守卫）
     public int   _pendingGt;
     public TypeParser _typeP;             // review P1-2：类型子解析器（mediator backref）
+    public MethodOfParser _methodOfP;     // add-method-reference：methodof 括号内的签名语法子解析器
     public ExprParser _exprP;             // review P1-2：表达式子解析器
     public StmtParser _stmtP;             // review P1-2：语句子解析器
     public DeclParser _declP;             // review P1-2：声明子解析器
@@ -45,6 +46,7 @@ public sealed class Parser {
         this._diags = new DiagnosticBag();
         this._lexMerged = false;
         this._typeP = new TypeParser(this);
+        this._methodOfP = new MethodOfParser(this);
         this._exprP = new ExprParser(this);
         this._stmtP = new StmtParser(this);
         this._declP = new DeclParser(this);

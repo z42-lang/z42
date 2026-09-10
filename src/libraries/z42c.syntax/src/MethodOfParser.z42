@@ -1,0 +1,117 @@
+// methodof(...) 括号内的**签名语法**解析器（add-method-reference）。
+//
+// 为什么独立成文件而不是留在 ExprParser：括号内解析的**根本不是表达式**。表达式文法下
+// `Logger.Log(List<int>)` 的 `List<int>` 与 `<` 比较运算真歧义；`methodof(...)` 的括号是一个
+// 封闭作用域，里面每个 `<` 都是类型实参、每个标识符都是类型或成员名。两门文法混在一个
+// 文件里只会让「这里到底按哪套读」变得难判——它们本就该分开。
+// （直接成因：合并后 ExprParser 到 905 行、越过 886 硬限；但即便没越限，这刀也该切。）
+namespace Z42.Syntax;
+
+using Std;
+using Z42.Core;
+
+public sealed class MethodOfParser {
+    private Parser _p;   // mediator backref（镜像 TypeParser）
+    public MethodOfParser(Parser p) { this._p = p; }
+
+    // methodof(...) 括号内的**签名语法**解析（add-method-reference；LParen 已被调用方消费）。
+    //
+    // 文法：`Qualified '.' Member [ '(' [TypeList] ')' ]` —— 这里刻意**不复用表达式解析**：
+    // 表达式文法下 `Logger.Log(List<int>)` 的 `List<int>` 与 `<` 比较运算真歧义。封闭括号内
+    // 每个 `<` 都是类型实参，故参数类型直接走 `_typeP._parseType()`。
+    //
+    // owner **不接受类型实参**（`methodof(Box<int>.Get)` 报错）：z42 的泛型类方法是
+    // **共享一份发射**（arity-mangle 短名，如 `call @Box$1.Get`），`Box<int>.Get` 与
+    // `Box<string>.Get` 会产出**同一个** qualified 名 ⇒ 区分没有意义。诊断直接给出裸名写法。
+    internal Expr _parseTarget(Span sp) {
+        Token first = this._p._peek();
+        string ownerName = first.Text;
+        Span ownerSpan = first.Span;
+        if (first.Kind == TokenKind.Identifier) { this._p._advance(); }
+        else {
+            this._p._diags.Error("E0462", "methodof: expected a type name, found `" + first.Text + "`", first.Span);
+            this._p._advance();
+        }
+        // 类型实参可能挂在**任何**一段上：`Box<int>.Get` 挂在 owner（点之前），
+        // `Seq.Map<U>` 挂在成员（点之后）。两者要分开报，故逐段跟踪、见一段查一段。
+        bool genOwner = false;    // 某个非末段带了 <...>
+        bool genMember = false;   // 当前末段带了 <...>
+        Span genSpan = ownerSpan;
+        string member = "";
+        Span memberSpan = ownerSpan;
+        bool sawDot = false;
+        if (this._p._peek().Kind == TokenKind.Lt) { genSpan = this._p._peek().Span; genMember = true; this._skipTypeArgs(); }
+        while (this._p._peek().Kind == TokenKind.Dot) {
+            this._p._advance();
+            // 又出现一段 ⇒ 上一段不再是末段；它身上的 <...> 归为 owner 侧。
+            if (genMember) { genOwner = true; genMember = false; }
+            if (sawDot) { ownerName = ownerName + "." + member; }
+            Token seg = this._p._peek();
+            member = seg.Text;
+            memberSpan = seg.Span;
+            if (seg.Kind == TokenKind.Identifier) { this._p._advance(); }
+            else {
+                this._p._diags.Error("E0462", "methodof: expected a member name after `.`", seg.Span);
+            }
+            if (this._p._peek().Kind == TokenKind.Lt) { genSpan = this._p._peek().Span; genMember = true; this._skipTypeArgs(); }
+            sawDot = true;
+        }
+        if (!sawDot) {
+            this._p._diags.Error("E0462",
+                "methodof requires `Type.Member` — write `methodof(" + ownerName + ".SomeMethod)`, not `methodof("
+                + ownerName + ")`", ownerSpan);
+        } else if (genOwner) {
+            // 泛型类的方法在 z42 **共享一份发射**（arity-mangle 短名，如 `call @Box$1.Get`），
+            // `Box<int>.Get` 与 `Box<string>.Get` 会产出同一个 qualified 名 ⇒ 区分没有意义。
+            this._p._diags.Error("E0462",
+                "methodof: type arguments on the owner type are not accepted — a generic class shares one "
+                + "emitted method across all instantiations, so every `" + ownerName + "<…>." + member
+                + "` names the same method; write `methodof(" + ownerName + "." + member + ")`", genSpan);
+        } else if (genMember) {
+            this._p._diags.Error("E0462",
+                "methodof: type arguments on the method (`" + member + "<…>`) are not accepted in v1 — "
+                + "generic methods are referenced by name; write `methodof(" + ownerName + "." + member
+                + ")`, adding a parameter type list if the name is overloaded", genSpan);
+        }
+        TypeExpr[] ptypes = new TypeExpr[4];
+        int pc = 0;
+        bool hasList = false;
+        if (this._p._peek().Kind == TokenKind.LParen) {
+            hasList = true;
+            this._p._advance();
+            if (this._p._peek().Kind != TokenKind.RParen) {
+                while (true) {
+                    if (pc == ptypes.Length) {
+                        TypeExpr[] b = new TypeExpr[ptypes.Length * 2];
+                        Array.Copy(ptypes, b, pc);
+                        ptypes = b;
+                    }
+                    ptypes[pc] = this._p._typeP._parseType(); pc = pc + 1;
+                    if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); continue; }
+                    break;
+                }
+            }
+            this._p._expect(TokenKind.RParen, ")");
+        }
+        this._p._expect(TokenKind.RParen, ")");
+        return new MethodOfExpr(ownerName, ownerSpan, member, memberSpan, ptypes, pc, hasList, sp);
+    }
+
+    // 吞掉一段 `<...>`（已诊断为不接受后的恢复）：让后续 `.`/`(`/`)` 仍能对上，
+    // 避免一个错误级联成四条 parse 噪声。
+    private void _skipTypeArgs() {
+        int depth = 0;
+        while (true) {
+            int kk = this._p._peek().Kind;
+            if (kk == TokenKind.Eof) { return; }
+            if (kk == TokenKind.Lt) { depth = depth + 1; this._p._advance(); continue; }
+            if (kk == TokenKind.Gt) {
+                depth = depth - 1;
+                this._p._advance();
+                if (depth <= 0) { return; }
+                continue;
+            }
+            this._p._advance();
+        }
+    }
+}

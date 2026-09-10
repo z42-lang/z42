@@ -235,7 +235,19 @@ public sealed class NullCondMemberExpr : Expr {
 public sealed class MemberExpr : Expr {
     public Expr   Target;
     public string Name;
-    public MemberExpr(Expr target, string name, Span span) { this.Span = span; this.Target = target; this.Name = name; }
+    // 成员名**自身**的源区间（add-method-reference ⑦ span 地基）。
+    //
+    // 此前只有 `Span`，而 `Span` 直接复用 target 的 span（`ExprParser` 的 `.` 分支），
+    // 于是「没有这个成员」的诊断下划线画在**接收者**上、指不到出问题的那个名字。
+    //
+    // **默认 = Span**，只在真正的源码解析点由 parser 覆写（post-construction，镜像
+    // `MethodDecl.RegKey` 的做法）：desugar 合成的 MemberExpr（event 访问器、primary ctor
+    // 字段赋值等）没有真实名字区间，保持与 Span 一致即可，无需逐点改造。
+    public Span   NameSpan;
+    public MemberExpr(Expr target, string name, Span span) {
+        this.Span = span; this.Target = target; this.Name = name;
+        this.NameSpan = span;
+    }
     public override string Dump() { return "(. " + this.Target.Dump() + " " + this.Name + ")"; }
 }
 
@@ -359,6 +371,49 @@ public sealed class TypeofExpr : Expr {
     public TypeExpr Type;
     public TypeofExpr(TypeExpr type, Span span) { this.Span = span; this.Type = type; }
     public override string Dump() { return "(typeof " + this.Type.Dump() + ")"; }
+}
+
+// methodof(Type.Member(参数类型列表)) → reflection Std.Reflection.MethodInfo（add-method-reference）。
+// 与 TypeofExpr 对称：编译期解析成单个 qualified 名，运行期物化成反射对象。
+//
+// **括号内是签名语法，不是表达式语法**：表达式文法下 `Logger.Log(List<int>)` 的 `List<int>` 与
+// `<` 比较运算真歧义；`methodof(...)` 的括号是封闭作用域，里面 `<` 恒为类型实参，歧义消失。
+//
+// OwnerName 保 **AST 原始拼写**（可含 `.` 的限定名），镜像 BoundTypeof.TargetName 保 FQN 的手法——
+// 结构化后 FQ 名会蒸发，发射时需靠原始名经 QualifyClass 拼回。
+//
+// HasParamList 区分两种**语义不同**的写法（不能合并成 ParamCount==0）：
+//   methodof(X.M)    HasParamList=false —— 省略签名，仅当候选唯一时合法
+//   methodof(X.M())  HasParamList=true  —— 显式指代零参那个重载
+public sealed class MethodOfExpr : Expr {
+    public string     OwnerName;     // owner 类型的 AST 原始限定名（"Logger" / "Demo.Logger"）
+    public Span       OwnerSpan;
+    public string     Member;        // 成员名（末段）
+    public Span       MemberSpan;    // 成员名**自身**的 span（诊断下划线收窄到成员名，非整个表达式）
+    public TypeExpr[] ParamTypes;
+    public int        ParamCount;
+    public bool       HasParamList;
+    public MethodOfExpr(string ownerName, Span ownerSpan, string member, Span memberSpan,
+                        TypeExpr[] paramTypes, int paramCount, bool hasParamList, Span span) {
+        this.Span = span;
+        this.OwnerName = ownerName; this.OwnerSpan = ownerSpan;
+        this.Member = member; this.MemberSpan = memberSpan;
+        this.ParamTypes = paramTypes; this.ParamCount = paramCount; this.HasParamList = hasParamList;
+    }
+    public override string Dump() {
+        string s = "(methodof " + this.OwnerName + "." + this.Member;
+        if (this.HasParamList) {
+            s = s + " (";
+            int i = 0;
+            while (i < this.ParamCount) {
+                if (i > 0) { s = s + " "; }
+                s = s + this.ParamTypes[i].Dump();
+                i = i + 1;
+            }
+            s = s + ")";
+        }
+        return s + ")";
+    }
 }
 
 // C 风格强制转换 (Type)expr（G3；数值转换，区别于 as 的引用 cast）。
