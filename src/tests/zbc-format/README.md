@@ -23,6 +23,14 @@
 | `<fixture>/source.z42`     | z42 源（check in）|
 | `<fixture>/source.zbc`     | z42c 输出字节（check in；regen 后 git diff = 实际格式变化）|
 
+> 每个 fixture 曾另有一份 `expected.json`（解码后形态的人类可读快照）。**2026-09-11 已删除**：
+> 全仓无任何代码读它、也没有防腐门，于是一路腐坏到落后 **18 个 minor**（停在 `minor: 20`，
+> 而彼时格式已是 38），还被当成可信事实误导过一次排查。
+> 这是补完 [PR #424](https://github.com/z42-lang/z42/pull/424)（commit `aab7013b`）的同一次清理——那个 PR 已按同样理由删掉了
+> `zpkg-format/*/expected.json` 全部 4 份，只是漏了本目录。
+> 若将来需要「格式 bump 时可读的 diff」，请**连同防腐门一起**作为独立变更引入
+> （形态参考 `format_fixture_versions` 那道门），不要再引入无门禁的快照文件。
+
 ## 维护流程
 
 正当 wire format 变化时（minor bump）：
