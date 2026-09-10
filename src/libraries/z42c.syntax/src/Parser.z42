@@ -313,6 +313,9 @@ public sealed class Parser {
         Span cusp = this._peek().Span;
         bool hasNs = false;
         string ns = "";
+        // fix-multiple-file-scoped-namespaces：是否已解析过**类型/函数**声明（using / using alias /
+        // global using 不算——它们本来就允许排在 `namespace` 前后）。用于判 `namespace` 位置是否合法。
+        bool sawTypeDecl = false;
         Decl[] decls = new Decl[16];
         int n = 0;
         while (this._peek().Kind != TokenKind.Eof) {
@@ -322,7 +325,31 @@ public sealed class Parser {
                 if (this._tryParseSuppressDirective()) { continue; }
             }
             if (k == TokenKind.Namespace) {
-                this._advance(); ns = this._declP._parseQualifiedName(); hasNs = true; this._expectSemi();
+                // fix-multiple-file-scoped-namespaces：z42 的编译单元只有**一个**命名空间
+                // （`CompilationUnit.Namespace` 是单值），而本分支在顶层声明循环里，此前每命中一次
+                // 就把 `ns` 整个覆盖掉、且不报任何错 ⇒ 写多个 `namespace X;` 会**静默 last-wins**：
+                // 声明在 `namespace First;` 底下的类被登记进最后那个 ns，连限定名都随之解析错
+                // （实测 `A.Helper.Who()` 打印的是 B 的实现）。同理，`namespace` 写在类声明**之后**
+                // 也会静默回溯生效。两种都不是「少报一条诊断」，是**解析到错误的类型**。
+                //
+                // z42 只支持文件级 `namespace X;`（块形式 `namespace X { }` 是 parse 错误），
+                // 所以这里的正确行为是**拒绝编译器表示不了的写法**，对齐 C# 的 CS8907/CS8955。
+                // 恢复策略：保留**第一个** ns（读者对文件顶部那一行的直觉），不被后来者覆盖。
+                Span nssp = this._peek().Span;
+                this._advance();
+                string nsName = this._declP._parseQualifiedName();
+                this._expectSemi();
+                if (hasNs) {
+                    this._diags.Error("E0457",
+                        "a file may declare only one namespace (`" + ns + "` was already declared above)"
+                        + " — split the file, or move all declarations under a single namespace", nssp);
+                } else if (sawTypeDecl) {
+                    this._diags.Error("E0457",
+                        "`namespace` must appear before any type or function declaration in the file", nssp);
+                    ns = nsName; hasNs = true;
+                } else {
+                    ns = nsName; hasNs = true;
+                }
                 continue;
             }
             // add-global-using：`global`（上下文 token，非关键字）+ `using` → 包级 using。
@@ -391,6 +418,7 @@ public sealed class Parser {
             if (ok) {
                 if (attrs.Count > 0) { d = new AttributedDecl(attrs.Items, attrs.Count, d, d.Span); }
                 decls = this._declP._growDecls(decls, n); decls[n] = d; n = n + 1;
+                sawTypeDecl = true;   // fix-multiple-file-scoped-namespaces：`namespace` 不得再出现在此后
             }
         }
         int cuEnd = this._peek().Span.End;   // Eof 位置 = 未闭合抑制区的排他上界
