@@ -381,10 +381,28 @@ if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
 **young backing 开始在活着的老数组底下被扫掉** —— 症状不是崩溃，而是**自举字节不动点断裂**
 （gen1≠gen2，差 167 B），**单测一个都没红**。
 
-所以 `refers_to_young` / `seed_card_entry` 另外要问 `owns_young_backing`：
-数组只要 backing 还年轻，它自己就「持有年轻的东西」，卡必须保持脏。
-
 ⚠️ **这类「把一个近似判据改准」的改动必须连自举不动点一起跑**——单测覆盖不到这种形状。
+
+##### 修法：backing 跟随宿主数组升龄（而不是为它多置一张卡）
+
+两种修法都试过、都量过：
+
+| 修法 | 中位停顿 | RSS | `z42.text.levenshtein` |
+|---|---|---|---|
+| 让 `refers_to_young` / `seed_card_entry` 也看 backing 年龄 | −33% | −3.4% | **+28%（CI 判红）** |
+| **backing 跟随宿主升龄** ← 采用 | **−37%** | +1.6% | +1.6% |
+
+**为什么前者那么贵**：`int[]` / `char[]` 这类基元数组**根本没有 `Value` 孩子**，所以本来就
+不置脏卡；加上 backing 检查后它们**开始**置脏卡，还要等 backing 自己熬过 `PROMOTION_AGE`
+次 minor 才清得掉。`levenshtein` 每次调用分配 4 个基元数组。
+
+**后者为什么更对**：数组头**独占**它的 backing，两者生命周期完全一致，年龄本就该一致。
+在「头被晋升」的那一刻把 backing 抬到同龄，这个洞**从构造上不存在**，不用为它付一张卡。
+正确性依据：晋升 ⇒ 本轮被标记过（`iterate_young` 只晋升 marked 的）⇒ 被 trace 过 ⇒
+`mark_backing` 已跑过 ⇒ 块是 marked 的，而 `sweep_young` 在同一次 sweep 里**更晚**执行，
+会把它升出 young 表而不是回收掉。
+
+**代价**：backing 提前进老年代、只能等 major 回收 ⇒ **RSS +1.6%（+13 MB）**，换 −37% 中位停顿。
 
 ### 一个周期跑 minor **或** major，绝不两个都跑
 

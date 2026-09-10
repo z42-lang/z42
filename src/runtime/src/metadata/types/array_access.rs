@@ -296,11 +296,9 @@ impl ArrayObj {
         }
     }
 
-    /// The youngest `gen_age` among this array's backing block(s), or `u8::MAX` when it has
-    /// none (a stack array). The element storage is a `region_var` block that is **only** kept
-    /// alive by [`Self::mark_backing`], a side effect of tracing the array — it is not one of
-    /// the array's `Value` children, so nothing else can observe that it is young.
-    pub fn min_backing_gen_age(&self) -> u8 {
+    /// Test-only: the youngest `gen_age` among the backing block(s) (`u8::MAX` for a stack
+    /// array, which has none). Pins the "backing ages with its owner" invariant.
+    pub fn min_backing_gen_age_for_test(&self) -> u8 {
         match &self.backing {
             ArrayBacking::Boxed { block, .. }
             | ArrayBacking::Bool { block, .. }
@@ -311,6 +309,33 @@ impl ArrayObj {
             | ArrayBacking::F64 { block, .. } => block.gen_age(),
             ArrayBacking::StructBytes { bytes, refs, .. } => bytes.gen_age().min(refs.gen_age()),
             ArrayBacking::StackVec(_) => u8::MAX,
+        }
+    }
+
+    /// **fix-primitives-count-as-young (2026-09-11)**: raise this array's backing block(s) to
+    /// at least `age`. Called when the **array header** is promoted, so the element storage is
+    /// never younger than the header that exclusively owns it.
+    ///
+    /// Why that invariant has to be maintained explicitly: the backing is a `region_var` block
+    /// kept alive *only* by [`Self::mark_backing`], a side effect of tracing the array — it is
+    /// not one of the array's `Value` children, so no walk over those children can tell that it
+    /// is young. A minor only traces an old array when its card is dirty, so an old array with
+    /// a young backing loses that backing. Keeping the two ages in lockstep removes the case
+    /// rather than papering over it with a card.
+    pub fn raise_backing_gen_age(&self, age: u8) {
+        match &self.backing {
+            ArrayBacking::Boxed { block, .. }
+            | ArrayBacking::Bool { block, .. }
+            | ArrayBacking::Bytes { block, .. }
+            | ArrayBacking::I32 { block, .. }
+            | ArrayBacking::I64 { block, .. }
+            | ArrayBacking::Chars { block, .. }
+            | ArrayBacking::F64 { block, .. } => block.raise_gen_age_to(age),
+            ArrayBacking::StructBytes { bytes, refs, .. } => {
+                bytes.raise_gen_age_to(age);
+                refs.raise_gen_age_to(age);
+            }
+            ArrayBacking::StackVec(_) => {}
         }
     }
 

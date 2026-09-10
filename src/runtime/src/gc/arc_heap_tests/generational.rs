@@ -600,31 +600,52 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
 /// An array's element storage lives in `region_var` and is kept alive **only** by
 /// `mark_backing()` — a side effect of *tracing* the array. It is not one of the array's
 /// `Value` children, so no walk over those children can observe that it is young; and a minor
-/// only traces an old array when its card is dirty.
+/// only traces an old array when its card is dirty. **An old array with a young backing would
+/// therefore lose it.**
 ///
-/// This held before purely by accident. `gen_age_of` answers 0 for `Value::Null` and every
-/// primitive, and 0 is `< PROMOTION_THRESHOLD`, so `refers_to_young` was true for practically
-/// every entry that had a single empty slot — the card table was permanently, entirely dirty
-/// (measured: 33 001 dirty cards / 203 884 entries rescanned per minor, to find ~100 young
-/// objects). Making that predicate honest — heap references only — removed the accidental
-/// cover, and young backings started being swept out from under live old arrays.
+/// That held before purely by accident: `gen_age_of` answers 0 for `Value::Null` and every
+/// primitive, so `refers_to_young` was true for practically every entry that had one empty
+/// slot — the card table was permanently, entirely dirty and every old array got traced anyway.
+/// Making that predicate honest removed the cover, and the self-host byte fixpoint broke
+/// (gen1 ≠ gen2). No unit test caught it — hence this one.
 ///
-/// Nothing in the unit suite caught that: it surfaced as the **self-host byte fixpoint**
-/// breaking (gen1 ≠ gen2, sizes differing by ~167 B). Hence this test.
+/// The fix keeps the two ages in lockstep instead of paying a card: promoting the array header
+/// raises its backing to the same age, so the case cannot arise.
 #[test]
-fn an_old_array_with_a_young_backing_still_refers_to_young() {
-    let heap = ArcMagrGC::new();
-    heap.set_mode(GcMode::GenerationalMarkSweep);
+fn promoting_an_array_ages_its_backing_with_it() {
+    use crate::vm_context::VmContext;
+    let ctx = VmContext::new();
+    ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+    let heap = ctx.heap();
 
-    // Primitive elements ⇒ `gc_refs()` is empty ⇒ the array has **no** heap-ref children at
-    // all, so its backing block is the only thing that can make this predicate true.
+    // Primitive elements ⇒ `gc_refs()` is empty ⇒ this array has **no** heap-ref children, so
+    // nothing but the lockstep rule can keep its backing alive once the header is old.
     let arr = heap.alloc_array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
-    promote_to_old(&arr); // header aged to old; the backing block is untouched, still young
+    let pin = heap.pin_root(arr.clone());
+    let Value::Array(gc) = &arr else { panic!("expected Array") };
 
-    assert!(heap.refers_to_young(&arr),
-        "an old array whose element-storage block is still young must keep its card dirty — \
-         otherwise the next minor never traces it, `mark_backing` never runs, and the backing \
-         is swept while the array is still live");
+    // **Force the age divergence the test is about.** In production it comes from TLAB
+    // retirement timing: the header's array-region chunk and the backing's var-region chunk
+    // retire at different safepoints, so they miss different minors and drift apart. Here we
+    // age the *header* to one minor short of promotion and leave the backing at 0, so the very
+    // next sweep is the one that promotes the header.
+    for _ in 0..(PROMOTION_THRESHOLD - 1) {
+        // SAFETY: the test owns the heap; the entry stays valid.
+        unsafe { gc.entry_ptr().as_ref() }.gen_age.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    assert_eq!(gc.borrow().min_backing_gen_age_for_test(), 0,
+        "test setup: the backing is still young while the header is one minor from promotion");
+
+    heap.collect_cycles_with_context(&ctx); // the minor that promotes the header
+
+    assert!(GcRef::gen_age(gc) >= PROMOTION_THRESHOLD, "test setup: the header must be old now");
+    let backing = gc.borrow().min_backing_gen_age_for_test();
+    assert!(backing >= PROMOTION_THRESHOLD,
+        "a promoted array's element-storage block must be promoted with it — otherwise the next \
+         minor never traces the array (its card is clean: a primitive array has no `Value` \
+         children at all), `mark_backing` never runs, and the backing is swept while the array \
+         is still live (got backing age {backing})");
+    let _ = pin;
 }
 
 /// The other half: primitives and empty slots must **not** count as young references, or the

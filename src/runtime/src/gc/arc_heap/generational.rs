@@ -227,7 +227,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 found = true;
             }
         });
-        found || Self::owns_young_backing(&v, threshold)
+        found
     }
 
     /// Fold one entry's verdict into the card it belongs to. `iterate_dirty_cards` walks a
@@ -297,6 +297,36 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
+    /// **fix-primitives-count-as-young (2026-09-11)**: keep every just-promoted array's
+    /// element-storage block at least as old as the array header that owns it.
+    ///
+    /// The backing is a `region_var` block kept alive **only** by `mark_backing()`, a side
+    /// effect of *tracing* the array — it is not one of the array's `Value` children, so no
+    /// walk over those children can tell that it is young, and a minor only traces an old array
+    /// when its card is dirty. An old array with a young backing therefore loses it. That held
+    /// before purely by accident: `refers_to_young` answered true for practically every entry
+    /// (a `Value::Null` slot sufficed), so every card stayed dirty and every old array got
+    /// traced anyway.
+    ///
+    /// The alternative — teach the card checks about backings — was measured and rejected: it
+    /// dirties a card for **every** primitive array (`int[]`, `char[]` have no `Value` children
+    /// at all, so nothing else keeps their cards dirty), and `z42.text.levenshtein`, which
+    /// allocates four of them per call, regressed **28%** in CI. Ageing the backing with its
+    /// owner removes the case instead of paying a card for it, and costs one store per promoted
+    /// array.
+    ///
+    /// Sound because promotion implies the array survived this minor's mark (`iterate_young`
+    /// only promotes marked entries), which implies it was traced, which implies `mark_backing`
+    /// already ran — so the block is marked and `VarRegion::sweep_young`, which runs *after*
+    /// this in the same sweep, will age it out of the young list rather than reclaim it.
+    fn age_backing_with_owner(&self, handles: &[crate::gc::region::RegionHandle]) {
+        if handles.is_empty() { return; }
+        let region = self.region_array.lock();
+        for &h in handles {
+            region.resolve(h).value.lock().raise_backing_gen_age(self.promotion_age);
+        }
+    }
+
     /// Array-region twin of [`Self::dirty_cards_for_newly_old_objects`].
     fn dirty_cards_for_newly_old_arrays(&self, handles: &[crate::gc::region::RegionHandle]) {
         if handles.is_empty() { return; }
@@ -320,16 +350,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// Whether `v` itself owns a **young element-storage block**. An array's backing lives in
-    /// `region_var` and is kept alive only by `mark_backing()` — a side effect of *tracing* the
-    /// array — so it is invisible to any check that walks the array's `Value` children.
-    fn owns_young_backing(v: &Value, threshold: u8) -> bool {
-        match v {
-            Value::Array(gc) => gc.borrow().min_backing_gen_age() < threshold,
-            _ => false,
-        }
-    }
-
     /// Whether `v` has at least one child the minor GC would consider young. Stops at the
     /// first hit — this runs once per entry that crosses the promotion threshold.
     pub(super) fn refers_to_young(&self, v: &Value) -> bool {
@@ -347,7 +367,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 found = true;
             }
         });
-        found || Self::owns_young_backing(v, threshold)
+        found
     }
 
     pub(super) fn sweep_phase_young_only(&self) -> MinorSweepResult {
@@ -433,6 +453,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
         }
         promoted_bytes += self.promoted_size_of_arrays(&newly_old_array);
+        self.age_backing_with_owner(&newly_old_array);
         self.dirty_cards_for_newly_old_arrays(&newly_old_array);
         reclaimed_entries += tombstones_array.len();
         for (h, fin, size) in tombstones_array {
@@ -586,6 +607,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         for h in young_arr {
             if self.region_array.lock().promote(h) { newly_old_arr.push(h); }
         }
+        self.age_backing_with_owner(&newly_old_arr);
         self.dirty_cards_for_newly_old_arrays(&newly_old_arr);
 
         self.region_var.lock().age_young_survivors();
