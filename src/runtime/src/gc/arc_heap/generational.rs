@@ -74,25 +74,20 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
         }
 
-        // Dirty card roots — all entries in dirty chunks of both regions.
-        {
-            let region = self.region_object.lock();
-            region.iterate_dirty_cards(|h, entry| {
-                let entry_ptr = std::ptr::NonNull::from(entry);
-                // SAFETY: handle came from iterate_dirty_cards; entry
-                // is alive + generation matches at iteration time.
-                let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
-                queue.push(Value::Object(gc));
-            });
-        }
-        {
-            let region = self.region_array.lock();
-            region.iterate_dirty_cards(|h, entry| {
-                let entry_ptr = std::ptr::NonNull::from(entry);
-                let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
-                queue.push(Value::Array(gc));
-            });
-        }
+        // Dirty-card roots — the entries of every dirty card in both regions.
+        //
+        // **add-finer-card-granularity (2026-09-10)**: a card's entries are traced **here**
+        // rather than pushed onto the queue, for two reasons. Only their *young* children are
+        // worth queueing — the old ones are skipped by the filter in the BFS anyway, so
+        // pushing the parents just made the loop re-derive that. And tracing here is what lets
+        // a card be **cleaned**: a card whose entries no longer reach anything young has done
+        // its job and should stop being a root.
+        //
+        // That second half is what stops the dirty set from snowballing. Nothing cleared cards
+        // between majors, while both the write barrier and promotion (#539) kept adding to
+        // them — measured on `z42c.semantics`, the late minors seeded **518 530** card roots
+        // to find **76** young objects.
+        self.seed_from_dirty_cards(&mut queue, threshold);
 
         let mut marked = 0usize;
         while let Some(v) = queue.pop() {
@@ -138,6 +133,120 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Old entries are NOT visited — major GC handles them.
     /// card_dirty is NOT cleared by minor (stable old→young refs need
     /// to keep their cards dirty until major scans them).
+    /// **add-finer-card-granularity (2026-09-10)**: trace every dirty card in both fixed
+    /// regions, queue the young children it reaches, and **clean the cards that reach none**.
+    ///
+    /// A card is a re-rooting hint, not a fact: it says "something in here *may* point at a
+    /// young object". Once a scan shows it does not, keeping it dirty costs the next minor
+    /// `ENTRIES_PER_CARD` traces for nothing. Cleaning here is safe because the write barrier
+    /// re-dirties on the next cross-gen write, and `dirty_cards_for_newly_old_*` re-dirties
+    /// for the edges promotion creates in this same sweep — the two other ways the invariant
+    /// can be broken (see the card-table invariant in the book).
+    fn seed_from_dirty_cards(&self, queue: &mut Vec<Value>, threshold: u8) {
+        let mut clean_obj: Vec<(u32, u8)> = Vec::new();
+        {
+            let region = self.region_object.lock();
+            let mut cur: Option<(u32, u8, bool)> = None;
+            region.iterate_dirty_cards(|h, entry, card| {
+                let entry_ptr = std::ptr::NonNull::from(entry);
+                // SAFETY: handle came from iterate_dirty_cards; entry is alive and its
+                // generation matches at iteration time.
+                let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
+                let found = Self::seed_card_entry(Value::Object(gc), queue, threshold);
+                Self::note_card(&mut cur, &mut clean_obj, h.chunk_idx, card, found);
+            });
+            Self::flush_card(cur, &mut clean_obj);
+        }
+        let mut clean_arr: Vec<(u32, u8)> = Vec::new();
+        {
+            let region = self.region_array.lock();
+            let mut cur: Option<(u32, u8, bool)> = None;
+            region.iterate_dirty_cards(|h, entry, card| {
+                let entry_ptr = std::ptr::NonNull::from(entry);
+                // SAFETY: see above.
+                let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
+                let found = Self::seed_card_entry(Value::Array(gc), queue, threshold);
+                Self::note_card(&mut cur, &mut clean_arr, h.chunk_idx, card, found);
+            });
+            Self::flush_card(cur, &mut clean_arr);
+        }
+        {
+            let mut region = self.region_object.lock();
+            for (ci, card) in clean_obj {
+                region.clean_card(ci, card);
+            }
+        }
+        {
+            let mut region = self.region_array.lock();
+            for (ci, card) in clean_arr {
+                region.clean_card(ci, card);
+            }
+        }
+    }
+
+    /// Push `v`'s young children onto the mark queue. Returns whether it had any — which is
+    /// what decides if the card covering `v` still earns its place.
+    /// Seed one entry of a dirty card, and report whether it still reaches anything young
+    /// (which is what decides if its card keeps earning its place — see [`Region::clean_card`]).
+    ///
+    /// The two cases are **not** symmetric, and collapsing them was measurably wrong:
+    ///
+    /// - A **young** entry is pushed as a root, exactly as before. It is not a root by rights
+    ///   — nothing says a young object in a dirty card is reachable — but dropping it changes
+    ///   *what gets collected*, and this is a performance change. Measured: seeding only the
+    ///   children cut the median minor pause a further 24% but cost **+6.3% peak RSS**
+    ///   (581 → 618 MB at an 8 MB nursery). Precision is not free here; that trade belongs to
+    ///   its own change with its own evidence.
+    /// - An **old** entry is traced straight through, its young children queued. This is
+    ///   exactly what the BFS did with it anyway — `fix-minor-stale-mark-on-old-roots` (#537)
+    ///   made the loop skip marking old entries and trace through them — so doing it here is
+    ///   the same work, minus a push and a pop, and it is what makes the card's verdict
+    ///   available at all.
+    fn seed_card_entry(v: Value, queue: &mut Vec<Value>, threshold: u8) -> bool {
+        if Self::gen_age_of(&v) < threshold {
+            // Young: root it (unchanged), and let the BFS trace it. Its own age already says
+            // the card has something young in it.
+            queue.push(v);
+            return true;
+        }
+        let mut found = false;
+        v.trace_children(&mut |child| {
+            if Self::gen_age_of(child) < threshold {
+                queue.push(child.clone());
+                found = true;
+            }
+        });
+        found
+    }
+
+    /// Fold one entry's verdict into the card it belongs to. `iterate_dirty_cards` walks a
+    /// card's entries consecutively, so a single-slot accumulator is enough to know whether a
+    /// card is clean by the time the next one starts.
+    fn note_card(
+        cur: &mut Option<(u32, u8, bool)>,
+        out: &mut Vec<(u32, u8)>,
+        ci: u32,
+        card: u8,
+        found: bool,
+    ) {
+        match cur {
+            Some((c, k, any)) if *c == ci && *k == card => *any |= found,
+            other => {
+                Self::flush_card(*other, out);
+                *other = Some((ci, card, found));
+            }
+        }
+    }
+
+    /// Record a finished card as cleanable when nothing in it reached anything young.
+    fn flush_card(cur: Option<(u32, u8, bool)>, out: &mut Vec<(u32, u8)>) {
+        if let Some((ci, card, any_young)) = cur {
+            if !any_young {
+                out.push((ci, card));
+            }
+        }
+    }
+
     /// **fix-promotion-creates-uncarded-old-to-young (2026-09-08)**: the write barrier records
     /// an old→young edge **at the moment of the write**. Promotion creates such edges with no
     /// write at all: a parent allocated before its child ages out first, and the instant it
@@ -167,13 +276,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation)
                 };
                 if self.refers_to_young(&Value::Object(gc)) {
-                    to_dirty.push(h.chunk_idx);
+                    to_dirty.push((h.chunk_idx, h.entry_idx));
                 }
             }
         }
         let mut region = self.region_object.lock();
-        for ci in to_dirty {
-            region.mark_card_dirty(ci);
+        for (ci, ei) in to_dirty {
+            region.mark_card_dirty(ci, ei);
         }
     }
 
@@ -190,13 +299,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation)
                 };
                 if self.refers_to_young(&Value::Array(gc)) {
-                    to_dirty.push(h.chunk_idx);
+                    to_dirty.push((h.chunk_idx, h.entry_idx));
                 }
             }
         }
         let mut region = self.region_array.lock();
-        for ci in to_dirty {
-            region.mark_card_dirty(ci);
+        for (ci, ei) in to_dirty {
+            region.mark_card_dirty(ci, ei);
         }
     }
 
@@ -421,7 +530,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// set would only grow and minors would drift towards full-heap scans.
     fn rebuild_card_table(&self) {
         let threshold = self.promotion_age;
-        let mut obj_chunks = Vec::new();
+        let mut obj_chunks: Vec<(u32, u16)> = Vec::new();
         {
             let region = self.region_object.lock();
             region.iterate_alive(|h, e| {
@@ -431,11 +540,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
                 };
                 if self.refers_to_young(&Value::Object(gc)) {
-                    obj_chunks.push(h.chunk_idx);
+                    obj_chunks.push((h.chunk_idx, h.entry_idx));
                 }
             });
         }
-        let mut arr_chunks = Vec::new();
+        let mut arr_chunks: Vec<(u32, u16)> = Vec::new();
         {
             let region = self.region_array.lock();
             region.iterate_alive(|h, e| {
@@ -445,22 +554,22 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
                 };
                 if self.refers_to_young(&Value::Array(gc)) {
-                    arr_chunks.push(h.chunk_idx);
+                    arr_chunks.push((h.chunk_idx, h.entry_idx));
                 }
             });
         }
         {
             let mut region = self.region_object.lock();
             region.clear_card_dirty();
-            for ci in obj_chunks {
-                region.mark_card_dirty(ci);
+            for (ci, ei) in obj_chunks {
+                region.mark_card_dirty(ci, ei);
             }
         }
         {
             let mut region = self.region_array.lock();
             region.clear_card_dirty();
-            for ci in arr_chunks {
-                region.mark_card_dirty(ci);
+            for (ci, ei) in arr_chunks {
+                region.mark_card_dirty(ci, ei);
             }
         }
     }
@@ -521,18 +630,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let entry_ptr = gc.entry_ptr();
                 // SAFETY: entry pointer valid for GcRef lifetime.
                 let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, _) = entry.location;
+                let (ci, ei) = entry.location;
                 if ci != u32::MAX {
-                    self.region_object.lock().mark_card_dirty(ci);
+                    self.region_object.lock().mark_card_dirty(ci, ei);
                 }
             }
             Value::Array(gc) => {
                 if GcRef::gen_age(gc) < self.promotion_age { return; }
                 let entry_ptr = gc.entry_ptr();
                 let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, _) = entry.location;
+                let (ci, ei) = entry.location;
                 if ci != u32::MAX {
-                    self.region_array.lock().mark_card_dirty(ci);
+                    self.region_array.lock().mark_card_dirty(ci, ei);
                 }
             }
             _ => {} // non-heap owners — no card to mark

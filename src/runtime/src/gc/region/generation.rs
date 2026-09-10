@@ -8,6 +8,22 @@
 
 use super::*;
 
+/// **add-finer-card-granularity (2026-09-10)**: cards per chunk. `card_dirty` is a `Vec<u32>`
+/// that only ever used bit 0, so all 32 bits were already paid for — this is the same kind of
+/// free space as the block header's alignment padding.
+pub(crate) const CARDS_PER_CHUNK: usize = 32;
+
+/// Entries covered by one card. `CHUNK_SIZE / CARDS_PER_CHUNK` = 256 / 32 = 8.
+pub(crate) const ENTRIES_PER_CARD: usize = CHUNK_SIZE / CARDS_PER_CHUNK;
+
+const _: () = assert!(CHUNK_SIZE % CARDS_PER_CHUNK == 0, "cards must tile a chunk exactly");
+
+/// Which card covers `entry_idx`.
+#[inline]
+pub(crate) fn card_of(entry_idx: u16) -> u8 {
+    (entry_idx as usize / ENTRIES_PER_CARD) as u8
+}
+
 impl<T> Region<T> {
     /// **fix-young-list-only-when-generational (2026-09-07)**: construct a region
     /// that maintains [`Self::young_list`] only when `generational` is set. See
@@ -208,24 +224,30 @@ impl<T> Region<T> {
         self.young_list.len()
     }
 
-    /// **add-generational-gc P0 (2026-05-22)**: mark a chunk's card
-    /// as dirty. Called by write barrier override under
-    /// `GenerationalMarkSweep` when an old entry writes a young
-    /// reference into one of its slots. The minor GC re-roots from
-    /// dirty cards so the young target isn't incorrectly swept.
-    pub fn mark_card_dirty(&mut self, chunk_idx: u32) {
+    /// **add-generational-gc P0 (2026-05-22)**: mark the card covering one entry as dirty.
+    /// Called by the write-barrier override under `GenerationalMarkSweep` when an old entry
+    /// receives a young reference, and by the minor sweep when promotion creates the same
+    /// edge without a write. The minor re-roots from dirty cards so the young target isn't
+    /// incorrectly swept.
+    ///
+    /// **add-finer-card-granularity (2026-09-10)**: `card_dirty` has always been a `Vec<u32>`
+    /// with **one bit used**, so a chunk was a single card — one cross-gen write re-rooted all
+    /// [`CHUNK_SIZE`] (256) of its entries. Measured on `z42c.semantics`: the late minors
+    /// seeded **518 530** card roots to find **76** young objects. The other 31 bits were
+    /// already allocated, so splitting the chunk into [`CARDS_PER_CHUNK`] cards of
+    /// [`ENTRIES_PER_CARD`] entries costs nothing and narrows the root set 32×.
+    pub fn mark_card_dirty(&mut self, chunk_idx: u32, entry_idx: u16) {
         let ci = chunk_idx as usize;
         if ci < self.card_dirty.len() {
-            self.card_dirty[ci] |= 1u32;
+            self.card_dirty[ci] |= 1u32 << card_of(entry_idx);
         }
     }
 
-    /// **add-generational-gc P0 (2026-05-22)**: query a chunk's
-    /// card-dirty state. Mostly for tests; minor GC iterates via
-    /// `iterate_dirty_cards`.
+    /// **add-generational-gc P0 (2026-05-22)**: whether any card in this chunk is dirty.
+    /// Mostly for tests; minor GC iterates via [`Self::iterate_dirty_cards`].
     pub fn is_card_dirty(&self, chunk_idx: u32) -> bool {
         let ci = chunk_idx as usize;
-        ci < self.card_dirty.len() && (self.card_dirty[ci] & 1u32) != 0
+        ci < self.card_dirty.len() && self.card_dirty[ci] != 0
     }
 
     /// **add-generational-gc P0 (2026-05-22)**: reset all card-dirty
@@ -237,16 +259,32 @@ impl<T> Region<T> {
         }
     }
 
-    /// **add-generational-gc P0 (2026-05-22)**: walk every entry in
-    /// dirty chunks. Minor GC uses this to re-root entries in
-    /// chunks that received old→young writes since the last collect.
+    /// **add-finer-card-granularity (2026-09-10)**: clean one card. The minor calls this on a
+    /// card it has just scanned and found to hold no cross-generational edge any more —
+    /// "clean on scan", the other half of what keeps the dirty set from snowballing.
     ///
-    /// Callback receives entries regardless of `gen_age` — the
-    /// caller filters (typically: re-root old entries to find their
-    /// young children for marking).
-    pub fn iterate_dirty_cards(&self, mut visit: impl FnMut(RegionHandle, &RegionEntry<T>)) {
+    /// Cards accumulate otherwise: nothing clears them between majors, while both the write
+    /// barrier *and* promotion keep adding to them. Measured: the dirty set grew to ~65% of
+    /// the live heap by the late minors.
+    pub fn clean_card(&mut self, chunk_idx: u32, card_idx: u8) {
+        let ci = chunk_idx as usize;
+        if ci < self.card_dirty.len() {
+            self.card_dirty[ci] &= !(1u32 << card_idx);
+        }
+    }
+
+    /// **add-generational-gc P0 (2026-05-22)**: walk every live entry in a dirty **card**.
+    /// Minor GC uses this to re-root entries that received old→young writes (or became old
+    /// while holding a young reference) since the last collect.
+    ///
+    /// The callback also receives the card index, so the caller can clean a card it finds no
+    /// longer holds a cross-generational edge — see [`Self::clean_card`].
+    ///
+    /// Callback receives entries regardless of `gen_age` — the caller filters (typically:
+    /// re-root old entries to find their young children for marking).
+    pub fn iterate_dirty_cards(&self, mut visit: impl FnMut(RegionHandle, &RegionEntry<T>, u8)) {
         for (ci, card) in self.card_dirty.iter().enumerate() {
-            if (*card & 1u32) == 0 {
+            if *card == 0 {
                 continue;
             }
             if ci >= self.chunks.len() {
@@ -256,21 +294,27 @@ impl<T> Region<T> {
             if self.borrowed[ci] {
                 continue;
             }
-            for ei in 0..CHUNK_SIZE {
-                if !self.initialized[ci][ei] {
-                    continue;
+            let mut bits = *card;
+            while bits != 0 {
+                let card_idx = bits.trailing_zeros() as u8;
+                bits &= bits - 1;
+                let lo = card_idx as usize * ENTRIES_PER_CARD;
+                for ei in lo..lo + ENTRIES_PER_CARD {
+                    if !self.initialized[ci][ei] {
+                        continue;
+                    }
+                    let slot = &self.chunks[ci][ei];
+                    let entry = unsafe { slot.assume_init_ref() };
+                    if !entry.alive.load(Ordering::Acquire) {
+                        continue;
+                    }
+                    let h = RegionHandle {
+                        chunk_idx:  ci as u32,
+                        entry_idx:  ei as u16,
+                        generation: entry.generation.load(Ordering::Acquire),
+                    };
+                    visit(h, entry, card_idx);
                 }
-                let slot = &self.chunks[ci][ei];
-                let entry = unsafe { slot.assume_init_ref() };
-                if !entry.alive.load(Ordering::Acquire) {
-                    continue;
-                }
-                let h = RegionHandle {
-                    chunk_idx:  ci as u32,
-                    entry_idx:  ei as u16,
-                    generation: entry.generation.load(Ordering::Acquire),
-                };
-                visit(h, entry);
             }
         }
     }

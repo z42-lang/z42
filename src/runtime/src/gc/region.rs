@@ -53,7 +53,7 @@ pub use entry::*;
 mod invariants;
 pub use invariants::*;
 
-mod generation;
+pub(crate) mod generation;
 
 /// Opaque handle into a `Region<T>`. Encodes (chunk index, entry
 /// index within chunk, generation snapshot). 12 bytes total —

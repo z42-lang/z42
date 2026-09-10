@@ -372,12 +372,67 @@ fn mark_card_dirty_sets_bit_at_chunk_offset() {
     r.alloc(1); // ensures chunk 0 exists + card_dirty[0] initialized to 0
 
     assert!(!r.is_card_dirty(0));
-    r.mark_card_dirty(0);
+    r.mark_card_dirty(0, 0);
     assert!(r.is_card_dirty(0));
 
     // Out-of-range chunk index → no-op (defensive).
-    r.mark_card_dirty(999);
+    r.mark_card_dirty(999, 0);
     assert!(!r.is_card_dirty(999));
+}
+
+/// **add-finer-card-granularity (2026-09-10)**: a chunk is [`CARDS_PER_CHUNK`] cards, not
+/// one. Dirtying an entry must light only its own card — that 32× narrowing is the whole
+/// point (the late minors of a `z42c.semantics` build seeded 518 530 card roots to find 76
+/// young objects).
+#[test]
+fn a_write_dirties_only_its_own_card() {
+    use crate::gc::region::generation::{card_of, ENTRIES_PER_CARD};
+    let mut r: Region<u64> = Region::new();
+    for i in 0..CHUNK_SIZE {
+        r.alloc(i as u64);
+    }
+    // One entry in the middle of the chunk.
+    let target = (ENTRIES_PER_CARD * 3 + 2) as u16;
+    r.mark_card_dirty(0, target);
+
+    let mut seen: Vec<u16> = Vec::new();
+    let mut cards: Vec<u8> = Vec::new();
+    r.iterate_dirty_cards(|h, _e, card| {
+        seen.push(h.entry_idx);
+        cards.push(card);
+    });
+    assert_eq!(seen.len(), ENTRIES_PER_CARD, "only the target's own card is a root");
+    assert!(cards.iter().all(|&c| c == card_of(target)), "wrong card reported");
+    let lo = card_of(target) as u16 * ENTRIES_PER_CARD as u16;
+    assert!(
+        seen.iter().all(|&e| e >= lo && e < lo + ENTRIES_PER_CARD as u16),
+        "entries outside the dirty card were rooted: {seen:?}"
+    );
+}
+
+/// Cleaning one card must not disturb the others in the same `u32`.
+#[test]
+fn clean_card_clears_only_that_card() {
+    use crate::gc::region::generation::ENTRIES_PER_CARD;
+    let mut r: Region<u64> = Region::new();
+    for i in 0..CHUNK_SIZE {
+        r.alloc(i as u64);
+    }
+    r.mark_card_dirty(0, 0);
+    r.mark_card_dirty(0, (ENTRIES_PER_CARD * 5) as u16);
+    assert!(r.is_card_dirty(0));
+
+    r.clean_card(0, 0);
+    assert!(r.is_card_dirty(0), "the other card is still dirty");
+
+    let mut cards: Vec<u8> = Vec::new();
+    r.iterate_dirty_cards(|_h, _e, card| {
+        if !cards.contains(&card) { cards.push(card) }
+    });
+    assert_eq!(cards, vec![5], "only card 5 should remain dirty");
+
+    r.clean_card(0, 5);
+    assert!(!r.is_card_dirty(0), "chunk is clean once every card is");
 }
 
 #[test]
@@ -387,9 +442,9 @@ fn clear_card_dirty_resets_all_bits() {
     for i in 0..(2 * CHUNK_SIZE + 5) {
         r.alloc(i as u64);
     }
-    r.mark_card_dirty(0);
-    r.mark_card_dirty(1);
-    r.mark_card_dirty(2);
+    r.mark_card_dirty(0, 0);
+    r.mark_card_dirty(1, 0);
+    r.mark_card_dirty(2, 0);
     assert!(r.is_card_dirty(0));
     assert!(r.is_card_dirty(1));
     assert!(r.is_card_dirty(2));
@@ -401,7 +456,7 @@ fn clear_card_dirty_resets_all_bits() {
 }
 
 #[test]
-fn iterate_dirty_cards_yields_all_entries_in_dirty_chunks() {
+fn iterate_dirty_cards_yields_all_entries_in_the_dirty_card() {
     let mut r: Region<u64> = Region::new();
     // Fill chunk 0 with 3 entries; mark chunk 0 dirty.
     let _h0 = r.alloc(10);
@@ -418,15 +473,19 @@ fn iterate_dirty_cards_yields_all_entries_in_dirty_chunks() {
     let _h_chunk1 = r.alloc(999); // lands in chunk 1
     assert!(r.chunks_count_for_test() >= 2);
 
-    r.mark_card_dirty(0);
+    // add-finer-card-granularity: dirtying every card of chunk 0 is what the old
+    // chunk-granular `mark_card_dirty(0)` used to mean.
+    for ei in (0..CHUNK_SIZE).step_by(crate::gc::region::generation::ENTRIES_PER_CARD) {
+        r.mark_card_dirty(0, ei as u16);
+    }
 
     let mut seen = Vec::new();
-    r.iterate_dirty_cards(|_h, e| {
+    r.iterate_dirty_cards(|_h, e, _card| {
         seen.push(*e.value.lock());
     });
     // Chunk 0 had 4 alloc'd + (CHUNK_SIZE-4) dummies = CHUNK_SIZE entries.
     assert_eq!(seen.len(), CHUNK_SIZE,
-        "all chunk-0 entries yielded as roots");
+        "every entry of a fully dirty chunk is yielded as a root");
 }
 
 #[test]
@@ -435,7 +494,7 @@ fn iterate_dirty_cards_skips_clean_chunks() {
     let _h = r.alloc(1);
     // No mark_card_dirty.
     let mut seen = 0;
-    r.iterate_dirty_cards(|_h, _e| seen += 1);
+    r.iterate_dirty_cards(|_h, _e, _card| seen += 1);
     assert_eq!(seen, 0, "no dirty cards → no entries visited");
 }
 
