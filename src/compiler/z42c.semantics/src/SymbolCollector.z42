@@ -66,6 +66,9 @@ public sealed class SymbolCollector {
         //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
         //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
         this._enforce._passTestAttrEnforce(cu);
+        // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
+        // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
+        this._enforce._passTestAttrSemantic(t, cu);
         this._inherit._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
                                   // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
         this._inherit._passInheritFields(t, cu);
@@ -229,6 +232,10 @@ public sealed class SymbolCollector {
         // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
         // ⚠️ 相位同上：须在 RunAst（BenchmarkDesugar）之后。
         while (c < cuCount) { this._enforce._passTestAttrEnforce(cus[c]); c = c + 1; }
+        c = 0;
+        // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
+        // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
+        while (c < cuCount) { this._enforce._passTestAttrSemantic(table, cus[c]); c = c + 1; }
         // impl-block merge (port-z42c-impl-block)：成员收集后，把 `impl Trait for Target`
         // 的方法并入 target.Methods + Trait 并入 target.InterfaceNames（target 可本地或
         // imported；_mergeImports 已 seed）。镜像 C# SymbolCollector.CollectImpls。
@@ -258,6 +265,9 @@ public sealed class SymbolCollector {
         //    脱糖成零参 wrapper；在它之前查「无参数」会让全仓 66 处 benchmark 全红）。本挂载点在 collect 内，
         //    RunAst 已在 IncrementalDriver 解析阶段跑过 → 天然满足。移动前先读 design §3.2。
         this._enforce._passTestAttrEnforce(cu);
+        // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
+        // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
+        this._enforce._passTestAttrSemantic(table, cu);
         this._inherit._passImpls(table, cu);   // port-z42c-impl-block
         this._inherit._passInheritFields(table, cu);
         return table;
