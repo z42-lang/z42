@@ -214,6 +214,11 @@ impl MagrGC for ArcMagrGC {
         ArcMagrGC::write_barrier_array_elem(self, arr, idx, new)
     }
 
+    #[cfg(test)]
+    fn array_card_dirty_for_test(&self, chunk_idx: u32) -> bool {
+        self.region_array.lock().is_card_dirty(chunk_idx)
+    }
+
     // ── 4. Object Model ──────────────────────────────────────────────────────
 
     fn object_size_bytes(&self, value: &Value) -> usize {

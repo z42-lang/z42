@@ -277,6 +277,10 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     #[allow(unused_variables)]
     fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {}
 
+    /// Whether the array region's card covering `chunk_idx` is dirty (tests only).
+    #[cfg(test)]
+    fn array_card_dirty_for_test(&self, _chunk_idx: u32) -> bool { false }
+
     // ── 4. Object Model ──────────────────────────────────────────────────────
 
     /// 估计对象的浅尺寸（不递归 nested values）。Phase 1 实现给出 enum tag +
