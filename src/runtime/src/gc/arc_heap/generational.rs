@@ -580,7 +580,24 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Runs before `rebuild_card_table` on purpose: promotion is what creates old→young
         // edges, and the rebuild is what records them.
         self.age_survivors_after_major();
-        self.rebuild_card_table();
+        // **perf-drop-card-rebuild (2026-09-11)**: a major used to `clear_card_dirty()` and then
+        // rebuild the whole card table — one `trace_children` per live **old** entry, measured
+        // **12.4 ms of an 86 ms major** on `z42c.semantics`. Neither half is needed any more:
+        //
+        // - **The clear was the problem it then had to solve.** #539 added the rebuild precisely
+        //   because clearing dropped every old→young edge that outlived the major. Not clearing
+        //   keeps them, and keeping them is *conservative*: the pre-major dirty set is a superset
+        //   of what a rebuild would produce (the card invariant already holds going in — the
+        //   write barrier and promotion maintain it), plus some stale cards.
+        // - **The reason to clear is obsolete.** It was "the dirty set only grows, so minors
+        //   drift towards full-heap scans". #553 made a minor **clean every card it scans and
+        //   finds no longer reaching anything young**, and `fix-primitives-count-as-young` made
+        //   that predicate honest enough to actually fire — measured 33 001 dirty cards before,
+        //   1–3 after. The set drains itself now.
+        //
+        // Promotion in `age_survivors_after_major` still dirties cards for the edges *it*
+        // creates, via `dirty_cards_for_newly_old_*` — that is the third breach in the card
+        // invariant and it is still plugged.
         // add-bounded-nursery: the old generation was just fully swept, so the budget that
         // decides when to sweep it again starts over.
         self.promoted_bytes_since_major
@@ -618,59 +635,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.dirty_cards_for_newly_old_arrays(&newly_old_arr);
 
         self.region_var.lock().age_young_survivors();
-    }
-
-    /// Clear every card, then re-dirty the chunk of each live **old** entry that still refers
-    /// to something young. Runs at the tail of a major, under STW.
-    ///
-    /// Cost is one `trace_children` per live old entry, once per major — majors are single
-    /// digits per compiler build, against 10–20 minors that each get a minimal dirty set out
-    /// of it. Keeping the pre-major cards instead would be correct but monotonic: the dirty
-    /// set would only grow and minors would drift towards full-heap scans.
-    fn rebuild_card_table(&self) {
-        let threshold = self.promotion_age;
-        let mut obj_chunks: Vec<(u32, u16)> = Vec::new();
-        {
-            let region = self.region_object.lock();
-            region.iterate_alive(|h, e| {
-                if e.gen_age() < threshold { return; }
-                // SAFETY: `iterate_alive` only yields alive entries whose generation matches.
-                let gc = unsafe {
-                    GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
-                };
-                if self.refers_to_young(&Value::Object(gc)) {
-                    obj_chunks.push((h.chunk_idx, h.entry_idx));
-                }
-            });
-        }
-        let mut arr_chunks: Vec<(u32, u16)> = Vec::new();
-        {
-            let region = self.region_array.lock();
-            region.iterate_alive(|h, e| {
-                if e.gen_age() < threshold { return; }
-                // SAFETY: see above.
-                let gc = unsafe {
-                    GcRef::from_region_entry(std::ptr::NonNull::from(e), h.generation)
-                };
-                if self.refers_to_young(&Value::Array(gc)) {
-                    arr_chunks.push((h.chunk_idx, h.entry_idx));
-                }
-            });
-        }
-        {
-            let mut region = self.region_object.lock();
-            region.clear_card_dirty();
-            for (ci, ei) in obj_chunks {
-                region.mark_card_dirty(ci, ei);
-            }
-        }
-        {
-            let mut region = self.region_array.lock();
-            region.clear_card_dirty();
-            for (ci, ei) in arr_chunks {
-                region.mark_card_dirty(ci, ei);
-            }
-        }
     }
 
     /// **add-generational-gc P3 (2026-05-22)**: escalation threshold.
