@@ -92,8 +92,8 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         toml_key: "gc-max-bytes",
         // 不是 Int：接受 `512MB` / `2G` 这类带单位后缀的写法（parse_gc_max_bytes 解析）。
         value: ValueKind::Str,
-        description: "soft heap budget that ARMS automatic collection; the gc-*-ratio knobs are fractions of it and are inert without it. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
-        default_hint: "unset; NO automatic collection happens at all (collect only on an explicit Std.GC.Collect())",
+        description: "soft heap cap: squeezes the collection allowance and adds a near-limit trip. NOT the arming switch since arm-gc-by-default — the collector's thresholds are relative and it runs without one. Accepts a byte count or a K/KB/M/MB/G/GB suffix (512MB, 2G)",
+        default_hint: "unset; no cap (the collector still runs, on relative-growth thresholds)",
         consumed_by: "vm_context/construct.rs (set_max_heap_bytes) → gc/arc_heap/alloc.rs",
         ..PUBLIC
     },
@@ -129,8 +129,8 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         toml_key: "gc-nursery-bytes",
         // 同 Z42_GC_MAX_BYTES：接受带单位后缀的写法。
         value: ValueKind::Str,
-        description: "generational only: bytes allocated before a MINOR collection trips. This is the knob that bounds minor pause time. Accepts a byte count or a K/KB/M/MB/G/GB suffix",
-        default_hint: "unset; defaults to gc-max-bytes / 4 (a ratio, so it means the same at any budget)",
+        description: "the unit the auto-collect policy is denominated in: bytes allocated before a MINOR trips (generational), and x4 the floor under a major's allowance (both modes). Accepts a byte count or a K/KB/M/MB/G/GB suffix",
+        default_hint: "unset; defaults to 32M (Mono SGen uses 4M; z42's minor still does an O(heap) chunk reclaim)",
         consumed_by: "gc/arc_heap/auto_collect.rs",
         ..TUNING
     },
@@ -174,9 +174,9 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         name: "Z42_GC_THROTTLE_RATIO",
         toml_key: "gc-throttle-ratio",
         value: ValueKind::Float { min: 0.0, max: 1.0 },
-        description: "min heap-used growth (fraction 0.0–1.0 of the max-bytes limit) since the last auto-collect before another auto-collect may trip — debounces back-to-back collects",
-        default_hint: "unset; defaults to 0.10",
-        consumed_by: "gc/arc_heap/alloc.rs",
+        description: "INERT since arm-gc-by-default (2026-09-09): the auto-collect growth gate is now a relative allowance, not a fraction of the budget. Still parsed and reported so an existing setting is not a hard error",
+        default_hint: "unset; defaults to 0.10 — but nothing reads it any more",
+        consumed_by: "(nothing — see description)",
         ..TUNING
     },
     KnobSpec {

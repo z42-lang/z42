@@ -26,10 +26,11 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 |------|------|------|--------|
 | `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | heap-used 达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
 | `Z42_GC_PRESSURE_RATIO` | 0.75 | heap-used 落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
-| `Z42_GC_THROTTLE_RATIO` | 0.10 | **距上次回收结束时的 used**，heap-used 至少再增长 max-bytes 的此比率，才允许下一次自动回收（去抖，防连发；基线为何必须是「回收后」见下节） | `arc_heap/auto_collect.rs` |
+| `Z42_GC_THROTTLE_RATIO` | 0.10 | ⚠️ **已不参与自动回收的触发**（arm-gc-by-default 把闸门换成了相对余量）；保留供未来的去抖策略使用 | — |
 | `Z42_GC_PROMOTION_AGE` | 2 | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
-| `Z42_GC_NURSERY_BYTES` | `gc-max-bytes / 4` | **分代专用**：自上次回收以来分配这么多字节就触发 minor —— 买停顿上界的那个旋钮 | `arc_heap/auto_collect` |
+| `Z42_GC_NURSERY_BYTES` | 32M | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮 | `arc_heap/auto_collect` |
+| `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不再是武装开关**（arm-gc-by-default）：设了只压回收余量并加一个近上限触发 | `arc_heap/auto_collect` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
@@ -147,6 +148,71 @@ minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位
 顺带补上了 `reset_all_marks_in_regions` 漏掉的变长区：它和另外两个 region 一样带 mark 位
 （`mark_backing` / `shade_var_newborn` 置位），少这一行就意味着一次中途放弃或换模式的回收
 留下的位会让下一次 `mark_phase` 跳过某个闭包的 `env`。
+
+## 自动回收的触发：**每一个阈值都是相对量**（照 Mono SGen）
+
+```
+   分配 ──► used ≥ next_collect_at ？ ──否──► 什么都不做（一次 relaxed load）
+                    │是
+              decide_trip()
+    ┌───────────────┴────────────────┐
+    │ 分代                            │ STW（只有一代）
+    │ promoted ≥ allowance → major    │ used − live ≥ allowance → major
+    │ 否则 grown ≥ nursery → minor    │
+    └────────────────────────────────┘
+
+   allowance(live) = MAX(live × 0.33, nursery × 4)，再被软上限压一道
+```
+
+**没有任何一处需要「一个字节预算先存在」** —— 这就是 GC 能默认武装的前提。
+`Z42_GC_MAX_BYTES` 因此从「武装开关」降级成**软上限**：不设 = 无上限
+（和 Mono 的 `soft_heap_limit` 一样），设了只压 allowance 并额外给一个近上限触发。
+
+两个比例直接取自 Mono SGen（`mono/sgen/sgen-conf.h`）：
+`SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO = 0.33`（让老年代吃进上次全量回收后活集的
+三分之一再扫一次）、`SGEN_DEFAULT_ALLOWANCE_NURSERY_SIZE_RATIO = 4.0`（下界，
+否则活集极小的程序会不停回收 —— 「几乎没有」的三分之一还是几乎没有）。
+
+⚠️ **为什么不是「按机器内存比例定一个默认预算」**：相对阈值自适应 —— 10 MB 的脚本和
+4 GB 的服务共用同一套参数，而按机器内存的启发式在容器里还会读错。
+
+### `next_collect_at`：默认武装的可负担性全在这里
+
+`maybe_auto_collect` 要读 `inner` 里的水位线，也就是**要拿堆的互斥锁**。默认武装
+= 每次分配都拿一次锁，那是 VM 里最热的路径。在这之前，唯一挡住它的就是
+「没设预算 ⇒ 永不回收」那条早退。
+
+改法是 Mono 的 `major_collection_trigger_size`：把**下一次该被询问的 `used` 读数**缓存
+进一个原子。分配路径于是只剩**一次 relaxed load + 一次比较**，慢路径每个闸门至多进一次。
+
+维护点两处，缺一不可：`maybe_auto_collect` 的**每一条出口**（包括「这次不收」——
+否则下一次分配又走进来拿锁），以及 `sub_used_bytes`（四条回收路径唯一的公共汇合点）。
+⚠️ **后者必须无锁**：其中三处调用时**正持着 `inner.lock()`**，`parking_lot::Mutex` 不可重入。
+
+### nursery 是整套策略的计量单位
+
+它同时是 minor 的闸门和 major allowance 的下界（×4）。Mono 取 4 MB，因为**它的 minor
+是 O(young) 的**；z42 的 minor 还要做一遍 **O(堆)** 的 chunk 回收，所以频繁 minor 在这里
+贵得多，默认取 **32M**。
+
+实测（`z42c.semantics --release --no-incremental`，同一 seed，各 3 跑取中位）：
+
+| 配置 | 周期 | 墙钟 | 峰值 RSS |
+|---|---|---|---|
+| 旧默认（未武装） | 0 | 6.88 s | 1027.4 MB |
+| **新默认（无任何 env）** | 4 major | **7.07 s (+2.8%)** | **756.2 MB (−26.4%)** |
+| 旧策略 + `MAX_BYTES=128M` | 14 major | 7.90 s | 614.7 MB |
+| **新策略 + `MAX_BYTES=128M`** | 12 major | **7.26 s (−8.1%)** | **593.7 MB (−3.4%)** |
+| 新默认 + generational | 10 minor / 1 major | 7.34 s | 758.5 MB |
+
+**+2.8% 的墙钟换 −26.4% 的 RSS** —— 而在这之前，不设 `Z42_GC_MAX_BYTES` 的程序
+**一次都不回收**。设了软上限时相对策略也更好（墙钟 −8.1%）：allowance 随活集自适应，
+不像固定的 `throttle_ratio × limit` 那样在活集变大后仍按同一格触发。
+
+⚠️ **`Z42_GC_MODE` 默认仍是 `stw`**：今天翻到分代，墙钟和内存**两头都不占优**
+（7.34 s / 758.5 MB vs 7.07 s / 756.2 MB）。分代该赢在「minor 便宜所以能勤跑」，
+而 z42 的 minor 还背着 O(堆) 的 chunk 回收 —— 那也是 nursery 只能停在 32M（而 Mono 是 4M）
+的原因。**顺序是：增量 chunk 回收 → 补 CI 的分代覆盖 → 翻默认。**
 
 ## 分代的两个闸门：新生代按分配量，老年代按晋升量
 

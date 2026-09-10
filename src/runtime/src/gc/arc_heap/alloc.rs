@@ -59,6 +59,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 Err(actual) => cur = actual,
             }
         }
+        // **arm-gc-by-default (2026-09-09)**: this is the one point every collect path passes
+        // through once its cycle is accounted for, so it is where the next trip point is
+        // recomputed. It must stay **lock-free**: three of the four call sites hold
+        // `inner.lock()` (they credit the bytes inside the same stats block), and
+        // `parking_lot::Mutex` is not reentrant.
+        self.rearm_auto_collect();
     }
 
     /// **add-gc-tlab (stage 2/3)**: the lock-free counterpart of [`record_alloc`]
@@ -95,8 +101,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 });
             }
         }
+        // Pressure *events* still need a budget to be a fraction of; auto-collect no longer
+        // does (arm-gc-by-default). The gate below is one relaxed load + compare — see
+        // `ArcMagrGC::next_collect_at` for why it has to be that cheap.
         if self.max_bytes_atomic.load(Ordering::Relaxed) != u64::MAX {
             self.check_pressure(size as u64);
+        }
+        if self.used_bytes.load(Ordering::Relaxed) >= self.next_collect_at.load(Ordering::Relaxed) {
             self.maybe_auto_collect();
         }
     }

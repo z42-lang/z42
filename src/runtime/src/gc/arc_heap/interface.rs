@@ -255,6 +255,9 @@ impl MagrGC for ArcMagrGC {
         // is the largest of the three — leaving it maintained under non-generational modes
         // cost +48 MB of RSS on a `z42c.semantics` build.
         self.region_var.lock().set_generational(generational);
+        // arm-gc-by-default: the two modes size their growth gate differently (a nursery vs
+        // a full allowance), so the cached trip point has to be recomputed.
+        self.rearm_auto_collect();
     }
 
     /// **add-custom-allocator P2**: explicit finalize; impl in `ArcMagrGC::finalize_now`.
@@ -293,6 +296,11 @@ impl MagrGC for ArcMagrGC {
             max.unwrap_or(u64::MAX),
             std::sync::atomic::Ordering::Relaxed,
         );
+        drop(i);
+        // arm-gc-by-default: the soft cap squeezes the allowance, so the cached trip point is
+        // stale as soon as it changes. (`rearm_auto_collect` is lock-free but takes no chances
+        // with a guard still alive — hence the explicit `drop` above.)
+        self.rearm_auto_collect();
     }
 
     fn used_bytes(&self) -> u64 {
