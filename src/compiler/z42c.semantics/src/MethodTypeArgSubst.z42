@@ -57,6 +57,49 @@ public static class MethodTypeArgSubst {
         subst.ParamCallers = sig.ParamCallers;
         return ms.WithSignature(subst);
     }
+    // generic-inference-lambda-args：**只**对 `Z42FuncType` 形参位按名代换（且只换 targs 里已绑定=
+    // 非 null 的型参名），用于隐式泛型调用**绑定 lambda 延迟位之前**——让 lambda 形参拿到具体类型能编，
+    // 而**非-Func 形参位保持原裸型参** ⇒ 非-lambda 实参的绑定/装箱/params 展开/默认值逐字节不变
+    // （design I1'/D1；`Array.Copy<T>` 等无 Func 位者零触碰，避开 #536 D4 的四条漂移通道）。
+    //
+    // 与 `ForExplicitTypeArgs`（显式路径、代换整条签名）刻意不同：那条用户显式写了 `<int>`、接受由此
+    // 产生的全面字节变化；本条是**推断**驱动、只允许 lambda 重绑这一条通道。
+    //
+    // 返回位**不代换**（B2）：`Map<T,U>` 的 U 只在 lambda 返回位者仍留裸型参，与 #536 D4「不回灌」一致。
+    // targs 按 `names` 声明序对齐，未绑=null（`InferPreBinding` 可能只推出部分型参）。
+    public static MethodSymbol SubstituteFuncParams(MethodSymbol ms, string[] names, int nameCount, Z42Type[] targs) {
+        if (ms == null || ms.Signature == null || names == null || nameCount == 0 || targs == null) { return ms; }
+        // 过滤出已绑定的 (name, targ) 喂给 ByName——未绑名不在表里 ⇒ ByName 原样保留
+        // （如 `Map<T,U>` 只绑 T，`Func<T,U>` 代换成 `Func<int,U>`，U 留裸）。
+        string[] bn = new string[nameCount];
+        Z42Type[] bt = new Z42Type[nameCount];
+        int bc = 0;
+        int k = 0;
+        while (k < nameCount) {
+            if (targs[k] != null) { bn[bc] = names[k]; bt[bc] = targs[k]; bc = bc + 1; }
+            k = k + 1;
+        }
+        if (bc == 0) { return ms; }
+        Z42FuncType sig = ms.Signature;
+        bool anyFunc = false;
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int p = 0;
+        while (p < sig.ParamCount) {
+            if (sig.ParamTypes[p] is Z42FuncType) {
+                np[p] = MethodTypeArgSubst.ByName(sig.ParamTypes[p], bn, bc, bt);
+                anyFunc = true;
+            } else {
+                np[p] = sig.ParamTypes[p];   // 非-Func 位原样（零漂移）
+            }
+            p = p + 1;
+        }
+        if (!anyFunc) { return ms; }
+        Z42FuncType subst = new Z42FuncType(np, sig.ParamCount, sig.Ret);   // Ret 不代换（B2）
+        subst.ParamsFrom = sig.ParamsFrom;
+        subst.ParamDefaults = sig.ParamDefaults;
+        subst.ParamCallers = sig.ParamCallers;
+        return ms.WithSignature(subst);
+    }
     // add-generic-type-arg-inference 阶段 B：按方法级型参名做代换后补查实参。
     public static void CheckSubstMethodArgs(TypeChecker tc, BoundCall bc, Z42FuncType sig,
                                               string[] names, int nameCount, Z42Type[] targs, TypeEnv env) {

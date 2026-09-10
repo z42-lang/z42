@@ -1,0 +1,40 @@
+// Test: generic-inference-lambda-args — lambda 实参驱动方法级类型实参推断（Scope 2 + 纯 A）。
+//
+// 这些调用**省略了尖括号**，且是本 change 前编不过 / 零绑定的形态。运行期真门：断言 lambda 以
+// **具体**类型绑定并执行（不只是编译期不报），证明 emit 端真的用推断出的类型重绑了 lambda。
+
+// B 类：型参 T 从数组实参推出（源①），lambda 无标注。
+int sumWith<T>(T[] xs, Func<T, int> f) {
+    int s = 0;
+    int i = 0;
+    while (i < xs.Length) { s = s + f(xs[i]); i = i + 1; }
+    return s;
+}
+
+// 纯 A：型参 T 只出现在 Func 形参位，从 lambda **标注**推出（源②）。
+T applyTwice<T>(Func<T, T> f, T seed) { return f(f(seed)); }
+
+// B 类 + 混合返回位（Map 形），型参 R 从 seed（非-lambda）推出，lambda 无标注。
+R fold<T, R>(T[] xs, R seed, Func<R, T, R> acc) {
+    R r = seed;
+    int i = 0;
+    while (i < xs.Length) { r = acc(r, xs[i]); i = i + 1; }
+    return r;
+}
+
+void Main() {
+    int[] xs = new int[3];
+    xs[0] = 1; xs[1] = 2; xs[2] = 3;
+
+    // B 类，无标注 lambda，省略 <> —— 本 change 前 2×E0402（形参绑成裸 T，x*10 无法定型）。
+    int total = sumWith(xs, (x) => x * 10);
+    Assert.Equal(60, total);
+
+    // 纯 A，有标注 lambda，省略 <> —— T 从 lambda 形参标注 int 推出。f(f(3)) = f(8) = 13。
+    int r = applyTwice((int n) => n + 5, 3);
+    Assert.Equal(13, r);
+
+    // B 类，两个型参都从非-lambda 实参（xs / seed）推出，lambda 无标注两形参。
+    int summed = fold(xs, 100, (a, x) => a + x);
+    Assert.Equal(106, summed);
+}

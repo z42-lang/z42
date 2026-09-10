@@ -335,3 +335,66 @@ void test_inferred_prim_type_arg_still_reports_unimplemented_interface() {
         + "void f<T>(T x) where T: J { } class Use { void g() { f(1); } }";
     Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
 }
+
+// ── generic-inference-lambda-args：lambda 实参驱动型参推断（Scope 2 + 纯 A）─────────────
+//
+// 🔴 所有「now compiles」条目修前都实测过（PROBEOUT 探针 = 2×E0402），退回 OverloadBinder
+// ._inferFuncParamSubst 接线即回到 2 —— 是真门。运行期真门在 src/tests/generic-methods/lambda_inference.z42
+// （interp+jit 真跑断言输出）。
+
+// B 类自由函数 + 无标注 lambda + 省略 `<>`：修前 2×E0402（形参绑成裸 T、体内 `y - x` 无法定型），
+// 修后型参 T 从数组实参推出（源①）、Func 形参位代换 ⇒ lambda 拿具体类型 ⇒ 能编。
+[Test]
+void test_lambda_infer_free_unannotated_compiles() {
+    string src = "void srt<T>(T[] a, Func<T, T, int> c) { } "
+        + "class Use { void f() { var xs = new int[0]; srt(xs, (x, y) => y - x); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+// 静态成员调用同款（走 `_bindMemberCall` 的 Class.m 静态路径，同一 `_withDefaults` 注入点覆盖）。
+[Test]
+void test_lambda_infer_static_member_unannotated_compiles() {
+    string src = "class A { public static void Srt<T>(T[] a, Func<T, T, int> c) { } } "
+        + "class Use { void f() { var xs = new int[0]; A.Srt(xs, (x, y) => y - x); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+// 纯 A：型参 T **只**在 Func 形参位、无任何非-lambda 来源（无 seed）→ 只能从 lambda **标注** int
+// 推出（源②）。int 违反 `T:IFoo` ⇒ 报 1。
+// 🔴 阳性门（distinguishes）：退回接线后 T 不被推断 ⇒ where 不校验 ⇒ 0（实测退回态确为 0）。
+// 🔴 假门陷阱（已踩并修正）：body 必须是**恒等** `(int x) => x`——若写 `x + 1` 这类运算，退回态会因
+// x 绑成裸 T、`x + 1` 自己报 E0402 而**凑巧也得 1**，两态同数不同因、测不出。恒等体在裸 T 上不运算。
+[Test]
+void test_lambda_infer_pure_a_annotated_drives_where() {
+    string src = "interface IFoo { } void useFn<T>(Func<T, T> f) where T : IFoo { } "
+        + "class Use { void f() { useFn((int x) => x); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// 毒化解除 + where 真校验：`need(arr, lam)` 里 arr 本可绑 T=int（源①），修前 lambda 位裸 T 与 int
+// 冲突 ⇒ 整条推断失败 ⇒ where 不校验 ⇒ 0；修后不再毒化、推出 T=int、`int` 违反 `T:IFoo` ⇒ 报 1。
+// 🔴 假门陷阱（已踩并修正）：lambda body 必须是常量 `(x) => 1`（不碰 x）——若写 `x + 1`，退回态 x 绑
+// 成裸 T、`x + 1` 自己报 1 条，与修后的 where 违反同数不同因、测不出。常量体在裸 T 上不运算。
+[Test]
+void test_lambda_infer_lifts_poisoning_and_checks_where() {
+    string src = "interface IFoo { } void need<T>(T[] a, Func<T, int> g) where T : IFoo { } "
+        + "class Use { void f() { var xs = new int[0]; need(xs, (x) => 1); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+// where 满足（阳性对照）：实现类数组 → T=L、`L : IFoo` 满足 ⇒ 0。证明毒化解除不是「一律放行」。
+[Test]
+void test_lambda_infer_where_satisfied_reports_nothing() {
+    string src = "interface IFoo { } class L : IFoo { } void need<T>(T[] a, Func<T, int> g) where T : IFoo { } "
+        + "class Use { void f() { var xs = new L[0]; need(xs, (x) => 1); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+// B1 边界：无标注纯 A（型参只在 lambda、形参无标注、体不消费 T）→ 推断失败但**无假错**
+// （型参未绑=今天行为，静默）。守「别把这条边界修成一道会误报的门」。
+[Test]
+void test_lambda_infer_pure_a_unannotated_stays_silent() {
+    string src = "void app<T>(Func<T, T> f) { } "
+        + "class Use { void f() { app((x) => x); } }";
+    Assert.Equal(0, bodyDiags(src).Count());
+}
