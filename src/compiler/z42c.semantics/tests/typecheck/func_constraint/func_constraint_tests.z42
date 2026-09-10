@@ -1,0 +1,198 @@
+// validate-func-type-constraint：函数类型约束的校验（E0422 签名不符 / E0423 与其它约束并置）。
+//
+// 🔴 **本组用例是这两个诊断唯一的门**：全仓只有 5 个文件用 func 约束
+// （`src/tests/generics/func_constraint_*.z42`），且全部合法 ⇒ 新诊断在真实代码上违反数恒为 0。
+// 不自带 fixture 就又是一道从不响的门（[[audit-silent-gates-program]] 的老教训）。
+// 每条负例都做过退回对照：撤掉 `ConstraintChecker._checkFuncConstraint` 的挂接后必须变 0。
+//
+// ⚠️ 辅助函数一律带 `fnc` 前缀：同一测试单元（`include = ["**/*.z42"]`）里所有文件的自由函数
+// 共享一个平坦命名空间，且 z42 自由函数**不按参数类型重载** —— 同名同 arity 会被别的文件顶掉。
+namespace Z42cSemanticsFuncConstraintTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+DiagnosticBag fncDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int fncCount(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// `Func` / `Action` / `Predicate` 由 `SymbolTable.ResolveTypeP` 直接解析成结构化 `Z42FuncType`
+// （不进 Classes/Interfaces 表），故本 harness 无需导入符号即可造出 func 约束。
+string fncPre() {
+    return "class Animal { } class Cat : Animal { } interface IThing { void Poke(); } ";
+}
+
+// ── E0422：调用点签名不符 ──────────────────────────────────────────────
+
+[Test]
+void test_arg_not_a_function_reports_E0422() {
+    // 实参根本不是函数类型 —— 约束今天形同虚设，任何东西都传得进去。
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Func<int,int> { } "
+               + "void h() { this.g<int>(1); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+[Test]
+void test_param_type_mismatch_reports_E0422() {
+    // `where T: Action<int>` 收了 `Func<string,int>`：修前编译干净、运行期
+    // `VCall: expected object, got I64(3)`（int 被喂进 string 形参）。
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Action<int> { } "
+               + "void h() { Func<string,int> x = s => 1; this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+[Test]
+void test_return_type_mismatch_reports_E0422() {
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Action<int> { } "
+               + "void h() { Func<int,int> x = n => n; this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+[Test]
+void test_arity_mismatch_reports_E0422() {
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Action<int> { } "
+               + "void h() { Action<int,int> x = (a,b) => { }; this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+[Test]
+void test_param_covariance_rejected_reports_E0422() {
+    // 形参位**逆变**：约束要 `Func<Animal,int>`，给 `Func<Cat,int>` 不行 ——
+    // 调用方可能传 Animal，而实参那份只接 Cat。
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Func<Animal,int> { } "
+               + "void h() { Func<Cat,int> x = c => 1; this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+[Test]
+void test_return_contravariance_rejected_reports_E0422() {
+    // 返回位**协变**：约束要 `Func<int,Cat>`，给 `Func<int,Animal>` 不行。
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Func<int,Cat> { } "
+               + "void h() { Func<int,Animal> x = n => new Animal(); this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+[Test]
+void test_wildcard_position_mismatch_reports_E0422() {
+    // 约束里的型参按**本次调用已解析的类型实参**代换后再比：`Predicate<U>` + U=int
+    // ⇒ 要求 `Predicate<int>`，给 `Predicate<string>` 应报。
+    // 退回对照：去掉 `MethodTypeArgSubst.ByName` 那一步（把 U 当通配放行）后本条变 0。
+    string src = fncPre() + "class Use { bool g<T,U>(T pred, U[] items) where T: Predicate<U> { return true; } "
+               + "void h() { Predicate<string> p = s => true; int[] xs = new int[] { 1 }; this.g(p, xs); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+// ── 正例：合法写法必须零诊断（防假红）─────────────────────────────────
+
+[Test]
+void test_exact_match_reports_nothing() {
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Action<int> { } "
+               + "void h() { Action<int> x = v => { }; this.g(x); } }";
+    Assert.Equal(0, fncDiags(src).Count());
+}
+
+[Test]
+void test_param_contravariance_accepted() {
+    // 约束要 `Func<Cat,int>`，给 `Func<Animal,int>` —— 更宽的形参接得住 Cat。
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Func<Cat,int> { } "
+               + "void h() { Func<Animal,int> x = a => 1; this.g(x); } }";
+    Assert.Equal(0, fncDiags(src).Count());
+}
+
+[Test]
+void test_return_covariance_accepted() {
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Func<int,Animal> { } "
+               + "void h() { Func<int,Cat> x = n => new Cat(); this.g(x); } }";
+    Assert.Equal(0, fncDiags(src).Count());
+}
+
+[Test]
+void test_literal_arrow_form_accepted() {
+    // 字面量形态 `(int) -> int`：`con.Type` 是 `FuncTypeExpr` 而非 `NamedType`，
+    // 修前整条 if 链落空 ⇒ 是一条彻底的空约束。现在既存也校验。
+    string src = fncPre() + "class Use { int g<T>(T f) where T: (int) -> int { return 0; } "
+               + "void h() { Func<int,int> x = n => n; this.g(x); } }";
+    Assert.Equal(0, fncDiags(src).Count());
+}
+
+[Test]
+void test_literal_arrow_form_mismatch_reports_E0422() {
+    string src = fncPre() + "class Use { int g<T>(T f) where T: (int) -> int { return 0; } "
+               + "void h() { Func<int,string> x = n => \"s\"; this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+[Test]
+void test_zero_arity_void_literal_accepted() {
+    string src = fncPre() + "class Use { void g<T>(T h2) where T: () -> void { } "
+               + "void h() { Action x = () => { }; this.g(x); } }";
+    Assert.Equal(0, fncDiags(src).Count());
+}
+
+[Test]
+void test_wildcard_position_match_reports_nothing() {
+    string src = fncPre() + "class Use { bool g<T,U>(T pred, U[] items) where T: Predicate<U> { return true; } "
+               + "void h() { Predicate<int> p = n => true; int[] xs = new int[] { 1 }; this.g(p, xs); } }";
+    Assert.Equal(0, fncDiags(src).Count());
+}
+
+// ── 用户 delegate 作约束（独立解析路径：`SymbolTable.Delegates`）──────────
+
+[Test]
+void test_user_delegate_constraint_accepts_structurally_equal() {
+    // delegate 约束是**结构性**的：`Func<int,int>` 与 `delegate int Transform(int)` 同形 ⇒ 放行。
+    string src = "delegate int Transform(int x); "
+               + "class Use { int g<T>(T f, int x) where T: Transform { return 0; } "
+               + "void h() { Func<int,int> p = n => n; this.g(p, 1); } }";
+    Assert.Equal(0, fncDiags(src).Count());
+}
+
+[Test]
+void test_user_delegate_constraint_mismatch_reports_E0422() {
+    string src = "delegate int Transform(int x); delegate void Notify(string msg); "
+               + "class Use { int g<T>(T f, int x) where T: Transform { return 0; } "
+               + "void h() { Notify bad = m => { }; this.g(bad, 1); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0422"));
+}
+
+// ── E0423：func 约束与其它约束并置 ────────────────────────────────────
+
+[Test]
+void test_func_plus_interface_reports_E0423() {
+    // ⚠️ 方法级 where **只在调用点被处理**，故这条必须真的调一次才报
+    // （Deferred `constraint-decl-diag-per-callsite` 的孪生症状：从不被调用的泛型方法，
+    //  其 where 子句的声明级错误一条都不报）。
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Func<int,int> + IThing { } "
+               + "void h() { Func<int,int> x = n => n; this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0423"));
+}
+
+[Test]
+void test_func_plus_new_reports_E0423() {
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Action<int> + new() { } "
+               + "void h() { Action<int> x = v => { }; this.g(x); } }";
+    Assert.Equal(1, fncCount(fncDiags(src), "E0423"));
+}
+
+[Test]
+void test_func_alone_does_not_report_E0423() {
+    string src = fncPre() + "class Use { void g<T>(T f) where T: Action<int> { } "
+               + "void h() { Action<int> x = v => { }; this.g(x); } }";
+    Assert.Equal(0, fncCount(fncDiags(src), "E0423"));
+}

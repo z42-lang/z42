@@ -1,0 +1,14 @@
+// 修前基线：func 约束今天完全不校验的四种违反
+void Run<T>(T handler, int x) where T: Action<int> { handler(x); }
+int Twice<T>(T f, int x) where T: (int) -> int { return f(x); }
+
+void Main() {
+    Func<string,int> g = s => 1;
+    Run(g, 3);                    // ① 形参类型完全不符（string vs int）
+    Func<int,int> ok = n => n;
+    Run(ok, 3);                   // ② 返回类型不符（int vs void）
+    Action<int,int> two = (a,b) => { };
+    Run(two, 3);                  // ③ arity 不符
+    Func<int,string> s = n => "x";
+    var r = Twice(s, 1);          // ④ 返回类型不符（string vs int）
+}

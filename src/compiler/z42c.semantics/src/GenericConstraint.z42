@@ -4,8 +4,9 @@
 // validate_type_arg_constraint`（七项俱全）——编译期照抄，不另立规则。当前落地：
 //   base-class（where T : C）/ class / struct / 型参引用（where U : T）/ interface（含继承闭包）
 //   / enum / new()  + class·struct 互斥。
-// 延后：func-type 约束的**校验**（E0422/E0423 已定义但从未发出；Deferred
-//   where-constraint-future-func-constraint）。
+//   + **func-type 约束**（validate-func-type-constraint：E0422 签名不符 / E0423 与其它约束并置）。
+//     ⚠️ 这一项**运行期没有对应条目**（`validate_type_arg_constraint` 只有七项，wire 也没有 flag 位）
+//     ⇒ 只在编译期、只对本包声明的约束成立；导入 bundle 恒无 func 约束 ⇒ 跨包天然跳过、不会假红。
 //   ⚠️ **事实校正（fix-generic-func-param-indirect-call）**：原注有一句「注意 CallEmitter 靠该约束
 //   把参数当 func 值走 CallIndirect，改动需谨慎」——**不成立**。`CallEmitter` 从不看约束，它只查
 //   `Locals.ContainsKey(名字)`；真正把 `f(x)` 绑成间接调用的是 `MemberResolver` 的
@@ -34,6 +35,13 @@ public sealed class ConstraintBundle {
     // （`where T : IFoo + IBar`），故用 typed array + count（类字段不能带泛型）。
     public string[] InterfaceNames;
     public int      InterfaceCount;
+    // validate-func-type-constraint：函数类型约束 `where T : Func<int,R>` / `Action<int>` /
+    // `Predicate<U>` / `(int) -> R` / 用户 `delegate`。存**已解析**的 `Z42FuncType`，且**可含型参**
+    // （`Func<int,R>` 的 `R`、`Predicate<U>` 的 `U`）—— 调用点先按本次调用已解析的类型实参代换
+    // （`MethodTypeArgSubst.ByName`）再逐位比对，代换不掉的位当通配放行。
+    // 与其余七项**互斥**（v1，照 2026-05-11 add-generic-func-constraint 的 spec）：并置报 E0423。
+    public bool    HasFuncType;
+    public Z42Type FuncType;
     // add-associated-types PR-3：`where T : IEnum<Item = int>` 的关联类型绑定要求。
     // 两条平行数组 + count；与 `Z42ClassType.AssocBinding*` 同一口径（存已解析类型的 Name()），
     // 校验即「实参类型对该关联类型给出的绑定 == 这里要求的」。
@@ -46,6 +54,7 @@ public sealed class ConstraintBundle {
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
         this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
         this.RequiresEnum = false; this.RequiresCtor = false;
+        this.HasFuncType = false; this.FuncType = null;
     }
 
     public void AddInterface(string name) {
@@ -79,6 +88,7 @@ public sealed class ConstraintBundle {
         return !this.HasBaseClass && !this.RequiresClass && !this.RequiresStruct
             && !this.HasTypeParamRef && this.InterfaceCount == 0
             && !this.RequiresEnum && !this.RequiresCtor
+            && !this.HasFuncType
             && this.AssocBindingCount == 0;
     }
 }
