@@ -24,7 +24,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut count = 0usize;
         // Pinned roots — cloned under inner.lock() to release the lock
         // before any potential observer callbacks.
-        let roots: Vec<Value> = self.inner.lock().roots.values().cloned().collect();
+        let roots: Vec<Value> = {
+            let i = self.inner.lock();
+            // fix-strong-handles-are-not-roots: strong handle targets are roots too.
+            i.roots.values().cloned().chain(i.handle_slab.strong_targets()).collect()
+        };
         for v in roots {
             if Self::mark_if_unmarked(&v) {
                 queue.push(v);
@@ -125,10 +129,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             });
         }
-        // Pinned roots (GC-internal host pins / frame pins).
+        // Pinned roots (GC-internal host pins / frame pins) + strong GC handles.
         {
             let inner = self.inner.lock();
-            for v in inner.roots.values() {
+            // fix-strong-handles-are-not-roots (2026-09-11): a strong handle anchors its target,
+            // so retention analysis has to report it as a root — otherwise `Heap.WhyIsThisAlive`
+            // shows an object that is alive with no retainer, which is exactly the question the
+            // diagnostic exists to answer. Reported as `Pinned`: it is the same kind of thing —
+            // an out-of-heap reference the host holds deliberately.
+            for v in inner.roots.values().chain(&inner.handle_slab.strong_targets().collect::<Vec<_>>()) {
                 if let Some(obj) = value_heap_ptr(v) {
                     g.add_root_edge(obj, crate::gc::retention::RootKind::Pinned);
                 }

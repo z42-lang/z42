@@ -160,6 +160,28 @@ z42-gc-probe: STORING A DEAD VALUE at FieldSet: owner=Object[Z42.Syntax.Token]
 2. **这不是分代缺陷，是采集频率把它照出来了。** 32M 默认一次构建才 26 次回收，撞不上这个窗口；
    1M nursery 是 365 次，第 128 次撞上。**「只在小 nursery 下复现」不等于「是分代的锅」。**
 
+## GC 的根集合到底有哪些
+
+三条标记路径（`mark_phase` 全量 / `snapshot_roots_into_mark_queue` 并发 / `mark_phase_minor`
+分代）各自组装根集合，**三处必须一起改**：
+
+| 根 | 来源 |
+|---|---|
+| pinned roots | `RcHeapInner::roots`（`pin_root`） |
+| **strong GC handles** | `RcHeapInner::handle_slab` 的 strong 槽 |
+| external scanner | `VmContext` 的静态字段 / 调用栈帧 / 三个 arena / 内插字符串缓存等 |
+| 脏卡（**仅 minor**） | 老条目里可能指向年轻对象的那些 |
+
+⚠️ **`GCHandle.AllocStrong` 曾经锚不住目标**（`fix-strong-handles-are-not-roots`，2026-09-11）。
+`handle_slab` 全仓只有 `arc_heap/interface.rs` 的四个 `handle_*` 方法碰过，**没有任何 mark 阶段
+扫它**，于是 Strong 与 Weak 的唯一可观察差别只剩「能不能 `downgrade`」——而 `HandleEntry` 的
+文档注释写的正是「strong slots … anchor their target across collection」。
+**没有任何测试断言过「强句柄能扛住一次回收」**，所以它活了很久。
+
+🔑 **加根的时候记住 minor 有自己的一套。** 只改全量标记，在默认收集器下等于没改 ——
+绝大多数回收是 minor。反过来，修「strong 要锚住」时必须同时有一个 **weak 不许锚**的反向测试，
+否则「把每个槽都当根」也能让正向测试变绿，却静默毁掉 `AllocWeak`。
+
 ## 分代 minor 的标记不变量：**minor 不给老对象留标记**
 
 `mark_phase_minor` 的根 = 固定根 + external scanner + **脏卡里的每一条**。脏卡的根天然是

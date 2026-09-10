@@ -18,8 +18,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Returns the count of newly-marked allocations — used by unit tests
     /// to verify BFS visits the expected set.
     pub(super) fn mark_phase(&self) -> usize {
-        // Initial roots: pinned + external scanner output.
-        let mut queue: Vec<Value> = self.inner.lock().roots.values().cloned().collect();
+        // Initial roots: pinned + **strong GC handles** + external scanner output.
+        let mut queue: Vec<Value> = {
+            let i = self.inner.lock();
+            i.roots.values().cloned().chain(i.handle_slab.strong_targets()).collect()
+        };
         {
             let scanner_borrow = self.external_root_scanner.lock();
             if let Some(scan) = scanner_borrow.as_ref() {
