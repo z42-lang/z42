@@ -14,6 +14,11 @@ public sealed class MemberCollector {
     internal void _passMembers(SymbolTable table, CompilationUnit cu) {
         // E0456 声明位：判据要看**引用方**的 ns + usings，故整个 pass 用带作用域的 per-CU 视图。
         // 视图共享全部数据表（注册照常写进共享表），只多带 ScopeNs/ScopeUsings。
+        //
+        // 顺带的好处：下一行的 `CurrentAliases` 从此写在**视图**而非共享表上，与
+        // `TypeChecker`（见其 Infer 注释「不再覆写共享 CurrentAliases，并行段零共享可变」）同方向。
+        // 已核实无下游依赖：`InheritanceResolver` 的两个 pass 各自重设 CurrentAliases，
+        // 不吃 _passMembers 遗留在共享表上的值。
         table = table.WithScopeOf(cu);
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias：解析成员类型时本 CU 别名生效
         int i = 0;
