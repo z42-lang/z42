@@ -198,6 +198,34 @@ public sealed class BoundTypeof : BoundExpr {
     public override string Dump() { return "(typeof " + this.Target.Name() + " :" + this._t.Name() + ")"; }
 }
 
+// methodof(Type.Member(签名)) → Std.Reflection.MethodInfo（add-method-reference）。
+// 与 BoundTypeof 对称：重载决议**全部在绑定期完成**，落到这里只剩一个已消歧的目标。
+//
+// OwnerName 保 **AST 原始限定名**（镜像 BoundTypeof.TargetName）：结构化后 FQ 名会蒸发，
+// 发射时靠它经 QualifyClass 拼回。OwnerCt 是解析后的 owner 类型（发射端优先用它的 Fqn()，
+// 与 unify-type-identity-fqn 一致）。
+//
+// MethodKey = 选中方法的 **RegKey**（= Methods 映射键 = IR 名 = BoundCall 目标名，形态
+// `Name` / `Name$arity` / `Name$arity$typesig`）。重载身份是既有机制，methodof 不另造编码。
+// DeclOwnerFq 是**声明该方法的类**的 FQ 名（可能是基类）——imported 类的 Methods 被 TSIG 展平
+// 过继承方法，直接用 receiver 类拼名会指向一个从未发射的函数（见 EmitContext._depHasFunction）。
+public sealed class BoundMethodOf : BoundExpr {
+    public string       OwnerName;     // AST 原始限定名
+    public Z42ClassType OwnerCt;       // 解析后的 owner 类
+    public string       DeclOwnerFq;   // 声明类的 FQ 名（""=用 OwnerCt 拼）
+    public string       MethodKey;     // 选中方法的 RegKey
+    public MethodSymbol Method;        // 选中的符号（诊断/后续用）
+    private Z42Type _t;
+    public BoundMethodOf(string ownerName, Z42ClassType ownerCt, string declOwnerFq,
+                         string methodKey, MethodSymbol method, Z42Type t, Span span) {
+        this.Span = span;
+        this.OwnerName = ownerName; this.OwnerCt = ownerCt; this.DeclOwnerFq = declOwnerFq;
+        this.MethodKey = methodKey; this.Method = method; this._t = t;
+    }
+    public override Z42Type Type() { return this._t; }
+    public override string Dump() { return "(methodof " + this.OwnerName + "." + this.MethodKey + " :" + this._t.Name() + ")"; }
+}
+
 public sealed class BoundCast : BoundExpr {
     public BoundExpr E;
     private Z42Type _type;

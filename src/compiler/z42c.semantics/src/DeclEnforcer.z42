@@ -4,6 +4,7 @@ namespace Z42.Semantics;
 using Z42.IR;
 using Z42.Syntax;
 using Z42.Core;
+using Z42.IR.BinaryFormat;   // ZbcInstr._parseIntLit（[Timeout] 的整数字面量）
 
 public sealed class DeclEnforcer {
     private SymbolCollector _sc;   // hub 反向引用：共享辅助 + partial 状态 + 编排
@@ -196,6 +197,7 @@ public sealed class DeclEnforcer {
         if (raw is AttributedDecl) {
             AttributedDecl ad = raw as AttributedDecl;
             if (ad.Inner is MethodDecl) { this._teCheck(ad, ad.Inner as MethodDecl, owner); }
+            this._teOrphanCheck(ad);   // 修饰类 attr 无 kind attr 相伴（E0914），不限于方法
         }
         // ② 再下沉到容器（AttributedDecl 也可能包着 ClassDecl，故先 _unwrap）。
         Decl d = this._sc._unwrap(raw);
@@ -251,6 +253,104 @@ public sealed class DeclEnforcer {
         if (!md.HasBody) {
             this._sc.Diags.Error(code, use + " must have a method body", kind.Span);
         }
+        // 实参语义（complete-test-attr-arg-checks）：位置违规已在 R1 处 return，故这里天然不叠加。
+        this._teArgChecks(ad);
+    }
+
+    // ── 实参语义：E0914（[Skip] reason / [Skip]·[Ignore] 孤儿）+ E0917（[Timeout] 值域）──────
+    // 纯语法：只看同一声明上的 attr 实参，不查符号表。三码常量早已存在于 z42c.core（零引用），
+    // 直接引用。修的都是**静默降级**：今天 TestIndexBuilder 读不到就 `if (x > 0)` 跳过 ——
+    // skip 没理由、超时静默失效，全推到运行期且症状指不回病灶。
+    private void _teArgChecks(AttributedDecl ad) {
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            if (at.Name == "Skip") {
+                if (this._teNamedStr(at, "reason") == "") {
+                    this._sc.Diags.Error(DiagnosticCodes.SkipReasonMissing,
+                        "`[Skip]` requires a non-empty `reason` (e.g. `[Skip(reason: \"flaky on CI\")]`)",
+                        at.Span);
+                }
+            } else if (at.Name == "Timeout") {
+                // 非字面量视为「未给出」—— 与 TestIndexBuilder._namedIntArg 的既有读法一致
+                // （它也只认字面量）。要支持命名常量须连同那边一起改，属另案（design §4）。
+                if (!this._teHasNamedInt(at, "milliseconds")) {
+                    this._sc.Diags.Error(DiagnosticCodes.TimeoutValueInvalid,
+                        "`[Timeout]` requires a `milliseconds` argument (e.g. `[Timeout(milliseconds: 5000)]`)",
+                        at.Span);
+                } else {
+                    long ms = this._teNamedInt(at, "milliseconds");
+                    if (ms <= 0) {
+                        this._sc.Diags.Error(DiagnosticCodes.TimeoutValueInvalid,
+                            "`[Timeout]` requires a positive `milliseconds` (got: " + ms.ToString() + ")",
+                            at.Span);
+                    }
+                }
+            }
+            a = a + 1;
+        }
+    }
+
+    // 修饰类 attr 必须与 kind attr 同贴：孤儿 `[Skip]` 今天会让 TIDX 凭空多一条 Kind=Test 的
+    // skipped entry —— 测试报告里出现一个没人写过的「测试」。独立于 _teCheck（后者要求命中
+    // kind attr 才进），故由 _teWalk 单独调。
+    private void _teOrphanCheck(AttributedDecl ad) {
+        if (this._teKindAttr(ad) != null) { return; }
+        int a = 0;
+        while (a < ad.AttrCount) {
+            string n = ad.Attrs[a].Name;
+            if (n == "Skip" || n == "Ignore") {
+                this._sc.Diags.Error(DiagnosticCodes.SkipReasonMissing,
+                    "`[" + n + "]` requires `[Test]` or `[Benchmark]` on the same declaration",
+                    ad.Attrs[a].Span);
+            }
+            a = a + 1;
+        }
+    }
+
+    // 命名实参的字符串值（无 / 非字符串字面量 → ""）。形态见 DeclParser：`name: value` 译成
+    // AssignExpr("=", IdentExpr(name), value)。
+    private string _teNamedStr(Attr at, string key) {
+        int i = 0;
+        while (i < at.ArgCount) {
+            if (at.Args[i] is AssignExpr) {
+                AssignExpr ae = at.Args[i] as AssignExpr;
+                if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == key
+                    && ae.Value is StringLitExpr) {
+                    return Lexer.DecodeString((ae.Value as StringLitExpr).Raw);
+                }
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    private bool _teHasNamedInt(Attr at, string key) {
+        int i = 0;
+        while (i < at.ArgCount) {
+            if (at.Args[i] is AssignExpr) {
+                AssignExpr ae = at.Args[i] as AssignExpr;
+                if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == key
+                    && ae.Value is IntLitExpr) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private long _teNamedInt(Attr at, string key) {
+        int i = 0;
+        while (i < at.ArgCount) {
+            if (at.Args[i] is AssignExpr) {
+                AssignExpr ae = at.Args[i] as AssignExpr;
+                if (ae.Target is IdentExpr && (ae.Target as IdentExpr).Name == key
+                    && ae.Value is IntLitExpr) {
+                    return ZbcInstr._parseIntLit((ae.Value as IntLitExpr).Value);
+                }
+            }
+            i = i + 1;
+        }
+        return 0;
     }
 
     // 首个命中的 kind attr（它决定诊断码）；无 → null。修饰类 attr（Skip/Ignore/ShouldThrow/Timeout）
@@ -279,6 +379,90 @@ public sealed class DeclEnforcer {
         if (owner != "") { q = owner.Replace("+", ".") + "." + md.Name; }
         if (md.IsCtor) { return "constructor `" + q + "`"; }
         return "instance method `" + q + "`";
+    }
+
+    // ── 语义相：E0913（`[ShouldThrow<E>]` 的 E 必须派生 Exception）────────────────────────
+    // 与 _passTestAttrEnforce 分开是刻意的：那条要保住「纯语法 / 零依赖 / first-pass 可用」——
+    // 位置与签名是最该尽早报的一批。本 pass 需要符号表走基类链，故单列（design §1）。
+    //
+    // ⚠️ **刻意保守**：TypeArg 在符号表里**解析不到就不报**。符号表在若干场景下不完整
+    //    （Collect(cu) 单 CU 无 imports、跨包类型取决于依赖是否已建），报「类型不存在」会误伤
+    //    真实代码。宁可漏报也不误报 —— 已登记为已知缺口（design §2）。
+    internal void _passTestAttrSemantic(SymbolTable t, CompilationUnit cu) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            this._tsWalk(t, cu.Decls[i]);
+            i = i + 1;
+        }
+    }
+
+    // 遍历面与 _teWalk 一致（顶层 / 类成员含嵌套跳过 / impl 块），只是检查内容不同。
+    private void _tsWalk(SymbolTable t, Decl raw) {
+        if (raw is AttributedDecl) {
+            AttributedDecl ad = raw as AttributedDecl;
+            if (ad.Inner is MethodDecl) { this._tsCheck(t, ad); }
+        }
+        Decl d = this._sc._unwrap(raw);
+        if (d is ClassDecl) {
+            ClassDecl c = d as ClassDecl;
+            int j = 0;
+            while (j < c.MemberCount) {
+                Decl mem = this._sc._unwrap(c.Members[j]);
+                if (!(mem is ClassDecl) && !(mem is EnumDecl)) { this._tsWalk(t, c.Members[j]); }
+                j = j + 1;
+            }
+        } else if (d is ImplDecl) {
+            ImplDecl im = d as ImplDecl;
+            int j = 0;
+            while (j < im.MethodCount) { this._tsWalk(t, im.Methods[j]); j = j + 1; }
+        }
+    }
+
+    private void _tsCheck(SymbolTable t, AttributedDecl ad) {
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            if (at.Name == "ShouldThrow") {
+                if (at.TypeArg == "") {
+                    this._sc.Diags.Error(DiagnosticCodes.ShouldThrowTypeInvalid,
+                        "`[ShouldThrow]` requires a type argument (e.g. `[ShouldThrow<TestFailure>]`)",
+                        at.Span);
+                } else if (t != null && t.Classes.ContainsKey(at.TypeArg)
+                           && !this._tsDerivesFromException(t, at.TypeArg)) {
+                    this._sc.Diags.Error(DiagnosticCodes.ShouldThrowTypeInvalid,
+                        "`[ShouldThrow<" + at.TypeArg + ">]` requires a type deriving from `Exception` (got: `"
+                            + at.TypeArg + "`)", at.Span);
+                }
+            }
+            a = a + 1;
+        }
+    }
+
+    // 基类链是否（传递地）到达 `Exception`；类型自身就是 Exception 也算。32 跳上限防成环。
+    // 按**短名**比较 —— 表里存的 BaseName 可能带命名空间（同 TestIndexBuilder._isDescendantOf；
+    // 那份是 private + 绑 IrGen 反向引用，无法复用，属刻意重复，见 design §6）。
+    private bool _tsDerivesFromException(SymbolTable t, string clsName) {
+        if (clsName == "Exception") { return true; }
+        string cur = clsName;
+        int hops = 0;
+        while (hops < 32) {
+            if (!t.Classes.ContainsKey(cur)) { return false; }
+            Z42ClassType ct = t.Classes.Get(cur) as Z42ClassType;
+            if (!ct.HasBase || ct.BaseName == "") { return false; }
+            string baseShort = this._tsShortName(ct.BaseName);
+            if (baseShort == "Exception") { return true; }
+            cur = baseShort;
+            hops = hops + 1;
+        }
+        return false;
+    }
+
+    private string _tsShortName(string fq) {
+        int lastDot = 0 - 1;
+        int di = 0;
+        while (di < fq.Length) { if (fq.CharAt(di) == '.') { lastDot = di; } di = di + 1; }
+        if (lastDot >= 0) { return fq.Substring(lastDot + 1); }
+        return fq;
     }
 
     // partial method 配对校验：每个实现必须有匹配声明（同 canonical 签名）；否则=实现无声明/签名不一致。

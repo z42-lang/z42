@@ -263,4 +263,9 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     // `available!(X)` 的运行期回落。正常路径**永不执行**——加载期 fold_availability
     // 已把它折成 ConstBool 并剪掉死分支。走到这里 = pass 没跑，debug 下 panic 点名。
     ("__sym_available",   symavail::builtin_sym_available),
+
+    // ── add-method-reference (2026-09-11) — appended to preserve existing BuiltinIds ──
+    // `methodof(Type.Member(sig))` → Std.Reflection.MethodInfo. The overload is
+    // already resolved at compile time; the argument is the single qualified name.
+    ("__methodof",        reflection::builtin_methodof),
 ];

@@ -203,3 +203,122 @@ void test_phase_form2_benchmark_survives_desugar() {
     coll.Collect(cu);
     Assert.Equal(false, teHas(coll.Diags, "E0912"));
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// complete-test-attr-arg-checks —— 实参语义（E0913 / E0914 / E0917）
+// 逐条对应 specs/test-attribute-args/spec.md 的 A1–A6。
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── A1 [Skip] 的 reason 必填且非空 ──────────────────────────────────────────
+
+[Test]
+void test_a1_skip_missing_reason() {
+    Assert.Equal(true, teHas(teDiags("[Test] [Skip] void t() { }"), "E0914"));
+}
+
+[Test]
+void test_a1_skip_empty_reason() {
+    Assert.Equal(true, teHas(teDiags("[Test] [Skip(reason: \"\")] void t() { }"), "E0914"));
+}
+
+[Test]
+void test_a1_skip_with_reason_ok() {
+    Assert.Equal(false, teHas(teDiags("[Test] [Skip(reason: \"flaky\")] void t() { }"), "E0914"));
+}
+
+// ── A2 [Skip] / [Ignore] 必须与 kind attr 同贴 ──────────────────────────────
+
+[Test]
+void test_a2_skip_orphan() {
+    var d = teDiags("[Skip(reason: \"x\")] void t() { }");
+    Assert.Equal(true, teHas(d, "E0914"));
+    Assert.Equal(true, teMsg(d, "E0914").Contains("requires `[Test]`"));
+}
+
+[Test]
+void test_a2_ignore_orphan() {
+    Assert.Equal(true, teHas(teDiags("[Ignore] void t() { }"), "E0914"));
+}
+
+[Test]
+void test_a2_ignore_with_benchmark_ok() {
+    Assert.Equal(false, teHas(teDiags("[Benchmark] [Ignore] void b() { }"), "E0914"));
+}
+
+// ── A3 [Timeout] 的 milliseconds 必填且为正 ─────────────────────────────────
+
+[Test]
+void test_a3_timeout_missing_arg() {
+    Assert.Equal(true, teHas(teDiags("[Test] [Timeout] void t() { }"), "E0917"));
+}
+
+[Test]
+void test_a3_timeout_zero() {
+    var d = teDiags("[Test] [Timeout(milliseconds: 0)] void t() { }");
+    Assert.Equal(true, teHas(d, "E0917"));
+    Assert.Equal(true, teMsg(d, "E0917").Contains("positive"));
+}
+
+[Test]
+void test_a3_timeout_positive_ok() {
+    Assert.Equal(false, teHas(teDiags("[Test] [Timeout(milliseconds: 5000)] void t() { }"), "E0917"));
+}
+
+// ── A4 [ShouldThrow] 必须带类型实参 ─────────────────────────────────────────
+
+[Test]
+void test_a4_shouldthrow_bare() {
+    var d = teDiags("[Test] [ShouldThrow] void t() { }");
+    Assert.Equal(true, teHas(d, "E0913"));
+    Assert.Equal(true, teMsg(d, "E0913").Contains("type argument"));
+}
+
+// ── A5 E 必须（传递地）派生 Exception ───────────────────────────────────────
+
+[Test]
+void test_a5_non_exception_type() {
+    var d = teDiags("class Plain { } [Test] [ShouldThrow<Plain>] void t() { }");
+    Assert.Equal(true, teHas(d, "E0913"));
+    Assert.Equal(true, teMsg(d, "E0913").Contains("Exception"));
+}
+
+[Test]
+void test_a5_direct_subclass_ok() {
+    var src = "class Exception { } class MyError : Exception { } [Test] [ShouldThrow<MyError>] void t() { }";
+    Assert.Equal(false, teHas(teDiags(src), "E0913"));
+}
+
+[Test]
+void test_a5_transitive_subclass_ok() {
+    var src = "class Exception { } class A : Exception { } class B : A { } [Test] [ShouldThrow<B>] void t() { }";
+    Assert.Equal(false, teHas(teDiags(src), "E0913"));
+}
+
+[Test]
+void test_a5_exception_itself_ok() {
+    Assert.Equal(false, teHas(teDiags("class Exception { } [Test] [ShouldThrow<Exception>] void t() { }"), "E0913"));
+}
+
+// 刻意保守：符号表里解析不到就不报（跨包 / 表不完整时会误伤，宁可漏报不误报）。
+[Test]
+void test_a5_unresolvable_type_not_reported() {
+    Assert.Equal(false, teHas(teDiags("[Test] [ShouldThrow<Nonexistent>] void t() { }"), "E0913"));
+}
+
+// ── A6 不越界 ───────────────────────────────────────────────────────────────
+
+// 非测试 attribute 上的同名命名参不受影响。
+[Test]
+void test_a6_non_test_attr_with_same_named_args() {
+    var d = teDiags("[Doc(reason: \"\", milliseconds: 0)] void t() { }");
+    Assert.Equal(false, teHas(d, "E0914"));
+    Assert.Equal(false, teHas(d, "E0917"));
+}
+
+// 位置违规时不叠加实参诊断（沿用 R1 短路）。
+[Test]
+void test_a6_position_error_short_circuits_arg_checks() {
+    var d = teDiags("class C { [Test] [Skip] void t() { } }");
+    Assert.Equal(true, teHas(d, "E0911"));
+    Assert.Equal(false, teHas(d, "E0914"));
+}

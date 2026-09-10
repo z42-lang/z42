@@ -1,0 +1,31 @@
+namespace Mo.App;
+using Mo.Base;
+using Mo.Ext;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+void Main() {
+    // ① 跨包直接指代基类自己的方法
+    MethodInfo a = methodof(Tagged.Tag);
+    Console.WriteLine("a=" + a.Name + " -> " + (a.Invoke(new Tagged(), new object[0]) as string));
+
+    // ② 🔴 关键用例：Leaf 只是**继承**了 Tag，没有声明它。
+    //    TSIG 把继承方法展平进 Leaf.Methods，拿 Leaf 拼名会得到从未发射的 mo.ext.Leaf.Tag。
+    MethodInfo b = methodof(Leaf.Tag);
+    Console.WriteLine("b=" + b.Name + " -> " + (b.Invoke(new Leaf(), new object[0]) as string));
+
+    // ③ 同款，且带参数列表消歧
+    MethodInfo c = methodof(Leaf.Only(int));
+    object[] cargs = new object[1];
+    cargs[0] = 7;
+    Console.WriteLine("c=" + c.Name + " -> " + (c.Invoke(new Leaf(), cargs) as string));
+
+    // ④ 覆写：应当指向 mo.ext 的那份，不是基类那份
+    MethodInfo d = methodof(Kid.Tag);
+    Console.WriteLine("d=" + d.Name + " -> " + (d.Invoke(new Kid(), new object[0]) as string));
+
+    // ⑤ 派生类自己声明的方法
+    MethodInfo e = methodof(Leaf.Own);
+    Console.WriteLine("e=" + e.Name + " -> " + (e.Invoke(new Leaf(), new object[0]) as string));
+}

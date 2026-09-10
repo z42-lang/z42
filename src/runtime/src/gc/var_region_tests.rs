@@ -589,7 +589,7 @@ fn reclaimed_chunk_purges_young_list() {
     // The invariant that actually matters: nothing in the young list points at memory the
     // region no longer tracks. `all_blocks` and `young_list` are purged by the same pass, so
     // a missed purge shows up as an entry here that `all_blocks` has already dropped.
-    let tracked: std::collections::HashSet<_> = region.all_blocks.iter().copied().collect();
+    let tracked: std::collections::HashSet<_> = region.all_blocks.iter().flatten().copied().collect();
     for p in &region.young_list {
         assert!(tracked.contains(p), "young list holds a pointer into a recycled chunk");
     }
@@ -628,7 +628,11 @@ fn dead_oversized_chunk_is_freed_and_its_slot_reused() {
 
     // The freed block must be gone from every list that holds raw pointers — each one is a
     // use-after-free waiting for the next sweep / minor / alloc.
-    assert!(r.all_blocks.is_empty(), "all_blocks still points into freed memory");
+    // perf-bucket-all-blocks-by-chunk: `all_blocks` is bucketed per chunk now, so the outer
+    // Vec keeps one (emptied) bucket per chunk slot — the invariant is that no block pointer
+    // survives, not that the outer Vec is empty.
+    assert!(r.all_blocks.iter().all(|b| b.is_empty()),
+        "all_blocks still points into freed memory");
     assert!(r.young_list.is_empty(), "young_list still points into freed memory");
     assert!(r.free_lists.iter().all(|fl| fl.is_empty()));
 
@@ -713,7 +717,7 @@ fn freeing_a_dedicated_chunk_leaves_bump_chunk_indices_valid() {
     // SAFETY: alive, exclusive access via `&mut r` being released above.
     unsafe { survivor.payload_mut().expect("survivor resolves")[0] = 0x11 };
     // Every pointer still tracked must live in a chunk the region still owns.
-    for p in r.all_blocks.iter().chain(r.young_list.iter()) {
+    for p in r.all_blocks.iter().flatten().chain(r.young_list.iter()) {
         assert!(
             r.owns_addr(p.as_ptr() as usize),
             "tracked block points outside every owned chunk"
@@ -809,7 +813,7 @@ fn the_per_chunk_census_matches_a_full_scan() {
 
     let mut truth_live = vec![0u32; r.chunk_slot_count()];
     let mut truth_blocks = vec![0u32; r.chunk_slot_count()];
-    for &p in &r.all_blocks {
+    for &p in r.all_blocks.iter().flatten() {
         // SAFETY: `all_blocks` holds chunk-owned headers for the region's lifetime.
         let h = unsafe { p.as_ref() };
         truth_blocks[h.chunk_idx as usize] += 1;

@@ -1,0 +1,42 @@
+// 成员解析诊断的**下划线位置**（add-method-reference ⑦ span 地基的可断言消费方）。
+//
+// 为什么需要这道门：`MemberExpr.Span` 一直**直接复用 target 的 span**，成员名自身的字节
+// 区间根本没被记录 —— 于是「没有这个方法/字段」的下划线画在**接收者**上，指不到出问题的
+// 那个名字。`NameSpan` 补上了这块地基；本文件是它唯一的消费方断言。
+//
+// 门必须有判别力：每条用例都同时给出「接收者列」与「成员名列」，断言取后者。若实现退回
+// 用 `Span`（或 CallExpr 的 sp），断言立刻变红——**已跑过退回对照实测确认**。
+namespace Z42cSemanticsMemberNameSpanTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+[Test]
+void test_missing_method_underlines_member_name_not_receiver() {
+    //             1         2         3         4         5         6         7
+    //   0123456789012345678901234567890123456789012345678901234567890123456789012
+    string src = "class L { void Solo() { } } class C { void M(L recv) { recv.Nope(); } }";
+    // `recv` 起于 1-based 第 56 列；`Nope` 起于第 61 列。整个调用表达式也起于 56。
+    // 断言 61 ⇒ 退回「接收者」或「整个调用」都会红。
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("1:61", SemanticDump.FirstErrorPos(src));
+}
+
+[Test]
+void test_missing_field_underlines_member_name_not_receiver() {
+    string src = "class L { int Level; } class C { int M(L recv) { return recv.Nope; } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    // `recv` 起于第 57 列；`Nope` 起于第 62 列。
+    Assert.Equal("1:62", SemanticDump.FirstErrorPos(src));
+}
+
+[Test]
+void test_long_receiver_expression_still_points_at_the_name() {
+    // 接收者越长，画错位置的代价越大——这条用一个明显更长的接收者把差距拉开。
+    string src = "class L { public L Next() { return this; } } "
+               + "class C { void M(L r) { r.Next().Next().Nope(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    // 接收者 `r.Next().Next()` 起于第 70 列；`Nope` 起于第 86 列 —— 差 16 列。
+    Assert.Equal("1:86", SemanticDump.FirstErrorPos(src));
+}

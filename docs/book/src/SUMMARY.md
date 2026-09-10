@@ -28,6 +28,7 @@
   - [`available!()` 符号可用性探测](language/available-macro.md)
   - [元组（值元组 `(a, b)`）](language/tuples.md)
   - [enum（枚举）](language/enums.md)
+  - [`methodof`（方法引用表达式）](language/methodof.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）

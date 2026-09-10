@@ -173,6 +173,23 @@ impl GcBlockHeader {
         age
     }
 
+    /// **fix-primitives-count-as-young (2026-09-11)**: raise `gen_age` to at least `age`
+    /// (never lowers it). **STW only**, same as [`Self::bump_gen_age`].
+    ///
+    /// Used to keep an array's element-storage block from being *younger than the array
+    /// header that owns it* — see `ArcMagrGC::age_backing_with_owner`.
+    #[inline]
+    pub fn raise_gen_age_to(&self, age: u8) {
+        let cur = self.type_tag.load(Ordering::Relaxed);
+        let now = (cur >> AGE_SHIFT) & AGE_MASK;
+        let want = age.min(MAX_GEN_AGE);
+        if now >= want {
+            return;
+        }
+        let keep = cur & (TAG_MASK | IN_YOUNG_BIT);
+        self.type_tag.store(keep | (want << AGE_SHIFT), Ordering::Relaxed);
+    }
+
     /// Whether this block is currently listed in `VarRegion::young_list`. See
     /// [`IN_YOUNG_BIT`] for why membership is tracked on the header rather than by
     /// searching the list.

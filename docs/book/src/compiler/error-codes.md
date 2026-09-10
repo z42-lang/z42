@@ -41,7 +41,10 @@
 > [`DeclEnforcer._passTestAttrEnforce`](../../../../src/compiler/z42c.semantics/src/DeclEnforcer.z42)
 > 强制（纯语法，挂在 `SymbolCollector` 三个入口，与 D8 后缀 pass 并列）。规则来源是 runner 的调用
 > 契约——`Std.Test.Runner` 按 TIDX 全限定名**无参**调用，实例方法的 receiver 对不上。
-> `E0913` / `E0914` / `E0917` 尚**未实现**（需符号表 / 实参语义，属另一相位）。
+> **实参语义**：`E0914`（`[Skip]` 的 `reason` 必填非空；`[Skip]`/`[Ignore]` 须与 kind attr 同贴）、
+> `E0917`（`[Timeout]` 的 `milliseconds` 必填且为正）与位置/签名同 pass；`E0913`
+> （`[ShouldThrow<E>]` 的 `E` 须派生 `Exception`）需符号表走基类链，落在相邻的语义相 pass
+> `_passTestAttrSemantic`。`E` 在符号表中解析不到时**刻意不报**（跨包/表不完整会误伤）。
 
 > `E0203`（意外 EOF）除标示语法错，还兼作 REPL **可恢复不完整**信号：parser 在「缺 token 且当前 token
 > 为 EOF」时置 `DiagnosticBag.IncompleteAtEof` 并报此码，REPL 完整性探针 `Completeness.IsIncomplete`

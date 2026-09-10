@@ -31,6 +31,10 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // the call with a `ConstBool` at module load. The runtime impl is a diagnostic fallback
     // (debug_assert on reach) whose whole job is to make "the fold pass didn't run" loud.
     ("__sym_available", "compiler-emitted: add-symbol-availability-macro"),
+    // Emitted by the compiler for `methodof(Type.Member(sig))`. The overload is resolved at
+    // bind time and lowered to `__methodof("<declaring FQN>.<RegKey>")`, so the name never
+    // appears in stdlib source — the same shape as `__box_prim`/`__box_struct`.
+    ("__methodof", "compiler-emitted: add-method-reference"),
     // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in vcall_resolve).
     ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
     // Host-only surfaces (REPL line editor, wasm virtual filesystem) wired by their hosts.
