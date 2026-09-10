@@ -1,6 +1,6 @@
 # DRAFT: unify-type-identity-fqn —— 持久化的类型身份改用全限定名
 
-> 状态：📝 DRAFT，待 User 裁决 | 创建：2026-09-10 | 类型：**lang/ir**（改 zpkg 已定义 section 字段语义 → 格式 bump）
+> 状态：🚧 IMPL 中（User 已批准方案 A：修根缺陷）| 创建：2026-09-10 | 类型：**lang/ir**（改 zpkg 已定义 section 字段语义 → 格式 bump）
 > 取代：`fix-qualified-type-name-unknown`（B3-产出端的窄修方案，因埋坑被否，见 §1.3）
 > 出处：[[restore-emit-zbc-diagnostics-program]] 欠债表 **B3-产出端**，追根因后升级为本 change。
 
@@ -182,3 +182,57 @@ typeform := prim_keyword                                   // int / long / strin
 - 不动 `StubEmitter._typeSpell`（extern 桩路径不经 `_resolve` 消费，今天没坏）。
   ⚠️ 记忆里称它是「正确样板」是**误导**——它是源拼写原样返回，不是解析后取名。
 - 不动基元关键字拼写（D1）。
+
+
+---
+
+## 8. IMPL 实录（2026-09-10）——**与 DRAFT 初稿的出入，以此节为准**
+
+### 8.1 Phase 0 的方法换了两次，前两次都不合格
+
+| 方法 | 为什么废弃 |
+|---|---|
+| 源码侧正则扫描「限定名在类型位」 | **三次低估同一个数字**（10 → 14 → 仍漏 `Std.Reflection.FieldInfo[]` 这类多段限定名）。手写近似枚举不可靠，项目已有明文教训。 |
+| zpkg STRS 字符串集合差分 | 对本改动**不敏感**：`Std.Attribute` / `Std.Type` 本就在池里（作类注册名等用途），槽位从短名变 FQN 时集合无变化。 |
+| ✅ **运行期探针**（最终采用） | 直接观测反射面看到的字段类型名，既是基线也是回归门。实测 z42.core 四个反射类 **37 个字段中 9 个是 `unknown`**，修后 9 → 0、全差分恰好 9 行零回归。 |
+
+### 8.2 根缺陷（DRAFT 初稿完全没预见到，User 裁决按方案 A 修）
+
+**裸名类型引用不看引用方所在的命名空间。** `SymbolTable.Classes` 按裸名键、同短名跨 ns
+first/last-wins ⇒ `namespace Alpha` 里写的 `Widget` 会绑到 `Beta.Widget`。
+`fix-type-ref-ns-collision` 当年只根治了**限定**引用，裸名这半边留到今天 —— 以前没人把解析结果
+持久化，所以只表现为运行期降级成无句柄合成类型；本 change 一旦写进元数据就变成**自信的错答案**。
+
+修法：`SymbolTable.WithAliases` 本就是 per-file 视图（共享只读表 + 文件私有字段），在同层加
+`ScopeNs`，并把散在 4 处的 `WithAliases(BuildAliases(cu))` 收敛成 `WithCu(cu)`。因
+`model.Symbols` 就是该视图，**类型检查器与发射端从此共用同一份解析结果**。
+
+### 8.3 范围增量（初稿低估）
+
+`Z42InterfaceType` **连 Namespace 槽都没有**；`Z42InstantiatedType` 没有 `Fqn()`；
+imported enum 现场建型不带 ns。三者都补齐。
+
+### 8.4 本 change 自己引入、被既有测试抓到的两个回归
+
+| # | 现象 | 抓到它的测试 |
+|---|---|---|
+| 1 | enum 的 FQN 被当成**名字**传给 `Z42ClassType.Enum` ⇒ `Name()` 变全限定串，同一 enum 判成两个类型。**`Name()` 是全仓等值比较口径，FQN 只能进 Namespace** | `heap_retention` |
+| 2 | `_sigArgTypeName` 误用 `PrimModel.SurfaceName`，把泛型**实参** `Int32` 改写成 `int` ⇒ **违反本 change 自己的裁决 D2** | `generic_struct_array_cross_pkg` |
+
+两者都**只在 #550 打开 `--emit-zbc` 诊断门之后才可见**。
+
+### 8.5 DRAFT 初稿里被推翻的判断（勿再引用）
+
+- ❌「原生 ABI 受影响」—— `Z42FieldDesc` 是 **native → VM 注册**方向，不受影响。
+- ❌「`StubEmitter._typeSpell` 是正确样板」（这条源自记忆）—— 它是**源拼写原样返回**，会写出 FQ 串，
+  不是解析后取名，别照抄。
+- ✅ 已排除：`Fqn()` ≡ `Ns.` + 注册键（`needsMangle` 只在同名多 arity 并存时为真）。
+
+### 8.6 仍欠的一项（**不得静默留下**）
+
+**真歧义面（两个 `using` 都提供同一短名）目前仍会被写进「选了赢家」的 FQN。**
+A1 只解决「外围 ns 能解析」那一类。E0456 的 11 个调用点全在语句/表达式位，
+**声明位（字段/形参/返回类型）一个都没有** —— 判据在 `TypeChecker`（有 `_currentUsings`），
+而声明位的类型检查在 collector 阶段（拿不到 usings）。
+→ 必须给 per-CU 视图补 `ScopeUsings`，发射端用精确可见集判歧义、歧义时**退回短名**（诚实降级，
+不比今天差）；诊断本身（A3）视风险决定是否拆独立 change。

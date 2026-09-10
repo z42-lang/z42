@@ -466,7 +466,10 @@ void test_ctor_this_delegation() {
 [Test]
 void test_array_new_user_class_fq() {
     string src = "namespace Foo; class C { } class D { C[] Make(int n) { return new C[n]; } }";
-    Assert.Equal("fn @Foo.D.Make(2) -> C[] {\nentry:\n  %2 = array_new Foo.C[%1]\n  ret %2\n}",
+    // unify-type-identity-fqn：签名类型名改用 FQN（`C[]` → `Foo.C[]`）。此前签名写短名、
+    // 而同一函数体里的 `array_new` 早已是 `Foo.C` —— 本用例名字里的 `_fq` 指的就是后者，
+    // 两者不一致正是本 change 要消除的。断言更新为一致后的形态。
+    Assert.Equal("fn @Foo.D.Make(2) -> Foo.C[] {\nentry:\n  %2 = array_new Foo.C[%1]\n  ret %2\n}",
                  IrDump.DumpFunc(src, "Foo.D.Make"));
 }
 
