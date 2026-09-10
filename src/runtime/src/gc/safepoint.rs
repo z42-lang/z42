@@ -54,7 +54,7 @@ pub fn throttle_n() -> u32 {
 /// State machines:
 ///
 /// ```text
-/// STW path (GcMode::StwMarkSweep, default):
+/// STW path (GcMode::StwMarkSweep; also the shape a generational major takes):
 ///   Idle ─►Requested─►Marking─►Idle
 ///                       ▲
 ///                       │ (mutators parked throughout Marking)

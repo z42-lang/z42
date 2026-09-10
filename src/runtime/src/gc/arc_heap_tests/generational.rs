@@ -62,6 +62,9 @@ fn promote_to_old(v: &Value) {
 #[test]
 fn generational_mode_set_observable() {
     let heap = ArcMagrGC::new();
+    // flip-gc-default-to-generational: generational is the default now, so drive the
+    // transition from an explicitly-STW heap to keep this a real mode *change*.
+    heap.set_mode(GcMode::StwMarkSweep);
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
     heap.set_mode(GcMode::GenerationalMarkSweep);
     assert_eq!(heap.mode(), GcMode::GenerationalMarkSweep);
@@ -163,6 +166,7 @@ fn barrier_no_op_in_stw_mode_even_under_cross_gen_setup() {
     // Even with manually-set gen_age values, the STW mode barrier
     // never marks cards. Regression guard.
     let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::StwMarkSweep);   // flip-gc-default-to-generational: opt in explicitly
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
     let owner = alloc_obj(&heap, "Owner");
@@ -237,12 +241,15 @@ fn minor_gc_tombstones_unrooted_young_entry() {
 }
 
 /// **fix-young-list-only-when-generational (2026-09-07)**: a heap that allocated
-/// while in the default STW mode maintains no young list. Switching to
-/// generational must rebuild it from the live entries — otherwise minor GC walks
-/// an empty list and reclaims nothing.
+/// while in STW mode maintains no young list. Switching to generational must rebuild it
+/// from the live entries — otherwise minor GC walks an empty list and reclaims nothing.
+///
+/// flip-gc-default-to-generational (2026-09-10): STW is no longer the default, so the
+/// starting mode is now set explicitly — the scenario under test is unchanged.
 #[test]
 fn set_mode_to_generational_rebuilds_young_list_from_live_entries() {
     let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::StwMarkSweep);
     assert_eq!(heap.mode(), GcMode::StwMarkSweep);
 
     // Allocated *before* the switch, so nothing listed it as young.

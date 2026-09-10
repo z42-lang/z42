@@ -60,7 +60,7 @@ graph LR
     S3a2 --> S3b[manifest targets<br/>&#91;&#91;test&#93;&#93; fixture]
     S3b --> S3c[examples<br/>编译 gate + test=true 运行]
     S3c --> S4[compiler 自举<br/>七包 + 不动点 + units]
-    S4 --> S4g[gc generational<br/>z42c.semantics · nursery 16M]
+    S4 --> S4g[gc modes<br/>z42c.semantics · 默认 1M nursery + stw 32M]
     S4g --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
     S5 --> S6[lines<br/>文件行数硬上限 棘轮基线]
     S6 --> G((GREEN))
@@ -79,7 +79,7 @@ graph LR
 - `manifest targets ([[test]])`
 - `examples (compile gate + test=true run)`
 - `compiler`
-- `gc generational (z42c.semantics build)`
+- `gc modes (z42c.semantics build)`
 - `vscode-syntax`
 - `lines`
 - `walkers`

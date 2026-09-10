@@ -249,8 +249,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if promoted >= allowance || near_cap {
             return Some(Trip { major: true, gate: allowance });
         }
-        let gate = nursery.saturating_mul(backoff as u64);
-        (grown >= gate).then_some(Trip { major: false, gate: nursery })
+        let minor_gate = self.minor_gate(baseline, soft_limit);
+        let gate = minor_gate.saturating_mul(backoff as u64);
+        (grown >= gate).then_some(Trip { major: false, gate: minor_gate })
     }
 
     /// Mono SGen's allowance rule (`sgen_memgov_calculate_minor_collection_allowance`):
@@ -277,6 +278,25 @@ impl crate::gc::arc_heap::ArcMagrGC {
         allowance
     }
 
+    /// **flip-gc-default-to-generational (2026-09-10)**: how much may be allocated before a
+    /// **minor** — the nursery, but never more than the whole collection allowance.
+    ///
+    /// With no soft cap the allowance is at least `ALLOWANCE_NURSERY_RATIO` (4) nurseries, so
+    /// this is exactly `nursery` and nothing changes — that is the default path. A soft cap
+    /// squeezes the allowance from the other side (see [`Self::collection_allowance`]), and
+    /// once it squeezes below one nursery the **cap** is what should decide when to collect:
+    /// a minor still only scans the young set, so running it more often costs pause time
+    /// proportional to the young set, not to the budget.
+    ///
+    /// Without this the nursery — an absolute 32 MB by default, deliberately independent of
+    /// any budget — was the only generational gate, so a small `Z42_GC_MAX_BYTES` was not
+    /// enforced until the heap had allocated a whole nursery past it. Invisible while STW was
+    /// the default; the default path now.
+    fn minor_gate(&self, baseline: u64, soft_limit: Option<u64>) -> u64 {
+        let nursery = self.nursery_bytes();
+        nursery.min(Self::collection_allowance(baseline, nursery, soft_limit))
+    }
+
     /// Set the next `used_bytes` reading at which the policy wants to be consulted.
     ///
     /// `floor` keeps it strictly ahead of the current reading even when the heap has already
@@ -288,11 +308,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         backoff: u32,
         soft_limit: Option<u64>,
     ) {
-        let nursery = self.nursery_bytes();
         let gate = if crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep {
-            nursery
+            self.minor_gate(baseline, soft_limit)
         } else {
-            Self::collection_allowance(baseline, nursery, soft_limit)
+            Self::collection_allowance(baseline, self.nursery_bytes(), soft_limit)
         };
         let gate = gate.saturating_mul(backoff.max(1) as u64);
         let next = baseline.saturating_add(gate).max(floor.saturating_add(gate));
@@ -324,7 +343,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let next = if self.promoted_bytes_since_major.load(Ordering::Relaxed) >= allowance {
             live
         } else {
-            live.saturating_add(nursery)
+            // Same gate as `decide_trip` / `arm_next_collect` — see [`Self::minor_gate`]. This
+            // is the arming point every *collect* path lands on, so a plain `nursery` here left
+            // a bounded heap un-enforced from its very first allocation.
+            live.saturating_add(self.minor_gate(live, soft_limit))
         };
         self.next_collect_at.store(next, Ordering::Relaxed);
     }

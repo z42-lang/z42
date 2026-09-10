@@ -111,7 +111,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         toml_key: "gc-mode",
         value: ValueKind::Enum(GC_MODES),
         description: "GC algorithm: `stw` / `concurrent` / `generational` (with `-mark-sweep` aliases)",
-        default_hint: "unset; defaults to `stw-mark-sweep`",
+        default_hint: "unset; defaults to `generational-mark-sweep`",
         consumed_by: "gc/mode.rs",
         ..PUBLIC
     },

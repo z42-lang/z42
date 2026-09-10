@@ -203,8 +203,9 @@ pub struct Region<T> {
     /// region maintains [`Self::young_list`] at all.
     ///
     /// `young_list` is read by exactly one consumer — minor GC, which runs only
-    /// under `GcMode::GenerationalMarkSweep`. Under the production default
-    /// (`StwMarkSweep`) `promote` is never called, so nothing ever leaves the
+    /// under `GcMode::GenerationalMarkSweep` — the production default since
+    /// flip-gc-default-to-generational (2026-09-10). Under `StwMarkSweep`
+    /// `promote` is never called, so nothing ever leaves the
     /// list and it grows to hold *every* live entry: measured 830 k entries
     /// (6.5 MB) compiling `z42c.semantics`, for a list no one reads. Gating the
     /// two maintenance points on this flag measured −0.22% instructions and

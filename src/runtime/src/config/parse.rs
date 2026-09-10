@@ -48,8 +48,12 @@ where F: Fn(&str) -> Option<String> {
         "generational" | "generational-mark-sweep" => GcMode::GenerationalMarkSweep,
         "stw" | "stw-mark-sweep"                   => GcMode::StwMarkSweep,
         other => {
-            eprintln!("z42: Z42_GC_MODE={other:?} not recognized; falling back to stw-mark-sweep");
-            GcMode::StwMarkSweep
+            // flip-gc-default-to-generational: fall back to *the* default, not to a
+            // hard-coded mode — otherwise a typo silently selects something the build no
+            // longer defaults to.
+            let d = GcMode::default();
+            eprintln!("z42: Z42_GC_MODE={other:?} not recognized; falling back to {d:?}");
+            d
         }
     }
 }

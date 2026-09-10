@@ -654,7 +654,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.fire_barrier_field(owner, slot, new);
 
         match self.mode() {
-            crate::gc::GcMode::StwMarkSweep => {} // no-op (production default)
+            crate::gc::GcMode::StwMarkSweep => {} // no-op (one generation → no cross-gen edge)
             crate::gc::GcMode::ConcurrentMarkSweep => {
                 debug_assert!(
                     new.is_heap_ref(),
