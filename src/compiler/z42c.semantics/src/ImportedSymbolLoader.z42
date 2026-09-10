@@ -565,7 +565,14 @@ public static class ImportedSymbolLoader {
         // 教训：「跨包 enum 怎么还原」有两条独立路径，只量了一条就下了全称结论。
         //
         // 放在 `r.Classes` **之前**：万一同名既进 Classes 又进 EnumTypeNames，也保证标志不被丢。
-        if (r.EnumTypeNames.ContainsKey(name)) { return Z42ClassType.Enum(name); }
+        if (r.EnumTypeNames.ContainsKey(name)) {
+            Z42ClassType iect = Z42ClassType.Enum(name);
+            // unify-type-identity-fqn：导入 enum 的声明 ns（数据在 ClassNamespaces —— make-enum-distinct-type
+            // 1.5 已把 imported enum 也记进去了）。缺它则 imported enum 的 Fqn() 退化成短名。
+            StrBox _ens = r.ClassNamespaces.Get(name) as StrBox;
+            if (_ens != null) { iect.Namespace = _ens.Value; }
+            return iect;
+        }
         int _sl0 = r.Classes.Find(name); if (_sl0 >= 0) { return r.Classes.ValAt(_sl0) as Z42ClassType; }
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。

@@ -297,8 +297,20 @@ strs:   str_count × { varint seg_n, seg_n × varint seg_idx }   每串 = 段索
   [1]  kind         0=class, 1=struct, 2=enum
   [4]  name_str_idx
   [2]  field_count / variant_count
-  fields: { [4] name_str_idx, [1] type_tag, [2] type_param } × field_count
+  fields: { [4] name_str_idx, [1] type_tag, [4] type_str_idx,
+            attrs: [2] attr_count + attr_count × [4] ref_str_idx,      ; zbc 1.14
+            [1] visibility } × field_count                             ; zbc 1.23（0=public/1=private/2=protected）
+  tps:    [1] tp_count + tp_count × { [4] name_str_idx, constraint bundle }
 ```
+
+> ⚠️ **本表曾长期与实现不符（2026-09-10 unify-type-identity-fqn 修正）**：此前写作
+> `[1] type_tag, [2] type_param`，而 `ZbcWriter.BuildType` 实际写的是
+> `WriteU8(Tag.FromName(type))` + **`WriteU32(pool.Idx(type))`** —— 字段类型是**字符串池索引**，
+> 不是 2 字节参数；per-field attrs 与 visibility 也整段缺失。文档没有测试盯着，故腐坏无人发现。
+>
+> **`type_str_idx` 的语义（unify-type-identity-fqn 起）**：用户声明的 class / interface / enum 写
+> **全限定名**（`Std.Type`、`Std.Collections.List<int>`）；基元保留关键字拼写（`int` / `byte[]`）；
+> 型参写裸名；真解析不出来的类型写哨兵 `"unknown"`。短名不是跨命名空间的唯一键，故不再使用。
 
 ### FUNC（函数体）
 

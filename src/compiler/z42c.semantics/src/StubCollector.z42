@@ -48,6 +48,7 @@ public sealed class StubCollector {
             if (d is EnumDecl) {
                 EnumDecl ed = d as EnumDecl;
                 table.EnumTypes.Put(ed.Name, "enum");
+                table.EnumTypeNs.Put(ed.Name, new StrBox(cu.HasNamespace ? cu.Namespace : ""));   // unify-type-identity-fqn：enum 声明 ns
                 long cur = 0;
                 int mi = 0;
                 while (mi < ed.MemberCount) {
@@ -98,6 +99,7 @@ public sealed class StubCollector {
                             StubCollector._setIfaceTypeParams(itw, c);   // add-associated-types PR-3
                             this._addIfaceBases(itw, c);
                             table.Interfaces.Put(c.Name, itw);
+                            table.InterfacesByFqn.Put(itw.Fqn(), itw);   // unify-type-identity-fqn
                         }
                     } else {
                         Z42InterfaceType it = new Z42InterfaceType(c.Name);
@@ -107,6 +109,7 @@ public sealed class StubCollector {
                         StubCollector._setIfaceTypeParams(it, c);   // add-associated-types PR-3
                         this._addIfaceBases(it, c);
                         table.Interfaces.Put(c.Name, it);
+                        table.InterfacesByFqn.Put(it.Fqn(), it);   // unify-type-identity-fqn
                     }
                 }
             }
