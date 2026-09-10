@@ -595,6 +595,75 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
         "the escalated major freed the unrooted old Target; 10 pinned survive");
 }
 
+// ── fix-primitives-count-as-young (2026-09-11) ──────────────────────────────
+
+/// An array's element storage lives in `region_var` and is kept alive **only** by
+/// `mark_backing()` — a side effect of *tracing* the array. It is not one of the array's
+/// `Value` children, so no walk over those children can observe that it is young; and a minor
+/// only traces an old array when its card is dirty. **An old array with a young backing would
+/// therefore lose it.**
+///
+/// That held before purely by accident: `gen_age_of` answers 0 for `Value::Null` and every
+/// primitive, so `refers_to_young` was true for practically every entry that had one empty
+/// slot — the card table was permanently, entirely dirty and every old array got traced anyway.
+/// Making that predicate honest removed the cover, and the self-host byte fixpoint broke
+/// (gen1 ≠ gen2). No unit test caught it — hence this one.
+///
+/// The fix keeps the two ages in lockstep instead of paying a card: promoting the array header
+/// raises its backing to the same age, so the case cannot arise.
+#[test]
+fn promoting_an_array_ages_its_backing_with_it() {
+    use crate::vm_context::VmContext;
+    let ctx = VmContext::new();
+    ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+    let heap = ctx.heap();
+
+    // Primitive elements ⇒ `gc_refs()` is empty ⇒ this array has **no** heap-ref children, so
+    // nothing but the lockstep rule can keep its backing alive once the header is old.
+    let arr = heap.alloc_array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+    let pin = heap.pin_root(arr.clone());
+    let Value::Array(gc) = &arr else { panic!("expected Array") };
+
+    // **Force the age divergence the test is about.** In production it comes from TLAB
+    // retirement timing: the header's array-region chunk and the backing's var-region chunk
+    // retire at different safepoints, so they miss different minors and drift apart. Here we
+    // age the *header* to one minor short of promotion and leave the backing at 0, so the very
+    // next sweep is the one that promotes the header.
+    for _ in 0..(PROMOTION_THRESHOLD - 1) {
+        // SAFETY: the test owns the heap; the entry stays valid.
+        unsafe { gc.entry_ptr().as_ref() }.gen_age.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    assert_eq!(gc.borrow().min_backing_gen_age_for_test(), 0,
+        "test setup: the backing is still young while the header is one minor from promotion");
+
+    heap.collect_cycles_with_context(&ctx); // the minor that promotes the header
+
+    assert!(GcRef::gen_age(gc) >= PROMOTION_THRESHOLD, "test setup: the header must be old now");
+    let backing = gc.borrow().min_backing_gen_age_for_test();
+    assert!(backing >= PROMOTION_THRESHOLD,
+        "a promoted array's element-storage block must be promoted with it — otherwise the next \
+         minor never traces the array (its card is clean: a primitive array has no `Value` \
+         children at all), `mark_backing` never runs, and the backing is swept while the array \
+         is still live (got backing age {backing})");
+    let _ = pin;
+}
+
+/// The other half: primitives and empty slots must **not** count as young references, or the
+/// card table never sheds anything. `Value::Null` is what every unset reference slot holds.
+#[test]
+fn primitives_and_null_slots_do_not_count_as_young_references() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let owner = heap.alloc_object(dummy_type_desc("Owner"),
+        vec![Value::Null, Value::I64(7)], NativeData::None);
+    promote_to_old(&owner);
+
+    assert!(!heap.refers_to_young(&owner),
+        "a `Null` slot and an `I64` are not references to anything, let alone to something \
+         young — counting them kept every card dirty forever");
+}
+
 // ── fix-minor-and-major-in-one-pause (2026-09-10) ───────────────────────────
 
 /// A cycle runs a minor **or** a major, never both.
