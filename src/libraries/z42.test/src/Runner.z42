@@ -74,6 +74,28 @@ public static class Runner {
             Console.WriteLine("  Result: " + passed.ToString() + " passed, "
                 + failed.ToString() + " failed, " + skipped.ToString() + " skipped");
         }
+        // error-on-zero-discovered-tests：被要求跑一个**一条 [Test]/[Benchmark] 都没发现**的产物，
+        // 此前打印 `0 passed, 0 failed, 0 skipped` 后 **exit 0** —— 「我的测试没跑」与「我的测试全过」
+        // 在退出码上不可区分。能触发它的都是真事故：attribute 拼错（[Tests]/[test]）、[sources] glob
+        // 漏掉文件、测试函数被改名/误删、或调用方把一个根本没有测试的目录当成了测试单元。
+        // 报告照常打印（json 消费方不受影响），错误另走 stderr，退出码非零。
+        if (runnable == 0) {
+            ConsoleError.WriteLine("error: no [Test] or [Benchmark] found in `" + path + "`");
+            ConsoleError.WriteLine("  a test artifact with zero discovered tests is treated as a failure —");
+            ConsoleError.WriteLine("  check the attribute spelling, the package's [sources] globs, and that");
+            ConsoleError.WriteLine("  the test functions still exist in the compiled artifact.");
+        }
+        return Runner.ExitCodeFor(runnable, failed);
+    }
+
+    // 退出码决策（抽成纯函数以便直接单测；RunModule 里那段是 I/O，决策在这里）。
+    //   runnable == 0 → 1：**「测试没跑」不得与「测试全过」在退出码上等价**。
+    //     能触发它的都是真事故：attribute 拼错（[Tests]/[test]）、[sources] glob 漏掉文件、
+    //     测试函数被改名/误删、或调用方把一个根本没有测试的目录当成了测试单元。
+    //   failed > 0  → 1：有失败。
+    //   否则        → 0。
+    public static int ExitCodeFor(int runnable, int failed) {
+        if (runnable == 0) { return 1; }
         if (failed > 0) { return 1; }
         return 0;
     }
