@@ -1,6 +1,8 @@
 # 泛型约束（`where` 子句）
 
-> 对齐：2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
+> 对齐：2026-09-10（change `fix-func-constraint-reported-unknown`）
+>
+> 上一次：2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
 >
 > 本页是**泛型约束语义与校验范围的 SoT**。泛型的整体设计（代码共享策略、reified 类型、
 > 跨 zpkg 元数据）见 [`docs/book/src/language/generics.md`](generics.md)；
@@ -32,7 +34,7 @@ void Sort<T>(T[] xs) where T : IComparable { }                // 方法级
 | 枚举 | `where T : enum` | T 是 `enum` 声明的类型（基元**不**满足） | ✅ |
 | 无参构造 | `where T : new()` | 基元满足；类须**非 abstract** 且可零实参构造 | ✅ |
 | 型参引用 | `where U : T` | U 的实参可赋给 T 的实参 | ✅ |
-| 函数类型 | `where T : Func<int, R>` | — | ❌ 未发出（见下） |
+| 函数类型 | `where T : Func<int, R>` | — | ❌ 未发出（见下；2026-09-10 前更是**误报 E0443**、合法代码编不过） |
 
 `class` 与 `struct` 同时出现在一个型参上 → 报错（互斥）。
 
@@ -336,6 +338,25 @@ Deferred：`where-constraint-future-toplevel-func`。
 
 `E0422` / `E0423` 已定义但没有代码路径会发出它们，即 `where T : Func<int,int>` 传进去什么都行、
 **约束本身不校验**。Deferred：`where-constraint-future-func-constraint`。
+
+> 🔴 **但它一度比「不校验」更糟：`where T : Action<int>` 直接编不过**
+> （2026-09-10 `fix-func-constraint-reported-unknown` 修）。`complete-where-constraints` 给
+> `_fillBundle` 加的「约束名拼错了」分支（`E0443 unknown constraint type`）把函数类型也网了进去——
+> `Action` / `Func` / `Predicate` / 用户 `delegate` 经 `SymbolTable.ResolveTypeP` 解析成结构化
+> `Z42FuncType`，**不进 `Classes` / `Interfaces` 表**，于是「是型参？是接口？是类？」三问全否，
+> 掉进最后那条 else。修法是在报错前先认出函数类型（`ResolveTypeP(...) is Z42FuncType`）。
+>
+> **为什么当年的探针没抓到**：那条 error 落地时以 warning 跑全仓实测「0 条」，但三个受害文件
+> （`src/tests/generics/func_constraint_{action,predicate,captured}.z42`）全走 `z42c --emit-zbc`，
+> 而那条路径当时**丢弃全部诊断**。探针看不见的地方，"0 条" 不构成证据。
+>
+> **为什么这次仍不顺手把校验补上**：`func_constraint_captured.z42` 里有
+> `R Apply<T, R>(T f, int x) where T : Func<int, R>` —— 约束类型里含**另一个型参 `R`**，
+> 判定得把约束里的型参当通配去 unify，不是加一次 `IsAssignableTo` 能了事的，属独立一件事。
+>
+> ⚠️ 附带发现（未修）：`ConstraintChecker.CheckMethod` **每个调用点都重建一遍 bundle**，
+> 所以 `_fillBundle` 里这类**声明级**诊断会按调用次数重复——`Run` 被调用 2 次就报 2 条一模一样的
+> E0443。真正的修法是把声明级约束诊断挪到声明期 pass。
 
 > **事实校正（`fix-generic-func-param-indirect-call`）**：本节原写着「代码生成依赖该约束把参数当
 > func 值走间接调用，改动需谨慎」——**不成立**。`CallEmitter` 从不看约束，它只查

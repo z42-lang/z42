@@ -135,8 +135,26 @@ public sealed class ConstraintChecker {
                     // 泛型 base（`where T : Box<int>`）仍只记裸名——本轮不校验其类型实参
                     // （与接口的裸名匹配同口径，design D1）。
                     bundle.HasBaseClass = true; bundle.BaseClassName = nt.Name;
+                } else if (symbols.ResolveTypeP(con.Type, pnames, pc) is Z42FuncType) {
+                    // fix-func-constraint-reported-unknown：`where T : Action<int>` / `Func<int, R>` /
+                    // `Predicate<U>` / 用户 `delegate` —— 这些是**函数类型**，`SymbolTable.ResolveTypeP`
+                    // 把它们解析成结构化 `Z42FuncType`，**不进 Classes / Interfaces 表** ⇒ 上面两个分支
+                    // 都不命中 ⇒ 掉进下面那条「多半是拼错了」，报 `E0443 unknown constraint type Action`。
+                    //
+                    // 但它们是**合法且被支持**的约束写法（add-generic-func-constraint，
+                    // `src/tests/generics/func_constraint_*.z42` 正在用、运行期也正常）。所以那条 E0443
+                    // 是**事实错误**的诊断，不是「该报而暂时不该报」——本分支把它们摘出来。
+                    //
+                    // ⚠️ 为什么当年的探针没发现：该错误分支落地时以 warning 跑全仓实测「0 条」，
+                    // 而这三个受害文件全在 `src/tests/generics/`，走 `z42c --emit-zbc` —— 那条路
+                    // 丢弃全部诊断。探针看不见的地方，"0 条" 不构成证据。
+                    //
+                    // **校验仍延后**（本文件抬头的 Deferred `where-constraint-future-func-constraint`，
+                    // E0422/E0423 已留号）。⚠️ 补校验不是「加一次 IsAssignableTo」那么简单：
+                    // `R Apply<T, R>(T f, int x) where T : Func<int, R>`（func_constraint_captured.z42）
+                    // 的约束类型里含**另一个型参 R**，判定得把约束里的型参当通配去 unify，属独立一件事。
                 } else {
-                    // 既不是型参、也不是已知接口/类 —— 多半是把约束名拼错了（`where T : IFooo`）。
+                    // 既不是型参、也不是已知接口/类/函数类型 —— 多半是把约束名拼错了（`where T : IFooo`）。
                     // 此前**完全静默**：写错名字等于没写约束，而使用者以为约束生效了。
                     //
                     // 曾担心误报（z42c **不把接口的定义 import 进符号表**——ImportedSymbolLoader，
