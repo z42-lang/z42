@@ -296,6 +296,24 @@ impl ArrayObj {
         }
     }
 
+    /// The youngest `gen_age` among this array's backing block(s), or `u8::MAX` when it has
+    /// none (a stack array). The element storage is a `region_var` block that is **only** kept
+    /// alive by [`Self::mark_backing`], a side effect of tracing the array — it is not one of
+    /// the array's `Value` children, so nothing else can observe that it is young.
+    pub fn min_backing_gen_age(&self) -> u8 {
+        match &self.backing {
+            ArrayBacking::Boxed { block, .. }
+            | ArrayBacking::Bool { block, .. }
+            | ArrayBacking::Bytes { block, .. }
+            | ArrayBacking::I32 { block, .. }
+            | ArrayBacking::I64 { block, .. }
+            | ArrayBacking::Chars { block, .. }
+            | ArrayBacking::F64 { block, .. } => block.gen_age(),
+            ArrayBacking::StructBytes { bytes, refs, .. } => bytes.gen_age().min(refs.gen_age()),
+            ArrayBacking::StackVec(_) => u8::MAX,
+        }
+    }
+
     /// unify-gc-heap PR-3: mark this array's backing block(s) live during the GC
     /// mark phase. Called from `Value::trace_children`'s array-borrowing arms right
     /// after the `ArrayObj` header (region_array) is marked — without this the

@@ -1,6 +1,8 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 对齐：2026-09-10（change `flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
+> 对齐：2026-09-11（change `fix-primitives-count-as-young` 修「基元被当成年轻对象」——
+> 脏卡 33 001 → 1–3、中位停顿 −33%，并补上数组 backing 的年龄；
+> `flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
 > 执行 + 修「一个 pause 跑两次回收」/「major 不升龄」+ 徒劳退避分级 + gate stage 改跑两种模式；`fix-callee-entry-safepoint-drops-args` 补「safepoint 只能
 > 放在活值已经是根的位置」一节；`fix-gc-budget-not-enforced` 修增长闸门基线 + 退避策略一节；
 > 原 change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议）。
@@ -345,6 +347,44 @@ nursery（默认 32M 绝对值，刻意与预算无关），于是一个远小�
 `min(nursery, allowance)`，而 allowance 正是软上限压的那个量；没设上限时 allowance ≥ 4 个
 nursery，`min` 恒等于 nursery，**默认路径逐字节不变**。
 STW 那侧的闸门本来就是 allowance，所以这个洞在它当默认的时候看不见。
+
+### ⚠️ 「年轻」的判据必须先问「它是不是一个引用」
+
+`gen_age_of` 对**一切非 GC 引用**答 `0`（`Null`、`I64`、栈句柄——它们没有年龄可言），
+而 `0 < PROMOTION_THRESHOLD`。于是三处判据全部失真：
+
+```rust
+if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
+```
+
+后果按严重程度排：
+
+1. **`refers_to_young` 恒为真** —— 它是 `dirty_cards_for_newly_old_*`（晋升时）和
+   `rebuild_card_table`（major 后）共同的判据。只要条目有**一个空槽或一个基元字段**
+   就算「指着年轻的东西」⇒ **每张卡都被置脏、而且再也清不掉**
+   （#553 的「扫过即清」救不了：扫的时候它照样报告「有年轻的」）。
+   实测稳态：**33 001 张脏卡、每次 minor 重扫 203 884 条目，只为找到约 100 个年轻对象。**
+2. **标记队列被基元淹没** —— 每次 minor 推入 1 254 097 个值，其中 **1 254 047 个是基元/Null**
+   （99.996%），全部被 `mark_if_unmarked` 原样拒绝。
+
+修法就是先问 `is_heap_ref()` ——**写屏障 `debug_assert` 用的就是这个谓词**，两处口径本该一致。
+实测（`z42c.semantics`）：脏卡 33 001 → **1–3**，minor mark 12.0 ms → **0.1 ms**，
+中位停顿 21.5 → **14.4 ms**，RSS −3.4%，**`freed` 逐周期逐字节相同**。
+
+#### 🔑 去掉一个「几乎总是真」的判据，会暴露所有搭它便车的缺陷
+
+**数组的元素存储块（`region_var` 里的 backing）只靠 `mark_backing()` 活着，而那是
+「trace 这个数组」的副作用。** 它不是数组的任何一个 `Value` 孩子，所以任何遍历孩子的检查
+都看不见它年不年轻；而 minor 只在卡脏时才 trace 一个老数组。
+
+「卡永远脏」以前意外保证了每个老数组每次 minor 都被 trace。判据改诚实的那一刻，
+**young backing 开始在活着的老数组底下被扫掉** —— 症状不是崩溃，而是**自举字节不动点断裂**
+（gen1≠gen2，差 167 B），**单测一个都没红**。
+
+所以 `refers_to_young` / `seed_card_entry` 另外要问 `owns_young_backing`：
+数组只要 backing 还年轻，它自己就「持有年轻的东西」，卡必须保持脏。
+
+⚠️ **这类「把一个近似判据改准」的改动必须连自举不动点一起跑**——单测覆盖不到这种形状。
 
 ### 一个周期跑 minor **或** major，绝不两个都跑
 

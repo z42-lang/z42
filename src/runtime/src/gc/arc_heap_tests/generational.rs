@@ -595,6 +595,54 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
         "the escalated major freed the unrooted old Target; 10 pinned survive");
 }
 
+// ── fix-primitives-count-as-young (2026-09-11) ──────────────────────────────
+
+/// An array's element storage lives in `region_var` and is kept alive **only** by
+/// `mark_backing()` — a side effect of *tracing* the array. It is not one of the array's
+/// `Value` children, so no walk over those children can observe that it is young; and a minor
+/// only traces an old array when its card is dirty.
+///
+/// This held before purely by accident. `gen_age_of` answers 0 for `Value::Null` and every
+/// primitive, and 0 is `< PROMOTION_THRESHOLD`, so `refers_to_young` was true for practically
+/// every entry that had a single empty slot — the card table was permanently, entirely dirty
+/// (measured: 33 001 dirty cards / 203 884 entries rescanned per minor, to find ~100 young
+/// objects). Making that predicate honest — heap references only — removed the accidental
+/// cover, and young backings started being swept out from under live old arrays.
+///
+/// Nothing in the unit suite caught that: it surfaced as the **self-host byte fixpoint**
+/// breaking (gen1 ≠ gen2, sizes differing by ~167 B). Hence this test.
+#[test]
+fn an_old_array_with_a_young_backing_still_refers_to_young() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    // Primitive elements ⇒ `gc_refs()` is empty ⇒ the array has **no** heap-ref children at
+    // all, so its backing block is the only thing that can make this predicate true.
+    let arr = heap.alloc_array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+    promote_to_old(&arr); // header aged to old; the backing block is untouched, still young
+
+    assert!(heap.refers_to_young(&arr),
+        "an old array whose element-storage block is still young must keep its card dirty — \
+         otherwise the next minor never traces it, `mark_backing` never runs, and the backing \
+         is swept while the array is still live");
+}
+
+/// The other half: primitives and empty slots must **not** count as young references, or the
+/// card table never sheds anything. `Value::Null` is what every unset reference slot holds.
+#[test]
+fn primitives_and_null_slots_do_not_count_as_young_references() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
+
+    let owner = heap.alloc_object(dummy_type_desc("Owner"),
+        vec![Value::Null, Value::I64(7)], NativeData::None);
+    promote_to_old(&owner);
+
+    assert!(!heap.refers_to_young(&owner),
+        "a `Null` slot and an `I64` are not references to anything, let alone to something \
+         young — counting them kept every card dirty forever");
+}
+
 // ── fix-minor-and-major-in-one-pause (2026-09-10) ───────────────────────────
 
 /// A cycle runs a minor **or** a major, never both.

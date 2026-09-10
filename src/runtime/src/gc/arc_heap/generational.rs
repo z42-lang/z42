@@ -111,9 +111,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
 
             v.trace_children(&mut |child| {
-                // Only enqueue young children. Old children that need
-                // re-rooting are already covered via dirty cards.
-                if Self::gen_age_of(child) < threshold {
+                // Only enqueue **young heap references**. Old children that need re-rooting are
+                // already covered via dirty cards.
+                //
+                // **fix-primitives-count-as-young (2026-09-11)**: `is_heap_ref()` is load-bearing,
+                // not tidiness. `gen_age_of` answers 0 for everything that is not a GC reference
+                // — `Null`, `I64`, stack handles — and 0 is `< threshold`, so **every primitive
+                // field and every empty slot counted as "a young object"** and was cloned onto
+                // the mark queue. Measured on `z42c.semantics`: 1 254 047 of the 1 254 097 values
+                // this loop enqueued per minor were primitives, all of which `mark_if_unmarked`
+                // then rejected. `is_heap_ref` is the same predicate the write barrier asserts on.
+                if child.is_heap_ref() && Self::gen_age_of(child) < threshold {
                     queue.push(child.clone());
                 }
             });
@@ -211,12 +219,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         let mut found = false;
         v.trace_children(&mut |child| {
-            if Self::gen_age_of(child) < threshold {
+            // fix-primitives-count-as-young (2026-09-11): heap references only — see the note in
+            // `mark_phase_minor`. Without the `is_heap_ref` guard a `Null` slot made `found` true,
+            // so the card was never cleanable and this entry was rescanned at every minor forever.
+            if child.is_heap_ref() && Self::gen_age_of(child) < threshold {
                 queue.push(child.clone());
                 found = true;
             }
         });
-        found
+        found || Self::owns_young_backing(&v, threshold)
     }
 
     /// Fold one entry's verdict into the card it belongs to. `iterate_dirty_cards` walks a
@@ -309,17 +320,34 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
+    /// Whether `v` itself owns a **young element-storage block**. An array's backing lives in
+    /// `region_var` and is kept alive only by `mark_backing()` — a side effect of *tracing* the
+    /// array — so it is invisible to any check that walks the array's `Value` children.
+    fn owns_young_backing(v: &Value, threshold: u8) -> bool {
+        match v {
+            Value::Array(gc) => gc.borrow().min_backing_gen_age() < threshold,
+            _ => false,
+        }
+    }
+
     /// Whether `v` has at least one child the minor GC would consider young. Stops at the
     /// first hit — this runs once per entry that crosses the promotion threshold.
-    fn refers_to_young(&self, v: &Value) -> bool {
+    pub(super) fn refers_to_young(&self, v: &Value) -> bool {
         let threshold = self.promotion_age;
         let mut found = false;
         v.trace_children(&mut |child| {
-            if !found && Self::gen_age_of(child) < threshold {
+            // fix-primitives-count-as-young (2026-09-11): **this one set the whole card table on
+            // fire.** `gen_age_of(Value::Null)` is 0, which is `< threshold`, so any entry with a
+            // single empty or primitive slot "referred to something young" — and both callers
+            // (`dirty_cards_for_newly_old_*` at promotion, `rebuild_card_table` after a major)
+            // dirtied its card. Practically every entry qualifies, so the dirty set never shrank:
+            // measured 33 001 dirty cards covering 203 884 entries per minor, to find ~100 young
+            // objects. With the guard the same workload keeps 1–3 dirty cards.
+            if !found && child.is_heap_ref() && Self::gen_age_of(child) < threshold {
                 found = true;
             }
         });
-        found
+        found || Self::owns_young_backing(v, threshold)
     }
 
     pub(super) fn sweep_phase_young_only(&self) -> MinorSweepResult {
