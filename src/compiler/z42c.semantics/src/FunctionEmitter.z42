@@ -293,7 +293,12 @@ public sealed class FunctionEmitter {
                 return acc + ">";
             }
         }
-        return PrimModel.SurfaceName(t.Name());
+        // ⚠️ **不能**用 PrimModel.SurfaceName —— 那会把实参从 `Int32` 改写成 `int`，等于顺手统一了
+        // SIGS 与 TYPE 的实参拼写差异，违反本 change 的裁决 D2「只 FQ 化类名成分、不动实参拼写」。
+        // 原路径 `Z42InstantiatedType.Name()` 用的就是 `Name()`，此处逐字保持。
+        // （实测破坏：ext 导出签名 `Kv<String, Int32>[]` 变成 `Kv<string, int>[]` ⇒
+        //  generic_struct_array_cross_pkg 的 main 整个导入失效。）
+        return t.Name();
     }
 
     private bool _isAliasPrim(string n) {

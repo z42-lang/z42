@@ -535,7 +535,15 @@ public static class ImportedSymbolLoader {
         // 变成「名叫 Std.Type 的垃圾类」。只对含点的名字走这条，裸名（型参 / 基元 / 无 ns）不受影响。
         // 与本地侧 `SymbolTable.ResolveTypeP` 的 ClassesByFqn 分支对称。
         if (name.IndexOf(".") >= 0) {
-            if (r.EnumTypeNamesByFqn.ContainsKey(name)) { return Z42ClassType.Enum(name); }
+            if (r.EnumTypeNamesByFqn.ContainsKey(name)) {
+                // ⚠️ 名字必须是**短名**、FQN 进 Namespace。把 FQN 当名字传给 Enum() 会让 Name() 变成
+                // 全限定串，与另一侧按短名建的同一 enum 比较时报「不能混用 Std.X.E 和 E」（实测
+                // heap_retention 的 RootKind 就这样炸了）。Name() 是全仓等值比较的口径，不能动。
+                string _esn = ImportedSymbolLoader._shortName(name);
+                Z42ClassType _fect = Z42ClassType.Enum(_esn);
+                _fect.Namespace = name.Substring(0, name.Length - _esn.Length - 1);
+                return _fect;
+            }
             int _fq0 = r.ClassesByFqn.Find(name); if (_fq0 >= 0) { return r.ClassesByFqn.ValAt(_fq0) as Z42ClassType; }
             int _fq1 = r.InterfacesByFqn.Find(name); if (_fq1 >= 0) { return r.InterfacesByFqn.ValAt(_fq1) as Z42InterfaceType; }
         }
