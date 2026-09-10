@@ -61,6 +61,13 @@ use std::sync::atomic::Ordering;
 /// instead of every 10% of the budget forever.
 const MAX_BACKOFF: u32 = 64;
 
+/// **fix-minor-and-major-in-one-pause (2026-09-10)**: a collection that reclaimed less than
+/// `gate / FUTILE_DIVISOR` counts as having freed *nothing*, and backs off harder than one that
+/// merely under-performed. 1/16 of a gate is far below anything a healthy collection returns
+/// (a healthy minor reclaims most of a nursery) and far above the handful of bytes a
+/// 100%-survival workload gives back, so the two cases never overlap in practice.
+const FUTILE_DIVISOR: u64 = 16;
+
 /// **arm-gc-by-default (2026-09-09)**: the unit the whole policy is denominated in — how much
 /// may be allocated before a **minor**, and (times [`ALLOWANCE_NURSERY_RATIO`]) the floor
 /// under a **major**'s allowance. Overridable via `Z42_GC_NURSERY_BYTES`.
@@ -150,6 +157,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // 18 to 8 and the heap stopped being collected at all).
         let next_backoff = if cycles == 0 {
             1
+        } else if reclaimed_since < trip.gate / FUTILE_DIVISOR {
+            // **fix-minor-and-major-in-one-pause (2026-09-10)**: freed *essentially nothing*.
+            // That is a different signal from "freed less than half a gate": the live set is not
+            // producing garbage at all, so the next collection has to mark a whole extra gate's
+            // worth of objects for the same zero return. Doubling makes each successive futile
+            // collection **more** expensive, so climb faster when the evidence is this clear.
+            backoff.saturating_mul(4).min(MAX_BACKOFF)
         } else if reclaimed_since < trip.gate / 2 {
             backoff.saturating_mul(2).min(MAX_BACKOFF)
         } else {

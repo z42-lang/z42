@@ -1,7 +1,7 @@
 # GC 调参与自动回收 / safepoint 协议
 
 > 对齐：2026-09-10（change `flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
-> 执行 + gate stage 改跑两种模式；`fix-callee-entry-safepoint-drops-args` 补「safepoint 只能
+> 执行 + 修「一个 pause 跑两次回收」/「major 不升龄」+ 徒劳退避分级 + gate stage 改跑两种模式；`fix-callee-entry-safepoint-drops-args` 补「safepoint 只能
 > 放在活值已经是根的位置」一节；`fix-gc-budget-not-enforced` 修增长闸门基线 + 退避策略一节；
 > 原 change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议）。
 > 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/auto_collect.rs`（自动回收策略）、
@@ -345,6 +345,47 @@ nursery（默认 32M 绝对值，刻意与预算无关），于是一个远小�
 `min(nursery, allowance)`，而 allowance 正是软上限压的那个量；没设上限时 allowance ≥ 4 个
 nursery，`min` 恒等于 nursery，**默认路径逐字节不变**。
 STW 那侧的闸门本来就是 allowance，所以这个洞在它当默认的时候看不见。
+
+### 一个周期跑 minor **或** major，绝不两个都跑
+
+升级启发式（`Z42_GC_MINOR_THRESHOLD`，年轻代存活率高 → 该收老年代了）**曾经在同一个 pause 里
+紧接着跑一次完整 major**，源码注释就写着 `Major in same pause window.`。`want_major` 那条
+（晋升字节闸门）也一样：想要 major 时仍然先跑一遍 minor。
+
+**那次 minor 是纯白干** —— major 从固定根标记全堆、清扫所有 region，minor 能回收的它全包含。
+
+```text
+旧：  minor(全部年轻代)  →  major(全堆)        一个 pause 付两遍
+新：  想要 major → 只跑 major
+      minor 发现存活率高 → 把 major 排到下一个周期（pending_major）
+```
+
+实测 `src/tests/perf/scenarios/09_alloc_ctorless`（存活率 100% 的分配循环，升级**每个周期**都
+触发）：每周期 `minor 156.7 ms + major 188.5 ms` = 370 ms 停顿，`freed` 0 字节。
+
+⚠️ **代价是 major 必须自己升龄**（下一节）—— 以前 major 前面永远有一个 minor 替它做。
+
+### major 也要给幸存者升龄
+
+**升龄是唯一能排空 young 表的东西**（幸存者年龄到 `PROMOTION_THRESHOLD` 才离开）。
+一旦 major 能单独跑，不升龄就意味着**所有存活条目都留在 young 表里**，下一次 minor
+直接重标全堆 —— 实测 1 498 866 条、192.6 ms，本该只有一个 nursery 那么多。
+
+语义上这也更对：**熬过一次 major 和熬过一次 minor 是同样强的长寿证据**。
+`age_survivors_after_major` 放在 `rebuild_card_table` **之前**：晋升产生 old→young 边，
+而 rebuild 负责记录它们。
+
+### 徒劳退避：「白干一场」比「回收得不够」退得更狠
+
+原来两者都是 ×2。它们性质不同：白干一场说明活集根本不产生垃圾，而下一次回收要多标记整整一个
+闸门的对象、回报仍是零 —— **每多退一格，下一次白干就更贵**。所以
+`reclaimed < gate/16` → ×4，`< gate/2` → ×2，其余重置为 1。
+1/16 远低于健康回收的回报（健康 minor 能收回大半个 nursery），也远高于 100% 存活时还回来的
+那几百字节，两种情形不会重叠。
+
+**三条合起来**（本地双二进制 A/B，base = 翻默认前）：`09_alloc_ctorless` 从
+**1.93× 回到 0.885×**（比 STW 还快），其余场景全在 ±3.3% 内，而编译器负载的
+RSS −18.2% / 中位停顿 −64% 一分没丢。
 
 ## 分代的两个闸门：新生代按分配量，老年代按晋升量
 

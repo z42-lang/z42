@@ -561,6 +561,34 @@ impl VarRegion {
         (reclaimed, credited)
     }
 
+    /// **fix-minor-and-major-in-one-pause (2026-09-10)**: age the young survivors after a
+    /// **major**, the way [`Self::sweep_young`] does after a minor.
+    ///
+    /// A major is a superset collection — it marks from the roots and sweeps every region — so
+    /// surviving a major is exactly as much evidence of longevity as surviving a minor, and
+    /// aging is what drains the young list. Without this a major leaves every live block young,
+    /// and the *next* minor re-marks the entire heap (measured: 1.5 M blocks, 192 ms, on
+    /// `09_alloc_ctorless`). The blocks were already swept by [`Self::sweep`]; this only walks
+    /// the survivors' ages.
+    pub fn age_young_survivors(&mut self) {
+        let threshold = self.promotion_age;
+        let mut survivors: Vec<NonNull<GcBlockHeader>> = Vec::with_capacity(self.young_list.len());
+        for &ptr in &self.young_list {
+            // SAFETY: see `iterate_young` — young_list only holds chunk-owned block pointers.
+            let header = unsafe { ptr.as_ref() };
+            if !header.is_alive() {
+                header.set_in_young(false);
+                continue;
+            }
+            if header.bump_gen_age() >= threshold {
+                header.set_in_young(false);
+            } else {
+                survivors.push(ptr);
+            }
+        }
+        self.young_list = survivors;
+    }
+
     /// STW sweep: tombstone every unmarked live block, clear the mark on survivors. Returns
     /// `(blocks reclaimed, bytes credited)`. (v1 = STW only; generational minor sweep is a
     /// later PR.)
