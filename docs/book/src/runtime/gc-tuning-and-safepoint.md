@@ -1,5 +1,7 @@
 # GC 调参与自动回收 / safepoint 协议
 
+> 对齐：2026-09-11（change `perf-bucket-all-blocks-by-chunk` 把变长区 chunk 回收从 O(堆) 降到
+> O(被回收 chunk 数)，中位停顿 −17%；`flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
 > 对齐：2026-09-11（change `fix-primitives-count-as-young` 修「基元被当成年轻对象」——
 > 脏卡 33 001 → 1–3、中位停顿 −33%，并补上数组 backing 的年龄；
 > `flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
@@ -348,6 +350,28 @@ nursery（默认 32M 绝对值，刻意与预算无关），于是一个远小�
 nursery，`min` 恒等于 nursery，**默认路径逐字节不变**。
 STW 那侧的闸门本来就是 allowance，所以这个洞在它当默认的时候看不见。
 
+### chunk 回收：`all_blocks` 按 chunk 分桶
+
+`reclaim_dead_var_chunks` 要把被回收 chunk 的块从三张表里摘掉。对 `all_blocks` 原本是
+`retain`，**每个元素解引用一次 header 读 `chunk_idx`** —— 一次随机访存。实测：为摘掉
+~600 个 chunk 扫了 **187 万**个块，**8.1 ms / 9.5 ms 的 minor 停顿**（obj / arr 两个定长区
+各只要 0.22 ms —— 成本全在变长区这一趟）。
+
+分桶（`all_blocks[ci]` = 第 ci 个 chunk 的块）之后这一步是 `all_blocks[ci] = Vec::new()`，
+O(被回收的 chunk 数)。遍历的元素总数不变、局部性反而更好（同 chunk 的块地址连续）。
+中位停顿 22.1 → **18.3 ms**，最大停顿 −9%，RSS 中性。
+
+⚠️ **分桶会以两种方式把 RSS 吃回去，两个都得堵**（否则净亏）：
+
+| 坑 | 代价 | 修法 |
+|---|---|---|
+| `Vec` 的翻倍空闲容量 **×每个 chunk 一份** | +20 MB | chunk 填满不再增长时 `shrink_to_fit()`（`retire_chunk` / `bump()` 换 chunk） |
+| **`clear()` 保留容量** | +18 MB | `= Vec::new()` —— 每次 minor 回收 ~600 个 chunk，各握 2 KB 不放会永久累积 |
+
+只修第一个，RSS 从 811.8 **只降到 809.8 MB**；主因是第二个。
+
+**还没做**：`purge_blocks` 现在只剩 `free_lists` 要扫（~122 万条目 ≈ 3.2 ms）。它按 size class
+组织、不按 chunk 分区，要么给每条目内联 chunk 索引（+4 B/条 ≈ 5 MB），要么改成 pop 时惰性校验。
 ### ⚠️ 「年轻」的判据必须先问「它是不是一个引用」
 
 `gen_age_of` 对**一切非 GC 引用**答 `0`（`Null`、`I64`、栈句柄——它们没有年龄可言），

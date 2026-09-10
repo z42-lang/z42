@@ -104,9 +104,20 @@ pub struct VarRegion {
     bump_chunk: Option<usize>,
     /// Byte offset of the next bump allocation within `chunks[bump_chunk]`.
     bump_off: usize,
-    /// Every distinct block slot ever bump-allocated (stable header pointers). Reused slots
-    /// stay here; the list only grows. `iterate_alive` / `sweep` walk it.
-    all_blocks: Vec<NonNull<GcBlockHeader>>,
+    /// Every distinct block slot ever bump-allocated (stable header pointers), **bucketed by
+    /// owning chunk** — `all_blocks[ci]` holds the slots carved out of `chunks[ci]`. Reused
+    /// slots stay in their bucket; a bucket only grows until its chunk is reclaimed.
+    /// `iterate_alive` / `sweep` walk it via [`Self::all_blocks_iter`].
+    ///
+    /// **perf-bucket-all-blocks-by-chunk (2026-09-11)**: this was one flat `Vec`, and
+    /// [`Self::reclaim_dead_var_chunks`] had to `retain` over the whole thing to drop the
+    /// blocks of the chunks it was reclaiming — **one header dereference per block**, i.e. a
+    /// random memory access each, over every block in the region. Measured on
+    /// `z42c.semantics`: 1.87 M blocks scanned to evict ~600 chunks' worth, **8.1 ms of a
+    /// 9.5 ms minor pause**. Bucketed, that eviction is `all_blocks[ci].clear()` per reclaimed
+    /// chunk. Walking is unchanged in element count and strictly better in locality — blocks
+    /// within a chunk are address-contiguous.
+    all_blocks: Vec<Vec<NonNull<GcBlockHeader>>>,
     /// Per-size-class free lists of tombstoned slots available for reuse (LIFO).
     free_lists: Vec<Vec<NonNull<GcBlockHeader>>>,
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: blocks the minor GC must visit —
@@ -305,7 +316,7 @@ impl VarRegion {
         self.write_fresh_header(
             header_ptr, payload, block_type, size_class, 0, self.generational, chunk_idx,
         );
-        self.all_blocks.push(header_ptr);
+        self.all_blocks[chunk_idx as usize].push(header_ptr);
         if self.generational {
             self.young_list.push(header_ptr);
         }
@@ -433,10 +444,16 @@ impl VarRegion {
         true
     }
 
+    /// Every block slot in the region, in chunk order. The flat view over the per-chunk
+    /// buckets — see [`Self::all_blocks`] for why they are bucketed.
+    fn all_blocks_iter(&self) -> impl Iterator<Item = NonNull<GcBlockHeader>> + '_ {
+        self.all_blocks.iter().flat_map(|b| b.iter().copied())
+    }
+
     /// Iterate every currently-alive block, passing its handle + header to `visit`. Skips
     /// tombstoned slots. Order: allocation order.
     pub fn iterate_alive(&self, mut visit: impl FnMut(VarGcRef, &GcBlockHeader)) {
-        for &ptr in &self.all_blocks {
+        for ptr in self.all_blocks_iter() {
             // SAFETY: every pointer in `all_blocks` is a live chunk-owned slot for the
             // region's lifetime (chunks never move / free before Drop).
             let header = unsafe { ptr.as_ref() };
@@ -472,7 +489,7 @@ impl VarRegion {
         }
         let threshold = self.promotion_age;
         let mut rebuilt = Vec::new();
-        for &ptr in &self.all_blocks {
+        for ptr in self.all_blocks_iter() {
             // SAFETY: see `iterate_alive`.
             let header = unsafe { ptr.as_ref() };
             if header.is_alive() && header.gen_age() < threshold {
@@ -603,7 +620,7 @@ impl VarRegion {
         // The charge is read here, while the header is still readable (tombstone bumps the
         // generation and may hand the slot straight back to a free list).
         let mut to_reclaim: Vec<(VarGcRef, u64)> = Vec::new();
-        for &ptr in &self.all_blocks {
+        for ptr in self.all_blocks_iter() {
             // SAFETY: see `iterate_alive`.
             let header = unsafe { ptr.as_ref() };
             if !header.is_alive() {
@@ -687,7 +704,7 @@ impl Drop for VarRegion {
     /// every owned chunk. Reclaimed (tombstoned) blocks were already finalized at tombstone.
     fn drop(&mut self) {
         if self.drop_glue.is_some() {
-            for &ptr in &self.all_blocks {
+            for ptr in self.all_blocks_iter() {
                 // SAFETY: chunk-owned header valid until the dealloc below.
                 let alive = unsafe { ptr.as_ref() }.is_alive();
                 if alive {
