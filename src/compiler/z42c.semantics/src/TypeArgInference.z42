@@ -110,7 +110,16 @@ public static class TypeArgInference {
             int idx = TypeArgInference._nameIndex(names, nameCount, p.Name());
             if (idx < 0) { return true; }          // 类级型参 / `Self` —— 不归本推断管
             if (bound[idx] == null) { bound[idx] = a; return true; }
-            return bound[idx].CanonName() == a.CanonName();   // 边界 ②：冲突即整体失败
+            if (bound[idx].CanonName() == a.CanonName()) { return true; }
+            // generic-inference-best-common-type：同一型参绑到两个**数值**类型 → 取算术拓宽公共类型
+            // （double>float>long>int，复用二元 `int+long` 同一张 `ArithmeticResult` 表）写回后继续，
+            // 而非整体失败。3+ 参折叠与顺序无关（数值拓宽是格上的 max）。出口 `_resolvedForm` 会把
+            // 结果 `Builtin("long")` 归一成 `Std.Int64`，与显式 `<long>` 同形。
+            if (TypeFacts.IsNumeric(bound[idx]) && TypeFacts.IsNumeric(a)) {
+                bound[idx] = TypeFacts.ArithmeticResult(bound[idx], a);
+                return true;
+            }
+            return false;   // 边界 ②：无数值公共类型（string/object/用户类型等冲突）→ 整体失败（静默）
         }
         if ((p is Z42ArrayType) && (a is Z42ArrayType)) {
             return TypeArgInference._unify((p as Z42ArrayType).Elem, (a as Z42ArrayType).Elem,

@@ -157,9 +157,29 @@ void test_inferred_binding_makes_shape_mismatch_visible() {
 
 [Test]
 void test_conflicting_bindings_fail_inference_silently() {
-    // 同一型参绑到 string 与 int ⇒ 整体失败（v1 不做「最佳公共类型」，见 Deferred
-    // generic-inference-best-common-type）。失败即静默，与改动前逐字节一致。
+    // string 与 int 无**数值**公共类型 ⇒ 推断整体失败、静默（generic-inference-best-common-type
+    // 的边界 D2：只对数值冲突取拓宽公共类型，非数值冲突仍按边界②失败，字节不变）。
     string src = "void p<T>(T a, T b) { } class Use { void f() { p(\"s\", 7); } }";
+    Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
+}
+
+// ── generic-inference-best-common-type：数值冲突 → 算术拓宽公共类型 ──────────
+
+[Test]
+void test_numeric_conflict_infers_common_type_and_checks_where() {
+    // 阳性门（distinguishes）：int 与 long 冲突 → 修前推断失败、where 不校验 = 0；
+    // 修后 T 推成 long（数值拓宽）、`long` 不满足 IFoo → CheckMethod 报 1 个 E0402。
+    // 这证明推断确实成功并产出了具体类型（否则 CheckMethod 根本不会跑）。
+    string src = "interface IFoo { } void p<T>(T a, T b) where T : IFoo { } "
+        + "class Use { void f() { p(1, 2L); } }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0402"));
+}
+
+[Test]
+void test_numeric_conflict_widens_to_long_no_false_error() {
+    // 拓宽方向门：无约束的 `p(1, 2L)` → T 推成 long，两实参（int→long / long）都合法 ⇒ 0 个 E0402。
+    // 若误合成 int（拓宽方向反了），`2L`(long) 窄化到 int 会报错 → 本门抓「合错方向」。
+    string src = "void p<T>(T a, T b) { } class Use { void f() { p(1, 2L); } }";
     Assert.Equal(0, countCode(bodyDiags(src), "E0402"));
 }
 
