@@ -1,0 +1,13 @@
+namespace Mo.Ext;
+using Mo.Base;
+using Std;
+
+// Leaf 自己**不声明** Tag/Only —— 两者都是从 mo.base 继承来的。
+public class Leaf : Tagged {
+    public string Own() { return "leaf-own"; }
+}
+
+// Kid 覆写 Tag：methodof(Kid.Tag) 应当指向 mo.ext 里的这份，而不是基类那份。
+public class Kid : Tagged {
+    public override string Tag() { return "kid-tag"; }
+}

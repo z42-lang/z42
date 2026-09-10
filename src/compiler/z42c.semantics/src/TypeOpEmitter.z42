@@ -94,12 +94,17 @@ public sealed class TypeOpEmitter {
     // `Methods`，拿派生类拼名会指向一个从未发射的函数（`EmitContext._depHasFunction` 就是为这个
     // 存在的）。绑定期已沿基链定位到真正的声明类，这里直接用。
     internal TypedReg _emitMethodOf(BoundMethodOf e) {
-        string owner = e.DeclOwnerFq;
-        if (owner == "") {
-            // 兜底：绑定期没拿到声明类 FQ（理论上不该发生）→ 退回 receiver 类的 Fqn()。
-            owner = (e.OwnerCt != null) ? e.OwnerCt.Fqn() : this._ctx.QualifyClass(e.OwnerName);
+        // 声明类由 EmitContext 沿基链 + Deps 校验解析（绑定期看不到 Deps）——见
+        // ResolveMethodOfTarget 抬头：imported 类的 Methods 被 TSIG 展平过继承方法。
+        string qualified = "";
+        if (e.OwnerCt != null) { qualified = this._ctx.ResolveMethodOfTarget(e.OwnerCt, e.MethodKey); }
+        if (qualified == "") {
+            string owner = e.DeclOwnerFq;
+            if (owner == "") {
+                owner = (e.OwnerCt != null) ? e.OwnerCt.Fqn() : this._ctx.QualifyClass(e.OwnerName);
+            }
+            qualified = owner + "." + e.MethodKey;
         }
-        string qualified = owner + "." + e.MethodKey;
         int idx = this._ctx.Gen.Intern(qualified);
         TypedReg nameReg = this._ctx.Alloc(IrType.Str);
         this._ctx.Emit(new ConstStrInstr(nameReg, idx));
