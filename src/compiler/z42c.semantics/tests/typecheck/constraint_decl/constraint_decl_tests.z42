@@ -1,0 +1,138 @@
+// resolve-method-where-at-decl：方法级 `where` 的**声明级**诊断挪到声明期（Pass 0.5）。
+//
+// 修前四个症状（全部实测复现，见 change 的 evidence/）：
+//   ① 类级声明诊断在单文件路径**报两遍**（`IrDump.BuildModuleD` 显式 Resolve + `Infer` 默认再 Resolve）
+//   ② 方法级被调用 N 次就报 N 条
+//   ③ **从不被调用的泛型方法，一条都不报**（`where T : IFooo` 拼错名字 = 没写约束，没人告诉你）
+//   ④ `where U : IFoo`（U 不是该方法的型参）方法级**完全静默**（类级早就报了）
+//
+// 🔴 **本组用例是这四条唯一的门**：全仓实测**零违反**（GREEN 全绿、无一条新诊断）⇒ 真实代码上
+// 永远不响。不自带 fixture 就又是一道从不响的门。每条都做过退回对照。
+//
+// ⚠️ 辅助函数一律带 `cdw` 前缀（同一测试单元里自由函数共享平坦命名空间且不按参数类型重载）。
+namespace Z42cSemanticsConstraintDeclTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+
+// 走 TypeChecker.Infer（内含 Pass 0.5 Resolve）——覆盖症状 ②③④。
+DiagnosticBag cdwDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int cdwCount(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 走单文件 `--emit-zbc` 那条真实管线（`IrDump.BuildModuleD`）——**症状 ① 只有这条路能验**：
+// `cdwDiags` 用的 harness 自己只调一次 Infer，重复的那次 Resolve 在 BuildModuleD 里。
+int cdwPipelineCount(string src, string needle) {
+    CompiledModuleZ cm = IrDump.BuildModuleD(src, "t.z42", null, null);
+    int n = 0;
+    int i = 0;
+    while (i < cm.DiagCount) {
+        if (cm.DiagMsgs[i].IndexOf(needle) >= 0) { n = n + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+// ── ① 类级声明诊断只报一次（单文件管线）───────────────────────────────
+
+[Test]
+void test_class_decl_diag_reported_once_in_single_file_pipeline() {
+    // 退回对照：把 `IrDump.BuildModuleD` 里删掉的那次显式 `Resolve` 加回来 → 本条变 2。
+    string src = "class BoxD<T> where T: class + struct { } void Main() { }";
+    Assert.Equal(1, cdwPipelineCount(src, "cannot be both `class` and `struct`"));
+}
+
+// ── ② 方法级：被调 N 次也只报一条 ────────────────────────────────────
+
+[Test]
+void test_method_decl_diag_not_repeated_per_callsite() {
+    // 修前：`called` 被调 2 次 → 2 条一模一样的 E0443。
+    // 退回对照：把 `CheckMethod` 的 `report` 改回 true → 本条变 3（声明期 1 + 调用点 2）。
+    string src = "class Use { public void called<T>(T v) where T: IFooo { } "
+               + "public void h() { this.called<int>(1); this.called<int>(2); } }";
+    Assert.Equal(1, cdwCount(cdwDiags(src), "E0443"));
+}
+
+// ── ③ 从不被调用的泛型方法也报 ───────────────────────────────────────
+
+[Test]
+void test_uncalled_member_method_bad_constraint_reports_E0443() {
+    // 修前：**零诊断**。写错约束名等于没写约束，而没人告诉你。
+    // 退回对照：撤掉 `Resolve` 里遍历 `c.Members` 那段 → 本条变 0。
+    string src = "class Use { public void never<T>(T v) where T: IBarr { } }";
+    Assert.Equal(1, cdwCount(cdwDiags(src), "E0443"));
+}
+
+[Test]
+void test_uncalled_free_function_bad_constraint_reports_E0443() {
+    // 顶层自由函数此前**连声明期入口都没有**（Resolve 只认 ClassDecl）。
+    // 退回对照：撤掉 `Resolve` 里 `d is MethodDecl` 那个分支 → 本条变 0。
+    string src = "void freeNever<T>(T v) where T: IQuux { }";
+    Assert.Equal(1, cdwCount(cdwDiags(src), "E0443"));
+}
+
+[Test]
+void test_uncalled_method_func_constraint_combo_reports_E0423() {
+    // validate-func-type-constraint 留下的边界：E0423 此前也得「真被调用一次」才报。
+    string src = "interface IThing { void Poke(); } "
+               + "class Use { public void g<T>(T f) where T: Func<int,int> + IThing { } }";
+    Assert.Equal(1, cdwCount(cdwDiags(src), "E0423"));
+}
+
+// ── ④ where 挂在不存在的型参上 ───────────────────────────────────────
+
+[Test]
+void test_method_where_on_unknown_type_param_reports_E0401() {
+    // `where U : ...` 而 U 不是 `f` 的型参 —— 整条 where 白写。类级早就报了（`_buildSet`），
+    // 方法级此前**静默跳过**（`CheckMethod` 里 `if (pi >= 0)` 的 else 分支什么都不做）。
+    string src = "interface IThing { void Poke(); } "
+               + "class Use { public void f<T>(T v) where U: IThing { } }";
+    Assert.Equal(1, cdwCount(cdwDiags(src), "E0401"));
+}
+
+// ── 正例：合法 where 必须零诊断（防假红）─────────────────────────────
+
+[Test]
+void test_valid_method_constraint_reports_nothing() {
+    string src = "interface IThing { void Poke(); } "
+               + "class Impl : IThing { public void Poke() { } } "
+               + "class Use { public void g<T>(T v) where T: IThing { } "
+               + "public void h() { this.g<Impl>(new Impl()); this.g<Impl>(new Impl()); } }";
+    Assert.Equal(0, cdwDiags(src).Count());
+}
+
+[Test]
+void test_valid_free_function_constraint_reports_nothing() {
+    string src = "interface IThing { void Poke(); } "
+               + "class Impl : IThing { public void Poke() { } } "
+               + "void g<T>(T v) where T: IThing { } "
+               + "void Main() { g<Impl>(new Impl()); }";
+    Assert.Equal(0, cdwDiags(src).Count());
+}
+
+[Test]
+void test_call_site_violation_still_reported_per_callsite() {
+    // 只把**声明级**诊断挪走了；**违反约束**（E0402）本来就该每个调用点各报一条。
+    // 退回对照：若误把 `_checkBundle` 也 gate 掉 → 本条变 0。
+    string src = "interface IThing { void Poke(); } "
+               + "class Plain { } "
+               + "class Use { public void g<T>(T v) where T: IThing { } "
+               + "public void h() { this.g<Plain>(new Plain()); this.g<Plain>(new Plain()); } }";
+    Assert.Equal(2, cdwCount(cdwDiags(src), "E0402"));
+}

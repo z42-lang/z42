@@ -40,7 +40,11 @@ public sealed class ConstraintChecker {
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
+            if (d is MethodDecl) {
+                // resolve-method-where-at-decl：**顶层自由函数**（`MethodDecl.IsFree`）的 where。
+                // 它此前完全没有声明期入口——`Resolve` 只认 ClassDecl，而调用点那条又只在真被调用时才走。
+                this._diagnoseMethodWheres(symbols, d as MethodDecl);
+            } else if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 // add-associated-types PR-1：条件由 `class || struct` 放宽到**含 interface**。此前
                 // 泛型接口声明上的 where（`interface INumber<T> where T : INumber<T>`）根本不进约束
@@ -56,8 +60,41 @@ public sealed class ConstraintChecker {
                         }
                     }
                 }
+                // 成员方法的 where 也在声明期过一遍（只报诊断，bundle 丢弃——方法级不预登记符号表）。
+                int m = 0;
+                while (m < c.MemberCount) {
+                    Decl mem = this._unwrap(c.Members[m]);
+                    if (mem is MethodDecl) { this._diagnoseMethodWheres(symbols, mem as MethodDecl); }
+                    m = m + 1;
+                }
             }
             i = i + 1;
+        }
+    }
+
+    // 方法级 where 的**声明期**诊断：建一次 bundle 只为触发诊断，结果丢弃。
+    //
+    // 为什么不顺手把结果缓存起来给 `CheckMethod` 用：方法级约束**不预登记符号表**（没有一把稳定的键——
+    // 同名同 arity 的重载各有各的 where），而即席重建的成本本来就低（约束项个位数）。把「报诊断」与
+    // 「建 bundle」拆开，比造一张键不可靠的缓存表安全得多。
+    private void _diagnoseMethodWheres(SymbolTable symbols, MethodDecl md) {
+        if (md == null || md.WhereCount == 0 || md.TypeParams.Count == 0) { return; }
+        string[] pnames = md.TypeParams.Names;
+        int pc = md.TypeParams.Count;
+        int w = 0;
+        while (w < md.WhereCount) {
+            WhereClause wc = md.Wheres[w];
+            int pi = this._indexOfName(pnames, pc, wc.TypeParam);
+            if (pi < 0) {
+                // 与类级同款（`_buildSet` 那条）：`void f<T>(T v) where U : IFoo` —— 约束挂在一个
+                // 不存在的型参上，等于整条 where 白写。此前方法级把它**静默跳过**。
+                this._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                    "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + md.Name + "`",
+                    wc.Span);
+            } else {
+                this._fillBundle(symbols, md.Name, new ConstraintBundle(), wc, pnames, pc, true);
+            }
+            w = w + 1;
         }
     }
 
@@ -78,7 +115,7 @@ public sealed class ConstraintChecker {
                     "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + c.Name + "`",
                     wc.Span);
             } else {
-                this._fillBundle(symbols, c.Name, bundles[pi], wc, pnames, pc);
+                this._fillBundle(symbols, c.Name, bundles[pi], wc, pnames, pc, true);
             }
             w = w + 1;
         }
@@ -88,8 +125,13 @@ public sealed class ConstraintChecker {
     // 把一条 where 子句的各约束项填进 bundle。可行子集外的约束（interface/enum/new()/func/泛型 base）静默延后。
     // 类级与方法级**共用本函数**（此前是逐字重复的两份，改校验必须同时改两处 → 已合并）；
     // 差异只有 owner 名（类名 / 方法名），参数化即可。
+    // `report` —— 是否发出**声明级**诊断（未知约束名 E0443 / func 约束并置 E0423 / class·struct 互斥 E0402）。
+    // resolve-method-where-at-decl：这些诊断只该在**声明期**发一次。类级本就如此（`Resolve` 是 Pass 0.5）；
+    // 方法级此前**只在调用点**建 bundle ⇒ 两个症状：①被调 N 次报 N 条 ②**从不被调用就一条都不报**
+    // （`where T : IFooo` 拼错名字 = 没写约束，而没人告诉你）。现在方法级也在 `Resolve` 里走一遍
+    // （report=true、结果丢弃），`CheckMethod` 照旧即席建 bundle 但 **report=false**。
     private void _fillBundle(SymbolTable symbols, string ownerName, ConstraintBundle bundle, WhereClause wc,
-                             string[] pnames, int pc) {
+                             string[] pnames, int pc, bool report) {
         int k = 0;
         while (k < wc.Count) {
             WhereConstraint con = wc.Constraints[k];
@@ -124,7 +166,7 @@ public sealed class ConstraintChecker {
                             // 使用点 `_checkAssocBinding` 与补齐强制，漏了这个**声明点**）。
                             // Deferred：`assoc-type-crosspkg`（独立 change，含双 bump）。
                             Z42InterfaceType abIface = symbols.GetInterface(nt.Name);
-                            if (abIface != null && !abIface.IsImported && !abIface.HasAssocType(abt.Name)) {
+                            if (report && abIface != null && !abIface.IsImported && !abIface.HasAssocType(abt.Name)) {
                                 this._diags.Error("E0453",
                                     "interface `" + nt.Name + "` has no associated type `" + abt.Name + "`",
                                     abt.Span);
@@ -168,8 +210,10 @@ public sealed class ConstraintChecker {
                         // 曾担心误报（z42c **不把接口的定义 import 进符号表**——ImportedSymbolLoader，
                         // 会破坏 byte-identical——故 `where T : 某导入接口` 可能 HasInterface/HasClass
                         // 皆假）。以 warning 跑全仓 + 全 stdlib 探针实测 **0 条**，故升 error。
-                        this._diags.Error(DiagnosticCodes.UndefinedType,
-                            "unknown constraint type `" + nt.Name + "` on `" + ownerName + "`", con.Span);
+                        if (report) {
+                            this._diags.Error(DiagnosticCodes.UndefinedType,
+                                "unknown constraint type `" + nt.Name + "` on `" + ownerName + "`", con.Span);
+                        }
                     }
                 }
             } else {
@@ -185,12 +229,12 @@ public sealed class ConstraintChecker {
         // 并置本身在今天是**静默无害**的（func 半边根本不校验），补上校验后它就成了一条语义未定义的
         // 写法——`where T : Func<int,int> + IDisposable` 要求 T 同时是结构化函数类型与实现某接口的类，
         // z42 的类型模型里没有这种东西。早报好过让它继续看起来合法。
-        if (bundle.HasFuncType && !ConstraintChecker._onlyFuncType(bundle)) {
+        if (report && bundle.HasFuncType && !ConstraintChecker._onlyFuncType(bundle)) {
             this._diags.Error(DiagnosticCodes.InvalidFuncConstraint,
                 "type parameter `" + wc.TypeParam + "` on `" + ownerName
                 + "` cannot combine a function-type constraint with other constraints", wc.Span);
         }
-        if (bundle.RequiresClass && bundle.RequiresStruct) {
+        if (report && bundle.RequiresClass && bundle.RequiresStruct) {
             this._diags.Error(DiagnosticCodes.TypeMismatch,
                 "type parameter `" + wc.TypeParam + "` cannot be both `class` and `struct` on `" + ownerName + "`",
                 wc.Span);
@@ -502,7 +546,9 @@ public sealed class ConstraintChecker {
         while (w < md.WhereCount) {
             WhereClause wc = md.Wheres[w];
             int pi = this._indexOfName(pnames, pc, wc.TypeParam);
-            if (pi >= 0) { this._fillBundle(symbols, md.Name, bundles[pi], wc, pnames, pc); }
+            // 声明级诊断已由 `Resolve` 的 `_diagnoseMethodWheres` 在声明期发过 ⇒ 这里 **report=false**。
+            // `pi < 0`（where 引用不存在的型参）同样静默跳过，那条也归声明期报。
+            if (pi >= 0) { this._fillBundle(symbols, md.Name, bundles[pi], wc, pnames, pc, false); }
             w = w + 1;
         }
         int n = argCount; if (n > pc) { n = pc; }

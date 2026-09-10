@@ -1,6 +1,8 @@
 # 泛型约束（`where` 子句）
 
-> 对齐：2026-09-10（change `validate-func-type-constraint`）
+> 对齐：2026-09-11（change `resolve-method-where-at-decl`）
+>
+> 上一次：2026-09-10（change `validate-func-type-constraint`）
 >
 > 上一次：2026-09-10（change `fix-func-constraint-reported-unknown`）；2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
 >
@@ -60,12 +62,13 @@ class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
 
 | 时机 | 位置 | 报什么 |
 |------|------|--------|
-| 声明期 | 每个泛型类 / **接口**的 `where` 子句解析成约束集 | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、**未知约束名 `E0443`**、**func 约束并置 `E0423`** |
+| 声明期 | 每个泛型类 / **接口**的 `where` 解析成约束集；**类成员方法与顶层自由函数的 `where` 也在此过一遍**（只发诊断，方法级不预登记符号表） | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、未知约束名 `E0443`、func 约束并置 `E0423`、关联类型绑定名笔误 `E0453` —— 每条**只发一次**，与是否被实例化 / 被调用无关 |
 | 实例化点 | `new Box<D>()` | 违反约束 `E0402`，Span 指向实例化处 |
 | 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（显式写类型实参）**及 `m(...)`（推断成功时）**；顶层自由函数同样走这条 | 违反约束 `E0402`、**函数类型签名不符 `E0422`** |
 
-> 方法级 `where` 的**声明级**诊断也在调用点发出（bundle 每次即席重建）⇒ 会重复、且零调用时不报，
-> 见「已知限制 5」。
+> 调用点只报**违反**（`E0402` / `E0422`）——那本来就是 per-call-site 的事实，同一个方法被调 3 次
+> 传 3 个不合格实参就该报 3 条。**声明级**诊断（约束名写错、并置非法等）已于
+> `resolve-method-where-at-decl` 全部挪到声明期，见「已知限制 5」。
 
 诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
 
@@ -413,21 +416,31 @@ Run(g, 3);   // E0422: … parameter 1 is `String`, the constraint requires it t
 > `call @f` 调一个不存在的自由函数，运行期 `undefined function`。
 > 回归守卫：`src/tests/generics/func_constraint_captured.z42`。
 
-### 5. 方法级 `where` 的声明级诊断：按调用次数重复，零调用时完全消失
+### ~~5. 方法级 `where` 的声明级诊断：按调用次数重复，零调用时完全消失~~ ✅ 已解决
 
-`ConstraintChecker.CheckMethod` **每个调用点都重建一遍 bundle**，于是 `_fillBundle` 里的
-**声明级**诊断（`E0401` 未知型参 / `E0443` 未知约束名 / `E0402` class·struct 互斥 / `E0423`
-func 约束并置）有两个症状：
+**2026-09-11（change `resolve-method-where-at-decl`）**：**声明级**诊断
+（`E0401` 未知型参 / `E0443` 未知约束名 / `E0402` class·struct 互斥 / `E0423` func 约束并置 /
+`E0453` 关联类型绑定名笔误）现在一律在**声明期**（Pass 0.5 `Resolve`）发出，且只发一次。
 
-- 被调用 2 次 → 同一条报 2 遍（纯噪音）；
-- **从不被调用 → 一条都不报**（真漏报：`where T : IFooo` 拼错了名字，等于没写约束，而没人告诉你）。
+修前四个症状（都实测复现过）：
 
-类级 `where` 不受影响（`Resolve` 是声明期 Pass 0.5，与是否实例化无关）。
-Deferred：`constraint-decl-diag-per-callsite`。真正的修法是把方法级 `where` 的解析也挪到声明期。
+| # | 症状 | 修后 |
+|---|------|------|
+| ① | 类级声明诊断在**单文件路径**报两遍 | 1 条 |
+| ② | 方法级被调用 N 次 → 报 N 条 | 1 条 |
+| ③ | **从不被调用的泛型方法一条都不报** | 照报 |
+| ④ | `where U : IFoo`（U 不是该方法的型参）方法级**完全静默** | 报 `E0401`（与类级同款） |
 
-> ⚠️ 另有一条**既有**重复：类级声明诊断在 `--emit-zbc` 这条路上报**两遍**
-> （`where T : class + struct` 实测 2 条）—— `Resolve` 在该管线里跑了两次。与上面是两回事，
-> 一并记在同一个 Deferred 下。
+- ①的根因是**两次 `Resolve`**：`IrDump.BuildModuleD` 显式调一次，紧接着 `Infer(cu, symbols)` 的
+  `resolveConstraints` 默认 true 又调一次。删掉前者，两条路（单文件 / 包并行）各有且只有一个 `Resolve`。
+- ②③④的修法：`Resolve` 除了走 `ClassDecl` 的 where，还走**类成员方法**与**顶层自由函数**
+  （`MethodDecl.IsFree`）的 where，只为发诊断、bundle 丢弃；`CheckMethod` 照旧在调用点即席建 bundle，
+  但**不再报**声明级诊断（`_fillBundle(..., report: false)`）。
+- **不缓存声明期算出的 bundle**：方法级约束没有一把稳定的键（同名同 arity 的重载各有各的 where），
+  造一张键不可靠的缓存表比即席重建（约束项个位数）危险得多。拆的是「报诊断」与「建 bundle」，不是加缓存。
+
+> **违反约束**（`E0402` 实参不满足 / `E0422` 函数签名不符）**仍然每个调用点各报一条**——那本来就是
+> per-call-site 的事实，不在本次搬动范围内。
 
 ### 6. 关联类型：同包已实现，**跨包尚未校验**
 

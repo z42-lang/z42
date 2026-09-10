@@ -1,0 +1,13 @@
+// 基线：方法级 where 的三种声明级错误
+class BoxD<T> where T: class + struct { }          // 类级：应报，实测报 2 遍（双 Resolve）
+class Use {
+    void called<T>(T v) where T: IFooo { }          // 被调 2 次 → 应报 2 遍
+    void never<T>(T v) where T: IBarr { }           // 从不调用 → 今天一条都不报
+    void badParam<T>(T v) where U: IThing { }       // where 引用不存在的型参 U → 今天静默
+}
+void freeNever<T>(T v) where T: IQuux { }           // 顶层、从不调用 → 今天一条都不报
+void Main() {
+    var u = new Use();
+    u.called<int>(1);
+    u.called<int>(2);
+}
