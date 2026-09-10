@@ -141,7 +141,7 @@ typeform := prim_keyword                                   // int / long / strin
 > ⚠️ **不留短名兜底当兼容层**（philosophy「不做兼容」）——格式 strict-pin，产物每次从源码全建，
 > 不存在读旧 zpkg 的需求。短名路径只保留给**本就无 ns 的东西**（型参、prim）。
 
-### Phase 3 — 格式 bump
+### Phase 3 — 格式 bump ❌ **User 裁决：不做**（2026-09-10）
 
 `zpkg` minor **0.43 → 0.44**（判据：[version-bumping.md](../../../.claude/rules/version-bumping.md)
 「已定义 section 字段语义变化」；先例 `stabilize-instance-dispatch-keys` 同为「wire 布局不变、仅键字符串」也 bump）。
@@ -245,3 +245,34 @@ A1 只解决「外围 ns 能解析」那一类。E0456 的 11 个调用点全在
 > **A3（E0456 补到声明位）拆为独立 Deferred**：判据在 TypeChecker（有 usings），而声明位的类型
 > 引用检查在 collector 阶段（拿不到 usings），且 collector 诊断可见性另有历史包袱。
 > 本 change 的守卫已保证「不写错答案」；让歧义声明**报错**是诊断完备性问题，独立立项。
+
+
+---
+
+## 9. 格式 bump 的裁决（2026-09-10，User）
+
+**结论：本 change 不 bump zbc/zpkg minor。**
+
+DRAFT §4 Phase 3 原计划 bump（zbc 1.38→1.39 / zpkg 0.43→0.44），依据是
+[version-bumping.md](../../../.claude/rules/version-bumping.md) 的「已定义 section 字段语义变化」
+与 `stabilize-instance-dispatch-keys`（同为「wire 布局不变、仅键字符串」）的先例。IMPL 期两条新事实
+翻转了这个判断：
+
+1. **实测双向互操作都正确，不 bump 不会炸**：旧 VM 读新 zpkg 正确（`make_type_from_name` 本就
+   FQ 优先）；新编译器读旧 zpkg 正确（短名路径保留）。bump 的理由是条文与「不许倚仗回退路径」，
+   不是「不 bump 会坏」。
+2. **带 bump 就无法本地全绿**：格式常量住在 `z42.ir`（stdlib 库），z42c 运行时用的是**已编译好的
+   那份** ⇒ gen1 只能产出「旧格式外壳 + 新常量」、gen2 才写新格式，且两代都必须在能读旧格式的 VM
+   下跑。本地实测两轮均失败，第二轮把 in-tree 弄成新旧混用（已清理）。
+   [bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md) 记的正是这条：格式 bump 的两代自举
+   由 CI 的 `ci-bootstrap` 版本差 gate 自动完成，**本地是环境墙**。
+
+⇒ 与 workflow「全绿才能开 PR」直接冲突。User 裁决：**不 bump**，保住本地全绿这条硬约束。
+
+**留下的代价（明写，不掩饰）**：新旧产物可静默混用（各自靠回退路径读对方）。
+若将来要收紧，应作为独立 change 走 CI 两代自举，那时才 bump。
+
+**顺带修的两处腐坏（与 bump 无关，保留在本 PR）**：
+`zbc.md` 的 changelog 缺 **1.38**、`zpkg.md` 缺 **0.43**、且 zpkg.md「当前版本」写着 `minor=42`
+（实际 43）—— 上一次 bump 漏写 changelog，与 version-bumping.md 自己记的「1.37→1.38 漏 fixture」
+是同一次事故的另一半。已补录并标注。
