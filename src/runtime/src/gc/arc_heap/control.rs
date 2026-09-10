@@ -255,8 +255,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
             crate::gc::GcMode::GenerationalMarkSweep => {
                 // add-generational-gc P3 (2026-05-22): minor + escalation.
-                // Run a minor first; if survival rate >= threshold,
-                // escalate to major in the same STW pause window.
+                // fix-minor-and-major-in-one-pause (2026-09-10): one cycle runs a minor **or**
+                // a major, never both — escalation now asks for the major on the *next* cycle
+                // (see the note further down).
                 let _pause = match crate::gc::safepoint::request_gc_pause(ctx) {
                     Some(p) => p,
                     None => return,
