@@ -202,9 +202,14 @@ R Apply<T, R>(T f, int x) where T: (int) -> R   { return f(x); }
 void RunVoid<T>(T h)      where T: () -> void   { h(); }
 ```
 
-两种形态在 TypeChecker 内都解析为 `Z42FuncType`，存入 `GenericConstraintBundle.FuncSignature` 字段。
+两种形态在 TypeChecker 内都解析为 `Z42FuncType`，存入 `ConstraintBundle.FuncType` 字段。
 
-**匹配语义 —— 结构性 + variance**（复用 `Z42FuncType.AssignableTo`）：
+> 📍 **语义与校验范围的 SoT 是 [泛型约束](generic-constraints.md)**，以那页为准。本节保留的是
+> `add-generic-func-constraint` 当年的设计意图，其中**两处与实现不符**，2026-09-10
+> `validate-func-type-constraint` 落地时订正（见下方标注）。
+
+**匹配语义 —— 结构性 + variance**（`ConstraintChecker._checkFuncConstraint`；
+约束里的型参先按调用点已解析的类型实参代换，代换不掉的位当通配放行）：
 
 - 参数**逆变**：约束 `Func<Cat, int>` 接受 `Func<Animal, int>`（更宽参数 OK）
 - 返回**协变**：约束 `Func<int, Animal>` 接受 `Func<int, Cat>`（更窄返回 OK）
@@ -222,7 +227,10 @@ Apply<Func<string,int>, int>(s => int.Parse(s), 5)  // E0422: param 'string' 不
 Apply<Func<int,int>, int>(n => n * 2, 5)            // ok
 ```
 
-**zbc 编码**：constraint bundle flag bit `0x40` + `param_count:u8 + per-param strIdx + return strIdx`（zbc 1.4+）。VM `verify_constraints` 校验签名内引用的 class/interface 类型存在（type-params + Std.* + primitives 放行）。
+**zbc 编码**：🔴 **未实现，且本行原先的描述与 wire 不符**——constraint bundle 的 flag 位里
+**没有** func 签名槽（`0x20` 是 `RequiresEnum`），VM 的 `validate_type_arg_constraint` 也只有七项、
+不含函数类型。故 func 约束是**纯编译期**规则：只对本包声明的约束生效，跨包不校验
+（导入 bundle 恒无 func 约束 ⇒ 天然跳过、不会假红）。要跨包需 zbc/zpkg 双格式 bump。
 
 **实施记录**：`docs/spec/archive/2026-05-11-add-generic-func-constraint/`。
 
@@ -1301,7 +1309,7 @@ var x = new Container<Animal, Vehicle>(...);      // ❌ E0402
 
 ### L3-G2.5 委托/函数约束（add-generic-func-constraint，2026-05-11）
 
-✅ 已完成。详见上方 §约束体系 "委托/函数约束" 段。语法 `where T: Func<int, R>` 或 `where T: (int) -> R`；body 内 `t(args)` 走 CallIndirect；零新 IR / VM 指令。zbc bump 1.3 → 1.4，zpkg 0.4 → 0.5。错误码 E0422 / E0423。
+✅ 已完成。详见上方 §约束体系 "委托/函数约束" 段。语法 `where T: Func<int, R>` 或 `where T: (int) -> R`；body 内 `t(args)` 走 CallIndirect；零新 IR / VM 指令。**校验**（E0422 / E0423）2026-09-10 `validate-func-type-constraint` 才真正发出，且**没有**当年设计里的 zbc flag 位与 VM 侧校验（纯编译期、不跨包）。
 
 ### L3-G3a 已完成（2026-04-22）
 

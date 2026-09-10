@@ -1,0 +1,15 @@
+// 探针：把 func 约束换成一个不存在的约束名 IFooo，看 E0443 是否发出
+// —— 发出即证明 CheckMethod（_fillBundle）在该调用形态下真的被走到。
+void RunA<T>(T h, int x) where T: IFooo { }
+R ApplyB<T, R>(T f, int x) where T: IFooo { return null; }
+bool AllC<T, U>(T pred, U[] items) where T: IFooo { return true; }
+
+void Main() {
+    Action<int> inc = v => { };
+    RunA(inc, 7);                 // 单型参 + func 实参 → 推断应成功
+    Func<int,int> doubler = n => n * 2;
+    var r = ApplyB(doubler, 5);   // R 无法从形参位推断 → 推断应失败
+    Predicate<int> isEven = n => n % 2 == 0;
+    int[] xs = new int[] { 2, 4 };
+    AllC(isEven, xs);             // T + U 都能推断
+}

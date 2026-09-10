@@ -1,0 +1,6 @@
+void Run<T>(T handler, int x) where T: Action<int> { handler(x); }
+void Main() {
+    Func<string,int> g = s => { Console.WriteLine("len=" + s.Length); return 1; };
+    Run(g, 3);
+    Console.WriteLine("survived");
+}
