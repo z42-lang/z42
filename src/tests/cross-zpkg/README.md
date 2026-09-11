@@ -23,6 +23,11 @@ L3-Impl2 (`impl Trait for Type` 跨 zpkg 传播) 是首个驱动用例。
 └── expected_output.txt       # main 运行后的预期 stdout
 ```
 
+**负例 fixture（期望编译失败）**：放 `expected_build_error.txt` **代替** `expected_output.txt`，
+内容 = `main` 构建 stderr 必须包含的子串（通常是诊断码 + 一句关键词）。判定：`main` **编过了**
+→ 判红（说明该报的诊断没响）；编不过但错误文本对不上 → 也判红（否则「随便哪种编译失败都算过」
+= 没有判别力的门）。这类 fixture 不进 run 波（没有产物可跑）。范例：`dup_fqn_crosspkg/`。
+
 **z42.toml 必须**：
 
 - `pack = true` — cross-zpkg 引用基于 packed 模式的 TSIG section（debug 默认 indexed 没有 TSIG）
@@ -48,3 +53,4 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | 测试 | 覆盖 | 关键路径 |
 |------|------|---------|
 | `01_impl_propagation` | L3-Impl2 跨 zpkg `impl IGreet for Robot` | IMPL section 序列化 → Phase 3 merge → IrGen QualifyClassName → VM lazy loader |
+| `dup_fqn_crosspkg` | **负例**：两个包同 FQN → E0601 | ImportedSymbolLoader 包名累积 → SymbolTable 判据 → 两个 choke point |

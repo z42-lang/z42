@@ -118,6 +118,52 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 | arity | 同短名不同 arity（`Foo` / `Foo<T>`）是**两个不同的类型**，键分别是 `Foo` / `Foo$1`，不构成重复声明。（该 mangle 判据一度是 per-CU 的、跨文件时会失效——已由 `fix-arity-mangle-package-wide` 改成包级，见下节。） |
 | partial | `partial` 的重复是**合并**，由上面那条分支处理，不进重复判定。 |
 
+#### 跨包的同全限定名（E0601 / W0606）
+
+E0458 管的是**一个包内**的重复；跨包这半边此前完全没人看。两个互不依赖的包各声明
+`Demo.Ns.Widget` 时（**同 FQN**，不是同短名跨 ns），编译**零诊断、rc=0**，字母序靠前的包赢，
+输的那一份连同全部成员从未存在过。
+
+🔴 **与 E0456 的分工是本节的要点**：
+
+| | E0456 | E0601 |
+|---|---|---|
+| 撞的是什么 | 同**短名**、不同 ns（`A.Foo` / `B.Foo`）| **FQN 本身**（两个包都是 `A.Foo`）|
+| 限定写法能消歧吗 | ✅ 写 `A.Foo` 即可 | ❌ 写全了也一样——两者 FQN 逐字相同 |
+| 判据的输入 | **源码写法**（`TypeExpr`，因为要区分裸名/限定名）| **解析结果**（`Z42Type` 的 `Fqn()`）|
+| 输家还能指到吗 | 能（限定写法）| **不能**，z42 没有 C# `extern alias` 那样的机制 |
+
+因为限定写法不能消歧，这条检查挂在两个既有的 choke point 上（都已经拿着**解析后的类型**，
+不需要新的调用链、不改任何既有诊断的 span）：
+
+| 位置 | choke point | 覆盖 |
+|---|---|---|
+| 表达式位 | `TypeChecker._chkTypeRef` | `new` / `default(T)` / 类型实参 / 模式 / catch / 局部变量声明 |
+| 声明位 | `SymbolCollector._chkTypeRefT` | 字段 / 属性 / 形参 / 返回 / 基类 / 约束 |
+
+**触发时机是使用位**（对标 C# CS0433）：两个依赖包撞了、而本包一行都没引用它 → 不报。
+否则下游用户会被两个第三方依赖的冲突挡死，而他既没用到、也无权修。
+
+**本包遮蔽导入包**（本地也声明了同一 FQN）是 **W0606 warning** 而非 error——本地恒赢是既定
+规则、不是猜（对标 C# CS0436）。但被遮蔽那份同样**指不了**，所以文案给的修法是改名，不是
+「写限定名」。
+
+数据在哪：`pkgNames[]` 与 `exported[]` 在 `ImportedSymbolLoader.Load` 里本就是平行数组——
+**来源包名一直在手边**，只是从没被记过。现在在 first-wins 守卫**之外**累积成
+`ImportedSymbols.ClassPkgAll`（FQN → 包名列表），与 E0456 的 `ClassNsAll` 同一手法同一理由：
+守卫之内只有赢家能进，而「有几个包声明了它」恰恰是守卫塌掉的那个信息。判据与消息收敛在
+`SymbolTable.CrossPkgDuplicateMsg` / `ShadowedImportMsg`，两个消费端都不重写。
+
+> **运行期那半不哑**：`lazy_loader/registry.rs` 的
+> `duplicate type/function ... keeping first-loaded` 默认就打 stderr（无需 `RUST_LOG`）。
+> 全哑的只有编译期。运行期是否该从 warn 升成 error 是另一个判断（可能有合法重复场景），
+> 未在此改。
+
+> **顺带修的一条**：在此之前 z42c 的两个诊断打印点都被 `ErrorCount > 0` 罩着 ⇒
+> **从不单独打印任何 warning**（W0700 / W0603 / W0604 / deprecated 全哑，"从不打印的门 = 没有门"）。
+> 现在无错但有 warning 时也打印（stderr，不改退出码）。打开它的代价实测为 **0**：
+> stdlib 25 个包 + z42c 自建全量构建共 0 条 warning。
+
 #### 文件级 `namespace` 的位置约束（E0457）
 
 z42 的编译单元只有**一个**命名空间：`CompilationUnit.Namespace` 是单值，`StubCollector` 登记类时

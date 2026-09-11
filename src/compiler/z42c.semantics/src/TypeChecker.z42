@@ -45,6 +45,26 @@ public sealed class TypeChecker {
     public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
         AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
         if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
+        this._chkTypeRefPkg(env.Symbols, t, sp);   // report-crosspkg-duplicate-type：E0601 / W0606（使用位）
+    }
+
+    // report-crosspkg-duplicate-type：同 FQN 跨包（E0601）/ 本地遮蔽导入（W0606）的**使用位**判定。
+    //
+    // 挂在 `_chkTypeRef` 里而不是像 E0456 那样另起一条调用链：E0456 必须知道源码写的是裸名还是
+    // 限定名（限定名即已消歧 ⇒ 对它报歧义是假红），只有 TypeExpr 有那个信息；而本条只看**解析结果**
+    // ——两个包的 FQN 完全相同，写不写限定名都一样绑到赢家。resolved `Z42Type` 就够，于是可以直接
+    // 复用这个既有 choke point（new / default(T) / 类型实参 / 模式 / catch / 局部变量声明全覆盖），
+    // 不改签名、不动任何既有诊断的 span。
+    //
+    // 判据与消息在 `SymbolTable`（CrossPkgDuplicateMsg / ShadowedImportMsg），此处不重写；
+    // 「哪些类型算数」的口径与声明位共用 `SymbolCollector.PkgCheckFqn`。
+    public void _chkTypeRefPkg(SymbolTable symbols, Z42Type t, Span sp) {
+        string fqn = SymbolCollector.PkgCheckFqn(t);
+        if (fqn == "") { return; }
+        string emsg = symbols.CrossPkgDuplicateMsg(fqn);
+        if (emsg != "") { this._diags.Error("E0601", emsg, sp); return; }
+        string wmsg = symbols.ShadowedImportMsg(fqn);
+        if (wmsg != "") { this._diags.Warning("W0606", wmsg, sp); }
     }
 
     // add-bare-name-ambiguity-diagnostic：源 TypeExpr 形态的歧义判定入口。
