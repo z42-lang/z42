@@ -164,7 +164,15 @@ public static class ImportedSymbolLoader {
                     // report-crosspkg-duplicate-type：记「这个 FQN 由哪个包声明」——同样在 first-wins
                     // 守卫之外。`pkgNames` 与 `exported` 平行，来源包名一直就在手边，只是从没被记过。
                     // 同一个包的多个模块贡献同一个包名 → NoteNsInto 幂等，不会自己撞自己。
-                    SymbolTable.NoteNsInto(r.ClassPkgAll, fqnKey, pkgNames[i]);
+                    // 🔴 父包不算「另一个包」（fix-e0606-parent-pkg-false-positive）：本次编译是
+                    // <parentPkg> 的测试/bench 目标时，父包按**同包**待遇加载（其类型 IsImported=false，
+                    // 这正是测试能看见 internal 的机制）。若还把它记进「FQN → 来源包」表，同一个类型
+                    // 就会既算「本包声明」又算「导入包声明」⇒ E0606（本地遮蔽导入）对**每一处**父包
+                    // 类型引用误报，而那正是测试该做的事。E0601（两包同 FQN）同理。
+                    // 一句话：这张表记的是「有几个**别的**包声明了它」，父包不在此列。
+                    if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {
+                        SymbolTable.NoteNsInto(r.ClassPkgAll, fqnKey, pkgNames[i]);
+                    }
                     bool bareFree = !r.Classes.ContainsKey(clKey);   // first-wins（输入已 prelude-first 排序）
                     if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
@@ -232,8 +240,10 @@ public static class ImportedSymbolLoader {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
                     // report-crosspkg-duplicate-type：接口同款（守卫之外累积）。接口不 arity-mangle，
                     // FQN 直接 ns + 裸名，与 Z42InterfaceType.Fqn() 同口径。
-                    SymbolTable.NoteNsInto(r.ClassPkgAll,
-                        em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
+                    if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {   // 父包不算「另一个包」，见上
+                        SymbolTable.NoteNsInto(r.ClassPkgAll,
+                            em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
+                    }
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
@@ -257,8 +267,10 @@ public static class ImportedSymbolLoader {
                 while (ec < em.EnumCount) {
                     ExportedEnumZ ez = em.Enums[ec];
                     // report-crosspkg-duplicate-type：enum 同款（守卫之外累积）。
-                    SymbolTable.NoteNsInto(r.ClassPkgAll,
-                        em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, pkgNames[i]);
+                    if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {   // 父包不算「另一个包」，见上
+                        SymbolTable.NoteNsInto(r.ClassPkgAll,
+                            em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, pkgNames[i]);
+                    }
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
                         r.EnumTypeNamesByFqn.Put(em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, "enum");   // unify-type-identity-fqn
