@@ -131,6 +131,24 @@ int _runDevTargets(ParseResult r, string verb, string format) {
         if (qs != null && !qs.Auto) {
             Console.WriteLine("  ⚠ z42b " + verb + ": 本清单 `auto = false`，跳过约定发现（只认显式目标）");
         }
+        // ── 「本包压根没有测试」≠「测试没跑」────────────────────────────────────
+        // 零目标时下面那条回落会编**本包自己**再跑 —— 这对 `compile-then-test` 那种「整个包
+        // 就是测试工程、用例住在 src/」的形态是对的，但对一个**根本没有测试的库**（如
+        // z42.build：无 tests/ 目录、src/ 里零个 [Test]）就成了误伤：回落跑出零用例 →
+        // Runner 的零测试判红（#571）→ rc=1。xtask 今天对这类库是静默跳过的，转发后会集体变红。
+        //
+        // 分流依据是**本包源里有没有 [Test]/[Benchmark]**（两种形态唯一的实质区别）。
+        // 判据与 xtask 的 _dirHasTestMethods 同款：朴素全文子串扫。假阳性只是退回今天的行为
+        // （编了、跑出零个、判红）；假阴性需要 attribute 在源码里根本不以字面出现 —— 真测试做不到。
+        //
+        // 为什么退 0 不违反 #571：#571 管的是「**测试产物**跑出零用例」（清单声明了测试目标、
+        // 或包自身就是测试工程）。这里一个测试目标都没声明、包里也没有测试 —— 没有测试产物存在。
+        // 「有源却零单元」那条真正危险的静默由上面的孤儿源守卫判红，不靠这条兜。
+        if (!_pkgSourcesHaveTests(m, projDir)) {
+            Console.WriteLine("z42b " + verb + ": 本清单未声明任何 " + kind
+                + " 目标，且本包源里没有 [Test]/[Benchmark] —— 无事可做");
+            return 0;
+        }
         // 未声明任何目标 → 回落到既有「编译项目自身再跑」的行为。
         BuildOutcome b0 = _buildProject(r, "");
         if (b0.Rc != 0) { return b0.Rc; }

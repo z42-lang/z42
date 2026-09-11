@@ -108,6 +108,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeCompileThenTest(root, tt);
         failed = failed + _smokeDevTargetInternal(root, tt);
         failed = failed + _smokeOrphanGuard(root, tt);
+        failed = failed + _smokeNoTests(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
     }
     Console.WriteLine("");
@@ -182,6 +183,26 @@ int _smokeOrphanGuard(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ orphan-source guard: 有源零单元判红（rc=" + rc.ToString() + "）");
+    return 0;
+}
+
+// 「本包压根没有测试」smoke：一个无 tests/、src/ 里零个 [Test] 的库，`z42b test` 必须
+// **退 0**（无事可做），不得判红 —— 否则 xtask 转发后全仓无测试的库会集体变红，而今天
+// 它们是被静默跳过的。与 compile-then-test 的区别只有「src/ 里有没有 [Test]」，那条
+// smoke 正好守着反方向（有 [Test] → 照常编+跑）。
+int _smokeNoTests(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/no-tests/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── no-tests (没有测试的库不得判红) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ no-tests: 无测试的库被判红（rc=" + rc.ToString() + "）—— 转发后会拖红整条 stage");
+        return 1;
+    }
+    Console.WriteLine("  ✅ no-tests: 无测试的库退 0（无事可做）");
     return 0;
 }
 

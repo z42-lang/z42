@@ -1,0 +1,12 @@
+namespace No.Tests;
+using Std;
+
+// 一个普通的库：不含任何测试 attribute。
+//
+// 注意别在本文件里以字面写出那个 attribute（连注释里也不行）—— 分流判据是朴素子串扫，
+// 注释同样会被算上，本 fixture 会因此走回落、跑出零用例而判红。这条假阳性是**有意接受**
+// 的宽松方向（见 _pkgSourcesHaveTests）：代价只是退回旧行为，而反方向的假阴性会让真测试
+// 被静默跳过。
+public class Adder {
+    public static int Add(int a, int b) { return a + b; }
+}

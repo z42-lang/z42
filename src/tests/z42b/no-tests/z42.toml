@@ -1,0 +1,18 @@
+# 「本包压根没有测试」fixture（**预期 rc=0**，由 xtask test targets 的 _smokeNoTests 驱动）。
+#
+# 无 tests/ 目录、src/ 里零个 [Test]。这类库不该被 `z42b test` 判红 —— 判红的话
+# xtask 转发后，全仓所有无测试的库（z42.build / z42.scripting）会集体变红，而 xtask
+# 今天对它们是静默跳过的。
+#
+# 与 compile-then-test fixture 的区别只有一条：那边 src/ 里**有** [Test]（整个包就是
+# 测试工程，回落去编+跑它是对的）。分流判据就是这个。
+[project]
+name    = "no.tests"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"
