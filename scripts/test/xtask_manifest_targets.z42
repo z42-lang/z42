@@ -397,21 +397,6 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
 // Updates totalFiles / libsTested by ref. Preserves the legacy convention scan
 // (auto sections) for every existing stdlib lib while overlaying any explicit
 // `[[test]]`/`[[bench]]` targets (harness=true reflect / harness=false exit-code).
-// 孤儿源守卫的**棘轮基线**（fix-silent-gates, 2026-09-06）。
-//
-// 这里只列「已经存在、尚未接通」的欠债；**新增的孤儿源一律判红**，不许往这张表里加
-// 而不说明理由。形态同 `test lines` 的 line-limit-baseline.txt：已知的每轮响亮打印
-// （不静默），新出现的立刻红。
-//
-//   · z42.scripting/tests/ —— 11 个 `<name>/driver.z42`，**零个 source.z42、零个
-//     [Test]**：它们是 Main 型 REPL 驱动，两种发现规则都不认领，实际没有任何东西在跑。
-//     接通它们属 fix-repl-eval-exception-program 的范围（REPL e2e 需要真 tty），
-//     不在本次「让门会红」的 change 里做。**这条守卫正是把这笔欠债从笔记里逼到
-//     每轮输出上的东西**——在它之前，这 11 个文件在 gate 里完全隐形。
-bool _isKnownOrphanLib(string lib, string subdir) {
-    return lib == "z42.scripting" && subdir == "tests";
-}
-
 int _runLibKind(string root, string libsRoot, string lib, string subdir, string kind,
                 string label, string filter, string builderZpkg, int jobsN, string mode,
                 string vm, string driverZpkg, string libs, MicroBenchAgg agg,
@@ -442,10 +427,13 @@ int _runLibKind(string root, string libsRoot, string lib, string subdir, string 
         if (filter.Length == 0) {
             string sd = Path.Join(projDir, subdir);
             if (Directory.Exists(sd) && Path.GlobRecursive(sd, "*.z42").Length > 0) {
-                if (_isKnownOrphanLib(lib, subdir)) {
-                    // 棘轮基线：已知欠债每轮响亮打印，但不阻断（形态同 test lines 的
-                    // line-limit-baseline）。新增的一律红。
-                    Console.WriteLine("  ⚠ " + lib + ": " + subdir + "/ 有 .z42 源但无单元（已知欠债，见 _isKnownOrphanLib）");
+                if (!_sectionAuto(man, kind)) {
+                    // 欠债棘轮：`auto = false` = 本包在**自己的清单**里显式声明「这里没有约定
+                    // 单元」。此前这张名单硬编码在本文件里（_isKnownOrphanLib，只列了
+                    // z42.scripting/tests）——记在工具里，债主自己看不见。改为记在债主的清单里：
+                    // 可见、可 grep、与 z42b 的守卫同一条豁免规则（两条发现路径不能各有各的例外表）。
+                    // 豁免**不等于消音**：照样每轮响亮打印，新增的孤儿源一律判红。
+                    Console.WriteLine("  ⚠ " + lib + ": " + subdir + "/ 有 .z42 源但无单元（该包清单声明 `auto = false`，已知欠债）");
                 } else {
                     // 提示必须与 _discoverTestUnits 的真实规则一致：单文件模式是
                     // <subdir>/<name>.z42；目录模式要求该目录下**直接**有 .z42 含

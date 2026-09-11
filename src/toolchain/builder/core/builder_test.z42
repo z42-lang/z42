@@ -108,6 +108,29 @@ int _runDevTargets(ParseResult r, string verb, string format) {
             }
             return 2;
         }
+        // ── 孤儿源守卫 ─────────────────────────────────────────────────────────
+        // 零目标**且**段指向的目录里躺着 .z42 源 ⇒ 判红。不判红的话下面那条回落会编本包自己
+        // 再跑，报出「0 passed, 0 failed」的绿色 —— 「没跑」与「全过」不可区分（#571）。
+        // 豁免见 _dtOrphanSourceDir：子目录自带 toml（独立工程）/ `auto = false`（显式声明无约定单元）。
+        string orphan = _dtOrphanSourceDir(m, kind, projDir);
+        if (orphan.Length > 0) {
+            ConsoleError.WriteLine("z42b " + verb + ": " + orphan
+                + "/ 下有 .z42 源，却一个 " + kind + " 目标都没发现");
+            // 回显**本包实际生效的 glob**（而不是复述默认值）—— 诊断要指向读者能改的那行配置。
+            TargetSection osec = (kind == "bench") ? m.BenchSection : m.TestsSection;
+            string pats = "";
+            int pi = 0;
+            while (pi < osec.IncCount) { pats = pats + (pi > 0 ? ", " : "") + "`" + osec.Include[pi] + "`"; pi = pi + 1; }
+            ConsoleError.WriteLine("  生效的发现 glob：" + pats
+                + "（一文件一单元；目录单元须显式配，如 `<dir>/<name>/**/*.z42`）");
+            ConsoleError.WriteLine("  确实不该有约定单元 → 在清单里写 `auto = false` 显式声明（欠债记在你自己的清单里）");
+            return 1;
+        }
+        // 已知欠债（`auto = false` 但目录里有源）：不判红，但每轮响亮打印 —— 豁免不等于消音。
+        TargetSection qs = (kind == "bench") ? m.BenchSection : m.TestsSection;
+        if (qs != null && !qs.Auto) {
+            Console.WriteLine("  ⚠ z42b " + verb + ": 本清单 `auto = false`，跳过约定发现（只认显式目标）");
+        }
         // 未声明任何目标 → 回落到既有「编译项目自身再跑」的行为。
         BuildOutcome b0 = _buildProject(r, "");
         if (b0.Rc != 0) { return b0.Rc; }

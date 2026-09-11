@@ -38,8 +38,17 @@
       不走段级 glob。~~此前一度以为 z42.collections 少发现 14 个单元~~ —— 那 14 个是 golden 目录，
       xtask 不认领它们是对的。
 
-- [ ] C1 「`<subdir>/` 有 `.z42` 源却零单元」的守卫 + 已知欠债棘轮，搬进 z42b 或前置扫描保留在 xtask
-      —— 这条是为一次真实静默事故（`z42.ir`/`z42c.core`/`z42c.syntax` 静默数月）加的，不能在转发中丢
+- [x] C1 孤儿源守卫**落 z42b**（裁决见 proposal Open Questions）。这条是为一次真实静默事故
+      （`z42.ir`/`z42c.core`/`z42c.syntax` 静默数月）加的，不能在转发中丢。
+
+      · 守卫插在「零目标 → 回落到编译本包自己再跑」**之前** —— 不插的话「有源却零单元」会报出
+        绿色（fixture `src/tests/z42b/orphan-source/` 的 `src/` 里特意放了一个通过的 [Test]，
+        证明下游 #571 的零测试判红**接不住**这种形态）。
+      · 两条豁免都不是硬编码名单：子目录自带 `*.z42.toml` ⇒ 独立工程（沿用编译器测试单元的既有
+        发现规则）；`auto = false` ⇒ 本包显式声明无约定单元，但**照样每轮打印 ⚠**。
+      · **顺带对齐第四处分歧**：z42b 此前完全忽略 `section.Auto`，`auto = false` 在它那儿是哑配置。
+      · **xtask 侧 `_isKnownOrphanLib` 退休** —— 欠债从工具里的硬编码名单搬到债主自己的清单
+        （`z42.scripting` 的 `[tests] auto = false`），两条发现路径从此共用同一条豁免规则。
 
 ## 步骤 D —— 切换（高风险，动 GREEN gate 最关键的 stage）
 

@@ -85,7 +85,10 @@ DevTarget[] _resolveDevTargetsF(ProjectManifest m, string kind, string nameFilte
     // = `source.z42` + `vectors.z42` 共享 namespace，只编入口文件必然 `SecpVectors` 未定义；
     // ② 约定布局下入口文件**全叫 source.z42**，按文件名命名会让每个目录单元都叫 `source`、
     // 互相撞名只活下来一个。**同名显式目标覆盖之**（沿用既有「显式覆盖同名 auto」语义）。
-    if (sec != null && sec.IncCount > 0) {
+    // `auto = false` ⇒ 本包显式声明「这里没有约定单元，只认 [[test]]」。xtask 一直认这个字段
+    // （xtask_manifest_targets.z42 的 _sectionAuto），z42b 此前**完全忽略**它 —— 两条发现路径的
+    // 又一处分歧，转发前一并抹平。
+    if (sec != null && sec.Auto && sec.IncCount > 0) {
         string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, sec.Include, sec.IncCount,
                                                              sec.Exclude, sec.ExcCount);
         _dtSortStrings(files, files.Length);   // 确定序（common-pitfalls §1）
@@ -187,6 +190,52 @@ string _dtUnitName(string path) {
     string b = Path.GetFileName(path);
     if (b.EndsWith(".z42")) { return b.Substring(0, b.Length - 4); }
     return b;
+}
+
+/// 孤儿源守卫（fix-silent-gates 的 z42b 版）：本包一个目标都没解析出来，但 `[tests]` / `[bench]`
+/// 段指向的目录里**确实躺着 .z42 源**。返回该目录路径（判红用），无问题返 ""。
+///
+/// 为什么非有不可：零目标时 `_runDevTargets` 会**回落到「编译本包自己再跑」** —— 于是「有源却零
+/// 单元」报出的是「0 passed, 0 failed」的**绿色**，与「这个包真的没有测试」不可区分。这正是 #571
+/// 要根除的「没跑 == 全过」；真实事故是 z42.ir / z42c.core / z42c.syntax 静默数月。
+///
+/// 两条豁免，都不是硬编码名单：
+///   ① **子目录自带 `*.z42.toml` ⇒ 它是独立工程**，不是本包的孤儿源。这不是新规则 —— 编译器
+///      测试单元的发现条件就是它（`xtask_compiler.z42`：无 toml 即 skip）。z42c.semantics/tests
+///      的 19 个、z42c.pipeline/tests 的 4 个全走这条。
+///   ② **`auto = false` ⇒ 本包显式声明「这里没有约定单元」**。欠债记在**债主自己的清单**里
+///      （可见、可 grep），而不是工具里一张硬编码名单。豁免**不等于消音**：调用方仍会响亮打印
+///      一行 ⚠（形态同 `test lines` 的棘轮基线）。
+string _dtOrphanSourceDir(ProjectManifest m, string kind, string sourceDir) {
+    TargetSection sec = (kind == "bench") ? m.BenchSection : m.TestsSection;
+    if (sec == null || sec.IncCount == 0) { return ""; }
+    if (!sec.Auto) { return ""; }            // 豁免 ②：显式声明「这里没有约定单元」
+    string rootRel = _dtSectionRoot(sec.Include, sec.IncCount);
+    if (rootRel.Length == 0) { return ""; }
+    string root = Path.Join(sourceDir, rootRel);
+    if (!Directory.Exists(root)) { return ""; }
+    // 段根直下的 .z42 → 一定是本包该认领的（一文件一单元），有就是孤儿。
+    if (Path.Glob(root, "*.z42").Length > 0) { return root; }
+    // 子目录：自带 toml 的跳过（独立工程）；其余只要有 .z42 就是孤儿。
+    string[] entries = Path.Glob(root, "*");
+    int i = 0;
+    while (i < entries.Length) {
+        if (Directory.Exists(entries[i])
+            && Path.Glob(entries[i], "*.z42.toml").Length == 0
+            && Path.GlobRecursive(entries[i], "*.z42").Length > 0) {
+            return root;
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// 段根 = 各 include pattern 首个通配段之前的公共字面前缀（`tests/*.z42` → `tests`）。
+// 深度取最小值，前缀取该深度下的第一条 pattern 的段（各 pattern 段根不一致时保守取第一条）。
+string _dtSectionRoot(string[] includes, int n) {
+    int d = _dtRootDepth(includes, n);
+    if (n == 0) { return ""; }
+    return _dtJoinSegs(_dtSplitSlash(includes[0]), d);
 }
 
 // 段根深度 = include 各 pattern **首个通配段之前**的字面段数，取各 pattern 的最小值。
