@@ -48,6 +48,11 @@
 //! *unproductive* collection doubles the growth required before trying again, capped at
 //! [`MAX_BACKOFF`]; one productive collection resets it.
 //!
+//! **It applies only when there is a soft cap** (fix-futile-backoff-stretches-nursery,
+//! 2026-09-11). Without one there is no runaway to belt, and the multiplier lands on the
+//! **nursery** — which is not a memory gate but the bound on one minor's pause. See the note
+//! at [`ArcMagrGC::effective_backoff`] for the 64.6 ms minor that cost.
+//!
 //! Productivity is read back from `stats.reclaimed_bytes` — the total is already maintained by
 //! every collect path, so this needs no hook in any of them. It always describes the collection
 //! the *previous* trip asked for, which leaves the very first trip with nothing to judge:
@@ -87,7 +92,16 @@ const FUTILE_DIVISOR: u64 = 16;
 /// and under STW, where it only sets the allowance floor: 8M → 10 majors / 6.87 s / 753 MB,
 /// 16M → 6 / 6.73 s / 785 MB, **32M → 4 / 6.67 s / 743 MB**. Against 6.61 s / 903 MB for not
 /// collecting at all, 32M buys **−18% RSS for under 1% wall** — which is what a default has
-/// to look like. Once chunk reclaim is incremental this should come down towards Mono's 4 MB.
+/// to look like.
+///
+/// ⚠️ **That table predates fix-futile-backoff-stretches-nursery (2026-09-11)**, and the
+/// generational half of it was measured through a gate the futility multiplier was stretching
+/// — so its "32M" row is really "32M, sometimes 128M". Re-measured with an honest gate, 32M
+/// now reads **17 minors / 6.82 s / 583 MB**: it dominates the old 16M row outright (same RSS,
+/// 0.8 s less wall). Whether the default should now come down further is a separate question —
+/// its two stated reasons have both expired (chunk reclaim became `O(chunks)` in
+/// add-incremental-chunk-reclaim, and the multiplier no longer inflates it) and nobody has
+/// re-measured the ladder since.
 pub(super) const DEFAULT_NURSERY_BYTES: u64 = 32 * 1024 * 1024;
 
 /// **arm-gc-by-default (2026-09-09)**: fraction of the live set the old generation may take
@@ -155,7 +169,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // not all — of a nursery, and judging it against the full gate marked every healthy
         // collection futile and doubled the backoff each time (measured: minors dropped from
         // 18 to 8 and the heap stopped being collected at all).
-        let next_backoff = if cycles == 0 {
+        let next_backoff = if soft_limit.is_none() || cycles == 0 {
+            // No cap ⇒ nothing to belt (see `effective_backoff`) — storing a climb no one will read
+            // would only lie to a heap that later gets a cap. And with no cycle
+            // behind us there is nothing to judge — reading 0 reclaimed there penalised a heap
+            // that had never been collected at all.
             1
         } else if reclaimed_since < trip.gate / FUTILE_DIVISOR {
             // **fix-minor-and-major-in-one-pause (2026-09-10)**: freed *essentially nothing*.
@@ -246,6 +264,34 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// - `Z42_GC_MAX_BYTES` is now a **soft cap, not the arming switch**: unset means "no
     ///   cap" (Mono's `soft_heap_limit` default), and when set it only squeezes the allowance
     ///   and adds a near-limit trip.
+    /// **fix-futile-backoff-stretches-nursery (2026-09-11)**: the futility multiplier actually
+    /// in force. It only exists for the case a **soft cap** squeezes the allowance down to its
+    /// floor (see the module doc); with no cap the allowance is `live × ALLOWANCE_HEAP_RATIO`,
+    /// so it grows with the live set, the collection count is already logarithmic in heap
+    /// growth, and there is no runaway to belt.
+    ///
+    /// What the multiplier reaches instead, under the default (generational, no cap), is the
+    /// **nursery** — which is not a memory gate at all but the bound on how much young set one
+    /// minor has to chew through. Measured on `z42c.semantics --release --no-incremental`: two
+    /// collections that reclaimed 8.4 MB and 10.1 MB took it to 4, so the two minors after them
+    /// scanned 96 MB and 160 MB of nursery and paused **45.4 ms / 64.6 ms** — 39% of the whole
+    /// build's pause — where every honest-gate minor in the same run cost 6–22 ms. Neutralising
+    /// it took that build's p90 pause from 47.3 ms to 26.5 ms and its peak RSS from 767 MB to
+    /// 583 MB, for +0.3% wall.
+    ///
+    /// Those two collections were not futile either. They ran while the compiler was holding on
+    /// to most of what it allocated, so "reclaimed less than half a gate" is what a **high
+    /// survival rate** looks like — and answering it with "scan four times as much next time"
+    /// makes the pause worse precisely when survival is high.
+    /// [`Self::minor_escalation_threshold`] is the mechanism that already handles "minors are
+    /// not helping": it escalates to a major rather than growing the nursery.
+    ///
+    /// Applied **here and in [`Self::arm_next_collect`]** — the two places that consume the
+    /// multiplier — rather than at their caller, so a third consumer cannot quietly skip it.
+    fn effective_backoff(backoff: u32, soft_limit: Option<u64>) -> u32 {
+        if soft_limit.is_some() { backoff } else { 1 }
+    }
+
     fn decide_trip(
         &self,
         used: u64,
@@ -254,6 +300,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         soft_limit: Option<u64>,
         cfg: &crate::config::RuntimeConfig,
     ) -> Option<Trip> {
+        let backoff = Self::effective_backoff(backoff, soft_limit);
         let nursery = self.nursery_bytes();
         let allowance = Self::collection_allowance(baseline, nursery, soft_limit);
         let grown = used.saturating_sub(baseline);
@@ -338,6 +385,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         } else {
             Self::collection_allowance(baseline, self.nursery_bytes(), soft_limit)
         };
+        let backoff = Self::effective_backoff(backoff, soft_limit);
         let gate = gate.saturating_mul(backoff.max(1) as u64);
         let next = baseline.saturating_add(gate).max(floor.saturating_add(gate));
         self.next_collect_at.store(next, Ordering::Relaxed);
