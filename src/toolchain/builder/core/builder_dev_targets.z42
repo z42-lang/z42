@@ -38,6 +38,15 @@ public sealed class DevTarget {
     }
 }
 
+/// 名字匹配：`nameFilter` 精确（`--name`），`substrFilter` 子串（`--filter`）。两者都空 = 全要。
+/// 分开而不是合成一个：`--name` 的语义是「就这一个，点不中要报错」，`--filter` 是「筛一批」——
+/// 前者零命中必须红（见 _runDevTargets），后者零命中是正常结果。
+bool _dtMatches(string name, string nameFilter, string substrFilter) {
+    if (nameFilter.Length > 0 && name != nameFilter) { return false; }
+    if (substrFilter.Length > 0 && !name.Contains(substrFilter)) { return false; }
+    return true;
+}
+
 /// 解析某一类（"test" / "bench"）的全部目标。
 ///   ① 显式 `[[test]]` / `[[bench]]` —— RunTarget 直接转 DevTarget；
 ///   ② 段级 glob `[tests] include` / `[bench] include` —— 整段作为**一个**目标
@@ -45,6 +54,11 @@ public sealed class DevTarget {
 ///   ③ nameFilter 非空 → 只留同名者。
 /// 返回按名字**稳定排序**（common-pitfalls §1：任何按名注册/迭代都要确定序）。
 DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter, string sourceDir) {
+    return _resolveDevTargetsF(m, kind, nameFilter, "", sourceDir);
+}
+
+DevTarget[] _resolveDevTargetsF(ProjectManifest m, string kind, string nameFilter,
+                                string substrFilter, string sourceDir) {
     RunTarget[] explicitT = (kind == "bench") ? m.Benches : m.Tests;
     int explicitN        = (kind == "bench") ? m.BenchCount : m.TestCount;
     TargetSection sec    = (kind == "bench") ? m.BenchSection : m.TestsSection;
@@ -54,7 +68,7 @@ DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter
     int i = 0;
     while (i < explicitN) {
         RunTarget t = explicitT[i];
-        if (nameFilter.Length == 0 || t.Name == nameFilter) {
+        if (_dtMatches(t.Name, nameFilter, substrFilter)) {
             if (n == outp.Length) { outp = _dtGrow(outp, n); }
             outp[n] = new DevTarget(t.Name, t.Sources, t.SrcCount, t.Deps, t.DepCount,
                                     t.Harness, t.HasEntry, t.Entry);
@@ -75,7 +89,7 @@ DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter
             bool dup = false;
             int d = 0;
             while (d < n) { if (outp[d].Name == unit) { dup = true; } d = d + 1; }
-            if (!dup && (nameFilter.Length == 0 || unit == nameFilter)) {
+            if (!dup && _dtMatches(unit, nameFilter, substrFilter)) {
                 if (n == outp.Length) { outp = _dtGrow(outp, n); }
                 string[] one = new string[1]; one[0] = _dtRelOf(sourceDir, files[f]);
                 outp[n] = new DevTarget(unit, one, 1, new DepEntry[0], 0, true, false, "");
