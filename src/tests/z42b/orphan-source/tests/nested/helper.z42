@@ -1,0 +1,11 @@
+// 孤儿源：默认 glob 是 `tests/*.z42`（一文件一单元），不认领子目录里的文件；
+// 本目录也没有自己的 `*.z42.toml`（有的话它就是独立工程、不算孤儿）。
+namespace Orphan.Src.NestedTests;
+
+using Std;
+using Std.Test;
+
+[Test]
+void test_nobody_runs_me() {
+    Assert.Equal(1, 1);
+}

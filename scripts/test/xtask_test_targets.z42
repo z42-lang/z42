@@ -107,6 +107,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     if (kind == "test" && name.Length == 0) {
         failed = failed + _smokeCompileThenTest(root, tt);
         failed = failed + _smokeDevTargetInternal(root, tt);
+        failed = failed + _smokeOrphanGuard(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
     }
     Console.WriteLine("");
@@ -159,6 +160,28 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ dev-target internal: 目标按源隔离编译，且可见父包 internal");
+    return 0;
+}
+
+// 孤儿源守卫 smoke：**预期判红**的 fixture —— tests/ 下有 .z42 源，但默认 glob 不认领，
+// 且该子目录没有自己的 toml（有的话它就是独立工程）。守卫不在的话 z42b 会回落到「编译本包
+// 自己再跑」，而该 fixture 的 src/ 里**特意放了一个通过的 [Test]** —— 于是回落会跑出
+// 「1 passed」的绿色，下游 #571 的零测试判红也接不住。这个 fixture 锁的就是那片静默。
+//
+// 断言方向与其它 smoke 相反：rc == 0 才是失败。
+int _smokeOrphanGuard(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/orphan-source/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── orphan-source guard (有源零单元必须判红) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc == 0) {
+        Console.WriteLine("  ❌ orphan-source guard: 有源却零单元竟然返回 0 —— 守卫失效，「没跑」又一次等价于「全过」");
+        return 1;
+    }
+    Console.WriteLine("  ✅ orphan-source guard: 有源零单元判红（rc=" + rc.ToString() + "）");
     return 0;
 }
 

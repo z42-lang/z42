@@ -1,0 +1,16 @@
+# 孤儿源守卫 fixture（**预期判红**，由 xtask test targets 的 _smokeOrphanGuard 驱动）。
+#
+# tests/nested/ 里躺着 .z42 源，但默认发现 glob（`tests/*.z42`，一文件一单元）不认领它，
+# 而 nested/ 也没有自己的 `*.z42.toml`（那会让它成为独立工程）。于是：有源、零单元。
+# 不判红的话 z42b 会回落到「编译本包自己再跑」，报出 0 passed / 0 failed 的**绿色**。
+[project]
+name    = "orphan.src"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"
+"z42.test" = "0.1.0"
