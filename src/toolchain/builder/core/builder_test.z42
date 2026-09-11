@@ -87,6 +87,17 @@ int _runDevTargets(ParseResult r, string verb, string format) {
     string projDir = Path.GetDirectoryName(tomlPath);
     if (projDir.Length == 0) { projDir = "."; }
     DevTarget[] targets = _resolveDevTargetsF(m, kind, nameFilter, substrFilter, projDir);
+    // --list：只报清单，不编不跑。**编排方**（xtask）靠它拿单元名后并行拉起
+    // `z42b test <toml> --name <unit>` —— 并行留在知道 vm/zpkg 路径的那一侧（z42b 自己拿不到：
+    // `__env_args` 只给 `--` 之后的程序参数），发现规则收归 z42b 独一份。
+    //
+    // 零目标时输出空、退 0：「这个包没有目标」是个正常答案，不是错误。真正危险的
+    // 「有源却零单元」由孤儿源守卫在**跑**的路径上判红，不靠 --list 兜。
+    if (r.GetFlag("list")) {
+        int li = 0;
+        while (li < targets.Length) { Console.WriteLine(targets[li].Name); li = li + 1; }
+        return 0;
+    }
     if (targets.Length == 0) {
         if (substrFilter.Length > 0 && nameFilter.Length == 0) {
             Console.WriteLine("z42b " + verb + ": no " + kind + " target matched --filter `"

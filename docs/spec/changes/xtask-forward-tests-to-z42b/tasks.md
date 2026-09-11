@@ -7,7 +7,13 @@
 
 - [x] A1 `--filter <substr>`：子串筛一批。与 `--name` 分开语义 ——
       `--name` 零命中**报错并列出可选目标**（点名点不中是错），`--filter` 零命中**提示并返 0**（筛不到是正常）
-- [ ] A2 并行建目标（粒度待定，见 proposal Open Questions）
+- [x] A2 **不做「z42b 内部并行」** —— 并行留在 xtask 侧（裁决与实测见 proposal ②/③）。
+      z42b 定位不到自己（`__env_args` 只给 `--` 之后的参数），自呼需新 VM builtin；而 xtask
+      本来就知道 vm + builder zpkg 路径。改为：**xtask 并行拉起 `z42b test <toml> --name <unit>`**。
+      实测 z42.io 51 单元、同为 8 路并行：xtask 31.07s → 11.25s（**2.76×**）。
+- [x] A3 `z42b test/bench --list`：只列目标名（一行一个），不编不跑 —— 转发架构的接缝。
+      xtask 靠它拿单元清单，**发现规则从此只有 z42b 一份**（两套规则各自漂移正是 #580 查出
+      那三处分歧的来源）。零目标 → 空输出 + rc=0（「没有目标」是正常答案）。
 
 ## 步骤 B —— bench 聚合
 

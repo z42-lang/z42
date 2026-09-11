@@ -1,4 +1,4 @@
-# Proposal: xtask 的 stdlib 测试路径转发 z42b（实测快 5.6×）
+# Proposal: xtask 的 stdlib 测试路径转发 z42b（实测快 2.76×）
 
 > 状态：**规划**（未实施）。前置 [`z42b-owns-test-targets`](../../archive/) 刀一已合（#578）。
 
@@ -13,18 +13,44 @@
 在 `[tests]` 段**缺失时也返回 kind 专属默认 include** ⇒ 25 个 stdlib 包一个字都不用改。
 （子目录形态如 `tests/dict/` 是 golden 用例，归 e2e stage，不在此列 —— 两边都不算。）
 
-### ② 快 5.6×
+### ② 快 2.76×（**订正**，原写 5.6× 是条件没对齐的错误基准）
 
-```
-xtask test stdlib z42.collections   real 32.63s
-z42b test <同一个 manifest>          real  5.81s
-```
+> ⚠️ **2026-09-12 订正**：最初记在这里的「5.6×（32.63s vs 5.81s）」把**冷跑的 xtask（含整个
+> 构建波）**和**热跑的 z42b** 放在一起比，条件没对齐，结论不成立。加上 `--no-build`、同为热跑
+> 重测后，**xtask 反而更快** —— 因为 xtask 有 8 路并行而 z42b 的目标是串行的：
+>
+> ```
+> z42.collections（6 单元）   xtask --no-build  3.85s   |  z42b 串行   5.88s
+> z42.io        （51 单元）   xtask --no-build 31.07s   |  z42b 串行  79.01s
+> ```
+>
+> 真正的收益在**单单元成本**：z42b 的 in-process 编译省掉「合成清单 + fork `z42c build`」的
+> 往返，单单元约快 3 倍。把并行补回来之后才兑现得出来：
+>
+> ```
+> z42.io（51 单元，同为 8 路并行）   xtask 31.07s   →   z42b --name 11.25s    （2.76×）
+> ```
+> （`user` 时间 78.85s ≈ 串行总量 ⇒ 父包缓存有效，并行没有重复劳动。）
 
 根因：xtask 给**每个单元** fork 一次 `z42c build`，每次都从头 bootstrap `z42.core`
 （`xtask_test_lib_units.z42` 自己的注释称之为「the dominant per-unit z42.core bootstrap」，
 靠并行批次掩盖）。z42b 复用**一个进程内编译器**，父包只建一次、各目标共用。
 
-⇒ 整个 `stdlib [Test]` stage（当前 GREEN gate 里最慢的一段，1m14s / 占 38%）有数量级级别的改善空间。
+⇒ `stdlib [Test]` stage（GREEN gate 里最慢的一段，1m14s / 占 38%）约可降到 27s 量级。
+
+### ③ 并行留在 xtask 侧（架构裁决，2026-09-12）
+
+**z42b 不能自己并行**：并行测试执行必须分进程（单 VM 内 `ModuleLoader` 按命名空间去重、
+first-wins），而 z42b **定位不到自己** —— `__env_args` 只返回 `--` 之后的程序参数，拿不到
+z42vm 路径与自身 zpkg 路径。让它能自呼需要新 VM builtin（vm 类变更，要走完整规范流程）。
+
+**xtask 知道这两个路径**（它本来就是这么拉起 z42b 的）。所以并行仍归 xtask，只把每个单元的
+实现从「合成清单 + `z42c build` + 跑产物」换成 `z42b test <toml> --name <unit>`。
+**发现规则同时收归 z42b 独一份** —— 两套规则各自漂移正是 #580 查出那三处分歧的来源；
+xtask 用新增的 `z42b test --list` 拿单元清单，不再自带发现规则。
+
+**另否掉「把并行移到库级」**（每库一个 z42b 进程、库间并行）：`z42.io` 单库 51 单元 ≈ 50s，
+一个库就是整条 stage 的下界，比现状 75s 好得有限。
 
 ## ⚠️ 但直接替换会丢掉 `_runLibKind` 现在承担的东西
 
