@@ -62,11 +62,12 @@ const IN_YOUNG_BIT: u8 = 1 << 5;
 
 /// Largest `gen_age` a block header can represent (see [`AGE_MASK`]).
 ///
-/// `region::PROMOTION_THRESHOLD` is 2, so ages only ever reach 2 today. If a future
-/// `PROMOTION_AGE` knob wants to exceed this, the age needs more room than `type_tag`'s
-/// spare bits provide — `size_class` has one spare bit (its largest index is 64), or the
-/// header has to grow, which costs far more than it sounds (see the note on `DATA_OFFSET`
-/// in `chunk::class_for`).
+/// **retune-gc-nursery-and-promotion-age (2026-09-11)**: `region::PROMOTION_THRESHOLD` is
+/// now **3**, i.e. exactly this ceiling — the spare bits are full. `Z42_GC_PROMOTION_AGE`
+/// can still be lowered but no longer raised, and anything that wants a higher age first has
+/// to find the bit: `size_class` has one spare (its largest index is 64), or the header has
+/// to grow, which costs far more than it sounds (see the note on `DATA_OFFSET` in
+/// `chunk::class_for`).
 pub const MAX_GEN_AGE: u8 = AGE_MASK;
 
 /// Fixed header preceding a variable-length block's inline payload. `#[repr(C, align(8))]`

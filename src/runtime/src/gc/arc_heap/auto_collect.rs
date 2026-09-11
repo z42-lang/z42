@@ -78,45 +78,39 @@ const FUTILE_DIVISOR: u64 = 16;
 /// may be allocated before a **minor**, and (times [`ALLOWANCE_NURSERY_RATIO`]) the floor
 /// under a **major**'s allowance. Overridable via `Z42_GC_NURSERY_BYTES`.
 ///
-/// Mono SGen's default is 4 MB (`SGEN_DEFAULT_NURSERY_SIZE = 1 << 22`). z42's is eight times
-/// that because **its minor still does an `O(heap)` chunk-reclaim pass** (see
-/// `sweep_phase_young_only`), so frequent minors cost far more here than they do there.
-/// Measured on `z42c.semantics --release --no-incremental`, generational, no budget:
+/// It is the knob that buys a **pause bound**: a minor only scans the young set, so this is
+/// how much young set one minor has to chew through. Mono SGen's default is 4 MB
+/// (`SGEN_DEFAULT_NURSERY_SIZE = 1 << 22`); z42's is four times that.
 ///
-/// | nursery | minors/majors | wall | peak RSS |
+/// **retune-gc-nursery-and-promotion-age (2026-09-11)**: 32M → **16M**, together with
+/// `PROMOTION_THRESHOLD` 2 → 3. Measured across three workloads, two binaries, 3 runs each:
+///
+/// | | `09_alloc_ctorless` wall | `12_gc_churn` RSS / p90 | `z42c.semantics` wall / RSS / p90 |
 /// |---|---|---|---|
-/// | 16M | 25/2 | 7.65 s | 583 MB |
-/// | 24M | 15/1 | 7.19 s | 653 MB |
-/// | **32M** | **10/1** | **6.94 s** | **775 MB** |
-/// | 48M | 5/1 | 6.67 s | 858 MB |
+/// | 32M age2 (before) | 0.38 s | 184 MB / 29.7 ms | 7.00 s / 628 MB / 23.6 ms |
+/// | 24M age3 | 0.36 s | 186 MB / 21.0 ms | 6.91 s / 617 MB / 18.0 ms |
+/// | **16M age3** | 0.45 s | **142 MB / 16.4 ms** | 7.19 s / **595 MB / 14.1 ms** |
 ///
-/// and under STW, where it only sets the allowance floor: 8M → 10 majors / 6.87 s / 753 MB,
-/// 16M → 6 / 6.73 s / 785 MB, **32M → 4 / 6.67 s / 743 MB**. Against 6.61 s / 903 MB for not
-/// collecting at all, 32M buys **−18% RSS for under 1% wall** — which is what a default has
-/// to look like.
+/// Two things in that table are worth carrying forward.
 ///
-/// ⚠️ **That table predates fix-futile-backoff-stretches-nursery (2026-09-11)**, and the
-/// generational half of it was measured through a gate the futility multiplier was stretching
-/// — so its "32M" row is really "32M, sometimes 128M". Re-measured on the same workload with
-/// an honest gate (3 runs per rung, median):
+/// **The promotion age is not optional baggage — it is what makes 16M affordable.** A minor
+/// promotes whatever survives it, so halving the nursery halves how much allocation an object
+/// must outlive to be promoted: objects that would have died young get moved to the old
+/// generation instead, where only a major can reclaim them, and on a young-death workload a
+/// major may never run. That is **premature promotion**, and it inverts the intuition that a
+/// smaller nursery means a smaller footprint — measured on `12_gc_churn`, 16M at the old age
+/// of 2 promoted **33.6%** of scanned objects against **17.9%** at 32M (1 326 948 vs 684 444,
+/// for the same ~3.9 M scanned), and peak RSS went from 198 MB **up** to 405 MB. Age 3 takes
+/// the same rung to 142 MB — lower than the 32M default it replaces.
 ///
-/// | nursery | wall | peak RSS | cycles | total pause | median | p90 |
-/// |---|---|---|---|---|---|---|
-/// | 8M | 7.01 s | 527 MB | 72 | 447.6 ms | 5.0 ms | 7.0 ms |
-/// | **16M** | **6.83 s** | **536 MB** | 35 | 302.8 ms | **8.5 ms** | **11.6 ms** |
-/// | 24M | 6.81 s | 558 MB | 23 | 287.1 ms | 12.5 ms | 16.8 ms |
-/// | **32M (current)** | 6.82 s | 579 MB | 17 | 278.0 ms | 16.0 ms | 28.8 ms |
-/// | 64M | 6.77 s | 645 MB | 8 | 261.3 ms | 32.7 ms | 68.9 ms |
-///
-/// The wall curve is **flat from 16M up** (6.83 vs 6.77 s at 64M — 0.9%) and falls off a cliff
-/// below it (8M +2.7%, 4M +5.6%, 2M +17%), while pause and RSS improve monotonically going
-/// down. So **16M dominates this default on every axis** — same wall, −43 MB, median pause
-/// −47%, p90 −60%. Changing it is a separate change: the two reasons 32M was chosen over 16M
-/// have both expired (chunk reclaim became `O(chunks)` in add-incremental-chunk-reclaim, and
-/// the multiplier no longer inflates the gate), but a default needs more than one workload
-/// behind it and `09_alloc_ctorless` is the only other scenario in the tree that collects at
-/// all.
-pub(super) const DEFAULT_NURSERY_BYTES: u64 = 32 * 1024 * 1024;
+/// **`09_alloc_ctorless` regresses ~18%, deliberately.** It is the 100%-survival pathology:
+/// nothing it allocates ever dies, so every collection is waste, and a smaller nursery fits one
+/// more of them in before [`ArcMagrGC::next_backoff`] saturates (2 collections at 24M, 3 at
+/// 16M). 24M avoids it and improves every workload a little; 16M costs that one benchmark and
+/// buys roughly twice the pause reduction everywhere else. **The trade was put to the project
+/// owner explicitly and 16M was chosen** — this line is the pause line, and the regression is
+/// on a synthetic whose defining property is that collecting it can never help.
+pub(super) const DEFAULT_NURSERY_BYTES: u64 = 16 * 1024 * 1024;
 
 /// **arm-gc-by-default (2026-09-09)**: fraction of the live set the old generation may take
 /// in before the next major. Mono SGen's `SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO` = 0.33 —

@@ -266,20 +266,34 @@ fn alloc_pushes_to_young_list_with_gen_age_zero() {
     assert_eq!(entry.gen_age(), 0, "fresh alloc starts at gen_age=0");
 }
 
+/// 把 `h` 推过 [`PROMOTION_THRESHOLD`]——即「这个条目熬过了足够多次 minor，已是老年代」。
+///
+/// retune-gc-nursery-and-promotion-age（2026-09-11）把阈值从 2 改成 3，而当时有六个测试
+/// 各自把「两次 promote 就是老的」写死在函数体里。**默认值挪动的那一刻，正是你最不想同时
+/// 改六个守着它的测试的时候**，所以这些点一律走这个助手。
+fn promote_to_old<T>(r: &mut Region<T>, h: RegionHandle) {
+    for _ in 0..PROMOTION_THRESHOLD {
+        r.promote(h);
+    }
+}
+
 #[test]
 fn promote_increments_gen_age() {
     let mut r: Region<u64> = Region::new();
     let h = r.alloc(1);
     assert_eq!(r.resolve(h).gen_age(), 0);
 
-    let promoted_first = r.promote(h);
-    assert!(!promoted_first, "first promote (0→1) does not cross threshold yet");
-    assert_eq!(r.resolve(h).gen_age(), 1);
-    assert_eq!(r.young_count(), 1, "still in young_list after first promote");
-
-    let promoted_second = r.promote(h);
-    assert!(promoted_second, "second promote (1→2) crosses PROMOTION_THRESHOLD=2");
-    assert_eq!(r.resolve(h).gen_age(), 2);
+    // Threshold-agnostic on purpose: retune-gc-nursery-and-promotion-age moved
+    // PROMOTION_THRESHOLD from 2 to 3, and a test that spells the step count out in its
+    // assertions has to be rewritten every time the default moves — which is exactly when
+    // you least want to be editing the test that guards it.
+    for age in 1..PROMOTION_THRESHOLD {
+        assert!(!r.promote(h), "promote to age {age} must not cross the threshold yet");
+        assert_eq!(r.resolve(h).gen_age(), age);
+        assert_eq!(r.young_count(), 1, "still in young_list at age {age}");
+    }
+    assert!(r.promote(h), "the promote reaching PROMOTION_THRESHOLD crosses it");
+    assert_eq!(r.resolve(h).gen_age(), PROMOTION_THRESHOLD);
     assert_eq!(r.young_count(), 0, "removed from young_list at threshold");
 }
 
@@ -337,9 +351,7 @@ fn iterate_young_yields_only_young_entries() {
     let mut r: Region<u64> = Region::new();
     let h_young = r.alloc(10);
     let h_to_promote = r.alloc(20);
-    // Promote h_to_promote 2 times → reaches threshold.
-    r.promote(h_to_promote);
-    r.promote(h_to_promote);
+    promote_to_old(&mut r, h_to_promote);
 
     let mut seen = Vec::new();
     r.iterate_young(|h, e| {
@@ -647,8 +659,7 @@ fn validate_tolerates_promoted_entry_outside_young_list() {
     // must validate cleanly.
     let mut r: Region<u64> = Region::new();
     let h = r.alloc(1);
-    r.promote(h);  // 0 → 1
-    r.promote(h);  // 1 → 2 (threshold); removed from young_list
+    promote_to_old(&mut r, h);
     assert_eq!(r.young_count(), 0);
     let entry = r.resolve(h);
     assert!(entry.gen_age() >= PROMOTION_THRESHOLD);
@@ -671,10 +682,9 @@ fn validate_tolerates_tombstoned_entries() {
 fn tombstoned_old_entry_not_in_young_list_no_op() {
     let mut r: Region<u64> = Region::new();
     let h = r.alloc(1);
-    r.promote(h); // 0→1
-    r.promote(h); // 1→2, removed from young_list
+    promote_to_old(&mut r, h);
     assert_eq!(r.young_count(), 0);
-    assert_eq!(r.resolve(h).gen_age(), 2);
+    assert_eq!(r.resolve(h).gen_age(), PROMOTION_THRESHOLD);
 
     let ok = r.tombstone(h);
     assert!(ok, "old entry tombstone succeeds");

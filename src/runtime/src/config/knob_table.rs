@@ -130,7 +130,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         // 同 Z42_GC_MAX_BYTES：接受带单位后缀的写法。
         value: ValueKind::Str,
         description: "the unit the auto-collect policy is denominated in: bytes allocated before a MINOR trips (generational), and x4 the floor under a major's allowance (both modes). Accepts a byte count or a K/KB/M/MB/G/GB suffix",
-        default_hint: "unset; defaults to 32M (Mono SGen uses 4M; z42's minor still does an O(heap) chunk reclaim)",
+        default_hint: "unset; defaults to 16M (Mono SGen uses 4M). Moves with Z42_GC_PROMOTION_AGE — a smaller nursery promotes more eagerly",
         consumed_by: "gc/arc_heap/auto_collect.rs",
         ..TUNING
     },
@@ -166,7 +166,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         toml_key: "gc-promotion-age",
         value: ValueKind::Int { min: 1, max: 3 },
         description: "generational only: how many minor GCs an entry must survive before it is promoted to the old generation. Capped at 3 — the age is packed into two spare bits of the variable-length block header",
-        default_hint: "unset; defaults to 2 (industry-standard Java tenure)",
+        default_hint: "unset; defaults to 3 — which is also the cap, so this knob can be lowered but not raised (retune-gc-nursery-and-promotion-age; was 2)",
         consumed_by: "gc/mod.rs (promotion_age_from_config, read once per heap)",
         ..TUNING
     },
