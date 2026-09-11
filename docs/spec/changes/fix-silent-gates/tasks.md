@@ -57,6 +57,9 @@
 `test lines` 的**棘轮**惯例处理：`_isKnownOrphanLib` 列已知欠债，**每轮响亮打印 `⚠`（不静默）
 但不阻断；新增的孤儿源一律红**。
 
+> **沿革（2026-09-12，xtask-forward-tests-to-z42b C1）**：`_isKnownOrphanLib` 已退休 —— 欠债改为记在**债主自己的清单**里（`[tests] auto = false`），
+> 与 z42b 侧的孤儿源守卫共用同一条豁免规则（两条发现路径不能各有各的例外表）。棘轮语义不变：豁免不消音，每轮照样打印 ⚠，新增孤儿源一律判红。
+
 ### 4. `test dist` 全 SKIP 也返回绿
 
 三个 smoke 套件（launcher / desktop-publish / z42i）缺件时都是「静默 SKIP + 返回 `[0,0]`」，

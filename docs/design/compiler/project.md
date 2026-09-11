@@ -710,10 +710,17 @@ strip    = true
 
 ```toml
 [tests]
-# 字段全可省 → 走约定：tests/*.z42 + tests/*/source.z42
-# include = ["tests/*.z42", "tests/*/source.z42"]
+# 字段全可省 → 走约定：tests/*.z42（**一文件一单元**，仅此一条）
+# include = ["tests/*.z42"]
 # exclude = ["tests/_skip/*"]
 # auto    = true          # false → 关闭约定扫描，只认 [[test]]
+#
+# **目录单元必须显式配**，约定不认领它：
+#   include = ["tests/*.z42", "tests/secp256k1/**/*.z42"]   # → 单元名 `secp256k1`，整目录一起编
+# 为什么不默认扫 `tests/*/source.z42`：本仓 `<lib>/tests/` 下同时住着反射 [Test] 用例和 VM
+# golden 用例（`main()` + `expected_output.txt`），**两者都长成 `<name>/source.z42`，glob 分不开**
+# （要分得靠扫目录里有没有 `[Test]` 标注，那不是 glob 能表达的）。猜错的代价是把 golden 目录
+# 当测试目标编，编不过或跑出零用例 —— 所以不猜。
 [tests.dependencies]
 "z42.test" = "0.1.0"      # 仅测试合入；release zpkg 元数据不含
 
@@ -722,7 +729,7 @@ strip    = true
 "z42.test" = "0.1.0"      # Bencher 在 z42.test 包内
 
 [examples]
-# 默认发现 examples/*.z42 + examples/*/source.z42
+# 默认发现 examples/*.z42（同上：目录单元显式配）
 ```
 
 ### `[[test]]` / `[[bench]]` / `[[example]]` 数组（显式覆盖）

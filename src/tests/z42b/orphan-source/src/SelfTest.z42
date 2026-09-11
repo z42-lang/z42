@@ -1,0 +1,10 @@
+namespace Orphan.Src.SelfTests;
+
+using Std;
+using Std.Test;
+using Orphan.Src;
+
+[Test]
+void test_self_test_would_make_the_fallback_look_green() {
+    Assert.Equal(42, Api.Answer());
+}

@@ -17,6 +17,9 @@ public class Pipeline {
     public BuildHooks   Hooks    { get; set; }
     public WorkloadBase Workload { get; set; }
     public ICompiler    Compiler { get; set; }   // Compile 头相位经此调编译器库（in-process）
+    /// z42b-owns-test-targets：本次构建若是 `<ParentPkg>` 的测试/bench 目标，透传给编译器
+    /// ⇒ 其 internal 对测试可见。`""` = 普通构建。**属性、不进 ctor**（种子 ABI，同 CompileRequest.ParentPkg）。
+    public string       ParentPkg { get; set; }
 
     public Pipeline() {
         this.Hooks    = new BuildHooks();      // 默认空 hook
@@ -74,6 +77,10 @@ public class Pipeline {
             ctx.Project.Kind,               // 工程 kind（exe/lib）——lib 免 Main，供 compile-then-test
             effExc,                         // Excludes（阶段4.2：从 manifest 组装 hooks/exclude glob）
             effExcN);                       // ExcludesCount
+        // 构造后赋值（body 字段，不在 ctor 签名里 —— 种子 ABI）。
+        if (this.ParentPkg != null) { req.ParentPkg = this.ParentPkg; }
+        req.Includes = pm.Sources.Include; req.IncludesCount = pm.Sources.IncludeCount;
+        req.PackageName = pm.Project.Name;
         CompileResult res = this.Compiler.Compile(req);
         if (!res.Ok) {
             ctx.Warn("compile failed:");

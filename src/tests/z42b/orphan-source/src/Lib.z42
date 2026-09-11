@@ -1,0 +1,8 @@
+namespace Orphan.Src;
+using Std;
+
+// 本包自己带一个 [Test] —— 这样「回落到编译本包再跑」会**成功跑出 1 个通过**，
+// 下游 #571 的零测试判红接不住它。守卫不在，这个包就是一片绿色的静默。
+public class Api {
+    public static int Answer() { return 42; }
+}

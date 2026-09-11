@@ -79,6 +79,8 @@ SubcommandRouter _builderRoot() {
     test.AddOptionalPositional("target", "<file.zbc|file.zpkg|bundle.json|project.z42.toml> (default: z42.toml)");
     test.AddOption("filter", "", "test name substring filter (reserved)", "");
     test.AddOption("format", "", "output format: pretty|json", "pretty");
+    test.AddOption("name", "", "only build+run the [[test]] target with this name (default: all)", "");
+    test.AddOption("filter", "", "only targets whose name contains this substring", "");
     test.AddOption("rid", "", "target RID: host (default, in-process) | device (assemble deployable)", "");
     test.AddOption("out", "", "device RID: output dir for the assembled {app,libs,bundle} deployable", "");
     // Device RID sub-steps (z42b-device-run Slice 3). Default (no flag) on a device
@@ -94,14 +96,21 @@ SubcommandRouter _builderRoot() {
     test.AddOption("build-root", "", "device RID --build/--run: repo root for locating the native platform crate", "");
     test.AddOption("node-bin", "", "device RID --run: hermetic node bin dir (provisioned by xtask) to prepend to PATH", "");
     test.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
+    // --list：只列目标名（一行一个），不编不跑。给**编排方**用 —— xtask 靠它拿到单元清单后
+    // 并行拉起 `z42b test <toml> --name <unit>`，从此不必自带一套发现规则（两套规则各自漂移
+    // 正是 #580 查出的那三处分歧的来源）。
+    test.AddFlag("list", "", "只列出 test 目标名（一行一个），不编译不运行");
     root.Add("test", "run [Test] in a compiled module, project, or test-bundle", test);
 
     ArgParser bench = new ArgParser("z42b bench", "run [Benchmark] in a compiled module or project");
     bench.AddOptionalPositional("target", "<file.zbc|file.zpkg|project.z42.toml> (default: z42.toml)");
     bench.AddOption("filter", "", "benchmark name substring filter (reserved)", "");
     bench.AddOption("format", "", "output format: pretty|json (json adds bench_stats)", "pretty");
+    bench.AddOption("name", "", "only build+run the [[bench]] target with this name (default: all)", "");
+    bench.AddOption("filter", "", "only targets whose name contains this substring", "");
     bench.AddOption("rid", "", "compile-then-test: target RID (default: host)", "");
     bench.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
+    bench.AddFlag("list", "", "只列出 bench 目标名（一行一个），不编译不运行");
     root.Add("bench", "run [Benchmark] in a compiled module or project", bench);
 
     // clean — remove a project's build artifacts (moved out of z42c: the compiler

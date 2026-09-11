@@ -7,3 +7,9 @@ kind    = "lib"
 "z42.core"     = "0.1.0"
 "z42.encoding" = "0.1.0"   # Hex for HashHex convenience
 "z42.numerics" = "0.1.0"   # BigInt for Ed25519 / EcdsaP256 / EcdsaSecp256k1 / Poly1305 / Rsa / X25519
+
+# tests/secp256k1/ 是一个**目录单元**：source.z42（[Test] 方法）+ vectors.z42（SEC2/Bitcoin
+# 参考向量），共享 namespace、必须一起编。默认发现只认 `tests/*.z42`（一文件一单元），目录单元
+# 一律显式配 —— glob 分不出「[Test] 目录」和 golden 目录，不猜。
+[tests]
+include = ["tests/*.z42", "tests/secp256k1/**/*.z42"]

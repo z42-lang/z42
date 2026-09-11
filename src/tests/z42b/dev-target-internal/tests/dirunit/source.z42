@@ -1,0 +1,22 @@
+// 目录单元的入口文件：[Test] 方法住这里，参考数据住兄弟文件 vectors.z42。
+// 两个文件共享同一 namespace，**必须一起编** —— 这正是「一文件一单元」表达不了、
+// 必须有目录单元的原因（真实先例：z42.crypto/tests/secp256k1）。
+namespace DtInternalDirUnitTests;
+
+using Std;
+using Std.Test;
+using Dt.Internal;
+
+[Test]
+void test_dir_unit_sees_sibling_file() {
+    // Fixtures 来自 vectors.z42。编不进来的话这里是「未定义符号」而不是断言失败。
+    Assert.Equal(7, DirUnitVectors.Seven());
+    Assert.Equal(14, DirUnitVectors.Fourteen());
+}
+
+// 目录单元同样是父包的测试目标 → 照样看得见 internal。
+[Test]
+void test_dir_unit_sees_parent_internal() {
+    Hidden h = new Hidden(DirUnitVectors.Seven());
+    Assert.Equal(14, h.Doubled());
+}

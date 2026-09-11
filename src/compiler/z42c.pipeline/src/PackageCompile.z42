@@ -33,6 +33,14 @@ public sealed class CompileInputs {
     // manifest 派生标量（composed ProjectManifest → 这些；核心不认 toml，解耦 manifest 模型）
     public string Name; public string Version; public string Kind;   // "exe" / "lib"
     public bool HasEntry; public string Entry;
+    // z42b-owns-test-targets：**包上下文三态**（不能用单个布尔 —— `--emit-zbc` 单文件没有 manifest，
+    // 误判会把所有 golden 打爆）：
+    //   HasPkgContext == false            → 无 manifest（单文件编译）：既不判 [Test] 越界，也无父包
+    //   HasPkgContext && ParentPkg == ""  → 有 manifest 的**普通包**：[Test] 出现即 E0457
+    //   HasPkgContext && ParentPkg != ""  → 本次编译是 <ParentPkg> 的**测试/bench 目标**：
+    //                                       [Test] 放行，且加载 <ParentPkg> 时按同包待遇（internal 可见）
+    // 由 z42b 从真 manifest 解析目标后填（它自己选的目标，父包是谁当然知道）。
+    public bool HasPkgContext; public string ParentPkg;
     public bool IsRelease;
     // add-compiler-inlining：可独立开关的优化集（OptSet 位）。-1 = 未显式设置 → 取 profile 默认
     // （release=All / debug=None）。Z42cCompiler 解析 toml/CLI 后显式设置以覆盖。
@@ -140,8 +148,10 @@ public static class PackageCompile {
                 }
                 ui = ui + 1;
             }
+            // z42b-owns-test-targets：inp.ParentPkg 非空 → 本次是该包的测试/bench 目标，
+            // 加载父包时按同包待遇（其 internal 可见）。普通包为 "" → 行为与此前逐字节一致。
             imported = ImportedSymbolLoader.Load(scan.Exported, scan.ExportedPkg, scan.ExportedCount,
-                                                 allUsings, auc);
+                                                 allUsings, auc, inp.ParentPkg);
         }
 
         // ── attribute-handler-registry PR4a/4c：generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）──

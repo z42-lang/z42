@@ -1,0 +1,71 @@
+// SourceDiscovery 的 glob 展开回归测试。
+//
+// 核心回归：**目录段带通配**（`a/*/c.z42`）此前被当成字面目录名 `*` 去找，静默返回空数组。
+// 静默返回空是最坏的失败形态——调用方（z42b 按 `[tests] include` 发现测试目标）看到的是
+// 「这个包没有测试」，与「真的没有测试」不可区分。
+namespace Z42ProjectSourceDiscoveryTests;
+
+using Std;
+using Std.IO;
+using Std.Test;
+using Z42.Build.Project;
+
+// 造一棵固定的临时源树，返回根目录：
+//   <root>/tests/one.z42
+//   <root>/tests/alpha/source.z42
+//   <root>/tests/alpha/helper.z42
+//   <root>/tests/beta/source.z42
+string _mkTree() {
+    string root = Directory.CreateTempDir("z42-srcdisc");
+    Directory.Create(Path.Join(root, "tests"));
+    Directory.Create(Path.Join(root, Path.Join("tests", "alpha")));
+    Directory.Create(Path.Join(root, Path.Join("tests", "beta")));
+    File.WriteAllText(Path.Join(root, Path.Join("tests", "one.z42")), "// one\n");
+    File.WriteAllText(Path.Join(root, Path.Join("tests", Path.Join("alpha", "source.z42"))), "// a\n");
+    File.WriteAllText(Path.Join(root, Path.Join("tests", Path.Join("alpha", "helper.z42"))), "// h\n");
+    File.WriteAllText(Path.Join(root, Path.Join("tests", Path.Join("beta", "source.z42"))), "// b\n");
+    return root;
+}
+
+string[] _discover(string root, string pattern) {
+    string[] inc = new string[1];
+    inc[0] = pattern;
+    return SourceDiscovery.DiscoverWithExclude(root, inc, 1, new string[0], 0);
+}
+
+// 目录段带 `*`：两个子目录各命中一个 source.z42。修复前返回 0 个（静默空）。
+[Test]
+void test_wildcard_directory_segment_expands() {
+    string root = _mkTree();
+    string[] hits = _discover(root, "tests/*/source.z42");
+    Assert.Equal(2, hits.Length);
+    Assert.True(hits[0].EndsWith("/tests/alpha/source.z42"));
+    Assert.True(hits[1].EndsWith("/tests/beta/source.z42"));
+}
+
+// 单层（无目录通配）不受影响：只认 tests/ 直下的文件，不下钻。
+[Test]
+void test_single_level_glob_unchanged() {
+    string root = _mkTree();
+    string[] hits = _discover(root, "tests/*.z42");
+    Assert.Equal(1, hits.Length);
+    Assert.True(hits[0].EndsWith("/tests/one.z42"));
+}
+
+// `<prefix>/**/<suffix>` 递归档不受影响：整个子目录一起进来（目录单元靠它带上兄弟文件）。
+[Test]
+void test_recursive_glob_picks_up_sibling_files() {
+    string root = _mkTree();
+    string[] hits = _discover(root, "tests/alpha/**/*.z42");
+    Assert.Equal(2, hits.Length);
+    Assert.True(hits[0].EndsWith("/tests/alpha/helper.z42"));
+    Assert.True(hits[1].EndsWith("/tests/alpha/source.z42"));
+}
+
+// 目录段通配匹配不到任何目录 → 空（不是报错）。
+[Test]
+void test_wildcard_directory_no_match_is_empty() {
+    string root = _mkTree();
+    string[] hits = _discover(root, "nope/*/source.z42");
+    Assert.Equal(0, hits.Length);
+}

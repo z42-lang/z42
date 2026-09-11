@@ -1,0 +1,337 @@
+// z42b — 测试 / bench 目标的解析与派生（z42b-owns-test-targets）。
+//
+// 此前：xtask 为每个测试单元**伪造一份 mini-manifest 落盘**，再 `z42c build <synth.toml>`。
+// 那份合成文件里没有一项是新信息（全是把 `[[test]]` / `[tests]` 换个格式），但这一搬**丢掉了
+// 「我是 <父包> 的测试目标」这条身份** —— 于是编译器分辨不出测试包与普通包（两者都是
+// `kind = "lib"` 的普通 manifest），既没法拦住 `src/` 里的 `[Test]`，测试也看不见父包的 internal。
+//
+// 现在：z42b 从**真 manifest** 解析目标，在**内存里派生** ProjectManifest（不落文件），走
+// `_buildProject` 已有的同一条 `_orchestrate`。父包身份全程保留，直达编译器
+// （CompileInputs.ParentPkg → ImportedSymbolLoader 不设 IsImported ⇒ internal 可见）。
+//
+// 这是 unify-test-pipeline 案上写着的阶段 ③（见 docs/design/testing/cross-platform-testing.md:24-29），
+// 不是新方向。设计 SoT：docs/spec/changes/z42b-owns-test-targets/design.md。
+namespace Z42Builder;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+using Z42.Build;
+using Z42.Build.Project;
+
+/// 一个待编译 + 运行的 dev target。`Sources` 是 **glob 原文**（不在这里展开——
+/// 派生 manifest 的 `[sources] include` 直接带着它们，由 `_orchestrate` 统一展开）。
+public sealed class DevTarget {
+    public string   Name;         // `[[test]] name`，或 glob 单元名
+    public string[] Sources;      // glob 模式
+    public int      SrcCount;
+    public DepEntry[] Deps;       // 该目标独享的依赖（三层合并的第三层）
+    public int      DepCount;
+    public bool     Harness;      // true → z42b 反射跑 [Test]；false → 自驱 Main、退出码判定
+    public bool     HasEntry;     // false → 自动探测（ZpkgBuilder.AutoDetectEntry）
+    public string   Entry;
+    public DevTarget(string name, string[] sources, int srcCount,
+                     DepEntry[] deps, int depCount, bool harness, bool hasEntry, string entry) {
+        this.Name = name; this.Sources = sources; this.SrcCount = srcCount;
+        this.Deps = deps; this.DepCount = depCount;
+        this.Harness = harness; this.HasEntry = hasEntry; this.Entry = entry;
+    }
+}
+
+/// 名字匹配：`nameFilter` 精确（`--name`），`substrFilter` 子串（`--filter`）。两者都空 = 全要。
+/// 分开而不是合成一个：`--name` 的语义是「就这一个，点不中要报错」，`--filter` 是「筛一批」——
+/// 前者零命中必须红（见 _runDevTargets），后者零命中是正常结果。
+bool _dtMatches(string name, string nameFilter, string substrFilter) {
+    if (nameFilter.Length > 0 && name != nameFilter) { return false; }
+    if (substrFilter.Length > 0 && !name.Contains(substrFilter)) { return false; }
+    return true;
+}
+
+/// 解析某一类（"test" / "bench"）的全部目标。
+///   ① 显式 `[[test]]` / `[[bench]]` —— RunTarget 直接转 DevTarget；
+///   ② 段级 glob `[tests] include` / `[bench] include` —— 整段作为**一个**目标
+///      （名字用段名；「一文件一单元」的细分留给后续，见 design Open Questions）；
+///   ③ nameFilter 非空 → 只留同名者。
+/// 返回按名字**稳定排序**（common-pitfalls §1：任何按名注册/迭代都要确定序）。
+DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter, string sourceDir) {
+    return _resolveDevTargetsF(m, kind, nameFilter, "", sourceDir);
+}
+
+DevTarget[] _resolveDevTargetsF(ProjectManifest m, string kind, string nameFilter,
+                                string substrFilter, string sourceDir) {
+    RunTarget[] explicitT = (kind == "bench") ? m.Benches : m.Tests;
+    int explicitN        = (kind == "bench") ? m.BenchCount : m.TestCount;
+    TargetSection sec    = (kind == "bench") ? m.BenchSection : m.TestsSection;
+
+    DevTarget[] outp = new DevTarget[8];
+    int n = 0;
+    int i = 0;
+    while (i < explicitN) {
+        RunTarget t = explicitT[i];
+        if (_dtMatches(t.Name, nameFilter, substrFilter)) {
+            if (n == outp.Length) { outp = _dtGrow(outp, n); }
+            outp[n] = new DevTarget(t.Name, t.Sources, t.SrcCount, t.Deps, t.DepCount,
+                                    t.Harness, t.HasEntry, t.Entry);
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    // 段级 glob（`[tests] include` / `[bench] include`）：**一单元一目标**，对齐 xtask 今天的分法
+    // ——不是把整段糊成一个目标（那会让一个文件失败牵连整段，且 --name 无从点名）。
+    // 单元有两种形态，由命中文件相对「段根」的深度决定：
+    //   · **文件单元**：`tests/queue.z42`      → 名 `queue`，源就这一个文件
+    //   · **目录单元**：`tests/dict/source.z42` → 名 `dict`，源是 `tests/dict/**/*.z42` 整目录
+    // 目录形态不是可选的花样，是必需的：① 目录单元允许多文件 —— z42.crypto 的 `tests/secp256k1/`
+    // = `source.z42` + `vectors.z42` 共享 namespace，只编入口文件必然 `SecpVectors` 未定义；
+    // ② 约定布局下入口文件**全叫 source.z42**，按文件名命名会让每个目录单元都叫 `source`、
+    // 互相撞名只活下来一个。**同名显式目标覆盖之**（沿用既有「显式覆盖同名 auto」语义）。
+    // `auto = false` ⇒ 本包显式声明「这里没有约定单元，只认 [[test]]」。xtask 一直认这个字段
+    // （xtask_manifest_targets.z42 的 _sectionAuto），z42b 此前**完全忽略**它 —— 两条发现路径的
+    // 又一处分歧，转发前一并抹平。
+    if (sec != null && sec.Auto && sec.IncCount > 0) {
+        string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, sec.Include, sec.IncCount,
+                                                             sec.Exclude, sec.ExcCount);
+        _dtSortStrings(files, files.Length);   // 确定序（common-pitfalls §1）
+        int rootDepth = _dtRootDepth(sec.Include, sec.IncCount);
+        int f = 0;
+        while (f < files.Length) {
+            string rel = _dtRelOf(sourceDir, files[f]);
+            string[] segs = _dtSplitSlash(rel);
+            bool isDirUnit = segs.Length > rootDepth + 1;
+            string unit = isDirUnit ? segs[rootDepth] : _dtUnitName(files[f]);
+            bool dup = false;
+            int d = 0;
+            while (d < n) { if (outp[d].Name == unit) { dup = true; } d = d + 1; }
+            if (!dup && _dtMatches(unit, nameFilter, substrFilter)) {
+                if (n == outp.Length) { outp = _dtGrow(outp, n); }
+                string[] one = new string[1];
+                one[0] = isDirUnit ? (_dtJoinSegs(segs, rootDepth + 1) + "/**/*.z42") : rel;
+                outp[n] = new DevTarget(unit, one, 1, new DepEntry[0], 0, true, false, "");
+                n = n + 1;
+            }
+            f = f + 1;
+        }
+    }
+    DevTarget[] r = new DevTarget[n];
+    int k = 0; while (k < n) { r[k] = outp[k]; k = k + 1; }
+    _dtSortByName(r, n);
+    return r;
+}
+
+DevTarget[] _dtGrow(DevTarget[] a, int n) {
+    DevTarget[] b = new DevTarget[n * 2];
+    int k = 0; while (k < n) { b[k] = a[k]; k = k + 1; }
+    return b;
+}
+
+// 选择排序（确定序；目标数是个位数，复杂度无所谓）。
+void _dtSortByName(DevTarget[] a, int n) {
+    int p = 0;
+    while (p < n) {
+        int min = p; int q = p + 1;
+        while (q < n) { if (a[q].Name.CompareTo(a[min].Name) < 0) { min = q; } q = q + 1; }
+        if (min != p) { DevTarget t = a[p]; a[p] = a[min]; a[min] = t; }
+        p = p + 1;
+    }
+}
+
+/// 在**内存里**派生该目标的 ProjectManifest —— 不写任何临时文件。
+///   name   = <父包>.<kind>.<目标名>
+///   kind   = harness ? "lib" : "exe"
+///   pack   = true **强制** —— z42b 只能加载 packed zpkg；debug 默认 pack=false 会产出
+///            indexed + 散装 zbc，runner 直接拒（`indexed zpkg cannot be loaded directly by the VM`）
+///   sources= 目标的 glob
+///   deps   = [dependencies] ∪ [<kind>s.dependencies] ∪ [[target]].dependencies（三层，后者优先）
+///   build  = 每目标独立的 output_dir / cache_dir（防两个目标的 source.zbc 互相覆盖）
+ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kind, string outRoot) {
+    string derivedName = m.Project.Name + "." + kind + "." + t.Name;
+    string pkind = t.Harness ? "lib" : "exe";
+    ProjectInfo pi = new ProjectInfo(derivedName, m.Project.Version, pkind,
+                                     t.HasEntry, t.Entry, true, true);
+
+    Sources src = new Sources(t.Sources, t.SrcCount, new string[0], 0);
+
+    TargetSection sec = (kind == "bench") ? m.BenchSection : m.TestsSection;
+    DepEntry[] merged = new DepEntry[m.DepCount + (sec == null ? 0 : sec.DepCount) + t.DepCount + 1];
+    int mc = 0;
+    // **父包自己**是测试目标的第一依赖 —— 测试要用它的公开面（以及经 ParentPkg 放行的 internal）。
+    merged[0] = new DepEntry(m.Project.Name, m.Project.Version, "");
+    mc = 1;
+    mc = _dtAppendDeps(merged, mc, m.Deps, m.DepCount);
+    if (sec != null) { mc = _dtAppendDeps(merged, mc, sec.Deps, sec.DepCount); }
+    mc = _dtAppendDeps(merged, mc, t.Deps, t.DepCount);
+
+    string tOut = Path.Join(outRoot, t.Name);
+    BuildConfig bc = new BuildConfig(true, tOut, true, Path.Join(tOut, "cache"),
+                                     false, "", m.Build.Incremental, false, "");
+
+    return new ProjectManifest(pi, src, bc,
+                               new Profile[0], 0, merged, mc,
+                               new ExeTarget[0], 0, m.Platform,
+                               null, null, null,
+                               new RunTarget[0], 0, new RunTarget[0], 0, new RunTarget[0], 0);
+}
+
+// 追加依赖，**后来者覆盖同名**（三层合并语义：目标级 > 段级 > 包级）。
+int _dtAppendDeps(DepEntry[] dst, int n, DepEntry[] src, int count) {
+    int i = 0;
+    while (i < count) {
+        int at = 0 - 1;
+        int j = 0;
+        while (j < n) { if (dst[j].Name == src[i].Name) { at = j; } j = j + 1; }
+        if (at >= 0) { dst[at] = src[i]; } else { dst[n] = src[i]; n = n + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+// 单元名 = 文件名去 `.z42`（`tests/queue_ops.z42` → `queue_ops`）。
+string _dtUnitName(string path) {
+    string b = Path.GetFileName(path);
+    if (b.EndsWith(".z42")) { return b.Substring(0, b.Length - 4); }
+    return b;
+}
+
+/// 本包**自己的** `[sources]` 里有没有 [Test] / [Benchmark]。用来分流「整个包就是测试工程」
+/// （compile-then-test 形态，回落去编+跑它）与「一个根本没有测试的库」（无事可做，退 0）。
+///
+/// 判据是朴素全文子串扫，与 xtask 的 _dirHasTestMethods 同款（注释里写了 `[Test]` 也算）。
+/// 这个宽松方向是有意的：假阳性只是退回既有行为（编了、跑出零个、由 Runner 判红），
+/// 假阴性才危险 —— 而那需要 attribute 在源码里根本不以字面出现，真测试做不到。
+bool _pkgSourcesHaveTests(ProjectManifest m, string sourceDir) {
+    string[] inc = m.Sources.Include;
+    int incN = m.Sources.IncludeCount;
+    if (incN == 0) { return false; }
+    string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, inc, incN,
+                                                        m.Sources.Exclude, m.Sources.ExcludeCount);
+    int i = 0;
+    while (i < files.Length) {
+        string text = File.ReadAllText(files[i]);
+        if (text.Contains("[Test]") || text.Contains("[Benchmark]")) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+/// 孤儿源守卫（fix-silent-gates 的 z42b 版）：本包一个目标都没解析出来，但 `[tests]` / `[bench]`
+/// 段指向的目录里**确实躺着 .z42 源**。返回该目录路径（判红用），无问题返 ""。
+///
+/// 为什么非有不可：零目标时 `_runDevTargets` 会**回落到「编译本包自己再跑」** —— 于是「有源却零
+/// 单元」报出的是「0 passed, 0 failed」的**绿色**，与「这个包真的没有测试」不可区分。这正是 #571
+/// 要根除的「没跑 == 全过」；真实事故是 z42.ir / z42c.core / z42c.syntax 静默数月。
+///
+/// 两条豁免，都不是硬编码名单：
+///   ① **子目录自带 `*.z42.toml` ⇒ 它是独立工程**，不是本包的孤儿源。这不是新规则 —— 编译器
+///      测试单元的发现条件就是它（`xtask_compiler.z42`：无 toml 即 skip）。z42c.semantics/tests
+///      的 19 个、z42c.pipeline/tests 的 4 个全走这条。
+///   ② **`auto = false` ⇒ 本包显式声明「这里没有约定单元」**。欠债记在**债主自己的清单**里
+///      （可见、可 grep），而不是工具里一张硬编码名单。豁免**不等于消音**：调用方仍会响亮打印
+///      一行 ⚠（形态同 `test lines` 的棘轮基线）。
+string _dtOrphanSourceDir(ProjectManifest m, string kind, string sourceDir) {
+    TargetSection sec = (kind == "bench") ? m.BenchSection : m.TestsSection;
+    if (sec == null || sec.IncCount == 0) { return ""; }
+    if (!sec.Auto) { return ""; }            // 豁免 ②：显式声明「这里没有约定单元」
+    string rootRel = _dtSectionRoot(sec.Include, sec.IncCount);
+    if (rootRel.Length == 0) { return ""; }
+    string root = Path.Join(sourceDir, rootRel);
+    if (!Directory.Exists(root)) { return ""; }
+    // 段根直下的 .z42 → 一定是本包该认领的（一文件一单元），有就是孤儿。
+    if (Path.Glob(root, "*.z42").Length > 0) { return root; }
+    // 子目录：自带 toml 的跳过（独立工程）；其余只要有 .z42 就是孤儿。
+    string[] entries = Path.Glob(root, "*");
+    int i = 0;
+    while (i < entries.Length) {
+        if (Directory.Exists(entries[i])
+            && Path.Glob(entries[i], "*.z42.toml").Length == 0
+            && Path.GlobRecursive(entries[i], "*.z42").Length > 0) {
+            return root;
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// 段根 = 各 include pattern 首个通配段之前的公共字面前缀（`tests/*.z42` → `tests`）。
+// 深度取最小值，前缀取该深度下的第一条 pattern 的段（各 pattern 段根不一致时保守取第一条）。
+string _dtSectionRoot(string[] includes, int n) {
+    int d = _dtRootDepth(includes, n);
+    if (n == 0) { return ""; }
+    return _dtJoinSegs(_dtSplitSlash(includes[0]), d);
+}
+
+// 段根深度 = include 各 pattern **首个通配段之前**的字面段数，取各 pattern 的最小值。
+// `["tests/*.z42", "tests/secp256k1/**/*.z42"]` → 1（段根就是 `tests/`）。命中文件相对段根再深一层，
+// 就是目录单元。这样「段根在哪」由配置自己说了算，不写死 `tests`。
+int _dtRootDepth(string[] includes, int n) {
+    int best = 0 - 1;
+    int i = 0;
+    while (i < n) {
+        string[] segs = _dtSplitSlash(includes[i]);
+        int d = 0;
+        while (d < segs.Length - 1 && !_dtHasWildcard(segs[d])) { d = d + 1; }
+        if (best < 0 || d < best) { best = d; }
+        i = i + 1;
+    }
+    if (best < 0) { return 0; }
+    return best;
+}
+
+bool _dtHasWildcard(string s) {
+    int i = 0;
+    while (i < s.Length) {
+        char c = s.CharAt(i);
+        if (c == '*' || c == '?') { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+string[] _dtSplitSlash(string s) {
+    int n = 1;
+    int i = 0;
+    while (i < s.Length) { if (s.CharAt(i) == '/') { n = n + 1; } i = i + 1; }
+    string[] r = new string[n];
+    int start = 0;
+    int k = 0;
+    i = 0;
+    while (i < s.Length) {
+        if (s.CharAt(i) == '/') {
+            r[k] = s.Substring(start, i - start); k = k + 1;
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    r[k] = s.Substring(start, s.Length - start);
+    return r;
+}
+
+// 前 count 段用 `/` 拼回。
+string _dtJoinSegs(string[] segs, int count) {
+    string r = "";
+    int i = 0;
+    while (i < count) {
+        if (i > 0) { r = r + "/"; }
+        r = r + segs[i];
+        i = i + 1;
+    }
+    return r;
+}
+
+// 绝对路径 → 相对 sourceDir（派生 manifest 的 include 是 projDir 相对）。
+string _dtRelOf(string sourceDir, string abs) {
+    string a = abs.Replace("\\", "/");
+    string d = sourceDir.Replace("\\", "/");
+    if (!d.EndsWith("/")) { d = d + "/"; }
+    if (a.StartsWith(d)) { return a.Substring(d.Length); }
+    return a;
+}
+
+void _dtSortStrings(string[] a, int n) {
+    int p = 0;
+    while (p < n) {
+        int min = p; int q = p + 1;
+        while (q < n) { if (a[q].CompareTo(a[min]) < 0) { min = q; } q = q + 1; }
+        if (min != p) { string t = a[p]; a[p] = a[min]; a[min] = t; }
+        p = p + 1;
+    }
+}

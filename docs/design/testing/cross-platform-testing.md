@@ -27,6 +27,13 @@
 > ②b z42b 接管平台部署运行 + test workload 打包发布 + **各平台 backend 委托 `z42b test --rid`、退 bespoke**
 > （`xtask_test_platform.z42` 的 `IPlatformBackend` 收缩为薄壳）——待做；
 > ③ z42b in-process 编译成熟后，「编译一个项目」也走 z42b（语料级编译仍留 xtask）。
+> **③ 刀一已落（z42b-owns-test-targets，2026-09-12）**：`z42b test <toml>` 从**真 manifest** 解析
+> `[[test]]`/`[[bench]]` 与 `[tests]`/`[bench]` glob，**在内存里派生** ProjectManifest（不再由 xtask
+> 伪造 mini-manifest 落盘）后走同一条 `_orchestrate`；`--name` 选单个目标，不给则全部。
+> 父包身份因此全程保留 ⇒ **测试目标可见父包的 `internal`**（`ImportedSymbolLoader` 对父包不设
+> `IsImported`；`AccessChecker` 未改，故 `private` 仍不可见 —— 边界同 C# `InternalsVisibleTo`），
+> 且**不引入双编译**（父包只建一次，各目标共用其产物）。
+> 刀二：`harness=false` 的 exe 路径、并行策略、xtask 各测试路径转发、`[Test]` 出现在非目标里判错。
 > 详见 change `unify-test-pipeline-z42b` 的 design.md（D1–D6）+ `add-z42b-compile-then-test`。
 
 > **更新（retire-test-runner，2026-06-30）**：本文多处把 runner 描述为 Rust **library**
