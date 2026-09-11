@@ -144,6 +144,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..TUNING
     },
     KnobSpec {
+        name: "Z42_GC_PHASES",
+        toml_key: "gc-phases",
+        value: ValueKind::Bool,
+        description: "break each collection's pause down on stderr — one line per phase (reset marks, full mark, each half of sweep, aging) with duration and entries handled",
+        default_hint: "unset; off. The timers never read the clock when off (zero cost)",
+        consumed_by: "gc/phase_timer.rs, read at each phase boundary in gc/arc_heap/",
+        ..DEBUG_KNOB
+    },
+    KnobSpec {
         name: "Z42_GC_PRESSURE_RATIO",
         toml_key: "gc-pressure-ratio",
         value: ValueKind::Float { min: 0.0, max: 1.0 },

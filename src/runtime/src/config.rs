@@ -123,6 +123,12 @@ pub struct RuntimeConfig {
     /// size (64 KB), which is also the hard ceiling. Process-global: applied once at VM
     /// construction because the TLAB fast path has no heap reference.
     pub gc_loh_bytes: Option<u64>,
+    /// `Z42_GC_PHASES` — per-phase pause breakdown on stderr (add-gc-phase-timing,
+    /// 2026-09-11): one indented line per GC phase (reset marks / full mark / each half of
+    /// sweep / aging …) with its duration and, where it means something, how many entries it
+    /// handled. `Z42_GC_TRACE` says how long a collection took; this says where it went.
+    /// Off = zero cost (the timers never read the clock).
+    pub gc_phases: bool,
     /// `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs,
     /// 2026-09-05): one line per cycle with kind, heap used before/after,
     /// bytes reclaimed and pause µs. Any non-empty value except `0`/`false`
@@ -255,6 +261,7 @@ impl Default for RuntimeConfig {
             gc_nursery_bytes: None,
             gc_promotion_age: None,
             gc_loh_bytes: None,
+            gc_phases: false,
             gc_trace: false,
             gc_near_limit_ratio: 0.90,
             gc_pressure_ratio: 0.75,
@@ -393,6 +400,7 @@ impl RuntimeConfig {
             // 它对"非 0/false/off/no 即真"是宽松的，但两者都声明了
             // `ValueKind::Bool`，非布尔字符串在 `resolve_knobs` 就被判 Invalid +
             // 诊断、根本到不了这里——宽松与严格在这条链上不冲突。
+            gc_phases:           parse_bool_knob(&get, "Z42_GC_PHASES"),
             gc_trace:            parse_bool_knob(&get, "Z42_GC_TRACE"),
             jit_profile:         parse_bool_knob(&get, "Z42_JIT_PROFILE"),
             mode:                get("Z42_MODE"),

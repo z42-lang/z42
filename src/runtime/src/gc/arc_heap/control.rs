@@ -6,6 +6,7 @@ use crate::metadata::{ScriptObject, Value};
 use crate::metadata::types::{ArrayObj};
 use crate::gc::refs::{GcRef};
 use crate::gc::types::{CollectStats, GcEvent, GcKind};
+use crate::gc::phase_timer::PhaseTimer;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Cycle collection — mark-sweep.
@@ -76,9 +77,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // borrowed chunk from being skipped by sweep. Idempotent when unbound.
         self.retire_thread_tlab();
         // Defensive reset: ensure clean state for STW mark.
-        self.reset_all_marks_in_regions();
+        {
+            let _t = PhaseTimer::start("reset marks");
+            self.reset_all_marks_in_regions();
+        }
         self.mark_queue.lock().clear();
-        let _newly_marked = self.mark_phase();
+        let _newly_marked = {
+            let t = PhaseTimer::start("full mark");
+            let n = self.mark_phase();
+            t.count(n);
+            n
+        };
         // **add-gc-softref (2026-05-26)**: revive soft-ref targets that
         // are unmarked but below the pressure threshold.
         self.revive_soft_refs();
@@ -93,7 +102,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
         };
         let live_contexts = ctx_snapshot.as_ref().map(|s| self.scan_marked_contexts(s));
-        let freed = self.sweep_phase();
+        let freed = {
+            let _t = PhaseTimer::start("sweep");
+            self.sweep_phase()
+        };
         // Reclaim Unloading contexts with no live references (post-sweep, STW).
         if let Some(live) = live_contexts {
             if let Some(r) = self.context_reclaimer.lock().as_ref() {

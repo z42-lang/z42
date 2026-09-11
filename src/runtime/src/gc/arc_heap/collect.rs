@@ -4,6 +4,7 @@
 use crate::metadata::Value;
 use crate::gc::refs::{GcRef};
 use crate::gc::types::{FinalizerFn};
+use crate::gc::phase_timer::PhaseTimer;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// **add-mark-sweep-collector P3 (2026-05-21)**: mark phase of the
@@ -161,6 +162,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Object region.
         let mut tombstones_object: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> =
             Vec::new();
+        let scan_objects = PhaseTimer::start("sweep/scan objects");
         {
             let region = self.region_object.lock();
             region.iterate_alive(|h, entry| {
@@ -182,7 +184,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
             let q = self.mark_queue.lock().len();
             assert_eq!(q, 0, "BUG: mark_queue non-empty after object region scan ({q} items)");
         }
+        scan_objects.count(tombstones_object.len());
+        drop(scan_objects);
         // Fire finalizers + clear inner refs + tombstone.
+        let tomb_objects = PhaseTimer::start("sweep/tomb objects");
+        tomb_objects.count(tombstones_object.len());
         for (h, fin, size) in tombstones_object {
             if let Some(f) = fin { f(); }
             #[cfg(debug_assertions)]
@@ -230,7 +236,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
             assert_eq!(q, 0, "BUG: mark_queue non-empty after object tombstone loop ({q} items)");
         }
 
+        drop(tomb_objects);
+
         // Array region.
+        let scan_arrays = PhaseTimer::start("sweep/scan arrays");
         let mut tombstones_array: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> =
             Vec::new();
         {
@@ -248,6 +257,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             });
         }
+        scan_arrays.count(tombstones_array.len());
+        drop(scan_arrays);
+        let tomb_arrays = PhaseTimer::start("sweep/tomb arrays");
+        tomb_arrays.count(tombstones_array.len());
         for (h, fin, size) in tombstones_array {
             if let Some(f) = fin { f(); }
             freed_bytes += size;
@@ -257,6 +270,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // the same cycle. Tombstoning the header just releases the region_array slot.
             self.region_array.lock().tombstone(h);
         }
+        drop(tomb_arrays);
 
         // Variable-length region (unify-gc-heap PR-2: closures). `VarRegion::sweep` mark-checks
         // + tombstones every unmarked live block internally, running the injected drop-glue
@@ -272,7 +286,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // reclaimed_count × sizeof(ClosureData) — was a constant applied to
             // variable-length blocks and double-counted array storage, so `freed` could
             // exceed `used_before` and the auto-collect budget read low.
-            let (_reclaimed, credited) = self.region_var.lock().sweep();
+            let t = PhaseTimer::start("sweep/var");
+            let (reclaimed, credited) = self.region_var.lock().sweep();
+            t.count(reclaimed);
             freed_bytes += credited;
         }
 
@@ -281,10 +297,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // recycles it (short-lived-object workloads like the compiler otherwise
         // grow chunks unboundedly, since the TLAB path bypasses slot-level
         // free_list reuse). Runs under STW at the sweep tail, after tombstoning.
-        self.region_object.lock().reclaim_dead_chunks();
-        self.region_array.lock().reclaim_dead_chunks();
-        // stage 3: variable-length region chunk reclaim (fully-dead bump chunks → pool).
-        self.region_var.lock().reclaim_dead_var_chunks();
+        {
+            let _t = PhaseTimer::start("sweep/chunk reclaim");
+            self.region_object.lock().reclaim_dead_chunks();
+            self.region_array.lock().reclaim_dead_chunks();
+            // stage 3: variable-length region chunk reclaim (fully-dead bump chunks → pool).
+            self.region_var.lock().reclaim_dead_var_chunks();
+        }
 
         #[cfg(debug_assertions)]
         self.debug_stw_no_push.store(false, std::sync::atomic::Ordering::SeqCst);
