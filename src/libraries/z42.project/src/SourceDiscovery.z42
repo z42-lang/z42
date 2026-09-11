@@ -58,9 +58,17 @@ public static class SourceDiscovery {
         return r;
     }
 
+    // glob 展开。三档：
+    //   ① `**/<suffix>`           → 整个 projectDir 递归
+    //   ② `<prefix>/**/<suffix>`  → prefix 子目录下递归（如默认 `src/**/*.z42`）
+    //   ③ 其余                    → **逐段展开**（见下）
+    //
+    // ③ 此前是「按最后一个 `/` 切成 dirPart + filePart，再 Path.Glob(projDir/dirPart, filePart)」，
+    // 那假定**目录部分是字面量**。于是 `tests/*/source.z42` 这种完全合法的写法会去找一个字面名
+    // 叫 `*` 的目录 → 不存在 → **静默返回空数组**。静默空是最坏的失败形态：调用方（z42b 按
+    // `[tests] include` 发现测试目标）看到的「这个包没有测试」与「真的没有测试」不可区分。
+    // 改为逐段走：目录段照样吃 `*` / `?`。
     private static string[] _expand(string projectDir, string pattern) {
-        // `**/` 前缀 → 整个 projectDir 递归；`<prefix>/**/<suffix>` → 在 prefix 子目录下递归
-        // （如默认 `src/**/*.z42`）；否则单层（stdlib Path.Glob/GlobRecursive）。
         if (pattern.StartsWith("**/")) {
             return Path.GlobRecursive(projectDir, pattern.Substring(3, pattern.Length - 3));
         }
@@ -70,20 +78,104 @@ public static class SourceDiscovery {
             string suffix = pattern.Substring(mid + 4, pattern.Length - (mid + 4));
             return Path.GlobRecursive(Path.Join(projectDir, prefix), suffix);
         }
-        // `<dir>/<pat>`（带目录、无 `**`，如 `tests/queue_*.z42` 或 `tests/api_tests.z42`）→
-        // 在该子目录里单层 glob。此前这一档落到下面的 `Path.Glob(projectDir, pattern)`，
-        // 而那个只在 projectDir 单层匹配、pattern 里的 `/` 匹配不上 ⇒ **静默返回空**。
-        // 表现为「no .z42 sources under <dir>」——z42b 按 dev target 的 sources glob 编译时撞到
-        // （z42b-owns-test-targets）。
-        int lastSlash = 0 - 1;
-        int ci = 0;
-        while (ci < pattern.Length) { if (pattern.CharAt(ci) == '/') { lastSlash = ci; } ci = ci + 1; }
-        if (lastSlash >= 0) {
-            string dirPart  = pattern.Substring(0, lastSlash);
-            string filePart = pattern.Substring(lastSlash + 1, pattern.Length - (lastSlash + 1));
-            return Path.Glob(Path.Join(projectDir, dirPart), filePart);
+        // 逐段：最后一段是文件模式，之前每段都是目录模式（可带通配）。
+        // 目录前沿（frontier）逐段扩张；Path.Glob 返回目录与文件两者，故用 Directory.Exists 滤出目录。
+        string[] segs = SourceDiscovery._splitSlash(pattern);
+        string[] frontier = new string[1];
+        frontier[0] = projectDir;
+        int fn = 1;
+        int si = 0;
+        while (si < segs.Length - 1) {
+            string[] next = new string[8];
+            int nn = 0;
+            int di = 0;
+            while (di < fn) {
+                string[] dirHits = SourceDiscovery._dirStep(frontier[di], segs[si]);
+                int hi = 0;
+                while (hi < dirHits.Length) {
+                    if (nn == next.Length) { next = SourceDiscovery._growStrings(next, nn); }
+                    next[nn] = dirHits[hi]; nn = nn + 1;
+                    hi = hi + 1;
+                }
+                di = di + 1;
+            }
+            frontier = next; fn = nn;
+            si = si + 1;
         }
-        return Path.Glob(projectDir, pattern);
+        string last = segs[segs.Length - 1];
+        string[] acc = new string[8];
+        int an = 0;
+        int fi = 0;
+        while (fi < fn) {
+            string[] fileHits = Path.Glob(frontier[fi], last);
+            int k = 0;
+            while (k < fileHits.Length) {
+                if (an == acc.Length) { acc = SourceDiscovery._growStrings(acc, an); }
+                acc[an] = fileHits[k]; an = an + 1;
+                k = k + 1;
+            }
+            fi = fi + 1;
+        }
+        string[] r = new string[an];
+        int j = 0; while (j < an) { r[j] = acc[j]; j = j + 1; }
+        return r;
+    }
+
+    // 一段目录展开：字面段直接拼（存在才留），通配段走 Path.Glob 后只留目录。
+    private static string[] _dirStep(string dir, string seg) {
+        if (!SourceDiscovery._hasWildcard(seg)) {
+            string cand = Path.Join(dir, seg);
+            if (!Directory.Exists(cand)) { return new string[0]; }
+            string[] one = new string[1]; one[0] = cand;
+            return one;
+        }
+        string[] hits = Path.Glob(dir, seg);
+        int n = 0;
+        int i = 0;
+        while (i < hits.Length) { if (Directory.Exists(hits[i])) { n = n + 1; } i = i + 1; }
+        string[] r = new string[n];
+        int j = 0;
+        i = 0;
+        while (i < hits.Length) {
+            if (Directory.Exists(hits[i])) { r[j] = hits[i]; j = j + 1; }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    private static bool _hasWildcard(string s) {
+        int i = 0;
+        while (i < s.Length) {
+            char c = s.CharAt(i);
+            if (c == '*' || c == '?') { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static string[] _splitSlash(string s) {
+        int n = 1;
+        int i = 0;
+        while (i < s.Length) { if (s.CharAt(i) == '/') { n = n + 1; } i = i + 1; }
+        string[] r = new string[n];
+        int start = 0;
+        int k = 0;
+        i = 0;
+        while (i < s.Length) {
+            if (s.CharAt(i) == '/') {
+                r[k] = s.Substring(start, i - start); k = k + 1;
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        r[k] = s.Substring(start, s.Length - start);
+        return r;
+    }
+
+    private static string[] _growStrings(string[] a, int n) {
+        string[] b = new string[n * 2];
+        int k = 0; while (k < n) { b[k] = a[k]; k = k + 1; }
+        return b;
     }
 
     // 排除产物目录（dist/.cache 任意层级出现）+ 调用方传入的 exclude glob。

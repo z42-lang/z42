@@ -76,22 +76,33 @@ DevTarget[] _resolveDevTargetsF(ProjectManifest m, string kind, string nameFilte
         }
         i = i + 1;
     }
-    // 段级 glob（`[tests] include` / `[bench] include`）：**一文件一单元**，对齐今天约定发现的分法
+    // 段级 glob（`[tests] include` / `[bench] include`）：**一单元一目标**，对齐 xtask 今天的分法
     // ——不是把整段糊成一个目标（那会让一个文件失败牵连整段，且 --name 无从点名）。
-    // 单元名 = 文件名去 `.z42`；**同名显式目标覆盖之**（沿用既有「显式覆盖同名 auto」语义）。
+    // 单元有两种形态，由命中文件相对「段根」的深度决定：
+    //   · **文件单元**：`tests/queue.z42`      → 名 `queue`，源就这一个文件
+    //   · **目录单元**：`tests/dict/source.z42` → 名 `dict`，源是 `tests/dict/**/*.z42` 整目录
+    // 目录形态不是可选的花样，是必需的：① 目录单元允许多文件 —— z42.crypto 的 `tests/secp256k1/`
+    // = `source.z42` + `vectors.z42` 共享 namespace，只编入口文件必然 `SecpVectors` 未定义；
+    // ② 约定布局下入口文件**全叫 source.z42**，按文件名命名会让每个目录单元都叫 `source`、
+    // 互相撞名只活下来一个。**同名显式目标覆盖之**（沿用既有「显式覆盖同名 auto」语义）。
     if (sec != null && sec.IncCount > 0) {
         string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, sec.Include, sec.IncCount,
                                                              sec.Exclude, sec.ExcCount);
         _dtSortStrings(files, files.Length);   // 确定序（common-pitfalls §1）
+        int rootDepth = _dtRootDepth(sec.Include, sec.IncCount);
         int f = 0;
         while (f < files.Length) {
-            string unit = _dtUnitName(files[f]);
+            string rel = _dtRelOf(sourceDir, files[f]);
+            string[] segs = _dtSplitSlash(rel);
+            bool isDirUnit = segs.Length > rootDepth + 1;
+            string unit = isDirUnit ? segs[rootDepth] : _dtUnitName(files[f]);
             bool dup = false;
             int d = 0;
             while (d < n) { if (outp[d].Name == unit) { dup = true; } d = d + 1; }
             if (!dup && _dtMatches(unit, nameFilter, substrFilter)) {
                 if (n == outp.Length) { outp = _dtGrow(outp, n); }
-                string[] one = new string[1]; one[0] = _dtRelOf(sourceDir, files[f]);
+                string[] one = new string[1];
+                one[0] = isDirUnit ? (_dtJoinSegs(segs, rootDepth + 1) + "/**/*.z42") : rel;
                 outp[n] = new DevTarget(unit, one, 1, new DepEntry[0], 0, true, false, "");
                 n = n + 1;
             }
@@ -176,6 +187,64 @@ string _dtUnitName(string path) {
     string b = Path.GetFileName(path);
     if (b.EndsWith(".z42")) { return b.Substring(0, b.Length - 4); }
     return b;
+}
+
+// 段根深度 = include 各 pattern **首个通配段之前**的字面段数，取各 pattern 的最小值。
+// `["tests/*.z42", "tests/secp256k1/**/*.z42"]` → 1（段根就是 `tests/`）。命中文件相对段根再深一层，
+// 就是目录单元。这样「段根在哪」由配置自己说了算，不写死 `tests`。
+int _dtRootDepth(string[] includes, int n) {
+    int best = 0 - 1;
+    int i = 0;
+    while (i < n) {
+        string[] segs = _dtSplitSlash(includes[i]);
+        int d = 0;
+        while (d < segs.Length - 1 && !_dtHasWildcard(segs[d])) { d = d + 1; }
+        if (best < 0 || d < best) { best = d; }
+        i = i + 1;
+    }
+    if (best < 0) { return 0; }
+    return best;
+}
+
+bool _dtHasWildcard(string s) {
+    int i = 0;
+    while (i < s.Length) {
+        char c = s.CharAt(i);
+        if (c == '*' || c == '?') { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+string[] _dtSplitSlash(string s) {
+    int n = 1;
+    int i = 0;
+    while (i < s.Length) { if (s.CharAt(i) == '/') { n = n + 1; } i = i + 1; }
+    string[] r = new string[n];
+    int start = 0;
+    int k = 0;
+    i = 0;
+    while (i < s.Length) {
+        if (s.CharAt(i) == '/') {
+            r[k] = s.Substring(start, i - start); k = k + 1;
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    r[k] = s.Substring(start, s.Length - start);
+    return r;
+}
+
+// 前 count 段用 `/` 拼回。
+string _dtJoinSegs(string[] segs, int count) {
+    string r = "";
+    int i = 0;
+    while (i < count) {
+        if (i > 0) { r = r + "/"; }
+        r = r + segs[i];
+        i = i + 1;
+    }
+    return r;
 }
 
 // 绝对路径 → 相对 sourceDir（派生 manifest 的 include 是 projDir 相对）。

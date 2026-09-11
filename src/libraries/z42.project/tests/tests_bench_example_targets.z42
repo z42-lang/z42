@@ -12,9 +12,10 @@ using Z42.Build.Project;
 void test_target_sections_default_when_absent() {
     string toml = "[project]\nname = \"d\"\nversion = \"0.1.0\"\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
-    Assert.Equal(2, m.TestsSection.IncCount);
+    // 默认只有「一文件一单元」这一条。曾经还带一条 `tests/*/source.z42`，但 glob 分不出
+    // 反射 [Test] 目录和 golden 目录（两者都是 `<name>/source.z42`）——目录单元改为必须显式配。
+    Assert.Equal(1, m.TestsSection.IncCount);
     Assert.Equal("tests/*.z42", m.TestsSection.Include[0]);
-    Assert.Equal("tests/*/source.z42", m.TestsSection.Include[1]);
     Assert.Equal(true, m.TestsSection.Auto);
     Assert.Equal(0, m.TestsSection.DepCount);
     Assert.Equal("bench/*.z42", m.BenchSection.Include[0]);

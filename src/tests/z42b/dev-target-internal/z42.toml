@@ -18,5 +18,13 @@ include = ["src/**/*.z42"]
 name    = "internals_tests"   # 与文件名同名 → 覆盖段级 glob 的同名 auto 单元（不重复跑）
 sources = ["tests/internals_tests.z42"]
 
+# 段级发现：默认只认 `tests/*.z42`（一文件一单元）。**目录单元必须显式配** —— glob 分不出
+# 「[Test] 目录」和 golden 目录（两者都长成 `<name>/source.z42`），所以不猜。下面这条把
+# tests/dirunit/ 整目录并成一个单元（名字取目录名 `dirunit`），锁住两件事：
+#   ① 兄弟文件 vectors.z42 被一起编进来（只编入口文件的话 DirUnitVectors 未定义）；
+#   ② 目录单元同样享有「父包测试目标」身份 → 看得见 internal。
+[tests]
+include = ["tests/*.z42", "tests/dirunit/**/*.z42"]
+
 [tests.dependencies]
 "z42.test" = "0.1.0"
