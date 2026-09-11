@@ -19,12 +19,16 @@ public class Z42cCompiler : ICompiler {
 
     public CompileResult Compile(CompileRequest req) {
         // 1. 源发现（MVP 默认 glob；z42b scaffold 的标准布局覆盖）。
-        string[] includes = new string[1]; includes[0] = "**/*.z42";
+        // z42b-owns-test-targets：优先用 req.Includes（z42b 按 dev target 的 sources glob 传），
+        // 空则沿用全扫（现状）。此前硬编码全扫 ⇒ 按目标编译会把整个工程编进去。
+        string[] includes = req.Includes;
+        int includeN = req.IncludesCount;
+        if (includeN == 0) { includes = new string[1]; includes[0] = "**/*.z42"; includeN = 1; }
         // fix-hooks-source-scan 阶段4.2：应用 req.Excludes（z42b/publish 从 manifest 组装的 exclude
         // glob——含 `[build] hooks` 目录），让 in-process 编译路径的产物也排除 hooks 死类
         // （ProjectHooks : BuildHooks → 跨包 vtable fixup 假警报）。req 由 Pipeline.Compile 组装
         // （阶段2 的 z42c.driver 直编路径同款，见 Main._build）。
-        string[] srcs = SourceDiscovery.DiscoverWithExclude(req.SourceDir, includes, 1, req.Excludes, req.ExcludesCount);
+        string[] srcs = SourceDiscovery.DiscoverWithExclude(req.SourceDir, includes, includeN, req.Excludes, req.ExcludesCount);
         if (srcs.Length == 0) {
             return new CompileResult("", "", false, "no .z42 sources under " + req.SourceDir);
         }
@@ -62,12 +66,20 @@ public class Z42cCompiler : ICompiler {
         CompileInputs inp = new CompileInputs();
         inp.Texts = texts; inp.Files = srcs; inp.SrcHashes = hashes; inp.SrcCount = srcs.Length;
         inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
-        string name = Path.GetFileName(req.SourceDir);
+        // 包名优先取 manifest 的 `[project].name`（req.PackageName）；空则沿用源目录尾名（现状）。
+        // 此前只用目录名 ⇒ 产物 META 包名可能与 manifest 不符，依赖按名解析随之错位。
+        string name = req.PackageName;
+        if (name == "") { name = Path.GetFileName(req.SourceDir); }
         if (name == "") { name = "app"; }
         string kind = req.Kind;
         if (kind == "") { kind = "exe"; }              // 未指定 → app 默认 exe（保持既有 MVP 行为）
         inp.Name = name; inp.Version = "0.0.0"; inp.Kind = kind;
         inp.HasEntry = false; inp.Entry = "";
+        // z42b-owns-test-targets：req.ParentPkg 非空 → 本次是该包的测试/bench 目标（z42b 从真
+        // manifest 解析目标后设）。⇒ 加载父包时按同包待遇（其 internal 可见）、且 [Test] 放行。
+        // 空 → 普通编译，行为与此前逐字节一致。
+        inp.ParentPkg = req.ParentPkg;
+        inp.HasPkgContext = (req.ParentPkg != "");
         inp.IsRelease = req.Profile == "release";
         inp.LibsDirs = libsDirs; inp.LibsDirsN = libsN;
         inp.DeclaredDeps = declaredDeps; inp.DepCount = depN;

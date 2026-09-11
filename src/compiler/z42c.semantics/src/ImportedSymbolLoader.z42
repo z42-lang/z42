@@ -93,8 +93,17 @@ public static class ImportedSymbolLoader {
     }
 
     // exported/pkgNames 平行（DepScan 产物）；usings = cu 的 using ns 列表。
+    // parentPkg（z42b-owns-test-targets）：本次编译若是 <parentPkg> 的测试/bench 目标，加载该包时
+    // 按**同包**待遇 —— 不设 IsImported ⇒ 其 internal 成员可见。其余依赖照旧跨包。`""` = 现状。
+    // 为什么这样就够：导出端不按可见性过滤、导入端也不过滤 ⇒ internal 成员**本来就完整在 zpkg 里**，
+    // 跨包拦截只靠 IsImported 这一个布尔（AccessChecker:40）。故零格式改动、AccessChecker 一行不改。
     public static ImportedSymbols Load(ExportedModuleZ[] exported, string[] pkgNames, int exportedCount,
                                        string[] usings, int usingCount) {
+        return ImportedSymbolLoader.Load(exported, pkgNames, exportedCount, usings, usingCount, "");
+    }
+
+    public static ImportedSymbols Load(ExportedModuleZ[] exported, string[] pkgNames, int exportedCount,
+                                       string[] usings, int usingCount, string parentPkg) {
         var r = new ImportedSymbols();
         // ── 激活集：prelude 包恒激活；非 prelude 须有 using 命中其某模块 ns ──
         bool[] active = new bool[exportedCount];
@@ -152,7 +161,10 @@ public static class ImportedSymbolLoader {
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         if (hasBase) { baseName = cl.BaseName; }
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
-                        nct.IsImported = true;        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问
+                        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问。
+                        // z42b-owns-test-targets：**例外** —— 本次编译是 <parentPkg> 的测试/bench 目标时，
+                        // 加载父包按同包待遇（internal 可见）。其余依赖照旧。parentPkg=="" → 恒 true（现状）。
+                        nct.IsImported = !(parentPkg != "" && pkgNames[i] == parentPkg);
                         nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
                         nct.IsDeprecated = cl.IsDeprecated; nct.DeprecationMsg = cl.DeprecationMsg;   // add-deprecated-directive：跨包类级弃用（use-site 告警）
                         nct.Visibility = cl.Visibility;   // enforce-class-access：跨包类声明可见性（internal 类跨包引用 deny）
@@ -211,7 +223,9 @@ public static class ImportedSymbolLoader {
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
-                        nift.IsImported = true;                 // complete-class-access-control ④：来自依赖 zpkg（跨包）→ internal 接口不可引用
+                        // complete-class-access-control ④：跨包 → internal 接口不可引用。
+                        // 同上例外：父包的 internal 接口对其测试目标可见。
+                        nift.IsImported = !(parentPkg != "" && pkgNames[i] == parentPkg);
                         nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
                         // add-associated-types PR-3：导入接口的型参名进符号表（与本包 StubCollector 对称）。
                         nift.TypeParamNames = iz.TypeParams; nift.TypeParamCount = iz.TpCount;

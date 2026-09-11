@@ -79,6 +79,7 @@ SubcommandRouter _builderRoot() {
     test.AddOptionalPositional("target", "<file.zbc|file.zpkg|bundle.json|project.z42.toml> (default: z42.toml)");
     test.AddOption("filter", "", "test name substring filter (reserved)", "");
     test.AddOption("format", "", "output format: pretty|json", "pretty");
+    test.AddOption("name", "", "only build+run the [[test]] target with this name (default: all)", "");
     test.AddOption("rid", "", "target RID: host (default, in-process) | device (assemble deployable)", "");
     test.AddOption("out", "", "device RID: output dir for the assembled {app,libs,bundle} deployable", "");
     // Device RID sub-steps (z42b-device-run Slice 3). Default (no flag) on a device
@@ -100,6 +101,7 @@ SubcommandRouter _builderRoot() {
     bench.AddOptionalPositional("target", "<file.zbc|file.zpkg|project.z42.toml> (default: z42.toml)");
     bench.AddOption("filter", "", "benchmark name substring filter (reserved)", "");
     bench.AddOption("format", "", "output format: pretty|json (json adds bench_stats)", "pretty");
+    bench.AddOption("name", "", "only build+run the [[bench]] target with this name (default: all)", "");
     bench.AddOption("rid", "", "compile-then-test: target RID (default: host)", "");
     bench.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
     root.Add("bench", "run [Benchmark] in a compiled module or project", bench);

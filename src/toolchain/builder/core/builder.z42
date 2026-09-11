@@ -28,7 +28,23 @@ using Z42.Build.Project;
 // 目录 → 生成一次性 driver 源码」设计被动态注入取代（也修掉了隐式探测会把 xtask 的
 // scripts/build/ 源码目录误判为 hook 目录的坑——hooks 只认 manifest 显式声明）。
 int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel) {
+    return _orchestrateFor(manifest, target, sourceDir, hooksRel, "");
+}
+
+// parentPkg（z42b-owns-test-targets）：非空 → 本次是该包的测试/bench 目标，透传给编译器
+// ⇒ 加载父包时按同包待遇（其 internal 可见）。
+// 注：z42 的**自由函数不重载**（E0408），故另起名字而非同名多签名。
+int _orchestrateFor(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
+                    string parentPkg) {
+    return _orchestrateWith(manifest, target, sourceDir, hooksRel, parentPkg, "");
+}
+
+// extraDepDir（z42b-owns-test-targets）：除 Z42_LIBS 外再供一个 zpkg 目录 —— 测试目标要依赖
+// **刚建好的父包**，而父包的 dist 不在 Z42_LIBS 里。
+int _orchestrateWith(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
+                     string parentPkg, string extraDepDir) {
     Pipeline p = new Pipeline();
+    p.ParentPkg = parentPkg;
     p.Compiler = _hostCompiler();                  // 共享 z42c 编译实现（ICompiler），in-process
     p.Workload = _selectWorkload(target.Family);   // 标准平台 workload 库
 
@@ -47,7 +63,7 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, stri
     ctx.Manifest    = manifest;
     ctx.Target      = target;
     ctx.Dirs        = dirs;
-    ctx.Inputs      = _initialInputs(manifest);
+    ctx.Inputs      = _initialInputsWith(manifest, extraDepDir);
     ctx.WorkloadDir = "";                          // 实现期：选中 workload 的安装目录
     return p.Run(ctx);
 }
@@ -134,13 +150,21 @@ Dirs _computeDirs(ProjectManifest m, string sourceDir, string profile) {
 // compile 相位前的初始输入（wire-z42b 2b）：Deps = Z42_LIBS 下 manifest 声明依赖的 zpkg
 // 路径（MVP 单源 Z42_LIBS；workspace 兄弟 dist 多源解析归 wire-z42b-future-deps-resolve）。
 // Z42cCompiler 由这些路径的父目录集推导 LibsDirs（design D3）。
-Inputs _initialInputs(ProjectManifest m) {
+Inputs _initialInputs(ProjectManifest m) { return _initialInputsWith(m, ""); }
+
+Inputs _initialInputsWith(ProjectManifest m, string extraDepDir) {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
-    if (libs.Length == 0) { return new Inputs("", "", new string[0]); }
+    if (libs.Length == 0 && extraDepDir.Length == 0) { return new Inputs("", "", new string[0]); }
     // 镜像 z42c CLI 的 Z42_LIBS 语义：整目录全部 zpkg 供扫（stdlib 恒可用——prelude/Std.IO
     // 无需在 app 的 toml 里显式声明；非 stdlib 依赖仍受 DepIndex 白名单约束，见 Z42cCompiler）。
-    string[] deps = Path.Glob(libs, "*.zpkg");
-    return new Inputs("", "", deps);
+    string[] baseDeps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
+    if (extraDepDir.Length == 0) { return new Inputs("", "", baseDeps); }
+    // 追加 extraDepDir 下的 zpkg（父包 dist）。
+    string[] extra = Path.Glob(extraDepDir, "*.zpkg");
+    string[] all = new string[baseDeps.Length + extra.Length];
+    int i = 0; while (i < baseDeps.Length) { all[i] = baseDeps[i]; i = i + 1; }
+    int j = 0; while (j < extra.Length) { all[baseDeps.Length + j] = extra[j]; j = j + 1; }
+    return new Inputs("", "", all);
 }
 
 // ── RID / family 辅助（镜像 launcher 的 _hostRid / _ridCategory）──────────────
