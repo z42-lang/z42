@@ -32,6 +32,13 @@ public sealed class SymbolTable {
     // （imported 从不进）、`ImportedSymbols.ClassNamespaces` 是裸名 → **单个** ns —— 三个生产点都把
     // 「同一短名有几份」这个信息塌掉了。不重建它就无从判歧义（C# CS0104 的判据）。
     public StrMap ClassNsAll;
+    // report-crosspkg-duplicate-type：**FQN → 声明它的全部依赖包名**（值 StrBox，"|" 连接）。
+    // 与 ClassNsAll 同构、但另一根轴：那张表答「同一个短名有几个 ns」（E0456），这张答
+    // 「同一个 **FQN** 有几个来源包」（E0601）。两者不可合并 —— 同 FQN 跨包时 ns 完全相同，
+    // ClassNsAll 只会记下一条，信息在那里就塌掉了。
+    // 只登记**导入**的（由 ImportedSymbolLoader 在 first-wins 守卫之外累积，经 _mergeImports 并入）；
+    // 本地那份是否存在改由 ClassesByFqn 的 IsImported 位判（见 ShadowedImportMsg）。
+    public StrMap ClassPkgAll;
     // fix-arity-mangle-package-wide：**包级**「同短名有多个 arity」集合（name → "1"）。
     // arity-mangle 的判据必须与符号表同尺度：`Classes` 是 per-package 的，而预扫此前在
     // `StubCollector._passClassStubs`（per-CU）与 `ExportedTypeExtractor._extractCore`（per-CU）
@@ -53,6 +60,7 @@ public sealed class SymbolTable {
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
         this.ClassNsAll = new StrMap();
+        this.ClassPkgAll = new StrMap();   // report-crosspkg-duplicate-type
         this.MultiArityNames = new StrMap();
         this._firstArity = new StrMap();
         this.CurrentAliases = null;
@@ -86,6 +94,7 @@ public sealed class SymbolTable {
         t.EnumConsts = this.EnumConsts;
         t.Delegates = this.Delegates;
         t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
+        t.ClassPkgAll = this.ClassPkgAll;   // report-crosspkg-duplicate-type：共享（并行段内只读）。⚠️ 漏了这行 = 门恒不响
         t.MultiArityNames = this.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
         t.CurrentAliases = aliases;
         t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
@@ -150,6 +159,60 @@ public sealed class SymbolTable {
     }
 
     public static string QualOf(string ns, string name) { return ns == "" ? name : ns + "." + name; }
+
+    // ── report-crosspkg-duplicate-type：同一个 FQN 被多个包声明 ────────────────────────
+    //
+    // E0456 管的是「同一个**短名**在多个 ns 里」——限定写法（`A.Foo`）即可消歧。
+    // 这里管的是另一回事：**FQN 本身重复**。两个包都声明 `Demo.Ns.Widget` 时，
+    // 写全限定名也分不开它们 —— 实测限定与非限定都绑到同一个赢家（字母序靠前的包），
+    // 输的那份连同全部成员从未存在过，且**没有任何写法能指到它**（C# 有 extern alias，z42 没有）。
+    //
+    // ⚠️ 消息与判据都只此一份（同 IsBareNameAmbiguous / AmbiguousBareNameMsg 的纪律）。
+    // 两个消费端：TypeChecker._chkTypeRef（表达式位）与 SymbolCollector._chkTypeRefT（声明位）。
+
+    // 两个**依赖包**声明同一 FQN → E0601 消息；否则 ""。
+    public string CrossPkgDuplicateMsg(string fqn) {
+        string[] pkgs = this.ClassPkgsOf(fqn);
+        if (pkgs.Length < 2) { return ""; }
+        return "`" + fqn + "` is declared in more than one package: `" + pkgs[0] + "` and `" + pkgs[1]
+             + "` — their fully-qualified names are identical, so neither can be selected"
+             + " (rename one, or move it to a different namespace)";
+    }
+
+    // 本包声明的类型遮蔽了某个导入包的同 FQN 类型 → W0606 消息；否则 ""。
+    // 判据：该 FQN 上的赢家是**本地**类型（IsImported==false），而 ClassPkgAll 里又记着导入来源。
+    // 本地恒赢是既定规则（不是猜），所以是 warning 不是 error；但被遮蔽那份同样**指不了**，
+    // 故文案给的修法是改名，而不是「写限定名」。
+    public string ShadowedImportMsg(string fqn) {
+        string[] pkgs = this.ClassPkgsOf(fqn);
+        if (pkgs.Length < 1) { return ""; }
+        if (pkgs.Length >= 2) { return ""; }   // 两个导入包互撞 → 归 E0601，不在这里重复报
+        // 类与接口两张 FQN 视图都要查——E0601 那条经 `PkgCheckFqn` 本就覆盖接口，
+        // 只查 `ClassesByFqn` 会让「本地接口遮蔽导入接口」这半边单独哑掉（不对称的哑门）。
+        bool localWins = false;
+        int at = this.ClassesByFqn.Find(fqn);
+        if (at >= 0) {
+            Z42ClassType win = this.ClassesByFqn.ValAt(at) as Z42ClassType;
+            if (win != null && !win.IsImported) { localWins = true; }
+        }
+        int iat = this.InterfacesByFqn.Find(fqn);
+        if (iat >= 0) {
+            Z42InterfaceType iwin = this.InterfacesByFqn.ValAt(iat) as Z42InterfaceType;
+            if (iwin != null && !iwin.IsImported) { localWins = true; }
+        }
+        if (!localWins) { return ""; }   // 赢家是导入的（或查不到）→ 没有本地遮蔽
+        return "`" + fqn + "` is declared in this package and also in package `" + pkgs[0]
+             + "`; the local one wins and the imported one cannot be referenced at all"
+             + " (their fully-qualified names are identical) — rename one of them";
+    }
+
+    // FQN → 声明过它的依赖包名列表（无记录返回空数组）。
+    public string[] ClassPkgsOf(string fqn) {
+        int at = this.ClassPkgAll.Find(fqn);
+        if (at < 0) { return new string[0]; }
+        StrBox box = this.ClassPkgAll.ValAt(at) as StrBox;
+        return box.Value.Split("|");
+    }
 
     // unify-type-identity-fqn：裸名在**本 CU 可见集**内是否歧义。
     //

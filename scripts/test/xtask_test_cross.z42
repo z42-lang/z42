@@ -75,7 +75,12 @@ int _testCrossZpkgImpl(string mode) {
     int nAct = 0;
     int i = 0;
     while (i < names.Length) {
-        if (File.Exists(Path.Join(Path.Join(testsDir, names[i]), "expected_output.txt"))) {
+        // report-crosspkg-duplicate-type：`expected_build_error.txt` = **期望 main 编译失败**的负例
+        // fixture（内容 = stderr 必须包含的子串）。此前只认 expected_output.txt ⇒ 负例 fixture 会被
+        // **静默跳过**（连 FAIL 都不是），正是 src/tests/README.md 记着的那个「跨包负例没有自动门」。
+        string _fxDir = Path.Join(testsDir, names[i]);
+        if (File.Exists(Path.Join(_fxDir, "expected_output.txt"))
+            || File.Exists(Path.Join(_fxDir, "expected_build_error.txt"))) {
             act[nAct] = names[i]; nAct = nAct + 1;
         }
         i = i + 1;
@@ -210,7 +215,11 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                 } else if (toml.Length == 0) {
                     label[idx] = act[idx] + " (" + stage + ": no toml)";
                 } else {
-                    hs[b] = _spawnBuildPkg(vmBin, driverZpkg, stdlibDist, pkgDir, toml);
+                    // report-crosspkg-duplicate-type：main 波读 `expected_build_error.txt`（若有）→
+                    // 该 fixture 期望 main **编不过**且 stderr 命中其内容（trim 后整串，通常是诊断码 + 关键词）。
+                    string expErr = "";
+                    if (stage == "main") { expErr = _crossExpectedBuildError(dir); }
+                    hs[b] = _spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, expErr);
                 }
             }
             b = b + 1;
@@ -248,6 +257,9 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
             live[b] = false; tmpLibs[b] = "";
             if (label[idx].Length == 0) {
                 string dir = Path.Join(testsDir, act[idx]);
+                // report-crosspkg-duplicate-type：期望编译失败的负例没有 main 产物可跑——
+                // 它在 main build 波已判定完毕（编不过且文本命中 = 通过），此处直接跳过。
+                if (File.Exists(Path.Join(dir, "expected_build_error.txt"))) { b = b + 1; continue; }
                 string mainDir = Path.Join(dir, "main");
                 string mainToml = _findToml(mainDir);
                 // 按**工程名**取 main zpkg：packed exe build 会把依赖 zpkg 也留在 dist 里，
@@ -348,13 +360,23 @@ class XpkgJobZ {
     // 与 Live=false 的区别是关键：Live=false 兼指「spawn 失败」，await 波会判红；
     // Skipped 则明确表示「不该跑，也不该红」。
     public bool Skipped { get; set; }
+    // report-crosspkg-duplicate-type：非空 = 本次 build **期望失败**，且 stderr 须含此子串。
+    // 空串 = 常规（期望成功）。只有 main 波会置它。
+    public string ExpectErr { get; set; }
 }
 
 // _invokeBuildCompiler 的 spawn 版：准备好 outDir + 临时 libs 后**不等待**，
 // 由调用方批量 Wait。临时 libs 必须活到 Wait 之后，故随句柄一起返回。
 XpkgJobZ _spawnBuildPkg(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
+    return _spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, "");
+}
+
+// 带「期望编译失败」的 spawn。expectErr 非空时**不丢弃 stderr**（要拿它比对子串）。
+XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml,
+                         string expectErr) {
     XpkgJobZ j = new XpkgJobZ();
     j.Live = false;
+    j.ExpectErr = expectErr;
     string outDir = _fixtureDist(pkgDir);
     Directory.Create(outDir);
     string libs = File.CreateTempDir("z42-xpkg-libs-");
@@ -368,8 +390,8 @@ XpkgJobZ _spawnBuildPkg(string vmBin, string driverZpkg, string stdlibDist, stri
             .Arg("--output-dir").Arg(outDir).Arg("--release")
             .WorkingDirectory(pkgDir)
             .Env("Z42_LIBS", libs)
-            .Stdout(Stdio.Null())
-            .Stderr(Stdio.Null())
+            .Stdout(expectErr.Length > 0 ? Stdio.Pipe() : Stdio.Null())
+            .Stderr(expectErr.Length > 0 ? Stdio.Pipe() : Stdio.Null())
             .Spawn();
         j.Live = true;
     } catch (Exception e) {
@@ -382,12 +404,27 @@ XpkgJobZ _spawnBuildPkg(string vmBin, string driverZpkg, string stdlibDist, stri
 bool _awaitBuildPkg(XpkgJobZ j) {
     if (!j.Live) { return false; }
     bool ok = false;
+    string outp = "";
     try {
         ProcessResult r = j.H.Wait();
         ok = (r.ExitCode == 0);
+        if (j.ExpectErr != null && j.ExpectErr.Length > 0) { outp = r.Stdout + r.Stderr; }
     } catch (Exception e) { ok = false; }
     Directory.Delete(j.Libs, true);
+    // report-crosspkg-duplicate-type：期望失败的负例 —— 编过了是**失败**（诊断没响 = 门坏了），
+    // 编不过还要求错误文本命中，否则「随便哪种编译失败都算过」= 没有判别力的门。
+    if (j.ExpectErr != null && j.ExpectErr.Length > 0) {
+        if (ok) { return false; }
+        return outp.Contains(j.ExpectErr);
+    }
     return ok;
+}
+
+// report-crosspkg-duplicate-type：读 fixture 的 `expected_build_error.txt`（trim；不存在 → ""）。
+string _crossExpectedBuildError(string dir) {
+    string f = Path.Join(dir, "expected_build_error.txt");
+    if (!File.Exists(f)) { return ""; }
+    return File.ReadAllText(f).Trim();
 }
 
 // 阻塞版（multi-exe harness 仍在用）：就是 spawn + 立刻 wait，**不再有第二份实现**。

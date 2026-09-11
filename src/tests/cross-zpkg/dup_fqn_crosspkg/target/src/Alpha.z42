@@ -1,0 +1,6 @@
+// 与 ext 包同 FQN：Demo.DupNs.Widget。
+namespace Demo.DupNs;
+
+public class Widget {
+    public string Who() { return "alpha"; }
+}

@@ -168,6 +168,19 @@ public sealed class SymbolCollector {
             while (j < nss.Length) { table.NoteClassNs(nsk[i], nss[j]); j = j + 1; }
             i = i + 1;
         }
+        // report-crosspkg-duplicate-type：把「FQN → 全部来源包」并进符号表（逐包并，同 ClassNsAll）。
+        // ⚠️ 上面那条 ClassesByFqn 的 local-wins 守卫旁写着「键天然唯一（FQN 不会撞）」——**那句是错的**：
+        // 两个包各声明 `Demo.Ns.Widget` 时键就是撞的，实测（`src/tests/cross-zpkg/dup_fqn_crosspkg/`）
+        // 编译期零诊断、字母序靠前的包赢。这张表就是为了把那件事变成响的错。
+        string[] pkk = imported.ClassPkgAll.Keys();
+        i = 0;
+        while (i < pkk.Length) {
+            StrBox pb = imported.ClassPkgAll.Get(pkk[i]) as StrBox;
+            string[] pps = pb.Value.Split("|");
+            int j = 0;
+            while (j < pps.Length) { SymbolTable.NoteNsInto(table.ClassPkgAll, pkk[i], pps[j]); j = j + 1; }
+            i = i + 1;
+        }
         string[] fns = imported.Functions.Keys();
         i = 0;
         while (i < fns.Length) {
@@ -365,10 +378,38 @@ public sealed class SymbolCollector {
     // 判据恒返回 false —— 那就成了「装了个从不响的门」。
     internal void _chkTypeRefT(Z42Type t, TypeExpr te, string cls, SymbolTable table, Span sp) {
         AccessChecker.CheckTypeRef(t, cls, table, this.Diags, sp);
+        this._chkTypeRefPkg(t, table, sp);   // report-crosspkg-duplicate-type：E0601 / W0606（声明位）
         if (te == null) { return; }
         if (!(te is NamedType)) { return; }
         string msg = table.AmbiguousBareNameMsg((te as NamedType).Name);
         if (msg != "") { this.Diags.Error("E0456", msg, sp); }
+    }
+
+    // report-crosspkg-duplicate-type：同 FQN 跨包（E0601）/ 本地遮蔽导入（W0606）的**声明位**判定。
+    // 与 `TypeChecker._chkTypeRefPkg` 是同一对判据的两个消费端，判据与消息都在 SymbolTable，此处不重写。
+    //
+    // 与 E0456 的差别：那条只看**源码写法**（限定名即已消歧，早返回）；这条只看**解析结果的 FQN**——
+    // 重复的是 FQN 本身，写全限定名一样分不开，所以必须用 resolved 的 `Z42Type` 而不是 TypeExpr。
+    internal void _chkTypeRefPkg(Z42Type t, SymbolTable table, Span sp) {
+        string fqn = SymbolCollector.PkgCheckFqn(t);
+        if (fqn == "") { return; }
+        string emsg = table.CrossPkgDuplicateMsg(fqn);
+        if (emsg != "") { this.Diags.Error("E0601", emsg, sp); return; }
+        string wmsg = table.ShadowedImportMsg(fqn);
+        if (wmsg != "") { this.Diags.Warning("W0606", wmsg, sp); }
+    }
+
+    // 取一个类型引用的 FQN（类 / 泛型实例化的定义类 / 接口）；其余（型参、基元、数组…）返回 ""。
+    // 两个消费端共用，避免各写一份「哪些类型算数」的判据。
+    internal static string PkgCheckFqn(Z42Type t) {
+        if (t == null) { return ""; }
+        if (t is Z42InstantiatedType) {
+            Z42ClassType d = (t as Z42InstantiatedType).Def;
+            return d == null ? "" : d.Fqn();
+        }
+        if (t is Z42ClassType) { return (t as Z42ClassType).Fqn(); }
+        if (t is Z42InterfaceType) { return (t as Z42InterfaceType).Fqn(); }
+        return "";
     }
 
     internal string _vis(string mods, string dflt) {

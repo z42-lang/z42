@@ -27,6 +27,11 @@ public sealed class ImportedSymbols {
     // 消费端必须有对应的 FQ 查找，否则 `Std.Type` 在短名表里恒 miss、落到末尾 Builtin 兜底成
     // 「名叫 Std.Type 的垃圾类」。键 = `<ns>.<clKey>`（clKey 已含条件 arity-mangle）。
     public StrMap ClassesByFqn;
+    // report-crosspkg-duplicate-type：**FQN → 声明它的全部包名**（值 StrBox，"|" 连接）。
+    // 与 ClassNsAll 同一手法——在 first-wins 守卫**之外**累积，因为守卫之内只有赢家能进，
+    // 而「有几个包声明了这个 FQN」恰恰是守卫塌掉的那个信息。类/接口/enum 共用一张表
+    // （三者的 FQN 本就在同一个命名空间里，不会互相误命中）。
+    public StrMap ClassPkgAll;
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
@@ -43,6 +48,7 @@ public sealed class ImportedSymbols {
         this.FunctionNamespaces = new StrMap();
         this.Interfaces = new StrMap();
         this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
+        this.ClassPkgAll = new StrMap();           // report-crosspkg-duplicate-type
         this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
         this.EnumTypeNames = new StrMap();
@@ -146,6 +152,10 @@ public static class ImportedSymbolLoader {
                     // 限定引用只能退回剥短名撞赢家（实测 `Both.fromBeta` 绑成了 `Demo.FqnAlpha.Widget`）。
                     // 现在把守卫收窄到只裹 `r.Classes.Put`，其余每份都建、按 FQN 各存一份。
                     string fqnKey = em.Namespace == "" ? clKey : em.Namespace + "." + clKey;
+                    // report-crosspkg-duplicate-type：记「这个 FQN 由哪个包声明」——同样在 first-wins
+                    // 守卫之外。`pkgNames` 与 `exported` 平行，来源包名一直就在手边，只是从没被记过。
+                    // 同一个包的多个模块贡献同一个包名 → NoteNsInto 幂等，不会自己撞自己。
+                    SymbolTable.NoteNsInto(r.ClassPkgAll, fqnKey, pkgNames[i]);
                     bool bareFree = !r.Classes.ContainsKey(clKey);   // first-wins（输入已 prelude-first 排序）
                     if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
@@ -208,6 +218,10 @@ public static class ImportedSymbolLoader {
                 int ic = 0;
                 while (ic < em.InterfaceCount) {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
+                    // report-crosspkg-duplicate-type：接口同款（守卫之外累积）。接口不 arity-mangle，
+                    // FQN 直接 ns + 裸名，与 Z42InterfaceType.Fqn() 同口径。
+                    SymbolTable.NoteNsInto(r.ClassPkgAll,
+                        em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
@@ -228,6 +242,9 @@ public static class ImportedSymbolLoader {
                 int ec = 0;
                 while (ec < em.EnumCount) {
                     ExportedEnumZ ez = em.Enums[ec];
+                    // report-crosspkg-duplicate-type：enum 同款（守卫之外累积）。
+                    SymbolTable.NoteNsInto(r.ClassPkgAll,
+                        em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, pkgNames[i]);
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
                         r.EnumTypeNamesByFqn.Put(em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, "enum");   // unify-type-identity-fqn

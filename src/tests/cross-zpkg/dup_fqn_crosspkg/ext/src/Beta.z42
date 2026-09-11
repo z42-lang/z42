@@ -1,0 +1,6 @@
+// 与 target 包**同命名空间、同类名** —— 真·同 FQN。两包互不依赖。
+namespace Demo.DupNs;
+
+public class Widget {
+    public string Who() { return "beta"; }
+}

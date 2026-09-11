@@ -1,0 +1,10 @@
+[project]
+name    = "demo.dupapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.DupApp.Main"
+pack    = true
+
+[dependencies]
+"demo.dupalpha" = "0.1.0"
+"demo.dupbeta"  = "0.1.0"
