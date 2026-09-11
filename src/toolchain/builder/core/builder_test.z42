@@ -82,11 +82,17 @@ int _runDevTargets(ParseResult r, string verb, string format) {
     ProjectManifest m = ManifestLoader.Load(tomlPath);
     string kind = (verb == "bench") ? "bench" : "test";
     string nameFilter = r.GetOption("name");
+    string substrFilter = r.GetOption("filter");   // 子串筛一批（零命中是正常结果，不报错）
 
     string projDir = Path.GetDirectoryName(tomlPath);
     if (projDir.Length == 0) { projDir = "."; }
-    DevTarget[] targets = _resolveDevTargets(m, kind, nameFilter, projDir);
+    DevTarget[] targets = _resolveDevTargetsF(m, kind, nameFilter, substrFilter, projDir);
     if (targets.Length == 0) {
+        if (substrFilter.Length > 0 && nameFilter.Length == 0) {
+            Console.WriteLine("z42b " + verb + ": no " + kind + " target matched --filter `"
+                + substrFilter + "` (nothing to run)");
+            return 0;
+        }
         if (nameFilter.Length > 0) {
             // 点名却没命中：**报错并列出可选名**，绝不静默跑零个然后返回 0
             // （那正是 #571 要根除的「没跑 == 全过」）。
