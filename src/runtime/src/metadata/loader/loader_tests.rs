@@ -487,32 +487,6 @@ fn make_stub_module(func_count: usize, str_count: usize) -> Module {
     }
 }
 
-/// Encode a single TIDX section payload (matching what
-/// `ZbcWriter.BuildTidxSection` would write) from a hand-built
-/// list of `TestEntry`. The aggregator decodes back via
-/// `read_test_index`; the bytes here are the round-trip vehicle.
-fn encode_tidx(entries: &[TestEntry]) -> Vec<u8> {
-    let mut out = Vec::new();
-    // magic "TIDX" → on-disk bytes 54 49 44 58 → LE u32 0x58_44_49_54
-    out.extend_from_slice(&0x58_44_49_54u32.to_le_bytes());
-    out.push(3u8); // version
-    out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-    for e in entries {
-        out.extend_from_slice(&e.method_id.to_le_bytes());
-        out.push(e.kind as u8);
-        out.extend_from_slice(&e.flags.bits().to_le_bytes());
-        out.extend_from_slice(&e.skip_reason_str_idx.to_le_bytes());
-        out.extend_from_slice(&e.skip_platform_str_idx.to_le_bytes());
-        out.extend_from_slice(&e.skip_feature_str_idx.to_le_bytes());
-        out.extend_from_slice(&e.expected_throw_type_idx.to_le_bytes());
-        out.extend_from_slice(&(e.test_cases.len() as u32).to_le_bytes());
-        for tc in &e.test_cases {
-            out.extend_from_slice(&tc.arg_repr_str_idx.to_le_bytes());
-        }
-        out.extend_from_slice(&(e.timeout_ms as i32).to_le_bytes());
-    }
-    out
-}
 
 fn empty_entry(method_id: u32, skip_reason_str_idx: u32) -> TestEntry {
     TestEntry {
@@ -534,7 +508,7 @@ fn empty_entry(method_id: u32, skip_reason_str_idx: u32) -> TestEntry {
 
 #[test]
 fn aggregate_zpkg_tidx_empty_module_list_yields_empty_vec() {
-    let triples: Vec<(Module, String, Vec<u8>)> = vec![];
+    let triples: Vec<(Module, String, Vec<TestEntry>)> = vec![];
     let result = crate::metadata::loader::aggregate_zpkg_test_index(&triples).unwrap();
     assert!(result.is_empty());
 }
@@ -543,15 +517,14 @@ fn aggregate_zpkg_tidx_empty_module_list_yields_empty_vec() {
 fn aggregate_zpkg_tidx_single_module_no_offset() {
     let module = make_stub_module(3, 10);
     let entries = vec![empty_entry(1, 0), empty_entry(2, 5)];
-    let tidx_bytes = encode_tidx(&entries);
-    let triples = vec![(module, "ns".to_owned(), tidx_bytes)];
+    let triples = vec![(module, "ns".to_owned(), entries)];
 
     let result = crate::metadata::loader::aggregate_zpkg_test_index(&triples).unwrap();
     assert_eq!(result.len(), 2);
     // Single module → cumulative function offset is 0.
     assert_eq!(result[0].method_id, 1);
     assert_eq!(result[1].method_id, 2);
-    // Same for the string pool offset.
+    // 字符串索引**原样保留** —— 聚合不再碰它（解析发生在读取点，见 fix-tidx-strings-in-zpkg）。
     assert_eq!(result[1].skip_reason_str_idx, 5);
 }
 
@@ -559,10 +532,10 @@ fn aggregate_zpkg_tidx_single_module_no_offset() {
 fn aggregate_zpkg_tidx_multi_module_method_id_remap() {
     // Module 0: 3 functions, 1 test pointing at fn 2.
     let m0 = make_stub_module(3, 0);
-    let m0_tidx = encode_tidx(&[empty_entry(2, 0)]);
+    let m0_tidx = vec![empty_entry(2, 0)];
     // Module 1: 5 functions, 2 tests at local fn 0 and fn 4.
     let m1 = make_stub_module(5, 0);
-    let m1_tidx = encode_tidx(&[empty_entry(0, 0), empty_entry(4, 0)]);
+    let m1_tidx = vec![empty_entry(0, 0), empty_entry(4, 0)];
 
     let triples = vec![
         (m0, "a".to_owned(), m0_tidx),
@@ -576,15 +549,19 @@ fn aggregate_zpkg_tidx_multi_module_method_id_remap() {
 }
 
 #[test]
-fn aggregate_zpkg_tidx_multi_module_str_remap() {
-    // Module 0: 0 funcs, 10 strings, 1 test referencing skip_reason str
-    // idx 4 (1-based local idx).
+fn aggregate_zpkg_tidx_multi_module_str_idx_is_left_alone() {
+    // fix-tidx-strings-in-zpkg：**契约反转**。此前聚合会给 `*_str_idx` 叠加「累计字符串
+    // 偏移」，那是错的 —— 两条独立理由：
+    //   ① 打包 zpkg 的 TIDX 索引**已经是全局的**（写入端把每模块索引 remap 进了共享池），
+    //      再叠一层偏移是把对的推错；
+    //   ② 那个偏移取自 `module.string_pool.len()`，而它是 `rebuild_string_pool` **之后**的池，
+    //      只被 TIDX 引用的串（`[ShouldThrow<E>]` 类型链、`[Skip(reason)]` 文案）在重建时就没了。
+    // 现在字符串在**读取点**就解析好（打包态对全局 raw 池、索引态对各散装 zbc 的 raw 池），
+    // 聚合只负责 `method_id` 的函数偏移，索引原样带过。
     let m0 = make_stub_module(0, 10);
-    let m0_tidx = encode_tidx(&[empty_entry(0, 4)]);
-    // Module 1: 0 funcs, 5 strings, 1 test referencing skip_reason str
-    // idx 3 (1-based local idx in M1 → global 3 + cum(M0 str)=10 = 13).
+    let m0_tidx = vec![empty_entry(0, 4)];
     let m1 = make_stub_module(0, 5);
-    let m1_tidx = encode_tidx(&[empty_entry(0, 3)]);
+    let m1_tidx = vec![empty_entry(0, 3)];
 
     let triples = vec![
         (m0, "a".to_owned(), m0_tidx),
@@ -592,26 +569,21 @@ fn aggregate_zpkg_tidx_multi_module_str_remap() {
     ];
     let result = crate::metadata::loader::aggregate_zpkg_test_index(&triples).unwrap();
     assert_eq!(result.len(), 2);
-    // M0's TIDX has cumulative offset 0 → idx 4 stays 4.
     assert_eq!(result[0].skip_reason_str_idx, 4);
-    // M1's TIDX has cumulative string offset 10 → idx 3 becomes 13.
-    assert_eq!(result[1].skip_reason_str_idx, 13);
-
-    // `0 = no string` sentinel must not be offset.
+    assert_eq!(result[1].skip_reason_str_idx, 3, "第二个模块的索引也不得被偏移");
     assert_eq!(result[0].skip_platform_str_idx, 0);
     assert_eq!(result[1].skip_platform_str_idx, 0);
 }
 
-#[test]
 fn aggregate_zpkg_tidx_zero_len_skips_without_panic() {
     let m0 = make_stub_module(2, 4);
     let m1 = make_stub_module(2, 4);
     let m2 = make_stub_module(2, 4);
     // Middle module has no TIDX bytes but still contributes to the
     // cumulative function / string offsets.
-    let m0_tidx = encode_tidx(&[empty_entry(1, 0)]);
-    let m1_tidx: Vec<u8> = vec![]; // empty
-    let m2_tidx = encode_tidx(&[empty_entry(1, 0)]);
+    let m0_tidx = vec![empty_entry(1, 0)];
+    let m1_tidx: Vec<TestEntry> = vec![]; // empty
+    let m2_tidx = vec![empty_entry(1, 0)];
 
     let triples = vec![
         (m0, "a".to_owned(), m0_tidx),
@@ -628,16 +600,15 @@ fn aggregate_zpkg_tidx_zero_len_skips_without_panic() {
 }
 
 #[test]
-fn aggregate_zpkg_tidx_test_case_arg_repr_remap() {
-    // Module 1 (cum string offset = 6) has a test with a parameterized
-    // TestCase referencing arg_repr str idx 2 (local 1-based) which must
-    // become 2 + 6 = 8 after aggregation.
+fn aggregate_zpkg_tidx_test_case_arg_repr_is_left_alone() {
+    // 同上（fix-tidx-strings-in-zpkg）：`arg_repr_str_idx` 也属于「读取点已解析」的字符串，
+    // 聚合不得再叠加累计偏移。此前这里断言 2 + 6 = 8。
     let m0 = make_stub_module(0, 6);
-    let m0_tidx = encode_tidx(&[]);
+    let m0_tidx: Vec<TestEntry> = vec![];
     let m1 = make_stub_module(0, 4);
     let mut entry = empty_entry(0, 0);
     entry.test_cases = vec![TestCase { arg_repr_str_idx: 2 }];
-    let m1_tidx = encode_tidx(&[entry]);
+    let m1_tidx = vec![entry];
 
     let triples = vec![
         (m0, "a".to_owned(), m0_tidx),
@@ -646,7 +617,7 @@ fn aggregate_zpkg_tidx_test_case_arg_repr_remap() {
     let result = crate::metadata::loader::aggregate_zpkg_test_index(&triples).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].test_cases.len(), 1);
-    assert_eq!(result[0].test_cases[0].arg_repr_str_idx, 8);
+    assert_eq!(result[0].test_cases[0].arg_repr_str_idx, 2);
 }
 
 // ── indexed zpkg load（add-indexed-zpkg-min-patch，zpkg 0.24）─────────────────

@@ -20,3 +20,16 @@ void test_dir_unit_sees_parent_internal() {
     Hidden h = new Hidden(DirUnitVectors.Seven());
     Assert.Equal(14, h.Doubled());
 }
+
+// `[ShouldThrow<E>]` 的期望类型是**只被 TIDX 引用**的字符串 —— 除了这条 attribute，产物里
+// 没有任何代码引用它。这正是它曾经在 zpkg 路径上静默失效的原因：加载器解析了两次字符串，
+// 第二次对着 merge 后的**重建**池，而重建只保留被代码引用的串 ⇒ 覆盖成 null ⇒ 每个
+// `[ShouldThrow]` 用例都退化成「expected throw null」而判失败。
+//
+// 走裸 `.zbc` 的老路径一直正确（单模块 + 对着 raw 池解析），所以这个 bug 藏了很久 ——
+// 直到测试改由 z42b 编成 zpkg 来跑才暴露。本用例把 zpkg 这条路钉住。
+[Test]
+[ShouldThrow<TestFailure>]
+void test_should_throw_survives_zpkg_packaging() {
+    Assert.Fail("这条必须被 [ShouldThrow<TestFailure>] 接住");
+}
