@@ -93,6 +93,51 @@ fn an_over_budget_live_set_does_not_re_collect_forever() {
     drop(pins);
 }
 
+// ── fix-futile-backoff-is-too-eager (2026-09-11) ─────────────────────────────
+
+/// The two shapes the futility multiplier has to tell apart, with the numbers actually
+/// measured off each. Both reclaim well under half a 32 MB gate — which is why the original
+/// half-gate bar could not separate them, and why the bar is now [`FUTILE_DIVISOR`].
+#[test]
+fn merely_surviving_is_not_futile() {
+    const GATE: u64 = 32 * 1024 * 1024;
+    // `z42c.semantics`, the two collections that used to take the multiplier to 4: a compiler
+    // holding on to most of what it allocates, working perfectly. 26% and 32% of a gate.
+    for reclaimed in [8_400_000u64, 10_100_000] {
+        assert_eq!(
+            ArcMagrGC::next_backoff(1, reclaimed, GATE, 6), 1,
+            "{reclaimed} B of a {GATE} B gate is a high survival rate, not futility"
+        );
+        // And it does not merely fail to climb — it *resets* a multiplier that had climbed.
+        assert_eq!(ArcMagrGC::next_backoff(16, reclaimed, GATE, 6), 1);
+    }
+}
+
+/// The other shape: `09_alloc_ctorless`, whose live set produces no garbage at all. Backing off
+/// here is right and costs nothing — a 100%-live heap does not even grow RSS for not being
+/// collected (measured 243 MB backed off vs 257 MB collecting anyway), while collecting it cost
+/// +78% wall.
+#[test]
+fn reclaiming_essentially_nothing_still_backs_off() {
+    const GATE: u64 = 32 * 1024 * 1024;
+    for reclaimed in [0u64, 384] {
+        assert_eq!(
+            ArcMagrGC::next_backoff(1, reclaimed, GATE, 6), 4,
+            "{reclaimed} B against a {GATE} B gate is what futility actually looks like"
+        );
+    }
+    // Climbs multiplicatively, and stops at the cap rather than running away.
+    assert_eq!(ArcMagrGC::next_backoff(4, 0, GATE, 6), 16);
+    assert_eq!(ArcMagrGC::next_backoff(super::MAX_BACKOFF, 0, GATE, 6), super::MAX_BACKOFF);
+}
+
+/// With no collection behind it there is nothing to judge: reading the absent collection's
+/// 0 reclaimed as futile penalised a heap that had never been collected at all.
+#[test]
+fn the_first_trip_is_judged_neutral() {
+    assert_eq!(ArcMagrGC::next_backoff(1, 0, 32 * 1024 * 1024, 0), 1);
+}
+
 #[test]
 fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
     // The growth gate (rule 2) measures from the *end* of the last collection.

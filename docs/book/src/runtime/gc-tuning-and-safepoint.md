@@ -1,14 +1,20 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 对齐：2026-09-11（change `perf-bucket-all-blocks-by-chunk` 把变长区 chunk 回收从 O(堆) 降到
-> O(被回收 chunk 数)，中位停顿 −17%；`flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
-> 对齐：2026-09-11（change `fix-primitives-count-as-young` 修「基元被当成年轻对象」——
-> 脏卡 33 001 → 1–3、中位停顿 −33%，并补上数组 backing 的年龄；
-> `flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被
-> 执行 + 修「一个 pause 跑两次回收」/「major 不升龄」+ 徒劳退避分级 + gate stage 改跑两种模式；`fix-callee-entry-safepoint-drops-args` 补「safepoint 只能
-> 放在活值已经是根的位置」一节；`fix-gc-budget-not-enforced` 修增长闸门基线 + 退避策略一节；
-> 原 change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议）。
+> 对齐：2026-09-11（按 change 倒序）：
+> `fix-futile-backoff-stretches-nursery` 收窄「徒劳」的判据（只剩 `FUTILE_DIVISOR` 一档）——
+> p90 停顿 −43%、峰值 RSS −24%，新增「「回收得少」不等于「徒劳」」一节；
+> `add-gc-phase-timing` 新增 `Z42_GC_PHASES`（把一次停顿拆成各阶段的耗时），新增「诊断旋钮」一节；
+> `fix-primitives-count-as-young` 修「基元被当成年轻对象」—— 脏卡 33 001 → 1–3、中位停顿 −33%，
+> 并补上数组 backing 的年龄；
+> `perf-bucket-all-blocks-by-chunk` 把变长区 chunk 回收从 O(堆) 降到 O(被回收 chunk 数)，
+> 中位停顿 −17%；
+> `flip-gc-default-to-generational` 翻默认 + 修软上限在分代下不被执行 + 修「一个 pause 跑两次
+> 回收」/「major 不升龄」+ 徒劳退避分级 + gate stage 改跑两种模式；
+> `fix-callee-entry-safepoint-drops-args` 补「safepoint 只能放在活值已经是根的位置」一节；
+> `fix-gc-budget-not-enforced` 修增长闸门基线 + 退避策略一节；
+> 原 change `add-gc-tuning-config`，落地 runtime_review §M3 GC 调参 + §M6 safepoint 协议。
 > 代码：`src/runtime/src/config.rs`（knob）、`gc/arc_heap/auto_collect.rs`（自动回收策略）、
+> `gc/trace.rs` + `gc/phase_timer.rs`（两个诊断旋钮）、
 > `gc/arc_heap/alloc.rs`（压力事件），
 > `gc/safepoint.rs`（协作式 safepoint）、`gc/heap.rs`（`MagrGC` trait 协议文档）、
 > `interp/exec_support.rs` + `interp/mod.rs`（被调函数入口 safepoint 的插桩点）。
@@ -79,12 +85,49 @@ major 打的是另一组名字：`reset marks` / `full mark` / `sweep` 的四个
   却走了 12 ms，说明根集合里塞满了不该在那儿的东西（这正是 `fix-primitives-count-as-young`
   的形状：推进标记队列的 125 万个值里 99.996% 是基元）。
 - `trip` 行说的不是「花在哪」而是「**为什么是现在**」，它决定了后面所有阶段要啃多大一片年轻代。
-  `gate 32.0M x4  grown 160.0M` 里的 `x4` 是徒劳退避的倍数（见下「增长闸门」一节）——
-  闸门被乘大，这次 minor 的年轻代就大四倍，停顿也跟着大。
+  `gate 32.0M x4  grown 160.0M` 里的 `x4` 是徒劳退避的倍数（见下「「回收得少」不等于「徒劳」」）。
 
 这套打点此前是「用时手打、量完删掉」的临时补丁，进出四次（#565 / #566 / #569 / #570 的定位
 全靠它）。固定下来是因为**它每次都是定位的第一步**，而重打一遍的成本远高于让它常驻——
 常驻的代价只有「关掉时每阶段一个 `Option` 判断」。
+
+## 「回收得少」不等于「徒劳」
+
+自动回收的增长闸门上挂着一个**徒劳退避**倍数：判定为「几乎没回收到东西」的回收会把下次触发
+所需的增长量乘 4（上限 `MAX_BACKOFF = 64`），一次有效回收清零。它防的是一种真实病理——活集合
+本身就超过了预算，于是每次回收都回收不到东西、堆却还在长，只看增长的闸门会永远重新武装。
+
+**关键在于「徒劳」的判据必须窄**，因为这个倍数乘的是 **nursery**，而——
+
+> nursery 不是内存闸门，它是「一次 minor 要啃多大一片年轻代」的上界，也就是**停顿上界**。
+
+判据一宽，「这个程序存活率高」得到的回应就成了「那下次多扫四倍」，**方向正好反**。要分开的
+是两种形状，它们都「回收量远不到半个闸门」：
+
+| 形状 | 实测（同为 32 MB 闸门） | 该怎么办 |
+|---|---|---|
+| **真徒劳**：活集合根本不产生垃圾 | `09_alloc_ctorless`：**384 B、然后 0 B** | 退避。而且**不花钱**——100% 存活的堆不回收也不涨 RSS（实测 243 MB vs 照收的 257 MB），照收反而 **+78% 墙钟** |
+| **只是存活率高**：程序正把大部分分配物留在手里，工作完全正常 | `z42c.semantics`：**8.4 MB、10.1 MB**（闸门的 26% 和 32%） | **不该退避** |
+
+原判据是「不到**半个**闸门 ⇒ 倍数翻倍」，它分不开这两者：把 `z42c.semantics` 那两次判成徒劳、
+把倍数推到 4，于是紧随其后的两次 minor 扫了 96 MB / 160 MB 的年轻代、停了 **45.4 ms / 64.6 ms**
+——占整次构建停顿的 39%，而同一跑里闸门正常的 minor 只要 6–22 ms。
+
+现在只保留一档判据：**`FUTILE_DIVISOR`（闸门的 1/16）**。它两边都留足了余量——2 MB 远低于任何
+正常回收的回收量，又远高于 100% 存活负载吐出来的那几百字节。
+
+「minor 不管用了」本来也有专门的机制：`minor_escalation_threshold` 会**升级成 major**，而不是
+把 nursery 养大——major 才是真能对老年代做点什么的那种回收。
+
+`z42c.semantics --release --no-incremental`，两个二进制各三跑：
+
+| | 墙钟 | 峰值 RSS | 回收次数 | 停顿合计 | 中位 | p90 | 最大 |
+|---|---|---|---|---|---|---|---|
+| 半个闸门判徒劳 | 6.80 s | 766 MB | 11 | 261.8 ms | 20.5 ms | 45.9 ms | 58.7 ms |
+| **只有 1/16 判徒劳** | 6.82 s | **583 MB** | 17 | 275.9 ms | **16.0 ms** | **26.3 ms** | **44.5 ms** |
+
+p90 −43%、最大 −24%、峰值 RSS −24%，代价是墙钟 +0.3% 与停顿合计 +5%（多 6 次回收的固定开销）。
+RSS 一并降下来，是因为被撑大的闸门同时也让堆 used 冲到了 274 MB。
 
 > 三个比率各自独立 clamp 到 `[0,1]`，**不强制跨 knob 排序**（若把 pressure 设得高于 near，
 > pressure-事件分支自然变死代码，无害）——保持每个 knob 独立可预测，不做"惊喜"式静默改写。
