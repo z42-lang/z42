@@ -123,35 +123,41 @@ generator 自己读的是 `Attr.Args` 的**原始 AST**（`MethodOfExpr` 节点�
 > C 的结论与 09-06 记忆里写的「跨碎片同 RegKey 是硬错误 `PartialDuplicateMember`」**不符**。
 > 以本次实测 + `partial-types.md` 为准：**不同签名不报错、静默丢失**，比硬错误更危险。
 
-## 生成源码落盘：`[build] emit_generated`（User 2026-09-12 裁决）
+## 生成源码落盘：`[build] generated_dir`（User 2026-09-12 裁决）
 
-**走 `z42.toml` 配置，不加 CLI flag；没配置即默认值。**
+**走 `z42.toml` 配置，不加 CLI flag；没配置就用默认值。**
 
 ```toml
 [build]
-emit_generated = true      # 默认 false
+generated_dir = "…"        # 没配置 → <output_dir>/generated
 ```
 
 落在既有的 `[build]` 段（已有 `output_dir` / `cache_dir` / `dist_dir` / `incremental` / `hooks`），
-沿用同一套 `has* + 值` 形状（`ManifestLoader._parseBuild`，工程级 :216 与工作区级 :167 两处）。
-`incremental` 就是现成的 bool-带默认先例。
+沿用 `cache_dir` / `dist_dir` 那套「**目录型配置 + 从 `output_dir` 派生的默认值**」形状，
+`ManifestLoader._parseBuild` 工程级(:216) 与工作区级(:167) 两处同步。
 
-**默认 `false`（不落盘）**，三条理由：
-1. 调试是**按需**行为，没人调试时每次构建都写盘是净成本；
-2. 默认 false ⇒ **自举链路完全不受影响**（byte-identical 不动点不需要考虑多出来的文件）；
-3. 打开的成本极低（一行 toml），关掉的成本是「不知道它在偷偷写文件」。
+生成文件名沿用 GeneratorDriver 现有的 CU 命名：`<generated_dir>/<pkg>/__gen$<Name>$augment.z42`。
 
-**写到哪儿**：`<output_dir>/generated/<pkg>/__gen$<Name>$augment.z42`，从既有 `output_dir` 派生，
-不新立一个路径根——想换位置的人本来就在改 `output_dir`。路径确定 ⇒ 将来 `.zsym` 可以指进去。
+### 这意味着**恒落盘**，不是 opt-in
 
-> 🔴 **落盘位置必须在 `[sources] include` 扫描范围之外**，否则下一次构建会把生成的 `partial`
-> 碎片当成**用户源码再编一遍** —— 同一个类出现两份同名成员的碎片，直接踩验证 C 的**静默覆盖**：
-> 用户的方法被吃掉、调用点报假类型错。默认落在 `output_dir`（`artifacts/…`）天然在扫描范围外；
-> 但用户把 `output_dir` 指进 `src/` 时必须**报错拒绝**，不能听之任之。（tasks 4.4 / 5.5）
+配置的是「写到哪儿」而不是「写不写」⇒ 只要有 generator 产出，每次构建都会写。这与选
+Generator 路线的初衷（「以后可以支持调试」）一致：**栈帧里出现 `__gen$…z42` 时，背后永远有一个
+真文件可以打开**，不需要先想起来去开个开关、再重编一次才能看到。
+
+代价可控：只有真的用了 `[Forward]`（或其它 generator）的包才会产出文件，没用就一个字节都不写。
+
+**关闭方式**：`generated_dir = ""` 显式表示不落盘。留这个口子是因为某些场景（只读文件系统、
+CI 里不想要额外产物）需要它，但**默认是写**。
+
+> 🔴 **`generated_dir` 必须在 `[sources] include` 扫描范围之外**，否则下一次构建会把生成的
+> `partial` 碎片当成**用户源码再编一遍** —— 同一个类出现两份带同名成员的碎片，直接踩验证 C 的
+> **静默覆盖**：用户的方法被吃掉、调用点报假类型错。默认值在 `output_dir`（`artifacts/…`）之下、
+> 天然在扫描范围外；但既然这是个**用户可配的路径**，就必须**校验并报错拒绝**，不能只 warn ——
+> 这个配置配错的后果是「你的方法静默消失」。（tasks 4.4 / 4.5 / 5.5）
 
 ## 待 User 裁决的决策点
 
-1. ✅ **已裁决**：生成源码落盘 → `[build] emit_generated`，默认 false（见上节）。
+1. ✅ **已裁决**：生成源码落盘 → `[build] generated_dir`，默认 `<output_dir>/generated`（恒落盘，见上节）。
 2. **三档是否一次全做**，还是先落 ③（零风险、验证 A 已通过、离手写只差半行）+ ①，把 ② 放后面。
 
 ## Scope（允许改动的文件）
@@ -161,7 +167,7 @@ emit_generated = true      # 默认 false
 | `src/compiler/z42c.semantics/src/GeneratorDriver.z42` | MODIFY | **唯一框架改动**：触发点扫描扩展到字段级 `AttributedDecl`（现仅顶层 `Inner is ClassDecl`，:137-140）。**不得剥字段级触发 attr 的工厂** |
 | `src/libraries/z42.core/src/ForwardAttribute.z42` | NEW | `[Forward]` 的真实 attribute 类（合成工厂需要真类型） |
 | `src/libraries/z42c.*/…/ForwardGenerator.z42` | NEW | 转发 generator 本体：读 `Attr.Args` AST → 收转发面 → **显式 sort** → 生成源码 |
-| `src/libraries/z42.project/src/ManifestLoader.z42` + `BuildConfig` | MODIFY | `[build] emit_generated`（bool，默认 false）；工程级 + 工作区级两处，沿用 `incremental` 的形状 |
+| `src/libraries/z42.project/src/ManifestLoader.z42` + `BuildConfig` | MODIFY | `[build] generated_dir`（目录，默认 `<output_dir>/generated`）；工程级 + 工作区级两处，沿用 `cache_dir`/`dist_dir` 的形状 |
 | `src/libraries/z42c.core/src/DiagnosticCodes.z42` | MODIFY | 新诊断码（S4 冲突 / S5 跳过 info / 白名单指向不存在的成员 / emit 目录落在源码扫描范围内） |
 | `src/tests/forwarding/**` | NEW | e2e：三档各一条 + S1–S5 各一条 + 跨包 |
 | `docs/book/src/language/member-forwarding.md` | NEW | 语义规则 / 三档 / 与多继承的界线 |
