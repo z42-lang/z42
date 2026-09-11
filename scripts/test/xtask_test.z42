@@ -429,7 +429,8 @@ string[] _gateStageNames() {
         "gc modes (z42c.semantics build)",
         "vscode-syntax",
         "lines",
-        "walkers"
+        "walkers",
+        "shipped-src"
     };
 }
 
@@ -639,6 +640,14 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("walkers");
         c = _testWalkers(); if (c != 0) { return c; }
         _stageEnd(slog, "walkers", swStage);
+    }
+    // stage 9: 发布源码里不得出现测试 attribute（gate-no-tests-in-shipped-src）：
+    // 在 <pkg>/src/ 里写 [Test] 会把测试函数 + TIDX section + z42.test 依赖一起打进发布 zpkg，
+    // 且零警告。纯文本扫描（~0.1s），host-independent。Skippable: "shipped-src"。
+    if (!_skipHas(skip, "shipped-src")) {
+        swStage = _stageStart("shipped-src");
+        c = _testShippedSrc(); if (c != 0) { return c; }
+        _stageEnd(slog, "shipped-src", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

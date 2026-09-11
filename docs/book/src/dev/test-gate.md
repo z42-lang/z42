@@ -83,9 +83,10 @@ graph LR
 - `vscode-syntax`
 - `lines`
 - `walkers`
+- `shipped-src`
 <!-- gate-stages:end -->
 
-先备工具链与基线（build wave），再依序跑十二个验证 stage；任一步失败立即终止。
+先备工具链与基线（build wave），再依序跑十三个验证 stage；任一步失败立即终止。
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <name>` 下放到独立 CI job
 （见 `_skipHas`；skip 名是短名，如 `vscode` / `targets`，不等于 banner 全名）——skip 只影响
 **在哪跑**，不改变 gate 的 stage 组成，故上面的清单不随 `--skip` 变化。
@@ -118,6 +119,16 @@ graph LR
 登记表在 `scripts/test/xtask_test_walkers.z42` 的 `_walkerRegistry()`（当前 4 个：MethodTypeParamUse /
 ExprTyper._bindExpr / StmtBinder._bindStmt / PatternBinder.Bind），加新 walker 加一行、加新 AST
 节点类若有 walker 漏处理即变红。不硬编码计数（那种计数本身在漂）。纯文本扫描 <1 s，host-independent。）
+（`shipped-src` 守「**测试代码不进发布产物**」（gate-no-tests-in-shipped-src）：扫
+`src/libraries/*/src/**` 与 `src/compiler/*/src/**`（即会被编进发布 zpkg 的那些源），
+行首出现 8 个内建 test attribute 中任一个 → **红**。在 `<pkg>/src/` 里写 `[Test]`，编译器会照单
+全收——写进该库 zpkg、附一个 TIDX section、把 z42.test 拖进发布依赖，且**零警告**。
+审计过当前 0 命中，故是**硬门、无基线**。
+为什么不在编译器里判：编译器分辨不出「测试包」与「普通包」——两者都是 `kind = "lib"` 的普通
+manifest（测试单元走 xtask 合成的 mini-manifest，形状完全一样）。要在编译器层面判，需先引入
+新的项目模型信号（「谁是谁的测试包」），而那个信号也是友元访问所需，留到那件事一起设计。
+纯文本扫描 ~0.1 s，host-independent。）
+
 （`test runtime` = Rust VM 单测 cargo test **不在** gate 内 —— 它的 signal_handler_e2e
 在信号受限的沙箱里会挂;改由每条 CI 腿单独一步 + 本地 `xtask test runtime` 按需跑。）
 设 `--no-build`（或 `--toolchain <sdk>`）时**跳过构建波、直接消费既有产物**——CI 的

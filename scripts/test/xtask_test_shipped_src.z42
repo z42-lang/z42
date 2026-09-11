@@ -1,0 +1,124 @@
+// xtask — `test shipped-src` gate stage（gate-no-tests-in-shipped-src）。
+//
+// 为什么要这道门：**「测试代码不进发布产物」这条约定今天只靠纪律维持，没有任何机制守着。**
+// 在 `src/libraries/<lib>/src/` 里写一个 `[Test]`，编译器会照单全收 —— 写进该库的 zpkg、
+// 附带一个 TIDX section、把 z42.test 拖进发布依赖 —— 且**零警告**。审计过：当前一处都没有，
+// 所以这是纪律还在的时候就把它变成机制（同 `walkers` stage 的理由：没有测试盯着的约定迟早会烂）。
+//
+// 为什么不在编译器里判：编译器**分辨不出**自己在构建「测试包」还是「普通包」—— 两者都是
+// `kind = "lib"` 的普通 manifest（测试单元走 xtask 合成的 mini-manifest，形状完全一样）。
+// 要在编译器层面判，得先引入一个新的项目模型信号（「谁是谁的测试包」）；那个信号恰好也是
+// 友元访问（让测试包看得见被测包的 `internal`）需要的，故留到那件事里一起设计。
+// 在此之前，本门守住**真正有害的那一段**：会被发布出去的源码。
+//
+// 扫描面：`src/libraries/*/src/**` + `src/compiler/*/src/**`（即进 zpkg 的那些源），
+// 天然不含各包的 `tests/` / `bench/`（它们本来就该有测试 attribute）。
+// 机制：纯文本扫描（~0.1s，host-independent），行首 `[` + test 家族名。**硬门、无基线**
+// —— 当前 0 命中，不给「先欠着」的口子。Skippable: "shipped-src"。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+
+// 8 个内建 test attribute（与 z42c 的 HandlerRegistry.IsTestHandlerAttr 同集；
+// 这里是独立的一份文本级清单，加新 attribute 时两边都要动 —— 故意的冗余，
+// 因为 xtask 不依赖 z42c.semantics）。
+bool _ssIsTestAttrName(string n) {
+    if (n == "Test" || n == "Benchmark" || n == "Setup" || n == "Teardown") { return true; }
+    if (n == "Ignore" || n == "Skip" || n == "ShouldThrow" || n == "Timeout") { return true; }
+    return false;
+}
+
+// 会被编进发布 zpkg 的源文件：`<area>/<pkg>/src/**.z42`。
+string[] _ssShippedFiles(string root) {
+    string[] outp = new string[256]; int n = 0;
+    string[] areas = new string[]{ "src/libraries", "src/compiler" };
+    int a = 0;
+    while (a < areas.Length) {
+        string areaDir = Path.Join(root, areas[a]);
+        if (Directory.Exists(areaDir)) {
+            string[] all = Directory.EnumerateRecursive(areaDir);   // 相对 areaDir
+            int i = 0;
+            while (i < all.Length) {
+                string rel = all[i].Replace("\\", "/");
+                // 只要 `<pkg>/src/` 下的 .z42（排除 tests/ bench/ examples/ 等同级目录）
+                if (rel.EndsWith(".z42") && rel.Contains("/src/")) {
+                    if (n == outp.Length) {
+                        string[] b = new string[n * 2]; int k = 0;
+                        while (k < n) { b[k] = outp[k]; k = k + 1; }
+                        outp = b;
+                    }
+                    outp[n] = Path.Join(areaDir, all[i]); n = n + 1;
+                }
+                i = i + 1;
+            }
+        }
+        a = a + 1;
+    }
+    string[] r = new string[n];
+    int j = 0; while (j < n) { r[j] = outp[j]; j = j + 1; }
+    return r;
+}
+
+// 行首（trim 后）是否形如 `[Name(` / `[Name<` / `[Name]`，且 Name 是 test 家族。
+// 注释行（`//` / 块注释续行 `*`）跳过 —— 编译器源码里有大量讲解 `[Test]` 的注释。
+bool _ssLineApplIesTestAttr(string line) {
+    string t = line.Trim();
+    if (t.Length < 3) { return false; }
+    if (t.StartsWith("//") || t.StartsWith("*")) { return false; }
+    if (t.CharAt(0) != '[') { return false; }
+    int i = 1;
+    string name = "";
+    while (i < t.Length) {
+        char c = t.CharAt(i);
+        if (c == '(' || c == '<' || c == ']') { break; }
+        // 属性名只含标识符字符；遇到别的（空格、逗号…）即非应用位
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+               || (c >= '0' && c <= '9') || c == '_';
+        if (!ok) { return false; }
+        name = name + c.ToString();
+        i = i + 1;
+    }
+    if (i >= t.Length) { return false; }
+    return _ssIsTestAttrName(name);
+}
+
+int _testShippedSrc() {
+    Stopwatch sw = _procStart("test shipped-src");
+    string root = _root();
+    string[] files = _ssShippedFiles(root);
+    int scanned = 0; int bad = 0;
+    int i = 0;
+    while (i < files.Length) {
+        string text = "";
+        try { text = File.ReadAllText(files[i]); }
+        catch (Exception ex) {
+            ConsoleError.WriteLine("  warn: cannot read " + files[i] + ": " + ex.Message);
+            i = i + 1; continue;
+        }
+        scanned = scanned + 1;
+        string[] lines = text.Split("\n");
+        int li = 0;
+        while (li < lines.Length) {
+            if (_ssLineApplIesTestAttr(lines[li])) {
+                ConsoleError.WriteLine("  ✗ " + _relPath(root, files[i]) + ":" + (li + 1).ToString()
+                    + ": " + lines[li].Trim());
+                bad = bad + 1;
+            }
+            li = li + 1;
+        }
+        i = i + 1;
+    }
+    if (bad > 0) {
+        ConsoleError.WriteLine("error: " + bad.ToString()
+            + " test attribute(s) found in shipped package sources");
+        ConsoleError.WriteLine("  测试 attribute 不能出现在会被编进发布 zpkg 的源码里 —— 它会把测试函数、");
+        ConsoleError.WriteLine("  一个 TIDX section 和对 z42.test 的依赖一起打进发布产物。");
+        ConsoleError.WriteLine("  把这些测试移到该包的 `tests/` 目录（那里是测试单元的所在）。");
+        return 1;   // 失败路径不调 _procEnd —— 否则会打出一个 ✔（同 _testLines 的惯例）
+    }
+    Console.WriteLine("  ✓ no test attributes in " + scanned.ToString() + " shipped source file(s)");
+    _procEnd("test shipped-src", sw);
+    return 0;
+}
