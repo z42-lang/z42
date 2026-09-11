@@ -192,6 +192,27 @@ string _dtUnitName(string path) {
     return b;
 }
 
+/// 本包**自己的** `[sources]` 里有没有 [Test] / [Benchmark]。用来分流「整个包就是测试工程」
+/// （compile-then-test 形态，回落去编+跑它）与「一个根本没有测试的库」（无事可做，退 0）。
+///
+/// 判据是朴素全文子串扫，与 xtask 的 _dirHasTestMethods 同款（注释里写了 `[Test]` 也算）。
+/// 这个宽松方向是有意的：假阳性只是退回既有行为（编了、跑出零个、由 Runner 判红），
+/// 假阴性才危险 —— 而那需要 attribute 在源码里根本不以字面出现，真测试做不到。
+bool _pkgSourcesHaveTests(ProjectManifest m, string sourceDir) {
+    string[] inc = m.Sources.Include;
+    int incN = m.Sources.IncludeCount;
+    if (incN == 0) { return false; }
+    string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, inc, incN,
+                                                        m.Sources.Exclude, m.Sources.ExcludeCount);
+    int i = 0;
+    while (i < files.Length) {
+        string text = File.ReadAllText(files[i]);
+        if (text.Contains("[Test]") || text.Contains("[Benchmark]")) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
 /// 孤儿源守卫（fix-silent-gates 的 z42b 版）：本包一个目标都没解析出来，但 `[tests]` / `[bench]`
 /// 段指向的目录里**确实躺着 .z42 源**。返回该目录路径（判红用），无问题返 ""。
 ///
