@@ -90,6 +90,7 @@ public class Z42cReplCompiler : IReplCompiler {
         inp.Cus = cus; inp.CachedMods = null; inp.CachedMetas = null;
         inp.Name = name; inp.Version = "0.0.0"; inp.Kind = "lib";
         inp.HasEntry = false; inp.Entry = ""; inp.IsRelease = false;
+        inp.HasPkgContext = false; inp.ParentPkg = "";   // z42b-owns-test-targets：默认无包上下文（不判 [Test] 越界、无父包）
         inp.LibsDirs = w.LibsDirs; inp.LibsDirsN = w.LibsDirsN;
         inp.DeclaredDeps = w.DeclaredDeps; inp.DepCount = w.DepCount;
         inp.CachedScan = w.Scan;   // perf：复用缓存依赖世界，跳过每轮 DepScan

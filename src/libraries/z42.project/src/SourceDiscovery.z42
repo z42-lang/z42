@@ -70,6 +70,19 @@ public static class SourceDiscovery {
             string suffix = pattern.Substring(mid + 4, pattern.Length - (mid + 4));
             return Path.GlobRecursive(Path.Join(projectDir, prefix), suffix);
         }
+        // `<dir>/<pat>`（带目录、无 `**`，如 `tests/queue_*.z42` 或 `tests/api_tests.z42`）→
+        // 在该子目录里单层 glob。此前这一档落到下面的 `Path.Glob(projectDir, pattern)`，
+        // 而那个只在 projectDir 单层匹配、pattern 里的 `/` 匹配不上 ⇒ **静默返回空**。
+        // 表现为「no .z42 sources under <dir>」——z42b 按 dev target 的 sources glob 编译时撞到
+        // （z42b-owns-test-targets）。
+        int lastSlash = 0 - 1;
+        int ci = 0;
+        while (ci < pattern.Length) { if (pattern.CharAt(ci) == '/') { lastSlash = ci; } ci = ci + 1; }
+        if (lastSlash >= 0) {
+            string dirPart  = pattern.Substring(0, lastSlash);
+            string filePart = pattern.Substring(lastSlash + 1, pattern.Length - (lastSlash + 1));
+            return Path.Glob(Path.Join(projectDir, dirPart), filePart);
+        }
         return Path.Glob(projectDir, pattern);
     }
 

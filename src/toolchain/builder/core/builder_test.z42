@@ -15,6 +15,8 @@ using Std.IO;
 using Std.Cli;
 using Std.Test;
 using Std.Json;
+using Z42.Build;
+using Z42.Build.Project;   // ProjectManifest / ManifestLoader（z42b-owns-test-targets：按目标建/跑）
 
 int _cmdTest(ParseResult r)  { return _runModule(r, "test"); }
 int _cmdBench(ParseResult r) { return _runModule(r, "bench"); }
@@ -61,13 +63,121 @@ int _runModule(ParseResult r, string verb) {
     // the produced dist zpkg through the same reflective Runner path. Build
     // diagnostics/exit-code come from _buildProject; a missing manifest surfaces
     // there as rc 2.
-    BuildOutcome b = _buildProject(r, "");
-    if (b.Rc != 0) { return b.Rc; }
-    if (b.Dist.Length == 0) {
-        ConsoleError.WriteLine("z42b " + verb + ": build produced no runnable artifact");
+    // z42b-owns-test-targets（阶段 ③）：manifest 若声明了 dev target（`[[test]]`/`[[bench]]` 或
+    // `[tests]`/`[bench]` 段的 glob），**按目标编译 + 运行**，而不是编译项目自身。
+    // 目标在内存里派生 manifest（不落文件），父包身份直达编译器 ⇒ 测试可见父包 internal。
+    // `--name` 选一个；不给则全部。未声明任何目标 → 回落到「编译项目自身」的既有行为
+    // （独立测试工程就是这个形态：项目自己的源里就是测试）。
+    return _runDevTargets(r, verb, format);
+}
+
+// 解析 → 逐个建 + 跑。任一非零 → 整体非零（继续跑完其余，一次看全）。
+int _runDevTargets(ParseResult r, string verb, string format) {
+    string tomlPath = r.GetPositional(0);
+    if (tomlPath.Length == 0) { tomlPath = "z42.toml"; }
+    if (!File.Exists(tomlPath)) {
+        ConsoleError.WriteLine("z42b " + verb + ": project manifest not found: " + tomlPath);
+        return 2;
+    }
+    ProjectManifest m = ManifestLoader.Load(tomlPath);
+    string kind = (verb == "bench") ? "bench" : "test";
+    string nameFilter = r.GetOption("name");
+
+    string projDir = Path.GetDirectoryName(tomlPath);
+    if (projDir.Length == 0) { projDir = "."; }
+    DevTarget[] targets = _resolveDevTargets(m, kind, nameFilter, projDir);
+    if (targets.Length == 0) {
+        if (nameFilter.Length > 0) {
+            // 点名却没命中：**报错并列出可选名**，绝不静默跑零个然后返回 0
+            // （那正是 #571 要根除的「没跑 == 全过」）。
+            ConsoleError.WriteLine("z42b " + verb + ": no " + kind + " target named `" + nameFilter + "`");
+            DevTarget[] all = _resolveDevTargets(m, kind, "", projDir);
+            if (all.Length == 0) {
+                ConsoleError.WriteLine("  (this manifest declares no " + kind + " targets at all)");
+            } else {
+                string names = "";
+                int i = 0;
+                while (i < all.Length) { names = names + (i > 0 ? ", " : "") + all[i].Name; i = i + 1; }
+                ConsoleError.WriteLine("  available: " + names);
+            }
+            return 2;
+        }
+        // 未声明任何目标 → 回落到既有「编译项目自身再跑」的行为。
+        BuildOutcome b0 = _buildProject(r, "");
+        if (b0.Rc != 0) { return b0.Rc; }
+        if (b0.Dist.Length == 0) {
+            ConsoleError.WriteLine("z42b " + verb + ": build produced no runnable artifact");
+            return 1;
+        }
+        return Runner.RunModule(b0.Dist, format);
+    }
+
+    int worst = 0;
+    int ti = 0;
+    while (ti < targets.Length) {
+        DevTarget t = targets[ti];
+        Console.WriteLine("\n── " + kind + " target: " + t.Name + " ──");
+        int rc = _runOneDevTarget(r, m, t, kind, tomlPath, format);
+        if (rc != 0 && worst == 0) { worst = rc; }
+        ti = ti + 1;
+    }
+    return worst;
+}
+
+
+// 建一个目标并跑它。派生 manifest 只活在内存里 —— 不写任何临时 toml（这正是本变更要消除的
+// 那条「伪造文件 → 落盘 → 读回来」往返；身份就是在那一步丢的）。
+int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
+                     string tomlPath, string format) {
+    string sourceDir = Path.GetDirectoryName(tomlPath);
+    if (sourceDir.Length == 0) { sourceDir = "."; }
+    Target tgt = _makeTarget(r, "");
+    if (tgt.Rid.Length == 0) {
+        ConsoleError.WriteLine("z42b: unsupported host (" + Platform.OS() + "/" + Platform.Arch() + "); pass --rid");
+        return 2;
+    }
+    // 每目标独立的产物/缓存根 —— 防两个目标的 source.zbc 互相覆盖（xtask 旧路径同款隔离）。
+    string outRoot = Path.Join(Path.Join(sourceDir, "artifacts"), kind + "-targets");
+    ProjectManifest derived = _deriveTargetManifest(m, t, kind, outRoot);
+
+    // ① 先建**父包本体** —— 测试目标依赖它（`Api` 之类来自父包的公开面）。父包 dist 不在
+    //    Z42_LIBS 里，故作为 extraDepDir 供给。注意这也正是「不双编译」的体现：父包只建一次，
+    //    所有目标共用它的产物。
+    string parentDist = _buildParentForTargets(m, tgt, sourceDir);
+    if (parentDist.Length == 0) { return 1; }
+
+    // ② 父包身份：交给进程内编译器 ⇒ 测试可见父包 internal
+    //    （Pipeline.ParentPkg → CompileRequest.ParentPkg → CompileInputs.ParentPkg）。
+    int rc = _orchestrateWith(derived, tgt, sourceDir, "", m.Project.Name, parentDist);
+    if (rc != 0) { return rc; }
+
+    Dirs dirs = _computeDirs(derived, sourceDir, tgt.Profile);
+    string built = Path.Join(dirs.Intermediate, "app.zpkg");
+    if (!File.Exists(built)) {
+        ConsoleError.WriteLine("z42b " + kind + ": target `" + t.Name + "` produced no runnable artifact");
         return 1;
     }
-    return Runner.RunModule(b.Dist, format);
+    Directory.Create(dirs.Dist);
+    string dist = Path.Join(dirs.Dist, derived.Project.Name + ".zpkg");
+    File.Copy(built, dist);
+    // 父包 zpkg **并置**到测试产物旁：Runner 把测试产物加载进 live VM 后，其依赖按 VM 搜索目录
+    // 解析 —— 父包的 dist 不在 Z42_LIBS 里，不并置就会在运行期撞 `undefined function <父包>.X`
+    // （编译期已通过，因为编译期依赖是经 extraDepDir 显式供给的）。
+    string[] parentPkgs = Path.Glob(parentDist, "*.zpkg");
+    int pi = 0;
+    while (pi < parentPkgs.Length) {
+        string dstp = Path.Join(dirs.Dist, Path.GetFileName(parentPkgs[pi]));
+        if (!File.Exists(dstp)) { File.Copy(parentPkgs[pi], dstp); }
+        pi = pi + 1;
+    }
+
+    if (!t.Harness) {
+        // harness=false：自驱 Main、退出码判定 —— 刀二收编，先明确拒绝而不是假装跑过。
+        ConsoleError.WriteLine("z42b " + kind + ": target `" + t.Name
+            + "` uses harness=false (self-driving Main); not yet supported by z42b (slice 2)");
+        return 2;
+    }
+    return Runner.RunModule(dist, format);
 }
 
 // Slice 1 (host): run a test-bundle manifest IN-PROCESS. Parse manifest.json →
@@ -197,4 +307,23 @@ string[] _sortedDir(string dir) {
         names[j + 1] = key;
     }
     return names;
+}
+
+// 建父包本体一次（多目标共用），返回其 dist 目录；失败返 ""。
+string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir) {
+    int rc = _orchestrate(m, tgt, sourceDir, "");
+    if (rc != 0) {
+        ConsoleError.WriteLine("z42b: failed to build parent package `" + m.Project.Name + "`");
+        return "";
+    }
+    Dirs dirs = _computeDirs(m, sourceDir, tgt.Profile);
+    string built = Path.Join(dirs.Intermediate, "app.zpkg");
+    if (!File.Exists(built)) {
+        ConsoleError.WriteLine("z42b: parent package `" + m.Project.Name + "` produced no artifact");
+        return "";
+    }
+    Directory.Create(dirs.Dist);
+    string dist = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
+    File.Copy(built, dist);
+    return dirs.Dist;
 }

@@ -106,6 +106,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     // stdlib/compiler stages don't exercise.
     if (kind == "test" && name.Length == 0) {
         failed = failed + _smokeCompileThenTest(root, tt);
+        failed = failed + _smokeDevTargetInternal(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
     }
     Console.WriteLine("");
@@ -136,6 +137,28 @@ int _smokeCompileThenTest(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ compile-then-test: `z42b test <toml>` passed");
+    return 0;
+}
+
+// dev-target internal smoke (z42b-owns-test-targets): 驱动 `z42b test <toml>` 走
+// **按 [[test]] 目标编译 + 运行**的新路径，并锁住两条此前不成立的性质：
+//   ① 目标**只编自己声明的源**（此前 in-process 路径把 include 硬编码成 `**/*.z42`，
+//      会把整个工程编进每个目标 —— 那也会让 ① 的 internal 断言假阳性，因为父包源被一起编了）；
+//   ② 目标**看得见父包的 internal**（类与成员两条判定路径都覆盖）。
+// 回归方向（普通消费包仍被拒）由 cross-zpkg/class_internal_access 守着。
+int _smokeDevTargetInternal(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/dev-target-internal/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── dev-target internal (z42b test <toml>：按目标编译 + 可见父包 internal) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ dev-target internal: `z42b test <toml>` exited " + rc.ToString());
+        return 1;
+    }
+    Console.WriteLine("  ✅ dev-target internal: 目标按源隔离编译，且可见父包 internal");
     return 0;
 }
 

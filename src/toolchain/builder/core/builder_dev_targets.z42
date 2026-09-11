@@ -1,0 +1,184 @@
+// z42b — 测试 / bench 目标的解析与派生（z42b-owns-test-targets）。
+//
+// 此前：xtask 为每个测试单元**伪造一份 mini-manifest 落盘**，再 `z42c build <synth.toml>`。
+// 那份合成文件里没有一项是新信息（全是把 `[[test]]` / `[tests]` 换个格式），但这一搬**丢掉了
+// 「我是 <父包> 的测试目标」这条身份** —— 于是编译器分辨不出测试包与普通包（两者都是
+// `kind = "lib"` 的普通 manifest），既没法拦住 `src/` 里的 `[Test]`，测试也看不见父包的 internal。
+//
+// 现在：z42b 从**真 manifest** 解析目标，在**内存里派生** ProjectManifest（不落文件），走
+// `_buildProject` 已有的同一条 `_orchestrate`。父包身份全程保留，直达编译器
+// （CompileInputs.ParentPkg → ImportedSymbolLoader 不设 IsImported ⇒ internal 可见）。
+//
+// 这是 unify-test-pipeline 案上写着的阶段 ③（见 docs/design/testing/cross-platform-testing.md:24-29），
+// 不是新方向。设计 SoT：docs/spec/changes/z42b-owns-test-targets/design.md。
+namespace Z42Builder;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+using Z42.Build;
+using Z42.Build.Project;
+
+/// 一个待编译 + 运行的 dev target。`Sources` 是 **glob 原文**（不在这里展开——
+/// 派生 manifest 的 `[sources] include` 直接带着它们，由 `_orchestrate` 统一展开）。
+public sealed class DevTarget {
+    public string   Name;         // `[[test]] name`，或 glob 单元名
+    public string[] Sources;      // glob 模式
+    public int      SrcCount;
+    public DepEntry[] Deps;       // 该目标独享的依赖（三层合并的第三层）
+    public int      DepCount;
+    public bool     Harness;      // true → z42b 反射跑 [Test]；false → 自驱 Main、退出码判定
+    public bool     HasEntry;     // false → 自动探测（ZpkgBuilder.AutoDetectEntry）
+    public string   Entry;
+    public DevTarget(string name, string[] sources, int srcCount,
+                     DepEntry[] deps, int depCount, bool harness, bool hasEntry, string entry) {
+        this.Name = name; this.Sources = sources; this.SrcCount = srcCount;
+        this.Deps = deps; this.DepCount = depCount;
+        this.Harness = harness; this.HasEntry = hasEntry; this.Entry = entry;
+    }
+}
+
+/// 解析某一类（"test" / "bench"）的全部目标。
+///   ① 显式 `[[test]]` / `[[bench]]` —— RunTarget 直接转 DevTarget；
+///   ② 段级 glob `[tests] include` / `[bench] include` —— 整段作为**一个**目标
+///      （名字用段名；「一文件一单元」的细分留给后续，见 design Open Questions）；
+///   ③ nameFilter 非空 → 只留同名者。
+/// 返回按名字**稳定排序**（common-pitfalls §1：任何按名注册/迭代都要确定序）。
+DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter, string sourceDir) {
+    RunTarget[] explicitT = (kind == "bench") ? m.Benches : m.Tests;
+    int explicitN        = (kind == "bench") ? m.BenchCount : m.TestCount;
+    TargetSection sec    = (kind == "bench") ? m.BenchSection : m.TestsSection;
+
+    DevTarget[] outp = new DevTarget[8];
+    int n = 0;
+    int i = 0;
+    while (i < explicitN) {
+        RunTarget t = explicitT[i];
+        if (nameFilter.Length == 0 || t.Name == nameFilter) {
+            if (n == outp.Length) { outp = _dtGrow(outp, n); }
+            outp[n] = new DevTarget(t.Name, t.Sources, t.SrcCount, t.Deps, t.DepCount,
+                                    t.Harness, t.HasEntry, t.Entry);
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    // 段级 glob（`[tests] include` / `[bench] include`）：**一文件一单元**，对齐今天约定发现的分法
+    // ——不是把整段糊成一个目标（那会让一个文件失败牵连整段，且 --name 无从点名）。
+    // 单元名 = 文件名去 `.z42`；**同名显式目标覆盖之**（沿用既有「显式覆盖同名 auto」语义）。
+    if (sec != null && sec.IncCount > 0) {
+        string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, sec.Include, sec.IncCount,
+                                                             sec.Exclude, sec.ExcCount);
+        _dtSortStrings(files, files.Length);   // 确定序（common-pitfalls §1）
+        int f = 0;
+        while (f < files.Length) {
+            string unit = _dtUnitName(files[f]);
+            bool dup = false;
+            int d = 0;
+            while (d < n) { if (outp[d].Name == unit) { dup = true; } d = d + 1; }
+            if (!dup && (nameFilter.Length == 0 || unit == nameFilter)) {
+                if (n == outp.Length) { outp = _dtGrow(outp, n); }
+                string[] one = new string[1]; one[0] = _dtRelOf(sourceDir, files[f]);
+                outp[n] = new DevTarget(unit, one, 1, new DepEntry[0], 0, true, false, "");
+                n = n + 1;
+            }
+            f = f + 1;
+        }
+    }
+    DevTarget[] r = new DevTarget[n];
+    int k = 0; while (k < n) { r[k] = outp[k]; k = k + 1; }
+    _dtSortByName(r, n);
+    return r;
+}
+
+DevTarget[] _dtGrow(DevTarget[] a, int n) {
+    DevTarget[] b = new DevTarget[n * 2];
+    int k = 0; while (k < n) { b[k] = a[k]; k = k + 1; }
+    return b;
+}
+
+// 选择排序（确定序；目标数是个位数，复杂度无所谓）。
+void _dtSortByName(DevTarget[] a, int n) {
+    int p = 0;
+    while (p < n) {
+        int min = p; int q = p + 1;
+        while (q < n) { if (a[q].Name.CompareTo(a[min].Name) < 0) { min = q; } q = q + 1; }
+        if (min != p) { DevTarget t = a[p]; a[p] = a[min]; a[min] = t; }
+        p = p + 1;
+    }
+}
+
+/// 在**内存里**派生该目标的 ProjectManifest —— 不写任何临时文件。
+///   name   = <父包>.<kind>.<目标名>
+///   kind   = harness ? "lib" : "exe"
+///   pack   = true **强制** —— z42b 只能加载 packed zpkg；debug 默认 pack=false 会产出
+///            indexed + 散装 zbc，runner 直接拒（`indexed zpkg cannot be loaded directly by the VM`）
+///   sources= 目标的 glob
+///   deps   = [dependencies] ∪ [<kind>s.dependencies] ∪ [[target]].dependencies（三层，后者优先）
+///   build  = 每目标独立的 output_dir / cache_dir（防两个目标的 source.zbc 互相覆盖）
+ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kind, string outRoot) {
+    string derivedName = m.Project.Name + "." + kind + "." + t.Name;
+    string pkind = t.Harness ? "lib" : "exe";
+    ProjectInfo pi = new ProjectInfo(derivedName, m.Project.Version, pkind,
+                                     t.HasEntry, t.Entry, true, true);
+
+    Sources src = new Sources(t.Sources, t.SrcCount, new string[0], 0);
+
+    TargetSection sec = (kind == "bench") ? m.BenchSection : m.TestsSection;
+    DepEntry[] merged = new DepEntry[m.DepCount + (sec == null ? 0 : sec.DepCount) + t.DepCount + 1];
+    int mc = 0;
+    // **父包自己**是测试目标的第一依赖 —— 测试要用它的公开面（以及经 ParentPkg 放行的 internal）。
+    merged[0] = new DepEntry(m.Project.Name, m.Project.Version, "");
+    mc = 1;
+    mc = _dtAppendDeps(merged, mc, m.Deps, m.DepCount);
+    if (sec != null) { mc = _dtAppendDeps(merged, mc, sec.Deps, sec.DepCount); }
+    mc = _dtAppendDeps(merged, mc, t.Deps, t.DepCount);
+
+    string tOut = Path.Join(outRoot, t.Name);
+    BuildConfig bc = new BuildConfig(true, tOut, true, Path.Join(tOut, "cache"),
+                                     false, "", m.Build.Incremental, false, "");
+
+    return new ProjectManifest(pi, src, bc,
+                               new Profile[0], 0, merged, mc,
+                               new ExeTarget[0], 0, m.Platform,
+                               null, null, null,
+                               new RunTarget[0], 0, new RunTarget[0], 0, new RunTarget[0], 0);
+}
+
+// 追加依赖，**后来者覆盖同名**（三层合并语义：目标级 > 段级 > 包级）。
+int _dtAppendDeps(DepEntry[] dst, int n, DepEntry[] src, int count) {
+    int i = 0;
+    while (i < count) {
+        int at = 0 - 1;
+        int j = 0;
+        while (j < n) { if (dst[j].Name == src[i].Name) { at = j; } j = j + 1; }
+        if (at >= 0) { dst[at] = src[i]; } else { dst[n] = src[i]; n = n + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+// 单元名 = 文件名去 `.z42`（`tests/queue_ops.z42` → `queue_ops`）。
+string _dtUnitName(string path) {
+    string b = Path.GetFileName(path);
+    if (b.EndsWith(".z42")) { return b.Substring(0, b.Length - 4); }
+    return b;
+}
+
+// 绝对路径 → 相对 sourceDir（派生 manifest 的 include 是 projDir 相对）。
+string _dtRelOf(string sourceDir, string abs) {
+    string a = abs.Replace("\\", "/");
+    string d = sourceDir.Replace("\\", "/");
+    if (!d.EndsWith("/")) { d = d + "/"; }
+    if (a.StartsWith(d)) { return a.Substring(d.Length); }
+    return a;
+}
+
+void _dtSortStrings(string[] a, int n) {
+    int p = 0;
+    while (p < n) {
+        int min = p; int q = p + 1;
+        while (q < n) { if (a[q].CompareTo(a[min]) < 0) { min = q; } q = q + 1; }
+        if (min != p) { string t = a[p]; a[p] = a[min]; a[min] = t; }
+        p = p + 1;
+    }
+}

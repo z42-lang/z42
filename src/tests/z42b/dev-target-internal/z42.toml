@@ -1,0 +1,22 @@
+# z42b-owns-test-targets 端到端 fixture：`z42b test <toml>` 按 [[test]] 目标编译 + 运行，
+# 且目标能看见**父包的 internal**（此前测试是父包的跨包消费者，internal 一律不可见）。
+# 由 `xtask test targets` 的 _smokeDevTargetInternal 驱动。
+[project]
+name    = "dt.internal"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"
+
+# 显式目标：只编 tests/ 下这一个文件 —— 顺带锁住「按目标隔离源」
+# （此前 in-process 路径把 include 硬编码成 `**/*.z42`，会把整个工程都编进去）。
+[[test]]
+name    = "internals_tests"   # 与文件名同名 → 覆盖段级 glob 的同名 auto 单元（不重复跑）
+sources = ["tests/internals_tests.z42"]
+
+[tests.dependencies]
+"z42.test" = "0.1.0"

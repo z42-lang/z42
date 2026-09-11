@@ -1,0 +1,26 @@
+namespace Dt.Internal.Tests;
+using Std;
+using Std.Test;
+using Dt.Internal;
+
+// ① internal **类**对测试目标可见
+[Test]
+void test_internal_class_visible() {
+    var h = new Hidden(21);
+    Assert.Equal(21, h.Value);
+    Assert.Equal(42, h.Doubled());
+}
+
+// ② 公开类上的 internal **成员**对测试目标可见
+[Test]
+void test_internal_member_visible() {
+    var b = new Box(21);
+    Assert.Equal(21, b.Inner);
+    Assert.Equal(42, b.Twice());
+}
+
+// ③ 公开面照常
+[Test]
+void test_public_still_works() {
+    Assert.Equal(42, Api.Answer());
+}
