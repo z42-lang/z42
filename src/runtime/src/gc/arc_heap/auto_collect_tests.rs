@@ -93,73 +93,49 @@ fn an_over_budget_live_set_does_not_re_collect_forever() {
     drop(pins);
 }
 
-// ── fix-futile-backoff-stretches-nursery (2026-09-11) ────────────────────────
+// ── fix-futile-backoff-is-too-eager (2026-09-11) ─────────────────────────────
 
-/// The belt in [`an_over_budget_live_set_does_not_re_collect_forever`] must not be worn when
-/// there is **no cap** — because the only thing it can reach there is the nursery, and the
-/// nursery is not a memory gate but the bound on one minor's pause. Un-fix
-/// `effective_backoff` and the trip point moves eight nurseries out.
-///
-/// Asserted on the trip point rather than on a workload's cycle count on purpose: the gate is
-/// re-armed from *current* `used` every time it is touched, so a workload test of this ends up
-/// measuring allocation timing rather than the policy.
+/// The two shapes the futility multiplier has to tell apart, with the numbers actually
+/// measured off each. Both reclaim well under half a 32 MB gate — which is why the original
+/// half-gate bar could not separate them, and why the bar is now [`FUTILE_DIVISOR`].
 #[test]
-fn an_uncapped_nursery_is_not_stretched_by_the_futility_multiplier() {
-    let heap = ArcMagrGC::new();
-    let nursery = 4 * 1024;
-    heap.set_nursery_bytes_for_test(nursery);
-    let baseline = 1_000_000;
-
-    // However high the multiplier has climbed, the next consultation is one nursery out.
-    for climbed in [1u32, 2, 8, super::MAX_BACKOFF] {
-        heap.arm_next_collect(baseline, baseline, climbed, None);
+fn merely_surviving_is_not_futile() {
+    const GATE: u64 = 32 * 1024 * 1024;
+    // `z42c.semantics`, the two collections that used to take the multiplier to 4: a compiler
+    // holding on to most of what it allocates, working perfectly. 26% and 32% of a gate.
+    for reclaimed in [8_400_000u64, 10_100_000] {
         assert_eq!(
-            heap.next_collect_at.load(std::sync::atomic::Ordering::Relaxed),
-            baseline + nursery,
-            "uncapped, multiplier {climbed}: the nursery is a pause bound, not a growth gate"
+            ArcMagrGC::next_backoff(1, reclaimed, GATE, 6), 1,
+            "{reclaimed} B of a {GATE} B gate is a high survival rate, not futility"
         );
+        // And it does not merely fail to climb — it *resets* a multiplier that had climbed.
+        assert_eq!(ArcMagrGC::next_backoff(16, reclaimed, GATE, 6), 1);
     }
 }
 
-/// The other half of the same rule: **with** a cap the belt is still on. This is the case the
-/// multiplier was measured into existence for (module doc: a 0.29 s run that had not finished
-/// after 9 minutes), and nothing about it changed.
+/// The other shape: `09_alloc_ctorless`, whose live set produces no garbage at all. Backing off
+/// here is right and costs nothing — a 100%-live heap does not even grow RSS for not being
+/// collected (measured 243 MB backed off vs 257 MB collecting anyway), while collecting it cost
+/// +78% wall.
 #[test]
-fn a_capped_gate_is_still_stretched_by_the_futility_multiplier() {
-    let heap = ArcMagrGC::new();
-    heap.set_nursery_bytes_for_test(4 * 1024);
-    let cap = Some(64 * 1024);
-    let baseline = 8 * 1024;
-    let gate = heap.minor_gate(baseline, cap);
-
-    heap.arm_next_collect(baseline, baseline, 8, cap);
-    assert_eq!(
-        heap.next_collect_at.load(std::sync::atomic::Ordering::Relaxed),
-        baseline + gate * 8,
-        "a squeezed cap is exactly what the multiplier is for"
-    );
+fn reclaiming_essentially_nothing_still_backs_off() {
+    const GATE: u64 = 32 * 1024 * 1024;
+    for reclaimed in [0u64, 384] {
+        assert_eq!(
+            ArcMagrGC::next_backoff(1, reclaimed, GATE, 6), 4,
+            "{reclaimed} B against a {GATE} B gate is what futility actually looks like"
+        );
+    }
+    // Climbs multiplicatively, and stops at the cap rather than running away.
+    assert_eq!(ArcMagrGC::next_backoff(4, 0, GATE, 6), 16);
+    assert_eq!(ArcMagrGC::next_backoff(super::MAX_BACKOFF, 0, GATE, 6), super::MAX_BACKOFF);
 }
 
-/// And the decision itself, not just the arming: uncapped, one nursery of growth trips a minor
-/// no matter how high the multiplier has climbed.
+/// With no collection behind it there is nothing to judge: reading the absent collection's
+/// 0 reclaimed as futile penalised a heap that had never been collected at all.
 #[test]
-fn an_uncapped_minor_trips_on_one_nursery_whatever_the_multiplier() {
-    let heap = ArcMagrGC::new();
-    let nursery = 4 * 1024;
-    heap.set_nursery_bytes_for_test(nursery);
-    let cfg = crate::config::runtime_config();
-    let baseline = 1_000_000;
-
-    let trip = heap.decide_trip(baseline + nursery, baseline, super::MAX_BACKOFF, None, cfg);
-    let trip = trip.expect("one nursery of growth must trip a collection");
-    assert!(!trip.major, "a nursery's worth of growth asks for a minor, not a major");
-    assert_eq!(trip.gate, nursery);
-
-    // One byte short still does not trip — the gate is a real gate, not a no-op.
-    assert!(
-        heap.decide_trip(baseline + nursery - 1, baseline, 1, None, cfg).is_none(),
-        "below the gate nothing should trip"
-    );
+fn the_first_trip_is_judged_neutral() {
+    assert_eq!(ArcMagrGC::next_backoff(1, 0, 32 * 1024 * 1024, 0), 1);
 }
 
 #[test]

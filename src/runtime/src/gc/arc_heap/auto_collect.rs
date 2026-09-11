@@ -48,10 +48,11 @@
 //! *unproductive* collection doubles the growth required before trying again, capped at
 //! [`MAX_BACKOFF`]; one productive collection resets it.
 //!
-//! **It applies only when there is a soft cap** (fix-futile-backoff-stretches-nursery,
-//! 2026-09-11). Without one there is no runaway to belt, and the multiplier lands on the
-//! **nursery** — which is not a memory gate but the bound on one minor's pause. See the note
-//! at [`ArcMagrGC::effective_backoff`] for the 64.6 ms minor that cost.
+//! **What counts as "unproductive" is deliberately narrow** (fix-futile-backoff-is-too-eager,
+//! 2026-09-11): essentially-nothing reclaimed, not merely less than the gate. The multiplier
+//! lands on the **nursery**, which is not a memory gate but the bound on one minor's pause, so
+//! a bar set too high answers "this program has a high survival rate" with "then scan four
+//! times as much next time". See [`ArcMagrGC::next_backoff`] for the 64.6 ms minor that cost.
 //!
 //! Productivity is read back from `stats.reclaimed_bytes` — the total is already maintained by
 //! every collect path, so this needs no hook in any of them. It always describes the collection
@@ -96,12 +97,25 @@ const FUTILE_DIVISOR: u64 = 16;
 ///
 /// ⚠️ **That table predates fix-futile-backoff-stretches-nursery (2026-09-11)**, and the
 /// generational half of it was measured through a gate the futility multiplier was stretching
-/// — so its "32M" row is really "32M, sometimes 128M". Re-measured with an honest gate, 32M
-/// now reads **17 minors / 6.82 s / 583 MB**: it dominates the old 16M row outright (same RSS,
-/// 0.8 s less wall). Whether the default should now come down further is a separate question —
-/// its two stated reasons have both expired (chunk reclaim became `O(chunks)` in
-/// add-incremental-chunk-reclaim, and the multiplier no longer inflates it) and nobody has
-/// re-measured the ladder since.
+/// — so its "32M" row is really "32M, sometimes 128M". Re-measured on the same workload with
+/// an honest gate (3 runs per rung, median):
+///
+/// | nursery | wall | peak RSS | cycles | total pause | median | p90 |
+/// |---|---|---|---|---|---|---|
+/// | 8M | 7.01 s | 527 MB | 72 | 447.6 ms | 5.0 ms | 7.0 ms |
+/// | **16M** | **6.83 s** | **536 MB** | 35 | 302.8 ms | **8.5 ms** | **11.6 ms** |
+/// | 24M | 6.81 s | 558 MB | 23 | 287.1 ms | 12.5 ms | 16.8 ms |
+/// | **32M (current)** | 6.82 s | 579 MB | 17 | 278.0 ms | 16.0 ms | 28.8 ms |
+/// | 64M | 6.77 s | 645 MB | 8 | 261.3 ms | 32.7 ms | 68.9 ms |
+///
+/// The wall curve is **flat from 16M up** (6.83 vs 6.77 s at 64M — 0.9%) and falls off a cliff
+/// below it (8M +2.7%, 4M +5.6%, 2M +17%), while pause and RSS improve monotonically going
+/// down. So **16M dominates this default on every axis** — same wall, −43 MB, median pause
+/// −47%, p90 −60%. Changing it is a separate change: the two reasons 32M was chosen over 16M
+/// have both expired (chunk reclaim became `O(chunks)` in add-incremental-chunk-reclaim, and
+/// the multiplier no longer inflates the gate), but a default needs more than one workload
+/// behind it and `09_alloc_ctorless` is the only other scenario in the tree that collects at
+/// all.
 pub(super) const DEFAULT_NURSERY_BYTES: u64 = 32 * 1024 * 1024;
 
 /// **arm-gc-by-default (2026-09-09)**: fraction of the live set the old generation may take
@@ -160,33 +174,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             return;
         };
 
-        // Less than half a growth gate's worth reclaimed means the last collection did not
-        // buy us room; back off so an over-budget live set stops re-collecting on every gate.
-        // With no cycle behind us there is nothing to judge — stay neutral rather than
-        // reading the absent collection as a futile one.
-        //
-        // The bar is *half the gate*, not the gate itself: a healthy minor reclaims most —
-        // not all — of a nursery, and judging it against the full gate marked every healthy
-        // collection futile and doubled the backoff each time (measured: minors dropped from
-        // 18 to 8 and the heap stopped being collected at all).
-        let next_backoff = if soft_limit.is_none() || cycles == 0 {
-            // No cap ⇒ nothing to belt (see `effective_backoff`) — storing a climb no one will read
-            // would only lie to a heap that later gets a cap. And with no cycle
-            // behind us there is nothing to judge — reading 0 reclaimed there penalised a heap
-            // that had never been collected at all.
-            1
-        } else if reclaimed_since < trip.gate / FUTILE_DIVISOR {
-            // **fix-minor-and-major-in-one-pause (2026-09-10)**: freed *essentially nothing*.
-            // That is a different signal from "freed less than half a gate": the live set is not
-            // producing garbage at all, so the next collection has to mark a whole extra gate's
-            // worth of objects for the same zero return. Doubling makes each successive futile
-            // collection **more** expensive, so climb faster when the evidence is this clear.
-            backoff.saturating_mul(4).min(MAX_BACKOFF)
-        } else if reclaimed_since < trip.gate / 2 {
-            backoff.saturating_mul(2).min(MAX_BACKOFF)
-        } else {
-            1
-        };
+        let next_backoff = Self::next_backoff(backoff, reclaimed_since, trip.gate, cycles);
 
         // A collect this path already asked for may still be pending at the
         // safepoint. Re-tripping would overwrite the watermarks with readings
@@ -264,32 +252,49 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// - `Z42_GC_MAX_BYTES` is now a **soft cap, not the arming switch**: unset means "no
     ///   cap" (Mono's `soft_heap_limit` default), and when set it only squeezes the allowance
     ///   and adds a near-limit trip.
-    /// **fix-futile-backoff-stretches-nursery (2026-09-11)**: the futility multiplier actually
-    /// in force. It only exists for the case a **soft cap** squeezes the allowance down to its
-    /// floor (see the module doc); with no cap the allowance is `live × ALLOWANCE_HEAP_RATIO`,
-    /// so it grows with the live set, the collection count is already logarithmic in heap
-    /// growth, and there is no runaway to belt.
+    /// How the futility multiplier should move, given what the **previous** collection returned
+    /// against the gate this one tripped.
     ///
-    /// What the multiplier reaches instead, under the default (generational, no cap), is the
-    /// **nursery** — which is not a memory gate at all but the bound on how much young set one
-    /// minor has to chew through. Measured on `z42c.semantics --release --no-incremental`: two
-    /// collections that reclaimed 8.4 MB and 10.1 MB took it to 4, so the two minors after them
-    /// scanned 96 MB and 160 MB of nursery and paused **45.4 ms / 64.6 ms** — 39% of the whole
-    /// build's pause — where every honest-gate minor in the same run cost 6–22 ms. Neutralising
-    /// it took that build's p90 pause from 47.3 ms to 26.5 ms and its peak RSS from 767 MB to
-    /// 583 MB, for +0.3% wall.
+    /// Two tiers, not three (fix-futile-backoff-is-too-eager, 2026-09-11). The middle one —
+    /// *"reclaimed less than **half** a gate ⇒ double the multiplier"* — was the original rule,
+    /// and it cannot tell the two cases apart that matter:
     ///
-    /// Those two collections were not futile either. They ran while the compiler was holding on
-    /// to most of what it allocated, so "reclaimed less than half a gate" is what a **high
-    /// survival rate** looks like — and answering it with "scan four times as much next time"
-    /// makes the pause worse precisely when survival is high.
-    /// [`Self::minor_escalation_threshold`] is the mechanism that already handles "minors are
-    /// not helping": it escalates to a major rather than growing the nursery.
+    /// - **Genuinely futile**: the live set is not producing garbage at all, so the next
+    ///   collection marks a whole extra gate's worth of objects for the same zero return.
+    ///   `src/tests/perf/scenarios/09_alloc_ctorless` is this shape exactly — measured
+    ///   **384 B and then 0 B** reclaimed against a 32 MB gate. Backing off is right, and
+    ///   costs nothing: that heap is 100% live, so not collecting it does not even grow RSS
+    ///   (measured 243 MB backed off vs 257 MB collecting anyway).
+    /// - **Merely surviving**: a program holding on to most of what it allocates reclaims well
+    ///   under half a nursery *while working perfectly*. `z42c.semantics` is this shape —
+    ///   measured **8.4 MB and 10.1 MB** against the same 32 MB gate, i.e. 26% and 32% of it.
+    ///   The half-gate bar read those as futile, took the multiplier to 4, and the two minors
+    ///   that followed scanned 96 MB and 160 MB of nursery and paused **45.4 ms / 64.6 ms** —
+    ///   39% of the whole build's pause, where every honest-gate minor cost 6–22 ms.
     ///
-    /// Applied **here and in [`Self::arm_next_collect`]** — the two places that consume the
-    /// multiplier — rather than at their caller, so a third consumer cannot quietly skip it.
-    fn effective_backoff(backoff: u32, soft_limit: Option<u64>) -> u32 {
-        if soft_limit.is_some() { backoff } else { 1 }
+    /// The second case is the one that hurts, and it hurts **backwards**: the multiplier lands
+    /// on the nursery, which is not a memory gate but the bound on how much young set one minor
+    /// has to chew through — so the answer to "this program has a high survival rate" came out
+    /// as "then scan four times as much next time". `minor_escalation_threshold` is the
+    /// mechanism that already handles "minors are not helping": it escalates to a **major**,
+    /// which is the collection that can actually do something about an old generation.
+    ///
+    /// [`FUTILE_DIVISOR`] separates them with room to spare: 1/16 of a gate is far below
+    /// anything a working collection returns and far above the handful of bytes a
+    /// 100%-survival workload gives back — 2 MB against the 384 B / 8.4 MB pair above.
+    ///
+    /// `cycles == 0` means no collection has happened yet, so there is nothing to judge:
+    /// reading its absent 0 reclaimed as futile penalised a heap that had never been collected.
+    fn next_backoff(backoff: u32, reclaimed_since: u64, gate: u64, cycles: u64) -> u32 {
+        if cycles == 0 {
+            1
+        } else if reclaimed_since < gate / FUTILE_DIVISOR {
+            // Freed essentially nothing — climb fast, because each successive futile collection
+            // is *more* expensive than the last (a whole extra gate to mark for the same zero).
+            backoff.saturating_mul(4).min(MAX_BACKOFF)
+        } else {
+            1
+        }
     }
 
     fn decide_trip(
@@ -300,7 +305,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         soft_limit: Option<u64>,
         cfg: &crate::config::RuntimeConfig,
     ) -> Option<Trip> {
-        let backoff = Self::effective_backoff(backoff, soft_limit);
         let nursery = self.nursery_bytes();
         let allowance = Self::collection_allowance(baseline, nursery, soft_limit);
         let grown = used.saturating_sub(baseline);
@@ -385,7 +389,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         } else {
             Self::collection_allowance(baseline, self.nursery_bytes(), soft_limit)
         };
-        let backoff = Self::effective_backoff(backoff, soft_limit);
         let gate = gate.saturating_mul(backoff.max(1) as u64);
         let next = baseline.saturating_add(gate).max(floor.saturating_add(gate));
         self.next_collect_at.store(next, Ordering::Relaxed);
