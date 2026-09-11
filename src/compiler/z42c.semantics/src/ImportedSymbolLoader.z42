@@ -119,6 +119,19 @@ public static class ImportedSymbolLoader {
             else { active[i] = ImportedSymbolLoader._pkgProvidesUsing(exported, pkgNames, exportedCount, pkgNames[i], usings, usingCount); }
             i = i + 1;
         }
+        // ── report-crosspkg-duplicate-type：**父包不是「别的包」** ────────────────────────
+        //
+        // 🔴 这条是 E0606（#577）的回归修复。dev-target 模式（z42b-owns-test-targets）把**父包的
+        // 源码**编进测试单元（为了看见 internal），而父包自己的 zpkg **同时**在依赖里 ⇒ 父包的每个
+        // 类型都长成「本地声明 + 导入同 FQN」⇒ E0606 对每一个都误报，`xtask test targets` 的
+        // dev-target-internal 判红（实测三平台 test-host 全挂）。
+        //
+        // 但那根本不是遮蔽，**那就是同一个包**——下方 `nct.IsImported = !(parentPkg != "" && ...)`
+        // 说的正是这件事：父包按**同包**待遇。所以来源登记必须跳过它：**你不可能遮蔽你自己**。
+        // 常规编译 `parentPkg == ""` → 不跳，且那时 DepScan 已按 `inp.Name` 排除 self-zpkg，本就不自撞。
+        bool[] selfPkg = new bool[exportedCount];
+        i = 0;
+        while (i < exportedCount) { selfPkg[i] = (parentPkg != "" && pkgNames[i] == parentPkg); i = i + 1; }
         // ── Pre-scan：检测 imported 同名不同 arity 的类，泛型版需 arity-mangle（镜像 local
         // SymbolCollector pre-scan + C# NeedsMangle）。否则 arity-0 base 与 arity-N 泛型
         // （如 MulticastException / MulticastException<TResult>）撞键 → first-wins 丢泛型 →
@@ -164,7 +177,7 @@ public static class ImportedSymbolLoader {
                     // report-crosspkg-duplicate-type：记「这个 FQN 由哪个包声明」——同样在 first-wins
                     // 守卫之外。`pkgNames` 与 `exported` 平行，来源包名一直就在手边，只是从没被记过。
                     // 同一个包的多个模块贡献同一个包名 → NoteNsInto 幂等，不会自己撞自己。
-                    SymbolTable.NoteNsInto(r.ClassPkgAll, fqnKey, pkgNames[i]);
+                    if (!selfPkg[i]) { SymbolTable.NoteNsInto(r.ClassPkgAll, fqnKey, pkgNames[i]); }
                     bool bareFree = !r.Classes.ContainsKey(clKey);   // first-wins（输入已 prelude-first 排序）
                     if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
@@ -232,8 +245,10 @@ public static class ImportedSymbolLoader {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
                     // report-crosspkg-duplicate-type：接口同款（守卫之外累积）。接口不 arity-mangle，
                     // FQN 直接 ns + 裸名，与 Z42InterfaceType.Fqn() 同口径。
-                    SymbolTable.NoteNsInto(r.ClassPkgAll,
-                        em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
+                    if (!selfPkg[i]) {
+                        SymbolTable.NoteNsInto(r.ClassPkgAll,
+                            em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
+                    }
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
@@ -257,8 +272,10 @@ public static class ImportedSymbolLoader {
                 while (ec < em.EnumCount) {
                     ExportedEnumZ ez = em.Enums[ec];
                     // report-crosspkg-duplicate-type：enum 同款（守卫之外累积）。
-                    SymbolTable.NoteNsInto(r.ClassPkgAll,
-                        em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, pkgNames[i]);
+                    if (!selfPkg[i]) {
+                        SymbolTable.NoteNsInto(r.ClassPkgAll,
+                            em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, pkgNames[i]);
+                    }
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
                         r.EnumTypeNamesByFqn.Put(em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, "enum");   // unify-type-identity-fqn
