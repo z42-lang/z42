@@ -123,14 +123,36 @@ generator 自己读的是 `Attr.Args` 的**原始 AST**（`MethodOfExpr` 节点�
 > C 的结论与 09-06 记忆里写的「跨碎片同 RegKey 是硬错误 `PartialDuplicateMember`」**不符**。
 > 以本次实测 + `partial-types.md` 为准：**不同签名不报错、静默丢失**，比硬错误更危险。
 
+## 生成源码落盘：`[build] emit_generated`（User 2026-09-12 裁决）
+
+**走 `z42.toml` 配置，不加 CLI flag；没配置即默认值。**
+
+```toml
+[build]
+emit_generated = true      # 默认 false
+```
+
+落在既有的 `[build]` 段（已有 `output_dir` / `cache_dir` / `dist_dir` / `incremental` / `hooks`），
+沿用同一套 `has* + 值` 形状（`ManifestLoader._parseBuild`，工程级 :216 与工作区级 :167 两处）。
+`incremental` 就是现成的 bool-带默认先例。
+
+**默认 `false`（不落盘）**，三条理由：
+1. 调试是**按需**行为，没人调试时每次构建都写盘是净成本；
+2. 默认 false ⇒ **自举链路完全不受影响**（byte-identical 不动点不需要考虑多出来的文件）；
+3. 打开的成本极低（一行 toml），关掉的成本是「不知道它在偷偷写文件」。
+
+**写到哪儿**：`<output_dir>/generated/<pkg>/__gen$<Name>$augment.z42`，从既有 `output_dir` 派生，
+不新立一个路径根——想换位置的人本来就在改 `output_dir`。路径确定 ⇒ 将来 `.zsym` 可以指进去。
+
+> 🔴 **落盘位置必须在 `[sources] include` 扫描范围之外**，否则下一次构建会把生成的 `partial`
+> 碎片当成**用户源码再编一遍** —— 同一个类出现两份同名成员的碎片，直接踩验证 C 的**静默覆盖**：
+> 用户的方法被吃掉、调用点报假类型错。默认落在 `output_dir`（`artifacts/…`）天然在扫描范围外；
+> 但用户把 `output_dir` 指进 `src/` 时必须**报错拒绝**，不能听之任之。（tasks 4.4 / 5.5）
+
 ## 待 User 裁决的决策点
 
-1. **生成源码要不要落盘**（验证 B）。你选 Generator 路线的理由是「以后可以支持调试」，但现状
-   不落盘 ⇒ 调试器无源可看。三个选项：
-   - (a) 加 `--emit-generated <dir>`，默认关，开了才写盘（**建议**）
-   - (b) 本提案不管，等真做调试器时再补
-   - (c) 恒落盘到 `artifacts/generated/`
-2. **三档是否一次全做**，还是先落 ③（零风险、且验证 A 已通过、离手写只差半行）+ ①，把 ② 放后面。
+1. ✅ **已裁决**：生成源码落盘 → `[build] emit_generated`，默认 false（见上节）。
+2. **三档是否一次全做**，还是先落 ③（零风险、验证 A 已通过、离手写只差半行）+ ①，把 ② 放后面。
 
 ## Scope（允许改动的文件）
 
@@ -139,7 +161,8 @@ generator 自己读的是 `Attr.Args` 的**原始 AST**（`MethodOfExpr` 节点�
 | `src/compiler/z42c.semantics/src/GeneratorDriver.z42` | MODIFY | **唯一框架改动**：触发点扫描扩展到字段级 `AttributedDecl`（现仅顶层 `Inner is ClassDecl`，:137-140）。**不得剥字段级触发 attr 的工厂** |
 | `src/libraries/z42.core/src/ForwardAttribute.z42` | NEW | `[Forward]` 的真实 attribute 类（合成工厂需要真类型） |
 | `src/libraries/z42c.*/…/ForwardGenerator.z42` | NEW | 转发 generator 本体：读 `Attr.Args` AST → 收转发面 → **显式 sort** → 生成源码 |
-| `src/libraries/z42c.core/src/DiagnosticCodes.z42` | MODIFY | 新诊断码（S4 冲突 / S5 跳过 info / 白名单指向不存在的成员） |
+| `src/libraries/z42.project/src/ManifestLoader.z42` + `BuildConfig` | MODIFY | `[build] emit_generated`（bool，默认 false）；工程级 + 工作区级两处，沿用 `incremental` 的形状 |
+| `src/libraries/z42c.core/src/DiagnosticCodes.z42` | MODIFY | 新诊断码（S4 冲突 / S5 跳过 info / 白名单指向不存在的成员 / emit 目录落在源码扫描范围内） |
 | `src/tests/forwarding/**` | NEW | e2e：三档各一条 + S1–S5 各一条 + 跨包 |
 | `docs/book/src/language/member-forwarding.md` | NEW | 语义规则 / 三档 / 与多继承的界线 |
 
