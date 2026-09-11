@@ -1,4 +1,4 @@
-// report-crosspkg-duplicate-type：同一个 **FQN** 被多个包声明 → E0601；本包遮蔽导入 → W0606。
+// report-crosspkg-duplicate-type：同一个 **FQN** 被多个包声明 → E0601；本包遮蔽导入 → E0606。
 //
 // 🔴 **这组用例是这两个码唯一的门**：全仓 657 个 stdlib 类型实测**跨包同 FQN = 0**（本 change
 // 写这条诊断时扫过），所以它在真实代码上永远不响。没有本文件，实现对错都恒绿。
@@ -104,8 +104,11 @@ void crosspkg_duplicate_reports_on_qualified_name_too() {
 }
 
 [Test]
-void local_type_shadowing_import_warns() {
-    // 本包声明 Demo.Dup.Widget，另有**一个**依赖包也声明它 → W0606（不是 error：本地恒赢是既定规则）。
+void local_type_shadowing_import_errors() {
+    // 本包声明 Demo.Dup.Widget，另有**一个**依赖包也声明它 → E0606。
+    // 🔴 曾写成 warning，理由是「本地恒赢是既定规则、不是猜」——**那个理由是错的**：规则明确
+    // ≠ 结果可接受。被遮蔽那份根本指不了，失败形态与 E0601 一样（去调它才有的成员 → 「no method
+    // X on Widget」答非所问）。且冲突的两份里有一份是本包自己写的 ⇒ 改名随时可以 ⇒ error 可行动。
     string[] srcs = new string[1];
     srcs[0] = "namespace Demo.Dup;\npublic class Widget { public int A() { return 1; } }";
     string[] nss  = new string[1]; nss[0] = "Demo.Dup";
@@ -113,13 +116,13 @@ void local_type_shadowing_import_warns() {
     string[] us   = new string[1]; us[0] = "Demo.Dup";
     string[] d = dupDiags("namespace Demo.Dup;\nclass Widget { public int L() { return 9; } }\nclass C { Widget w; }",
                           dupImports(srcs, nss, pkgs, us));
-    Assert.Equal(true, dupCount(d, "W0606") >= 1);
-    Assert.Equal(0, dupCount(d, "E0601"));   // 只有一个导入来源 → 不是「多包互撞」
+    Assert.Equal(true, dupCount(d, "E0606") >= 1);
+    Assert.Equal(0, dupCount(d, "E0601"));   // 只有一个导入来源 → 不是「多包互撞」，归 E0606
 }
 
 [Test]
-void local_interface_shadowing_import_warns() {
-    // 接口这半边必须与类对称：E0601 经 `PkgCheckFqn` 本就覆盖接口，若 W0606 只查 `ClassesByFqn`，
+void local_interface_shadowing_import_errors() {
+    // 接口这半边必须与类对称：E0601 经 `PkgCheckFqn` 本就覆盖接口，若 E0606 只查 `ClassesByFqn`，
     // 「本地接口遮蔽导入接口」会单独哑掉。退回对照：把 ShadowedImportMsg 的 InterfacesByFqn 分支
     // 撤掉 → 本条变红、上面那条类的照绿（正是不对称哑门的形状）。
     string[] srcs = new string[1];
@@ -129,7 +132,7 @@ void local_interface_shadowing_import_warns() {
     string[] us   = new string[1]; us[0] = "Demo.Dup";
     string[] d = dupDiags("namespace Demo.Dup;\npublic interface IThing { int Tag(); }\nclass C { IThing t; }",
                           dupImports(srcs, nss, pkgs, us));
-    Assert.Equal(true, dupCount(d, "W0606") >= 1);
+    Assert.Equal(true, dupCount(d, "E0606") >= 1);
 }
 
 // ── 负例（必须不报；每条都是一个真实的误报风险）────────────────────────────────
@@ -168,5 +171,5 @@ void unreferenced_duplicate_is_silent() {
     // 否则下游用户会被两个第三方依赖的冲突挡死，而他既没用到也修不了。
     string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { int n; }", dupTwoPkgs());
     Assert.Equal(0, dupCount(d, "E0601"));
-    Assert.Equal(0, dupCount(d, "W0606"));
+    Assert.Equal(0, dupCount(d, "E0606"));
 }

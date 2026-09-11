@@ -1,0 +1,10 @@
+namespace Demo.ShadowApp;
+
+using Std;
+using Std.IO;
+using Demo.ShadowNs;
+
+void Main() {
+    Widget w = new Widget();
+    Console.WriteLine(w.Who());
+}
