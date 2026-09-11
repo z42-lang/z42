@@ -1,0 +1,6 @@
+// 与 ext 包同 ns 同名的**自由函数**，外加一个同 FQN 的静态类。
+namespace Demo.FreeFnNs;
+
+public string helper() { return "alpha"; }
+
+public static class Util { public static string go() { return "util-alpha"; } }

@@ -649,6 +649,7 @@ public sealed class MemberResolver {
                 return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span);
             }
             if (env.Symbols.HasFunc(id.Name)) {
+                this._tc.ChkFreeFuncOrigins(env.Symbols, id.Name, call.Span);   // report-crosspkg-duplicate-function：E0601/E0606/E0456
                 MethodSymbol ms = env.Symbols.GetFunc(id.Name);
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span);
@@ -713,6 +714,7 @@ public sealed class MemberResolver {
             IdentExpr nsId = mem.Target as IdentExpr;
             if (this._tc._currentNs != "" && nsId.Name == this._tc._currentNs
                 && env.LookupVar(nsId.Name) == null && env.Symbols.HasFunc(mem.Name)) {
+                this._tc.ChkFreeFuncOrigins(env.Symbols, mem.Name, sp);   // report-crosspkg-duplicate-function：同裸名漏斗
                 MethodSymbol nfs = env.Symbols.GetFunc(mem.Name);
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, nfs.Signature, env);
                 return new BoundCall("free", false, null, "", mem.Name, args, argCount, nfs.Signature.Ret, sp);
@@ -728,6 +730,11 @@ public sealed class MemberResolver {
                 // 消掉了起因，但**择一本身仍是静默的**：换个同短名跨 ns 的类，照样无声选一份。
                 this._tc.ChkAmbiguousBareName(env.Symbols, tid.Name, sp);
                 Z42ClassType ct = env.Symbols.GetClass(tid.Name);
+                // report-crosspkg-duplicate-type 的**覆盖漏洞**（本 change 补）：E0601/E0606 挂在
+                // `_chkTypeRef` 上，而**静态调用根本不走它** —— `Util.go()` 里的 `Util` 只经
+                // `GetClass` 取类、不作类型引用检查。实测两个包各声明 `Demo.FnNs.Util` 时
+                // `Util.go()` 零诊断、字母序靠前的包赢。
+                this._tc._chkTypeRefPkg(env.Symbols, ct, sp);
                 MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, call.TypeArgCount, sp);   // 限定名静态调用（Array.Sort<int>）→ 传显式类型实参个数启用 arity 过滤
                 if (ms != null) {
                     ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参

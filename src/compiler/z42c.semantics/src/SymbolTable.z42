@@ -39,6 +39,17 @@ public sealed class SymbolTable {
     // 只登记**导入**的（由 ImportedSymbolLoader 在 first-wins 守卫之外累积，经 _mergeImports 并入）；
     // 本地那份是否存在改由 ClassesByFqn 的 IsImported 位判（见 ShadowedImportMsg）。
     public StrMap ClassPkgAll;
+    // report-crosspkg-duplicate-function：**自由函数名 → 声明它的全部来源**，每条形如 `ns#pkg`
+    // （值 StrBox，"|" 连接；`pkg` 为空串 = **本包**声明的那份）。
+    //
+    // 为什么必须单独存、且必须把 ns 和 pkg 一起存：`Functions` 的键是**裸函数名**（`ExportedFuncZ.Name`
+    // 就是 `md.Name`，从来没有 ns 前缀）⇒ 它比类那边还糊——类至少有 `ClassesByFqn`，自由函数
+    // **连 FQN 视图都没有**，同名者无论在不在同一个 ns 都撞同一个键、first-wins。
+    // 于是三种形状都得靠这张表才判得出来：
+    //   ① 同 ns、不同 pkg           → E0601（同 FQN 跨包，谁也选不了）
+    //   ② 同 ns、其一为本包（pkg=""）→ E0606（本包遮蔽导入，被遮那份指不了）
+    //   ③ 不同 ns、都可见            → E0456（裸名歧义，写限定名可消歧）
+    public StrMap FuncOriginAll;
     // fix-arity-mangle-package-wide：**包级**「同短名有多个 arity」集合（name → "1"）。
     // arity-mangle 的判据必须与符号表同尺度：`Classes` 是 per-package 的，而预扫此前在
     // `StubCollector._passClassStubs`（per-CU）与 `ExportedTypeExtractor._extractCore`（per-CU）
@@ -61,6 +72,7 @@ public sealed class SymbolTable {
         this.Delegates = new StrMap();
         this.ClassNsAll = new StrMap();
         this.ClassPkgAll = new StrMap();   // report-crosspkg-duplicate-type
+        this.FuncOriginAll = new StrMap();   // report-crosspkg-duplicate-function
         this.MultiArityNames = new StrMap();
         this._firstArity = new StrMap();
         this.CurrentAliases = null;
@@ -95,6 +107,7 @@ public sealed class SymbolTable {
         t.Delegates = this.Delegates;
         t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
         t.ClassPkgAll = this.ClassPkgAll;   // report-crosspkg-duplicate-type：共享（并行段内只读）。⚠️ 漏了这行 = 门恒不响
+        t.FuncOriginAll = this.FuncOriginAll;   // report-crosspkg-duplicate-function：同上，漏了这行门就恒不响
         t.MultiArityNames = this.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
         t.CurrentAliases = aliases;
         t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
@@ -213,6 +226,109 @@ public sealed class SymbolTable {
         return "`" + fqn + "` is declared in this package and also in package `" + pkgs[0]
              + "` — their fully-qualified names are identical, so the imported one can never be"
              + " referenced (rename one of them, or move it to a different namespace)";
+    }
+
+    // ── report-crosspkg-duplicate-function：自由函数的同名判定 ─────────────────────────
+    //
+    // 类那边有 `ClassesByFqn` 兜底，自由函数**连 FQN 视图都没有**（键恒为裸名）⇒ 同名者
+    // 无论同不同 ns 都撞同一个键、first-wins，且**没有任何写法能指到输的那份**
+    // （z42 的自由函数调用只有裸名一种形态，`ns.func()` 只在 ns == 当前 ns 时才是自由调用）。
+    // 实测（本 change 的 fixture）：两个包各声明 `Demo.FnNs.helper` → 编译零诊断、字母序靠前的赢；
+    // 分居两个 ns 且都 `using` 了也一样静默选一份。
+    //
+    // 三个判据共用 `FuncOriginAll`，**消息也只此一份**（同 IsBareNameAmbiguous 的纪律）。
+    // 消费端：`MemberResolver` 的两处自由调用漏斗。
+
+    // 登记一条来源。pkg 为空串 = 本包声明（由 MemberCollector 在 `_passMembers` 里按 CU 的 ns 记）。
+    public void NoteFuncOrigin(string name, string ns, string pkg) {
+        SymbolTable.NoteNsInto(this.FuncOriginAll, name, ns + "#" + pkg);
+    }
+
+    // name → 全部来源（每条 "ns#pkg"）。无记录返回空数组。
+    public string[] FuncOriginsOf(string name) {
+        int at = this.FuncOriginAll.Find(name);
+        if (at < 0) { return new string[0]; }
+        StrBox box = this.FuncOriginAll.ValAt(at) as StrBox;
+        return box.Value.Split("|");
+    }
+
+    private static string _origNs(string o) { int h = o.IndexOf("#"); return h < 0 ? o : o.Substring(0, h); }
+    private static string _origPkg(string o) { int h = o.IndexOf("#"); return h < 0 ? "" : o.Substring(h + 1, o.Length - h - 1); }
+
+    // 该来源的 ns 在本 CU 可见吗（全局 ns 视为可见——与 AmbiguousBareNameMsg 同口径）。
+    private bool _origVisible(string o) {
+        string ns = SymbolTable._origNs(o);
+        return ns == "" || this.IsScopeVisibleNs(ns);
+    }
+
+    // ① 同一个 ns 被 **两个依赖包** 各声明了一份同名自由函数 → E0601 消息；否则 ""。
+    public string DuplicateFuncPkgMsg(string name) {
+        string[] os = this.FuncOriginsOf(name);
+        int i = 0;
+        while (i < os.Length) {
+            if (this._origVisible(os[i]) && SymbolTable._origPkg(os[i]) != "") {
+                int j = i + 1;
+                while (j < os.Length) {
+                    if (this._origVisible(os[j]) && SymbolTable._origPkg(os[j]) != ""
+                        && SymbolTable._origNs(os[i]) == SymbolTable._origNs(os[j])
+                        && SymbolTable._origPkg(os[i]) != SymbolTable._origPkg(os[j])) {
+                        return "`" + SymbolTable.QualOf(SymbolTable._origNs(os[i]), name)
+                             + "` is declared in more than one package: `" + SymbolTable._origPkg(os[i])
+                             + "` and `" + SymbolTable._origPkg(os[j])
+                             + "` — free functions are referenced by bare name only, so neither can be selected"
+                             + " (rename one, or move it to a different namespace)";
+                    }
+                    j = j + 1;
+                }
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    // ② 本包声明的自由函数与某个导入包**同 ns 同名** → E0606 消息；否则 ""。
+    // 与类那边同一条理由：本地恒赢是既定规则，但被遮蔽那份**指不了**（自由函数只有裸名一种写法）。
+    public string ShadowedImportFuncMsg(string name) {
+        string[] os = this.FuncOriginsOf(name);
+        int i = 0;
+        while (i < os.Length) {
+            if (SymbolTable._origPkg(os[i]) == "") {
+                int j = 0;
+                while (j < os.Length) {
+                    if (SymbolTable._origPkg(os[j]) != "" && this._origVisible(os[j])
+                        && SymbolTable._origNs(os[i]) == SymbolTable._origNs(os[j])) {
+                        return "`" + SymbolTable.QualOf(SymbolTable._origNs(os[i]), name)
+                             + "` is declared in this package and also in package `" + SymbolTable._origPkg(os[j])
+                             + "` — free functions are referenced by bare name only, so the imported one"
+                             + " can never be referenced (rename one of them)";
+                    }
+                    j = j + 1;
+                }
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    // ③ 同名自由函数分居 **≥2 个可见 ns** → E0456 消息；否则 ""。
+    // 与类的裸名歧义同规则：**外围 ns 声明了它 → 不算歧义**（本包那份赢，语言规则如此）。
+    public string AmbiguousFuncNameMsg(string name) {
+        string[] os = this.FuncOriginsOf(name);
+        string first = "";
+        string second = "";
+        int i = 0;
+        while (i < os.Length) {
+            string ns = SymbolTable._origNs(os[i]);
+            if (ns == this.ScopeNs) { return ""; }
+            if (this._origVisible(os[i])) {
+                if (first == "") { first = ns; }
+                else if (second == "" && ns != first) { second = ns; }
+            }
+            i = i + 1;
+        }
+        if (second == "") { return ""; }
+        return "`" + name + "` is an ambiguous reference between `" + SymbolTable.QualOf(first, name)
+             + "` and `" + SymbolTable.QualOf(second, name) + "`";
     }
 
     // FQN → 声明过它的依赖包名列表（无记录返回空数组）。

@@ -181,6 +181,16 @@ public sealed class SymbolCollector {
             while (j < pps.Length) { SymbolTable.NoteNsInto(table.ClassPkgAll, pkk[i], pps[j]); j = j + 1; }
             i = i + 1;
         }
+        // report-crosspkg-duplicate-function：自由函数来源（"ns#pkg"）逐条并入（同 ClassPkgAll）。
+        string[] fok = imported.FuncOriginAll.Keys();
+        i = 0;
+        while (i < fok.Length) {
+            StrBox fb = imported.FuncOriginAll.Get(fok[i]) as StrBox;
+            string[] fos = fb.Value.Split("|");
+            int j = 0;
+            while (j < fos.Length) { SymbolTable.NoteNsInto(table.FuncOriginAll, fok[i], fos[j]); j = j + 1; }
+            i = i + 1;
+        }
         string[] fns = imported.Functions.Keys();
         i = 0;
         while (i < fns.Length) {
