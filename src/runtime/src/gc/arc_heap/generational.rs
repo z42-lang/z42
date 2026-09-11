@@ -5,6 +5,7 @@ use crate::gc::heap::MagrGC;
 use crate::metadata::{Value};
 use crate::gc::refs::{GcRef};
 use crate::gc::types::{FinalizerFn};
+use crate::gc::phase_timer::PhaseTimer;
 
 /// What one minor collection reclaimed. `reclaimed_entries` is what the escalation heuristic
 /// needs: **the number of young entries the sweep actually tombstoned**, across all three
@@ -383,6 +384,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut promoted_bytes: u64 = 0;
 
         // Object region
+        let scan_objects = PhaseTimer::start("minor/scan objects");
         let mut tombstones_object: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> = Vec::new();
         let mut survivors_object: Vec<crate::gc::region::RegionHandle> = Vec::new();
         {
@@ -401,7 +403,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             });
         }
+        scan_objects.count(survivors_object.len() + tombstones_object.len());
+        drop(scan_objects);
         // Promote survivors (may remove some from young_list at threshold).
+        let promote_objects = PhaseTimer::start("minor/promote objects");
+        promote_objects.count(survivors_object.len());
         let mut newly_old_object = Vec::new();
         for h in survivors_object {
             if self.region_object.lock().promote(h) {
@@ -412,7 +418,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // towards the next major's trigger — see `promoted_bytes_since_major`.
         promoted_bytes += self.promoted_size_of_objects(&newly_old_object);
         self.dirty_cards_for_newly_old_objects(&newly_old_object);
+        drop(promote_objects);
         // Tombstone dead young entries.
+        let tomb_objects = PhaseTimer::start("minor/tomb objects");
+        tomb_objects.count(tombstones_object.len());
         reclaimed_entries += tombstones_object.len();
         for (h, fin, size) in tombstones_object {
             if let Some(f) = fin { f(); }
@@ -434,7 +443,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
             self.region_object.lock().tombstone(h);
         }
 
+        drop(tomb_objects);
+
         // Array region (parallel logic)
+        let scan_arrays = PhaseTimer::start("minor/scan arrays");
         let mut tombstones_array: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> = Vec::new();
         let mut survivors_array: Vec<crate::gc::region::RegionHandle> = Vec::new();
         {
@@ -453,6 +465,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             });
         }
+        scan_arrays.count(survivors_array.len() + tombstones_array.len());
+        drop(scan_arrays);
+        let promote_arrays = PhaseTimer::start("minor/promote arrays");
+        promote_arrays.count(survivors_array.len());
         let mut newly_old_array = Vec::new();
         for h in survivors_array {
             if self.region_array.lock().promote(h) {
@@ -462,6 +478,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         promoted_bytes += self.promoted_size_of_arrays(&newly_old_array);
         self.age_backing_with_owner(&newly_old_array);
         self.dirty_cards_for_newly_old_arrays(&newly_old_array);
+        drop(promote_arrays);
+        let tomb_arrays = PhaseTimer::start("minor/tomb arrays");
+        tomb_arrays.count(tombstones_array.len());
         reclaimed_entries += tombstones_array.len();
         for (h, fin, size) in tombstones_array {
             if let Some(f) = fin { f(); }
@@ -483,8 +502,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // survived the cycle; now that it is reclaimed in the same sweep, the account and the
         // memory move together. (Per `VarRegion::alloc_charge_bytes`, array element blocks
         // are charged zero on their own, so nothing is double-counted here.)
+        drop(tomb_arrays);
         {
+            let t = PhaseTimer::start("minor/var sweep");
             let (reclaimed, credited) = self.region_var.lock().sweep_young();
+            t.count(reclaimed);
             freed_bytes += credited;
             reclaimed_entries += reclaimed;
         }
@@ -505,9 +527,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // takes the median minor pause from ~30 ms to ~75 ms and puts a floor under what the
         // nursery size can buy. Making it incremental (only chunks this minor touched) is the
         // next lever — see the change's design notes.
-        self.region_object.lock().reclaim_dead_chunks();
-        self.region_array.lock().reclaim_dead_chunks();
-        self.region_var.lock().reclaim_dead_var_chunks();
+        {
+            let _t = PhaseTimer::start("minor/chunk reclaim");
+            self.region_object.lock().reclaim_dead_chunks();
+            self.region_array.lock().reclaim_dead_chunks();
+            self.region_var.lock().reclaim_dead_var_chunks();
+        }
         self.promoted_bytes_since_major
             .fetch_add(promoted_bytes, std::sync::atomic::Ordering::Relaxed);
         MinorSweepResult { freed_bytes, reclaimed_entries, promoted_bytes }
@@ -547,7 +572,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // region before the minor mark/sweep — otherwise those young objects sit
         // in a borrowed chunk skipped by iteration. Idempotent when unbound.
         self.retire_thread_tlab();
-        let _newly_marked = self.mark_phase_minor();
+        let _newly_marked = {
+            let t = PhaseTimer::start("minor mark");
+            let n = self.mark_phase_minor();
+            t.count(n);
+            n
+        };
+        let _t = PhaseTimer::start("minor sweep");
         self.sweep_phase_young_only()
     }
 
@@ -579,7 +610,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         //
         // Runs before `rebuild_card_table` on purpose: promotion is what creates old→young
         // edges, and the rebuild is what records them.
-        self.age_survivors_after_major();
+        {
+            let _t = PhaseTimer::start("age survivors");
+            self.age_survivors_after_major();
+        }
         // **perf-drop-card-rebuild (2026-09-11)**: a major used to `clear_card_dirty()` and then
         // rebuild the whole card table — one `trace_children` per live **old** entry, measured
         // **12.4 ms of an 86 ms major** on `z42c.semantics`. Neither half is needed any more:

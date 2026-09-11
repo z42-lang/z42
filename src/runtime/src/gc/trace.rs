@@ -21,7 +21,10 @@ use super::types::{GcEvent, GcKind, GcObserver};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Human-readable byte count: `118.7M`, `1.0G`, `512B`.
-fn human(bytes: u64) -> String {
+///
+/// `pub(crate)` since add-gc-phase-timing: the phase breakdown prints byte counts in the
+/// same shape, and two spellings of `118.7M` in one stderr stream would be one too many.
+pub(crate) fn human(bytes: u64) -> String {
     const K: f64 = 1024.0;
     let b = bytes as f64;
     if b < K { return format!("{bytes}B"); }

@@ -44,6 +44,48 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `gc/safepoint.rs` |
 | `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `concurrent` / `generational`。默认自 2026-09-10 由 `stw` 改为 `generational`（见下「为什么分代成了默认」） | `gc/mode.rs` |
 
+## 诊断旋钮（`Z42_GC_TRACE` / `Z42_GC_PHASES`）
+
+调参旋钮改的是行为，这两个只**看**行为，默认全关、关掉零成本。
+
+| Knob | 语义 | 消费点 |
+|------|------|--------|
+| `Z42_GC_TRACE` | 每次回收一行：种类、堆 used 前后、回收字节、停顿 ms、第几个周期；外加近上限 / 超预算两条边沿。关掉时连 observer 都不装 | `gc/trace.rs` |
+| `Z42_GC_PHASES` | 把那一行停顿**拆开**：每个阶段一行耗时 + 处理条目数，外加一行「这次回收是被哪个闸门触发的」 | `gc/phase_timer.rs` |
+
+`Z42_GC_PHASES=1` 的一次 minor 长这样（`z42c.semantics --release --no-incremental`）：
+
+```text
+z42-gc:   trip minor  gate 32.0M x4  grown 160.0M  (last freed 84.2M)
+z42-gc:   minor mark                    10.912 ms  (290373)
+z42-gc:   minor/scan objects             3.538 ms  (350051)
+z42-gc:   minor/promote objects          3.536 ms  (166724)
+z42-gc:   minor/tomb objects             8.526 ms  (183327)
+z42-gc:   minor/scan arrays              9.463 ms  (624228)
+z42-gc:   minor/promote arrays           3.228 ms  (71422)
+z42-gc:   minor/tomb arrays              7.051 ms  (552806)
+z42-gc:   minor/var sweep               11.772 ms  (803767)
+z42-gc:   minor/chunk reclaim            6.373 ms
+z42-gc:   minor sweep                   53.625 ms
+z42-gc: Cycle used 261.6M -> 115.4M  freed 146.2M  pause 64.6ms  (cycle 8)
+```
+
+major 打的是另一组名字：`reset marks` / `full mark` / `sweep` 的四个半程 +
+`sweep/var` + `sweep/chunk reclaim` / `age survivors`。
+
+**怎么读这些行**——耗时单独看没有意义，要看它和**条目数的比值**：
+
+- `full mark 25.6 ms (953988)` 是正常的；`full mark 12 ms (84)` 是缺陷——标记只找到 84 个对象
+  却走了 12 ms，说明根集合里塞满了不该在那儿的东西（这正是 `fix-primitives-count-as-young`
+  的形状：推进标记队列的 125 万个值里 99.996% 是基元）。
+- `trip` 行说的不是「花在哪」而是「**为什么是现在**」，它决定了后面所有阶段要啃多大一片年轻代。
+  `gate 32.0M x4  grown 160.0M` 里的 `x4` 是徒劳退避的倍数（见下「增长闸门」一节）——
+  闸门被乘大，这次 minor 的年轻代就大四倍，停顿也跟着大。
+
+这套打点此前是「用时手打、量完删掉」的临时补丁，进出四次（#565 / #566 / #569 / #570 的定位
+全靠它）。固定下来是因为**它每次都是定位的第一步**，而重打一遍的成本远高于让它常驻——
+常驻的代价只有「关掉时每阶段一个 `Option` 判断」。
+
 > 三个比率各自独立 clamp 到 `[0,1]`，**不强制跨 knob 排序**（若把 pressure 设得高于 near，
 > pressure-事件分支自然变死代码，无害）——保持每个 knob 独立可预测，不做"惊喜"式静默改写。
 

@@ -194,6 +194,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
             i.auto_collect_backoff = next_backoff;
         }
 
+        // `Z42_GC_PHASES`: why this collection is happening at all. The phase lines that
+        // follow account for the pause; this one accounts for the *young set* the pause had to
+        // chew through, which is decided here and nowhere else.
+        crate::gc::phase_timer::note(format_args!(
+            "trip {:<5}  gate {}{}  grown {}  (last freed {})",
+            if trip.major { "major" } else { "minor" },
+            crate::gc::trace::human(trip.gate),
+            if backoff > 1 { format!(" x{backoff}") } else { String::new() },
+            crate::gc::trace::human(used.saturating_sub(baseline)),
+            crate::gc::trace::human(reclaimed_since),
+        ));
         // Which kind of collection the policy is asking for. The deferred safepoint path only
         // knows "collect", so the choice is handed over through `pending_major`.
         if trip.major {
