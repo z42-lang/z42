@@ -1,0 +1,9 @@
+// 目录单元的兄弟文件：只有当整个目录被一起编进同一个目标时，source.z42 才引用得到它。
+namespace DtInternalDirUnitTests;
+
+using Std;
+
+public static class DirUnitVectors {
+    public static int Seven() { return 7; }
+    public static int Fourteen() { return 14; }
+}
