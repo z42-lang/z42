@@ -1,0 +1,7 @@
+// 依赖包里的 Demo.ShadowNs.Widget —— 消费方声明了同 FQN 的一份，把它整个遮住。
+namespace Demo.ShadowNs;
+
+public class Widget {
+    public string Who() { return "from-lib"; }
+    public string OnlyLib() { return "only-lib"; }   // 本地那份没有 → 遮蔽后永远调不到
+}

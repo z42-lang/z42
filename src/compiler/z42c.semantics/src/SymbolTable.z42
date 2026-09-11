@@ -179,10 +179,19 @@ public sealed class SymbolTable {
              + " (rename one, or move it to a different namespace)";
     }
 
-    // 本包声明的类型遮蔽了某个导入包的同 FQN 类型 → W0606 消息；否则 ""。
+    // 本包声明的类型遮蔽了某个导入包的同 FQN 类型 → E0606 消息；否则 ""。
     // 判据：该 FQN 上的赢家是**本地**类型（IsImported==false），而 ClassPkgAll 里又记着导入来源。
-    // 本地恒赢是既定规则（不是猜），所以是 warning 不是 error；但被遮蔽那份同样**指不了**，
-    // 故文案给的修法是改名，而不是「写限定名」。
+    //
+    // 🔴 **为什么是 error 而不是 warning**（初版照 C# CS0436 做成了 warning，那是错的）：
+    // 「本地恒赢」确实是既定规则、不是猜——但**规则明确 ≠ 结果可接受**。被遮蔽的那一份
+    // **根本指不了**（两者 FQN 逐字相同，限定名也分不开；C# 有 extern alias，z42 没有），
+    // 于是失败形态与 E0601 一模一样：去调依赖包那份才有的成员，得到的是
+    // 「no method X on Widget」这种答非所问的诊断。
+    //
+    // 与 E0601 「未引用则不报」的分工也不同：那条是**两个第三方依赖打架**，下游既没用到
+    // 也无权修，不该挡死他；本条冲突的两份里**有一份是本包自己写的**，改名随时可以 ⇒
+    // 报 error 是可行动的。代价只有「故意遮蔽以覆盖库类型」这条野路子，而它本就无法控制、
+    // 无法回退（指不到被覆盖那份），不值得为它保留一个静默通道。实测全仓 0 处。
     public string ShadowedImportMsg(string fqn) {
         string[] pkgs = this.ClassPkgsOf(fqn);
         if (pkgs.Length < 1) { return ""; }
@@ -202,8 +211,8 @@ public sealed class SymbolTable {
         }
         if (!localWins) { return ""; }   // 赢家是导入的（或查不到）→ 没有本地遮蔽
         return "`" + fqn + "` is declared in this package and also in package `" + pkgs[0]
-             + "`; the local one wins and the imported one cannot be referenced at all"
-             + " (their fully-qualified names are identical) — rename one of them";
+             + "` — their fully-qualified names are identical, so the imported one can never be"
+             + " referenced (rename one of them, or move it to a different namespace)";
     }
 
     // FQN → 声明过它的依赖包名列表（无记录返回空数组）。

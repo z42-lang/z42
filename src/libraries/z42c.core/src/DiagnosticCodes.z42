@@ -108,10 +108,17 @@ public static class DiagnosticCodes {
     public static string CapturedValueSnapshotAssign  = "W0604";
     public static string ReservedNamespaceDeclaration = "E0605";
     // report-crosspkg-duplicate-type：**本包声明的类型遮蔽了某个导入包的同 FQN 类型**。
-    // 本地恒赢是既定规则（不是猜）⇒ warning 而非 error，对齐 C# CS0436。但被遮蔽的那一份同样
-    // **指不了**（两者 FQN 完全相同，限定名也分不开），所以文案给的修法是改名，不是「写限定名」。
-    // **语义层用字面量 "W0606" 发码**（同 E0601）。
-    public static string LocalTypeShadowsImport = "W0606";
+    //
+    // 🔴 这条曾按 C# CS0436 做成 warning（理由：「本地恒赢是既定规则、不是猜」），**改成了 error**：
+    // 规则明确 ≠ 结果可接受 —— 被遮蔽的那一份**根本指不了**（两者 FQN 逐字相同，限定名也分不开；
+    // C# 有 extern alias 作逃生口，z42 没有），失败形态与 E0601 一模一样：去调依赖包那份才有的
+    // 成员，得到「no method X on Widget」这种答非所问的诊断。
+    //
+    // 与 E0601「未引用则不报」的分工不同：那条是两个第三方依赖打架、下游既没用到也无权修；
+    // 本条冲突的两份里**有一份是本包自己写的**，改名随时可以 ⇒ error 可行动。唯一代价是
+    // 「故意遮蔽以覆盖库类型」这条野路子（本就无法控制、指不到被覆盖那份），实测全仓 0 处。
+    // **语义层用字面量 "E0606" 发码**（同 E0601）。
+    public static string LocalTypeShadowsImport = "E0606";
 
     // Internal compiler error
     public static string InternalCompilerError = "E0900";

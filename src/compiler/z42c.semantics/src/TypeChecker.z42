@@ -45,10 +45,10 @@ public sealed class TypeChecker {
     public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
         AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
         if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
-        this._chkTypeRefPkg(env.Symbols, t, sp);   // report-crosspkg-duplicate-type：E0601 / W0606（使用位）
+        this._chkTypeRefPkg(env.Symbols, t, sp);   // report-crosspkg-duplicate-type：E0601 / E0606（使用位）
     }
 
-    // report-crosspkg-duplicate-type：同 FQN 跨包（E0601）/ 本地遮蔽导入（W0606）的**使用位**判定。
+    // report-crosspkg-duplicate-type：同 FQN 跨包（E0601）/ 本地遮蔽导入（E0606）的**使用位**判定。
     //
     // 挂在 `_chkTypeRef` 里而不是像 E0456 那样另起一条调用链：E0456 必须知道源码写的是裸名还是
     // 限定名（限定名即已消歧 ⇒ 对它报歧义是假红），只有 TypeExpr 有那个信息；而本条只看**解析结果**
@@ -64,7 +64,7 @@ public sealed class TypeChecker {
         string emsg = symbols.CrossPkgDuplicateMsg(fqn);
         if (emsg != "") { this._diags.Error("E0601", emsg, sp); return; }
         string wmsg = symbols.ShadowedImportMsg(fqn);
-        if (wmsg != "") { this._diags.Warning("W0606", wmsg, sp); }
+        if (wmsg != "") { this._diags.Error("E0606", wmsg, sp); }
     }
 
     // add-bare-name-ambiguity-diagnostic：源 TypeExpr 形态的歧义判定入口。

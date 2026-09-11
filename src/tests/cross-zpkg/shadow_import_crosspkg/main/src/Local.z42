@@ -1,0 +1,6 @@
+// 本包声明了与依赖包 demo.shadowlib **同 FQN** 的类型 → E0606。
+namespace Demo.ShadowNs;
+
+public class Widget {
+    public string Who() { return "local"; }
+}
