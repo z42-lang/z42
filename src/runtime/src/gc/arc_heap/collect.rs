@@ -159,118 +159,56 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         let mut freed_bytes: u64 = 0;
 
-        // Object region.
-        let mut tombstones_object: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> =
-            Vec::new();
-        let scan_objects = PhaseTimer::start("sweep/scan objects");
-        {
-            let region = self.region_object.lock();
-            region.iterate_alive(|h, entry| {
-                if entry.is_marked() {
-                    entry.clear_mark();
-                } else {
-                    // Estimate size before tombstoning (entry still readable).
-                    let size = {
-                        let obj = entry.value.lock();
-                        Self::script_object_size_estimate(&obj)
-                    };
-                    let fin = entry.take_finalizer();
-                    tombstones_object.push((h, fin, size));
+        // Object region — **one-pass-major-sweep (2026-09-13)**: scan and tombstone in a
+        // single walk (see `Region::sweep_all_in_one_pass`). This used to stage the dead in a
+        // `Vec<(handle, finalizer, size)>` and then, per entry, re-take the region lock to
+        // break its edges and take it a **third** time to tombstone.
+        let sweep_objects = PhaseTimer::start("sweep/objects");
+        let (obj_freed, obj_reclaimed) = {
+            let mut region = self.region_object.lock();
+            region.sweep_all_in_one_pass(|entry| {
+                let mut obj = entry.value.lock();
+                let size = Self::script_object_size_estimate(&obj);
+                // unify-object-byte-layout: break every strong reference edge — the
+                // side-table `refs` AND (PR-3 chunk 2b) the object/array pointers
+                // byte-inlined in `bytes` — so no tombstoned entry is left holding a handle
+                // into the region.
+                //
+                // Ahead of the finalizer, as on the minor side (#591): [`FinalizerFn`] takes
+                // no arguments, so it has no way to read the object whose edges these are.
+                for r in obj.refs_mut().iter_mut() {
+                    *r = Value::Null;
                 }
-            });
-        }
+                obj.clear_inline_refs();
+                drop(obj);
+                (entry.take_finalizer(), size)
+            })
+        };
+        sweep_objects.count(obj_reclaimed);
+        freed_bytes += obj_freed;
+        drop(sweep_objects);
         #[cfg(debug_assertions)]
         {
             let q = self.mark_queue.lock().len();
-            assert_eq!(q, 0, "BUG: mark_queue non-empty after object region scan ({q} items)");
-        }
-        scan_objects.count(tombstones_object.len());
-        drop(scan_objects);
-        // Fire finalizers + clear inner refs + tombstone.
-        let tomb_objects = PhaseTimer::start("sweep/tomb objects");
-        tomb_objects.count(tombstones_object.len());
-        for (h, fin, size) in tombstones_object {
-            if let Some(f) = fin { f(); }
-            #[cfg(debug_assertions)]
-            {
-                let q = self.mark_queue.lock().len();
-                assert_eq!(q, 0, "BUG: mark_queue non-empty after finalizer (h={:?}, {q} items)", h);
-            }
-            freed_bytes += size;
-            // Break inner refs to release any cycles for the region's
-            // bookkeeping (iterate_live_objects, future child traversal
-            // won't see refs into already-tombstoned entries).
-            //
-            // SAFETY: handle came from iterate_alive; entry is still
-            // accessible (alive=true at this point — we haven't
-            // tombstoned yet).
-            {
-                let region = self.region_object.lock();
-                let entry = region.resolve(h);
-                if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
-                    let mut obj = entry.value.lock();
-                    // unify-object-byte-layout: break every strong reference edge — the
-                    // side-table `refs` AND (PR-3 chunk 2b) the object/array pointers
-                    // byte-inlined in `bytes`.
-                    for r in obj.refs_mut().iter_mut() {
-                        *r = Value::Null;
-                    }
-                    obj.clear_inline_refs();
-                }
-            }
-            #[cfg(debug_assertions)]
-            {
-                let q = self.mark_queue.lock().len();
-                assert_eq!(q, 0, "BUG: mark_queue non-empty after slot clearing (h={:?}, {q} items)", h);
-            }
-            self.region_object.lock().tombstone(h);
-            #[cfg(debug_assertions)]
-            {
-                let q = self.mark_queue.lock().len();
-                assert_eq!(q, 0, "BUG: mark_queue non-empty after tombstone (h={:?}, {q} items)", h);
-            }
-        }
-        #[cfg(debug_assertions)]
-        {
-            let q = self.mark_queue.lock().len();
-            assert_eq!(q, 0, "BUG: mark_queue non-empty after object tombstone loop ({q} items)");
+            assert_eq!(q, 0, "BUG: mark_queue non-empty after object region sweep ({q} items)");
         }
 
-        drop(tomb_objects);
-
-        // Array region.
-        let scan_arrays = PhaseTimer::start("sweep/scan arrays");
-        let mut tombstones_array: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> =
-            Vec::new();
-        {
-            let region = self.region_array.lock();
-            region.iterate_alive(|h, entry| {
-                if entry.is_marked() {
-                    entry.clear_mark();
-                } else {
-                    let size = {
-                        let arr = entry.value.lock();
-                        Self::array_size_estimate(&arr)
-                    };
-                    let fin = entry.take_finalizer();
-                    tombstones_array.push((h, fin, size));
-                }
-            });
-        }
-        scan_arrays.count(tombstones_array.len());
-        drop(scan_arrays);
-        let tomb_arrays = PhaseTimer::start("sweep/tomb arrays");
-        tomb_arrays.count(tombstones_array.len());
-        for (h, fin, size) in tombstones_array {
-            if let Some(f) = fin { f(); }
-            freed_bytes += size;
-            // unify-gc-heap PR-3: no eager element drop here — the array's element
-            // storage lives in a `region_var` block (uniquely owned by this header),
-            // reclaimed by `region_var.sweep()` (drop-glue drops the boxed Values) in
-            // the same cycle. Tombstoning the header just releases the region_array slot.
-            self.region_array.lock().tombstone(h);
-        }
-        drop(tomb_arrays);
+        // Array region — same one pass.
+        let sweep_arrays = PhaseTimer::start("sweep/arrays");
+        let (arr_freed, arr_reclaimed) = {
+            let mut region = self.region_array.lock();
+            region.sweep_all_in_one_pass(|entry| {
+                let size = Self::array_size_estimate(&entry.value.lock());
+                // unify-gc-heap PR-3: no eager element drop here — the array's element
+                // storage lives in a `region_var` block (uniquely owned by this header),
+                // reclaimed by `region_var.sweep()` (drop-glue drops the boxed Values) in
+                // the same cycle. Tombstoning the header just releases the slot.
+                (entry.take_finalizer(), size)
+            })
+        };
+        sweep_arrays.count(arr_reclaimed);
+        freed_bytes += arr_freed;
+        drop(sweep_arrays);
 
         // Variable-length region (unify-gc-heap PR-2: closures). `VarRegion::sweep` mark-checks
         // + tombstones every unmarked live block internally, running the injected drop-glue
