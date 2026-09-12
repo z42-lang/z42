@@ -1,0 +1,61 @@
+// fix-sync-primitives-gc-park：阻塞的同步原语必须让出 GC safepoint。
+//
+// 这组用例的形状都一样：**一个线程阻塞等另一个线程，而另一个线程大量分配**。
+// 若阻塞方不 park，它到不了字节码 safepoint；分配方触发 GC 后会等「全世界停下」，
+// 永远等不到 ⇒ 两边互锁。这不是理论——#598 就是这样在网络读上挂死三小时的。
+//
+// 用例必须**真的分配到触发 GC**才有意义：每轮拼一个新字符串 + 建数组，
+// 循环量级足以跨过 nursery。跑不挂 = 通过；挂住 = gate 超时（这正是我们要的信号）。
+namespace Z42ThreadingGcParkWhileBlockedTests;
+
+using Std;
+using Std.Test;
+using Std.Threading;
+
+// 制造足够的堆压力以触发 GC（返回值防止被优化掉）。
+static long _churn(long rounds) {
+    long acc = 0;
+    long i = 0;
+    while (i < rounds) {
+        string s = "gc-churn-" + Int64.ToString(i);
+        long[] buf = new long[64];
+        buf[0] = s.Length;
+        acc = acc + buf[0];
+        i = i + 1;
+    }
+    return acc;
+}
+
+// Channel.Recv 阻塞等生产者，生产者先大量分配 —— 最经典的一条。
+[Test]
+void test_channel_recv_parks_while_producer_allocates() {
+    var c = new Channel<long>();
+    Thread.Start(() => {
+        _churn(20000);          // 先把 GC 惹出来，再发
+        c.Send(7);
+        c.Close();
+    });
+    long v = c.Recv();          // 阻塞期间必须让出 safepoint
+    Assert.Equal((long)7, v);
+}
+
+// Thread.Join 同构（#600 修的那条，这里补一个会真正触发 GC 的回归）。
+[Test]
+void test_thread_join_parks_while_worker_allocates() {
+    var t = Thread.Start(() => { _churn(20000); });
+    t.Join();
+    Assert.True(true);
+}
+
+// Mutex 争用：持锁方在临界区里分配，等锁方阻塞。
+[Test]
+void test_mutex_acquire_parks_while_holder_allocates() {
+    var m = new Mutex<long>(0);
+    var t = Thread.Start(() => {
+        m.Lock((long v) => v + _churn(8000));
+    });
+    Thread.Sleep(5);                       // 让对方先拿到锁
+    m.Lock((long v) => v + 1);             // 争用 → 阻塞 → 必须 park
+    t.Join();
+    Assert.True(true);
+}
