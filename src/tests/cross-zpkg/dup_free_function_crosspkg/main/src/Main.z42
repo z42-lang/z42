@@ -1,0 +1,14 @@
+// 两个依赖包各声明了同名自由函数 `Demo.FreeFnNs.helper` 与同 FQN 的静态类 `Demo.FreeFnNs.Util`。
+//
+// 修前实测：编译 rc=0、**零诊断**，字母序靠前的 demo.fnalpha 两处都赢；而且**运行期连 warn
+// 都没有**——输的那个包因惰性加载压根不会被载入 ⇒ 编译期是唯一防线。
+namespace Demo.FreeFnApp;
+
+using Std;
+using Std.IO;
+using Demo.FreeFnNs;
+
+void Main() {
+    Console.WriteLine(helper());     // 自由函数：只有裸名一种写法，指不到输家
+    Console.WriteLine(Util.go());    // 静态调用：不走 _chkTypeRef，是 E0601 原先的覆盖漏洞
+}

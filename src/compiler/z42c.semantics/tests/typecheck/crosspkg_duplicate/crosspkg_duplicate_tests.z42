@@ -135,6 +135,135 @@ void local_interface_shadowing_import_errors() {
     Assert.Equal(true, dupCount(d, "E0606") >= 1);
 }
 
+// ── report-crosspkg-duplicate-function：自由函数 / 静态调用位 ──────────────────────
+//
+// 🔴 自由函数比类更糊：`ImportedSymbols.Functions` 的键是**裸名**（`ExportedFuncZ.Name` 就是
+// `md.Name`，从来没有 ns 前缀），连 FQN 视图都没有 ⇒ 同名者无论同不同 ns 都撞同一个键、
+// first-wins，且**没有任何写法能指到输的那份**（自由函数只有裸名一种调用形态）。
+// 实测修前：两个包各声明 `Demo.Dup.helper` → 编译零诊断、字母序靠前的赢；分居两 ns 且都
+// `using` 了也一样静默选一份；连运行期都不会 warn（输的那个包因惰性加载压根没被载入）。
+
+// 多 CU 消费方 + imported（自由函数用例要两个 CU：一个声明本包那份、一个 using 后调用）。
+string[] dupDiags2(string[] srcs, string[] files, ImportedSymbols imp) {
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, srcs.Length, null, imp, false);
+    string[] all = new string[16];
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) {
+        CompiledModuleZ cm = cms[i];
+        int j = 0;
+        while (j < cm.DiagCount) {
+            if (n == all.Length) {
+                string[] bigger = new string[all.Length * 2];
+                int z = 0; while (z < n) { bigger[z] = all[z]; z = z + 1; }
+                all = bigger;
+            }
+            all[n] = cm.DiagMsgs[j]; n = n + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    i = 0; while (i < n) { r[i] = all[i]; i = i + 1; }
+    return r;
+}
+
+// 两个包在**同一个 ns** 各声明一个同名自由函数。
+ImportedSymbols dupTwoPkgFuncs() {
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Dup;\npublic int helper() { return 1; }";
+    srcs[1] = "namespace Demo.Dup;\npublic int helper() { return 2; }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Dup";     nss[1] = "Demo.Dup";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha";  pkgs[1] = "demo.beta";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    return dupImports(srcs, nss, pkgs, us);
+}
+
+[Test]
+void crosspkg_duplicate_free_function_errors() {
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { return helper(); } }",
+                          dupTwoPkgFuncs());
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void same_bare_free_function_in_two_visible_namespaces_is_ambiguous() {
+    // 分居两个 ns、两个都 using → 裸名歧义（E0456，与类那侧同码同口径）。
+    // 这条是类那侧**没有对应物**的形状：类有 ClassesByFqn 兜底，自由函数没有。
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Alpha;\npublic int helper() { return 1; }";
+    srcs[1] = "namespace Demo.Beta;\npublic int helper() { return 2; }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Alpha";  nss[1] = "Demo.Beta";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha"; pkgs[1] = "demo.beta";
+    string[] us   = new string[2]; us[0] = "Demo.Alpha";   us[1] = "Demo.Beta";
+    string[] d = dupDiags("namespace App;\nusing Demo.Alpha;\nusing Demo.Beta;\nclass C { public int go() { return helper(); } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(true, dupCount(d, "E0456") >= 1);
+}
+
+[Test]
+void local_free_function_shadowing_import_errors() {
+    // 本包在共享 ns 里也声明了同名自由函数 → E0606（被遮那份指不了）。
+    // 两个 CU：一个声明本包那份，一个 using 后调用 —— 单 CU 造不出这个形状。
+    string[] srcs = new string[1];
+    srcs[0] = "namespace Demo.Dup;\npublic int helper() { return 1; }";
+    string[] nss  = new string[1]; nss[0] = "Demo.Dup";
+    string[] pkgs = new string[1]; pkgs[0] = "demo.alpha";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] csrcs = new string[2];
+    csrcs[0] = "namespace Demo.Dup;\npublic int helper() { return 9; }";
+    csrcs[1] = "namespace App;\nusing Demo.Dup;\nclass C { public int go() { return helper(); } }";
+    string[] files = new string[2]; files[0] = "local.z42"; files[1] = "main.z42";
+    string[] d = dupDiags2(csrcs, files, dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(true, dupCount(d, "E0606") >= 1);
+}
+
+[Test]
+void static_call_on_duplicated_type_errors() {
+    // 🔴 这是 report-crosspkg-duplicate-type 的**覆盖漏洞**：E0601/E0606 挂在 `_chkTypeRef` 上，
+    // 而**静态调用不走它** —— `Util.go()` 里的 `Util` 只经 `GetClass` 取类。实测修前零诊断。
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Dup;\npublic static class Util { public static int go() { return 1; } }";
+    srcs[1] = "namespace Demo.Dup;\npublic static class Util { public static int go() { return 2; } }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Dup";     nss[1] = "Demo.Dup";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha";  pkgs[1] = "demo.beta";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { return Util.go(); } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void free_function_from_one_package_is_not_duplicate() {
+    // 负例：只有一个来源 → 不报（最常见的正常情形，误报这条等于全仓皆红）。
+    string[] srcs = new string[1];
+    srcs[0] = "namespace Demo.Dup;\npublic int helper() { return 1; }";
+    string[] nss  = new string[1]; nss[0] = "Demo.Dup";
+    string[] pkgs = new string[1]; pkgs[0] = "demo.alpha";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { return helper(); } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(0, dupCount(d, "E0601"));
+    Assert.Equal(0, dupCount(d, "E0606"));
+    Assert.Equal(0, dupCount(d, "E0456"));
+}
+
+[Test]
+void free_function_in_invisible_namespace_is_not_ambiguous() {
+    // 负例：两份分居两 ns，但消费方只 using 了其中一个 ⇒ 另一个不可见 ⇒ 不歧义。
+    // 判据若漏掉可见性过滤，这条立刻变红（而真实工程里「同名但我没 using」极常见）。
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Alpha;\npublic int helper() { return 1; }";
+    srcs[1] = "namespace Demo.Beta;\npublic int helper() { return 2; }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Alpha";  nss[1] = "Demo.Beta";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha"; pkgs[1] = "demo.beta";
+    string[] us   = new string[2]; us[0] = "Demo.Alpha";   us[1] = "Demo.Beta";
+    string[] d = dupDiags("namespace App;\nusing Demo.Alpha;\nclass C { public int go() { return helper(); } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(0, dupCount(d, "E0456"));
+    Assert.Equal(0, dupCount(d, "E0601"));
+}
+
 // ── 负例（必须不报；每条都是一个真实的误报风险）────────────────────────────────
 
 [Test]

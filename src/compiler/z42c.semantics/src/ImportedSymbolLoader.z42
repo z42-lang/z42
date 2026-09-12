@@ -32,6 +32,10 @@ public sealed class ImportedSymbols {
     // 而「有几个包声明了这个 FQN」恰恰是守卫塌掉的那个信息。类/接口/enum 共用一张表
     // （三者的 FQN 本就在同一个命名空间里，不会互相误命中）。
     public StrMap ClassPkgAll;
+    // report-crosspkg-duplicate-function：自由函数名 → 全部来源（"ns#pkg"，"|" 连接）。
+    // 与 ClassPkgAll 同一手法——在 first-wins 守卫**之外**累积。自由函数比类更糊：`Functions`
+    // 的键是**裸名**（`ExportedFuncZ.Name` 就是 `md.Name`，没有 ns），连 FQN 视图都没有。
+    public StrMap FuncOriginAll;
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
@@ -49,6 +53,7 @@ public sealed class ImportedSymbols {
         this.Interfaces = new StrMap();
         this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
         this.ClassPkgAll = new StrMap();           // report-crosspkg-duplicate-type
+        this.FuncOriginAll = new StrMap();         // report-crosspkg-duplicate-function
         this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
         this.EnumTypeNames = new StrMap();
@@ -318,6 +323,12 @@ public static class ImportedSymbolLoader {
                 int f = 0;
                 while (f < em.FunctionCount) {
                     ExportedFuncZ fz = em.Functions[f];
+                    // report-crosspkg-duplicate-function：**守卫之外**记来源（ns + 包名）。
+                    // 守卫之内只有赢家能进，而「这个名字有几个来源」正是守卫塌掉的那个信息。
+                    // 父包不算「另一个包」——与上面类/接口/enum 三处同一判据（#586）。
+                    if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {
+                        SymbolTable.NoteNsInto(r.FuncOriginAll, fz.Name, em.Namespace + "#" + pkgNames[i]);
+                    }
                     if (!r.Functions.ContainsKey(fz.Name)) {
                         // imported-generic-func-type-param-fidelity：自由函数的**函数级**型参
                         // （`T IdOf<T>(T a)`）。这是 R1 当初列出却漏修的第四处（见 _tpsWith 注释）：

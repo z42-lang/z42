@@ -129,6 +129,20 @@ public sealed class TypeChecker {
     // 空前缀无意义），直接复用会漏掉「一份在全局 ns、一份在 using 进来的 ns」这种真歧义。
     // ⚠️ 判据本身已上移到 `SymbolTable.IsBareNameAmbiguous`（发射端也要用同一口径，见
     // unify-type-identity-fqn）。此处只在判定为歧义后挑两个 ns 拼消息 —— **别把判据抄回来**。
+    // report-crosspkg-duplicate-function：自由函数调用点的同名判定（三种形状共一个入口）。
+    //
+    // 判据与消息都在 `SymbolTable`（DuplicateFuncPkgMsg / ShadowedImportFuncMsg / AmbiguousFuncNameMsg），
+    // 此处只决定发哪个码。顺序有意义：**同 FQN 的冲突优先于裸名歧义** —— 前者写限定名也没救
+    // （自由函数只有裸名一种写法），后者至少还能靠调整 using 消歧，两者同现时前者才是根因。
+    public void ChkFreeFuncOrigins(SymbolTable symbols, string name, Span sp) {
+        string dmsg = symbols.DuplicateFuncPkgMsg(name);
+        if (dmsg != "") { this._diags.Error("E0601", dmsg, sp); return; }
+        string smsg = symbols.ShadowedImportFuncMsg(name);
+        if (smsg != "") { this._diags.Error("E0606", smsg, sp); return; }
+        string amsg = symbols.AmbiguousFuncNameMsg(name);
+        if (amsg != "") { this._diags.Error("E0456", amsg, sp); }
+    }
+
     public void ChkAmbiguousBareName(SymbolTable symbols, string name, Span sp) {
         string msg = symbols.AmbiguousBareNameMsg(name);
         if (msg != "") { this._diags.Error("E0456", msg, sp); }
