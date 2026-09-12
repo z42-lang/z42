@@ -142,6 +142,7 @@ impl VmContext {
             static_field_index: Mutex::new(FxHashMap::default()),
             lazy_loader:        RwLock::new(None),
             pending_type_inits: Mutex::new(Vec::new()),
+            cctors:             super::cctor::CctorRegistry::default(),
             pending_type_init_count: std::sync::atomic::AtomicUsize::new(0),
             running_static_inits:    std::sync::atomic::AtomicUsize::new(0),
             init_batch_inflight:     std::sync::atomic::AtomicUsize::new(0),
