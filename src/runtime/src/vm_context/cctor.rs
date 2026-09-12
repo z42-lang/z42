@@ -131,16 +131,24 @@ impl CctorRegistry {
     }
 
     /// 认领方在 cctor 跑完后回调：`err = None` 成功，`Some(msg)` 失败。
-    /// 两种终态都让 `pending` 减一——失败的类型不会被重试（对标 C#）。
+    ///
+    /// ⚠️ **只有成功才减 `pending`**。失败的类型必须让门**继续开着**——C# 语义是
+    /// 「失败是终态、后续每次访问都抛」，而门一旦短路，屏障就不再执行，`claim` 的
+    /// `Failed` 分支永远检查不到，失败类型会**静默变回可用**（实测：第二次读静态字段
+    /// 不但没抛，还读出了 cctor 抛出前写进去的半成品值）。
+    ///
+    /// 代价是一旦有类型初始化失败，门就长期开着（每次静态访问多一次查表）。可以接受：
+    /// 那已经是个致命错误路径，正确性优先于它之后的性能。
     pub fn finish(&self, class_fq: &str, err: Option<String>) {
         let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(e) = m.get_mut(class_fq) {
             let was_terminal = matches!(e.state, CctorState::Done | CctorState::Failed(_));
+            let failed = err.is_some();
             e.state = match err {
                 None => CctorState::Done,
                 Some(msg) => CctorState::Failed(msg),
             };
-            if !was_terminal {
+            if !was_terminal && !failed {
                 self.pending.fetch_sub(1, Ordering::Release);
             }
         }
@@ -262,7 +270,11 @@ impl crate::vm_context::VmContext {
                    module: &crate::metadata::Module| -> Option<String> {
             match crate::interp::exec_function(self, module, f, &[]) {
                 Ok(crate::interp::ExecOutcome::Returned(_)) => None,
-                Ok(crate::interp::ExecOutcome::Thrown(v)) => Some(crate::interp::value_to_str(&v)),
+                // 取异常对象的 Message 字段；非异常值（裸抛）才回落到值的文本形式。
+                // 直接 value_to_str 会得到 `Std.Exception{...}` 这种对象转储，不是消息。
+                Ok(crate::interp::ExecOutcome::Thrown(v)) => Some(
+                    crate::exception::read_message(&v, module)
+                        .unwrap_or_else(|| crate::interp::value_to_str(&v))),
                 Err(e) => Some(format!("{e:#}")),
             }
         };
@@ -286,6 +298,28 @@ impl crate::vm_context::VmContext {
             )),
         }
     }
+}
+
+/// 构造 C# 语义的 `Std.TypeInitializationException`。
+///
+/// 为什么要类型化而不是抛裸字符串：裸 `Value::Str` 只能被**无类型** `catch {}` 捕获，
+/// 永远匹配不上 `catch (TypeInitializationException e)` 甚至 `catch (Exception e)`。
+/// 逐级回落（TypeInitializationException → Exception → 裸串）保证 stdlib 缺任一类时
+/// 仍能把错误传出去，而不是静默吞掉。
+pub fn make_type_init_exception(
+    vm: &crate::vm_context::VmContext,
+    module: &crate::metadata::Module,
+    msg: &str,
+) -> crate::metadata::Value {
+    if let Ok(e) = crate::exception::make_stdlib_exception(
+        vm, module, "Std.TypeInitializationException", msg.to_string()) {
+        return e;
+    }
+    if let Ok(e) = crate::exception::make_stdlib_exception(
+        vm, module, "Std.Exception", msg.to_string()) {
+        return e;
+    }
+    crate::metadata::Value::Str(msg.into())
 }
 
 /// 从静态字段的全限定名取所属类 FQ：`A.B.C.Field` → `A.B.C`。
@@ -358,7 +392,9 @@ mod tests {
         r.register("A.C", "f");
         assert!(r.claim("A.C").unwrap().is_some());
         r.finish("A.C", Some("boom".to_string()));
-        assert!(!r.any_pending(), "失败也是终态，计数要减");
+        assert!(r.any_pending(),
+            "失败的类型必须让门继续开着——否则屏障短路、Failed 分支永远检查不到，\
+             失败类型会静默变回可用");
         assert_eq!(r.claim("A.C").unwrap_err(), "boom");
         assert_eq!(r.claim("A.C").unwrap_err(), "boom", "失败态必须稳定，不得重试");
     }

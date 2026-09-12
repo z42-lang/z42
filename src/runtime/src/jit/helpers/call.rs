@@ -43,11 +43,7 @@ pub unsafe extern "C" fn jit_call(
                 std::slice::from_raw_parts(fn_name_ptr, fn_name_len)).unwrap_or("");
             if let Err(msg) = vm.ensure_callee_owner_init(name) {
                 let module = &*(*ctx).module;
-                let exc = match crate::exception::make_stdlib_exception(
-                    vm, module, "Std.Exception", msg.clone()) {
-                    Ok(e) => e,
-                    Err(_) => Value::Str(msg.into()),
-                };
+                let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
                 set_exception(vm, exc);
                 return 1;
             }

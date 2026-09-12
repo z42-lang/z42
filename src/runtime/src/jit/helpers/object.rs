@@ -62,11 +62,7 @@ pub unsafe extern "C" fn jit_obj_new(
     {
         let vm = vm_ctx_ref(ctx);
         if let Err(msg) = vm.ensure_type_init(&type_desc) {
-            let exc = match crate::exception::make_stdlib_exception(
-                vm, module, "Std.Exception", msg.clone()) {
-                Ok(e) => e,
-                Err(_) => Value::Str(msg.into()),
-            };
+            let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
             set_exception(vm, exc);
             return 1;
         }
@@ -364,10 +360,7 @@ unsafe fn cctor_barrier(
     let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len)).ok()?;
     let msg = vm.ensure_static_owner_init(field).err()?;
     let module = &*(*ctx).module;
-    let exc = match crate::exception::make_stdlib_exception(vm, module, "Std.Exception", msg.clone()) {
-        Ok(e) => e,
-        Err(_) => crate::metadata::Value::Str(msg.into()),
-    };
+    let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
     set_exception(vm, exc);
     Some(1)
 }

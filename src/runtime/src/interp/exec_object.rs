@@ -63,7 +63,9 @@ pub(super) fn obj_new(
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
     // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），
     // 不需要 `pending` 门。
-    if let Err(msg) = ctx.ensure_type_init(&type_desc) { bail!("{msg}"); }
+    if let Err(msg) = ctx.ensure_type_init(&type_desc) {
+        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+    }
 
     // Refresh the type_token cache if it was UNRESOLVED at load (cross-zpkg
     // lazy class). Not strictly needed for current dispatch (we still go
@@ -400,31 +402,37 @@ use isa::is_integer_class;
 /// with the lazy-allocated `StaticFieldId` at module load (always succeeds).
 /// `field_id` Some → direct Vec index (no hash); None → name fallback.
 pub(super) fn static_get(
-    ctx: &VmContext, frame: &mut Frame, dst: u32, field: &str,
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, field: &str,
     field_id: Option<u32>,
-) -> Result<()> {
-    ensure_owner_type_init(ctx, field)?;
+) -> Result<Option<Value>> {
+    if let Some(exc) = ensure_owner_type_init(ctx, module, field) { return Ok(Some(exc)); }
     let v = match field_id {
         Some(id) => ctx.static_get_by_id(crate::metadata::tokens::StaticFieldId(id)),
         None     => ctx.static_get(field),
     };
     frame.set(dst, v);
-    Ok(())
+    Ok(None)
 }
 
 /// add-static-constructors：静态字段读写前的 cctor 屏障。实现在
 /// `VmContext::ensure_static_owner_init`，**与 JIT 侧共用同一份**（两后端语义一致
 /// 是本特性最易错处，各写一份迟早漂移）。
-fn ensure_owner_type_init(ctx: &VmContext, field: &str) -> Result<()> {
-    if let Err(msg) = ctx.ensure_static_owner_init(field) { bail!("{msg}"); }
-    Ok(())
+/// 失败时返回**可 catch 的**类型化异常值（`Ok(Some(exc))` 是 interp 的 throw 通道）。
+/// 用 `bail!` 会变成 anyhow Err —— 那条路不经 find_handler，用户 `catch` 抓不到。
+fn ensure_owner_type_init(
+    ctx: &VmContext, module: &Module, field: &str,
+) -> Option<Value> {
+    match ctx.ensure_static_owner_init(field) {
+        Ok(()) => None,
+        Err(msg) => Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)),
+    }
 }
 
 pub(super) fn static_set(
-    ctx: &VmContext, frame: &Frame, field: &str, val: u32,
+    ctx: &VmContext, module: &Module, frame: &Frame, field: &str, val: u32,
     field_id: Option<u32>,
-) -> Result<()> {
-    ensure_owner_type_init(ctx, field)?;
+) -> Result<Option<Value>> {
+    if let Some(exc) = ensure_owner_type_init(ctx, module, field) { return Ok(Some(exc)); }
     let v = frame.get(val)?.clone();
     // add-escape-analysis-stack-alloc (diagnostic #2): StaticSet.val is an escape
     // sink — a stack handle stored into a static would outlive its frame.
@@ -436,5 +444,5 @@ pub(super) fn static_set(
         Some(id) => ctx.static_set_by_id(crate::metadata::tokens::StaticFieldId(id), v),
         None     => ctx.static_set(field, v),
     }
-    Ok(())
+    Ok(None)
 }
