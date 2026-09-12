@@ -73,7 +73,12 @@ pub fn builtin_net_udp_send(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         return Ok(handle_invalid(ctx));
     };
 
-    let send_result = sock.send_to(&tmp, format!("{}:{}", host, port).as_str());
+    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
+    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
+    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
+    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
+    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
+    let send_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); sock.send_to(&tmp, format!("{}:{}", host, port).as_str()) };
     ctx.core.udp_sockets.lock().insert(slot_id, sock);
 
     match send_result {
@@ -98,7 +103,12 @@ pub fn builtin_net_udp_recv(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // 65536 is large enough for any normal UDP datagram (incl IPv6 jumbo
     // up to 65507 payload + room for headers conceptually).
     let mut tmp = vec![0u8; 65536];
-    let recv_result = sock.recv_from(&mut tmp);
+    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
+    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
+    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
+    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
+    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
+    let recv_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); sock.recv_from(&mut tmp) };
     ctx.core.udp_sockets.lock().insert(slot_id, sock);
 
     match recv_result {
