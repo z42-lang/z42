@@ -901,3 +901,40 @@ void test_nonpartial_duplicate_unaffected() {
     string src = "class C { void F(int a) { } void F(i32 a) { } }";
     Assert.Equal(1, SemanticDump.ErrorCount(src));
 }
+
+// ── 构造器重载按**类型**决议（fix-ctor-overload-by-arity-only）──────────────────
+// `_ctorKey` 只按 arity 拼键（`Name` / `Name$N`）后单键取一个 ⇒ 同 arity 不同类型的 ctor
+// 压根没被区分，拿到哪个全看注册顺序。方法侧一直走 OverloadResolver.Resolve，只有 ctor 漏了。
+// 实测症状：`new C("s")` 选中 `C(int)`，报出一条指向**调用点**、却源于**选错重载**的
+// 「cannot assign string to Int32」。
+
+[Test]
+void test_ctor_overload_picks_by_argument_type_prims() {
+    string src = "class C { C(int a) { } C(string a) { } }"
+               + "class U { void M() { C c1 = new C(1); C c2 = new C(\"s\"); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_overload_picks_by_argument_type_refs() {
+    // 两个用户引用类型 —— 与基元同理，此前一样选错。
+    string src = "class X { } class Y { } class C { C(X a) { } C(Y a) { } }"
+               + "class U { void M() { C c1 = new C(new X()); C c2 = new C(new Y()); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_unique_arity_unaffected() {
+    // 反向：arity 唯一时走的还是原路径（本修复只在 arity 有歧义时介入）⇒ 字节零漂移。
+    string src = "class C { C(int a) { } C(int a, int b) { } }"
+               + "class U { void M() { C c1 = new C(1); C c2 = new C(1, 2); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_no_matching_overload_still_reports() {
+    // 反向：决议不成功时不改写、走既有诊断路径 —— 真错仍要报。
+    string src = "class X { } class C { C(int a) { } C(string a) { } }"
+               + "class U { void M() { C c = new C(new X()); } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
