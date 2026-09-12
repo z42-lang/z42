@@ -60,6 +60,11 @@ pub(super) fn obj_new(
             std::sync::Arc::new(make_fallback_type_desc(module, class_name))
         });
 
+    // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
+    // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），
+    // 不需要 `pending` 门。
+    if let Err(msg) = ctx.ensure_type_init(&type_desc) { bail!("{msg}"); }
+
     // Refresh the type_token cache if it was UNRESOLVED at load (cross-zpkg
     // lazy class). Not strictly needed for current dispatch (we still go
     // through type_registry lookup above) but gives forward observability

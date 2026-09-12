@@ -57,6 +57,21 @@ pub unsafe extern "C" fn jit_obj_new(
             cold: None,
             id: crate::metadata::tokens::TypeId::UNRESOLVED,
         }));
+    // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
+    // 一次 `Option` 判断即可，不需要 `pending` 门。与 interp 的 obj_new 屏障对称。
+    {
+        let vm = vm_ctx_ref(ctx);
+        if let Err(msg) = vm.ensure_type_init(&type_desc) {
+            let exc = match crate::exception::make_stdlib_exception(
+                vm, module, "Std.Exception", msg.clone()) {
+                Ok(e) => e,
+                Err(_) => Value::Str(msg.into()),
+            };
+            set_exception(vm, exc);
+            return 1;
+        }
+    }
+
     // unify-object-byte-layout (PR-2): fields default to zero-initialized bytes +
     // `Null` refs (= the old per-field defaults), produced inside `alloc_object` from
     // the composed layout; pass no initial values (mirrors interp `obj_new`).

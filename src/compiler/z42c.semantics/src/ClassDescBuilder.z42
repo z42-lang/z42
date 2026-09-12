@@ -494,7 +494,7 @@ public sealed class ClassDescBuilder {
             if (m is MethodDecl) {
                 MethodDecl md = m as MethodDecl;
                 if (md.IsCtor && IrGenFacts._hasWord(md.Mods, "static") && md.HasBody) {
-                    return this._g._q(this._g._classIrShortName(c)) + "." + md.RegKey;
+                    return this._g._q(this._g._classIrShortName(c)) + "." + IrStaticCtor.MethodKey;
                 }
             }
             j = j + 1;
