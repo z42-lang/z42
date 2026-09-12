@@ -222,7 +222,16 @@ public sealed class DeclBinder {
             if (mem is FieldDecl) {                                  // 静态字段 init（SA-3）
                 FieldDecl fd = mem as FieldDecl;
                 FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
-                if (fd.HasInit && fsym != null && fsym.IsStatic && !fsym.IsConst) {   // add-const-keyword：const 无静态存储/初始化（引用替换为字面量）
+                // add-static-constructors：**有静态构造器的类**，其静态字段初始化器不进
+                // per-CU `__static_init__`，改为注入到该类的静态 ctor 体首（见
+                // _injectStaticFieldInits）——这样「字段初始化器在前、cctor 体在后」的 C# 顺序
+                // 才成立。此前两者分处两个函数，cctor 被触发时 __static_init__ 可能还没跑完，
+                // 会出现「cctor 写了 42、随后 __static_init__ 又覆写回 1」的错值。
+                //
+                // 没有静态 ctor 的类保持原样（继续走 per-CU 急切初始化）——这**本来就合规**：
+                // C# 里只有显式静态 ctor 才失去 beforefieldinit、才要求精确的「首次使用前」。
+                if (fd.HasInit && fsym != null && fsym.IsStatic && !fsym.IsConst
+                    && !DeclBinder._hasStaticCtor(this._tc, c)) {   // add-const-keyword：const 无静态存储/初始化（引用替换为字面量）
                     var fenv = TypeEnv.Root(symbols);
                     // add-target-typed-new：`static A f = new()` 以字段类型为目标。
                     model.AddStaticInit(c.Name, fd.Name, this._tc._expr.BindWithTarget(fd.Init, fenv.ResolveType(fd.Type), fenv));
@@ -258,6 +267,9 @@ public sealed class DeclBinder {
                     // 此前完全未注入 → 字段停留类型默认值（got 0/null）。仅 ctor-exists 路径；
                     // ctor-less 类的合成 ctor 待 follow-up。
                     if (md.IsCtor && !ms.IsStatic && !md.IsThisInit) { body = this._injectFieldInits(c, ct, env, body); }
+                    // add-static-constructors：静态 ctor = 该类型的**类型初始化器**——
+                    // 字段初始化器在前、用户体在后（C# 顺序）。与上面的 per-CU 跳过成对。
+                    if (md.IsCtor && ms.IsStatic) { body = this._injectStaticFieldInits(c, ct, env, body); }
                     model.AddBody(ctKey + "." + mkey, body);   // GS3：body 键用 mkey（重载时=Name$arity）；arity-mangle 时用 ctKey（Name$N）
                 }
             } else if (mem is PropertyDecl) {
@@ -365,6 +377,56 @@ public sealed class DeclBinder {
         int j = 0;
         while (j < bc) { r[ac + j] = b[j]; j = j + 1; }
         return r;
+    }
+
+    // add-static-constructors：该类是否声明了静态构造器。
+    // 判据与发射端（ClassDescBuilder._cctorFuncName）必须一致：IsCtor + static + 有体。
+    internal static bool _hasStaticCtor(TypeChecker tc, ClassDecl c) {
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl m = tc._unwrap(c.Members[j]);
+            if (m is MethodDecl) {
+                MethodDecl md = m as MethodDecl;
+                if (md.IsCtor && TypeFactsTc._hasWordTc(md.Mods, "static") && md.HasBody) { return true; }
+            }
+            j = j + 1;
+        }
+        return false;
+    }
+
+    // add-static-constructors：把本类的**静态**字段初始化器注入静态 ctor 体首。
+    // 镜像 _injectFieldInits（实例版），差别只有目标形态：`C.Field = init`（静态）
+    // 而非 `this.Field = init`（实例）。
+    //
+    // 注意 env 此时 InStaticCtor=true，故 `static readonly` 字段的初始化器也能通过
+    // AssignTyper 的只读检查（C# 同样允许静态 ctor 给 static readonly 赋值）。
+    private BoundStmt _injectStaticFieldInits(ClassDecl c, Z42ClassType ct, TypeEnv env, BoundStmt body) {
+        BoundStmt[] inits = new BoundStmt[c.MemberCount];
+        int ic = 0;
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl mem = this._tc._unwrap(c.Members[j]);
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                FieldSymbol fsym = ct.Fields.Get(fd.Name) as FieldSymbol;
+                if (fd.HasInit && fsym != null && fsym.IsStatic && !fsym.IsConst) {
+                    Expr tgt = new MemberExpr(new IdentExpr(c.Name, fd.Span), fd.Name, fd.Span);
+                    Expr asn = new AssignExpr("=", tgt, fd.Init, fd.Span);
+                    inits[ic] = new BoundExprStmt(this._tc._expr._bindExpr(asn, env), fd.Span);
+                    ic = ic + 1;
+                }
+            }
+            j = j + 1;
+        }
+        if (ic == 0) { return body; }
+        BoundStmt[] orig = new BoundStmt[1]; orig[0] = body; int origN = 1;
+        if (body is BoundBlock) { BoundBlock bb = body as BoundBlock; orig = bb.Stmts; origN = bb.Count; }
+        BoundStmt[] merged = new BoundStmt[ic + origN];
+        int m = 0;
+        while (m < ic) { merged[m] = inits[m]; m = m + 1; }
+        int k = 0;
+        while (k < origN) { merged[ic + k] = orig[k]; k = k + 1; }
+        return new BoundBlock(merged, ic + origN, body.Span);
     }
 
     private BoundStmt _injectFieldInits(ClassDecl c, Z42ClassType ct, TypeEnv env, BoundStmt body) {
