@@ -111,11 +111,13 @@ pub struct RuntimeConfig {
     /// `Z42_GC_NURSERY_BYTES` — the unit the auto-collect policy is denominated in
     /// (add-bounded-nursery, 2026-09-08; made absolute by arm-gc-by-default, 2026-09-09):
     /// bytes allocated before a **minor** trips, and — times `ALLOWANCE_NURSERY_RATIO` — the
-    /// floor under a **major**'s allowance in either mode. `None` = 32 MB.
+    /// floor under a **major**'s allowance in either mode. `None` = 16 MB
+    /// (retune-gc-nursery-and-promotion-age, 2026-09-11; was 32 MB).
     pub gc_nursery_bytes: Option<u64>,
     /// `Z42_GC_PROMOTION_AGE` — minor GCs an entry must survive before promotion
     /// (add-promotion-age-knob, 2026-09-08). `None` = the compile-time default
-    /// (`PROMOTION_THRESHOLD` = 2). Read **once per heap at construction**, never on the
+    /// (`PROMOTION_THRESHOLD` = 3, raised from 2 alongside the smaller nursery). Read **once per
+    /// heap at construction**, never on the
     /// write-barrier hot path. Clamped to `1..=MAX_GEN_AGE` at that read.
     pub gc_promotion_age: Option<u8>,
     /// `Z42_GC_LOH_BYTES` — block-footprint threshold above which a variable-length block gets

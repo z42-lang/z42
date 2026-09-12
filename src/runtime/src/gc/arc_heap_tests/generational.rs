@@ -726,11 +726,13 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
     }
 
     // Cycle 1: minor (ages 0 → 1, and escalation requests a major). Cycle 2: the major.
-    heap.collect_cycles_with_context(&ctx);
-    heap.collect_cycles_with_context(&ctx);
+    // Further cycles only exist because PROMOTION_THRESHOLD may be higher than 2.
+    for _ in 0..PROMOTION_THRESHOLD {
+        heap.collect_cycles_with_context(&ctx);
+    }
 
-    // PROMOTION_THRESHOLD is 2, so after two *aging* collections every survivor is old — which
-    // only holds if the **major** aged them too.
+    // After PROMOTION_THRESHOLD *aging* collections every survivor is old — which only holds
+    // if the **major** (cycle 2) aged them too, the same way a minor does.
     for v in &vals {
         let Value::Object(g) = v else { panic!("expected Object") };
         assert!(GcRef::gen_age(g) >= PROMOTION_THRESHOLD,
@@ -1140,7 +1142,11 @@ fn promoted_owner_keeps_the_young_child_it_was_holding() {
     heap.write_barrier_field(&owner, 0, &child); // young owner → young child: no card
     drop(child); // owner.refs[0] is the child's only reference
 
-    heap.force_collect(); // minor 2: owner crosses to old; child ages to 1, still young
+    // The remaining minors push `owner` across the threshold. `child` was born one cycle
+    // later, so it stays exactly one age behind — still young whatever the threshold is.
+    for _ in 1..PROMOTION_THRESHOLD {
+        heap.force_collect();
+    }
     assert_eq!(gen_age_of(&owner), PROMOTION_THRESHOLD, "owner must have been promoted");
 
     // minor 3: `owner` is old and is *not* a root — the only thing that can re-root it is a
@@ -1184,7 +1190,11 @@ fn promoted_array_keeps_the_young_element_it_was_holding() {
     heap.write_barrier_array_elem(&arr, 0, &elem);
     drop(elem);
 
-    heap.force_collect();
+    // As in the object twin: the remaining minors push the header across the threshold, while
+    // `elem` — born one cycle later — stays exactly one age behind and therefore young.
+    for _ in 1..PROMOTION_THRESHOLD {
+        heap.force_collect();
+    }
     assert_eq!(gen_age_of(&arr), PROMOTION_THRESHOLD, "array header must have been promoted");
 
     heap.force_collect();
