@@ -316,6 +316,73 @@ void static_member_on_unique_type_is_not_duplicate() {
     Assert.Equal(0, dupCount(d, "E0606"));
 }
 
+// ── enum：本族里唯一「静默错**值**」的形态 ────────────────────────────────────────
+//
+// 同名 enum 在两个包里**成员顺序可以不同**（`{Red,Green}` vs `{Green,Red}`），而
+// `EnumConsts` 是**裸键**（`Enum.Member`）⇒ first-wins ⇒ `Color.Green` 静默折成另一个包的
+// 那个**整数值**（实测 1 vs 0）。其它形态错的是「绑到哪一份」，这条错的是「算出什么数」。
+//
+// 两个洞是分开的、修法也不同：
+//   · **类型注解位**（`Color c;`）——根因是 `_mergeImportedEnums` **从不并 `EnumTypeNs`** ⇒
+//     导入 enum 的 `Z42ClassType.Enum(name)` 恒 Namespace=""、`Fqn()` 退化成裸名，与
+//     `ClassPkgAll` 的 `ns.Name` 对不上。补上那张表，既有的 `_chkTypeRefPkg` 自然点亮，**无需新检查**。
+//   · **常量读**（`Color.Green`）——它绑成 `BoundLitInt`，压根不经任何类型引用检查 ⇒ 必须在
+//     那条分支上单独判（`ChkEnumOrigins`）。
+
+// 🔴 **enum 不能用 `dupImports` 造**：`ExportedTypeExtractor.Extract` **从不抽取源码里的 enum**
+// （那一行硬编码 `BuiltinTypeDefs._builtinEnums()`）—— 真实跨包 enum 是 `TsigReconcile` 从 zbc 的
+// TYPE 段重建的。我第一版照搬 `dupImports` 写这两条用例，结果**用例红、而真实三包 e2e 是绿的**，
+// 差点回头去"修"一个并不存在的实现问题。故此处**手工构造** `ExportedEnumZ` 直连 loader；
+// 真实 TSIG 那条路由 e2e fixture `cross-zpkg/dup_enum_crosspkg` 守着。
+ImportedSymbols dupEnumImports(int pkgCount) {
+    ExportedModuleZ[] ems = new ExportedModuleZ[pkgCount];
+    string[] pkgs = new string[pkgCount];
+    int k = 0;
+    while (k < pkgCount) {
+        // 成员顺序**故意相反** —— 这正是「静默错值」的来源（Green 一边 1、一边 0）
+        ExportedEnumMemberZ[] mem = new ExportedEnumMemberZ[2];
+        if (k == 0) { mem[0] = new ExportedEnumMemberZ("Red", 0); mem[1] = new ExportedEnumMemberZ("Green", 1); }
+        else        { mem[0] = new ExportedEnumMemberZ("Green", 0); mem[1] = new ExportedEnumMemberZ("Red", 1); }
+        ExportedEnumZ[] ens = new ExportedEnumZ[1];
+        ens[0] = new ExportedEnumZ("Color", mem, 2);
+        ems[k] = new ExportedModuleZ("Demo.Dup",
+            new ExportedClassZ[0], 0,
+            new ExportedInterfaceZ[0], 0,
+            ens, 1,
+            new ExportedFuncZ[0], 0,
+            new ExportedDelegateZ[0], 0);
+        pkgs[k] = k == 0 ? "demo.alpha" : "demo.beta";
+        k = k + 1;
+    }
+    string[] us = new string[1]; us[0] = "Demo.Dup";
+    return ImportedSymbolLoader.Load(ems, pkgs, pkgCount, us, 1);
+}
+
+[Test]
+void duplicated_enum_constant_read_errors() {
+    // 本族里唯一「静默错**值**」的形态：EnumConsts 是裸键（`Enum.Member`）⇒ first-wins，
+    // 而两包成员顺序可不同 ⇒ `Color.Green` 静默折成另一个包的那个整数。
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { return (int)Color.Green; } }",
+                          dupEnumImports(2));
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void duplicated_enum_type_annotation_errors() {
+    // 退回对照：撤掉 `_mergeImportedEnums` 里并 `EnumTypeNs` 那段 → 本条变绿（= 修前的静默）。
+    // 根因就是那张表没并：导入 enum 的 Namespace 恒空 ⇒ Fqn() 退化成裸名 ⇒ 与 ClassPkgAll 对不上。
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { Color c; }", dupEnumImports(2));
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void enum_from_one_package_is_not_duplicate() {
+    // 负例：单一来源的 enum —— 判据写错的话，全仓每一次 enum 常量读都会假红。
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { Color c; public int go() { return (int)Color.Green; } }",
+                          dupEnumImports(1));
+    Assert.Equal(0, dupCount(d, "E0601"));
+    Assert.Equal(0, dupCount(d, "E0606"));
+}
 // ── 负例（必须不报；每条都是一个真实的误报风险）────────────────────────────────
 
 [Test]

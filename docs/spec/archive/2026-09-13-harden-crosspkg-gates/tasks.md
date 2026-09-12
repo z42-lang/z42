@@ -54,12 +54,31 @@ catch。**逐形态实测**后发现两条还漏着：
 2. **告警文案改成可行动的**：点明「谁赢由加载顺序决定」+ 最常见真因（libs 里残留了一份被改名
    包的旧 zpkg），并在代码里写死「为什么这里不升 error」，免得下一个人再走一遍我这条弯路。
 
+## ④ enum：本族里唯一「静默错**值**」的形态（收尾追加）
+
+继续逐形态扫的时候翻出来的，**两个洞、两处根因**：
+
+| 形态 | 修前 | 根因 | 修法 |
+|---|---|---|---|
+| enum 作**类型注解** `Color c;` | 零诊断 | `_mergeImportedEnums` **从不并 `EnumTypeNs`** ⇒ 导入 enum 的 `Z42ClassType.Enum(name)` 恒 `Namespace=""`、`Fqn()` 退化成裸名，与 `ClassPkgAll` 的 `ns.Name` 对不上 | 补数据（并 `EnumTypeNs`）—— 既有 `_chkTypeRefPkg` **自然点亮，零新检查** |
+| enum **常量读** `Color.Green` | 零诊断 | 它绑成 `BoundLitInt`（成员就是编译期常量），压根不经任何类型引用检查 | 那条分支加 `ChkEnumOrigins` |
+
+⚠️ **这条的危害与前面几种不同**：同名 enum 在两个包里**成员顺序可以不同**，于是
+`Color.Green` 静默折出**另一个整数**（实测 `{Red,Green}` vs `{Green,Red}` ⇒ 1 vs 0）。
+其它形态错的是「绑到哪一份」，这条错的是「算出什么数」。
+
+⚠️ **单测原语造不出导入 enum**：`ExportedTypeExtractor.Extract` 从不抽取源码里的 enum
+（硬编码 `BuiltinTypeDefs._builtinEnums()`），真实跨包 enum 由 `TsigReconcile` 从 zbc TYPE 段重建。
+我第一版照搬 `dupImports` 写用例，**用例红而真实三包 e2e 绿**，差点回头去"修"一个不存在的问题。
+⇒ 单测改**手工构造** `ExportedEnumZ`，TSIG 那条真路由新 fixture `dup_enum_crosspkg` 守。
+
 ## 验证
 
 - [x] 逐形态覆盖表实测（8 种引用形态，抓**任何**诊断码）
-- [x] 单测 +3（ns 限定静态调用 / 静态成员读 / 单一来源不误报），共 17 条全绿
-- [x] 退回对照：撤掉两句 `_chkTypeRefPkg` → 2 条新正例红、负例照绿
+- [x] 单测 +6（ns 限定静态调用 / 静态成员读 / enum 常量读 / enum 类型注解 + 2 负例），共 **20 条**全绿
+- [x] 退回对照 ×2：① 撤掉两句 `_chkTypeRefPkg` → 2 条新正例红、负例照绿；② 撤掉 `EnumTypeNs` 并入 + `ChkEnumOrigins` → 2 条 enum 正例红、负例照绿
 - [x] 两个 internal fixture 自校准：把 target 的 `Secret` 改 public → 判红；还原 → 绿
+- [x] 新增 e2e fixture `dup_enum_crosspkg`（真实 TSIG 路径）；cross-zpkg **31/31**
 - [x] `xtask test` **冷构建**全绿（13 stage，按 §3.1 事故二先清热产物）+ 自举不动点 3/3
 - [x] 零格式 bump
 

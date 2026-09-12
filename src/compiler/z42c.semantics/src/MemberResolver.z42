@@ -51,6 +51,10 @@ public sealed class MemberResolver {
             if (env.LookupVar(tid.Name) == null && env.Symbols.EnumTypes.ContainsKey(tid.Name)) {
                 string ekey = tid.Name + "." + m.Name;
                 if (env.Symbols.EnumConsts.ContainsKey(ekey)) {
+                    // harden-crosspkg-gates：同 FQN 的 enum 跨包时，`EnumConsts` 是**裸键**
+                    // （`Enum.Member`）⇒ first-wins，而两包的成员顺序可以不同 ⇒ 这里静默折出
+                    // 另一个包的**值**。折之前先判来源。
+                    this._tc.ChkEnumOrigins(env.Symbols, tid.Name, m.Span);
                     StrBox evalBox = env.Symbols.EnumConsts.Get(ekey) as StrBox;
                     BoundLitInt eb = new BoundLitInt(evalBox.Value, Z42ClassType.Enum(tid.Name), m.Span);
                     eb.EnumTypeName = tid.Name;

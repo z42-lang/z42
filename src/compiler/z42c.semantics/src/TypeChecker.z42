@@ -134,6 +134,20 @@ public sealed class TypeChecker {
     // 判据与消息都在 `SymbolTable`（DuplicateFuncPkgMsg / ShadowedImportFuncMsg / AmbiguousFuncNameMsg），
     // 此处只决定发哪个码。顺序有意义：**同 FQN 的冲突优先于裸名歧义** —— 前者写限定名也没救
     // （自由函数只有裸名一种写法），后者至少还能靠调整 using 消歧，两者同现时前者才是根因。
+    // harden-crosspkg-gates：**enum 常量读**（`Color.Green`）的来源冲突。
+    //
+    // 为什么单独一条：它绑成 `BoundLitInt`（enum 成员在运行期就是编译期已知的整数），
+    // 压根不经 `_chkTypeRef` —— 而**同名 enum 的成员顺序在两个包里可以不同**，
+    // 于是 `Color.Green` 静默读到另一个包的那个值。这是本族里唯一「静默错**值**」而非
+    // 「静默错**目标**」的形态，实测：两包 `{Red,Green}` / `{Green,Red}` ⇒ 1 vs 0。
+    public void ChkEnumOrigins(SymbolTable symbols, string enumName, Span sp) {
+        string fqn = symbols.EnumFqn(enumName);
+        string dmsg = symbols.CrossPkgDuplicateMsg(fqn);
+        if (dmsg != "") { this._diags.Error("E0601", dmsg, sp); return; }
+        string smsg = symbols.ShadowedImportMsg(fqn);
+        if (smsg != "") { this._diags.Error("E0606", smsg, sp); }
+    }
+
     public void ChkFreeFuncOrigins(SymbolTable symbols, string name, Span sp) {
         string dmsg = symbols.DuplicateFuncPkgMsg(name);
         if (dmsg != "") { this._diags.Error("E0601", dmsg, sp); return; }

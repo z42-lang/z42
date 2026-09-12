@@ -1,0 +1,13 @@
+// 两个依赖包各声明 `Demo.EnumNs.Color`，且成员顺序相反。
+//
+// 修前实测：编译 rc=0、**零诊断**，`Color.Green` 静默折成字母序靠前那个包的值。
+// 这是本族里唯一「静默错**值**」的形态 —— 其它形态错的是「绑到哪一份」。
+namespace Demo.EnumApp;
+
+using Std;
+using Std.IO;
+using Demo.EnumNs;
+
+void Main() {
+    Console.WriteLine("" + (int)Color.Green);
+}

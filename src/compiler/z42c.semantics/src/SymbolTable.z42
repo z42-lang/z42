@@ -331,6 +331,16 @@ public sealed class SymbolTable {
              + "` and `" + SymbolTable.QualOf(second, name) + "`";
     }
 
+    // harden-crosspkg-gates：enum 短名 → FQN（`EnumTypeNs` 无记录则退回裸名）。
+    // enum 常量读（`Color.Green`）绑成 `BoundLitInt`，**不经任何类型引用检查** ——
+    // 想判它的来源包冲突，只能在那条分支上按名字自己算 FQN。
+    public string EnumFqn(string name) {
+        int at = this.EnumTypeNs.Find(name);
+        if (at < 0) { return name; }
+        string ns = (this.EnumTypeNs.ValAt(at) as StrBox).Value;
+        return ns == "" ? name : ns + "." + name;
+    }
+
     // FQN → 声明过它的依赖包名列表（无记录返回空数组）。
     public string[] ClassPkgsOf(string fqn) {
         int at = this.ClassPkgAll.Find(fqn);

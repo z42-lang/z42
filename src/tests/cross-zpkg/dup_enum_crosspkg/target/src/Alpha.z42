@@ -1,0 +1,5 @@
+// 与 ext 包同 FQN 的 enum，**成员顺序相反** —— 这是本 fixture 的要点：
+// 冲突不只让你绑到"另一个类型"，而是让 `Color.Green` 静默折出**另一个整数**。
+namespace Demo.EnumNs;
+
+public enum Color { Red, Green }
