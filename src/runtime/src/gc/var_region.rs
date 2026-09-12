@@ -119,7 +119,44 @@ pub struct VarRegion {
     /// within a chunk are address-contiguous.
     all_blocks: Vec<Vec<NonNull<GcBlockHeader>>>,
     /// Per-size-class free lists of tombstoned slots available for reuse (LIFO).
+    ///
+    /// **lazy-var-free-list (2026-09-12)**: entries are **not** removed when their chunk is
+    /// pooled. They used to be — `purge_blocks` ran a `retain` over every class, dereferencing
+    /// one header per entry to read its `chunk_idx`, and that scan was **142.5 ms of a 513 ms
+    /// total pause** on `z42c.semantics` (45 minors × up to 1 235 912 entries). It is
+    /// `O(heap)` work to evict `O(chunks reclaimed)` entries, and shrinking the nursery in
+    /// retune-gc-nursery-and-promotion-age quadrupled how often it ran.
+    ///
+    /// Dropping the scan is safe because **free lists can never hold a dangling pointer**: the
+    /// only chunks whose memory is actually handed back are dedicated (oversized) ones, and
+    /// [`Self::tombstone`] never pushes an `OVERSIZED_CLASS` block. Everything in here points
+    /// into a bump chunk, which is *pooled* — its memory stays mapped.
+    ///
+    /// What is **not** safe is handing out a stale slot: a pooled chunk is re-bumped from
+    /// offset 0, so an entry that outlived the pooling would alias whatever lands there next.
+    /// [`Self::pool_epoch`] is the guard — see the pop loop in [`Self::alloc`].
     free_lists: Vec<Vec<NonNull<GcBlockHeader>>>,
+    /// **lazy-var-free-list (2026-09-12)**: `pool_epoch` of the entry's chunk *at the moment it
+    /// was pushed*, parallel to [`Self::free_lists`]. A mismatch at pop means the chunk has
+    /// been pooled since, so the slot no longer belongs to this list.
+    ///
+    /// A **parallel** `Vec<u32>` rather than a `(NonNull, u32)` tuple in one list: the tuple
+    /// pads to 16 bytes and these lists run past a million entries, so the pair would cost
+    /// 8 bytes each instead of 4.
+    free_epochs: Vec<Vec<u32>>,
+    /// **lazy-var-free-list (2026-09-12)**: how many entries across [`Self::free_lists`] are
+    /// known-stale. Exact, not an estimate: a chunk only gets pooled when **every** block in
+    /// it is tombstoned, and every non-oversized tombstone pushes a free-list entry, so
+    /// pooling chunk `ci` staled exactly `all_blocks[ci].len()` entries.
+    ///
+    /// Bounds the memory the lazy scheme can waste. Without it a cold size class would hold
+    /// its stale entries forever — nothing pops them, so nothing discovers them.
+    stale_free: usize,
+    /// **lazy-var-free-list (2026-09-12)**: the same count, split per size class, so a
+    /// compaction can walk **one** list instead of all [`NUM_CLASSES`] of them. Compacting
+    /// globally cost 17–25 ms a go, which forced the threshold so loose that stale entries
+    /// piled up into ~40 MB of RSS; per class it is cheap enough to run tight.
+    stale_per_class: Vec<usize>,
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: blocks the minor GC must visit —
     /// everything with `gen_age < PROMOTION_THRESHOLD`. Minor scans this instead of
     /// `all_blocks`, which is what makes its cost O(young) rather than O(heap).
@@ -172,6 +209,16 @@ pub struct VarRegion {
     /// variable-size chunk reuse (fixed-slot `Region<T>` preserves per-slot generation instead;
     /// var blocks don't re-align on reuse so a per-chunk base is used).
     reuse_gen: Vec<u32>,
+    /// **lazy-var-free-list (2026-09-12)**: how many times chunk `ci` has been pooled. Stamped
+    /// onto every [`Self::free_lists`] entry at push and re-checked at pop; that is the whole
+    /// staleness test.
+    ///
+    /// Deliberately **not** reusing [`Self::reuse_gen`], which is derived from block
+    /// generations (`max_gen_per_chunk + 1`) for the `VarGcRef` ABA guard. Whether that
+    /// derivation is strictly increasing across every pooling is a property of a *different*
+    /// invariant; hanging slot-recycling correctness off it would couple the two. A plain
+    /// counter is four bytes per chunk and cannot be wrong.
+    pool_epoch: Vec<u32>,
     /// **add-promotion-age-knob (2026-09-08)**: minor GCs a block must survive before
     /// promotion — the region's cached copy of the heap's `promotion_age`.
     promotion_age: u8,
@@ -209,6 +256,9 @@ impl Default for VarRegion {
             bump_off: 0,
             all_blocks: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
+            free_epochs: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
+            stale_free: 0,
+            stale_per_class: vec![0; NUM_CLASSES],
             young_list: Vec::new(),
             // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
             // heaps) maintains the list; the heap narrows it via `set_generational`.
@@ -218,6 +268,7 @@ impl Default for VarRegion {
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
+            pool_epoch: Vec::new(),
             promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
             free_chunk_slots: Vec::new(),
             blocks_per_chunk: Vec::new(),
@@ -257,6 +308,9 @@ impl VarRegion {
             bump_off: 0,
             all_blocks: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
+            free_epochs: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
+            stale_free: 0,
+            stale_per_class: vec![0; NUM_CLASSES],
             young_list: Vec::new(),
             // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
             // heaps) maintains the list; the heap narrows it via `set_generational`.
@@ -266,6 +320,7 @@ impl VarRegion {
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
+            pool_epoch: Vec::new(),
             promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
             free_chunk_slots: Vec::new(),
             blocks_per_chunk: Vec::new(),
@@ -300,8 +355,14 @@ impl VarRegion {
         let (footprint, size_class) = class_for(payload);
 
         // Fast path: reuse a tombstoned slot of the same class.
+        //
+        // **lazy-var-free-list (2026-09-12)**: a loop rather than one `pop`, because entries
+        // are no longer evicted when their chunk is pooled (see [`Self::free_lists`]). An
+        // entry whose stamp no longer matches its chunk's `pool_epoch` is discarded here —
+        // that is the one thing standing between this list and handing out a slot inside a
+        // pooled or re-bumped chunk.
         if size_class != OVERSIZED_CLASS {
-            if let Some(slot) = self.free_lists[size_class as usize].pop() {
+            while let Some(slot) = self.pop_free_slot(size_class) {
                 return self.reinit_slot(slot, payload, block_type, size_class);
             }
         }
@@ -324,6 +385,90 @@ impl VarRegion {
         self.blocks_per_chunk[chunk_idx as usize] += 1;
         self.live_per_chunk[chunk_idx as usize] += 1;
         VarGcRef::pack(header_ptr, 0)
+    }
+
+    /// **lazy-var-free-list (2026-09-12)**: pop the next *usable* slot of `size_class`,
+    /// discarding entries whose chunk has been pooled since they were pushed.
+    ///
+    /// Returns `None` when the class is exhausted — which now means "exhausted of live
+    /// entries", not "empty". Each discarded entry is `O(1)` and happens at most once per
+    /// entry ever pushed, so the amortised cost of the whole scheme is one extra compare per
+    /// allocation that reuses a slot.
+    fn pop_free_slot(&mut self, size_class: u8) -> Option<NonNull<GcBlockHeader>> {
+        let sc = size_class as usize;
+        loop {
+            let ptr = self.free_lists[sc].pop()?;
+            let stamped = self.free_epochs[sc].pop().expect("free list and epoch list run in lockstep");
+            // SAFETY: every pointer in a free list is a bump-chunk-owned header. Bump chunks
+            // are pooled, never `dealloc`'d (only dedicated/oversized chunks are freed, and
+            // `tombstone` never pushes those), so the header is mapped even if its chunk is
+            // currently sitting in the pool.
+            let ci = unsafe { ptr.as_ref() }.chunk_idx as usize;
+            if self.pool_epoch.get(ci).copied() == Some(stamped) {
+                return Some(ptr);
+            }
+            // Stale: the chunk was pooled after this entry was pushed, so the slot either
+            // belongs to the pool or has already been re-bumped into something live.
+            self.stale_free = self.stale_free.saturating_sub(1);
+            self.stale_per_class[sc] = self.stale_per_class[sc].saturating_sub(1);
+        }
+    }
+
+    /// **lazy-var-free-list (2026-09-12)**: drop every stale entry in one pass.
+    ///
+    /// Called only when the stale entries outnumber the live ones, so the `O(entries)` walk is
+    /// paid at most once per entry that goes stale — amortised `O(1)` per pooling, against the
+    /// unconditional `O(entries)` **per collection** it replaces. Without it a size class that
+    /// stops being allocated would keep its stale entries forever: nothing pops them, so
+    /// nothing discovers them.
+    fn compact_free_lists(&mut self) {
+        for sc in 0..self.free_lists.len() {
+            self.compact_class(sc);
+        }
+    }
+
+    /// **lazy-var-free-list (2026-09-12)**: drop every stale entry of **one** size class.
+    ///
+    /// Per class rather than all of them, because that is what makes a tight threshold
+    /// affordable: a whole-region compaction measured 17–25 ms, so it could only be run once
+    /// or twice a build, and the stale entries it was not running often enough to collect were
+    /// worth ~40 MB of RSS. One class is a fraction of that and can run as soon as the class
+    /// is more stale than live.
+    fn compact_class(&mut self, sc: usize) {
+        let (ptrs, epochs) = (&mut self.free_lists[sc], &mut self.free_epochs[sc]);
+        let mut w = 0;
+        for r in 0..ptrs.len() {
+            // SAFETY: as in `pop_free_slot` — every entry is a bump-chunk header, and bump
+            // chunks are pooled rather than freed, so the header stays mapped.
+            let ci = unsafe { ptrs[r].as_ref() }.chunk_idx as usize;
+            if self.pool_epoch.get(ci).copied() == Some(epochs[r]) {
+                ptrs[w] = ptrs[r];
+                epochs[w] = epochs[r];
+                w += 1;
+            }
+        }
+        ptrs.truncate(w);
+        epochs.truncate(w);
+        // Deliberately **not** `shrink_to_fit`: these lists are multi-megabyte, so handing the
+        // capacity back means allocating the smaller buffer while the larger one is still
+        // live. Measured, that spike costs more peak RSS than the slack it returns.
+        self.stale_free = self.stale_free.saturating_sub(self.stale_per_class[sc]);
+        self.stale_per_class[sc] = 0;
+    }
+
+    /// **lazy-var-free-list (2026-09-12)**: compact every class that now holds more stale
+    /// entries than live ones. Called at the tail of a chunk reclaim, which is the only thing
+    /// that creates stale entries.
+    pub(super) fn compact_stale_classes(&mut self) {
+        for sc in 0..self.free_lists.len() {
+            // Half the class stale is the knee: tighter (a quarter, an eighth) walks the
+            // lists more often for progressively less memory back — measured 34.4 / 30.4 /
+            // 29.6 MB of free-list footprint at a half / a quarter / an eighth, against a
+            // total pause of 381 / 402 / 453 ms. The memory is nearly flat; the pause is not.
+            if self.stale_per_class[sc] * 2 > self.free_lists[sc].len() {
+                self.compact_class(sc);
+            }
+        }
     }
 
     /// Re-initialize a recycled slot in place: read the (bumped) generation, drop nothing
@@ -439,7 +584,10 @@ impl VarRegion {
         }
         let sc = header.size_class;
         if sc != OVERSIZED_CLASS {
+            // lazy-var-free-list: stamp the chunk's pooling count so a pop after the chunk is
+            // recycled can tell this entry is stale.
             self.free_lists[sc as usize].push(ptr);
+            self.free_epochs[sc as usize].push(self.pool_epoch[ci]);
         }
         true
     }

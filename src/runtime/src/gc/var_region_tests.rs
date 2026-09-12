@@ -565,7 +565,8 @@ fn reclaimed_chunk_purges_young_list() {
     // A recycled chunk is re-bumped from offset 0, so any young-list entry pointing into it
     // would dangle onto whatever lands at that address next — and the minor sweep would
     // happily age or tombstone the new occupant. `young_list` must be purged by the same
-    // retain that already purges `all_blocks` and `free_lists`.
+    // retain that already purges `all_blocks`. (`free_lists` is **not** purged there any
+    // more — lazy-var-free-list moved it to a check at pop; see the tests below.)
     let mut region = VarRegion::new();
     // Enough blocks to fill several bump chunks, so some are not the ambient one (the
     // ambient chunk is never reclaimed).
@@ -593,6 +594,129 @@ fn reclaimed_chunk_purges_young_list() {
     for p in &region.young_list {
         assert!(tracked.contains(p), "young list holds a pointer into a recycled chunk");
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// lazy-var-free-list (2026-09-12): free-list entries survive their chunk's pooling and are
+// rejected at pop instead of being scanned out at reclaim.
+// ---------------------------------------------------------------------------------------
+
+/// Fill several bump chunks with same-class blocks, kill them all, reclaim. Returns the region
+/// with a pool full of recycled chunks and a free list full of entries pointing into them.
+fn region_with_pooled_chunks() -> VarRegion {
+    let mut r = VarRegion::new();
+    for _ in 0..384 {
+        r.alloc(1024, BlockType::Str);
+    }
+    assert!(r.chunk_count() > 2, "expected several bump chunks");
+    r.sweep(); // nothing marked → every block dies
+    assert!(r.reclaim_dead_var_chunks().pooled > 0, "fully-dead bump chunks must be pooled");
+    r
+}
+
+/// The behaviour change itself: the reclaim pass no longer walks the free lists. Asserted on
+/// `purge_blocks` directly, because `reclaim_dead_var_chunks` may compact straight afterwards
+/// when (as in a synthetic fill-and-kill) *everything* went stale at once.
+///
+/// This is the assertion that fails if someone "fixes" the missing purge by putting the
+/// `retain` back — which would silently restore 142.5 ms of pause on `z42c.semantics`.
+#[test]
+fn reclaim_does_not_scan_the_free_lists() {
+    let mut r = VarRegion::new();
+    for _ in 0..384 {
+        r.alloc(1024, BlockType::Str);
+    }
+    r.sweep(); // nothing marked → every block dies, every slot enters a free list
+    let before: usize = r.free_lists.iter().map(|f| f.len()).sum();
+    assert!(before > 0);
+
+    let (pool, free) = r.partition_dead_chunks();
+    assert!(!pool.is_empty(), "fully-dead bump chunks must be reclaimable");
+    r.purge_blocks(&pool, &free);
+
+    let after: usize = r.free_lists.iter().map(|f| f.len()).sum();
+    assert_eq!(after, before, "purge_blocks must leave the free lists untouched");
+    assert_eq!(after, r.free_epochs.iter().map(|f| f.len()).sum::<usize>(),
+        "the epoch list must run in lockstep with the pointer list");
+}
+
+/// Pooling records, exactly, how many entries it staled — that count is what bounds the
+/// scheme's waste, so an off-by-anything would either compact constantly or never. It is also
+/// tracked **per size class**, which is what lets the threshold be tight.
+#[test]
+fn pooling_records_the_entries_it_staled() {
+    let mut r = VarRegion::new();
+    for _ in 0..384 {
+        r.alloc(1024, BlockType::Str);
+    }
+    r.sweep();
+    let (pool, free) = r.partition_dead_chunks();
+    let expected: usize = pool.iter().map(|&ci| r.all_blocks[ci].len()).sum();
+    assert!(expected > 0);
+    let before: usize = r.free_lists.iter().map(|f| f.len()).sum();
+
+    r.purge_blocks(&pool, &free);
+    assert_eq!(r.stale_free, expected, "pooling must account for every entry it staled");
+    assert_eq!(r.stale_per_class.iter().sum::<usize>(), expected,
+        "the per-class split must add back up to the total");
+
+    // A compaction drops exactly those — no more, no less. (`pool_epoch` is bumped by
+    // `reclaim_dead_var_chunks`; do it here since this test drives the steps by hand.)
+    for &ci in &pool {
+        r.pool_epoch[ci] = r.pool_epoch[ci].wrapping_add(1);
+    }
+    r.compact_free_lists();
+    let after: usize = r.free_lists.iter().map(|f| f.len()).sum();
+    assert_eq!(after, before - expected, "compaction must drop exactly the staled entries");
+    assert_eq!(r.stale_free, 0, "a compaction resets the stale count");
+    assert_eq!(r.stale_per_class.iter().sum::<usize>(), 0);
+}
+
+/// …and the guard that makes that safe: a stale entry is never handed back out. A pooled chunk
+/// is re-bumped from offset 0, so handing one out would alias a live block — the same hazard
+/// `reclaimed_chunk_purges_young_list` guards on the other list.
+#[test]
+fn a_stale_free_entry_is_never_handed_out() {
+    let mut r = region_with_pooled_chunks();
+    let stale: std::collections::HashSet<_> =
+        r.free_lists.iter().flatten().map(|p| p.as_ptr() as usize).collect();
+    assert!(!stale.is_empty());
+
+    // Allocate the same class hard enough to drain the (entirely stale) list and re-bump the
+    // pooled chunks underneath it.
+    let mut handed = Vec::new();
+    for _ in 0..384 {
+        let h = r.alloc(1024, BlockType::Str);
+        handed.push(unsafe { h.header_ptr() }.as_ptr() as usize);
+    }
+
+    // Nothing came back twice — the real failure mode is two live blocks at one address.
+    let distinct: std::collections::HashSet<_> = handed.iter().copied().collect();
+    assert_eq!(distinct.len(), handed.len(), "an address was handed out twice");
+    // And every block the region thinks is live really is.
+    let mut alive = 0;
+    r.iterate_alive(|_, _| alive += 1);
+    assert_eq!(alive, handed.len(), "live count disagrees with what alloc handed out");
+}
+
+/// The bound on the lazy scheme: stale entries cannot pile up forever. A cold size class has
+/// no pops to discover its stale entries, so reclaim compacts once they outnumber the live
+/// ones.
+#[test]
+fn stale_entries_are_compacted_rather_than_accumulating() {
+    let mut r = VarRegion::new();
+    // Two rounds of fill-and-kill: the second reclaim sees a free list that is entirely stale.
+    for round in 0..2 {
+        for _ in 0..384 {
+            r.alloc(1024, BlockType::Str);
+        }
+        r.sweep();
+        r.reclaim_dead_var_chunks();
+        let entries: usize = r.free_lists.iter().map(|f| f.len()).sum();
+        assert!(entries <= 384 * 2,
+            "round {round}: stale entries must be compacted, not accumulated (got {entries})");
+    }
+    assert_eq!(r.stale_free, 0, "a compaction resets the stale count");
 }
 
 // ---------------------------------------------------------------------------------------

@@ -308,6 +308,7 @@ impl VarRegion {
         self.chunks.push(chunk);
         self.borrowed.push(false);
         self.reuse_gen.push(0);
+        self.pool_epoch.push(0);
         self.blocks_per_chunk.push(0);
         self.live_per_chunk.push(0);
         self.max_gen_per_chunk.push(0);
@@ -404,6 +405,12 @@ impl VarRegion {
             // Bump reuse_gen above every generation this chunk's blocks reached, so a fresh
             // re-bump can't mint an (address, generation) pair matching a stale VarGcRef.
             self.reuse_gen[ci] = self.max_gen_per_chunk[ci].wrapping_add(1);
+            // **lazy-var-free-list (2026-09-12)**: every free-list entry pointing into this
+            // chunk just went stale. They are not evicted here — that scan was the whole cost
+            // this change removes — so record how many there are, exactly: a chunk reaches
+            // this loop only with every block tombstoned, and every non-oversized tombstone
+            // pushed an entry, so its whole block list is now stale free entries.
+            self.pool_epoch[ci] = self.pool_epoch[ci].wrapping_add(1);
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
             self.var_free_chunk_pool.push(ci);
@@ -416,6 +423,8 @@ impl VarRegion {
             self.live_per_chunk[ci] = 0;
             self.free_chunk_slots.push(ci);
         }
+        // lazy-var-free-list: keep the waste bounded — see `compact_stale_classes`.
+        self.compact_stale_classes();
         VarChunkReclaim { pooled: pool.len(), freed_chunks: free.len(), freed_bytes }
     }
 
@@ -427,7 +436,7 @@ impl VarRegion {
     /// per-chunk census (`VarRegion::blocks_per_chunk` / `live_per_chunk`), which alloc,
     /// retire and tombstone keep current. This used to be a survey pass over `all_blocks` —
     /// one binary search per block, 2.7 M blocks, **45 ms of a 54 ms minor sweep**.
-    fn partition_dead_chunks(&self) -> (Vec<usize>, Vec<usize>) {
+    pub(super) fn partition_dead_chunks(&self) -> (Vec<usize>, Vec<usize>) {
         let ambient = self.bump_chunk;
         let already: std::collections::HashSet<usize> =
             self.var_free_chunk_pool.iter().copied().collect();
@@ -475,7 +484,7 @@ impl VarRegion {
     /// `young_list` is purged for the same reason as the other two: a pooled chunk is
     /// re-bumped from offset 0, so a surviving entry would dangle onto whatever lands at that
     /// address next — and the minor sweep would happily age or tombstone the new occupant.
-    fn purge_blocks(&mut self, pool: &[usize], free: &[usize]) {
+    pub(super) fn purge_blocks(&mut self, pool: &[usize], free: &[usize]) {
         let mut is_reclaimed = vec![false; self.chunks.len()];
         for &ci in pool.iter().chain(free) {
             is_reclaimed[ci] = true;
@@ -489,6 +498,27 @@ impl VarRegion {
         // perf-bucket-all-blocks-by-chunk: O(reclaimed chunks) instead of a `retain` with one
         // header dereference per block in the whole region. `free_lists` / `young_list` still
         // scan — they are not chunk-partitioned — but they are the smaller half.
+        // **lazy-var-free-list (2026-09-12)**: before dropping a reclaimed chunk's block list,
+        // count what it just staled, **per size class**. Every block in a chunk that reaches
+        // here is tombstoned (that is the condition for reclaiming it) and every non-oversized
+        // tombstone pushed a free-list entry, so this bucket *is* the set of entries that just
+        // went stale — the count is exact, not an estimate.
+        //
+        // This walk is `O(blocks in the chunks being reclaimed)` — proportional to the work
+        // being done, which is the whole point of the change. The blocks are address
+        // contiguous within their chunk, so it is a linear scan, not the scattered chase the
+        // removed `free_lists` retain was.
+        for &ci in pool.iter().chain(free) {
+            for &p in &self.all_blocks[ci] {
+                // SAFETY: the chunk is still owned here — `purge_blocks` runs before anything
+                // is pooled or freed.
+                let sc = unsafe { p.as_ref() }.size_class as usize;
+                if sc < self.stale_per_class.len() {
+                    self.stale_per_class[sc] += 1;
+                    self.stale_free += 1;
+                }
+            }
+        }
         for &ci in pool.iter().chain(free) {
             // `clear()` would keep the bucket's capacity — and a reclaimed chunk's bucket is
             // ~256 pointers (2 KB). At ~600 chunks reclaimed per minor that slack accumulates
@@ -497,9 +527,17 @@ impl VarRegion {
             // which is one malloc per chunk reuse.
             self.all_blocks[ci] = Vec::new();
         }
-        for fl in &mut self.free_lists {
-            fl.retain(|p| !in_reclaimed(p));
-        }
+        // **lazy-var-free-list (2026-09-12)**: `free_lists` is deliberately **not** scanned
+        // here. It was the last `O(heap)` term in this function — 142.5 ms of a 513 ms total
+        // pause on `z42c.semantics`, one header dereference per entry across up to 1.24 M
+        // entries, every collection, to evict the handful belonging to the chunks being
+        // reclaimed. Entries are invalidated lazily at pop instead; see `VarRegion::free_lists`
+        // for why that cannot hand out a dangling pointer, and `pop_free_slot` for the guard
+        // that keeps it from handing out a re-bumped one.
+        //
+        // `young_list` keeps its retain: it is an order of magnitude smaller (measured 2.7 ms
+        // against the free lists' 142.5 ms over the same run) and it has no pop path to hang a
+        // lazy check on — the minor sweep walks it whole.
         self.young_list.retain(|p| !in_reclaimed(p));
     }
 }
