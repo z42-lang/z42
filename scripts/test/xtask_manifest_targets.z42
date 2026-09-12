@@ -407,6 +407,20 @@ int _runLibKind(string root, string libsRoot, string lib, string subdir, string 
     RunTarget[] tgts = _explicitTargets(man, kind);
     string verr = _validateRunTargets(tgts, tgts.Length, kind);
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + lib + ": " + verr); return -1; }
+    // ── 转发 z42b（xtask-forward-tests-to-z42b D1）────────────────────────────
+    // 条件：test 路径 + 该包**没有显式 [[test]]**。今天 stdlib 的 23 个库全部满足
+    // （零个显式目标、零个 harness=false —— 实测）。留着旧路径兜住将来出现的显式目标
+    // （尤其 harness=false：其 Main 自己调 Environment.Exit，z42b 侧尚未支持）。
+    //
+    // bench 暂不转发：`MicroBenchAgg` 消费的是「一次调用一个 TestReport 对象」，多目标
+    // 合并输出是步骤 B，未落地前转发会打断 schema-v2 基线。
+    // File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非目录条目，
+    // 旧路径靠「清单缺失 → 约定扫描 → 零单元」静默跳过。转发前先确认这是个真工程。
+    if (kind == "test" && tgts.Length == 0 && File.Exists(parentToml)) {
+        return _runLibViaZ42b(root, projDir, parentToml, lib, kind, label, filter,
+                              builderZpkg, jobsN, mode, vm, libs,
+                              ref totalFiles, ref libsTested);
+    }
     TestUnit[] units = _dropOverridden(_autoUnits(projDir, subdir, _sectionAuto(man, kind), filter),
                                        tgts, tgts.Length);
     RunTarget[] reflectT = _explicitByHarness(tgts, tgts.Length, true, filter);
@@ -486,4 +500,35 @@ RunTarget[] _explicitByHarness(RunTarget[] tgts, int n, bool harness, string fil
     int k = 0;
     while (k < c) { r[k] = tmp[k]; k = k + 1; }
     return r;
+}
+
+// 一个 lib 的 test 走转发：`z42b test <真 manifest> --list` 拿单元名 → 并行拉起
+// `z42b test <toml> --name <unit>`（xtask-forward-tests-to-z42b D1）。
+//
+// 零单元时**不在这里判**：直接不带 --name 跑一次 z42b，让它自己的判定说了算 ——
+// 孤儿源守卫（有源却零单元 → 红）与「本包压根没有测试」（→ 绿）都住在 z42b 里，
+// 判据只该有一处。xtask 侧那条同名守卫仍留给未转发的 bench 路径。
+int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, string kind,
+                   string label, string filter, string builderZpkg, int jobsN, string mode,
+                   string vm, string libs, ref int totalFiles, ref int libsTested) {
+    bool ok = true;
+    string[] names = _listUnitsViaZ42b(root, parentToml, kind, filter, mode, vm, builderZpkg, libs, ref ok);
+    if (!ok) { return -1; }
+    if (names.Length == 0) {
+        // 零单元：交给 z42b 自己裁定（红/绿），不在 xtask 侧复制一份判据。
+        // filter 非空时零命中是过滤器的事，不是发现规则的 bug —— 直接跳过。
+        if (filter.Length > 0) { return 0; }
+        ProcessResult rr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+            .Arg("--").Arg("test").Arg(parentToml)
+            .Env("Z42_LIBS", libs).WorkingDirectory(root).Run();
+        Console.Write(rr.Stdout);
+        if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+        return (rr.ExitCode != 0) ? 1 : 0;
+    }
+    Console.WriteLine("");
+    Console.WriteLine("── " + lib + " (" + label + ", z42b) : " + names.Length.ToString() + " unit(s) ──");
+    totalFiles = totalFiles + names.Length;
+    libsTested = libsTested + 1;
+    return _runUnitsViaZ42b(root, parentToml, names, names.Length, kind,
+                            jobsN, mode, vm, builderZpkg, libs);
 }
