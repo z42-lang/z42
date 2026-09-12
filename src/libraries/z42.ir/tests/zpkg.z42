@@ -6,6 +6,8 @@ using Std;
 using Std.Test;
 using Z42.Project;
 using Z42.IR;
+using Z42.IR.BinaryFormat;   // 此前漏写（using 不作用于子命名空间）—— 旧的裸 `--emit-zbc`
+                             // 单文件编译不跑文件级 using 检查，本次按包编译后 E0436 逮到。
 
 ZbcFileZ _mod(string ns, string fname) {
     string[] exports = new string[1];

@@ -389,7 +389,24 @@ public sealed class EmitContext {
     }
 
     // imported receiver 的依赖 ns 追踪（IC-1 镜像 C# VCall fallback 行 198-200）。
+    //
+    // 🔴 **本包自有类不算依赖**（fix-selfns-tracked-as-dep）：`ImportedClassNs` **有意含本包跨-ns
+    // 自有类**（见其声明处 G17b 注释 —— 为了让 `Z42.IR.BinaryFormat` 里能把 `StrMap` 限定成
+    // `Z42.IR.StrMap`）。但 `UsedDepNs` 的语义是**跨包**依赖：它既驱动 DEPS，也驱动
+    // `add-file-scoped-usings` 的 E0436「用了却没 import」。把本包另一个 ns 记进去 ⇒ 同一个包里
+    // 跨 ns 引用被要求写 `using`，**单包构建多命名空间的库直接编不过**。
+    //
+    // 实测 z42.ir：`src/BinaryFormat/ZbcStringPool.z42`（`namespace Z42.IR.BinaryFormat`）引用
+    // `Z42.IR` 的 `StrMap` / `TypedReg` → E0436；把 `z42.ir.zpkg` 移出扁平 `Z42_LIBS` 即刻通过。
+    //
+    // 两个条件叠加才触发，所以一直隐形：① 包是**多命名空间**的（单 ns 的走 `ns == cu.Namespace`
+    // 放行）；② 该包**自己上一次构建出的 zpkg** 躺在扁平 `Z42_LIBS` 里（`xtask build stdlib` 走
+    // `--workspace`，那时 libs 里还没有自己，故绕开）。
+    //
+    // DEPS 侧本来就容忍这种自记（`ZpkgBuilder._addPair` 按 selfZpkgFile 事后过滤），是后加的
+    // E0436 没跟上。判据用 `LocalClasses`（包级「自有声明类名集」）—— 本包声明的类，其 ns 必属本包。
     public void TrackImportedClass(string clsName) {
+        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(clsName)) { return; }
         if (this.ImportedClassNs != null && this.ImportedClassNs.ContainsKey(clsName)) {
             StrBox b = this.ImportedClassNs.Get(clsName) as StrBox;
             if (b != null) { this.TrackDepNamespace(b.Value); }
