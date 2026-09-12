@@ -125,7 +125,12 @@ pub fn builtin_thread_join(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         None    => return Ok(unknown_slot_result(ctx)),
     };
 
-    match handle.join() {
+    // fix-blocking-native-calls-round2：阻塞期间必须让出 GC safepoint，否则并发 GC 死锁
+    // （同 #598 的网络七处；机制见 gc/safepoint.rs 的 NativeParkGuard）。
+    // ⚠️ 这条是最危险的一个：`t.Join()` 是 z42 多线程的主干写法。被 join 的线程只要在结束前
+    // 触发 GC，join 方卡在 handle.join()（不在安全点）⇒ GC 等不到它 ⇒ 被 join 的线程也结束不了。
+    let joined = { let _park = crate::gc::NativeParkGuard::enter(ctx); handle.join() };
+    match joined {
         Ok(Ok(()))     => Ok(ok_result(ctx)),
         Ok(Err(e))     => Ok(action_err_result(ctx, &format!("{e}"))),
         Err(_panic)    => Ok(action_err_result(ctx, "thread panicked")),
