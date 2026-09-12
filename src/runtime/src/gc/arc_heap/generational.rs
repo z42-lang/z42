@@ -48,6 +48,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
+    /// Read a value's mark bit without trying to set it — the shared-load half of
+    /// [`Self::mark_if_unmarked`]'s CAS. Only worth calling where a *failed* CAS is expensive,
+    /// i.e. the parallel mark, where it would take the block's cache line exclusive on a core
+    /// that has nothing to write. (Measured serially it buys nothing — see the pause notes.)
+    pub(super) fn value_is_marked(v: &Value) -> bool {
+        match v {
+            Value::Object(gc) => GcRef::is_marked(gc),
+            Value::Array(gc) => GcRef::is_marked(gc),
+            Value::BoxedStruct(gc) => GcRef::is_marked(gc),
+            Value::Closure(c) => c.is_marked(),
+            Value::Str(s) | Value::FuncRef(s) => s.is_marked(),
+            _ => false,
+        }
+    }
+
     /// **add-generational-gc P2 (2026-05-22)**: mark phase for minor GC.
     ///
     /// Roots = pinned roots + external_root_scanner output + entries
@@ -97,6 +112,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // to find **76** young objects.
         self.seed_from_dirty_cards(&mut queue, threshold);
 
+        let threads = mark_threads();
+        if threads > 1 && queue.len() >= PARALLEL_MARK_MIN_ROOTS {
+            return self.drain_mark_queue_parallel(queue, threshold, threads);
+        }
+
         let mut marked = 0usize;
         while let Some(v) = queue.pop() {
             // fix-minor-stale-mark-on-old-roots (2026-09-08): **only young entries are
@@ -135,6 +155,126 @@ impl crate::gc::arc_heap::ArcMagrGC {
             });
         }
         marked
+    }
+
+    /// **parallel-minor-mark (2026-09-12, prototype)**: the same BFS as
+    /// [`Self::mark_phase_minor`]'s tail, drained by `threads` workers.
+    ///
+    /// Serial mark is the biggest single item left in a minor pause (104.6 ms of 360 on
+    /// `z42c.semantics`), and it has been measured to the floor: dedup, prefetch and
+    /// dropping the CAS all failed to move it (see the pause-line notes). What is left is
+    /// running it on more than one core — which this heap already permits:
+    ///
+    /// - `Value` is `Send + Sync`, and the mark bit is already a CAS, so two workers racing
+    ///   the same block is exactly the single-threaded contract;
+    /// - every entry carries **its own** `parking_lot::Mutex` (`GcRef::borrow`), so there is
+    ///   no region-wide lock to serialize on;
+    /// - a trace never takes a second entry lock while holding one (`visit` only clones a
+    ///   `Value` onto a queue), so workers cannot deadlock against each other.
+    ///
+    /// Work distribution is a shared overflow stack plus per-worker local stacks: a worker
+    /// drains locally (depth-first, which is where the locality is), spills half its stack to
+    /// the shared one when it grows past `SPILL_HIGH`, and steals a batch when it runs dry.
+    /// Termination is a count of idle workers — the last one to go idle ends the phase.
+    fn drain_mark_queue_parallel(&self, roots: Vec<Value>, threshold: u8, threads: usize) -> usize {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        /// Spill to the shared stack past this local depth, so other workers have something
+        /// to steal on a deep graph.
+        let spill_high: usize = std::env::var("Z42_GC_SPILL_HIGH").ok().and_then(|v| v.parse().ok()).unwrap_or(512);
+        /// Steal at most this many at once — enough to amortize the lock, small enough that
+        /// one worker cannot swallow the whole frontier.
+        let steal_max: usize = std::env::var("Z42_GC_STEAL_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(256);
+
+        let precheck = std::env::var("Z42_GC_MARK_PRECHECK").ok().as_deref() == Some("1");
+        let shared_len = AtomicUsize::new(roots.len());
+        let shared = parking_lot::Mutex::new(roots);
+        let idle = AtomicUsize::new(0);
+        let done = AtomicBool::new(false);
+        let total = AtomicUsize::new(0);
+
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| {
+                    let mut local: Vec<Value> = Vec::new();
+                    let mut marked = 0usize;
+                    let mut idling = false;
+                    let mut pops = 0usize;
+                    let mut steals = 0usize;
+                    let mut spins = 0usize;
+                    let t_start = std::time::Instant::now();
+                    loop {
+                        let v = match local.pop() {
+                            Some(v) => v,
+                            None => {
+                                // Out of local work: steal a batch. The **lock-free length
+                                // check first** is what makes idling cheap — an idle worker
+                                // that polled through the mutex instead spent its wait
+                                // fighting the still-working threads for the very lock they
+                                // need to spill (measured: 899 506 such polls per build, and
+                                // the four workers burned 217 ms of CPU to do 80 ms of walk).
+                                if shared_len.load(Ordering::Acquire) == 0 {
+                                    if !idling {
+                                        idling = true;
+                                        // A worker only ever declares itself idle after
+                                        // observing an empty frontier, and only a
+                                        // *non*-idle worker can refill it — so the last one
+                                        // to go idle has proved the phase is over.
+                                        if idle.fetch_add(1, Ordering::AcqRel) + 1 == threads {
+                                            done.store(true, Ordering::Release);
+                                        }
+                                    }
+                                    if done.load(Ordering::Acquire) {
+                                        break;
+                                    }
+                                    spins += 1;
+                                    std::thread::yield_now();
+                                    continue;
+                                }
+                                let mut g = shared.lock();
+                                let n = g.len().min(steal_max);
+                                if n == 0 {
+                                    continue;
+                                }
+                                steals += 1;
+                                let at = g.len() - n;
+                                local.extend(g.drain(at..));
+                                shared_len.store(g.len(), Ordering::Release);
+                                drop(g);
+                                if idling {
+                                    idle.fetch_sub(1, Ordering::AcqRel);
+                                    idling = false;
+                                }
+                                continue;
+                            }
+                        };
+                        pops += 1;
+                        if Self::gen_age_of(&v) < threshold {
+                            if precheck && Self::value_is_marked(&v) { continue; }
+                            if !Self::mark_if_unmarked(&v) { continue; }
+                            marked += 1;
+                        }
+                        v.trace_children(&mut |child| {
+                            if child.is_heap_ref() && Self::gen_age_of(child) < threshold {
+                                local.push(child.clone());
+                            }
+                        });
+                        if local.len() > spill_high {
+                            let at = local.len() / 2;
+                            let tail: Vec<Value> = local.drain(at..).collect();
+                            let mut g = shared.lock();
+                            g.extend(tail);
+                            shared_len.store(g.len(), Ordering::Release);
+                        }
+                    }
+                    crate::gc::phase_timer::note(format_args!(
+                        "pmark worker  pops {pops}  steals {steals}  spins {spins}  elapsed {:.3} ms",
+                        t_start.elapsed().as_secs_f64() * 1e3));
+                    total.fetch_add(marked, Ordering::AcqRel);
+                });
+            }
+        });
+        total.load(Ordering::Acquire)
     }
 
     /// **add-generational-gc P2 (2026-05-22)**: sweep phase for minor GC.
@@ -822,4 +962,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
         }
     }
+}
+
+/// Roots below this count are not worth spreading across threads — the spawn plus the first
+/// steal cost more than the walk. (Prototype knob; revisit with the measurement.)
+const PARALLEL_MARK_MIN_ROOTS: usize = 1024;
+
+/// `Z42_GC_MARK_THREADS` — how many workers drain the minor mark queue. `0`/`1` (the
+/// default) keeps the serial loop, so the prototype is off unless asked for.
+fn mark_threads() -> usize {
+    use std::sync::OnceLock;
+    static N: OnceLock<usize> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("Z42_GC_MARK_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(1)
+    })
 }

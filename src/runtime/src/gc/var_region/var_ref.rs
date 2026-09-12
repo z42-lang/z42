@@ -132,6 +132,17 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref().mark() }
     }
 
+    /// Read the block's mark bit without trying to set it. The parallel mark phase uses this
+    /// as a shared-state pre-check before the CAS in [`Self::mark`].
+    ///
+    /// # Safety
+    /// Same contract as [`Self::mark`] — the handle must be live.
+    #[inline]
+    pub fn is_marked(&self) -> bool {
+        // SAFETY: mark phase holds the region; the header address is valid.
+        unsafe { self.header_ptr().as_ref().is_marked() }
+    }
+
     /// **fix-primitives-count-as-young (2026-09-11)**: raise the block's `gen_age` to at least
     /// `age` (never lowers). STW only. See `GcBlockHeader::raise_gen_age_to`.
     #[inline]

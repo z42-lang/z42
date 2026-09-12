@@ -108,6 +108,13 @@ impl Str {
         self.block.mark()
     }
 
+    /// Read the block's mark bit without setting it — the parallel mark phase's pre-check
+    /// (see `ArcMagrGC::value_is_marked`).
+    #[inline]
+    pub fn is_marked(&self) -> bool {
+        self.block.is_marked()
+    }
+
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: generation age of this string's GC
     /// block, for the minor mark phase's young/old child filter. Strings used to report 0
     /// unconditionally, so every reachable string was re-marked at every minor.
