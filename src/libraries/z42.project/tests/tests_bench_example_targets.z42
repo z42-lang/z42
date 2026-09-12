@@ -40,7 +40,7 @@ void test_tests_section_include_exclude_auto_deps() {
     Assert.Equal("0.1.0", m.TestsSection.Deps[0].Version);
 }
 
-// [[test]] 默认 harness=true（反射），无 entry，无 sources，非 runInTest。
+// [[test]] 默认 harness=true（反射），无 entry，无 include，非 runInTest。
 [Test]
 void test_explicit_test_harness_default_true() {
     string toml = "[[test]]\nname = \"unit_math\"\n";
@@ -53,10 +53,10 @@ void test_explicit_test_harness_default_true() {
     Assert.Equal(false, m.Tests[0].RunInTest);
 }
 
-// [[test]] harness=false + entry（Main）+ sources（glob 合并集）。
+// [[test]] harness=false + entry（Main）+ include（glob 合并集）。
 [Test]
 void test_explicit_test_harness_false_with_entry() {
-    string toml = "[[test]]\nname = \"perf\"\nharness = false\nentry = \"Perf.Runner.Main\"\nsources = [\"tests/perf/*.z42\", \"tests/perf/_lib/*.z42\"]\n";
+    string toml = "[[test]]\nname = \"perf\"\nharness = false\nentry = \"Perf.Runner.Main\"\ninclude = [\"tests/perf/*.z42\", \"tests/perf/_lib/*.z42\"]\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(1, m.TestCount);
     Assert.Equal("perf", m.Tests[0].Name);

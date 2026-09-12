@@ -64,7 +64,7 @@ include = ["tests/**/*.z42"]
 [[test]]                                 # 要点名 / 要自驱时才写
 name    = "exit_ok"
 harness = false                          # 自己写 Main，退出码判定
-sources = ["tests/exit_ok.z42"]
+include = ["tests/exit_ok.z42"]
 # entry 不写 —— 自动探测（ZpkgBuilder.AutoDetectEntry 四级优先：.Main / Main / .main / main）
 ```
 
