@@ -16,7 +16,16 @@ public sealed class IrGenMemberEmitter {
     public void EmitMethod(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, MethodDecl md) {
         IrGen g = this._g; SemanticModel model = this._model;
         string methKey = OverloadResolver.MethodKeyOf(md);   // unify-regkey-source-of-truth
-        string irName = g._q(g._classIrShortName(c)) + "." + methKey;   // IR/包内名（FQ，arity-mangle 时 Name$N）
+        // add-static-constructors：静态 ctor 的**发射名**换独立键——它的 RegKey 与无参
+        // **实例** ctor 逐字相同，`new C()` 查 0 参 ctor 会命中静态 ctor 并把它当实例
+        // 构造器再跑一遍（实测 cctor 体打印两次）。见 IrStaticCtor.MethodKey。
+        //
+        // ⚠️ 只改**发射名**，不能改 methKey —— 后者还用作 SemanticModel 的**体查找键**
+        // （body 是按 RegKey 存的）。两者一起改会让 model.HasBody 落空 → 函数根本不发射
+        // （实测：报 `static ctor C.$cctor not found`）。
+        string emitKey = methKey;
+        if (md.IsCtor && IrGenFacts._hasWord(md.Mods, "static")) { emitKey = IrStaticCtor.MethodKey; }
+        string irName = g._q(g._classIrShortName(c)) + "." + emitKey;   // IR/包内名（FQ，arity-mangle 时 Name$N）
         if (md.HasBody) {              // G11：ctor 也发 `<qualClass>.<Class>` 函数（md.Name=类名，ret void，实例）
             string key = ownerKey + "." + methKey;    // SemanticModel 键（arity-mangle 时 ownerKey=Name$N）
             if (model.HasBody(key)) {

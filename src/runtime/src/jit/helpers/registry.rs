@@ -320,8 +320,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // fallback when field_id is UNRESOLVED (lazily-loaded fn, no resolved table).
         // (jit_static_get(frame, ctx, dst, field_id, field_ptr, field_len),
         //  jit_static_set(frame, ctx, field_id, val, field_ptr, field_len))
-        static_get:    decl!("jit_static_get", [ptr, ptr, i32t, i32t, ptr, i64t],          []),
-        static_set:    decl!("jit_static_set", [ptr, ptr, i32t, i32t, ptr, i64t],          []),
+        static_get:    decl!("jit_static_get", [ptr, ptr, i32t, i32t, ptr, i64t],       [i32t]),
+        static_set:    decl!("jit_static_set", [ptr, ptr, i32t, i32t, ptr, i64t],       [i32t]),
         get_bool:      decl!("jit_get_bool",      [ptr, ptr, i32t],                       [i8t]),
         set_ret:       decl!("jit_set_ret",       [ptr, ptr, i32t],                       []),
         // C2 P1 step 1: jit_regs_ptr(frame) -> *mut Value. Note: NO ctx param.

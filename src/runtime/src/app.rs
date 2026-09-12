@@ -248,6 +248,12 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     // Construct the VmContext (owns static-fields / pending-exception / lazy_loader).
     let string_pool_len = final_module.string_pool.len();
     let ctx = crate::vm_context::VmContext::with_module(final_module);
+    // add-static-constructors：急切合并进来的类型（主程序 + stdlib + eager deps）在此登记
+    // 静态构造器。跨包惰性加载的类型由 `try_lookup_type` 登记——两处合起来保证
+    // 「登记早于使用」，这是 cctor 屏障那个 `pending` 门成立的前提。
+    if let Some(m) = ctx.module() {
+        for td in m.type_registry.values() { ctx.register_cctor_of(td); }
+    }
     // Forward `-- <args>` to the program's GetCommandLineArgs() before vm.run.
     ctx.set_program_args(opts.program_args.clone());
     ctx.install_lazy_loader_with_deps(

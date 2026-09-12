@@ -26,6 +26,10 @@ public sealed class TypeEnv {
     public bool        InCtorThis;       // add-readonly-fields-opt：当前在声明类的实例 ctor 体内（接收者 this）。
                                          // readonly 字段仅此上下文可赋值。PushScope 继承（ctor 内嵌套块仍算）；
                                          // WithClass* 重置为 false；ctor 体绑定用 WithClassGenericCtor 置 true。
+    // add-static-constructors：当前在声明类的**静态** ctor 体内。C# 允许静态 ctor 给本类的
+    // `static readonly` 赋值（AssignTyper 据此放行）。后置赋值（不进构造签名）→ 零 call-site 涟漪，
+    // 与 ClassTypeParamCount 同款做法；PushScope 继承（静态 ctor 内嵌套块仍算）。
+    public bool        InStaticCtor;
 
     public TypeEnv(SymbolTable symbols, bool hasParent, TypeEnv parent, bool classFlag, string className,
                    string[] typeParamNames, int typeParamCount, bool inCtorThis) {
@@ -41,6 +45,7 @@ public sealed class TypeEnv {
         this.TypeParamCount = typeParamCount;
         this.ClassTypeParamCount = typeParamCount;   // 默认全类级
         this.InCtorThis = inCtorThis;
+        this.InStaticCtor = false;
     }
 
     public static TypeEnv Root(SymbolTable symbols) {
@@ -50,6 +55,7 @@ public sealed class TypeEnv {
     public TypeEnv PushScope() {
         TypeEnv e = new TypeEnv(this.Symbols, true, this, this.ClassFlag, this.ClassName, this.TypeParamNames, this.TypeParamCount, this.InCtorThis);
         e.ClassTypeParamCount = this.ClassTypeParamCount;   // 嵌套块继承方法级偏移
+        e.InStaticCtor = this.InStaticCtor;                 // 静态 ctor 内的嵌套块仍算静态 ctor 上下文
         return e;
     }
 

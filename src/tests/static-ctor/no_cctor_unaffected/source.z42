@@ -1,0 +1,14 @@
+using Std.IO;
+
+// 没有静态构造器的类**完全不受影响**：静态字段初始化器仍走按编译单元的急切初始化。
+// 这本来就合规——C# 里只有显式写了静态构造器的类才失去 beforefieldinit。
+// 本用例是「屏障不误伤绝大多数类型」的回归门。
+class Plain {
+    public static int A = 3;
+    public static int B = Plain.A * 2;
+}
+
+void Main() {
+    Console.WriteLine(Plain.A);
+    Console.WriteLine(Plain.B);
+}

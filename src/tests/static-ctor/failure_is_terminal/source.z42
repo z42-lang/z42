@@ -1,0 +1,19 @@
+using Std.IO;
+
+// C# 异常语义：cctor 抛出 → 类型标记为失败 → **后续每次**访问都抛
+// TypeInitializationException，且 cctor **不重试**。
+//
+// ⚠️ 曾有一个设计漏洞被这个用例抓出来：失败时也减「待初始化」计数，导致热路径的门
+// 短路、屏障不再执行、Failed 分支永远检查不到 → 失败类型**静默变回可用**，第二次读
+// 还读出了 cctor 抛出前写进去的半成品值。现在只有成功才减计数。
+class C {
+    public static int V = 1;
+    static C() { throw new Exception("boom"); }
+}
+
+void Main() {
+    try { Console.WriteLine(C.V); }
+    catch (TypeInitializationException e) { Console.WriteLine("first"); }
+    try { Console.WriteLine(C.V); }
+    catch (TypeInitializationException e) { Console.WriteLine("second"); }
+}

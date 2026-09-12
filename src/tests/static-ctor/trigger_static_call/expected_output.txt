@@ -1,0 +1,3 @@
+before
+cctor ran
+42

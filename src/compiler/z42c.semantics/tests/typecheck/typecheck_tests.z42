@@ -803,6 +803,20 @@ void test_static_readonly_initializer_ok() {
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
 [Test]
+void test_static_readonly_assign_in_own_static_ctor_ok() {
+    // add-static-constructors：C# 允许**静态 ctor** 给本类的 static readonly 赋值 → 放行。
+    // 这是 #544（static readonly 强制）在 AssignTyper 里标注的耦合点的兑现。
+    string src = "class C { public static readonly int S = 1; static C() { C.S = 42; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+[Test]
+void test_static_readonly_assign_other_class_static_ctor_error() {
+    // 但只限**本类**：静态 ctor 里写别的类的 static readonly 仍是错（对标 C#）。
+    string src = "class C { public static readonly int S = 1; } "
+               + "class D { static D() { C.S = 7; } }";
+    Assert.Equal("E0415", SemanticDump.FirstErrorCode(src));
+}
+[Test]
 void test_static_nonreadonly_assign_ok() {
     // 非 readonly 静态字段照常可写（不误伤）。
     string src = "class C { public static int S = 8; } class U { void f() { C.S = 99; } }";

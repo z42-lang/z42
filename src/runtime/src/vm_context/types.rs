@@ -43,6 +43,10 @@ pub struct VmCore {
     /// `static_get_by_id` 因 `Value::Null` 是合法值而无法区分「未初始化」，
     /// 故触发点前移到「名字→id 解析」这一每名一次的冷路径。
     pub(crate) pending_type_inits: Mutex<Vec<String>>,
+    /// add-static-constructors：有静态构造器的类型的按类型初始化状态。**只登记有 cctor
+    /// 的类型**；热路径通过其无锁 `pending` 计数短路（`== 0` ⇒ 全程序无待初始化 cctor
+    /// ⇒ 屏障免费）。详见 `vm_context/cctor.rs` 模块注释。
+    pub(crate) cctors: super::cctor::CctorRegistry,
     /// **cache-failed-name-resolution**: lock-free mirrors of "how much static-init
     /// work is outstanding", so `try_lookup_*` can prove the drain would be a no-op
     /// **without** taking two more mutexes and scanning `static_init_state` on every

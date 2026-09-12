@@ -1,0 +1,13 @@
+using Std.IO;
+
+// 触发点：调用该类型的静态方法（C# 含此触发点）。
+class C {
+    public static int V = 1;
+    static C() { Console.WriteLine("cctor ran"); C.V = 42; }
+    public static int Get() { return C.V; }
+}
+
+void Main() {
+    Console.WriteLine("before");
+    Console.WriteLine(C.Get());
+}
