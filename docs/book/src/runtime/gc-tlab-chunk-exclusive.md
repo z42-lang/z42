@@ -1,6 +1,7 @@
 # GC TLAB：线程本地分配（chunk 独占）
 
-> 对齐：2026-09-07（change `fix-gc-budget-not-enforced` 补 D7 的代价一节；
+> 对齐：2026-09-12（change `lazy-var-free-list` 把 `free_lists` 的 purge 从 chunk 回收挪到
+> pop 时校验 —— 总停顿 −24%；`fix-gc-budget-not-enforced` 补 D7 的代价一节；
 > 原 change `add-gc-tlab`，阶段 1–5）。
 > 代码：`gc/tlab.rs`（Tlab + thread-local + arm 门）、`gc/region.rs`（`ChunkClaim` + borrow/retire/reclaim，定长对象/数组）、
 > `gc/var_region.rs`（`VarChunkClaim` + borrow/retire/reclaim，变长字符串/闭包）、
@@ -125,9 +126,42 @@ tombstone 故意留下陈旧条目，代价是下次 sweep 一次 `is_alive()` �
 该槽若在下次 minor 之前被 free-list 复用，`alloc` 会再 push 一次，同一地址出现两次
 ——每次 minor 连升两级、表还会无界增长。`IN_YOUNG_BIT` 就是为此存在：已在表里就不重复 push。
 
-⚠️ **`reclaim_dead_var_chunks` 必须连 `young_list` 一起 purge**（和 `all_blocks` /
-`free_lists` 同一个 `retain`）。回收的 chunk 会从 offset 0 重新 bump，漏掉的条目会悬垂
-到下一个占用者身上，被 minor 拿去老化或 tombstone。
+⚠️ **`reclaim_dead_var_chunks` 必须连 `young_list` 一起 purge**（和 `all_blocks` 同一趟）。
+回收的 chunk 会从 offset 0 重新 bump，漏掉的条目会悬垂到下一个占用者身上，被 minor 拿去
+老化或 tombstone。
+（**`free_lists` 自 `lazy-var-free-list`（2026-09-12）起不再在这里 purge** ——
+改为 pop 时校验，见下「free-list 的陈旧条目为什么可以留着」。）
+
+### free-list 的陈旧条目为什么可以留着（lazy-var-free-list, 2026-09-12）
+
+这一趟 purge 原本要对 `free_lists` 做一次 `retain`：**每个条目解引用一次块头**去读它的
+`chunk_idx`。那是 `O(堆)` 的活，干的却是 `O(本次回收的 chunk)` 的事 —— 实测
+`z42c.semantics` 上 **142.5 ms / 总停顿 513 ms**（45 次 minor × 最多 123 万条目）。
+`retune-gc-nursery-and-promotion-age` 把 nursery 砍到 16M、回收次数翻了两番之后，
+它变成了单项最大开销。
+
+**为什么可以不扫**：free_lists 里**不可能有悬垂指针**。真正被 `dealloc` 交还内存的只有
+专用（oversized）chunk，而 `tombstone` 对 `OVERSIZED_CLASS` **根本不 push**。
+剩下的条目全指向 bump chunk —— 那些 chunk 是**进池**、不是释放，内存一直映射着。
+
+**真正的危险只有一个**：池化的 chunk 会被从 offset 0 重新 bump，陈旧条目会指到新的**活块**上，
+发出去就是两个活块共用一个地址。守卫是 `pool_epoch`：每个 chunk 一个计数器，池化时 +1，
+push 条目时记下当时的值，pop 时对不上就丢弃。
+
+**为什么不用现成的 `reuse_gen`**：那个是 `VarGcRef` 的 ABA 守卫，值来自
+`max_gen_per_chunk + 1`。「它是否每次池化都严格递增」是**另一个**不变式的性质；
+把槽位复用的正确性挂在上面等于把两者绑死。一个纯计数器每 chunk 四字节，且不可能算错。
+
+**浪费有界**：陈旧条目只在 pop 到时才被发现，所以一个不再分配的 size class 会永远留着它们。
+因此池化时**按 size class 精确记账**（一个被回收的 chunk 里每个块都已 tombstone，
+而每次非 oversized 的 tombstone 都 push 过一个条目 ⇒ 它的整张块表就是刚变陈旧的那批），
+某类陈旧过半就只压缩**那一类**。整区压缩一次要 17–25 ms，只能跑一两次；按类压缩才便宜到
+能跑得勤。
+
+**代价**：free-list 常驻内存从约 10 MB 涨到约 34 MB（滞留条目 + 并行的 epoch 数组），
+`z42c.semantics` 峰值 RSS **+21 MB（+3.5%）**，换来总停顿 **−24%**、中位 **−21%**、
+墙钟 −1.3%。压缩**不做** `shrink_to_fit`：这些表有好几 MB，归还容量要在旧缓冲还活着时
+先分配新的，实测那个尖峰比它还回来的还多。
 
 ⚠️ **young 表只在分代模式下维护**（`set_generational`，与 `Region<T>` 的 #524 同款）。
 这个区有 270 万个块，非分代模式下一张没人消费的表实测多吃 **20 MB** RSS。
