@@ -1,0 +1,5 @@
+namespace Demo.FreeFnNs;
+
+public string helper() { return "beta"; }
+
+public static class Util { public static string go() { return "util-beta"; } }
