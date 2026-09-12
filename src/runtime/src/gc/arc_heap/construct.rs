@@ -34,6 +34,7 @@ impl Default for ArcMagrGC {
             region_object: Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
             region_array:  Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
             region_var:    Mutex::new(VarRegion::with_drop_glue_for_mode(var_drop_glue, generational, promotion_age)),
+            promotion_policy: Default::default(),
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
             pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
@@ -53,7 +54,8 @@ impl Default for ArcMagrGC {
             sampler_active: std::sync::atomic::AtomicBool::new(false),
             promoted_bytes_since_major: std::sync::atomic::AtomicU64::new(0),
             pending_major: std::sync::atomic::AtomicBool::new(false),
-            promotion_age,
+            promotion_age: std::sync::atomic::AtomicU8::new(promotion_age),
+            configured_promotion_age: promotion_age,
             // 0 = "consult the policy on the first allocation", which then arms it properly.
             next_collect_at: std::sync::atomic::AtomicU64::new(0),
             nursery_bytes: std::sync::atomic::AtomicU64::new(

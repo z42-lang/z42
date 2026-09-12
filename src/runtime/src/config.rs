@@ -125,6 +125,11 @@ pub struct RuntimeConfig {
     /// size (64 KB), which is also the hard ceiling. Process-global: applied once at VM
     /// construction because the TLAB fast path has no heap reference.
     pub gc_loh_bytes: Option<u64>,
+    /// `Z42_GC_ADAPTIVE_PROMOTION` — whether the minor sweep may lower the promotion age by
+    /// one tier when that tier is measured to reclaim nothing (adaptive-promotion,
+    /// 2026-09-12). Default on; `0` pins the configured age. See
+    /// `gc/arc_heap/promotion_policy.rs` for the measurements behind the rule.
+    pub gc_adaptive_promotion: bool,
     /// `Z42_GC_PHASES` — per-phase pause breakdown on stderr (add-gc-phase-timing,
     /// 2026-09-11): one indented line per GC phase (reset marks / full mark / each half of
     /// sweep / aging …) with its duration and, where it means something, how many entries it
@@ -263,6 +268,7 @@ impl Default for RuntimeConfig {
             gc_nursery_bytes: None,
             gc_promotion_age: None,
             gc_loh_bytes: None,
+            gc_adaptive_promotion: true,
             gc_phases: false,
             gc_trace: false,
             gc_near_limit_ratio: 0.90,
@@ -402,6 +408,8 @@ impl RuntimeConfig {
             // 它对"非 0/false/off/no 即真"是宽松的，但两者都声明了
             // `ValueKind::Bool`，非布尔字符串在 `resolve_knobs` 就被判 Invalid +
             // 诊断、根本到不了这里——宽松与严格在这条链上不冲突。
+            gc_adaptive_promotion: get("Z42_GC_ADAPTIVE_PROMOTION")
+                .map_or(true, |v| !matches!(v.trim(), "0" | "false" | "off" | "no")),
             gc_phases:           parse_bool_knob(&get, "Z42_GC_PHASES"),
             gc_trace:            parse_bool_knob(&get, "Z42_GC_TRACE"),
             jit_profile:         parse_bool_knob(&get, "Z42_JIT_PROFILE"),
