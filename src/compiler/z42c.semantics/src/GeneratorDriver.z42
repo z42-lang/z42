@@ -207,7 +207,8 @@ public static class GeneratorDriver {
                                 ed = new SiteEdit(di, 0 - 1, "");   // 不剥 attr（AttrIndex 无意义）、不删工厂
                                 ed.KeepAttr = true;
                             }
-                            GeneratorDriver._mergeFieldOps(ed, sink, at, c, key, diags, cu.HasNamespace, cu.Namespace);
+                            GeneratorDriver._mergeFieldOps(ed, sink, at, c, key, diags, cu.HasNamespace, cu.Namespace,
+                                                           GeneratorDriver._usingsOf(cu));
                         }
                         ai = ai + 1;
                     }
@@ -221,7 +222,7 @@ public static class GeneratorDriver {
     // 字段级 sink ops → 并进 SiteEdit（镜像 _buildEdit 的 Augment/AddSource 分支；Replace 对字段级
     // 无意义——「替换一个字段声明」不是本机制的用途，越界即护栏报错）。
     private static void _mergeFieldOps(SiteEdit ed, GenSinkImpl sink, Attr trigger, ClassDecl c, string selfKey,
-                                       DiagnosticBag diags, bool hasNs, string ns) {
+                                       DiagnosticBag diags, bool hasNs, string ns, string usingsSrc) {
         int i = 0;
         while (i < sink.OpCount) {
             GenOp op = sink.Ops[i];
@@ -232,7 +233,7 @@ public static class GeneratorDriver {
                     diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
                         "generator `[" + trigger.Name + "]` may only augment the decl it is applied to", c.Span);
                 } else {
-                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src, hasNs, ns),
+                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src, hasNs, ns, usingsSrc),
                                "__gen$" + c.Name + "$" + selfKey + "$augment.z42");
                     ed.MarkPartial = true;
                 }
