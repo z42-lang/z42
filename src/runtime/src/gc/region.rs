@@ -459,6 +459,57 @@ impl<T> Region<T> {
         true
     }
 
+    /// **one-pass-major-sweep (2026-09-13)**: the major's whole sweep of this region, in
+    /// **one** walk. The `iterate_alive` + staging-`Vec` + tombstone-loop shape it replaces
+    /// was the same one #597 removed from the minor, only worse: the tombstone loop re-took
+    /// the region lock **twice** per dead entry (once to break its reference edges, once to
+    /// tombstone), which is exactly what #591 measured at 67.7 ns an entry on the minor side.
+    ///
+    /// `prepare_dead` is the caller's business with a dying entry — size estimate, breaking
+    /// its edges, taking its finalizer — and runs with the entry still readable. The
+    /// finalizer runs after it, then the tombstone, as before.
+    ///
+    /// Uses [`Self::tombstone_during_sweep`]: a major is always followed by
+    /// `age_young_survivors`, which drops the dead from `young_list` as it walks it, so
+    /// paying a `swap_remove` per dead entry here would be doing that work twice.
+    pub fn sweep_all_in_one_pass(
+        &mut self,
+        mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
+    ) -> (u64, usize) {
+        let mut freed_bytes: u64 = 0;
+        let mut reclaimed = 0usize;
+        for ci in 0..self.chunks.len() {
+            for ei in 0..CHUNK_SIZE {
+                if !self.initialized[ci][ei] {
+                    continue;
+                }
+                // SAFETY: an initialized slot holds a constructed entry.
+                let entry = unsafe { self.chunks[ci][ei].assume_init_ref() };
+                if !entry.alive.load(Ordering::Acquire) {
+                    continue;
+                }
+                if entry.is_marked() {
+                    entry.clear_mark();
+                    continue;
+                }
+                let (fin, size) = prepare_dead(entry);
+                let h = RegionHandle {
+                    chunk_idx: ci as u32,
+                    entry_idx: ei as u16,
+                    generation: entry.generation.load(Ordering::Acquire),
+                };
+                if let Some(f) = fin {
+                    f();
+                }
+                if self.tombstone_during_sweep(h) {
+                    freed_bytes += size;
+                    reclaimed += 1;
+                }
+            }
+        }
+        (freed_bytes, reclaimed)
+    }
+
     /// Iterate every currently-alive entry. Skips uninit slots in
     /// the last chunk (bump hasn't reached the end) and tombstoned
     /// slots. Order: chunk 0 → chunk N, entry 0 → CHUNK_SIZE-1 within.
