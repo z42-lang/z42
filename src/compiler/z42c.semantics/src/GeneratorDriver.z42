@@ -198,6 +198,7 @@ public static class GeneratorDriver {
                             string key = "fld$" + c.Name + "$" + fd.Name;
                             GenTarget target = new GenTarget(new DeclId(key), c.Name, fd,
                                                              symbols.GetClass(c.Name), at);
+                            target.Owner = c;   // 外层类的 AST（generator 要看无 body 的 partial 声明）
                             GenSinkImpl sink = new GenSinkImpl();
                             gens[gi].Generate(target, sink);
                             if (ed == null) {

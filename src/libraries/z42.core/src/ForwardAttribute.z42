@@ -1,0 +1,25 @@
+namespace Std;
+
+// `[Forward]` —— 成员转发（add-member-forwarding）。贴在**字段**上，让外层类把该字段的
+// 部分成员面提升上来，用组合替代 z42 不支持的多继承：
+//
+//     class Service {
+//         [Forward] private Logger _log;
+//         public partial void Log(string m);      // 用户点名要这个；generator 填 body
+//     }
+//     svc.Log("x");                                // 而不是 svc._log.Log("x")
+//
+// **生成的是真方法**（不是名字解析改写）——只有真方法才能满足接口、被反射看见、被 IDE 跳转。
+//
+// 语义边界（详见 docs/book/src/language/member-forwarding.md）：
+//   · 不产生子类型、不产生隐式转换 —— `Service` **不是** `Logger`。这条是 D 语言
+//     `alias this` 灾难的教训：一旦转发带上隐式转换，它就变成了多继承。
+//   · `ToString`/`Equals`/`GetHashCode`/`GetType` 永不转发（转发它们会让外层对象谎报身份）。
+//   · 不传递、不递归，只提升一层。
+//
+// ⚠️ **必须是真实类而不仅是标记名**：字段级 attribute 的合成工厂（`fld$<Class>$<Field>`）
+// 会真的被编译，`new ForwardAttribute()` 要求这个类型存在。这同时也是白名单形态
+// `[Forward(methodof(...))]` 里的 `methodof` 能被编译期检查的前提。
+public class ForwardAttribute : Attribute {
+    public ForwardAttribute() { }
+}

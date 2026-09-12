@@ -1,0 +1,168 @@
+// `[Forward]` 成员转发 generator（add-member-forwarding）。
+//
+// 用组合替代多继承：`class Service { [Forward] Logger _log; }` 让 `svc.Log(m)` 可用，
+// 而**生成的是真方法**（不是绑定期把 `a.c` 改写成 `a.b.c`）—— 只有真方法才能满足接口、
+// 被反射看见、被 IDE 跳转。Lombok `@Delegate` / Kotlin `by` / Rust RFC 2393 全是生成真方法。
+//
+// ── 三档粒度（本文件目前落 ③ 档）────────────────────────────────────────────────
+//   ① `[Forward<ILogger>]`                      接口面：签名由接口钉死
+//   ② `[Forward(methodof(ILogger.Log(string)))]` 名单：逐个点名，编译期可检查
+//   ③ `public partial void Log(string m);`       用户写声明、generator 填 body   ← 本文件
+//
+// ③ 档**零保真损耗**：签名 / 参数名 / 默认值 / `params` / `ref` 全是用户手写的，generator
+// 不转写任何东西 —— 这也是它是唯一支持**跨包**字段类型的一档的原因（①② 跨包拿不到参数名，
+// 更拿不到 `ref`：TSIG 格式里根本不记录 ref-ness，见 proposal「适用边界」）。
+//
+// ── 语义规则（proposal S1–S5）──────────────────────────────────────────────────
+// S1 不产生子类型 / 不产生隐式转换（只生成方法，不碰类型关系）——D 的 alias this 教训
+// S2 `Object` 协议方法永不转发
+// S3 不传递、不递归，只提升一层
+// S4 多个 `[Forward]` 提供同名成员 → 声明处报错
+// S5 外层已声明同名成员 → 不生成（③ 档天然满足：partial 声明本身就是「用户点名要这个」）
+namespace Z42.Semantics;
+
+using Std;
+using Z42.Syntax;
+using Z42.IR;
+
+public sealed class ForwardGenerator : Generator {
+    public string AppliedName() { return "Forward"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+
+    // 廉价预扫：源码里到底有没有 `[Forward]`（贴在字段上）。
+    //
+    // 🔴 **为什么必须有这一步**：generator 整块以 `effGenCount > 0` 为门，而
+    // `PackageCompile` 明写「空（z42c 自建）→ 分支不进 → **逐字节不动**」。无条件把本
+    // generator 注册进去 ⇒ 每次编译都走 union 全 fresh 重编 ⇒ 直接破坏自举字节不动点。
+    // 故只有真用了 `[Forward]` 的包才注册它；没用的包一个字节都不变。
+    public static bool AnyTrigger(CompilationUnit[] cus, int count) {
+        int i = 0;
+        while (i < count) {
+            CompilationUnit cu = cus[i];
+            if (cu != null) {
+                int di = 0;
+                while (di < cu.DeclCount) {
+                    ClassDecl c = ForwardGenerator._asClass(cu.Decls[di]);
+                    if (c != null && ForwardGenerator._classHasTrigger(c)) { return true; }
+                    di = di + 1;
+                }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private static ClassDecl _asClass(Decl d) {
+        if (d is ClassDecl) { return d as ClassDecl; }
+        if (d is AttributedDecl) { return (d as AttributedDecl).Inner as ClassDecl; }
+        return null;
+    }
+
+    private static bool _classHasTrigger(ClassDecl c) {
+        int mi = 0;
+        while (mi < c.MemberCount) {
+            Decl mem = c.Members[mi];
+            if (mem is AttributedDecl) {
+                AttributedDecl mad = mem as AttributedDecl;
+                if (mad.Inner is FieldDecl) {
+                    int ai = 0;
+                    while (ai < mad.AttrCount) {
+                        if (mad.Attrs[ai].Name == "Forward") { return true; }
+                        ai = ai + 1;
+                    }
+                }
+            }
+            mi = mi + 1;
+        }
+        return false;
+    }
+
+    public void Generate(GenTarget t, GenSink sink) {
+        // 字段级触发：Applied 是 FieldDecl、Symbol 是外层类（见 GeneratorDriver._tryProcessFieldTriggers）。
+        if (!(t.Applied is FieldDecl)) { return; }
+        FieldDecl fd = t.Applied as FieldDecl;
+
+        // ③ 档：找外层类里**声明了但没有 body** 的 partial 方法 —— 那就是用户点名要转发的面。
+        //
+        // 🔴 **必须走 AST，不能走 `Symbol.Methods`**：decl-only 的 partial 方法被
+        // `MemberCollector`（:262「无实现即不存在，不注册桩/体」）**擦除**，压根不进 `ct.Methods`。
+        // 这也正是它们需要 generator 填 body 的原因 —— 填上之前它们在符号表里不存在。
+        // 故用 `t.Owner`（外层 ClassDecl）。
+        ClassDecl oc = null;
+        if (t.Owner is ClassDecl) { oc = t.Owner as ClassDecl; }
+        else if (t.Owner is AttributedDecl) { oc = (t.Owner as AttributedDecl).Inner as ClassDecl; }
+        if (oc == null) { return; }
+        // 成员按**声明序**遍历（ClassDecl.Members 是有序数组，不是 hashed StrMap）⇒ 生成顺序天然
+        // 确定，不需要额外 sort；这比从 Methods 走还更稳（后者迭代序不确定，见 common-pitfalls §1）。
+        string body = "";
+        int n = 0;
+        int i = 0;
+        while (i < oc.MemberCount) {
+            Decl mem = oc.Members[i];
+            if (mem is AttributedDecl) { mem = (mem as AttributedDecl).Inner; }
+            if (mem is MethodDecl) {
+                MethodDecl md = mem as MethodDecl;
+                if (md.IsPartial && !md.HasBody && !ForwardGenerator._isObjectProtocol(md.Name)) {
+                    body = body + ForwardGenerator._renderForwarder(md, fd.Name) + "\n";
+                    n = n + 1;
+                }
+            }
+            i = i + 1;
+        }
+        if (n == 0) { return; }
+        sink.Augment(t.DeclId, body);
+    }
+
+    // S2：`Object` 协议方法永不转发（对齐 Lombok `@Delegate` 的 "all public **non-Object** methods"）。
+    // 转发 ToString/Equals/GetHashCode 会让外层对象谎报自己是内层对象 —— 那是身份问题，不是便利问题。
+    private static bool _isObjectProtocol(string name) {
+        return name == "ToString" || name == "Equals" || name == "GetHashCode" || name == "GetType";
+    }
+
+    // 渲染一个转发方法：`partial <mods> <ret> <Name>(<params>) { [return] this.<field>.<Name>(<args>); }`
+    //
+    // 签名**逐字沿用用户写的那份**（`md` 就是用户的 partial 声明）：参数名、默认值、`params`、
+    // `ref` 全部原样 —— 这正是 ③ 档零保真损耗的由来。generator 只补 body。
+    private static string _renderForwarder(MethodDecl md, string fieldName) {
+        string sig = "    " + md.Mods;
+        if (!ForwardGenerator._hasWord(md.Mods, "partial")) { sig = sig + " partial"; }
+        sig = sig + " " + md.RetType.Dump() + " " + md.Name + "(";
+        string args = "";
+        int i = 0;
+        while (i < md.ParamCount) {
+            Param p = md.Params[i];
+            if (i > 0) { sig = sig + ", "; args = args + ", "; }
+            if (p.IsParams) { sig = sig + "params "; }
+            if (p.IsRef) { sig = sig + "ref "; args = args + "ref "; }
+            sig = sig + p.Type.Dump() + " " + p.Name;
+            // 默认值只写在**声明侧**（用户那份），实现侧重复写会是 E0434 签名不一致 → 这里不带。
+            args = args + p.Name;
+            i = i + 1;
+        }
+        sig = sig + ")";
+        bool isVoid = md.RetType.Dump() == "void";
+        string call = "this." + fieldName + "." + md.Name + "(" + args + ");";
+        if (isVoid) { return sig + " { " + call + " }"; }
+        return sig + " { return this." + fieldName + "." + md.Name + "(" + args + "); }";
+    }
+
+    private static bool _hasWord(string mods, string w) {
+        string[] parts = mods.Split(" ");
+        int i = 0;
+        while (i < parts.Length) { if (parts[i] == w) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 插入排序（成员量小；生成顺序必须确定，见 Generate 里的注释）。
+    private static void _sortStr(string[] a) {
+        int i = 1;
+        while (i < a.Length) {
+            string k = a[i];
+            int j = i - 1;
+            while (j >= 0 && a[j].CompareTo(k) > 0) { a[j + 1] = a[j]; j = j - 1; }
+            a[j + 1] = k;
+            i = i + 1;
+        }
+    }
+}

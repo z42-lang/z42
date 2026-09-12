@@ -54,6 +54,12 @@ public sealed class GenTarget {
     public Decl Applied;
     public Z42ClassType Symbol;
     public Attr Trigger;
+    // add-member-forwarding：**外层声明**。字段级触发时 `Applied` 是那个字段，generator 还需要
+    // 外层 `ClassDecl` 才能看见类的其它成员 —— 尤其是**无 body 的 partial 方法声明**：它们被
+    // `MemberCollector` 按「无实现即不存在」擦除、**不进 `Symbol.Methods`**，只有 AST 上找得到。
+    // 类级触发时 Owner == Applied。post-construction 赋值（镜像 MethodDecl.RegKey 的做法），
+    // 不动构造器签名。
+    public Decl Owner;
 
     public GenTarget(DeclId declId, string name, Decl applied, Z42ClassType symbol, Attr trigger) {
         this.DeclId = declId;
@@ -61,6 +67,7 @@ public sealed class GenTarget {
         this.Applied = applied;
         this.Symbol = symbol;
         this.Trigger = trigger;
+        this.Owner = applied;   // 默认 = 被贴声明本身（类级触发即如此）
     }
 }
 
