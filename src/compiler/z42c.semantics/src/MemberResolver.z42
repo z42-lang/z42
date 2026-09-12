@@ -216,6 +216,10 @@ public sealed class MemberResolver {
             if (cms != null && cms.Signature != null) {
                 Z42FuncType csig = MemberResolver._substSelfSig(cms.Signature, rt);
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, csig, env);
+                // check-constraint-iface-method-args：`Self→rt` 替换后形参是**裸型参**，`BindArgsToSignature`
+                // 的 CheckArgTypes 命中 Conversion 分支 B「恰一侧含型参→擦除」把具体实参静默放行。补一道
+                // 方向敏感的严格检查（E0463）——门控来自 Self 的形参位、只报「具体类型实参」。见 design D1–D5。
+                this._tc._overload.CheckConstraintIfaceArgs(args, rawArgs, argCount, cms.Signature, rt.Name(), mem.Name, cms.ContainingTypeName);
                 return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, csig.Ret, sp);
             }
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
@@ -474,7 +478,7 @@ public sealed class MemberResolver {
     // `Z42FuncType`**（`void Apply(Func<Self,int> f)`）。两者刻意不对称：本函数守的是一条**禁令**，
     // 漏一种形态就是漏一个洞；`_substSelf` 少覆盖一种形态只是少换一次、不产生错误结论。
     // 「禁止侧比替换侧更宽」是安全方向。（镜像 `Conversion._hasGenericParam` 的递归面。）
-    private static bool _containsSelf(Z42Type t) {
+    internal static bool _containsSelf(Z42Type t) {
         if (t == null) { return false; }
         if (t is Z42GenericParamType) { return t.Name() == "Self"; }
         if (t is Z42ArrayType) { return MemberResolver._containsSelf((t as Z42ArrayType).Elem); }
