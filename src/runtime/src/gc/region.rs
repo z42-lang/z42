@@ -436,6 +436,29 @@ impl<T> Region<T> {
         true
     }
 
+    /// **one-pass-minor-sweep (2026-09-12)**: [`Self::tombstone`] for a caller that is
+    /// rebuilding `young_list` itself, so the young-list removal must not happen here.
+    ///
+    /// The back-pointer is still cleared: the entry is leaving the young generation either
+    /// way, and `validate`'s `YoungIndexMismatch` holds every entry with a live `young_idx`
+    /// to actually being at that index.
+    fn tombstone_during_sweep(&mut self, handle: RegionHandle) -> bool {
+        let entry = self.resolve(handle);
+        if entry.generation.load(Ordering::Acquire) != handle.generation {
+            return false;
+        }
+        if !entry.alive.load(Ordering::Acquire) {
+            return false;
+        }
+        entry.alive.store(false, Ordering::Release);
+        entry.generation.fetch_add(1, Ordering::AcqRel);
+        entry.clear_young_idx();
+        // add-incremental-chunk-reclaim: O(1) — the handle already names the chunk.
+        self.live_per_chunk[handle.chunk_idx as usize] -= 1;
+        self.free_list.push((handle.chunk_idx, handle.entry_idx));
+        true
+    }
+
     /// Iterate every currently-alive entry. Skips uninit slots in
     /// the last chunk (bump hasn't reached the end) and tombstoned
     /// slots. Order: chunk 0 → chunk N, entry 0 → CHUNK_SIZE-1 within.

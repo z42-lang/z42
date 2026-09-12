@@ -429,145 +429,84 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let threshold = self.promotion_age();
         let observed_age = self.promotion_policy.observed_age(configured);
 
-        // Object region
-        let scan_objects = PhaseTimer::start("minor/scan objects");
-        let mut tombstones_object: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> = Vec::new();
-        let mut survivors_object: Vec<crate::gc::region::RegionHandle> = Vec::new();
-        {
-            let region = self.region_object.lock();
-            region.iterate_young(|h, entry| {
-                if entry.gen_age() == observed_age {
-                    self.promotion_policy.observe(entry.is_marked());
-                }
-                if entry.is_marked() {
-                    entry.clear_mark();
-                    survivors_object.push(h);
-                } else {
-                    let size = {
-                        let mut obj = entry.value.lock();
-                        let size = Self::script_object_size_estimate(&obj);
-                        // Break every strong reference edge — the side-table `refs` AND
-                        // (unify-object-byte-layout PR-3 chunk 2b) the object/array pointers
-                        // byte-inlined in `bytes` — so no tombstoned entry is left holding a
-                        // handle into the region (`iterate_live_objects` and any later
-                        // traversal would otherwise meet a stale generation).
-                        //
-                        // **perf-cheap-dead-edge-break (2026-09-12)**: done **here**, under
-                        // the region lock and the value lock this size estimate already holds.
-                        // It used to run in the tombstone loop below, which re-took
-                        // `region_object`, re-`resolve`d the handle and re-locked the value for
-                        // it, then took `region_object` a *third* time to tombstone — three
-                        // acquisitions per dead entry for work the scan was already positioned
-                        // to do. The array twin never had any of it, which is why
-                        // `minor/tomb arrays` cost 10.8 ns an entry against this loop's 67.7.
-                        //
-                        // Running it ahead of the finalizer changes nothing a finalizer can
-                        // see: [`FinalizerFn`] takes no arguments, so it has no way to read the
-                        // object whose edges these are. Nothing between here and the tombstone
-                        // touches a dead entry either — the promotion, the byte accounting and
-                        // the card dirtying in between all walk `survivors_object`.
-                        for r in obj.refs_mut().iter_mut() {
-                            *r = Value::Null;
-                        }
-                        obj.clear_inline_refs();
-                        size
-                    };
-                    let fin = entry.take_finalizer();
-                    tombstones_object.push((h, fin, size));
-                }
-            });
-        }
-        scan_objects.count(survivors_object.len() + tombstones_object.len());
-        drop(scan_objects);
-        // Promote survivors (may remove some from young_list at threshold).
-        let promote_objects = PhaseTimer::start("minor/promote objects");
-        promote_objects.count(survivors_object.len());
-        let mut newly_old_object = Vec::new();
-        for h in survivors_object {
-            if self.region_object.lock().promote(h) {
-                newly_old_object.push(h);
-            }
-        }
+        // Object region — **one-pass-minor-sweep (2026-09-12)**: scan, promote and tombstone
+        // in a single walk of the young list. See `Region::sweep_young_in_one_pass`; what
+        // stays here is the part that is about *objects* rather than about the region.
+        let sweep_objects = PhaseTimer::start("minor/sweep objects");
+        let obj = {
+            let mut region = self.region_object.lock();
+            region.sweep_young_in_one_pass(
+                observed_age,
+                |marked| self.promotion_policy.observe(marked),
+                |entry| {
+                    let mut o = entry.value.lock();
+                    let size = Self::script_object_size_estimate(&o);
+                    // Break every strong reference edge — the side-table `refs` AND
+                    // (unify-object-byte-layout PR-3 chunk 2b) the object/array pointers
+                    // byte-inlined in `bytes` — so no tombstoned entry is left holding a
+                    // handle into the region (`iterate_live_objects` and any later traversal
+                    // would otherwise meet a stale generation).
+                    //
+                    // **perf-cheap-dead-edge-break (2026-09-12)**: done here, under the value
+                    // lock this size estimate already holds, rather than in a separate
+                    // tombstone loop that re-took the region lock and re-`resolve`d the
+                    // handle for it. That loop cost 67.7 ns an entry against the array
+                    // twin's 10.8; it is now 10.6.
+                    for r in o.refs_mut().iter_mut() {
+                        *r = Value::Null;
+                    }
+                    o.clear_inline_refs();
+                    drop(o);
+                    (entry.take_finalizer(), size)
+                },
+            )
+        };
+        sweep_objects.count(obj.survivors + obj.reclaimed);
+        freed_bytes += obj.freed_bytes;
+        reclaimed_entries += obj.reclaimed;
         // add-bounded-nursery: everything that just crossed into the old generation counts
         // towards the next major's trigger — see `promoted_bytes_since_major`.
-        promoted_bytes += self.promoted_size_of_objects(&newly_old_object);
-        self.dirty_cards_for_newly_old_objects(&newly_old_object);
-        drop(promote_objects);
-        // Tombstone dead young entries.
-        let tomb_objects = PhaseTimer::start("minor/tomb objects");
-        tomb_objects.count(tombstones_object.len());
-        reclaimed_entries += tombstones_object.len();
-        for (h, fin, size) in tombstones_object {
-            if let Some(f) = fin { f(); }
-            freed_bytes += size;
-            // The edges were broken under the scan's lock — see there. What is left is the
-            // array twin's loop exactly: fire the finalizer, credit the bytes, free the slot.
-            self.region_object.lock().tombstone(h);
-        }
+        promoted_bytes += self.promoted_size_of_objects(&obj.newly_old);
+        self.dirty_cards_for_newly_old_objects(&obj.newly_old);
+        drop(sweep_objects);
 
-        drop(tomb_objects);
-
-        // Array region (parallel logic)
-        let scan_arrays = PhaseTimer::start("minor/scan arrays");
-        let mut tombstones_array: Vec<(crate::gc::region::RegionHandle, Option<FinalizerFn>, u64)> = Vec::new();
-        let mut survivors_array: Vec<crate::gc::region::RegionHandle> = Vec::new();
-        {
-            let region = self.region_array.lock();
-            region.iterate_young(|h, entry| {
-                if entry.gen_age() == observed_age {
-                    self.promotion_policy.observe(entry.is_marked());
-                }
-                if entry.is_marked() {
-                    entry.clear_mark();
-                    survivors_array.push(h);
-                } else {
-                    let size = {
-                        let arr = entry.value.lock();
-                        Self::array_size_estimate(&arr)
-                    };
-                    let fin = entry.take_finalizer();
-                    tombstones_array.push((h, fin, size));
-                }
-            });
-        }
-        scan_arrays.count(survivors_array.len() + tombstones_array.len());
-        drop(scan_arrays);
-        let promote_arrays = PhaseTimer::start("minor/promote arrays");
-        promote_arrays.count(survivors_array.len());
-        let mut newly_old_array = Vec::new();
-        for h in survivors_array {
-            if self.region_array.lock().promote(h) {
-                newly_old_array.push(h);
-            }
-        }
-        promoted_bytes += self.promoted_size_of_arrays(&newly_old_array);
-        self.age_backing_with_owner(&newly_old_array);
-        self.dirty_cards_for_newly_old_arrays(&newly_old_array);
-        drop(promote_arrays);
-        let tomb_arrays = PhaseTimer::start("minor/tomb arrays");
-        tomb_arrays.count(tombstones_array.len());
-        reclaimed_entries += tombstones_array.len();
-        for (h, fin, size) in tombstones_array {
-            if let Some(f) = fin { f(); }
-            freed_bytes += size;
-            // unify-gc-heap PR-3: no eager element drop here — the array's element
-            // storage lives in a `region_var` block (uniquely owned by this header),
-            // reclaimed by `region_var.sweep()` (drop-glue drops the boxed Values) in
-            // the same cycle. Tombstoning the header just releases the region_array slot.
-            self.region_array.lock().tombstone(h);
-        }
+        // Array region — same one pass (see the object half above).
+        let sweep_arrays = PhaseTimer::start("minor/sweep arrays");
+        let arr = {
+            let mut region = self.region_array.lock();
+            region.sweep_young_in_one_pass(
+                observed_age,
+                |marked| self.promotion_policy.observe(marked),
+                |entry| {
+                    let size = Self::array_size_estimate(&entry.value.lock());
+                    // unify-gc-heap PR-3: no eager element drop here — the array's element
+                    // storage lives in a `region_var` block (uniquely owned by this header),
+                    // reclaimed by `region_var.sweep_young()` (drop-glue drops the boxed
+                    // `Value`s) in the same cycle. Tombstoning the header just releases the
+                    // region_array slot.
+                    //
+                    // This also settles the phantom-accounting half of the bug. The credit
+                    // includes `elem_storage_bytes()` — bytes that live in a `region_var`
+                    // block. That credit was a lie only while the block itself survived the
+                    // cycle; now that it is reclaimed in the same sweep, the account and the
+                    // memory move together. (Per `VarRegion::alloc_charge_bytes`, array
+                    // element blocks are charged zero on their own, so nothing is
+                    // double-counted.)
+                    (entry.take_finalizer(), size)
+                },
+            )
+        };
+        sweep_arrays.count(arr.survivors + arr.reclaimed);
+        freed_bytes += arr.freed_bytes;
+        reclaimed_entries += arr.reclaimed;
+        promoted_bytes += self.promoted_size_of_arrays(&arr.newly_old);
+        self.age_backing_with_owner(&arr.newly_old);
+        self.dirty_cards_for_newly_old_arrays(&arr.newly_old);
+        drop(sweep_arrays);
 
         // fix-minor-gc-skips-var-region (2026-09-08): the variable-length region — strings,
         // closures and every array's element storage, ~45% of RSS — used to sit out every
         // minor and wait for a major. It sweeps here with the other two now.
-        //
-        // This also settles the phantom-accounting half of the bug. The array header above
-        // credits `array_size_estimate`, which includes `elem_storage_bytes()` — bytes that
-        // live in a `region_var` block. That credit was a lie only because the block itself
-        // survived the cycle; now that it is reclaimed in the same sweep, the account and the
-        // memory move together. (Per `VarRegion::alloc_charge_bytes`, array element blocks
-        // are charged zero on their own, so nothing is double-counted here.)
-        drop(tomb_arrays);
         {
             let t = PhaseTimer::start("minor/var sweep");
             let (reclaimed, credited) = self.region_var.lock().sweep_young();
