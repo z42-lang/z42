@@ -227,16 +227,33 @@ void f<T>(T a) where T : IColl {
 > 就是 `if (sig == null) return;` ⇒ 泛型代码里对约束接口方法的调用，实参一律不检查、返回类型一律
 > `<unknown>`。`PriorityQueue` / `SortedSet` / `Dictionary` 走的正是这条路。
 
-### 已知限制：形参本身是型参时仍不检查
+### `Self` 形参位：具体类型实参报 E0463
 
 ```z42
-bool bad<T>(T a) where T : IEq { return a.Same("nope"); }   // ⚠️ 今天仍无诊断
+interface IEq { bool Same(Self other); }
+
+bool bad<T>(T a)      where T : IEq { return a.Same("nope"); }   // ❌ E0463：string 不可赋给型参 T
+bool ok<T>(T a, T b)  where T : IEq { return a.Same(b); }        // ✅ 实参也是 T（Self ≡ T）
 ```
 
-`Self` 替换成 `T` 之后形参类型是**裸型参**，而隐式转换判定里有一条「恰一侧含泛型形参 → 擦除放行」
-的通用规则，这里照旧命中。⇒ 上面的实参检查**只覆盖形参类型是具体类型的成员**（`Add(int)` 那种）。
-收紧那条擦除规则（C# 的对应诊断是 CS1503）是对通用规则动刀、爆炸半径未量，登记为 Deferred
-`tighten-bare-type-param-target-erasure`。
+`Self` 经 `_substSelfSig` 精确替换成型参 `T` 后，形参类型是**裸型参**。隐式转换判定里有一条
+「恰一侧含泛型形参 → 擦除放行」的通用规则（服务 `T → object` / `T → 接口` 这类合法上转），
+对「具体类型实参 → 裸型参 `T` 形参」这个方向**也会擦除**——于是 `a.Same("nope")` 一度静默放行，
+运行期派发到 `T.Same` 后从 `string` 上读出不存在的字段（静默错值 / 崩）。
+
+**change `check-constraint-iface-method-args`（2026-09-13）补了一道方向敏感的严格检查**：型参收者上
+调约束接口方法时，`Self` 形参位（含藏在 `Func<Self,…>` 里的）若传入**具体类型**实参（完全不含型参、
+非 error/unknown）→ 报 **E0463**。实参若也是型参（`T` → `T` 走 Identity、`U` → `T` 报 E0402）或
+error/unknown（吸收、不级联）→ 不受影响。**只收「目标裸型参 + 源无具体」这一个方向，不碰通用擦除
+规则**（`T → object` 等照旧放行），也**不改发射**（纯诊断、零字节漂移、无格式 bump）。
+
+> **与 [E0454](#self-类型仅接口) 的分工**：E0454 管**接口静态类型**收者（`IEq a, b; a.Same(b)`）——
+> `Self` 形参在那里是逆变、无唯一安全上界，只能一刀切**禁止**；E0463 管**型参收者**（`where T : IEq`
+> 的 `T`）——那条路 `Self ≡ T` 精确（约束断言运行期 `T` 即实现类型），所以可以**真查实参**而非禁止。
+>
+> Deferred `tighten-bare-type-param-target-erasure` 的「型参收者」那半由本 change 关闭；其**通用**
+> 擦除收紧（任意裸型参目标位，需区分作用域内不透明型参 vs 待推断型参、要给 `Z42GenericParamType`
+> 加 owner）仍开着——那是对通用规则动刀、爆炸半径另算。
 
 ## 运算符如何在型参上派发
 

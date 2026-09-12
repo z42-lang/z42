@@ -86,6 +86,38 @@ void test_unconstrained_type_param_receiver_reports_nothing() {
     Assert.Equal(0, bodyDiags(src).ErrorCount());
 }
 
+// ── 真门 3：check-constraint-iface-method-args —— 型参收者上 `Self` 形参位传**具体类型**实参 → E0463 ──
+//
+// 此前 `Self→T` 精确替换**没堵住**的洞：替换后形参是裸型参 T，`Conversion` 分支 B 把「具体实参 →
+// 裸型参形参」擦除放行（编译期零诊断、运行期 `other.V` 从具体类型读出不存在的字段 → 静默错值/崩）。
+// 与上面 E0402 那组的分工：那组的 `Add(int x)` 是**具体**形参（走普通检查报 E0402）；这组的 `Same(Self)`
+// 是 `Self` 形参（`Self ≡ T` 替换成裸型参、被分支 B 擦除，故需本 change 的 E0463 专查）。
+
+[Test]
+void test_self_param_concrete_string_arg_on_type_param_receiver_reports_E0463() {
+    string src = pre() + "void bad<T>(T a) where T : IColl { a.Same(\"nope\"); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0463"));
+}
+
+// 具体**实现类**实参也报 —— T 是不透明型参，编译期无从知道它运行期就是 P（`Self ≡ T`，不是 `Self ≡ P`）。
+[Test]
+void test_self_param_concrete_class_arg_on_type_param_receiver_reports_E0463() {
+    string src = pre() + "void bad<T>(T a, P b) where T : IColl { a.Same(b); } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0463"));
+}
+
+// 类级约束同款（镜像上面 E0402 的 class-level 用例，换成 `Self` 形参 → E0463）。
+[Test]
+void test_self_param_concrete_arg_class_level_constraint_reports_E0463() {
+    string src = pre() + "class Box<T> where T : IColl { public T It; public void Go() { this.It.Same(\"nope\"); } } void Main() { }";
+    Assert.Equal(1, countCode(bodyDiags(src), "E0463"));
+}
+
+// 无误报守卫：`Self` 藏在 func 形参里（`void Apply(Func<Self,int>)`）且实参是**含型参**的 func 位 →
+// 不报（同 T-to-T：`_containsSelf` 门控命中但实参含型参被 `_hasGenericParam` 放行）。对照上面接口收者
+// 那条（IApply 经接口调用报 E0454）——型参收者这条是推荐写法，func 位传同构型参 lambda 合法。
+// （此处仅验「不因 func 位门控误报合法型参实参」；具体类 func 实参的情形由 stdlib 全量构建兜底。）
+
 // ── 真门 2：返回类型不再是 Unknown（Q2-b 裁决：连返回位一起换真）────────────
 
 // ⚠️ 断言必须钉在 **call 节点自己**（`Size :int`）上，不能只断言 body 里出现 `:int` ——
