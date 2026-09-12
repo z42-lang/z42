@@ -27,6 +27,11 @@ public sealed class ImportedSymbols {
     // 消费端必须有对应的 FQ 查找，否则 `Std.Type` 在短名表里恒 miss、落到末尾 Builtin 兜底成
     // 「名叫 Std.Type 的垃圾类」。键 = `<ns>.<clKey>`（clKey 已含条件 arity-mangle）。
     public StrMap ClassesByFqn;
+    // report-crosspkg-duplicate-type：**FQN → 声明它的全部包名**（值 StrBox，"|" 连接）。
+    // 与 ClassNsAll 同一手法——在 first-wins 守卫**之外**累积，因为守卫之内只有赢家能进，
+    // 而「有几个包声明了这个 FQN」恰恰是守卫塌掉的那个信息。类/接口/enum 共用一张表
+    // （三者的 FQN 本就在同一个命名空间里，不会互相误命中）。
+    public StrMap ClassPkgAll;
     public StrMap InterfacesByFqn;
     public StrMap EnumTypeNamesByFqn;   // FQN → "enum"
     public StrMap EnumTypeNames;    // 枚举类型短名 → "enum"（镜像 SymbolTable.EnumTypes；imported 枚举常量解析用）
@@ -43,6 +48,7 @@ public sealed class ImportedSymbols {
         this.FunctionNamespaces = new StrMap();
         this.Interfaces = new StrMap();
         this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
+        this.ClassPkgAll = new StrMap();           // report-crosspkg-duplicate-type
         this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
         this.EnumTypeNames = new StrMap();
@@ -93,8 +99,17 @@ public static class ImportedSymbolLoader {
     }
 
     // exported/pkgNames 平行（DepScan 产物）；usings = cu 的 using ns 列表。
+    // parentPkg（z42b-owns-test-targets）：本次编译若是 <parentPkg> 的测试/bench 目标，加载该包时
+    // 按**同包**待遇 —— 不设 IsImported ⇒ 其 internal 成员可见。其余依赖照旧跨包。`""` = 现状。
+    // 为什么这样就够：导出端不按可见性过滤、导入端也不过滤 ⇒ internal 成员**本来就完整在 zpkg 里**，
+    // 跨包拦截只靠 IsImported 这一个布尔（AccessChecker:40）。故零格式改动、AccessChecker 一行不改。
     public static ImportedSymbols Load(ExportedModuleZ[] exported, string[] pkgNames, int exportedCount,
                                        string[] usings, int usingCount) {
+        return ImportedSymbolLoader.Load(exported, pkgNames, exportedCount, usings, usingCount, "");
+    }
+
+    public static ImportedSymbols Load(ExportedModuleZ[] exported, string[] pkgNames, int exportedCount,
+                                       string[] usings, int usingCount, string parentPkg) {
         var r = new ImportedSymbols();
         // ── 激活集：prelude 包恒激活；非 prelude 须有 using 命中其某模块 ns ──
         bool[] active = new bool[exportedCount];
@@ -146,13 +161,28 @@ public static class ImportedSymbolLoader {
                     // 限定引用只能退回剥短名撞赢家（实测 `Both.fromBeta` 绑成了 `Demo.FqnAlpha.Widget`）。
                     // 现在把守卫收窄到只裹 `r.Classes.Put`，其余每份都建、按 FQN 各存一份。
                     string fqnKey = em.Namespace == "" ? clKey : em.Namespace + "." + clKey;
+                    // report-crosspkg-duplicate-type：记「这个 FQN 由哪个包声明」——同样在 first-wins
+                    // 守卫之外。`pkgNames` 与 `exported` 平行，来源包名一直就在手边，只是从没被记过。
+                    // 同一个包的多个模块贡献同一个包名 → NoteNsInto 幂等，不会自己撞自己。
+                    // 🔴 父包不算「另一个包」（fix-e0606-parent-pkg-false-positive）：本次编译是
+                    // <parentPkg> 的测试/bench 目标时，父包按**同包**待遇加载（其类型 IsImported=false，
+                    // 这正是测试能看见 internal 的机制）。若还把它记进「FQN → 来源包」表，同一个类型
+                    // 就会既算「本包声明」又算「导入包声明」⇒ E0606（本地遮蔽导入）对**每一处**父包
+                    // 类型引用误报，而那正是测试该做的事。E0601（两包同 FQN）同理。
+                    // 一句话：这张表记的是「有几个**别的**包声明了它」，父包不在此列。
+                    if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {
+                        SymbolTable.NoteNsInto(r.ClassPkgAll, fqnKey, pkgNames[i]);
+                    }
                     bool bareFree = !r.Classes.ContainsKey(clKey);   // first-wins（输入已 prelude-first 排序）
                     if (bareFree || !r.ClassesByFqn.ContainsKey(fqnKey)) {
                         string baseName = "";
                         bool hasBase = cl.HasBase && cl.BaseName != "Object";
                         if (hasBase) { baseName = cl.BaseName; }
                         Z42ClassType nct = new Z42ClassType(cl.Name, hasBase, baseName);
-                        nct.IsImported = true;        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问
+                        // enforce-access-control：来自依赖 zpkg（跨包）→ internal 成员不可访问。
+                        // z42b-owns-test-targets：**例外** —— 本次编译是 <parentPkg> 的测试/bench 目标时，
+                        // 加载父包按同包待遇（internal 可见）。其余依赖照旧。parentPkg=="" → 恒 true（现状）。
+                        nct.IsImported = !(parentPkg != "" && pkgNames[i] == parentPkg);
                         nct.IsSealed = cl.IsSealed;   // impl-sealed-semantics-devirt：跨包 sealed 类（继承强制 + 去虚化）
                         nct.IsDeprecated = cl.IsDeprecated; nct.DeprecationMsg = cl.DeprecationMsg;   // add-deprecated-directive：跨包类级弃用（use-site 告警）
                         nct.Visibility = cl.Visibility;   // enforce-class-access：跨包类声明可见性（internal 类跨包引用 deny）
@@ -208,10 +238,18 @@ public static class ImportedSymbolLoader {
                 int ic = 0;
                 while (ic < em.InterfaceCount) {
                     ExportedInterfaceZ iz = em.Interfaces[ic];
+                    // report-crosspkg-duplicate-type：接口同款（守卫之外累积）。接口不 arity-mangle，
+                    // FQN 直接 ns + 裸名，与 Z42InterfaceType.Fqn() 同口径。
+                    if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {   // 父包不算「另一个包」，见上
+                        SymbolTable.NoteNsInto(r.ClassPkgAll,
+                            em.Namespace == "" ? iz.Name : em.Namespace + "." + iz.Name, pkgNames[i]);
+                    }
                     if (!r.Interfaces.ContainsKey(iz.Name)) {
                         Z42InterfaceType nift = new Z42InterfaceType(iz.Name);
                         nift.Namespace = em.Namespace;   // unify-type-identity-fqn：导入接口的声明 ns（与 nct.Namespace 对称）
-                        nift.IsImported = true;                 // complete-class-access-control ④：来自依赖 zpkg（跨包）→ internal 接口不可引用
+                        // complete-class-access-control ④：跨包 → internal 接口不可引用。
+                        // 同上例外：父包的 internal 接口对其测试目标可见。
+                        nift.IsImported = !(parentPkg != "" && pkgNames[i] == parentPkg);
                         nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
                         // add-associated-types PR-3：导入接口的型参名进符号表（与本包 StubCollector 对称）。
                         nift.TypeParamNames = iz.TypeParams; nift.TypeParamCount = iz.TpCount;
@@ -228,6 +266,11 @@ public static class ImportedSymbolLoader {
                 int ec = 0;
                 while (ec < em.EnumCount) {
                     ExportedEnumZ ez = em.Enums[ec];
+                    // report-crosspkg-duplicate-type：enum 同款（守卫之外累积）。
+                    if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {   // 父包不算「另一个包」，见上
+                        SymbolTable.NoteNsInto(r.ClassPkgAll,
+                            em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, pkgNames[i]);
+                    }
                     if (!r.EnumTypeNames.ContainsKey(ez.Name)) {
                         r.EnumTypeNames.Put(ez.Name, "enum");
                         r.EnumTypeNamesByFqn.Put(em.Namespace == "" ? ez.Name : em.Namespace + "." + ez.Name, "enum");   // unify-type-identity-fqn

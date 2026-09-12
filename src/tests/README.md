@@ -52,8 +52,16 @@
 > 2026-06-26 C# 编译器移除时随整个测试项目一起蒸发——自举迁移只搬了「能编过」的正例，
 > 导致一批诊断静默退化（详见 change `complete-where-constraints`）。
 >
-> ⚠️ **仍缺口**：`SemanticDump` 只覆盖**单文件语义**诊断。跨包 / 多文件的期望报错
-> （E0404 跨包 internal 等）今天仍靠手工验证 fixture + README 描述步骤，**没有自动门**。
+> **跨包期望报错现在有门了**（report-crosspkg-duplicate-type，2026-09-12）。两条路：
+> ① **单测**——`IrDump.ExtractExports` 把源码合成 `ExportedModuleZ`（= 一个依赖包的导出面），
+> 配上**包名**喂 `ImportedSymbolLoader.Load`，即可在内存里造出任意跨包形状，再用
+> `IrDump.BuildPackage(..., imported, ...)` 编消费方并断言诊断码。范例见
+> `z42c.semantics/tests/typecheck/crosspkg_duplicate/`（不碰磁盘上的 .zpkg，快）。
+> ② **cross-zpkg 负例 fixture**——目录里放 `expected_build_error.txt`（**不是**
+> `expected_output.txt`），内容为 stderr 必须包含的子串；`main` 编过了判红、错误文本对不上也判红。
+> 范例见 `cross-zpkg/dup_fqn_crosspkg/`（走真实三包 + 真 .zpkg 元数据，慢但覆盖真实接线）。
+>
+> ⚠️ 其余跨包诊断（E0404 跨包 internal 等）**尚未补门**，但原语已就位，照上面两条任一条加即可。
 
 ## 用例文件约定
 

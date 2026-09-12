@@ -1,0 +1,175 @@
+// report-crosspkg-duplicate-type：同一个 **FQN** 被多个包声明 → E0601；本包遮蔽导入 → E0606。
+//
+// 🔴 **这组用例是这两个码唯一的门**：全仓 657 个 stdlib 类型实测**跨包同 FQN = 0**（本 change
+// 写这条诊断时扫过），所以它在真实代码上永远不响。没有本文件，实现对错都恒绿。
+// 每条正例都做过退回对照（撤掉 `ImportedSymbolLoader` 的 `ClassPkgAll` 累积后必须变 0 条）。
+//
+// 🔴 **跨包负例此前没有自动门**——`src/tests/README.md` 白纸黑字记着这个缺口：「跨包 / 多文件的
+// 期望报错今天仍靠手工验证 fixture + README 描述步骤，**没有自动门**」。下面的 `dupImports`
+// 就是补上的那条原语：用 `IrDump.ExtractExports` 把源码合成 `ExportedModuleZ`（= 一个依赖包的
+// 导出面），配上**包名**喂给 `ImportedSymbolLoader.Load`，即可在单测里造出任意跨包形状。
+// 它不依赖磁盘上的 .zpkg，故可复用于任何「跨包期望报错」的用例。
+namespace Z42cSemanticsCrossPkgDuplicateTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+
+// ⚠️ 辅助函数一律带 `dup` 前缀：同一测试单元（`typecheck` 工程 `include = ["**/*.z42"]`）里所有
+// 文件的自由函数共享一个平坦命名空间，且 z42 自由函数**不按参数类型重载**（见 bare_name 那组的注）。
+
+// 把 N 份源码合成 N 个「依赖包的导出面」。nss[i] / pkgs[i] 与 srcs[i] 平行。
+// 同一个包的多个模块 = 多个条目共用同一个 pkgs[i]（用来验「同包不误报」）。
+ImportedSymbols dupImports(string[] srcs, string[] nss, string[] pkgs, string[] usings) {
+    ExportedModuleZ[] ems = new ExportedModuleZ[srcs.Length];
+    int i = 0;
+    while (i < srcs.Length) {
+        ems[i] = IrDump.ExtractExports(srcs[i], "dep" + i.ToString() + ".z42", nss[i]);
+        i = i + 1;
+    }
+    return ImportedSymbolLoader.Load(ems, pkgs, srcs.Length, usings, usings.Length);
+}
+
+// 消费方单 CU 编译（带 imported）→ 全部诊断消息。
+string[] dupDiags(string mainSrc, ImportedSymbols imp) {
+    string[] srcs = new string[1];  srcs[0] = mainSrc;
+    string[] files = new string[1]; files[0] = "main.z42";
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, 1, null, imp, false);
+    string[] all = new string[16];
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) {
+        CompiledModuleZ cm = cms[i];
+        int j = 0;
+        while (j < cm.DiagCount) {
+            if (n == all.Length) {
+                string[] bigger = new string[all.Length * 2];
+                int z = 0; while (z < n) { bigger[z] = all[z]; z = z + 1; }
+                all = bigger;
+            }
+            all[n] = cm.DiagMsgs[j]; n = n + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    i = 0; while (i < n) { r[i] = all[i]; i = i + 1; }
+    return r;
+}
+
+int dupCount(string[] msgs, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 两个**不同的包**各声明 Demo.Dup.Widget（真·同 FQN）。
+ImportedSymbols dupTwoPkgs() {
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Dup;\npublic class Widget { public int A() { return 1; } }";
+    srcs[1] = "namespace Demo.Dup;\npublic class Widget { public int B() { return 2; } }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Dup";     nss[1] = "Demo.Dup";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha";  pkgs[1] = "demo.beta";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    return dupImports(srcs, nss, pkgs, us);
+}
+
+// ── 正例 ──────────────────────────────────────────────────────────────────────
+
+[Test]
+void crosspkg_duplicate_reports_at_use_site() {
+    // 使用位（`new Widget()`）。退回对照：撤掉 ClassPkgAll 累积 → 0 条。
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { var w = new Widget(); return 0; } }",
+                          dupTwoPkgs());
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void crosspkg_duplicate_reports_at_declaration_site() {
+    // 声明位（字段类型）——与 E0456 的声明位补齐（#562）同一组落点。
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { Widget w; }", dupTwoPkgs());
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void crosspkg_duplicate_reports_on_qualified_name_too() {
+    // 🔴 与 E0456 的关键差别：限定写法**不能**消歧 —— 重复的是 FQN 本身。
+    // 若谁把这条按 E0456 的写法加一句「限定名 = 已消歧」的早返回，本条立刻变红。
+    string[] d = dupDiags("namespace App;\nclass C { Demo.Dup.Widget w; }", dupTwoPkgs());
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void local_type_shadowing_import_errors() {
+    // 本包声明 Demo.Dup.Widget，另有**一个**依赖包也声明它 → E0606。
+    // 🔴 曾写成 warning，理由是「本地恒赢是既定规则、不是猜」——**那个理由是错的**：规则明确
+    // ≠ 结果可接受。被遮蔽那份根本指不了，失败形态与 E0601 一样（去调它才有的成员 → 「no method
+    // X on Widget」答非所问）。且冲突的两份里有一份是本包自己写的 ⇒ 改名随时可以 ⇒ error 可行动。
+    string[] srcs = new string[1];
+    srcs[0] = "namespace Demo.Dup;\npublic class Widget { public int A() { return 1; } }";
+    string[] nss  = new string[1]; nss[0] = "Demo.Dup";
+    string[] pkgs = new string[1]; pkgs[0] = "demo.alpha";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace Demo.Dup;\nclass Widget { public int L() { return 9; } }\nclass C { Widget w; }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(true, dupCount(d, "E0606") >= 1);
+    Assert.Equal(0, dupCount(d, "E0601"));   // 只有一个导入来源 → 不是「多包互撞」，归 E0606
+}
+
+[Test]
+void local_interface_shadowing_import_errors() {
+    // 接口这半边必须与类对称：E0601 经 `PkgCheckFqn` 本就覆盖接口，若 E0606 只查 `ClassesByFqn`，
+    // 「本地接口遮蔽导入接口」会单独哑掉。退回对照：把 ShadowedImportMsg 的 InterfacesByFqn 分支
+    // 撤掉 → 本条变红、上面那条类的照绿（正是不对称哑门的形状）。
+    string[] srcs = new string[1];
+    srcs[0] = "namespace Demo.Dup;\npublic interface IThing { int Tag(); }";
+    string[] nss  = new string[1]; nss[0] = "Demo.Dup";
+    string[] pkgs = new string[1]; pkgs[0] = "demo.alpha";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace Demo.Dup;\npublic interface IThing { int Tag(); }\nclass C { IThing t; }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(true, dupCount(d, "E0606") >= 1);
+}
+
+// ── 负例（必须不报；每条都是一个真实的误报风险）────────────────────────────────
+
+[Test]
+void same_short_name_in_different_namespaces_is_not_duplicate() {
+    // 同短名、不同 ns ⇒ FQN 不同 ⇒ 不是重复（那归 E0456 管）。误报这条会把
+    // `type_identity_fqn` 那种完全合法的跨包布局判死。
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Alpha;\npublic class Widget { public int A() { return 1; } }";
+    srcs[1] = "namespace Demo.Beta;\npublic class Widget { public int B() { return 2; } }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Alpha";  nss[1] = "Demo.Beta";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha"; pkgs[1] = "demo.beta";
+    string[] us   = new string[1]; us[0] = "Demo.Alpha";
+    string[] d = dupDiags("namespace App;\nusing Demo.Alpha;\nclass C { Widget w; }", dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(0, dupCount(d, "E0601"));
+}
+
+[Test]
+void same_fqn_from_one_package_is_not_duplicate() {
+    // 同一个包的**两个模块**（真实形态：partial 类拆两个文件）⇒ 来源包只有一个 ⇒ 不报。
+    // 包内重复由 E0458 在**生产方**管，消费方不该跟着报第二遍。
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Dup;\npublic class Widget { public int A() { return 1; } }";
+    srcs[1] = "namespace Demo.Dup;\npublic class Other { public int B() { return 2; } }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Dup";    nss[1] = "Demo.Dup";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha"; pkgs[1] = "demo.alpha";   // 同一个包
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { Widget w; }", dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(0, dupCount(d, "E0601"));
+}
+
+[Test]
+void unreferenced_duplicate_is_silent() {
+    // 使用位语义（对标 C# CS0433）：两个依赖包撞了、但本包**一行都没引用**它 → 不报。
+    // 否则下游用户会被两个第三方依赖的冲突挡死，而他既没用到也修不了。
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { int n; }", dupTwoPkgs());
+    Assert.Equal(0, dupCount(d, "E0601"));
+    Assert.Equal(0, dupCount(d, "E0606"));
+}

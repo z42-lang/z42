@@ -264,3 +264,22 @@ void test_bench_helpers_black_box_passthrough() {
     var y = BenchHelpers.blackBox("xyz");
     Assert.Equal("xyz", y);
 }
+
+// ── error-on-zero-discovered-tests ──────────────────────────────────────────
+// 「一条测试都没发现」必须判红：否则 attribute 拼错 / glob 漏文件 / 测试被改名，
+// 都会表现为 `0 passed, 0 failed, 0 skipped` + exit 0 —— 与「测试全过」不可区分。
+
+[Test]
+void test_exit_code_zero_runnable_is_failure() {
+    Assert.Equal(1, Runner.ExitCodeFor(0, 0));
+}
+
+[Test]
+void test_exit_code_failures_are_failure() {
+    Assert.Equal(1, Runner.ExitCodeFor(5, 1));
+}
+
+[Test]
+void test_exit_code_all_passed_is_success() {
+    Assert.Equal(0, Runner.ExitCodeFor(5, 0));
+}

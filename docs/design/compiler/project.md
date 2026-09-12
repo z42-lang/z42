@@ -94,7 +94,7 @@ entry = "Hello.main"
 [[exe]]
 name  = "tool"               # 产物：dist/tool.zbc
 entry = "Tool.main"
-src   = ["src/tool/**/*.z42"] # 可选：覆盖共享 sources
+include = ["src/tool/**/*.z42"] # 可选：覆盖共享 [sources]
 ```
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -178,7 +178,7 @@ exclude = ["src/internal/**", "src/**/_*.z42"]
 [[exe]]
 name  = "tool"
 entry = "Tool.Main"
-src   = ["src/tool/**/*.z42"]   # 仅这些文件参与 tool 编译
+include = ["src/tool/**/*.z42"]   # 仅这些文件参与 tool 编译
 ```
 
 **不支持的语法**：
@@ -239,7 +239,7 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 | `cache_dir` | string? | `${output_dir}/.cache` | `${output_dir}/.cache` (+ member 子目录防碰撞) | 中间产物（`.zbc` / 索引 / 增量元数据）。 |
 | `dist_dir` | string? | `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。替代了 0.1.x 的 `out_dir`。 |
 | `publish_dir` | string? | `${output_dir}/publish` | `${output_dir}/publish` | 发布分发目录。`z42c build`（exe）和 `z42c publish` 将产物 + 非 stdlib 依赖复制到此目录。lib 默认不复制（需显式 `z42c publish`）。 |
-| `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。 |
+| `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关（wire-build-incremental）。 |
 | `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对；wire-z42b-host-build 阶段 7）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见 [build-orchestrator.md](../toolchain/build-orchestrator.md#自定义扩展manifest-声明-hook-目录)（含 `z42 publish` 经 hook 免装 workload 产 apphost）。 |
 
 **模板变量（`${...}`）**：
@@ -710,10 +710,17 @@ strip    = true
 
 ```toml
 [tests]
-# 字段全可省 → 走约定：tests/*.z42 + tests/*/source.z42
-# include = ["tests/*.z42", "tests/*/source.z42"]
+# 字段全可省 → 走约定：tests/*.z42（**一文件一单元**，仅此一条）
+# include = ["tests/*.z42"]
 # exclude = ["tests/_skip/*"]
 # auto    = true          # false → 关闭约定扫描，只认 [[test]]
+#
+# **目录单元必须显式配**，约定不认领它：
+#   include = ["tests/*.z42", "tests/secp256k1/**/*.z42"]   # → 单元名 `secp256k1`，整目录一起编
+# 为什么不默认扫 `tests/*/source.z42`：本仓 `<lib>/tests/` 下同时住着反射 [Test] 用例和 VM
+# golden 用例（`main()` + `expected_output.txt`），**两者都长成 `<name>/source.z42`，glob 分不开**
+# （要分得靠扫目录里有没有 `[Test]` 标注，那不是 glob 能表达的）。猜错的代价是把 golden 目录
+# 当测试目标编，编不过或跑出零用例 —— 所以不猜。
 [tests.dependencies]
 "z42.test" = "0.1.0"      # 仅测试合入；release zpkg 元数据不含
 
@@ -722,8 +729,14 @@ strip    = true
 "z42.test" = "0.1.0"      # Bencher 在 z42.test 包内
 
 [examples]
-# 默认发现 examples/*.z42 + examples/*/source.z42
+# 默认发现 examples/*.z42（同上：目录单元显式配）
 ```
+
+> **源文件清单统一叫 `include`**（unify-manifest-include-key，2026-09-12）——`[sources]` /
+> `[tests]` / `[benches]` / `[examples]` 段与 `[[exe]]` / `[[test]]` / `[[bench]]` /
+> `[[example]]` 数组**全部同一个键名**。此前数组形式另叫 `sources`（run 目标）和 `src`
+> （exe 目标），同一个概念三种拼法；`src` 当时零使用者。选 `include` 而非 `sources` 是因为
+> 它自带搭档 `exclude`，而数组形式此前**根本无法排除文件**。
 
 ### `[[test]]` / `[[bench]]` / `[[example]]` 数组（显式覆盖）
 
@@ -734,7 +747,7 @@ strip    = true
 name    = "compile_perf"          # 必填；filter 用 + 合成包名
 harness = false                   # 默认 true（反射）；false → 自带 Main 退出码判定
 entry   = "Perf.Runner.Main"      # harness=false 必填（FQ 函数名）
-sources = ["tests/perf/*.z42", "tests/perf/_lib/*.z42"]   # 可选；省略=沿用约定单元文件集
+include = ["tests/perf/*.z42", "tests/perf/_lib/*.z42"]  # 可选；省略=沿用约定单元文件集
 [test.dependencies]               # 该 target 独享 dev-dep（三层合并优先级最高）
 "z42.compression" = "0.1.0"
 

@@ -1,0 +1,15 @@
+// 两个依赖包声明了同一个 FQN `Demo.DupNs.Widget`，本包引用它 → 必须报 E0601。
+//
+// 修前实测：编译 rc=0、**零诊断**，字母序靠前的 demo.dupalpha 赢，demo.dupbeta 的 Widget
+// 连同全部成员从未存在过；去调只有 beta 才有的成员，得到的是「no method X on Widget」——
+// 用户正看着 beta 的源码，诊断答非所问。
+namespace Demo.DupApp;
+
+using Std;
+using Std.IO;
+using Demo.DupNs;
+
+void Main() {
+    Widget w = new Widget();
+    Console.WriteLine(w.Who());
+}

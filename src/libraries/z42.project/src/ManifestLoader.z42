@@ -335,7 +335,7 @@ public static class ManifestLoader {
             string[] src = new string[0];
             if (e.ContainsKey("name"))  { name = e.Get("name").AsString(); }
             if (e.ContainsKey("entry")) { entry = e.Get("entry").AsString(); }
-            if (e.ContainsKey("src"))   { src = ManifestLoader._strArray(e.Get("src")); }
+            if (e.ContainsKey("include")) { src = ManifestLoader._strArray(e.Get("include")); }  // 统一键名，见 _parseRunTargets
             r[i] = new ExeTarget(name, entry, src, src.Length);
             i = i + 1;
         }
@@ -359,11 +359,22 @@ public static class ManifestLoader {
         return new TargetSection(inc, inc.Length, exc, exc.Length, auto, deps, deps.Length);
     }
 
-    // kind 专属默认发现 glob：<dir>/*.z42（单文件单元）+ <dir>/*/source.z42（dir-mode 合并单元）。
+    // kind 专属默认发现 glob：只有 `<dir>/*.z42`（一文件一单元）。
+    //
+    // 此前还带一条 `<dir>/*/source.z42`（想自动认领「一目录一单元」）。那条**从来没匹配过任何
+    // 东西** —— SourceDiscovery._expand 把目录段当字面量，去找一个真名叫 `*` 的目录，静默返回空
+    // （已修）。于是它是一条零效果的猜测；而把 _expand 修对之后它立刻变成**有害**的猜测：本仓
+    // `<lib>/tests/` 下同时住着两类东西 —— 反射 `[Test]` 用例，和 golden 用例（`main()` +
+    // `expected_output.txt`，由 VM golden 语料跑）。两者都长成 `<name>/source.z42`，**glob 分不开**
+    // （xtask 靠扫目录里有没有 `[Test]` 标注来分；那不是 glob 能表达的）。全仓实测：这条 glob 会
+    // 扫中 20 个 golden 目录 + 1 个真 `[Test]` 目录。
+    //
+    // 所以不猜：目录单元**必须显式配**（`[tests] include` 写上 `tests/<name>/**/*.z42`），对齐
+    // 「必须主动配置，不要完全不写就自动发现」。今天唯一一个真目录单元 z42.crypto/tests/secp256k1
+    // 已照此配好。删掉这条 = 把今天的**真实行为**写成配置，零行为变化。
     private static string[] _defaultInclude(string dir) {
-        string[] r = new string[2];
+        string[] r = new string[1];
         r[0] = dir + "/*.z42";
-        r[1] = dir + "/*/source.z42";
         return r;
     }
 
@@ -385,7 +396,10 @@ public static class ManifestLoader {
             if (t.ContainsKey("name"))    { name = t.Get("name").AsString(); }
             if (t.ContainsKey("harness")) { harness = t.Get("harness").AsBool(); }
             if (t.ContainsKey("entry"))   { entry = t.Get("entry").AsString(); hasEntry = true; }
-            if (t.ContainsKey("sources")) { src = ManifestLoader._strArray(t.Get("sources")); }
+            // unify-manifest-include-key：源文件清单在**所有**位置统一叫 `include`
+            // （`[sources]` / `[tests]` / `[benches]` / `[examples]` 段本来就是它；此前只有
+            // 数组形式的 `[[test]]` 叫 `sources`、`[[exe]]` 叫 `src`，同一个概念三种拼法）。
+            if (t.ContainsKey("include")) { src = ManifestLoader._strArray(t.Get("include")); }
             if (t.ContainsKey("test"))    { runInTest = t.Get("test").AsBool(); }
             DepEntry[] deps = ManifestLoader._parseDeps(t, "dependencies");
             r[i] = new RunTarget(name, harness, hasEntry, entry, src, src.Length, deps, deps.Length, runInTest);

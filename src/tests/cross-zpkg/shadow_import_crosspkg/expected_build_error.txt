@@ -1,0 +1,1 @@
+E0606: `Demo.ShadowNs.Widget` is declared in this package and also in package `demo.shadowlib`

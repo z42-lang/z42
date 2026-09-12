@@ -1,0 +1,9 @@
+[project]
+name    = "demo.shadowapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.ShadowApp.Main"
+pack    = true
+
+[dependencies]
+"demo.shadowlib" = "0.1.0"

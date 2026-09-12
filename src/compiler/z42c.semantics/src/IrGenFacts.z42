@@ -52,6 +52,11 @@ public static class IrGenFacts {
         if (IrGenFacts._hasWord(mods, "protected")) { return 2; }
         if (IrGenFacts._hasWord(mods, "public"))    { return 0; }
         if (IrGenFacts._hasWord(mods, "override"))  { return 0; }   // enforce-access-control：override 继承基类(public)可见性
+        // z42b-owns-test-targets：**补回漏掉的 internal 分支**。此前显式写 `internal` 的成员会掉到
+        // `return dflt`（成员默认 1 = private）→ zbc 字节记成 private。对照同文件的 classVisCode，
+        // 那边一直有这条分支。长期没人发现，是因为跨包 internal 成员**本来就一律拒绝** —— 记成
+        // private 还是 internal 结果一样；直到测试目标可以合法访问父包 internal 才顶出来。
+        if (IrGenFacts._hasWord(mods, "internal"))  { return 3; }
         return dflt;
     }
 

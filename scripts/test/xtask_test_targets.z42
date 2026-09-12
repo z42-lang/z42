@@ -106,6 +106,10 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     // stdlib/compiler stages don't exercise.
     if (kind == "test" && name.Length == 0) {
         failed = failed + _smokeCompileThenTest(root, tt);
+        failed = failed + _smokeDevTargetInternal(root, tt);
+        failed = failed + _smokeOrphanGuard(root, tt);
+        failed = failed + _smokeNoTests(root, tt);
+        failed = failed + _smokeListTargets(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
     }
     Console.WriteLine("");
@@ -136,6 +140,99 @@ int _smokeCompileThenTest(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ compile-then-test: `z42b test <toml>` passed");
+    return 0;
+}
+
+// dev-target internal smoke (z42b-owns-test-targets): 驱动 `z42b test <toml>` 走
+// **按 [[test]] 目标编译 + 运行**的新路径，并锁住两条此前不成立的性质：
+//   ① 目标**只编自己声明的源**（此前 in-process 路径把 include 硬编码成 `**/*.z42`，
+//      会把整个工程编进每个目标 —— 那也会让 ① 的 internal 断言假阳性，因为父包源被一起编了）；
+//   ② 目标**看得见父包的 internal**（类与成员两条判定路径都覆盖）。
+// 回归方向（普通消费包仍被拒）由 cross-zpkg/class_internal_access 守着。
+int _smokeDevTargetInternal(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/dev-target-internal/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── dev-target internal (z42b test <toml>：按目标编译 + 可见父包 internal) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ dev-target internal: `z42b test <toml>` exited " + rc.ToString());
+        return 1;
+    }
+    Console.WriteLine("  ✅ dev-target internal: 目标按源隔离编译，且可见父包 internal");
+    return 0;
+}
+
+// 孤儿源守卫 smoke：**预期判红**的 fixture —— tests/ 下有 .z42 源，但默认 glob 不认领，
+// 且该子目录没有自己的 toml（有的话它就是独立工程）。守卫不在的话 z42b 会回落到「编译本包
+// 自己再跑」，而该 fixture 的 src/ 里**特意放了一个通过的 [Test]** —— 于是回落会跑出
+// 「1 passed」的绿色，下游 #571 的零测试判红也接不住。这个 fixture 锁的就是那片静默。
+//
+// 断言方向与其它 smoke 相反：rc == 0 才是失败。
+int _smokeOrphanGuard(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/orphan-source/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── orphan-source guard (有源零单元必须判红) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc == 0) {
+        Console.WriteLine("  ❌ orphan-source guard: 有源却零单元竟然返回 0 —— 守卫失效，「没跑」又一次等价于「全过」");
+        return 1;
+    }
+    Console.WriteLine("  ✅ orphan-source guard: 有源零单元判红（rc=" + rc.ToString() + "）");
+    return 0;
+}
+
+// 「本包压根没有测试」smoke：一个无 tests/、src/ 里零个 [Test] 的库，`z42b test` 必须
+// **退 0**（无事可做），不得判红 —— 否则 xtask 转发后全仓无测试的库会集体变红，而今天
+// 它们是被静默跳过的。与 compile-then-test 的区别只有「src/ 里有没有 [Test]」，那条
+// smoke 正好守着反方向（有 [Test] → 照常编+跑）。
+int _smokeNoTests(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/no-tests/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── no-tests (没有测试的库不得判红) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ no-tests: 无测试的库被判红（rc=" + rc.ToString() + "）—— 转发后会拖红整条 stage");
+        return 1;
+    }
+    Console.WriteLine("  ✅ no-tests: 无测试的库退 0（无事可做）");
+    return 0;
+}
+
+// `--list` smoke：列目标名而不编不跑。这是**转发架构的接缝** —— xtask 靠它拿单元清单后
+// 并行拉起 `z42b test <toml> --name <unit>`，发现规则从此只有 z42b 一份（两套规则各自漂移
+// 正是 #580 查出那三处分歧的来源）。断言：dev-target fixture 恰好列出 dirunit + internals_tests，
+// 且**没有**任何编译/运行的痕迹。
+int _smokeListTargets(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/dev-target-internal/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── list targets (z42b test --list：只列不跑) ──");
+    ProcessResult rr = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml).Arg("--list")
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root).Run();
+    if (rr.ExitCode != 0) {
+        Console.WriteLine("  ❌ list targets: rc=" + rr.ExitCode.ToString());
+        return 1;
+    }
+    string outp = rr.Stdout.Trim();
+    if (outp != "dirunit\ninternals_tests") {
+        Console.WriteLine("  ❌ list targets: 期望 `dirunit` + `internals_tests`，实得: " + outp);
+        return 1;
+    }
+    if (rr.Stdout.Contains("compiled:") || rr.Stdout.Contains("PASS")) {
+        Console.WriteLine("  ❌ list targets: --list 不该编译或运行任何东西");
+        return 1;
+    }
+    Console.WriteLine("  ✅ list targets: 2 个目标名，未编译未运行");
     return 0;
 }
 

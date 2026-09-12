@@ -1,0 +1,1 @@
+E0601: `Demo.DupNs.Widget` is declared in more than one package

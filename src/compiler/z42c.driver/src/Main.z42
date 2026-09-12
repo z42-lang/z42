@@ -130,6 +130,9 @@ void Main() {
             Environment.Exit(ExitCode.BuildError);
             return;
         }
+        // 同上：无错但有 warning 时也要说话（此前同样被 ErrorCount 罩住）。
+        int ezWi = 0;
+        while (ezWi < ezCm.DiagCount) { ConsoleError.WriteLine("  " + ezCm.DiagMsgs[ezWi]); ezWi = ezWi + 1; }
         File.WriteAllBytes(argv[2], IrDump.ZbcBytesOf(ezCm));
         return;
     }
@@ -248,7 +251,16 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
     // 其余 IrModule 从 cache 读回（meta 残留已回填）。workspace/flat（outputDirOverride）不走。
     IncrPrep prep = null;
-    if (outputDirOverride.Length == 0 && !noIncremental) {
+    // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
+    // BuildConfig.Incremental 就再没人读过**——`docs/design/compiler/project.md:223/242` 明文
+    // 承诺「基于 source hash 跳过未改动文件，默认 true」，`examples/workspace-with-presets`
+    // 也真的在 preset 里写它，但写 false 不会有任何效果。**一个看起来正经、实则从不生效的旋钮**，
+    // 比没有这个旋钮更坏：用户以为自己关掉了。
+    //
+    // 优先级：CLI `--no-incremental` 是显式一次性覆盖，**永远压过 manifest**；manifest 里的
+    // false 则是该工程的常设选择。两者任一为「关」即关。
+    bool incrOff = noIncremental || !pm.Build.Incremental;
+    if (outputDirOverride.Length == 0 && !incrOff) {
         string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
         string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
         // preserved 跳过要求 dist 主文件的 pack 模式与本次决议一致（packed↔indexed 切换
@@ -372,6 +384,27 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
                 return ExitCode.BuildError;
             }
             ei = ei + 1;
+        }
+    }
+    // ⑩ 警告呈现（report-crosspkg-duplicate-type）。
+    //
+    // 🔴 在此之前，**两个诊断打印点都被 `ErrorCount > 0` 罩着** ⇒ z42c 从不单独打印任何 warning：
+    // 一个文件若只有 warning 没有 error，`DiagMsgs` 里装着它、却一个字也不会出现在终端。
+    // 于是 W0700（switch 不穷尽）/ W0603 / W0604 / deprecated 这些码**一直是哑的**——
+    // 「从不打印的门 = 没有门」，与本 change 要修的是同一族毛病。
+    //
+    // 打开它的代价实测为 **0**：stdlib 25 个包 + z42c 自建全跑一遍，共 0 条 warning
+    // （量法是临时给这里加打印再全量构建）。warning 不改退出码，只出 stderr。
+    if (art.ErrorCount == 0) {
+        int wi = 0;
+        while (wi < srcs.Length) {
+            CompiledModuleZ wcm = cms[wi];
+            if (wcm.DiagCount > 0) {
+                ConsoleError.WriteLine("z42c build: " + wcm.DiagCount.ToString() + " warning(s) in " + srcs[wi]);
+                int wd = 0;
+                while (wd < wcm.DiagCount) { ConsoleError.WriteLine("  " + wcm.DiagMsgs[wd]); wd = wd + 1; }
+            }
+            wi = wi + 1;
         }
     }
     // ⑪ entry 校验（单产物 exe 专属）。多目标（ExeCount>0）用各自 [[exe]].entry 显式指定，

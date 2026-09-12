@@ -24,11 +24,34 @@ namespace Z42.Build;
     string   Kind,            // "exe" | "lib"（"" → 默认 exe）。lib 无需 Main()——
                               // 支持 compile-then-test 直接编测试工程（add-z42b-compile-then-test）
     string[] Excludes,        // fix-hooks-source-scan 阶段4：源发现排除 glob（相对 SourceDir，
-    int      ExcludesCount);  // 如 `hooks/**` / `[sources] exclude`），传给 SourceDiscovery.
+    int      ExcludesCount)  // 如 `hooks/**` / `[sources] exclude`），传给 SourceDiscovery.
                               // DiscoverWithExclude。**阶段4.1 additive**：字段先行、z42c 尚不读
                               // （让 z42b/publish in-process 编译路径的产物也排除 hooks 死类）；
                               // 待本字段随 nightly 发布后，阶段4.2 才让 Z42cCompiler 读它
                               // （bootstrap-seed 轴②：z42c 源引用 stdlib API 须晚一个 nightly）。
+{
+    /// z42b-owns-test-targets：本次编译若是 `<ParentPkg>` 的**测试/bench 目标**，则加载该包时
+    /// 按同包待遇 —— 其 `internal` 成员对测试可见（`ImportedSymbolLoader` 不设 `IsImported`）。
+    /// `""` = 普通编译（现状）。
+    /// ⚠️ **body 字段、不进 ctor 签名** —— `z42.build` 是 z42c 的自依赖库之一，给其既有导出类型
+    ///    加字段必须 ctor 内给默认值 + 消费方构造后赋值，否则旧种子的构造调用元数对不上
+    ///    （bootstrap-seed.md「残余真约束」）。
+    public string ParentPkg = "";
+
+    /// z42b-owns-test-targets：源发现的 **include glob**（相对 SourceDir）。
+    /// 此前 in-process 路径把 include 硬编码成 `**/*.z42`（`Z42cCompiler.Compile` 第 22 行），
+    /// 于是 `[sources] include` 形同虚设 —— 编一个「只含 tests/queue_*.z42 的目标」会把整个工程都编进去。
+    /// 空 → 沿用 `**/*.z42`（现状）。**body 字段、不进 ctor**（种子 ABI，同 ParentPkg）。
+    public string[] Includes = new string[0];
+    public int      IncludesCount = 0;
+
+    /// 包名（`[project].name`）。此前 in-process 路径用 **源目录尾名** 当包名
+    /// （`Z42cCompiler`：`Path.GetFileName(req.SourceDir)`），于是产物 zpkg 的 META 包名与
+    /// manifest 声明的名字**可以不一致**（目录 `dt/lib` + `name = "demo.lib"` → META 写 `lib`）。
+    /// 依赖按 META 名解析，故这会让「按名找依赖」在 in-process 路径上错位。
+    /// 空 → 沿用目录尾名（现状）。**body 字段、不进 ctor**（种子 ABI）。
+    public string PackageName = "";
+}
 
 /// 编译结果。Zsym 为 "" 表示无 split-debug sidecar；Ok=false 时 Diagnostics 含错误文本。
 [Record] public class CompileResult(

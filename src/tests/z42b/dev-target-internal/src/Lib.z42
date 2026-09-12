@@ -1,0 +1,20 @@
+namespace Dt.Internal;
+using Std;
+
+// internal 类：跨包不可引用（见 cross-zpkg/class_internal_access），但其**自己的测试目标**可见。
+internal class Hidden {
+    internal int Value;
+    public Hidden(int v) { this.Value = v; }
+    internal int Doubled() { return this.Value * 2; }
+}
+
+// 公开类上的 internal 成员 —— 与 internal 类是两条不同的判定路径，都要覆盖。
+public class Box {
+    internal int Inner;
+    public Box(int v) { this.Inner = v; }
+    internal int Twice() { return this.Inner * 2; }
+}
+
+public class Api {
+    public static int Answer() { return 42; }
+}
