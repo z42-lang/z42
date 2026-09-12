@@ -135,6 +135,54 @@ public sealed class OverloadBinder {
         this._tc.CheckImplicitConvert(args[i], pt, env.Symbols, sp, "argument");
     }
 
+    // check-constraint-iface-method-args：型参收者（`where T : IEq` 的 `T`）调约束接口方法时，`Self`
+    // 形参位经 `MemberResolver._substSelfSig` 精确换成型参 `rt` ⇒ 仍是裸型参 ⇒ `Conversion` 分支 B 擦除
+    // 「具体实参 → 裸型参形参」（`a.Same("nope")` 静默放行、运行期从具体类型读出不存在字段）。这里补
+    // 方向敏感的严格检查：门控 `_containsSelf`（来自 Self 的位，比替换面多下钻 Func，守「禁止侧比替换侧宽」），
+    // 命中位的实参**完全不含型参且非 error/unknown**（即具体类型）→ E0463。实参也含型参（`T`-to-`T` 走
+    // Identity、`U`-to-`T` 已报 E0402）或 error/unknown（absorb 不级联）→ 保持今天行为。只产诊断、不碰
+    // 绑定发射（零字节漂移）。与 E0454（接口收者、逆变禁止）的分工见 design D2。由 MemberResolver 的
+    // 型参收者路径调用（`BindArgsToSignature` 之后）。
+    internal void CheckConstraintIfaceArgs(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType orig,
+                                           string tpName, string memName, string ifaceName) {
+        if (orig == null) { return; }
+        int fixedEnd = argCount;
+        if (orig.ParamCount < fixedEnd) { fixedEnd = orig.ParamCount; }
+        if (orig.ParamsFrom >= 0 && orig.ParamsFrom < fixedEnd) { fixedEnd = orig.ParamsFrom; }
+        int i = 0;
+        while (i < fixedEnd) {
+            if (MemberResolver._containsSelf(orig.ParamTypes[i])) {
+                this._checkOpaqueParamArg(args, rawArgs, i, tpName, memName, ifaceName);
+            }
+            i = i + 1;
+        }
+        // params 尾位（防御性；stdlib 零命中 `params Self[]`）：原元素类型含 Self 才补查展开位。
+        if (orig.ParamsFrom >= 0) {
+            int pf = orig.ParamsFrom;
+            Z42ArrayType at = orig.ParamTypes[pf] as Z42ArrayType;
+            if (at != null && MemberResolver._containsSelf(at.Elem)) {
+                int t = pf;
+                while (t < argCount) { this._checkOpaqueParamArg(args, rawArgs, t, tpName, memName, ifaceName); t = t + 1; }
+            }
+        }
+    }
+
+    // 单个 Self 形参位的严格判据：实参是**具体类型**（非型参、非 error/unknown）⇒ 不可赋给不透明型参 ⇒ E0463。
+    // 不走 CheckImplicitConvert（那会再过 Conversion 被分支 B 擦）；直接按「含不含型参」判并发码。
+    private void _checkOpaqueParamArg(BoundExpr[] args, Expr[] rawArgs, int i, string tpName, string memName, string ifaceName) {
+        if (i >= args.Length || args[i] == null) { return; }
+        Z42Type at = args[i].Type();
+        if (at == null || (at is Z42ErrorType) || (at is Z42UnknownType)) { return; }
+        if (Conversion._hasGenericParam(at)) { return; }   // `T`-to-`T` / 含型参：今天已正确处理
+        Span sp = args[i].Span;
+        if (rawArgs != null && i < rawArgs.Length && rawArgs[i] != null) { sp = rawArgs[i].Span; }
+        // 语义层用字面量 "E0463" 发码（同 E0449–E0462，避 core→semantics 冷启动 stale-cache）。
+        this._tc._diags.Error("E0463",
+            "cannot pass `" + at.Name() + "` to a parameter of type parameter `" + tpName + "`: method `"
+            + memName + "` comes from constraint `where " + tpName + " : " + ifaceName
+            + "` — an opaque type parameter accepts only values of that same type parameter", sp);
+    }
+
     // generic-inference-lambda-args：从非-lambda 实参 + lambda 标注推断部分方法级型参，只代换 Func
     // 形参位得到「绑定用」签名。仅对**有本地 Decl 的泛型方法**生效（导入/间接方法拿不到有序型参名，
     // 与既有 arity/where 校验同一道门，不新增跨包能力）。InferPreBinding 对无信息位天然跳过、
