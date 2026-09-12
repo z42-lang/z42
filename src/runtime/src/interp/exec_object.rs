@@ -407,27 +407,11 @@ pub(super) fn static_get(
     Ok(())
 }
 
-/// add-static-constructors：静态字段读写前的 cctor 屏障（C# 的「首次使用前」）。
-///
-/// **热路径代价 = 一次 relaxed load**：`any_cctor_pending()` 为假时立刻返回，而它在
-/// 「程序里没有静态构造器」和「所有静态构造器都已跑完」两种情况下都为假 —— 也就是绝大多数
-/// 时间。只有确实还有待初始化的 cctor 时，才去按名取属主类的 TypeDesc（一次哈希）。
+/// add-static-constructors：静态字段读写前的 cctor 屏障。实现在
+/// `VmContext::ensure_static_owner_init`，**与 JIT 侧共用同一份**（两后端语义一致
+/// 是本特性最易错处，各写一份迟早漂移）。
 fn ensure_owner_type_init(ctx: &VmContext, field: &str) -> Result<()> {
-    if !ctx.any_cctor_pending() { return Ok(()); }
-    let Some(owner) = crate::vm_context::cctor::owner_class_of_static_field(field) else {
-        return Ok(());
-    };
-    // 同 cctor 函数查找：**先查主模块 registry、再回落惰性加载器**。`try_lookup_type` 只问
-    // 惰性加载器，主合并模块里的类型不在它的索引里 → 同模块的类会静默跳过屏障
-    // （实测：无字段初始化器的类，其 cctor 完全不跑、静态字段读出 Null）。
-    if let Some(m) = ctx.module() {
-        if let Some(td) = m.type_registry.get(owner) {
-            if let Err(msg) = ctx.ensure_type_init(td) { bail!("{msg}"); }
-            return Ok(());
-        }
-    }
-    let Some(td) = ctx.try_lookup_type(owner) else { return Ok(()); };
-    if let Err(msg) = ctx.ensure_type_init(&td) { bail!("{msg}"); }
+    if let Err(msg) = ctx.ensure_static_owner_init(field) { bail!("{msg}"); }
     Ok(())
 }
 

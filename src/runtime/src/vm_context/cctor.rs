@@ -177,6 +177,31 @@ impl crate::vm_context::VmContext {
     #[inline(always)]
     pub fn any_cctor_pending(&self) -> bool { self.core.cctors.any_pending() }
 
+    /// **静态字段访问的 cctor 屏障**（interp 与 JIT **共用同一实现**）。
+    ///
+    /// 两个后端共用一份，是因为「两后端语义一致」正是这个特性最容易出错的地方——
+    /// 各写一份迟早漂移。JIT 侧此前完全没有屏障，导致默认模式下静态构造器根本不跑
+    /// （`__static_init__` 被强制走解释器，而用户代码走 JIT，两条路走的不是同一个
+    /// StaticGet 实现），实测才发现。
+    ///
+    /// 热路径代价 = 一次 relaxed load：`any_cctor_pending()` 在「程序里没有静态构造器」
+    /// 和「所有静态构造器都已跑完」两种情况下都为假，也就是绝大多数时间。
+    pub fn ensure_static_owner_init(&self, field: &str) -> Result<(), String> {
+        if !self.core.cctors.any_pending() { return Ok(()); }
+        let Some(owner) = owner_class_of_static_field(field) else { return Ok(()) };
+        // 先查主模块 registry、再回落惰性加载器：`try_lookup_type` 只问惰性加载器，
+        // 主合并模块里的类型不在它的索引里（同 ensure_type_init 里函数查找那条注释）。
+        if let Some(m) = self.module() {
+            if let Some(td) = m.type_registry.get(owner) {
+                return self.ensure_type_init(td);
+            }
+        }
+        match self.try_lookup_type(owner) {
+            Some(td) => self.ensure_type_init(&td),
+            None => Ok(()),
+        }
+    }
+
     /// **cctor 屏障**：确保 `td` 这个类型的静态构造器已经跑过（C# 的「首次使用前」）。
     ///
     /// 调用点必须是「首次使用该类型」的地方：创建实例 / 读写其静态字段 / 调其静态方法。
