@@ -234,6 +234,12 @@ impl TypeDesc {
     #[inline] pub fn composed_object_layout(&self) -> Option<std::sync::Arc<ObjectLayout>> {
         self.cold.as_ref().and_then(|c| c.composed_object_layout.clone())
     }
+    /// The same layout **borrowed** — no `Arc` clone. For callers that only read it and do
+    /// not outlive the `TypeDesc`, which is every GC-side caller: the sweep runs this per
+    /// dead object, and an atomic pair per object is not free at that rate.
+    #[inline] pub fn composed_object_layout_ref(&self) -> Option<&ObjectLayout> {
+        self.cold.as_ref().and_then(|c| c.composed_object_layout.as_deref())
+    }
     /// add-struct-heap-inline (P3b, D1-a): total `(struct_bytes_len, struct_refs_len)`
     /// for an instance of this class — the size of the inline value-struct byte
     /// region + the reference side-table `ScriptObject` must allocate. `(0, 0)`

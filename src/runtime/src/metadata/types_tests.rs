@@ -183,6 +183,109 @@ fn inline_object_field_roundtrips_and_is_traced() {
     assert_eq!(visited, 1, "trace_children visits the byte-inlined object ref");
 }
 
+/// The sweep's edge-breaking half, at the unit level. `clear_inline_refs` is what stops a
+/// dead object from holding its `bytes`-inlined children — the side-table `refs` are nulled
+/// by the caller, but an inlined pointer lives in `bytes` and needs its own erase.
+///
+/// **perf-cheap-dead-edge-break (2026-09-12)**: this used to `collect()` the offsets into a
+/// `Vec<u32>` before writing, on the stated grounds of releasing a borrow — `type_desc` and
+/// `storage` are disjoint fields, so there was no borrow to release, and the minor sweep paid
+/// a malloc/free for every dead object (710 080 per `z42c.semantics` build, **51.0 ms → 18.5
+/// ms** of `minor/tomb objects` once removed). The rewrite has to keep answering this test.
+#[test]
+fn clear_inline_refs_erases_every_inlined_pointer() {
+    use crate::metadata::types::{ObjectLayout, InlineRef, FieldAccess, TypeDescCold, TAG_OBJECT};
+
+    // `class Holder { object child; }` — the same shape as the round-trip test above.
+    let layout = Arc::new(ObjectLayout {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+        inline_refs:   Box::new([InlineRef { offset: 0, is_array: false }]),
+        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+    });
+    let holder_td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Holder".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+
+    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0, 0))));
+    let holder = GcRef::new(ScriptObject::new(holder_td, crate::metadata::types::ObjStorage::new(8, 0)));
+    holder.borrow_mut().set_field_value(0, &leaf);
+
+    let hv = Value::Object(holder.clone());
+    let mut before = 0usize;
+    hv.trace_children(&mut |v: &Value| if matches!(v, Value::Object(_)) { before += 1; });
+    assert_eq!(before, 1, "the edge exists before the erase");
+
+    holder.borrow_mut().clear_inline_refs();
+
+    let mut after = 0usize;
+    hv.trace_children(&mut |v: &Value| if matches!(v, Value::Object(_)) { after += 1; });
+    assert_eq!(after, 0, "clear_inline_refs breaks the byte-inlined edge");
+    assert!(matches!(holder.borrow().field_value(0), Value::Null), "the window reads back Null");
+}
+
+/// An inline-ref offset that does not fit in `bytes` is **skipped, not panicked on**. The
+/// bound belongs to the erase itself: a `TypeDesc` can outlive the storage shape it was
+/// composed for (a synthesized / Rust-constructed instance with a shorter `bytes`), and the
+/// sweep runs this on every dead object of the type.
+#[test]
+fn clear_inline_refs_skips_an_offset_past_the_payload() {
+    use crate::metadata::types::{ObjectLayout, InlineRef, FieldAccess, TypeDescCold, TAG_OBJECT};
+
+    let layout = Arc::new(ObjectLayout {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+        // Offset 64 against a 8-byte payload: out of range on purpose.
+        inline_refs:   Box::new([InlineRef { offset: 64, is_array: false }]),
+        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+    });
+    let td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Short".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+
+    let obj = GcRef::new(ScriptObject::new(td, crate::metadata::types::ObjStorage::new(8, 0)));
+    obj.borrow_mut().clear_inline_refs(); // must not panic
+    assert_eq!(obj.borrow().bytes().len(), 8, "payload untouched");
+}
+
+/// The borrowed layout accessor and the `Arc`-cloning one must never drift apart — the
+/// borrowed twin exists only to save the atomic pair, not to answer a different question.
+#[test]
+fn composed_object_layout_ref_matches_the_cloning_twin() {
+    let td = dummy_type_desc("Plain");
+    assert_eq!(
+        td.composed_object_layout_ref().map(|l| l as *const _),
+        td.composed_object_layout().as_deref().map(|l| l as *const _),
+        "both accessors answer with the same layout (or both with None)"
+    );
+}
+
 #[test]
 fn struct_array_backing_roundtrip_and_gc_refs() {
     use crate::metadata::types::*;
