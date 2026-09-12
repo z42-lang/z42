@@ -148,6 +148,13 @@ pub(super) fn obj_new(
                 Some(super::exec_function(ctx, module, lazy_ctor.as_ref(), &ctor_args)?)
             }
             None => {
+                // 站点 ③ fix-silent-symbol-resolution：带实参却解析不到构造器 = 定案缺失，
+                // 不能照常把「未经构造」的对象写进 dst（字段全零值，错误现场离根因十万八千里）。
+                if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
+                    ctx, module, class_name, ctor_name, args.len(),
+                ) {
+                    return Ok(Some(exc));
+                }
                 crate::metadata::resolver::ctorless_note(ctorless_mark, mark);
                 None
             }

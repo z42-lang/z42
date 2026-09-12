@@ -83,8 +83,7 @@ pub fn verify_static_field(
     };
     match lookup_static_field_tag(ctx, module, &td, name) {
         Err(()) => StaticNullVerdict::Ok,        // 基类链没走通 → 不下结论
-        Some_tag @ Ok(Some(_)) => {
-            let tag = match Some_tag { Ok(Some(t)) => t, _ => unreachable!() };
+        Ok(Some(tag)) => {
             // fix-static-value-field-null-slot：值类型静态字段无初始化器时槽位停在 `Null`
             // （`resize_with(|| Value::Null)` 只填 Null，没人按声明类型零初始化）⇒
             // `static int N;` 一读就崩在 `__box_prim: expected integer value, got Null`。
@@ -101,4 +100,39 @@ pub fn verify_static_field(
             format!("static field `{field_fq}` is not declared on type `{owner}`"),
         )),
     }
+}
+
+// ── 站点 ③：ObjNew 的构造器解析不到 ─────────────────────────────────────────
+
+/// `ObjNew` 的 ctor 名在合并模块和惰性加载器里都解析不到时的裁决。
+/// `Some(exc)` = 确定不存在，抛之；`None` = 无法证明有问题，照常走「无 ctor」路径
+/// （对象已零初始化）。
+///
+/// # 判据为什么是「有没有实参」
+///
+/// z42c 对**没有构造器**的类照样发射 `ObjNew`，ctor 键取裸类名（`Demo.Point.Point`）——
+/// 而这与**单构造器**的 primary 裸键（`stabilize-instance-dispatch-keys`）**同形**。
+/// 也就是说运行时**无法**从名字本身区分「这个类没有构造器」和「构造器应该在但不见了」。
+/// 另有 `IrLoopAllocReuse` 的裸分配（ctor 名为空串）也走这条路。
+///
+/// 唯一可证的事实是：**没有构造器的类不可能接受实参**。所以 `argc > 0` 且全路径解析不到
+/// ⇒ 必然是「本该存在的构造器不见了」（依赖包版本 skew 的典型形态），定案报错。
+///
+/// # 残留缺口（已知、有意保留）
+///
+/// `argc == 0` 时无法区分「本来就无 ctor」与「`C()` 在旧依赖里不存在」，仍按旧行为默认
+/// 初始化。要补上它得让 TypeDesc 记录「本类声明了哪些构造器」——`build_type_registry`
+/// 目前**显式把构造器排除在 `own_methods` 之外**，那是另一笔（要动元数据的）账。
+pub fn missing_ctor_exception(
+    ctx: &VmContext, module: &Module, class_name: &str, ctor_name: &str, argc: usize,
+) -> Option<crate::metadata::Value> {
+    if argc == 0 { return None; }
+    Some(crate::exception::make_missing_symbol_exception(
+        ctx, module,
+        format!(
+            "constructor `{ctor_name}` of type `{class_name}` could not be resolved \
+             (called with {argc} argument(s)); the loaded package may be older than \
+             the one this code was compiled against"
+        ),
+    ))
 }

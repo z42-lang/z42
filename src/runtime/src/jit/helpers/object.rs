@@ -129,6 +129,14 @@ pub unsafe extern "C" fn jit_obj_new(
             Some(crate::interp::exec_function(vm_ctx, module, callee, &ctor_args))
         } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name) {
             Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
+        } else if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
+            vm_ctx, module, class_name, ctor_name, argc,
+        ) {
+            // 站点 ③ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称——
+            // 带实参却解析不到构造器 = 定案缺失，抛可 catch 的 MissingSymbolException，
+            // 不再把未经构造的对象写进 dst。
+            set_exception(vm_ctx, exc);
+            return 1;
         } else {
             ctorless_note(mark, live); // nothing resolves it — remember for this site
             None // ctor-less type → skip (object already default-initialised)

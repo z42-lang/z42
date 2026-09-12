@@ -1,0 +1,7 @@
+namespace Demo.McskewTarget;
+
+// 「旧版依赖」：类型还在、字段还在，**构造器还没加上**。
+// main 按 target/（新版，有 `Widget(int)`）编译，运行时却加载到这一份。
+public class Widget {
+    public int V;
+}
