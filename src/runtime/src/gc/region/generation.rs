@@ -187,13 +187,34 @@ impl<T> Region<T> {
         }
         let prev = entry.gen_age.fetch_add(1, Ordering::AcqRel);
         let new_age = prev.saturating_add(1);
-        if prev < self.promotion_age && new_age >= self.promotion_age {
+        // Being in `young_list` at all means the entry was young under the line in force
+        // when it was listed, so "this call crosses it" is simply "the new age reaches it".
+        //
+        // **adaptive-promotion (2026-09-12)**: written this way rather than as the old
+        // `prev < age && new_age >= age` because the age can now be *lowered* between
+        // collections, which makes `prev >= age` reachable — the entry was young under the
+        // old line and is already past the new one. Such an entry must leave the young list
+        // on this very sweep (the next mark skips it as old, so staying listed would have
+        // the sweep after that find it unmarked and reclaim a live object), and must still
+        // be reported as newly-old, because its card is what keeps whatever it points at
+        // reachable from then on.
+        if new_age >= self.promotion_age {
             // Transition: young → old. Remove from young_list.
             self.remove_from_young_list(handle.chunk_idx, handle.entry_idx);
             true
         } else {
             false
         }
+    }
+
+    /// **adaptive-promotion (2026-09-12)**: re-point the region at a new promotion age.
+    ///
+    /// Only ever called from the minor sweep, **after** that minor's mark and **before** its
+    /// promotions — the one window where lowering the line is safe, because the mark that
+    /// just ran used the old (wider) line and the promotions about to run will drain
+    /// everything the new line makes old.
+    pub fn set_promotion_age(&mut self, age: u8) {
+        self.promotion_age = age;
     }
 
     /// **add-generational-gc P0 (2026-05-22)**: walk every entry in
@@ -253,6 +274,19 @@ impl<T> Region<T> {
     /// **add-generational-gc P0 (2026-05-22)**: reset all card-dirty
     /// bits. Called at end of minor / major GC so the next minor
     /// cycle starts fresh.
+    /// **adaptive-promotion (2026-09-12)**: mark every card dirty, so the next minor re-roots
+    /// from every old entry.
+    ///
+    /// Exists for one caller: the sweep that lowers the promotion age. The card table is a
+    /// record of old→young edges under one definition of "old", and lowering the line
+    /// changes that definition retroactively — see the call site for what goes wrong without
+    /// it. Costs one minor's worth of full-heap rooting, once.
+    pub fn dirty_every_card(&mut self) {
+        for bits in &mut self.card_dirty {
+            *bits = u32::MAX;
+        }
+    }
+
     pub fn clear_card_dirty(&mut self) {
         for bit in &mut self.card_dirty {
             *bit = 0;

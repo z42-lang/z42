@@ -78,6 +78,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..DEBUG_KNOB
     },
     KnobSpec {
+        name: "Z42_GC_ADAPTIVE_PROMOTION",
+        toml_key: "gc-adaptive-promotion",
+        value: ValueKind::Bool,
+        description: "let the minor sweep lower the promotion age by one tier when that tier is measured to reclaim nothing (survival of the tier below the configured age >= 95%), and restore it when it stops being true; set 0 to pin the configured age",
+        default_hint: "unset; on",
+        consumed_by: "gc/arc_heap/promotion_policy.rs, decided at each minor sweep",
+        ..TUNING
+    },
+    KnobSpec {
         name: "Z42_GC_LOH_BYTES",
         toml_key: "gc-loh-bytes",
         // 同 Z42_GC_MAX_BYTES：接受带单位后缀的写法。

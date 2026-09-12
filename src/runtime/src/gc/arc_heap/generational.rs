@@ -19,6 +19,19 @@ pub(crate) struct MinorSweepResult {
 }
 
 impl crate::gc::arc_heap::ArcMagrGC {
+    /// The heap's current promotion age. A relaxed load: it only changes inside a STW
+    /// sweep, so every reader either sees the whole old value or the whole new one.
+    #[inline]
+    pub(super) fn promotion_age(&self) -> u8 {
+        self.promotion_age.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The age this heap was configured with — the line the adaptive policy lowers *from*.
+    #[inline]
+    pub(super) fn configured_promotion_age(&self) -> u8 {
+        self.configured_promotion_age
+    }
+
     /// **add-generational-gc P2 (2026-05-22)**: read the gen_age of
     /// any `Value`. Returns 0 for primitives + stack refs (irrelevant
     /// to generational dispatch — mark/sweep already handles those).
@@ -63,7 +76,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// dirty-card roots. This bounds minor mark work at O(young +
     /// |dirty-card entries|).
     pub(super) fn mark_phase_minor(&self) -> usize {
-        let threshold = self.promotion_age;
+        let threshold = self.promotion_age();
         let mut queue: Vec<Value> = Vec::new();
 
         // Pinned roots + strong GC handles + external scanner.
@@ -331,7 +344,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if handles.is_empty() { return; }
         let region = self.region_array.lock();
         for &h in handles {
-            region.resolve(h).value.lock().raise_backing_gen_age(self.promotion_age);
+            region.resolve(h).value.lock().raise_backing_gen_age(self.promotion_age());
         }
     }
 
@@ -361,7 +374,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Whether `v` has at least one child the minor GC would consider young. Stops at the
     /// first hit — this runs once per entry that crosses the promotion threshold.
     pub(super) fn refers_to_young(&self, v: &Value) -> bool {
-        let threshold = self.promotion_age;
+        let threshold = self.promotion_age();
         let mut found = false;
         v.trace_children(&mut |child| {
             // fix-primitives-count-as-young (2026-09-11): **this one set the whole card table on
@@ -382,6 +395,36 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut freed_bytes: u64 = 0;
         let mut reclaimed_entries: usize = 0;
         let mut promoted_bytes: u64 = 0;
+        // **adaptive-promotion (2026-09-12)**: this is the one safe window to change the
+        // promotion age — the mark that just ran used the old (never narrower) line, and the
+        // promotions below will drain everything the new line makes old. Apply it to the
+        // heap and to all three regions' cached copies before anything reads it.
+        let configured = self.configured_promotion_age();
+        let threshold = if crate::config::runtime_config().gc_adaptive_promotion {
+            self.promotion_policy.age_for_this_minor(configured)
+        } else {
+            configured
+        };
+        if threshold != self.promotion_age() {
+            self.promotion_age.store(threshold, std::sync::atomic::Ordering::Relaxed);
+            self.region_object.lock().set_promotion_age(threshold);
+            self.region_array.lock().set_promotion_age(threshold);
+            self.region_var.lock().set_promotion_age(threshold);
+            // **Load-bearing, and the whole reason the switch is safe.** The card table
+            // records old→young edges, and the write barrier deliberately records *nothing*
+            // for a young owner (a young owner is found by scanning the young generation).
+            // Lowering the line reclassifies a whole cohort as old, and every edge those
+            // entries wrote while they counted as young is an old→young edge that no card
+            // covers. Re-dirty everything so the next minor rediscovers them.
+            //
+            // Measured: without this, `xtask build stdlib` reclaims live
+            // `Z42.Semantics.MethodSymbol`s and z42c reports `E0401: no method` on a type
+            // whose methods it had just bound. With it, green — and the cost is one minor
+            // that re-roots from every old entry, once per process.
+            self.region_object.lock().dirty_every_card();
+            self.region_array.lock().dirty_every_card();
+        }
+        let observed_age = self.promotion_policy.observed_age(configured);
 
         // Object region
         let scan_objects = PhaseTimer::start("minor/scan objects");
@@ -390,6 +433,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         {
             let region = self.region_object.lock();
             region.iterate_young(|h, entry| {
+                if entry.gen_age() == observed_age {
+                    self.promotion_policy.observe(entry.is_marked());
+                }
                 if entry.is_marked() {
                     entry.clear_mark();
                     survivors_object.push(h);
@@ -465,6 +511,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         {
             let region = self.region_array.lock();
             region.iterate_young(|h, entry| {
+                if entry.gen_age() == observed_age {
+                    self.promotion_policy.observe(entry.is_marked());
+                }
                 if entry.is_marked() {
                     entry.clear_mark();
                     survivors_array.push(h);
@@ -546,6 +595,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
             self.region_array.lock().reclaim_dead_chunks();
             self.region_var.lock().reclaim_dead_var_chunks();
         }
+        let (live, total, lowered) = self.promotion_policy.snapshot();
+        crate::gc::phase_timer::note(format_args!(
+            "promotion  age {threshold}  tier {observed_age} survived {live}/{total}  lowered {lowered}"));
+        self.promotion_policy.settle();
         self.promoted_bytes_since_major
             .fetch_add(promoted_bytes, std::sync::atomic::Ordering::Relaxed);
         MinorSweepResult { freed_bytes, reclaimed_entries, promoted_bytes }
@@ -728,14 +781,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         // Only old→young triggers a card. Young→young is in-young
         // scan already; old→old won't reach young.
-        if new_age >= self.promotion_age {
+        if new_age >= self.promotion_age() {
             return;
         }
         match owner {
             // add-boxed-struct-identity (P4b): a boxed struct owner is a region_object
             // entry too (reflection SetValue writes a ref leaf into its struct_refs).
             Value::Object(gc) | Value::BoxedStruct(gc) => {
-                if GcRef::gen_age(gc) < self.promotion_age { return; }
+                if GcRef::gen_age(gc) < self.promotion_age() { return; }
                 // owner is old; mark its chunk in region_object dirty.
                 let entry_ptr = gc.entry_ptr();
                 // SAFETY: entry pointer valid for GcRef lifetime.
@@ -746,7 +799,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             }
             Value::Array(gc) => {
-                if GcRef::gen_age(gc) < self.promotion_age { return; }
+                if GcRef::gen_age(gc) < self.promotion_age() { return; }
                 let entry_ptr = gc.entry_ptr();
                 let entry = unsafe { entry_ptr.as_ref() };
                 let (ci, ei) = entry.location;

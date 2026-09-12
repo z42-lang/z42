@@ -342,6 +342,11 @@ pub struct ArcMagrGC {
     /// (only `ArrayValue` blocks need a finalizer; closures/strings/packed arrays are POD leaves
     /// since PR-5). Swept alongside `region_object` / `region_array`.
     region_var: Mutex<VarRegion>,
+    /// **adaptive-promotion (2026-09-12)**: whether a survivor one tier short of promotion
+    /// should be promoted now rather than spend another collection being re-marked. Decided
+    /// per minor from the survival rate of the tier it would skip — see
+    /// [`promotion_policy`](super::arc_heap::promotion_policy) for the measurements.
+    promotion_policy: promotion_policy::PromotionPolicy,
     /// **add-concurrent-gc P2 (2026-05-22)**: gray-object queue for the
     /// concurrent mark path. Populated by (1) the STW root snapshot at
     /// the start of a concurrent collect, (2) the write-barrier
@@ -435,10 +440,18 @@ pub struct ArcMagrGC {
     /// collection it wants; the deferred safepoint path only knows "collect".
     pending_major: std::sync::atomic::AtomicBool,
     /// **add-promotion-age-knob (2026-09-08)**: minor GCs an entry must survive before it is
-    /// promoted. Read once from `Z42_GC_PROMOTION_AGE` at construction (see
-    /// `construct.rs`) and never changed — a plain `u8`, so the write barrier's cross-gen
-    /// check stays a field read rather than a global lookup.
-    promotion_age: u8,
+    /// promoted. Seeded from `Z42_GC_PROMOTION_AGE` at construction (see `construct.rs`).
+    ///
+    /// **adaptive-promotion (2026-09-12)**: no longer fixed — the minor sweep lowers it when
+    /// the tier it would drop is measured to reclaim nothing, and restores it otherwise (see
+    /// [`promotion_policy`](arc_heap::promotion_policy)). Still a field rather than a config
+    /// lookup, so the write barrier's cross-gen check stays one relaxed load; and it only
+    /// ever changes inside a STW sweep, so no mutator can observe it mid-write.
+    promotion_age: std::sync::atomic::AtomicU8,
+    /// The age [`promotion_age`](Self::promotion_age) was configured with, kept because the
+    /// adaptive policy needs a fixed line to reason against — it lowers *by one tier from
+    /// the configured age*, never by one tier from wherever it drifted to last.
+    configured_promotion_age: u8,
     /// **arm-gc-by-default (2026-09-09)**: the `used_bytes` reading at which the auto-collect
     /// policy wants to be consulted again — Mono SGen's `major_collection_trigger_size`.
     ///
@@ -538,6 +551,7 @@ mod auto_collect;
 mod collect;
 mod control;
 mod generational;
+mod promotion_policy;
 mod roots;
 mod observe;
 mod interface;
