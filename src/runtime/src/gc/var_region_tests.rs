@@ -678,8 +678,9 @@ fn pooling_records_the_entries_it_staled() {
 #[test]
 fn a_stale_free_entry_is_never_handed_out() {
     let mut r = region_with_pooled_chunks();
-    let stale: std::collections::HashSet<_> =
-        r.free_lists.iter().flatten().map(|p| p.as_ptr() as usize).collect();
+    let stale: std::collections::HashSet<_> = r.free_lists.iter().flatten()
+        .map(|slot| r.chunks[slot.chunk()].base.as_ptr() as usize + slot.offset())
+        .collect();
     assert!(!stale.is_empty());
 
     // Allocate the same class hard enough to drain the (entirely stale) list and re-bump the
@@ -947,4 +948,59 @@ fn the_per_chunk_census_matches_a_full_scan() {
     }
     assert_eq!(r.live_per_chunk_for_test(), truth_live, "live census drifted");
     assert_eq!(r.blocks_per_chunk_for_test(), truth_blocks, "block census drifted");
+}
+
+// ---------------------------------------------------------------------------------------
+// perf-free-slot-encoding (2026-09-13): a free-list entry names its slot as
+// `(chunk index, in-chunk offset)` instead of pointing at it, so the staleness test never
+// dereferences a block header.
+// ---------------------------------------------------------------------------------------
+
+/// The encoding is only allowed to exist because it is lossless: `pop_free_slot` rebuilds the
+/// header pointer from it, and an off-by-anything would hand out a slot straddling two blocks.
+/// Covers both ends of every field — the widest offset a bump chunk can hold and the widest
+/// chunk index the four bytes can name.
+#[test]
+fn a_free_slot_round_trips_every_position_it_can_name() {
+    let widest_off = chunk::CHUNK_BYTES - 8;
+    for &ci in &[0usize, 1, 4095, chunk::FREE_MAX_CHUNK] {
+        for &off in &[0usize, 8, 1024, widest_off] {
+            let slot = chunk::FreeSlot::pack(ci, off).expect("in range");
+            assert_eq!(slot.chunk(), ci, "chunk index survives packing (off {off})");
+            assert_eq!(slot.offset(), off, "offset survives packing (chunk {ci})");
+        }
+    }
+}
+
+/// Past the representable chunk range the entry is **dropped**, not truncated: a truncated one
+/// would name a different chunk and let `pop` hand out a live block's memory. Losing it costs
+/// one slot reuse — the space still comes back when the chunk itself dies.
+#[test]
+fn a_free_slot_is_refused_rather_than_truncated_out_of_range() {
+    assert!(chunk::FreeSlot::pack(chunk::FREE_MAX_CHUNK + 1, 0).is_none());
+    assert!(chunk::FreeSlot::pack(usize::MAX, 0).is_none());
+}
+
+/// The end-to-end property the encoding has to preserve: a tombstoned slot comes back out of
+/// its free list at **its own address**. Before the encoding the entry was that address; now it
+/// is rebuilt from `chunks[ci].base + offset`, so this is what would catch a wrong base or a
+/// shifted offset.
+#[test]
+fn a_recycled_slot_comes_back_at_its_own_address() {
+    let mut r = VarRegion::new();
+    // One chunk's worth, so nothing gets pooled underneath us — these slots stay valid and
+    // must be handed straight back.
+    let handles: Vec<_> = (0..16).map(|_| r.alloc(1024, BlockType::Str)).collect();
+    let addrs: std::collections::HashSet<_> = handles
+        .iter()
+        .map(|h| unsafe { h.header_ptr() }.as_ptr() as usize)
+        .collect();
+    for h in &handles {
+        assert!(r.tombstone(*h), "every block is live and tombstones once");
+    }
+
+    let reused: std::collections::HashSet<_> = (0..16)
+        .map(|_| unsafe { r.alloc(1024, BlockType::Str).header_ptr() }.as_ptr() as usize)
+        .collect();
+    assert_eq!(reused, addrs, "recycling must hand back exactly the slots it took");
 }
