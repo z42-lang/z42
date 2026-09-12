@@ -1,0 +1,18 @@
+using Std.IO;
+
+// 触发点：创建实例。
+// ⚠️ 这个用例曾抓到一个真 bug：静态 ctor 与**无参实例 ctor** 的 RegKey 都是 `C$0`，
+// `new C()` 查 0 参构造器时命中静态 ctor 并把它当实例构造器又跑一遍 → cctor 体打印
+// 两次，违反「至多一次」。修法是给静态 ctor 独立发射名 `$cctor`。
+// 故本用例同时是「至多一次」的回归门。
+class C {
+    public static int V = 1;
+    public int Inst;
+    static C() { Console.WriteLine("cctor ran"); C.V = 42; }
+}
+
+void Main() {
+    Console.WriteLine("before");
+    C c = new C();
+    Console.WriteLine(C.V);
+}

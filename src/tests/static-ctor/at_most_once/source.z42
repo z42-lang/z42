@@ -1,0 +1,15 @@
+using Std.IO;
+
+// 至多一次：多个触发点反复触达同一类型，cctor 只跑一遍。
+class C {
+    public static int V = 0;
+    static C() { Console.WriteLine("cctor ran"); C.V = 7; }
+    public static int Get() { return C.V; }
+}
+
+void Main() {
+    Console.WriteLine(C.V);     // 触发（静态字段读）
+    Console.WriteLine(C.Get()); // 再触发（静态方法调用）
+    C.V = C.V + 1;              // 再触发（静态字段写）
+    Console.WriteLine(C.V);
+}
