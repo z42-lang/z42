@@ -2,6 +2,8 @@
 namespace Z42NetHttpKeepAliveTests;
 
 using Std;
+using Std.IO;      // Stream（_readOneRequest 的参数类型）—— 此前漏写，旧的单文件
+                   // `--emit-zbc` 编译路径没判出来；改由 z42b 按包编译后 E0436 逮到。
 using Std.Test;
 using Std.Threading;
 using Std.Net.Sockets;
