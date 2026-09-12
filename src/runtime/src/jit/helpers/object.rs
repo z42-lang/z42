@@ -345,6 +345,16 @@ pub unsafe extern "C" fn jit_static_get(
             .unwrap_or("<invalid>");
         vm.static_get(field)
     };
+    // fix-silent-symbol-resolution（站点 ①）：与 interp 对称——读到 Null 才确证。
+    if matches!(v, crate::metadata::Value::Null) {
+        let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
+            .unwrap_or("");
+        let module = &*(*_ctx).module;
+        if let Some(exc) = crate::vm_context::symres::verify_static_field(vm, module, field) {
+            set_exception(vm, exc);
+            return 1;
+        }
+    }
     (*frame).regs[dst as usize] = v;
     0
 }

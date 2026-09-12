@@ -410,6 +410,13 @@ pub(super) fn static_get(
         Some(id) => ctx.static_get_by_id(crate::metadata::tokens::StaticFieldId(id)),
         None     => ctx.static_get(field),
     };
+    // fix-silent-symbol-resolution（站点 ①）：读到 Null 才确证该字段是否真的声明过。
+    // 不能用「读到 Null 就报错」——Null 本身是合法值（未赋值的引用型静态字段就是 Null）。
+    if matches!(v, Value::Null) {
+        if let Some(exc) = crate::vm_context::symres::verify_static_field(ctx, module, field) {
+            return Ok(Some(exc));
+        }
+    }
     frame.set(dst, v);
     Ok(None)
 }
