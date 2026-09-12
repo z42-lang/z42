@@ -123,7 +123,21 @@ impl<T> Drop for RegionEntry<T> {
 ///
 /// (An older comment claimed `Z42_GC_TENURE` configured it — that env var never existed
 /// anywhere in the repo.)
-pub const PROMOTION_THRESHOLD: u8 = 2;
+/// **retune-gc-nursery-and-promotion-age (2026-09-11)**: 2 → **3**, in the same breath as
+/// `DEFAULT_NURSERY_BYTES` 32M → 16M — see that constant for the measurements. The two move
+/// together on purpose: a minor promotes whatever survives it, so halving the nursery halves
+/// how much allocation an object must outlive to be promoted, and objects that would have died
+/// young end up in the old generation where only a major can reclaim them. Raising the age is
+/// the direct cure, and without it the smaller nursery **doubled** peak RSS on `12_gc_churn`
+/// (198 → 405 MB); with it that rung reads 142 MB.
+///
+/// ⚠️ **3 is the ceiling.** `gen_age` is packed into two spare bits of
+/// `GcBlockHeader::type_tag` (`var_region::MAX_GEN_AGE`), and `var_region.rs` static-asserts
+/// `PROMOTION_THRESHOLD <= MAX_GEN_AGE`. So the default now sits at the top of the knob's
+/// range: `Z42_GC_PROMOTION_AGE` can still be lowered, but no longer raised. Going higher
+/// needs the age to find more room — `size_class` has one spare bit (its largest index is 64),
+/// or the header grows, which costs far more than it sounds (see `chunk::class_for`).
+pub const PROMOTION_THRESHOLD: u8 = 3;
 
 impl<T> RegionEntry<T> {
     /// Test / transitional constructor used by `GcRef::new` for

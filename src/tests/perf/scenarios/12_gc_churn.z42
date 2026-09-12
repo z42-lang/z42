@@ -1,0 +1,97 @@
+// E2E benchmark scenario: 分代 GC 的**真实流失形状**（add-gc-churn-scenario, 2026-09-11）。
+//
+// 为什么需要这个 scenario：**这棵树里没有一个 benchmark 会让 GC 真正回收东西。**
+// `09_alloc_ctorless` 分配得很凶，但它把每个新对象链到自己要覆盖的那个上
+// （`x.Next = live[slot]`），于是整段历史都还活着 —— 实测**每次回收 0 字节**。
+// 其余 scenario 要么太小、一次回收都不触发（`07_string_heavy` / `08_dict_heavy`），
+// 要么根本不分配。结果是 GC 的停顿、晋升、卡表、清扫这些代价在 bench 门禁里
+// **完全没有代表性负载**：fix-futile-backoff-stretches-nursery 那个缺陷让
+// `z42c.semantics` 的 p90 停顿涨了 74%，而整个 bench 套件对此一无所知。
+//
+// 这个 scenario 补的就是那一块，形状照着**分代假说**造：
+//
+//   ① 短命（~87%）—— 分配完立刻不可达，minor 该把它们整片扫掉；
+//   ② 中年（~12%）—— 进一个环形缓冲，被覆盖后成垃圾。它们熬过头几次 minor、
+//      被晋升到老年代，然后**死在老年代里** —— 这是唯一能让 major 有活干的形状；
+//   ③ 长寿（~0.02%）—— 整轮存活，且对它们的写是**老→新**，走写屏障置卡。
+//
+// 三个数组都**预先填满**，循环里只做覆盖，所以不需要 null 语义、也不会有
+// 「第一次覆盖前那一格是空的」这种分支噪声。
+//
+// ⚠️ 改这个文件前先读上面第二段：`Link` 的赋值方向是这个 scenario 的全部意义所在。
+// 把 `m.Link = t`（老指新，置卡）写反成 `t.Link = m`（新指老，不置卡），或者学
+// `09_alloc_ctorless` 把旧值链进新对象，都会让流失率塌成 0、这个 scenario 退化成
+// 又一个「什么都不回收」的分配循环。
+//
+// Expected output (deterministic): 144151352
+//
+// tier: gate — 唯一让 GC 真正回收的负载：守停顿 / 晋升 / 卡表 / 清扫
+namespace Bench.GcChurn;
+
+using Std.IO;
+
+class Obj {
+    public int A;
+    public long B;
+    public Obj Link;
+}
+
+long Drive(long n, int ringSize, int permSize) {
+    // ③ 长寿：整轮存活，先填满。
+    Obj[] perm = new Obj[permSize];
+    int k = 0;
+    while (k < permSize) {
+        Obj p = new Obj();
+        p.A = 1;
+        perm[k] = p;
+        k = k + 1;
+    }
+    // ② 中年：环形缓冲，先填满；循环里被覆盖的那个就此成垃圾。
+    Obj[] ring = new Obj[ringSize];
+    k = 0;
+    while (k < ringSize) {
+        Obj r = new Obj();
+        r.A = 2;
+        ring[k] = r;
+        k = k + 1;
+    }
+
+    long acc = 0L;
+    long i = 0L;
+    while (i < n) {
+        // ① 短命：绝大多数分配到这里就结束了。
+        Obj t = new Obj();
+        t.A = (int)(i % 97L);
+        t.B = i;
+        acc = acc + (long)t.A;
+
+        if (i % 8L == 0L) {
+            // ② 中年：新对象进环，把那一格的旧对象顶成垃圾。
+            //    `m.Link = t` 是**老→新**的写：等 m 被晋升之后，这条边就是卡表
+            //    存在的理由（见文件头 ⚠️）。
+            Obj m = new Obj();
+            m.A = 3;
+            m.B = i;
+            m.Link = t;
+            ring[(int)((i / 8L) % (long)ringSize)] = m;
+        }
+
+        if (i % 65536L == 0L) {
+            // ③ 长寿对象指向一个刚出生的年轻对象 —— 老→新写屏障的主路径。
+            perm[(int)((i / 65536L) % (long)permSize)].Link = t;
+        }
+        i = i + 1L;
+    }
+
+    // 汇总两个数组，防止任何一段被 DCE 掉。
+    k = 0;
+    while (k < ringSize) { acc = acc + (long)ring[k].A; k = k + 1; }
+    k = 0;
+    while (k < permSize) { acc = acc + (long)perm[k].A; k = k + 1; }
+    return acc;
+}
+
+void Main() {
+    long result = Drive(3000000L, 48000, 8000);
+    Console.WriteLine(result.ToString());
+}

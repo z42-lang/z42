@@ -1,6 +1,9 @@
 # GC 调参与自动回收 / safepoint 协议
 
 > 对齐：2026-09-11（按 change 倒序）：
+> `retune-gc-nursery-and-promotion-age` nursery 32M→16M + 晋升年龄 2→3（p90 停顿 −40%～−45%、
+> 峰值 RSS −5%～−23%），并补上全树唯一「会真正回收」的 perf scenario `12_gc_churn` ——
+> 新增「nursery 与晋升年龄是一对 —— 过早晋升」一节；
 > `fix-futile-backoff-stretches-nursery` 收窄「徒劳」的判据（只剩 `FUTILE_DIVISOR` 一档）——
 > p90 停顿 −43%、峰值 RSS −24%，新增「「回收得少」不等于「徒劳」」一节；
 > `add-gc-phase-timing` 新增 `Z42_GC_PHASES`（把一次停顿拆成各阶段的耗时），新增「诊断旋钮」一节；
@@ -40,9 +43,9 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_NEAR_LIMIT_RATIO` | 0.90 | heap-used 达 max-bytes 上限的此比率 → 触发自动回收 + 发 `NearHeapLimit` 事件 | `arc_heap/auto_collect.rs`、`arc_heap/alloc.rs` |
 | `Z42_GC_PRESSURE_RATIO` | 0.75 | heap-used 落在 `[pressure, near)` 区间 → 发 `AllocationPressure` 事件（应低于 near-limit 比率） | `arc_heap/alloc.rs` |
 | `Z42_GC_THROTTLE_RATIO` | 0.10 | ⚠️ **已不参与自动回收的触发**（arm-gc-by-default 把闸门换成了相对余量）；保留供未来的去抖策略使用 | — |
-| `Z42_GC_PROMOTION_AGE` | 2 | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
+| `Z42_GC_PROMOTION_AGE` | **3** | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。默认值就是上界 ⇒ **只能调低、不能调高**。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
-| `Z42_GC_NURSERY_BYTES` | 32M | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮 | `arc_heap/auto_collect` |
+| `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect` |
 | `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不再是武装开关**（arm-gc-by-default）：设了只压回收余量并加一个近上限触发 | `arc_heap/auto_collect` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
@@ -90,6 +93,41 @@ major 打的是另一组名字：`reset marks` / `full mark` / `sweep` 的四个
 这套打点此前是「用时手打、量完删掉」的临时补丁，进出四次（#565 / #566 / #569 / #570 的定位
 全靠它）。固定下来是因为**它每次都是定位的第一步**，而重打一遍的成本远高于让它常驻——
 常驻的代价只有「关掉时每阶段一个 `Option` 判断」。
+
+## nursery 与晋升年龄是一对 —— 过早晋升
+
+`Z42_GC_NURSERY_BYTES` 是「买停顿上界」的那个旋钮：一次 minor 只扫年轻代，所以 nursery 多大、
+minor 的停顿就多大。直觉上把它调小应该同时省停顿和省内存 —— **后半句会反过来**，除非同时
+动晋升年龄。
+
+> minor 会把熬过它的东西晋升。nursery 减半 ⇒ 一个对象只要多活一半的分配量就会被晋升 ⇒
+> 本来该死在年轻代的对象被搬进老年代，而那里只有 major 能回收 —— 在一个「对象都死得早」的
+> 负载上，major 可能**根本不会跑**。
+
+实测 `12_gc_churn`：同样扫约 390 万个对象，nursery 16M / 年龄 2 时晋升 **1 326 948 个（33.6%）**，
+32M / 年龄 2 时只有 **684 444 个（17.9%）** —— 峰值 RSS 因此从 198 MB **涨到** 405 MB。
+把年龄提到 3，同一档变成 **142 MB**，比原来的 32M 默认还低。
+
+这就是 2026-09-11 `retune-gc-nursery-and-promotion-age` 把两个默认值**一起**改掉的原因：
+nursery 32M→16M、晋升年龄 2→3。三个负载、两个二进制、各三跑：
+
+| | `09_alloc_ctorless` 墙钟 | `12_gc_churn` RSS / p90 | `z42c.semantics` 墙钟 / RSS / p90 |
+|---|---|---|---|
+| 32M 年龄2（旧默认） | 0.38 s | 184 MB / 29.7 ms | 7.00 s / 628 MB / 23.6 ms |
+| 24M 年龄3 | 0.36 s | 186 MB / 21.0 ms | 6.91 s / 617 MB / 18.0 ms |
+| **16M 年龄3（现默认）** | 0.45 s | **142 MB / 16.4 ms** | 7.19 s / **595 MB / 14.1 ms** |
+
+停顿 p90 降 40%–45%、峰值 RSS 降 5%–23%，代价是墙钟 +2.7%～3.3%，以及：
+
+**`09_alloc_ctorless` 墙钟回归约 18%，是有意接受的。** 它是 100% 存活的病理形状 —— 分配的
+东西一个都不死，所以每次回收都是白干，而 nursery 变小让它在徒劳退避饱和之前多塞进一次回收
+（24M 下 2 次、16M 下 3 次）。24M 能躲开这一下、且在每个负载上都小赚；16M 付掉它、换来
+其余负载上大约两倍的停顿收益。这条线是停顿线，而那个回归发生在一个「回收本来就不可能有用」
+的合成负载上。
+
+> 给自己的负载调 nursery 时，**别只看停顿**。把 `Z42_GC_PHASES=1` 打开看
+> `minor/promote objects` 的条目数：如果调小 nursery 之后它明显变大，你买到的停顿是拿
+> 老年代的内存换的 —— 那就该把 `Z42_GC_PROMOTION_AGE` 一起调上去（上界 3）。
 
 ## 「回收得少」不等于「徒劳」
 
