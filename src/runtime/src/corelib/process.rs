@@ -306,10 +306,18 @@ pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         buf
     }));
 
-    let (status, timed_out) = wait_with_optional_timeout(&mut child, timeout_ms, own_process_group)?;
-
-    let out = stdout_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
-    let err = stderr_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
+    // fix-blocking-native-calls-round2：等子进程期间让出 GC safepoint —— 子进程跑多久就阻塞多久，
+    // 不 park 的话另一个线程发起 GC 会永远等不到本线程（同 #598 的网络七处）。
+    // xtask / z42b 一直在 spawn 子进程并等待，是这条最密集的使用者。
+    // 两个读线程的 join 同样是阻塞的，一并纳入 park 区间；park 在回到 VM（会分配）之前结束。
+    let (status, timed_out, out, err) = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        let (status, timed_out) =
+            wait_with_optional_timeout(&mut child, timeout_ms, own_process_group)?;
+        let out = stdout_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
+        let err = stderr_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
+        (status, timed_out, out, err)
+    };
 
     if timed_out {
         return Ok(timeout_result(ctx, &program, timeout_ms));
@@ -492,6 +500,8 @@ pub fn builtin_process_handle_wait(ctx: &VmContext, args: &[Value]) -> Result<Va
     // Read concurrently on background threads to avoid pipe-full
     // deadlocks while we block in wait(). One-or-zero pipes can stay
     // synchronous (read after wait).
+    // fix-blocking-native-calls-round2：整段（wait + 两个读线程 join）都在阻塞，全部让出 safepoint。
+    let _park = crate::gc::NativeParkGuard::enter(ctx);
     let (status, out, err) = match (stdout, stderr) {
         (Some(o), Some(e)) => {
             let h_o = std::thread::spawn(move || {
@@ -517,6 +527,8 @@ pub fn builtin_process_handle_wait(ctx: &VmContext, args: &[Value]) -> Result<Va
             (status, out, err)
         }
     };
+    // park 必须在回到 VM（会分配）之前结束 —— parked 期间不得 mutate 根 / 分配。
+    drop(_park);
     Ok(ok_result(ctx, status, out, err))
 }
 

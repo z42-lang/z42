@@ -12,6 +12,12 @@ pub fn builtin_net_tcp_connect(ctx: &VmContext, args: &[Value]) -> Result<Value>
     let port = require_port(args, 1, NAME)?;
 
     let addr = format!("{}:{}", host, port);
+    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
+    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
+    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
+    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
+    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
+    let _park = crate::gc::NativeParkGuard::enter(ctx);
     match TcpStream::connect(&addr) {
         Ok(stream) => {
             let slot_id = ctx.alloc_tcp_socket_slot(stream);
@@ -58,7 +64,12 @@ pub fn builtin_net_tcp_accept(ctx: &VmContext, args: &[Value]) -> Result<Value> 
         return Ok(handle_invalid(ctx));
     };
 
-    let accept_result = listener.accept();
+    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
+    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
+    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
+    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
+    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
+    let accept_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); listener.accept() };
     // Put listener back so subsequent Accept calls work.
     ctx.core.tcp_listeners.lock().insert(slot_id, listener);
 
@@ -96,7 +107,12 @@ pub fn builtin_net_tcp_socket_read(ctx: &VmContext, args: &[Value]) -> Result<Va
     };
 
     let mut tmp = vec![0u8; count];
-    let read_result = stream.read(&mut tmp);
+    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
+    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
+    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
+    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
+    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
+    let read_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); stream.read(&mut tmp) };
 
     ctx.core.tcp_sockets.lock().insert(slot_id, stream);
 
@@ -153,7 +169,12 @@ pub fn builtin_net_tcp_socket_write(ctx: &VmContext, args: &[Value]) -> Result<V
         return Ok(handle_invalid(ctx));
     };
 
-    let write_result = stream.write_all(&tmp).map(|_| count);
+    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
+    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
+    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
+    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
+    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
+    let write_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); stream.write_all(&tmp).map(|_| count) };
 
     ctx.core.tcp_sockets.lock().insert(slot_id, stream);
 

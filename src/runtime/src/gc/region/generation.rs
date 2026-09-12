@@ -217,6 +217,93 @@ impl<T> Region<T> {
         self.promotion_age = age;
     }
 
+    /// **one-pass-minor-sweep (2026-09-12)**: the whole of a minor's work on this region, in
+    /// **one** walk of `young_list`.
+    ///
+    /// It replaces a scan → promote → tombstone pipeline that staged its two outcomes in
+    /// `Vec`s between the phases, because `iterate_young` hands out `&self` while promoting
+    /// and tombstoning need `&mut self`. Taking the list out of `self` dissolves that
+    /// conflict — the same move #592 made for `VarRegion` — and the staging goes away:
+    ///
+    /// - the survivors **are** the new `young_list`, written in place as they are found
+    ///   (with their `young_idx` back-pointers, so #519's O(1) removal still holds);
+    /// - the dead are tombstoned where they are judged, instead of through a
+    ///   `Vec<(handle, finalizer, size)>` — **24 bytes an entry, 626 598 entries a build** on
+    ///   `z42c.semantics`, pushed and read back;
+    /// - promotion no longer re-takes the region lock per survivor, nor `swap_remove`s each
+    ///   promoted entry out of the list (the rebuild covers it).
+    ///
+    /// `prepare_dead` is the caller's business with a dying entry — its size estimate,
+    /// breaking its reference edges, taking its finalizer — and runs with the entry still
+    /// readable, before the tombstone. The finalizer runs after it, as before.
+    pub fn sweep_young_in_one_pass(
+        &mut self,
+        observed_age: u8,
+        mut observe: impl FnMut(bool),
+        mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
+    ) -> MinorRegionSweep {
+        let mut out = MinorRegionSweep::default();
+        let threshold = self.promotion_age;
+        // Owning the list is what makes `&mut self` available inside the loop.
+        let mut young = std::mem::take(&mut self.young_list);
+        let mut w = 0usize;
+
+        for i in 0..young.len() {
+            let (ci, ei) = young[i];
+            if !self.initialized[ci as usize][ei as usize] {
+                continue;
+            }
+            // SAFETY: an initialized slot holds a constructed entry.
+            let entry = unsafe { self.chunks[ci as usize][ei as usize].assume_init_ref() };
+            if !entry.alive.load(Ordering::Acquire) {
+                entry.clear_young_idx();
+                continue;
+            }
+            let age = entry.gen_age();
+            if age == observed_age {
+                observe(entry.is_marked());
+            }
+            if entry.is_marked() {
+                entry.clear_mark();
+                let new_age = age.saturating_add(1);
+                entry.gen_age.store(new_age, Ordering::Release);
+                let h = RegionHandle {
+                    chunk_idx: ci,
+                    entry_idx: ei,
+                    generation: entry.generation.load(Ordering::Acquire),
+                };
+                if new_age >= threshold {
+                    // Crosses the line: leaves the young list, and its card is what keeps
+                    // whatever it points at reachable from now on (the caller dirties it).
+                    entry.clear_young_idx();
+                    out.newly_old.push(h);
+                } else {
+                    entry.set_young_idx(w);
+                    young[w] = (ci, ei);
+                    w += 1;
+                }
+                out.survivors += 1;
+            } else {
+                let (fin, size) = prepare_dead(entry);
+                if let Some(f) = fin {
+                    f();
+                }
+                let h = RegionHandle {
+                    chunk_idx: ci,
+                    entry_idx: ei,
+                    generation: entry.generation.load(Ordering::Acquire),
+                };
+                if self.tombstone_during_sweep(h) {
+                    out.freed_bytes += size;
+                    out.reclaimed += 1;
+                }
+            }
+        }
+        young.truncate(w);
+        self.young_list = young;
+        out
+    }
+
     /// **add-generational-gc P0 (2026-05-22)**: walk every entry in
     /// `young_list`. O(young) iteration cost. Order: insertion order
     /// (last-promoted entries swap-removed; insertion order otherwise).
@@ -360,4 +447,19 @@ impl<T> Region<T> {
     pub(crate) fn clear_young_list_for_test(&mut self) {
         self.young_list.clear();
     }
+}
+
+/// What one minor collection did to one [`Region`](super::Region). See
+/// [`Region::sweep_young_in_one_pass`].
+#[derive(Debug, Default)]
+pub struct MinorRegionSweep {
+    /// Entries that crossed the promotion line on this sweep. The caller needs them for the
+    /// byte accounting and for dirtying their cards.
+    pub newly_old: Vec<RegionHandle>,
+    /// Bytes credited back by the entries this sweep reclaimed.
+    pub freed_bytes: u64,
+    /// Entries reclaimed.
+    pub reclaimed: usize,
+    /// Entries that survived (promoted or not) — the phase timer's count.
+    pub survivors: usize,
 }

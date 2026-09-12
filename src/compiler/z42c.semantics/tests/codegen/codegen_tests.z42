@@ -4,6 +4,7 @@ namespace Z42cSemanticsCodegenTests;
 using Std;
 using Std.Test;
 using Z42.Semantics;
+using Z42.IR;        // StrMap / StrBox
 
 [Test]
 void test_return_int_literal() {
@@ -898,4 +899,36 @@ void test_generic_nonsealed_stays_vcall() {
                + " int Main() { Bag<int> g = new Bag<int>(); return g.Tag(); }";
     string on = IrDump.DumpFuncOpt(src, "Main", Opt.Devirt);
     Assert.Contains("vcall", on);         // 未误去虚化
+}
+
+// ── UsedDepNs 的语义：只记**跨包**依赖（fix-selfns-tracked-as-dep）─────────────────
+//
+// `ImportedClassNs` **有意含本包跨-ns 自有类**（G17b：好让 `A.Sub` 里能把 `A` 的类限定成
+// `A.X`）。但 `UsedDepNs` 驱动的是 DEPS 与 `add-file-scoped-usings` 的 E0436，语义是**跨包**。
+// 把本包另一个 ns 记进去 ⇒ 同一个包里跨 ns 引用被要求写 `using` ⇒ **单包构建多命名空间的库
+// 直接编不过**（实测 z42.ir：`Z42.IR.BinaryFormat` 引用 `Z42.IR` 的 StrMap/TypedReg → E0436）。
+//
+// 只在「多命名空间的包」+「该包自己的 zpkg 躺在扁平 Z42_LIBS 里」两条同时成立时触发，
+// 所以长期隐形（`xtask build stdlib` 走 --workspace，那时 libs 里还没有自己）。
+[Test]
+void test_local_cross_ns_class_is_not_a_dep() {
+    var ctx = new EmitContext(new SymbolTable(), null);
+    ctx.ImportedClassNs = new StrMap();
+    ctx.ImportedClassNs.Put("StrMap", new StrBox("Z42.IR"));      // 本包另一个 ns 的自有类
+    ctx.LocalClasses = new StrMap();
+    ctx.LocalClasses.Put("StrMap", "1");                          // 本包声明 ⇒ 不是依赖
+    ctx.TrackImportedClass("StrMap");
+    Assert.Equal(0, ctx.UsedDepNsCount);
+}
+
+// 对称的正面用例：真·跨包类照记不误（修复不得把依赖追踪修哑）。
+[Test]
+void test_genuinely_imported_class_is_tracked() {
+    var ctx = new EmitContext(new SymbolTable(), null);
+    ctx.ImportedClassNs = new StrMap();
+    ctx.ImportedClassNs.Put("HttpClient", new StrBox("Std.Net.Http"));
+    ctx.LocalClasses = new StrMap();                              // 本包没声明它
+    ctx.TrackImportedClass("HttpClient");
+    Assert.Equal(1, ctx.UsedDepNsCount);
+    Assert.Equal("Std.Net.Http", ctx.UsedDepNs[0]);
 }

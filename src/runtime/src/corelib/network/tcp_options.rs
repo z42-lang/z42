@@ -130,6 +130,12 @@ pub fn builtin_net_tcp_connect_with_timeout(ctx: &VmContext, args: &[Value]) -> 
         Ok(a) => a,
         Err(e) => return Ok(socket_err(ctx, format!("connect to {}: {}", addr, e))),
     };
+    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
+    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
+    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
+    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
+    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
+    let _park = crate::gc::NativeParkGuard::enter(ctx);
     match TcpStream::connect_timeout(&socket_addr, dur) {
         Ok(stream) => {
             let slot_id = ctx.alloc_tcp_socket_slot(stream);
