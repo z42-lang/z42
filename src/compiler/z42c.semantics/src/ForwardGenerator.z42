@@ -100,7 +100,12 @@ public sealed class ForwardGenerator : Generator {
         // 过滤，每个字段都会试图转发别人的方法（实测：`_log` 的碎片去转发属于 `_clk` 的 `Now()`
         // → `no method Now on Logger`）。
         Z42ClassType srcT = ForwardGenerator._fieldClassType(t.Symbol, fd.Name);
-        if (srcT == null) { return; }   // 字段类型不是类（基元/未解析）→ 无可转发面
+        if (srcT == null) {
+            sink.Error("E0463",
+                "[Forward] on field `" + fd.Name + "`: its type is not a class or interface, so it has no "
+                + "member surface to lift", t.Trigger.Span);
+            return;
+        }
 
         // ── 按**实参形状**选档（三档共用一个 attribute）──────────────────────────
         //   无实参            → ③ partial 声明档（下方既有路径）
@@ -118,7 +123,11 @@ public sealed class ForwardGenerator : Generator {
                 ForwardGenerator._emitNamedTier(t, fd, srcT, a0 as MethodOfExpr, oc, sink);
                 return;
             }
-            return;   // 其它实参形状：不是本特性的用法，静默不生成（诊断由 ⑤ 组补）
+            sink.Error("E0463",
+                "[Forward(...)] takes either `typeof(SomeInterface)` (forward that interface's members) "
+                + "or `methodof(Type.Member)` (forward exactly that member). Bare `[Forward]` pairs with "
+                + "`partial` declarations you write yourself", t.Trigger.Span);
+            return;
         }
         string body = "";
         int n = 0;
@@ -150,7 +159,12 @@ public sealed class ForwardGenerator : Generator {
         if (!(tox.Type is NamedType)) { return; }
         string ifaceName = (tox.Type as NamedType).Name;
         Z42InterfaceType it = ForwardGenerator._lookupIface(t.Symbols, ifaceName);
-        if (it == null) { return; }   // 解析不到接口 → 不生成（⑤ 组补诊断）
+        if (it == null) {
+            sink.Error("E0463",
+                "[Forward(typeof(" + ifaceName + "))]: `" + ifaceName + "` does not resolve to an interface. "
+                + "The interface-tier form forwards exactly the members an interface declares", t.Trigger.Span);
+            return;
+        }
         string body = "";
         int n = 0;
         string[] keys = it.Methods.Keys();
@@ -159,9 +173,10 @@ public sealed class ForwardGenerator : Generator {
         while (i < keys.Length) {
             MethodSymbol ms = it.Methods.Get(keys[i]) as MethodSymbol;
             if (ms != null && !ForwardGenerator._isObjectProtocol(ms.Name)
-                && !ForwardGenerator._ownerDeclares(oc, ms.Name)) {
+                && ForwardGenerator._infoIfOwnerDeclares(sink, t, oc, ms.Name)) {
                 string one = ForwardGenerator._renderFromSymbol(ms, fd.Name, true);
-                if (one != "") { body = body + one + "\n"; n = n + 1; }
+                if (one == "") { ForwardGenerator._notRenderable(sink, t, ms, ms.Name, t.Trigger.Span); }
+                else { body = body + one + "\n"; n = n + 1; }
             }
             i = i + 1;
         }
@@ -174,12 +189,69 @@ public sealed class ForwardGenerator : Generator {
     // 在 attribute 实参位置就报）与 **generator 的结构化输入**（直接读 AST 的 Member）。
     private static void _emitNamedTier(GenTarget t, FieldDecl fd, Z42ClassType srcT,
                                        MethodOfExpr mo, ClassDecl oc, GenSink sink) {
-        if (ForwardGenerator._isObjectProtocol(mo.Member)) { return; }   // S2
-        if (ForwardGenerator._ownerDeclares(oc, mo.Member)) { return; }  // S5：外层已声明 → 不生成
+        Span sp = t.Trigger.Span;
+        if (ForwardGenerator._isObjectProtocol(mo.Member)) {
+            sink.Error("E0465",
+                "[Forward] cannot forward `" + mo.Member + "`: the Object protocol methods "
+                + "(ToString / Equals / GetHashCode / GetType) are never forwarded — forwarding them "
+                + "would make `" + t.Name + "` report the identity of `" + srcT.Name() + "`", sp);
+            return;
+        }
+        if (ForwardGenerator._ownerDeclares(oc, mo.Member)) {
+            sink.Info("I0466",
+                "[Forward] skipped `" + mo.Member + "`: `" + t.Name + "` declares a member with that "
+                + "name itself, and your own declaration wins", sp);
+            return;
+        }
+        int hits = ForwardGenerator._countByName(srcT, mo.Member);
+        if (hits == 0) {
+            sink.Error("E0463",
+                "[Forward] `" + srcT.Name() + "` (the type of field `" + fd.Name + "`) has no member named `"
+                + mo.Member + "`. `methodof` only checked that `" + mo.OwnerName + "." + mo.Member
+                + "` exists — that it lives on *this* field's type is a separate claim, and it does not hold",
+                sp);
+            return;
+        }
+        if (hits > 1) {
+            sink.Error("E0465",
+                "[Forward] `" + srcT.Name() + "." + mo.Member + "` has " + hits.ToString()
+                + " overloads — forwarding has to emit one concrete method, so it cannot pick for you. "
+                + "Use the `partial` declaration form instead: write `public partial <ret> " + mo.Member
+                + "(<params>);` in `" + t.Name + "` for each overload you want lifted", sp);
+            return;
+        }
         MethodSymbol ms = ForwardGenerator._pickByName(srcT, mo.Member);
-        if (ms == null) { return; }
         string one = ForwardGenerator._renderFromSymbol(ms, fd.Name, false);
-        if (one != "") { sink.Augment(t.DeclId, one + "\n"); }
+        if (one == "") { ForwardGenerator._notRenderable(sink, t, ms, mo.Member, sp); return; }
+        sink.Augment(t.DeclId, one + "\n");
+    }
+
+    // ①② 档渲染不出来 —— 说清**为什么**，并给出可照抄的下一步。
+    private static void _notRenderable(GenSink sink, GenTarget t, MethodSymbol ms, string name, Span sp) {
+        if (ms != null && ms.Visibility == "private") {
+            sink.Error("E0464",
+                "[Forward] cannot forward `" + name + "`: it is private. Lifting someone else's private "
+                + "implementation onto your own public surface is not what forwarding means", sp);
+            return;
+        }
+        sink.Error("E0464",
+            "[Forward] cannot forward `" + name + "`: it is declared in another package, and cross-package "
+            + "metadata carries neither parameter names nor `ref`/`out` — so an equivalent signature cannot "
+            + "be reconstructed (and dropping `ref` compiles silently, losing the mutation). "
+            + "Use the `partial` declaration form instead: write `public partial <ret> " + name
+            + "(<params>);` in `" + t.Name + "` and let the generator fill only the body", sp);
+    }
+
+    private static int _countByName(Z42ClassType ct, string name) {
+        int hits = 0;
+        string[] keys = ct.Methods.Keys();
+        int i = 0;
+        while (i < keys.Length) {
+            MethodSymbol ms = ct.Methods.Get(keys[i]) as MethodSymbol;
+            if (ms != null && ms.Name == name) { hits = hits + 1; }
+            i = i + 1;
+        }
+        return hits;
     }
 
     // 从**符号**渲染转发方法（①② 档用；③ 档用用户手写的 AST，见 _renderForwarder）。
@@ -199,6 +271,15 @@ public sealed class ForwardGenerator : Generator {
         if (!fromIface && ms.Visibility == "private") { return ""; }
         if (ms.Decl.IsCtor) { return ""; }   // 构造器不是可转发成员
         return ForwardGenerator._renderForwarderM(ms.Decl, fieldName, "public", false);
+    }
+
+    // S5 的 ① 档版：外层已声明 → 报 Info 并返回 false（调用方跳过这一个成员，不中断整批）。
+    private static bool _infoIfOwnerDeclares(GenSink sink, GenTarget t, ClassDecl oc, string name) {
+        if (!ForwardGenerator._ownerDeclares(oc, name)) { return true; }
+        sink.Info("I0466",
+            "[Forward] skipped `" + name + "`: `" + t.Name + "` declares a member with that name itself, "
+            + "and your own declaration wins", t.Trigger.Span);
+        return false;
     }
 
     // 外层类自己声明了同名成员？（S5：不生成，且必须**按名字**判 —— 跨碎片同名重载会让

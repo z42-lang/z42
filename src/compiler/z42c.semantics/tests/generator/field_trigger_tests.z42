@@ -141,3 +141,81 @@ bool _ftFieldStillHasAttr(CompilationUnit[] cus, int n, string cls, string fld, 
     return false;
 }
 
+
+// ── [Forward] 的诊断面（add-member-forwarding ⑤）────────────────────────────────
+//
+// 这一组守的是本特性最核心的承诺：**条件不满足时会说话，而不是静默不生成**。
+// 在开出 GenSink 的诊断通道之前，generator 根本报不了诊断 —— 用户看到的是「我贴了
+// [Forward]，方法却不存在」，一个没有任何解释的缺席。对一个自称「不静默」的特性，
+// 那是最不该有的失败模式。
+//
+// 用 GeneratorDriver.Run 的 diags 出口断言（generator 报的诊断由 driver 合入编译诊断袋）。
+
+string _fwdSrc(string decls) {
+    return "namespace Fw;\nusing Std;\n"
+         + "class A { public string F() { return \"f\"; } public string G(int n) { return \"g\"; } "
+         + "public string G(string s) { return \"gs\"; } }\n"
+         + "class B { public string H() { return \"h\"; } }\n"
+         + decls;
+}
+
+// 跑真 ForwardGenerator（它是内建 generator，测试里直接注入）。
+DiagnosticBag _runFwd(string src) {
+    string[] files = new string[1]; files[0] = "f.z42";
+    CompilationUnit[] cus = new CompilationUnit[1];
+    cus[0] = HandlerRegistry.RunAst(new Parser(src, files[0]).ParseCompilationUnit());
+    SymbolTable prov = new SymbolCollector().CollectAll(cus, files, 1, null);
+    DiagnosticBag ed = new DiagnosticBag();
+    Generator[] gens = new Generator[1]; gens[0] = new ForwardGenerator();
+    GeneratorDriver.Run(gens, 1, cus, files, 1, prov, ed);
+    return ed;
+}
+
+[Test]
+void test_forward_member_not_on_this_field_type_reports() {
+    // methodof 只保证「B.H 存在」；「它在**这个字段**的类型上」是另一件事，故单列一码。
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(B.H))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0463"));
+}
+
+[Test]
+void test_forward_overloaded_target_reports_and_points_at_partial_tier() {
+    // 转发必须发一个**具名方法**，重载时它不能替你选 —— 但必须告诉你该改用哪一档。
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(A.G))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0465"));
+    Assert.Equal(true, _msgHas(d, "partial"));
+}
+
+[Test]
+void test_forward_typeof_non_interface_reports() {
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(typeof(A))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0463"));
+}
+
+[Test]
+void test_forward_bad_argument_shape_reports() {
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(42)] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0463"));
+}
+
+[Test]
+void test_forward_owner_declares_same_name_is_info_not_error() {
+    // S5：不是错误 —— 用户的实现优先。但**必须说出来**，否则是个没有解释的缺席。
+    DiagnosticBag d = _runFwd(_fwdSrc(
+        "class S { [Forward(methodof(A.F))] A _a; public string F() { return \"mine\"; } }"));
+    Assert.Equal(true, hasCode(d, "I0466"));
+    Assert.Equal(0, d.ErrorCount());   // Info 不阻断编译
+}
+
+[Test]
+void test_forward_object_protocol_reports() {
+    // S2：转发身份协议会让外层对象谎报自己是谁。
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(A.ToString))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0465") || hasCode(d, "E0459"));
+}
+
+bool _msgHas(DiagnosticBag d, string needle) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Message.Contains(needle)) { return true; } i = i + 1; }
+    return false;
+}

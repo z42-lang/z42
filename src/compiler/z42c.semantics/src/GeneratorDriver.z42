@@ -37,10 +37,33 @@ public sealed class GenOp {
 }
 
 // GenSink 实现：收集 generator 吐的操作，供引擎统一落地。
+// generator 报出的一条诊断（driver 合入编译诊断袋）。
+public sealed class GenDiag {
+    public string Code;
+    public string Message;
+    public Span   Span;
+    public bool   IsError;
+    public GenDiag(string code, string message, Span span, bool isError) {
+        this.Code = code; this.Message = message; this.Span = span; this.IsError = isError;
+    }
+}
+
 public sealed class GenSinkImpl : GenSink {
     public GenOp[] Ops;
     public int OpCount;
-    public GenSinkImpl() { this.Ops = new GenOp[4]; this.OpCount = 0; }
+    public GenDiag[] Diags;
+    public int DiagCount;
+    public GenSinkImpl() { this.Ops = new GenOp[4]; this.OpCount = 0; this.Diags = new GenDiag[4]; this.DiagCount = 0; }
+    public void Error(string code, string message, Span span) { this._pushDiag(new GenDiag(code, message, span, true)); }
+    public void Info(string code, string message, Span span) { this._pushDiag(new GenDiag(code, message, span, false)); }
+    private void _pushDiag(GenDiag d) {
+        if (this.DiagCount == this.Diags.Length) {
+            GenDiag[] b = new GenDiag[this.Diags.Length * 2];
+            int k = 0; while (k < this.DiagCount) { b[k] = this.Diags[k]; k = k + 1; }
+            this.Diags = b;
+        }
+        this.Diags[this.DiagCount] = d; this.DiagCount = this.DiagCount + 1;
+    }
     public void AddSource(string hint, string src) { this._push(new GenOp(GenOpKind.AddSource, "", hint, src)); }
     public void Replace(DeclId id, string src) { this._push(new GenOp(GenOpKind.Replace, id.Key, "", src)); }
     public void Augment(DeclId id, string membersSrc) { this._push(new GenOp(GenOpKind.Augment, id.Key, "", membersSrc)); }
@@ -223,6 +246,7 @@ public static class GeneratorDriver {
     // 无意义——「替换一个字段声明」不是本机制的用途，越界即护栏报错）。
     private static void _mergeFieldOps(SiteEdit ed, GenSinkImpl sink, Attr trigger, ClassDecl c, string selfKey,
                                        DiagnosticBag diags, bool hasNs, string ns, string usingsSrc) {
+        GeneratorDriver._drainDiags(sink, diags);
         int i = 0;
         while (i < sink.OpCount) {
             GenOp op = sink.Ops[i];
@@ -245,6 +269,17 @@ public static class GeneratorDriver {
         }
     }
 
+    // generator 报的诊断 → 编译诊断袋。
+    private static void _drainDiags(GenSinkImpl sink, DiagnosticBag diags) {
+        int i = 0;
+        while (i < sink.DiagCount) {
+            GenDiag d = sink.Diags[i];
+            if (d.IsError) { diags.Error(d.Code, d.Message, d.Span); }
+            else { diags.Info(d.Code, d.Message, d.Span); }
+            i = i + 1;
+        }
+    }
+
     private static int _findTrigger(string[] triggers, int n, string name) {
         int i = 0;
         while (i < n) { if (triggers[i] == name) { return i; } i = i + 1; }
@@ -257,6 +292,7 @@ public static class GeneratorDriver {
     private static SiteEdit _buildEdit(int declIndex, int attrIndex, Attr trigger, ClassDecl c, string selfKey,
                                        GenSinkImpl sink, DiagnosticBag diags, bool hasNs, string ns, string usingsSrc) {
         SiteEdit ed = new SiteEdit(declIndex, attrIndex, trigger.FactoryFunc);
+        GeneratorDriver._drainDiags(sink, diags);
         int i = 0;
         while (i < sink.OpCount) {
             GenOp op = sink.Ops[i];

@@ -40,6 +40,16 @@ public interface GenSink {
     void AddSource(string hint, string src);
     void Replace(DeclId id, string src);
     void Augment(DeclId id, string membersSrc);
+    // 诊断通道（add-member-forwarding ⑤）。
+    //
+    // 🔴 在此之前 generator **根本报不了诊断**：它只拿到 GenTarget + GenSink，而 driver 的
+    // DiagnosticBag 不在其中。于是「条件不满足」只能表现为**静默不生成**，用户看到的是
+    // 「我贴了 [Forward]，方法却不存在」——一个没有任何解释的缺席。
+    // 对一个自称「不静默」的特性，这是最不该有的失败模式。
+    //
+    // 收集到的诊断由 driver 合入编译诊断袋（与 generator 自身的产出同一轮呈现）。
+    void Error(string code, string message, Span span);
+    void Info(string code, string message, Span span);
 }
 
 // applied generator 的生成目标——被 `[X]` 贴住的那个声明 + 其解析后符号。driver 构造、generator 只读。
