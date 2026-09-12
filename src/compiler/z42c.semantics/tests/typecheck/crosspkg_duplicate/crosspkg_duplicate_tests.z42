@@ -264,6 +264,58 @@ void free_function_in_invisible_namespace_is_not_ambiguous() {
     Assert.Equal(0, dupCount(d, "E0601"));
 }
 
+// ── harden-crosspkg-gates：把「引用形态」的覆盖面补齐 ─────────────────────────────
+//
+// E0601/E0606 挂在 `_chkTypeRef` 上，而那条路只覆盖 new / 局部变量 / 类型实参 / 模式 / catch。
+// 逐形态实测后发现两条还漏着（都零诊断）：**ns 限定的静态调用**（走独立的 qualified 分支）
+// 与**静态成员读**（`Cfg.N`，走 BoundStaticGet 那条，压根不是「调用」）。
+//
+// ⚠️ 量这张覆盖表时我的探针骗过我一次：它只 grep E0601/E0606/E0456，于是把
+// `E0401`（`Demo.Ns.Cfg.N` 这种写法本就不受支持）显示成「零诊断」，害我以为还有第三个洞。
+// **判定「有没有报」要抓任何诊断码，不能只抓自己关心的那几个。**
+
+[Test]
+void ns_qualified_static_call_on_duplicated_type_errors() {
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Dup;\npublic static class Util { public static int go() { return 1; } }";
+    srcs[1] = "namespace Demo.Dup;\npublic static class Util { public static int go() { return 2; } }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Dup";     nss[1] = "Demo.Dup";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha";  pkgs[1] = "demo.beta";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { return Demo.Dup.Util.go(); } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void static_field_read_on_duplicated_type_errors() {
+    // 静态成员**读**不是调用，走 BoundStaticGet 那条独立路径 —— 此前零诊断，而它读到的是
+    // 哪个包的那份完全是撞出来的。
+    string[] srcs = new string[2];
+    srcs[0] = "namespace Demo.Dup;\npublic static class Cfg { public static int N = 1; }";
+    srcs[1] = "namespace Demo.Dup;\npublic static class Cfg { public static int N = 2; }";
+    string[] nss  = new string[2]; nss[0] = "Demo.Dup";     nss[1] = "Demo.Dup";
+    string[] pkgs = new string[2]; pkgs[0] = "demo.alpha";  pkgs[1] = "demo.beta";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { return Cfg.N; } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(true, dupCount(d, "E0601") >= 1);
+}
+
+[Test]
+void static_member_on_unique_type_is_not_duplicate() {
+    // 负例：只有一个来源的静态成员读 —— 新加的两处检查若判据写错，全仓静态成员访问都会假红。
+    string[] srcs = new string[1];
+    srcs[0] = "namespace Demo.Dup;\npublic static class Cfg { public static int N = 1; }";
+    string[] nss  = new string[1]; nss[0] = "Demo.Dup";
+    string[] pkgs = new string[1]; pkgs[0] = "demo.alpha";
+    string[] us   = new string[1]; us[0] = "Demo.Dup";
+    string[] d = dupDiags("namespace App;\nusing Demo.Dup;\nclass C { public int go() { return Cfg.N; } }",
+                          dupImports(srcs, nss, pkgs, us));
+    Assert.Equal(0, dupCount(d, "E0601"));
+    Assert.Equal(0, dupCount(d, "E0606"));
+}
+
 // ── 负例（必须不报；每条都是一个真实的误报风险）────────────────────────────────
 
 [Test]

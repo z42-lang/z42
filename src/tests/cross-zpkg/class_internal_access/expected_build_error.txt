@@ -1,0 +1,1 @@
+E0404: cannot access internal class `Secret` from another package

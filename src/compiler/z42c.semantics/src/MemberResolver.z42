@@ -26,6 +26,10 @@ public sealed class MemberResolver {
             }
             if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(clsName)) {
                 Z42ClassType sct = env.Symbols.GetClass(clsName);
+                // report-crosspkg-duplicate-*：**静态成员读**也是一次类型引用，同样要判同 FQN 跨包
+                // （E0601）/ 本包遮蔽（E0606）。此前只有「静态**调用**」那条被覆盖 ⇒ 实测
+                // `Cfg.N` 与 `Demo.Ns.Cfg.N` 都零诊断，而它们读到的是**哪个包**的那份 N 完全是撞出来的。
+                this._tc._chkTypeRefPkg(env.Symbols, sct, m.Span);
                 FieldSymbol sfs = sct.Fields.Get(m.Name) as FieldSymbol;
                 if (sfs != null && sfs.IsStatic) {
                     this._tc._access.CheckAccess(sfs.Visibility, sfs.ContainingTypeName, env, env.Symbols, "field", m.Name, m.Span);   // enforce-access-control
@@ -796,6 +800,10 @@ public sealed class MemberResolver {
                 if (this._tc._isVisibleNs(qns) && env.Symbols.HasClass(qcls)
                     && env.LookupVar(MemberResolver._rootIdent(mem.Target)) == null) {
                     Z42ClassType qct = env.Symbols.GetClass(qcls);
+                    // report-crosspkg-duplicate-*：**ns 限定**的静态调用（`A.B.Util.go()`）走的是
+                    // 这条独立分支，不经上面裸类名那条 ⇒ 此前零诊断（实测）。同 FQN 跨包时限定名
+                    // 也分不开两份（FQN 逐字相同），故与裸名一视同仁。
+                    this._tc._chkTypeRefPkg(env.Symbols, qct, sp);
                     MethodSymbol qms = this._tc._overload._resolveOverload(env.Symbols, qct, mem.Name, args, argCount, call.TypeArgCount, sp);
                     if (qms != null) {
                         qms = MethodTypeArgSubst.ForExplicitTypeArgs(qms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
