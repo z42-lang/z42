@@ -94,7 +94,7 @@ entry = "Hello.main"
 [[exe]]
 name  = "tool"               # 产物：dist/tool.zbc
 entry = "Tool.main"
-src   = ["src/tool/**/*.z42"] # 可选：覆盖共享 sources
+include = ["src/tool/**/*.z42"] # 可选：覆盖共享 [sources]
 ```
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -178,7 +178,7 @@ exclude = ["src/internal/**", "src/**/_*.z42"]
 [[exe]]
 name  = "tool"
 entry = "Tool.Main"
-src   = ["src/tool/**/*.z42"]   # 仅这些文件参与 tool 编译
+include = ["src/tool/**/*.z42"]   # 仅这些文件参与 tool 编译
 ```
 
 **不支持的语法**：
@@ -732,6 +732,12 @@ strip    = true
 # 默认发现 examples/*.z42（同上：目录单元显式配）
 ```
 
+> **源文件清单统一叫 `include`**（unify-manifest-include-key，2026-09-12）——`[sources]` /
+> `[tests]` / `[benches]` / `[examples]` 段与 `[[exe]]` / `[[test]]` / `[[bench]]` /
+> `[[example]]` 数组**全部同一个键名**。此前数组形式另叫 `sources`（run 目标）和 `src`
+> （exe 目标），同一个概念三种拼法；`src` 当时零使用者。选 `include` 而非 `sources` 是因为
+> 它自带搭档 `exclude`，而数组形式此前**根本无法排除文件**。
+
 ### `[[test]]` / `[[bench]]` / `[[example]]` 数组（显式覆盖）
 
 字段对齐 `[[exe]]`（`entry` = FQ 函数名，`sources` = glob 集）：
@@ -741,7 +747,7 @@ strip    = true
 name    = "compile_perf"          # 必填；filter 用 + 合成包名
 harness = false                   # 默认 true（反射）；false → 自带 Main 退出码判定
 entry   = "Perf.Runner.Main"      # harness=false 必填（FQ 函数名）
-sources = ["tests/perf/*.z42", "tests/perf/_lib/*.z42"]   # 可选；省略=沿用约定单元文件集
+include = ["tests/perf/*.z42", "tests/perf/_lib/*.z42"]  # 可选；省略=沿用约定单元文件集
 [test.dependencies]               # 该 target 独享 dev-dep（三层合并优先级最高）
 "z42.compression" = "0.1.0"
 

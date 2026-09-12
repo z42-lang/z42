@@ -335,7 +335,7 @@ public static class ManifestLoader {
             string[] src = new string[0];
             if (e.ContainsKey("name"))  { name = e.Get("name").AsString(); }
             if (e.ContainsKey("entry")) { entry = e.Get("entry").AsString(); }
-            if (e.ContainsKey("src"))   { src = ManifestLoader._strArray(e.Get("src")); }
+            if (e.ContainsKey("include")) { src = ManifestLoader._strArray(e.Get("include")); }  // 统一键名，见 _parseRunTargets
             r[i] = new ExeTarget(name, entry, src, src.Length);
             i = i + 1;
         }
@@ -396,7 +396,10 @@ public static class ManifestLoader {
             if (t.ContainsKey("name"))    { name = t.Get("name").AsString(); }
             if (t.ContainsKey("harness")) { harness = t.Get("harness").AsBool(); }
             if (t.ContainsKey("entry"))   { entry = t.Get("entry").AsString(); hasEntry = true; }
-            if (t.ContainsKey("sources")) { src = ManifestLoader._strArray(t.Get("sources")); }
+            // unify-manifest-include-key：源文件清单在**所有**位置统一叫 `include`
+            // （`[sources]` / `[tests]` / `[benches]` / `[examples]` 段本来就是它；此前只有
+            // 数组形式的 `[[test]]` 叫 `sources`、`[[exe]]` 叫 `src`，同一个概念三种拼法）。
+            if (t.ContainsKey("include")) { src = ManifestLoader._strArray(t.Get("include")); }
             if (t.ContainsKey("test"))    { runInTest = t.Get("test").AsBool(); }
             DepEntry[] deps = ManifestLoader._parseDeps(t, "dependencies");
             r[i] = new RunTarget(name, harness, hasEntry, entry, src, src.Length, deps, deps.Length, runInTest);

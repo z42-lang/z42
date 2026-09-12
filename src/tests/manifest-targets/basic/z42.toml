@@ -23,21 +23,21 @@ kind    = "lib"
 # harness defaults true → reflective [Test] run via z42b.
 [[test]]
 name    = "unit_ok"
-sources = ["tests/unit_ok.z42"]
+include = ["tests/unit_ok.z42"]
 
 # harness=false → self-driving Main, exit code is the verdict (no golden).
 [[test]]
 name    = "exit_ok"
 harness = false
 entry   = "MtExit.Main"
-sources = ["tests/exit_ok.z42"]
+include = ["tests/exit_ok.z42"]
 
 [[bench]]
 name    = "micro"
-sources = ["bench/micro.z42"]
+include = ["bench/micro.z42"]
 
 [[example]]
 name    = "hello"
 test    = true
 entry   = "MtHello.Main"
-sources = ["examples/hello.z42"]
+include = ["examples/hello.z42"]

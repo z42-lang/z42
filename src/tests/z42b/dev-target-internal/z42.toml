@@ -16,7 +16,7 @@ include = ["src/**/*.z42"]
 # （此前 in-process 路径把 include 硬编码成 `**/*.z42`，会把整个工程都编进去）。
 [[test]]
 name    = "internals_tests"   # 与文件名同名 → 覆盖段级 glob 的同名 auto 单元（不重复跑）
-sources = ["tests/internals_tests.z42"]
+include = ["tests/internals_tests.z42"]
 
 # 段级发现：默认只认 `tests/*.z42`（一文件一单元）。**目录单元必须显式配** —— glob 分不出
 # 「[Test] 目录」和 golden 目录（两者都长成 `<name>/source.z42`），所以不猜。下面这条把
