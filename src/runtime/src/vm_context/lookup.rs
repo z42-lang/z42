@@ -199,6 +199,10 @@ impl VmContext {
         };
         // 同上：`resolved` 即最终答案。
         if let Some((resolved, loader_quiet)) = fast {
+            // add-static-constructors：类型首次可见即登记其 cctor（幂等）。必须在**每条**
+            // 返回路径之前——`pending` 门只有在「登记早于使用」时才成立；若等到屏障里才登记，
+            // 门会在首次访问时读到 0 而直接放行，屏障形同虚设。
+            if let Some(td) = resolved.as_ref() { self.register_cctor_of(td); }
             if !self.static_init_drain_is_noop(&[], loader_quiet) {
                 self.run_pending_static_inits();
             }
@@ -214,6 +218,7 @@ impl VmContext {
             let quiet = loader.pending_static_inits.is_empty();
             (result, newly, quiet)
         };
+        if let Some(td) = result.as_ref() { self.register_cctor_of(td); }
         if self.static_init_drain_is_noop(&newly_loaded, loader_quiet) {
             return result;
         }

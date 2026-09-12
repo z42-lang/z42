@@ -274,7 +274,7 @@ pub fn exec_instr(
             let field_id = cached_token!(_site_idx, static_field_tokens)
                 .map(|atom| atom.load(Ordering::Relaxed))
                 .filter(|&id| id != UNRESOLVED);
-            exec_object::static_get(ctx, frame, *dst, field, field_id);
+            exec_object::static_get(ctx, frame, *dst, field, field_id)?;
         }
         Instruction::StaticSet(insn) => {
             let StaticSetInsn { field, val } = &**insn;

@@ -397,18 +397,45 @@ use isa::is_integer_class;
 pub(super) fn static_get(
     ctx: &VmContext, frame: &mut Frame, dst: u32, field: &str,
     field_id: Option<u32>,
-) {
+) -> Result<()> {
+    ensure_owner_type_init(ctx, field)?;
     let v = match field_id {
         Some(id) => ctx.static_get_by_id(crate::metadata::tokens::StaticFieldId(id)),
         None     => ctx.static_get(field),
     };
     frame.set(dst, v);
+    Ok(())
+}
+
+/// add-static-constructors：静态字段读写前的 cctor 屏障（C# 的「首次使用前」）。
+///
+/// **热路径代价 = 一次 relaxed load**：`any_cctor_pending()` 为假时立刻返回，而它在
+/// 「程序里没有静态构造器」和「所有静态构造器都已跑完」两种情况下都为假 —— 也就是绝大多数
+/// 时间。只有确实还有待初始化的 cctor 时，才去按名取属主类的 TypeDesc（一次哈希）。
+fn ensure_owner_type_init(ctx: &VmContext, field: &str) -> Result<()> {
+    if !ctx.any_cctor_pending() { return Ok(()); }
+    let Some(owner) = crate::vm_context::cctor::owner_class_of_static_field(field) else {
+        return Ok(());
+    };
+    // 同 cctor 函数查找：**先查主模块 registry、再回落惰性加载器**。`try_lookup_type` 只问
+    // 惰性加载器，主合并模块里的类型不在它的索引里 → 同模块的类会静默跳过屏障
+    // （实测：无字段初始化器的类，其 cctor 完全不跑、静态字段读出 Null）。
+    if let Some(m) = ctx.module() {
+        if let Some(td) = m.type_registry.get(owner) {
+            if let Err(msg) = ctx.ensure_type_init(td) { bail!("{msg}"); }
+            return Ok(());
+        }
+    }
+    let Some(td) = ctx.try_lookup_type(owner) else { return Ok(()); };
+    if let Err(msg) = ctx.ensure_type_init(&td) { bail!("{msg}"); }
+    Ok(())
 }
 
 pub(super) fn static_set(
     ctx: &VmContext, frame: &Frame, field: &str, val: u32,
     field_id: Option<u32>,
 ) -> Result<()> {
+    ensure_owner_type_init(ctx, field)?;
     let v = frame.get(val)?.clone();
     // add-escape-analysis-stack-alloc (diagnostic #2): StaticSet.val is an escape
     // sink — a stack handle stored into a static would outlive its frame.

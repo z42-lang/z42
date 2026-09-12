@@ -39,6 +39,11 @@ use rustc_hash::FxHashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// 类级 attr-ref 哨兵名。**必须与编译器侧 `IrStaticCtor.Sentinel` 逐字一致**
+/// （`src/libraries/z42.ir/src/IrModule.z42`）——两处手写同一个字符串是漂移源，
+/// 故各自只写一次、并在此标明对应关系。
+pub const CCTOR_SENTINEL: &str = "$Cctor";
+
 /// 单个类型的 cctor 状态。
 #[derive(Debug, Clone)]
 pub enum CctorState {
@@ -150,6 +155,91 @@ impl CctorRegistry {
     /// 登记的 cctor 类型总数（测试用——「屏障是否真的只对有 cctor 的类型生效」要可断言）。
     pub fn registered_count(&self) -> usize {
         self.map.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+}
+
+impl crate::vm_context::VmContext {
+    /// 登记一个类型的静态构造器（幂等；没有 cctor 的类型直接返回）。
+    ///
+    /// **必须早于该类型被使用**——`pending` 门只在「已登记」的前提下才有意义：
+    /// 若等到屏障里才登记，门会在首次访问时读到 0 而直接放行，屏障形同虚设。
+    /// 故登记点有两处，合起来覆盖所有可达类型：
+    ///   - 急切：`app.rs` 在模块合并后扫一遍 registry
+    ///   - 惰性：`try_lookup_type` 拿到跨包 TypeDesc 时登记（那正是「类型首次可见」）
+    pub fn register_cctor_of(&self, td: &crate::metadata::TypeDesc) {
+        if let Some(f) = td.cctor_func() {
+            tracing::debug!("cctor-register: type `{}` -> `{}`", td.name, f);
+            self.core.cctors.register(&td.name, f);
+        }
+    }
+
+    /// 全程序是否还有未初始化的静态构造器。**热路径的门**：`false` ⇒ 屏障可直接跳过。
+    #[inline(always)]
+    pub fn any_cctor_pending(&self) -> bool { self.core.cctors.any_pending() }
+
+    /// **cctor 屏障**：确保 `td` 这个类型的静态构造器已经跑过（C# 的「首次使用前」）。
+    ///
+    /// 调用点必须是「首次使用该类型」的地方：创建实例 / 读写其静态字段 / 调其静态方法。
+    ///
+    /// # 为什么绝大多数类型零代价
+    ///
+    /// 第一行 `td.cctor_func()` 对没有静态构造器的类型直接返回 `None`（冷区多半是
+    /// `None`，访问器一个 `Option` 判断就结束）→ 立即返回。**方案 B 的兑现点就是这一行。**
+    ///
+    /// # 登记为什么可以惰性做
+    ///
+    /// 屏障手上已经有 `TypeDesc`，而 `register` 是幂等的 —— 于是「在哪登记」这个
+    /// 难题自解：不必在每个 type-registry 插入点（急切一处 + 跨包惰性两处）各挂钩子，
+    /// 首次触达时登记即可。少一处要维护的枚举，就少一处将来会漏的地方。
+    pub fn ensure_type_init(&self, td: &crate::metadata::TypeDesc) -> Result<(), String> {
+        let Some(func) = td.cctor_func() else { return Ok(()) };
+        let class_fq = td.name.clone();
+        self.core.cctors.register(&class_fq, func);
+
+        let claimed = match self.core.cctors.claim(&class_fq) {
+            Ok(None) => return Ok(()),           // 已完成 / 本线程重入 / 他线程在跑
+            Ok(Some(f)) => f,
+            // C# 语义：cctor 抛过异常的类型此后不可用，**每次**访问都失败且不重试。
+            Err(prior) => return Err(format!(
+                "the type initializer for `{class_fq}` threw an exception: {prior}"
+            )),
+        };
+
+        tracing::debug!("running static ctor `{claimed}` for type `{class_fq}`");
+        // 跑 cctor。
+        //
+        // ⚠️ 查找必须**先走主模块的 func_index、再回落惰性加载器**。
+        // `try_lookup_function` 只问惰性加载器，而主合并模块里的普通函数**不在**它的索引里
+        // （`__static_init__` 之所以能被它找到，是因为那些名字会被显式压进 pending 队列）。
+        // 只用 try_lookup_function 的话，同模块的静态构造器会「明明存在却 not found」——
+        // 实测：`C.C$0` 当 entry 能正常跑，屏障里却查不到。
+        let run = |f: &crate::metadata::bytecode::Function,
+                   module: &crate::metadata::Module| -> Option<String> {
+            match crate::interp::exec_function(self, module, f, &[]) {
+                Ok(crate::interp::ExecOutcome::Returned(_)) => None,
+                Ok(crate::interp::ExecOutcome::Thrown(v)) => Some(crate::interp::value_to_str(&v)),
+                Err(e) => Some(format!("{e:#}")),
+            }
+        };
+        let err = match self.module() {
+            Some(module) => match module.func_index.get(claimed.as_str()).copied() {
+                Some(i) => run(&module.functions[i], module),
+                None => match self.try_lookup_function(&claimed) {
+                    Some(f) => run(f.as_ref(), module),
+                    // 哨兵载荷指向一个不存在的函数 = 编译期与运行期失配，必须响，别静默放过。
+                    None => Some(format!("static ctor `{claimed}` not found")),
+                },
+            },
+            None => Some("no module installed".to_string()),
+        };
+
+        self.core.cctors.finish(&class_fq, err.clone());
+        match err {
+            None => Ok(()),
+            Some(msg) => Err(format!(
+                "the type initializer for `{class_fq}` threw an exception: {msg}"
+            )),
+        }
     }
 }
 
