@@ -395,8 +395,33 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     survivors_object.push(h);
                 } else {
                     let size = {
-                        let obj = entry.value.lock();
-                        Self::script_object_size_estimate(&obj)
+                        let mut obj = entry.value.lock();
+                        let size = Self::script_object_size_estimate(&obj);
+                        // Break every strong reference edge — the side-table `refs` AND
+                        // (unify-object-byte-layout PR-3 chunk 2b) the object/array pointers
+                        // byte-inlined in `bytes` — so no tombstoned entry is left holding a
+                        // handle into the region (`iterate_live_objects` and any later
+                        // traversal would otherwise meet a stale generation).
+                        //
+                        // **perf-cheap-dead-edge-break (2026-09-12)**: done **here**, under
+                        // the region lock and the value lock this size estimate already holds.
+                        // It used to run in the tombstone loop below, which re-took
+                        // `region_object`, re-`resolve`d the handle and re-locked the value for
+                        // it, then took `region_object` a *third* time to tombstone — three
+                        // acquisitions per dead entry for work the scan was already positioned
+                        // to do. The array twin never had any of it, which is why
+                        // `minor/tomb arrays` cost 10.8 ns an entry against this loop's 67.7.
+                        //
+                        // Running it ahead of the finalizer changes nothing a finalizer can
+                        // see: [`FinalizerFn`] takes no arguments, so it has no way to read the
+                        // object whose edges these are. Nothing between here and the tombstone
+                        // touches a dead entry either — the promotion, the byte accounting and
+                        // the card dirtying in between all walk `survivors_object`.
+                        for r in obj.refs_mut().iter_mut() {
+                            *r = Value::Null;
+                        }
+                        obj.clear_inline_refs();
+                        size
                     };
                     let fin = entry.take_finalizer();
                     tombstones_object.push((h, fin, size));
@@ -426,20 +451,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         for (h, fin, size) in tombstones_object {
             if let Some(f) = fin { f(); }
             freed_bytes += size;
-            {
-                let region = self.region_object.lock();
-                let entry = region.resolve(h);
-                if entry.alive.load(std::sync::atomic::Ordering::Acquire) {
-                    let mut obj = entry.value.lock();
-                    // unify-object-byte-layout: break every strong reference edge — the
-                    // side-table `refs` AND (PR-3 chunk 2b) the object/array pointers
-                    // byte-inlined in `bytes`.
-                    for r in obj.refs_mut().iter_mut() {
-                        *r = Value::Null;
-                    }
-                    obj.clear_inline_refs();
-                }
-            }
+            // The edges were broken under the scan's lock — see there. What is left is the
+            // array twin's loop exactly: fire the finalizer, credit the bytes, free the slot.
             self.region_object.lock().tombstone(h);
         }
 
