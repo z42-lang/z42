@@ -91,6 +91,10 @@ public static class GeneratorDriver {
             int di = 0;
             while (di < cu.DeclCount) {
                 SiteEdit ed = GeneratorDriver._tryProcessDecl(cu, di, gens, triggers, genCount, symbols, diags);
+                // add-member-forwarding：类级没命中 → 再扫该类的**字段级**触发点。
+                if (ed == null) {
+                    ed = GeneratorDriver._tryProcessFieldTriggers(cu, di, gens, triggers, genCount, symbols, diags);
+                }
                 if (ed != null) {
                     edits = GeneratorDriver._pushEdit(edits, editN, ed); editN = editN + 1;
                     any = true;
@@ -153,6 +157,88 @@ public static class GeneratorDriver {
             ai = ai + 1;
         }
         return null;
+    }
+
+    // 字段级触发点扫描（add-member-forwarding）：`class C { [Forward(...)] Logger _log; }`。
+    //
+    // 为什么需要它：`_tryProcessDecl` 只调度**顶层** `AttributedDecl` 且 `Inner is ClassDecl`
+    // （:137-140），字段上的 attribute 从不被 generator 看见。而「转发**哪个成员**」这件事，
+    // 语义上就长在字段上——贴类上就得再写一遍字段名，等于把一个事实写两处。
+    //
+    // 与类级路径的三点差别：
+    //   ① **不剥 attr、不删工厂**（KeepAttr）—— 见 SiteEdit.KeepAttr 注释：那是白名单 methodof
+    //      被编译检查的唯一通道。
+    //   ② `GenTarget.Applied` 给的是 **FieldDecl**（`Applied` 本就是 `Decl`，不限 ClassDecl），
+    //      `Symbol` 仍给**外层类**的类型 —— generator 两边都要：字段决定转发源，类决定往哪 Augment。
+    //   ③ DeclId key 用 `fld$<Class>$<Field>`，与 AttributeSynth 的工厂 key 同款拼写，
+    //      便于 Augment 的越界护栏（`op.TargetKey != selfKey`）判定。
+    //
+    // 一个类里多个字段各贴触发 attr → 逐个跑，生成源都并进同一个 SiteEdit（同一个 DeclIndex）。
+    private static SiteEdit _tryProcessFieldTriggers(CompilationUnit cu, int di, Generator[] gens, string[] triggers,
+                                                     int genCount, SymbolTable symbols, DiagnosticBag diags) {
+        Decl d = cu.Decls[di];
+        ClassDecl c = null;
+        if (d is ClassDecl) { c = d as ClassDecl; }
+        else if (d is AttributedDecl) { c = (d as AttributedDecl).Inner as ClassDecl; }
+        if (c == null) { return null; }
+
+        SiteEdit ed = null;
+        int mi = 0;
+        while (mi < c.MemberCount) {
+            Decl mem = c.Members[mi];
+            if (mem is AttributedDecl) {
+                AttributedDecl mad = mem as AttributedDecl;
+                if (mad.Inner is FieldDecl) {
+                    FieldDecl fd = mad.Inner as FieldDecl;
+                    int ai = 0;
+                    while (ai < mad.AttrCount) {
+                        Attr at = mad.Attrs[ai];
+                        int gi = GeneratorDriver._findTrigger(triggers, genCount, at.Name);
+                        if (gi >= 0) {
+                            string key = "fld$" + c.Name + "$" + fd.Name;
+                            GenTarget target = new GenTarget(new DeclId(key), c.Name, fd,
+                                                             symbols.GetClass(c.Name), at);
+                            GenSinkImpl sink = new GenSinkImpl();
+                            gens[gi].Generate(target, sink);
+                            if (ed == null) {
+                                ed = new SiteEdit(di, 0 - 1, "");   // 不剥 attr（AttrIndex 无意义）、不删工厂
+                                ed.KeepAttr = true;
+                            }
+                            GeneratorDriver._mergeFieldOps(ed, sink, at, c, key, diags, cu.HasNamespace, cu.Namespace);
+                        }
+                        ai = ai + 1;
+                    }
+                }
+            }
+            mi = mi + 1;
+        }
+        return ed;
+    }
+
+    // 字段级 sink ops → 并进 SiteEdit（镜像 _buildEdit 的 Augment/AddSource 分支；Replace 对字段级
+    // 无意义——「替换一个字段声明」不是本机制的用途，越界即护栏报错）。
+    private static void _mergeFieldOps(SiteEdit ed, GenSinkImpl sink, Attr trigger, ClassDecl c, string selfKey,
+                                       DiagnosticBag diags, bool hasNs, string ns) {
+        int i = 0;
+        while (i < sink.OpCount) {
+            GenOp op = sink.Ops[i];
+            if (op.Kind == GenOpKind.AddSource) {
+                ed._addSrc(op.Src, op.Hint);
+            } else if (op.Kind == GenOpKind.Augment) {
+                if (op.TargetKey != selfKey) {
+                    diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
+                        "generator `[" + trigger.Name + "]` may only augment the decl it is applied to", c.Span);
+                } else {
+                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src, hasNs, ns),
+                               "__gen$" + c.Name + "$" + selfKey + "$augment.z42");
+                    ed.MarkPartial = true;
+                }
+            } else {
+                diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
+                    "generator `[" + trigger.Name + "]` on a field may not Replace a declaration", c.Span);
+            }
+            i = i + 1;
+        }
     }
 
     private static int _findTrigger(string[] triggers, int n, string name) {
@@ -267,9 +353,19 @@ public static class GeneratorDriver {
     }
 
     // 施加单个 site 的 edit：Replace → 换成 parse 的新 decl；否则剥触发 attr（+可选标 inner partial）。
+    //
+    // add-member-forwarding：字段级触发时，**顶层 decl 可能压根不是 AttributedDecl**
+    // （类自己没贴 attr，attr 在它的某个字段上）⇒ 不能无条件 `d as AttributedDecl`。
+    // 这类 edit 只做一件事：把类标成 partial 让 Augment 碎片能合并进来；attr 与工厂**原样留着**。
     private static Decl _applyEdit(CompilationUnit cu, Decl d, SiteEdit ed) {
-        AttributedDecl ad = d as AttributedDecl;
-        ClassDecl c = ad.Inner as ClassDecl;
+        AttributedDecl ad = null;
+        ClassDecl c = null;
+        if (d is AttributedDecl) { ad = d as AttributedDecl; c = ad.Inner as ClassDecl; }
+        else if (d is ClassDecl) { c = d as ClassDecl; }
+        if (ed.KeepAttr) {
+            if (c != null && ed.MarkPartial) { c.IsPartial = true; }
+            return d;
+        }
         if (ed.ReplaceSrc != "") {
             return GeneratorDriver._firstDeclOf(ed.ReplaceSrc, "__gen$" + c.Name + "$replace.z42");
         }
@@ -434,12 +530,17 @@ public sealed class SiteEdit {
     public string FactoryName;  // AttributeSynth 预合成工厂名（删它；"" = 无）
     public string ReplaceSrc;   // 非空 → Replace 被贴 decl
     public bool MarkPartial;    // Augment → 标 inner.IsPartial
+    // add-member-forwarding：**字段级**触发点不剥 attr、不删工厂。
+    // 字段级 attr 的合成工厂（`fld$<Class>$<Field>`，AttributeSynth:75-76）是 `[Forward]` 白名单里的
+    // `methodof(...)` **唯一被编译到的通道** —— 剥了它，白名单就退回「字符串时代」：写错名字不再报错。
+    // 类级触发点仍照旧剥（ordering fixup 要靠它维持 byte-identical）。
+    public bool KeepAttr;
     public string[] NewSrcs;    // AddSource/Augment 生成源
     public string[] NewHints;
     public int NewSrcCount;
     public SiteEdit(int declIndex, int attrIndex, string factoryName) {
         this.DeclIndex = declIndex; this.AttrIndex = attrIndex; this.FactoryName = factoryName;
-        this.ReplaceSrc = ""; this.MarkPartial = false;
+        this.ReplaceSrc = ""; this.MarkPartial = false; this.KeepAttr = false;
         this.NewSrcs = new string[2]; this.NewHints = new string[2]; this.NewSrcCount = 0;
     }
     public void _addSrc(string src, string hint) {
