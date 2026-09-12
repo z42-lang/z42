@@ -95,6 +95,31 @@ public sealed class ForwardGenerator : Generator {
         if (oc == null) { return; }
         // 成员按**声明序**遍历（ClassDecl.Members 是有序数组，不是 hashed StrMap）⇒ 生成顺序天然
         // 确定，不需要额外 sort；这比从 Methods 走还更稳（后者迭代序不确定，见 common-pitfalls §1）。
+        // 🔴 只转发**这个字段的类型真的有**的方法。
+        // 一个类里可以有多个 `[Forward]` 字段，而 partial 声明是**类级**的一张总表 —— 不做这层
+        // 过滤，每个字段都会试图转发别人的方法（实测：`_log` 的碎片去转发属于 `_clk` 的 `Now()`
+        // → `no method Now on Logger`）。
+        Z42ClassType srcT = ForwardGenerator._fieldClassType(t.Symbol, fd.Name);
+        if (srcT == null) { return; }   // 字段类型不是类（基元/未解析）→ 无可转发面
+
+        // ── 按**实参形状**选档（三档共用一个 attribute）──────────────────────────
+        //   无实参            → ③ partial 声明档（下方既有路径）
+        //   typeof(I)         → ① 接口面
+        //   methodof(X.M(..)) → ② 逐个点名
+        // 判定读的是 `Attr.Args` 的**原始 AST**，不经运行期反射对象 —— generator 跑在编译期，
+        // 那些对象此刻还不存在。
+        if (t.Trigger != null && t.Trigger.ArgCount > 0) {
+            Expr a0 = t.Trigger.Args[0];
+            if (a0 is TypeofExpr) {
+                ForwardGenerator._emitIfaceTier(t, fd, srcT, a0 as TypeofExpr, oc, sink);
+                return;
+            }
+            if (a0 is MethodOfExpr) {
+                ForwardGenerator._emitNamedTier(t, fd, srcT, a0 as MethodOfExpr, oc, sink);
+                return;
+            }
+            return;   // 其它实参形状：不是本特性的用法，静默不生成（诊断由 ⑤ 组补）
+        }
         string body = "";
         int n = 0;
         int i = 0;
@@ -114,6 +139,138 @@ public sealed class ForwardGenerator : Generator {
         sink.Augment(t.DeclId, body);
     }
 
+
+
+    // ── ① 接口面：`[Forward(typeof(ILogger))]` ────────────────────────────────────
+    //
+    // 转发面 = 该接口声明的全部方法。签名由**接口**钉死 —— 上游给实现类新增重载不会自动进来，
+    // 这正是「白名单必填」的意义（接口就是那份白名单）。
+    private static void _emitIfaceTier(GenTarget t, FieldDecl fd, Z42ClassType srcT,
+                                       TypeofExpr tox, ClassDecl oc, GenSink sink) {
+        if (!(tox.Type is NamedType)) { return; }
+        string ifaceName = (tox.Type as NamedType).Name;
+        Z42InterfaceType it = ForwardGenerator._lookupIface(t.Symbols, ifaceName);
+        if (it == null) { return; }   // 解析不到接口 → 不生成（⑤ 组补诊断）
+        string body = "";
+        int n = 0;
+        string[] keys = it.Methods.Keys();
+        ForwardGenerator._sortStr(keys);   // hashed StrMap 迭代序不确定 → 必须排序，否则字节漂移
+        int i = 0;
+        while (i < keys.Length) {
+            MethodSymbol ms = it.Methods.Get(keys[i]) as MethodSymbol;
+            if (ms != null && !ForwardGenerator._isObjectProtocol(ms.Name)
+                && !ForwardGenerator._ownerDeclares(oc, ms.Name)) {
+                string one = ForwardGenerator._renderFromSymbol(ms, fd.Name, true);
+                if (one != "") { body = body + one + "\n"; n = n + 1; }
+            }
+            i = i + 1;
+        }
+        if (n > 0) { sink.Augment(t.DeclId, body); }
+    }
+
+    // ── ② 逐个点名：`[Forward(methodof(Logger.Log(string)))]` ──────────────────────
+    //
+    // methodof 在这里同时是**编译期可检查的书写形式**（名字写错 / 签名漂了 → E0459/E0460，
+    // 在 attribute 实参位置就报）与 **generator 的结构化输入**（直接读 AST 的 Member）。
+    private static void _emitNamedTier(GenTarget t, FieldDecl fd, Z42ClassType srcT,
+                                       MethodOfExpr mo, ClassDecl oc, GenSink sink) {
+        if (ForwardGenerator._isObjectProtocol(mo.Member)) { return; }   // S2
+        if (ForwardGenerator._ownerDeclares(oc, mo.Member)) { return; }  // S5：外层已声明 → 不生成
+        MethodSymbol ms = ForwardGenerator._pickByName(srcT, mo.Member);
+        if (ms == null) { return; }
+        string one = ForwardGenerator._renderFromSymbol(ms, fd.Name, false);
+        if (one != "") { sink.Augment(t.DeclId, one + "\n"); }
+    }
+
+    // 从**符号**渲染转发方法（①② 档用；③ 档用用户手写的 AST，见 _renderForwarder）。
+    //
+    // 🔴 只对**本包**符号成立：`ms.Decl` 非空时形参名/ref/params/默认值一应俱全；
+    // 跨包符号只有 `Z42FuncType` —— 参数名在导入时就被丢掉，`ref`/`out` 更是 TSIG 格式里
+    // **根本不记录**（判定不了，而丢掉 ref 的后果是**静默**的错误语义）。
+    // 故跨包一律返回 ""（不生成），由 ⑤ 组的诊断告诉用户改用 ③ 档。
+    private static string _renderFromSymbol(MethodSymbol ms, string fieldName, bool fromIface) {
+        if (!ms.HasDecl || ms.Decl == null) { return ""; }
+        // 私有成员指不了也转不了（Lippert 四类之一）：元数据可见但重载决议不可见，
+        // 而且把别人的私有实现提升到自己的公开面本身就是错的。
+        //
+        // ⚠️ 接口成员**不做这个判断**：符号表对「没写修饰符的成员」一律记 private
+        // （`SymbolCollector._vis` 的默认值），而接口成员按定义就是公开的、本来就不写修饰符。
+        // 照搬这条会让 ① 档一个方法都生成不出来（实测：Hi/Bye 全被吞）。
+        if (!fromIface && ms.Visibility == "private") { return ""; }
+        if (ms.Decl.IsCtor) { return ""; }   // 构造器不是可转发成员
+        return ForwardGenerator._renderForwarderM(ms.Decl, fieldName, "public", false);
+    }
+
+    // 外层类自己声明了同名成员？（S5：不生成，且必须**按名字**判 —— 跨碎片同名重载会让
+    // 先声明的那个从方法表里**静默消失**，见 partial-types.md「跨碎片重载 → 静默覆盖」。）
+    private static bool _ownerDeclares(ClassDecl oc, string name) {
+        int i = 0;
+        while (i < oc.MemberCount) {
+            Decl mem = oc.Members[i];
+            if (mem is AttributedDecl) { mem = (mem as AttributedDecl).Inner; }
+            if (mem is MethodDecl) {
+                MethodDecl md = mem as MethodDecl;
+                // partial 声明（无 body）不算「已声明」—— 那正是 ③ 档要 generator 去填的。
+                if (md.Name == name && !(md.IsPartial && !md.HasBody)) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 按名字取**唯一**方法符号；同名多重载 → 返回 null（② 档点名到重载时不猜，留给诊断）。
+    private static MethodSymbol _pickByName(Z42ClassType ct, string name) {
+        MethodSymbol found = null;
+        int hits = 0;
+        string[] keys = ct.Methods.Keys();
+        ForwardGenerator._sortStr(keys);
+        int i = 0;
+        while (i < keys.Length) {
+            MethodSymbol ms = ct.Methods.Get(keys[i]) as MethodSymbol;
+            if (ms != null && ms.Name == name) { found = ms; hits = hits + 1; }
+            i = i + 1;
+        }
+        if (hits != 1) { return null; }
+        return found;
+    }
+
+    private static Z42InterfaceType _lookupIface(SymbolTable symbols, string name) {
+        if (symbols == null) { return null; }
+        return symbols.GetInterface(name);
+    }
+
+    // 字段名 → 它的类型（须是类/接口才谈得上转发）。
+    private static Z42ClassType _fieldClassType(Z42ClassType owner, string fieldName) {
+        if (owner == null || owner.Fields == null) { return null; }
+        FieldSymbol fs = owner.Fields.Get(fieldName) as FieldSymbol;
+        if (fs == null) { return null; }
+        if (fs.FieldType is Z42ClassType) { return fs.FieldType as Z42ClassType; }
+        return null;
+    }
+
+    // 该类型（含继承链）有没有这个名字的方法。
+    //
+    // 按**名字**判定而非签名：这一步回答的是「这个字段提供不提供这个成员」，签名是否匹配由
+    // 生成体本身的调用去判（写错了就是一条普通的编译错误，指在生成碎片上）。
+    // 跨包类型的 `Methods` 已被 TSIG 展平过继承方法；本包类型则沿 HasBase 上溯。
+    private static bool _provides(Z42ClassType ct, string name) {
+        Z42ClassType cur = ct;
+        int hops = 0;
+        while (cur != null && hops < 32) {
+            string[] keys = cur.Methods.Keys();
+            int i = 0;
+            while (i < keys.Length) {
+                MethodSymbol ms = cur.Methods.Get(keys[i]) as MethodSymbol;
+                if (ms != null && ms.Name == name) { return true; }
+                i = i + 1;
+            }
+            if (!cur.HasBase) { return false; }
+            cur = null;   // 本包基类需要 SymbolTable 才能上溯，GenTarget 不提供 → v1 只看本类 + TSIG 展平面
+            hops = hops + 1;
+        }
+        return false;
+    }
+
     // S2：`Object` 协议方法永不转发（对齐 Lombok `@Delegate` 的 "all public **non-Object** methods"）。
     // 转发 ToString/Equals/GetHashCode 会让外层对象谎报自己是内层对象 —— 那是身份问题，不是便利问题。
     private static bool _isObjectProtocol(string name) {
@@ -125,8 +282,17 @@ public sealed class ForwardGenerator : Generator {
     // 签名**逐字沿用用户写的那份**（`md` 就是用户的 partial 声明）：参数名、默认值、`params`、
     // `ref` 全部原样 —— 这正是 ③ 档零保真损耗的由来。generator 只补 body。
     private static string _renderForwarder(MethodDecl md, string fieldName) {
-        string sig = "    " + md.Mods;
-        if (!ForwardGenerator._hasWord(md.Mods, "partial")) { sig = sig + " partial"; }
+        return ForwardGenerator._renderForwarderM(md, fieldName, md.Mods, true);
+    }
+
+    // modsOverride：①② 档不抄源方法的修饰符，统一发 `public` —— 转发的意义就是把成员提升到
+    // **外层的公开面**；而接口成员的声明本就不写修饰符（隐式 public），照抄会生成私有方法、
+    // 调用点报 E0404。③ 档相反：签名整个是用户写的，原样沿用。
+    // asPartial：③ 档的实现侧必须带 `partial` 才能与用户那份声明配对；①② 档**没有**声明可配对
+    // （整个方法都是 generator 造的），带上 `partial` 反而是 E0434「实现找不到匹配的声明」。
+    private static string _renderForwarderM(MethodDecl md, string fieldName, string modsOverride, bool asPartial) {
+        string sig = "    " + modsOverride;
+        if (asPartial && !ForwardGenerator._hasWord(modsOverride, "partial")) { sig = sig + " partial"; }
         sig = sig + " " + md.RetType.Dump() + " " + md.Name + "(";
         string args = "";
         int i = 0;

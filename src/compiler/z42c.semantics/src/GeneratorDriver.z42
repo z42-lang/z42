@@ -149,6 +149,7 @@ public static class GeneratorDriver {
             if (gi >= 0) {
                 string key = "cls$" + c.Name;
                 GenTarget target = new GenTarget(new DeclId(key), c.Name, c, symbols.GetClass(c.Name), at);
+                target.Symbols = symbols;
                 GenSinkImpl sink = new GenSinkImpl();
                 gens[gi].Generate(target, sink);
                 return GeneratorDriver._buildEdit(di, ai, at, c, key, sink, diags, cu.HasNamespace, cu.Namespace,
@@ -199,6 +200,7 @@ public static class GeneratorDriver {
                             GenTarget target = new GenTarget(new DeclId(key), c.Name, fd,
                                                              symbols.GetClass(c.Name), at);
                             target.Owner = c;   // 外层类的 AST（generator 要看无 body 的 partial 声明）
+                            target.Symbols = symbols;
                             GenSinkImpl sink = new GenSinkImpl();
                             gens[gi].Generate(target, sink);
                             if (ed == null) {

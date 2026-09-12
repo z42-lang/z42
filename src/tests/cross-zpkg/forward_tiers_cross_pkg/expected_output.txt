@@ -1,0 +1,6 @@
+hi
+bye
+tick
+[banner]
+false
+false

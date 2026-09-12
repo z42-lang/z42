@@ -60,6 +60,10 @@ public sealed class GenTarget {
     // 类级触发时 Owner == Applied。post-construction 赋值（镜像 MethodDecl.RegKey 的做法），
     // 不动构造器签名。
     public Decl Owner;
+    // 符号表（add-member-forwarding）。此前 GenTarget 只给 `Symbol`（被贴声明解析出的那**一个**
+    // 类型）—— generator 想按名字解析**别的**类型（如 `[Forward(typeof(ILogger))]` 里的接口）
+    // 就无从下手。post-construction 赋值，与 Owner 同款。
+    public SymbolTable Symbols;
 
     public GenTarget(DeclId declId, string name, Decl applied, Z42ClassType symbol, Attr trigger) {
         this.DeclId = declId;
@@ -68,6 +72,7 @@ public sealed class GenTarget {
         this.Symbol = symbol;
         this.Trigger = trigger;
         this.Owner = applied;   // 默认 = 被贴声明本身（类级触发即如此）
+        this.Symbols = null;
     }
 }
 

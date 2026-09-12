@@ -20,6 +20,17 @@ namespace Std;
 // ⚠️ **必须是真实类而不仅是标记名**：字段级 attribute 的合成工厂（`fld$<Class>$<Field>`）
 // 会真的被编译，`new ForwardAttribute()` 要求这个类型存在。这同时也是白名单形态
 // `[Forward(methodof(...))]` 里的 `methodof` 能被编译期检查的前提。
+// **三档共用一个 attribute，由实参形状选档**（generator 读 Attr.Args 的原始 AST 判定）：
+//
+//   [Forward] Logger _log;                                 ③ 配合 `partial` 声明（用户写签名）
+//   [Forward(typeof(ILogger))] Logger _log;                ① 接口面（签名由接口钉死）
+//   [Forward(methodof(Logger.Log(string)))] Logger _log;   ② 逐个点名（多个 → 重复贴本 attribute）
+//
+// 形参是 `object` 而非 `Type`/`MethodInfo` 重载：实测 z42 的构造器**重载决议在两个引用类型
+// 之间不工作**（给 `typeof(...)` 却选中 `MethodInfo` 那个重载，报 cannot assign Type to
+// MethodInfo）。单 ctor 绕开它，且档位判定本来就在编译期读 AST、不依赖运行期这个字段的静态类型。
 public class ForwardAttribute : Attribute {
-    public ForwardAttribute() { }
+    public object Target;
+    public ForwardAttribute() { this.Target = null; }
+    public ForwardAttribute(object target) { this.Target = target; }
 }

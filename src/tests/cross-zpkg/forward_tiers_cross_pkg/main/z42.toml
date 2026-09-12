@@ -1,0 +1,9 @@
+[project]
+name    = "ft.app"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Ft.App.Main"
+pack    = true
+[dependencies]
+"ft.api"  = "0.1.0"
+"ft.impl" = "0.1.0"
