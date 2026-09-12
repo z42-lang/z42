@@ -218,9 +218,15 @@ pub fn builtin_test_io_take_stderr_buffer(_ctx: &VmContext, _: &[Value]) -> Resu
     Ok(Value::Str(String::from_utf8_lossy(&bytes).into_owned().into()))
 }
 
-pub fn builtin_readline(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn builtin_readline(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
+    // fix-blocking-native-calls-round2：阻塞期间必须让出 GC safepoint，否则并发 GC 死锁
+    // （同 #598 的网络七处；机制见 gc/safepoint.rs 的 NativeParkGuard）。
+    // 等用户输入 —— 可以无限久。
+    {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        std::io::stdin().read_line(&mut line)?;
+    }
     Ok(Value::Str(line.trim_end_matches(['\n', '\r']).to_string().into()))
 }
 
