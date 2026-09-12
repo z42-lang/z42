@@ -147,7 +147,8 @@ public static class GeneratorDriver {
                 GenTarget target = new GenTarget(new DeclId(key), c.Name, c, symbols.GetClass(c.Name), at);
                 GenSinkImpl sink = new GenSinkImpl();
                 gens[gi].Generate(target, sink);
-                return GeneratorDriver._buildEdit(di, ai, at, c, key, sink, diags, cu.HasNamespace, cu.Namespace);
+                return GeneratorDriver._buildEdit(di, ai, at, c, key, sink, diags, cu.HasNamespace, cu.Namespace,
+                                                  GeneratorDriver._usingsOf(cu));
             }
             ai = ai + 1;
         }
@@ -164,7 +165,7 @@ public static class GeneratorDriver {
     // hasNs/ns = 被贴 decl 所属 CU 的命名空间——Augment 脱糖的 synthetic partial 必须**同命名空间**才能与原类
     // 合并（否则原类 `GenConsumer.Widget` 与合成 `(global).Widget` 是两个类，成员并不进原类 → 运行期用默认成员）。
     private static SiteEdit _buildEdit(int declIndex, int attrIndex, Attr trigger, ClassDecl c, string selfKey,
-                                       GenSinkImpl sink, DiagnosticBag diags, bool hasNs, string ns) {
+                                       GenSinkImpl sink, DiagnosticBag diags, bool hasNs, string ns, string usingsSrc) {
         SiteEdit ed = new SiteEdit(declIndex, attrIndex, trigger.FactoryFunc);
         int i = 0;
         while (i < sink.OpCount) {
@@ -176,7 +177,7 @@ public static class GeneratorDriver {
                     diags.Error(DiagnosticCodes.GeneratorTargetOutOfScope,
                         "generator `[" + trigger.Name + "]` may only augment the decl it is applied to", c.Span);
                 } else {
-                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src, hasNs, ns), "__gen$" + c.Name + "$augment.z42");
+                    ed._addSrc(GeneratorDriver._wrapPartial(c, op.Src, hasNs, ns, usingsSrc), "__gen$" + c.Name + "$augment.z42");
                     ed.MarkPartial = true;
                 }
             } else if (op.Kind == GenOpKind.Replace) {
@@ -194,9 +195,30 @@ public static class GeneratorDriver {
 
     // 脱糖 Augment：`[namespace ns;] partial <kind> <Name> { <membersSrc> }`（同 owner ns → partial 合并）。
     // 必须携原类 CU 的命名空间——否则合成碎片落在 global ns、与原类不同 FQN、成员并不进原类。
-    private static string _wrapPartial(ClassDecl c, string membersSrc, bool hasNs, string ns) {
+    private static string _wrapPartial(ClassDecl c, string membersSrc, bool hasNs, string ns, string usingsSrc) {
         string prefix = hasNs ? ("namespace " + ns + ";\n") : "";
-        return prefix + "partial " + c.Kind + " " + c.Name + " {\n" + membersSrc + "\n}\n";
+        return prefix + usingsSrc + "partial " + c.Kind + " " + c.Name + " {\n" + membersSrc + "\n}\n";
+    }
+
+    // 宿主 CU 的 using 列表 → 源码文本（声明序）。
+    //
+    // 🔴 生成碎片**概念上属于宿主文件**，必须继承它的 `using` —— 否则碎片里凡是引用到别的
+    // 命名空间的类型就报 `E0436: namespace X is used but not imported`。generator 生成的代码
+    // 天然会引用宿主能看见的类型（它就是照着宿主的符号表生成的），却拿不到宿主的 using，
+    // 等于「让它照着一份它看不见的上下文写代码」。
+    // `global using` 是包级注入、每个 CU 都有，这里不重复发。
+    private static string _usingsOf(CompilationUnit cu) {
+        string s = "";
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            if (d is UsingDecl) {
+                UsingDecl u = d as UsingDecl;
+                if (!u.IsGlobal) { s = s + "using " + u.Name + ";\n"; }
+            }
+            i = i + 1;
+        }
+        return s;
     }
 
     // 解析生成源码 → CU，并施同 user code 的 AST-phase（RunAst：store-meta/benchmark 合成）。

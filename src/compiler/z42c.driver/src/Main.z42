@@ -373,18 +373,32 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     CompileArtifacts art = PackageCompile.Compile(cin);
     CompiledModuleZ[] cms = art.Cms;
     // ⑨ 诊断呈现（逐文件，首个有错即报并返回——与抽取前逐字一致）
+    // 🔴 循环上界必须是 **art.CmCount 而不是 srcs.Length**（fix-generated-cu-errors-invisible）：
+    // generator 产出后 `cms` 是 **union**（用户 CU + 生成 CU），比 `srcs` 长。按 `srcs.Length`
+    // 迭代 ⇒ **生成 CU 里的编译错误一条也不会被检查**：既不打印、也不返回 BuildError，
+    // 于是带着 `art.Z == null`（错误路径 PackageCompile 就是这么返回的）继续往下走，
+    // 最终在 `ZpkgWriterZ._buildSectionList` 里 `zpkg.NsCount` 撞 Null 崩掉 ——
+    // 一条本该是「编译错误 + 文件名 + 行号」的诊断，变成一句看不懂的 FieldGet 崩溃。
+    // **任何 generator 的产出编译失败都会踩这条**，不限某个具体 generator。
+    //
+    // 生成 CU 没有真实源文件名 → 标 `<generated>`；原先那样索引 `srcs[ei]` 正是越界读。
     if (art.ErrorCount > 0) {
         int ei = 0;
-        while (ei < srcs.Length) {
+        while (ei < art.CmCount) {
             CompiledModuleZ cm = cms[ei];
             if (cm.ErrorCount > 0) {
-                ConsoleError.WriteLine("z42c build: " + cm.ErrorCount.ToString() + " error(s) in " + srcs[ei]);
+                string origin = ei < srcs.Length ? srcs[ei] : "<generated>";
+                ConsoleError.WriteLine("z42c build: " + cm.ErrorCount.ToString() + " error(s) in " + origin);
                 int di = 0;
                 while (di < cm.DiagCount) { ConsoleError.WriteLine("  " + cm.DiagMsgs[di]); di = di + 1; }
                 return ExitCode.BuildError;
             }
             ei = ei + 1;
         }
+        // 有错但逐 CU 都没认领 —— 也绝不能往下走（下游拿 art.Z==null 会崩成 FieldGet）。
+        ConsoleError.WriteLine("z42c build: " + art.ErrorCount.ToString()
+            + " error(s), but no compilation unit reported them (this is a z42c bug)");
+        return ExitCode.BuildError;
     }
     // ⑩ 警告呈现（report-crosspkg-duplicate-type）。
     //
