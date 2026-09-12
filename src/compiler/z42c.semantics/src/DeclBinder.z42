@@ -120,6 +120,24 @@ public sealed class DeclBinder {
     // 共享同一 RegKey，靠「RegKey 重复」即可判重；新键下 primary=裸、非-primary=全键，二者 RegKey
     // **不再相同** → 漏判。故这里按符号的语义签名重算全键（Canon 归一，同 MemberCollector 的键规则），
     // 与兄弟集无关、只看方法自身签名 → 判重恢复且不随 primary 选取漂移。
+    // decl-only 的 partial 方法：**判重要当它不存在**（fix-partial-method-overloads）。
+    //
+    // 它确实不存在 —— `MemberCollector`（:262「无实现即不存在，不注册桩/体」）把它整个擦除，
+    // `ct.Methods` 里没有它。让它参与判重会双重出错：
+    //   ① 它的「重复」对象其实是**它自己的实现**（两者签名按定义必须一致，E0434 就是这么要求的）
+    //      ⇒ 每个 partial 方法都会被报成重复；
+    //   ② 擦除路径给实例方法的键**恒为裸 `md.Name`**（同处注释：`tracks` 为 false → primary 决议
+    //      整块跳过）⇒ 同名的两个 decl-only 重载共用一个键，`_dupSigKey` 顺着这个键查到**同一个**
+    //      符号、算出同一个签名键 ⇒ 报「参数类型相同」。
+    //      实测：`partial string Log(string m);` + `partial string Log(int n);` 直接 E0408，
+    //      而 string 与 int 显然不同 —— 诊断文案说的「aliases 归一后相同」纯属误报。
+    //
+    // 排除它们之后，判重看到的恰好是**最终真会存在的那组方法**（即各实现），语义对齐。
+    // 真正的重复（两个实现同签名）照报不误。
+    private static bool _isErasedPartialDecl(MethodDecl md) {
+        return md.IsPartial && !md.HasBody;
+    }
+
     private string _dupSigKey(Z42ClassType ct, MethodDecl md) {
         if (ct != null && md.RegKey != "") {
             MethodSymbol dms = ct.Methods.Get(md.RegKey) as MethodSymbol;
@@ -138,7 +156,7 @@ public sealed class DeclBinder {
             Decl mem = this._tc._unwrap(c.Members[i]);
             if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
-                if (!SymbolCollector.IsProtocolExempt(md.Name)) {
+                if (!SymbolCollector.IsProtocolExempt(md.Name) && !DeclBinder._isErasedPartialDecl(md)) {
                     string ak = this._dupCheckKey(md);
                     if (seenArity.ContainsKey(ak)) { dupArity.Put(ak, "1"); }
                     else { seenArity.Put(ak, "1"); }
@@ -152,7 +170,7 @@ public sealed class DeclBinder {
             Decl mem = this._tc._unwrap(c.Members[i]);
             if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
-                if (!SymbolCollector.IsProtocolExempt(md.Name)) {
+                if (!SymbolCollector.IsProtocolExempt(md.Name) && !DeclBinder._isErasedPartialDecl(md)) {
                     string ak = this._dupCheckKey(md);
                     if (dupArity.ContainsKey(ak)) {
                         string sk = this._dupSigKey(ct, md);

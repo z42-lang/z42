@@ -863,3 +863,41 @@ void test_const_valid_no_error() {
     string src = "class C { public const int A = 10; const int B = A * 2; } void f() { const int n = 8; int y = n + C.A; }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── partial 方法与判重（fix-partial-method-overloads）────────────────────────────
+// decl-only 的 partial 方法被 MemberCollector 按「无实现即不存在」**擦除**，不进 ct.Methods。
+// 让它参与判重会双重出错：① 它的「重复」对象其实是它自己的实现（签名按定义必须一致）；
+// ② 擦除路径给实例方法的键**恒为裸名** ⇒ 同名的两个 decl-only 重载共用一个键 ⇒ `_dupSigKey`
+// 顺着它查到同一个符号、算出同一个签名键 ⇒ 报「参数类型相同」。
+// 实测过：string 与 int 两个重载被 E0408 判成相同，而诊断文案还言之凿凿说「aliases 归一后相同」。
+
+[Test]
+void test_partial_method_single_is_not_self_duplicate() {
+    // 最基本的一条：一个 partial 方法的**声明 + 实现**不是「两个重载」。
+    string src = "partial class C { partial int D(int n); partial int D(int n) { return n * 2; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_partial_method_overloads_are_allowed() {
+    // 🔴 本次修复的主用例：partial 方法可以重载。
+    // 修复前这里报 2 条 E0408（string 与 int 被判成「参数类型相同」）。
+    string src = "partial class C { partial string L(string m); partial string L(int n); "
+               + "partial string L(string m) { return m; } partial string L(int n) { return \"i\"; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_partial_method_real_duplicate_impls_still_reported() {
+    // 反向：排除「已擦除的声明」不能把**真重复**也放过 —— 两个实现同签名照报。
+    string src = "partial class C { partial void F(int a) { } partial void F(i32 a) { } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0408", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_nonpartial_duplicate_unaffected() {
+    // 反向：非 partial 的重复重载判定完全不受本次改动影响。
+    string src = "class C { void F(int a) { } void F(i32 a) { } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
