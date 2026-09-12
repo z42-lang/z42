@@ -26,6 +26,33 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.promotion_age.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// **adaptive-promotion (2026-09-12)**: put a new promotion age in force across the heap
+    /// and all three regions' cached copies, and re-dirty the card table.
+    ///
+    /// Only ever called at the end of a major, and both halves are load-bearing:
+    ///
+    /// - **A major is the only self-consistent moment.** Lowering the line redefines which
+    ///   entries are old, and every invariant a minor leans on — the card table, the mark
+    ///   bits, which entries are listed young — was built under the old definition. A major
+    ///   has just marked the whole heap from the roots, swept every region and re-aged every
+    ///   survivor, so nothing is left that was derived from the old line. Doing it inside a
+    ///   minor sweep instead is measurably wrong: live `Z42.Semantics.MethodSymbol`s and
+    ///   `Z42.IR.StrMap` backings get reclaimed, and z42c then reports `E0401: no method` or
+    ///   dies on `ArrayGet: expected array, got Null`.
+    /// - **The card table has to be re-dirtied even so.** It records old→young edges, and
+    ///   the write barrier deliberately records *nothing* for a young owner (a young owner
+    ///   is found by scanning the young generation). The new line reclassifies a cohort as
+    ///   old, so every edge those entries wrote while they counted as young is an old→young
+    ///   edge no card covers. Re-dirtying costs one minor's worth of full-heap rooting, once.
+    fn apply_promotion_age(&self, age: u8) {
+        self.promotion_age.store(age, std::sync::atomic::Ordering::Relaxed);
+        self.region_object.lock().set_promotion_age(age);
+        self.region_array.lock().set_promotion_age(age);
+        self.region_var.lock().set_promotion_age(age);
+        self.region_object.lock().dirty_every_card();
+        self.region_array.lock().dirty_every_card();
+    }
+
     /// The age this heap was configured with — the line the adaptive policy lowers *from*.
     #[inline]
     pub(super) fn configured_promotion_age(&self) -> u8 {
@@ -395,35 +422,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut freed_bytes: u64 = 0;
         let mut reclaimed_entries: usize = 0;
         let mut promoted_bytes: u64 = 0;
-        // **adaptive-promotion (2026-09-12)**: this is the one safe window to change the
-        // promotion age — the mark that just ran used the old (never narrower) line, and the
-        // promotions below will drain everything the new line makes old. Apply it to the
-        // heap and to all three regions' cached copies before anything reads it.
+        // **adaptive-promotion (2026-09-12)**: the age in force. The switch itself happens on
+        // top of a major (see `promotion_policy`), never here — a sweep is the wrong place to
+        // redefine which entries are old.
         let configured = self.configured_promotion_age();
-        let threshold = if crate::config::runtime_config().gc_adaptive_promotion {
-            self.promotion_policy.age_for_this_minor(configured)
-        } else {
-            configured
-        };
-        if threshold != self.promotion_age() {
-            self.promotion_age.store(threshold, std::sync::atomic::Ordering::Relaxed);
-            self.region_object.lock().set_promotion_age(threshold);
-            self.region_array.lock().set_promotion_age(threshold);
-            self.region_var.lock().set_promotion_age(threshold);
-            // **Load-bearing, and the whole reason the switch is safe.** The card table
-            // records old→young edges, and the write barrier deliberately records *nothing*
-            // for a young owner (a young owner is found by scanning the young generation).
-            // Lowering the line reclassifies a whole cohort as old, and every edge those
-            // entries wrote while they counted as young is an old→young edge that no card
-            // covers. Re-dirty everything so the next minor rediscovers them.
-            //
-            // Measured: without this, `xtask build stdlib` reclaims live
-            // `Z42.Semantics.MethodSymbol`s and z42c reports `E0401: no method` on a type
-            // whose methods it had just bound. With it, green — and the cost is one minor
-            // that re-roots from every old entry, once per process.
-            self.region_object.lock().dirty_every_card();
-            self.region_array.lock().dirty_every_card();
-        }
+        let threshold = self.promotion_age();
         let observed_age = self.promotion_policy.observed_age(configured);
 
         // Object region
@@ -676,6 +679,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
         //
         // Runs before `rebuild_card_table` on purpose: promotion is what creates old→young
         // edges, and the rebuild is what records them.
+        // **adaptive-promotion (2026-09-12)**: the switch goes **here** — after the whole-heap
+        // mark and sweep, and **before** the aging. See [`Self::apply_promotion_age`] for why
+        // a major is the only self-consistent moment, and why the aging has to be the first
+        // thing to run under the new line: it is what drains the entries the new line makes
+        // old out of the young lists (and dirties their cards). Applying it *after* the aging
+        // instead leaves those entries listed young while the mark phase treats them as old —
+        // measured, that is five different `got Null` failures across a cold `package sdk`.
+        if crate::config::runtime_config().gc_adaptive_promotion
+            && self.promotion_policy.apply_after_major()
+        {
+            let lowered = self.configured_promotion_age().saturating_sub(1).max(1);
+            crate::gc::phase_timer::note(format_args!(
+                "promotion  age {} -> {lowered}", self.promotion_age()));
+            self.apply_promotion_age(lowered);
+        }
         {
             let _t = PhaseTimer::start("age survivors");
             self.age_survivors_after_major();
@@ -749,130 +767,5 @@ impl crate::gc::arc_heap::ArcMagrGC {
     #[allow(dead_code)] // wired in collect_cycles_with_context below
     pub(super) fn minor_escalation_threshold() -> f32 {
         crate::config::runtime_config().gc_minor_threshold
-    }
-
-    /// **add-generational-gc P1 (2026-05-22)**: cross-gen detection
-    /// helper for the write-barrier override. Marks the owner's chunk
-    /// dirty when `owner.gen_age >= PROMOTION_THRESHOLD` (old) AND
-    /// `new.gen_age < PROMOTION_THRESHOLD` (young).
-    ///
-    /// Same routine for both field + array_elem barriers — checks the
-    /// owner Value's kind to pick the right region's card bitmap.
-    /// Non-heap or stack-kind owners → no-op (no card to mark).
-    pub(super) fn maybe_mark_cross_gen_card(&self, owner: &Value, new: &Value) {
-        let new_age = match new {
-            Value::Object(gc) => GcRef::gen_age(gc),
-            // add-boxed-struct-identity (P4b): a boxed struct is a shared region_object
-            // entry — a young box stored into an old owner MUST mark the card, else it is
-            // missed by minor GC and freed prematurely.
-            Value::BoxedStruct(gc) => GcRef::gen_age(gc),
-            Value::Array(gc)  => GcRef::gen_age(gc),
-            // fix-minor-gc-skips-var-region (#533) gave the closure block its own age, and
-            // `gen_age_of` — the judge the minor mark phase actually uses — reads *that*.
-            // This barrier was still reading the `env` array's age, so the two could disagree
-            // (`env` is allocated before the block, hence never younger): an old-looking
-            // closure stored into an old owner would skip the card while the block itself was
-            // still young. Read the same age the mark phase reads.
-            Value::Closure(c) => c.gen_age(),
-            // make-value-copy: a `Ref` handle never escapes into a heap slot (is_heap_ref
-            // = false), so a write barrier here is unreachable for it; its target's age is
-            // handled via the transient-arena root scan.
-            _ => return,
-        };
-        // Only old→young triggers a card. Young→young is in-young
-        // scan already; old→old won't reach young.
-        if new_age >= self.promotion_age() {
-            return;
-        }
-        match owner {
-            // add-boxed-struct-identity (P4b): a boxed struct owner is a region_object
-            // entry too (reflection SetValue writes a ref leaf into its struct_refs).
-            Value::Object(gc) | Value::BoxedStruct(gc) => {
-                if GcRef::gen_age(gc) < self.promotion_age() { return; }
-                // owner is old; mark its chunk in region_object dirty.
-                let entry_ptr = gc.entry_ptr();
-                // SAFETY: entry pointer valid for GcRef lifetime.
-                let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, ei) = entry.location;
-                if ci != u32::MAX {
-                    self.region_object.lock().mark_card_dirty(ci, ei);
-                }
-            }
-            Value::Array(gc) => {
-                if GcRef::gen_age(gc) < self.promotion_age() { return; }
-                let entry_ptr = gc.entry_ptr();
-                let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, ei) = entry.location;
-                if ci != u32::MAX {
-                    self.region_array.lock().mark_card_dirty(ci, ei);
-                }
-            }
-            _ => {} // non-heap owners — no card to mark
-        }
-    }
-
-    #[allow(unused_variables)]
-    pub(super) fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {
-        #[cfg(test)]
-        self.fire_barrier_field(owner, slot, new);
-
-        match self.mode() {
-            crate::gc::GcMode::StwMarkSweep => {} // no-op (one generation → no cross-gen edge)
-            crate::gc::GcMode::ConcurrentMarkSweep => {
-                debug_assert!(
-                    new.is_heap_ref(),
-                    "write_barrier_field caller must filter primitives via Value::is_heap_ref"
-                );
-                if Self::mark_if_unmarked(new) {
-                    #[cfg(debug_assertions)]
-                    debug_assert!(
-                        !self.debug_stw_no_push.load(std::sync::atomic::Ordering::SeqCst),
-                        "BUG: write_barrier_field pushing to mark_queue while debug_stw_no_push=true (STW sweep is active!) — thread {:?}",
-                        std::thread::current().id()
-                    );
-                    self.mark_queue.lock().push(new.clone());
-                }
-            }
-            crate::gc::GcMode::GenerationalMarkSweep => {
-                debug_assert!(
-                    new.is_heap_ref(),
-                    "write_barrier_field caller must filter primitives via Value::is_heap_ref"
-                );
-                // **add-generational-gc P1 (2026-05-22)**: cross-gen
-                // detection. If owner is old (gen_age >= threshold)
-                // AND new is young (gen_age < threshold), the owner's
-                // chunk gets card-dirtied so the upcoming minor GC
-                // re-roots from that chunk (the young target would
-                // otherwise be missed).
-                self.maybe_mark_cross_gen_card(owner, new);
-            }
-        }
-    }
-
-    #[allow(unused_variables)]
-    pub(super) fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {
-        #[cfg(test)]
-        self.fire_barrier_array_elem(arr, idx, new);
-
-        match self.mode() {
-            crate::gc::GcMode::StwMarkSweep => {}
-            crate::gc::GcMode::ConcurrentMarkSweep => {
-                debug_assert!(
-                    new.is_heap_ref(),
-                    "write_barrier_array_elem caller must filter primitives via Value::is_heap_ref"
-                );
-                if Self::mark_if_unmarked(new) {
-                    self.mark_queue.lock().push(new.clone());
-                }
-            }
-            crate::gc::GcMode::GenerationalMarkSweep => {
-                debug_assert!(
-                    new.is_heap_ref(),
-                    "write_barrier_array_elem caller must filter primitives via Value::is_heap_ref"
-                );
-                // add-generational-gc P1: same cross-gen check.
-                self.maybe_mark_cross_gen_card(arr, new);
-            }
-        }
     }
 }

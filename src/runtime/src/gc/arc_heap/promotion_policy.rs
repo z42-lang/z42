@@ -69,8 +69,11 @@ pub(super) struct PromotionPolicy {
     live: AtomicU64,
     /// Entries that were in that tier at all.
     total: AtomicU64,
-    /// Whether the tier has been dropped. **Latches** — see the module note on why raising
-    /// the age back is not a safe operation.
+    /// The tier has been judged worthless, but the switch has not happened yet — it waits
+    /// for a major (see [`Self::wants_major`]). **Latches.**
+    wants_lower: AtomicBool,
+    /// The switch has happened. **Latches** — see the module note on why raising the age
+    /// back is not a safe operation.
     lowered: AtomicBool,
 }
 
@@ -110,12 +113,29 @@ impl PromotionPolicy {
     pub(super) fn settle(&self) {
         let total = self.total.swap(0, Ordering::Relaxed);
         let live = self.live.swap(0, Ordering::Relaxed);
-        if self.lowered.load(Ordering::Relaxed) || total < MIN_SAMPLES {
+        if self.wants_lower.load(Ordering::Relaxed) || total < MIN_SAMPLES {
             return;
         }
         if live as f64 / total as f64 >= SURVIVAL_CUTOFF {
-            self.lowered.store(true, Ordering::Relaxed);
+            self.wants_lower.store(true, Ordering::Relaxed);
         }
+    }
+
+    /// Whether the next collection must be a **major** so the switch can be applied on top
+    /// of it. See the module note: the switch needs a heap whose card table and ages are
+    /// mutually consistent, and a major is what produces one.
+    pub(super) fn wants_major(&self) -> bool {
+        self.wants_lower.load(Ordering::Relaxed) && !self.lowered.load(Ordering::Relaxed)
+    }
+
+    /// Called at the end of a major: apply the pending switch, if any. Returns `true` when
+    /// the caller must now perform the switch's one-off bookkeeping.
+    pub(super) fn apply_after_major(&self) -> bool {
+        if !self.wants_major() {
+            return false;
+        }
+        self.lowered.store(true, Ordering::Relaxed);
+        true
     }
 
     /// Diagnostics for `Z42_GC_PHASES`.

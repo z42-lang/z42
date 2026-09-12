@@ -546,6 +546,7 @@ impl std::fmt::Debug for ArcMagrGC {
 // `pub(super)`（arc_heap 子树内可见）。GC 公共 trait 接口在 `interface.rs`（薄委托）。
 mod alloc;
 mod alloc_black;
+mod barrier;
 mod construct;
 mod auto_collect;
 mod collect;

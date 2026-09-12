@@ -16,6 +16,9 @@ fn a_tier_that_survives_gets_dropped() {
     assert_eq!(p.age_for_this_minor(3), 3, "starts at the configured age");
     feed(&p, 10_000, 999); // 99.9% survival — `z42c.semantics`'s shape
     p.settle();
+    assert!(p.wants_major(), "the switch waits for a major");
+    assert_eq!(p.age_for_this_minor(3), 3, "and nothing changes before it");
+    assert!(p.apply_after_major());
     assert_eq!(p.age_for_this_minor(3), 2);
 }
 
@@ -25,6 +28,7 @@ fn a_tier_that_dies_is_kept() {
     let p = PromotionPolicy::default();
     feed(&p, 10_000, 16); // 1.6% survival — `12_gc_churn`'s shape
     p.settle();
+    assert!(!p.wants_major(), "no major is worth asking for");
     assert_eq!(p.age_for_this_minor(3), 3);
 }
 
@@ -38,7 +42,9 @@ fn the_decision_latches() {
     let p = PromotionPolicy::default();
     feed(&p, 10_000, 999);
     p.settle();
+    assert!(p.apply_after_major());
     assert_eq!(p.age_for_this_minor(3), 2);
+    assert!(!p.wants_major(), "and it only asks for the one major");
     feed(&p, 10_000, 16); // a tier that dies, arriving too late to matter
     p.settle();
     assert_eq!(p.age_for_this_minor(3), 2, "the age must never go back up");
@@ -64,6 +70,7 @@ fn the_observed_tier_follows_the_configured_age() {
     assert_eq!(p.observed_age(3), 2);
     feed(&p, 10_000, 999);
     p.settle();
+    p.apply_after_major();
     assert_eq!(p.age_for_this_minor(3), 2, "now sweeping one tier lower");
     assert_eq!(p.observed_age(3), 2, "but still watching the same tier");
 }
@@ -85,5 +92,6 @@ fn an_age_of_one_has_no_tier_to_drop() {
     let p = PromotionPolicy::default();
     feed(&p, 10_000, 999);
     p.settle();
+    p.apply_after_major();
     assert_eq!(p.age_for_this_minor(1), 1);
 }

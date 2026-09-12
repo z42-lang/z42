@@ -301,7 +301,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // minor cannot do at all.
                 let want_major = self
                     .pending_major
-                    .swap(false, std::sync::atomic::Ordering::AcqRel);
+                    .swap(false, std::sync::atomic::Ordering::AcqRel)
+                    // **adaptive-promotion (2026-09-12)**: the policy has decided to drop a
+                    // promotion tier, and the switch may only be applied on top of a major —
+                    // see `ArcMagrGC::apply_promotion_age` for why. So ask for one.
+                    || (crate::config::runtime_config().gc_adaptive_promotion
+                        && self.promotion_policy.wants_major());
 
                 // **fix-minor-and-major-in-one-pause (2026-09-10)**: a major marks the whole
                 // heap from the roots and sweeps every region — everything a minor reclaims and
