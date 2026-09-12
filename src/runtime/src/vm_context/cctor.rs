@@ -202,6 +202,26 @@ impl crate::vm_context::VmContext {
         }
     }
 
+    /// **静态方法调用的 cctor 屏障**（interp 与 JIT 共用）。
+    ///
+    /// C# 把「调用该类型的静态方法」也算首次使用。实例方法走 VCall 不经这里；即便
+    /// 去虚化后走 Call 也无害——能拿到实例就说明类型已初始化过。
+    ///
+    /// 调 cctor 自身时会命中「本线程重入」分支而放行，不会递归。
+    pub fn ensure_callee_owner_init(&self, func_fq: &str) -> Result<(), String> {
+        if !self.core.cctors.any_pending() { return Ok(()); }
+        let Some(owner) = owner_class_of_static_func(func_fq) else { return Ok(()) };
+        if let Some(m) = self.module() {
+            if let Some(td) = m.type_registry.get(owner) {
+                return self.ensure_type_init(td);
+            }
+        }
+        match self.try_lookup_type(owner) {
+            Some(td) => self.ensure_type_init(&td),
+            None => Ok(()),
+        }
+    }
+
     /// **cctor 屏障**：确保 `td` 这个类型的静态构造器已经跑过（C# 的「首次使用前」）。
     ///
     /// 调用点必须是「首次使用该类型」的地方：创建实例 / 读写其静态字段 / 调其静态方法。

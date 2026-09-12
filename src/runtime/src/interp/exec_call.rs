@@ -92,6 +92,10 @@ pub(super) fn call(
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
 
+    // add-static-constructors：调用该类型的静态方法也是 C# 的类型初始化触发点。
+    // 热路径代价 = 一次 relaxed load（`any_cctor_pending()` 在门内短路）。
+    if let Err(msg) = ctx.ensure_callee_owner_init(fname) { bail!("{msg}"); }
+
     // add-generic-activator: resolve method-type-arg *forwarding* markers `$mta:N`
     // against the CALLER frame's method_type_args[N] before threading to the callee.
     // Emitted when a generic call's type-arg is a bare method-level type param of the
