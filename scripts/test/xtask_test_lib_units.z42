@@ -366,3 +366,83 @@ string _renderSyntheticManifest(string projName, string includeGlob,
     return body;
 }
 
+
+// ── 转发 z42b（xtask-forward-tests-to-z42b 步骤 D1）────────────────────────────
+//
+// 旧路径给**每个单元**合成一份 mini-manifest 落盘 → fork 一次 `z42c build` → 再跑产物。
+// 新路径把这三步压成一次 `z42b test <真 manifest> --name <unit>`：in-process 编译，父包
+// 只建一次、各单元共用缓存。单单元成本约降 3 倍（实测见 proposal ②）。
+//
+// **并行仍留在这里**：并行测试执行必须分进程（单 VM 内 ModuleLoader 按命名空间去重、
+// first-wins），而 z42b 定位不到自己（`__env_args` 只给 `--` 之后的参数）—— xtask 知道
+// vm + builder zpkg 路径，所以由它来批量拉起。实测 z42.io 51 单元 8 路并行：31.07s → 11.25s。
+//
+// 随之消失的还有旧路径那套「编译退 0 但产物缺失」的重试绕行 —— 那个 Heisenbug 出自
+// 合成清单的独立编译相位，这条路径上没有独立编译相位。
+
+// 问 z42b 要单元清单（`--list`：只列不跑）。**发现规则从此只有 z42b 一份** —— 两套规则
+// 各自漂移正是 #580 查出那三处分歧的来源。ok=false 表示 z42b 自己报错了（调用方判红）。
+string[] _listUnitsViaZ42b(string root, string projToml, string kind, string filter,
+                           string mode, string vm, string builderZpkg, string libs,
+                           ref bool ok) {
+    string verb = (kind == "bench") ? "bench" : "test";
+    Process p = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+        .Arg("--").Arg(verb).Arg(projToml).Arg("--list");
+    if (filter.Length > 0) { p = p.Arg("--filter").Arg(filter); }
+    ProcessResult r = p.Env("Z42_LIBS", libs).WorkingDirectory(root).Run();
+    if (r.ExitCode != 0) {
+        ConsoleError.WriteLine("  ❌ z42b " + verb + " --list 失败 (rc=" + r.ExitCode.ToString() + ")");
+        ConsoleError.Write(r.Stderr);
+        ok = false;
+        return new string[0];
+    }
+    ok = true;
+    return _nonEmptyLines(r.Stdout);
+}
+
+string[] _nonEmptyLines(string s) {
+    string[] raw = s.Split("\n");
+    int n = 0;
+    int i = 0;
+    while (i < raw.Length) { if (raw[i].Trim().Length > 0) { n = n + 1; } i = i + 1; }
+    string[] res = new string[n];
+    int k = 0;
+    i = 0;
+    while (i < raw.Length) {
+        string t = raw[i].Trim();
+        if (t.Length > 0) { res[k] = t; k = k + 1; }
+        i = i + 1;
+    }
+    return res;
+}
+
+// 并行跑单元：每 `jobs` 个一批 spawn `z42b <verb> <toml> --name <unit>`，等齐后按批内顺序
+// 打印（输出顺序确定，不随调度漂移）。返回失败数。
+int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, string kind,
+                     int jobs, string mode, string vm, string builderZpkg, string libs) {
+    string verb = (kind == "bench") ? "bench" : "test";
+    int failed = 0;
+    int i = 0;
+    while (i < nUnits) {
+        int bsz = jobs;
+        if (i + bsz > nUnits) { bsz = nUnits - i; }
+        ProcessHandle[] rh = new ProcessHandle[bsz];
+        int b = 0;
+        while (b < bsz) {
+            rh[b] = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+                .Arg("--").Arg(verb).Arg(projToml).Arg("--name").Arg(names[i + b])
+                .Env("Z42_LIBS", libs).WorkingDirectory(root).Spawn();
+            b = b + 1;
+        }
+        b = 0;
+        while (b < bsz) {
+            ProcessResult rr = rh[b].Wait();
+            Console.Write(rr.Stdout);
+            if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+            if (rr.ExitCode != 0) { failed = failed + 1; }
+            b = b + 1;
+        }
+        i = i + bsz;
+    }
+    return failed;
+}
