@@ -668,26 +668,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// young list. Newly-old entries still holding young references get their cards dirtied,
     /// the same way promotion does in a minor (`fix-promotion-creates-uncarded-old-to-young`).
     fn age_survivors_after_major(&self) {
-        let mut young_obj = Vec::new();
-        {
-            let region = self.region_object.lock();
-            region.iterate_young(|h, _| young_obj.push(h));
-        }
-        let mut newly_old_obj = Vec::new();
-        for h in young_obj {
-            if self.region_object.lock().promote(h) { newly_old_obj.push(h); }
-        }
+        // **one-pass-major-aging (2026-09-13)**: one walk per region — see
+        // `Region::age_young_survivors`. This used to copy each young list into a `Vec` and
+        // then take the region lock once per entry to promote it.
+        let newly_old_obj = self.region_object.lock().age_young_survivors();
         self.dirty_cards_for_newly_old_objects(&newly_old_obj);
 
-        let mut young_arr = Vec::new();
-        {
-            let region = self.region_array.lock();
-            region.iterate_young(|h, _| young_arr.push(h));
-        }
-        let mut newly_old_arr = Vec::new();
-        for h in young_arr {
-            if self.region_array.lock().promote(h) { newly_old_arr.push(h); }
-        }
+        let newly_old_arr = self.region_array.lock().age_young_survivors();
         self.age_backing_with_owner(&newly_old_arr);
         self.dirty_cards_for_newly_old_arrays(&newly_old_arr);
 

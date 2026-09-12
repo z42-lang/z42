@@ -439,6 +439,27 @@ string _fixtureGeneratorSrc() {
         + "    }\n"
         + "}\n"
         // module：TypesWith<EntityAttribute> 计数 n → 生成 EntityRegistry（count()==n，ToString 返回其字符串）。
+        // 产**编译不过**的源：守 fix-generated-cu-errors-invisible —— 生成 CU 的错误
+        // 必须真的进到 art.Cms 里（且落在 srcCount 之后那段），否则 driver 那条按
+        // srcs.Length 迭代的循环就会漏掉它、带着 Z==null 往下走、崩成 FieldGet。
+        + "public class BrokenGenerator : Generator {\n"
+        + "    public string AppliedName() { return \"Broken\"; }\n"
+        + "    public string[] Consumes() { return new string[0]; }\n"
+        + "    public string[] Produces() { return new string[0]; }\n"
+        + "    public void Generate(GenTarget t, GenSink sink) {\n"
+        + "        sink.Augment(t.DeclId, \"public int oops() { return NoSuchThing.nope(); }\");\n"
+        + "    }\n"
+        + "}\n"
+        // 产**需要宿主 using 才编得过**的源：守生成碎片继承宿主 usings。
+        // 体里用 StringBuilder（住在 Std.Text）——宿主写了 `using Std.Text;`，碎片必须照抄。
+        + "public class NeedsUsingGenerator : Generator {\n"
+        + "    public string AppliedName() { return \"NeedsUsing\"; }\n"
+        + "    public string[] Consumes() { return new string[0]; }\n"
+        + "    public string[] Produces() { return new string[0]; }\n"
+        + "    public void Generate(GenTarget t, GenSink sink) {\n"
+        + "        sink.Augment(t.DeclId, \"public int slen() { StringBuilder sb = new StringBuilder(); sb.Append(\\\"ab\\\"); return sb.ToString().Length; }\");\n"
+        + "    }\n"
+        + "}\n"
         + "public class RegistryGenerator : ModuleGenerator {\n"
         + "    public string[] Consumes() { return new string[0]; }\n"
         + "    public string[] Produces() { return new string[0]; }\n"
@@ -576,4 +597,68 @@ void test_no_generator_zpkgs_no_change() {
         _inputs("namespace Plain;\nclass Widget { public int v() { return 1; } }\n", "lib"));
     Assert.Equal(0, art.ErrorCount);
     Assert.Equal(1, art.ModCount);
+}
+
+// ── generator 产出的编译错误必须可见（fix-generated-cu-errors-invisible）────────────
+//
+// 症状：`[Forward]` 跨包转发时 z42c 崩在 `ZpkgWriterZ._buildSectionList` 的
+// `FieldGet ... got Null (field NsCount)` —— 一句和真实原因毫无关系的话。
+//
+// 真因：driver 的诊断循环按 **srcs.Length** 迭代，而 generator 产出后 `cms` 是 **union**
+// （用户 CU + 生成 CU）⇒ 生成 CU 里的错误一条也不被检查 ⇒ 既不打印也不返回 BuildError
+// ⇒ 带着 `art.Z == null` 往下走 ⇒ 写 zpkg 时炸。
+//
+// 本组守的是**数据侧的那个前提**：错误确实落在 `srcCount` 之后那段 `Cms` 里。
+// 这正是「按 srcs.Length 迭代」之所以错的原因；driver 侧改成按 `art.CmCount` 迭代。
+
+[Test]
+void test_generator_broken_output_errors_land_in_union_cms() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
+    string[] dirs = libs.Split(":");
+    string gzPath = _writeFixtureGeneratorZpkg(dirs);
+    CompileInputs cin = _inputs("namespace GenBad;\n[Broken] class Widget { }\n", "lib");
+    cin.Name = "demo.genbad";
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    string[] az = new string[1]; az[0] = gzPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+
+    // ① 确实报错了（生成的 `NoSuchThing.nope()` 编不过）
+    Assert.True(art.ErrorCount > 0);
+    // ② 错误路径把 Z 置空 —— 这就是崩溃的燃料：任何往下走的代码都会拿到 null
+    Assert.Null(art.Z);
+    // ③ 🔴 关键：`Cms` 比**用户源文件数**多，且出错的那个 CU 就在多出来的那段里。
+    //    按 srcs.Length（这里 = 1）迭代的循环，恰好**看不到**它。
+    Assert.True(art.CmCount > cin.SrcCount);
+    bool errorBeyondSources = false;
+    int i = cin.SrcCount;
+    while (i < art.CmCount) {
+        if (art.Cms[i].ErrorCount > 0 && art.Cms[i].DiagCount > 0) { errorBeyondSources = true; }
+        i = i + 1;
+    }
+    Assert.True(errorBeyondSources);
+}
+
+// ── Augment 生成的碎片继承宿主 CU 的 usings ────────────────────────────────────────
+//
+// 生成碎片概念上属于宿主文件：generator 是照着宿主的符号表生成代码的，却拿不到宿主的
+// `using` —— 等于让它照着一份自己看不见的上下文写代码。碎片里一引用别的命名空间的类型
+// 就 `E0436: namespace X is used but not imported`。
+[Test]
+void test_augment_fragment_inherits_host_usings() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
+    string[] dirs = libs.Split(":");
+    string gzPath = _writeFixtureGeneratorZpkg(dirs);
+    // 宿主写了 `using Std.Text;`；生成体用 StringBuilder（住在 Std.Text）。
+    // 碎片不继承 using → E0436；继承了 → 干净编过。
+    CompileInputs cin = _inputs("namespace GenUsing;\nusing Std;\nusing Std.Text;\n[NeedsUsing] class Widget { }\n", "lib");
+    cin.Name = "demo.genusing";
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    string[] az = new string[1]; az[0] = gzPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    Assert.True(art.Z != null);
 }

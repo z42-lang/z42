@@ -304,6 +304,55 @@ impl<T> Region<T> {
         out
     }
 
+    /// **one-pass-major-aging (2026-09-13)**: age every listed survivor by one, in **one**
+    /// walk, returning the ones that crossed the line.
+    ///
+    /// The major's counterpart of [`Self::sweep_young_in_one_pass`], and it replaces the
+    /// worst instance of the pattern that one removed: the caller used to
+    /// `iterate_young(|h, _| v.push(h))` — **copying the whole young list into a `Vec` whose
+    /// contents are the young list** — and then take the region lock once per entry to
+    /// promote it, `swap_remove`ing each promoted one back out. Here the survivors are
+    /// compacted in place and the promoted ones simply never get written back.
+    ///
+    /// Entries that are no longer alive are dropped from the list rather than aged: after a
+    /// major they are what `sweep_phase` reclaimed, and it deliberately leaves the list to
+    /// this pass rather than `swap_remove`ing each one.
+    pub fn age_young_survivors(&mut self) -> Vec<RegionHandle> {
+        let threshold = self.promotion_age;
+        let mut young = std::mem::take(&mut self.young_list);
+        let mut newly_old = Vec::new();
+        let mut w = 0usize;
+        for i in 0..young.len() {
+            let (ci, ei) = young[i];
+            if !self.initialized[ci as usize][ei as usize] {
+                continue;
+            }
+            // SAFETY: an initialized slot holds a constructed entry.
+            let entry = unsafe { self.chunks[ci as usize][ei as usize].assume_init_ref() };
+            if !entry.alive.load(Ordering::Acquire) {
+                entry.clear_young_idx();
+                continue;
+            }
+            let new_age = entry.gen_age().saturating_add(1);
+            entry.gen_age.store(new_age, Ordering::Release);
+            if new_age >= threshold {
+                entry.clear_young_idx();
+                newly_old.push(RegionHandle {
+                    chunk_idx: ci,
+                    entry_idx: ei,
+                    generation: entry.generation.load(Ordering::Acquire),
+                });
+            } else {
+                entry.set_young_idx(w);
+                young[w] = (ci, ei);
+                w += 1;
+            }
+        }
+        young.truncate(w);
+        self.young_list = young;
+        newly_old
+    }
+
     /// **add-generational-gc P0 (2026-05-22)**: walk every entry in
     /// `young_list`. O(young) iteration cost. Order: insertion order
     /// (last-promoted entries swap-removed; insertion order otherwise).

@@ -75,7 +75,27 @@
       **未给 `z42.test` 加新 API**：它不在六个自依赖库之列，加 API 要受「晚一个 nightly 再用」
       约束（bootstrap-seed 轴 ③）。判定逻辑落在 z42b 内部，零 stdlib API 变更。
 
-- [ ] D1 `_runLibKind` 改为转发 `z42b test <lib manifest>`
+- [x] **D1 转发落地** —— `_runLibKind` 在「test 路径 + 该包无显式 `[[test]]`」时改走
+      `z42b test <真 manifest> --list` 拿单元清单 → 并行拉起 `z42b test <toml> --name <unit>`。
+      今天 stdlib 的 23 个库全部满足该条件（零显式目标、零 `harness=false`）；旧路径保留，
+      兜住将来出现的显式目标（尤其 `harness=false`，其 Main 自己调 `Environment.Exit`）。
+
+      **对账（同机、同并行度、背靠背）**：覆盖面**逐个用例相同**（3240 通过 / 332 单元 /
+      2 跳过），墙钟 195.17s → 193.09s，差 2s 在噪声内。详见 proposal ②（含三次错误性能
+      结论的复盘）。
+
+      **随之消失**：旧路径「编译退 0 但产物缺失」的重试绕行（那个 Heisenbug 出自合成清单的
+      独立编译相位，转发路径没有这个相位）。
+
+      **推进途中照出五个先于本程序存在的缺陷**（每一个都只在「按包编译」这条路上暴露，
+      旧路径的裸 `--emit-zbc` 单文件编译恰好绕开）：#580 静默空 glob、#584 zpkg 丢 TIDX 字符串、
+      #586 E0606 误报父包、#595 本包跨-ns 自有类被当依赖、#598/#600 阻塞调用不让出 GC safepoint。
+
+- [x] D1a `z42.net/tests/http_keepalive.z42` 补 `using Std.IO;` —— `Stream` 是 `Std.IO` 的类型，
+      此前漏写；旧的单文件 `--emit-zbc` 路径没判出来，改由 z42b 按包编译后被 E0436 逮到。
+      这是那个文件**自身**的缺陷，与转发无关。
+
+- [ ] D1b `_runLibKind` 改为转发 `z42b test <lib manifest>`
 - [ ] D2 旧合成路径（`_renderSyntheticManifest` 等）退休
 - [ ] D3 前后耗时对账（当前 `stdlib [Test]` 1m14s / 占 gate 38%）
 
