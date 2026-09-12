@@ -241,7 +241,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let (fp, fl) = self.str_val(field);
                     let field_id = static_field_id_at(self.func, self.block_idx, self.instr_idx);
                     let id_val = self.builder.ins().iconst(types::I32, field_id as i64);
-                    self.builder.ins().call(self.hr_static_get, &[self.frame_val, self.ctx_val, d, id_val, fp, fl]);
+                    // add-static-constructors：helper 现在可能因 cctor 抛异常而返回 1。
+                    let inst = self.builder.ins().call(self.hr_static_get, &[self.frame_val, self.ctx_val, d, id_val, fp, fl]);
+                    let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::StaticSet(insn) => {
                     let StaticSetInsn { field, val } = &**insn;
@@ -249,7 +251,8 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let (fp, fl) = self.str_val(field);
                     let field_id = static_field_id_at(self.func, self.block_idx, self.instr_idx);
                     let id_val = self.builder.ins().iconst(types::I32, field_id as i64);
-                    self.builder.ins().call(self.hr_static_set, &[self.frame_val, self.ctx_val, id_val, v, fp, fl]);
+                    let inst = self.builder.ins().call(self.hr_static_set, &[self.frame_val, self.ctx_val, id_val, v, fp, fl]);
+                    let ret = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
 
                 // C1 native interop scaffold: JIT translation lands in

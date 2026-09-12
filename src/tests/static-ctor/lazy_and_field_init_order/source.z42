@@ -1,0 +1,18 @@
+using Std.IO;
+
+// add-static-constructors：C# 语义的两条核心。
+// ① 惰性——启动时不跑，首次使用该类型才跑（"before" 先于 "cctor ran"）。
+// ② 顺序——静态字段初始化器在前、cctor 体在后，故最终值是 cctor 写的 42 而非 1。
+//
+// ② 此前是错的：字段初始化器在**按编译单元**的 __static_init__ 里，与 cctor 分处两个
+// 函数，cctor 被触发时 __static_init__ 可能还没跑完 → 「cctor 写 42、随后 __static_init__
+// 覆写回 1」。修法是把有 cctor 的类的字段初始化器搬进该类的类型初始化器。
+class C {
+    public static int V = 1;
+    static C() { Console.WriteLine("cctor ran"); C.V = 42; }
+}
+
+void Main() {
+    Console.WriteLine("before");
+    Console.WriteLine(C.V);
+}

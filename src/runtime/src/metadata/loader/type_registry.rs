@@ -86,6 +86,12 @@ pub fn build_type_registry(module: &mut Module) {
             type_param_constraints: desc.type_param_constraints.clone(),
             // C3 add-attribute-reflection: carry the class's user attributes.
             custom_attributes:      desc.attributes.clone(),
+            // add-static-constructors：从类级 `$Cctor` 哨兵取静态构造器的发射函数名。
+            // build_type_registry 是**所有**模块（急切 + 跨包惰性）的统一漏斗，
+            // 在这里读一次，就不必在每个 type-registry 插入点各挂一遍钩子。
+            cctor_func:             desc.attributes.iter()
+                                        .find(|a| a.type_name == crate::vm_context::cctor::CCTOR_SENTINEL)
+                                        .map(|a| a.factory_func.as_str().into()),
             // add-reflection-static-fields: carry the class's static fields.
             static_fields:          desc.static_fields.clone(),
             // add-field-attribute-reflection: per-field attr refs by name.
@@ -163,6 +169,9 @@ pub fn build_type_registry(module: &mut Module) {
             // object layout — a derived class with 0 own fields still needs the
             // inherited layout (base region) for byte-storage field access.
             && cold_inner.composed_object_layout.is_none()
+            // add-static-constructors：冷区只剩 cctor 名时也必须保留（当前 $Cctor 哨兵
+            // 本身就在 custom_attributes 里、已经能保住冷区，但别把正确性押在那个巧合上）。
+            && cold_inner.cctor_func.is_none()
         {
             None
         } else {

@@ -446,20 +446,60 @@ public sealed class ClassDescBuilder {
     }
 
     internal IrAttrRef[] _attrRefs(Decl rawMem) {
-        if (!(rawMem is AttributedDecl)) { return new IrAttrRef[0]; }
-        AttributedDecl ad = rawMem as AttributedDecl;
-        IrAttrRef[] refs = this._attrRefsFromList(ad.Attrs, ad.AttrCount);
+        // add-static-constructors：此前这里对非-AttributedDecl **提前返回空数组**，于是「没写任何
+        // attribute 的类」根本走不到下面的哨兵追加。$Cctor 必须能挂在这种类上（静态构造器与
+        // attribute 无关），故改成统一追加。三者都不命中时仍返回空数组 → 既有产物字节不变。
+        IrAttrRef[] refs = new IrAttrRef[0];
+        if (rawMem is AttributedDecl) {
+            AttributedDecl ad = rawMem as AttributedDecl;
+            refs = this._attrRefsFromList(ad.Attrs, ad.AttrCount);
+        }
         // add-deprecated-directive（PR5，零格式-bump）：`[Deprecated]` 是 directive（无 store-meta 工厂 → 不入
         // 上面的 refs）。用**既有 attr-ref 块**（零格式变更、避开格式-bump 两代自举回归）持久化：追加一条
         // 哨兵 IrAttrRef(TypeName="$Deprecated", FactoryFunc=msg)。消费方（TsigReconcile / 反射）按 TypeName 识别
         // 并剥离——见 DeprecatedSentinel。未弃用符号不追加 → 零字节变化。
         if (HandlerRegistry.HasDeprecated(rawMem)) {
-            IrAttrRef[] withDep = new IrAttrRef[refs.Length + 1];
-            int i = 0; while (i < refs.Length) { withDep[i] = refs[i]; i = i + 1; }
-            withDep[refs.Length] = new IrAttrRef(IrDeprecation.Sentinel, HandlerRegistry.DeprecatedMsg(rawMem));
-            return withDep;
+            refs = ClassDescBuilder._appendAttrRef(refs, IrDeprecation.Sentinel, HandlerRegistry.DeprecatedMsg(rawMem));
+        }
+        // add-static-constructors：类有静态构造器 → 挂 $Cctor 哨兵，载荷 = cctor 的发射函数名（FQ）。
+        // 运行期据此决定该类型是否需要「首次使用前初始化」屏障（方案 B），并知道该调哪个函数。
+        string cctorFn = this._cctorFuncName(rawMem);
+        if (cctorFn != "") {
+            refs = ClassDescBuilder._appendAttrRef(refs, IrStaticCtor.Sentinel, cctorFn);
         }
         return refs;
+    }
+
+    private static IrAttrRef[] _appendAttrRef(IrAttrRef[] refs, string typeName, string payload) {
+        IrAttrRef[] out2 = new IrAttrRef[refs.Length + 1];
+        int i = 0; while (i < refs.Length) { out2[i] = refs[i]; i = i + 1; }
+        out2[refs.Length] = new IrAttrRef(typeName, payload);
+        return out2;
+    }
+
+    // 该声明若是「带静态构造器的类」→ 返回 cctor 的发射函数名（FQ）；否则 ""。
+    //
+    // 名字必须与 FunctionEmitter 实际发射的一致：`_q(_classIrShortName(c)) + "." + md.RegKey`。
+    // RegKey 是注册键的单一真相（SymbolCollector.RegisterMethod 写、OverloadResolver.MethodKeyOf 读），
+    // **不另拼一份**——同 available! 的 D2.1 教训：手抄第二份键推导迟早漂移。
+    private string _cctorFuncName(Decl rawMem) {
+        Decl d = rawMem;
+        if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+        if (!(d is ClassDecl)) { return ""; }
+        ClassDecl c = d as ClassDecl;
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl m = c.Members[j];
+            if (m is AttributedDecl) { m = (m as AttributedDecl).Inner; }
+            if (m is MethodDecl) {
+                MethodDecl md = m as MethodDecl;
+                if (md.IsCtor && IrGenFacts._hasWord(md.Mods, "static") && md.HasBody) {
+                    return this._g._q(this._g._classIrShortName(c)) + "." + IrStaticCtor.MethodKey;
+                }
+            }
+            j = j + 1;
+        }
+        return "";
     }
 
     private IrAttrRef[] _attrRefsFromList(Attr[] attrs, int count) {

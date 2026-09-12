@@ -1,0 +1,13 @@
+using Std.IO;
+
+// 没有静态字段初始化器的类，cctor 同样要跑（曾经不跑：该类在 per-CU __static_init__
+// 里没有任何写操作，早期实现因此完全触达不到它）。
+class C {
+    public static int V;
+    static C() { Console.WriteLine("cctor ran"); C.V = 42; }
+}
+
+void Main() {
+    Console.WriteLine("before");
+    Console.WriteLine(C.V);
+}

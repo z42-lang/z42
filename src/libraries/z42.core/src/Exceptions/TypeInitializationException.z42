@@ -1,0 +1,15 @@
+namespace Std;
+
+// 类型的静态构造器抛出了异常（add-static-constructors；对标 C#
+// `System.TypeInitializationException`）。
+//
+// C# 语义：静态构造器一旦抛出，该类型此后**不可用**——后续任何触发初始化的访问
+// （读写其静态字段、创建实例、调用其静态方法）都直接抛本异常，**不会重试** cctor。
+// 这条「失败是终态」由 VM 侧的 CctorRegistry::Failed 保证。
+public class TypeInitializationException : Exception {
+    public TypeInitializationException(string message) : base(message) {}
+
+    override string ToString() {
+        return "TypeInitializationException: " + this.Message;
+    }
+}

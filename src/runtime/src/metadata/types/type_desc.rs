@@ -113,6 +113,13 @@ pub struct TypeDescCold {
     pub static_fields: Box<[crate::metadata::bytecode::FieldDesc]>,
     /// add-field-attribute-reflection (zbc 1.14): per-field user-attribute refs,
     /// indexed by field name (instance + static fields with attributes).
+    /// add-static-constructors：本类静态构造器的**发射函数名**（FQ），来自编译期
+    /// `$Cctor` 哨兵的载荷；无静态构造器 → `None`。
+    ///
+    /// 放冷区：只有真有静态构造器的类型才需要它，而那是少数。热路径（`ObjNew`）经
+    /// [`TypeDesc::cctor_func`] 读——对没有 cctor 的类型，`cold` 多半是 `None`，
+    /// 访问器直接返回 `None`，无额外代价。
+    pub cctor_func: Option<Box<str>>,
     /// `__field_custom_attributes` resolves a field's factories here.
     /// Reflection only; empty for classes with no field attributes.
     pub field_attributes: Box<[(Box<str>, Box<[crate::metadata::bytecode::AttributeRef]>)]>,
@@ -183,6 +190,9 @@ impl TypeDesc {
     #[inline] pub fn type_param_constraints(&self) -> &[crate::metadata::bytecode::ConstraintBundle]      { self.cold_slice(|c| &c.type_param_constraints) }
     /// C3 add-attribute-reflection: user attributes applied to this class.
     #[inline] pub fn custom_attributes(&self)      -> &[crate::metadata::bytecode::AttributeRef]          { self.cold_slice(|c| &c.custom_attributes) }
+    /// add-static-constructors：本类静态构造器的发射函数名；`None` = 没有静态构造器。
+    /// 屏障用它短路——没有 cctor 的类型（绝大多数）只付一次 `Option` 判断。
+    #[inline] pub fn cctor_func(&self) -> Option<&str> { self.cold.as_ref().and_then(|c| c.cctor_func.as_deref()) }
     /// add-reflection-static-fields: the class's static fields (reflection only).
     #[inline] pub fn static_fields(&self)          -> &[crate::metadata::bytecode::FieldDesc]             { self.cold_slice(|c| &c.static_fields) }
     /// add-interface-member-reflection: the interface's declared method signatures.
