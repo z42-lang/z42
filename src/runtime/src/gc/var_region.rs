@@ -680,9 +680,9 @@ impl VarRegion {
     /// - unmarked → finalize + tombstone, crediting the bytes it was charged at alloc;
     /// - already tombstoned → a stale entry from lazy deletion; just drop it.
     ///
-    /// The list is **rebuilt** from the survivors rather than element-wise mutated, and the
-    /// header's `IN_YOUNG_BIT` is cleared for everything that leaves, so a recycled slot
-    /// knows to re-list itself.
+    /// The list is **compacted in place** to the survivors (`one-pass-var-sweep`, 2026-09-12),
+    /// and the header's `IN_YOUNG_BIT` is cleared for everything that leaves, so a recycled
+    /// slot knows to re-list itself.
     ///
     /// Old blocks are never visited — that is the definition of a minor collection. They are
     /// reachable as minor roots only through the dirty-card set.
@@ -690,12 +690,16 @@ impl VarRegion {
         let threshold = self.promotion_age;
         let mut reclaimed = 0usize;
         let mut credited: u64 = 0;
-        // Tombstoning mutates `free_lists` / `live_count`, so it cannot run while
-        // `young_list` is borrowed — collect first, then apply (mirrors `sweep`).
-        let mut to_reclaim: Vec<(VarGcRef, u64)> = Vec::new();
-        let mut survivors: Vec<NonNull<GcBlockHeader>> = Vec::with_capacity(self.young_list.len());
+        // **one-pass-var-sweep (2026-09-12)**: own the list (`mem::take`) rather than borrow
+        // it — `&mut self` is then free inside the loop, so the dead are tombstoned where the
+        // decision is made, without the `to_reclaim` staging `Vec` that used to carry them
+        // there (2.26 M pushes + read-backs and an un-reserved growth per minor) and without
+        // the per-minor `Vec::with_capacity`.
+        let mut young = std::mem::take(&mut self.young_list);
+        let mut w = 0usize;
 
-        for &ptr in &self.young_list {
+        for i in 0..young.len() {
+            let ptr = young[i];
             // SAFETY: see `iterate_young`.
             let header = unsafe { ptr.as_ref() };
             if !header.is_alive() {
@@ -707,22 +711,25 @@ impl VarRegion {
                 if header.bump_gen_age() >= threshold {
                     header.set_in_young(false);
                 } else {
-                    survivors.push(ptr);
+                    young[w] = ptr;
+                    w += 1;
                 }
             } else {
                 header.set_in_young(false);
                 let charge = Self::alloc_charge_bytes(header);
-                to_reclaim.push((VarGcRef::pack(ptr, header.generation()), charge));
+                if self.tombstone(VarGcRef::pack(ptr, header.generation())) {
+                    reclaimed += 1;
+                    credited += charge;
+                }
             }
         }
-        self.young_list = survivors;
-
-        for (h, charge) in to_reclaim {
-            if self.tombstone(h) {
-                reclaimed += 1;
-                credited += charge;
-            }
+        young.truncate(w);
+        // In-place compaction keeps the allocation, so the capacity would otherwise stay at
+        // the historical peak (426 212 slots = 3.25 MB, against a typical ~100 k length).
+        if young.capacity() > 4 * young.len() && young.capacity() - young.len() > 65_536 {
+            young.shrink_to(2 * young.len());
         }
+        self.young_list = young;
         (reclaimed, credited)
     }
 
