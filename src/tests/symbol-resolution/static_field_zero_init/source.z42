@@ -1,0 +1,23 @@
+using Std.IO;
+
+// fix-static-value-field-null-slot：**值类型**静态字段无初始化器时，槽位此前停在 `Null`
+// （静态字段存储是 `resize_with(|| Value::Null)`，没人按声明类型零初始化）⇒
+// `static int N;` 一读就崩在 `__box_prim: expected integer value, got Null`。
+//
+// 现在读到 Null 时按声明的 type_tag 补零值并回写槽位（惰性零初始化）。
+// 引用型字段的零值本就是 Null，保持合法、不受影响。
+class Local {
+    public static string S;
+    public static int    N;
+    public static bool   B;
+    public static double D;
+}
+
+void Main() {
+    Console.WriteLine(Local.S == null);
+    Console.WriteLine(Local.N);
+    Console.WriteLine(Local.B);
+    Console.WriteLine(Local.D);
+    Local.N = Local.N + 1;      // 回写后仍可正常参与运算
+    Console.WriteLine(Local.N);
+}

@@ -25,53 +25,80 @@
 use crate::metadata::{Module, TypeDesc};
 use crate::vm_context::VmContext;
 
-/// 静态字段是否声明在该类型或其基类链上。
-fn declares_static_field(ctx: &VmContext, module: &Module, td: &TypeDesc, field: &str) -> bool {
+/// 在该类型或其基类链上找静态字段的声明，返回其 `type_tag`。
+///
+/// `Err(())` = 基类链中途解析不出来 ⇒ **无法证明「没声明」**，调用方须保守放行。
+fn lookup_static_field_tag(
+    ctx: &VmContext, module: &Module, td: &TypeDesc, field: &str,
+) -> Result<Option<String>, ()> {
     let mut cur: Option<std::sync::Arc<TypeDesc>> = None;
     let mut probe: &TypeDesc = td;
     // 基类链深度有限；每层只做一次线性扫（静态字段个数通常个位数）。
     for _ in 0..64 {
-        if probe.static_fields().iter().any(|f| f.name == field) {
-            return true;
+        if let Some(f) = probe.static_fields().iter().find(|f| f.name == field) {
+            return Ok(Some(f.type_tag.clone()));
         }
-        let Some(base) = probe.base_name.as_deref() else { return false };
+        let Some(base) = probe.base_name.as_deref() else { return Ok(None) };
         let next = module.type_registry.get(base).cloned()
             .or_else(|| ctx.try_lookup_type(base));
         match next {
-            // 基类解析不出来 → 无法证明「没声明」→ 保守返回 true（不报错）。
-            None => return true,
+            None => return Err(()),   // 基类不可解析 → 不下结论
             Some(b) => { cur = Some(b); probe = cur.as_deref().unwrap(); }
         }
     }
-    true
+    Err(())
 }
 
-/// 读静态字段得到 `Null` 后的确证：该字段**确实没有被声明** ⇒ 返回异常值。
-///
-/// 返回 `None` 表示「不报错」——包括字段确实存在、属主类型解析不出来、或是全局静态字段。
+/// 读静态字段得到 `Null` 之后的裁决。
+pub enum StaticNullVerdict {
+    /// 合法的 `Null`（引用型字段未赋值，或无法证明有问题）——照常返回。
+    Ok,
+    /// 字段已声明且是**值类型**，槽位却是 `Null` ⇒ 该槽从未被零初始化。
+    /// 用声明类型的零值补上（调用方应**回写槽位**，相当于惰性零初始化）。
+    Default(crate::metadata::Value),
+    /// 确定不存在 ⇒ 抛该异常值。
+    Missing(crate::metadata::Value),
+}
+
+/// 读静态字段得到 `Null` 后的裁决。见 [`StaticNullVerdict`]。
 pub fn verify_static_field(
     ctx: &VmContext, module: &Module, field_fq: &str,
-) -> Option<crate::metadata::Value> {
-    let (owner, name) = field_fq.rsplit_once('.')?;   // 无点 = 全局静态字段，不归任何类型
+) -> StaticNullVerdict {
+    let Some((owner, name)) = field_fq.rsplit_once('.') else {
+        return StaticNullVerdict::Ok;   // 无点 = 全局静态字段，不归任何类型
+    };
     let resolved = module.type_registry.get(owner).cloned()
         .or_else(|| ctx.try_lookup_type(owner));
     let Some(td) = resolved else {
         // 属主类型整个解析不出来。`try_lookup_type` **本身就是完整解析路径**（会触发所属包
         // 加载），它失败就再无回落 ⇒ 确定不存在。
         //
-        // 这条最初被我当成「归 ObjNew 那个站点管」而保守跳过，结果站点 ① 对**最常见的
+        // 这条最初被我当成「归 ObjNew 那个站点管」而保守跳过，结果本站点对**最常见的
         // skew 形态**（整个依赖包不在了）完全不生效——实测才发现。保守要有边界：
         // 保守的是「解析路径没走完就别下结论」，不是「凡是拿不到就别报」。
-        return Some(crate::exception::make_missing_symbol_exception(
+        return StaticNullVerdict::Missing(crate::exception::make_missing_symbol_exception(
             ctx, module,
             format!("static field `{field_fq}`: type `{owner}` could not be resolved"),
         ));
     };
-    if declares_static_field(ctx, module, &td, name) {
-        return None;
+    match lookup_static_field_tag(ctx, module, &td, name) {
+        Err(()) => StaticNullVerdict::Ok,        // 基类链没走通 → 不下结论
+        Some_tag @ Ok(Some(_)) => {
+            let tag = match Some_tag { Ok(Some(t)) => t, _ => unreachable!() };
+            // fix-static-value-field-null-slot：值类型静态字段无初始化器时槽位停在 `Null`
+            // （`resize_with(|| Value::Null)` 只填 Null，没人按声明类型零初始化）⇒
+            // `static int N;` 一读就崩在 `__box_prim: expected integer value, got Null`。
+            // 这里按声明类型补零值；调用方回写槽位，后续读不再走这条路。
+            let d = crate::metadata::types::default_value_for(&tag);
+            if matches!(d, crate::metadata::Value::Null) {
+                StaticNullVerdict::Ok            // 引用型的零值就是 Null —— 合法
+            } else {
+                StaticNullVerdict::Default(d)
+            }
+        }
+        Ok(None) => StaticNullVerdict::Missing(crate::exception::make_missing_symbol_exception(
+            ctx, module,
+            format!("static field `{field_fq}` is not declared on type `{owner}`"),
+        )),
     }
-    Some(crate::exception::make_missing_symbol_exception(
-        ctx, module,
-        format!("static field `{field_fq}` is not declared on type `{owner}`"),
-    ))
 }

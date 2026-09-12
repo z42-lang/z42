@@ -346,13 +346,24 @@ pub unsafe extern "C" fn jit_static_get(
         vm.static_get(field)
     };
     // fix-silent-symbol-resolution（站点 ①）：与 interp 对称——读到 Null 才确证。
+    let mut v = v;
     if matches!(v, crate::metadata::Value::Null) {
         let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
             .unwrap_or("");
         let module = &*(*_ctx).module;
-        if let Some(exc) = crate::vm_context::symres::verify_static_field(vm, module, field) {
-            set_exception(vm, exc);
-            return 1;
+        use crate::vm_context::symres::StaticNullVerdict as V;
+        match crate::vm_context::symres::verify_static_field(vm, module, field) {
+            V::Ok => {}
+            V::Missing(exc) => { set_exception(vm, exc); return 1; }
+            V::Default(d) => {
+                if field_id != crate::metadata::tokens::UNRESOLVED {
+                    vm.static_set_by_id(
+                        crate::metadata::tokens::StaticFieldId(field_id), d.clone());
+                } else {
+                    vm.static_set(field, d.clone());
+                }
+                v = d;
+            }
         }
     }
     (*frame).regs[dst as usize] = v;

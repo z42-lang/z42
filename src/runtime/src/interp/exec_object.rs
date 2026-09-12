@@ -412,9 +412,21 @@ pub(super) fn static_get(
     };
     // fix-silent-symbol-resolution（站点 ①）：读到 Null 才确证该字段是否真的声明过。
     // 不能用「读到 Null 就报错」——Null 本身是合法值（未赋值的引用型静态字段就是 Null）。
+    let mut v = v;
     if matches!(v, Value::Null) {
-        if let Some(exc) = crate::vm_context::symres::verify_static_field(ctx, module, field) {
-            return Ok(Some(exc));
+        use crate::vm_context::symres::StaticNullVerdict as V;
+        match crate::vm_context::symres::verify_static_field(ctx, module, field) {
+            V::Ok => {}
+            V::Missing(exc) => return Ok(Some(exc)),
+            // 惰性零初始化：回写槽位，后续读不再走这条确证路径。
+            V::Default(d) => {
+                match field_id {
+                    Some(id) => ctx.static_set_by_id(
+                        crate::metadata::tokens::StaticFieldId(id), d.clone()),
+                    None => ctx.static_set(field, d.clone()),
+                }
+                v = d;
+            }
         }
     }
     frame.set(dst, v);
