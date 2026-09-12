@@ -251,7 +251,16 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
     // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
     // 其余 IrModule 从 cache 读回（meta 残留已回填）。workspace/flat（outputDirOverride）不走。
     IncrPrep prep = null;
-    if (outputDirOverride.Length == 0 && !noIncremental) {
+    // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
+    // BuildConfig.Incremental 就再没人读过**——`docs/design/compiler/project.md:223/242` 明文
+    // 承诺「基于 source hash 跳过未改动文件，默认 true」，`examples/workspace-with-presets`
+    // 也真的在 preset 里写它，但写 false 不会有任何效果。**一个看起来正经、实则从不生效的旋钮**，
+    // 比没有这个旋钮更坏：用户以为自己关掉了。
+    //
+    // 优先级：CLI `--no-incremental` 是显式一次性覆盖，**永远压过 manifest**；manifest 里的
+    // false 则是该工程的常设选择。两者任一为「关」即关。
+    bool incrOff = noIncremental || !pm.Build.Incremental;
+    if (outputDirOverride.Length == 0 && !incrOff) {
         string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
         string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
         // preserved 跳过要求 dist 主文件的 pack 模式与本次决议一致（packed↔indexed 切换

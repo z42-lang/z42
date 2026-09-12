@@ -42,10 +42,66 @@ int _testIncremental(ParseResult r) {
     if (rc != 0) { return rc; }
     rc = _reconcileProject(vm, driver, libs, _incrXtaskCopy(root, scratch), "xtask");
     if (rc != 0) { return rc; }
+    rc = _knobTakesEffect(vm, driver, libs, _incrDemoDir(Path.Join(scratch, "knob")));
+    if (rc != 0) { return rc; }
 
-    Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + xtask)");
+    Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + xtask)"
+        + " + [build] incremental knob takes effect");
     _procEnd("test incremental", sw);
     return 0;
+}
+
+// ── `[build] incremental` 这个旋钮**真的生效**吗（wire-build-incremental）────────────
+//
+// 为什么要单独一道：这个键此前**被解析进 BuildConfig.Incremental 就再没人读过**——
+// design 文档明文承诺它、examples 的 preset 真的在写它，而写 false 毫无效果。
+// 上面那两轮对账**测不到它**：它们验的是「增量结果 == 全量结果」，而一个从不生效的
+// 开关恰恰不会让两者不等 —— 门全绿，洞照样在。
+//
+// 判据取**行为**而非解析：同一份源码连编两次，
+//   · 默认（incremental 未写 / = true）→ 第二次必须命中缓存，打印 `preserved`
+//   · `incremental = false`            → 第二次必须重新装配，**不得**出现 `preserved`
+// 任一条不成立即红。stdout 经 Stdio.ToFile 落盘后读回，确定性判定、不靠计时。
+int _knobTakesEffect(string vm, string driver, string libs, string projDir) {
+    Console.WriteLine("\n── knob: [build] incremental takes effect (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+    string logPath = Path.Join(projDir, "build.out");
+
+    // 第 1 次：填 cache。
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) {
+        ConsoleError.WriteLine("  ✗ initial build failed"); return 1;
+    }
+    // 第 2 次（默认 = 增量开）：应命中缓存 → preserved。
+    if (_incrBuildTo(vm, driver, libs, toml, logPath) != 0) {
+        ConsoleError.WriteLine("  ✗ second build failed"); return 1;
+    }
+    if (!File.ReadAllText(logPath).Contains("preserved")) {
+        ConsoleError.WriteLine("  ✗ incremental ON: 第二次构建没有命中缓存（输出里没有 `preserved`）——");
+        ConsoleError.WriteLine("    要么增量整体坏了，要么本判据依赖的输出措辞变了；两者都得查。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ default (incremental on): 第二次构建命中缓存");
+
+    // 关掉旋钮：[build] incremental = false。
+    string t = File.ReadAllText(toml);
+    File.WriteAllText(toml, t + "\n[build]\nincremental = false\n");
+    if (_incrBuildTo(vm, driver, libs, toml, logPath) != 0) {
+        ConsoleError.WriteLine("  ✗ build with incremental=false failed"); return 1;
+    }
+    if (File.ReadAllText(logPath).Contains("preserved")) {
+        ConsoleError.WriteLine("  ✗ `[build] incremental = false` 没有生效 —— 第二次构建仍然命中了缓存。");
+        ConsoleError.WriteLine("    这个键曾经就是这样：解析进 BuildConfig.Incremental 后无人读取。");
+        ConsoleError.WriteLine("    接线点：z42c.driver/src/Main.z42 的 incrOff。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ incremental = false: 缓存未被命中（旋钮生效）");
+    return 0;
+}
+
+// `_incrBuild` 的捕获版：stdout 落盘供判定（stderr 仍丢弃）。
+int _incrBuildTo(string vm, string driver, string libs, string toml, string outPath) {
+    return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml)
+        .Env("Z42_LIBS", libs).Stdout(Stdio.ToFile(outPath)).Stderr(Stdio.Null()).Run().ExitCode;
 }
 
 // 逐文件 touch 对账一个工程。projDir 内须有 t.z42.toml（dist 落 projDir/dist）。
