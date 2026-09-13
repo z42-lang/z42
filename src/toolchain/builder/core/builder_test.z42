@@ -201,8 +201,10 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
     // ① 先建**父包本体** —— 测试目标依赖它（`Api` 之类来自父包的公开面）。父包 dist 不在
     //    Z42_LIBS 里，故作为 extraDepDir 供给。注意这也正是「不双编译」的体现：父包只建一次，
     //    所有目标共用它的产物。
+    // "" 有两种含义：父包没有源（纯测试工程，正常）或建失败（已打诊断）。用 _parentHasSources
+    // 区分 —— 前者继续、目标独立编译；后者才算失败。
     string parentDist = _buildParentForTargets(m, tgt, sourceDir);
-    if (parentDist.Length == 0) { return 1; }
+    if (parentDist.Length == 0 && _parentHasSources(m, sourceDir)) { return 1; }
 
     // ② 父包身份：交给进程内编译器 ⇒ 测试可见父包 internal
     //    （Pipeline.ParentPkg → CompileRequest.ParentPkg → CompileInputs.ParentPkg）。
@@ -230,10 +232,25 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
     }
 
     if (!t.Harness) {
-        // harness=false：自驱 Main、退出码判定 —— 刀二收编，先明确拒绝而不是假装跑过。
-        ConsoleError.WriteLine("z42b " + kind + ": target `" + t.Name
-            + "` uses harness=false (self-driving Main); not yet supported by z42b (slice 2)");
-        return 2;
+        // harness=false：目标自带 Main、**退出码即判定**（无 golden 对比）。
+        //
+        // 必须 fork 子进程而不能 in-process 跑：这类目标的 Main 通常自己调
+        // `Environment.Exit(code)` 表达结论 —— 那会把 z42b 自己一并带走，后面的目标就都不跑了。
+        string vm = _hostVmPath();
+        if (vm.Length == 0) {
+            ConsoleError.WriteLine("z42b " + kind + ": cannot locate z42vm to run harness=false target `"
+                + t.Name + "` (set Z42_PORTABLE_VM or Z42_HOME, or build artifacts/build/runtime)");
+            return 2;
+        }
+        Process p = new Process(vm).Arg(dist);
+        if (t.HasEntry && t.Entry.Length > 0) { p = p.Arg(t.Entry); }
+        // 子进程按同一条 Z42_LIBS 解析依赖；产物目录已 colocate 父包 zpkg（见上）。
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        if (libs.Length > 0) { p = p.Env("Z42_LIBS", libs); }
+        int rc = p.Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
+        if (rc == 0) { Console.WriteLine("  ✓ " + t.Name + " (harness=false, exit 0)"); }
+        else { ConsoleError.WriteLine("  ✗ " + t.Name + " (harness=false, exit " + rc.ToString() + ")"); }
+        return rc;
     }
     return Runner.RunModule(dist, format);
 }
@@ -368,7 +385,12 @@ string[] _sortedDir(string dir) {
 }
 
 // 建父包本体一次（多目标共用），返回其 dist 目录；失败返 ""。
+// 返回父包 dist 目录；**父包没有任何源时返回 ""**（不是失败）—— 见下。
 string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir) {
+    // 纯测试工程：整个包只有 `[[test]]` 目标、没有自己的源（如 src/tests/manifest-targets/basic）。
+    // 这类工程没有「父包」可建，也就没有 internal 可暴露 —— 无条件建父包会撞
+    // 「no .z42 sources under <projdir>」而整个目标跑不起来。跳过它，让目标独立编译。
+    if (!_parentHasSources(m, sourceDir)) { return ""; }
     int rc = _orchestrate(m, tgt, sourceDir, "");
     if (rc != 0) {
         ConsoleError.WriteLine("z42b: failed to build parent package `" + m.Project.Name + "`");
@@ -384,4 +406,35 @@ string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir) {
     string dist = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
     File.Copy(built, dist);
     return dirs.Dist;
+}
+
+// 定位可用的 z42vm（跑 harness=false 目标要 fork 子进程）。探测序与 _findCompilerZpkg 同构：
+//   ① Z42_PORTABLE_VM（apphost 启动时已设）
+//   ② Z42_HOME/bin/z42vm（SDK 安装态）
+//   ③ 开发树 artifacts/build/runtime/release/z42vm
+// 都找不到 → ""（调用方报错，不假装跑过）。
+string _hostVmPath() {
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (pv.Length > 0 && File.Exists(pv)) { return pv; }
+    string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    if (home.Length > 0) {
+        string c = Path.Join(home, Path.Join("bin", "z42vm"));
+        if (File.Exists(c)) { return c; }
+        if (File.Exists(c + ".exe")) { return c + ".exe"; }
+    }
+    string dev = "artifacts/build/runtime/release/z42vm";
+    if (File.Exists(dev)) { return dev; }
+    if (File.Exists(dev + ".exe")) { return dev + ".exe"; }
+    return "";
+}
+
+// 父包是否有自己的源（决定要不要先建它）。`[sources] include` 缺省时是 `src/**/*.z42`，
+// 纯测试工程连 src/ 都没有 ⇒ 零命中。
+bool _parentHasSources(ProjectManifest m, string sourceDir) {
+    string[] inc = m.Sources.Include;
+    int n = m.Sources.IncludeCount;
+    if (n == 0) { return false; }
+    string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, inc, n,
+                                                         m.Sources.Exclude, m.Sources.ExcludeCount);
+    return files.Length > 0;
 }

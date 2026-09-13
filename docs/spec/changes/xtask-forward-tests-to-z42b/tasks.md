@@ -56,6 +56,22 @@
       · **xtask 侧 `_isKnownOrphanLib` 退休** —— 欠债从工具里的硬编码名单搬到债主自己的清单
         （`z42.scripting` 的 `[tests] auto = false`），两条发现路径从此共用同一条豁免规则。
 
+## 步骤 C2 —— z42b 支持 harness=false（转发的最后一块拼图）
+
+- [x] C2 `harness=false`（自带 Main、**退出码即判定**）在 z42b 落地。
+      **必须 fork 子进程**：这类目标的 Main 通常自己调 `Environment.Exit(code)` 表达结论 ——
+      in-process 跑会把 z42b 自己一并带走、后面的目标全不跑。
+      z42vm 的定位走三级探测（`Z42_PORTABLE_VM` → `Z42_HOME/bin/z42vm` → 开发树 artifacts），
+      与 `_findCompilerZpkg` 同构；找不到就明确报错，不假装跑过。
+
+      **顺带修掉「纯测试工程」建不起来**：整个包只有 `[[test]]` 目标、没有自己的源
+      （`src/tests/manifest-targets/basic` 正是这形态）时，无条件建父包会撞
+      「no .z42 sources under <projdir>」⇒ 目标根本跑不起来。改为**父包无源则跳过**
+      （没有父包也就没有 internal 要暴露），目标独立编译。
+
+      **阴性对照**：另造一个 `Environment.Exit(3)` 的目标，z42b 如实传出 rc=3 并判红 ——
+      不是假装跑过。gate 冒烟 `_smokeHarnessFalse` 守住这条分叉真的走了子进程。
+
 ## 步骤 D —— 切换（高风险，动 GREEN gate 最关键的 stage）
 
 - [x] D0 **「本包压根没有测试」不得判红**（转发的前置阻塞，实测发现）。
