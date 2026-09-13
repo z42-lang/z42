@@ -1,0 +1,19 @@
+namespace Demo.WcapApp;
+
+using Std.IO;
+using Demo.WcapTarget;
+
+// 与 wrong_ctor_arity_skew 配对的「在场」对照：依赖**不**被顶替，几种合法形态都必须正常构造。
+void Main() {
+    Console.WriteLine(new Widget().V.ToString());        // 7
+    Console.WriteLine(new Bag(1, 2, 3).Sum.ToString());  // 6（跨包 params 尾参）
+    Console.WriteLine(new Plain().N.ToString());         // 0（无构造器的类）
+    Console.WriteLine(new Initd().K.ToString());         // 9（跨包**合成**构造器必须照跑）
+    // 把跨包构造器**跑热**，逼它 tier 到 native —— `jit_obj_new` 的 native 分支拿不到
+    // `Function` 元数据，只能用 `FnEntry` 里预算好的区间。那条分支若接错（比如区间没填、
+    // 停在 {0,0}），这里就会抛 MissingSymbolException 而不是打印 7。
+    int last = 0;
+    int i = 0;
+    while (i < 500) { last = new Widget().V; i = i + 1; }
+    Console.WriteLine(last.ToString());                  // 7（native 分支上的合法构造）
+}

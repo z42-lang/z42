@@ -72,8 +72,56 @@ argc == 0                  ⇒  证不出来，照旧走「无 ctor」路径
 ```
 
 **已知残留缺口（有意保留）**：`argc == 0` 时区分不了「本来就无 ctor」与「`C()` 在旧依赖里
-不存在」。要补上它得让 `TypeDesc` 记录「本类声明了哪些构造器」——`build_type_registry`
-目前**显式把构造器排除在 `own_methods` 之外**，那是另一笔要动元数据的账。
+不存在」。
+
+原先记的补法是「让 `TypeDesc` 记录本类声明了哪些构造器」，**经复核几乎没有覆盖面**：
+primary 构造器用**裸键**，所以「类只要声明了任何构造器，裸键就一定解析得到」——裸键解析
+不到时，被加载的那份类几乎必然真的零构造器，新元数据永远判不出问题。
+
+真正的闭合要在**调用点**给「零构造器」一个可区分的编码（如 `IrLoopAllocReuse` 早已确立的
+空 ctor 名 = 裸分配），于是「非空却解析不到」⇒ 无论 argc 都是缺失。卡点是**判据算不准**：
+z42c 为「有字段初始化器、无显式 ctor」的类**合成**的隐式构造器（`IrGenTypeEmitter._emitSynthCtor`）
+既不是 `MethodSymbol`、也不在 `_bindNew` 那一刻存在（`_synthCtors` 跑在所有绑定之后），
+而准确的 oracle（本包全部已发射函数 ∪ `DependencyIndex.Statics`）要等整包装配后才齐。
+判错的代价是**静默跳过真构造器**——比它要修的 bug 更坏。故另立 change 处理。
+
+### 构造器（续）—— `wrong_ctor_arity_exception`，解析**成功**也要查
+
+上面那条判据只管「解析不到」。但同一个裸键在版本 skew 下还会**命中错的构造器**：
+
+| | 编译时依赖（v2） | 运行时加载到（v1） |
+|---|---|---|
+| 声明 | `class Widget { Widget() {...} }` | `class Widget { Widget(int v) {...} }` |
+| 裸键 | `Demo.T.Widget.Widget`（primary） | `Demo.T.Widget.Widget`（primary） |
+
+`new Widget()` 发裸键、`argc == 0` ⇒ 运行期**解析成功**，命中 `Widget(int)`。而
+`exec_function` 用 `Frame::new(args, max_reg)` 建帧、**不做任何 arity 校验**，形参 `v` 的
+寄存器就停在默认值上继续跑（实测字段被静默写成 `0`）。这不是「缺符号」，是**静默调错
+构造器**——而且比 `argc == 0` 那条缝常见得多：**任何**「构造器签名变了」的 skew 都落在这里。
+
+判据全部来自**已有**元数据（`Function::param_count` / `min_arg` / `params_from`），无格式改动：
+
+```
+phys = argc + 1                       // 调用方实际传入的值个数（含 this）
+min  = min(min_arg + 1, param_count)  // ⚠️ 见下
+max  = params_from != 0xFF ? ∞ : param_count
+phys ∉ [min, max]  ⇒  抛
+```
+
+> ⚠️ **`min_arg` 两种口径并存，必须夹住。** 文档口径是**逻辑**必填数（不含 `this`），
+> `IrGenFacts._fillParamMeta` 写的也是逻辑值；但 `IrFunction` 构造器的**默认值**是
+> `MinArg = paramCount`，那是**物理**总数（含 `this`），`IrGenMemberEmitter` 的注释明说了
+> 这点并为 getter/setter 手工覆盖。没被 `_fillParamMeta` 覆盖过的合成函数因此会多算 1，
+> 不夹住就会把合法构造判成 skew。夹到 `param_count` 后默认情形退化成「全必填」——正是
+> 那个默认值本来的语义。回归钉在 `vm_context/symres_tests.rs`。
+
+复用 `MissingSymbolException` 而不新增异常类：新类要先进 stdlib，而冷启动种子的 stdlib
+里没有它 ⇒ 得走两-nightly。语义上也说得通：调用点指名的那个重载**确实不在**，撞上的是
+同键下的另一个。
+
+**两个后端都查，且 JIT 的 native 分支不能漏**——跨包构造器正是惰性加载、最容易 tier 到
+native 的那批。区间在 `FnEntry` 里随编译一次算好（`jit/lazy.rs`），于是两条分支都不必为
+每次构造再查一遍函数元数据。
 
 ### 类型 —— `missing_type_exception`
 

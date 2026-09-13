@@ -178,6 +178,10 @@ pub struct FnEntry {
     /// Source file path (from the function's first `LineEntry`). Empty
     /// `Arc<str>` if the line table omits file references.
     pub file:    std::sync::Arc<str>,
+    /// fix-ctor-arity-skew: 可接受的**物理**实参数区间，编译时从 `&Function` 算好。
+    /// `jit_obj_new` 的 native 分支只拿得到 `FnEntry`（跨包构造器正是惰性加载、
+    /// 最容易 tier 到 native 的那批），没有它就得为每次构造再查一次函数元数据。
+    pub arity:   crate::vm_context::symres::CtorArity,
 }
 
 // Raw pointer — the JITModule that owns the code lives alongside this entry.
@@ -192,7 +196,11 @@ impl FnEntry {
     /// call. `resolve_merged_slot` maps it back to `None` so callers fall through
     /// to `cross_zpkg_via_interp` exactly as they did for an empty slot.
     pub fn rejected() -> Self {
-        FnEntry { ptr: std::ptr::null(), max_reg: 0, name: "".into(), file: "".into() }
+        FnEntry {
+            ptr: std::ptr::null(), max_reg: 0, name: "".into(), file: "".into(),
+            // rejected 项永远不会被当作可调用体，区间取全放行。
+            arity: crate::vm_context::symres::CtorArity { min: 0, max: u16::MAX },
+        }
     }
     #[inline]
     pub fn is_rejected(&self) -> bool { self.ptr.is_null() }

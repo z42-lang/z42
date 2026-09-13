@@ -135,6 +135,14 @@ pub unsafe extern "C" fn jit_obj_new(
     // (observed: `is_pattern_binding` field 5→0). A type with no ctor resolves to
     // nothing → both paths skip and the already-default-initialised object is used.
     if let Some(entry) = ctx_ref.resolve_fn_by_name_tiered(ctor_name) {
+        // 站点 ⑤ fix-ctor-arity-skew：与 interp `exec_object::obj_new` 对称。区间在 `FnEntry`
+        // 里预算好（见 `jit/lazy.rs`），native 分支因此不必再查一次函数元数据。
+        if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
+            vm_ctx_ref(ctx), module, class_name, ctor_name, entry.arity, argc,
+        ) {
+            set_exception(vm_ctx_ref(ctx), exc);
+            return 1;
+        }
         let mut callee = JitFrame::new(entry.max_reg, &ctor_args);
         let jit_fn: JitFn = std::mem::transmute(entry.ptr);
         let vm_ctx = vm_ctx_ref(ctx);
@@ -150,8 +158,22 @@ pub unsafe extern "C" fn jit_obj_new(
         let oc = if let Some(callee) = module.func_index.get(ctor_name)
             .and_then(|&idx| module.functions.get(idx))
         {
+            if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
+                vm_ctx, module, class_name, ctor_name,
+                crate::vm_context::symres::ctor_arity(callee), argc,
+            ) {
+                set_exception(vm_ctx, exc);
+                return 1;
+            }
             Some(crate::interp::exec_function(vm_ctx, module, callee, &ctor_args))
         } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name) {
+            if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
+                vm_ctx, module, class_name, ctor_name,
+                crate::vm_context::symres::ctor_arity(lazy_fn.as_ref()), argc,
+            ) {
+                set_exception(vm_ctx, exc);
+                return 1;
+            }
             Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
         } else if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
             vm_ctx, module, class_name, ctor_name, argc,

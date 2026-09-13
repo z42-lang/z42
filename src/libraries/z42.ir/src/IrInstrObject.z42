@@ -65,6 +65,9 @@ public sealed class ObjNewInstr : IrInstr {
         this.StackAlloc = false;
     }
     public override string Dump() {
+        // fix-ctor-arity-skew：ctor 键此前**根本不打印** —— 于是「这条 obj_new 到底会去调哪个
+        // 构造器、还是压根不调」在所有 IR dump / 单测断言里都看不见。它是运行期真正解析的那个键，
+        // 空名（裸分配）与带名（要调 ctor）是语义不同的两件事，dump 必须让它现形。
         string s = this.Dst.Dump() + " = obj_new " + this.ClassName;
         if (this.TypeArgCount > 0) {
             s = s + "<";
@@ -72,6 +75,8 @@ public sealed class ObjNewInstr : IrInstr {
             while (t < this.TypeArgCount) { if (t > 0) { s = s + ", "; } s = s + this.TypeArgs[t]; t = t + 1; }
             s = s + ">";
         }
+        if (this.CtorName == "") { s = s + " <no-ctor>"; }
+        else { s = s + " " + this.CtorName; }
         s = s + "(";
         int i = 0;
         while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
