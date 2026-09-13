@@ -2,6 +2,9 @@
 
 > 用途：让代码在**依赖 zpkg 版本 skew**（编译时依赖 v2、运行时只加载到 v1）下仍能安全降级。
 > 机制页（VM 侧折叠与剪枝）见 [加载期可用性折叠](../runtime/availability-folding.md)。
+> **为什么需要它**：不加保护时，缺符号会在**用到那一刻**抛可 catch 的
+> `Std.MissingSymbolException`（见[缺符号不再静默](../runtime/missing-symbol-resolution.md)）。
+> `available!()` 是这条规则的**唯一显式豁免通道**——被保护的分支整块剪掉，其符号永不参与解析。
 
 ## 它解决什么
 

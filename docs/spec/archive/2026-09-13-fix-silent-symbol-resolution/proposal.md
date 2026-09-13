@@ -1,6 +1,6 @@
 # Proposal: 缺符号不再静默 —— 用到才抛（可 catch 的类型化异常）
 
-> **状态：🟡 IMPL**（User 2026-09-12 裁决「用到才抛」）| 创建：2026-09-12
+> **状态：🟢 完成**（2026-09-13 落地）| 创建：2026-09-12 | User 2026-09-12 裁决「用到才抛」
 > 前置已满足：`available!()`（PR #540）已合并 —— 它是本 change 的**唯一显式豁免通道**，
 > 没有它，所有 guarded 降级代码会在本 change 落地后全部炸。
 
@@ -86,3 +86,74 @@
 
 一次改六处、GREEN 一起红，会分不清哪条是真欠债、哪条是我改错。故**一次一个站点**：
 ⑤⑥（两后端统一，最独立）→ ① → ③ → ② → ④（最危险，涉及跨包两阶段加载）。
+
+
+---
+
+## 落地结果（2026-09-13）
+
+六个站点全部落地，**每个站点单独一个提交、单独跑一遍完整 GREEN**（按 DRAFT 定的顺序
+⑤⑥ → ① → ③ → ② → ④）。机制页：
+[`docs/book/src/runtime/missing-symbol-resolution.md`](../../../book/src/runtime/missing-symbol-resolution.md)。
+
+| 提交 | 内容 |
+|------|------|
+| `25e04aed` | ⑤⑥ 缺函数抛可 catch 的 `MissingSymbolException`，两后端统一 |
+| `216191e6` | ① 缺失静态字段不再静默读出 `Null` |
+| `efa90be2` | （顺带）值类型静态字段无初始化器时读出 `Null` 而非零值 |
+| `0a43df9b` | ③ 缺失构造器不再静默写未构造对象 |
+| `c4d61e4e` | ② `new` 解析不到的类型不再合成零字段空壳 |
+| `5f53eb8d` | （顺带）主模块的类继承跨包基类时丢掉全部继承字段 |
+| `a9e10d88` | ④ 基类解析不到不再静默丢掉整片继承面 |
+
+### 与 DRAFT 的偏差
+
+1. **③ 的判据不是「名字解析不到」，是「有没有实参」。** DRAFT 默认「ctor 名解析不到」
+   即缺失，实测站不住：z42c 对无构造器的类照样发射 `ObjNew`、ctor 键取裸类名，而这与
+   **单构造器**的 primary 裸键同形。改判据为 `argc > 0`（没有构造器的类不可能接受实参）。
+   `argc == 0` 是有意保留的残留缺口，见机制页。
+2. **④ 的「定点循环收敛之后」不可直接用。** 按需加载下，加载期收敛 ≠ 最终态（下一个
+   zpkg 随时可能带来基类）。改为在 `ObjNew` 用**使用点**判定：`base_unmerged` 旗子 +
+   先去惰性加载器取一份（内部会 `ensure_base_chain_loaded` + 跑到不动点），取回来仍带
+   旗子才定案。与 User 裁决的「用到才抛」一致。
+3. **多修了两个既有 bug**（不在 DRAFT 里，都是被静默行为盖住的）：主模块类继承跨包基类
+   丢字段、JIT 的回落描述符是空的。前者与 skew 无关、基类在场也照样错。
+
+### 「预期会让今天绿的东西开始红」—— 实际没有
+
+DRAFT 预判会有一轮清理。实际六个站点全部落地后 `xtask test` / `cargo test` /
+`test stdlib --mode jit` 一次全绿，真欠债 0。原因大概是判据都收得足够紧（「证不出来就
+放行」），以及 stdlib / z42c 本来就没有跨版本 skew。
+
+### 每个站点都有「修复前」实测对照
+
+不是推理，是把判定临时关掉、跑同一份产物量出来的：
+
+| 站点 | 修复前实际输出 |
+|------|---------------|
+| ③ | `constructed 0` —— 若无其事，字段是零值 |
+| ② | `VCall: expected object, got Null` —— 不可 catch，现场离根因十万八千里 |
+| ④ | `constructed B=3` —— 整片继承面没了，程序毫无察觉 |
+| 跨包基类 bug | 急切副本 1 个字段槽 / 惰性副本 2 个（直接打印证实） |
+
+站点 ④ 还在**完整 GREEN 负载下**加探针实测过：整轮只触发 1 次（就是它自己的用例），
+无任何误伤——用来排除「它是不是把 `Z42NetHttpServerPoolTests` 弄红了」。那条偶发红是
+既有的 `concurrency-null-thread-flake`，关掉站点 ④ 同样会红、开着也同样会绿。
+
+### 测试脚手架的扩展
+
+`src/tests/cross-zpkg/` 新增 `skew-replace.txt` + `oldtarget/`：此前只有
+`skew-absent.txt`（依赖整包消失），演示不了「类型还在、某个成员没了」——而后者才是版本
+skew 的常态。约定写进 `src/tests/cross-zpkg/README.md`。
+
+新增用例（每个抛异常的用例都配一个对照组）：
+
+- `missing_ctor_skew` / `missing_ctor_present`
+- `missing_type_skew`
+- `missing_base_skew` / `crosspkg_base_fields_main`
+- `symbol-resolution/static_field_zero_init`
+
+### 仍然开着的后续
+
+- ③ 的 `argc == 0` 缺口（要动元数据：让 `TypeDesc` 记录本类声明了哪些构造器）。
+- DRAFT 已列的 Out of Scope 两项：急切全程序 link 校验、包级版本元数据。
