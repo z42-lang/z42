@@ -145,6 +145,13 @@ pub(super) fn call(
             }
         }
     }
+    // runtime-ambiguous-use-site：**调用**一个被两个已加载 zpkg 各自声明的函数 → 报错。
+    // 放在派发前的这一处即可覆盖下面三条路（模块内直查 / cross-cell / 惰性回落）——
+    // 前者不可能歧义（同模块），后两者都由这道判定挡住。
+    // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
+    if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname) {
+        return Ok(Some(exc));
+    }
     let callee_fn = callee_idx.and_then(|idx| module.functions.get(idx));
 
     // perf-vm-iteration Phase 1 (Decision 3): fill the callee frame directly

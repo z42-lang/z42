@@ -527,3 +527,50 @@ fn negative_cache_survives_a_repeat_miss_without_growing_stale() {
     assert_eq!(loader.negative.as_ref().unwrap().functions.len(), 1);
     assert_eq!(loader.negative.as_ref().unwrap().types.len(), 1);
 }
+
+// ── runtime-ambiguous-use-site ────────────────────────────────────────────────
+//
+// 「两个已加载 zpkg 各自声明同一个 FQ 名」被记下来，供**使用位**判定。
+// 🔴 这里刻意断言 **registration 一侧不变**：first-wins 仍然照常注册。让歧义名解析失败
+// 会把「歧义」变成「静默跳过构造函数」（`obj_new` 把 `None` 读作「这个类没有 ctor」），
+// 比现状更坏 —— 判定必须挂在派发位，不能挂在解析位。
+
+#[test]
+fn ambiguity_is_not_recorded_until_a_collision_happens() {
+    let loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
+    assert!(!loader.is_ambiguous_function("A.B.f$0"));
+    assert!(!loader.is_ambiguous_type("A.B"));
+    // 没碰撞过 ⇒ 集合根本没分配（同 `negative` 的惯例：不付代价）
+    assert!(loader.ambiguous.is_none(), "no collision ⇒ nothing allocated");
+}
+
+#[test]
+fn noting_a_collision_marks_that_name_and_only_that_name() {
+    let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
+    loader.note_ambiguous_function("Demo.Shared.W.Who$0");
+    loader.note_ambiguous_type("Demo.Shared.W");
+
+    assert!(loader.is_ambiguous_function("Demo.Shared.W.Who$0"));
+    assert!(loader.is_ambiguous_type("Demo.Shared.W"));
+    // 邻近的名字不受牵连（判据是精确 FQ 名，不是前缀/短名）
+    assert!(!loader.is_ambiguous_function("Demo.Shared.W.Other$0"));
+    assert!(!loader.is_ambiguous_type("Demo.Shared.Widget"));
+    // 两侧互不串（函数集与类型集分开）
+    assert!(!loader.is_ambiguous_type("Demo.Shared.W.Who$0"));
+    assert!(!loader.is_ambiguous_function("Demo.Shared.W"));
+
+    // 进程级快门置起 —— 派发热路径靠它在常态下零成本短路。
+    assert!(crate::metadata::lazy_loader::ambiguity_seen());
+}
+
+#[test]
+fn recording_ambiguity_is_append_only_and_idempotent() {
+    // 注册表是 append-only（`registry_fingerprint` 的负缓存指纹依赖这一点），
+    // 歧义集同样只增不减；重复记同一个名字不改变可见行为。
+    let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
+    for _ in 0..3 {
+        loader.note_ambiguous_function("X.Y.f$0");
+    }
+    assert!(loader.is_ambiguous_function("X.Y.f$0"));
+    assert_eq!(loader.ambiguous.as_ref().unwrap().functions.len(), 1);
+}

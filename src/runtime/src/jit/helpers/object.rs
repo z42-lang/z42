@@ -73,6 +73,15 @@ pub unsafe extern "C" fn jit_obj_new(
             _ => type_desc,
         }
     } else { type_desc };
+    // runtime-ambiguous-use-site：与 interp `exec_object::obj_new` 对称 —— 两个后端必须
+    // 同判据，否则「解释执行报错、JIT 静默跑错的那份」比不报还糟。
+    {
+        let vm = vm_ctx_ref(ctx);
+        if let Some(exc) = crate::vm_context::symres::ambiguous_type_exception(vm, module, class_name) {
+            set_exception(vm, exc);
+            return 1;
+        }
+    }
     // 站点 ④ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称。
     {
         let vm = vm_ctx_ref(ctx);

@@ -176,6 +176,19 @@ impl VmContext {
         result
     }
 
+    /// runtime-ambiguous-use-site: 这个函数名是否被两个已加载 zpkg 各自声明过。
+    /// **调用方须先用 `lazy_loader::ambiguity_seen()` 挡一道**——本方法要拿读锁。
+    pub fn is_ambiguous_function(&self, name: &str) -> bool {
+        let state = self.core.lazy_loader.read();
+        match state.as_ref() { Some(l) => l.is_ambiguous_function(name), None => false }
+    }
+
+    /// 类型侧孪生，见 [`Self::is_ambiguous_function`]。
+    pub fn is_ambiguous_type(&self, name: &str) -> bool {
+        let state = self.core.lazy_loader.read();
+        match state.as_ref() { Some(l) => l.is_ambiguous_type(name), None => false }
+    }
+
     /// Look up a class TypeDesc by FQ name; triggers lazy load if needed.
     /// Same `ModuleLoaded` emit semantics as `try_lookup_function`.
     pub fn try_lookup_type(&self, class_name: &str) -> Option<Arc<TypeDesc>> {
