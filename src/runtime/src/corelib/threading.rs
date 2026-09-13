@@ -114,6 +114,19 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
     let handle = std::thread::spawn(move || -> Result<()> {
         let _env_root = env_root;
+        // **测试钩子**：`Z42_SPAWN_ENV_DELAY_MS` 把上面那个窗口人为撑大，
+        // 让 `gc_spawn_env_root` 这条竞态在门禁里变成确定性用例。
+        //
+        // 没有它抓不住：真实窗口是「几微秒的线程启动」。本机实测，撑到 5 ms 时
+        // 19 200 次 spawn 才出 10 次误回收（命中率 0.05%），而一个门禁用例只 spawn 上百次
+        // —— 也就是说不带钩子的回归测试**在未修复的运行时上照样全绿**（验证过），
+        // 那种测试没有价值。撑到 60 ms 就每次必红。
+        // 每次 spawn 读一次 `var`，而这条路径本来就要建一个 OS 线程，代价可忽略。
+        if let Some(ms) = std::env::var("Z42_SPAWN_ENV_DELAY_MS")
+            .ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             let thread_ctx = VmContext::new_with_core(core_for_thread);
             run_spawned_action(&thread_ctx, &fn_name, env_vec)

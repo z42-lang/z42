@@ -4,20 +4,26 @@
 // 那一段里捕获的对象**不被任何根引用**：spawner 这边 `Thread.Start` 已经返回、帧弹掉了
 // （`Thread` 只存一个 slot id，不持有 action），而 worker 那边还没进 `vm_contexts`，
 // 何况 Rust 局部变量本来就不是帧寄存器。回收一旦落在这个窗口里，捕获的对象被回收，
-// worker 读到的是被重新 bump 过的内存 —— 把窗口人为撑到 5 ms 实测过，捕获的字符串
-// 会变成别的对象的字节。
+// worker 读到的是被重新 bump 过的内存（实测：捕获的字符串变成别的对象的字节）。
 //
-// 用例的关键是**让捕获成为唯一引用**：串在辅助函数里建、随即 spawn，函数一返回
-// spawner 的帧就没有它了。再配一个狂分配的 churn 线程把回收压上去。
-// 捕获被回收 = 字符串对不上（或直接是垃圾字节）⇒ 判红。
+// 要让这个窄窗口在门禁里稳定可抓，三件事缺一不可：
+//   1. **让捕获成为唯一引用** —— 串在 `_spawnOne` 里建、随即 spawn，函数一返回
+//      spawner 侧就没有它了；建在调用者帧里等于没造窗口（第一版就是这么写的，必绿）。
+//   2. 🔑 **用 `Z42_SPAWN_ENV_DELAY_MS` 把窗口撑大**。真实窗口是「几微秒的线程启动」：
+//      本机实测 19 200 次 spawn 配一个狂分配的 churn 线程，**一次都没撞上** —— 不带这个钩子
+//      的版本在未修复的运行时上照样全绿，那种回归测试没有价值。撑到 5 ms 就必现。
+//   3. **spawner 在 spawn 之后、join 之前立刻猛分配** —— 把回收逼进 worker 还没起来的那一段。
 namespace Z42ThreadingGcSpawnEnvRootTests;
 
 using Std;
+using Std.IO;
 using Std.Test;
 using Std.Threading;
 
 class _Tally {
     public static int Mismatches = 0;
+    // 分配压力的累加落点：防止被优化掉（同 gc_park_while_blocked 的做法）。
+    public static long Sink = 0;
 }
 
 // 捕获在**这里**建，函数返回后 spawner 侧就没有任何引用了。
@@ -31,31 +37,40 @@ static Thread _spawnOne(int n) {
     });
 }
 
+// 堆压力：**必须跨过 nursery 闸门**，否则窗口里根本不发生回收。
+// 门禁跑的是默认 nursery（16 MB），所以这里按 16 KB 一块的数组算量 ——
+// 早先用「四万个短字符串」只有约 1.2 MB，一次回收都没触发，用例因此假绿。
+static long _pressure(long blocks) {
+    long acc = 0;
+    long i = 0;
+    while (i < blocks) {
+        int[] block = new int[4096]; // 16 KB
+        block[0] = 1;
+        acc = acc + block.Length;
+        i = i + 1;
+    }
+    return acc;
+}
+
 [Test]
 void test_spawned_action_env_survives_a_collection_before_the_worker_starts() {
     _Tally.Mismatches = 0;
-
-    // 堆压力：让回收有机会落在 spawn 窗口里。
-    Thread churn = Thread.Start(() => {
-        long i = 0;
-        while (i < 200000) {
-            string s = "churn-" + Int64.ToString(i);
-            if (s.Length < 0) { Console.WriteLine(s); }
-            i = i + 1;
-        }
-    });
+    // 故障注入：把 spawn 到「worker 装进帧」之间的窗口撑到 5 ms。
+    Environment.SetEnvironmentVariable("Z42_SPAWN_ENV_DELAY_MS", "60");
 
     int B = 16;
     Thread[] batch = new Thread[B];
     int round = 0;
-    while (round < 24) {
+    while (round < 8) {
         int i = 0;
         while (i < B) { batch[i] = _spawnOne(round * B + i); i = i + 1; }
+        // 还没 join 就猛分配：回收落在 worker 起来之前。
+        _Tally.Sink = _Tally.Sink + _pressure(2000); // ~32 MB ⇒ 跨闸门数次
         i = 0;
         while (i < B) { batch[i].Join(); i = i + 1; }
         round = round + 1;
     }
-    churn.Join();
+    Environment.SetEnvironmentVariable("Z42_SPAWN_ENV_DELAY_MS", null);
 
     Assert.Equal(0, _Tally.Mismatches);
 }
