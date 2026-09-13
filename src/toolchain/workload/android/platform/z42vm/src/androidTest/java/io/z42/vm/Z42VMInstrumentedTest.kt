@@ -1,6 +1,6 @@
 // Z42VMInstrumentedTest.kt — JUnit instrumented test implementation of
 // platform-test-contract R1–R7. Runs inside the Android emulator
-// (AVD z42_pixel6_api34) via `./test.sh` → `./gradlew :z42vm:
+// (AVD z42_pixel6_api37) via `./test.sh` → `./gradlew :z42vm:
 // connectedAndroidTest`.
 //
 // Resources (produced by `../build.sh`, exposed via `Context.assets`):

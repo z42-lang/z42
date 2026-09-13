@@ -34,13 +34,13 @@ SDK + NDK（含 cmdline-tools / build-tools / platform-34）二选一：
 **(替代) 用现成的 Android Studio SDK** —— 显式指向你的安装（这些 env 优先于仓库内的）：
 
 ```bash
-export ANDROID_HOME="$HOME/Library/Android/sdk"             # macOS 默认；含 SDK Platform 34 + Build-Tools 34
-export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264"   # 替换为实际 r26+ 版本
+export ANDROID_HOME="$HOME/Library/Android/sdk"             # macOS 默认；含 SDK Platform android-37.0 + Build-Tools 37
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/30.0.16248370"   # 与 versions.toml [build.android.ndk] 一致
 export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools"
 ```
 
 ❗ 两种都没配 → gradle 报 `SDK location not found`、cargo-ndk 链接失败。
-❗ NDK 版本与 cargo-ndk 不匹配 → 升级 NDK 到 r26+。
+❗ NDK 版本与 cargo-ndk 不匹配 → 按 versions.toml 装 NDK r30。
 ℹ️ cargo-ndk 的 C 依赖（zlib-ng 经 z42.compression）走 CMake 内建 Android 工具链 + 默认 Unix Makefiles 生成器（`make`，Xcode CLT / build-essential 自带）——**不需要 Ninja**。关键是 cmake 靠 `ANDROID_NDK` / `ANDROID_NDK_ROOT`（非 `ANDROID_NDK_HOME`）定位 NDK，backend 已一并注入。
 
 ### 1.2 z42 工具链（编译器 + stdlib，一次性 / 改 stdlib 后重跑）

@@ -11,7 +11,7 @@ public class AndroidWorkload : WorkloadBase {
 
     /// 检查 JDK / Android SDK / NDK / gradle + 确保 android runtime pack 就位。
     public override void Preflight(IPipelineContext ctx) {
-        ctx.RequireTool("gradle", ">=8.0");
+        ctx.RequireTool("gradle", ">=9.6");       // AGP 9.4 minimum
         // ctx.RequireTool("javac", ">=17");  NDK / SDK 经环境变量定位（实现期校验）
         ctx.EnsureRuntimePack(ctx.Target.Rid);          // android-arm64 / android-x64
     }

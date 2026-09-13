@@ -1454,7 +1454,7 @@ display_name = "My App"             # optional: app_name string resource（默�
 version_code = 1                    # optional: versionCode（默认 1）
 version_name = "1.0.0"             # optional: versionName（默认 = project version）
 min_sdk      = 26                   # optional: minSdk（默认 26 = Android 8.0）
-target_sdk   = 34                   # optional: targetSdk（默认 34 = Android 14）
+target_sdk   = 37                   # optional: targetSdk（默认 37 = Android 17；compileSdk 固定为 37）
 ```
 
 ### `[platform.wasm]`

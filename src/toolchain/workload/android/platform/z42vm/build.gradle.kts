@@ -5,12 +5,14 @@
 
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
     namespace = "io.z42.vm"
-    compileSdk = 34
+    compileSdk = 37
+    // Pin the NDK used by the CMake JNI build to the one cargo-ndk uses
+    // (versions.toml [build.android.ndk]); AGP would otherwise pick its own default.
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         minSdk = 23
@@ -50,19 +52,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    sourceSets {
-        getByName("main") {
-            // cargo-ndk drops libz42_platform_android.so per ABI here.
-            // build.sh runs cargo ndk before ./gradlew.
-            jniLibs.srcDirs("src/main/jniLibs")
-            // Stdlib zpkg files copied in by build.sh.
-            assets.srcDirs("src/main/assets")
-        }
-    }
+    // Source sets use AGP's default layout (no `sourceSets {}` needed):
+    //   src/main/jniLibs — cargo-ndk drops libz42_platform_android.so per ABI here
+    //                      (the build runs cargo ndk before ./gradlew).
+    //   src/main/assets  — stdlib zpkg files copied in by the build.
 
     externalNativeBuild {
         cmake {
@@ -81,12 +74,12 @@ android {
 
 dependencies {
     // Pure Kotlin facade — no runtime AndroidX needed for v0.1.
-    implementation("androidx.annotation:annotation:1.8.2")
+    implementation("androidx.annotation:annotation:1.10.0")
 
     // Instrumented test deps — drive Z42VMInstrumentedTest.kt against
-    // the Pixel 6 API 34 emulator (AVD z42_pixel6_api34). Spec:
+    // the Pixel 6 API 37 emulator (AVD z42_pixel6_api37). Spec:
     //   docs/spec/archive/2026-05-12-add-android-tests/specs/android-tests/spec.md
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test:runner:1.6.1")
-    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:core:1.7.0")
 }
