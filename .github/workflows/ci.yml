@@ -57,8 +57,8 @@ jobs:
       vm: ${{ steps.filter.outputs.vm }}
       stdlib: ${{ steps.filter.outputs.stdlib }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -152,7 +152,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # build-and-test runs on ALL OS — every leg downloads the prev nightly's z42c
       # seed and bootstraps the toolchain from source with it. See the Bootstrap step.
@@ -300,7 +300,7 @@ jobs:
       # actions/jobs API only surfaces "exit code 1" annotations).
       - name: Upload test logs on failure
         if: failure() && matrix.os != 'windows-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-logs-${{ matrix.os }}
           path: |
@@ -379,7 +379,7 @@ jobs:
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # OWN cache key (not the default artifact-host-v1): the package step below
       # builds z42 as cdylib + staticlib + z42-compression + apphost on top of what
@@ -501,7 +501,7 @@ jobs:
           cat "$pkg_dir/manifest.toml"
 
       - name: Upload host package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: z42-host-package-${{ matrix.os }}
           path: artifacts/packages/
@@ -527,7 +527,7 @@ jobs:
           - { os: macos-15,      platform: macos-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -551,7 +551,7 @@ jobs:
             "$vm" artifacts/xtask/xtask.zpkg -- build stage-toolchain "$RUNNER_TEMP/tc"
 
       - name: Upload toolchain-${{ matrix.os }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: toolchain-${{ matrix.os }}
           path: ${{ runner.temp }}/tc/
@@ -582,7 +582,7 @@ jobs:
           - { os: macos-15,      platform: macos-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # cargo build z42vm + restore z42c/stdlib/xtask zpkgs at canonical paths。
       # rust toolchain + rust-cache 由该 action 自带 —— 缓存 key 的选择理由（为什么
@@ -659,7 +659,7 @@ jobs:
       - name: Upload current-sdk-${{ matrix.os }}
         if: matrix.os == 'ubuntu-latest'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: current-sdk-${{ matrix.os }}
           path: ${{ runner.temp }}/z42sdk/
@@ -679,9 +679,9 @@ jobs:
     needs: assemble-current-sdk
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download current-sdk-ubuntu-latest
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: current-sdk-ubuntu-latest
           path: .z42-dl
@@ -779,7 +779,7 @@ jobs:
         shard: [1, 2]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
       # stdlib + xtask.zpkg) instead of re-bootstrapping per shard — removes 4×
@@ -794,7 +794,7 @@ jobs:
       # bundled goldens" — .zbc are execution-mode-agnostic and z42c output is
       # deterministic, so the shared asset is byte-equivalent to a local regen.
       - name: Download shared golden .zbc (compiled once)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: current-sdk-ubuntu-latest
           path: .z42-dl
@@ -844,7 +844,7 @@ jobs:
         shard: [1, 2]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Consume the toolchain artifact built ONCE by toolchain-bootstrap (z42c +
       # stdlib + xtask.zpkg) instead of re-bootstrapping per shard.
@@ -889,7 +889,7 @@ jobs:
           - { os: macos-15,         platform: macos-arm64 }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Consume the toolchain artifact (z42c+stdlib+xtask.zpkg — arch-independent
       # bytecode) + cargo-build the native z42vm. macOS resolves toolchain-macos-15;
@@ -943,7 +943,7 @@ jobs:
     if: ${{ needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1006,7 +1006,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
@@ -1037,7 +1037,7 @@ jobs:
     if: ${{ needs.changes.outputs.vm == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -1089,7 +1089,7 @@ jobs:
     runs-on: macos-15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
@@ -1140,7 +1140,7 @@ jobs:
           done
 
       - name: Upload iOS packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: z42-ios-packages
           path: artifacts/packages/
@@ -1158,7 +1158,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
@@ -1232,7 +1232,7 @@ jobs:
           done
 
       - name: Upload Android packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: z42-android-packages
           path: artifacts/packages/
@@ -1253,7 +1253,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install wasm-pack + wasm-tools
         uses: taiki-e/install-action@v2
@@ -1311,7 +1311,7 @@ jobs:
           echo "✓ wasm valid — $export_count exports (wasm-tools)"
 
       - name: Upload wasm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: z42-wasm-package
           path: artifacts/packages/
@@ -1370,13 +1370,13 @@ jobs:
     permissions:
       contents: write   # gh release create / delete
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Provision z42vm + xtask (consume toolchain artifact)
         uses: ./.github/actions/xtask-bootstrap-artifact
 
       - name: Download all package artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist-raw
           pattern: 'z42-*-package*'
@@ -1610,14 +1610,14 @@ jobs:
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/artifacts/tools/playwright-browsers
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install wasm-pack
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           # ci-perf-tier2: cache ~/.npm keyed on the tests lockfile.
           cache: npm
           cache-dependency-path: src/toolchain/workload/wasm/platform/tests/package-lock.json
@@ -1626,7 +1626,7 @@ jobs:
       # `npx playwright install` then skips the download on a hit (apt --with-deps
       # OS libs still run, but they're fast/idempotent).
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/artifacts/tools/playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('src/toolchain/workload/wasm/platform/tests/package-lock.json') }}
@@ -1696,7 +1696,7 @@ jobs:
       # not junit — its result is the step exit code above).
       - name: Publish wasm test report (GitHub Check)
         if: ${{ always() && matrix.shard == 1 }}
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: platform-tests / wasm
           path: artifacts/test-reports/wasm/junit.xml
@@ -1704,7 +1704,7 @@ jobs:
           fail-on-error: false
       - name: Upload wasm JUnit
         if: ${{ always() && matrix.shard == 1 }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-wasm
           path: artifacts/test-reports/wasm/junit.xml
@@ -1737,7 +1737,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           cache-key: tier2-ios
@@ -1770,7 +1770,7 @@ jobs:
           run test platform ios assets
           run test embedded --rid iossim-arm64 --run
       - name: Publish iOS test report (GitHub Check)
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: platform-tests / ios (shard ${{ matrix.shard }})
@@ -1779,7 +1779,7 @@ jobs:
           fail-on-error: false
       - name: Upload iOS JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-ios-${{ matrix.shard }}
           path: artifacts/test-reports/ios/**
@@ -1811,7 +1811,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
@@ -1823,7 +1823,7 @@ jobs:
         with:
           tool: cargo-ndk
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -1863,7 +1863,7 @@ jobs:
       # arch/target/api-level MUST match between the create-snapshot run and the
       # test run (reactivecircus recipe).
       - name: AVD cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: avd-cache
         with:
           path: |
@@ -1926,7 +1926,7 @@ jobs:
             exit $rc
       - name: Upload Android logcat + tombstones (crash diagnostics)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-embed-crash-diagnostics-${{ matrix.shard }}
           path: |
@@ -1934,7 +1934,7 @@ jobs:
             android-tombstones/**
           if-no-files-found: warn
       - name: Publish Android test report (GitHub Check)
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: platform-tests / android (shard ${{ matrix.shard }})
@@ -1943,7 +1943,7 @@ jobs:
           fail-on-error: false
       - name: Upload Android JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-android-${{ matrix.shard }}
           path: src/toolchain/workload/android/platform/z42vm/build/outputs/androidTest-results/connected/**
@@ -1961,7 +1961,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # consume the toolchain-ubuntu-latest artifact (z42c + stdlib + xtask)
       # + cargo-build z42vm。rust toolchain + rust-cache 由该 action 自带。
       - uses: ./.github/actions/xtask-bootstrap-artifact
@@ -1973,7 +1973,7 @@ jobs:
           libs="$PWD/artifacts/build/libraries/dist/release"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test platform desktop
       - name: Publish desktop test report (GitHub Check)
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: platform-tests / desktop
@@ -1982,7 +1982,7 @@ jobs:
           fail-on-error: false
       - name: Upload desktop JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-desktop
           path: artifacts/test-reports/desktop/junit.xml

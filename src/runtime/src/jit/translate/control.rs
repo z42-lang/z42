@@ -50,7 +50,7 @@ pub(super) fn emit_safepoint_check(
     frame_val: cranelift_codegen::ir::Value,
     hr_slow:   cranelift_codegen::ir::FuncRef,
 ) {
-    let flags = MemFlags::trusted();
+    let flags = MemFlagsData::trusted();
     // vm_ctx pointer lives inside JitModuleCtx.
     let vm_ctx = builder.ins().load(
         ptr, flags, ctx_val,
@@ -58,10 +58,10 @@ pub(super) fn emit_safepoint_check(
     );
     let skip_off = crate::vm_context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET as i32;
     let prev = builder.ins().load(types::I32, flags, vm_ctx, skip_off);
-    let newv = builder.ins().iadd_imm(prev, -1);
+    let newv = builder.ins().iadd_imm_s(prev, -1);
     builder.ins().store(flags, newv, vm_ctx, skip_off);
     // prev u> 1  ⇒  still throttled, take the fast (skip) path.
-    let cond = builder.ins().icmp_imm(IntCC::UnsignedGreaterThan, prev, 1);
+    let cond = builder.ins().icmp_imm_s(IntCC::UnsignedGreaterThan, prev, 1);
     let fast_blk = builder.create_block();
     let slow_blk = builder.create_block();
     builder.ins().brif(cond, fast_blk, &[], slow_blk, &[]);

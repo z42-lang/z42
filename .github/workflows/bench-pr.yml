@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Fetch enough history that `git rev-parse --abbrev-ref HEAD` works
           # for the bench JSON metadata, and that the base.sha diff below resolves.
@@ -110,7 +110,7 @@ jobs:
       # location is irrelevant to the measurement — both base.zbc and pr.zbc are
       # compiled AND run on this runner, so the same-runner cancellation holds.
       - name: Checkout base (merge-base) for A/B
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base-src
@@ -592,7 +592,7 @@ jobs:
 
       - name: Upload A/B results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-ab-results
           path: |

@@ -21,11 +21,11 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 anyhow = "1"
 # add-z42-compression-brotli (2026-05-27): pure-Rust brotli (no C deps),
 # works on every target including wasm. RFC 7932.
-brotli = { version = "7", default-features = false, features = ["std"] }
+brotli = { version = "9", default-features = false, features = ["std"] }
 # add-z42-compression-lz4 (2026-05-27): pure-Rust LZ4 (no C deps),
 # works on every target including wasm. Block format LZ4 (the most
 # common; frame format is a wrapper).
-lz4_flex = { version = "0.11", default-features = false, features = ["std", "frame"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
 
 # Non-wasm-only deps:
 #   * zlib-ng feature: vendored C, needs system clang (works on every
@@ -36,7 +36,7 @@ lz4_flex = { version = "0.11", default-features = false, features = ["std", "fra
 #     on wasm32 — see Deferred: compression-future-wasm-zstd").
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 flate2 = { version = "1", default-features = false, features = ["zlib-ng"] }
-zstd   = { version = "0.13", default-features = false }
+zstd   = { version = "0.14", default-features = false }
 
 # Profile lives at workspace root (src/runtime/Cargo.toml) for the whole
 # workspace; defining one here is ignored with a warning by cargo.

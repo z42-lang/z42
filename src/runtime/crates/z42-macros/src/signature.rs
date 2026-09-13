@@ -5,7 +5,7 @@
 //! Unsupported types produce a clean `syn::Error` pointing at the offending
 //! token; callers convert to `compile_error!` via `err_to_tokens`.
 
-use syn::{spanned::Spanned, FnArg, Pat, Receiver, ReturnType, Type, TypePath, TypePtr, TypeReference};
+use syn::{spanned::Spanned, FnArg, Pat, Receiver, ReceiverKind, ReturnType, Type, TypePath, TypePtr, TypeReference};
 
 /// One operand position in an ABI method signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +93,7 @@ pub(crate) fn parse_method_signature(
 }
 
 fn parse_receiver(r: &Receiver) -> Result<AbiTy, syn::Error> {
-    if r.reference.is_some() {
+    if matches!(r.kind, ReceiverKind::Reference(..)) {
         // `&self` or `&mut self`
         return Ok(AbiTy::SelfRef);
     }
@@ -105,11 +105,11 @@ fn parse_receiver(r: &Receiver) -> Result<AbiTy, syn::Error> {
 
 fn parse_type(ty: &Type) -> Result<AbiTy, syn::Error> {
     match ty {
-        Type::Path(TypePath { qself: None, path }) => parse_path(path),
+        Type::Path(TypePath { qself: None, path, .. }) => parse_path(path),
         Type::Tuple(t) if t.elems.is_empty() => Ok(AbiTy::Void),
         Type::Ptr(TypePtr { elem, .. }) => {
             // *const Self / *mut Self → SelfRef
-            if let Type::Path(TypePath { qself: None, path }) = elem.as_ref() {
+            if let Type::Path(TypePath { qself: None, path, .. }) = elem.as_ref() {
                 if path.is_ident("Self") {
                     return Ok(AbiTy::SelfRef);
                 }
@@ -118,7 +118,7 @@ fn parse_type(ty: &Type) -> Result<AbiTy, syn::Error> {
         }
         Type::Reference(TypeReference { elem, .. }) => {
             // &Self / &mut Self → SelfRef; other refs → reject (pinned in C4)
-            if let Type::Path(TypePath { qself: None, path }) = elem.as_ref() {
+            if let Type::Path(TypePath { qself: None, path, .. }) = elem.as_ref() {
                 if path.is_ident("Self") {
                     return Ok(AbiTy::SelfRef);
                 }

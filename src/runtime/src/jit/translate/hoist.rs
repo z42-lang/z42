@@ -67,9 +67,9 @@ pub(super) fn compute_hoists(
             let width_addr = builder.ins().stack_addr(ptr, ss_width, 0);
             let a_c = builder.ins().iconst(types::I32, arr as i64);
             builder.ins().call(hr_array_data_opt, &[frame_val, ctx_val, a_c, ptr_addr, len_addr, width_addr]);
-            let dptr = builder.ins().stack_load(ptr, ss_ptr, 0);
-            let dlen = builder.ins().stack_load(types::I64, ss_len, 0);
-            let dwidth = builder.ins().stack_load(types::I64, ss_width, 0);
+            let dptr = builder.ins().stack_load(ptr, ptr, ss_ptr, 0);
+            let dlen = builder.ins().stack_load(ptr, types::I64, ss_len, 0);
+            let dwidth = builder.ins().stack_load(ptr, types::I64, ss_width, 0);
             map.insert(arr, (dptr, dlen, dwidth));
         }
         map
@@ -120,8 +120,8 @@ pub(super) fn compute_hoists(
             let tag_c = builder.ins().iconst(types::I32, exp_tag as i64);
             builder.ins().call(hr_obj_field_slot,
                 &[frame_val, ctx_val, o_c, fp, fl, w_c, tag_c, ptr_addr, off_addr]);
-            let bptr = builder.ins().stack_load(ptr, ss_ptr, 0);
-            let off = builder.ins().stack_load(types::I64, ss_off, 0);
+            let bptr = builder.ins().stack_load(ptr, ptr, ss_ptr, 0);
+            let off = builder.ins().stack_load(ptr, types::I64, ss_off, 0);
             map.insert((obj, fname.to_string()), (bptr, off));
         }
         map
@@ -178,9 +178,9 @@ pub(super) fn compute_hoists(
             let fl = builder.ins().iconst(types::I64, fname.len() as i64);
             builder.ins().call(hr_obj_ref_field_slot,
                 &[frame_val, ctx_val, o_c, fp, fl, ptr_addr, off_addr, tag_addr]);
-            let bptr = builder.ins().stack_load(ptr, ss_ptr, 0);
-            let off = builder.ins().stack_load(types::I64, ss_off, 0);
-            let tag = builder.ins().stack_load(types::I32, ss_tag, 0);
+            let bptr = builder.ins().stack_load(ptr, ptr, ss_ptr, 0);
+            let off = builder.ins().stack_load(ptr, types::I64, ss_off, 0);
+            let tag = builder.ins().stack_load(ptr, types::I32, ss_tag, 0);
             map.insert((obj, fname.to_string()), (bptr, off, tag));
         }
         map

@@ -57,7 +57,7 @@ runs:
     # z42c + stdlib + xtask.zpkg (.zpkg products) → restored at repo root
     # under artifacts/build/{libraries,z42c}/ and artifacts/xtask/.
     - name: Download toolchain artifact
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: toolchain-${{ runner.os == 'macOS' && 'macos-15' || 'ubuntu-latest' }}
         path: .

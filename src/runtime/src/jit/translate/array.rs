@@ -59,9 +59,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                                 &[self.frame_val, self.ctx_val, a_c, ptr_addr, len_addr, width_addr]);
                             let ret = self.builder.inst_results(inst)[0];
                             self.check(ret); // not-an-array → exception exit (方案 A)
-                            let dp = self.builder.ins().stack_load(self.ptr, ss_ptr, 0);
-                            let dl = self.builder.ins().stack_load(types::I64, ss_len, 0);
-                            let dw = self.builder.ins().stack_load(types::I64, ss_width, 0);
+                            let dp = self.builder.ins().stack_load(self.ptr, self.ptr, ss_ptr, 0);
+                            let dl = self.builder.ins().stack_load(self.ptr, types::I64, ss_len, 0);
+                            let dw = self.builder.ins().stack_load(self.ptr, types::I64, ss_width, 0);
                             (dp, dl, dw)
                         };
                         // idx payload (i64) from regs[idx]
@@ -71,7 +71,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         // closure env array read with a primitive-typed `dst`, or an
                         // `object[]` — the fast-path self.ptr is null there, so route to
                         // the `jit_array_get` helper (`get_boxed` returns the value).
-                        let width_zero = self.builder.ins().icmp_imm(IntCC::Equal, width, 0);
+                        let width_zero = self.builder.ins().icmp_imm_s(IntCC::Equal, width, 0);
                         let helper_blk = self.builder.create_block();
                         let fast_blk   = self.builder.create_block();
                         let done_blk   = self.builder.create_block();
@@ -107,10 +107,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         let elem_off = self.builder.ins().imul(idx_v, stride_c);
                         let elem_addr = self.builder.ins().iadd(data_ptr, elem_off);
                         let elem = if arr_width == 4 {
-                            let e32 = self.builder.ins().load(types::I32, MemFlags::trusted(), elem_addr, 0);
+                            let e32 = self.builder.ins().load(types::I32, MemFlagsData::trusted(), elem_addr, 0);
                             self.builder.ins().sextend(types::I64, e32)
                         } else {
-                            self.builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, 0)
+                            self.builder.ins().load(types::I64, MemFlagsData::trusted(), elem_addr, 0)
                         };
                         // store into the 16-byte register `Value` (tag + payload).
                         let dst_addr = reg_addr(self.builder, self.regs_base, *dst);
@@ -158,9 +158,9 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                                 &[self.frame_val, self.ctx_val, a_c, ptr_addr, len_addr, width_addr]);
                             let ret = self.builder.inst_results(inst)[0];
                             self.check(ret);
-                            let dp = self.builder.ins().stack_load(self.ptr, ss_ptr, 0);
-                            let dl = self.builder.ins().stack_load(types::I64, ss_len, 0);
-                            let dw = self.builder.ins().stack_load(types::I64, ss_width, 0);
+                            let dp = self.builder.ins().stack_load(self.ptr, self.ptr, ss_ptr, 0);
+                            let dl = self.builder.ins().stack_load(self.ptr, types::I64, ss_len, 0);
+                            let dw = self.builder.ins().stack_load(self.ptr, types::I64, ss_width, 0);
                             (dp, dl, dw)
                         };
                         let idx_addr = reg_addr(self.builder, self.regs_base, *idx);
@@ -169,7 +169,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         let val_v = load_payload_i64(self.builder, val_addr);
                         // width==0 → non-packed backing (byte[]/Boxed/bool[]/char[]) →
                         // route to the helper (narrowing/boxing + write barrier).
-                        let width_zero = self.builder.ins().icmp_imm(IntCC::Equal, width, 0);
+                        let width_zero = self.builder.ins().icmp_imm_s(IntCC::Equal, width, 0);
                         let helper_blk = self.builder.create_block();
                         let fast_blk   = self.builder.create_block();
                         let done_blk   = self.builder.create_block();
@@ -199,16 +199,16 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         self.builder.switch_to_block(store_blk);
                         let elem_off = self.builder.ins().imul(idx_v, width);
                         let elem_addr = self.builder.ins().iadd(data_ptr, elem_off);
-                        let is_w4 = self.builder.ins().icmp_imm(IntCC::Equal, width, 4);
+                        let is_w4 = self.builder.ins().icmp_imm_s(IntCC::Equal, width, 4);
                         let store4_blk = self.builder.create_block();
                         let store8_blk = self.builder.create_block();
                         self.builder.ins().brif(is_w4, store4_blk, &[], store8_blk, &[]);
                         self.builder.switch_to_block(store4_blk);
                         let v32 = self.builder.ins().ireduce(types::I32, val_v);
-                        self.builder.ins().store(MemFlags::trusted(), v32, elem_addr, 0);
+                        self.builder.ins().store(MemFlagsData::trusted(), v32, elem_addr, 0);
                         self.builder.ins().jump(done_blk, &[]);
                         self.builder.switch_to_block(store8_blk);
-                        self.builder.ins().store(MemFlags::trusted(), val_v, elem_addr, 0);
+                        self.builder.ins().store(MemFlagsData::trusted(), val_v, elem_addr, 0);
                         self.builder.ins().jump(done_blk, &[]);
                         self.builder.switch_to_block(done_blk);
                     } else {

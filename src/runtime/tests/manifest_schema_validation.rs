@@ -47,9 +47,8 @@ fn schema_compiles_under_draft_2020_12() {
 fn example_manifest_validates() {
     let schema = load_schema();
     let data = load_data("example-manifest.json");
-    let result = schema.validate(&data);
-    if let Err(errors) = result {
-        let messages: Vec<_> = errors.map(|e| e.to_string()).collect();
+    let messages: Vec<_> = schema.iter_errors(&data).map(|e| e.to_string()).collect();
+    if !messages.is_empty() {
         panic!("example-manifest.json should validate:\n{}", messages.join("\n"));
     }
 }
@@ -68,9 +67,8 @@ fn missing_required_field_fails() {
 fn unknown_fields_are_tolerated() {
     let schema = load_schema();
     let data = load_data("manifest-with-extra-fields.json");
-    let result = schema.validate(&data);
-    if let Err(errors) = result {
-        let messages: Vec<_> = errors.map(|e| e.to_string()).collect();
+    let messages: Vec<_> = schema.iter_errors(&data).map(|e| e.to_string()).collect();
+    if !messages.is_empty() {
         panic!(
             "manifest with unknown fields should validate (forward compatibility):\n{}",
             messages.join("\n")
