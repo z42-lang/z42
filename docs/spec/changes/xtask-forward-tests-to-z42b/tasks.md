@@ -1,6 +1,6 @@
 # Tasks: xtask 测试路径转发 z42b
 
-> 状态：🟡 步骤 C 进行中 | 创建：2026-09-12
+> 状态：🟢 A/B/C/C2/D 全部落地（剩 D3 耗时对账） | 创建：2026-09-12
 > 规划：[proposal.md](proposal.md)（含 5.6× 实测与「直接替换会丢掉什么」清单）
 
 ## 步骤 A —— z42b 的选择与并行
@@ -124,9 +124,47 @@
       此前漏写；旧的单文件 `--emit-zbc` 路径没判出来，改由 z42b 按包编译后被 E0436 逮到。
       这是那个文件**自身**的缺陷，与转发无关。
 
-- [ ] D1b `_runLibKind` 改为转发 `z42b test <lib manifest>`
-- [ ] D2 旧合成路径（`_renderSyntheticManifest` 等）退休
+- [x] D1b ~~`_runLibKind` 改为转发 `z42b test <lib manifest>`~~ —— **形状订正后与 D1 是同一件事**。
+      落地的不是「每库一次 `z42b test <toml>`」，而是「`--list` 拿清单 → 每单元一次 `--name`」
+      （并行留在 xtask 侧，裁决见 A2）。D2 把最后那个「有显式目标就回落」的条件也删掉后，
+      `_runLibKind` 就只剩这一条路。
+
+- [x] **D2 旧执行引擎退休** —— test/bench 全线转发，xtask 自有的执行器删净（−438 行）。
+
+      删掉的：`_autoUnits` / `_dropOverridden` / `_explicitByHarness`（约定发现 + 显式覆盖）、
+      `_runReflectTarget`（显式 harness=true：编 lib zpkg 再让 z42b 反射）、`_runExitTargets`
+      （harness=false 批量包装）、`_runUnitsBatched` + `_compilePrep` + `_discoverTestUnits` +
+      `TestUnit`（合成 mini-manifest 的批量编译/执行）。**合成清单不再落盘。**
+
+      留下的（都还有真消费方，不是遗迹）：`_runExitTarget` + `_compileTarget` —— **example
+      stage 在用**（examples 不是测试，判据是「编得过 + 可选跑得通」，不走 z42b）；
+      `_renderSyntheticManifest` —— embedded golden 在用；`_dirHasTestMethods` —— golden
+      语料在用；`_validateRunTargets` —— 清单 lint（z42b 对 `HasEntry=false` 是「自动探测
+      入口」而非错误，这条它不复制）。
+
+      **关键动作是把 fixture stage 也转过去**：`src/tests/manifest-targets/` 是显式目标 +
+      `harness=false` 唯一的真实用例地，不转它就没有任何东西能证明转发路覆盖得住这三种形态，
+      引擎也删不掉。转完这个 stage 从「测 xtask 的引擎」变成「测 z42b 对这些形态的处理」——
+      与同 stage 那批 `_smoke*` 同向。
+
+      **对账（同机背靠背，只换 `scripts/`，xtask 各自重建）**：
+      `xtask test targets` 遗留 vs 转发 —— **11 条 PASS 逐个名字相同**、3 个目标、rc 均 0。
+
+      **阴性对照**（三种形态各破一处，一次跑）：auto 约定单元 `auto_conv` →
+      `FAIL ... 0 passed, 1 failed`；显式 harness=true `unit_ok` → `FAIL`；
+      harness=false `exit_ok` → `✗ exit_ok (harness=false, exit 3)`。stage rc=1、4 处失败。
+      —— 三条路都真的在跑，不是「碰巧绿」。
+      另核：`targets <name>` 精确选名照旧；点不中仍 rc=2 且列出
+      `available: auto_conv, exit_ok, unit_ok`；`bench targets` 绿。
+
+      **顺带确认没有静默跳过**：新路以「`<lib>/<lib>.z42.toml` 存在」当「这是个真工程」的判据
+      （`src/libraries` 的枚举里混着 README.md / z42.workspace.toml）。全仓核过：23 个 lib 目录
+      **无一缺清单**，故这条判据不会吞掉任何库。
+
 - [ ] D3 前后耗时对账（当前 `stdlib [Test]` 1m14s / 占 gate 38%）
+      —— stdlib 那条 D1 已对过（195.17s → 193.09s，同机同并行度背靠背）；D2 没改那条路的形状。
+      ⚠ 本轮**不出耗时结论**：机器上同时跑着别的会话的构建（load ~14），按本程序的铁律
+      （同机、同并行度、背靠背、且确认空闲）不满足，数字不能拿来做取舍。
 
 ## 备注
 
