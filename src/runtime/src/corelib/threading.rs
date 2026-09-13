@@ -81,7 +81,39 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let core_for_thread: Arc<crate::vm_context::VmCore> = Arc::clone(&ctx.core);
     let id = ctx.core.threads.alloc_id();
 
+    // 🔴 **fix-spawn-env-gc-root (2026-09-13)**: root the captured environment *here*, on the
+    // spawning thread, while the source closure is still live in the caller's frame.
+    //
+    // `env_vec` is a plain `Vec<Value>` moved into the worker's Rust closure, and a `Value` is
+    // an 8-byte tagged pointer — owning one roots nothing. Between this `spawn` and the point
+    // `run_spawned_action` gets the environment into a frame register, those objects are
+    // reachable from **no GC root at all**: not from the spawner (`Thread.Start` returns and
+    // its frame pops — a `Thread` stores only a slot id, never the action), and not from the
+    // worker (it is not in `vm_contexts` until `VmContext::new_with_core`, and a Rust local is
+    // not a frame register even after it is). A collection landing in that window reclaims the
+    // captures, and the worker then reads recycled memory.
+    //
+    // Measured with the window widened to 5 ms: a captured `string` comes back as the raw
+    // bytes of whatever was re-bumped into its block. Unwidened it is rare but real —
+    // `Z42_GC_NURSERY_BYTES=1048576 ./xtask test stdlib z42.net` failed **2 of 10** runs with
+    // `BrCond expects bool, got Null` inside a thread-spawning HTTP test, against **0 of 10**
+    // on the runtime one commit before #606.
+    //
+    // The hole is older than #606; what #606 changed is that blocked threads now yield
+    // safepoints, so a pool sitting in `Recv`/`Join`/`Sleep` no longer keeps GC from running
+    // here at all.
+    //
+    // The pin — not an `alloc_array` the worker could reach — because it is the environment's
+    // *contents* that need rooting, and the array `run_spawned_action` builds lives on the
+    // worker's own context. `SpawnedEnvRoot::drop` releases it once the action has returned,
+    // which is exactly as long as the environment can be live.
+    let env_root = env_vec.as_ref().map(|env| SpawnedEnvRoot {
+        core:   Arc::clone(&ctx.core),
+        handle: ctx.heap().pin_root(ctx.heap().alloc_array(env.clone())),
+    });
+
     let handle = std::thread::spawn(move || -> Result<()> {
+        let _env_root = env_root;
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             let thread_ctx = VmContext::new_with_core(core_for_thread);
             run_spawned_action(&thread_ctx, &fn_name, env_vec)
@@ -94,6 +126,26 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
     ctx.core.threads.lock().insert(id, handle);
     Ok(Value::I64(id as i64))
+}
+
+/// **fix-spawn-env-gc-root (2026-09-13)**: keeps a spawned action's captured environment
+/// pinned as a GC root for the worker thread's whole life, and unpins it when the worker's
+/// Rust closure unwinds — including on a panic, which is why this is a `Drop` guard and not an
+/// `unpin_root` call at the end of the closure.
+///
+/// Holding it for the thread's whole life rather than "until the environment reaches a frame"
+/// is deliberate: the environment *is* live for exactly that long, the handle is one entry in
+/// the heap's root map, and the alternative needs a handshake with the worker that buys
+/// nothing.
+struct SpawnedEnvRoot {
+    core:   Arc<crate::vm_context::VmCore>,
+    handle: crate::gc::RootHandle,
+}
+
+impl Drop for SpawnedEnvRoot {
+    fn drop(&mut self) {
+        self.core.heap.unpin_root(self.handle);
+    }
 }
 
 /// `__thread_sleep(millis: i64)` — block the current thread for the given
