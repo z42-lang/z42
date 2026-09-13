@@ -35,6 +35,10 @@ docs/assets/logo/
 | `z42-logo-accent.svg` | Vermilion frame + ink z | Brand-colored contexts |
 | `z42-glyph.svg` | The z only, `currentColor` | Inline text, monochrome |
 | `z42-icon.svg` | Filled tile (dark square, white z) | App icon — reads on any background |
+| `z42-logo-round.svg` | Ink outline mark in a circle frame, transparent | Round contexts on light backgrounds |
+| `z42-logo-round-reverse.svg` | White outline mark in a circle frame, transparent | Round contexts on dark backgrounds |
+| `z42-logo-round-accent.svg` | Vermilion circle frame + ink z | Round, brand-colored contexts |
+| `z42-icon-round.svg` | Filled disc (dark circle, white z) | Avatars / profile pictures that get cropped to a circle |
 
 ### `png/` — raster renders
 
@@ -42,6 +46,9 @@ docs/assets/logo/
 |------|------|
 | `z42-logo-512.png` | Outline mark, transparent |
 | `z42-logo-reverse-512.png` | White outline mark, transparent |
+| `z42-logo-round-512.png` | Round outline mark, transparent |
+| `z42-logo-round-reverse-512.png` | Round white outline mark, transparent |
+| `z42-icon-round-512.png` | Filled disc icon, transparent corners |
 
 ### `web/` — website icon package (standard)
 
@@ -63,6 +70,7 @@ docs/assets/logo/
 ## Usage notes
 
 - **Small sizes** (≤ ~24px): use the **filled icon** (`z42-icon.*`). The thin outline frame thins out below that size.
+- **Round variants** (`*-round*`): for places that force a circle (GitHub / social avatars, round badges). The square frame is the primary mark — it carries the z² = 4 idea — so prefer it wherever a square fits. The z geometry is identical to the square marks, and the circle sits at the same distance from the z along both axes.
 - **Clear space**: keep at least the frame's stroke width of padding around the mark.
 - **Don't**: shear or slant the z, add a drop shadow, recolor the z outside the palette, or stretch the square.
 
