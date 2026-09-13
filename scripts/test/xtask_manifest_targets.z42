@@ -9,20 +9,13 @@
 // Reads a project's `<name>.z42.toml` via the shared stdlib ManifestLoader
 // (Z42.Build.Project) — no hand-rolled TOML — and turns the declared
 // `[tests]`/`[benches]`/`[examples]` sections + `[[test]]`/`[[bench]]`/
-// `[[example]]` targets into runnable units:
+// `[[example]]` targets into runnable units。
 //
-//   auto convention units (section.Auto, default true)      → proven batched z42b
-//     directory scan of tests/·bench/ (_runUnitsBatched)      reflection path
-//   explicit [[target]] harness=true (default)              → compile a lib zpkg
-//     over the target's sources + reflect via z42b            (_runReflectTarget)
-//   explicit [[target]] harness=false + entry               → compile an exe zpkg
-//                                                              + `z42vm <zpkg>
-//                                                              <entry>`, exit-code
-//                                                              (_runExitTarget)
-//
-// Every existing stdlib lib declares no sections/targets, so it keeps the exact
-// convention scan (byte-identical behaviour). Explicit targets overlay it: an
-// auto unit is dropped when an explicit target of the same name exists.
+// **D2 起 test/bench 只有一条路：转发 z42b**（`--list` 拿清单 → 并行 `--name` 逐个跑）。
+// 约定发现、显式目标（两种 harness）、孤儿源守卫、「本包压根没有测试」的分流全部住在 z42b，
+// xtask 侧只剩：清单 lint（`_validateRunTargets`）、并行编排、bench 聚合。
+// example 是唯一还留在本文件里执行的一类 —— 它不是测试（判据是「编得过 + 可选跑得通」），
+// 走 `_runExitTarget` / `_compileTarget`。
 //
 // NOTE (xtask deps): xtask.z42.toml declares NO [dependencies] block on purpose
 // (DepScan.z42: declaredCount==0 → index ALL of Z42_LIBS), so `using
@@ -151,74 +144,11 @@ string _validateRunTargets(RunTarget[] t, int n, string kind) {
     return "";
 }
 
-// ── auto (harness=true) convention discovery ──────────────────────────────────
-
-// Convention auto units for a project: directory-scan <projDir>/<subdir> exactly
-// as the legacy path (single-file *.z42 + dir-mode */source.z42 with [Test]).
-// Empty when section.Auto is off or the dir is absent. LIMITATION: honors the
-// default `tests/`·`bench/` convention dir only; a custom `[tests] include=[...]`
-// glob outside that dir is not expanded here (no stdlib lib uses one — follow-up).
-TestUnit[] _autoUnits(string projDir, string subdir, bool auto, string filter) {
-    if (!auto) { return new TestUnit[0]; }
-    string dir = Path.Join(projDir, subdir);
-    if (!Directory.Exists(dir)) { return new TestUnit[0]; }
-    return _discoverTestUnits(dir, _sortedStrings(Directory.Enumerate(dir)), filter);
-}
-
-// Drop auto units whose name is claimed by an explicit target (explicit overrides
-// same-name auto, spec "显式目标覆盖同名 auto").
-TestUnit[] _dropOverridden(TestUnit[] auto, RunTarget[] tgts, int nTgts) {
-    TestUnit[] tmp = new TestUnit[auto.Length];
-    int c = 0;
-    int i = 0;
-    while (i < auto.Length) {
-        bool overridden = false;
-        int j = 0;
-        while (j < nTgts) { if (tgts[j].Name == auto[i].UnitName) { overridden = true; } j = j + 1; }
-        if (!overridden) { tmp[c] = auto[i]; c = c + 1; }
-        i = i + 1;
-    }
-    TestUnit[] r = new TestUnit[c];
-    int k = 0;
-    while (k < c) { r[k] = tmp[k]; k = k + 1; }
-    return r;
-}
-
-// ── explicit target execution (reflect harness=true / exit-code harness=false) ─
-
-// Run an explicit harness=true target: compile its sources (or convention) into a
-// lib zpkg, then reflect [Test]/[Benchmark] via z42b. Returns 0 pass / 1 fail.
-int _runReflectTarget(string root, string projDir, string projPrefix, string subdir,
-                      ProjectManifest man, string kind, RunTarget t,
-                      string builderZpkg, string vm, string driverZpkg, string libs) {
-    string projName = projPrefix + "." + t.Name;
-    DepBundle deps = _targetDeps(man, kind, t);
-    string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, t.Name, t.HasEntry, t.Entry, t.Sources, t.SrcCount, deps, "lib", t.Name, libs);
-    if (zpkg.Length == 0) { return 1; }
-    string verb = (kind == "bench") ? "bench" : "test";
-    ProcessResult rr = new Process(vm).Arg("--mode").Arg("interp").Arg(builderZpkg)
-        .Arg("--").Arg(verb).Arg(zpkg).Env("Z42_LIBS", libs).Run();
-    Console.Write(rr.Stdout);
-    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
-    if (rr.ExitCode != 0) { Console.WriteLine("✗ " + t.Name + " (exit " + rr.ExitCode.ToString() + ")"); return 1; }
-    return 0;
-}
-
-// Run every harness=false target of a kind; returns the failure count.
-int _runExitTargets(string root, string projDir, string projPrefix, string subdir,
-                    ProjectManifest man, string kind, RunTarget[] tgts, int n,
-                    string vm, string driverZpkg, string libs) {
-    int failed = 0;
-    int i = 0;
-    while (i < n) {
-        DepBundle deps = _targetDeps(man, kind, tgts[i]);
-        if (_runExitTarget(root, projDir, projPrefix, subdir, tgts[i].Name, tgts[i].HasEntry, tgts[i].Entry, tgts[i].Sources, tgts[i].SrcCount, deps, vm, driverZpkg, libs, true) != 0) {
-            failed = failed + 1;
-        }
-        i = i + 1;
-    }
-    return failed;
-}
+// ── example 目标的执行器（exit-code）───────────────────────────────────────────
+// 曾经这里还住着两个 test/bench 执行器：`_runReflectTarget`（显式 harness=true：编成 lib
+// zpkg 再让 z42b 反射）与 `_runExitTargets`（显式 harness=false 的批量包装）。D2 起 test/bench
+// 全线转发 z42b，两者没有调用方，已删。留下的 `_runExitTarget` 是 **example stage** 在用
+// （examples 不走 z42b —— 它们不是测试，判据是「编得过（+ 可选跑得通）」）。
 
 // One harness=false / example target: compile to a runnable exe zpkg, and (when
 // runAfter) run `z42vm <zpkg> [entry]`. Returns 0 pass / 1 fail. runAfter=false →
@@ -392,103 +322,35 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
 
 // ── stdlib per-lib driver (called by _testLibCore, xtask_test_lib.z42) ─────────
 
-// Discover + run one lib's `kind` targets (manifest-aware). Returns this lib's
-// failure count, or -1 on a target-validation error (caller aborts the stage).
-// Updates totalFiles / libsTested by ref. Preserves the legacy convention scan
-// (auto sections) for every existing stdlib lib while overlaying any explicit
-// `[[test]]`/`[[bench]]` targets (harness=true reflect / harness=false exit-code).
-int _runLibKind(string root, string libsRoot, string lib, string subdir, string kind,
+// 跑一个 lib 的 test/bench：**一律转发 z42b**（xtask-forward-tests-to-z42b D2）。
+// 返回该 lib 的失败数，或 -1 表示目标声明有误（调用方中止整个 stage）。
+// totalFiles / libsTested 按引用更新。
+//
+// 此前这里有第二条「xtask 自己发现 + 自己编 + 自己跑」的路（约定扫描 + 显式目标
+// 的 reflect / exit-code 两种执行器），只在「本包有显式 [[test]]」时走。它随 D2 退休：
+// 发现规则、孤儿源守卫、harness=false、「本包压根没有测试」的分流**全部只剩 z42b 一份**。
+// 两套规则各自漂移正是 #580 那三处分歧的来源。
+//
+// File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非目录条目，
+// 旧路径靠「清单缺失 → 约定扫描 → 零单元」静默跳过，这里改为显式确认这是个真工程。
+int _runLibKind(string root, string libsRoot, string lib, string kind,
                 string label, string filter, string builderZpkg, int jobsN, string mode,
                 string vm, string driverZpkg, string libs, MicroBenchAgg agg,
                 ref int totalFiles, ref int libsTested) {
     string projDir = Path.Join(libsRoot, lib);
     string parentToml = Path.Join(projDir, lib + ".z42.toml");
+    if (!File.Exists(parentToml)) { return 0; }
+    // 清单 lint（名字缺失 / 重名 / harness=false 缺 entry）留在 xtask 侧：z42b 对
+    // HasEntry=false 是「自动探测入口」而不是错误，这条 lint 它不复制。
     ProjectManifest man = _loadManifestOr(parentToml);
     RunTarget[] tgts = _explicitTargets(man, kind);
     string verr = _validateRunTargets(tgts, tgts.Length, kind);
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + lib + ": " + verr); return -1; }
-    // ── 转发 z42b（xtask-forward-tests-to-z42b D1）────────────────────────────
-    // 条件：test 路径 + 该包**没有显式 [[test]]**。今天 stdlib 的 23 个库全部满足
-    // （零个显式目标、零个 harness=false —— 实测）。留着旧路径兜住将来出现的显式目标
-    // （尤其 harness=false：其 Main 自己调 Environment.Exit，z42b 侧尚未支持）。
-    //
-    // bench 与 test 同走这条：转发是「每单元一次调用」，每次恰好一个 TestReport 对象，
-    // 正是 `MicroBenchAgg.addModuleJson` 期待的形状 —— 不需要多目标合并输出。
-    //（此前把 bench 挡在外面，理由是「多目标合并未做」；那是基于「每库一次 z42b」的设想，
-    // 与实际落地的 `--name` 形状不符，故订正。）
-    // File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非目录条目，
-    // 旧路径靠「清单缺失 → 约定扫描 → 零单元」静默跳过。转发前先确认这是个真工程。
-    if ((kind == "test" || kind == "bench") && tgts.Length == 0 && File.Exists(parentToml)) {
-        return _runLibViaZ42b(root, projDir, parentToml, lib, kind, label, filter,
-                              builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
-                              ref totalFiles, ref libsTested);
-    }
-    TestUnit[] units = _dropOverridden(_autoUnits(projDir, subdir, _sectionAuto(man, kind), filter),
-                                       tgts, tgts.Length);
-    RunTarget[] reflectT = _explicitByHarness(tgts, tgts.Length, true, filter);
-    RunTarget[] falseT   = _explicitByHarness(tgts, tgts.Length, false, filter);
-    int shown = units.Length + reflectT.Length + falseT.Length;
-    if (shown == 0) {
-        // ── 孤儿源守卫（fix-silent-gates, 2026-09-06）─────────────────────────
-        // 本 lib 一个单元都没产出。若它的 <subdir>/ 下**确实躺着 .z42 源**，那就是
-        // 「有源、但没有任何发现规则认领」——总是 bug（z42.ir / z42c.core /
-        // z42c.syntax 正是这样静默数月）。
-        //
-        // 这条守卫此前在 _testLibCore 里，但装错了路：它要求 `nReq > 0`（只在显式
-        // 点名 lib 时查）且用**全局** totalFiles 判零，而 GREEN gate 走的是不点名的
-        // 全扫（nReq==0 → 那个 while 循环空转；totalFiles 全局必 >0）→ 两条独立原因
-        // 让它在唯一重要的路径上永不触发。挪到这里逐 lib 判定即可覆盖全扫。
-        //
-        // filter 非空时不判：过滤器匹配不到是过滤器的事，不是发现规则的 bug。
-        if (filter.Length == 0) {
-            string sd = Path.Join(projDir, subdir);
-            if (Directory.Exists(sd) && Path.GlobRecursive(sd, "*.z42").Length > 0) {
-                if (!_sectionAuto(man, kind)) {
-                    // 欠债棘轮：`auto = false` = 本包在**自己的清单**里显式声明「这里没有约定
-                    // 单元」。此前这张名单硬编码在本文件里（_isKnownOrphanLib，只列了
-                    // z42.scripting/tests）——记在工具里，债主自己看不见。改为记在债主的清单里：
-                    // 可见、可 grep、与 z42b 的守卫同一条豁免规则（两条发现路径不能各有各的例外表）。
-                    // 豁免**不等于消音**：照样每轮响亮打印，新增的孤儿源一律判红。
-                    Console.WriteLine("  ⚠ " + lib + ": " + subdir + "/ 有 .z42 源但无单元（该包清单声明 `auto = false`，已知欠债）");
-                } else {
-                    // 提示必须与 _discoverTestUnits 的真实规则一致：单文件模式是
-                    // <subdir>/<name>.z42；目录模式要求该目录下**直接**有 .z42 含
-                    // [Test] 标注（_dirHasTestMethods，非递归、且是朴素全文子串匹配
-                    // ——注释里出现该标注也会被算上）。文件名不重要。
-                    ConsoleError.WriteLine("  ❌ " + lib + ": " + subdir + "/ 下有 .z42 源，却没产出任何 "
-                        + label + " 单元 —— 发现规则没认领它们（假绿）。单元须是 "
-                        + subdir + "/<name>.z42，或 " + subdir + "/<name>/ 目录下直接有带 [Test] 的 .z42。");
-                    return -1;   // -1 = 让调用方中止整个 stage
-                }
-            }
-        }
-        return 0;
-    }
-    libsTested = libsTested + 1;
-    Console.WriteLine("");
-    Console.WriteLine("════════════════════════════════════════════════");
-    Console.WriteLine("  " + lib + "  (" + shown.ToString() + " " + label + " unit(s))");
-    Console.WriteLine("════════════════════════════════════════════════");
-    totalFiles = totalFiles + shown;
-    int failed = 0;
-    if (units.Length > 0) {
-        failed = failed + _runUnitsBatched(root, builderZpkg, lib, units, _baseDeps(man, kind), kind,
-                                           jobsN, mode, vm, driverZpkg, libs, agg);
-    }
-    int ri = 0;
-    while (ri < reflectT.Length) {
-        failed = failed + _runReflectTarget(root, projDir, lib + "." + kind, subdir, man, kind,
-                                            reflectT[ri], builderZpkg, vm, driverZpkg, libs);
-        ri = ri + 1;
-    }
-    if (falseT.Length > 0) {
-        failed = failed + _runExitTargets(root, projDir, lib + "." + kind, subdir,
-                                          man, kind, falseT, falseT.Length, vm, driverZpkg, libs);
-    }
-    return failed;
+    return _runLibViaZ42b(root, projDir, parentToml, lib, kind, label, filter,
+                          builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
+                          ref totalFiles, ref libsTested);
 }
 
-// Explicit targets filtered by harness mode + substring name filter ("" = all).
 RunTarget[] _explicitByHarness(RunTarget[] tgts, int n, bool harness, string filter) {
     RunTarget[] tmp = new RunTarget[n];
     int c = 0;
