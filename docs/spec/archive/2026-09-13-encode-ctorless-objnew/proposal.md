@@ -1,6 +1,6 @@
 # Proposal: 给「零构造器」一个可区分的编码 —— 关掉站点 ③ 的 `argc == 0` 缺口
 
-> **状态：📝 DRAFT（待 User 裁决）** | 创建：2026-09-13
+> **状态：🟢 完成**（2026-09-13 落地，PR #629）| 创建：2026-09-13 | User 2026-09-13 裁决：正向位 + 整包 fixup + 格式 bump
 > 前置：`fix-silent-symbol-resolution`（PR #614）、`fix-ctor-arity-skew`（PR #620）均已合并。
 > 本 change 是那条线**唯一还开着的**一项（见 memory `dep-version-skew-program` 的「② 的墙」）。
 
