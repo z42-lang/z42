@@ -1,0 +1,221 @@
+// 字段级 generator 触发点（add-member-forwarding 的框架前置）。
+//
+// 此前 `GeneratorDriver` 只调度**顶层** `AttributedDecl` 且 `Inner is ClassDecl`，贴在字段上的
+// attribute 从不被 generator 看见。而「转发哪个成员」这件事语义上就长在字段上——贴类上就得再
+// 写一遍字段名，等于把同一个事实写两处。
+//
+// 与类级路径最关键的一处**故意不同**：字段级触发**不剥 attr、不删合成工厂**。
+// 字段级 attr 的工厂（`fld$<Class>$<Field>`）是 `[Forward(methodof(...))]` 里那个 methodof
+// **唯一被编译到的通道**——剥了它，白名单就退回「字符串时代」：写错名字不再报错。
+// `test_field_trigger_keeps_attribute_and_factory` 就是守这条的。
+namespace Z42cSemanticsGeneratorTests;   // 同 ns：复用 generator_tests.z42 的 runGen/one/hasCode/GenResult，不再造一份
+
+using Std;
+using Std.Test;
+using Std.IO;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Core;
+
+// 贴在**字段**上：读 t.Applied（FieldDecl）决定生成什么，往 t.Symbol（外层类）Augment。
+class FieldEchoGenerator : Generator {
+    public string AppliedName() { return "FieldEcho"; }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+    public void Generate(GenTarget t, GenSink sink) {
+        if (!(t.Applied is FieldDecl)) { return; }
+        FieldDecl f = t.Applied as FieldDecl;
+        // 方法名带上字段名 → 断言「generator 真的看见了是哪个字段」，而不只是「被触发了」。
+        sink.Augment(t.DeclId, "public int echo_" + f.Name + "() { return 7; }");
+    }
+}
+
+// 字段级触发**保留 attr**（见上）⇒ 合成工厂 `__attr$fld$Svc$_log$0()` 会真的被编译，
+// 它 `new FieldEchoAttribute()` ⇒ **fixture 必须提供真实 attribute 类**，否则 E0443。
+// 这不是测试的累赘，正是 tasks 2.3「[Forward] 必须有真类」那条约束的第一手证据。
+string _attrSrc() { return "class FieldEchoAttribute : Attribute { } "; }
+
+// ── 测试 ──────────────────────────────────────────────────────────────────────────
+
+[Test]
+void test_field_trigger_fires_and_sees_which_field() {
+    string[] srcs = new string[1];
+    srcs[0] = _attrSrc() + "class Svc { [FieldEcho] int _log; }";
+    GenResult r = runGen(one(new FieldEchoGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    // 方法名里带着字段名 ⇒ generator 拿到的是那个 FieldDecl，不只是「被触发了」
+    Assert.Equal(true, r.Merged.GetClass("Svc").Methods.ContainsKey("echo__log"));
+    // 原字段仍在（Augment 是合并不是替换）
+    Assert.Equal(true, r.Merged.GetClass("Svc").Fields.ContainsKey("_log"));
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_field_trigger_marks_outer_class_partial() {
+    // 外层类自己没贴任何 attr —— 顶层 decl 压根不是 `AttributedDecl`，`_applyEdit` 若无条件
+    // `d as AttributedDecl` 就会拿到 null。若 MarkPartial 没生效，生成碎片与原类是两个非
+    // partial 的同名类 → E0430。
+    //
+    // ⚠️ 本条最初只断言「无错误 + 无 E0430」—— **退回对照实测它在功能整个关掉时照样通过**
+    // （什么都不生成，当然什么都不错）。那是一道空门。现在先断言**生成确实发生了**，
+    // 再断言它没触发 E0430：两者合起来才真的守住「合并成功」。
+    string[] srcs = new string[1];
+    srcs[0] = _attrSrc() + "class Svc { [FieldEcho] int _log; }";
+    GenResult r = runGen(one(new FieldEchoGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    Assert.Equal(true, r.Merged.GetClass("Svc").Methods.ContainsKey("echo__log"));
+    Assert.Equal(false, hasCode(r.TypeDiags, "E0430"));
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_multiple_field_triggers_in_one_class() {
+    // 一个类里两个字段各贴一次 → 两份生成源并进同一个 SiteEdit（同一 DeclIndex）
+    string[] srcs = new string[1];
+    srcs[0] = _attrSrc() + "class Svc { [FieldEcho] int _a; [FieldEcho] int _b; }";
+    GenResult r = runGen(one(new FieldEchoGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Merged.GetClass("Svc").Methods.ContainsKey("echo__a"));
+    Assert.Equal(true, r.Merged.GetClass("Svc").Methods.ContainsKey("echo__b"));
+    Assert.Equal(0, r.TypeDiags.ErrorCount());
+}
+
+[Test]
+void test_field_trigger_keeps_attribute_and_factory() {
+    // 🔴 本组最重要的一条：字段级触发**不剥 attr**。
+    // 类级路径会剥掉触发 attr（ordering fixup），字段级**必须留着**——留着 attr 才会有
+    // `fld$Svc$_log` 合成工厂，而那是 `[Forward(methodof(...))]` 里的 methodof 被编译到的
+    // 唯一通道。判据：attr 仍在原 AST 上。
+    string[] srcs = new string[1];
+    srcs[0] = _attrSrc() + "class Svc { [FieldEcho] int _log; }";
+    GenResult r = runGen(one(new FieldEchoGenerator()), 1, srcs, 1);
+    Assert.Equal(true, r.Outcome.HasOutput);
+    Assert.Equal(true, _ftFieldStillHasAttr(r.Outcome.Cus, r.Outcome.CuCount, "Svc", "_log", "FieldEcho"));
+}
+
+[Test]
+void test_class_level_trigger_still_strips_attribute() {
+    // 反向对照：类级路径的剥 attr 行为**不得**被本次改动带歪。
+    // （若字段级扫描误把类级触发也当成 KeepAttr，这条会红。）
+    string[] srcs = new string[1];
+    srcs[0] = _attrSrc() + "[FieldEcho] class Svc { int _log; }";
+    GenResult r = runGen(one(new FieldEchoGenerator()), 1, srcs, 1);
+    // 贴在类上时 generator 的 t.Applied 是 ClassDecl → 本 generator 直接 return，不产出。
+    // 关键断言是它**走的是类级路径**：没有 attr 残留导致的 E0443（未定义的 FieldEchoAttribute）。
+    Assert.Equal(false, hasCode(r.TypeDiags, "E0443"));
+}
+
+// 在合并后的 CU 集里找 <cls> 的字段 <fld>，看它是否仍带着 <attr>。
+bool _ftFieldStillHasAttr(CompilationUnit[] cus, int n, string cls, string fld, string attr) {
+    int i = 0;
+    while (i < n) {
+        CompilationUnit cu = cus[i];
+        if (cu != null) {
+            int di = 0;
+            while (di < cu.DeclCount) {
+                Decl d = cu.Decls[di];
+                ClassDecl c = null;
+                if (d is ClassDecl) { c = d as ClassDecl; }
+                else if (d is AttributedDecl) { c = (d as AttributedDecl).Inner as ClassDecl; }
+                if (c != null && c.Name == cls) {
+                    int mi = 0;
+                    while (mi < c.MemberCount) {
+                        Decl mem = c.Members[mi];
+                        if (mem is AttributedDecl) {
+                            AttributedDecl mad = mem as AttributedDecl;
+                            if (mad.Inner is FieldDecl && (mad.Inner as FieldDecl).Name == fld) {
+                                int ai = 0;
+                                while (ai < mad.AttrCount) {
+                                    if (mad.Attrs[ai].Name == attr) { return true; }
+                                    ai = ai + 1;
+                                }
+                            }
+                        }
+                        mi = mi + 1;
+                    }
+                }
+                di = di + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+
+// ── [Forward] 的诊断面（add-member-forwarding ⑤）────────────────────────────────
+//
+// 这一组守的是本特性最核心的承诺：**条件不满足时会说话，而不是静默不生成**。
+// 在开出 GenSink 的诊断通道之前，generator 根本报不了诊断 —— 用户看到的是「我贴了
+// [Forward]，方法却不存在」，一个没有任何解释的缺席。对一个自称「不静默」的特性，
+// 那是最不该有的失败模式。
+//
+// 用 GeneratorDriver.Run 的 diags 出口断言（generator 报的诊断由 driver 合入编译诊断袋）。
+
+string _fwdSrc(string decls) {
+    return "namespace Fw;\nusing Std;\n"
+         + "class A { public string F() { return \"f\"; } public string G(int n) { return \"g\"; } "
+         + "public string G(string s) { return \"gs\"; } }\n"
+         + "class B { public string H() { return \"h\"; } }\n"
+         + decls;
+}
+
+// 跑真 ForwardGenerator（它是内建 generator，测试里直接注入）。
+DiagnosticBag _runFwd(string src) {
+    string[] files = new string[1]; files[0] = "f.z42";
+    CompilationUnit[] cus = new CompilationUnit[1];
+    cus[0] = HandlerRegistry.RunAst(new Parser(src, files[0]).ParseCompilationUnit());
+    SymbolTable prov = new SymbolCollector().CollectAll(cus, files, 1, null);
+    DiagnosticBag ed = new DiagnosticBag();
+    Generator[] gens = new Generator[1]; gens[0] = new ForwardGenerator();
+    GeneratorDriver.Run(gens, 1, cus, files, 1, prov, ed);
+    return ed;
+}
+
+[Test]
+void test_forward_member_not_on_this_field_type_reports() {
+    // methodof 只保证「B.H 存在」；「它在**这个字段**的类型上」是另一件事，故单列一码。
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(B.H))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0463"));
+}
+
+[Test]
+void test_forward_overloaded_target_reports_and_points_at_partial_tier() {
+    // 转发必须发一个**具名方法**，重载时它不能替你选 —— 但必须告诉你该改用哪一档。
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(A.G))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0465"));
+    Assert.Equal(true, _msgHas(d, "partial"));
+}
+
+[Test]
+void test_forward_typeof_non_interface_reports() {
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(typeof(A))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0463"));
+}
+
+[Test]
+void test_forward_bad_argument_shape_reports() {
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(42)] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0463"));
+}
+
+[Test]
+void test_forward_owner_declares_same_name_is_info_not_error() {
+    // S5：不是错误 —— 用户的实现优先。但**必须说出来**，否则是个没有解释的缺席。
+    DiagnosticBag d = _runFwd(_fwdSrc(
+        "class S { [Forward(methodof(A.F))] A _a; public string F() { return \"mine\"; } }"));
+    Assert.Equal(true, hasCode(d, "I0466"));
+    Assert.Equal(0, d.ErrorCount());   // Info 不阻断编译
+}
+
+[Test]
+void test_forward_object_protocol_reports() {
+    // S2：转发身份协议会让外层对象谎报自己是谁。
+    DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(A.ToString))] A _a; }"));
+    Assert.Equal(true, hasCode(d, "E0465") || hasCode(d, "E0459"));
+}
+
+bool _msgHas(DiagnosticBag d, string needle) {
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Message.Contains(needle)) { return true; } i = i + 1; }
+    return false;
+}

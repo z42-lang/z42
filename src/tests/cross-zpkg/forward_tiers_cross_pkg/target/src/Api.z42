@@ -1,0 +1,6 @@
+namespace Ft.Api;
+using Std;
+
+// 跨包依赖只是为了让这条 fixture 覆盖「generator + 有依赖声明」这条路径；
+// ①② 档本身要求转发面的**声明**在本包（见 main/src/Main.z42 的说明）。
+public class Banner { public string Text() { return "banner"; } }

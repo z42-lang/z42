@@ -189,6 +189,16 @@ public static class PackageCompile {
             effMods = PackageCompile._concatMod(inp.ModuleGenerators, inp.ModuleGeneratorCount, lg.Modules, lg.ModuleCount);
             effModCount = inp.ModuleGeneratorCount + lg.ModuleCount;
         }
+        // add-member-forwarding：`[Forward]` 是**语言内建** generator，但**按需注册**。
+        // 🔴 不能无条件并进来：本 gate（下一行）正是「空 → 分支不进 → 逐字节不动」赖以成立的
+        // 条件，无条件注册会让**每次**编译都走 union 全 fresh 重编、直接破坏自举字节不动点。
+        // 预扫是纯 AST 遍历（CU 已 parse），没用 `[Forward]` 的包一个字节都不变。
+        if (ForwardGenerator.AnyTrigger(cus, srcCount)) {
+            Generator[] fwd = new Generator[1];
+            fwd[0] = new ForwardGenerator();
+            effGens = PackageCompile._concatGen(effGens, effGenCount, fwd, 1);
+            effGenCount = effGenCount + 1;
+        }
         if (effGenCount > 0 || effModCount > 0) {
             GenOutcome ro = GeneratorDriver.RunRounds(effGens, effGenCount, effMods, effModCount,
                                                       cus, files, srcCount, imported, genDiags);

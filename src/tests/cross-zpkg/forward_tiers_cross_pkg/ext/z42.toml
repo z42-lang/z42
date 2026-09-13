@@ -1,0 +1,9 @@
+[project]
+name    = "ft.impl"
+version = "0.1.0"
+kind    = "lib"
+pack    = true
+[sources]
+include = ["src/**/*.z42"]
+[dependencies]
+"ft.api" = "0.1.0"
