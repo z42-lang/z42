@@ -581,3 +581,55 @@ void test_parent_interface_member_must_also_be_implemented() {
     Assert.Equal("E0412", SemanticDump.FirstErrorCode(
         "interface IBase { void M(); }\ninterface IDerived : IBase { }\nclass C : IDerived { }\n"));
 }
+
+// ── 种类 + 返回类型校验（fix-iface-satisfaction-gaps #1）──────────────────────────
+//
+// MangleKey 只含「名 + 形参类型」，**不含 static/instance、不含返回类型**。此前 static 接口成员被
+// 实现成 instance、或返回类型不符，MangleKey 照样相等 → E0412 不触发、静默通过（真洞）。本组补上。
+
+[Test]
+void test_static_interface_member_implemented_as_instance_is_reported() {
+    // 接口声明 `static abstract`、实现为 instance —— 种类不符。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface INum { static abstract int Zero(); }\nclass C : INum { public int Zero() { return 0; } }\n"));
+}
+
+[Test]
+void test_instance_interface_member_implemented_as_static_is_reported() {
+    // 反向：接口声明 instance、实现为 static。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int M(); }\nclass C : I { public static int M() { return 0; } }\n"));
+}
+
+[Test]
+void test_wrong_return_type_for_interface_member_is_reported() {
+    // 名+形参对上、返回类型不符（`int M()` vs `string M()`）—— MangleKey 不含返回，此前静默。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int M(); }\nclass C : I { public string M() { return \"\"; } }\n"));
+}
+
+[Test]
+void test_ok_static_interface_member_matching_is_not_reported() {
+    // 🛡 无误报守卫：接口 `static abstract` + 实现 `static override` 种类相符。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface INum { static abstract int Zero(); }\nclass C : INum { public static override int Zero() { return 0; } }\n"));
+}
+
+[Test]
+void test_ok_covariant_return_is_not_reported() {
+    // 🛡 无误报守卫（裁决：协变允许）：实现返回 `Dog`、接口声明 `Animal`，Dog is-a Animal → 合法。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "class Animal { }\nclass Dog : Animal { }\ninterface IMake { Animal Make(); }\nclass C : IMake { public Dog Make() { return new Dog(); } }\n"));
+}
+
+// ── base-class 约束对未解析型参不再假红（fix-iface-satisfaction-gaps #2）──────────
+
+[Test]
+void test_ok_forward_type_param_to_base_constrained_inner() {
+    // #2：`Outer<T> where T:Base` 内部实例化 `Inner<T>`（Inner 也 `where T:Base`）—— 实参 T 是未解析
+    // 型参。此前 `_satisfiesBase` 对型参返回 false → 假红 E0402；现放行（Outer 自己的 where 已保证 T:Base）。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "class Base { }\n"
+        + "class Inner<T> where T : Base { public T v; }\n"
+        + "class Outer<T> where T : Base { public Inner<T> make() { return new Inner<T>(); } }\n"));
+}

@@ -776,6 +776,15 @@ public struct int : INumber<int> {
 | 2 | `static virtual` | ✅ | 可选 `static override`（省略时继承默认） |
 | 3 | `static`（无 virtual/abstract） | ✅ | 不可 override（E0412 sealed） |
 
+> **接口满足性现在真比种类与返回类型了**（`fix-iface-satisfaction-gaps` #1，2026-09-13）：此前
+> `InheritanceResolver._checkOneIfaceMethod` 用 `OverloadResolver.MangleKey`（只含名 + 形参类型）比对
+> 实现方，**不含 `static`/`instance` 种类、不含返回类型** ⇒ `static abstract` 成员被实现成 instance、
+> 或返回类型不符，MangleKey 照样相等、E0412 **静默不触发**（上表「否则 E0412」一度是没兑现的承诺）。
+> 现补上两项：MangleKey 命中后再比 ① `IsStatic` 相等（种类不符 → E0412）② 返回类型——**同类型**
+> （`OverloadResolver.TypeKey` 归一，`String[]≡string[]`）或**协变**（impl 是接口声明返回的子类 / 接口
+> 实现，经 `SymbolTable.IsSubclassOf`/`Implements`）才放行。两项**不进 MangleKey**（那是派发键，改它会撼动
+> 自举字节）。
+
 **关键实现决策：值驱动派发 = VCall**（非新 IR 指令）
 
 对 `a + b` where a,b: `T where T: INumber<T>`：
