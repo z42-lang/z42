@@ -1466,7 +1466,11 @@ fn env_only_is_now_reserved_for_scaffolding_and_meta_knobs() {
     // that a user could reasonably want on the command line.
     let env_only: Vec<&str> = KNOWN_KNOBS.iter()
         .filter(|k| k.sources == LayerMask::ENV_ONLY).map(|k| k.name).collect();
-    assert_eq!(env_only, vec!["Z42_STRESS_ITERS"],
+    // fix-spawn-env-gc-root（2026-09-13）：第二条脚手架。它和 `Z42_STRESS_ITERS` 一样
+    // **必须**是 ENV_ONLY —— 消费它的测试在进程跑起来之后才用
+    // `Environment.SetEnvironmentVariable` 打开它，而 CLI / 配置文件层都在启动时就定死了，
+    // 声明那两层等于说谎。
+    assert_eq!(env_only, vec!["Z42_SPAWN_ENV_DELAY_MS", "Z42_STRESS_ITERS"],
         "ENV_ONLY is for test scaffolding only; meta knobs use CLI_ENV");
 }
 

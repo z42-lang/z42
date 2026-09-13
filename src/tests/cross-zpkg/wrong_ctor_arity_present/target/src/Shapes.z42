@@ -1,0 +1,35 @@
+namespace Demo.WcapTarget;
+
+// fix-ctor-arity-skew 的「在场」对照组：**跨包**构造器的几种合法 arity 形态。
+// 新加的 arity 校验若把其中任何一种判成 skew，这个用例立刻变红。
+
+// ① 平凡无参构造器。
+public class Widget {
+    public int V;
+    public Widget() { this.V = 7; }
+}
+
+// ② `params` 变长尾参：实参数可以**超过**形参数。params 构造器此前也没有跨包用例
+//    （params_cross_pkg 只覆盖静态方法）。
+public class Bag {
+    public int Sum;
+    public Bag(params int[] xs) {
+        int s = 0;
+        int i = 0;
+        while (i < xs.Length) { s = s + xs[i]; i = i + 1; }
+        this.Sum = s;
+    }
+}
+
+// ③ 压根没有构造器的类：它的 ctor 键解析不到是**正常**的，不得误报
+//    （与 missing_ctor_present 里的 `Plain` 同一用意）。
+public class Plain {
+    public int N;
+}
+
+// ④ 有**字段初始化器**、但没有显式构造器的类：z42c 会为它合成一个隐式构造器函数
+//    （`IrGenTypeEmitter._emitSynthCtor`），而那个合成构造器**不是 MethodSymbol**。
+//    跨包时导入侧能否看见它，决定了「零构造器」这个判据能不能在调用点算准。
+public class Initd {
+    public int K = 9;
+}

@@ -98,6 +98,70 @@ fn reused_slot_rejects_old_handle() {
     assert!(a.with_arr(idx_a, 1, |x| x.get_boxed(0)).is_err());
 }
 
+/// **fix-stackalloc-misses-inlined-refs (2026-09-13)**: the object half of the root scan.
+///
+/// `scan_roots_visits_elements` below covers stack *arrays* and has since the arena landed;
+/// stack **objects** had no root-scan test at all, which is why the gap survived
+/// `unify-object-byte-layout` PR-3 chunk 2b. That chunk moved every direct object/array
+/// field out of the `refs` side-table and into an 8B inlined pointer in `bytes`; the heap
+/// traversal learned to read both halves, this arena's did not — so a non-escaping object's
+/// array fields were reachable from no GC root and got swept while their owner was live.
+///
+/// The assertion is deliberately about the **inlined** half only (`refs` is left empty), so
+/// reverting the `trace_inline_refs` call in `scan_roots` turns it red rather than merely
+/// weakening the count.
+#[test]
+fn scan_roots_visits_object_inlined_refs() {
+    use std::sync::Arc;
+    use crate::gc::GcRef;
+    use crate::metadata::types::{
+        FieldAccess, InlineRef, ObjStorage, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
+        STRUCT_LEAF_GCREF, TAG_OBJECT,
+    };
+
+    // `class Holder { object child; }` — the one field is byte-inlined, side-table empty.
+    let layout = Arc::new(ObjectLayout {
+        size: 8,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([8]),
+        field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
+        ref_offsets:   Box::new([]),
+        ref_kinds:     Box::new([]),
+        inline_refs:   Box::new([InlineRef { offset: 0, is_array: false }]),
+        field_access:  Box::new([FieldAccess { offset: 0, width: 8, tag: TAG_OBJECT, ref_slot: -1 }]),
+    });
+    let holder_td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Holder".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+    let leafless = Arc::new(TypeDesc {
+        name: "Leaf".to_string(), base_name: None, fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        class_flags: 0, visibility: 0, id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+    let leaf = Value::Object(GcRef::new(ScriptObject::new(leafless, ObjStorage::new(0, 0))));
+
+    let mut holder = ScriptObject::new(holder_td, ObjStorage::new(8, 0));
+    assert!(holder.set_field_value(0, &leaf), "the inlined field is a reference slot");
+    assert!(holder.refs().is_empty(), "precondition: the edge lives ONLY in `bytes`");
+
+    let mut a = StackArena::default();
+    a.alloc_obj(1, holder);
+
+    let mut seen = 0usize;
+    a.scan_roots(&mut |v| if matches!(v, Value::Object(_)) { seen += 1 });
+    assert_eq!(seen, 1, "the byte-inlined object field must be a GC root of the arena");
+}
+
 #[test]
 fn scan_roots_visits_elements() {
     // GC root scan must visit every live stack array's elements (they may hold
