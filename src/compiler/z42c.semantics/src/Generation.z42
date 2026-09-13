@@ -40,6 +40,16 @@ public interface GenSink {
     void AddSource(string hint, string src);
     void Replace(DeclId id, string src);
     void Augment(DeclId id, string membersSrc);
+    // 诊断通道（add-member-forwarding ⑤）。
+    //
+    // 🔴 在此之前 generator **根本报不了诊断**：它只拿到 GenTarget + GenSink，而 driver 的
+    // DiagnosticBag 不在其中。于是「条件不满足」只能表现为**静默不生成**，用户看到的是
+    // 「我贴了 [Forward]，方法却不存在」——一个没有任何解释的缺席。
+    // 对一个自称「不静默」的特性，这是最不该有的失败模式。
+    //
+    // 收集到的诊断由 driver 合入编译诊断袋（与 generator 自身的产出同一轮呈现）。
+    void Error(string code, string message, Span span);
+    void Info(string code, string message, Span span);
 }
 
 // applied generator 的生成目标——被 `[X]` 贴住的那个声明 + 其解析后符号。driver 构造、generator 只读。
@@ -54,6 +64,16 @@ public sealed class GenTarget {
     public Decl Applied;
     public Z42ClassType Symbol;
     public Attr Trigger;
+    // add-member-forwarding：**外层声明**。字段级触发时 `Applied` 是那个字段，generator 还需要
+    // 外层 `ClassDecl` 才能看见类的其它成员 —— 尤其是**无 body 的 partial 方法声明**：它们被
+    // `MemberCollector` 按「无实现即不存在」擦除、**不进 `Symbol.Methods`**，只有 AST 上找得到。
+    // 类级触发时 Owner == Applied。post-construction 赋值（镜像 MethodDecl.RegKey 的做法），
+    // 不动构造器签名。
+    public Decl Owner;
+    // 符号表（add-member-forwarding）。此前 GenTarget 只给 `Symbol`（被贴声明解析出的那**一个**
+    // 类型）—— generator 想按名字解析**别的**类型（如 `[Forward(typeof(ILogger))]` 里的接口）
+    // 就无从下手。post-construction 赋值，与 Owner 同款。
+    public SymbolTable Symbols;
 
     public GenTarget(DeclId declId, string name, Decl applied, Z42ClassType symbol, Attr trigger) {
         this.DeclId = declId;
@@ -61,6 +81,8 @@ public sealed class GenTarget {
         this.Applied = applied;
         this.Symbol = symbol;
         this.Trigger = trigger;
+        this.Owner = applied;   // 默认 = 被贴声明本身（类级触发即如此）
+        this.Symbols = null;
     }
 }
 

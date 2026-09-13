@@ -1,0 +1,14 @@
+namespace Demo.McokayApp;
+
+using Std.IO;
+using Demo.McokayTarget;
+
+// fix-silent-symbol-resolution 站点 ③ 的**对照组**：与 missing_ctor_skew 同形，但不做
+// skew 顶替。构造器在场 → 照常构造，站点 ③ 的判定不得误伤正常跨包 `new`。
+void Main() {
+    Widget w = new Widget(5);
+    Console.WriteLine("constructed " + w.V.ToString());
+    // 无构造器的类照常允许 `new`（编译器发裸类名键，运行时解析不到是**正常**的）。
+    Plain p = new Plain();
+    Console.WriteLine("plain " + p.N.ToString());
+}

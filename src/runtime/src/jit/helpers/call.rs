@@ -165,7 +165,10 @@ unsafe fn cross_zpkg_via_interp(
     } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(func_name) {
         crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &args)
     } else {
-        set_exception(vm_ctx, Value::Str(format!("undefined function `{}`", func_name).into()));
+        // fix-silent-symbol-resolution：与 interp 统一，抛类型化 MissingSymbolException。
+        // 裸 Value::Str 只能被无类型 `catch {}` 捕获，匹配不上 `catch (Exception e)`。
+        set_exception(vm_ctx, crate::exception::make_missing_symbol_exception(
+            vm_ctx, module, format!("undefined function `{}`", func_name)));
         return 1;
     };
 

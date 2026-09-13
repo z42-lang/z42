@@ -1,0 +1,27 @@
+namespace Demo.MbskewApp;
+
+using Std.IO;
+using Demo.MbskewTarget;
+
+// fix-crosspkg-base-fields-in-eager-module：**主模块**里的类继承一个**跨包**基类。
+//
+// 主模块的类型注册表在构建期就把跨包基类合不进来（那时依赖还没加载），而
+// `try_fixup_inheritance` 的写时复制只让惰性注册表拿到修好的副本 —— ObjNew 又先查主
+// 模块，于是继承字段整体丢失：`d.A = 7` 被丢弃、`d.A` 读出 Null。
+//
+// VCall 另有基类回落路径，所以 `d.Who()` **一直是好的**，把这个洞盖了很久 —— 用例里
+// 两样都测，别再让方法通过就以为字段也通过。
+public class Derived : Base {
+    public int B;
+}
+
+void Main() {
+    Derived d = new Derived();
+    d.B = 3;
+    Console.WriteLine("B=" + d.B.ToString());
+    Console.WriteLine("Who=" + d.Who());
+    d.A = 7;
+    Console.WriteLine("A=" + d.A.ToString());
+    Base up = d;
+    Console.WriteLine("upA=" + up.A.ToString());
+}

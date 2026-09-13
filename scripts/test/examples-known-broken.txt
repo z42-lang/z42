@@ -1,0 +1,8 @@
+# 顶层 examples/ 里已知编不过的文件（gate-toplevel-examples 的双向棘轮）。
+# 名单内编不过 = 响亮打印但不阻断；**名单内却编过了 = 红**，请删掉该行。
+# 每条后面注明卡在哪个 z42 尚不支持的构造 —— 它们都是照 C# 写的、从没被编译过。
+exceptions.z42   # catch ... when (cond) 异常过滤器
+generics.z42     # 表达式体属性 `T P => e;`
+named_args.z42   # 命名实参 f(x: 1)（parser 无 Colon 分支；语义层的重排逻辑已就位）
+oop.z42          # 表达式体属性 `T P => e;`
+patterns.z42     # 无参无体类 `class X;` + 模式组合子 `and`

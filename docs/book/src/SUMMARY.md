@@ -30,6 +30,7 @@
   - [元组（值元组 `(a, b)`）](language/tuples.md)
   - [enum（枚举）](language/enums.md)
   - [`methodof`（方法引用表达式）](language/methodof.md)
+  - [`[Forward]`（成员转发）](language/member-forwarding.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）
@@ -59,6 +60,7 @@
   - [反射 Type 身份（Type 对象 GetType / 数组类型名）](runtime/reflection-type-identity.md)
   - [超级指令融合（interp）](runtime/superinstr-fusion.md)
   - [静态构造函数的按类型初始化](runtime/static-ctor-init.md)
+  - [缺符号不再静默：用到才抛可 catch 的类型化异常](runtime/missing-symbol-resolution.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()
     - [GC 调参与自动回收 / safepoint 协议](runtime/gc-tuning-and-safepoint.md)

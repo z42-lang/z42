@@ -1,0 +1,6 @@
+namespace Demo.MtskewTarget;
+
+// 「新版依赖才有」的类型。运行前整包被删掉（skew-absent.txt）。
+public class Gadget {
+    public int V;
+}

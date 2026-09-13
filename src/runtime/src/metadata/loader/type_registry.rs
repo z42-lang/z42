@@ -86,6 +86,10 @@ pub fn build_type_registry(module: &mut Module) {
             type_param_constraints: desc.type_param_constraints.clone(),
             // C3 add-attribute-reflection: carry the class's user attributes.
             custom_attributes:      desc.attributes.clone(),
+            // fix-silent-symbol-resolution：基类有声明但当时不在注册表里 ⇒ 这份合并视图
+            // 是「只有自己的」，全部继承成员缺席。见 `TypeDescCold::base_unmerged`。
+            base_unmerged: desc.base_class.as_deref()
+                .is_some_and(|b| !registry.contains_key(b)),
             // add-static-constructors：从类级 `$Cctor` 哨兵取静态构造器的发射函数名。
             // build_type_registry 是**所有**模块（急切 + 跨包惰性）的统一漏斗，
             // 在这里读一次，就不必在每个 type-registry 插入点各挂一遍钩子。
@@ -172,6 +176,9 @@ pub fn build_type_registry(module: &mut Module) {
             // add-static-constructors：冷区只剩 cctor 名时也必须保留（当前 $Cctor 哨兵
             // 本身就在 custom_attributes 里、已经能保住冷区，但别把正确性押在那个巧合上）。
             && cold_inner.cctor_func.is_none()
+            // fix-silent-symbol-resolution：`class Empty : CrossPkgBase {}` 的冷区可能
+            // 什么都不剩，但这面旗子必须活着——丢了它，ObjNew 就认不出残缺描述符。
+            && !cold_inner.base_unmerged
         {
             None
         } else {
@@ -299,7 +306,18 @@ pub fn try_fixup_inheritance(
     // this class carries no own object layout (e.g. 0-own-field derived not emitting a
     // block). Convergence rides on the same `needs_fixup` gate as `fields`.
     let mut planned: Vec<(String, MergedLayout, Option<Arc<crate::metadata::types::ObjectLayout>>)> = Vec::new();
+    // fix-silent-symbol-resolution：`base_unmerged` 的清位**不能**挂在 `needs_fixup` 上。
+    // 基类一旦可解析，`needs_fixup` 比的是「字段/vtable 条数对不对得上」——基类若**零字段
+    // 零非静态方法**（标记基类），条数天然相等 ⇒ needs_fixup 恒 false ⇒ 旗子永远清不掉
+    // ⇒ ObjNew 会把一个其实完好的类型误判成「基类缺失」。故单独收一份「基类已可解析」的
+    // 清位名单，与 needs_fixup 无关。
+    let mut clear_flag: Vec<String> = Vec::new();
     for (name, td) in registry.iter() {
+        if td.base_unmerged()
+            && td.base_name.as_deref().is_some_and(|b| registry.contains_key(b))
+        {
+            clear_flag.push(name.clone());
+        }
         if !needs_fixup(td, registry) {
             continue;
         }
@@ -333,6 +351,16 @@ pub fn try_fixup_inheritance(
 
     // ── Phase 2: apply mutations.
     let mut newly_fixed = 0;
+    // 先清旗子：`planned` 的那批也在这份名单里，合并动作在下面照做，互不冲突。
+    // 清位本身**不**计入 `newly_fixed` —— 那个计数是不动点循环的终止条件，把「只清了
+    // 一面旗子」算成「又修了一个」会让循环多转一轮甚至撞上安全上限。
+    for name in clear_flag {
+        if let Some(arc) = registry.get_mut(&name) {
+            if let Some(cold) = Arc::make_mut(arc).cold.as_mut() {
+                cold.base_unmerged = false;
+            }
+        }
+    }
     for (name, (new_fields, new_field_index, new_vtable, new_vtable_index), new_composed) in planned {
         let arc = match registry.get_mut(&name) {
             Some(arc) => arc,

@@ -46,17 +46,41 @@ pub unsafe extern "C" fn jit_obj_new(
     // interp's `exec_object::obj_new`. Without this, `new SubcommandRouter()` gets
     // a zero-field TypeDesc → zero slots → every field read returns Null (observed:
     // `this._count` reads Null → `I64(0) vs Null` in SubcommandRouter.Add).
-    let type_desc = module.type_lookup(class_name).cloned()
-        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(class_name))
-        .unwrap_or_else(|| std::sync::Arc::new(crate::metadata::TypeDesc {
-            name: class_name.to_string(), base_name: None,
-            class_flags: 0,
-            visibility: 0,
-            fields: Vec::new(), field_index: crate::metadata::NameIndex::new(),
-            vtable: Vec::new(), vtable_index: crate::metadata::NameIndex::new(),
-            cold: None,
-            id: crate::metadata::tokens::TypeId::UNRESOLVED,
-        }));
+    let resolved = module.type_lookup(class_name).cloned()
+        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(class_name));
+    let type_desc = match resolved {
+        Some(td) => td,
+        None => {
+            // 站点 ② fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称。
+            let vm = vm_ctx_ref(ctx);
+            if let Some(exc) = crate::vm_context::symres::missing_type_exception(
+                vm, module, class_name,
+            ) {
+                set_exception(vm, exc);
+                return 1;
+            }
+            // 此前这里就地合成一个**空**描述符，而 interp 走的是
+            // `make_fallback_type_desc`（按 `module.classes` 的继承链把字段槽建齐）——
+            // 同一个「合并模块不带预建 TypeDesc」的合法回落，JIT 下却丢掉全部字段。
+            // 两后端改用同一份实现。
+            std::sync::Arc::new(crate::interp::dispatch::make_fallback_type_desc(module, class_name))
+        }
+    };
+    // fix-crosspkg-base-fields-in-eager-module：与 interp `exec_object::obj_new` 对称。
+    let type_desc = if type_desc.base_unmerged() {
+        match vm_ctx_ref(ctx).try_lookup_type(class_name) {
+            Some(fixed) if !fixed.base_unmerged() => fixed,
+            _ => type_desc,
+        }
+    } else { type_desc };
+    // 站点 ④ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称。
+    {
+        let vm = vm_ctx_ref(ctx);
+        if let Some(exc) = crate::vm_context::symres::missing_base_exception(vm, module, &type_desc) {
+            set_exception(vm, exc);
+            return 1;
+        }
+    }
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
     // 一次 `Option` 判断即可，不需要 `pending` 门。与 interp 的 obj_new 屏障对称。
     {
@@ -129,6 +153,14 @@ pub unsafe extern "C" fn jit_obj_new(
             Some(crate::interp::exec_function(vm_ctx, module, callee, &ctor_args))
         } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name) {
             Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
+        } else if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
+            vm_ctx, module, class_name, ctor_name, argc,
+        ) {
+            // 站点 ③ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称——
+            // 带实参却解析不到构造器 = 定案缺失，抛可 catch 的 MissingSymbolException，
+            // 不再把未经构造的对象写进 dst。
+            set_exception(vm_ctx, exc);
+            return 1;
         } else {
             ctorless_note(mark, live); // nothing resolves it — remember for this site
             None // ctor-less type → skip (object already default-initialised)
@@ -345,6 +377,27 @@ pub unsafe extern "C" fn jit_static_get(
             .unwrap_or("<invalid>");
         vm.static_get(field)
     };
+    // fix-silent-symbol-resolution（站点 ①）：与 interp 对称——读到 Null 才确证。
+    let mut v = v;
+    if matches!(v, crate::metadata::Value::Null) {
+        let field = std::str::from_utf8(std::slice::from_raw_parts(field_ptr, field_len))
+            .unwrap_or("");
+        let module = &*(*_ctx).module;
+        use crate::vm_context::symres::StaticNullVerdict as V;
+        match crate::vm_context::symres::verify_static_field(vm, module, field) {
+            V::Ok => {}
+            V::Missing(exc) => { set_exception(vm, exc); return 1; }
+            V::Default(d) => {
+                if field_id != crate::metadata::tokens::UNRESOLVED {
+                    vm.static_set_by_id(
+                        crate::metadata::tokens::StaticFieldId(field_id), d.clone());
+                } else {
+                    vm.static_set(field, d.clone());
+                }
+                v = d;
+            }
+        }
+    }
     (*frame).regs[dst as usize] = v;
     0
 }

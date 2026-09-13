@@ -1,0 +1,56 @@
+namespace Ft.App;
+using Ft.Api;
+using Ft.Impl;
+using Std;
+using Std.IO;
+using Std.Reflection;
+
+// 🔴 ①② 档要求**转发面的声明在本包**：渲染转发方法的签名需要参数名 / `ref` / 默认值，
+// 而跨包元数据把参数名丢了、`ref` 更是格式里根本不记录（见 proposal「适用边界」）。
+// 判据是 `MethodSymbol.HasDecl` —— 跨包符号没有 Decl，① 档读接口声明、② 档读方法声明，
+// 两者都落空 ⇒ 不生成。跨包转发请用 ③ partial 声明档（签名由用户手写）。
+public interface IGreeter { string Hi(); string Bye(); }
+
+public class Greeter : IGreeter {
+    public string Hi() { return "hi"; }
+    public string Bye() { return "bye"; }
+    public string Extra() { return "extra"; }   // 不在接口里 → ① 档不转发
+}
+
+public class Local {
+    public string Tick() { return "tick"; }
+    public string Tock() { return "tock"; }     // 没被点名 → ② 档不转发
+}
+
+public class Svc {
+    // ① 接口面：转发面由**接口**钉死 —— 上游给 Greeter 加方法不会自动进来。
+    [Forward(typeof(IGreeter))] private Greeter _g;
+    // ② 逐个点名：methodof 让白名单**编译期可检查** —— 把 Tick 改名，这行立刻变编译错误，
+    //    而不是像字符串白名单那样悄悄不再转发。
+    [Forward(methodof(Local.Tick))] private Local _l;
+    public Svc() { this._g = new Greeter(); this._l = new Local(); }
+}
+
+void Main() {
+    Svc s = new Svc();
+    Console.WriteLine(s.Hi());
+    Console.WriteLine(s.Bye());
+    Console.WriteLine(s.Tick());
+    // 依赖包照常可用（本 fixture 同时覆盖「generator + 有依赖声明」这条路径）
+    Deco d = new Deco();
+    Console.WriteLine(d.Wrap(new Banner().Text()));
+
+    // 转发面**显式列举**的证据：没列的不会进来。
+    Type t = typeof(Svc);
+    MethodInfo[] ms = t.GetMethods();
+    bool hasExtra = false;
+    bool hasTock = false;
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == "Extra") { hasExtra = true; }
+        if (ms[i].Name == "Tock") { hasTock = true; }
+        i = i + 1;
+    }
+    Console.WriteLine(hasExtra.ToString());
+    Console.WriteLine(hasTock.ToString());
+}

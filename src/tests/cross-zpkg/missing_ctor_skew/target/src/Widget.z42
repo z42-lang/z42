@@ -1,0 +1,7 @@
+namespace Demo.McskewTarget;
+
+// fix-silent-symbol-resolution 站点 ③ 的 skew 对象：带实参的构造器。
+public class Widget {
+    public int V;
+    public Widget(int v) { this.V = v; }
+}
