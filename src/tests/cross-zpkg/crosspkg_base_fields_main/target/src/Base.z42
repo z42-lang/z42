@@ -1,0 +1,6 @@
+namespace Demo.MbskewTarget;
+
+public class Base {
+    public int A;
+    public virtual string Who() { return "base"; }
+}

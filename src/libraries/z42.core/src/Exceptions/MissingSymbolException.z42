@@ -1,0 +1,18 @@
+namespace Std;
+
+// 运行时解析不到某个符号（函数 / 类型 / 字段 / 构造器）——通常意味着**依赖版本 skew**：
+// 编译时依赖的是新版，运行时加载到的却是缺该符号的旧版（fix-silent-symbol-resolution）。
+//
+// 在此之前，这类情况大多**静默给出错误答案**：缺失静态字段读出 Null、`new` 缺失类型得到
+// 零字段空壳、基类缺失时子类丢掉全部继承字段。根因是 VM 的 `UNRESOLVED` 哨兵同时编码
+// 「跨包待解析」和「根本不存在」，下游一律按前者兜底。
+//
+// 想在缺符号时**主动降级**而不是收异常，用编译期宏 `available!(X)` 把那条分支保护起来
+// ——被保护的分支会在加载期整块剪掉，其符号永不参与解析，因此不会触发本异常。
+public class MissingSymbolException : Exception {
+    public MissingSymbolException(string message) : base(message) {}
+
+    override string ToString() {
+        return "MissingSymbolException: " + this.Message;
+    }
+}

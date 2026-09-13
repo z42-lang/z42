@@ -127,3 +127,31 @@ void test_lints_warnings_as_errors_only() {
     Assert.Equal(0, m.LintCount);
     Assert.True(m.LintWarningsAsErrors);
 }
+
+// `[build] generated_dir`（add-member-forwarding）：generator 产出源码的落盘目录。
+// 「没配置」与「显式配空串」是**两回事** —— 前者用默认值 `<output_dir>/generated`（恒落盘），
+// 后者表示**不落盘**。HasGeneratedDir 就是用来区分这两者的，不能只看字符串是否为空。
+[Test]
+void test_build_generated_dir_parsed() {
+    string toml = "[project]\nname = \"p\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+                + "[build]\ngenerated_dir = \"out/gen\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(true, m.Build.HasGeneratedDir);
+    Assert.Equal("out/gen", m.Build.GeneratedDir);
+}
+
+[Test]
+void test_build_generated_dir_absent_is_not_empty_string() {
+    string toml = "[project]\nname = \"p\"\nversion = \"0.1.0\"\nkind = \"lib\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(false, m.Build.HasGeneratedDir);   // ⇒ 走默认 <output_dir>/generated
+}
+
+[Test]
+void test_build_generated_dir_explicit_empty_means_off() {
+    string toml = "[project]\nname = \"p\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+                + "[build]\ngenerated_dir = \"\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(true, m.Build.HasGeneratedDir);    // 配了
+    Assert.Equal("", m.Build.GeneratedDir);         // 且是空 ⇒ 不落盘
+}

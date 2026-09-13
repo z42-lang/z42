@@ -1,0 +1,9 @@
+[project]
+name    = "demo.mcskewapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.McskewApp.Main"
+pack    = true
+
+[dependencies]
+"demo.mcskewtarget" = "0.2.0"

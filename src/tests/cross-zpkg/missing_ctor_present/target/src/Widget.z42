@@ -1,0 +1,11 @@
+namespace Demo.McokayTarget;
+
+public class Widget {
+    public int V;
+    public Widget(int v) { this.V = v; }
+}
+
+// 无构造器的跨包类：`new Plain()` 的 ctor 键解析不到属于**正常**，不得报错。
+public class Plain {
+    public int N;
+}

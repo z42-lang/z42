@@ -171,6 +171,15 @@ pub struct TypeDescCold {
     /// it. `None` for value/interface/enum/delegate types and modules predating the
     /// zbc 1.34 object block.
     pub composed_object_layout: Option<std::sync::Arc<ObjectLayout>>,
+    /// fix-silent-symbol-resolution：`base_name` 有声明，但构建本描述符时那个基类**不在
+    /// 当时的注册表里** ⇒ `fields` / `vtable` 退化成「只有自己的」，全部继承成员缺席。
+    ///
+    /// 这是个**静默错误答案**的源头：继承字段的 `FieldSet` 被丢弃、`FieldGet` 读出 Null。
+    /// 标在这里，让 `ObjNew` 能一眼认出「这份描述符的继承视图是残缺的」，去惰性加载器
+    /// 取已经 fixup 过的那份；取回来还是残缺的，才是「基类确实不存在」（站点 ④）。
+    ///
+    /// 由 `build_type_registry` 置位、`try_fixup_inheritance` 合上基类后清位。
+    pub base_unmerged: bool,
 }
 
 impl TypeDesc {
@@ -193,6 +202,9 @@ impl TypeDesc {
     /// add-static-constructors：本类静态构造器的发射函数名；`None` = 没有静态构造器。
     /// 屏障用它短路——没有 cctor 的类型（绝大多数）只付一次 `Option` 判断。
     #[inline] pub fn cctor_func(&self) -> Option<&str> { self.cold.as_ref().and_then(|c| c.cctor_func.as_deref()) }
+    /// fix-silent-symbol-resolution：见 [`TypeDescCold::base_unmerged`]。`false` = 继承视图
+    /// 完整（没有基类，或基类已并入）。冷区不在（绝大多数类型）时恒 `false`。
+    #[inline] pub fn base_unmerged(&self) -> bool { self.cold.as_ref().is_some_and(|c| c.base_unmerged) }
     /// add-reflection-static-fields: the class's static fields (reflection only).
     #[inline] pub fn static_fields(&self)          -> &[crate::metadata::bytecode::FieldDesc]             { self.cold_slice(|c| &c.static_fields) }
     /// add-interface-member-reflection: the interface's declared method signatures.

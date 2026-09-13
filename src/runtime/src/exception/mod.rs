@@ -169,6 +169,25 @@ pub struct FrameSnapshot {
 /// `column` (zbc 1.1+) appears only when > 0; legacy frames without column
 /// gracefully degrade to `(file:line)`. When both file and column are
 /// missing the trailing `(...)` is omitted entirely.
+/// fix-silent-symbol-resolution：构造 `Std.MissingSymbolException`。
+///
+/// 必须是**类型化**异常：裸 `Value::Str` 只能被无类型 `catch {}` 捕获，永远匹配不上
+/// `catch (MissingSymbolException e)` 甚至 `catch (Exception e)`。逐级回落保证 stdlib
+/// 缺任一类时仍把错误传出去，而不是静默吞掉。
+pub fn make_missing_symbol_exception(
+    ctx: &crate::vm_context::VmContext,
+    module: &crate::metadata::Module,
+    msg: String,
+) -> crate::metadata::Value {
+    if let Ok(e) = make_stdlib_exception(ctx, module, "Std.MissingSymbolException", msg.clone()) {
+        return e;
+    }
+    if let Ok(e) = make_stdlib_exception(ctx, module, "Std.Exception", msg.clone()) {
+        return e;
+    }
+    crate::metadata::Value::Str(msg.into())
+}
+
 pub fn format_stack_trace(frames: &[FrameSnapshot]) -> String {
     let mut out = String::new();
     for f in frames.iter().rev() {

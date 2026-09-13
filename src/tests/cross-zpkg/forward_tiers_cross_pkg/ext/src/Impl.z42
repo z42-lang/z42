@@ -1,0 +1,5 @@
+namespace Ft.Impl;
+using Ft.Api;
+using Std;
+
+public class Deco { public string Wrap(string s) { return "[" + s + "]"; } }

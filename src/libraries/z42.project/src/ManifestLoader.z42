@@ -213,6 +213,7 @@ public static class ManifestLoader {
         bool hasDist = false; string distDir = "";
         bool incremental = true;
         bool hasHooks = false; string hooksDir = "";
+        bool hasGen = false; string genDir = "";
         if (root.ContainsKey("build")) {
             var b = root.Get("build");
             if (b.ContainsKey("output_dir"))  { outDir = b.Get("output_dir").AsString(); hasOut = true; }
@@ -221,9 +222,13 @@ public static class ManifestLoader {
             if (b.ContainsKey("incremental")) { incremental = b.Get("incremental").AsBool(); }
             // fix-hooks-source-scan：`[build] hooks`（projDir 相对目录）。z42c 阶段 2 据此自动排除。
             if (b.ContainsKey("hooks"))       { hooksDir = b.Get("hooks").AsString(); hasHooks = true; }
+            // add-member-forwarding：generator 产出源码的落盘目录（"" = 不落盘）。
+            if (b.ContainsKey("generated_dir")) { genDir = b.Get("generated_dir").AsString(); hasGen = true; }
         }
-        return new BuildConfig(hasOut, outDir, hasCache, cacheDir, hasDist, distDir, incremental,
-                               hasHooks, hooksDir);
+        BuildConfig bc = new BuildConfig(hasOut, outDir, hasCache, cacheDir, hasDist, distDir, incremental,
+                                         hasHooks, hooksDir);
+        bc.HasGeneratedDir = hasGen; bc.GeneratedDir = genDir;
+        return bc;
     }
 
     // ── [profile.<name>] ─────────────────────────────────────────────────────
