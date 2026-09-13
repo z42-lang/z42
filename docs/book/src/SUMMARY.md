@@ -29,6 +29,7 @@
   - [`available!()` 符号可用性探测](language/available-macro.md)
   - [元组（值元组 `(a, b)`）](language/tuples.md)
   - [enum（枚举）](language/enums.md)
+  - [命名实参](language/named-arguments.md)
   - [`methodof`（方法引用表达式）](language/methodof.md)
   - [`[Forward]`（成员转发）](language/member-forwarding.md)
   - [FFI / interop 表面]()

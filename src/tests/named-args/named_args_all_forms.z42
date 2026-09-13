@@ -1,0 +1,45 @@
+// restore-named-arguments：命名实参 `name: value` 在**所有调用形态**上的行为门。
+//
+// 这一半是自举迁移时丢的：原 spec（add-named-arguments, 2026-05-12）在 C# 编译器里实现了
+// `IDENT :` 前瞻，C# 编译器移除后没人移植 ⇒ 语义层（`_adaptArgs`）一直在等一个永远不会到来
+// 的形态。本用例断言**重排真的发生了**（不是"能编过"就算数）——每行输出都能区分顺序是否正确。
+using Std;
+using Std.IO;
+
+class Painter {
+    public static string Draw(string color, int width = 1, bool filled = false) {
+        return "c=" + color + " w=" + width.ToString() + " f=" + (filled ? "T" : "F");
+    }
+    public string Stroke(int a, int b) { return "a=" + a.ToString() + " b=" + b.ToString(); }
+}
+
+class Box {
+    public int W;
+    public int H;
+    public Box(int width, int height) { this.W = width; this.H = height; }
+}
+
+string Greet(string name, string prefix = "Hello") { return prefix + ", " + name; }
+
+void Main() {
+    // 位置（基线）
+    Console.WriteLine(Painter.Draw("red", 2, true));
+    // 位置在前 + 命名在后
+    Console.WriteLine(Painter.Draw("blue", filled: true));
+    // 全命名、**乱序** —— 若没重排，颜色/宽度会串位
+    Console.WriteLine(Painter.Draw(filled: true, color: "green", width: 3));
+    // 命名跳过中间可选参
+    Console.WriteLine(Painter.Draw("yellow", filled: true));
+    // 自由函数、乱序
+    Console.WriteLine(Greet(prefix: "Hi", name: "Alice"));
+    // 实例方法
+    var p = new Painter();
+    Console.WriteLine(p.Stroke(1, b: 2));
+    Console.WriteLine(p.Stroke(b: 20, a: 10));
+    // 构造函数、乱序 —— 若没重排，50x30 会变成 30x50
+    var bx = new Box(height: 30, width: 50);
+    Console.WriteLine("box " + bx.W.ToString() + "x" + bx.H.ToString());
+    // 真·赋值实参（`x` 是变量）不受影响：赋值后传值
+    string who = "";
+    Console.WriteLine(Greet(who = "Bob"));
+}

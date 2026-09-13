@@ -196,6 +196,21 @@ public sealed class OverloadBinder {
     }
 
     internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
+        // complete-named-arguments：**命名实参必须在任何绑定步骤之前处理**。
+        //
+        // 🔴 为什么是「之前」：下面第一步 `BindArgsToSignature` 会把 `_bindCall` 延迟下来的
+        // `null` 槽**按位置**重新绑（`BindWithTarget(rawArgs[i], ParamTypes[i])`）——命名实参
+        // 的槽位这时还没确定，按位置绑等于把 `y = 2` 当普通表达式绑，`y` 立刻 `undefined`。
+        // `_adaptArgs` 自己按形参名把 raw 实参绑到正确的槽（含目标类型、类型检查、可选参填充），
+        // 所以命名调用整条路交给它，不要先经过位置绑定。
+        //
+        // 此前命名实参只有**构造函数**真能用：`_bindNew` 直接把 raw args 交给 `_adaptArgs`，
+        // 而方法/静态/自由调用都要先过这里。
+        if (ms.HasDecl && ms.Decl != null && this._hasNamedArg(rawArgs, rawArgCount, env)) {
+            BoundExpr[] named = this._adaptArgs(ms.Decl, rawArgs, rawArgCount, env, sp);
+            if (named != null) { return named; }
+            // 适配不了（名字对不上 / 重复 / 实参多于形参）→ 落回原路，由既有诊断报。
+        }
         // generic-inference-lambda-args：绑定 lambda 延迟位**之前**，从非-lambda 实参 + lambda 标注推断
         // 部分方法级型参、**只代换 Func 形参位** ⇒ 无标注/有标注 lambda 都拿到具体形参类型能编、能跑。
         // 非-Func 形参位不动 ⇒ 非-lambda 实参绑定/装箱/params/默认值逐字节不变（design I1'/D1）。
@@ -289,6 +304,17 @@ public sealed class OverloadBinder {
         return finalArgs;
     }
 
+    // complete-named-arguments：raw 实参里有没有命名实参（判据与 `_bindCall` 的延迟判据同一份）。
+    private bool _hasNamedArg(Expr[] rawArgs, int rawArgCount, TypeEnv env) {
+        if (rawArgs == null) { return false; }
+        int i = 0;
+        while (i < rawArgCount) {
+            if (i < rawArgs.Length && ExprTyper.IsNamedArg(rawArgs[i], env)) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
     internal BoundExpr[] _adaptArgs(MethodDecl md, Expr[] callArgs, int callArgCount, TypeEnv env, Span sp) {
         int pc = md.ParamCount;
         if (callArgCount > pc) { return null; }
@@ -298,7 +324,14 @@ public sealed class OverloadBinder {
         int i = 0;
         while (i < callArgCount) {
             Expr a = callArgs[i];
-            if (a is AssignExpr && (a as AssignExpr).Target is IdentExpr) {
+            // restore-named-arguments 🔴 **既有 bug 修复**：此前这里把**任何**
+            // `AssignExpr(Ident, …)` 都当命名实参，不看那个标识符是不是作用域内的变量。
+            // 于是一个货真价实的赋值实参 `f(who = "Bob")`（who 是局部变量）被误判成
+            // 「名为 who 的命名实参」→ 没有这个形参 → 整个 `_adaptArgs` 返回 null →
+            // **默认参数填充被跳过**，可选形参静默留 null（实测：`Greet(who = "Bob")`
+            // 打印 `null, Bob` 而非 `Hello, Bob`；种子编译器同样如此，非本 change 引入）。
+            // 判据统一到 `ExprTyper.IsNamedArg`（与 `_bindCall` 的延迟判据同一份）。
+            if (ExprTyper.IsNamedArg(a, env)) {
                 AssignExpr ae = a as AssignExpr;
                 string nm = (ae.Target as IdentExpr).Name;
                 int idx = 0 - 1;

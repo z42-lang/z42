@@ -198,6 +198,32 @@ public sealed class ExprParser {
         return left;
     }
 
+    // restore-named-arguments：解析**一个**调用实参，识别命名形态 `name: value`。
+    //
+    // 这一半是自举迁移时丢的：原 spec（add-named-arguments, 2026-05-12）在 **C#** 编译器里
+    // 实现了 `IDENT :` 前瞻（`ExprParser.Atoms.cs`），C# 编译器 2026-06-26 移除后没人移植过来
+    // ⇒ 语义层（`OverloadBinder._adaptArgs`，注释里写的正是 `f(x: new())`）一直在等一个
+    // 永远不会到来的形态，而 `examples/named_args.z42` 整个文件用的都是这个语法、
+    // **从来没有被编译过**（顶层 examples 无人编，见 gate-toplevel-examples）。
+    //
+    // 载体沿用语义层已经认的 `AssignExpr("=", Ident, value)` —— 不新增 AST 节点，
+    // `_adaptArgs` / `_hasNamedArg` 一行不用改就认得它。
+    //
+    // 🔴 不与三元 `a ? b : c` 相撞：那里的 `:` 出现在内层表达式**之后**，而本前瞻要求
+    // `:` 紧跟在实参**开头**的标识符后（`IDENT` 必须是该实参的第 0 个 token）。
+    // 已实测：三元实参 / Dict 字面量 `{ "a": 1 }` / `switch case 1:` 全部不受影响。
+    private Expr _parseCallArg() {
+        if (this._p._peek().Kind == TokenKind.Identifier
+            && this._p._peekAt(1).Kind == TokenKind.Colon) {
+            Token nmTok = this._p._peek();
+            this._p._advance();   // IDENT
+            this._p._advance();   // ':'
+            Expr nv = this._parseExpr(0);
+            return new AssignExpr("=", new IdentExpr(nmTok.Text, nmTok.Span), nv, nmTok.Span);
+        }
+        return this._parseExpr(0);
+    }
+
     private Expr _parseCall(Expr callee) {
         Expr[] args = new Expr[8];
         int n = 0;
@@ -221,7 +247,7 @@ public sealed class ExprParser {
                     } else {
                         arg = new RefArgExpr(this._parseExpr(0), refTok.Span);
                     }
-                } else { arg = this._parseExpr(0); }
+                } else { arg = this._parseCallArg(); }
                 args[n] = arg; n = n + 1;
                 if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); }
                 else { break; }
@@ -408,7 +434,7 @@ public sealed class ExprParser {
                             Array.Copy(args, b, n);
                             args = b;
                         }
-                        args[n] = this._parseExpr(0); n = n + 1;
+                        args[n] = this._parseCallArg(); n = n + 1;   // restore-named-arguments：`new P(y: 2)`
                         if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
                     }
                 }
