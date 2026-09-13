@@ -412,13 +412,15 @@ int _runLibKind(string root, string libsRoot, string lib, string subdir, string 
     // （零个显式目标、零个 harness=false —— 实测）。留着旧路径兜住将来出现的显式目标
     // （尤其 harness=false：其 Main 自己调 Environment.Exit，z42b 侧尚未支持）。
     //
-    // bench 暂不转发：`MicroBenchAgg` 消费的是「一次调用一个 TestReport 对象」，多目标
-    // 合并输出是步骤 B，未落地前转发会打断 schema-v2 基线。
+    // bench 与 test 同走这条：转发是「每单元一次调用」，每次恰好一个 TestReport 对象，
+    // 正是 `MicroBenchAgg.addModuleJson` 期待的形状 —— 不需要多目标合并输出。
+    //（此前把 bench 挡在外面，理由是「多目标合并未做」；那是基于「每库一次 z42b」的设想，
+    // 与实际落地的 `--name` 形状不符，故订正。）
     // File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非目录条目，
     // 旧路径靠「清单缺失 → 约定扫描 → 零单元」静默跳过。转发前先确认这是个真工程。
-    if (kind == "test" && tgts.Length == 0 && File.Exists(parentToml)) {
+    if ((kind == "test" || kind == "bench") && tgts.Length == 0 && File.Exists(parentToml)) {
         return _runLibViaZ42b(root, projDir, parentToml, lib, kind, label, filter,
-                              builderZpkg, jobsN, mode, vm, libs,
+                              builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
                               ref totalFiles, ref libsTested);
     }
     TestUnit[] units = _dropOverridden(_autoUnits(projDir, subdir, _sectionAuto(man, kind), filter),
@@ -510,7 +512,8 @@ RunTarget[] _explicitByHarness(RunTarget[] tgts, int n, bool harness, string fil
 // 判据只该有一处。xtask 侧那条同名守卫仍留给未转发的 bench 路径。
 int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, string kind,
                    string label, string filter, string builderZpkg, int jobsN, string mode,
-                   string vm, string libs, ref int totalFiles, ref int libsTested) {
+                   string vm, string driverZpkg, string libs, MicroBenchAgg agg,
+                   ref int totalFiles, ref int libsTested) {
     bool ok = true;
     string[] names = _listUnitsViaZ42b(root, parentToml, kind, filter, mode, vm, builderZpkg, libs, ref ok);
     if (!ok) { return -1; }
@@ -529,6 +532,14 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
     Console.WriteLine("── " + lib + " (" + label + ", z42b) : " + names.Length.ToString() + " unit(s) ──");
     totalFiles = totalFiles + names.Length;
     libsTested = libsTested + 1;
+    // capture 模式（bench 基线）：给聚合结果打上执行 profile 标签 —— 从 runner 实际运行的那个
+    // VM 探出来，interp 与 jit 的 micro 基线不能互相比。与遗留 _runUnitsBatched 同款。
+    if (agg != null) {
+        string epMode = (mode.Length > 0) ? mode : "interp";
+        string epProbe = _epEnsureProbe(root, vm, driverZpkg, libs);
+        VmCaps epVm = _epProbe(vm, libs, epProbe);
+        agg.setProfileOnce(_epTiersForMode(epMode), epVm, _epVmVersion(vm));
+    }
     return _runUnitsViaZ42b(root, parentToml, names, names.Length, kind,
-                            jobsN, mode, vm, builderZpkg, libs);
+                            jobsN, mode, vm, builderZpkg, libs, lib, agg);
 }

@@ -38,6 +38,10 @@ int _runModule(ParseResult r, string verb) {
     // with per-benchmark bench_stats) — rebuild-bench-structured-output.
     string format = r.GetOption("format");
     if (format.Length == 0) { format = "pretty"; }
+    // `--format json` 的契约：**stdout 只有机器可读的那一份**。构建进度（Pipeline 的
+    // `compiled: …`）必须改走 stderr，否则消费方解析不了 —— 实测症状是 xtask 转发 bench 时
+    // 基线**静默捕获到 0 条**（不报错）。见 Z42.Build.BuildLog。
+    BuildLog.SetToStderr(format == "json");
     string rid = r.GetOption("rid");
 
     // A `.json` target = a test-bundle manifest (assembled by the fleet
@@ -174,7 +178,9 @@ int _runDevTargets(ParseResult r, string verb, string format) {
     int ti = 0;
     while (ti < targets.Length) {
         DevTarget t = targets[ti];
-        Console.WriteLine("\n── " + kind + " target: " + t.Name + " ──");
+        // `--format json` 下进度走 stderr —— stdout 留给机器读的那一份（见 Z42.Build.BuildLog）。
+        if (format == "json") { ConsoleError.WriteLine("\n── " + kind + " target: " + t.Name + " ──"); }
+        else                  { Console.WriteLine("\n── " + kind + " target: " + t.Name + " ──"); }
         int rc = _runOneDevTarget(r, m, t, kind, tomlPath, format);
         if (rc != 0 && worst == 0) { worst = rc; }
         ti = ti + 1;
