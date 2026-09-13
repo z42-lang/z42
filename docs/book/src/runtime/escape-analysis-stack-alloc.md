@@ -1,6 +1,6 @@
 # 逃逸分析与栈上分配
 
-> 对齐：2026-09-03（unify-ir-operand-access：规则表兜底改为经统一操作数接口标全部读操作数，代码与本页「铁律」对齐）；2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
+> 对齐：2026-09-13（fix-stackalloc-misses-inlined-refs：栈 arena 根扫描补上字节内联引用那一半）；2026-09-03（unify-ir-operand-access：规则表兜底改为经统一操作数接口标全部读操作数，代码与本页「铁律」对齐）；2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
 > 状态：🟡 编译期分析 + IR 标志 + interp 运行时（对象+数组）已实现；JIT 消费与跨过程精度为 future。
 
 z42 的分配（`new Foo(...)` / `new T[n]` / `[a,b,c]`）默认走 GC 堆——region 分配锁 + 标记/清扫追踪
@@ -130,7 +130,16 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 - **生命期（LIFO 截断）**：帧入栈 `push_frame` 记录 arena 长度基线（`VmFrame::stack_obj_base/arr_base`）；
   帧退出 `pop_frame` 截断回基线，bulk-free 该帧的栈分配。嵌套（对象 ctor 里再 `new`）自然 LIFO 正确。
 - **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
-  对象的 slots / 栈数组的 elems 作根（它们可能持堆 GcRef，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
+  对象的字段 / 栈数组的 elems 作根（它们可能持堆 GcRef，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
+  > ⚠️ **「栈对象的字段」是两半，缺一即悬垂**（`fix-stackalloc-misses-inlined-refs`，2026-09-13）：
+  > `unify-object-byte-layout` PR-3 chunk 2b 把**直接的 object/array 字段**从引用侧表 `refs` 挪进
+  > `bytes` 里的 8B 内联指针。堆一侧的 `Value::visit_gc_children` 同时读两半（`refs()` +
+  > `trace_inline_refs`），而 `StackArena::scan_roots` 长期只读 `refs`——于是**一个不逃逸对象的数组字段
+  > 不被任何根覆盖**：minor 在其 owner 还活着时就把它扫了，槽位复用后旧句柄静默解析到新住户
+  > （debug 构建报 `GcRef::entry_ref: generation/alive mismatch`，release 构建直接答错对象）。
+  > 现场就是 `xtask test` 自己：13 个 stage 全绿之后，耗时汇总死在自己的 `long[]` 上
+  > （`long[]` 读出一个 `Char`）。**新增任何「对象引用存放位置」的表示，必须同时更新堆遍历与每个
+  > arena 根扫描**——两者是同一条不变量的两个端点。
 - **JIT（新分配）**：读得进新 zbc 的 `StackAlloc` 标志但**忽略**——`ObjNew`/`ArrayNew` 照常堆分配
   （`translate.rs` "JIT ignores stack_alloc in v1"）。interp-first（准则 1）：优化只服务无 Cranelift
   兜底的 interp；`interp==jit` 靠「输出相同、表示不同」成立。
