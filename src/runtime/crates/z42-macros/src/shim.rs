@@ -69,7 +69,7 @@ pub(crate) fn render_shim(
         (Some(_), _) => {
             // &self vs &mut self — pick deref form by looking at receiver token in source
             let recv_node = method.sig.receiver().expect("receiver present");
-            let mutability = recv_node.mutability.is_some();
+            let mutability = matches!(recv_node.kind, syn::ReceiverKind::Reference(_, _, Some(_)));
             if mutability {
                 quote! {
                     let __recv = unsafe { &mut *__self_ptr };

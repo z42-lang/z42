@@ -145,11 +145,11 @@ brif v, exception_dispatch, next_instr
 
 ```toml
 [dependencies]
-cranelift-jit      = "0.115"
-cranelift-codegen  = "0.115"
-cranelift-module   = "0.115"
-cranelift-native   = "0.115"
-cranelift-frontend = "0.115"
+cranelift-jit      = "0.135"
+cranelift-codegen  = "0.135"
+cranelift-module   = "0.135"
+cranelift-native   = "0.135"
+cranelift-frontend = "0.135"
 ```
 
 ---
