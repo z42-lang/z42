@@ -41,24 +41,44 @@ pub(super) fn obj_new(
     // L3-G4d: for imported classes (e.g. Std.Collections.Stack) the TypeDesc
     // may only exist in the lazy loader until first use; probe it before
     // falling back to a blank synthetic descriptor.
-    let type_desc = module.type_registry
+    let resolved = module.type_registry
         .get(class_name)
         .cloned()
-        .or_else(|| ctx.try_lookup_type(class_name))
-        .unwrap_or_else(|| {
-            // defer-class-initialization (2026-09-04): 合成空描述符是**静默数据损坏**的
-            // 温床——它没有字段槽，构造函数的 FieldSet 会被丢弃、后续 FieldGet 全读到
-            // Null，错误现场离根因十万八千里（实测：`Std.IO.Process` 被合成空壳后，
-            // 崩在 `AppendString` 的 `arr.Length`）。合法用途只有编译器合成的本地类；
-            // 带点号的名字一律是跨包引用没解析到，必须叫出来。
-            if class_name.contains('.') {
-                tracing::warn!(
-                    "class `{class_name}` not found in module registry or lazy loader; \
-                     synthesizing an EMPTY TypeDesc — field writes will be silently dropped"
-                );
+        .or_else(|| ctx.try_lookup_type(class_name));
+    let type_desc = match resolved {
+        Some(td) => td,
+        None => {
+            // 站点 ② fix-silent-symbol-resolution：defer-class-initialization (2026-09-04)
+            // 在这里放了一条 `tracing::warn!`——合成空描述符是**静默数据损坏**的温床（没有
+            // 字段槽 ⇒ 构造器的 FieldSet 被丢弃、后续 FieldGet 全读 Null）。判据既然已经
+            // 确定，就不该只是记一行日志：`missing_type_exception` 用同一判据改为抛异常，
+            // 回落描述符只留给它的正当用途（合并模块带 ClassDesc / 编译器合成的本地类）。
+            if let Some(exc) = crate::vm_context::symres::missing_type_exception(
+                ctx, module, class_name,
+            ) {
+                return Ok(Some(exc));
             }
             std::sync::Arc::new(make_fallback_type_desc(module, class_name))
-        });
+        }
+    };
+    // fix-crosspkg-base-fields-in-eager-module：急切加载的主模块注册表在**构建期**就把
+    // 跨包基类合不进来（那时依赖还没加载），于是 `Derived : CrossPkgBase` 的这份描述符
+    // 「只有自己的字段」。惰性加载器那份被 `try_fixup_inheritance` 补齐过，而
+    // `Arc::make_mut` 的写时复制只让**惰性注册表**拿到修好的副本——主模块那份永远残缺。
+    // ObjNew 又是先查主模块，于是继承字段整体丢失（实测 `Derived` 急切 1 槽 / 惰性 2 槽，
+    // `d.A = 7` 被丢弃、`d.A` 读出 Null，而 VCall 因为另有基类回落路径**看起来是好的**，
+    // 把这个洞盖了很久）。旗子在手，这里换成修好的那份。
+    let type_desc = if type_desc.base_unmerged() {
+        match ctx.try_lookup_type(class_name) {
+            Some(fixed) if !fixed.base_unmerged() => fixed,
+            _ => type_desc,
+        }
+    } else { type_desc };
+    // 站点 ④ fix-silent-symbol-resolution：惰性解析都走完了还是残缺 ⇒ 基类确定不存在。
+    // 继续走下去只会分配一个丢掉整片继承面的对象，错误现场离根因可以隔上任意远。
+    if let Some(exc) = crate::vm_context::symres::missing_base_exception(ctx, module, &type_desc) {
+        return Ok(Some(exc));
+    }
 
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
     // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），
@@ -148,6 +168,13 @@ pub(super) fn obj_new(
                 Some(super::exec_function(ctx, module, lazy_ctor.as_ref(), &ctor_args)?)
             }
             None => {
+                // 站点 ③ fix-silent-symbol-resolution：带实参却解析不到构造器 = 定案缺失，
+                // 不能照常把「未经构造」的对象写进 dst（字段全零值，错误现场离根因十万八千里）。
+                if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
+                    ctx, module, class_name, ctor_name, args.len(),
+                ) {
+                    return Ok(Some(exc));
+                }
                 crate::metadata::resolver::ctorless_note(ctorless_mark, mark);
                 None
             }
@@ -410,6 +437,25 @@ pub(super) fn static_get(
         Some(id) => ctx.static_get_by_id(crate::metadata::tokens::StaticFieldId(id)),
         None     => ctx.static_get(field),
     };
+    // fix-silent-symbol-resolution（站点 ①）：读到 Null 才确证该字段是否真的声明过。
+    // 不能用「读到 Null 就报错」——Null 本身是合法值（未赋值的引用型静态字段就是 Null）。
+    let mut v = v;
+    if matches!(v, Value::Null) {
+        use crate::vm_context::symres::StaticNullVerdict as V;
+        match crate::vm_context::symres::verify_static_field(ctx, module, field) {
+            V::Ok => {}
+            V::Missing(exc) => return Ok(Some(exc)),
+            // 惰性零初始化：回写槽位，后续读不再走这条确证路径。
+            V::Default(d) => {
+                match field_id {
+                    Some(id) => ctx.static_set_by_id(
+                        crate::metadata::tokens::StaticFieldId(id), d.clone()),
+                    None => ctx.static_set(field, d.clone()),
+                }
+                v = d;
+            }
+        }
+    }
     frame.set(dst, v);
     Ok(None)
 }

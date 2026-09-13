@@ -2,6 +2,8 @@
 
 > `available!(X)`（[语言页](../language/available-macro.md)）在 VM 侧的实现机制。
 > 实现：`src/runtime/src/metadata/loader/availability.rs`。
+> 与它互补的另一半：没被 `available!()` 保护的缺符号在使用点抛异常，见
+> [缺符号不再静默](missing-symbol-resolution.md)。
 
 ## 为什么在加载期
 

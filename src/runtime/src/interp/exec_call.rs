@@ -157,8 +157,13 @@ pub(super) fn call(
         let target = match cell.get() {
             Some(arc) => arc,
             None => {
-                let resolved = ctx.try_lookup_function(fname)
-                    .ok_or_else(|| anyhow::anyhow!("undefined function `{fname}`"))?;
+                // fix-silent-symbol-resolution：这是 cross-cell 路径**自己的**解析失败点，
+                // 与下面 else 分支那个是两处。只改一处会留下「JIT 可 catch、interp 仍是
+                // 不可 catch 的 abort」的不对称——实测踩过。
+                let Some(resolved) = ctx.try_lookup_function(fname) else {
+                    return Ok(Some(crate::exception::make_missing_symbol_exception(
+                        ctx, module, format!("undefined function `{fname}`"))));
+                };
                 // set() is idempotent: a concurrent double-fill resolves to the
                 // same function, so either winner is correct; get() then returns
                 // the stored Arc.
@@ -171,7 +176,14 @@ pub(super) fn call(
         // No cross cell (back-compat): pure lazy-loader lookup, uncached.
         super::exec_function_from_regs(ctx, module, lazy_fn.as_ref(), &frame.regs, args, method_type_args)?
     } else {
-        bail!("undefined function `{fname}`");
+        // fix-silent-symbol-resolution：所有回落（本模块 func_index → per-site 缓存 →
+        // 惰性加载器）都穷尽了 ⇒ **确定不存在**，抛可 catch 的类型化异常。
+        //
+        // 此前是 `bail!`，那条走 anyhow Err，**不经 find_handler** ⇒ 用户 `catch` 抓不到，
+        // 直接变成 VM abort；而 JIT 侧同一场景抛的是裸 Value::Str（只能被无类型
+        // `catch {}` 捕获）。两个后端对同一件事给出两种都不好用的行为，现统一。
+        return Ok(Some(crate::exception::make_missing_symbol_exception(
+            ctx, module, format!("undefined function `{fname}`"))));
     };
     match outcome {
         ExecOutcome::Returned(ret) => {

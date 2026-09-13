@@ -62,6 +62,8 @@ mod lookup;
 mod isa_cache;
 // add-static-constructors：cctor 的按类型初始化状态机（含无锁 pending 门）。
 pub(crate) mod cctor;
+// fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。
+pub(crate) mod symres;
 
 pub use types::{VmCore, VmContext, VM_CONTEXT_SAFEPOINT_SKIP_OFFSET};
 pub(crate) use resource_registry::ResourceRegistry;

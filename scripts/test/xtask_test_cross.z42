@@ -90,6 +90,9 @@ int _testCrossZpkgImpl(string mode) {
     i = 0; while (i < nAct) { label[i] = ""; i = i + 1; }
 
     _crossBuildWave(act, nAct, label, testsDir, "target", compileVm, driverZpkg, stdlibDist);
+    // fix-silent-symbol-resolution：可选 `oldtarget/` —— 与 target **同工程名**、但成员更少的
+    // 旧版依赖，只在运行前顶替 target 的产物（见 _applySkewReplace）。不参与 main 的编译。
+    _crossBuildWave(act, nAct, label, testsDir, "oldtarget", compileVm, driverZpkg, stdlibDist);
     _crossBuildWave(act, nAct, label, testsDir, "ext",    compileVm, driverZpkg, stdlibDist);
     _crossBuildWave(act, nAct, label, testsDir, "main",   compileVm, driverZpkg, stdlibDist);
     _crossRunWave(act, nAct, label, testsDir, stdlibDist, runVm, mode);
@@ -196,10 +199,11 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                 // 两包 fixture 合法（如 available_present / available_skew：一个依赖包就够演示
                 // 跨包 available!）。此前无条件要求三包，缺 ext 直接判失败。
                 // ⚠️ 判断必须在 _prepPkgLibs **之前**：它会创建 <pkg>/libs，调用后目录必然存在。
-                bool extMissing = (stage == "ext") && !Directory.Exists(pkgDir);
+                bool extMissing = (stage == "ext" || stage == "oldtarget") && !Directory.Exists(pkgDir);
                 if (extMissing) {
                     hs[b].Skipped = true;   // 有意跳过，非失败——await 波不得判它红
-                } else if (stage == "target") {
+                } else if (stage == "target" || stage == "oldtarget") {
+                    // oldtarget 是独立的「旧版依赖」工程，和 target 一样无 fixture 内依赖。
                     toml = _prepPkgLibs(pkgDir, "");
                 } else if (stage == "ext") {
                     toml = _prepPkgLibs(pkgDir, _fixtureDist(Path.Join(dir, "target")));
@@ -281,6 +285,7 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
                     _copyZpkgs(_fixtureDist(Path.Join(dir, "target")), testLibs);
                     _copyZpkgs(_fixtureDist(Path.Join(dir, "ext")), testLibs);
                     _applySkewAbsent(dir, testLibs, _fixtureDist(mainDir));
+                    _applySkewReplace(dir, testLibs, _fixtureDist(mainDir));
                     tmpLibs[b] = testLibs;
                     try {
                         hs[b] = new Process(runVm)
@@ -346,6 +351,37 @@ void _applySkewAbsent(string caseDir, string testLibs, string mainDist) {
             if (File.Exists(a)) { File.Delete(a); }
             string c = Path.Join(mainDist, nm);
             if (File.Exists(c)) { File.Delete(c); }
+        }
+        i = i + 1;
+    }
+}
+
+// fix-silent-symbol-resolution：可选 `skew-replace.txt` —— 每行一个 zpkg 文件名，运行**前**
+// 用 `oldtarget/` 建出的同名产物顶替 testLibs 与 main/dist 里那份。
+//
+// 与 `skew-absent.txt`（整包不在场）的分工：absent 只能演示「依赖整个消失」，证不了
+// 「**类型还在、某个成员没了**」——而后者才是依赖版本 skew 的常态。oldtarget 与 target
+// **同工程名**、成员更少，main 仍按 target（新版）编译，运行时却加载到 oldtarget（旧版）。
+//
+// ⚠️ 与 absent 同理，必须两处都顶替：packed exe build 会把依赖 colocate 进 main/dist，
+// 而惰性加载器先搜 entry zpkg 同目录 —— 只换 libs 那份，colocate 的新版仍会赢。
+void _applySkewReplace(string caseDir, string testLibs, string mainDist) {
+    string marker = Path.Join(caseDir, "skew-replace.txt");
+    if (!File.Exists(marker)) { return; }
+    string oldDist = _fixtureDist(Path.Join(caseDir, "oldtarget"));
+    string[] lines = File.ReadAllText(marker).Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string nm = lines[i].Trim();
+        if (nm.Length > 0) {
+            string src = Path.Join(oldDist, nm);
+            if (File.Exists(src)) {
+                string a = Path.Join(testLibs, nm);
+                if (File.Exists(a)) { File.Delete(a); }
+                File.Copy(src, a);
+                string c = Path.Join(mainDist, nm);
+                if (File.Exists(c)) { File.Delete(c); File.Copy(src, c); }
+            }
         }
         i = i + 1;
     }

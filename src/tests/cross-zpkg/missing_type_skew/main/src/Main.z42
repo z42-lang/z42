@@ -1,0 +1,21 @@
+namespace Demo.MtskewApp;
+
+using Std.IO;
+using Demo.MtskewTarget;
+
+// fix-silent-symbol-resolution 站点 ②：`new` 一个解析不到的类型不再合成零字段空壳。
+//
+// 空壳没有字段槽 ⇒ 构造器的 FieldSet 被丢弃、后续 FieldGet 全读 Null，错误现场离根因
+// 十万八千里（实测：`Std.IO.Process` 被合成空壳后崩在 `AppendString` 的 `arr.Length`）。
+//
+// 这里**故意不传构造实参**（`new Gadget()`），把站点 ③（缺构造器）排除在外——抛出来的
+// 必须是「类型解析不到」这一条。
+void Main() {
+    try {
+        Gadget g = new Gadget();
+        Console.WriteLine("constructed " + g.V.ToString());
+    } catch (MissingSymbolException e) {
+        Console.WriteLine("caught MissingSymbolException");
+    }
+    Console.WriteLine("after");
+}

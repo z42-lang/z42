@@ -1,0 +1,23 @@
+namespace Demo.McskewApp;
+
+using Std.IO;
+using Demo.McskewTarget;
+
+// fix-silent-symbol-resolution 站点 ③：构造器解析不到时不再照常写「未经构造」的对象。
+//
+// 本 fixture 按 target/（新版，`Widget(int)` 在场）编译，运行前由 skew-replace.txt 用
+// oldtarget/（同工程名的旧版：类型和字段都在，**唯独没有那个构造器**）顶替它 —— 这才是
+// 依赖版本 skew 的常态形状，而非「整个依赖包消失」。
+//
+// 修复前：ctor 名解析不到 → 静默走「无 ctor」路径 → `w` 是零字段空壳，`w.V` 读出 Null，
+// 错误现场离根因十万八千里。修复后：**带实参**的构造器解析不到 = 定案缺失（没有构造器
+// 的类不可能接受实参），抛可 catch 的 MissingSymbolException。
+void Main() {
+    try {
+        Widget w = new Widget(5);
+        Console.WriteLine("constructed " + w.V.ToString());
+    } catch (MissingSymbolException e) {
+        Console.WriteLine("caught MissingSymbolException");
+    }
+    Console.WriteLine("after");
+}
