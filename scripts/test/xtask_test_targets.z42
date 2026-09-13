@@ -110,6 +110,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeOrphanGuard(root, tt);
         failed = failed + _smokeNoTests(root, tt);
         failed = failed + _smokeListTargets(root, tt);
+        failed = failed + _smokeHarnessFalse(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
     }
     Console.WriteLine("");
@@ -233,6 +234,29 @@ int _smokeListTargets(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ list targets: 2 个目标名，未编译未运行");
+    return 0;
+}
+
+// harness=false smoke：z42b 直接跑「自带 Main、退出码即判定」的目标。
+//
+// 必须 fork 子进程而非 in-process：这类目标的 Main 通常自己调 `Environment.Exit(code)`，
+// in-process 会把 z42b 一并带走、后面的目标全不跑。本条守着那个分叉真的走了子进程。
+//
+// 顺带覆盖「纯测试工程」形态：该 fixture 整个包只有 [[test]] 目标、**没有自己的源**，
+// 所以 z42b 必须跳过父包构建（无条件建会撞「no .z42 sources under <projdir>」）。
+int _smokeHarnessFalse(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/manifest-targets/basic/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── harness=false (z42b 直接跑自驱 Main，退出码判定) ──");
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml).Arg("--name").Arg("exit_ok")
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ harness=false: `z42b test --name exit_ok` exited " + rc.ToString());
+        return 1;
+    }
+    Console.WriteLine("  ✅ harness=false: 自驱 Main 经子进程跑通，退出码判定生效");
     return 0;
 }
 
