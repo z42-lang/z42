@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ckaapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.CkaApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ckatarget" = "0.2.0"

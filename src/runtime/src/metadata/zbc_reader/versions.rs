@@ -139,7 +139,15 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // and initialises value-type array slots with the type's zero (not Null). Non-generic
 // ArrayNew emits kind=0/index=-1 (tail bytes 00 00 00) — semantics unchanged.
 // ArrayNewLit is NOT changed (all slots literal-written, no null-tail bug). Coupled with zpkg 0.42.
-pub const ZBC_VERSION_MINOR: u16 = 38;
+// 2026-09-13 encode-ctorless-objnew: bumped to 1.39 — ObjNew appends a
+// `ctor_known` u8 after `stack_alloc`. It is a POSITIVE marker: the compiler
+// sets it only when, after whole-package assembly, the ctor name is visible in
+// (all functions emitted by this package) ∪ DependencyIndex. The runtime uses it
+// to tell "the constructor should be here but cannot be resolved" (dependency
+// version skew → MissingSymbolException) apart from "this class simply has no
+// constructor" (zero-initialize as before). Absence of the bit is the
+// conservative state, so behaviour is unchanged wherever it is not set.
+pub const ZBC_VERSION_MINOR: u16 = 39;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -249,7 +257,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-02 fix-generic-array-value-zero-init: bumped to 0.42, coupled inner zbc 1.37
 // (ArrayNew trailing type-param reference for generic value-type zero-init). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 43;
+// 2026-09-13 encode-ctorless-objnew: bumped to 0.44 — embeds zbc 1.39 (ObjNew
+// gains the trailing `ctor_known` u8). No zpkg-outer layout change.
+pub const ZPKG_VERSION_MINOR: u16 = 44;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

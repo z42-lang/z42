@@ -194,8 +194,10 @@ public static class ZbcReaderInstr {
             int t = 0;
             while (t < tc) { targs[t] = ZbcReaderInstr._p(pool, c.U32()); t = t + 1; }
             bool saO = c.U8() != 0;   // zbc 1.29 add-escape-analysis：尾 stack_alloc u8
+            bool ckO = c.U8() != 0;   // zbc 1.39 encode-ctorless-objnew：尾 ctor_known u8
             ObjNewInstr onI = new ObjNewInstr(d, cls, ctor, targs, tc, args, argN);
             onI.StackAlloc = saO;
+            onI.CtorKnown = ckO;
             return onI;
         }
         if (op == Op.Typeof) {

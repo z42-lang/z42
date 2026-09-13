@@ -1,0 +1,9 @@
+namespace Demo.CkaTarget;
+
+// 真正的零构造器跨包类：没有显式构造器，也没有字段初始化器（故 z42c 不会合成隐式构造器）。
+// 编译期在 DependencyIndex 里同样找不到 `Demo.CkaTarget.Holder.Holder` —— 但这一次那是**事实**，
+// 不是 skew。`CtorKnownFixup` 因此**不**置位，运行期照常零初始化。
+public class Holder {
+    public int V;
+    public int Twice() { return this.V * 2; }
+}

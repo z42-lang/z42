@@ -1,0 +1,14 @@
+namespace Demo.CkaApp;
+
+using Std.IO;
+using Demo.CkaTarget;
+
+// encode-ctorless-objnew 的**过度收紧守卫**：`new Holder()` 指向一个货真价实的零构造器跨包类。
+// 判据一旦从「正向位」滑成「非空名解析不到即缺失」，这里立刻误报 —— 而误报的代价是把一段
+// 完全合法的程序打死。
+void Main() {
+    Holder h = new Holder();
+    h.V = 21;
+    Console.WriteLine("twice " + h.Twice().ToString());
+    Console.WriteLine("after");
+}

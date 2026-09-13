@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ckpapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.CkpApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ckptarget" = "0.2.0"

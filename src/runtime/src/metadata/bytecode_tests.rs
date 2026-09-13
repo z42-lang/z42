@@ -167,6 +167,7 @@ fn objnew_typeargs_roundtrip() {
         args: vec![].into(),
         type_args: vec!["int".to_string()].into(),
         stack_alloc: false,
+        ctor_known: false,
     }));
     let json = serde_json::to_value(&obj).unwrap();
     assert_eq!(json["op"], "obj_new");

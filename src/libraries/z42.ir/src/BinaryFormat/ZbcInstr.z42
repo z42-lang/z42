@@ -124,6 +124,7 @@ public static class ZbcInstr {
             int t = 0;
             while (t < i.TypeArgCount) { w.WriteU32(pool.Idx(i.TypeArgs[t])); t = t + 1; }
             if (i.StackAlloc) { w.WriteU8(1); } else { w.WriteU8(0); }   // zbc 1.29 add-escape-analysis
+            if (i.CtorKnown) { w.WriteU8(1); } else { w.WriteU8(0); }     // zbc 1.39 encode-ctorless-objnew
             return;
         }
         if (ins is TypeofInstr) {

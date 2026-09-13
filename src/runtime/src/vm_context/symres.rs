@@ -108,35 +108,41 @@ pub fn verify_static_field(
 /// `Some(exc)` = 确定不存在，抛之；`None` = 无法证明有问题，照常走「无 ctor」路径
 /// （对象已零初始化）。
 ///
-/// # 判据为什么是「有没有实参」
+/// # 判据：编译期的正向位 `ctor_known`（zbc 1.39 encode-ctorless-objnew）
 ///
-/// z42c 对**没有构造器**的类照样发射 `ObjNew`，ctor 键取裸类名（`Demo.Point.Point`）——
-/// 而这与**单构造器**的 primary 裸键（`stabilize-instance-dispatch-keys`）**同形**。
-/// 也就是说运行时**无法**从名字本身区分「这个类没有构造器」和「构造器应该在但不见了」。
-/// 另有 `IrLoopAllocReuse` 的裸分配（ctor 名为空串）也走这条路。
+/// 名字本身分不出两种情况：`stabilize-instance-dispatch-keys` 规定 primary 构造器占**裸键**，
+/// 于是 `class C { }`（零构造器）与 `class C { C() {…} }`（单构造器）在调用点发出的
+/// ctor 名**同形**（都是 `Ns.C.C`）。另有 `IrLoopAllocReuse` 的裸分配（ctor 名为空串）。
 ///
-/// 唯一可证的事实是：**没有构造器的类不可能接受实参**。所以 `argc > 0` 且全路径解析不到
-/// ⇒ 必然是「本该存在的构造器不见了」（依赖包版本 skew 的典型形态），定案报错。
+/// 解法是让编译器把它**知道的事**写进指令：整包装配完毕后，`CtorKnownFixup` 检查该 ctor 名
+/// 是否出现在「本包全部已发射函数 ∪ `DependencyIndex`」里 —— 出现才置 `ctor_known`。于是：
 ///
-/// # 残留缺口（已知、有意保留）
+/// * `ctor_known == true` + 解析不到 ⇒ **定案缺失**（装的包比编译时旧），抛。
+/// * `ctor_known == false` ⇒ 编译期就没看见它（真零构造器 / 裸分配 / 证不出来）⇒ 保守放行。
 ///
-/// `argc == 0` 时无法区分「本来就无 ctor」与「`C()` 在旧依赖里不存在」，仍按旧行为默认初始化。
+/// **位的缺席是保守态**，这是刻意的：编译期证不出来时行为与 bump 前逐字一致，绝不会因为判错
+/// 而静默跳过一个真实存在的构造器 —— 那比这里要修的 bug 更坏。
 ///
-/// 原先记的补法是「让 TypeDesc 记录本类声明了哪些构造器」，**经复核几乎没有覆盖面**：
-/// `stabilize-instance-dispatch-keys` 规定 primary 构造器用**裸键**，所以「类只要声明了任何
-/// 构造器，裸键就一定解析得到」——裸键解析不到时，被加载的那份类几乎必然真的零构造器。
+/// # 为什么保留 `argc > 0`
 ///
-/// 真正的闭合要在**调用点**给「零构造器」一个可区分的编码（如 `IrLoopAllocReuse` 早已确立的
-/// 空 ctor 名 = 裸分配），于是「非空却解析不到」⇒ 无论 argc 都是缺失。卡点是**判据算不准**：
-/// z42c 为「有字段初始化器、无显式 ctor」的类**合成**的隐式构造器（`IrGenTypeEmitter._emitSynthCtor`）
-/// 既不是 MethodSymbol、也不在 `_bindNew` 那一刻存在（`_synthCtors` 跑在所有绑定之后），
-/// 而准确的 oracle（本包全部已发射函数 ∪ `DependencyIndex.Statics`）要等整包装配后才齐。
-/// 判错的代价是**静默跳过真构造器**——比这里要修的 bug 更坏。故另立 change 处理。
+/// 两个判据取**并集**，只增不减。`argc > 0` 那条独立成立：没有构造器的类不可能接受实参，
+/// 所以带实参却全路径解析不到必然是缺失，与编译器有没有给出正向位无关。
+/// 上面那段判据的**纯**形式（无 `VmContext`，可单测穷举）。
 ///
+/// `true` = 解析不到就是定案缺失。三条：
+/// * 空名（`IrLoopAllocReuse._bareObjNew` 的裸分配）永远不是缺失 —— 它压根没指名任何构造器。
+/// * `ctor_known`（zbc 1.39 正向位）：编译期在「本包已发射函数 ∪ Deps」里看见过它。
+/// * `argc > 0`：没有构造器的类不可能接受实参。与正向位取**并集**，只增不减。
+pub fn ctor_missing_is_definite(ctor_name: &str, argc: usize, ctor_known: bool) -> bool {
+    if ctor_name.is_empty() { return false; }
+    ctor_known || argc > 0
+}
+
 pub fn missing_ctor_exception(
     ctx: &VmContext, module: &Module, class_name: &str, ctor_name: &str, argc: usize,
+    ctor_known: bool,
 ) -> Option<crate::metadata::Value> {
-    if argc == 0 { return None; }
+    if !ctor_missing_is_definite(ctor_name, argc, ctor_known) { return None; }
     Some(crate::exception::make_missing_symbol_exception(
         ctx, module,
         format!(

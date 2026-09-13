@@ -1,0 +1,9 @@
+namespace Demo.CkpTarget;
+
+// encode-ctorless-objnew 的 skew 对象：**有**无参构造器。单构造器 ⇒ primary ⇒ 注册在裸键
+// `Demo.CkpTarget.Gadget.Gadget` 上。main 按这一版编译，故装配时 `CtorKnownFixup` 在
+// DependencyIndex 里看得见这个函数 ⇒ ObjNew 站点置 `ctor_known = 1`。
+public class Gadget {
+    public int V;
+    public Gadget() { this.V = 7; }
+}

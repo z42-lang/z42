@@ -1,0 +1,22 @@
+namespace Demo.CkApp;
+
+using Std.IO;
+using Demo.CkTarget;
+
+// encode-ctorless-objnew：零实参的构造器缺失不再静默。
+//
+// 本 fixture 按 target/（`Gadget()` 在）编译，运行前由 skew-replace.txt 用 oldtarget/
+// （同工程名的旧版，**零构造器**）顶替。
+//
+// 修复前：裸键解析不到 + argc == 0 ⇒ 判不出来 ⇒ 照常走「无 ctor」路径，打印 `constructed 0`。
+// 修复后：编译期整包装配时在 DependencyIndex 里看见过这个构造器（`ctor_known = 1`），
+//         运行期全路径解析不到 ⇒ 定案缺失 ⇒ 抛可 catch 的 MissingSymbolException。
+void Main() {
+    try {
+        Gadget g = new Gadget();
+        Console.WriteLine("constructed " + g.V.ToString());
+    } catch (MissingSymbolException e) {
+        Console.WriteLine("caught MissingSymbolException");
+    }
+    Console.WriteLine("after");
+}
