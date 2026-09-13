@@ -101,18 +101,11 @@ public sealed class CompileArtifacts {
     // 本次编译用到的依赖 scan（perf ②）：CachedScan 为 null 时是本核心新建的、非 null 时回显传入的。
     // REPL 首轮据此缓存静态 scan；后续轮把它作 CachedScan 传回 + ExtendWithPackage 增量并入本轮包。
     public DepScanResult Scan;
-    // add-member-forwarding：generator 产出的 CU 的**文件名 + 源码文本**（仅生成的那部分）。
-    // 由调用方（driver）按 `[build] generated_dir` 决定落盘与否 —— 落盘位置需要 manifest，
-    // 而 manifest 只有 driver 有；pipeline 只负责把文本带出来。无 generator → 长度 0。
-    public string[] GenFiles;
-    public string[] GenTexts;
-    public int      GenCount;
     public CompileArtifacts(ZpkgFileZ z, ZbcFileZ[] mods, int modCount,
                             CompiledModuleZ[] cms, int cmCount, int errorCount, string entryStatus) {
         this.Z = z; this.Mods = mods; this.ModCount = modCount;
         this.Cms = cms; this.CmCount = cmCount; this.ErrorCount = errorCount; this.EntryStatus = entryStatus;
         this.Scan = null;
-        this.GenFiles = new string[0]; this.GenTexts = new string[0]; this.GenCount = 0;
     }
 }
 
@@ -182,7 +175,6 @@ public static class PackageCompile {
         // gated 块——共用 provisional bind；applied 可能改写 CU（Augment/Replace/AddSource），module 扫
         // 其产出的 union AST。任一路径有产出 → union 全 fresh 重编。
         DiagnosticBag genDiags = new DiagnosticBag();
-        string[] genFiles = new string[0]; string[] genTexts = new string[0]; int genCount = 0;
         // PR4d：外部 generator zpkg **复用 `[analyzers]` 段路径（AnalyzerZpkgs）**（D9 单段覆盖两类）→
         // GeneratorLoader 发现 `: Generator`/`: ModuleGenerator` 类型、实例化，并入测试注入的数组，走同一
         // gated 块。z42c 自建无 [analyzers] → AnalyzerZpkgCount==0 → 不加载、effGens/effMods 即注入的空数组
@@ -212,7 +204,6 @@ public static class PackageCompile {
                                                       cus, files, srcCount, imported, genDiags);
             if (ro.HasOutput) {
                 cus = ro.Cus; files = ro.Files; srcCount = ro.CuCount;
-                genFiles = ro.Files; genTexts = ro.Texts; genCount = ro.CuCount;
                 texts = new string[srcCount];   // 生成 CU 无源文本；fresh 路径不读 texts（仅 cached 读）→ 占位即可
                 int ti = 0; while (ti < srcCount) { texts[ti] = ti < inp.SrcCount ? inp.Texts[ti] : ""; ti = ti + 1; }
                 cachedMods = null;   // union 全 fresh
@@ -316,7 +307,6 @@ public static class PackageCompile {
             else if (z.Entry == "") { entryStatus = "missing"; }
         }
         CompileArtifacts okArt = new CompileArtifacts(z, mods, srcCount, cms, srcCount, 0, entryStatus);
-        okArt.GenFiles = genFiles; okArt.GenTexts = genTexts; okArt.GenCount = genCount;
         okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
         return okArt;
     }

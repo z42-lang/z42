@@ -39,25 +39,6 @@ string _resolveCacheDir(ProjectManifest pm, string projectDir, bool isRelease) {
     return Path.IsRooted(cacheExp) ? cacheExp : Path.Join(absProj, cacheExp);
 }
 
-// `[build] generated_dir` 的有效路径（add-member-forwarding）。
-//
-// 镜像 `_resolveCacheDir` 的级联：没配置 → `${output_dir}/generated`（沿用 cache_dir/dist_dir
-// 那套「目录型配置 + 从 output_dir 派生默认」的形状）。显式配 `""` → 返回 ""，表示**不落盘**。
-string _resolveGeneratedDir(ProjectManifest pm, string projectDir, bool isRelease) {
-    if (pm.Build.HasGeneratedDir && pm.Build.GeneratedDir == "") { return ""; }   // 显式关闭
-    string profile = isRelease ? "release" : "debug";
-    string absProj = Path.IsRooted(projectDir) ? projectDir
-        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
-    TemplateContext octx = new TemplateContext(absProj, absProj, pm.Project.Name, profile, "");
-    string outputRaw = pm.Build.HasOutputDir ? pm.Build.OutputDir : "${workspace_dir}/artifacts/${profile}";
-    string outputExp = PathTemplate.Expand(outputRaw, octx);
-    string outputAbs = Path.IsRooted(outputExp) ? outputExp : Path.Join(absProj, outputExp);
-    TemplateContext gctx = new TemplateContext(absProj, absProj, pm.Project.Name, profile, outputAbs);
-    string genRaw = pm.Build.HasGeneratedDir ? pm.Build.GeneratedDir : "${output_dir}/generated";
-    string genExp = PathTemplate.Expand(genRaw, gctx);
-    return Path.IsRooted(genExp) ? genExp : Path.Join(absProj, genExp);
-}
-
 // _writeCacheZbc（单文件 fullMode .zbc 落盘）已迁 IncrementalDriver.z42（500 行硬限）。
 
 // 解析无 --output-dir override 时的有效 dist 目录。

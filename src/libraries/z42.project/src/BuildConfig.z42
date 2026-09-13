@@ -14,6 +14,12 @@ public sealed class BuildConfig {
     public bool   HasHooks;
     public string HooksDir;
     // add-member-forwarding：`[build] generated_dir`。**generator 产出的源码落盘到哪**。
+    //
+    // ⚠️ **staged（本变更只登记、尚无人消费）**：把它接到 driver 需要 `CompileArtifacts` 上的
+    // 新字段，而 z42c 自建的冷启动收敛**一次只吸收一层**新跨成员符号（`_buildCompilerViaZ42c`
+    // 只重新自包含一次重试）。本变更已经用掉那一层（pipeline 引用 semantics 的 ForwardGenerator
+    // 与 GenOutcome.Texts），故落盘接线随**下一个变更**落地——那时只剩 driver→pipeline 一层。
+    // 这条与 `CompileInputs.Fix` 是同一种 staged 手法（登记先行、消费晚一拍）。
     // 没配置 → `<output_dir>/generated`（沿用 cache_dir/dist_dir 那套「目录型配置 + 从
     // output_dir 派生默认值」的形状，`${output_dir}` 模板现成可用）。
     //
