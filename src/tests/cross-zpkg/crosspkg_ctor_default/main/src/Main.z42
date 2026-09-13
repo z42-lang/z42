@@ -1,0 +1,20 @@
+namespace Demo.CcdApp;
+
+using Std.IO;
+using Demo.CcdTarget;
+
+// fix-crosspkg-ctor-default（消费方）：省略跨包构造器的可选实参 → 必须得到**作者声明的默认值**。
+//
+// 修复前实测：`new Sized(5).H` 读到 **0** 而不是 3 —— imported ctor 没有 Decl，`_bindNew` 里
+// `_adaptArgs` 那条（只认本地有 Decl 的 ctor）走不到，少给的形参位就根本没被填。方法路径一直
+// 有这一支（`OverloadBinder._withDefaults` 的 `_crossPkgDefault`，PR6 修跨包塌零时加的），
+// 只有 ctor 漏了 —— 与 fix-ctor-overload-by-arity-only / ctor 的 params 尾包同族。
+void Main() {
+    Console.WriteLine(new Sized(5).H.ToString());          // 3（标量默认值）
+    Console.WriteLine(new Greeter().Who);                  // world（string 默认值）
+    Tail t = new Tail(1);
+    Console.WriteLine(t.B.ToString() + "," + t.C.ToString());   // 20,300（连省两个尾参）
+    Console.WriteLine(new Tagged().V.ToString());          // 7（enum 默认值）
+    // 显式给全实参的路径不得被影响。
+    Console.WriteLine(new Sized(5, 9).H.ToString());       // 9
+}

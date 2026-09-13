@@ -1,0 +1,35 @@
+namespace Demo.CcdTarget;
+
+// fix-crosspkg-ctor-default（生产方）：**构造器**的默认值形参。
+//
+// 跨包默认值此前只有**静态方法**的用例（param_default_cross_pkg），构造器这条路没人走过 ——
+// 于是消费方省略可选实参时，那些形参位**根本没被填**，callee 的寄存器停在零值。
+
+public enum Level { Low = 1, Mid = 2, High = 7 }
+
+public class Sized {
+    public int W;
+    public int H;
+    // 省略 h → 必须拿到作者声明的 3，而不是 0。
+    public Sized(int w, int h = 3) { this.W = w; this.H = h; }
+}
+
+public class Greeter {
+    public string Who;
+    // string 默认值。
+    public Greeter(string who = "world") { this.Who = who; }
+}
+
+public class Tail {
+    public int A;
+    public int B;
+    public int C;
+    // 连省**两个**尾参。
+    public Tail(int a, int b = 20, int c = 300) { this.A = a; this.B = b; this.C = c; }
+}
+
+public class Tagged {
+    public int V;
+    // enum 默认值（底值 7）。
+    public Tagged(Level lv = Level.High) { this.V = (int)lv; }
+}
