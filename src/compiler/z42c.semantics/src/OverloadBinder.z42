@@ -317,7 +317,20 @@ public sealed class OverloadBinder {
                 // add-target-typed-new：位置实参按对应形参类型绑定（支持 `f(new())`）。
                 Z42Type ppt = env.ResolveType(md.Params[pos].Type);
                 slots[pos] = this._tc._expr.BindWithTarget(a, ppt, env); filled[pos] = true;
-                this.CheckArg(slots[pos], ppt, a.Span, env);
+                // 🔴 `params` 尾参、**等 arity**、且实参本身不是数组 → 它是**一个元素**，
+                // 该按**元素类型**校验（打包由调用方做）。
+                //
+                // 此前一律拿形参声明类型（`object[]`）比 ⇒ `new P(new R())` 对
+                // `P(params object[] xs)` 在这里就报「cannot assign R to Object[]」。
+                // 实参多于形参那一侧不会走到这儿（上面 `callArgCount > pc` 已 return null，
+                // 由调用方的 params 展开处理），所以坏的恰好只有「恰好一个实参」这一种形态。
+                Z42Type chk = ppt;
+                if (md.Params[pos].IsParams && (ppt is Z42ArrayType)
+                    && slots[pos] != null && slots[pos].Type() != null
+                    && !slots[pos].Type().IsAssignableTo(ppt)) {
+                    chk = (ppt as Z42ArrayType).Elem;
+                }
+                this.CheckArg(slots[pos], chk, a.Span, env);
                 pos = pos + 1;
             }
             i = i + 1;

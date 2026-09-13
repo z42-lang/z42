@@ -1,0 +1,36 @@
+// 构造器的 `params` 尾参（fix-ctor-params-single-arg）。
+//
+// 方法路径一直是对的（`_withParamsExpansion`）；**ctor 路径两个形态都坏**：
+//   · 恰好一个实参且它不是数组 → `_adaptArgs` 拿形参声明类型（`object[]`）比实参（`R`），
+//     编译期就报「cannot assign R to Object[]」；
+//   · 实参多于形参 → **从来没被打包过**，callee 拿到 N 个裸实参而非一个数组，
+//     运行期 `xs.Length` 直接 `VCall: expected object, got Null`。
+// 后者更坏：它编得过、跑起来才炸。
+namespace Demo;
+
+using Std;
+using Std.IO;
+
+class R { }
+
+class Only { public string W; public Only(params object[] xs) { this.W = xs.Length.ToString(); } }
+class Ints { public string W; public Ints(params int[] xs) { this.W = xs.Length.ToString(); } }
+class Mixed { public string W; public Mixed(string tag, params object[] xs) { this.W = tag + xs.Length.ToString(); } }
+class Meth { public string F(params object[] xs) { return xs.Length.ToString(); } }
+
+void Main() {
+    // 方向对照：方法侧本来就对，不该被改动影响
+    Meth m = new Meth();
+    Console.WriteLine(m.F(new R()));
+    Console.WriteLine(m.F(new R(), new R()));
+
+    Console.WriteLine(new Only(new R()).W);              // 一个实参（元素）
+    Console.WriteLine(new Only(new R(), new R()).W);     // 两个实参
+    Console.WriteLine(new Only().W);                     // 零实参 → 空尾包
+    Console.WriteLine(new Ints(1, 2, 3).W);              // 基元元素
+    Console.WriteLine(new Mixed("t", new R(), new R()).W);  // 定长前缀 + params 尾
+
+    // 实参**本身就是数组** → normal form，原样传（不得被再包一层）
+    object[] arr = new object[4];
+    Console.WriteLine(new Only(arr).W);
+}

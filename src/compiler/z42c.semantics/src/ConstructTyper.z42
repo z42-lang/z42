@@ -123,6 +123,27 @@ public sealed class ConstructTyper {
     }
 
     // expected：target-typed new（n.Type == null）时的目标类型；非 target-typed 时传 null（忽略）。
+    // 等 arity 且尾参不是数组 → 打成 params 尾包；其余形态原样返回。
+    // 只补这一个形态，其余路径一字不动 ⇒ 今天能编的程序字节零漂移。
+    private BoundExpr[] _packParamsTail(MethodSymbol cms, BoundExpr[] args, Span sp, TypeEnv env) {
+        if (cms == null || cms.Signature == null) { return args; }
+        int pf = cms.Signature.ParamsFrom;
+        if (pf < 0) { return args; }
+        // 实参连**定长部分**都没给全 → 走默认值填充路径，不在这里打包。
+        // `args.Length == pf` 是合法的「params 尾整个省略」（`new Only()`）—— 必须打一个**空尾包**，
+        // 否则 callee 拿到的 `xs` 是 Null，运行期 `xs.Length` 直接炸（实测 main 上就是如此）。
+        if (args.Length < pf) { return args; }
+        Z42ArrayType at = cms.Signature.ParamTypes[pf] as Z42ArrayType;
+        if (at == null) { return args; }
+        if (args.Length == cms.Signature.ParamCount) {
+            // 等 arity：实参**本身就是数组** → normal form，原样传。
+            if (args[pf] == null || args[pf].Type() == null) { return args; }
+            if (args[pf].Type().IsAssignableTo(at)) { return args; }
+        }
+        // 其余（等 arity 但实参是元素 / 实参多于形参）→ 打成尾包。
+        return this._tc._overload._withParamsExpansion(cms, args, args.Length, sp, env.GetSymbols());
+    }
+
     internal BoundExpr _bindNew(ObjNewExpr n, TypeEnv env, Z42Type expected) {
         Z42Type t;
         if (n.Type == null) {   // add-target-typed-new：从目标类型推断被省略的类名
@@ -200,7 +221,13 @@ public sealed class ConstructTyper {
         if (cls != null) { cms = this._tc._overload._findMethod(env.Symbols, cls, ctorName); }
         if (cms != null && cms.HasDecl && cms.Decl != null) {
             BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env, n.Span);   // PR6b：n.Span = 调用点，供 caller 宏注入
-            if (adapted != null) { return new BoundNew(t.Name(), ctorName, adapted, cms.Decl.ParamCount, t, n.Span); }
+            if (adapted != null) {
+                // `_adaptArgs` 只做命名实参重排 + 默认值填充，**不打包 params 尾参**。
+                // 等 arity 且尾参不是数组时它给回的是「一个元素」，这里补成尾包
+                // （方法路径由 `_withParamsExpansion` 做同一件事）。
+                adapted = this._packParamsTail(cms, adapted, n.Span, env);
+                return new BoundNew(t.Name(), ctorName, adapted, adapted.Length, t, n.Span);
+            }
         }
         // ctor arity 校验（根因修复）：枚举本类所有源名 ctor（OverloadsOf——与 bare/$N 注册键无关，
         // 单 ctor 注册裸名、重载注册 Name$N，_findMethod 单键查会漏），只要存在本地声明 ctor 且无一能
@@ -251,6 +278,11 @@ public sealed class ConstructTyper {
         // （`P(params int[] xs)` 接 `new P(1,2,3)`：形参是 int[]、实参是元素，逐位比会误报）
         // 与定长/越界位。cms==null（imported / 无 Decl，签名不可知）→ 自身 no-op。
         if (cms != null) { this._tc._overload.CheckArgTypes(args, n.Args, n.ArgCount, cms.Signature, env); }
-        return new BoundNew(t.Name(), ctorName, args, n.ArgCount, t, n.Span);
+        // 🔴 `params` 尾包在这条路径上**从来没被打包过** —— callee 拿到的是 N 个裸实参而不是
+        // 一个数组，运行期 `xs.Length` 读到 Null（实测 `new P(a, b)` 对 `P(params object[] xs)`
+        // 直接 `VCall: expected object, got Null`）。方法路径一直有 `_withParamsExpansion`，
+        // 只有 ctor 漏了。`CheckArgTypes` 认得 params 尾位、只是**不打包**，故放在它之后。
+        args = this._packParamsTail(cms, args, n.Span, env);
+        return new BoundNew(t.Name(), ctorName, args, args.Length, t, n.Span);
     }
 }
