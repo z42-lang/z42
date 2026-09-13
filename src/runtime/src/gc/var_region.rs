@@ -82,7 +82,7 @@ pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use var_ref::VarGcRef;
 
-use chunk::{Chunk, FreeSlot, NUM_CLASSES};
+use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};
 
 // The packed `gen_age` in `GcBlockHeader::type_tag` is two bits wide, so the **default**
 // promotion age has to fit in it. `Z42_GC_PROMOTION_AGE` is clamped to the same ceiling at
@@ -141,15 +141,11 @@ pub struct VarRegion {
     /// slot's header pointer. The staleness test needs the entry's **chunk**, and reading that
     /// out of the block header was a random memory access per entry — 13.2 ms of the build's
     /// GC pause in [`Self::compact_class`] alone. See [`FreeSlot`].
-    free_lists: Vec<Vec<FreeSlot>>,
-    /// **lazy-var-free-list (2026-09-12)**: `pool_epoch` of the entry's chunk *at the moment it
-    /// was pushed*, parallel to [`Self::free_lists`]. A mismatch at pop means the chunk has
-    /// been pooled since, so the slot no longer belongs to this list.
-    ///
-    /// A **parallel** `Vec<u32>` rather than a `(NonNull, u32)` tuple in one list: the tuple
-    /// pads to 16 bytes and these lists run past a million entries, so the pair would cost
-    /// 8 bytes each instead of 4.
-    free_epochs: Vec<Vec<u32>>,
+    /// **perf-merge-free-entry (2026-09-13)**: the entry carries its chunk's `pool_epoch`
+    /// alongside the slot ([`FreeEntry`]) rather than living in a second, parallel `Vec` —
+    /// one push per tombstone instead of two, and one stream to walk in
+    /// [`Self::compact_class`]. See [`FreeEntry`] for why splitting them stopped paying.
+    free_lists: Vec<Vec<FreeEntry>>,
     /// **lazy-var-free-list (2026-09-12)**: how many entries across [`Self::free_lists`] are
     /// known-stale. Exact, not an estimate: a chunk only gets pooled when **every** block in
     /// it is tombstoned, and every non-oversized tombstone pushes a free-list entry, so
@@ -262,7 +258,6 @@ impl Default for VarRegion {
             bump_off: 0,
             all_blocks: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
-            free_epochs: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
             stale_free: 0,
             stale_per_class: vec![0; NUM_CLASSES],
             young_list: Vec::new(),
@@ -292,12 +287,19 @@ impl VarRegion {
     /// Construct a region whose non-POD payloads are finalized by `glue` on reclaim, with
     /// young-list maintenance set for `generational` (see [`Self::generational`]). Used by
     /// the heap, which knows its mode at construction. Mirrors `Region::new_for_mode`.
+    ///
+    /// **perf-skip-pod-drop-glue (2026-09-13)**: `glue` is optional because an embedding whose
+    /// payloads are all POD has nothing for it to do, and a `None` here is what removes the
+    /// indirect call from the reclaim path — see [`Self::finalize_payload`].
     pub fn with_drop_glue_for_mode(
-        glue: PayloadDropGlue,
+        glue: Option<PayloadDropGlue>,
         generational: bool,
         promotion_age: u8,
     ) -> Self {
-        let mut r = Self::with_drop_glue(glue);
+        let mut r = match glue {
+            Some(glue) => Self::with_drop_glue(glue),
+            None => Self::new(),
+        };
         r.generational = generational;
         r.promotion_age = promotion_age;
         r
@@ -314,7 +316,6 @@ impl VarRegion {
             bump_off: 0,
             all_blocks: Vec::new(),
             free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
-            free_epochs: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
             stale_free: 0,
             stale_per_class: vec![0; NUM_CLASSES],
             young_list: Vec::new(),
@@ -337,6 +338,13 @@ impl VarRegion {
 
     /// Run the injected payload finalizer on `header`'s payload, if any. Called exactly once
     /// per reclaim (tombstone) or at region teardown for still-alive blocks.
+    ///
+    /// **perf-skip-pod-drop-glue (2026-09-13)**: when no payload needs dropping the region is
+    /// built with `drop_glue: None` and this is one predictable branch. It used to read the
+    /// block's type and size and make an **indirect call** per reclaimed block into a function
+    /// that then did nothing — `1.6 ms` of `minor/var sweep` over 2.42 M dead blocks a
+    /// `z42c.semantics` build. A fn pointer is opaque to the optimizer, so the emptiness of
+    /// the callee could not remove the call; only not installing it can.
     #[inline]
     unsafe fn finalize_payload(&self, header: NonNull<GcBlockHeader>) {
         if let Some(glue) = self.drop_glue {
@@ -403,13 +411,12 @@ impl VarRegion {
     fn pop_free_slot(&mut self, size_class: u8) -> Option<NonNull<GcBlockHeader>> {
         let sc = size_class as usize;
         loop {
-            let slot = self.free_lists[sc].pop()?;
-            let stamped = self.free_epochs[sc].pop().expect("free list and epoch list run in lockstep");
+            let FreeEntry { slot, epoch } = self.free_lists[sc].pop()?;
             // perf-free-slot-encoding: the chunk comes out of the entry, so the staleness test
             // touches no block memory at all — and the pointer is only rebuilt once the entry
             // has passed it.
             let ci = slot.chunk();
-            if self.pool_epoch.get(ci).copied() == Some(stamped) {
+            if self.pool_epoch.get(ci).copied() == Some(epoch) {
                 // SAFETY: the entry named a live bump chunk when it was pushed, and a matching
                 // `pool_epoch` says that chunk has not been pooled since. Bump chunks are
                 // pooled, never `dealloc`'d (only dedicated/oversized chunks are freed, and
@@ -446,22 +453,20 @@ impl VarRegion {
     /// worth ~40 MB of RSS. One class is a fraction of that and can run as soon as the class
     /// is more stale than live.
     fn compact_class(&mut self, sc: usize) {
-        let (ptrs, epochs) = (&mut self.free_lists[sc], &mut self.free_epochs[sc]);
+        let entries = &mut self.free_lists[sc];
         let mut w = 0;
-        for r in 0..ptrs.len() {
-            // perf-free-slot-encoding: two sequential array reads and one `pool_epoch` lookup
+        for r in 0..entries.len() {
+            // perf-free-slot-encoding: one sequential array read and one `pool_epoch` lookup
             // (a few KB, so `L1`). This used to dereference the entry's block header to find
             // its chunk — a random access per entry, **8.2 ns each over 1.62 M entries a
             // build**, which was the whole cost of this pass.
-            let ci = ptrs[r].chunk();
-            if self.pool_epoch.get(ci).copied() == Some(epochs[r]) {
-                ptrs[w] = ptrs[r];
-                epochs[w] = epochs[r];
+            let ci = entries[r].slot.chunk();
+            if self.pool_epoch.get(ci).copied() == Some(entries[r].epoch) {
+                entries[w] = entries[r];
                 w += 1;
             }
         }
-        ptrs.truncate(w);
-        epochs.truncate(w);
+        entries.truncate(w);
         // Deliberately **not** `shrink_to_fit`: these lists are multi-megabyte, so handing the
         // capacity back means allocating the smaller buffer while the larger one is still
         // live. Measured, that spike costs more peak RSS than the slack it returns.
@@ -603,8 +608,7 @@ impl VarRegion {
             // at it, so nothing downstream has to read the header back to find its chunk.
             let off = ptr.as_ptr() as usize - self.chunks[ci].base.as_ptr() as usize;
             if let Some(slot) = FreeSlot::pack(ci, off) {
-                self.free_lists[sc as usize].push(slot);
-                self.free_epochs[sc as usize].push(self.pool_epoch[ci]);
+                self.free_lists[sc as usize].push(FreeEntry { slot, epoch: self.pool_epoch[ci] });
             }
         }
         true

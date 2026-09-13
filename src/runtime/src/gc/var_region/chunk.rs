@@ -169,6 +169,26 @@ impl FreeSlot {
     }
 }
 
+/// One free-list entry: a [`FreeSlot`] plus the `pool_epoch` its chunk carried when the entry
+/// was pushed. A mismatch at pop means the chunk has been pooled since, so the slot no longer
+/// belongs to the list (`lazy-var-free-list`, 2026-09-12).
+///
+/// **perf-merge-free-entry (2026-09-13)**: one list of pairs, not two parallel `Vec`s. The
+/// pair was split when a slot was still an 8-byte header pointer — `(NonNull, u32)` padded to
+/// 16 bytes, so splitting genuinely halved the footprint. `perf-free-slot-encoding` (#608) made
+/// the slot four bytes and quietly retired that reason: `FreeSlot` and `u32` are both 4-byte
+/// aligned, so the pair is exactly 8 bytes with no padding — the same memory the two lists
+/// used, in one allocation instead of two. Measured on `z42c.semantics --release`, the second
+/// push cost **2.6 ms** of `minor/var sweep` over 2.42 M dead blocks a build, and the second
+/// stream costs `compact_class` and `pop_free_slot` the same shape again.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) struct FreeEntry {
+    pub(super) slot: FreeSlot,
+    pub(super) epoch: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<FreeEntry>() == 8, "the pair must not pad");
+
 /// Number of size-class free-list buckets (indices `0..=MAX_CLASS`). The bottom
 /// `MIN_BLOCK.trailing_zeros() << SUB_LOG2` buckets are unreachable (no footprint is smaller
 /// than `MIN_BLOCK`) and stay empty — indexing directly by the packed class beats folding the
