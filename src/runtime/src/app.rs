@@ -33,6 +33,21 @@ fn be_exists(p: &Path) -> bool {
     p.to_str().map(|s| fs_backend::active().exists(s)).unwrap_or(false)
 }
 
+/// Ordered prelude candidates — `<dir>/z42.core.zpkg` for every search dir that
+/// actually has one, in `search_dirs` order (entry zpkg's own directory first,
+/// then `libs/`).
+///
+/// The prelude used to be the ONE dependency that ignored that order and looked
+/// only at `libs/`. See `run`'s 5.1b for what that cost.
+pub(crate) fn prelude_candidates(search_dirs: &[PathBuf]) -> Vec<PathBuf> {
+    search_dirs
+        .iter()
+        .map(|d| d.join("z42.core.zpkg"))
+        .filter(|p| be_exists(p))
+        .collect()
+}
+
+
 // fix-version-mismatch-diagnosis (2026-09-05): a .zpkg whose format version is
 // not this runtime's is **not** a "skip it and carry on" condition. The strict
 // pin (see zbc_reader/versions.rs) means z42vm reads exactly one generation, so
@@ -126,9 +141,25 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     let mut eager_impl_pairs: Vec<(String, String)> = Vec::new();
 
     // 5.1b — unconditionally try to load z42.core.zpkg if present.
-    if let Some(ref dir) = libs_dir {
-        let core_path = dir.join("z42.core.zpkg");
-        if be_exists(&core_path) {
+    //
+    // fix-prelude-entry-dir-resolution: walk `search_dirs` (entry dir first, then
+    // `libs/`), not `libs_dir` alone. The prelude used to be the ONE package that
+    // ignored the colocated-deps order every other dependency follows — and it
+    // `bail!`ed on the first version mismatch, so a `libs/` holding a
+    // wrong-generation z42.core killed the process even when the entry zpkg's own
+    // directory carried a perfectly readable one.
+    //
+    // That is exactly the two-gen bootstrap's gen2 step: old VM + entry dir of
+    // matching-generation stdlib + `Z42_LIBS` pointing at the freshly written
+    // NEW-generation flat view. `resolve_libs_dir` puts `$Z42_LIBS` first, so this
+    // block opened the new z42.core and aborted — blocking every zbc/zpkg format
+    // bump, however small. Trying candidates in order fixes it without weakening
+    // the diagnostic: the hint still fires, but only when NO candidate loads.
+    {
+        let mut prelude_err: Option<String> = None;
+        let mut seen_any = false;
+        for core_path in prelude_candidates(&search_dirs) {
+            seen_any = true;
             let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
             let core_str = core_path.to_string_lossy().into_owned();
             match crate::metadata::load_artifact(&core_str) {
@@ -140,15 +171,24 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
                     modules.push(a.module);
                     loaded_paths.insert(core_canonical);
                     initially_loaded_zpkgs.push("z42.core.zpkg".to_string());
+                    prelude_err = None;
+                    break;
                 }
-                Err(e) => match version_mismatch_hint(&core_str, &e) {
-                    // Unrecoverable: z42.core is the prelude — nothing runs without it.
-                    Some(hint) => bail!("{hint}"),
-                    None => tracing::warn!("failed to load z42.core: {e:#}"),
-                },
+                Err(e) => {
+                    // Keep the FIRST failure's message: it names the candidate the
+                    // caller most likely meant. Only surfaced if nothing loads.
+                    match version_mismatch_hint(&core_str, &e) {
+                        Some(hint) => { if prelude_err.is_none() { prelude_err = Some(hint); } }
+                        None => tracing::warn!("failed to load z42.core from {core_str}: {e:#}"),
+                    }
+                }
             }
-        } else {
-            tracing::debug!("z42.core.zpkg not found in {}", dir.display());
+        }
+        // Unrecoverable: z42.core is the prelude — nothing runs without it. Only
+        // reached when every candidate failed with a version mismatch.
+        if let Some(hint) = prelude_err { bail!("{hint}"); }
+        if !seen_any {
+            tracing::debug!("z42.core.zpkg not found in any of {:?}", search_dirs);
         }
     }
 
