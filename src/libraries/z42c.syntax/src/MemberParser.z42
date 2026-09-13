@@ -195,6 +195,13 @@ public sealed class MemberParser {
         if (this._p._peek().Kind == TokenKind.LBrace) {
             return this._parseProperty(mods, type, name, sp);
         }
+        if (this._p._peek().Kind == TokenKind.FatArrow) {
+            // add-expression-bodied-members：`T P => e;` ≡ `T P { get { return e; } }`（只读计算属性）。
+            // 此前落到下方字段分支 ⇒ `expected ';'` 连环 + `undefined type: =>`。
+            PropertyDecl epd = new PropertyDecl(mods, type, name, true, "", false, "", false, new NullLitExpr(sp), sp);
+            epd.HasGetBody = true; epd.GetBody = this._parseArrowBody(false);
+            return epd;
+        }
         bool hasInit = false;
         Expr init = new NullLitExpr(sp);
         if (this._p._peek().Kind == TokenKind.Eq) { this._p._advance(); init = this._p._exprP._parseExpr(0); hasInit = true; }
@@ -221,15 +228,19 @@ public sealed class MemberParser {
             pc = pc + 1;
         }
         this._p._expect(TokenKind.RBracket, "]");
-        this._p._expect(TokenKind.LBrace, "{");
         bool hasGet = false; Stmt getBody = new BlockStmt(new Stmt[0], 0, sp);
         bool hasSet = false; Stmt setBody = new BlockStmt(new Stmt[0], 0, sp);
+        if (this._p._peek().Kind == TokenKind.FatArrow) {   // add-expression-bodied-members：只读索引器 `=> e;`
+            getBody = this._parseArrowBody(false);
+            return new IndexerDecl(mods, retType, params_, pc, true, getBody, false, setBody, sp);
+        }
+        this._p._expect(TokenKind.LBrace, "{");
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             string acc = this._p._peek().Text;
             if (this._p._peek().Kind == TokenKind.Identifier && acc == "get") {
-                this._p._advance(); getBody = this._p._stmtP._parseBlock(); hasGet = true;
+                this._p._advance(); getBody = this._parseAccessorBody(false); hasGet = true;
             } else if (this._p._peek().Kind == TokenKind.Identifier && acc == "set") {
-                this._p._advance(); setBody = this._p._stmtP._parseBlock(); hasSet = true;
+                this._p._advance(); setBody = this._parseAccessorBody(true); hasSet = true;
             } else {
                 this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected 'get' or 'set' in indexer", this._p._peek().Span);
                 this._p._advance();
@@ -254,9 +265,10 @@ public sealed class MemberParser {
             string acc = this._p._peek().Text;
             if (this._p._peek().Kind == TokenKind.Identifier && (acc == "get" || acc == "set")) {
                 this._p._advance();
-                if (acc == "get" && this._p._peek().Kind == TokenKind.LBrace) {
+                if (acc == "get" && (this._p._peek().Kind == TokenKind.LBrace || this._p._peek().Kind == TokenKind.FatArrow)) {
                     // add-property-getter：计算属性 getter（`get { ... }`）——捕获块体，镜像 indexer get body。
-                    getBody = this._p._stmtP._parseBlock(); hasGetBody = true; hasGet = true; getMods = accMods;
+                    // add-expression-bodied-members：`get => e;` 同款，脱糖成 `{ return e; }`。
+                    getBody = this._parseAccessorBody(false); hasGetBody = true; hasGet = true; getMods = accMods;
                 } else {
                     this._p._expectSemi();   // auto property（`get;` / `set;`）
                     if (acc == "get") { hasGet = true; getMods = accMods; }
@@ -276,6 +288,25 @@ public sealed class MemberParser {
         PropertyDecl pd = new PropertyDecl(mods, type, name, hasGet, getMods, hasSet, setMods, hasInit, init, sp);
         if (hasGetBody) { pd.HasGetBody = true; pd.GetBody = getBody; }
         return pd;
+    }
+
+    // 访问器体：块 `{ ... }` 或表达式体 `=> e;`（add-expression-bodied-members）。
+    private Stmt _parseAccessorBody(bool isVoid) {
+        if (this._p._peek().Kind == TokenKind.FatArrow) { return this._parseArrowBody(isVoid); }
+        return this._p._stmtP._parseBlock();
+    }
+
+    // 表达式体 `=> expr;`（当前 token 是 `=>`）脱糖成单语句块：非 void → `{ return expr; }`，
+    // void → `{ expr; }`。方法 / 属性 / 索引器共用 ⇒ 下游只见块体，零新 AST 节点。
+    private Stmt _parseArrowBody(bool isVoid) {
+        this._p._advance();   // =>
+        Span esp = this._p._peek().Span;
+        Expr ev = this._p._exprP._parseExpr(0);
+        this._p._expectSemi();
+        Stmt[] one = new Stmt[1];
+        if (isVoid) { one[0] = new ExprStmt(ev, esp); }
+        else { one[0] = new ReturnStmt(true, ev, esp); }
+        return new BlockStmt(one, 1, esp);
     }
 
     public ParamList _parseParamList() {
@@ -396,17 +427,9 @@ public sealed class MemberParser {
         Stmt body = new BlockStmt(new Stmt[0], 0, sp);
         if (this._p._peek().Kind == TokenKind.LBrace) { body = this._p._stmtP._parseBlock(); hasBody = true; }
         else if (this._p._peek().Kind == TokenKind.FatArrow) {
-            // 表达式体 `=> expr;`（此前未处理 → hasBody=false → 函数被丢弃）。非 void → `return expr;`；
-            // void → `expr;`（ExprStmt）。包成单语句 block 体，下游统一走 block 路径。
-            this._p._advance();   // =>
-            Span esp = this._p._peek().Span;
-            Expr ev = this._p._exprP._parseExpr(0);
-            this._p._expectSemi();
+            // 表达式体 `=> expr;`（此前未处理 → hasBody=false → 函数被丢弃）。
             bool isVoid = !isCtor && retType is NamedType && (retType as NamedType).Name == "void";
-            Stmt[] one = new Stmt[1];
-            if (isVoid) { one[0] = new ExprStmt(ev, esp); }
-            else { one[0] = new ReturnStmt(true, ev, esp); }
-            body = new BlockStmt(one, 1, esp);
+            body = this._parseArrowBody(isVoid);
             hasBody = true;
         }
         else { this._p._expectSemi(); }

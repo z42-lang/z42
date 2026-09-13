@@ -1,0 +1,72 @@
+// add-expression-bodied-members：表达式体属性 `T P => e;`、访问器 `get => e;`、
+// 索引器 `T this[..] => e;` 与 `get/set => e;`。全部脱糖成块体访问器，语义与块体逐一对照。
+
+public interface INamed { string Name { get; } }
+
+public abstract class Shape : INamed {
+    public abstract string Name { get; }
+    public virtual int Sides => 0;
+    public string Label => Name + "/" + Sides;          // 类内裸名引用另一属性（走虚派发）
+}
+
+public class Tri : Shape {
+    public override string Name => "Tri";
+    public override int Sides => 3;
+}
+
+public class Box {
+    public int n;
+    public int Doubled => this.n * 2;
+    public bool Big { get => this.n > 10; }
+    public int Plus => Doubled + 1;                       // 裸名 = this.Doubled
+}
+
+public class Holder<T> {
+    T v;
+    public Holder(T x) { v = x; }
+    public T Val => v;
+}
+
+public struct P2 {
+    public int X; public int Y;
+    public P2(int x, int y) { X = x; Y = y; }
+    public int Sum => X + Y;
+}
+
+public class Grid {
+    int[] d;
+    public Grid() { d = new int[4]; }
+    public int this[int i] { get => d[i]; set => d[i] = value; }
+}
+
+public class RoGrid {
+    int[] d;
+    public RoGrid() { d = new int[3]; d[1] = 7; }
+    public int this[int i] => d[i];
+}
+
+void Main() {
+    Shape s = new Tri();
+    INamed named = s;
+    Assert.Equal("Tri", s.Name);                 // override 实现抽象属性
+    Assert.Equal("Tri", named.Name);             // 经接口派发
+    Assert.Equal(3, s.Sides);                    // override 虚属性
+    Assert.Equal("Tri/3", s.Label);
+
+    Box b = new Box();
+    b.n = 21;
+    Assert.Equal(42, b.Doubled);
+    Assert.True(b.Big);
+    Assert.Equal(43, b.Plus);
+    b.n = 5;
+    Assert.Equal(10, b.Doubled);                 // 每次读取重算（无后备存储）
+    Assert.False(b.Big);
+
+    Assert.Equal("g", new Holder<string>("g").Val);
+    Assert.Equal(3, new P2(1, 2).Sum);
+
+    Grid g = new Grid();
+    g[2] = 9;                                    // set => 体
+    Assert.Equal(9, g[2]);                       // get => 体
+    Assert.Equal(7, new RoGrid()[1]);
+}

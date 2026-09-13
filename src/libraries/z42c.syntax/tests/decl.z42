@@ -199,6 +199,32 @@ void test_computed_property_getter() {
                  parseUnit("class C { public int A { get; } }"));
 }
 
+// add-expression-bodied-members：`T P => e;` 与 `get => e;` 必须脱糖成与 `get { return e; }`
+// **逐字相同**的 AST（下游零新路径的依据）；此前 `=>` 落进字段分支 ⇒ E0202 连环。
+[Test]
+void test_expression_bodied_property() {
+    string block = parseUnit("class C { public int D { get { return this.n * 2; } } }");
+    Assert.Equal(block, parseUnit("class C { public int D => this.n * 2; }"));
+    Assert.Equal(block, parseUnit("class C { public int D { get => this.n * 2; } }"));
+    Assert.Equal("", parseErrorCodes("class C { public int D => this.n * 2; }"));
+    // 修饰符原样保留（override / abstract 基类属性的实现位）
+    Assert.Equal(parseUnit("class C { public override string Name { get { return \"c\"; } } }"),
+                 parseUnit("class C { public override string Name => \"c\"; }"));
+    // 表达式体方法不受影响（仍是方法，不被误判成属性）
+    Assert.Equal("(unit (class C (method public int F () (block (return 1)))))",
+                 parseUnit("class C { public int F() => 1; }"));
+}
+
+// add-expression-bodied-members：索引器 `=> e;` 与访问器 `get => e;` / `set => e;` 无诊断。
+// （indexer 的 Dump 不含体，行为由 src/tests/types/expression_bodied_members.z42 断言。）
+[Test]
+void test_expression_bodied_indexer() {
+    Assert.Equal("", parseErrorCodes("class C { int[] d; public int this[int i] => this.d[i]; }"));
+    Assert.Equal("", parseErrorCodes("class C { int[] d; public int this[int i] { get => this.d[i]; set => this.d[i] = value; } }"));
+    // 缺分号仍报错（`=>` 体必须 `;` 结尾）
+    Assert.Equal("E0202", parseErrorCodes("class C { public int D => 1 }"));
+}
+
 [Test]
 void test_generic_type_decl() {
     Assert.Equal("(unit (class Box<T> (field private T value)))",

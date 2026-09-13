@@ -2,6 +2,6 @@
 # 名单内编不过 = 响亮打印但不阻断；**名单内却编过了 = 红**，请删掉该行。
 # 每条后面注明卡在哪个 z42 尚不支持的构造 —— 它们都是照 C# 写的、从没被编译过。
 exceptions.z42   # catch ... when (cond) 异常过滤器
-generics.z42     # 表达式体属性 `T P => e;`
-oop.z42          # 表达式体属性 `T P => e;`
+generics.z42     # 空容忍后缀 `_value!` + 泛型类型限定静态调用 `Option<int>.Some(..)` + `new[] { .. }`
+oop.z42          # `return default;` + 插值格式说明 `{Area():F2}` + 三元里的 target-typed `new(..)`
 patterns.z42     # 无参无体类 `class X;` + 模式组合子 `and`
