@@ -36,6 +36,8 @@ pub(super) fn obj_new(
     // cache-ctorless-objnew: per-site mark; see `ResolvedTokens::ctorless_marks`.
     ctorless_mark: Option<&std::sync::atomic::AtomicUsize>,
     stack_alloc: bool,
+    // encode-ctorless-objnew: compile-time positive marker; see `missing_ctor_exception`.
+    ctor_known: bool,
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
     // L3-G4d: for imported classes (e.g. Std.Collections.Stack) the TypeDesc
@@ -191,7 +193,7 @@ pub(super) fn obj_new(
                 // 站点 ③ fix-silent-symbol-resolution：带实参却解析不到构造器 = 定案缺失，
                 // 不能照常把「未经构造」的对象写进 dst（字段全零值，错误现场离根因十万八千里）。
                 if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
-                    ctx, module, class_name, ctor_name, args.len(),
+                    ctx, module, class_name, ctor_name, args.len(), ctor_known,
                 ) {
                     return Ok(Some(exc));
                 }

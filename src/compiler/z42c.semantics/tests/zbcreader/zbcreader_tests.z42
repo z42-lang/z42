@@ -56,6 +56,74 @@ void test_roundtrip_class_and_fields() {
         "rt3.z42");
 }
 
+// encode-ctorless-objnew（zbc 1.39）：`ObjNew.CtorKnown` 的**置位态**必须往返。
+//
+// 上面那条 obj_new 往返只覆盖 `CtorKnown == false`（`IrDump.BuildModuleD` 是单模块路径，
+// 不经整包装配，`CtorKnownFixup` 不跑 ⇒ 位恒 0）。而漏写 reader 的那一字节时，位为 0 的
+// 语料**照样往返通过**——尾字节全是 00，读少一个也对得上。故必须专门把位置成 1 再往返。
+[Test]
+void test_roundtrip_objnew_ctor_known_bit() {
+    CompiledModuleZ cm = IrDump.BuildModuleD("namespace T;\n"
+        + "public class Q {\n"
+        + "    public int X;\n"
+        + "    public Q(int x) { this.X = x; }\n"
+        + "}\n"
+        + "int Use() { var q = new Q(3); return q.X; }\n",
+        "rtck.z42", null, null);
+    Assert.Equal(0, cm.ErrorCount);
+    IrModule m1 = cm.Module;
+    // 手工置位（模拟装配期 fixup），并确认语料里确实有 ObjNew 可置——否则这条是空门。
+    int marked = 0;
+    int fi = 0;
+    while (fi < m1.FuncCount) {
+        IrFunction f = m1.Functions[fi];
+        int bi = 0;
+        while (bi < f.BlockCount) {
+            IrBlock b = f.Blocks[bi];
+            int ii = 0;
+            while (ii < b.InstrCount) {
+                if (b.Instrs[ii] is ObjNewInstr) {
+                    ObjNewInstr o = b.Instrs[ii] as ObjNewInstr;
+                    o.CtorKnown = true;
+                    marked = marked + 1;
+                }
+                ii = ii + 1;
+            }
+            bi = bi + 1;
+        }
+        fi = fi + 1;
+    }
+    Assert.True(marked > 0);
+
+    string hex1 = ZbcWriter.WriteHex(m1);
+    byte[] bytes = ZbcWriter.Write(m1).ToBytes();
+    IrModule m2 = ZbcReader.Read(bytes);
+    Assert.True(m2 != null);
+    Assert.Equal(hex1, ZbcWriter.WriteHex(m2));
+
+    // 往返相等还不够：位可能两侧都丢。直接断言解码回来的那条指令带着位。
+    int seen = 0;
+    int gi = 0;
+    while (gi < m2.FuncCount) {
+        IrFunction f2 = m2.Functions[gi];
+        int bj = 0;
+        while (bj < f2.BlockCount) {
+            IrBlock b2 = f2.Blocks[bj];
+            int ij = 0;
+            while (ij < b2.InstrCount) {
+                if (b2.Instrs[ij] is ObjNewInstr) {
+                    Assert.True((b2.Instrs[ij] as ObjNewInstr).CtorKnown);
+                    seen = seen + 1;
+                }
+                ij = ij + 1;
+            }
+            bj = bj + 1;
+        }
+        gi = gi + 1;
+    }
+    Assert.Equal(marked, seen);
+}
+
 // 数组：new/lit/get/set/len（elem tag+FQ 名操作数）。
 [Test]
 void test_roundtrip_arrays() {

@@ -1,12 +1,12 @@
 # 属性与索引器（成员访问器）
 
-> 对齐日期：2026-08-18 · 计算属性 getter：change `add-property-getter`（2026-08-18）· 索引器多维使用侧：change `add-multidim-indexer`（2026-08-11）
+> 对齐日期：2026-09-13 · 表达式体成员：change `add-expression-bodied-members`（2026-09-13）· 计算属性 getter：change `add-property-getter`（2026-08-18）· 索引器多维使用侧：change `add-multidim-indexer`（2026-08-11）
 
 成员访问器让字段式 / 下标式语法背后跑用户逻辑，语义与 C# 一致：
 
 | 访问器 | 声明 | 使用 | lower 成 |
 |--------|------|------|---------|
-| **属性（property）** | `T Name { get; set; }`（auto）/ `T Name { get { ... } }`（计算） | `obj.Name` / `obj.Name = v` | `get_Name()` / `set_Name(v)`（auto 另合成后备字段 `__prop_Name`；计算 getter 无后备字段） |
+| **属性（property）** | `T Name { get; set; }`（auto）/ `T Name { get { ... } }` 或 `T Name => e;`（计算） | `obj.Name` / `obj.Name = v` | `get_Name()` / `set_Name(v)`（auto 另合成后备字段 `__prop_Name`；计算 getter 无后备字段） |
 | **索引器（indexer）** | `T this[P...] { get {...} set {...} }` | `obj[i]` / `obj[i] = v` | `get_Item(...)` / `set_Item(..., v)` |
 
 两者都在编译期 lower 成普通实例方法（镜像 C# 的 `get_X`/`set_X`、`get_Item`/`set_Item`），
@@ -52,10 +52,35 @@ public class Box {
 // b.Doubled 每次按当前 n 重算；无 __prop_Doubled 后备字段。
 ```
 
-- **get-only**：本特性只支持计算 `get { ... }`；`set { ... }`（计算 setter）尚未支持。
+- **get-only**：本特性只支持计算 `get { ... }` / `get => e;`；`set { ... }`（计算 setter）尚未支持。
 - **auto vs 计算的区分**：`get;`（分号）= auto-property（合成后备字段）；`get { ... }`（块体）=
   计算属性（无后备字段，getter 是真实函数体）。
 - getter 体内可访问 `this`、本类字段、其它属性（`this.Doubled` 派发到 `get_Doubled`）。
+
+### 表达式体属性（`=> e;`，add-expression-bodied-members）
+
+只读计算属性可写成表达式体，语义与 C# 一致：
+
+```z42
+public class Box {
+    public int n;
+    public int Doubled => this.n * 2;          // ≡ { get { return this.n * 2; } }
+    public bool Big { get => this.n > 10; }    // 访问器级表达式体，同上
+}
+public class Tri : Shape {
+    public override string Name => "Tri";      // 实现抽象 / 接口属性
+}
+```
+
+- **纯 parser 脱糖**：`T P => e;` 与 `T P { get => e; }` 在 `MemberParser` 里直接产出与
+  `T P { get { return e; } }` **逐字相同**的 `PropertyDecl`（`HasGetBody` + 单语句 `return` 块），
+  下游（符号收集 / 体绑定 / IrGen / 跨包导出）没有任何新路径——parser 单测以 AST dump 相等断言这一点。
+- 与表达式体**方法** `int F() => 1;` 靠成员名后的下一个 token 区分：`(` → 方法，`=>` → 属性。
+- 方法 / 属性 / 索引器共用同一个 `_parseArrowBody`：非 void → `{ return e; }`，void 访问器（索引器
+  `set`）→ `{ e; }`。
+- ⚠️ **静态属性**（任何写法：auto、`get { ... }`、`=> e;`）目前**不受支持**且编译期不报错——使用位按不存在的
+  静态字段发码，运行期抛 `MissingSymbolException`。已登记为独立 change 待修（见
+  `docs/spec/archive/2026-09-13-add-expression-bodied-members/tasks.md`「发现的既有 bug」）。
 
 ### 机制：后备字段 + get_X / set_X
 
@@ -109,6 +134,8 @@ public class Matrix {
 
 - 参数个数任意（单维 `this[int i]`、多维 `this[int r, int c]`、更多）。
 - 键类型任意（`int` / `string` / 用户类型 …）；`this[string k]` 即字典式索引。
+- **表达式体**（add-expression-bodied-members）：只读索引器可写 `T this[int i] => e;`；访问器也可写
+  `get => e;` / `set => this.d[i] = value;`（set 脱糖成 `{ e; }`）。
 - `get` 体返回索引器类型；`set` 体内用 `value` 引用被写入的值。
 - 泛型类可声明泛型返回类型的索引器（如 `T this[int i]`）。
 
@@ -158,7 +185,7 @@ arr[i]           （arr 是数组）                  → BoundIndex（原生数
 | 访问语法 | `obj.Name` | `obj[i]` / `obj[a, b]` |
 | 命名 | 每个属性独立名 `X` | 固定 `Item`（一类唯一） |
 | 参数 | 无 | 1..N 个下标 |
-| 访问器体 | auto（`get;`/`set;`）；计算 getter `get {...}`（get-only，无计算 set） | 支持自定义 `get {...}` / `set {...}` |
+| 访问器体 | auto（`get;`/`set;`）；计算 getter `get {...}` / `get => e;` / `T X => e;`（get-only，无计算 set） | 自定义 `get`/`set`，块体或 `=> e;`；只读可 `T this[..] => e;` |
 | 后备字段 | auto 合成 `__prop_X`；计算 getter 无 | 无（体自行管理存储） |
 | lower 成 | `get_X` / `set_X` | `get_Item` / `set_Item` |
 
@@ -166,10 +193,11 @@ arr[i]           （arr 是数组）                  → BoundIndex（原生数
 
 ## 相关文档
 
+- 表达式体成员引入：change `add-expression-bodied-members`（`docs/spec/archive/2026-09-13-add-expression-bodied-members`）
 - 计算属性 getter 引入：change `add-property-getter`（`docs/spec/archive/2026-08-18-add-property-getter`）
 - 索引器多维使用侧引入：change `add-multidim-indexer`（`docs/spec/archive/2026-08-11-add-multidim-indexer`）
 - 编译器错误码：[错误码体系](../compiler/error-codes.md)
 - 示例：`examples/indexer.z42`（单维 string 键 + 多维矩阵）、`examples/oop.z42`（接口属性）
 - 测试：`src/tests/classes/auto_property.z42`（auto 属性）、`src/tests/types/computed_property.z42`
-  （计算属性 getter）、`src/libraries/z42c.syntax/tests/decl/decl_tests.z42` `test_computed_property_getter`
+  （计算属性 getter）、`src/tests/types/expression_bodied_members.z42`（表达式体属性/索引器）、`src/libraries/z42c.syntax/tests/decl/decl_tests.z42` `test_computed_property_getter`
   （parser golden）、`indexer_basic.z42`（单维泛型索引器）、`indexer_multidim.z42`（多维索引器）

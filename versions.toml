@@ -21,7 +21,7 @@
 # detection）。
 #
 # 字段约定：
-#   version 用字符串（"26.3.11579264" / "20"）；
+#   version 用字符串（"30.0.16248370" / "22"）；
 #   tier 用字符串 "tier1" / "tier2" / "tier3"（rust platform-support 约定）；
 #   url 模板里的 {os} = darwin / linux / windows（setup-tools.sh 替换）。
 
@@ -74,22 +74,24 @@ install_root = "artifacts/tools/android-sdk"
 # 实际安装走 sdkmanager（`--install ndk;<version>`），sdkmanager 对照 Google
 # repository manifest 自校验下载——无需仓库层 sha256。下面 url/sha256 仅供未来
 # 直接下载的 setup-tools.sh 使用（当前 install 路径不读）。
-version = "26.3.11579264"
-release = "r26d"                        # Google release 别名（URL 用它）
-url     = "https://dl.google.com/android/repository/android-ndk-r26d-{os}.zip"
-sha256  = ""                            # 保留给 setup-tools.sh（in-repo install 用 sdkmanager 自校验）
+version = "30.0.16248370"
+release = "r30"                         # Google release 别名（URL 用它）
+url     = "https://dl.google.com/android/repository/android-ndk-r30-{os}.zip"
+sha256  = ""                            # Google 只发 sha1；in-repo install 用 sdkmanager 自校验
 
 [build.android.sdk]
-platform           = "android-34"       # compileSdk
-build_tools        = "34.0.0"
-cmdline_tools_url  = "https://dl.google.com/android/repository/commandlinetools-{os}-11076708_latest.zip"
-# cmdline-tools 每 OS 一个 zip → 每 OS 一个 sha256（build 11076708；{os}=mac/linux）。
-cmdline_tools_sha256_mac   = "7bc5c72ba0275c80a8f19684fb92793b83a6b5c94d4d179fc5988930282d7e64"
-cmdline_tools_sha256_linux = "2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258"
-gradle             = "8.7"              # AGP 8.6 compatible; `deps install android-sdk` 下载
-gradle_sha256      = "544c35d6bd849ae8a5ed0bcea39ba677dc40f49df7d1835561582da2009b961d"   # OS 无关 zip（services.gradle.org 官方 .sha256）
+platform           = "android-37.0"     # compileSdk；API 37 只有 .0 有 4K 页模拟器镜像（.1/.2 仅 ps16k），且包名必须带 .0
+build_tools        = "37.0.0"             # AGP 9.4 最低 36.0.0
+cmdline_tools_url  = "https://dl.google.com/android/repository/commandlinetools-{os}-16111833_latest.zip"
+# cmdline-tools 每个 host 一个 zip → 每个 host 一个 sha256（build 16111833 = 23.0）。
+# 自 build 16111833 起 Mac 包按 CPU 拆分，{os} = mac_arm64 / mac_x86_64 / linux（旧的单一 mac 包已 404）。
+cmdline_tools_sha256_mac_arm64  = "58da8f215781cc0208743e88b65ae259780c55e7eb40e50373d377cf369232d6"
+cmdline_tools_sha256_mac_x86_64 = "7e601c04e7173754b3d051a87bb4c3a8243c65a9d7bfa9356ed6499fb8953fa3"
+cmdline_tools_sha256_linux      = "0877a1d048fe4a24efe2eff536ca4223f7adeb58648bb81909d33c446918cfa8"
+gradle             = "9.7.1"            # AGP 9.4 需要 Gradle ≥ 9.6；与 platform/gradle/wrapper 同版本；`deps install android-sdk` 下载
+gradle_sha256      = "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a"   # OS 无关 zip（services.gradle.org 官方 .sha256）
 system_image_tag   = "google_apis_playstore;arm64-v8a"   # AVD system image (Apple silicon)
-avd_name           = "z42_pixel6_api34"
+avd_name           = "z42_pixel6_api37"
 avd_device         = "pixel_6"
 
 [build.ios]
@@ -114,7 +116,7 @@ wasm_tools_min  = "1.0"     # Bytecode Alliance wasm-tools CLI (validate + print
 
 [platform.android]
 min_api      = 23                       # → build.gradle.kts minSdk
-target_api   = 34                       # → build.gradle.kts compileSdk
+target_api   = 37                       # → build.gradle.kts compileSdk
 rust_targets = ["aarch64-linux-android", "x86_64-linux-android"]
 abis         = ["arm64-v8a", "x86_64"]                         # gradle 命名（cargo ndk -t 用这套）；32-bit ABI 已退场（见 memory project_supported_platforms）
 tier         = "tier2"

@@ -1148,7 +1148,7 @@ jobs:
           if-no-files-found: error
 
   # ── Android packaging ───────────────────────────────────────────────────
-  # Packages android-arm64 + android-x64 via cargo-ndk + NDK r26d.
+  # Packages android-arm64 + android-x64 via cargo-ndk + NDK r30.
   package-android:
     name: package-android(linux-x64)
     timeout-minutes: 45
@@ -1168,11 +1168,11 @@ jobs:
       # local-cache: false — local-cache produced an incomplete ANDROID_NDK_HOME
       # (clang missing under toolchains/llvm/prebuilt/) causing libffi-sys's
       # configure to fail. Fresh download is ~2 min slower but reliable.
-      - name: Setup Android NDK r26d
+      - name: Setup Android NDK r30
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          ndk-version: r26d
+          ndk-version: r30
           local-cache: false
 
       - uses: ./.github/actions/xtask-bootstrap-artifact
@@ -1827,11 +1827,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Setup Android NDK r26d
+      - name: Setup Android NDK r30
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          ndk-version: r26d
+          ndk-version: r30
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
           cache-key: tier2-android
@@ -1869,12 +1869,12 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-api34-x86_64-google_apis
+          key: avd-api37.0-x86_64-google_apis
       - name: Create AVD snapshot (cache miss)
         if: steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: '37.0'   # API 37 packages are named android-37.0; a bare 37 resolves to a non-existent image
           arch: x86_64
           target: google_apis
           force-avd-creation: false
@@ -1886,7 +1886,7 @@ jobs:
       - name: connectedAndroidTest on emulator (R1–R7 + embedded corpus)
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: '37.0'   # API 37 packages are named android-37.0; a bare 37 resolves to a non-existent image
           arch: x86_64
           target: google_apis
           working-directory: src/toolchain/workload/android/platform

@@ -1,6 +1,6 @@
 # Tasks: xtask 测试路径转发 z42b
 
-> 状态：🟢 A/B/C/C2/D 全部落地（剩 D3 耗时对账） | 创建：2026-09-12
+> 状态：🟢 已完成 | 创建：2026-09-12 | 完成：2026-09-13
 > 规划：[proposal.md](proposal.md)（含 5.6× 实测与「直接替换会丢掉什么」清单）
 
 ## 步骤 A —— z42b 的选择与并行
@@ -161,10 +161,28 @@
       （`src/libraries` 的枚举里混着 README.md / z42.workspace.toml）。全仓核过：23 个 lib 目录
       **无一缺清单**，故这条判据不会吞掉任何库。
 
-- [ ] D3 前后耗时对账（当前 `stdlib [Test]` 1m14s / 占 gate 38%）
-      —— stdlib 那条 D1 已对过（195.17s → 193.09s，同机同并行度背靠背）；D2 没改那条路的形状。
-      ⚠ 本轮**不出耗时结论**：机器上同时跑着别的会话的构建（load ~14），按本程序的铁律
-      （同机、同并行度、背靠背、且确认空闲）不满足，数字不能拿来做取舍。
+- [x] D3 耗时对账 —— **「遗留 vs 转发」的背靠背 A/B 已不可再做**：旧引擎在 #619 删除，真正的 before
+      在 #602 之前、那棵树的编译器 / stdlib 也不同。stdlib 那条路 D1 当时已同机同并行度背靠背对过
+      （195.17s → 193.09s），D2 没改那条路的形状。本条剩下的实质是**在空闲机器上重量一份当前 gate 画像**，
+      替掉原先过期的「`stdlib [Test]` 1m14s / 占 gate 38%」（那个数与 D1 实测的 ~193s 对不上，是更早口径的遗留）。
+
+      实测（2026-09-13，main `f092b97e`，`./xtask test` 全量 GREEN；等到连续 3 次采样 load<4 且无他人
+      z42vm/cargo 占 CPU 才开跑，**前后 load 3.54 / 3.16**）：
+
+      | stage | 墙钟 | 占比 |
+      |---|---|---|
+      | stdlib [Benchmark] | 5m12s | 48% |
+      | stdlib [Test] | 3m15s | 30% |
+      | build wave (debug vm + regen) | 40.4s | 6% |
+      | compiler | 24.7s | 3% |
+      | gc modes (z42c.semantics build) | 19.8s | 3% |
+      | e2e goldens (interp; jit → vm-jit-consistency) | 17.1s | 2% |
+      | examples (compile gate + test=true run) | 12.8s | 2% |
+      | e2e cross-zpkg / manifest targets / lines / multi-exe / walkers | 6.3s / 6.0s / 1.7s / 1.1s / 0.5s | <1% |
+      | **TOTAL** | **10m38s** | |
+
+      结论：`stdlib [Test]` 3m15s 与 D1 的 193.09s 吻合，转发后这条路没有再变慢；gate 的最大头已是
+      `stdlib [Benchmark]`（近一半），后续要压 gate 墙钟应先看它，而不是测试转发。
 
 ## 备注
 

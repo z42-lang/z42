@@ -38,11 +38,11 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17+)
 ./xtask test platform android
 ```
 
-全流程(build + assets + run)。③ run 由 `AndroidBackend.RunTests` 桥接 `test.sh`：自启 headless emulator `@z42_pixel6_api34`（installer 预创建的 AVD）+ adb 等 boot 完成 + 跑 `./gradlew :z42vm:connectedAndroidTest`，退出时 `adb emu kill`。期望尾部：
+全流程(build + assets + run)。③ run 由 `AndroidBackend.RunTests` 桥接 `test.sh`：自启 headless emulator `@z42_pixel6_api37`（installer 预创建的 AVD）+ adb 等 boot 完成 + 跑 `./gradlew :z42vm:connectedAndroidTest`，退出时 `adb emu kill`。期望尾部：
 
 ```
-Starting 7 tests on z42_pixel6_api34(AVD) - 14
-Finished 7 tests on z42_pixel6_api34(AVD) - 14
+Starting 7 tests on z42_pixel6_api37(AVD) - 17
+Finished 7 tests on z42_pixel6_api37(AVD) - 17
 BUILD SUCCESSFUL
 ✅ Z42VMInstrumentedTest passed
 ```

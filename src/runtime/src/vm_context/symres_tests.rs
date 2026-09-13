@@ -79,3 +79,38 @@ fn zero_param_static_like_entry_still_bounded() {
     let a = ctor_arity(&f(0, 0, 0xFF));
     assert!(!a.accepts(1));
 }
+
+// ── 站点 ③ 的判据（encode-ctorless-objnew）──────────────────────────────────
+//
+// 钉的是「正向位缺席即保守」这条不变式：`ctor_known == false` 且零实参时必须**放行**，
+// 因为那正是 zbc 1.39 之前全部产物的形态，也是「这个类本来就没有构造器」的合法形态。
+// 判错的代价是静默跳过一个真实存在的构造器——比它要修的 bug 更坏。
+
+use super::symres::ctor_missing_is_definite;
+
+#[test]
+fn bare_alloc_empty_ctor_name_is_never_missing() {
+    // `IrLoopAllocReuse._bareObjNew` 的裸分配：空名没有指名任何构造器。
+    assert!(!ctor_missing_is_definite("", 0, false));
+    assert!(!ctor_missing_is_definite("", 0, true));
+    assert!(!ctor_missing_is_definite("", 3, true));
+}
+
+#[test]
+fn unmarked_zero_arg_site_is_let_through() {
+    // 保守态：编译期没证出来 ⇒ 与 zbc 1.39 之前逐字一致（零初始化，不抛）。
+    assert!(!ctor_missing_is_definite("Ns.C.C", 0, false));
+}
+
+#[test]
+fn marked_zero_arg_site_is_definite() {
+    // 正向位就是本 change 关掉的那个缺口：编译期确实看见过这个构造器 ⇒ 解析不到即缺失。
+    assert!(ctor_missing_is_definite("Ns.C.C", 0, true));
+}
+
+#[test]
+fn args_alone_still_decide_without_the_marker() {
+    // 并集下限：没有构造器的类不可能接受实参，与正向位无关（站点 ③ 的原判据，不得退化）。
+    assert!(ctor_missing_is_definite("Ns.C.C$1", 1, false));
+    assert!(ctor_missing_is_definite("Ns.C.C$1", 1, true));
+}

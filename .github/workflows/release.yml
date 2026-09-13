@@ -93,7 +93,7 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: release-${{ matrix.rid }}
 
-      # Android-only: cargo-ndk + NDK r26d
+      # Android-only: cargo-ndk + NDK r30
       - name: Install cargo-ndk
         if: startsWith(matrix.rid, 'android-')
         uses: taiki-e/install-action@v2
@@ -104,12 +104,12 @@ jobs:
       # ANDROID_NDK_HOME directory (clang missing under toolchains/llvm/prebuilt/),
       # causing libffi-sys's configure to fail with "C compiler cannot create
       # executables". Fresh download every run is ~2 min slower but reliable.
-      - name: Setup Android NDK r26d
+      - name: Setup Android NDK r30
         if: startsWith(matrix.rid, 'android-')
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          ndk-version: r26d
+          ndk-version: r30
           local-cache: false
 
       # wasm-only: wasm-pack + wasm-tools

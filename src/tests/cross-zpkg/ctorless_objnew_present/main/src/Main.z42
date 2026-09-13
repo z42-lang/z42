@@ -1,0 +1,14 @@
+namespace Demo.CkpApp;
+
+using Std.IO;
+using Demo.CkpTarget;
+
+// `ctorless_objnew_skew` 的**在场对照组**：同样的代码、同样的 `ctor_known = 1`，但运行期装的
+// 就是编译时那一版 ⇒ 构造器解析得到 ⇒ 照常构造。
+//
+// 没有这一条，上面那个负例可能是「恒抛」而不是「按判据抛」——门必须能证明自己有判别力。
+void Main() {
+    Gadget g = new Gadget();
+    Console.WriteLine("constructed " + g.V.ToString());
+    Console.WriteLine("after");
+}

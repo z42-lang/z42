@@ -175,7 +175,7 @@ DiagnosticBag _runFwd(string src) {
 void test_forward_member_not_on_this_field_type_reports() {
     // methodof 只保证「B.H 存在」；「它在**这个字段**的类型上」是另一件事，故单列一码。
     DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(B.H))] A _a; }"));
-    Assert.Equal(true, hasCode(d, "E0463"));
+    Assert.Equal(true, hasCode(d, "E0468"));
 }
 
 [Test]
@@ -189,13 +189,13 @@ void test_forward_overloaded_target_reports_and_points_at_partial_tier() {
 [Test]
 void test_forward_typeof_non_interface_reports() {
     DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(typeof(A))] A _a; }"));
-    Assert.Equal(true, hasCode(d, "E0463"));
+    Assert.Equal(true, hasCode(d, "E0468"));
 }
 
 [Test]
 void test_forward_bad_argument_shape_reports() {
     DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(42)] A _a; }"));
-    Assert.Equal(true, hasCode(d, "E0463"));
+    Assert.Equal(true, hasCode(d, "E0468"));
 }
 
 [Test]

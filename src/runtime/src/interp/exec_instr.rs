@@ -215,7 +215,7 @@ pub fn exec_instr(
         Instruction::ObjNew(insn) => {
             // add-escape-analysis-stack-alloc: stack_alloc forwarded to obj_new,
             // which allocates in the per-context arena when set (+ runtime-enabled).
-            let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc } = &**insn;
+            let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc, ctor_known } = &**insn;
             let _site_idx = site_idx!();
             // Hot path: pass type_token cache for repopulation. Dispatch via
             // type_registry / lazy_loader unchanged.
@@ -227,7 +227,7 @@ pub fn exec_instr(
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
                 ctx, module, frame, *dst, class_name, ctor_name, args, type_args, type_token,
-                ctorless, *stack_alloc,
+                ctorless, *stack_alloc, *ctor_known,
             )? {
                 return Ok(Some(thrown));
             }

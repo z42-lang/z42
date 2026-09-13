@@ -273,6 +273,14 @@ public static class PackageCompile {
         }
 
         // ── ⑩ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ──
+        // encode-ctorless-objnew：装配是本包**全部** IrModule 第一次同时在手的时刻（含增量 cached），
+        // 也是 `ObjNew.CtorKnown` 唯一算得准的地方——合成构造器（`_emitSynthCtor`）到这时才是一个
+        // 普通的已发射函数，而发射端那一刻它还不存在。见 `CtorKnownFixup` 的文件头注释。
+        IrModule[] irms = new IrModule[srcCount];
+        int ci = 0;
+        while (ci < srcCount) { irms[ci] = cms[ci].Module; ci = ci + 1; }
+        CtorKnownFixup.Apply(irms, srcCount, depIndex);
+
         bool isExe = inp.Kind == "exe";
         ZbcFileZ[] mods = new ZbcFileZ[srcCount];
         int i = 0;

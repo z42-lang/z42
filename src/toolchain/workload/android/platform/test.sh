@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# test.sh — Run Z42VMInstrumentedTest (R1–R7) inside the Pixel 6 API 34
-# emulator (AVD z42_pixel6_api34, created by install-android-toolchain-local.sh).
+# test.sh — Run Z42VMInstrumentedTest (R1–R7) inside the Pixel 6 API 37
+# emulator (AVD z42_pixel6_api37, created by install-android-toolchain-local.sh).
 #
 # Prereqs:
 #   1. ./scripts/install-android-toolchain-local.sh   (one-shot; SDK + NDK + AVD + Gradle)
@@ -9,7 +9,7 @@
 # This script:
 #   - Exports ANDROID_HOME / ANDROID_NDK_HOME / GRADLE_USER_HOME / JAVA_HOME
 #   - Reuses an already-running emulator if `adb devices` sees one;
-#     otherwise launches `@z42_pixel6_api34` headless in the background
+#     otherwise launches `@z42_pixel6_api37` headless in the background
 #     and traps EXIT to `adb emu kill` it on script exit.
 #   - Polls `sys.boot_completed` until the device is ready (~60s typical).
 #   - Runs `./gradlew :z42vm:connectedAndroidTest`.
@@ -46,7 +46,7 @@ done
 ADB="$ANDROID_HOME/platform-tools/adb"
 EMULATOR="$ANDROID_HOME/emulator/emulator"
 AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
-AVD_NAME="z42_pixel6_api34"
+AVD_NAME="z42_pixel6_api37"
 
 # Confirm AVD exists.
 if ! "$AVDMANAGER" list avd 2>/dev/null | awk -v want="$AVD_NAME" '/Name:/ && $2==want {found=1} END {exit !found}'; then

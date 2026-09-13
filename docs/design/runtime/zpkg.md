@@ -265,6 +265,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.41 | 2026-08-21 | [add-generic-methods](../../spec/changes/add-generic-methods/) | 耦合 inner zbc 1.36（方法级泛型 type_args：新 opcode MethodTypeArg/MethodDefault/CallGeneric/VCallGeneric；非泛型调用 byte-identical，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.42 | 2026-09-02 | [fix-generic-array-value-zero-init](../../spec/changes/fix-generic-array-value-zero-init/) | 耦合 inner zbc 1.37（ArrayNew 尾部加 type_param_kind:u8 + (type_param_index+1):u16——泛型形参数组元素携带类型参数引用，VM 运行期查 type_args 产值类型零值而非 Null；非泛型 ArrayNew byte-identical，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.43 | 2026-09-03 | [stabilize-instance-dispatch-keys](../../spec/archive/) | 耦合 inner zbc 1.38（实例/静态虚方法键 primary 裸 / 非-primary 全签名 mangle；wire 布局不变、仅键字符串，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收。（**本行系 2026-09-10 补录**，该次 bump 漏写）|
+| 0.44 | 2026-09-13 | [encode-ctorless-objnew](../../spec/archive/2026-09-13-encode-ctorless-objnew/) | 耦合 inner zbc 1.39（`ObjNew` 尾部加 `ctor_known:u8` —— 编译期整包装配后置的**正向**位，供运行期区分「构造器缺失」与「本来就无构造器」，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

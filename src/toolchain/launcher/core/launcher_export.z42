@@ -75,7 +75,7 @@ void _cmdExportAndroid(ParseResult r) {
     string versionCode = _platformStr(toml, "android", "version_code", "1");
     string versionName = _platformStr(toml, "android", "version_name", ver);
     string minSdk      = _platformStr(toml, "android", "min_sdk",      "26");
-    string targetSdk   = _platformStr(toml, "android", "target_sdk",   "34");
+    string targetSdk   = _platformStr(toml, "android", "target_sdk",   "37");
     string sdkVer      = r.GetOption("sdk-ver");
     if (sdkVer.Length == 0) { sdkVer = ver; }
 

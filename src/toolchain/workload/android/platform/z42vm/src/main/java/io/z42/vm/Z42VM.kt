@@ -51,7 +51,6 @@ class Z42VM(
      * / f64 / bool args + return. Returns the function's value (or
      * `Z42VMValue.Null` for void).
      */
-    @JvmOverloads
     fun invoke(entry: Z42VMEntry, vararg args: Z42VMValue): Z42VMValue {
         // Pack args into parallel tag + payload arrays so the JNI side
         // can memcpy straight into Z42Value structs without boxing.
