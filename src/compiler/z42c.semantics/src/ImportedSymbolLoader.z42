@@ -9,7 +9,13 @@ using Z42.IR;
 // string 值盒（StrMap 存 object，prim 不能 `as string` 下行 → 包一层）。
 public sealed class StrBox {
     public string Value;
-    public StrBox(string value) { this.Value = value; }
+    // 打包串（`a|b|c`）里的项数（perf-next-cluster）。只有经 `SymbolTable.NoteNsInto` 累积的那几张表
+    // （ClassNsAll / ClassPkgAll / FuncOriginAll）会 >1；其余单值 box 恒为 1，读它无害。
+    // 存在的理由：热路径（每个类型引用的 E0601/E0606 判据）只要「是不是只有一项」——
+    // 从串上现算要么 Split（分配数组 + N 个子串）、要么 IndexOf（单项时必须扫完整串才能确定没有分隔符），
+    // 实测两种都是 profile 前几名。写时记一次、读时读字段，才是 O(1)。
+    public int Count;
+    public StrBox(string value) { this.Value = value; this.Count = 1; }
 }
 
 // 加载产物（镜像 C# ImportedSymbols 子集）。
