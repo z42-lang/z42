@@ -151,6 +151,14 @@ pub(super) fn obj_new(
     let ctor_fn = module.func_index.get(ctor_name)
         .and_then(|&i| module.functions.get(i));
     let outcome = if let Some(ctor) = ctor_fn {
+        // 站点 ⑤ fix-ctor-arity-skew：解析**成功**也要查——裸键在版本 skew 下会命中**错的**
+        // 构造器（单构造器必是 primary、必占裸键），而 `exec_function` 不做 arity 校验。
+        if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
+            ctx, module, class_name, ctor_name,
+            crate::vm_context::symres::ctor_arity(ctor), args.len(),
+        ) {
+            return Ok(Some(exc));
+        }
         let mut ctor_args = vec![obj_val.clone()];
         ctor_args.extend(collect_args(&frame.regs, args)?);
         Some(super::exec_function(ctx, module, ctor, &ctor_args)?)
@@ -163,6 +171,13 @@ pub(super) fn obj_new(
         let mark = ctx.fn_registration_mark();
         match ctx.try_lookup_function(ctor_name) {
             Some(lazy_ctor) => {
+                // 站点 ⑤：惰性加载来的构造器同样查（跨包构造器正是 skew 的主战场）。
+                if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
+                    ctx, module, class_name, ctor_name,
+                    crate::vm_context::symres::ctor_arity(lazy_ctor.as_ref()), args.len(),
+                ) {
+                    return Ok(Some(exc));
+                }
                 let mut ctor_args = vec![obj_val.clone()];
                 ctor_args.extend(collect_args(&frame.regs, args)?);
                 Some(super::exec_function(ctx, module, lazy_ctor.as_ref(), &ctor_args)?)
