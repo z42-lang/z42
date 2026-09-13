@@ -29,13 +29,20 @@ using Z42.Build;             // IReplCompiler / ReplCompileResult（编译经门
 public static class Script {
     // 新建空会话。从 Z42_LIBS 派生编译依赖目录；DeclaredDeps 留空 → DepScan 放行全部包。
     public static ScriptState Create() {
-        // LibsDirs = Z42_LIBS 各目录（**仅静态库**）。
-        string libs = Environment.GetEnvironmentVariable("Z42_LIBS");
-        return Script.CreateWithLibs(libs != null ? libs : "");
+        // Z42_LIBS 是**单**目录（共享 libs/：stdlib + 预建包），与 z42c driver、z42b、VM 运行期同一口径，
+        // **不按 `:` 拆**：拆了会让第二段目录里的包编得过、运行期却加载不到（MissingSymbolException），
+        // 且 Windows 的 `C:\...` 会被拆成两段。
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        ScriptState s = Script.CreateWithLibs("");
+        if (libs.Length > 0) {
+            string[] dirs = new string[1]; dirs[0] = libs;
+            s.LibsDirs = dirs; s.LibsDirsN = 1;
+        }
+        return s;
     }
 
     // 显式给依赖目录（`:` 分隔）建会话，**不读环境变量**。wasm/playground 无 env 时用：
-    // 传虚拟 VFS 目录（如 "/libs"），DepScan 从 VFS 扫已挂载的 zpkg。native 的 Create 委托到此。
+    // 传虚拟 VFS 目录（如 "/libs"），DepScan 从 VFS 扫已挂载的 zpkg。native 的 Create 委托到此（再改写 LibsDirs）。
     public static ScriptState CreateWithLibs(string libsCsv) {
         ScriptState s = new ScriptState();
         // perf ②：不再建会话磁盘目录——carry-forward 改为 CachedScan 的内存增量并入（见 Eval）。
