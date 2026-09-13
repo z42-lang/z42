@@ -59,7 +59,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         (field_prim_kind(self.func, *dst), hoisted)
                     {
                         use cranelift_codegen::ir::condcodes::IntCC;
-                        let bad = self.builder.ins().icmp_imm(IntCC::SignedLessThan, off, 0);
+                        let bad = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, off, 0);
                         let fb_blk = self.builder.create_block();
                         let native_blk = self.builder.create_block();
                         let cont_blk = self.builder.create_block();
@@ -77,7 +77,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         // native byte load at bytes_ptr+off, widen per field type, store reg.
                         self.builder.switch_to_block(native_blk);
                         let elem_addr = self.builder.ins().iadd(bytes_ptr, off);
-                        let raw = self.builder.ins().load(fk.load_ty, MemFlags::trusted(), elem_addr, 0);
+                        let raw = self.builder.ins().load(fk.load_ty, MemFlagsData::trusted(), elem_addr, 0);
                         let payload = match fk.ext {
                             FieldExt::Sext  => self.builder.ins().sextend(types::I64, raw),
                             FieldExt::Uext  => self.builder.ins().uextend(types::I64, raw),
@@ -98,7 +98,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         // No write barrier (read only). `off < 0` (non-object receiver /
                         // null / field-not-found / side-table ref / struct root) → helper.
                         use cranelift_codegen::ir::condcodes::IntCC;
-                        let bad = self.builder.ins().icmp_imm(IntCC::SignedLessThan, off, 0);
+                        let bad = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, off, 0);
                         let fb_blk = self.builder.create_block();
                         let native_blk = self.builder.create_block();
                         let null_blk = self.builder.create_block();
@@ -119,8 +119,8 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         self.builder.switch_to_block(native_blk);
                         let dst_addr = reg_addr(self.builder, self.regs_base, *dst);
                         let elem_addr = self.builder.ins().iadd(bytes_ptr, off);
-                        let raw = self.builder.ins().load(types::I64, MemFlags::trusted(), elem_addr, 0);
-                        let is_null = self.builder.ins().icmp_imm(IntCC::Equal, raw, 0);
+                        let raw = self.builder.ins().load(types::I64, MemFlagsData::trusted(), elem_addr, 0);
+                        let is_null = self.builder.ins().icmp_imm_s(IntCC::Equal, raw, 0);
                         self.builder.ins().brif(is_null, null_blk, &[], store_blk, &[]);
                         // 0 sentinel → Value::Null (tag alone; prior slot is Drop-free Ref).
                         self.builder.switch_to_block(null_blk);
@@ -155,7 +155,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         (field_prim_kind(self.func, *val), hoisted)
                     {
                         use cranelift_codegen::ir::condcodes::IntCC;
-                        let bad = self.builder.ins().icmp_imm(IntCC::SignedLessThan, off, 0);
+                        let bad = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, off, 0);
                         let fb_blk = self.builder.create_block();
                         let native_blk = self.builder.create_block();
                         let cont_blk = self.builder.create_block();
@@ -176,7 +176,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                         if fk.ext == FieldExt::Float {
                             // f64 field: store the 8-byte payload verbatim.
                             let v = load_payload(self.builder, val_addr, types::F64);
-                            self.builder.ins().store(MemFlags::trusted(), v, elem_addr, 0);
+                            self.builder.ins().store(MemFlagsData::trusted(), v, elem_addr, 0);
                         } else {
                             // integer field: take the low `width` bytes of the i64 payload
                             // (ireduce = the same truncation `encode_prim`'s `as uN` does).
@@ -186,7 +186,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                             } else {
                                 self.builder.ins().ireduce(fk.load_ty, v64)
                             };
-                            self.builder.ins().store(MemFlags::trusted(), to_store, elem_addr, 0);
+                            self.builder.ins().store(MemFlagsData::trusted(), to_store, elem_addr, 0);
                         }
                         self.builder.ins().jump(cont_blk, &[]);
                         self.builder.switch_to_block(cont_blk);

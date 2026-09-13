@@ -54,12 +54,12 @@ dhat = { version = "0.3", optional = true }
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"   # JSON interchange format (legacy .z42ir.json)
-toml = "0.8"       # z42.toml project manifest format
-bincode = "1"      # compact binary format (.zbc)
+toml = "1"         # z42.toml project manifest format
+bincode = "2"      # compact binary format (.zbc)
 
 # Error handling
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 
 # Bitflags (used by metadata::test_index for TestFlags; spec R1)
 bitflags = "2"
@@ -117,15 +117,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 #   `system` feature — bundled build keeps the toolchain identical across
 #   host and cross-compile targets at the cost of a one-time first build.
 libffi     = { version = "5.1", optional = true }
-libloading = { version = "0.8", optional = true }
+libloading = { version = "0.9", optional = true }
 z42-abi    = { path = "crates/z42-abi" }
 
 # JIT backend — Cranelift (optional; enabled via `jit` feature)
-cranelift-codegen = { version = "0.115", features = ["unwind"], optional = true }
-cranelift-frontend = { version = "0.115", optional = true }
-cranelift-jit      = { version = "0.115", optional = true }
-cranelift-module   = { version = "0.115", optional = true }
-cranelift-native   = { version = "0.115", optional = true }
+cranelift-codegen = { version = "0.135", features = ["unwind"], optional = true }
+cranelift-frontend = { version = "0.135", optional = true }
+cranelift-jit      = { version = "0.135", optional = true }
+cranelift-module   = { version = "0.135", optional = true }
+cranelift-native   = { version = "0.135", optional = true }
 
 [features]
 # 2026-05-07 add-runtime-feature-flags (P4.1):
@@ -184,11 +184,11 @@ android              = ["interp-only", "aot", "native-interop", "bundled-compres
 # getrandom excluded from wasm32: requires the `js` feature for
 # wasm32-unknown-unknown; our crypto.rs cfg-gates that path to throw
 # NotSupportedException instead (add-csprng-wasm-bridge follow-up).
-getrandom = "0.2"
+getrandom = "0.4"
 # add-net-socket-options-extended (2026-05-30): cross-platform setsockopt
 # for SO_REUSEADDR / SO_KEEPALIVE. Rust networking working group crate;
 # only deps libc on Unix; ships Winsock bindings on Windows.
-socket2 = { version = "0.5", features = ["all"] }
+socket2 = { version = "0.6", features = ["all"] }
 # add-z42-net-tls (2026-06-03): pure-Rust TLS for Std.Net (HTTPS in
 # HttpClient + raw TlsClient). rustls with the `ring` crypto backend
 # (no OpenSSL / no aws-lc-rs C-toolchain dependency → identical build
@@ -197,7 +197,7 @@ socket2 = { version = "0.5", features = ["all"] }
 # with zero host trust-store wiring. tls12 enabled for broad endpoint
 # compatibility.
 rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-webpki-roots = "0.26"
+webpki-roots = "1"
 # REPL line editor: rustyline was extracted into the host-only cdylib
 # `crates/z42-repl` (libz42_repl), dlopen'd lazily by `corelib::repl_native`.
 # The core z42vm crate no longer links rustyline (or its ~19 transitive crates);
@@ -213,11 +213,11 @@ libc = "0.2"
 signal-hook-registry = "1.4"
 
 [dev-dependencies]
-jsonschema = { version = "0.20", default-features = false }
+jsonschema = { version = "0.56", default-features = false }
 z42-rs     = { path = "crates/z42-rs" }
 # html_reports pulls the whole plotters subtree (SVG/area/line series); CI bench
 # jobs read the numeric output, never the HTML — drop it to lighten bench builds.
-criterion  = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+criterion  = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 # loom: deterministic interleaving model checker for the concurrent-GC handshake.
 # Only compiled under `--cfg loom` (RUSTFLAGS='--cfg loom' cargo test --test
@@ -239,10 +239,11 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 # The patched behavior is needed by the `Cmd::Replace(WholeLine, ..)` path that the REPL's
 # `}` auto-dedent + Backspace-floor use for a variable-width delete+insert on the current
 # line; unpatched, the cursor homes to column 0 after the replace (breaking `} else {`).
-# One-commit fork of kkawakam/rustyline v14.0.0; also filed upstream — drop this patch once
-# it merges. See docs/spec/changes/add-repl-rbrace-floor/design.md Decision 2.
+# One-commit fork of kkawakam/rustyline v18.0.1 (the same commit earlier sat on v14.0.0;
+# upstream 18.0.1 still lacks it); also filed upstream — drop this patch once it merges.
+# See docs/spec/changes/add-repl-rbrace-floor/design.md Decision 2.
 [patch.crates-io]
-rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-insert-text-cursor" }
+rustyline = { git = "https://github.com/z42-lang/rustyline", branch = "z42-edit-insert-text-cursor-v18" }
 
 [[bench]]
 name = "smoke_bench"

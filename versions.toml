@@ -46,7 +46,7 @@ version = "0.6.0"                       # → Cargo.toml [workspace.package].ver
 
 [toolchain.rust]
 channel     = "stable"
-min_version = "1.87"                    # MSRV；edition 2024 requires 1.85+; 1.87 is stable as of 2026-05; scripts/_lib/versions.sh::versions_check_rust 校它
+min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+（2026-09 依赖升级）; scripts/install/xtask_install.z42 的 rust 检查校它
 components  = ["rustfmt", "clippy"]
 # rust_targets 由各 [platform.*] 汇总（cross-compile 时各 build.sh 单装单平台）
 

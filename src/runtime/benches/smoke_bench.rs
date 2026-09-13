@@ -11,7 +11,9 @@
 //! - `interp_bench.rs`   — interp dispatch loop, call overhead (planned)
 //! - `decoder_bench.rs`  — .zbc decoding throughput (planned)
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 
 /// Pure Rust baseline: tight wrapping_add loop.
 /// Acts as a "criterion sanity check" — should be ~ns per iteration.

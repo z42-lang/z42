@@ -294,7 +294,7 @@ fn check_method(m: &ImplItemFn) -> Result<(), syn::Error> {
             "z42::methods does not support async fns in C3",
         ));
     }
-    if m.sig.unsafety.is_some() {
+    if matches!(m.sig.safety, syn::Safety::Unsafe(_)) {
         return Err(syn::Error::new(
             m.sig.span(),
             "z42::methods does not support `unsafe fn` in C3",

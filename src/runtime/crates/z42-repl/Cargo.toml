@@ -20,6 +20,6 @@ crate-type = ["cdylib", "rlib"]
 # core VM is the whole point (dependency isolation). The `}` auto-dedent + Backspace-floor
 # need `edit_insert_text` to advance the cursor; a `[patch.crates-io]` fork supplies that
 # (declared at the workspace root, src/runtime/Cargo.toml — see add-repl-rbrace-floor).
-rustyline = "14"
+rustyline = "18"
 
 # Profile lives at workspace root (src/runtime/Cargo.toml); one here is ignored.
