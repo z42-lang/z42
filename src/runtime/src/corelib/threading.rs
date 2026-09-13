@@ -100,14 +100,20 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// duration. add-thread-sleep (2026-05-27). Negative values saturate to 0
 /// (matches BCL `Thread.Sleep`). Backed by `std::thread::sleep` (POSIX
 /// `nanosleep`); ms precision is sufficient for the scripting use case.
-pub fn builtin_thread_sleep(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn builtin_thread_sleep(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let millis = match args.first() {
         Some(Value::I64(n)) => *n,
         Some(other) => bail!("__thread_sleep: expected i64 millis, got {:?}", other),
         None        => bail!("__thread_sleep: missing millis argument"),
     };
     let clamped = if millis < 0 { 0u64 } else { millis as u64 };
-    std::thread::sleep(std::time::Duration::from_millis(clamped));
+    // fix-sync-primitives-gc-park：睡眠期间到不了 safepoint ⇒ 并发 GC 的停顿被拉长到**整个睡眠
+    // 时长**（`Thread.Sleep(60000)` 就是卡 GC 一分钟；poll 循环里则是持续拖累）。
+    // 与 recv/join 不同，这条不是永久死锁，但同属「阻塞期间必须让出 safepoint」。
+    {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        std::thread::sleep(std::time::Duration::from_millis(clamped));
+    }
     Ok(Value::Null)
 }
 

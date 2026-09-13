@@ -148,7 +148,9 @@ pub fn builtin_mutex_lock_acquire(ctx: &VmContext, args: &[Value]) -> Result<Val
     // `profile-contention` feature, a `try_lock` first tells us whether the
     // acquire was contended (lock already held) and, if so, times the blocking
     // wait. The default build compiles this out entirely → plain `arc.lock()`.
-    let guard = contended_lock(ctx, &arc);
+    // fix-sync-primitives-gc-park：争用时 `lock()` 会阻塞 ⇒ 必须让出 GC safepoint
+    // （同 #598/#600；判据见 gc/safepoint.rs 的 NativeParkGuard）。
+    let guard = { let _park = crate::gc::NativeParkGuard::enter(ctx); contended_lock(ctx, &arc) };
     let cloned = (*guard).clone();
     // Forget the guard so it does NOT drop and unlock at end of scope.
     std::mem::forget(guard);
@@ -265,9 +267,14 @@ pub fn builtin_channel_send(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // Registry lock released before potentially-blocking send (bounded
     // case must not hold the registry lock or concurrent recv/close paths
     // would deadlock).
-    let send_result = match handle {
-        SendHandle::Unbounded(tx) => tx.send(val).map_err(|_| ()),
-        SendHandle::Bounded(tx)   => tx.send(val).map_err(|_| ()),
+    // fix-sync-primitives-gc-park：**有界**通道队满时 `send` 会阻塞等消费者 ⇒ 与 Recv 对称的
+    // 死锁面（消费者先触发 GC，生产者正阻塞着）。无界分支不会阻塞，但同走一条路无妨。
+    let send_result = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        match handle {
+            SendHandle::Unbounded(tx) => tx.send(val).map_err(|_| ()),
+            SendHandle::Bounded(tx)   => tx.send(val).map_err(|_| ()),
+        }
     };
     send_result.map_err(|_| anyhow!("__channel_send: channel {slot} disconnected"))?;
     Ok(Value::Null)
@@ -295,11 +302,18 @@ pub fn builtin_channel_recv(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // a concurrent `__channel_send` takes the registry lock, clones the
     // Sender, drops the registry lock, and sends — so we don't block
     // each other.
-    let rx_guard = rx_arc.lock()
-        .map_err(|_| anyhow!("__channel_recv: receiver mutex poisoned"))?;
-    let arr = match rx_guard.recv() {
-        Ok(v)  => vec![Value::I64(TRY_RECV_OK), v],
-        Err(_) => vec![Value::I64(TRY_RECV_DISCONNECTED)],
+    // 🔴 fix-sync-primitives-gc-park：**这是最危险的一个** —— `Recv()` 阻塞等生产者，
+    // 是生产者/消费者的标准写法。生产者在 `Send` 之前只要触发 GC，消费者正阻塞着、
+    // 到不了 safepoint ⇒ GC 永远等不到它 ⇒ 生产者也就永远发不出来。与 `Thread.Join`
+    // 同构的死锁（#600）。内层 `rx_arc.lock()`（串行化并发 Recv）同样会阻塞，一并圈入。
+    let arr = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        let rx_guard = rx_arc.lock()
+            .map_err(|_| anyhow!("__channel_recv: receiver mutex poisoned"))?;
+        match rx_guard.recv() {
+            Ok(v)  => vec![Value::I64(TRY_RECV_OK), v],
+            Err(_) => vec![Value::I64(TRY_RECV_DISCONNECTED)],
+        }
     };
     Ok(ctx.heap().alloc_array(arr))
 }
@@ -405,7 +419,8 @@ pub fn builtin_rwlock_read_acquire(ctx: &VmContext, args: &[Value]) -> Result<Va
     // We mem::forget the guard so it doesn't unlock at scope end and
     // pair release with `force_unlock_read` via the thread-local map.
     // add-concurrency-probes: `profile-contention` feature times contended reads.
-    let guard = contended_read(ctx, &arc);
+    // fix-sync-primitives-gc-park：写者持锁时读取会阻塞，同上。
+    let guard = { let _park = crate::gc::NativeParkGuard::enter(ctx); contended_read(ctx, &arc) };
     let cloned = (*guard).clone();
     std::mem::forget(guard);
     HELD_RWLOCK_GUARDS.with(|cell| {
@@ -447,7 +462,8 @@ pub fn builtin_rwlock_write_acquire(ctx: &VmContext, args: &[Value]) -> Result<V
     let arc = ctx.core.rwlocks.lock().get(&slot).cloned()
         .ok_or_else(|| anyhow!("__rwlock_write_acquire: unknown slot id {slot}"))?;
     // add-concurrency-probes: `profile-contention` feature times contended writes.
-    let guard = contended_write(ctx, &arc);
+    // fix-sync-primitives-gc-park：任何读者/写者持锁时都会阻塞，同上。
+    let guard = { let _park = crate::gc::NativeParkGuard::enter(ctx); contended_write(ctx, &arc) };
     let cloned = (*guard).clone();
     std::mem::forget(guard);
     HELD_RWLOCK_GUARDS.with(|cell| {
