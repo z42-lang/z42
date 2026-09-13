@@ -106,7 +106,6 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // `_driverZpkg` / `_assembleAllLibs`, and skip the in-tree rebuild. The micro
     // A/B base capture points these at the same `.ab-base-alllibs` the e2e A/B uses,
     // so base benchmarks compile+run against a proven-consistent base stdlib.
-    string subdir = (kind == "bench") ? "bench" : "tests";
     string label  = (kind == "bench") ? "bench" : "test";
     if (jobs.Length == 0) { jobs = "1"; }   // forwarded to z42b
     string[] reqLibs = reqLibsIn;
@@ -142,8 +141,8 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // the stdlib the test units depend on must live in the SAME dir (the VM
     // takes one dir, not a colon-list). Mirror _testCompilerUnits' alllibs
     // flat: link the stdlib dist + the 7 z42c members into one dir. Computed
-    // once; threaded through _runUnitsBatched → _compilePrep so every unit
-    // compiles via z42c, not `dotnet z42c.dll`.
+    // once; handed to z42b（转发路径）so every unit compiles via z42c,
+    // not `dotnet z42c.dll`.
     string vm = useOverride ? ovVm : _builtVm(root, "release");
     string driverZpkg = useOverride ? ovDriver : _driverZpkg(root);
     string libs = useOverride ? ovLibs : _assembleAllLibs(root, "release");
@@ -194,7 +193,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // exit-code) drive _runLibKind (xtask_manifest_targets.z42). 3-layer dev-deps
     // (target > section > project) via ManifestLoader replace the raw-toml harvest.
     foreach (var lib in libList) {
-        int f = _runLibKind(root, libsRoot, lib, subdir, kind, label, filter,
+        int f = _runLibKind(root, libsRoot, lib, kind, label, filter,
                             builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
                             ref totalFiles, ref libsTested);
         if (f < 0) { return 2; }
@@ -202,8 +201,8 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     }
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");
-    // 孤儿源守卫（「<subdir>/ 有 .z42 源、却没产出任何单元」= 发现规则没认领 = 假绿）
-    // 已移到 _runLibKind（xtask_manifest_targets.z42）里**逐 lib** 判定。
+    // 孤儿源守卫（「tests/ 有 .z42 源、却没产出任何单元」= 发现规则没认领 = 假绿）
+    // 现在住在 z42b 里（_dtOrphanSourceDir），转发时逐 lib 生效 —— 判据只该有一处。
     //
     // 它原本就在这里，但**装错了路**（fix-silent-gates, 2026-09-06 修）：条件是
     // `nReq > 0 && totalFiles == 0` ——

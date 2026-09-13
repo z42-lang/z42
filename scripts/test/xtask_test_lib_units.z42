@@ -3,23 +3,13 @@
 // orchestration (_testLib / _testLibCore / sharding) stays in xtask_test_lib.z42
 // and calls these cross-file.
 //
-// Unit-level layer: discover [Test]/[Benchmark] units (single-file + dir-mode),
-// harvest parent deps, synthesise a per-unit mini-manifest, and compile + run
-// each unit in parallel batches via z42c + the test runner.
+// Unit-level layer：**转发 z42b** —— `--list` 拿单元清单，再按 jobs 分批并行拉起
+// `z42b <verb> <toml> --name <unit>`（xtask-forward-tests-to-z42b D1/D2）。
+// 发现规则、合成清单、单元编译全部在 z42b 那一侧，xtask 只管并行与聚合。
 namespace Z42Xtask;
 
 using Std;
 using Std.IO;
-
-/// One test compilation unit. UnitName = produced zpkg basename suffix
-/// (`<lib>.test.<UnitName>`); SourceFile = entry .z42 (single-file mode)
-/// or directory path (dir-mode); IsDirMode flips the compile path.
-class TestUnit {
-    public string UnitName { get; set; }
-    public string SourceFile { get; set; }
-    public string DirPath { get; set; }
-    public bool   IsDirMode { get; set; }
-}
 
 /// Parent toml's two dep sections, kept separate so the synthetic-manifest
 /// writer can emit a single merged [dependencies] block. Stored as
@@ -32,71 +22,6 @@ class DepBundle {
 }
 
 // _sortedStrings moved to xtask_common.z42 (shared string/collection helpers).
-
-/// Discover test units in `testsDir`. Single-file convention: a top-level
-/// `*.z42` file becomes one unit. Dir-mode convention (Phase 3.1.1):
-/// a sub-directory declaring `[Test]` methods becomes one unit (the directory
-/// name supplies UnitName; every `*.z42` under it compiles into that unit).
-/// `filter` matches against the unit's display name (file basename or dir
-/// basename) — substring match.
-TestUnit[] _discoverTestUnits(string testsDir, string[] entries, string filter) {
-    int n = entries.Length;
-    TestUnit[] tmp = new TestUnit[n];
-    int count = 0;
-    int i = 0;
-    while (i < n) {
-        string e = entries[i];
-        string full = Path.Join(testsDir, e);
-        bool isDir = Directory.Exists(full);
-        if (isDir) {
-            // A tests/<name>/ dir is a [Test] unit iff it declares [Test]
-            // methods. Main-based dirs (source.z42 with void Main()) are VM
-            // golden cases — run by `test e2e` from
-            // src/libraries/<lib>/tests/<name>/source.zbc, NOT [Test] units. The
-            // z42b reports "no tests found" (exit 3) on a Main-based
-            // zpkg, which _testLib would otherwise miscount as a failure.
-            //
-            // The gate is [Test]-methods ONLY — deliberately the same predicate
-            // _enumerateCorpus (xtask_test_embedded_corpus.z42 §2b) uses. It
-            // additionally demanded a `source.z42` entry file until 2026-09-06,
-            // which silently dropped every [Test] dir whose sources are named
-            // otherwise: z42.ir / z42c.core / z42c.syntax were listed by
-            // `test list` yet never ran, and `test stdlib z42.ir` reported
-            // "all 0 file(s) passed" — a false GREEN. The entry filename is
-            // irrelevant anyway: dir-mode compiles the whole dir through the
-            // synthetic manifest's `**/*.z42` glob, never through u.SourceFile.
-            if (_dirHasTestMethods(full)) {
-                string display = e;
-                if (filter.Length == 0 || display.Contains(filter)) {
-                    TestUnit u = new TestUnit();
-                    u.UnitName = display;
-                    u.SourceFile = Path.Join(full, "source.z42");   // dir-mode: unused
-                    u.DirPath = full;
-                    u.IsDirMode = true;
-                    tmp[count] = u;
-                    count = count + 1;
-                }
-            }
-        } else if (e.EndsWith(".z42")) {
-            if (filter.Length == 0 || e.Contains(filter)) {
-                TestUnit u = new TestUnit();
-                // Trim ".z42" (4 chars) for UnitName so zpkg becomes
-                // <lib>.test.<basename> rather than <lib>.test.<basename>.z42.
-                u.UnitName = e.Substring(0, e.Length - 4);
-                u.SourceFile = full;
-                u.DirPath = "";
-                u.IsDirMode = false;
-                tmp[count] = u;
-                count = count + 1;
-            }
-        }
-        i = i + 1;
-    }
-    TestUnit[] result = new TestUnit[count];
-    int k = 0;
-    while (k < count) { result[k] = tmp[k]; k = k + 1; }
-    return result;
-}
 
 /// True iff any top-level `.z42` file in `dir` declares a `[Test]` method —
 /// the marker the z42b discovers via the zpkg's TIDX section.
@@ -117,207 +42,11 @@ bool _dirHasTestMethods(string dir) {
 // (above) stays here — it's the merged (name,version) shape both the harness=true
 // synthetic-manifest writer and the new exit-target compiler consume.
 
-/// Run a lib's test units in batches of `jobs`, parallelizing the dominant
-/// per-unit z42.core bootstrap across units (parallelize-and-jit-stdlib-tests
-/// A). Each batch: spawn `jobs` compiles → wait → spawn `jobs` runners → wait
-/// + print captured TAP in batch order. Returns the failure count. Mirrors
-/// `_runVmBatch` (xtask_test_vm.z42). Each runner runs serially within its
-/// unit (no --jobs) so [Setup]/[Teardown] still execute.
-int _runUnitsBatched(string root, string builderZpkg, string lib, TestUnit[] units,
-                     DepBundle parentDeps, string kind, int jobs, string mode,
-                     string vm, string driverZpkg, string libs, MicroBenchAgg agg) {
-    // z42b verb mirrors `kind`: "bench" runs [Benchmark], else "test" runs [Test]
-    // (both dispatch through Std.Test.Runner.RunModule, which runs whichever the
-    // compiled artifact contains).
-    // add-stdlib-bench-baseline: agg != null → capture mode (bench --json). Ask z42b
-    // for `--format json` and feed each module's output to the aggregator instead of
-    // pretty passthrough. agg == null (all `test` paths + plain `bench`) → unchanged.
-    bool capture = (agg != null);
-    // add-exec-profile-matrix: when capturing a baseline, tag it with the profile
-    // of the VM the runner executes under — probed once from that binary. mode
-    // (interp|jit) drives the tier set; caps/version come from the probe.
-    if (capture) {
-        string epMode = (mode.Length > 0) ? mode : "interp";
-        string epProbe = _epEnsureProbe(root, vm, driverZpkg, libs);
-        VmCaps epVm = _epProbe(vm, libs, epProbe);
-        agg.setProfileOnce(_epTiersForMode(epMode), epVm, _epVmVersion(vm));
-    }
-    string verb = (kind == "bench") ? "bench" : "test";
-    int failed = 0;
-    int i = 0;
-    while (i < units.Length) {
-        int bsz = jobs;
-        if (i + bsz > units.Length) { bsz = units.Length - i; }
-
-        // ── compile phase: spawn bsz compiles, wait, collect artifacts ──
-        ProcessHandle[] ch    = new ProcessHandle[bsz];
-        string[]        tomls = new string[bsz];
-        string[]        arts  = new string[bsz];
-        bool[]          okc   = new bool[bsz];
-        int b = 0;
-        while (b < bsz) {
-            string toml = "";
-            string art  = "";
-            Process cp = _compilePrep(root, lib, units[i + b], parentDeps, kind,
-                                      vm, driverZpkg, libs,
-                                      ref toml, ref art);
-            tomls[b] = toml;
-            arts[b]  = art;
-            ch[b]    = cp.WorkingDirectory(root).Spawn();
-            b = b + 1;
-        }
-        b = 0;
-        while (b < bsz) {
-            ProcessResult cr = ch[b].Wait();
-            // delete the dir-mode synthetic toml regardless of outcome
-            if (tomls[b].Length > 0) { try { File.Delete(tomls[b]); } catch (Exception e) {} }
-            okc[b] = (cr.ExitCode == 0);
-            if (!okc[b]) {
-                Console.WriteLine("✗ COMPILE ERROR: " + units[i + b].UnitName);
-                Console.Write(cr.Stdout);
-                Console.Write(cr.Stderr);
-                failed = failed + 1;
-            } else if (arts[b].Length > 0 && !File.Exists(arts[b])) {
-                // exit 0 但产物缺失(fix-stdlib-test-missing-artifact-flaky):全 gate 高并发
-                // 负载下偶发,恒命中最重的 crypto 单元。编译在隔离下证明稳定产出、harness 无
-                // 删除路径、非抛异常(z42vm 抛异常退出 1)、非 OOM(exit 137≠0)——负载相关
-                // Heisenbug。串行重编一次;仍缺则当硬编译错误(不进 run 相位报误导性 cannot-read)。
-                string rt = "";
-                string ra = "";
-                Process rp = _compilePrep(root, lib, units[i + b], parentDeps, kind,
-                                          vm, driverZpkg, libs, ref rt, ref ra);
-                ProcessResult rr = rp.WorkingDirectory(root).Run();
-                if (rt.Length > 0) { try { File.Delete(rt); } catch (Exception e) {} }
-                if (rr.ExitCode != 0 || !File.Exists(arts[b])) {
-                    Console.WriteLine("✗ COMPILE ERROR (no artifact after retry): " + units[i + b].UnitName);
-                    Console.Write(rr.Stdout);
-                    Console.Write(rr.Stderr);
-                    okc[b] = false;
-                    failed = failed + 1;
-                } else {
-                    Console.WriteLine("  (retried: " + units[i + b].UnitName + " — 1st compile exited 0 but produced no artifact under load)");
-                }
-            }
-            b = b + 1;
-        }
-
-        // ── run phase: spawn runners for compiled units, wait, print TAP ──
-        ProcessHandle[] rh = new ProcessHandle[bsz];
-        b = 0;
-        while (b < bsz) {
-            if (okc[b]) {
-                // z42b under z42vm `--mode <mode>`: the runner AND the loaded
-                // test functions execute under that mode (interp / jit), so jit
-                // coverage comes from running z42b itself under jit (no per-test
-                // subprocess fork — the old Rust runner forked z42vm for jit).
-                Process pr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
-                    .Arg("--").Arg(verb).Arg(arts[b]);
-                if (capture) { pr = pr.Arg("--format").Arg("json"); }
-                rh[b] = pr.Env("Z42_LIBS", libs).WorkingDirectory(root).Spawn();
-            }
-            b = b + 1;
-        }
-        b = 0;
-        while (b < bsz) {
-            if (okc[b]) {
-                ProcessResult rr = rh[b].Wait();
-                if (capture) {
-                    // json mode: stdout is one TestReport object even when some benches
-                    // fail (per-result status). Aggregate whenever it parses (addModuleJson
-                    // only keeps passing benchmarks with bench_stats), so a partial-failure
-                    // module still contributes its passing benches. Still count the failure.
-                    string outp = rr.Stdout.Trim();
-                    if (outp.StartsWith("{")) {
-                        agg.addModuleJson(outp, lib);
-                        string note = (rr.ExitCode != 0) ? " (partial: some benches failed)" : "";
-                        Console.WriteLine("  captured " + units[i + b].UnitName + note);
-                    } else {
-                        Console.Write(rr.Stdout);
-                        if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
-                    }
-                    if (rr.ExitCode != 0) { failed = failed + 1; }
-                } else {
-                    Console.Write(rr.Stdout);
-                    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
-                    if (rr.ExitCode != 0) { failed = failed + 1; }
-                }
-            }
-            b = b + 1;
-        }
-        i = i + bsz;
-    }
-    return failed;
-}
-
-/// Prepare (but don't spawn) the driver compile for one test unit. Computes
-/// output paths and, for dir-mode units, writes the synthetic mini-manifest;
-/// `outToml` is that manifest to delete after the build ("" for flat-mode),
-/// `outArtifact` the runnable bytecode path the runner consumes. Factored
-/// from the former _compileTestUnit so units compile in parallel batches.
-/// Single-file mode → `z42c <file> --emit zbc -o <out.zbc>`; dir-mode →
-/// `z42c build <synthetic>` producing `<dist>/<name>.zpkg`.
-Process _compilePrep(string root, string lib, TestUnit u,
-                     DepBundle parentDeps, string kind,
-                     string vm, string driverZpkg, string libs,
-                     ref string outToml, ref string outArtifact) {
-    // kind = "test" → <lib>.test.<unit> under tests/; "bench" → <lib>.bench.<unit>
-    // under bench/. Both run through the same z42b (which dispatches
-    // [Test] and [Benchmark] identically).
-    string subdir = (kind == "bench") ? "bench" : "tests";
-    string projName = lib + "." + kind + "." + u.UnitName;
-    // Persistent per-lib subtree (add-tests-bench-manifest-config §6):
-    //   <root>/artifacts/build/libraries/<lib>/release/<subdir>/{dist,cache/<unit>}/
-    // dist/ is shared across the lib's units; cache/ is per-unit to avoid
-    // source.zbc collisions between two dir-mode units.
-    string testsBase = Path.Join(root,
-        "artifacts/build/libraries/" + lib + "/release/" + subdir);
-    string distDir = Path.Join(testsBase, "dist");
-    Directory.Create(distDir);
-    if (!u.IsDirMode) {
-        string zbc = Path.Join(distDir, projName + ".zbc");
-        outToml = "";
-        outArtifact = zbc;
-        // z42c (z42vm + z42c.driver.zpkg)
-        // emits the unit to zbc. interp mode is fastest for these many-short
-        // single-file compiles — JIT would re-warm the whole z42c closure per
-        // unit. Z42_LIBS supplies the stdlib the test references (Assert, the
-        // lib under test, …).
-        return new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-            .Arg("--").Arg("--emit-zbc").Arg(u.SourceFile).Arg(zbc)
-            .Env("Z42_LIBS", libs);
-    }
-    // Dir-mode: Microsoft.Extensions.FileSystemGlobbing.Matcher resolves
-    // include patterns relative to the manifest's projectDir and doesn't
-    // accept `..` or absolute paths in globs. To keep `include = "**/*.z42"`
-    // simple and stable, the synthetic toml is written NEXT TO the test
-    // source files (inside `tests/<unit>/`) using a unique name. The unique
-    // name `.xtask-<projName>.z42.toml` prefixes a `.` so it's naturally
-    // git-ignored and won't collide with user manifests; per-unit unique so
-    // parallel-batch compiles don't clobber each other's toml.
-    //
-    // fix-crypto-test-artifact-heisenbug (2026-07-24): output_dir is per-unit
-    // (`tests/dm/<projName>`), NOT the shared `tests/dist/`. A dir-mode build's
-    // indexed-dist cleanup (`_cleanOrphanZbc`, IndexedDist.z42) globs its whole
-    // dist for `*.zbc` and File.Deletes any not in ITS build — with a SHARED
-    // dist that deletes sibling single-file units' `.zbc` mid-parallel-compile
-    // (root cause of poly1305_vectors.zbc vanishing between compile & run, deleted
-    // by secp256k1's build). Isolating output_dir confines each build's cleanup
-    // to its own dir. Single-file `--emit-zbc` units keep the shared tests/dist/
-    // (they never run orphan cleanup, so they don't collide).
-    string dmOut  = Path.Join(testsBase, "dm", projName);
-    string dmDist = Path.Join(dmOut, "dist");
-    Directory.Create(dmDist);
-    string syntheticToml = Path.Join(u.DirPath, ".xtask-" + projName + ".z42.toml");
-    File.WriteAllText(syntheticToml,
-        _renderSyntheticManifest(projName, "**/*.z42", dmOut, u.UnitName, parentDeps));
-    outToml = syntheticToml;
-    // PackageCompiler emits `<output_dir>/dist/<name>.zpkg`; per-unit output_dir
-    // keeps the .zpkg (+ any scattered .zbc + orphan cleanup) isolated to dmDist.
-    outArtifact = Path.Join(dmDist, projName + ".zpkg");
-    return new Process(vm).Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg(syntheticToml)
-        .Env("Z42_LIBS", libs);
-}
+/// 曾经这里住着 xtask 自己的执行器：`_runUnitsBatched`（按 jobs 分批并行编译 + 跑）与
+/// `_compilePrep`（给每个单元算输出路径、目录单元还要落一份合成 mini-manifest）。D2 起
+/// test/bench 全线转发 z42b，两者没有调用方，已删 —— 合成清单不再落盘，发现与执行都只剩
+/// z42b 一份。下面的 `_renderSyntheticManifest` 留着，是 embedded golden 还在用
+/// （xtask_test_embedded_golden.z42：把一个 golden case 当成微型工程编）。
 
 /// Serialise a synthetic mini-manifest to TOML text. Kept hand-rolled
 /// (no Std.Toml serializer round-trip) because the schema is tiny and
