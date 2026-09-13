@@ -640,6 +640,19 @@ harness 只用已验证原语（`__load_module` / `Type.GetType` / `Activator.Cr
 > dep 内容不同 → 输出差 12B（1/5 gen1≠gen2）。守卫改变了「跨编译器版本」的 dep 解析，破坏了 F2「字节不动点
 > 天然成立」的前提。**正确修法需另开 change 谨慎设计**（如：仅在 workspace 自建路径按拓扑序在覆写成员后
 > 定点失效该 path，而非全局 size 守卫），并单独验字节不动点。PR4d 只用 move 规避，不动 DepScanCache。
+>
+> **⚠️ 更正（2026-09-13，guard-depscan-cache-staleness / PR #622）**：上面那条「实测会破字节不动点」
+> **在当前 main 上不再复现**。#622 加的正是「全局 (size, mtime) 守卫」，而 CI `verify-selfhost`
+> ——它**恰好**就是那个场景：旧 nightly 种子建 gen1、gen1 的 z42c（带守卫）建 gen2，断言 gen1==gen2
+> 逐字节（BLID-tolerant）——**pass**；本地 `xtask test compiler` 的自举不动点 3/3 亦绿。
+>
+> **为什么不再复现，没有坐实**（别把下面几条当结论）：① 本次实现与当时可能不同 —— 命中不符时是
+> **就地替换该条目**并作废其 Tsig/Mods/Types，且 size **与** mtime 一起比（原注只写 "同 path size 变则重开"）；
+> ② 那次实测之后 main 上合过若干改动 dep 解析的修复（如 #595「本包跨-ns 自有类不算跨包依赖」）。
+> 谁是主因没查。**若将来不动点再红，这条是第一嫌疑人，回到这里。**
+>
+> `ci-bootstrap` §1.5「每代构建前清空 artifacts」**照旧保留**（见 `.claude/rules/bootstrap-seed.md`）——
+> 它让两代之间根本不存在陈旧读，正好也是本守卫在那条路径上的兜底。
 
 #### VM golden 揪出的两个 PR4a/4c 潜伏真 bug（此前只测到 typecheck 层、从未测运行期）
 
