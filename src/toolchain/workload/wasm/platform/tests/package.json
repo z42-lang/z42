@@ -8,7 +8,7 @@
         "install-browsers": "playwright install chromium"
     },
     "devDependencies": {
-        "@playwright/test": "^1.49.0",
+        "@playwright/test": "^1.63.0",
         "http-server": "^14.1.1"
     },
     "_comment": "Local-only test harness for @z42/wasm. Run via ../test.sh (sets up Node + PATH + browser cache)."
