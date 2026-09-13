@@ -116,6 +116,45 @@ pub struct LazyLoader {
     /// never misses pays nothing — same rule as per-`VmContext` caches.
     negative: Option<Box<NegativeResolveCache>>,
 
+    /// **runtime-ambiguous-use-site**: FQ names that **two different loaded zpkgs**
+    /// each declared. First-wins still decides what is registered (see
+    /// `load_zpkg_file`) — this only remembers that the answer was arbitrary, so a
+    /// *use* of such a name can be rejected instead of silently running whichever
+    /// package happened to load first.
+    ///
+    /// Why record-and-check rather than "don't register it": several callers treat
+    /// a `None` from `try_lookup_*` as a **benign** signal — `interp::obj_new` reads
+    /// "no ctor for this class, that's fine", `vcall_resolve` / `dispatch` walk
+    /// candidate chains with `.or_else(...)`. Making resolution fail for an ambiguous
+    /// name would turn "ambiguous" into "silently skipped the constructor", which is
+    /// worse than today. So resolution is untouched and the check lives at the few
+    /// places that actually *dispatch* and can raise an error.
+    ///
+    /// Lazily allocated (`None` until the first collision) — same rule as `negative`:
+    /// a program with no collisions pays nothing.
+    ambiguous: Option<Box<AmbiguousSymbols>>,
+}
+
+/// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
+/// `LazyLoader` keeps its size when (as is normal) there are no collisions.
+#[derive(Default)]
+struct AmbiguousSymbols {
+    functions: FxHashSet<String>,
+    types:     FxHashSet<String>,
+}
+
+/// runtime-ambiguous-use-site: process-global "has any collision ever been recorded"
+/// flag. The dispatch-path check reads **this** first, so the normal case costs one
+/// relaxed atomic load and never touches the loader lock. Process-global (not
+/// per-loader) because the registries it guards are themselves process-wide — same
+/// reasoning as `tokens::alloc_type_id_block`.
+static AMBIGUITY_SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True once any duplicate FQ name has been recorded. Cheap enough to call on a
+/// dispatch path; callers should gate the (locking) precise query behind it.
+#[inline]
+pub fn ambiguity_seen() -> bool {
+    AMBIGUITY_SEEN.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// cache-failed-name-resolution: the negative resolve cache, held behind a `Box`
@@ -202,6 +241,7 @@ impl LazyLoader {
             type_registry:  FxHashMap::default(),
             impls:          FxHashMap::default(),
             negative: None,
+            ambiguous: None,   // runtime-ambiguous-use-site：碰撞时才分配
         }
     }
 
@@ -219,6 +259,31 @@ impl LazyLoader {
     /// Every insert bumps the global registration mark, which is what makes
     /// "no function has been registered since" a sound guard for a cached negative
     /// answer. Returns `false` when the name was already present (first-wins).
+    /// runtime-ambiguous-use-site: remember that `name` was declared by more than
+    /// one loaded zpkg. Append-only (the registries it shadows are append-only too,
+    /// which `registry_fingerprint` relies on — nothing is ever removed here either).
+    pub(crate) fn note_ambiguous_function(&mut self, name: &str) {
+        self.ambiguous.get_or_insert_with(Default::default).functions.insert(name.to_string());
+        AMBIGUITY_SEEN.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Type-side twin of [`Self::note_ambiguous_function`].
+    pub(crate) fn note_ambiguous_type(&mut self, name: &str) {
+        self.ambiguous.get_or_insert_with(Default::default).types.insert(name.to_string());
+        AMBIGUITY_SEEN.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Was this function name declared by two different loaded zpkgs?
+    /// Callers on hot paths must gate this behind [`ambiguity_seen`].
+    pub fn is_ambiguous_function(&self, name: &str) -> bool {
+        match &self.ambiguous { None => false, Some(a) => a.functions.contains(name) }
+    }
+
+    /// Type-side twin of [`Self::is_ambiguous_function`].
+    pub fn is_ambiguous_type(&self, name: &str) -> bool {
+        match &self.ambiguous { None => false, Some(a) => a.types.contains(name) }
+    }
+
     pub(crate) fn insert_function(&mut self, name: String, f: Arc<Function>) -> bool {
         if self.function_table.contains_key(&name) {
             return false;

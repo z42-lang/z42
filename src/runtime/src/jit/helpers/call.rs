@@ -156,6 +156,14 @@ unsafe fn cross_zpkg_via_interp(
     // jit-stack-trace: stamp the caller's site + offset before descending.
     vm_ctx.update_top_frame_pos(caller_line, caller_col, caller_offset);
 
+    // runtime-ambiguous-use-site：与 interp `exec_call` 对称（两后端同判据）。
+    // 常态 = 一次 relaxed 原子读，进程内没发生过碰撞时恒 false。
+    if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(
+        vm_ctx, module, func_name,
+    ) {
+        set_exception(vm_ctx, exc);
+        return 1;
+    }
     // Case 1: function present in the merged main module (interp's hot path).
     let outcome = if let Some(callee) = module.func_index.get(func_name)
         .and_then(|&idx| module.functions.get(idx))

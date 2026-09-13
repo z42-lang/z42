@@ -76,6 +76,11 @@ pub(super) fn obj_new(
     } else { type_desc };
     // 站点 ④ fix-silent-symbol-resolution：惰性解析都走完了还是残缺 ⇒ 基类确定不存在。
     // 继续走下去只会分配一个丢掉整片继承面的对象，错误现场离根因可以隔上任意远。
+    // runtime-ambiguous-use-site：**用**一个被两个包各自声明的类型 → 报错（与上面
+    // missing_type / missing_base 同族，都是派发点的符号完整性判定）。
+    if let Some(exc) = crate::vm_context::symres::ambiguous_type_exception(ctx, module, class_name) {
+        return Ok(Some(exc));
+    }
     if let Some(exc) = crate::vm_context::symres::missing_base_exception(ctx, module, &type_desc) {
         return Ok(Some(exc));
     }

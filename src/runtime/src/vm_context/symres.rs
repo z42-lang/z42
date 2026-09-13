@@ -201,6 +201,59 @@ pub fn ctor_arity(f: &crate::metadata::Function) -> CtorArity {
 ///
 /// 新异常类要先进 stdlib，而冷启动种子的 stdlib 里没有它 ⇒ 得走两-nightly。语义上也说得通：
 /// 调用点指名的那个重载**确实不在**，撞上的是同键下的另一个。
+/// runtime-ambiguous-use-site：**这个名字由两个已加载的 zpkg 各自声明过** ⇒ 用它就是错的。
+///
+/// 与本模块其余判定同族（都是「派发点的符号完整性」），但根因不同：那些是「装的包比编译时旧」，
+/// 这条是「装了两个都提供同一个 FQ 名的包」，谁生效纯看加载顺序。
+///
+/// # 为什么在**使用位**报而不是加载时报
+///
+/// 加载是**惰性且按包**的：两个包完全可能在程序从不触碰的名字上冲突（A 因 `A.X` 被加载、
+/// B 因 `B.Y` 被加载，而它们碰巧都有 `Ns.W`）。加载时报错 = 为一个程序既没引用、也无权修的
+/// 冲突把它打死 —— 这正是编译期 E0601 刻意用「使用位」原则避开的行为，运行期不该反着来。
+///
+/// # 为什么不是「让解析失败」
+///
+/// 好几个调用方把 `try_lookup_*` 的 `None` 当**良性**信号：`obj_new` 读作「这个类没有构造
+/// 函数」、`vcall_resolve` / `dispatch` 拿它走候选链回退。让歧义名解析失败会把「歧义」变成
+/// 「静默跳过构造函数」，比现状更坏。所以解析原样不动，判定挂在真正会派发、且能报错的位置。
+///
+/// # 热路径代价
+///
+/// 常态是一次 relaxed 原子读（`ambiguity_seen()`，进程内从没发生过碰撞时恒 false），
+/// 只有真出现过碰撞才去拿读锁精确查。
+pub fn ambiguous_function_exception(
+    ctx: &VmContext, module: &Module, fname: &str,
+) -> Option<crate::metadata::Value> {
+    if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
+    if !ctx.is_ambiguous_function(fname) { return None; }
+    Some(crate::exception::make_missing_symbol_exception(
+        ctx, module,
+        format!(
+            "`{fname}` is provided by more than one loaded package — which one runs would be \
+             decided by load order, so calling it is refused. Remove or rename one of them \
+             (a stale copy of a renamed package in a libs dir is the usual cause); if both are \
+             visible when compiling, the compiler reports this as E0601."
+        ),
+    ))
+}
+
+/// 类型侧孪生（`new` / 类型解析位）。判定与理由同 [`ambiguous_function_exception`]。
+pub fn ambiguous_type_exception(
+    ctx: &VmContext, module: &Module, class_name: &str,
+) -> Option<crate::metadata::Value> {
+    if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
+    if !ctx.is_ambiguous_type(class_name) { return None; }
+    Some(crate::exception::make_missing_symbol_exception(
+        ctx, module,
+        format!(
+            "type `{class_name}` is provided by more than one loaded package — which one is \
+             instantiated would be decided by load order, so using it is refused. Remove or \
+             rename one of them; if both are visible when compiling, the compiler reports E0601."
+        ),
+    ))
+}
+
 pub fn wrong_ctor_arity_exception(
     ctx: &VmContext, module: &Module, class_name: &str, ctor_name: &str,
     arity: CtorArity, argc: usize,

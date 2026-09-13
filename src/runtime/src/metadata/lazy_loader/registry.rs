@@ -57,6 +57,9 @@ impl LazyLoader {
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
             if self.function_table.contains_key(&name) {
+                // runtime-ambiguous-use-site: 记下来，供**使用位**判定（见 note_ambiguous_function
+                // 的注释：这里仍保持 first-wins 注册，不能让解析失败）。
+                self.note_ambiguous_function(&name);
                 tracing::warn!(
                     "duplicate function `{name}` from zpkg `{file_name}`: already provided by an \
                      earlier-loaded package; keeping the first-loaded one. Which package wins is \
@@ -81,6 +84,7 @@ impl LazyLoader {
         // field layouts in place.
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
             if self.type_registry.contains_key(&name) {
+                self.note_ambiguous_type(&name);   // runtime-ambiguous-use-site：同上
                 tracing::warn!(
                     "duplicate type `{name}` from zpkg `{file_name}`: already provided by an \
                      earlier-loaded package; keeping the first-loaded one. Which package wins is \
