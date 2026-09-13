@@ -82,7 +82,7 @@ pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use var_ref::VarGcRef;
 
-use chunk::{Chunk, NUM_CLASSES};
+use chunk::{Chunk, FreeSlot, NUM_CLASSES};
 
 // The packed `gen_age` in `GcBlockHeader::type_tag` is two bits wide, so the **default**
 // promotion age has to fit in it. `Z42_GC_PROMOTION_AGE` is clamped to the same ceiling at
@@ -136,7 +136,12 @@ pub struct VarRegion {
     /// What is **not** safe is handing out a stale slot: a pooled chunk is re-bumped from
     /// offset 0, so an entry that outlived the pooling would alias whatever lands there next.
     /// [`Self::pool_epoch`] is the guard — see the pop loop in [`Self::alloc`].
-    free_lists: Vec<Vec<NonNull<GcBlockHeader>>>,
+    ///
+    /// **perf-free-slot-encoding (2026-09-13)**: an entry is a four-byte [`FreeSlot`], not the
+    /// slot's header pointer. The staleness test needs the entry's **chunk**, and reading that
+    /// out of the block header was a random memory access per entry — 13.2 ms of the build's
+    /// GC pause in [`Self::compact_class`] alone. See [`FreeSlot`].
+    free_lists: Vec<Vec<FreeSlot>>,
     /// **lazy-var-free-list (2026-09-12)**: `pool_epoch` of the entry's chunk *at the moment it
     /// was pushed*, parallel to [`Self::free_lists`]. A mismatch at pop means the chunk has
     /// been pooled since, so the slot no longer belongs to this list.
@@ -398,15 +403,20 @@ impl VarRegion {
     fn pop_free_slot(&mut self, size_class: u8) -> Option<NonNull<GcBlockHeader>> {
         let sc = size_class as usize;
         loop {
-            let ptr = self.free_lists[sc].pop()?;
+            let slot = self.free_lists[sc].pop()?;
             let stamped = self.free_epochs[sc].pop().expect("free list and epoch list run in lockstep");
-            // SAFETY: every pointer in a free list is a bump-chunk-owned header. Bump chunks
-            // are pooled, never `dealloc`'d (only dedicated/oversized chunks are freed, and
-            // `tombstone` never pushes those), so the header is mapped even if its chunk is
-            // currently sitting in the pool.
-            let ci = unsafe { ptr.as_ref() }.chunk_idx as usize;
+            // perf-free-slot-encoding: the chunk comes out of the entry, so the staleness test
+            // touches no block memory at all — and the pointer is only rebuilt once the entry
+            // has passed it.
+            let ci = slot.chunk();
             if self.pool_epoch.get(ci).copied() == Some(stamped) {
-                return Some(ptr);
+                // SAFETY: the entry named a live bump chunk when it was pushed, and a matching
+                // `pool_epoch` says that chunk has not been pooled since. Bump chunks are
+                // pooled, never `dealloc`'d (only dedicated/oversized chunks are freed, and
+                // `tombstone` never pushes those), so `base` is mapped and `base + offset` is
+                // the slot's own header, in bounds and 8-aligned.
+                let raw = unsafe { self.chunks[ci].base.as_ptr().add(slot.offset()) };
+                return Some(unsafe { NonNull::new_unchecked(raw as *mut GcBlockHeader) });
             }
             // Stale: the chunk was pooled after this entry was pushed, so the slot either
             // belongs to the pool or has already been re-bumped into something live.
@@ -439,9 +449,11 @@ impl VarRegion {
         let (ptrs, epochs) = (&mut self.free_lists[sc], &mut self.free_epochs[sc]);
         let mut w = 0;
         for r in 0..ptrs.len() {
-            // SAFETY: as in `pop_free_slot` — every entry is a bump-chunk header, and bump
-            // chunks are pooled rather than freed, so the header stays mapped.
-            let ci = unsafe { ptrs[r].as_ref() }.chunk_idx as usize;
+            // perf-free-slot-encoding: two sequential array reads and one `pool_epoch` lookup
+            // (a few KB, so `L1`). This used to dereference the entry's block header to find
+            // its chunk — a random access per entry, **8.2 ns each over 1.62 M entries a
+            // build**, which was the whole cost of this pass.
+            let ci = ptrs[r].chunk();
             if self.pool_epoch.get(ci).copied() == Some(epochs[r]) {
                 ptrs[w] = ptrs[r];
                 epochs[w] = epochs[r];
@@ -584,11 +596,16 @@ impl VarRegion {
             }
         }
         let sc = header.size_class;
-        if sc != OVERSIZED_CLASS {
+        if sc != OVERSIZED_CLASS && ci < self.chunks.len() {
             // lazy-var-free-list: stamp the chunk's pooling count so a pop after the chunk is
             // recycled can tell this entry is stale.
-            self.free_lists[sc as usize].push(ptr);
-            self.free_epochs[sc as usize].push(self.pool_epoch[ci]);
+            // perf-free-slot-encoding: the entry records where the slot is rather than pointing
+            // at it, so nothing downstream has to read the header back to find its chunk.
+            let off = ptr.as_ptr() as usize - self.chunks[ci].base.as_ptr() as usize;
+            if let Some(slot) = FreeSlot::pack(ci, off) {
+                self.free_lists[sc as usize].push(slot);
+                self.free_epochs[sc as usize].push(self.pool_epoch[ci]);
+            }
         }
         true
     }

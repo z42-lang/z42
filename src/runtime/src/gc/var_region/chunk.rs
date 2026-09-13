@@ -109,6 +109,66 @@ pub(crate) fn class_for_with_limit(payload: usize, loh_bytes: usize) -> (usize, 
     (footprint, ((oct << SUB_LOG2) | sub as u32) as u8)
 }
 
+/// **perf-free-slot-encoding (2026-09-13)**: a free-list entry — the `(chunk index, in-chunk
+/// byte offset)` of one tombstoned slot, packed into four bytes.
+///
+/// It used to be the slot's `NonNull<GcBlockHeader>`, and the staleness test
+/// ([`VarRegion::pool_epoch`]) had to read `chunk_idx` **out of the block header** to find the
+/// chunk the entry belonged to. That is one random memory access per entry, and
+/// `compact_class` does it over a whole size class at a time: measured on
+/// `z42c.semantics --release --no-incremental`, **1.62 M entries at 8.2 ns each = 13.2 ms**,
+/// 4.7% of the build's whole GC pause — for a test that only ever looks at four bytes of
+/// per-chunk state. Carrying the chunk index in the entry makes it an `L1` array lookup
+/// instead, and the entry gets *smaller*: these lists run past a million entries, so four
+/// bytes instead of eight is megabytes of the region's footprint.
+///
+/// The pointer is recoverable exactly — `chunks[ci].base + offset` — because a free-list entry
+/// can only ever name a block in a **bump** chunk ([`VarRegion::tombstone`] never pushes an
+/// [`OVERSIZED_CLASS`] block, and only oversized blocks get a dedicated chunk). Bump chunks
+/// are pooled, never `dealloc`'d, so the base stays valid and the slot index is never
+/// recycled under the entry. Decoding also happens **after** the epoch test, so a stale entry
+/// is discarded without reconstructing anything.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) struct FreeSlot(u32);
+
+/// Bits of a [`FreeSlot`] holding the in-chunk offset. Offsets are `< CHUNK_BYTES` and always
+/// 8-aligned (every footprint is a multiple of 8 — see [`class_for_with_limit`]), so
+/// `CHUNK_BYTES / 8` distinct values is exact, not a bound.
+const FREE_OFF_BITS: u32 = (CHUNK_BYTES / 8).trailing_zeros();
+const FREE_OFF_MASK: u32 = (1 << FREE_OFF_BITS) - 1;
+
+/// Largest chunk index a [`FreeSlot`] can name — the remaining 19 bits, i.e. 32 GB of bump
+/// chunks. A region past that stops free-listing slots rather than mis-encoding one; the
+/// memory is not lost, it comes back when the chunk itself dies (see [`FreeSlot::pack`]).
+pub(super) const FREE_MAX_CHUNK: usize = (1usize << (32 - FREE_OFF_BITS)) - 1;
+
+impl FreeSlot {
+    /// Pack a slot, or `None` when the chunk index does not fit. `None` costs one missed slot
+    /// reuse, never correctness: the block stays tombstoned and its space returns with its
+    /// chunk.
+    #[inline]
+    pub(super) fn pack(chunk_idx: usize, off: usize) -> Option<Self> {
+        if chunk_idx > FREE_MAX_CHUNK {
+            return None;
+        }
+        debug_assert_eq!(off % 8, 0, "block offsets are 8-aligned");
+        debug_assert!(off < CHUNK_BYTES, "a free-listed slot lives in a bump chunk");
+        Some(FreeSlot(((chunk_idx as u32) << FREE_OFF_BITS) | (off as u32 >> 3)))
+    }
+
+    /// The chunk this slot lives in — the whole reason the entry exists in this form.
+    #[inline]
+    pub(super) fn chunk(self) -> usize {
+        (self.0 >> FREE_OFF_BITS) as usize
+    }
+
+    /// Byte offset of the slot within its chunk.
+    #[inline]
+    pub(super) fn offset(self) -> usize {
+        ((self.0 & FREE_OFF_MASK) as usize) << 3
+    }
+}
+
 /// Number of size-class free-list buckets (indices `0..=MAX_CLASS`). The bottom
 /// `MIN_BLOCK.trailing_zeros() << SUB_LOG2` buckets are unreachable (no footprint is smaller
 /// than `MIN_BLOCK`) and stay empty — indexing directly by the packed class beats folding the
