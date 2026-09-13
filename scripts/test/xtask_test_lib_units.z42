@@ -418,9 +418,16 @@ string[] _nonEmptyLines(string s) {
 
 // 并行跑单元：每 `jobs` 个一批 spawn `z42b <verb> <toml> --name <unit>`，等齐后按批内顺序
 // 打印（输出顺序确定，不随调度漂移）。返回失败数。
+// agg != null → capture 模式（bench 基线）：要 `--format json`，把每次调用的 TestReport 喂给
+// 聚合器而不是原样打印。**转发天然适配**：这条路径是「每单元一次调用」，每次恰好输出一个
+// TestReport 对象，正是 `addModuleJson` 期待的形状 —— 不需要多目标合并输出。
+//（此前把 bench 挡在转发外，理由是「MicroBenchAgg 要一次一个对象、多目标合并未做」；
+// 那是基于「每库一次 z42b」的设想，与实际落地的 --name 形状不符，故本次订正。）
 int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, string kind,
-                     int jobs, string mode, string vm, string builderZpkg, string libs) {
+                     int jobs, string mode, string vm, string builderZpkg, string libs,
+                     string lib, MicroBenchAgg agg) {
     string verb = (kind == "bench") ? "bench" : "test";
+    bool capture = (agg != null);
     int failed = 0;
     int i = 0;
     while (i < nUnits) {
@@ -429,16 +436,32 @@ int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, s
         ProcessHandle[] rh = new ProcessHandle[bsz];
         int b = 0;
         while (b < bsz) {
-            rh[b] = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
-                .Arg("--").Arg(verb).Arg(projToml).Arg("--name").Arg(names[i + b])
-                .Env("Z42_LIBS", libs).WorkingDirectory(root).Spawn();
+            Process pr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
+                .Arg("--").Arg(verb).Arg(projToml).Arg("--name").Arg(names[i + b]);
+            if (capture) { pr = pr.Arg("--format").Arg("json"); }
+            rh[b] = pr.Env("Z42_LIBS", libs).WorkingDirectory(root).Spawn();
             b = b + 1;
         }
         b = 0;
         while (b < bsz) {
             ProcessResult rr = rh[b].Wait();
-            Console.Write(rr.Stdout);
-            if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+            if (capture) {
+                // json 模式：即使部分 bench 失败，stdout 仍是一个完整 TestReport（逐条带 status）。
+                // 只要能解析就聚合（addModuleJson 只收有 bench_stats 的通过项），让部分失败的
+                // 单元仍贡献它通过的那些 —— 与遗留 _runUnitsBatched 的语义逐字一致。
+                string outp = rr.Stdout.Trim();
+                if (outp.StartsWith("{")) {
+                    agg.addModuleJson(outp, lib);
+                    string note = (rr.ExitCode != 0) ? " (partial: some benches failed)" : "";
+                    Console.WriteLine("  captured " + names[i + b] + note);
+                } else {
+                    Console.Write(rr.Stdout);
+                    if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+                }
+            } else {
+                Console.Write(rr.Stdout);
+                if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
+            }
             if (rr.ExitCode != 0) { failed = failed + 1; }
             b = b + 1;
         }

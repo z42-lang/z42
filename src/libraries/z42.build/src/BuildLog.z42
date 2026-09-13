@@ -1,0 +1,26 @@
+namespace Z42.Build;
+
+using Std;
+using Std.IO;
+
+// forward-bench-to-z42b：构建进度的输出去向开关（进程级）。
+//
+// 为什么需要它：`--format json` 的契约是 **stdout 只有机器可读的那一份输出**。而构建编排
+// （Pipeline）在同一条 stdout 上打进度（`compiled: <zpkg>`），两者混在一起消费方就解析不了。
+// 真实症状：xtask 转发 bench 时按「stdout 整段以 `{` 开头」判定，落空后**静默丢弃**整个模块的
+// bench_stats ⇒ 基线捕获到 0 条却不报错。
+//
+// 🔴 **为什么用环境变量而不是静态字段**：初版写成 `public static bool ToStderr = false;`，
+// z42b 在入口处赋 true —— **不生效**。因为静态字段的初始化器会在该包被**延迟加载**时才跑
+// （defer-class-initialization），而那发生在 z42b 赋值**之后** ⇒ 初始化器把它重置回 false。
+// 环境变量没有这个顺序问题，且「输出格式」本就是进程级属性。
+public static class BuildLog {
+    // 进度是否改走 stderr。z42b 在 `--format json` 时置位（见 builder_test.z42 的 _runModule）。
+    public static bool ToStderr() {
+        return (Environment.GetEnvironmentVariable("Z42_BUILD_LOG_STDERR") ?? "") == "1";
+    }
+
+    public static void SetToStderr(bool on) {
+        Environment.SetEnvironmentVariable("Z42_BUILD_LOG_STDERR", on ? "1" : "0");
+    }
+}
