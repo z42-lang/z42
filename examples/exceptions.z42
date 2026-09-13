@@ -7,22 +7,34 @@ using System.IO;
 
 // ── 自定义异常 ─────────────────────────────────────────────────────────────
 
-public class Z42Exception(string message, int errorCode)
-    : Exception(message) {
-    public int ErrorCode { get; } = errorCode;
+// ⚠️ 主构造器**不能给基类传实参**（`class D(...) : B(arg)` 不受支持）——有基类实参时写显式构造器。
+public class Z42Exception : Exception {
+    public int ErrorCode;
+    public Z42Exception(string message, int errorCode) : base(message) {
+        this.ErrorCode = errorCode;
+    }
 }
 
-public class ValidationException(string field, string reason)
-    : Z42Exception($"Validation failed on '{field}': {reason}", 400) {
-    public string Field  { get; } = field;
-    public string Reason { get; } = reason;
+public class ValidationException : Z42Exception {
+    public string Field;
+    public string Reason;
+    public ValidationException(string field, string reason)
+        : base($"Validation failed on '{field}': {reason}", 400) {
+        this.Field = field;
+        this.Reason = reason;
+    }
 }
 
-public class ParseError(string input, int position, string expected)
-    : Z42Exception($"Parse error at pos {position}: expected {expected}, got '{input[position..]}'", 422) {
-    public string Input    { get; } = input;
-    public int    Position { get; } = position;
-    public string Expected { get; } = expected;
+public class ParseError : Z42Exception {
+    public string Input;
+    public int    Position;
+    public string Expected;
+    public ParseError(string input, int position, string expected)
+        : base($"Parse error at pos {position}: expected {expected}", 422) {
+        this.Input = input;
+        this.Position = position;
+        this.Expected = expected;
+    }
 }
 
 // ── 异常抛出 ───────────────────────────────────────────────────────────────

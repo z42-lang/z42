@@ -50,7 +50,10 @@ void Main() {
 
     // ── Dict {k: v} ────────────────────────────────────────────
     Dictionary<string, int> scores = { "alice": 90, "bob": 85 };
-    Console.WriteLine($"alice={scores[\"alice\"]}, bob={scores[\"bob\"]}");   // 90, 85
+    // ⚠️ 插值洞里放不了字符串字面量（`$"{d[\"k\"]}"` 打挂 lexer）—— 先取到局部变量。
+    int alice = scores["alice"];
+    int bob = scores["bob"];
+    Console.WriteLine($"alice={alice}, bob={bob}");   // 90, 85
 
     Dictionary<string, int> emptyDict = {};   // 空 Dict（目标类型定）
     Console.WriteLine($"emptyDict.Count={emptyDict.Count}");       // 0
