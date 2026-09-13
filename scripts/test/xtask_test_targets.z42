@@ -3,10 +3,10 @@
 // Same Z42Xtask namespace. Runs the end-to-end fixtures under
 // src/tests/manifest-targets/<name>/ — each a real project whose z42.toml
 // declares `[[test]]`/`[[bench]]`/`[[example]]` targets — through the SAME
-// manifest engine (xtask_manifest_targets.z42) the stdlib per-lib flow uses. This is
+// path the stdlib per-lib flow uses: **转发 z42b**（D2 起两条路合一）。This is
 // where harness=false (exit-code) targets, explicit-target overlay, 3-layer
 // dev-deps and named selection get exercised in a dedicated gate (existing stdlib
-// libs already exercise the harness=true convention path abundantly).
+// libs declare no explicit targets, so they only exercise the convention path).
 //
 // Tooling prep mirrors _testLibCore (release build-tree): stdlib + runtime +
 // self-built z42c + z42b, assembled into one flat Z42_LIBS. `xtask example` and
@@ -19,7 +19,7 @@ using Z42.Build.Project;
 
 // Resolved toolchain for a manifest-target run (release build-tree paths).
 // Auto-properties (+ implicit default ctor) so `new TargetTooling()` works, per
-// the TestUnit / DepBundle pattern in this codebase.
+// the DepBundle pattern in this codebase.
 class TargetTooling {
     public string Vm { get; set; }
     public string DriverZpkg { get; set; }
@@ -77,7 +77,6 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     }
     TargetTooling tt = _prepFixtureTooling(root, noBuild);
     if (!tt.Ok) { return 2; }
-    string subdir = (kind == "bench") ? "bench" : "tests";
     string label  = (kind == "bench") ? "bench" : "test";
     string[] fixtures = _sortedStrings(Directory.Enumerate(fixRoot));
     int failed = 0;
@@ -89,7 +88,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         string toml = _findToml(projDir);
         if (toml.Length == 0 || !Directory.Exists(projDir)) { i = i + 1; continue; }
         int[] mref = new int[1]; mref[0] = matched;
-        failed = failed + _runFixtureKind(root, projDir, fixtures[i], toml, kind, subdir, label,
+        failed = failed + _runFixtureKind(root, fixtures[i], toml, kind, label,
                                           name, tt, mref, ref avail);
         matched = mref[0];
         i = i + 1;
@@ -291,73 +290,46 @@ int _smokeBundleHost(string root, TargetTooling tt) {
     return 0;
 }
 
-// Run one fixture's `kind` targets. Appends this fixture's target names to
-// `avail` (for the not-found listing) and bumps mref[0] by the matched count.
-// Returns the failure count. filter semantics: name=="" → all; else exact name.
-int _runFixtureKind(string root, string projDir, string fixName, string toml,
-                    string kind, string subdir, string label, string name,
+// 跑一个 fixture 的 `kind` 目标 —— 与 stdlib 那条路一样，**一律转发 z42b**
+// （xtask-forward-tests-to-z42b D2）。把本 fixture 的目标名追加进 `avail`（点不中时的提示），
+// 命中数加到 mref[0]，返回失败数。filter 语义：name=="" → 全跑；否则精确名。
+//
+// 这里曾是 xtask 自有执行器唯一还在用的地方：约定单元走合成 mini-manifest 批量编译
+// （_runUnitsBatched）、显式 harness=true 走 _runReflectTarget、harness=false 走
+// _runExitTargets。三条随 D2 一并退休 —— z42b 的 `--name` 对三种形态都是同一个入口
+// （harness=false 由它 fork 子进程、退出码即判定，#612）。于是本 stage 从「测 xtask 的
+// 引擎」变成「测 z42b 对这些 fixture 形态的处理」，与下面那批 _smoke* 同向。
+int _runFixtureKind(string root, string fixName, string toml,
+                    string kind, string label, string name,
                     TargetTooling tt, int[] mref, ref string avail) {
     ProjectManifest man = _loadManifestOr(toml);
     RunTarget[] tgts = _explicitTargets(man, kind);
     string verr = _validateRunTargets(tgts, tgts.Length, kind);
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + fixName + ": " + verr); return 1; }
-    // Full discovery: auto convention units (explicit-name collisions dropped),
-    // explicit harness=true (reflect) + harness=false (exit-code). Then select by
-    // EXACT name when `name` is given (matches auto units + explicit targets alike).
-    TestUnit[] autoAll = _dropOverridden(_autoUnits(projDir, subdir, _sectionAuto(man, kind), ""),
-                                         tgts, tgts.Length);
-    RunTarget[] reflectAll = _explicitByHarness(tgts, tgts.Length, true, "");
-    RunTarget[] falseAll   = _explicitByHarness(tgts, tgts.Length, false, "");
+    // 发现交给 z42b：`--list` 一次拿全（约定单元 + 显式目标，两种 harness 都在内）。
+    bool ok = true;
+    string[] all = _listUnitsViaZ42b(root, toml, kind, "", "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, ref ok);
+    if (!ok) { return 1; }
     int a = 0;
-    while (a < autoAll.Length)    { avail = _appendName(avail, autoAll[a].UnitName); a = a + 1; }
-    a = 0;
-    while (a < reflectAll.Length) { avail = _appendName(avail, reflectAll[a].Name); a = a + 1; }
-    a = 0;
-    while (a < falseAll.Length)   { avail = _appendName(avail, falseAll[a].Name); a = a + 1; }
-    TestUnit[]  units   = (name.Length > 0) ? _unitsNamed(autoAll, name)   : autoAll;
-    RunTarget[] reflectT = (name.Length > 0) ? _falseNamed(reflectAll, name) : reflectAll;
-    RunTarget[] falseT   = (name.Length > 0) ? _falseNamed(falseAll, name)   : falseAll;
-    int shown = units.Length + reflectT.Length + falseT.Length;
-    if (shown == 0) { return 0; }
-    mref[0] = mref[0] + shown;
+    while (a < all.Length) { avail = _appendName(avail, all[a]); a = a + 1; }
+    string[] sel = (name.Length > 0) ? _namesEq(all, name) : all;
+    if (sel.Length == 0) { return 0; }
+    mref[0] = mref[0] + sel.Length;
     Console.WriteLine("");
-    Console.WriteLine("── " + fixName + " (" + shown.ToString() + " " + label + ") ──");
-    DepBundle baseDeps = _baseDeps(man, kind);
-    int failed = 0;
-    if (units.Length > 0) {
-        failed = failed + _runUnitsBatched(root, tt.BuilderZpkg, fixName, units, baseDeps, kind,
-                                           1, "interp", tt.Vm, tt.DriverZpkg, tt.Libs, null);
-    }
-    int ri = 0;
-    while (ri < reflectT.Length) {
-        failed = failed + _runReflectTarget(root, projDir, fixName + "." + kind, subdir, man, kind,
-                                            reflectT[ri], tt.BuilderZpkg, tt.Vm, tt.DriverZpkg, tt.Libs);
-        ri = ri + 1;
-    }
-    if (falseT.Length > 0) {
-        failed = failed + _runExitTargets(root, projDir, fixName + "." + kind, subdir,
-                                          man, kind, falseT, falseT.Length, tt.Vm, tt.DriverZpkg, tt.Libs);
-    }
-    return failed;
+    Console.WriteLine("── " + fixName + " (" + sel.Length.ToString() + " " + label + ") ──");
+    // jobs=1：fixture 数量小，串行输出更好读（stdlib 那条才需要并行）。
+    return _runUnitsViaZ42b(root, toml, sel, sel.Length, kind,
+                            1, "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, fixName, null);
 }
 
-// Exact-name filters (0- or 1-length): units by UnitName, targets by Name.
-TestUnit[] _unitsNamed(TestUnit[] units, string name) {
+// 精确名筛选（0 或 1 个）。
+string[] _namesEq(string[] names, string name) {
     int i = 0;
-    while (i < units.Length) {
-        if (units[i].UnitName == name) { TestUnit[] r = new TestUnit[1]; r[0] = units[i]; return r; }
+    while (i < names.Length) {
+        if (names[i] == name) { string[] r = new string[1]; r[0] = names[i]; return r; }
         i = i + 1;
     }
-    return new TestUnit[0];
-}
-
-RunTarget[] _falseNamed(RunTarget[] tgts, string name) {
-    int i = 0;
-    while (i < tgts.Length) {
-        if (tgts[i].Name == name) { RunTarget[] r = new RunTarget[1]; r[0] = tgts[i]; return r; }
-        i = i + 1;
-    }
-    return new RunTarget[0];
+    return new string[0];
 }
 
 // Append a target name to a comma-space list (for the not-found hint), deduped.
