@@ -362,6 +362,24 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..PUBLIC
     },
     KnobSpec {
+        name: "Z42_SPAWN_ENV_DELAY_MS",
+        toml_key: "spawn-env-delay-ms",
+        value: ValueKind::Int { min: 0, max: i64::MAX },
+        // 故障注入：把 `Thread.Start` 的「捕获环境已交给 worker、worker 还没把它装进帧」
+        // 那一段人为拉长，好让 fix-spawn-env-gc-root 的回归测试稳定判红。
+        // 测试脚手架，所以同 `Z42_STRESS_ITERS`：不进 CLI 表面（那等于暗示它是个正经旋钮）。
+        //
+        // ⚠️ 这一条**故意不走 `runtime_config()`**（inline `std::env::var`，每次 spawn 读一次）：
+        // 消费它的测试用 `Environment.SetEnvironmentVariable` 在**进程跑起来之后**才打开它，
+        // 而 `runtime_config()` 是启动时定死的 `OnceLock`，看不见这次改动。
+        sources: LayerMask::ENV_ONLY,
+        tier: Tier::Internal,
+        description: "milliseconds a freshly spawned thread sleeps before installing its captured environment — fault injection for the spawn-window GC-root regression test",
+        default_hint: "unset; no delay",
+        consumed_by: "corelib/threading.rs (env-only scaffolding, read per spawn)",
+        ..PUBLIC
+    },
+    KnobSpec {
         name: "Z42_STACKALLOC",
         toml_key: "stackalloc",
         value: ValueKind::Enum(STACKALLOC_MODES),
