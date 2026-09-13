@@ -17,8 +17,21 @@
 
 ## 步骤 B —— bench 聚合
 
-- [ ] B1 z42b 多目标 `--format json` 合并输出
-- [ ] B2 xtask 侧 `MicroBenchAgg` 改消费它（schema-v2 基线格式不变）
+- [x] B1 **不需要多目标合并** —— 转发是「每单元一次 `--name` 调用」，每次恰好一个 TestReport，
+      正是 `MicroBenchAgg.addModuleJson` 期待的形状。此前把 bench 挡在转发外的理由（「多目标
+      合并未做」）建立在「每库一次 z42b」的设想上，与实际落地的形状不符，已订正
+- [x] B2 转发路径接上 capture 模式（`--format json` + `addModuleJson` + `setProfileOnce`），
+      schema-v2 格式不变。**基线对账**：遗留 65 条 / 转发 65 条，**逐个名字完全一致**
+
+      🔴 **途中发现并修掉一个静默 bug**：`--format json` 下 z42b 的 stdout **混着构建进度**
+      （`compiled: …`），消费方按「整段以 `{` 开头」判定落空 ⇒ **整个模块的 bench_stats 被静默
+      丢弃**，基线捕获到 **0 条却不报错**（只打印 `wrote baseline (0 benchmarks)`）。
+      旧路径没暴露是因为它直接跑已编好的产物，根本没有构建进度可打。
+      修法：`--format json` ⇒ 进度改走 stderr（`Z42.Build.BuildLog`）。
+
+      ⚠️ 该开关初版写成静态字段 `public static bool ToStderr = false`，**不生效** ——
+      静态初始化器在该包被**延迟加载**时才跑（defer-class-initialization），发生在 z42b 赋值
+      **之后**，把它重置回 false。改用环境变量通道（输出格式本就是进程级属性）。
 
 ## 步骤 C —— 发现规则对齐 + 孤儿源守卫（**必须先于 D**）
 
