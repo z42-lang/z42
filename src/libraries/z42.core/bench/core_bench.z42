@@ -7,6 +7,8 @@
 namespace Z42CoreBench;
 
 using Std;
+using Std.Collections;   // List<T> / Dictionary<K,V> —— 此前漏写；旧的裸 `--emit-zbc` 单文件
+                         // 编译不跑文件级 using 检查，改由 z42b 按包编译后 E0436 逮到。
 using Std.Test;
 
 [Benchmark]
