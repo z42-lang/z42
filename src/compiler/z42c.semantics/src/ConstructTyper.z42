@@ -164,6 +164,36 @@ public sealed class ConstructTyper {
         if (t is Z42ClassType) { cls = t as Z42ClassType; }
         if (t is Z42InstantiatedType) { cls = (t as Z42InstantiatedType).Def; }
         string ctorName = cls != null ? this._tc._overload._ctorKey(cls, n.ArgCount) : "";
+        // 🔴 **同 arity 的多个 ctor 之间做真的类型决议**（fix-ctor-overload-by-arity-only）。
+        //
+        // `_ctorKey` 只按 **arity** 拼键（`Name` / `Name$N`），然后单键 `_findMethod` 取一个 ——
+        // 于是 `C(int)` 与 `C(string)`、`C(X)` 与 `C(Y)` 这类**同 arity 不同类型**的重载
+        // 压根没被区分：拿到哪个全看注册顺序。实测 `new C("s")` 选中了 `C(int)`，报出
+        // 「cannot assign string to Int32」—— 一条指向**调用点**、却源于**选错重载**的诊断。
+        // 方法侧一直走 `OverloadResolver.Resolve`（按实参类型选），只有 ctor 漏了这一步。
+        //
+        // 注册侧本就给了不同的键（首个裸名、其余全签名 mangle），所以这里只是把「选哪个」
+        // 修对，**不动任何发射键** ⇒ 今天能正确解析的程序（ctor arity 唯一）字节零漂移。
+        if (cls != null && n.ArgCount > 0) {
+            MethodSymbol[] cands = cls.OverloadsOf(cls.Name());
+            if (cands.Length > 1) {
+                Z42Type[] argTs = new Z42Type[n.ArgCount];
+                int ai = 0;
+                bool allBound = true;
+                while (ai < n.ArgCount) {
+                    BoundExpr b = this._et._bindExpr(n.Args[ai], env);
+                    if (b == null || b.Type() == null) { allBound = false; }
+                    else { argTs[ai] = b.Type(); }
+                    ai = ai + 1;
+                }
+                if (allBound) {
+                    OverloadResult orr = OverloadResolver.Resolve(cands, cands.Length, argTs, n.ArgCount);
+                    // 只在**决议成功**时改写；无匹配/歧义仍走既有路径（诊断由下方 arity 校验与
+                    // 实参类型检查给出，措辞不变）。
+                    if (orr.IsResolved()) { ctorName = orr.Key; }
+                }
+            }
+        }
         // GS1/named-arg：命名实参重排 + 可选参数默认值填充（镜像 C#——工厂体 `new Route("/u", method:"POST")`
         // 及省略可选实参 `new Route("/h")` 须在调用点解析为完整位置实参序）。仅本地有 Decl 的 ctor 适配。
         MethodSymbol cms = null;
