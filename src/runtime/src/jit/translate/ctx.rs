@@ -212,8 +212,8 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let b_addr = reg_addr(self.builder, self.regs_base, b);
         let ai = load_payload_i64(self.builder, a_addr);
         let bi = load_payload_i64(self.builder, b_addr);
-        let bp1 = self.builder.ins().iadd_imm(bi, 1);
-        let danger = self.builder.ins().icmp_imm(IntCC::UnsignedLessThanOrEqual, bp1, 1);
+        let bp1 = self.builder.ins().iadd_imm_s(bi, 1);
+        let danger = self.builder.ins().icmp_imm_s(IntCC::UnsignedLessThanOrEqual, bp1, 1);
         let cold_blk = self.builder.create_block();
         let fast_blk = self.builder.create_block();
         let done_blk = self.builder.create_block();

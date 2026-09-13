@@ -19,11 +19,10 @@
 //!
 //! Run via: `cargo bench --bench gc_cycle_bench`.
 
+use std::hint::black_box;
 use std::sync::Arc;
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BatchSize, Criterion,
-};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use z42::gc::{ArcMagrGC, GcMode, MagrGC};
 use z42::metadata::{tokens::TypeId, NativeData, TypeDesc, Value};

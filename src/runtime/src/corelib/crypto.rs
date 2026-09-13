@@ -29,7 +29,7 @@ pub fn builtin_crypto_random_bytes(ctx: &VmContext, args: &[Value]) -> Result<Va
         bail!("{}: n exceeds i32::MAX ({}), got {}", NAME, i32::MAX, n);
     }
     let mut buf = vec![0u8; n as usize];
-    getrandom::getrandom(&mut buf)
+    getrandom::fill(&mut buf)
         .map_err(|e| anyhow::anyhow!("{}: OS CSPRNG failed: {}", NAME, e))?;
     // packed-primitive-arrays Step 3: pack CSPRNG output straight into `Bytes`.
     Ok(ctx.heap().alloc_bytes(buf))
