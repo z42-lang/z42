@@ -61,7 +61,9 @@
 > `expected_output.txt`），内容为 stderr 必须包含的子串；`main` 编过了判红、错误文本对不上也判红。
 > 范例见 `cross-zpkg/dup_fqn_crosspkg/`（走真实三包 + 真 .zpkg 元数据，慢但覆盖真实接线）。
 >
-> ⚠️ 其余跨包诊断（E0404 跨包 internal 等）**尚未补门**，但原语已就位，照上面两条任一条加即可。
+> ✅ **E0404（跨包 internal 类/接口）也已建门**（2026-09-13 harden-crosspkg-gates）：
+> `cross-zpkg/class_internal_access` 与 `interface_internal_access` 此前是「手工验证 fixture」——
+> 因为缺 `expected_output.txt`，runner **直接跳过**，连 FAIL 都不是。现已按 ② 的约定转为自动门。
 
 ## 用例文件约定
 

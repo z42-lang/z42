@@ -128,6 +128,39 @@ public sealed class SymbolCollector {
             if (!table.EnumConsts.ContainsKey(ecs[i])) { table.EnumConsts.Put(ecs[i], imported.EnumConsts.Get(ecs[i])); }
             i = i + 1;
         }
+        // harden-crosspkg-gates：**导入 enum 的声明 ns** 也要并进来。
+        //
+        // 🔴 此前只并 EnumTypes（裸名）与 EnumConsts（`Enum.Member` 裸键），`EnumTypeNs` 只由
+        // `StubCollector` 填**本地** enum ⇒ 导入 enum 的 `Z42ClassType.Enum(name)` 恒 Namespace=""
+        // ⇒ 它的 `Fqn()` 退化成裸名，与 `ClassPkgAll` 里的 `ns.Name` 对不上 ⇒ **同 FQN 跨包的
+        // enum 在类型注解位一声不吭**（实测：两个包各声明 `Demo.Ns.Color` 且成员顺序不同，
+        // `Color c = Color.Red;` 零诊断）。补上这张表，既有的 `_chkTypeRefPkg` 自然就点亮了。
+        //
+        // 键序显式排序（common-pitfalls §1）：StrMap.Keys() 不保证稳定序，而下面是 first-wins。
+        string[] efq = imported.EnumTypeNamesByFqn.Keys();
+        SymbolCollector._sortStrs(efq);
+        i = 0;
+        while (i < efq.Length) {
+            int dot = efq[i].LastIndexOf(".");
+            if (dot > 0) {
+                string ename = efq[i].Substring(dot + 1, efq[i].Length - dot - 1);
+                string ens = efq[i].Substring(0, dot);
+                if (!table.EnumTypeNs.ContainsKey(ename)) { table.EnumTypeNs.Put(ename, new StrBox(ens)); }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 就地升序（键量极小；仅为消除 StrMap.Keys() 的非确定序）。
+    private static void _sortStrs(string[] a) {
+        int i = 1;
+        while (i < a.Length) {
+            string cur = a[i];
+            int j = i - 1;
+            while (j >= 0 && a[j].CompareTo(cur) > 0) { a[j + 1] = a[j]; j = j - 1; }
+            a[j + 1] = cur;
+            i = i + 1;
+        }
     }
 
     // imported 符号 seed（local stub 已注册的同名跳过，local-wins；镜像 C# MergeImported + 本地覆盖）。

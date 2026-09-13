@@ -34,12 +34,34 @@ impl LazyLoader {
         self.string_pool.extend(artifact.module.string_pool.iter().cloned());
 
         // Decision 6: first-wins on function / type name collisions.
+        //
+        // harden-crosspkg-gates: **deliberately still first-wins, not a hard error.**
+        // Erroring here was tried and rejected: loading is lazy and per-package, so two
+        // packages can collide on a name the program never touches (package A is loaded
+        // for `A.X`, package B for `B.Y`, and they happen to share `Ns.W`). Failing the
+        // load would kill a program over an unused collision — exactly the "report a
+        // conflict the user neither uses nor can fix" behaviour that the compile-time
+        // E0601 deliberately avoids by only reporting at **use sites**.
+        //
+        // The right escalation is a use-site error, which needs resolution to *fail* for
+        // an ambiguous name — i.e. not keeping the first-wins entry. That collides with
+        // the append-only invariant these registries rely on (see `registry_fingerprint`:
+        // the negative cache is keyed on lengths precisely because nothing is ever
+        // removed). Left as Deferred `runtime-ambiguous-symbol-use-site-error`.
+        //
+        // What compile time already covers: any collision both packages were *visible*
+        // for is rejected there (E0601 / E0606 / E0456). Reaching this warning means the
+        // two zpkgs were never compiled against each other — usually a stale copy of a
+        // renamed package left in a libs dir.
         for mut fn_ in artifact.module.functions {
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
             if self.function_table.contains_key(&name) {
                 tracing::warn!(
-                    "duplicate function `{name}` from zpkg `{file_name}`; keeping first-loaded"
+                    "duplicate function `{name}` from zpkg `{file_name}`: already provided by an \
+                     earlier-loaded package; keeping the first-loaded one. Which package wins is \
+                     decided by load order — remove or rename one of them (a stale copy of a \
+                     renamed package in a libs dir is the usual cause)."
                 );
                 continue;
             }
@@ -60,7 +82,10 @@ impl LazyLoader {
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
             if self.type_registry.contains_key(&name) {
                 tracing::warn!(
-                    "duplicate type `{name}` from zpkg `{file_name}`; keeping first-loaded"
+                    "duplicate type `{name}` from zpkg `{file_name}`: already provided by an \
+                     earlier-loaded package; keeping the first-loaded one. Which package wins is \
+                     decided by load order — remove or rename one of them (a stale copy of a \
+                     renamed package in a libs dir is the usual cause)."
                 );
                 continue;
             }
@@ -310,6 +335,17 @@ impl LazyLoader {
         }
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
             if self.type_registry.contains_key(&name) {
+                // harden-crosspkg-gates: this used to be a **completely silent** skip —
+                // the zpkg-loading path warns, this one said nothing at all. First-wins is
+                // intentional *here* (the REPL compiles a fresh module per round and later
+                // rounds reference earlier ones — see the `Repl.R1.A` note above; the test
+                // host likewise loads modules overlapping what is already resident), but
+                // "intentional" is not a reason to be invisible: at debug level so a normal
+                // REPL session stays quiet while `RUST_LOG=debug` can still show it.
+                tracing::debug!(
+                    "type `{name}` already registered; keeping the resident one \
+                     (ad-hoc module load — redefinition is expected here)"
+                );
                 continue;
             }
             self.type_registry.insert(name, desc);

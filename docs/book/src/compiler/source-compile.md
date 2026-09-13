@@ -206,6 +206,31 @@ ns 与 pkg 一起存：三种形状恰好由「ns 同不同」×「pkg 同不同
 > **可见性过滤是必须的**：只登记**激活**的包（`using` 命中其某个 ns，整包粒度）。同名但没
 > `using` 进来的那份不参与判定——否则「同名但我根本没用到」会变成假红，而那在真实工程里极常见。
 
+#### 覆盖面：哪些「引用形态」会被判（E0601 / E0606 / E0456）
+
+诊断只在**引用点**报，所以「覆盖面」= 有多少种引用形态经过了判定。逐形态实测的结果：
+
+| 形态 | 挂在哪 |
+|---|---|
+| `new` / 局部变量声明 / 类型实参 / 模式 / `catch` / `default(T)` | `TypeChecker._chkTypeRef` |
+| 字段 / 属性 / 形参 / 返回 / 基类 / 约束 | `SymbolCollector._chkTypeRefT` |
+| 裸类名静态调用 `Util.go()` | `MemberResolver` 静态调用分支 |
+| **ns 限定静态调用** `A.B.Util.go()` | 同上的 qualified 分支（`_dottedPath`，**独立一条**） |
+| **静态成员读** `Cfg.N` | `BoundStaticGet` 分支（**不是「调用」**） |
+| 自由函数调用（裸名 / `ns.f()`） | `MemberResolver` 两处自由调用漏斗 |
+| **enum 常量读** `Color.Green` | `ChkEnumOrigins`（绑成 `BoundLitInt`，**不经任何类型引用检查**） |
+
+> 🔴 **enum 是这一族里唯一「静默错**值**」的形态**：同名 enum 在两个包里成员顺序可以不同，而
+> `EnumConsts` 是**裸键**（`Enum.Member`）⇒ first-wins ⇒ `Color.Green` 静默折出**另一个整数**
+> （实测 `{Red,Green}` vs `{Green,Red}` ⇒ 1 vs 0）。其余形态错的是「绑到哪一份」。
+>
+> enum 的**类型注解位**则是另一个根因：`_mergeImportedEnums` 从不并 `EnumTypeNs` ⇒ 导入 enum 的
+> `Z42ClassType.Enum(name)` 恒 `Namespace=""`、`Fqn()` 退化成裸名 ⇒ 与 `ClassPkgAll` 的 `ns.Name`
+> 对不上。补上那张表后，既有检查**自然点亮，零新检查**。
+>
+> ⚠️ **量这张表要抓「任何诊断码」**：只 grep 自己关心的那几个，会把「这写法本就不受支持」的
+> `E0401` 显示成「零诊断」，让人去修一个不存在的洞（`A.B.Cfg.N` 就是这样一次假警报）。
+
 #### 文件级 `namespace` 的位置约束（E0457）
 
 z42 的编译单元只有**一个**命名空间：`CompilationUnit.Namespace` 是单值，`StubCollector` 登记类时
