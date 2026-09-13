@@ -12,11 +12,27 @@
 //   · 某包 P 的 TsigReconcile.Rebuild 结果只依赖 P 自身 + 其祖先字段/方法；拓扑序保证 P 被任何成员
 //     扫到时其 deps 已建、在 world 中，故 P 的 tsig 跨成员恒定（后续成员 world 只是超集，不改 P 输出）。
 //
-// key = 绝对 path（**无 mtime**）：正确性依赖「同一进程内 path→内容稳定」不变式——workspace 每成员
-// dist 写一次后只读不改（拓扑序：建某成员前其 dist 空、不在 paths；建成后即终态，只被后续成员读）；
-// 外部 Z42_LIBS 恒定；单包 build 一次 ScanDirs 后进程即退；REPL 走 CachedScan（跳过 ScanDirs）+
-// ExtendWithPackage，不重复 ScanDirs 同一 path。故现有全部 z42c 用法进程内均无「同 path 改内容再扫」
-// 路径，path-only 正确。（若将来新增「进程内覆写 zpkg 后重扫」路径，需在 Get 加 mtime/size 守卫。）
+// key = 绝对 path **+ (size, mtime_ms) 守卫**（guard-depscan-cache-staleness）。
+//
+// 初版只按 path 缓存，论证是「同一进程内 path→内容稳定」：workspace 每成员 dist 写一次后只读不改
+// （拓扑序：建某成员前其 dist 空、不在 paths；建成后即终态）；外部 Z42_LIBS 恒定；单包 build 一次
+// ScanDirs 后进程即退；REPL 走 CachedScan + ExtendWithPackage。那条注释同时写明「若将来新增
+// 『进程内覆写 zpkg 后重扫』路径，需在 Get 加 mtime/size 守卫」。
+//
+// **那条路径早就存在了**：CI 的两代自举（`.github/actions/ci-bootstrap`）**就地覆写**
+// `artifacts/build/{libraries,compiler}` —— gen1 起步时 artifacts 还是 gen0 的旧 minor 产物，
+// 建首个成员时 DepScan 预开 `Get(path)` 读到旧份 ⇒ `ZpkgReader.Open` 的 strict-pin
+// （major/minor 不符即返 null）⇒ **缓存下一个 null**；覆写成新 minor 之后，后续成员复用那个
+// null ⇒ 跨包类型 undefined（E0401/E0443）。症状是「2026-08-21 (#240) 之后任何格式 bump CI 全红」，
+// 至今靠 ci-bootstrap §1.5「每代构建前清空该代 artifacts」兜着（即时解阻，非根因）。
+//
+// 守卫：命中时比对 (size, mtime_ms)，任一不同即当未命中重开，并把该条目的 Tsig/Mods/Types
+// 一并作废（它们都是 zpkg 字节的纯函数）。代价是命中路径多两次 stat —— 相对它省掉的
+// 「ReadAllBytes 整个 zpkg + 全量解码」可以忽略。
+//
+// ⚠️ 残余窗口：mtime 的粒度是**毫秒**，故「同一毫秒内覆写成同样大小的另一份内容」测不出来。
+// 这是 make / ninja / rustc 同款的取舍（要消掉它只能算内容哈希，那等于把缓存省下的 I/O 又付回去）。
+// 自举那条路径不在这个窗口里：两代之间隔着整轮构建。
 namespace Z42.Pipeline;
 
 using Std;
@@ -32,8 +48,11 @@ public sealed class CachedZpkg {
     public ZpkgModuleSigs[] Mods;      // F2-邻：null = 尚未缓存该包 SIGS（ReadModuleSigs 是 z 字节纯函数、跨成员恒定；
                                        // 首次某成员把它当 allowed-非-self 扫到时 ReadModuleSigs + 存，其余成员命中零重解）。
     public ZpkgModuleTypes[] Types;    // perf-tsig-reconcile-index：整包 TYPE（ReadModuleTypes）memo，与 Mods 同款纯函数。
-    public CachedZpkg(string path, ZpkgInfo z) {
+    public long Size;                  // 陈旧守卫：缓存时刻的文件字节数
+    public long MtimeMs;               // 陈旧守卫：缓存时刻的 mtime（unix epoch 毫秒）
+    public CachedZpkg(string path, ZpkgInfo z, long size, long mtimeMs) {
         this.Path = path; this.Z = z; this.Tsig = null; this.Mods = null; this.Types = null;
+        this.Size = size; this.MtimeMs = mtimeMs;
     }
 }
 
@@ -42,17 +61,39 @@ public static class DepScanCache {
     private static CachedZpkg[] _entries = null;
     private static int _count = 0;
 
+    // mtime（unix epoch 毫秒）。直接绑 native，避开 z42.time 依赖 —— 与同包 NsIndexCache._mtimeMs 同款。
+    [Native("__file_last_write_time_ms")] private static extern long _mtimeMs(string path);
+
     // 按 path 取缓存条目；未命中则 File.ReadAllBytes + ZpkgReader.Open 一次并缓存。
-    // 命中路径**零文件 I/O、零重解码**（这正是 O(N²)→O(N) 的来源）。
+    // 命中路径只做两次 stat（size + mtime），**零重解码**（这正是 O(N²)→O(N) 的来源）。
+    //
+    // 命中但 (size, mtime) 变了 ⇒ 文件在本进程期间被覆写过（两代自举就地覆写 artifacts 正是这形态），
+    // 按未命中处理：重读重解，并**就地更新那个条目**（而不是追加一条），使同 path 不出现两份缓存。
+    // Tsig/Mods/Types 一并清空 —— 它们是旧字节的派生物。
     public static CachedZpkg Get(string path) {
         if (DepScanCache._entries == null) { DepScanCache._entries = new CachedZpkg[16]; }
+        // stat 失败（文件刚被删 / 无权限）⇒ size = -1：命中照旧返回缓存（= 守卫前的行为，不把一次
+        // 良性命中变成硬失败），未命中则照旧往下走 ReadAllBytes 由它抛。存下的 -1 与任何真实 size
+        // 都不等，故下次 stat 成功时会自动刷新，不会把「失败态」粘住。
+        long size = -1;
+        long mtime = -1;
+        try {
+            size = File.GetSize(path);
+            mtime = DepScanCache._mtimeMs(path);
+        } catch (Exception ex) { size = -1; mtime = -1; }
         int i = 0;
         while (i < DepScanCache._count) {
-            if (DepScanCache._entries[i].Path == path) { return DepScanCache._entries[i]; }
+            CachedZpkg hit = DepScanCache._entries[i];
+            if (hit.Path == path) {
+                if (size < 0 || (hit.Size == size && hit.MtimeMs == mtime)) { return hit; }
+                CachedZpkg fresh = new CachedZpkg(path, ZpkgReader.Open(File.ReadAllBytes(path)), size, mtime);
+                DepScanCache._entries[i] = fresh;
+                return fresh;
+            }
             i = i + 1;
         }
         ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(path));
-        CachedZpkg e = new CachedZpkg(path, z);
+        CachedZpkg e = new CachedZpkg(path, z, size, mtime);
         if (DepScanCache._count == DepScanCache._entries.Length) {
             CachedZpkg[] b = new CachedZpkg[DepScanCache._entries.Length * 2];
             int k = 0;

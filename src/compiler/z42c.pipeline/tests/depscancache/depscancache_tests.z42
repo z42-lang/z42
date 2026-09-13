@@ -1,0 +1,66 @@
+// DepScanCache 陈旧守卫（guard-depscan-cache-staleness）。
+//
+// 复现的是 CI 两代自举那个真实形状，不是臆造的场景：
+//   gen1 起步时 `artifacts/build/{libraries,compiler}` 还是 gen0 的**旧 minor** 产物 →
+//   DepScan 预开 `Get(path)` → `ZpkgReader.Open` 的 strict-pin（major/minor 不符即返 null）
+//   → **缓存下一个 null** → 该 path 被覆写成新 minor 后，后续成员复用那个 null
+//   → 跨包类型 undefined（E0401/E0443）。
+//
+// 故用例就按这个次序走：先放一份旧 minor 的头（Open → null，被缓存），**就地覆写**成当前
+// minor 的头，再 Get 一次 —— 守卫在，才会重读重解拿到非 null。
+namespace Z42cPipelineDepScanCacheTests;
+
+using Std;
+using Std.IO;
+using Std.Test;
+using Z42.Pipeline;
+using Z42.Project;   // ZpkgWriterZ / ZpkgReader / ZpkgInfo / ExportedModuleZ（converge：类型都在此 ns）
+
+// 最小 zpkg 头：`ZPK\0` + u16 major + u16 minor + u16 flags + u16 secCount(=0)，补齐到 16 字节。
+// secCount=0 ⇒ ZpkgReader.Open 的段循环空转，得到一个 name/version 皆空但**非 null** 的 ZpkgInfo。
+// `pad` 只为把两份内容的**字节数**也拉开 —— 守卫比的是 (size, mtime)，而 mtime 只有毫秒粒度，
+// 同毫秒内的两次写可能同值；把 size 拉开，用例才不依赖写入耗时。
+byte[] _header(int major, int minor, int pad) {
+    byte[] b = new byte[16 + pad];
+    b[0] = (byte)90; b[1] = (byte)80; b[2] = (byte)75; b[3] = (byte)0;   // "ZPK\0"
+    b[4] = (byte)(major & 255); b[5] = (byte)((major / 256) & 255);
+    b[6] = (byte)(minor & 255); b[7] = (byte)((minor / 256) & 255);
+    // flags = 0（非 packed / 非 exe / 非 SymOnly），secCount = 0
+    return b;
+}
+
+[Test]
+void test_overwritten_zpkg_is_reopened_not_served_from_cache() {
+    string dir = File.CreateTempDir("depscan-guard");
+    string p = Path.Join(dir, "stale.zpkg");
+
+    // ① 旧 minor：strict-pin 拒读 ⇒ Z == null，且这个 null 被缓存下来。
+    File.WriteAllBytes(p, _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor - 1, 0));
+    CachedZpkg first = DepScanCache.Get(p);
+    Assert.True(first.Z == null);
+
+    // ② 就地覆写成当前 minor（= 两代自举里 gen1 写完 artifacts 的那一刻）。
+    File.WriteAllBytes(p, _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor, 64));
+
+    // ③ 守卫在 ⇒ 重读重解；守卫不在 ⇒ 拿回 ① 缓存的那个 null（这正是 CI 里 E0401 的来源）。
+    CachedZpkg second = DepScanCache.Get(p);
+    Assert.True(second.Z != null);
+
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_untouched_zpkg_still_hits_the_cache() {
+    string dir = File.CreateTempDir("depscan-guard");
+    string p = Path.Join(dir, "steady.zpkg");
+    File.WriteAllBytes(p, _header(ZpkgWriterZ.Major, ZpkgWriterZ.Minor, 0));
+
+    CachedZpkg a = DepScanCache.Get(p);
+    // 文件没动 ⇒ 必须是**同一个条目对象**（不是内容相等的新条目）—— 守卫不能把命中变成每次重解，
+    // 那会把 F2 省下的 O(N²) 解码原样还回去。懒填的 Tsig/Mods/Types 也才不会被反复清空。
+    a.Tsig = new ExportedModuleZ[0];
+    CachedZpkg b = DepScanCache.Get(p);
+    Assert.True(b.Tsig != null);
+
+    Directory.Delete(dir, true);
+}

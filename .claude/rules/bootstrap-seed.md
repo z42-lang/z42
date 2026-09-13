@@ -77,10 +77,20 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
    > gen1→gen2(compiler) **就地覆写同一 `artifacts/build/{libraries,compiler}`**，gen1 起步时 artifacts
    > 仍是 gen0 旧 minor 产物，建首成员时 DepScan 预开 `Get(path)` 读旧份 → strict-pin skip → **缓存 null**，
    > 覆写新 minor 后后续成员复用缓存 null → 跨包类型 undefined(E0401/E0443)。故 2026-08-21 (#240) 后**任何
-   > 格式 bump CI 全红**（纯版本 bump 亦然，探针 PR #381 复现）。**修复**：`ci-bootstrap` §1.5 **每代
-   > 构建前清空其就地 artifacts**（恢复 DepScanCache「建成员前 dist 空」不变式）。DepScanCache 注释自身
-   > 已预警「进程内覆写 zpkg 后重扫需 mtime/size 守卫」——CI 清理是即时解阻，**给 `DepScanCache.Get` 加
-   > mtime/size 守卫是更彻底的根因级修复（backlog，独立 compiler change）**。
+   > 格式 bump CI 全红**（纯版本 bump 亦然，探针 PR #381 复现）。**即时解阻**：`ci-bootstrap` §1.5 **每代
+   > 构建前清空其就地 artifacts**（恢复 DepScanCache「建成员前 dist 空」不变式）。
+   >
+   > **根因已修（2026-09-13，guard-depscan-cache-staleness）**：`DepScanCache.Get` 现在按
+   > **path + (size, mtime_ms)** 作答，命中但文件被覆写过即重读重解、并作废该条目的
+   > Tsig/Mods/Types。于是「进程内覆写 zpkg 后重扫」不再返回陈旧 null，两代自举不再依赖外部清理。
+   > 回归测试 `src/compiler/z42c.pipeline/tests/depscancache/` 按真实形状复现（旧 minor 头 → 缓存
+   > null → 就地覆写成当前 minor → 必须重解）；关掉守卫即判红（阴性对照做过）。
+   > ⚠️ 残余窗口：mtime 只有毫秒粒度，「同毫秒内覆写成同样大小的另一份内容」测不出来
+   > （make/ninja/rustc 同款取舍）；两代自举之间隔着整轮构建，不在这个窗口里。
+   >
+   > **`ci-bootstrap` §1.5 的清理暂时保留**，因为这条路径**本地不可验**（冷启动 + 格式 bump 才走到），
+   > 现在删掉等于拿一次真实 bump 当验证。**触发条件**：下一次格式 bump 的 PR 里顺手删掉它并观察 CI ——
+   > 那时它正好被真实行使一次，红了也立刻知道是谁的锅。
 
 ---
 
