@@ -61,6 +61,19 @@ pub(super) fn obj_new(
             std::sync::Arc::new(make_fallback_type_desc(module, class_name))
         }
     };
+    // fix-crosspkg-base-fields-in-eager-module：急切加载的主模块注册表在**构建期**就把
+    // 跨包基类合不进来（那时依赖还没加载），于是 `Derived : CrossPkgBase` 的这份描述符
+    // 「只有自己的字段」。惰性加载器那份被 `try_fixup_inheritance` 补齐过，而
+    // `Arc::make_mut` 的写时复制只让**惰性注册表**拿到修好的副本——主模块那份永远残缺。
+    // ObjNew 又是先查主模块，于是继承字段整体丢失（实测 `Derived` 急切 1 槽 / 惰性 2 槽，
+    // `d.A = 7` 被丢弃、`d.A` 读出 Null，而 VCall 因为另有基类回落路径**看起来是好的**，
+    // 把这个洞盖了很久）。旗子在手，这里换成修好的那份。
+    let type_desc = if type_desc.base_unmerged() {
+        match ctx.try_lookup_type(class_name) {
+            Some(fixed) if !fixed.base_unmerged() => fixed,
+            _ => type_desc,
+        }
+    } else { type_desc };
 
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
     // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），

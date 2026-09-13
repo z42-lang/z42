@@ -66,6 +66,13 @@ pub unsafe extern "C" fn jit_obj_new(
             std::sync::Arc::new(crate::interp::dispatch::make_fallback_type_desc(module, class_name))
         }
     };
+    // fix-crosspkg-base-fields-in-eager-module：与 interp `exec_object::obj_new` 对称。
+    let type_desc = if type_desc.base_unmerged() {
+        match vm_ctx_ref(ctx).try_lookup_type(class_name) {
+            Some(fixed) if !fixed.base_unmerged() => fixed,
+            _ => type_desc,
+        }
+    } else { type_desc };
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
     // 一次 `Option` 判断即可，不需要 `pending` 门。与 interp 的 obj_new 屏障对称。
     {
