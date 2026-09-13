@@ -636,8 +636,9 @@ fn reclaim_does_not_scan_the_free_lists() {
 
     let after: usize = r.free_lists.iter().map(|f| f.len()).sum();
     assert_eq!(after, before, "purge_blocks must leave the free lists untouched");
-    assert_eq!(after, r.free_epochs.iter().map(|f| f.len()).sum::<usize>(),
-        "the epoch list must run in lockstep with the pointer list");
+    // The companion assertion "the epoch list runs in lockstep with the slot list" is gone
+    // with `perf-merge-free-entry`: slot and epoch are one `FreeEntry`, so lockstep is
+    // structural rather than something a test has to watch.
 }
 
 /// Pooling records, exactly, how many entries it staled — that count is what bounds the
@@ -679,7 +680,7 @@ fn pooling_records_the_entries_it_staled() {
 fn a_stale_free_entry_is_never_handed_out() {
     let mut r = region_with_pooled_chunks();
     let stale: std::collections::HashSet<_> = r.free_lists.iter().flatten()
-        .map(|slot| r.chunks[slot.chunk()].base.as_ptr() as usize + slot.offset())
+        .map(|e| r.chunks[e.slot.chunk()].base.as_ptr() as usize + e.slot.offset())
         .collect();
     assert!(!stale.is_empty());
 

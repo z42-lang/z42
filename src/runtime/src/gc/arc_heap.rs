@@ -282,9 +282,9 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
 /// `metadata::types` dependency). Only blocks whose payload owns non-POD data need a drop:
 /// - `ArrayValue` → `size / size_of::<Value>()` inline `Value`s (a `Boxed` array's elements or a
 ///   `struct[]`'s reference side-table). Since PR-4 `Value::Str` is itself a GC handle (no
-///   refcount), so these Values are all trivially droppable — but the arm is retained because
-///   `Value`'s `Drop` is not statically a no-op (other embedders' variants), and `drop_in_place`
-///   on a POD `Value` is a cheap no-op anyway.
+///   refcount), so these Values are all trivially droppable. The arm is retained for an
+///   embedding whose `Value` is not — but in *this* one it never runs, because `Value: Copy`
+///   makes `needs_drop::<Value>()` false and [`var_payload_drop_glue`] then installs nothing.
 /// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) / `Closure` → POD leaves, nothing to drop.
 ///   PR-5 migrated `ClosureData.fn_name` `String` → GC `Str`, so a `ClosureData` now owns no heap
 ///   outside the GC (`env: GcRef` + `fn_name: Str` are both no-op/`Copy` drops) → the former
@@ -293,6 +293,20 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
 /// # Safety
 /// Called once per block reclaim with a valid pointer to that block's initialized `size`-byte
 /// payload (upheld by `VarRegion`).
+/// The glue to install in the var region, or `None` when no block type's payload actually
+/// needs dropping — see [`var_drop_glue`] for the per-type reasoning.
+///
+/// **perf-skip-pod-drop-glue (2026-09-13)**: `ArrayValue` is the only arm with a body, and
+/// `Value` is `Copy` (`make-value-copy`), so `drop_in_place` on it is statically a no-op and
+/// the whole function is empty. It is still *called* per reclaimed block, though — through a
+/// fn pointer, which the optimizer cannot see into — so the empty body cost 1.6 ms a build
+/// (see `VarRegion::finalize_payload`). `needs_drop` is the guard rather than a plain `false`
+/// so that the day a droppable variant joins `Value`, the glue comes back on its own.
+fn var_payload_drop_glue() -> Option<crate::gc::var_region::PayloadDropGlue> {
+    std::mem::needs_drop::<Value>()
+        .then_some(var_drop_glue as crate::gc::var_region::PayloadDropGlue)
+}
+
 unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) {
     match bt {
         BlockType::ArrayValue => {
