@@ -24,7 +24,7 @@
 
 use crate::metadata::Value;
 use cranelift_codegen::ir::types;
-use cranelift_codegen::ir::{InstBuilder, MemFlags, Value as ClifValue};
+use cranelift_codegen::ir::{InstBuilder, MemFlagsData, Value as ClifValue};
 use cranelift_frontend::FunctionBuilder;
 use std::collections::BTreeMap;
 
@@ -61,27 +61,27 @@ pub fn reg_addr(b: &mut FunctionBuilder, regs_base: ClifValue, reg: u32) -> Clif
 /// [`load_payload`] with `types::F64`.
 #[inline]
 pub fn load_payload_i64(b: &mut FunctionBuilder, addr: ClifValue) -> ClifValue {
-    b.ins().load(types::I64, MemFlags::trusted(), addr, PAYLOAD_OFFSET)
+    b.ins().load(types::I64, MemFlagsData::trusted(), addr, PAYLOAD_OFFSET)
 }
 
 /// Load the payload of a slot as the given Cranelift type at offset 8.
 #[inline]
 pub fn load_payload(b: &mut FunctionBuilder, addr: ClifValue, ty: types::Type) -> ClifValue {
-    b.ins().load(ty, MemFlags::trusted(), addr, PAYLOAD_OFFSET)
+    b.ins().load(ty, MemFlagsData::trusted(), addr, PAYLOAD_OFFSET)
 }
 
 /// Load the u8 discriminant (tag) of a slot at offset 0.
 #[inline]
 pub fn load_tag(b: &mut FunctionBuilder, addr: ClifValue) -> ClifValue {
-    b.ins().load(types::I8, MemFlags::trusted(), addr, TAG_OFFSET)
+    b.ins().load(types::I8, MemFlagsData::trusted(), addr, TAG_OFFSET)
 }
 
 /// Store a full slot: already-materialized u8 `tag` at offset 0 + `payload` at
 /// offset 8.
 #[inline]
 pub fn store_tagged(b: &mut FunctionBuilder, addr: ClifValue, tag: ClifValue, payload: ClifValue) {
-    b.ins().store(MemFlags::trusted(), tag, addr, TAG_OFFSET);
-    b.ins().store(MemFlags::trusted(), payload, addr, PAYLOAD_OFFSET);
+    b.ins().store(MemFlagsData::trusted(), tag, addr, TAG_OFFSET);
+    b.ins().store(MemFlagsData::trusted(), payload, addr, PAYLOAD_OFFSET);
 }
 
 /// Store a slot whose discriminant is the compile-time constant `tag_u8`, plus
@@ -99,7 +99,7 @@ pub fn store_const_tag(b: &mut FunctionBuilder, addr: ClifValue, tag_u8: u8, pay
 #[inline]
 pub fn store_tag_const(b: &mut FunctionBuilder, addr: ClifValue, tag_u8: u8) {
     let tag = b.ins().iconst(types::I8, tag_u8 as i64);
-    b.ins().store(MemFlags::trusted(), tag, addr, TAG_OFFSET);
+    b.ins().store(MemFlagsData::trusted(), tag, addr, TAG_OFFSET);
 }
 
 /// Store only the payload (offset 8). Caller guarantees the tag byte already
@@ -108,7 +108,7 @@ pub fn store_tag_const(b: &mut FunctionBuilder, addr: ClifValue, tag_u8: u8) {
 #[inline]
 #[allow(dead_code)]
 pub fn store_payload(b: &mut FunctionBuilder, addr: ClifValue, payload: ClifValue) {
-    b.ins().store(MemFlags::trusted(), payload, addr, PAYLOAD_OFFSET);
+    b.ins().store(MemFlagsData::trusted(), payload, addr, PAYLOAD_OFFSET);
 }
 
 // ─── Block-local integer-scalar cache (jit-unbox-regalloc Phase 2B) ──────────

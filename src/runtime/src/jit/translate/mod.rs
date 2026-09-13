@@ -12,7 +12,7 @@ use crate::metadata::{
     VCallInsn,
 };
 use anyhow::{bail, Result};
-use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlags};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, MemFlagsData};
 use cranelift_codegen::ir::types;
 use cranelift_codegen::ir::condcodes::IntCC;
 use crate::metadata::IrType;
@@ -254,22 +254,25 @@ pub fn translate_function(
     }
     if any_promoted {
         for (reg, &p) in promoted.iter().enumerate() {
+            let is_f64 = z42_func.reg_types.get(reg).copied() == Some(IrType::F64);
+            // Cranelift hands out Variables sequentially, while every use site
+            // addresses a promoted reg as `Variable::from_u32(reg)`. Declare one
+            // Variable per reg (non-promoted ones are never def'd/used) so the
+            // index always equals the reg number.
+            let var = builder.declare_var(if is_f64 { types::F64 } else { types::I64 });
+            debug_assert_eq!(var, Variable::from_u32(reg as u32));
             if p {
-                let var = Variable::from_u32(reg as u32);
                 let addr = reg_addr(&mut builder, regs_base, reg as u32);
                 // F64 regs get an F64-typed Variable seeded with the f64 payload;
                 // integer regs (I8..U64, all physically Value::I64) get an I64
                 // Variable seeded with the i64 payload. A local's dead seed
                 // (garbage / Null) is overwritten by its first real def before use.
-                if z42_func.reg_types.get(reg).copied() == Some(IrType::F64) {
-                    builder.declare_var(var, types::F64);
-                    let seed = load_payload(&mut builder, addr, types::F64);
-                    builder.def_var(var, seed);
+                let seed = if is_f64 {
+                    load_payload(&mut builder, addr, types::F64)
                 } else {
-                    builder.declare_var(var, types::I64);
-                    let seed = load_payload_i64(&mut builder, addr);
-                    builder.def_var(var, seed);
-                }
+                    load_payload_i64(&mut builder, addr)
+                };
+                builder.def_var(var, seed);
             }
         }
     }
@@ -435,7 +438,7 @@ pub fn translate_function(
     }
 
     builder.seal_all_blocks();
-    builder.finalize();
+    builder.finalize(jit.target_config());
 
     jit.define_function(func_id, &mut ctx)?;
     jit.clear_context(&mut ctx);

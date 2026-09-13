@@ -146,8 +146,8 @@ redo-免疫（见坑 ①），故都走 `replace:<text>`（整行纯空白 + 光
    把内容放在 payload 而非计数的 `Insert(1, text)`。故本机制只用这三类；变量宽度删+插唯 `Replace(WholeLine)`。
 2. **`edit_insert_text` 不推进光标（已 patch）**：`Cmd::Replace(WholeLine, text)` 执行 = `edit_kill(WholeLine)`
    （光标 `move_home` 到逻辑行首）→ `edit_insert_text`（`insert_str` 插入但**不改 `pos`**）→ 光标停在**行首**。
-   上游 rustyline 14 此路径会让 `}` 之后无法继续输入（`} else {`），一度使 `}`/floor **延后**。现由
-   `[patch.crates-io]` 指向 `z42-lang/rustyline`（v14.0.0 + 单 commit）使 `edit_insert_text` 插入后
+   上游 rustyline（14 起，至 18.0.1 仍未修）此路径会让 `}` 之后无法继续输入（`} else {`），一度使 `}`/floor **延后**。现由
+   `[patch.crates-io]` 指向 `z42-lang/rustyline`（v18.0.1 + 单 commit，分支 `z42-edit-insert-text-cursor-v18`）使 `edit_insert_text` 插入后
    `set_pos(cursor + text.len())`——光标落在插入文本末尾（`}` 之后），`}`/floor 得以落地。该 patch 只影响
    `Replace`（其在 rustyline 内唯一调用方），是上游真 bug，已同步上游、合并后即可撤 fork。
 

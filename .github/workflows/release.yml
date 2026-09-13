@@ -32,7 +32,7 @@ jobs:
     outputs:
       version: ${{ steps.extract.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Extract + verify version
         id: extract
@@ -80,7 +80,7 @@ jobs:
           - { rid: browser-wasm,   runs-on: ubuntu-latest,      rust-target: wasm32-unknown-unknown }
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Rust + target
         uses: dtolnay/rust-toolchain@stable
@@ -235,7 +235,7 @@ jobs:
           fi
 
       - name: Upload archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.rid }}
           path: artifacts/release/z42-*
@@ -249,7 +249,7 @@ jobs:
     needs: [verify, package]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Provision z42vm + xtask.zpkg so the release-packaging steps run as
       # `xtask release …` (script-zero — no scripts/release/*.sh). Bootstrap
@@ -268,7 +268,7 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download all archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: 'release-*'
