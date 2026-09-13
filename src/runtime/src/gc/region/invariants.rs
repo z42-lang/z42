@@ -26,6 +26,12 @@ pub enum Violation {
     /// free_list 中找到 alive=true 的 slot（违反 tombstone 契约 —
     /// custom-allocator invariant）.
     AliveSlotInFreeList { chunk_idx: u32, entry_idx: u16 },
+    /// **perf-bucket-region-free-list (2026-09-13)**: `free_chunks` disagrees with
+    /// `free_slots` — a chunk listed twice, listed with an empty bucket, or unlisted with a
+    /// non-empty one.
+    FreeChunkIndexDrift { chunk_idx: u32 },
+    /// **perf-bucket-region-free-list (2026-09-13)**: `free_len` drifted from the buckets.
+    FreeSlotCountDrift { counted: usize, tracked: usize },
     /// `entry.location` 不等于实际 (chunk_idx, entry_idx)（自定位错乱 —
     /// custom-allocator invariant）.
     LocationMismatch { chunk_idx: u32, entry_idx: u16, recorded: (u32, u16) },
@@ -51,6 +57,10 @@ impl std::fmt::Display for Violation {
             Self::DuplicateInYoungList { chunk_idx, entry_idx } =>
                 write!(f, "duplicate in young_list (chunk={}, entry={})",
                     chunk_idx, entry_idx),
+            Self::FreeChunkIndexDrift { chunk_idx } =>
+                write!(f, "free_chunks disagrees with free_slots[{chunk_idx}]"),
+            Self::FreeSlotCountDrift { counted, tracked } =>
+                write!(f, "free_len {tracked} but buckets hold {counted}"),
             Self::AliveSlotInFreeList { chunk_idx, entry_idx } =>
                 write!(f, "free_list contains alive slot (chunk={}, entry={})",
                     chunk_idx, entry_idx),
@@ -149,16 +159,42 @@ impl<T> Region<T> {
             }
         }
 
-        // 4. free_list slots all alive=false.
-        for &(ci, ei) in &self.free_list {
-            let entry = unsafe {
-                self.chunks[ci as usize][ei as usize].assume_init_ref()
-            };
-            if entry.alive.load(Ordering::Acquire) {
-                return Err(Violation::AliveSlotInFreeList {
-                    chunk_idx: ci, entry_idx: ei,
-                });
+        // 4. free slots all alive=false.
+        for (ci, bucket) in self.free_slots.iter().enumerate() {
+            for &ei in bucket {
+                let entry = unsafe {
+                    self.chunks[ci][ei as usize].assume_init_ref()
+                };
+                if entry.alive.load(Ordering::Acquire) {
+                    return Err(Violation::AliveSlotInFreeList {
+                        chunk_idx: ci as u32, entry_idx: ei,
+                    });
+                }
             }
+        }
+
+        // 4b. perf-bucket-region-free-list: the index that makes the pop path `O(1)` —
+        // `ci ∈ free_chunks ⟺ bucket non-empty`, with no duplicates. A drifted index is
+        // silent otherwise: a missing entry strands reusable slots (the region grows chunks
+        // it does not need), a stale one makes `pop_free_slot` panic on an empty bucket.
+        let mut listed = vec![false; self.free_slots.len()];
+        for &ci in &self.free_chunks {
+            if ci as usize >= listed.len() || listed[ci as usize] {
+                return Err(Violation::FreeChunkIndexDrift { chunk_idx: ci });
+            }
+            listed[ci as usize] = true;
+        }
+        let mut counted = 0usize;
+        for (ci, bucket) in self.free_slots.iter().enumerate() {
+            counted += bucket.len();
+            if bucket.is_empty() == listed[ci] {
+                return Err(Violation::FreeChunkIndexDrift { chunk_idx: ci as u32 });
+            }
+        }
+        if counted != self.free_len {
+            return Err(Violation::FreeSlotCountDrift {
+                counted, tracked: self.free_len,
+            });
         }
 
         Ok(())
