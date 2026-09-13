@@ -135,11 +135,29 @@ impl StackArena {
     /// stay marked). Mirrors the frame `env_arena` root scan.
     pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
         for s in &self.objs {
-            // unify-object-byte-layout (PR-2): all reference leaves live in `refs`;
-            // `bytes` holds only primitives.
+            // unify-object-byte-layout (PR-2): the side-table reference leaves —
+            // closure/func/string fields and inline-struct interior refs.
             for r in s.obj.refs().iter() {
                 visit(r);
             }
+            // **fix-stackalloc-misses-inlined-refs (2026-09-13)**: and the ones that are
+            // NOT in `refs`. PR-3 chunk 2b pulled every *direct* object/array field out of
+            // the side-table and byte-inlined it as an 8B tagged pointer in `bytes`; the
+            // heap path was updated to visit both halves (`Value::visit_gc_children` calls
+            // `refs()` **and** `trace_inline_refs`), this one was not — and the stale
+            // comment that used to sit here ("`bytes` holds only primitives") is exactly
+            // the assumption chunk 2b invalidated.
+            //
+            // The consequence was a silent use-after-free, not a missing optimization: a
+            // non-escaping object lives in this arena, so its `Names`/`Ms`-shaped array
+            // fields were reachable from **no** root at all. A minor swept them while the
+            // owner was still live, the slot was reused, and the stale handle then resolved
+            // to whatever now occupies it — `long[]` read back a `Char`. Debug builds trip
+            // `GcRef::entry_ref: generation/alive mismatch`; release builds just answer with
+            // the wrong object. Repro was `xtask test` itself: 13 green stages, then the
+            // wall-clock summary died on its own `long[]` (`Z42_GC_NURSERY_BYTES=65536`
+            // makes it deterministic in seconds; `Z42_STACKALLOC=off` makes it vanish).
+            s.obj.trace_inline_refs(visit);
         }
         for s in &self.arrs {
             // add-struct-heap-inline (P3b): gc_refs covers Boxed elements + struct[] refs.
