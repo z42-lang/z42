@@ -33,7 +33,7 @@ impl Default for ArcMagrGC {
             // `set_mode` keeps this in step if the mode changes later.
             region_object: Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
             region_array:  Mutex::new(crate::gc::region::Region::new_for_mode(generational, promotion_age)),
-            region_var:    Mutex::new(VarRegion::with_drop_glue_for_mode(var_drop_glue, generational, promotion_age)),
+            region_var:    Mutex::new(VarRegion::with_drop_glue_for_mode(var_payload_drop_glue(), generational, promotion_age)),
             promotion_policy: Default::default(),
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
