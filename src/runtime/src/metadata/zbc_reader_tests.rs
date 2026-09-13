@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 38, "zbc minor at 1.38 (stabilize-instance-dispatch-keys: instance/static-virtual method keys become primary-bare / non-primary full-signature mangle; wire layout unchanged, only key strings)");
+    assert_eq!(ZBC_VERSION_MINOR, 39, "zbc minor at 1.39 (encode-ctorless-objnew: ObjNew gains a trailing positive `ctor_known` u8)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 43, "zpkg minor at 0.43 (stabilize-instance-dispatch-keys: coupled zbc 1.38)");
+    assert_eq!(ZPKG_VERSION_MINOR, 44, "zpkg minor at 0.44 (encode-ctorless-objnew: coupled zbc 1.39)");
 }
 
 #[test]

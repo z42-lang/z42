@@ -1,0 +1,444 @@
+[2m2026-09-13T16:04:32.479449Z[0m [33m WARN[0m [2mz42::metadata::loader::artifact[0m[2m:[0m ignoring corrupt zpkg sidecar /Users/d.s.qiu/Documents/codesigner-ui/z42-zeroctor/artifacts/xtask/xtask.zsym: zpkg sidecar 0.43 not supported (writer is at 0.44); regen via xtask build stdlib
+▶ test e2e
+warning: unused import: `array_access::*`
+  --> src/metadata/types.rs:32:9
+   |
+32 | pub use array_access::*;
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `namespace_prefix`
+   --> src/metadata/lazy_loader.rs:386:26
+    |
+386 | pub(crate) use resolve::{namespace_prefix, InitState};
+    |                          ^^^^^^^^^^^^^^^^
+
+warning: unused import: `FinalizerFn`
+ --> src/gc/arc_heap/collect.rs:6:24
+  |
+6 | use crate::gc::types::{FinalizerFn};
+  |                        ^^^^^^^^^^^
+
+warning: unused import: `FinalizerFn`
+ --> src/gc/arc_heap/generational.rs:7:24
+  |
+7 | use crate::gc::types::{FinalizerFn};
+  |                        ^^^^^^^^^^^
+
+warning: unused import: `AtomicU32`
+  --> src/gc/arc_heap/promotion_policy.rs:51:37
+   |
+51 | use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+   |                                     ^^^^^^^^^
+
+warning: unused import: `parking_lot::Mutex`
+ --> src/gc/arc_heap/debug.rs:4:5
+  |
+4 | use parking_lot::Mutex;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ScriptObject`
+ --> src/gc/arc_heap/debug.rs:5:23
+  |
+5 | use crate::metadata::{ScriptObject, Value};
+  |                       ^^^^^^^^^^^^
+
+warning: unused import: `ArrayObj`
+ --> src/gc/arc_heap/debug.rs:6:30
+  |
+6 | use crate::metadata::types::{ArrayObj};
+  |                              ^^^^^^^^
+
+warning: unused import: `GcRef`
+ --> src/gc/arc_heap/debug.rs:7:23
+  |
+7 | use crate::gc::refs::{GcRef};
+  |                       ^^^^^
+
+warning: unused imports: `AtomicBool`, `AtomicPtr`, `AtomicU32`, and `AtomicU8`
+  --> src/gc/region.rs:38:25
+   |
+38 | use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, Ordering};
+   |                         ^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `parking_lot::Mutex`
+  --> src/gc/region.rs:40:5
+   |
+40 | use parking_lot::Mutex;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::types::FinalizerFn`
+  --> src/gc/region.rs:42:5
+   |
+42 | use super::types::FinalizerFn;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `class_for_with_limit`
+  --> src/gc/var_region.rs:80:35
+   |
+80 | pub(crate) use chunk::{class_for, class_for_with_limit, OVERSIZED_CLASS};
+   |                                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `isa_td`
+ --> src/interp/exec_object.rs:9:23
+  |
+9 | use super::dispatch::{isa_td, make_fallback_type_desc};
+  |                       ^^^^^^
+
+warning: unused import: `super::exec_vcall::is_array_isa`
+  --> src/interp/exec_object.rs:10:5
+   |
+10 | use super::exec_vcall::is_array_isa;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: glob import doesn't reexport anything with visibility `pub(crate)` because no imported item is public enough
+  --> src/config.rs:56:16
+   |
+56 | pub(crate) use parse::*;
+   |                ^^^^^^^^
+   |
+note: the most public imported item is `pub(self)`
+  --> src/config.rs:56:16
+   |
+56 | pub(crate) use parse::*;
+   |                ^^^^^^^^
+   = help: reduce the glob import's visibility or increase visibility of imported items
+
+warning: unused import: `crate::gc::heap::MagrGC`
+ --> src/gc/arc_heap/generational.rs:4:5
+  |
+4 | use crate::gc::heap::MagrGC;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: value assigned to `freed_bytes` is never read
+   --> src/gc/arc_heap/control.rs:324:22
+    |
+324 |                 let (mut freed_bytes, mut did_major) = (0u64, false);
+    |                      ^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+330 |                     freed_bytes = minor.freed_bytes;
+    |                     ------------------------------- `freed_bytes` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `cur` is never read
+  --> src/vm_context/symres.rs:34:53
+   |
+34 |     let mut cur: Option<std::sync::Arc<TypeDesc>> = None;
+   |                                                     ^^^^ this value is reassigned later and never used
+...
+46 |             Some(b) => { cur = Some(b); probe = cur.as_deref().unwrap(); }
+   |                          --- `cur` is overwritten here before the previous value is read
+
+warning: field `promoted_bytes` is never read
+  --> src/gc/arc_heap/generational.rs:18:16
+   |
+14 | pub(crate) struct MinorSweepResult {
+   |                   ---------------- field in this struct
+...
+18 |     pub(crate) promoted_bytes: u64,
+   |                ^^^^^^^^^^^^^^
+   |
+   = note: `MinorSweepResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `age_for_this_minor` is never used
+  --> src/gc/arc_heap/promotion_policy.rs:82:19
+   |
+80 | impl PromotionPolicy {
+   | -------------------- method in this implementation
+81 |     /// The age this minor should sweep at, given the configured one.
+82 |     pub(super) fn age_for_this_minor(&self, configured: u8) -> u8 {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: method `filled` is never used
+   --> src/gc/region.rs:146:19
+    |
+100 | impl<T> ChunkClaim<T> {
+    | --------------------- method in this implementation
+...
+146 |     pub(crate) fn filled(&self) -> u16 {
+    |                   ^^^^^^
+
+warning: method `compact_free_lists` is never used
+   --> src/gc/var_region.rs:442:8
+    |
+282 | impl VarRegion {
+    | -------------- method in this implementation
+...
+442 |     fn compact_free_lists(&mut self) {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `stats_enabled` is never used
+   --> src/interp/stack_alloc.rs:218:8
+    |
+218 | pub fn stats_enabled() -> bool {
+    |        ^^^^^^^^^^^^^
+
+warning: method `get_cloned` is never used
+  --> src/vm_context/resource_registry.rs:74:19
+   |
+70 | impl<T: Clone> ResourceRegistry<T> {
+   | ---------------------------------- method in this implementation
+...
+74 |     pub(crate) fn get_cloned(&self, id: u64) -> Option<T> {
+   |                   ^^^^^^^^^^
+
+warning: methods `is_done` and `registered_count` are never used
+   --> src/vm_context/cctor.rs:158:12
+    |
+ 84 | impl CctorRegistry {
+    | ------------------ methods in this implementation
+...
+158 |     pub fn is_done(&self, class_fq: &str) -> bool {
+    |            ^^^^^^^
+...
+164 |     pub fn registered_count(&self) -> usize {
+    |            ^^^^^^^^^^^^^^^^
+
+▶ build compiler (z42c self-build)
+▶ build runtime (cargo z42vm)
+warning: unused import: `array_access::*`
+  --> src/metadata/types.rs:32:9
+   |
+32 | pub use array_access::*;
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `namespace_prefix`
+   --> src/metadata/lazy_loader.rs:386:26
+    |
+386 | pub(crate) use resolve::{namespace_prefix, InitState};
+    |                          ^^^^^^^^^^^^^^^^
+
+warning: unused import: `FinalizerFn`
+ --> src/gc/arc_heap/collect.rs:6:24
+  |
+6 | use crate::gc::types::{FinalizerFn};
+  |                        ^^^^^^^^^^^
+
+warning: unused import: `FinalizerFn`
+ --> src/gc/arc_heap/generational.rs:7:24
+  |
+7 | use crate::gc::types::{FinalizerFn};
+  |                        ^^^^^^^^^^^
+
+warning: unused import: `AtomicU32`
+  --> src/gc/arc_heap/promotion_policy.rs:51:37
+   |
+51 | use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+   |                                     ^^^^^^^^^
+
+warning: unused imports: `AtomicBool`, `AtomicPtr`, `AtomicU32`, and `AtomicU8`
+  --> src/gc/region.rs:38:25
+   |
+38 | use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, Ordering};
+   |                         ^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^
+
+warning: unused import: `parking_lot::Mutex`
+  --> src/gc/region.rs:40:5
+   |
+40 | use parking_lot::Mutex;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::types::FinalizerFn`
+  --> src/gc/region.rs:42:5
+   |
+42 | use super::types::FinalizerFn;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::atomic::Ordering`
+ --> src/gc/region/invariants.rs:6:5
+  |
+6 | use std::sync::atomic::Ordering;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CHUNK_SIZE` and `PROMOTION_THRESHOLD`
+ --> src/gc/region/invariants.rs:8:21
+  |
+8 | use super::{Region, CHUNK_SIZE, PROMOTION_THRESHOLD};
+  |                     ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `invariants::*`
+  --> src/gc/region.rs:54:9
+   |
+54 | pub use invariants::*;
+   |         ^^^^^^^^^^^^^
+
+warning: unused import: `class_for_with_limit`
+  --> src/gc/var_region.rs:80:35
+   |
+80 | pub(crate) use chunk::{class_for, class_for_with_limit, OVERSIZED_CLASS};
+   |                                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `isa_td`
+ --> src/interp/exec_object.rs:9:23
+  |
+9 | use super::dispatch::{isa_td, make_fallback_type_desc};
+  |                       ^^^^^^
+
+warning: unused import: `super::exec_vcall::is_array_isa`
+  --> src/interp/exec_object.rs:10:5
+   |
+10 | use super::exec_vcall::is_array_isa;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: glob import doesn't reexport anything with visibility `pub(crate)` because no imported item is public enough
+  --> src/config.rs:56:16
+   |
+56 | pub(crate) use parse::*;
+   |                ^^^^^^^^
+   |
+note: the most public imported item is `pub(self)`
+  --> src/config.rs:56:16
+   |
+56 | pub(crate) use parse::*;
+   |                ^^^^^^^^
+   = help: reduce the glob import's visibility or increase visibility of imported items
+
+warning: unused import: `crate::gc::heap::MagrGC`
+ --> src/gc/arc_heap/generational.rs:4:5
+  |
+4 | use crate::gc::heap::MagrGC;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: value assigned to `freed_bytes` is never read
+   --> src/gc/arc_heap/control.rs:324:22
+    |
+324 |                 let (mut freed_bytes, mut did_major) = (0u64, false);
+    |                      ^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+330 |                     freed_bytes = minor.freed_bytes;
+    |                     ------------------------------- `freed_bytes` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `cur` is never read
+  --> src/vm_context/symres.rs:34:53
+   |
+34 |     let mut cur: Option<std::sync::Arc<TypeDesc>> = None;
+   |                                                     ^^^^ this value is reassigned later and never used
+...
+46 |             Some(b) => { cur = Some(b); probe = cur.as_deref().unwrap(); }
+   |                          --- `cur` is overwritten here before the previous value is read
+
+warning: field `promoted_bytes` is never read
+  --> src/gc/arc_heap/generational.rs:18:16
+   |
+14 | pub(crate) struct MinorSweepResult {
+   |                   ---------------- field in this struct
+...
+18 |     pub(crate) promoted_bytes: u64,
+   |                ^^^^^^^^^^^^^^
+   |
+   = note: `MinorSweepResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `age_for_this_minor` is never used
+  --> src/gc/arc_heap/promotion_policy.rs:82:19
+   |
+80 | impl PromotionPolicy {
+   | -------------------- method in this implementation
+81 |     /// The age this minor should sweep at, given the configured one.
+82 |     pub(super) fn age_for_this_minor(&self, configured: u8) -> u8 {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: method `filled` is never used
+   --> src/gc/region.rs:146:19
+    |
+100 | impl<T> ChunkClaim<T> {
+    | --------------------- method in this implementation
+...
+146 |     pub(crate) fn filled(&self) -> u16 {
+    |                   ^^^^^^
+
+warning: method `compact_free_lists` is never used
+   --> src/gc/var_region.rs:442:8
+    |
+282 | impl VarRegion {
+    | -------------- method in this implementation
+...
+442 |     fn compact_free_lists(&mut self) {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `stats_enabled` is never used
+   --> src/interp/stack_alloc.rs:218:8
+    |
+218 | pub fn stats_enabled() -> bool {
+    |        ^^^^^^^^^^^^^
+
+warning: method `get_cloned` is never used
+  --> src/vm_context/resource_registry.rs:74:19
+   |
+70 | impl<T: Clone> ResourceRegistry<T> {
+   | ---------------------------------- method in this implementation
+...
+74 |     pub(crate) fn get_cloned(&self, id: u64) -> Option<T> {
+   |                   ^^^^^^^^^^
+
+warning: methods `is_done` and `registered_count` are never used
+   --> src/vm_context/cctor.rs:158:12
+    |
+ 84 | impl CctorRegistry {
+    | ------------------ methods in this implementation
+...
+158 |     pub fn is_done(&self, class_fq: &str) -> bool {
+    |            ^^^^^^^
+...
+164 |     pub fn registered_count(&self) -> usize {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: `z42` (lib) generated 25 warnings (run `cargo fix --lib -p z42` to apply 14 suggestions)
+    Finished `release` profile [optimized] target(s) in 0.13s
+✔ build runtime (cargo z42vm)
+✔ build compiler (z42c self-build)
+  PASS assoc_type_cross_pkg
+  PASS available_present
+  PASS available_skew
+  PASS caller_macro_cross_pkg
+  PASS class_internal_access
+  PASS crosspkg_base_fields_main
+  PASS crosspkg_ctor_default
+  PASS ctorless_objnew_absent
+  PASS ctorless_objnew_present
+  PASS ctorless_objnew_skew
+  PASS dup_enum_crosspkg
+  PASS dup_fqn_crosspkg
+  PASS dup_free_function_crosspkg
+  PASS enum_cross_pkg
+  PASS forward_tiers_cross_pkg
+  PASS free_func_cross_pkg
+  PASS generic_constraint_cross_pkg
+  PASS generic_field_carry
+  PASS generic_struct_array_cross_pkg
+  PASS impl_propagation
+  PASS impl_reflect
+  PASS interface_internal_access
+  PASS methodof_cross_pkg
+  PASS missing_base_skew
+  PASS missing_ctor_present
+  PASS missing_ctor_skew
+  PASS missing_type_skew
+  PASS param_default_cross_pkg
+  PASS params_cross_pkg
+  PASS partial_crosscu_export
+  PASS sealed_devirt_imported
+  PASS self_type_cross_pkg
+  PASS shadow_import_crosspkg
+  PASS static_init_concurrent
+  PASS static_init_cross_pkg
+  PASS struct_cross_pkg
+  PASS tuple_cross_pkg
+  PASS type_identity_fqn
+  PASS user_conv_cross_pkg
+  PASS var_field_cross_pkg
+  PASS vcall_base_fallback
+  PASS wrong_ctor_arity_present
+  PASS wrong_ctor_arity_skew
+
+══════════════════════════════════════
+ Total: 43 passed, 0 failed
+══════════════════════════════════════
+✔ test e2e
