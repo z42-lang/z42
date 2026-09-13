@@ -13,6 +13,16 @@ public sealed class BuildConfig {
     // 自动排除出 app 源 glob（hooks 由 z42b 单独编，不该进 app zpkg）。HasHooks=false → 未声明。
     public bool   HasHooks;
     public string HooksDir;
+    // add-member-forwarding：`[build] generated_dir`。**generator 产出的源码落盘到哪**。
+    // 没配置 → `<output_dir>/generated`（沿用 cache_dir/dist_dir 那套「目录型配置 + 从
+    // output_dir 派生默认值」的形状，`${output_dir}` 模板现成可用）。
+    //
+    // 配的是「写到哪」而不是「写不写」⇒ **恒落盘**：选 Generator 路线的理由就是「以后可以
+    // 支持调试」，栈帧里出现 `__gen$…z42` 时背后得永远有个真文件可以打开，而不是「先想起来
+    // 开个开关、再重编一次」。没用 generator 的包一个字节都不写。
+    // 显式写 `generated_dir = ""` 表示不落盘（只读 FS / CI 不要额外产物）。
+    public bool   HasGeneratedDir;
+    public string GeneratedDir;
     public BuildConfig(bool hasOut, string outDir, bool hasCache, string cacheDir,
                        bool hasDist, string distDir, bool incremental,
                        bool hasHooks, string hooksDir) {
@@ -21,5 +31,6 @@ public sealed class BuildConfig {
         this.HasDistDir = hasDist; this.DistDir = distDir;
         this.Incremental = incremental;
         this.HasHooks = hasHooks; this.HooksDir = hooksDir;
+        this.HasGeneratedDir = false; this.GeneratedDir = "";
     }
 }

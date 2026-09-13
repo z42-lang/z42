@@ -431,6 +431,38 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         ConsoleError.WriteLine("z42c build: kind=exe but no Main() found");
         return ExitCode.BuildError;
     }
+    // generator 产出的源码落盘（add-member-forwarding）。
+    //
+    // 选 Generator 路线（生成**源码**而非直接造 AST/IR）的理由就是「以后可以支持调试」——
+    // 栈帧里出现 `__gen$…z42` 时背后得有一个真文件可以打开。配的是「写到哪」不是「写不写」，
+    // 故默认恒落盘；没用 generator 的包 GenCount==0，一个字节都不写。
+    if (art.GenCount > 0) {
+        string genDir = _resolveGeneratedDir(pm, projectDir, isRelease);
+        if (genDir != "") {
+            // 🔴 落盘目录**必须在 `[sources] include` 扫描范围之外**：否则下一次构建会把生成的
+            // partial 碎片当成**用户源码再编一遍** —— 同一个类出现两份带同名成员的碎片，直接踩
+            // 「跨碎片重载 → 静默覆盖」（partial-types.md）：用户自己的方法被吃掉、调用点报出
+            // 一条看不懂的假类型错。这个配置配错的后果是「你的方法静默消失」，所以**报错拒绝**、
+            // 不只是 warn。默认值在 artifacts/ 之下，天然安全。
+            string absProjG = Path.IsRooted(projectDir) ? projectDir
+                : Path.Join(Environment.GetCurrentDirectory(), projectDir);
+            if (genDir.StartsWith(Path.Join(absProjG, "src"))) {
+                ConsoleError.WriteLine("z42c build: [build] generated_dir (" + genDir
+                    + ") is inside the source tree; generated fragments would be re-compiled as user "
+                    + "sources on the next build and silently shadow your own members. Point it outside "
+                    + "[sources].include (the default is <output_dir>/generated)");
+                return ExitCode.BuildError;
+            }
+            Directory.Create(genDir);
+            int gi = 0;
+            while (gi < art.GenCount) {
+                if (art.GenTexts[gi] != "") {
+                    File.WriteAllText(Path.Join(genDir, art.GenFiles[gi]), art.GenTexts[gi]);
+                }
+                gi = gi + 1;
+            }
+        }
+    }
     ZpkgFileZ z = art.Z;
     ZbcFileZ[] mods = art.Mods;
     Directory.Create(distDir);

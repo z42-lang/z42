@@ -85,8 +85,15 @@ public sealed class GenOutcome {
     public CompilationUnit[] Cus;
     public string[] Files;
     public int CuCount;
+    // 生成 CU 的**源码文本**（与 Cus/Files 同序；用户 CU 位置为 ""）。
+    //
+    // 此前生成源码 parse 完就被丢掉，`PackageCompile` 只能给它们填空占位。
+    // 但选 Generator 路线的理由正是「以后可以支持调试」—— 栈帧里出现 `__gen$…z42` 时，
+    // 背后得有一个真文件可以打开。文本留在这里，落盘与否由 `[build] generated_dir` 决定。
+    public string[] Texts;
     public GenOutcome(bool hasOutput, CompilationUnit[] cus, string[] files, int cuCount) {
         this.HasOutput = hasOutput; this.Cus = cus; this.Files = files; this.CuCount = cuCount;
+        this.Texts = new string[0];
     }
 }
 
@@ -102,6 +109,7 @@ public static class GeneratorDriver {
         int outN = 0;
         CompilationUnit[] extra = new CompilationUnit[4];        // 生成的新 CU
         string[] extraFiles = new string[4];
+        string[] extraTexts = new string[4];                     // 其源码文本（落盘/调试用）
         int extraN = 0;
         bool any = false;
 
@@ -127,6 +135,7 @@ public static class GeneratorDriver {
                         extra = GeneratorDriver._pushCu(extra, extraN,
                             GeneratorDriver._parseGen(ed.NewSrcs[k], ed.NewHints[k], diags));
                         extraFiles = GeneratorDriver._pushStr(extraFiles, extraN, ed.NewHints[k]);
+                        extraTexts = GeneratorDriver._pushStr(extraTexts, extraN, ed.NewSrcs[k]);
                         extraN = extraN + 1; k = k + 1;
                     }
                 }
@@ -141,11 +150,18 @@ public static class GeneratorDriver {
         int total = outN + extraN;
         CompilationUnit[] merged = new CompilationUnit[total];
         string[] mergedFiles = new string[total];
+        string[] mergedTexts = new string[total];
         int m = 0;
-        while (m < outN) { merged[m] = outCus[m]; mergedFiles[m] = files[m]; m = m + 1; }
+        while (m < outN) { merged[m] = outCus[m]; mergedFiles[m] = files[m]; mergedTexts[m] = ""; m = m + 1; }
         int e = 0;
-        while (e < extraN) { merged[outN + e] = extra[e]; mergedFiles[outN + e] = extraFiles[e]; e = e + 1; }
-        return new GenOutcome(true, merged, mergedFiles, total);
+        while (e < extraN) {
+            merged[outN + e] = extra[e]; mergedFiles[outN + e] = extraFiles[e];
+            mergedTexts[outN + e] = extraTexts[e];
+            e = e + 1;
+        }
+        GenOutcome go = new GenOutcome(true, merged, mergedFiles, total);
+        go.Texts = mergedTexts;
+        return go;
     }
 
     // 每个 generator 的触发名 = AppliedName()（== 类名剥 `Generator` 后缀，D8；见 Generation.z42 头注
@@ -518,6 +534,10 @@ public static class GeneratorDriver {
         }
 
         CompilationUnit[] curCus = cus; string[] curFiles = files; int curCount = count;
+        // 生成源文本随轮次累积（add-member-forwarding）：后一轮的 Run/RunModules 只认识自己
+        // 那一批的文本，前面轮次的要在这里留住 —— 否则多轮下只有最后一轮的 CU 有文本可落盘。
+        string[] curTexts = new string[count];
+        int ti0 = 0; while (ti0 < count) { curTexts[ti0] = ""; ti0 = ti0 + 1; }
         bool any = false;
         int lvl = 0;
         while (lvl <= maxLevel) {
@@ -527,18 +547,40 @@ public static class GeneratorDriver {
             Generator[] la = GenTopo.LevelApplied(nodes, n, gens, lvl);
             if (la.Length > 0) {
                 GenOutcome go = GeneratorDriver.Run(la, la.Length, curCus, curFiles, curCount, prov, diags);
-                if (go.HasOutput) { curCus = go.Cus; curFiles = go.Files; curCount = go.CuCount; any = true; }
+                if (go.HasOutput) {
+                    curTexts = GeneratorDriver._mergeTexts(curTexts, curCount, go.Texts, go.CuCount);
+                    curCus = go.Cus; curFiles = go.Files; curCount = go.CuCount; any = true;
+                }
             }
             // 本层 module 后跑——扫 applied 更新后的 curCus（符号仍绑本层 prov，同单轮语义）。
             ModuleGenerator[] lm = GenTopo.LevelModules(nodes, n, mods, lvl);
             if (lm.Length > 0) {
                 GenOutcome mo = GeneratorDriver.RunModules(lm, lm.Length, curCus, curFiles, curCount, prov, diags);
-                if (mo.HasOutput) { curCus = mo.Cus; curFiles = mo.Files; curCount = mo.CuCount; any = true; }
+                if (mo.HasOutput) {
+                    curTexts = GeneratorDriver._mergeTexts(curTexts, curCount, mo.Texts, mo.CuCount);
+                    curCus = mo.Cus; curFiles = mo.Files; curCount = mo.CuCount; any = true;
+                }
             }
             lvl = lvl + 1;
         }
         if (!any) { return new GenOutcome(false, cus, files, count); }
-        return new GenOutcome(true, curCus, curFiles, curCount);
+        GenOutcome rr = new GenOutcome(true, curCus, curFiles, curCount);
+        rr.Texts = curTexts;
+        return rr;
+    }
+
+    // 前 n 项沿用旧文本（旧 CU 的文本已在之前轮次记下），其余取新一轮的。
+    // 新一轮返回的数组前 oldN 项是它看到的「用户 CU」位（空串），不能直接盖掉已记的。
+    private static string[] _mergeTexts(string[] old, int oldN, string[] fresh, int freshN) {
+        string[] r = new string[freshN];
+        int i = 0;
+        while (i < freshN) {
+            string v = (i < fresh.Length) ? fresh[i] : "";
+            if (v == "" && i < oldN && i < old.Length) { v = old[i]; }
+            r[i] = v;
+            i = i + 1;
+        }
+        return r;
     }
 
     // 剥 attribute 类名的 `Attribute` 后缀（D8 逆运算：`RouteAttribute` → `Route`；无后缀原样返回）。
