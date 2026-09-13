@@ -185,8 +185,11 @@ public sealed class SymbolTable {
 
     // 两个**依赖包**声明同一 FQN → E0601 消息；否则 ""。
     public string CrossPkgDuplicateMsg(string fqn) {
-        string[] pkgs = this.ClassPkgsOf(fqn);
-        if (pkgs.Length < 2) { return ""; }
+        // 与 ShadowedImportMsg 在每个类型引用上**成对**被调 ⇒ 单包（绝大多数）到 Count 就结束，不 Split。
+        StrBox box = this._pkgBoxOf(fqn);
+        if (box == null) { return ""; }
+        if (box.Count < 2) { return ""; }
+        string[] pkgs = box.Value.Split("|");
         return "`" + fqn + "` is declared in more than one package: `" + pkgs[0] + "` and `" + pkgs[1]
              + "` — their fully-qualified names are identical, so neither can be selected"
              + " (rename one, or move it to a different namespace)";
@@ -206,9 +209,10 @@ public sealed class SymbolTable {
     // 报 error 是可行动的。代价只有「故意遮蔽以覆盖库类型」这条野路子，而它本就无法控制、
     // 无法回退（指不到被覆盖那份），不值得为它保留一个静默通道。实测全仓 0 处。
     public string ShadowedImportMsg(string fqn) {
-        string[] pkgs = this.ClassPkgsOf(fqn);
-        if (pkgs.Length < 1) { return ""; }
-        if (pkgs.Length >= 2) { return ""; }   // 两个导入包互撞 → 归 E0601，不在这里重复报
+        // 只有「**恰好**一个包」才可能出消息 ⇒ box.Value 即 pkgs[0]，全程不 Split。
+        StrBox box = this._pkgBoxOf(fqn);
+        if (box == null) { return ""; }
+        if (box.Count != 1) { return ""; }   // 两个导入包互撞 → 归 E0601，不在这里重复报
         // 类与接口两张 FQN 视图都要查——E0601 那条经 `PkgCheckFqn` 本就覆盖接口，
         // 只查 `ClassesByFqn` 会让「本地接口遮蔽导入接口」这半边单独哑掉（不对称的哑门）。
         bool localWins = false;
@@ -223,7 +227,7 @@ public sealed class SymbolTable {
             if (iwin != null && !iwin.IsImported) { localWins = true; }
         }
         if (!localWins) { return ""; }   // 赢家是导入的（或查不到）→ 没有本地遮蔽
-        return "`" + fqn + "` is declared in this package and also in package `" + pkgs[0]
+        return "`" + fqn + "` is declared in this package and also in package `" + box.Value
              + "` — their fully-qualified names are identical, so the imported one can never be"
              + " referenced (rename one of them, or move it to a different namespace)";
     }
@@ -342,6 +346,17 @@ public sealed class SymbolTable {
     }
 
     // FQN → 声明过它的依赖包名列表（无记录返回空数组）。
+    // 打包串取 box（perf-packed-count）：热路径只要「有几项」⇒ 读 `StrBox.Count`，不 Split（冷路径出诊断
+    // 消息时仍走 ClassPkgsOf / ClassNsOf）。⚠️ 改用 `IndexOf("|")` 判单项没用：它要扫完整串，实测 Split 实测 Split 3.34%→0.07% 时 IndexOf 反升到 5.39%。
+    private StrBox _pkgBoxOf(string fqn) {
+        int at = this.ClassPkgAll.Find(fqn);
+        return (at < 0) ? null : (this.ClassPkgAll.ValAt(at) as StrBox);
+    }
+    private StrBox _nsBoxOf(string name) {
+        int at = this.ClassNsAll.Find(name);
+        return (at < 0) ? null : (this.ClassNsAll.ValAt(at) as StrBox);
+    }
+
     public string[] ClassPkgsOf(string fqn) {
         int at = this.ClassPkgAll.Find(fqn);
         if (at < 0) { return new string[0]; }
@@ -360,8 +375,10 @@ public sealed class SymbolTable {
     // ⚠️ 判据只此一份：`TypeChecker.ChkAmbiguousBareName`（E0456）复用本方法，别再写第二套口径。
     public bool IsBareNameAmbiguous(string name) {
         if (name.IndexOf(".") >= 0) { return false; }   // 限定名 = 已消歧
-        string[] nss = this.ClassNsOf(name);
-        if (nss.Length < 2) { return false; }
+        StrBox nsBox = this._nsBoxOf(name);
+        if (nsBox == null) { return false; }
+        if (nsBox.Count < 2) { return false; }
+        string[] nss = nsBox.Value.Split("|");
         int visible = 0;
         int i = 0;
         while (i < nss.Length) {
@@ -424,6 +441,7 @@ public sealed class SymbolTable {
         int i = 0;
         while (i < parts.Length) { if (parts[i] == ns) { return; } i = i + 1; }
         box.Value = cur + "|" + ns;
+        box.Count = box.Count + 1;   // 唯一的追加点 ⇒ 项数在这里维护（读侧判据见 _pkgBoxOf / _nsBoxOf）
     }
 
     // 短名 → 声明过它的命名空间列表（无记录返回空数组）。
