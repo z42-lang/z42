@@ -30,6 +30,7 @@
   - [元组（值元组 `(a, b)`）](language/tuples.md)
   - [enum（枚举）](language/enums.md)
   - [`methodof`（方法引用表达式）](language/methodof.md)
+  - [`[Forward]`（成员转发）](language/member-forwarding.md)
   - [FFI / interop 表面]()
 
 # 第二部分 · 编译与构建（Compiler & Build）

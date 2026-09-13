@@ -204,6 +204,49 @@ CI 里不想要额外产物）需要它，但**默认是写**。
 本包侧则**完全保真**：`ms.Decl.Params[i]` 带齐 `Name` / `IsRef` / `IsParams` / `Default` / `Attrs`。
 ⇒ proposal 初稿写的「①② 档参数名一定丢」**过于悲观，已更正**——只有跨包才丢。
 
+## 落地结果（2026-09-13）
+
+**三档 + 诊断 + `generated_dir` 全部实现，GREEN 全绿。** 相对 DRAFT 的实质调整两处：
+
+1. **语法从 `[Forward<ILogger>]` 改为 `[Forward(typeof(ILogger))]`** —— 一个 attribute、
+   **实参形状选档**。改的原因不是偏好，是两条实测挡路（泛型 attribute 本身是支持的）：
+   - `params object[]` 在**单实参**时不打包（两个实参反而正常）⇒ 收不了「一个 typeof」；
+   - **构造器重载决议在两个引用类型之间不工作** ⇒ 不能用 `(Type)` / `(MethodInfo)` 两个重载。
+     （后者已单独根治，见下。）
+   单 ctor + `object` 形参绕开两者；档位判定本就在编译期读 AST，不依赖该字段的静态类型。
+2. **①② 的边界是「转发面的*声明*在本包」**（判据 `MethodSymbol.HasDecl`），不是「字段类型
+   在本包」。跨包接口同样落在界外——imported 接口方法没有 `Decl`，渲染不出带参数名的签名。
+
+### ⭐ 这条线真正的产出：四个**既有缺陷**修复
+
+做转发撞出来的，都与转发无关、已各自独立成 PR：
+
+| PR | 缺陷 |
+|---|---|
+| #588 | `[build] incremental` 是**从不被读取**的死旋钮（文档承诺、examples 在用） |
+| #596 | **partial 方法不能重载**——decl-only partial 不该参与判重 |
+| #603 | **generator 产出的编译错误完全隐形**（driver 按 `srcs.Length` 迭代而 `cms` 是 union）+ Augment 碎片不带宿主 usings |
+| #607 | **构造器重载只按 arity 挑**，同 arity 的一律选错 |
+
+> **做一个新特性，会把周边所有「没人走过的路」一次性踩亮。** 这条线上真正的 bug 全在别处，
+> 转发本身反而是最顺的部分。
+
+### 框架侧的三处扩展（都不是转发专用）
+
+- `GeneratorDriver` 支持**字段级**触发点，且**刻意保留** attr 与合成工厂——那是白名单
+  `methodof` 被编译检查的唯一通道；
+- `GenTarget` 补 `Owner`（外层 ClassDecl——decl-only partial 被擦除、只有 AST 找得到）
+  与 `Symbols`（按名字解析别的类型）；
+- `GenSink` 开出 `Error`/`Info` 诊断通道——**此前 generator 根本报不了诊断**，条件不满足
+  只能表现为静默不生成。
+
+### 已知残留（已定性，未修）
+
+- **`params` 单实参在构造器上不打包**（方法路径正常）。根因在 `ConstructTyper` 的
+  `_adaptArgs` 早退分支**内部**——在其后补打包无效，下一步应从 `_adaptArgs` 里查。
+- `methodof(A.ToString)` 报「no method named ToString」：methodof 的候选收集**不上溯到
+  `Std.Object`**，继承来的协议方法看不见。
+
 ## 验证
 
 - `xtask test` 全绿；`test stdlib --mode jit` 补跑

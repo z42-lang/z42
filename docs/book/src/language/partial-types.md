@@ -116,6 +116,10 @@ z42c 是文件级增量（1 源文件 ↔ 1 cache 条目）。partial 让类型�
   后合并的那个会在类型的方法表里**静默覆盖**前一个——不报错，调用方随之派发到错误的重载。
   常见用法（碎片间不共享方法名）完全正确；完整支持见下方 Deferred。
 
+  > **`[Forward]` 成员转发依赖 S5 规避这条**（见
+  > [成员转发](member-forwarding.md)）：转发**按名字**跳过外层已声明的成员、arity 不同也跳 ——
+  > 生成一个同名重载等于吃掉用户自己的方法。
+
   **机制**（`stabilize-instance-dispatch-keys` 后）：实例方法的注册键规则是「**声明序首个**同名 →
   裸名（primary，多态规范槽 + seed 锚点）／其余同名 → 全签名 `MangleKey`」。做这个判定的
   `emittedInst` tracker 是 `MemberCollector._fillClass` 的**局部变量**，而 `_fillClass` 是
