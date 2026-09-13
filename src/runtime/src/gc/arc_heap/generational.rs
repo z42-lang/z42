@@ -432,77 +432,113 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Object region — **one-pass-minor-sweep (2026-09-12)**: scan, promote and tombstone
         // in a single walk of the young list. See `Region::sweep_young_in_one_pass`; what
         // stays here is the part that is about *objects* rather than about the region.
-        let sweep_objects = PhaseTimer::start("minor/sweep objects");
-        let obj = {
-            let mut region = self.region_object.lock();
-            region.sweep_young_in_one_pass(
-                observed_age,
-                |marked| self.promotion_policy.observe(marked),
-                |entry| {
-                    let mut o = entry.value.lock();
-                    let size = Self::script_object_size_estimate(&o);
-                    // Break every strong reference edge — the side-table `refs` AND
-                    // (unify-object-byte-layout PR-3 chunk 2b) the object/array pointers
-                    // byte-inlined in `bytes` — so no tombstoned entry is left holding a
-                    // handle into the region (`iterate_live_objects` and any later traversal
-                    // would otherwise meet a stale generation).
-                    //
-                    // **perf-cheap-dead-edge-break (2026-09-12)**: done here, under the value
-                    // lock this size estimate already holds, rather than in a separate
-                    // tombstone loop that re-took the region lock and re-`resolve`d the
-                    // handle for it. That loop cost 67.7 ns an entry against the array
-                    // twin's 10.8; it is now 10.6.
-                    for r in o.refs_mut().iter_mut() {
-                        *r = Value::Null;
-                    }
-                    o.clear_inline_refs();
-                    drop(o);
-                    (entry.take_finalizer(), size)
-                },
-            )
+        // **parallel-region-sweep (2026-09-13)**: the object and array sweeps are the two
+        // biggest items in a minor pause after mark (26.7 + 27.9 ms of 227 on
+        // `z42c.semantics --release --no-incremental`), and they are **independent**:
+        // each takes only its own region's lock, each entry carries its own value lock, and
+        // the only state they share is `promotion_policy`, which is all atomics. So the pair
+        // can cost `max` instead of `sum`.
+        //
+        // Only these two calls run in parallel. Everything downstream — the backing-age
+        // raise, card dirtying, and the variable-length sweep — stays serial and in its
+        // existing order, because `age_backing_with_owner` writes ages into **var** blocks
+        // without holding the var region's lock, so it must not overlap `sweep_young()`.
+        //
+        // `std::thread::scope` rather than a pool: this is two tasks a few times a second,
+        // and the borrow of `&self` is what a scope exists to allow. (The archived
+        // `wip/parallel-minor-mark` prototype used the same construct — the repo has no
+        // rayon/crossbeam and does not need one here.)
+        // ⚠️ `minor/sweep objects` and `minor/sweep arrays` **overlap in wall time** when the
+        // knob is on — that is the point. `minor/sweep regions` is the pair's wall cost and is
+        // the number to compare against the old `objects + arrays` sum.
+        let sweep_regions = PhaseTimer::start("minor/sweep regions");
+        let sweep_one_object_region = || {
+            let t = PhaseTimer::start("minor/sweep objects");
+            let out = {
+                let mut region = self.region_object.lock();
+                region.sweep_young_in_one_pass(
+                    observed_age,
+                    |marked| self.promotion_policy.observe(marked),
+                    |entry| {
+                        let mut o = entry.value.lock();
+                        let size = Self::script_object_size_estimate(&o);
+                        // Break every strong reference edge — the side-table `refs` AND
+                        // (unify-object-byte-layout PR-3 chunk 2b) the object/array pointers
+                        // byte-inlined in `bytes` — so no tombstoned entry is left holding a
+                        // handle into the region (`iterate_live_objects` and any later traversal
+                        // would otherwise meet a stale generation).
+                        //
+                        // **perf-cheap-dead-edge-break (2026-09-12)**: done here, under the value
+                        // lock this size estimate already holds, rather than in a separate
+                        // tombstone loop that re-took the region lock and re-`resolve`d the
+                        // handle for it. That loop cost 67.7 ns an entry against the array
+                        // twin's 10.8; it is now 10.6.
+                        for r in o.refs_mut().iter_mut() {
+                            *r = Value::Null;
+                        }
+                        o.clear_inline_refs();
+                        drop(o);
+                        (entry.take_finalizer(), size)
+                    },
+                )
+            };
+            t.count(out.survivors + out.reclaimed);
+            out
         };
-        sweep_objects.count(obj.survivors + obj.reclaimed);
+        let sweep_one_array_region = || {
+            let t = PhaseTimer::start("minor/sweep arrays");
+            let out = {
+                let mut region = self.region_array.lock();
+                region.sweep_young_in_one_pass(
+                    observed_age,
+                    |marked| self.promotion_policy.observe(marked),
+                    |entry| {
+                        let size = Self::array_size_estimate(&entry.value.lock());
+                        // unify-gc-heap PR-3: no eager element drop here — the array's element
+                        // storage lives in a `region_var` block (uniquely owned by this header),
+                        // reclaimed by `region_var.sweep_young()` (drop-glue drops the boxed
+                        // `Value`s) in the same cycle. Tombstoning the header just releases the
+                        // region_array slot.
+                        //
+                        // This also settles the phantom-accounting half of the bug. The credit
+                        // includes `elem_storage_bytes()` — bytes that live in a `region_var`
+                        // block. That credit was a lie only while the block itself survived the
+                        // cycle; now that it is reclaimed in the same sweep, the account and the
+                        // memory move together. (Per `VarRegion::alloc_charge_bytes`, array
+                        // element blocks are charged zero on their own, so nothing is
+                        // double-counted.)
+                        (entry.take_finalizer(), size)
+                    },
+                )
+            };
+            t.count(out.survivors + out.reclaimed);
+            out
+        };
+        let (obj, arr) = if crate::config::runtime_config().gc_parallel_sweep {
+            std::thread::scope(|scope| {
+                let h = scope.spawn(sweep_one_object_region);
+                let arr = sweep_one_array_region();
+                // A worker panic must not be swallowed into a half-swept heap.
+                let obj = h.join().expect("object-region sweep worker panicked");
+                (obj, arr)
+            })
+        } else {
+            (sweep_one_object_region(), sweep_one_array_region())
+        };
+        drop(sweep_regions);
+
         freed_bytes += obj.freed_bytes;
         reclaimed_entries += obj.reclaimed;
         // add-bounded-nursery: everything that just crossed into the old generation counts
         // towards the next major's trigger — see `promoted_bytes_since_major`.
         promoted_bytes += self.promoted_size_of_objects(&obj.newly_old);
         self.dirty_cards_for_newly_old_objects(&obj.newly_old);
-        drop(sweep_objects);
 
-        // Array region — same one pass (see the object half above).
-        let sweep_arrays = PhaseTimer::start("minor/sweep arrays");
-        let arr = {
-            let mut region = self.region_array.lock();
-            region.sweep_young_in_one_pass(
-                observed_age,
-                |marked| self.promotion_policy.observe(marked),
-                |entry| {
-                    let size = Self::array_size_estimate(&entry.value.lock());
-                    // unify-gc-heap PR-3: no eager element drop here — the array's element
-                    // storage lives in a `region_var` block (uniquely owned by this header),
-                    // reclaimed by `region_var.sweep_young()` (drop-glue drops the boxed
-                    // `Value`s) in the same cycle. Tombstoning the header just releases the
-                    // region_array slot.
-                    //
-                    // This also settles the phantom-accounting half of the bug. The credit
-                    // includes `elem_storage_bytes()` — bytes that live in a `region_var`
-                    // block. That credit was a lie only while the block itself survived the
-                    // cycle; now that it is reclaimed in the same sweep, the account and the
-                    // memory move together. (Per `VarRegion::alloc_charge_bytes`, array
-                    // element blocks are charged zero on their own, so nothing is
-                    // double-counted.)
-                    (entry.take_finalizer(), size)
-                },
-            )
-        };
-        sweep_arrays.count(arr.survivors + arr.reclaimed);
         freed_bytes += arr.freed_bytes;
         reclaimed_entries += arr.reclaimed;
         promoted_bytes += self.promoted_size_of_arrays(&arr.newly_old);
         self.age_backing_with_owner(&arr.newly_old);
         self.dirty_cards_for_newly_old_arrays(&arr.newly_old);
-        drop(sweep_arrays);
 
         // fix-minor-gc-skips-var-region (2026-09-08): the variable-length region — strings,
         // closures and every array's element storage, ~45% of RSS — used to sit out every

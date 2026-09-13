@@ -130,6 +130,12 @@ pub struct RuntimeConfig {
     /// 2026-09-12). Default on; `0` pins the configured age. See
     /// `gc/arc_heap/promotion_policy.rs` for the measurements behind the rule.
     pub gc_adaptive_promotion: bool,
+    /// `Z42_GC_PARALLEL_SWEEP` — sweep the object and array regions on two threads instead
+    /// of one (parallel-region-sweep, 2026-09-13). They are the minor pause's two biggest
+    /// items after mark and they touch **disjoint** regions behind separate locks, so the
+    /// pair costs `max` instead of `sum`. Everything downstream of them (backing-age raise,
+    /// card dirtying, the variable-length sweep) stays serial and in its existing order.
+    pub gc_parallel_sweep: bool,
     /// `Z42_GC_PHASES` — per-phase pause breakdown on stderr (add-gc-phase-timing,
     /// 2026-09-11): one indented line per GC phase (reset marks / full mark / each half of
     /// sweep / aging …) with its duration and, where it means something, how many entries it
@@ -269,6 +275,7 @@ impl Default for RuntimeConfig {
             gc_promotion_age: None,
             gc_loh_bytes: None,
             gc_adaptive_promotion: true,
+            gc_parallel_sweep: false,
             gc_phases: false,
             gc_trace: false,
             gc_near_limit_ratio: 0.90,
@@ -410,6 +417,7 @@ impl RuntimeConfig {
             // 诊断、根本到不了这里——宽松与严格在这条链上不冲突。
             gc_adaptive_promotion: get("Z42_GC_ADAPTIVE_PROMOTION")
                 .map_or(true, |v| !matches!(v.trim(), "0" | "false" | "off" | "no")),
+            gc_parallel_sweep:   parse_bool_knob(&get, "Z42_GC_PARALLEL_SWEEP"),
             gc_phases:           parse_bool_knob(&get, "Z42_GC_PHASES"),
             gc_trace:            parse_bool_knob(&get, "Z42_GC_TRACE"),
             jit_profile:         parse_bool_knob(&get, "Z42_JIT_PROFILE"),

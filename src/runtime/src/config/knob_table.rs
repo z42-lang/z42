@@ -153,6 +153,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..TUNING
     },
     KnobSpec {
+        name: "Z42_GC_PARALLEL_SWEEP",
+        toml_key: "gc-parallel-sweep",
+        value: ValueKind::Bool,
+        description: "sweep the object and array regions on two threads — they are disjoint regions behind separate locks, so the pair costs max() instead of sum()",
+        default_hint: "unset; off (single-threaded sweep)",
+        consumed_by: "gc/arc_heap/generational.rs (minor sweep)",
+        ..TUNING
+    },
+    KnobSpec {
         name: "Z42_GC_PHASES",
         toml_key: "gc-phases",
         value: ValueKind::Bool,
