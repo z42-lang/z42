@@ -39,7 +39,13 @@ public class PipelineContext : IPipelineContext {
     }
 
     // —— 日志 ——
-    public void Log(string msg)  { Console.WriteLine(msg); }
+    // forward-bench-to-z42b：`--format json` 下 **stdout 必须是机器可读的**，进度信息一律走 stderr。
+    // 此前构建进度（`compiled: …`）与 JSON 报告混在同一条 stdout 上 —— 消费方按「整段以 `{` 开头」
+    // 判定就会落空，症状是 bench 基线**静默捕获到 0 条**（不报错，只打印 `wrote baseline (0)`）。
+    // 旧路径没暴露是因为它直接跑已编好的产物，根本没有构建进度可打。
+    public void Log(string msg)  {
+        if (BuildLog.ToStderr()) { ConsoleError.WriteLine(msg); } else { Console.WriteLine(msg); }
+    }
     public void Warn(string msg) { ConsoleError.WriteLine(msg); }
 
     // —— 能力受限 fs（写操作经 _guardWrite 校验落在 Intermediate / Dist 之下）——
