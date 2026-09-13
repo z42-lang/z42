@@ -32,7 +32,20 @@
 - [ ] `xtask test e2e --dir cross-zpkg` 两后端（含 `--mode jit`）
 - [ ] 对账：复跑普查探针，确认置位面与预期一致（imported 侧 5 个站点不置位）
 
-## GREEN（走 version-bumping.md「本地全量验证」配方）
+## 🚧 阻塞：等一个带 PR #631 的 nightly
+
+两代自举的 gen2 用**上一版 nightly 的已发布 `bin/z42vm`**。PR #444（2026-09-05）把
+「prelude 版本失配 warn-and-continue」改成就地 `bail!`，而 gen2 恰好是
+「entry-dir 同代 stdlib + `Z42_LIBS` 新一代 flat 视图」的形状 ⇒ 旧 VM 在 `app.rs` 5.1b
+当场死，**当前 main 上任何格式 bump 都过不去**（零 wire 改动的纯名义 bump 探针 PR #630
+在 macOS/linux 复现同一条错误，证明与 bump 内容无关）。
+
+修复 = **PR #631**（prelude 候选走 `search_dirs`，entry-dir 优先；全部失败才报错）。
+但它**救不了这一次** —— 源码修复进不去已发布的旧 VM 二进制。#631 合并 → nightly 带上它 →
+本 change 再 rebase 到 main 推进，gen2 即自动走通（候选变成
+`[G1RUN/z42.core(0.43 可读), FLAT/z42.core(0.44)]`，第一个就成功）。
+
+## GREEN（#631 进 nightly 后，走 version-bumping.md「本地全量验证」配方）
 
 - [ ] 推 PR 第一轮 → 取 `compile-toolchain` 的 `toolchain-macos-15` artifact
 - [ ] overlay 成本地种子（保留自己的 cargo `z42vm`）+ `Z42_PORTABLE_VM`

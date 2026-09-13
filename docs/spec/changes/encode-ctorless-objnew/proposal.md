@@ -70,22 +70,44 @@ allFns = ⋃ 本包每个 IrModule 的全部已发射函数名
 - **imported 走 `Deps.Statics`**：`AddModule` 用 `Statics.TryAdd(name, entry)` 把每个依赖包的
   每一个已发射函数按完整 FQ 注册，精确且现成。
 
-## 实测覆盖面（本仓 3899 个 ObjNew 站点普查）
+## 实测覆盖面 —— 装配点普查（`f092b97ef` / `4a5459a14`）
 
-在 `f092b97ef` 上给 `CallEmitter._emitNew` 加临时探针，跑完整 `build compiler` + `build stdlib`：
+把 `CtorKnownFixup` 的判据原样搬成一个只打印不置位的 census pass，挂在同一个装配点，
+跑完整 `build compiler` + `build stdlib`：
 
-| 分类 | 站点数 |
-|------|-------:|
-| 总 `ObjNew` 站点 | 3899 |
-| 本地类 | 2533 |
-| imported、`Deps` 有构造器 | 1361 |
-| imported、`Deps` **无**构造器（确实零构造器） | 5（2 个类：`NoReplCompiler` / `ForwardGenerator`） |
+| 归类 | 站点数 | 判定 |
+|------|-------:|------|
+| `pkg`（本包已发射函数里找得到） | 2426 | 置位 |
+| `dep`（`DependencyIndex` 里找得到） | 1361 | 置位 |
+| `NONE`（非空名、哪儿都找不到） | 106 | 不置位 |
+| `empty`（`IrLoopAllocReuse` 裸分配） | 5 | 不置位 |
+| **合计** | **3898** | **置位率 97.2%** |
 
-即：imported 侧 1361/1366 会置位，5 个不置位且**判据经人工复核 100% 正确**。本地侧 2533 个
-站点的 oracle 换成 `allFns` 后应当近乎全部置位（少数裸分配除外）—— IMPL 时用同一探针复测对账。
+**106 个 `NONE` 只来自 13 个类，逐个核过全是货真价实的零构造器**（`Z42ErrorType` /
+`Z42VoidType` / `YamlValue` / `JsonValue` / `TomlValue` / `NoReplCompiler` / `WorkloadBase` /
+`NoCompiler` / `BuildHooks` / `JsonMember` / `LoopCfg` / `ForwardGenerator` / `YamlWriter`
+—— 既无显式构造器，也无字段初始化器故不会合成隐式构造器；`JsonValue` 那批看着像构造器的是
+**静态工厂**）。⇒ **零误判**，本地类的名字口径（design D4 标的风险）就此实测排除。
 
-**本仓自身几乎不产生阳性证据**（memory `e0456-声明位`：「新诊断在现有代码上触发 0 次 = 零证据」）
-⇒ 必须自带 cross-zpkg 负例 fixture + 退回对照。
+**本仓自身几乎不产生阳性证据** ——「置位但运行期解析不到」在本仓永远不发生（包是自洽的）。
+memory `e0456-声明位` 的教训直接适用：新诊断在现有代码上触发 0 次 = 零证据 ⇒ 必须自带 fixture，
+并做退回对照。已做，见下。
+
+## 退回对照（原封 main，`4a5459a14`）
+
+三条 fixture 在**未改动的编译器**上跑 `xtask test e2e --dir cross-zpkg`：
+
+```
+  ── ctorless_objnew_skew ──
+    expected: caught MissingSymbolException|after
+    actual:   constructed 0|after            ← 正是要修的那个静默错误答案
+  FAIL ctorless_objnew_skew
+  PASS ctorless_objnew_present
+  PASS ctorless_objnew_absent
+  Total: 42 passed, 1 failed
+```
+
+阳性条 FAIL、两条对照 PASS ⇒ 门有判别力，不是空门也不是恒红。
 
 ## 格式 bump（User 裁决：做，GREEN 以 CI 为准）
 
