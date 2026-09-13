@@ -17,7 +17,7 @@
 |------|--------|--------|
 | 读缺失的静态字段 | 静默 `Value::Null` | `MissingSymbolException` |
 | `new` 一个解析不到的类型 | 合成零字段零 vtable 空壳 | `MissingSymbolException` |
-| 构造器缺失（带实参） | 照常把**未经构造**的对象写进 dst | `MissingSymbolException` |
+| 构造器缺失（编译期见过它，或带实参） | 照常把**未经构造**的对象写进 dst | `MissingSymbolException` |
 | 基类解析不到 | 子类静默退化成「只有自己的成员」 | `MissingSymbolException` |
 | 静态调用缺失（interp） | 不可 catch 的 VM abort | `MissingSymbolException` |
 | 静态调用缺失（JIT） | 裸 `Value::Str`，只能被无类型 `catch {}` 抓到 | `MissingSymbolException` |
@@ -56,7 +56,7 @@ interp / JIT 语义漂移（这是本仓最易出错的一维）。
 （`resize_with(|| Value::Null)` 只填 `Null`，没人按声明类型零初始化），`static int N;` 一读
 就崩在 `__box_prim: expected integer value, got Null`。回写让后续读不再走这条路。
 
-### 构造器 —— `missing_ctor_exception`，判据是「有没有实参」
+### 构造器 —— `missing_ctor_exception`，判据是编译期的**正向位**
 
 这条最反直觉：**不能用「ctor 名解析不到」当判据**。z42c 对**没有构造器**的类照样发射
 `ObjNew`，ctor 键取裸类名（`Demo.Point.Point`）——而这与**单构造器**的 primary 裸键
@@ -64,26 +64,47 @@ interp / JIT 语义漂移（这是本仓最易出错的一维）。
 构造器」和「构造器应该在但不见了」。`IrLoopAllocReuse` 的裸分配（ctor 名为空串）也走
 同一条路。
 
-唯一可证的事实是：**没有构造器的类不可能接受实参**。故
+最初（`fix-silent-symbol-resolution`）只能退而求其次，拿「有没有实参」近似：没有构造器的
+类不可能接受实参，故 `argc > 0` 且全路径解析不到必然是缺失。代价是 **`argc == 0` 是一条
+公开的缝**——最常见的 `new C()` 恰恰落在缝里。
+
+`encode-ctorless-objnew`（zbc 1.39）把这条缝补上：**让编译器把它知道的事写进指令**。
+
+#### `ctor_known`：为什么是正向位
+
+`ObjNew` 尾部多一个 `ctor_known:u8`。编译器在**整包装配之后**（`CtorKnownFixup`）检查该
+ctor 名是否出现在「本包全部已发射函数 ∪ `DependencyIndex`」里 —— 出现才置 1。于是：
 
 ```
-argc > 0 且全路径解析不到  ⇒  定案缺失，抛
-argc == 0                  ⇒  证不出来，照旧走「无 ctor」路径
+ctor_name 为空          ⇒  裸分配，从来不指名任何构造器，放行
+ctor_known 且解析不到   ⇒  编译期确实看见过它 ⇒ 定案缺失，抛
+argc > 0  且解析不到    ⇒  零构造器的类不可能收实参 ⇒ 定案缺失，抛（与上条取并集）
+其余                    ⇒  证不出来，照旧走「无 ctor」路径
 ```
 
-**已知残留缺口（有意保留）**：`argc == 0` 时区分不了「本来就无 ctor」与「`C()` 在旧依赖里
-不存在」。
+**方向很重要。** 反过来编码（「零构造器」发空 ctor 名）看着更省事、还能复用
+`IrLoopAllocReuse` 现成的约定，但它会**新引入**一种静默：编译时依赖 v2 的 `class C { }`
+发空名，运行时装到 v1 的 `class C { C() {…} }` ⇒ v1 的构造器被悄悄跳过。正向位没有这个
+问题 —— **位的缺席是保守态**，证不出来就不置位、名字原样保留，运行期行为与 1.38 逐字一致。
+这是「[判定原则](#判定原则只在确定不存在时抛)」第 2 条在编码层面的体现。
 
-原先记的补法是「让 `TypeDesc` 记录本类声明了哪些构造器」，**经复核几乎没有覆盖面**：
-primary 构造器用**裸键**，所以「类只要声明了任何构造器，裸键就一定解析得到」——裸键解析
-不到时，被加载的那份类几乎必然真的零构造器，新元数据永远判不出问题。
+#### 为什么判据必须等到整包装配之后
 
-真正的闭合要在**调用点**给「零构造器」一个可区分的编码（如 `IrLoopAllocReuse` 早已确立的
-空 ctor 名 = 裸分配），于是「非空却解析不到」⇒ 无论 argc 都是缺失。卡点是**判据算不准**：
-z42c 为「有字段初始化器、无显式 ctor」的类**合成**的隐式构造器（`IrGenTypeEmitter._emitSynthCtor`）
-既不是 `MethodSymbol`、也不在 `_bindNew` 那一刻存在（`_synthCtors` 跑在所有绑定之后），
-而准确的 oracle（本包全部已发射函数 ∪ `DependencyIndex.Statics`）要等整包装配后才齐。
-判错的代价是**静默跳过真构造器**——比它要修的 bug 更坏。故另立 change 处理。
+发射端（`CallEmitter._emitNew`）那一刻答案还不存在，有两个独立原因：
+
+1. z42c 会为「有字段初始化器、无显式 ctor」的类**合成**隐式构造器
+   （`IrGenTypeEmitter._emitSynthCtor`）。它既不是 `MethodSymbol`（符号表判据会把它误判成
+   零构造器），也不在 `_bindNew` 那一刻存在 —— `DeclBinder._synthCtors` 跑在
+   `TypeChecker.Infer` 的**全部绑定之后**。
+2. 本 CU 的 `IrModule` 看不到**同包其它文件**的函数，而 `DependencyIndex` 按设计不含本包。
+
+装配点（`PackageCompile` ⑩）两者都齐了：所有文件的 IR 都已发射完毕，合成构造器就是其中一个
+普通的已发射函数，`DependencyIndex` 也在手。这也是为什么这个 pass 不能做成 per-module 的
+IR pass 而必须挂在装配上。
+
+**增量安全**：fixup 每次装配都**重算**全部站点（不是只置位、不是 OR）。增量编译里从缓存
+复用的 `IrModule` 同样在重扫范围内，所以「A 文件缓存着旧结论、B 文件刚给那个类加/删了构造器」
+不会留下过期的位。
 
 ### 构造器（续）—— `wrong_ctor_arity_exception`，解析**成功**也要查
 

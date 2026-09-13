@@ -25,6 +25,8 @@ pub unsafe extern "C" fn jit_obj_new(
     // cache-ctorless-objnew: per-site "this class has no ctor" mark (may be null
     // when the function was compiled without a resolved token table).
     ctorless_mark: *const std::sync::atomic::AtomicUsize,
+    // encode-ctorless-objnew: compile-time positive ctor marker; see `missing_ctor_exception`.
+    ctor_known: u8,
 ) -> u8 {
     // cache-failed-name-resolution: borrow, don't `to_string()` — 2 allocs per `new`.
     let class_name = std::str::from_utf8(std::slice::from_raw_parts(cls_name_ptr, cls_name_len))
@@ -185,7 +187,7 @@ pub unsafe extern "C" fn jit_obj_new(
             }
             Some(crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &ctor_args))
         } else if let Some(exc) = crate::vm_context::symres::missing_ctor_exception(
-            vm_ctx, module, class_name, ctor_name, argc,
+            vm_ctx, module, class_name, ctor_name, argc, ctor_known != 0,
         ) {
             // 站点 ③ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称——
             // 带实参却解析不到构造器 = 定案缺失，抛可 catch 的 MissingSymbolException，

@@ -116,6 +116,13 @@ pub struct ObjNewInsn {
     /// object does not escape AND its ctor does not leak `this` → interp allocates
     /// it in the frame arena (GC-skipped). JIT ignores this flag (heap) in v1.
     #[serde(default)] pub stack_alloc: bool,
+    /// encode-ctorless-objnew (zbc 1.39): **positive** marker — the compiler saw
+    /// `ctor_name` among (every function this package emitted) ∪ `DependencyIndex`
+    /// when it assembled the package. Lets the runtime tell "the constructor should
+    /// be here but resolves nowhere" (dependency version skew) apart from "this
+    /// class simply has no constructor". Absence is the conservative state: an
+    /// unset bit reproduces the pre-1.39 behaviour exactly.
+    #[serde(default)] pub ctor_known: bool,
 }
 
 /// Payload for [`Instruction::Typeof`].

@@ -57,12 +57,18 @@ public sealed class ObjNewInstr : IrInstr {
     public TypedReg[] Args;
     public int        ArgCount;
     public bool       StackAlloc;   // zbc 1.29 add-escape-analysis：不逃逸 + ctor 不泄漏 this → 栈分配（默认 false=堆）
+    // zbc 1.39 encode-ctorless-objnew：**正向**位——整包装配后 `CtorKnownFixup` 确认 CtorName 在
+    // 「本包全部已发射函数 ∪ DependencyIndex」里看得见时才置 true。运行期据此把「构造器本该在却
+    // 解析不到」（= 依赖包版本 skew）与「这个类本来就没有构造器」分开：前者抛 MissingSymbolException、
+    // 后者照常零初始化。**缺席即保守态**——编译期证不出来就不置位，运行期行为与 bump 前一致。
+    public bool       CtorKnown;
     public ObjNewInstr(TypedReg dst, string className, string ctorName, string[] typeArgs, int typeArgCount,
                        TypedReg[] args, int argCount) {
         this.Dst = dst; this.ClassName = className; this.CtorName = ctorName;
         this.TypeArgs = typeArgs; this.TypeArgCount = typeArgCount;
         this.Args = args; this.ArgCount = argCount;
         this.StackAlloc = false;
+        this.CtorKnown = false;
     }
     public override string Dump() {
         // fix-ctor-arity-skew：ctor 键此前**根本不打印** —— 于是「这条 obj_new 到底会去调哪个
@@ -77,6 +83,8 @@ public sealed class ObjNewInstr : IrInstr {
         }
         if (this.CtorName == "") { s = s + " <no-ctor>"; }
         else { s = s + " " + this.CtorName; }
+        // CtorKnown 只在置位时打印：不置位是绝大多数历史 dump 的形态，静默保持既有 golden 文本。
+        if (this.CtorKnown) { s = s + " [ctor-known]"; }
         s = s + "(";
         int i = 0;
         while (i < this.ArgCount) { if (i > 0) { s = s + ", "; } s = s + this.Args[i].Dump(); i = i + 1; }
@@ -99,6 +107,7 @@ public sealed class ObjNewInstr : IrInstr {
         ObjNewInstr c = new ObjNewInstr(this.Dst, this.ClassName, this.CtorName, this.TypeArgs, this.TypeArgCount,
                                         IrInstr.CloneRegs(this.Args), this.ArgCount);
         c.StackAlloc = this.StackAlloc;
+        c.CtorKnown = this.CtorKnown;
         return c;
     }
 }

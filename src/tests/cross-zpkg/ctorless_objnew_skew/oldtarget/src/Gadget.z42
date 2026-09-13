@@ -1,0 +1,10 @@
+namespace Demo.CkTarget;
+
+// 「旧版依赖」：类型和字段都在，但**根本没有构造器**（也没有字段初始化器，故 z42c 连隐式
+// 合成构造器都不会发）。于是裸键 `Demo.CkTarget.Gadget.Gadget` 在这份包里**解析不到**。
+//
+// 这正是 `argc == 0` 那条缝：站点 ③ 的旧判据（有没有实参）在这里完全不触发，
+// `new Gadget()` 零实参 ⇒ 旧行为是静默零初始化，`V` 读出 0 而不是 7。
+public class Gadget {
+    public int V;
+}

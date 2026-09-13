@@ -191,7 +191,9 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             }
             // add-escape-analysis-stack-alloc (zbc 1.29): trailing stack-alloc flag.
             let stack_alloc = c.read_u8()? != 0;
-            Instruction::ObjNew(Box::new(ObjNewInsn { dst, class_name, ctor_name, args, type_args: type_args.into_boxed_slice(), stack_alloc }))
+            // encode-ctorless-objnew (zbc 1.39): trailing positive ctor-known flag.
+            let ctor_known = c.read_u8()? != 0;
+            Instruction::ObjNew(Box::new(ObjNewInsn { dst, class_name, ctor_name, args, type_args: type_args.into_boxed_slice(), stack_alloc, ctor_known }))
         }
         OP_TYPEOF => {
             // add-reflection-generic-type-definition: type_name + structured

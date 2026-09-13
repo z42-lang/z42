@@ -12,7 +12,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 Instruction::ObjNew(insn) => {
                     // add-escape-analysis-stack-alloc: JIT ignores stack_alloc in v1
                     // (heap-allocates); the optimization targets interp (interp-first).
-                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc: _ } = &**insn;
+                    let ObjNewInsn { dst, class_name, ctor_name, args, type_args, stack_alloc: _, ctor_known } = &**insn;
                     // 2026-05-07 expand-jit-type-args: marshal `Vec<String>` as a
                     // `*const String` + count to `jit_obj_new`. The IR storage
                     // lives for the module lifetime, so the raw pointer is valid
@@ -27,8 +27,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     // through `Function.resolved`, like the FieldIC pointer below).
                     let cm = ctorless_mark_ptr_at(self.func, self.block_idx, self.instr_idx);
                     let cmv = self.builder.ins().iconst(self.ptr, cm as i64);
+                    // encode-ctorless-objnew: compile-time positive ctor marker (i8).
+                    let ckv = self.builder.ins().iconst(types::I8, *ctor_known as i64);
                     let inst = self.builder.ins().call(self.hr_obj_new,
-                        &[self.frame_val, self.ctx_val, d, cp, cl, kp, kl, ap, al, tap, tac, cmv]);
+                        &[self.frame_val, self.ctx_val, d, cp, cl, kp, kl, ap, al, tap, tac, cmv, ckv]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::Typeof(insn) => {
