@@ -177,8 +177,28 @@ pub struct Region<T> {
     /// `free_list` and grows fresh chunks otherwise.
     ambient_cur: Option<(u32, u16)>,
 
-    /// Tombstoned slots reusable by fresh allocs. LIFO (Vec::pop).
-    free_list: Vec<(u32, u16)>,
+    /// Tombstoned slots reusable by fresh allocs, **bucketed by owning chunk** —
+    /// `free_slots[ci]` holds the slot indices tombstoned out of `chunks[ci]`, LIFO.
+    ///
+    /// **perf-bucket-region-free-list (2026-09-13)**: this was one flat `Vec<(u32, u16)>`, and
+    /// [`Self::reclaim_dead_chunks`] had to `retain` over the whole thing to drop the slots of
+    /// the chunks it was pooling — `O(free list)` work to evict `O(chunks reclaimed)` entries,
+    /// on every collection. Measured on `z42c.semantics --release --no-incremental`:
+    /// **19 239 026 entry visits over 52 calls, 9.5 ms**, i.e. all of what the object and array
+    /// regions spend in `minor/chunk reclaim`. The per-element cost was already floor
+    /// (0.5 ns — a linear scan of an 8-byte tuple); only the element *count* could go.
+    /// Bucketed, the eviction is one `Vec` drop per reclaimed chunk. Same medicine
+    /// `perf-bucket-all-blocks-by-chunk` applied to `VarRegion::all_blocks`.
+    ///
+    /// Entries are `u16` slot indices: the chunk is the bucket, so it no longer needs storing.
+    free_slots: Vec<Vec<u16>>,
+    /// Chunks with at least one free slot. The invariant this file keeps is
+    /// `ci ∈ free_chunks ⟺ !free_slots[ci].is_empty()` (no duplicates), which is what lets
+    /// [`Self::pop_free_slot`] find a reusable slot in `O(1)` instead of scanning buckets.
+    free_chunks: Vec<u32>,
+    /// Total entries across `free_slots`. Kept incrementally because [`Self::free_capacity`] is
+    /// on the allocation path and summing the buckets would be `O(chunks)`.
+    free_len: usize,
 
     /// Track initialized vs uninitialized slots. Bit `(ci, ei)` is
     /// set if the slot is initialized (was alloc'd at least once).
@@ -282,7 +302,9 @@ impl<T> Default for Region<T> {
         Self {
             chunks:      Vec::new(),
             ambient_cur: None,
-            free_list:   Vec::new(),
+            free_slots:  Vec::new(),
+            free_chunks: Vec::new(),
+            free_len:    0,
             initialized: Vec::new(),
             young_list:  Vec::new(),
             // fix-young-list-only-when-generational: `Default` (and therefore
@@ -317,7 +339,7 @@ impl<T> Region<T> {
     /// Slow path: bump pointer. If the current chunk is full, push
     /// a new chunk first.
     pub fn alloc(&mut self, value: T) -> RegionHandle {
-        if let Some((ci, ei)) = self.free_list.pop() {
+        if let Some((ci, ei)) = self.pop_free_slot() {
             // Slot is initialized (we tombstoned it previously). Drop
             // the dead RegionEntry, write a fresh one preserving the
             // bumped generation.
@@ -371,6 +393,39 @@ impl<T> Region<T> {
     /// [`borrow_chunk`]'s pool-miss path — the single point where `chunks`
     /// grows, so all per-chunk tables stay length-consistent (validated by
     /// `CardDirtyLengthMismatch`).
+    /// **perf-bucket-region-free-list (2026-09-13)**: record slot `(ci, ei)` as reusable.
+    ///
+    /// The `is_empty` test is what maintains `ci ∈ free_chunks ⟺ bucket non-empty`: the chunk
+    /// is listed exactly when its bucket goes empty → non-empty, and delisted in
+    /// [`Self::pop_free_slot`] / [`Self::reclaim_dead_chunks`] when it goes back.
+    #[inline]
+    fn push_free_slot(&mut self, ci: u32, ei: u16) {
+        let bucket = &mut self.free_slots[ci as usize];
+        if bucket.is_empty() {
+            self.free_chunks.push(ci);
+        }
+        bucket.push(ei);
+        self.free_len += 1;
+    }
+
+    /// **perf-bucket-region-free-list (2026-09-13)**: take a reusable slot, or `None`.
+    ///
+    /// Drains one chunk's bucket before moving to the next, where the flat list interleaved
+    /// chunks. That is not a regression on either axis it could be: reuse stays inside one
+    /// chunk (better locality), and concentrating it there leaves the *other* dead chunks
+    /// wholly dead, which is exactly the condition [`Self::reclaim_dead_chunks`] pools on.
+    #[inline]
+    fn pop_free_slot(&mut self) -> Option<(u32, u16)> {
+        let ci = *self.free_chunks.last()?;
+        let bucket = &mut self.free_slots[ci as usize];
+        let ei = bucket.pop().expect("free_chunks only lists non-empty buckets");
+        if bucket.is_empty() {
+            self.free_chunks.pop();
+        }
+        self.free_len -= 1;
+        Some((ci, ei))
+    }
+
     fn grow_new_chunk(&mut self) -> u32 {
         // SAFETY: MaybeUninit<RegionEntry<T>> is valid to leave uninit.
         let chunk: Box<[MaybeUninit<RegionEntry<T>>; CHUNK_SIZE]> = Box::new(unsafe {
@@ -378,6 +433,7 @@ impl<T> Region<T> {
         });
         let ci = self.chunks.len() as u32;
         self.chunks.push(chunk);
+        self.free_slots.push(Vec::new());
         self.initialized.push(vec![false; CHUNK_SIZE]);
         self.init_per_chunk.push(0);
         self.live_per_chunk.push(0);
@@ -429,7 +485,7 @@ impl<T> Region<T> {
         entry.generation.fetch_add(1, Ordering::AcqRel);
         // add-incremental-chunk-reclaim: O(1) — the handle already names the chunk.
         self.live_per_chunk[handle.chunk_idx as usize] -= 1;
-        self.free_list.push((handle.chunk_idx, handle.entry_idx));
+        self.push_free_slot(handle.chunk_idx, handle.entry_idx);
         if was_young {
             self.remove_from_young_list(handle.chunk_idx, handle.entry_idx);
         }
@@ -455,7 +511,7 @@ impl<T> Region<T> {
         entry.clear_young_idx();
         // add-incremental-chunk-reclaim: O(1) — the handle already names the chunk.
         self.live_per_chunk[handle.chunk_idx as usize] -= 1;
-        self.free_list.push((handle.chunk_idx, handle.entry_idx));
+        self.push_free_slot(handle.chunk_idx, handle.entry_idx);
         true
     }
 
@@ -560,7 +616,7 @@ impl<T> Region<T> {
         entry.generation.fetch_add(1, Ordering::AcqRel);
         let (ci, ei) = entry.location;
         if ci != u32::MAX {
-            self.free_list.push((ci, ei));
+            self.push_free_slot(ci, ei);
             if was_young {
                 self.remove_from_young_list(ci, ei);
             }
@@ -698,9 +754,22 @@ impl<T> Region<T> {
         for &ci in &reclaimed {
             is_reclaimed[ci as usize] = true;
         }
-        // Purge free_list of any slot inside a reclaimed chunk (else the ambient
+        // Purge the free lists of any slot inside a reclaimed chunk (else the ambient
         // slot-reuse path could hand out a slot inside a borrowed chunk).
-        self.free_list.retain(|&(ci, _)| !is_reclaimed[ci as usize]);
+        //
+        // perf-bucket-region-free-list: `O(chunks reclaimed)`, not `O(free list)`. Dropping the
+        // bucket rather than `clear()`ing it also hands its capacity back — a reclaimed chunk's
+        // bucket can hold a whole `CHUNK_SIZE` of indices, and at hundreds of chunks reclaimed
+        // per minor that slack would otherwise accumulate in the region forever (the mistake
+        // `perf-bucket-all-blocks-by-chunk` measured at +18 MB on its own bucket list).
+        for &ci in &reclaimed {
+            let bucket = &mut self.free_slots[ci as usize];
+            self.free_len -= bucket.len();
+            *bucket = Vec::new();
+        }
+        // Keeps `ci ∈ free_chunks ⟺ bucket non-empty`. `free_chunks` holds at most one entry
+        // per chunk, so this is the same `O(chunks)` the reclaim scan above already pays.
+        self.free_chunks.retain(|&ci| !is_reclaimed[ci as usize]);
         // No normalization: a reclaimed chunk may be mixed (initialized dead
         // slots + a never-initialized tail). `ChunkClaim::fill` consults the
         // chunk's `initialized` row per slot — preserving the tombstone
@@ -726,6 +795,13 @@ impl<T> Region<T> {
         self.free_chunk_pool.len()
     }
 
+    /// **perf-bucket-region-free-list (2026-09-13)**: which chunks are pooled (tests: prove a
+    /// reclaimed chunk's slots left the free lists).
+    #[cfg(test)]
+    pub(crate) fn free_chunk_pool_for_test(&self) -> std::collections::HashSet<u32> {
+        self.free_chunk_pool.iter().copied().collect()
+    }
+
     /// Number of free slots available without growing (`free_list +
     /// remaining bump capacity in current chunk`). Used by P3 bench
     /// + diagnostics.
@@ -735,7 +811,7 @@ impl<T> Region<T> {
             Some((_, ei)) => CHUNK_SIZE - ei as usize,
             None => 0,
         };
-        self.free_list.len() + bump_remaining
+        self.free_len + bump_remaining
     }
 }
 

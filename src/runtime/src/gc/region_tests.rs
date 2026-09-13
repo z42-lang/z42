@@ -604,8 +604,8 @@ fn validate_detects_duplicate_in_young_list() {
 fn validate_detects_alive_in_free_list() {
     let mut r: Region<u64> = Region::new();
     let h = r.alloc(1);
-    // Manually corrupt: push h's location to free_list without tombstoning.
-    r.free_list.push((h.chunk_idx, h.entry_idx));
+    // Manually corrupt: list h's slot as free without tombstoning it.
+    r.push_free_slot(h.chunk_idx, h.entry_idx);
 
     match r.validate() {
         Err(Violation::AliveSlotInFreeList { chunk_idx, entry_idx }) => {
@@ -885,4 +885,56 @@ fn a_region_promotes_at_the_age_it_was_built_with() {
         assert!(r.promote(h), "age {age}: the {age}th survival promotes");
         assert_eq!(r.young_count(), 0, "age {age}: promotion leaves the young list");
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// perf-bucket-region-free-list (2026-09-13): free slots are bucketed by owning chunk, so a
+// chunk reclaim drops buckets instead of scanning the whole free list.
+// ---------------------------------------------------------------------------------------
+
+/// The index `pop_free_slot` trusts: a chunk is listed iff its bucket is non-empty, exactly
+/// once. A stale entry makes the pop path panic on an empty bucket; a missing one strands
+/// reusable slots and grows chunks that were not needed. Driven through the real paths —
+/// tombstone, reuse, and a reclaim in between — because the drift would come from those.
+#[test]
+fn the_free_chunk_index_tracks_the_buckets_through_reuse_and_reclaim() {
+    let mut r: Region<u64> = Region::new();
+    let handles: Vec<_> = (0..CHUNK_SIZE * 3).map(|i| r.alloc(i as u64)).collect();
+    assert_eq!(r.validate(), Ok(()));
+
+    for h in &handles {
+        assert!(r.tombstone(*h));
+        assert_eq!(r.validate(), Ok(()), "index must hold after every tombstone");
+    }
+    r.reclaim_dead_chunks();
+    assert_eq!(r.validate(), Ok(()), "reclaim must delist the chunks it emptied");
+
+    // Re-fill: whatever survived the reclaim has to be handed out without tripping the index.
+    for i in 0..CHUNK_SIZE * 3 {
+        r.alloc(i as u64);
+    }
+    assert_eq!(r.validate(), Ok(()));
+}
+
+/// Reclaiming a chunk must take its slots out of circulation — the hazard the old flat-list
+/// `retain` existed for. Handing one out would alias a slot in a chunk that is being re-bumped
+/// under a fresh generation.
+#[test]
+fn a_reclaimed_chunks_slots_are_never_handed_out() {
+    let mut r: Region<u64> = Region::new();
+    let handles: Vec<_> = (0..CHUNK_SIZE * 2).map(|i| r.alloc(i as u64)).collect();
+    for h in &handles {
+        assert!(r.tombstone(*h));
+    }
+    assert!(r.reclaim_dead_chunks() > 0, "fully-dead chunks must be reclaimable");
+    let pooled: std::collections::HashSet<u32> = r.free_chunk_pool_for_test();
+    assert!(!pooled.is_empty());
+
+    // Every remaining free slot must live outside the pool. Allocating drains them; none may
+    // come back pointing into a pooled chunk.
+    for i in 0..CHUNK_SIZE * 2 {
+        let h = r.alloc(i as u64);
+        assert!(!pooled.contains(&h.chunk_idx), "handed out a slot inside a pooled chunk");
+    }
+    assert_eq!(r.validate(), Ok(()));
 }
