@@ -136,3 +136,37 @@ pub fn missing_ctor_exception(
         ),
     ))
 }
+
+// ── 站点 ②：ObjNew 的类型解析不到 ───────────────────────────────────────────
+
+/// `ObjNew` 的类型在类型注册表和惰性加载器里都找不到时的裁决。
+/// `Some(exc)` = 确定不存在，抛之；`None` = 回落描述符是**合法**的，照旧合成。
+///
+/// # 判据
+///
+/// 回落描述符（[`crate::interp::dispatch::make_fallback_type_desc`]）有一个正当用途：
+/// 合并进来的 stdlib 模块不带预建 TypeDesc，但带 `ClassDesc`——按 `module.classes` 的
+/// 继承链现建一个，字段槽是**齐的**。判据就是这条链在不在：
+///
+/// - `module.classes` 里有 → 回落描述符正确，放行。
+/// - 没有，且名字**不带点** → 编译器合成的本地类（闭包类等），沿用既有行为放行。
+/// - 没有，且名字**带点** → 跨包引用没解析到 ⇒ 定案缺失。
+///
+/// 最后这条此前是一条 `tracing::warn!`：合成出来的空壳没有字段槽，构造器的 `FieldSet`
+/// 被**丢弃**、后续 `FieldGet` 全读 Null，错误现场离根因十万八千里（实测：`Std.IO.Process`
+/// 被合成空壳后，崩在 `AppendString` 的 `arr.Length`）。日志挡不住这种静默数据损坏——
+/// 判据既然已经确定，就该抛。
+pub fn missing_type_exception(
+    ctx: &VmContext, module: &Module, class_name: &str,
+) -> Option<crate::metadata::Value> {
+    if !class_name.contains('.') { return None; }
+    if module.classes.iter().any(|c| c.name == class_name) { return None; }
+    Some(crate::exception::make_missing_symbol_exception(
+        ctx, module,
+        format!(
+            "type `{class_name}` could not be resolved in the module registry, the lazy \
+             loader, or this module's class descriptors; the loaded package may be older \
+             than the one this code was compiled against"
+        ),
+    ))
+}

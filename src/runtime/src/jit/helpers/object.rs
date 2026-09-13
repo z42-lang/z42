@@ -46,17 +46,26 @@ pub unsafe extern "C" fn jit_obj_new(
     // interp's `exec_object::obj_new`. Without this, `new SubcommandRouter()` gets
     // a zero-field TypeDesc → zero slots → every field read returns Null (observed:
     // `this._count` reads Null → `I64(0) vs Null` in SubcommandRouter.Add).
-    let type_desc = module.type_lookup(class_name).cloned()
-        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(class_name))
-        .unwrap_or_else(|| std::sync::Arc::new(crate::metadata::TypeDesc {
-            name: class_name.to_string(), base_name: None,
-            class_flags: 0,
-            visibility: 0,
-            fields: Vec::new(), field_index: crate::metadata::NameIndex::new(),
-            vtable: Vec::new(), vtable_index: crate::metadata::NameIndex::new(),
-            cold: None,
-            id: crate::metadata::tokens::TypeId::UNRESOLVED,
-        }));
+    let resolved = module.type_lookup(class_name).cloned()
+        .or_else(|| vm_ctx_ref(ctx).try_lookup_type(class_name));
+    let type_desc = match resolved {
+        Some(td) => td,
+        None => {
+            // 站点 ② fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称。
+            let vm = vm_ctx_ref(ctx);
+            if let Some(exc) = crate::vm_context::symres::missing_type_exception(
+                vm, module, class_name,
+            ) {
+                set_exception(vm, exc);
+                return 1;
+            }
+            // 此前这里就地合成一个**空**描述符，而 interp 走的是
+            // `make_fallback_type_desc`（按 `module.classes` 的继承链把字段槽建齐）——
+            // 同一个「合并模块不带预建 TypeDesc」的合法回落，JIT 下却丢掉全部字段。
+            // 两后端改用同一份实现。
+            std::sync::Arc::new(crate::interp::dispatch::make_fallback_type_desc(module, class_name))
+        }
+    };
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
     // 一次 `Option` 判断即可，不需要 `pending` 门。与 interp 的 obj_new 屏障对称。
     {

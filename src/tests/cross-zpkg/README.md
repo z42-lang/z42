@@ -70,3 +70,4 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `dup_fqn_crosspkg` | **负例**：两个包同 FQN → E0601 | ImportedSymbolLoader 包名累积 → SymbolTable 判据 → 两个 choke point |
 | `available_skew` / `available_present` | `available!()` 按**实际依赖图**折常量 + 剪分支 | 加载期常量折叠 → CFG 剪枝（`skew-absent.txt`） |
 | `missing_ctor_skew` / `missing_ctor_present` | 构造器缺失不再静默写未构造对象 | ObjNew ctor 解析 → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`） |
+| `missing_type_skew` | `new` 一个解析不到的类型不再合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |
