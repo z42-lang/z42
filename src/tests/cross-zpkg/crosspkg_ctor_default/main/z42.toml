@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ccdapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.CcdApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ccdtarget" = "0.1.0"

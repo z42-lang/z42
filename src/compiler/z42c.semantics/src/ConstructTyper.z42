@@ -282,6 +282,25 @@ public sealed class ConstructTyper {
         // 一个数组，运行期 `xs.Length` 读到 Null（实测 `new P(a, b)` 对 `P(params object[] xs)`
         // 直接 `VCall: expected object, got Null`）。方法路径一直有 `_withParamsExpansion`，
         // 只有 ctor 漏了。`CheckArgTypes` 认得 params 尾位、只是**不打包**，故放在它之后。
+        // 🔴 **跨包构造器的默认值尾参此前整个丢失** —— imported ctor 没有 Decl，上面
+        // `_adaptArgs` 那条（只认本地有 Decl 的 ctor）走不到，少给的形参位就**根本没被填**，
+        // callee 的寄存器停在零值（实测 `new Sized(5)` 对 `Sized(int w, int h = 3)` 读到 H=0，
+        // 而不是作者声明的 3）。方法路径一直有这一支（`OverloadBinder._withDefaults` 的
+        // `_crossPkgDefault` 分支，PR6 修跨包塌零时加的），**只有 ctor 漏了** —— 与
+        // fix-ctor-overload-by-arity-only / params 尾包是同一族的「ctor 没跟上方法路径」。
+        // `params` 尾参的补位由 `_packParamsTail` 负责，故排除掉（与 `_withDefaults` 同序）。
+        if (cms != null && (!cms.HasDecl || cms.Decl == null) && cms.Signature != null
+            && cms.Signature.ParamsFrom < 0 && n.ArgCount < cms.Signature.ParamCount) {
+            int fpc = cms.Signature.ParamCount;
+            BoundExpr[] filled = new BoundExpr[fpc];
+            int fi = 0;
+            while (fi < n.ArgCount) { filled[fi] = args[fi]; fi = fi + 1; }
+            while (fi < fpc) {
+                filled[fi] = this._tc._overload._crossPkgDefault(cms.Signature, fi, env, n.Span);
+                fi = fi + 1;
+            }
+            args = filled;
+        }
         args = this._packParamsTail(cms, args, n.Span, env);
         return new BoundNew(t.Name(), ctorName, args, args.Length, t, n.Span);
     }
