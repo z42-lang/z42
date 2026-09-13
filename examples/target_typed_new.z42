@@ -3,8 +3,8 @@
 using Std;
 
 class Point {
-    int X;
-    int Y;
+    public int X;   // 无修饰符 = private；跨类读 p.X 需要 public
+    public int Y;
     Point() { }
     Point(int x, int y) { this.X = x; this.Y = y; }
 }
@@ -20,7 +20,7 @@ class Box {
         Console.WriteLine(p.X.ToString() + "," + p.Y.ToString());
     }
 
-    void run() {
+    public void run() {
         Point a = new();           // 局部变量：目标 = 声明类型 Point
         a = new(1, 2);             // 赋值：目标 = 左值类型 Point
         this.take(new(5, 6));      // 传参：目标 = 形参类型 Point

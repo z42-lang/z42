@@ -28,7 +28,9 @@ int _testExampleGate(bool noBuild) {
     }
     TargetTooling tt = _prepFixtureTooling(root, noBuild);
     if (!tt.Ok) { return 2; }
-    return _exampleRun(root, tt, "", true);   // gate: compile all, run test=true
+    int rcTop = _topLevelExamplesGate(root, tt);   // gate-toplevel-examples：仓库根 examples/
+    int rcProj = _exampleRun(root, tt, "", true);   // gate: compile all, run test=true
+    return rcProj != 0 ? rcProj : rcTop;
 }
 
 // `xtask example [name]` — compile + run one example by name, or (no name) every
@@ -82,6 +84,86 @@ int _exampleRun(string root, TargetTooling tt, string name, bool gate) {
     }
     Console.WriteLine("  ✅ examples: " + compiled.ToString() + " compiled, " + ran.ToString() + " ran");
     return 0;
+}
+
+// ── 顶层 examples/ 编译门（gate-toplevel-examples）─────────────────────────────
+//
+// 🔴 `_exampleRun` 只扫 `src/libraries/*` 与 manifest-target fixtures，而 `src/libraries/`
+// 下**没有任何** `examples/` 目录或 `[[example]]` 声明 ⇒ 仓库根 `examples/` 的 22 个 `.z42`
+// **从来没有被任何 stage 编译过**，stage 却打印「✅ examples: 1 compiled」（那 1 个是合成
+// fixture）。实测后果：8 个示例编不过，其中 5 个用的是 z42 **压根没有的语法**（C#-ism），
+// 最久的一条烂了多久无从查起——因为没有任何东西看过它们。
+//
+// 判据 = `z42c --emit-zbc <file>` 的退出码（#550 之后它不再吞诊断，有错即非零）。
+//
+// **双向棘轮**（同 `line-limit-baseline.txt` 的惯例，那套机制抓到过我自己的误判）：
+//   · 名单外编不过 → **红**（新增破坏）
+//   · 名单内编不过 → 响亮打印，不阻断（已知欠债）
+//   · **名单内却编过了 → 红**，提示从名单删除（防「修好了忘删」变成下一个假保障）
+int _topLevelExamplesGate(string root, TargetTooling tt) {
+    string dir = Path.Join(root, "examples");
+    if (!Directory.Exists(dir)) { return 0; }
+    string[] known = _knownBrokenExamples(root);
+    string[] names = _sortedStrings(Directory.Enumerate(dir));
+    string tmp = File.CreateTempDir("z42-ex-gate-");
+    int ok = 0; int knownBad = 0; int failed = 0;
+    int i = 0;
+    while (i < names.Length) {
+        string n = names[i];
+        if (n.EndsWith(".z42")) {
+            string src = Path.Join(dir, n);
+            ProcessResult r = new Process(tt.Vm)
+                .Arg(tt.DriverZpkg).Arg("--").Arg("--emit-zbc").Arg(src).Arg(Path.Join(tmp, "o.zbc"))
+                .Env("Z42_LIBS", tt.Libs)
+                .Run();
+            bool compiled = r.ExitCode == 0;
+            bool listed = _strArrHas(known, n);
+            if (compiled && !listed) { ok = ok + 1; }
+            else if (!compiled && listed) {
+                knownBad = knownBad + 1;
+                Console.WriteLine("  ⚠ examples/" + n + "：已知编不过（在 examples-known-broken.txt 名单里）");
+            } else if (compiled && listed) {
+                failed = failed + 1;
+                ConsoleError.WriteLine("  ✗ examples/" + n + "：**现在编得过了** —— 请从 "
+                    + "scripts/test/examples-known-broken.txt 删掉它（名单留着就会变成下一个假保障）");
+            } else {
+                failed = failed + 1;
+                ConsoleError.WriteLine("  ✗ examples/" + n + "：编译失败（新增破坏）");
+                ConsoleError.WriteLine(r.Stdout + r.Stderr);
+            }
+        }
+        i = i + 1;
+    }
+    Directory.Delete(tmp, true);
+    Console.WriteLine("  顶层 examples/：" + ok.ToString() + " 编过, " + knownBad.ToString()
+        + " 已知欠债, " + failed.ToString() + " 失败");
+    return failed > 0 ? 1 : 0;
+}
+
+// 已知编不过的顶层 example 文件名（一行一个，`#` 起头为注释）。缺文件 = 空名单。
+string[] _knownBrokenExamples(string root) {
+    string f = Path.Join(root, "scripts/test/examples-known-broken.txt");
+    if (!File.Exists(f)) { return new string[0]; }
+    string[] lines = File.ReadAllText(f).Split("\n");
+    string[] outp = new string[lines.Length];
+    int n = 0;
+    int i = 0;
+    while (i < lines.Length) {
+        string t = lines[i].Trim();
+        int h = t.IndexOf("#");                      // 行尾注释（`name.z42   # 卡在哪个构造`）
+        if (h >= 0) { t = t.Substring(0, h).Trim(); }
+        if (t.Length > 0) { outp[n] = t; n = n + 1; }
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    i = 0; while (i < n) { r[i] = outp[i]; i = i + 1; }
+    return r;
+}
+
+bool _strArrHas(string[] a, string v) {
+    int i = 0;
+    while (i < a.Length) { if (a[i] == v) { return true; } i = i + 1; }
+    return false;
 }
 
 // Discover + compile/run one project's examples. Updates cref[0]=compiled,

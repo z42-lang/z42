@@ -43,6 +43,11 @@
 | `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42)，不在这里 |
 | `cross-zpkg/` | 多 zpkg 端到端（target / ext / main 三方协作；由 `z42 xtask.zpkg test cross-zpkg` 跑） |
 
+> **仓库根 `examples/`**（不在本目录）由 `xtask test` 的 examples stage 编译把关
+> （gate-toplevel-examples）：判据 = `z42c --emit-zbc` 退出码，已知编不过的记在
+> `scripts/test/examples-known-broken.txt`（**双向**棘轮：名单内编过了同样判红）。
+> 在此之前它们**从来没有被任何 stage 编译过**，而 stage 照常打印「✅ examples: 1 compiled」。
+
 > **期望编译报错的用例不在本目录**：写成 `z42c.semantics` 自己的 `[Test]` 单测
 > （`src/compiler/z42c.semantics/tests/typecheck/`，用 `SemanticDump.FirstErrorCode` /
 > `FirstErrorMessage` / `FirstErrorPos` / `ErrorCount` 断言），由 `xtask test compiler` 驱动。

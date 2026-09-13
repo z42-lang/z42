@@ -24,7 +24,10 @@ void Main() {
     Row scores = new Row();                      // 泛型别名作 new 类型
     scores.Set("math", 90);
     scores.Set("art", 85);
-    Console.WriteLine($"math={scores[\"math\"]}, art={scores[\"art\"]}");   // math=90, art=85
+    // ⚠️ 插值洞里放不了字符串字面量 —— 先取到局部变量。
+    int math = scores["math"];
+    int art  = scores["art"];
+    Console.WriteLine($"math={math}, art={art}");   // math=90, art=85
 
     Names ns = new Names();
     ns.Add("bob");
