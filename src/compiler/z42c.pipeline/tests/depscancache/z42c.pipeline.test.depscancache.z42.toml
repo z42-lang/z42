@@ -1,0 +1,17 @@
+# DepScanCache 陈旧守卫单测（guard-depscan-cache-staleness）。
+[project]
+name    = "z42c.pipeline.test.depscancache"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.pipeline" = "0.1.0"
+"z42.ir"        = "0.1.0"   # ZpkgWriterZ.Major/Minor（构造合法/旧版头）
+
+[build]
+# Build output → artifacts mirror (mirror-build-output-per-component):
+# src/compiler/z42c.pipeline/tests/depscancache → artifacts/build/compiler/z42c.pipeline/tests/depscancache
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/tests/depscancache"

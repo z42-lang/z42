@@ -1,0 +1,8 @@
+namespace Demo.WcaTarget;
+
+// fix-ctor-arity-skew 的 skew 对象：**无参**构造器。单构造器 ⇒ primary ⇒ 注册在**裸键**
+// `Demo.WcaTarget.Widget.Widget` 上。
+public class Widget {
+    public int V;
+    public Widget() { this.V = 7; }
+}

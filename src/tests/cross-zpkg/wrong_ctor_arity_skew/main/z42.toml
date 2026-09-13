@@ -1,0 +1,9 @@
+[project]
+name    = "demo.wcaapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.WcaApp.Main"
+pack    = true
+
+[dependencies]
+"demo.wcatarget" = "0.2.0"

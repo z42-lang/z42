@@ -1,0 +1,9 @@
+namespace Demo.WcaTarget;
+
+// 「旧版依赖」：类型、字段、构造器**都在**，唯独构造器的**签名不一样**（多一个形参）。
+// 它同样是本类唯一构造器 ⇒ 同样是 primary ⇒ 占用**同一个裸键**——于是 main 按新版编译发出的
+// 裸键在这里**解析得到**，命中的却是另一个构造器。这就是本 change 要挡的形态。
+public class Widget {
+    public int V;
+    public Widget(int v) { this.V = v; }
+}

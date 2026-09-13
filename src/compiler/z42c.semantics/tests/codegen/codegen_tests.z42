@@ -180,14 +180,14 @@ void test_static_call() {
 [Test]
 void test_new() {
     string src = "class C { } class D { C Make() { return new C(); } }";
-    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C()\n  ret %1\n}",
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
                  IrDump.DumpFunc(src, "D.Make"));
 }
 
 [Test]
 void test_new_args() {
     string src = "class P { } class D { P Make() { return new P(1, 2); } }";
-    Assert.Equal("fn @D.Make(1) -> P {\nentry:\n  %1 = const.i64 1\n  %2 = const.i64 2\n  %3 = obj_new P(%1, %2)\n  ret %3\n}",
+    Assert.Equal("fn @D.Make(1) -> P {\nentry:\n  %1 = const.i64 1\n  %2 = const.i64 2\n  %3 = obj_new P P.P(%1, %2)\n  ret %3\n}",
                  IrDump.DumpFunc(src, "D.Make"));
 }
 
@@ -199,7 +199,7 @@ void test_target_typed_new_return() {
     string expl = "class C { } class D { C Make() { return new C(); } }";
     string tt   = "class C { } class D { C Make() { return new(); } }";
     Assert.Equal(IrDump.DumpFunc(expl, "D.Make"), IrDump.DumpFunc(tt, "D.Make"));
-    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C()\n  ret %1\n}",
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
                  IrDump.DumpFunc(tt, "D.Make"));
 }
 
@@ -359,14 +359,14 @@ void test_null_coalesce() {
 void test_new_generic() {
     // new Box<int>() → obj_new Box<int>（class "Box" + type-args ["int"]）
     string src = "class Box<T> { } class C { Box<int> Make() { return new Box<int>(); } }";
-    Assert.Equal("fn @C.Make(1) -> Box<int> {\nentry:\n  %1 = obj_new Box<int>()\n  ret %1\n}",
+    Assert.Equal("fn @C.Make(1) -> Box<int> {\nentry:\n  %1 = obj_new Box<int> Box.Box()\n  ret %1\n}",
                  IrDump.DumpFunc(src, "C.Make"));
 }
 
 [Test]
 void test_new_generic_multi() {
     string src = "class Pair<K, V> { } class C { Pair<int, string> Make() { return new Pair<int, string>(); } }";
-    Assert.Equal("fn @C.Make(1) -> Pair<int, string> {\nentry:\n  %1 = obj_new Pair<int, string>()\n  ret %1\n}",
+    Assert.Equal("fn @C.Make(1) -> Pair<int, string> {\nentry:\n  %1 = obj_new Pair<int, string> Pair.Pair()\n  ret %1\n}",
                  IrDump.DumpFunc(src, "C.Make"));
 }
 
@@ -398,7 +398,7 @@ void test_char_const() {
 [Test]
 void test_throw_lowering() {
     string src = "class E { } class C { void M() { throw new E(); } }";
-    Assert.Equal("fn @C.M(1) -> void {\nentry:\n  %1 = obj_new E()\n  throw %1\n}",
+    Assert.Equal("fn @C.M(1) -> void {\nentry:\n  %1 = obj_new E E.E()\n  throw %1\n}",
                  IrDump.DumpFunc(src, "C.M"));
 }
 
@@ -931,4 +931,39 @@ void test_genuinely_imported_class_is_tracked() {
     ctx.TrackImportedClass("HttpClient");
     Assert.Equal(1, ctx.UsedDepNsCount);
     Assert.Equal("Std.Net.Http", ctx.UsedDepNs[0]);
+}
+
+// ── fix-ctor-arity-skew：obj_new 的 ctor 键必须在 dump 里现形 ──────────────────────────
+//
+// 这个键是运行期真正拿去解析的东西，此前 `ObjNewInstr.Dump()` **根本不打印它** —— 于是
+// 「这条 obj_new 会去调哪个构造器、还是压根不调」在所有 IR 断言里都看不见。
+
+[Test]
+void test_objnew_ctor_key_visible() {
+    // 显式构造器：单 ctor ⇒ primary 裸键，obj_new 带着它。
+    string src = "class C { int V; C(int v) { this.V = v; } } class D { C Make() { return new C(1); } }";
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = const.i64 1\n  %2 = obj_new C C.C(%1)\n  ret %2\n}",
+                 IrDump.DumpFunc(src, "D.Make"));
+}
+
+[Test]
+void test_objnew_bare_key_is_ambiguous_between_ctor_and_ctorless() {
+    // 🔴 **把这条歧义钉住**：完全没有构造器的类，与只有一个构造器的类，发的是**同一个裸键**。
+    // 运行期因此分不出「这个类本来就没有构造器」和「构造器本该在、却随旧版依赖不见了」——
+    // 这正是站点 ③ 只能放行 `argc == 0` 的原因（见 `vm_context/symres.rs`）。
+    // 谁把这条歧义解开了（给零构造器一个可区分的编码），这条断言就会变红，提醒同步收紧运行期判据。
+    string ctorless = "class C { int V; } class D { C Make() { return new C(); } }";
+    string oneCtor  = "class C { int V; C() { this.V = 1; } } class D { C Make() { return new C(); } }";
+    Assert.Equal("  %1 = obj_new C C.C()", IrDump.DumpFunc(ctorless, "D.Make").Split("\n")[2]);
+    Assert.Equal("  %1 = obj_new C C.C()", IrDump.DumpFunc(oneCtor,  "D.Make").Split("\n")[2]);
+}
+
+[Test]
+void test_objnew_field_init_keeps_synth_ctor_key() {
+    // 有**字段初始化器**但无显式 ctor：z42c 仍合成一个隐式 ctor 函数
+    // （`IrGenTypeEmitter._emitSynthCtor`），而它**不是 MethodSymbol** —— 任何「这个类有没有
+    // 构造器」的判据若只看符号表就会误判成「零构造器」，把字段初始化整个跳过。
+    string src = "class C { int V = 7; } class D { C Make() { return new C(); } }";
+    Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
+                 IrDump.DumpFunc(src, "D.Make"));
 }
