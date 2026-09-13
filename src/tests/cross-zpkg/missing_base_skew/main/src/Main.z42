@@ -1,0 +1,27 @@
+namespace Demo.BbskewApp;
+
+using Std.IO;
+using Demo.BbskewTarget;
+
+// fix-silent-symbol-resolution 站点 ④：基类解析不到时不再静默退化成「只有自己的成员」。
+//
+// 这条最危险：丢的不是一个符号，是**整片继承面**——基类的全部字段槽和 vtable 条目一起
+// 消失。子类自己的成员都对、继承来的全是 Null，而 `FieldSet` 是静默丢弃的。
+//
+// 判定必须在惰性解析走完之后：「基类现在不在注册表里」不等于不存在（按需加载下它随时
+// 可能随下一个 zpkg 到场）。对照组见 crosspkg_base_fields_main —— 同样的形状、基类在场，
+// 必须照常跑通。
+void Main() {
+    try {
+        Derived d = new Derived();
+        d.B = 3;
+        Console.WriteLine("constructed B=" + d.B.ToString());
+    } catch (MissingSymbolException e) {
+        Console.WriteLine("caught MissingSymbolException");
+    }
+    Console.WriteLine("after");
+}
+
+public class Derived : Base {
+    public int B;
+}

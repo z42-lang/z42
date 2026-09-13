@@ -170,3 +170,36 @@ pub fn missing_type_exception(
         ),
     ))
 }
+
+// ── 站点 ④：基类解析不到 ─────────────────────────────────────────────────────
+
+/// 类型描述符的继承视图残缺（基类有声明、却合不进来）时的裁决。
+/// `Some(exc)` = 基类确定不存在，抛之；`None` = 视图完整，放行。
+///
+/// # 为什么这条最危险
+///
+/// 前三个站点丢的是**一个**符号；这里丢的是**整片继承面**——基类的全部字段槽和 vtable
+/// 条目一起消失。表现是「子类自己的成员都对、继承来的全是 Null / 派发不到」，而且
+/// `FieldSet` 是**静默丢弃**的，错误现场离根因可以隔上任意远。
+///
+/// # 判据必须在惰性解析走完之后
+///
+/// 「基类现在不在注册表里」**不等于**不存在：按需加载下它随时可能随下一个 zpkg 到场。
+/// 所以调用方必须先走完 `try_lookup_type`（内部会 `ensure_base_chain_loaded` + 把继承
+/// fixup 跑到不动点），拿回来的描述符**仍然**带着 `base_unmerged` 旗子，才算定案。
+/// 详见 [`crate::metadata::types::TypeDescCold::base_unmerged`]。
+pub fn missing_base_exception(
+    ctx: &VmContext, module: &Module, td: &TypeDesc,
+) -> Option<crate::metadata::Value> {
+    if !td.base_unmerged() { return None; }
+    let base = td.base_name.as_deref().unwrap_or("<unknown>");
+    let name = &td.name;
+    Some(crate::exception::make_missing_symbol_exception(
+        ctx, module,
+        format!(
+            "base type `{base}` of `{name}` could not be resolved; every inherited field \
+             and virtual method is absent from the layout — the loaded package may be \
+             older than the one this code was compiled against"
+        ),
+    ))
+}

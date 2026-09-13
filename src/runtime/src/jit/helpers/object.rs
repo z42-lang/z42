@@ -73,6 +73,14 @@ pub unsafe extern "C" fn jit_obj_new(
             _ => type_desc,
         }
     } else { type_desc };
+    // 站点 ④ fix-silent-symbol-resolution：与 interp `exec_object::obj_new` 对称。
+    {
+        let vm = vm_ctx_ref(ctx);
+        if let Some(exc) = crate::vm_context::symres::missing_base_exception(vm, module, &type_desc) {
+            set_exception(vm, exc);
+            return 1;
+        }
+    }
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。TypeDesc 已在手 →
     // 一次 `Option` 判断即可，不需要 `pending` 门。与 interp 的 obj_new 屏障对称。
     {

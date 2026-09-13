@@ -74,6 +74,11 @@ pub(super) fn obj_new(
             _ => type_desc,
         }
     } else { type_desc };
+    // 站点 ④ fix-silent-symbol-resolution：惰性解析都走完了还是残缺 ⇒ 基类确定不存在。
+    // 继续走下去只会分配一个丢掉整片继承面的对象，错误现场离根因可以隔上任意远。
+    if let Some(exc) = crate::vm_context::symres::missing_base_exception(ctx, module, &type_desc) {
+        return Ok(Some(exc));
+    }
 
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
     // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），

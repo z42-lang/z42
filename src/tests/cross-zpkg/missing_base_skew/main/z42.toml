@@ -1,0 +1,9 @@
+[project]
+name    = "demo.bbskewapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.BbskewApp.Main"
+pack    = true
+
+[dependencies]
+"demo.bbskewtarget" = "0.2.0"
