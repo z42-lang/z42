@@ -499,6 +499,9 @@ public sealed class ConstraintChecker {
 
     // arg 满足 base-class 约束：arg 是 baseName 或其子类（prim/array 不满足）。
     private bool _satisfiesBase(SymbolTable symbols, Z42Type arg, string baseName) {
+        // fix-iface-satisfaction-gaps #2：未解析型参 / error / unknown 放行（与 _satisfiesInterface 统一口径）。
+        // 泛型类内部转发 `new Inner<T>()` 时实参 T 尚不透明 → 由**外层实例化点**校验，此处放行免假红。
+        if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return true; }
         if (arg is Z42ClassType) { return symbols.IsSubclassOf(arg.Name(), baseName); }
         if (arg is Z42InstantiatedType) { return symbols.IsSubclassOf((arg as Z42InstantiatedType).Def.Name(), baseName); }
         return false;
@@ -506,6 +509,8 @@ public sealed class ConstraintChecker {
 
     // where U : T —— U 的实参须可赋给 T 的实参（同名 / 子类 / 数值拓宽）。
     private bool _satisfiesParamRef(SymbolTable symbols, Z42Type arg, Z42Type other) {
+        // fix-iface-satisfaction-gaps #2：未解析型参 / error / unknown 放行（同 _satisfiesBase / _satisfiesInterface）。
+        if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return true; }
         if (arg.Name() == other.Name()) { return true; }
         if (other is Z42ClassType) {
             if (arg is Z42ClassType) { return symbols.IsSubclassOf(arg.Name(), other.Name()); }

@@ -101,7 +101,7 @@ public sealed class ForwardGenerator : Generator {
         // → `no method Now on Logger`）。
         Z42ClassType srcT = ForwardGenerator._fieldClassType(t.Symbol, fd.Name);
         if (srcT == null) {
-            sink.Error("E0463",
+            sink.Error("E0468",
                 "[Forward] on field `" + fd.Name + "`: its type is not a class or interface, so it has no "
                 + "member surface to lift", t.Trigger.Span);
             return;
@@ -123,7 +123,7 @@ public sealed class ForwardGenerator : Generator {
                 ForwardGenerator._emitNamedTier(t, fd, srcT, a0 as MethodOfExpr, oc, sink);
                 return;
             }
-            sink.Error("E0463",
+            sink.Error("E0468",
                 "[Forward(...)] takes either `typeof(SomeInterface)` (forward that interface's members) "
                 + "or `methodof(Type.Member)` (forward exactly that member). Bare `[Forward]` pairs with "
                 + "`partial` declarations you write yourself", t.Trigger.Span);
@@ -160,7 +160,7 @@ public sealed class ForwardGenerator : Generator {
         string ifaceName = (tox.Type as NamedType).Name;
         Z42InterfaceType it = ForwardGenerator._lookupIface(t.Symbols, ifaceName);
         if (it == null) {
-            sink.Error("E0463",
+            sink.Error("E0468",
                 "[Forward(typeof(" + ifaceName + "))]: `" + ifaceName + "` does not resolve to an interface. "
                 + "The interface-tier form forwards exactly the members an interface declares", t.Trigger.Span);
             return;
@@ -205,7 +205,7 @@ public sealed class ForwardGenerator : Generator {
         }
         int hits = ForwardGenerator._countByName(srcT, mo.Member);
         if (hits == 0) {
-            sink.Error("E0463",
+            sink.Error("E0468",
                 "[Forward] `" + srcT.Name() + "` (the type of field `" + fd.Name + "`) has no member named `"
                 + mo.Member + "`. `methodof` only checked that `" + mo.OwnerName + "." + mo.Member
                 + "` exists — that it lives on *this* field's type is a separate claim, and it does not hold",
