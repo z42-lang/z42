@@ -6,7 +6,7 @@ using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;
 
-public sealed class SymbolTable {
+public sealed partial class SymbolTable {
     public StrMap Classes;          // name → Z42ClassType（裸名键；同短名跨 ns 碰撞 first/last-wins）
     // fix-type-ref-ns-collision：FQN 键（`ns.Name` / `ns.Name$N`）→ Z42ClassType。裸名 `Classes` 在同短名
     // 跨 ns（`A.Foo`/`B.Foo`）时只能留一份；此 map 保留全部，供 ResolveTypeP 的限定名路径按 FQN 精确解析，
@@ -150,190 +150,17 @@ public sealed class SymbolTable {
         this.ScopeUsings = us; this.ScopeUsingCount = un;
     }
 
-    // E0456 的**消息**也只此一份（判据在 IsBareNameAmbiguous）。不歧义返回 ""。
-    // 两个消费端：TypeChecker（语句/表达式位）与 SymbolCollector（声明位）——
-    // 各写一份消息迟早漂移，这正是本仓库反复吃亏的形状。
-    public string AmbiguousBareNameMsg(string name) {
-        if (!this.IsBareNameAmbiguous(name)) { return ""; }
-        string[] nss = this.ClassNsOf(name);
-        string first = "";
-        string second = "";
-        int i = 0;
-        while (i < nss.Length) {
-            string ns = nss[i];
-            if (ns == "" || this.IsScopeVisibleNs(ns)) {
-                if (first == "") { first = ns; }
-                else if (second == "") { second = ns; }
-            }
-            i = i + 1;
-        }
-        return "`" + name + "` is an ambiguous reference between `" + SymbolTable.QualOf(first, name)
-             + "` and `" + SymbolTable.QualOf(second, name) + "`";
-    }
 
     public static string QualOf(string ns, string name) { return ns == "" ? name : ns + "." + name; }
 
-    // ── report-crosspkg-duplicate-type：同一个 FQN 被多个包声明 ────────────────────────
-    //
-    // E0456 管的是「同一个**短名**在多个 ns 里」——限定写法（`A.Foo`）即可消歧。
-    // 这里管的是另一回事：**FQN 本身重复**。两个包都声明 `Demo.Ns.Widget` 时，
-    // 写全限定名也分不开它们 —— 实测限定与非限定都绑到同一个赢家（字母序靠前的包），
-    // 输的那份连同全部成员从未存在过，且**没有任何写法能指到它**（C# 有 extern alias，z42 没有）。
-    //
-    // ⚠️ 消息与判据都只此一份（同 IsBareNameAmbiguous / AmbiguousBareNameMsg 的纪律）。
-    // 两个消费端：TypeChecker._chkTypeRef（表达式位）与 SymbolCollector._chkTypeRefT（声明位）。
 
-    // 两个**依赖包**声明同一 FQN → E0601 消息；否则 ""。
-    public string CrossPkgDuplicateMsg(string fqn) {
-        // 与 ShadowedImportMsg 在每个类型引用上**成对**被调 ⇒ 单包（绝大多数）到 Count 就结束，不 Split。
-        StrBox box = this._pkgBoxOf(fqn);
-        if (box == null) { return ""; }
-        if (box.Count < 2) { return ""; }
-        string[] pkgs = box.Value.Split("|");
-        return "`" + fqn + "` is declared in more than one package: `" + pkgs[0] + "` and `" + pkgs[1]
-             + "` — their fully-qualified names are identical, so neither can be selected"
-             + " (rename one, or move it to a different namespace)";
-    }
 
-    // 本包声明的类型遮蔽了某个导入包的同 FQN 类型 → E0606 消息；否则 ""。
-    // 判据：该 FQN 上的赢家是**本地**类型（IsImported==false），而 ClassPkgAll 里又记着导入来源。
-    //
-    // 🔴 **为什么是 error 而不是 warning**（初版照 C# CS0436 做成了 warning，那是错的）：
-    // 「本地恒赢」确实是既定规则、不是猜——但**规则明确 ≠ 结果可接受**。被遮蔽的那一份
-    // **根本指不了**（两者 FQN 逐字相同，限定名也分不开；C# 有 extern alias，z42 没有），
-    // 于是失败形态与 E0601 一模一样：去调依赖包那份才有的成员，得到的是
-    // 「no method X on Widget」这种答非所问的诊断。
-    //
-    // 与 E0601 「未引用则不报」的分工也不同：那条是**两个第三方依赖打架**，下游既没用到
-    // 也无权修，不该挡死他；本条冲突的两份里**有一份是本包自己写的**，改名随时可以 ⇒
-    // 报 error 是可行动的。代价只有「故意遮蔽以覆盖库类型」这条野路子，而它本就无法控制、
-    // 无法回退（指不到被覆盖那份），不值得为它保留一个静默通道。实测全仓 0 处。
-    public string ShadowedImportMsg(string fqn) {
-        // 只有「**恰好**一个包」才可能出消息 ⇒ box.Value 即 pkgs[0]，全程不 Split。
-        StrBox box = this._pkgBoxOf(fqn);
-        if (box == null) { return ""; }
-        if (box.Count != 1) { return ""; }   // 两个导入包互撞 → 归 E0601，不在这里重复报
-        // 类与接口两张 FQN 视图都要查——E0601 那条经 `PkgCheckFqn` 本就覆盖接口，
-        // 只查 `ClassesByFqn` 会让「本地接口遮蔽导入接口」这半边单独哑掉（不对称的哑门）。
-        bool localWins = false;
-        int at = this.ClassesByFqn.Find(fqn);
-        if (at >= 0) {
-            Z42ClassType win = this.ClassesByFqn.ValAt(at) as Z42ClassType;
-            if (win != null && !win.IsImported) { localWins = true; }
-        }
-        int iat = this.InterfacesByFqn.Find(fqn);
-        if (iat >= 0) {
-            Z42InterfaceType iwin = this.InterfacesByFqn.ValAt(iat) as Z42InterfaceType;
-            if (iwin != null && !iwin.IsImported) { localWins = true; }
-        }
-        if (!localWins) { return ""; }   // 赢家是导入的（或查不到）→ 没有本地遮蔽
-        return "`" + fqn + "` is declared in this package and also in package `" + box.Value
-             + "` — their fully-qualified names are identical, so the imported one can never be"
-             + " referenced (rename one of them, or move it to a different namespace)";
-    }
 
-    // ── report-crosspkg-duplicate-function：自由函数的同名判定 ─────────────────────────
-    //
-    // 类那边有 `ClassesByFqn` 兜底，自由函数**连 FQN 视图都没有**（键恒为裸名）⇒ 同名者
-    // 无论同不同 ns 都撞同一个键、first-wins，且**没有任何写法能指到输的那份**
-    // （z42 的自由函数调用只有裸名一种形态，`ns.func()` 只在 ns == 当前 ns 时才是自由调用）。
-    // 实测（本 change 的 fixture）：两个包各声明 `Demo.FnNs.helper` → 编译零诊断、字母序靠前的赢；
-    // 分居两个 ns 且都 `using` 了也一样静默选一份。
-    //
-    // 三个判据共用 `FuncOriginAll`，**消息也只此一份**（同 IsBareNameAmbiguous 的纪律）。
-    // 消费端：`MemberResolver` 的两处自由调用漏斗。
 
-    // 登记一条来源。pkg 为空串 = 本包声明（由 MemberCollector 在 `_passMembers` 里按 CU 的 ns 记）。
-    public void NoteFuncOrigin(string name, string ns, string pkg) {
-        SymbolTable.NoteNsInto(this.FuncOriginAll, name, ns + "#" + pkg);
-    }
 
-    // name → 全部来源（每条 "ns#pkg"）。无记录返回空数组。
-    public string[] FuncOriginsOf(string name) {
-        int at = this.FuncOriginAll.Find(name);
-        if (at < 0) { return new string[0]; }
-        StrBox box = this.FuncOriginAll.ValAt(at) as StrBox;
-        return box.Value.Split("|");
-    }
 
-    private static string _origNs(string o) { int h = o.IndexOf("#"); return h < 0 ? o : o.Substring(0, h); }
-    private static string _origPkg(string o) { int h = o.IndexOf("#"); return h < 0 ? "" : o.Substring(h + 1, o.Length - h - 1); }
 
-    // 该来源的 ns 在本 CU 可见吗（全局 ns 视为可见——与 AmbiguousBareNameMsg 同口径）。
-    private bool _origVisible(string o) {
-        string ns = SymbolTable._origNs(o);
-        return ns == "" || this.IsScopeVisibleNs(ns);
-    }
 
-    // ① 同一个 ns 被 **两个依赖包** 各声明了一份同名自由函数 → E0601 消息；否则 ""。
-    public string DuplicateFuncPkgMsg(string name) {
-        string[] os = this.FuncOriginsOf(name);
-        int i = 0;
-        while (i < os.Length) {
-            if (this._origVisible(os[i]) && SymbolTable._origPkg(os[i]) != "") {
-                int j = i + 1;
-                while (j < os.Length) {
-                    if (this._origVisible(os[j]) && SymbolTable._origPkg(os[j]) != ""
-                        && SymbolTable._origNs(os[i]) == SymbolTable._origNs(os[j])
-                        && SymbolTable._origPkg(os[i]) != SymbolTable._origPkg(os[j])) {
-                        return "`" + SymbolTable.QualOf(SymbolTable._origNs(os[i]), name)
-                             + "` is declared in more than one package: `" + SymbolTable._origPkg(os[i])
-                             + "` and `" + SymbolTable._origPkg(os[j])
-                             + "` — free functions are referenced by bare name only, so neither can be selected"
-                             + " (rename one, or move it to a different namespace)";
-                    }
-                    j = j + 1;
-                }
-            }
-            i = i + 1;
-        }
-        return "";
-    }
-
-    // ② 本包声明的自由函数与某个导入包**同 ns 同名** → E0606 消息；否则 ""。
-    // 与类那边同一条理由：本地恒赢是既定规则，但被遮蔽那份**指不了**（自由函数只有裸名一种写法）。
-    public string ShadowedImportFuncMsg(string name) {
-        string[] os = this.FuncOriginsOf(name);
-        int i = 0;
-        while (i < os.Length) {
-            if (SymbolTable._origPkg(os[i]) == "") {
-                int j = 0;
-                while (j < os.Length) {
-                    if (SymbolTable._origPkg(os[j]) != "" && this._origVisible(os[j])
-                        && SymbolTable._origNs(os[i]) == SymbolTable._origNs(os[j])) {
-                        return "`" + SymbolTable.QualOf(SymbolTable._origNs(os[i]), name)
-                             + "` is declared in this package and also in package `" + SymbolTable._origPkg(os[j])
-                             + "` — free functions are referenced by bare name only, so the imported one"
-                             + " can never be referenced (rename one of them)";
-                    }
-                    j = j + 1;
-                }
-            }
-            i = i + 1;
-        }
-        return "";
-    }
-
-    // ③ 同名自由函数分居 **≥2 个可见 ns** → E0456 消息；否则 ""。
-    // 与类的裸名歧义同规则：**外围 ns 声明了它 → 不算歧义**（本包那份赢，语言规则如此）。
-    public string AmbiguousFuncNameMsg(string name) {
-        string[] os = this.FuncOriginsOf(name);
-        string first = "";
-        string second = "";
-        int i = 0;
-        while (i < os.Length) {
-            string ns = SymbolTable._origNs(os[i]);
-            if (ns == this.ScopeNs) { return ""; }
-            if (this._origVisible(os[i])) {
-                if (first == "") { first = ns; }
-                else if (second == "" && ns != first) { second = ns; }
-            }
-            i = i + 1;
-        }
-        if (second == "") { return ""; }
-        return "`" + name + "` is an ambiguous reference between `" + SymbolTable.QualOf(first, name)
-             + "` and `" + SymbolTable.QualOf(second, name) + "`";
-    }
 
     // harden-crosspkg-gates：enum 短名 → FQN（`EnumTypeNs` 无记录则退回裸名）。
     // enum 常量读（`Color.Green`）绑成 `BoundLitInt`，**不经任何类型引用检查** ——
@@ -345,65 +172,10 @@ public sealed class SymbolTable {
         return ns == "" ? name : ns + "." + name;
     }
 
-    // FQN → 声明过它的依赖包名列表（无记录返回空数组）。
-    // 打包串取 box（perf-packed-count）：热路径只要「有几项」⇒ 读 `StrBox.Count`，不 Split（冷路径出诊断
-    // 消息时仍走 ClassPkgsOf / ClassNsOf）。⚠️ 改用 `IndexOf("|")` 判单项没用：它要扫完整串，实测 Split 实测 Split 3.34%→0.07% 时 IndexOf 反升到 5.39%。
-    private StrBox _pkgBoxOf(string fqn) {
-        int at = this.ClassPkgAll.Find(fqn);
-        return (at < 0) ? null : (this.ClassPkgAll.ValAt(at) as StrBox);
-    }
-    private StrBox _nsBoxOf(string name) {
-        int at = this.ClassNsAll.Find(name);
-        return (at < 0) ? null : (this.ClassNsAll.ValAt(at) as StrBox);
-    }
 
-    public string[] ClassPkgsOf(string fqn) {
-        int at = this.ClassPkgAll.Find(fqn);
-        if (at < 0) { return new string[0]; }
-        StrBox box = this.ClassPkgAll.ValAt(at) as StrBox;
-        return box.Value.Split("|");
-    }
 
-    // unify-type-identity-fqn：裸名在**本 CU 可见集**内是否歧义。
-    //
-    // 为什么必须有这个判据：发射端把解析结果写成 FQN 前要先确认那个结果**不是猜的**。
-    // 外围 ns 声明了该名 → 按语言规则不算歧义（与 ResolveTypeP 的 ScopeNs 分支同口径）；
-    // 否则若 ≥2 个**可见**命名空间都声明了它，解析只能靠 Classes 的 first/last-wins 撞赢家
-    // ⇒ 此时发射端必须**退回短名**（诚实降级，与本 change 之前的行为一致），
-    // 绝不能写一个「选了赢家」的 FQN —— 那是自信的错答案，比降级更坏。
-    //
-    // ⚠️ 判据只此一份：`TypeChecker.ChkAmbiguousBareName`（E0456）复用本方法，别再写第二套口径。
-    public bool IsBareNameAmbiguous(string name) {
-        if (name.IndexOf(".") >= 0) { return false; }   // 限定名 = 已消歧
-        StrBox nsBox = this._nsBoxOf(name);
-        if (nsBox == null) { return false; }
-        if (nsBox.Count < 2) { return false; }
-        string[] nss = nsBox.Value.Split("|");
-        int visible = 0;
-        int i = 0;
-        while (i < nss.Length) {
-            string ns = nss[i];
-            if (ns == this.ScopeNs) { return false; }
-            if (ns == "" || this.IsScopeVisibleNs(ns)) { visible = visible + 1; }
-            i = i + 1;
-        }
-        return visible >= 2;
-    }
 
-    public bool IsScopeVisibleNs(string p) {
-        if (p == "") { return false; }
-        if (p == this.ScopeNs) { return true; }
-        int i = 0;
-        while (i < this.ScopeUsingCount) {
-            if (this.ScopeUsings[i] == p) { return true; }
-            i = i + 1;
-        }
-        return false;
-    }
 
-    // add-bare-name-ambiguity-diagnostic：登记「短名 name 在命名空间 ns 里有一份声明」。
-    // 幂等（同 ns 重复登记不累加）；全局 ns 用空串，读回时保留空串语义。
-    public void NoteClassNs(string name, string ns) { SymbolTable.NoteNsInto(this.ClassNsAll, name, ns); }
 
     // fix-arity-mangle-package-wide：把 cu 里 class/struct 的 arity 累积进包级 MultiArityNames。
     // 调用方须在**任何** `_passClassStubs` 之前把全部 CU 都喂一遍（多 CU 路径），
@@ -428,29 +200,7 @@ public sealed class SymbolTable {
         }
     }
 
-    // 同一份累积逻辑给两个生产点共用（本地 StubCollector 走 SymbolTable，跨包 ImportedSymbolLoader
-    // 走 ImportedSymbols.ClassNsAll，最后由 SymbolCollector._mergeImports 并进来）——**别写两份**：
-    // 两份累积逻辑各自演化正是「同短名信息被塌掉」这一类 bug 的温床。
-    public static void NoteNsInto(StrMap m, string name, string ns) {
-        int at = m.Find(name);
-        if (at < 0) { m.Put(name, new StrBox(ns)); return; }
-        StrBox box = m.ValAt(at) as StrBox;
-        string cur = box.Value;
-        // 逐段比对，避免 `Std` 与 `Std.Test` 互相子串命中。
-        string[] parts = cur.Split("|");
-        int i = 0;
-        while (i < parts.Length) { if (parts[i] == ns) { return; } i = i + 1; }
-        box.Value = cur + "|" + ns;
-        box.Count = box.Count + 1;   // 唯一的追加点 ⇒ 项数在这里维护（读侧判据见 _pkgBoxOf / _nsBoxOf）
-    }
 
-    // 短名 → 声明过它的命名空间列表（无记录返回空数组）。
-    public string[] ClassNsOf(string name) {
-        int at = this.ClassNsAll.Find(name);
-        if (at < 0) { return new string[0]; }
-        StrBox box = this.ClassNsAll.ValAt(at) as StrBox;
-        return box.Value.Split("|");
-    }
 
     // add-type-alias：扫 CU 的 UsingAliasDecl → name → Target TypeExpr（文件级）。无别名返回 null。
     public static StrMap BuildAliases(CompilationUnit cu) {
