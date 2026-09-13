@@ -747,4 +747,24 @@ public sealed class ExprTyper {
     // 签名不可知（sig=null）时回落 `_bindExpr` → 与改动前逐位一致。
     public static bool IsLambdaArg(Expr e) { return e is LambdaExpr; }
 
+    // complete-named-arguments：实参位上的 `name = value` 是否**命名实参**。
+    //
+    // z42 的命名实参写法是**赋值式** `f(x = 1)`（不是 C# 的 `f(x: 1)`——parser 无 Colon 分支），
+    // 由 `OverloadBinder._adaptArgs` 按形参名匹配。此前它只在**构造函数**上真的生效：
+    // `_bindNew` 把 raw args 直接交给 `_adaptArgs`，而方法/静态/自由调用在 `_bindCall` 里
+    // **先把实参当普通表达式绑了** ⇒ `y` 作为标识符解析失败、报 `undefined: y`，
+    // 根本走不到命名匹配那一步。
+    //
+    // 🔴 判据必须保守：`f(x = 1)` 里若 `x` **是作用域内的变量**，那是一个合法的**赋值表达式实参**
+    // （赋值后把值传进去），不能当命名实参延迟。故只延迟「否则本来就会绑失败」的那些 ——
+    // 对既有代码零行为变化，这也是本改动能做到字节不动的原因。
+    public static bool IsNamedArg(Expr e, TypeEnv env) {
+        if (!(e is AssignExpr)) { return false; }
+        AssignExpr ae = e as AssignExpr;
+        if (ae.Op != "=") { return false; }              // `+=` 之类不是命名实参
+        if (!(ae.Target is IdentExpr)) { return false; }
+        string n = (ae.Target as IdentExpr).Name;
+        return env.LookupVar(n) == null;                 // 是变量 → 真赋值；不是 → 命名实参
+    }
+
 }

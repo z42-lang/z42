@@ -626,7 +626,10 @@ public sealed class MemberResolver {
         // 重载决议容忍 null 位（OverloadBinder._resolveOverload），选定后各形态按形参类型回填。
         while (i < call.ArgCount) {
             // R5：lambda 实参与 target-typed new 同款延迟——形参类型要等重载选定后才知道。
-            if (ExprTyper.IsTargetTypedNew(call.Args[i]) || ExprTyper.IsLambdaArg(call.Args[i])) { args[i] = null; }
+            // complete-named-arguments：命名实参 `name = value` 同款延迟 —— 形参名要等重载选定
+            // 后才知道往哪个槽放；此处若照常绑，`name` 会先以标识符身份解析失败（undefined）。
+            if (ExprTyper.IsTargetTypedNew(call.Args[i]) || ExprTyper.IsLambdaArg(call.Args[i])
+                || ExprTyper.IsNamedArg(call.Args[i], env)) { args[i] = null; }
             else { args[i] = this._tc._expr._bindExpr(call.Args[i], env); }
             i = i + 1;
         }

@@ -1,0 +1,9 @@
+c=red w=2 f=T
+c=blue w=1 f=T
+c=green w=3 f=T
+c=yellow w=1 f=T
+Hi, Alice
+a=1 b=2
+a=10 b=20
+box 50x30
+Hello, Bob
