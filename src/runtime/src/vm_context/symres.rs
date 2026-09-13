@@ -120,9 +120,19 @@ pub fn verify_static_field(
 ///
 /// # 残留缺口（已知、有意保留）
 ///
-/// `argc == 0` 时无法区分「本来就无 ctor」与「`C()` 在旧依赖里不存在」，仍按旧行为默认
-/// 初始化。要补上它得让 TypeDesc 记录「本类声明了哪些构造器」——`build_type_registry`
-/// 目前**显式把构造器排除在 `own_methods` 之外**，那是另一笔（要动元数据的）账。
+/// `argc == 0` 时无法区分「本来就无 ctor」与「`C()` 在旧依赖里不存在」，仍按旧行为默认初始化。
+///
+/// 原先记的补法是「让 TypeDesc 记录本类声明了哪些构造器」，**经复核几乎没有覆盖面**：
+/// `stabilize-instance-dispatch-keys` 规定 primary 构造器用**裸键**，所以「类只要声明了任何
+/// 构造器，裸键就一定解析得到」——裸键解析不到时，被加载的那份类几乎必然真的零构造器。
+///
+/// 真正的闭合要在**调用点**给「零构造器」一个可区分的编码（如 `IrLoopAllocReuse` 早已确立的
+/// 空 ctor 名 = 裸分配），于是「非空却解析不到」⇒ 无论 argc 都是缺失。卡点是**判据算不准**：
+/// z42c 为「有字段初始化器、无显式 ctor」的类**合成**的隐式构造器（`IrGenTypeEmitter._emitSynthCtor`）
+/// 既不是 MethodSymbol、也不在 `_bindNew` 那一刻存在（`_synthCtors` 跑在所有绑定之后），
+/// 而准确的 oracle（本包全部已发射函数 ∪ `DependencyIndex.Statics`）要等整包装配后才齐。
+/// 判错的代价是**静默跳过真构造器**——比这里要修的 bug 更坏。故另立 change 处理。
+///
 pub fn missing_ctor_exception(
     ctx: &VmContext, module: &Module, class_name: &str, ctor_name: &str, argc: usize,
 ) -> Option<crate::metadata::Value> {
@@ -133,6 +143,83 @@ pub fn missing_ctor_exception(
             "constructor `{ctor_name}` of type `{class_name}` could not be resolved \
              (called with {argc} argument(s)); the loaded package may be older than \
              the one this code was compiled against"
+        ),
+    ))
+}
+
+// ── 站点 ⑤：ObjNew 的构造器解析到了，但签名容不下实参 ───────────────────────
+
+/// 构造器可接受的**物理**实参数区间（含 `this`）。`max == u16::MAX` ⇒ `params` 变长，无上界。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CtorArity {
+    pub min: u16,
+    pub max: u16,
+}
+
+impl CtorArity {
+    /// 调用方传入 `phys` 个值（含 `this`）时是否可接受。
+    #[inline]
+    pub fn accepts(&self, phys: usize) -> bool {
+        let phys = phys.min(u16::MAX as usize) as u16;
+        phys >= self.min && phys <= self.max
+    }
+}
+
+/// 从函数元数据算出可接受的实参数区间。
+///
+/// # `min_arg` 的口径不一致，必须夹住
+///
+/// 文档口径是**逻辑**必填数（不含 `this`，`IrModule.z42` 的 `MinArg` 注释），
+/// `IrGenFacts._fillParamMeta` 写的也是逻辑值。但 `IrFunction` 构造器的**默认值**是
+/// `MinArg = paramCount`，那是**物理**总数（含 `this`）——`IrGenMemberEmitter` 的注释
+/// 明说了这点，并为 getter/setter 手工覆盖。没被 `_fillParamMeta` 覆盖过的合成函数因此
+/// 会多算 1，不夹住就会把合法调用判成 skew（假阳性）。
+///
+/// 夹到 `param_count` 之后，默认情形正好退化成「全必填」——即那个默认值本来的语义。
+pub fn ctor_arity(f: &crate::metadata::Function) -> CtorArity {
+    let phys = f.param_count.min(u16::MAX as usize) as u16;
+    let min = ((f.min_arg as usize).saturating_add(1)).min(f.param_count) as u16;
+    // `params` 变长尾参：实参数可以超过形参数（调用点通常已打包，但两种形状都放行）。
+    let max = if f.params_from != 0xFF { u16::MAX } else { phys };
+    CtorArity { min, max }
+}
+
+/// `ObjNew` 解析到构造器**之后**的裁决：形参数容不下实参数 ⇒ 抛。
+/// `Some(exc)` = 定案不匹配；`None` = 可接受，照常调用。
+///
+/// # 为什么解析成功也要查
+///
+/// 裸键在版本 skew 下会**命中错的构造器**：单构造器必是 primary、必用裸键，于是
+/// v2 的 `C()` 与 v1 的 `C(int)` 占用**同一个**裸键。站点 ③（解析不到才抛）在这里
+/// 完全不触发——键解析得到，只是解析到了另一个东西。而 `exec_function` 用
+/// `Frame::new(args, max_reg)` 建帧，**不做任何 arity 校验**：形参就停在默认值上继续跑，
+/// 实测 `new Widget()` 撞上 `Widget(int v)` 把字段静默写成 0。
+///
+/// 这条比站点 ③ 剩下的 `argc == 0` 缺口常见得多：**任何**「构造器签名变了」的 skew 都落在这里。
+///
+/// # 为什么复用 `MissingSymbolException`
+///
+/// 新异常类要先进 stdlib，而冷启动种子的 stdlib 里没有它 ⇒ 得走两-nightly。语义上也说得通：
+/// 调用点指名的那个重载**确实不在**，撞上的是同键下的另一个。
+pub fn wrong_ctor_arity_exception(
+    ctx: &VmContext, module: &Module, class_name: &str, ctor_name: &str,
+    arity: CtorArity, argc: usize,
+) -> Option<crate::metadata::Value> {
+    let phys = argc + 1;   // 实参 + 前置的 this
+    if arity.accepts(phys) { return None; }
+    let want = if arity.max == u16::MAX {
+        format!("at least {}", arity.min.saturating_sub(1))
+    } else if arity.min == arity.max {
+        format!("{}", arity.min.saturating_sub(1))
+    } else {
+        format!("{} to {}", arity.min.saturating_sub(1), arity.max.saturating_sub(1))
+    };
+    Some(crate::exception::make_missing_symbol_exception(
+        ctx, module,
+        format!(
+            "constructor `{ctor_name}` of type `{class_name}` was called with {argc} \
+             argument(s) but the loaded one accepts {want}; the loaded package may be \
+             older than the one this code was compiled against"
         ),
     ))
 }

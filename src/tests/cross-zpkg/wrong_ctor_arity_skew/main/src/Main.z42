@@ -1,0 +1,23 @@
+namespace Demo.WcaApp;
+
+using Std.IO;
+using Demo.WcaTarget;
+
+// fix-ctor-arity-skew：构造器**解析到了、但签名对不上**时不再照常调用。
+//
+// 本 fixture 按 target/（`Widget()`）编译，运行前由 skew-replace.txt 用 oldtarget/
+// （同工程名的旧版，只有 `Widget(int)`）顶替。两者都是各自包里的唯一构造器，因此
+// 都注册在**同一个裸键**上 —— PR #614 的「解析不到就抛」在这里完全不触发，键解析得到。
+//
+// 修复前：`Widget(int)` 被以「只有 this」的帧调用，形参 `v` 停在默认值 → `V` 被写成那个
+// 默认值，程序若无其事地继续跑，错误现场离根因十万八千里。
+// 修复后：形参数容不下实参数 ⇒ 抛可 catch 的 MissingSymbolException。
+void Main() {
+    try {
+        Widget w = new Widget();
+        Console.WriteLine("constructed " + w.V.ToString());
+    } catch (MissingSymbolException e) {
+        Console.WriteLine("caught MissingSymbolException");
+    }
+    Console.WriteLine("after");
+}

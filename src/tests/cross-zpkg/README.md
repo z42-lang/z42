@@ -40,7 +40,10 @@ zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**�
 `oldtarget/` 是与 `target/` **同工程名**的旧版依赖工程（无 fixture 内依赖，独立构建），
 **不参与 `main` 的编译**：main 仍按 `target/`（新版）编译，运行时却加载到 `oldtarget/`。
 目录不存在 = 该 fixture 不用这一层，自动跳过。范例：`missing_ctor_skew/`（类型和字段都在、
-唯独构造器没了 → `MissingSymbolException`）配对照组 `missing_ctor_present/`。
+唯独构造器没了 → `MissingSymbolException`）配对照组 `missing_ctor_present/`；
+`wrong_ctor_arity_skew/` 用它造「构造器还在、但**签名变了**」（v2 的 `Widget()` 与 v1 的
+`Widget(int)` 都是各自包里的唯一构造器 ⇒ 占用**同一个裸键**，解析得到、却是错的那个），
+配对照组 `wrong_ctor_arity_present/`。
 
 **z42.toml 必须**：
 
@@ -70,5 +73,6 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `dup_fqn_crosspkg` | **负例**：两个包同 FQN → E0601 | ImportedSymbolLoader 包名累积 → SymbolTable 判据 → 两个 choke point |
 | `available_skew` / `available_present` | `available!()` 按**实际依赖图**折常量 + 剪分支 | 加载期常量折叠 → CFG 剪枝（`skew-absent.txt`） |
 | `missing_ctor_skew` / `missing_ctor_present` | 构造器缺失不再静默写未构造对象 | ObjNew ctor 解析 → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`） |
+| `wrong_ctor_arity_skew` / `wrong_ctor_arity_present` | 构造器**解析到了、签名却对不上**不再照常调用（裸键在 skew 下会命中错的构造器） | ObjNew ctor 解析后 → `symres::wrong_ctor_arity_exception`（`skew-replace.txt` + `oldtarget/`） |
 | `missing_type_skew` | `new` 一个解析不到的类型不再合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |
 | `missing_base_skew` / `crosspkg_base_fields_main` | 基类解析不到不再静默退化成「只有自己的成员」 | 继承 fixup → `TypeDescCold::base_unmerged` → `symres::missing_base_exception`（`skew-absent.txt`） |

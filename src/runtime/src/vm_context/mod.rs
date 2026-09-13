@@ -158,3 +158,5 @@ impl crate::gc::arc_heap::ContextReclaim for CoreContextReclaimer {
 mod vm_context_tests;
 #[cfg(test)]
 mod isa_cache_tests;
+#[cfg(test)]
+mod symres_tests;
