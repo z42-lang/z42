@@ -55,10 +55,11 @@ int _depsInstallAndroidSdk(bool force, string tier) {
         ConsoleError.WriteLine("error: auto-download targets macOS/Linux. On Windows use Android Studio's SDK Manager (see docs/workflow/windows.md).");
         return 1;
     }
-    // cmdline-tools ships a different zip per OS, so the pin is per-OS too.
-    string cmdlineSha = (hostOs == "mac")
-        ? _vget(toml, "build.android.sdk.cmdline_tools_sha256_mac")
-        : _vget(toml, "build.android.sdk.cmdline_tools_sha256_linux");
+    // cmdline-tools ships a different zip per host (Mac split by CPU since build
+    // 16111833), so both the URL `{os}` segment and the sha256 pin are per host.
+    string cmdlineHost = _androidCmdlineHost(hostOs);
+    if (cmdlineHost.Length == 0) { return 1; }
+    string cmdlineSha = _vget(toml, "build.android.sdk.cmdline_tools_sha256_" + cmdlineHost);
 
     // ── JDK 17+ ──────────────────────────────────────────────────────────
     string javaHome = _androidResolveJdk();
@@ -68,7 +69,7 @@ int _depsInstallAndroidSdk(bool force, string tier) {
     Directory.Create(toolsDir);
 
     // ── (1) cmdline-tools (sdkmanager / avdmanager) ──────────────────────
-    int c = _androidCmdlineTools(force, sdkDir, cmdlineUrlTmpl, hostOs, cmdlineSha);
+    int c = _androidCmdlineTools(force, sdkDir, cmdlineUrlTmpl, hostOs, cmdlineHost, cmdlineSha);
     if (c != 0) { return c; }
     string cmdlineDir = Path.Join(sdkDir, "cmdline-tools/latest");
     string sdkmanager = Path.Join(cmdlineDir, "bin/sdkmanager");
@@ -120,9 +121,22 @@ string _androidResolveJdk() {
     return javaHome;
 }
 
+// cmdline-tools host id — the `{os}` segment of the zip name and the suffix of its
+// sha256 key in versions.toml: "linux", or "mac_arm64" / "mac_x86_64" (Google
+// stopped shipping a single universal Mac zip). Prints an error and returns ""
+// for an unsupported Mac CPU.
+string _androidCmdlineHost(string hostOs) {
+    if (hostOs != "mac") { return hostOs; }
+    string arch = Platform.Arch();
+    if (arch == "arm64" || arch == "aarch64") { return "mac_arm64"; }
+    if (arch == "x86_64" || arch == "x64")    { return "mac_x86_64"; }
+    ConsoleError.WriteLine("error: unsupported macOS arch " + arch + " for Android cmdline-tools");
+    return "";
+}
+
 // [1/6] cmdline-tools (sdkmanager / avdmanager): download + sha-verify + extract
 // to <sdkDir>/cmdline-tools/latest. Idempotent — returns 0 (skip) if present.
-int _androidCmdlineTools(bool force, string sdkDir, string cmdlineUrlTmpl, string hostOs, string cmdlineSha) {
+int _androidCmdlineTools(bool force, string sdkDir, string cmdlineUrlTmpl, string hostOs, string cmdlineHost, string cmdlineSha) {
     string cmdlineDir = Path.Join(sdkDir, "cmdline-tools/latest");
     string sdkmanager = Path.Join(cmdlineDir, "bin/sdkmanager");
     if (File.Exists(sdkmanager) && !force) {
@@ -134,10 +148,10 @@ int _androidCmdlineTools(bool force, string sdkDir, string cmdlineUrlTmpl, strin
     Directory.Create(Path.Join(sdkDir, "cmdline-tools"));
     string tmp = Directory.CreateTempDir("android-cmdline");
     string zip = Path.Join(tmp, "cmdline-tools.zip");
-    string url = cmdlineUrlTmpl.Replace("{os}", hostOs);   // versions.toml pins the version
+    string url = cmdlineUrlTmpl.Replace("{os}", cmdlineHost);   // versions.toml pins the version
     int dc = _curlDownload(url, zip);
     if (dc != 0) { return dc; }
-    if (_verifySha256(zip, cmdlineSha, "cmdline-tools (" + hostOs + ")", hostOs) != 0) { return 1; }
+    if (_verifySha256(zip, cmdlineSha, "cmdline-tools (" + cmdlineHost + ")", hostOs) != 0) { return 1; }
     int uc = _exec(new Process("unzip").Arg("-q").Arg(zip).Arg("-d").Arg(tmp));
     if (uc != 0) { return uc; }
     // zip extracts to "cmdline-tools/" — rename to ".../latest".
