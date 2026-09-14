@@ -78,6 +78,25 @@ pub unsafe extern "C" fn jit_call(
                 .unwrap_or("<invalid>");
             match ctx_ref.resolve_id_by_name(func_name) {
                 Some(id) => {
+                    // fix-call-arity-skew：tier 3 是 tier 2 IC 的**唯一**写入者 ⇒ 首次绑定点，必须在写 IC 之前判。
+                    // 不能用 FnEntry 上预算的 arity：被调方还没到 JIT 阈值时 `resolve_fn_by_id_tiered` 返回 None，
+                    // 而 IC 照样写回 —— 等它变热 tier 2 直接命中就绕过了校验。所以按名字取 `Function` 自己判。
+                    // （`None` 分支不缓存、直接走 `cross_zpkg_via_interp`，那里自己判，这里不重复付查找代价。）
+                    {
+                        let vm = vm_ctx_ref(ctx);
+                        let module = &*ctx_ref.module;
+                        let mismatch = match module.func_index.get(func_name).and_then(|&i| module.functions.get(i)) {
+                            Some(f) => crate::vm_context::symres::wrong_arity_exception(
+                                vm, module, func_name, crate::vm_context::symres::call_arity(f), argc),
+                            None => vm.try_lookup_function(func_name).and_then(|f|
+                                crate::vm_context::symres::wrong_arity_exception(
+                                    vm, module, func_name, crate::vm_context::symres::call_arity(f.as_ref()), argc)),
+                        };
+                        if let Some(exc) = mismatch {
+                            set_exception(vm, exc);
+                            return 1;
+                        }
+                    }
                     if !ic_ptr.is_null() {
                         (*ic_ptr).store(id, std::sync::atomic::Ordering::Relaxed);
                     }
@@ -168,9 +187,22 @@ unsafe fn cross_zpkg_via_interp(
     let outcome = if let Some(callee) = module.func_index.get(func_name)
         .and_then(|&idx| module.functions.get(idx))
     {
+        // fix-call-arity-skew：与 interp `exec_call` 对称。
+        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+            vm_ctx, module, func_name, crate::vm_context::symres::call_arity(callee), argc,
+        ) {
+            set_exception(vm_ctx, exc);
+            return 1;
+        }
         crate::interp::exec_function(vm_ctx, module, callee, &args)
     // Case 2: cross-zpkg target reachable only through the lazy loader.
     } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(func_name) {
+        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+            vm_ctx, module, func_name, crate::vm_context::symres::call_arity(lazy_fn.as_ref()), argc,
+        ) {
+            set_exception(vm_ctx, exc);
+            return 1;
+        }
         crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &args)
     } else {
         // fix-silent-symbol-resolution：与 interp 统一，抛类型化 MissingSymbolException。

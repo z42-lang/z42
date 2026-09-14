@@ -127,7 +127,7 @@ public sealed class IrGenTypeEmitter {
                             IrFunction iirf = ife.EmitFunction(g._qClass(itn) + "." + imk, imd,
                                                                model.GetBody(ikey), !ist, ist, iowner, new string[0], 0);
                             iirf.Visibility = IrGenFacts._visCode(imd.Mods, 1);   // add-member-visibility
-                            iirf.MethodFlags = IrGenFacts._methodFlags(imd.Mods);   // add-method-modifiers
+                            iirf.MethodFlags = iirf.MethodFlags | IrGenFacts._methodFlags(imd.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                             IrGenFacts._fillParamMeta(iirf, imd, !ist);   // add-param-metadata
                             this._out.AddFunc(iirf);
                         }

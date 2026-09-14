@@ -147,6 +147,9 @@ pub fn resolve_function_tokens(
         // captured for pass-2 resolution. site_index[block][instr] = the
         // appropriate per-kind site_idx (or UNRESOLVED for non-token instructions).
         let mut method_site_names:   Vec<String> = Vec::new();
+        // fix-call-arity-skew: parallel to `method_site_names` — the physical argument
+        // count each `Call` site passes (receiver + args + sret slot, exactly as emitted).
+        let mut method_site_argc:    Vec<usize>  = Vec::new();
         let mut builtin_site_names:  Vec<String> = Vec::new();
         let mut type_site_names:     Vec<String> = Vec::new();
         let mut static_site_names:   Vec<String> = Vec::new();
@@ -163,6 +166,7 @@ pub fn resolve_function_tokens(
                     Instruction::Call(insn) => {
                         let s = method_site_names.len() as u32;
                         method_site_names.push(insn.func.clone());
+                        method_site_argc.push(insn.args.len());
                         s
                     }
                     Instruction::Builtin(insn) => {
@@ -203,9 +207,18 @@ pub fn resolve_function_tokens(
         }
 
         // ─── Pass 2: resolve names → tokens ───────────────────────────────
-        let method_tokens: Vec<AtomicU32> = method_site_names.iter()
-            .map(|name| AtomicU32::new(
+        // fix-call-arity-skew: a site whose argument count the bound function's signature
+        // cannot take is **not** pre-filled. This is the merged-module path — and `z42.core`
+        // is eagerly merged into the main module, so this is where a skew against the stdlib
+        // (compiled against one version, running another) would otherwise be baked in
+        // silently. Leaving it `UNRESOLVED` sends both backends (JIT tier 1 reads these
+        // same tokens) to the cold path, which re-resolves and throws there. A load-time
+        // pass over every site, once — the per-call hot path is untouched.
+        let method_tokens: Vec<AtomicU32> = method_site_names.iter().zip(method_site_argc.iter())
+            .map(|(name, &argc)| AtomicU32::new(
                 module.func_index.get(name).copied()
+                    .filter(|&idx| module.functions.get(idx)
+                        .map_or(true, |f| crate::vm_context::symres::call_arity(f).accepts(argc)))
                     .map(|idx| idx as u32)
                     .unwrap_or(UNRESOLVED)
             ))
