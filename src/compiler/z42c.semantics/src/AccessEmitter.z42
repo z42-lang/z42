@@ -23,9 +23,7 @@ public sealed class AccessEmitter {
         // 否则落到末尾 return val 静默丢弃 → 静态字段 mutation 不持久（Log.SetMinLevel 等）。
         // 镜像 static_get 发射（QualifyClass + "." + Field）+ __static_init__ 的 StaticSetInstr。
         if (a.Target is BoundStaticGet) {
-            BoundStaticGet st = a.Target as BoundStaticGet;
-            TypedReg sv = this._boxIfStaticStruct(val, st.Type());   // add-static-struct-bytecization：struct 字段整写 → 装箱盒
-            this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, sv));
+            this._emitStaticStore(a.Target as BoundStaticGet, val);
             return val;
         }
         if (a.Target is BoundIdent) {
@@ -292,6 +290,25 @@ public sealed class AccessEmitter {
         this._ctx.Emit(new StructFieldSetPrimInstr(base_, off, tag, val));
     }
 
+    // 写一个静态成员（`C.x = v` / `C.x++` / `C.x += v` 的写回共用）。
+    // add-static-properties：属性有 setter → `call C.set_X(v)`；无 setter（get-only auto，合法性已由
+    // AssignTyper 的 E0452 限定为本类静态 ctor 内）→ 直写静态后备 `C.__prop_X`。普通静态字段照旧 static_set。
+    internal void _emitStaticStore(BoundStaticGet st, TypedReg val) {
+        if (st.IsProp) {
+            if (st.PropSetter != "") {
+                TypedReg[] sargs = new TypedReg[1]; sargs[0] = val;
+                this._ee._emitStaticAccessor(st.ClassName, st.PropSetter, sargs, 1, new Z42VoidType());
+                return;
+            }
+            if (st.PropBacking != "") {
+                this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.PropBacking, this._boxIfStaticStruct(val, st.Type())));
+            }
+            return;
+        }
+        TypedReg sv = this._boxIfStaticStruct(val, st.Type());   // add-static-struct-bytecization：struct 字段整写 → 装箱盒
+        this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, sv));
+    }
+
     // add-static-struct-bytecization (PR-2 S)：发 StaticGet 取**原始存储值**（static struct 字段 = 装箱盒
     // 句柄，不拆箱）。供 Emit 整读（外层再 AsCast 拆箱）与 `_structChainRoot` 叶子根（直接用盒句柄就地读写）复用。
     internal TypedReg _emitStaticGetRaw(BoundStaticGet sg) {
@@ -354,7 +371,7 @@ public sealed class AccessEmitter {
         // add-static-struct-bytecization (PR-2 S)：static struct 字段作叶子链根（`Holder.P.X`）→ 根 blob =
         // 装箱盒句柄（BoxedStruct，就地读写，引用身份）。**不拆箱**（拆箱会拷贝出副本 → 叶子写丢失）；
         // 叶子 offset 由 _structChainOffset 从 struct 布局累积（FieldByteOffset，struct 相对）。
-        if (e is BoundStaticGet && this._ee._isBlobStruct(e.Type())) { return this._emitStaticGetRaw(e as BoundStaticGet); }
+        if (e is BoundStaticGet && !(e as BoundStaticGet).IsProp && this._ee._isBlobStruct(e.Type())) { return this._emitStaticGetRaw(e as BoundStaticGet); }
         if (this._isOwnerStructField(e)) { return new TypedReg(0, IrType.Ref); }
         // add-struct-heap-inline (P3b)：裸内联字段 `pt`（class C 方法内）根 = this 对象句柄 reg0。
         if (this._isOwnerInlineField(e)) { return new TypedReg(0, IrType.Ref); }

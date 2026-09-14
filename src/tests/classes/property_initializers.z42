@@ -1,0 +1,80 @@
+// add-static-properties：属性初始化器 `T P { get; set; } = e;`。改动前 parser 解析了
+// `HasInit/Init`，语义层**零读取点** ⇒ 实例 / 静态属性一律读回类型默认值（0 / null），
+// 有无显式 ctor 都一样；文档却写着「给后备字段一个初值」。
+//
+// 语义（对标 C#）：直接写后备存储、不经 setter；与字段初始化器按**声明序**交错执行；
+// 先于用户 ctor 体；`: this(..)` 委托 ctor 不重复执行。
+namespace Demo;
+
+class Log {
+    public static string Trace = "";
+    public static int Mark(int v) { Log.Trace = Log.Trace + v.ToString(); return v; }
+}
+
+class WithCtor {
+    public int P { get; set; } = 12;
+    public string N { get; } = "nm";
+    public int Seen;
+    public WithCtor() { this.Seen = this.P; }      // 初始化器先于 ctor 体
+}
+
+class NoCtor {
+    public int P { get; set; } = 13;
+    public string N { get; } = "nc";
+}
+
+class Ordered {
+    public int a = Log.Mark(1);
+    public int P { get; set; } = Log.Mark(2);
+    public int b = Log.Mark(3);
+    public Ordered(int x, int y) { Log.Mark(4); }
+    // 委托带实参：零实参的 `: this()` 今天根本不调目标 ctor（与本 change 无关的既有 bug，已另行登记）。
+    public Ordered(int x) : this(x, 0) { Log.Mark(5); }
+}
+
+class Base {
+    public int BP { get; set; } = 21;
+}
+class Derived : Base {
+    public int DP { get; } = 22;
+}
+
+class StaticInit {
+    public static int A { get; set; } = 3;
+    public static string S { get; } = "s";
+}
+
+class StaticInitWithCctor {
+    public static int A { get; set; } = 3;
+    public static int Seen;
+    static StaticInitWithCctor() { Seen = A; A = A + 1; }   // 初始化器先于静态 ctor 体
+}
+
+void Main() {
+    var w = new WithCtor();
+    Assert.Equal(12, w.P);
+    Assert.Equal("nm", w.N);
+    Assert.Equal(12, w.Seen);
+
+    var n = new NoCtor();
+    Assert.Equal(13, n.P);
+    Assert.Equal("nc", n.N);
+
+    Log.Trace = "";
+    var o = new Ordered(0, 0);
+    Assert.Equal("1234", Log.Trace);
+    Assert.Equal(2, o.P);
+    Log.Trace = "";
+    var o2 = new Ordered(0);
+    Assert.Equal("12345", Log.Trace);         // this(..) 委托：初始化器只跑一次
+
+    var d = new Derived();
+    Assert.Equal(21, d.BP);
+    Assert.Equal(22, d.DP);
+
+    Assert.Equal(3, StaticInit.A);
+    Assert.Equal("s", StaticInit.S);
+
+    Assert.Equal(3, StaticInitWithCctor.Seen);
+    Assert.Equal(4, StaticInitWithCctor.A);
+}

@@ -1,0 +1,9 @@
+[project]
+name    = "sp.ext"
+version = "0.1.0"
+kind    = "lib"
+pack    = true
+[sources]
+include = ["src/**/*.z42"]
+[dependencies]
+"sp.base" = "0.1.0"

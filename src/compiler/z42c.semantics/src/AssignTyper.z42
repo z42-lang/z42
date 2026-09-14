@@ -48,7 +48,9 @@ public sealed class AssignTyper {
             // event `recv.E += h` / `-= h` → `recv.add_E(h)` / `recv.remove_E(h)`（镜像 C#
             // add-event-keyword：访问器在 recv 类/接口/泛型实例上，vtable 派发到实现）。须在
             // compound desugar 前拦截。访问器由 parser SynthesizeClassEvent 合成。
-            if ((a.Op == "+=" || a.Op == "-=") && a.Target is MemberExpr) {
+            // add-static-properties：接收者是（未被局部遮蔽的）类名时不进本分支——静态 event 不支持，而把类名
+            // 当表达式绑会报 E0401（`C.f += v` 此前正是这样坏的；`=` 分支早有同款 staticRecv 跳过）。
+            if ((a.Op == "+=" || a.Op == "-=") && a.Target is MemberExpr && !this._isStaticRecv(a.Target as MemberExpr, env)) {
                 MemberExpr emtgt = a.Target as MemberExpr;
                 BoundExpr erecv = this._et._bindExpr(emtgt.Target, env);
                 Z42Type ertype = erecv.Type();
@@ -81,12 +83,7 @@ public sealed class AssignTyper {
                 MemberExpr pmt = a.Target as MemberExpr;
                 // 静态成员赋值（`ZbcReader._lastN = n`——receiver 是类名而非值）不进本分支：
                 // 类名当表达式绑会误报 E0401。类名被同名局部遮蔽时仍走实例路径（LookupVar 先查）。
-                bool staticRecv = false;
-                if (pmt.Target is IdentExpr) {
-                    string prn = (pmt.Target as IdentExpr).Name;
-                    if (env.LookupVar(prn) == null
-                        && (env.Symbols.HasClass(prn) || env.Symbols.HasInterface(prn))) { staticRecv = true; }
-                }
+                bool staticRecv = this._isStaticRecv(pmt, env);
                 if (staticRecv) { }
                 else {
                 BoundExpr precv = this._et._bindExpr(pmt.Target, env);
@@ -116,16 +113,36 @@ public sealed class AssignTyper {
                 string binop = a.Op.Substring(0, a.Op.Length - 1);
                 value = new BoundBinary(binop, target, value, target.Type(), a.Span);
             }
-            this._tc.CheckImplicitConvert(value, target.Type(), env.Symbols, a.Value.Span, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
-            // make-enum-distinct-type 1.5：**赋值**（含 `arr[i] = v` 数组元素 store、字段 store、
-            // 局部再赋值）此前根本没有装箱点——`TypeChecker.BoxIfNeeded` 头注释宣称的「var-decl /
-            // return / call-arg / assign / array-store 五处统一」里，assign 与 array-store 两处是空的。
-            // 后果与 enum 无关、对所有整数都错：`object[] a; a[0] = 5L;` 存裸 i64 → `GetType()` 得
-            // `Int32` 而非 `Int64`（数组**字面量** `new object[]{5L}` 走 CollectionTyper 则是对的）。
-            // 顺序照 var-decl（StmtBinder）：先 Check（诊断基于未装箱的原值，不变）→ Box → Convert。
-            value = this._tc.BoxIfNeeded(value, target.Type());
-            value = this._tc.ConvertIfNeeded(value, target.Type(), env.Symbols);   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
+            value = this._finishValue(value, target.Type(), a.Value.Span, env);
             return new BoundAssign(target, value, target.Type(), a.Span);
+    }
+
+    // 右值收尾：隐式转换检查 → 装箱 → 表示转换（赋值与成员初始化器共用同一顺序）。
+    private BoundExpr _finishValue(BoundExpr value, Z42Type targetType, Span valueSpan, TypeEnv env) {
+        this._tc.CheckImplicitConvert(value, targetType, env.Symbols, valueSpan, "assign");   // tighten-implicit-conversions：窄化→E0439 / 常量例外
+        // make-enum-distinct-type 1.5：**赋值**（含 `arr[i] = v` 数组元素 store、字段 store、
+        // 局部再赋值）此前根本没有装箱点——`TypeChecker.BoxIfNeeded` 头注释宣称的「var-decl /
+        // return / call-arg / assign / array-store 五处统一」里，assign 与 array-store 两处是空的。
+        // 后果与 enum 无关、对所有整数都错：`object[] a; a[0] = 5L;` 存裸 i64 → `GetType()` 得
+        // `Int32` 而非 `Int64`（数组**字面量** `new object[]{5L}` 走 CollectionTyper 则是对的）。
+        // 顺序照 var-decl（StmtBinder）：先 Check（诊断基于未装箱的原值，不变）→ Box → Convert。
+        value = this._tc.BoxIfNeeded(value, targetType);
+        value = this._tc.ConvertIfNeeded(value, targetType, env.Symbols);   // tighten-implicit-conversions: 赋值拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
+        return value;
+    }
+
+    // add-static-properties：属性初始化器 `T P { get; set; } = e;` 的右值绑定——与 `x = e` 同一套
+    // target-typed 绑定 + 收尾，只是目标（后备存储）由调用方直接构造、不经 AssignExpr 绑定。
+    internal BoundExpr BindInitValue(Expr init, Z42Type targetType, TypeEnv env) {
+        BoundExpr value = this._et.BindWithTarget(init, targetType, env);
+        return this._finishValue(value, targetType, init.Span, env);
+    }
+
+    // 成员表达式的接收者是不是**类型名**（`C.x`）而非值：裸 ident、未被局部遮蔽、是类或接口。
+    private bool _isStaticRecv(MemberExpr m, TypeEnv env) {
+        if (!(m.Target is IdentExpr)) { return false; }
+        string rn = (m.Target as IdentExpr).Name;
+        return env.LookupVar(rn) == null && (env.Symbols.HasClass(rn) || env.Symbols.HasInterface(rn));
     }
 
     // add-const-keyword：const 不可赋值——局部 const（BoundIdent 名在 TypeEnv const 表）与
@@ -167,6 +184,20 @@ public sealed class AssignTyper {
             string nm = (target as BoundIdent).Name;
             Z42Type thisT = env.LookupVar("this");
             if (thisT != null) { fs = this._fieldOf(thisT, nm); recvIsThis = true; }
+        } else if (target is BoundStaticGet && (target as BoundStaticGet).IsProp) {
+            // add-static-properties：静态**属性**的赋值边界（对称下面实例属性那段），判据来自节点元数据——
+            // 跨包类没有属性 FieldSymbol 可查。get-only auto 仅本类静态 ctor 内可写（对标 C#）；计算属性无存储。
+            BoundStaticGet sp = target as BoundStaticGet;
+            if (sp.PropSetter == "") {
+                if (sp.PropBacking == "") {
+                    this._tc._diags.Error("E0452",
+                        "cannot assign to property `" + sp.FieldName + "`: it has no setter", a.Span);
+                } else if (!(env.InStaticCtor && sp.ClassName == env.ClassName)) {
+                    this._tc._diags.Error("E0452",
+                        "cannot assign to get-only property `" + sp.FieldName + "` outside its static constructor", a.Span);
+                }
+            }
+            return;
         } else if (target is BoundStaticGet) {
             // fix-static-readonly-not-enforced：**静态**字段的 readonly 此前完全没进这个检查
             // （只覆盖 BoundMember / BoundIdent 两种实例写法）→ `C.A = 99` 静默放行，
@@ -206,7 +237,7 @@ public sealed class AssignTyper {
         // （落到「按源名 X 发 field_set」，而存储在 __prop_X）。这里补上唯一合法的写法边界：
         //   `X { get; }`（auto，有后备字段）→ 仅 ctor 内 `this.X = v`（对标 C# CS0200 只读自动属性）；
         //   `X { get {..} }`（计算，无存储）→ 任何位置都不可赋值。
-        // 静态属性无后备字段也无 set_X，同样落这里（PropBackingName == ""）。
+        // 静态属性不落这里（上面 BoundStaticGet+IsProp 分支已处理并返回）。
         if (fs != null && fs.IsPropNoSetter) {
             bool inCtorThis = recvIsThis && env.InCtor();
             if (fs.PropBackingName.Length == 0) {

@@ -146,6 +146,9 @@ public sealed class ExprEmitter {
         }
         if (e is BoundStaticGet) {
             BoundStaticGet sg = e as BoundStaticGet;
+            // add-static-properties：静态属性读 → `call C.get_X()`（此前落到下面发 `static_get C.X`，
+            // 一个根本不存在的静态字段 ⇒ 运行期 MissingSymbolException）。
+            if (sg.IsProp) { return this._call._emitStaticAccessor(sg.ClassName, "get_" + sg.FieldName, new TypedReg[0], 0, sg.Type()); }
             // add-const-keyword：const 字段 → 字面量替换（无静态存储；喂 ConstFold）。
             ConstValue cfv = this._constFieldVal(sg.ClassName, sg.FieldName);
             if (cfv != null) { return this._emitConstVal(cfv, this._ctx.ToIrType(sg.Type())); }
@@ -418,6 +421,12 @@ public sealed class ExprEmitter {
         if (t is Z42InstantiatedType) { return (t as Z42InstantiatedType).Def; }
         return null;
     }
+
+    // add-static-properties：转发静态属性访问器调用（AccessEmitter / OperatorEmitter 写回用）与静态成员写。
+    internal TypedReg _emitStaticAccessor(string ownerClass, string accessor, TypedReg[] args, int argCount, Z42Type retType) {
+        return this._call._emitStaticAccessor(ownerClass, accessor, args, argCount, retType);
+    }
+    internal void _emitStaticStore(BoundStaticGet st, TypedReg val) { this._access._emitStaticStore(st, val); }
 
     // fix-struct-property-getter：转发 AccessEmitter 的 blob struct 属性 getter 读到 CallEmitter 的
     // struct-static-call（避免 struct receiver 上发 VCall）。

@@ -1,0 +1,10 @@
+namespace Sp.Ext;
+using Sp.Base;
+using Std;
+
+// 中间包：读写上游静态属性，并声明自己的静态属性（传递一层）。
+public class Ext {
+    public static int Doubled => Cfg.Level * 2;
+    public static string Label { get; set; } = "ext";
+    public static void Raise() { Cfg.Level += 1; }
+}

@@ -340,6 +340,31 @@ public static class ClassExtractor {
                         mc = mc + 1;
                     }
                 }
+            } else if (smem is PropertyDecl && ExportedTypeExtractor._hasWord((smem as PropertyDecl).Mods, "static")) {
+                // add-static-properties：静态属性访问器此前从不进 TSIG ⇒ 跨包 `C.P` 看不到它（导入侧也没有属性名字段）。
+                // 导入侧 MemberResolver.BindStaticMember 按 `get_X`（IsStatic）认属性、按 `set_X` 定可写性。
+                PropertyDecl spd = smem as PropertyDecl;
+                string ptn = TypeNameResolver.TsigTypeName(spd.Type);
+                string[] akeys = new string[2]; akeys[0] = "get_" + spd.Name; akeys[1] = "set_" + spd.Name;
+                int ak = 0;
+                while (ak < 2) {
+                    MethodSymbol ams = ct.Methods.Get(akeys[ak]) as MethodSymbol;
+                    if (ams != null && ams.IsStatic) {
+                        if (mc == methods.Length) {
+                            ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
+                            int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
+                            methods = b;
+                        }
+                        if (ak == 0) {
+                            methods[mc] = new ExportedMethodZ(akeys[0], ptn, ams.Visibility, true, false, false, 0, new ExportedParamZ[0], 0);
+                        } else {
+                            ExportedParamZ[] sps = new ExportedParamZ[1]; sps[0] = new ExportedParamZ("value", ptn);
+                            methods[mc] = new ExportedMethodZ(akeys[1], "void", ams.Visibility, true, false, false, 1, sps, 1);
+                        }
+                        mc = mc + 1;
+                    }
+                    ak = ak + 1;
+                }
             }
             sj = sj + 1;
         }

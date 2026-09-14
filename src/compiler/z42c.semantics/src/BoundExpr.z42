@@ -136,9 +136,19 @@ public sealed class BoundIndex : BoundExpr {
 public sealed class BoundStaticGet : BoundExpr {
     public string ClassName;       // 短名（Qualify 在 codegen）
     public string FieldName;
+    // add-static-properties：静态**属性**访问复用本节点（读 / 赋值 / ++ / 复合赋值 / const·readonly
+    // 检查 / 各 walker 早已识别它；新增节点类型 = 每个 walker 补分支，漏一个就是静默跳过）。
+    // 绑定期填好，发射端与 AssignTyper 只读节点、不回查符号表（跨包时根本没有 FieldSymbol）。
+    //   IsProp      — 这是属性，不是字段：读发 `get_X`、写发 `set_X`，**绝不**发 static_get/set 源名
+    //   PropSetter  — "set_X"；"" = 无 setter
+    //   PropBacking — auto 属性后备名 "__prop_X"（仅静态 ctor 内无 setter 写入时用）；计算属性 ""
+    public bool   IsProp;
+    public string PropSetter;
+    public string PropBacking;
     private Z42Type _t;
     public BoundStaticGet(string className, string fieldName, Z42Type t, Span span) {
         this.Span = span; this.ClassName = className; this.FieldName = fieldName; this._t = t;
+        this.IsProp = false; this.PropSetter = ""; this.PropBacking = "";
     }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(static-get " + this.ClassName + "." + this.FieldName + " :" + this._t.Name() + ")"; }

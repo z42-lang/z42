@@ -1,0 +1,8 @@
+namespace Sp.App;
+using Sp.Base;
+using Std;
+
+// 负例：跨包给只读静态属性赋值 → E0452（导入侧没有 FieldSymbol，判据须来自访问器本身）。
+void Main() {
+    Cfg.Ro = 1;
+}

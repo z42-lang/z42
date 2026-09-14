@@ -19,6 +19,7 @@
   - [sealed 修饰符](language/sealed.md)
   - [static 类（只容纳静态成员）](language/static-classes.md)
   - [静态构造函数（惰性、按类型）](language/static-constructors.md)
+  - [静态成员的名字解析（裸名 ≡ `C.x`）](language/static-members.md)
   - [target-typed new（省略构造类名）](language/target-typed-new.md)
   - [泛型总体设计（类型系统）](language/generics.md)
   - [泛型方法（方法级类型参数）](language/generic-methods.md)

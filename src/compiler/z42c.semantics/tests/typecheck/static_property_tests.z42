@@ -1,0 +1,106 @@
+// 静态属性 / 类内裸名静态成员 / 属性初始化器的编译期契约（add-static-properties）。
+// 运行期行为由 e2e 钉住：src/tests/classes/{static_properties,static_members_bare_name,property_initializers}.z42。
+// 本文件锁住只有编译期能观察到的部分：E0452 的赋值边界、静态上下文、裸名解析、TSIG 导出。
+namespace Z42cSemanticsStaticPropertyTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 静态 get-only auto 属性：本类静态 ctor 内写，合法（裸名 / 限定名）────────
+[Test]
+void test_static_getonly_write_in_static_ctor_ok() {
+    string src = "namespace D; class C { public static int R { get; } static C() { R = 1; C.R = 2; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 静态 get-only auto 属性：静态方法内写 → E0452 ─────────────────────────
+[Test]
+void test_static_getonly_write_in_static_method_errors() {
+    string src = "namespace D; class C { public static int R { get; } static void M() { R = 1; } }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("get-only property `R`", SemanticDump.FirstErrorMessage(src));
+}
+
+// ── 静态 get-only auto 属性：实例 ctor 内写也不行（那是实例初始化，不是类型初始化）──
+[Test]
+void test_static_getonly_write_in_instance_ctor_errors() {
+    string src = "namespace D; class C { public static int R { get; } public C() { C.R = 1; } }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 静态 get-only auto 属性：别的类的静态 ctor 里写 → E0452 ──────────────
+[Test]
+void test_static_getonly_write_in_other_static_ctor_errors() {
+    string src = "namespace D; class C { public static int R { get; } } class E { static E() { C.R = 1; } }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 静态计算属性：任何位置（含本类静态 ctor）不可写 → E0452 ─────────────
+[Test]
+void test_static_computed_write_errors() {
+    string src = "namespace D; class C { public static int K => 5; static C() { K = 1; } }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+    Assert.Contains("has no setter", SemanticDump.FirstErrorMessage(src));
+}
+
+// ── 复合赋值与自增同样受边界约束 ─────────────────────────────────────
+[Test]
+void test_static_computed_compound_assign_errors() {
+    string src = "namespace D; class C { public static int K => 5; } void Main() { C.K += 1; }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 读写静态 auto 属性：处处可写（限定 / 裸名 / 复合 / 跨类）──────────────
+[Test]
+void test_static_readwrite_write_anywhere_ok() {
+    string src = "namespace D; class C { public static int A { get; set; } static void M() { A = 1; A += 2; C.A = 3; } void N() { A = 4; } }"
+        + " void Main() { C.A = 5; C.A += 1; }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 静态计算 getter 是静态上下文：`this` 不可用 ────────────────────────
+[Test]
+void test_static_getter_body_has_no_this() {
+    string src = "namespace D; class C { public int x; public static int K { get { return this.x; } } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 静态计算 getter 里裸名实例字段：同样不可用 ─────────────────────────
+[Test]
+void test_static_getter_body_no_instance_field() {
+    string src = "namespace D; class C { public int x; public static int K => x; }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 裸名静态字段 / const / 属性：静态方法内可解析（此前 E0401）────────────
+[Test]
+void test_bare_static_members_in_static_method_ok() {
+    string src = "namespace D; class C { static int f = 1; const int K = 2; static int P => 3;"
+        + " static int M() { return f + K + P; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── `C.f += v`：此前 event 拦截分支把类名当表达式绑 → E0401 undefined: C ──────
+[Test]
+void test_qualified_static_field_compound_assign_ok() {
+    string src = "namespace D; class C { public static int f = 1; } void Main() { C.f += 2; C.f -= 1; }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 计算属性写初始化器：没有存储可初始化 → E0452 ──────────────────────
+[Test]
+void test_initializer_on_computed_property_errors() {
+    string src = "namespace D; class C { public int N { get { return 1; } } = 2; }";
+    Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
+}
+
+// ── TSIG：静态属性访问器进 static 方法段（跨包可见的前提）───────────────
+[Test]
+void test_static_property_accessors_exported() {
+    string src = "namespace D; public class C { public static int A { get; set; } public static int K => 1; }";
+    string ex = SemanticDump.DumpExports(src);
+    Assert.Contains("get_A/s", ex);
+    Assert.Contains("set_A/s", ex);
+    Assert.Contains("get_K/s", ex);
+}

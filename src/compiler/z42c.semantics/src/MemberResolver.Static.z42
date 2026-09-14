@@ -1,0 +1,52 @@
+// 静态成员绑定（add-static-properties）：`C.x` 与类内裸名 `x` 共用的唯一判据——静态字段 / const /
+// 静态属性（本包 FieldSymbol 或跨包静态访问器）→ BoundStaticGet。与 MemberResolver 主文件同一个类
+// （partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class MemberResolver {
+    // add-static-properties：`C.x`（限定）与类内裸名 `x` 共用的**唯一**静态成员判据。
+    // 命中本类静态字段 / 静态属性 → BoundStaticGet（属性另带访问器元数据，见 BoundStaticGet 头注）；
+    // 未命中 → null（调用方继续原路径）。
+    //   · 本包类：属性有 FieldSymbol（IsProp，MemberCollector 登记）。
+    //   · 跨包类：TSIG 不带属性名字段，只有静态访问器方法 → 按 `get_X` 认。
+    // 只查**本类**（不沿基链）：`Derived.baseStatic` 不在本 change 范围，且发射端要用声明类限定。
+    internal BoundExpr BindStaticMember(Z42ClassType sct, string clsName, string name, Span sp, TypeEnv env) {
+        FieldSymbol sfs = sct.Fields.Get(name) as FieldSymbol;
+        if (sfs != null && sfs.IsStatic) {
+            this._tc._access.CheckAccess(sfs.Visibility, sfs.ContainingTypeName, env, env.Symbols, sfs.IsProp ? "property" : "field", name, sp);   // enforce-access-control
+            this._tc._access.CheckDeprecatedF(sfs, name, sp);   // add-deprecated-directive
+            BoundStaticGet sg = new BoundStaticGet(clsName, name, sfs.FieldType, sp);
+            if (sfs.IsProp) {
+                sg.IsProp = true;
+                sg.PropBacking = sfs.PropBackingName;
+                if (!sfs.IsPropNoSetter) { sg.PropSetter = "set_" + name; }
+            }
+            return sg;
+        }
+        if (sfs != null) { return null; }
+        MethodSymbol getter = sct.Methods.Get("get_" + name) as MethodSymbol;
+        if (getter != null && getter.IsStatic && getter.Signature != null) {
+            this._tc._access.CheckAccess(getter.Visibility, getter.ContainingTypeName, env, env.Symbols, "property", name, sp);   // enforce-access-control
+            this._tc._access.CheckDeprecatedM(getter, name, sp);   // add-deprecated-directive
+            BoundStaticGet pg = new BoundStaticGet(clsName, name, getter.Signature.Ret, sp);
+            pg.IsProp = true;
+            MethodSymbol setter = sct.Methods.Get("set_" + name) as MethodSymbol;
+            if (setter != null && setter.IsStatic) { pg.PropSetter = "set_" + name; }
+            return pg;
+        }
+        return null;
+    }
+
+    // 类内裸名 → 本类静态成员（C# 语义：裸名 `x` ≡ `C.x`）。局部 / 形参 / 实例字段已由调用方的
+    // `LookupVar` 先命中（体绑定环境只 Define 非 static 字段），故这里只在它们都没有时才被问到。
+    internal BoundExpr BindBareStatic(string name, Span sp, TypeEnv env) {
+        if (!env.HasClass()) { return null; }
+        string cls = env.CurrentClass();
+        if (!env.Symbols.HasClass(cls)) { return null; }
+        return this.BindStaticMember(env.Symbols.GetClass(cls), cls, name, sp, env);
+    }
+}

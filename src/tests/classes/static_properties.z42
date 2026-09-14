@@ -1,0 +1,82 @@
+// add-static-properties：静态属性全形态。改动前**任何写法**都静默错编——使用位 `St.K` 发
+// `static_get St.K`（不存在的静态字段）⇒ 运行期 MissingSymbolException，编译零诊断；静态 auto
+// 桩发 `field_get %0.__prop_A`（0 参静态函数里没有 this）；类内裸名 `K` 报 E0401。
+namespace Demo;
+
+class St {
+    public static int cnt = 0;
+
+    // 计算属性：三种写法等价，每次读取都重算
+    public static int K => 5;
+    public static int G { get { return 6; } }
+    public static int H { get => 7; }
+    public static int Next => cnt + 1;
+
+    // auto 属性：读写 / 只读（仅本类静态 ctor 可写）/ 初始化器
+    public static int A { get; set; }
+    public static string S { get; set; }
+    public static int R { get; }
+    public static int Init { get; set; } = 3;
+
+    static St() { R = 9; }
+
+    // 类内裸名：读、写、复合、自增
+    public static int Inner() {
+        A = 10;
+        A += 5;
+        A++;
+        return K + A;             // 5 + 16
+    }
+    public int InstanceInner() { return G + H + R; }   // 实例方法里裸名静态属性
+}
+
+// 类型不同的后备存储（引用类型 / 布尔）
+class Cfg {
+    public static string Name { get; set; } = "cfg";
+    public static bool On { get; set; }
+}
+
+void Main() {
+    Assert.Equal(5, St.K);
+    Assert.Equal(6, St.G);
+    Assert.Equal(7, St.H);
+
+    St.cnt = 3;
+    Assert.Equal(4, St.Next);
+    St.cnt = 10;
+    Assert.Equal(11, St.Next);
+
+    // 未赋值读默认值（与同类型静态字段一致）
+    Assert.Equal(0, St.A);
+    Assert.Null(St.S);
+
+    St.A = 7;
+    Assert.Equal(7, St.A);
+    St.S = "hi";
+    Assert.Equal("hi", St.S);
+
+    St.A = 1;
+    St.A += 5;
+    Assert.Equal(6, St.A);
+    int old = St.A++;
+    Assert.Equal(6, old);
+    Assert.Equal(7, St.A);
+    int nw = ++St.A;
+    Assert.Equal(8, nw);
+    St.A--;
+    Assert.Equal(7, St.A);
+
+    Assert.Equal(9, St.R);
+    Assert.Equal(3, St.Init);
+
+    Assert.Equal(21, St.Inner());
+    Assert.Equal(16, St.A);
+    Assert.Equal(22, new St().InstanceInner());
+
+    Assert.Equal("cfg", Cfg.Name);
+    Cfg.Name = Cfg.Name + "!";
+    Assert.Equal("cfg!", Cfg.Name);
+    Assert.False(Cfg.On);
+    Cfg.On = true;
+    Assert.True(Cfg.On);
+}

@@ -90,6 +90,9 @@ public sealed class ExprTyper {
             }
             Z42Type t = env.LookupVar(id.Name);
             if (t == null) {
+                // add-static-properties：类内裸名静态字段 / 属性 / const ≡ `C.x`（先于类型名 / 自由函数：成员作用域更内层）。
+                BoundExpr bs = this._tc._member.BindBareStatic(id.Name, id.Span, env);
+                if (bs != null) { return bs; }
                 // 枚举类型名（如 GCHandleType）裸出现时不报 undefined——MemberExpr 路径会处理常量访问。
                 if (env.Symbols.EnumTypes.ContainsKey(id.Name)) {
                     return new BoundIdent(id.Name, new Z42UnknownType(), id.Span);
@@ -728,6 +731,9 @@ public sealed class ExprTyper {
 
     // 目标类型已知的绑定入口：target-typed new/obj-init 用目标类型定型，其余表达式回落普通绑定。
     // target 为 null 时 target-typed new 会经 _bindNew/_bindObjInit 报 E0437。
+    // add-static-properties：成员初始化器右值（见 AssignTyper.BindInitValue）。
+    internal BoundExpr BindInitValue(Expr init, Z42Type target, TypeEnv env) { return this._assign.BindInitValue(init, target, env); }
+
     public BoundExpr BindWithTarget(Expr e, Z42Type target, TypeEnv env) {
         if (e is ObjNewExpr && (e as ObjNewExpr).Type == null)   { return this._construct._bindNew(e as ObjNewExpr, env, target); }
         if (e is ObjInitExpr && (e as ObjInitExpr).Type == null) { return this._construct._bindObjInit(e as ObjInitExpr, env, target); }
