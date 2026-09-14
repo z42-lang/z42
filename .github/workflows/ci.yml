@@ -1869,7 +1869,8 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-api37.0-x86_64-google_apis
+          # disk-size is baked into the cached AVD → it is part of the key.
+          key: avd-api37.0-x86_64-google_apis-disk8g
       - name: Create AVD snapshot (cache miss)
         if: steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
@@ -1878,6 +1879,10 @@ jobs:
           arch: x86_64
           target: google_apis
           force-avd-creation: false
+          # The default userdata partition is too small for the androidTest APK with the
+          # embedded corpus: `Requested internal only, but not enough space` on install.
+          # Must match the test run below (same AVD).
+          disk-size: 8G
           # fix-android-embed-oom: -memory 4096 (default ~2GB was OOM'd by the
           # embedded corpus). Must match the test run below for snapshot consistency.
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
@@ -1892,6 +1897,7 @@ jobs:
           working-directory: src/toolchain/workload/android/platform
           # ci-perf-tier2: AVD snapshot (load cached, don't re-save).
           force-avd-creation: false
+          disk-size: 8G   # matches the snapshot-create run (APK install needs the room)
           # fix-android-embed-oom: -memory 4096 (matches the snapshot-create run).
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: true

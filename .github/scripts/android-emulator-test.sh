@@ -34,6 +34,16 @@ Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" "$GITHUB_WORKSPACE/artifacts/xtask/
     -- test embedded --rid android-x64 --run
 rc=$?
 
+# Gradle's connectedAndroidTest reports BUILD SUCCESSFUL even when the test APK never
+# installed (seen: `Requested internal only, but not enough space`), so a zero exit
+# code alone proves nothing. No JUnit XML ⇒ no test ran ⇒ fail here, with the cause
+# still visible above, instead of only at the reporter step.
+results="$GITHUB_WORKSPACE/src/toolchain/workload/android/platform/z42vm/build/outputs/androidTest-results/connected"
+if [ "$rc" -eq 0 ] && [ -z "$(find "$results" -name '*.xml' 2>/dev/null | head -1)" ]; then
+    echo "error: connectedAndroidTest produced no JUnit XML under $results — no instrumented test ran" >&2
+    rc=1
+fi
+
 sleep 3
 kill "$logcat_pid" 2>/dev/null || true
 adb pull /data/tombstones "$GITHUB_WORKSPACE/android-tombstones" 2>/dev/null || true
