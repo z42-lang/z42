@@ -72,7 +72,7 @@ int _bench(ParseResult r) {
     string libs = _libsDir(root);
     // alllibs flat (stdlib + z42c 7 siblings) is the single Z42_LIBS dir for the
     // compile — z42c.driver needs its own siblings resolvable at runtime.
-    string driverZpkg = _driverZpkg(root);
+    string driverZpkg = _driverZpkg(root, "release");
     string flat = _assembleAllLibs(root, "release");
     string work = Directory.CreateTempDir("xtask-bench");
 
@@ -461,7 +461,7 @@ int _benchAb(ParseResult r) {
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
     string prVm = _builtVm(root, "release");
     string prFlat = _assembleAllLibs(root, "release");
-    string prDriver = _driverZpkg(root);
+    string prDriver = _driverZpkg(root, "release");
     // Probe the PR (measured) VM once — mode sweep + cap gating mirror `_bench`.
     string probeZbc = _epEnsureProbe(root, prVm, prDriver, prFlat);
     VmCaps vmc = _epProbe(prVm, prFlat, probeZbc);

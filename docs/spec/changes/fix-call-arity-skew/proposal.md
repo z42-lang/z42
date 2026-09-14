@@ -109,3 +109,18 @@ ctor 不走 sret）⇒「构造器加了一个可选参数」的 skew 此前会�
 - **根因是编译器缺诊断**：实测「实参少于必填形参」在**同文件**自由函数、跨文件自由函数、静态方法、实例方法上
   **全部编译通过**（构造器有 E0426，普通调用没有）。z42c 直接发出一条参数不足的 `Call`。
   **不在本 change 修**（重载绑定层的独立 bug），另行登记；本 change 的运行期判定是它在运行期的兜底。
+
+### 追加：CI 上 xtask 自身跑新 VM 后又抓出两处（本地验证盲区）
+
+本地 `./xtask` 启动器默认跑在 nightly 旧 VM 上 ⇒ **xtask 脚本和 z42c 单测从未在新判定下执行过**；CI 用新 VM 跑它们。
+补救：本地设 `Z42_PORTABLE_VM=<cargo 新 VM>` 复刻 CI 条件，把同类问题一次清掉。新增两处，均为**真 bug**：
+
+| 位置 | 形态 | 根因 | 修法 |
+|---|---|---|---|
+| xtask `_driverZpkg` | `common/xtask_layout.z42`（2 参）与 `build/xtask_toolchain.z42`（1 参）**跨文件同名自由函数** ⇒ 同键、运行期只剩 1 参版，所有 `(root, profile)` 调用静默丢掉 profile | 自由函数不重载，但重复定义检查 `_checkDuplicateFreeFunctions` **只查单文件** | 删 1 参版，13 处调用显式传 `"release"`（全部调用方 profile 实为 release ⇒ 行为逐字不变）；同类语义等价的 `_padRight` 重复一并删 |
+| z42c 单测 `constraint_member_tests` ×2 | `Assert.True(cond, msg)`，而 `Std.Assert.True` 只有 1 参 ⇒ 实参**过多**、消息静默丢失 | z42c 对普通调用实参个数**两个方向都不查** | 改用 `Assert.Contains(expected, body)`（失败时两值都报） |
+
+全仓静态扫描「同包跨文件同名自由函数」：非测试源码只有 xtask 这两处（`tests/` 与 `examples/` 下为一文件一单元，非同包，属扫描假阳性）。
+
+**待登记的编译器缺口（不在本 change）**：① 普通调用实参个数不校验（过少/过多均放行；构造器有 E0426）；
+② 自由函数重复定义只查单文件。本 change 的运行期判定是这两者在运行期的兜底，已拦下 3 处历史静默 bug。

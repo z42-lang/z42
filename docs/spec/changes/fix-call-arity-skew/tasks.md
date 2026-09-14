@@ -16,6 +16,8 @@
 - [x] JIT `jit_call` tier 3 写 IC 前（按名取 Function，不依赖 FnEntry）；`cross_zpkg_via_interp` 两种情形
 - [x] 误删的 `ambiguous_function_exception` / `ambiguous_type_exception` 从 HEAD 逐字恢复（替换区间穿插所致）
 - [x] 顺带：z42b `builder_commands.z42:69` 少传 `noBuild`（判定上线即抓出的真 bug）→ 显式 `false`
+- [x] 顺带：xtask 跨文件同名 `_driverZpkg`（1 参/2 参）→ 删 1 参版、13 处显式 `"release"`；重复 `_padRight` 删
+- [x] 顺带：`constraint_member_tests` 两处 `Assert.True(cond, msg)`（实参过多）→ `Assert.Contains`
 
 ## 格式 bump（version-bumping.md 步骤 1–9）
 - [x] 1/6 z42 writer 常量 1.40 / 0.45；2/7 Rust reader 常量 + changelog 注释；**钉值单测**（上次补进清单的那一步）
@@ -27,6 +29,7 @@
 ## 门
 - [x] `symres_tests.rs`：7 条 `call_arity` 单测（含 sret 位、下界不读 min_arg、params 无上界）
 - [x] 0.44 本地：cross-zpkg interp/jit 各 49/49（含两条 skew 修复后通过）；全量 `cargo test` 1370/0
+- [x] **xtask 跑在新 VM 上**复刻 CI（`Z42_PORTABLE_VM`，0.44 临时常量）：构建三轮全过、完整测试仅剩 z42c 单测 2 条（已修 → 24/24）、JIT e2e 49/49、cargo 1374/0
 - [x] 已知 flake `concurrency-null-thread-flake`：`z42.net` threaded 用例在本分支单跑 11/12，失败栈与 main 上历史复现逐帧一致；arity 判定命中 0
 - [ ] 0.45：CI 工具链 overlay → fixture 重生 → 完整 `xtask test` + 自举不动点 + 全量 `cargo test` + cross-zpkg 两后端
 

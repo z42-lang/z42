@@ -89,12 +89,10 @@ string _selfContainedDriverDir(string root) {
     return _driverDist(root, "release");
 }
 
-// The z42c.driver.zpkg inside the self-contained dist — the single z42c seed entry
-// point (z42vm runs it to compile). One SoT for the ~5 sites that used to inline
-// the full literal path (bench / test lib / compiler e2e / bootstrap-check / package).
-string _driverZpkg(string root) {
-    return Path.Join(_selfContainedDriverDir(root), "z42c.driver.zpkg");
-}
+// fix-call-arity-skew：此处原有一个 `string _driverZpkg(string root)`，与 common/xtask_layout.z42 的
+// `_driverZpkg(string root, string profile)` **跨文件同名**。z42 自由函数不重载，而重复定义检查只在单文件内做，
+// 于是两份发成同一个键、运行期只剩一份——所有 2 参调用一直静默跑的是这个 1 参版（丢掉 profile）。新的运行期
+// 签名判定上线即在 CI 拦下。所有调用方的 profile 实为 "release"，与本函数语义一致，故删之、统一走 2 参版。
 
 // Ensure the toolchain build prereqs (z42vm + stdlib + self-contained z42c.driver)
 // EXIST — build only what's missing. Unlike `_buildCompiler`, this does NOT force a
@@ -152,7 +150,7 @@ int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
 // （同 test-lib stage 里既有 z42b 构建的理由，那里称之为 format-skew guard。）
 int _ensureZ42b(string root) {
     int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
-    return _buildZ42bWith(root, _builtVm(root, "release"), _driverZpkg(root), _libsDir(root));
+    return _buildZ42bWith(root, _builtVm(root, "release"), _driverZpkg(root, "release"), _libsDir(root));
 }
 
 // ── build workload ───────────────────────────────────────────────────────────
