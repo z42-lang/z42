@@ -6,7 +6,7 @@ class Matrix {
     int rows;
     int cols;
 
-    Matrix(int rows, int cols) {
+    public Matrix(int rows, int cols) {
         this.rows = rows;
         this.cols = cols;
         this.data = new int[rows * cols];
@@ -25,7 +25,7 @@ class Cube {
     int d1;
     int d2;
 
-    Cube(int a, int b, int c) {
+    public Cube(int a, int b, int c) {
         this.d1 = b;
         this.d2 = c;
         this.data = new int[a * b * c];

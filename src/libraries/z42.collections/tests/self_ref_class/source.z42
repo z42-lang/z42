@@ -6,7 +6,7 @@ class Node {
     public int value;
     public Node next;
 
-    Node(int v) {
+    public Node(int v) {
         value = v;
         next = null;
     }
@@ -17,7 +17,7 @@ class Stack {
     Node top;
     public int size;
 
-    Stack() {
+    public Stack() {
         top = null;
         size = 0;
     }

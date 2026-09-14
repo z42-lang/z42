@@ -9,7 +9,7 @@ namespace Demo;
 class Vec2 {
     public int x;
     public int y;
-    Vec2(int a, int b) { this.x = a; this.y = b; }
+    public Vec2(int a, int b) { this.x = a; this.y = b; }
 
     public static Vec2 operator +(Vec2 a, Vec2 b) {
         return new Vec2(a.x + b.x, a.y + b.y);

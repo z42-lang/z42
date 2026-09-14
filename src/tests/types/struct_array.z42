@@ -7,14 +7,14 @@ namespace Demo;
 struct Point {
     public int x;
     public int y;
-    Point(int x, int y) { this.x = x; this.y = y; }
+    public Point(int x, int y) { this.x = x; this.y = y; }
 }
 
 // 含 string 引用叶子的 struct —— 验证数组元素引用叶子走 backing refs 侧表 + 写屏障。
 struct Tagged {
     public int n;
     public string name;
-    Tagged(int n, string name) { this.n = n; this.name = name; }
+    public Tagged(int n, string name) { this.n = n; this.name = name; }
 }
 
 void Main() {

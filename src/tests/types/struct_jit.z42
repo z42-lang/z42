@@ -7,19 +7,19 @@ namespace Demo;
 struct Point {
     public int x;
     public int y;
-    Point(int x, int y) { this.x = x; this.y = y; }
+    public Point(int x, int y) { this.x = x; this.y = y; }
 }
 
 struct Line {
     public Point a;
     public Point b;
-    Line(Point a, Point b) { this.a = a; this.b = b; }
+    public Line(Point a, Point b) { this.a = a; this.b = b; }
 }
 
 struct Tagged {
     public int n;
     public string name;
-    Tagged(int n, string name) { this.n = n; this.name = name; }
+    public Tagged(int n, string name) { this.n = n; this.name = name; }
 }
 
 // 传参 copy-in + 返回 sret：JIT 调用路径 × struct 值语义。

@@ -6,13 +6,13 @@ namespace Demo;
 struct P {
     public int x;
     public int y;
-    P(int x, int y) { this.x = x; this.y = y; }
+    public P(int x, int y) { this.x = x; this.y = y; }
 }
 
 struct Tagged {
     public int n;
     public string label;
-    Tagged(int n, string label) { this.n = n; this.label = label; }
+    public Tagged(int n, string label) { this.n = n; this.label = label; }
 }
 
 // 跨帧返回：struct → object 在 return 处装箱到堆；本帧 arena 退出后 boxed 值必须仍存活。

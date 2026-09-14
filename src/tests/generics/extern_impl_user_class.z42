@@ -6,7 +6,7 @@ interface IGreet {
 
 class Robot {
     string name;
-    Robot(string n) { this.name = n; }
+    public Robot(string n) { this.name = n; }
 }
 
 impl IGreet for Robot {

@@ -12,7 +12,7 @@ interface ISerializable {
 class Document : IPrintable, ISerializable {
     string Title;
 
-    Document(string title) {
+    public Document(string title) {
         this.Title = title;
     }
 

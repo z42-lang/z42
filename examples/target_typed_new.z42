@@ -5,8 +5,8 @@ using Std;
 class Point {
     public int X;   // 无修饰符 = private；跨类读 p.X 需要 public
     public int Y;
-    Point() { }
-    Point(int x, int y) { this.X = x; this.Y = y; }
+    public Point() { }
+    public Point(int x, int y) { this.X = x; this.Y = y; }
 }
 
 class Box {

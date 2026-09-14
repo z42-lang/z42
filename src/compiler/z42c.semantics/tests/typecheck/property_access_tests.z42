@@ -13,7 +13,7 @@ using Z42.Semantics;
 // ── get-only auto-property：ctor 内经 this 写，合法 ────────────────
 [Test]
 void test_getonly_autoprop_write_in_ctor_ok() {
-    string src = "namespace D; class C { public string L { get; } C(string s) { this.L = s; } }";
+    string src = "namespace D; class C { public string L { get; } public C(string s) { this.L = s; } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
 
@@ -34,7 +34,7 @@ void test_getonly_autoprop_write_in_method_errors() {
 // ── get-only auto-property：类外写 → E0452 ───────────────────────
 [Test]
 void test_getonly_autoprop_write_from_outside_errors() {
-    string src = "namespace D; class C { public string L { get; } C(string s) { this.L = s; } }"
+    string src = "namespace D; class C { public string L { get; } public C(string s) { this.L = s; } }"
         + " void Main() { var c = new C(\"a\"); c.L = \"b\"; }";
     Assert.Equal("E0452", SemanticDump.FirstErrorCode(src));
 }
@@ -49,7 +49,7 @@ void test_computed_property_write_in_ctor_errors() {
 // ── 读写 auto-property：处处可写，无诊断（不回归）────────────────
 [Test]
 void test_readwrite_autoprop_write_anywhere_ok() {
-    string src = "namespace D; class C { public int W { get; set; } C(int w) { this.W = w; } void M() { this.W = 9; } }"
+    string src = "namespace D; class C { public int W { get; set; } public C(int w) { this.W = w; } void M() { this.W = 9; } }"
         + " void Main() { var c = new C(1); c.W = 2; }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }

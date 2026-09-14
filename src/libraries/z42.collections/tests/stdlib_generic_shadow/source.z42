@@ -5,7 +5,7 @@ using Std.Collections;
 
 class Stack {
     int value;
-    Stack() { this.value = 0; }
+    public Stack() { this.value = 0; }
     public void Push(int v) { this.value = this.value + v; }
     public int Get() { return this.value; }
 }

@@ -5,7 +5,10 @@
 //   public    — 不校验。
 //   private   — 仅声明类文本内可访问（CurrentClass()==declClass；含同类其它实例；派生类不可访问基类 private）。
 //   protected — 声明类 + 派生类可访问（沿 CurrentClass 基链上溯能到 declClass；跨包派生天然支持）。
-//   internal  — 同包可访问；跨包不可（声明类 IsImported==true → deny）。默认无修饰符成员即 internal。
+//   internal  — 同包可访问；跨包不可（声明类 IsImported==true → deny）。
+//   默认可见性（default-member-private）：无修饰符的**成员**（字段 / 方法 / 构造器 / 属性 / 索引器）是 private，
+//   顶层类型 / 自由函数是 internal；主构造器由 parser 标为 public。
+//   enforce-ctor-visibility 起构造器也经本函数检查（`new` / 初始化子句），此前从不检查。
 //
 // 名字形式：CurrentClass() 与 FieldSymbol/MethodSymbol.ContainingTypeName 均为**短名**，直接可比。
 namespace Z42.Semantics;

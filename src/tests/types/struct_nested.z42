@@ -6,13 +6,13 @@ namespace Demo;
 struct P {
     public int x;
     public int y;
-    P(int x, int y) { this.x = x; this.y = y; }
+    public P(int x, int y) { this.x = x; this.y = y; }
 }
 
 struct Line {
     public P a;
     public P b;
-    Line(P a, P b) { this.a = a; this.b = b; }   // struct 传参 + 整字段 owner 写（this.a = a）
+    public Line(P a, P b) { this.a = a; this.b = b; }   // struct 传参 + 整字段 owner 写（this.a = a）
     public int SumAll() { return a.x + a.y + b.x + b.y; } // 嵌套 owner 裸字段读（a.x == this.a.x）
 }
 
@@ -20,7 +20,7 @@ struct Line {
 struct Tagged {
     public P pt;
     public string name;
-    Tagged(P pt, string name) { this.pt = pt; this.name = name; }
+    public Tagged(P pt, string name) { this.pt = pt; this.name = name; }
 }
 
 void Main() {

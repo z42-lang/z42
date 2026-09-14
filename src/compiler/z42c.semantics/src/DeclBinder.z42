@@ -553,6 +553,14 @@ public sealed class DeclBinder {
                 }
                 string bKey = "";
                 if (targetCls != null) { bKey = this._tc._overload._ctorKey(targetCls, md.BaseArgCount); }
+                // enforce-ctor-visibility：初始化子句的目标构造器同样受可见性约束（派生类不能调基类 private 构造器；
+                // protected 放行；`: this(..)` 在本类内，private 放行）。
+                if (targetCls != null) {
+                    MethodSymbol tsym = targetCls.Methods.Get(bKey) as MethodSymbol;
+                    if (tsym != null && !tsym.IsStatic) {
+                        this._tc._access.CheckAccess(tsym.Visibility, tsym.ContainingTypeName, env, symbols, "constructor", targetName, md.Span);
+                    }
+                }
                 // 零实参子句而目标类没有无参**实例** ctor（典型：`: base()` 指向没写 ctor 的基类）⇒ 无可调，
                 // 不发调用——`_ctorKey` 此时回落裸类名，发出去就是对不存在函数的调用。带实参的子句保持原路径。
                 if (targetCls != null && md.BaseArgCount == 0) {

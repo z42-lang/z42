@@ -1075,7 +1075,7 @@ class MicroBenchAgg {
     VmCaps   _vm;
     string   _vmVersion;
     bool     _profSet;
-    MicroBenchAgg() {
+    public MicroBenchAgg() {
         this._items = ""; this._n = 0;
         this._tiers = new string[1]; this._tiers[0] = "interp";
         this._vm = new VmCaps(); this._vmVersion = ""; this._profSet = false;

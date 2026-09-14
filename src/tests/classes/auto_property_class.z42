@@ -5,7 +5,7 @@ class Box {
     public int Height { get; set; }
     public string Label { get; }   // readonly
 
-    Box(int w, int h, string label) {
+    public Box(int w, int h, string label) {
         this.Width  = w;
         this.Height = h;
         // get-only property: writable only inside the ctor, by its source name.

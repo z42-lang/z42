@@ -7,7 +7,7 @@ abstract class Shape {
 class Circle : Shape {
     int Radius;
 
-    Circle(int r) {
+    public Circle(int r) {
         this.Radius = r;
     }
 
@@ -20,7 +20,7 @@ class Rectangle : Shape {
     int W;
     int H;
 
-    Rectangle(int w, int h) {
+    public Rectangle(int w, int h) {
         this.W = w;
         this.H = h;
     }

@@ -4,7 +4,7 @@ struct Point {
     public int X;
     public int Y;
 
-    Point(int x, int y) {
+    public Point(int x, int y) {
         this.X = x;
         this.Y = y;
     }
@@ -23,7 +23,7 @@ struct Color {
     int G;
     int B;
 
-    Color(int r, int g, int b) {
+    public Color(int r, int g, int b) {
         this.R = r;
         this.G = g;
         this.B = b;

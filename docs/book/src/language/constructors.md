@@ -41,6 +41,28 @@ class Q : P { public int f = L.M(1); public Q() : base(2) { L.M(3); } }
 - z42 **不会自动调用**基类构造器：没写 `: base(..)` 的显式构造器不会执行基类构造器的体。
 - `: base()` 指向一个**没有显式实例构造器**的基类时，没有可调用的目标，子句不产生调用。
 
+## 可见性
+
+构造器与字段、方法遵守同一套可见性规则（见 [访问权限强制](../compiler/access-control.md)）：
+
+| 写法 | 谁能调用（`new` / `: base(..)` / `: this(..)`） |
+|---|---|
+| `public C(..)` | 任何地方 |
+| `protected C(..)` | 本类与派生类（派生类的 `: base(..)`；外部 `new` 不行） |
+| `internal C(..)` | 同一个包 |
+| `private C(..)`，或**不写修饰符** | 只有本类（静态工厂、`: this(..)`） |
+| 主构造器 `class P(int X)` | 任何地方（public，对齐 C#） |
+
+```z42
+class C { C(int a) { } }                  // 不写修饰符 = private
+var c = new C(1);                          // ❌ E0404：cannot access private constructor `C` of `C`
+
+class Token {
+    private Token(string s) { }
+    public static Token Parse(string s) { return new Token(s); }   // ✅ 本类内
+}
+```
+
 ## 静态构造器不是实例构造器
 
 同一个类可以同时有 `static C() { }` 与 `C() { }`。静态构造器只作为类型初始化器执行（见
