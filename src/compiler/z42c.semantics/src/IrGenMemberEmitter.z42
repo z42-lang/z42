@@ -16,9 +16,10 @@ public sealed class IrGenMemberEmitter {
     public void EmitMethod(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, MethodDecl md) {
         IrGen g = this._g; SemanticModel model = this._model;
         string methKey = OverloadResolver.MethodKeyOf(md);   // unify-regkey-source-of-truth
-        // add-static-constructors：静态 ctor 的**发射名**换独立键——它的 RegKey 与无参
-        // **实例** ctor 逐字相同，`new C()` 查 0 参 ctor 会命中静态 ctor 并把它当实例
-        // 构造器再跑一遍（实测 cctor 体打印两次）。见 IrStaticCtor.MethodKey。
+        // add-static-constructors：静态 ctor 的**发射名**换独立键——它与**实例** ctor 同名，
+        // 不换就会和实例 ctor 争同一个 IR 函数名，`new C()` 会把它当实例构造器再跑一遍
+        // （实测 cctor 体打印两次）。见 IrStaticCtor.MethodKey。调用侧选 ctor 时同样要排除它，
+        // 见 `Z42ClassType.InstanceCtors`（fix-ctor-init-silent-bugs）。
         //
         // ⚠️ 只改**发射名**，不能改 methKey —— 后者还用作 SemanticModel 的**体查找键**
         // （body 是按 RegKey 存的）。两者一起改会让 model.HasBody 落空 → 函数根本不发射

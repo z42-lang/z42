@@ -1,0 +1,43 @@
+// fix-ctor-init-silent-bugs ①：静态 ctor 与无参实例 ctor 同在一个类里。
+// 修前静态 ctor 按「静态方法恒全签名 mangle」注册成 `C$0`，`new C()` 选实例 ctor 时先查
+// `C$0` 就命中了它 ⇒ 发出 `obj_new C C.C$0`（实例 ctor 真名是 `C.C`）⇒ 实例 ctor 永不执行、零诊断。
+// 声明顺序不影响：静态 ctor 写在前、写在后都要对。
+namespace Demo;
+
+class CtorAfter {
+    static int count = 40;
+    int id;
+    public CtorAfter() { CtorAfter.count = CtorAfter.count + 2; this.id = CtorAfter.count; }
+    static CtorAfter() { }
+    public int Id() { return this.id; }
+}
+
+class CtorBefore {
+    public static string Trace = "";
+    public int v;
+    static CtorBefore() { CtorBefore.Trace = CtorBefore.Trace + "s"; }
+    public CtorBefore() { CtorBefore.Trace = CtorBefore.Trace + "i"; this.v = 5; }
+    public CtorBefore(int x) : this() { this.v = this.v + x; }
+}
+
+// 静态 ctor 与带字段初始化器的无参实例 ctor
+class WithInit {
+    public int a = 3;
+    public int b;
+    static WithInit() { }
+    public WithInit() { this.b = this.a + 1; }
+}
+
+void Main() {
+    Assert.Equal(42, new CtorAfter().Id());
+    Assert.Equal(44, new CtorAfter().Id());
+
+    var cb = new CtorBefore();
+    Assert.Equal(5, cb.v);
+    Assert.Equal(12, new CtorBefore(7).v);
+    Assert.Equal("sii", CtorBefore.Trace);   // 静态 ctor 恰好一次
+
+    var w = new WithInit();
+    Assert.Equal(3, w.a);
+    Assert.Equal(4, w.b);
+}

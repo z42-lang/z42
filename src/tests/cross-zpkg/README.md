@@ -75,6 +75,7 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `missing_ctor_skew` / `missing_ctor_present` | 构造器缺失不再静默写未构造对象 | ObjNew ctor 解析 → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`） |
 | `wrong_ctor_arity_skew` / `wrong_ctor_arity_present` | 构造器**解析到了、签名却对不上**不再照常调用（裸键在 skew 下会命中错的构造器） | ObjNew ctor 解析后 → `symres::wrong_ctor_arity_exception`（`skew-replace.txt` + `oldtarget/`） |
 | `ctorless_objnew_skew` / `_present` / `_absent` | **零实参**的构造器缺失不再静默（关掉 `argc == 0` 那条缝）。`_absent` 是**过度收紧守卫**：真·零构造器跨包类不得误报 | 装配期 `CtorKnownFixup` 置 `ObjNew.ctor_known`（zbc 1.39） → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`）|
+| `ctor_init_cross_pkg` | 零实参 `: base()` 指向**依赖包**基类时照常调用（修前丢调用）；依赖包里「静态 ctor + 无参实例 ctor」的类 `new` 时仍选中实例 ctor（守卫，修前亦对） | `DeclBinder._bindMethodBody`（`HasCtorInit` 门）→ `OverloadBinder._ctorKey`（排除静态 ctor） |
 | `crosspkg_ctor_default` | **跨包构造器**省略可选实参 → 注入作者声明的默认值（此前整支缺失，读到零值） | `ConstructTyper._bindNew` → `OverloadBinder._crossPkgDefault`（`$Default` ConstBlob 解码） |
 | `missing_type_skew` | `new` 一个解析不到的类型不再合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |
 | `missing_base_skew` / `crosspkg_base_fields_main` | 基类解析不到不再静默退化成「只有自己的成员」 | 继承 fixup → `TypeDescCold::base_unmerged` → `symres::missing_base_exception`（`skew-absent.txt`） |

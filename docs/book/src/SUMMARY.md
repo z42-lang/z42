@@ -18,6 +18,7 @@
   - [const 编译期常量](language/const.md)
   - [sealed 修饰符](language/sealed.md)
   - [static 类（只容纳静态成员）](language/static-classes.md)
+  - [实例构造器与初始化子句（`: base()` / `: this()`）](language/constructors.md)
   - [静态构造函数（惰性、按类型）](language/static-constructors.md)
   - [静态成员的名字解析（裸名 ≡ `C.x`）](language/static-members.md)
   - [target-typed new（省略构造类名）](language/target-typed-new.md)
