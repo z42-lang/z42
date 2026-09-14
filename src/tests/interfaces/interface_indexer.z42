@@ -1,0 +1,41 @@
+// fix-iface-self-completeness-gaps A3：接口索引器经**接口静态类型**解析 + 执行。
+// 此前 `IBox b; b[i]` 编译期报 "index on non-array"——`_bindIndex` 只认数组 + 类收者，
+// 接口收者无 get_Item 解析路径，且 `_fillInterface` 根本不 lower 接口索引器。
+// 本测试经接口静态类型 `IBox` 读索引器（get），并覆盖读写两种（get+set）。
+
+interface IBox {
+    int this[int i] { get; }
+}
+
+class ArrBox : IBox {
+    int[] data;
+    ArrBox(int[] d) { this.data = d; }
+    public int this[int i] { get { return this.data[i]; } }
+}
+
+// get+set 接口索引器：验证 set_Item 也经接口静态类型解析。
+interface IMutBox {
+    int this[int i] { get; set; }
+}
+
+class MutArrBox : IMutBox {
+    int[] data;
+    MutArrBox(int[] d) { this.data = d; }
+    public int this[int i] {
+        get { return this.data[i]; }
+        set { this.data[i] = value; }
+    }
+}
+
+void Main() {
+    IBox b = new ArrBox(new int[] { 10, 20, 30 });
+    Assert.Equal(10, b[0]);
+    Assert.Equal(20, b[1]);
+    Assert.Equal(30, b[2]);
+
+    IMutBox m = new MutArrBox(new int[] { 1, 2, 3 });
+    Assert.Equal(2, m[1]);
+    m[1] = 99;
+    Assert.Equal(99, m[1]);
+    Assert.Equal(1, m[0]);
+}

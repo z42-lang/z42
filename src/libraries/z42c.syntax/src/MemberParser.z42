@@ -238,9 +238,22 @@ public sealed class MemberParser {
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             string acc = this._p._peek().Text;
             if (this._p._peek().Kind == TokenKind.Identifier && acc == "get") {
-                this._p._advance(); getBody = this._parseAccessorBody(false); hasGet = true;
+                this._p._advance();
+                // fix-iface-self-completeness-gaps A3：区分有体 `get {…}`/`get => e`（类索引器）与无体 `get;`
+                // （接口/抽象索引器，accessor-only）——镜像 `_parseProperty`。此前无条件走 `_parseAccessorBody`
+                // ⇒ 接口 `get;` 的 `;` 被当块体解析、吞掉接口闭合 `}`，后续声明被错误嵌进接口。
+                if (this._p._peek().Kind == TokenKind.LBrace || this._p._peek().Kind == TokenKind.FatArrow) {
+                    getBody = this._parseAccessorBody(false); hasGet = true;
+                } else {
+                    this._p._expectSemi(); hasGet = true;
+                }
             } else if (this._p._peek().Kind == TokenKind.Identifier && acc == "set") {
-                this._p._advance(); setBody = this._parseAccessorBody(true); hasSet = true;
+                this._p._advance();
+                if (this._p._peek().Kind == TokenKind.LBrace || this._p._peek().Kind == TokenKind.FatArrow) {
+                    setBody = this._parseAccessorBody(true); hasSet = true;
+                } else {
+                    this._p._expectSemi(); hasSet = true;
+                }
             } else {
                 this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected 'get' or 'set' in indexer", this._p._peek().Span);
                 this._p._advance();
