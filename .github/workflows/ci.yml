@@ -1860,11 +1860,11 @@ jobs:
           # so the single connectedAndroidTest below runs Z42EmbeddedInstrumentedTest's
           # 1/3 full-coverage slice too.
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- test embedded --rid android-x64 --shard ${{ matrix.shard }}/3
-      # No AVD snapshot (ci-perf-tier2 #4 had one): restoring an API 37 snapshot left
-      # system_server restarting ~1 min later, mid-test — `Failure calling service
-      # package/input: Broken pipe`, and `ENOENT` in the app cache dir while vold was
-      # re-preparing user storage. A cold boot costs a few minutes per shard (nightly
-      # only) but hands the tests a settled system.
+      # No AVD snapshot cache (ci-perf-tier2 #4 had one): every boot is cold. It was
+      # dropped while chasing system_server restarts mid-test on API 37, which turned
+      # out to be the surfaceflinger renderer abort fixed by `runs-on: ubuntu-26.04`
+      # above — not the snapshot. Cold boot costs a few minutes per shard (nightly
+      # only); restoring the cache is a separate, optional speed-up.
       - name: connectedAndroidTest on emulator (R1–R7 + embedded corpus)
         uses: reactivecircus/android-emulator-runner@v2
         with:
