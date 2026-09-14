@@ -53,14 +53,26 @@ const KIND_TIMEOUT:   i64 = 2;
 /// `kill` followed by reap) can leave the slot in a consumed state
 /// without removing it from the map — the next operation observes
 /// `None` and reports `ProcessHandleInvalidException`.
+///
+/// **fix-park-blocking-natives (2026-09-14)**: each pipe has its own lock. A streaming
+/// read / stdin write blocks for as long as the child likes, and it must do so parked and
+/// *outside* the process-table lock — any thread waiting on that shared lock is unparked,
+/// so one blocked read would stall every collection. Callers clone the `Arc` under the
+/// table lock, drop it, then lock the pipe inside a `NativeParkGuard`.
 pub struct ProcessSlot {
     pub child:         Option<Child>,
-    pub stdin_writer:  Option<ChildStdin>,
-    pub stdout_reader: Option<ChildStdout>,
-    pub stderr_reader: Option<ChildStderr>,
+    pub stdin_writer:  Option<Pipe<ChildStdin>>,
+    pub stdout_reader: Option<Pipe<ChildStdout>>,
+    pub stderr_reader: Option<Pipe<ChildStderr>>,
     /// Total wall-clock timeout for `__process_run` paths; `None` for
     /// `__process_spawn` (timeouts apply only to the synchronous Run).
     pub timeout:       Option<std::time::Duration>,
+}
+
+pub type Pipe<T> = std::sync::Arc<parking_lot::Mutex<T>>;
+
+fn pipe<T>(end: Option<T>) -> Option<Pipe<T>> {
+    end.map(|e| std::sync::Arc::new(parking_lot::Mutex::new(e)))
 }
 
 // ── arg-parsing helpers ──────────────────────────────────────────────────
@@ -284,8 +296,10 @@ pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     };
 
     // Optional one-shot stdin payload (Pipe mode + .StdinBytes / .StdinString).
+    // Blocks once the payload outgrows the pipe buffer and the child isn't reading ⇒ parked.
     if let Some(bytes) = stdin_bytes {
         if let Some(mut sin) = child.stdin.take() {
+            let _park = crate::gc::NativeParkGuard::enter(ctx);
             sin.write_all(&bytes)?;
             drop(sin); // EOF for the child
         }
@@ -422,9 +436,9 @@ pub fn builtin_process_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         Err(e) => return Ok(start_err_result(ctx, &program, &e)),
     };
 
-    let stdin_writer  = child.stdin.take();
-    let stdout_reader = child.stdout.take();
-    let stderr_reader = child.stderr.take();
+    let stdin_writer  = pipe(child.stdin.take());
+    let stdout_reader = pipe(child.stdout.take());
+    let stderr_reader = pipe(child.stderr.take());
 
     let slot = ProcessSlot {
         child:         Some(child),
@@ -464,15 +478,16 @@ fn require_slot_id(args: &[Value], idx: usize, ctx: &str) -> Result<u64> {
 
 /// Drain the (currently held) stdout / stderr readers into byte vecs.
 /// Helper for `wait` / `try_wait` post-exit drain.
+/// Blocks until every writer closes the pipe (an exited child's grandchildren may still hold
+/// it), so callers run it parked.
 fn drain_readers(
-    mut stdout: Option<ChildStdout>,
-    mut stderr: Option<ChildStderr>,
+    stdout: Option<Pipe<ChildStdout>>,
+    stderr: Option<Pipe<ChildStderr>>,
 ) -> Result<(Vec<u8>, Vec<u8>)> {
-    use std::io::Read;
     let mut out = Vec::new();
     let mut err = Vec::new();
-    if let Some(r) = stdout.as_mut() { r.read_to_end(&mut out)?; }
-    if let Some(r) = stderr.as_mut() { r.read_to_end(&mut err)?; }
+    if let Some(r) = stdout { r.lock().read_to_end(&mut out)?; }
+    if let Some(r) = stderr { r.lock().read_to_end(&mut err)?; }
     Ok((out, err))
 }
 
@@ -505,15 +520,13 @@ pub fn builtin_process_handle_wait(ctx: &VmContext, args: &[Value]) -> Result<Va
     let (status, out, err) = match (stdout, stderr) {
         (Some(o), Some(e)) => {
             let h_o = std::thread::spawn(move || {
-                use std::io::Read;
                 let mut buf = Vec::new();
-                let _ = std::io::BufReader::new(o).read_to_end(&mut buf);
+                let _ = o.lock().read_to_end(&mut buf);
                 buf
             });
             let h_e = std::thread::spawn(move || {
-                use std::io::Read;
                 let mut buf = Vec::new();
-                let _ = std::io::BufReader::new(e).read_to_end(&mut buf);
+                let _ = e.lock().read_to_end(&mut buf);
                 buf
             });
             let status = child.wait()?;
@@ -560,7 +573,10 @@ pub fn builtin_process_handle_try_wait(ctx: &VmContext, args: &[Value]) -> Resul
         return Ok(handle_invalid_result(ctx, slot_id as i64));
     };
     drop(slot.stdin_writer.take());
-    let (out, err) = drain_readers(slot.stdout_reader.take(), slot.stderr_reader.take())?;
+    let (out, err) = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        drain_readers(slot.stdout_reader.take(), slot.stderr_reader.take())?
+    };
     Ok(ok_result(ctx, status, out, err))
 }
 
@@ -600,17 +616,16 @@ pub fn builtin_process_handle_write_stdin(ctx: &VmContext, args: &[Value]) -> Re
     let bytes   = optional_byte_array(args, 1, NAME)?
         .ok_or_else(|| anyhow!("{}: bytes arg must not be null", NAME))?;
 
-    let r = ctx.with_process_slot(slot_id, |slot| -> Result<bool> {
-        let Some(w) = slot.stdin_writer.as_mut() else { return Ok(false) };
-        w.write_all(&bytes)?;
-        Ok(true)
-    });
-    match r {
-        None              => Ok(handle_invalid_result(ctx, slot_id as i64)),
-        Some(Err(e))      => Err(e),
-        Some(Ok(false))   => Ok(handle_invalid_result(ctx, slot_id as i64)),
-        Some(Ok(true))    => Ok(Value::Null),
+    // A full pipe blocks the write ⇒ parked, outside the table lock (see `ProcessSlot`).
+    let writer = match ctx.with_process_slot(slot_id, |slot| slot.stdin_writer.clone()) {
+        Some(Some(w)) => w,
+        None | Some(None) => return Ok(handle_invalid_result(ctx, slot_id as i64)),
+    };
+    {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        writer.lock().write_all(&bytes)?;
     }
+    Ok(Value::Null)
 }
 
 /// `__process_handle_close_stdin(slot_id)` — close the writer so the
@@ -685,11 +700,11 @@ use std::io::Read;
 /// Common impl for stdout / stderr — picks the reader off the slot,
 /// reads up to `count` bytes into a scratch Vec<u8>, then copies into
 /// the user's z42 `byte[]`.
-fn process_handle_read_impl(
+fn process_handle_read_impl<R: Read>(
     ctx: &VmContext,
     args: &[Value],
     name: &'static str,
-    is_stderr: bool,
+    pick: fn(&ProcessSlot) -> Option<Pipe<R>>,
 ) -> Result<Value> {
     let slot_id = require_slot_id(args, 0, name)?;
     let buf_value = args.get(1).cloned()
@@ -707,27 +722,18 @@ fn process_handle_read_impl(
     }
     if count == 0 { return Ok(Value::I64(0)); }
 
-    // Borrow the reader from the slot, do the blocking read, then drop
-    // the slot borrow before touching the heap (Read blocks; we don't
-    // want to hold the slot lock across an unbounded wait).
+    // Clone the pipe out under the table lock, then do the blocking read parked and outside
+    // that lock (see `ProcessSlot`); the park ends before the heap is touched.
     let mut tmp = vec![0u8; count];
-    let read_result = ctx.with_process_slot(slot_id, |slot| -> Result<Option<usize>> {
-        // Returning None signals "reader is None" → EOF.
-        if is_stderr {
-            let Some(r) = slot.stderr_reader.as_mut() else { return Ok(None) };
-            Ok(Some(r.read(&mut tmp)?))
-        } else {
-            let Some(r) = slot.stdout_reader.as_mut() else { return Ok(None) };
-            Ok(Some(r.read(&mut tmp)?))
-        }
-    });
-    let n = match read_result {
+    let n = match ctx.with_process_slot(slot_id, |slot| pick(slot)) {
         // Slot missing: facade translates Value::Null →
         // ProcessHandleInvalidException. Distinct from EOF (Value::I64(0)).
-        None              => return Ok(Value::Null),
-        Some(Err(e))      => return Err(e),
-        Some(Ok(None))    => 0,       // pipe never piped → EOF
-        Some(Ok(Some(n))) => n,
+        None          => return Ok(Value::Null),
+        Some(None)    => 0,       // pipe never piped → EOF
+        Some(Some(r)) => {
+            let _park = crate::gc::NativeParkGuard::enter(ctx);
+            r.lock().read(&mut tmp)?
+        }
     };
 
     let mut borrowed = buf_arr.borrow_mut();
@@ -739,12 +745,12 @@ fn process_handle_read_impl(
 
 /// `__process_handle_read_stdout(slot, buf, off, count) -> int`
 pub fn builtin_process_handle_read_stdout(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    process_handle_read_impl(ctx, args, "__process_handle_read_stdout", false)
+    process_handle_read_impl(ctx, args, "__process_handle_read_stdout", |s| s.stdout_reader.clone())
 }
 
 /// `__process_handle_read_stderr(slot, buf, off, count) -> int`
 pub fn builtin_process_handle_read_stderr(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    process_handle_read_impl(ctx, args, "__process_handle_read_stderr", true)
+    process_handle_read_impl(ctx, args, "__process_handle_read_stderr", |s| s.stderr_reader.clone())
 }
 
 // ── __process_which ──────────────────────────────────────────────────────

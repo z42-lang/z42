@@ -57,6 +57,33 @@ fn connect_with_invalid_server_name_returns_socket_err() {
     assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
 }
 
+/// **fix-park-blocking-natives (2026-09-14)**: DNS, connect and the handshake used to run
+/// unparked, so a peer that stalls the handshake stalled every GC on the process. The peer
+/// here accepts and never answers; the client must be parked until the peer hangs up, and
+/// the error tuple it then builds must come after the park (debug tripwire).
+#[test]
+fn stalled_handshake_is_parked_for_gc() {
+    let ctx = ctx();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port() as i64;
+    let core = std::sync::Arc::clone(&ctx.core);
+    let client = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        let args = vec![Value::Str("127.0.0.1".to_string().into()), Value::I64(port), Value::I64(0)];
+        kind_of(&builtin_net_tls_connect(&w, &args).expect("call ok"))
+    });
+    let (peer, _) = listener.accept().expect("accept");
+    let parked = || ctx.core.parked_count.load(std::sync::atomic::Ordering::Acquire);
+    let t0 = std::time::Instant::now();
+    while parked() != 1 && t0.elapsed() < std::time::Duration::from_secs(5) {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(parked(), 1, "a thread blocked in the TLS handshake must be parked");
+    drop(peer);
+    assert_eq!(client.join().expect("client thread"), Some(KIND_SOCKET_ERR));
+    assert_eq!(parked(), 0, "park must be released");
+}
+
 // ── Slot lookups on unknown ids ──────────────────────────────────────────
 
 #[test]
