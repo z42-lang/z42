@@ -472,3 +472,45 @@ fn generational_collection_bumps_minor_counter() {
         "generational collection should bump minor_collections (got {})", s.minor_collections);
     assert!(s.gc_cycles >= 1, "gc_cycles must also increment");
 }
+
+// ── fix-alloc-inside-native-park (2026-09-14) ─────────────────────────────────────────────
+
+/// A parked thread's fresh allocations are not roots for a collection running on another
+/// thread, so the debug build refuses them outright rather than waiting for the race.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "GC allocation inside a NativeParkGuard region")]
+fn allocating_while_native_parked_is_caught() {
+    let ctx = VmContext::new();
+    let _park = NativeParkGuard::enter(&ctx);
+    let _ = ctx.heap().alloc_array(vec![crate::metadata::Value::I64(1)]);
+}
+
+/// The tripwire is about the park, not the thread: once the guard drops, allocation is back
+/// to normal — the shape every fixed call site uses (`{ park; syscall }` then allocate).
+#[test]
+fn allocating_after_the_park_ends_is_fine() {
+    let ctx = VmContext::new();
+    {
+        let _park = NativeParkGuard::enter(&ctx);
+    }
+    let _ = ctx.heap().alloc_array(vec![crate::metadata::Value::I64(1)]);
+    assert_eq!(ctx.core.parked_count.load(Ordering::Acquire), 0);
+}
+
+/// `NativeUnparkGuard` re-enters the VM from inside a park (the REPL completer runs z42
+/// there), so it must lift the tripwire for its span and restore it on drop.
+#[cfg(debug_assertions)]
+#[test]
+fn an_unpark_guard_lifts_the_tripwire_for_its_span() {
+    let ctx = VmContext::new();
+    let _park = NativeParkGuard::enter(&ctx);
+    {
+        let _unpark = NativeUnparkGuard::exit(&ctx);
+        let _ = ctx.heap().alloc_array(vec![crate::metadata::Value::I64(1)]);
+    }
+    let still_parked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        debug_assert_not_native_parked();
+    }));
+    assert!(still_parked.is_err(), "the outer park is back in force after the unpark guard");
+}

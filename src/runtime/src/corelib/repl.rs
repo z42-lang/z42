@@ -55,8 +55,19 @@ pub fn builtin_repl_readline(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // prewarm thread's GC can proceed while this thread waits on stdin. The
     // cdylib's callbacks (completer / key-editor) un-park via
     // `NativeUnparkGuard` in the trampolines before re-entering the VM.
-    let _park = crate::gc::NativeParkGuard::enter(ctx);
-    read_one_line(ctx, &prompt)
+    //
+    // **fix-alloc-inside-native-park (2026-09-14)**: the park covers the read and nothing
+    // else. The line only becomes a z42 string — a GC allocation — after the guard drops;
+    // made inside the park it would not be a root for the prewarm thread's collections
+    // (`gc::safepoint::debug_assert_not_native_parked`).
+    let line = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        read_one_line(ctx, &prompt)?
+    };
+    Ok(match line {
+        Some(s) => Value::Str(s.into()),
+        None => Value::Null,
+    })
 }
 
 /// `__repl_set_completer(fqn: string) -> void` — register the z42 completer the Tab
@@ -275,13 +286,15 @@ fn complete_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 
 /// Host: drive the dlopen'd `libz42_repl` editor (lazy load; plain-stdin fallback
 /// when the lib is absent or the terminal can't host an editor). See `repl_native`.
+/// `None` is EOF. Returns a Rust `String` rather than a `Value` because it runs parked —
+/// see `builtin_repl_readline`.
 #[cfg(not(target_arch = "wasm32"))]
-fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Value> {
+fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
     super::repl_native::readline(ctx, prompt)
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_one_line(_ctx: &VmContext, prompt: &str) -> Result<Value> {
+fn read_one_line(_ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
     plain_readline(prompt)
 }
 
@@ -289,7 +302,7 @@ fn read_one_line(_ctx: &VmContext, prompt: &str) -> Result<Value> {
 /// No line editing here (non-interactive / no-tty). Whole-buffer multi-line editing is a
 /// tty-only feature; a piped stream still works because the z42 loop accumulates lines and
 /// asks `Completeness.IsIncomplete` when to stop. (add-repl-multiline-editing)
-pub(crate) fn plain_readline(prompt: &str) -> Result<Value> {
+pub(crate) fn plain_readline(prompt: &str) -> Result<Option<String>> {
     use std::io::Write;
     let mut err = std::io::stderr();
     let _ = err.write_all(prompt.as_bytes());
@@ -297,9 +310,9 @@ pub(crate) fn plain_readline(prompt: &str) -> Result<Value> {
     let mut line = String::new();
     let n = std::io::stdin().read_line(&mut line)?;
     if n == 0 {
-        return Ok(Value::Null); // EOF
+        return Ok(None); // EOF
     }
-    Ok(Value::Str(line.trim_end_matches(['\n', '\r']).to_string().into()))
+    Ok(Some(line.trim_end_matches(['\n', '\r']).to_string()))
 }
 
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "native-interop"))]

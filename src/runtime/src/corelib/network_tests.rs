@@ -80,6 +80,38 @@ fn connect_to_unbound_port_returns_socket_err() {
     assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
 }
 
+/// **fix-alloc-inside-native-park (2026-09-14)**: both connect builtins used to build their
+/// result tuple while still inside their `NativeParkGuard`, so a collection on another
+/// thread could free it before the caller read it (`Z42NetHttpServerThreadedTests`, 3 runs
+/// in 40: `got Null`). In a debug build `gc::safepoint::debug_assert_not_native_parked`
+/// turns that into a panic here — the refused-connect test above and these two cover every
+/// return shape of both builtins.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn connect_success_builds_its_result_outside_the_park() {
+    let ctx = ctx();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port() as i64;
+    let args = vec![Value::Str("127.0.0.1".to_string().into()), Value::I64(port)];
+    let slot = ok_slot(&builtin_net_tcp_connect(&ctx, &args).expect("call ok"));
+    let _ = builtin_net_tcp_socket_drop(&ctx, &[Value::I64(slot)]).expect("drop sock");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn connect_with_timeout_builds_both_results_outside_the_park() {
+    let ctx = ctx();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port() as i64;
+    let ok_args = vec![Value::Str("127.0.0.1".to_string().into()), Value::I64(port), Value::I64(2000)];
+    let slot = ok_slot(&builtin_net_tcp_connect_with_timeout(&ctx, &ok_args).expect("call ok"));
+    let _ = builtin_net_tcp_socket_drop(&ctx, &[Value::I64(slot)]).expect("drop sock");
+
+    let refused = vec![Value::Str("127.0.0.1".to_string().into()), Value::I64(1), Value::I64(2000)];
+    let r = builtin_net_tcp_connect_with_timeout(&ctx, &refused).expect("call ok");
+    assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
+}
+
 // ── Slot lookups on unknown ids ─────────────────────────────────────────
 
 #[cfg(not(target_arch = "wasm32"))]
