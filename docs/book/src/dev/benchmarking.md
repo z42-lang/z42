@@ -398,6 +398,10 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 （没有这条负向模式时，上面的目录通配会把「改一行 `src/tests/perf/` 下的说明」也拉进来烧一个完整 job。）步骤：
 
 1. checkout PR + checkout `base.sha`（`path: base-src`，两者 `fetch-depth: 0`）
+   - **格式代差检测**（skip-ab-across-format-gap，2026-09-14）：读两棵树 `z42.ir` 的 zbc/zpkg writer
+     常量（`ZbcFormat.z42` / `ZpkgWriter.z42` 的 Major/Minor）。**不同 ⇒ 下面 4/5/6 跳过**，打
+     `::warning::` + job summary「本次没测」；常量读不出来 ⇒ 直接失败（不按「无代差」放行）。
+     详见下面「[跨格式代际的 PR 不做 A/B](#跨格式代际的-pr-不做-ab)」
 2. bootstrap PR 工具链（`ci-bootstrap`：nightly z42c 种子 → 当前源码 warm 自建）
 3. **判红逻辑自检**（move-bench-into-tests / cover-micro-verdict，2026-09-05）：把**三条判红
    路径**都用可复现输入钉住。纯 JSON / 纯函数，实测 **1.2s**，放在测量之前 ⇒ 规则改坏立刻
@@ -471,6 +475,35 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
 两条路径分化很大，**结论要分开说**：未碰 VM 的 PR 已达标（−57%，7.4 min；#447 自身的 run 33946467207
 = 457s、criterion 0s）；碰 VM 的 PR 仍是 20.5 min，大头换成了 criterion A/B（531s，占 43%）——
 分解与削法见下一节。
+
+### 跨格式代际的 PR 不做 A/B
+
+**zbc/zpkg 格式 bump 的 PR 上，e2e / micro A/B 结构上不可测**——不是慢、不是偶发，是必然：
+
+```
+建 base 工具链：PR driver 编 base-src/src/compiler → base driver
+               PR stdlib 塞进 BASEALL（base driver 要它才跑得起来）
+               base driver 编 base-src/src/libraries → base stdlib
+                  └─ 写出格式由「运行时加载的 z42.ir」决定 = PR 的 z42.ir ⇒ PR 格式
+实测：         BASEVM（base 源码建的 z42vm，钉 base 格式）读 base stdlib
+                  └─ zpkg minor <PR> not supported (writer is at <base>)  ✗
+```
+
+格式常量住在 `z42.ir`（stdlib 库），谁的 z42.ir 在跑、就写谁的格式——这与 ci-bootstrap 两代自举 gen2
+踩的是**同一个坑**（encode-ctorless-objnew #629 / #631 实证）。
+
+此前这条门在**每一次**格式 bump 的 PR 上都亮红，却从没产出过任何性能判断——比「不测」更坏：读者要么
+学会无视 bench 红（掩护真回归），要么在不可测的东西上浪费排查时间。
+
+**处置**：检测到代差就跳过**依赖 base 产物**的四步（建 base 工具链 / e2e A/B / 两侧 micro 捕获 /
+micro 判定），用 `::warning::` + job summary 明示「本次没测」——**不能静默变绿**。不读 base zpkg 的两步照跑：
+判定逻辑自检（只用 PR 工具链）、criterion A/B（纯 Rust）。
+
+**为什么不「让 base 侧也用 PR 的 VM 跑」凑出一个数**：那测的就不是 base 了（VM 是被测对象之一），数字
+没有意义；格式 bump 本身是 wire 改动，它的性能影响在合入之后下一个 PR 的 A/B 里自然被覆盖。
+
+**检测判据故意用源码常量而非产物 header**：检测跑在任何构建之前（纯 grep，零成本），且源码常量正是
+「将要写出什么格式」的唯一 SoT；产物 header 要等建完才有，失败时已经白烧了 base 工具链的构建时间。
 
 ### criterion 成本分解与削减（lighten-criterion-ab，2026-09-05）
 

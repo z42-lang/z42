@@ -15,10 +15,15 @@ pub fn builtin_net_udp_bind(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let host = arg_str(args, 0, NAME)?.to_string();
     let port = require_port(args, 1, NAME)?;
     let bind_target = format!("{}:{}", host, port);
-    let bind_result = bind_target.to_socket_addrs()
-        .and_then(|mut iter| iter.next()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no addresses")))
-        .and_then(|addr: SocketAddr| UdpSocket::bind(addr));
+    // fix-park-blocking-natives (2026-09-14): name resolution (getaddrinfo) can block for the
+    // resolver timeout ⇒ parked; the result tuple is allocated after the park ends.
+    let bind_result = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        bind_target.to_socket_addrs()
+            .and_then(|mut iter| iter.next()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no addresses")))
+            .and_then(|addr: SocketAddr| UdpSocket::bind(addr))
+    };
     match bind_result {
         Ok(sock) => {
             let actual_port = sock.local_addr().map(|a| a.port()).unwrap_or(port);
@@ -260,13 +265,19 @@ pub fn builtin_net_dns_lookup(ctx: &VmContext, args: &[Value]) -> Result<Value> 
     // `to_socket_addrs` requires a port — append `:0`. The port in the
     // resulting addresses is ignored; we only emit the IP string.
     let probe = format!("{}:0", host);
-    match probe.to_socket_addrs() {
-        Ok(iter) => {
+    // fix-park-blocking-natives (2026-09-14): getaddrinfo blocks for as long as the resolver
+    // takes ⇒ parked. The iterator is fully drained inside the park; `Value`s are built after.
+    let resolved = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        probe.to_socket_addrs().map(|iter| iter.map(|a| a.ip()).collect::<Vec<_>>())
+    };
+    match resolved {
+        Ok(ips) => {
             let mut ip_strs: Vec<Value> = Vec::new();
             let mut seen: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
-            for addr in iter {
-                let s = addr.ip().to_string();
+            for ip in ips {
+                let s = ip.to_string();
                 if seen.insert(s.clone()) {
                     ip_strs.push(Value::Str(s.into()));
                 }

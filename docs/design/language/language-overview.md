@@ -549,7 +549,7 @@ class Box {
 
 **实现细节**：
 
-- 编译器把 instance field initializer 注入到每个显式 ctor 入口（base ctor call 之后、用户 body 之前）。
+- 编译器把 instance field initializer 注入到每个显式 ctor 入口：**先于** `: base(..)` 调用、再到用户 body（对标 C#；`: this(..)` 委托的 ctor 不注入）。现行语义见 book [实例构造器与初始化子句](../../book/src/language/constructors.md)。
 - 类没有显式 ctor 但本类或本地祖先链上任一类有字段 init → 编译器合成无参隐式 ctor，按祖先 → 自身顺序内联整条链的 field init 表达式。
 - 字段无 init 时，VM `ObjNew` 按字段声明类型选默认值（`int*`/`f64*` → 0、`bool` → false、`char` → `'\0'`、`str`/引用类型 → null），不再一律 null。
 - z42 当前模型不自动调用 base ctor — 显式 ctor 仍需用户主动写 `: base(...)` 触发父类 ctor side effect；合成 ctor 仅内联本地祖先字段 init，不调用任何 base ctor。

@@ -9,12 +9,15 @@
 //   Main       — H2 happy path (single line, void return)
 //   MultiLine  — H3 sink ordering (3 lines must arrive in order)
 //   Boom       — H3 VmException (z42 throw escapes the entry)
+//   CoreStatic — static field initialised in a merged stdlib package (z42.core `OSKind.Wasm`)
+//   UserStatic — static field initialised in the user module itself
 //
 // Output goes through Console.WriteLine, which routes through corelib
 // io and lands in the host's stdout sink.
 
 namespace Embedding.Hello;
 
+using Std;
 using Std.IO;
 
 void Main() {
@@ -29,4 +32,19 @@ void MultiLine() {
 
 void Boom() {
     throw new Exception("intentional embedding-test failure");
+}
+
+// fix-host-static-init: the host path never ran `__static_init__`, so every static field
+// with an initializer read back as its type default (0) — on every embedding (C ABI,
+// iOS / Android / wasm), not just wasm where it was first seen.
+class Counter {
+    public static int Start = 42;
+}
+
+int CoreStatic() {
+    return OSKind.Wasm;
+}
+
+int UserStatic() {
+    return Counter.Start;
 }

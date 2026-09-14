@@ -112,6 +112,16 @@ fn connect_with_timeout_builds_both_results_outside_the_park() {
     assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
 }
 
+/// **fix-park-blocking-natives (2026-09-14)**: `__net_dns_lookup` now resolves parked, so
+/// its string array must be built after the park ends (debug tripwire).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn dns_lookup_builds_its_result_outside_the_park() {
+    let ctx = ctx();
+    let r = builtin_net_dns_lookup(&ctx, &[Value::Str("localhost".to_string().into())]).expect("call ok");
+    assert_eq!(kind_of(&r), Some(KIND_OK), "got {:?}", r);
+}
+
 // ── Slot lookups on unknown ids ─────────────────────────────────────────
 
 #[cfg(not(target_arch = "wasm32"))]

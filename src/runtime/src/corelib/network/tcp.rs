@@ -38,10 +38,15 @@ pub fn builtin_net_tcp_listen(ctx: &VmContext, args: &[Value]) -> Result<Value> 
     let port = require_port(args, 1, NAME)?;
 
     let bind_target = format!("{}:{}", host, port);
-    let bind_result = bind_target.to_socket_addrs()
-        .and_then(|mut iter| iter.next()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no addresses")))
-        .and_then(|addr: SocketAddr| TcpListener::bind(addr));
+    // fix-park-blocking-natives (2026-09-14): name resolution (getaddrinfo) can block for the
+    // resolver timeout ⇒ parked; the result tuple is allocated after the park ends.
+    let bind_result = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        bind_target.to_socket_addrs()
+            .and_then(|mut iter| iter.next()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no addresses")))
+            .and_then(|addr: SocketAddr| TcpListener::bind(addr))
+    };
 
     match bind_result {
         Ok(listener) => {

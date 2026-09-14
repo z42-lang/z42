@@ -449,7 +449,7 @@ public sealed class ConstraintChecker {
         if (cls == null) { return false; }              // 数组 / func / void
         if (cls.IsScalarType()) { return true; }   // 基元恒满足（同运行期）
         if (cls.IsAbstract) { return false; }
-        MethodSymbol[] ctors = cls.OverloadsOf(cls.Name());
+        MethodSymbol[] ctors = cls.InstanceCtors();   // 静态 ctor 不是可 `new` 的构造器
         bool anyDeclared = false;
         int ci = 0;
         while (ci < ctors.Length) {

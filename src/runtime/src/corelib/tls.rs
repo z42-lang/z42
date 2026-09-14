@@ -135,37 +135,40 @@ mod imp {
         };
 
         let addr = format!("{}:{}", host, port);
-        let tcp = match deadline {
-            Some(dur) => {
-                let socket_addr = match addr.to_socket_addrs().and_then(|mut it| {
-                    it.next().ok_or_else(|| std::io::Error::new(
-                        std::io::ErrorKind::AddrNotAvailable, "no addresses"))
-                }) {
-                    Ok(a) => a,
-                    Err(e) => return Ok(socket_err(ctx, format!("resolve {}: {}", addr, e))),
-                };
-                match TcpStream::connect_timeout(&socket_addr, dur) {
-                    Ok(s) => s,
-                    Err(e) => return Ok(socket_err(ctx, format!(
-                        "connect to {} (timeout {}ms): {}", addr, millis, e))),
+        // fix-park-blocking-natives (2026-09-14): DNS, the TCP connect and the handshake can
+        // each block indefinitely, so they run parked — an unparked thread stuck here stalls
+        // every collection (see `corelib/network/tcp.rs`). The park covers the blocking work
+        // only: errors come out as Rust `String`s and the result tuple is allocated after the
+        // guard drops (`gc::safepoint::debug_assert_not_native_parked`).
+        let established: std::result::Result<StreamOwned<ClientConnection, TcpStream>, String> = {
+            let _park = crate::gc::NativeParkGuard::enter(ctx);
+            let tcp = match deadline {
+                Some(dur) => addr.to_socket_addrs()
+                    .and_then(|mut it| it.next().ok_or_else(|| std::io::Error::new(
+                        std::io::ErrorKind::AddrNotAvailable, "no addresses")))
+                    .map_err(|e| format!("resolve {}: {}", addr, e))
+                    .and_then(|socket_addr| TcpStream::connect_timeout(&socket_addr, dur)
+                        .map_err(|e| format!("connect to {} (timeout {}ms): {}", addr, millis, e))),
+                None => TcpStream::connect(&addr).map_err(|e| format!("connect to {}: {}", addr, e)),
+            };
+            tcp.and_then(|tcp| {
+                // Bound the handshake itself: a half-open peer that completes the TCP
+                // SYN but never finishes the TLS exchange would otherwise hang here.
+                if let Some(dur) = deadline {
+                    let _ = tcp.set_read_timeout(Some(dur));
+                    let _ = tcp.set_write_timeout(Some(dur));
                 }
-            }
-            None => match TcpStream::connect(&addr) {
-                Ok(s) => s,
-                Err(e) => return Ok(socket_err(ctx, format!("connect to {}: {}", addr, e))),
-            },
+                let mut stream = StreamOwned::new(conn, tcp);
+                match stream.conn.complete_io(&mut stream.sock) {
+                    Ok(_) => Ok(stream),
+                    Err(e) => Err(format!("tls handshake with {}: {}", host, e)),
+                }
+            })
         };
-
-        // Bound the handshake itself: a half-open peer that completes the TCP
-        // SYN but never finishes the TLS exchange would otherwise hang here.
-        if let Some(dur) = deadline {
-            let _ = tcp.set_read_timeout(Some(dur));
-            let _ = tcp.set_write_timeout(Some(dur));
-        }
-        let mut stream = StreamOwned::new(conn, tcp);
-        if let Err(e) = stream.conn.complete_io(&mut stream.sock) {
-            return Ok(socket_err(ctx, format!("tls handshake with {}: {}", host, e)));
-        }
+        let stream = match established {
+            Ok(s) => s,
+            Err(msg) => return Ok(socket_err(ctx, msg)),
+        };
         // Clear the handshake deadline; per-call read/write timeouts (if any)
         // are applied separately by the z42 TlsClient after connect.
         if deadline.is_some() {
@@ -204,7 +207,9 @@ mod imp {
         };
 
         let mut tmp = vec![0u8; count];
-        let read_result = stream.read(&mut tmp);
+        // fix-park-blocking-natives (2026-09-14): a blocking syscall runs parked, and the
+        // park ends before any GC allocation (see `builtin_net_tls_connect`).
+        let read_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); stream.read(&mut tmp) };
 
         ctx.core.tls_sockets.lock().insert(slot_id, stream);
 
@@ -258,7 +263,12 @@ mod imp {
         };
 
         // write_all then flush — rustls buffers cleartext until flushed.
-        let write_result = stream.write_all(&tmp).and_then(|_| stream.flush()).map(|_| count);
+        // fix-park-blocking-natives (2026-09-14): a blocking syscall runs parked, and the
+        // park ends before any GC allocation (see `builtin_net_tls_connect`).
+        let write_result = {
+            let _park = crate::gc::NativeParkGuard::enter(ctx);
+            stream.write_all(&tmp).and_then(|_| stream.flush()).map(|_| count)
+        };
 
         ctx.core.tls_sockets.lock().insert(slot_id, stream);
 

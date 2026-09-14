@@ -389,12 +389,18 @@ public sealed class OverloadBinder {
     internal string _ctorKey(Z42ClassType ct, int argCount) {
         string name = ct.Name();
         string ak = name + "$" + argCount.ToString();
-        if (ct.Methods.ContainsKey(ak)) { return ak; }
+        // fix-ctor-init-silent-bugs：静态 ctor 恒全签名 mangle ⇒ 无参静态 ctor 正好注册在 `Name$0`，
+        // 只看键在不在会把它当成实例 ctor 选中。
+        int akSlot = ct.Methods.Find(ak);
+        if (akSlot >= 0) {
+            MethodSymbol akSym = ct.Methods.ValAt(akSlot) as MethodSymbol;
+            if (akSym == null || !akSym.IsStatic) { return ak; }
+        }
         // stabilize-instance-dispatch-keys：ctor 也走 primary/非-primary 键——非-primary ctor 现注册为全签名键
         // （如 `Box$2$i32$i32`），不再是老的 `Box$argCount`。上面 `Box$argCount` 查不到 → 按 argCount 在本类 ctor
         // 里找到匹配者返其 RegKey（primary 裸 / 非-primary 全键），否则回落裸名（单 ctor）。否则 `new Box(3,4)` 会
         // emit 裸 `Box` → 运行期 ObjNew 命中 primary(arity-1) ctor → 错 ctor（ctor_overload 回归）。
-        MethodSymbol[] ctors = ct.OverloadsOf(name);
+        MethodSymbol[] ctors = ct.InstanceCtors();
         int i = 0;
         while (i < ctors.Length) {
             if (ctors[i].Signature != null && ctors[i].Signature.ParamCount == argCount) { return ctors[i].RegKey; }

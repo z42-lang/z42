@@ -532,11 +532,13 @@ public sealed class DeclBinder {
         this._validateCallerMacroDefaults(env, md);
         Z42Type ret = env.ResolveType(md.RetType);
         BoundStmt body = this._tc._stmt._bindStmt(md.Body, env, ret);
-        // ctor 初始化调用：ctor + BaseArgCount > 0 → 在体首插入 call @TargetCls.CtorKey %0, ...args。
+        // ctor 初始化调用：ctor + 写了初始化子句 → 在体首插入 call @TargetCls.CtorKey %0, ...args。
         // IsThisInit → `: this(args)` 委托同类 ctor（TargetCls = curCls）；
         // 否则 → `: base(args)` 调用基类 ctor（TargetCls = baseCls）。镜像 C# FunctionEmitter
         // BoundThisCtorArgs / BoundBaseCtorArgs 两分支。
-        if (md.IsCtor && md.BaseArgCount > 0) {
+        // fix-ctor-init-silent-bugs：门曾是 `BaseArgCount > 0` ⇒ 零实参的 `: this()` / `: base()` 整条被丢
+        // （目标 ctor 不跑、零诊断）。「有没有子句」与「几个实参」是两件事，前者看 HasCtorInit。
+        if (md.IsCtor && md.HasCtorInit) {
             Z42Type thisType = env.LookupVar("this");
             if (thisType is Z42ClassType) {
                 Z42ClassType curCls = thisType as Z42ClassType;
@@ -549,8 +551,15 @@ public sealed class DeclBinder {
                     targetCls = symbols.GetClass(curCls.BaseName);
                     targetName = curCls.BaseName;
                 }
+                string bKey = "";
+                if (targetCls != null) { bKey = this._tc._overload._ctorKey(targetCls, md.BaseArgCount); }
+                // 零实参子句而目标类没有无参**实例** ctor（典型：`: base()` 指向没写 ctor 的基类）⇒ 无可调，
+                // 不发调用——`_ctorKey` 此时回落裸类名，发出去就是对不存在函数的调用。带实参的子句保持原路径。
+                if (targetCls != null && md.BaseArgCount == 0) {
+                    MethodSymbol bSym = targetCls.Methods.Get(bKey) as MethodSymbol;
+                    if (bSym == null || bSym.IsStatic) { targetCls = null; }
+                }
                 if (targetCls != null) {
-                    string bKey = this._tc._overload._ctorKey(targetCls, md.BaseArgCount);
                     BoundExpr[] callArgs = new BoundExpr[md.BaseArgCount + 1];
                     callArgs[0] = new BoundIdent("this", thisType, md.Span);
                     int ba = 0;

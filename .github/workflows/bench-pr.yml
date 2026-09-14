@@ -116,6 +116,57 @@ jobs:
           path: base-src
           fetch-depth: 0
 
+      # skip-ab-across-format-gap：base 与 PR 的 zbc/zpkg **writer 格式常量**不同 ⇒ A/B 结构上不可测。
+      #
+      # 为什么不可测（不是「慢」或「偶发」，是必然）：下面「Build base toolchain」用 **PR 的 driver**
+      # 编 base 源码，并把 PR stdlib 塞进 BASEALL 让 base driver 跑得起来 —— 而格式常量住在 z42.ir 里，
+      # 于是 base stdlib 被写成 **PR 的格式**；实测环节却用 BASEVM（base 源码建的旧格式 VM）去读它 ⇒
+      # `zpkg minor <PR> not supported (writer is at <base>)`。与 ci-bootstrap 两代自举 gen2 踩的是
+      # 同一个坑（encode-ctorless-objnew #629 / #631 实证）。此前这条门在**每一次**格式 bump 的 PR 上
+      # 都亮红、却从没产出过性能判断 —— 一道「必然红但什么都没测」的门。
+      #
+      # 处置：检测到代差就**跳过依赖 base 产物的步骤**，并用 ::warning:: + job summary 明示「本次没测」
+      # （不能静默变绿，否则读者会误以为测过且通过）。不依赖 base zpkg 的步骤照跑：判定逻辑自检
+      # （只用 PR 工具链）、Criterion A/B（纯 Rust，不读 zpkg）。
+      # 常量读不出来 ⇒ 直接失败，绝不按「无代差」放行（门必须会红）。
+      - name: Detect zbc/zpkg format gap (base vs PR)
+        id: fmtgap
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver() { # <tree-root> → "zbcMajor.zbcMinor/zpkgMajor.zpkgMinor"
+            local zf="$1/src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42"
+            local pf="$1/src/libraries/z42.ir/src/ZpkgWriter.z42"
+            local a b c d
+            a=$(grep -oE 'public static int Major = [0-9]+' "$zf" | grep -oE '[0-9]+$' || true)
+            b=$(grep -oE 'public static int Minor = [0-9]+' "$zf" | grep -oE '[0-9]+$' || true)
+            c=$(grep -oE 'public static int Major = [0-9]+' "$pf" | grep -oE '[0-9]+$' || true)
+            d=$(grep -oE 'public static int Minor = [0-9]+' "$pf" | grep -oE '[0-9]+$' || true)
+            if [ -z "$a" ] || [ -z "$b" ] || [ -z "$c" ] || [ -z "$d" ]; then
+              # stderr：ver 在 $(...) 里被调用，写 stdout 会被变量吞掉 —— 门会红，但读者看不到原因。
+              echo "::error::cannot read zbc/zpkg format constants under $1 (moved? renamed?) — refusing to guess" >&2
+              return 1
+            fi
+            echo "$a.$b/$c.$d"
+          }
+          PRV=$(ver "$PWD")
+          BASEV=$(ver "$PWD/base-src")
+          echo "format: pr=$PRV base=$BASEV"
+          if [ "$PRV" = "$BASEV" ]; then
+            echo "gap=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "gap=1" >> "$GITHUB_OUTPUT"
+            msg="zbc/zpkg format differs (pr=$PRV, base=$BASEV): base artifacts cannot be run by the base VM, so the e2e/micro A/B is SKIPPED — this PR's performance was NOT measured."
+            echo "::warning title=bench A/B skipped (format gap)::$msg"
+            {
+              echo "## ⚠️ bench A/B skipped — format gap"
+              echo
+              echo "$msg"
+              echo
+              echo "Still run: verdict-logic self-check, Criterion (Rust) A/B."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -271,6 +322,7 @@ jobs:
       # VM reuse: if the PR did not touch src/runtime, base_vm == pr_vm (byte
       # identical) → skip building base's Rust VM (the heaviest step).
       - name: Build base (merge-base) toolchain for A/B
+        if: steps.fmtgap.outputs.gap != '1'
         id: base
         shell: bash
         run: |
@@ -347,6 +399,7 @@ jobs:
           echo "base_driver=$BASEDRIVER" >> "$GITHUB_OUTPUT"
 
       - name: Same-runner A/B regression gate (>15% time fails)
+        if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
           set -euo pipefail
@@ -383,6 +436,7 @@ jobs:
       # and diff them (bench --micro-diff). Same machine ⇒ speed factor cancels in
       # ratio=pr/base; Part A's per-benchmark mean/stddev make the SEM valid.
       - name: Capture PR micro baseline (bench stdlib --json)
+        if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
           set -euo pipefail
@@ -392,6 +446,7 @@ jobs:
             bench stdlib --json "$PWD/artifacts/bench/micro-pr.json" --no-build --mode interp
 
       - name: Capture base micro baseline (base tree, same runner)
+        if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
           set -euo pipefail
@@ -429,6 +484,7 @@ jobs:
       # 就得新造一层 benchmark→文件 映射 —— 映射错了是静默少测（门禁变瞎），
       # 而整轮重采最坏只是多花时间。与 #447「排除文档而非白名单」同一条取向。
       - name: Micro A/B gate (resample-on-suspicion; >15% time fails)
+        if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
           set -euo pipefail
