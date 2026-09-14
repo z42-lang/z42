@@ -1806,7 +1806,11 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    runs-on: ubuntu-latest
+    # ubuntu-26.04, not ubuntu-latest: on the older host stack the API 37 emulator's
+    # surfaceflinger aborts ~1 min after boot (`Assertion failed:
+    # !rcEnc->featureInfo()->hasReadColorBufferDma`, issuetracker 557246813), which
+    # restarts system_server mid-install/mid-test (Broken pipe / ENOENT).
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       checks: write
