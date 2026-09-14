@@ -77,6 +77,7 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `call_arity_instance_skew` / `call_arity_sealed_skew` / `call_arity_present` | **实例方法**解析到了另一个签名（primary 裸键撞上）不再照常执行——普通类走 `VCall`、sealed 类走去虚化后的直接 `Call`；未修复时两者都输出 `label null7` | `VCall` → `resolve_vcall` 出口 + `install_ic`；`Call` → resolver 预填 / 冷路径写回 / cross-cell / JIT tier 3 → `symres::call_arity` + `wrong_arity_exception`（sret 由 `METHOD_FLAG_SRET` 精确计入） |
 | `call_arity_static_skew` | **事实守卫**：常规静态方法签名变了 ⇒ 键（全签名 mangle）也变 ⇒ 走「缺符号」抛异常，天然不受裸键撞车影响 | `MemberCollector._fillClass` 静态分支 `MangleKey` → `undefined function` |
 | `ctorless_objnew_skew` / `_present` / `_absent` | **零实参**的构造器缺失不再静默（关掉 `argc == 0` 那条缝）。`_absent` 是**过度收紧守卫**：真·零构造器跨包类不得误报 | 装配期 `CtorKnownFixup` 置 `ObjNew.ctor_known`（zbc 1.39） → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`）|
+| `ctor_init_cross_pkg` | 零实参 `: base()` 指向**依赖包**基类时照常调用（修前丢调用）；依赖包里「静态 ctor + 无参实例 ctor」的类 `new` 时仍选中实例 ctor（守卫，修前亦对） | `DeclBinder._bindMethodBody`（`HasCtorInit` 门）→ `OverloadBinder._ctorKey`（排除静态 ctor） |
 | `crosspkg_ctor_default` | **跨包构造器**省略可选实参 → 注入作者声明的默认值（此前整支缺失，读到零值） | `ConstructTyper._bindNew` → `OverloadBinder._crossPkgDefault`（`$Default` ConstBlob 解码） |
 | `missing_type_skew` | `new` 一个解析不到的类型不再合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |
 | `missing_base_skew` / `crosspkg_base_fields_main` | 基类解析不到不再静默退化成「只有自己的成员」 | 继承 fixup → `TypeDescCold::base_unmerged` → `symres::missing_base_exception`（`skew-absent.txt`） |

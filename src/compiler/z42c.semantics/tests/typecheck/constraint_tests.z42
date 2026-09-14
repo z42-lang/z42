@@ -233,6 +233,25 @@ void test_new_constraint_only_arg_ctor_violates() {
 }
 
 [Test]
+void test_new_constraint_static_ctor_not_counted() {
+    // fix-ctor-init-silent-bugs：静态 ctor 不是可零实参调用的构造器。修前 `static C()` 让只有
+    // `C(int)` 的类被判为满足 `new()`。
+    string src = "class NeedsArg { static NeedsArg() { } public NeedsArg(int x) { } }\n"
+        + "class Box<T> where T : new() { }\n"
+        + "class Use { void f() { var b = new Box<NeedsArg>(); } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_new_constraint_only_static_ctor_satisfies() {
+    // 反向：只有静态 ctor = 没有显式实例 ctor = 默认构造 ⇒ 满足。
+    string src = "class OnlyCctor { static OnlyCctor() { } }\n"
+        + "class Box<T> where T : new() { }\n"
+        + "class Use { void f() { var b = new Box<OnlyCctor>(); } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
 void test_new_constraint_all_default_params_satisfies() {
     // 形参全带默认值 → 可零实参调用 → 满足（复用 ConstructTyper 的同款判据）。
     string src = "class AllDefault { public AllDefault(int x = 1) { } }\n"
@@ -620,6 +639,47 @@ void test_ok_covariant_return_is_not_reported() {
     // 🛡 无误报守卫（裁决：协变允许）：实现返回 `Dog`、接口声明 `Animal`，Dog is-a Animal → 合法。
     Assert.Equal("", SemanticDump.FirstErrorCode(
         "class Animal { }\nclass Dog : Animal { }\ninterface IMake { Animal Make(); }\nclass C : IMake { public Dog Make() { return new Dog(); } }\n"));
+}
+
+// ── 接口成员必须 public 实现（fix-iface-satisfaction-gaps A1）──────────────────────
+//
+// 接口成员是隐式 public 契约：`private`/`internal`/`protected` 实现无法经接口静态类型调用，
+// 等同没实现（C# CS0737 同判）。此前 MangleKey 命中即放行、从不比 `Visibility` → 静默通过（真洞）。
+
+[Test]
+void test_private_interface_member_impl_is_reported() {
+    // 名+形参+种类+返回全对，唯独实现为 `private` —— 无法经 I 调用，等同没实现。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int M(); }\nclass C : I { private int M() { return 0; } }\n"));
+}
+
+[Test]
+void test_internal_interface_member_impl_is_reported() {
+    // 收窄到 `internal` 同样不满足接口的 public 契约。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int M(); }\nclass C : I { internal int M() { return 0; } }\n"));
+}
+
+[Test]
+void test_protected_interface_member_impl_is_reported() {
+    // `protected` 亦然（C# 隐式实现不接受 protected）。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int M(); }\nclass C : I { protected int M() { return 0; } }\n"));
+}
+
+[Test]
+void test_ok_public_interface_member_impl_is_not_reported() {
+    // 🛡 无误报守卫：显式 `public` 实现兑现契约。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface I { int M(); }\nclass C : I { public int M() { return 0; } }\n"));
+}
+
+[Test]
+void test_no_modifier_interface_member_defaults_private_is_reported() {
+    // 类成员**无修饰默认 private**（`SymbolCollector:385` 的 `containing != ""` → "private"，C# 惯例）
+    // ⇒ 无修饰接口实现同样不兑现 public 契约、被拦（严格口径，对齐 C# CS0535：接口实现必须显式 public）。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int M(); }\nclass C : I { int M() { return 0; } }\n"));
 }
 
 // ── base-class 约束对未解析型参不再假红（fix-iface-satisfaction-gaps #2）──────────

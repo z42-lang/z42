@@ -409,6 +409,19 @@ public sealed class InheritanceResolver {
                             + "` is " + ik + " in the interface and " + ck + " here", c.Span);
                         return;
                     }
+                    // fix-iface-satisfaction-gaps A1：接口成员是隐式 public 契约，实现方必须以 `public`
+                    // 兑现——非 public 实现无法经接口静态类型调用，等同没实现（C# CS0535/CS0737 同判）。此前
+                    // MangleKey 命中即放行、从不比 `Visibility` ⇒ `class C : I { private int M(){…} }` 静默通过
+                    // （真洞，与 static/返回同族）。⚠️ 类成员**无修饰默认 private**（`SymbolCollector:385` 的
+                    // `containing != ""` → "private"），故 `class C : I { int M(){…} }` 同样被拦——严格口径
+                    // （User 裁决 2026-09-14），接口实现必须显式 public。跨包接口已在上方 `it.IsImported` 早退
+                    // （导入侧 Visibility 同不可靠），此处只覆本包——真静默洞所在。
+                    if (cm.Visibility != "public") {
+                        this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
+                            "`" + c.Name + "` implements `" + it.Name() + "` but `" + ims.Name
+                            + "` must be implemented `public` (it is `" + cm.Visibility + "` here)", c.Span);
+                        return;
+                    }
                     // 返回类型：协变允许（impl.Ret is-a 接口声明的 Ret）。Unknown/Error（含导入未解析返回）
                     // 吸收放行；精确名相等放行；类**子类** / 接口**实现**均算兼容。⚠️ `IsAssignableTo` 不带
                     // 符号表、认不了子类关系，必须用 `table.IsSubclassOf` / `table.Implements`（同 _satisfiesBase）。

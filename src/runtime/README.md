@@ -11,6 +11,8 @@
 |------|------|
 | `src/main.rs` | CLI 入口，加载产物并交给 `Vm` 执行 |
 | `src/vm.rs` | `Vm` 结构体：持有 `Module`，按 `ExecMode` 分发到 interp/jit/aot |
+| `src/app.rs` | `app::run`：加载 `.zbc`/`.zpkg` + 合并依赖 + 执行入口（z42vm / `z42_run_app` / wasm `runTestApp` 共用）|
+| `src/boot.rs` | 合并后的启动步骤（`boot_context` / `prepare_execution`），`app::run` 与宿主 API（`host/ops.rs`）共用，防两条路径分叉（fix-host-static-init）|
 | `src/lib.rs` | 库入口，re-export 公开 API |
 | `src/config.rs` + `src/config/` | `RuntimeConfig`（每个 `Z42_*` 旋钮的单一登记处；refactor-split-config 后：hub 留本体 / Default / from_env / toml 加载 / 全局单例，`config/knobs.rs` 旋钮表 `KNOWN_KNOBS`，`config/parse.rs` 各 `parse_*`；单测在 `config_tests.rs`）|
 | `src/aot.rs` | AOT 后端桩（未实现） |

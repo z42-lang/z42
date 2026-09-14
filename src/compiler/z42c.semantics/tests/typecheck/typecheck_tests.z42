@@ -180,6 +180,15 @@ void test_error_ctor_too_few_args() {
 }
 
 [Test]
+void test_error_ctor_too_few_args_static_ctor_not_counted() {
+    // fix-ctor-init-silent-bugs：静态 ctor 不是可 `new` 的构造器。修前它被算作「接受 0 实参」⇒
+    // 只有 `C(int)` 时 `new C()` 零诊断、静默零初始化（去掉静态 ctor 就会报）。
+    string src = "class C { int x; static C() { } C(int a) { this.x = a; } void M() { var c = new C(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0426", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
 void test_ctor_correct_arity_ok() {
     // 精确匹配 → 无 E0426
     string src = "class C { int x; C(int a) { this.x = a; } void M() { var c = new C(5); } }";

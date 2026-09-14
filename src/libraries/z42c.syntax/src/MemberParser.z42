@@ -397,6 +397,7 @@ public sealed class MemberParser {
         Expr[] baseArgs = new Expr[0];
         int baseArgCount = 0;
         bool isThisInit = false;
+        bool hasCtorInit = false;
         if (isCtor && this._p._peek().Kind == TokenKind.Colon) {
             this._p._advance();   // :
             if (this._p._peek().Kind == TokenKind.Identifier) {
@@ -421,6 +422,7 @@ public sealed class MemberParser {
                 }
                 this._p._expect(TokenKind.RParen, ")");
                 baseArgs = ba; baseArgCount = ban;
+                hasCtorInit = true;
             }
         }
         bool hasBody = false;
@@ -434,6 +436,7 @@ public sealed class MemberParser {
         }
         else { this._p._expectSemi(); }
         MethodDecl md = new MethodDecl(mods, isFree, isCtor, retType, name, typeParams, wl.Items, wl.Count, pl.Items, pl.Count, hasBody, body, baseArgs, baseArgCount, isThisInit, sp);
+        md.HasCtorInit = hasCtorInit;
         md.IsPartial = this._p._declP._modsHas(mods, "partial");   // add-partial-types：声明侧 HasBody=false / 实现侧 HasBody=true
         return md;
     }
