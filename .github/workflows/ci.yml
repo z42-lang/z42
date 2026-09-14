@@ -1869,7 +1869,8 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-api37.0-x86_64-google_apis
+          # disk-size is baked into the cached AVD → it is part of the key.
+          key: avd-api37.0-x86_64-google_apis-disk8g
       - name: Create AVD snapshot (cache miss)
         if: steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
@@ -1878,6 +1879,10 @@ jobs:
           arch: x86_64
           target: google_apis
           force-avd-creation: false
+          # The default userdata partition is too small for the androidTest APK with the
+          # embedded corpus: `Requested internal only, but not enough space` on install.
+          # Must match the test run below (same AVD).
+          disk-size: 8G
           # fix-android-embed-oom: -memory 4096 (default ~2GB was OOM'd by the
           # embedded corpus). Must match the test run below for snapshot consistency.
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
@@ -1892,38 +1897,14 @@ jobs:
           working-directory: src/toolchain/workload/android/platform
           # ci-perf-tier2: AVD snapshot (load cached, don't re-save).
           force-avd-creation: false
+          disk-size: 8G   # matches the snapshot-create run (APK install needs the room)
           # fix-android-embed-oom: -memory 4096 (matches the snapshot-create run).
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: true
-          # diagnose-mobile-wasm-embed (#159): the embedded corpus can crash the app
-          # process natively ("Instrumentation run failed due to Process crashed")
-          # — the cause lives in logcat/tombstones, not the JUnit XML. A post-crash
-          # `adb logcat -d` returns nothing (buffer gone). Capture logcat
-          # CONTINUOUSLY in the background so the SIGSEGV/abort + z42vm native
-          # frames land on disk as they happen, and `tail` it INLINE into the job
-          # log so the cause is visible even if the artifact upload path misses.
-          # z42b-device-run PR-3: the emulator RUN 下沉 z42b's android driver — `test
-          # embedded --rid android-x64 --run` spawns `./gradlew :z42vm:connectedAndroidTest`
-          # (ONE emulator run = R1–R7 + embedded corpus), gradle writes its own junit
-          # to the path the reporter below reads. reactivecircus still supplies the
-          # emulator (design D2 asymmetry); z42b only triggers gradle. `_root()` uses
-          # `git rev-parse` so xtask resolves the repo root regardless of cwd.
-          script: |
-            set +e
-            vm="$GITHUB_WORKSPACE/artifacts/build/runtime/release/z42vm"
-            libs="$GITHUB_WORKSPACE/artifacts/build/libraries/dist/release"
-            adb logcat -c || true
-            adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
-            LOGCAT_PID=$!
-            Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" "$GITHUB_WORKSPACE/artifacts/xtask/xtask.zpkg" -- test embedded --rid android-x64 --run
-            rc=$?
-            sleep 3
-            kill "$LOGCAT_PID" 2>/dev/null || true
-            adb pull /data/tombstones "$GITHUB_WORKSPACE/android-tombstones" 2>/dev/null || true
-            echo "===== android-embed-logcat.txt (tail 120, inline) ====="
-            tail -120 "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>/dev/null || echo "(no logcat captured)"
-            echo "===== end logcat tail ====="
-            exit $rc
+          # Must stay ONE line: the runner executes each `script:` line in a separate
+          # `sh -c`, so the multi-line body (logcat capture + z42b run + tombstones)
+          # lives in .github/scripts/android-emulator-test.sh.
+          script: bash "$GITHUB_WORKSPACE/.github/scripts/android-emulator-test.sh"
       - name: Upload Android logcat + tombstones (crash diagnostics)
         if: always()
         uses: actions/upload-artifact@v7
