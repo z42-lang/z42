@@ -23,16 +23,27 @@
 - [x] 1/6 z42 writer 常量 1.40 / 0.45；2/7 Rust reader 常量 + changelog 注释；**钉值单测**（上次补进清单的那一步）
 - [x] 3/8 `zbc.md` / `zpkg.md` changelog；版本常量表
 - [x] 5 golden hex 单测 header minor 0x27→0x28（语料无 sret 函数）
-- [ ] 4 regen zbc-format fixture ×6 —— 需 CI 新格式工具链
-- [ ] 9 regen zpkg-format fixture ×4 —— 需 CI 新格式工具链
+- [x] 4 regen zbc-format fixture ×6 —— 需 CI 新格式工具链
+- [x] 9 regen zpkg-format fixture ×4 —— 需 CI 新格式工具链
 
 ## 门
 - [x] `symres_tests.rs`：7 条 `call_arity` 单测（含 sret 位、下界不读 min_arg、params 无上界）
 - [x] 0.44 本地：cross-zpkg interp/jit 各 49/49（含两条 skew 修复后通过）；全量 `cargo test` 1370/0
 - [x] **xtask 跑在新 VM 上**复刻 CI（`Z42_PORTABLE_VM`，0.44 临时常量）：构建三轮全过、完整测试仅剩 z42c 单测 2 条（已修 → 24/24）、JIT e2e 49/49、cargo 1374/0
 - [x] 已知 flake `concurrency-null-thread-flake`：`z42.net` threaded 用例在本分支单跑 11/12，失败栈与 main 上历史复现逐帧一致；arity 判定命中 0
-- [ ] 0.45：CI 工具链 overlay → fixture 重生 → 完整 `xtask test` + 自举不动点 + 全量 `cargo test` + cross-zpkg 两后端
+- [x] 0.45：CI 工具链 overlay → fixture 重生 → 完整 `xtask test` + 自举不动点 + 全量 `cargo test` + cross-zpkg 两后端
 
 ## 收尾
 - [x] book `runtime/missing-symbol-resolution.md`「签名对不上」一节重写；cross-zpkg README 登记
-- [ ] 归档随 PR；登记编译器缺诊断（普通调用实参不足不报错）
+- [x] 归档随 PR；登记编译器缺诊断（普通调用实参不足不报错）
+
+## 最终验证（0.45，冷构建，xtask 跑在新 VM 上）
+- CI `compile-toolchain`（macOS + linux）两代自举通过 → 下载 `toolchain-macos-15` overlay
+- zbc-format ×6、zpkg-format ×4（+ indexed 散装 zbc）重生到 1.40 / 0.45；`empty` 基线 == golden hex
+- 冷构建（`rm -rf src/compiler/*/dist src/tests/z42b/*/artifacts`）后完整 `xtask test`：**✅ GREEN**，自举不动点 3/3，arity 命中 0
+- cross-zpkg jit 50/50；全量 `cargo test` 15 目标 1374/0
+
+## 登记的发现（不在本 change）
+1. **z42c：普通调用实参个数不校验**（过少 / 过多均放行，同文件也放行；构造器有 E0426）——本 change 已拦下 z42b、z42c 单测两处
+2. **z42c：自由函数重复定义只查单文件**（`DeclBinder._checkDuplicateFreeFunctions`）——拦下 xtask `_driverZpkg`
+3. **z42b：dev-target 父包同置副本只在缺失时拷贝**（`builder_test.z42:236 if (!File.Exists(dstp))`）⇒ 父包改后测试一直跑旧版父包；格式 bump 后表现为类型缺失假红
