@@ -86,3 +86,17 @@ fn record_contention<G>(ctx: &VmContext, acquire: impl FnOnce() -> G) -> G {
     ctx.core.lock_wait_us.fetch_add(t.elapsed().as_micros() as u64, Relaxed);
     g
 }
+
+/// store-sync-values-in-heap：`Monitor::enter` 的慢路径（已确认争用）走这里。
+/// `profile-contention` 下计一次争用并计时整段阻塞；默认构建直接调用、零开销。
+/// 用户锁（`Mutex` / `RwLock`）现在都经 Monitor，探针口径与旧的 `contended_*` 一致。
+#[cfg(feature = "profile-contention")]
+pub(super) fn monitor_contended<R>(ctx: &VmContext, block: impl FnOnce() -> R) -> R {
+    record_contention(ctx, block)
+}
+
+#[cfg(not(feature = "profile-contention"))]
+#[inline(always)]
+pub(super) fn monitor_contended<R>(_ctx: &VmContext, block: impl FnOnce() -> R) -> R {
+    block()
+}

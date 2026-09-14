@@ -48,6 +48,20 @@ fn test_something() { ... }
 - `Value` 枚举是运行时动态类型，所有算术操作前必须匹配类型一致性
 - 类型不匹配时 `bail!` 而不是静默转换
 
+### 原生层不得在根集之外持有 `Value`（2026-09-14）
+
+**GC 只看得见帧寄存器、static 字段、几个 arena 和 pinned roots。** 把 `Value` 放进任何其它 Rust 侧容器
+（`Vec` / `HashMap` / mpsc 队列 / `parking_lot` 锁 / 线程闭包里的局部变量……），它就**没有根**——
+只要那一刻没有别的 z42 引用，下一次回收就会收掉它，之后读到 `Null` 或别的对象。已出过两次：
+
+- #617：`Thread.Start` 捕获的环境从 spawn 到进入 worker 帧之间只在 Rust 局部变量里；
+- store-sync-values-in-heap：`Mutex` / `RwLock` / `Channel` 的值存在 Rust 侧容器里。
+
+**首选：让值成为 z42 对象的字段**，原生层只提供机制（参照 `corelib/monitor.rs`）——追踪、写屏障、
+随拥有者回收全都免费。**确实只能暂存**（跨线程移交这类短窗口）时，用 `pin_root` + RAII 守卫 unpin
+（参照 `threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。
+机制与反例见 [sync-primitives.md](../../docs/book/src/runtime/sync-primitives.md)。
+
 ## 执行模式
 
 - `ExecMode` 决定函数级别的分发路径

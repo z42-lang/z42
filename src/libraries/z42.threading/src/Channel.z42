@@ -2,89 +2,215 @@ namespace Std.Threading;
 
 using Std;
 
-// 2026-05-20 add-sync-primitives: unidirectional unbounded MPSC channel.
+// 2026-05-20 add-sync-primitives: multi-producer / multi-consumer FIFO channel.
 //
-// Wraps `std::sync::mpsc::channel()` on the Rust side. Multiple producer
-// threads can `Send`; receivers serialise via an internal Mutex (mpsc
-// `Receiver` is `Send` but `!Sync`). When all senders close (`Close()`)
-// AND the queue is drained, subsequent `Recv()` raises
-// `Std.ChannelDisconnectedException`.
+// When the channel is closed (`Close()`) AND the queue is drained, subsequent
+// `Recv()` raises `Std.ChannelDisconnectedException`.
 //
 // Usage:
 //   var c = new Channel<long>();
 //   Thread.Start(() => { c.Send(42); c.Close(); });
 //   long v = c.Recv();  // 42
 //
-// Capacity is unbounded in v0 (`add-sync-primitives-future-bounded-channel`
-// will add an overload).
+// store-sync-values-in-heap (2026-09-14): written in z42 on top of `MonitorNative`.
+// The queue is `_buf`, an ordinary ring-buffer field — every queued value is
+// GC-visible. (The previous implementation queued values in a Rust-side mpsc
+// channel that no GC root covered, so a value in flight between two threads
+// was collected.) Every operation below holds the monitor only for O(1) work;
+// blocking is always `while (!condition) MonitorNative.Wait(_mon)`.
 public class Channel<T> {
-    private long _slot;
+    private object _mon;
+    private T[] _buf;          // ring buffer; live items are _buf[(_head + i) % _buf.Length], i < _count
+    private int _head;
+    private int _count;
+    private int _cap;          // -1 = unbounded; > 0 = bounded; 0 = rendezvous
+    private bool _closed;
+    private long _sent;        // items ever enqueued
+    private long _taken;       // items ever dequeued (rendezvous senders wait for theirs)
+    private int _recvWaiting;  // receivers blocked in Recv (rendezvous TrySend hands off only to one)
 
     // Unbounded constructor (default). The queue grows without limit;
     // for back-pressure use the `int capacity` overload instead.
     public Channel() {
-        this._slot = ChannelNative.New();
+        this._init(-1, 16);
     }
 
     // 2026-05-20 add-sync-primitives-bounded-channel: bounded constructor.
     // `Send` blocks the caller when the queue contains `capacity` values
     // until a `Recv` makes room (back-pressure). When `capacity == 0` you
-    // get a rendezvous channel — every `Send` blocks until paired with a
-    // `Recv` on another thread.
+    // get a rendezvous channel — every `Send` blocks until its value has been
+    // taken by a `Recv` on another thread.
     public Channel(int capacity) {
-        this._slot = ChannelNative.NewBounded((long)capacity);
+        if (capacity < 0) {
+            throw new ArgumentException("Channel: capacity must be >= 0, got " + capacity.ToString());
+        }
+        int slots = capacity;
+        if (slots == 0) { slots = 1; }
+        this._init(capacity, slots);
     }
 
-    // Send `v` on the channel. Throws if the channel was previously closed.
+    private void _init(int cap, int slots) {
+        this._mon = MonitorNative.New();
+        this._buf = new T[slots];
+        this._head = 0;
+        this._count = 0;
+        this._cap = cap;
+        this._closed = false;
+        this._sent = 0;
+        this._taken = 0;
+        this._recvWaiting = 0;
+    }
+
+    // Send `v` on the channel. Blocks while a bounded channel is full, and a
+    // rendezvous send blocks until `v` has been received. Throws
+    // ChannelDisconnectedException if the channel is (or becomes, while
+    // waiting for room) closed.
     public void Send(T v) {
-        ChannelNative.Send(this._slot, v);
+        MonitorNative.Enter(this._mon);
+        try {
+            if (this._closed) {
+                throw new ChannelDisconnectedException("channel closed");
+            }
+            while (this._isFull()) {
+                MonitorNative.Wait(this._mon);
+                if (this._closed) {
+                    throw new ChannelDisconnectedException("channel closed");
+                }
+            }
+            long mine = this._enqueue(v);
+            if (this._cap == 0) {
+                while (this._taken < mine) {
+                    MonitorNative.Wait(this._mon);
+                }
+            }
+        } finally {
+            MonitorNative.Exit(this._mon);
+        }
     }
 
     // Block until a value is available. Throws ChannelDisconnectedException
-    // when all senders have closed AND the queue is empty.
+    // when the channel is closed AND the queue is empty.
     public T Recv() {
-        object[] result = ChannelNative.Recv(this._slot);
-        long kind = (long)result[0];
-        if (kind == 2) {
-            throw new ChannelDisconnectedException("channel disconnected");
+        T v;
+        MonitorNative.Enter(this._mon);
+        try {
+            this._recvWaiting = this._recvWaiting + 1;
+            try {
+                while (this._count == 0 && !this._closed) {
+                    MonitorNative.Wait(this._mon);
+                }
+            } finally {
+                this._recvWaiting = this._recvWaiting - 1;
+            }
+            if (this._count == 0) {
+                throw new ChannelDisconnectedException("channel disconnected");
+            }
+            v = this._dequeue();
+        } finally {
+            MonitorNative.Exit(this._mon);
         }
-        // kind == 0 — ok; index 1 holds the value.
-        return (T)result[1];
+        return v;
     }
 
     // Non-blocking. Returns a 1- or 2-element discriminated array:
     //   [0, value]  → ok
     //   [1]         → empty (no value pending; not disconnected)
-    //   [2]         → disconnected (all senders closed AND queue empty)
+    //   [2]         → disconnected (closed AND queue empty)
     //
     // Returning the raw discriminator lets callers distinguish "empty"
     // from "disconnected" without exceptions — useful for polling.
     public object[] TryRecv() {
-        return (object[])ChannelNative.TryRecv(this._slot);
+        object[] result;
+        MonitorNative.Enter(this._mon);
+        try {
+            if (this._count > 0) {
+                result = new object[2];
+                result[0] = (long)0;
+                result[1] = this._dequeue();
+            } else if (this._closed) {
+                result = new object[1];
+                result[0] = (long)2;
+            } else {
+                result = new object[1];
+                result[0] = (long)1;
+            }
+        } finally {
+            MonitorNative.Exit(this._mon);
+        }
+        return result;
     }
 
-    // Drop the sender half. Any subsequent Send throws; pending values
-    // already in the queue remain receivable until drained; after that
-    // Recv throws ChannelDisconnectedException.
+    // Close the channel. Any subsequent Send throws; values already in the
+    // queue remain receivable until drained; after that Recv throws
+    // ChannelDisconnectedException. Wakes every blocked Send / Recv.
     public void Close() {
-        ChannelNative.Close(this._slot);
+        MonitorNative.Enter(this._mon);
+        try {
+            this._closed = true;
+        } finally {
+            MonitorNative.Exit(this._mon);
+        }
     }
 
     // 2026-05-20 add-sync-primitives-try-variants: non-blocking Send.
-    // Returns true on success; false if the bounded buffer is full OR
-    // the channel was previously closed. Unbounded channels return true
-    // unless closed (the queue never fills). Does NOT throw — caller
-    // checks the bool and reacts (poll loop, work-stealing, drop, etc.).
+    // Returns true on success; false if the bounded buffer is full OR the
+    // channel was previously closed. Unbounded channels return true unless
+    // closed. A rendezvous channel succeeds only when a receiver is already
+    // blocked in Recv to take the value. Does NOT throw.
     public bool TrySend(T v) {
-        long kind = ChannelNative.TrySend(this._slot, v);
-        return kind == 0;
+        bool ok = false;
+        MonitorNative.Enter(this._mon);
+        try {
+            if (!this._closed && !this._isFull()) {
+                if (this._cap != 0 || this._recvWaiting > this._count) {
+                    this._enqueue(v);
+                    ok = true;
+                }
+            }
+        } finally {
+            MonitorNative.Exit(this._mon);
+        }
+        return ok;
     }
 
-    // Internal slot id — for diagnostics only.
-    public long SlotId() {
-        return this._slot;
+    // ── internals: caller holds the monitor ──────────────────────────────────
+
+    private bool _isFull() {
+        if (this._cap < 0) { return false; }
+        return this._count >= this._buf.Length;
+    }
+
+    // Enqueue `v` (growing an unbounded buffer if needed). Returns its 1-based
+    // sequence number.
+    private long _enqueue(T v) {
+        if (this._count == this._buf.Length) {
+            this._grow();
+        }
+        int tail = (this._head + this._count) % this._buf.Length;
+        this._buf[tail] = v;
+        this._count = this._count + 1;
+        this._sent = this._sent + 1;
+        return this._sent;
+    }
+
+    private T _dequeue() {
+        T v = this._buf[this._head];
+        // Clear the slot so a dequeued value is not kept alive by the buffer.
+        this._buf[this._head] = default(T);
+        this._head = (this._head + 1) % this._buf.Length;
+        this._count = this._count - 1;
+        this._taken = this._taken + 1;
+        return v;
+    }
+
+    private void _grow() {
+        T[] bigger = new T[this._buf.Length * 2];
+        int i = 0;
+        while (i < this._count) {
+            bigger[i] = this._buf[(this._head + i) % this._buf.Length];
+            i = i + 1;
+        }
+        this._buf = bigger;
+        this._head = 0;
     }
 }
-
-// ChannelNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
-// 见 organization.md「native 语义层 → core」（2026-08-27）。

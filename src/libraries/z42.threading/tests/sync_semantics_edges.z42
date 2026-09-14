@@ -1,0 +1,223 @@
+// store-sync-values-in-heap：Mutex / RwLock / Channel 改由 z42 写在 Monitor 之上后的边界语义。
+//
+// 两类用例：
+//   - **行为修正**：同线程重入原先是永久自死锁、关闭后 Send 原先抛泛型 Exception —— 现在都有明确的异常；
+//   - **原先没有测试的语义**：容量 0 会合、无界缓冲扩容跨越环形回绕仍保序、跨线程在 GC 压力下传对象、
+//     多个消费者同时阻塞在空队列上被 Close 放出（不空转、不挂住）。
+//
+// 跨线程观测一律走静态字段（closure §4.1：lambda 捕获的是值快照）。
+namespace Z42ThreadingSyncSemanticsEdgesTests;
+
+using Std;
+using Std.Test;
+using Std.Threading;
+
+public class Item {
+    public long Seq;
+    public string Tag;
+}
+
+public static class Obs {
+    public static long Flag;
+    public static long Count;
+    public static bool Caught;
+    public static Channel<Item> Items;
+    public static Channel<long> Longs;
+}
+
+// ── 同线程重入：抛异常，不死锁 ─────────────────────────────────────────────────
+
+[Test]
+void test_mutex_reentrant_lock_throws_and_outer_still_commits() {
+    var m = new Mutex<long>(1);
+    Obs.Caught = false;
+    m.Lock((long v) => {
+        try {
+            m.Lock((long w) => w + 100);
+        } catch (Exception e) {
+            Obs.Caught = true;
+        }
+        return v + 1;
+    });
+    Assert.True(Obs.Caught);
+    Obs.Flag = -1;
+    m.Lock((long v) => { Obs.Flag = v; return v; });
+    Assert.Equal((long)2, Obs.Flag);   // 外层写回生效，内层没有
+}
+
+[Test]
+void test_rwlock_write_inside_write_throws() {
+    var l = new RwLock<long>(5);
+    Obs.Caught = false;
+    l.Write((long v) => {
+        try {
+            l.Write((long w) => w + 100);
+        } catch (Exception e) {
+            Obs.Caught = true;
+        }
+        return v + 1;
+    });
+    Assert.True(Obs.Caught);
+    Obs.Flag = -1;
+    l.Read((long v) => { Obs.Flag = v; });
+    Assert.Equal((long)6, Obs.Flag);
+}
+
+[Test]
+void test_rwlock_read_inside_write_throws() {
+    var l = new RwLock<long>(5);
+    Obs.Caught = false;
+    l.Write((long v) => {
+        try {
+            l.Read((long w) => { Obs.Flag = w; });
+        } catch (Exception e) {
+            Obs.Caught = true;
+        }
+        return v;
+    });
+    Assert.True(Obs.Caught);
+}
+
+// ── Channel：关闭后 Send ────────────────────────────────────────────────────
+
+[Test]
+void test_send_after_close_throws_channel_disconnected() {
+    var c = new Channel<long>();
+    c.Close();
+    bool caught = false;
+    try {
+        c.Send(1);
+    } catch (ChannelDisconnectedException e) {
+        caught = true;
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_negative_capacity_throws() {
+    bool caught = false;
+    try {
+        var c = new Channel<long>(-1);
+    } catch (ArgumentException e) {
+        caught = true;
+    }
+    Assert.True(caught);
+}
+
+// ── Channel：容量 0 会合 ────────────────────────────────────────────────────
+
+[Test]
+void test_rendezvous_send_blocks_until_received() {
+    Obs.Longs = new Channel<long>(0);
+    Obs.Flag = 0;
+    Thread sender = Thread.Start(() => {
+        Obs.Longs.Send((long)42);
+        Obs.Flag = 1;                 // 只有被取走之后才走到这里
+    });
+    Thread.Sleep(80);
+    Assert.Equal((long)0, Obs.Flag);  // 没有接收者 ⇒ Send 仍阻塞
+    Assert.Equal((long)42, Obs.Longs.Recv());
+    sender.Join();
+    Assert.Equal((long)1, Obs.Flag);
+}
+
+[Test]
+void test_rendezvous_try_send_without_receiver_fails() {
+    var c = new Channel<long>(0);
+    Assert.True(!c.TrySend(7));
+    object[] r = c.TryRecv();
+    Assert.Equal((long)1, (long)r[0]);   // 没有被偷偷塞进缓冲区
+}
+
+// ── Channel：无界扩容跨越环形回绕仍保序 ────────────────────────────────────────
+
+[Test]
+void test_unbounded_growth_across_wraparound_preserves_order() {
+    var c = new Channel<long>();
+    long next = 0;
+    long expect = 0;
+    int i = 0;
+    while (i < 10) { c.Send(next); next = next + 1; i = i + 1; }
+    i = 0;
+    while (i < 7) { Assert.Equal(expect, c.Recv()); expect = expect + 1; i = i + 1; }
+    // 此刻 head 已前移，再塞 100 个 ⇒ 在回绕状态下多次扩容。
+    i = 0;
+    while (i < 100) { c.Send(next); next = next + 1; i = i + 1; }
+    while (expect < next) { Assert.Equal(expect, c.Recv()); expect = expect + 1; }
+    object[] r = c.TryRecv();
+    Assert.Equal((long)1, (long)r[0]);
+}
+
+// ── 跨线程在 GC 压力下传对象 ───────────────────────────────────────────────────
+
+void churn(int n) {
+    int k = 0;
+    while (k < n) {
+        var junk = new Item();
+        junk.Seq = -1;
+        junk.Tag = "junk" + k.ToString();
+        k = k + 1;
+    }
+}
+
+[Test]
+void test_cross_thread_objects_survive_gc_pressure() {
+    Obs.Items = new Channel<Item>(8);
+    Obs.Count = 0;
+    Thread producer = Thread.Start(() => {
+        long s = 0;
+        while (s < 300) {
+            var it = new Item();
+            it.Seq = s;
+            it.Tag = "item" + s.ToString();
+            Obs.Items.Send(it);
+            churn(200);
+            s = s + 1;
+        }
+        Obs.Items.Close();
+    });
+    long expect = 0;
+    bool done = false;
+    while (!done) {
+        try {
+            Item got = Obs.Items.Recv();
+            Assert.Equal(expect, got.Seq);
+            Assert.Equal("item" + expect.ToString(), got.Tag);
+            expect = expect + 1;
+            churn(150);
+        } catch (ChannelDisconnectedException e) {
+            done = true;
+        }
+    }
+    producer.Join();
+    Assert.Equal((long)300, expect);
+}
+
+// ── 多个消费者阻塞在空队列上，被 Close 放出 ────────────────────────────────────
+
+[Test]
+void test_close_releases_all_blocked_receivers() {
+    Obs.Longs = new Channel<long>();
+    Obs.Count = 0;
+    Thread[] rs = new Thread[3];
+    int i = 0;
+    while (i < 3) {
+        rs[i] = Thread.Start(() => {
+            try {
+                Obs.Longs.Recv();
+            } catch (ChannelDisconnectedException e) {
+                // 期望路径：被 Close 放出。没被放出 ⇒ 下面的 Join 挂住 ⇒ gate 超时。
+            }
+        });
+        i = i + 1;
+    }
+    Thread.Sleep(50);
+    Obs.Longs.Close();
+    int j = 0;
+    while (j < 3) {
+        rs[j].Join();
+        j = j + 1;
+    }
+    object[] r = Obs.Longs.TryRecv();
+    Assert.Equal((long)2, (long)r[0]);   // 已关闭且空
+}

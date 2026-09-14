@@ -1,9 +1,9 @@
-// 执行基座 native 语义层：线程 / 互斥 / 读写锁 / 通道原语。
+// 执行基座 native 语义层：线程原语 + 同步原语的底座 Monitor。
 //
 // 归属规则见 docs/design/stdlib/organization.md「native 语义层 → core，应用层 →
 // 纯脚本能力库」（2026-08-27）：io/net/threading 的 native 语义层并入 core（单一可审计
 // native ABI 面），高层 API（Std.Threading.Thread / Mutex<T> / RwLock<T> / Channel<T>）
-// 留在 z42.threading 转纯脚本、调这里的 *Native 原语。命名空间保持 Std.Threading 不变，
+// 留在 z42.threading 转纯脚本、调这里的 *Native 原语（Mutex / RwLock / Channel 只用 MonitorNative）。命名空间保持 Std.Threading 不变，
 // 故 z42.threading 里的调用点无需改动。
 //
 // native 实现镜像 src/runtime/src/corelib/threading.rs；符号按名在调用期解析，
@@ -23,68 +23,21 @@ public static class ThreadNative {
     public static extern object[] Join(long slotId);
 }
 
-// __mutex_*（Mutex<T> 应用层用）。
-public static class MutexNative {
-    [Native("__mutex_new")]
-    public static extern long New(object initial);
-
-    [Native("__mutex_lock_acquire")]
-    public static extern object LockAcquire(long slotId);
-
-    [Native("__mutex_store")]
-    public static extern object Store(long slotId, object newValue);
-
-    [Native("__mutex_unlock")]
-    public static extern object Unlock(long slotId);
-}
-
-// __rwlock_*（RwLock<T> 应用层用）。
-public static class RwLockNative {
-    [Native("__rwlock_new")]
-    public static extern long New(object initial);
-
-    [Native("__rwlock_read_acquire")]
-    public static extern object ReadAcquire(long slotId);
-
-    [Native("__rwlock_read_release")]
-    public static extern object ReadRelease(long slotId);
-
-    [Native("__rwlock_write_acquire")]
-    public static extern object WriteAcquire(long slotId);
-
-    [Native("__rwlock_write_store")]
-    public static extern object WriteStore(long slotId, object newValue);
-
-    [Native("__rwlock_write_release")]
-    public static extern object WriteRelease(long slotId);
-
-    [Native("__rwlock_try_read")]
-    public static extern object[] TryRead(long slotId);
-
-    [Native("__rwlock_try_write")]
-    public static extern object[] TryWrite(long slotId);
-}
-
-// __channel_*（Channel<T> 应用层用）。
-public static class ChannelNative {
-    [Native("__channel_new")]
-    public static extern long New();
-
-    [Native("__channel_new_bounded")]
-    public static extern long NewBounded(long capacity);
-
-    [Native("__channel_send")]
-    public static extern object Send(long slotId, object value);
-
-    [Native("__channel_recv")]
-    public static extern object[] Recv(long slotId);
-
-    [Native("__channel_try_recv")]
-    public static extern object[] TryRecv(long slotId);
-
-    [Native("__channel_close")]
-    public static extern object Close(long slotId);
-
-    [Native("__channel_try_send")]
-    public static extern long TrySend(long slotId, object value);
+// store-sync-values-in-heap（2026-09-14）：Mutex / RwLock / Channel 的唯一原生底座。
+// **原生层不持有任何值**——值是 z42 字段（GC 可见），这里只提供同步。旧的 MutexNative /
+// RwLockNative / ChannelNative 把值存进 Rust 侧容器、GC 看不见，已删除。
+// 语义：Enter 阻塞且同线程重入抛异常；TryEnter 不阻塞（被任何线程持有即 false）；
+// Exit 非持有者抛异常；Wait 原子地释放 → 等一次 Exit 的信号 → 重新持有，**允许伪唤醒**，
+// 调用方必须 `while (!条件) Wait(m)`。机制见 docs/book/src/runtime/sync-primitives.md。
+public static class MonitorNative {
+    [Native("__monitor_new")]
+    public static extern object New();
+    [Native("__monitor_enter")]
+    public static extern void Enter(object monitor);
+    [Native("__monitor_try_enter")]
+    public static extern bool TryEnter(object monitor);
+    [Native("__monitor_exit")]
+    public static extern void Exit(object monitor);
+    [Native("__monitor_wait")]
+    public static extern void Wait(object monitor);
 }

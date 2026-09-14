@@ -1,0 +1,179 @@
+// store-sync-values-in-heap：同步原语持有的值必须对 GC 可达。
+//
+// 缺陷形状（修复前）：`Channel` / `Mutex` / `RwLock` 把值存进 Rust 侧的 mpsc 队列 / parking_lot
+// 锁里，GC 的根扫描器看不见 ⇒ 值一旦**只被原语持有**，一次回收就被收掉，之后读到 `null`
+// 或者**别的对象**（槽位被复用）。debug VM 直接 panic `use-after-finalize`。
+//
+// 用例全部单线程、确定性：让值只剩原语一个持有者 → 大量分配覆盖旧块 → 强制回收 → 再分配 →
+// 读回来逐字段比对。
+//
+// ⚠️ 两个容易让用例「碰巧绿」的点，都已规避：
+//   ① 值必须**不在任何寄存器里**。在调用方直接 `new Mutex<Box>(mk(7))` 时，`mk(7)` 的临时寄存器
+//      会一直留在帧里把对象保活——所以建锁一律放进只返回锁的辅助函数。
+//   ② 必须**真的分配**到让回收有东西可收、让空出来的槽位被复用（`churn`）。
+namespace Z42ThreadingGcSyncValuesRootedTests;
+
+using Std;
+using Std.Test;
+using Std.Threading;
+
+public class Box {
+    public long Value;
+    public string Name;
+}
+
+Box mk(long v) {
+    var b = new Box();
+    b.Value = v;
+    b.Name = "box" + v.ToString();
+    return b;
+}
+
+void churn(long tag) {
+    int k = 0;
+    while (k < 20000) {
+        var junk = new Box();
+        junk.Value = tag;
+        junk.Name = "junk" + k.ToString();
+        k = k + 1;
+    }
+}
+
+void collectHard() {
+    churn(-1);
+    GC.ForceCollect();
+    churn(-2);
+}
+
+void assertBox(Box b, long v) {
+    Assert.Equal(v, b.Value);
+    Assert.Equal("box" + v.ToString(), b.Name);
+}
+
+public static class Seen {
+    public static Box Got;
+}
+
+// ── Channel ─────────────────────────────────────────────────────────────────
+
+Channel<Box> fillChannel(int n) {
+    var ch = new Channel<Box>(16);
+    int i = 0;
+    while (i < n) {
+        ch.Send(mk((long)(1000 + i)));
+        i = i + 1;
+    }
+    return ch;
+}
+
+[Test]
+void test_channel_queued_values_survive_collection() {
+    Channel<Box> ch = fillChannel(8);
+    collectHard();
+    int j = 0;
+    while (j < 8) {
+        assertBox(ch.Recv(), (long)(1000 + j));
+        j = j + 1;
+    }
+}
+
+Channel<Box> fillUnbounded(int n) {
+    var ch = new Channel<Box>();
+    int i = 0;
+    while (i < n) {
+        ch.Send(mk((long)(2000 + i)));
+        i = i + 1;
+    }
+    return ch;
+}
+
+[Test]
+void test_unbounded_channel_queued_values_survive_collection() {
+    Channel<Box> ch = fillUnbounded(40);
+    collectHard();
+    int j = 0;
+    while (j < 40) {
+        assertBox(ch.Recv(), (long)(2000 + j));
+        j = j + 1;
+    }
+}
+
+// ── Mutex ───────────────────────────────────────────────────────────────────
+
+Mutex<Box> mkMutex() { return new Mutex<Box>(mk(7)); }
+
+[Test]
+void test_mutex_value_survives_collection() {
+    Mutex<Box> m = mkMutex();
+    collectHard();
+    Seen.Got = null;
+    m.Lock((Box b) => { Seen.Got = b; return b; });
+    assertBox(Seen.Got, 7);
+}
+
+void replaceMutexValue(Mutex<Box> m) {
+    m.Lock((Box b) => mk(8));
+}
+
+[Test]
+void test_mutex_stored_value_survives_collection() {
+    Mutex<Box> m = mkMutex();
+    replaceMutexValue(m);
+    collectHard();
+    Seen.Got = null;
+    m.Lock((Box b) => { Seen.Got = b; return b; });
+    assertBox(Seen.Got, 8);
+}
+
+// ── RwLock ──────────────────────────────────────────────────────────────────
+
+RwLock<Box> mkRw() { return new RwLock<Box>(mk(9)); }
+
+[Test]
+void test_rwlock_value_survives_collection_read() {
+    RwLock<Box> rw = mkRw();
+    collectHard();
+    Seen.Got = null;
+    rw.Read((Box b) => { Seen.Got = b; });
+    assertBox(Seen.Got, 9);
+}
+
+[Test]
+void test_rwlock_value_survives_collection_write() {
+    RwLock<Box> rw = mkRw();
+    collectHard();
+    Seen.Got = null;
+    rw.Write((Box b) => { Seen.Got = b; return b; });
+    assertBox(Seen.Got, 9);
+}
+
+void replaceRwValue(RwLock<Box> rw) {
+    rw.Write((Box b) => mk(10));
+}
+
+[Test]
+void test_rwlock_stored_value_survives_collection() {
+    RwLock<Box> rw = mkRw();
+    replaceRwValue(rw);
+    collectHard();
+    Seen.Got = null;
+    rw.Read((Box b) => { Seen.Got = b; });
+    assertBox(Seen.Got, 10);
+}
+
+// ── 被丢弃的原语不保留其值 ─────────────────────────────────────────────────────
+
+WeakHandle abandonMutexHoldingBox() {
+    Box b = mk(11);
+    WeakHandle w = WeakHandle.MakeWeak(b);
+    var m = new Mutex<Box>(b);
+    return w;
+}
+
+[Test]
+void test_abandoned_mutex_does_not_retain_value() {
+    WeakHandle w = abandonMutexHoldingBox();
+    collectHard();
+    GC.ForceCollect();
+    Assert.True(WeakHandle.Upgrade(w) == null);
+}

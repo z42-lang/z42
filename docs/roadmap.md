@@ -495,6 +495,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `ab-interleave-per-run` | 逐次交错采样（比 hyperfine 双命令「base 全跑→pr 全跑」更抗 job 内漂移）；当前同机相邻已足够抵消 between-run，非必要 | [changes/add-same-runner-ab-bench-gate/design.md](spec/changes/add-same-runner-ab-bench-gate/design.md) Deferred 段 |
 | ~~`ab-resample-on-suspicion`~~ ✅ 2026-09-06 | **同-runner A/B 的「可疑即复测」**已落地：只对初判 `R_lower > 1+thr` 的条目再测 k=3 轮、用**跑间比值离散度**重算区间。随之 **CI 阈值 0.25 → 0.15**、**micro tier 恢复硬门禁**、**criterion tier 降级为 informational**（0 次真阳性，且该层复测代价 +780s 不成比例）。剩余观察项：复测参数（k=3、单侧 95%）尚未在 CI 上验证跑间离散度的真实量级——离散度若偏大，症状是**真回归被放过**，那时该加 k 而不是松阈值（`ab.json` 的 `round_ratios` 为此而留）| [dev/benchmarking.md「可疑即复测」](book/src/dev/benchmarking.md) |
 | ~~`retire-baseline-branch`~~ ✅ 2026-09-05 | ~~彻底删 `bench-baselines`/`bench-update.yml`~~ 已由 simplify-bench-gate 落地；剩余：e2e 死字段（`metric:"memory"`）/ `blackBox` no-op | [changes/add-same-runner-ab-bench-gate/design.md](spec/changes/add-same-runner-ab-bench-gate/design.md) Deferred 段 |
+| 删除旧同步原语 builtin（store-sync-values-in-heap-remove-legacy）| 阶段 2：stdlib 已改走 `__monitor_*`，19 个旧 `__mutex_*`/`__rwlock_*`/`__channel_*` builtin、`VmCore.{mutexes,rwlocks,channels}`、`corelib/sync.rs` 作为种子例外保留一个 nightly。本变更进 nightly 后用 `strings` 确认种子不再引用再删 | [book: sync-primitives.md](book/src/runtime/sync-primitives.md#deferred--future-work) |
 
 ### 实施期延后（D-* 系列）
 
