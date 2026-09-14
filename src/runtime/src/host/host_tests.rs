@@ -1129,3 +1129,49 @@ fn resolver_corelib_miss_then_console_writeline_fails_at_invoke() {
 
     assert_eq!(unsafe { z42_host_shutdown(host) }, Z42HostStatus::Ok);
 }
+
+/// Resolve + invoke a zero-arg `Embedding.Hello.<name>` and return the raw result.
+#[cfg(z42_have_embedding_hello)]
+fn invoke_hello_fn(host: *mut Z42Host, module: *mut Z42Module, name: &str) -> z42_abi::Z42Value {
+    let fqn = CString::new(format!("Embedding.Hello.{name}")).unwrap();
+    let mut entry: *mut Z42Entry = ptr::null_mut();
+    assert_eq!(
+        unsafe { z42_host_resolve_entry(host, module, fqn.as_ptr(), &mut entry) },
+        Z42HostStatus::Ok
+    );
+    let mut result = z42_abi::Z42Value { tag: u32::MAX, reserved: 0, payload: 0 };
+    let status = unsafe { z42_host_invoke(entry, ptr::null(), 0, &mut result) };
+    assert_eq!(
+        status,
+        Z42HostStatus::Ok,
+        "invoke {name} must succeed; last_error={}",
+        unsafe { CStr::from_ptr(z42_host_last_error(ptr::null_mut()).message) }.to_string_lossy()
+    );
+    result
+}
+
+/// fix-host-static-init: `z42_host_load_zbc` + `invoke` never ran `__static_init__`, so a
+/// static field with an initializer read back as its type default (0) instead of an error —
+/// for fields in merged stdlib packages (`OSKind.Wasm`) and in the user module alike.
+/// First seen on wasm (`Platform.IsWasm()` always false) but the path is shared by every
+/// embedding. Also pins "once per module": a second invoke must not re-run the initializers.
+#[test]
+#[cfg(z42_have_embedding_hello)]
+fn invoke_sees_initialized_static_fields() {
+    let _g = test_lock();
+    reset_host();
+    if !project_root().join("artifacts/build/libraries/dist/release/z42.core.zpkg").is_file() {
+        eprintln!("skipping: corelib zpkg not available");
+        return;
+    }
+
+    let capture: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+    with_hello_session(&capture, |host, module| {
+        let core = invoke_hello_fn(host, module, "CoreStatic");
+        assert_eq!((core.tag, core.payload), (z42_abi::Z42_VALUE_TAG_I64, 6), "OSKind.Wasm");
+        let user = invoke_hello_fn(host, module, "UserStatic");
+        assert_eq!((user.tag, user.payload), (z42_abi::Z42_VALUE_TAG_I64, 42), "Counter.Start");
+        let again = invoke_hello_fn(host, module, "CoreStatic");
+        assert_eq!(again.payload, 6, "second invoke keeps the initialized value");
+    });
+}
