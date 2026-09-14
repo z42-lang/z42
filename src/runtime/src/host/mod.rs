@@ -306,7 +306,7 @@ pub unsafe extern "C" fn z42_host_resolve_entry(
                 .modules
                 .get(module_idx)
                 .ok_or_else(|| "module handle is stale or out of range".to_string())?;
-            ops::resolve_fqn(&m.module, &fqn_str).map_err(|e| format!("{e:#}"))
+            ops::resolve_fqn(m.module(), &fqn_str).map_err(|e| format!("{e:#}"))
         });
 
         let fn_idx = match lookup {
