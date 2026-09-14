@@ -71,6 +71,15 @@ fn try_native_static_call(
     None
 }
 
+/// fix-call-arity-skew：模块内目标 `module.functions[idx]` 的签名容不下 `phys` 个实参 ⇒ 异常。
+/// 只在首次绑定（token 未命中）时调用，命中缓存的热路径不经过这里。
+#[inline]
+fn arity_mismatch(ctx: &VmContext, module: &Module, fname: &str, idx: usize, phys: usize) -> Option<Value> {
+    let f = module.functions.get(idx)?;
+    crate::vm_context::symres::wrong_arity_exception(
+        ctx, module, fname, crate::vm_context::symres::call_arity(f), phys)
+}
+
 pub(super) fn call(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, fname: &str, args: &[u32],
@@ -115,6 +124,11 @@ pub(super) fn call(
             // Miss: resolve via func_index + write back.
             match module.func_index.get(fname).copied() {
                 Some(idx) => {
+                    // fix-call-arity-skew：首次绑定点。resolver 预填时已拒绝过签名对不上的站点，
+                    // 所以它们每次都会走到这里 —— 判定在此抛，且**不写回**（写回就等于把错的绑定缓存下来）。
+                    if let Some(exc) = arity_mismatch(ctx, module, fname, idx, args.len()) {
+                        return Ok(Some(exc));
+                    }
                     slot.store(idx as u32, Ordering::Relaxed);
                     Some(idx)
                 }
@@ -123,7 +137,15 @@ pub(super) fn call(
         }
     } else {
         // No token (back-compat): old path.
-        module.func_index.get(fname).copied()
+        match module.func_index.get(fname).copied() {
+            Some(idx) => {
+                if let Some(exc) = arity_mismatch(ctx, module, fname, idx, args.len()) {
+                    return Ok(Some(exc));
+                }
+                Some(idx)
+            }
+            None => None,
+        }
     };
 
     let callee_fn = callee_idx.and_then(|idx| module.functions.get(idx));
@@ -147,6 +169,15 @@ pub(super) fn call(
                     return Ok(Some(crate::exception::make_missing_symbol_exception(
                         ctx, module, format!("undefined function `{fname}`"))));
                 };
+                // fix-call-arity-skew：跨包目标的首次绑定点（之后借用 cell，不再查）。
+                // 签名对不上 ⇒ 抛且**不填 cell**，否则错的绑定会被永久缓存。
+                // 与 fix-crosspkg-static-call-cctor 的顺序：判定在下面的 cctor 屏障**之前**——
+                // 签名对不上的调用本身非法，不应触发类型初始化（与 token 未命中那一处一致）。
+                if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+                    ctx, module, fname, crate::vm_context::symres::call_arity(resolved.as_ref()), args.len(),
+                ) {
+                    return Ok(Some(exc));
+                }
                 // set() is idempotent: a concurrent double-fill resolves to the
                 // same function, so either winner is correct; get() then returns
                 // the stored Arc.
@@ -156,6 +187,12 @@ pub(super) fn call(
         }
     } else if let Some(lazy_fn) = ctx.try_lookup_function(fname) {
         // No cross cell (back-compat): pure lazy-loader lookup, uncached.
+        // fix-call-arity-skew：签名对不上 ⇒ 抛（同上，先于 cctor 屏障）。
+        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+            ctx, module, fname, crate::vm_context::symres::call_arity(lazy_fn.as_ref()), args.len(),
+        ) {
+            return Ok(Some(exc));
+        }
         &**lazy_holder.insert(lazy_fn)
     } else {
         // fix-silent-symbol-resolution：所有回落（本模块 func_index → per-site 缓存 →

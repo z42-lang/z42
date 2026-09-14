@@ -1,0 +1,14 @@
+namespace Demo.CaApp;
+
+using Std.IO;
+using Demo.CaTarget;
+
+// fix-call-arity-skew：静态方法解析到了、但签名容不下实参时不再照常调用。
+void Main() {
+    try {
+        Console.WriteLine("tag " + Tags.Tag());
+    } catch (MissingSymbolException e) {
+        Console.WriteLine("caught MissingSymbolException");
+    }
+    Console.WriteLine("after");
+}

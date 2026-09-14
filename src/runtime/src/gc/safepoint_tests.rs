@@ -48,28 +48,39 @@ fn pause_guard_drop_notifies_waiters() {
     let collector = VmContext::new();
     let mutator = VmContext::new_with_core(collector.core_arc());
 
-    // Trip the phase manually to Requested to force the mutator into
-    // the slow path the next time it checks. (We do it inside a scope so
-    // we don't hold the lock when the mutator tries to take it.)
-    {
-        *collector.core.gc_phase.lock() = GcPhase::Marking;
-    }
-
     // Spawn a thread that calls check_safepoint on the mutator. It
     // should park.
     //
     // We need an owned ref the worker thread can capture — but
     // Pin<Box<VmContext>> is !Unpin, so we move via Arc<VmCore> and
     // construct a fresh VmContext::new_with_core inside the worker.
+    //
+    // fix-context-joins-mid-pause (2026-09-15): the worker's context is built *before* the
+    // phase is tripped. A context can no longer join while the collector is `Marking` (it
+    // waits the pause out unregistered, see `VmContext::new_with_core`), so building it after
+    // the trip would test registration rather than parking.
     let core = collector.core_arc();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
     let worker = std::thread::spawn(move || {
         let m = VmContext::new_with_core(core);
+        ready_tx.send(()).expect("ready");
+        go_rx.recv().expect("go");
         // add-gc-safepoint-counter-throttling (2026-05-21): force the
         // worker's safepoint check into the slow path immediately so
         // the test doesn't need to call check_safepoint 1024 times.
         m.safepoint_skip.store(1, Ordering::Relaxed);
         check_safepoint(&m);
     });
+    ready_rx.recv().expect("worker registered");
+
+    // Trip the phase manually to force the mutator into the slow path the
+    // next time it checks. (We do it inside a scope so we don't hold the
+    // lock when the mutator tries to take it.)
+    {
+        *collector.core.gc_phase.lock() = GcPhase::Marking;
+    }
+    go_tx.send(()).expect("go");
 
     // Wait until the worker is parked (parked_count == 1). We may have
     // a tiny race window where the worker hasn't yet incremented; loop
@@ -294,13 +305,17 @@ fn second_collector_falls_back_to_mutator_park_returns_none() {
     let collector = VmContext::new();
     let _other = VmContext::new_with_core(collector.core_arc());
 
-    // Simulate "another collector is active":
-    collector.core.collector_active.store(true, Ordering::Release);
-    *collector.core.gc_phase.lock() = GcPhase::Marking;
-
+    // fix-context-joins-mid-pause (2026-09-15): the worker registers *before* the simulated
+    // collector enters `Marking` — a context can no longer join mid-pause (see
+    // `pause_guard_drop_notifies_waiters`). What this test is about, a registered thread losing
+    // the collector CAS, is unchanged.
     let core = collector.core_arc();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
     let worker = std::thread::spawn(move || {
         let w = VmContext::new_with_core(core);
+        ready_tx.send(()).expect("ready");
+        go_rx.recv().expect("go");
         // GcPauseGuard borrows from w; we can't return it across the
         // thread boundary (w would drop first). Instead check is_some,
         // drop guard (if any) inside the closure, return the bool.
@@ -309,6 +324,12 @@ fn second_collector_falls_back_to_mutator_park_returns_none() {
         drop(result);
         got_some
     });
+    ready_rx.recv().expect("worker registered");
+
+    // Simulate "another collector is active":
+    collector.core.collector_active.store(true, Ordering::Release);
+    *collector.core.gc_phase.lock() = GcPhase::Marking;
+    go_tx.send(()).expect("go");
 
     // Wait until the worker has parked.
     let start = std::time::Instant::now();
@@ -513,4 +534,59 @@ fn an_unpark_guard_lifts_the_tripwire_for_its_span() {
         debug_assert_not_native_parked();
     }));
     assert!(still_parked.is_err(), "the outer park is back in force after the unpark guard");
+}
+
+// ── fix-context-joins-mid-pause (2026-09-15) ──────────────────────────────────────────────
+
+/// A context created while the world is stopped must not join until the pause is over.
+///
+/// The collector waits for every **registered** context to park, then marks and sweeps. A
+/// thread that registers after that point is neither parked nor seen by the root scan: it runs
+/// on and allocates into regions mid-sweep, and nothing marks what it built. That is how
+/// `Z42NetHttpServerThreadedTests` lost a client thread's freshly built `HttpHeaders` in its
+/// first few instructions (`ArraySet index: expected non-negative integer, got Null`).
+#[test]
+fn a_new_context_waits_out_a_stop_the_world_pause() {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    let primary = VmContext::new();
+    let pause = request_gc_pause(&primary).expect("the only context claims the collector role");
+    assert_eq!(*primary.core.gc_phase.lock(), GcPhase::Marking);
+
+    let registered = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let core = Arc::clone(&primary.core);
+        let registered = Arc::clone(&registered);
+        std::thread::spawn(move || {
+            let ctx = VmContext::new_with_core(core);
+            registered.store(true, Ordering::SeqCst);
+            drop(ctx);
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let joined_mid_pause = registered.load(Ordering::SeqCst);
+    let contexts_mid_pause = primary.core.vm_contexts.lock().len();
+
+    drop(pause);
+    worker.join().expect("worker");
+    assert!(!joined_mid_pause, "a VmContext joined while the collector was marking");
+    assert_eq!(contexts_mid_pause, 1, "only the collector's own context is registered mid-pause");
+    assert!(registered.load(Ordering::SeqCst), "and it joins as soon as the pause ends");
+}
+
+/// Joining while a collection is only `Requested` stays allowed: the collector re-counts
+/// `vm_contexts` on every wakeup, so it simply waits for the newcomer to park as well.
+#[test]
+fn a_new_context_may_join_while_a_pause_is_only_requested() {
+    let primary = VmContext::new();
+    *primary.core.gc_phase.lock() = GcPhase::Requested;
+    let core = primary.core_arc();
+    std::thread::spawn(move || {
+        let ctx = VmContext::new_with_core(core);
+        assert_eq!(ctx.core.vm_contexts.lock().len(), 2);
+    })
+    .join()
+    .expect("registration during Requested must not block");
+    *primary.core.gc_phase.lock() = GcPhase::Idle;
 }

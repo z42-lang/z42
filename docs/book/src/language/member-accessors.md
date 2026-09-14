@@ -218,6 +218,29 @@ arr[i]           （arr 是数组）                  → BoundIndex（原生数
 多维使用侧 `obj[a, b]`（逗号分隔多下标）由 `ExprParser` 的后缀 `[` 分支循环解析下标存入
 `IndexExpr.Indices`；下标个数与索引器声明的参数个数天然匹配。
 
+### 接口索引器（interface indexer，fix-iface-self-completeness-gaps A3，2026-09-15）
+
+接口可声明索引器（accessor-only，无体）；经**接口静态类型**的下标访问派发到实现类的 `get_Item`/`set_Item`：
+
+```z42
+interface IBox {
+    int this[int i] { get; }          // 接口索引器：只声明访问器、无体
+}
+IBox b = new ArrBox(...);
+int v = b[0];                         // → vcall b.get_Item(0)
+```
+
+三处此前缺失、本轮补齐（在此之前接口索引器**根本不可用**——`b[0]` 报 `index on non-array`）：
+
+1. **解析**（`MemberParser._parseIndexer`）：区分有体 `get {…}`/`get => e`（类）与无体 `get;`
+   （接口/抽象，accessor-only）——镜像 `_parseProperty`。此前无条件解析块体 ⇒ 接口 `get;` 的 `;`
+   被当块体、吞掉接口闭合 `}`，后续声明被错误嵌进接口。
+2. **收集**（`MemberCollector._fillInterface`）：接口体里的 `IndexerDecl` lower 成 `get_Item`/`set_Item`
+   方法符号（镜像 `_fillClass`）；此前 `_fillInterface` 不处理 `IndexerDecl`，接口索引器不进 `it.Methods`。
+3. **使用侧**（`ExprTyper._bindIndex` 读 / `AssignTyper._bindAssign` 写）：新增 `Z42InterfaceType`
+   收者分支，解析接口的 `get_Item`/`set_Item` 派发。返回位 `Self` 经 `MemberResolver._substSelf`
+   换成接口自身（同接口方法返回 `Self` 的口径，#527），型参擦除为 `Unknown`（运行期经 DepIndex 派发）。
+
 ### 约束与边界
 
 - **一个类一个索引器**：`get_Item` / `set_Item` 按名唯一，不支持同类多个 `this[...]` 重载

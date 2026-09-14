@@ -176,6 +176,13 @@ public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不�
   > 等于类型信息整个丢失。Rust 的对应做法是干脆禁止（`-> Self` 非 object-safe）；z42 选上界替换，
   > 因为 z42 接口没有 object-safety 概念，禁止会平白砍掉一类安全可用的写法。
   >
+  > **`Self` 藏在 `Func<…>` 里也会被替换**（change `fix-iface-self-completeness-gaps` A3，
+  > 2026-09-15）：`interface IMk { Func<Self,int> Make(); }` 经接口静态类型调用 `m.Make()` →
+  > 结果 `Func<IMk,int>`（不再漏出裸 `Self`）。此前 `MemberResolver._substSelf` 只递归数组元素与
+  > 泛型实参、**不下钻 `Z42FuncType`**，Self 原样漏给调用方；满足性校验侧的 `_substForIface` 同款漏、
+  > 会把 `Apply(Func<Self,int>)` 判成与 `Apply(Func<C,int>)` 不匹配（假红 E0412）。两处都补了 Func 分支。
+  > **接口索引器**（`Self this[int]`）的返回位走同一条替换（见
+  > [属性与索引器 · 接口索引器](member-accessors.md)）。
 - 🔴 **形参位的 `Self` 不能经接口静态类型调用 —— 报 E0454**（change
   `bind-self-param-and-constraint-members`，2026-09-07）。返回位能取上界是因为它**协变**；
   形参位是**逆变**：接口只保证实参「也实现了该接口」，而实现方的签名要的是「它自己」。

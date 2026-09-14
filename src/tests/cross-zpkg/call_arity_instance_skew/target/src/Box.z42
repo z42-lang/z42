@@ -1,0 +1,8 @@
+namespace Demo.CiTarget;
+
+// fix-call-arity-skew 的 skew 对象（实例方法，VCall 路径）：唯一的 `Label` ⇒ primary 裸键。
+public class Box {
+    public int N;
+    public Box(int n) { this.N = n; }
+    public string Label() { return "box" + this.N.ToString(); }
+}

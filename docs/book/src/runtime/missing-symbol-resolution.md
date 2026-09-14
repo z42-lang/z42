@@ -18,6 +18,7 @@
 | 读缺失的静态字段 | 静默 `Value::Null` | `MissingSymbolException` |
 | `new` 一个解析不到的类型 | 合成零字段零 vtable 空壳 | `MissingSymbolException` |
 | 构造器缺失（编译期见过它，或带实参） | 照常把**未经构造**的对象写进 dst | `MissingSymbolException` |
+| 构造器 / 实例方法解析到了**另一个签名**（primary 裸键撞上） | 缺的形参停在默认值继续跑 | `MissingSymbolException` |
 | 基类解析不到 | 子类静默退化成「只有自己的成员」 | `MissingSymbolException` |
 | 静态调用缺失（interp） | 不可 catch 的 VM abort | `MissingSymbolException` |
 | 静态调用缺失（JIT） | 裸 `Value::Str`，只能被无类型 `catch {}` 抓到 | `MissingSymbolException` |
@@ -106,43 +107,83 @@ IR pass 而必须挂在装配上。
 复用的 `IrModule` 同样在重扫范围内，所以「A 文件缓存着旧结论、B 文件刚给那个类加/删了构造器」
 不会留下过期的位。
 
-### 构造器（续）—— `wrong_ctor_arity_exception`，解析**成功**也要查
+### 签名对不上 —— `call_arity` + `wrong_arity_exception`，解析**成功**也要查
 
-上面那条判据只管「解析不到」。但同一个裸键在版本 skew 下还会**命中错的构造器**：
+上面那条判据只管「解析不到」。但 **primary 裸键**（声明序第一个同名成员用裸名，见
+`stabilize-instance-dispatch-keys`）在版本 skew 下还会**命中错的签名**：
 
-| | 编译时依赖（v2） | 运行时加载到（v1） |
+| | 编译时依赖（v2） | 运行时加载到（v1） | 调用点发出的键 |
+|---|---|---|---|
+| 构造器 | `Widget()` | `Widget(int v)` | `Demo.T.Widget.Widget`（两边都是） |
+| 实例方法 | `string Label()` | `string Label(string prefix)` | `Demo.T.Box.Label`（两边都是） |
+
+键**解析成功**，命中的却是另一个签名。建帧（`Frame::new` / `new_from_regs` /
+`new_from_receiver_regs`）**不做任何 arity 校验**，缺的形参就停在默认值上继续跑——实测
+`new Widget()` 把字段写成 `0`、`b.Label()` 输出 `null7`。这不是「缺符号」，是**静默调错**。
+
+**覆盖面**：构造器（fix-ctor-arity-skew）、实例方法——`VCall` 与 sealed 去虚化后的直接 `Call`
+（fix-call-arity-skew）、静态虚成员。**常规静态方法天然免疫**：它们的键恒为全签名 mangle
+（`OverloadResolver.MangleKey`），签名一变键就变、解析失败，由「缺符号」那条路报——
+`src/tests/cross-zpkg/call_arity_static_skew` 守住这个事实。
+
+#### 判据：精确相等，下界不读 `min_arg`、上界读 sret 位
+
+```
+phys  = 调用点实际传入的值个数（含 this、含 sret 槽）
+want  = param_count + (method_flags & METHOD_FLAG_SRET ? 1 : 0)
+params 变长 ⇒ phys ≥ want；否则 phys == want
+```
+
+两条都来自在全量 `xtask test` 上给解释器的三个函数体入口挂探针的**普查**，不是推断：
+
+- **合法调用里「实参数 < 形参数」0 次。** z42 的默认值由**调用点**在编译期填满（跨包构造器那一支
+  由 #623 补齐）⇒ 任何少于 `param_count` 的调用都是 skew，典型是「被调方新加了一个可选参数」。
+  构造器此前用 `min_arg` 当下界，恰恰放过了这种 skew；那段为 `min_arg` 两种口径并存而写的夹取补丁
+  随之整体删除。
+- **「实参数 = 形参数 + 1」有 10 个合法站点**，全是返回 blob 值 struct 的函数：caller 在末尾传一个
+  **sret 隐藏返回槽**，`FunctionEmitter` 为了不污染反射/跨包签名，故意**不**把它计入 `param_count`。
+
+所以 sret 是**物理签名的一部分，却从没写进元数据**——运行时拿到的 `param_count` 是一个少报了一的数。
+可选的判据都是在猜：
+
+| 方案 | 为什么没选 |
+|---|---|
+| 容一（`param_count ≤ phys ≤ param_count + 1`） | 「被调方恰好少一个参数」与 sret 永远分不开——设计出来的洞 |
+| 运行时认 blob struct（看 `ret_type`） | 在 VM 里复刻编译器 `_isBlobStruct` ⇒ 同一规则两份实现，漂移方向是**误杀合法调用** |
+| 从 IR 形状推断（非 void 返回但 `Ret` 都不带值） | 从函数体反推调用约定；例如只抛异常、没有 `Ret` 的函数会被误认成 sret |
+
+**定案**：`method_flags` 新增 **bit3 = `METHOD_FLAG_SRET`**（zbc 1.40），由 `FunctionEmitter` 在
+`RetIsStruct` 时置位（全仓唯一决定 sret 约定的地方），各 `IrGen*Emitter` 与修饰符位**按位或**合并。
+给既有字段加位语义也必须 bump：否则旧产物该位恒 0，新 VM 会把所有「返回 struct 的旧调用」判成错签名。
+
+#### 在哪里查：只在「首次绑定」处，热路径零开销
+
+| 路径 | 首次绑定点 | 命中缓存后 |
 |---|---|---|
-| 声明 | `class Widget { Widget() {...} }` | `class Widget { Widget(int v) {...} }` |
-| 裸键 | `Demo.T.Widget.Widget`（primary） | `Demo.T.Widget.Widget`（primary） |
+| 合并模块内 `Call`（**含急切合并的 `z42.core`**） | resolver Pass 2 预填 `method_tokens`：对不上就**不预填** | token 直取 |
+| 同上，未预填的站点 | `exec_call::call` 未命中后写回 token 之前 | — |
+| 跨包 `Call`（interp） | 填 `cross_module_targets` 的 `OnceLock` 之前 | 借用 cell |
+| 跨包 `Call`（JIT） | tier 3 写 `call_jit_ic` 之前（按名取 `Function` 判，**不用** `FnEntry`：被调方未到 JIT 阈值时拿不到它，IC 却照写） | IC 直取 |
+| `VCall`（两后端共用 `resolve_vcall`） | 出口统一判 → `VCallTarget::Thrown`；`install_ic` 对不上**不装 PIC** | PIC 直取 |
+| `ObjNew` | 解析到构造器后（interp / JIT 各 native 与惰性分支） | — |
 
-`new Widget()` 发裸键、`argc == 0` ⇒ 运行期**解析成功**，命中 `Widget(int)`。而
-`exec_function` 用 `Frame::new(args, max_reg)` 建帧、**不做任何 arity 校验**，形参 `v` 的
-寄存器就停在默认值上继续跑（实测字段被静默写成 `0`）。这不是「缺符号」，是**静默调错
-构造器**——而且比 `argc == 0` 那条缝常见得多：**任何**「构造器签名变了」的 skew 都落在这里。
+两处容易漏的地方，都是真实推导出来的：
 
-判据全部来自**已有**元数据（`Function::param_count` / `min_arg` / `params_from`），无格式改动：
+- **resolver 预填必须拦**。`z42.core` 被急切加载并**合并进主模块**，用户代码调 stdlib 走的是加载期预填的
+  模块内下标——只查跨包分支会漏掉**对 stdlib 的 skew**，而那恰是最常见的形态。JIT tier 1 读的就是这组
+  token，所以拦一处两个后端都退到冷路径。
+- **缓存写入必须晚于判定**。被拒的绑定若进了 PIC / cell / IC，下一次命中缓存就直接派发、再不经过判定。
 
-```
-phys = argc + 1                       // 调用方实际传入的值个数（含 this）
-min  = min(min_arg + 1, param_count)  // ⚠️ 见下
-max  = params_from != 0xFF ? ∞ : param_count
-phys ∉ [min, max]  ⇒  抛
-```
+复用 `MissingSymbolException` 而不新增异常类：新类要先进 stdlib，而冷启动种子的 stdlib 里没有它
+⇒ 得走两-nightly。语义上也说得通：调用点指名的那个签名**确实不在**，撞上的是同键下的另一个。
 
-> ⚠️ **`min_arg` 两种口径并存，必须夹住。** 文档口径是**逻辑**必填数（不含 `this`），
-> `IrGenFacts._fillParamMeta` 写的也是逻辑值；但 `IrFunction` 构造器的**默认值**是
-> `MinArg = paramCount`，那是**物理**总数（含 `this`），`IrGenMemberEmitter` 的注释明说了
-> 这点并为 getter/setter 手工覆盖。没被 `_fillParamMeta` 覆盖过的合成函数因此会多算 1，
-> 不夹住就会把合法构造判成 skew。夹到 `param_count` 后默认情形退化成「全必填」——正是
-> 那个默认值本来的语义。回归钉在 `vm_context/symres_tests.rs`。
-
-复用 `MissingSymbolException` 而不新增异常类：新类要先进 stdlib，而冷启动种子的 stdlib
-里没有它 ⇒ 得走两-nightly。语义上也说得通：调用点指名的那个重载**确实不在**，撞上的是
-同键下的另一个。
-
-**两个后端都查，且 JIT 的 native 分支不能漏**——跨包构造器正是惰性加载、最容易 tier 到
-native 的那批。区间在 `FnEntry` 里随编译一次算好（`jit/lazy.rs`），于是两条分支都不必为
-每次构造再查一遍函数元数据。
+> ⚠️ **判定也会抓到「根本不是 skew」的调用。** 上线第一轮就在 z42b 里拦下一条**同包**调用：
+> `_pubBundleProjectDeps` 要 4 个参数（末参无默认值），调用点只传了 3 个——源码写错，参数一直静默为 `Null`。
+> 根因是 **z42c 对普通调用「实参少于必填形参」不报错**（构造器有 E0426，方法/自由函数没有，同文件也放行），
+> 于是编译器发出了一条参数不足的 `Call`。运行期判定是它的兜底；编译期诊断另行补齐。
+>
+> 普查的覆盖边界也由此可见：探针挂在解释器的函数体入口，JIT native 直调不经过——那一处正走 native。
+> 普查只用来定「合法调用长什么样」，判定本身挂在两后端共用的绑定点，不依赖探针覆盖。
 
 ### 类型 —— `missing_type_exception`
 

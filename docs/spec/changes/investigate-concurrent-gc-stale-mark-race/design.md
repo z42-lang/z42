@@ -260,3 +260,23 @@ parked**、可以放心 sweep —— 比今天更糟。要真正关上，新 con
 ⇒ 3.2b 的正道多半是先补上事实 3 的缺口（阻塞线程必须是 GC-safe：要么退出
 `vm_contexts`，要么进 `native_park` 计数），而这会牵动 `NativeParkGuard` 的适用范围。
 **需要 User 裁决方向后再动**；三个 loom 模型已就位，任何候选都能先在模型里判生死。
+
+## 更新 2026-09-15：3.2b 落地 —— 在 `Marking` 期不注册（fix-context-joins-mid-pause）
+
+**做法**：`VmContext::new_with_core` 持 `gc_phase` 锁 `while Marking { cv.wait }`，再 push 进 `vm_contexts`。
+collector 的「数 `vm_contexts` → 翻 `Marking`」也在同一把锁下，所以注册要么落在翻转之前（被计入、collector 等它 park），
+要么落在停顿之后。`Requested` 期照旧允许加入（collector 每次醒来重读长度）。
+
+**与三条硬事实的关系**：
+- 事实 1（barrier post-write）不相干：不动 barrier。
+- 事实 2（born-parked 只是挪窗口）不适用：等待的线程**未注册**，collector 既不等它、也不以为它 parked；它注册时世界没停。
+- 事实 3（阻塞线程不 park）是真正的前提：等完的线程到仲裁 CAS 时可能赢得 collector 角色，再等所有已注册线程 park。
+  新模型 B′ 穷举证明：主线程在 `join` 里**不 park** ⇒ 死锁，**且无任何修复时同样死锁**
+  （worker 恰好在释放后注册即可）；主线程 park ⇒ 两种情况都不死锁。#598 + #648 已让运行时里所有阻塞在 VM 外的调用 park，
+  2026-06-01 那两个单测改成「先注册、再模拟停顿」—— 旧写法在 `Marking` 期建上下文，已是不可能的场景。
+
+**模型 A 的一处修正**：mutator 结束时补 `unregister`（对应 `impl Drop for VmContext`）。否则它在 Idle 期过完唯一的
+safepoint 就带着计数结束，之后开始的 collector 永远等它 —— 模型自己的死锁。无修复那次会先撞上 stale mark，
+所以一直没暴露；`registration_close_eliminates_race` 被标「慢」多半也与此有关（未复核，仍 ignore）。
+
+**判别力**：把等待去掉，`waiting_out_marking_eliminates_race` 立刻报 stale mark。

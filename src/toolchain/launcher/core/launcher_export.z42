@@ -38,7 +38,7 @@ void _cmdExportIos(ParseResult r) {
         Environment.Exit(2); return;
     }
     string displayName = _platformStr(toml, "ios", "display_name", projName);
-    string minIos      = _platformStr(toml, "ios", "min_ios",      "15.0");
+    string minIos      = _platformStr(toml, "ios", "min_ios",      "16.0");   // = versions.toml platform.ios.min_ios（SDK xcframework 以此为下限编译）
     string sdkVer      = r.GetOption("sdk-ver");
     if (sdkVer.Length == 0) { sdkVer = _expTomlStr(toml, "project", "version", ""); }
 

@@ -107,7 +107,7 @@ int _bootstrapCheck(string ridArg) {
 
     // ── (B) repo z42c → current source (normal self-build sanity) ──
     int b = 2;
-    string repoDriver = _driverZpkg(root);
+    string repoDriver = _driverZpkg(root, "release");
     string repoVm = _builtVm(root, "release");
     string repoStd = _libsDir(root);
     if (File.Exists(repoDriver) && File.Exists(repoVm)) {

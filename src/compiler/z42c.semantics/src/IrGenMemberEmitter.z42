@@ -38,7 +38,7 @@ public sealed class IrGenMemberEmitter {
                 irf.Attrs = g._classDescB._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection
                 irf.ParamAttrs = g._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
                 irf.Visibility = IrGenFacts._visCode(md.Mods, 1);   // add-member-visibility（成员默认 private）
-                irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
+                irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                 IrGenFacts._fillParamMeta(irf, md, isInstance);       // add-param-metadata
                 this._out.AddFunc(irf);
             }

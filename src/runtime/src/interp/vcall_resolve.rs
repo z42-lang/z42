@@ -47,6 +47,10 @@ pub(crate) enum VCallTarget {
     Local(usize),
     /// A lazily-loaded / cross-zpkg function that is not in the entry module's table.
     Lazy(Arc<Function>),
+    /// fix-call-arity-skew: resolution found a definition under the site's key, but its
+    /// signature cannot take this call's arguments (primary bare key hit by a version skew).
+    /// Carries the `MissingSymbolException` to throw; never installed into the PIC.
+    Thrown(Value),
 }
 
 pub(crate) struct ResolvedVCall {
@@ -118,7 +122,35 @@ pub(crate) fn assert_pic_target(
 
 /// Slow path (PIC miss): walk the receiver-kind ladder and resolve the callee. `arity` is the
 /// explicit argument count (excluding `this`). Installs the PIC entry when possible.
+/// Resolve a `VCall` target, then check the bound definition's signature against the call.
+///
+/// fix-call-arity-skew: the single choke point for **both** backends (`jit_vcall` shares it).
+/// The check runs on every resolution, but resolution itself only happens on a PIC miss
+/// (module-local targets) or on the cross-zpkg `Lazy` path that re-resolves by name each call
+/// anyway — a PIC hit never reaches here, so the steady-state hot path is unchanged. A
+/// mismatching module-local target is also refused by `install_ic`, so it can never be
+/// cached and bypass this check next time.
 pub(crate) fn resolve_vcall(
+    ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, arity: usize,
+    ic: Option<&VCallIC>,
+) -> Result<ResolvedVCall> {
+    let resolved = resolve_vcall_unchecked(ctx, module, obj_val, method, arity, ic)?;
+    let phys = arity + 1;   // + receiver
+    let (name, sig) = match &resolved.target {
+        VCallTarget::Local(idx) => match module.functions.get(*idx) {
+            Some(f) => (f.name.as_str(), crate::vm_context::symres::call_arity(f)),
+            None => return Ok(resolved),
+        },
+        VCallTarget::Lazy(f) => (f.name.as_str(), crate::vm_context::symres::call_arity(f.as_ref())),
+        VCallTarget::Immediate(_) | VCallTarget::Thrown(_) => return Ok(resolved),
+    };
+    if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(ctx, module, name, sig, phys) {
+        return Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: resolved.this });
+    }
+    Ok(resolved)
+}
+
+fn resolve_vcall_unchecked(
     ctx: &VmContext, module: &Module, obj_val: &Value, method: &str, arity: usize,
     ic: Option<&VCallIC>,
 ) -> Result<ResolvedVCall> {
@@ -226,7 +258,7 @@ pub(crate) fn resolve_vcall(
     if let Some(&slot) = type_desc.vtable_index.get(method) {
         let n = type_desc.vtable[slot].1.as_str();
         if let Some(&idx) = module.func_index.get(n) {
-            install_ic(ic, recv_type, slot as u32, idx);
+            install_ic(ic, module, arity, recv_type, slot as u32, idx);
             return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
         }
         if let Some(f) = ctx.try_lookup_function(n) {
@@ -236,7 +268,7 @@ pub(crate) fn resolve_vcall(
     // 4b. module class hierarchy (`<class>.<method>` at each level, intra-zpkg).
     if let Ok(f) = resolve_virtual(module, &type_desc.name, method) {
         if let Some(&idx) = module.func_index.get(f.name.as_str()) {
-            install_ic(ic, recv_type, UNRESOLVED, idx);
+            install_ic(ic, module, arity, recv_type, UNRESOLVED, idx);
             return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
         }
         if let Some(lazy) = ctx.try_lookup_function(&f.name) {
@@ -250,7 +282,7 @@ pub(crate) fn resolve_vcall(
     loop {
         let candidate = format!("{}.{}", cur, method);
         if let Some(&idx) = module.func_index.get(candidate.as_str()) {
-            install_ic(ic, recv_type, UNRESOLVED, idx);
+            install_ic(ic, module, arity, recv_type, UNRESOLVED, idx);
             return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
         }
         if let Some(lazy) = ctx.try_lookup_function(&candidate) {
@@ -298,7 +330,7 @@ fn resolve_by_candidates(
     for name in &candidates {
         if let Some(&idx) = module.func_index.get(name.as_str()) {
             if module.functions.get(idx).is_some() {
-                if let Some(key) = ic_key { install_ic(ic, key, UNRESOLVED, idx); }
+                if let Some(key) = ic_key { install_ic(ic, module, arity, key, UNRESOLVED, idx); }
                 return Some(VCallTarget::Local(idx));
             }
         }
@@ -309,9 +341,16 @@ fn resolve_by_candidates(
     None
 }
 
+/// Install a module-local PIC entry — **only** for a target whose signature takes this call's
+/// arguments (fix-call-arity-skew): a cached mismatch would be dispatched straight from the PIC
+/// on every later call, bypassing the check in [`resolve_vcall`].
 #[inline]
-fn install_ic(ic: Option<&VCallIC>, recv_type: u32, slot: u32, fn_idx: usize) {
+fn install_ic(ic: Option<&VCallIC>, module: &Module, arity: usize, recv_type: u32, slot: u32, fn_idx: usize) {
     if let Some(ic) = ic {
-        vcall_ic_install(ic, recv_type, slot, fn_idx as u32);
+        let ok = module.functions.get(fn_idx)
+            .map_or(false, |f| crate::vm_context::symres::call_arity(f).accepts(arity + 1));
+        if ok {
+            vcall_ic_install(ic, recv_type, slot, fn_idx as u32);
+        }
     }
 }

@@ -82,7 +82,7 @@ public class ProjectHooks : BuildHooks {
         string dylib = Path.Join(repo, "artifacts/build/runtime/release/libz42.dylib");
         if (ctx.Exists(dylib)) {
             string staged = Path.Join(ctx.Dirs.Intermediate, "libz42.dylib");
-            File.Copy(dylib, staged, true);
+            File.Copy(dylib, staged);
             ctx.Exec("install_name_tool", new string[]{ "-id", "@rpath/libz42.dylib", staged });
             string outDyn = Path.Join(ctx.Dirs.Intermediate, "apphost-embed-dynamic");
             ExecResult r4 = ctx.Exec("cc", this._ccDynamic(src, outDyn, ctx.Dirs.Intermediate));

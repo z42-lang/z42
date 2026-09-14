@@ -13,7 +13,7 @@ public class iOSWorkload : WorkloadBase {
 
     /// 检查 Xcode 工具链 + 确保 ios runtime pack 就位（fail-fast）。
     public override void Preflight(IPipelineContext ctx) {
-        ctx.RequireTool("xcodebuild", ">=15.0");
+        ctx.RequireTool("xcodebuild", ">=16.0");        // = versions.toml build.ios.xcode_min
         ctx.EnsureRuntimePack(ctx.Target.Rid);          // ios-arm64 / iossim-arm64
     }
 

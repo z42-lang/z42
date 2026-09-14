@@ -341,21 +341,21 @@ int _stageDeployable(string bundleDir, string agent, string libs, string destDir
 
     // app/ — the test-agent.
     string appDir = Path.Join(destDir, "app"); Directory.Create(appDir);
-    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"), true);
+    File.Copy(agent, Path.Join(appDir, "z42.testagent.zpkg"));
     files = _appendFileEntry(files, "/app/z42.testagent.zpkg", "app/z42.testagent.zpkg");
 
     // libs/ — all flat stdlib zpkgs (every agent + case dep resolves from here).
     string libsOut = Path.Join(destDir, "libs"); Directory.Create(libsOut);
     foreach (var z in _sortedDir(libs)) {
         if (!z.EndsWith(".zpkg")) { continue; }
-        File.Copy(Path.Join(libs, z), Path.Join(libsOut, z), true);
+        File.Copy(Path.Join(libs, z), Path.Join(libsOut, z));
         files = _appendFileEntry(files, "/libs/" + z, "libs/" + z);
     }
 
     // bundle/ — manifest.json + every case zbc/zpkg/expected.
     string bundleOut = Path.Join(destDir, "bundle"); Directory.Create(bundleOut);
     foreach (var f in _sortedDir(bundleDir)) {
-        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f), true);
+        File.Copy(Path.Join(bundleDir, f), Path.Join(bundleOut, f));
         files = _appendFileEntry(files, "/bundle/" + f, "bundle/" + f);
     }
 

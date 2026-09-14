@@ -68,6 +68,8 @@ pub unsafe extern "C" fn jit_vcall(
     };
     match resolved.target {
         VCallTarget::Immediate(v) => { frame_ref.regs[dst as usize] = v; 0 }
+        // fix-call-arity-skew: signature mismatch under the site's key → catchable throw.
+        VCallTarget::Thrown(exc) => { set_exception(vm_ctx, exc); 1 }
         // Module-local: compiled (or compiles at the tier threshold) → native; cold /
         // untranslatable (interp-only opcode such as `LoadLocalAddr`) → interp, mirroring
         // `jit_call`'s cross-zpkg-via-interp fallback.

@@ -21,11 +21,11 @@ using Std.IO;
 // 把 `zpkgSrc` 搬到 `dstZpkg`，并带上同 stem 的运行配置侧车（有则拷、无则跳过）。
 // 侧车目标名由 `dstZpkg` 的 stem 派生，因此重命名布局自动正确。
 void _pubStageApp(string zpkgSrc, string dstZpkg) {
-    File.Copy(zpkgSrc, dstZpkg, true);
+    File.Copy(zpkgSrc, dstZpkg);
     string src = _pubSidecarOf(zpkgSrc);
     if (File.Exists(src)) {
         string dst = _pubSidecarOf(dstZpkg);
-        File.Copy(src, dst, true);
+        File.Copy(src, dst);
     }
 }
 

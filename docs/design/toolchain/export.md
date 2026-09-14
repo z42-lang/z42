@@ -33,7 +33,7 @@ toml 示例：
 [platform.ios]
 bundle_id    = "com.example.myapp"
 display_name = "My App"
-min_ios      = "15.0"
+min_ios      = "16.0"
 
 [platform.android]
 app_id       = "com.example.myapp"

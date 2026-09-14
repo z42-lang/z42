@@ -682,6 +682,93 @@ void test_no_modifier_interface_member_defaults_private_is_reported() {
         "interface I { int M(); }\nclass C : I { int M() { return 0; } }\n"));
 }
 
+// ── impl 块补的接口同样校验成员齐备性（fix-iface-self-completeness-gaps A2）──────────
+//
+// `impl Trait for Target` 补的接口此前**从不校验**：trait 由 `_passImpls` 并进 `InterfaceNames`，但
+// 不在 target 的 `c.Bases` 里 ⇒ `_checkIfaceMembersComplete`（走 c.Bases）看不到 ⇒ `impl I for C {}`
+// 缺成员被静默接受、等同没实现却编得过（真洞）。新 pass `_passImplIfaceComplete` 在 `_passImpls` 后
+// 复用 `_checkOneIfaceMembers` 补上，与声明接口同一口径（成员齐备 + static/返回/可见性）。
+// ⚠️ 真门：退回 3 处 `_passImplIfaceComplete` 接线（或注掉 `_checkOneIfaceMembers` 调用）后，下面两条
+// `E0412` 用例变绿（假通过），`_ok_` 那条两态同绿（无误报守卫）。
+
+[Test]
+void test_impl_block_missing_interface_member_is_reported() {
+    // impl 块空、没补 `M` → target 未满足接口 → E0412（此前静默通过）。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { void M(); }\nclass C { }\nimpl I for C { }\n"));
+}
+
+[Test]
+void test_ok_impl_block_satisfies_interface_is_not_reported() {
+    // 🛡 无误报守卫：impl 块提供 `public void M()` → 满足，不报。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface I { void M(); }\nclass C { }\nimpl I for C { public void M() { } }\n"));
+}
+
+[Test]
+void test_impl_block_wrong_signature_is_reported() {
+    // 名在、签名不符（接口 `int N(string)`、impl 给 `int N(int)`）→ E0412。走的是与声明接口同一套
+    // MangleKey 匹配，证明 impl 块接口确实过了同一口径的校验。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface I { int N(string s); }\nclass C { }\nimpl I for C { public int N(int s) { return 0; } }\n"));
+}
+
+// ── 接口成员含 `Func<Self,…>` 形参：Self 须下钻函数类型替换（fix-iface-self-completeness-gaps A3）──
+//
+// `_substForIface` 此前不下钻 `Z42FuncType` ⇒ `void Apply(Func<Self,int> f)` 的期望签名里 Self 未换成
+// 实现类 ⇒ 与 `Apply(Func<C,int>)` **假不匹配** → E0412 假红。补齐 Func 分支后正确匹配。
+
+[Test]
+void test_ok_self_in_func_param_interface_member_matches() {
+    // 🔒 真门（退回 `_substForIface` 的 Func 分支 → 此条从 "" 翻成 E0412 假红）：`Func<Self,int>` 里的
+    // Self 替换成实现类 C ⇒ 期望 `Apply(Func<C,int>)`，与实现方逐字匹配、不报。
+    Assert.Equal("", SemanticDump.FirstErrorCode(
+        "interface IApply { void Apply(Func<Self, int> f); }\nclass C : IApply { public void Apply(Func<C, int> f) { } }\n"));
+}
+
+[Test]
+void test_self_in_func_param_wrong_impl_is_reported() {
+    // 对照：impl 把 Self 位写成 `int`（`Func<int,int>`）→ 与期望 `Func<C,int>` 不匹配 → E0412
+    //（此条两态都报 E0412，守的是「Func 位真不符仍被抓」，不是区分门）。
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(
+        "interface IApply { void Apply(Func<Self, int> f); }\nclass C : IApply { public void Apply(Func<int, int> f) { } }\n"));
+}
+
+// ── `Func<Self,…>` 返回位 + 接口索引器：`_substSelf` 下钻 Func + `_bindIndex` 接口分支
+//    （fix-iface-self-completeness-gaps A3，DumpBody 真门）───────────────────────────
+//
+// 🔒 这三条是 A3 的真门（钉在被改节点的类型注解上，退回对应改动即变红）：
+//   ① `_substSelf` 退回 Func 分支 → func 返回渲染成 `:Func<Self, int>`（Self 漏出），红；
+//   ② `_bindIndex` 接口分支 / `_fillInterface` 的 get_Item lowering 退回 → 索引落 `:<error>` + `(index …)`，红；
+//   ③ 索引器返回 `Self` 时 `_substSelf` 退回 → `:Self` 漏出，红。
+
+[Test]
+void test_self_in_func_return_via_interface_is_substituted() {
+    // 经接口静态类型调用返回 `Func<Self,int>` 的方法 → 结果 Func 里的 Self 换成接口自身（IMk）。
+    string src = "interface IMk { Func<Self, int> Make(); }\n"
+        + "class Use { void f(IMk m) { var x = m.Make(); } }\n";
+    Assert.Equal("(block (decl x :Func<IMk, int> (call-inst (ident m :IMk) Make :Func<IMk, int>)))",
+                 SemanticDump.DumpBody(src, "Use.f"));
+}
+
+[Test]
+void test_interface_indexer_resolves_to_get_item() {
+    // 接口静态类型收者的索引器 `IBox b; b[0]` → get_Item 虚调用（此前接口收者落 "index on non-array"）。
+    string src = "interface IBox { int this[int i] { get; } }\n"
+        + "class Use { void f(IBox b) { var x = b[0]; } }\n";
+    Assert.Equal("(block (decl x :int (call-inst (ident b :IBox) get_Item (lit-int 0 :int) :int)))",
+                 SemanticDump.DumpBody(src, "Use.f"));
+}
+
+[Test]
+void test_interface_indexer_self_return_is_substituted() {
+    // 索引器返回 `Self` → 经接口静态类型解析成接口自身（同方法返回口径，走 `_substSelf`）。
+    string src = "interface ISelfBox { Self this[int i] { get; } }\n"
+        + "class Use { void f(ISelfBox b) { var x = b[0]; } }\n";
+    Assert.Equal("(block (decl x :ISelfBox (call-inst (ident b :ISelfBox) get_Item (lit-int 0 :int) :ISelfBox)))",
+                 SemanticDump.DumpBody(src, "Use.f"));
+}
+
 // ── base-class 约束对未解析型参不再假红（fix-iface-satisfaction-gaps #2）──────────
 
 [Test]

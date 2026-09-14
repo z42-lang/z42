@@ -147,7 +147,13 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // version skew → MissingSymbolException) apart from "this class simply has no
 // constructor" (zero-initialize as before). Absence of the bit is the
 // conservative state, so behaviour is unchanged wherever it is not set.
-pub const ZBC_VERSION_MINOR: u16 = 39;
+// 2026-09-14 fix-call-arity-skew: bumped to 1.40 — SIGS `method_flags` gains
+// bit3 = METHOD_FLAG_SRET (the function returns a blob value struct, so its
+// physical signature carries a hidden trailing return slot not counted in
+// `param_count`). Wire layout unchanged; the new bit's meaning is what forces the
+// bump: pre-1.40 artifacts leave it 0, and the runtime's exact call-arity check
+// would reject every struct-returning call in them.
+pub const ZBC_VERSION_MINOR: u16 = 40;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -259,7 +265,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
 // 2026-09-13 encode-ctorless-objnew: bumped to 0.44 — embeds zbc 1.39 (ObjNew
 // gains the trailing `ctor_known` u8). No zpkg-outer layout change.
-pub const ZPKG_VERSION_MINOR: u16 = 44;
+// 2026-09-14 fix-call-arity-skew: bumped to 0.45 — embeds zbc 1.40 (SIGS
+// method_flags bit3 = sret). No zpkg-outer layout change.
+pub const ZPKG_VERSION_MINOR: u16 = 45;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

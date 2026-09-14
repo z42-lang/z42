@@ -82,11 +82,8 @@ void _stageSummary(StageLogZ log, long totalMs) {
     Console.WriteLine("  " + _padRight("TOTAL", 48) + _fmtDur(totalMs));
 }
 
-string _padRight(string s, int width) {
-    string o = s;
-    while (o.Length < width) { o = o + " "; }
-    return o;
-}
+// fix-call-arity-skew：此处原有一份 `_padRight`，与 xtask_deps.z42 的同名同签名定义跨文件重复（语义等价，
+// 未造成错误行为，但同属「单文件内才查重」的漏网者）；删之，统一用 xtask_deps.z42 那份。
 
 // ── test e2e ────────────────────────────────────────────────────────────────
 

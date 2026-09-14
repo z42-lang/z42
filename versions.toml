@@ -95,7 +95,7 @@ avd_name           = "z42_pixel6_api37"
 avd_device         = "pixel_6"
 
 [build.ios]
-xcode_min          = "15.0"             # verify-only（macOS dev 必备）
+xcode_min          = "16.0"             # 真比较（`xtask deps check/install` 低于即 warning）；16 = swift-tools 6.0 / Swift 6 语言模式的下限。CI 用 macos-26 镜像默认 Xcode（26.x）
 extra_rust_targets = ["aarch64-apple-darwin"]   # `swift test` host slice (跑 unit tests，不是部署 target)
 
 [build.wasm]

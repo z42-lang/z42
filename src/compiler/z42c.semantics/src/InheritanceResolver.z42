@@ -12,9 +12,10 @@ public sealed class InheritanceResolver {
     // impl-block 收集（port-z42c-impl-block，镜像 C# CollectImpls）：
     // 解析 target（NamedType→已注册类）+ trait（接口名）→ 把方法并入 target.Methods、
     // trait 并入 target.InterfaceNames。
-    // ⚠️ 接口成员齐备性校验（pass ⑥ `_checkIfaceMembersComplete`）**看不到经 impl 块获得的接口**：
-    // 本 pass 在 `_passSealedEnforce` **之后**跑，那时 trait 还没并进 `InterfaceNames`。
-    // 不是回归（add-interface-satisfaction-check 之前一条都不查），但要扩到 impl 块得先调这个次序。
+    // 接口成员齐备性校验分两条路：**声明接口**（`class C : I`）由 `_checkIfaceMembersComplete`
+    // 在 `_passSealedEnforce` 内走 AST `c.Bases` 校验；**impl 块接口**（`impl I for C`）不在
+    // `c.Bases` 里、由本 pass 并进 `InterfaceNames`，故其齐备性由独立的 `_passImplIfaceComplete`
+    // 在本 pass **之后**校验（fix-iface-self-completeness-gaps A2）。两条路互不重叠、各查各的。
     internal void _passImpls(SymbolTable table, CompilationUnit cu) {
         table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias
         int i = 0;
@@ -42,6 +43,40 @@ public sealed class InheritanceResolver {
                             target.AddOwnMethod(md.Name, this._sc._hasWord(md.Mods, "virtual"), false);
                         }
                         m = m + 1;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // fix-iface-self-completeness-gaps A2：impl 块（`impl Trait for Target`）补的接口，其成员齐备性
+    // 此前**从不校验**——`_checkIfaceMembersComplete`（`_passSealedEnforce` 内、走 AST `c.Bases`）看不到
+    // impl 块给的接口：trait 由 `_passImpls` 并进 `ct.InterfaceNames`，而这些接口根本不在 target 的
+    // `c.Bases` 里。⇒ `impl I for C {}`（空/缺成员）被静默接受，等同没实现却编得过（真洞）。
+    // 本 pass 必须在 `_passImpls`（并 trait + impl 方法入 target.Methods）**之后**跑：迭代每个 ImplDecl、
+    // 按 trait 名解析接口、复用 `_checkOneIfaceMembers` 校验 target 是否补齐其成员（含 static/返回/可见性，
+    // 与声明接口同一口径）。声明接口路径（`c.Bases`）不经过这里、行为逐字不变——本 pass 纯**追加** impl
+    // 块覆盖，两条路互不重叠、无双报。跨包接口的 kind/可见性同样在 `_checkOneIfaceMethod` 里被
+    // `it.IsImported` 早退（导入侧元数据不可靠，保守漏报，与声明接口同取舍）。
+    // 泛型 impl trait（`impl IFoo<int> for C`）此处只按裸名解析——与 `_passImpls` 自身一致（它也只处理
+    // `TraitType is NamedType`），类型实参匹配是跨包/泛型接口约束的独立议题，不在本 change。
+    internal void _passImplIfaceComplete(SymbolTable table, CompilationUnit cu) {
+        table.CurrentAliases = SymbolTable.BuildAliases(cu);   // add-type-alias（与 _passImpls 同）
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = cu.Decls[i];
+            if (d is ImplDecl) {
+                ImplDecl implD = d as ImplDecl;
+                if (implD.TargetType is NamedType && implD.TraitType is NamedType) {
+                    string targetName = (implD.TargetType as NamedType).Name;
+                    string traitName = (implD.TraitType as NamedType).Name;
+                    if (targetName != "" && traitName != "" && table.HasClass(targetName)) {
+                        Z42ClassType ct = table.GetClass(targetName);
+                        Z42InterfaceType it = table.GetInterface(traitName);
+                        if (ct != null && it != null) {
+                            this._checkOneIfaceMembers(table, ct, targetName, implD.Span, it);
+                        }
                     }
                 }
             }
@@ -349,28 +384,31 @@ public sealed class InheritanceResolver {
         int i = 0;
         while (i < c.BaseCount) {
             Z42Type bt = table.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
-            if (bt is Z42InterfaceType) { this._checkOneIfaceMembers(table, ct, c, bt as Z42InterfaceType); }
+            if (bt is Z42InterfaceType) { this._checkOneIfaceMembers(table, ct, c.Name, c.Span, bt as Z42InterfaceType); }
             i = i + 1;
         }
     }
 
-    private void _checkOneIfaceMembers(SymbolTable table, Z42ClassType ct, ClassDecl c, Z42InterfaceType it) {
+    // `cName`/`cSpan`（原来是 `ClassDecl c`）：错误定位用的实现方名字与位置。改用 name+span 是为了让
+    // **impl 块路径**（`_passImplIfaceComplete`，实现方 decl 可能跨 CU、只有 `ImplDecl`）也能复用本组
+    // 校验——声明接口路径照旧传 `c.Name`/`c.Span`，行为逐字不变（fix-iface-self-completeness-gaps A2）。
+    private void _checkOneIfaceMembers(SymbolTable table, Z42ClassType ct, string cName, Span cSpan, Z42InterfaceType it) {
         string[] keys = it.Methods.Keys();
         int k = 0;
         while (k < keys.Length) {
             MethodSymbol ims = it.Methods.Get(keys[k]) as MethodSymbol;
-            if (ims != null && ims.Signature != null) { this._checkOneIfaceMethod(table, ct, c, it, ims); }
+            if (ims != null && ims.Signature != null) { this._checkOneIfaceMethod(table, ct, cName, cSpan, it, ims); }
             k = k + 1;
         }
         int b = 0;
         while (b < it.BaseCount) {   // 父接口的成员同样要补齐（与 ⑤ 的闭包同一条链）
             Z42InterfaceType bit = table.GetInterface(it.BaseNames[b]);
-            if (bit != null) { this._checkOneIfaceMembers(table, ct, c, bit); }
+            if (bit != null) { this._checkOneIfaceMembers(table, ct, cName, cSpan, bit); }
             b = b + 1;
         }
     }
 
-    private void _checkOneIfaceMethod(SymbolTable table, Z42ClassType ct, ClassDecl c, Z42InterfaceType it, MethodSymbol ims) {
+    private void _checkOneIfaceMethod(SymbolTable table, Z42ClassType ct, string cName, Span cSpan, Z42InterfaceType it, MethodSymbol ims) {
         int pc = ims.Signature.ParamCount;
         Z42Type[] want = new Z42Type[pc];
         int p = 0;
@@ -405,8 +443,8 @@ public sealed class InheritanceResolver {
                         string ik = "an instance method"; if (ims.IsStatic) { ik = "`static`"; }
                         string ck = "an instance method"; if (cm.IsStatic) { ck = "`static`"; }
                         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
-                            "`" + c.Name + "` implements `" + it.Name() + "` but `" + ims.Name
-                            + "` is " + ik + " in the interface and " + ck + " here", c.Span);
+                            "`" + cName + "` implements `" + it.Name() + "` but `" + ims.Name
+                            + "` is " + ik + " in the interface and " + ck + " here", cSpan);
                         return;
                     }
                     // fix-iface-satisfaction-gaps A1：接口成员是隐式 public 契约，实现方必须以 `public`
@@ -418,8 +456,8 @@ public sealed class InheritanceResolver {
                     // （导入侧 Visibility 同不可靠），此处只覆本包——真静默洞所在。
                     if (cm.Visibility != "public") {
                         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
-                            "`" + c.Name + "` implements `" + it.Name() + "` but `" + ims.Name
-                            + "` must be implemented `public` (it is `" + cm.Visibility + "` here)", c.Span);
+                            "`" + cName + "` implements `" + it.Name() + "` but `" + ims.Name
+                            + "` must be implemented `public` (it is `" + cm.Visibility + "` here)", cSpan);
                         return;
                     }
                     // 返回类型：协变允许（impl.Ret is-a 接口声明的 Ret）。Unknown/Error（含导入未解析返回）
@@ -440,9 +478,9 @@ public sealed class InheritanceResolver {
                     }
                     if (!retOk) {
                         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
-                            "`" + c.Name + "` implements `" + it.Name() + "` but `" + ims.Name
+                            "`" + cName + "` implements `" + it.Name() + "` but `" + ims.Name
                             + "`'s return type `" + cm.Signature.Ret.Name()
-                            + "` is not compatible with the interface's `" + wantRet.Name() + "`", c.Span);
+                            + "` is not compatible with the interface's `" + wantRet.Name() + "`", cSpan);
                         return;
                     }
                     return;
@@ -455,13 +493,13 @@ public sealed class InheritanceResolver {
         }
         if (!nameSeen) {
             this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
-                "`" + c.Name + "` implements `" + it.Name() + "` but does not define member `"
-                + ims.Name + "`", c.Span);
+                "`" + cName + "` implements `" + it.Name() + "` but does not define member `"
+                + ims.Name + "`", cSpan);
             return;
         }
         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
-            "`" + c.Name + "` implements `" + it.Name() + "` but no overload of `" + ims.Name
-            + "` matches the interface signature (want `" + wantKey + "`)", c.Span);
+            "`" + cName + "` implements `" + it.Name() + "` but no overload of `" + ims.Name
+            + "` matches the interface signature (want `" + wantKey + "`)", cSpan);
     }
 
     // 接口成员签名 → 实现方视角的期望签名。两处替换：
@@ -490,6 +528,20 @@ public sealed class InheritanceResolver {
             int i = 0;
             while (i < it2.ArgCount) { na[i] = this._substForIface(it2.TypeArgs[i], ct, it); i = i + 1; }
             return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
+        }
+        // fix-iface-self-completeness-gaps A3：下钻 `Func<...>`——接口成员 `void Apply(Func<Self,int> f)` 里
+        // 的 Self（及接口型参）藏在函数类型的形参/返回位。不下钻则满足性校验拿到 want 里 Self 未换 →
+        // 与实现类 `void Apply(Func<C,int> f)` **假不匹配** → E0412 假红。补齐后期望签名正确、真匹配。
+        if (t is Z42FuncType) {
+            Z42FuncType ft = t as Z42FuncType;
+            Z42Type[] np = new Z42Type[ft.ParamCount];
+            int i = 0;
+            while (i < ft.ParamCount) { np[i] = this._substForIface(ft.ParamTypes[i], ct, it); i = i + 1; }
+            Z42FuncType r = new Z42FuncType(np, ft.ParamCount, this._substForIface(ft.Ret, ct, it));
+            r.ParamsFrom = ft.ParamsFrom;
+            r.ParamDefaults = ft.ParamDefaults;
+            r.ParamCallers = ft.ParamCallers;
+            return r;
         }
         return t;
     }

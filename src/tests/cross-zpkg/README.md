@@ -74,6 +74,8 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `available_skew` / `available_present` | `available!()` 按**实际依赖图**折常量 + 剪分支 | 加载期常量折叠 → CFG 剪枝（`skew-absent.txt`） |
 | `missing_ctor_skew` / `missing_ctor_present` | 构造器缺失不再静默写未构造对象 | ObjNew ctor 解析 → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`） |
 | `wrong_ctor_arity_skew` / `wrong_ctor_arity_present` | 构造器**解析到了、签名却对不上**不再照常调用（裸键在 skew 下会命中错的构造器） | ObjNew ctor 解析后 → `symres::wrong_ctor_arity_exception`（`skew-replace.txt` + `oldtarget/`） |
+| `call_arity_instance_skew` / `call_arity_sealed_skew` / `call_arity_present` | **实例方法**解析到了另一个签名（primary 裸键撞上）不再照常执行——普通类走 `VCall`、sealed 类走去虚化后的直接 `Call`；未修复时两者都输出 `label null7` | `VCall` → `resolve_vcall` 出口 + `install_ic`；`Call` → resolver 预填 / 冷路径写回 / cross-cell / JIT tier 3 → `symres::call_arity` + `wrong_arity_exception`（sret 由 `METHOD_FLAG_SRET` 精确计入） |
+| `call_arity_static_skew` | **事实守卫**：常规静态方法签名变了 ⇒ 键（全签名 mangle）也变 ⇒ 走「缺符号」抛异常，天然不受裸键撞车影响 | `MemberCollector._fillClass` 静态分支 `MangleKey` → `undefined function` |
 | `ctorless_objnew_skew` / `_present` / `_absent` | **零实参**的构造器缺失不再静默（关掉 `argc == 0` 那条缝）。`_absent` 是**过度收紧守卫**：真·零构造器跨包类不得误报 | 装配期 `CtorKnownFixup` 置 `ObjNew.ctor_known`（zbc 1.39） → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`）|
 | `static_ctor_crosspkg_static_call` | 依赖包类型的**第一次使用是调静态方法**（含不碰静态字段的方法）时静态 ctor 照常执行，结果与调用顺序无关；未使用的类型不执行 | `LazyLoader::insert_type` 入表即登记 cctor → `ensure_callee_owner_init` / `ensure_static_owner_init` 屏障 |
 | `static_ctor_crosspkg_field_first` | 守卫：依赖包类型的第一次使用是**直接读静态字段**时静态 ctor 照常执行（登记点从 `try_lookup_type` 挪到加载器入表处后不退化） | 静态字段名预解析 → 依赖包加载 → `LazyLoader::insert_type` 登记 → `ensure_static_owner_init` |

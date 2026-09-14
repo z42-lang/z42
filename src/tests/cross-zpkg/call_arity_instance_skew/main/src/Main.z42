@@ -1,0 +1,15 @@
+namespace Demo.CiApp;
+
+using Std.IO;
+using Demo.CiTarget;
+
+// fix-call-arity-skew：实例方法（VCall）解析到了、但签名容不下实参时不再照常调用。
+void Main() {
+    Box b = new Box(7);
+    try {
+        Console.WriteLine("label " + b.Label());
+    } catch (MissingSymbolException e) {
+        Console.WriteLine("caught MissingSymbolException");
+    }
+    Console.WriteLine("after");
+}

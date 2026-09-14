@@ -13,6 +13,7 @@
 //! |---|---|---|---|
 //! | A — stale mark | one collector, one late-registering mutator | preemption-bounded (3) | the fix closes the registration→sweep window |
 //! | B — arbitration | an active collector releases while a worker is parked | **exhaustive** (34 interleavings) | the fix does NOT re-introduce the 2026-06-01 deadlock |
+//! | B′ — straddling registration | a worker's registration straddles a pause while test-main blocks in `join()` | **exhaustive** | a thread blocked in `join()` must be parked — with or without the fix |
 //!
 //! Model B exists because a fix that only satisfies A is a trap: the
 //! 2026-06-01 "park at registration" attempt made A green and **deadlocked**
@@ -61,6 +62,29 @@
 //!
 //! So registration-window closure must not move a context's park to *before*
 //! the collector CAS. Any candidate fix has to keep `arbitration_*` green.
+//!
+//! ## The fix that landed — wait out `Marking`, *then* register (fix-context-joins-mid-pause, 2026-09-15)
+//!
+//! [`Fix::WaitOutMarking`] mirrors `VmContext::new_with_core`: under the phase lock, wait
+//! while the phase is `Marking`, then push into `vm_contexts`. The collector's final
+//! count-and-flip to `Marking` happens under the same lock, so a registration is either
+//! counted before the flip (and the collector waits for it to park) or happens after the
+//! pause ends. Model A goes green.
+//!
+//! It does **not** park, so model B's protocol (test-main waits for the worker to park) no
+//! longer fits: a worker waiting out a pause is unregistered and uncounted. Model B′ asks the
+//! question that matters instead. The waiting worker still reaches the arbitration CAS only
+//! after the pause, so it can win the collector role — and then it waits for every
+//! registered context, including test-main blocked in `join()`. Model B′ shows:
+//!
+//! - that deadlock is **not new**: with no fix at all, a worker registering just after the
+//!   release wins the CAS the same way (`unparked_join_deadlocks_even_without_a_fix`).
+//!   2026-06-01's attempt did not create the hazard; it made the unit test hit it every time.
+//! - it goes away once the blocked thread is parked, as every blocking native call in the
+//!   runtime now is (`Thread.Join` #598, the rest #648): `a_parked_joiner_never_deadlocks_*`.
+//!
+//! So the rule the fix relies on is "a thread blocked outside the VM is parked", not "the
+//! worker loses the CAS".
 //!
 //! ## Scope
 //!
@@ -159,23 +183,47 @@ fn release_pause(gc: &Gc) {
 
 // ── Model A: registration → sweep stale mark ──────────────────────────────
 
+/// How a new context joins `vm_contexts` (`VmContext::new_with_core`).
+#[derive(Clone, Copy)]
+enum Fix {
+    /// Before 2026-09-15: push unconditionally.
+    None,
+    /// The 2026-06-01 attempt: push, then park if a cycle is in flight — a park *before*
+    /// the arbitration CAS.
+    ParkAtRegistration,
+    /// What landed (fix-context-joins-mid-pause): under the phase lock, wait while `Marking`,
+    /// then push. Not a park — the waiter is not registered, so no collector counts it.
+    WaitOutMarking,
+}
+
+/// `VmContext::new_with_core`'s registration step under each [`Fix`].
+fn register(gc: &Gc, fix: Fix) {
+    match fix {
+        Fix::None => {
+            gc.num_ctx.fetch_add(1, Ordering::AcqRel);
+        }
+        Fix::ParkAtRegistration => {
+            gc.num_ctx.fetch_add(1, Ordering::AcqRel);
+            let in_flight = { *gc.phase.lock().unwrap() != IDLE };
+            if in_flight {
+                park_until_idle(gc);
+            }
+        }
+        Fix::WaitOutMarking => {
+            let mut ph = gc.phase.lock().unwrap();
+            while *ph == MARKING {
+                ph = gc.cv.wait(ph).unwrap();
+            }
+            gc.num_ctx.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+}
+
 /// A late-registering mutator: registers into vm_contexts, then (before reaching
 /// its first safepoint) runs a write barrier shading the alive object gray, then
 /// finally reaches a safepoint. This is the window the real bug exploits.
-///
-/// `registration_close` = the modelled fix: park at registration if a cycle is
-/// already in flight, before any heap op.
-fn late_mutator(gc: &Gc, registration_close: bool) {
-    gc.num_ctx.fetch_add(1, Ordering::AcqRel); // register
-
-    if registration_close {
-        // Registration-window close: if a cycle is already in flight, park before
-        // touching the heap so this context is counted / can't barrier during STW.
-        let in_flight = { *gc.phase.lock().unwrap() != IDLE };
-        if in_flight {
-            park_until_idle(gc);
-        }
-    }
+fn late_mutator(gc: &Gc, fix: Fix) {
+    register(gc, fix);
 
     gc.obj_mark.store(true, Ordering::Release); // write barrier: shade alive obj gray
 
@@ -184,6 +232,21 @@ fn late_mutator(gc: &Gc, registration_close: bool) {
     if ph == REQUESTED || ph == MARKING {
         park_until_idle(gc);
     }
+
+    unregister(gc);
+}
+
+/// `impl Drop for VmContext`: leave `vm_contexts`, then wake a waiting collector under the
+/// phase lock so it re-reads its target.
+///
+/// Without this a mutator that passes its only safepoint while the world is still `Idle`
+/// would end the model still counted, and a collector starting afterwards would wait for
+/// it forever — a deadlock of the model, not of the runtime. The no-fix run never got that
+/// far (the stale mark is found first); a green run of a fix does.
+fn unregister(gc: &Gc) {
+    gc.num_ctx.fetch_sub(1, Ordering::AcqRel);
+    let _ph = gc.phase.lock().unwrap();
+    gc.cv.notify_all();
 }
 
 /// The collector: the arbitration CAS + handshake, then sweep + the post-sweep
@@ -232,13 +295,13 @@ fn leak_gc() -> &'static Gc {
     Box::leak(Box::new(Gc::new()))
 }
 
-fn run_model(registration_close: bool) {
+fn run_model(fix: Fix) {
     bounded_model().check(move || {
         let gc = Arc::new(Gc::new());
         let gc_c = gc.clone();
         let c = thread::spawn(move || collector(&gc_c));
         let gc_m = gc.clone();
-        let m = thread::spawn(move || late_mutator(&gc_m, registration_close));
+        let m = thread::spawn(move || late_mutator(&gc_m, fix));
         c.join().unwrap();
         m.join().unwrap();
     });
@@ -250,7 +313,7 @@ fn run_model(registration_close: bool) {
 #[test]
 #[should_panic(expected = "stale mark bit on alive object after sweep")]
 fn race_reproduces_without_registration_close() {
-    run_model(false);
+    run_model(Fix::None);
 }
 
 /// WITH the registration-window close, no interleaving leaves a stale mark (in
@@ -265,7 +328,16 @@ fn race_reproduces_without_registration_close() {
 #[test]
 #[ignore = "slow under Condvar even preemption-bounded; and green here is insufficient — see model B"]
 fn registration_close_eliminates_race() {
-    run_model(true);
+    run_model(Fix::ParkAtRegistration);
+}
+
+/// The fix that landed closes the window: a registration is serialized against the
+/// collector's count-and-flip to `Marking`, so it is either waited for or happens after
+/// the sweep. Unlike the park-at-registration variant this search is fast — the waiter
+/// never enters the parked-count protocol.
+#[test]
+fn waiting_out_marking_eliminates_race() {
+    run_model(Fix::WaitOutMarking);
 }
 
 // ── Model B: collector arbitration → the 2026-06-01 deadlock ──────────────
@@ -273,18 +345,11 @@ fn registration_close_eliminates_race() {
 /// The worker of `second_collector_falls_back_to_mutator_park_returns_none`:
 /// register a fresh `VmContext`, then immediately try to collect.
 ///
-/// With `registration_close` the park moves to BEFORE the arbitration CAS —
+/// With `Fix::ParkAtRegistration` the park moves to BEFORE the arbitration CAS —
 /// which is precisely what turns a clean `None` fallback into a deadlock.
 /// Returns whether this worker ended up claiming the collector role.
-fn worker_registers_then_collects(gc: &Gc, registration_close: bool) -> bool {
-    gc.num_ctx.fetch_add(1, Ordering::AcqRel); // VmContext::new_with_core
-
-    if registration_close {
-        let in_flight = { *gc.phase.lock().unwrap() != IDLE };
-        if in_flight {
-            park_until_idle(gc);
-        }
-    }
+fn worker_registers_then_collects(gc: &Gc, fix: Fix) -> bool {
+    register(gc, fix);
 
     let won = request_gc_pause(gc);
     if won {
@@ -297,7 +362,7 @@ fn worker_registers_then_collects(gc: &Gc, registration_close: bool) -> bool {
 /// world until the worker has parked, which prunes the space to 34 interleavings
 /// (measured); an unbounded search costs ~0.1s, so a green here really does mean
 /// "no interleaving deadlocks", not "none within 3 preemptions".
-fn run_arbitration_model(registration_close: bool) {
+fn run_arbitration_model(fix: Fix) {
     loom::model::Builder::new().check(move || {
         let gc = leak_gc();
 
@@ -306,7 +371,7 @@ fn run_arbitration_model(registration_close: bool) {
         gc.collector_active.store(true, Ordering::Release);
         *gc.phase.lock().unwrap() = MARKING;
 
-        let w = thread::spawn(move || worker_registers_then_collects(gc, registration_close));
+        let w = thread::spawn(move || worker_registers_then_collects(gc, fix));
 
         // The unit test spins on `parked_count >= 1`; expressed here on the same
         // Condvar the worker notifies under the phase lock.
@@ -337,7 +402,7 @@ fn run_arbitration_model(registration_close: bool) {
 /// nothing about the fix).
 #[test]
 fn arbitration_baseline_has_no_deadlock() {
-    run_arbitration_model(false);
+    run_arbitration_model(Fix::None);
 }
 
 /// The 2026-06-01 regression, now deterministic: parking at registration moves
@@ -345,11 +410,92 @@ fn arbitration_baseline_has_no_deadlock() {
 /// claim, wins it, and then waits forever for a context whose thread is blocked
 /// in `join()`. This test is green when loom reports that deadlock.
 ///
-/// Keep this failing-on-purpose test as the gate for any registration-window
-/// fix: a candidate fix must make `registration_close_eliminates_race` green
-/// while *also* NOT deadlocking here.
+/// Keep this failing-on-purpose test: it is why the fix that landed waits out
+/// `Marking` *unregistered* instead of parking (model B′ below covers that fix,
+/// and why the deadlock this test shows is older than any registration change).
 #[test]
 #[should_panic(expected = "deadlock")]
 fn registration_close_reintroduces_2026_06_01_deadlock() {
-    run_arbitration_model(true);
+    run_arbitration_model(Fix::ParkAtRegistration);
+}
+
+// ── Model B′: a registration straddling the pause, test-main blocked in join() ──
+
+/// `NativeParkGuard::enter` (gc/safepoint.rs `native_park_incr`): count as parked and
+/// wake a waiting collector, notifying under the phase lock.
+fn native_park_enter(gc: &Gc) {
+    gc.parked.fetch_add(1, Ordering::AcqRel);
+    let _ph = gc.phase.lock().unwrap();
+    gc.cv.notify_all();
+}
+
+/// `NativeParkGuard::drop` (`native_park_decr`): wait out any pause, then uncount.
+fn native_park_exit(gc: &Gc) {
+    let mut ph = gc.phase.lock().unwrap();
+    while *ph != IDLE {
+        ph = gc.cv.wait(ph).unwrap();
+    }
+    gc.parked.fetch_sub(1, Ordering::AcqRel);
+}
+
+/// Test-main holds a (simulated) pause, spawns a worker that registers and tries to
+/// collect, releases **without** waiting for the worker to do anything — so the worker's
+/// registration may land before, during or after the pause — then joins it, parked or not.
+///
+/// The worker may legitimately win the collector role here (it registers after the release
+/// in some interleavings); what must not happen is a deadlock.
+fn run_straddle_model(fix: Fix, main_parks_while_joining: bool) {
+    loom::model::Builder::new().check(move || {
+        let gc = leak_gc();
+
+        gc.collector_active.store(true, Ordering::Release);
+        *gc.phase.lock().unwrap() = MARKING;
+
+        let w = thread::spawn(move || worker_registers_then_collects(gc, fix));
+
+        gc.collector_active.store(false, Ordering::Release);
+        *gc.phase.lock().unwrap() = IDLE;
+        gc.cv.notify_all();
+
+        if main_parks_while_joining {
+            native_park_enter(gc);
+        }
+        w.join().unwrap();
+        if main_parks_while_joining {
+            native_park_exit(gc);
+        }
+    });
+}
+
+/// The fix's precondition, exhaustively: once a thread blocked in `join()` is parked, a
+/// worker that waited out the pause and then won the collector role finds it parked and
+/// finishes.
+#[test]
+fn a_parked_joiner_never_deadlocks_with_waiting_registration() {
+    run_straddle_model(Fix::WaitOutMarking, true);
+}
+
+/// Control for the model's discriminating power: the same scenario with test-main
+/// blocked in `join()` unparked deadlocks — the worker wins the CAS after the pause and
+/// waits for test-main forever.
+#[test]
+#[should_panic(expected = "deadlock")]
+fn an_unparked_joiner_deadlocks_with_waiting_registration() {
+    run_straddle_model(Fix::WaitOutMarking, false);
+}
+
+/// …and it deadlocks exactly the same way with **no fix at all**: a worker that registers
+/// just after the release wins the CAS just the same. The hazard 2026-06-01 ran into is
+/// an unparked blocked thread, older than any registration change.
+#[test]
+#[should_panic(expected = "deadlock")]
+fn unparked_join_deadlocks_even_without_a_fix() {
+    run_straddle_model(Fix::None, false);
+}
+
+/// Parking the joiner is also sufficient for today's baseline — the rule is independent
+/// of the registration fix.
+#[test]
+fn a_parked_joiner_never_deadlocks_without_a_fix() {
+    run_straddle_model(Fix::None, true);
 }

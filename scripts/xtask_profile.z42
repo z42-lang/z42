@@ -74,7 +74,7 @@ int _profile(ParseResult r) {
     int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
     string vm = _builtVm(root, "release");
     string libs = _libsDir(root);
-    string driverZpkg = _driverZpkg(root);
+    string driverZpkg = _driverZpkg(root, "release");
     string flat = _assembleAllLibs(root, "release");
 
     string srcText = File.ReadAllText(srcAbs);

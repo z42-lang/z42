@@ -65,7 +65,7 @@ myapp/
 [platform.ios]
 bundle-id    = "com.acme.myapp"
 display-name = "My App"
-min-ios      = "15.0"
+min-ios      = "16.0"
 signing      = "Acme Dev"       # 身份引用名，不存证书
 capabilities = ["camera"]       # → Info.plist / entitlements
 icon         = "assets/icon.png"

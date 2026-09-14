@@ -182,6 +182,31 @@ public sealed class ExprTyper {
                 if (gret is Z42GenericParamType) { gret = new Z42UnknownType(); }
                 return new BoundCall("instance", true, target, ixCls.Name(), "get_Item", ia, n, gret, ix.Span);
             }
+            // fix-iface-self-completeness-gaps A3：接口静态类型收者的索引器 `IBox b; b[i]` → get_Item 虚调用。
+            // 此前 `_bindIndex` 只认数组 + Z42ClassType/Z42InstantiatedType（经 get_Item），接口收者落到下面
+            // "index on non-array" 假报——接口索引器（`MemberCollector._fillInterface` 已 lower 成 get_Item）
+            // 根本没有解析路径。补齐：解析接口的 get_Item，返回位 Self→接口自身（同 #527 接口收者返回替换口径，
+            // 且 `_substSelf` 现已下钻 Func ⇒ `Self this[int]` 与 `Func<Self,int> this[int]` 都正确替换），
+            // 裸型参擦除为 Unknown（运行期经 DepIndex 真实派发）。
+            if (tt is Z42InterfaceType) {
+                Z42InterfaceType ixIf = tt as Z42InterfaceType;
+                if (ixIf.Methods.ContainsKey("get_Item")) {
+                    MethodSymbol gm = ixIf.Methods.Get("get_Item") as MethodSymbol;
+                    Z42Type gret = MemberResolver._substSelf(gm.Signature.Ret, ixIf);
+                    int n = ix.IndexCount;
+                    bool gboxable = gm.Signature != null && gm.Signature.ParamTypes != null && gm.Signature.ParamTypes.Length >= n;
+                    BoundExpr[] ia = new BoundExpr[n];
+                    int i = 0;
+                    while (i < n) {
+                        BoundExpr iarg = this._bindExpr(ix.Indices[i], env);
+                        if (gboxable) { iarg = this._tc.BoxIfNeeded(iarg, gm.Signature.ParamTypes[i]); iarg = this._tc.ConvertIfNeeded(iarg, gm.Signature.ParamTypes[i], env.Symbols); }
+                        ia[i] = iarg;
+                        i = i + 1;
+                    }
+                    if (gret is Z42GenericParamType) { gret = new Z42UnknownType(); }
+                    return new BoundCall("instance", true, target, ixIf.Name(), "get_Item", ia, n, gret, ix.Span);
+                }
+            }
             BoundExpr index0 = this._bindExpr(ix.Indices[0], env);
             if ((tt is Z42ErrorType) || (tt is Z42UnknownType)) {
                 return new BoundIndex(target, index0, new Z42ErrorType(), ix.Span);
