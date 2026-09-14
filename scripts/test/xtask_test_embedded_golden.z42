@@ -15,7 +15,7 @@ using Std.Cli;
 // Build the shared z42 test-agent → app.zpkg (idempotent: skip if present).
 string _ensureTestAgent(string root) {
     string toml = Path.Join(root, "src/toolchain/workload/test/agent/z42.testagent.z42.toml");
-    string zpkg = Path.Join(root, "artifacts/build/toolchain/workload/testagent/dist/z42.testagent.zpkg");   // cache-dir-layout：testagent 配了 output_dir
+    string zpkg = _toolchainZpkg(root, toml);   // 按 toml 的 [build] 解析，不写死
     if (File.Exists(zpkg)) { return zpkg; }
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");

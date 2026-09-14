@@ -44,4 +44,10 @@ profile 差量：逐文件 fullMode `.zbc` 序列化约一半、parse 期标识�
       多 `[[exe]]` / workspace 成员均落 cache 且在默认位置。**阴性对照**：换旧 driver 跑同批夹具，三处全缺
       （单工程落在旧的 `<proj>/.cache`，另两处不写）
 - [x] 1.8 手测：`build stdlib` 后 25 个 `artifacts/build/libraries/<pkg>/release/cache` 与编译器成员 cache 均生成
-- [x] 1.9 GREEN：`xtask test` 全 stage 绿
+- [x] 1.9 CI 首跑暴露：builder / devtools / interactive 的 `dist_dir == output_dir`，默认 cache 落进产物目录，
+      `build stage-toolchain` 把 `.cache` 子目录当文件拷 → 崩。修：暂存只拷文件；并按 User 要求把 xtask 里
+      z42 工程产物路径**全部改为从 toml 解析**（`_libsBuildRoot`/`_compilerBuildRoot` 取 workspace.toml
+      output_dir 模板前缀、`_xtaskZpkg`/testagent 走 `_toolchainZpkg`、`clean` 按 cache_dir/output_dir 模板、
+      stage-toolchain 目标位置 = 源路径相对仓库根；cross/incremental/package-desktop/install-vscode 改用既有 helper）。
+      本地验证 stage-toolchain 布局与原来一致且无 `.cache`
+- [x] 1.10 GREEN：`xtask test` 全 stage 绿
