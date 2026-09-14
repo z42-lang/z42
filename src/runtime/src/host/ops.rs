@@ -14,7 +14,6 @@ use crate::interp;
 use crate::metadata::{
     load_artifact, load_artifact_from_bytes, merge_modules, Module, Value,
 };
-use crate::vm_context::VmContext;
 
 use super::config::ResolvedConfig;
 use super::marshal::{value_to_z42_value, z42_value_to_value};
@@ -81,6 +80,7 @@ pub(crate) fn build_host_module(
     let user_module_name = user_artifact.module.name.clone();
     let mut modules: Vec<Module> = Vec::with_capacity(4);
     let mut initially_loaded: Vec<String> = Vec::new();
+    let mut eager_impl_pairs: Vec<(String, String)> = Vec::new();
     let libs_dir = corelib.as_ref().map(|c| c.libs_dir.clone());
 
     // De-dup tracker for the search_paths fallback: ensures the same
@@ -107,6 +107,7 @@ pub(crate) fn build_host_module(
                 let dep = load_artifact_from_bytes(&bytes).with_context(|| {
                     format!("zpkg_resolver returned malformed bytes for namespace `{ns}`")
                 })?;
+                eager_impl_pairs.extend(dep.impl_pairs.iter().cloned());
                 modules.push(dep.module);
                 initially_loaded.push(format!("{ns}.zpkg"));
                 continue;
@@ -119,6 +120,7 @@ pub(crate) fn build_host_module(
                 let corelib_artifact = load_artifact(&path_str).with_context(|| {
                     format!("z42_host_load_zbc: re-reading corelib at {path_str}")
                 })?;
+                eager_impl_pairs.extend(corelib_artifact.impl_pairs.iter().cloned());
                 modules.push(corelib_artifact.module);
                 initially_loaded.extend(c.initially_loaded.iter().cloned());
                 if let Ok(canonical) = c.zpkg_path.canonicalize() {
@@ -147,6 +149,7 @@ pub(crate) fn build_host_module(
                 let dep = load_artifact(&path_str).with_context(|| {
                     format!("z42_host_load_zbc: loading import dependency {path_str}")
                 })?;
+                eager_impl_pairs.extend(dep.impl_pairs.iter().cloned());
                 modules.push(dep.module);
                 if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
                     initially_loaded.push(name.to_string());
@@ -157,6 +160,7 @@ pub(crate) fn build_host_module(
 
     // Push the user module last so merge_modules' name-keep behaviour
     // doesn't accidentally rename it to the first dependency.
+    eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
     modules.push(user_artifact.module);
 
     let final_module = if modules.len() == 1 {
@@ -174,20 +178,22 @@ pub(crate) fn build_host_module(
         m
     };
 
-    let ctx = VmContext::new();
+    // fix-host-static-init: the post-merge boot steps are `app::run`'s, shared via
+    // `boot` — this path used to hand-copy an older subset (no cctor registration, no
+    // lazy-loader seeding, no availability folding, module kept outside the ctx).
     // FFI/embedded path loads the module from bytes (no on-disk entry dir), so
     // the search set is just the libs dir (support-colocated-zpkg-deps).
-    ctx.install_lazy_loader_with_deps(
-        libs_dir.into_iter().collect(),
-        final_module.string_pool.len(),
-        Vec::new(),
+    let ctx = crate::boot::boot_context(final_module, crate::boot::BootPlan {
+        search_dirs: libs_dir.into_iter().collect(),
+        declared_candidates: Vec::new(),
         initially_loaded,
-    );
+        eager_impl_pairs,
+    });
+    if let Some(m) = ctx.module() {
+        crate::boot::prepare_execution(&ctx, m);
+    }
 
-    Ok(HostModule {
-        module: final_module,
-        ctx,
-    })
+    Ok(HostModule { ctx, static_init: std::sync::OnceLock::new() })
 }
 
 /// Look up a fully-qualified function name in a host-module's function
@@ -248,8 +254,8 @@ pub(crate) fn invoke_impl(
     entry: &HostEntry,
     args_bytes: &[Value],
 ) -> Result<Option<Value>> {
-    let func = host_module
-        .module
+    let module = host_module.module();
+    let func = module
         .functions
         .get(entry.fn_idx)
         .ok_or_else(|| anyhow!("z42_host_invoke: entry function index out of bounds"))?;
@@ -264,7 +270,24 @@ pub(crate) fn invoke_impl(
     }
 
     let _sink_guard = HostSinkGuard::enter();
-    interp::run_returning(&host_module.ctx, &host_module.module, func, args_bytes)
+    let ctx = &*host_module.ctx;
+    // fix-host-static-init: run the merged packages' `__static_init__` once per module,
+    // before the first entry — `Vm::run` does the same right before `Main`. Inside the
+    // sink guard so initializer output reaches the host. `init_static_fields` clears all
+    // statics first, so it must never run a second time for this module.
+    let init = host_module
+        .static_init
+        .get_or_init(|| interp::init_static_fields(ctx, module).map_err(|e| format!("{e:#}")));
+    if let Err(msg) = init {
+        bail!("uncaught exception during static initialization: {msg}");
+    }
+    let ret = interp::run_returning(ctx, module, func, args_bytes)?;
+    // defer-class-initialization: initializers of packages first touched during this call
+    // run lazily and can only record their failure — surface it like `Vm::run` does.
+    if let Some(msg) = ctx.take_static_init_error() {
+        bail!("uncaught exception during static initialization: {msg}");
+    }
+    Ok(ret)
 }
 
 /// Marshal a slice of `Z42Value` into runtime `Value`s. Errors mirror

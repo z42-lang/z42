@@ -1,7 +1,8 @@
 # 静态构造函数的按类型初始化
 
 > 语义面见[静态构造函数](../language/static-constructors.md)。本页讲实现。
-> 代码：`src/runtime/src/vm_context/cctor.rs`。
+> 代码：`src/runtime/src/vm_context/cctor.rs`；启动路径共用步骤 `src/runtime/src/boot.rs`。
+> 对齐：2026-09-14（fix-host-static-init）。
 
 ## 为什么不能照抄 C#
 
@@ -85,6 +86,39 @@ stateDiagram-v2
 
 **没有**静态构造器的类保持原样（继续走按编译单元的急切初始化）——这本来就合规，
 且让屏障的代价只落在真正用了静态构造器的类型上。
+
+## 谁来跑 `__static_init__`：两条启动路径共用一份启动步骤
+
+跑 z42 代码有两条入口：
+
+- **`app::run`**：`z42vm` 二进制、`z42_run_app`、wasm `runTestApp`；
+- **宿主 API**：`z42_host_load_zbc` → `z42_host_invoke`（C ABI / `z42-host`，iOS / Android / wasm 的
+  `loadZbc` + `invoke` 都走它）。
+
+两者合并模块的方式相同，但合并**之后**的启动步骤原先各写一份：宿主那份是早年从 `app::run` 抄的，
+此后新增的步骤只进了 `app::run`。结果宿主路径**从不执行**合并进来的包（z42.core、用户模块本身）的
+`__static_init__`，带初始化器的静态字段读出的是类型默认值——而且不报错：`static_get` 读到空槽后，
+`verify_static_field` 按字段类型补了个 `0`。症状最早在 wasm 上看到（`OSKind.Wasm` 为 0 ⇒
+`Platform.IsWasm()` 恒假），实际所有嵌入都中招（fix-host-static-init，2026-09-14）。
+
+现在合并后的步骤只有一份，在 `src/runtime/src/boot.rs`：
+
+| 函数 | 做什么 | 谁调 |
+|---|---|---|
+| `boot_context` | `available!` 折叠 → `VmContext::with_module` → 登记静态构造器 → 装 lazy loader + 种类型 / impl | `app::run`、宿主 `build_host_module` |
+| `prepare_execution` | 预分配 FuncRef 槽 + `resolve_module` | `Vm::run`、宿主 `build_host_module` |
+
+**静态字段初始化本身仍由调用方决定时机**，因为两边的「程序」形状不同：
+
+- `Vm::run`：进入 `Main` 之前跑一次 `init_static_fields`；
+- 宿主：**每个模块在首次 `invoke` 时跑一次**，放在宿主 stdout sink 守卫内（初始化器的输出也送到宿主）。
+  `init_static_fields` 会先清空全部静态字段，所以绝不能跑第二次——结果存在 `HostModule.static_init`
+  （`OnceLock`）。失败是**粘滞**的：之后每次 invoke 都报同一个错，而不是在半初始化的静态状态上继续跑。
+  每次 invoke 结束后还要取一次 `take_static_init_error`（本次调用中首次触达、惰性加载的包的初始化失败），
+  与 `Vm::run` 一致；两处都归为 `Z42HostStatus::VmException`。
+
+> 新增启动步骤时，加进 `boot.rs`，两条路径自动都有；别再只改 `app::run`。
+> 回归测试：`host::host_tests::invoke_sees_initialized_static_fields`（stdlib 包与用户模块各一个带初始化器的静态字段）。
 
 ## 已知差距
 

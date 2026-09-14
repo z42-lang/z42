@@ -43,16 +43,8 @@ impl Vm {
         })?;
         let entry_name = Self::resolve_entry_in(module, hint)?;
 
-        // 2026-05-02 add-method-group-conversion (D1b): pre-allocate the FuncRef
-        // cache slots needed by `LoadFnCached` instructions for this module's
-        // global slot range.
-        ctx.alloc_func_ref_slots(module.func_ref_cache_slots);
-
-        // introduce-method-token Phase 3 (2026-05-08): pre-resolve dispatch
-        // tokens for every Function. Idempotent — safe if hot paths run
-        // before Phase 4 hookups consume the cache (they fall back to
-        // string lookup until Phase 4 lands).
-        crate::metadata::resolver::resolve_module(module, ctx);
+        // FuncRef slots + dispatch tokens (shared with the embedding host path).
+        crate::boot::prepare_execution(ctx, module);
 
         let entry = module
             .functions

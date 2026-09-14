@@ -253,7 +253,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     eager_impl_pairs.extend(user_artifact.impl_pairs.iter().cloned());
     modules.push(user_artifact.module);
 
-    let mut final_module = if modules.len() == 1 {
+    let final_module = if modules.len() == 1 {
         modules.into_iter().next().unwrap()
     } else {
         let mut m = crate::metadata::merge_modules(modules)
@@ -267,46 +267,16 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         m
     };
 
-    // add-symbol-availability-macro：`available!(X)` 折成常量 + 剪死分支。
-    //
-    // 位置是**硬约束**，不能随便挪：
-    //   - 必须在 type_registry / func_index 建好之后（判定要查它们）；
-    //   - 必须在 `VmContext::with_module` 之前——那之后 Module 进 Arc 就不可变了，
-    //     原地 CFG 剪枝的窗口只有这里；
-    //   - 必须在任何 token 解析 / 执行之前，这样被剪掉分支里的 call site 永不被解析，
-    //     后续 `fix-silent-symbol-resolution` 的急切校验也就不会对它抛出。
-    //     `available!` 正是那条校验的唯一显式豁免通道。
-    let avail_stats =
-        crate::metadata::loader::fold_availability(&mut final_module, &declared_candidates);
-    if !avail_stats.is_noop() {
-        // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
-        crate::metadata::loader::build_block_indices(&mut final_module);
-        crate::metadata::loader::build_func_index(&mut final_module);
-        tracing::debug!("available!: {avail_stats:?}");
-    }
-
-    // Construct the VmContext (owns static-fields / pending-exception / lazy_loader).
-    let string_pool_len = final_module.string_pool.len();
-    let ctx = crate::vm_context::VmContext::with_module(final_module);
-    // add-static-constructors：急切合并进来的类型（主程序 + stdlib + eager deps）在此登记
-    // 静态构造器。跨包惰性加载的类型由 `try_lookup_type` 登记——两处合起来保证
-    // 「登记早于使用」，这是 cctor 屏障那个 `pending` 门成立的前提。
-    if let Some(m) = ctx.module() {
-        for td in m.type_registry.values() { ctx.register_cctor_of(td); }
-    }
+    // fix-host-static-init: availability folding → ctx → cctor registration → lazy loader
+    // live in `boot::boot_context`, shared with the embedding host path.
+    let ctx = crate::boot::boot_context(final_module, crate::boot::BootPlan {
+        search_dirs: search_dirs.clone(),
+        declared_candidates,
+        initially_loaded: initially_loaded_zpkgs,
+        eager_impl_pairs,
+    });
     // Forward `-- <args>` to the program's GetCommandLineArgs() before vm.run.
     ctx.set_program_args(opts.program_args.clone());
-    ctx.install_lazy_loader_with_deps(
-        search_dirs.clone(),
-        string_pool_len,
-        declared_candidates,
-        initially_loaded_zpkgs,
-    );
-    // Seed lazy loader with merged module's TypeDescs (cross-zpkg base classes)
-    // and eagerly-loaded artifacts' impl pairs.
-    let type_registry = ctx.module().unwrap().type_registry.clone();
-    ctx.seed_lazy_loader_types(&type_registry);
-    ctx.seed_lazy_loader_impls(&eager_impl_pairs);
 
     // Replay-emit ModuleLoaded for every module loaded during boot.
     for (name, byte_size) in loaded_for_replay.drain(..) {

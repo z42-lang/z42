@@ -62,6 +62,21 @@ fn test_something() { ... }
 （参照 `threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。
 机制与反例见 [sync-primitives.md](../../docs/book/src/runtime/sync-primitives.md)。
 
+### 阻塞的 native 调用必须 park（2026-09-14）
+
+**线程卡在系统调用里就到不了字节码 safepoint；GC 要等「全世界停下」⇒ 一条没 park 的阻塞调用拖死整个进程的 GC。**
+判据是「可能长时间不返回」，不是「通常很快」：网络读写 / connect / TLS 握手 / DNS（getaddrinfo 可以卡满解析超时）/
+子进程管道读写（管道满就阻塞）/ `join` / 条件变量等待。三条，缺一不可：
+
+1. **包 `NativeParkGuard`**，只包阻塞的那几行。
+2. **park 区间内不许分配**：parked 线程造的对象不是任何根，并发回收会收掉它（#641；debug 构建由
+   `debug_assert_not_native_parked` 当场炸）。错误先收成 Rust `String`，出 park 再造结果元组。
+3. **不许攥着共享锁阻塞**：别的线程排在这把锁上时是**不 park** 的 —— 只 park 阻塞者本身，GC 照样等排队者。
+   做法：锁下只取出/克隆句柄（`Arc`），放锁，再 park 着做 I/O（参照 `corelib/process.rs` 的 `ProcessSlot`、`network/tcp.rs` 的取出-放回）。
+
+新增会阻塞的 builtin 时，照「阻塞线程 `parked_count == 1` → 解除阻塞 → 回到 0」写单测（参照 `process_tests.rs` 末尾、
+`monitor_tests.rs`），并做一次阴性对照。
+
 ### wasm 上不能取时钟（2026-09-14，第三次回归）
 
 **`wasm32-unknown-unknown` 没有 `std::time`：`Instant::now()` / `SystemTime::now()` 直接 panic
