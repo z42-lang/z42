@@ -193,13 +193,18 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
 > **旧 VM**(bin/z42vm)跑 gen1/gen2 把种子推进到当前格式,再交 cargo 新 VM。所以 **zpkg/zbc
 > minor bump 后 build-and-test / host-package / verify-selfhost 等**从当前源码 bootstrap 的腿
 > **不再全红**,publish-nightly 照常发出新种子,**无需手动传种子**。仅纯 download-bootstrap 的
-> `vm-jit` / `stdlib-jit` / `bench`(用旧 nightly 的旧 VM)仍会 bump 当次一次性红,下一 run 下到
+> `vm-jit` / `stdlib-jit`(用旧 nightly 的旧 VM)仍会 bump 当次一次性红,下一 run 下到
 > 新 nightly 自愈(它们不 feed publish-nightly,不阻塞)。下面描述的是这类**残留一次性红**。
+>
+> **`bench-regression` 不在此列（2026-09-14 skip-ab-across-format-gap）**：它在 bump PR 上的红
+> 根本不是「旧 nightly」问题，而是 A/B 的 base 侧结构上不可测（base stdlib 被 PR 的 z42.ir 写成
+> PR 格式、base VM 读不了）。现在检测到格式代差即**跳过 A/B 并打 warning**，不再亮红。
+> 原理见 book `dev/benchmarking.md`「跨格式代际的 PR 不做 A/B」。
 
-CI 的 `xtask-bootstrap` composite **下载上一次 nightly**（`install-z42` → `.z42/`）来编译 + 运行 xtask（vm-jit / bench 等 job）。所以 zbc/zpkg minor bump 后会短暂出现循环：
+CI 的 `xtask-bootstrap` composite **下载上一次 nightly**（`install-z42` → `.z42/`）来编译 + 运行 xtask（vm-jit 等 job）。所以 zbc/zpkg minor bump 后会短暂出现循环：
 
 - 旧 nightly 的 z42vm 是旧 zbc reader → 跑不了用**新** z42c 编出的 `xtask.zpkg`（strict-pin 失败）；且 xtask 对着 `.z42/libs`（旧 nightly stdlib）编译，新 stdlib API 也可能缺。
-- 于是 vm-jit / bench **红**，直到存在兼容的新 nightly——而产出它的正是 `publish-nightly`。
+- 于是 vm-jit **红**，直到存在兼容的新 nightly——而产出它的正是 `publish-nightly`。
 
 **为什么不死锁（自愈设计）**：`publish-nightly` 的 `needs` **只含从当前源码构建的 job**（`build-and-test` 用 cargo + z42c 从源码 bootstrap xtask；`package-*` 用源码 `xtask build`），**绝不依赖 download-bootstrap 的 vm-jit / bench**。所以 bump commit 推上 main 后：源码 job 全绿 → publish-nightly 发布新 nightly → 下一次 run 的 vm-jit / bench 下到新 nightly → 自愈。bump 当次那一跑 vm-jit/bench 红是预期的、一次性的。
 
