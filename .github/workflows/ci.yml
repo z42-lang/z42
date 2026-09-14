@@ -147,7 +147,7 @@ jobs:
         include:
           - { os: ubuntu-latest,    platform: linux-x64 }
           - { os: ubuntu-24.04-arm, platform: linux-arm64 }
-          - { os: macos-15,         platform: macos-arm64 }
+          - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
 
@@ -375,7 +375,7 @@ jobs:
         include:
           - { os: ubuntu-latest,    platform: linux-x64 }
           - { os: ubuntu-24.04-arm, platform: linux-arm64 }
-          - { os: macos-15,         platform: macos-arm64 }
+          - { os: macos-26,         platform: macos-arm64 }
           - { os: windows-latest,   platform: windows-x64 }
     runs-on: ${{ matrix.os }}
     steps:
@@ -524,7 +524,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, platform: linux-x64 }
-          - { os: macos-15,      platform: macos-arm64 }
+          - { os: macos-26,      platform: macos-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -579,7 +579,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, platform: linux-x64 }
-          - { os: macos-15,      platform: macos-arm64 }
+          - { os: macos-26,      platform: macos-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -638,7 +638,7 @@ jobs:
 
       # 以下组装 + 上传 linux 腿独占：current-sdk 的两个消费方
       # （consume-current-sdk / vm-jit-consistency）都硬编码 current-sdk-ubuntu-latest，
-      # `current-sdk-macos-15` 上传后从无人下载。
+      # `current-sdk-macos-26` 上传后从无人下载。
       # macOS 腿保留上面的 golden 重生 + 字节基线门 —— 那是真覆盖（zbc 是 arch-中立的，
       # 在 macOS 上重生仍须与提交字节逐字一致 = 跨架构确定性），只跳过这两步无人消费的。
       - name: Assemble .z42 toolchain (build sdk --no-build) + bundle goldens
@@ -886,13 +886,13 @@ jobs:
         include:
           - { os: ubuntu-latest,    platform: linux-x64 }
           - { os: ubuntu-24.04-arm, platform: linux-arm64 }
-          - { os: macos-15,         platform: macos-arm64 }
+          - { os: macos-26,         platform: macos-arm64 }
 
     steps:
       - uses: actions/checkout@v7
 
       # Consume the toolchain artifact (z42c+stdlib+xtask.zpkg — arch-independent
-      # bytecode) + cargo-build the native z42vm. macOS resolves toolchain-macos-15;
+      # bytecode) + cargo-build the native z42vm. macOS resolves toolchain-macos-26;
       # linux (x64 AND arm64) resolves toolchain-ubuntu-latest (zpkg is arch-neutral).
       # rust toolchain + rust-cache 由该 action 自带（见其 cache-key input）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
@@ -1079,14 +1079,14 @@ jobs:
 
   # ── iOS packaging ──────────────────────────────────────────────────────
   # Packages ios-arm64 + iossim-arm64. Requires Xcode (pre-installed on
-  # macos-15 arm64) + iOS Rust targets. The source bootstrap also builds z42c.
+  # macos-26 arm64) + iOS Rust targets. The source bootstrap also builds z42c.
   package-ios:
     name: package-ios(macos-arm64)
     timeout-minutes: 45
     # gate-pr-package (see host-package): PR-skip unless platform changed.
     needs: [changes, toolchain-bootstrap]
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name != 'pull_request' }}
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - uses: actions/checkout@v7
@@ -1753,7 +1753,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    runs-on: macos-15
+    runs-on: macos-26
     permissions:
       contents: read
       checks: write

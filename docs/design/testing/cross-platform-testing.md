@@ -514,7 +514,7 @@ change（见 roadmap `infra-ci-platform-test-dashboard`）。
 infra-ci-platform-test-dashboard（CI run 27561709292 @ 9153fd6c）三平台 job 全 success：
 
 - **wasm**：①②③ 端到端（本地 z42vm 7/7 + CI ubuntu Playwright/Chromium）
-- **iOS**：①② + ③ 都在 `IosBackend`。③ = **真 iOS Simulator**（`xcodebuild test`，simctl 自动选第一个可用 iPhone；JUnit 由解析 xcodebuild Test Case 行产出，无需 xcbeautify）。本地（Xcode + simulator）与 CI macos-15 一致；本地实测 7/7。`Z42_IOS_DEST` 可覆盖目标。（原 `swift test` host slice 已被 simulator 取代，roadmap `ios-simulator-test` 完成）
+- **iOS**：①② + ③ 都在 `IosBackend`。③ = **真 iOS Simulator**（`xcodebuild test`，simctl 自动选第一个可用 iPhone；JUnit 由解析 xcodebuild Test Case 行产出，无需 xcbeautify）。本地（Xcode + simulator）与 CI macos-26 一致；本地实测 7/7。`Z42_IOS_DEST` 可覆盖目标。（原 `swift test` host slice 已被 simulator 取代，roadmap `ios-simulator-test` 完成）
 - **Android**：①② 经 `test platform android`；③ **CI ubuntu+KVM 真 emulator**（`reactivecircus/android-emulator-runner` + `gradlew connectedAndroidTest`）R1–R7 绿。AndroidBackend 本地 `RunTests` 桥接 `test.sh`（emulator 自管）；完整 z42 化 = roadmap `port-android-emulator-run-to-z42`
 - **dashboard**：每平台 job = PR 上一个 GitHub Check（success/failure）；dorny/test-reporter 出 R1–R7 明细
 - **CI 部署目标坑（iter1→2 修复）**：iOS cargo build 必须 `IPHONEOS_DEPLOYMENT_TARGET=platform.ios.min_ios`（否则 zlib-ng C 部署目标 10.0 vs rlib 18.5 → `___chkstk_darwin` 链接失败）；Android Kotlin doc 注释禁含字面 `/*`（`<subdir>/*.zpkg` 中 `/*` 触发 Kotlin 嵌套块注释 → unclosed comment）

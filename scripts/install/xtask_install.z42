@@ -359,7 +359,13 @@ int _setupIos(string root, TomlValue toml, string mode) {
     if (_have("xcodebuild")) {
         // `xcodebuild -version` → "Xcode 16.4\nBuild version 16F6"; take line 1, word 1.
         string xv = _nthWord(_firstLine(_cmdOut("xcodebuild", new string[]{ "-version" })), 1);
-        Console.WriteLine("  ✓ Xcode " + xv + " (want ≥ " + xcodeMin + ")");
+        if (xv.Length == 0) {
+            ConsoleError.WriteLine("warning: cannot parse xcodebuild -version; skip Xcode check");
+        } else if (_verKey(xv) < _verKey(xcodeMin)) {
+            ConsoleError.WriteLine("warning: Xcode " + xv + " < versions.toml build.ios.xcode_min " + xcodeMin);
+        } else {
+            Console.WriteLine("  ✓ Xcode " + xv + " (≥ " + xcodeMin + ")");
+        }
     } else {
         ConsoleError.WriteLine("  ✗ xcodebuild missing (run: xcode-select --install)");
     }

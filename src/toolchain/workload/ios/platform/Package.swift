@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 //
 // Z42VM — SwiftPM package for embedding the z42 VM into iOS / macOS
 // apps. Spec: docs/spec/archive/2026-05-12-add-platform-ios/
