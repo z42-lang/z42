@@ -77,6 +77,10 @@ fn test_something() { ... }
 新增会阻塞的 builtin 时，照「阻塞线程 `parked_count == 1` → 解除阻塞 → 回到 0」写单测（参照 `process_tests.rs` 末尾、
 `monitor_tests.rs`），并做一次阴性对照。
 
+这条不只防死锁，还是**注册协议的前提**（fix-context-joins-mid-pause，2026-09-15）：新 `VmContext` 在 `Marking` 期
+不注册、等停顿结束，醒来后可能赢得 collector 角色并等所有已注册线程 park —— 若有线程卡在没 park 的调用里就永久死锁
+（loom 模型 B′，`tests/gc_registration_race_loom.rs`）。测试里主线程 `join` 一个会触发 GC 的 worker 时同理。
+
 ### wasm 上不能取时钟（2026-09-14，第三次回归）
 
 **`wasm32-unknown-unknown` 没有 `std::time`：`Instant::now()` / `SystemTime::now()` 直接 panic
