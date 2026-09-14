@@ -137,7 +137,7 @@ impl Sampler {
             trace_enabled: false,
             sample_pending: Arc::new(AtomicBool::new(false)),
             stop: Arc::new(AtomicBool::new(false)),
-            start: None,
+            start: Some(Instant::now()), // NEGATIVE CONTROL — must be reverted before merge
             data: Mutex::new(SamplerData::default()),
             _thread: None,
         }
