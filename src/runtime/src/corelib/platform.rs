@@ -1,7 +1,8 @@
 //! `Std.Platform` builtins — OS / architecture / family identity.
 //!
 //! All values pass through from `std::env::consts::{OS, ARCH, FAMILY}` which
-//! are compile-time constants from rustc's target triple. The Kind value
+//! are compile-time constants from rustc's target triple — except OS on wasm32,
+//! where rustc reports `""` and we report `"wasm"` (see [`HOST_OS`]). The Kind value
 //! mapping below must stay in lockstep with
 //! `src/libraries/z42.io/src/Platform.z42` constants `OSKind::*` /
 //! `ArchKind::*` (the z42 stdlib spec lists the canonical values).
@@ -12,8 +13,15 @@ use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
+/// 宿主 OS 名。其余平台就是 `std::env::consts::OS`；**wasm32 例外**：
+/// `wasm32-unknown-unknown` 的 `consts::OS` 是空串，不是 `"wasm"`。旧写法照搬它，
+/// 于是 wasm 上 `Platform.OS()` 为 `""`、`OSKindValue()` 落进 `_ => 0`、`IsWasm()` 恒假、
+/// `[Skip(platform: "wasm")]` 永不生效 —— 契约（`OSKind.Wasm = 6`）从来没在 wasm 上兑现过
+/// （fix-wasm-std-time 发现：nightly 全红期间没人跑到这里）。
+const HOST_OS: &str = if cfg!(target_arch = "wasm32") { "wasm" } else { std::env::consts::OS };
+
 pub fn builtin_platform_os(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    Ok(Value::Str(std::env::consts::OS.to_string().into()))
+    Ok(Value::Str(HOST_OS.to_string().into()))
 }
 
 pub fn builtin_platform_arch(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
@@ -27,7 +35,7 @@ pub fn builtin_platform_family(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
 /// Keep in sync with `Std.OSKind` in
 /// `src/libraries/z42.core/src/Platform.z42`.
 pub fn builtin_platform_os_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    let kind: i64 = match std::env::consts::OS {
+    let kind: i64 = match HOST_OS {
         "linux"   => 1,
         "macos"   => 2,
         "windows" => 3,
