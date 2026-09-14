@@ -1,3 +1,9 @@
+//! ⚠️ **种子例外，待删（store-sync-values-in-heap, 2026-09-14）。** 本模块的实现把 `Value` 存进
+//! Rust 侧容器，GC 根扫描器看不见 ⇒ 值只被原语持有时会被回收。当前 stdlib 已改走
+//! [`super::monitor`]（值是 z42 字段），**不再引用这里的任何 builtin**；它们只为上一版 nightly
+//! 种子的 `z42.core` 仍声明着这些 `[Native]` 而保留一个 nightly（`bootstrap-seed.md`「删 runtime
+//! builtin = 两 nightly」）。删除见 `docs/book/src/runtime/sync-primitives.md` 的 Deferred 段。
+//!
 //! `Std.Threading.Mutex<T>` / `Channel<T>` builtins
 //! (add-sync-primitives, 2026-05-20).
 //!
@@ -108,9 +114,9 @@ const TRY_LOCK_CONTENDED:    i64 = 1;
 // add-concurrency-probes (P1b): user-lock contention probes live in a sibling
 // module (keeps this file under the 500-line limit). `#[cfg]`-gated on
 // `profile-contention`; the default build's helpers are zero-cost forwards.
-#[path = "sync_contention.rs"]
-mod sync_contention;
-use sync_contention::{contended_lock, contended_read, contended_write};
+// store-sync-values-in-heap: 模块声明上移到 `corelib/mod.rs` —— `monitor.rs` 也用它，而本文件
+// 阶段 2 就会被删掉。
+use super::sync_contention::{contended_lock, contended_read, contended_write};
 
 // ── Mutex builtins ────────────────────────────────────────────────────────────
 

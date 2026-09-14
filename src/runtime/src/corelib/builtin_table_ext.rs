@@ -268,4 +268,11 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     // `methodof(Type.Member(sig))` → Std.Reflection.MethodInfo. The overload is
     // already resolved at compile time; the argument is the single qualified name.
     ("__methodof",        reflection::builtin_methodof),
+    // ── store-sync-values-in-heap (2026-09-14) — appended to preserve existing BuiltinIds ──
+    // 值不在原生层：Mutex / RwLock / Channel 用 z42 写在这个不含值的 Monitor 之上。
+    ("__monitor_new",       monitor::builtin_monitor_new),
+    ("__monitor_enter",     monitor::builtin_monitor_enter),
+    ("__monitor_try_enter", monitor::builtin_monitor_try_enter),
+    ("__monitor_exit",      monitor::builtin_monitor_exit),
+    ("__monitor_wait",      monitor::builtin_monitor_wait),
 ];

@@ -58,6 +58,11 @@ pub mod platform;
 pub mod system;
 pub mod threading;
 pub mod sync;
+pub mod monitor;
+// add-concurrency-probes (P1b): 用户锁争用探针（`profile-contention` gated，默认零开销）。
+// store-sync-values-in-heap: 从 `sync.rs` 内部私有模块上移到这里 —— `monitor.rs` 与（待删的）
+// `sync.rs` 都用它。
+mod sync_contention;
 pub mod network;
 pub mod tls;
 pub mod crypto;

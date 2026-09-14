@@ -6,18 +6,28 @@ using Std;
 //
 // Two RAII callback methods mirroring `Mutex<T>.Lock(Func<T,T>)`:
 //   - `Read(Action<T>)` lets multiple threads see a snapshot of the
-//     current value concurrently; the body runs while a shared lock is
-//     held. Mutations inside the body do NOT propagate to the stored
-//     value (closure §4.1 value-snapshot capture). Export observations
-//     through static fields / shared objects like Mutex.
+//     current value concurrently. Mutations inside the body do NOT
+//     propagate to the stored value (closure §4.1 value-snapshot capture).
+//     Export observations through static fields / shared objects like Mutex.
 //   - `Write(Func<T,T>)` acquires exclusively (blocks all readers + other
-//     writers); body returns the new stored value; runtime stores it and
-//     releases.
+//     writers); body returns the new stored value.
 //
-// Backed by `parking_lot::RwLock<Value>` (write-preferring fairness — no
-// writer starvation under read-heavy load). Non-reentrant: a thread that
-// already holds a Read on slot X must NOT acquire another Read on the
-// same slot (would deadlock). Cross-slot is fine.
+// store-sync-values-in-heap (2026-09-14): written in z42 on top of `MonitorNative`.
+// The value is the `_value` field (GC-visible); the runtime holds no value.
+//
+//   - A reader holds the monitor only while it bumps `_readers` in and out —
+//     the body runs without it, so readers run concurrently.
+//   - A writer holds the monitor for its whole body, after waiting for the
+//     active readers to drain. Readers arriving meanwhile block on the monitor.
+//   - Write-preferring: while a writer is waiting (`_writersWaiting > 0`), new
+//     readers wait too, so a read-heavy load cannot starve writers.
+//
+// Reentrancy on the same thread:
+//   - `Write` inside `Write`, or `Read` inside `Write` → throws (the monitor
+//     rejects re-entry by its holder).
+//   - `Write` inside `Read` waits for its own read to finish, and `Read` inside
+//     `Read` waits if a writer queued up in between — both self-deadlock, as
+//     with any read-write lock. Do not nest acquisitions of the same RwLock.
 //
 // Usage:
 //   var config = new RwLock<long>(0);
@@ -26,52 +36,82 @@ using Std;
 //   // Occasional update:
 //   config.Write((long v) => v + 1);
 public class RwLock<T> {
-    private long _slot;
+    private object _mon;
+    private T _value;
+    private int _readers;
+    private int _writersWaiting;
 
     public RwLock(T initial) {
-        this._slot = RwLockNative.New(initial);
+        this._mon = MonitorNative.New();
+        this._value = initial;
+        this._readers = 0;
+        this._writersWaiting = 0;
     }
 
-    // Multi-reader. Body sees a snapshot of the current value; mutations
-    // inside body don't propagate. Export observations via static fields.
+    // Multi-reader. Body sees a snapshot of the current value.
     public void Read(Action<T> body) {
-        T snapshot = (T)RwLockNative.ReadAcquire(this._slot);
+        MonitorNative.Enter(this._mon);
+        T snapshot;
+        try {
+            while (this._writersWaiting > 0) {
+                MonitorNative.Wait(this._mon);
+            }
+            this._readers = this._readers + 1;
+            snapshot = this._value;
+        } finally {
+            MonitorNative.Exit(this._mon);
+        }
         try {
             body(snapshot);
         } finally {
-            RwLockNative.ReadRelease(this._slot);
+            this._leaveRead();
         }
     }
 
     // Exclusive writer. body returns the new value to store.
     public void Write(Func<T, T> body) {
-        T current = (T)RwLockNative.WriteAcquire(this._slot);
+        MonitorNative.Enter(this._mon);
         try {
-            T next = body(current);
-            RwLockNative.WriteStore(this._slot, next);
+            this._writersWaiting = this._writersWaiting + 1;
+            try {
+                while (this._readers > 0) {
+                    MonitorNative.Wait(this._mon);
+                }
+            } finally {
+                this._writersWaiting = this._writersWaiting - 1;
+            }
+            this._value = body(this._value);
         } finally {
-            RwLockNative.WriteRelease(this._slot);
+            MonitorNative.Exit(this._mon);
         }
     }
 
-    // Internal slot id — for diagnostics only.
-    public long SlotId() {
-        return this._slot;
-    }
-
     // 2026-05-20 add-sync-primitives-try-variants: non-blocking shared
-    // acquire. If a writer holds the lock OR this thread already holds
-    // any acquire on this RwLock, returns false and body is NOT invoked.
-    // On success returns true and body has already run + lock released.
+    // acquire. If a writer holds or is waiting for the lock, returns false
+    // and body is NOT invoked. On success returns true and body has already
+    // run + the read released.
     public bool TryRead(Action<T> body) {
-        object[] result = RwLockNative.TryRead(this._slot);
-        long kind = (long)result[0];
-        if (kind != 0) { return false; }
-        T snapshot = (T)result[1];
+        if (!MonitorNative.TryEnter(this._mon)) {
+            return false;
+        }
+        bool ok = false;
+        T snapshot = default(T);
+        try {
+            if (this._writersWaiting == 0) {
+                this._readers = this._readers + 1;
+                snapshot = this._value;
+                ok = true;
+            }
+        } finally {
+            MonitorNative.Exit(this._mon);
+        }
+        if (!ok) {
+            return false;
+        }
         try {
             body(snapshot);
         } finally {
-            RwLockNative.ReadRelease(this._slot);
+            this._leaveRead();
         }
         return true;
     }
@@ -81,19 +121,27 @@ public class RwLock<T> {
     // body is NOT invoked. On success runs the body, stores its return,
     // releases the lock, returns true.
     public bool TryWrite(Func<T, T> body) {
-        object[] result = RwLockNative.TryWrite(this._slot);
-        long kind = (long)result[0];
-        if (kind != 0) { return false; }
-        T current = (T)result[1];
-        try {
-            T next = body(current);
-            RwLockNative.WriteStore(this._slot, next);
-        } finally {
-            RwLockNative.WriteRelease(this._slot);
+        if (!MonitorNative.TryEnter(this._mon)) {
+            return false;
         }
-        return true;
+        bool ok = false;
+        try {
+            if (this._readers == 0) {
+                ok = true;
+                this._value = body(this._value);
+            }
+        } finally {
+            MonitorNative.Exit(this._mon);
+        }
+        return ok;
+    }
+
+    private void _leaveRead() {
+        MonitorNative.Enter(this._mon);
+        try {
+            this._readers = this._readers - 1;
+        } finally {
+            MonitorNative.Exit(this._mon);    // wakes a writer waiting for readers to drain
+        }
     }
 }
-
-// RwLockNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
-// 见 organization.md「native 语义层 → core」（2026-08-27）。

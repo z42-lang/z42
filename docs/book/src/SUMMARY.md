@@ -62,6 +62,7 @@
   - [超级指令融合（interp）](runtime/superinstr-fusion.md)
   - [静态构造函数的按类型初始化](runtime/static-ctor-init.md)
   - [缺符号不再静默：用到才抛可 catch 的类型化异常](runtime/missing-symbol-resolution.md)
+  - [同步原语：值在堆上，原生层只留 Monitor](runtime/sync-primitives.md)
   - [IR 与 zbc 二进制格式]()
   - [GC]()
     - [GC 调参与自动回收 / safepoint 协议](runtime/gc-tuning-and-safepoint.md)

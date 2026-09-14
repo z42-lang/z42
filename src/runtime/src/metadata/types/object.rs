@@ -34,6 +34,9 @@ pub enum NativeData {
     /// 2026-07-30 add-load-context-model：`Std.Reflection.Assembly` 对象携带的
     /// 程序集句柄（zpkg 运行时投影）。`__asm_*` builtins 据此查注册表。
     AssemblyHandle(crate::metadata::context::AssemblyId),
+    /// 2026-09-14 store-sync-values-in-heap：`Std.Threading.Mutex/RwLock/Channel` 的同步底座。
+    /// **不含任何 GC 值**（值是 z42 字段）；句柄对象的槽位被复用时随旧条目 drop。
+    Monitor(std::sync::Arc<crate::corelib::monitor::Monitor>),
     // 2026-04-26 script-first-stringbuilder: removed `StringBuilder(String)` —
     // `Std.Text.StringBuilder` is now a pure z42 script. Variant slot kept open
     // for future native-backed types (Stream / FileHandle / etc.).

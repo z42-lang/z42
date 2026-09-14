@@ -4,50 +4,40 @@ using Std;
 
 // 2026-05-20 add-sync-primitives: exclusive critical section primitive.
 //
-// RAII callback API: `m.Lock((current) => current + 1)` decomposes into
-// `__mutex_lock_acquire` → user callback → `__mutex_store` → `__mutex_unlock`
-// at runtime. The runtime forgets the parking_lot guard on acquire and
-// releases the lock ONLY via an explicit `__mutex_unlock` (see
-// corelib/sync.rs `HELD_MUTEX_GUARDS`) — there is NO unwind-time release.
-// So `Lock` wraps the body in try/finally: if the callback throws, the
-// store is skipped (the stored value stays unchanged) but the unlock still
-// runs in `finally`, so the lock is released rather than held forever.
-// parking_lot::Mutex does NOT poison on panic (unlike std::sync::Mutex),
-// so re-acquiring after a thrown-through `Lock` is safe.
+// store-sync-values-in-heap (2026-09-14): the value lives in `_value`, an ordinary
+// field — visible to the GC like any other object reference. The runtime only
+// provides the lock (`MonitorNative`), never the storage. (The previous
+// implementation kept the value inside a Rust-side `parking_lot::Mutex<Value>`
+// that no GC root covered, so a value held only by the Mutex was collected.)
 //
-// Non-reentrant: a thread that has already acquired the Mutex and calls
-// `Lock` again on the same instance from the same thread will deadlock.
-// If you need reentrancy, restructure the code rather than introduce a
-// reentrant variant.
+// `Lock` wraps the body in try/finally: if the callback throws, the assignment
+// is skipped (the stored value stays unchanged) and the lock is still released.
+//
+// Non-reentrant: calling `Lock` again on the same instance from inside its own
+// body throws (the monitor rejects re-entry by its holder) instead of
+// deadlocking. Restructure the code rather than relying on reentrancy.
 //
 // Usage:
 //   var counter = new Mutex<long>(0);
 //   counter.Lock((v) => v + 1);
 public class Mutex<T> {
-    private long _slot;
+    private object _mon;
+    private T _value;
 
     public Mutex(T initial) {
-        this._slot = MutexNative.New(initial);
+        this._mon = MonitorNative.New();
+        this._value = initial;
     }
 
     // Acquire the lock, invoke `body` with the current stored value, write
     // back its return value, then release the lock — atomically with
     // respect to other threads' Lock calls on the same Mutex.
     public void Lock(Func<T, T> body) {
-        T current = (T)MutexNative.LockAcquire(this._slot);
+        MonitorNative.Enter(this._mon);
         try {
-            T next = body(current);
-            MutexNative.Store(this._slot, next);
+            this._value = body(this._value);
         } finally {
-            MutexNative.Unlock(this._slot);
+            MonitorNative.Exit(this._mon);
         }
     }
-
-    // Internal slot id — for diagnostics only.
-    public long SlotId() {
-        return this._slot;
-    }
 }
-
-// MutexNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
-// 见 organization.md「native 语义层 → core」（2026-08-27）。
