@@ -784,6 +784,14 @@ public struct int : INumber<int> {
 > （`OverloadResolver.TypeKey` 归一，`String[]≡string[]`）或**协变**（impl 是接口声明返回的子类 / 接口
 > 实现，经 `SymbolTable.IsSubclassOf`/`Implements`）才放行。两项**不进 MangleKey**（那是派发键，改它会撼动
 > 自举字节）。
+>
+> **接口成员必须 `public` 实现**（`fix-iface-satisfaction-gaps` A1，2026-09-14）：接口成员是隐式
+> public 契约，非 public 实现无法经接口静态类型调用、等同没实现（对齐 C# CS0535/CS0737）。此前
+> MangleKey 命中即放行、从不比 `Visibility` ⇒ `class C : I { private int M(){…} }` 静默通过（真洞）。
+> 现补第三项：命中后比 `cm.Visibility == "public"`，否则 E0412。⚠️ 类成员**无修饰默认 `private`**
+> （C# 惯例），故 `class C : I { int M(){…} }` 同样被拦——**接口实现必须显式写 `public`**（严格口径，
+> 与全仓惯例一致；stdlib/compiler 接口实现一律显式 `public`，本检查零字节漂移）。同 static/返回，
+> 只覆本包接口（跨包 `it.IsImported` 早退，导入侧 `Visibility` 不可靠）。
 
 **关键实现决策：值驱动派发 = VCall**（非新 IR 指令）
 
