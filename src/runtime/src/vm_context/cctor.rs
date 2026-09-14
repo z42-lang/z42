@@ -70,6 +70,9 @@ pub struct CctorEntry {
 
 /// 全体有 cctor 的类型的状态表。**只登记有静态构造器的类型**——没有的类型
 /// 根本不进这张表，也就不可能拖慢它们。
+///
+/// 锁顺序：惰性加载器在持有自己的写锁时调 [`Self::register`]（加载器写锁 → `map`）。
+/// 反方向不存在——本类型的任何方法都**不会**在持有 `map` 时访问加载器——故不会死锁。
 #[derive(Debug, Default)]
 pub struct CctorRegistry {
     /// 类 FQ → 登记项。
@@ -171,9 +174,13 @@ impl crate::vm_context::VmContext {
     ///
     /// **必须早于该类型被使用**——`pending` 门只在「已登记」的前提下才有意义：
     /// 若等到屏障里才登记，门会在首次访问时读到 0 而直接放行，屏障形同虚设。
-    /// 故登记点有两处，合起来覆盖所有可达类型：
-    ///   - 急切：`app.rs` 在模块合并后扫一遍 registry
-    ///   - 惰性：`try_lookup_type` 拿到跨包 TypeDesc 时登记（那正是「类型首次可见」）
+    /// 故登记点有两处，都是「类型进入可见范围」的那一刻，合起来覆盖所有可达类型：
+    ///   - 急切：`app.rs` 在模块合并后扫一遍 registry（本函数）
+    ///   - 惰性：`LazyLoader::insert_type`——加载进来的类型**入表即登记**
+    ///
+    /// fix-crosspkg-static-call-cctor：惰性这一处以前挂在 `try_lookup_type` 上。跨包静态方法
+    /// 调用只查函数、从不查类型 ⇒ 类型没登记 ⇒ 门读到 0 ⇒ 静态 ctor（连同注入其体首的静态字段
+    /// 初始化器）不执行，且结果随「之前有没有别的类型被查过」而变。
     pub fn register_cctor_of(&self, td: &crate::metadata::TypeDesc) {
         if let Some(f) = td.cctor_func() {
             tracing::debug!("cctor-register: type `{}` -> `{}`", td.name, f);

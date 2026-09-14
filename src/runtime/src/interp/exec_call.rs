@@ -92,12 +92,6 @@ pub(super) fn call(
 ) -> Result<Option<Value>> {
     use std::sync::atomic::Ordering;
 
-    // add-static-constructors：调用该类型的静态方法也是 C# 的类型初始化触发点。
-    // 热路径代价 = 一次 relaxed load（`any_cctor_pending()` 在门内短路）。
-    if let Err(msg) = ctx.ensure_callee_owner_init(fname) {
-        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
-    }
-
     // add-generic-activator: resolve method-type-arg *forwarding* markers `$mta:N`
     // against the CALLER frame's method_type_args[N] before threading to the callee.
     // Emitted when a generic call's type-arg is a bare method-level type param of the
@@ -132,6 +126,56 @@ pub(super) fn call(
         module.func_index.get(fname).copied()
     };
 
+    let callee_fn = callee_idx.and_then(|idx| module.functions.get(idx));
+
+    // The callee: this module's function, else a cross-zpkg one. Resolved **before** the cctor
+    // barrier below: the first call into a not-yet-loaded package is what loads it, and loading
+    // is what registers its types' static constructors (`LazyLoader::insert_type`).
+    let mut lazy_holder: Option<Arc<Function>> = None;
+    let target: &Function = if let Some(callee) = callee_fn {
+        callee
+    } else if let Some(cell) = cross_cell {
+        // Cross-zpkg: borrow the cached Arc<Function> on hit (zero hash);
+        // resolve via the lazy loader once on first miss and backfill the cell.
+        match cell.get() {
+            Some(arc) => arc.as_ref(),
+            None => {
+                // fix-silent-symbol-resolution：这是 cross-cell 路径**自己的**解析失败点，
+                // 与下面 else 分支那个是两处。只改一处会留下「JIT 可 catch、interp 仍是
+                // 不可 catch 的 abort」的不对称——实测踩过。
+                let Some(resolved) = ctx.try_lookup_function(fname) else {
+                    return Ok(Some(crate::exception::make_missing_symbol_exception(
+                        ctx, module, format!("undefined function `{fname}`"))));
+                };
+                // set() is idempotent: a concurrent double-fill resolves to the
+                // same function, so either winner is correct; get() then returns
+                // the stored Arc.
+                let _ = cell.set(resolved);
+                cell.get().expect("cell was just set").as_ref()
+            }
+        }
+    } else if let Some(lazy_fn) = ctx.try_lookup_function(fname) {
+        // No cross cell (back-compat): pure lazy-loader lookup, uncached.
+        &**lazy_holder.insert(lazy_fn)
+    } else {
+        // fix-silent-symbol-resolution：所有回落（本模块 func_index → per-site 缓存 →
+        // 惰性加载器）都穷尽了 ⇒ **确定不存在**，抛可 catch 的类型化异常。
+        //
+        // 此前是 `bail!`，那条走 anyhow Err，**不经 find_handler** ⇒ 用户 `catch` 抓不到，
+        // 直接变成 VM abort；而 JIT 侧同一场景抛的是裸 Value::Str（只能被无类型
+        // `catch {}` 捕获）。两个后端对同一件事给出两种都不好用的行为，现统一。
+        return Ok(Some(crate::exception::make_missing_symbol_exception(
+            ctx, module, format!("undefined function `{fname}`"))));
+    };
+
+    // add-static-constructors：调用该类型的静态方法也是 C# 的类型初始化触发点。
+    // 热路径代价 = 一次 relaxed load（`any_cctor_pending()` 在门内短路）。
+    // fix-crosspkg-static-call-cctor：必须在**解析之后**——解析前依赖包可能还没加载，其类型未登记，
+    // 门读到 0 就会让这第一次调用跳过静态构造器（实测：首次使用是跨包静态方法时 cctor 不跑）。
+    if let Err(msg) = ctx.ensure_callee_owner_init(fname) {
+        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+    }
+
     // runtime-jit-tiering Phase 1.5 (mixed-mode): route an already-compiled callee
     // to native code instead of interpreting the whole subtree. No-op when there is
     // no published JIT ctx (interp-only run) or the callee is cold/untranslatable.
@@ -146,52 +190,15 @@ pub(super) fn call(
         }
     }
     // runtime-ambiguous-use-site：**调用**一个被两个已加载 zpkg 各自声明的函数 → 报错。
-    // 放在派发前的这一处即可覆盖下面三条路（模块内直查 / cross-cell / 惰性回落）——
+    // 放在派发前的这一处即可覆盖上面解析出的三条路（模块内直查 / cross-cell / 惰性回落）——
     // 前者不可能歧义（同模块），后两者都由这道判定挡住。
     // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
     if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname) {
         return Ok(Some(exc));
     }
-    let callee_fn = callee_idx.and_then(|idx| module.functions.get(idx));
-
     // perf-vm-iteration Phase 1 (Decision 3): fill the callee frame directly
     // from caller regs + arg indices — no `collect_args` Vec, args cloned once.
-    let outcome = if let Some(callee) = callee_fn {
-        super::exec_function_from_regs(ctx, module, callee, &frame.regs, args, method_type_args)?
-    } else if let Some(cell) = cross_cell {
-        // Cross-zpkg: borrow the cached Arc<Function> on hit (zero hash);
-        // resolve via the lazy loader once on first miss and backfill the cell.
-        let target = match cell.get() {
-            Some(arc) => arc,
-            None => {
-                // fix-silent-symbol-resolution：这是 cross-cell 路径**自己的**解析失败点，
-                // 与下面 else 分支那个是两处。只改一处会留下「JIT 可 catch、interp 仍是
-                // 不可 catch 的 abort」的不对称——实测踩过。
-                let Some(resolved) = ctx.try_lookup_function(fname) else {
-                    return Ok(Some(crate::exception::make_missing_symbol_exception(
-                        ctx, module, format!("undefined function `{fname}`"))));
-                };
-                // set() is idempotent: a concurrent double-fill resolves to the
-                // same function, so either winner is correct; get() then returns
-                // the stored Arc.
-                let _ = cell.set(resolved);
-                cell.get().expect("cell was just set")
-            }
-        };
-        super::exec_function_from_regs(ctx, module, target.as_ref(), &frame.regs, args, method_type_args)?
-    } else if let Some(lazy_fn) = ctx.try_lookup_function(fname) {
-        // No cross cell (back-compat): pure lazy-loader lookup, uncached.
-        super::exec_function_from_regs(ctx, module, lazy_fn.as_ref(), &frame.regs, args, method_type_args)?
-    } else {
-        // fix-silent-symbol-resolution：所有回落（本模块 func_index → per-site 缓存 →
-        // 惰性加载器）都穷尽了 ⇒ **确定不存在**，抛可 catch 的类型化异常。
-        //
-        // 此前是 `bail!`，那条走 anyhow Err，**不经 find_handler** ⇒ 用户 `catch` 抓不到，
-        // 直接变成 VM abort；而 JIT 侧同一场景抛的是裸 Value::Str（只能被无类型
-        // `catch {}` 捕获）。两个后端对同一件事给出两种都不好用的行为，现统一。
-        return Ok(Some(crate::exception::make_missing_symbol_exception(
-            ctx, module, format!("undefined function `{fname}`"))));
-    };
+    let outcome = super::exec_function_from_regs(ctx, module, target, &frame.regs, args, method_type_args)?;
     match outcome {
         ExecOutcome::Returned(ret) => {
             frame.set(dst, ret.unwrap_or(Value::Null));

@@ -20,12 +20,10 @@ impl VmContext {
         declared: Vec<(String, ZpkgCandidate)>,
         initially_loaded: Vec<String>,
     ) {
-        *self.core.lazy_loader.write() = Some(LazyLoader::new(
-            search_dirs,
-            main_pool_len,
-            declared,
-            initially_loaded,
-        ));
+        let mut loader = LazyLoader::new(search_dirs, main_pool_len, declared, initially_loaded);
+        // fix-crosspkg-static-call-cctor：加载器在类型入表时登记 cctor，须持有同一份 registry。
+        loader.set_cctor_registry(Arc::clone(&self.core.cctors));
+        *self.core.lazy_loader.write() = Some(loader);
         // cache-ctorless-objnew: a loader swap can make an absent ctor present.
         crate::metadata::resolver::note_fn_registration();
     }
@@ -212,10 +210,6 @@ impl VmContext {
         };
         // 同上：`resolved` 即最终答案。
         if let Some((resolved, loader_quiet)) = fast {
-            // add-static-constructors：类型首次可见即登记其 cctor（幂等）。必须在**每条**
-            // 返回路径之前——`pending` 门只有在「登记早于使用」时才成立；若等到屏障里才登记，
-            // 门会在首次访问时读到 0 而直接放行，屏障形同虚设。
-            if let Some(td) = resolved.as_ref() { self.register_cctor_of(td); }
             if !self.static_init_drain_is_noop(&[], loader_quiet) {
                 self.run_pending_static_inits();
             }
@@ -231,7 +225,6 @@ impl VmContext {
             let quiet = loader.pending_static_inits.is_empty();
             (result, newly, quiet)
         };
-        if let Some(td) = result.as_ref() { self.register_cctor_of(td); }
         if self.static_init_drain_is_noop(&newly_loaded, loader_quiet) {
             return result;
         }

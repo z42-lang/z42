@@ -75,6 +75,8 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `missing_ctor_skew` / `missing_ctor_present` | 构造器缺失不再静默写未构造对象 | ObjNew ctor 解析 → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`） |
 | `wrong_ctor_arity_skew` / `wrong_ctor_arity_present` | 构造器**解析到了、签名却对不上**不再照常调用（裸键在 skew 下会命中错的构造器） | ObjNew ctor 解析后 → `symres::wrong_ctor_arity_exception`（`skew-replace.txt` + `oldtarget/`） |
 | `ctorless_objnew_skew` / `_present` / `_absent` | **零实参**的构造器缺失不再静默（关掉 `argc == 0` 那条缝）。`_absent` 是**过度收紧守卫**：真·零构造器跨包类不得误报 | 装配期 `CtorKnownFixup` 置 `ObjNew.ctor_known`（zbc 1.39） → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`）|
+| `static_ctor_crosspkg_static_call` | 依赖包类型的**第一次使用是调静态方法**（含不碰静态字段的方法）时静态 ctor 照常执行，结果与调用顺序无关；未使用的类型不执行 | `LazyLoader::insert_type` 入表即登记 cctor → `ensure_callee_owner_init` / `ensure_static_owner_init` 屏障 |
+| `static_ctor_crosspkg_field_first` | 守卫：依赖包类型的第一次使用是**直接读静态字段**时静态 ctor 照常执行（登记点从 `try_lookup_type` 挪到加载器入表处后不退化） | 静态字段名预解析 → 依赖包加载 → `LazyLoader::insert_type` 登记 → `ensure_static_owner_init` |
 | `ctor_init_cross_pkg` | 零实参 `: base()` 指向**依赖包**基类时照常调用（修前丢调用）；依赖包里「静态 ctor + 无参实例 ctor」的类 `new` 时仍选中实例 ctor（守卫，修前亦对） | `DeclBinder._bindMethodBody`（`HasCtorInit` 门）→ `OverloadBinder._ctorKey`（排除静态 ctor） |
 | `crosspkg_ctor_default` | **跨包构造器**省略可选实参 → 注入作者声明的默认值（此前整支缺失，读到零值） | `ConstructTyper._bindNew` → `OverloadBinder._crossPkgDefault`（`$Default` ConstBlob 解码） |
 | `missing_type_skew` | `new` 一个解析不到的类型不再合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |

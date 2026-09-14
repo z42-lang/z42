@@ -1,0 +1,26 @@
+namespace Demo.Base;
+using Std.IO;
+using Std;
+
+// fix-crosspkg-static-call-cctor：依赖包里带静态 ctor 的类型，主包对它的**第一次使用是调静态方法**。
+// 修前惰性加载的类型只在 `try_lookup_type` 登记 cctor，静态方法调用只查函数 ⇒ 未登记 ⇒ 屏障前的
+// 全局门读到 0 ⇒ cctor（连同注入其体首的静态字段初始化器）不执行，结果还取决于调用顺序。
+
+// 方法体读静态字段：初始化器 2 与 cctor 的 +40 都得先跑
+public class Cfg {
+    public static int level = 2;
+    public static int Get() { return Cfg.level; }
+    static Cfg() { Cfg.level = Cfg.level + 40; }
+}
+
+// 方法不碰任何静态字段：只有「静态方法调用」这一个触发点
+public class Loud {
+    static Loud() { Console.WriteLine("Loud cctor"); }
+    public static int Ping() { return 7; }
+}
+
+// 被加载但从不使用：cctor 不得执行（登记 ≠ 执行）
+public class Unused {
+    static Unused() { Console.WriteLine("Unused cctor MUST NOT RUN"); }
+    public static int Never() { return 0; }
+}

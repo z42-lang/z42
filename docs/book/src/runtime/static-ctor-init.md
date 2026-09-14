@@ -29,6 +29,42 @@ if any_pending() { ensure_type_init(...) }   // 热路径的全部代价
 > 永远检查不到，失败类型会**静默变回可用**。代价是一旦有类型初始化失败，门就长期开着
 > ——那已是致命错误路径，正确性优先。
 
+## 登记点：必须早于第一次使用
+
+门只统计**已登记**的类型，所以「登记」必须发生在任何人能用到该类型之前；否则门读到 0，屏障被整个跳过。
+登记点只有两处，都是「类型进入可见范围」的那一刻：
+
+| 类型从哪来 | 登记点 |
+|---|---|
+| 主程序 + 急切合并的依赖 | 模块合并后扫一遍 type registry |
+| 惰性加载的依赖包（zpkg 文件 / 内存模块） | `LazyLoader::insert_type`——**入表即登记**，两条加载路径共用这一个入口 |
+
+加载器持有同一份 `Arc<CctorRegistry>`，在自己的写锁内登记。锁顺序固定为「加载器写锁 → registry 互斥锁」，
+registry 的任何方法都不会反过来访问加载器，因此没有死锁。
+
+**屏障必须放在「解析被调函数」之后。** 对依赖包的第一次静态调用，正是在解析这一步才加载包、登记类型的；
+屏障若在解析之前检查门，这一次读到的仍是 0。interp（`exec_call::call`）与 JIT（`jit_call`）都按
+「解析 → 屏障 → 派发」排列。静态字段没有这个问题：字段名在函数首次执行时预解析，预解析就会加载所属包。
+
+```mermaid
+sequenceDiagram
+    participant Call as 首次 Dep.C.M()
+    participant L as LazyLoader
+    participant R as CctorRegistry
+    Call->>L: 解析 Dep.C.M（未加载）
+    L->>L: 加载 dep.zpkg
+    L->>R: insert_type(C) → register（pending=1）
+    Call->>R: 屏障：any_pending? 是 → claim(C) → 跑 cctor
+    Call->>Call: 执行 M
+```
+
+> 历史（fix-crosspkg-static-call-cctor）：惰性类型原先只在 `try_lookup_type` 登记，屏障也在解析之前。于是
+> 「依赖包类型的第一次使用是调静态方法」时 cctor 不执行——连带注入其体首的静态字段初始化器也不执行——而且
+> 结果随「之前有没有别的类型被查过」而变。
+>
+> 代价：已加载但从未使用的 cctor 类型会让门常开（此后每次静态访问多一次查表）。急切路径一直如此；标准库与
+> 编译器里没有静态构造器，代价只落在真正写了静态构造器的用户代码上。
+
 ## 状态机
 
 ```mermaid
