@@ -7,7 +7,7 @@ using Z42.IR;
 // 单源文件编译产物（镜像 C# ZbcFile）。
 public sealed class ZbcFileZ {
     public string   SourceFile;   // 项目相对路径（fixture 实证；跨机器可复现）
-    public string   SourceHash;   // 源文本 SHA256 大写 hex
+    public string   SourceHash;   // 源文本哈希；packed 产物写盘前置空（不进 build_id，见 z42c.driver `_stabilizeSourceIdentity`）
     public string   Namespace;    // 根命名空间（"" = 无 → "main"？C# 用 cu.Namespace；MODS ns_idx 引用）
     public string[] Exports;      // 函数名（FQ）
     public int      ExportCount;
