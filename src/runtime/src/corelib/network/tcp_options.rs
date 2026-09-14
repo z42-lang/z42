@@ -123,10 +123,14 @@ pub fn builtin_net_tcp_connect_with_timeout(ctx: &VmContext, args: &[Value]) -> 
     };
 
     let addr = format!("{}:{}", host, port);
-    let socket_addr = match addr.to_socket_addrs().and_then(|mut it| {
-        it.next().ok_or_else(|| std::io::Error::new(
-            std::io::ErrorKind::AddrNotAvailable, "no addresses"))
-    }) {
+    // fix-park-blocking-natives (2026-09-14): name resolution (getaddrinfo) can block for the
+    // resolver timeout ⇒ parked; the result tuple is allocated after the park ends.
+    let resolved = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        addr.to_socket_addrs().and_then(|mut it| it.next().ok_or_else(|| std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable, "no addresses")))
+    };
+    let socket_addr = match resolved {
         Ok(a) => a,
         Err(e) => return Ok(socket_err(ctx, format!("connect to {}: {}", addr, e))),
     };
@@ -310,9 +314,14 @@ pub fn builtin_net_tcp_listen_with_options(ctx: &VmContext, args: &[Value]) -> R
     };
 
     let bind_target = format!("{}:{}", host, port);
-    let socket_addr: SocketAddr = match bind_target.to_socket_addrs()
-        .and_then(|mut it| it.next().ok_or_else(|| std::io::Error::new(
-            std::io::ErrorKind::AddrNotAvailable, "no addresses"))) {
+    // fix-park-blocking-natives (2026-09-14): name resolution (getaddrinfo) can block for the
+    // resolver timeout ⇒ parked; the result tuple is allocated after the park ends.
+    let resolved = {
+        let _park = crate::gc::NativeParkGuard::enter(ctx);
+        bind_target.to_socket_addrs().and_then(|mut it| it.next().ok_or_else(|| std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable, "no addresses")))
+    };
+    let socket_addr: SocketAddr = match resolved {
         Ok(a) => a,
         Err(e) => return Ok(socket_err(ctx, format!("bind {}: {}", bind_target, e))),
     };

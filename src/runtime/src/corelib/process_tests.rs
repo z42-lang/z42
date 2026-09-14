@@ -561,3 +561,85 @@ fn run_absent_process_group_arg_defaults_to_own_group() {
     let our_pgid = unsafe { libc::getpgrp() };
     assert_ne!(child_pgid(&ctx, &args), our_pgid);
 }
+
+// ── fix-park-blocking-natives (2026-09-14): blocking pipe I/O is parked ──────
+//
+// A thread stuck in a pipe read / write never reaches a bytecode safepoint, so unless it is
+// parked every collection waits on it forever. The pipe calls also used to block while
+// holding the process-table lock, which every other thread's process builtin then queued on
+// *unparked* — the same stall one hop removed. Each case blocks a registered worker,
+// asserts the park (and the free table), then unblocks it deterministically.
+
+fn wait_until(deadline: std::time::Duration, mut cond: impl FnMut() -> bool) -> bool {
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < deadline {
+        if cond() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    cond()
+}
+
+fn parked(ctx: &VmContext) -> usize {
+    ctx.core.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
+}
+
+#[test]
+fn blocked_stdout_read_is_parked_and_leaves_the_process_table_free() {
+    let ctx = VmContext::new();
+    let mut args = spawn_args(&ctx, "cat", &[]);
+    args[7] = i(STDIO_PIPE);  // cat waits on an open stdin ⇒ its stdout stays silent
+    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap()) as i64;
+
+    let core = std::sync::Arc::clone(&ctx.core);
+    let reader = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        let buf = w.heap().alloc_array(vec![i(0); 8]);
+        match builtin_process_handle_read_stdout(&w, &[i(slot), buf, i(0), i(8)]).unwrap() {
+            Value::I64(n) => n,
+            other => panic!("read returned {other:?}"),
+        }
+    });
+    assert!(wait_until(std::time::Duration::from_secs(5), || parked(&ctx) == 1),
+            "a thread blocked reading a child's stdout must be parked");
+
+    let core = std::sync::Arc::clone(&ctx.core);
+    let probed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let probed2 = std::sync::Arc::clone(&probed);
+    std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        let _ = builtin_process_handle_pid(&w, &[i(slot)]);
+        probed2.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert!(wait_until(std::time::Duration::from_secs(5), || probed.load(std::sync::atomic::Ordering::SeqCst)),
+            "another thread's process builtin must not queue behind a blocked pipe read");
+
+    builtin_process_handle_close_stdin(&ctx, &[i(slot)]).unwrap();  // cat exits ⇒ EOF
+    assert_eq!(reader.join().unwrap(), 0);
+    assert_eq!(parked(&ctx), 0, "park must be released");
+    builtin_process_handle_drop(&ctx, &[i(slot)]).unwrap();
+}
+
+#[test]
+fn stdin_write_into_a_full_pipe_is_parked() {
+    let ctx = VmContext::new();
+    let mut args = spawn_args(&ctx, "sleep", &["30"]);  // never reads stdin
+    args[7] = i(STDIO_PIPE);
+    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap()) as i64;
+
+    let core = std::sync::Arc::clone(&ctx.core);
+    let writer = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        // Well past any OS pipe buffer (64 KiB on Linux / macOS).
+        let payload = w.heap().alloc_array(vec![i(b'x' as i64); 1 << 20]);
+        builtin_process_handle_write_stdin(&w, &[i(slot), payload]).is_err()
+    });
+    assert!(wait_until(std::time::Duration::from_secs(5), || parked(&ctx) == 1),
+            "a thread blocked writing a child's stdin must be parked");
+
+    builtin_process_handle_kill(&ctx, &[i(slot), b(true)]).unwrap();  // reader end closes ⇒ EPIPE
+    assert!(writer.join().unwrap(), "write into a dead child's stdin must fail");
+    assert_eq!(parked(&ctx), 0, "park must be released");
+    builtin_process_handle_drop(&ctx, &[i(slot)]).unwrap();
+}
