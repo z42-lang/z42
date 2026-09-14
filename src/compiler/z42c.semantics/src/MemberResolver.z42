@@ -8,7 +8,7 @@ using Z42.Syntax;
 using Z42.Core;
 using Z42.IR.BinaryFormat;
 
-public sealed class MemberResolver {
+public sealed partial class MemberResolver {
     private TypeChecker _tc;
     public MemberResolver(TypeChecker tc) { this._tc = tc; }
 
@@ -30,12 +30,8 @@ public sealed class MemberResolver {
                 // （E0601）/ 本包遮蔽（E0606）。此前只有「静态**调用**」那条被覆盖 ⇒ 实测
                 // `Cfg.N` 与 `Demo.Ns.Cfg.N` 都零诊断，而它们读到的是**哪个包**的那份 N 完全是撞出来的。
                 this._tc._chkTypeRefPkg(env.Symbols, sct, m.Span);
-                FieldSymbol sfs = sct.Fields.Get(m.Name) as FieldSymbol;
-                if (sfs != null && sfs.IsStatic) {
-                    this._tc._access.CheckAccess(sfs.Visibility, sfs.ContainingTypeName, env, env.Symbols, "field", m.Name, m.Span);   // enforce-access-control
-                    this._tc._access.CheckDeprecatedF(sfs, m.Name, m.Span);   // add-deprecated-directive
-                    return new BoundStaticGet(clsName, m.Name, sfs.FieldType, m.Span);
-                }
+                BoundExpr sm = this.BindStaticMember(sct, clsName, m.Name, m.Span, env);
+                if (sm != null) { return sm; }
             }
             // 枚举常量访问 `EnumType.Member` → BoundLitInt，**静态类型 = 该 enum 类型**
             // （make-enum-distinct-type；此前是 `long`，即 enum-as-int 模型）。

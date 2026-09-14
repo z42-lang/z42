@@ -1,0 +1,11 @@
+namespace Sp.Base;
+using Std;
+
+// add-static-properties：静态属性的访问器此前从不进 TSIG 的 static 方法段 ⇒ 导入侧看不到。
+// 刻意不写静态 ctor：跨包「只调静态方法」时依赖包的静态 ctor 今天不会被登记（惰性加载只在
+// try_lookup_type 登记 cctor，函数查找不走那里）——与本 change 无关的既有 runtime bug，已另行登记。
+public class Cfg {
+    public static int Level { get; set; } = 2;
+    public static string Name => "cfg";
+    public static int Ro { get; } = 8;
+}

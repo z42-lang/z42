@@ -49,9 +49,7 @@ public sealed class DeclBinder {
                         // add-readonly-fields-opt：合成 ctor 的字段初始化器也是 ctor-this 上下文 → readonly 初始化器合法。
                         var env = TypeEnv.Root(symbols).WithClassGenericCtor(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
                         env.Define("this", ct);
-                        string[] fnames = ct.Fields.Keys();
-                        int fk = 0;
-                        while (fk < fnames.Length) { FieldSymbol fs = ct.Fields.Get(fnames[fk]) as FieldSymbol; env.Define(fnames[fk], fs.FieldType); fk = fk + 1; }
+                        DeclBinder._defineInstanceFields(env, ct);
                         // root→self 顺序绑定字段 init 赋值
                         BoundStmt[] inits = new BoundStmt[16]; int ic = 0;
                         int chx = chainN - 1;
@@ -70,6 +68,12 @@ public sealed class DeclBinder {
                                         if (ic == inits.Length) { BoundStmt[] b2 = new BoundStmt[inits.Length * 2]; int z = 0; while (z < ic) { b2[z] = inits[z]; z = z + 1; } inits = b2; }
                                         inits[ic] = new BoundExprStmt(this._tc._expr._bindExpr(asn, env), fd.Span); ic = ic + 1;
                                     }
+                                } else if (mem is PropertyDecl) {
+                                    BoundStmt pinit = this._propInstanceInit(mem as PropertyDecl, cdCt, env);
+                                    if (pinit != null) {
+                                        if (ic == inits.Length) { BoundStmt[] b3 = new BoundStmt[inits.Length * 2]; int z = 0; while (z < ic) { b3[z] = inits[z]; z = z + 1; } inits = b3; }
+                                        inits[ic] = pinit; ic = ic + 1;
+                                    }
                                 }
                                 mj = mj + 1;
                             }
@@ -80,6 +84,32 @@ public sealed class DeclBinder {
                 }
             }
             i = i + 1;
+        }
+    }
+
+    // add-static-properties：实例 auto 属性初始化器 `T P { get; set; } = e;` → `this.__prop_P = e`。
+    // **直写后备、不经 setter**（对标 C#：初始化器是字段初始化，派生类 override 的 setter 不参与；get-only
+    // 没有 setter 也能初始化）。`__prop_P` 不在 Fields 表里 ⇒ AccessEmitter 按原名发 field_set，恰好落到后备。
+    // 无初始化器 / 静态 / 无存储（计算属性，E0452 由 _bindClass 每声明报一次）→ null。
+    private BoundStmt _propInstanceInit(PropertyDecl pd, Z42ClassType ct, TypeEnv env) {
+        if (!pd.HasInit || ct == null) { return null; }
+        FieldSymbol ps = ct.Fields.Get(pd.Name) as FieldSymbol;
+        if (ps == null || ps.IsStatic || ps.PropBackingName == "") { return null; }
+        BoundExpr pv = this._tc._expr.BindInitValue(pd.Init, ps.FieldType, env);
+        BoundExpr pt = new BoundMember(new BoundIdent("this", ct, pd.Span), ps.PropBackingName, ps.FieldType, pd.Span);
+        return new BoundExprStmt(new BoundAssign(pt, pv, ps.FieldType, pd.Span), pd.Span);
+    }
+
+    // 体绑定环境里的**实例**字段（含 _passInheritFields 并入的继承字段）作变量，供裸名访问。
+    // add-static-properties：static / const 不进——此前一并定义，实例体里的裸名静态成员于是被当实例字段、
+    // 发 `field_get reg0.x` 静默读回 Null；现在它们在 LookupVar 落空后由 BindBareStatic 解析成 `C.x`。
+    internal static void _defineInstanceFields(TypeEnv env, Z42ClassType ct) {
+        string[] fnames = ct.Fields.Keys();
+        int k = 0;
+        while (k < fnames.Length) {
+            FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
+            if (!fs.IsStatic) { env.Define(fnames[k], fs.FieldType); }
+            k = k + 1;
         }
     }
 
@@ -211,13 +241,7 @@ public sealed class DeclBinder {
                     var env = TypeEnv.Root(symbols).WithClassGenericMethod(ct.Name(), allParams, mtpc, 0, false);
                     if (ms != null && !ms.IsStatic) {
                         env.Define("this", ct);
-                        string[] fnames = ct.Fields.Keys();
-                        int k = 0;
-                        while (k < fnames.Length) {
-                            FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
-                            env.Define(fnames[k], fs.FieldType);
-                            k = k + 1;
-                        }
+                        DeclBinder._defineInstanceFields(env, ct);
                     }
                     BoundStmt body = this._bindMethodBody(symbols, env, md);
                     model.AddBody(targetName + "." + mkey, body);
@@ -272,13 +296,7 @@ public sealed class DeclBinder {
                     if (md.IsCtor && ms.IsStatic) { env.InStaticCtor = true; }
                     if (!ms.IsStatic) {
                         env.Define("this", ct);
-                        string[] fnames = ct.Fields.Keys();
-                        int k = 0;
-                        while (k < fnames.Length) {
-                            FieldSymbol fs = ct.Fields.Get(fnames[k]) as FieldSymbol;
-                            env.Define(fnames[k], fs.FieldType);
-                            k = k + 1;
-                        }
+                        DeclBinder._defineInstanceFields(env, ct);
                     }
                     BoundStmt body = this._bindMethodBody(symbols, env, md);
                     // 实例 ctor：注入实例字段初始化器（`int x=1`）到体首（base 调用后、用户体前）。
@@ -293,12 +311,25 @@ public sealed class DeclBinder {
             } else if (mem is PropertyDecl) {
                 // add-property-getter：计算属性 getter body 绑定 → get_<Name>（镜像 IndexerDecl get，无索引参数）。
                 PropertyDecl pd = mem as PropertyDecl;
+                // add-static-properties：初始化器只能落在有存储的属性上（auto）；每个声明报一次（注入点可能有多个 ctor）。
+                FieldSymbol pinitSym = ct.Fields.Get(pd.Name) as FieldSymbol;
+                if (pd.HasInit && pinitSym != null && pinitSym.PropBackingName == "") {
+                    this._tc._diags.Error("E0452",
+                        "cannot initialize property `" + pd.Name + "`: it has no backing storage (only auto-properties can have an initializer)", pd.Span);
+                }
+                // 静态 auto 属性初始化器：同静态字段——无静态 ctor 进 per-CU `__static_init__`，有则注入其体首。
+                if (pd.HasInit && pinitSym != null && pinitSym.IsStatic && pinitSym.PropBackingName != ""
+                    && !DeclBinder._hasStaticCtor(this._tc, c)) {
+                    var penv = TypeEnv.Root(symbols);
+                    model.AddStaticInit(c.Name, pinitSym.PropBackingName, this._tc._expr.BindInitValue(pd.Init, pinitSym.FieldType, penv));
+                }
                 if (pd.HasGetBody) {
                     var pgEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
-                    pgEnv.Define("this", ct);
-                    string[] pgfns = ct.Fields.Keys();
-                    int pgfk = 0;
-                    while (pgfk < pgfns.Length) { FieldSymbol pgfs = ct.Fields.Get(pgfns[pgfk]) as FieldSymbol; pgEnv.Define(pgfns[pgfk], pgfs.FieldType); pgfk = pgfk + 1; }
+                    // add-static-properties：静态计算 getter 是静态上下文——此前无条件定义 this 与字段。
+                    if (!TypeFactsTc._hasWordTc(pd.Mods, "static")) {
+                        pgEnv.Define("this", ct);
+                        DeclBinder._defineInstanceFields(pgEnv, ct);
+                    }
                     Z42Type pgret = pgEnv.ResolveType(pd.Type);
                     model.AddBody(ctKey + ".get_" + pd.Name, this._tc._stmt._bindStmt(pd.GetBody, pgEnv, pgret));
                 }
@@ -308,9 +339,7 @@ public sealed class DeclBinder {
                 if (id.HasGet) {
                     var getEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
                     getEnv.Define("this", ct);
-                    string[] gfns = ct.Fields.Keys();
-                    int gfk = 0;
-                    while (gfk < gfns.Length) { FieldSymbol gfs = ct.Fields.Get(gfns[gfk]) as FieldSymbol; getEnv.Define(gfns[gfk], gfs.FieldType); gfk = gfk + 1; }
+                    DeclBinder._defineInstanceFields(getEnv, ct);
                     int gp = 0;
                     while (gp < id.ParamCount) { getEnv.Define(id.Params[gp].Name, getEnv.ResolveType(id.Params[gp].Type)); gp = gp + 1; }
                     Z42Type gret = getEnv.ResolveType(id.RetType);
@@ -319,9 +348,7 @@ public sealed class DeclBinder {
                 if (id.HasSet) {
                     var setEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
                     setEnv.Define("this", ct);
-                    string[] sfns = ct.Fields.Keys();
-                    int sfk = 0;
-                    while (sfk < sfns.Length) { FieldSymbol sfs = ct.Fields.Get(sfns[sfk]) as FieldSymbol; setEnv.Define(sfns[sfk], sfs.FieldType); sfk = sfk + 1; }
+                    DeclBinder._defineInstanceFields(setEnv, ct);
                     int sp = 0;
                     while (sp < id.ParamCount) { setEnv.Define(id.Params[sp].Name, setEnv.ResolveType(id.Params[sp].Type)); sp = sp + 1; }
                     setEnv.Define("value", setEnv.ResolveType(id.RetType));
@@ -433,6 +460,17 @@ public sealed class DeclBinder {
                     inits[ic] = new BoundExprStmt(this._tc._expr._bindExpr(asn, env), fd.Span);
                     ic = ic + 1;
                 }
+            } else if (mem is PropertyDecl) {
+                // add-static-properties：静态 auto 属性初始化器 → 直写静态后备 `C.__prop_X`（非属性型 BoundStaticGet
+                // ⇒ 发 static_set 后备名），与字段按声明序交错。
+                PropertyDecl spd = mem as PropertyDecl;
+                FieldSymbol psym = ct.Fields.Get(spd.Name) as FieldSymbol;
+                if (spd.HasInit && psym != null && psym.IsStatic && psym.PropBackingName != "") {
+                    BoundExpr pv = this._tc._expr.BindInitValue(spd.Init, psym.FieldType, env);
+                    BoundExpr pt = new BoundStaticGet(c.Name, psym.PropBackingName, psym.FieldType, spd.Span);
+                    inits[ic] = new BoundExprStmt(new BoundAssign(pt, pv, psym.FieldType, spd.Span), spd.Span);
+                    ic = ic + 1;
+                }
             }
             j = j + 1;
         }
@@ -462,6 +500,9 @@ public sealed class DeclBinder {
                     inits[ic] = new BoundExprStmt(this._tc._expr._bindExpr(asn, env), fd.Span);
                     ic = ic + 1;
                 }
+            } else if (mem is PropertyDecl) {
+                BoundStmt pinit = this._propInstanceInit(mem as PropertyDecl, ct, env);
+                if (pinit != null) { inits[ic] = pinit; ic = ic + 1; }
             }
             j = j + 1;
         }

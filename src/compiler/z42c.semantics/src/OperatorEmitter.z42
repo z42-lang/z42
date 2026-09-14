@@ -103,7 +103,7 @@ public sealed class OperatorEmitter {
                 TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
                 this._ctx.Emit(new ConstI64Instr(one, "1"));
                 if (op == "pre++") { this._ctx.Emit(new AddInstr(nv, x, one)); } else { this._ctx.Emit(new SubInstr(nv, x, one)); }
-                this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, nv));
+                this._ee._emitStaticStore(st, nv);   // add-static-properties：属性走 set_X
                 return nv;
             }
             return x;
@@ -135,7 +135,7 @@ public sealed class OperatorEmitter {
             TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
             this._ctx.Emit(new ConstI64Instr(one, "1"));
             if (op == "++") { this._ctx.Emit(new AddInstr(nv, x, one)); } else { this._ctx.Emit(new SubInstr(nv, x, one)); }
-            this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, nv));
+            this._ee._emitStaticStore(st, nv);   // add-static-properties：属性走 set_X
         }
         return ph;
     }

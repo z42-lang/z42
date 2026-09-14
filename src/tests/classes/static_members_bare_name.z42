@@ -1,0 +1,72 @@
+// add-static-properties：类内**裸名**引用本类静态字段 / const（C# 语义：裸名 `x` ≡ `C.x`）。
+// 改动前：实例方法体把 static 字段也当实例字段 ⇒ `field_get reg0.x` **静默读回 Null**
+// （const 同样中招）；静态方法体里同样的裸名报 E0401。现有用例全写成 `Counter.count` 所以没暴露。
+namespace Demo;
+
+class Counter {
+    static int count = 40;
+    const int Step = 2;
+    int id;
+
+    Counter() {
+        count = count + Step;      // 实例 ctor：读写静态 + const
+        id = count;
+    }
+
+    public int Id() { return id; }
+    public int Peek() { return count; }              // 实例方法读
+    public void Bump() { count++; count += Step; }   // 实例方法写 / 自增 / 复合
+    public int ConstInInstance() { return Step; }
+
+    public static int StaticPeek() { return count; }  // 静态方法读
+    public static void Reset(int v) { count = v; }    // 静态方法写
+    public static int ConstInStatic() { return Step * 10; }
+
+    // 形参 / 局部遮蔽优先
+    public static int Shadow(int count) { return count; }
+    public int ShadowLocal() { int count = 7; return count; }
+
+    // lambda 内裸名：不是捕获，读的是当前值
+    public static int ViaLambda() {
+        Func<int> f = () => count;
+        count = 99;
+        return f();
+    }
+}
+
+// 静态 ctor 体里的裸名。单独成类：同一个类同时有静态 ctor 与无参实例 ctor 时，实例 ctor 今天
+// 根本不跑（obj_new 指向 `C$0`、函数却发成 `C`，与本 change 无关的既有 bug，已另行登记）。
+class Tagged {
+    static string tag = "c";
+    static Tagged() { tag = tag + "0"; }
+    public static string Tag() { return tag; }
+}
+
+void Main() {
+    Assert.Equal(40, Counter.StaticPeek());
+    var a = new Counter();
+    Assert.Equal(42, a.Id());
+    Assert.Equal(42, a.Peek());
+    Assert.Equal(42, Counter.StaticPeek());
+
+    a.Bump();
+    Assert.Equal(45, Counter.StaticPeek());
+
+    Counter.Reset(1);
+    Assert.Equal(1, a.Peek());
+
+    Assert.Equal(2, a.ConstInInstance());
+    Assert.Equal(20, Counter.ConstInStatic());
+    Assert.Equal("c0", Tagged.Tag());
+
+    Assert.Equal(5, Counter.Shadow(5));
+    Assert.Equal(7, a.ShadowLocal());
+    Assert.Equal(1, Counter.StaticPeek());   // 遮蔽没有写到静态字段
+
+    Assert.Equal(99, Counter.ViaLambda());
+
+    // 限定名复合赋值（改动前 `Counter.count += 2` 报 E0401 undefined: Counter）
+    Counter.Reset(10);
+    var b = new Counter();                     // +2 → 12
+    Assert.Equal(12, Counter.StaticPeek());
+}

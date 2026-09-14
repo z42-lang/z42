@@ -1,0 +1,19 @@
+namespace Sp.App;
+using Sp.Base;
+using Sp.Ext;
+using Std;
+using Std.IO;
+
+void Main() {
+    Console.WriteLine("level=" + Cfg.Level.ToString());
+    Cfg.Level = 5;
+    Console.WriteLine("level=" + Cfg.Level.ToString());
+    Cfg.Level++;
+    Console.WriteLine("level=" + Cfg.Level.ToString());
+    Console.WriteLine("name=" + Cfg.Name);
+    Console.WriteLine("ro=" + Cfg.Ro.ToString());
+    Ext.Raise();
+    Console.WriteLine("doubled=" + Ext.Doubled.ToString());
+    Ext.Label = Ext.Label + "!";
+    Console.WriteLine("label=" + Ext.Label);
+}

@@ -194,7 +194,9 @@ public sealed class StubEmitter {
         TypedReg thisReg = new TypedReg(0, IrType.Ref);
         TypedReg dst = new TypedReg(totalParams, retTag);
         IrInstr[] instrs = new IrInstr[1];
-        instrs[0] = new FieldGetInstr(dst, thisReg, backingField);
+        // add-static-properties：静态桩 0 参、没有 this —— 后备是**静态**字段，backingField 由调用方给 FQ 名。
+        if (isStatic) { instrs[0] = new StaticGetInstr(dst, backingField); }
+        else { instrs[0] = new FieldGetInstr(dst, thisReg, backingField); }
         RetTerm term = new RetTerm(true, dst);
         IrBlock[] blocks = new IrBlock[1];
         blocks[0] = new IrBlock("entry", instrs, 1, term, true);
@@ -210,8 +212,8 @@ public sealed class StubEmitter {
             lineTable = new IrLineEntry[1];
             lineTable[0] = new IrLineEntry(0, 0, line, false, null, 0);
             lineCount = 1;
-            locals = new IrLocalVarEntry[1];
-            locals[0] = new IrLocalVarEntry("this", 0);
+            locals = new IrLocalVarEntry[isStatic ? 0 : 1];   // add-static-properties：静态桩没有 this 槽
+            if (!isStatic) { locals[0] = new IrLocalVarEntry("this", 0); }
         }
         return new IrFunction(name, totalParams, retTypeName, isStatic, blocks, 1, totalParams + 1,
                               "Interp", paramTypes, totalParams, regTypes, totalParams + 1,
@@ -224,7 +226,8 @@ public sealed class StubEmitter {
         TypedReg thisReg = new TypedReg(0, IrType.Ref);
         TypedReg valReg  = new TypedReg(isStatic ? 0 : 1, valTag);
         IrInstr[] instrs = new IrInstr[1];
-        instrs[0] = new FieldSetInstr(thisReg, backingField, valReg);
+        if (isStatic) { instrs[0] = new StaticSetInstr(backingField, valReg); }   // add-static-properties：同上
+        else { instrs[0] = new FieldSetInstr(thisReg, backingField, valReg); }
         RetTerm term = new RetTerm(false, null);
         IrBlock[] blocks = new IrBlock[1];
         blocks[0] = new IrBlock("entry", instrs, 1, term, true);

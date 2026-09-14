@@ -1,0 +1,7 @@
+level=2
+level=5
+level=6
+name=cfg
+ro=8
+doubled=14
+label=ext!

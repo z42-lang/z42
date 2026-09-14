@@ -97,6 +97,8 @@ public sealed class IrGenMemberEmitter {
         } else if (pd.HasGet && !pdExtern) {
             // 非 extern auto-prop：合成 field.get @__prop_Name 桩（镜像 C# SynthesizeClassAutoProp）。
             string backing = "__prop_" + pd.Name;
+            // add-static-properties：静态后备是静态字段 → 桩发 static_get/set，须 FQ 名（同 __static_init__ 的 StaticSet）。
+            if (pdStatic) { backing = g._q(g._classIrShortName(c)) + "." + backing; }
             string getIrNm = g._q(g._classIrShortName(c)) + ".get_" + pd.Name;
             string retNm = g._classDescB._typeFieldName(pd.Type);
             int retTag = IrGenFacts._irTypeTag(pd.Type);
