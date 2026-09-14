@@ -1,0 +1,8 @@
+namespace Demo.Base;
+using Std;
+
+// 同包跨文件：继承 Shape 的构造器（含默认值），并随 TSIG 导出给主包
+public class Mid : Shape { public int m = 1; }
+
+// 同包跨文件：基类只有初始化器，派生类写了显式构造器 ⇒ 隐式 base()
+public class PlainChild : Plain { public int c; public PlainChild() { this.c = this.p + 1; } }

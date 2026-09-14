@@ -1,0 +1,18 @@
+namespace Demo.App;
+using Std.IO;
+using Demo.Base;
+using Std;
+
+class Leaf : Shape { public int extra = 1; }   // 继承依赖包基类的构造器
+class P2 : Plain { public P2() { } }            // 依赖包基类只有初始化器
+class Err : Exception { }                        // 继承 stdlib 基类的构造器
+
+void Main() {
+    Leaf l = new Leaf("leaf");
+    Console.WriteLine(l.Name + " " + l.Sides.ToString() + " " + l.extra.ToString());
+    Mid m = new Mid("mid", 4);
+    Console.WriteLine(m.Name + " " + m.Sides.ToString() + " " + m.m.ToString());
+    Console.WriteLine(new PlainChild().c);
+    Console.WriteLine(new P2().p);
+    try { throw new Err("bad"); } catch (Err e) { Console.WriteLine(e.Message); }
+}

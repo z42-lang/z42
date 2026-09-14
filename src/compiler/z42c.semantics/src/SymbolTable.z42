@@ -357,6 +357,7 @@ public sealed partial class SymbolTable {
 
     // 带活跃类型形参（泛型类/方法 scope）：名字命中 paramNames → Z42GenericParamType。
     public Z42Type ResolveTypeP(TypeExpr te, string[] paramNames, int paramCount) {
+        if (te is ResolvedTypeExpr) { return (te as ResolvedTypeExpr).Resolved; }   // add-implicit-base-ctor-call：合成声明已解析的形参类型
         if (te is NamedType) {
             NamedType nt = te as NamedType;
             string n = nt.Name;
