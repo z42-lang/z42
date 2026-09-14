@@ -1,6 +1,6 @@
 # Tasks: upgrade-apple-toolchain
 
-> 状态：🟡 进行中 | 创建：2026-09-15
+> 状态：🟢 已完成 | 创建：2026-09-15 | 完成：2026-09-15
 
 **变更说明：** macOS / iOS 工具链升到最新——CI runner `macos-15`（Xcode 16.x）→ `macos-26`（Xcode 26.6 / iOS SDK 26.5），
 SwiftPM `swift-tools-version` 5.9 → 6.0（Swift 6 语言模式），`xcode_min` 15.0 → 16.0，并清掉三处与 `versions.toml` 脱钩的硬编码。
@@ -32,8 +32,8 @@ SwiftPM `swift-tools-version` 5.9 → 6.0（Swift 6 语言模式），`xcode_min
 - [x] 1.8 文档同步（见上「文档影响」）
 - [x] 2.1 本地：Swift 6 模式类型检查 Sources + Tests（Xcode 16.4 / Swift 6.1）
 - [x] 2.2 本地：xtask / z42b / launcher 编译 + `deps check` 正反对照 + iOS Simulator 端到端（shard 1/3）
-- [ ] 2.3 CI：PR 全套 + 手动 `workflow_dispatch` 跑 `test-ios-sim` 三分片（macos-26 首跑）
-- [ ] 2.4 归档
+- [x] 2.3 CI：PR 全套 + 手动 `workflow_dispatch` 跑 `test-ios-sim` 三分片（macos-26 首跑）
+- [x] 2.4 归档
 
 ## 备注
 
@@ -42,3 +42,6 @@ SwiftPM `swift-tools-version` 5.9 → 6.0（Swift 6 语言模式），`xcode_min
   iOS Simulator：z42b 读 `min_ios` → cargo 两个 slice → xcframework → `xcodebuild test`（swift-tools 6.0）：
   R1–R7 7/7，embedded shard 1/3 **1126/1127**。唯一失败 `classes/static_ctor_with_instance_ctor` 是 #650
   随修复一起加的用例，本地种子 z42c 早于 #650 ⇒ 种子旧的假红（见 memory「worktree 供种的四类假故障」），与本变更无关；以 CI 为准。
+- 2.3 CI 结果（head `da581c87`）：PR CI 29 pass / 4 skip；手动 run 34873829174 全部 38 个 job 绿，其中 `test-ios-sim` ×3 在
+  `Image: macos-26-arm64` 上每片 `junit.xml (8 cases, 0 failed)`、0 条并发诊断 warning；`package-ios`、`test-host(macos-arm64)`、
+  `test-stdlib-interp(macos-arm64)`、`compile-toolchain(macos-arm64)` 均绿。`release.yml` / `jit-fixpoint-check.yml` 的 macos-26 要等下次触发才实跑。
