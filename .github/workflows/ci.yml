@@ -1310,6 +1310,27 @@ jobs:
           [ "$export_count" -gt 0 ] || { echo "error: no exports in wasm module"; exit 1; }
           echo "✓ wasm valid — $export_count exports (wasm-tools)"
 
+      # ci-wasm-node-smoke (2026-09-14): actually RUN the wasm VM once per push/PR.
+      # Everything above only builds + validates the module; the only job that ever
+      # executed it was the nightly-only test-wasm-browser. So a VM that traps on its
+      # first `loadZbc` (#644: a disabled sampler called `Instant::now()`, and wasm32
+      # has no std::time) compiled, validated and packaged fine here — and nightly
+      # stayed red for three weeks (2026-08-24 → 09-14) without anyone noticing.
+      # `src/runtime/**` is in the `platform` filter, so runtime PRs run this too.
+      # Runs AFTER packaging: the `assets` phase writes js/fixtures + js/stdlib into
+      # the platform dir, which must not leak into the package above.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: pkg-nodejs smoke (load + invoke Hello.Main in Node, no browser)
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$vm" artifacts/xtask/xtask.zpkg -- test platform wasm assets
+          node src/toolchain/workload/wasm/platform/demo/node/run.js
+
       - name: Upload wasm package
         uses: actions/upload-artifact@v7
         with:

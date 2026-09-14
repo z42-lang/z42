@@ -8,7 +8,7 @@
 //! is in Deferred — the current shape leaves the public API unchanged.
 
 use std::path::PathBuf;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::metadata::Module;
 use crate::vm_context::VmContext;
@@ -19,12 +19,26 @@ use super::config::ResolvedConfig;
 /// context per loaded `.zbc` so concurrent loads don't cross-contaminate
 /// static state. Future work may pool these once multi-instance lands
 /// (see embedding.md §12 Deferred).
+///
+/// The merged module is owned by `ctx` (`VmContext::with_module`, built by
+/// `boot::boot_context` — the same boot steps as `app::run`); read it via [`Self::module`].
 pub(crate) struct HostModule {
-    pub module: Module,
     pub ctx: std::pin::Pin<Box<VmContext>>,
+    /// fix-host-static-init: outcome of running the merged packages' `__static_init__`,
+    /// done once on the first invoke. A failure is sticky — every later invoke reports
+    /// the same error instead of running against half-initialized statics.
+    pub static_init: OnceLock<Result<(), String>>,
 }
 
-/// Resolved entry handle. Indexes into `HostModule.module.functions`.
+impl HostModule {
+    pub(crate) fn module(&self) -> &Module {
+        self.ctx
+            .module()
+            .expect("HostModule.ctx is always built with a module (boot::boot_context)")
+    }
+}
+
+/// Resolved entry handle. Indexes into `HostModule::module().functions`.
 pub(crate) struct HostEntry {
     pub module_idx: usize,
     pub fn_idx: usize,

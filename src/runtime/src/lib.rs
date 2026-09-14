@@ -30,6 +30,7 @@ pub mod host;
 pub mod vm;
 pub mod vm_context;
 pub mod app;
+pub(crate) mod boot;
 #[cfg(test)]
 #[path = "app_tests.rs"]
 mod app_tests;
