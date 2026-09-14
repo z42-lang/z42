@@ -23,6 +23,23 @@
 # inline into the job log.
 set -u
 
+# The runner only waits for sys.boot_completed; user storage (the app cache dir the
+# embedded test copies its corpus into) and the package service can still be coming
+# up. Wait until both answer before installing anything.
+ready=0
+for _ in $(seq 1 90); do
+    if [ "$(adb shell getprop sys.user.0.ce_available 2>/dev/null | tr -d '\r')" = "true" ] \
+        && adb shell pm path android >/dev/null 2>&1; then
+        ready=1
+        break
+    fi
+    sleep 2
+done
+if [ "$ready" -ne 1 ]; then
+    echo "error: emulator not ready after 180s (sys.user.0.ce_available / package service)" >&2
+    exit 1
+fi
+
 vm="$GITHUB_WORKSPACE/artifacts/build/runtime/release/z42vm"
 libs="$GITHUB_WORKSPACE/artifacts/build/libraries/dist/release"
 
