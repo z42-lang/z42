@@ -28,7 +28,7 @@ jobs:
         include:
           - { rid: linux-x64,   os: ubuntu-latest }
           - { rid: linux-arm64, os: ubuntu-24.04-arm }
-          - { rid: macos-arm64, os: macos-15 }
+          - { rid: macos-arm64, os: macos-26 }
           - { rid: windows-x64, os: windows-latest }
     runs-on: ${{ matrix.os }}
     steps:
