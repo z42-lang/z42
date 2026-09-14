@@ -257,7 +257,7 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 ```toml
 # A) 全部不设 → 全部默认
 [build]
-# output_dir = toml 所在目录；cache = ./.cache；dist = ./dist
+# output_dir = ${workspace_dir}/artifacts/${profile}；cache = ${output_dir}/.cache；dist = ./dist（z42c 历史默认，见 BuildPaths._resolveDistDir）
 
 # B) 只设顶层 → cache / dist 跟随
 [build]
@@ -376,10 +376,11 @@ zbc 的最小 patch 分发方向见 `docs/spec/changes/add-indexed-zpkg-min-patc
 
 - **来源**：port-incremental-build-cache（2026-07-05，User 裁决移出该 change）
 - **触发原因**：workspace / flat 构建（`--workspace` / 显式 `--output-dir`）经
-  `outputDirOverride` 传 dist，`WsPlan` 不携带 cache 目录 → 该路径暂不落 cache、不 probe。
-- **前置依赖**：`WorkspaceBuild.PlanLayout` 展开 `[workspace.build].cache_dir` 模板并随
-  `WsPlan` 传入 `_build`；xtask gen 系脚本（自举 gen1/gen2 字节对比）显式 `--no-incremental`
-  ——否则 gen2 全命中跳过会使字节对比空洞化。
+  `outputDirOverride` 传 dist → 该路径不 probe（**cache-dir-layout 2026-09-15 起已落 cache**：
+  `WsPlan.CacheDirs` 展开 `[workspace.build].cache_dir` 模板传入 `_build`，flat 模式 `<out>/.cache/<成员>`）。
+- **前置依赖**：① **缓存键含编译器身份**（否则重建编译器后 `build stdlib` 复用旧 codegen 产物；自举 gen2 命中
+  gen1 由种子编译器写的 cache ⇒ 发出去的编译器其实是旧 codegen 编的）；② xtask gen 系脚本（自举 gen1/gen2
+  字节对比）显式 `--no-incremental` ——否则 gen2 全命中跳过会使字节对比空洞化。
 - **触发条件**：stdlib 22 包 / z42c 7 包 warm 重建成为迭代瓶颈时（整包跳过在 workspace
   构建收益最大）。
 - **当前 workaround**：workspace 构建永远全量（与本 change 前行为逐字节一致）。

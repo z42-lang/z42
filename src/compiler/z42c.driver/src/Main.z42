@@ -99,7 +99,7 @@ void Main() {
             Environment.Exit(_buildWorkspace(isRelease, outputDir, optSet));   // --fix 暂不作用于 workspace（多成员批量），单包路径生效
             return;
         }
-        Environment.Exit(_build(file, isRelease, outputDir, new string[0], 0, noIncremental, optSet, isFix));
+        Environment.Exit(_build(file, isRelease, outputDir, "", new string[0], 0, noIncremental, optSet, isFix));
         return;
     }
     if (cmd == "--emit-zbc") {
@@ -151,7 +151,9 @@ void Main() {
 
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet, bool fix) {
+// cacheDirOverride：workspace 构建由 WsPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
+// 源码树）；"" = 按本工程 manifest 解析（_resolveCacheDir）。
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet, bool fix) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
     // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
@@ -212,7 +214,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
                 while (oi < accN) { depOverride[oi] = accum[oi]; oi = oi + 1; }
                 int depOverrideN = accN;
                 if (baseLib.Length > 0) { depOverride[depOverrideN] = baseLib; depOverrideN = depOverrideN + 1; }
-                int dbc = _build(depToml, isRelease, "", depOverride, depOverrideN, noIncremental, optSet, false);
+                int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, optSet, false);
                 if (dbc != 0) { return dbc; }
                 accum[accN] = depDist; accN = accN + 1;
             }
@@ -295,14 +297,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         metaIdents = prep.Idents;
         metaSurfaces = prep.Surfaces;
     } else {
-        // 全量路径（--no-incremental / 增量未启）：parse 时捕获标识符供 meta 写盘
-        //（D8 修正——零第二遍 lex）；workspace/flat 不落 cache → 不捕获。
-        bool[] want = null;
-        if (outputDirOverride.Length == 0) {
-            want = new bool[srcs.Length];
-            int wi = 0;
-            while (wi < srcs.Length) { want[wi] = true; wi = wi + 1; }
-        }
+        // 全量路径（--no-incremental / 增量未启 / workspace）：parse 时捕获标识符供 meta 写盘
+        //（D8 修正——零第二遍 lex）。cache-dir-layout：cache 恒落盘 → 恒捕获。
+        bool[] want = new bool[srcs.Length];
+        int wi = 0;
+        while (wi < srcs.Length) { want[wi] = true; wi = wi + 1; }
         ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, srcs.Length, want);
         cus = pk.Cus;
         metaIdents = pk.Idents;
@@ -509,6 +508,8 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
         int mbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
+        // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
+        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces);
         return ExitCode.Ok;
     }
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -535,30 +536,8 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string[] l
         int rc1 = _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
         if (rc1 != 0) { return rc1; }
     }
-    // cache 落盘（port-incremental-build-cache 阶段 1）：单工程模式逐文件写 fullMode
-    // .zbc。workspace/flat（outputDirOverride 非空）暂不落——cache 目录须由 workspace
-    // 布局解析（WsPlan 尚不携带），且 gen1==gen2 字节门禁路径保持零扰动。
-    if (outputDirOverride.Length == 0) {
-        // The incremental cache is a PERF optimization (next build's probe); a write
-        // failure (e.g. a Windows path quirk in _writeCacheZbc) must NOT crash the
-        // build — degrade to non-incremental. The .zpkg is already written above.
-        try {
-            string cacheDir = _resolveCacheDir(pm, projectDir, isRelease);
-            i = 0;
-            while (i < srcs.Length) {
-                if (prep == null || prep.Plan.Fresh[i]) {
-                    _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
-                }
-                i = i + 1;
-            }
-            // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
-            IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
-                                         cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces);
-            ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
-        } catch (Exception e) {
-            ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);
-        }
-    }
+    // cache 落盘（cache-dir-layout：不论是否增量都落盘，helper 见 BuildCache.z42）。
+    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces);
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
         int bc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);

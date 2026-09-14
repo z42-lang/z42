@@ -16,4 +16,7 @@ include = ["export.z42"]
 "z42.io"   = "0.1.0"
 
 [build]
+# cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
+# 不再按默认值落进源码树。
+output_dir = "../../../../../artifacts/build/toolchain/workload/wasm"
 dist_dir = "../../../../../artifacts/build/libraries/dist/release"

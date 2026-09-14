@@ -17,4 +17,7 @@ include = ["export.z42"]
 
 [build]
 # Emit the .zpkg into the shared libs dir (== launcher build's Z42_LIBS).
+# cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
+# 不再按默认值落进源码树。
+output_dir = "../../../../../artifacts/build/toolchain/workload/ios"
 dist_dir = "../../../../../artifacts/build/libraries/dist/release"
