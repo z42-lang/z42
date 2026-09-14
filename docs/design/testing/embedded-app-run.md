@@ -374,8 +374,8 @@ mobile 的嵌入 corpus **折叠进 R1–R7 的同一次 `xcodebuild test` / `co
 sim/emulator 启动,§6),无法把 R1–R7 从 scheme 里摘出,故 R1–R7 在每片**冗余重跑**——相对每片的
 boot+corpus 成本可忽略,换来「不二次启动模拟器」。junit / logcat / crash-diagnostics artifact 均按
 `${{ matrix.shard }}` 命名避免矩阵内碰撞。代价同 §5.7 T1:每片独立 runner 重付一遍平台冷构建
-(iOS 冷编 rust + xcframework、android 冷编 cargo-ndk + AAR),AVD snapshot 缓存 key 与语料无关、
-跨片共享。
+(iOS 冷编 rust + xcframework、android 冷编 cargo-ndk + AAR);android 模拟器每片冷启动(已去掉 AVD
+snapshot 缓存,见 ci.yml `test-android` 注释)。
 
 本地无法可靠验 mobile 全跑(iOS 模拟器需 xcodebuild + 冷编 rust,android 需 emulator;且 libffi-sys
 的 iOS-sim 交叉编译在部分本机环境会卡),故 mobile 长尾**以 CI dispatch 为准**(与 wasm 首轮同法)。
