@@ -1,0 +1,21 @@
+namespace Demo.App;
+using Std.IO;
+using Demo.Base;
+using Std;
+
+class Circle : Shape {
+    public double R;
+    public Circle() : base() { this.R = 1.0; }
+    public Circle(double r) : this() { this.R = r; }
+}
+
+void Main() {
+    Circle c = new Circle(2.5);
+    Console.WriteLine(c.Name);
+    Console.WriteLine(c.R);
+
+    Registry a = new Registry();
+    Registry b = new Registry();
+    Console.WriteLine(a.Id);
+    Console.WriteLine(b.Id);
+}
