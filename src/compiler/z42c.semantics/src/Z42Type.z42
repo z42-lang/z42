@@ -266,6 +266,22 @@ public sealed class Z42ClassType : Z42Type {
         while (k < n) { r[k] = tmp[k]; k = k + 1; }
         return r;
     }
+    // fix-ctor-init-silent-bugs：本类的**实例**构造器候选（`new C(..)` / `: this(..)` / `: base(..)` /
+    // `where T : new()` 的唯一枚举口）。静态 ctor 与实例 ctor 同名（`OverloadsOf(Name())` 会一并返回），
+    // 却不是可 `new` 的构造器——此前各调用点直接用 `OverloadsOf` 把它算进去：`new C()` 选中静态 ctor 的
+    // 注册键 `C$0`（实例 ctor 永不执行）、E0426 把它当「接受 0 实参」而漏报。
+    public MethodSymbol[] InstanceCtors() {
+        MethodSymbol[] all = this.OverloadsOf(this._name);
+        int n = 0;
+        int i = 0;
+        while (i < all.Length) { if (!all[i].IsStatic) { n = n + 1; } i = i + 1; }
+        if (n == all.Length) { return all; }
+        MethodSymbol[] r = new MethodSymbol[n];
+        int k = 0;
+        i = 0;
+        while (i < all.Length) { if (!all[i].IsStatic) { r[k] = all[i]; k = k + 1; } i = i + 1; }
+        return r;
+    }
     public override string Name() { return this._name; }
     public override string CanonName() {
         if (this._canon == "") { this._canon = PrimModel.Canon(this._name); }

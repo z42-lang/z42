@@ -5,8 +5,14 @@ namespace Demo;
 
 class Counter {
     static int count = 40;
+    static string tag = "c";
     const int Step = 2;
     int id;
+
+    // 静态 ctor 体里的裸名。与无参实例 ctor 同类：修 fix-ctor-init-silent-bugs 前，这样写会让
+    // `new Counter()` 选中静态 ctor 的注册键、实例 ctor 永不执行（当时只能把它挪到单独的类里绕开）。
+    static Counter() { tag = tag + "0"; }
+    public static string Tag() { return tag; }
 
     Counter() {
         count = count + Step;      // 实例 ctor：读写静态 + const
@@ -34,14 +40,6 @@ class Counter {
     }
 }
 
-// 静态 ctor 体里的裸名。单独成类：同一个类同时有静态 ctor 与无参实例 ctor 时，实例 ctor 今天
-// 根本不跑（obj_new 指向 `C$0`、函数却发成 `C`，与本 change 无关的既有 bug，已另行登记）。
-class Tagged {
-    static string tag = "c";
-    static Tagged() { tag = tag + "0"; }
-    public static string Tag() { return tag; }
-}
-
 void Main() {
     Assert.Equal(40, Counter.StaticPeek());
     var a = new Counter();
@@ -57,7 +55,7 @@ void Main() {
 
     Assert.Equal(2, a.ConstInInstance());
     Assert.Equal(20, Counter.ConstInStatic());
-    Assert.Equal("c0", Tagged.Tag());
+    Assert.Equal("c0", Counter.Tag());
 
     Assert.Equal(5, Counter.Shadow(5));
     Assert.Equal(7, a.ShadowLocal());

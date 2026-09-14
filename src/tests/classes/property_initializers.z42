@@ -28,8 +28,15 @@ class Ordered {
     public int P { get; set; } = Log.Mark(2);
     public int b = Log.Mark(3);
     public Ordered(int x, int y) { Log.Mark(4); }
-    // 委托带实参：零实参的 `: this()` 今天根本不调目标 ctor（与本 change 无关的既有 bug，已另行登记）。
     public Ordered(int x) : this(x, 0) { Log.Mark(5); }
+}
+
+// 零实参委托 `: this()`（修 fix-ctor-init-silent-bugs 前整条被丢，#643 时只能写带实参的形态绕开）
+class OrderedZ {
+    public int a = Log.Mark(1);
+    public int P { get; set; } = Log.Mark(2);
+    public OrderedZ() { Log.Mark(3); }
+    public OrderedZ(int x) : this() { Log.Mark(4); }
 }
 
 class Base {
@@ -67,6 +74,10 @@ void Main() {
     Log.Trace = "";
     var o2 = new Ordered(0);
     Assert.Equal("12345", Log.Trace);         // this(..) 委托：初始化器只跑一次
+    Log.Trace = "";
+    var oz = new OrderedZ(0);
+    Assert.Equal("1234", Log.Trace);          // this() 委托：同上
+    Assert.Equal(2, oz.P);
 
     var d = new Derived();
     Assert.Equal(21, d.BP);

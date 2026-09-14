@@ -1,0 +1,21 @@
+namespace Demo.Base;
+using Std.IO;
+using Std;
+
+// fix-ctor-init-silent-bugs：跨包形态。
+// - `Shape`：基类在依赖包里，派生类在主包里用零实参 `: base()`（修前整条被丢 ⇒ Name 打印 null）。
+// - `Registry`：同时有静态 ctor 与无参实例 ctor，主包直接 `new` 它。**修前跨包这一形态本就是对的**（导入类型的
+//   ctor 符号走另一条路径），这里是守卫：防止「排除静态 ctor」的改动把跨包实例 ctor 也排除掉。
+//   首次使用是 `new`，静态 ctor 照常触发（跨包「首次使用是静态方法调用」的 cctor 缺陷另案）。
+public class Shape {
+    public string Name;
+    public Shape() { this.Name = "shape"; }
+    public Shape(string n) { this.Name = n; }
+}
+
+public class Registry {
+    public static int Created;
+    public int Id;
+    static Registry() { Registry.Created = 100; }
+    public Registry() { Registry.Created = Registry.Created + 1; this.Id = Registry.Created; }
+}

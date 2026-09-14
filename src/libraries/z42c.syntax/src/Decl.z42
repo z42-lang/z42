@@ -157,6 +157,9 @@ public sealed class MethodDecl : Decl {
     public Expr[]        BaseArgs;    // `: base(args)` / `: this(args)` 调用实参（isCtor 时有意义；无 init 时 null/Count=0）
     public int           BaseArgCount;
     public bool          IsThisInit;  // true → init 是 `: this(args)`（ctor 委托同类）；false → `: base(args)`
+    public bool          HasCtorInit; // fix-ctor-init-silent-bugs：写了 `: base(..)` / `: this(..)` 初始化子句（实参可为零个）。
+                                       // 此前语义层拿 `BaseArgCount > 0` 当「有子句」⇒ 零实参 `: this()` / `: base()` 整条被丢。
+                                       // 由 parser 构造后置位（不进 ctor 签名：z42c.syntax 是自举自依赖库，种子 ABI 约束）。
     public string        RegKey;      // add-type-based-overloads：注册键（Methods 映射键 = body 键 = IR 名）。
                                        // unify-regkey-source-of-truth：**只由 SymbolCollector.RegisterMethod 写**
                                        // （算键与写键绑死的唯一注册入口）→ 凡注册过的方法必非空。此前
@@ -179,6 +182,7 @@ public sealed class MethodDecl : Decl {
         this.BaseArgs = baseArgs; this.BaseArgCount = baseArgCount; this.IsThisInit = isThisInit;
         this.RegKey = "";
         this.IsPartial = false;
+        this.HasCtorInit = false;
     }
     public override string Dump() {
         string head = this.IsCtor ? "ctor" : (this.IsFree ? "func" : "method");

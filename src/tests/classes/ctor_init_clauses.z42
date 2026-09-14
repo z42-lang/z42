@@ -1,0 +1,62 @@
+// fix-ctor-init-silent-bugs ②：零实参的构造器初始化子句 `: this()` / `: base()`。
+// 修前 DeclBinder 的门是「实参数 > 0」，把「写了初始化子句」错当「有实参」⇒ 零实参子句
+// 整条被丢：目标 ctor 不跑、零诊断，字段悄悄停在默认值。带实参的 `: this(x, 0)` 一直是好的。
+//
+// 顺序（对标 C#）：本类字段初始化器 → 初始化子句的目标 ctor → 本 ctor 体；
+// `: this(..)` 委托的 ctor 不重复跑字段初始化器（由被委托的那个跑）。
+namespace Demo;
+
+class Log {
+    public static string Trace = "";
+    public static int Mark(int v) { Log.Trace = Log.Trace + v.ToString(); return v; }
+}
+
+// `: this()` —— 委托到无参 ctor；字段初始化器只跑一次
+class Delegating {
+    public int f = Log.Mark(1);
+    public string s = "";
+    public Delegating() { Log.Mark(2); this.s = this.s + "a"; }
+    public Delegating(int x) : this() { Log.Mark(3); this.s = this.s + "b"; }
+}
+
+// 委托链两跳，最后一跳零实参
+class Chain {
+    public int n;
+    public Chain() { this.n = 1; }
+    public Chain(int a) : this() { this.n = this.n * 10 + a; }
+    public Chain(int a, int b) : this(a) { this.n = this.n * 10 + b; }
+}
+
+// `: base()` —— 基类无参 ctor 必须跑
+class B0 {
+    public int b;
+    public B0() { this.b = 7; Log.Mark(5); }
+}
+class D0 : B0 {
+    public int d = Log.Mark(4);
+    public D0(int x) : base() { Log.Mark(6); this.d = this.d + x; }
+}
+
+// `: base()` 指向**没有显式 ctor** 的基类：没有可调的 ctor，不发调用（不能发出对不存在函数的调用）
+class Plain { public int p; }
+class OverPlain : Plain {
+    public OverPlain() : base() { this.p = 9; }
+}
+
+void Main() {
+    Log.Trace = "";
+    var dg = new Delegating(0);
+    Assert.Equal("123", Log.Trace);
+    Assert.Equal("ab", dg.s);
+    Assert.Equal(1, dg.f);
+
+    Assert.Equal(123, new Chain(2, 3).n);
+
+    Log.Trace = "";
+    var d = new D0(10);
+    Assert.Equal("456", Log.Trace);
+    Assert.Equal(7, d.b);
+    Assert.Equal(14, d.d);
+
+    Assert.Equal(9, new OverPlain().p);
+}

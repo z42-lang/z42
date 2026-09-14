@@ -196,7 +196,7 @@ public sealed class ConstructTyper {
         // 注册侧本就给了不同的键（首个裸名、其余全签名 mangle），所以这里只是把「选哪个」
         // 修对，**不动任何发射键** ⇒ 今天能正确解析的程序（ctor arity 唯一）字节零漂移。
         if (cls != null && n.ArgCount > 0) {
-            MethodSymbol[] cands = cls.OverloadsOf(cls.Name());
+            MethodSymbol[] cands = cls.InstanceCtors();
             if (cands.Length > 1) {
                 Z42Type[] argTs = new Z42Type[n.ArgCount];
                 int ai = 0;
@@ -229,13 +229,13 @@ public sealed class ConstructTyper {
                 return new BoundNew(t.Name(), ctorName, adapted, adapted.Length, t, n.Span);
             }
         }
-        // ctor arity 校验（根因修复）：枚举本类所有源名 ctor（OverloadsOf——与 bare/$N 注册键无关，
+        // ctor arity 校验（根因修复）：枚举本类所有实例 ctor（InstanceCtors——与 bare/$N 注册键无关，
         // 单 ctor 注册裸名、重载注册 Name$N，_findMethod 单键查会漏），只要存在本地声明 ctor 且无一能
         // 接受 n.ArgCount 个实参 → 报 E0426，防「实参数与形参数不符被下方 fall-through 静默按位截断/补默认」
         // （曾致 z42.project ManifestLoader 16 传 12 的 OutputDir 空 bug）。params ctor（变长，接受 ≥ 定长部分）
         // 与带默认尾参各按其规则计入「可接受」。imported/无 Decl 的 ctor 无法校验 → 跳过（不误报）。
         if (cls != null) {
-            MethodSymbol[] ctors = cls.OverloadsOf(cls.Name());
+            MethodSymbol[] ctors = cls.InstanceCtors();
             bool anyDeclared = false;
             bool accepts = false;
             int ci = 0;
