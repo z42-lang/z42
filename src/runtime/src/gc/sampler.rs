@@ -46,7 +46,12 @@ pub struct Sampler {
     /// Drop 时置 `true`，让定时线程退出其 sleep 循环。
     stop: Arc<AtomicBool>,
     /// 采样时间戳基准 t0（`Z42_TRACE_OUT` 才有意义）。
-    start: Instant,
+    ///
+    /// `disabled()` 为 `None`：**关着时不取时钟**。`wasm32-unknown-unknown` 没有 `std::time`，
+    /// `Instant::now()` 直接 panic「time not implemented on this platform」—— 每个 VmContext
+    /// 构造都会建一个 disabled Sampler，旧写法让 wasm 上 `loadZbc` 一步就 trap
+    /// （fix-wasm-std-time；自 2026-08-24 #277 起 nightly `test-wasm-browser` 全红）。
+    start: Option<Instant>,
     data: Mutex<SamplerData>,
     /// 定时线程句柄（detached-ish：Drop 置 `stop` 后不 join，线程见 flag 自退）。
     _thread: Option<std::thread::JoinHandle<()>>,
@@ -105,7 +110,7 @@ impl Sampler {
             trace_enabled,
             sample_pending,
             stop,
-            start: Instant::now(),
+            start: Some(Instant::now()),
             data: Mutex::new(SamplerData::default()),
             _thread: thread,
         }
@@ -119,7 +124,7 @@ impl Sampler {
             trace_enabled,
             sample_pending: Arc::new(AtomicBool::new(false)),
             stop: Arc::new(AtomicBool::new(false)),
-            start: Instant::now(),
+            start: Some(Instant::now()),
             data: Mutex::new(SamplerData::default()),
             _thread: None,
         }
@@ -132,7 +137,7 @@ impl Sampler {
             trace_enabled: false,
             sample_pending: Arc::new(AtomicBool::new(false)),
             stop: Arc::new(AtomicBool::new(false)),
-            start: Instant::now(),
+            start: None,
             data: Mutex::new(SamplerData::default()),
             _thread: None,
         }
@@ -160,7 +165,7 @@ impl Sampler {
         if names.is_empty() {
             return; // 空栈不产坏行
         }
-        let ts_us = self.start.elapsed().as_micros() as u64;
+        let ts_us = self.start.map_or(0, |t0| t0.elapsed().as_micros() as u64);
         self.record(&names, ts_us);
     }
 

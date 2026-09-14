@@ -84,6 +84,17 @@ fn maybe_sample_snapshots_call_stack() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// fix-wasm-std-time：每个 VmContext 都建一个 disabled Sampler，它**不得取时钟** ——
+/// wasm32 上 `Instant::now()` 会 panic，旧写法让浏览器里 `loadZbc` 一步就 trap。
+/// native 测不出 panic 本身，只能钉住「关着时没有 t0」这个不变式。
+#[test]
+fn disabled_sampler_takes_no_clock() {
+    let s = Sampler::disabled();
+    assert!(!s.enabled());
+    assert!(s.start.is_none(), "disabled sampler must not call Instant::now()");
+    assert!(Sampler::for_test(false).start.is_some());
+}
+
 #[test]
 fn trace_off_records_no_timeline() {
     let s = Sampler::for_test(false); // trace disabled

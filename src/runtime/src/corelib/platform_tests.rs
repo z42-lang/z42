@@ -9,7 +9,7 @@ fn os_returns_consts_value() {
     let ctx = VmContext::new();
     let Value::Str(os) = builtin_platform_os(&ctx, &[]).unwrap()
         else { panic!("expected Str"); };
-    assert_eq!(os, std::env::consts::OS.into());
+    assert_eq!(os, HOST_OS.into());
     assert!(!os.is_empty(), "os string must not be empty");
 }
 
@@ -28,6 +28,22 @@ fn family_returns_consts_value() {
     let Value::Str(family) = builtin_platform_family(&ctx, &[]).unwrap()
         else { panic!("expected Str"); };
     assert_eq!(family, std::env::consts::FAMILY.into());
+}
+
+/// fix-wasm-std-time：OS 名与 kind 必须对得上 —— wasm32 上 rustc 的 `consts::OS` 是 `""`，
+/// 直接透传会让 `Platform.OS()` 与 `IsWasm()` 都失效。native 上钉住「字符串 ↔ kind」一致。
+#[test]
+fn os_name_and_kind_agree() {
+    let ctx = VmContext::new();
+    let Value::Str(os) = builtin_platform_os(&ctx, &[]).unwrap() else { panic!("expected Str"); };
+    let Value::I64(kind) = builtin_platform_os_kind(&ctx, &[]).unwrap() else { panic!("expected I64"); };
+    assert!(!os.is_empty(), "Platform.OS() must never be empty");
+    #[cfg(target_arch = "wasm32")]
+    assert_eq!(&*os, "wasm");
+    let known = ["linux", "macos", "windows", "android", "ios", "wasm", "freebsd"];
+    if known.contains(&&*os) {
+        assert_ne!(kind, 0, "known OS {os:?} must map to a non-zero kind");
+    }
 }
 
 #[test]

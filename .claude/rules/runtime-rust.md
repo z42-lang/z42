@@ -62,6 +62,19 @@ fn test_something() { ... }
 （参照 `threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。
 机制与反例见 [sync-primitives.md](../../docs/book/src/runtime/sync-primitives.md)。
 
+### wasm 上不能取时钟（2026-09-14，第三次回归）
+
+**`wasm32-unknown-unknown` 没有 `std::time`：`Instant::now()` / `SystemTime::now()` 直接 panic
+「time not implemented on this platform」，整个 VM trap。** 编译照过、native 测试全绿，只有
+nightly `test-wasm-browser` 能照出来。已出过三次：#164（time builtins）、#165（GC `now_us`）、
+fix-wasm-std-time（`Sampler::disabled()` 构造时取了 t0 → 每次 `loadZbc` 都 trap，nightly 红了三周）。
+
+- **关着的探针不取时钟**：计时起点放进 `Option<Instant>`，开关打开才 `Some(Instant::now())`
+  （参照 `gc/phase_timer.rs`、`gc/sampler.rs`）。
+- **始终要跑的计时**（每次 GC、time builtin）：`#[cfg(target_arch = "wasm32")]` 给替代实现
+  （参照 `gc/arc_heap/observe.rs` 的单调计数、`corelib/bench.rs`）。
+- 只在 native 可达的路径（JIT、子进程、信号处理）不受限。
+
 ## 执行模式
 
 - `ExecMode` 决定函数级别的分发路径
