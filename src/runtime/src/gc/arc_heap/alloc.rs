@@ -23,6 +23,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// allocation-heavy JIT loops).
     pub(super) fn record_alloc(&self, _value: &Value, kind_fn: impl FnOnce() -> AllocKind, size: usize) {
         use std::sync::atomic::Ordering;
+        crate::gc::safepoint::debug_assert_not_native_parked();
         // 1. 更新 stats —— **add-gc-tlab (option B)**: lock-free atomic counters (no inner lock).
         //    `Relaxed` is sufficient: these are monotone heuristic counters, not synchronization.
         self.allocations.fetch_add(1, Ordering::Relaxed);
@@ -89,6 +90,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// sound regardless.
     pub(super) fn record_alloc_fast(&self, kind_fn: impl FnOnce() -> AllocKind, size: usize) {
         use std::sync::atomic::Ordering;
+        crate::gc::safepoint::debug_assert_not_native_parked();
         self.allocations.fetch_add(1, Ordering::Relaxed);
         self.used_bytes.fetch_add(size as u64, Ordering::Relaxed);
         if self.sampler_active.load(Ordering::Relaxed) {

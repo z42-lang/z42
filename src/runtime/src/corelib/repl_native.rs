@@ -26,7 +26,6 @@
 //! only inside the trampolines. Owned C strings the trampolines return are freed by
 //! the cdylib via `ReplCallbacks.free_str` (= [`z42vm_free_str`]).
 
-use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
@@ -35,7 +34,9 @@ use anyhow::Result;
 /// can't host an editor (`Z42_REPL_NO_EDITOR`), or `native-interop` is compiled out.
 /// Return convention matches the old in-VM path: `Str` line / `Null` EOF / `Str("")`
 /// interrupt; a genuine editor error bails.
-pub fn readline(ctx: &VmContext, prompt: &str) -> Result<Value> {
+/// `None` is EOF. Runs inside the caller's `NativeParkGuard`, so it must not allocate on
+/// the GC heap — the caller turns the line into a `Value` after the park ends.
+pub fn readline(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
     #[cfg(feature = "native-interop")]
     {
         native::readline(ctx, prompt)
@@ -168,7 +169,7 @@ mod native {
         format!("{}z42_repl{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX)
     }
 
-    pub(super) fn readline(ctx: &VmContext, prompt: &str) -> Result<Value> {
+    pub(super) fn readline(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
         let lib = match loaded() {
             Some(l) => l,
             None => return super::super::repl::plain_readline(prompt),
@@ -199,12 +200,12 @@ mod native {
                     // SAFETY: hand the cdylib's buffer back to its own allocator once.
                     unsafe { (lib.free)(raw) };
                 }
-                Ok(Value::Str(s.into()))
+                Ok(Some(s))
             }
-            Z42_REPL_EOF => Ok(Value::Null),
+            Z42_REPL_EOF => Ok(None),
             // Ctrl-C abandons the buffer and re-prompts: empty line, not exit
             // (matches the old in-VM `ReadlineError::Interrupted` mapping).
-            Z42_REPL_INTERRUPT => Ok(Value::Str(String::new().into())),
+            Z42_REPL_INTERRUPT => Ok(Some(String::new())),
             // Editor couldn't initialize (no tty) → plain read, same as the old path
             // where a failed `Editor::with_config` dropped to `plain_readline`.
             Z42_REPL_NO_EDITOR => super::super::repl::plain_readline(prompt),
