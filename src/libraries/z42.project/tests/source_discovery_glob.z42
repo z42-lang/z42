@@ -35,6 +35,7 @@ string[] _discover(string root, string pattern) {
 
 // 目录段带 `*`：两个子目录各命中一个 source.z42。修复前返回 0 个（静默空）。
 [Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
 void test_wildcard_directory_segment_expands() {
     string root = _mkTree();
     string[] hits = _discover(root, "tests/*/source.z42");
@@ -45,6 +46,7 @@ void test_wildcard_directory_segment_expands() {
 
 // 单层（无目录通配）不受影响：只认 tests/ 直下的文件，不下钻。
 [Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
 void test_single_level_glob_unchanged() {
     string root = _mkTree();
     string[] hits = _discover(root, "tests/*.z42");
@@ -54,6 +56,7 @@ void test_single_level_glob_unchanged() {
 
 // `<prefix>/**/<suffix>` 递归档不受影响：整个子目录一起进来（目录单元靠它带上兄弟文件）。
 [Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
 void test_recursive_glob_picks_up_sibling_files() {
     string root = _mkTree();
     string[] hits = _discover(root, "tests/alpha/**/*.z42");
@@ -64,6 +67,7 @@ void test_recursive_glob_picks_up_sibling_files() {
 
 // 目录段通配匹配不到任何目录 → 空（不是报错）。
 [Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
 void test_wildcard_directory_no_match_is_empty() {
     string root = _mkTree();
     string[] hits = _discover(root, "nope/*/source.z42");

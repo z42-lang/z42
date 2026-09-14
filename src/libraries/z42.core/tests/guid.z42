@@ -40,6 +40,7 @@ void test_equals_across_forms() {
 }
 
 [Test]
+[Skip(platform: "wasm", reason: "wasm32 没有 CSPRNG（__crypto_random_bytes 未桥接）")]
 void test_newguid_v4_layout() {
     var g = Guid.NewGuid();
     string s = g.ToString();
@@ -52,6 +53,7 @@ void test_newguid_v4_layout() {
 }
 
 [Test]
+[Skip(platform: "wasm", reason: "wasm32 没有 CSPRNG（__crypto_random_bytes 未桥接）")]
 void test_newguid_unique() {
     var a = Guid.NewGuid();
     var b = Guid.NewGuid();
