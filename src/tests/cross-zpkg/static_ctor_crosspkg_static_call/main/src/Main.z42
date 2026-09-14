@@ -1,0 +1,14 @@
+namespace Demo.App;
+using Std.IO;
+using Demo.Base;
+using Std;
+
+// 顺序刻意是 Loud 在前：修前此时全程序没有任何已登记的 cctor，门恒 0，两者都错。
+// ⚠️ 本 main 里**不要**出现对依赖包静态字段的直接引用：函数首次执行预解析静态字段名时会触发依赖包加载，
+// 修前会顺带登记 cctor、提前打开全局门，把本夹具要抓的 bug 掩盖掉（实测踩过）。那条形态见
+// `static_ctor_crosspkg_field_first`。
+void Main() {
+    Console.WriteLine(Loud.Ping());
+    Console.WriteLine(Cfg.Get());
+    Console.WriteLine(Loud.Ping());   // cctor 只跑一次
+}
