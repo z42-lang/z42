@@ -83,6 +83,10 @@ public static class IrGenFacts {
         return IrGenFacts.classVisStr(IrGenFacts.classVisCode(mods, isNested));
     }
 
+    // fix-call-arity-skew（zbc 1.40）：METHOD_FLAG_SRET。由 FunctionEmitter 在返回 blob 值 struct 时置位——那是全仓
+    // 唯一决定 sret 调用约定的地方（`RetIsStruct = true`）。与 _methodFlags 的修饰符位**按位或**合并，不得互相覆盖。
+    public static int MethodFlagSret = 8;
+
     public static int _methodFlags(string mods) {
         int f = 0;
         // impl-sealed-semantics-devirt：sealed 方法必是 override（简写 `sealed` == `sealed override`）→ 亦置

@@ -1,0 +1,7 @@
+namespace Demo.CaTarget;
+
+// fix-call-arity-skew 的 skew 对象（静态方法）：本类唯一的 `Tag` ⇒ primary ⇒ 注册在**裸键**
+// `Demo.CaTarget.Tags.Tag`。main 按这一版编译，调用点发零实参 Call。
+public static class Tags {
+    public static string Tag() { return "v2"; }
+}

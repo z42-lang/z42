@@ -1,0 +1,7 @@
+namespace Demo.CaTarget;
+
+// 「旧版依赖」：方法还在、**签名不同**（多一个形参）。同样是本类唯一的 `Tag` ⇒ 同一个裸键 ⇒
+// main 发出的键在这里**解析得到**，命中的却是另一个签名 —— 形参 s 停在默认值继续跑。
+public static class Tags {
+    public static string Tag(string s) { return "v1:" + s; }
+}

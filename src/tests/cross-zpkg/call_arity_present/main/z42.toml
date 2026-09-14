@@ -1,0 +1,9 @@
+[project]
+name    = "demo.cpapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.CpApp.Main"
+pack    = true
+
+[dependencies]
+"demo.cptarget" = "0.2.0"

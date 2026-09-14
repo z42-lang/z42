@@ -156,6 +156,8 @@ pub(super) fn vcall(
     let resolved = resolve_vcall(ctx, module, &obj_val, method, args.len(), vcall_ic)?;
     match resolved.target {
         VCallTarget::Immediate(v) => { frame.set(dst, v); Ok(None) }
+        // fix-call-arity-skew: signature mismatch under the site's key → catchable throw.
+        VCallTarget::Thrown(exc) => Ok(Some(exc)),
         VCallTarget::Local(idx) =>
             invoke_local(ctx, module, frame, dst, idx, &resolved.this, args, method_type_args),
         VCallTarget::Lazy(f) => {

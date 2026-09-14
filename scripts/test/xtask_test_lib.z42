@@ -144,7 +144,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // once; handed to z42b（转发路径）so every unit compiles via z42c,
     // not `dotnet z42c.dll`.
     string vm = useOverride ? ovVm : _builtVm(root, "release");
-    string driverZpkg = useOverride ? ovDriver : _driverZpkg(root);
+    string driverZpkg = useOverride ? ovDriver : _driverZpkg(root, "release");
     string libs = useOverride ? ovLibs : _assembleAllLibs(root, "release");
     // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
     // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each

@@ -153,17 +153,18 @@ pub fn missing_ctor_exception(
     ))
 }
 
-// ── 站点 ⑤：ObjNew 的构造器解析到了，但签名容不下实参 ───────────────────────
+// ── 站点 ⑤：调用目标解析到了，但签名容不下实参（构造器 + 普通方法调用）──────────
 
-/// 构造器可接受的**物理**实参数区间（含 `this`）。`max == u16::MAX` ⇒ `params` 变长，无上界。
+/// 被调函数可接受的**物理**实参数区间：含 `this`（实例方法 / 构造器的 `param_count` 本就含它）、
+/// 含 sret 隐藏返回槽。`max == u16::MAX` ⇒ `params` 变长，无上界。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CtorArity {
+pub struct CallArity {
     pub min: u16,
     pub max: u16,
 }
 
-impl CtorArity {
-    /// 调用方传入 `phys` 个值（含 `this`）时是否可接受。
+impl CallArity {
+    /// 调用方传入 `phys` 个值（含 `this`、含 sret 槽）时是否可接受。
     #[inline]
     pub fn accepts(&self, phys: usize) -> bool {
         let phys = phys.min(u16::MAX as usize) as u16;
@@ -171,42 +172,73 @@ impl CtorArity {
     }
 }
 
-/// 从函数元数据算出可接受的实参数区间。
+/// 从函数元数据算出可接受的物理实参数区间。
 ///
-/// # `min_arg` 的口径不一致，必须夹住
+/// # 下界是 `param_count`，不是 `min_arg`（fix-call-arity-skew 实测）
 ///
-/// 文档口径是**逻辑**必填数（不含 `this`，`IrModule.z42` 的 `MinArg` 注释），
-/// `IrGenFacts._fillParamMeta` 写的也是逻辑值。但 `IrFunction` 构造器的**默认值**是
-/// `MinArg = paramCount`，那是**物理**总数（含 `this`）——`IrGenMemberEmitter` 的注释
-/// 明说了这点，并为 getter/setter 手工覆盖。没被 `_fillParamMeta` 覆盖过的合成函数因此
-/// 会多算 1，不夹住就会把合法调用判成 skew（假阳性）。
+/// z42 的默认参数由**调用点在编译期填满**（跨包构造器那一支由 #623 补齐）。在全量 `xtask test`
+/// 上给解释器的三个函数体入口挂探针普查：合法调用里「实参数 < 形参数」**一次都没有**。所以
+/// 任何少于 `param_count` 的调用都是 skew——典型是「被调方新加了一个可选参数」。此前
+/// 构造器用 `min_arg` 当下界，恰恰把这种 skew 放过去了；那段为 `min_arg` 两种口径并存而写的
+/// 夹取补丁也随之作废。
 ///
-/// 夹到 `param_count` 之后，默认情形正好退化成「全必填」——即那个默认值本来的语义。
-pub fn ctor_arity(f: &crate::metadata::Function) -> CtorArity {
-    let phys = f.param_count.min(u16::MAX as usize) as u16;
-    let min = ((f.min_arg as usize).saturating_add(1)).min(f.param_count) as u16;
-    // `params` 变长尾参：实参数可以超过形参数（调用点通常已打包，但两种形状都放行）。
-    let max = if f.params_from != 0xFF { u16::MAX } else { phys };
-    CtorArity { min, max }
+/// # 上界要加 sret，而且必须读元数据
+///
+/// 同一次普查里有 10 个合法站点「实参数 = 形参数 + 1」，全是返回 blob 值 struct 的函数：
+/// caller 在末尾传隐藏返回槽，而它**不计入** `param_count`。运行时本来无从得知——猜
+/// （容一 / 复刻编译器的 blob 判定）要么留洞、要么误杀——所以编译器把它写进
+/// `METHOD_FLAG_SRET`（zbc 1.40），这里读位，精确。
+///
+/// `params` 变长尾参：调用点通常已打包成数组（普查中实参数恒等于形参数），但展开形状多出的
+/// 实参同样放行 ⇒ 无上界。
+pub fn call_arity(f: &crate::metadata::Function) -> CallArity {
+    let sret = (f.method_flags & crate::metadata::bytecode::METHOD_FLAG_SRET) != 0;
+    let expected = f.param_count.saturating_add(sret as usize).min(u16::MAX as usize) as u16;
+    let max = if f.params_from != 0xFF { u16::MAX } else { expected };
+    CallArity { min: expected, max }
 }
 
-/// `ObjNew` 解析到构造器**之后**的裁决：形参数容不下实参数 ⇒ 抛。
-/// `Some(exc)` = 定案不匹配；`None` = 可接受，照常调用。
+/// 调用解析到目标**之后**的裁决：签名容不下实参数 ⇒ 抛。`Some(exc)` = 定案不匹配；`None` = 可接受。
 ///
 /// # 为什么解析成功也要查
 ///
-/// 裸键在版本 skew 下会**命中错的构造器**：单构造器必是 primary、必用裸键，于是
-/// v2 的 `C()` 与 v1 的 `C(int)` 占用**同一个**裸键。站点 ③（解析不到才抛）在这里
-/// 完全不触发——键解析得到，只是解析到了另一个东西。而 `exec_function` 用
-/// `Frame::new(args, max_reg)` 建帧，**不做任何 arity 校验**：形参就停在默认值上继续跑，
-/// 实测 `new Widget()` 撞上 `Widget(int v)` 把字段静默写成 0。
+/// **primary 裸键**（`stabilize-instance-dispatch-keys`：声明序第一个同名成员用裸名）在版本 skew 下会
+/// **命中错的签名**：v2 的 `C()` / `x.Label()` 与 v1 的 `C(int)` / `x.Label(string)` 占用**同一个**键。
+/// 「解析不到才抛」在这里完全不触发——键解析得到，只是解析到了另一个东西。而建帧
+/// （`Frame::new` / `new_from_regs`）**不做任何 arity 校验**：形参停在默认值上继续跑，实测
+/// `new Widget()` 撞 `Widget(int)` 把字段写成 0、`b.Label()` 撞 `Label(string)` 输出 `null7`。
 ///
-/// 这条比站点 ③ 剩下的 `argc == 0` 缺口常见得多：**任何**「构造器签名变了」的 skew 都落在这里。
+/// 覆盖面：构造器、实例方法（`VCall` 与去虚化后的直接 `Call`）、静态虚成员。**常规静态方法天然免疫**——
+/// 它们的键恒为全签名 mangle，签名一变键就变、解析失败，由「缺符号」那条路报。
+///
+/// # 在哪里调
+///
+/// 只在**首次绑定**处调（resolver 预填 token / 冷路径写回缓存 / PIC 安装 / cross-cell 填充），
+/// 命中缓存后不再查 ⇒ 热路径零开销。绑定被拒的站点不会进缓存，所以每次都会重新走到这里抛。
 ///
 /// # 为什么复用 `MissingSymbolException`
 ///
 /// 新异常类要先进 stdlib，而冷启动种子的 stdlib 里没有它 ⇒ 得走两-nightly。语义上也说得通：
-/// 调用点指名的那个重载**确实不在**，撞上的是同键下的另一个。
+/// 调用点指名的那个签名**确实不在**，撞上的是同键下的另一个。
+pub fn wrong_arity_exception(
+    ctx: &VmContext, module: &Module, callee: &str, arity: CallArity, phys: usize,
+) -> Option<crate::metadata::Value> {
+    if arity.accepts(phys) { return None; }
+    let want = if arity.max == u16::MAX {
+        format!("at least {}", arity.min)
+    } else {
+        format!("{}", arity.min)
+    };
+    Some(crate::exception::make_missing_symbol_exception(
+        ctx, module,
+        format!(
+            "`{callee}` resolved to a definition whose signature does not match this call \
+             (it takes {want} physical argument(s), the call passes {phys}); the loaded package \
+             may differ from the one this code was compiled against"
+        ),
+    ))
+}
+
 /// runtime-ambiguous-use-site：**这个名字由两个已加载的 zpkg 各自声明过** ⇒ 用它就是错的。
 ///
 /// 与本模块其余判定同族（都是「派发点的符号完整性」），但根因不同：那些是「装的包比编译时旧」，
@@ -256,29 +288,6 @@ pub fn ambiguous_type_exception(
             "type `{class_name}` is provided by more than one loaded package — which one is \
              instantiated would be decided by load order, so using it is refused. Remove or \
              rename one of them; if both are visible when compiling, the compiler reports E0601."
-        ),
-    ))
-}
-
-pub fn wrong_ctor_arity_exception(
-    ctx: &VmContext, module: &Module, class_name: &str, ctor_name: &str,
-    arity: CtorArity, argc: usize,
-) -> Option<crate::metadata::Value> {
-    let phys = argc + 1;   // 实参 + 前置的 this
-    if arity.accepts(phys) { return None; }
-    let want = if arity.max == u16::MAX {
-        format!("at least {}", arity.min.saturating_sub(1))
-    } else if arity.min == arity.max {
-        format!("{}", arity.min.saturating_sub(1))
-    } else {
-        format!("{} to {}", arity.min.saturating_sub(1), arity.max.saturating_sub(1))
-    };
-    Some(crate::exception::make_missing_symbol_exception(
-        ctx, module,
-        format!(
-            "constructor `{ctor_name}` of type `{class_name}` was called with {argc} \
-             argument(s) but the loaded one accepts {want}; the loaded package may be \
-             older than the one this code was compiled against"
         ),
     ))
 }

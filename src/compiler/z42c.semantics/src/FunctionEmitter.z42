@@ -152,6 +152,9 @@ public sealed class FunctionEmitter {
                               this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
                               "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
                               lines, lineCount, localVars, localVars.Length);
+        // fix-call-arity-skew：sret 是**物理签名**的一部分（末尾隐藏返回槽），却不计入 ParamCount。把它显式记进
+        // 元数据，运行期才能精确判「这条调用的实参数和被调方签名对不对得上」——否则只能猜（见 proposal 方案 A/B）。
+        if (this._ctx.RetIsStruct) { irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagSret; }
         if (this._ctx.ExcCount > 0) {                       // 异常表（port-z42c-try，可变字段赋值）
             IrExcEntry[] xs = new IrExcEntry[this._ctx.ExcCount];
             int xi = 0;

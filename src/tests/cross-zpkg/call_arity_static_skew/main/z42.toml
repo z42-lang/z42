@@ -1,0 +1,9 @@
+[project]
+name    = "demo.caapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.CaApp.Main"
+pack    = true
+
+[dependencies]
+"demo.catarget" = "0.2.0"

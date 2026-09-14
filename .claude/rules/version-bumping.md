@@ -26,10 +26,10 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 39 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 39 |
-| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 44 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 44 |
+| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 40 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 40 |
+| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 45 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 45 |
 
 > ⚠️ 这张表**自己也会腐坏**（2026-09-04 发现时停在 1/35 与 0/40，落后 3 个 minor，且路径在
 > reader 拆分后已失效）。bump 时请连同本表一起改 —— 它是给人读的索引，没有测试兜底。

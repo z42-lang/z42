@@ -144,7 +144,7 @@ impl LazyCompiler {
             max_reg: max_r,
             name:    frame_name,
             file:    file_str,
-            arity:   crate::vm_context::symres::ctor_arity(func),
+            arity:   crate::vm_context::symres::call_arity(func),
         })
     }
 
@@ -183,7 +183,7 @@ impl LazyCompiler {
             max_reg: max_r,
             name:    frame_name,
             file:    file_str,
-            arity:   crate::vm_context::symres::ctor_arity(func),
+            arity:   crate::vm_context::symres::call_arity(func),
         })
     }
 }

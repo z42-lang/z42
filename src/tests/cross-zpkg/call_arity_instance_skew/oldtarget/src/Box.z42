@@ -1,0 +1,8 @@
+namespace Demo.CiTarget;
+
+// 「旧版依赖」：实例方法签名多一个形参，同样占裸键 `Label`。
+public class Box {
+    public int N;
+    public Box(int n) { this.N = n; }
+    public string Label(string prefix) { return prefix + this.N.ToString(); }
+}
