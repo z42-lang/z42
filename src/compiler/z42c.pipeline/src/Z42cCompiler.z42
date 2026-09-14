@@ -95,6 +95,14 @@ public class Z42cCompiler : ICompiler {
             return new CompileResult("", "", false, "multiple Main candidates; set entry explicitly");
         }
         // 7. 写盘（packed + 可选 .zsym sidecar，受 req.StripSymbols 门控）。
+        // 可复现 build_id：同 z42c.driver `_stabilizeSourceIdentity`（SourceFile 相对源根、SourceHash 置空）。
+        int si = 0;
+        while (si < art.Z.ModuleCount) {
+            ZbcFileZ sm = art.Z.Modules[si];
+            sm.SourceFile = IncrementalBuild.Rel(req.SourceDir, sm.SourceFile);
+            sm.SourceHash = "";
+            si = si + 1;
+        }
         ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, inp.IsRelease);
         string outDir = Path.GetDirectoryName(req.OutputZpkg);
         if (outDir.Length > 0) { Directory.Create(outDir); }
