@@ -50,7 +50,11 @@ void test_extract_creates_nested_directories() {
     }
 }
 
+// Android W^X: apps targeting API 29+ may not exec() files in app-writable dirs, so
+// running the extracted script fails with EACCES no matter what mode Tar set. The
+// androidTest APK targets API 37 since AGP 9 (targetSdk defaults to compileSdk).
 [Test]
+[Skip(platform: "android", reason: "Android (targetSdk >= 29) forbids exec from app-writable dirs")]
 void test_extract_sets_executable_bit() {
     if (Platform.IsWindows()) {
         // chmod is no-op on Windows; skip — semantics intentional.
