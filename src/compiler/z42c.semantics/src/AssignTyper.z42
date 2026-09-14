@@ -44,6 +44,30 @@ public sealed class AssignTyper {
                     sa[an] = aval;
                     return new BoundCall("instance", true, arecv, aCls.Name(), "set_Item", sa, an + 1, new Z42VoidType(), a.Span);
                 }
+                // fix-iface-self-completeness-gaps A3：接口静态类型收者的索引器写 `IMutBox m; m[i] = v` →
+                // set_Item 虚调用（镜像上面的类分支；读侧对称在 ExprTyper._bindIndex 的接口分支）。此前
+                // 接口收者不进本分支 → 落普通赋值路径、`set_Item` 从不派发。
+                if (att is Z42InterfaceType) {
+                    Z42InterfaceType aIf = att as Z42InterfaceType;
+                    if (aIf.Methods.ContainsKey("set_Item")) {
+                        int an = aix.IndexCount;
+                        MethodSymbol sms = aIf.Methods.Get("set_Item") as MethodSymbol;
+                        bool sboxable = sms != null && sms.Signature != null && sms.Signature.ParamTypes != null
+                                        && sms.Signature.ParamTypes.Length >= an + 1;
+                        BoundExpr[] sa = new BoundExpr[an + 1];
+                        int ai = 0;
+                        while (ai < an) {
+                            BoundExpr aidx = this._et._bindExpr(aix.Indices[ai], env);
+                            if (sboxable) { aidx = this._tc.BoxIfNeeded(aidx, sms.Signature.ParamTypes[ai]); aidx = this._tc.ConvertIfNeeded(aidx, sms.Signature.ParamTypes[ai], env.Symbols); }
+                            sa[ai] = aidx;
+                            ai = ai + 1;
+                        }
+                        BoundExpr aval = this._et._bindExpr(a.Value, env);
+                        if (sboxable) { aval = this._tc.BoxIfNeeded(aval, sms.Signature.ParamTypes[an]); aval = this._tc.ConvertIfNeeded(aval, sms.Signature.ParamTypes[an], env.Symbols); }
+                        sa[an] = aval;
+                        return new BoundCall("instance", true, arecv, aIf.Name(), "set_Item", sa, an + 1, new Z42VoidType(), a.Span);
+                    }
+                }
             }
             // event `recv.E += h` / `-= h` → `recv.add_E(h)` / `recv.remove_E(h)`（镜像 C#
             // add-event-keyword：访问器在 recv 类/接口/泛型实例上，vtable 派发到实现）。须在
