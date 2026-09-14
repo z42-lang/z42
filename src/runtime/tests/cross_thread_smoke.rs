@@ -484,12 +484,14 @@ fn dummy_type_desc(name: &str) -> Arc<z42::metadata::TypeDesc> {
 // by changing which thread wins the collector role — proving a blind
 // change to this protocol is unsafe. The proper fix (deterministic
 // loom/shuttle model of alloc/barrier/handshake + protocol redesign) is
-// tracked as phase 3 of the spec. Skip on windows in the meantime so CI
-// stays green; the test still runs (and guards the invariant) on
-// linux/macOS where it is stable. Re-enable once the loom-validated fix
-// lands.
+// tracked as phase 3 of the spec. It was ignored on windows (2026-06-01) and then macos
+// (2026-07-08) while the fix was pending.
+//
+// fix-context-joins-mid-pause (2026-09-15): re-enabled everywhere. The window is closed —
+// `VmContext::new_with_core` waits out `Marking` before registering (loom model A
+// `waiting_out_marking_eliminates_race`), and objects born during a concurrent cycle are
+// allocated black (#429, model C).
 #[test]
-#[cfg_attr(any(target_os = "windows", target_os = "macos"), ignore = "concurrent GC stale-mark race; reproduces on windows-x86 AND macos-arm64 (2026-07-08, surfaced when test runtime went all-legs — the earlier 'windows-only / ARM passes' premise is void); tracked in docs/spec/changes/investigate-concurrent-gc-stale-mark-race (phase 3: loom-validated fix)")]
 fn concurrent_gc_mode_stress_no_race_no_leak() {
     use z42::gc::safepoint::check_safepoint;
     use z42::gc::GcMode;

@@ -1,6 +1,6 @@
 # Tasks: 调查 ConcurrentMarkSweep 残留 mark bit race
 
-> 状态：🟡 进行中（根因已定位；race 与 deadlock 均已 loom 确定性建模，修复待做）| 创建：2026-05-26 | 更新：2026-09-04
+> 状态：🟡 进行中（3.2a / 3.2b 已落地，余 3.5 文档）| 创建：2026-05-26 | 更新：2026-09-15
 
 ## 进度概览
 - [x] 阶段 1: ~~二分定位退化 commit~~ → 改为代码级根因分析（见 design.md）
@@ -58,12 +58,13 @@
       与 `..._covers_var_region_blocks` —— **单线程确定性**（这个 hazard 不是 race），
       手工驱动 snapshot→分配→drain→sweep。**已做变异验证**：把 `allocating_black()` 改成
       恒 false，两条测试都红（`left: 1`，新对象被 sweep 掉），确认不是空过。
-- [ ] 3.2b **注册—首 safepoint 窗口封闭** —— 未做，比预想难，见 design.md
-      「更新 2026-09-04（三）」记录的三条硬事实（barrier 是 post-write / born-parked 只是
-      把窗口挪了个位置 / 2026-06-01 的 deadlock 是一个**先于本 fix 存在**的隐患的症状）。
-      需要 User 裁决方向后再动。
-- [ ] 3.3 cargo test —— 全绿（含本测试重新启用、稳定）
-- [ ] 3.4 移除 cross_thread_smoke.rs 上的 `#[ignore]`（过渡撤销）
+- [x] 3.2b **注册—首 safepoint 窗口封闭** —— 已落地（2026-09-15，fix-context-joins-mid-pause）：
+      `new_with_core` 在 `Marking` 期不注册、等停顿结束。不是 born-parked、也不是 park-at-registration
+      （等的线程未注册，不计入任何 `need`）。事实 3 的缺口（阻塞线程不 park）先由 #598 / #648 补上。
+      loom：模型 A `waiting_out_marking_eliminates_race` 绿；新增模型 B′ 证明「赢 CAS 后等未 park 的 joiner」
+      这个死锁在无修复时同样存在、joiner park 后消失。见 design.md「更新 2026-09-15」。
+- [x] 3.3 cargo test —— 全绿（含本测试重新启用）；CI 全平台待看
+- [x] 3.4 移除 cross_thread_smoke.rs 上的 `#[ignore]`（过渡撤销）
 - [ ] 3.5 docs/design/runtime/vm-architecture.md 或 GC 专章追加"并发 mark bit 生命周期 + 注册/safepoint 协议"说明
 
 ## 备注
