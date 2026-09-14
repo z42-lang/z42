@@ -1441,7 +1441,7 @@ members = []
 bundle_id      = "com.example.myapp"   # required: CFBundleIdentifier
 display_name   = "My App"             # optional: CFBundleDisplayName（默认 = project name）
 version        = "1.0.0"             # optional: CFBundleShortVersionString（默认 = project version）
-min_ios        = "15.0"              # optional: IPHONEOS_DEPLOYMENT_TARGET（默认 "15.0"）
+min_ios        = "16.0"              # optional: IPHONEOS_DEPLOYMENT_TARGET（默认 "16.0" = SDK 的 platform.ios.min_ios）
 team_id        = ""                  # optional: CODE_SIGN_TEAM（留空 = Automatic）
 device_families = [1, 2]            # optional: 1=iPhone 2=iPad（默认 [1,2]）
 ```

@@ -247,17 +247,17 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
 
     // exe = prebuilt embed apphost; app.zpkg + libs/ beside it
     string exe = Path.Join(appDir, isWin ? (projName + ".exe") : projName);
-    File.Copy(host, exe, true);
+    File.Copy(host, exe);
     if (!isWin) { new Process("chmod").Arg("+x").Arg(exe).Run(); }   // File.Copy drops the mode bit
     _pubStageApp(zpkgSrc, Path.Join(appDir, "app.zpkg"));   // 侧车随之改名为 app.runtimeconfig.toml
     string libsOut = Path.Join(appDir, "libs");
     Directory.Create(libsOut);
     foreach (var p in Path.Glob(libsSrc, "*.zpkg")) {               // stdlib
-        File.Copy(p, Path.Join(libsOut, Path.GetFileName(p)), true);
+        File.Copy(p, Path.Join(libsOut, Path.GetFileName(p)));
     }
     _pubCopyDistDeps(distDir, projName, libsOut);                    // + app's transitive deps
     if (link == "dynamic") {
-        File.Copy(dylibSrc, Path.Join(appDir, Path.GetFileName(dylibSrc)), true);
+        File.Copy(dylibSrc, Path.Join(appDir, Path.GetFileName(dylibSrc)));
     }
     Console.WriteLine("z42 publish (" + rid + ", self-contained/" + link + ") → " + appDir);
     Console.WriteLine("✅ self-contained app ready: " + exe);
@@ -573,7 +573,7 @@ int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir, bo
             string depZpkg = _pubEnsureBuilt(depTomlPath, depToml, name, noBuild);
             if (depZpkg.Length == 0) { return 1; }
             string dst = Path.Join(payloadDir, name + ".zpkg");
-            if (depZpkg != dst) { File.Copy(depZpkg, dst, true); }   // overwrite：dst 已存在 = 上一次的旧字节（fix-publish-stale-payload）
+            if (depZpkg != dst) { File.Copy(depZpkg, dst); }   // overwrite：dst 已存在 = 上一次的旧字节（fix-publish-stale-payload）
         }
         // 递归本依赖的依赖（穿透越界 lib）。
         string[] sub = _pubDepNames(depToml);
@@ -711,7 +711,7 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
     while (i < outs.Length) {
         if (outs[i].Kind == "native" && File.Exists(outs[i].Path)) {
             string dst = Path.Join(distDir, Path.GetFileName(outs[i].Path));   // flatten (strip <rid>/)
-            if (outs[i].Path != dst) { File.Copy(outs[i].Path, dst, true); }   // overwrite（同上）
+            if (outs[i].Path != dst) { File.Copy(outs[i].Path, dst); }   // overwrite（同上）
         }
         i = i + 1;
     }
@@ -754,7 +754,7 @@ int _pubCopyPrebuiltNative(string depTomlPath, TomlValue depToml, string depName
             continue;
         }
         string dst = Path.Join(distDir, fname);   // flatten (strip <rid>/), same as _pubRunDepProvideNative
-        if (src != dst) { File.Copy(src, dst, true); }   // overwrite（同上）
+        if (src != dst) { File.Copy(src, dst); }   // overwrite（同上）
     }
     return 0;
 }
@@ -783,7 +783,7 @@ void _pubCopyDistDeps(string distDir, string projName, string targetDir) {
         if (take) {
             string src = Path.Join(distDir, name);
             string dst = Path.Join(targetDir, name);
-            if (src != dst) { File.Copy(src, dst, true); }   // overwrite（同上）
+            if (src != dst) { File.Copy(src, dst); }   // overwrite（同上）
         }
         i = i + 1;
     }

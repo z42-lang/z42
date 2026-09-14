@@ -26,10 +26,10 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 39 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 39 |
-| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 44 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 44 |
+| zbc writer（z42c） | `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 40 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 40 |
+| zpkg writer（z42c） | `src/libraries/z42.ir/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 45 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 45 |
 
 > ⚠️ 这张表**自己也会腐坏**（2026-09-04 发现时停在 1/35 与 0/40，落后 3 个 minor，且路径在
 > reader 拆分后已失效）。bump 时请连同本表一起改 —— 它是给人读的索引，没有测试兜底。
@@ -132,7 +132,7 @@ minor bump 后，本地 `cargo build` 出的 z42vm 是**新格式**（reader 钉
 ### 解法：下载 CI 建好的新格式工具链当本地种子
 
 CI 的 `compile-toolchain` job（两代自举已根治）从**当前 PR 源码**建出新格式的 z42c + 全 stdlib，并
-`upload-artifact` 为 `toolchain-<os>`（`toolchain-macos-15` / `toolchain-ubuntu-latest`）。把它下回本地
+`upload-artifact` 为 `toolchain-<os>`（`toolchain-macos-26` / `toolchain-ubuntu-latest`）。把它下回本地
 overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/regen 全通，两代自举彻底不需要。
 
 > zpkg 是可移植字节码——linux 建的 z42c.driver.zpkg 也能在 macOS cargo VM 上跑；有同-OS artifact 优先用。
@@ -144,7 +144,7 @@ overlay 成种子，**种子与 cargo VM 就同为新格式** → warm 建/测/r
 2. **下载 + overlay**（保留你自己的 `runtime/z42vm`）：
    ```bash
    RUN=<compile-toolchain 所在 run-id>          # gh run list --branch <your-branch>
-   gh run download $RUN -n toolchain-macos-15 -D /tmp/tc
+   gh run download $RUN -n toolchain-macos-26 -D /tmp/tc
    rm -rf artifacts/build/compiler artifacts/build/libraries
    cp -R /tmp/tc/artifacts/build/compiler   artifacts/build/
    cp -R /tmp/tc/artifacts/build/libraries  artifacts/build/

@@ -181,7 +181,7 @@ pub struct FnEntry {
     /// fix-ctor-arity-skew: 可接受的**物理**实参数区间，编译时从 `&Function` 算好。
     /// `jit_obj_new` 的 native 分支只拿得到 `FnEntry`（跨包构造器正是惰性加载、
     /// 最容易 tier 到 native 的那批），没有它就得为每次构造再查一次函数元数据。
-    pub arity:   crate::vm_context::symres::CtorArity,
+    pub arity:   crate::vm_context::symres::CallArity,
 }
 
 // Raw pointer — the JITModule that owns the code lives alongside this entry.
@@ -199,7 +199,7 @@ impl FnEntry {
         FnEntry {
             ptr: std::ptr::null(), max_reg: 0, name: "".into(), file: "".into(),
             // rejected 项永远不会被当作可调用体，区间取全放行。
-            arity: crate::vm_context::symres::CtorArity { min: 0, max: u16::MAX },
+            arity: crate::vm_context::symres::CallArity { min: 0, max: u16::MAX },
         }
     }
     #[inline]

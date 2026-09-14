@@ -6,6 +6,7 @@ using Std;
 using Std.IO;
 using Z42.Pipeline;
 using Z42.Build;
+using Z42.Project;   // ZpkgReader（读回 MODS 头的 SourceFile / SourceHash）
 
 string _tmpRoot() {
     string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
@@ -65,4 +66,47 @@ void test_empty_sourcedir_reports_no_sources() {
     CompileRequest req = new CompileRequest(dir, Path.Join(dir, "app.zpkg"), new string[0], "debug", false, false, "exe", new string[0], 0);
     CompileResult res = new Z42cCompiler().Compile(req);
     Assert.Equal(false, res.Ok);
+}
+
+// ── 可复现 build_id（reproducible-build-id）───────────────────────────────────
+// 同一份源 + 同一编译器 ⇒ release 主 zpkg 逐字节一致（build_id 是它的哈希，随之一致）：
+// 换目录编、只改注释/空白都不变；真改代码必须变。MODS 头 SourceFile = 源根相对路径、SourceHash 为空。
+
+byte[] _buildRelease(string dir, string src) {
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "lib.z42"), src);
+    string outZpkg = Path.Join(dir, "app.zpkg");
+    CompileRequest req = new CompileRequest(dir, outZpkg, new string[0], "release", true, false, "lib", new string[0], 0);
+    CompileResult res = new Z42cCompiler().Compile(req);
+    Assert.Equal("", res.Diagnostics);
+    Assert.Equal(true, res.Ok);
+    return File.ReadAllBytes(outZpkg);
+}
+
+bool _bytesEq(byte[] a, byte[] b) {
+    if (a.Length != b.Length) { return false; }
+    int i = 0;
+    while (i < a.Length) {
+        if (a[i] != b[i]) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+[Test]
+void test_release_zpkg_reproducible_across_dirs_and_comments() {
+    string src = "namespace R;\npublic static class K {\n    public static int Add(int a, int b) { return a + b; }\n}\n";
+    string commented = "// 顶部注释\n\nnamespace R;\npublic static class K {\n    // 成员注释\n    public static int Add(int a, int b)  { return a + b; }\n}\n";
+    // 包名取源根尾目录名 ⇒ 各夹具尾名同为 pkg，只让父目录不同。
+    byte[] a = _buildRelease(Path.Join(_tmpRoot(), Path.Join("repro-a", "pkg")), src);
+    byte[] b = _buildRelease(Path.Join(_tmpRoot(), Path.Join("repro-b", Path.Join("deeper", "pkg"))), src);
+    byte[] c = _buildRelease(Path.Join(_tmpRoot(), Path.Join("repro-c", "pkg")), commented);
+    byte[] d = _buildRelease(Path.Join(_tmpRoot(), Path.Join("repro-d", "pkg")), src.Replace("a + b", "a - b"));
+    Assert.Equal(true, _bytesEq(a, b));    // 换目录
+    Assert.Equal(true, _bytesEq(a, c));    // 只改注释 / 空白 / 行号
+    Assert.Equal(false, _bytesEq(a, d));   // 真改代码
+    ZpkgSourceHash[] hs = ZpkgReader.ReadSourceHashes(ZpkgReader.Open(a));
+    Assert.Equal(1, hs.Length);
+    Assert.Equal("lib.z42", hs[0].SourceFile);
+    Assert.Equal("", hs[0].SourceHash);
 }

@@ -464,6 +464,20 @@ public sealed partial class MemberResolver {
             while (i < it2.ArgCount) { na[i] = MemberResolver._substSelf(it2.TypeArgs[i], selfT); i = i + 1; }
             return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
         }
+        // fix-iface-self-completeness-gaps A3：下钻 `Func<...>`——`Func<Self,int>` 作方法返回 / 属性 getter
+        // 返回时，Self 藏在函数类型的形参/返回位里，不换就原样漏给调用方。与 `_containsSelf` 的 Func 分支
+        // 对称（那条早就下钻了，此处补齐替换侧）。ParamsFrom/Defaults/Callers 原样搬（同 `_substSelfSig`）。
+        if (t is Z42FuncType) {
+            Z42FuncType ft = t as Z42FuncType;
+            Z42Type[] np = new Z42Type[ft.ParamCount];
+            int i = 0;
+            while (i < ft.ParamCount) { np[i] = MemberResolver._substSelf(ft.ParamTypes[i], selfT); i = i + 1; }
+            Z42FuncType r = new Z42FuncType(np, ft.ParamCount, MemberResolver._substSelf(ft.Ret, selfT));
+            r.ParamsFrom = ft.ParamsFrom;
+            r.ParamDefaults = ft.ParamDefaults;
+            r.ParamCallers = ft.ParamCallers;
+            return r;
+        }
         return t;
     }
 

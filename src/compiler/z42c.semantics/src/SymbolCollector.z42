@@ -72,6 +72,7 @@ public sealed class SymbolCollector {
         this._inherit._passImpls(t, cu);   // port-z42c-impl-block：deps 路径同样须并 impl 方法入 target.Methods，
                                   // 否则 _bindImpl 的 ms=null → "this" 不入 env → `this.field` 绑成 undefined → emit const.null
         this._inherit._passInheritFields(t, cu);
+        this._inherit._passImplIfaceComplete(t, cu);   // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性（须在 _passImpls 后）
         return t;
     }
 
@@ -299,6 +300,10 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._inherit._passImpls(table, cus[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._inherit._passInheritFields(table, cus[c]); c = c + 1; }
+        c = 0;
+        // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性——须在所有 CU 的 _passImpls 全跑完后
+        // （target 与其 impl 块可能分处不同 CU，本 pass 独立成一轮跨 CU 循环才能看到全部并入的 trait）。
+        while (c < cuCount) { this._inherit._passImplIfaceComplete(table, cus[c]); c = c + 1; }
         return table;
     }
 
@@ -326,6 +331,7 @@ public sealed class SymbolCollector {
         this._enforce._passTestAttrSemantic(table, cu);
         this._inherit._passImpls(table, cu);   // port-z42c-impl-block
         this._inherit._passInheritFields(table, cu);
+        this._inherit._passImplIfaceComplete(table, cu);   // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性（须在 _passImpls 后）
         return table;
     }
 

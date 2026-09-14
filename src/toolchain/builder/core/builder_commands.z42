@@ -66,7 +66,10 @@ BuildOutcome _buildProject(ParseResult r, string mode) {
             Directory.Create(dirs.Dist);
             string distZpkg = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
             File.Copy(builtZpkg, distZpkg);
-            rc = _pubBundleProjectDeps(tomlPath, toml, dirs.Dist);
+            // fix-call-arity-skew 抓出的调用点 bug：此处一直少传第 4 个实参 `noBuild`（无默认值），编译器却没报
+            // （实参不足的诊断缺失，另行登记），运行期它静默为 Null ⇒ 当 false 用 ⇒「依赖缺失就现编」。
+            // 显式传 false，行为与此前逐字一致；新的运行期签名判定正是因这一处少传而拒绝派发。
+            rc = _pubBundleProjectDeps(tomlPath, toml, dirs.Dist, false);
             if (rc == 0) { o.Dist = distZpkg; }
         }
     }

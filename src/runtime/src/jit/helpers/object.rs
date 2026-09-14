@@ -148,8 +148,8 @@ pub unsafe extern "C" fn jit_obj_new(
     if let Some(entry) = ctx_ref.resolve_fn_by_name_tiered(ctor_name) {
         // 站点 ⑤ fix-ctor-arity-skew：与 interp `exec_object::obj_new` 对称。区间在 `FnEntry`
         // 里预算好（见 `jit/lazy.rs`），native 分支因此不必再查一次函数元数据。
-        if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
-            vm_ctx_ref(ctx), module, class_name, ctor_name, entry.arity, argc,
+        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+            vm_ctx_ref(ctx), module, ctor_name, entry.arity, argc + 1 /* +this */,
         ) {
             set_exception(vm_ctx_ref(ctx), exc);
             return 1;
@@ -169,18 +169,18 @@ pub unsafe extern "C" fn jit_obj_new(
         let oc = if let Some(callee) = module.func_index.get(ctor_name)
             .and_then(|&idx| module.functions.get(idx))
         {
-            if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
-                vm_ctx, module, class_name, ctor_name,
-                crate::vm_context::symres::ctor_arity(callee), argc,
+            if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+            vm_ctx, module, ctor_name,
+                crate::vm_context::symres::call_arity(callee), argc + 1 /* +this */,
             ) {
                 set_exception(vm_ctx, exc);
                 return 1;
             }
             Some(crate::interp::exec_function(vm_ctx, module, callee, &ctor_args))
         } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(ctor_name) {
-            if let Some(exc) = crate::vm_context::symres::wrong_ctor_arity_exception(
-                vm_ctx, module, class_name, ctor_name,
-                crate::vm_context::symres::ctor_arity(lazy_fn.as_ref()), argc,
+            if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+            vm_ctx, module, ctor_name,
+                crate::vm_context::symres::call_arity(lazy_fn.as_ref()), argc + 1 /* +this */,
             ) {
                 set_exception(vm_ctx, exc);
                 return 1;

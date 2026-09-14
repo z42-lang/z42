@@ -1,0 +1,12 @@
+namespace Demo.CpTarget;
+
+// `call_arity_*_skew` 的在场对照组：签名与调用点一致 ⇒ 必须照常调用（防「恒抛」）。
+public static class Tags {
+    public static string Tag() { return "v2"; }
+}
+
+public class Box {
+    public int N;
+    public Box(int n) { this.N = n; }
+    public string Label() { return "box" + this.N.ToString(); }
+}

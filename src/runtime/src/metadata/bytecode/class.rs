@@ -53,6 +53,12 @@ pub const METHOD_FLAG_ABSTRACT: u8 = 1 << 1;
 /// consumed by the compiler for `sealed`-receiver devirtualization. A sealed method
 /// is always virtual, so `METHOD_FLAG_VIRTUAL` is set alongside this bit.
 pub const METHOD_FLAG_SEALED: u8 = 1 << 2;
+/// fix-call-arity-skew (zbc 1.40): the function returns a blob value struct, so its
+/// **physical** signature carries a hidden trailing return slot (sret) that is NOT
+/// counted in `param_count` (kept out on purpose so reflection / cross-package
+/// signatures stay clean). Recording it here is what lets the runtime check a call's
+/// argument count exactly instead of guessing — see `symres::call_arity`.
+pub const METHOD_FLAG_SRET: u8 = 1 << 3;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClassDesc {

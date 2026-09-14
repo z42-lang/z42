@@ -3,7 +3,9 @@ namespace Z42.Driver;
 
 using Std;
 using Std.IO;
+using Z42.Project;
 using Z42.Build.Project;
+using Z42.Pipeline;
 
 // dist 主文件的 pack 模式位（header flags bit0）是否与本次 pack 决议一致。
 // 读不出（缺文件/太短）按不一致处理 → 走重投影。
@@ -144,3 +146,17 @@ string _bytesFp(byte[] b) {
     return b.Length.ToString() + "_" + h.ToString();
 }
 
+
+// 可复现 build_id（reproducible-build-id）：packed 产物写盘前，把 MODS 头的 SourceFile 改成项目相对路径、
+// SourceHash 置空。二者进 zpkg 主体 → 参与 build_id，但运行期与编译器都不读（增量判定走 .meta）：
+// 绝对路径让「同一份源换个目录编」字节不同，源哈希让「只改注释/空白」字节不同。
+// SourceFile 的契约本就是「项目相对路径」（PackageTypes.z42），此前 PackageCompile 传的是发现到的原样路径。
+void _stabilizeSourceIdentity(ZpkgFileZ z, string projectDir) {
+    int i = 0;
+    while (i < z.ModuleCount) {
+        ZbcFileZ m = z.Modules[i];
+        m.SourceFile = IncrementalBuild.Rel(projectDir, m.SourceFile);
+        m.SourceHash = "";
+        i = i + 1;
+    }
+}

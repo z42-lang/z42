@@ -1,0 +1,11 @@
+namespace Demo.CpApp;
+
+using Std.IO;
+using Demo.CpTarget;
+
+void Main() {
+    Console.WriteLine("tag " + Tags.Tag());
+    Box b = new Box(7);
+    Console.WriteLine("label " + b.Label());
+    Console.WriteLine("after");
+}

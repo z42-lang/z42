@@ -76,6 +76,29 @@ public sealed class MemberCollector {
                     Z42Type[] gps = new Z42Type[0];
                     it.Methods.Put(gkey, new MethodSymbol(gkey, "public", new Z42FuncType(gps, 0, gret), false, c.Name, false, null));
                 }
+            } else if (mem is IndexerDecl) {
+                // fix-iface-self-completeness-gaps A3：接口索引器 `T this[params]` → get_Item / set_Item
+                // 方法符号（镜像 _fillClass 的 IndexerDecl lowering + 接口属性 getter 的 get_X 处理）。此前
+                // `_fillInterface` 不处理 IndexerDecl ⇒ 接口索引器不进 it.Methods ⇒ 调用点无从解析。返回位
+                // `Self`/型参照常经 tp/tpc 解析（tp 含 Self），调用点 `ExprTyper._bindIndex` 的接口分支再
+                // `_substSelf` 成接口自身。接口成员恒 public。
+                IndexerDecl id = mem as IndexerDecl;
+                Z42Type idRet = table.ResolveTypeP(id.RetType, tp, tpc);
+                if (id.HasGet) {
+                    Z42Type[] getPs1 = new Z42Type[id.ParamCount];
+                    int qi0 = 0;
+                    while (qi0 < id.ParamCount) { getPs1[qi0] = table.ResolveTypeP(id.Params[qi0].Type, tp, tpc); qi0 = qi0 + 1; }
+                    it.Methods.Put("get_Item", new MethodSymbol("get_Item", "public",
+                        new Z42FuncType(getPs1, id.ParamCount, idRet), false, c.Name, false, null));
+                }
+                if (id.HasSet) {
+                    Z42Type[] setPs1 = new Z42Type[id.ParamCount + 1];
+                    int qi1 = 0;
+                    while (qi1 < id.ParamCount) { setPs1[qi1] = table.ResolveTypeP(id.Params[qi1].Type, tp, tpc); qi1 = qi1 + 1; }
+                    setPs1[id.ParamCount] = idRet;
+                    it.Methods.Put("set_Item", new MethodSymbol("set_Item", "public",
+                        new Z42FuncType(setPs1, id.ParamCount + 1, new Z42VoidType()), false, c.Name, false, null));
+                }
             }
             j = j + 1;
         }

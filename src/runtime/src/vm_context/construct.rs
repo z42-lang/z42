@@ -119,7 +119,30 @@ impl VmContext {
         };
         let boxed = Box::new(ctx);
         let ptr = VmContextPtr(&*boxed as *const VmContext);
-        boxed.core.vm_contexts.lock().push(ptr);
+        // **fix-context-joins-mid-pause (2026-09-15)**: never join while the collector is
+        // `Marking`. By then it has counted the registered contexts as parked and is scanning
+        // their roots and sweeping; one that registers now is neither parked nor scanned — it
+        // runs on and allocates into regions mid-sweep, and nothing marks those objects (a
+        // client thread's fresh `HttpHeaders` came back with `_count` = Null).
+        //
+        // Joining during `Requested` stays allowed: `request_gc_pause` re-reads
+        // `vm_contexts.len()` on every wakeup and does not flip to `Marking` until this
+        // context has parked too. The check-and-push runs under the phase lock, which the
+        // collector holds across its own count-and-flip, so the two cannot interleave; the lock
+        // order (`gc_phase` → `vm_contexts`) is the collector's.
+        //
+        // The wait is not a park: this thread is not registered, so no collector waits for it.
+        // It does mean the thread reaches its first collection attempt only after the pause,
+        // where it can win the collector role — safe because every thread blocked outside the
+        // VM is parked (`NativeParkGuard`, see .claude/rules/runtime-rust.md). loom model B′ in
+        // tests/gc_registration_race_loom.rs checks both halves.
+        {
+            let mut phase = boxed.core.gc_phase.lock();
+            while matches!(*phase, crate::gc::GcPhase::Marking) {
+                boxed.core.gc_phase_cv.wait(&mut phase);
+            }
+            boxed.core.vm_contexts.lock().push(ptr);
+        }
         // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
         // in Drop). A spawned worker allocates into the TLAB fast path.
         crate::gc::tlab::arm();

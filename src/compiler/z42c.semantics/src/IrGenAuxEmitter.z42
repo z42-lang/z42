@@ -103,7 +103,7 @@ public sealed class IrGenAuxEmitter {
                     IrFunction irf = fe.EmitFunction(this._g._q(md.Name), md, model.GetBody(md.Name), false, false,
                                                      null, new string[0], 0);
                     irf.Visibility = IrGenFacts._visCode(md.Mods, 3);
-                    irf.MethodFlags = IrGenFacts._methodFlags(md.Mods);   // add-method-modifiers
+                    irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                     IrGenFacts._fillParamMeta(irf, md, false);   // add-param-metadata：自由函数无 this
                     this._out.AddFunc(irf);
                 }

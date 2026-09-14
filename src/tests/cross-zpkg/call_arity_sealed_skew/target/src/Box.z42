@@ -1,0 +1,8 @@
+namespace Demo.CsTarget;
+
+// fix-call-arity-skew 的 skew 对象（sealed 类实例方法 ⇒ 调用点去虚化成直接 Call）：唯一的 `Label` ⇒ primary 裸键。
+public sealed class Box {
+    public int N;
+    public Box(int n) { this.N = n; }
+    public string Label() { return "box" + this.N.ToString(); }
+}

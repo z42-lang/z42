@@ -792,6 +792,21 @@ public struct int : INumber<int> {
 > （C# 惯例），故 `class C : I { int M(){…} }` 同样被拦——**接口实现必须显式写 `public`**（严格口径，
 > 与全仓惯例一致；stdlib/compiler 接口实现一律显式 `public`，本检查零字节漂移）。同 static/返回，
 > 只覆本包接口（跨包 `it.IsImported` 早退，导入侧 `Visibility` 不可靠）。
+>
+> **impl 块补的接口同样校验成员齐备性**（`fix-iface-self-completeness-gaps` A2，2026-09-15）：
+> `impl Trait for Target` 补的接口此前**从不校验**——`_checkIfaceMembersComplete` 走 AST `c.Bases`，
+> 而 impl 块的 trait 由 `_passImpls` 并进 `ct.InterfaceNames`、**不在** target 的 `c.Bases` 里 ⇒
+> `impl I for C {}`（空/缺成员）静默通过、等同没实现却编得过（真洞）。现由新 pass
+> `InheritanceResolver._passImplIfaceComplete`（在 `_passImpls`/`_passInheritFields` **之后**跑，
+> 迭代每个 `ImplDecl` 按 trait 名解析接口）复用 `_checkOneIfaceMembers` 补上，与声明接口**同一口径**
+> （成员齐备 + static/返回/可见性）。声明接口路径不受影响、逐字不变——新 pass 纯**追加** impl 块覆盖。
+>
+> **接口成员签名里的 `Func<Self,…>` 现下钻替换 `Self`**（`fix-iface-self-completeness-gaps` A3，
+> 2026-09-15）：满足性校验的期望签名由 `_substForIface` 把接口成员的 `Self` 换成实现类。此前它
+> **不下钻 `Z42FuncType`** ⇒ `void Apply(Func<Self,int> f)` 的期望里 Self 未换 ⇒ 与实现方
+> `Apply(Func<C,int>)` **假不匹配** → E0412 假红。现补 Func 分支（递归形参 + 返回位），与
+> `MemberResolver._substSelf`（调用点返回位替换，同轮补齐）、`_containsSelf`（禁令扫描，早已下钻）
+> 三处的 Func 递归面对齐。
 
 **关键实现决策：值驱动派发 = VCall**（非新 IR 指令）
 

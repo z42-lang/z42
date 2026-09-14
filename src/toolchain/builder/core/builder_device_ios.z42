@@ -20,6 +20,7 @@ namespace Z42Builder;
 using Std;
 using Std.IO;
 using Std.Cli;
+using Std.Toml;
 
 // iossim-arm64 / ios-arm64 driver. `here` = the SwiftPM platform crate root.
 int _runIos(ParseResult r, string manifestPath, string outDir,
@@ -63,7 +64,7 @@ int _runIos(ParseResult r, string manifestPath, string outDir,
 // (aarch64-apple-darwin) is ALWAYS built so `swift test` can run on the host; the
 // rid adds its deploy slice — ios-arm64 → device, iossim-arm64 → simulator, "" →
 // both. IPHONEOS_DEPLOYMENT_TARGET pins the C deps (zlib-ng) to the rlibs' min ver
-// (ported from xtask _buildIosXcframework).
+// = versions.toml platform.ios.min_ios (ported from xtask _buildIosXcframework).
 int _buildIosXcframework(string buildRoot, string here, string rid) {
     string manifest = Path.Join(here, "rust/Cargo.toml");
     string targetDir = Path.Join(buildRoot, "artifacts/build/runtime");
@@ -75,6 +76,11 @@ int _buildIosXcframework(string buildRoot, string here, string rid) {
     targets[n] = "aarch64-apple-darwin"; n = n + 1;              // host (swift test)
     if (wantDev) { targets[n] = "aarch64-apple-ios"; n = n + 1; }
     if (wantSim) { targets[n] = "aarch64-apple-ios-sim"; n = n + 1; }
+    string iosMin = "16.0";
+    string versionsPath = Path.Join(buildRoot, "versions.toml");
+    if (File.Exists(versionsPath)) {
+        iosMin = _pubPlatformStr(TomlValue.Parse(File.ReadAllText(versionsPath)), "ios", "min_ios", iosMin);
+    }
     int i = 0;
     while (i < n) {
         Console.WriteLine("z42b: cargo build --release --target " + targets[i]);
@@ -82,7 +88,7 @@ int _buildIosXcframework(string buildRoot, string here, string rid) {
             .Arg("--manifest-path").Arg(manifest)
             .Arg("--target-dir").Arg(targetDir)
             .Arg("--target").Arg(targets[i])
-            .Env("IPHONEOS_DEPLOYMENT_TARGET", "16.0"));
+            .Env("IPHONEOS_DEPLOYMENT_TARGET", iosMin));
         if (c != 0) { return c; }
         i = i + 1;
     }

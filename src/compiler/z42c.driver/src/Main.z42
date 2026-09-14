@@ -464,6 +464,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     }
     ZpkgFileZ z = art.Z;
     ZbcFileZ[] mods = art.Mods;
+    if (isPacked) { _stabilizeSourceIdentity(z, projectDir); }   // 可复现 build_id（BuildPaths.z42）
     Directory.Create(distDir);
     // ── 多 exe 多产物（unify-run-modes P3）：一个 manifest 声明 N 个 [[exe]] → N 个
     //    dist/<name>.zpkg。[sources] 已在上方编译一次；此处按 exe 重烤 name/entry（共享

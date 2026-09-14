@@ -414,10 +414,56 @@ int _e2eEmitDiagChecks(string vm, string driverZpkg, string e2eDir, string flat)
     return 0;
 }
 
+// 可复现 build_id（reproducible-build-id）：同一份源 + 同一 z42c ⇒ release packed 主 zpkg 逐字节一致
+// （build_id 是它的哈希）。换目录编、只改注释/空白都不能变；真改代码必须变。
+// 驱动路径（z42c build）；z42b 进程内编译路径由 z42c.pipeline 的 z42ccompiler 单测覆盖。
+int _e2eReproBuild(string vm, string driverZpkg, string dir, string src, string flat) {
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "lib.z42"), src);
+    File.WriteAllText(Path.Join(dir, "repro.lib.z42.toml"),
+        "[project]\nname    = \"repro.lib\"\nversion = \"0.1.0\"\nkind    = \"lib\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    return new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(Path.Join(dir, "repro.lib.z42.toml"))
+        .Arg("--release").Arg("--no-incremental")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+}
+
+int _e2eReproChecks(string vm, string driverZpkg, string e2eDir, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── 可复现 build_id（reproducible-build-id）──");
+    string src = "namespace Repro;\n\npublic static class K {\n    public static int Add(int a, int b) { return a + b; }\n}\n";
+    string commented = "// 顶部注释\n\nnamespace Repro;\n\npublic static class K {\n    // 成员注释\n    public static int Add(int a, int b)  { return a + b; }\n}\n";
+    string a = Path.Join(e2eDir, "repro/a");
+    string b = Path.Join(e2eDir, "repro/b/deeper");
+    string c = Path.Join(e2eDir, "repro/c");
+    string d = Path.Join(e2eDir, "repro/d");
+    if (_e2eReproBuild(vm, driverZpkg, a, src, flat) != 0
+        || _e2eReproBuild(vm, driverZpkg, b, src, flat) != 0
+        || _e2eReproBuild(vm, driverZpkg, c, commented, flat) != 0
+        || _e2eReproBuild(vm, driverZpkg, d, src.Replace("a + b", "a - b"), flat) != 0) {
+        Console.WriteLine("  ✗ repro 夹具构建失败");
+        return 1;
+    }
+    string rel = "dist/repro.lib.zpkg";
+    if (!_filesEqual(Path.Join(a, rel), Path.Join(b, rel))) {
+        Console.WriteLine("  ✗ 同一份源换目录编，zpkg 字节不同 —— 产物里又混进了绝对路径之类的环境信息");
+        return 1;
+    }
+    if (!_filesEqual(Path.Join(a, rel), Path.Join(c, rel))) {
+        Console.WriteLine("  ✗ 只改注释/空白，zpkg 字节不同 —— 产物里又混进了源文本哈希或行号");
+        return 1;
+    }
+    if (_filesEqual(Path.Join(a, rel), Path.Join(d, rel))) {
+        Console.WriteLine("  ✗ 真改了代码，zpkg 字节却没变 —— 对照失效");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 换目录 / 只改注释 → zpkg 逐字节一致；真改代码 → 不同");
+    return 0;
+}
+
 int _testCompilerE2e(string root, string vm, string flat) {
     Console.WriteLine("");
     Console.WriteLine("── z42c e2e: self-compiled .zbc runs on z42vm ──");
-    string driverZpkg = _driverZpkg(root);
+    string driverZpkg = _driverZpkg(root, "release");
     string e2eDir = Path.Join(root, "artifacts/.scratch/e2e");
     Directory.Create(e2eDir);
 
@@ -432,6 +478,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
     if (_e2eBuildChecks(root, vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     if (_e2eKnobChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     if (_e2eEmitDiagChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
+    if (_e2eReproChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     if (_e2eCacheLayoutChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
