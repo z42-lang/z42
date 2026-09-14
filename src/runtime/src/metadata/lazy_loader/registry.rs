@@ -93,7 +93,7 @@ impl LazyLoader {
                 );
                 continue;
             }
-            self.type_registry.insert(name, desc);
+            self.insert_type(name, desc);   // fix-crosspkg-static-call-cctor：入表即登记 cctor
         }
 
         // fix-cross-pkg-subclass-fields (2026-05-14): subclasses in this
@@ -352,7 +352,7 @@ impl LazyLoader {
                 );
                 continue;
             }
-            self.type_registry.insert(name, desc);
+            self.insert_type(name, desc);   // fix-crosspkg-static-call-cctor：入表即登记 cctor
         }
 
         // Eagerly load the test module's full declared-dependency closure

@@ -1,0 +1,10 @@
+namespace Demo.App;
+using Std.IO;
+using Demo.Base;
+using Std;
+
+void Main() {
+    Console.WriteLine(Fld.v);   // 11：初始化器 1 + 静态 ctor +10
+    Fld.v = Fld.v + 1;
+    Console.WriteLine(Fld.v);   // 12：静态 ctor 只跑一次
+}

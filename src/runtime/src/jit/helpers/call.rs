@@ -33,23 +33,6 @@ pub unsafe extern "C" fn jit_call(
     let ctx_ref   = &*ctx;
     let frame_ref = &mut *frame;
 
-    // add-static-constructors：调用该类型的静态方法是 C# 的类型初始化触发点之一。
-    // 与 interp 的 exec_call 屏障对称，共用 `ensure_callee_owner_init`。
-    // 门在函数内短路（any_cctor_pending），故稳态下就是一次 relaxed load。
-    {
-        let vm = vm_ctx_ref(ctx);
-        if vm.any_cctor_pending() {
-            let name = std::str::from_utf8(
-                std::slice::from_raw_parts(fn_name_ptr, fn_name_len)).unwrap_or("");
-            if let Err(msg) = vm.ensure_callee_owner_init(name) {
-                let module = &*(*ctx).module;
-                let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
-                set_exception(vm, exc);
-                return 1;
-            }
-        }
-    }
-
     // Resolve the callee to a slot id, then to its (lazily-compiled) FnEntry.
     // Three tiers, cheapest first:
     //   1. `method_id` resolved at codegen (intra-module) → by-id, lock-free.
@@ -106,6 +89,26 @@ pub unsafe extern "C" fn jit_call(
             }
         }
     };
+
+    // add-static-constructors：调用该类型的静态方法是 C# 的类型初始化触发点之一。
+    // 与 interp 的 exec_call 屏障对称，共用 `ensure_callee_owner_init`。
+    // 门在函数内短路（any_cctor_pending），故稳态下就是一次 relaxed load。
+    // fix-crosspkg-static-call-cctor：必须在上面的**解析之后**——Tier 3 解析可能正是加载依赖包、
+    // 登记其类型 cctor 的那一步；放在前面，首次跨包静态调用读到的门是 0，会跳过静态构造器。
+    // 覆盖下面两条去路（本地 FnEntry / `cross_zpkg_via_interp` 回落）。
+    {
+        let vm = vm_ctx_ref(ctx);
+        if vm.any_cctor_pending() {
+            let name = std::str::from_utf8(
+                std::slice::from_raw_parts(fn_name_ptr, fn_name_len)).unwrap_or("");
+            if let Err(msg) = vm.ensure_callee_owner_init(name) {
+                let module = &*(*ctx).module;
+                let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
+                set_exception(vm, exc);
+                return 1;
+            }
+        }
+    }
 
     let entry: &FnEntry = match entry_ref {
         Some(e) => e,
