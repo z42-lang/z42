@@ -379,12 +379,13 @@ public static class ZbcReader {
                     emx = emx + 1;
                 }
             }
-            // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl；Flags bit4 gated）：
-            // mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n → 平行数组 + 扁平参数表。
+            // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl；zbc 1.41 加 is_static；Flags bit4 gated）：
+            // mcount:u16 + (name:u32, ret:u32, pcount:u8, is_static:u8, ptype:u32×pc)×n → 平行数组 + 扁平参数表。
             if ((cd.Flags & 16) != 0) {
                 int imc = c.U16();
                 cd.IfaceMethodNames = new string[imc]; cd.IfaceMethodRets = new string[imc];
                 cd.IfaceMethodParamCounts = new int[imc]; cd.IfaceMethodCount = imc;
+                cd.IfaceMethodStatic = new int[imc];   // zbc 1.41：is_static 平行数组
                 string[] ipts = new string[8];
                 int iptc = 0;
                 int imr = 0;
@@ -393,6 +394,7 @@ public static class ZbcReader {
                     cd.IfaceMethodRets[imr] = ZbcReader._p(pool, c.U32());
                     int ipc = c.U8();
                     cd.IfaceMethodParamCounts[imr] = ipc;
+                    cd.IfaceMethodStatic[imr] = c.U8();   // zbc 1.41：is_static（pcount 后、ptypes 前）
                     int ipr = 0;
                     while (ipr < ipc) {
                         if (iptc == ipts.Length) {

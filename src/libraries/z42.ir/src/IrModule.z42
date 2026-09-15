@@ -160,6 +160,10 @@ public sealed class IrClassDesc {
     public string[] IfaceMethodNames; public string[] IfaceMethodRets;
     public int[]    IfaceMethodParamCounts; public int IfaceMethodCount;
     public string[] IfaceMethodParamTypes;  public int IfaceMethodParamTotal;
+    // 接口方法 static 位（zbc 1.41，fix-imported-iface-static-fidelity）：平行于 IfaceMethodNames，
+    // 1=static abstract 成员 / 0=常规实例接口方法。此前接口方法块零 flags → static 位一路丢成 false，
+    // 迫使 InheritanceResolver 对导入接口跳过 static 校验（#636 临时守卫）。镜像 SIGS 的 is_static:u8。
+    public int[]    IfaceMethodStatic;
     // 值 struct 字节+引用布局块（zbc 1.31，add-struct-value-semantics A-use）：Flags bit2=struct 时随 TYPE
     // 记录尾部 emit。StructSize=字节总数（供反射/装箱/校验）；平行数组 RefLeafOffsets/RefLeafKinds 是**带种类
     // 引用位图**（种类：1=ArcString/2=GcRef），供运行时 GC 定位 blob 内引用叶子 + StructCopy 逐叶子 clone。
@@ -195,6 +199,7 @@ public sealed class IrClassDesc {
         this.IfaceMethodNames = new string[0]; this.IfaceMethodRets = new string[0];
         this.IfaceMethodParamCounts = new int[0]; this.IfaceMethodCount = 0;
         this.IfaceMethodParamTypes = new string[0]; this.IfaceMethodParamTotal = 0;
+        this.IfaceMethodStatic = new int[0];
         this.StructSize = 0; this.StructRefOffsets = new int[0]; this.StructRefKinds = new int[0]; this.StructRefCount = 0;
         this.InlineSize = 0; this.InlineRefOffsets = new int[0]; this.InlineRefKinds = new int[0]; this.InlineRefCount = 0;
         this.ObjectSize = 0;

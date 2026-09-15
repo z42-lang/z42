@@ -1,0 +1,15 @@
+// fix-imported-iface-static-fidelity：消费方把导入接口的 static abstract 成员实现成 instance。
+// 期望 z42c build 报 E0412（`MakeZero` 在接口是 static、在此是 instance 方法）→ main 编不过。
+namespace Demo.IfaceStatApp;
+
+using Std.IO;
+using Demo.IfaceStatTarget;
+
+// ❌ INum2.MakeZero 是 static abstract；这里实现成 instance 方法 → 跨包满足性校验报 E0412。
+struct Bad : INum2 {
+    public int MakeZero() { return 0; }
+}
+
+void Main() {
+    Console.WriteLine("iface static mismatch fixture");
+}

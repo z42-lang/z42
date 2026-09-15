@@ -1,0 +1,1 @@
+is `static` in the interface and an instance method here

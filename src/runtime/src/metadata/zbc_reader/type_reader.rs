@@ -131,11 +131,14 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         };
         // fix-crosspkg-interface-impl (zbc 1.28): trailing interface-method block,
         // present only when CLASS_FLAG_INTERFACE is set. Layout: mcount:u16 +
-        // (name_idx:u32, ret_idx:u32, pcount:u8, ptype_idx:u32×pcount)×n. The block
-        // exists so the COMPILER (TsigReconcile) can restore imported interface
-        // methods from dep zpkgs; the VM resolves interface calls via vtable.
+        // (name_idx:u32, ret_idx:u32, pcount:u8, is_static:u8, ptype_idx:u32×pcount)×n.
+        // The block exists so the COMPILER (TsigReconcile) can restore imported
+        // interface methods from dep zpkgs; the VM resolves interface calls via vtable.
         // add-interface-member-reflection: read into `iface_methods` (was discarded)
         // so `Type.GetMethods()` can surface interface method signatures.
+        // fix-imported-iface-static-fidelity (zbc 1.41): each method now carries
+        // is_static:u8 after pcount (mirrors the SIGS is_static byte). The VM must
+        // consume it to keep the cursor aligned even though vtable dispatch ignores it.
         let iface_methods: Box<[crate::metadata::bytecode::IfaceMethodSig]> =
             if class_flags & crate::metadata::bytecode::CLASS_FLAG_INTERFACE != 0 {
                 let im_count = c.read_u16()? as usize;
@@ -144,6 +147,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
                     let name_idx = c.read_u32()?;
                     let ret_idx = c.read_u32()?;
                     let pcount = c.read_u8()? as usize;
+                    let is_static = c.read_u8()? != 0; // zbc 1.41: is_static (pcount 后、ptypes 前)
                     let mut param_types = Vec::with_capacity(pcount);
                     for _ in 0..pcount {
                         let ptype_idx = c.read_u32()?;
@@ -153,6 +157,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
                         name: c.pool_str(pool, name_idx)?.to_owned(),
                         ret_type: c.pool_str(pool, ret_idx)?.to_owned(),
                         param_types: param_types.into_boxed_slice(),
+                        is_static,
                     });
                 }
                 ims.into_boxed_slice()

@@ -350,9 +350,11 @@ public static class ZbcWriter {
                     emx = emx + 1;
                 }
             }
-            // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl）：Flags bit4(0x10) 置位时追加
-            // mcount:u16 + (name_idx:u32, ret_idx:u32, pcount:u8, ptype_idx:u32×pcount)×n。
+            // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl；zbc 1.41 加 is_static）：Flags bit4(0x10) 置位时追加
+            // mcount:u16 + (name_idx:u32, ret_idx:u32, pcount:u8, is_static:u8, ptype_idx:u32×pcount)×n。
             // gated → 非接口零字节（同 enum 块模式）。跨包接口实现从依赖 zpkg 恢复方法签名的唯一载体。
+            // is_static（zbc 1.41，fix-imported-iface-static-fidelity）：镜像 SIGS 的 is_static:u8，
+            // 承载 static abstract 接口成员的静态位（此前恒丢成 0，迫使满足性校验跳过导入接口）。
             if ((cd.Flags & 16) != 0) {
                 w.WriteU16(cd.IfaceMethodCount);
                 int imw = 0;
@@ -362,6 +364,7 @@ public static class ZbcWriter {
                     w.WriteU32(pool.Idx(cd.IfaceMethodRets[imw]));
                     int ipc = cd.IfaceMethodParamCounts[imw];
                     w.WriteU8(ipc);
+                    w.WriteU8(cd.IfaceMethodStatic[imw]);   // zbc 1.41：is_static（pcount 后、ptypes 前，镜像 SIGS）
                     int ipw = 0;
                     while (ipw < ipc) { w.WriteU32(pool.Idx(cd.IfaceMethodParamTypes[ipbase + ipw])); ipw = ipw + 1; }
                     ipbase = ipbase + ipc;
