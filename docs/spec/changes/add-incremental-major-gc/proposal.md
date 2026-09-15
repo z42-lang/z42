@@ -55,6 +55,19 @@ sweep 仍 STW。
 | `src/runtime/src/gc/var_region.rs` | MODIFY | M1/M2：同 region.rs |
 | `src/runtime/src/gc/var_region/chunk.rs` | MODIFY | M2：var 分片清扫游标 |
 | `src/runtime/src/gc/arc_heap/alloc_black.rs` | MODIFY | M1：出生写 epoch；M2：窗口覆盖标记 + 清扫期 |
+| `src/runtime/src/gc/arc_heap/debug.rs` | MODIFY | M1：校验器改 epoch 不变量；测试周期 helper 开周期 |
+| `src/runtime/src/gc/arc_heap/roots.rs` | MODIFY | M1：root 快照 / marked-context 扫描用 major kind |
+| `src/runtime/src/gc/arc_heap/construct.rs` | MODIFY | M1：`mark_epoch` 字段；M2a：`satb_queue` |
+| `src/runtime/src/gc/var_region/generation.rs` | MODIFY | M1：var minor sweep 用 minor 位 |
+| `src/runtime/src/metadata/vstr.rs` | MODIFY | M1：`Str::mark(kind)` / `is_marked(kind)` |
+| `src/runtime/src/metadata/types/value.rs` | MODIFY | M1：`trace_children(kind)` / `visit_gc_children(Option<MarkKind>)` |
+| `src/runtime/src/gc/region_tests.rs` | MODIFY | M1：编码单测 |
+| `src/runtime/src/gc/var_region_tests.rs` | MODIFY | M1：sweep 带 kind |
+| `src/runtime/src/metadata/types_tests.rs` | MODIFY | M1：`trace_children(kind)` |
+| `src/runtime/src/gc/arc_heap_tests/concurrent_mark.rs` | MODIFY | M1：测试改新不变量 |
+| `src/runtime/src/gc/arc_heap_tests/mark_phase.rs` | MODIFY | M1：同上 |
+| `src/runtime/src/gc/arc_heap_tests/invariants.rs` | MODIFY | M1：陈旧 epoch / minor 位检测 |
+| `src/runtime/src/gc/arc_heap_tests/generational.rs` | MODIFY | M1：minor 位检查 |
 | `src/runtime/src/gc/arc_heap/alloc.rs` | MODIFY | M2：allocate-black 三个 chokepoint 改写 epoch（行数棘轮基线 601，净增为 0） |
 | `src/runtime/src/gc/incremental.rs` | NEW | M2：周期状态机、切片调度、节奏控制 |
 | `src/runtime/src/gc/satb.rs` | NEW | M2：`MARKING_ACTIVE`、线程本地 SATB 缓冲、flush |
