@@ -1,0 +1,72 @@
+// fix-overload-defaults-named-args：重载决议把默认值形参、命名实参、params 两种形态纳入候选适用性（对标 C#）。
+// 修前：有两个及以上重载时，省略默认实参 / 使用命名实参要么报「找不到方法」，要么**静默选错重载**
+// （`new C("a")` 编译通过、运行期选中无参构造器）。
+namespace Demo;
+
+class M {
+    public static string F() { return "F0"; }
+    public static string F(string a, int n = 2) { return "F" + a + n.ToString(); }
+
+    public string G() { return "G0"; }
+    public string G(string a, int n = 2) { return "G" + a + n.ToString(); }
+
+    // 命名实参区分同 arity 的重载
+    public static string K(int x) { return "Kint"; }
+    public static string K(string s) { return "Kstr"; }
+
+    // 平手：不需要默认值的候选胜出
+    public static string H(int a) { return "H1"; }
+    public static string H(int a, int b = 9) { return "H2"; }
+
+    // 默认值候选 vs params：默认值候选（非展开）更好
+    public static string Q(string a, int n = 2) { return "Qdef"; }
+    public static string Q(params object[] xs) { return "Qparams"; }
+
+    // 只有 params 能接：仍选 params
+    public static string R(string a, int n = 2) { return "Rdef"; }
+    public static string R(params int[] xs) { return "Rparams" + xs.Length.ToString(); }
+}
+
+class C {
+    public string s = "";
+    public C() { this.s = "C0"; }
+    public C(string a, int n = 2) { this.s = "C" + a + n.ToString(); }
+}
+
+class P {
+    public string s = "";
+    public P(string a, int n = 2) { this.s = "Pdef"; }
+    public P(params int[] xs) { this.s = "Pparams"; }
+}
+
+class W {
+    public string s = "";
+    public W(int x) { this.s = "Wint"; }
+    public W(string name) { this.s = "Wstr"; }
+}
+
+void Main() {
+    Assert.Equal("F0", M.F());
+    Assert.Equal("Fa2", M.F("a"));
+    Assert.Equal("Fa5", M.F("a", 5));
+    Assert.Equal("Fb7", M.F(n: 7, a: "b"));
+
+    var m = new M();
+    Assert.Equal("Ga2", m.G("a"));
+    Assert.Equal("Gb7", m.G(n: 7, a: "b"));
+
+    Assert.Equal("Kstr", M.K(s: "x"));
+    Assert.Equal("Kint", M.K(x: 3));
+    Assert.Equal("H1", M.H(1));
+    Assert.Equal("H2", M.H(1, 2));
+    Assert.Equal("Qdef", M.Q("a"));
+    Assert.Equal("Rparams3", M.R(1, 2, 3));
+    Assert.Equal("Rdef", M.R("a"));
+
+    Assert.Equal("C0", new C().s);
+    Assert.Equal("Ca2", new C("a").s);
+    Assert.Equal("Cb7", new C(n: 7, a: "b").s);
+    Assert.Equal("Pdef", new P("a").s);
+    Assert.Equal("Pparams", new P(1, 2).s);
+    Assert.Equal("Wstr", new W(name: "z").s);
+}
