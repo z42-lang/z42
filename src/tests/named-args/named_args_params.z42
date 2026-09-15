@@ -1,0 +1,33 @@
+// fix-crosspkg-named-args：命名实参调用带 `params` 尾参的方法 / 构造器（同包）。
+//
+// 修复前：只要方法带 params 形参，任何命名实参调用都编不过——唯一候选是 params 方法时不走实参映射、
+// 命名实参的延迟占位被当成 target-typed `new`（E0437 + `undefined: head`）；`_adaptArgs` 又把「params
+// 尾参没给」当成缺实参返回 null。每行输出都能区分尾包长度与重排是否发生。
+using Std;
+using Std.IO;
+
+class U {
+    public static string P(string head, params int[] xs) { return head + ":" + xs.Length.ToString(); }
+    public static string Q(int a, string tail = "t", params string[] rest) {
+        return a.ToString() + tail + rest.Length.ToString();
+    }
+}
+
+class Bag {
+    public string Label;
+    public int Count;
+    public Bag(string label, params int[] items) { this.Label = label; this.Count = items.Length; }
+}
+
+void Main() {
+    Console.WriteLine(U.P("h", 1, 2, 3));                     // h:3   位置展开（不变）
+    Console.WriteLine(U.P(head: "h"));                         // h:0   尾参省略 → 空尾包
+    Console.WriteLine(U.P(xs: new int[] { 1, 2 }, head: "h")); // h:2   尾参按名字传数组 + 乱序
+    Console.WriteLine(U.P("h", xs: new int[] { 5 }));          // h:1
+    Console.WriteLine(U.Q(a: 1));                              // 1t0   默认值 + 空尾包
+    Console.WriteLine(U.Q(1, tail: "x"));                      // 1x0
+    Bag b = new Bag(label: "bag");
+    Console.WriteLine(b.Label + " " + b.Count.ToString());     // bag 0 构造器同一条
+    Bag c = new Bag(items: new int[] { 7, 8, 9 }, label: "c");
+    Console.WriteLine(c.Label + " " + c.Count.ToString());     // c 3
+}

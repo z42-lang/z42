@@ -104,6 +104,10 @@ public sealed class IrGenAuxEmitter {
                                                      null, new string[0], 0);
                     irf.Visibility = IrGenFacts._visCode(md.Mods, 3);
                     irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
+                    // fix-crosspkg-named-args：形参 attr-ref（含 `$Default` / `$Caller:*` 哨兵）与成员方法同一条
+                    // （IrGenMemberEmitter）。此前自由函数从不填 ⇒ 跨包调用拿不到默认值：`Label("a")` 对
+                    // `Label(string text, int width = 8, ...)` 报 E1005，命名实参跳过可选参同样补不上。
+                    irf.ParamAttrs = this._g._classDescB._paramAttrRefs(md, false); irf.ParamAttrsLen = irf.ParamAttrs.Length;
                     IrGenFacts._fillParamMeta(irf, md, false);   // add-param-metadata：自由函数无 this
                     this._out.AddFunc(irf);
                 }

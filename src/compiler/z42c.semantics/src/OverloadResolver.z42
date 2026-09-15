@@ -282,10 +282,8 @@ public sealed class OverloadResolver {
         }
         int j = 0;
         while (j < a.NamedCount) {
-            if (!m.HasDecl || m.Decl == null) { return r; }   // 导入方法没有真实形参名
-            int idx = 0 - 1;
-            int p = 0;
-            while (p < m.Decl.ParamCount) { if (m.Decl.Params[p].Name == a.Names[j]) { idx = p; } p = p + 1; }
+            if (!CallParams.CanName(m)) { return r; }   // 无形参名（导入符号未带名）→ 命名实参不可映射
+            int idx = CallParams.IndexOf(m, a.Names[j]);
             if (idx < 0 || idx >= pc || filled[idx]) { return r; }
             Z42Type npt = sig.ParamTypes[idx];
             Z42Type nat = a.NamedTypes[j];

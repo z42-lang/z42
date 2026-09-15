@@ -246,8 +246,11 @@ public sealed class ConstructTyper {
         if (cls != null && cms != null && !cms.IsStatic) {
             this._tc._access.CheckAccess(cms.Visibility, cms.ContainingTypeName, env, env.Symbols, "constructor", cls.Name(), sp);
         }
-        if (cms != null && cms.HasDecl && cms.Decl != null) {
-            BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, rawArgs, argc, env, sp);   // PR6b：sp = 调用点，供 caller 宏注入
+        // fix-crosspkg-named-args：导入构造器带命名实参时同走 `_adaptArgs`（按签名上的形参名归位）；
+        // 纯位置的导入调用仍走下方跨包补位路径（发射不变）。
+        bool adaptImported = cms != null && CallParams.DeclOf(cms) == null && this._tc._overload._hasNamedArg(rawArgs, argc, env);
+        if (cms != null && (CallParams.DeclOf(cms) != null || adaptImported)) {
+            BoundExpr[] adapted = this._tc._overload._adaptArgs(cms, rawArgs, argc, env, sp);   // PR6b：sp = 调用点，供 caller 宏注入
             if (adapted != null) {
                 // `_adaptArgs` 只做命名实参重排 + 默认值填充，**不打包 params 尾参**。
                 // 等 arity 且尾参不是数组时它给回的是「一个元素」，这里补成尾包

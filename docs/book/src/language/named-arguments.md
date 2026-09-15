@@ -1,7 +1,7 @@
 # 命名实参
 
-> **页型**: 语言参考 ｜ **状态**: ✅ 已实现 ｜ **代码**: `z42c.syntax/ExprParser._parseCallArg` + `z42c.semantics/OverloadBinder._adaptArgs`
-> ｜ **对齐**: 2026-09-15（change `fix-overload-defaults-named-args`；前序 `restore-named-arguments`）
+> **页型**: 语言参考 ｜ **状态**: ✅ 已实现 ｜ **代码**: `z42c.syntax/ExprParser._parseCallArg` + `z42c.semantics/OverloadBinder._adaptArgs` + `z42c.semantics/CallParams`
+> ｜ **对齐**: 2026-09-15（change `fix-crosspkg-named-args`；前序 `fix-overload-defaults-named-args` / `restore-named-arguments`）
 
 任何形参都可以按**名字**传：
 
@@ -14,7 +14,7 @@ var b = new Box(height: 30, width: 50);              // 构造函数
 ```
 
 覆盖**全部调用形态**：自由函数、实例方法、静态方法、构造函数（含对象初始化器
-`new P(y: 2) { Z = 3 }`）。
+`new P(y: 2) { Z = 3 }`），**同包与跨包一致**，也可以用在带 `params` 尾参的方法上。
 
 ## 规则
 
@@ -52,6 +52,54 @@ H.G(1);   // 选 G(int)：不需要默认值
 ```
 
 构造器遵守同一套规则（`new C("a")`、`new C(n: 7, a: "b")`）。
+
+## 与 `params` 一起用
+
+```z42
+static string P(string head, params int[] xs) { .. }
+P(head: "h");                          // xs = 空数组
+P(xs: new int[] { 1, 2 }, head: "h");  // 尾参按名字传数组，可乱序
+P("h", 1, 2, 3);                       // 位置展开，照旧
+```
+
+- 命名实参时 `params` 尾参只能**整体**给（按名字传一个数组）或**省略**（得到空数组）。
+- 「命名实参 + 展开的多个位置元素」（`P(head: "h", 1, 2)`）不支持——那几个位置实参没有空位可落，
+  报「找不到方法」。需要展开就全用位置实参。
+
+> 🔴 此前（`fix-crosspkg-named-args` 之前）**只要方法带 `params` 形参，任何命名实参调用都编不过**：
+> 唯一候选是 params 方法时不走实参映射，命名实参的延迟占位被当成 target-typed `new`
+> （`E0437` + `undefined: head`）；归位时又把「params 尾参没给」当成缺实参。
+
+## 跨包
+
+对另一个包里的函数 / 方法 / 构造器用命名实参，与同包完全一样：
+
+```z42
+using Demo.NaTarget;
+Label("a", pad: "-");                   // 导入的自由函数
+new Painter(size: 5, name: "pen");      // 导入的构造器
+Painter.K(s: "x");                      // 同 arity 重载，按名字选
+```
+
+**形参名是包 API 的一部分**：改一个 `public` 方法的形参名，会让别的包里按旧名写的命名实参编不过
+（对标 C#）。
+
+### 机制
+
+形参名一直在 zpkg 里——SIGS 段每个形参都有 `name_str_idx`（zbc 1.25 起恒写）。缺的是读包那一侧：
+
+| 环节 | 此前 | 现在 |
+|---|---|---|
+| `TsigReconcile._params`（读包时从 SIGS 重建导出签名） | 名一律合成 `p0/p1/…`（沿用已删除的 TSIG 段的 C# 字节口径） | 取 SIGS 的形参源名（缺失才回落 `p{i}`） |
+| `ImportedSymbolLoader._fillParamMeta` | 只填默认值 / caller 宏 | 同批填 `Z42FuncType.ParamNames` |
+| `CallParams`（名字 → 第几个形参） | 不存在；`_adaptArgs` 与 `OverloadResolver.Map` 各写一遍、都只认本地 `MethodDecl` | 唯一出处：本地看 `MethodDecl`，导入看 `ParamNames` |
+| `_adaptArgs` 补缺位 | 只认本地默认值表达式 | 导入缺位走 `_crossPkgDefault`（与位置调用的跨包补位同一条）；`params` 尾位补空数组 |
+
+名字只在读包时重建进内存里的签名，**不写入任何新字节**，零格式变化。
+
+同一 change 修掉的相邻缺口：**导入的自由函数此前拿不到默认值**——参数默认值以 `$Default` 哨兵挂在
+`IrFunction.ParamAttrs` 上，而 `ParamAttrs` 只在类成员的发射路径（`IrGenMemberEmitter`）填，自由函数
+（`IrGenAuxEmitter`）从不填 ⇒ 跨包 `Label("a")` 对 `Label(string text, int width = 8, …)` 报 `E1005`。
 
 ## 与赋值实参的区分
 

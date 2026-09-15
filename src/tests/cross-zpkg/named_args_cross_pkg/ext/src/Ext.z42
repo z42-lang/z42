@@ -1,0 +1,10 @@
+namespace Demo.NaExt;
+
+using Demo.NaTarget;
+
+// transitive：派生类在 ext，基类方法来自 target——main 经 ext 的类型调用继承来的方法时，
+// 形参名要穿过「导入祖先 → 再导出」这一跳。
+public class FancyPainter : Painter {
+    public FancyPainter(string name) : base(name, 9) { }
+    public override string Tag(string prefix, int n = 0) { return "fancy " + prefix + n.ToString(); }
+}

@@ -1,0 +1,10 @@
+[project]
+name    = "demo.naapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.NaApp.Main"
+pack    = true
+
+[dependencies]
+"demo.natarget" = "0.1.0"
+"demo.naext"    = "0.1.0"

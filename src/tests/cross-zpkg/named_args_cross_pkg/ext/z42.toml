@@ -1,0 +1,11 @@
+[project]
+name    = "demo.naext"
+version = "0.1.0"
+kind    = "lib"
+pack    = true
+
+[dependencies]
+"demo.natarget" = "0.1.0"
+
+[sources]
+include = ["src/**/*.z42"]
