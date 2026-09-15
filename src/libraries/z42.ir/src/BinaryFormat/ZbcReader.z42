@@ -98,6 +98,8 @@ public sealed class SigEntryZ {
     public string[] ParamDefaultStrs;  // kind 5 字符串值
     public string[] ParamTypes; public int ParamTypeCount;
     public int      TypeParamCount;   // add-array-paired-sort：方法级泛型形参个数（SIGS 早已存 tp 块，此前 reader 读弃；现捕获供泛型 arity 重载过滤）。无格式 bump。
+    public string[] TypeParams;       // workspace-read-cache：方法级泛型形参名。此前只读个数、名字丢弃 ⇒ 增量 cache 读回的
+                                      // IrFunction 没有泛型形参 ⇒ 重新打包的 SIGS 丢掉 tp 块（z42.core 实测少 240B，下游 E0402）。
     public IrAttrRef[] Attrs; public int AttrCount;
     public IrAttrRefList[] ParamAttrs; public int ParamAttrsLen;
     public SigEntryZ() {
@@ -109,7 +111,7 @@ public sealed class SigEntryZ {
         this.ParamNames = new string[0]; this.ParamDefaultKinds = new int[0];
         this.ParamDefaultVals = new long[0]; this.ParamDefaultStrs = new string[0];
         this.ParamTypes = new string[0]; this.ParamTypeCount = 0;
-        this.TypeParamCount = 0;
+        this.TypeParamCount = 0; this.TypeParams = new string[0];
         this.Attrs = new IrAttrRef[0]; this.AttrCount = 0;
         this.ParamAttrs = new IrAttrRefList[0]; this.ParamAttrsLen = 0;
     }
@@ -544,9 +546,12 @@ public static class ZbcReader {
             e.ParamDefaultVals = new long[e.ParamCount];
             e.ParamDefaultStrs = new string[e.ParamCount];
             int p = 0;
+            int noNames = 0;
             while (p < e.ParamCount) {
                 e.ParamTypes[p] = ZbcReader._p(pool, c.U32());
-                e.ParamNames[p] = ZbcReader._p(pool, c.U32());   // name_str_idx
+                int nameIdx = c.U32();
+                e.ParamNames[p] = ZbcReader._p(pool, nameIdx);   // name_str_idx
+                if (ZbcReader._isNoneU32(nameIdx) || e.ParamNames[p] == "?") { noNames = noNames + 1; }
                 int dk = c.U8();                                  // default_kind
                 e.ParamDefaultKinds[p] = dk;
                 long dv = 0; string ds = "";
@@ -556,11 +561,16 @@ public static class ZbcReader {
                 e.ParamDefaultVals[p] = dv; e.ParamDefaultStrs[p] = ds;
                 p = p + 1;
             }
+            // workspace-read-cache：编译期没有参数名的函数（struct 合成的 Equals、属性 setter 等 ParamNames 为空）writer 写
+            // 占位 "?"（或无效索引）。读回若原样留下，打包 writer 会把 "?" 当真名预扫入池 ⇒ 重打包 STRS/SIGS 与全量不同。
+            // 全部参数名都是占位 ⇒ 还原为空；部分有名则保持原样（`?` 不是合法标识符，编译期不会与真名混排）。
+            if (e.ParamCount > 0 && noNames == e.ParamCount) { e.ParamNames = new string[0]; }
             int tpc = c.U8();   // 方法级泛型形参个数（add-reflective-invoke 起 writer 写真实值）。
             e.TypeParamCount = tpc;   // add-array-paired-sort：捕获供泛型 arity 重载过滤（此前只读弃）。
+            e.TypeParams = new string[tpc];
             int t = 0;
             while (t < tpc) {
-                c.U32();
+                e.TypeParams[t] = ZbcReader._p(pool, c.U32());
                 int cflags = c.U8();
                 if ((cflags & 8) != 0) { c.U32(); }
                 int ifc = c.U8();
@@ -658,6 +668,7 @@ public static class ZbcReader {
             f.MinArg = sig.MinArg; f.ParamsFrom = sig.ParamsFrom;             // add-param-metadata round-trip
             f.ParamNames = sig.ParamNames; f.ParamDefaultKinds = sig.ParamDefaultKinds;
             f.ParamDefaultVals = sig.ParamDefaultVals; f.ParamDefaultStrs = sig.ParamDefaultStrs;
+            f.TypeParams = sig.TypeParams; f.TypeParamCount = sig.TypeParamCount;   // workspace-read-cache：方法级泛型形参 round-trip
             if (excCount > 0) {
                 IrExcEntry[] et = new IrExcEntry[excCount];
                 xe = 0;
