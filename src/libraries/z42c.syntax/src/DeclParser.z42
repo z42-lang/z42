@@ -171,7 +171,9 @@ public sealed class DeclParser {
             }
             BlockStmt cbody = new BlockStmt(cstmts, primaryPc, sp);
             members = this._growDecls(members, mc);
-            members[mc] = new MethodDecl("", false, true, this._p._typeP._emptyType(), name,
+            // enforce-ctor-visibility：主构造器是 public（对齐 C#）。普通构造器不写修饰符是 private，主构造器若沿用，
+            // 记录 / 元组（`(a, b)` 脱糖为 `[Record] struct ValueTuple2<…>(…)`）在类外都无法构造。
+            members[mc] = new MethodDecl("public", false, true, this._p._typeP._emptyType(), name,
                                          this._p._typeP._emptyTypeParams(), new WhereClause[0], 0,
                                          primaryParams, primaryPc, true, cbody, new Expr[0], 0, false, sp);
             mc = mc + 1;

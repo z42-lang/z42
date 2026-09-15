@@ -4,7 +4,7 @@ class Animal {
     string name;
     int age;
 
-    Animal(string n, int a) {
+    public Animal(string n, int a) {
         name = n;
         age = a;
     }
@@ -17,7 +17,7 @@ class Animal {
 class Dog : Animal {
     string breed;
 
-    Dog(string n, int a, string b) {
+    public Dog(string n, int a, string b) {
         name = n;
         age = a;
         breed = b;

@@ -76,7 +76,7 @@ void test_ctor_arg_type_mismatch_reports_E0402() {
 // （接 ctor 检查时**实测踩过**：`typecheck_tests.test_ctor_params_variadic_ok` 当场变红。）
 [Test]
 void test_params_ctor_expanded_args_is_clean() {
-    string src = "class P { P(params int[] xs) { } } void Main() { P p = new P(1, 2, 3); }";
+    string src = "class P { public P(params int[] xs) { } } void Main() { P p = new P(1, 2, 3); }";
     Assert.Equal(0, bodyDiags(src).Count());
 }
 

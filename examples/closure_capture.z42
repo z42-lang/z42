@@ -15,7 +15,7 @@ using Std.IO;
 
 class Counter {
     public int n;
-    Counter() { this.n = 0; }
+    public Counter() { this.n = 0; }
 }
 
 int Apply((int) -> int f, int x) => f(x);

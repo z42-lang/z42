@@ -9,7 +9,7 @@ interface IBox {
 
 class ArrBox : IBox {
     int[] data;
-    ArrBox(int[] d) { this.data = d; }
+    public ArrBox(int[] d) { this.data = d; }
     public int this[int i] { get { return this.data[i]; } }
 }
 
@@ -20,7 +20,7 @@ interface IMutBox {
 
 class MutArrBox : IMutBox {
     int[] data;
-    MutArrBox(int[] d) { this.data = d; }
+    public MutArrBox(int[] d) { this.data = d; }
     public int this[int i] {
         get { return this.data[i]; }
         set { this.data[i] = value; }

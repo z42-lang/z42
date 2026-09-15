@@ -4,7 +4,7 @@ namespace Demo;
 
 class Counter {
     public int n;
-    Counter() { this.n = 0; }
+    public Counter() { this.n = 0; }
 }
 
 // Higher-order helper to verify Closure dispatch via CallIndirect.

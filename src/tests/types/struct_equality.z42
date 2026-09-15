@@ -5,19 +5,19 @@ namespace Demo;
 struct P {
     int x;
     int y;
-    P(int x, int y) { this.x = x; this.y = y; }
+    public P(int x, int y) { this.x = x; this.y = y; }
 }
 
 struct Line {
     P a;
     P b;
-    Line(P a, P b) { this.a = a; this.b = b; }
+    public Line(P a, P b) { this.a = a; this.b = b; }
 }
 
 struct Tagged {
     P pt;
     string name;
-    Tagged(P pt, string name) { this.pt = pt; this.name = name; }
+    public Tagged(P pt, string name) { this.pt = pt; this.name = name; }
 }
 
 void Main() {

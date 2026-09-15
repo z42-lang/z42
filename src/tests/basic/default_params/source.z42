@@ -12,7 +12,7 @@ int Add(int a, int b = 10, int c = 100) {
 class Logger {
     string Prefix;
 
-    Logger(string prefix = "INFO") {
+    public Logger(string prefix = "INFO") {
         this.Prefix = prefix;
     }
 

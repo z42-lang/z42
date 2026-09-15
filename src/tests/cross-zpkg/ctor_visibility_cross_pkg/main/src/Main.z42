@@ -1,0 +1,12 @@
+// enforce-ctor-visibility：消费方跨包调用 internal 构造器 → E0404；public 构造器与主构造器放行。
+namespace Demo.CtorVisApp;
+
+using Std.IO;
+using Demo.CtorVisTarget;
+
+void Main() {
+    Widget ok = new Widget();        // ✅ public 构造器
+    Pair p = new Pair(1, 2);         // ✅ 主构造器（public）
+    Widget bad = new Widget(5);      // ❌ internal 构造器 → E0404 from another package
+    Console.WriteLine(ok.V + bad.V);   // 不读 p 的字段：裸主构造器的位置字段是 private，读它会引入无关的 E0404
+}

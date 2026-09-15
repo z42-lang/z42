@@ -2,12 +2,12 @@
 
 class Animal {
     public int legs;
-    Animal(int n) { this.legs = n; }
+    public Animal(int n) { this.legs = n; }
     public virtual string Describe() { return "animal"; }
 }
 
 class Dog : Animal {
-    Dog() : base(4) { }
+    public Dog() : base(4) { }
     public override string Describe() { return "dog"; }
 }
 

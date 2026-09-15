@@ -3,13 +3,13 @@ namespace Demo;
 // Class without explicit base — implicitly inherits Std.Object.
 class Plain {
     int X;
-    Plain(int x) { this.X = x; }
+    public Plain(int x) { this.X = x; }
 }
 
 // Class with ToString override (implicit Object base provides virtual method).
 class Fancy {
     public string Label;
-    Fancy(string label) { this.Label = label; }
+    public Fancy(string label) { this.Label = label; }
 
     override string ToString() {
         return $"Fancy[{this.Label}]";
@@ -19,7 +19,7 @@ class Fancy {
 // Two-level inheritance: Fancy (implicit Object) → SuperFancy
 class SuperFancy : Fancy {
     int Level;
-    SuperFancy(string label, int level) : base(label) {
+    public SuperFancy(string label, int level) : base(label) {
         this.Level = level;
     }
 

@@ -12,7 +12,7 @@ namespace Demo;
 
 class Bag {
     public int n;
-    Bag(int n) { this.n = n; }
+    public Bag(int n) { this.n = n; }
 }
 
 void Main() {

@@ -31,6 +31,8 @@ z42 的访问修饰符（`public` / `private` / `protected` / `internal`）遵�
 - **override 继承基类可见性**：无显式修饰符的 `override` 视为 `public`（只能覆写 virtual/abstract 契约，
   通常 public）——否则 `override ToString()` 等被判 private，跨类调用全断。
 - **record 定位字段公有**：`record R(string A, …)` 的定位字段合成为 `public`（镜像 C# record 定位参→公有属性）。
+- **主构造器公有**：`class P(int X)` / `[Record] struct R(…)` 由 parser 合成的主构造器是 `public`（镜像 C#）。普通构造器
+  不写修饰符仍是 `private`；主构造器若沿用，元组 `(a, b)`（脱糖为 `[Record] struct ValueTuple2<…>(…)`）在类外无法构造。
 - **不允许组合修饰符**：2+ 访问修饰符（`protected internal` / `private protected`）→ `E0405`（`_parseModifiers` 拦截）。
 
 ## 机制 / 实现
@@ -47,6 +49,12 @@ env, symbols, kind, name, span)`：
 | `MemberResolver._bindMember` | 静态字段读 |
 | `MemberResolver._bindMemberCall` | 静态方法调用（`Class.m()`） |
 | `AssignTyper._bindAssign` | 属性 setter（`obj.P = v`）；字段写经 `_bindClassMemberAccess` 已覆盖 |
+| `ConstructTyper._bindNew` | 构造器：`new C(..)` / target-typed `new()` / 对象初始化器 / 元组脱糖（选中构造器之后） |
+| `DeclBinder._bindMethodBody` | 构造器：`: base(..)` / `: this(..)` 的目标构造器 |
+
+> enforce-ctor-visibility（2026-09-15）：构造器此前**从不检查**——文档规定无修饰符构造器是 private，但任何地方都能
+> `new` 它，派生类也能 `: base(..)` 调基类 private 构造器。普查时仓库内 377 处依赖了这一漏洞（显式写了
+> `private`/`protected`/`internal` 却被越权调用的为 0）：主构造器改为 public 覆盖其中 104 处，其余 273 处给对应构造器补 `public`。
 
 `CheckAccess` 决策（`AccessChecker.z42`）：
 
