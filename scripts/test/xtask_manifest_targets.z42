@@ -384,7 +384,7 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
         // filter 非空时零命中是过滤器的事，不是发现规则的 bug —— 直接跳过。
         if (filter.Length > 0) { return 0; }
         ProcessResult rr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
-            .Arg("--").Arg("test").Arg(parentToml)
+            .Arg("--").Arg(kind).Arg(parentToml)
             .Env("Z42_LIBS", libs).WorkingDirectory(root).Run();
         Console.Write(rr.Stdout);
         if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
