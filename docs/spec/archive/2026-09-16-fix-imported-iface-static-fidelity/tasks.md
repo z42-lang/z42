@@ -63,3 +63,10 @@
 ## 备注
 - 格式 bump：macOS 本地两代自举有环境墙，完整 GREEN 以 CI 为准（`ci-bootstrap` 版本差 gate → 两代自举）。
 - ExportedMethodZ ctor 元数不变（isStatic/isVirtual/isAbstract 是既有 args 4/5/6）。
+- ⚠️ **可见性收紧连带修复（round-3）**：删守卫让「接口实现必须显式 public」（#651 严格口径，原只覆本包——
+  #651 曾误以为导入侧 Visibility 不可靠，实则 cm.Visibility 查本地实现方、恒可靠）扩展到**导入接口**。
+  全仓实测唯一 violator = `src/tests/generics/generic_interface_dispatch.z42`（`IntEqComparer`/`IntDescComparer`
+  的接口成员漏写 public）→ 加 public（对齐 C# 隐式-public 规则；编译+运行 rc=0 保行为）。stdlib/compiler
+  （compile-toolchain 已过）+ 全部 cross-zpkg 接口 fixture 实测零 violator。
+  [[silent-feature-masks-other-bugs]] 一例：删守卫同时启用 static+可见性+返回三项，**可见性爆炸半径比
+  static 广**，须全量扫（`--emit-zbc` 收集「must be implemented public」+ 多包 cross-zpkg 逐链单独编）。

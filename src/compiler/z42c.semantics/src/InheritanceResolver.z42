@@ -57,8 +57,9 @@ public sealed class InheritanceResolver {
     // 本 pass 必须在 `_passImpls`（并 trait + impl 方法入 target.Methods）**之后**跑：迭代每个 ImplDecl、
     // 按 trait 名解析接口、复用 `_checkOneIfaceMembers` 校验 target 是否补齐其成员（含 static/返回/可见性，
     // 与声明接口同一口径）。声明接口路径（`c.Bases`）不经过这里、行为逐字不变——本 pass 纯**追加** impl
-    // 块覆盖，两条路互不重叠、无双报。跨包接口的 kind/可见性同样在 `_checkOneIfaceMethod` 里被
-    // `it.IsImported` 早退（导入侧元数据不可靠，保守漏报，与声明接口同取舍）。
+    // 块覆盖，两条路互不重叠、无双报。跨包（导入）接口的 kind/可见性/返回在 `_checkOneIfaceMethod` 里
+    // 与本包接口**同样校验**（fix-imported-iface-static-fidelity 后：static 位由 zbc 1.41 wire 承载、
+    // 可见性查本地实现方——均可靠，原 `it.IsImported` 早退守卫已删）。
     // 泛型 impl trait（`impl IFoo<int> for C`）此处只按裸名解析——与 `_passImpls` 自身一致（它也只处理
     // `TraitType is NamedType`），类型实参匹配是跨包/泛型接口约束的独立议题，不在本 change。
     internal void _passImplIfaceComplete(SymbolTable table, CompilationUnit cu) {
