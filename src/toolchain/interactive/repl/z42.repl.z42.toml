@@ -17,6 +17,10 @@ kind    = "lib"
 # ProvideNative 现场用与 VM 同源的裸 cargo 编 crates/z42-repl → 拷进 dist/<rid>/<prefix>z42_repl<suffix>，
 # 令 z42.repl 的 dist 自包含（zpkg + native），可被任意项目引用。取代已删的 xtask _pkgStageReplCdylib。
 [build]
+# cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
+# 不再按默认值落进源码树。
+# From this toml's dir (src/toolchain/interactive/repl) up 4 levels to repo root；dist = ${output_dir}/dist。
+output_dir = "../../../../artifacts/build/toolchain/repl"
 hooks = "hooks"
 
 # 声明本包携带的私有 native 库 z42_repl。文件名平台派生 <prefix>z42_repl<suffix>

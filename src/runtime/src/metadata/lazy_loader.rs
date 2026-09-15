@@ -133,6 +133,18 @@ pub struct LazyLoader {
     /// Lazily allocated (`None` until the first collision) — same rule as `negative`:
     /// a program with no collisions pays nothing.
     ambiguous: Option<Box<AmbiguousSymbols>>,
+
+    /// **fix-crosspkg-static-call-cctor**: the context's static-constructor registry, so a
+    /// type is registered **the moment it enters `type_registry`** (see [`Self::insert_type`]).
+    ///
+    /// Registration must precede use: the cctor barrier is gated on "some registered cctor is
+    /// still pending". Registering only in `try_lookup_type` (as before) missed every first use
+    /// that never looks the *type* up — a cross-package static method call resolves the
+    /// *function* only — so the gate read 0 and the barrier was skipped entirely.
+    ///
+    /// Set by `VmContext::install_lazy_loader_with_deps` (the only production construction
+    /// path); `None` only for loaders built directly in unit tests.
+    cctors: Option<Arc<crate::vm_context::cctor::CctorRegistry>>,
 }
 
 /// runtime-ambiguous-use-site: the two ambiguity sets, behind one `Box` so
@@ -242,6 +254,7 @@ impl LazyLoader {
             impls:          FxHashMap::default(),
             negative: None,
             ambiguous: None,   // runtime-ambiguous-use-site：碰撞时才分配
+            cctors: None,
         }
     }
 
@@ -282,6 +295,28 @@ impl LazyLoader {
     /// Type-side twin of [`Self::is_ambiguous_function`].
     pub fn is_ambiguous_type(&self, name: &str) -> bool {
         match &self.ambiguous { None => false, Some(a) => a.types.contains(name) }
+    }
+
+    /// fix-crosspkg-static-call-cctor: attach the context's cctor registry (see the field doc).
+    pub(crate) fn set_cctor_registry(&mut self, reg: Arc<crate::vm_context::cctor::CctorRegistry>) {
+        self.cctors = Some(reg);
+    }
+
+    /// fix-crosspkg-static-call-cctor: **the single funnel** for a *loaded* type entering
+    /// `type_registry` — it registers the type's static constructor on the way in, so every
+    /// loaded type is registered before anything can use it (the eager/merged-module twin
+    /// of this is the registry scan right after module merge in `app.rs`). Duplicate-name
+    /// policy stays with the callers (the zpkg path warns + records ambiguity, the in-memory
+    /// module path is quiet); this only runs for the entry that actually gets inserted.
+    ///
+    /// Lock order: called under the loader write lock, takes the cctor map mutex. The reverse
+    /// never happens — `CctorRegistry` never touches the loader while holding its mutex.
+    pub(crate) fn insert_type(&mut self, name: String, desc: Arc<TypeDesc>) {
+        if let (Some(reg), Some(func)) = (self.cctors.as_ref(), desc.cctor_func()) {
+            tracing::debug!("cctor-register (load): type `{}` -> `{}`", desc.name, func);
+            reg.register(&desc.name, func);
+        }
+        self.type_registry.insert(name, desc);
     }
 
     pub(crate) fn insert_function(&mut self, name: String, f: Arc<Function>) -> bool {

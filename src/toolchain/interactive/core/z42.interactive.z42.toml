@@ -28,6 +28,9 @@ include = ["interactive_main.z42"]
 
 [build]
 # From this toml's dir (src/toolchain/interactive/core) up 4 levels to repo root.
+# cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
+# 不再按默认值落进源码树。
+output_dir = "../../../../artifacts/build/toolchain/interactive"
 dist_dir = "../../../../artifacts/build/toolchain/interactive"
 
 [profile.release.runtime]

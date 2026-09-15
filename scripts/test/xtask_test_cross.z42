@@ -143,7 +143,6 @@ int _crossSummary(int pass, int fail, string[] failures, int failCount) {
 // compilation 的 Z42_LIBS（stdlib + fixture deps）隔离，避免单-libs 目录污染。
 // 返回 driver-home 目录路径；z42c 未构建（缺任一成员 dist）返回 ""。
 string _assembleDriverHome(string root) {
-    string baseDir = Path.Join(root, "artifacts/build/compiler");
     // Single SoT: compiler workspace default-members (same source as build/test/
     // bootstrap-check), so adding a z42c.* member doesn't silently drift this assembly.
     string[] members = _compilerMembers(root);
@@ -156,7 +155,7 @@ string _assembleDriverHome(string root) {
     int i = 0;
     while (i < members.Length) {
         string m = members[i];
-        string src = Path.Join(Path.Join(Path.Join(Path.Join(baseDir, m), "release"), "dist"), m + ".zpkg");
+        string src = _compilerMemberZpkg(root, m, "release");
         if (!File.Exists(src)) { return ""; }
         try { File.Copy(src, Path.Join(home, m + ".zpkg")); } catch (Exception e) { return ""; }
         i = i + 1;

@@ -1,0 +1,76 @@
+// xtask — z42c cache 目录布局 e2e（cache-dir-layout）。Same Z42Xtask namespace；
+// 由 _testCompilerE2e（xtask_compiler_e2e.z42）跨文件调用。
+//
+// 约定（User 要求）：**不论是否增量都落 cache**；没配置 cache_dir 时默认 `${output_dir}/.cache`。
+// 此前三条路径从不写 cache：--no-incremental / workspace 成员 / 多 [[exe]]（提前 return）。
+// 这里只验「写」与「落点」；workspace 读 cache 是后续 change（incremental-future-workspace-wiring）。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+int _e2eCacheBuild(string vm, string driverZpkg, string cwd, string[] args, string flat) {
+    return new Process(vm).Arg(driverZpkg).Arg("--").Args(args).WorkingDirectory(cwd)
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+}
+
+bool _e2eCacheHas(string cacheDir, string what) {
+    if (File.Exists(Path.Join(cacheDir, "package.meta"))) { return true; }
+    Console.WriteLine("  ✗ " + what + "：未落 cache（缺 " + Path.Join(cacheDir, "package.meta") + "）");
+    return false;
+}
+
+int _e2eCacheLayoutChecks(string vm, string driverZpkg, string e2eDir, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── cache 目录布局（cache-dir-layout）──");
+    string root = Path.Join(e2eDir, "cachelayout");
+    string libToml = "[project]\nname    = \"NAME\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n";
+
+    // ① 单工程、无 [build]、--no-incremental → <proj>/artifacts/release/.cache
+    string single = Path.Join(root, "single");
+    Directory.Create(single);
+    File.WriteAllText(Path.Join(single, "lib.z42"), "namespace CacheSingle;\n\npublic static class K { public static int One() { return 1; } }\n");
+    File.WriteAllText(Path.Join(single, "cache.single.z42.toml"), libToml.Replace("NAME", "cache.single"));
+    string[] a1 = new string[4];
+    a1[0] = "build"; a1[1] = "cache.single.z42.toml"; a1[2] = "--release"; a1[3] = "--no-incremental";
+    if (_e2eCacheBuild(vm, driverZpkg, single, a1, flat) != 0) { Console.WriteLine("  ✗ 单工程夹具构建失败"); return 1; }
+    if (!_e2eCacheHas(Path.Join(single, "artifacts/release/.cache"), "单工程 --no-incremental")) { return 1; }
+
+    // ② 多 [[exe]] → 同一 cache（此前提前 return 从不写）
+    string multi = Path.Join(root, "multi");
+    Directory.Create(multi);
+    File.WriteAllText(Path.Join(multi, "a.z42"), "namespace CacheMulti.A;\n\nvoid Main() { }\n");
+    File.WriteAllText(Path.Join(multi, "b.z42"), "namespace CacheMulti.B;\n\nvoid Main() { }\n");
+    File.WriteAllText(Path.Join(multi, "cache.multi.z42.toml"),
+        "[project]\nname    = \"cache.multi\"\nversion = \"0.1.0\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+        + "[[exe]]\nname  = \"a\"\nentry = \"CacheMulti.A.Main\"\n\n[[exe]]\nname  = \"b\"\nentry = \"CacheMulti.B.Main\"\n");
+    string[] a2 = new string[2];
+    a2[0] = "build"; a2[1] = "cache.multi.z42.toml";
+    if (_e2eCacheBuild(vm, driverZpkg, multi, a2, flat) != 0) { Console.WriteLine("  ✗ 多 exe 夹具构建失败"); return 1; }
+    if (!_e2eCacheHas(Path.Join(multi, "artifacts/debug/.cache"), "多 [[exe]]")) { return 1; }
+
+    // ③ workspace：output_dir 模板不含成员名、未配 cache_dir → ${output_dir}/.cache/<成员名>（防碰撞子目录）
+    string ws = Path.Join(root, "ws");
+    string[] members = new string[2];
+    members[0] = "cache.ws.a"; members[1] = "cache.ws.b";
+    int m = 0;
+    while (m < members.Length) {
+        string md = Path.Join(ws, members[m]);
+        Directory.Create(md);
+        File.WriteAllText(Path.Join(md, "lib.z42"), "namespace CacheWs" + m.ToString() + ";\n\npublic static class K { public static int One() { return 1; } }\n");
+        File.WriteAllText(Path.Join(md, members[m] + ".z42.toml"), libToml.Replace("NAME", members[m]));
+        m = m + 1;
+    }
+    File.WriteAllText(Path.Join(ws, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"*\"]\n\n[workspace.build]\noutput_dir = \"out/${profile}\"\n");
+    string[] a3 = new string[3];
+    a3[0] = "build"; a3[1] = "--workspace"; a3[2] = "--release";
+    if (_e2eCacheBuild(vm, driverZpkg, ws, a3, flat) != 0) { Console.WriteLine("  ✗ workspace 夹具构建失败"); return 1; }
+    m = 0;
+    while (m < members.Length) {
+        if (!_e2eCacheHas(Path.Join(ws, "out/release/.cache/" + members[m]), "workspace 成员 " + members[m])) { return 1; }
+        m = m + 1;
+    }
+    Console.WriteLine("  ✓ --no-incremental / 多 [[exe]] / workspace 成员均落 cache，默认 ${output_dir}/.cache");
+    return 0;
+}

@@ -574,3 +574,44 @@ fn recording_ambiguity_is_append_only_and_idempotent() {
     assert!(loader.is_ambiguous_function("X.Y.f$0"));
     assert_eq!(loader.ambiguous.as_ref().unwrap().functions.len(), 1);
 }
+
+// ── fix-crosspkg-static-call-cctor：类型入表即登记静态构造器 ──────────────────
+
+fn type_desc_with_cctor(name: &str, cctor: Option<&str>) -> Arc<TypeDesc> {
+    let cold = cctor.map(|f| {
+        Box::new(crate::metadata::types::TypeDescCold {
+            cctor_func: Some(f.into()),
+            ..Default::default()
+        })
+    });
+    Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: name.to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold,
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    })
+}
+
+#[test]
+fn inserting_a_loaded_type_registers_its_static_ctor() {
+    // 修前惰性类型只在 `try_lookup_type` 登记；跨包静态方法调用只查函数 ⇒ 门读到 0、屏障被跳过。
+    let reg = Arc::new(crate::vm_context::cctor::CctorRegistry::default());
+    let mut loader = LazyLoader::new(Vec::new(), 0, Vec::new(), Vec::new());
+    loader.set_cctor_registry(Arc::clone(&reg));
+    assert!(!reg.any_pending());
+
+    loader.insert_type("Demo.Plain".into(), type_desc_with_cctor("Demo.Plain", None));
+    assert_eq!(reg.registered_count(), 0, "没有静态 ctor 的类型不进登记表");
+    assert!(!reg.any_pending());
+
+    loader.insert_type("Demo.Cfg".into(), type_desc_with_cctor("Demo.Cfg", Some("Demo.Cfg.$cctor")));
+    assert_eq!(reg.registered_count(), 1);
+    assert!(reg.any_pending(), "入表后门必须打开，否则首次使用会跳过屏障");
+    assert!(!reg.is_done("Demo.Cfg"), "登记不等于执行");
+}

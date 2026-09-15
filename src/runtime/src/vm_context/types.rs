@@ -46,7 +46,9 @@ pub struct VmCore {
     /// add-static-constructors：有静态构造器的类型的按类型初始化状态。**只登记有 cctor
     /// 的类型**；热路径通过其无锁 `pending` 计数短路（`== 0` ⇒ 全程序无待初始化 cctor
     /// ⇒ 屏障免费）。详见 `vm_context/cctor.rs` 模块注释。
-    pub(crate) cctors: super::cctor::CctorRegistry,
+    /// fix-crosspkg-static-call-cctor：`Arc` 是为了让惰性加载器也持有一份——它在类型入表的那一刻
+    /// 登记 cctor（见 `LazyLoader::insert_type`）。
+    pub(crate) cctors: Arc<super::cctor::CctorRegistry>,
     /// **cache-failed-name-resolution**: lock-free mirrors of "how much static-init
     /// work is outstanding", so `try_lookup_*` can prove the drain would be a no-op
     /// **without** taking two more mutexes and scanning `static_init_state` on every

@@ -29,12 +29,12 @@ int _testIncremental(ParseResult r) {
     string root = _root();
     // 前置：z42c + stdlib（复用既有 warm/cold 链）。
     string vm = _builtVm(root, "release");
-    string driver = Path.Join(root, "artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg");
+    string driver = _driverZpkg(root, "release");
     if (!File.Exists(vm) || !File.Exists(driver)) {
         int bc = _buildCompiler();
         if (bc != 0) { return bc; }
     }
-    string libs = Path.Join(root, "artifacts/build/libraries/dist/release");
+    string libs = _libsDir(root);
     string scratch = Path.Join(root, "artifacts/.scratch/incr-reconcile");
     if (Directory.Exists(scratch)) { Directory.Delete(scratch, true); }
 

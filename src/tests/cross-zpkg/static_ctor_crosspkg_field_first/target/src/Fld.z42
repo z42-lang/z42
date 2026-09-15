@@ -1,0 +1,10 @@
+namespace Demo.Base;
+using Std;
+
+// fix-crosspkg-static-call-cctor（守卫）：依赖包类型的第一次使用是**直接读静态字段**。
+// 修前这一形态靠 `try_lookup_type` 里的登记兜住；本变更把登记挪到加载器入表处并删掉那两处，
+// 这个夹具确保字段路径没有因此退化。
+public class Fld {
+    public static int v = 1;
+    static Fld() { Fld.v = Fld.v + 10; }
+}
