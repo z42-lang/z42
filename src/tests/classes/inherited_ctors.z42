@@ -1,0 +1,68 @@
+// add-implicit-base-ctor-call：没写实例构造器的类继承基类的全部非 private 实例构造器（Swift 规则）。
+// 每个继承来的构造器 = 本类初始化器 → base(同样的实参)。修前这些 `new` 全部报 E0426（派生类没有构造器）。
+namespace Demo;
+
+class Log {
+    public static string T = "";
+    public static int Mark(int v) { Log.T = Log.T + v.ToString(); return v; }
+}
+
+class B { public int v; public B(int x) { this.v = x; } }
+class D : B { }
+
+// 全部重载
+class B2 {
+    public string s = "";
+    public B2() { this.s = "0"; }
+    public B2(string a, int n) { this.s = a + n.ToString(); }
+}
+class D2 : B2 { }
+
+// params
+class BP { public int count; public BP(params int[] xs) { this.count = xs.Length; } }
+class DP : BP { }
+
+// 默认值 + 命名实参（单 ctor 基类。与其它重载混在一起时，重载决议不考虑默认值形参、命名实参也不生效——
+// 那是既有缺陷，方法与构造器同样中招，直接对基类写也一样，与继承无关）
+class BN { public string s; public BN(string a, int n = 2) { this.s = a + n.ToString(); } }
+class DN : BN { }
+
+// 派生类初始化器照常执行，且先于基类构造器
+class B6 { public B6(int x) { Log.Mark(2); } }
+class D6 : B6 { public int d = Log.Mark(1); }
+
+// 传递继承
+class A7 { public int a; public A7(int x) { this.a = x * 10; } }
+class B7 : A7 { }
+class C7 : B7 { }
+
+// 泛型基类：形参类型按基类型实参代换
+class Box<T> { public T v; public Box(T x) { this.v = x; } }
+class IntBox : Box<int> { }
+
+// 最常见的用法：自定义异常什么都不用写
+class MyErr : Exception { }
+
+void Main() {
+    Assert.Equal(3, new D(3).v);
+
+    Assert.Equal("0", new D2().s);
+    Assert.Equal("a5", new D2("a", 5).s);
+
+    Assert.Equal(3, new DP(1, 2, 3).count);
+    Assert.Equal(0, new DP().count);
+
+    Assert.Equal("a2", new DN("a").s);
+    Assert.Equal("b7", new DN(n: 7, a: "b").s);
+
+    Log.T = "";
+    new D6(0);
+    Assert.Equal("12", Log.T);
+
+    Assert.Equal(10, new C7(1).a);
+    Assert.Equal(5, new IntBox(5).v);
+
+    string msg = "";
+    try { throw new MyErr("bad"); } catch (MyErr e) { msg = e.Message; }
+    Assert.Equal("bad", msg);
+}

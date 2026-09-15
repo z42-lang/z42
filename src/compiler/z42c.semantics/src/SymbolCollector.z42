@@ -56,6 +56,7 @@ public sealed class SymbolCollector {
         this._seedObjectStub(t);   // imported Type 已入表后；GetType 返回真实 Type 类（链式 getter 分派）
         this._stub._passDelegates(t, cu);
         this._member._passMembers(t, cu);
+        this._runCtorInheritance(t, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
         this._inherit._passFixupOverrides(t, cu);   // add-type-based-overloads D7：override 同 arity 重载 regKey 对齐（阶段 8 修复）
         this._inherit._passSealedEnforce(t, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
         this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
@@ -273,6 +274,9 @@ public sealed class SymbolCollector {
         c = 0;
         while (c < cuCount) { this._member._passMembers(table, cus[c]); c = c + 1; }
         this._enforce._passResolvePartialMethods();   // add-partial-types：partial method 实现↔声明配对校验（decl-only 已在 _fillClass 擦除）
+        // add-implicit-base-ctor-call：构造器继承 / 默认构造器——须在**全部** CU 的成员收集之后（基类可能在别的 CU），
+        // 在 override 对齐等基链 pass 之前（合成的是普通 ctor 声明，后续 pass 与显式 ctor 一视同仁）。
+        new CtorInheritance(this, table).Run(cus, cuCount);
         // add-type-based-overloads D7（阶段 8 修复）：override 方法 regKey 对齐——必须在所有 CU 的
         // _passMembers 全部跑完后再做（跨 CU base/derived 声明序不保证 base 先行，见 _findVirtualOrigin）。
         c = 0;
@@ -316,6 +320,7 @@ public sealed class SymbolCollector {
         this._stub._passClassStubs(table, cu, "");   // 单-CU 路径：无 partial 主碎片跟踪
         this._stub._passDelegates(table, cu);
         this._member._passMembers(table, cu);
+        this._runCtorInheritance(table, cu);   // add-implicit-base-ctor-call（单 CU 路径，同 CollectAll）
         this._inherit._passFixupOverrides(table, cu);   // add-type-based-overloads D7：override regKey 对齐（阶段 8 修复）
         this._inherit._passSealedEnforce(table, cu);    // impl-sealed-semantics-devirt：sealed 继承/override 强制
         this._enforce._passAttributeSuffixEnforce(cu);   // attribute-handler-registry PR2：`: Attribute` 类名后缀强制（D8）
@@ -333,6 +338,12 @@ public sealed class SymbolCollector {
         this._inherit._passInheritFields(table, cu);
         this._inherit._passImplIfaceComplete(table, cu);   // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性（须在 _passImpls 后）
         return table;
+    }
+
+    private void _runCtorInheritance(SymbolTable table, CompilationUnit cu) {
+        CompilationUnit[] one = new CompilationUnit[1];
+        one[0] = cu;
+        new CtorInheritance(this, table).Run(one, 1);
     }
 
     internal Decl _unwrap(Decl d) {

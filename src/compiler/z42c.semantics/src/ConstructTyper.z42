@@ -184,7 +184,16 @@ public sealed class ConstructTyper {
         Z42ClassType cls = null;
         if (t is Z42ClassType) { cls = t as Z42ClassType; }
         if (t is Z42InstantiatedType) { cls = (t as Z42InstantiatedType).Def; }
-        string ctorName = cls != null ? this._tc._overload._ctorKey(cls, n.ArgCount) : "";
+        BoundCtorArgs ca = this._bindCtorArgs(cls, n.Args, n.ArgCount, env, n.Span);
+        return new BoundNew(t.Name(), ca.Key, ca.Args, ca.Args.Length, t, n.Span);
+    }
+
+    // add-implicit-base-ctor-call：「选哪个构造器 + 实参怎么适配」的**唯一实现**，`new C(args)` 与
+    // 构造器初始化子句（`: base(args)` / `: this(args)` / 隐式 `base()` / 继承构造器的转发）共用。
+    // 此前初始化子句只按实参个数取键（`_ctorKey`），不做按类型的重载决议、默认值填充与 params 打包——
+    // 与 `new` 路径是两套口径。cls == null（非类类型）→ 空键 + 逐个绑定的实参。
+    internal BoundCtorArgs _bindCtorArgs(Z42ClassType cls, Expr[] rawArgs, int argc, TypeEnv env, Span sp) {
+        string ctorName = cls != null ? this._tc._overload._ctorKey(cls, argc) : "";
         // 🔴 **同 arity 的多个 ctor 之间做真的类型决议**（fix-ctor-overload-by-arity-only）。
         //
         // `_ctorKey` 只按 **arity** 拼键（`Name` / `Name$N`），然后单键 `_findMethod` 取一个 ——
@@ -195,20 +204,20 @@ public sealed class ConstructTyper {
         //
         // 注册侧本就给了不同的键（首个裸名、其余全签名 mangle），所以这里只是把「选哪个」
         // 修对，**不动任何发射键** ⇒ 今天能正确解析的程序（ctor arity 唯一）字节零漂移。
-        if (cls != null && n.ArgCount > 0) {
+        if (cls != null && argc > 0) {
             MethodSymbol[] cands = cls.InstanceCtors();
             if (cands.Length > 1) {
-                Z42Type[] argTs = new Z42Type[n.ArgCount];
+                Z42Type[] argTs = new Z42Type[argc];
                 int ai = 0;
                 bool allBound = true;
-                while (ai < n.ArgCount) {
-                    BoundExpr b = this._et._bindExpr(n.Args[ai], env);
+                while (ai < argc) {
+                    BoundExpr b = this._et._bindExpr(rawArgs[ai], env);
                     if (b == null || b.Type() == null) { allBound = false; }
                     else { argTs[ai] = b.Type(); }
                     ai = ai + 1;
                 }
                 if (allBound) {
-                    OverloadResult orr = OverloadResolver.Resolve(cands, cands.Length, argTs, n.ArgCount);
+                    OverloadResult orr = OverloadResolver.Resolve(cands, cands.Length, argTs, argc);
                     // 只在**决议成功**时改写；无匹配/歧义仍走既有路径（诊断由下方 arity 校验与
                     // 实参类型检查给出，措辞不变）。
                     if (orr.IsResolved()) { ctorName = orr.Key; }
@@ -220,23 +229,24 @@ public sealed class ConstructTyper {
         MethodSymbol cms = null;
         if (cls != null) { cms = this._tc._overload._findMethod(env.Symbols, cls, ctorName); }
         // enforce-ctor-visibility：构造器与字段 / 方法同一判据（private 本类 / protected 派生 / internal 同包）。
-        // 修前从不检查——`private C()` 在任何地方都能 `new`。target-typed `new()`、对象初始化器、元组脱糖都汇到这里。
+        // 修前从不检查——`private C()` 在任何地方都能 `new`。target-typed `new()`、对象初始化器、元组脱糖都汇到这里；
+        // add-implicit-base-ctor-call 起初始化子句（显式 / 隐式 `base()`、`: this()`、继承构造器的转发）也走本函数，同一处检查覆盖。
         if (cls != null && cms != null && !cms.IsStatic) {
-            this._tc._access.CheckAccess(cms.Visibility, cms.ContainingTypeName, env, env.Symbols, "constructor", cls.Name(), n.Span);
+            this._tc._access.CheckAccess(cms.Visibility, cms.ContainingTypeName, env, env.Symbols, "constructor", cls.Name(), sp);
         }
         if (cms != null && cms.HasDecl && cms.Decl != null) {
-            BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env, n.Span);   // PR6b：n.Span = 调用点，供 caller 宏注入
+            BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, rawArgs, argc, env, sp);   // PR6b：sp = 调用点，供 caller 宏注入
             if (adapted != null) {
                 // `_adaptArgs` 只做命名实参重排 + 默认值填充，**不打包 params 尾参**。
                 // 等 arity 且尾参不是数组时它给回的是「一个元素」，这里补成尾包
                 // （方法路径由 `_withParamsExpansion` 做同一件事）。
-                adapted = this._packParamsTail(cms, adapted, n.Span, env);
-                return new BoundNew(t.Name(), ctorName, adapted, adapted.Length, t, n.Span);
+                adapted = this._packParamsTail(cms, adapted, sp, env);
+                return new BoundCtorArgs(ctorName, adapted);
             }
         }
         // ctor arity 校验（根因修复）：枚举本类所有实例 ctor（InstanceCtors——与 bare/$N 注册键无关，
         // 单 ctor 注册裸名、重载注册 Name$N，_findMethod 单键查会漏），只要存在本地声明 ctor 且无一能
-        // 接受 n.ArgCount 个实参 → 报 E0426，防「实参数与形参数不符被下方 fall-through 静默按位截断/补默认」
+        // 接受 argc 个实参 → 报 E0426，防「实参数与形参数不符被下方 fall-through 静默按位截断/补默认」
         // （曾致 z42.project ManifestLoader 16 传 12 的 OutputDir 空 bug）。params ctor（变长，接受 ≥ 定长部分）
         // 与带默认尾参各按其规则计入「可接受」。imported/无 Decl 的 ctor 无法校验 → 跳过（不误报）。
         if (cls != null) {
@@ -251,10 +261,10 @@ public sealed class ConstructTyper {
                     int pc = cm.Decl.ParamCount;
                     bool isParams = pc > 0 && cm.Decl.Params[pc - 1].IsParams;
                     if (isParams) {
-                        if (n.ArgCount >= pc - 1) { accepts = true; }
-                    } else if (n.ArgCount <= pc) {
+                        if (argc >= pc - 1) { accepts = true; }
+                    } else if (argc <= pc) {
                         bool ok = true;
-                        int p = n.ArgCount;
+                        int p = argc;
                         while (p < pc) { if (cm.Decl.Params[p].Default == null) { ok = false; } p = p + 1; }
                         if (ok) { accepts = true; }
                     }
@@ -264,17 +274,17 @@ public sealed class ConstructTyper {
             if (anyDeclared && !accepts) {
                 this._tc._diags.Error(DiagnosticCodes.CtorArgMismatch,
                     "constructor `" + cls.Name() + "` has no overload accepting "
-                    + n.ArgCount.ToString() + " argument(s)", n.Span);
+                    + argc.ToString() + " argument(s)", sp);
             }
         }
-        BoundExpr[] args = new BoundExpr[n.ArgCount];
+        BoundExpr[] args = new BoundExpr[argc];
         int i = 0;
         // ctor 实参按选中 ctor 的形参类型定型（支持嵌套 target-typed new：`new C(new())`）。
         // 无可解析 Decl 的 ctor（imported / 无 Decl）→ 目标类型 null，target-typed 实参会报 E0437。
-        while (i < n.ArgCount) {
+        while (i < argc) {
             Z42Type ptv = null;
             if (cms != null && cms.Signature != null && i < cms.Signature.ParamCount) { ptv = cms.Signature.ParamTypes[i]; }
-            args[i] = this._et.BindWithTarget(n.Args[i], ptv, env);
+            args[i] = this._et.BindWithTarget(rawArgs[i], ptv, env);
             i = i + 1;
         }
         // add-argument-type-check（Q3）：构造器实参与 `f(x)` 同口径。此前 `new C(x)` **只有 arity
@@ -282,7 +292,7 @@ public sealed class ConstructTyper {
         // 复用与调用路径**同一个** CheckArgTypes（而非逐位 CheckArg）——它统一处理 params 尾位
         // （`P(params int[] xs)` 接 `new P(1,2,3)`：形参是 int[]、实参是元素，逐位比会误报）
         // 与定长/越界位。cms==null（imported / 无 Decl，签名不可知）→ 自身 no-op。
-        if (cms != null) { this._tc._overload.CheckArgTypes(args, n.Args, n.ArgCount, cms.Signature, env); }
+        if (cms != null) { this._tc._overload.CheckArgTypes(args, rawArgs, argc, cms.Signature, env); }
         // 🔴 `params` 尾包在这条路径上**从来没被打包过** —— callee 拿到的是 N 个裸实参而不是
         // 一个数组，运行期 `xs.Length` 读到 Null（实测 `new P(a, b)` 对 `P(params object[] xs)`
         // 直接 `VCall: expected object, got Null`）。方法路径一直有 `_withParamsExpansion`，
@@ -295,21 +305,28 @@ public sealed class ConstructTyper {
         // fix-ctor-overload-by-arity-only / params 尾包是同一族的「ctor 没跟上方法路径」。
         // `params` 尾参的补位由 `_packParamsTail` 负责，故排除掉（与 `_withDefaults` 同序）。
         if (cms != null && (!cms.HasDecl || cms.Decl == null) && cms.Signature != null
-            && cms.Signature.ParamsFrom < 0 && n.ArgCount < cms.Signature.ParamCount) {
+            && cms.Signature.ParamsFrom < 0 && argc < cms.Signature.ParamCount) {
             int fpc = cms.Signature.ParamCount;
             // add-call-arity-diagnostics：缺位无默认值 → E1005（E0426 只校验本地有 Decl 的 ctor，imported 的此前补零值）。
-            int fmiss = this._tc._overload._crossPkgMissingRequired(cms.Signature, n.ArgCount);
-            if (fmiss >= 0) { OverloadBinder.ReportArity(this._tc._diags, "constructor `" + t.Name() + "`", false, n.ArgCount, fpc, "#" + (fmiss + 1).ToString(), n.Span); }
+            int fmiss = this._tc._overload._crossPkgMissingRequired(cms.Signature, argc);
+            if (fmiss >= 0) { OverloadBinder.ReportArity(this._tc._diags, "constructor `" + cls.Name() + "`", false, argc, fpc, "#" + (fmiss + 1).ToString(), sp); }
             BoundExpr[] filled = new BoundExpr[fpc];
             int fi = 0;
-            while (fi < n.ArgCount) { filled[fi] = args[fi]; fi = fi + 1; }
+            while (fi < argc) { filled[fi] = args[fi]; fi = fi + 1; }
             while (fi < fpc) {
-                filled[fi] = this._tc._overload._crossPkgDefault(cms.Signature, fi, env, n.Span);
+                filled[fi] = this._tc._overload._crossPkgDefault(cms.Signature, fi, env, sp);
                 fi = fi + 1;
             }
             args = filled;
         }
-        args = this._packParamsTail(cms, args, n.Span, env);
-        return new BoundNew(t.Name(), ctorName, args, args.Length, t, n.Span);
+        args = this._packParamsTail(cms, args, sp, env);
+        return new BoundCtorArgs(ctorName, args);
     }
+}
+
+// `_bindCtorArgs` 的结果：选中构造器的注册键（无类 / 无构造器时为按实参个数推的回落键）+ 适配后的实参。
+public sealed class BoundCtorArgs {
+    public string Key;
+    public BoundExpr[] Args;
+    public BoundCtorArgs(string key, BoundExpr[] args) { this.Key = key; this.Args = args; }
 }

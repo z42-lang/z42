@@ -233,7 +233,11 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
     int pi = 0;
     while (pi < parentPkgs.Length) {
         string dstp = Path.Join(dirs.Dist, Path.GetFileName(parentPkgs[pi]));
-        if (!File.Exists(dstp)) { File.Copy(parentPkgs[pi], dstp); }
+        // fix-devtarget-parent-copy-stale：**总是**覆盖。此前是 `if (!File.Exists(dstp))` —— 目标 dist 不会
+        // 在两次运行间清空，于是父包改动后同置副本永远停在第一次拷进来的那份：测试一直跑着旧版父包而
+        // 毫无察觉；zbc/zpkg 格式 bump 后更是直接表现为「父包类型解析不到」的假红（#652 实测）。
+        // 原生 File.Copy 本就覆盖写（std::fs::copy / 内存后端直接 write），无需先删。
+        File.Copy(parentPkgs[pi], dstp);
         pi = pi + 1;
     }
 
