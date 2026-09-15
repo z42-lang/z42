@@ -367,7 +367,7 @@ jobs:
 
           # base z42c: PR driver compiles base-src/src/compiler (newer→older).
           ( cd base-src/src/compiler && \
-            Z42_LIBS="$PRALL" "$PRVM" "$PRDRIVER" --mode jit -- build --workspace --release )
+            Z42_LIBS="$PRALL" "$PRVM" "$PRDRIVER" --mode jit -- build --workspace --release --no-incremental )
 
           # base flat libs = base z42c siblings + stdlib (to RUN the base driver) +
           # base stdlib (built next, overwriting the seed stdlib for measurement).
@@ -391,12 +391,24 @@ jobs:
           # 的字节由 BASEDRIVER 的代码决定，与执行它的 VM 无关。BASEVM 仍然只用于下面的
           # 实测环节（那时 BASEALL 已被 base stdlib 覆盖，不再引用新 builtin）。
           ( cd base-src/src/libraries && \
-            Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build --workspace --release )
+            Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build --workspace --release --no-incremental )
           for f in "$ROOT/base-src/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
 
           echo "base_vm=$BASEVM"         >> "$GITHUB_OUTPUT"
           echo "base_libs=$BASEALL"      >> "$GITHUB_OUTPUT"
           echo "base_driver=$BASEDRIVER" >> "$GITHUB_OUTPUT"
+
+      # guard-compiler-fingerprint：增量缓存的键靠 CacheStore.CompilerFingerprint + 格式 Minor 认编译器。
+      # 上一步已用 base 编译器建好 base stdlib；这里用 PR 编译器把同一份 base stdlib 源码再编一遍，
+      # 逐包比字节（#654 起产物可复现）。输出变了而版本号没累加 ⇒ 红。格式有代差时整步跳过——
+      # 格式 Minor 变了本身就让全部旧缓存作废，无需再查。判定逻辑在 xtask，本地同命令可复现。
+      - name: Compiler fingerprint guard (output changed ⇒ version bumped)
+        if: steps.fmtgap.outputs.gap != '1'
+        shell: bash
+        run: |
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$vm" artifacts/xtask/xtask.zpkg -- test fingerprint --base "$PWD/base-src"
 
       - name: Same-runner A/B regression gate (>15% time fails)
         if: steps.fmtgap.outputs.gap != '1'

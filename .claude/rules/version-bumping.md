@@ -246,5 +246,20 @@ zbc/zpkg 格式 Minor`。这两者都**测不出"编译器语义变了但格式�
 （常量旁有注释）。它进 `.meta` 的 `z42c-fp` 行与 `package.meta` 头；`Parse` / `LoadSrcList`
 校验不符即令条目作废。**纯 z42c 内部格式，不涉 wire、不触发 zbc/zpkg 格式 bump、不需改 Rust 端。**
 
-> follow-up（roadmap Deferred）：自动聚合 z42c zpkg `build_id` 作指纹，令编译器一变即自动失效、
-> 免人肉 bump（B 方案，见 `add-compiler-fingerprint-cache` 归档备注）。
+### CI 守门：输出变了就必须累加（guard-compiler-fingerprint，2026-09-15）
+
+「该不该 bump」不再靠自觉判断：bench-pr 工作流的 **Compiler fingerprint guard** 步骤用 base 编译器和
+PR 编译器各编一遍**同一份 base stdlib 源码**，逐包比 zpkg 字节（#654 起同源同编译器 ⇒ 逐字节一致）。
+
+| 输出字节 | `CompilerFingerprint` / 格式 Minor | 结果 |
+|---------|-----------------------------------|------|
+| 不变 | — | ✅（纯重构、改注释） |
+| 变了 | 至少一个累加了 | ✅ |
+| 变了 | 都没变 | ❌ 报出哪些包变了 → 把 `CompilerFingerprint` +1 |
+
+本地复现：`xtask test fingerprint --base <base 源码树根>`（base 树的 stdlib 须先由 base 编译器建好）。
+覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（只会漏判，不会误判）——
+这类改动仍按上表手动 bump。
+
+> 已否决：让 VM 暴露「入口 zpkg 依赖闭包的 build_id」自动作指纹（需新 builtin + 跨 nightly 两阶段，
+> 且编译器身份本就该由编译器自己的版本号表达；User 2026-09-15 裁决走「版本号 + CI 守门」）。

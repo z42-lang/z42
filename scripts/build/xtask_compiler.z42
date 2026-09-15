@@ -85,7 +85,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     string driver = _driverZpkg(root, profile);
     _ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat);  // 冷启动破 z42c⇄z42.ir 环（须在 workspace build 前）
     string compilerDir = Path.Join(root, "src/compiler");
-    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat);
+    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat, false);
     // 跨成员符号新增（如 z42c.syntax 新增类型/字段被 z42c.semantics 消费）冷启动收敛（破 z42c⇄z42c 内部环）：
     // 上面 line 67 的自包含把当时 dist 里的**旧**兄弟包（如上一 nightly 种子的 z42c.syntax）打进 driver，
     // 而 driver 作编译器运行时解析 semantics 源里的 `Z42.Syntax.*` 用其**自身加载的旧兄弟包**（遮蔽 fresh
@@ -95,7 +95,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     if (rc != 0) {
         _vNormal("  self-build 首遍失败 → 用本轮 fresh 成员 dist 重新自包含 driver + 重试（跨成员符号新增冷启动收敛）");
         _ensureDriverSelfContained(root, profile, members);
-        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat);
+        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat, false);
     }
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
     _ensureDriverSelfContained(root, profile, members);   // 新 gen driver 自包含（幂等兜底）
@@ -343,7 +343,7 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
     // （_buildCompilerViaZ42c）**完全同参**由共用的 _z42cWorkspaceBuild 从结构上保证
     // （不动点 gen1==gen2 的前提）。
     _ensureDriverSelfContained(root, profile, members);
-    int rc = _z42cWorkspaceBuild(vm, driverZpkg, Path.Join(root, "src/compiler"), stdlibFlat);
+    int rc = _z42cWorkspaceBuild(vm, driverZpkg, Path.Join(root, "src/compiler"), stdlibFlat, true);   // gen2 必须真编，命中 cache 等于没测
     if (rc != 0) { Console.WriteLine("  ✗ gen2 --workspace 构建失败"); return 1; }
     _ensureDriverSelfContained(root, profile, members);
 
