@@ -1,8 +1,0 @@
-[project]
-name              = "utils"
-kind              = "lib"
-version.workspace = true
-license.workspace = true
-
-[dependencies]
-"core".workspace = true

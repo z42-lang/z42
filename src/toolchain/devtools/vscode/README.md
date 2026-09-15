@@ -34,7 +34,7 @@ Windows：不支持自动 symlink，把本目录复制到 `<repo>\.vscode\extens
 xtask test vscode-syntax    # 生成器一致性：关键字分类穷尽 + 入库 grammar 与重新生成字节一致
 ```
 
-视觉验收：安装后打开 `examples/*.z42`，核对注释/字符串（普通、raw `"""`、插值 `$"{}"`、
+视觉验收：安装后打开任意 `.z42`（如 `examples/getting-started/hello-world/greet/src/Main.z42` 或 `src/tests/` 下的用例），核对注释/字符串（普通、raw `"""`、插值 `$"{}"`、
 字符）/数字（hex/bin/`_` 分隔/指数/后缀）/关键字五组/属性 `#[...]`/运算符着色。
 
 ## 关联文档

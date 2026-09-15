@@ -19,6 +19,8 @@
 | **打包 `scripts/package/` / `packages.toml`** | `xtask test packages` | `xtask package sdk` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |
 | **编译器 codegen / 优化 / typecheck / z42.ir writer（会改变产物字节）** | `xtask test compiler` | 同步 `CacheStore.CompilerFingerprint` +1（规则见 [version-bumping](../../../.claude/rules/version-bumping.md)「编译器语义指纹」）；自查：`xtask test fingerprint --base <base 树>` | `bench-regression` 的 **Compiler fingerprint guard**（输出变了而版本号没累加 ⇒ 红） |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader·Instr / IncrementalDriver）** | `xtask test compiler`（含 probe/闭包/meta/往返单测 + 不动点） | `xtask test incremental`（暴力对账器：语料逐文件 touch，增量 == 全量逐字节 + D8 计时） | `compiler-checks`（自举不动点 7/7） |
+| **学习手册 `docs/learn/` / 示例 `examples/`** | `xtask test examples <part>/<chapter>`（只改页面：`--book-only`）；输出确实该变：`--bless` 后审阅 diff | `xtask build sdk` + `xtask test examples` | `test-host`（examples stage）、`package-host`（打包 SDK 重放，含 Windows）、`deploy-book` 的 PR 构建；只改 `docs/learn` 时 ci.yml 不触发，只有 `deploy-book` 兜底 |
+| **launcher / z42b 命令行输出** | `xtask test examples`（手册里的会话脚本记录了这些输出） | 同上 | 同上 |
 | **纯文档 / `.claude/`** | 无 | 无（不改代码 → 无 stage 可跑） | 不触发 CI（paths-ignore） |
 
 ## 边界为什么管 API（不只是语法）

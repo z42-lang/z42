@@ -11,8 +11,7 @@ facade **同一套 7 场景**。补齐桌面 C-ABI 这条路径在自动化 gate
 `host_tests.rs` 测内部函数，无"链接 libz42.a 的外部程序"端到端）。
 
 不做：
-- Tier-2 Rust 嵌入示例（在 [`../../examples/hello_rust`](../../examples/)）
-- 跨平台 byte-identical hello_c 例（在 [`examples/embedding/hello_c`](../../../../../examples/embedding/hello_c/)）
+- 面向用户的 C / Rust 嵌入示例（由学习手册嵌入章节提供）
 
 ## 核心文件
 

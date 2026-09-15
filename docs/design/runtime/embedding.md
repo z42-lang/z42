@@ -16,7 +16,7 @@
 
 后果：
 
-- 各 platform 的 `build.sh` 把 `examples/*.z42` / `examples/test-fixtures/*.z42` 在 **host 端**用 `z42c` 编出 `.zbc`，复制进 `Z42VM.xcframework/Resources/` / `z42vm/src/main/assets/` / `pkg-{web,nodejs}/`。
+- 各 platform 的测试资产步骤（`xtask test platform <plat> assets`）把 `src/toolchain/workload/fixtures/*.z42` 在 **host 端**用 `z42c` 编出 `.zbc`，复制进 `Z42VM.xcframework/Resources/` / `z42vm/src/main/assets/` / `pkg-{web,nodejs}/`。
 - 平台 facade 的 test harness（XCTest / JUnit / playwright）**只 load 预编 `.zbc`**，测试代码**不调用 `z42c` / `dotnet`**。
 - 该约束是 v0.1 facade test 契约的硬性前提，详见 `docs/spec/archive/<date>-define-platform-test-contract/specs/platform-test-contract/spec.md`。
 
@@ -69,7 +69,7 @@
 | `src/runtime/include/z42_host.h` | Tier 1 C 头文件（与 `z42_abi.h` 平行） |
 | `src/runtime/src/host/` | C ABI 在 VM 内的实现（Rust `extern "C"`） |
 | `src/toolchain/workload/host-api/` | Tier 2 Rust crate（`z42-host`）—— consolidate-platform-into-workload S1 迁此 |
-| `examples/embedding/` | hello-world 示例（C / Rust，规范源）；仓内夹具，**不随发行包分发**（示例后移到 workload）|
+| `src/toolchain/workload/fixtures/` | 各平台 R1–R7 契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`）；面向用户的 C / Rust 嵌入示例由学习手册嵌入章节提供 |
 | `src/toolchain/workload/{ios,android,wasm}/platform/` | Tier 3 facade（与 P4.x spec 协同） |
 
 ---
@@ -262,7 +262,7 @@ iOS / Android 没有真 stdout，必须重定向。
 
 ## §9 Hello World 示例
 
-### 9.1 z42 源（`examples/hello.z42`）
+### 9.1 z42 源（`hello.z42`）
 
 ```z42
 namespace examples.hello;
@@ -275,7 +275,7 @@ public static class Greeter {
 }
 ```
 
-编译：`z42c examples/hello.z42 -o hello.zbc`
+编译：`z42c --emit-zbc hello.z42 hello.zbc`
 
 ### 9.2 C 宿主
 

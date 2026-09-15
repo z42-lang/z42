@@ -1,9 +1,0 @@
-[project]
-name              = "hello"
-kind              = "exe"
-entry             = "Hello.main"
-version.workspace = true
-license.workspace = true
-
-[dependencies]
-"utils".workspace = true

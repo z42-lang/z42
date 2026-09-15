@@ -233,6 +233,13 @@ _MapResult _mapLibraryFile(string f) {
 }
 
 _MapResult _mapFile(string f) {
+    // 学习手册与配套示例（add-learn-book-examples-gate）：必须排在「.md / docs/ 一律跳过」之前，
+    // 否则 examples 里的 README / 手册页改动会被当成纯文档跳过。
+    if (f.StartsWith("examples/")) {
+        string chapter = _segment(f, 1) + "/" + _segment(f, 2);
+        return _mapCmds(new string[]{ "xtask test examples " + chapter });
+    }
+    if (f.StartsWith("docs/learn/")) { return _mapCmds(new string[]{ "xtask test examples --book-only" }); }
     // Docs / spec / claude state — no tests.
     if (f.EndsWith(".md") || f.StartsWith("docs/") || f.StartsWith(".claude/")
         || f == ".gitignore" || f == ".gitattributes"
@@ -271,6 +278,10 @@ _MapResult _mapFile(string f) {
     }
     // Toolchain (incl. z42b — the z42.builder test/bench host). A toolchain change
     // can affect how [Test]/[Benchmark] units run, so sweep the stdlib suite.
+    // launcher / z42b 的命令行输出直接出现在学习手册的会话脚本里 → 追加 examples。
+    if (f.StartsWith("src/toolchain/launcher/") || f.StartsWith("src/toolchain/builder/")) {
+        return _mapCmds(new string[]{ "xtask test stdlib", "xtask test examples" });
+    }
     if (f.StartsWith("src/toolchain/")) {
         return _mapCmds(new string[]{ "xtask test stdlib" });
     }
@@ -284,10 +295,8 @@ _MapResult _mapFile(string f) {
     // Anything else under src/ → full sweep (defensive).
     if (f.StartsWith("src/")) { return _mapFull(); }
 
-    // Examples / artifacts — no test impact. (The former `bench/` prefix here went
-    // away with the top-level directory in move-bench-into-tests; its successor
-    // `src/tests/perf/` is handled above.)
-    if (f.StartsWith("examples/") || f.StartsWith("artifacts/")) { return _mapSkip(); }
+    // Build artifacts — no test impact.
+    if (f.StartsWith("artifacts/")) { return _mapSkip(); }
 
     // Unknown root-level file → full sweep (safe default).
     return _mapFull();

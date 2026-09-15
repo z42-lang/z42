@@ -1,5 +1,0 @@
-# 服从 workspace policy：不写 [build]，让 workspace 锁定值生效。
-[project]
-name              = "foo"
-kind              = "lib"
-version.workspace = true

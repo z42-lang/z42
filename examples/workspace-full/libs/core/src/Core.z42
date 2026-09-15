@@ -1,7 +1,0 @@
-namespace Core;
-
-public static class Core {
-    public static int answer() {
-        return 42;
-    }
-}

@@ -109,7 +109,7 @@ int _platformAssets(IPlatformBackend b, string root) {
     string stdlibDist = _libsDir(root);
     AssetLayout layout = b.Assets(root);
 
-    // (a) fixtures: examples/embedding/{hello,multi_line}.z42 → <fixturesDir>/*.zbc
+    // (a) fixtures: src/toolchain/workload/fixtures/{hello,multi_line}.z42 → <fixturesDir>/*.zbc
     Directory.Create(layout.fixturesDir);
     int c = _compileFixture(vm, driverZpkg, stdlibDist, root, "hello", layout.fixturesDir);       if (c != 0) { return c; }
     c = _compileFixture(vm, driverZpkg, stdlibDist, root, "multi_line", layout.fixturesDir);      if (c != 0) { return c; }
@@ -197,7 +197,7 @@ void _writeJUnitReport(string root, string platform, string suite, JUnitCase[] c
 }
 
 int _compileFixture(string vm, string driverZpkg, string stdlibDist, string root, string name, string destDir) {
-    string srcFile = Path.Join(root, "examples/embedding/" + name + ".z42");
+    string srcFile = Path.Join(root, "src/toolchain/workload/fixtures/" + name + ".z42");
     if (!File.Exists(srcFile)) {
         ConsoleError.WriteLine("error: fixture source missing: " + srcFile);
         return 1;

@@ -484,7 +484,7 @@ public class CaptureResult {
 
 ### 错误模式
 
-> 写测试时记得：z42 lambda **快照捕获值类型**（[examples/closure_capture.z42](../../examples/closure_capture.z42)）。要把 capture 结果传出 lambda body 必须用引用类型（class/array），不能直接对外部 int / string 局部变量赋值。dogfood 用 `IntCell` / `StrCell` 等 wrapper class 演示这个模式。
+> 写测试时记得：z42 lambda **快照捕获值类型**（`src/tests/closures/closure_l3_capture.z42`）。要把 capture 结果传出 lambda body 必须用引用类型（class/array），不能直接对外部 int / string 局部变量赋值。dogfood 用 `IntCell` / `StrCell` 等 wrapper class 演示这个模式。
 
 ---
 
@@ -657,7 +657,7 @@ R2 完整版实施时碰到的语言/反射 bug，多数同会话内已修复：
 | `Object.GetType()` on Exception 子类 | VCall 找不到方法（vtable 跨多层继承时未传递）| ✅ 修：exec_instr.rs VCall 加 lazy hierarchy walk fallback（同上 commit）|
 | `throw;` bare rethrow | parser 无此语法 | ✅ 修：StmtParser 接受 `throw;`，TypeChecker 维护 catch-var 栈，desugar 到 `throw <currentCatchVar>;`（本批次）|
 | `: this(args)` ctor delegation | parser 无此语法 | ✅ 修：TopLevelParser 接受 `:this(...)`，AST `FunctionDecl.ThisCtorArgs`，FunctionEmitter 委托时 emit 链接 ctor call + skip base + skip field-init（本批次）|
-| Lambda 值类型快照捕获 | 设计选择，非 bug | 📋 保留：详见 [closure_capture.z42](../../examples/closure_capture.z42)。需要 mutable 状态用 wrapper class |
+| Lambda 值类型快照捕获 | 设计选择，非 bug | 📋 保留：详见 `src/tests/closures/closure_l3_capture.z42`。需要 mutable 状态用 wrapper class |
 | Generic-E `is` (`is E` where E is type-param) | IR-side IsInstance 接受编译期硬编码 class_name | ⏸️ 未修：等需求驱动 |
 | Generic-extern T inference (in-CU) | extern 函数 `T f<T>(T x)` 在同 CU 内调用 `f(42)` 无法推断 T | ✅ 修：SymbolCollector.Classes 在收 method 签名时激活 method.TypeParams（本批次）；TypeChecker.Calls 静态方法路径加 SubstituteGenericParams + SubstituteGenericReturn |
 | Generic-extern T inference (cross-zpkg) | 跨 zpkg 调用还差 TSIG `ExportedMethodDef` 加 method-level TypeParams 字段 | ⏸️ 未修：BenchHelpers.blackBox(object) 临时形态；独立 spec 处理 TSIG bump |
@@ -903,7 +903,7 @@ Z42_TEST_PLATFORM=ios z42-test-runner suite.zbc
 | Platform 来源 | runner Rust 端直读 `std::env::consts::OS` | 不通过 z42 bootstrap 调 `Std.Platform.OS()` — 引入额外 VM call 依赖且 stdlib 未链接时挂；两者本就源于同一 Rust const，无信息差 |
 | Compound (`platform: + feature:`) | OR — 任一成立就跳 | AND 会让 "在 iOS 但 JIT 可用" 环境意外跑过去；OR 对齐 pytest `@skipif(c1 or c2)` 直觉 |
 | Unknown feature | Deny-by-default + warn | Fail-open 静默吞 typo（`multi-threading` → 该跳没跳挂掉）；硬 error 让测试代码 typo 阻塞整个 run，破坏 "runner 是工具" 期望 |
-| Feature 初始集 | 4 个 (`interp/jit/multithreading/filesystem`) | 与 `examples/test_demo.z42` 已用案例对齐 + 常见诉求；其他（async / gc-precise / network）按需扩 |
+| Feature 初始集 | 4 个 (`interp/jit/multithreading/filesystem`) | 与当时演示用例对齐 + 常见诉求；其他（async / gc-precise / network）按需扩 |
 | Reason 字符串 | 触发条件 + 用户 reason 拼接（`"skipped on ios: WebGL bug"`） | 仅显示 user reason 会让排查者必须查源码反推"为什么这次跳了"；触发条件直接显示是 debugging 体验关键 |
 | `SkipEnv` 通过参数传 | 显式参数，不进 thread-local / global | 单元测试可自由构造任意 env 做矩阵参数化；clarity over magic |
 
@@ -1123,7 +1123,7 @@ void test_pi_approximation() {
 - C# 类型：[`Z42.IR.TestEntry`](../../src/compiler/z42.IR/TestEntry.cs)
 - Rust 类型：[`z42_vm::metadata::TestEntry`](../../src/runtime/src/metadata/test_index.rs)
 - 跨语言契约测试：[`src/runtime/tests/zbc_compat.rs::test_demo_tidx_round_trips`](../../src/runtime/tests/zbc_compat.rs)
-- 演示文件：[`examples/test_demo.z42`](../../examples/test_demo.z42)
+- 演示夹具：`src/runtime/tests/data/test_demo/`
 
 ---
 

@@ -79,10 +79,10 @@ cargo install wasm-pack --locked
 ```bash
 ls artifacts/packages/z42-0.1.0-<rid>-release/
 # 期望（按 RID 类别）：
-# desktop:  bin/  libs/  native/  examples/{hello_c,hello_rust}/  manifest.toml
-# ios:      bin/  libs/  native/{libz42.a, Z42VM.xcframework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  examples/hello_c/  manifest.toml
-# android:  bin/  libs/  native/{libz42_platform_android.{a,so}}  kotlin/io/z42/vm/  cpp/  examples/hello_c/  manifest.toml
-# wasm:     bin/  libs/  native/{libz42.a, z42_wasm_bg.wasm}  pkg-web/  pkg-nodejs/  js/  package.json  examples/hello_c/  manifest.toml
+# desktop:  z42  bin/  programs/  libs/  native/  manifest.toml
+# ios:      bin/  libs/  native/{libz42.a, Z42VM.xcframework/}  Sources/{Z42VM,Z42VMC}/  Package.swift  manifest.toml
+# android:  bin/  libs/  native/{libz42_platform_android.{a,so}}  kotlin/io/z42/vm/  cpp/  manifest.toml
+# wasm:     bin/  libs/  native/{libz42.a, z42_wasm_bg.wasm}  pkg-web/  pkg-nodejs/  js/  package.json  manifest.toml
 ```
 
 ### 2. manifest.toml
@@ -167,7 +167,6 @@ file artifacts/packages/z42-0.1.0-browser-wasm-release/native/z42_wasm_bg.wasm
 | Android | Gradle `implementation(files(...))` + CMake | [building/android.md](building/android.md) |
 | wasm | `npm install ./z42-0.1.0-browser-wasm-release` | [building/wasm.md](building/wasm.md) |
 
-每个 RID 的 `examples/hello_c/README.md` 也含手工链接示例。
 
 ## 与 in-repo build flow 的关系
 

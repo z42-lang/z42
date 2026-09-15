@@ -121,9 +121,7 @@ z42 的判据是 **`x` 是不是当前作用域里的变量**：
 原 spec（`add-named-arguments`, 2026-05-12）是在 **C# bootstrap 编译器**里实现的
 （`z42.Syntax/Parser/ExprParser.Atoms.cs` 的 `IDENT :` 前瞻）。C# 编译器 2026-06-26 移除后，
 **parser 这一半没有被移植到自举编译器**——语义层的归位逻辑（`_adaptArgs`，其注释里写的正是
-`f(x: new())`）一直在等一个永远不会到来的形态，而 `examples/named_args.z42`
-整个文件用的都是这个语法、**从来没有被编译过**（顶层 `examples/` 无人编译，见
-change `gate-toplevel-examples`）。
+`f(x: new())`）一直在等一个永远不会到来的形态，而当时仓库根的演示文件整个用的都是这个语法、
+**从来没有被编译过**。
 
-⇒ 两道门现在同时盯着它：顶层 examples 编译门（`named_args.z42` 已从已知欠债名单移除）
-+ 行为 golden `src/tests/named-args/`（断言**重排真的发生**，不是「能编过」就算数）。
+⇒ 现在由行为 golden `src/tests/named-args/` 把关（断言**重排真的发生**，不是「能编过」就算数）。

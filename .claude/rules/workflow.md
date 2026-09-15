@@ -344,7 +344,7 @@ docs/spec/changes/<change-name>/
 - [ ] 2.4 IR Codegen
 - [ ] 2.5 VM interp（interp 全绿前不碰 JIT）
 - [ ] 2.6 单元测试 + golden test
-- [ ] 2.7 examples/ 示例文件
+- [ ] 2.7 学习手册相关章节（若该特性已有对应章节：更新 `examples/<章节>/` 与 `docs/learn/`）
 
 ## 阶段 3: 验证
 - [ ] 3.1 cargo build (z42vm) —— 无编译错误（z42c + stdlib 由 xtask test 用 z42c 自建）

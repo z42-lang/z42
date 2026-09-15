@@ -188,12 +188,6 @@ SubcommandRouter _cliRoot() {
     profile.AddOption("mode", "", "interp|jit (measured mode; default jit)", "jit");
     root.Add("profile", "profile a .z42 script (cpu/heap/threads/e2e; no flag = all)", profile);
 
-    // add-tests-bench-manifest-config P3: `example [name]` — compile + run
-    // manifest [[example]] targets (compile-gate always; run test=true / <name>).
-    ArgParser example = new ArgParser("xtask example", "compile + run example targets (exit-code judged)");
-    example.AddOptionalPositional("name", "single example name (default: all test=true)");
-    root.Add("example", "compile + run example targets (all test=true, or <name>)", example);
-
     ArgParser clean = new ArgParser("xtask clean", "remove build artifacts");
     clean.AddOptionalPositional("target", "tests|bench|all (default: production cache/dist)");
     root.Add("clean", "remove build artifacts", clean);
@@ -220,7 +214,6 @@ int _dispatch(CommandResolution res) {
     if (top == "deps")           { return _dispatchDeps(p, r); }
     if (top == "bench")          { return _dispatchBench(p, r); }
     if (top == "profile")        { return _profile(r); }
-    if (top == "example")        { return _testExample(r.GetPositional(0)); }
     if (top == "clean")          { return _clean(r); }
     // `run` is intercepted in _runCli (raw passthrough) — not reached here.
     return 2;

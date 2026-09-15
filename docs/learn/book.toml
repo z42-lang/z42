@@ -1,0 +1,27 @@
+# z42 学习手册（mdBook）
+#
+# 面向 z42 使用者的入门教程：从安装开始，一步步写出能运行的程序。
+# 与 docs/book/（语言与实现知识库）分工见 docs/agent/rules/doc-system.md；写作规范见
+# docs/agent/rules/learn-writing.md。
+#
+# 书里的 z42 代码与终端输出全部 include 自仓库根 examples/，由 `xtask test examples` 逐条运行校验。
+# 本地预览：cargo install mdbook 后，在本目录跑  mdbook serve --open
+
+[book]
+title = "z42 学习手册"
+authors = ["z42"]
+language = "zh"
+src = "src"
+
+[build]
+# SUMMARY 引用了不存在的文件时报错，而不是静默建一个空页。
+create-missing = false
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+smart-punctuation = true
+site-url = "/z42/learn/"
+git-repository-url = "https://github.com/z42-lang/z42"
+edit-url-template = "https://github.com/z42-lang/z42/edit/main/docs/learn/{path}"
+additional-js = ["theme/z42-highlight.js"]

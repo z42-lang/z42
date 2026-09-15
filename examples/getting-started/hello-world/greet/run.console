@@ -1,0 +1,4 @@
+$ z42 run
+Hello, World!
+$ z42 run -- 小明
+Hello, 小明!

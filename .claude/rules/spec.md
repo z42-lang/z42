@@ -1,7 +1,6 @@
 ---
 paths:
   - "docs/design/**/*.md"
-  - "examples/**/*.z42"
 ---
 
 # 语言规范编写规范
@@ -19,8 +18,8 @@ paths:
 - 新增 IR 指令必须包含：指令名、操作数类型、语义描述、伪代码示例
 - 规范中的示例代码以 ` ```z42 ` 代码块标注，IR 示例以 ` ```  ` 裸代码块标注
 
-## z42 示例文件 (examples/)
+## 仓库根 examples/ 不是特性示例库
 
-- 每个特性至少一个示例文件
-- 文件顶部注释说明演示的特性
-- 示例文件应能被当前阶段的编译器正确解析（即使不能执行）
+`examples/` 只放学习手册（`docs/learn/`）的配套工程，结构镜像手册页面，规则见
+[`docs/agent/rules/learn-writing.md`](../../docs/agent/rules/learn-writing.md)。
+新特性的覆盖写成测试（`src/tests/` / 库的 `tests/`），不要往 `examples/` 加演示文件。

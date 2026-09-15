@@ -1,7 +1,0 @@
-namespace Bar;
-
-public static class Bar {
-    public static string name() {
-        return "bar";
-    }
-}
