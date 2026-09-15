@@ -1,0 +1,37 @@
+// 构建 cache 落盘（cache-dir-layout；自 Main.z42 拆出，单产物与多 exe 两条路径共用）。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Project;
+using Z42.IR;
+using Z42.Build.Project;
+using Z42.Pipeline;
+
+// 逐文件写 fullMode .zbc + meta + 包级源清单。**不论是否增量都落盘**（含 workspace / --output-dir /
+// --no-incremental）——增量开关只管下次构建「读不读」（Main 的 probe），不管「写不写」。
+// cacheDirOverride 非空 = workspace 成员（WsPlan 给出）；否则按本工程 manifest 解析。
+// 只写 cache 目录、不碰 dist 产物 → gen1==gen2 字节门禁不受扰。
+// cache 是性能优化：写失败（如 Windows 路径怪癖）绝不能让构建失败，降级为下次全量即可。
+void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, string cacheDirOverride,
+                      string[] srcs, string[] texts, string[] srcHashes, CompiledModuleZ[] cms, ZbcFileZ[] mods,
+                      IncrPrep prep, NameListZ[] metaIdents, NameSurfacesZ[] metaSurfaces) {
+    try {
+        string cacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : _resolveCacheDir(pm, projectDir, isRelease);
+        int i = 0;
+        while (i < srcs.Length) {
+            if (prep == null || prep.Plan.Fresh[i]) {
+                _writeCacheZbc(cacheDir, projectDir, srcs[i], mods[i].Module);
+            }
+            i = i + 1;
+        }
+        // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
+        IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
+                                     cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces);
+        ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
+    } catch (Exception e) {
+        ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);
+    }
+}

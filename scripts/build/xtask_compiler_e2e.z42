@@ -479,6 +479,7 @@ int _testCompilerE2e(string root, string vm, string flat) {
     if (_e2eKnobChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     if (_e2eEmitDiagChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     if (_e2eReproChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
+    if (_e2eCacheLayoutChecks(vm, driverZpkg, e2eDir, flat) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }

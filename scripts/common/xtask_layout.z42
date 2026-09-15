@@ -75,6 +75,45 @@ string _memberDist(string wsToml, string member, string profile) {
     return _cleanPath(Path.Join(outAbs, "dist"));
 }
 
+// Per-member cache directory. Mirrors z42c WorkspaceBuild.ResolveMemberCacheDir (cache-dir-layout):
+// [workspace.build].cache_dir template (unset → "${output_dir}/.cache"), relative → against output_dir;
+// neither template names the member → a per-member subdir is appended.
+string _memberCache(string wsToml, string member, string profile) {
+    WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
+    string wsDir = Path.GetDirectoryName(wsToml);
+    TemplateContext octx = new TemplateContext(wsDir, "", member, profile, "");
+    string outExpanded = PathTemplate.Expand(ws.OutputDir, octx);
+    string outAbs = _cleanPath(Path.IsRooted(outExpanded) ? outExpanded : Path.Join(wsDir, outExpanded));
+    string raw = ws.HasCacheDir ? ws.CacheDir : "${output_dir}/.cache";
+    string exp = PathTemplate.Expand(raw, new TemplateContext(wsDir, "", member, profile, outAbs));
+    string dir = _cleanPath((Path.IsRooted(exp) || exp.StartsWith(outAbs)) ? exp : Path.Join(outAbs, exp));
+    bool perMember = _namesMember(raw) || _namesMember(ws.OutputDir);
+    return perMember ? dir : Path.Join(dir, member);
+}
+bool _namesMember(string template) {
+    return template.Contains("${member_name}") || template.Contains("${project_name}");
+}
+
+// Workspace build root = the output_dir template's literal prefix (everything before the first
+// `${…}`), resolved against the workspace dir. e.g. "../../artifacts/build/compiler/${project_name}/…"
+// → <root>/artifacts/build/compiler. The dir xtask scans / stages / cleans per member.
+string _wsBuildRoot(string wsToml) {
+    string tpl = ManifestLoader.LoadWorkspace(wsToml).OutputDir;
+    int k = tpl.IndexOf("${");
+    string prefix = k >= 0 ? tpl.Substring(0, k) : tpl;
+    string wsDir = Path.GetDirectoryName(wsToml);
+    return _cleanPath(Path.IsRooted(prefix) ? prefix : Path.Join(wsDir, prefix));
+}
+
+// `p` relative to the repo root (both cleaned); "" when `p` is not under root. Used to mirror
+// a toml-resolved product dir into a staging tree at the same relative location.
+string _rootRel(string root, string p) {
+    string r = _cleanPath(root.Replace("\\", "/"));
+    string u = _cleanPath(p.Replace("\\", "/"));
+    if (u.StartsWith(r + "/")) { return u.Substring(r.Length + 1, u.Length - r.Length - 1); }
+    return "";
+}
+
 // per-member dist dirs for the two workspaces.
 string _libMemberDist(string root, string member, string profile) {
     return _memberDist(_libsWsToml(root), member, profile);
@@ -102,17 +141,16 @@ string _driverZpkg(string root, string profile) { return _compilerMemberZpkg(roo
 // (distinct from artifacts/xtask, xtask's own product).
 string _buildDir(string root) { return Path.Join(root, "artifacts/build"); }
 
-// artifacts/build/libraries — stdlib workspace build root (staged / scanned).
-string _libsBuildRoot(string root) { return Path.Join(root, "artifacts/build/libraries"); }
-
-// artifacts/build/compiler — compiler workspace build root.
-string _compilerBuildRoot(string root) { return Path.Join(root, "artifacts/build/compiler"); }
+// stdlib / compiler workspace build roots (staged / scanned / cleaned) — from the workspace.toml
+// output_dir template prefix, not hardcoded.
+string _libsBuildRoot(string root) { return _wsBuildRoot(_libsWsToml(root)); }
+string _compilerBuildRoot(string root) { return _wsBuildRoot(_compilerWsToml(root)); }
 
 // artifacts/build/libraries/dist/<profile> — the FLAT stdlib dist (all members
 // hard-linked into one dir = the Z42_LIBS the compiler + VM load from). An xtask
 // aggregation, not a workspace.toml field.
 string _libsFlatDist(string root, string profile) {
-    return Path.Join(root, "artifacts/build/libraries/dist/" + profile);
+    return Path.Join(_libsBuildRoot(root), "dist/" + profile);
 }
 
 // artifacts/build/runtime/<profile> — cargo output dir for z42vm / native libs
@@ -121,6 +159,5 @@ string _runtimeOut(string root, string profile) {
     return Path.Join(root, "artifacts/build/runtime/" + profile);
 }
 
-// artifacts/xtask/xtask.zpkg — xtask's own product (per scripts/xtask.z42.toml
-// [build] output_dir=../artifacts/xtask, dist_dir=${output_dir}).
-string _xtaskZpkg(string root) { return Path.Join(root, "artifacts/xtask/xtask.zpkg"); }
+// xtask's own product — resolved from scripts/xtask.z42.toml [build] (dist_dir/output_dir).
+string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.toml"); }

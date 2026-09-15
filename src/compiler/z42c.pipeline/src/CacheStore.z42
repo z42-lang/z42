@@ -91,26 +91,30 @@ public static class CacheStore {
     }
 
     // 序列化（行式；集合按传入序写出——调用方保证确定性来源）。
+    // 逐行进 parts 再一次 ConcatParts：`s = s + …` 在大模块（token/pool 上千行）上是平方级拷贝。
     public static string Serialize(CacheMeta m) {
-        string s = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"
-                 + "z42c-fp " + CacheStore.CompilerFingerprint.ToString() + "\n"
-                 + "zbc " + ZbcVersion.Minor.ToString() + "\n"
-                 + "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n"
-                 + "hash " + m.SourceHash + "\n"
-                 + "ns " + m.Namespace + "\n";
+        int total = 6 + m.NsCount + m.SurfIdentCount + m.UsedDepNsCount + m.TokenCount + m.PoolCount + m.FnLabelsCount;
+        string[] parts = new string[total];
+        int k = 0;
+        parts[k] = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"; k = k + 1;
+        parts[k] = "z42c-fp " + CacheStore.CompilerFingerprint.ToString() + "\n"; k = k + 1;
+        parts[k] = "zbc " + ZbcVersion.Minor.ToString() + "\n"; k = k + 1;
+        parts[k] = "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n"; k = k + 1;
+        parts[k] = "hash " + m.SourceHash + "\n"; k = k + 1;
+        parts[k] = "ns " + m.Namespace + "\n"; k = k + 1;
         int i = 0;
-        while (i < m.NsCount) { s = s + "nsurf " + m.NsNames[i] + " " + m.NsHashes[i] + "\n"; i = i + 1; }
+        while (i < m.NsCount) { parts[k] = "nsurf " + m.NsNames[i] + " " + m.NsHashes[i] + "\n"; k = k + 1; i = i + 1; }
         i = 0;
-        while (i < m.SurfIdentCount) { s = s + "sident " + m.SurfIdents[i] + "\n"; i = i + 1; }
+        while (i < m.SurfIdentCount) { parts[k] = "sident " + m.SurfIdents[i] + "\n"; k = k + 1; i = i + 1; }
         i = 0;
-        while (i < m.UsedDepNsCount) { s = s + "useddep " + m.UsedDepNs[i] + "\n"; i = i + 1; }
+        while (i < m.UsedDepNsCount) { parts[k] = "useddep " + m.UsedDepNs[i] + "\n"; k = k + 1; i = i + 1; }
         i = 0;
-        while (i < m.TokenCount) { s = s + "token " + m.Tokens[i] + "\n"; i = i + 1; }
+        while (i < m.TokenCount) { parts[k] = "token " + m.Tokens[i] + "\n"; k = k + 1; i = i + 1; }
         i = 0;
-        while (i < m.PoolCount) { s = s + "pool " + CacheStore.HexEnc(m.Pool[i]) + "\n"; i = i + 1; }
+        while (i < m.PoolCount) { parts[k] = "pool " + CacheStore.HexEnc(m.Pool[i]) + "\n"; k = k + 1; i = i + 1; }
         i = 0;
-        while (i < m.FnLabelsCount) { s = s + "labels " + m.FnLabels[i] + "\n"; i = i + 1; }
-        return s;
+        while (i < m.FnLabelsCount) { parts[k] = "labels " + m.FnLabels[i] + "\n"; k = k + 1; i = i + 1; }
+        return String.ConcatParts(parts, k);
     }
 
     // 解析；版本 pin（metaVersion/zbc/zpkg）任一不符或格式坏 → null（= 条目作废）。
@@ -206,14 +210,15 @@ public static class CacheStore {
     public static string HexEnc(string s) {
         byte[] b = Utf8.GetBytes(s);
         string ds = "0123456789abcdef";
-        string r = "";
+        char[] cs = new char[b.Length * 2];
         int i = 0;
         while (i < b.Length) {
             int v = (int)b[i];
-            r = r + ds.Substring((v >> 4) & 0xF, 1) + ds.Substring(v & 0xF, 1);
+            cs[i * 2] = ds.CharAt((v >> 4) & 0xF);
+            cs[i * 2 + 1] = ds.CharAt(v & 0xF);
             i = i + 1;
         }
-        return r;
+        return String.FromChars(cs);
     }
 
     public static string HexDec(string hex) {

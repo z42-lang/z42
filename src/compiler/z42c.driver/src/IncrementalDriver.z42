@@ -212,14 +212,15 @@ public static class IncrementalDriver {
                 int f = 0;
                 while (f < irm.FuncCount) {
                     IrFunction fd = irm.Functions[f];
-                    string line = "";
+                    string[] lp = new string[fd.BlockCount * 2];
+                    int lk = 0;
                     int b = 0;
                     while (b < fd.BlockCount) {
-                        if (b > 0) { line = line + " "; }
-                        line = line + CacheStore.HexEnc(fd.Blocks[b].Label);
+                        if (b > 0) { lp[lk] = " "; lk = lk + 1; }
+                        lp[lk] = CacheStore.HexEnc(fd.Blocks[b].Label); lk = lk + 1;
                         b = b + 1;
                     }
-                    fl[f] = line;
+                    fl[f] = String.ConcatParts(lp, lk);
                     f = f + 1;
                 }
                 m.FnLabels = fl; m.FnLabelsCount = irm.FuncCount;

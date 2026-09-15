@@ -38,7 +38,9 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int opt
     int i = 0;
     while (i < ordered.Length) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
-        int rc = _build(ordered[i], isRelease, outputDir, flat, 1, true, optSet, false);   // workspace 暂不支持 --fix
+        // cache-dir-layout：flat 模式所有成员共用一个 --output-dir，cache 按成员名分子目录，避免同名相对源互相覆盖。
+        string memberCache = Path.Join(Path.Join(outputDir, ".cache"), ManifestLoader.Load(ordered[i]).Project.Name);
+        int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, true, optSet, false);   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
             return rc;
@@ -72,7 +74,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int optSet) {
     i = 0;
     while (i < plan.Count) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Tomls[i] + " -> " + plan.DistDirs[i]);
-        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], libsDirs, libsN, true, optSet, false);   // workspace 暂不支持 --fix
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], plan.CacheDirs[i], libsDirs, libsN, true, optSet, false);   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
             return rc;
