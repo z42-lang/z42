@@ -61,10 +61,9 @@ int _cmdBuild(string[] argv) {
         ai = ai + 1;
     }
     if (toml.Length == 0 && !isWorkspace) {
-        string cwd = Environment.GetCurrentDirectory();
-        ManifestLocation loc = ManifestLocator.FindUp(cwd);
+        ManifestLocation loc = ManifestLocator.FindUp(".");
         if (!loc.IsFound()) {
-            ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, cwd));
+            ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
             return ExitCode.UsageError;
         }
         if (loc.Kind == ManifestLocateKind.Workspace) { isWorkspace = true; }

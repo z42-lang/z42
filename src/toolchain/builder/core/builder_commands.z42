@@ -32,14 +32,13 @@ string _locateManifest(string verb, string given) {
         ConsoleError.WriteLine("z42 " + verb + ": manifest not found: " + given);
         return "";
     }
-    string cwd = Environment.GetCurrentDirectory();
-    ManifestLocation loc = ManifestLocator.FindUp(cwd);
+    ManifestLocation loc = ManifestLocator.FindUp(".");
     if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
     if (loc.Kind == ManifestLocateKind.Workspace) {
         ConsoleError.WriteLine("z42 " + verb + ": `" + loc.ManifestPath + "` is a workspace; run it in a member directory");
         return "";
     }
-    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, cwd));
+    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
     return "";
 }
 

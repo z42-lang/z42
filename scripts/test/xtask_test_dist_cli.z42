@@ -84,6 +84,16 @@ int[] _launcherCliSmoke(string launcher, string work) {
     acc = _distCheck(acc, h.ExitCode == 0 && h.Stdout.Contains("usage: z42 run"),
         "z42 help run → run 的帮助", h);
 
+    // 编译错误：诊断里的源文件路径相对当前目录（./src/Main.z42），不是临时目录的绝对路径。
+    ProcessResult nb = _distZ42(launcher, root, _a2("new", "broken"));
+    string brokenMain = Path.Join(root, "broken/src/Main.z42");
+    if (nb.ExitCode == 0 && File.Exists(brokenMain)) {
+        File.WriteAllText(brokenMain, File.ReadAllText(brokenMain).Replace("Console.", "Consle."));
+    }
+    ProcessResult be = _distZ42(launcher, Path.Join(root, "broken"), _a1("run"));
+    acc = _distCheck(acc, be.ExitCode == 1 && be.Stderr.Contains("./src/Main.z42(6,5): E0401"),
+        "编译错误 → 退出码 1，诊断路径相对当前目录（./src/Main.z42）", be);
+
     ProcessResult gone = _distZ42(launcher, root, _a1("which"));
     acc = _distCheck(acc, gone.ExitCode == 2 && gone.Stderr.Contains("unknown command"),
         "已移除的命令（which）→ unknown command，退出码 2", gone);

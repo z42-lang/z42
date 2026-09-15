@@ -239,14 +239,13 @@ string _resolveDeployManifest(string verb, string given) {
         ConsoleError.WriteLine("z42 " + verb + ": no project manifest at " + given);
         return "";
     }
-    string cwd = Environment.GetCurrentDirectory();
-    ManifestLocation loc = ManifestLocator.FindUp(cwd);
+    ManifestLocation loc = ManifestLocator.FindUp(".");
     if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
     if (loc.Kind == ManifestLocateKind.Workspace) {
         ConsoleError.WriteLine("z42 " + verb + ": `" + loc.ManifestPath + "` is a workspace; pass a member's manifest");
         return "";
     }
-    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, cwd));
+    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
     return "";
 }
 

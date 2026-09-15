@@ -39,14 +39,23 @@ public sealed class ManifestLocation {
 public static class ManifestLocator {
 
     /// 从 `startDir` 逐级向上查找（规则见文件头）。
+    /// `startDir` 为相对路径（通常就是 "."）时，返回的路径也相对它表达（"./z42.toml"、"../z42.toml"），
+    /// 于是编译诊断里的源文件路径是用户熟悉的 `./src/Main.z42`，而不是一长串绝对路径。
     public static ManifestLocation FindUp(string startDir) {
-        string dir = startDir;
-        while (dir.Length > 0) {
-            ManifestLocation here = ManifestLocator.FindIn(dir);
-            if (here.Kind != ManifestLocateKind.NotFound) { return here; }
-            string parent = Path.GetDirectoryName(dir);
-            if (parent == dir) { break; }
-            dir = parent;
+        bool rel = !Path.IsRooted(startDir);
+        string cwd = Environment.GetCurrentDirectory();
+        // "." 直接用 cwd：Join(cwd, ".") 得到 "<cwd>/."，它的父目录仍是 cwd，会让显示路径多退一层。
+        string probe = !rel ? startDir : (startDir == "." ? cwd : Path.Join(cwd, startDir));
+        string shown = startDir;
+        while (probe.Length > 0) {
+            ManifestLocation here = ManifestLocator.FindIn(probe);
+            if (here.Kind != ManifestLocateKind.NotFound) {
+                return rel ? ManifestLocator._rebase(here, shown) : here;
+            }
+            string parent = Path.GetDirectoryName(probe);
+            if (parent == probe || parent.Length == 0) { break; }
+            probe = parent;
+            shown = shown == "." ? ".." : Path.Join(shown, "..");
         }
         return ManifestLocator._notFound();
     }
@@ -59,6 +68,8 @@ public static class ManifestLocator {
             return new ManifestLocation(ManifestLocateKind.Project, bare, new string[0]);
         }
         string[] named = Path.Glob(dir, "*.z42.toml");   // 已按字典序排好
+        int ni = 0;
+        while (ni < named.Length) { named[ni] = Path.Join(dir, Path.GetFileName(named[ni])); ni = ni + 1; }
         if (named.Length == 1) {
             return new ManifestLocation(ManifestLocateKind.Project, named[0], new string[0]);
         }
@@ -73,6 +84,7 @@ public static class ManifestLocator {
     }
 
     /// 未找到 / 歧义时给用户看的错误文本（多行，不含结尾换行）。各工具共用，措辞一致。
+    /// `startDir` 为 "." 时说「当前目录」。
     public static string ErrorText(ManifestLocation loc, string startDir) {
         if (loc.Kind == ManifestLocateKind.Ambiguous) {
             string s = "error: multiple manifests found; specify one:";
@@ -83,8 +95,18 @@ public static class ManifestLocator {
             }
             return s;
         }
-        return "error: could not find z42.toml in `" + startDir + "` or any parent directory\n"
+        string place = startDir == "." ? "the current directory" : "`" + startDir + "`";
+        return "error: could not find z42.toml in " + place + " or any parent directory\n"
              + "  (create a project with: z42 new <name>)";
+    }
+
+    // 把 FindIn 在绝对目录下得到的结果，改写成相对 `shown` 目录表达。
+    private static ManifestLocation _rebase(ManifestLocation loc, string shown) {
+        string p = loc.ManifestPath.Length > 0 ? Path.Join(shown, Path.GetFileName(loc.ManifestPath)) : "";
+        string[] c = new string[loc.Candidates.Length];
+        int i = 0;
+        while (i < c.Length) { c[i] = Path.Join(shown, Path.GetFileName(loc.Candidates[i])); i = i + 1; }
+        return new ManifestLocation(loc.Kind, p, c);
     }
 
     private static ManifestLocation _notFound() {

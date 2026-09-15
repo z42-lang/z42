@@ -211,7 +211,7 @@ string _resolveRunManifest(string app) {
         ConsoleError.WriteLine("z42 run: manifest not found: " + app);
         return "";
     }
-    string start = app.Length > 0 ? app : Environment.GetCurrentDirectory();
+    string start = app.Length > 0 ? app : ".";
     ManifestLocation loc = app.Length > 0 ? ManifestLocator.FindIn(app) : ManifestLocator.FindUp(start);
     if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
     if (loc.Kind == ManifestLocateKind.Workspace) {
