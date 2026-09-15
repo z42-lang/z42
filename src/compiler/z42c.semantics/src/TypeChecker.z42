@@ -468,14 +468,8 @@ public sealed class TypeChecker {
             }
             i = i + 1;
         }
-        this._decl._synthCtors(model, view, cu);
         return model;
     }
-
-    // 合成隐式 ctor 体（镜像 C# EmitImplicitCtor + CollectChainFieldInits）：
-    // 类无显式实例 ctor 但本类或本地祖先有实例字段 init 时，发 `<ctKey>.<Name>` 体——
-    // 沿基类链（root→self）的 `this.field = init` 赋值（无 base 调用，整链内联）。IrGen 据此发函数。
-
 
     // 运算符符号 → 重载方法名（与 Parser._operatorMethodName 一致；"" 表不可重载）。
 

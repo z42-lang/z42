@@ -15,7 +15,8 @@ class Animal {
 class Dog : Animal {
     string Breed;
 
-    public Dog(string name, string breed) {
+    // add-implicit-base-ctor-call：Animal 只有带参构造器，须显式 `: base(..)`（否则 E0469）。
+    public Dog(string name, string breed) : base(name) {
         this.Name = name;
         this.Breed = breed;
     }

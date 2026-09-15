@@ -188,6 +188,55 @@ void test_error_ctor_too_few_args_static_ctor_not_counted() {
     Assert.Equal("E0426", SemanticDump.FirstErrorCode(src));
 }
 
+// ── 隐式 base() 与构造器继承（add-implicit-base-ctor-call）───────────────────────
+[Test]
+void test_implicit_base_requires_zero_arg_base_ctor() {
+    // 派生类写了 ctor、没写 `: base(...)`，基类只有带参 ctor ⇒ E0469（C# CS7036）
+    string src = "class B { public B(int x) { } } class D : B { public D() { } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0469", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_implicit_base_default_param_ok() {
+    // 基类 ctor 形参全带默认值 = 可零实参调用
+    string src = "class B { public B(int x = 1) { } } class D : B { public D() { } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_this_delegation_does_not_require_base() {
+    string src = "class B { public B(int x) { } } class D : B { public D(int x) : base(x) { } public D() : this(1) { } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_inherited_ctor_no_error_without_ctor() {
+    // 派生类没写 ctor：继承带参 ctor，本身不报错；用对 arity 不报、用错报 E0426
+    Assert.Equal(0, SemanticDump.ErrorCount("class B { public B(int x) { } } class D : B { } class U { void M() { var d = new D(1); } }"));
+    Assert.Equal("E0426", SemanticDump.FirstErrorCode("class B { public B(int x) { } } class D : B { } class U { void M() { var d = new D(); } }"));
+}
+
+[Test]
+void test_explicit_ctor_disables_inheritance() {
+    string src = "class B { public B(int x) { } public B(string s) { } } class D : B { public D(int x) : base(x) { } }"
+               + " class U { void M() { var d = new D(\"s\"); } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+
+[Test]
+void test_all_private_base_ctors_is_loud() {
+    // 基类构造器全是 private（无修饰符即 private）：继承不到，也不能静默默认构造
+    Assert.Equal("E0469", SemanticDump.FirstErrorCode("class B { B(int x) { } } class D : B { }"));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode("class B { private B() { } } class D : B { }"));
+}
+
+[Test]
+void test_private_base_ctor_not_inherited() {
+    string src = "class B { private B(int x) { } public B() { } } class D : B { } class U { void M() { var d = new D(1); } }";
+    Assert.Equal("E0426", SemanticDump.FirstErrorCode(src));
+}
+
 [Test]
 void test_ctor_correct_arity_ok() {
     // 精确匹配 → 无 E0426

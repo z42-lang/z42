@@ -17,7 +17,9 @@ class Animal {
 class Dog : Animal {
     string breed;
 
-    public Dog(string n, int a, string b) {
+    // add-implicit-base-ctor-call：Animal 只有带参构造器，没写 `: base(..)` 会报 E0469。
+    // 体内仍用裸名写继承字段（本用例要验的就是裸名访问继承字段）。
+    public Dog(string n, int a, string b) : base(n, a) {
         name = n;
         age = a;
         breed = b;

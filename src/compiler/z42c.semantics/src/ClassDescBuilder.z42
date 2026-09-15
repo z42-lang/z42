@@ -136,19 +136,6 @@ public sealed class ClassDescBuilder {
         return trimmed;
     }
 
-    internal bool _hasExplicitInstanceCtor(ClassDecl c) {
-        int j = 0;
-        while (j < c.MemberCount) {
-            Decl m = IrGenFacts._unwrap(c.Members[j]);
-            if (m is MethodDecl) {
-                MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && !IrGenFacts._hasWord(md.Mods, "static")) { return true; }
-            }
-            j = j + 1;
-        }
-        return false;
-    }
-
     internal IrClassDesc _classDesc(ClassDecl c, bool hasRecord) {   // add-record-attribute：hasRecord 由 IrGen 从原始 AttributedDecl 判（[Record]）
         // 镜像 C# EmitClassDesc：struct 无默认基类；Std.Object 自身无基类；其余默认 "Std.Object"。
         // add-record-attribute（N+1，keyword 已删）：`[Record] class` 走 class（Kind=="class"）→ 自然拿回

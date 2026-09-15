@@ -49,6 +49,7 @@
   - [错误码体系](compiler/error-codes.md)
   - [类型转换分类器](compiler/type-conversion.md)
   - [访问权限强制](compiler/access-control.md)
+  - [构造器继承与隐式 base()](compiler/ctor-inheritance.md)
 
 # 第三部分 · 运行时（Runtime / VM）
 
