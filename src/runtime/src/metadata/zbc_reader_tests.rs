@@ -233,6 +233,9 @@ fn build_type_section_one_struct(size: u32, ref_leaves: &[(u32, u8)]) -> Vec<u8>
         b.extend_from_slice(&off.to_le_bytes());
         b.push(kind);
     }
+    // assoc-type-crosspkg (zbc 1.42): every TYPE record ends with an always-present
+    // unified assoc block (assoc_count:u16 + …); count=0 here (no associated types).
+    b.extend_from_slice(&0u16.to_le_bytes());        // assoc block count = 0
     b
 }
 
