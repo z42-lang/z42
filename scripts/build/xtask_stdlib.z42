@@ -85,7 +85,7 @@ int _buildStdlib() {
     //    Z42_LIBS=stdlibRun：稳定 stdlib 快照供 driver 运行期 Std.*（fresh member 从
     //    workspace dist 解析、优先于快照，故重建自洽）。mode 经 _z42cMode()（默认 interp）。
     _vNormal("  z42c build --workspace (CWD=src/libraries) → per-member dist");
-    int bc = _z42cWorkspaceBuild(vm, z42cDriver, Path.Join(root, "src/libraries"), stdlibRun);
+    int bc = _z42cWorkspaceBuild(vm, z42cDriver, Path.Join(root, "src/libraries"), stdlibRun, false);
     if (bc != 0) { ConsoleError.WriteLine("  ✗ z42c build --workspace stdlib failed (" + bc.ToString() + ")"); return 1; }
 
     // ── 5. Verify zpkg products (z42c-built) ─────────────────────────────

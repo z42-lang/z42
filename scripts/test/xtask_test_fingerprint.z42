@@ -1,0 +1,110 @@
+// xtask — `test fingerprint`：编译器输出变了，版本号必须累加（guard-compiler-fingerprint）。
+//
+// 增量缓存的键里，编译器身份 = `CacheStore.CompilerFingerprint` + zbc/zpkg 格式 Minor（见
+// version-bumping.md「编译器语义指纹」）。规则是「凡是影响输出的编译器改动都要累加」，此前全靠自觉。
+// #654 之后产物可复现（同源 + 同编译器 ⇒ 逐字节相同），于是可以机械地判：
+//
+//   同一份 base stdlib 源码，base 编译器编一遍、本树编译器编一遍，逐包比 zpkg 字节。
+//   字节变了 ∧ 指纹没变 ∧ 格式没变 ⇒ 红（缓存会把旧编译器的产物当成新的）。
+//
+// 输入：`--base <dir>` = base 源码树根，其 stdlib **已由 base 编译器建好**（产物位置按该树
+// src/libraries/z42.workspace.toml 的模板解析）。CI 里就是 bench-pr 的 base-src（同 runner 已建）。
+// 本树一侧：把 base 的 src/libraries 拷进 scratch，用本树 driver 以 `--no-incremental` 重建。
+// 覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（假阴性，不会假阳性）。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+using Std.Time;
+
+// 源码里 `<decl><n>;` 的 n（如 "public static int CompilerFingerprint = "）；读不到 → -1。
+int _srcIntConst(string file, string decl) {
+    if (!File.Exists(file)) { return -1; }
+    string t = File.ReadAllText(file);
+    int k = t.IndexOf(decl);
+    if (k < 0) { return -1; }
+    int s = k + decl.Length;
+    int e = s;
+    while (e < t.Length && t.CharAt(e) >= '0' && t.CharAt(e) <= '9') { e = e + 1; }
+    if (e == s) { return -1; }
+    return int.Parse(t.Substring(s, e - s));
+}
+
+// 编译器身份三元组 "fp/zbc/zpkg"，从源码树读。
+string _compilerIdentityOf(string tree) {
+    string fp = _srcIntConst(Path.Join(tree, "src/compiler/z42c.pipeline/src/CacheStore.z42"),
+        "public static int CompilerFingerprint = ").ToString();
+    string zbc = _srcIntConst(Path.Join(tree, "src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42"),
+        "public static int Minor = ").ToString();
+    string zpkg = _srcIntConst(Path.Join(tree, "src/libraries/z42.ir/src/ZpkgWriter.z42"),
+        "public static int Minor = ").ToString();
+    return fp + "/" + zbc + "/" + zpkg;
+}
+
+int _testFingerprint(ParseResult r) {
+    Stopwatch sw = _procStart("test fingerprint");
+    string root = _root();
+    string baseTree = r.GetOption("base");
+    if (baseTree.Length == 0) {
+        ConsoleError.WriteLine("usage: xtask test fingerprint --base <base 源码树根（其 stdlib 已由 base 编译器建好）>");
+        return 2;
+    }
+    string baseId = _compilerIdentityOf(baseTree);
+    string headId = _compilerIdentityOf(root);
+    Console.WriteLine("  编译器身份（CompilerFingerprint/zbc/zpkg）：base " + baseId + " · 本树 " + headId);
+    if (baseId.Contains("-1") || headId.Contains("-1")) {
+        ConsoleError.WriteLine("  ✗ 读不到版本常量（CacheStore.z42 / ZbcFormat.z42 / ZpkgWriter.z42 改名了？同步本脚本）");
+        return 1;
+    }
+
+    // 本树编译器重编 base 的 stdlib 源码（拷进 scratch，产物按拷贝里的 workspace 模板落在 scratch 内）。
+    string scratch = Path.Join(root, "artifacts/.scratch/fingerprint");
+    _resetDir(scratch);
+    string srcLibs = Path.Join(scratch, "src/libraries");
+    Directory.Copy(Path.Join(baseTree, "src/libraries"), srcLibs, true);
+    int bc = _z42cWorkspaceBuild(_builtVm(root, "release"), _driverZpkg(root, "release"), srcLibs, _libsDir(root), true);
+    if (bc != 0) {
+        // 本树编译器编不过 base 源码（如新增诊断、PR 同时改了 stdlib）⇒ 无从对比。不判红，但明示没测。
+        Console.WriteLine("::warning::test fingerprint: 本树编译器编不过 base 的 stdlib 源码，本次未检查编译器输出是否变化");
+        _procEnd("test fingerprint", sw);
+        return 0;
+    }
+
+    string baseWs = Path.Join(baseTree, "src/libraries/z42.workspace.toml");
+    string headWs = Path.Join(srcLibs, "z42.workspace.toml");
+    string[] dirs = _enumDirsSorted(Path.Join(baseTree, "src/libraries"));
+    string changed = "";
+    int nChanged = 0;
+    int nSame = 0;
+    int i = 0;
+    while (i < dirs.Length) {
+        string m = dirs[i];
+        i = i + 1;
+        if (Path.Glob(Path.Join(Path.Join(baseTree, "src/libraries"), m), "*.z42.toml").Length == 0) { continue; }
+        string a = Path.Join(_memberDist(baseWs, m, "release"), m + ".zpkg");
+        string b = Path.Join(_memberDist(headWs, m, "release"), m + ".zpkg");
+        if (!File.Exists(a) && !File.Exists(b)) { continue; }
+        if (_filesEqual(a, b)) { nSame = nSame + 1; continue; }
+        changed = changed + (nChanged > 0 ? ", " : "") + m;
+        nChanged = nChanged + 1;
+    }
+    if (nSame + nChanged == 0) {
+        ConsoleError.WriteLine("  ✗ base 树里找不到已建好的 stdlib 产物（先用 base 编译器建 " + baseWs + "）");
+        return 1;
+    }
+    if (nChanged == 0) {
+        Console.WriteLine("  ✓ 编译器输出未变（" + nSame.ToString() + " 个包逐字节一致）");
+        _procEnd("test fingerprint", sw);
+        return 0;
+    }
+    Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + changed + "）");
+    if (baseId != headId) {
+        Console.WriteLine("  ✓ 版本号已累加（" + baseId + " → " + headId + "），旧缓存会作废");
+        _procEnd("test fingerprint", sw);
+        return 0;
+    }
+    ConsoleError.WriteLine("  ✗ 编译器输出变了，但 CompilerFingerprint 与格式版本都没变 —— 增量缓存会把旧编译器的产物当成新的。");
+    ConsoleError.WriteLine("    请把 src/compiler/z42c.pipeline/src/CacheStore.z42 的 CompilerFingerprint +1（规则见 version-bumping.md「编译器语义指纹」）。");
+    return 1;
+}
