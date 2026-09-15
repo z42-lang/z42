@@ -102,6 +102,32 @@ arena 同）→ blob 内引用叶子恒被重标记。因此**写引用进 arena
 不重复发射：`_structChainRoot` 只 Emit 根一次（局部 / `this` reg0 / 拥有者裸 struct 字段），
 `_structChainOffset` 纯查布局表累加偏移。扁平单层 `a.x` 是其退化情形（offset=0），codegen 逐字节不变。
 
+**链节必须真内联（fix-generic-struct-chain-access, 2026-09-15）**：累加偏移的前提是「这一节的字节就在
+容器 blob 里」。判据是 `AccessEmitter._isInlineChainLink`：容器是 blob struct **且** 该字段在容器布局里
+`FieldIsStruct`。**只看容器是 blob struct 不够**——泛型 struct 的布局按**定义**算，字段声明类型是 `T`，
+擦除成一个**引用叶子**（存另一块 blob 的句柄）；实例化后这一节的静态类型虽是 struct
+（`ValueTuple2<int,string>`），存储却不在容器里：
+
+```text
+((int,string),int) t            ValueTuple2 布局（按定义 T1,T2）
+                                ┌────────────┬────────────┐
+                                │ Item1 : T1 │ Item2 : T2 │   两个引用叶子
+                                └─────┬──────┴────────────┘
+                                      └──► 另一块 blob (int,string)
+
+t.Item1.Item2  旧：off(VT2,Item1)+off(VT2,Item2) 在 t 的 blob 上读 ⇒ 读到 t.Item2（静默错值）
+               新：Item1 非内联 ⇒ 断链：先取 t.Item1 的句柄为根，再在它上面读 Item2（偏移从 0 起）
+```
+
+修复前的症状：`t.Item1.Item2` 读出外层 `Item2`、`t.Item1.Item1` 读出整块内层句柄后装箱崩、
+`pp.First.Y = 5` 写进外层别的字段。**先读进局部**（`var x = t.Item1; x.Item2`）一直是对的——
+单节读正好走「非内联字段 = 取句柄」路径。属性 getter 出现在链中间（无布局存储）也按同一判据断链。
+读写共用 `_structChainRoot` / `_structChainOffset`，故读、写、复合赋值一起修正。golden
+`src/tests/types/generic_struct_chain.z42`（interp + jit）。
+
+> ⚠️ 断链后写穿（`pp.First.Y = 5`）写的是擦除槽**指向的那块 blob**。它今天并非 `pp` 独占——见下方
+> Deferred「泛型擦除槽的值复制」：存入 `T` 槽不复制、复制外层泛型 struct 是浅拷贝，于是写穿会被别名看到。
+
 **整字段复制**：`P p = line.a`（读出）/ `line.a = q`（写入）= 对子 struct 的叶子**逐叶子分解复制**
 （递归到真叶子；基元走字节 codec、引用叶子走侧表 `get_ref`/`set_ref`），复用现有 Get/SetPrim，
 不引入区间复制指令。值语义：`p` 得独立副本，改 `p.x` 不动 `line.a.x`。
@@ -489,6 +515,15 @@ API 面越界）。复用既有 `HasBase` 零越界、一个 nightly 落地；�
 分类正确后 `StructLayout.BuildFromSymbols` 从字段名/类型**重算**布局（`_compute` 确定性，与生产方持久化的
 `StructSize`/引用位图**逐字节一致**）→ 发 `StructAlloc`/`StructFieldGetPrim/SetPrim`（正确字节 offset）。
 
+**「逐字节一致」的第二个前提：字段类型拼写同口径（fix-crosspkg-nested-struct-layout, 2026-09-15）**。
+`_kindOf` 按符号表**裸名键**判「字段是不是 struct」。本地字段拼写由 `MemberCollector` 取
+`SurfaceTypeName(已解析类型)`（短名形式 `Point3`）；导入字段此前**照搬导出元数据的 FQ 串**
+（`Demo.NestLayoutTarget.Point3`）→ 查不到 → 嵌套 struct 字段被判成 8B 引用叶子 → 消费方布局与生产方错位，
+读写静默错值。修复：`ImportedSymbolLoader._fillClass` 登记 `OwnField` 时同样用 `SurfaceTypeName(fsym.FieldType)`
+（解析失败才回落原串，与本地回落对称）。旧 fixture `struct_cross_pkg` 的 `Point{int,int}` 恰为 8B = 引用叶子
+大小，偏移碰巧重合所以一直绿；golden `cross-zpkg/struct_nested_layout_cross_pkg` 用 12B `Point3` + transitive
+`Frame` 守住（阴性对照：撤修复后 `Error: struct ref leaf at byte offset 8 not in type layout`）。
+
 ### 修复前的崩溃
 
 `ImportedSymbolLoader` 从不设 `IsStruct` → imported struct 当**引用类型**（消费方不发 struct 指令、构造为
@@ -594,6 +629,17 @@ P4b 只交付**装箱 struct** 的字段反射；**堆对象上的内联 struct 
 - ✅ **对象内联 struct 字段反射**（P4b-B add-object-inline-struct-reflection）：`FieldInfo.GetValue/SetValue`
   读写 `class C { Point pt; }` 的内联 struct 字段（复刻**类级**内联布局 `compute_class_inline` + 共用
   `snapshot_struct_leaf`/`write_struct_leaf`），格式中立——见上「对象内联 struct 字段反射」节。
+- ✅ **泛型 struct 套 struct 的链式读写**（`t.Item1.Item2` / `pp.First.Y = v`）：链节须真内联才累加偏移，
+  擦除成 `T` 的字段断链取句柄（fix-generic-struct-chain-access）——见上「嵌套 struct 字段」节。
+- ⏳ Deferred：**泛型擦除槽的值复制**（generic-struct-erased-slot-value-copy）——struct 值存进声明类型为
+  `T` 的字段（泛型 struct **与泛型 class** 都是）时按句柄存、**不复制**，复制外层泛型 struct 也只浅拷该句柄 ⇒
+  与源变量 / 副本共享同一块 blob（实测 2026-09-15：`new Pair<P2,int>(inner,1)` 后改 `inner.Y`、
+  `new CBox<P2>(inner)` 后改 `inner.Y`、`var q = pp; q.First.Y = 9` 均被 `pp` 看到；C# 语义三者都不应看到）。
+  泛型方法返回值不受影响（`Id<P2>(inner)` 有复制）。**触发原因**：需在「存入 `T` 槽」处复制（对标泛型容器
+  边界装箱 P3a，但 P3a 只覆盖容器 API 实参）+ 外层 struct 复制对引用叶子里的 struct 句柄深拷，或改为读出即复制、
+  禁止写穿，属值语义设计决策，不是链式偏移 bug 的一部分。**当前 workaround**：存入前先拷一份局部
+  （`var c = inner; new Pair<P2,int>(c, 1)`），修改内层时读出-改-写回（`var f = pp.First; f.Y = 9; pp.First = f`）
+  ——注意写回同样不复制，写回后别再改 `f`。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、**JIT 原生内联字节访问**（P5-B，现 helper
   桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438
   自引用诊断**（现 `Size==0` 兜底防崩）。
