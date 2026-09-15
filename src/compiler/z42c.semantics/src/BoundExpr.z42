@@ -99,8 +99,12 @@ public sealed class BoundIdent : BoundExpr {
 // 方法组转换：自由函数名作值（`IntFn0 a = Helper`）→ LoadFn @<qualified>（func 引用）。
 public sealed class BoundFuncRef : BoundExpr {
     public string FuncName;
+    public string FuncNs;         // resolve-free-functions-by-namespace：绑定期解析到的 ns（同 BoundCall.FreeNs）
+    public bool   FuncImported;
     private Z42Type _type;
-    public BoundFuncRef(string funcName, Z42Type type, Span span) { this.Span = span; this.FuncName = funcName; this._type = type; }
+    public BoundFuncRef(string funcName, string funcNs, bool funcImported, Z42Type type, Span span) {
+        this.Span = span; this.FuncName = funcName; this.FuncNs = funcNs; this.FuncImported = funcImported; this._type = type;
+    }
     public override Z42Type Type() { return this._type; }
     public override string Dump() { return "(func-ref " + this.FuncName + ")"; }
 }

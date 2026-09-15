@@ -214,30 +214,4 @@ public static class CuPreprocess {
         r[k] = "Std.Runtime";
         return r;
     }
-    // 自由函数版遮蔽剔除（fix-imported-free-func-namespace，镜像 _filterShadowed）：本 CU 顶层
-    // 声明的自由函数遮蔽同名 imported —— 从 FunctionNamespaces 剔除，使 QualifyFreeFunc 回落当前 ns
-    // （local-wins：本地 `foo` 不误绑到某依赖包的 public `foo`）。
-    internal static StrMap _filterShadowedFuncs(StrMap imported, CompilationUnit cu) {
-        if (imported == null) { return imported; }
-        StrMap exclude = new StrMap();
-        int di = 0;
-        while (di < cu.DeclCount) {
-            Decl dd = cu.Decls[di];
-            if (dd is AttributedDecl) { dd = (dd as AttributedDecl).Inner; }
-            if (dd is MethodDecl) {
-                string fname = (dd as MethodDecl).Name;
-                if (imported.ContainsKey(fname)) { exclude.Put(fname, "1"); }
-            }
-            di = di + 1;
-        }
-        if (exclude.Count() == 0) { return imported; }
-        StrMap r = new StrMap();
-        string[] ks = imported.Keys();
-        int i = 0;
-        while (i < ks.Length) {
-            if (!exclude.ContainsKey(ks[i])) { r.Put(ks[i], imported.Get(ks[i])); }
-            i = i + 1;
-        }
-        return r;
-    }
 }

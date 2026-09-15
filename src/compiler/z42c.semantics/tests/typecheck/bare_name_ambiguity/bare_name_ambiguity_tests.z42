@@ -20,6 +20,7 @@ using Z42.IR;
 // 所有文件的自由函数**共享一个平坦命名空间**，而 z42 的自由函数**不按参数类型重载**——
 // 我最初把辅助函数叫 `countCode`，直接被 `generic_inference_tests.z42` 里同名同 arity 的那个
 // 顶掉（报 `cannot assign String[] to DiagnosticBag`）。
+// （历史注：这正是 resolve-free-functions-by-namespace 修掉的 bug——自由函数现按各自 ns 解析、不再互相顶掉；前缀已非必需，保留无害。）
 
 // 包级（多 CU）编译 → 汇总全部文件的诊断消息。deps/imported 传 null = 无跨包依赖。
 string[] ambPkgDiags(string[] srcs, string[] files) {

@@ -93,14 +93,14 @@ public static class FuncImplExtractor {
         return "public";
     }
 
-    internal static ExportedFuncZ _extractFunc(MethodDecl md, SymbolTable symbols) {
-        MethodSymbol ms = symbols.GetFunc(md.Name);
+    internal static ExportedFuncZ _extractFunc(MethodDecl md, string declNs, SymbolTable symbols) {
+        MethodSymbol ms = symbols.GetFuncIn(declNs, md.Name);   // resolve-free-functions-by-namespace：按声明所在 ns 精确取
         ExportedParamZ[] ps = new ExportedParamZ[0];
         string ret = "void";
         int pc = 0;
         int paramsFrom = 0 - 1;
-        // Free functions don't overload — `GetFunc` is name-keyed, so for an (invalid)
-        // same-name pair it may return a DIFFERENT-arity overload's symbol. Only trust the
+        // Free functions don't overload — the table is keyed by `ns.name`, so for an (invalid)
+        // same-FQN pair it may return a DIFFERENT-arity overload's symbol. Only trust the
         // resolved signature when its arity matches THIS decl; otherwise fall back to the
         // decl's own written types so export can't index `md.Params`/`sig.ParamTypes` out
         // of range and crash. Valid (unique-name) functions always match → unchanged path,

@@ -1,0 +1,6 @@
+namespace Gamma;
+using Std.IO;
+
+void Main() {
+    Console.WriteLine(g(7).ToString());    // 107：没写 using Beta，全包唯一的 g 仍指到 Beta.g
+}

@@ -184,25 +184,14 @@ public sealed partial class SymbolTable {
         return "";
     }
 
-    // ③ 同名自由函数分居 **≥2 个可见 ns** → E0456 消息；否则 ""。
-    // 与类的裸名歧义同规则：**外围 ns 声明了它 → 不算歧义**（本包那份赢，语言规则如此）。
+    // ③ 裸名解析候选不止一个 ns → E0456 消息；否则 ""。
+    // 候选集与 `ResolveFuncNs` **同一份**（`_funcCandidates`）：外围 ns 声明了它 → 不算歧义；否则可见 ns
+    // 里 ≥2 份，或可见集为空时全部声明里 ≥2 份（resolve-free-functions-by-namespace：此前后者按裸名撞赢家、不报）。
     public string AmbiguousFuncNameMsg(string name) {
-        string[] os = this.FuncOriginsOf(name);
-        string first = "";
-        string second = "";
-        int i = 0;
-        while (i < os.Length) {
-            string ns = SymbolTable._origNs(os[i]);
-            if (ns == this.ScopeNs) { return ""; }
-            if (this._origVisible(os[i])) {
-                if (first == "") { first = ns; }
-                else if (second == "" && ns != first) { second = ns; }
-            }
-            i = i + 1;
-        }
-        if (second == "") { return ""; }
-        return "`" + name + "` is an ambiguous reference between `" + SymbolTable.QualOf(first, name)
-             + "` and `" + SymbolTable.QualOf(second, name) + "`";
+        string[] c = this._funcCandidates(name);
+        if (c.Length < 2) { return ""; }
+        return "`" + name + "` is an ambiguous reference between `" + SymbolTable.QualOf(c[0], name)
+             + "` and `" + SymbolTable.QualOf(c[1], name) + "`";
     }
 
     // FQN → 声明过它的依赖包名列表（无记录返回空数组）。

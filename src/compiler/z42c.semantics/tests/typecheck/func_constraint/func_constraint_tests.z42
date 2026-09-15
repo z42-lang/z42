@@ -7,6 +7,7 @@
 //
 // ⚠️ 辅助函数一律带 `fnc` 前缀：同一测试单元（`include = ["**/*.z42"]`）里所有文件的自由函数
 // 共享一个平坦命名空间，且 z42 自由函数**不按参数类型重载** —— 同名同 arity 会被别的文件顶掉。
+// （历史注：这正是 resolve-free-functions-by-namespace 修掉的 bug——自由函数现按各自 ns 解析、不再互相顶掉；前缀已非必需，保留无害。）
 namespace Z42cSemanticsFuncConstraintTests;
 
 using Std;

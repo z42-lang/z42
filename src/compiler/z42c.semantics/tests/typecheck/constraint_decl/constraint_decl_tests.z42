@@ -10,6 +10,7 @@
 // 永远不响。不自带 fixture 就又是一道从不响的门。每条都做过退回对照。
 //
 // ⚠️ 辅助函数一律带 `cdw` 前缀（同一测试单元里自由函数共享平坦命名空间且不按参数类型重载）。
+// （历史注：这正是 resolve-free-functions-by-namespace 修掉的 bug——自由函数现按各自 ns 解析、不再互相顶掉；前缀已非必需，保留无害。）
 namespace Z42cSemanticsConstraintDeclTests;
 
 using Std;

@@ -1,0 +1,65 @@
+// resolve-free-functions-by-namespace：自由函数按**命名空间**登记与解析（SymbolTable 的分部）。
+//
+// 🔴 为什么要有：此前 `Functions` 以**裸名**为键、`MemberCollector` 后写覆盖，而发射端一律按**调用方
+// 当前 ns** 限定 —— 两边口径不一。实测三种坏形态（同包）：
+//   · 同 ns 跨文件同名 → 静默合成一份（类型检查只见后写那份，两份发成同一 FQN）；
+//   · 跨 ns 同名 → 类型检查绑到**另一个 ns** 的签名，合法代码成败取决于**文件名排序**；
+//   · 跨 ns 调用（`using Beta; g(1)`）→ 编译通过、运行期 `undefined function Alpha.g`。
+// 跨**包**的自由函数反而是好的（按源 ns 限定）——同包缺的正是这一套。现在两者走同一张 FQN 表、同一条解析规则，
+// 解析结果（ns）随 BoundCall / BoundFuncRef 带到发射端，发射端不再自己猜。
+namespace Z42.Semantics;
+using Z42.IR;
+
+public sealed partial class SymbolTable {
+    // 登记一份自由函数。同 FQN 已有：`local` 且既有那份是导入的 → 本包覆盖它（local-wins，E0606 另报）；
+    // 否则保留既有。返回**被占用前的既有那份**（无则 null）——调用方据此判「同 FQN 两份本包声明」。
+    public MethodSymbol AddFunc(string ns, string name, MethodSymbol ms, bool local) {
+        string fqn = SymbolTable.QualOf(ns, name);
+        int at = this.FunctionsByFqn.Find(fqn);
+        if (at >= 0) {
+            MethodSymbol prev = this.FunctionsByFqn.ValAt(at) as MethodSymbol;
+            if (local && prev != null && !prev.HasDecl) { this.FunctionsByFqn.Put(fqn, ms); }
+            return prev;
+        }
+        this.FunctionsByFqn.Put(fqn, ms);
+        SymbolTable.NoteNsInto(this.FuncNsAll, name, ns);
+        return null;
+    }
+
+    public MethodSymbol GetFuncIn(string ns, string name) {
+        return this.FunctionsByFqn.Get(SymbolTable.QualOf(ns, name)) as MethodSymbol;
+    }
+
+    // 裸名自由函数引用解析到哪个 ns；无此名 → null。**判据只此一份**（E0456 的 AmbiguousFuncNameMsg 同样走它）：
+    //   ① 引用方所在 ns 声明了它 → 就是它（外围 ns 优先，不算歧义——与类型裸名同规则）；
+    //   ② 否则在**可见** ns（本 CU using 集 + 全局 ns）里找；
+    //   ③ 可见集里没有 → 退到全部声明（与类型裸名一致：不写 using 也能指到唯一的那份）。
+    // ②③ 命中不止一个 ns = 歧义：返回第一个（登记序：导入按包序在前、本包按文件序在后，确定），E0456 由调用点另报。
+    public string ResolveFuncNs(string name) {
+        string[] c = this._funcCandidates(name);
+        return c.Length == 0 ? null : c[0];
+    }
+
+    // 解析候选：①命中 → 仅外围 ns 一项；否则 ② 可见集（非空时）或 ③ 全集。长度 ≥2 即歧义。
+    internal string[] _funcCandidates(string name) {
+        int at = this.FuncNsAll.Find(name);
+        if (at < 0) { return new string[0]; }
+        string[] nss = (this.FuncNsAll.ValAt(at) as StrBox).Value.Split("|");
+        int i = 0;
+        while (i < nss.Length) {
+            if (nss[i] == this.ScopeNs) { string[] own = new string[1]; own[0] = nss[i]; return own; }
+            i = i + 1;
+        }
+        string[] vis = new string[nss.Length];
+        int vn = 0;
+        i = 0;
+        while (i < nss.Length) {
+            if (nss[i] == "" || this.IsScopeVisibleNs(nss[i])) { vis[vn] = nss[i]; vn = vn + 1; }
+            i = i + 1;
+        }
+        if (vn == 0) { return nss; }
+        string[] r = new string[vn];
+        i = 0; while (i < vn) { r[i] = vis[i]; i = i + 1; }
+        return r;
+    }
+}

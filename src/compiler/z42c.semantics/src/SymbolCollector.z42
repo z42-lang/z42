@@ -226,10 +226,14 @@ public sealed class SymbolCollector {
             while (j < fos.Length) { SymbolTable.NoteNsInto(table.FuncOriginAll, fok[i], fos[j]); j = j + 1; }
             i = i + 1;
         }
-        string[] fns = imported.Functions.Keys();
+        // resolve-free-functions-by-namespace：导入自由函数按 FQN 并入（键 = `ns.name`，name 不含点 ⇒ 末个点切分）。
+        string[] fns = imported.FunctionsByFqn.Keys();
         i = 0;
         while (i < fns.Length) {
-            if (!table.Functions.ContainsKey(fns[i])) { table.Functions.Put(fns[i], imported.Functions.Get(fns[i])); }
+            int dot = fns[i].LastIndexOf(".");
+            string fnNs = dot < 0 ? "" : fns[i].Substring(0, dot);
+            string fnName = dot < 0 ? fns[i] : fns[i].Substring(dot + 1);
+            table.AddFunc(fnNs, fnName, imported.FunctionsByFqn.Get(fns[i]) as MethodSymbol, false);
             i = i + 1;
         }
         // add-associated-types PR-1：导入类的 where 约束 seed（跨包约束校验的落地点）。

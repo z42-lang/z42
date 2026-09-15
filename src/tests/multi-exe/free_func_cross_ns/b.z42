@@ -1,0 +1,5 @@
+namespace Beta;
+
+string f() { return "beta"; }
+
+int g(int x) { return x + 100; }

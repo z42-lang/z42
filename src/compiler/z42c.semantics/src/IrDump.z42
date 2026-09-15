@@ -278,7 +278,6 @@ public static class IrDump {
         gen.PartialMerged = CuCompile._buildMergedPartial(one, 1, symbols);   // add-partial-types：合并 ClassDecl
         gen.LocalClasses = CuPreprocess._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
         if (imported != null) { gen.ImportedClassNs = CuPreprocess._filterShadowed(imported.ClassNamespaces, cu); }
-        if (imported != null) { gen.ImportedFuncNs = CuPreprocess._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
         string[] actNs2 = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
         // 单模块 / --dump-ir / codegen 单测 / golden .zbc regen 路径：本地优化但**不内联**

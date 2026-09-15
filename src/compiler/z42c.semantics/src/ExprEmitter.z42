@@ -196,7 +196,9 @@ public sealed class ExprEmitter {
         if (e is BoundFuncRef) {   // 方法组：LoadFn @<qualified 自由函数名>（与 free-call 同名限定）
             BoundFuncRef fr = e as BoundFuncRef;
             TypedReg frdst = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new LoadFnInstr(frdst, this._ctx.Qualify(fr.FuncName)));
+            // resolve-free-functions-by-namespace：此前一律 `Qualify`（当前 ns）⇒ 引用导入 / 别的 ns 的函数发出不存在的名字。
+            if (fr.FuncImported) { this._ctx.TrackDepNamespace(fr.FuncNs); }
+            this._ctx.Emit(new LoadFnInstr(frdst, SymbolTable.QualOf(fr.FuncNs, fr.FuncName)));
             return frdst;
         }
         if (e is BoundMethodGroup) { return this._call._emitMethodGroup(e as BoundMethodGroup); }

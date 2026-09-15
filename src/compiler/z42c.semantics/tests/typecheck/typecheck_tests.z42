@@ -780,7 +780,7 @@ void test_operator_overload_multi_arity_dispatch_selects_correct_overload() {
 
 [Test]
 void test_duplicate_free_function_reports_error_not_crash() {
-    // 顶层同名自由函数**不重载**（`SymbolTable.Functions` 名唯一键；重载 mangling 仅类方法）。
+    // 顶层同名自由函数**不重载**（`SymbolTable.FunctionsByFqn` 以 `ns.name` 为唯一键；重载 mangling 仅类方法）。
     // 曾使 `ExportedTypeExtractor._extractFunc` 用错-arity 符号索引 `md.Params` → FieldGet null 崩。
     // 现由 `TypeChecker._checkDuplicateFreeFunctions` 报清晰 duplicate 诊断（不再崩）。
     string src = "int foo(int a) { return a; } int foo(int a, int b) { return a + b; }";

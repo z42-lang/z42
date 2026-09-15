@@ -45,8 +45,8 @@ void test_collect_method_signature_and_static() {
 [Test]
 void test_collect_top_level_func() {
     var table = collect("int Add(int a, int b) { return a + b; }");
-    Assert.Equal(true, table.HasFunc("Add"));
-    var m = table.GetFunc("Add");
+    Assert.Equal(true, table.GetFuncIn("", "Add") != null);
+    var m = table.GetFuncIn("", "Add");
     Assert.Equal("(int,int)->int", m.Signature.Dump());
 }
 

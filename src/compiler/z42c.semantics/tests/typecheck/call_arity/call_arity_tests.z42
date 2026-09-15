@@ -15,7 +15,7 @@ using Z42.Syntax;
 using Z42.Core;
 using Z42.IR;
 
-// ⚠️ 辅助函数带 `ar` 前缀：同一测试工程里各文件的自由函数目前按裸名共用一张表（见 crosspkg_duplicate 的注）。
+// 辅助函数带 `ar` 前缀：写于自由函数按 ns 解析之前（resolve-free-functions-by-namespace 起已非必需，保留无害）。
 
 DiagnosticBag arBody(string src) {
     var p = new Parser(src, "t.z42");

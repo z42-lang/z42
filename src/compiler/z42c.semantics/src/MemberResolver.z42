@@ -674,12 +674,14 @@ public sealed partial class MemberResolver {
                 this._tc._overload._checkLocalFnArity(id.Name, lfsig, call.ArgCount, call.Span);   // add-call-arity-diagnostics
                 return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span);
             }
-            if (env.Symbols.HasFunc(id.Name)) {
+            string fnNs = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace：按引用方 ns + usings 解析
+            if (fnNs != null) {
                 this._tc.ChkFreeFuncOrigins(env.Symbols, id.Name, call.Span);   // report-crosspkg-duplicate-function：E0601/E0606/E0456
-                MethodSymbol ms = env.Symbols.GetFunc(id.Name);
+                MethodSymbol ms = env.Symbols.GetFuncIn(fnNs, id.Name);
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span, false);
                 BoundCall bc = new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
+                bc.FreeNs = fnNs; bc.FreeImported = !ms.HasDecl;
                 this._applyMethodTypeArgs(bc, call, ms, env);
                 return bc;
             }
@@ -737,11 +739,13 @@ public sealed partial class MemberResolver {
         if (mem.Target is IdentExpr) {
             IdentExpr nsId = mem.Target as IdentExpr;
             if (this._tc._currentNs != "" && nsId.Name == this._tc._currentNs
-                && env.LookupVar(nsId.Name) == null && env.Symbols.HasFunc(mem.Name)) {
-                this._tc.ChkFreeFuncOrigins(env.Symbols, mem.Name, sp);   // report-crosspkg-duplicate-function：同裸名漏斗
-                MethodSymbol nfs = env.Symbols.GetFunc(mem.Name);
+                && env.LookupVar(nsId.Name) == null && env.Symbols.GetFuncIn(nsId.Name, mem.Name) != null) {
+                // 限定写法 = 已消歧：直接取该 ns 的那份（resolve-free-functions-by-namespace），不走裸名候选。
+                MethodSymbol nfs = env.Symbols.GetFuncIn(nsId.Name, mem.Name);
                 BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
-                return new BoundCall("free", false, null, "", mem.Name, nfa, nfa.Length, nfs.Signature.Ret, sp);
+                BoundCall nbc = new BoundCall("free", false, null, "", mem.Name, nfa, nfa.Length, nfs.Signature.Ret, sp);
+                nbc.FreeNs = nsId.Name; nbc.FreeImported = !nfs.HasDecl;
+                return nbc;
             }
         }
         // 静态：target 是裸类名（非局部变量）→ Class.m(args)

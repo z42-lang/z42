@@ -20,6 +20,7 @@ using Z42.IR;
 
 // ⚠️ 辅助函数一律带 `dup` 前缀：同一测试单元（`typecheck` 工程 `include = ["**/*.z42"]`）里所有
 // 文件的自由函数共享一个平坦命名空间，且 z42 自由函数**不按参数类型重载**（见 bare_name 那组的注）。
+// （历史注：这正是 resolve-free-functions-by-namespace 修掉的 bug——自由函数现按各自 ns 解析、不再互相顶掉；前缀已非必需，保留无害。）
 
 // 把 N 份源码合成 N 个「依赖包的导出面」。nss[i] / pkgs[i] 与 srcs[i] 平行。
 // 同一个包的多个模块 = 多个条目共用同一个 pkgs[i]（用来验「同包不误报」）。
@@ -137,9 +138,10 @@ void local_interface_shadowing_import_errors() {
 
 // ── report-crosspkg-duplicate-function：自由函数 / 静态调用位 ──────────────────────
 //
-// 🔴 自由函数比类更糊：`ImportedSymbols.Functions` 的键是**裸名**（`ExportedFuncZ.Name` 就是
+// 🔴 自由函数比类更糊：`ImportedSymbols.Functions` 的键曾是**裸名**（`ExportedFuncZ.Name` 就是
 // `md.Name`，从来没有 ns 前缀），连 FQN 视图都没有 ⇒ 同名者无论同不同 ns 都撞同一个键、
 // first-wins，且**没有任何写法能指到输的那份**（自由函数只有裸名一种调用形态）。
+// （resolve-free-functions-by-namespace 起改为 `FunctionsByFqn`；同 FQN 跨包仍指不开，故本组码不变。）
 // 实测修前：两个包各声明 `Demo.Dup.helper` → 编译零诊断、字母序靠前的赢；分居两 ns 且都
 // `using` 了也一样静默选一份；连运行期都不会 warn（输的那个包因惰性加载压根没被载入）。
 
