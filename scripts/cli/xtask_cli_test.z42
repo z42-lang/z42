@@ -80,6 +80,9 @@ SubcommandRouter _testRouter() {
         new ArgParser("xtask test walkers", "reconcile z42c.syntax node classes vs each registered walker's `is` arms"));
     t.Add("incremental", "file-level incremental reconciler (per-file touch: incr == full, byte-exact)",
         new ArgParser("xtask test incremental", "brute-force reconcile incremental vs full builds + timing"));
+    ArgParser fingerprint = new ArgParser("xtask test fingerprint", "base 与本树编译器编同一份 base stdlib，输出变了则版本号必须累加");
+    fingerprint.AddOption("base", "", "base 源码树根（其 stdlib 已由 base 编译器建好）", "");
+    t.Add("fingerprint", "compiler output changed ⇒ CompilerFingerprint / format minor must be bumped", fingerprint);
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
     changed.AddFlag("dry-run", "", "print the plan, don't run");
     changed.AddOptionalPositional("base", "git base ref (default: HEAD)");
@@ -128,6 +131,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "lines")        { return _testLines(r.GetFlag("update")); }          // 文件行数硬上限（棘轮基线）
     if (sub == "walkers")      { return _testWalkers(); }                            // AST walker 完备性对账
     if (sub == "incremental")  { return _testIncremental(r); }   // 文件级增量暴力对账（D4/D8）
+    if (sub == "fingerprint")  { return _testFingerprint(r); }   // 编译器输出变 ⇒ 版本号必须累加
     if (sub == "changed")      { return _testChanged(r); }
     if (sub == "platform") {
         string plat = p.Length > 2 ? p[2] : "";

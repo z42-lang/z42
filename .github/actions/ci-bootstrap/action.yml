@@ -139,13 +139,13 @@ runs:
           # 会 `no field` 编译失败(正常路径由 _ensureBootstrapSelfDepLibs 解,两代路径此前缺此步)。stdlib
           # 源不引用任何比种子更新的 API(轴② 纪律),故旧种子能编它。add-escape-analysis-stack-alloc。
           G0LIBS="$ROOT/.ci-gen0libs"; rm -rf "$G0LIBS"; mkdir -p "$G0LIBS"
-          ( cd "$ROOT/src/libraries" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release )
+          ( cd "$ROOT/src/libraries" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release --no-incremental )
           for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$G0LIBS/"; done
           # 种子里 gen0 未产出的库(若有)用种子版兜底,保证种子 driver 运行期依赖齐全。
           for f in "$work/sdkpkg/libs/"*.zpkg; do [ -f "$G0LIBS/$(basename "$f")" ] || cp -f "$f" "$G0LIBS/"; done
           g0libsw="$(winpath "$G0LIBS")"
           # Gen1 z42c: 旧VM + 旧种子 z42c,**对着 gen0 的新 z42.ir 编**(含新 API)→ gen1(旧壳/新逻辑)。
-          ( cd "$ROOT/src/compiler" && Z42_LIBS="$g0libsw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release )
+          ( cd "$ROOT/src/compiler" && Z42_LIBS="$g0libsw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release --no-incremental )
           # Gen1 stdlib: gen1 driver + gen0 新 z42.ir 同目录(旧VM 运行时加载——gen1 运行期需新 z42.ir
           # 的字段如 StackAlloc 才能 emit)→ 产新格式 stdlib。
           G1RUN="$ROOT/.ci-gen1run"; rm -rf "$G1RUN"; mkdir -p "$G1RUN"
@@ -163,7 +163,7 @@ runs:
           # dist 起步为空(与 DepScanCache「建成员前其 dist 空、不在 paths」的前提一致)。gen0 产物已在
           # 上面拷进 G0LIBS,gen1 driver 已拷进 G1RUN,故清 artifacts 安全。
           rm -rf "$ROOT/artifacts/build/libraries"
-          ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
+          ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release --no-incremental )
           echo "   ✓ gen1 stdlib: fresh z42.core minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg" | tr -d ' ')"
           # 新格式 stdlib flat 视图
           FLAT="$ROOT/artifacts/build/libraries/dist/release"; mkdir -p "$FLAT"
@@ -175,7 +175,7 @@ runs:
           # DepScanCache 缓存 gen1 旧份的 strict-pin skip → gen2 兄弟(z42c.*)解析缺席。gen1 driver
           # 已在 G1RUN,gen2 用它作 driver,故清 artifacts/build/compiler 安全(gen2 重建 + boot_driver 取新)。
           rm -rf "$ROOT/artifacts/build/compiler"
-          ( cd "$ROOT/src/compiler" && Z42_LIBS="$flatw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release )
+          ( cd "$ROOT/src/compiler" && Z42_LIBS="$flatw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release --no-incremental )
           g2_minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg" | tr -d ' ')
           [ "$g2_minor" = "$cur_minor" ] || { echo "::error::两代自举 gen2 z42c minor=$g2_minor ≠ current=$cur_minor"; exit 1; }
           echo "   ✓ 两代自举完成:gen2 z42c + stdlib 均 minor=$cur_minor(当前格式);新 VM 接管"
