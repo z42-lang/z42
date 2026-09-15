@@ -100,6 +100,9 @@ SubcommandRouter _builderRoot() {
     // 并行拉起 `z42b test <toml> --name <unit>`，从此不必自带一套发现规则（两套规则各自漂移
     // 正是 #580 查出的那三处分歧的来源）。
     test.AddFlag("list", "", "只列出 test 目标名（一行一个），不编译不运行");
+    // --reuse-parent：父包 dist 已在就不重建。编排方（xtask）每个库先不带它跑一个目标把父包建好，
+    // 其余目标并行时带上 —— 进程内编译器无增量，不带的话 N 个目标就把父包全量重编 N 遍。
+    test.AddFlag("reuse-parent", "", "父包 dist 已存在则直接复用、不重建（编排方已先建好父包时用）");
     root.Add("test", "run [Test] in a compiled module, project, or test-bundle", test);
 
     ArgParser bench = new ArgParser("z42b bench", "run [Benchmark] in a compiled module or project");
@@ -111,6 +114,7 @@ SubcommandRouter _builderRoot() {
     bench.AddOption("rid", "", "compile-then-test: target RID (default: host)", "");
     bench.AddFlag("release", "", "compile-then-test: release profile (default: debug)");
     bench.AddFlag("list", "", "只列出 bench 目标名（一行一个），不编译不运行");
+    bench.AddFlag("reuse-parent", "", "父包 dist 已存在则直接复用、不重建（编排方已先建好父包时用）");
     root.Add("bench", "run [Benchmark] in a compiled module or project", bench);
 
     // clean — remove a project's build artifacts (moved out of z42c: the compiler

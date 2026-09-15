@@ -181,7 +181,10 @@ int _runDevTargets(ParseResult r, string verb, string format) {
         // `--format json` 下进度走 stderr —— stdout 留给机器读的那一份（见 Z42.Build.BuildLog）。
         if (format == "json") { ConsoleError.WriteLine("\n── " + kind + " target: " + t.Name + " ──"); }
         else                  { Console.WriteLine("\n── " + kind + " target: " + t.Name + " ──"); }
-        int rc = _runOneDevTarget(r, m, t, kind, tomlPath, format);
+        // 父包只在第一个目标时建；同一进程里后续目标复用它的 dist（进程内编译器无增量，
+        // 每个目标都建一遍 = 父包全量重编 N 遍）。`--reuse-parent` 让第一个也复用（编排方已建好）。
+        bool reuseParent = r.GetFlag("reuse-parent") || ti > 0;
+        int rc = _runOneDevTarget(r, m, t, kind, tomlPath, format, reuseParent);
         if (rc != 0 && worst == 0) { worst = rc; }
         ti = ti + 1;
     }
@@ -192,7 +195,7 @@ int _runDevTargets(ParseResult r, string verb, string format) {
 // 建一个目标并跑它。派生 manifest 只活在内存里 —— 不写任何临时 toml（这正是本变更要消除的
 // 那条「伪造文件 → 落盘 → 读回来」往返；身份就是在那一步丢的）。
 int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
-                     string tomlPath, string format) {
+                     string tomlPath, string format, bool reuseParent) {
     string sourceDir = Path.GetDirectoryName(tomlPath);
     if (sourceDir.Length == 0) { sourceDir = "."; }
     Target tgt = _makeTarget(r, "");
@@ -209,7 +212,7 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
     //    所有目标共用它的产物。
     // "" 有两种含义：父包没有源（纯测试工程，正常）或建失败（已打诊断）。用 _parentHasSources
     // 区分 —— 前者继续、目标独立编译；后者才算失败。
-    string parentDist = _buildParentForTargets(m, tgt, sourceDir);
+    string parentDist = _buildParentForTargets(m, tgt, sourceDir, reuseParent);
     if (parentDist.Length == 0 && _parentHasSources(m, sourceDir)) { return 1; }
 
     // ② 父包身份：交给进程内编译器 ⇒ 测试可见父包 internal
@@ -396,11 +399,18 @@ string[] _sortedDir(string dir) {
 
 // 建父包本体一次（多目标共用），返回其 dist 目录；失败返 ""。
 // 返回父包 dist 目录；**父包没有任何源时返回 ""**（不是失败）—— 见下。
-string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir) {
+string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir, bool reuse) {
     // 纯测试工程：整个包只有 `[[test]]` 目标、没有自己的源（如 src/tests/manifest-targets/basic）。
     // 这类工程没有「父包」可建，也就没有 internal 可暴露 —— 无条件建父包会撞
     // 「no .z42 sources under <projdir>」而整个目标跑不起来。跳过它，让目标独立编译。
     if (!_parentHasSources(m, sourceDir)) { return ""; }
+    // reuse：调用方保证父包在**本轮**已建过（同进程的前一个目标 / 编排方先跑过一个不带
+    // --reuse-parent 的目标）。dist 不在就照常建 —— 复用只是省时间，绝不拿缺件当成功。
+    // 不做「dist 比源新」之类的时间戳判断：依赖包变了而本包源没变时它会给出错误的「新鲜」。
+    if (reuse) {
+        Dirs rd = _computeDirs(m, sourceDir, tgt.Profile);
+        if (File.Exists(Path.Join(rd.Dist, m.Project.Name + ".zpkg"))) { return rd.Dist; }
+    }
     int rc = _orchestrate(m, tgt, sourceDir, "");
     if (rc != 0) {
         ConsoleError.WriteLine("z42b: failed to build parent package `" + m.Project.Name + "`");
