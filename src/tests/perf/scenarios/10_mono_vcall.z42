@@ -17,7 +17,7 @@ using Std.IO;
 
 class Box {
     int v;
-    Box(int v) { this.v = v; }
+    public Box(int v) { this.v = v; }
     public virtual int Get() { return this.v; }
 }
 

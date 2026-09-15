@@ -9,3 +9,10 @@
 - [x] 3.1 补 `public`：普查脚本批量 54 个文件 88 个构造器（tests / examples / z42.collections tests）+ `scripts/xtask_bench.z42` 的 `MicroBenchAgg` + 编译器单测源码串 6 处
 - [x] 4.1 文档：book `compiler/access-control.md`（强制点表加两行 + 主构造器公有规则）、`language/constructors.md`（可见性一节）、cross-zpkg README
 - [x] 5.1 全量 GREEN（`GREEN_EXIT=0`，基于 main `47e43815d`）；`xtask test bootstrap` ✅；夹具修正后 `test e2e --dir cross-zpkg` 51/51
+
+## 补记（CI 发现）
+
+- `src/tests/perf/scenarios/10_mono_vcall.z42` 的 `Box(int)` 漏补 `public`：perf 场景只在 CI `bench-regression` 里编译，
+  本地 `xtask test` 与普查都没覆盖（普查挂在编译器里，只统计实际被编译的源码）。补上后把本地 GREEN 未编译的目录
+  （`src/runtime` 夹具、`examples/*`、`scripts/package|install|hooks`、`src/toolchain`、`docs/spec`、`src/tests/perf`）逐文件扫描，无其它遗漏。
+
