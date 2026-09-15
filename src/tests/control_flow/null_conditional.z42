@@ -1,6 +1,6 @@
 class Node {
     public string value;
-    Node(string v) {
+    public Node(string v) {
         this.value = v;
     }
 }

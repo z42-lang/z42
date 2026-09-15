@@ -8,7 +8,7 @@ interface IShape {
 class Square : IShape {
     int side;
 
-    Square(int s) {
+    public Square(int s) {
         this.side = s;
     }
 

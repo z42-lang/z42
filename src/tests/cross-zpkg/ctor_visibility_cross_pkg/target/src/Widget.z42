@@ -1,0 +1,11 @@
+// enforce-ctor-visibility：跨包构造器可见性。生产方的 public 类同时有 internal 与 public 构造器。
+namespace Demo.CtorVisTarget;
+
+public class Widget {
+    public int V;
+    internal Widget(int v) { this.V = v; }   // 跨包不可调用
+    public Widget() { this.V = 1; }          // 对照组
+}
+
+// 主构造器是 public：跨包可以直接构造
+public class Pair(int A, int B);

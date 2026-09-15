@@ -6,7 +6,7 @@ class Ring<T> {
     T[] items;
     int n;
 
-    Ring() { this.items = new T[8]; this.n = 0; }
+    public Ring() { this.items = new T[8]; this.n = 0; }
 
     public int Count() { return this.n; }
 

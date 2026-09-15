@@ -4,7 +4,7 @@ using Std.IO;
 class Animal {
     string Name;
 
-    Animal(string name) {
+    public Animal(string name) {
         this.Name = name;
     }
 
@@ -18,7 +18,7 @@ class Animal {
 }
 
 class Dog : Animal {
-    Dog(string name) : base(name) {}
+    public Dog(string name) : base(name) {}
 
     override string Speak() {
         return "Woof!";
@@ -27,7 +27,7 @@ class Dog : Animal {
 
 // 3rd level: GoldenRetriever overrides Dog
 class GoldenRetriever : Dog {
-    GoldenRetriever(string name) : base(name) {}
+    public GoldenRetriever(string name) : base(name) {}
 
     override string Speak() {
         return "Happy woof!";
@@ -36,7 +36,7 @@ class GoldenRetriever : Dog {
 
 // 3rd level: Puppy does NOT override Speak — inherits Dog's
 class Puppy : Dog {
-    Puppy(string name) : base(name) {}
+    public Puppy(string name) : base(name) {}
 }
 
 void PrintAnimal(Animal a) {

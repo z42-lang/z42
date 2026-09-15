@@ -2,7 +2,7 @@
 
 class Num : IComparable {
     int value;
-    Num(int v) { this.value = v; }
+    public Num(int v) { this.value = v; }
     public int CompareTo(Num other) {
         if (this.value > other.value) return 1;
         if (this.value < other.value) return -1;

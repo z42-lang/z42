@@ -336,3 +336,63 @@ void test_private_member_exposes_internal_ok() {
     string src = "public class Api { private Secret s; } class Secret { }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
+
+// ── 构造器（enforce-ctor-visibility）──
+// 修前构造器可见性从不检查：`new` 与 `: base` / `: this` 都不调 CheckAccess。
+
+[Test]
+void test_ctor_default_private_denied_outside() {
+    // 无修饰符构造器 = private；类外 new → E0404
+    string src = "class C { C(int a) { } } class U { void M() { var c = new C(1); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ctor_private_static_factory_ok() {
+    string src = "class C { private C() { } public static C Make() { return new C(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_protected_base_init_ok_new_denied() {
+    string ok = "class B { protected B(int x) { } } class D : B { public D() : base(1) { } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(ok));
+    string bad = "class B { protected B(int x) { } } class U { void M() { var b = new B(1); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(bad));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(bad));
+}
+
+[Test]
+void test_ctor_private_base_init_denied() {
+    string src = "class B { B(int x) { } } class D : B { public D() : base(1) { } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ctor_this_init_private_ok() {
+    string src = "class C { C(int a) { } public C() : this(1) { } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_public_ok() {
+    string src = "class C { public C(int a) { } } class U { void M() { var c = new C(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_primary_ctor_is_public() {
+    // 主构造器对齐 C#：public。否则元组 / 记录在类外无法构造（元组需 stdlib，由 src/tests/tuples 覆盖）。
+    string src = "class P(int X); struct S(int Y); class U { void M() { var p = new P(1); var s = new S(2); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_target_typed_and_object_initializer_checked() {
+    string tt = "class C { C(int a) { } } class U { void M() { C c = new(1); } }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(tt));
+    string oi = "class C { public int F; C(int a) { } } class U { void M() { var c = new C(1) { F = 2 }; } }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(oi));
+}

@@ -21,7 +21,7 @@ class Helper {
 class Leaf { public int Five() { return 5; } }
 class Node {
     public Leaf Child;
-    Node() { this.Child = new Leaf(); }
+    public Node() { this.Child = new Leaf(); }
 }
 
 void Main() {

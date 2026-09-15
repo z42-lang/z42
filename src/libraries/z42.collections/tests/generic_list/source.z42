@@ -8,7 +8,7 @@ class MyList<T> {
     int count;
     int capacity;
 
-    MyList() {
+    public MyList() {
         this.capacity = 4;
         this.items = new T[4];
         this.count = 0;

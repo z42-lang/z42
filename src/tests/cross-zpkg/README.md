@@ -83,3 +83,4 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `crosspkg_ctor_default` | **跨包构造器**省略可选实参 → 注入作者声明的默认值（此前整支缺失，读到零值） | `ConstructTyper._bindNew` → `OverloadBinder._crossPkgDefault`（`$Default` ConstBlob 解码） |
 | `missing_type_skew` | `new` 一个解析不到的类型不再合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |
 | `missing_base_skew` / `crosspkg_base_fields_main` | 基类解析不到不再静默退化成「只有自己的成员」 | 继承 fixup → `TypeDescCold::base_unmerged` → `symres::missing_base_exception`（`skew-absent.txt`） |
+| `ctor_visibility_cross_pkg` | **负例**：跨包调用 `internal` 构造器 → E0404；public 构造器与主构造器放行 | `ConstructTyper._bindNew` → `AccessChecker.CheckAccess`（`expected_build_error.txt`） |

@@ -8,7 +8,7 @@ interface IAnimal {
 class Dog : IAnimal {
     string _name;
 
-    Dog(string name) {
+    public Dog(string name) {
         this._name = name;
     }
 
@@ -24,7 +24,7 @@ class Dog : IAnimal {
 class Cat : IAnimal {
     string _name;
 
-    Cat(string name) {
+    public Cat(string name) {
         this._name = name;
     }
 

@@ -5,19 +5,19 @@ class Box {
     public int Height;
     public string Label;
 
-    Box(int size) {
+    public Box(int size) {
         this.Width  = size;
         this.Height = size;
         this.Label  = "square";
     }
 
-    Box(int w, int h) {
+    public Box(int w, int h) {
         this.Width  = w;
         this.Height = h;
         this.Label  = "rect";
     }
 
-    Box(int w, int h, string label) {
+    public Box(int w, int h, string label) {
         this.Width  = w;
         this.Height = h;
         this.Label  = label;

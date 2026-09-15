@@ -3,7 +3,7 @@ namespace Demo;
 class Greeter {
     string name;
 
-    Greeter(string n) {
+    public Greeter(string n) {
         this.name = n;
     }
 

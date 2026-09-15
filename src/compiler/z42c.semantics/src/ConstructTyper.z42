@@ -219,6 +219,11 @@ public sealed class ConstructTyper {
         // 及省略可选实参 `new Route("/h")` 须在调用点解析为完整位置实参序）。仅本地有 Decl 的 ctor 适配。
         MethodSymbol cms = null;
         if (cls != null) { cms = this._tc._overload._findMethod(env.Symbols, cls, ctorName); }
+        // enforce-ctor-visibility：构造器与字段 / 方法同一判据（private 本类 / protected 派生 / internal 同包）。
+        // 修前从不检查——`private C()` 在任何地方都能 `new`。target-typed `new()`、对象初始化器、元组脱糖都汇到这里。
+        if (cls != null && cms != null && !cms.IsStatic) {
+            this._tc._access.CheckAccess(cms.Visibility, cms.ContainingTypeName, env, env.Symbols, "constructor", cls.Name(), n.Span);
+        }
         if (cms != null && cms.HasDecl && cms.Decl != null) {
             BoundExpr[] adapted = this._tc._overload._adaptArgs(cms.Decl, n.Args, n.ArgCount, env, n.Span);   // PR6b：n.Span = 调用点，供 caller 宏注入
             if (adapted != null) {

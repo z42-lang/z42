@@ -8,7 +8,7 @@ string Greet(string name) => $"Hello, {name}!";
 class Calculator {
     int _base;
 
-    Calculator(int b) {
+    public Calculator(int b) {
         this._base = b;
     }
 

@@ -19,7 +19,7 @@ class B {
 
 class C {
     public int n = 5;
-    C(int x) { this.n = x; }
+    public C(int x) { this.n = x; }
 }
 
 class P {

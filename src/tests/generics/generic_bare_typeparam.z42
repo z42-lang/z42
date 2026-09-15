@@ -5,7 +5,7 @@ class Dog : Animal { }
 
 class Container<T, U> where U: T {
     public string label;
-    Container(string name) { this.label = name; }
+    public Container(string name) { this.label = name; }
 }
 
 void Main() {

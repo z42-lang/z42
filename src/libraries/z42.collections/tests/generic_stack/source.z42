@@ -6,7 +6,7 @@ class Stack<T> {
     T[] items;
     int count;
 
-    Stack(int capacity) {
+    public Stack(int capacity) {
         this.items = new T[capacity];
         this.count = 0;
     }

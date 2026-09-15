@@ -14,7 +14,7 @@ class Counter {
     static Counter() { tag = tag + "0"; }
     public static string Tag() { return tag; }
 
-    Counter() {
+    public Counter() {
         count = count + Step;      // 实例 ctor：读写静态 + const
         id = count;
     }
