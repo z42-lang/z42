@@ -996,3 +996,33 @@ void test_ctor_no_matching_overload_still_reports() {
                + "class U { void M() { C c = new C(new X()); } }";
     Assert.True(SemanticDump.ErrorCount(src) > 0);
 }
+
+// ── 重载决议：默认值形参 / 命名实参（fix-overload-defaults-named-args）──────────
+[Test]
+void test_overload_defaults_both_need_defaults_is_ambiguous() {
+    // 两个候选都要靠默认值、逐位同样具体 ⇒ 平手 ⇒ E0425
+    string src = "class M { public static int F(int a, string b = \"x\") { return 1; } public static int F(int a, int b = 1) { return 2; } }"
+               + " class U { void Z() { var r = M.F(1); } }";
+    Assert.Equal("E0425", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_overload_named_unknown_name_no_match() {
+    string src = "class M { public static int F(int a) { return 1; } public static int F(string s) { return 2; } }"
+               + " class U { void Z() { var r = M.F(q: 1); } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+
+[Test]
+void test_overload_defaults_resolves_clean() {
+    string src = "class M { public static int F() { return 0; } public static int F(string a, int n = 2) { return 1; } }"
+               + " class U { void Z() { var r = M.F(\"a\"); var t = M.F(n: 3, a: \"b\"); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_overload_defaults_and_named_clean() {
+    string src = "class C { public C() { } public C(string a, int n = 2) { } }"
+               + " class U { void Z() { var c = new C(\"a\"); var d = new C(n: 3, a: \"b\"); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

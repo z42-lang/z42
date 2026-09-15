@@ -330,6 +330,38 @@ getter 是真实函数体。
 
 > 阶段纪律（[bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md)）：本 change 是**阶段 1（support）**——只扩 z42c 绑定能力，z42c / stdlib 源自身**不使用** prim 类同 arity 重载。往 `Std.String` 加 `Split(char[])` 等实际重载是**阶段 2**（晚一个 nightly，独立 change）。
 
+#### 重载决议：默认值形参、命名实参、params 两种形态
+
+> fix-overload-defaults-named-args（2026-09-15）。语言规则见 [命名实参](../language/named-arguments.md)。
+
+`OverloadResolver.Resolve` 只认「形参个数 == 实参个数」。在它之上，`OverloadResolver.Map` / `ResolveMapped` 按 C#
+的规则把实参**映射**到形参再判适用：
+
+```text
+Map(候选 m, 实参形态 a):
+  位置实参 i 依次占形参 i；params 尾位上：实参个数 == 形参个数且实参是数组 ⇒ 正常形态，否则逐个按元素类型（展开形态）
+  命名实参按名占位；名字不存在 / 已被占 ⇒ 不适用（导入方法没有真实形参名 ⇒ 不适用）
+  被占形参：实参类型可赋值；实参无类型（target-typed new() / lambda 的延迟位）⇒ 通配
+  未占形参：params 尾位 ⇒ 展开形态（零个）；有默认值（Default / $Default / caller 宏）⇒ NeedsDefaults；否则不适用
+ResolveMapped: 适用集里找唯一「支配所有其它」的候选
+  X 支配 Y ⟺ 逐实参所映射的形参 X 不差于 Y 且至少一处更具体（_betterAtPos）；
+            逐实参全平手时，X 不需默认值而 Y 需要；或二者相同而 X 非展开、Y 展开
+  无唯一支配者 ⇒ E0425 歧义
+```
+
+**接入点只在既有路径失败或会选错的地方**（今天能解析的调用不经过它，字节不变）：
+
+| 路径 | 何时走映射决议 |
+|---|---|
+| 方法 `OverloadBinder._resolveOverload` | ① 有命名实参且候选 ≥ 2；② 没有形参个数恰好相等的非 params 候选、且存在「少给实参靠默认值」的候选——与既有 params 决议的结果一起比较 |
+| 构造器 `ConstructTyper._bindCtorArgs` | 候选 ≥ 2，且有命名实参、或精确 arity 的按类型决议没选出来 |
+
+实参形态由 `OverloadBinder._argShape` 建：命名实参判据与 `_bindCall` 的延迟判据同一份（`ExprTyper.IsNamedArg`）；
+构造器路径在决议前就地绑定非延迟实参取类型（有命名实参时不再把 `a: "b"` 当成对变量 `a` 的赋值绑定）。
+
+修前的形态：`M.F("a")` 对 `F()` + `F(string a, int n = 2)` 报找不到方法；`new C("a")` 同形**编译通过、运行期选中无参构造器**；
+`Q("a")` 对 `Q(string a, int n = 2)` + `Q(params object[])` **静默选中 params**；命名实参在多重载时报 E0437 + `undefined`。
+
 #### prim 类型的静态字段读（`int.MaxValue`）
 
 裸类型名的静态字段读（`Type.FIELD`）绑定走 `MemberResolver._bindMember`（`z42c.semantics/src/MemberResolver.z42:17`）：`target` 是类名（非变量）且该类有同名 `static` 字段 → 产 `BoundStaticGet`，emit `StaticGetInstr @<FQN>.<field>`，运行期由 VM 启动的 `<ns>.__static_init__` pass 初始化（`src/runtime/src/interp/mod.rs` `init_static_fields`，机制同 `Std.Math.Pi`）。

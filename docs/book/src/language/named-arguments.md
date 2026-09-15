@@ -1,7 +1,7 @@
 # 命名实参
 
 > **页型**: 语言参考 ｜ **状态**: ✅ 已实现 ｜ **代码**: `z42c.syntax/ExprParser._parseCallArg` + `z42c.semantics/OverloadBinder._adaptArgs`
-> ｜ **对齐**: 2026-09-13（change `restore-named-arguments`）
+> ｜ **对齐**: 2026-09-15（change `fix-overload-defaults-named-args`；前序 `restore-named-arguments`）
 
 任何形参都可以按**名字**传：
 
@@ -25,6 +25,33 @@ var b = new Box(height: 30, width: 50);              // 构造函数
 | 可跳过中间的**可选**形参 | 未被命名也未被位置填充的形参用其默认值 |
 | 同一形参**不可重复** | 位置 + 命名同时命中一个形参 → 不可适配 |
 | 名字必须匹配某个形参 | 否则该实参退回按表达式解析，通常报 `undefined: <name>` |
+
+## 与重载、默认值一起用
+
+有多个重载时，命名实参与省略的默认实参都参与**选哪个重载**（对标 C#）：
+
+```z42
+class M {
+    public static string F() { .. }
+    public static string F(string a, int n = 2) { .. }
+    public static string K(int x) { .. }
+    public static string K(string s) { .. }
+}
+M.F("a");            // 选 F(string, int = 2)：少给的形参有默认值
+M.F(n: 7, a: "b");   // 选 F(string, int)
+M.K(s: "x");         // 按名字选 K(string)
+```
+
+- 一个重载**适用**：每个实参都能落到一个形参上（位置依次、命名按名），类型可赋值；没有实参的形参都有默认值或是 `params`。
+- 多个都适用时，先比较各实参对应的形参哪个**更具体**；仍平手时，**不需要补默认值**的重载优先，**不展开 `params`** 的形态优先。
+- 仍分不出来 ⇒ E0425（歧义），加显式转换或换成命名实参。
+
+```z42
+class H { public static string G(int a) { .. } public static string G(int a, int b = 9) { .. } }
+H.G(1);   // 选 G(int)：不需要默认值
+```
+
+构造器遵守同一套规则（`new C("a")`、`new C(n: 7, a: "b")`）。
 
 ## 与赋值实参的区分
 

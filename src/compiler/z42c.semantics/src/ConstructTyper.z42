@@ -204,24 +204,36 @@ public sealed class ConstructTyper {
         //
         // 注册侧本就给了不同的键（首个裸名、其余全签名 mangle），所以这里只是把「选哪个」
         // 修对，**不动任何发射键** ⇒ 今天能正确解析的程序（ctor arity 唯一）字节零漂移。
-        if (cls != null && argc > 0) {
-            MethodSymbol[] cands = cls.InstanceCtors();
-            if (cands.Length > 1) {
-                Z42Type[] argTs = new Z42Type[argc];
-                int ai = 0;
-                bool allBound = true;
-                while (ai < argc) {
-                    BoundExpr b = this._et._bindExpr(rawArgs[ai], env);
-                    if (b == null || b.Type() == null) { allBound = false; }
-                    else { argTs[ai] = b.Type(); }
-                    ai = ai + 1;
-                }
-                if (allBound) {
-                    OverloadResult orr = OverloadResolver.Resolve(cands, cands.Length, argTs, argc);
-                    // 只在**决议成功**时改写；无匹配/歧义仍走既有路径（诊断由下方 arity 校验与
-                    // 实参类型检查给出，措辞不变）。
-                    if (orr.IsResolved()) { ctorName = orr.Key; }
-                }
+        MethodSymbol[] cands = cls != null ? cls.InstanceCtors() : new MethodSymbol[0];
+        bool hasNamed = cands.Length > 1 && this._tc._overload._hasNamedArg(rawArgs, argc, env);
+        bool resolvedByType = false;
+        if (cands.Length > 1 && argc > 0 && !hasNamed) {
+            Z42Type[] argTs = new Z42Type[argc];
+            int ai = 0;
+            bool allBound = true;
+            while (ai < argc) {
+                BoundExpr b = this._et._bindExpr(rawArgs[ai], env);
+                if (b == null || b.Type() == null) { allBound = false; }
+                else { argTs[ai] = b.Type(); }
+                ai = ai + 1;
+            }
+            if (allBound) {
+                OverloadResult orr = OverloadResolver.Resolve(cands, cands.Length, argTs, argc);
+                // 只在**决议成功**时改写；无匹配/歧义仍走既有路径（诊断由下方 arity 校验与
+                // 实参类型检查给出，措辞不变）。
+                if (orr.IsResolved()) { ctorName = orr.Key; resolvedByType = true; }
+            }
+        }
+        // fix-overload-defaults-named-args：精确 arity 的类型决议没选出来（少给实参靠默认值、params 展开、同 arity 候选
+        // 类型不适用），或用了命名实参 ⇒ 按「实参映射」决议。此前这里只剩 `_ctorKey` 的 arity 回落（找不到就取裸名
+        // = primary）⇒ `new C("a")` 对 `C()` + `C(string a, int n = 2)` **编译通过、运行期选中无参构造器**；
+        // 命名实参则在上面被当成普通表达式绑定，报 `undefined: a`。
+        if (cands.Length > 1 && !resolvedByType) {
+            OverloadResult mr = OverloadResolver.ResolveMapped(cands, cands.Length, this._tc._overload._argShape(null, rawArgs, argc, env));
+            if (mr.IsResolved()) { ctorName = mr.Key; }
+            else if (mr.IsAmbiguous()) {
+                this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
+                    "ambiguous call to overloaded constructor `" + cls.Name() + "`; add an explicit cast to disambiguate", sp);
             }
         }
         // GS1/named-arg：命名实参重排 + 可选参数默认值填充（镜像 C#——工厂体 `new Route("/u", method:"POST")`

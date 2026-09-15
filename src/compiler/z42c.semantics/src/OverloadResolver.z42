@@ -25,6 +25,32 @@ public sealed class OverloadResult {
     public bool IsAmbiguous() { return this.Kind == 2; }
 }
 
+// 实参形态（fix-overload-defaults-named-args）：位置实参类型（null = 无类型的延迟实参，按通配处理）+ 命名实参名与类型。
+public sealed class ArgShape {
+    public int       PosCount;
+    public Z42Type[] PosTypes;
+    public string[]  Names;
+    public Z42Type[] NamedTypes;
+    public int       NamedCount;
+    public ArgShape(int posCount, int namedCount) {
+        this.PosCount = posCount; this.PosTypes = new Z42Type[posCount];
+        this.NamedCount = namedCount; this.Names = new string[namedCount]; this.NamedTypes = new Z42Type[namedCount];
+    }
+}
+
+// 单个候选的映射结果：是否适用、是否需要默认值、是否 params 展开形态，以及每个实参映射到的形参类型。
+public sealed class MapResult {
+    public bool      Ok;
+    public bool      NeedsDefaults;
+    public bool      Expanded;
+    public Z42Type[] PosParam;
+    public Z42Type[] NamedParam;
+    public MapResult(int posCount, int namedCount) {
+        this.Ok = false; this.NeedsDefaults = false; this.Expanded = false;
+        this.PosParam = new Z42Type[posCount]; this.NamedParam = new Z42Type[namedCount];
+    }
+}
+
 public sealed class OverloadResolver {
 
     // ── 注册键解析（唯一 owner）────────────────────────────────────────────
@@ -199,7 +225,7 @@ public sealed class OverloadResolver {
     }
 
     // 位置比较：+1 = px 比 py 更适合 argType，-1 = 更差，0 = 同等。
-    private static int _betterAtPos(Z42Type px, Z42Type py, Z42Type arg) {
+    internal static int _betterAtPos(Z42Type px, Z42Type py, Z42Type arg) {
         bool exX = OverloadResolver._sameType(arg, px);
         bool exY = OverloadResolver._sameType(arg, py);
         if (exX && !exY) { return 1; }
@@ -213,6 +239,135 @@ public sealed class OverloadResolver {
         return 0;
     }
 
+    // ── 实参映射决议（fix-overload-defaults-named-args）────────────────────────
+    // 上面的 `Resolve` 只认「形参个数 == 实参个数」。带默认值的重载在少给实参时、命名实参在多个重载时，
+    // 都进不了它的候选集 ⇒ 要么「找不到方法」，要么落到别的兜底上**静默选错**。本段按 C# 的规则把
+    // 实参映射到形参再判适用：
+    //   · 位置实参依次占前面的形参；命名实参按名占位（名字不存在 / 重复 / 与位置实参撞位 ⇒ 不适用）
+    //   · 被占的形参：实参类型可赋值（无类型的延迟实参——target-typed `new()`、lambda——视为通配）
+    //   · 未被占的形参：必须有默认值（本地 Default / 跨包 `$Default` / caller 宏）或是 params 尾参
+    //   · params：正常形态（实参本身是数组）/ 展开形态（多余位置实参逐个可赋值到元素类型）
+    // 择优：逐实参比较所映射形参的具体程度（同 `_betterAtPos`）；仍平手时，不需要默认值的胜，非展开形态胜。
+    // 只在既有路径失败或会选错的地方调用（见 OverloadBinder / ConstructTyper 的调用点），今天能解析的调用不经过这里。
+    public static MapResult Map(MethodSymbol m, ArgShape a) {
+        MapResult r = new MapResult(a.PosCount, a.NamedCount);
+        Z42FuncType sig = m.Signature;
+        if (sig == null) { return r; }
+        int pc = sig.ParamCount;
+        int pf = sig.ParamsFrom;
+        bool[] filled = new bool[pc];
+        int fixedCount = pf >= 0 ? pf : pc;
+        int i = 0;
+        while (i < a.PosCount) {
+            Z42Type at = a.PosTypes[i];
+            if (i < fixedCount) {
+                Z42Type pt = sig.ParamTypes[i];
+                if (at != null && !OverloadResolver._assignable(at, pt)) { return r; }
+                r.PosParam[i] = pt; filled[i] = true;
+            } else if (pf >= 0) {
+                Z42ArrayType arr = sig.ParamTypes[pf] as Z42ArrayType;
+                if (arr == null) { return r; }
+                bool normal = a.PosCount == pc && i == pf && (at == null || OverloadResolver._assignable(at, arr));
+                if (normal) {
+                    r.PosParam[i] = arr;
+                } else {
+                    if (at != null && !OverloadResolver._assignable(at, arr.Elem)) { return r; }
+                    r.PosParam[i] = arr.Elem; r.Expanded = true;
+                }
+                filled[pf] = true;
+            } else {
+                return r;   // 位置实参多于形参
+            }
+            i = i + 1;
+        }
+        int j = 0;
+        while (j < a.NamedCount) {
+            if (!m.HasDecl || m.Decl == null) { return r; }   // 导入方法没有真实形参名
+            int idx = 0 - 1;
+            int p = 0;
+            while (p < m.Decl.ParamCount) { if (m.Decl.Params[p].Name == a.Names[j]) { idx = p; } p = p + 1; }
+            if (idx < 0 || idx >= pc || filled[idx]) { return r; }
+            Z42Type npt = sig.ParamTypes[idx];
+            Z42Type nat = a.NamedTypes[j];
+            if (nat != null && !OverloadResolver._assignable(nat, npt)) { return r; }
+            r.NamedParam[j] = npt; filled[idx] = true;
+            j = j + 1;
+        }
+        int q = 0;
+        while (q < pc) {
+            if (!filled[q]) {
+                if (q == pf) { r.Expanded = true; }
+                else if (OverloadResolver._hasDefault(m, q)) { r.NeedsDefaults = true; }
+                else { return r; }
+            }
+            q = q + 1;
+        }
+        r.Ok = true;
+        return r;
+    }
+
+    private static bool _hasDefault(MethodSymbol m, int i) {
+        if (m.HasDecl && m.Decl != null && i < m.Decl.ParamCount) { return m.Decl.Params[i].Default != null; }
+        Z42FuncType sig = m.Signature;
+        if (sig.ParamDefaults != null && i < sig.ParamDefaults.Length && sig.ParamDefaults[i] != null && sig.ParamDefaults[i] != "") { return true; }
+        if (sig.ParamCallers != null && i < sig.ParamCallers.Length && sig.ParamCallers[i] != null && sig.ParamCallers[i] != "") { return true; }
+        return false;
+    }
+
+    public static OverloadResult ResolveMapped(MethodSymbol[] cands, int n, ArgShape a) {
+        MethodSymbol[] app = new MethodSymbol[n];
+        MapResult[] maps = new MapResult[n];
+        int ac = 0;
+        int i = 0;
+        while (i < n) {
+            MapResult mr = OverloadResolver.Map(cands[i], a);
+            if (mr.Ok) { app[ac] = cands[i]; maps[ac] = mr; ac = ac + 1; }
+            i = i + 1;
+        }
+        if (ac == 0) { return new OverloadResult(1, null, ""); }
+        if (ac == 1) { return new OverloadResult(0, app[0], app[0].RegKey); }
+        int best = 0 - 1;
+        int x = 0;
+        while (x < ac) {
+            bool dominates = true;
+            int y = 0;
+            while (y < ac) {
+                if (y != x && !OverloadResolver._mappedBetter(maps[x], maps[y], a)) { dominates = false; }
+                y = y + 1;
+            }
+            if (dominates) {
+                if (best >= 0) { return new OverloadResult(2, null, ""); }
+                best = x;
+            }
+            x = x + 1;
+        }
+        if (best < 0) { return new OverloadResult(2, null, ""); }
+        return new OverloadResult(0, app[best], app[best].RegKey);
+    }
+
+    // X 严格优于 Y：逐实参不差且至少一处更好；逐实参全平手时，看「不需要默认值」再看「非展开形态」。
+    private static bool _mappedBetter(MapResult x, MapResult y, ArgShape a) {
+        bool strict = false;
+        int i = 0;
+        while (i < a.PosCount) {
+            int c = OverloadResolver._betterAtPos(x.PosParam[i], y.PosParam[i], a.PosTypes[i]);
+            if (c < 0) { return false; }
+            if (c > 0) { strict = true; }
+            i = i + 1;
+        }
+        int j = 0;
+        while (j < a.NamedCount) {
+            int c = OverloadResolver._betterAtPos(x.NamedParam[j], y.NamedParam[j], a.NamedTypes[j]);
+            if (c < 0) { return false; }
+            if (c > 0) { strict = true; }
+            j = j + 1;
+        }
+        if (strict) { return true; }
+        if (!x.NeedsDefaults && y.NeedsDefaults) { return true; }
+        if (x.NeedsDefaults == y.NeedsDefaults && !x.Expanded && y.Expanded) { return true; }
+        return false;
+    }
+
     // 类型相等（规范名比较，归一别名）。
     private static bool _sameType(Z42Type a, Z42Type b) {
         if (a == null || b == null) { return false; }
@@ -220,7 +375,7 @@ public sealed class OverloadResolver {
     }
 
     // 实参类型可赋值到形参类型（复用 Z42Type.IsAssignableTo + 精确名等价兜底）。
-    private static bool _assignable(Z42Type arg, Z42Type param) {
+    internal static bool _assignable(Z42Type arg, Z42Type param) {
         if (OverloadResolver._sameType(arg, param)) { return true; }
         // 任意 → object 装箱/上转。阶段 3：object 形参现恒 Z42ClassType(Object)（Name()="Object"），
         // 须按 PrimModel.Canon 归一（与 _assignable2:193 同款），否则 raw "object" 失配 → object 形参
