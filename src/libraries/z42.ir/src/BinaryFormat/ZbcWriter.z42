@@ -99,6 +99,9 @@ public static class ZbcWriter {
                         // 插到 tpRef 前：BaseClass 为空时（今天全仓所有约束都是这种）常量池索引分配逐字节不变，
                         // 不给自举不动点引入无谓的字节漂移。
                         if (cb.BaseClass != "") { pool.Intern(cb.BaseClass); }
+                        // bit7 关联类型绑定名/类型（zbc 1.42，assoc-type-crosspkg）。
+                        int cbabi = 0;
+                        while (cbabi < cb.AssocBindingCount) { pool.Intern(cb.AssocBindingNames[cbabi]); pool.Intern(cb.AssocBindingTypeNames[cbabi]); cbabi = cbabi + 1; }
                     }
                     cbi = cbi + 1;
                 }
@@ -114,6 +117,9 @@ public static class ZbcWriter {
             while (imi < cd.IfaceMethodCount) { pool.Intern(cd.IfaceMethodNames[imi]); pool.Intern(cd.IfaceMethodRets[imi]); imi = imi + 1; }
             int ipt = 0;
             while (ipt < cd.IfaceMethodParamTotal) { pool.Intern(cd.IfaceMethodParamTypes[ipt]); ipt = ipt + 1; }
+            // TYPE 统一 assoc 块名/类型（zbc 1.42，assoc-type-crosspkg）：接口名单 + 类侧绑定。
+            int aai = 0;
+            while (aai < cd.AssocCount) { pool.Intern(cd.AssocNames[aai]); pool.Intern(cd.AssocTypes[aai]); aai = aai + 1; }
             c = c + 1;
         }
         pool.Intern("?");   // SIGS 缺省 param 类型占位
@@ -297,6 +303,7 @@ public static class ZbcWriter {
                 bool hasTpRef  = (cDesc != null) && cDesc.TypeParamConstraint != "";
                 bool reqCtor   = (cDesc != null) && cDesc.RequiresCtor;
                 bool reqEnum   = (cDesc != null) && cDesc.RequiresEnum;
+                bool hasAssoc  = (cDesc != null) && cDesc.AssocBindingCount > 0;   // bit7（zbc 1.42）
                 int cflags = 0;
                 if (reqClass)  { cflags = cflags + 1; }    // bit0 requires_class
                 if (reqStruct) { cflags = cflags + 2; }    // bit1 requires_struct
@@ -304,8 +311,9 @@ public static class ZbcWriter {
                 if (hasTpRef)  { cflags = cflags + 8; }    // bit3 has_type_param
                 if (reqCtor)   { cflags = cflags + 16; }   // bit4 requires_constructor
                 if (reqEnum)   { cflags = cflags + 32; }   // bit5 requires_enum
+                if (hasAssoc)  { cflags = cflags + 128; }  // bit7 has_assoc_binding（assoc-type-crosspkg）
                 w.WriteU8(cflags);
-                // 载荷顺序必须是 base → tpRef → iface_count（三方 reader 的一致读取序）。
+                // 载荷顺序必须是 base → tpRef → iface_count → [bit7 assoc]（三方 reader 的一致读取序）。
                 if (hasBase)  { w.WriteU32(pool.Idx(cDesc.BaseClass)); }
                 if (hasTpRef) { w.WriteU32(pool.Idx(cDesc.TypeParamConstraint)); }
                 int ifc = (cDesc != null) ? cDesc.InterfaceCount : 0;
@@ -314,6 +322,16 @@ public static class ZbcWriter {
                 while (ifi < ifc) {
                     w.WriteU32(pool.Idx(cDesc.Interfaces[ifi]));
                     ifi = ifi + 1;
+                }
+                // bit7 关联类型绑定块（zbc 1.42，assoc-type-crosspkg）：assoc_count:u8 + (name,type)×n。
+                if (hasAssoc) {
+                    w.WriteU8(cDesc.AssocBindingCount);
+                    int abi = 0;
+                    while (abi < cDesc.AssocBindingCount) {
+                        w.WriteU32(pool.Idx(cDesc.AssocBindingNames[abi]));
+                        w.WriteU32(pool.Idx(cDesc.AssocBindingTypeNames[abi]));
+                        abi = abi + 1;
+                    }
                 }
                 tpi = tpi + 1;
             }
@@ -421,6 +439,16 @@ public static class ZbcWriter {
                     w.WriteU8(cd.ObjRefKinds[orx]);
                     orx = orx + 1;
                 }
+            }
+            // 关联类型统一 assoc 块（zbc 1.42，assoc-type-crosspkg）：TYPE 记录**尾部** always-present。
+            // assoc_count:u16 + (name_idx:u32, type_idx:u32)×n。接口写 (Item,"")=声明名单、类写 (Item,int)=绑定。
+            // count=0 时仅 +2 字节（绝大多数类型无 assoc）。reader 按 Flags bit4(接口)/否(类) 路由消费。
+            w.WriteU16(cd.AssocCount);
+            int aaw = 0;
+            while (aaw < cd.AssocCount) {
+                w.WriteU32(pool.Idx(cd.AssocNames[aaw]));
+                w.WriteU32(pool.Idx(cd.AssocTypes[aaw]));
+                aaw = aaw + 1;
             }
             c = c + 1;
         }

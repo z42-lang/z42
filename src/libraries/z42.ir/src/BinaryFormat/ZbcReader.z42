@@ -461,6 +461,16 @@ public static class ZbcReader {
                     orx = orx + 1;
                 }
             }
+            // 关联类型统一 assoc 块（zbc 1.42，assoc-type-crosspkg）：TYPE 记录尾部 always-present。
+            // assoc_count:u16 + (name,type)×n。接口=声明名单、类=类侧绑定；消费端（TsigReconcile）按 Flags 路由。
+            int aac = c.U16();
+            cd.AssocNames = new string[aac]; cd.AssocTypes = new string[aac]; cd.AssocCount = aac;
+            int aar = 0;
+            while (aar < aac) {
+                cd.AssocNames[aar] = ZbcReader._p(pool, c.U32());
+                cd.AssocTypes[aar] = ZbcReader._p(pool, c.U32());
+                aar = aar + 1;
+            }
             classes[ci] = cd;
             ci = ci + 1;
         }
@@ -505,6 +515,16 @@ public static class ZbcReader {
             int pi = 0;
             while (pi < pc) { c.U32(); pi = pi + 1; }
             c.U32();                             // ret
+        }
+        if ((cflags & 0x80) != 0) {              // bit7 关联类型绑定（zbc 1.42，assoc-type-crosspkg）
+            int abc = c.U8();
+            bundle.AssocBindingNames = new string[abc]; bundle.AssocBindingTypeNames = new string[abc]; bundle.AssocBindingCount = abc;
+            int abi = 0;
+            while (abi < abc) {
+                bundle.AssocBindingNames[abi] = ZbcReader._p(pool, c.U32());
+                bundle.AssocBindingTypeNames[abi] = ZbcReader._p(pool, c.U32());
+                abi = abi + 1;
+            }
         }
         return bundle;
     }

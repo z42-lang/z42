@@ -97,6 +97,10 @@ public static class ImportedSymbolLoader {
                 b.RequiresEnum = d.RequiresEnum;
                 int j = 0;
                 while (j < d.InterfaceCount) { b.AddInterface(d.Interfaces[j]); j = j + 1; }
+                // 关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`where T:IEnum<Item=int>` 经 bit7 恢复
+                // → ConstraintBundle.AssocBinding*，供 ConstraintChecker 使用点跨包匹配（删 IsImported 守卫）。
+                int ab = 0;
+                while (ab < d.AssocBindingCount) { b.AddAssocBinding(d.AssocBindingNames[ab], d.AssocBindingTypeNames[ab]); ab = ab + 1; }
                 if (!b.IsEmpty()) { any = true; }
             }
             k = k + 1;
@@ -211,6 +215,11 @@ public static class ImportedSymbolLoader {
                         // 机制见 docs/design/compiler/self-hosting.md 轴④ 与 .claude/rules/bootstrap-seed.md。
                         // （struct-ness 继续复用 HasBase 编码属独立技术债，登记 Deferred，不在本 change 内改。）
                         nct.IsStruct = !cl.HasBase;
+                        // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`class IntBag:IEnum{type Item=int;}` 的
+                        // `Item=int` 经 TYPE assoc 块恢复 → Z42ClassType.AssocBinding*，供 ConstraintChecker 使用点
+                        // 跨包匹配（`AssocBindingOf` 不再恒空，删 IsImported 守卫后跨包错绑定/缺绑定才报得出）。
+                        int cab = 0;
+                        while (cab < cl.AssocBindingCount) { nct.AddAssocBinding(cl.AssocBindingNames[cab], cl.AssocBindingTypeNames[cab]); cab = cab + 1; }
                         // unify-type-identity-fqn：**导入类的声明 ns**。此前从未设置 —— 全编译器给
                         // `Z42ClassType.Namespace` 赋值的点只有 `StubCollector._putClassStub`（本地类），
                         // 于是 imported 类的 `Fqn()` 恒退化成短名。`Z42Type.z42` 里那句「导入由
@@ -262,6 +271,11 @@ public static class ImportedSymbolLoader {
                         nift.Visibility = iz.Visibility;        // complete-class-access-control ④：跨包接口声明可见性
                         // add-associated-types PR-3：导入接口的型参名进符号表（与本包 StubCollector 对称）。
                         nift.TypeParamNames = iz.TypeParams; nift.TypeParamCount = iz.TpCount;
+                        // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口声明的 `type Item;` 经 TYPE assoc 块恢复
+                        // → Z42InterfaceType.AssocTypeNames，供 ConstraintChecker 声明点 + InheritanceResolver 补齐强制
+                        //（删 IsImported 守卫后跨包生效）。
+                        int iat = 0;
+                        while (iat < iz.AssocTypeCount) { nift.AddAssocType(iz.AssocTypeNames[iat]); iat = iat + 1; }
                         r.Interfaces.Put(iz.Name, nift);
                         r.InterfacesByFqn.Put(nift.Fqn(), nift);   // unify-type-identity-fqn
                         // fix-crosspkg-interface-impl：记 imported 接口声明 ns，使 QualifyClass 把

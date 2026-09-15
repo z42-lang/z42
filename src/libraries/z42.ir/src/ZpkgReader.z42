@@ -543,8 +543,9 @@ public static class ZpkgReader {
     }
 
     private static void _skipConstraintBundle(ZpkgCursor c) {
-        // zbc WriteConstraintBundle 真布局（C# ZbcWriter.cs:550）：
+        // zbc WriteConstraintBundle 真布局：
         // flags u8 → [bit2 base u32] → [bit3 tpRef u32] → ifaceCount u8 + u32× → [bit6 funcSig: pc u8 + u32×pc + ret u32]
+        //          → [bit7 assoc: assoc_count u8 + (name u32, type u32)×n]（zbc 1.42，assoc-type-crosspkg）
         int flags = c.U8();
         if ((flags & 0x04) != 0) { c.U32(); }
         if ((flags & 0x08) != 0) { c.U32(); }
@@ -556,6 +557,11 @@ public static class ZpkgReader {
             int j = 0;
             while (j < pc) { c.U32(); j = j + 1; }
             c.U32();
+        }
+        if ((flags & 0x80) != 0) {              // bit7 关联类型绑定：assoc_count u8 + (name,type)×n
+            int abc = c.U8();
+            int k = 0;
+            while (k < abc) { c.U32(); c.U32(); k = k + 1; }
         }
     }
 
