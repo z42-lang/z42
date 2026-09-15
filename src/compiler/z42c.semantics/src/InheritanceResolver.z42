@@ -57,8 +57,9 @@ public sealed class InheritanceResolver {
     // 本 pass 必须在 `_passImpls`（并 trait + impl 方法入 target.Methods）**之后**跑：迭代每个 ImplDecl、
     // 按 trait 名解析接口、复用 `_checkOneIfaceMembers` 校验 target 是否补齐其成员（含 static/返回/可见性，
     // 与声明接口同一口径）。声明接口路径（`c.Bases`）不经过这里、行为逐字不变——本 pass 纯**追加** impl
-    // 块覆盖，两条路互不重叠、无双报。跨包接口的 kind/可见性同样在 `_checkOneIfaceMethod` 里被
-    // `it.IsImported` 早退（导入侧元数据不可靠，保守漏报，与声明接口同取舍）。
+    // 块覆盖，两条路互不重叠、无双报。跨包（导入）接口的 kind/可见性/返回在 `_checkOneIfaceMethod` 里
+    // 与本包接口**同样校验**（fix-imported-iface-static-fidelity 后：static 位由 zbc 1.41 wire 承载、
+    // 可见性查本地实现方——均可靠，原 `it.IsImported` 早退守卫已删）。
     // 泛型 impl trait（`impl IFoo<int> for C`）此处只按裸名解析——与 `_passImpls` 自身一致（它也只处理
     // `TraitType is NamedType`），类型实参匹配是跨包/泛型接口约束的独立议题，不在本 change。
     internal void _passImplIfaceComplete(SymbolTable table, CompilationUnit cu) {
@@ -432,13 +433,12 @@ public sealed class InheritanceResolver {
                     // fix-iface-satisfaction-gaps #1：MangleKey 命中=「名+形参」对上，但它**不含 static/返回类型**。
                     // 补两项校验，否则 static 接口成员被实现成 instance、或返回类型不符，都静默通过（真洞）。
                     //
-                    // 🔴 **只对本包接口校验**：跨包接口成员的 `IsStatic` 在导入侧**不可靠**——`static abstract`
-                    // 成员的静态性从导出元数据/wire 过来就是 false（`ImportedSymbolLoader:388` 拿到的
-                    // `mz.IsStatic` 本身即 false，端到端修需动导出侧 + 格式 bump，超出本 change 范围）。不跳则
-                    // `struct Money : INumber`（INumber 导入自 z42.core）的 5 个 `static override` 全被误判
-                    // 「接口声明为 instance」→ 假红。保守跳过 = 跨包接口的 kind/返回不校验（漏报，与 func-type/
-                    // assoc-type 跨包漏报同取舍）；本包接口——真静默洞所在——仍全查。
-                    if (it.IsImported) { return; }
+                    // fix-imported-iface-static-fidelity（zbc 1.41）：接口方法 static 位现由 wire 承载
+                    // （接口方法块 is_static:u8），`TsigReconcile` 用真值构造 ExportedMethodZ、导入侧
+                    // `ImportedSymbolLoader` 的 `mz.IsStatic` 已恢复真值 ⇒ 删去原 `if (it.IsImported) return;`
+                    // 临时守卫（#636 为绕开导入侧 IsStatic 恒 false 而加）。导入接口自此与本包接口一样接受完整
+                    // static/可见性/返回校验：`struct Money : INumber` 的 `public static override`（cm.IsStatic=true）
+                    // 与导入 `INumber.op_X`（ims.IsStatic 现=true）匹配放行；把 static 成员实现成 instance 才报。
                     if (cm.IsStatic != ims.IsStatic) {
                         string ik = "an instance method"; if (ims.IsStatic) { ik = "`static`"; }
                         string ck = "an instance method"; if (cm.IsStatic) { ck = "`static`"; }
@@ -452,8 +452,8 @@ public sealed class InheritanceResolver {
                     // MangleKey 命中即放行、从不比 `Visibility` ⇒ `class C : I { private int M(){…} }` 静默通过
                     // （真洞，与 static/返回同族）。⚠️ 类成员**无修饰默认 private**（`SymbolCollector:385` 的
                     // `containing != ""` → "private"），故 `class C : I { int M(){…} }` 同样被拦——严格口径
-                    // （User 裁决 2026-09-14），接口实现必须显式 public。跨包接口已在上方 `it.IsImported` 早退
-                    // （导入侧 Visibility 同不可靠），此处只覆本包——真静默洞所在。
+                    // （User 裁决 2026-09-14），接口实现必须显式 public。查的是**本地实现方** `cm.Visibility`
+                    // （跨包/本包都可靠），故导入接口同样校验（fix-imported-iface-static-fidelity 删守卫后）。
                     if (cm.Visibility != "public") {
                         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,
                             "`" + cName + "` implements `" + it.Name() + "` but `" + ims.Name

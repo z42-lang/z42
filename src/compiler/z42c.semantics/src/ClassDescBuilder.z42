@@ -397,6 +397,7 @@ public sealed class ClassDescBuilder {
         // （源拼写，同 _typeFieldName 字段策略——TsigReconcile 重建后经 ImportedSymbolLoader._resolve 消费）。
         string[] imn = new string[4]; string[] imr = new string[4];
         int[] imp = new int[4]; int imc = 0;
+        int[] ims = new int[4];   // fix-imported-iface-static-fidelity（zbc 1.41）：接口方法 static 位（1/0）
         string[] ipt = new string[8]; int iptc = 0;
         int mj = 0;
         while (mj < c.MemberCount) {
@@ -404,13 +405,14 @@ public sealed class ClassDescBuilder {
             if (imem is MethodDecl) {
                 MethodDecl imd = imem as MethodDecl;
                 if (imc == imn.Length) {
-                    string[] b1 = new string[imn.Length * 2]; string[] b2 = new string[imn.Length * 2]; int[] b3 = new int[imn.Length * 2];
-                    int k = 0; while (k < imc) { b1[k] = imn[k]; b2[k] = imr[k]; b3[k] = imp[k]; k = k + 1; }
-                    imn = b1; imr = b2; imp = b3;
+                    string[] b1 = new string[imn.Length * 2]; string[] b2 = new string[imn.Length * 2]; int[] b3 = new int[imn.Length * 2]; int[] b4 = new int[imn.Length * 2];
+                    int k = 0; while (k < imc) { b1[k] = imn[k]; b2[k] = imr[k]; b3[k] = imp[k]; b4[k] = ims[k]; k = k + 1; }
+                    imn = b1; imr = b2; imp = b3; ims = b4;
                 }
                 imn[imc] = imd.Name;
                 imr[imc] = this._typeFieldName(imd.RetType);
                 imp[imc] = imd.ParamCount;
+                ims[imc] = 0; if (IrGenFacts._hasWord(imd.Mods, "static")) { ims[imc] = 1; }
                 int pj = 0;
                 while (pj < imd.ParamCount) {
                     if (iptc == ipt.Length) {
@@ -429,6 +431,7 @@ public sealed class ClassDescBuilder {
         cd.IfaceMethodNames = imn; cd.IfaceMethodRets = imr;
         cd.IfaceMethodParamCounts = imp; cd.IfaceMethodCount = imc;
         cd.IfaceMethodParamTypes = ipt; cd.IfaceMethodParamTotal = iptc;
+        cd.IfaceMethodStatic = ims;
         return cd;
     }
 
