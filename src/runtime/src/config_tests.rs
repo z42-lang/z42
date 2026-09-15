@@ -1571,6 +1571,14 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 /// 在受控的真实环境变量下跑 `f`，结束还原。`from_env` 只认真实 env，无法注入。
 fn with_env<R>(pairs: &[(&str, Option<&str>)], f: impl FnOnce() -> R) -> R {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // The process-wide `runtime_config()` is a lazy `OnceLock` read **from the real env**, and
+    // every other test in this binary (on other threads) may be the one that first touches it.
+    // `ENV_LOCK` only serialises these config tests with each other — if that first read lands
+    // while the env below points `Z42_CONFIG` at a file saying `gc-mode = "concurrent"`, the
+    // **whole test process** keeps that mode: every later `ArcMagrGC::new()` comes up
+    // concurrent, and `mode_selection` / `barrier_mode_switch_*` / `tlab_concurrent_shared_heap_stress`
+    // fail at random (3 runs in 10, measured). Pin the global to the pristine env first.
+    let _ = crate::config::runtime_config();
     let saved: Vec<(String, Option<String>)> =
         pairs.iter().map(|(k, _)| ((*k).to_string(), std::env::var(k).ok())).collect();
     for (k, v) in pairs {
