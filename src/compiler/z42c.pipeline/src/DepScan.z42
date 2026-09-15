@@ -30,14 +30,16 @@ public static class DepScan {
         // 单目录 = 多目录的退化形态（Milestone 1 flat dist / 单工程 Z42_LIBS 走这里）。
         string[] one = new string[1];
         one[0] = libsDir;
-        return DepScan.ScanDirs(one, 1, excludeName, declaredDeps, declaredCount);
+        return DepScan.ScanDirs(one, 1, excludeName, declaredDeps, declaredCount, null, 0);
     }
 
     // Milestone 2（per-member 布局）：成员产物落各自 dist 目录，故兄弟解析需扫**多个** libsDir。
     // dirs[0..dirCount) 全部 *.zpkg 合并后**prelude-first + Ordinal**（按 basename）排序——
     // first-wins 跨目录确定（common-pitfalls §1：成员名唯一，无跨目录同名碰撞）。单目录调用方
     // 经 Scan 退化到此（dirCount=1），扫描序与旧 _sortedZpkgs 一致 → 产物 byte-identical。
-    public static DepScanResult ScanDirs(string[] dirs, int dirCount, string excludeName, string[] declaredDeps, int declaredCount) {
+    // hidden[0..hiddenN)：不可见包名（见 ZpkgPathSort._sortedZpkgsMulti）；null/0 = 全可见。
+    public static DepScanResult ScanDirs(string[] dirs, int dirCount, string excludeName, string[] declaredDeps, int declaredCount,
+                                         string[] hidden, int hiddenN) {
         var index = new DependencyIndex();
         string[] nsNames = new string[8];
         string[] nsFiles = new string[8];
@@ -48,7 +50,7 @@ public static class DepScan {
         // 包不导入自己：构建某包时把它自己的 .zpkg 排除出扫描（flat libs 含 self 时——
         // 否则同包符号经 DepIndex 解析 → 自依赖 DEPS + FQ 调用，与 C#[libs 不含 self]不一致）。
         string excludeZpkg = excludeName + ".zpkg";
-        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount);
+        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount, hidden, hiddenN);
         if (paths.Length == 0) {
             return new DepScanResult(index, nsNames, nsFiles, 0, exported, exportedPkg, 0);
         }
@@ -252,7 +254,7 @@ public static class DepScan {
         string[] exportedPkg = new string[8];
         int exportedCount = 0;
         string excludeZpkg = excludeName + ".zpkg";
-        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount);
+        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount, null, 0);
         if (paths.Length == 0) {
             return new DepScanResult(index, nsNames, nsFiles, 0, exported, exportedPkg, 0);
         }

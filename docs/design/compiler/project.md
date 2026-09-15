@@ -374,18 +374,18 @@ zbc 的最小 patch 分发方向见 `docs/spec/changes/add-indexed-zpkg-min-patc
 - **触发条件**：实测大包增量命中率低 / 对账器计时显示闭包过宽成为主要成本
 - **当前 workaround**：无需——保守边正确性优先
 
-### incremental-future-workspace-wiring
+### workspace 增量（workspace-read-cache，2026-09-15 落地）
 
-- **来源**：port-incremental-build-cache（2026-07-05，User 裁决移出该 change）
-- **触发原因**：workspace / flat 构建（`--workspace` / 显式 `--output-dir`）经
-  `outputDirOverride` 传 dist → 该路径不 probe（**cache-dir-layout 2026-09-15 起已落 cache**：
-  `WsPlan.CacheDirs` 展开 `[workspace.build].cache_dir` 模板传入 `_build`，flat 模式 `<out>/.cache/<成员>`）。
-- **前置依赖**：① **缓存键含编译器身份**（否则重建编译器后 `build stdlib` 复用旧 codegen 产物；自举 gen2 命中
-  gen1 由种子编译器写的 cache ⇒ 发出去的编译器其实是旧 codegen 编的）；② xtask gen 系脚本（自举 gen1/gen2
-  字节对比）显式 `--no-incremental` ——否则 gen2 全命中跳过会使字节对比空洞化。
-- **触发条件**：stdlib 22 包 / z42c 7 包 warm 重建成为迭代瓶颈时（整包跳过在 workspace
-  构建收益最大）。
-- **当前 workaround**：workspace 构建永远全量（与本 change 前行为逐字节一致）。
+workspace 成员（`--workspace`，per-member 与 flat 两种布局）与单工程一样 probe cache；`--no-incremental` 透传到每个成员。
+正确性由三道键保证：编译器身份（`CompilerFingerprint` + 格式 Minor，CI `test fingerprint` 守门）、依赖身份
+（`package.meta` 的 `deps` 行）、源哈希。自举不动点 gen2 与 CI 两代自举显式 `--no-incremental`。
+
+**成员可见性是封闭的**：编译第 i 个成员时，拓扑序排在它之后的成员（它们的 dist 与 `Z42_LIBS` 里的同名副本）一律不可见，
+依赖身份口径相同。此前后序成员上一轮的旧产物参与编译（依赖索引会因同名方法出现歧义键），构建结果随可见性漂移，
+依赖身份也会让前序成员每轮白编一次。
+
+实测（stdlib 25 包，release）：全量 12.4s；无改动 0.6s；z42.core 只改注释 1.3s（24/25 命中）；拓扑序第 5 的 z42.text
+改实现 10.5s；靠后的 z42.yaml 改实现 7.2s。各场景增量产物与全量逐字节一致；`xtask test incremental` 含 stdlib 整体读回对账。
 
 **目录结构（含产物，单工程默认）：**
 

@@ -96,10 +96,10 @@ void Main() {
         if (cliAdd != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
         else if (cliRemove != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
         if (isWorkspace) {
-            Environment.Exit(_buildWorkspace(isRelease, outputDir, optSet));   // --fix 暂不作用于 workspace（多成员批量），单包路径生效
+            Environment.Exit(_buildWorkspace(isRelease, outputDir, optSet, noIncremental));   // --fix 暂不作用于 workspace（多成员批量），单包路径生效
             return;
         }
-        Environment.Exit(_build(file, isRelease, outputDir, "", new string[0], 0, noIncremental, optSet, isFix));
+        Environment.Exit(_build(file, isRelease, outputDir, "", new string[0], 0, noIncremental, optSet, isFix, null));
         return;
     }
     if (cmd == "--emit-zbc") {
@@ -116,7 +116,7 @@ void Main() {
         ImportedSymbols ezImported = null;
         if (ezEnv.Length > 0) {
             string[] ezDirs = new string[1]; ezDirs[0] = ezEnv;
-            DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0);
+            DepScanResult ezScan = DepScan.ScanDirs(ezDirs, 1, "", new string[0], 0, null, 0);
             string[] ezUsings = IrDump.ExtractUsings(ezText, file);
             ezImported = ImportedSymbolLoader.Load(
                 ezScan.Exported, ezScan.ExportedPkg, ezScan.ExportedCount, ezUsings, ezUsings.Length);
@@ -153,7 +153,8 @@ void Main() {
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
 // cacheDirOverride：workspace 构建由 WsPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
 // 源码树）；"" = 按本工程 manifest 解析（_resolveCacheDir）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet, bool fix) {
+// hiddenPkgs：workspace 构建里拓扑序排在本成员之后的成员名——编译扫描与依赖身份都看不见它们（null = 全可见）。
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet, bool fix, string[] hiddenPkgs) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
     // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
@@ -214,7 +215,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 while (oi < accN) { depOverride[oi] = accum[oi]; oi = oi + 1; }
                 int depOverrideN = accN;
                 if (baseLib.Length > 0) { depOverride[depOverrideN] = baseLib; depOverrideN = depOverrideN + 1; }
-                int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, optSet, false);
+                int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, optSet, false, null);
                 if (dbc != 0) { return dbc; }
                 accum[accN] = depDist; accN = accN + 1;
             }
@@ -251,7 +252,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     string distDir = outputDirOverride.Length > 0 ? outputDirOverride : _resolveDistDir(pm, projectDir, isRelease);
     // 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
     // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
-    // 其余 IrModule 从 cache 读回（meta 残留已回填）。workspace/flat（outputDirOverride）不走。
+    // 其余 IrModule 从 cache 读回（meta 残留已回填）。单工程 --output-dir 平铺不走（workspace 成员走，见下）。
     IncrPrep prep = null;
     // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
     // BuildConfig.Incremental 就再没人读过**——`docs/design/compiler/project.md:223/242` 明文
@@ -264,9 +265,15 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     bool incrOff = noIncremental || !pm.Build.Incremental;
     // 依赖身份（add-dep-identity-to-cache-key）：编译要扫的依赖 zpkg 的 BLID/内容哈希。probe 比对、cache 写入共用
     // 同一个值——libsDirs 此处已是最终形态（含 path 依赖闭包的 dist）；DepScanCache memo 使编译期扫描零重读。
-    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name);
-    if (outputDirOverride.Length == 0 && !incrOff) {
-        string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
+    int hiddenN = hiddenPkgs != null ? hiddenPkgs.Length : 0;
+    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, hiddenPkgs, hiddenN);
+    // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
+    // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
+    // 实际生效的 cache 目录：workspace 成员由 WsPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
+    // 写 cache 三处必须是同一个目录（此前 indexed dist 固定按 manifest 解析，workspace 一读 cache 就读错位置）。
+    string effCacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : _resolveCacheDir(pm, projectDir, isRelease);
+    if ((outputDirOverride.Length == 0 || cacheDirOverride.Length > 0) && !incrOff) {
+        string probeCache = effCacheDir;
         string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
         // preserved 跳过要求 dist 主文件的 pack 模式与本次决议一致（packed↔indexed 切换
         // 时布局必须重投影，不能拿旧模式的 dist 当"未变"——add-indexed-zpkg-min-patch）。
@@ -336,6 +343,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.Fix = fix;         // PR7-wire：`--fix` → _runAnalyzers 传 6-参 Run，analyzer 携修复就地重写源
     cin.OptSet = optSet;   // add-compiler-inlining：-1=profile 默认；否则 CLI 解析后的优化集
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
+    cin.HiddenPkgs = hiddenPkgs; cin.HiddenN = hiddenN;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
     // attribute-handler-registry PR3a-load：[analyzers] 段声明的 handler zpkg 名 → LibsDirs 里
     // `<name>.zpkg` 路径（镜像 _bundleExeDeps 的 dep→zpkg 解析）。加载进编译器、编译期运行、不链入
@@ -490,7 +498,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             z.IsExe = true;
             z.Entry = ex.Entry;    // 重烤 baked entry
             if (!isPacked) {
-                string idxCacheX = _resolveCacheDir(pm, projectDir, isRelease);
+                string idxCacheX = effCacheDir;
                 int ircX = _writeIndexedDist(distDir, idxCacheX, projectDir, srcs, z, mods, srcs.Length, prep);
                 if (ircX != 0) { return ircX; }
             } else {
@@ -520,7 +528,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (!isPacked) {
         // indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
         // + FILE 目录主文件。cache 目录供 cached 文件字节原样复制（增量未启时不消费）。
-        string idxCache = _resolveCacheDir(pm, projectDir, isRelease);
+        string idxCache = effCacheDir;
         int irc = _writeIndexedDist(distDir, idxCache, projectDir, srcs, z, mods, srcs.Length, prep);
         if (irc != 0) { return irc; }
     } else {

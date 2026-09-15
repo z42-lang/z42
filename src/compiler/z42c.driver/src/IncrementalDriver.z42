@@ -43,7 +43,7 @@ public static class IncrementalDriver {
 
     // 全文件 parse（+ AttributeSynth，镜像 IrDump.ParseAll）+ 按需标识符 / 声明面捕获：
     // want[i] 为真的文件从 Parser 已 lex 的 token 流提取标识符集与声明面指纹（D8 修正——
-    // 全链路零第二遍 lex）；want == null → 全不捕获（workspace 等不落 cache 的路径）。
+    // 全链路零第二遍 lex）；want == null → 全不捕获。
     // 声明面指纹取 **RunAst 之前**的 raw CU（合成成员无真实 token 区间，见 SurfaceHash.z42）。
     public static ParsedPkg ParseAllTk(string[] texts, string[] srcs, int n, bool[] want) {
         CompilationUnit[] cus = new CompilationUnit[n];
