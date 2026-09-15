@@ -71,8 +71,8 @@ public static class IncrementalDriver {
     // canPreserve=false 时**必须走完整路径**把 cached zbc 读回来：调用方还要装配一次 dist，
     // 拿不到 IrModule 就只能全部重编，缓存白存（fix-incr-allcached-cache-drop 修的正是这条）。
     public static IncrPrep Prepare(string[] srcs, string[] texts, string[] hashes, int n,
-                                   string projectDir, string cacheDir, bool canPreserve) {
-        IncrFilePlan plan = IncrementalBuild.ProbeFiles(srcs, hashes, n, projectDir, cacheDir);
+                                   string projectDir, string cacheDir, string depsId, bool canPreserve) {
+        IncrFilePlan plan = IncrementalBuild.ProbeFiles(srcs, hashes, n, projectDir, cacheDir, depsId);
         IrModule[] cached = new IrModule[n];
         if (plan.AllCached && canPreserve) { return new IncrPrep(plan, null, cached); }   // 调用方马上 preserved → 不必读回
 
@@ -183,7 +183,7 @@ public static class IncrementalDriver {
     // 残留 pool/labels）+ 包级源清单。任何写失败由调用方 try/catch 吞（cache 非致命）。
     public static void WriteMetas(string cacheDir, string projectDir, string[] srcs, string[] texts,
                                   string[] hashes, int n, CompiledModuleZ[] cms, ZbcFileZ[] mods,
-                                  IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces) {
+                                  IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces, string depsId) {
         string[] rels = new string[n];
         int i = 0;
         while (i < n) {
@@ -228,7 +228,7 @@ public static class IncrementalDriver {
             }
             i = i + 1;
         }
-        CacheStore.SaveSrcList(cacheDir, rels, n);
+        CacheStore.SaveSrcList(cacheDir, rels, n, depsId);
     }
 
     // ── 残留回填（D5a）：占位 label → 真实 label；模块池 → meta 原序；TIDX idx 重映射 ──

@@ -59,7 +59,7 @@ string _setupProj(string name) {
     _writeEntry(cache, "b.z42", _src2());
     string[] rels = new string[2];
     rels[0] = "a.z42"; rels[1] = "b.z42";
-    CacheStore.SaveSrcList(cache, rels, 2);
+    CacheStore.SaveSrcList(cache, rels, 2, "deps-a");
     return proj;
 }
 
@@ -69,7 +69,7 @@ IncrFilePlan _probe(string proj, string textA, string textB) {
     srcs[1] = Path.Join(proj, "b.z42");
     string[] hashes = new string[2];
     hashes[0] = ZpkgBuilder.SourceHashHex(textA); hashes[1] = ZpkgBuilder.SourceHashHex(textB);
-    return IncrementalBuild.ProbeFiles(srcs, hashes, 2, proj, Path.Join(proj, "cache"));
+    return IncrementalBuild.ProbeFiles(srcs, hashes, 2, proj, Path.Join(proj, "cache"), "deps-a");
 }
 
 [Test]
@@ -111,7 +111,7 @@ void test_probe_srclist_mismatch_full() {
     string proj = _setupProj("fp-list");
     string[] rels = new string[1];
     rels[0] = "a.z42";   // 上次是单文件工程 → 本次多一个 = 增文件 → 全量
-    CacheStore.SaveSrcList(Path.Join(proj, "cache"), rels, 1);
+    CacheStore.SaveSrcList(Path.Join(proj, "cache"), rels, 1, "deps-a");
     IncrFilePlan p = _probe(proj, _src(), _src2());
     Assert.Equal(2, p.FreshCount);
 }
@@ -289,12 +289,14 @@ void test_src_list_roundtrip_and_pin() {
     string dir = Path.Join(_tmpRoot(), "srclist/cache");
     string[] rels = new string[2];
     rels[0] = "a.z42"; rels[1] = "sub/b.z42";
-    CacheStore.SaveSrcList(dir, rels, 2);
-    string[] r = CacheStore.LoadSrcList(dir);
+    CacheStore.SaveSrcList(dir, rels, 2, "deps-a");
+    string[] r = CacheStore.LoadSrcList(dir, "deps-a");
     Assert.True(r != null);
     Assert.Equal(2, r.Length);
     Assert.Equal("sub/b.z42", r[1]);
-    Assert.True(CacheStore.LoadSrcList(Path.Join(_tmpRoot(), "srclist-none")) == null);
+    Assert.True(CacheStore.LoadSrcList(Path.Join(_tmpRoot(), "srclist-none"), "deps-a") == null);
+    // add-dep-identity-to-cache-key：依赖身份变了 → 整张清单作废（= 全量），源清单本身没变也一样。
+    Assert.True(CacheStore.LoadSrcList(dir, "deps-b") == null);
 }
 
 // ── ZpkgReader.ReadSourceHashes（wire 消费面保留：MODS 头源 hash）───────────

@@ -352,7 +352,9 @@ touch，断言增量产物与全量产物**逐字节相等** + D8 计时（增�
 **cache 条目格式**：`<rel>.zbc`（fullMode，与 `--emit-zbc` 同一 `ZbcWriter.Write` 产出）+
 `<rel>.meta`（z42c 内部行式文本，带 metaVersion/**z42c-fp 编译器语义指纹**/zbc/zpkg 四重版本
 pin：源 hash、ns、usedDepNs、模块池原序（hex）、每函数块 label 表（hex）——后两者是 zbc wire
-不携带、但参与 STRS 字节的 writer 残留）+ 包级 `package.meta`（上次源清单）。任何 pin 不符/损坏
+不携带、但参与 STRS 字节的 writer 残留）+ 包级 `package.meta`（上次源清单 + **`deps` 依赖身份**：编译扫描到的
+全部依赖 zpkg 的 BLID/内容哈希，任一变化 ⇒ 整包全量；依赖重编但输出不变时 BLID 不变 ⇒ 下游照常命中，
+add-dep-identity-to-cache-key）。任何 pin 不符/损坏
 → 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（`CacheStore.CompilerFingerprint`）堵住
 「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见
 [version-bumping.md](../../../.claude/rules/version-bumping.md#编译器语义指纹非格式失效次元2026-08-11-add-compiler-fingerprint-cache)）。cache 可整目录删除。
