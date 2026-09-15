@@ -1,6 +1,7 @@
 name: Deploy book to GitHub Pages
 
-# 每次 push 到 main 且改动了 docs/book/ 时，构建 mdBook 并发布到 GitHub Pages。
+# 每次 push 到 main 且改动了 docs/book/ 或安装脚本时，构建 mdBook 并发布到 GitHub Pages。
+# 安装脚本发布在站点根：https://z42-lang.github.io/z42/install.sh / install.ps1
 # 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
 # 发布后网址：https://z42-lang.github.io/z42/
 
@@ -9,6 +10,7 @@ on:
     branches: [main]
     paths:
       - 'docs/book/**'
+      - 'scripts/install/**'
       - '.github/workflows/deploy-book.yml'
   workflow_dispatch:
 
@@ -45,6 +47,8 @@ jobs:
           cd docs/book
           mdbook-mermaid install .
           mdbook build
+      - name: Publish install scripts at the site root
+        run: cp scripts/install/install.sh scripts/install/install.ps1 docs/book/book/
       - uses: actions/upload-pages-artifact@v5
         with:
           path: docs/book/book

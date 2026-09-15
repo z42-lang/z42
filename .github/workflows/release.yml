@@ -323,4 +323,5 @@ jobs:
           fi
           gh release create "v$v" $prerelease_flag --generate-notes \
             --title "z42 v$v" \
-            dist/SHA256SUMS dist/release-index.json dist/z42-*
+            dist/SHA256SUMS dist/release-index.json dist/z42-* \
+            scripts/install/install.sh scripts/install/install.ps1

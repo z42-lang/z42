@@ -150,32 +150,32 @@ libs/            # stdlib zpkg
 
 `_fetchManifest(baseUrl, rid, packageType)` 先读 `runtimes.<rid>.<packageType>.{archive,sha256}`，找不到则回退旧格式 `runtimes.<rid>.{archive,sha256}`。
 
-## 安装模式（installed, model B — install-z42-to-home, 2026-06-03）
+## 安装（install-z42-to-home → add-standalone-installer）
 
-`scripts/install-z42.sh --system`（或 `install-z42.bat --system`）从 GitHub Releases 下载 launcher 包并**原样解压**进 `$Z42_HOME`（默认 `~/.z42`）——与 portable 同一套 `cp -R`，自包含布局：
-- `z42`（apphost，根，放 PATH）+ `bin/z42c`（apphost → `programs/z42c/z42c.driver.zpkg`）
-- `bin/z42vm + programs/launcher/launcher.zpkg + libs/`（z42 apphost 经 `ensure_portable_vm` 用**同址** `bin/z42vm` 跑 launcher 核心）
+用户安装脚本 `scripts/install/install.sh`（POSIX sh）/ `install.ps1`（PowerShell）是**唯一的安装逻辑**，
+发布在 `https://z42-lang.github.io/z42/install.{sh,ps1}`，并随每个 release（含 nightly）作为资产上传：
 
-> **unify-launcher-apphost（2026-06-21）**：SDK launcher **不做多版本**。managed 即"解压即用"——
-> 无独立 `$Z42_HOME/launcher/` 运行时、无 `z42 link`/`runtimes/<ver>` 注册（同址 vm 取代了独立
-> launcher 运行时）。**更新**＝重跑安装脚本（`.bootstrap-stamp` 戳跳过
-> 同版本重装，新 tag 重新解压覆盖）。多版本支持按需后置。
+```bash
+curl -fsSL https://z42-lang.github.io/z42/install.sh | sh        # macOS / Linux
+irm https://z42-lang.github.io/z42/install.ps1 | iex             # Windows
+```
 
-装完 `z42` 在 PATH 上（`$Z42_HOME` + `$Z42_HOME/bin`）、`z42 run app.zpkg` 任意目录可用。安装脚本只**打印** PATH 接入指引，不自动改 profile。
+- **默认**：版本 `nightly`（pre-1.0 所有 tag 都是 prerelease，nightly 即最新版）；安装到 `$Z42_HOME` 或 `~/.z42`（用户级，无需 sudo）。
+- **布局**：安装目录就是 SDK 根（`z42` + `bin/` + `programs/` + `libs/` + `native/` + `manifest.toml`），另写 `install.toml`（`version` / `rid` / `sha256`）。
+- **更新 = 重新运行**：先下载 `SHA256SUMS`，与 `install.toml` 记录的 `sha256` 相同则直接退出；否则下载、校验、解压到 `.install-staging/`，**只替换 SDK 自带的顶层条目**，安装目录里的其它内容（`runtimes/<ver>/workloads/` 等）保留。`--force` 强制重装。
+- **PATH**：默认写入 shell profile（zsh → `~/.zshrc`；bash → `~/.bash_profile`（macOS）/ `~/.bashrc`；fish → `conf.d/z42.fish`；其它 → `~/.profile`；Windows → 用户级 `Path`），带标记行保证幂等；`--no-modify-path` 只打印指引。
+- **其它参数**：`--version <x.y.z|nightly>`、`--dest <dir>`、`--archive <本地包>`（离线安装，CI 用它验证刚打出的包）、`--dry-run`。
+- **平台**：macOS arm64 / Linux x64·arm64 / Windows x64；其余（含 Intel Mac）明确报不支持。
 
-> `install-z42.sh` 支持 `--dest <dir>`（指定安装目录）、`--dry-run`（预览不下载）、`--version <ver>`（覆盖版本）、`--verbose`（详细输出）、`--no-path`（抑制 PATH 提示）。SDK 的更新＝重新运行安装脚本（launcher 不做自更新）。
+安装后发布出的应用（framework-dependent apphost）按「运行时解析」第 ③ 档在 `~/.z42` 找到 SDK。
 
-## 项目本地引导（z42-bootstrap — install-z42, 2026-06-04）
+## 项目本地引导（仓库 `.z42`）
 
-为了用 z42 自己实现的仓库构建工具(`xtask.zpkg` + 迁移后的脚本),仓库需要先有一个可用的 z42 launcher —— 鸡生蛋。`scripts/install-z42.{sh,bat,command}` 是**唯一保留的原生引导脚本**:从 GitHub Releases 下载预编译 launcher 包,装到**项目本地** `<repo>/.z42`(隔离、gitignore、不碰系统 `~/.z42`)。
+仓库构建工具（`xtask`）用 z42 写，需先有一个可用的 SDK —— 鸡生蛋。`scripts/install-z42.{sh,bat,command}` 是它的引导入口，
+只是安装脚本的**薄封装**：版本取 `versions.toml [toolchain.z42].launcher`（默认 `nightly`），安装到 `<repo>/.z42`，
+不改 PATH（`.command` 是 macOS Finder 双击 → exec `.sh`）。更新检查同上（`sha256` 未变即跳过）。
 
-- **版本**:`versions.toml [toolchain.z42].launcher`,默认 `nightly`(也可 pin `0.1.0`)。
-- **按 RID 下载**:`z42-sdk-<ver>-<rid>.{tar.gz|zip}` ← `releases/download/<tag>/`;对 `SHA256SUMS` 校验。
-- **版本检查(每次跑)**:nightly 比对 release `published_at`(存于 `.z42/.bootstrap-stamp`),变了才重下;pin 版装一次即跳过。
-- **入口**:装完即 `.z42/z42`(launcher-at-package-root 后在根)。
-- **`.bat`** 走 PowerShell(下载/解压/Get-FileHash);**`.command`** 是 macOS Finder 双击 → exec `.sh`。
-
-这是 `bootstrap → xtask` 链路的第一环:`install-z42.sh` → `.z42/z42 xtask.zpkg build/test/...`。
+这是 `bootstrap → xtask` 链路的第一环：`install-z42.sh` → `.z42/z42 publish scripts/xtask.z42.toml` → `./xtask …`。
 
 ## app `runtimeconfig.toml`（版本声明 + 运行时旋钮 — add-runtimeconfig-json 2026-06-03；JSON→TOML unify-run-modes P1 2026-07-28）
 
@@ -270,9 +270,10 @@ patch 同一段占位符的逻辑有**两个调用方**：
 ```
 ① $Z42_PORTABLE_VM   显式指向 z42vm（文件或其所在目录）；同时是 SDK 同址 vm 的载体（上面 ensure 设的）。
                       libs 推导：vm 在 bin/ 内 → <bin父>/libs，否则 → <vm父>/libs。
-② 本地（最具体）      exe 逐级上行 <d>/.z42/launcher、<d>/.z42 —— apphost 同级/项目 venv（xtask 这类 framework-dependent）。
-③ 用户目录            $HOME/.z42/launcher
-④ 系统目录            $Z42_HOME/launcher（最低 —— 显式覆写请走 ①）
+② 本地（最具体）      exe 逐级上行 <d>/.z42 —— apphost 同级/项目内的 SDK（xtask 这类 framework-dependent）。
+③ 用户目录            $HOME/.z42（安装脚本的默认安装位置）
+④ 系统目录            $Z42_HOME（最低 —— 显式覆写请走 ①）
+   每一档都是 SDK 根（<root>/bin/z42vm + <root>/libs）；旧的 `<root>/launcher/` 子目录布局已不再探测。
    都无 → None（apphost 报错列已查路径，非零退出）。
 ```
 
@@ -293,7 +294,6 @@ macOS（尤其 Apple Silicon）强制代码签名：**patch 二进制字节会�
 
 native apphost 模板按 host 编译，随 desktop 包分发：
 - `./xtask package` → `<pkg>/bin/apphost`（patcher 便携模式从 `dirname(Z42_PORTABLE_VM)/apphost` 取）。
-- `install-z42.sh --system` → `$Z42_HOME/bin/apphost`（installed 模式从此处取）。
 - `./xtask test dist` 有 apphost smoke（build → `z42 publish` → 跑产出 exe → 断言）。
 
 ### z42.toml 配置：`[platform.desktop]` publish（apphost-as-config, 2026-06-17）

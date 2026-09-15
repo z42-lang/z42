@@ -51,14 +51,16 @@ git push origin v0.2.0
 
 ### Artifact 命名
 
-| RID | 文件名 |
+`<v>` 为版本号，nightly 发布里为字面量 `nightly`。
+
+| 内容 | 文件名 |
 |-----|--------|
-| linux-x64 / linux-arm64 / macos-arm64 | `z42-<v>-<rid>.tar.gz` |
-| windows-x64 | `z42-<v>-windows-x64.zip` |
-| ios-arm64 / iossim-arm64 | `z42-<v>-<rid>.tar.gz` |
-| android-arm64 / android-x64 | `z42-<v>-<rid>.tar.gz` |
-| browser-wasm | `z42-<v>-browser-wasm.tar.gz` |
-| 校验和 | `SHA256SUMS`（coreutils 格式）|
+| SDK（桌面：linux-x64 / linux-arm64 / macos-arm64） | `z42-sdk-<v>-<rid>.tar.gz` |
+| SDK（windows-x64） | `z42-sdk-<v>-windows-x64.zip` |
+| 运行时包（9 个 RID，嵌入用） | `z42-runtime-<v>-<rid>.tar.gz`（Windows `.zip`） |
+| workload | `z42-workload-<v>-<wl>.tar.gz` |
+| 安装脚本 | `install.sh` / `install.ps1`（同时发布在 `https://z42-lang.github.io/z42/`） |
+| 校验和 / 清单 | `SHA256SUMS`（coreutils 格式）/ `release-index.json` |
 
 ### Pre-release 自动标记
 
@@ -97,8 +99,8 @@ GitHub Actions UI → "Release" workflow → "Run workflow" → 输入 version�
 
 ```bash
 # 一次性拿最新 Linux x64
-curl -LO https://github.com/<owner>/z42/releases/download/nightly/z42-nightly-linux-x64.tar.gz
-curl -LO https://github.com/<owner>/z42/releases/download/nightly/SHA256SUMS
+curl -LO https://github.com/z42-lang/z42/releases/download/nightly/z42-sdk-nightly-linux-x64.tar.gz
+curl -LO https://github.com/z42-lang/z42/releases/download/nightly/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
@@ -107,20 +109,22 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 ## 校验下载的 release
 
 ```bash
-# 在解压前
-curl -LO https://github.com/<owner>/z42/releases/download/v0.2.0/SHA256SUMS
-curl -LO https://github.com/<owner>/z42/releases/download/v0.2.0/z42-0.2.0-macos-arm64.tar.gz
-sha256sum -c SHA256SUMS --ignore-missing      # 或 shasum -a 256 -c (BSD/macOS)
+# 推荐：安装脚本自动下载、校验 SHA256、安装到 ~/.z42 并配置 PATH
+curl -fsSL https://z42-lang.github.io/z42/install.sh | sh -s -- --version 0.6.0
 
-# 解压
-tar -xzf z42-0.2.0-macos-arm64.tar.gz
-cd z42-0.2.0-macos-arm64-release/
-./bin/z42c --version
+# 手工：下载 + 校验 + 解压（SDK 包内文件直接位于归档根）
+curl -LO https://github.com/z42-lang/z42/releases/download/v0.6.0/SHA256SUMS
+curl -LO https://github.com/z42-lang/z42/releases/download/v0.6.0/z42-sdk-0.6.0-macos-arm64.tar.gz
+shasum -a 256 -c SHA256SUMS --ignore-missing  # 或 sha256sum -c（GNU）
+mkdir z42 && tar -xzf z42-sdk-0.6.0-macos-arm64.tar.gz -C z42
+./z42/z42 --version
 ```
 
-## 1.0 之后
+## 安装脚本
 
-`z42up` 跨平台安装器（rustup 等价物）启用，用户走 `z42up install stable` 而非手工下载 tarball。详见 [`docs/roadmap.md`](../roadmap.md) §1.0.x charter。
+用户安装走 `scripts/install/install.sh` / `install.ps1`（默认 nightly、安装到 `~/.z42`、重新运行即更新），机制见
+[`docs/design/runtime/launcher.md`「安装」](../design/runtime/launcher.md)。脚本随每个 release 上传，
+并由 `deploy-book.yml` 发布到 Pages 站点根；`ci.yml` 的 package-host 用刚打出的包对它做离线安装冒烟。
 
 ## 发布打包：package 子命令（脚本归零，2026-06-28）
 

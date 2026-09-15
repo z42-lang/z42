@@ -20,13 +20,14 @@ xtask <command> [args]                         # 直接运行
 xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分（launcher 保持通用
 运行时）。冷启动如何先产出 xtask 见下文「冷启动 bootstrap」。
 
-本目录的 `.z42` 全部是 xtask 模块（含 stdlib 构建逻辑 `build/xtask_stdlib.z42`）。唯一
-的非 xtask 文件是安装引导脚本：
+本目录的 `.z42` 全部是 xtask 模块（含 stdlib 构建逻辑 `build/xtask_stdlib.z42`）。非 xtask 文件只有安装脚本
+（运行在「还没有 z42 工具链」的最前端，故保持 shell / PowerShell）：
 
-- **`install-z42.{sh,bat,command}`** —— 下载预编译发行版并安装。运行在「还没有 z42 工具链」的最前端，故保持 shell。
-  - 无参数：portable 安装到 `<repo>/.z42`（bootstrap，最常用）。
-  - `--system`：managed 安装到 `$Z42_HOME`（默认 `~/.z42`），展开 `bin/launcher/runtimes` 布局，打印 PATH 接入提示。
-  - `--dest <dir>`：安装到指定目录（与 `--system` 组合时用 managed 布局，否则用 portable）。
+- **`install/install.{sh,ps1}`** —— 用户安装脚本，唯一的安装逻辑：默认 nightly、安装到 `~/.z42`、配置 PATH、
+  重新运行即更新（`sha256` 未变则跳过）。发布在 `https://z42-lang.github.io/z42/install.{sh,ps1}`。
+  参数：`--version` / `--dest` / `--no-modify-path` / `--archive <本地包>` / `--force` / `--dry-run`。
+- **`install-z42.{sh,bat,command}`** —— 仓库引导：以仓库默认值调用上面的脚本（版本取 `versions.toml`、
+  安装到 `<repo>/.z42`、不改 PATH）；其余参数原样透传。
 
 > **冷启动 bootstrap（鸡生蛋的真正破解点）**：`xtask.zpkg` 依赖 stdlib 才能编译，且
 > 编译它的 z42c 自身也是 z42 写的。冷树上**下载上一版已发布 nightly 的 z42c 种子**

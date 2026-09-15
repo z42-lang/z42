@@ -42,9 +42,10 @@
 
 ## 阶段 5: 安装脚本 + self-update（PR-B3）
 
-- [ ] 5.1 `scripts/install/install.sh`（POSIX sh，D3/D4；D2 结论）+ `install.ps1`
-- [ ] 5.2 `scripts/install-z42.{sh,bat,command}` 改为薄封装（`installed-by = "repo"`、不改 profile）；确认 CI `ci-bootstrap` 与本地 `./.z42` 引导不受影响（冷启动入口清单，bootstrap-seed.md）
+- [x] 5.1 `scripts/install/install.sh`（POSIX sh，D3/D4；D2=A 默认写 profile）+ `install.ps1`；实测真实 nightly 下载安装、profile 幂等、保留非 SDK 内容、sha256 未变跳过
+- [x] 5.2 `scripts/install-z42.{sh,bat,command}` 改为薄封装（不改 profile）；CI `ci-bootstrap` 不使用它（自带下载），本地 `./.z42` 引导实测可用
 - [x] 5.3 ~~launcher `self-update` 按 D9 重写~~ → 已移除（D11）
-- [ ] 5.4 CI：package-host 用 `--archive` 离线安装验证（4 OS）；release / publish-nightly 上传安装脚本资产；deploy-book 拷脚本到站点根；nightly 发布后真实 URL 安装冒烟
-- [ ] 5.5 文档：`docs/workflow/release.md`（资产名更正）、quickstart、launcher 设计页安装章节（含 D2 决策改写）
+- [x] 5.4 CI：package-host 用 `--archive` 离线安装 + new/run 冒烟（4 OS）；release / publish-nightly 上传安装脚本资产；deploy-book 拷脚本到站点根
+- [x] 5.4b apphost 运行时探测改为 SDK 根（D12）+ Rust 单测；`test dist` 的 publish 冒烟改用 SDK 根布局
+- [x] 5.5 文档：`docs/workflow/release.md`（资产名更正）、quickstart、README、scripts/README、launcher 设计页安装章节
 - [ ] 5.6 GREEN + CI 三 OS 绿 → PR；归档随最后一个 PR
