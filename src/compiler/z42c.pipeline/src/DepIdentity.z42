@@ -17,8 +17,9 @@ using Z42.IR;
 
 public static class DepIdentity {
     // 32 hex；没有任何依赖 zpkg 时也返回确定值（空集的哈希）。
-    public static string Of(string[] dirs, int dirCount, string excludeName) {
-        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount);
+    // hidden：与编译期扫描同一份不可见名单（口径必须一致——身份描述的就是编译看得见的那些包）。
+    public static string Of(string[] dirs, int dirCount, string excludeName, string[] hidden, int hiddenN) {
+        string[] paths = ZpkgPathSort._sortedZpkgsMulti(dirs, dirCount, hidden, hiddenN);
         string self = excludeName + ".zpkg";
         string[] parts = new string[paths.Length * 4];
         int k = 0;

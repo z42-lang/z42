@@ -12,12 +12,15 @@ using Z42.Project;
 public static class ZpkgPathSort {
     // 多目录合并 + prelude-first（"0_"+name）+ Ordinal 排序（按 basename）。
     // 不存在的目录跳过（per-member 布局下后续成员 dist 在建本成员时尚空）。
-    internal static string[] _sortedZpkgsMulti(string[] dirs, int dirCount) {
+    // hidden[0..hiddenN)：不可见的包名（workspace-read-cache：workspace 构建里拓扑序排在本成员**之后**的成员——
+    // 不论在它们的 dist 还是 Z42_LIBS 快照里的同名副本）。成员合法地只能依赖排在前面的成员；此前能看到后面
+    // 成员上一轮的旧产物，构建不封闭，依赖身份也随之抖动（每改一次，前面的成员白编一轮）。null/0 = 全可见。
+    internal static string[] _sortedZpkgsMulti(string[] dirs, int dirCount, string[] hidden, int hiddenN) {
         // 第一遍：统计总数。
         int total = 0;
         int di = 0;
         while (di < dirCount) {
-            if (Directory.Exists(dirs[di])) { total = total + Path.Glob(dirs[di], "*.zpkg").Length; }
+            if (Directory.Exists(dirs[di])) { total = total + Path.Glob(dirs[di], "*.zpkg").Length; }   // 上界（含 hidden）
             di = di + 1;
         }
         // 第二遍：合并到 flat 数组。
@@ -28,14 +31,31 @@ public static class ZpkgPathSort {
             if (Directory.Exists(dirs[di])) {
                 string[] hits = Path.Glob(dirs[di], "*.zpkg");
                 int hi = 0;
-                while (hi < hits.Length) { paths[pc] = hits[hi]; pc = pc + 1; hi = hi + 1; }
+                while (hi < hits.Length) {
+                    if (!ZpkgPathSort._isHidden(Path.GetFileNameWithoutExtension(hits[hi]), hidden, hiddenN)) {
+                        paths[pc] = hits[hi]; pc = pc + 1;
+                    }
+                    hi = hi + 1;
+                }
             }
             di = di + 1;
         }
         // 同名包跨目录去重（first-wins）：某包同时在成员 dist 与 Z42_LIBS（外部 stdlib
         // 种子）出现时只扫一次，避免 DepIndex 重复 AddModule → 歧义键被 Seal 剔除。
         // 单目录调用方无重名（一目录不会有两份同名文件）→ 此步 no-op，Milestone 1 byte-identical 不变。
+        if (pc < total) {
+            string[] shrunk = new string[pc];
+            int si = 0;
+            while (si < pc) { shrunk[si] = paths[si]; si = si + 1; }
+            paths = shrunk;
+        }
         return ZpkgPathSort._dedupByBasename(ZpkgPathSort._sortZpkgKeys(paths));
+    }
+
+    private static bool _isHidden(string name, string[] hidden, int hiddenN) {
+        int i = 0;
+        while (i < hiddenN) { if (hidden[i] == name) { return true; } i = i + 1; }
+        return false;
     }
 
     // 排序后的 paths 中，每个 basename 仅保留首次出现（first-wins）。
