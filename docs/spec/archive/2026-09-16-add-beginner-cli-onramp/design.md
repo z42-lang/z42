@@ -141,7 +141,7 @@ launcher 依赖随之收缩：删 `z42.workload.desktop`（仅隐藏 `run --rid`
 
 apphost 运行时解析（`hostrun.rs::resolve_app_runtime_in`）原来探测 `<d>/.z42/launcher`、`$HOME/.z42/launcher`、`$Z42_HOME/launcher`
 ——unify-launcher-apphost 之前的 managed 布局，现在没有任何安装方式会产生它。安装脚本把 SDK 根装在 `~/.z42`，
-故三档改为直接探测 SDK 根：`<d>/.z42`、`$HOME/.z42`、`$Z42_HOME`（顺序不变，most-local-wins）。否则用户 `z42 publish`
+故三档改为直接探测 SDK 根，并调整顺序为 `<d>/.z42` → `$Z42_HOME` → `$HOME/.z42`（User 2026-09-16：原顺序下装过默认位置后 `$Z42_HOME` 永远不生效；工程本地 `.z42` 仍最优先，因为 `./xtask` 等由它编译、需要同版本 VM）。否则用户 `z42 publish`
 出的 framework-dependent 应用在仓库外运行会报「未找到 z42 运行时」。
 
 ---

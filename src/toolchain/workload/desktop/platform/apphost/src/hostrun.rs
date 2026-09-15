@@ -126,10 +126,12 @@ pub fn ensure_portable_vm(exe_dir: &Path) {
 ///   ① `$Z42_PORTABLE_VM`           (explicit override / SDK-colocated vm — set
 ///                                    by [`ensure_portable_vm`])
 ///   ② local: walk up from `exe_dir`, `<d>/.z42`
-///                                    (apphost-relative project SDK, e.g. a repo's `.z42`)
-///   ③ user:   `$HOME/.z42`          (where the installer puts the SDK by default)
-///   ④ system: `$Z42_HOME`           (lowest — explicit overrides go via ①)
-/// Every tier is an SDK root (`<root>/bin/z42vm` + `<root>/libs`).
+///                                    (project-pinned SDK, e.g. a repo's `.z42` — must beat
+///                                    any global choice: apps built against it need its VM)
+///   ③ `$Z42_HOME`                   (the user's explicit global install location)
+///   ④ `$HOME/.z42`                  (the installer's default location)
+/// Every tier is an SDK root (`<root>/bin/z42vm` + `<root>/libs`). ③ before ④ keeps the apphost
+/// consistent with the installer and launcher, which both use `$Z42_HOME` ahead of `~/.z42`.
 pub fn resolve_app_runtime(exe_dir: &Path) -> Option<AppRuntime> {
     resolve_app_runtime_in(
         env_portable_vm().as_deref(),
@@ -162,14 +164,14 @@ pub fn resolve_app_runtime_in(
         }
         cur = d.parent();
     }
-    // ③ user home: $HOME/.z42.
-    if let Some(h) = sys_home {
+    // ③ $Z42_HOME: an explicit global choice beats the default location.
+    if let Some(h) = env_home {
         if let Some(rt) = probe_app_runtime(h) {
             return Some(rt);
         }
     }
-    // ④ system: $Z42_HOME (lowest — an explicit choice belongs in ①).
-    if let Some(h) = env_home {
+    // ④ $HOME/.z42: the installer's default location.
+    if let Some(h) = sys_home {
         if let Some(rt) = probe_app_runtime(h) {
             return Some(rt);
         }
@@ -266,16 +268,17 @@ mod tests {
         assert!(rt.vm.starts_with(&local_base), "local .z42 wins over $HOME and $Z42_HOME");
     }
 
-    // User $HOME/.z42 (③) beats system $Z42_HOME (④) when there's no local .z42.
+    // $Z42_HOME (③) beats the default $HOME/.z42 (④): with both installed, the explicitly
+    // configured one must not be shadowed by the default location.
     #[test]
-    fn user_home_beats_system_z42_home() {
-        let env_home = temp_dir("env2");  // $Z42_HOME (④)
-        let sys = temp_dir("sys-user");   // $HOME/.z42 (③)
+    fn z42_home_beats_default_home_dir() {
+        let env_home = temp_dir("env2");  // $Z42_HOME (③)
+        let sys = temp_dir("sys-user");   // $HOME/.z42 (④)
         let exe_dir = temp_dir("exe-nolocal");
         make_runtime(&env_home, true);
         make_runtime(&sys, true);
         let rt = resolve_app_runtime_in(None, Some(&env_home), &exe_dir, Some(&sys)).expect("found");
-        assert!(rt.vm.starts_with(&sys), "$HOME/.z42 (user) wins over $Z42_HOME (system)");
+        assert!(rt.vm.starts_with(&env_home), "$Z42_HOME wins over the default $HOME/.z42");
     }
 
     #[test]

@@ -167,7 +167,7 @@ irm https://z42-lang.github.io/z42/install.ps1 | iex             # Windows
 - **其它参数**：`--version <x.y.z|nightly>`、`--dest <dir>`、`--archive <本地包>`（离线安装，CI 用它验证刚打出的包）、`--dry-run`。
 - **平台**：macOS arm64 / Linux x64·arm64 / Windows x64；其余（含 Intel Mac）明确报不支持。
 
-安装后发布出的应用（framework-dependent apphost）按「运行时解析」第 ③ 档在 `~/.z42` 找到 SDK。
+安装后发布出的应用（framework-dependent apphost）按「运行时解析」第 ③ / ④ 档在 `$Z42_HOME` / `~/.z42` 找到 SDK。
 
 ## 项目本地引导（仓库 `.z42`）
 
@@ -271,20 +271,20 @@ patch 同一段占位符的逻辑有**两个调用方**：
 ① $Z42_PORTABLE_VM   显式指向 z42vm（文件或其所在目录）；同时是 SDK 同址 vm 的载体（上面 ensure 设的）。
                       libs 推导：vm 在 bin/ 内 → <bin父>/libs，否则 → <vm父>/libs。
 ② 本地（最具体）      exe 逐级上行 <d>/.z42 —— apphost 同级/项目内的 SDK（xtask 这类 framework-dependent）。
-③ 用户目录            $HOME/.z42（安装脚本的默认安装位置）
-④ 系统目录            $Z42_HOME（最低 —— 显式覆写请走 ①）
+③ 显式全局            $Z42_HOME（用户指定的安装位置）
+④ 默认位置            $HOME/.z42（安装脚本的默认安装位置）
    每一档都是 SDK 根（<root>/bin/z42vm + <root>/libs）；旧的 `<root>/launcher/` 子目录布局已不再探测。
    都无 → None（apphost 报错列已查路径，非零退出）。
 ```
 
-> **为什么 $Z42_HOME 垫底而非置顶**：显式覆写已由 `$Z42_PORTABLE_VM`（①）承担，`$Z42_HOME` 退化成单纯"系统安装根位置"。优先级遵循 most-local-wins：本地项目 `.z42`（②）> 用户 `$HOME/.z42`（③）> 系统 `$Z42_HOME`（④），与"同级目录优先"一致。
+> **顺序依据**：`$Z42_PORTABLE_VM`（①）钉死任意 vm；本地项目 `.z42`（②）是工程级固定（如仓库 `.z42`，`./xtask` 由它编译、zpkg 版本严格匹配），必须压过任何全局设置；`$Z42_HOME`（③）是用户显式指定的全局安装位置，排在默认位置 `$HOME/.z42`（④）之前——否则装过默认位置后 `$Z42_HOME` 永远不生效。安装脚本（`${Z42_HOME:-~/.z42}`）与 launcher（`_home()`）同一顺序。
 
 **角色分流**（全靠 ① 是否被 `ensure_portable_vm` 填上）：
 - **launcher `z42`**（包根，子 `bin/z42vm`）→ ensure 命中 `{exe}/bin/z42vm` → ① ✓，跑 `programs/launcher/launcher.zpkg`。
 - **`bin/z42c` 及后续 bin/ apphost**（与 z42vm 同在 `bin/`）→ ensure 命中 `{exe}/z42vm` → ① ✓，**直接 `exec z42vm <自身zpkg>`、不经 launcher**。payload 指向自身 zpkg（如 `bin/z42c` → `../programs/z42c/z42c.driver.zpkg`），其包依赖经**同址依赖搜索**（payload 目录入 `search_dirs`，见 vm-architecture.md）从 `programs/z42c/` 解析、stdlib 从 `libs/`。
 - **per-app `./xtask`（framework-dependent）**（exe 近邻无同址 vm）→ ensure 不触发 → 落 ② 项目 `.z42`，venv 语义不变。
 
-**两个旋钮**：`$Z42_PORTABLE_VM`（①）显式钉死任意 vm（CI/镜像/特殊部署）或承载 SDK 同址 vm，最高优先；`$Z42_HOME`（④）改"系统安装根"位置（最低优先级）。
+**两个旋钮**：`$Z42_PORTABLE_VM`（①）显式钉死任意 vm（CI/镜像/特殊部署）或承载 SDK 同址 vm，最高优先；`$Z42_HOME`（③）指定全局安装位置（优先于默认的 `$HOME/.z42`，但不压过工程本地 `.z42`）。
 
 ### macOS 代码签名（必须）
 
