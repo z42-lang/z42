@@ -1,17 +1,27 @@
 # Tasks: 跨包关联类型
 
-> 状态：🟡 进行中 | 创建：2026-09-16
+> 状态：🟢 已完成 | 创建：2026-09-16 | 完成：2026-09-16 | PR #688
 
 ## 进度概览
-- [ ] 阶段 1: IR 结构（IrConstraintDesc + IrClassDesc assoc 字段）
-- [ ] 阶段 2: ClassDescBuilder 填充
-- [ ] 阶段 3: wire 写（ZbcWriter：bit7 + TYPE assoc 块）
-- [ ] 阶段 4: wire 读（ZbcReader + ZpkgReader + runtime type_reader）
-- [ ] 阶段 5: 搬运（ExportedInterfaceZ + TsigReconcile + ImportedSymbolLoader）
-- [ ] 阶段 6: 格式 bump（4 版本常量 + changelog）
-- [ ] 阶段 7: 删三守卫
-- [ ] 阶段 8: 测试（fixture 升级 + 单元 + 退回对照）
-- [ ] 阶段 9: fixture 重生（zbc 6 + zpkg 4 + golden hex）+ 文档 + 归档
+- [x] 阶段 1: IR 结构（IrConstraintDesc + IrClassDesc assoc 字段）
+- [x] 阶段 2: ClassDescBuilder 填充
+- [x] 阶段 3: wire 写（ZbcWriter：bit7 + TYPE assoc 块）
+- [x] 阶段 4: wire 读（ZbcReader + ZpkgReader + runtime type_reader）
+- [x] 阶段 5: 搬运（ExportedInterfaceZ + TsigReconcile + ImportedSymbolLoader）
+- [x] 阶段 6: 格式 bump（4 版本常量 + changelog）
+- [x] 阶段 7: 删三守卫
+- [x] 阶段 8: 测试（正例升级 + 新负例）
+- [x] 阶段 9: fixture 重生（zbc 6 + zpkg 4 + golden hex）+ 文档 + 归档
+
+## 验证结果（2026-09-16）
+- Rust：编译通过 + 版本 pin 42/47 + zbc_compat 3/3（zbc-format）+ lazy_loader 32/32（zpkg-format）
+- 逻辑（本地 47 CI 工具链）：负例 `assoc_type_cross_pkg_mismatch` main 编不过、精确
+  `E0453: ... binds \`Item\` to \`string\`, but \`int\` is required`；正例 `assoc_type_cross_pkg`
+  target→ext→main 全编译零 E0453 + 运行 7/9/11
+- CI：compile-toolchain(linux-x64 + macos-arm64) ✅（z42c 编译 + 47 工具链自举）
+- golden hex 无接口/无泛型 → 仅 header minor 41→42 字节变（`--emit-zbc` 逐字节对账证实）
+- 🔴 macOS 本地两代自举墙（gen1 多跑格式污染 artifact，同 B1）⇒ 格式 fixture 走「下载 CI
+  `toolchain-ubuntu-latest`(47，zpkg 平台无关) + 本地 cargo 47 VM」重生（B1 已验配方）
 
 ## 阶段 1: IR 结构
 - [ ] 1.1 `IrConstraintDesc` 加 `AssocBindingNames[]/TypeNames[]/Count` + ctor
