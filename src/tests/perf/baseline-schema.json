@@ -22,7 +22,7 @@
         "properties": {
           "name":     { "type": "string", "minLength": 1 },
           "tier":     { "enum": ["rust-micro", "z42-e2e", "z42-micro"] },
-          "metric":   { "enum": ["time", "throughput", "memory"] },
+          "metric":   { "enum": ["time", "throughput", "memory", "pause"] },
           "value":    { "type": "number" },
           "unit":     { "enum": ["ns", "us", "ms", "s", "ops/sec", "bytes", "KB", "MB"] },
           "ci_lower": { "type": ["number", "null"] },

@@ -161,12 +161,17 @@ int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, s
     int i = 0;
     while (i < nUnits) {
         int bsz = jobs;
+        // 第一个单元单独跑：它负责把父包建好，其余单元带 --reuse-parent 复用。z42b 的进程内编译器
+        // 无增量，不这样做每个单元都把父包全量重编一遍（z42.io 51 单元 × ~1s），而且同批并发的几个
+        // 进程会同时写同一个父包的 build/dist（perf-z42b-reuse-parent）。
+        if (i == 0) { bsz = 1; }
         if (i + bsz > nUnits) { bsz = nUnits - i; }
         ProcessHandle[] rh = new ProcessHandle[bsz];
         int b = 0;
         while (b < bsz) {
             Process pr = new Process(vm).Arg("--mode").Arg(mode).Arg(builderZpkg)
                 .Arg("--").Arg(verb).Arg(projToml).Arg("--name").Arg(names[i + b]);
+            if (i > 0) { pr = pr.Arg("--reuse-parent"); }
             if (capture) { pr = pr.Arg("--format").Arg("json"); }
             rh[b] = pr.Env("Z42_LIBS", libs).WorkingDirectory(root).Spawn();
             b = b + 1;

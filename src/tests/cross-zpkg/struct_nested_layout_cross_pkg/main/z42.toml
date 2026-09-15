@@ -1,0 +1,10 @@
+[project]
+name    = "demo.nestlayoutapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.NestLayoutApp.Main"
+pack    = true
+
+[dependencies]
+"demo.nestlayouttarget" = "0.1.0"
+"demo.nestlayoutext"    = "0.1.0"

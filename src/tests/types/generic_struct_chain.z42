@@ -1,0 +1,79 @@
+namespace Demo;
+
+using Std;
+
+// fix-generic-struct-chain-access e2e：泛型 struct 套泛型 struct 的**链式**字段读写
+// （`t.Item1.Item2` / `pp.First.Y = v`）。泛型 struct 的字段按声明类型 `T` 布局（擦除成引用叶子），
+// 实例化后中间一节的静态类型虽是 struct，存储却是另一块 blob 的句柄——链式访问不能把它当内联累加偏移。
+// 修复前：读到外层同偏移的字段（静默错值）或装箱崩；写进外层别的字段。**jit 双验**（struct helper 桥接）。
+// 纯 Assert（无 expected 文件 = 空 stdout）。
+
+struct Pair<A, B> {
+    public A First;
+    public B Second;
+    public Pair(A a, B b) { this.First = a; this.Second = b; }
+}
+
+struct P2 {
+    public int X;
+    public long Y;
+    public P2(int x, long y) { this.X = x; this.Y = y; }
+}
+
+struct Line {
+    public P2 From;
+    public P2 To;
+    public Line(P2 f, P2 t) { this.From = f; this.To = t; }
+}
+
+void Main() {
+    // ── 嵌套元组（修复前：Item1.Item1 装箱崩、Item1.Item2 读到外层 Item2）──────
+    ((int, string), int) t = ((1, "a"), 2);
+    Assert.Equal(1, t.Item1.Item1);
+    Assert.Equal("a", t.Item1.Item2);
+    Assert.Equal(2, t.Item2);
+
+    // ── 三层嵌套元组 ─────────────────────────────────────────
+    (((int, long), string), int) t3 = (((7, 8L), "x"), 9);
+    Assert.Equal(7, t3.Item1.Item1.Item1);
+    Assert.Equal(8L, t3.Item1.Item1.Item2);
+    Assert.Equal("x", t3.Item1.Item2);
+
+    // ── 用户泛型 struct 套泛型 struct（修复前：First.Second 读到外层 Second "s" → 崩）──
+    Pair<Pair<int, long>, string> pp = new Pair<Pair<int, long>, string>(new Pair<int, long>(3, 4L), "s");
+    Assert.Equal(3, pp.First.First);
+    Assert.Equal(4L, pp.First.Second);
+    Assert.Equal("s", pp.Second);
+
+    // ── 链式写：写进内层，不串到外层字段 ─────────────────────
+    pp.First.Second = 40L;
+    Assert.Equal(40L, pp.First.Second);
+    Assert.Equal(3, pp.First.First);
+    Assert.Equal("s", pp.Second);
+    pp.First.Second += 2L;
+    Assert.Equal(42L, pp.First.Second);
+
+    // ── 泛型 struct 套非泛型 struct：擦除节之后接内联节（First 断链、再累加 P2.Y）──
+    Pair<Line, int> pl = new Pair<Line, int>(new Line(new P2(1, 2L), new P2(3, 4L)), 5);
+    Assert.Equal(4L, pl.First.To.Y);
+    Assert.Equal(1, pl.First.From.X);
+    pl.First.To.Y = 44L;
+    Assert.Equal(44L, pl.First.To.Y);
+    Assert.Equal(2L, pl.First.From.Y);
+    Assert.Equal(5, pl.Second);
+
+    // ── 非泛型嵌套（纯内联链）行为不变 ───────────────────────
+    Line ln = new Line(new P2(10, 20L), new P2(30, 40L));
+    Assert.Equal(40L, ln.To.Y);
+    ln.To.Y = 41L;
+    Assert.Equal(41L, ln.To.Y);
+    Assert.Equal(20L, ln.From.Y);
+
+    // ── struct[] 元素上的擦除链 ──────────────────────────────
+    Pair<P2, int>[] arr = new Pair<P2, int>[2];
+    arr[1] = new Pair<P2, int>(new P2(6, 7L), 8);
+    Assert.Equal(7L, arr[1].First.Y);
+    arr[1].First.Y = 70L;
+    Assert.Equal(70L, arr[1].First.Y);
+    Assert.Equal(8, arr[1].Second);
+}

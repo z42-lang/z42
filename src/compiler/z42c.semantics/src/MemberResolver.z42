@@ -425,7 +425,7 @@ public sealed partial class MemberResolver {
     // ⚠️ 产物是**诊断专用**签名：只喂 `CheckArgTypes`，绝不回灌 `_withDefaults` / `BoxArgs` /
     // `ConvertIfNeeded` / `_withParamsExpansion` / 重载决议（不变式 I1，理由见调用点注释）。
     //
-    // `ParamsFrom` / `ParamDefaults` / `ParamCallers` 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
+    // `ParamsFrom` / `ParamDefaults` / `ParamCallers` / `ParamNames` 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
     // 漏搬会让 params 变长形参在这条路上退化成定长（CheckArgTypes 的 params 尾位分支读的就是它）。
     // 这条是照抄 `_substSelfSig` 的教训，别重踩。
     private static Z42FuncType _substGenericSig(Z42FuncType sig, Z42InstantiatedType recv) {
@@ -436,6 +436,7 @@ public sealed partial class MemberResolver {
         r.ParamsFrom = sig.ParamsFrom;
         r.ParamDefaults = sig.ParamDefaults;
         r.ParamCallers = sig.ParamCallers;
+        r.ParamNames = sig.ParamNames;
         return r;
     }
 
@@ -476,6 +477,7 @@ public sealed partial class MemberResolver {
             r.ParamsFrom = ft.ParamsFrom;
             r.ParamDefaults = ft.ParamDefaults;
             r.ParamCallers = ft.ParamCallers;
+            r.ParamNames = ft.ParamNames;
             return r;
         }
         return t;
@@ -520,7 +522,7 @@ public sealed partial class MemberResolver {
     // 形参类型仍是裸型参 `Self` ⇒ `Conversion` 分支 B「恰一侧含型参 → GenericErase」照旧放行，
     // 等于白接。
     //
-    // ParamsFrom / ParamDefaults / ParamCallers 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
+    // ParamsFrom / ParamDefaults / ParamCallers / ParamNames 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
     // 漏搬会让 params 变长形参在这条路上退化成定长（CheckArgTypes 的 params 尾位分支读的就是它）。
     private static Z42FuncType _substSelfSig(Z42FuncType sig, Z42Type selfT) {
         Z42Type[] np = new Z42Type[sig.ParamCount];
@@ -530,6 +532,7 @@ public sealed partial class MemberResolver {
         r.ParamsFrom = sig.ParamsFrom;
         r.ParamDefaults = sig.ParamDefaults;
         r.ParamCallers = sig.ParamCallers;
+        r.ParamNames = sig.ParamNames;
         return r;
     }
 

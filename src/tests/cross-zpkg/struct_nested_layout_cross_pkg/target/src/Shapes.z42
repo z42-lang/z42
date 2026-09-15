@@ -1,0 +1,25 @@
+// fix-crosspkg-nested-struct-layout：导入 struct 里的**嵌套 struct 字段**，消费方重算的布局必须与生产方
+// 逐字节一致。`Point3` 刻意是 12B（3×int）——`struct_cross_pkg` 的 `Point{int,int}` 恰好 8B = 引用叶子大小，
+// 错把嵌套 struct 当引用叶子时偏移碰巧重合，照不出这个 bug。
+namespace Demo.NestLayoutTarget;
+
+public struct Point3 {
+    public int x;
+    public int y;
+    public int z;
+    public Point3(int x, int y, int z) { this.x = x; this.y = y; this.z = z; }
+}
+
+public struct Seg {
+    public Point3 a;
+    public Point3 b;
+    public long tag;
+    public Seg(Point3 a, Point3 b, long tag) { this.a = a; this.b = b; this.tag = tag; }
+}
+
+// fix-generic-struct-chain-access：跨包泛型 struct（字段按 `A`/`B` 擦除成引用叶子）。
+public struct Pair<A, B> {
+    public A First;
+    public B Second;
+    public Pair(A a, B b) { this.First = a; this.Second = b; }
+}

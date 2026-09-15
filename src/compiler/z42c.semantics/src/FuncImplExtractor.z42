@@ -112,7 +112,7 @@ public static class FuncImplExtractor {
             ps = new ExportedParamZ[pc];
             int i = 0;
             while (i < pc) {
-                ps[i] = new ExportedParamZ("p" + i.ToString(), TypeNameResolver._hybridTypeName(md.Params[i].Type, sig.ParamTypes[i]));
+                ps[i] = new ExportedParamZ(md.Params[i].Name, TypeNameResolver._hybridTypeName(md.Params[i].Type, sig.ParamTypes[i]));   // fix-crosspkg-named-args：源名
                 i = i + 1;
             }
             ret = TypeNameResolver._hybridTypeName(md.RetType, sig.Ret);
@@ -122,7 +122,7 @@ public static class FuncImplExtractor {
             ps = new ExportedParamZ[pc];
             int i = 0;
             while (i < pc) {
-                ps[i] = new ExportedParamZ("p" + i.ToString(), TypeNameResolver.TsigTypeName(md.Params[i].Type));
+                ps[i] = new ExportedParamZ(md.Params[i].Name, TypeNameResolver.TsigTypeName(md.Params[i].Type));
                 i = i + 1;
             }
             ret = TypeNameResolver.TsigTypeName(md.RetType);

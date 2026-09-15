@@ -1,0 +1,137 @@
+// E2E benchmark scenario: 大活堆 + 老年代流失 —— 守 **GC 最大停顿**（add-incremental-major-gc M0, 2026-09-15）。
+//
+// 为什么需要这个 scenario：`12_gc_churn` 守的是 minor 侧（活堆很小，major 几乎没活干）；
+// 而 z42 的**最大停顿全部来自 major**，major 的每个阶段（标记 / 清扫）都随活堆线性增长。
+// 没有一个「活堆大、且老年代里真的会死东西」的负载，major 停顿的回归就没人看得见。
+//
+// 形状：
+//   ① 活堆 —— `slots` 条链、每条 `chain` 个节点，每个节点带一个 `long[8]` 载荷
+//      （对象区 + 数组区 + 变长区三个 region 都有份）。整轮存活，被晋升到老年代。
+//   ② 老年代流失 —— 每轮随机挑一格，**整条链换新**：旧链此前已活过晋升年龄，于是死在老年代，
+//      只有 major 能回收它。这是让 major 反复触发、且每次都有真实工作量的关键。
+//   ③ 年轻代流失 —— 每轮再分配一个临时节点和数组后立刻丢弃，驱动 minor。
+//
+// ⚠️ 链必须**整条**替换、且替换目标是随机格：若只改头节点或顺序覆盖，死亡对象会集中在
+// 少数 chunk，major 的清扫量塌缩，这个 scenario 就退化成「大堆但 major 无事可做」。
+//
+// 输出两行：第一行是确定性校验和；第二行 `gc-pause max_us=… p99_us=… count=…` 是本进程的
+// GC 停顿统计（非确定性，`xtask bench` 解析它作为 `pause` 指标）。
+// 可选参数 `large`：活堆 ×3，用于「停顿与堆大小无关」的验收对比（门禁不跑）。
+//
+// Expected output line 1 (deterministic): 25919994799997（`large`：233279984399994）
+//
+// tier: gate — 唯一的大活堆负载：守 major 停顿上界（M2 后必须与堆大小无关）
+// gc-pause: report
+namespace Bench.GcLargeHeap;
+
+using Std;
+using Std.IO;
+
+class Node {
+    public long Id;
+    public long[] Data;
+    public Node Next;
+}
+
+Node MakeChain(long firstId, int chain) {
+    Node head = null;
+    int k = 0;
+    while (k < chain) {
+        Node n = new Node();
+        n.Id = firstId + (long)k;
+        long[] d = new long[8];
+        d[0] = n.Id;
+        d[7] = n.Id * 3L;
+        n.Data = d;
+        n.Next = head;
+        head = n;
+        k = k + 1;
+    }
+    return head;
+}
+
+long ChainSum(Node head) {
+    long s = 0L;
+    Node n = head;
+    while (n != null) {
+        s = s + n.Data[0] + n.Data[7];
+        n = n.Next;
+    }
+    return s;
+}
+
+long Drive(int slots, int chain, long churn) {
+    // ① 活堆：先整表填满。
+    Node[] table = new Node[slots];
+    long nextId = 0L;
+    int s = 0;
+    while (s < slots) {
+        table[s] = MakeChain(nextId, chain);
+        nextId = nextId + (long)chain;
+        s = s + 1;
+    }
+
+    long seed = 12345L;
+    long acc = 0L;
+    long i = 0L;
+    while (i < churn) {
+        // LCG mod 2^31：乘积 < 2^62，不溢出 long。
+        seed = (seed * 1103515245L + 12345L) % 2147483648L;
+        int slot = (int)(seed % (long)slots);
+
+        // ② 老年代流失：整条链换新，旧链成垃圾。
+        acc = acc + ChainSum(table[slot]);
+        table[slot] = MakeChain(nextId, chain);
+        nextId = nextId + (long)chain;
+
+        // ③ 年轻代流失：分配即丢弃。
+        Node t = new Node();
+        t.Id = i;
+        long[] tmp = new long[4];
+        tmp[1] = i;
+        acc = acc + tmp[1] % 7L + t.Id % 5L;
+
+        i = i + 1L;
+    }
+
+    s = 0;
+    while (s < slots) {
+        acc = acc + ChainSum(table[s]);
+        s = s + 1;
+    }
+    return acc;
+}
+
+// p99：从 GC 的滚动窗口里取样本（µs），插入排序（窗口 ≤ 1024，够用）。
+long P99(long[] samples) {
+    int n = samples.Length;
+    if (n == 0) { return 0L; }
+    long[] a = new long[n];
+    int i = 0;
+    while (i < n) {
+        long v = samples[i];
+        int j = i - 1;
+        while (j >= 0 && a[j] > v) {
+            a[j + 1] = a[j];
+            j = j - 1;
+        }
+        a[j + 1] = v;
+        i = i + 1;
+    }
+    int idx = (n * 99) / 100;
+    if (idx >= n) { idx = n - 1; }
+    return a[idx];
+}
+
+void Main() {
+    int slots = 50000;
+    string[] args = Environment.GetCommandLineArgs();
+    if (args.Length > 0 && args[0] == "large") { slots = 150000; }
+    long result = Drive(slots, 8, (long)slots * 8L);
+    Console.WriteLine(result.ToString());
+
+    long[] stats = GC.PauseStatsRaw();   // [min_us, max_us, total_us, count]
+    Console.WriteLine("gc-pause max_us=" + stats[1].ToString()
+        + " p99_us=" + P99(GC.RecentPauses()).ToString()
+        + " count=" + stats[3].ToString());
+}

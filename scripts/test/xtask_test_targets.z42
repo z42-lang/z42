@@ -106,6 +106,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
     if (kind == "test" && name.Length == 0) {
         failed = failed + _smokeCompileThenTest(root, tt);
         failed = failed + _smokeDevTargetInternal(root, tt);
+        failed = failed + _smokeReuseParentMissing(root, tt);
         failed = failed + _smokeOrphanGuard(root, tt);
         failed = failed + _smokeNoTests(root, tt);
         failed = failed + _smokeListTargets(root, tt);
@@ -175,6 +176,28 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ dev-target internal: 目标按源隔离编译，且可见父包 internal（预置的过期同置副本已被覆盖）");
+    return 0;
+}
+
+// `--reuse-parent` smoke（perf-z42b-reuse-parent）：xtask 每个库先跑一个单元把父包建好，其余单元带
+// `--reuse-parent` 并行复用。这里锁住它的安全边：**父包 dist 不在时必须照常建**，而不是把一个不存在
+// 的目录当成父包交给编译器（那样目标编译会解析不到父包 internal ⇒ 判红，或更糟地悄悄用上旧产物）。
+// 先整个删掉 fixture 的父包产物，再带 flag 只跑 dirunit（它要看父包 internal）。
+int _smokeReuseParentMissing(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/dev-target-internal/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── reuse-parent (父包 dist 不在时 --reuse-parent 仍须先建父包) ──");
+    string parentOut = Path.Join(Path.GetDirectoryName(toml), "artifacts/dt.internal");
+    if (Directory.Exists(parentOut)) { Directory.Delete(parentOut, true); }
+    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml).Arg("--name").Arg("dirunit").Arg("--reuse-parent")
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+    if (rc != 0) {
+        Console.WriteLine("  ❌ reuse-parent: 父包 dist 缺失时带 --reuse-parent 失败（rc=" + rc.ToString() + "）—— 复用把缺件当成了成功");
+        return 1;
+    }
+    Console.WriteLine("  ✅ reuse-parent: 父包 dist 缺失时照常先建父包，目标通过");
     return 0;
 }
 
