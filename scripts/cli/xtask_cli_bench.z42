@@ -67,6 +67,10 @@ ArgParser _benchE2eParser() {
     // this many extra times, and the verdict is recomputed from the BETWEEN-ROUND ratio
     // dispersion. 0 turns it off (rollback knob); default 2 ⇒ k=3.
     p.AddOption("resample-rounds", "", "A/B: extra rounds for a round-1 regression (0 = off, default 2)", "");
+    // add-incremental-major-gc M0: GC pause gate for `// gc-pause: report` scenarios —
+    // regression ⟺ pr median max pause > cap AND > base median max × (1 + threshold).
+    p.AddOption("pause-cap-ms", "", "A/B: absolute max-pause cap in ms (default 16)", "");
+    p.AddOption("threshold-pause", "", "A/B: relative max-pause regression threshold (default 0.25)", "");
     p.AddOption("base-vm", "", "A/B: base z42vm binary", "");
     p.AddOption("base-libs", "", "A/B: base flat libs dir (stdlib + z42c siblings)", "");
     p.AddOption("base-driver", "", "A/B: base z42c.driver.zpkg", "");

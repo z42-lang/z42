@@ -142,6 +142,14 @@ int _bench(ParseResult r) {
             if (nb > 0) { benchmarks = benchmarks + ",\n"; }
             benchmarks = benchmarks + _benchObj(outJson, name, runs, tiers, vmc);
             nb = nb + 1;
+            // add-incremental-major-gc M0: `// gc-pause: report` scenarios also yield pause metrics.
+            if (_benchScenarioReportsPause(srcText)) {
+                PauseMedian pm = _benchPauseRun(vm, zbc, ns + ".Main", m, libs, quick ? 1 : 3);
+                if (pm.Rc != 0) { return 2; }
+                benchmarks = benchmarks + ",\n" + _benchPauseObj(name, "max", pm.MaxMs, pm.Samples, tiers, vmc)
+                    + ",\n" + _benchPauseObj(name, "p99", pm.P99Ms, pm.Samples, tiers, vmc);
+                nb = nb + 2;
+            }
         }
         count = count + 1;
     }
@@ -452,6 +460,13 @@ int _benchAb(ParseResult r) {
     // remaining entries keep their round-1 verdict (which fails the job) instead of
     // spending unbounded runner time to confirm what is already the likely answer.
     int resampleBudget = 3;
+    // add-incremental-major-gc M0: pause gate = pr_max > cap AND pr_max > base_max*(1+thr).
+    double pauseCap = 16.0;
+    string pc = r.GetOption("pause-cap-ms");
+    if (pc.Length > 0) { pauseCap = Double.Parse(pc); }
+    double pauseThr = 0.25;
+    string pt = r.GetOption("threshold-pause");
+    if (pt.Length > 0) { pauseThr = Double.Parse(pt); }
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
     string root = _root();
@@ -509,6 +524,13 @@ int _benchAb(ParseResult r) {
             if (nb > 0) { items = items + ",\n"; }
             items = items + o.Json; nb = nb + 1;
             if (o.IsRegression) { regr = regr + 1; }
+            if (_benchScenarioReportsPause(srcText)) {
+                AbOutcome po = _abPauseScenario(name, m, baseVm, Path.Join(work, name + "-base.zbc"), baseLibs,
+                    prVm, Path.Join(work, name + "-pr.zbc"), prFlat, ns + ".Main", pauseCap, pauseThr);
+                if (po.Rc != 0) { toolErr = toolErr + 1; continue; }
+                items = items + ",\n" + po.Json; nb = nb + 1;
+                if (po.IsRegression) { regr = regr + 1; }
+            }
         }
         count = count + 1;
     }
@@ -614,7 +636,9 @@ int _abSelfTest() {
     fails = fails + _abExpect("resample-too-few-rounds", h, "no-data", false);
     if (h.HasCi) { Console.WriteLine("  FAIL resample-too-few-rounds: expected HasCi=false"); fails = fails + 1; }
 
-    if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict selftest: 10/10 passed"); return 0; }
+    fails = fails + _abPauseSelfTest();   // add-incremental-major-gc M0: pause gate (4 cases)
+
+    if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict + pause selftest: 14/14 passed"); return 0; }
     Console.WriteLine("❌ _abVerdict + _abResampleVerdict selftest: " + fails.ToString() + " failure(s)");
     return 1;
 }

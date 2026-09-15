@@ -1,7 +1,7 @@
 # 性能基准与回归门禁（benchmark / bench gate）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `scripts/xtask_bench.z42` · `src/tests/perf/` · `.github/workflows/bench-pr.yml`
-> **相关**: [xtask](xtask.md) · [测试门禁](test-gate.md) ｜ **对齐**: 2026-09-05
+> **相关**: [xtask](xtask.md) · [测试门禁](test-gate.md) ｜ **对齐**: 2026-09-15
 
 ## 概述
 
@@ -448,6 +448,15 @@ e2e 情况好些（hyperfine 跨 10 次**进程启动**采样，声称 7.9% vs �
    `MODE` 按改动面收窄：`src/runtime`（排除 `*.md`）无变更 → `jit`（interp/jit 的相对性能只可能被 VM 改动挪动），
    否则 `both`。初判回归的条目在**进程内**自动复测 2 轮（见「可疑即复测」），最终 `R_lower > 1+thr`
    → exit 1 → fail workflow；上传 `artifacts/bench/ab.json`（含每轮比值 `round_ratios`）
+
+   **GC 停顿子门禁**（add-incremental-major-gc M0，2026-09-15）：头部声明 `// gc-pause: report` 的场景
+   （目前只有 `13_gc_large_heap`）末尾自报一行 `gc-pause max_us=… p99_us=… count=…`（数据来自
+   `Std.GC.PauseStatsRaw()` / `RecentPauses()`）。hyperfine 丢弃被测程序输出，所以 A/B 在时间对比之后
+   **另跑** base / pr 各 3 次、取 max 与 p99 停顿的中位数，写成 `ab.json` 里 `"metric": "pause"` 的一条。
+   判红 ⟺ `pr_max > --pause-cap-ms`（默认 16） **且** `pr_max > base_max × (1 + --threshold-pause)`（默认 0.25）。
+   为什么是「且」：增量 major 落地前 main 上这个场景的 major 停顿就有 ~97 ms（`large` 三倍活堆 ~392 ms），
+   只看绝对上限会让每个 PR 都红；落地后 base 与 pr 都在上限内，规则自然退化成纯绝对上限，届时收紧到 10 ms。
+   单跑路径 `xtask bench` 同样产出 `<name>-pause-max` / `<name>-pause-p99` 两条 schema-v2 结果（`metric: pause`）。
 6. **micro A/B（硬门禁）**（Part B）：PR 树 + base 树各 `bench stdlib --json`（base 树复用 3 建的工具链、
    仅新建 base z42b）→ 第 1 轮 `bench --micro-diff --suspects …` **只点名不判红**；
    `suspects` 为空 ⇒ 直接通过（**零额外开销**，与降级时期同价）；非空 ⇒ 再采两轮（两棵树各一次，
@@ -694,8 +703,8 @@ hello 启动只有 ~6.5 ms、以**冷代码**为主，对二进制布局极其�
 ### e2e（hyperfine 跑 .zbc）
 
 ```bash
-xtask bench                       # 全 11 个场景，默认 jit，默认 --tier all
-xtask bench --tier gate           # 只跑 PR 门禁那 6 条（CI 用的就是这条）
+xtask bench                       # 全 13 个场景，默认 jit，默认 --tier all
+xtask bench --tier gate           # 只跑 PR 门禁那 7 条（CI 用的就是这条）
 xtask bench --tier full           # 只跑非门禁场景
 xtask bench --mode both           # 每场景各测 interp 与 jit（各一条 profile 结果）
 xtask bench --quick               # sanity：只跑前 2 个场景、runs=3 warmup=1（< 60s）
@@ -704,7 +713,8 @@ xtask bench --quick               # sanity：只跑前 2 个场景、runs=3 warm
 xtask bench --ab --tier gate --threshold-time 0.15 \
   --base-vm <base z42vm> --base-libs <base flat libs> --base-driver <base driver.zpkg>
 xtask bench --ab … --resample-rounds 0   # 关掉可疑即复测（回滚旋钮；关了就得把阈值退回 0.25）
-xtask bench --ab-selftest                # 判定纯函数单测（10 例，CI 每次跑）
+xtask bench --ab … --pause-cap-ms 16 --threshold-pause 0.25   # GC 停顿子门禁的两个阈值（默认值）
+xtask bench --ab-selftest                # 判定纯函数单测（时间 10 例 + 停顿 4 例，CI 每次跑）
 ```
 
 `--mode both` 就是 interp/jit 对比的正规做法：同一份 `.zbc`（编译产物与模式无关）在两种模式下
