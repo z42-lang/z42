@@ -171,6 +171,10 @@ runs:
           flatw="$(winpath "$FLAT")"
           # Gen2 z42c: 旧VM + gen1 z42c(entry-dir=旧 stdlib 供运行时)+ Z42_LIBS=新 stdlib(编译期 TSIG)
           # → z42c 新壳。per-member topo 序:兄弟本轮先重写为新格式再被依赖。
+          # ⚠️ 「entry-dir 供运行时」依赖旧VM 的 prelude(z42.core)解析**先看 entry-dir**:VM 把 $Z42_LIBS 当
+          # libs 目录,若 prelude 只看 libs 目录,就会打开这里的**新格式** z42.core 并 bail —— 2026-09 两代自举
+          # 因此回归(#444 把版本失配改成 bail 后触发)。修复 #631(app.rs 5.1b 走 search_dirs)随 nightly
+          # 进入 OLDVM 后才成立;改动这段前先确认 OLDVM 仍具备该行为。
           # 同 gen1 stdlib:清就地 artifacts/build/compiler(gen1 已写 minor 41,gen2 重写 42),避免
           # DepScanCache 缓存 gen1 旧份的 strict-pin skip → gen2 兄弟(z42c.*)解析缺席。gen1 driver
           # 已在 G1RUN,gen2 用它作 driver,故清 artifacts/build/compiler 安全(gen2 重建 + boot_driver 取新)。
