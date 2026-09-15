@@ -22,7 +22,7 @@ Resources/stdlib/index.json
 # Compiled demo fixtures (produced by build.sh).
 demo/fixtures/*.zbc
 
-# Test bundle resources (produced by build.sh from examples/embedding/*
+# Test bundle resources (produced by build.sh from src/toolchain/workload/fixtures/*
 # and artifacts/build/libraries/dist/release/). Re-generated on every build.
 Tests/Z42VMTests/Resources/test-fixtures/*.zbc
 Tests/Z42VMTests/Resources/stdlib/*.zpkg

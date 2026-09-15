@@ -420,8 +420,8 @@ string[] _gateStageNames() {
         "e2e multi-exe",
         "stdlib [Test]",
         "stdlib [Benchmark]",
-        "manifest targets ([[test]])",
-        "examples (compile gate + test=true run)",
+        "manifest targets ([[test]] + [[example]])",
+        "examples (learn book transcripts)",
         "compiler",
         "gc modes (z42c.semantics build)",
         "vscode-syntax",
@@ -578,16 +578,21 @@ int _testAll(bool noBuild, string skip) {
     // [[test]] harness true/false exit-code + explicit-overlay). noBuild=true:
     // the wave + stdlib stage already prepared the release toolchain.
     if (!_skipHas(skip, "targets")) {
-        swStage = _stageStart("manifest targets ([[test]])");
+        swStage = _stageStart("manifest targets ([[test]] + [[example]])");
         c = _testTargetsCore("test", "", true); if (c != 0) { return c; }
-        _stageEnd(slog, "manifest targets ([[test]])", swStage);
+        c = _testManifestExamples(true); if (c != 0) { return c; }
+        _stageEnd(slog, "manifest targets ([[test]] + [[example]])", swStage);
     }
-    // stage 4c: example compile-gate (design D4): compile ALL examples across
-    // projects (build failure = stage failure), run those marked test=true.
+    // stage 4c: 学习手册配套示例（add-learn-book-examples-gate）：书 ↔ examples 引用校验 +
+    // 用 SDK 里真实的 `z42` 重放每个 examples/**/*.console。SDK 用 artifacts/.z42：本地完整 gate
+    // 先建（apphost 发布 + 组装，warm ~25s）；--no-build（CI）消费前一步 `xtask build sdk` 的产物，缺失即红。
     if (!_skipHas(skip, "examples")) {
-        swStage = _stageStart("examples (compile gate + test=true run)");
-        c = _testExampleGate(true); if (c != 0) { return c; }
-        _stageEnd(slog, "examples (compile gate + test=true run)", swStage);
+        swStage = _stageStart("examples (learn book transcripts)");
+        if (!noBuild) { c = _buildSdk("", false); if (c != 0) { return c; } }
+        ExamplesOptions eo = new ExamplesOptions();
+        eo.Filter = ""; eo.Sdk = ""; eo.BookOnly = false; eo.Bless = false; eo.Keep = false; eo.TimeoutS = 120;
+        c = _testExamples(eo); if (c != 0) { return c; }
+        _stageEnd(slog, "examples (learn book transcripts)", swStage);
     }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     // Skippable: CI offloads to a dedicated compiler-checks(linux-x64) job (1×)

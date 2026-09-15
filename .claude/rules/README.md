@@ -21,6 +21,7 @@ AI 与协作者干活的行为规范（文档四类中的**③ 开发规范**，
 | [code-organization.md](code-organization.md) | 目录 README 模板（5 段）、文件/函数/类型行数限制 |
 | [commit-log.md](commit-log.md) | 提交信息格式 `type(scope): 描述` |
 | [doc-system.md](../../docs/agent/rules/doc-system.md) 📍docs/agent/rules/ | 文档体系总纲：四类文档职责、SoT、知识上浮、迁移期约定 |
+| [learn-writing.md](../../docs/agent/rules/learn-writing.md) 📍docs/agent/rules/ | 学习手册（docs/learn）与 examples/ 的写法：代码只来自 examples、会话脚本格式、门禁规则 |
 | [version-bumping.md](version-bumping.md) | zbc / zpkg 格式 version bump checklist |
 
 ## 语言专属（各技术栈的坑与约定）

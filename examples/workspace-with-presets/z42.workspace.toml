@@ -1,8 +1,0 @@
-# 演示 include 机制：member 通过显式 include 拉入子树/分组共享 preset。
-
-[workspace]
-members = ["libs/*"]
-
-[workspace.project]
-version = "0.1.0"
-license = "MIT"

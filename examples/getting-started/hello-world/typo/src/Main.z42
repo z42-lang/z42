@@ -1,0 +1,7 @@
+namespace Typo;
+
+using Std.IO;
+
+void Main() {
+    Consle.WriteLine("Hello, World!");
+}

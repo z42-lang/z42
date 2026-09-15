@@ -1,0 +1,161 @@
+// xtask — 在隔离沙箱里重放一个会话脚本（`*.console`），用被测 SDK 的真实 `z42` 执行每一步。
+//
+// 沙箱：系统临时目录下新建（不能位于任何含 `.z42/` 的目录树下——apphost 会向上找 `.z42`），
+// 拷入脚本所在目录（排除 *.console / example.toml / dist / artifacts）；子进程环境清空后只放行
+// PATH（前置 SDK）/ HOME（沙箱内独立 home）/ 少量系统变量 —— xtask 与 CI 注入的 Z42_* 一概带不进去。
+// 可执行的命令：`z42 …`（SDK 里的 launcher），内建 `cd <dir>` / `cat <file>` / `ls [dir]`。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+class ExampleRunResult {
+    public int  Steps  { get; set; }
+    public bool Failed { get; set; }
+    public bool Blessed { get; set; }   // --bless 改写了文件
+}
+
+// 重放 `consolePath`。sdk = SDK 根目录。bless=true 时把失配步骤的期望替换为实际输出并写回。
+ExampleRunResult _runTranscript(string sdk, string consolePath, int timeoutMs, bool bless, bool keep) {
+    ExampleRunResult res = new ExampleRunResult();
+    TranscriptItem[] items = _parseTranscript(File.ReadAllText(consolePath));
+    string srcDir = Path.GetDirectoryName(consolePath);
+    string root = File.CreateTempDir("z42-example-");
+    string home = Path.Join(root, ".home");
+    string work = _collapseDots(Path.Join(root, "work"));
+    Directory.Create(home);
+    _copyExampleTree(srcDir, work);
+    string cwd = work;
+    int i = 0;
+    while (i < items.Length && !res.Failed) {
+        TranscriptStep st = items[i].Step;
+        if (st != null) {
+            res.Steps = res.Steps + 1;
+            string[] argv = _splitCommand(st.Command);
+            int rc = 0;
+            string sout = "";
+            string serr = "";
+            if (argv.Length == 0) { serr = "empty command"; rc = 127; }
+            else if (argv[0] == "cd") {
+                string next = argv.Length > 1 ? _sandboxPath(cwd, argv[1]) : work;
+                if (!next.StartsWith(work) || !Directory.Exists(next)) { serr = "cd: no such directory inside the sandbox: " + (argv.Length > 1 ? argv[1] : ""); rc = 1; }
+                else { cwd = next; }
+            }
+            else if (argv[0] == "cat") {
+                string f = argv.Length > 1 ? _sandboxPath(cwd, argv[1]) : "";
+                if (f.Length > 0 && File.Exists(f)) { sout = File.ReadAllText(f); } else { serr = "cat: no such file"; rc = 1; }
+            }
+            else if (argv[0] == "ls") { sout = _lsListing(argv.Length > 1 ? _sandboxPath(cwd, argv[1]) : cwd); }
+            else if (argv[0] == "z42") {
+                ProcessResult pr = _runSdkZ42(sdk, home, cwd, argv, timeoutMs);
+                if (pr == null) { serr = "timed out after " + (timeoutMs / 1000).ToString() + "s"; rc = 124; }
+                else { sout = pr.Stdout; serr = pr.Stderr; rc = pr.ExitCode; }
+            }
+            else { serr = "unsupported command `" + argv[0] + "` (allowed: z42, cd, cat, ls)"; rc = 127; }
+
+            string[] actual = _normalizeOutput(sout + serr, work);
+            if (rc != st.ExitCode || !_matchLines(st.Expected, actual)) {
+                if (bless && rc != 124 && rc != 127) {
+                    st.Expected = actual;
+                    st.ExitCode = rc;
+                    res.Blessed = true;
+                } else {
+                    res.Failed = true;
+                    ConsoleError.WriteLine("    ✗ " + consolePath + ":" + st.Line.ToString() + "  $ " + st.Command);
+                    if (rc != st.ExitCode) {
+                        ConsoleError.WriteLine("      exit code: expected " + st.ExitCode.ToString() + ", got " + rc.ToString());
+                    }
+                    ConsoleError.Write(_diffReport(st.Expected, actual));
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if (res.Blessed) { File.WriteAllText(consolePath, _renderTranscript(items)); }
+    if (res.Failed || keep) {
+        ConsoleError.WriteLine("      sandbox kept: " + root);
+    } else {
+        Directory.Delete(root, true);
+    }
+    return res;
+}
+
+// 运行 SDK 里的 z42。环境清空后只放行必要变量；超时返回 null（进程树已被杀）。
+ProcessResult _runSdkZ42(string sdk, string home, string cwd, string[] argv, int timeoutMs) {
+    string exe = Path.Join(sdk, Platform.IsWindows() ? "z42.exe" : "z42");
+    string sep = Platform.IsWindows() ? ";" : ":";
+    string sysPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+    Process p = new Process(exe).WorkingDirectory(cwd).ClearEnv()
+        .Env("PATH", sdk + sep + Path.Join(sdk, "bin") + sep + sysPath)
+        .Env("HOME", home).Env("USERPROFILE", home)
+        .Env("LANG", "C.UTF-8")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe())
+        .Timeout(timeoutMs);
+    string[] passthrough = new string[]{ "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "PATHEXT", "ComSpec", "WINDIR" };
+    int k = 0;
+    while (k < passthrough.Length) {
+        string v = Environment.GetEnvironmentVariable(passthrough[k]) ?? "";
+        if (v.Length > 0) { p = p.Env(passthrough[k], v); }
+        k = k + 1;
+    }
+    int a = 1;
+    while (a < argv.Length) { p = p.Arg(argv[a]); a = a + 1; }
+    try { return p.Run(); }
+    catch (ProcessTimeoutException e) { return null; }
+}
+
+// 沙箱内的相对路径 → 绝对路径（不做 `..` 规范化以外的解析；越出沙箱由调用方拒绝）。
+string _sandboxPath(string cwd, string rel) {
+    string p = Path.IsRooted(rel) ? rel : Path.Join(cwd, rel);
+    return _collapseDots(p);
+}
+
+string _collapseDots(string p) {
+    string[] parts = p.Replace("\\", "/").Split("/");
+    string[] st = new string[parts.Length];
+    int n = 0;
+    int i = 0;
+    while (i < parts.Length) {
+        string seg = parts[i];
+        if (seg == "..") { if (n > 0) { n = n - 1; } }
+        else if (seg != "." && !(seg.Length == 0 && i > 0)) { st[n] = seg; n = n + 1; }
+        i = i + 1;
+    }
+    string r = "";
+    int k = 0;
+    while (k < n) { r = k == 0 ? st[k] : r + "/" + st[k]; k = k + 1; }
+    return r.Length == 0 ? "/" : r;
+}
+
+// `ls` 内建：字典序，隐藏以 `.` 开头的条目，目录带 `/` 后缀。
+string _lsListing(string dir) {
+    if (!Directory.Exists(dir)) { return "ls: no such directory\n"; }
+    string[] names = _sortedStrings(Directory.Enumerate(dir));
+    string s = "";
+    int i = 0;
+    while (i < names.Length) {
+        if (!names[i].StartsWith(".")) {
+            s = s + names[i] + (Directory.Exists(Path.Join(dir, names[i])) ? "/" : "") + "\n";
+        }
+        i = i + 1;
+    }
+    return s;
+}
+
+// 拷贝示例目录进沙箱：排除会话脚本本身、example.toml 与构建产物（避免带入增量缓存）。
+void _copyExampleTree(string src, string dst) {
+    Directory.Create(dst);
+    string[] names = _sortedStrings(Directory.Enumerate(src));
+    int i = 0;
+    while (i < names.Length) {
+        string name = names[i];
+        string s = Path.Join(src, name);
+        string d = Path.Join(dst, name);
+        if (Directory.Exists(s)) {
+            if (name != "dist" && name != "artifacts") { _copyExampleTree(s, d); }
+        } else if (!name.EndsWith(".console") && name != "example.toml") {
+            File.Copy(s, d);
+        }
+        i = i + 1;
+    }
+}
