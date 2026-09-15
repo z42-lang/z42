@@ -33,10 +33,10 @@ argument-hint: <token-name> [keyword-text]
 
 确认修改后能通过编译：
 ```bash
-dotnet build src/compiler/z42.slnx
+xtask build compiler
 ```
 
-如果新 token 出现在示例文件中，用 `--dump-tokens` 验证：
+用 `--dump-tokens` 验证新 token 的词法结果（写一个含新 token 的临时 .z42 文件）：
 ```bash
-dotnet run --project src/compiler/Z42.Driver -- examples/hello.z42 --dump-tokens
+artifacts/build/runtime/release/z42vm artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg -- --dump-tokens /tmp/tok.z42
 ```

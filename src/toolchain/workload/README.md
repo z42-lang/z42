@@ -33,6 +33,9 @@ workload/<plat>/          # ios / android / desktop / wasm
 > ```
 >
 > 它是 **payload-only 形状**（只有 agent zpkg、无 per-RID runtime pack、`host:["*"]`），复用现有 install CLI（名 manifest 驱动、通配 host）。
+>
+> `workload/fixtures/`：各平台 R1–R7 嵌入契约测试**共用**的 z42 夹具（`hello.z42` / `multi_line.z42`），
+> 由 `xtask test platform <plat> assets` 编成 `.zbc` 喂给 wasm / iOS / Android / desktop 的测试壳。
 
 ## 依赖关系
 

@@ -65,7 +65,10 @@ jobs:
             platform:
               - 'src/runtime/**'
               - 'src/toolchain/workload/**'
-              - 'examples/embedding/**'
+              - 'src/toolchain/workload/fixtures/**'
+              # 学习手册示例：package-host 用打包出的 SDK（含 Windows）重放会话脚本。
+              - 'examples/**'
+              - 'docs/learn/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
               # **根本不跑 package job** —— 打包坏了 PR 照样绿，要等合并进 main 才炸。
@@ -269,6 +272,18 @@ jobs:
       # the goldens against those canonical artifacts (~12-15 min/leg saved). The
       # consume path (_regenGolden + --no-build stages) is the same one the
       # test-consume job already exercises green.
+      # examples stage（学习手册示例）用 SDK 里真实的 `z42` 重放会话脚本，需要一个带 launcher 的
+      # 完整 SDK（artifacts/.z42）。`build sdk` 在 bootstrap 之后是增量的：stdlib / z42c 命中缓存，
+      # 实际工作量是 apphost stub 的 cargo 构建 + 各工具 publish。
+      - name: Build SDK for the examples stage
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
+          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- build sdk
+
       - name: Test (z42 xtask.zpkg test all --no-build --skip ...)
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -447,6 +462,19 @@ jobs:
           if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$runner" artifacts/xtask/xtask.zpkg -- test dist
+
+      - name: Learn-book examples (packaged SDK)
+        # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
+        # 也是 Windows 上唯一的覆盖。
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
+          runner="$vm"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
+          pkg_dir=$(ls -d "$PWD"/artifacts/packages/z42-*-release | head -1)
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$runner" artifacts/xtask/xtask.zpkg -- test examples --sdk "$pkg_dir"
 
       - name: Installer smoke (offline, packaged SDK)
         # 用户安装脚本（scripts/install/）对刚打出的 SDK 包跑一遍 `--archive` 离线安装：

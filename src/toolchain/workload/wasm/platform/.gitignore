@@ -13,7 +13,7 @@ js/stdlib/*.zpkg
 js/stdlib/index.json
 js/stdlib/files.json
 
-# Test fixtures compiled by build.sh from examples/embedding/*.z42.
+# Test fixtures compiled by build.sh from src/toolchain/workload/fixtures/*.z42.
 js/fixtures/*.zbc
 
 # Local node demo deps (run.js depends on the workspace via file:).

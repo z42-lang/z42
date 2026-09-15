@@ -1,0 +1,38 @@
+// target-typed new：目标类型已知时 `new(args)` 省略构造类名，与显式 `new T(args)` 产出相同代码。
+// 覆盖全部目标类型来源：字段初始化器 / return / 局部变量声明 / 赋值 / 实参 / 带对象初始化器。
+namespace TargetTypedNew;
+
+class Point {
+    public int X;
+    public int Y;
+    public Point() { }
+    public Point(int x, int y) { this.X = x; this.Y = y; }
+}
+
+class Box {
+    public Point Origin = new();           // 字段初始化器：目标 = 字段类型
+
+    public Point Make() {
+        return new(3, 4);                  // return：目标 = 返回类型
+    }
+
+    public int SumOf(Point p) { return p.X + p.Y; }
+}
+
+void Main() {
+    Box box = new();                       // 局部变量：目标 = 声明类型
+    Assert.Equal(0, box.Origin.X);
+
+    Point a = new();
+    Assert.Equal(0, a.Y);
+    a = new(1, 2);                         // 赋值：目标 = 左值类型
+    Assert.Equal(1, a.X);
+    Assert.Equal(2, a.Y);
+
+    Assert.Equal(11, box.SumOf(new(5, 6))); // 实参：目标 = 形参类型
+    Assert.Equal(4, box.Make().Y);
+
+    Point b = new() { X = 7, Y = 8 };      // + 对象初始化器
+    Assert.Equal(7, b.X);
+    Assert.Equal(8, b.Y);
+}

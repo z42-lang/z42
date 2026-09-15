@@ -46,7 +46,7 @@
 不做：
 - VM 执行引擎本身（归 `src/runtime/`）
 - C ABI 实现（归 `src/runtime/src/host/`）
-- 桌面 C / Rust example（归 [`examples/embedding/`](../../../../examples/embedding/) —— 规范源，亦随 SDK 分发）
+- 嵌入示例（C / Rust 宿主）：由学习手册「在 C / Rust 程序中嵌入 z42」一章的 `examples/platforms/embedding/` 提供（章节落地前暂缺）
 - 测试 runner（归 `src/toolchain/test-runner/`）
 
 ---
@@ -217,4 +217,4 @@ zpkg 文件本身**由 `dotnet build src/compiler/z42.slnx` 编译标准库产�
 - xcframework / AAR / npm 发布流程 → 各平台 spec
 - Demo app 设计 → 各平台 spec
 - 测试体系（XCTest / JUnit / playwright）→ 各平台 spec
-- 桌面 hello_c desktop build + R1–R7 端到端 → 已落地为 `desktop` 平台后端（`./xtask test platform desktop`；规范 C 例见 [`examples/embedding/hello_c/README.md`](../../../../examples/embedding/hello_c/README.md)）
+- 桌面 hello_c desktop build + R1–R7 端到端 → 已落地为 `desktop` 平台后端（`./xtask test platform desktop`；R1–R7 共用夹具在 `src/toolchain/workload/fixtures/`）

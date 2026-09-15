@@ -27,6 +27,15 @@ SubcommandRouter _testRouter() {
     targets.AddFlag("no-build", "", "skip tooling rebuild");
     targets.AddOptionalPositional("name", "single target name (default: all)");
     t.Add("targets", "manifest [[test]] target fixtures (all or one by name)", targets);
+    // 学习手册配套示例（仓库根 examples/）：书↔示例引用校验 + 用 SDK 重放 *.console。
+    ArgParser examples = new ArgParser("xtask test examples", "learn-book examples: check book references + replay examples/**/*.console with a real SDK");
+    examples.AddOptionalPositional("path", "only transcripts under examples/<path> (default: all)");
+    examples.AddOption("sdk", "", "SDK to run `z42` from (default: artifacts/.z42 — build it with `xtask build sdk`)", "");
+    examples.AddFlag("book-only", "", "only check docs/learn ↔ examples references (no SDK needed)");
+    examples.AddFlag("bless", "", "rewrite mismatching expected output with the actual output");
+    examples.AddFlag("keep", "", "keep every sandbox directory (failed ones are always kept)");
+    examples.AddOption("timeout", "", "per-step timeout in seconds", "120");
+    t.Add("examples", "learn-book examples (book references + transcript replay)", examples);
     t.Add("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)",
         new ArgParser("xtask test runtime", "Rust VM unit/integration harness (--test-threads=1)"));
     ArgParser e2e = new ArgParser("xtask test e2e", "src/tests end-to-end suite (goldens + cross-zpkg)");
@@ -118,6 +127,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "all")          { return _testAll(r.GetFlag("no-build"), r.GetOption("skip")); }
     if (sub == "stdlib")       { return _testLib(r, "test"); }
     if (sub == "targets")      { return _testTargetsCore("test", r.GetPositional(0), r.GetFlag("no-build")); }
+    if (sub == "examples")     { return _testExamples(_examplesOptions(r)); }
     if (sub == "runtime")      { return _testRuntime(); }
     if (sub == "e2e")          { return _testE2e(r); }
     if (sub == "list")         { return _testList(r); }        // read-only case catalog
@@ -138,4 +148,17 @@ int _dispatchTest(string[] p, ParseResult r) {
         return _platformDispatch(plat, r.GetPositional(0), _root());
     }
     return 2;
+}
+
+ExamplesOptions _examplesOptions(ParseResult r) {
+    ExamplesOptions o = new ExamplesOptions();
+    o.Filter = r.GetPositional(0);
+    o.Sdk = r.GetOption("sdk");
+    o.BookOnly = r.GetFlag("book-only");
+    o.Bless = r.GetFlag("bless");
+    o.Keep = r.GetFlag("keep");
+    string t = r.GetOption("timeout");
+    o.TimeoutS = 120;
+    if (t.Length > 0) { try { o.TimeoutS = int.Parse(t); } catch (Exception e) { o.TimeoutS = 120; } }
+    return o;
 }

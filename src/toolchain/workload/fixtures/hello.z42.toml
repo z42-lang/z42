@@ -1,0 +1,22 @@
+# src/toolchain/workload/fixtures/hello.z42.toml — embedding fixture
+# 平台 facade R1 smoke test 用；产物 hello.zbc 被 host build.sh 拷进各平台 test bundle。
+
+[project]
+version     = "0.1.0"
+description = "Embedding facade smoke fixture (single-line stdout)"
+
+[sources]
+include = ["hello.z42"]
+
+[[exe]]
+name  = "hello"
+entry = "Hello.Main"
+
+[build]
+# Cascade defaults: dist_dir = ${output_dir}/dist (== ./dist)
+
+[profile.debug.runtime]
+mode = "interp"
+
+[profile.release.runtime]
+mode = "interp"

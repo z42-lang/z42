@@ -270,7 +270,7 @@ int v = b[0];                         // → vcall b.get_Item(0)
 - 计算属性 getter 引入：change `add-property-getter`（`docs/spec/archive/2026-08-18-add-property-getter`）
 - 索引器多维使用侧引入：change `add-multidim-indexer`（`docs/spec/archive/2026-08-11-add-multidim-indexer`）
 - 编译器错误码：[错误码体系](../compiler/error-codes.md)
-- 示例：`examples/indexer.z42`（单维 string 键 + 多维矩阵）、`examples/oop.z42`（接口属性）
+- 测试：`src/tests/classes/indexer_basic.z42`（单维 string 键）、`src/tests/classes/indexer_multidim.z42`（多维）、`src/tests/interfaces/interface_indexer.z42`（接口索引器）
 - 静态属性 / 属性初始化器 / 类内裸名静态成员引入：change `add-static-properties`（`docs/spec/archive/2026-09-14-add-static-properties`）
 - 测试：`src/tests/classes/static_properties.z42`（静态属性全形态）、`src/tests/classes/property_initializers.z42`
   （实例 + 静态初始化器）、`src/tests/cross-zpkg/static_property_cross_pkg`（跨包）、

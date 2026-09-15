@@ -1,4 +1,0 @@
-# 严格规则 preset：可与 lib-defaults 组合（C2 阶段仅占位语法；C4 lints 真正生效）。
-
-[build]
-mode = "interp"

@@ -93,11 +93,12 @@ z42/
 │   └── toolchain/         # Launcher, test runner, workloads
 ├── scripts/               # xtask dev CLI (build / test / package) + install primers
 ├── docs/
+│   ├── learn/             # Learn book (mdBook): tutorial from install to publishing
 │   ├── book/              # Knowledge base (mdBook): language / compiler / runtime / stdlib
 │   ├── design/            # Design documents (migrating into book/)
 │   ├── workflow/          # Build / test / CI / release commands
 │   └── agent/             # Collaboration rules for AI + human contributors
-├── examples/              # Example programs
+├── examples/              # Companion projects for the learn book (docs/learn), run by `xtask test examples`
 └── .claude/               # Claude Code entry (workflow rules)
 ```
 

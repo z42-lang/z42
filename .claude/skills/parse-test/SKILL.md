@@ -30,10 +30,10 @@ Parsed module '<name>' with <N> items.
 parse error at <line>:<col>: <message>
 ```
 
-## 如果参数为空，使用示例文件
+## 如果参数为空，使用一个 golden 用例
 
 ```bash
-dotnet run --project src/compiler/Z42.Driver -- examples/hello.z42 --dump-tokens
+artifacts/build/runtime/release/z42vm artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg -- --dump-tokens src/tests/basic/hello.z42
 ```
 
 先读取要测试的文件，再运行上述命令，然后将输出结果展示给用户并分析是否符合预期。

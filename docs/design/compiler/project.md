@@ -762,13 +762,13 @@ test = true                       # 破例纳入 xtask test 执行（默认 exam
 
 ### example 的执行语义（借 Cargo）
 
-- `xtask test`：**编译**所有 example 当门禁（确保永远编得过），**默认不执行**。
-- `xtask example <name>`：显式编译并运行单个 example（退出码判定）。
-- 目标写 `test = true` → 纳入 `xtask test` 执行（编 + 跑）。
+- `xtask test`（targets stage，`xtask test targets` 单跑）：**编译**所有 example 当门禁（确保永远编得过），**默认不执行**。
+- 目标写 `test = true` → 纳入该 stage 执行（编 + 跑，退出码判定）。
+- 注意与仓库根 `examples/`（学习手册配套示例，`xtask test examples`）无关。
 
 ### 具名选择运行
 
-`xtask test targets <name>` / `xtask bench targets <name>` / `xtask example <name>` 只跑一个
+`xtask test targets <name>` / `xtask bench targets <name>` 只跑一个
 （裸 `test`/`bench` 是全量 gate / e2e 默认动作，故 test/bench 走 `targets <name>` 子动作）。名不存在
 → 报错列出可用目标名，非零退出（不静默）。**注**：自定义段 `include` glob 运行期暂只扫约定目录
 （`tests/`·`bench/`·`examples/`），见归档 spec「Known Limitations」。
@@ -849,7 +849,7 @@ artifacts/build/libraries/<lib>/<profile>/
 | 目标入口字段 | `src`（单入口**文件**，必填）| `entry`（FQ **函数**名）+ `sources[]`（glob），对齐 `[[exe]]` |
 | 驱动方式 | 无区分（隐含 Main + golden）| `harness` 布尔（true=z42b 反射 / false=Main 退出码）|
 | 验证 | dir-mode 隐含 golden 比对 | harness=false 一律**退出码**；golden 归 `xtask_test_vm` 独立 harness |
-| example | 「future iteration」无配置 | **一等目标**：默认只编不跑，`test=true` 才跑，`xtask example <name>` 显式跑 |
+| example | 「future iteration」无配置 | **一等目标**：默认只编不跑，`test=true` 才跑 |
 | 段名 | `[bench]`（与 `[[bench]]` 撞 key，非法 TOML）| 复数 `[benches]`/`[examples]`（避撞）|
 
 详见归档 spec `docs/spec/archive/*-add-tests-bench-manifest-config/`。
@@ -1029,7 +1029,7 @@ Preset **允许**：`[project] kind / license / authors / description / pack`、
 
 #### 示例
 
-完整可解析示例见 `examples/workspace-with-presets/`：
+可解析示例（`z42.project` 单测夹具）见 `src/libraries/z42.project/tests/`；形态如下：
 - `presets/lib-defaults.toml` 提供 `kind=lib` + `[sources]` 默认
 - `presets/strict-lints.toml` 提供 `[build].mode = "interp"`
 - `libs/foo/` include lib-defaults
@@ -1080,7 +1080,7 @@ core ← utils ← hello
 
 #### 示例
 
-完整跨 member 依赖示例见 `examples/workspace-full/`：含 core / utils / hello 三层依赖。
+跨 member 依赖的构建拓扑由 `src/compiler/z42c.pipeline/tests/workspace_topo/` 覆盖。
 
 #### 查询命令（C4b，2026-04-26）
 
@@ -1241,7 +1241,7 @@ C4 的 `WorkspaceBuildOrchestrator` 直接消费 `EffectiveProductPath` 写产�
 
 #### 示例
 
-完整可解析示例见 `examples/workspace-with-policy/`：含 `[workspace.build] dist_dir = "dist/${profile}"` + `[policy] "profile.release.strip" = true`。
+形态如下：含 `[workspace.build] dist_dir = "dist/${profile}"` + `[policy] "profile.release.strip" = true`。
 
 ---
 
@@ -1340,7 +1340,7 @@ monorepo/
         └── src/
 ```
 
-**完整可解析示例**：见 `examples/workspace-basic/`。
+面向用户的工作区教程与可运行示例见学习手册「依赖与工作区」一章（`examples/engineering/workspaces/`，章节落地前暂缺）。
 
 ---
 

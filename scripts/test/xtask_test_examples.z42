@@ -1,0 +1,87 @@
+// xtask — `test examples`：学习手册配套示例的门禁（GREEN stage「examples」）。
+//
+// 两步：① 书 ↔ examples 引用校验（xtask_examples_book.z42，不需要 SDK）；
+//      ② 用当前源码构建的 SDK 里真实的 `z42` 重放每个 `examples/**/*.console`（xtask_examples_run.z42）。
+// SDK 默认 `artifacts/.z42`（`xtask build sdk` 的产物），`--sdk <dir>` 可指定打包出的 SDK。
+// 规则与写法见 docs/agent/rules/learn-writing.md；stage 说明见 docs/book/src/dev/test-gate.md。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+class ExamplesOptions {
+    public string Filter   { get; set; }   // 只跑 examples/ 下以此开头的相对路径；"" = 全部
+    public string Sdk      { get; set; }   // "" = artifacts/.z42
+    public bool   BookOnly { get; set; }
+    public bool   Bless    { get; set; }
+    public bool   Keep     { get; set; }
+    public int    TimeoutS { get; set; }
+}
+
+int _testExamples(ExamplesOptions o) {
+    string root = _root();
+    Stopwatch sw = _procStart("test examples");
+    Console.WriteLine("① learn book ↔ examples references");
+    int bookBad = _checkLearnBook(root);
+    if (bookBad > 0) {
+        ConsoleError.WriteLine("  ❌ " + bookBad.ToString() + " reference problem(s)");
+        return 1;
+    }
+    Console.WriteLine("  ✓ references ok");
+    if (o.BookOnly) { _procEnd("test examples", sw); return 0; }
+
+    string sdk = o.Sdk.Length > 0 ? o.Sdk : Path.Join(root, "artifacts/.z42");
+    if (!Path.IsRooted(sdk)) { sdk = Path.Join(root, sdk); }
+    string launcher = Path.Join(sdk, Platform.IsWindows() ? "z42.exe" : "z42");
+    if (!File.Exists(launcher) || !File.Exists(Path.Join(sdk, "programs/launcher/launcher.zpkg"))) {
+        ConsoleError.WriteLine("  ✗ no runnable SDK at " + sdk + " (needs z42 + programs/launcher/)");
+        ConsoleError.WriteLine("    build one with: xtask build sdk   (or pass --sdk <dir>)");
+        return 1;
+    }
+
+    string[] consoles = _exampleTranscripts(root, o.Filter);
+    Console.WriteLine("② transcripts (" + consoles.Length.ToString() + ") with " + sdk);
+    int failed = 0;
+    int steps = 0;
+    int blessed = 0;
+    int i = 0;
+    while (i < consoles.Length) {
+        string rel = consoles[i].Substring(Path.Join(root, "examples").Length + 1);
+        ExampleRunResult r = _runTranscript(sdk, consoles[i], o.TimeoutS * 1000, o.Bless, o.Keep);
+        steps = steps + r.Steps;
+        if (r.Failed) { failed = failed + 1; }
+        else if (r.Blessed) { blessed = blessed + 1; Console.WriteLine("  ✎ examples/" + rel + " (rewritten — review the diff, restore [..] wildcards if needed)"); }
+        else { Console.WriteLine("  ✓ examples/" + rel + " (" + r.Steps.ToString() + " steps)"); }
+        i = i + 1;
+    }
+    if (failed > 0) {
+        ConsoleError.WriteLine("  ❌ examples: " + failed.ToString() + " of " + consoles.Length.ToString() + " transcript(s) failed");
+        ConsoleError.WriteLine("     update the expected output with: xtask test examples <path> --bless");
+        return 1;
+    }
+    Console.WriteLine("  ✅ examples: " + consoles.Length.ToString() + " transcript(s), " + steps.ToString() + " step(s)"
+        + (blessed > 0 ? ", " + blessed.ToString() + " rewritten" : ""));
+    _procEnd("test examples", sw);
+    return 0;
+}
+
+// examples/ 下全部 .console（字典序，绝对路径），按 filter（examples/ 相对路径前缀）筛选。
+string[] _exampleTranscripts(string root, string filter) {
+    string ex = Path.Join(root, "examples");
+    if (!Directory.Exists(ex)) { return new string[0]; }
+    string f = filter.Replace("\\", "/");
+    if (f.StartsWith("examples/")) { f = f.Substring(9); }
+    string[] all = _sortedStrings(Directory.EnumerateRecursive(ex));
+    string[] acc = new string[all.Length];
+    int n = 0;
+    int i = 0;
+    while (i < all.Length) {
+        string rel = all[i].Replace("\\", "/");
+        if (rel.EndsWith(".console") && rel.StartsWith(f)) { acc[n] = Path.Join(ex, rel); n = n + 1; }
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    int k = 0;
+    while (k < n) { r[k] = acc[k]; k = k + 1; }
+    return r;
+}

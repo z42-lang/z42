@@ -1,7 +1,0 @@
-# 仅 include lib-defaults：从 preset 继承 kind/sources/build/incremental。
-include = ["${workspace_dir}/presets/lib-defaults.toml"]
-
-[project]
-name              = "foo"
-version.workspace = true
-license.workspace = true

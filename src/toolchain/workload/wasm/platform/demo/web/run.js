@@ -1,7 +1,7 @@
 // Browser hello-world demo for `@z42/wasm`.
 //
 // Mirrors `demo/node/run.js`: load corelib via stdlib bundle resolver,
-// invoke `Hello.Main` (from the shared `examples/embedding/hello.z42`
+// invoke `Hello.Main` (from the shared `src/toolchain/workload/fixtures/hello.z42`
 // fixture), capture stdout. The only difference is that the .zbc +
 // stdlib zpkgs are loaded via `fetch()` instead of `fs`, and the host
 // writes captured output into the page DOM instead of stdout.
