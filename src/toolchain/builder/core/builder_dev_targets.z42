@@ -195,9 +195,13 @@ string _dtUnitName(string path) {
 /// 本包**自己的** `[sources]` 里有没有 [Test] / [Benchmark]。用来分流「整个包就是测试工程」
 /// （compile-then-test 形态，回落去编+跑它）与「一个根本没有测试的库」（无事可做，退 0）。
 ///
-/// 判据是朴素全文子串扫，与 xtask 的 _dirHasTestMethods 同款（注释里写了 `[Test]` 也算）。
-/// 这个宽松方向是有意的：假阳性只是退回既有行为（编了、跑出零个、由 Runner 判红），
-/// 假阴性才危险 —— 而那需要 attribute 在源码里根本不以字面出现，真测试做不到。
+/// 判据是逐行子串扫，**跳过注释行**（行首去空白后以 `//` / `/*` / `*` 开头）。
+///
+/// 此前是全文子串扫（注释里写了 `[Test]` 也算），理由是「假阳性只是退回既有行为」。但 bench
+/// 转发后这条假阳性**会判红**：z42.ir / z42.project / z42c.syntax 三个库只在注释里提到 `[Test]`，
+/// `z42b bench` 零单元 → 回落编本包 → 跑出零用例 → Runner 零测试判红（fix-bench-stage-zero-unit-kind）。
+/// 全仓 4270 处 `[Test]`、66 处 `[Benchmark]` 实测全部写在行首，跳过注释行不会造成假阴性；
+/// 同行写在代码后面（`class C { [Test] void t() {} }`）照样命中。
 bool _pkgSourcesHaveTests(ProjectManifest m, string sourceDir) {
     string[] inc = m.Sources.Include;
     int incN = m.Sources.IncludeCount;
@@ -206,8 +210,20 @@ bool _pkgSourcesHaveTests(ProjectManifest m, string sourceDir) {
                                                         m.Sources.Exclude, m.Sources.ExcludeCount);
     int i = 0;
     while (i < files.Length) {
-        string text = File.ReadAllText(files[i]);
-        if (text.Contains("[Test]") || text.Contains("[Benchmark]")) { return true; }
+        if (_textHasTestAttr(File.ReadAllText(files[i]))) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+bool _textHasTestAttr(string text) {
+    if (!text.Contains("[Test]") && !text.Contains("[Benchmark]")) { return false; }
+    string[] lines = text.Split("\n");
+    int i = 0;
+    while (i < lines.Length) {
+        string ln = lines[i].TrimStart();
+        bool comment = ln.StartsWith("//") || ln.StartsWith("/*") || ln.StartsWith("*");
+        if (!comment && (ln.Contains("[Test]") || ln.Contains("[Benchmark]"))) { return true; }
         i = i + 1;
     }
     return false;

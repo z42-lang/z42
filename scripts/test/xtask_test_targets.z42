@@ -204,19 +204,28 @@ int _smokeOrphanGuard(string root, TargetTooling tt) {
 // **退 0**（无事可做），不得判红 —— 否则 xtask 转发后全仓无测试的库会集体变红，而今天
 // 它们是被静默跳过的。与 compile-then-test 的区别只有「src/ 里有没有 [Test]」，那条
 // smoke 正好守着反方向（有 [Test] → 照常编+跑）。
+//
+// `bench` 动词同样要退 0（fix-bench-stage-zero-unit-kind）：GREEN gate 的 stdlib [Benchmark]
+// stage 对无 bench 的库走的就是 `z42b bench <toml>`。fixture 的注释里故意写着 attribute 字面量，
+// 锁住「注释不算测试」这条判据。
 int _smokeNoTests(string root, TargetTooling tt) {
     string toml = Path.Join(root, "src/tests/z42b/no-tests/z42.toml");
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── no-tests (没有测试的库不得判红) ──");
-    int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("test").Arg(toml)
-        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
-    if (rc != 0) {
-        Console.WriteLine("  ❌ no-tests: 无测试的库被判红（rc=" + rc.ToString() + "）—— 转发后会拖红整条 stage");
-        return 1;
+    string[] verbs = new string[] { "test", "bench" };
+    int vi = 0;
+    while (vi < verbs.Length) {
+        int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+            .Arg("--").Arg(verbs[vi]).Arg(toml)
+            .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
+        if (rc != 0) {
+            Console.WriteLine("  ❌ no-tests: `z42b " + verbs[vi] + "` 把无测试的库判红（rc=" + rc.ToString() + "）—— 转发后会拖红整条 stage");
+            return 1;
+        }
+        Console.WriteLine("  ✅ no-tests: `z42b " + verbs[vi] + "` 无测试的库退 0（无事可做）");
+        vi = vi + 1;
     }
-    Console.WriteLine("  ✅ no-tests: 无测试的库退 0（无事可做）");
     return 0;
 }
 
