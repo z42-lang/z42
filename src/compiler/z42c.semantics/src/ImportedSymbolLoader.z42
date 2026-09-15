@@ -506,7 +506,16 @@ public static class ImportedSymbolLoader {
                 fsym.IsDeprecated = fd.IsDeprecated; fsym.DeprecationMsg = fd.DeprecationMsg;   // add-deprecated-directive：跨包字段级弃用
                 ct.Fields.Put(fd.Name, fsym);
                 // G18-import：实例字段入 OwnField* 有序元数据（TSIG 继承字段展开；static 不入，同本地 _fillClass）。
-                if (!fd.IsStatic) { ct.AddOwnField(fd.Name, fd.TypeName, fd.Visibility); }
+                // fix-generic-struct-chain-access：拼写须与本地 `MemberCollector` **同一口径**（`SurfaceTypeName`
+                // 已解析类型 = 短名形式，解析失败才回落原串）。导出元数据里的 `fd.TypeName` 是 FQ
+                // （`Demo.StructTarget.Point`），而 `StructLayout` 按符号表裸名键判「字段是不是 struct」⇒ 照搬 FQ
+                // 会把导入 struct 里的嵌套 struct 字段当成 8B 引用叶子：布局与生产方错位、读写静默错值
+                // （只有嵌套 struct 恰好 8B 时偏移碰巧重合——`struct_cross_pkg` 的 `Point{int,int}` 正是如此）。
+                if (!fd.IsStatic) {
+                    string fsp = (fsym.FieldType is Z42UnknownType || fsym.FieldType is Z42ErrorType)
+                        ? fd.TypeName : TypeNameResolver.SurfaceTypeName(fsym.FieldType);
+                    ct.AddOwnField(fd.Name, fsp, fd.Visibility);
+                }
             }
             i = i + 1;
         }

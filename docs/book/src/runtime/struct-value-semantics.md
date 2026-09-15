@@ -489,6 +489,15 @@ API 面越界）。复用既有 `HasBase` 零越界、一个 nightly 落地；�
 分类正确后 `StructLayout.BuildFromSymbols` 从字段名/类型**重算**布局（`_compute` 确定性，与生产方持久化的
 `StructSize`/引用位图**逐字节一致**）→ 发 `StructAlloc`/`StructFieldGetPrim/SetPrim`（正确字节 offset）。
 
+**「逐字节一致」的第二个前提：字段类型拼写同口径（fix-crosspkg-nested-struct-layout, 2026-09-15）**。
+`_kindOf` 按符号表**裸名键**判「字段是不是 struct」。本地字段拼写由 `MemberCollector` 取
+`SurfaceTypeName(已解析类型)`（短名形式 `Point3`）；导入字段此前**照搬导出元数据的 FQ 串**
+（`Demo.NestLayoutTarget.Point3`）→ 查不到 → 嵌套 struct 字段被判成 8B 引用叶子 → 消费方布局与生产方错位，
+读写静默错值。修复：`ImportedSymbolLoader._fillClass` 登记 `OwnField` 时同样用 `SurfaceTypeName(fsym.FieldType)`
+（解析失败才回落原串，与本地回落对称）。旧 fixture `struct_cross_pkg` 的 `Point{int,int}` 恰为 8B = 引用叶子
+大小，偏移碰巧重合所以一直绿；golden `cross-zpkg/struct_nested_layout_cross_pkg` 用 12B `Point3` + transitive
+`Frame` 守住（阴性对照：撤修复后 `Error: struct ref leaf at byte offset 8 not in type layout`）。
+
 ### 修复前的崩溃
 
 `ImportedSymbolLoader` 从不设 `IsStruct` → imported struct 当**引用类型**（消费方不发 struct 指令、构造为
