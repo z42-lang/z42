@@ -70,7 +70,7 @@ void test_assert_fail_caught_via_exception_base() {
 }
 
 // z42 lambda 对**值类型**采用快照捕获语义（详见
-// examples/closure_capture.z42），整数、字符串等的"在 lambda 里改 + 外部读"
+// src/tests/closures/closure_l3_capture.z42），整数、字符串等的"在 lambda 里改 + 外部读"
 // 模式不工作；要传递可变状态必须用引用类型容器。下面 IntCell / StrCell 即此。
 class IntCell {
     public int v;

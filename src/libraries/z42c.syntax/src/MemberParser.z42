@@ -124,7 +124,7 @@ public sealed class MemberParser {
         // 且要求三个 token 全中（`type` + 标识符 + `;`/`=`）。
         //
         // ⚠️ 这条前瞻**确实会**吃掉一种既有写法：类型名恰好叫 `type` 的字段声明
-        // （`type x;` / `type x = ...;`）。已实测全仓（`src/` + `examples/`）**零命中**，且没有任何
+        // （`type x;` / `type x = ...;`）。已实测全仓 `src/` **零命中**，且没有任何
         // 名为 `type` 的 class/struct/interface/enum ⇒ 今天不存在这种声明。这是**刻意接受的**代价：
         // 换来 `type` 不进 lexer（进 lexer 会一次性废掉所有把 `type` 当变量/参数/属性名的源码，
         // 那才是真的破坏面）。方法与属性不受影响——`type Foo() {…}` / `type Foo { get; }` 的第三个

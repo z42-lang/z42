@@ -1,0 +1,205 @@
+// xtask — 学习手册会话脚本（`examples/**/*.console`）的解析、匹配与改写。
+//
+// 文件内容就是书上渲染出来的终端画面：
+//   $ z42 run -- 小明          一步：`$ ` 后是命令（按类 shell 规则切参数，不经过 shell）
+//   Hello, 小明!               期望输出（stdout 在前、stderr 在后）
+//   [exit: 1]                 期望退出码（块末独占一行；省略 = 0）
+//   # ANCHOR: name            mdBook 锚点行，书里 include 时自动剥掉；这里同样忽略
+// 期望输出里可用：`[..]` 匹配一行内任意字符；独占一行的 `...` 匹配零到多行；`[ROOT]` 是沙箱根目录。
+// 运行 / 沙箱见 xtask_examples_run.z42，书引用校验见 xtask_examples_book.z42。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+class TranscriptStep {
+    public string   Command  { get; set; }   // `$ ` 之后的原文
+    public string[] Expected { get; set; }   // 期望输出行（不含锚点行与 [exit] 行）
+    public int      ExitCode { get; set; }
+    public int      Line     { get; set; }   // `$` 所在行号（1 起）
+}
+
+// 文件的一项：一个步骤，或一行锚点（--bless 改写时原样保留锚点位置）。
+class TranscriptItem {
+    public TranscriptStep Step   { get; set; }   // null = 锚点行
+    public string         Anchor { get; set; }
+}
+
+bool _isAnchorLine(string line) {
+    string t = line.Trim();
+    return t.StartsWith("# ANCHOR:") || t.StartsWith("# ANCHOR_END:");
+}
+
+// `[exit: N]` → N；不是该形态返回 -1。
+int _exitMarker(string line) {
+    string t = line.Trim();
+    if (!t.StartsWith("[exit:") || !t.EndsWith("]")) { return 0 - 1; }
+    string n = t.Substring(6, t.Length - 7).Trim();
+    try { return int.Parse(n); } catch (Exception e) { return 0 - 1; }
+}
+
+TranscriptItem[] _parseTranscript(string text) {
+    string[] lines = text.Replace("\r\n", "\n").Split("\n");
+    TranscriptItem[] items = new TranscriptItem[lines.Length + 1];
+    int n = 0;
+    TranscriptStep cur = null;
+    string[] buf = new string[lines.Length + 1];
+    int bn = 0;
+    int i = 0;
+    while (i < lines.Length) {
+        string l = lines[i];
+        if (l.StartsWith("$ ")) {
+            if (cur != null) { cur.Expected = _trimTrailingBlank(buf, bn); }
+            cur = new TranscriptStep();
+            cur.Command = l.Substring(2).Trim();
+            cur.ExitCode = 0;
+            cur.Line = i + 1;
+            bn = 0;
+            TranscriptItem it = new TranscriptItem();
+            it.Step = cur;
+            items[n] = it; n = n + 1;
+        } else if (_isAnchorLine(l)) {
+            TranscriptItem ai = new TranscriptItem();
+            ai.Anchor = l;
+            items[n] = ai; n = n + 1;
+        } else if (cur != null && _exitMarker(l) >= 0) {
+            cur.ExitCode = _exitMarker(l);
+        } else if (cur != null) {
+            buf[bn] = l; bn = bn + 1;
+        }
+        i = i + 1;
+    }
+    if (cur != null) { cur.Expected = _trimTrailingBlank(buf, bn); }
+    TranscriptItem[] r = new TranscriptItem[n];
+    int k = 0;
+    while (k < n) { r[k] = items[k]; k = k + 1; }
+    return r;
+}
+
+string[] _trimTrailingBlank(string[] buf, int n) {
+    int end = n;
+    while (end > 0 && buf[end - 1].Trim().Length == 0) { end = end - 1; }
+    string[] r = new string[end];
+    int i = 0;
+    while (i < end) { r[i] = buf[i]; i = i + 1; }
+    return r;
+}
+
+// 命令行 → 参数：空白分隔；单 / 双引号内的空白不分隔（引号本身去掉）。
+string[] _splitCommand(string cmd) {
+    string[] acc = new string[cmd.Length + 1];
+    int n = 0;
+    string cur = "";
+    bool inTok = false;
+    string quote = "";
+    int i = 0;
+    while (i < cmd.Length) {
+        string c = cmd.Substring(i, 1);
+        if (quote.Length > 0) {
+            if (c == quote) { quote = ""; } else { cur = cur + c; }
+        } else if (c == "\"" || c == "'") {
+            quote = c; inTok = true;
+        } else if (c == " " || c == "\t") {
+            if (inTok) { acc[n] = cur; n = n + 1; cur = ""; inTok = false; }
+        } else {
+            cur = cur + c; inTok = true;
+        }
+        i = i + 1;
+    }
+    if (inTok) { acc[n] = cur; n = n + 1; }
+    string[] r = new string[n];
+    int k = 0;
+    while (k < n) { r[k] = acc[k]; k = k + 1; }
+    return r;
+}
+
+// 实际输出 → 行：CRLF 规范化、沙箱路径替换成 [ROOT]、去掉末尾空行。
+string[] _normalizeOutput(string raw, string root) {
+    string s = raw.Replace("\r\n", "\n");
+    s = s.Replace(root, "[ROOT]");
+    s = s.Replace(root.Replace("/", "\\"), "[ROOT]");
+    if (root.StartsWith("/var/")) { s = s.Replace("/private" + root, "[ROOT]"); }   // macOS 临时目录的真实路径
+    s = s.Replace("[ROOT]\\", "[ROOT]/");
+    string[] lines = s.Split("\n");
+    return _trimTrailingBlank(lines, lines.Length);
+}
+
+// 期望行（含 `[..]` / `...`）是否匹配实际行。
+bool _matchLines(string[] exp, string[] act) {
+    return _matchFrom(exp, 0, act, 0);
+}
+
+bool _matchFrom(string[] exp, int ei, string[] act, int ai) {
+    if (ei == exp.Length) { return ai == act.Length; }
+    if (exp[ei].Trim() == "...") {
+        int k = ai;
+        while (k <= act.Length) {
+            if (_matchFrom(exp, ei + 1, act, k)) { return true; }
+            k = k + 1;
+        }
+        return false;
+    }
+    if (ai == act.Length) { return false; }
+    if (!_matchLine(exp[ei], act[ai])) { return false; }
+    return _matchFrom(exp, ei + 1, act, ai + 1);
+}
+
+// 单行匹配：`[..]` 匹配任意字符序列（贪婪回溯），其余逐字相等。
+bool _matchLine(string pat, string s) {
+    int w = pat.IndexOf("[..]");
+    if (w < 0) { return pat == s; }
+    string head = pat.Substring(0, w);
+    string rest = pat.Substring(w + 4);
+    if (!s.StartsWith(head)) { return false; }
+    int k = head.Length;
+    while (k <= s.Length) {
+        if (_matchLine(rest, s.Substring(k))) { return true; }
+        k = k + 1;
+    }
+    return false;
+}
+
+// 失败报告：期望与实际逐行并列，第一处不同标 `>`。
+string _diffReport(string[] exp, string[] act) {
+    string s = "      expected:\n";
+    int i = 0;
+    while (i < exp.Length) { s = s + "        | " + exp[i] + "\n"; i = i + 1; }
+    s = s + "      actual:\n";
+    int first = _firstMismatch(exp, act);
+    i = 0;
+    while (i < act.Length) {
+        s = s + (i == first ? "      > | " : "        | ") + act[i] + "\n";
+        i = i + 1;
+    }
+    if (act.Length == 0) { s = s + "        (no output)\n"; }
+    return s;
+}
+
+int _firstMismatch(string[] exp, string[] act) {
+    int i = 0;
+    while (i < exp.Length && i < act.Length) {
+        if (exp[i].Trim() == "...") { return 0 - 1; }
+        if (!_matchLine(exp[i], act[i])) { return i; }
+        i = i + 1;
+    }
+    return i < act.Length ? i : 0 - 1;
+}
+
+// --bless：把条目序列写回文件（步骤输出已被替换为实际输出）。
+string _renderTranscript(TranscriptItem[] items) {
+    string s = "";
+    int i = 0;
+    while (i < items.Length) {
+        TranscriptItem it = items[i];
+        if (it.Step == null) {
+            s = s + it.Anchor + "\n";
+        } else {
+            s = s + "$ " + it.Step.Command + "\n";
+            int j = 0;
+            while (j < it.Step.Expected.Length) { s = s + it.Step.Expected[j] + "\n"; j = j + 1; }
+            if (it.Step.ExitCode != 0) { s = s + "[exit: " + it.Step.ExitCode.ToString() + "]\n"; }
+        }
+        i = i + 1;
+    }
+    return s;
+}

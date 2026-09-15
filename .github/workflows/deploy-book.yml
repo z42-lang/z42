@@ -1,6 +1,10 @@
 name: Deploy book to GitHub Pages
 
-# 每次 push 到 main 且改动了 docs/book/ 时，构建 mdBook 并发布到 GitHub Pages。
+# 每次 push 到 main 且改动了两本书、配套示例或安装脚本时，构建 mdBook 并发布到 GitHub Pages：
+#   https://z42-lang.github.io/z42/         知识库（docs/book）
+#   https://z42-lang.github.io/z42/learn/   学习手册（docs/learn；代码 include 自 examples/，发布即是最新代码）
+#   https://z42-lang.github.io/z42/install.sh / install.ps1   安装脚本
+# PR 上只构建不发布：mdBook 的 include 出错不会让构建失败（缺文件只打 ERROR），这里把 [ERROR] 判红。
 # 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
 # 发布后网址：https://z42-lang.github.io/z42/
 
@@ -9,6 +13,15 @@ on:
     branches: [main]
     paths:
       - 'docs/book/**'
+      - 'docs/learn/**'
+      - 'examples/**'
+      - 'scripts/install/**'
+      - '.github/workflows/deploy-book.yml'
+  pull_request:
+    paths:
+      - 'docs/book/**'
+      - 'docs/learn/**'
+      - 'examples/**'
       - '.github/workflows/deploy-book.yml'
   workflow_dispatch:
 
@@ -42,15 +55,31 @@ jobs:
         # mdbook-mermaid install 向 checkout 副本注入 mermaid 预处理器配置 + js 资源
         # （仓库内 book.toml 保持干净；本地无插件也能 build，GitHub 网页原生渲染 mermaid）
         run: |
-          cd docs/book
-          mdbook-mermaid install .
-          mdbook build
+          set -euo pipefail
+          site="$PWD/_site"
+          ( cd docs/book && mdbook-mermaid install . && mdbook build -d "$site" ) 2>&1 | tee book.log
+          ( cd docs/learn && mdbook build -d "$site/learn" ) 2>&1 | tee -a book.log
+          if grep -q '\[ERROR\]' book.log; then
+            echo "::error::mdBook reported errors (broken {{#include}} etc.) — see the log above"; exit 1
+          fi
+          # mdBook 对缺失锚点完全静默（渲染成空代码块）；未解析的 include 会原样留在页面里。
+          # 纯文档 PR 不触发 ci.yml（paths-ignore docs/**），完整的书↔示例校验（xtask test examples）
+          # 跑不到，这里至少把这两种静默失败判红。
+          if grep -rl '{{#include' "$site/learn" --include='*.html'; then
+            echo "::error::unresolved {{#include}} left in the rendered learn book (files above)"; exit 1
+          fi
+          if grep -rlzP '<code class="language-[^"]*">\s*</code>' "$site/learn" --include='*.html'; then
+            echo "::error::empty code block in the rendered learn book (missing ANCHOR?) — files above"; exit 1
+          fi
+          cp scripts/install/install.sh scripts/install/install.ps1 "$site/"
       - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
         with:
-          path: docs/book/book
+          path: _site
           include-hidden-files: true   # keep mdBook .nojekyll (v4+ drops dotfiles by default)
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     timeout-minutes: 15
     runs-on: ubuntu-latest

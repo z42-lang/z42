@@ -1,0 +1,297 @@
+// xtask — 学习手册（docs/learn）↔ examples 的双向引用校验。不需要 SDK，秒级。
+//
+// mdBook 对 include 出错非常宽容：文件缺失只打一行 ERROR、原样保留指令文本，锚点缺失连日志都没有、
+// 渲染成空代码块，退出码都是 0。所以这些规则必须由这里强制：
+//   B1 include 的文件存在                 B2 锚点存在且 ANCHOR / ANCHOR_END 成对
+//   B3 禁止行号 include 与 rustdoc_include / playground
+//   B4 整文件 include 的目标不得含锚点行（否则锚点行会被渲染出来）
+//   B5 页面 <p>.md 只能 include examples/<p>/ 下的文件（章节之间零耦合）
+//   B6 z42 / console 代码块的正文必须恰好是一条 include（书里不出现未经验证的代码与输出）
+//   B7 每个 .console 都被某页 include        B8 每个工程目录都被某个 .console 的沙箱覆盖
+//   B9 examples 下每个章节目录都对应一页     B10 SUMMARY 与页面文件一一对应
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// 返回违规条数（每条已打印）。
+int _checkLearnBook(string root) {
+    string src = Path.Join(root, "docs/learn/src");
+    string ex = Path.Join(root, "examples");
+    if (!Directory.Exists(src)) { ConsoleError.WriteLine("  ✗ docs/learn/src missing"); return 1; }
+    string[] pages = _learnPages(src);
+    string[] included = new string[0];
+    int bad = 0;
+    int i = 0;
+    while (i < pages.Length) {
+        PageCheck pc = _checkLearnPage(root, src, pages[i]);
+        bad = bad + pc.Bad;
+        included = _concatStrings(included, pc.Included);
+        i = i + 1;
+    }
+    bad = bad + _checkSummary(src, pages);
+    bad = bad + _checkExamplesCoverage(root, ex, pages, included);
+    return bad;
+}
+
+// docs/learn/src 下全部 .md（相对路径，正斜杠，字典序），不含 SUMMARY.md。
+string[] _learnPages(string src) {
+    string[] all = _sortedStrings(Directory.EnumerateRecursive(src));
+    string[] acc = new string[all.Length];
+    int n = 0;
+    int i = 0;
+    while (i < all.Length) {
+        string rel = all[i].Replace("\\", "/");
+        if (rel.EndsWith(".md") && rel != "SUMMARY.md") { acc[n] = rel; n = n + 1; }
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    int k = 0;
+    while (k < n) { r[k] = acc[k]; k = k + 1; }
+    return r;
+}
+
+// 一页的检查结果：违规条数 + 该页 include 到的文件（绝对路径）。
+// （不用 `ref string[]` 出参：release 构建下逃逸分析会把该数组栈分配，出帧后失效。）
+class PageCheck {
+    public int      Bad      { get; set; }
+    public string[] Included { get; set; }
+}
+
+PageCheck _checkLearnPage(string root, string src, string page) {
+    string mdPath = Path.Join(src, page);
+    string mdDir = Path.GetDirectoryName(mdPath);
+    string[] lines = File.ReadAllText(mdPath).Replace("\r\n", "\n").Split("\n");
+    string mirror = _collapseDots(Path.Join(root, "examples/" + page.Substring(0, page.Length - 3))) + "/";
+    string[] got = new string[lines.Length];
+    int gn = 0;
+    int bad = 0;
+    bool inFence = false;
+    string fenceLang = "";
+    bool fenceIgnore = false;
+    string body = "";
+    int fenceLine = 0;
+    int li = 0;
+    while (li < lines.Length) {
+        string l = lines[li];
+        string loc = "docs/learn/src/" + page + ":" + (li + 1).ToString();
+        if (l.TrimStart().StartsWith("```")) {
+            if (!inFence) {
+                inFence = true; body = ""; fenceLine = li + 1;
+                string info = l.Trim().Substring(3).Trim();
+                string[] parts = info.Split(",");
+                fenceLang = parts.Length > 0 ? parts[0].Trim() : "";
+                fenceIgnore = _strArrHasTrimmed(parts, "ignore");
+                bad = bad + _checkExampleAttr(root, parts, loc);
+            } else {
+                inFence = false;
+                if ((fenceLang == "z42" || fenceLang == "console") && !fenceIgnore
+                        && !_isSingleInclude(body)) {
+                    ConsoleError.WriteLine("  ✗ B6 " + "docs/learn/src/" + page + ":" + fenceLine.ToString()
+                        + " — ```" + fenceLang + " block must be exactly one {{#include}} from examples/ (or mark it `" + fenceLang + ",ignore`)");
+                    bad = bad + 1;
+                }
+            }
+        } else if (inFence) {
+            body = body + l + "\n";
+        }
+        int at = l.IndexOf("{{#");
+        if (at >= 0) {
+            int end = l.IndexOf("}}");
+            string directive = end > at ? l.Substring(at + 3, end - at - 3).Trim() : l.Substring(at + 3);
+            string resolved = "";
+            bad = bad + _checkIncludeDirective(mdDir, mirror, directive, loc, ref resolved);
+            if (resolved.Length > 0) { got[gn] = resolved; gn = gn + 1; }
+        }
+        li = li + 1;
+    }
+    string[] r = new string[gn];
+    int k = 0;
+    while (k < gn) { r[k] = got[k]; k = k + 1; }
+    PageCheck pc = new PageCheck();
+    pc.Bad = bad;
+    pc.Included = r;
+    return pc;
+}
+
+// 一条 `{{#…}}` 指令：B1–B5。resolved = 目标文件的绝对路径（校验通过时）。
+int _checkIncludeDirective(string mdDir, string mirror, string directive, string loc, ref string resolved) {
+    if (!directive.StartsWith("include ")) {
+        ConsoleError.WriteLine("  ✗ B3 " + loc + " — only {{#include}} is allowed (got {{#" + directive + "}})");
+        return 1;
+    }
+    string arg = directive.Substring(8).Trim();
+    string file = arg;
+    string anchor = "";
+    int colon = arg.IndexOf(":");
+    if (colon >= 0) { file = arg.Substring(0, colon); anchor = arg.Substring(colon + 1); }
+    if (anchor.Length > 0 && _isDigits(anchor.Substring(0, 1))) {
+        ConsoleError.WriteLine("  ✗ B3 " + loc + " — line-range include `" + arg + "`: use an ANCHOR instead");
+        return 1;
+    }
+    string target = _collapseDots(Path.Join(mdDir, file));
+    if (!File.Exists(target)) {
+        ConsoleError.WriteLine("  ✗ B1 " + loc + " — included file does not exist: " + file);
+        return 1;
+    }
+    if (!target.StartsWith(mirror)) {
+        ConsoleError.WriteLine("  ✗ B5 " + loc + " — this page may only include files under " + _repoRel(mirror) + " (got " + _repoRel(target) + ")");
+        return 1;
+    }
+    // Windows 检出可能是 CRLF（core.autocrlf）：统一成 LF 再找锚点行。
+    string text = File.ReadAllText(target).Replace("\r\n", "\n");
+    if (anchor.Length == 0) {
+        if (text.Contains("ANCHOR:") || text.Contains("ANCHOR_END:")) {
+            ConsoleError.WriteLine("  ✗ B4 " + loc + " — whole-file include of a file with ANCHOR lines (they would be rendered): include an anchor");
+            return 1;
+        }
+    } else if (!text.Contains("ANCHOR: " + anchor + "\n") || !text.Contains("ANCHOR_END: " + anchor)) {
+        ConsoleError.WriteLine("  ✗ B2 " + loc + " — anchor `" + anchor + "` not found (need `ANCHOR: " + anchor + "` and `ANCHOR_END: " + anchor + "`) in " + _repoRel(target));
+        return 1;
+    }
+    resolved = target;
+    return 0;
+}
+
+// 信息串里的 `example=<examples 下相对路径>`（将来 playground 按钮用）必须指向存在的路径。
+int _checkExampleAttr(string root, string[] parts, string loc) {
+    int i = 0;
+    while (i < parts.Length) {
+        string p = parts[i].Trim();
+        if (p.StartsWith("example=")) {
+            string rel = p.Substring(8);
+            if (!Directory.Exists(Path.Join(root, "examples/" + rel)) && !File.Exists(Path.Join(root, "examples/" + rel))) {
+                ConsoleError.WriteLine("  ✗ B6 " + loc + " — example=" + rel + " does not exist under examples/");
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+bool _isSingleInclude(string body) {
+    string t = body.Trim();
+    return t.StartsWith("{{#include ") && t.EndsWith("}}") && t.IndexOf("\n") < 0;
+}
+
+// B10：SUMMARY.md 里的每个链接指向存在的页面；每个页面都在 SUMMARY 里。
+int _checkSummary(string src, string[] pages) {
+    string summary = File.ReadAllText(Path.Join(src, "SUMMARY.md"));
+    int bad = 0;
+    int i = 0;
+    while (i < pages.Length) {
+        if (!summary.Contains("](" + pages[i] + ")")) {
+            ConsoleError.WriteLine("  ✗ B10 docs/learn/src/" + pages[i] + " is not listed in SUMMARY.md");
+            bad = bad + 1;
+        }
+        i = i + 1;
+    }
+    string[] parts = summary.Split("](");
+    int k = 1;
+    while (k < parts.Length) {
+        int close = parts[k].IndexOf(")");
+        string link = close >= 0 ? parts[k].Substring(0, close) : "";
+        if (link.EndsWith(".md") && !File.Exists(Path.Join(src, link))) {
+            ConsoleError.WriteLine("  ✗ B10 SUMMARY.md links to a missing page: " + link);
+            bad = bad + 1;
+        }
+        k = k + 1;
+    }
+    return bad;
+}
+
+// B7 / B8 / B9：examples 这一侧没有孤儿。
+int _checkExamplesCoverage(string root, string ex, string[] pages, string[] included) {
+    if (!Directory.Exists(ex)) { return 0; }
+    string[] files = _sortedStrings(Directory.EnumerateRecursive(ex));
+    string[] consoleDirs = new string[files.Length];
+    int cdn = 0;
+    int bad = 0;
+    int i = 0;
+    while (i < files.Length) {
+        string rel = files[i].Replace("\\", "/");
+        string abs = _collapseDots(Path.Join(ex, rel));
+        if (rel.EndsWith(".console")) {
+            consoleDirs[cdn] = Path.GetDirectoryName(abs) + "/"; cdn = cdn + 1;
+            if (!_strArrHas(included, abs)) {
+                ConsoleError.WriteLine("  ✗ B7 examples/" + rel + " is not included by any page");
+                bad = bad + 1;
+            }
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < files.Length) {
+        string rel = files[i].Replace("\\", "/");
+        if (rel.EndsWith("z42.toml")) {
+            string projDir = _collapseDots(Path.GetDirectoryName(Path.Join(ex, rel))) + "/";
+            if (!_underAny(projDir, consoleDirs, cdn)) {
+                ConsoleError.WriteLine("  ✗ B8 examples/" + rel + " — project is not exercised by any .console (put one in its directory or a parent)");
+                bad = bad + 1;
+            }
+        }
+        if (rel.EndsWith(".z42") || rel.EndsWith(".console") || rel.EndsWith("z42.toml")) {
+            if (!_hasChapterPage(rel, pages)) {
+                ConsoleError.WriteLine("  ✗ B9 examples/" + rel + " — no page docs/learn/src/<part>/<chapter>.md for its chapter directory");
+                bad = bad + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return bad;
+}
+
+// examples/<a>/<b>/... ↔ 页面 <a>/<b>.md
+bool _hasChapterPage(string rel, string[] pages) {
+    int i = 0;
+    while (i < pages.Length) {
+        string chapter = pages[i].Substring(0, pages[i].Length - 3) + "/";
+        if (rel.StartsWith(chapter)) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+bool _underAny(string dir, string[] prefixes, int n) {
+    int i = 0;
+    while (i < n) { if (dir.StartsWith(prefixes[i])) { return true; } i = i + 1; }
+    return false;
+}
+
+bool _strArrHasTrimmed(string[] a, string v) {
+    int i = 0;
+    while (i < a.Length) { if (a[i].Trim() == v) { return true; } i = i + 1; }
+    return false;
+}
+
+bool _isDigits(string s) {
+    if (s.Length == 0) { return false; }
+    int i = 0;
+    while (i < s.Length) {
+        string c = s.Substring(i, 1);
+        if (c.CompareTo("0") < 0 || c.CompareTo("9") > 0) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+string[] _concatStrings(string[] a, string[] b) {
+    string[] r = new string[a.Length + b.Length];
+    int i = 0;
+    while (i < a.Length) { r[i] = a[i]; i = i + 1; }
+    int k = 0;
+    while (k < b.Length) { r[a.Length + k] = b[k]; k = k + 1; }
+    return r;
+}
+
+string _repoRel(string abs) {
+    string root = _collapseDots(_root()) + "/";
+    return abs.StartsWith(root) ? abs.Substring(root.Length) : abs;
+}
+
+bool _strArrHas(string[] a, string v) {
+    int i = 0;
+    while (i < a.Length) { if (a[i] == v) { return true; } i = i + 1; }
+    return false;
+}

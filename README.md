@@ -36,8 +36,15 @@ trade-offs in [`docs/design/philosophy.md`](docs/design/philosophy.md).
 
 ## Quick Start
 
-Download the launcher, build the `xtask` dev CLI, then compile and run a program —
-full steps in **[docs/workflow/quickstart.md](docs/workflow/quickstart.md)**:
+**Use z42** (macOS arm64 / Linux / Windows x64) — installs the latest nightly into `~/.z42`:
+
+```bash
+curl -fsSL https://z42-lang.github.io/z42/install.sh | sh          # Windows: irm https://z42-lang.github.io/z42/install.ps1 | iex
+z42 new hello && cd hello && z42 run
+```
+
+**Work on z42 itself** — bootstrap a repo-local SDK, build the `xtask` dev CLI, run the gate
+(full steps in **[docs/workflow/quickstart.md](docs/workflow/quickstart.md)**):
 
 ```bash
 git clone https://github.com/z42-lang/z42 && cd z42
@@ -86,11 +93,12 @@ z42/
 │   └── toolchain/         # Launcher, test runner, workloads
 ├── scripts/               # xtask dev CLI (build / test / package) + install primers
 ├── docs/
+│   ├── learn/             # Learn book (mdBook): tutorial from install to publishing
 │   ├── book/              # Knowledge base (mdBook): language / compiler / runtime / stdlib
 │   ├── design/            # Design documents (migrating into book/)
 │   ├── workflow/          # Build / test / CI / release commands
 │   └── agent/             # Collaboration rules for AI + human contributors
-├── examples/              # Example programs
+├── examples/              # Companion projects for the learn book (docs/learn), run by `xtask test examples`
 └── .claude/               # Claude Code entry (workflow rules)
 ```
 

@@ -1,8 +1,12 @@
 # Quick Start
 
 Get z42, build the dev CLI, then compile and run a program. Single source of truth
-for first-time setup — the root [README](../../README.md) and this directory's
+for first-time **contributor** setup — the root [README](../../README.md) and this directory's
 [README](README.md) both point here.
+
+> **Just want to write z42 programs?** You don't need the repository:
+> `curl -fsSL https://z42-lang.github.io/z42/install.sh | sh` (Windows:
+> `irm https://z42-lang.github.io/z42/install.ps1 | iex`) installs the SDK into `~/.z42`.
 
 ## 1. Get z42
 
@@ -16,9 +20,9 @@ git clone https://github.com/z42-lang/z42 && cd z42
                                                #   Windows: scripts\install-z42.bat
 ```
 
-> `install-z42.sh` downloads the prebuilt package (version from
-> `versions.toml [toolchain.z42].launcher`, default `nightly`) into a
-> project-local, gitignored `./.z42/` — it never touches your system.
+> `install-z42.sh` runs the same installer as above with repo defaults: version from
+> `versions.toml [toolchain.z42].launcher` (default `nightly`), destination the
+> project-local, gitignored `./.z42/`, PATH untouched. Re-run it to update.
 
 ## 2. Build the xtask CLI, then drive everything through it
 
@@ -57,14 +61,14 @@ The bare `z42` / `z42c` commands aren't on `PATH` yet. Either call them by path
 ```bash
 export PATH="$PWD/.z42:$PWD/.z42/bin:$PATH"  # optional: puts z42 / z42c / z42vm on PATH
 
-z42c build path/to/app.z42.toml --release    # → <out_dir>/<name>.zpkg  (see examples/*.z42.toml)
-z42 <out_dir>/<name>.zpkg                     # run it via the launcher
+z42 new hello && cd hello                    # scaffold a project
+z42 run                                      # build + run it
 ```
 
 A green `./xtask test` already proves the toolchain compiles and runs z42
-end-to-end. See [examples/](../../examples/) for project layouts.
+end-to-end. All `z42` commands: [z42 命令参考](../book/src/toolchain/cli.md).
 
-> **Prerequisites:** git + Rust stable (`rustc --version`) + [`gh`](https://github.com/cli/cli) (authed — downloads the prebuilt primer). A C toolchain (`build-essential` / Xcode CLT) is needed for C-backed stdlib deps.
+> **Prerequisites:** git + Rust stable (`rustc --version`) + curl. A C toolchain (`build-essential` / Xcode CLT) is needed for C-backed stdlib deps.
 > **Building the whole toolchain from source** (no prebuilt download) and the full
 > bootstrap details live in [building/](building/).
 > Full build / test / packaging / CI / release workflows: [docs/workflow/](.).

@@ -3,7 +3,7 @@
 // Spec: docs/spec/archive/2026-05-10-add-embedding-api/ (H2 / H3)
 //       docs/design/runtime/embedding.md §9.1, §10
 //
-// Loaded by `host::host_tests::*` and the external `examples/hello_*`.
+// Loaded by `host::host_tests::*`.
 // Each entry exercises a distinct host-API path:
 //
 //   Main       — H2 happy path (single line, void return)

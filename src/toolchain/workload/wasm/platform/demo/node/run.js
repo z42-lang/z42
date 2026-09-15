@@ -3,7 +3,7 @@
 // Mirrors the Tier 2 `hello_rust` example: load corelib via stdlib
 // bundle resolver, invoke `Hello.Main`, capture stdout, assert
 // "hello, world\n". Uses the shared embedding fixture from
-// `examples/embedding/hello.z42` (also consumed by add-ios-tests
+// `src/toolchain/workload/fixtures/hello.z42` (also consumed by add-ios-tests
 // XCTest R1).
 //
 // Run after `./build.sh` succeeds:

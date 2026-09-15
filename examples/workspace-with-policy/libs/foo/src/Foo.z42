@@ -1,7 +1,0 @@
-namespace Foo;
-
-public static class Foo {
-    public static string ping() {
-        return "pong";
-    }
-}

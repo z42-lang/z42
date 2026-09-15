@@ -65,7 +65,10 @@ jobs:
             platform:
               - 'src/runtime/**'
               - 'src/toolchain/workload/**'
-              - 'examples/embedding/**'
+              - 'src/toolchain/workload/fixtures/**'
+              # 学习手册示例：package-host 用打包出的 SDK（含 Windows）重放会话脚本。
+              - 'examples/**'
+              - 'docs/learn/**'
               # 打包管道自身 + 消费包的 e2e（fix-package-gates-false-red, 2026-09-06）：
               # 此前 package-* 只由上面几项触发，只改 scripts/package/ 或 dist e2e 的 PR
               # **根本不跑 package job** —— 打包坏了 PR 照样绿，要等合并进 main 才炸。
@@ -78,6 +81,8 @@ jobs:
               - 'scripts/package/**'
               - 'scripts/packages.toml'
               - 'scripts/cli/xtask_cli_package.z42'
+              # 安装脚本：package-host 用刚打出的包离线跑一遍（Installer smoke）。
+              - 'scripts/install/**'
               - 'src/toolchain/launcher/**'
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
@@ -267,6 +272,18 @@ jobs:
       # the goldens against those canonical artifacts (~12-15 min/leg saved). The
       # consume path (_regenGolden + --no-build stages) is the same one the
       # test-consume job already exercises green.
+      # examples stage（学习手册示例）用 SDK 里真实的 `z42` 重放会话脚本，需要一个带 launcher 的
+      # 完整 SDK（artifacts/.z42）。`build sdk` 在 bootstrap 之后是增量的：stdlib / z42c 命中缓存，
+      # 实际工作量是 apphost stub 的 cargo 构建 + 各工具 publish。
+      - name: Build SDK for the examples stage
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm" \
+          Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            artifacts/build/runtime/release/z42vm artifacts/xtask/xtask.zpkg -- build sdk
+
       - name: Test (z42 xtask.zpkg test all --no-build --skip ...)
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -445,6 +462,49 @@ jobs:
           if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$runner" artifacts/xtask/xtask.zpkg -- test dist
+
+      - name: Learn-book examples (packaged SDK)
+        # 与 test-host 的 examples stage 同一套会话脚本，这里用打包出的 SDK 跑——最贴近用户安装形态，
+        # 也是 Windows 上唯一的覆盖。
+        shell: bash
+        run: |
+          set -euo pipefail
+          vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
+          runner="$vm"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then runner="$PWD/.ci-runner/$(basename "$vm")"; fi
+          pkg_dir=$(ls -d "$PWD"/artifacts/packages/z42-*-release | head -1)
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$runner" artifacts/xtask/xtask.zpkg -- test examples --sdk "$pkg_dir"
+
+      - name: Installer smoke (offline, packaged SDK)
+        # 用户安装脚本（scripts/install/）对刚打出的 SDK 包跑一遍 `--archive` 离线安装：
+        # 装进临时 home → `z42 --version` → `z42 new` + `z42 run`。第二次安装同一份包必须
+        # 保留安装目录里的非 SDK 内容（workload 等）。网络下载路径由 nightly 发布后的真实 URL 覆盖。
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg_dir=$(ls -d artifacts/packages/z42-*-release | head -1)
+          home="$RUNNER_TEMP/z42-install-home"
+          rm -rf "$home"; mkdir -p "$home/runtimes/keep"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            archive="$RUNNER_TEMP/z42-sdk.zip"
+            pwsh -NoProfile -Command "Compress-Archive -Path '$pkg_dir/*' -DestinationPath '$archive' -Force"
+            pwsh -NoProfile -File scripts/install/install.ps1 -Archive "$archive" -Dest "$home" -NoModifyPath
+            z42="$home/z42.exe"
+          else
+            archive="$RUNNER_TEMP/z42-sdk.tar.gz"
+            tar -C "$pkg_dir" -czf "$archive" .
+            sh scripts/install/install.sh --archive "$archive" --dest "$home" --no-modify-path
+            z42="$home/z42"
+          fi
+          "$z42" --version | grep -E '^z42 [0-9]'
+          test -d "$home/runtimes/keep" || { echo "error: installer removed non-SDK content"; exit 1; }
+          work="$RUNNER_TEMP/z42-install-work"; rm -rf "$work"; mkdir -p "$work"; cd "$work"
+          env -u Z42_PORTABLE_VM -u Z42_LIBS -u Z42_HOME "$z42" new hello
+          cd hello
+          out=$(env -u Z42_PORTABLE_VM -u Z42_LIBS -u Z42_HOME "$z42" run | tr -d '\r')
+          [ "$out" = "Hello, World!" ] || { echo "error: z42 run printed '$out'"; exit 1; }
+          echo "✓ installed SDK: new + run → Hello, World!"
 
       - name: Verify package manifest + native artifacts
         shell: bash
@@ -1571,13 +1631,17 @@ jobs:
           | WASM (npm) | \`z42-workload-nightly-wasm.tar.gz\` |
           | Test (capability; test-agent payload) | \`z42-workload-nightly-test.tar.gz\` |
 
+          Install (macOS / Linux): \`curl -fsSL https://z42-lang.github.io/z42/install.sh | sh\`
+          Install (Windows): \`irm https://z42-lang.github.io/z42/install.ps1 | iex\`
+
           Verify: \`shasum -a 256 -c SHA256SUMS --ignore-missing\`
           EOF
           )
           gh release create nightly --prerelease --target "$GITHUB_SHA" \
             --title "Nightly (main @ ${short_sha} · ${today})" \
             --notes "$notes" \
-            artifacts/release/SHA256SUMS artifacts/release/release-index.json artifacts/release/z42-*
+            artifacts/release/SHA256SUMS artifacts/release/release-index.json artifacts/release/z42-* \
+            scripts/install/install.sh scripts/install/install.ps1
           # Defensive (fix-nightly-draft): the nightly MUST be a published (non-draft)
           # release — a DRAFT is invisible to other runs' GITHUB_TOKEN, so every
           # download-bootstrap job (build-and-test, verify-selfhost,

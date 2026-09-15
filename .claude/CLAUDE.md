@@ -15,7 +15,8 @@ src/runtime/    # Rust VM（interp / jit / aot）
 src/libraries/  # 标准库 .z42 源码（编译后产出 .zpkg）
 src/toolchain/  # 配套工具链（launcher / test-runner / workload；debugger·builder 占位）
 docs/book/      # 知识库（mdBook：语言/编译器/运行时/stdlib/工具链；旧 docs/design/ 迁移中）
-examples/       # .z42 示例源文件
+examples/       # 学习手册（docs/learn）配套示例工程；由 xtask test examples 逐条运行校验
+docs/learn/     # 学习手册（面向用户的教程 mdBook）
 ```
 
 ## 构建与测试
