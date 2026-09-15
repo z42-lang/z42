@@ -178,8 +178,8 @@ E0458 管的是**一个包内**的重复；跨包这半边此前完全没人看�
 
 | | 类型 | 自由函数 |
 |---|---|---|
-| 符号表的键 | 裸名 `Classes` + **`ClassesByFqn` 兜底** | **只有裸名**（`ExportedFuncZ.Name` 就是 `md.Name`，从无 ns 前缀）|
-| 同短名跨 ns | 各占一条 FQN 记录 | **撞同一个键**、first-wins |
+| 符号表的键 | 裸名 `Classes` + **`ClassesByFqn` 兜底** | `FunctionsByFqn`（`ns.name`；此前**只有裸名**，见下节）|
+| 同短名跨 ns | 各占一条 FQN 记录 | 各占一条 FQN 记录（此前**撞同一个键**、first-wins）|
 | 输家还能指到吗 | 限定写法有时可以 | **永远不能**——z42 的自由函数只有裸名一种调用形态 |
 | 运行期兜底 | `duplicate type … keeping first-loaded`（打 stderr）| 常常**连 warn 都没有**：输的那个包因惰性加载压根不会被载入 |
 
@@ -205,6 +205,44 @@ ns 与 pkg 一起存：三种形状恰好由「ns 同不同」×「pkg 同不同
 
 > **可见性过滤是必须的**：只登记**激活**的包（`using` 命中其某个 ns，整包粒度）。同名但没
 > `using` 进来的那份不参与判定——否则「同名但我根本没用到」会变成假红，而那在真实工程里极常见。
+
+#### 本包自由函数按命名空间解析（resolve-free-functions-by-namespace）
+
+上一节的三个码管「同名来自哪些包」；这一节管更基础的一件事——**本包内**的自由函数怎么登记、裸名调用
+解析到哪一份、发射端发什么名字。此前三处口径不一：`SymbolTable.Functions` 以**裸名**为键且后写覆盖，
+类型检查查它；发射端 `QualifyFreeFunc` 却一律按**调用方当前 ns** 限定（导入的除外）。实测三种坏形态：
+
+| 形态 | 修前 | 修后 |
+|---|---|---|
+| 同 ns、两个文件各声明 `f` | 零诊断，静默合成一份 | **E0408**，报在后收集的那份、消息点出另一处位置 |
+| `Alpha` 有 `int f(int)`、`Beta` 有 `string f()`，Alpha 里调 `f(41)` | 绑到后注册那份：`a.z42`/`b.z42` 假报 E0402，改个文件名就过——**成败看文件名** | 绑 Alpha 的 `f`，与文件序无关 |
+| Alpha 里 `using Beta; g(1)`（`g` 只在 Beta） | 编译通过，发 `call @Alpha.g` → 运行期 `undefined function` | 发 `call @Beta.g` |
+
+（z42c 自己的单测工程就撞过：`bare_name_ambiguity_tests` 的辅助函数 `countCode` 被另一个文件同名那份顶掉，
+报 `cannot assign String[] to DiagnosticBag`——当时的应对是给所有辅助函数加文件前缀。）
+
+**数据**：`SymbolTable.FunctionsByFqn`（`ns.name` → 符号，本包与导入共用；同 FQN 本包覆盖导入 = local-wins）+
+`FuncNsAll`（短名 → 声明过它的全部 ns）。本包由 `MemberCollector` 按 `cu.Namespace` 登记，导入由
+`ImportedSymbolLoader` 按模块 ns 登记、`SymbolCollector._mergeImports` 并入。
+
+**解析**（`SymbolTable.ResolveFuncNs`，与类型裸名同口径，**判据只此一份**——E0456 的 `AmbiguousFuncNameMsg`
+走同一个候选集 `_funcCandidates`）：
+
+```
+candidates(name):
+  nss = FuncNsAll[name]
+  if ScopeNs ∈ nss:            return [ScopeNs]          // ① 外围 ns 优先，不算歧义
+  vis = [ns ∈ nss | ns == "" || ns ∈ usings]              // ② 本 CU 可见集（全局 ns 恒可见）
+  return vis 非空 ? vis : nss                              // ③ 可见集里没有 → 全部声明（唯一即它）
+resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
+```
+
+③ 与类型一致：不写 `using` 也能指到**唯一**的那份；多份且都不可见同样报 E0456。
+
+**发射**：解析出的 ns 随 `BoundCall.FreeNs` / `BoundFuncRef.FuncNs` 带到发射端，`CallEmitter` / `ExprEmitter`
+直接发 `QualOf(ns, name)`（导入的顺带 `TrackDepNamespace`）——发射端**不再按名字猜**，`QualifyFreeFunc` /
+`ImportedFuncNs` / `_filterShadowedFuncs` 随之删除。对原本就正确的代码，解析结果与旧的猜测逐字相同 ⇒
+自举与 stdlib 产物字节不变；只有上表三种形态（及「本包另一文件声明的函数遮蔽导入同名函数」）发码改变。
 
 #### 覆盖面：哪些「引用形态」会被判（E0601 / E0606 / E0456）
 

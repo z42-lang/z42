@@ -98,9 +98,10 @@ public sealed class ExprTyper {
                     return new BoundIdent(id.Name, new Z42UnknownType(), id.Span);
                 }
                 // 方法组转换：自由函数名作值（`IntFn0 a = Helper`）→ func 引用（LoadFn）。
-                if (env.Symbols.HasFunc(id.Name)) {
-                    MethodSymbol mfs = env.Symbols.GetFunc(id.Name);
-                    return new BoundFuncRef(id.Name, mfs.Signature, id.Span);
+                string mfns = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace
+                if (mfns != null) {
+                    MethodSymbol mfs = env.Symbols.GetFuncIn(mfns, id.Name);
+                    return new BoundFuncRef(id.Name, mfns, !mfs.HasDecl, mfs.Signature, id.Span);
                 }
                 this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined: " + id.Name, id.Span);
                 return new BoundError("undefined " + id.Name, new Z42ErrorType(), id.Span);

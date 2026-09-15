@@ -97,7 +97,6 @@ public static class CuCompile {
         // —— 在 ImportedClassNs 填充处剔除被本地遮蔽的名（而非 emit 期 QualifyClass 查 LocalClasses；
         // 后者会触发 C# 对 z42c.semantics 的 codegen 扰动致自举 emit 半量崩溃，bootstrap-unsafe）。
         gen.ImportedClassNs = CuPreprocess._filterShadowed(classNs, cu);
-        if (imported != null) { gen.ImportedFuncNs = CuPreprocess._filterShadowedFuncs(imported.FunctionNamespaces, cu); }   // fix-imported-free-func-namespace
         gen.LocalClasses = localClasses; // G18：ChainHasMethod 反劫持守卫仅认本地类
         string[] actNs = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;

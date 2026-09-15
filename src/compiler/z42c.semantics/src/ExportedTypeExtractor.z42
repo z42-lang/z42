@@ -75,7 +75,7 @@ public static class ExportedTypeExtractor {
                         int k = 0; while (k < fc) { b[k] = funcs[k]; k = k + 1; }
                         funcs = b;
                     }
-                    funcs[fc] = FuncImplExtractor._extractFunc(md, symbols);
+                    funcs[fc] = FuncImplExtractor._extractFunc(md, cu.HasNamespace ? cu.Namespace : "", symbols);
                     fc = fc + 1;
                 }
             }
@@ -139,7 +139,7 @@ public static class ExportedTypeExtractor {
                         int k = 0; while (k < fc) { b[k] = funcs[k]; k = k + 1; }
                         funcs = b;
                     }
-                    funcs[fc] = FuncImplExtractor._extractFunc(md, symbols);
+                    funcs[fc] = FuncImplExtractor._extractFunc(md, cu.HasNamespace ? cu.Namespace : "", symbols);
                     fc = fc + 1;
                 }
             }

@@ -265,17 +265,20 @@ public sealed class CallEmitter {
         }
         // 调用目标限定（BP-0）：静态类用 QualifyClass（imported/同包跨-ns aware，查 ImportedClassNs；
         // 镜像 C# QualifyClassName）——否则同包跨-ns 静态调用（如 Std.Archive.Zip →
-        // Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用 QualifyFreeFunc（imported 自由函数
-        // → 源 ns；fix-imported-free-func-namespace）——否则跨包裸调（如 REPL 跨轮 Repl.R{N} 定义的函数）
-        // 被误限定当前 ns → undefined。QualifyFreeFunc 只在 free 分支调用（其 TrackDepNamespace 副作用不误扰
-        // static 路径）。局部函数（lifted）优先，已 FQ、不再 Qualify。
+        // Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用绑定期解析出的 ns（`FreeNs`，
+        // resolve-free-functions-by-namespace；取代按名猜的 QualifyFreeFunc）——跨包 / 同包跨 ns 都指到声明处。
+        // 局部函数（lifted）优先，已 FQ、不再 Qualify。
         string func;
         if (c.Kind != "static" && this._ctx.LocalFnNames.ContainsKey(c.MethodName)) {
             func = (this._ctx.LocalFnNames.Get(c.MethodName) as StrBox).Value;
         } else if (c.Kind == "static") {
             func = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName;
+        } else if (c.FreeNs != null) {
+            // resolve-free-functions-by-namespace：绑定期已按 ns 解析 —— 直接用它（导入的记依赖 ns，使 DEPS 收录）。
+            if (c.FreeImported) { this._ctx.TrackDepNamespace(c.FreeNs); }
+            func = SymbolTable.QualOf(c.FreeNs, c.MethodName);
         } else {
-            func = this._ctx.QualifyFreeFunc(c.MethodName);
+            func = this._ctx.Qualify(c.MethodName);
         }
         // A-use：返回 blob 值 struct 走 sret（如 operator 脱糖的静态 struct 工厂 Vec2.op_Add）；否则普通 Call。
         // add-generic-methods：静态/自由泛型方法调用携方法类型实参（same-program 直呼的 e2e 主路径）。

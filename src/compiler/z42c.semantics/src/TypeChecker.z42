@@ -482,10 +482,10 @@ public sealed class TypeChecker {
     // （ToString/Equals/GetHashCode/GetType/get_Item/set_Item）不参与 mangle（SymbolCollector 同款
     // 判定），继续维持 first-wins 静默覆盖的现状（如 String.Equals(object)/Equals(string)），
     // 不在此处误报——用同一份 `SymbolCollector.IsProtocolExempt` 跳过，单一豁免名单来源。
-    // 顶层（自由）函数**不重载**：它们以裸名注册进 `SymbolTable.Functions`（名唯一键——
-    // 重载 mangling 仅类方法有）。同名多定义会静默覆盖，随后 `ExportedTypeExtractor._extractFunc`
-    // 用 `GetFunc(name)` 取到错 arity 的符号 → `md.Params` / `sig.ParamTypes` 越界 null → 崩。
-    // 这里在类型检查期显式报重复定义，把那个隐晦崩溃变成清晰诊断（同一 CU 内检测）。
+    // 顶层（自由）函数**不重载**：它们按 FQN 注册进 `SymbolTable.FunctionsByFqn`（`ns.name` 唯一键——
+    // 重载 mangling 仅类方法有）。同 FQN 多定义只留一份，随后 `ExportedTypeExtractor._extractFunc`
+    // 取到错 arity 的符号 → `md.Params` / `sig.ParamTypes` 越界 null → 崩。
+    // 这里在类型检查期显式报重复定义，把那个隐晦崩溃变成清晰诊断（同一 CU 内检测；跨文件由 MemberCollector 报）。
 
 
     // 重复检测的 arity 预扫键：static/instance 分桶前缀，避免同名静态与实例方法（本就非法，见别处检测）

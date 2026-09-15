@@ -1,0 +1,175 @@
+// resolve-free-functions-by-namespace：本包自由函数按命名空间登记与解析。
+//
+// 修前（实测，当前 main 自建编译器）三种坏形态，本文件逐条钉住：
+//   · B-1 同 ns 跨文件同名 → 零诊断、静默合成一份               → 现 E0408（点出另一处位置）
+//   · B-2 跨 ns 同名 → 类型检查绑到**另一个 ns** 的签名，成败看文件名 → 现两种文件序都零诊断
+//   · B-3 跨 ns 调用 → 编译通过、发 `call @<调用方ns>.g`，运行期 undefined → 现发声明处 ns
+// 发射断言读 IR dump（`call @Beta.g(`）：解析结果必须一路带到发射端，只验类型检查不够——
+// B-3 修前类型检查本来就是「对」的，坏在发射端按当前 ns 猜。
+// 每个阳性都做过退回对照（撤掉 BoundCall.FreeNs / 按 FQN 登记后必须变红）。
+namespace Z42cSemanticsFreeFuncNsTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+
+CompiledModuleZ[] ffBuild(string[] srcs, string[] files) {
+    return IrDump.BuildPackage(srcs, files, srcs.Length, null, null, false);
+}
+
+string[] ffTwo(string a, string b) { string[] r = new string[2]; r[0] = a; r[1] = b; return r; }
+string[] ffThree(string a, string b, string c) { string[] r = new string[3]; r[0] = a; r[1] = b; r[2] = c; return r; }
+
+int ffCode(CompiledModuleZ[] cms, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { if (cms[i].DiagMsgs[j].Contains(code)) { n = n + 1; } j = j + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+int ffDiags(CompiledModuleZ[] cms) {
+    int n = 0;
+    int i = 0;
+    while (i < cms.Length) { n = n + cms[i].DiagCount; i = i + 1; }
+    return n;
+}
+
+string ffAllDiags(CompiledModuleZ[] cms) {
+    string s = "";
+    int i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { s = s + cms[i].DiagMsgs[j] + " | "; j = j + 1; }
+        i = i + 1;
+    }
+    return s;
+}
+
+// 全包 IR 里名为 `fname` 的函数的 dump（无 → ""）。
+string ffDump(CompiledModuleZ[] cms, string fname) {
+    int i = 0;
+    while (i < cms.Length) {
+        IrModule m = cms[i].Module;
+        int f = 0;
+        while (m != null && f < m.FuncCount) {
+            if (m.Functions[f].Name == fname) { return m.Functions[f].Dump(); }
+            f = f + 1;
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+string ffAlphaCallsF() { return "namespace Alpha;\nint f(int x) { return x + 1; }\nint Main() { int r = f(41); return r; }"; }
+string ffBetaF()       { return "namespace Beta;\nstring f() { return \"beta\"; }"; }
+
+// ── B-2：跨 ns 同名，结果不得随文件序变化 ─────────────────────────────────
+
+[Test]
+void cross_ns_same_name_binds_callers_own_ns() {
+    CompiledModuleZ[] cms = ffBuild(ffTwo(ffAlphaCallsF(), ffBetaF()), ffTwo("a.z42", "b.z42"));
+    Assert.Equal("", ffAllDiags(cms));   // 修前：E0402 cannot assign String to Int32（绑到了 Beta.f）
+    Assert.Equal(true, ffDump(cms, "Alpha.Main").Contains("call @Alpha.f("));
+}
+
+[Test]
+void cross_ns_same_name_is_file_order_independent() {
+    // 同一份源、文件序反过来（修前恰好这一序能过）——两序结果必须一致。
+    CompiledModuleZ[] cms = ffBuild(ffTwo(ffBetaF(), ffAlphaCallsF()), ffTwo("a.z42", "b.z42"));
+    Assert.Equal("", ffAllDiags(cms));
+    Assert.Equal(true, ffDump(cms, "Alpha.Main").Contains("call @Alpha.f("));
+}
+
+// ── B-3：跨 ns 调用发声明处 ns ─────────────────────────────────────────────
+
+[Test]
+void cross_ns_call_via_using_emits_declaring_ns() {
+    CompiledModuleZ[] cms = ffBuild(
+        ffTwo("namespace Alpha;\nusing Beta;\nint Main() { return g(1); }", "namespace Beta;\nint g(int x) { return x + 100; }"),
+        ffTwo("a.z42", "b.z42"));
+    Assert.Equal(0, ffDiags(cms));
+    string d = ffDump(cms, "Alpha.Main");
+    Assert.Equal(true, d.Contains("call @Beta.g("));    // 修前：call @Alpha.g → 运行期 undefined function
+    Assert.Equal(false, d.Contains("@Alpha.g"));
+}
+
+[Test]
+void cross_ns_call_without_using_resolves_unique_declaration() {
+    // 可见集内没有 → 退到全部声明里唯一的那份（与类型裸名同规则）。
+    CompiledModuleZ[] cms = ffBuild(
+        ffTwo("namespace Alpha;\nint Main() { return g(1); }", "namespace Beta;\nint g(int x) { return x + 100; }"),
+        ffTwo("a.z42", "b.z42"));
+    Assert.Equal(0, ffDiags(cms));
+    Assert.Equal(true, ffDump(cms, "Alpha.Main").Contains("call @Beta.g("));
+}
+
+[Test]
+void method_group_emits_declaring_ns() {
+    // 方法组转换（`IntFn h = g`）同病：LoadFn 此前一律按当前 ns 限定。
+    CompiledModuleZ[] cms = ffBuild(
+        ffTwo("namespace Alpha;\nusing Beta;\npublic delegate int IntFn(int x);\nint Main() { IntFn h = g; return h(2); }",
+              "namespace Beta;\nint g(int x) { return x + 100; }"),
+        ffTwo("a.z42", "b.z42"));
+    Assert.Equal(0, ffDiags(cms));
+    Assert.Equal(true, ffDump(cms, "Alpha.Main").Contains("@Beta.g"));
+}
+
+[Test]
+void global_ns_function_called_from_namespaced_file() {
+    CompiledModuleZ[] cms = ffBuild(
+        ffTwo("namespace Alpha;\nint Main() { return gl(5); }", "int gl(int x) { return x + 1; }"),
+        ffTwo("a.z42", "g.z42"));
+    Assert.Equal(0, ffDiags(cms));
+    string d = ffDump(cms, "Alpha.Main");
+    Assert.Equal(true, d.Contains("call @gl("));
+    Assert.Equal(false, d.Contains("@Alpha.gl"));
+}
+
+// ── 解析规则：外围 ns 优先 / 可见集歧义 ─────────────────────────────────────
+
+[Test]
+void enclosing_ns_wins_over_using() {
+    CompiledModuleZ[] cms = ffBuild(
+        ffTwo("namespace Alpha;\nusing Beta;\nint g(int x) { return x; }\nint Main() { return g(1); }",
+              "namespace Beta;\nstring g() { return \"b\"; }"),
+        ffTwo("a.z42", "b.z42"));
+    Assert.Equal(0, ffDiags(cms));
+    Assert.Equal(true, ffDump(cms, "Alpha.Main").Contains("call @Alpha.g("));
+}
+
+[Test]
+void two_visible_namespaces_report_E0456() {
+    CompiledModuleZ[] cms = ffBuild(
+        ffThree("namespace Alpha;\nusing Beta;\nusing Gamma;\nint Main() { return g(1); }",
+                "namespace Beta;\nint g(int x) { return x; }",
+                "namespace Gamma;\nint g(int x) { return x; }"),
+        ffThree("a.z42", "b.z42", "c.z42"));
+    Assert.Equal(1, ffCode(cms, "E0456"));
+}
+
+// ── B-1：同 FQN 跨文件重复 ─────────────────────────────────────────────────
+
+[Test]
+void same_ns_duplicate_across_files_reports_E0408_with_both_locations() {
+    CompiledModuleZ[] cms = ffBuild(
+        ffTwo("namespace N;\nint f() { return 1; }", "namespace N;\nint f() { return 2; }"),
+        ffTwo("a.z42", "b.z42"));
+    Assert.Equal(1, ffCode(cms, "E0408"));
+    Assert.Equal(true, ffAllDiags(cms).Contains("a.z42"));   // 报在第二处，消息点出第一处
+}
+
+[Test]
+void different_ns_same_name_across_files_is_not_duplicate() {
+    // multi-exe 的多个 `Main`、各单测文件各自的同名辅助函数都是这个形状——合法。
+    CompiledModuleZ[] cms = ffBuild(
+        ffTwo("namespace P;\nvoid Main() { }", "namespace Q;\nvoid Main() { }"),
+        ffTwo("a.z42", "b.z42"));
+    Assert.Equal(0, ffCode(cms, "E0408"));
+}

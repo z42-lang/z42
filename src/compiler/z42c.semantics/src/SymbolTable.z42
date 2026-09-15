@@ -13,7 +13,10 @@ public sealed partial class SymbolTable {
     // 不再靠剥短名撞 first/last-wins 赢家。与 Classes 并存：非限定引用仍走 Classes，限定引用优先走此。
     public StrMap ClassesByFqn;
     public StrMap Interfaces;       // name → Z42InterfaceType（port-z42c-interface）
-    public StrMap Functions;        // name → MethodSymbol（顶层 func）
+    // resolve-free-functions-by-namespace：自由函数 **FQN**（`ns.name`；全局 ns 即 `name`）→ MethodSymbol（本包 + 导入）。
+    // 解析与登记见 SymbolTable.Functions.z42。此前是裸名键 `Functions`（后写覆盖、不认 ns）。
+    public StrMap FunctionsByFqn;
+    public StrMap FuncNsAll;        // 短名 → 声明过它的全部 ns（StrBox，"|" 连接；与 ClassNsAll 同构）= 裸名解析的候选集
     public StrMap ClassConstraints; // ConstraintKey() → ConstraintSet（2B；仅有 where 子句的泛型类/结构登记）
     // add-associated-types PR-1：泛型**接口**的 where 约束。与 ClassConstraints 分开存，因为类与接口
     // 同名（`Foo` 类 + `Foo` 接口）在各自的 Classes/Interfaces 里合法共存，混进一张表会互相遮蔽——
@@ -62,7 +65,8 @@ public sealed partial class SymbolTable {
         this.Classes = new StrMap();
         this.ClassesByFqn = new StrMap();   // fix-type-ref-ns-collision
         this.Interfaces = new StrMap();
-        this.Functions = new StrMap();
+        this.FunctionsByFqn = new StrMap();
+        this.FuncNsAll = new StrMap();
         this.ClassConstraints = new StrMap();
         this.InterfaceConstraints = new StrMap();
         this.EnumTypes = new StrMap();
@@ -97,7 +101,8 @@ public sealed partial class SymbolTable {
         t.Classes = this.Classes;
         t.ClassesByFqn = this.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
         t.Interfaces = this.Interfaces;
-        t.Functions = this.Functions;
+        t.FunctionsByFqn = this.FunctionsByFqn;   // 共享（并行段内只读）
+        t.FuncNsAll = this.FuncNsAll;
         t.ClassConstraints = this.ClassConstraints;
         t.InterfaceConstraints = this.InterfaceConstraints;
         t.EnumTypes = this.EnumTypes;
@@ -310,8 +315,6 @@ public sealed partial class SymbolTable {
         return false;
     }
     public Z42ClassType  GetClass(string name) { return this.Classes.Get(name) as Z42ClassType; }
-    public bool          HasFunc(string name)  { return this.Functions.ContainsKey(name); }
-    public MethodSymbol  GetFunc(string name)  { return this.Functions.Get(name) as MethodSymbol; }
     public bool          HasConstraints(string name) { return this.ClassConstraints.ContainsKey(name); }
     public ConstraintSet GetConstraints(string name) { return this.ClassConstraints.Get(name) as ConstraintSet; }
     public bool          HasIfaceConstraints(string name) { return this.InterfaceConstraints.ContainsKey(name); }

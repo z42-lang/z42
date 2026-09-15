@@ -44,7 +44,6 @@ public sealed class RecordSynthEmitter {
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
         this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
-        this._ctx.ImportedFuncNs = this._gen.ImportedFuncNs;
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = fnName;

@@ -1,0 +1,15 @@
+namespace Alpha;
+using Std.IO;
+using Beta;
+
+public delegate int IntFn(int x);
+
+int f(int x) { return x + 1; }
+
+void Main() {
+    Console.WriteLine(f(41).ToString());   // 42：外围 ns 的 f，不是 Beta 的 string f()
+    Console.WriteLine(g(1).ToString());    // 101：using Beta 的 g
+    IntFn h = g;
+    Console.WriteLine(h(2).ToString());    // 102：方法组同样指到 Beta.g
+    Console.WriteLine(gl(5).ToString());   // 10：全局 ns 的 gl
+}

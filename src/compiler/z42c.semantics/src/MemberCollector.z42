@@ -34,7 +34,16 @@ public sealed class MemberCollector {
                 // `table` 此处已是 `WithScopeOf(cu)` 的视图 ⇒ ScopeNs 正是本 CU 的 ns。
                 // 有了它才判得出「本包遮蔽了导入包的同 FQN 自由函数」（E0606）。
                 table.NoteFuncOrigin(m.Name, table.ScopeNs, "");
-                table.Functions.Put(m.Name, this._sc._methodSymbol(table, m, "", new string[0], 0));
+                // resolve-free-functions-by-namespace：按 FQN 登记（不同 ns 的同名函数各自独立，不再后写覆盖）。
+                // 同 FQN 已有一份**本包**声明、且在另一个文件 → E0408，同时指出两处（同文件那条由
+                // `DeclBinder._checkDuplicateFreeFunctions` 报，这里不重复）。先登记者保留：文件按稳定序收集。
+                MethodSymbol prevFn = table.AddFunc(table.ScopeNs, m.Name, this._sc._methodSymbol(table, m, "", new string[0], 0), true);
+                if (prevFn != null && prevFn.HasDecl && prevFn.Decl != null && prevFn.Decl.Span.File != m.Span.File) {
+                    this._sc.Diags.Error(DiagnosticCodes.DuplicateDeclaration,
+                        "duplicate top-level function `" + SymbolTable.QualOf(table.ScopeNs, m.Name) + "` — also declared at "
+                        + prevFn.Decl.Span.File + ":" + prevFn.Decl.Span.Line.ToString()
+                        + "; free functions do not overload, give them distinct names", m.Span);
+                }
             }
             i = i + 1;
         }

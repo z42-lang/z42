@@ -21,12 +21,11 @@ public sealed class StrBox {
 // 加载产物（镜像 C# ImportedSymbols 子集）。
 public sealed class ImportedSymbols {
     public StrMap Classes;          // 短名 → Z42ClassType（成员已填）
-    public StrMap Functions;        // 名 → MethodSymbol（自由函数）
+    public StrMap FunctionsByFqn;   // `ns.name` → MethodSymbol（自由函数；resolve-free-functions-by-namespace：此前按裸名、同名跨 ns 塌成一份）
     public StrMap ClassNamespaces;  // 短名 → 原 ns（QualifyClassName / 诊断用；值存 StrBox）
     // add-bare-name-ambiguity-diagnostic：短名 → **全部**声明 ns（"|" 连接）。`ClassNamespaces` 是
     // 单值、且被 first-wins 守卫盖住，判不了歧义；本表在守卫**之外**累积，每个 active 模块都记一笔。
     public StrMap ClassNsAll;
-    public StrMap FunctionNamespaces; // 自由函数名 → 原 ns（QualifyFreeFunc：跨包裸调按源 ns 限定；值存 StrBox）
     public StrMap Interfaces;       // 短名 → Z42InterfaceType（接口骨架；供 _passClassStubs 基表判别）
     // unify-type-identity-fqn：**FQN 视图**（对称 SymbolTable.ClassesByFqn）。`Classes` / `Interfaces`
     // 按短名键，同短名跨 ns 只活一份（first-wins）⇒ 无法承载 FQ 名的精确解析。发射端已改发 FQN，
@@ -52,10 +51,9 @@ public sealed class ImportedSymbols {
     public ImportedSymbols() {
         this.Classes = new StrMap();
         this.Constraints = new StrMap();
-        this.Functions = new StrMap();
+        this.FunctionsByFqn = new StrMap();
         this.ClassNamespaces = new StrMap();
         this.ClassNsAll = new StrMap();
-        this.FunctionNamespaces = new StrMap();
         this.Interfaces = new StrMap();
         this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
         this.ClassPkgAll = new StrMap();           // report-crosspkg-duplicate-type
@@ -335,7 +333,8 @@ public static class ImportedSymbolLoader {
                     if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {
                         SymbolTable.NoteNsInto(r.FuncOriginAll, fz.Name, em.Namespace + "#" + pkgNames[i]);
                     }
-                    if (!r.Functions.ContainsKey(fz.Name)) {
+                    string fzFqn = SymbolTable.QualOf(em.Namespace, fz.Name);
+                    if (!r.FunctionsByFqn.ContainsKey(fzFqn)) {
                         // imported-generic-func-type-param-fidelity：自由函数的**函数级**型参
                         // （`T IdOf<T>(T a)`）。这是 R1 当初列出却漏修的第四处（见 _tpsWith 注释）：
                         // 不喂型参表 → `T` 落 `_resolve` 末尾的 Builtin 兜底成普通类 ⇒ 调用点 E0402。
@@ -351,9 +350,7 @@ public static class ImportedSymbolLoader {
                         var fsym = new MethodSymbol(fz.Name, "public", sig, false, "", false, null);
                         fsym.TypeParamCount = fz.TypeParamCount;   // 供泛型 arity 重载过滤（镜像方法侧）
                         fsym.TypeParamNames = ImportedSymbolLoader._tpNames(fz.TypeParams);   // fix-explicit-type-arg-not-substituted
-                        r.Functions.Put(fz.Name, fsym);
-                        // 记源 ns（与 ClassNamespaces 对称）→ 发射期 QualifyFreeFunc 跨包裸调按源 ns 限定。
-                        r.FunctionNamespaces.Put(fz.Name, new StrBox(em.Namespace));
+                        r.FunctionsByFqn.Put(fzFqn, fsym);   // 源 ns 在键里；调用点解析出 ns 后随 BoundCall 带到发射端
                     }
                     f = f + 1;
                 }
