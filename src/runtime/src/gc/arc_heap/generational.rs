@@ -116,6 +116,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // marked, same as any other old root (see the note in the BFS below).
             queue.extend(i.handle_slab.strong_targets());
         }
+        // add-incremental-major-gc M2a: a major mark's grey set and SATB records are roots for a
+        // minor that runs while that mark is outstanding — otherwise a young object the barrier
+        // recorded could be swept here and handed back to the marker as a dangling handle.
+        queue.extend(self.satb_queue.lock().iter().cloned());
+        queue.extend(self.mark_queue.lock().iter().cloned());
         {
             let scanner = self.external_root_scanner.lock();
             if let Some(scan) = scanner.as_ref() {
@@ -459,7 +464,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     // tombstone loop that re-took the region lock and re-`resolve`d the
                     // handle for it. That loop cost 67.7 ns an entry against the array
                     // twin's 10.8; it is now 10.6.
-                    for r in o.refs_mut().iter_mut() {
+                    for r in o.refs_mut_raw().iter_mut() {
                         *r = Value::Null;
                     }
                     o.clear_inline_refs();

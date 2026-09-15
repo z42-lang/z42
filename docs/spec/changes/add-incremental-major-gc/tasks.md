@@ -8,7 +8,7 @@
 ## 进度概览
 - [x] M0: 度量与门禁（大堆 scenario + 停顿指标进 bench）
 - [x] M1: 停顿内修剪（epoch 标记删 reset marks）—— age 并入 sweep 挪 M2b、1.10 挪 M3（见各条）
-- [ ] M2a: SATB 屏障 + allocate-black epoch 化（周期仍一次性完成，只验证屏障与不变量）
+- [x] M2a: SATB 屏障（周期仍一次性完成，只验证屏障与不变量）—— allocate-black epoch 化已在 M1 完成
 - [ ] M2b: 切片调度（Snapshot / Mark / Final / Sweep 分片 + 节奏 + 退化）
 - [ ] M2c: 验收（停顿目标、正确性配方、loom、文档）
 
@@ -52,16 +52,22 @@
       **+70%~160%**（回收 3 → 9 次、总停顿 179 → 507~542 ms、max 反升到 150+）。要的是按停顿预算自适应 nursery，不是删退避
 
 ## M2a: SATB 屏障（周期仍一次性完成）
-- [ ] 2.1 `gc/satb.rs`（NEW）+ `gc/mod.rs`：`MARKING_ACTIVE`、`remember`、线程本地缓冲 + 全局兜底队列、flush
-- [ ] 2.2 `vm_context/types.rs`：VmContext 持 SATB 缓冲；Drop 时 flush
-- [ ] 2.3 `metadata/types/object.rs` / `array_access.rs`：`set_field_value` / `set_boxed` / `write_struct_elem` 内置 SATB
-- [ ] 2.4 `metadata/types/obj_storage.rs`：`refs_mut` 收窄；审计并改掉 `interp/exec_object.rs`、`jit/helpers/object_field.rs`、
-      `corelib/reflection/accessors.rs` 的直写；sweep 断边改用内部无屏障写。**发现 Scope 外直写点 → 停下补 Scope**
-- [ ] 2.5 弱 / 软引用读取染色：`gc/arc_heap.rs` 句柄 `target()`、`interface.rs` `upgrade_weak` / `soft_ref_get`、`gc/soft_registry.rs`
-- [ ] 2.6 minor 把灰队列与各线程 SATB 缓冲当额外根（`generational.rs`）
-- [ ] 2.7 测试钩子：可在单测里手工驱动 Snapshot → 任意 mutator 操作 → 完成周期
-- [ ] 2.8 单测（`arc_heap_tests/incremental.rs`）：漏标阴性对照（关 SATB ⇒ 被回收；开 ⇒ 存活）、allocate-black 两期、弱引用复活、SATB 年轻对象活过 minor
-- [ ] 2.9 实测：非标记期指令回归 ≤ 1%（semantics + `09_alloc_ctorless`）；GREEN
+- [x] 2.1 `gc/satb.rs`（NEW）+ `gc/mod.rs`：进程级 `MARKING_HEAPS`（热路径只读它）+ `MARKING_GEN` + `(heap, epoch)` 表；
+      **记录进线程本地缓冲、按线程绑定的堆归属**（一个进程多个堆时，进程级队列会让 A 堆用自己的 epoch 染 B 堆的对象）；
+      线程在 `retire_thread_tlab` 时把缓冲交给堆的 `satb_queue`（每条 park 路径都先 retire）。无「全局兜底队列」——没有绑定堆的线程不可能写堆引用
+- [x] 2.2 `vm_context/construct.rs`（**不是** `types.rs`：缓冲放线程本地，VmContext 只负责绑定）：`new*` → `bind_thread`（栈式，嵌套 context LIFO 还原）；Drop → retire 后 `unbind_thread`
+- [x] 2.3 `object.rs`：`set_field_value`（含 byte 内联引用：先 `read_inline_ref` 取旧值）+ 新 `set_ref_slot`；`array_access.rs`：`set_boxed`（Boxed 与 StructBytes 引用叶子）、`write_struct_elem`、新 `set_struct_ref`、
+      **`copy_elems_from` 的 Boxed→Boxed 批量快路径**（`Array.Copy`：一次 `clone_from_slice`，先整段 `record_overwrite_all`）
+- [x] 2.4 `obj_storage.rs`：`refs_mut` 改名 `refs_mut_raw`（只给新分配对象 + GC 断边）；`struct_refs_mut` 删除（改 `set_struct_ref`）；
+      直写点实际在 `interp/exec_struct.rs`、`corelib/reflection/accessors.rs`（改走原语）与 `corelib/convert.rs`（新分配，保留 raw）；
+      `interp/exec_object.rs` / `jit/helpers/object_field.rs` 经审计已经走 `set_field_value`，无需改。补 Scope 见 proposal
+- [x] 2.5 弱 / 软引用读取染色：`interface.rs` `upgrade_weak` / `handle_target`（弱句柄）、`control.rs` `soft_ref_get` → `shade_if_marking`（进 `satb_queue`）
+- [x] 2.6 `generational.rs` `mark_phase_minor`：`satb_queue` 与 `mark_queue` 当额外根
+- [x] 2.7 测试钩子：`open_major_cycle` / `snapshot_roots_into_mark_queue` / `drain_mark_queue` / `close_major_marking` / `sweep_phase` 可在单测里逐步调用；`satb::set_disabled_for_test`
+- [x] 2.8 `arc_heap_tests/incremental.rs` 13 测：字段读进寄存器再清字段（开屏障存活 / **关屏障被回收**）、byte 内联字段、数组元素、**批量数组拷贝（开 / 关）**、
+      标记期外不记录、多堆隔离、弱读（读 / 不读）、minor 把记录当根（有 / 无）、记录值带本周期 epoch。
+      allocate-black 两期（标记期 / 清扫期出生）要真实切片才有意义 → 挪到 M2b
+- [x] 2.9 实测（与只有 M1 的二进制交错）：`09_alloc_ctorless` 指令 +0.26%、`z42c.semantics` −0.03%（噪声内），编译产物逐字节一致。GREEN 见 PR
 
 ## M2b: 切片调度
 - [ ] 3.1 `gc/incremental.rs`（NEW）：`IncrementalCycle` 状态机（Idle / Snapshot / Mark / Final / Sweep）、epoch、sweep 游标
@@ -81,6 +87,9 @@
 - [ ] 4.5 归档本 change；memory 更新
 
 ## 备注
+- 2026-09-16：**`copy_elems_from` 批量拷贝漏了屏障**——第一轮审计按「单元素写原语」找，批量快路径的 `clone_from_slice` 没进视野。
+  M2b 用 `Z42_GC_SLICE_MS=0.05` 跑 `z42.net` 的 stdlib 测试时每轮 1~5 个文件 SIGSEGV（编译器 `TsigReconcile._rebuildClass` 里 `String.Substring` 读到被回收的字符串），
+  审计照这条线索找到的漏洞随 M2a 一起提交（含阴性对照），规则已补「批量写同样是覆盖」；它是否就是那次 SIGSEGV 的全部原因，在 M2b 用修复后的二进制复跑压测确认。
 - 2026-09-16：本地复测一度以为 M1 让 `cargo test --lib` 慢 10× 且间歇失败 —— 查清与本 change 无关：
   慢是环境（已供种 worktree 里 `VmContext::new` 会加载真 stdlib）；间歇失败是 main 既有的 **`config_tests::with_env`
   改真实环境时抢先初始化了进程级 `runtime_config()`，把整个测试进程的默认 GC 模式定成 concurrent**，已单独修（fix-config-tests-leak-gc-mode）。

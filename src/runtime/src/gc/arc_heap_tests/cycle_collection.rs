@@ -16,8 +16,8 @@ fn simple_two_node_cycle_is_freed_after_collect() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut()[0] = a.clone();
+        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
     drop(a);
     drop(b);
@@ -34,7 +34,7 @@ fn self_reference_cycle_is_freed() {
     let a = heap.alloc_object(dummy_type_desc("Self"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(a_gc) = &a else { panic!() };
-        a_gc.borrow_mut().refs_mut()[0] = a.clone();
+        a_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
     drop(a);
     assert_eq!(alive_count(&heap), 1);
@@ -59,8 +59,8 @@ fn cycle_with_external_user_ref_is_not_broken_yet() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut()[0] = a.clone();
+        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
     // Pin a explicitly — this is the new contract for "I want this to
     // survive collect_cycles even though my code holds a strong ref".
@@ -87,8 +87,8 @@ fn pinned_root_cycle_is_not_broken() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut()[0] = a.clone();
+        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
+        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
     let _root = heap.pin_root(a.clone());
 
@@ -128,18 +128,18 @@ fn multiple_disjoint_cycles_all_freed() {
     let b = heap.alloc_object(dummy_type_desc("B1"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().refs_mut()[0] = b.clone();
+        g.borrow_mut().refs_mut_raw()[0] = b.clone();
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().refs_mut()[0] = a.clone();
+        g.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
     // 第二个环 c-d
     let c = heap.alloc_object(dummy_type_desc("C2"), vec![Value::Null], NativeData::None);
     let d = heap.alloc_object(dummy_type_desc("D2"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &c else { panic!() };
-        g.borrow_mut().refs_mut()[0] = d.clone();
+        g.borrow_mut().refs_mut_raw()[0] = d.clone();
         let Value::Object(g) = &d else { panic!() };
-        g.borrow_mut().refs_mut()[0] = c.clone();
+        g.borrow_mut().refs_mut_raw()[0] = c.clone();
     }
     drop(a); drop(b); drop(c); drop(d);
     assert_eq!(alive_count(&heap), 4);
@@ -156,9 +156,9 @@ fn collect_cycles_freed_bytes_observable() {
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().refs_mut()[0] = b.clone();
+        g.borrow_mut().refs_mut_raw()[0] = b.clone();
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().refs_mut()[0] = a.clone();
+        g.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
     drop(a);
     drop(b);
@@ -237,7 +237,7 @@ fn iterate_live_objects_dedupes_cycle() {
     // 自引用 cycle：obj.refs[0] = obj 自己（通过 wrap-by-clone）
     let obj = heap.alloc_object(dummy_type_desc("Cycle"), vec![Value::Null], NativeData::None);
     let Value::Object(rc) = &obj else { panic!() };
-    rc.borrow_mut().refs_mut()[0] = obj.clone();
+    rc.borrow_mut().refs_mut_raw()[0] = obj.clone();
     let _h = heap.pin_root(obj);
 
     let mut count = 0;

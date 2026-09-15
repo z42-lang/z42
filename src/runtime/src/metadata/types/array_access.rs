@@ -78,7 +78,11 @@ impl ArrayObj {
     pub fn set_boxed(&mut self, i: usize, val: Value) {
         match &mut self.backing {
             // SAFETY (each arm): exclusive borrow of a live block of exactly `len` `T`s.
-            ArrayBacking::Boxed { block, len } => { let s = unsafe { Self::slice_of_mut::<Value>(block, *len) }; s[i] = val; }
+            ArrayBacking::Boxed { block, len } => {
+                let s = unsafe { Self::slice_of_mut::<Value>(block, *len) };
+                crate::gc::satb::record_overwrite(&s[i]); // add-incremental-major-gc M2a
+                s[i] = val;
+            }
             ArrayBacking::Bool { block, len }  => { let s = unsafe { Self::slice_of_mut::<bool>(block, *len) }; s[i] = matches!(val, Value::Bool(true)); }
             ArrayBacking::Bytes { block, len } => { let s = unsafe { Self::slice_of_mut::<u8>(block, *len) }; s[i] = if let Value::I64(n) = val { n as u8 } else { 0 }; }
             ArrayBacking::I32 { block, len }   => { let s = unsafe { Self::slice_of_mut::<i32>(block, *len) }; s[i] = if let Value::I64(n) = val { n as i32 } else { 0 }; }
@@ -105,6 +109,7 @@ impl ArrayObj {
                     bslice[bstart..bstart + n].copy_from_slice(&bo.bytes()[..n]);
                     let rslice = unsafe { Self::slice_of_mut::<Value>(refs, *len * rc) };
                     let rn = bo.refs().len().min(rc);
+                    crate::gc::satb::record_overwrite_all(&rslice[i * rc..i * rc + rn]); // M2a
                     for k in 0..rn { rslice[i * rc + k] = bo.refs()[k].clone(); }
                 } else {
                     debug_assert!(false,
@@ -129,6 +134,7 @@ impl ArrayObj {
             bslice[bstart..bstart + n].copy_from_slice(&src_bytes[..n]);
             let rslice = unsafe { Self::slice_of_mut::<Value>(refs, *len * rc) };
             let rn = src_refs.len().min(rc);
+            crate::gc::satb::record_overwrite_all(&rslice[i * rc..i * rc + rn]); // M2a
             for k in 0..rn { rslice[i * rc + k] = src_refs[k].clone(); }
         }
     }
@@ -165,15 +171,21 @@ impl ArrayObj {
             _ => None,
         }
     }
-    /// Mutable reference side-table of a `StructBytes` array (`len*ref_count` Values) —
-    /// struct[] reference-leaf writes. `None` otherwise. (Reads use `gc_refs()`.)
+    /// Store `v` into reference leaf `flat` (`elem * ref_count + leaf`) of a `StructBytes` array,
+    /// recording the overwritten value for the SATB barrier (add-incremental-major-gc M2a). Returns
+    /// `false` for any other backing or an out-of-range index. (Reads use `gc_refs()`.)
     #[inline]
-    pub fn struct_refs_mut(&mut self) -> Option<&mut [Value]> {
+    pub fn set_struct_ref(&mut self, flat: usize, v: &Value) -> bool {
         match &mut self.backing {
             // SAFETY: exclusive borrow of a live ArrayValue block of `len*ref_count` Values.
-            ArrayBacking::StructBytes { refs, len, layout, .. } =>
-                Some(unsafe { Self::slice_of_mut::<Value>(refs, *len * layout.ref_count()) }),
-            _ => None,
+            ArrayBacking::StructBytes { refs, len, layout, .. } => {
+                let s = unsafe { Self::slice_of_mut::<Value>(refs, *len * layout.ref_count()) };
+                match s.get_mut(flat) {
+                    Some(cell) => { crate::gc::satb::record_overwrite(cell); *cell = v.clone(); true }
+                    None => false,
+                }
+            }
+            _ => false,
         }
     }
 }
@@ -220,8 +232,16 @@ impl ArrayObj {
                 bulk!(f64, sb, *sl, db, *dl, copy_from_slice),
             (ArrayBacking::Bool { block: sb, len: sl }, ArrayBacking::Bool { block: db, len: dl }) =>
                 bulk!(bool, sb, *sl, db, *dl, copy_from_slice),
-            (ArrayBacking::Boxed { block: sb, len: sl }, ArrayBacking::Boxed { block: db, len: dl }) =>
-                bulk!(Value, sb, *sl, db, *dl, clone_from_slice),
+            (ArrayBacking::Boxed { block: sb, len: sl }, ArrayBacking::Boxed { block: db, len: dl }) => {
+                // add-incremental-major-gc M2a: the bulk clone overwrites live references, so it
+                // records them for the SATB barrier exactly as `set_boxed` does per element.
+                // Found by the `Z42_GC_SLICE_MS=0.05` stress run: `Array.Copy` into an existing
+                // array dropped a string a register still held (SIGSEGV in `String.Substring`).
+                // SAFETY: as in `bulk!`.
+                let d = unsafe { Self::slice_of::<Value>(db, *dl) };
+                crate::gc::satb::record_overwrite_all(&d[di..di + n]);
+                bulk!(Value, sb, *sl, db, *dl, clone_from_slice)
+            }
             _ => false,
         };
         // Mixed / struct / stack backings: element-wise, so every conversion stays

@@ -118,9 +118,12 @@ impl ObjStorage {
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr().cast::<Value>(), self.n_refs as usize) }
     }
 
-    /// Mutable view of the reference leaves.
+    /// Mutable view of the reference leaves — **without the SATB barrier** (add-incremental-major-gc
+    /// M2a). Only for an object that was just allocated (every old value is `Null`) and for the GC
+    /// itself (breaking edges of dead objects). Mutator writes go through
+    /// `ScriptObject::set_field_value` / `set_ref_slot`, which record the overwritten value.
     #[inline]
-    pub fn refs_mut(&mut self) -> &mut [Value] {
+    pub fn refs_mut_raw(&mut self) -> &mut [Value] {
         // SAFETY: see `refs`; `&mut self` gives exclusive access.
         unsafe {
             std::slice::from_raw_parts_mut(self.ptr.as_ptr().cast::<Value>(), self.n_refs as usize)

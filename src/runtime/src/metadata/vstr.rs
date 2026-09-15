@@ -108,6 +108,12 @@ impl Str {
         self.block.mark(kind)
     }
 
+    /// Whether this string's block carries `kind`'s mark.
+    #[inline]
+    pub fn is_marked(&self, kind: crate::gc::refs::MarkKind) -> bool {
+        self.block.is_marked(kind)
+    }
+
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: generation age of this string's GC
     /// block, for the minor mark phase's young/old child filter. Strings used to report 0
     /// unconditionally, so every reachable string was re-marked at every minor.

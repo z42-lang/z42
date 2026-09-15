@@ -204,7 +204,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
         self.retire_thread_tlab();
         // Step 1: STW-equivalent root snapshot (no mutators in test).
-        self.begin_major_mark();
+        self.open_major_cycle();
         self.snapshot_roots_into_mark_queue();
 
         // Step 2: Drain queue (simulates "ConcurrentMarking" but
@@ -218,6 +218,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // structural parity with P4b production flow).
         let _residual = self.drain_mark_queue();
 
+        self.close_major_marking();
         // Step 4: Sweep (STW; identical to STW path's sweep).
         self.sweep_phase()
     }
@@ -231,8 +232,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn collect_cycles_mark_sweep_for_test(&self) -> u64 {
         // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
         self.retire_thread_tlab();
-        self.begin_major_mark();
+        self.open_major_cycle();
         let _newly_marked = self.mark_phase();
+        self.close_major_marking();
         self.sweep_phase()
     }
 

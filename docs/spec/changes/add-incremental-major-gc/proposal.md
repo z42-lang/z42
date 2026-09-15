@@ -91,6 +91,13 @@ sweep 仍 STW。
 | `src/runtime/src/gc/arc_heap_tests/mod.rs` | MODIFY | 注册 |
 | `src/runtime/tests/gc_satb_loom.rs` | NEW | M2：loom 模型 D（写屏障 × 切片 × minor） |
 | `docs/book/src/runtime/gc-incremental-major.md` | NEW | 机制页 |
+| `src/runtime/src/vm_context/construct.rs` | MODIFY | M2a 实际落点（替代 `vm_context/types.rs`）：`VmContext::new*` 绑定本线程 SATB 记录到堆、Drop 时解绑 |
+| `src/runtime/src/interp/exec_struct.rs` | MODIFY | M2a：struct 字段引用叶子写入改走 `set_ref_slot` / `set_struct_ref` |
+| `src/runtime/src/corelib/convert.rs` | MODIFY | M2a：`refs_mut` → `refs_mut_raw`（新分配的装箱 struct，无旧值） |
+| `src/runtime/src/metadata/types/obj_storage_tests.rs` | MODIFY | M2a：`refs_mut_raw` 改名 |
+| `src/runtime/src/gc/snapshot_tests.rs` | MODIFY | M2a：同上 |
+| `src/runtime/src/gc/arc_heap_tests/{cycle_collection,finalization,mode_selection,roots,stress,write_barriers}.rs` | MODIFY | M2a：同上（测试构图直写） |
+| `.claude/rules/runtime-rust.md` | MODIFY | M2a：「堆引用写入必须走带 SATB 屏障的原语」规则 |
 | `docs/book/src/runtime/gc-tuning-and-safepoint.md` | MODIFY | 旋钮表 + 停顿模型 |
 | `docs/book/src/SUMMARY.md` | MODIFY | 挂新页 |
 

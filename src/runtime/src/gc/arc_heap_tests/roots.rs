@@ -80,7 +80,7 @@ fn frame_held_outer_with_inner_chain_protected_by_stack_scan() {
     let outer = heap.alloc_object(dummy_type_desc("Outer"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &outer else { panic!() };
-        g.borrow_mut().refs_mut()[0] = inner.clone();
+        g.borrow_mut().refs_mut_raw()[0] = inner.clone();
     }
 
     let frame_regs: std::sync::Arc<parking_lot::Mutex<Vec<Value>>>
@@ -151,9 +151,9 @@ fn cycle_reachable_via_external_scanner_is_preserved() {
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().refs_mut()[0] = b.clone();
+        g.borrow_mut().refs_mut_raw()[0] = b.clone();
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().refs_mut()[0] = a.clone();
+        g.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
 
     // 把 a 放到 external（模拟 static_fields 持有），drop 本地强引用
@@ -196,9 +196,9 @@ fn cycle_unreachable_from_external_scanner_still_collected() {
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().refs_mut()[0] = b.clone();
+        g.borrow_mut().refs_mut_raw()[0] = b.clone();
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().refs_mut()[0] = a.clone();
+        g.borrow_mut().refs_mut_raw()[0] = a.clone();
     }
     drop(a); drop(b);
 

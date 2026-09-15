@@ -132,6 +132,13 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref().mark(kind) }
     }
 
+    /// Whether the pointed-to block carries `kind`'s mark (the SATB barrier's filter).
+    #[inline]
+    pub fn is_marked(&self, kind: crate::gc::refs::MarkKind) -> bool {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref().is_marked(kind) }
+    }
+
     /// **fix-primitives-count-as-young (2026-09-11)**: raise the block's `gen_age` to at least
     /// `age` (never lowers). STW only. See `GcBlockHeader::raise_gen_age_to`.
     #[inline]

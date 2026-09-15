@@ -383,6 +383,10 @@ pub struct ArcMagrGC {
     /// shared counter could wrap it onto this heap's last epoch and make stale marks read as
     /// current. See [`crate::gc::refs::MarkKind`].
     mark_epoch: std::sync::atomic::AtomicU8,
+    /// **add-incremental-major-gc M2a**: old values recorded by the SATB barrier (`gc::satb`) and
+    /// handed over by mutator threads when they retire their TLAB. Drained into the mark before a
+    /// cycle's marking is declared complete, and treated as extra roots by a minor.
+    satb_queue: parking_lot::Mutex<Vec<Value>>,
     /// **add-gc-pause-histogram (2026-05-22)**: aggregate pause-time
     /// histogram. Recorded into at the end of every `collect_cycles` /
     /// `collect_cycles_with_context` / `force_collect` path, right

@@ -81,6 +81,22 @@ fn test_something() { ... }
 不注册、等停顿结束，醒来后可能赢得 collector 角色并等所有已注册线程 park —— 若有线程卡在没 park 的调用里就永久死锁
 （loom 模型 B′，`tests/gc_registration_race_loom.rs`）。测试里主线程 `join` 一个会触发 GC 的 worker 时同理。
 
+### 堆引用写入必须走带 SATB 屏障的原语（2026-09-16，add-incremental-major-gc M2a）
+
+**任何把引用写进堆对象 / 数组的代码，一律走 `ScriptObject::set_field_value` / `set_ref_slot`、
+`ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_ref` / `copy_elems_from`。** 这些原语在覆盖前把旧值交给 SATB 删除屏障
+（`gc::satb::record_overwrite`）；绕过它们 = major 标记进行中可能漏标一个仍被使用的对象（从未扫描的对象里读出
+引用放进寄存器、再清掉字段，该对象就会被扫掉）。
+
+- **批量写（`clone_from_slice` / `copy_from_slice` / `copy_within` 作用于 `Value` 切片）同样是覆盖**：先对被覆盖区间 `record_overwrite_all`（参照 `copy_elems_from`）。
+- `refs_mut_raw()` 只给两种场景：**刚分配出来的对象**（旧值全是 `Null`，没有可漏的）和 **GC 自己**（给死对象断边，
+  记录死对象只会把悬空句柄塞进标记队列）。新增调用点时在旁边写清是哪一种。
+- 新增一种「在堆里存引用」的布局（新的 backing / 内联引用形态）时，读旧值 + `record_overwrite` 必须随写入原语一起加，
+  并照 `gc/arc_heap_tests/incremental.rs` 的形状补一对「开屏障存活 / 关屏障被扫」的测试。
+- 弱 / 软引用的**读取**同样要染色（`ArcMagrGC::shade_if_marking`）：它们能把快照时只剩弱引用的对象交还给寄存器。
+
+机制见 [gc-incremental-major.md](../../docs/book/src/runtime/gc-incremental-major.md)。
+
 ### wasm 上不能取时钟（2026-09-14，第三次回归）
 
 **`wasm32-unknown-unknown` 没有 `std::time`：`Instant::now()` / `SystemTime::now()` 直接 panic

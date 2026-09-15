@@ -41,6 +41,7 @@ impl Default for ArcMagrGC {
             // (the concurrent barrier marks outside cycles) must not collide with the first
             // cycle's epoch — `begin_major_mark` moves on to 2. See `ArcMagrGC::major_mark`.
             mark_epoch: std::sync::atomic::AtomicU8::new(1),
+            satb_queue: parking_lot::Mutex::new(Vec::new()),
             pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
             #[cfg(test)]
             barrier_observer: Mutex::new(None),

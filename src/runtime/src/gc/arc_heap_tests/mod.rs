@@ -45,6 +45,7 @@ mod cycle_collection;
 mod events;
 mod finalization;
 mod generational;
+mod incremental;
 // `invariants` calls `ArcMagrGC::debug_validate_invariants()` which is
 // `#[cfg(debug_assertions)]` only. Gate the module to match so
 // `cargo build --release --lib --tests` doesn't break.

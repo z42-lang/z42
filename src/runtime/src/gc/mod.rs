@@ -41,6 +41,7 @@ pub mod arc_heap;
 pub mod mode;
 pub mod phase_timer;
 pub mod refs;
+pub mod satb;
 pub mod region;
 pub mod tlab;
 pub mod var_region;

@@ -104,7 +104,7 @@ pub(crate) fn box_struct_blob(
                 let n = bytes.len().min(o.bytes().len());
                 o.bytes_mut()[..n].copy_from_slice(&bytes[..n]);
                 let rn = refs.len().min(o.refs().len());
-                o.refs_mut()[..rn].clone_from_slice(&refs[..rn]);
+                o.refs_mut_raw()[..rn].clone_from_slice(&refs[..rn]);
             }
             Ok(Value::BoxedStruct(gc))
         }

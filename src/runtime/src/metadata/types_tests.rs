@@ -114,7 +114,7 @@ fn trace_children_visits_inline_struct_refs() {
         // The inline-struct reference leaf lives among the refs.
 ScriptObject::new(dummy_type_desc("Owner"), {
             let mut st = crate::metadata::types::ObjStorage::new(8, 1);
-            st.refs_mut()[0] = leaf.clone();
+            st.refs_mut_raw()[0] = leaf.clone();
             st
         })));
 
