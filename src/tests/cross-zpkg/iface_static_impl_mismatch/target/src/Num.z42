@@ -1,0 +1,10 @@
+// fix-imported-iface-static-fidelity：生产方定义一个带 static abstract 成员的 public 接口。
+// 消费方（main）把该成员实现成 **instance** 方法 → 期望跨包满足性校验报 E0412。
+// 在本 change 之前，接口方法 static 位从 wire 丢失（恒 false），InheritanceResolver 用
+// `if (it.IsImported) return;` 临时守卫跳过导入接口的 static 校验 → 此负例**静默通过**（漏报）。
+// 本 change 让 static 位随 zbc 1.41 的 is_static:u8 承载、删守卫后此负例才真正被抓。
+namespace Demo.IfaceStatTarget;
+
+public interface INum2 {
+    static abstract int MakeZero();
+}

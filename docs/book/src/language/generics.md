@@ -790,8 +790,16 @@ public struct int : INumber<int> {
 > MangleKey 命中即放行、从不比 `Visibility` ⇒ `class C : I { private int M(){…} }` 静默通过（真洞）。
 > 现补第三项：命中后比 `cm.Visibility == "public"`，否则 E0412。⚠️ 类成员**无修饰默认 `private`**
 > （C# 惯例），故 `class C : I { int M(){…} }` 同样被拦——**接口实现必须显式写 `public`**（严格口径，
-> 与全仓惯例一致；stdlib/compiler 接口实现一律显式 `public`，本检查零字节漂移）。同 static/返回，
-> 只覆本包接口（跨包 `it.IsImported` 早退，导入侧 `Visibility` 不可靠）。
+> 与全仓惯例一致；stdlib/compiler 接口实现一律显式 `public`，本检查零字节漂移）。
+>
+> **导入（跨包）接口现同样接受完整满足性校验**（`fix-imported-iface-static-fidelity`，2026-09-15）：
+> 上面 static/可见性/返回三项此前对**导入**接口用 `if (it.IsImported) return;` **临时守卫跳过**——根因是
+> 接口方法在 zbc wire 里**不携带任何修饰符位**（只有 `name/ret/pcount/ptypes`），`static abstract` 成员的
+> 静态位一路丢成 false（`TsigReconcile` 硬编码 `isStatic=false`）⇒ 不跳则 `struct Money : INumber`
+> （INumber 导入自 z42.core）的 `static override` 全被误判「接口是 instance」→ 假红。**根因修复**（zbc 1.41）：
+> 接口方法块每方法加 `is_static:u8`（镜像 SIGS 的 is_static 字节），`TsigReconcile` 用真值构造、导入侧
+> `mz.IsStatic` 恢复真值 ⇒ 删守卫，导入接口获与本包接口一致的完整校验。可见性查的是**本地实现方**
+> `cm.Visibility`（跨包/本包都可靠），返回 `Self` 经 `_substForIface` 替换为实现类后比对。
 >
 > **impl 块补的接口同样校验成员齐备性**（`fix-iface-self-completeness-gaps` A2，2026-09-15）：
 > `impl Trait for Target` 补的接口此前**从不校验**——`_checkIfaceMembersComplete` 走 AST `c.Bases`，

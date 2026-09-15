@@ -189,6 +189,12 @@ pub struct IfaceMethodSig {
     pub ret_type: String,
     /// Parameter type names, in declaration order (no `this`).
     pub param_types: Box<[String]>,
+    /// fix-imported-iface-static-fidelity (zbc 1.41): whether this is a
+    /// `static abstract` interface member. The VM dispatches interface calls via
+    /// vtable and does not consume this today; it exists so exported metadata is
+    /// faithful (the compiler's cross-package satisfaction check needs it) and to
+    /// back a future `MethodInfo.IsStatic` reflection surface for interface methods.
+    pub is_static: bool,
 }
 
 /// C3 add-attribute-reflection: one applied attribute — the attribute class's

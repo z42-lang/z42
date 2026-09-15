@@ -153,7 +153,15 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // `param_count`). Wire layout unchanged; the new bit's meaning is what forces the
 // bump: pre-1.40 artifacts leave it 0, and the runtime's exact call-arity check
 // would reject every struct-returning call in them.
-pub const ZBC_VERSION_MINOR: u16 = 40;
+// 2026-09-15 fix-imported-iface-static-fidelity: bumped to 1.41 — the TYPE-section
+// interface-method block (CLASS_FLAG_INTERFACE gated) gains a per-method
+// `is_static:u8` after `pcount`, before `ptype`s (mirrors the SIGS is_static byte).
+// Interface methods previously carried no modifier bits, so a `static abstract`
+// member's static-ness was lost (dropped to false) end-to-end, forcing the
+// compiler's cross-package interface-satisfaction check to skip imported interfaces
+// (#636 stopgap). The runtime consumes the byte to keep the cursor aligned (vtable
+// dispatch ignores it); IfaceMethodSig now carries it for faithful metadata.
+pub const ZBC_VERSION_MINOR: u16 = 41;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -267,7 +275,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // gains the trailing `ctor_known` u8). No zpkg-outer layout change.
 // 2026-09-14 fix-call-arity-skew: bumped to 0.45 — embeds zbc 1.40 (SIGS
 // method_flags bit3 = sret). No zpkg-outer layout change.
-pub const ZPKG_VERSION_MINOR: u16 = 45;
+// 2026-09-15 fix-imported-iface-static-fidelity: bumped to 0.46 — embeds zbc 1.41
+// (interface-method block gains is_static:u8). No zpkg-outer layout change; the bump
+// triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 46;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //
