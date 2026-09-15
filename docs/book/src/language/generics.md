@@ -16,11 +16,11 @@
 > 段落与相对链接，正文未按 book 口径重写 —— 沿革与 C# 时代的实现引用（`*.cs` 路径）保持原样，
 > 作历史记录读。当前语义一律以本页顶部各「更新」注与 [generic-constraints.md](generic-constraints.md) 为准。
 
-> **Status**: L3-G1/G2/G2.5/G3a/G3d/G4 ✅ ｜ 泛型函数 + 泛型类 + 约束体系 + 跨 zpkg 元数据传播；关联类型 / 协变逆变 / 反射见 Deferred
+> **Status**: L3-G1/G2/G2.5/G3a/G3d/G4 ✅ ｜ 泛型函数 + 泛型类 + 约束体系 + 跨 zpkg 元数据传播 + 关联类型（同包 + 跨包，assoc-type-crosspkg）✅；协变逆变 / 嵌套约束 / 反射见 Deferred
 >
 > **约束体系的真实校验范围**（2026-09-06 更新）：同包七项已校验，**跨包七项亦已校验**
 > （add-associated-types PR-1 接通 zbc 约束 bundle 全链路）；`Self`（仅接口）与关联类型
-> **同包已实现**，关联类型**跨包尚未校验**、嵌套约束未实现。以
+> **同包 + 跨包均已实现**（关联类型跨包 = `assoc-type-crosspkg`，zbc 1.42）、嵌套约束未实现。以
 > [book/src/language/generic-constraints.md](generic-constraints.md) 为准。
 >
 > 🔴 **本页下文的 `IComparable<T>` / `IEquatable<T>` / `INumber<T>` 写法已全部过时**
@@ -158,7 +158,7 @@ interface IEnumerable<T> {
 | **多约束组合** | `where T: ISerializable + ICloneable` | C# 用 `,` 分隔，z42 用 `+`（Rust 风格） | ✅ 已实现 |
 | **自引用约束** | `where T: IComparable<T>` | ✅ C# 支持 | ⚠️ 可写，但只比**裸名**、不校验类型实参。**已有更好写法**：接口内用 `Self`（add-associated-types PR-2），约束侧就不必写类型实参 |
 | **交叉类型参数** | `where K: IHash, V: ICloneable` | ✅ C# 支持 | ✅ 已实现（每型参一条 `where`） |
-| **关联类型** | `where T: IAdd<Output=T>` | ❌ C# 不支持，Rust 支持 | ⚠️ **同包已实现**（add-associated-types PR-3：`type Item;` + `IFoo<Item = T>`）；**跨包不校验**（需 bit7 + 双格式 bump，Deferred `assoc-type-crosspkg`） |
+| **关联类型** | `where T: IAdd<Output=T>` | ❌ C# 不支持，Rust 支持 | ✅ **同包 + 跨包均已实现**（同包 add-associated-types PR-3：`type Item;` + `IFoo<Item = T>`；跨包 `assoc-type-crosspkg`，zbc 1.42：接口名单/类侧绑定/约束绑定三份数据经 wire 承载，删三处 IsImported 守卫，跨包与同包同校验） |
 | **嵌套约束** | `where T: IIterator<Item=U>, U: IDisplay` | ❌ C# 不支持，Rust 支持 | ❌ **未实现** |
 
 > 沿革：本节此前把关联类型 / 嵌套约束按**已实现**描述（含语法示例），实为**设计意图**；

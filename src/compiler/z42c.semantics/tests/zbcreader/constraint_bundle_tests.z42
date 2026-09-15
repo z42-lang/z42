@@ -29,10 +29,12 @@ string[] _pool() {
 //
 // 布局（ReadTypeAt）：n u32 → [name u32, base u32, fieldCount u16, tpCount u8,
 //   (tpName u32 + bundle)×tpc, attrCount u16, Flags u8, Visibility u8,
-//   staticFieldCount u16, ifaceCount u16 + u32×n, <Flags-gated 块…>, 对象布局块]
+//   staticFieldCount u16, ifaceCount u16 + u32×n, <Flags-gated 块…>, 对象布局块, assoc 块]
 //
 // Flags=0（普通引用类）→ enum(bit5)/接口方法(bit4)/struct(bit2)/内联(bit7) 四个 gated 块都不出现，
 // 但**对象全字段布局块必须写**：条件是 `(Flags & 116) == 0`，即普通类恒有。漏了它 → 读越界。
+// assoc-type-crosspkg（zbc 1.42）：记录尾部还有 always-present 统一 assoc 块（assoc_count u16 + …），
+// count=0 时仅 2 字节；漏写它同样读越界。
 byte[] _typeSection(ByteWriter bundle) {
     ByteWriter w = new ByteWriter();
     w.WriteU32(1);            // class count
@@ -54,6 +56,7 @@ byte[] _typeSection(ByteWriter bundle) {
     w.WriteU32(0);            // 对象布局：ObjectSize
     w.WriteU16(0);            // 对象布局：字段条目数
     w.WriteU16(0);            // 对象布局：ref 槽条目数
+    w.WriteU16(0);            // assoc 块 count=0（zbc 1.42，assoc-type-crosspkg：记录尾部 always-present）
     return w.ToBytes();
 }
 

@@ -466,13 +466,15 @@ Run(g, 3);   // E0422: … parameter 1 is `String`, the constraint requires it t
 > **违反约束**（`E0402` 实参不满足 / `E0422` 函数签名不符）**仍然每个调用点各报一条**——那本来就是
 > per-call-site 的事实，不在本次搬动范围内。
 
-### 6. 关联类型：同包已实现，**跨包尚未校验**
+### 6. 关联类型：同包 + 跨包均已实现（`assoc-type-crosspkg`，zbc 1.42）
 
-同包已可用（见上「关联类型」一节）。**跨包不校验**——类给出的绑定与接口的关联类型名单都还没有
-wire 表示（需要 zbc 约束 bundle 的 bit7 + zbc/zpkg 双格式 bump）。导入类型参与带绑定的约束时，
-编译器**主动跳过**而不是报错：不跳的话，`AssocBindingOf()` 恒返回空，合法的跨包代码会被判成
-「未绑定」——**假红比漏报更糟**。三个跳过点：约束声明处（绑定名合法性）、使用点（绑定匹配）、
-实现方补齐强制。Deferred：`assoc-type-crosspkg`。
+同包（见上「关联类型」一节）与**跨包**都已完整校验。跨包由三份数据经 wire 承载打通：
+① 接口关联类型名单（`type Item;`）+ ② 类侧绑定（`type Item = int;`）→ zbc TYPE 记录尾部**统一 assoc 块**
+（接口写 `(Item,"")`、类写 `(Item,int)`）；③ 约束绑定（`where T:IEnum<Item=int>`）→ 约束 bundle **bit7**。
+`TsigReconcile`/`ImportedSymbolLoader` 恢复这三份数据后，`add-associated-types` PR-3 曾为「跨包 wire 未到位」
+而加的三处 `IsImported` 守卫（约束声明处绑定名合法性、使用点绑定匹配、实现方补齐强制）全部删除——跨包
+导入类/接口与同包一样接受完整校验：绑定名不是该接口的关联类型 / 未绑定 / 绑定类型与要求不符，均报 E0453。
+关联类型是纯编译期概念，runtime 只消费这两处新载荷保游标对齐（`validate_type_arg_constraint` 无关联类型分支）。
 
 嵌套约束（`where T : IIterator<Item = U>, U : IDisplay` 里 `U` 再被约束）仍未实现。
 

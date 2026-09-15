@@ -128,10 +128,15 @@ public sealed class IrConstraintDesc {
     public string   BaseClass;             // `where T : SomeClass` 的基类裸名；"" 表无（bit2）
     public bool     RequiresCtor;          // `where T : new()`（bit4）
     public bool     RequiresEnum;          // `where T : enum`（bit5）
+    // 关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`where T : IEnum<Item = int>` 的 `Item=int`。
+    // 平行数组：AssocBindingNames[i]=绑定名（"Item"）、AssocBindingTypeNames[i]=已解析类型 surface 名（"int"）。
+    // 承载位 = 约束 bundle bit7（此前跨包 100% 丢失，迫使 ConstraintChecker 用 IsImported 守卫保守跳过）。
+    public string[] AssocBindingNames; public string[] AssocBindingTypeNames; public int AssocBindingCount;
     public IrConstraintDesc() {
         this.Interfaces = new string[0]; this.InterfaceCount = 0; this.TypeParamConstraint = "";
         this.RequiresClass = false; this.RequiresStruct = false; this.BaseClass = "";
         this.RequiresCtor = false; this.RequiresEnum = false;
+        this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
     }
 }
 
@@ -164,6 +169,11 @@ public sealed class IrClassDesc {
     // 1=static abstract 成员 / 0=常规实例接口方法。此前接口方法块零 flags → static 位一路丢成 false，
     // 迫使 InheritanceResolver 对导入接口跳过 static 校验（#636 临时守卫）。镜像 SIGS 的 is_static:u8。
     public int[]    IfaceMethodStatic;
+    // 关联类型统一块（zbc 1.42，assoc-type-crosspkg）：TYPE 记录尾部 always-present。
+    // 接口写 (Item, "")=声明的关联类型名单（Z42InterfaceType.AssocTypeNames）；
+    // 类写 (Item, int)=类侧绑定（Z42ClassType.AssocBinding*）。消费端按 Flags bit4(接口)/否(类) 路由。
+    // 此前接口名单 + 类侧绑定都无 wire 承载，跨包关联类型 100% 丢失。
+    public string[] AssocNames; public string[] AssocTypes; public int AssocCount;
     // 值 struct 字节+引用布局块（zbc 1.31，add-struct-value-semantics A-use）：Flags bit2=struct 时随 TYPE
     // 记录尾部 emit。StructSize=字节总数（供反射/装箱/校验）；平行数组 RefLeafOffsets/RefLeafKinds 是**带种类
     // 引用位图**（种类：1=ArcString/2=GcRef），供运行时 GC 定位 blob 内引用叶子 + StructCopy 逐叶子 clone。
@@ -200,6 +210,7 @@ public sealed class IrClassDesc {
         this.IfaceMethodParamCounts = new int[0]; this.IfaceMethodCount = 0;
         this.IfaceMethodParamTypes = new string[0]; this.IfaceMethodParamTotal = 0;
         this.IfaceMethodStatic = new int[0];
+        this.AssocNames = new string[0]; this.AssocTypes = new string[0]; this.AssocCount = 0;
         this.StructSize = 0; this.StructRefOffsets = new int[0]; this.StructRefKinds = new int[0]; this.StructRefCount = 0;
         this.InlineSize = 0; this.InlineRefOffsets = new int[0]; this.InlineRefKinds = new int[0]; this.InlineRefCount = 0;
         this.ObjectSize = 0;

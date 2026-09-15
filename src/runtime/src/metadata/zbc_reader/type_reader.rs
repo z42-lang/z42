@@ -251,6 +251,12 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         } else {
             None
         };
+        // TYPE unified assoc block (zbc 1.42, assoc-type-crosspkg): always-present at record end.
+        // assoc_count:u16 + (name_idx:u32, type_idx:u32)×n. Interfaces carry declared assoc-type
+        // names, classes carry their bindings — both compile-time only; the VM does not use them,
+        // so consume the bytes to keep the cursor aligned for the next TYPE record.
+        let assoc_count = c.read_u16()? as usize;
+        for _ in 0..assoc_count { c.read_u32()?; c.read_u32()?; }
         classes.push(ClassDesc {
             name,
             base_class,
@@ -332,6 +338,13 @@ pub(super) fn read_constraint_bundle(c: &mut Cursor, pool: &[String]) -> Result<
         let ret = c.pool_str(pool, ret_idx)?.to_owned();
         Some(crate::metadata::bytecode::FuncSigDescriptor { params, ret })
     } else { None };
+    // bit7 has_assoc_binding (zbc 1.42, assoc-type-crosspkg): `where T:IEnum<Item=int>` bindings.
+    // Associated types are a compile-time concept (the compiler checks binding consistency);
+    // the VM does not validate them, so consume the bytes only to keep the cursor aligned.
+    if flags & 0x80 != 0 {
+        let assoc_count = c.read_u8()? as usize;
+        for _ in 0..assoc_count { c.read_u32()?; c.read_u32()?; }
+    }
     Ok(ConstraintBundle {
         requires_class, requires_struct, base_class, interfaces, type_param_constraint,
         requires_constructor, requires_enum,
