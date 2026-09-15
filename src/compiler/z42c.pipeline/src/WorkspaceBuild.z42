@@ -36,12 +36,14 @@ public sealed class WsMembers {
 // 拓扑序的 per-member 构建计划（Milestone 2 drop-in 布局）。
 //   Tomls[i] = 成员 i 的 manifest 路径（叶子在前）
 //   DistDirs[i] = 成员 i 的产物 dist 目录（= 展开 [workspace.build].output_dir 模板 + "/dist"）
+//   CacheDirs[i] = 成员 i 的 cache 目录（cache-dir-layout：[workspace.build].cache_dir 模板，没配置 = "${output_dir}/.cache"）
 public sealed class WsPlan {
     public string[] Tomls;
     public string[] DistDirs;
+    public string[] CacheDirs;
     public int      Count;
-    public WsPlan(string[] tomls, string[] distDirs, int count) {
-        this.Tomls = tomls; this.DistDirs = distDirs; this.Count = count;
+    public WsPlan(string[] tomls, string[] distDirs, string[] cacheDirs, int count) {
+        this.Tomls = tomls; this.DistDirs = distDirs; this.CacheDirs = cacheDirs; this.Count = count;
     }
 }
 
@@ -76,6 +78,7 @@ public static class WorkspaceBuild {
         int[] order = WorkspaceBuild.TopoOrder(m);
         string[] tomls = new string[m.Count];
         string[] dists = new string[m.Count];
+        string[] caches = new string[m.Count];
         int i = 0;
         while (i < m.Count) {
             int idx = order[i];
@@ -90,9 +93,30 @@ public static class WorkspaceBuild {
             string outAbs = Path.IsRooted(outExpanded) ? outExpanded : Path.Join(wsDir, outExpanded);
             tomls[i] = toml;
             dists[i] = Path.Join(outAbs, "dist");
+            caches[i] = WorkspaceBuild.ResolveMemberCacheDir(ws, wsDir, memberDir, name, profile, outAbs);
             i = i + 1;
         }
-        return new WsPlan(tomls, dists, m.Count);
+        return new WsPlan(tomls, dists, caches, m.Count);
+    }
+
+    // 成员 cache 目录（cache-dir-layout）。有配置用配置，没配置用默认值：
+    //   cache_dir = [workspace.build].cache_dir ?? "${output_dir}/.cache"
+    // 模板里的 ${output_dir} 展开为该成员的 output_dir；展开后仍相对的路径按 output_dir 解析
+    //（镜像 C# CentralizedBuildLayout：cache_dir 相对 output_dir）。
+    // 防碰撞（docs/design/compiler/project.md「workspace member 继承规则」）：cache_dir 与 output_dir 两个
+    // 模板都不含 ${member_name} / ${project_name} 时各成员会落进同一目录 → 自动追加成员名子目录。
+    public static string ResolveMemberCacheDir(WorkspaceManifest ws, string wsDir, string memberDir,
+                                               string name, string profile, string outAbs) {
+        string raw = ws.HasCacheDir ? ws.CacheDir : "${output_dir}/.cache";
+        TemplateContext ctx = new TemplateContext(wsDir, memberDir, name, profile, outAbs);
+        string exp = PathTemplate.Expand(raw, ctx);
+        string dir = (Path.IsRooted(exp) || exp.StartsWith(outAbs)) ? exp : Path.Join(outAbs, exp);
+        bool perMember = WorkspaceBuild._namesMember(raw) || WorkspaceBuild._namesMember(ws.OutputDir);
+        return perMember ? dir : Path.Join(dir, name);
+    }
+
+    private static bool _namesMember(string template) {
+        return template.Contains("${member_name}") || template.Contains("${project_name}");
     }
 
     // members=["*"]：wsDir 下每个「恰含一份 *.z42.toml」的子目录 = member。

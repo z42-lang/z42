@@ -29,9 +29,9 @@ int _clean(ParseResult r) {
             + "'  (empty=production cache/dist | tests | bench | all)");
         return 2;
     }
-    string libsRoot = Path.Join(root, "artifacts/build/libraries");
+    string libsRoot = _libsBuildRoot(root);   // workspace.toml output_dir 模板前缀
     if (!Directory.Exists(libsRoot)) {
-        Console.WriteLine("clean: nothing under artifacts/build/libraries/");
+        Console.WriteLine("clean: nothing under " + libsRoot);
         return 0;
     }
     int n = 0;
@@ -47,8 +47,9 @@ int _clean(ParseResult r) {
             if (sub == "tests" || sub == "bench") {
                 n = n + _rmIfExists(Path.Join(pd, sub));
             } else {
-                n = n + _rmIfExists(Path.Join(pd, "cache"));
-                n = n + _rmIfExists(Path.Join(pd, "dist"));
+                // cache / dist 位置按 workspace.toml 的 cache_dir / output_dir 模板解析，不写死目录名。
+                n = n + _rmIfExists(_memberCache(_libsWsToml(root), entry, prof));
+                n = n + _rmIfExists(_memberDist(_libsWsToml(root), entry, prof));
             }
         }
     }

@@ -52,7 +52,8 @@ stdlib 依赖）；阶段二直接跑这个自包含 driver 编 stdlib（`Z42_LI
 ### 增量编译（单工程 z42c build；文件级，add-file-level-incremental 2026-07-08）
 
 单工程 `z42c build <toml>` 的判定与组装 SoT = **cache**（`<rel>.zbc` fullMode + `<rel>.meta`
-+ 包级源清单；`[build].cache_dir` → `${output_dir}/.cache` → `<projectDir>/.cache` 级联）。
++ 包级源清单；`[build].cache_dir` → `${output_dir}/.cache`，有配置用配置、没配置用默认值）。cache **不论是否增量都落盘**
+（workspace / `--output-dir` / `--no-incremental` 也写，workspace 暂只写不读）。
 粒度**文件级**：种子（hash / 条目缺失·pin / 源清单不一致→全量）→ token 保守边传递闭包
 （标识符 token ∩ 包内定义名，**判据下沉到名字粒度**，见下）→ 只重编失效闭包，其余文件 IrModule 经 **ZbcReader** 从
 cache 读回（meta 回填 zbc wire 不携带的 writer 残留：块 label 原文/模块池原序/TIDX idx）；

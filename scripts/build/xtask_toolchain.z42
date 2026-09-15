@@ -80,7 +80,7 @@ string _toolchainZpkg(string root, string tomlPath) {
     } else {
         distDir = Path.Join(Path.GetDirectoryName(abs), "dist");
     }
-    return Path.Join(distDir, _tomlField(abs, "project.name", "") + ".zpkg");
+    return _cleanPath(Path.Join(distDir, _tomlField(abs, "project.name", "") + ".zpkg"));
 }
 
 // self-contained z42c.driver dist (driver + 6 siblings colocated; simplify-compiler-

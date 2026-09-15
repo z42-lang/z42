@@ -135,16 +135,27 @@ WorkloadBase _selectWorkload(string family) {
 // 目录布局（镜像 docs/design/compiler/project.md 默认：output_dir = artifacts/<name>/<profile>）。
 // Source 只读；写仅落 Cache / Intermediate / Dist。[build] 段显式值优先。
 Dirs _computeDirs(ProjectManifest m, string sourceDir, string profile) {
+    // cache-dir-layout：[build] 里的相对路径按 toml 所在目录（sourceDir）解析、并展开 ${output_dir} / ${profile}
+    //（与 z42c driver `_resolveDistDir` 与 z42b publish `_pubResolveZpkg` 同口径）。此前原样使用 ⇒ 相对进程 cwd，
+    // 且 `dist_dir = "${output_dir}"` 这类模板会被当成字面目录名。
     string outBase;
-    if (m.Build.HasOutputDir) { outBase = m.Build.OutputDir; }
+    if (m.Build.HasOutputDir) { outBase = _dirsResolve(m.Build.OutputDir, sourceDir, "", profile); }
     else {
         string artifacts = Path.Join(sourceDir, "artifacts");
         outBase = Path.Join(Path.Join(artifacts, m.Project.Name), profile);
     }
-    string cache = m.Build.HasCacheDir ? m.Build.CacheDir : Path.Join(outBase, "cache");
+    string cache = m.Build.HasCacheDir ? _dirsResolve(m.Build.CacheDir, sourceDir, outBase, profile) : Path.Join(outBase, ".cache");
     string inter = Path.Join(outBase, "build");
-    string dist  = m.Build.HasDistDir  ? m.Build.DistDir  : Path.Join(outBase, "dist");
+    string dist  = m.Build.HasDistDir  ? _dirsResolve(m.Build.DistDir, sourceDir, outBase, profile) : Path.Join(outBase, "dist");
     return new Dirs(sourceDir, cache, inter, dist);
+}
+
+// `[build]` 目录配置 → 可用路径：展开模板；仍相对则相对 sourceDir。
+string _dirsResolve(string raw, string sourceDir, string outBase, string profile) {
+    string v = raw.Replace("${profile}", profile);
+    if (outBase.Length > 0) { v = v.Replace("${output_dir}", outBase); }
+    if (Path.IsRooted(v) || (outBase.Length > 0 && v.StartsWith(outBase))) { return v; }
+    return Path.Join(sourceDir, v);
 }
 
 // compile 相位前的初始输入（wire-z42b 2b）：Deps = Z42_LIBS 下 manifest 声明依赖的 zpkg

@@ -2,8 +2,8 @@
 artifacts/
 
 # Per-project incremental compile cache (z42c build; port-incremental-build-cache).
-# Default lands at <projectDir>/.cache for bare projects (e.g. test-unit tomls under
-# src/), ${output_dir}/.cache otherwise (already covered by artifacts/).
+# Default ${output_dir}/.cache (cache-dir-layout); output_dir defaults to
+# ${workspace_dir}/artifacts/${profile}, so bare projects put it under <projectDir>/artifacts/.
 .cache/
 
 # .NET / C#

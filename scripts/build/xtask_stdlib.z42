@@ -219,7 +219,7 @@ int _stageToolchain(string dest) {
     Stopwatch sw = _procStart("build stage-toolchain");
     // 1. stdlib flat dist (Z42_LIBS lookup): every file in dist/release/
     string flatSrc = _libsDir(root);
-    string flatDst = Path.Join(dest, "artifacts/build/libraries/dist/release");
+    string flatDst = Path.Join(dest, _rootRel(root, flatSrc));
     Directory.Create(flatDst);
     string[] flat = Path.Glob(flatSrc, "*");
     int fi = 0;
@@ -228,13 +228,13 @@ int _stageToolchain(string dest) {
         fi = fi + 1;
     }
     // 2. stdlib per-member dist (warm-seed self-build inputs)
-    _stageMembers(_libsBuildRoot(root), dest, "artifacts/build/libraries");
+    _stageMembers(_libsBuildRoot(root), dest, _rootRel(root, _libsBuildRoot(root)));
     // 3. z42c compiler per-member dist (7 zpkgs incl z42c.driver.zpkg = warm seed)
-    _stageMembers(_compilerBuildRoot(root), dest, "artifacts/build/compiler");
+    _stageMembers(_compilerBuildRoot(root), dest, _rootRel(root, _compilerBuildRoot(root)));
     // 4. xtask dev CLI
-    string xtDst = Path.Join(dest, "artifacts/xtask");
+    string xtDst = Path.Join(dest, _rootRel(root, Path.GetDirectoryName(_xtaskZpkg(root))));
     Directory.Create(xtDst);
-    _copyIfExists(_xtaskZpkg(root), Path.Join(xtDst, "xtask.zpkg"));
+    _copyIfExists(_xtaskZpkg(root), Path.Join(xtDst, Path.GetFileName(_xtaskZpkg(root))));
     // 5. z42b（z42.builder.zpkg）—— 单-target 执行器（unify-test-pipeline-z42b）。
     //
     // 为什么必须进这个 artifact：`test embedded` / `test platform {ios,android}`
@@ -246,12 +246,19 @@ int _stageToolchain(string dest) {
     // 建一次、随 artifact 分发给所有消费方，比让每个 job 各自 `build toolchain` 便宜得多
     // （后者还要重编 workload + apphost stub + 4 个 apphost publish）。
     int zc = _ensureZ42b(root); if (zc != 0) { return zc; }
-    string bDst = Path.Join(dest, "artifacts/build/toolchain/builder");
-    Directory.Create(bDst);
+    // 目标位置 = z42b toml 解析出的 dist 目录相对仓库根的同一位置（不写死）。
     string bSrc = Path.GetDirectoryName(_toolchainZpkg(root, _z42bToml()));
+    if (_rootRel(root, bSrc).Length == 0) {
+        ConsoleError.WriteLine("stage-toolchain: z42b dist 不在仓库内（" + bSrc + "），无法按相对位置暂存");
+        return 1;
+    }
+    string bDst = Path.Join(dest, _rootRel(root, bSrc));
+    Directory.Create(bDst);
     string[] bFiles = Path.Glob(bSrc, "*");
     int bi = 0;
     while (bi < bFiles.Length) {
+        // dist_dir == output_dir：默认 cache（${output_dir}/.cache）也在这个目录里——只拷产物文件，不拷子目录。
+        if (Directory.Exists(bFiles[bi])) { bi = bi + 1; continue; }
         _copyIfExists(bFiles[bi], Path.Join(bDst, Path.GetFileName(bFiles[bi])));
         bi = bi + 1;
     }

@@ -20,8 +20,10 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 `z42c build <project.z42.toml> [--release] [--no-incremental]`（`[project].pack` 决议 packed/indexed：debug 默认 indexed——散装 zbc + FILE 主文件，`pack=false ∧ --release` 报错） / `z42c build --workspace [--output-dir <d>]`。
 
 ## 增量编译（文件级，add-file-level-incremental 2026-07-08）
-单工程 `build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，
-`[build].cache_dir` → `${output_dir}/.cache` → `<projectDir>/.cache` 级联）。种子（hash/
+`build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，
+`[build].cache_dir` → `${output_dir}/.cache`；workspace 成员由 `WsPlan.CacheDirs` 给出）。
+**不论是否增量都落盘**（含 workspace / `--output-dir` / `--no-incremental` / 多 exe）；workspace 构建目前只写不读
+（probe 待缓存键含编译器身份后再开，见 `docs/design/compiler/project.md` incremental-future-workspace-wiring）。种子（hash/
 条目/清单）→ token 保守边传递闭包 → **仅失效闭包重编**（typecheck+codegen），其余 IrModule
 经 ZbcReader 读回 + meta 残留回填（块 label / 模块池原序 / TIDX idx）；TSIG 恒全包重算；
 全命中完全跳过（`no changes; preserved`）。`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1`

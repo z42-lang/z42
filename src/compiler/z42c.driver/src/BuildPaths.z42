@@ -21,13 +21,12 @@ bool _distModeMatches(string zpkgPath, bool isPacked) {
     }
 }
 
-// 解析 cache 目录（port-incremental-build-cache）。级联镜像 _resolveDistDir：
-//   cache_dir = build.cache_dir ?? "${output_dir}/.cache"（模板同基准）
-// 无任何 [build] 配置 → 历史默认基准 `<projectDir>/.cache`（与 <projectDir>/dist 对仗）。
+// 解析 cache 目录（port-incremental-build-cache）。有配置用配置，没配置用默认值：
+//   output_dir = build.output_dir ?? "${workspace_dir}/artifacts/${profile}"
+//   cache_dir  = build.cache_dir  ?? "${output_dir}/.cache"
+// cache-dir-layout：此前「无任何 [build] 配置」特判回落 `<projectDir>/.cache`，与有配置时的
+// `${output_dir}/.cache` 是两套口径；现统一为后者（dist 的 `<projectDir>/dist` 历史默认不动，见 _resolveDistDir）。
 string _resolveCacheDir(ProjectManifest pm, string projectDir, bool isRelease) {
-    if (!pm.Build.HasOutputDir && !pm.Build.HasDistDir && !pm.Build.HasCacheDir) {
-        return Path.Join(projectDir, ".cache");
-    }
     string profile = isRelease ? "release" : "debug";
     string absProj = Path.IsRooted(projectDir) ? projectDir
         : Path.Join(Environment.GetCurrentDirectory(), projectDir);
