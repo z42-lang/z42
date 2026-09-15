@@ -95,8 +95,8 @@ fn main() {
         Some(rt) => rt,
         None => {
             eprintln!(
-                "apphost: 未找到 z42 运行时(z42vm)。已查 $Z42_HOME、{}（上行各级 .z42）、$HOME/.z42。\n\
-                 请安装 z42 或设置 Z42_HOME。",
+                "apphost: 未找到 z42 运行时(z42vm)。已查 {}（及上级各层的 .z42）、$HOME/.z42、$Z42_HOME。\n\
+                 请安装 z42（https://z42-lang.github.io/z42/learn/）或设置 Z42_HOME。",
                 exe_dir.display()
             );
             exit(1);

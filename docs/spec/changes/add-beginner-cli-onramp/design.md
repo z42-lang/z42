@@ -53,19 +53,19 @@ flowchart TD
 
 - 默认 `${Z42_HOME:-$HOME/.z42}`（Windows `%USERPROFILE%\.z42`）即 **SDK 根**（沿用 unify-launcher-apphost：SDK 不做多版本，更新 = 覆盖）。
 - 覆盖方式：解压到同目录下 `.staging/` → 只替换 SDK 自带的顶层条目（`z42`、`bin/`、`programs/`、`libs/`、`native/`、`manifest.toml`）→ 删 staging。**不删除**其它内容（用户缓存、workload 等），不再 `rm -rf "$DEST"`。
-- 写 `install.toml`：`channel`、`version`、`installed-by = "installer" | "repo"`、安装时间。`self-update` 与 `--version` 读它。
+- 写 `install.toml`：`version`、`rid`、`sha256`。再次运行时先取 `SHA256SUMS`，`sha256` 相同即「已是最新」直接退出（`--force` 强制重装）——这同时取代了仓库引导脚本原来的 `.bootstrap-stamp` + `published_at` 比对（无需 GitHub API / JSON 解析）。
 
 ### D4：安装脚本本体
 
 - `scripts/install/install.sh`：**POSIX sh**（`curl … | sh` 可用），依赖仅 `curl|wget`、`tar`、`sha256sum|shasum`；不需要 python3、不需要仓库 checkout。
 - `scripts/install/install.ps1`：PowerShell 5.1+，`irm … | iex` 可用。
-- 参数：`--version <x.y.z|nightly>`、`--dest <dir>`、`--no-modify-path`、`--archive <本地包>`（离线 / CI 测试用，跳过下载与校验源）、`--dry-run`。
+- 参数：`--version <x.y.z|nightly>`、`--dest <dir>`、`--no-modify-path`、`--archive <本地包>`（离线 / CI 测试用，跳过下载与校验源）、`--force`、`--dry-run`。
 - 资产名直接拼：`z42-sdk-<label>-<rid>.tar.gz`（Windows `.zip`），`label` = 版本号或 `nightly`；校验用同 release 的 `SHA256SUMS`（纯文本，无需 JSON 解析）。
 - 平台检测：支持 macos-arm64 / linux-x64 / linux-arm64 / windows-x64；其余（含 Intel Mac）明确报「暂不支持」并链接平台支持表。
 - 托管：
   - `https://z42-lang.github.io/z42/install.sh` / `install.ps1`（deploy-book 工作流把 `scripts/install/` 拷进站点根）；
   - 同时作为 release 资产上传（固定到版本的安装方式）。
-- `scripts/install-z42.{sh,bat,command}` 改为薄封装：读 `versions.toml` 得版本 → 调 `scripts/install/install.*`，`--dest <repo>/.z42 --no-modify-path`，写 `installed-by = "repo"`。**安装逻辑只剩一份**。
+- `scripts/install-z42.{sh,bat,command}` 改为薄封装：读 `versions.toml` 得版本 → 调 `scripts/install/install.*`，`--dest <repo>/.z42 --no-modify-path`。**安装逻辑只剩一份**。
 - 仓库名统一 `z42-lang/z42`。
 
 ### D5：默认安装通道 —— ✅ User 裁决 A（默认 nightly = 最新版）
@@ -136,6 +136,13 @@ flowchart TD
 
 launcher 依赖随之收缩：删 `z42.workload.desktop`（仅隐藏 `run --rid` 使用）、`z42.encoding`（无用）。
 命令参考落 book [z42 命令参考](../../../book/src/toolchain/cli.md)。
+
+### D12：发布出的应用到哪找已安装的 SDK（随 PR-B3）
+
+apphost 运行时解析（`hostrun.rs::resolve_app_runtime_in`）原来探测 `<d>/.z42/launcher`、`$HOME/.z42/launcher`、`$Z42_HOME/launcher`
+——unify-launcher-apphost 之前的 managed 布局，现在没有任何安装方式会产生它。安装脚本把 SDK 根装在 `~/.z42`，
+故三档改为直接探测 SDK 根：`<d>/.z42`、`$HOME/.z42`、`$Z42_HOME`（顺序不变，most-local-wins）。否则用户 `z42 publish`
+出的 framework-dependent 应用在仓库外运行会报「未找到 z42 运行时」。
 
 ---
 

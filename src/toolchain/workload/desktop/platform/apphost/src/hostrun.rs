@@ -125,10 +125,11 @@ pub fn ensure_portable_vm(exe_dir: &Path) {
 /// directly. Most-local-wins order (align-bin-z42vm-probe, 2026-06-21):
 ///   ① `$Z42_PORTABLE_VM`           (explicit override / SDK-colocated vm — set
 ///                                    by [`ensure_portable_vm`])
-///   ② local: walk up from `exe_dir`, `<d>/.z42/launcher` then `<d>/.z42`
-///                                    (apphost-relative project venv)
-///   ③ user:   `$HOME/.z42/launcher`
-///   ④ system: `$Z42_HOME/launcher`  (lowest — explicit overrides go via ①)
+///   ② local: walk up from `exe_dir`, `<d>/.z42`
+///                                    (apphost-relative project SDK, e.g. a repo's `.z42`)
+///   ③ user:   `$HOME/.z42`          (where the installer puts the SDK by default)
+///   ④ system: `$Z42_HOME`           (lowest — explicit overrides go via ①)
+/// Every tier is an SDK root (`<root>/bin/z42vm` + `<root>/libs`).
 pub fn resolve_app_runtime(exe_dir: &Path) -> Option<AppRuntime> {
     resolve_app_runtime_in(
         env_portable_vm().as_deref(),
@@ -153,27 +154,23 @@ pub fn resolve_app_runtime_in(
             return Some(rt);
         }
     }
-    // ② local (most specific): exe's dir upward, `<d>/.z42/launcher` then `<d>/.z42`.
+    // ② local (most specific): exe's dir upward, `<d>/.z42`.
     let mut cur = Some(exe_dir);
     while let Some(d) = cur {
-        let dotz42 = d.join(".z42");
-        if let Some(rt) = probe_app_runtime(&dotz42.join("launcher")) {
-            return Some(rt);
-        }
-        if let Some(rt) = probe_app_runtime(&dotz42) {
+        if let Some(rt) = probe_app_runtime(&d.join(".z42")) {
             return Some(rt);
         }
         cur = d.parent();
     }
-    // ③ user home: $HOME/.z42/launcher.
+    // ③ user home: $HOME/.z42.
     if let Some(h) = sys_home {
-        if let Some(rt) = probe_app_runtime(&h.join("launcher")) {
+        if let Some(rt) = probe_app_runtime(h) {
             return Some(rt);
         }
     }
-    // ④ system: $Z42_HOME/launcher (lowest — an explicit choice belongs in ①).
+    // ④ system: $Z42_HOME (lowest — an explicit choice belongs in ①).
     if let Some(h) = env_home {
-        if let Some(rt) = probe_app_runtime(&h.join("launcher")) {
+        if let Some(rt) = probe_app_runtime(h) {
             return Some(rt);
         }
     }
@@ -225,11 +222,10 @@ mod tests {
         d
     }
 
-    /// Materialize a runtime at `dir` (installed- or portable-style). Writes a
-    /// `launcher.zpkg` too (harmless for the app-runtime probe, which ignores it).
+    /// Materialize a runtime at `dir`: SDK-root style (`bin/z42vm`) when `portable`,
+    /// else a bare `z42vm` + `libs/`.
     fn make_runtime(dir: &Path, portable: bool) {
         fs::create_dir_all(dir).unwrap();
-        fs::write(dir.join("launcher.zpkg"), b"zpkg").unwrap();
         fs::create_dir_all(dir.join("libs")).unwrap();
         if portable {
             fs::create_dir_all(dir.join("bin")).unwrap();
@@ -263,9 +259,9 @@ mod tests {
         let env_home = temp_dir("env");   // $Z42_HOME (system, ④)
         let local_base = temp_dir("local");
         let sys = temp_dir("sys");        // $HOME/.z42 (user, ③)
-        make_runtime(&env_home.join("launcher"), false);
-        make_runtime(&local_base.join(".z42").join("launcher"), false);
-        make_runtime(&sys.join("launcher"), false);
+        make_runtime(&env_home, true);
+        make_runtime(&local_base.join(".z42"), true);
+        make_runtime(&sys, true);
         let rt = resolve_app_runtime_in(None, Some(&env_home), &local_base, Some(&sys)).expect("found");
         assert!(rt.vm.starts_with(&local_base), "local .z42 wins over $HOME and $Z42_HOME");
     }
@@ -276,8 +272,8 @@ mod tests {
         let env_home = temp_dir("env2");  // $Z42_HOME (④)
         let sys = temp_dir("sys-user");   // $HOME/.z42 (③)
         let exe_dir = temp_dir("exe-nolocal");
-        make_runtime(&env_home.join("launcher"), false);
-        make_runtime(&sys.join("launcher"), false);
+        make_runtime(&env_home, true);
+        make_runtime(&sys, true);
         let rt = resolve_app_runtime_in(None, Some(&env_home), &exe_dir, Some(&sys)).expect("found");
         assert!(rt.vm.starts_with(&sys), "$HOME/.z42 (user) wins over $Z42_HOME (system)");
     }
@@ -286,8 +282,8 @@ mod tests {
     fn local_beats_system() {
         let local_base = temp_dir("local2");
         let sys = temp_dir("sys2");
-        make_runtime(&local_base.join(".z42").join("launcher"), false);
-        make_runtime(&sys.join("launcher"), false);
+        make_runtime(&local_base.join(".z42"), true);
+        make_runtime(&sys, true);
         let rt = resolve_app_runtime_in(None, None, &local_base, Some(&sys)).expect("found");
         assert!(rt.vm.starts_with(&local_base));
     }
@@ -295,7 +291,7 @@ mod tests {
     #[test]
     fn local_walk_upward_finds_ancestor() {
         let base = temp_dir("walk");
-        make_runtime(&base.join(".z42").join("launcher"), false);
+        make_runtime(&base.join(".z42"), true);
         let exe_dir = base.join("dist").join("nested");
         fs::create_dir_all(&exe_dir).unwrap();
         let rt = resolve_app_runtime_in(None, None, &exe_dir, None).expect("found");
@@ -317,9 +313,17 @@ mod tests {
     fn system_fallback() {
         let local_base = temp_dir("local3");
         let sys = temp_dir("sys3");
-        make_runtime(&sys.join("launcher"), false);
+        make_runtime(&sys, true);
         let rt = resolve_app_runtime_in(None, None, &local_base, Some(&sys)).expect("found");
         assert!(rt.vm.starts_with(&sys));
+    }
+
+    // The pre-SDK-root managed layout (`<root>/launcher/`) is no longer a runtime location.
+    #[test]
+    fn legacy_launcher_subdir_is_ignored() {
+        let sys = temp_dir("legacy");
+        make_runtime(&sys.join("launcher"), false);
+        assert!(resolve_app_runtime_in(None, Some(&sys), &temp_dir("legacy-exe"), Some(&sys)).is_none());
     }
 
     #[test]
@@ -371,7 +375,7 @@ mod tests {
     #[test]
     fn portable_vm_beats_z42_home() {
         let env_home = temp_dir("pv-home");
-        make_runtime(&env_home.join("launcher"), false);
+        make_runtime(&env_home, true);
         let pkg = temp_dir("pv-win");
         fs::create_dir_all(pkg.join("bin")).unwrap();
         let vm = pkg.join("bin").join(vm_name());
@@ -385,7 +389,7 @@ mod tests {
     fn portable_vm_missing_file_falls_through() {
         // A stale/nonexistent hint must not stop resolution falling to $Z42_HOME.
         let env_home = temp_dir("pv-stale-home");
-        make_runtime(&env_home.join("launcher"), false);
+        make_runtime(&env_home, true);
         let bogus = temp_dir("pv-stale").join("nope").join(vm_name());
         let rt = resolve_app_runtime_in(Some(&bogus), Some(&env_home), &temp_dir("pv-exe5"), None)
             .expect("falls through to $Z42_HOME");
