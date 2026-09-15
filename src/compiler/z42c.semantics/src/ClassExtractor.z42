@@ -389,7 +389,7 @@ public static class ClassExtractor {
         ExportedParamZ[] ps = new ExportedParamZ[pc];
         int i = 0;
         while (i < pc) {
-            ps[i] = new ExportedParamZ("p" + i.ToString(), TypeNameResolver._hybridTypeName(md.Params[i].Type, sig.ParamTypes[i]));
+            ps[i] = new ExportedParamZ(md.Params[i].Name, TypeNameResolver._hybridTypeName(md.Params[i].Type, sig.ParamTypes[i]));   // fix-crosspkg-named-args：源名
             i = i + 1;
         }
         // G18：override → flags 0（镜像 C# FuncToMethod：仅 FunctionModifiers.Virtual 置 isVirtual；
@@ -413,7 +413,8 @@ public static class ClassExtractor {
         ExportedParamZ[] ps = new ExportedParamZ[pc];
         int i = 0;
         while (i < pc) {
-            ps[i] = new ExportedParamZ("p" + i.ToString(), TypeNameResolver._resolvedTypeName(sig.ParamTypes[i]));
+            string ipn = (sig.ParamNames != null && i < sig.ParamNames.Length) ? sig.ParamNames[i] : "p" + i.ToString();   // fix-crosspkg-named-args：导入祖先沿用其源名
+            ps[i] = new ExportedParamZ(ipn, TypeNameResolver._resolvedTypeName(sig.ParamTypes[i]));
             i = i + 1;
         }
         string ret = TypeNameResolver._resolvedTypeName(sig.Ret);

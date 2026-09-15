@@ -449,9 +449,11 @@ public sealed class Z42FuncType : Z42Type {
                                    // 构造后由 SymbolCollector / ImportedSymbolLoader 设置；不入 Dump（默认 -1 → 现有签名 Dump 不变）。
     public string[]  ParamDefaults; // PR6：跨包每参 `$Default` ConstBlob 串（"" = 无默认值）；ImportedSymbolLoader 从 ExportedParamZ 填。
     public string[]  ParamCallers;  // PR6：跨包每参 caller 宏种类（"member"/"line"/"file"/"module"；"" = 非 caller）。
+    public string[]  ParamNames;    // fix-crosspkg-named-args：跨包每参源名（空数组 = 未知）；ImportedSymbolLoader 从 ExportedParamZ 填。
+                                    // 本地签名不填——本地命名实参按 MethodDecl 的形参名归位。与 ParamDefaults 同一批搬运点。
     public Z42FuncType(Z42Type[] paramTypes, int paramCount, Z42Type ret) {
         this.ParamTypes = paramTypes; this.ParamCount = paramCount; this.Ret = ret; this.ParamsFrom = 0 - 1;
-        this.ParamDefaults = new string[0]; this.ParamCallers = new string[0];
+        this.ParamDefaults = new string[0]; this.ParamCallers = new string[0]; this.ParamNames = new string[0];
     }
     // C# TypeToString 镜像（TSIG/SIGS 串字节实证）：void 返回 → "Action[<p,…>]"；否则 "Func<p,…,ret>"（", " 分隔）。
     public override string Name() {

@@ -541,6 +541,7 @@ public sealed class InheritanceResolver {
             r.ParamsFrom = ft.ParamsFrom;
             r.ParamDefaults = ft.ParamDefaults;
             r.ParamCallers = ft.ParamCallers;
+            r.ParamNames = ft.ParamNames;
             return r;
         }
         return t;

@@ -1,0 +1,14 @@
+a:8:-
+b:3:*
+c:8:.
+red/1/true
+blue/4/true
+pen 5
+1
+pen@1,2
+str x
+int 7
+[]
+[a+b]
+fancy t3
+fp@4,0

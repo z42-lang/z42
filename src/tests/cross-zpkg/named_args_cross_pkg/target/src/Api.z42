@@ -1,0 +1,39 @@
+// fix-crosspkg-named-args（生产方）：跨包命名实参。消费方按**形参源名**归位——名字来自 SIGS 的
+// name_str_idx（此前重建导出签名时一律合成 "p{i}"，导入方法的形参名全丢，命名实参跨包无从匹配）。
+namespace Demo.NaTarget;
+
+// 自由函数：命名 + 乱序 + 跳过中间可选参。
+string Label(string text, int width = 8, string pad = ".") {
+    return text + ":" + width.ToString() + ":" + pad;
+}
+
+public class Painter {
+    public string Name;
+    public int Size;
+    public Painter(string name, int size = 1) { this.Name = name; this.Size = size; }
+
+    // 静态方法：可选参在中间。
+    public static string Draw(string color, int width = 1, bool filled = false) {
+        return color + "/" + width.ToString() + "/" + filled.ToString();
+    }
+
+    // 实例方法。
+    public string Stroke(int dx, int dy = 0) {
+        return this.Name + "@" + dx.ToString() + "," + dy.ToString();
+    }
+
+    // 同 arity 重载：只能靠名字选（K(x:) / K(s:)）。
+    public static string K(int x) { return "int " + x.ToString(); }
+    public static string K(string s) { return "str " + s; }
+
+    // params 尾参：命名实参调用唯一的 params 方法（尾参省略 = 空尾包 / 按名字传数组）。
+    public static string Join(string sep, params string[] parts) {
+        string r = "";
+        int i = 0;
+        while (i < parts.Length) { if (i > 0) { r = r + sep; } r = r + parts[i]; i = i + 1; }
+        return "[" + r + "]";
+    }
+
+    // 虚方法：派生类（另一包）继承后经派生类调用。
+    public virtual string Tag(string prefix, int n = 0) { return prefix + n.ToString(); }
+}
