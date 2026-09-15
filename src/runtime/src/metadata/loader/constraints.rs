@@ -30,9 +30,20 @@ fn check_constraint_refs(
     owner: &str,
     type_params: &[&str],
 ) -> Result<()> {
-    check_one(b.base_class.as_deref(), registry, owner)?;
+    // Base-class refs stay strict: a bogus base is a layout/dispatch integrity
+    // problem, and cross-zpkg base *constraints* are vanishingly rare.
+    check_one(b.base_class.as_deref(), registry, owner, /*soft_allow_unresolved=*/ false)?;
+    // fix-runtime-constraint-unresolved-refs (C1): interface refs are soft.
+    // `verify_constraints` runs before the lazy loader exists (boot_context), so a
+    // constraint naming an interface in a not-yet-loaded dependency zpkg is legitimately
+    // unresolvable here — exactly like `Std.*`. Real resolution happens at the use
+    // site, where the interpreter triggers the lazy loader. Interfaces ARE now in the
+    // registry (minimal TYPE entries since zbc 1.19), so a same-module / statically-
+    // merged interface resolves via `contains_key` above; only genuine lazy-dep
+    // interfaces hit the soft branch. This replaces the old `I<Upper>` name heuristic,
+    // which hard-rejected any non-`IFoo`-named interface (`Comparable`/`Iterable`/…).
     for iface in &b.interfaces {
-        check_one(Some(iface), registry, owner)?;
+        check_one(Some(iface), registry, owner, /*soft_allow_unresolved=*/ true)?;
     }
     // add-generic-func-constraint (2026-05-11): validate type-name references in
     // the function signature constraint. Primitives / Std.* / owner's type-params
@@ -72,22 +83,24 @@ fn check_signature_type_ref(
     if type_params.iter().any(|tp| *tp == base) {
         return Ok(());
     }
-    check_one(Some(base), registry, owner)
+    // Func-signature type refs may name interfaces (e.g. `where T: Func<ISink,void>`)
+    // and are compile-time-validated + unused in production source; treat unresolved
+    // as soft (best-effort) rather than re-introducing the name heuristic here.
+    check_one(Some(base), registry, owner, /*soft_allow_unresolved=*/ true)
 }
 
 fn check_one(
     name: Option<&str>,
     registry: &FxHashMap<String, Arc<TypeDesc>>,
     owner: &str,
+    soft_allow_unresolved: bool,
 ) -> Result<()> {
     let Some(n) = name else { return Ok(()); };
     if registry.contains_key(n) { return Ok(()); }
     // Std.* references are resolved by the lazy zpkg loader after module load.
     if n.starts_with("Std.") { return Ok(()); }
-    // Interface-only bundles may reference interfaces not yet in the type_registry
-    // (which currently holds classes only). Soft-allow; strict interface tracking lands in L3-G3b.
-    if n.starts_with('I') && n.chars().nth(1).is_some_and(|c| c.is_ascii_uppercase()) {
-        return Ok(());
-    }
+    // Interface / func-sig refs may name a not-yet-loaded lazy-dep type; defer to
+    // the use site (the interpreter triggers the lazy loader). Base-class refs are strict.
+    if soft_allow_unresolved { return Ok(()); }
     bail!("InvalidConstraintReference: `{n}` on `{owner}` not found in type registry")
 }

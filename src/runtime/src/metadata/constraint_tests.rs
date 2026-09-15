@@ -153,12 +153,52 @@ fn loader_preserves_type_param_constraint() {
 
 #[test]
 fn verify_allows_interface_like_name() {
-    // Interfaces aren't stored in the class type_registry; soft-allow names starting with "I<Upper>".
+    // Interface constraint refs are soft-allowed when unresolved (may name a
+    // not-yet-lazy-loaded dep interface). Previously gated on an `I<Upper>` name
+    // heuristic; now gated on being an *interface* ref regardless of name.
     let mut m = empty_module("demo");
     m.functions = vec![generic_fn("demo.F", "T", ConstraintBundle {
         interfaces: vec!["IMyLocal".into()],
         ..Default::default()
     })];
     build_type_registry(&mut m);
-    verify_constraints(&m).expect("I<Upper>-prefixed names are interface-shaped");
+    verify_constraints(&m).expect("unresolved interface refs are soft-allowed");
+}
+
+#[test]
+fn verify_allows_non_ifoo_interface_reference() {
+    // fix-runtime-constraint-unresolved-refs (C1): an interface constraint whose
+    // name does NOT follow the `I<Upper>` convention (`Comparable`, `Iterable`,
+    // `Ord`, …) and isn't yet in the registry (cross-zpkg lazy dep) must NOT bail
+    // at load time. Before the fix, the `I<Upper>` heuristic hard-rejected these →
+    // whole-module load failure (the footgun). FAILS on baseline, passes after fix.
+    let mut m = empty_module("demo");
+    m.functions = vec![generic_fn("demo.Sort", "T", ConstraintBundle {
+        interfaces: vec!["Comparable".into()],
+        ..Default::default()
+    })];
+    build_type_registry(&mut m);
+    verify_constraints(&m).expect("non-IFoo interface constraint is soft-allowed (deferred to lazy load)");
+}
+
+#[test]
+fn verify_rejects_unresolved_ifoo_base_class() {
+    // fix-runtime-constraint-unresolved-refs (C1): removing the name heuristic
+    // makes BASE-class refs strict regardless of spelling — an `IFoo`-named base
+    // that isn't a real (registry) type now bails, where the old heuristic leaked
+    // a soft-allow. (A `where T : IFoo` *interface* constraint lands in `interfaces`,
+    // not `base_class`, so this only tightens genuinely bogus base refs.)
+    let mut m = empty_module("demo");
+    let mut c = simple_class("Box");
+    c.type_params = vec!["T".into()].into_boxed_slice();
+    c.type_param_constraints = vec![ConstraintBundle {
+        base_class: Some("IPhantomBase".into()),
+        ..Default::default()
+    }].into_boxed_slice();
+    m.classes = vec![c];
+    build_type_registry(&mut m);
+    let err = verify_constraints(&m).expect_err("IFoo-named base is still strict");
+    assert!(err.to_string().contains("InvalidConstraintReference"),
+        "unexpected error: {err}");
+    assert!(err.to_string().contains("IPhantomBase"));
 }
