@@ -576,7 +576,10 @@ public static class TsigReconcile {
         return em;
     }
 
-    // SIGS 参数 → ExportedParamZ[]（跳 this 槽；名 = "p{i}"，镜像 TSIG C# 实测口径）。
+    // SIGS 参数 → ExportedParamZ[]（跳 this 槽）。
+    // fix-crosspkg-named-args：名取 SIGS 的形参**源名**（`name_str_idx`，zbc 1.25 起恒写），跨包命名实参按它归位。
+    // 此前一律合成 "p{i}"（沿用已删除的 TSIG 段的 C# 字节口径）⇒ 导入方法的形参名全丢、命名实参跨包无从匹配。
+    // 形参名不进 zpkg 以外的任何字节（TSIG 段早已删除，这里是读包时现场重建）⇒ 零格式变化。名缺失才回落 "p{i}"。
     private static ExportedParamZ[] _params(IrFunction f, bool skipThis) {
         int off = 0; if (skipThis) { off = 1; }
         int n = f.ParamCount - off;
@@ -586,7 +589,11 @@ public static class TsigReconcile {
         while (i < n) {
             string pt = "?";
             if (i + off < f.ParamTypeCount) { pt = f.ParamTypes[i + off]; }
-            ExportedParamZ p = new ExportedParamZ("p" + i.ToString(), pt);
+            string pn = "p" + i.ToString();
+            if (f.ParamNames != null && i + off < f.ParamNames.Length && f.ParamNames[i + off] != null && f.ParamNames[i + off] != "") {
+                pn = f.ParamNames[i + off];
+            }
+            ExportedParamZ p = new ExportedParamZ(pn, pt);
             // PR6：从 param attr-ref 块读 `$Default`（ConstBlob）/ `$Caller:*` 哨兵 → 跨包默认值/ caller 宏
             // 传播（修跨包塌零 bug）。ParamAttrs 按 SIGS 参数序对齐（含 this 槽），故用 i+off。
             if (i + off < f.ParamAttrsLen) {

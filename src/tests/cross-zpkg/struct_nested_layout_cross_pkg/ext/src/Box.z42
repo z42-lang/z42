@@ -1,0 +1,12 @@
+namespace Demo.NestLayoutExt;
+
+using Demo.NestLayoutTarget;
+
+// transitive：ext 的 struct 内嵌 imported 12B struct，main 再 import 它。
+public struct Frame {
+    public Point3 origin;
+    public int w;
+    public int h;
+    public Frame(Point3 origin, int w, int h) { this.origin = origin; this.w = w; this.h = h; }
+    public int Area() { return this.w * this.h; }
+}

@@ -55,6 +55,7 @@ public static class MethodTypeArgSubst {
         subst.ParamsFrom = sig.ParamsFrom;
         subst.ParamDefaults = sig.ParamDefaults;
         subst.ParamCallers = sig.ParamCallers;
+        subst.ParamNames = sig.ParamNames;
         return ms.WithSignature(subst);
     }
     // generic-inference-lambda-args：**只**对 `Z42FuncType` 形参位按名代换（且只换 targs 里已绑定=
@@ -98,6 +99,7 @@ public static class MethodTypeArgSubst {
         subst.ParamsFrom = sig.ParamsFrom;
         subst.ParamDefaults = sig.ParamDefaults;
         subst.ParamCallers = sig.ParamCallers;
+        subst.ParamNames = sig.ParamNames;
         return ms.WithSignature(subst);
     }
     // add-generic-type-arg-inference 阶段 B：按方法级型参名做代换后补查实参。
@@ -115,6 +117,7 @@ public static class MethodTypeArgSubst {
         subst.ParamsFrom = sig.ParamsFrom;
         subst.ParamDefaults = sig.ParamDefaults;
         subst.ParamCallers = sig.ParamCallers;
+        subst.ParamNames = sig.ParamNames;
         // rawArgs 传 null：本方法在 BoundCall 构造之后，原始实参表达式已不可得；
         // `_checkOneArg` 的 span 会回落到 args[i].Span（仍指向实参本身，够用）。
         tc._overload.CheckSubstitutedArgs(bc.Args, null, bc.ArgCount, sig, subst, env);
@@ -159,6 +162,7 @@ public static class MethodTypeArgSubst {
             nf.ParamsFrom = ft.ParamsFrom;
             nf.ParamDefaults = ft.ParamDefaults;
             nf.ParamCallers = ft.ParamCallers;
+            nf.ParamNames = ft.ParamNames;
             return nf;
         }
         return t;

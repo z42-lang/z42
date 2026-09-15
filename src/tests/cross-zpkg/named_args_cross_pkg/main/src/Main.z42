@@ -1,0 +1,31 @@
+// fix-crosspkg-named-args（消费方）：对导入的自由函数 / 静态方法 / 实例方法 / 构造器 / 重载 / 继承方法
+// 使用命名实参。修复前：编译期把 `width: 3` 当普通表达式绑定 → `undefined: width`。
+namespace Demo.NaApp;
+
+using Std.IO;
+using Demo.NaTarget;
+using Demo.NaExt;
+
+void Main() {
+    Console.WriteLine(Label("a", pad: "-"));                          // a:8:-      跳过中间可选参
+    Console.WriteLine(Label(pad: "*", text: "b", width: 3));          // b:3:*      全命名乱序
+    Console.WriteLine(Label("c"));                                    // c:8:.      纯位置：导入自由函数的默认值（修前 E1005）
+    Console.WriteLine(Painter.Draw("red", filled: true));             // red/1/true
+    Console.WriteLine(Painter.Draw(filled: true, color: "blue", width: 4));  // blue/4/true
+
+    Painter p = new Painter(size: 5, name: "pen");                    // 构造器乱序
+    Console.WriteLine(p.Name + " " + p.Size.ToString());              // pen 5
+    Painter q = new Painter("brush");                                 // 纯位置：跨包默认值照旧
+    Console.WriteLine(q.Size);                                        // 1
+
+    Console.WriteLine(p.Stroke(dy: 2, dx: 1));                        // pen@1,2
+    Console.WriteLine(Painter.K(s: "x"));                             // str x      按名字选重载
+    Console.WriteLine(Painter.K(x: 7));                               // int 7
+
+    Console.WriteLine(Painter.Join(sep: "-"));                        // []         params 尾参省略
+    Console.WriteLine(Painter.Join(parts: new string[] { "a", "b" }, sep: "+"));  // [a+b]  params 尾参按名字传数组
+
+    FancyPainter f = new FancyPainter("fp");
+    Console.WriteLine(f.Tag(n: 3, prefix: "t"));                      // fancy t3   继承链上的导入方法
+    Console.WriteLine(f.Stroke(dx: 4));                               // fp@4,0
+}

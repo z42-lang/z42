@@ -433,10 +433,15 @@ jobs:
           # 约三倍，所以除了抬阈值没有别的办法。现在初判回归的条目会被再测 2 轮、用**跑间**
           # 比值离散度重算区间（`--resample-rounds`，0 = 关掉），不确定度第一次被真的量出来，
           # 阈值因此有依据收回 0.15。收阈值与复测是**同一件事的两半**：单独收阈值 = 退回假红。
+          # --pause-cap-ms / --threshold-pause (add-incremental-major-gc M0, 2026-09-15)：头部声明
+          # `// gc-pause: report` 的场景（13_gc_large_heap）另跑 3 次取 max 停顿中位数；
+          # 判红 ⟺ pr 超上限 **且** 比 base 差 25% 以上。M2（增量 major）落地前 main 上就有 ~97 ms，
+          # 只看绝对上限会让每个 PR 都红；M2 后 base/pr 都在上限内，规则退化为纯绝对上限，届时收紧到 10。
           vm="$PWD/artifacts/build/runtime/release/z42vm"
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- \
             bench --ab --tier gate --mode "$MODE" --threshold-time 0.15 \
+              --pause-cap-ms 16 --threshold-pause 0.25 \
               --base-vm     "${{ steps.base.outputs.base_vm }}" \
               --base-libs   "${{ steps.base.outputs.base_libs }}" \
               --base-driver "${{ steps.base.outputs.base_driver }}"

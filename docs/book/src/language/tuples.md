@@ -91,9 +91,9 @@ zbc / zpkg 里类型引用一律 intern 进字符串池（非封闭 tag enum）�
 ## 限制（v1）
 
 - **元数 2..8**；更大元组报错（可后续加 `Rest` 嵌套，如 C#）。
-- **链式字段访问 `t.Item1.Item1`**（嵌套元组，泛型 struct 套泛型 struct 槽）会因类型擦除返回错值——
-  这是既有泛型-struct-套泛型-struct 的链式访问限制，非元组特有；**先读入局部再访问**（或用模式解构，
-  每层读入寄存器）可绕过，元组**模式**因此不受影响。
+- 嵌套元组的**链式字段访问** `t.Item1.Item2` 可直接读写（2026-09-15 fix-generic-struct-chain-access 修复；
+  此前读到外层同偏移字段）。但嵌套在元组里的 struct 值目前**不是独立副本**——见
+  [struct 值语义「泛型擦除槽的值复制」](../runtime/struct-value-semantics.md#收敛面与延后)。
 - **具名元组元素** `(x: int, y: int)`、`Deconstruct` 方法载体、`(T)[]` / `(T)?` 后缀——均后议。
 
 ## 相关

@@ -1,0 +1,45 @@
+// fix-crosspkg-named-args：「按名字找形参」的唯一出处。
+//
+// 本地方法的形参名在 MethodDecl 上；导入方法没有 Decl，形参名由 ImportedSymbolLoader 从 SIGS 读进
+// `Z42FuncType.ParamNames`。重载决议（OverloadResolver.Map）与实参归位（OverloadBinder._adaptArgs）都经这里，
+// 二者对「这个名字是第几个形参 / 能不能按名字归位」不可能给出不同答案——此前两处各写一遍循环、且都只认 Decl，
+// 于是命名实参对导入方法 / 构造器 / 自由函数一律不可用。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+
+public static class CallParams {
+    // 本地声明（有则按它归位、补默认值表达式）；导入符号返回 null。
+    public static MethodDecl DeclOf(MethodSymbol m) {
+        if (m == null || !m.HasDecl) { return null; }
+        return m.Decl;
+    }
+
+    // 能否按名字归位：本地有 Decl，或导入签名带全部形参名。
+    public static bool CanName(MethodSymbol m) {
+        if (m == null) { return false; }
+        if (CallParams.DeclOf(m) != null) { return true; }
+        Z42FuncType sig = m.Signature;
+        return sig != null && sig.ParamNames != null && sig.ParamCount > 0 && sig.ParamNames.Length == sig.ParamCount;
+    }
+
+    // 形参个数（调用方已确认 CanName）。
+    public static int Count(MethodSymbol m) {
+        MethodDecl md = CallParams.DeclOf(m);
+        if (md != null) { return md.ParamCount; }
+        return m.Signature.ParamCount;
+    }
+
+    // 名 → 形参序号；找不到返回 -1（调用方已确认 CanName）。
+    public static int IndexOf(MethodSymbol m, string name) {
+        MethodDecl md = CallParams.DeclOf(m);
+        int pc = CallParams.Count(m);
+        int p = 0;
+        while (p < pc) {
+            string pn = md != null ? md.Params[p].Name : m.Signature.ParamNames[p];
+            if (pn == name) { return p; }
+            p = p + 1;
+        }
+        return 0 - 1;
+    }
+}
