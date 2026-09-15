@@ -117,3 +117,63 @@ int _e2eDepIdentityChecks(string vm, string driverZpkg, string e2eDir, string fl
     Console.WriteLine("  ✓ 依赖只改注释 → 消费方命中缓存；依赖删掉被调方法 → 消费方重编并报错");
     return 0;
 }
+
+int _e2eCount(string hay, string needle) {
+    return hay.Split(needle).Length - 1;
+}
+
+ProcessResult _e2eWsBuild(string vm, string driverZpkg, string ws, string flat, bool noIncr) {
+    Process p = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg("--workspace").Arg("--release");
+    if (noIncr) { p = p.Arg("--no-incremental"); }
+    return p.WorkingDirectory(ws).Env("Z42_LIBS", flat).Run();
+}
+
+// workspace 读 cache（workspace-read-cache）：此前 workspace 成员恒全量。成员 b 依赖 a。
+int _e2eWorkspaceIncrChecks(string vm, string driverZpkg, string e2eDir, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── workspace 读 cache（workspace-read-cache）──");
+    string ws = Path.Join(e2eDir, "wsincr");
+    string a = Path.Join(ws, "wsi.a");
+    string b = Path.Join(ws, "wsi.b");
+    Directory.Create(a);
+    Directory.Create(b);
+    string aSrc = "namespace WsiA;\n\npublic static class K {\n    public static int One() { return 1; }\n}\n";
+    File.WriteAllText(Path.Join(a, "a.z42"), aSrc);
+    File.WriteAllText(Path.Join(a, "wsi.a.z42.toml"),
+        "[project]\nname    = \"wsi.a\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    File.WriteAllText(Path.Join(b, "b.z42"), "namespace WsiB;\n\nusing WsiA;\n\npublic static class L {\n    public static int Two() { return K.One() + 1; }\n}\n");
+    File.WriteAllText(Path.Join(b, "wsi.b.z42.toml"),
+        "[project]\nname    = \"wsi.b\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n[dependencies]\n\"wsi.a\" = \"0.1.0\"\n");
+    File.WriteAllText(Path.Join(ws, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"*\"]\n\n[workspace.build]\noutput_dir = \"out/${member_name}/${profile}\"\n");
+    ProcessResult r0 = _e2eWsBuild(vm, driverZpkg, ws, flat, false);
+    if (r0.ExitCode != 0) { Console.WriteLine("  ✗ 首次构建失败：" + r0.Stderr); return 1; }
+    // ① 无改动再建：两个成员都命中
+    ProcessResult r1 = _e2eWsBuild(vm, driverZpkg, ws, flat, false);
+    if (r1.ExitCode != 0 || _e2eCount(r1.Stdout, "no changes") != 2) {
+        Console.WriteLine("  ✗ 无改动再建，应 2 个成员命中，实际 " + _e2eCount(r1.Stdout, "no changes").ToString());
+        return 1;
+    }
+    // ② a 只改注释：a 重编但产物不变 → b 仍命中
+    File.WriteAllText(Path.Join(a, "a.z42"), "// 只改注释\n" + aSrc);
+    ProcessResult r2 = _e2eWsBuild(vm, driverZpkg, ws, flat, false);
+    if (r2.ExitCode != 0 || _e2eCount(r2.Stdout, "no changes") != 1) {
+        Console.WriteLine("  ✗ a 只改注释，应只有 b 命中，实际命中 " + _e2eCount(r2.Stdout, "no changes").ToString());
+        return 1;
+    }
+    // ③ --no-incremental：一个都不命中
+    ProcessResult r3 = _e2eWsBuild(vm, driverZpkg, ws, flat, true);
+    if (r3.ExitCode != 0 || _e2eCount(r3.Stdout, "no changes") != 0) {
+        Console.WriteLine("  ✗ --no-incremental 仍有成员命中缓存");
+        return 1;
+    }
+    // ④ a 删掉 b 调用的方法：b 必须重编并报错
+    File.WriteAllText(Path.Join(a, "a.z42"), aSrc.Replace("One()", "Uno()"));
+    ProcessResult r4 = _e2eWsBuild(vm, driverZpkg, ws, flat, false);
+    if (r4.ExitCode == 0) {
+        Console.WriteLine("  ✗ a 删掉了 b 调用的方法，workspace 仍构建成功（b 命中了旧缓存）");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 无改动全命中；依赖只改注释下游命中；--no-incremental 不读；依赖删方法下游重编报错");
+    return 0;
+}

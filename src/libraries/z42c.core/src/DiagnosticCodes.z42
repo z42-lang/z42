@@ -149,7 +149,8 @@ public static class DiagnosticCodes {
     public static string UnknownArgumentName      = "E1002";
     public static string DuplicateArgumentName    = "E1003";
     public static string ParameterDoublySpecified = "E1004";
-    public static string MissingRequiredArgument  = "E1005";
+    public static string MissingRequiredArgument  = "E1005";   // 缺位形参无默认值（add-call-arity-diagnostics 起才真正发码；此前全仓零发码点）
+    public static string TooManyArguments         = "E1006";   // 非 params 调用实参多于形参。**语义层用字面量发码**（同 E0449–E0468 手法，避 core→semantics 新跨成员符号 F2 冷启动）
 
     // E11xx: add-symbol-availability-macro —— `available!(X)` 专属。
     // ⚠️ 与 E0450 同款纪律：**语义层用字面量发码，不引用这两个常量** —— 新增 core→semantics

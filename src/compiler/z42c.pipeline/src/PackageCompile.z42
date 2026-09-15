@@ -47,6 +47,7 @@ public sealed class CompileInputs {
     public int OptSet;
     // 依赖解析（磁盘目录——design D3；DeclaredDeps 是依赖名白名单，DepIndex 过滤用）
     public string[] LibsDirs; public int LibsDirsN;
+    public string[] HiddenPkgs; public int HiddenN;   // workspace-read-cache：不可见包名（拓扑序在后的成员）；null/0 = 全可见
     public string[] DeclaredDeps; public int DepCount;
     // scan-provider（perf-optimize-repl-eval ②，realize extract 延后的 scan-provider）：
     // 非 null → **跳过整个 DepScan.ScanDirs**，直接用传入的已建 DepScanResult。REPL 每轮复用缓存
@@ -128,7 +129,7 @@ public static class PackageCompile {
         if (inp.CachedScan != null) {
             scan = inp.CachedScan;                                    // 复用（scan-provider）
         } else if (inp.LibsDirsN > 0) {
-            scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount);   // 排除 self-zpkg
+            scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount, inp.HiddenPkgs, inp.HiddenN);   // 排除 self-zpkg
         }
         if (scan != null) {
             depIndex = scan.Index;

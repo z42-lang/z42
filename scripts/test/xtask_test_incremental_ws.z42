@@ -1,0 +1,59 @@
+// xtask — `test incremental` 的 stdlib 整体读回对账（workspace-read-cache）。
+//
+// 小语料（demo / demo-packed / xtask）覆盖不到 stdlib 用到的全部指令与元数据：增量读回曾漏掉方法级泛型形参、
+// struct 指令的寄存器类型，只在 stdlib 上才暴露（下游 E0402 / 字节不一致）。这里用整个 stdlib 做一轮：
+//   release 全量建一遍 → 清空全部成员 dist（cache 保留）→ 再建：每个成员都全命中但无法 preserved，只能由
+//   cache 读回的 IR 重新打包 → 25 个包必须与全量逐字节一致。
+// 运行于 artifacts/.scratch/incr-reconcile/stdlib（拷贝源，不动真实产物）。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+int _wsReadbackBuild(string vm, string driver, string libs, string cwd, bool noIncr) {
+    Process p = new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--")
+        .Arg("build").Arg("--workspace").Arg("--release");
+    if (noIncr) { p = p.Arg("--no-incremental"); }
+    return p.WorkingDirectory(cwd).Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.Inherit()).Run().ExitCode;
+}
+
+int _reconcileStdlibReadback(string root, string vm, string driver, string libs, string scratch) {
+    Console.WriteLine("\n── reconcile: stdlib workspace readback ──");
+    string srcLibs = Path.Join(scratch, "stdlib/src/libraries");
+    Directory.Copy(Path.Join(root, "src/libraries"), srcLibs, true);
+    string ws = Path.Join(srcLibs, "z42.workspace.toml");
+    string[] dirs = _enumDirsSorted(srcLibs);
+    string[] members = new string[dirs.Length];
+    int mc = 0;
+    int i = 0;
+    while (i < dirs.Length) {
+        if (Path.Glob(Path.Join(srcLibs, dirs[i]), "*.z42.toml").Length > 0) { members[mc] = dirs[i]; mc = mc + 1; }
+        i = i + 1;
+    }
+    if (_wsReadbackBuild(vm, driver, libs, srcLibs, true) != 0) { ConsoleError.WriteLine("  ✗ stdlib full build failed"); return 1; }
+    // 全量快照：拷到 snap 目录（z42 无交错数组，不在内存里存 25 份字节）。
+    string snap = Path.Join(scratch, "stdlib-full-snap");
+    _resetDir(snap);
+    i = 0;
+    while (i < mc) {
+        string z = Path.Join(_memberDist(ws, members[i], "release"), members[i] + ".zpkg");
+        if (File.Exists(z)) { File.Copy(z, Path.Join(snap, members[i] + ".zpkg")); }
+        Directory.Delete(_memberDist(ws, members[i], "release"), true);
+        i = i + 1;
+    }
+    if (_wsReadbackBuild(vm, driver, libs, srcLibs, false) != 0) { ConsoleError.WriteLine("  ✗ stdlib all-cached rebuild failed"); return 1; }
+    string bad = "";
+    int nBad = 0;
+    i = 0;
+    while (i < mc) {
+        string z = Path.Join(_memberDist(ws, members[i], "release"), members[i] + ".zpkg");
+        if (!_filesEqual(z, Path.Join(snap, members[i] + ".zpkg"))) { bad = bad + (nBad > 0 ? ", " : "") + members[i]; nBad = nBad + 1; }
+        i = i + 1;
+    }
+    if (nBad > 0) {
+        ConsoleError.WriteLine("  ✗ MISMATCH: all-cached reassembly != full for " + nBad.ToString() + " package(s): " + bad);
+        return 1;
+    }
+    Console.WriteLine("  ✓ dist wiped + all-cached reassembly: " + mc.ToString() + "/" + mc.ToString() + " stdlib packages byte-identical to full");
+    return 0;
+}
