@@ -1,0 +1,149 @@
+// GC 停顿指标（add-incremental-major-gc M0, 2026-09-15）。
+//
+// 头部声明 `// gc-pause: report` 的 perf scenario 会在输出末尾打一行
+//   gc-pause max_us=<µs> p99_us=<µs> count=<n>
+// （数据来自 `Std.GC.PauseStatsRaw()` / `RecentPauses()`）。hyperfine 丢弃被测程序的 stdout，
+// 所以停顿要**另跑**：同一条命令跑 N 次、捕获输出、取中位数 —— 单次 max 停顿受调度抖动影响大，
+// 中位数挡掉偶发的一次长停顿，同时不会把「每次都长」的真回归抹平。
+//
+// 门禁规则（`_abPauseIsRegression`，纯函数，`bench --ab-selftest` 覆盖）：
+//   regression ⟺ pr_max > cap  且  pr_max > base_max × (1 + thr)
+// 只看绝对上限会让 M2 落地前的每个 PR 都红（main 上这个 scenario 的 major 就有 ~97 ms）；
+// 只看相对比例又守不住「停顿与堆无关」这个目标。两条同时成立才判红：M2 之前它是回归守卫，
+// M2 之后 base 与 pr 都在上限内，它就退化成纯绝对上限。上限默认 16 ms，M2 后收紧到 10 ms。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// 一个 scenario×mode 在一套工具链下的停顿中位数。
+class PauseMedian {
+    public int Rc;          // 0 = ok；2 = 跑失败 / 输出里没有 gc-pause 行
+    public double MaxMs;
+    public double P99Ms;
+    public int Samples;
+    public PauseMedian() { this.Rc = 0; this.MaxMs = 0.0; this.P99Ms = 0.0; this.Samples = 0; }
+}
+
+// scenario 是否声明了 `// gc-pause: report`。
+bool _benchScenarioReportsPause(string srcText) {
+    foreach (var ln in srcText.Split("\n")) {
+        string t = ln.Trim();
+        if (t.StartsWith("// gc-pause:")) { return t.Substring(12).Trim().StartsWith("report"); }
+    }
+    return false;
+}
+
+// 从 scenario 输出里取 `gc-pause` 行的某个 `key=` 值（µs）；没有则 -1。
+long _benchPauseField(string stdout, string key) {
+    foreach (var ln in stdout.Split("\n")) {
+        string t = ln.Trim();
+        if (!t.StartsWith("gc-pause ")) { continue; }
+        foreach (var part in t.Split(" ")) {
+            if (part.StartsWith(key + "=")) { return Int64.Parse(part.Substring(key.Length + 1)); }
+        }
+    }
+    return -1L;
+}
+
+// 三个及以上样本的中位数（输入会被排序）。
+double _benchMedian(double[] xs) {
+    int n = xs.Length;
+    int i = 1;
+    while (i < n) {
+        double v = xs[i];
+        int j = i - 1;
+        while (j >= 0 && xs[j] > v) { xs[j + 1] = xs[j]; j = j - 1; }
+        xs[j + 1] = v;
+        i = i + 1;
+    }
+    return xs[n / 2];
+}
+
+// 同一条 scenario 命令跑 `runs` 次，取 max / p99 停顿各自的中位数（ms）。
+PauseMedian _benchPauseRun(string vm, string zbc, string entry, string m, string libs, int runs) {
+    PauseMedian o = new PauseMedian();
+    double[] maxs = new double[runs];
+    double[] p99s = new double[runs];
+    int k = 0;
+    while (k < runs) {
+        ProcessResult r = new Process(vm).Arg(zbc).Arg(entry).Arg("--mode").Arg(m)
+            .Env("Z42_LIBS", libs).Run();
+        long mx = r.ExitCode == 0 ? _benchPauseField(r.Stdout, "max_us") : -1L;
+        long p9 = r.ExitCode == 0 ? _benchPauseField(r.Stdout, "p99_us") : -1L;
+        if (mx < 0L || p9 < 0L) {
+            ConsoleError.WriteLine("error: " + zbc + " [" + m + "] produced no gc-pause line (exit "
+                + r.ExitCode.ToString() + ")");
+            o.Rc = 2;
+            return o;
+        }
+        maxs[k] = (double)mx / 1000.0;
+        p99s[k] = (double)p9 / 1000.0;
+        k = k + 1;
+    }
+    o.MaxMs = _benchMedian(maxs);
+    o.P99Ms = _benchMedian(p99s);
+    o.Samples = runs;
+    return o;
+}
+
+// schema-v2 的一条 `pause` 指标（`bench` 单跑路径）。
+string _benchPauseObj(string name, string which, double valueMs, int samples, string[] tiers, VmCaps vm) {
+    return "    {\n      \"name\": \"" + name + "-pause-" + which + "\",\n      \"tier\": \"z42-e2e\""
+        + ",\n      \"metric\": \"pause\",\n      \"value\": " + valueMs.ToString()
+        + ",\n      \"unit\": \"ms\",\n      \"ci_lower\": null,\n      \"ci_upper\": null"
+        + ",\n      \"samples\": " + samples.ToString()
+        + ",\n      \"profile\": " + _epProfileJson(tiers, new string[0], vm) + "\n    }";
+}
+
+// 门禁判定（见文件头）。纯函数。
+bool _abPauseIsRegression(double baseMaxMs, double prMaxMs, double capMs, double thr) {
+    if (prMaxMs <= capMs) { return false; }
+    return prMaxMs > baseMaxMs * (1.0 + thr);
+}
+
+// ab.json 的一条停顿对比。
+string _abPauseJson(string name, string m, PauseMedian b, PauseMedian p, double capMs, bool regr) {
+    return "    {\n      \"name\": \"" + name + "\",\n      \"mode\": \"" + m + "\""
+        + ",\n      \"metric\": \"pause\""
+        + ",\n      \"base_max_ms\": " + b.MaxMs.ToString() + ",\n      \"pr_max_ms\": " + p.MaxMs.ToString()
+        + ",\n      \"base_p99_ms\": " + b.P99Ms.ToString() + ",\n      \"pr_p99_ms\": " + p.P99Ms.ToString()
+        + ",\n      \"cap_ms\": " + capMs.ToString() + ",\n      \"samples\": " + p.Samples.ToString()
+        + ",\n      \"verdict\": \"" + (regr ? "regression" : "ok") + "\"\n    }";
+}
+
+// A/B 一个 scenario×mode 的停顿：两边各跑 3 次取中位数，按 `_abPauseIsRegression` 判定。
+// 返回 (Rc, IsRegression, Json)，复用 AbOutcome。
+AbOutcome _abPauseScenario(string name, string m, string baseCmdVm, string baseZbc, string baseLibs,
+    string prVm, string prZbc, string prLibs, string entry, double capMs, double thr) {
+    AbOutcome o = new AbOutcome();
+    Console.WriteLine("→ A/B pause " + name + " [" + m + "] (3 runs each)...");
+    PauseMedian b = _benchPauseRun(baseCmdVm, baseZbc, entry, m, baseLibs, 3);
+    if (b.Rc != 0) { o.Rc = 2; return o; }
+    PauseMedian p = _benchPauseRun(prVm, prZbc, entry, m, prLibs, 3);
+    if (p.Rc != 0) { o.Rc = 2; return o; }
+    o.IsRegression = _abPauseIsRegression(b.MaxMs, p.MaxMs, capMs, thr);
+    o.Json = _abPauseJson(name, m, b, p, capMs, o.IsRegression);
+    Console.WriteLine("  " + name + " [" + m + "] pause  " + (o.IsRegression ? "↑ regression" : "ok")
+        + "  base max=" + b.MaxMs.ToString() + "ms p99=" + b.P99Ms.ToString()
+        + "ms  pr max=" + p.MaxMs.ToString() + "ms p99=" + p.P99Ms.ToString()
+        + "ms  cap=" + capMs.ToString() + "ms");
+    return o;
+}
+
+// `bench --ab-selftest` 的停顿判定用例。返回失败数。
+int _abPauseSelfTest() {
+    int fails = 0;
+    fails = fails + _abPauseExpect("under-cap-even-if-worse", 5.0, 12.0, false);
+    fails = fails + _abPauseExpect("over-cap-but-not-worse-than-base", 97.0, 99.0, false);
+    fails = fails + _abPauseExpect("over-cap-and-worse", 40.0, 97.0, true);
+    fails = fails + _abPauseExpect("post-M2-breaks-cap", 8.0, 30.0, true);
+    return fails;
+}
+
+int _abPauseExpect(string label, double baseMax, double prMax, bool want) {
+    bool got = _abPauseIsRegression(baseMax, prMax, 16.0, 0.25);
+    if (got == want) { Console.WriteLine("  ok pause/" + label); return 0; }
+    Console.WriteLine("  FAIL pause/" + label + ": got " + (got ? "regression" : "ok"));
+    return 1;
+}

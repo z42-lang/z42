@@ -6,20 +6,35 @@
 > 每个里程碑单独一个 PR（本仓 squash merge、不叠 PR），各自带实测。
 
 ## 进度概览
-- [ ] M0: 度量与门禁（大堆 scenario + 停顿指标进 bench）
+- [x] M0: 度量与门禁（大堆 scenario + 停顿指标进 bench）
 - [ ] M1: 停顿内修剪（epoch 标记删 reset marks；age survivors 并入 sweep）
 - [ ] M2a: SATB 屏障 + allocate-black epoch 化（周期仍一次性完成，只验证屏障与不变量）
 - [ ] M2b: 切片调度（Snapshot / Mark / Final / Sweep 分片 + 节奏 + 退化）
 - [ ] M2c: 验收（停顿目标、正确性配方、loom、文档）
 
 ## M0: 度量与门禁
-- [ ] 0.1 `src/tests/perf/scenarios/13_gc_large_heap.z42`：可配置活对象规模（两档 ~150 / ~450 MB）+ 老年代流失；
-      结束时经 `Std.GC.PauseStatsRaw()` 打印 max / p99 停顿；期望输出手算对账
-- [ ] 0.2 `scripts/xtask_bench.z42`：解析 scenario 自报停顿，产出 `metric: pause` 条目（max 与 p99 各一条）
-- [ ] 0.3 `src/tests/perf/baseline-schema.json`：`metric` 加 `pause`
-- [ ] 0.4 `.github/workflows/bench-pr.yml`：停顿指标进门禁（绝对上限 16 ms，M2 后收紧到 10 ms）
-- [ ] 0.5 本地记录基线：semantics（16M / 4M）、`13_gc_large_heap` 两档 —— max / p99 / 总停顿 / RSS
-- [ ] 0.6 GREEN
+- [x] 0.1 `src/tests/perf/scenarios/13_gc_large_heap.z42`：5 万条链 × 8 节点（带 `long[8]`）活堆 + 随机整链替换（老年代流失）
+      + 临时分配（年轻代流失），churn = slots×8；参数 `large` 活堆 ×3；末行 `gc-pause max_us=… p99_us=… count=…`；
+      校验和 25919994799997 / 233279984399994（interp 与 jit 一致）
+- [x] 0.2 `scripts/common/xtask_bench_pause.z42`（NEW，`xtask_bench.z42` 已超 886 行）+ `xtask_bench.z42` 接线 + `xtask_cli_bench.z42` 两个选项：
+      `// gc-pause: report` 场景另跑 3 次取中位数，单跑路径产出 `<name>-pause-max/-p99`，A/B 路径写 `metric: pause` 并判定；
+      `--ab-selftest` 加 4 例（14/14），阴性对照（判定恒 false ⇒ 2 例红）已做
+- [x] 0.3 `src/tests/perf/baseline-schema.json`：`metric` 加 `pause`
+- [x] 0.4 `.github/workflows/bench-pr.yml`：`--pause-cap-ms 16 --threshold-pause 0.25`。
+      ⚠️ **事实校正**：原定「绝对上限 16 ms」直接上会让 M2 前每个 PR 都红（main 上本场景 ~97 ms），
+      故判红 = **超上限且比 base 差 25%**；M2 后 base/pr 都在上限内即退化为纯绝对上限，届时 cap 收紧到 10
+- [x] 0.5 本地基线（main 47e43815 / 14925b02，机器有他会话负载）：
+
+      | 负载 | max | p99 | 总停顿 | RSS |
+      |---|---|---|---|---|
+      | semantics 16M（×3） | 32.6~34.6 ms | 11.6~12.7 ms | 224~232 ms | 594 MB |
+      | semantics 4M（×2） | 52.1~53.4 ms | 29.1~29.3 ms | 432 ms | 611 MB |
+      | `13_gc_large_heap`（jit） | **97.5 ms** | = max（30 次回收） | — | 876 MB |
+      | `13_gc_large_heap large`（jit） | **391.7 ms** | = max（65 次） | — | 2.9 GB |
+
+      本场景 major ≈ reset 11.6 / full mark 35.6（800k 条）/ sweep 17.6 / **age survivors 25.2**；
+      **minor 也有 25~27 ms**（M3 的输入）；最大那次 99 ms 是**徒劳退避把 gate 乘到 ×16（272 MB nursery）**的 minor（见 1.10）
+- [x] 0.6 GREEN（`xtask test` 全绿，基于 main `14925b02`）+ 本地 A/A `bench --ab --tier gate --mode jit`：9 条对比零假红，停顿子门禁 base 87.9 / pr 89.3 ms → ok
 
 ## M1: 停顿内修剪（不改屏障）
 - [ ] 1.1 `gc/region/entry.rs` + `gc/var_region/block.rs`：`marked` 拆 bit0 minor / bits1..=7 major epoch；minor / major 两套 mark API（保留对方位的 CAS）
@@ -31,6 +46,8 @@
 - [ ] 1.7 `debug_validate_invariants`：major sweep 后「alive ⇒ epoch ∈ {E, 0}」；minor sweep 后「alive ⇒ bit0 == 0」
 - [ ] 1.8 单测：epoch 回绕 130 周期无陈旧标记；新旧实现回收集合逐 handle 相同（STW 路径）
 - [ ] 1.9 实测：semantics max 停顿（目标 ≤ 25 ms）、总停顿 / RSS / 指令不回归；GREEN
+- [ ] 1.10 `gc/arc_heap/auto_collect.rs`：徒劳退避不得把 minor gate 乘过停顿预算（M0 实测 ×4 → ×16，一次 minor 86.9 ms）。
+      高存活率的正确回应是升级 major（pause-line 教训 6/7），不是放大 nursery
 
 ## M2a: SATB 屏障（周期仍一次性完成）
 - [ ] 2.1 `gc/satb.rs`（NEW）+ `gc/mod.rs`：`MARKING_ACTIVE`、`remember`、线程本地缓冲 + 全局兜底队列、flush

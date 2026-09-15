@@ -37,7 +37,10 @@ sweep 仍 STW。
 | 文件路径 | 变更类型 | 说明 |
 |---------|---------|------|
 | `src/tests/perf/scenarios/13_gc_large_heap.z42` | NEW | M0：大堆 + 老年代流失 scenario，自报停顿 |
-| `scripts/xtask_bench.z42` | MODIFY | M0：采集 scenario 自报的 max / p99 停顿为指标 |
+| `scripts/xtask_bench.z42` | MODIFY | M0：采集 scenario 自报的 max / p99 停顿为指标（接线） |
+| `scripts/common/xtask_bench_pause.z42` | NEW | M0：停顿采集 / 中位数 / 判定纯函数（`xtask_bench.z42` 已超 886 行，逻辑放新文件） |
+| `scripts/cli/xtask_cli_bench.z42` | MODIFY | M0：`--pause-cap-ms` / `--threshold-pause` |
+| `docs/book/src/dev/benchmarking.md` | MODIFY | M0：停顿子门禁规则与命令 |
 | `src/tests/perf/baseline-schema.json` | MODIFY | M0：`metric` 枚举加 `pause` |
 | `.github/workflows/bench-pr.yml` | MODIFY | M0：停顿指标进门禁（阈值见 design） |
 | `src/runtime/src/gc/region/entry.rs` | MODIFY | M1：`marked` 字节拆 minor bit / major epoch |
