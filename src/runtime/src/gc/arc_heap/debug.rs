@@ -34,8 +34,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// **add-concurrent-gc P2 (2026-05-22)**: test-only entry to the
     /// `mark_if_unmarked` static helper.
     #[cfg(test)]
-    pub(crate) fn mark_if_unmarked_for_test(v: &Value) -> bool {
-        Self::mark_if_unmarked(v)
+    pub(crate) fn mark_if_unmarked_for_test(&self, v: &Value) -> bool {
+        Self::mark_if_unmarked(v, self.major_mark())
+    }
+
+    /// add-incremental-major-gc M1: the major kind in force, for tests that inspect marks.
+    #[cfg(test)]
+    pub(crate) fn major_mark_for_test(&self) -> crate::gc::refs::MarkKind {
+        self.major_mark()
     }
 
     /// **add-generational-gc P1 (2026-05-22)**: test-only accessors
@@ -133,7 +139,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
             );
         }
 
-        // 3. No alive entry should carry marked=1 post-sweep.
+        // 3. No alive entry should carry a mark post-sweep. add-incremental-major-gc M1: that now
+        //    reads "minor bit clear, and the major epoch is either the current one or 0" — a
+        //    survivor of cycle E keeps E (that is what whitens it for E+1); anything else is a
+        //    stale epoch, which would make the next major skip tracing its children.
+        let epoch = match self.major_mark() { crate::gc::refs::MarkKind::Major(e) => e, _ => unreachable!() };
+        let stale = |minor: bool, e: u8| minor || (e != 0 && e != epoch);
         //    iterate_alive walks heap-registry-equivalent (regions).
         //
         // diag-stale-mark-bit (2026-05-30): on failure, dump the entry's
@@ -145,7 +156,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut stale_obj: Option<(u32, u32, String, usize)> = None;
         region_object.iterate_alive(|h, e| {
             if stale_obj.is_some() { return; }
-            if e.is_marked() {
+            if stale(e.is_marked(crate::gc::refs::MarkKind::Minor), e.major_epoch()) {
                 let obj = e.value.lock();
                 let ty = obj.type_desc.name.clone();
                 let nslots = obj.refs().len(); // unify-object-byte-layout (PR-2): ref-slot count (diagnostic)
@@ -162,7 +173,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut stale_arr: Option<(u32, u32, usize)> = None;
         region_array.iterate_alive(|h, e| {
             if stale_arr.is_some() { return; }
-            if e.is_marked() {
+            if stale(e.is_marked(crate::gc::refs::MarkKind::Minor), e.major_epoch()) {
                 let arr = e.value.lock();
                 stale_arr = Some((h.chunk_idx as u32, h.entry_idx as u32, arr.len()));
             }
@@ -193,6 +204,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
         self.retire_thread_tlab();
         // Step 1: STW-equivalent root snapshot (no mutators in test).
+        self.begin_major_mark();
         self.snapshot_roots_into_mark_queue();
 
         // Step 2: Drain queue (simulates "ConcurrentMarking" but
@@ -219,6 +231,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn collect_cycles_mark_sweep_for_test(&self) -> u64 {
         // add-gc-tlab (stage 2): merge this thread's borrowed chunk before mark.
         self.retire_thread_tlab();
+        self.begin_major_mark();
         let _newly_marked = self.mark_phase();
         self.sweep_phase()
     }
@@ -230,12 +243,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// across runs.
     #[cfg(test)]
     pub(super) fn reset_marks_for_test(&self) {
-        for v in self.snapshot_live_from_registry() {
-            match &v {
-                Value::Object(gc) => GcRef::clear_mark(gc),
-                Value::Array(gc)  => GcRef::clear_mark(gc),
-                _ => {}
-            }
-        }
+        // add-incremental-major-gc M1: whitening the heap is opening a new epoch.
+        self.begin_major_mark();
     }
 }

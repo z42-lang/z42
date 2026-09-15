@@ -233,23 +233,29 @@ impl<T> RegionEntry<T> {
         self.gen_age.load(Ordering::Relaxed)
     }
 
-    /// Atomically attempt to mark this entry (0 → 1). Returns `true`
-    /// if this call won the CAS (first to mark in the current cycle).
-    /// Used by mark phase BFS + concurrent barrier override.
-    pub fn mark(&self) -> bool {
-        self.marked
-            .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
+    /// Mark this entry for `kind` (see [`crate::gc::refs::MarkKind`]). Returns `true` iff this
+    /// call made the transition (first to mark in the current cycle).
+    #[inline]
+    pub fn mark(&self, kind: crate::gc::refs::MarkKind) -> bool {
+        crate::gc::refs::mark_cell(&self.marked, kind)
     }
 
-    /// Read current mark state. Used by sweep to decide retention.
-    pub fn is_marked(&self) -> bool {
-        self.marked.load(Ordering::Relaxed) != 0
+    /// Whether this entry carries `kind`'s mark.
+    #[inline]
+    pub fn is_marked(&self, kind: crate::gc::refs::MarkKind) -> bool {
+        crate::gc::refs::is_marked_cell(&self.marked, kind)
     }
 
-    /// Reset mark to 0. Used by sweep on survivors to prep next cycle.
-    pub fn clear_mark(&self) {
-        self.marked.store(0, Ordering::Relaxed);
+    /// Clear the minor mark only (the minor sweep on a survivor).
+    #[inline]
+    pub fn clear_minor_mark(&self) {
+        crate::gc::refs::clear_minor_cell(&self.marked);
+    }
+
+    /// The stored major epoch (0 = never major-marked). Invariant checks only.
+    #[inline]
+    pub fn major_epoch(&self) -> u8 {
+        crate::gc::refs::major_epoch_of_cell(&self.marked)
     }
 
     /// Increment the soft-ref count for this entry. Called by `SoftGcRef::new`.

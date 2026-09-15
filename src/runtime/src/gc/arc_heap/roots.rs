@@ -21,6 +21,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn snapshot_roots_into_mark_queue(&self) -> usize {
         let mut queue = self.mark_queue.lock();
         queue.clear();
+        // add-incremental-major-gc M1: the cycle's epoch, opened by the caller (Phase 1).
+        let kind = self.major_mark();
         let mut count = 0usize;
         // Pinned roots — cloned under inner.lock() to release the lock
         // before any potential observer callbacks.
@@ -30,7 +32,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             i.roots.values().cloned().chain(i.handle_slab.strong_targets()).collect()
         };
         for v in roots {
-            if Self::mark_if_unmarked(&v) {
+            if Self::mark_if_unmarked(&v, kind) {
                 queue.push(v);
                 count += 1;
             }
@@ -39,7 +41,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let scanner_borrow = self.external_root_scanner.lock();
         if let Some(scan) = scanner_borrow.as_ref() {
             scan(&mut |v| {
-                if Self::mark_if_unmarked(v) {
+                if Self::mark_if_unmarked(v, kind) {
                     queue.push(v.clone());
                     count += 1;
                 }
@@ -60,9 +62,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if snap.is_empty() {
             return live;
         }
+        let major = self.major_mark();
         let region = self.region_object.lock();
         region.iterate_alive(|_h, entry| {
-            if entry.is_marked() {
+            if entry.is_marked(major) {
                 let obj = entry.value.lock();
                 let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
                 if let Some(cid) = snap.retained_context(td_ptr, &obj.native()) {

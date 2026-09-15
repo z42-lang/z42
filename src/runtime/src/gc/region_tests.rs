@@ -167,18 +167,58 @@ fn iterate_alive_handles_grow_correctly() {
 
 #[test]
 fn region_entry_mark_cas_idempotent() {
+    use crate::gc::refs::MarkKind::Minor;
     let mut r: Region<u64> = Region::new();
     let h = r.alloc(0);
     let e = r.resolve(h);
 
-    assert!(!e.is_marked());
-    assert!(e.mark(), "first mark CAS succeeds");
-    assert!(e.is_marked());
-    assert!(!e.mark(), "second mark CAS fails (already marked)");
+    assert!(!e.is_marked(Minor));
+    assert!(e.mark(Minor), "first mark CAS succeeds");
+    assert!(e.is_marked(Minor));
+    assert!(!e.mark(Minor), "second mark CAS fails (already marked)");
 
-    e.clear_mark();
-    assert!(!e.is_marked());
-    assert!(e.mark(), "after clear, mark succeeds again");
+    e.clear_minor_mark();
+    assert!(!e.is_marked(Minor));
+    assert!(e.mark(Minor), "after clear, mark succeeds again");
+}
+
+/// add-incremental-major-gc M1: the minor bit and the major epoch share one byte and must never
+/// disturb each other — a minor between two slices of a major cycle depends on it.
+#[test]
+fn minor_mark_and_major_epoch_are_independent() {
+    use crate::gc::refs::MarkKind::{Major, Minor};
+    let mut r: Region<u64> = Region::new();
+    let h = r.alloc(0);
+    let e = r.resolve(h);
+
+    assert!(e.mark(Major(5)));
+    assert!(e.mark(Minor), "a major mark does not count as a minor one");
+    assert!(e.is_marked(Major(5)), "setting the minor bit kept the epoch");
+    e.clear_minor_mark();
+    assert!(e.is_marked(Major(5)), "clearing the minor bit kept the epoch");
+    assert!(!e.is_marked(Minor));
+
+    assert!(e.mark(Minor));
+    assert!(!e.is_marked(Major(6)), "a new epoch reads as white — no reset needed");
+    assert!(e.mark(Major(6)));
+    assert!(e.is_marked(Minor), "re-marking for a new epoch kept the minor bit");
+    assert_eq!(e.major_epoch(), 6);
+}
+
+/// add-incremental-major-gc M1: the epoch sequence skips 0 (never-marked) and wraps 127 → 1, so a
+/// survivor of the previous cycle (epoch E) or a never-marked slot (0) is white in the next one.
+#[test]
+fn next_epoch_skips_zero_and_wraps() {
+    use crate::gc::refs::{next_epoch, MAX_MARK_EPOCH};
+    assert_eq!(next_epoch(0), 1);
+    assert_eq!(next_epoch(1), 2);
+    assert_eq!(next_epoch(MAX_MARK_EPOCH), 1);
+    let mut e = 0u8;
+    for _ in 0..1000 {
+        let n = next_epoch(e);
+        assert!(n != 0 && n != e && n <= MAX_MARK_EPOCH);
+        e = n;
+    }
 }
 
 #[test]

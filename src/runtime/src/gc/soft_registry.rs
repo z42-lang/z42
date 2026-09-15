@@ -104,16 +104,16 @@ impl ErasedSoftEntry {
 
     /// Re-mark the target if it is alive and currently unmarked.
     /// Returns `true` if the entry was successfully revived.
-    pub(crate) fn revive_if_unmarked(&self) -> bool {
+    pub(crate) fn revive_if_unmarked(&self, major: crate::gc::refs::MarkKind) -> bool {
         if !self.is_alive() { return false; }
         match self.kind {
             ErasedKind::Object => {
                 let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<crate::metadata::ScriptObject>) };
-                e.mark()
+                e.mark(major)
             }
             ErasedKind::Array => {
                 let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<Vec<crate::metadata::Value>>) };
-                e.mark()
+                e.mark(major)
             }
         }
     }
@@ -153,7 +153,7 @@ impl SoftRegistry {
     /// touches atomic fields on `RegionEntry`, no mutex needed.
     ///
     /// Returns the number of entries revived.
-    pub(crate) fn revive_snapshot(entries: &[ErasedSoftEntry], used_bytes: u64, max_bytes: u64) -> usize {
+    pub(crate) fn revive_snapshot(entries: &[ErasedSoftEntry], used_bytes: u64, max_bytes: u64, major: crate::gc::refs::MarkKind) -> usize {
         let threshold = soft_threshold_from_env();
         let ratio = if max_bytes == 0 {
             0.0_f64
@@ -165,7 +165,7 @@ impl SoftRegistry {
         }
         let mut revived = 0usize;
         for entry in entries {
-            if entry.revive_if_unmarked() {
+            if entry.revive_if_unmarked(major) {
                 revived += 1;
             }
         }

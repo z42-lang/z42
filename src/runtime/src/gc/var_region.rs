@@ -642,7 +642,7 @@ impl VarRegion {
     /// **fix-var-sweep-accounting**: the byte figure must mirror exactly what `used_bytes`
     /// was *charged* at alloc, or the auto-collect budget reads a number that drifts from
     /// the heap. See [`Self::alloc_charge_bytes`] for the per-`BlockType` rule.
-    pub fn sweep(&mut self) -> (usize, u64) {
+    pub fn sweep(&mut self, major: crate::gc::refs::MarkKind) -> (usize, u64) {
         let mut reclaimed = 0;
         let mut credited: u64 = 0;
         // **one-pass-major-sweep (2026-09-13)**: own the block index (`mem::take`) rather
@@ -659,8 +659,8 @@ impl VarRegion {
                 if !header.is_alive() {
                     continue;
                 }
-                if header.is_marked() {
-                    header.clear_mark();
+                if header.is_marked(major) {
+                    header.clear_minor_mark();
                     continue;
                 }
                 let charge = Self::alloc_charge_bytes(header);

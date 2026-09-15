@@ -37,6 +37,10 @@ impl Default for ArcMagrGC {
             promotion_policy: Default::default(),
             mark_queue: Mutex::new(Vec::new()),
             alloc_black: std::sync::atomic::AtomicBool::new(false),
+            // 1, not 0: 0 means "never major-marked", and marks placed before the first cycle
+            // (the concurrent barrier marks outside cycles) must not collide with the first
+            // cycle's epoch — `begin_major_mark` moves on to 2. See `ArcMagrGC::major_mark`.
+            mark_epoch: std::sync::atomic::AtomicU8::new(1),
             pause_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
             #[cfg(test)]
             barrier_observer: Mutex::new(None),

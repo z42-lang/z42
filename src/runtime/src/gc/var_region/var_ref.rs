@@ -127,9 +127,9 @@ impl VarGcRef {
     /// phase hold the region alive, so this is the mark-phase fast path (no generation check —
     /// a marked-but-stale block is harmless: it'll be swept anyway).
     #[inline]
-    pub fn mark(&self) -> bool {
+    pub fn mark(&self, kind: crate::gc::refs::MarkKind) -> bool {
         // SAFETY: mark phase holds the region; the header address is valid.
-        unsafe { self.header_ptr().as_ref().mark() }
+        unsafe { self.header_ptr().as_ref().mark(kind) }
     }
 
     /// **fix-primitives-count-as-young (2026-09-11)**: raise the block's `gen_age` to at least

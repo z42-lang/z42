@@ -1,6 +1,7 @@
 //! `ArcMagrGC` 分代 GC：minor/major/promotion/card + gen_age + write barriers。
 //! 从 `arc_heap.rs` 拆出（refactor-arc-heap-modularization）。
 
+use crate::gc::refs::MarkKind;
 use crate::gc::heap::MagrGC;
 use crate::metadata::{Value};
 use crate::gc::refs::{GcRef};
@@ -153,12 +154,16 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // dirty cards) and old *children* are never enqueued below, so tracing them
             // unmarked still terminates; the only cost is re-tracing an old object that
             // appears in the root set twice, which is O(its fields), not O(its subgraph).
-            if Self::gen_age_of(&v) < threshold {
-                if !Self::mark_if_unmarked(&v) { continue; }
+            // add-incremental-major-gc M1: an old entry is traced *through*, not marked — so its
+            // (equally old, see `age_backing_with_owner`) array backing must not pick up a minor
+            // bit either. That stray bit used to be wiped by the major's reset pass, which is gone.
+            let young = Self::gen_age_of(&v) < threshold;
+            if young {
+                if !Self::mark_if_unmarked(&v, MarkKind::Minor) { continue; }
                 marked += 1;
             }
 
-            v.trace_children(&mut |child| {
+            v.visit_gc_children(young.then_some(MarkKind::Minor), &mut |child| {
                 // Only enqueue **young heap references**. Old children that need re-rooting are
                 // already covered via dirty cards.
                 //
@@ -266,7 +271,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             return true;
         }
         let mut found = false;
-        v.trace_children(&mut |child| {
+        // Old entry: traced through, no marks (see the note in `mark_phase_minor`).
+        v.visit_gc_children(None, &mut |child| {
             // fix-primitives-count-as-young (2026-09-11): heap references only — see the note in
             // `mark_phase_minor`. Without the `is_heap_ref` guard a `Null` slot made `found` true,
             // so the card was never cleanable and this entry was rescanned at every minor forever.
@@ -403,7 +409,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn refers_to_young(&self, v: &Value) -> bool {
         let threshold = self.promotion_age();
         let mut found = false;
-        v.trace_children(&mut |child| {
+        // Inspection only — no marks (this used to mark array backings as a side effect).
+        v.visit_gc_children(None, &mut |child| {
             // fix-primitives-count-as-young (2026-09-11): **this one set the whole card table on
             // fire.** `gen_age_of(Value::Null)` is 0, which is `< threshold`, so any entry with a
             // single empty or primitive slot "referred to something young" — and both callers

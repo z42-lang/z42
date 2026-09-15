@@ -4,6 +4,10 @@
 //! under `cargo +nightly miri test -p z42 gc::var_region` before landing.
 
 use super::*;
+use crate::gc::refs::MarkKind;
+
+/// add-incremental-major-gc M1: the major kind these single-cycle tests mark and sweep with.
+const MAJOR: MarkKind = MarkKind::Major(1);
 
 /// Helper: write `bytes` into a freshly-allocated block and read them back.
 fn write_read_roundtrip(region: &mut VarRegion, bytes: &[u8], ty: BlockType) -> VarGcRef {
@@ -131,10 +135,10 @@ fn sweep_reclaims_unmarked_keeps_marked() {
     assert_eq!(r.live_count(), 4);
 
     // Mark the survivors.
-    assert!(keep.mark());
-    assert!(keep2.mark());
+    assert!(keep.mark(MAJOR));
+    assert!(keep2.mark(MAJOR));
 
-    let (reclaimed, credited) = r.sweep();
+    let (reclaimed, credited) = r.sweep(MAJOR);
     assert_eq!(reclaimed, 2, "two unmarked blocks reclaimed");
     // fix-var-sweep-accounting: only the Str block was charged to `used_bytes` at alloc
     // (header + its true payload length); the ArrayPrim block's bytes were charged — and
@@ -147,8 +151,9 @@ fn sweep_reclaims_unmarked_keeps_marked() {
     assert!(r.resolve(keep2).is_some());
     assert!(r.resolve(drop1).is_none());
 
-    // Marks cleared on survivors → a second sweep with no marks reclaims them.
-    let (reclaimed2, credited2) = r.sweep();
+    // add-incremental-major-gc M1: the next cycle's epoch makes the survivors white again, so a
+    // second sweep with no marks reclaims them.
+    let (reclaimed2, credited2) = r.sweep(MarkKind::Major(2));
     assert_eq!(reclaimed2, 2);
     assert_eq!(credited2, (GcBlockHeader::DATA_OFFSET + 16) as u64,
         "the surviving Str, now dead, credits its own payload — not the ArrayPrim's");
@@ -278,8 +283,8 @@ fn drop_glue_finalizes_payload_on_reclaim_and_teardown() {
         // (2) sweep of an unmarked block finalizes it.
         let _b = alloc_counter(&mut r);
         let keep = alloc_counter(&mut r);
-        assert!(keep.mark());
-        let (reclaimed, _) = r.sweep();
+        assert!(keep.mark(MAJOR));
+        let (reclaimed, _) = r.sweep(MAJOR);
         assert_eq!(reclaimed, 1);
         assert_eq!(DROP_COUNT.load(AOrd::SeqCst), 2, "sweep finalizes the unmarked block");
 
@@ -335,8 +340,8 @@ fn reclaim_dead_var_chunks_pools_dead_bump_chunks_among_dedicated_ones() {
 
     // One small block survives; everything else dies.
     let survivor = small[0];
-    assert!(survivor.mark());
-    r.sweep();
+    assert!(survivor.mark(MAJOR));
+    r.sweep(MAJOR);
     assert_eq!(r.live_count(), 1);
 
     let before = r.chunk_count();
@@ -503,7 +508,7 @@ fn sweep_young_reclaims_unmarked_and_keeps_marked() {
     let mut region = VarRegion::new();
     let keep = region.alloc(16, BlockType::Str);
     let drop_me = region.alloc(16, BlockType::Str);
-    keep.mark();
+    keep.mark(MarkKind::Minor);
 
     let (reclaimed, _credited) = region.sweep_young();
     assert_eq!(reclaimed, 1, "only the unmarked block is reclaimed");
@@ -521,9 +526,9 @@ fn sweep_young_reclaims_unmarked_and_keeps_marked() {
 fn sweep_young_clears_the_mark_on_survivors() {
     let mut region = VarRegion::new();
     let h = region.alloc(16, BlockType::Closure);
-    h.mark();
+    h.mark(MarkKind::Minor);
     region.sweep_young();
-    assert!(h.mark(), "mark was cleared, so a fresh mark CAS must win again");
+    assert!(h.mark(MarkKind::Minor), "mark was cleared, so a fresh mark CAS must win again");
 }
 
 #[test]
@@ -531,7 +536,7 @@ fn sweep_young_promotes_after_threshold_survivals() {
     let mut region = VarRegion::new();
     let h = region.alloc(16, BlockType::Str);
     for i in 1..=PROMOTION_THRESHOLD {
-        h.mark();
+        h.mark(MarkKind::Minor);
         region.sweep_young();
         // SAFETY: block still alive (it was marked each round).
         assert_eq!(unsafe { h.header_ptr().as_ref() }.gen_age(), i);
@@ -577,7 +582,7 @@ fn reclaimed_chunk_purges_young_list() {
     assert_eq!(region.young_count(), 384);
 
     // Nothing is marked → every block dies, so whole chunks become reclaimable.
-    region.sweep();
+    region.sweep(MAJOR);
     // Tombstone alone does not shrink the list — deletion is lazy by design.
     assert_eq!(region.young_count(), 384);
 
@@ -609,7 +614,7 @@ fn region_with_pooled_chunks() -> VarRegion {
         r.alloc(1024, BlockType::Str);
     }
     assert!(r.chunk_count() > 2, "expected several bump chunks");
-    r.sweep(); // nothing marked → every block dies
+    r.sweep(MAJOR); // nothing marked → every block dies
     assert!(r.reclaim_dead_var_chunks().pooled > 0, "fully-dead bump chunks must be pooled");
     r
 }
@@ -626,7 +631,7 @@ fn reclaim_does_not_scan_the_free_lists() {
     for _ in 0..384 {
         r.alloc(1024, BlockType::Str);
     }
-    r.sweep(); // nothing marked → every block dies, every slot enters a free list
+    r.sweep(MAJOR); // nothing marked → every block dies, every slot enters a free list
     let before: usize = r.free_lists.iter().map(|f| f.len()).sum();
     assert!(before > 0);
 
@@ -650,7 +655,7 @@ fn pooling_records_the_entries_it_staled() {
     for _ in 0..384 {
         r.alloc(1024, BlockType::Str);
     }
-    r.sweep();
+    r.sweep(MAJOR);
     let (pool, free) = r.partition_dead_chunks();
     let expected: usize = pool.iter().map(|&ci| r.all_blocks[ci].len()).sum();
     assert!(expected > 0);
@@ -712,7 +717,7 @@ fn stale_entries_are_compacted_rather_than_accumulating() {
         for _ in 0..384 {
             r.alloc(1024, BlockType::Str);
         }
-        r.sweep();
+        r.sweep(MAJOR);
         r.reclaim_dead_var_chunks();
         let entries: usize = r.free_lists.iter().map(|f| f.len()).sum();
         assert!(entries <= 384 * 2,
@@ -738,7 +743,7 @@ fn dead_oversized_chunk_is_freed_and_its_slot_reused() {
     assert_eq!(r.chunk_count(), 1, "one dedicated chunk, no bump chunk yet");
     let slots = r.chunk_slot_count();
 
-    r.sweep(); // nothing marked → the block dies
+    r.sweep(MAJOR); // nothing marked → the block dies
     assert!(r.resolve(h).is_none());
 
     let got = r.reclaim_dead_var_chunks();
@@ -776,8 +781,8 @@ fn live_oversized_chunk_is_never_freed() {
     // SAFETY: fresh handle into this region.
     unsafe { live.payload_mut().expect("resolves")[OVERSIZED_PAYLOAD - 1] = 0x5A };
 
-    assert!(live.mark());
-    r.sweep();
+    assert!(live.mark(MAJOR));
+    r.sweep(MAJOR);
 
     let got = r.reclaim_dead_var_chunks();
     assert_eq!(got.freed_chunks, 1, "only the unmarked one is freed");
@@ -802,7 +807,7 @@ fn oversized_churn_does_not_grow_the_per_chunk_tables() {
         for _ in 0..4 {
             r.alloc(OVERSIZED_PAYLOAD, BlockType::ArrayPrim);
         }
-        r.sweep();
+        r.sweep(MAJOR);
         let got = r.reclaim_dead_var_chunks();
         assert_eq!(got.freed_chunks, 4, "round {round}");
         assert_eq!(r.chunk_count(), 0, "round {round}: no chunk memory should survive");
@@ -832,8 +837,8 @@ fn freeing_a_dedicated_chunk_leaves_bump_chunk_indices_valid() {
         }
     }
     let survivor = small[small.len() - 1];
-    assert!(survivor.mark());
-    r.sweep();
+    assert!(survivor.mark(MAJOR));
+    r.sweep(MAJOR);
 
     let got = r.reclaim_dead_var_chunks();
     assert_eq!(got.freed_chunks, 4);

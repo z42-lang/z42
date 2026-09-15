@@ -1,6 +1,7 @@
 //! `ArcMagrGC` mark-sweep 原语：mark/sweep 阶段 + soft-ref 复活 + live 快照。
 //! 编排/控制 API 见 `control.rs`（refactor-arc-heap-modularization）。
 
+use crate::gc::refs::MarkKind;
 use crate::metadata::Value;
 use crate::gc::refs::{GcRef};
 use crate::gc::types::{FinalizerFn};
@@ -33,33 +34,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
         }
 
+        // add-incremental-major-gc M1: marks with the cycle's epoch, opened by the caller
+        // (`run_cycle_collection_stw`) — which is what whitens the heap; there is no reset pass.
+        let kind = self.major_mark();
         let mut newly_marked = 0usize;
         while let Some(v) = queue.pop() {
-            // Mark the allocation backing this Value; if already marked
-            // (or not a heap allocation at all, e.g. a primitive), skip.
-            let just_marked = match &v {
-                Value::Object(gc) => GcRef::mark(gc),
-                Value::Array(gc)  => GcRef::mark(gc),
-                // unify-gc-heap PR-2: mark the closure's `ClosureData` block in region_var;
-                // `trace_children` then pushes its `env` array so the env stays marked.
-                Value::Closure(c) => c.mark(),
-                // unify-gc-heap PR-4: strings are GC blocks now — mark the `BlockType::Str`
-                // block (leaf, no children to trace). `FuncRef` carries a `Str` name too.
-                Value::Str(s) => s.mark(),
-                Value::FuncRef(s) => s.mark(),
-                // add-boxed-struct-identity (P4b, 路 B2): a boxed struct is a shared
-                // `ScriptObject` in region_object — mark it like Object (trace_children
-                // then scans its `struct_refs` reference leaves).
-                Value::BoxedStruct(gc) => GcRef::mark(gc),
-                // make-value-copy: `Ref` / `StructRefHeap` are transient-arena handles —
-                // their payload's GcRefs are seeded as GC roots by `TransientArena::
-                // scan_roots`, so the handle itself marks nothing here (falls to `false`).
-                _ => false,
-            };
-            if !just_marked { continue; }
+            // Mark the allocation backing this Value; if already marked (or not a heap
+            // allocation at all, e.g. a primitive), skip.
+            if !Self::mark_if_unmarked(&v, kind) { continue; }
             newly_marked += 1;
 
-            v.trace_children(&mut |child| {
+            v.trace_children(kind, &mut |child| {
                 queue.push(child.clone());
             });
         }
@@ -73,17 +58,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// non-heap refs (Stack ref kinds). Single source of truth for
     /// "mark this value" — used by both `mark_phase` (when refactored
     /// in P4) and the concurrent path (P3 barrier, P4 mark loop).
-    pub(super) fn mark_if_unmarked(v: &Value) -> bool {
+    pub(super) fn mark_if_unmarked(v: &Value, kind: MarkKind) -> bool {
         match v {
-            Value::Object(gc) => GcRef::mark(gc),
-            Value::Array(gc)  => GcRef::mark(gc),
+            Value::Object(gc) => GcRef::mark(gc, kind),
+            Value::Array(gc)  => GcRef::mark(gc, kind),
             // unify-gc-heap PR-2: mark the closure block (region_var); env marked via trace.
-            Value::Closure(c) => c.mark(),
+            Value::Closure(c) => c.mark(kind),
             // unify-gc-heap PR-4: mark the string block (leaf). `FuncRef` carries a `Str`.
-            Value::Str(s) => s.mark(),
-            Value::FuncRef(s) => s.mark(),
+            Value::Str(s) => s.mark(kind),
+            Value::FuncRef(s) => s.mark(kind),
             // add-boxed-struct-identity (P4b, 路 B2): mark the boxed struct's shared ScriptObject.
-            Value::BoxedStruct(gc) => GcRef::mark(gc),
+            Value::BoxedStruct(gc) => GcRef::mark(gc, kind),
             // make-value-copy: `Ref` / `StructRefHeap` handles mark nothing here — their
             // payload GcRefs are seeded by `TransientArena::scan_roots` (GC root).
             _ => false,
@@ -106,6 +91,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Returns the count of objects marked during this drain (useful
     /// for tests + diagnostics). 0 on already-empty queue.
     pub(super) fn drain_mark_queue(&self) -> usize {
+        let kind = self.major_mark();
         let mut traced = 0usize;
         loop {
             // Take ownership of the current queue contents in one swap.
@@ -117,8 +103,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             }
             for v in &local {
                 traced += 1;
-                v.trace_children(&mut |child| {
-                    if Self::mark_if_unmarked(child) {
+                v.trace_children(kind, &mut |child| {
+                    if Self::mark_if_unmarked(child, kind) {
                         self.mark_queue.lock().push(child.clone());
                     }
                 });
@@ -158,6 +144,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             assert_eq!(q, 0, "BUG: sweep_phase entered with non-empty mark_queue ({q} items) — push happened between P5 drain and sweep start");
         }
         let mut freed_bytes: u64 = 0;
+        let major = self.major_mark();
 
         // Object region — **one-pass-major-sweep (2026-09-13)**: scan and tombstone in a
         // single walk (see `Region::sweep_all_in_one_pass`). This used to stage the dead in a
@@ -166,7 +153,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let sweep_objects = PhaseTimer::start("sweep/objects");
         let (obj_freed, obj_reclaimed) = {
             let mut region = self.region_object.lock();
-            region.sweep_all_in_one_pass(|entry| {
+            region.sweep_all_in_one_pass(major, |entry| {
                 let mut obj = entry.value.lock();
                 let size = Self::script_object_size_estimate(&obj);
                 // unify-object-byte-layout: break every strong reference edge — the
@@ -197,7 +184,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let sweep_arrays = PhaseTimer::start("sweep/arrays");
         let (arr_freed, arr_reclaimed) = {
             let mut region = self.region_array.lock();
-            region.sweep_all_in_one_pass(|entry| {
+            region.sweep_all_in_one_pass(major, |entry| {
                 let size = Self::array_size_estimate(&entry.value.lock());
                 // unify-gc-heap PR-3: no eager element drop here — the array's element
                 // storage lives in a `region_var` block (uniquely owned by this header),
@@ -225,7 +212,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // variable-length blocks and double-counted array storage, so `freed` could
             // exceed `used_before` and the auto-collect budget read low.
             let t = PhaseTimer::start("sweep/var");
-            let (reclaimed, credited) = self.region_var.lock().sweep();
+            let (reclaimed, credited) = self.region_var.lock().sweep(major);
             t.count(reclaimed);
             freed_bytes += credited;
         }
@@ -262,24 +249,33 @@ impl crate::gc::arc_heap::ArcMagrGC {
             (entries, max)
         };
         // revive_pass on snapshot — no lock held; only atomic field access.
-        let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes);
+        let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes, self.major_mark());
     }
 
-    /// **add-gc-stress-test (2026-05-22)**: clear `marked` on every
-    /// alive entry across both regions. Used by
-    /// `run_cycle_collection_stw` to guarantee mark-bit clean slate
-    /// when starting a STW cycle. Idempotent.
-    pub(super) fn reset_all_marks_in_regions(&self) {
-        self.region_object.lock().iterate_alive(|_h, e| e.clear_mark());
-        self.region_array.lock().iterate_alive(|_h, e| e.clear_mark());
-        // fix-minor-stale-mark-on-old-roots (2026-09-08): the variable-length region was
-        // missing here. It carries mark bits like the other two — `mark_backing` /
-        // `shade_var_newborn` set them, `sweep` clears them on survivors — so a block left
-        // marked by an aborted or mode-switched cycle would make the next `mark_phase` skip
-        // tracing a closure's `env` (exactly the use-after-free #533 fixed from the other
-        // end). Majors are rare (single digits per build), so one pass over the block list
-        // is the cheap half of the defensive reset the other two regions already got.
-        self.region_var.lock().iterate_alive(|_h, hdr| hdr.clear_mark());
+    /// **add-incremental-major-gc M1 (2026-09-15)**: open a major mark — advance this heap's
+    /// epoch and return the kind every mark of the cycle uses. This replaced the
+    /// `reset_all_marks_in_regions` pass (a walk over every alive entry and block, 6~11 ms
+    /// per major on `z42c.semantics`): a slot is major-marked only if it holds the *current*
+    /// epoch, so advancing it whitens the whole heap at once. Why that is safe is on
+    /// [`MarkKind`].
+    pub(super) fn begin_major_mark(&self) -> MarkKind {
+        let epoch = crate::gc::refs::next_epoch(self.mark_epoch.load(std::sync::atomic::Ordering::Relaxed));
+        self.mark_epoch.store(epoch, std::sync::atomic::Ordering::Relaxed);
+        MarkKind::Major(epoch)
+    }
+
+    /// The major kind of the cycle in progress (or of the last one).
+    ///
+    /// Marks can be placed with it **between** cycles — the concurrent-mode barrier shades
+    /// outside a cycle, and a test may mark by hand. That is harmless precisely because the next
+    /// `begin_major_mark` moves past it. The one way it could bite is if a stamp matched the
+    /// *next* epoch: this is why the epoch starts at 1 rather than 0 (an initial 0 read as 1
+    /// would equal the first cycle's epoch, and every object the barrier shaded before the first
+    /// collection would count as already marked — children untraced, a live array's backing
+    /// swept; `stress_seeded_concurrent_short` caught exactly that).
+    #[inline]
+    pub(super) fn major_mark(&self) -> MarkKind {
+        MarkKind::Major(self.mark_epoch.load(std::sync::atomic::Ordering::Relaxed))
     }
 
     /// Snapshot all alive Values across the heap's regions. Order:

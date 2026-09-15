@@ -1,6 +1,8 @@
 # GC 调参与自动回收 / safepoint 协议
 
-> 对齐：2026-09-11（按 change 倒序）：
+> 对齐：2026-09-16（按 change 倒序）：
+> `add-incremental-major-gc` M1：major 标记改**周期 epoch**，删除 `reset marks` 全堆遍历 ——
+> 新增「minor 位与 major epoch 同字节分治」一节；
 > `retune-gc-nursery-and-promotion-age` nursery 32M→16M + 晋升年龄 2→3（p90 停顿 −40%～−45%、
 > 峰值 RSS −5%～−23%），并补上全树唯一「会真正回收」的 perf scenario `12_gc_churn` ——
 > 新增「nursery 与晋升年龄是一对 —— 过早晋升」一节；
@@ -79,8 +81,8 @@ z42-gc:   minor sweep                   53.625 ms
 z42-gc: Cycle used 261.6M -> 115.4M  freed 146.2M  pause 64.6ms  (cycle 8)
 ```
 
-major 打的是另一组名字：`reset marks` / `full mark` / `sweep` 的四个半程 +
-`sweep/var` + `sweep/chunk reclaim` / `age survivors`。
+major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
+`sweep/var` + `sweep/chunk reclaim` / `age survivors`。（`reset marks` 已随 add-incremental-major-gc M1 删除，见下文 epoch 一节。）
 
 **怎么读这些行**——耗时单独看没有意义，要看它和**条目数的比值**：
 
@@ -342,9 +344,43 @@ minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位
 **「mark 位活过了它那一轮回收」是这套 GC 的惯犯 —— 任何新增的「置位但不由本轮清扫负责清位」的
 路径，先问它谁来清。**
 
-顺带补上了 `reset_all_marks_in_regions` 漏掉的变长区：它和另外两个 region 一样带 mark 位
-（`mark_backing` / `shade_var_newborn` 置位），少这一行就意味着一次中途放弃或换模式的回收
-留下的位会让下一次 `mark_phase` 跳过某个闭包的 `env`。
+（历史：当时顺带补上了 `reset_all_marks_in_regions` 漏掉的变长区。该遍历已被下一节的 epoch 取代。）
+
+## minor 位与 major epoch 同字节分治（add-incremental-major-gc M1，2026-09-16）
+
+每个 GC 槽（`RegionEntry` / `GcBlockHeader`）的 `marked` 字节拆成两段，由 `gc::refs::MarkKind` 统一读写：
+
+```
+bit 0      minor 标记    —— minor BFS 置位，minor sweep 清位
+bits 1..=7 major epoch   —— 1..=127；0 = 从未被 major 标记
+```
+
+**「major 已标记」⇔ 存的 epoch 等于本周期的 epoch。** 开一个 major 周期（`begin_major_mark`，只在周期入口调：
+`run_cycle_collection_stw` / 并发 Phase 1）就是把堆的 epoch 前进一格 —— 全堆**同时变白**，不再需要逐条清位的
+`reset marks`（`z42c.semantics` 上每次 major 6~11 ms，`13_gc_large_heap` 上每次 ~11 ms）。
+
+**为什么不会有陈旧 major 标记**：每次 major sweep 访问**全部** alive 条目 —— epoch 是当前值的留下（epoch 原样保留，
+这正是它下一轮自动变白的原因），不是的 tombstone。于是周期 `E` 结束后所有 alive 条目的 epoch ∈ {E, 0}，而下一个
+epoch 两者都不是（127 之后回绕到 1，同样成立）。
+
+两条踩过的坑（都有测试守着）：
+
+1. **epoch 按堆、且初值是 1。** 进程级计数器会被别的堆推着回绕到本堆上一轮的值。初值若是 0 再「读作 1」，
+   就会与第一个周期的 epoch 撞车：并发模式的屏障在第一次回收前给新对象打的标记会被当成「本轮已标记」，
+   子节点不追、活数组的 backing 被扫掉 —— `stress_seeded_concurrent_short` 抓到的正是这个。
+2. **minor 穿透老对象时不许顺手标记。** `trace_children(kind, …)` 会给数组的 backing 打同种标记；minor 穿透老
+   对象（见上一节）必须用不标记的 `visit_gc_children(None, …)`，否则老数组的（同样老的）backing 被置上 minor 位，
+   而过去替它擦掉的正是已经删除的 reset。`refers_to_young` 只做检查，同样用 `None`。major sweep 对幸存者顺带清
+   minor 位作兜底。
+
+`debug_validate_invariants` 的第 3 条相应改成：**alive ⇒ minor 位为 0，且 epoch ∈ {当前, 0}**。
+
+两段互不干扰还有一个用途：增量 major（后续里程碑）的切片之间要跑 minor，minor 只动 bit 0，不会擦掉未完成
+major 周期的标记。
+
+实测（交错 ×3，产物逐字节一致）：semantics 最大停顿 36~39 → 28~32 ms；`13_gc_large_heap` 的 `reset marks`
+161 ms → 0，但 `full mark` 同时 +85 ms —— 旧的 reset 遍历在标记前把每个条目摸了一遍，等于替标记预热了 cache；
+总停顿净 −4%。
 
 ## ⚠️ GC 模式的 CI 覆盖（gate stage `gc modes`）
 

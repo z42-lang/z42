@@ -344,7 +344,7 @@ impl ArrayObj {
     /// after the `ArrayObj` header (region_array) is marked — without this the
     /// element blocks in `region_var` would be swept out from under a live array.
     #[inline]
-    pub fn mark_backing(&self) {
+    pub fn mark_backing(&self, kind: crate::gc::refs::MarkKind) {
         match &self.backing {
             ArrayBacking::Boxed { block, .. }
             | ArrayBacking::Bool { block, .. }
@@ -352,8 +352,8 @@ impl ArrayObj {
             | ArrayBacking::I32 { block, .. }
             | ArrayBacking::I64 { block, .. }
             | ArrayBacking::Chars { block, .. }
-            | ArrayBacking::F64 { block, .. } => { block.mark(); }
-            ArrayBacking::StructBytes { bytes, refs, .. } => { bytes.mark(); refs.mark(); }
+            | ArrayBacking::F64 { block, .. } => { block.mark(kind); }
+            ArrayBacking::StructBytes { bytes, refs, .. } => { bytes.mark(kind); refs.mark(kind); }
             // Stack array: no GC block — the arena Vec is scanned as a root, nothing to mark.
             ArrayBacking::StackVec(_) => {}
         }

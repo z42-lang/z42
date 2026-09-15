@@ -530,6 +530,7 @@ impl<T> Region<T> {
     /// paying a `swap_remove` per dead entry here would be doing that work twice.
     pub fn sweep_all_in_one_pass(
         &mut self,
+        major: crate::gc::refs::MarkKind,
         mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
     ) -> (u64, usize) {
         let mut freed_bytes: u64 = 0;
@@ -544,8 +545,10 @@ impl<T> Region<T> {
                 if !entry.alive.load(Ordering::Acquire) {
                     continue;
                 }
-                if entry.is_marked() {
-                    entry.clear_mark();
+                if entry.is_marked(major) {
+                    // add-incremental-major-gc M1: the epoch stays (it is what makes this
+                    // survivor white again next cycle); only a stray minor bit is cleared.
+                    entry.clear_minor_mark();
                     continue;
                 }
                 let (fin, size) = prepare_dead(entry);

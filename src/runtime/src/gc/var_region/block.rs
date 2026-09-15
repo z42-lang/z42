@@ -214,24 +214,29 @@ impl GcBlockHeader {
         self.alive.load(Ordering::Acquire)
     }
 
-    /// Attempt to mark this block (0 → 1). Returns `true` if this call won the CAS.
+    /// Mark this block for `kind` (see [`crate::gc::refs::MarkKind`]). Returns `true` iff this
+    /// call made the transition.
     #[inline]
-    pub fn mark(&self) -> bool {
-        self.marked
-            .compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
+    pub fn mark(&self, kind: crate::gc::refs::MarkKind) -> bool {
+        crate::gc::refs::mark_cell(&self.marked, kind)
     }
 
-    /// Read the mark bit.
+    /// Whether this block carries `kind`'s mark.
     #[inline]
-    pub fn is_marked(&self) -> bool {
-        self.marked.load(Ordering::Relaxed) != 0
+    pub fn is_marked(&self, kind: crate::gc::refs::MarkKind) -> bool {
+        crate::gc::refs::is_marked_cell(&self.marked, kind)
     }
 
-    /// Reset the mark bit (sweep on survivors).
+    /// Clear the minor mark only (the minor sweep on a survivor).
     #[inline]
-    pub fn clear_mark(&self) {
-        self.marked.store(0, Ordering::Relaxed);
+    pub fn clear_minor_mark(&self) {
+        crate::gc::refs::clear_minor_cell(&self.marked);
+    }
+
+    /// The stored major epoch (0 = never major-marked). Invariant checks only.
+    #[inline]
+    pub fn major_epoch(&self) -> u8 {
+        crate::gc::refs::major_epoch_of_cell(&self.marked)
     }
 
     /// Current generation (full 32 bits — for tests / the handle guard).

@@ -7,7 +7,7 @@
 
 ## 进度概览
 - [x] M0: 度量与门禁（大堆 scenario + 停顿指标进 bench）
-- [ ] M1: 停顿内修剪（epoch 标记删 reset marks；age survivors 并入 sweep）
+- [x] M1: 停顿内修剪（epoch 标记删 reset marks）—— age 并入 sweep 挪 M2b、1.10 挪 M3（见各条）
 - [ ] M2a: SATB 屏障 + allocate-black epoch 化（周期仍一次性完成，只验证屏障与不变量）
 - [ ] M2b: 切片调度（Snapshot / Mark / Final / Sweep 分片 + 节奏 + 退化）
 - [ ] M2c: 验收（停顿目标、正确性配方、loom、文档）
@@ -37,17 +37,19 @@
 - [x] 0.6 GREEN（`xtask test` 全绿，基于 main `14925b02`）+ 本地 A/A `bench --ab --tier gate --mode jit`：9 条对比零假红，停顿子门禁 base 87.9 / pr 89.3 ms → ok
 
 ## M1: 停顿内修剪（不改屏障）
-- [ ] 1.1 `gc/region/entry.rs` + `gc/var_region/block.rs`：`marked` 拆 bit0 minor / bits1..=7 major epoch；minor / major 两套 mark API（保留对方位的 CAS）
-- [ ] 1.2 `gc/refs.rs` + `gc/var_region/var_ref.rs`：`GcRef` / `VarGcRef` 暴露 `mark_minor` / `mark_major` / `is_major_marked`
-- [ ] 1.3 `gc/arc_heap/collect.rs` + `control.rs`：major 周期前进 epoch；**删除 `reset_all_marks_in_regions`**；mark 用 major API
-- [ ] 1.4 `gc/arc_heap/generational.rs`：minor 全部改用 minor API（mark / is_marked / clear）
-- [ ] 1.5 `gc/region.rs` + `gc/region/generation.rs` + `gc/var_region.rs`：major sweep 按 epoch 判活，同一趟升龄年轻存活者（替代 `age_young_survivors`）
-- [ ] 1.6 `gc/arc_heap/alloc_black.rs`：allocate-black 写当前 epoch
-- [ ] 1.7 `debug_validate_invariants`：major sweep 后「alive ⇒ epoch ∈ {E, 0}」；minor sweep 后「alive ⇒ bit0 == 0」
-- [ ] 1.8 单测：epoch 回绕 130 周期无陈旧标记；新旧实现回收集合逐 handle 相同（STW 路径）
-- [ ] 1.9 实测：semantics max 停顿（目标 ≤ 25 ms）、总停顿 / RSS / 指令不回归；GREEN
-- [ ] 1.10 `gc/arc_heap/auto_collect.rs`：徒劳退避不得把 minor gate 乘过停顿预算（M0 实测 ×4 → ×16，一次 minor 86.9 ms）。
-      高存活率的正确回应是升级 major（pause-line 教训 6/7），不是放大 nursery
+- [x] 1.1 `gc/region/entry.rs` + `gc/var_region/block.rs`：`marked` 拆 bit0 minor / bits1..=7 major epoch（统一编码在 `gc/refs.rs` 的 `MarkKind` + `mark_cell` 系列）
+- [x] 1.2 `gc/refs.rs` + `gc/var_region/var_ref.rs` + `metadata/vstr.rs` + `metadata/types/array_access.rs`：`mark(kind)` / `is_marked(kind)` / `clear_minor_mark`；`trace_children(kind)` / `visit_gc_children(Option<MarkKind>)`
+- [x] 1.3 `collect.rs` + `control.rs`：epoch **按堆、初值 1**，`begin_major_mark` 只在周期入口；**删除 `reset_all_marks_in_regions`**
+      （初值 0 读作 1 会与首周期撞：`stress_seeded_concurrent_short` 抓到并发屏障首次回收前的标记被当成已标记）
+- [x] 1.4 `generational.rs`：minor 用 `Minor`；**穿透老对象 / `refers_to_young` 用不标记的遍历**（原先会给老数组 backing 置位，一直靠 reset 擦）
+- [x] 1.5 major sweep 按 epoch 判活，存活者清 minor 位兜底。**「同一趟升龄」挪到 M2b**：稳态 age survivors 只 ~4 ms，M2b 要把 sweep 重写成切片，不做两遍
+- [x] 1.6 `alloc_black.rs`：allocate-black 用当前 epoch
+- [x] 1.7 `debug.rs` 校验器：alive ⇒ minor 位清 且 epoch ∈ {当前, 0}（新增陈旧 minor 位 / 当前 epoch 不算陈旧两测）
+- [x] 1.8 单测：minor 位与 epoch 互不干扰、epoch 序列跳 0 且回绕；5 个编码「sweep 清位」旧语义的测试改为新不变量
+- [x] 1.9 实测（交错 ×3，产物逐字节一致）：semantics max 36~39 → **28~32 ms（未达 ≤ 25 ms 目标）**、总停顿约 −6%；
+      `13_gc_large_heap` reset 161 ms → 0 但 full mark +85 ms（旧 reset 在替标记预热 cache），总 −4%，max 不变 ~90 ms。GREEN 全绿（main `6d57a694`）
+- [x] 1.10 **评估后否决现形态、挪到 M3**：去掉「退避放大 minor gate」后 `13_gc_large_heap` max 90 → 70 ms，但 `09_alloc_ctorless` 墙钟
+      **+70%~160%**（回收 3 → 9 次、总停顿 179 → 507~542 ms、max 反升到 150+）。要的是按停顿预算自适应 nursery，不是删退避
 
 ## M2a: SATB 屏障（周期仍一次性完成）
 - [ ] 2.1 `gc/satb.rs`（NEW）+ `gc/mod.rs`：`MARKING_ACTIVE`、`remember`、线程本地缓冲 + 全局兜底队列、flush
@@ -79,5 +81,8 @@
 - [ ] 4.5 归档本 change；memory 更新
 
 ## 备注
+- 2026-09-16：本地复测一度以为 M1 让 `cargo test --lib` 慢 10× 且间歇失败 —— 查清与本 change 无关：
+  慢是环境（已供种 worktree 里 `VmContext::new` 会加载真 stdlib）；间歇失败是 main 既有的 **`config_tests::with_env`
+  改真实环境时抢先初始化了进程级 `runtime_config()`，把整个测试进程的默认 GC 模式定成 concurrent**，已单独修（fix-config-tests-leak-gc-mode）。
 - 行数棘轮：`gc/arc_heap/alloc.rs` 在基线 601 上，改动须净增 0 行（说明性注释放新模块）。
 - 教训 49/50/51：每个里程碑的收益用两个二进制交错实测，并同时在 4M / 8M nursery 下验证（major 落点敏感）。

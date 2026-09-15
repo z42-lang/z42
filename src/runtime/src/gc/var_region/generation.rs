@@ -124,12 +124,12 @@ impl VarRegion {
             // cleaned — which is exactly what happens when owner and elements go old
             // together. Measured, that is a live `Stream`'s method table vanishing mid-build.
             if header.gen_age() >= threshold {
-                header.clear_mark();
+                header.clear_minor_mark();
                 header.set_in_young(false);
                 continue;
             }
-            if header.is_marked() {
-                header.clear_mark();
+            if header.is_marked(crate::gc::refs::MarkKind::Minor) {
+                header.clear_minor_mark();
                 if header.bump_gen_age() >= threshold {
                     header.set_in_young(false);
                 } else {
