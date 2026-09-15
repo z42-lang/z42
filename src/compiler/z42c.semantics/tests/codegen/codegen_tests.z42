@@ -960,9 +960,9 @@ void test_objnew_bare_key_is_ambiguous_between_ctor_and_ctorless() {
 
 [Test]
 void test_objnew_field_init_keeps_synth_ctor_key() {
-    // 有**字段初始化器**但无显式 ctor：z42c 仍合成一个隐式 ctor 函数
-    // （`IrGenTypeEmitter._emitSynthCtor`），而它**不是 MethodSymbol** —— 任何「这个类有没有
-    // 构造器」的判据若只看符号表就会误判成「零构造器」，把字段初始化整个跳过。
+    // 有**字段初始化器**但无显式 ctor：z42c 合成一个默认 ctor。add-implicit-base-ctor-call 起它在收集期
+    // 就注册为普通 MethodSymbol（`CtorInheritance`）；此前它只在 IR 期发射、不是符号 —— 任何「这个类有没有
+    // 构造器」的判据若只看符号表就会误判成「零构造器」，把字段初始化整个跳过。本用例守住调用侧键不变。
     string src = "class C { int V = 7; } class D { C Make() { return new C(); } }";
     Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
                  IrDump.DumpFunc(src, "D.Make"));

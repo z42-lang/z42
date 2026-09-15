@@ -12,81 +12,6 @@ public sealed class DeclBinder {
     private TypeChecker _tc;
     public DeclBinder(TypeChecker tc) { this._tc = tc; }
 
-    internal void _synthCtors(SemanticModel model, SymbolTable symbols, CompilationUnit cu) {
-        StrMap clsMap = new StrMap();   // 简单名 → ClassDecl（本地 class/struct/record）
-        int i0 = 0;
-        while (i0 < cu.DeclCount) {
-            Decl d0 = this._tc._unwrap(cu.Decls[i0]);
-            if (d0 is ClassDecl) {
-                ClassDecl cc = d0 as ClassDecl;
-                if (cc.Kind == "class" || cc.Kind == "struct") { clsMap.Put(cc.Name, cc); }
-            }
-            i0 = i0 + 1;
-        }
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._tc._unwrap(cu.Decls[i]);
-            if (d is ClassDecl) {
-                ClassDecl c = d as ClassDecl;
-                if ((c.Kind == "class" || c.Kind == "struct") && !this._hasExplicitInstanceCtor(c)) {
-                    string ctKey = c.Name;
-                    if (c.TypeParams.Count > 0) { string mk = c.Name + "$" + c.TypeParams.Count.ToString(); if (symbols.HasClass(mk)) { ctKey = mk; } }
-                    Z42ClassType ct = symbols.GetClass(ctKey);
-                    if (ct != null) {
-                        // 收集祖先链（self→root）
-                        ClassDecl[] chain = new ClassDecl[8]; int chainN = 0;
-                        StrMap seen = new StrMap();
-                        ClassDecl cur = c;
-                        Z42ClassType curCt = ct;
-                        while (cur != null && !seen.ContainsKey(cur.Name)) {
-                            seen.Put(cur.Name, "1");
-                            if (chainN == chain.Length) { ClassDecl[] b = new ClassDecl[chain.Length * 2]; int z = 0; while (z < chainN) { b[z] = chain[z]; z = z + 1; } chain = b; }
-                            chain[chainN] = cur; chainN = chainN + 1;
-                            if (curCt == null || !curCt.HasBase || curCt.BaseName == "" || !clsMap.ContainsKey(curCt.BaseName)) { cur = null; }
-                            else { cur = clsMap.Get(curCt.BaseName) as ClassDecl; curCt = symbols.GetClass(curCt.BaseName); }
-                        }
-                        // 绑定环境：this + 全部字段（含继承，_passInheritFields 已并入）。
-                        // add-readonly-fields-opt：合成 ctor 的字段初始化器也是 ctor-this 上下文 → readonly 初始化器合法。
-                        var env = TypeEnv.Root(symbols).WithClassGenericCtor(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
-                        env.Define("this", ct);
-                        DeclBinder._defineInstanceFields(env, ct);
-                        // root→self 顺序绑定字段 init 赋值
-                        BoundStmt[] inits = new BoundStmt[16]; int ic = 0;
-                        int chx = chainN - 1;
-                        while (chx >= 0) {
-                            ClassDecl cd = chain[chx];
-                            Z42ClassType cdCt = symbols.GetClass(cd.Name);
-                            int mj = 0;
-                            while (mj < cd.MemberCount) {
-                                Decl mem = this._tc._unwrap(cd.Members[mj]);
-                                if (mem is FieldDecl) {
-                                    FieldDecl fd = mem as FieldDecl;
-                                    FieldSymbol fsym = (cdCt != null) ? (cdCt.Fields.Get(fd.Name) as FieldSymbol) : null;
-                                    if (fd.HasInit && fsym != null && !fsym.IsStatic) {
-                                        Expr tgt = new MemberExpr(new IdentExpr("this", fd.Span), fd.Name, fd.Span);
-                                        Expr asn = new AssignExpr("=", tgt, fd.Init, fd.Span);
-                                        if (ic == inits.Length) { BoundStmt[] b2 = new BoundStmt[inits.Length * 2]; int z = 0; while (z < ic) { b2[z] = inits[z]; z = z + 1; } inits = b2; }
-                                        inits[ic] = new BoundExprStmt(this._tc._expr._bindExpr(asn, env), fd.Span); ic = ic + 1;
-                                    }
-                                } else if (mem is PropertyDecl) {
-                                    BoundStmt pinit = this._propInstanceInit(mem as PropertyDecl, cdCt, env);
-                                    if (pinit != null) {
-                                        if (ic == inits.Length) { BoundStmt[] b3 = new BoundStmt[inits.Length * 2]; int z = 0; while (z < ic) { b3[z] = inits[z]; z = z + 1; } inits = b3; }
-                                        inits[ic] = pinit; ic = ic + 1;
-                                    }
-                                }
-                                mj = mj + 1;
-                            }
-                            chx = chx - 1;
-                        }
-                        if (ic > 0) { model.AddBody(ctKey + "." + c.Name, new BoundBlock(inits, ic, c.Span)); }
-                    }
-                }
-            }
-            i = i + 1;
-        }
-    }
-
     // add-static-properties：实例 auto 属性初始化器 `T P { get; set; } = e;` → `this.__prop_P = e`。
     // **直写后备、不经 setter**（对标 C#：初始化器是字段初始化，派生类 override 的 setter 不参与；get-only
     // 没有 setter 也能初始化）。`__prop_P` 不在 Fields 表里 ⇒ AccessEmitter 按原名发 field_set，恰好落到后备。
@@ -111,19 +36,6 @@ public sealed class DeclBinder {
             if (!fs.IsStatic) { env.Define(fnames[k], fs.FieldType); }
             k = k + 1;
         }
-    }
-
-    private bool _hasExplicitInstanceCtor(ClassDecl c) {
-        int j = 0;
-        while (j < c.MemberCount) {
-            Decl m = this._tc._unwrap(c.Members[j]);
-            if (m is MethodDecl) {
-                MethodDecl md = m as MethodDecl;
-                if (md.IsCtor && !TypeFactsTc._hasWordTc(md.Mods, "static")) { return true; }
-            }
-            j = j + 1;
-        }
-        return false;
     }
 
     internal void _checkDuplicateFreeFunctions(CompilationUnit cu) {
@@ -517,6 +429,42 @@ public sealed class DeclBinder {
         return new BoundBlock(merged, ic + origN, body.Span);
     }
 
+    // add-implicit-base-ctor-call：候选里是否有能以零个实参调用的实例 ctor（无参 / 形参全带默认值 / 只有 params 尾参）。
+    // 本地 ctor 看声明；导入 ctor 没有声明，看签名携带的默认值 / caller 宏 / ParamsFrom。
+    internal static bool _anyAcceptsZeroArgs(MethodSymbol[] ctors) {
+        int i = 0;
+        while (i < ctors.Length) {
+            MethodSymbol m = ctors[i];
+            if (m.HasDecl && m.Decl != null) {
+                int pc = m.Decl.ParamCount;
+                bool ok = true;
+                int p = 0;
+                while (p < pc) {
+                    Param pr = m.Decl.Params[p];
+                    if (pr.Default == null && !(pr.IsParams && p == pc - 1)) { ok = false; }
+                    p = p + 1;
+                }
+                if (ok) { return true; }
+            } else if (m.Signature != null) {
+                Z42FuncType sig = m.Signature;
+                bool ok2 = true;
+                int q = 0;
+                while (q < sig.ParamCount) {
+                    bool isParams = sig.ParamsFrom >= 0 && q == sig.ParamsFrom;
+                    bool hasDefault = sig.ParamDefaults != null && q < sig.ParamDefaults.Length
+                                      && sig.ParamDefaults[q] != null && sig.ParamDefaults[q] != "";
+                    bool hasCaller = sig.ParamCallers != null && q < sig.ParamCallers.Length
+                                     && sig.ParamCallers[q] != null && sig.ParamCallers[q] != "";
+                    if (!isParams && !hasDefault && !hasCaller) { ok2 = false; }
+                    q = q + 1;
+                }
+                if (ok2) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
     private BoundStmt _bindMethodBody(SymbolTable symbols, TypeEnv env, MethodDecl md) {
         int p = 0;
         while (p < md.ParamCount) {
@@ -532,48 +480,52 @@ public sealed class DeclBinder {
         this._validateCallerMacroDefaults(env, md);
         Z42Type ret = env.ResolveType(md.RetType);
         BoundStmt body = this._tc._stmt._bindStmt(md.Body, env, ret);
-        // ctor 初始化调用：ctor + 写了初始化子句 → 在体首插入 call @TargetCls.CtorKey %0, ...args。
-        // IsThisInit → `: this(args)` 委托同类 ctor（TargetCls = curCls）；
-        // 否则 → `: base(args)` 调用基类 ctor（TargetCls = baseCls）。镜像 C# FunctionEmitter
-        // BoundThisCtorArgs / BoundBaseCtorArgs 两分支。
-        // fix-ctor-init-silent-bugs：门曾是 `BaseArgCount > 0` ⇒ 零实参的 `: this()` / `: base()` 整条被丢
-        // （目标 ctor 不跑、零诊断）。「有没有子句」与「几个实参」是两件事，前者看 HasCtorInit。
-        if (md.IsCtor && md.HasCtorInit) {
+        // ctor 初始化调用 → 在体首插入 call @TargetCls.CtorKey %0, ...args（镜像 C# FunctionEmitter
+        // BoundThisCtorArgs / BoundBaseCtorArgs 两分支）：
+        //   · `: this(args)` → 委托同类 ctor；`: base(args)` → 基类 ctor；
+        //   · add-implicit-base-ctor-call：**没写子句**的实例 ctor ⇒ 隐式 `: base()`（对齐 C#）。基类没有任何
+        //     实例 ctor ⇒ 无可调、不发调用；有 ctor 但无一可零实参调用 ⇒ E0469（须显式 `: base(...)`）。
+        // 目标 ctor 的选择与实参适配（按类型的重载决议 / 命名实参 / 默认值 / params）与 `new` 共用
+        // `BindCtorArgs`——此前这里只按实参个数取键，是另一套口径。
+        // fix-ctor-init-silent-bugs：「有没有子句」看 HasCtorInit，不看实参个数（零实参子句曾被整条丢弃）。
+        if (md.IsCtor && !TypeFactsTc._hasWordTc(md.Mods, "static")) {
             Z42Type thisType = env.LookupVar("this");
             if (thisType is Z42ClassType) {
                 Z42ClassType curCls = thisType as Z42ClassType;
                 Z42ClassType targetCls = null;
                 string targetName = "";
-                if (md.IsThisInit) {
+                if (md.HasCtorInit && md.IsThisInit) {
                     targetCls = curCls;
                     targetName = curCls.Name();
-                } else if (curCls.HasBase && curCls.BaseName != "") {
+                } else if (curCls.HasBase && curCls.BaseName != "" && curCls.BaseName != "Object") {
                     targetCls = symbols.GetClass(curCls.BaseName);
                     targetName = curCls.BaseName;
                 }
-                string bKey = "";
-                if (targetCls != null) { bKey = this._tc._overload._ctorKey(targetCls, md.BaseArgCount); }
-                // enforce-ctor-visibility：初始化子句的目标构造器同样受可见性约束（派生类不能调基类 private 构造器；
-                // protected 放行；`: this(..)` 在本类内，private 放行）。
-                if (targetCls != null) {
-                    MethodSymbol tsym = targetCls.Methods.Get(bKey) as MethodSymbol;
-                    if (tsym != null && !tsym.IsStatic) {
-                        this._tc._access.CheckAccess(tsym.Visibility, tsym.ContainingTypeName, env, symbols, "constructor", targetName, md.Span);
+                int argc = md.HasCtorInit ? md.BaseArgCount : 0;
+                if (targetCls != null && argc == 0 && !(md.HasCtorInit && md.IsThisInit)) {
+                    MethodSymbol[] tctors = targetCls.InstanceCtors();
+                    if (tctors.Length == 0) {
+                        targetCls = null;   // 基类没有构造器：没有可调用的目标
+                    } else if (!md.HasCtorInit && !DeclBinder._anyAcceptsZeroArgs(tctors)) {
+                        // 合成的默认构造器（派生类没写构造器、基类构造器又全是 private 继承不到）用户看不见，换一句能照做的提示。
+                        string e0469 = md.IsSynthesized
+                            ? "`" + curCls.Name() + "` has no constructor and cannot inherit one from `" + targetName
+                              + "` (its constructors are not accessible or all take arguments); declare a constructor that calls `: base(...)`"
+                            : "constructor of `" + curCls.Name() + "` must call a base constructor: `" + targetName
+                              + "` has no constructor accepting 0 arguments (add `: base(...)`)";
+                        this._tc._diags.Error("E0469", e0469, md.Span);
+                        targetCls = null;
                     }
                 }
-                // 零实参子句而目标类没有无参**实例** ctor（典型：`: base()` 指向没写 ctor 的基类）⇒ 无可调，
-                // 不发调用——`_ctorKey` 此时回落裸类名，发出去就是对不存在函数的调用。带实参的子句保持原路径。
-                if (targetCls != null && md.BaseArgCount == 0) {
-                    MethodSymbol bSym = targetCls.Methods.Get(bKey) as MethodSymbol;
-                    if (bSym == null || bSym.IsStatic) { targetCls = null; }
-                }
                 if (targetCls != null) {
-                    BoundExpr[] callArgs = new BoundExpr[md.BaseArgCount + 1];
+                    Expr[] rawArgs = md.HasCtorInit ? md.BaseArgs : new Expr[0];
+                    BoundCtorArgs ca = this._tc._expr.BindCtorArgs(targetCls, rawArgs, argc, env, md.Span);
+                    BoundExpr[] callArgs = new BoundExpr[ca.Args.Length + 1];
                     callArgs[0] = new BoundIdent("this", thisType, md.Span);
                     int ba = 0;
-                    while (ba < md.BaseArgCount) { callArgs[ba + 1] = this._tc._expr._bindExpr(md.BaseArgs[ba], env); ba = ba + 1; }
-                    BoundCall baseCall = new BoundCall("base_ctor", false, null, targetName, bKey,
-                                                        callArgs, md.BaseArgCount + 1, new Z42VoidType(), md.Span);
+                    while (ba < ca.Args.Length) { callArgs[ba + 1] = ca.Args[ba]; ba = ba + 1; }
+                    BoundCall baseCall = new BoundCall("base_ctor", false, null, targetName, ca.Key,
+                                                        callArgs, ca.Args.Length + 1, new Z42VoidType(), md.Span);
                     BoundExprStmt baseStmt = new BoundExprStmt(baseCall, md.Span);
                     BoundStmt[] stmts = null;
                     int sc = 0;

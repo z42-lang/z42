@@ -1,0 +1,14 @@
+namespace Demo.Base;
+using Std;
+
+// add-implicit-base-ctor-call：跨包形态的基类（与 Mid.z42 分处两个文件 ⇒ 同时覆盖同包跨文件）。
+public class Shape {
+    public string Name;
+    public int Sides;
+    public Shape(string name, int sides = 3) { this.Name = name; this.Sides = sides; }
+}
+
+// 只有字段初始化器：合成默认构造器随 TSIG 导出，下游派生类才调得到
+public class Plain {
+    public int p = 9;
+}
