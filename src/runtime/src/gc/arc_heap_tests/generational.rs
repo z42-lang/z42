@@ -1045,7 +1045,7 @@ fn minor_leaves_no_mark_on_any_entry() {
 
     for v in [&old_owner, &young] {
         let Value::Object(g) = v else { panic!() };
-        assert!(!GcRef::is_marked(g), "a minor must not leave a mark bit set");
+        assert!(!GcRef::is_marked(g, crate::gc::refs::MarkKind::Minor), "a minor must not leave a mark bit set");
     }
 }
 

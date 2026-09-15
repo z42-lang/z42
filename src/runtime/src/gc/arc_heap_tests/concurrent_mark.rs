@@ -22,10 +22,9 @@ fn snapshot_roots_marks_and_enqueues_pinned_roots() {
     let queue = heap.mark_queue_for_test();
     assert_eq!(queue.len(), 1);
     let Value::Object(rc) = &obj else { panic!() };
-    assert!(GcRef::is_marked(rc), "root is marked after snapshot");
+    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()), "root is marked after snapshot");
 
     // Reset so other tests aren't affected.
-    GcRef::clear_mark(rc);
 }
 
 #[test]
@@ -45,9 +44,6 @@ fn snapshot_roots_idempotent_on_already_marked() {
     assert_eq!(second, 0, "already-marked roots not counted again");
     assert_eq!(heap.mark_queue_for_test().len(), 0,
         "queue empty when no new roots marked");
-
-    let Value::Object(rc) = &obj else { panic!() };
-    GcRef::clear_mark(rc);
 }
 
 #[test]
@@ -80,8 +76,7 @@ fn snapshot_roots_includes_external_scanner_output() {
     assert_eq!(count, 1, "external scanner yielded 1 root → 1 mark");
 
     let Value::Object(rc) = &external_obj else { panic!() };
-    assert!(GcRef::is_marked(rc));
-    GcRef::clear_mark(rc);
+    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()));
 }
 
 #[test]
@@ -89,19 +84,19 @@ fn mark_if_unmarked_returns_true_first_then_false() {
     let heap = ArcMagrGC::new();
     let obj = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
 
-    assert!(ArcMagrGC::mark_if_unmarked_for_test(&obj), "first call marks");
-    assert!(!ArcMagrGC::mark_if_unmarked_for_test(&obj), "second call CAS fails");
+    assert!(heap.mark_if_unmarked_for_test(&obj), "first call marks");
+    assert!(!heap.mark_if_unmarked_for_test(&obj), "second call CAS fails");
 
     let Value::Object(rc) = &obj else { panic!() };
-    assert!(GcRef::is_marked(rc));
-    GcRef::clear_mark(rc);
+    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()));
 }
 
 #[test]
 fn mark_if_unmarked_returns_false_for_primitives() {
-    assert!(!ArcMagrGC::mark_if_unmarked_for_test(&Value::I64(1)));
-    assert!(!ArcMagrGC::mark_if_unmarked_for_test(&Value::Null));
-    assert!(!ArcMagrGC::mark_if_unmarked_for_test(&Value::Bool(true)));
+    let heap = ArcMagrGC::new();
+    assert!(!heap.mark_if_unmarked_for_test(&Value::I64(1)));
+    assert!(!heap.mark_if_unmarked_for_test(&Value::Null));
+    assert!(!heap.mark_if_unmarked_for_test(&Value::Bool(true)));
     // unify-gc-heap PR-4: `Value::Str` is now a GC heap ref (not a primitive) —
     // it marks like any heap object (covered by `mark_if_unmarked_marks_string`).
 }
@@ -110,9 +105,10 @@ fn mark_if_unmarked_returns_false_for_primitives() {
 fn mark_if_unmarked_marks_string() {
     // unify-gc-heap PR-4: strings are GC blocks; the first mark wins the CAS, the
     // second fails (idempotent), exactly like Object/Closure.
+    let heap = ArcMagrGC::new();
     let s = Value::Str("hello".into());
-    assert!(ArcMagrGC::mark_if_unmarked_for_test(&s), "first call marks the string block");
-    assert!(!ArcMagrGC::mark_if_unmarked_for_test(&s), "second call CAS fails");
+    assert!(heap.mark_if_unmarked_for_test(&s), "first call marks the string block");
+    assert!(!heap.mark_if_unmarked_for_test(&s), "second call CAS fails");
     // (leaked test block — no need to clear the mark; never swept/reused.)
 }
 
@@ -139,7 +135,7 @@ fn barrier_field_no_op_in_stw_mode() {
     assert!(heap.mark_queue_for_test().is_empty(),
         "STW mode → barrier is no-op, mark_queue stays empty");
     let Value::Object(rc) = &new else { panic!() };
-    assert!(!GcRef::is_marked(rc),
+    assert!(!GcRef::is_marked(rc, heap.major_mark_for_test()),
         "STW mode → barrier does not mark new value");
 }
 
@@ -156,10 +152,8 @@ fn barrier_field_shades_new_value_in_concurrent_mode() {
     let queue = heap.mark_queue_for_test();
     assert_eq!(queue.len(), 1, "concurrent mode → barrier pushes new to mark_queue");
     let Value::Object(rc) = &new else { panic!() };
-    assert!(GcRef::is_marked(rc),
+    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()),
         "concurrent mode → barrier marks new value gray");
-
-    GcRef::clear_mark(rc);
 }
 
 #[test]
@@ -175,8 +169,7 @@ fn barrier_array_shades_new_value_in_concurrent_mode() {
     let queue = heap.mark_queue_for_test();
     assert_eq!(queue.len(), 1);
     let Value::Object(rc) = &new else { panic!() };
-    assert!(GcRef::is_marked(rc));
-    GcRef::clear_mark(rc);
+    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()));
 }
 
 #[test]
@@ -193,9 +186,6 @@ fn barrier_idempotent_on_already_marked_in_concurrent_mode() {
     let queue = heap.mark_queue_for_test();
     assert_eq!(queue.len(), 1,
         "duplicate write → CAS fails second time → no re-enqueue");
-
-    let Value::Object(rc) = &new else { panic!() };
-    GcRef::clear_mark(rc);
 }
 
 // ── P4b: End-to-end concurrent collect via VmContext ──────────────────────
@@ -385,8 +375,9 @@ fn concurrent_collect_inline_with_simulated_barrier_marks_late_writes() {
 
 #[test]
 fn concurrent_collect_inline_resets_marks_on_survivors() {
-    // Sweep's reset-marks behavior must apply under concurrent path too —
-    // survivors come back unmarked for the next cycle.
+    // Survivors must come back white for the next cycle under the concurrent path too.
+    // add-incremental-major-gc M1: a survivor keeps this cycle's epoch; opening the next epoch
+    // is what whitens it (there is no per-survivor reset any more).
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::ConcurrentMarkSweep);
 
@@ -395,13 +386,15 @@ fn concurrent_collect_inline_resets_marks_on_survivors() {
 
     heap.run_cycle_collection_concurrent_inline_for_test();
     let Value::Object(rc) = &root else { panic!() };
-    assert!(!GcRef::is_marked(rc),
-        "sweep resets survivor's mark for next cycle");
+    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()), "survivor carries this cycle's epoch");
+    heap.reset_marks_for_test();
+    assert!(!GcRef::is_marked(rc, heap.major_mark_for_test()),
+        "the next cycle's epoch leaves the survivor white");
 
-    // Second cycle should still preserve root.
+    // Second cycle should still preserve root (and stamp it with that cycle's epoch).
     heap.run_cycle_collection_concurrent_inline_for_test();
     assert_eq!(alive_count(&heap), 1);
-    assert!(!GcRef::is_marked(rc));
+    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()));
 
     heap.unpin_root(pin);
 }
@@ -423,9 +416,6 @@ fn barrier_mode_switch_takes_effect_immediately_on_next_write() {
 
     let queue = heap.mark_queue_for_test();
     assert_eq!(queue.len(), 1, "switch effective on next write");
-
-    let Value::Object(rc) = &n2 else { panic!() };
-    GcRef::clear_mark(rc);
 }
 
 // ── investigate-concurrent-gc-stale-mark-race 3.2: marking-period allocate-black ──
@@ -475,10 +465,11 @@ fn allocate_black_keeps_an_object_that_becomes_a_root_after_the_snapshot() {
         "an object allocated during the concurrent cycle must survive that cycle \
          — allocate-black is what makes that true");
 
-    // Retention is for exactly one cycle, not forever: sweep clears survivors'
-    // marks, so the newborn leaves the cycle white and the next one can take it.
+    // Retention is for exactly one cycle, not forever: the newborn keeps this cycle's epoch,
+    // so the next cycle's epoch (add-incremental-major-gc M1) sees it white and can take it.
     let Value::Object(fresh_rc) = &fresh else { panic!() };
-    assert!(!GcRef::is_marked(fresh_rc), "newborn leaves the cycle white");
+    heap.reset_marks_for_test();
+    assert!(!GcRef::is_marked(fresh_rc, heap.major_mark_for_test()), "newborn is white to the next cycle");
 
     heap.unpin_root(fresh_pin);
     heap.unpin_root(old_pin);

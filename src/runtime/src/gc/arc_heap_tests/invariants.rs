@@ -109,13 +109,40 @@ fn validation_detects_stale_mark_in_region_object() {
     let heap = ArcMagrGC::new();
     let v = heap.alloc_object(dummy_type_desc("MarkLeak"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
-    // Manually mark + don't clear → sweep would normally clear; we
-    // simulate the leak.
+    // add-incremental-major-gc M1: a stale mark is now an epoch that is neither the current one
+    // nor 0 — which a sweep can never leave behind. Stamp one by hand.
     let Value::Object(gc) = &v else { panic!() };
-    GcRef::mark(gc);
-    assert!(GcRef::is_marked(gc));
+    let stale = crate::gc::refs::MarkKind::Major(100);
+    assert_ne!(stale, heap.major_mark_for_test());
+    GcRef::mark(gc, stale);
+    assert!(GcRef::is_marked(gc, stale));
 
     heap.debug_validate_invariants();  // expected panic
+}
+
+/// add-incremental-major-gc M1: a leftover **minor** bit is stale too — the next minor would skip
+/// tracing the entry's children.
+#[test]
+#[should_panic(expected = "stale mark bit in region_object")]
+fn validation_detects_stale_minor_mark_in_region_object() {
+    let heap = ArcMagrGC::new();
+    let v = heap.alloc_object(dummy_type_desc("MinorLeak"), vec![], NativeData::None);
+    let _pin = heap.pin_root(v.clone());
+    let Value::Object(gc) = &v else { panic!() };
+    GcRef::mark(gc, crate::gc::refs::MarkKind::Minor);
+    heap.debug_validate_invariants();  // expected panic
+}
+
+/// add-incremental-major-gc M1: the current epoch is **not** stale — it is exactly what a survivor
+/// of the last cycle holds.
+#[test]
+fn validation_accepts_current_epoch() {
+    let heap = ArcMagrGC::new();
+    let v = heap.alloc_object(dummy_type_desc("Survivor"), vec![], NativeData::None);
+    let _pin = heap.pin_root(v.clone());
+    let Value::Object(gc) = &v else { panic!() };
+    GcRef::mark(gc, heap.major_mark_for_test());
+    heap.debug_validate_invariants();
 }
 
 #[test]

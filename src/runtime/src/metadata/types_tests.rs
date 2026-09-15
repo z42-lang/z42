@@ -119,7 +119,7 @@ ScriptObject::new(dummy_type_desc("Owner"), {
         })));
 
     let mut visited_object_children = 0usize;
-    owner.trace_children(&mut |v: &Value| {
+    owner.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| {
         if matches!(v, Value::Object(_)) { visited_object_children += 1; }
     });
     // Only the reference leaf in `refs` is an object; `bytes` holds no GcRefs.
@@ -179,7 +179,7 @@ fn inline_object_field_roundtrips_and_is_traced() {
     // GC must reach the leaf THROUGH the inlined pointer in `bytes` (side-table is empty).
     let hv = Value::Object(holder);
     let mut visited = 0usize;
-    hv.trace_children(&mut |v: &Value| if matches!(v, Value::Object(_)) { visited += 1; });
+    hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { visited += 1; });
     assert_eq!(visited, 1, "trace_children visits the byte-inlined object ref");
 }
 
@@ -226,13 +226,13 @@ fn clear_inline_refs_erases_every_inlined_pointer() {
 
     let hv = Value::Object(holder.clone());
     let mut before = 0usize;
-    hv.trace_children(&mut |v: &Value| if matches!(v, Value::Object(_)) { before += 1; });
+    hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { before += 1; });
     assert_eq!(before, 1, "the edge exists before the erase");
 
     holder.borrow_mut().clear_inline_refs();
 
     let mut after = 0usize;
-    hv.trace_children(&mut |v: &Value| if matches!(v, Value::Object(_)) { after += 1; });
+    hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { after += 1; });
     assert_eq!(after, 0, "clear_inline_refs breaks the byte-inlined edge");
     assert!(matches!(holder.borrow().field_value(0), Value::Null), "the window reads back Null");
 }

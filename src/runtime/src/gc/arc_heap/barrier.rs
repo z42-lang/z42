@@ -87,7 +87,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     new.is_heap_ref(),
                     "write_barrier_field caller must filter primitives via Value::is_heap_ref"
                 );
-                if Self::mark_if_unmarked(new) {
+                if Self::mark_if_unmarked(new, self.major_mark()) {
                     #[cfg(debug_assertions)]
                     debug_assert!(
                         !self.debug_stw_no_push.load(std::sync::atomic::Ordering::SeqCst),
@@ -125,7 +125,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     new.is_heap_ref(),
                     "write_barrier_array_elem caller must filter primitives via Value::is_heap_ref"
                 );
-                if Self::mark_if_unmarked(new) {
+                if Self::mark_if_unmarked(new, self.major_mark()) {
                     self.mark_queue.lock().push(new.clone());
                 }
             }

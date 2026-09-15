@@ -229,7 +229,7 @@ impl MagrGC for ArcMagrGC {
         // unify-gc-heap PR-5: read-only graph enumeration is now the `for_marking = false`
         // mode of the single-source `Value::visit_gc_children` (no mark side effects; a
         // closure's captured refs are descended directly). Snapshot / retention only.
-        value.visit_gc_children(false, visitor);
+        value.visit_gc_children(None, visitor);
     }
 
     // ── 5. Collection control ────────────────────────────────────────────────

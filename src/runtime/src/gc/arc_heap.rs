@@ -378,6 +378,11 @@ pub struct ArcMagrGC {
     /// [`super::arc_heap::alloc_black`] for why this exists, why the span must
     /// include `Marking`, and what it costs.
     alloc_black: std::sync::atomic::AtomicBool,
+    /// **add-incremental-major-gc M1 (2026-09-15)**: this heap's current major mark epoch
+    /// (1..=127; starts at 1, so the first major opens 2). Per heap, not per process: another heap advancing a
+    /// shared counter could wrap it onto this heap's last epoch and make stale marks read as
+    /// current. See [`crate::gc::refs::MarkKind`].
+    mark_epoch: std::sync::atomic::AtomicU8,
     /// **add-gc-pause-histogram (2026-05-22)**: aggregate pause-time
     /// histogram. Recorded into at the end of every `collect_cycles` /
     /// `collect_cycles_with_context` / `force_collect` path, right

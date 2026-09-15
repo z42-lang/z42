@@ -104,8 +104,8 @@ impl Str {
     /// call won the mark CAS. Strings are leaves (no outgoing references), so
     /// nothing more is traced. Called from `arc_heap`'s `Value::Str` mark arm.
     #[inline]
-    pub fn mark(&self) -> bool {
-        self.block.mark()
+    pub fn mark(&self, kind: crate::gc::refs::MarkKind) -> bool {
+        self.block.mark(kind)
     }
 
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: generation age of this string's GC

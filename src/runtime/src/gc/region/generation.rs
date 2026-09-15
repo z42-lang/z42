@@ -261,10 +261,10 @@ impl<T> Region<T> {
             }
             let age = entry.gen_age();
             if age == observed_age {
-                observe(entry.is_marked());
+                observe(entry.is_marked(crate::gc::refs::MarkKind::Minor));
             }
-            if entry.is_marked() {
-                entry.clear_mark();
+            if entry.is_marked(crate::gc::refs::MarkKind::Minor) {
+                entry.clear_minor_mark();
                 let new_age = age.saturating_add(1);
                 entry.gen_age.store(new_age, Ordering::Release);
                 let h = RegionHandle {

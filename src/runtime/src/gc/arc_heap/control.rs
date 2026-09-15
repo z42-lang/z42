@@ -76,11 +76,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // cargo-direct paths (no safepoint) this is the sole retire that keeps a
         // borrowed chunk from being skipped by sweep. Idempotent when unbound.
         self.retire_thread_tlab();
-        // Defensive reset: ensure clean state for STW mark.
-        {
-            let _t = PhaseTimer::start("reset marks");
-            self.reset_all_marks_in_regions();
-        }
+        // add-incremental-major-gc M1: no reset pass — a new epoch whitens every slot, including
+        // anything an aborted concurrent cycle left marked (see `MarkKind`).
+        self.begin_major_mark();
         self.mark_queue.lock().clear();
         let _newly_marked = {
             let t = PhaseTimer::start("full mark");
@@ -201,6 +199,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 self.begin_alloc_black();
 
                 // Phase 1: STW root snapshot (still holding initial pause).
+                self.begin_major_mark();
                 self.snapshot_roots_into_mark_queue();
 
                 // Phase 2: Yield to ConcurrentMarking — mutators resume.

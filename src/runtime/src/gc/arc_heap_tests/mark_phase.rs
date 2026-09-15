@@ -37,10 +37,10 @@ fn mark_phase_visits_reachable_only() {
     let Value::Object(b_gc) = &b else { panic!() };
     let Value::Object(c_gc) = &c else { panic!() };
     let Value::Object(d_gc) = &d else { panic!() };
-    assert!(GcRef::is_marked(a_gc), "a (root) must be marked");
-    assert!(GcRef::is_marked(b_gc), "b (reachable via a.refs[0]) must be marked");
-    assert!(GcRef::is_marked(c_gc), "c (reachable via b.refs[0]) must be marked");
-    assert!(!GcRef::is_marked(d_gc), "d (unreachable) must stay unmarked");
+    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()), "a (root) must be marked");
+    assert!(GcRef::is_marked(b_gc, heap.major_mark_for_test()), "b (reachable via a.refs[0]) must be marked");
+    assert!(GcRef::is_marked(c_gc, heap.major_mark_for_test()), "c (reachable via b.refs[0]) must be marked");
+    assert!(!GcRef::is_marked(d_gc, heap.major_mark_for_test()), "d (unreachable) must stay unmarked");
 
     // Cleanup so other tests are unaffected.
     heap.unpin_root(root_handle);
@@ -83,9 +83,9 @@ fn mark_phase_handles_array_children() {
     let Value::Array(arr_gc)  = &arr  else { panic!() };
     let Value::Object(e1_gc) = &elem1 else { panic!() };
     let Value::Object(e2_gc) = &elem2 else { panic!() };
-    assert!(GcRef::is_marked(arr_gc));
-    assert!(GcRef::is_marked(e1_gc));
-    assert!(GcRef::is_marked(e2_gc));
+    assert!(GcRef::is_marked(arr_gc, heap.major_mark_for_test()));
+    assert!(GcRef::is_marked(e1_gc, heap.major_mark_for_test()));
+    assert!(GcRef::is_marked(e2_gc, heap.major_mark_for_test()));
     heap.reset_marks_for_test();
 }
 
@@ -112,8 +112,8 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
 
     let Value::Object(a_gc) = &a else { panic!() };
     let Value::Object(b_gc) = &b else { panic!() };
-    assert!(!GcRef::is_marked(a_gc));
-    assert!(!GcRef::is_marked(b_gc));
+    assert!(!GcRef::is_marked(a_gc, heap.major_mark_for_test()));
+    assert!(!GcRef::is_marked(b_gc, heap.major_mark_for_test()));
 
     // Clear cycle before drop so trial-deletion (still default) doesn't
     // see stale shapes from other tests.
@@ -125,6 +125,7 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
 
 #[test]
 fn clear_mark_resets_state() {
+    // add-incremental-major-gc M1: "clearing" a major mark is opening the next epoch.
     let heap = ArcMagrGC::new();
     let a = heap.alloc_object(dummy_type_desc("A"), vec![Value::Null], NativeData::None);
     let _root = heap.pin_root(a.clone());
@@ -133,10 +134,9 @@ fn clear_mark_resets_state() {
     heap.mark_phase();
 
     let Value::Object(a_gc) = &a else { panic!() };
-    assert!(GcRef::is_marked(a_gc));
-
-    GcRef::clear_mark(a_gc);
-    assert!(!GcRef::is_marked(a_gc));
+    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()));
+    heap.reset_marks_for_test();
+    assert!(!GcRef::is_marked(a_gc, heap.major_mark_for_test()));
 }
 
 // ── add-mark-sweep-collector P2 (2026-05-21): sweep + full cycle ────────────
@@ -271,12 +271,14 @@ fn sweep_resets_marks_on_survivors() {
     heap.collect_cycles_mark_sweep_for_test();
 
     let Value::Object(a_gc) = &a else { panic!() };
-    assert!(!GcRef::is_marked(a_gc), "survivor's mark must be reset after sweep");
+    // add-incremental-major-gc M1: the survivor keeps this cycle's epoch; the next epoch whitens it.
+    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()), "survivor carries this cycle's epoch");
+    heap.reset_marks_for_test();
+    assert!(!GcRef::is_marked(a_gc, heap.major_mark_for_test()), "survivor is white to the next cycle");
 
-    // Run again — should still preserve a (mark phase will re-mark; sweep
-    // will reset). Verifies the cycle is repeatable.
+    // Run again — should still preserve a (a new epoch, re-marked). Verifies the cycle is repeatable.
     heap.collect_cycles_mark_sweep_for_test();
-    assert!(!GcRef::is_marked(a_gc));
+    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()));
     assert_eq!(alive_count(&heap), 1);
 
     heap.unpin_root(root_handle);

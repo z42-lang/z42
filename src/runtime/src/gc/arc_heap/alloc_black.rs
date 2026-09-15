@@ -72,7 +72,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     #[inline]
     pub(super) fn shade_newborn(&self, value: Value) -> Value {
         if self.allocating_black() {
-            Self::mark_if_unmarked(&value);
+            Self::mark_if_unmarked(&value, self.major_mark());
         }
         value
     }
@@ -85,7 +85,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         vref: crate::gc::var_region::VarGcRef,
     ) -> crate::gc::var_region::VarGcRef {
         if self.allocating_black() {
-            vref.mark();
+            vref.mark(self.major_mark());
         }
         vref
     }

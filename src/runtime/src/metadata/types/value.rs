@@ -266,7 +266,7 @@ impl Value {
     /// is scanned directly by the external root scanner, so walking here would double-count).
     /// [`Value::is_heap_ref`] is the matching predicate; this is the traversal.
     #[inline]
-    pub fn visit_gc_children(&self, for_marking: bool, visit: &mut dyn FnMut(&Value)) {
+    pub fn visit_gc_children(&self, marking: Option<crate::gc::refs::MarkKind>, visit: &mut dyn FnMut(&Value)) {
         match self {
             Value::Object(rc) => {
                 let obj = rc.borrow();
@@ -279,14 +279,14 @@ impl Value {
             }
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                if for_marking { arr.mark_backing(); }  // unify-gc-heap PR-3: keep the element block(s) alive
+                if let Some(kind) = marking { arr.mark_backing(kind); }  // unify-gc-heap PR-3: keep the element block(s) alive
                 for elem in arr.gc_refs() { visit(elem); }  // add-struct-heap-inline (P3b): incl struct[] refs
             }
             Value::Closure(vref) => {
                 // unify-gc-heap PR-2/PR-5: the closure's `ClosureData` is a GC block in region_var.
                 // SAFETY: a reachable closure names an alive block; payload is one ClosureData.
                 let data = unsafe { &*vref.payload_as_ptr::<ClosureData>() };
-                if for_marking {
+                if marking.is_some() {
                     // Push the env array *header* (so the mark loop marks its region_array entry
                     // and re-traces its elements — one indirection past the pre-PR-2 behaviour)
                     // and the `fn_name` GC string (PR-5, a leaf), so both blocks stay live.
@@ -327,12 +327,12 @@ impl Value {
         }
     }
 
-    /// GC mark-phase traversal — thin wrapper over [`Value::visit_gc_children`] with
-    /// `for_marking = true`. `#[inline]` so the constant flag folds away on the hot
-    /// mark loop (identical codegen to the pre-convergence dedicated match).
+    /// GC mark-phase traversal — thin wrapper over [`Value::visit_gc_children`] for a mark of
+    /// `kind` (array backings are marked with the same kind). `#[inline]` so the constant
+    /// folds away on the hot mark loop.
     #[inline]
-    pub fn trace_children(&self, visit: &mut dyn FnMut(&Value)) {
-        self.visit_gc_children(true, visit);
+    pub fn trace_children(&self, kind: crate::gc::refs::MarkKind, visit: &mut dyn FnMut(&Value)) {
+        self.visit_gc_children(Some(kind), visit);
     }
 }
 
