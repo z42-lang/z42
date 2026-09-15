@@ -1,0 +1,194 @@
+// add-call-arity-diagnostics：普通调用实参个数校验（E1005 缺必填实参 / E1006 实参过多）。
+//
+// 判定 = `OverloadBinder._withDefaults`（全部方法调用形态的汇聚点）+ `_checkLocalFnArity`（局部函数）+
+// `ConstructTyper` 跨包 ctor 补位前的 `_crossPkgMissingRequired`。
+//
+// 🔴 **这组用例是这两个码唯一的门**：落地时全仓普查（compiler + stdlib + scripts + 全部 fixture）
+// 违例 = 0（#652 的运行期签名判定已把既有调用点全修掉），真实代码上它们永远不响——没有本文件，
+// 实现对错都恒绿。每个阳性都配一个「个数合法」的对照，断言**码 + 条数**（一次调用只报一条）。
+namespace Z42cSemanticsCallArityTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+
+// ⚠️ 辅助函数带 `ar` 前缀：同一测试工程里各文件的自由函数目前按裸名共用一张表（见 crosspkg_duplicate 的注）。
+
+DiagnosticBag arBody(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int arCount(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// 一个依赖包 `demo.api`（ns Demo.Api）的导出面 → 消费方单 CU 编译 → 全部诊断消息。
+string[] arCrossPkg(string depSrc, string mainSrc) {
+    ExportedModuleZ[] ems = new ExportedModuleZ[1];
+    ems[0] = IrDump.ExtractExports(depSrc, "dep.z42", "Demo.Api");
+    string[] pkgs = new string[1]; pkgs[0] = "demo.api";
+    string[] us = new string[1]; us[0] = "Demo.Api";
+    ImportedSymbols imp = ImportedSymbolLoader.Load(ems, pkgs, 1, us, 1);
+    string[] srcs = new string[1];  srcs[0] = mainSrc;
+    string[] files = new string[1]; files[0] = "main.z42";
+    CompiledModuleZ[] cms = IrDump.BuildPackage(srcs, files, 1, null, imp, false);
+    int total = 0;
+    int i = 0;
+    while (i < cms.Length) { total = total + cms[i].DiagCount; i = i + 1; }
+    string[] r = new string[total];
+    int n = 0;
+    i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { r[n] = cms[i].DiagMsgs[j]; n = n + 1; j = j + 1; }
+        i = i + 1;
+    }
+    return r;
+}
+
+int arMsgCount(string[] msgs, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < msgs.Length) { if (msgs[i].Contains(code)) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// ── 自由函数 ───────────────────────────────────────────────────────────────
+
+[Test]
+void free_func_too_many_reports_E1006() {
+    DiagnosticBag d = arBody("void F(int a) { } void Main() { F(1, 2); }");
+    Assert.Equal(1, arCount(d, "E1006"));
+    Assert.Equal(1, d.Count());
+}
+
+[Test]
+void free_func_missing_required_reports_E1005() {
+    DiagnosticBag d = arBody("void F(int a, int b) { } void Main() { F(1); }");
+    Assert.Equal(1, arCount(d, "E1005"));
+    Assert.Equal(1, d.Count());
+}
+
+[Test]
+void free_func_omitted_default_is_clean() {
+    Assert.Equal(0, arBody("void F(int a, int b = 2) { } void Main() { F(1); }").Count());
+}
+
+[Test]
+void named_arg_leaving_required_unfilled_reports_E1005() {
+    // 命名实参给了 b、没给 a（无默认值）——此前 `_adaptArgs` 返回 null 后原样发出 1 个实参。
+    DiagnosticBag d = arBody("void F(int a, int b) { } void Main() { F(b: 1); }");
+    Assert.Equal(1, arCount(d, "E1005"));
+}
+
+[Test]
+void ns_qualified_free_call_too_many_reports_E1006() {
+    // `ns.func()` 形式此前只绑定、不经汇聚点。
+    DiagnosticBag d = arBody("namespace N;\nint F(int a) { return a; }\nvoid Main() { N.F(1, 2); }");
+    Assert.Equal(1, arCount(d, "E1006"));
+}
+
+// ── 实例 / 静态方法 ─────────────────────────────────────────────────────────
+
+[Test]
+void unique_instance_method_too_many_reports_E1006() {
+    // 同名方法唯一 ⇒ `_resolveOverload` 兜底直接选中，此前不看实参个数（`Assert.True(c, msg)` 即此形）。
+    DiagnosticBag d = arBody("class C { public void M(int a) { } } void Main() { C c = new C(); c.M(1, 2); }");
+    Assert.Equal(1, arCount(d, "E1006"));
+    Assert.Equal(1, d.Count());
+}
+
+[Test]
+void instance_method_missing_required_reports_E1005() {
+    DiagnosticBag d = arBody("class C { public void M(int a, int b) { } } void Main() { C c = new C(); c.M(1); }");
+    Assert.Equal(1, arCount(d, "E1005"));
+}
+
+[Test]
+void static_method_too_many_reports_E1006() {
+    // `File.Copy(a, b, true)` 对二参 Copy 即此形。
+    DiagnosticBag d = arBody("class C { public static void S(int a, int b) { } } void Main() { C.S(1, 2, 3); }");
+    Assert.Equal(1, arCount(d, "E1006"));
+}
+
+[Test]
+void static_method_exact_and_default_are_clean() {
+    Assert.Equal(0, arBody("class C { public static void S(int a, int b = 1) { } } void Main() { C.S(1); C.S(1, 2); }").Count());
+}
+
+[Test]
+void unqualified_static_call_missing_required_reports_E1005() {
+    // 同类无限定静态调用此前不经汇聚点（不补默认值、不校验个数）。
+    DiagnosticBag d = arBody("class C { static void S(int a, int b) { } public static void Go() { S(1); } }");
+    Assert.Equal(1, arCount(d, "E1005"));
+}
+
+[Test]
+void unqualified_static_call_fills_default() {
+    // 汇入汇聚点的正向收益：默认值此前在这条路径上根本不补。
+    Assert.Equal(0, arBody("class C { static void S(int a, int b = 2) { } public static void Go() { S(1); } }").Count());
+}
+
+// ── 静态形式调实例方法（接收者作首参：`Int32.ToString(n)`）──────────────────
+
+[Test]
+void receiver_first_static_form_is_clean() {
+    Assert.Equal(0, arBody("class K { public int V() { return 1; } } void Main() { K k = new K(); int x = K.V(k); }").Count());
+}
+
+[Test]
+void static_form_instance_call_without_receiver_reports_E1005() {
+    DiagnosticBag d = arBody("class K { public int V() { return 1; } } void Main() { int x = K.V(); }");
+    Assert.Equal(1, arCount(d, "E1005"));
+    Assert.Equal(1, d.Count());
+}
+
+[Test]
+void static_form_instance_call_extra_arg_reports_E1006() {
+    DiagnosticBag d = arBody("class K { public int V() { return 1; } } void Main() { K k = new K(); int x = K.V(k, 2); }");
+    Assert.Equal(1, arCount(d, "E1006"));
+}
+
+// ── 局部函数 ───────────────────────────────────────────────────────────────
+
+[Test]
+void local_function_wrong_count_reports() {
+    DiagnosticBag d = arBody("void Main() { int G(int a) { return a; } int x = G(1, 2); int y = G(); }");
+    Assert.Equal(1, arCount(d, "E1006"));
+    Assert.Equal(1, arCount(d, "E1005"));
+}
+
+// ── 跨包（导入签名：无 Decl，默认值来自 `$Default`）────────────────────────
+//
+// ⚠️ 这里只放**阳性**。「省略的缺位有默认值 → 不误报」的对照**不能**在单测里造：`IrDump.ExtractExports`
+// 从源码合成导出面，**不携带 `$Default`**（真实 zpkg 经 param attr-ref 携带）⇒ 造出来的签名永远「无默认值」。
+// 该对照由 e2e `cross-zpkg/param_default_cross_pkg`（方法，9 种默认值形态）与 `crosspkg_ctor_default`
+// （构造器）承担——两者都在 GREEN gate 内，误报即编译失败。
+
+[Test]
+void crosspkg_static_missing_required_reports_E1005() {
+    // 此前 `_crossPkgDefault` 给缺位**补零值** ⇒ 实参个数「对了」，连运行期签名判定都拦不住。
+    string[] d = arCrossPkg("namespace Demo.Api;\npublic class Api { public static int Add(int a, int b) { return a + b; } }",
+                            "namespace App;\nusing Demo.Api;\nclass M { public static int Go() { return Api.Add(1); } }");
+    Assert.Equal(1, arMsgCount(d, "E1005"));
+}
+
+[Test]
+void crosspkg_ctor_missing_required_reports_E1005() {
+    // E0426 只校验本地有 Decl 的 ctor；imported ctor 此前同样补零值。
+    string[] d = arCrossPkg("namespace Demo.Api;\npublic class Sized { public int W; public Sized(int w, int h) { this.W = w; } }",
+                            "namespace App;\nusing Demo.Api;\nclass M { public static int Go() { Sized s = new Sized(5); return s.W; } }");
+    Assert.Equal(1, arMsgCount(d, "E1005"));
+}
