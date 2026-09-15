@@ -26,6 +26,53 @@ void test_strmap_ops() {
     Assert.True(keys.Length == 2);
 }
 
+// StrMap 空表不分配（perf 2026-09-15）：新表指向共享哨兵数组，第一次 Put 才长到 16 槽。
+// 守的是哨兵的两条不变量：空表上所有读入口都当「未命中」；往一张表写不会经哨兵串到另一张空表。
+[Test]
+void test_strmap_empty_reads_do_not_allocate_or_hit() {
+    StrMap m = new StrMap();
+    Assert.True(m.Count() == 0);
+    Assert.True(!m.ContainsKey("a"));
+    Assert.True(m.Find("a") == -1);
+    int h = "a".GetHashCode();
+    Assert.True(m.FindHashed("a", h) == -1);
+    Assert.True(!m.ContainsKeyHashed("a", h));
+    Assert.True(m.Get("a") == null);
+    Assert.True(m.Keys().Length == 0);
+    // 槽位直扫协议（Capacity + UsedArr）在空表上扫不出任何槽。
+    bool[] used = m.UsedArr();
+    int seen = 0;
+    int i = 0;
+    while (i < m.Capacity()) {
+        if (used[i]) { seen = seen + 1; }
+        i = i + 1;
+    }
+    Assert.True(seen == 0);
+}
+
+[Test]
+void test_strmap_first_put_does_not_leak_into_other_empty_maps() {
+    StrMap a = new StrMap();
+    StrMap b = new StrMap();
+    a.Put("k", "v");
+    Assert.True(a.Count() == 1);
+    Assert.True(a.ContainsKey("k"));
+    Assert.True(a.Capacity() == 16);             // 与旧构造器的初始容量一致 ⇒ 槽布局不变
+    Assert.True(b.Count() == 0);
+    Assert.True(!b.ContainsKey("k"));
+    Assert.True(b.Get("k") == null);
+    Assert.True(!b.UsedArr()[0]);               // 哨兵从未被写
+    StrMap c = new StrMap();                     // 之后新建的表同样干净
+    Assert.True(!c.ContainsKey("k"));
+    // 继续写到触发第二次扩容（16 → 32），键全部仍在。
+    int n = 0;
+    while (n < 20) { a.Put("key" + n, "x"); n = n + 1; }
+    Assert.True(a.Count() == 21);
+    Assert.True(a.Capacity() == 64);             // 16 → 32（第 8 条）→ 64（第 16 条）
+    n = 0;
+    while (n < 20) { Assert.True(a.ContainsKey("key" + n)); n = n + 1; }
+}
+
 // ByteWriter：LE 宽度写入 + varint + patch（zbc 序列化底座）。
 [Test]
 void test_bytewriter_widths_and_patch() {

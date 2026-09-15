@@ -113,13 +113,9 @@ int _testDistRun(string modeArg) {
         // The optional mode positional (formerly Z42_DIST_MODES); empty → both.
         if (modeArg.Length == 0) { modeArg = "interp jit"; }
         string[] modes = _splitWords(modeArg);
-        int mi = 0;
-        while (mi < modes.Length) {
-            int[] mres = _runDistMode(modes[mi], root, z42c, z42vm, libsDir, work);
-            overallPass = overallPass + mres[0];
-            overallFail = overallFail + mres[1];
-            mi = mi + 1;
-        }
+        int[] gres = _runDistGoldens(modes, root, z42c, z42vm, libsDir, work);
+        overallPass = overallPass + gres[0];
+        overallFail = overallFail + gres[1];
     }
 
     Console.WriteLine("══════════════════════════════════════");
@@ -129,65 +125,158 @@ int _testDistRun(string modeArg) {
     return 0;
 }
 
-// One mode's golden run: compile + run every dist case with the packaged
-// z42c/z42vm, diff stdout, print per-case + per-mode summary. Returns
-// [pass, fail] where fail folds in compile errors (as the caller aggregates).
-int[] _runDistMode(string mode, string root, string z42c, string z42vm, string libsDir, string work) {
-    Console.WriteLine("══════════════════════════════════════");
-    Console.WriteLine(" Mode: " + mode);
-    Console.WriteLine("══════════════════════════════════════");
+// Golden legs: compile every dist case ONCE with the packaged z42c, then run the
+// zbc under each mode with the packaged z42vm and diff stdout. Returns [pass, fail]
+// where fail folds in compile errors (as the caller aggregates).
+//
+// perf-dist-golden-parallel (2026-09-15): 此前逐 mode、逐 case **串行**「编 + 跑」——
+// interp 313 + jit 309 例在 CI 上 linux 8 分钟 / windows 10 分钟，而 zbc 与 mode 无关，
+// 等于每例编译两遍。现在：
+//   ① 编译一遍（jit 的用例集 = interp 的去掉 interpOnly，同一份源）；
+//   ② 编译与运行都按批并行（同 golden regen / e2e goldens 的批模式，批内按原序判定打印，
+//      输出确定）。
+// 覆盖面不变：仍是同一套用例、同一个打包 z42c/z42vm、同样两种 mode。
+int[] _runDistGoldens(string[] modes, string root, string z42c, string z42vm, string libsDir, string work) {
+    bool wantInterp = false;
+    int mi = 0;
+    while (mi < modes.Length) { if (modes[mi] != "jit") { wantInterp = true; } mi = mi + 1; }
+    _DistCase[] cases = _enumerateDistCases(root);
+    int n = cases.Length;
 
-    _DistCase[] cases = _enumerateDistCases(root, mode);
+    // ① compile once. zbc 名带序号：不同目录下可能有同名 case，并行编译时不能共用输出路径。
+    string[] zbcs = new string[n];
+    bool[] compiled = new bool[n];
+    int cjobs = _regenJobs();
+    int i = 0;
+    while (i < n) {
+        int bsz = cjobs;
+        if (i + bsz > n) { bsz = n - i; }
+        ProcessHandle[] hs = new ProcessHandle[bsz];
+        bool[] live = new bool[bsz];
+        int b = 0;
+        while (b < bsz) {
+            _DistCase c = cases[i + b];
+            zbcs[i + b] = Path.Join(work, (i + b).ToString() + "-" + c.name + ".zbc");
+            live[b] = false;
+            if (wantInterp || !c.interpOnly) {
+                try {
+                    hs[b] = new Process(z42c).Arg("--emit-zbc").Arg(c.source).Arg(zbcs[i + b])
+                        .Env("Z42_LIBS", libsDir)
+                        .Stdout(Stdio.Null()).Stderr(Stdio.Null())
+                        .Spawn();
+                    live[b] = true;
+                } catch (Exception e) { ConsoleError.WriteLine("  (compile spawn error: " + e.Message + ")"); }
+            }
+            b = b + 1;
+        }
+        b = 0;
+        while (b < bsz) {
+            compiled[i + b] = live[b] && hs[b].Wait().ExitCode == 0;
+            b = b + 1;
+        }
+        i = i + bsz;
+    }
+
+    // ② run per mode.
     int pass = 0;
     int fail = 0;
-    int compileFail = 0;
-    int i = 0;
-    while (i < cases.Length) {
-        _DistCase c = cases[i];
-        string zbc = Path.Join(work, c.name + "-" + mode + ".zbc");
-        // Compile source.z42 → zbc with the packaged z42c.
-        int cc = -1;
-        try {
-            cc = new Process(z42c).Arg("--emit-zbc").Arg(c.source).Arg(zbc)
-                .Env("Z42_LIBS", libsDir)
-                .Stdout(Stdio.Null()).Stderr(Stdio.Null())
-                .Run().ExitCode;
-        } catch (Exception e) { ConsoleError.WriteLine("  (compile spawn error: " + e.Message + ")"); cc = -1; }
-        if (cc != 0) {
-            compileFail = compileFail + 1;
-            Console.WriteLine("  FAIL: " + c.name + " (compile failed)");
+    int rjobs = _distRunJobs();
+    mi = 0;
+    while (mi < modes.Length) {
+        string mode = modes[mi];
+        mi = mi + 1;
+        Console.WriteLine("══════════════════════════════════════");
+        Console.WriteLine(" Mode: " + mode);
+        Console.WriteLine("══════════════════════════════════════");
+        int[] sel = new int[n];
+        int ns = 0;
+        i = 0;
+        while (i < n) {
+            if (!(mode == "jit" && cases[i].interpOnly)) { sel[ns] = i; ns = ns + 1; }
             i = i + 1;
-            continue;
         }
-        // Run zbc with the packaged z42vm (entry passed explicitly — z42vm requires it).
-        string actual;
-        try {
-            ProcessResult r = new Process(z42vm).Arg(zbc).Arg(c.entryName).Arg("--mode").Arg(mode)
-                .Env("Z42_LIBS", libsDir)
-                .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe())
-                .Run();
-            actual = _stripTrailingNewlines(r.Stdout + r.Stderr);
-        } catch (Exception e) { actual = "<spawn error: " + e.Message + ">"; }
-        string expected = "";
-        if (File.Exists(c.expected)) { expected = _stripTrailingNewlines(File.ReadAllText(c.expected)); }
-        if (actual == expected) {
-            pass = pass + 1;
-        } else {
-            fail = fail + 1;
-            Console.WriteLine("  FAIL: " + c.name);
-            Console.WriteLine("    expected: " + _firstLine(expected));
-            Console.WriteLine("    actual:   " + _firstLine(actual));
+        int mpass = 0;
+        int mfail = 0;
+        int compileFail = 0;
+        int k = 0;
+        while (k < ns) {
+            int bsz = rjobs;
+            if (k + bsz > ns) { bsz = ns - k; }
+            ProcessHandle[] hs = new ProcessHandle[bsz];
+            bool[] live = new bool[bsz];
+            string[] spawnErr = new string[bsz];
+            int b = 0;
+            while (b < bsz) {
+                int ci = sel[k + b];
+                _DistCase c = cases[ci];
+                live[b] = false;
+                spawnErr[b] = "";
+                if (compiled[ci]) {
+                    // entry passed explicitly — z42vm requires it.
+                    try {
+                        hs[b] = new Process(z42vm).Arg(zbcs[ci]).Arg(c.entryName).Arg("--mode").Arg(mode)
+                            .Env("Z42_LIBS", libsDir)
+                            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe())
+                            .Spawn();
+                        live[b] = true;
+                    } catch (Exception e) { spawnErr[b] = "<spawn error: " + e.Message + ">"; }
+                }
+                b = b + 1;
+            }
+            b = 0;
+            while (b < bsz) {
+                int ci = sel[k + b];
+                _DistCase c = cases[ci];
+                b = b + 1;
+                if (!compiled[ci]) {
+                    compileFail = compileFail + 1;
+                    Console.WriteLine("  FAIL: " + c.name + " (compile failed)");
+                    continue;
+                }
+                string actual = spawnErr[b - 1];
+                if (live[b - 1]) {
+                    try {
+                        ProcessResult r = hs[b - 1].Wait();
+                        actual = _stripTrailingNewlines(r.Stdout + r.Stderr);
+                    } catch (Exception e) { actual = "<wait error: " + e.Message + ">"; }
+                }
+                string expected = "";
+                if (File.Exists(c.expected)) { expected = _stripTrailingNewlines(File.ReadAllText(c.expected)); }
+                if (actual == expected) {
+                    mpass = mpass + 1;
+                } else {
+                    mfail = mfail + 1;
+                    Console.WriteLine("  FAIL: " + c.name);
+                    Console.WriteLine("    expected: " + _firstLine(expected));
+                    Console.WriteLine("    actual:   " + _firstLine(actual));
+                }
+            }
+            k = k + bsz;
         }
-        i = i + 1;
+        Console.WriteLine("");
+        Console.WriteLine("  Result: " + mpass.ToString() + " passed, " + mfail.ToString()
+            + " failed, " + compileFail.ToString() + " compile errors");
+        Console.WriteLine("");
+        pass = pass + mpass;
+        fail = fail + mfail + compileFail;
     }
-    Console.WriteLine("");
-    Console.WriteLine("  Result: " + pass.ToString() + " passed, " + fail.ToString()
-        + " failed, " + compileFail.ToString() + " compile errors");
-    Console.WriteLine("");
     int[] res = new int[2];
     res[0] = pass;
-    res[1] = fail + compileFail;
+    res[1] = fail;
     return res;
+}
+
+// 运行阶段并发度：min(CpuCount, 8)。与编译不同，运行是真吃 CPU 的 VM 进程（含 GC / 线程类
+// golden），不超核数；GitHub 4 核 runner 上 = 4，与 test-host 的 e2e goldens（jobs=4）同一量级。
+// `Z42_DIST_JOBS` 逃生舱：不改代码在 CI 上试别的值（1 = 退回串行）。
+int _distRunJobs() {
+    string ov = Environment.GetEnvironmentVariable("Z42_DIST_JOBS") ?? "";
+    if (ov.Length > 0) {
+        try { int v = int.Parse(ov); if (v > 0) { return v; } } catch (Exception e) { }
+    }
+    int cpu = OperatingSystem.CpuCount();
+    if (cpu < 1) { return 1; }
+    return cpu < 8 ? cpu : 8;
 }
 
 // ── Launcher smoke: returns [pass, fail] ───────────────────────────────────
@@ -625,8 +714,10 @@ class _DistCase {
     public string source;     // source.z42 path
     public string expected;   // expected_output.txt path
     public string entryName;  // <ns>.Main / Main / <ns>.main / main (z42vm needs it)
-    public _DistCase(string name, string source, string expected, string entryName) {
+    public bool interpOnly;   // jit 模式跳过（同 _GoldenEntry.interpOnly）
+    public _DistCase(string name, string source, string expected, string entryName, bool interpOnly) {
         this.name = name; this.source = source; this.expected = expected; this.entryName = entryName;
+        this.interpOnly = interpOnly;
     }
 }
 
@@ -652,7 +743,8 @@ bool _isTestRunnerSource(string src) {
 // Golden selection over the shared walk (_walkGoldenCorpus, common/xtask_golden.z42).
 // Unlike the VM runner, dist compiles the `.z42` SOURCE with the PACKAGED z42c, so
 // selection keys off source presence, not the artifacts mirror.
-_DistCase[] _enumerateDistCases(string root, string mode) {
+// 返回全部 mode 的并集；interpOnly 由调用方按 mode 过滤（编译只做一遍）。
+_DistCase[] _enumerateDistCases(string root) {
     _GoldenEntry[] entries = _walkGoldenCorpus(root);
     _DistCase[] cases = new _DistCase[entries.Length];
     int n = 0;
@@ -668,8 +760,7 @@ _DistCase[] _enumerateDistCases(string root, string mode) {
         // (z42b), not golden-runnable (no Main; may be multi-file like secp256k1's
         // source.z42 + vectors.z42).
         if (e.isLib && _isTestRunnerSource(e.src)) { continue; }
-        if (mode == "jit" && e.interpOnly) { continue; }
-        cases[n] = new _DistCase(e.name, e.src, e.expected, _deriveEntry(e.src));
+        cases[n] = new _DistCase(e.name, e.src, e.expected, _deriveEntry(e.src), e.interpOnly);
         n = n + 1;
     }
 

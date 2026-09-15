@@ -1381,7 +1381,10 @@ var x = new Container<Animal, Vehicle>(...);      // ❌ E0402
   - `interface_count: u8 + interface_name_idx[] × u32`
 - C# IR: `IrFunction.TypeParamConstraints` / `IrClassDesc.TypeParamConstraints` 与 `TypeParams` 按索引对齐
 - Rust VM: `Function.type_param_constraints` / `TypeDesc.type_param_constraints` 读取并保留
-- Rust loader: 加载后运行 `verify_constraints`，对未知 class/interface 引用返回 `InvalidConstraintReference`；对 `Std.*` 前缀和 `I<Upper>...` 接口名放行（分别由 lazy loader 和 L3-G3b 反射补齐）
+- Rust loader: 加载后运行 `verify_constraints`。校验按引用**种类**分派（fix-runtime-constraint-unresolved-refs）：
+  - **基类引用**（`base_class`）严格——未在 `type_registry`、非 `Std.*` 即返回 `InvalidConstraintReference`（基类是布局/派发关键）。
+  - **接口引用**（`interfaces`）与 **func-sig 类型引用** soft-allow 未解析——`verify_constraints` 在惰性加载器建立（`boot_context`）之前跑，约束可能命名一个尚未惰性加载的依赖 zpkg 里的接口（与 `Std.*` 同理），真正解析延后到运行期使用点（解释器触发惰性加载）。
+  - 接口自 zbc 1.19 反射起即以 minimal TYPE entry 进 `type_registry`，故同模块/静态合并的接口经 registry 命中即通过；只有真正的惰性依赖接口走 soft 分支。**旧的 `I<Upper>...` 命名启发式已删**——它会硬拒任何非 `IFoo` 命名的接口（`Comparable`/`Iterable`/…）作约束，是个 footgun。
 - ZpkgReader: SIGS 扫描同步跳过新字段
 
 ### L3-G3 剩余子阶段

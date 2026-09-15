@@ -10,11 +10,21 @@ public sealed class StrMap {
     private int      _count;
     private int      _cap;
 
+    // ⚠⚠ perf（2026-09-15）：新表**不分配**，三个数组先指向下面的共享哨兵（容量 1、`_used[0]` 恒 false），
+    // 第一次 Put 才在 `_grow` 里换成真正的 16 槽。实测 `z42c.semantics` 一次构建死掉的 136k 张表里
+    // **117 892 张（87%）到死都是空的**，却每张付三个 16 槽数组 + 三个 var backing —— 占全部死数组约三成。
+    // 哨兵的形状让查找入口**不必加分支**：掩码 `_cap-1 = 0`，读到 `_used[0] == false` 就按未命中返回。
+    // 哨兵绝不被写：唯一的写入口 Put 在写之前一定先 `_grow`（见下面的条件），`UsedArr/ValArr` 按约定只读。
+    private static string[] s_noKeys = new string[1];
+    private static object[] s_noVals = new object[1];
+    private static bool[]   s_noUsed = new bool[1];
+    private static string[] s_noKeyList = new string[0];
+
     public StrMap() {
-        this._cap = 16;
-        this._keys = new string[16];
-        this._vals = new object[16];
-        this._used = new bool[16];
+        this._cap = 1;
+        this._keys = StrMap.s_noKeys;
+        this._vals = StrMap.s_noVals;
+        this._used = StrMap.s_noUsed;
         this._count = 0;
     }
 
@@ -101,7 +111,9 @@ public sealed class StrMap {
     }
 
     public void Put(string key, object val) {
-        if (this._count * 2 >= this._cap) { this._grow(); }
+        // 与旧式 `_count * 2 >= _cap` 在 `_cap >= 16`（2 的幂）时逐值等价（都是 `_count >= _cap/2`）；
+        // 多出来的是哨兵表（`_cap == 1`）必然触发 `_grow` —— 这正是「哨兵绝不被写」的保证。
+        if ((this._count + 1) * 2 > this._cap) { this._grow(); }
         int slot = key.GetHashCode() & (this._cap - 1);
         while (this._used[slot] && this._keys[slot] != key) {
             slot = slot + 1;
@@ -134,6 +146,8 @@ public sealed class StrMap {
     public object[] ValArr()      { return this._vals; }
 
     public string[] Keys() {
+        // 空表不分配（长度 0 的数组没有可写的元素，共享安全）。
+        if (this._count == 0) { return StrMap.s_noKeyList; }
         string[] r = new string[this._count];
         int n = 0;
         int i = 0;
@@ -153,7 +167,8 @@ public sealed class StrMap {
         string[] oldKeys = this._keys;
         object[] oldVals = this._vals;
         bool[]   oldUsed = this._used;
-        this._cap = oldCap * 2;
+        // 哨兵表（容量 1）直接长到 16，与旧构造器给的初始容量一致 ⇒ 槽布局不变。
+        if (oldCap < 16) { this._cap = 16; } else { this._cap = oldCap * 2; }
         this._keys = new string[this._cap];
         this._vals = new object[this._cap];
         this._used = new bool[this._cap];
