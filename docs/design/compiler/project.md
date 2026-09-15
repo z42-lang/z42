@@ -257,7 +257,7 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 ```toml
 # A) 全部不设 → 全部默认
 [build]
-# output_dir = ${workspace_dir}/artifacts/${profile}；cache = ${output_dir}/.cache；dist = ./dist（z42c 历史默认，见 BuildPaths._resolveDistDir）
+# output_dir = ${workspace_dir}/artifacts/${profile}；cache = ${output_dir}/.cache；dist = ./dist（z42c 历史默认，见 z42.project BuildLayout）
 
 # B) 只设顶层 → cache / dist 跟随
 [build]

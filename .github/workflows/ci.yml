@@ -82,6 +82,7 @@ jobs:
               - 'src/toolchain/devtools/**'
               - 'src/toolchain/interactive/**'
               - 'scripts/test/xtask_test_dist.z42'
+              - 'scripts/test/xtask_test_dist_cli.z42'
               - 'scripts/test/xtask_test_platform.z42'
               - 'scripts/test/xtask_test_wasm.z42'
               - 'scripts/test/xtask_test_ios.z42'

@@ -8,6 +8,8 @@ release.yml 发 9 个 RID 的 `z42-<ver>-<rid>.tar.gz` + `SHA256SUMS`，tag `v<v
 
 ## runtime / workload：名词 vs 命令 vs 组件（消除"两处都含 runtime"的冗余）
 
+> **现状（simplify-z42-cli）**：SDK 单版本，launcher 不管理 host 运行时版本——`z42 install` / `uninstall` / `default` / `list` / `self-update` 与下文「运行解析顺序（多版本选择）」「channel + 更新」均**未采用、已从命令面移除**；SDK 由安装脚本安装与更新，命令面以 [book · z42 命令参考](../../book/src/toolchain/cli.md) 为准。workload 相关设计仍有效。
+
 **名词 `runtime`（per-RID）**：某 RID 的 z42vm/嵌入件——host（macos/linux/windows）与 target（ios/android/wasm）**都是 runtime**，只是 RID 不同。manifest 里它们都是 `runtimes` 段的**组件（pack）**。
 
 **但用户面只有两个安装入口，target runtime 不开第二条直装路径**：

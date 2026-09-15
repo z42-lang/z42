@@ -14,7 +14,7 @@ using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Cli;
-using Z42.Workload.Desktop;   // Apphost.Produce — desktop publish lives in the workload package
+using Z42.Build.Project;      // ManifestLocator / ManifestLoader / BuildLayout
 using Z42.Workload.Ios;       // IosExport.Generate — iOS export lives in the workload package
 using Z42.Workload.Android;   // AndroidExport.Generate — Android export lives in the workload package
 using Z42.Workload.Wasm;      // WasmExport.Generate — WASM export lives in the workload package
@@ -22,8 +22,8 @@ using Z42.Workload.Wasm;      // WasmExport.Generate — WASM export lives in th
 // ── entry points ──────────────────────────────────────────────────────────────
 
 void _cmdExportIos(ParseResult r) {
-    string tomlPath = r.GetPositional(0);
-    if (!_expCheckToml("ios", tomlPath)) { return; }
+    string tomlPath = _resolveDeployManifest("export", r.GetPositional(0));
+    if (tomlPath.Length == 0) { Environment.Exit(2); return; }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
     string projName = _expTomlStr(toml, "project", "name", "");
     if (projName.Length == 0) {
@@ -55,8 +55,8 @@ void _cmdExportIos(ParseResult r) {
 }
 
 void _cmdExportAndroid(ParseResult r) {
-    string tomlPath = r.GetPositional(0);
-    if (!_expCheckToml("android", tomlPath)) { return; }
+    string tomlPath = _resolveDeployManifest("export", r.GetPositional(0));
+    if (tomlPath.Length == 0) { Environment.Exit(2); return; }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
     string projName = _expTomlStr(toml, "project", "name", "");
     if (projName.Length == 0) {
@@ -93,8 +93,8 @@ void _cmdExportAndroid(ParseResult r) {
 }
 
 void _cmdExportWasm(ParseResult r) {
-    string tomlPath = r.GetPositional(0);
-    if (!_expCheckToml("wasm", tomlPath)) { return; }
+    string tomlPath = _resolveDeployManifest("export", r.GetPositional(0));
+    if (tomlPath.Length == 0) { Environment.Exit(2); return; }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
     string projName = _expTomlStr(toml, "project", "name", "");
     if (projName.Length == 0) {
@@ -152,25 +152,6 @@ string _desktopApphostStub(string rid) {
     return "";
 }
 
-// Gate: apphost ships with the desktop workload — require it (+ the target's stub).
-string _requireDesktopApphost(string cmd, string rid) {
-    string stub = _desktopApphostStub(rid);
-    if (stub.Length > 0) { return stub; }
-    bool wlInstalled = false;
-    foreach (var ver in _installedVersions()) {
-        if (Directory.Exists(Path.Join(Path.Join(Path.Join(_runtimesDir(), ver), "workloads"), "desktop"))) { wlInstalled = true; }
-    }
-    if (!wlInstalled) {
-        ConsoleError.WriteLine("z42 " + cmd + ": desktop workload not installed (apphost ships with it).");
-        ConsoleError.WriteLine("       run: z42 workload install desktop");
-    } else {
-        ConsoleError.WriteLine("z42 " + cmd + ": apphost for '" + rid + "' not in the installed desktop workload");
-        ConsoleError.WriteLine("       (a local single-RID build carries only the host's apphost; install the full desktop workload for cross-output).");
-    }
-    Environment.Exit(1);
-    return "";
-}
-
 // publish: produce the RELEASE platform deployable. `--rid`'s category selects the
 // platform (default host). desktop → forwarded to z42b, which owns the publish verb
 // (move-publish-to-z42b). The launcher resolves the installed desktop workload
@@ -199,8 +180,10 @@ void _cmdPublish(ParseResult r) {
     // desktop: resolve the apphost stub (launcher owns installed-workload resolution),
     // forward to z42b with --rid + Z42_APPHOST_TEMPLATE. "" stub → z42b reports the
     // "install the desktop workload" hint after its apphost-gate check.
+    string tomlPath = _resolveDeployManifest("publish", r.GetPositional(0));
+    if (tomlPath.Length == 0) { Environment.Exit(2); return; }
     string stub = _desktopApphostStub(rid);
-    string[] fargv = _publishForwardArgv(r.GetPositional(0), rid, r.GetOption("output"),
+    string[] fargv = _publishForwardArgv(tomlPath, rid, r.GetOption("output"),
         r.GetFlag("no-build"), r.GetFlag("self-contained"));
     Environment.Exit(_forwardZ42bEnv(fargv, "Z42_APPHOST_TEMPLATE", stub));
 }
@@ -243,80 +226,27 @@ void _cmdExport(ParseResult r) {
     Environment.Exit(2);
 }
 
-// run deploy form: `z42 run <toml> --rid <rid> [-- <app args>]` — produce an
-// ephemeral apphost beside the zpkg and exec it (previews the deployed launch).
-// `run <app.zpkg>` (no --rid) runs bytecode on the host vm (see _runLauncher).
-void _cmdRunDeploy(string[] argv) {
-    string tomlPath = "";
-    string rid = "";
-    int sepIdx = -1;
-    int i = 0;
-    while (i < argv.Length) {
-        if (argv[i] == "--") { sepIdx = i; break; }
-        if (argv[i] == "--rid") {
-            if (i + 1 < argv.Length) { rid = argv[i + 1]; i = i + 2; continue; }
-        } else if (!argv[i].StartsWith("--") && tomlPath.Length == 0) {
-            tomlPath = argv[i];
-        }
-        i = i + 1;
-    }
-    if (tomlPath.Length == 0 || rid.Length == 0) {
-        ConsoleError.WriteLine("usage: z42 run <project.z42.toml> --rid <rid> [-- <app args>]");
-        Environment.Exit(2); return;
-    }
-    string cat = _ridCategory(rid);
-    if (cat != "desktop") {
-        ConsoleError.WriteLine("z42 run: deploy-form run for " + cat + " not yet implemented (B5); only desktop apphost.");
-        Environment.Exit(2); return;
-    }
-    string[] appArgs = (sepIdx >= 0) ? _tail(argv, sepIdx + 1) : new string[0];
-    if (!File.Exists(tomlPath)) {
-        ConsoleError.WriteLine("z42 run: not found: " + tomlPath);
-        Environment.Exit(1); return;
-    }
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
-    string projName = _expTomlStr(toml, "project", "name", "");
-    if (projName.Length == 0) {
-        ConsoleError.WriteLine("z42 run: [project].name missing in " + tomlPath);
-        Environment.Exit(1); return;
-    }
-    string zpkgSrc = _desktopResolveZpkg("run", tomlPath, toml, projName);
-    string zpkgDir = Path.GetDirectoryName(zpkgSrc);
-    string outName = rid.StartsWith("windows-") ? (projName + ".exe") : projName;
-    string outPath = (zpkgDir.Length > 0) ? Path.Join(zpkgDir, outName) : outName;
-    string stub = _requireDesktopApphost("run", rid);
-    Apphost.Produce(zpkgSrc, outPath, stub, rid);
-    Process p = new Process(outPath);
-    int j = 0;
-    while (j < appArgs.Length) { p = p.Arg(appArgs[j]); j = j + 1; }
-    ProcessResult pr = p.Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run();
-    Environment.Exit(pr.ExitCode);
-}
-
-// Resolve the built zpkg for a desktop publish/run; exit with a build-first
-// hint if absent. `verb` is "publish" / "run" for the error prefix.
-string _desktopResolveZpkg(string verb, string tomlPath, TomlValue toml, string projName) {
-    string zpkgSrc = _expResolveZpkg(tomlPath, toml, projName);
-    if (!File.Exists(zpkgSrc)) {
-        ConsoleError.WriteLine("z42 " + verb + ": built zpkg not found: " + zpkgSrc
-            + "  (build it first: z42c build " + tomlPath + ")");
-        Environment.Exit(1);
-    }
-    return zpkgSrc;
-}
-
 // ── shared helpers ────────────────────────────────────────────────────────────
 
-bool _expCheckToml(string platform, string tomlPath) {
-    if (tomlPath.Length == 0 || !tomlPath.EndsWith(".toml")) {
-        ConsoleError.WriteLine("usage: z42 export " + platform + " <project.z42.toml> [options]");
-        Environment.Exit(2); return false;
+// publish / export 的工程清单：给了就用（须存在），没给就从当前目录向上找。失败打印原因并返回 ""。
+string _resolveDeployManifest(string verb, string given) {
+    if (given.Length > 0) {
+        if (File.Exists(given)) { return given; }
+        if (Directory.Exists(given)) {
+            ManifestLocation inDir = ManifestLocator.FindIn(given);
+            if (inDir.Kind == ManifestLocateKind.Project) { return inDir.ManifestPath; }
+        }
+        ConsoleError.WriteLine("z42 " + verb + ": no project manifest at " + given);
+        return "";
     }
-    if (!File.Exists(tomlPath)) {
-        ConsoleError.WriteLine("z42 export " + platform + ": not found: " + tomlPath);
-        Environment.Exit(1); return false;
+    ManifestLocation loc = ManifestLocator.FindUp(".");
+    if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
+    if (loc.Kind == ManifestLocateKind.Workspace) {
+        ConsoleError.WriteLine("z42 " + verb + ": `" + loc.ManifestPath + "` is a workspace; pass a member's manifest");
+        return "";
     }
-    return true;
+    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
+    return "";
 }
 
 // Read root.[section].[key] as a string (handles string and long TOML values).
@@ -363,17 +293,12 @@ string _expDefaultOutputDir(string tomlPath, string name, string suffix) {
     return (dir.Length > 0) ? Path.Join(dir, sub) : sub;
 }
 
-// Find the built zpkg via the same dist_dir logic as `z42 publish`.
+// 已构建的 zpkg（dist 目录按 BuildLayout 解析，与 z42c 写产物同一规则）。
 string _expResolveZpkg(string tomlPath, TomlValue toml, string name) {
     string projDir = Path.GetDirectoryName(tomlPath);
-    string outDir  = _expTomlStr(toml, "build", "output_dir", "");
-    string distDir = _expTomlStr(toml, "build", "dist_dir", "");
-    string distRel;
-    if (distDir.Length > 0) { distRel = distDir.Replace("${output_dir}", outDir); }
-    else if (outDir.Length > 0) { distRel = Path.Join(outDir, "dist"); }
-    else { distRel = "dist"; }
-    string base = (projDir.Length > 0) ? Path.Join(projDir, distRel) : distRel;
-    return Path.Join(base, name + ".zpkg");
+    if (projDir.Length == 0) { projDir = "."; }
+    string distDir = BuildLayout.Resolve(ManifestLoader.Load(tomlPath), projDir, false).DistDir;
+    return Path.Join(distDir, name + ".zpkg");
 }
 
 // Resolve the compiled .zbc for wasm.

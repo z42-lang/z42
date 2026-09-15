@@ -1,0 +1,86 @@
+// ManifestLocator：命令不带工程路径时「向上找清单」的规则。
+namespace Z42ProjectManifestLocatorTests;
+
+using Std;
+using Std.IO;
+using Std.Test;
+using Z42.Build.Project;
+
+string _mkdir(string root, string rel) {
+    string p = Path.Join(root, rel);
+    Directory.Create(p);
+    return p;
+}
+
+void _touch(string dir, string name) {
+    File.WriteAllText(Path.Join(dir, name), "[project]\nname = \"x\"\n");
+}
+
+// 子目录里找到上级的 z42.toml。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统")]
+void test_finds_project_in_ancestor() {
+    string root = Directory.CreateTempDir("z42-locate");
+    _touch(root, "z42.toml");
+    string deep = _mkdir(root, "src/a/b");
+    ManifestLocation loc = ManifestLocator.FindUp(deep);
+    Assert.True(loc.Kind == ManifestLocateKind.Project);
+    Assert.Equal(Path.Join(root, "z42.toml"), loc.ManifestPath);
+}
+
+// 最近者优先：工作区根下的成员目录得到成员清单，而不是工作区清单。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统")]
+void test_nearest_wins_over_workspace() {
+    string root = Directory.CreateTempDir("z42-locate");
+    _touch(root, "z42.workspace.toml");
+    string member = _mkdir(root, "app");
+    _touch(member, "z42.toml");
+    ManifestLocation loc = ManifestLocator.FindUp(_mkdir(root, "app/src"));
+    Assert.True(loc.Kind == ManifestLocateKind.Project);
+    Assert.Equal(Path.Join(member, "z42.toml"), loc.ManifestPath);
+
+    ManifestLocation atRoot = ManifestLocator.FindUp(root);
+    Assert.True(atRoot.Kind == ManifestLocateKind.Workspace);
+}
+
+// z42.toml 优先于同层的 <name>.z42.toml；单个 <name>.z42.toml 也算工程。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统")]
+void test_bare_manifest_preferred_and_named_accepted() {
+    string root = Directory.CreateTempDir("z42-locate");
+    _touch(root, "app.z42.toml");
+    ManifestLocation named = ManifestLocator.FindIn(root);
+    Assert.True(named.Kind == ManifestLocateKind.Project);
+    Assert.Equal(Path.Join(root, "app.z42.toml"), named.ManifestPath);
+
+    _touch(root, "z42.toml");
+    ManifestLocation bare = ManifestLocator.FindIn(root);
+    Assert.Equal(Path.Join(root, "z42.toml"), bare.ManifestPath);
+}
+
+// 同层多个 <name>.z42.toml：歧义，候选按字典序列出，不猜。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统")]
+void test_multiple_named_manifests_are_ambiguous() {
+    string root = Directory.CreateTempDir("z42-locate");
+    _touch(root, "b.z42.toml");
+    _touch(root, "a.z42.toml");
+    ManifestLocation loc = ManifestLocator.FindUp(root);
+    Assert.True(loc.Kind == ManifestLocateKind.Ambiguous);
+    Assert.False(loc.IsFound());
+    Assert.Equal(2, loc.Candidates.Length);
+    Assert.True(loc.Candidates[0].EndsWith("a.z42.toml"));
+    Assert.True(loc.Candidates[1].EndsWith("b.z42.toml"));
+}
+
+// FindIn 不向上找；子目录里什么都没有 → NotFound（即使上级有清单）。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统")]
+void test_find_in_does_not_walk_up() {
+    string root = Directory.CreateTempDir("z42-locate");
+    _touch(root, "z42.toml");
+    ManifestLocation loc = ManifestLocator.FindIn(_mkdir(root, "sub"));
+    Assert.True(loc.Kind == ManifestLocateKind.NotFound);
+    Assert.Equal("", loc.ManifestPath);
+}

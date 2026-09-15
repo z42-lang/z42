@@ -10,8 +10,7 @@ REM   install-z42.bat --system                 managed install → %Z42_HOME% or
 REM   install-z42.bat --dest <dir> --system    managed install → <dir>
 REM   install-z42.bat --help                   show this message
 REM
-REM Mirrors scripts/install-z42.sh. Thin by design: bootstrap only; ALL
-REM subsequent runtime management goes through `z42 install` once z42 is running.
+REM Mirrors scripts/install-z42.sh. Thin by design: bootstrap only; re-run it to update.
 REM Version from versions.toml [toolchain.z42].launcher (default nightly).
 REM Download strategy: release-index.json manifest-first; SHA256SUMS fallback.
 

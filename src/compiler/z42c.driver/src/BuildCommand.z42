@@ -1,0 +1,104 @@
+// `z42c build` 命令行解析（自 Main.z42 拆出）：参数 → 清单定位 → _build / _buildWorkspace。
+//
+// 不给清单路径时按 ManifestLocator 从当前目录向上找（与 `z42 run` / `z42 test` 同一规则）：
+// 找到工程 → 构建它；找到工作区 → 等价 `--workspace`；歧义 / 找不到 → 报错退出 2。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+using Z42.Syntax;
+using Z42.Semantics;
+using Z42.Project;
+using Z42.IR;
+using Z42.Build.Project;
+using Z42.Pipeline;
+
+int _cmdBuild(string[] argv) {
+    bool isRelease = false;
+    bool isWorkspace = false;
+    bool noIncremental = false;
+    bool isFix = false;   // attribute-handler-registry PR7-wire：`--fix`——analyzer 携修复就地重写源文件
+    string outputDir = "";
+    string toml = "";
+    // add-compiler-inlining：CLI --opt/--no-opt 累积位（可独立开关的优化，见 OptSet.z42）。
+    // 单名可重复：`--opt inline --opt dce` / `--no-opt copy-prop`；`all`/`none` 亦可。
+    int cliAdd = 0;
+    int cliRemove = 0;
+    int ai = 1;
+    while (ai < argv.Length) {
+        string a = argv[ai];
+        if (a == "-h" || a == "--help") { _buildUsage(); return ExitCode.Ok; }
+        else if (a == "--release") { isRelease = true; }
+        else if (a == "--workspace") { isWorkspace = true; }
+        else if (a == "--no-incremental") { noIncremental = true; }
+        else if (a == "--fix") { isFix = true; }
+        else if (a == "--quiet" || a == "-q") { BuildLog.SetQuiet(true); }
+        else if (a == "--output-dir" && ai + 1 < argv.Length) { outputDir = argv[ai + 1]; ai = ai + 1; }
+        else if (a == "--opt" && ai + 1 < argv.Length) {
+            int b = Opt.ByName(argv[ai + 1]);
+            if (b < 0) { return _unknownOpt(argv[ai + 1]); }
+            cliAdd = cliAdd | b; ai = ai + 1;
+        }
+        else if (a == "--no-opt" && ai + 1 < argv.Length) {
+            int b = Opt.ByName(argv[ai + 1]);
+            if (b < 0) { return _unknownOpt(argv[ai + 1]); }
+            cliRemove = cliRemove | b; ai = ai + 1;
+        }
+        // parallelize-package-compile：--jobs N 控制包内文件级并行度（默认串行；1=串行逃生舱）。
+        else if (a == "--jobs" && ai + 1 < argv.Length) {
+            ParallelConfig.SetJobs(Int32.Parse(argv[ai + 1])); ai = ai + 1;
+        }
+        else if (a.StartsWith("-")) {
+            ConsoleError.WriteLine("z42c build: unknown option `" + a + "`");
+            _buildUsage();
+            return ExitCode.UsageError;
+        }
+        else if (toml.Length == 0) { toml = a; }
+        else {
+            ConsoleError.WriteLine("z42c build: unexpected argument `" + a + "` (only one manifest may be given)");
+            return ExitCode.UsageError;
+        }
+        ai = ai + 1;
+    }
+    if (toml.Length == 0 && !isWorkspace) {
+        ManifestLocation loc = ManifestLocator.FindUp(".");
+        if (!loc.IsFound()) {
+            ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
+            return ExitCode.UsageError;
+        }
+        if (loc.Kind == ManifestLocateKind.Workspace) { isWorkspace = true; }
+        else { toml = loc.ManifestPath; }
+    }
+    // 解析 optSet：无 CLI 覆盖 → -1（PackageCompile 取 profile 默认：release=All/debug=None）。
+    int optSet = 0 - 1;
+    if (cliAdd != 0 || cliRemove != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
+    if (isWorkspace) {
+        // --fix 暂不作用于 workspace（多成员批量），单包路径生效
+        return _buildWorkspace(isRelease, outputDir, optSet, noIncremental);
+    }
+    return _build(toml, isRelease, outputDir, "", new string[0], 0, noIncremental, optSet, isFix, null);
+}
+
+int _unknownOpt(string name) {
+    ConsoleError.WriteLine("z42c: unknown optimization `" + name + "` (expected: const-fold/copy-prop/dce/inline/all/none)");
+    return ExitCode.UsageError;
+}
+
+void _buildUsage() {
+    Console.WriteLine("usage: z42c build [<manifest>] [options]");
+    Console.WriteLine("");
+    Console.WriteLine("Compile a project. Without <manifest>, the nearest z42.toml (or z42.workspace.toml)");
+    Console.WriteLine("in the current directory or its parents is used.");
+    Console.WriteLine("");
+    Console.WriteLine("options:");
+    Console.WriteLine("  --release              release profile (default: debug)");
+    Console.WriteLine("  --workspace            build every workspace member (topological order)");
+    Console.WriteLine("  --output-dir <dir>     put all outputs in <dir>");
+    Console.WriteLine("  --no-incremental       full rebuild (ignore the build cache)");
+    Console.WriteLine("  --opt <name>           enable an optimization (const-fold/copy-prop/dce/inline/all)");
+    Console.WriteLine("  --no-opt <name>        disable an optimization");
+    Console.WriteLine("  --jobs <n>             parallel compile jobs (default: 1)");
+    Console.WriteLine("  --fix                  apply analyzer code fixes to the sources");
+    Console.WriteLine("  -q, --quiet            no progress output (diagnostics are still printed)");
+    Console.WriteLine("  -h, --help             show this help");
+}

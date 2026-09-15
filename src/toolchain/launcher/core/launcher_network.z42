@@ -1,12 +1,8 @@
-// z42 launcher — network commands (add-launcher-install, 2026-06-13).
+// z42 launcher — 网络下载辅助（`z42 workload install` 的网络安装用）。
 //
-// _cmdInstall   — download a runtime from GitHub Releases into runtimes/<ver>/.
-// _cmdSelfUpdate — replace the installed launcher at $Z42_HOME/launcher/ in-place.
-//
-// Both use manifest-first (release-index.json → per-RID archive + sha256) with
-// a SHA256SUMS fallback for older releases that predate the manifest.
-// Windows uses .zip (Zip.ExtractAllTo); everything else uses .tar.gz
-// (streaming Gzip.WrapRead + Tar.ExtractStream — no full-body decompression).
+// release-index.json（每个 release 附带）→ 资产名 + sha256；下载后校验、解压。
+// Windows 资产是 .zip（Zip.ExtractAllTo）；其余是 .tar.gz（Gzip.WrapRead + Tar.ExtractStream 流式解压）。
+// SDK 本体的安装与更新由安装脚本负责（scripts/install/），launcher 不做自更新。
 namespace Z42Launcher;
 
 using Std;
@@ -17,137 +13,6 @@ using Std.Net.Http;
 using Std.Compression;
 using Std.Archive;
 using Std.Crypto;
-
-// ── install ───────────────────────────────────────────────────────────────────
-
-// z42 install <version|nightly> [--rid <rid>]
-// --rid overrides the host RID, enabling platform SDK download (e.g. --rid ios-arm64).
-void _cmdInstall(ParseResult r) {
-    string ver = r.GetPositional(0);
-    if (ver.Length == 0) {
-        ConsoleError.WriteLine("usage: z42 install <version|nightly> [--rid <rid>]");
-        Environment.Exit(2);
-        return;
-    }
-    string ridOpt = r.GetOption("rid");
-    string rid = (ridOpt.Length > 0) ? ridOpt : _hostRid();
-    if (rid.Length == 0) {
-        ConsoleError.WriteLine("z42: unsupported host (" + Platform.OS() + "/" + Platform.Arch() + ")");
-        Environment.Exit(2);
-        return;
-    }
-    string tag = (ver == "nightly") ? "nightly" : ("v" + ver);
-    string baseUrl = "https://github.com/z42-lang/z42/releases/download/" + tag;
-    bool isWindows = rid.StartsWith("windows");
-
-    string asset = "";
-    string sha = "";
-    string[] mf = _fetchManifest(baseUrl, rid, "runtime");
-    asset = mf[0]; sha = mf[1];
-    if (asset.Length == 0) {
-        // Desktop RIDs: sdk archive. Platform RIDs (ios/android/wasm): runtime-only archive.
-        bool isDesktop = rid.StartsWith("linux-") || rid.StartsWith("macos-") || rid.StartsWith("windows-");
-        if (isDesktop) {
-            asset = "z42-sdk-" + ver + "-" + rid + (isWindows ? ".zip" : ".tar.gz");
-        } else {
-            asset = "z42-runtime-" + ver + "-" + rid + ".tar.gz";
-        }
-    }
-    if (sha.Length == 0) {
-        HttpClient hc2 = new HttpClient(); hc2.SetMaxRedirects(10);
-        HttpResponse sums = hc2.Get(baseUrl + "/SHA256SUMS");
-        if (sums.IsSuccess()) { sha = _findSum(sums.BodyAsString(), asset); }
-    }
-
-    Console.WriteLine("downloading " + asset + " (" + tag + ") ...");
-    byte[] body = _downloadVerified(baseUrl, asset, sha);
-
-    string runtimes = _runtimesDir();
-    Directory.Create(runtimes);
-    // Platform SDK (non-host RID): install into runtimes/<rid>/<ver>/ so multiple
-    // platform SDKs can coexist. Host runtime keeps the legacy runtimes/<ver>/ layout.
-    string hostRid = _hostRid();
-    string targetBase = (rid == hostRid) ? runtimes : Path.Join(runtimes, rid);
-    Directory.Create(targetBase);
-    string staging = Path.Join(targetBase, "." + ver + ".stage");
-    if (Directory.Exists(staging)) { Directory.Delete(staging, true); }
-    Directory.Create(staging);
-    _extractArchive(body, isWindows, staging);
-
-    string target = Path.Join(targetBase, ver);
-    if (Directory.Exists(target)) { Directory.Delete(target, true); }
-    File.Move(staging, target);
-    Console.WriteLine("installed " + rid + "/" + ver + " → " + target);
-}
-
-// ── self-update ───────────────────────────────────────────────────────────────
-
-// z42 self-update [--channel <ver>]
-// Downloads the SDK package and overwrites $Z42_HOME/launcher/ in-place.
-// SDK layout: launcher.zpkg + libs/ at root, z42vm in bin/.
-// Not supported in portable mode (Z42_PORTABLE_VM set).
-void _cmdSelfUpdate(ParseResult r) {
-    string portableVm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
-    if (portableVm.Length > 0) {
-        ConsoleError.WriteLine("z42: portable mode — update the package via your distribution channel.");
-        Environment.Exit(2);
-        return;
-    }
-    string launcherDir = Path.Join(_home(), "launcher");
-    if (!Directory.Exists(launcherDir)) {
-        ConsoleError.WriteLine("z42: launcher not installed at " + launcherDir + "; run install-z42.sh to bootstrap.");
-        Environment.Exit(2);
-        return;
-    }
-    string chanOpt = r.GetOption("channel");
-    string ver = chanOpt.Length > 0 ? chanOpt : "nightly";
-    string rid = _hostRid();
-    if (rid.Length == 0) {
-        ConsoleError.WriteLine("z42: unsupported host (" + Platform.OS() + "/" + Platform.Arch() + ")");
-        Environment.Exit(2);
-        return;
-    }
-    string tag = (ver == "nightly") ? "nightly" : ("v" + ver);
-    string baseUrl = "https://github.com/z42-lang/z42/releases/download/" + tag;
-    bool isWindows = rid.StartsWith("windows");
-
-    string asset = "";
-    string sha = "";
-    string[] mf = _fetchManifest(baseUrl, rid, "sdk");
-    asset = mf[0]; sha = mf[1];
-    if (asset.Length == 0) {
-        asset = "z42-sdk-" + ver + "-" + rid + (isWindows ? ".zip" : ".tar.gz");
-    }
-    if (sha.Length == 0) {
-        HttpClient hc2 = new HttpClient(); hc2.SetMaxRedirects(10);
-        HttpResponse sums = hc2.Get(baseUrl + "/SHA256SUMS");
-        if (sums.IsSuccess()) { sha = _findSum(sums.BodyAsString(), asset); }
-    }
-
-    Console.WriteLine("downloading " + asset + " (" + tag + ") ...");
-    byte[] body = _downloadVerified(baseUrl, asset, sha);
-
-    // Extract SDK to a temp dir, then reassemble into launcher/ layout.
-    // SDK: launcher.zpkg + libs/ at root, z42vm in bin/. launcher/ expects z42vm at root.
-    string extract = Path.Join(_home(), ".selfupdate.extract");
-    if (Directory.Exists(extract)) { Directory.Delete(extract, true); }
-    Directory.Create(extract);
-    _extractArchive(body, isWindows, extract);
-
-    string newStage = Path.Join(_home(), ".launcher.stage");
-    if (Directory.Exists(newStage)) { Directory.Delete(newStage, true); }
-    Directory.Create(newStage);
-    string vmName = isWindows ? "z42vm.exe" : "z42vm";
-    File.Move(Path.Join(Path.Join(extract, "bin"), vmName), Path.Join(newStage, vmName));
-    File.Move(Path.Join(extract, "launcher.zpkg"), Path.Join(newStage, "launcher.zpkg"));
-    File.Move(Path.Join(extract, "libs"), Path.Join(newStage, "libs"));
-
-    Directory.Delete(launcherDir, true);
-    File.Move(newStage, launcherDir);
-    Directory.Delete(extract, true);
-    Console.WriteLine("launcher updated → " + launcherDir);
-    Console.WriteLine("restart z42 to use the new version.");
-}
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -213,7 +78,7 @@ string[] _fetchManifest(string baseUrl, string rid, string packageType) {
 
 // Download baseUrl/asset and verify its sha256 (when non-empty). Returns the body
 // bytes, or exits the process (non-zero) on HTTP failure / checksum mismatch.
-// Shared by _cmdInstall / _cmdSelfUpdate / workload network install.
+// Used by workload network install.
 byte[] _downloadVerified(string baseUrl, string asset, string sha) {
     HttpClient hc = new HttpClient(); hc.SetMaxRedirects(10);
     HttpResponse resp = hc.Get(baseUrl + "/" + asset);
@@ -296,21 +161,4 @@ void _extractArchive(byte[] body, bool isWindows, string destDir) {
         Stream gz = Gzip.WrapRead(ms);
         Tar.ExtractStream(gz, destDir);
     }
-}
-
-// SHA256SUMS body ("<hex>  <filename>" per line) → hex for `asset`, or "".
-string _findSum(string text, string asset) {
-    string rest = text;
-    while (rest.Length > 0) {
-        string ln;
-        int nl = rest.IndexOf("\n");
-        if (nl < 0) { ln = rest; rest = ""; }
-        else { ln = rest.Substring(0, nl); rest = rest.Substring(nl + 1); }
-        ln = ln.Trim();
-        if (ln.Length > 0 && ln.EndsWith(asset)) {
-            int sp = ln.IndexOf(" ");
-            if (sp > 0) { return ln.Substring(0, sp); }
-        }
-    }
-    return "";
 }

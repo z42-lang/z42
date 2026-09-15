@@ -1,60 +1,31 @@
-// z42 launcher CLI layer (migrate-xtask-launcher-to-std-cli, 2026-06-10).
+// z42 launcher CLI 层：命令树（Std.Cli SubcommandRouter）+ 路由。
 //
-// Builds the Std.Cli nested SubcommandRouter for the `z42` launcher and
-// dispatches a resolved command. Replaces the hand-written if-else chain in
-// launcher.z42's Main. Each leaf declares its flags/positionals via ArgParser,
-// so `-h` works at every level (z42 run -h / z42 link -h / z42 publish -h)
-// and help is generated (no hand-written _help()).
-//
-// Two commands bypass Resolve (handled in _runLauncher before routing):
-//   - the apphost shorthand `z42 <app.zpkg|.zbc> [-- args]` → run
-//   - `z42 run <app> [-- args]` → raw passthrough (the `--` app-args tail
-//     can't go through a strict ArgParser)
+// 命令分三类：
+//   - launcher 自己实现：run / version / help / publish / export / workload
+//   - 原样转发给工具：build → z42c；new / test / bench / clean → z42b；repl → z42i
+//     （转发命令的参数与帮助由对应工具负责；这里注册只为让 `z42 --help` 列出它们）
+//   - 简写：`z42 <app.zpkg|.zbc> [-- args]` ≡ `z42 run <app>`
 namespace Z42Launcher;
 
 using Std;
 using Std.IO;
 using Std.Cli;
 
-// Entry: the whole Main body (shorthand + run passthrough + resolve + dispatch).
 void _runLauncher(string[] argv) {
     if (argv.Length == 0) { Console.WriteLine(_launcherRoot().HelpText()); return; }
     string c0 = argv[0];
 
-    // apphost shorthand: `z42 app.zpkg [-- args]` runs the app directly.
+    if (c0 == "--version" || c0 == "-V" || c0 == "version") { _cmdVersion(); return; }
+    if (c0 == "help") { _cmdHelp(_tail(argv, 1)); return; }
     if (c0.EndsWith(".zpkg") || c0.EndsWith(".zbc")) { _cmdRun(argv); return; }
-    // `run` is a raw passthrough (forwards `<app> [-- args]` verbatim).
-    //   `run <toml> --rid <rid>` previews the platform deploy form (apphost for desktop);
-    //   `run <app.zpkg>` runs the bytecode on the host vm.
-    if (c0 == "run") {
-        string[] rest = _tail(argv, 1);
-        if (_argvHas(rest, "--rid")) { _cmdRunDeploy(rest); return; }
-        _cmdRun(rest); return;
-    }
-    // Dev commands forward verbatim to z42b (the build/test/bench orchestrator):
-    // z42b owns test / bench / clean (+ future new / build). The launcher owns the
-    // command face + runtime resolution; z42b parses the sub-args. Raw passthrough
-    // (the `--` / flag tails can't go through a strict ArgParser), mirroring `run`.
-    if (c0 == "test" || c0 == "bench" || c0 == "clean" || c0 == "new") {
+    // run 的 `-- <program args>` 尾巴过不了严格的 ArgParser，走原样解析。
+    if (c0 == "run") { _cmdRun(_tail(argv, 1)); return; }
+    if (c0 == "new" || c0 == "test" || c0 == "bench" || c0 == "clean") {
         Environment.Exit(_forwardZ42b(argv));
         return;
     }
-    // `build` = compile → forward to z42c (the compiler). move-publish-to-z42b.
-    if (c0 == "build") {
-        Environment.Exit(_forwardZ42c(argv));
-        return;
-    }
-    // `repl` = interactive REPL → forward to z42i (programs/z42i). add-z42-repl.
-    if (c0 == "repl") {
-        Environment.Exit(_forwardRepl(_tail(argv, 1)));
-        return;
-    }
-    // NB: z42d subcommands (symbolicate / fmt / doc / dbg / prof / lint) are NOT
-    // launcher-forwarded — invoke them via `z42d <cmd>` directly. The launcher only
-    // fronts the core-workflow verbs (run/build/test/bench/clean/new/repl); diagnostic
-    // dev-tools live under the z42d muxer and own their own command set. If the project
-    // later decides to surface devtools at top level, do it uniformly for all of them,
-    // not per-verb (add-offline-symbolication kept symbolicate as `z42d symbolicate`).
+    if (c0 == "build") { Environment.Exit(_forwardZ42c(argv)); return; }
+    if (c0 == "repl") { Environment.Exit(_forwardRepl(_tail(argv, 1))); return; }
 
     SubcommandRouter root = _launcherRoot();
     CommandResolution res;
@@ -67,61 +38,157 @@ void _runLauncher(string[] argv) {
     if (res.IsHelp())    { Console.WriteLine(res.HelpText()); return; }
     if (res.IsUnknown()) {
         ConsoleError.WriteLine(res.ErrorMessage());
-        Console.WriteLine(res.HelpText());
+        ConsoleError.WriteLine("run `z42 --help` to see all commands");
         Environment.Exit(2);
         return;
     }
     _dispatchLauncher(res);
 }
 
-// Forward a dev command (test / bench / clean — z42b's verbs) to the z42b
-// orchestrator: run `z42vm <programs/z42b/z42.builder.zpkg> -- <argv...>` on the
-// SDK's bundled runtime, inheriting stdio + exit code. z42b is an SDK toolchain
-// component co-located with the launcher (programs/z42b/), so it resolves via the
-// portable bundle the apphost pinned (Z42_PORTABLE_VM/_LIBS + _home() = SDK root).
+// `z42 help [<command> ...]` ≡ `z42 [<command> ...] --help`。
+void _cmdHelp(string[] cmd) {
+    if (cmd.Length == 0) { Console.WriteLine(_launcherRoot().HelpText()); return; }
+    string[] argv = new string[cmd.Length + 1];
+    int i = 0;
+    while (i < cmd.Length) { argv[i] = cmd[i]; i = i + 1; }
+    argv[cmd.Length] = "--help";
+    _runLauncher(argv);
+}
+
+SubcommandRouter _launcherRoot() {
+    SubcommandRouter root = new SubcommandRouter("z42", "the z42 toolchain");
+
+    // 转发命令：只登记名字与一句话说明（参数 / 帮助由工具自己给）。
+    root.Add("new", "create a new project", _fwdParser("z42 new", "create a new project"));
+    root.Add("build", "compile the current project", _fwdParser("z42 build", "compile the current project"));
+
+    ArgParser runP = new ArgParser("z42 run", "build and run the current project");
+    runP.AllowExtras();
+    root.Add("run", "build and run the current project", runP);
+
+    root.Add("test", "run the project's tests", _fwdParser("z42 test", "run the project's tests"));
+    root.Add("bench", "run the project's benchmarks", _fwdParser("z42 bench", "run the project's benchmarks"));
+    root.Add("clean", "remove build output", _fwdParser("z42 clean", "remove build output"));
+    root.Add("repl", "start the interactive REPL", _fwdParser("z42 repl", "start the interactive REPL"));
+
+    // Platform deploy commands take `--rid <rid>` (its category selects the platform).
+    ArgParser pub = new ArgParser("z42 publish", "produce a deployable app (--rid selects the platform)");
+    pub.AddOptionalPositional("project", "<manifest> (default: the nearest z42.toml)");
+    pub.AddOption("rid", "", "target RID (default: host; e.g. macos-arm64 / ios-arm64)", "");
+    pub.AddOption("output", "", "output dir (overrides [platform.*].publish_dir)", "");
+    pub.AddFlag("no-build", "", "deploy the already-built zpkg as-is (default: compile first, "
+        + "rebuilding only what changed)");
+    pub.AddFlag("self-contained", "", "embed the z42 runtime (self-contained app; no external z42vm); "
+        + "static/dynamic link via [platform.desktop] link");
+    root.Add("publish", "produce a deployable app", pub);
+
+    ArgParser exp = new ArgParser("z42 export", "generate a native IDE project (--rid selects the platform)");
+    exp.AddOptionalPositional("project", "<manifest> (default: the nearest z42.toml)");
+    exp.AddOption("rid", "", "target RID (e.g. ios-arm64 / android-arm64 / browser-wasm)", "");
+    exp.AddOption("output", "", "output directory", "");
+    exp.AddOption("sdk-ver", "", "platform SDK version to use", "");
+    exp.AddOption("bundle-id", "", "iOS CFBundleIdentifier (ios only)", "");
+    exp.AddOption("app-id", "", "Android application ID (android only)", "");
+    exp.AddOption("entry", "", "wasm entry point e.g. Hello.Main (wasm only)", "");
+    root.Add("export", "generate a native IDE project (ios / android / wasm)", exp);
+
+    root.AddRouter("workload", "install / list / uninstall platform workloads", _workloadRouter());
+
+    root.Add("version", "show version information", new ArgParser("z42 version", "show version information"));
+    root.Add("help", "show help for a command", _fwdParser("z42 help", "show help for a command"));
+    return root;
+}
+
+ArgParser _fwdParser(string name, string desc) {
+    ArgParser p = new ArgParser(name, desc);
+    p.AllowExtras();
+    return p;
+}
+
+SubcommandRouter _workloadRouter() {
+    SubcommandRouter w = new SubcommandRouter("z42 workload", "install / list / uninstall platform workloads");
+
+    ArgParser inst = new ArgParser("z42 workload install", "install a workload (platform tooling + runtime, or a capability like test)");
+    inst.AddPositional("workload", "<ios|android|wasm|desktop|test>");
+    inst.AddOption("from", "", "local tooling package dir (omit for manifest network install)", "");
+    inst.AddOption("runtime", "", "local runtime pack dir", "");
+    inst.AddOption("base-url", "", "manifest root for network install (default: GitHub releases)", "");
+    inst.AddOption("version", "", "version (default: from package manifest; required for network)", "");
+    inst.AddOption("rid", "", "runtime RID (default: from runtime dir name)", "");
+    w.Add("install", "install a workload", inst);
+
+    w.Add("list", "list installed workloads", new ArgParser("z42 workload list", "list installed workloads"));
+
+    ArgParser rm = new ArgParser("z42 workload uninstall", "uninstall an installed workload");
+    rm.AddPositional("workload", "<wl>");
+    rm.AddOption("version", "", "version (default: all)", "");
+    w.Add("uninstall", "uninstall an installed workload", rm);
+
+    return w;
+}
+
+void _dispatchLauncher(CommandResolution res) {
+    string[] p = res.Path();
+    if (p.Length == 0) { return; }
+    ParseResult r = res.Result();
+    string top = p[0];
+    if (top == "publish") { _cmdPublish(r); return; }
+    if (top == "export")  { _cmdExport(r);  return; }
+    if (top == "workload" && p.Length >= 2) {
+        string sub = p[1];
+        if (sub == "install")   { _cmdWorkloadInstall(r);   return; }
+        if (sub == "list")      { _cmdWorkloadList(r);      return; }
+        if (sub == "uninstall") { _cmdWorkloadUninstall(r); return; }
+    }
+}
+
+// ── 转发 ─────────────────────────────────────────────────────────────────────
+
+// new / test / bench / clean → z42b：`z42vm programs/z42b/z42.builder.zpkg -- <argv>`，继承 stdio 与退出码。
 int _forwardZ42b(string[] argv) { return _forwardZ42bEnv(argv, "", ""); }
 
-// Forward to z42b with one optional extra env var (e.g. publish passes the
-// pre-resolved apphost stub via Z42_APPHOST_TEMPLATE — Decision 3.5).
+// 同上，附带一个额外环境变量（publish 用它传预解析的 apphost stub：Z42_APPHOST_TEMPLATE）。
 int _forwardZ42bEnv(string[] argv, string extraKey, string extraVal) {
-    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
-    if (vm.Length == 0) {
-        ConsoleError.WriteLine("z42: cannot locate the bundled runtime (Z42_PORTABLE_VM unset) to run z42b");
-        return 2;
-    }
-    string home = _home();   // portable mode → SDK package root
-    string builder = Path.Join(home, "programs/z42b/z42.builder.zpkg");
+    string builder = Path.Join(_home(), "programs/z42b/z42.builder.zpkg");
     if (!File.Exists(builder)) {
-        ConsoleError.WriteLine("z42: z42b not found at " + builder + " — reinstall the SDK (programs/z42b/ missing)");
+        ConsoleError.WriteLine("z42: z42b not found at " + builder + " — reinstall z42");
         return 2;
     }
-    string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? Path.Join(home, "libs");
-    Process proc = new Process(vm).Arg(builder).Arg("--")
+    Process proc = new Process(_sdkVm()).Arg(builder).Arg("--")
         .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
     int i = 0;
     while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }
-    proc = proc.Env("Z42_LIBS", libs);
+    proc = proc.Env("Z42_LIBS", _sdkLibs());
     if (extraKey.Length > 0) { proc = proc.Env(extraKey, extraVal); }
     return proc.Run().ExitCode;
 }
 
-// Help for `z42 repl` (add-repl-help). `repl` bypasses the SubcommandRouter (it is
-// special-cased in _runLauncher before Resolve), so its `-h`/`--help` never reaches
-// generated help — without this, `z42 repl -h` would silently *launch* the REPL
-// (z42i ignores the unknown `-h`). Keep the option list in sync with _forwardRepl's
-// launcher-level flags (`--mode` / `--config`) and z42i's own args (`-c`).
+// build → SDK 的 bin/z42c（apphost，自带兄弟包与 stdlib 解析）。argv 以 "build" 开头。
+int _forwardZ42c(string[] argv) {
+    string z42c = _sdkBin("z42c");
+    if (!File.Exists(z42c)) {
+        ConsoleError.WriteLine("z42: z42c not found at " + z42c + " — reinstall z42");
+        return 2;
+    }
+    Process proc = new Process(z42c)
+        .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
+    int i = 0;
+    while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }
+    return proc.Run().ExitCode;
+}
+
+// `z42 repl` 帮助。repl 不经 router（`-h` 若不在这里拦住，z42i 会忽略它直接启动 REPL）。
+// 选项与 _forwardRepl 的 launcher 级参数（--mode / --config / --set）及 z42i 自己的 `-c` 保持一致。
 void _printReplHelp() {
-    Console.WriteLine("z42 repl — start the interactive REPL (z42i)");
+    Console.WriteLine("z42 repl — start the interactive REPL");
     Console.WriteLine("");
-    Console.WriteLine("usage: z42 repl [--mode <interp|jit|aot>] [--config <file>] [-c <expr>]");
+    Console.WriteLine("usage: z42 repl [--mode <interp|jit|aot>] [--config <file>] [--set <key>=<value>]... [-c <expr>]");
     Console.WriteLine("");
     Console.WriteLine("options:");
-    Console.WriteLine("  --mode <interp|jit|aot>  execution mode for the REPL's z42vm");
-    Console.WriteLine("                           (default: jit; also via Z42_MODE / [runtime].mode)");
-    Console.WriteLine("  --config <file>          runtime config file (sets Z42_CONFIG)");
-    Console.WriteLine("  --set <key>=<value>      set a runtime knob for this run (repeatable;");
-    Console.WriteLine("                           highest precedence — see `z42vm --list-knobs`)");
-    Console.WriteLine("  -c <expr>                evaluate <expr> once, print it, and exit (non-interactive)");
+    Console.WriteLine("  --mode <interp|jit|aot>  execution mode (default: jit)");
+    Console.WriteLine("  --config <file>          runtime config file");
+    Console.WriteLine("  --set <key>=<value>      set a runtime setting for this session (repeatable)");
+    Console.WriteLine("  -c <expr>                evaluate <expr>, print the result, and exit");
     Console.WriteLine("  -h, --help               show this help");
     Console.WriteLine("");
     Console.WriteLine("meta-commands (inside the REPL, prefixed with `.`):");
@@ -132,43 +199,25 @@ void _printReplHelp() {
     Console.WriteLine("  .exit / .quit  quit the REPL (or Ctrl-D)");
 }
 
-// Forward `repl` to z42i (the interactive REPL, programs/z42i/). Runs
-// `z42vm <z42.interactive.zpkg> -- <argv...>` with Z42_LIBS = libs/ (stdlib incl.
-// z42.scripting) + programs/z42c/ (compiler pkgs z42.scripting loads at runtime)
-// + programs/z42i/ (z42i itself). argv is the tail after `repl` (so
-// `z42 repl -c "1+2"` passes `-c "1+2"` through). add-z42-repl.
+// repl → z42i：`z42vm [--mode m] [--set k=v]... programs/z42i/z42.interactive.zpkg -- <argv>`。
+// z42c.* 已 colocate 进 z42i 的 entry-dir（programs/z42i/），Z42_LIBS 只需单个 libs/ 目录
+// （VM 按单路径解析；用 `:` 拼多段在 Windows 上会被盘符冒号截断）。
 int _forwardRepl(string[] argv) {
-    // `-h`/`--help` → print help instead of launching (add-repl-help). Skip `-c`'s
-    // value so `z42 repl -c "-h"` evaluates the expr rather than showing help.
+    // `-h`/`--help` → 帮助；跳过 `-c` 的值，使 `z42 repl -c "-h"` 求值而不是显示帮助。
     int hi = 0;
     while (hi < argv.Length) {
         if (argv[hi] == "-c") { hi = hi + 2; continue; }
         if (argv[hi] == "-h" || argv[hi] == "--help") { _printReplHelp(); return 0; }
         hi = hi + 1;
     }
-    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
-    if (vm.Length == 0) {
-        ConsoleError.WriteLine("z42: cannot locate the bundled runtime (Z42_PORTABLE_VM unset) to run the REPL");
-        return 2;
-    }
-    string home = _home();
-    string z42i = Path.Join(home, "programs/z42i/z42.interactive.zpkg");
+    string z42i = Path.Join(_home(), "programs/z42i/z42.interactive.zpkg");
     if (!File.Exists(z42i)) {
-        ConsoleError.WriteLine("z42: REPL not found at " + z42i + " — reinstall the SDK (programs/z42i/ missing)");
+        ConsoleError.WriteLine("z42: REPL not found at " + z42i + " — reinstall z42");
         return 2;
     }
-    // Z42_LIBS = 单个 libs/（stdlib + z42.scripting + z42.ir）。z42c.* 已 colocate 进 z42i 的
-    // entry-dir（programs/z42i/，见打包 fix-repl-sdk-layout），运行期由 entry-dir 搜索目录
-    // 解析，无需再拼 programs/z42c。**Z42_LIBS 是单目录**（VM config 按 PathBuf 解析），旧版用 `:`
-    // 拼三段在 Windows 上会被盘符冒号（C:\）截断——此处只传单目录，跨平台正确。
-    string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? Path.Join(home, "libs");
-    // Consistent with `z42 run` (repl-run-config): `--config <file>` / `--mode
-    // <mode>` are launcher-level — set Z42_CONFIG / z42vm `--mode` on the REPL's
-    // z42vm; everything else passes through to z42i as its own args (e.g. `-c`).
     string? cfgOpt = _flagValue(argv, "--config");
     string? modeOpt = _flagValue(argv, "--mode");
-    // `--set k=v` 可重复（launcher-forwards-set）：REPL 也是 z42vm 跑 z42i，运行时
-    // 旋钮对它一样适用。收集全部、并从传给 z42i 的参数里剥净（`_stripFlag` 只剥一个）。
+    // `--set k=v` 可重复：收集全部，并从传给 z42i 的参数里剥净。
     string[] setBuf = new string[64];
     int setN = 0;
     string[] z42iArgs = _stripFlag(_stripFlag(argv, "--config"), "--mode");
@@ -181,211 +230,30 @@ int _forwardRepl(string[] argv) {
     }
     int sr = 0;
     while (sr < setN) { z42iArgs = _stripFlag(z42iArgs, "--set"); sr = sr + 1; }
-    Process proc = new Process(vm);
+    Process proc = new Process(_sdkVm());
     if (modeOpt != null && modeOpt.Length > 0) { proc = proc.Arg("--mode").Arg(modeOpt); }
     int sf = 0;
     while (sf < setN) { proc = proc.Arg("--set").Arg(setBuf[sf]); sf = sf + 1; }
-    // ShareProcessGroup: the REPL is interactive (Stdin.Inherit) and drives the tty via
-    // its line editor. Left in a fresh (background) process group it can't grab the
-    // controlling terminal — no `>>>` prompt, and tty reads stop on SIGTTIN (no eval).
-    // Keep it in the launcher's foreground group so terminal job-control reaches it.
+    // ShareProcessGroup：REPL 交互式驱动 tty；留在新（后台）进程组里拿不到控制终端
+    // （没有 `>>>` 提示符，读 tty 触发 SIGTTIN）。
     proc = proc.Arg(z42i).Arg("--")
         .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit())
         .ShareProcessGroup();
     int i = 0;
     while (i < z42iArgs.Length) { proc = proc.Arg(z42iArgs[i]); i = i + 1; }
-    proc = proc.Env("Z42_LIBS", libs);
+    proc = proc.Env("Z42_LIBS", _sdkLibs());
     if (cfgOpt != null && cfgOpt.Length > 0) { proc = proc.Env("Z42_CONFIG", cfgOpt); }
     return proc.Run().ExitCode;
 }
 
-// Return a copy of `argv` with `flag` and its following value removed (launcher-
-// level flag extraction; repl-run-config).
+// `argv` 去掉 `flag` 及其后一个值。
 string[] _stripFlag(string[] argv, string flag) {
     string[] tmp = new string[argv.Length];
     int n = 0;
     int i = 0;
     while (i < argv.Length) {
-        if (argv[i] == flag) { i = i + 2; continue; }   // skip flag + its value
+        if (argv[i] == flag) { i = i + 2; continue; }
         tmp[n] = argv[i]; n = n + 1; i = i + 1;
     }
     return _trimArr(tmp, n);
-}
-
-// Forward `build` to z42c (the compiler). Runs the SDK's `bin/z42c` apphost, which
-// colocates the driver's siblings (programs/z42c/) + resolves stdlib (libs/), so no
-// manual vm/Z42_LIBS wiring is needed. argv starts with "build". move-publish-to-z42b.
-int _forwardZ42c(string[] argv) {
-    string home = _home();
-    string z42c = Path.Join(home, "bin/z42c");
-    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }
-    if (!File.Exists(z42c)) {
-        ConsoleError.WriteLine("z42: z42c not found at " + Path.Join(home, "bin/z42c")
-            + " — reinstall the SDK (bin/z42c missing)");
-        return 2;
-    }
-    Process proc = new Process(z42c)
-        .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
-    int i = 0;
-    while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }
-    return proc.Run().ExitCode;
-}
-
-SubcommandRouter _launcherRoot() {
-    SubcommandRouter root = new SubcommandRouter("z42", "launcher for the z42 runtime");
-
-    // Dev commands handled by z42b (forwarded raw in _runLauncher before Resolve);
-    // registered here so top-level `z42 -h` lists them. Their own flags/help come
-    // from z42b (`z42 test -h` → z42b's help).
-    ArgParser testP = new ArgParser("z42 test", "run a compiled module's [Test] (forwarded to z42b)");
-    testP.AllowExtras();
-    testP.AddOptionalPositional("target", "<file.zbc|file.zpkg>");
-    root.Add("test", "run [Test] in a compiled module (z42b)", testP);
-    ArgParser benchP = new ArgParser("z42 bench", "run a compiled module's [Benchmark] (forwarded to z42b)");
-    benchP.AllowExtras();
-    benchP.AddOptionalPositional("target", "<file.zbc|file.zpkg>");
-    root.Add("bench", "run [Benchmark] in a compiled module (z42b)", benchP);
-    ArgParser cleanP = new ArgParser("z42 clean", "remove <dir>/{dist,cache} build artifacts (forwarded to z42b)");
-    cleanP.AllowExtras();
-    cleanP.AddOptionalPositional("dir", "target dir (default: current dir)");
-    root.Add("clean", "remove build artifacts (z42b)", cleanP);
-    // new = scaffold, forwarded raw to z42b (wire-z42b 2c). Registered for help.
-    ArgParser newFwd = new ArgParser("z42 new", "scaffold a new project (forwarded to z42b)");
-    newFwd.AllowExtras();
-    newFwd.AddOptionalPositional("name", "project name (kebab-case)");
-    root.Add("new", "scaffold a new project (z42b)", newFwd);
-    // build = compile, forwarded raw to z42c（暂留：z42b build 面尚不支持 lib/workspace——
-    // Z42cCompiler MVP 恒 exe；切换待 CompileRequest 携 kind/entry（seed 轴分阶段）。
-    // 编排式 app build 已可用：`z42vm z42.builder.zpkg -- build`。Registered for help.
-    ArgParser buildP = new ArgParser("z42 build", "compile a project to a zpkg (forwarded to z42c)");
-    buildP.AllowExtras();
-    buildP.AddOptionalPositional("project", "<project.z42.toml>");
-    root.Add("build", "compile a project (z42c)", buildP);
-    // repl = interactive REPL, forwarded raw to z42i. add-z42-repl. Registered for help.
-    ArgParser replP = new ArgParser("z42 repl", "start the interactive REPL (z42i)");
-    replP.AllowExtras();
-    root.Add("repl", "start the interactive REPL (z42i)", replP);
-
-    root.Add("info", "show Z42_HOME / default / counts",
-        new ArgParser("z42 info", "show Z42_HOME / default / counts"));
-    ArgParser listP = new ArgParser("z42 list", "list installed runtimes (and, with --workloads, workloads)");
-    listP.AddFlag("workloads", "", "also list installed workloads (platform tooling + capabilities)");
-    root.Add("list", "list installed runtimes", listP);
-
-    ArgParser def = new ArgParser("z42 default", "show or set the default runtime");
-    def.AddOptionalPositional("version", "runtime version to set (omit to show)");
-    root.Add("default", "show or set the default runtime", def);
-
-    ArgParser link = new ArgParser("z42 link", "register a local runtime dir as <ver>");
-    link.AddOption("as", "", "version label", "");
-    link.AddPositional("dir", "runtime directory");
-    root.Add("link", "register a local runtime dir as <ver>", link);
-
-    ArgParser which = new ArgParser("z42 which", "print the resolved z42vm path");
-    which.AddOption("runtime", "", "runtime version", "");
-    which.AddOptionalPositional("app", "app (ignored; for symmetry)");
-    root.Add("which", "print the resolved z42vm path", which);
-
-    ArgParser runP = new ArgParser("z42 run", "run an app with the resolved runtime");
-    runP.AllowExtras();
-    runP.AddOption("runtime", "", "runtime version", "");
-    runP.AddOptionalPositional("app", "<app.zpkg> [-- args]");
-    root.Add("run", "run an app with the resolved runtime", runP);
-
-    ArgParser inst = new ArgParser("z42 install", "download a runtime from GitHub Releases");
-    inst.AddPositional("version", "version | nightly");
-    inst.AddOption("rid", "", "target RID (default: host, e.g. ios-arm64)", "");
-    root.Add("install", "download a runtime from GitHub Releases", inst);
-
-    ArgParser uninst = new ArgParser("z42 uninstall", "remove an installed runtime");
-    uninst.AddPositional("version", "installed version");
-    root.Add("uninstall", "remove an installed runtime", uninst);
-
-    ArgParser selfup = new ArgParser("z42 self-update", "update the installed launcher");
-    selfup.AddOption("channel", "", "release channel or version (default: nightly)", "");
-    root.Add("self-update", "update the installed launcher", selfup);
-
-    // Platform deploy commands take `--rid <rid>` (its category selects the platform),
-    // unified across all platforms (no per-platform subcommand).
-    ArgParser pub = new ArgParser("z42 publish", "produce a release deployable (--rid selects the platform)");
-    pub.AddPositional("project", "<project.z42.toml>");
-    pub.AddOption("rid", "", "target RID (default: host; e.g. macos-arm64 / ios-arm64)", "");
-    pub.AddOption("output", "", "output dir (overrides [platform.*].publish_dir)", "");
-    pub.AddFlag("no-build", "", "deploy the already-built zpkg as-is (default: compile first, "
-        + "rebuilding only what changed)");
-    pub.AddFlag("self-contained", "", "embed the z42 runtime (self-contained app; no external z42vm); "
-        + "static/dynamic link via [platform.desktop] link");
-    root.Add("publish", "produce a release deployable (--rid selects platform)", pub);
-
-    ArgParser exp = new ArgParser("z42 export", "generate a native IDE project (--rid selects the platform)");
-    exp.AddPositional("project", "<project.z42.toml>");
-    exp.AddOption("rid", "", "target RID (e.g. ios-arm64 / android-arm64 / browser-wasm)", "");
-    exp.AddOption("output", "", "output directory", "");
-    exp.AddOption("sdk-ver", "", "platform SDK version to use", "");
-    exp.AddOption("bundle-id", "", "iOS CFBundleIdentifier (ios only)", "");
-    exp.AddOption("app-id", "", "Android application ID (android only)", "");
-    exp.AddOption("entry", "", "wasm entry point e.g. Hello.Main (wasm only)", "");
-    root.Add("export", "generate a native IDE project (--rid selects platform)", exp);
-
-    root.AddRouter("workload", "install / list / uninstall workloads (platform tooling or capabilities like test)", _workloadRouter());
-
-    return root;
-}
-
-SubcommandRouter _workloadRouter() {
-    SubcommandRouter w = new SubcommandRouter("z42 workload", "install / list / uninstall workloads (platform tooling or capabilities like test)");
-
-    ArgParser inst = new ArgParser("z42 workload install", "install a workload (platform tooling + runtime, or a capability like test)");
-    inst.AddPositional("workload", "<ios|android|wasm|desktop|test>");
-    inst.AddOption("from", "", "local tooling package dir (omit for manifest network install)", "");
-    inst.AddOption("runtime", "", "local runtime pack dir", "");
-    inst.AddOption("base-url", "", "manifest root for network install (default: GitHub releases)", "");
-    inst.AddOption("version", "", "version (default: from package manifest; required for network)", "");
-    inst.AddOption("rid", "", "runtime RID (default: from runtime dir name)", "");
-    w.Add("install", "install a workload (platform tooling or a capability like test)", inst);
-
-    w.Add("list", "list installed workloads", new ArgParser("z42 workload list", "list installed workloads"));
-
-    // uninstall (matches the runtime verb `z42 uninstall`; was `workload remove`).
-    ArgParser rm = new ArgParser("z42 workload uninstall", "uninstall an installed workload");
-    rm.AddPositional("workload", "<wl>");
-    rm.AddOption("version", "", "version (default: all)", "");
-    w.Add("uninstall", "uninstall an installed workload", rm);
-
-    return w;
-}
-
-// ── dispatch ──────────────────────────────────────────────────────────────
-
-void _dispatchLauncher(CommandResolution res) {
-    string[] p = res.Path();
-    if (p.Length == 0) { return; }
-    ParseResult r = res.Result();
-    string top = p[0];
-    if (top == "info")      { _cmdInfo();      return; }
-    if (top == "list")      { _cmdList(r);     return; }
-    if (top == "default")   { _cmdDefault(r);  return; }
-    if (top == "link")      { _cmdLink(r);     return; }
-    if (top == "which")     { _cmdWhich(r);    return; }
-    if (top == "install")     { _cmdInstall(r);    return; }
-    if (top == "uninstall")   { _cmdUninstall(r);  return; }
-    if (top == "self-update") { _cmdSelfUpdate(r); return; }
-    if (top == "publish")   { _cmdPublish(r);   return; }   // leaf: --rid selects platform
-    if (top == "export")    { _cmdExport(r);    return; }   // leaf: --rid selects platform
-    if (top == "workload") {
-        // p = ["workload", "install"|"list"|"uninstall"]
-        if (p.Length < 2) { return; }
-        string sub = p[1];
-        if (sub == "install")   { _cmdWorkloadInstall(r);   return; }
-        if (sub == "list")      { _cmdWorkloadList(r);      return; }
-        if (sub == "uninstall") { _cmdWorkloadUninstall(r); return; }
-        return;
-    }
-}
-
-// True if argv contains `flag` (used to detect `run … --rid …` deploy form).
-bool _argvHas(string[] argv, string flag) {
-    int i = 0;
-    while (i < argv.Length) { if (argv[i] == flag) { return true; } i = i + 1; }
-    return false;
 }

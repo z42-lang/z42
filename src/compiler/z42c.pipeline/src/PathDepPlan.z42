@@ -7,8 +7,8 @@
 //   - `visiting` 集（in-progress）检测回边 → 环报错；
 //   - `visited` 集（按**规范化** toml 路径）去重，钻石依赖只建一次；
 //   - post-order 发射 → 叶子在前，消费方在后（消费方本身不发射）。
-// 产出 flat 数组 `Tomls[]`（z42 无交错数组，仿 WsMembers）。dist 解析留 driver
-// （`_resolveDistDir` 依赖 driver 私有的模板上下文），本模块只定拓扑序。
+// 产出 flat 数组 `Tomls[]`（z42 无交错数组，仿 WsMembers）。dist 目录由 driver
+// 经 `BuildLayout`（z42.project）解析，本模块只定拓扑序。
 //
 // z42c 受限子集：无闭包捕获 → 显式 `PathDepState` 状态对象穿透递归；固定数组 + 计数。
 namespace Z42.Pipeline;

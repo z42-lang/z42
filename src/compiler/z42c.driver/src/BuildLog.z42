@@ -1,0 +1,25 @@
+// `z42c build` 的进度输出开关（set-once：Main 解析 `--quiet` 后设置，编译期只读）。
+//
+// 进度行（`cached:` / `wrote ->` / `cache ->` / `no changes; preserved ->`）面向开发者判断增量是否生效；
+// `z42 run` 先构建再运行，这些行混在程序输出前面只是噪声 —— launcher 以 `--quiet` 调用。
+// 诊断（错误 / 警告）永远输出，不受此开关影响。
+namespace Z42.Driver;
+
+using Std;
+using Std.IO;
+
+public static class BuildLog {
+    private static bool _quiet = false;
+
+    public static void SetQuiet(bool q) { BuildLog._quiet = q; }
+
+    /// 进度行 → stdout（quiet 时丢弃）。
+    public static void Progress(string msg) {
+        if (!BuildLog._quiet) { Console.WriteLine(msg); }
+    }
+
+    /// 进度行 → stderr（quiet 时丢弃）。
+    public static void ProgressErr(string msg) {
+        if (!BuildLog._quiet) { ConsoleError.WriteLine(msg); }
+    }
+}

@@ -1,0 +1,115 @@
+// 清单定位 —— 「用户说的是哪个工程」的唯一答案（launcher / z42b / z42c 共用）。
+//
+// 命令不带工程路径时（`z42 build` / `z42 run` / `z42 test` …），从起点目录逐级向上找，
+// 每一层按顺序判定：
+//   1. `z42.toml`                → 工程清单
+//   2. 恰好一个 `*.z42.toml`      → 工程清单；多于一个 → 歧义（列出候选，由用户指定）
+//   3. `z42.workspace.toml`       → 工作区清单
+// 最近者优先；到文件系统根仍没有 → NotFound。
+//
+// 种类用 int 常量而非 enum：z42c 消费本库，而 z42c 源码约定不使用 enum（compiler-z42c.md）。
+namespace Z42.Build.Project;
+
+using Std;
+using Std.IO;
+
+public static class ManifestLocateKind {
+    public static int NotFound  = 0;
+    public static int Project   = 1;
+    public static int Workspace = 2;
+    public static int Ambiguous = 3;
+}
+
+public sealed class ManifestLocation {
+    public int Kind;                // ManifestLocateKind.*
+    /// Project / Workspace：清单路径；Ambiguous / NotFound：""。
+    public string ManifestPath;
+    /// Ambiguous：同层的全部候选（字典序）；其余情形为空数组。
+    public string[] Candidates;
+
+    public ManifestLocation(int kind, string path, string[] candidates) {
+        this.Kind = kind; this.ManifestPath = path; this.Candidates = candidates;
+    }
+
+    public bool IsFound() {
+        return this.Kind == ManifestLocateKind.Project || this.Kind == ManifestLocateKind.Workspace;
+    }
+}
+
+public static class ManifestLocator {
+
+    /// 从 `startDir` 逐级向上查找（规则见文件头）。
+    /// `startDir` 为相对路径（通常就是 "."）时，返回的路径也相对它表达（"./z42.toml"、"../z42.toml"），
+    /// 于是编译诊断里的源文件路径是用户熟悉的 `./src/Main.z42`，而不是一长串绝对路径。
+    public static ManifestLocation FindUp(string startDir) {
+        bool rel = !Path.IsRooted(startDir);
+        string cwd = Environment.GetCurrentDirectory();
+        // "." 直接用 cwd：Join(cwd, ".") 得到 "<cwd>/."，它的父目录仍是 cwd，会让显示路径多退一层。
+        string probe = !rel ? startDir : (startDir == "." ? cwd : Path.Join(cwd, startDir));
+        string shown = startDir;
+        while (probe.Length > 0) {
+            ManifestLocation here = ManifestLocator.FindIn(probe);
+            if (here.Kind != ManifestLocateKind.NotFound) {
+                return rel ? ManifestLocator._rebase(here, shown) : here;
+            }
+            string parent = Path.GetDirectoryName(probe);
+            if (parent == probe || parent.Length == 0) { break; }
+            probe = parent;
+            shown = shown == "." ? ".." : Path.Join(shown, "..");
+        }
+        return ManifestLocator._notFound();
+    }
+
+    /// 只看 `dir` 这一层（不向上）。`z42 run <dir>` 这类显式给出目录的命令用它。
+    public static ManifestLocation FindIn(string dir) {
+        if (!Directory.Exists(dir)) { return ManifestLocator._notFound(); }
+        string bare = Path.Join(dir, "z42.toml");
+        if (File.Exists(bare)) {
+            return new ManifestLocation(ManifestLocateKind.Project, bare, new string[0]);
+        }
+        string[] named = Path.Glob(dir, "*.z42.toml");   // 已按字典序排好
+        int ni = 0;
+        while (ni < named.Length) { named[ni] = Path.Join(dir, Path.GetFileName(named[ni])); ni = ni + 1; }
+        if (named.Length == 1) {
+            return new ManifestLocation(ManifestLocateKind.Project, named[0], new string[0]);
+        }
+        if (named.Length > 1) {
+            return new ManifestLocation(ManifestLocateKind.Ambiguous, "", named);
+        }
+        string ws = Path.Join(dir, "z42.workspace.toml");
+        if (File.Exists(ws)) {
+            return new ManifestLocation(ManifestLocateKind.Workspace, ws, new string[0]);
+        }
+        return ManifestLocator._notFound();
+    }
+
+    /// 未找到 / 歧义时给用户看的错误文本（多行，不含结尾换行）。各工具共用，措辞一致。
+    /// `startDir` 为 "." 时说「当前目录」。
+    public static string ErrorText(ManifestLocation loc, string startDir) {
+        if (loc.Kind == ManifestLocateKind.Ambiguous) {
+            string s = "error: multiple manifests found; specify one:";
+            int i = 0;
+            while (i < loc.Candidates.Length) {
+                s = s + "\n  " + Path.GetFileName(loc.Candidates[i]);
+                i = i + 1;
+            }
+            return s;
+        }
+        string place = startDir == "." ? "the current directory" : "`" + startDir + "`";
+        return "error: could not find z42.toml in " + place + " or any parent directory\n"
+             + "  (create a project with: z42 new <name>)";
+    }
+
+    // 把 FindIn 在绝对目录下得到的结果，改写成相对 `shown` 目录表达。
+    private static ManifestLocation _rebase(ManifestLocation loc, string shown) {
+        string p = loc.ManifestPath.Length > 0 ? Path.Join(shown, Path.GetFileName(loc.ManifestPath)) : "";
+        string[] c = new string[loc.Candidates.Length];
+        int i = 0;
+        while (i < c.Length) { c[i] = Path.Join(shown, Path.GetFileName(loc.Candidates[i])); i = i + 1; }
+        return new ManifestLocation(loc.Kind, p, c);
+    }
+
+    private static ManifestLocation _notFound() {
+        return new ManifestLocation(ManifestLocateKind.NotFound, "", new string[0]);
+    }
+}

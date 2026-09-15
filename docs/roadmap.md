@@ -436,8 +436,6 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | hot-reload 签名变更 + 跨模块 | 签名变更检测 / 跨模块 reload 故事 | [runtime/hot-reload.md](design/runtime/hot-reload.md) |
 | 完整 JIT 指令映射 + 性能基准 | jit.md 待补 | [runtime/jit.md](design/runtime/jit.md) |
 | GC handle Phase 3+ | Pinned / WeakTrackResurrection / 多线程 barrier | [runtime/gc-handle.md](design/runtime/gc-handle.md) |
-| launcher 下载/install/self-update (P2) | `z42 install/uninstall/self update` + 每平台×版本发布点 + 校验（P1 用 `z42 link` 本地注册） | [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
-| launcher app 版本声明格式 | zpkg `META.toolchain_version` vs `runtimeconfig.json` sidecar 未定；分发(P2)时才需 | [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
 | z42c 裸脚本→Exe-zpkg | 原 launcher phase 0.5；现以 mini-project(`kind="exe"` toml) workaround，ROI 低 | [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
 | `ICompiler` 抽中立微库 | z42b 编译接口暂置 `z42.build`；后抽中立微库使编译器核心（z42c）不依赖整个 build 框架 | [toolchain/build-orchestrator.md](design/toolchain/build-orchestrator.md#deferred--待-spec-细化) |
 | z42c stdlib 构建 jit 加速 | S3（z42c 接管 build stdlib，当前阻塞未落地）落地后：interp 重编 ~30s，jit 加速待实测 22 库 jit==interp 等价 | [compiler/self-hosting.md](design/compiler/self-hosting.md#deferred--future-work) |

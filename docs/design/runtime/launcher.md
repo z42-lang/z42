@@ -4,7 +4,12 @@
 
 ## 定位
 
-`z42` 是用户**一次性安装的唯一入口**：给定一个 z42 应用（Exe-mode zpkg），解析它需要的运行时版本，用对应的 `z42vm` 跑起来，并把命令行参数透传给程序；同时管理本机已装的多个运行时版本。类比 `dotnet` muxer + `rustup`。
+`z42` 是 SDK 的**唯一命令入口**：新建 / 构建 / 运行 / 测试工程，发布应用，并把 `build` / `test` 等动词转发给对应工具（z42c / z42b / z42i）。运行应用时用 SDK 自带的 `bin/z42vm`，把命令行参数透传给程序。类比 `dotnet` / `cargo`。
+
+> **命令面以 [book · z42 命令参考](../../book/src/toolchain/cli.md) 为准。** SDK 是单版本的：launcher 不管理多个运行时版本，
+> `install` / `uninstall` / `default` / `list` / `link` / `which` / `info` / `self-update` 与 `run --runtime`、runtimeconfig 的 `version` 键均已移除（simplify-z42-cli）；
+> SDK 的安装与更新由安装脚本负责。下文涉及这些命令与 `runtimes/<ver>/` 版本选择的段落已不适用。
+
 
 **设计铁律 —— z42 优先**：bootstrap 约束（没有 VM 就跑不了 z42）决定"找/给 VM"的**最小核**必须原生；除此之外**全部逻辑用 z42 写**。因此 launcher 拆成两层：
 
@@ -19,11 +24,10 @@ launcher 核心 (z42 → launcher.zpkg, Exe-mode)
       │  解析 argv / 子命令 / 读 ~/.z42 / 解析版本
       │  run: Std.IO.Process.Spawn
       ▼
-$Z42_HOME/runtimes/<ver>/z42vm  <app.zpkg>  --  <app args>
+<sdk>/bin/z42vm  <app.zpkg>  --  <app args>
 ```
 
-- **launcher 运行时**（`$Z42_HOME/bin/ + $Z42_HOME/programs/launcher/`）：随 launcher 一起装的固定 `z42vm + launcher.zpkg + libs`，**只用来跑 launcher 核心自己**，避免"跑 launcher 需要先选运行时"的鸡生蛋。
-- **app 运行时**（`$Z42_HOME/runtimes/<ver>/`）：受 launcher 管理，用来跑用户 app。
+- **SDK 运行时**（`bin/z42vm + libs/`）：既跑 launcher 核心自己，也跑用户 app（SDK 单版本，不做运行时选择）。
 
 `z42` apphost（统一前称 trampoline）永远用 colocated 的 launcher 运行时跑核心，**不随 release 变**；所有行为都在 `launcher.zpkg` 里，可单独升级。**统一为单一 apphost stub**（去掉独立 trampoline 实现）：`z42` = payload 指向 `launcher.zpkg` 的 apphost，与 per-app apphost 同一个 stub、同一套 z42vm 探测（见下「运行时解析」），仅 payload 不同。
 
@@ -53,11 +57,7 @@ $Z42_HOME/runtimes/<ver>/z42vm  <app.zpkg>  --  <app args>
 │   │   └── z42.repl.zpkg
 │   └── <cmd>/                  #   其余 SDK 命令（test / fmt / new …）：<cmd>.zpkg + <cmd>.cmd.toml
 ├── workloads/<wl>/             # 平台 workload（跟 SDK 走，版本无关；publish/export ios/android/wasm + native 包）
-├── runtimes/<ver>/             # app 运行时（受管，只放 z42vm + libs）
-│   ├── z42vm
-│   ├── libs/
-│   └── link.txt                # 可选：重定向到含 z42vm+libs 的本地目录
-└── config.toml                 # default = "<ver>"
+└── runtimes/<ver>/workloads/<wl>/  # z42 workload install 装入的 workload（按版本分目录）
 ```
 
 > **命令 + workload 归属（2026-06-20 裁决）**：SDK 命令与平台 workload **都跟当前 SDK 走**，**不进 `runtimes/<ver>/`**（`runtimes/<ver>/` 只放 app 运行时 z42vm + libs）：
@@ -68,25 +68,11 @@ $Z42_HOME/runtimes/<ver>/z42vm  <app.zpkg>  --  <app args>
 
 > **PATH 约定（2026-06-20）**：`$Z42_HOME`（访问 `z42`）和 `$Z42_HOME/bin`（访问 `z42c`、`z42vm`）都加入 PATH。install 脚本同步更新。
 
-`runtimes/<ver>/` 既可以是真实运行时目录，也可以只放一个 `link.txt`（内容为一个本地构建目录的绝对路径）——后者用于 dev：`z42 link <dir> --as <ver>`，无需拷贝。
+## 命令
 
-## 命令（P1）
-
-| 命令 | 行为 |
-|------|------|
-| `z42 run [--runtime V] <app.zpkg> [-- <args>]` | 解析版本 → 用 `runtimes/<ver>/z42vm` 跑 app，继承 stdio，`--` 后参数透传，设 `Z42_LIBS`，回传退出码 |
-| `z42 <app.zpkg> [-- <args>]` | 裸 apphost 形式，等价 `run` |
-| `z42 link <dir> --as <ver>` | 把含 `z42vm`(+`libs/`) 的本地目录注册为 `<ver>`（写 `link.txt`） |
-| `z42 list` | 列已装运行时（标注 default） |
-| `z42 default [<ver>]` | 显示 / 设置默认版本（写 `config.toml`） |
-| `z42 which [--runtime V] [app]` | 打印解析到的 `z42vm` 路径 |
-| `z42 info` | 打印 `Z42_HOME` / runtimes 目录 / default / 已装数量 |
-
-### 版本解析顺序
-
-```
---runtime <ver>  >  app 自带版本声明(P1 暂空)  >  config.toml default  >  唯一已装  >  报错并列候选
-```
+命令清单、参数与退出码见 [book · z42 命令参考](../../book/src/toolchain/cli.md)（唯一权威）。
+命令不带工程路径时的清单定位规则（从当前目录向上找 `z42.toml`）由 z42.project 的 `ManifestLocator`
+实现，launcher / z42b / z42c 共用；产物目录解析由 `BuildLayout` 实现。
 
 ## 发布打包：便携模式（portable, model A — bundle-launcher-in-release, 2026-06-03）
 
@@ -110,9 +96,9 @@ z42-<ver>-<rid>-<profile>/
 ├── native/  manifest.toml
 ```
 
-**便携解析**（launcher-at-package-root 2026-06-04；apphost 化 2026-06-20）：`z42`（apphost）在包根，payload 打包时 patch 为 `programs/launcher/launcher.zpkg`（相对路径）；z42vm probe 走统一顺序（完整定义见下「运行时解析」节）——关键是 `{exe_dir}/bin/z42vm`（colocated）优先于项目本地，launcher 总用自己同包的 vm。installed 与便携模式 **probe 路径相同**（exe 同级的 `bin/z42vm`），无需区分两套逻辑。核心的 `run`/`which` 在未 pin `--runtime` 时直接用这个 portable runtime（不查 `runtimes/<ver>`）。于是 `<pkg>/z42 run app.zpkg` 开箱即用，**不重复 z42vm/libs、不用 symlink**（Windows 友好）。`z42` 在根而非 `bin/`：它是包的统一入口，`bin/` 留给工具（z42c/z42vm/apphost 模板）。
+**便携解析**（launcher-at-package-root 2026-06-04；apphost 化 2026-06-20）：`z42`（apphost）在包根，payload 打包时 patch 为 `programs/launcher/launcher.zpkg`（相对路径）；z42vm probe 走统一顺序（完整定义见下「运行时解析」节）——关键是 `{exe_dir}/bin/z42vm`（colocated）优先于项目本地，launcher 总用自己同包的 vm。installed 与便携模式 **probe 路径相同**（exe 同级的 `bin/z42vm`），无需区分两套逻辑。核心的 `run` 直接用这个同址运行时。于是 `<pkg>/z42 run app.zpkg` 开箱即用，**不重复 z42vm/libs、不用 symlink**（Windows 友好）。`z42` 在根而非 `bin/`：它是包的统一入口，`bin/` 留给工具（z42c/z42vm/apphost 模板）。
 
-打包步骤见 `./xtask package` 的 desktop 路径 [2c];`./xtask test dist` 有 portable `z42 which` smoke。
+打包步骤见 `./xtask package` 的 desktop 路径 [2c];`./xtask test dist` 有 launcher 命令行冒烟（new → run → build → clean，见 `scripts/test/xtask_test_dist_cli.z42`）。
 
 ## 三包发布结构（split-runtime-launcher-packages, 2026-06-13）
 
@@ -172,12 +158,12 @@ libs/            # stdlib zpkg
 
 > **unify-launcher-apphost（2026-06-21）**：SDK launcher **不做多版本**。managed 即"解压即用"——
 > 无独立 `$Z42_HOME/launcher/` 运行时、无 `z42 link`/`runtimes/<ver>` 注册（同址 vm 取代了独立
-> launcher 运行时）。**更新**＝重跑 `install-z42.sh` / `z42 self-update`（`.bootstrap-stamp` 戳跳过
+> launcher 运行时）。**更新**＝重跑安装脚本（`.bootstrap-stamp` 戳跳过
 > 同版本重装，新 tag 重新解压覆盖）。多版本支持按需后置。
 
 装完 `z42` 在 PATH 上（`$Z42_HOME` + `$Z42_HOME/bin`）、`z42 run app.zpkg` 任意目录可用。安装脚本只**打印** PATH 接入指引，不自动改 profile。
 
-> `install-z42.sh` 支持 `--dest <dir>`（指定安装目录）、`--dry-run`（预览不下载）、`--version <ver>`（覆盖版本）、`--verbose`（详细输出）、`--no-path`（抑制 PATH 提示）。联网 `z42 install <ver>` / `z42 self-update`（P2）已实现，见下「P2 命令」。
+> `install-z42.sh` 支持 `--dest <dir>`（指定安装目录）、`--dry-run`（预览不下载）、`--version <ver>`（覆盖版本）、`--verbose`（详细输出）、`--no-path`（抑制 PATH 提示）。SDK 的更新＝重新运行安装脚本（launcher 不做自更新）。
 
 ## 项目本地引导（z42-bootstrap — install-z42, 2026-06-04）
 
@@ -193,18 +179,15 @@ libs/            # stdlib zpkg
 
 ## app `runtimeconfig.toml`（版本声明 + 运行时旋钮 — add-runtimeconfig-json 2026-06-03；JSON→TOML unify-run-modes P1 2026-07-28）
 
-app 可在 **`<app>.runtimeconfig.toml`** sidecar(.NET 同款,独立于 zpkg,可编辑)声明所需运行时版本 + 运行时旋钮:
+app 可在 **`<app>.runtimeconfig.toml`** sidecar(.NET 同款,独立于 zpkg,可编辑)声明运行时旋钮:
 
 ```toml
-version = "0.4.0"            # 运行时版本 pin（launcher 消费）
-
 [runtime]                    # z42vm 旋钮表（z42vm 自己经 Z42_CONFIG 读，见下）
 gc-mode = "concurrent"
 safepoint-throttle = 1024
 ```
 
 `z42 run <app.zpkg>` 时,launcher 核心(`Std.Toml` 解析):
-- 顶层 `version` 进入版本解析,**优先级**:`--runtime` > runtimeconfig `version` > `config.toml` default > 唯一已装。
 - `[runtime]` 表**不再由 launcher 注入 env**——launcher 把 sidecar 路径设进 **`Z42_APP_CONFIG`**,由 **z42vm 自己**按 [五层优先级链](../../book/src/runtime/runtime-settings.md)(`cli > env > 用户配置 Z42_CONFIG > 应用侧车 Z42_APP_CONFIG > 默认`)解析。旋钮键用 KNOWN_KNOBS 的 `toml_key`(kebab-case，如 `gc-mode`)。
   > **通道拆分(complete-runtime-settings P5, 2026-09-05)**：sidecar 从前与用户配置共用 `Z42_CONFIG`,且只在用户没设时才塞——于是用户一 `export Z42_CONFIG=my.toml`,应用侧车就被**整份丢弃**。现在两者是独立通道、**逐 key 叠加**(同 key 用户赢),用户改一个旋钮不会丢掉应用自带的其余配置。
 - **sidecar 现在由 `z42c build` 生成**(complete-runtime-settings P5)：manifest 的 `[profile.<n>]` 里除构建期键(pack/strip/optimize/debug)外的旋钮被烤进 `dist/<name>.runtimeconfig.toml`。对齐 dotnet(SDK 从项目属性生成 runtimeconfig)。此前 launcher 是把 `[profile.debug].mode` 注入成 `Z42_MODE` 的,那让工程 profile 落在 **env 层**、反过来压过用户的配置文件,且只能带 mode 一个旋钮——两个问题一并解决。
@@ -226,7 +209,7 @@ z42 repl --config dev.toml --mode interp        # REPL 同款；-c/其余参数�
 
 > REPL 本就通过环境变量（`Z42_CONFIG` / `Z42_*` 由 `_forwardRepl` 继承）可配；本旗标补齐**显式 CLI** 途径，与 `run` 对齐。
 
-> 独立 sidecar 的好处:版本无关的 launcher 读它**不需解析带版本的 zpkg 格式**;可手改、可被工具生成。这也是 P2(下载即用)的前置——"声明需要的版本 → 没装自动拉"(自动拉 = P2)。
+> 独立 sidecar 的好处:launcher 读它**不需解析 zpkg 格式**;可手改、可被工具生成。
 
 ## apphost：每-app 原生可执行文件（add-apphost, 2026-06-09）
 
@@ -271,7 +254,7 @@ patch 同一段占位符的逻辑有**两个调用方**：
 
 **这样设计更加灵活，也避免以后循环依赖带来更多问题**（xtask 自包含、不被 workload 反向拖住）。代价是 MAGIC 字符串现有三处副本（Rust stub 嵌入端＝权威 / workload `apphost.z42` / xtask 内联），改 MAGIC 须三处同步；后续若嫌重复，可把 `PatchBytes` 抽成**编译期共享库**（z42.io 或新建 z42.apphost）让 workload 与 xtask 共用一份——但仍是共享库、不是"下载 workload"。
 
-> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.toml`**（版本 pin + `[runtime]` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 apphost（其 `hostrun` 模块）也设 `Z42_CONFIG=sidecar`（unify-run-modes 后续）/ 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/list/install/publish）用，只是 apphost 不路由经它。
+> **直跑模型（simplify-apphost-direct-run, 2026-06-10）**：apphost **不经** `launcher.zpkg` / muxer，单个 VM 进程直接跑 app —— 与 .NET apphost 一致（published apphost 不走 `dotnet` muxer）。stub 只做"找 VM + 跑 app"（允许的最小原生核，符合"z42 优先"：它不实现任何 z42 逻辑，只是少做）。**部署一个 app 只需：apphost exe + app.zpkg + 可解析的运行时（z42vm+libs），不需要 launcher.zpkg。** 代价：apphost **不读 `<app>.runtimeconfig.toml`**（版本 pin + `[runtime]` 旋钮）—— 那套逻辑在 `launcher.zpkg` 里，只有走 `z42 run` 才生效；需要版本选择/GC 旋钮的 app 用 `z42 run`，或后续给 apphost（其 `hostrun` 模块）也设 `Z42_CONFIG=sidecar`（unify-run-modes 后续）/ 加最小版本检查（Deferred）。`launcher.zpkg` 仍在 SDK 里供 `z42` muxer（run/build/test/publish …）用，只是 apphost 不路由经它。
 
 ### 运行时解析：z42vm 探测（统一 apphost 唯一真相，2026-06-21）
 
@@ -339,32 +322,6 @@ z42 publish scripts/xtask.z42.toml
 > **历史**：`[project].apphost = true` 布尔（Deferred `apphost-future-build-flag`）→ `[apphost]` 段 + 独立 `z42 apphost build <toml>` 命令（2026-06-10）→ **apphost-as-config（2026-06-17）** 统一为 `[platform.desktop]` 段 + `z42 publish desktop`，取消独立 `z42 apphost` 命令（apphost 与 ios `.ipa`/android `.aab`/wasm bundle 同层，是 desktop 平台发布产物）。消费逻辑始终全留 z42 patcher，compiler 仅登记 schema。
 
 ## Deferred / Future Work
-
-### ~~launcher-future-install~~ ✅ 已实现（add-launcher-install, 2026-06-13）
-
-`z42 install <ver|nightly>` 和 `z42 self-update [--channel <ver>]` 已在 `add-launcher-install` 中实现：manifest-first（`release-index.json`）下载、SHA256 验证、流式 tgz/zip 解压、staged 原子替换。见 `src/toolchain/launcher/core/launcher_network.z42`。`split-runtime-launcher-packages`（2026-06-13）进一步细化：各命令通过 `packageType` 参数请求各自的专属小包而非全量 SDK。
-
-P2 命令：
-
-| 命令 | 行为 |
-|------|------|
-| `z42 install <version\|nightly>` | 请求 `packageType="runtime"` → 下载 `z42-runtime-<ver>-<rid>.tar.gz` 到 `$Z42_HOME/runtimes/<ver>/` |
-| `z42 self-update [--channel <ver>]` | 请求 `packageType="launcher"` → 下载 `z42-launcher-<ver>-<rid>.tar.gz` 替换 `$Z42_HOME/{z42, bin/, programs/launcher/, libs/}`（portable 模式拒绝）|
-
-### launcher-future-self-update-windows: Windows 上 `z42 self-update` 替换失败
-
-- **来源**：add-launcher-install 实施期延后
-- **触发原因**：Windows 上 `z42.exe` 是父进程（等待 `z42vm`），替换 `$Z42_HOME/programs/launcher/` + `bin/z42vm` 会因文件被占用而失败
-- **前置依赖**：进程退出后延迟替换策略（rename-then-copy）或 PowerShell 辅助
-- **触发条件**：Windows 用户需要 `z42 self-update` 时
-- **当前 workaround**：Windows 用户重新运行 `install-z42.bat --system` 替换 launcher
-
-### launcher-future-version-declaration: app 自带运行时版本声明
-
-- **来源**：add-z42-launcher design（决策 D4）
-- **触发原因**：是否把"需要哪个运行时版本"写进 zpkg `META.toolchain_version` 还是独立 `runtimeconfig.json` sidecar 未定；strict-pin 下 P1 用 `link`+`default` 本地指定即可
-- **触发条件**：进入分发场景（P2 下载）时必须定
-- **当前 workaround**：版本解析第 2 步（读 app 自带声明）留空 hook
 
 ### launcher-future-single-file-exe-zpkg: z42c 从裸 `.z42` 脚本直接产 Exe-zpkg
 

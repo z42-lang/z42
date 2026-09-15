@@ -1,11 +1,10 @@
-// z42b 命令处理层（build / publish / export / run / test / bench）。wire-z42b 2b 已接入。
+// z42b 命令处理层（build / publish / export；test / bench 见 builder_test.z42）。
 //
 // 每个 verb 是薄编排：解析参数 → ManifestLoader.Load → 构造 Target → _orchestrate
 // （builder.z42）。动词语义见 platform-export-lifecycle.md：
 //   build   平台无关 app.zpkg（Mode="" → tail 全 no-op）
 //   publish 一路到 Package（Mode=Publish；--rid 选平台）
 //   export  到 GenerateProject 停（Mode=Export；仅 ios/android）
-//   run     双形态：<app.zpkg> 跑字节码（host）/ <toml> --rid 跑平台部署形态
 //   test    host + 平台上跑 [Test]（取代 Rust test-runner）—— 待 retire-test-runner（反射前置）
 //   bench   跑 [Benchmark]（Bencher）—— 同上
 namespace Z42Builder;
@@ -16,6 +15,32 @@ using Std.Cli;
 using Std.Toml;
 using Z42.Build;
 using Z42.Build.Project;
+
+// ── 工程清单定位 ───────────────────────────────────────────────────────────────
+
+// 命令给出的工程清单：给了就用（须存在；给目录则看该目录）；没给就从当前目录向上找
+// （ManifestLocator，与 z42 run / z42c build 同一规则）。失败打印原因并返回 ""。
+string _locateManifest(string verb, string given) {
+    if (given.Length > 0) {
+        if (Directory.Exists(given)) {
+            ManifestLocation inDir = ManifestLocator.FindIn(given);
+            if (inDir.Kind == ManifestLocateKind.Project) { return inDir.ManifestPath; }
+            ConsoleError.WriteLine(ManifestLocator.ErrorText(inDir, given));
+            return "";
+        }
+        if (File.Exists(given)) { return given; }
+        ConsoleError.WriteLine("z42 " + verb + ": manifest not found: " + given);
+        return "";
+    }
+    ManifestLocation loc = ManifestLocator.FindUp(".");
+    if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
+    if (loc.Kind == ManifestLocateKind.Workspace) {
+        ConsoleError.WriteLine("z42 " + verb + ": `" + loc.ManifestPath + "` is a workspace; run it in a member directory");
+        return "";
+    }
+    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
+    return "";
+}
 
 // ── build / publish / export：共用 _runVerb（仅 Mode 不同）──────────────────────
 
@@ -33,14 +58,12 @@ class BuildOutcome {
 
 // 编译一个工程 → BuildOutcome。build（mode=""）/ publish 产 dist/<name>.zpkg；export 只
 // orchestrate 到 GenerateProject、不产 dist。诊断在此打印。_runVerb 与 compile-then-test
-// 共用同一份 orchestrate + dist 组装（单一真相；无 target 默认 z42.toml，对齐 build）。
+// 共用同一份 orchestrate + dist 组装（单一真相；无 target 按 _locateManifest 向上找）。
 BuildOutcome _buildProject(ParseResult r, string mode) {
     BuildOutcome o = new BuildOutcome();
     o.Dist = "";
-    string tomlPath = r.GetPositional(0);
-    if (tomlPath.Length == 0) { tomlPath = "z42.toml"; }
-    if (!File.Exists(tomlPath)) {
-        ConsoleError.WriteLine("z42b: project manifest not found: " + tomlPath);
+    string tomlPath = _locateManifest(mode.Length > 0 ? mode : "build", r.GetPositional(0));
+    if (tomlPath.Length == 0) {
         o.Rc = 2;
         return o;
     }
@@ -97,30 +120,3 @@ Target _makeTarget(ParseResult r, string mode) {
     string profile = r.GetFlag("release") ? "release" : "debug";
     return new Target(rid, family, profile, mode);
 }
-
-// ── run：双形态 ───────────────────────────────────────────────────────────────
-
-// <app.zpkg|.zbc>（无 --rid）→ host VM 跑字节码（运行时执行，归 launcher：z42b 透传/委托）。
-// <toml> --rid → 平台部署形态（build→pack→run）。
-int _cmdRun(ParseResult r) {
-    string target = r.GetPositional(0);
-    string rid = r.GetOption("rid");
-    if (target.Length == 0) {
-        ConsoleError.WriteLine("z42b run: missing <app.zpkg> | <project.z42.toml>");
-        return 2;
-    }
-    if (rid.Length == 0 && (target.EndsWith(".zpkg") || target.EndsWith(".zbc"))) {
-        // host 直跑：运行时执行语义，由 launcher 持有（z42 run <zpkg>）。z42b 不重复实现。
-        ConsoleError.WriteLine("z42b run: host bytecode run is served by the launcher (z42 run " + target + ")");
-        return 2;
-    }
-    // 部署形态：build → workload package → 启动。骨架待 spec（platform-export-lifecycle）。
-    ConsoleError.WriteLine("z42b run: platform deploy-form (--rid) not yet implemented");
-    return 1;
-}
-
-// ── test / bench：待 retire-test-runner 完整接入（PARKED 编排路径）──────
-//
-// 已编译 .zbc/.zpkg 的直跑实现见 builder_test.z42（_cmdTest/_cmdBench，反射式
-// Std.Test.Runner.RunModule，retire-test-runner 已落地）。这里的 toml→build→test
-// 编排路径依赖 ICompiler，属 wire-z42b-host-build，故本文件保持 PARKED。

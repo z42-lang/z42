@@ -1,16 +1,14 @@
 // z42b CLI 路由 —— Std.Cli 嵌套 router（对照 launcher_cli.z42）。
 //
-// SCOPE：test/bench 反射运行器 + publish + build/new/export 编排（wire-z42b 2b 已接入，
-// 编译器经 _hostCompiler 运行时动态注入——见 builder.z42）。
-// 依赖 Z42.Build / Z42.Project（其 `Z42.Project` 命名空间与编译器内部 z42c.project
-// 在共享 Z42_LIBS 下冲突），属 wire-z42b-host-build —— 这里先登记命令面并给出
-// "pending" 提示，待该变更接入 PARKED 的 builder.z42 / builder_commands.z42 /
-// builder_new.z42。test/bench 处理见 builder_test.z42。
+// 用户经 `z42 <verb>` 到达 new / test / bench / clean / publish（launcher 转发），故这些命令的
+// 帮助名写 `z42 <verb>`；build / export 只供编排方（xtask）直接调用，保留 `z42b` 名。
+// 编译器经 _hostCompiler 运行时动态注入（见 builder.z42）；test/bench 处理见 builder_test.z42。
 namespace Z42Builder;
 
 using Std;
 using Std.IO;
 using Std.Cli;
+using Z42.Build.Project;   // ManifestLoader / BuildLayout（clean）
 
 // exe 入口。standalone（`z42vm z42.builder.zbc -- <verb> ...`）与 launcher 透传
 // （`z42 <verb> ...`）都经 Environment.GetCommandLineArgs() 拿到动词起的 argv。
@@ -37,16 +35,15 @@ int _runBuilder(string[] argv) {
 SubcommandRouter _builderRoot() {
     SubcommandRouter root = new SubcommandRouter("z42b", "z42 build orchestrator");
 
-    // new / build / publish / export / run（wire-z42b 2b：build/new 编排已接入，编译器动态注入）。
-    ArgParser newP = new ArgParser("z42b new", "scaffold a new project");
-    newP.AddOptionalPositional("name", "project name (kebab-case)");
-    newP.AddFlag("lib", "", "library project (default: exe app)");
-    newP.AddFlag("test", "", "test project");
-    newP.AddOption("path", "", "parent directory (default: current dir)", "");
-    root.Add("new", "scaffold a new project", newP);
+    // new / build / publish / export（编译器动态注入）。
+    ArgParser newP = new ArgParser("z42 new", "create a new project");
+    newP.AddOptionalPositional("name", "project name (lowercase letters, digits, `-`, `_`, `.`)");
+    newP.AddFlag("lib", "", "library project (default: executable)");
+    newP.AddOption("path", "", "directory to create the project in (default: current dir)", "");
+    root.Add("new", "create a new project", newP);
 
     ArgParser build = new ArgParser("z42b build", "compile to a platform-agnostic app.zpkg");
-    build.AddOptionalPositional("project", "<project.z42.toml> (default: z42.toml)");
+    build.AddOptionalPositional("project", "<manifest> (default: the nearest z42.toml)");
     build.AddOption("rid", "", "target RID (default: host)", "");
     build.AddFlag("release", "", "release profile (default: debug)");
     root.Add("build", "compile to a platform-agnostic app.zpkg", build);
@@ -67,16 +64,11 @@ SubcommandRouter _builderRoot() {
     exp.AddFlag("release", "", "release profile (default: debug)");
     root.Add("export", "generate a native IDE project", exp);
 
-    ArgParser runP = new ArgParser("z42b run", "run app.zpkg on host (served by the launcher)");
-    runP.AllowExtras();
-    runP.AddOptionalPositional("target", "<app.zpkg> | <project.z42.toml> [-- args]");
-    root.Add("run", "run app.zpkg or platform deploy form", runP);
-
     // test / bench — 反射式运行器（functional；取代 Rust z42-test-runner）。
     // target 双形态：已编译产物直跑 / 工程 toml（或默认 z42.toml）→ compile-then-test
     // （add-z42b-compile-then-test）；--release 供后者选 build profile（默认 debug）。
-    ArgParser test = new ArgParser("z42b test", "run [Test] in a compiled module, project, or test-bundle");
-    test.AddOptionalPositional("target", "<file.zbc|file.zpkg|bundle.json|project.z42.toml> (default: z42.toml)");
+    ArgParser test = new ArgParser("z42 test", "build the project and run its [Test] units");
+    test.AddOptionalPositional("target", "<manifest|file.zpkg|file.zbc|bundle.json> (default: the nearest z42.toml)");
     test.AddOption("filter", "", "test name substring filter (reserved)", "");
     test.AddOption("format", "", "output format: pretty|json", "pretty");
     test.AddOption("name", "", "only build+run the [[test]] target with this name (default: all)", "");
@@ -105,8 +97,8 @@ SubcommandRouter _builderRoot() {
     test.AddFlag("reuse-parent", "", "父包 dist 已存在则直接复用、不重建（编排方已先建好父包时用）");
     root.Add("test", "run [Test] in a compiled module, project, or test-bundle", test);
 
-    ArgParser bench = new ArgParser("z42b bench", "run [Benchmark] in a compiled module or project");
-    bench.AddOptionalPositional("target", "<file.zbc|file.zpkg|project.z42.toml> (default: z42.toml)");
+    ArgParser bench = new ArgParser("z42 bench", "build the project and run its [Benchmark] units");
+    bench.AddOptionalPositional("target", "<manifest|file.zpkg|file.zbc> (default: the nearest z42.toml)");
     bench.AddOption("filter", "", "benchmark name substring filter (reserved)", "");
     bench.AddOption("format", "", "output format: pretty|json (json adds bench_stats)", "pretty");
     bench.AddOption("name", "", "only build+run the [[bench]] target with this name (default: all)", "");
@@ -119,34 +111,60 @@ SubcommandRouter _builderRoot() {
 
     // clean — remove a project's build artifacts (moved out of z42c: the compiler
     // only compiles; artifact lifecycle belongs to the orchestrator z42b).
-    ArgParser clean = new ArgParser("z42b clean", "remove <dir>/{dist,cache} build artifacts");
-    clean.AddOptionalPositional("dir", "target dir (default: current dir)");
-    root.Add("clean", "remove build artifacts (<dir>/{dist,cache})", clean);
+    ArgParser clean = new ArgParser("z42 clean", "remove the project's build output (dist, cache, artifacts)");
+    clean.AddOptionalPositional("project", "<manifest|dir> (default: the nearest z42.toml)");
+    root.Add("clean", "remove build output", clean);
 
     return root;
 }
 
-// `z42b clean [<dir>]` — delete <dir>/dist and <dir>/cache (default CWD). Pure
-// file lifecycle, no compiler involvement (ported from z42c, which is now
-// compile-only). Mirrors the former `z42c clean`.
+// `z42 clean [<manifest|dir>]` —— 删除工程的构建产物（debug + release 两个 profile）。
+// 删什么由 BuildLayout 决定（与 z42c 写产物同一规则）：dist 目录、cache 目录、generated 目录；
+// output_dir 未显式配置时它是工程独占的 `<工程>/artifacts/`，整个删除。显式配置的 output_dir
+// 可能与别的工程共享（如仓库级 artifacts/），只删解析出的子目录，不删 output_dir 本身。
 int _cmdClean(ParseResult r) {
-    string dir = r.GetPositional(0);
-    if (dir.Length == 0) { dir = "."; }
+    string toml = _locateManifest("clean", r.GetPositional(0));
+    if (toml.Length == 0) { return 2; }
+    ProjectManifest pm = ManifestLoader.Load(toml);
+    string projDir = Path.GetDirectoryName(toml);
+    if (projDir.Length == 0) { projDir = "."; }
+    string[] dirs = new string[8];
+    int n = 0;
+    bool[] profiles = new bool[2];
+    profiles[0] = false; profiles[1] = true;
+    int pi = 0;
+    while (pi < 2) {
+        BuildLayout l = BuildLayout.Resolve(pm, projDir, profiles[pi]);
+        n = _cleanAdd(dirs, n, l.DistDir);
+        if (l.OutputDirConfigured) {
+            n = _cleanAdd(dirs, n, l.CacheDir);
+            n = _cleanAdd(dirs, n, l.GeneratedDir);
+        } else {
+            n = _cleanAdd(dirs, n, Path.Join(l.ProjectDir, "artifacts"));
+        }
+        pi = pi + 1;
+    }
     int removed = 0;
-    string[] subs = new string[2];
-    subs[0] = Path.Join(dir, "dist");
-    subs[1] = Path.Join(dir, "cache");
     int i = 0;
-    while (i < subs.Length) {
-        if (Directory.Exists(subs[i])) {
-            Directory.Delete(subs[i], true);
-            Console.WriteLine("removed " + subs[i]);
+    while (i < n) {
+        if (Directory.Exists(dirs[i])) {
+            Directory.Delete(dirs[i], true);
+            Console.WriteLine("removed " + dirs[i]);
             removed = removed + 1;
         }
         i = i + 1;
     }
-    if (removed == 0) { Console.WriteLine("clean: nothing to remove under " + dir); }
+    if (removed == 0) { Console.WriteLine("nothing to clean"); }
     return 0;
+}
+
+// 去重追加（"" 跳过）。
+int _cleanAdd(string[] dirs, int n, string d) {
+    if (d.Length == 0) { return n; }
+    int i = 0;
+    while (i < n) { if (dirs[i] == d) { return n; } i = i + 1; }
+    dirs[n] = d;
+    return n + 1;
 }
 
 // ── dispatch ──────────────────────────────────────────────────────────────
@@ -159,10 +177,6 @@ int _dispatchBuilder(CommandResolution res) {
     if (top == "test")  { return _cmdTest(r); }
     if (top == "bench") { return _cmdBench(r); }
     if (top == "clean") { return _cmdClean(r); }
-    if (top == "run") {
-        ConsoleError.WriteLine("z42b run: host bytecode run is served by the launcher (z42 run <app.zpkg>)");
-        return 2;
-    }
     if (top == "publish") { return _cmdPublishZ42b(r); }   // move-publish-to-z42b
     // wire-z42b 2b：build/new/export 编排（编译器经 _hostCompiler 运行时动态注入）。
     if (top == "build")  { return _cmdBuild(r); }

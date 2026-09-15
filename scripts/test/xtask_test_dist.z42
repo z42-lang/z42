@@ -4,7 +4,7 @@
 // End-to-end test of the PACKAGED z42 distribution: compile each golden
 // source.z42 with the packaged z42c, run the result with the packaged z42vm
 // (no dotnet/cargo) in interp/jit, and diff stdout against expected_output.txt.
-// Also a launcher smoke: `z42 which` (portable + installed via install.sh).
+// Also launcher smokes: the beginner CLI path (xtask_test_dist_cli.z42) and `z42 run --bin/--set` / `repl`.
 //
 // Golden layout (same as test-vm):
 //   src/tests/<cat>/<name>/source.z42         (dir mode) + expected_output.txt
@@ -32,7 +32,7 @@ using Std.IO;
 // modes ("interp jit").
 int _testDistRun(string modeArg) {
     string root = _root();
-    // DIST_SMOKE_ONLY=launcher → run only the launcher smoke (portable which +
+    // DIST_SMOKE_ONLY=launcher → run only the launcher smokes (beginner CLI path +
     // `z42 run <dir> --bin`), skipping the heavier desktop-publish + golden legs.
     // 保留作本地快跑的开关；**CI 不再用它**（fix-package-gates-false-red, 2026-09-06）——
     // 它曾是 CI 唯一的 `test dist` 调用形态，于是另两条腿永远没人跑，双双烂掉而无人知：
@@ -280,8 +280,6 @@ int _distRunJobs() {
 }
 
 // ── Launcher smoke: returns [pass, fail] ───────────────────────────────────
-// Portable: `z42 which` with no Z42_HOME → bundled bin/z42vm.
-// Installed: install.sh into a temp Z42_HOME → `z42 which` → installed vm.
 int[] _launcherSmoke(string distDir, string work) {
     int pass = 0;
     int fail = 0;
@@ -294,30 +292,11 @@ int[] _launcherSmoke(string distDir, string work) {
         Console.WriteLine("");
         int[] r0 = new int[2]; r0[0] = 0; r0[1] = 0; return r0;
     }
-    Console.WriteLine("Launcher smoke (portable): " + launcher);
-    string wantVm = Path.Join(distDir, "bin/z42vm");
-    if (!File.Exists(wantVm)) { wantVm = wantVm + ".exe"; }   // Windows: bin/z42vm.exe
-    // Portable: drop Z42_HOME + Z42_PORTABLE_VM so resolution uses the
-    // package-relative bin/z42vm. (xtask runs us with Z42_PORTABLE_VM set to the
-    // build-tree vm, which would otherwise win and mask the package's own vm.)
-    try {
-        ProcessResult r = new Process(launcher).Arg("which")
-            .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM")
-            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
-        // Normalize path separators: on Windows `z42 which` prints native `\`
-        // while Path.Join here yields `/`. Compare separator-agnostically.
-        string got = r.Stdout.Trim().Replace("\\", "/");
-        if (got == wantVm.Replace("\\", "/")) {
-            Console.WriteLine("  ✓ z42 which (portable) → bundled z42vm");
-            pass = pass + 1;
-        } else {
-            Console.WriteLine("  FAIL: z42 which (portable) → '" + got + "' (expected " + wantVm + ")");
-            fail = fail + 1;
-        }
-    } catch (Exception e) {
-        Console.WriteLine("  FAIL: z42 which (portable) spawn: " + e.Message);
-        fail = fail + 1;
-    }
+    // 新手路径（new → run → build → clean / 版本 / 帮助）：见 xtask_test_dist_cli.z42。
+    int[] cli = _launcherCliSmoke(launcher, work);
+    pass = pass + cli[0];
+    fail = fail + cli[1];
+    Console.WriteLine("Launcher smoke (run / repl): " + launcher);
     // (unify-run-modes P4) `z42 run <dir> --bin`: build a source project with the
     // packaged z42c and run the selected [[exe]] target — real end-to-end of the
     // run front door + multi-exe selection. Copy the multi-exe fixture into a
@@ -401,38 +380,6 @@ int[] _launcherSmoke(string distDir, string work) {
         }
     } else {
         Console.WriteLine("  SKIP: z42 repl --config (programs/z42i not in package)");
-    }
-    // Installed: install.sh --system into a temp $DEST.
-    // unify-launcher-apphost (2026-06-21): managed install is now extract-in-
-    // place (no separate launcher/ runtime), so the installed z42 is `$ih/z42`
-    // and its colocated vm is `$ih/bin/z42vm`. NOTE: normally SKIPs — the SDK
-    // package doesn't bundle install.sh; this path only runs if one is added.
-    string installSh = Path.Join(distDir, "install.sh");
-    if (File.Exists(installSh)) {
-        string ih = Path.Join(work, "z42home");
-        try {
-            int ic = new Process("bash").Arg(installSh).Arg("--system")
-                .Env("Z42_HOME", ih).EnvRemove("Z42_PORTABLE_VM")
-                .Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run().ExitCode;
-            string wantInstalled = Path.Join(ih, "bin/z42vm");
-            string got = "";
-            if (ic == 0) {
-                // Run the INSTALLED z42 ($ih/z42) → ensure_portable_vm finds its
-                // colocated $ih/bin/z42vm.
-                got = new Process(Path.Join(ih, "z42")).Arg("which").Env("Z42_HOME", ih).EnvRemove("Z42_PORTABLE_VM")
-                    .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run().Stdout.Trim();
-            }
-            if (ic == 0 && got.Replace("\\", "/") == wantInstalled.Replace("\\", "/")) {
-                Console.WriteLine("  ✓ install.sh → installed-mode z42 which");
-                pass = pass + 1;
-            } else {
-                Console.WriteLine("  FAIL: install.sh / installed-mode z42 which");
-                fail = fail + 1;
-            }
-        } catch (Exception e) {
-            Console.WriteLine("  FAIL: install.sh smoke: " + e.Message);
-            fail = fail + 1;
-        }
     }
     Console.WriteLine("");
     int[] res = new int[2]; res[0] = pass; res[1] = fail; return res;

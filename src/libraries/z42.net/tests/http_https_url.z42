@@ -1,7 +1,7 @@
 // add-z42-net-tls (2026-06-03): deterministic (no-network) coverage for the
 // https wiring. The live TLS handshake + GET is validated by the Rust
 // `tls_tests::real_https_handshake_and_get_round_trip` (run with --ignored)
-// and end-to-end by `z42 install` over GitHub HTTPS — neither belongs in the
+// and end-to-end by `z42 workload install` over GitHub HTTPS — neither belongs in the
 // default stdlib suite since CI network egress isn't guaranteed. Here we pin
 // the parts that must hold without a socket: https URL parsing (scheme +
 // default port 443) and the SendStreaming-over-https guard.

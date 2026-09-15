@@ -19,7 +19,7 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
                       string[] srcs, string[] texts, string[] srcHashes, CompiledModuleZ[] cms, ZbcFileZ[] mods,
                       IncrPrep prep, NameListZ[] metaIdents, NameSurfacesZ[] metaSurfaces, string depsId) {
     try {
-        string cacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : _resolveCacheDir(pm, projectDir, isRelease);
+        string cacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
         int i = 0;
         while (i < srcs.Length) {
             if (prep == null || prep.Plan.Fresh[i]) {
@@ -30,7 +30,7 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
         // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
         IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
                                      cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces, depsId);
-        ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
+        BuildLog.ProgressErr("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
     } catch (Exception e) {
         ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);
     }

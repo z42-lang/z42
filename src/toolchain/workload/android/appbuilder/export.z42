@@ -54,7 +54,7 @@ void _generateAndroidProject(string outputDir, string name, string appId,
         Console.WriteLine("        cp " + sdkDir + "/libz42vm.so " + appDir + "/jniLibs/arm64-v8a/");
     } else {
         Console.WriteLine("  ⚠  Android SDK not found.");
-        Console.WriteLine("     Install: z42 install <ver> --rid android-arm64");
+        Console.WriteLine("     Install: z42 workload install android");
     }
 
     File.WriteAllText(Path.Join(outputDir, "build.gradle"),         _droidRootGradle());

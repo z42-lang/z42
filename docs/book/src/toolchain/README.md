@@ -21,7 +21,7 @@ graph LR
 
 | 章节 | 讲什么 |
 |------|--------|
-| launcher（`z42` 命令）（待写） | 命令分发、zpkg 加载、apphost |
+| [z42 命令参考](cli.md) | 全部用户命令、工程定位规则、退出码 |
 | workload 与平台发行（待写） | 四平台 workload 结构、publish/export 生命周期、runtime/workload 分层 |
 | SDK 与发行包布局（待写） | 安装后目录布局、包内容与 manifest |
 

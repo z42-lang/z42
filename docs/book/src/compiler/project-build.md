@@ -44,7 +44,7 @@ tail 段四个相位由 workload 承担，沿"项目 `build/` → 平台 workloa
 
 ### launcher 分发
 
-z42b 编译为 `z42b.zpkg`，由 launcher 的命令分发调用：`z42 build` / `publish` / `export` / `run --rid` / `test`。标准路径下编排器直接在进程内组合 `Pipeline` 运行（零子进程、零代码生成）；仅当项目带自定义 `build/` 脚本时，才生成一次性 driver，把 `z42.build` + workload + 项目 `build/` 静态链接编译后运行。
+z42b 编译为 `z42.builder.zpkg`，由 launcher 转发 `z42 new` / `test` / `bench` / `clean` / `publish`（`z42 build` 走 z42c，见 [z42 命令参考](../toolchain/cli.md)）。标准路径下编排器直接在进程内组合 `Pipeline` 运行（零子进程、零代码生成）；仅当项目带自定义 `build/` 脚本时，才生成一次性 driver，把 `z42.build` + workload + 项目 `build/` 静态链接编译后运行。
 
 ### publish 间接依赖复制（传递闭包 colocation）
 
