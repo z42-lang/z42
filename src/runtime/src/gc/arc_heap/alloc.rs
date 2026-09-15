@@ -254,6 +254,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// unbound). Called at safepoint park, before a collector marks, and at
     /// `VmContext::drop`. See the `MagrGC::retire_thread_tlab` contract.
     pub(super) fn retire_thread_tlab(&self) {
+        // add-incremental-major-gc M2a: hand this thread's SATB records to its heap (see gc::satb).
+        let recorded = crate::gc::satb::take_thread_buffer(self.epoch);
+        if !recorded.is_empty() { self.satb_queue.lock().extend(recorded); }
         crate::gc::tlab::with_current_tlab(|tlab| {
             if tlab.heap_epoch != self.epoch {
                 // Not bound to this heap (or already unbound) → nothing of ours.

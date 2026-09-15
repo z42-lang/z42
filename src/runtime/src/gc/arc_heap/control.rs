@@ -78,7 +78,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.retire_thread_tlab();
         // add-incremental-major-gc M1: no reset pass — a new epoch whitens every slot, including
         // anything an aborted concurrent cycle left marked (see `MarkKind`).
-        self.begin_major_mark();
+        self.open_major_cycle();
         self.mark_queue.lock().clear();
         let _newly_marked = {
             let t = PhaseTimer::start("full mark");
@@ -86,6 +86,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             t.count(n);
             n
         };
+        // add-incremental-major-gc M2a: grey what the SATB barrier recorded; stop recording.
+        self.close_major_marking();
         // **add-gc-softref (2026-05-26)**: revive soft-ref targets that
         // are unmarked but below the pressure threshold.
         self.revive_soft_refs();
@@ -199,7 +201,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 self.begin_alloc_black();
 
                 // Phase 1: STW root snapshot (still holding initial pause).
-                self.begin_major_mark();
+                self.open_major_cycle();
                 self.snapshot_roots_into_mark_queue();
 
                 // Phase 2: Yield to ConcurrentMarking — mutators resume.
@@ -216,6 +218,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // drain-empty-check and handshake-acquire are now safely
                 // captured in mark_queue.
                 self.drain_mark_queue();
+                // add-incremental-major-gc M2a: mutators are parked (and have handed over their
+                // SATB buffers); grey what they recorded while marking ran concurrently. This is
+                // what closes the "white object moved into a register" hole the insertion barrier
+                // alone leaves open (the roots are not rescanned).
+                self.close_major_marking();
                 #[cfg(debug_assertions)]
                 {
                     let after_p5 = self.mark_queue.lock().len();
@@ -444,6 +451,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     pub(super) fn soft_ref_get(&self, key: u64) -> Value {
+        let v = self.soft_ref_get_unshaded(key);
+        self.shade_if_marking(&v); // add-incremental-major-gc M2a: a soft read can revive an object
+        v
+    }
+
+    fn soft_ref_get_unshaded(&self, key: u64) -> Value {
         // Snapshot under lock, then work outside.
         let entries = self.inner.lock().soft_registry.snapshot_entries();
         let key_usize = key as usize;

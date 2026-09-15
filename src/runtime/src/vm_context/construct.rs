@@ -146,6 +146,8 @@ impl VmContext {
         // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
         // in Drop). A spawned worker allocates into the TLAB fast path.
         crate::gc::tlab::arm();
+        // add-incremental-major-gc M2a: this thread's SATB records belong to this heap (balanced in Drop).
+        crate::gc::satb::bind_thread(boxed.core.heap.heap_epoch());
         unsafe { std::pin::Pin::new_unchecked(boxed) }
     }
 
@@ -462,6 +464,8 @@ impl VmContext {
         // add-gc-tlab (stage 2): arm this thread for TLAB allocation (balanced
         // in Drop). The primary VM thread now takes the lock-free alloc path.
         crate::gc::tlab::arm();
+        // add-incremental-major-gc M2a: this thread's SATB records belong to this heap (balanced in Drop).
+        crate::gc::satb::bind_thread(boxed.core.heap.heap_epoch());
         unsafe { std::pin::Pin::new_unchecked(boxed) }
     }
 }
@@ -482,6 +486,8 @@ impl Drop for VmContext {
         self.core.heap.retire_thread_tlab();
         // add-gc-tlab (stage 2): balance the arm() from construction.
         crate::gc::tlab::disarm();
+        // add-incremental-major-gc M2a: the retire above handed this thread's SATB buffer over.
+        crate::gc::satb::unbind_thread();
         let ptr = self as *const Self;
         self.core.vm_contexts.lock().retain(|p| p.0 != ptr);
         // Wake any collector sleeping in request_handshake_pause so it

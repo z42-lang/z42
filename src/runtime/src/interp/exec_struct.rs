@@ -275,7 +275,7 @@ pub(crate) fn struct_field_set_val(
                     let ri = col.ref_index(byte_off).ok_or_else(|| {
                         anyhow::anyhow!("inline struct ref leaf at byte offset {byte_off} not in object layout")
                     })?;
-                    obj.refs_mut()[ri] = v.clone();
+                    obj.set_ref_slot(ri, v);
                     ri
                 };
                 // Write barrier: reference stored into a heap object. The `slot`
@@ -305,7 +305,7 @@ pub(crate) fn struct_field_set_val(
                     let ri = sl.ref_index(byte_off).ok_or_else(|| {
                         anyhow::anyhow!("boxed struct ref leaf at byte offset {byte_off} not in struct layout")
                     })?;
-                    obj.refs_mut()[ri] = v.clone();
+                    obj.set_ref_slot(ri, v);
                     ri
                 };
                 if v.is_heap_ref() {
@@ -333,7 +333,9 @@ pub(crate) fn struct_field_set_val(
                     let ri = layout.ref_index(byte_off).ok_or_else(|| {
                         anyhow::anyhow!("struct[] ref leaf at byte offset {byte_off} not in element layout")
                     })?;
-                    arr.struct_refs_mut().expect("StructBytes backing")[e.index as usize * rc + ri] = v.clone();
+                    if !arr.set_struct_ref(e.index as usize * rc + ri, v) {
+                        anyhow::bail!("StructFieldSetPrim: struct[] ref leaf {ri} of element {} out of range", e.index);
+                    }
                 }
                 // Write barrier: reference stored into a heap array element (P3b).
                 if v.is_heap_ref() {

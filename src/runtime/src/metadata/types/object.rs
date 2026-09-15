@@ -156,7 +156,18 @@ impl ScriptObject {
     /// The reference leaves, in composed reference-bitmap order.
     #[inline] pub fn refs(&self) -> &[Value] { self.storage.refs() }
     /// Mutable view of the reference leaves (GC scan / field store).
-    #[inline] pub fn refs_mut(&mut self) -> &mut [Value] { self.storage.refs_mut() }
+    /// Reference leaves **without the SATB barrier** — see [`ObjStorage::refs_mut_raw`].
+    #[inline] pub fn refs_mut_raw(&mut self) -> &mut [Value] { self.storage.refs_mut_raw() }
+
+    /// Store `v` into reference leaf `ri`, recording the overwritten value for the SATB barrier
+    /// (add-incremental-major-gc M2a). The mutator-side write for side-table reference leaves.
+    #[inline]
+    pub fn set_ref_slot(&mut self, ri: usize, v: &Value) {
+        if let Some(cell) = self.storage.refs_mut_raw().get_mut(ri) {
+            crate::gc::satb::record_overwrite(cell);
+            *cell = v.clone();
+        }
+    }
 
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
     /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
@@ -289,13 +300,15 @@ impl ScriptObject {
     pub fn set_field_value(&mut self, slot: usize, v: &Value) -> bool {
         let fa = match self.field_access_of(slot) { Some(f) => f, None => return false };
         if fa.ref_slot >= 0 {
-            if let Some(cell) = self.refs_mut().get_mut(fa.ref_slot as usize) { *cell = v.clone(); }
+            self.set_ref_slot(fa.ref_slot as usize, v);
             return true;
         }
         // PR-3 chunk 2b: an inlined direct object/array reference — write the 8B tagged
         // pointer into `bytes` (`Null`/non-heap → 0). Returns `true` so the caller still
         // fires `write_barrier_field` (the target IS a reference slot, just byte-inlined).
         if fa.tag == TAG_OBJECT || fa.tag == TAG_ARRAY {
+            // add-incremental-major-gc M2a: the SATB barrier sees the reference being replaced.
+            crate::gc::satb::record_overwrite(&read_inline_ref(&self.bytes(), fa.offset as usize, fa.tag == TAG_ARRAY));
             write_inline_ref(&mut self.bytes_mut(), fa.offset as usize, v);
             return true;
         }

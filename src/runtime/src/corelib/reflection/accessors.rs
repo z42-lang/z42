@@ -254,7 +254,7 @@ pub(super) fn object_inline_struct_field_set(
         let mut o = rc.borrow_mut();
         let n = size.min(src_bytes.len());
         o.bytes_mut()[composed_base..composed_base + n].copy_from_slice(&src_bytes[..n]);
-        for (ri, v) in &ref_writes { o.refs_mut()[*ri] = v.clone(); }
+        for (ri, v) in &ref_writes { o.set_ref_slot(*ri, v); }
     }
     for (ri, v) in &ref_writes {
         if v.is_heap_ref() {
@@ -297,7 +297,7 @@ pub(super) fn write_struct_leaf(
         let n = size.min(src_bytes.len());
         o.bytes_mut()[start..start + n].copy_from_slice(&src_bytes[..n]);
         for (ri, v) in &ref_writes {
-            o.refs_mut()[*ri] = v.clone();
+            o.set_ref_slot(*ri, v);
         }
     }
     // Write barriers after releasing the mutable borrow.
@@ -341,7 +341,7 @@ pub(super) fn boxed_struct_field_set(
         let ri = comp.ref_index(leaf.byte_off).ok_or_else(|| {
             anyhow::anyhow!("FieldInfo.SetValue: reference leaf offset not in bitmap")
         })?;
-        gc.borrow_mut().refs_mut()[ri] = value.clone();
+        gc.borrow_mut().set_ref_slot(ri, value);
         // Write barrier: a reference stored into a heap object (the shared box).
         if value.is_heap_ref() {
             ctx.heap().write_barrier_field(base_val, ri, value);

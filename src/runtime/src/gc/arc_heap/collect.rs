@@ -163,7 +163,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 //
                 // Ahead of the finalizer, as on the minor side (#591): [`FinalizerFn`] takes
                 // no arguments, so it has no way to read the object whose edges these are.
-                for r in obj.refs_mut().iter_mut() {
+                for r in obj.refs_mut_raw().iter_mut() {
                     *r = Value::Null;
                 }
                 obj.clear_inline_refs();
@@ -250,6 +250,64 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         // revive_pass on snapshot — no lock held; only atomic field access.
         let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes, self.major_mark());
+    }
+
+    /// **add-incremental-major-gc M2a**: whether `v` carries `kind`'s mark. Values that are not
+    /// GC allocations count as marked — there is nothing for the SATB barrier to record.
+    pub(crate) fn is_marked_value(v: &Value, kind: MarkKind) -> bool {
+        match v {
+            Value::Object(gc) | Value::BoxedStruct(gc) => GcRef::is_marked(gc, kind),
+            Value::Array(gc) => GcRef::is_marked(gc, kind),
+            Value::Closure(c) => c.is_marked(kind),
+            Value::Str(s) | Value::FuncRef(s) => s.is_marked(kind),
+            _ => true,
+        }
+    }
+
+    /// **add-incremental-major-gc M2a**: open a major cycle — a new epoch, and the SATB barrier
+    /// starts recording for it. Callers: the STW cycle and the concurrent cycle's Phase 1.
+    pub(super) fn open_major_cycle(&self) -> MarkKind {
+        let kind = self.begin_major_mark();
+        if let MarkKind::Major(epoch) = kind {
+            crate::gc::satb::begin_marking(self.epoch, epoch);
+        }
+        kind
+    }
+
+    /// **add-incremental-major-gc M2a**: finish the cycle's marking. Grey everything the SATB
+    /// barrier (and the weak / soft read barrier) recorded, trace it, and repeat until a round turns
+    /// up nothing new — only then stop recording. Every mutator has handed its buffer over by the
+    /// time this runs (they retire their TLAB when they park); this thread hands over its own here.
+    pub(super) fn close_major_marking(&self) {
+        let kind = self.major_mark();
+        loop {
+            self.retire_thread_tlab();
+            let recorded = std::mem::take(&mut *self.satb_queue.lock());
+            if recorded.is_empty() {
+                break;
+            }
+            {
+                let mut queue = self.mark_queue.lock();
+                for v in recorded {
+                    if Self::mark_if_unmarked(&v, kind) {
+                        queue.push(v);
+                    }
+                }
+            }
+            self.drain_mark_queue();
+        }
+        crate::gc::satb::end_marking(self.epoch);
+    }
+
+    /// **add-incremental-major-gc M2a**: the weak / soft read barrier. While this heap is marking,
+    /// a value handed out by a weak or soft reference is recorded exactly like an overwritten one —
+    /// it may have been only weakly reachable at the snapshot, and it is now in a register.
+    pub(super) fn shade_if_marking(&self, v: &Value) {
+        if let Some(kind) = crate::gc::satb::heap_is_marking(self.epoch) {
+            if !Self::is_marked_value(v, kind) {
+                self.satb_queue.lock().push(v.clone());
+            }
+        }
     }
 
     /// **add-incremental-major-gc M1 (2026-09-15)**: open a major mark — advance this heap's

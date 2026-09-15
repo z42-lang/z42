@@ -360,10 +360,12 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn upgrade_weak(&self, weak: &WeakRef) -> Option<Value> {
-        match &weak.inner {
+        let v = match &weak.inner {
             WeakRefInner::Object(w) => w.upgrade().map(Value::Object),
             WeakRefInner::Array (w) => w.upgrade().map(Value::Array),
-        }
+        };
+        if let Some(v) = &v { self.shade_if_marking(v); } // add-incremental-major-gc M2a
+        v
     }
 
     // ── 8.6 Soft references ──────────────────────────────────────────────────
@@ -398,7 +400,9 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn handle_target(&self, slot: u64) -> Option<Value> {
-        self.inner.lock().handle_slab.get(slot).and_then(|e| e.target())
+        let v = self.inner.lock().handle_slab.get(slot).and_then(|e| e.target());
+        if let Some(v) = &v { self.shade_if_marking(v); } // add-incremental-major-gc M2a: weak handles
+        v
     }
 
     fn handle_is_alloc(&self, slot: u64) -> bool {

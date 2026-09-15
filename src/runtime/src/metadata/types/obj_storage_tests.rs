@@ -28,7 +28,7 @@ fn refs_start_null_and_are_writable() {
     let mut s = ObjStorage::new(0, 3);
     assert_eq!(s.refs().len(), 3);
     assert!(s.refs().iter().all(|v| matches!(v, Value::Null)));
-    s.refs_mut()[1] = Value::I64(42);
+    s.refs_mut_raw()[1] = Value::I64(42);
     assert!(matches!(s.refs()[1], Value::I64(42)));
     assert!(matches!(s.refs()[0], Value::Null));
 }
@@ -38,8 +38,8 @@ fn mixed_block_keeps_the_two_regions_disjoint() {
     // The whole risk of one block: a byte write must not corrupt a reference
     // slot and vice versa.
     let mut s = ObjStorage::new(24, 2);
-    s.refs_mut()[0] = Value::I64(-1);
-    s.refs_mut()[1] = Value::I64(-2);
+    s.refs_mut_raw()[0] = Value::I64(-1);
+    s.refs_mut_raw()[1] = Value::I64(-2);
     for (i, b) in s.bytes_mut().iter_mut().enumerate() {
         *b = (i as u8).wrapping_add(1);
     }
@@ -82,7 +82,7 @@ fn many_blocks_alloc_and_free_without_tripping_the_allocator() {
         let n_refs = round % 5;
         let mut s = ObjStorage::new(n_bytes, n_refs);
         if n_bytes > 0 { s.bytes_mut()[n_bytes - 1] = 0xFF; }
-        if n_refs > 0 { s.refs_mut()[n_refs - 1] = Value::I64(round as i64); }
+        if n_refs > 0 { s.refs_mut_raw()[n_refs - 1] = Value::I64(round as i64); }
         assert_eq!(s.bytes().len(), n_bytes);
         assert_eq!(s.refs().len(), n_refs);
     }
