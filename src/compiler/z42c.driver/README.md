@@ -6,9 +6,11 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 ## 核心文件
 | 文件 | 职责 |
 |------|------|
-| `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`、`build` → `_build`（`namespace Z42.Driver`）|
+| `src/Main.z42` | `void Main()`：读 `Environment.GetCommandLineArgs()`，路由 `--dump-keywords` → `DumpTool.DumpKeywords`、`--dump-tokens`/`--dump-ast` → `DumpTool`、`--dump-bound` → `SemanticDump`、`--emit-zbc <src> <out>` → `IrDump.ZbcBytes` + `File.WriteAllBytes`、`build` → `_cmdBuild`（`namespace Z42.Driver`）|
+| `src/BuildCommand.z42` | `z42c build` 参数解析：未知选项报错、`-h`、`--quiet`；不给清单时 `ManifestLocator.FindUp` 定位（工作区 → `--workspace`）→ `_build` / `_buildWorkspace` |
+| `src/BuildLog.z42` | 进度行开关（`--quiet` 抑制 `cached:` / `wrote ->` / `cache ->`；诊断不受影响）|
 | `src/IndexedDist.z42` | indexed dist 投影（add-indexed-zpkg-min-patch）：散装 zbc 原样落盘（字节相等不触碰→最小 patch）+ FILE 主文件 + 孤儿清理 |
-| `src/BuildPaths.z42` | dist/cache 级联解析 + pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）|
+| `src/BuildPaths.z42` | pack 模式守卫（`_distModeMatches`：packed↔indexed 切换使 preserved 失效）+ handler 指纹 + 可复现 build_id；dist/cache 目录解析在 z42.project `BuildLayout` |
 | `src/ProfileKnobs.z42` | 构建期旋钮名校验（compiler-checks-knob-names）：`_validateProfileKnobs` 在 `_build` 早期扫全部 `[profile.<n>.runtime]`——未知名 → warning + 最近邻建议（全集问 `Std.Runtime.RuntimeConfig.Names()`，不留第二份清单）；`[profile.<n>]` 下直接写键 → 致命，库工程同样管 |
 | `src/RuntimeConfigSidecar.z42` | `dist/<name>.runtimeconfig.toml` 侧车生成（`[runtime]` 旋钮 + `[properties]` 应用属性，分表）|
 | `src/IncrementalDriver.z42` | 文件级增量编排（add-file-level-incremental）：`Prepare`（种子 → parse-all → **名字级指纹 diff** → 失效闭包 → cached zbc 读回 + meta 残留回填，失败降级 fresh）/ `WriteMetas`（meta + 包级源清单落 cache）/ `_writeCacheZbc`。**`Prepare(..., canPreserve)`**：`canPreserve` 由调用方按「dist 主文件在 + pack 模式一致 + 非多 exe」预先算好——只有它为真时，全命中才可廉价早退（调用方马上 preserved、用不到 IrModule）；为假时**必须**把 cached zbc 读回来，否则调用方装配 dist 时拿不到模块只能全部重编（fix-incr-allcached-cache-drop） |

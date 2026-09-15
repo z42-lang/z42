@@ -136,7 +136,7 @@ WorkloadBase _selectWorkload(string family) {
 // Source 只读；写仅落 Cache / Intermediate / Dist。[build] 段显式值优先。
 Dirs _computeDirs(ProjectManifest m, string sourceDir, string profile) {
     // cache-dir-layout：[build] 里的相对路径按 toml 所在目录（sourceDir）解析、并展开 ${output_dir} / ${profile}
-    //（与 z42c driver `_resolveDistDir` 与 z42b publish `_pubResolveZpkg` 同口径）。此前原样使用 ⇒ 相对进程 cwd，
+    //（与 z42.project `BuildLayout` 与 z42b publish `_pubResolveZpkg` 同口径）。此前原样使用 ⇒ 相对进程 cwd，
     // 且 `dist_dir = "${output_dir}"` 这类模板会被当成字面目录名。
     string outBase;
     if (m.Build.HasOutputDir) { outBase = _dirsResolve(m.Build.OutputDir, sourceDir, "", profile); }

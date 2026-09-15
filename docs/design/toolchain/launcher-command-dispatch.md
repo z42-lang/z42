@@ -163,7 +163,7 @@ $Z42_HOME/tools/                            全局用户工具（类 ~/.cargo/bi
 - **触发原因**：命令现跟 SDK 走（`$Z42_HOME/programs/`，版本无关）；"不同 runtime 配不同 SDK 命令/打包器"的版本作用域复杂且当前无需求
 - **前置依赖**：多 SDK 版本共存的实际场景出现（如同机同时维护 0.3.x / 0.4.x 项目，且命令行为不兼容）
 - **触发条件**：用户呼声 / 跨版本命令行为冲突实际发生
-- **当前 workaround**：单 SDK 命令集；`--runtime <ver>` 只切 app 运行时，不切命令实现
+- **当前 workaround**：单 SDK 命令集（SDK 单版本，launcher 不做运行时版本选择）
 
 ### 原有 Deferred 条目
 
@@ -171,4 +171,3 @@ $Z42_HOME/tools/                            全局用户工具（类 ~/.cargo/bi
 - workload 包格式（manifest + packs 布局、依赖/版本解析、签名）。
 - 命令版本冲突/多版本共存策略；`z42 commands list` 自省。
 - 与 `z42up`（roadmap 1.0 版本管理工具）的边界。
-- **`launcher-future-self-update-windows`**：Windows 上 `z42 self-update` 时替换 `$Z42_HOME/programs/launcher/` + `bin/z42vm` 因 `z42.exe`（父进程等 z42vm）持有文件锁而失败。待 rename-then-copy 策略或 PowerShell 延迟替换实现。当前 workaround：Windows 用户改用 `install-z42.bat --system`。见 `docs/design/runtime/launcher.md` 中的 `launcher-future-self-update-windows` 条目。

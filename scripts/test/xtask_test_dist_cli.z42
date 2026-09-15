@@ -1,0 +1,97 @@
+// xtask — `test dist` 的命令行冒烟：用**打包出的** `z42` 走一遍新手路径
+// （new → run → build → clean、从子目录运行、不在工程里时的报错、版本、帮助）。
+// 每条断言失败都打印命令、退出码与输出，便于直接定位。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// 在 `cwd` 下运行打包出的 z42。清掉 xtask / CI 注入的 Z42_* 变量，确保走的是包内自带的运行时与标准库。
+ProcessResult _distZ42(string launcher, string cwd, string[] args) {
+    Process p = new Process(launcher).WorkingDirectory(cwd)
+        .EnvRemove("Z42_HOME").EnvRemove("Z42_PORTABLE_VM").EnvRemove("Z42_PORTABLE_LIBS")
+        .EnvRemove("Z42_LIBS").EnvRemove("Z42_CONFIG").EnvRemove("Z42_MODE")
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe());
+    int i = 0;
+    while (i < args.Length) { p = p.Arg(args[i]); i = i + 1; }
+    return p.Run();
+}
+
+string[] _a1(string a) { string[] r = new string[1]; r[0] = a; return r; }
+string[] _a2(string a, string b) { string[] r = new string[2]; r[0] = a; r[1] = b; return r; }
+
+// 一条断言：条件成立记 pass，否则打印细节记 fail。返回新的 [pass, fail]。
+int[] _distCheck(int[] acc, bool ok, string what, ProcessResult r) {
+    if (ok) {
+        Console.WriteLine("  ✓ " + what);
+        acc[0] = acc[0] + 1;
+    } else {
+        Console.WriteLine("  FAIL: " + what + " (rc=" + r.ExitCode.ToString() + ")");
+        Console.WriteLine("    stdout: " + r.Stdout.Trim());
+        Console.WriteLine("    stderr: " + r.Stderr.Trim());
+        acc[1] = acc[1] + 1;
+    }
+    return acc;
+}
+
+// 返回 [pass, fail]。
+int[] _launcherCliSmoke(string launcher, string work) {
+    int[] acc = new int[2];
+    acc[0] = 0; acc[1] = 0;
+    Console.WriteLine("Launcher CLI smoke (new → run → build → clean)");
+    string root = Path.Join(work, "cli");
+    Directory.Create(root);
+
+    ProcessResult v = _distZ42(launcher, root, _a1("--version"));
+    acc = _distCheck(acc, v.ExitCode == 0 && v.Stdout.StartsWith("z42 ") && v.Stdout.Contains("("),
+        "z42 --version → `z42 <version> (<rid>, <date>)`", v);
+
+    ProcessResult n = _distZ42(launcher, root, _a2("new", "hello"));
+    string proj = Path.Join(root, "hello");
+    acc = _distCheck(acc, n.ExitCode == 0 && File.Exists(Path.Join(proj, "z42.toml"))
+        && File.Exists(Path.Join(proj, "src/Main.z42")) && n.Stdout.Contains("z42 run"),
+        "z42 new hello → z42.toml + src/Main.z42，提示 `z42 run`", n);
+
+    ProcessResult run = _distZ42(launcher, proj, _a1("run"));
+    acc = _distCheck(acc, run.ExitCode == 0 && run.Stdout.Trim() == "Hello, World!",
+        "z42 run（工程根，无参数）→ Hello, World!", run);
+    // 构建进度行（cached: / wrote -> / cache ->）不得混进程序输出。
+    acc = _distCheck(acc, run.Stderr.Trim().Length == 0, "z42 run 不输出构建进度", run);
+
+    ProcessResult sub = _distZ42(launcher, Path.Join(proj, "src"), _a1("run"));
+    acc = _distCheck(acc, sub.ExitCode == 0 && sub.Stdout.Trim() == "Hello, World!",
+        "z42 run（在 src/ 子目录）→ 向上找到工程", sub);
+
+    ProcessResult b = _distZ42(launcher, proj, _a1("build"));
+    acc = _distCheck(acc, b.ExitCode == 0 && File.Exists(Path.Join(proj, "dist/hello.zpkg")),
+        "z42 build（无参数）→ dist/hello.zpkg", b);
+
+    ProcessResult c = _distZ42(launcher, proj, _a1("clean"));
+    acc = _distCheck(acc, c.ExitCode == 0 && !Directory.Exists(Path.Join(proj, "dist"))
+        && !Directory.Exists(Path.Join(proj, "artifacts")),
+        "z42 clean → 删除 dist/ 与 artifacts/", c);
+
+    ProcessResult none = _distZ42(launcher, root, _a1("run"));
+    acc = _distCheck(acc, none.ExitCode == 2 && none.Stderr.Contains("could not find z42.toml")
+        && none.Stderr.Contains("z42 new"),
+        "不在工程里 z42 run → 退出码 2 + 提示 z42 new", none);
+
+    ProcessResult noneB = _distZ42(launcher, root, _a1("build"));
+    acc = _distCheck(acc, noneB.ExitCode == 2 && noneB.Stderr.Contains("could not find z42.toml"),
+        "不在工程里 z42 build → 退出码 2（不再打印 usage 后返回 0）", noneB);
+
+    ProcessResult h = _distZ42(launcher, root, _a2("help", "run"));
+    acc = _distCheck(acc, h.ExitCode == 0 && h.Stdout.Contains("usage: z42 run"),
+        "z42 help run → run 的帮助", h);
+
+    ProcessResult gone = _distZ42(launcher, root, _a1("which"));
+    acc = _distCheck(acc, gone.ExitCode == 2 && gone.Stderr.Contains("unknown command"),
+        "已移除的命令（which）→ unknown command，退出码 2", gone);
+
+    ProcessResult bad = _distZ42(launcher, root, _a2("new", "Bad_Name"));
+    acc = _distCheck(acc, bad.ExitCode == 2 && bad.Stderr.Contains("invalid project name"),
+        "z42 new 非法工程名 → 退出码 2", bad);
+
+    Console.WriteLine("");
+    return acc;
+}

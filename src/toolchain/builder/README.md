@@ -32,7 +32,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 
 | 文件 | 职责 |
 |------|------|
-| `core/builder_cli.z42` | **CLI 路由**（对照 `launcher_cli.z42`）：`Std.Cli` 嵌套 router + dispatch。LIVE verbs：test / bench / clean / **publish**；new / build / export 仍打 "pending wire-z42b-host-build" |
+| `core/builder_cli.z42` | **CLI 路由**（对照 `launcher_cli.z42`）：`Std.Cli` 嵌套 router + dispatch。verbs：new / test / bench / clean / publish（用户经 `z42` 到达，帮助名写 `z42 <verb>`）+ build / export（编排方直接调用）|
 | `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器（取代 Rust z42-test-runner，retire-test-runner）。**target 双形态**：已编译 `.zbc/.zpkg` 直跑 / 工程 `z42.toml`（或无 target 默认）→ **compile-then-test**（经注入编译器 `_buildProject` 现编到 dist 再反射跑，`add-z42b-compile-then-test`）|
 | `core/builder_publish.z42` | **desktop publish**（move-publish-to-z42b）：产 apphost + `[platform.desktop]` `bin`/`payload` 布局 + 依赖/native/payload 落位。launcher 转发 `z42 publish` 至此，并经 `Z42_APPHOST_TEMPLATE` 传预解析的 apphost stub。**不依赖 z42.project/z42.build**（不碰自举串味雷区）|
 | `core/builder_publish_build.z42` | **产物新旧这一步**（fix-publish-stale-payload）：`_pubEnsureBuilt` 每次都经 z42c 编一遍（增量，未变即空转）→ 源码改了 publish 就重出产物；`--no-build` 保留「就用现成字节」契约给 xtask 的 SDK 组装 / 自举不动点路径。此前是「zpkg 文件在就当已最新」，会把旧 payload 静默重签 |
@@ -44,7 +44,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 |------|------|
 | `core/builder.z42` | **编排核心**：`_orchestrate` 选路径 → 构造 `Pipeline`（注入 `ICompiler` + workload + hooks）+ `PipelineContext`→ `Run`。标准路径进程内组合（零子进程/零代码生成）|
 | `core/builder_commands.z42` | **命令处理**：build/export 共用 `_runVerb`（ManifestLoader → Target → `_orchestrate`）|
-| `core/builder_new.z42` | **`new` 脚手架**：生成 z42.toml + src 模板（exe/lib/test）+ .gitignore + README。纯 `Std.IO` |
+| `core/builder_new.z42` | **`new` 脚手架**：生成 z42.toml + src 模板（exe/lib）+ .gitignore + README；工程名校验、`--path` 为父目录。纯 `Std.IO` |
 
 ## 计划模块（实现期补全）
 

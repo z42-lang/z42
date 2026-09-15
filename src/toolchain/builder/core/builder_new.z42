@@ -1,88 +1,88 @@
-// `z42b new <name>` —— 项目脚手架。生成最小可构建工程：z42.toml + src 模板 +
-// .gitignore + README。模板族：exe（默认）/ lib / test。纯 Std.IO，无编译器依赖。
-//
-// ⚠️ PARKED：与 builder 其余部分一同未接编译（无 z42.builder.z42.toml）。
+// `z42 new <name> [--lib] [--path <dir>]` —— 创建工程骨架。
+// 生成 z42.toml + 源文件模板 + .gitignore + README.md。模板两种：exe（默认）/ lib。
+// 测试不单设模板：任何工程的 `tests/*.z42` 都会被 `z42 test` 自动发现。
 namespace Z42Builder;
 
 using Std;
 using Std.IO;
 using Std.Cli;
 
-// new 入口：解析 name + 模板 + 落点 → 写模板文件。
 int _cmdNew(ParseResult r) {
     string name = r.GetPositional(0);
     if (name.Length == 0) {
-        ConsoleError.WriteLine("z42b new: missing <name>");
+        ConsoleError.WriteLine("z42 new: missing project name (usage: z42 new <name>)");
         return 2;
     }
-    string kind = "exe";
-    if (r.GetFlag("lib"))  { kind = "lib"; }
-    if (r.GetFlag("test")) { kind = "test"; }
+    if (!_isValidProjectName(name)) {
+        ConsoleError.WriteLine("z42 new: invalid project name `" + name + "`");
+        ConsoleError.WriteLine("  use lowercase letters, digits, `-`, `_` or `.`, starting with a letter or digit (e.g. `my-app`)");
+        return 2;
+    }
+    string kind = r.GetFlag("lib") ? "lib" : "exe";
 
-    string dir = r.GetOption("path");
-    if (dir.Length == 0) { dir = name; }
-
-    if (Directory.Exists(dir) && _dirNonEmpty(dir)) {
-        ConsoleError.WriteLine("z42b new: target '" + dir + "' exists and is not empty");
+    string parent = r.GetOption("path");
+    string dir = parent.Length > 0 ? Path.Join(parent, name) : name;
+    if (File.Exists(dir) || (Directory.Exists(dir) && Directory.Enumerate(dir).Length > 0)) {
+        ConsoleError.WriteLine("z42 new: `" + dir + "` already exists and is not empty");
         return 1;
     }
 
     Directory.Create(dir);
-    Directory.Create(Path.Join(dir, "src"));
-
     File.WriteAllText(Path.Join(dir, "z42.toml"), _tomlTemplate(name, kind));
     File.WriteAllText(Path.Join(dir, ".gitignore"), _gitignoreTemplate());
     File.WriteAllText(Path.Join(dir, "README.md"), _readmeTemplate(name, kind));
-    _writeSource(dir, name, kind);
+    string srcDir = Path.Join(dir, "src");
+    Directory.Create(srcDir);
+    if (kind == "exe") { File.WriteAllText(Path.Join(srcDir, "Main.z42"), _exeSource(name)); }
+    else               { File.WriteAllText(Path.Join(srcDir, "Lib.z42"), _libSource(name)); }
 
-    Console.WriteLine("created " + kind + " project '" + name + "' in " + dir + "/");
-    Console.WriteLine("  next:  cd " + dir + " && z42 build && z42 run");
+    Console.WriteLine("Created " + _kindNoun(kind) + " project `" + name + "` in " + dir + "/");
+    Console.WriteLine("");
+    Console.WriteLine("  cd " + dir);
+    Console.WriteLine("  " + _nextCommand(kind));
     return 0;
 }
+
+// [a-z0-9][a-z0-9._-]*
+bool _isValidProjectName(string name) {
+    int i = 0;
+    while (i < name.Length) {
+        char c = name.CharAt(i);
+        bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+        if (i > 0 && (c == '-' || c == '_' || c == '.')) { ok = true; }
+        if (!ok) { return false; }
+        i = i + 1;
+    }
+    return name.Length > 0;
+}
+
+string _kindNoun(string kind) { return kind == "lib" ? "library" : "executable"; }
+
+string _nextCommand(string kind) { return kind == "lib" ? "z42 build" : "z42 run"; }
 
 // ── 模板 ─────────────────────────────────────────────────────────────────────
 
 string _tomlTemplate(string name, string kind) {
-    string projKind = (kind == "lib") ? "lib" : "exe";
     string s = "";
     s = s + "[project]\n";
     s = s + "name = \"" + name + "\"\n";
     s = s + "version = \"0.1.0\"\n";
-    s = s + "kind = \"" + projKind + "\"\n";
+    s = s + "kind = \"" + kind + "\"\n";
     s = s + "\n";
     s = s + "[sources]\n";
     s = s + "include = [\"src/**/*.z42\"]\n";
-    if (kind == "test") {
-        s = s + "\n";
-        s = s + "[dependencies]\n";
-        s = s + "z42.test = \"*\"\n";
-    }
     return s;
 }
 
-void _writeSource(string dir, string name, string kind) {
-    string src = Path.Join(dir, "src");
-    if (kind == "lib") {
-        File.WriteAllText(Path.Join(src, "Lib.z42"), _libSource(name));
-        return;
-    }
-    if (kind == "test") {
-        File.WriteAllText(Path.Join(src, "Tests.z42"), _testSource(name));
-        return;
-    }
-    File.WriteAllText(Path.Join(src, "Main.z42"), _exeSource(name));
-}
-
 string _exeSource(string name) {
-    // z42 惯例：自由函数 Main（entry 自动探测按此；C# 式 class Program.static Main 不被识别）。
+    // 入口是自由函数 `void Main()`（按此自动探测；C# 式 `static void Main` 放在类里不会被识别）。
     string s = "";
     s = s + "namespace " + _nsOf(name) + ";\n";
     s = s + "\n";
-    s = s + "using Std;\n";
     s = s + "using Std.IO;\n";
     s = s + "\n";
     s = s + "void Main() {\n";
-    s = s + "    Console.WriteLine(\"Hello from " + name + "!\");\n";
+    s = s + "    Console.WriteLine(\"Hello, World!\");\n";
     s = s + "}\n";
     return s;
 }
@@ -99,44 +99,26 @@ string _libSource(string name) {
     return s;
 }
 
-string _testSource(string name) {
-    string s = "";
-    s = s + "using Std.Test;\n";
-    s = s + "\n";
-    s = s + "class " + _nsOf(name) + "Tests {\n";
-    s = s + "    [Test]\n";
-    s = s + "    void it_works() {\n";
-    s = s + "        Assert.Equal(2, 1 + 1);\n";
-    s = s + "    }\n";
-    s = s + "}\n";
-    return s;
-}
-
 string _gitignoreTemplate() {
-    string s = "";
-    s = s + "/artifacts/\n";
-    s = s + "/dist/\n";
-    s = s + "*.zsym\n";
-    return s;
+    return "/artifacts/\n/dist/\n";
 }
 
 string _readmeTemplate(string name, string kind) {
     string s = "";
     s = s + "# " + name + "\n";
     s = s + "\n";
-    s = s + "A z42 " + kind + " project.\n";
-    s = s + "\n";
-    s = s + "```\n";
-    s = s + "z42 build      # compile to dist/" + name + ".zpkg\n";
-    if (kind == "exe") { s = s + "z42 run        # run it\n"; }
-    if (kind == "test") { s = s + "z42 test       # run [Test] units\n"; }
+    s = s + "```sh\n";
+    if (kind == "exe") { s = s + "z42 run      # build and run\n"; }
+    s = s + "z42 build    # build only\n";
+    s = s + "z42 test     # run the tests in tests/\n";
+    s = s + "z42 clean    # remove build output\n";
     s = s + "```\n";
     return s;
 }
 
 // ── 辅助 ─────────────────────────────────────────────────────────────────────
 
-// kebab-case 项目名 → PascalCase 命名空间标识（"my-app" → "MyApp"）。
+// 工程名 → PascalCase 命名空间（"my-app" → "MyApp"）。
 string _nsOf(string name) {
     string r = "";
     bool up = true;
@@ -150,11 +132,7 @@ string _nsOf(string name) {
         }
         i = i + 1;
     }
-    if (r.Length == 0) { return "App"; }
+    // 命名空间不能以数字开头（"2048" → "App2048"）。
+    if (r.Length == 0 || (r.CharAt(0) >= '0' && r.CharAt(0) <= '9')) { return "App" + r; }
     return r;
-}
-
-bool _dirNonEmpty(string dir) {
-    string[] entries = Directory.Enumerate(dir);
-    return entries.Length > 0;
 }

@@ -46,7 +46,7 @@ int _writeIndexedDist(string distDir, string cacheDir, string projectDir, string
     }
     byte[] main = ZpkgIndexedWriter.WriteIndexedMain(z, zbcHashes, srcRels).ToBytes();
     File.WriteAllBytes(Path.Join(distDir, z.Name + ".zpkg"), main);
-    Console.WriteLine("wrote -> " + Path.Join(distDir, z.Name + ".zpkg") + " (indexed, " + n.ToString() + " zbc)");
+    BuildLog.Progress("wrote -> " + Path.Join(distDir, z.Name + ".zpkg") + " (indexed, " + n.ToString() + " zbc)");
     _cleanOrphanZbc(distDir, rels, n);
     return 0;
 }

@@ -1,0 +1,51 @@
+// BuildLayout：产物目录的级联解析（z42c 写、launcher run 找、z42b clean 删共用）。
+namespace Z42ProjectBuildLayoutTests;
+
+using Std;
+using Std.IO;
+using Std.Test;
+using Z42.Build.Project;
+
+ProjectManifest _pm(string buildSection) {
+    return ManifestLoader.ParseText("[project]\nname = \"app\"\nkind = \"exe\"\n" + buildSection);
+}
+
+// 无 [build]：dist = <工程>/dist（历史默认），output/cache/generated 在 artifacts/<profile> 下。
+[Test]
+void test_defaults() {
+    BuildLayout l = BuildLayout.Resolve(_pm(""), "/p/app", false);
+    Assert.Equal("/p/app/dist", l.DistDir);
+    Assert.Equal("/p/app/artifacts/debug", l.OutputDir);
+    Assert.Equal("/p/app/artifacts/debug/.cache", l.CacheDir);
+    Assert.Equal("/p/app/artifacts/debug/generated", l.GeneratedDir);
+    Assert.False(l.OutputDirConfigured);
+
+    BuildLayout r = BuildLayout.Resolve(_pm(""), "/p/app", true);
+    Assert.Equal("release", r.Profile);
+    Assert.Equal("/p/app/artifacts/release/.cache", r.CacheDir);
+    Assert.Equal("/p/app/dist", r.DistDir);
+}
+
+// 显式 output_dir：dist / cache 都从它派生；相对路径按工程目录解析。
+[Test]
+void test_configured_output_dir_cascades() {
+    BuildLayout l = BuildLayout.Resolve(_pm("[build]\noutput_dir = \"out/${profile}\"\n"), "/p/app", true);
+    Assert.Equal("/p/app/out/release", l.OutputDir);
+    Assert.Equal("/p/app/out/release/dist", l.DistDir);
+    Assert.Equal("/p/app/out/release/.cache", l.CacheDir);
+    Assert.True(l.OutputDirConfigured);
+}
+
+// 只配 dist_dir：${output_dir} 仍取默认 artifacts/<profile>。
+[Test]
+void test_configured_dist_dir_uses_default_output() {
+    BuildLayout l = BuildLayout.Resolve(_pm("[build]\ndist_dir = \"${output_dir}/bin\"\n"), "/p/app", false);
+    Assert.Equal("/p/app/artifacts/debug/bin", l.DistDir);
+}
+
+// generated_dir 显式 "" = 不落盘。
+[Test]
+void test_generated_dir_disabled() {
+    BuildLayout l = BuildLayout.Resolve(_pm("[build]\ngenerated_dir = \"\"\n"), "/p/app", false);
+    Assert.Equal("", l.GeneratedDir);
+}

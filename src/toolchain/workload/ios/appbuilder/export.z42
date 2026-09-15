@@ -4,7 +4,7 @@
 // Generates a bare .xcodeproj (project.pbxproj with deterministic 24-char hex IDs),
 // a Swift AppDelegate host, and Info.plist. The z42 app bytecode (app.zpkg) is
 // included as a bundle resource; z42vm.xcframework is expected in <outputDir>/
-// (copy from the platform SDK, or install with `z42 install <ver> --rid ios-arm64`).
+// (copy from the platform SDK, or install with `z42 workload install ios`).
 namespace Z42.Workload.Ios;
 
 using Std.IO;
@@ -47,7 +47,7 @@ void _generateIosProject(string outputDir, string name, string bundleId,
         Console.WriteLine("        cp -r \"" + xcfwSrc + "\" \"" + outputDir + "/z42vm.xcframework\"");
     } else {
         Console.WriteLine("  ⚠  z42vm.xcframework not found.");
-        Console.WriteLine("     Install iOS SDK: z42 install <ver> --rid ios-arm64");
+        Console.WriteLine("     Install iOS SDK: z42 workload install ios");
         Console.WriteLine("     Then: cp -r ~/.z42/runtimes/ios-arm64/<ver>/z42vm.xcframework " + outputDir + "/");
     }
 

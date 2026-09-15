@@ -1,5 +1,5 @@
 # z42 launcher core — z42 program compiled to launcher.zpkg (Exe-mode).
-# The native trampoline (../src) runs this via the bundled launcher runtime.
+# The SDK-root `z42` apphost runs it on the colocated bin/z42vm.
 [project]
 name    = "z42.launcher"
 version = "0.1.0"
@@ -17,11 +17,9 @@ include = ["*.z42"]
 "z42.net"         = "0.1.0"   # HttpClient — download release assets
 "z42.compression" = "0.1.0"   # Gzip + Tar — unpack .tar.gz
 "z42.crypto"      = "0.1.0"   # Sha256 — verify against SHA256SUMS
-"z42.encoding"    = "0.1.0"   # Utf8.GetBytes — patch apphost placeholder
 "z42.toml"        = "0.1.0"   # read [platform.desktop].publish_dir in `publish <toml>`
-"z42.project"     = "0.1.0"   # ManifestLoader: `z42 run <dir>` source-project build+run + --bin (P4)
+"z42.project"     = "0.1.0"   # ManifestLocator / ManifestLoader / BuildLayout: `z42 run` / publish / export
 "z42.cli"         = "0.1.0"   # Std.Cli nested router + ArgParser (command parsing)
-"z42.workload.desktop" = "0.1.0"   # desktop publish: Z42.Workload.Desktop.Apphost.Produce (workload-owned)
 "z42.workload.ios"     = "0.1.0"   # iOS export: Z42.Workload.Ios.IosExport.Generate (workload-owned)
 "z42.workload.android" = "0.1.0"   # Android export: Z42.Workload.Android.AndroidExport.Generate
 "z42.workload.wasm"    = "0.1.0"   # WASM export: Z42.Workload.Wasm.WasmExport.Generate

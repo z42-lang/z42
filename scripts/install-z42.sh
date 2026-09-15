@@ -56,13 +56,8 @@ ${bold}OPTIONS${normal}
                          Default (portable): <repo>/.z42
                          Default (--system): \$Z42_HOME  or  ~/.z42
 
-  ${bold}--system${normal}             Managed install with structured layout:
-                           <dest>/bin/z42            trampoline on PATH
-                           <dest>/launcher/          launcher runtime
-                           <dest>/runtimes/<ver>/    registered version
-                           <dest>/config.toml        default version
-                         Registers the version via \`z42 link\` + \`z42 default\`.
-                         Use \`z42 self-update\` to keep the launcher current.
+  ${bold}--system${normal}             Install into \$Z42_HOME (or ~/.z42) instead of <repo>/.z42.
+                         Re-run this script to update.
 
   ${bold}--dry-run${normal}            Print what would be downloaded and installed,
                          but do not actually download or write any files.
@@ -340,7 +335,7 @@ if [ $SYSTEM_INSTALL -eq 1 ]; then
   # managed install is just an extract-in-place into $DEST (same as portable)
   # plus a PATH hint. No structured bin/launcher/runtimes split, no separate
   # launcher runtime (the apphost uses its colocated bin/z42vm). Update =
-  # re-run this script / `z42 self-update`: the STAMP check above no-ops a same
+  # re-run this script: the STAMP check above no-ops a same
   # -version reinstall; a new tag re-extracts. (Multi-version support deferred.)
   rm -rf "$DEST"; mkdir -p "$DEST"
   cp -R "$TMP/pkg"/. "$DEST"/
@@ -360,7 +355,7 @@ if [ $SYSTEM_INSTALL -eq 1 ]; then
         printf "%b\n" "  Then restart your shell (or run the export above), and:" >&3
         printf "%b\n" "    ${bold}z42 run <app.zpkg>${normal}" >&3
         printf "%b\n" "" >&3
-        printf "%b\n" "  To update later:  ${bold}z42 self-update${normal}" >&3
+        printf "%b\n" "  To update later, re-run this script." >&3
     esac
   fi
 

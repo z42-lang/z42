@@ -1,15 +1,13 @@
-// z42 launcher core (add-z42-launcher, 2026-06-02).
+// z42 launcher core —— `z42` 命令（SDK 根目录下的 apphost 以同址 bin/z42vm 运行本程序）。
 //
-// All launcher logic lives here in z42 ("z42-first"); only the tiny native
-// trampoline (../src) stays Rust. Run by the bundled launcher runtime via:
-//     z42vm launcher.zpkg -- <user argv>
-// so GetCommandLineArgs() returns exactly the user's argv (phase 0).
-//
-// P1 commands (local, no network): run / link / list / default / which / info.
-// Layout managed under $Z42_HOME (default ~/.z42):
-//     runtimes/<ver>/        a runtime: contains z42vm (+ libs/), OR a
-//                            link.txt redirect to a dir that does.
-//     config.toml            `default = "<ver>"`
+// 命令面与路由在 launcher_cli.z42；本文件放 SDK 布局解析、`run`、`version`。
+// SDK 布局（见 docs/design/runtime/launcher.md）：
+//     z42                     本程序的 apphost
+//     bin/{z42vm,z42c,...}    运行时与工具
+//     programs/<tool>/        各工具的 zpkg
+//     libs/                   标准库
+//     manifest.toml           [package] version / rid / build-date
+//     runtimes/<ver>/workloads/<wl>/   已安装的 workload（z42 workload install）
 
 namespace Z42Launcher;
 
@@ -17,24 +15,18 @@ using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Cli;
-using Z42.Build.Project;   // ManifestLoader / ProjectManifest / ExeTarget — `z42 run <dir>` (P4)
+using Z42.Build.Project;   // ManifestLocator / ManifestLoader / BuildLayout —— `z42 run <工程>`
 
-// migrate-xtask-launcher-to-std-cli (2026-06-10): Main delegates to the Std.Cli
-// nested router in launcher_cli.z42 (_runLauncher). The command tree, per-level
-// `-h` help, and unknown-command errors live there; the apphost shorthand
-// (`z42 app.zpkg`) and `run` passthrough are handled before Resolve. Handlers
-// below read their args from a Std.Cli ParseResult (except _cmdRun, raw).
 void Main() {
     _runLauncher(Environment.GetCommandLineArgs());
 }
 
-// ── layout helpers ──────────────────────────────────────────────────────────
+// ── SDK 布局 ────────────────────────────────────────────────────────────────
 
+// SDK 根目录：Z42_HOME > apphost 注入的 Z42_PORTABLE_VM（<sdk>/bin/z42vm）反推 > ~/.z42。
 string _home() {
-    // z42 has no flow-narrowing for `string?`; coerce via `??` then check.
     string h = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
     if (h.Length > 0) { return h; }
-    // Portable install: Z42_PORTABLE_VM = <sdk>/bin/z42vm → home = <sdk>/.
     string portableVm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
     if (portableVm.Length > 0) {
         string binDir = Path.GetDirectoryName(portableVm);
@@ -45,14 +37,34 @@ string _home() {
         }
     }
     string home = Environment.GetEnvironmentVariable("HOME") ?? "";
+    if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE") ?? ""; }
     if (home.Length > 0) { return Path.Join(home, ".z42"); }
     return ".z42";
 }
 
-string _runtimesDir() { return Path.Join(_home(), "runtimes"); }
-string _configPath()  { return Path.Join(_home(), "config.toml"); }
+// SDK 自带的 z42vm 与标准库目录（apphost 已注入时直接用注入值）。
+string _sdkVm() {
+    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    if (vm.Length > 0) { return vm; }
+    return _sdkBin("z42vm");
+}
 
-// Versions = subdirectory names under runtimes/.
+string _sdkLibs() {
+    string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? "";
+    if (libs.Length > 0) { return libs; }
+    return Path.Join(_home(), "libs");
+}
+
+// <sdk>/bin/<name>（Windows 带 .exe）。
+string _sdkBin(string name) {
+    string p = Path.Join(Path.Join(_home(), "bin"), name);
+    if (Platform.IsWindows()) { return p + ".exe"; }
+    return p;
+}
+
+string _runtimesDir() { return Path.Join(_home(), "runtimes"); }
+
+// runtimes/ 下的版本目录名（workload 按版本安装在 runtimes/<ver>/workloads/）。
 string[] _installedVersions() {
     string dir = _runtimesDir();
     if (!Directory.Exists(dir)) { return new string[0]; }
@@ -68,324 +80,206 @@ string[] _installedVersions() {
     return _trimArr(names, n);
 }
 
-// Resolve a version's runtime directory: a `link.txt` redirect wins, else
-// the runtimes/<ver>/ directory itself. Returns null if not installed.
-string? _runtimeDir(string ver) {
-    string baseDir = Path.Join(_runtimesDir(), ver);
-    string link = Path.Join(baseDir, "link.txt");
-    if (File.Exists(link)) {
-        return File.ReadAllText(link).Trim();
-    }
-    if (Directory.Exists(baseDir)) { return baseDir; }
-    return null;
+// ── version ─────────────────────────────────────────────────────────────────
+
+// `z42 --version` / `z42 -V` / `z42 version`：`z42 <version> (<rid>, <build-date>)`。
+// 数据来自 SDK 的 manifest.toml；从源码树直接组装的 SDK 没有它 → `z42 (dev build)`。
+void _cmdVersion() {
+    string mf = Path.Join(_home(), "manifest.toml");
+    if (!File.Exists(mf)) { Console.WriteLine("z42 (dev build)"); return; }
+    TomlValue t = TomlValue.Parse(File.ReadAllText(mf));
+    string ver = _tomlStr(t, "package", "version");
+    string rid = _tomlStr(t, "package", "rid");
+    string date = _tomlStr(t, "package", "build-date");
+    if (date.Length > 10) { date = date.Substring(0, 10); }
+    Console.WriteLine("z42 " + ver + " (" + rid + ", " + date + ")");
 }
 
-// z42vm binary inside a runtime dir: <dir>/z42vm or <dir>/bin/z42vm.
-// Windows binaries carry a .exe suffix (the native trampoline + launcher-env.sh
-// both bundle z42vm.exe) — match it here too, else `z42 link`/`run`/`which`
-// can't find the VM on Windows. (fix CI: regen-golden Windows step.)
-string? _vmPath(string dir) {
-    string vmname = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
-    string direct = Path.Join(dir, vmname);
-    if (File.Exists(direct)) { return direct; }
-    string nested = Path.Join(Path.Join(dir, "bin"), vmname);
-    if (File.Exists(nested)) { return nested; }
-    return null;
+string _tomlStr(TomlValue root, string section, string key) {
+    if (!root.IsTable() || !root.ContainsKey(section)) { return ""; }
+    TomlValue s = root.Get(section);
+    if (!s.IsTable() || !s.ContainsKey(key)) { return ""; }
+    TomlValue v = s.Get(key);
+    return v.IsString() ? v.AsString() : "";
 }
 
-// stdlib libs dir inside a runtime dir, if present.
-string? _libsPath(string dir) {
-    string libs = Path.Join(dir, "libs");
-    if (Directory.Exists(libs)) { return libs; }
-    return null;
+// ── run ─────────────────────────────────────────────────────────────────────
+
+void _printRunHelp() {
+    Console.WriteLine("z42 run — build and run a project, or run a compiled app");
+    Console.WriteLine("");
+    Console.WriteLine("usage: z42 run [options] [<project-dir> | <manifest> | <app.zpkg>] [-- <program args>]");
+    Console.WriteLine("");
+    Console.WriteLine("Without a target, the nearest z42.toml in the current directory or its parents is");
+    Console.WriteLine("built (only what changed) and run.");
+    Console.WriteLine("");
+    Console.WriteLine("options:");
+    Console.WriteLine("  --bin <name>             pick one of the project's [[exe]] targets");
+    Console.WriteLine("  --mode <interp|jit|aot>  execution mode");
+    Console.WriteLine("  --config <file>          runtime config file");
+    Console.WriteLine("  --set <key>=<value>      set a runtime setting for this run (repeatable)");
+    Console.WriteLine("  -h, --help               show this help");
 }
 
-// ── config (default version) ────────────────────────────────────────────────
-
-string? _defaultVersion() {
-    string p = _configPath();
-    if (!File.Exists(p)) { return null; }
-    // `default = "<ver>"` — parsed via Std.Toml (was a hand-rolled quote scan;
-    // unify-run-modes P1 folds it onto the one TOML parser).
-    TomlValue t = TomlValue.Parse(File.ReadAllText(p));
-    if (t.IsTable() && t.ContainsKey("default")) {
-        TomlValue v = t.Get("default");
-        if (v.IsString()) { return v.AsString(); }
-    }
-    return null;
-}
-
-void _setDefaultVersion(string ver) {
-    Directory.Create(_home());
-    File.WriteAllText(_configPath(), "default = \"" + ver + "\"\n");
-}
-
-// ── version resolution (run path) ────────────────────────────────────────────
-// Order: explicit --runtime  >  default  >  sole installed  >  error.
-
-string _resolveVersion(string? explicitVer) {
-    string ev = explicitVer ?? "";
-    if (ev.Length > 0) { return ev; }
-    string def = _defaultVersion() ?? "";
-    if (def.Length > 0) { return def; }
-    string[] installed = _installedVersions();
-    if (installed.Length == 1) { return installed[0]; }
-    if (installed.Length == 0) {
-        ConsoleError.WriteLine("z42: no runtime installed. `z42 link <dir> --as <ver>` first.");
-    } else {
-        ConsoleError.WriteLine("z42: multiple runtimes installed; pass --runtime <ver> or `z42 default <ver>`.");
-    }
-    Environment.Exit(2);
-    return "";
-}
-
-// ── commands ──────────────────────────────────────────────────────────────
-
-void _cmdInfo() {
-    Console.WriteLine("Z42_HOME:  " + _home());
-    Console.WriteLine("runtimes:  " + _runtimesDir());
-    Console.WriteLine("default:   " + (_defaultVersion() ?? "(none)"));
-    string[] vs = _installedVersions();
-    Console.WriteLine("installed: " + vs.Length.ToString());
-    // bundle-launcher-in-release: portable packages run apps with a bundled
-    // runtime (no ~/.z42 install).
-    string portableVm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
-    if (portableVm.Length > 0) {
-        Console.WriteLine("portable:  " + portableVm);
-    }
-}
-
-void _cmdList(ParseResult r) {
-    string[] vs = _installedVersions();
-    if (vs.Length == 0) { Console.WriteLine("(no runtimes installed)"); }
-    else {
-        string def = _defaultVersion() ?? "";
-        int i = 0;
-        while (i < vs.Length) {
-            string mark = (def == vs[i]) ? " (default)" : "";
-            Console.WriteLine(vs[i] + mark);
-            i = i + 1;
-        }
-    }
-    // --workloads: also list installed workloads (platform tooling + capabilities; shared with `workload list`).
-    if (r.GetFlag("workloads")) {
-        Console.WriteLine("");
-        Console.WriteLine("workloads:");
-        if (!_listInstalledWorkloads()) { Console.WriteLine("(no workloads installed)"); }
-    }
-}
-
-void _cmdDefault(ParseResult r) {
-    string ver = r.GetPositional(0);
-    if (ver.Length == 0) {
-        Console.WriteLine(_defaultVersion() ?? "(none)");
-        return;
-    }
-    if (_runtimeDir(ver) == null) {
-        ConsoleError.WriteLine("z42: runtime `" + ver + "` not installed (see `z42 list`).");
-        Environment.Exit(2);
-        return;
-    }
-    _setDefaultVersion(ver);
-    Console.WriteLine("default → " + ver);
-}
-
-// z42 link <dir> --as <ver>
-void _cmdLink(ParseResult r) {
-    string dir = r.GetPositional(0);
-    string ver = r.GetOption("as");
-    if (dir.Length == 0 || ver.Length == 0) {
-        ConsoleError.WriteLine("usage: z42 link <runtime-dir> --as <ver>");
-        Environment.Exit(2);
-        return;
-    }
-    if (_vmPath(dir) == null) {
-        ConsoleError.WriteLine("z42: no z42vm found under `" + dir + "` (expected <dir>/z42vm or <dir>/bin/z42vm).");
-        Environment.Exit(2);
-        return;
-    }
-    string baseDir = Path.Join(_runtimesDir(), ver);
-    Directory.Create(baseDir);
-    File.WriteAllText(Path.Join(baseDir, "link.txt"), dir);
-    Console.WriteLine("linked `" + ver + "` → " + dir);
-}
-
-void _cmdWhich(ParseResult r) {
-    string verOpt = r.GetOption("runtime");
-    string? ver = verOpt.Length > 0 ? verOpt : null;
-    string portableVm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
-    if (portableVm.Length > 0 && (ver ?? "").Length == 0) {
-        Console.WriteLine(portableVm);
-        return;
-    }
-    string resolved = _resolveVersion(ver);
-    string? dirOpt = _runtimeDir(resolved);
-    if (dirOpt == null) {
-        ConsoleError.WriteLine("z42: runtime `" + resolved + "` not installed.");
-        Environment.Exit(2);
-        return;
-    }
-    string dir = dirOpt ?? "";
-    Console.WriteLine(_vmPath(dir) ?? ("(z42vm missing in " + dir + ")"));
-}
-
-// `z42 run` 的 usage 文案。单一来源——扫描循环报未知 flag 时与缺 app 时共用，
-// 加 flag 时不会漏改文案。
-string _runUsage() {
-    return "usage: z42 run [--runtime <ver>] [--bin <name>] [--config <file>]"
-         + " [--mode <interp|jit|aot>] [--set <key>=<value>]..."
-         + " <app.zpkg | project-dir | project.z42.toml> [-- <args>]";
-}
-
-// z42 run [--runtime V] <app.zpkg> [-- <app args>]
+// z42 run [options] [<target>] [-- <program args>]
 void _cmdRun(string[] rest) {
-    string? ver = _flagValue(rest, "--runtime");
-    string? binOpt = _flagValue(rest, "--bin");   // (P4) select an [[exe]] target
-    string? cfgOpt = _flagValue(rest, "--config"); // (repl-run-config) explicit Z42_CONFIG
-    string? modeOpt = _flagValue(rest, "--mode");  // (repl-run-config) z42vm exec mode
+    string? binOpt = _flagValue(rest, "--bin");
+    string? cfgOpt = _flagValue(rest, "--config");
+    string? modeOpt = _flagValue(rest, "--mode");
     string app = "";
     string[] appArgs = new string[0];
-    // `--set k=v` 可重复（launcher-forwards-set）。launcher **只透传**：key 合法性 /
-    // 可用性 / 类型诊断全归 z42vm——旋钮登记表在那边，这里若自己校验就成了第二处 SoT。
-    // value 里含 `=`（`--set log=z42::jit=debug`）也不用管，切分由 VM 按第一个 `=` 做。
+    // `--set k=v` 可重复。launcher **只透传**：key 合法性 / 类型诊断全归 z42vm（旋钮登记表在那边）。
     string[] setBuf = new string[64];
     int setN = 0;
     int i = 0;
     while (i < rest.Length) {
         string a = rest[i];
-        if (a == "--runtime") { i = i + 2; continue; }   // skip flag + value
-        if (a == "--bin") { i = i + 2; continue; }        // skip flag + value (P4)
-        if (a == "--config") { i = i + 2; continue; }     // skip flag + value
-        if (a == "--mode") { i = i + 2; continue; }       // skip flag + value
+        if (a == "-h" || a == "--help") { _printRunHelp(); return; }
+        if (a == "--bin" || a == "--config" || a == "--mode") { i = i + 2; continue; }
         if (a == "--set") {
             if (i + 1 < rest.Length && setN < setBuf.Length) { setBuf[setN] = rest[i + 1]; setN = setN + 1; }
             i = i + 2;
             continue;
         }
         if (a == "--") { appArgs = _tail(rest, i + 1); break; }
-        // 未识别的 `--flag`：报错，不猜。此前它会被当成 app 路径（于是去找一个叫
-        // `--bogus` 的工程），或在 app 已定后被静默丢弃——`--set` 漏转发之所以表现得
-        // 那么糊涂，根源正是这条兜底。`--` 之后的一切仍归程序，不走这里。
-        if (a.StartsWith("--")) {
+        // 未识别的选项：报错，不猜（`--` 之后的一切归程序，不走这里）。
+        if (a.StartsWith("-")) {
             ConsoleError.WriteLine("z42 run: unknown option `" + a + "`");
-            ConsoleError.WriteLine(_runUsage());
-            ConsoleError.WriteLine("  (program arguments go after a `--` separator)");
+            ConsoleError.WriteLine("  (program arguments go after `--`; see `z42 run --help`)");
             Environment.Exit(2);
             return;
         }
         if (app.Length == 0) { app = a; }
+        else {
+            ConsoleError.WriteLine("z42 run: unexpected argument `" + a + "` (program arguments go after `--`)");
+            Environment.Exit(2);
+            return;
+        }
         i = i + 1;
     }
-    if (app.Length == 0) {
-        ConsoleError.WriteLine(_runUsage());
-        Environment.Exit(2);
-        return;
-    }
 
-    // (unify-run-modes P4) source-project run: if `app` is a directory or a
-    // *.z42.toml manifest (not a compiled .zpkg/.zbc), build it via z42c then run
-    // the produced zpkg. `--bin <name>` picks among multiple [[exe]] targets.
-    // On any error the helper prints the message; we exit non-zero.
-    if (_isSourceProject(app)) {
-        string built = _buildAndResolveRun(app, binOpt ?? "");
+    // 源码工程（目录 / 清单 / 未给目标）：先构建，再运行产物。
+    if (app.Length == 0 || _isSourceProject(app)) {
+        string manifest = _resolveRunManifest(app);
+        if (manifest.Length == 0) { Environment.Exit(2); return; }
+        string built = _buildAndResolveRun(manifest, binOpt ?? "");
         if (built.Length == 0) { Environment.Exit(1); return; }
         app = built;
     }
 
-    // <app>.runtimeconfig.toml (unify-run-modes P1; was .json) declares the
-    // runtime version pin (top-level `version`, launcher-consumed) and a
-    // `[runtime]` knob table (gc-mode / log / ... — consumed by z42vm itself
-    // via Z42_CONFIG, see below; replaces the old configProperties→env inject).
+    // <app>.runtimeconfig.toml：z42c 按 [profile.*] 烤出的运行时设置侧车，经 Z42_APP_CONFIG 交给 z42vm。
     string rcPath = _runtimeConfigPath(app);
-    bool hasCfg = File.Exists(rcPath);
-    TomlValue cfg = TomlValue.OfTable();
-    if (hasCfg) { cfg = TomlValue.Parse(File.ReadAllText(rcPath)); }
-    // Effective version: --runtime > runtimeconfig `version`.
-    string effVer = ver ?? "";
-    if (effVer.Length == 0 && hasCfg && cfg.IsTable() && cfg.ContainsKey("version")) {
-        TomlValue vv = cfg.Get("version");
-        if (vv.IsString()) { effVer = vv.AsString(); }
+    string vm = _sdkVm();
+    if (!File.Exists(vm)) {
+        ConsoleError.WriteLine("z42: runtime not found at " + vm + " — reinstall z42");
+        Environment.Exit(2);
+        return;
     }
-
-    // Portable mode (bundle-launcher-in-release): the trampoline set
-    // Z42_PORTABLE_VM/_LIBS to the package's own bundled runtime. Use it
-    // directly when no version was pinned (flag or runtimeconfig).
-    string portableVm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
-    string vm = "";
-    string libs = "";
-    if (portableVm.Length > 0 && effVer.Length == 0) {
-        vm = portableVm;
-        libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? "";
-    } else {
-        string resolved = _resolveVersion(effVer);
-        string? dirOpt = _runtimeDir(resolved);
-        if (dirOpt == null) {
-            ConsoleError.WriteLine("z42: runtime `" + resolved + "` not installed (see `z42 list`).");
-            Environment.Exit(2);
-            return;
-        }
-        string dir = dirOpt ?? "";
-        string? vmOpt = _vmPath(dir);
-        if (vmOpt == null) {
-            ConsoleError.WriteLine("z42: z42vm missing in runtime `" + resolved + "` (" + dir + ").");
-            Environment.Exit(2);
-            return;
-        }
-        vm = vmOpt ?? "";
-        libs = _libsPath(dir) ?? "";
-    }
-
     Process proc = new Process(vm);
-    // Explicit `--mode` (repl-run-config): a z42vm flag → must precede the app
-    // positional. Highest exec-mode precedence (above Z42_MODE / [runtime]).
     if (modeOpt != null && modeOpt.Length > 0) { proc = proc.Arg("--mode").Arg(modeOpt); }
-    // 运行时旋钮的 CLI 层（最高优先级）——原样转发，语义归 z42vm。
     int si = 0;
     while (si < setN) { proc = proc.Arg("--set").Arg(setBuf[si]); si = si + 1; }
     proc = proc.Arg(app)
         .Stdin(Stdio.Inherit())
         .Stdout(Stdio.Inherit())
-        .Stderr(Stdio.Inherit());
-    if (libs.Length > 0) { proc = proc.Env("Z42_LIBS", libs); }
-    // 两个**独立**的配置文件层（complete-runtime-settings P5）：
-    //   Z42_CONFIG     = 用户配置（`--config`，否则继承用户自己 export 的）
-    //   Z42_APP_CONFIG = 应用侧车 `<app>.runtimeconfig.toml`（随产物分发）
-    // z42vm 侧逐 key 叠加、用户层赢。此前两者共用 Z42_CONFIG 一个通道且只在用户
-    // 没设时才塞侧车——于是用户一 export Z42_CONFIG，侧车就被整份丢弃。
+        .Stderr(Stdio.Inherit())
+        .Env("Z42_LIBS", _sdkLibs());
+    // 两个独立的配置文件层：Z42_CONFIG = 用户配置（--config 或用户自己 export 的）；
+    // Z42_APP_CONFIG = 应用侧车。z42vm 逐 key 叠加、用户层赢。
     if (cfgOpt != null && cfgOpt.Length > 0) { proc = proc.Env("Z42_CONFIG", cfgOpt); }
-    if (hasCfg) { proc = proc.Env("Z42_APP_CONFIG", rcPath); }
-    // Forward the program's own args after `--`.
+    if (File.Exists(rcPath)) { proc = proc.Env("Z42_APP_CONFIG", rcPath); }
     if (appArgs.Length > 0) {
         proc = proc.Arg("--");
         int j = 0;
         while (j < appArgs.Length) { proc = proc.Arg(appArgs[j]); j = j + 1; }
     }
-    ProcessResult r = proc.Run();
-    Environment.Exit(r.ExitCode);
+    Environment.Exit(proc.Run().ExitCode);
 }
 
-
-void _cmdUninstall(ParseResult r) {
-    string ver = r.GetPositional(0);
-    if (ver.Length == 0) {
-        ConsoleError.WriteLine("usage: z42 uninstall <version>");
-        Environment.Exit(2);
-        return;
-    }
-    string dir = Path.Join(_runtimesDir(), ver);
-    if (!Directory.Exists(dir)) {
-        ConsoleError.WriteLine("z42: `" + ver + "` not installed.");
-        Environment.Exit(2);
-        return;
-    }
-    Directory.Delete(dir, true);
-    Console.WriteLine("uninstalled " + ver);
+// 待构建的源码目标：目录，或清单文件（`z42.toml` / `<name>.z42.toml`）。`.zpkg`/`.zbc` 直接运行。
+bool _isSourceProject(string app) {
+    if (app.EndsWith(".zpkg") || app.EndsWith(".zbc")) { return false; }
+    if (app.EndsWith("z42.toml")) { return true; }
+    return Directory.Exists(app);
 }
 
-// Help is generated by the Std.Cli router (launcher_cli.z42 :: _launcherRoot);
-// the former hand-written _help() is removed.
-// Network commands (_cmdInstall / _cmdSelfUpdate) and their helpers live in
-// launcher_network.z42 (split to stay within the 500-line file limit).
+// 目标 → 工程清单路径。未给目标：从当前目录向上找；给了目录：只看该目录。
+// 失败时打印原因并返回 ""。
+string _resolveRunManifest(string app) {
+    if (app.EndsWith("z42.toml")) {
+        if (File.Exists(app)) { return app; }
+        ConsoleError.WriteLine("z42 run: manifest not found: " + app);
+        return "";
+    }
+    string start = app.Length > 0 ? app : Environment.GetCurrentDirectory();
+    ManifestLocation loc = app.Length > 0 ? ManifestLocator.FindIn(app) : ManifestLocator.FindUp(start);
+    if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
+    if (loc.Kind == ManifestLocateKind.Workspace) {
+        ConsoleError.WriteLine("z42 run: `" + loc.ManifestPath + "` is a workspace; run one of its members:");
+        ConsoleError.WriteLine("  z42 run <member-dir>");
+        return "";
+    }
+    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, start));
+    return "";
+}
+
+// 构建工程（z42c build --quiet：只留诊断，进度行不混进程序输出），再定位要运行的 zpkg：
+//   - 无 [[exe]]        → <dist>/<project.name>.zpkg
+//   - [[exe]] + --bin   → <dist>/<bin>.zpkg（须是已声明的目标）
+//   - [[exe]] 无 --bin  → 报错并列出目标
+// 任一失败打印原因并返回 ""。
+string _buildAndResolveRun(string manifest, string binName) {
+    string z42c = _sdkBin("z42c");
+    if (!File.Exists(z42c)) {
+        ConsoleError.WriteLine("z42 run: compiler not found at " + z42c + " — reinstall z42");
+        return "";
+    }
+    int bc = new Process(z42c).Arg("build").Arg(manifest).Arg("--quiet")
+        .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit())
+        .Run().ExitCode;
+    if (bc != 0) { return ""; }   // z42c 已打印诊断
+
+    ProjectManifest pm = ManifestLoader.Load(manifest);
+    string projDir = Path.GetDirectoryName(manifest);
+    if (projDir.Length == 0) { projDir = "."; }
+    string distDir = BuildLayout.Resolve(pm, projDir, false).DistDir;
+
+    string target = pm.Project.Name;
+    if (pm.ExeCount > 0) {
+        if (binName.Length == 0) {
+            ConsoleError.WriteLine("z42 run: the project has several [[exe]] targets; pick one with --bin <name>:");
+            _listExes(pm);
+            return "";
+        }
+        bool found = false;
+        int j = 0;
+        while (j < pm.ExeCount) { if (pm.Exes[j].Name == binName) { found = true; } j = j + 1; }
+        if (!found) {
+            ConsoleError.WriteLine("z42 run: --bin " + binName + " is not a declared [[exe]] target; valid:");
+            _listExes(pm);
+            return "";
+        }
+        target = binName;
+    }
+    string zpkg = Path.Join(distDir, target + ".zpkg");
+    if (!File.Exists(zpkg)) {
+        ConsoleError.WriteLine("z42 run: build produced no " + zpkg);
+        return "";
+    }
+    return zpkg;
+}
+
+void _listExes(ProjectManifest pm) {
+    int i = 0;
+    while (i < pm.ExeCount) { ConsoleError.WriteLine("    - " + pm.Exes[i].Name); i = i + 1; }
+}
+
+// `<dir>/<name>.runtimeconfig.toml`（与 app 同目录的侧车）。
+string _runtimeConfigPath(string app) {
+    string dir = Path.GetDirectoryName(app);
+    string fname = Path.GetFileNameWithoutExtension(app) + ".runtimeconfig.toml";
+    return dir.Length > 0 ? Path.Join(dir, fname) : fname;
+}
 
 // ── small array/flag utils ───────────────────────────────────────────────────
 
@@ -412,118 +306,4 @@ string? _flagValue(string[] arr, string flag) {
         i = i + 1;
     }
     return null;
-}
-
-// ── source-project run (unify-run-modes P4) ──────────────────────────────────
-
-// A run target that is *source to build*, not a compiled artifact: a directory,
-// or a manifest file — both `z42.toml` (Cargo-style) and `<name>.z42.toml` are
-// accepted. `.zpkg`/`.zbc` are compiled → run directly.
-bool _isSourceProject(string app) {
-    if (app.EndsWith(".zpkg") || app.EndsWith(".zbc")) { return false; }
-    if (app.EndsWith("z42.toml")) { return true; }   // z42.toml or <name>.z42.toml
-    return Directory.Exists(app);
-}
-
-// Build the source project (via z42c) then resolve the zpkg to run:
-//   - no `[[exe]]`      → the single `dist/<project.name>.zpkg`
-//   - `[[exe]]` + --bin → `dist/<bin>.zpkg` (validated against declared targets)
-//   - `[[exe]]`, no --bin → error listing the targets (no default-run yet — P3
-//     首切边界，default-run 占 stdlib 锁后置)
-// Returns "" (after printing an error) on any failure.
-// 首切边界：默认 dist（`<projDir>/dist`）；`[build].dist_dir` 覆盖 + workspace/本地依赖
-// 拓扑构建后置。
-string _buildAndResolveRun(string app, string binName) {
-    // `app` may be a manifest file (`z42.toml` / `<name>.z42.toml`) or a directory.
-    string manifest = app.EndsWith("z42.toml") ? app : _findProjectToml(app);
-    if (manifest.Length == 0) {
-        ConsoleError.WriteLine("z42 run: no z42.toml / <name>.z42.toml manifest found in " + app);
-        return "";
-    }
-    // Build via z42c. Its progress ("wrote -> …") goes to stdout — route it to
-    // null so it does NOT pollute the program's own stdout (cargo-run-like: build
-    // noise stays off the program's output stream). Errors go to stderr (Inherit).
-    string z42c = Path.Join(_home(), "bin/z42c");
-    if (!File.Exists(z42c)) { z42c = z42c + ".exe"; }
-    if (!File.Exists(z42c)) {
-        ConsoleError.WriteLine("z42 run: z42c not found (SDK bin/z42c) — reinstall the SDK");
-        return "";
-    }
-    int bc = new Process(z42c).Arg("build").Arg(manifest)
-        .Stdin(Stdio.Inherit()).Stdout(Stdio.Null()).Stderr(Stdio.Inherit())
-        .Run().ExitCode;
-    if (bc != 0) {
-        ConsoleError.WriteLine("z42 run: build failed (" + manifest + ")");
-        return "";
-    }
-
-    ProjectManifest pm = ManifestLoader.Load(manifest);
-    // `[profile.*]` 的运行时旋钮（含 mode）由 **z42c build 烤进
-    // `dist/<name>.runtimeconfig.toml`**，运行时经 Z42_APP_CONFIG 交给 z42vm，落在
-    // 优先级链的「应用配置」层（complete-runtime-settings P5）。
-    //
-    // 此前这里是把 `[profile.debug].mode` 注入成 `Z42_MODE` 环境变量的
-    // （unify-run-modes P2b）——那让工程 profile 落在 **env 层**、反过来压过用户
-    // 自己的 `Z42_CONFIG` 配置文件，与文档承诺的链方向相反；而且只能带 mode 一个
-    // 旋钮。侧车路线两个问题一起解决。
-    string projDir = Path.GetDirectoryName(manifest);
-    string distDir = Path.Join(projDir, "dist");
-
-    if (pm.ExeCount == 0) {
-        string single = Path.Join(distDir, pm.Project.Name + ".zpkg");
-        if (!File.Exists(single)) {
-            ConsoleError.WriteLine("z42 run: build produced no " + single);
-            return "";
-        }
-        return single;
-    }
-    // multi-exe: must pick one.
-    if (binName.Length == 0) {
-        ConsoleError.WriteLine("z42 run: project declares multiple [[exe]] targets; select one with --bin <name>:");
-        _listExes(pm);
-        return "";
-    }
-    bool found = false;
-    int j = 0;
-    while (j < pm.ExeCount) { if (pm.Exes[j].Name == binName) { found = true; } j = j + 1; }
-    if (!found) {
-        ConsoleError.WriteLine("z42 run: --bin " + binName + " is not a declared [[exe]] target; valid:");
-        _listExes(pm);
-        return "";
-    }
-    string binZpkg = Path.Join(distDir, binName + ".zpkg");
-    if (!File.Exists(binZpkg)) {
-        ConsoleError.WriteLine("z42 run: build produced no " + binZpkg);
-        return "";
-    }
-    return binZpkg;
-}
-
-void _listExes(ProjectManifest pm) {
-    int i = 0;
-    while (i < pm.ExeCount) { ConsoleError.WriteLine("    - " + pm.Exes[i].Name); i = i + 1; }
-}
-
-// The manifest directly in `dir` (source-project run target). Prefers a bare
-// `dir/z42.toml` (Cargo-style, as most fixtures/projects use), else the top-level
-// `*.z42.toml`. "" if none.
-string _findProjectToml(string dir) {
-    string bare = Path.Join(dir, "z42.toml");
-    if (File.Exists(bare)) { return bare; }
-    string[] tomls = Path.GlobRecursive(dir, "*.z42.toml");
-    if (tomls.Length == 0) { return ""; }
-    int i = 0;
-    while (i < tomls.Length) {
-        if (Path.GetDirectoryName(tomls[i]) == dir) { return tomls[i]; }
-        i = i + 1;
-    }
-    return tomls[0];
-}
-
-// `<dir>/<name>.runtimeconfig.toml` next to the app (.NET-style sidecar;
-// unify-run-modes P1 migrated the format JSON→TOML).
-string _runtimeConfigPath(string app) {
-    string dir = Path.GetDirectoryName(app);
-    string fname = Path.GetFileNameWithoutExtension(app) + ".runtimeconfig.toml";
-    return dir.Length > 0 ? Path.Join(dir, fname) : fname;
 }

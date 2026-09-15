@@ -178,7 +178,7 @@ int _pkgStageToolchainComponents(string root, string z42cDir, string cargoOut, s
 // build job emits its own `apphost-<rid>` into z42-workload-<v>-desktop-<rid>/;
 // CI then COLLECTS all RIDs' stubs into ONE z42-workload-<v>-desktop package so
 // any host can `publish --rid <target>` (cross-platform apphost output). No target
-// runtime pack — desktop reuses the host runtime (`z42 install <ver>`). The apphost
+// runtime pack — desktop reuses the host runtime shipped in the SDK. The apphost
 // binary is cargo-built by _packageDesktop's z42-apphost crate build; it lands here, not in SDK bin/.
 int _buildDesktopWorkload(string root, string rid, string version, string profile) {
     bool rel = (profile == "release");
@@ -207,7 +207,7 @@ int _buildDesktopWorkload(string root, string rid, string version, string profil
     m = m + "[contents.platform]\n";
     m = m + "apphost-prefix = \"apphost-\"  # apphost-<rid> per target; cross-platform output\n";
     m = m + "host           = [\"*\"]\n";
-    m = m + "runtime-pack   = \"\"  # none — desktop reuses the host runtime (z42 install <ver>)\n\n";
+    m = m + "runtime-pack   = \"\"  # none — desktop reuses the host runtime shipped in the SDK\n\n";
     m = m + "[compat]\n";
     m = m + "host-min-version = \"" + version + "\"\n";
     File.WriteAllText(Path.Join(pkgDir, "manifest.toml"), m);

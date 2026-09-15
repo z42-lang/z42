@@ -91,7 +91,7 @@
 # 第五部分 · 工具链（Toolchain）
 
 - [概览](toolchain/README.md)
-  - [launcher（z42 命令）]()
+  - [z42 命令参考](toolchain/cli.md)
   - [workload 与平台发行]()
   - [SDK 与发行包布局]()
   - [测试流水线（两层模型）](toolchain/test-pipeline.md)

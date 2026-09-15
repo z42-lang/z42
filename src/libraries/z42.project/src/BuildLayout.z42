@@ -1,0 +1,69 @@
+// 构建产物布局 —— 「这个工程的产物在哪」的唯一答案。
+//
+// z42c 写产物、launcher `run` 找产物、z42b `clean` 删产物都按这里解析，三处不再各持一套约定。
+//
+// 级联（单工程模式：${workspace_dir} = ${member_dir} = 清单所在目录）：
+//   output_dir    = [build].output_dir    ?? "${workspace_dir}/artifacts/${profile}"
+//   cache_dir     = [build].cache_dir     ?? "${output_dir}/.cache"
+//   generated_dir = [build].generated_dir ?? "${output_dir}/generated"（显式 "" = 不落盘）
+//   dist_dir      = [build].dist_dir      ?? "${output_dir}/dist"
+// 例外：[build] 既没有 output_dir 也没有 dist_dir 时，dist_dir = "<工程目录>/dist"
+// （z42c 的历史默认，大量调用方按 `<dir>/dist` 读产物）。
+namespace Z42.Build.Project;
+
+using Std;
+using Std.IO;
+
+public sealed class BuildLayout {
+    public string ProjectDir;     // 绝对路径
+    public string Profile;        // "debug" | "release"
+    public string OutputDir;
+    public string CacheDir;
+    public string GeneratedDir;   // "" = 不落盘
+    public string DistDir;
+    /// output_dir 是否由清单显式配置（未配置 = 工程目录下的 artifacts/<profile>，工程独占）。
+    public bool OutputDirConfigured;
+
+    public BuildLayout(string projectDir, string profile, string outputDir, string cacheDir,
+                       string generatedDir, string distDir, bool outputDirConfigured) {
+        this.ProjectDir = projectDir; this.Profile = profile; this.OutputDir = outputDir;
+        this.CacheDir = cacheDir; this.GeneratedDir = generatedDir; this.DistDir = distDir;
+        this.OutputDirConfigured = outputDirConfigured;
+    }
+
+    /// 按清单与 profile 解析全部产物目录。`projectDir` 可为相对路径（相对当前目录）。
+    public static BuildLayout Resolve(ProjectManifest pm, string projectDir, bool isRelease) {
+        string profile = isRelease ? "release" : "debug";
+        string abs = Path.IsRooted(projectDir) ? projectDir
+            : Path.Join(Environment.GetCurrentDirectory(), projectDir);
+        string name = pm.Project.Name;
+        BuildConfig b = pm.Build;
+
+        string outputRaw = b.HasOutputDir ? b.OutputDir : "${workspace_dir}/artifacts/${profile}";
+        string output = BuildLayout._expand(outputRaw, abs, name, profile, "");
+
+        string cacheRaw = b.HasCacheDir ? b.CacheDir : "${output_dir}/.cache";
+        string cache = BuildLayout._expand(cacheRaw, abs, name, profile, output);
+
+        string generated = "";
+        if (!(b.HasGeneratedDir && b.GeneratedDir == "")) {
+            string genRaw = b.HasGeneratedDir ? b.GeneratedDir : "${output_dir}/generated";
+            generated = BuildLayout._expand(genRaw, abs, name, profile, output);
+        }
+
+        string dist = "";
+        if (!b.HasOutputDir && !b.HasDistDir) {
+            dist = Path.Join(projectDir, "dist");
+        } else {
+            string distRaw = b.HasDistDir ? b.DistDir : "${output_dir}/dist";
+            dist = BuildLayout._expand(distRaw, abs, name, profile, output);
+        }
+        return new BuildLayout(abs, profile, output, cache, generated, dist, b.HasOutputDir);
+    }
+
+    private static string _expand(string template, string absProj, string name, string profile, string outputDir) {
+        TemplateContext ctx = new TemplateContext(absProj, absProj, name, profile, outputDir);
+        string s = PathTemplate.Expand(template, ctx);
+        return Path.IsRooted(s) ? s : Path.Join(absProj, s);
+    }
+}

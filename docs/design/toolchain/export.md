@@ -19,7 +19,7 @@
 
 ```
 z42c build <project.z42.toml>         # 编译 → app.zpkg
-z42 install 0.3.0 --rid ios-arm64    # 下载 iOS 平台 SDK（一次性）
+z42 workload install ios               # 安装 iOS 平台工具与运行时包（一次性）
 z42 export ios <project.z42.toml>    # 生成 Xcode 工程
 ```
 
@@ -56,14 +56,12 @@ title = "My App"
 | `android-arm64` | Android ARM64 SDK（libz42vm.so） |
 | `browser-wasm` | WASM SDK（z42vm.js + z42vm.wasm） |
 
-安装命令：
+安装命令（平台运行时包随对应 workload 装入 `runtimes/<rid>/<ver>/`）：
 ```
-z42 install <ver> --rid ios-arm64
-z42 install <ver> --rid android-arm64
-z42 install <ver> --rid browser-wasm
+z42 workload install ios
+z42 workload install android
+z42 workload install wasm
 ```
-
-`--rid` 标志在 `add-export-command` 中追加到 `z42 install`。当指定的 RID 与宿主 RID 不同时，产物安装到 `runtimes/<rid>/<ver>/`（平台 SDK 布局）；宿主 RID 沿用 `runtimes/<ver>/`（兼容现有 `z42 run` 逻辑）。
 
 ## 生成产物
 

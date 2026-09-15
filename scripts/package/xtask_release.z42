@@ -96,7 +96,7 @@ void _deleteGlob(string dir, string pattern) {
 
 // `xtask package index <LABEL> [<dist>] [<channel>] [<tag>] [<version>]`
 // Generate <dist>/release-index.json from <dist>/SHA256SUMS — the launcher's supply
-// contract (z42 install / workload install read it). Shared by release.yml (tagged)
+// contract (`z42 workload install` and the install scripts read it). Shared by release.yml (tagged)
 // and ci.yml publish-nightly (rolling), so the schema lives in ONE place.
 int _releaseGenIndex(string label, string dist, string channel, string tag, string version) {
     Stopwatch sw = _procStart("release gen-release-index");

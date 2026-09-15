@@ -83,7 +83,7 @@ void _generateWasmProject(string outputDir, string name, string title,
 
     if (!hasSdk) {
         Console.WriteLine("  ⚠  WASM SDK not found at: " + sdkDir);
-        Console.WriteLine("     Install: z42 install nightly --rid browser-wasm");
+        Console.WriteLine("     Install: z42 workload install wasm");
         Console.WriteLine("     Then rerun: z42 export wasm <project.z42.toml>");
     }
 

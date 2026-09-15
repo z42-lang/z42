@@ -1,7 +1,7 @@
 # CLI 与诊断工具
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（z42b 部分 verb 见状态标注）｜ **代码**: `src/compiler/z42c.driver/src/Main.z42` · `src/toolchain/builder/core/builder_cli.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [项目构建与发布编排](project-build.md) ｜ **对齐**: 2026-09-10（`restore-emit-zbc-diagnostics`）
+> **相关**: [源代码编译流程](source-compile.md) · [项目构建与发布编排](project-build.md) ｜ **对齐**: 2026-09-16
 
 ## 概述
 
@@ -18,12 +18,12 @@ z42c 的一组 `--dump-*` 诊断命令与[源代码编译流程](source-compile.
 
 | 命令 | 作用 |
 |------|------|
-| `z42c build <project.z42.toml>` | 编译单个包，产出 packed `.zpkg` 到 `dist/` |
+| `z42c build [<manifest>]` | 编译单个包，产出 packed `.zpkg` 到 `dist/`；不给清单时从当前目录向上定位（规则见 [z42 命令参考](../toolchain/cli.md)） |
 | `z42c build --workspace [--output-dir <d>]` | 按拓扑序编译工作区全部成员 |
 | `z42c build <project.z42.toml> --fix` | 编译并**就地应用** `[analyzers]` 声明的 analyzer 携带的代码修复到源文件 |
 | `z42c --emit-zbc <file.z42> <out.zbc>` | 把单文件编译为 `.zbc`；有编译错误时**逐条打印诊断 + 非零退出 + 不写产物**（与 `build` 同口径） |
 
-`build` 支持 `--release`、`--no-incremental`、`--fix` 等 flag。
+`build` 支持 `--release`、`--no-incremental`、`--fix`、`--quiet`（只输出诊断）等选项，未识别的选项报错退出 2；完整列表见 `z42c build --help`。
 
 > **`--emit-zbc` 的诊断口径（2026-09-10 `restore-emit-zbc-diagnostics`）**：这条路径此前**丢弃全部
 > 编译诊断、以 exit 0 照写产物**——实测 `NoSuchTypeAtAll x = null;` 返回 0 并写出 285 字节 `.zbc`。
@@ -60,19 +60,9 @@ z42c 的一组 `--dump-*` 诊断命令与[源代码编译流程](source-compile.
 
 ## z42b 命令
 
-z42b 编译为 `z42b.zpkg`，既可经 launcher 透传（`z42 <verb> …`）也可独立运行。
-
-| 命令 | 作用 | 状态 |
-|------|------|:----:|
-| `z42 test` | 运行编译模块内的 `[Test]` | ✅ |
-| `z42 bench` | 运行 `[Benchmark]` | ✅ |
-| `z42 clean` | 删除构建产物（`<dir>/{dist,cache}`） | ✅ |
-| `z42 publish` | 产出可发行件（apphost + 平台布局） | ✅ |
-| `z42 new` | 脚手架生成新项目 | 待接入 |
-| `z42 build` | 编译为平台无关的 `app.zpkg` | 待接入 |
-| `z42 export` | 生成原生 IDE 工程 | 待接入 |
-
-`build` / `export` 的完整编排待进程内编译 API 接入，机制见[项目构建与发布编排](project-build.md)。
+z42b 编译为 `z42.builder.zpkg`，用户经 launcher 到达其 `new` / `test` / `bench` / `clean` / `publish`（用法见 [z42 命令参考](../toolchain/cli.md)）；
+编排方（xtask）也可直接调用。z42b 自己的 `build` / `export` 只供编排方使用——用户面的 `z42 build` 走 z42c，`z42 export` 由 launcher 实现。
+编排机制见[项目构建与发布编排](project-build.md)。
 
 ## dump 与流程的对应
 

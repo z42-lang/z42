@@ -228,7 +228,7 @@ void _bedRuntimeIntoWorkload(string wlDest, string rtDest, string rid, string ve
 }
 
 // Print installed workloads (one `<wl>  (<ver>)` line each). Returns true if any
-// were printed. Shared by `z42 workload list` and `z42 list --workloads`.
+// were printed. Used by `z42 workload list`.
 bool _listInstalledWorkloads() {
     string[] vers = _installedVersions();
     bool any = false;

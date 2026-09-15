@@ -1,38 +1,63 @@
-# toolchain/launcher — `z42` launcher
+# toolchain/launcher — `z42` 命令
 
 ## 职责
 
-用户一次性安装的唯一入口 `z42`：解析所需运行时版本 → 用对应 `z42vm` 跑
-Exe-zpkg → 透传命令行参数；并管理已装运行时（`~/.z42/runtimes/<ver>/`）。
-类比 `dotnet` muxer + `rustup`。
+SDK 的唯一命令入口 `z42`：新建 / 构建 / 运行 / 测试工程、发布应用、管理平台 workload。
+`build` 转发 z42c，`new` / `test` / `bench` / `clean` 转发 z42b，`repl` 转发 z42i；其余在这里实现。
+不管理多个运行时版本（SDK 单版本，运行应用用同址 `bin/z42vm`），不做自更新（由安装脚本负责）。
 
-**z42 优先**：只有"找/给 VM 的最小核"必须原生（bootstrap 铁律：无 VM 跑不了
-z42）；其余逻辑全部用 z42 写。
+`z42` 本身是通用 apphost stub（`src/toolchain/workload/desktop/platform/apphost`），打包时 patch 成
+payload=`programs/launcher/launcher.zpkg`；本目录只有 launcher 核心的 z42 源。
 
-## 结构
+## 功能索引
 
-| 路径 | 语言 | 职责 |
-|------|------|------|
-| `core/launcher.z42` | **z42** | launcher 命令实现：`~/.z42` 缓存 / 版本解析 / 起 app / 各子命令 handler（从 `Std.Cli.ParseResult` 读参）。编译为 `launcher.zpkg`（Exe-mode）。 |
-| `core/launcher_cli.z42` | **z42** | CLI 层（migrate-xtask-launcher-to-std-cli）：`Std.Cli` 嵌套 `SubcommandRouter` 命令树 + `_runLauncher`（apphost 简写 / `run` 透传 / Resolve + dispatch）。每层 `-h` help 由库生成（手写 `_help()` 已删）。 |
-| `core/apphost.z42` | **z42** | apphost stub-patch 库（apphost-as-config 2026-06-17）：拷贝 apphost stub 模板 + patch 内嵌占位符 + macOS ad-hoc 重签名。`Produce(app, outPath)` 由 `_cmdPublishDesktop`（`z42 publish`）调用——**无独立 `z42 apphost` 命令**。 |
+| 功能 | 入口 / 文件 |
+|------|-----------|
+| 命令树、路由、转发 z42b / z42c / z42i、`help` | `core/launcher_cli.z42` 的 `_runLauncher` / `_launcherRoot` |
+| SDK 布局解析（`_home` / `_sdkVm` / `_sdkLibs` / `_sdkBin`） | `core/launcher.z42` |
+| `run`（定位工程 → `z42c build --quiet` → 按 `BuildLayout` 找产物 → z42vm） | `core/launcher.z42` 的 `_cmdRun` |
+| `version` | `core/launcher.z42` 的 `_cmdVersion` |
+| `publish` / `export`（含工程定位 `_resolveDeployManifest`） | `core/launcher_export.z42` |
+| `workload install / list / uninstall` | `core/launcher_workload.z42` |
+| release-index 下载 / 校验 / 解压（workload 网络安装用） | `core/launcher_network.z42` |
 
-> **unify-launcher-apphost（2026-06-21）**：原 Rust trampoline crate（`Cargo.toml` /
-> `src/main.rs` / `src/lib.rs`）**已删**。`z42` 现在就是**通用 per-app apphost stub**
-> （`src/toolchain/workload/desktop/platform/apphost`，z42-apphost crate），SDK 打包时
-> patch 成 payload=`programs/launcher/launcher.zpkg`。运行时解析全部复用 apphost 桩的 `hostrun`
-> 模块（`resolve_app_runtime` + `ensure_portable_vm`，most-local-wins；原独立 `z42-hostrun` crate
-> 已并入桩，merge-hostrun-into-apphost）。本目录现只剩
-> `core/`（launcher 核心 z42 源 → `launcher.zpkg`）。
+## 基础用法
 
-## 命令（P1）
+```bash
+z42 new hello && cd hello
+z42 run                 # 构建并运行当前工程
+z42 build --release
+z42 test
+z42 --version
+z42 help run
+```
 
-`run` / `link` / `list` / `default` / `which` / `info`（本地、无网络）。
-`install` / `uninstall` / `self update` / 下载 = P2（后续 spec）。
+完整命令参考见 book [z42 命令参考](../../../docs/book/src/toolchain/cli.md)。
 
-`z42 publish <project.z42.toml>`（读 `[platform.desktop].publish_dir`）→ 产出 per-app 原生可执行文件 apphost（机制 / 本地优先解析 / 签名详见 [`docs/design/runtime/launcher.md`](../../../docs/design/runtime/launcher.md) 的 apphost 段）。apphost-as-config：apphost 是 desktop 平台的发布产物，不是独立命令。
+## 如何测试验证
 
-## 状态
+```bash
+xtask package sdk --no-build            # 打出 SDK 包（含 launcher）
+DIST_SMOKE_ONLY=launcher xtask test dist  # launcher 命令行冒烟（新手路径 + run/repl）
+xtask test dist                          # 完整：再加 publish 冒烟与打包 goldens
+```
 
-进行中 —— spec：`docs/spec/changes/add-z42-launcher/`。
-Phase 0（z42vm `-- args` 透传）已落地（commit fe0e0273）。
+冒烟用例在 `scripts/test/xtask_test_dist_cli.z42`（new → run → build → clean / 版本 / 帮助 / 错误路径）与 `scripts/test/xtask_test_dist.z42`。
+
+## 关联文档
+
+- 命令参考（用户面，唯一权威）：[docs/book/src/toolchain/cli.md](../../../docs/book/src/toolchain/cli.md)
+- apphost 机制与运行时探测：[docs/design/runtime/launcher.md](../../../docs/design/runtime/launcher.md)
+- 工程定位 / 产物布局实现：`src/libraries/z42.project/src/{ManifestLocator,BuildLayout}.z42`
+- 引入/演进：change `add-beginner-cli-onramp`（simplify-z42-cli）
+
+## 核心文件
+
+| 文件 | 职责 |
+|------|------|
+| `core/launcher.z42` | Main、SDK 布局、`run`、`version` |
+| `core/launcher_cli.z42` | 命令树、路由、转发 |
+| `core/launcher_export.z42` | `publish` / `export` |
+| `core/launcher_workload.z42` | `workload` 子命令 |
+| `core/launcher_network.z42` | 下载辅助 |
+| `core/z42.launcher.z42.toml` | launcher 工程清单（产出 `launcher.zpkg` + 根 `z42` apphost） |
