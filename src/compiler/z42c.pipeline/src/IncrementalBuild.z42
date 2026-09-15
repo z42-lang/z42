@@ -63,11 +63,11 @@ public static class IncrementalBuild {
     // hashes[i] = 源文本 SHA-256（调用方算一次三处复用——probe/ZbcFileZ/meta；解释执行的
     // SHA-256 每遍 ~3-4s/42 文件，重复计算曾是 D8 差价主项之一）。
     public static IncrFilePlan ProbeFiles(string[] srcs, string[] hashes, int n,
-                                          string projectDir, string cacheDir) {
+                                          string projectDir, string cacheDir, string depsId) {
         bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
         IncrFilePlan plan = new IncrFilePlan(n);
-        // 包级源清单：数量或任一位置不符（增/删/改名）→ 全量。
-        string[] last = CacheStore.LoadSrcList(cacheDir);
+        // 包级源清单：数量或任一位置不符（增/删/改名）、或依赖身份变了 → 全量。
+        string[] last = CacheStore.LoadSrcList(cacheDir, depsId);
         bool listOk = last != null && last.Length == n;
         if (listOk) {
             int i = 0;
@@ -77,7 +77,7 @@ public static class IncrementalBuild {
             }
         }
         if (!listOk) {
-            if (debug) { ConsoleError.WriteLine("  [seed/src-list] package source set changed -> full"); }
+            if (debug) { ConsoleError.WriteLine("  [seed/src-list] package source set / dependency identity changed -> full"); }
             int i = 0;
             while (i < n) { plan.Fresh[i] = true; i = i + 1; }
             plan.FreshCount = n;

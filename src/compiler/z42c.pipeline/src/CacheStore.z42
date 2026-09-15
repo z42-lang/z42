@@ -60,6 +60,8 @@ public sealed class CacheMeta {
 }
 
 public static class CacheStore {
+    // v6（2026-09-15 add-dep-identity-to-cache-key）：package.meta +`deps <依赖身份>` 行——依赖包变了（BLID /
+    //     内容哈希）整包作废。此前依赖改签名、消费方源码没动会命中旧产物。v5 条目失效。
     // v5（2026-09-06 incr-name-level-invalidation）：`surface` 单行 → `nsurf <name> <hash>` 多行
     //     （失效判据降到**名字**粒度）+ `sident` 行（声明面标识符，传播判据）。v4 条目失效。
     // v4（2026-09-06 fix-z42c-incremental-closure）：+surface 行（声明面指纹）——传播闸门的输入。
@@ -67,7 +69,7 @@ public static class CacheStore {
     // v3（2026-08-11 add-compiler-fingerprint-cache）：+z42c-fp 行（编译器语义指纹进 key）。v2 条目失效。
     // v2（2026-07-08）：+token 行——D8 计时实测 42 文件语料增量比全量慢 17%，根因 =
     // 闭包边输入对全部文件独立重 lex；token 入 meta 后 cached 文件零 lex。v1 条目失效。
-    public static int MetaVersion = 5;
+    public static int MetaVersion = 6;
 
     // 编译器语义指纹：z42c 的 codegen / 优化 / typecheck / lowering 行为变化，但 zbc/zpkg 格式
     // Minor **不** bump 时，手动 +1。它进 cache key → 编译器语义一变即令旧 .meta 全部失效，堵住
@@ -241,19 +243,21 @@ public static class CacheStore {
 
     // ── 包级源清单（增删文件 → 全量；spec 场景「源文件增删」）────────────────────
 
-    public static void SaveSrcList(string cacheDir, string[] rels, int n) {
+    // depsId = DepIdentity.Of(...)：本次编译扫到的依赖 zpkg 身份；下次不符 ⇒ 整包全量。
+    public static void SaveSrcList(string cacheDir, string[] rels, int n, string depsId) {
         string s = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"
                  + "z42c-fp " + CacheStore.CompilerFingerprint.ToString() + "\n"
                  + "zbc " + ZbcVersion.Minor.ToString() + "\n"
-                 + "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n";
+                 + "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n"
+                 + "deps " + depsId + "\n";
         int i = 0;
         while (i < n) { s = s + "src " + rels[i] + "\n"; i = i + 1; }
         Directory.Create(cacheDir);
         File.WriteAllText(Path.Join(cacheDir, "package.meta"), s);
     }
 
-    // 上次源清单；缺失/pin 不符/格式坏 → null（= 全量）。
-    public static string[] LoadSrcList(string cacheDir) {
+    // 上次源清单；缺失/pin 不符/依赖身份不符/格式坏 → null（= 全量）。
+    public static string[] LoadSrcList(string cacheDir, string depsId) {
         string p = Path.Join(cacheDir, "package.meta");
         if (!File.Exists(p)) { return null; }
         string text = "";
@@ -261,7 +265,7 @@ public static class CacheStore {
         string[] lines = text.Split("\n");
         string[] rels = new string[4];
         int n = 0;
-        bool verOk = false; bool fpOk = false; bool zbcOk = false; bool zpkgOk = false;
+        bool verOk = false; bool fpOk = false; bool zbcOk = false; bool zpkgOk = false; bool depsOk = false;
         int i = 0;
         while (i < lines.Length) {
             string line = lines[i];
@@ -275,10 +279,11 @@ public static class CacheStore {
             else if (key == "z42c-fp") { fpOk = (val == CacheStore.CompilerFingerprint.ToString()); }
             else if (key == "zbc")   { zbcOk = (val == ZbcVersion.Minor.ToString()); }
             else if (key == "zpkg")  { zpkgOk = (val == ZpkgWriterZ.Minor.ToString()); }
+            else if (key == "deps")  { depsOk = (val == depsId); }
             else if (key == "src")   { rels = CacheStore._append(rels, n, val); n = n + 1; }
             else { return null; }
         }
-        if (!verOk || !fpOk || !zbcOk || !zpkgOk) { return null; }
+        if (!verOk || !fpOk || !zbcOk || !zpkgOk || !depsOk) { return null; }
         string[] r = new string[n];
         i = 0;
         while (i < n) { r[i] = rels[i]; i = i + 1; }
