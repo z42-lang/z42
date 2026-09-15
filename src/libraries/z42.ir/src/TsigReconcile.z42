@@ -379,8 +379,11 @@ public static class TsigReconcile {
             ExportedParamZ[] ps = new ExportedParamZ[ipc];
             int pi = 0;
             while (pi < ipc) { ps[pi] = new ExportedParamZ("p" + pi.ToString(), cd.IfaceMethodParamTypes[ipbase + pi]); pi = pi + 1; }
+            // fix-imported-iface-static-fidelity（zbc 1.41）：static 位取自 wire（此前硬编码 false）。
+            // virtual 派生：static 接口成员经类型参数见证派发、非 vtable 虚方法 → !isStat；abstract 恒 true（接口方法无 body）。
+            bool isStat = cd.IfaceMethodStatic[mi] != 0;
             methods[mi] = new ExportedMethodZ(cd.IfaceMethodNames[mi], cd.IfaceMethodRets[mi], "public",
-                                              false, true, true, ipc, ps, ipc);
+                                              isStat, !isStat, true, ipc, ps, ipc);
             ipbase = ipbase + ipc;
             mi = mi + 1;
         }
