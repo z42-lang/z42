@@ -154,6 +154,19 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
     if (!File.Exists(toml)) { return 0; }
     Console.WriteLine("");
     Console.WriteLine("── dev-target internal (z42b test <toml>：按目标编译 + 可见父包 internal) ──");
+    // fix-devtarget-parent-copy-stale 的负例：先在两个目标的 dist 里放一份**损坏的**父包同置副本，
+    // 模拟上一轮留下的过期拷贝。z42b 若沿用「已存在就不拷」，运行期会加载到这份垃圾、父包类型解析
+    // 不到 ⇒ 本 smoke 判红；正确行为是每次覆盖成刚建好的父包。（此前这里只在全新树上跑，过期副本
+    // 从未出现过 ⇒ 那个「不刷新」的 bug 在这道门下永远是绿的。）
+    string[] targetNames = new string[] { "internals_tests", "dirunit" };
+    string targetsRoot = Path.Join(Path.GetDirectoryName(toml), "artifacts/test-targets");
+    int ti = 0;
+    while (ti < targetNames.Length) {
+        string distDir = Path.Join(Path.Join(targetsRoot, targetNames[ti]), "dist");
+        Directory.Create(distDir);
+        File.WriteAllText(Path.Join(distDir, "dt.internal.zpkg"), "STALE-COLOCATED-PARENT-COPY");
+        ti = ti + 1;
+    }
     int rc = _exec(new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg("test").Arg(toml)
         .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root));
@@ -161,7 +174,7 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
         Console.WriteLine("  ❌ dev-target internal: `z42b test <toml>` exited " + rc.ToString());
         return 1;
     }
-    Console.WriteLine("  ✅ dev-target internal: 目标按源隔离编译，且可见父包 internal");
+    Console.WriteLine("  ✅ dev-target internal: 目标按源隔离编译，且可见父包 internal（预置的过期同置副本已被覆盖）");
     return 0;
 }
 

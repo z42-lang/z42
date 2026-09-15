@@ -90,26 +90,6 @@ pub unsafe extern "C" fn jit_call(
         }
     };
 
-    // add-static-constructors：调用该类型的静态方法是 C# 的类型初始化触发点之一。
-    // 与 interp 的 exec_call 屏障对称，共用 `ensure_callee_owner_init`。
-    // 门在函数内短路（any_cctor_pending），故稳态下就是一次 relaxed load。
-    // fix-crosspkg-static-call-cctor：必须在上面的**解析之后**——Tier 3 解析可能正是加载依赖包、
-    // 登记其类型 cctor 的那一步；放在前面，首次跨包静态调用读到的门是 0，会跳过静态构造器。
-    // 覆盖下面两条去路（本地 FnEntry / `cross_zpkg_via_interp` 回落）。
-    {
-        let vm = vm_ctx_ref(ctx);
-        if vm.any_cctor_pending() {
-            let name = std::str::from_utf8(
-                std::slice::from_raw_parts(fn_name_ptr, fn_name_len)).unwrap_or("");
-            if let Err(msg) = vm.ensure_callee_owner_init(name) {
-                let module = &*(*ctx).module;
-                let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
-                set_exception(vm, exc);
-                return 1;
-            }
-        }
-    }
-
     let entry: &FnEntry = match entry_ref {
         Some(e) => e,
         None => {
@@ -127,6 +107,29 @@ pub unsafe extern "C" fn jit_call(
                 frame_ref, ctx, dst, func_name, args_ptr, argc, caller_line, caller_col, caller_offset);
         }
     };
+
+    // add-static-constructors：调用该类型的静态方法是 C# 的类型初始化触发点之一。
+    // 与 interp 的 exec_call 屏障对称，共用 `ensure_callee_owner_init`。
+    // 门在函数内短路（any_cctor_pending），故稳态下就是一次 relaxed load。
+    // fix-crosspkg-static-call-cctor：必须在上面的**解析之后**——Tier 3 解析可能正是加载依赖包、
+    // 登记其类型 cctor 的那一步；放在前面，首次跨包静态调用读到的门是 0，会跳过静态构造器。
+    // align-jit-arity-cctor-order：只覆盖**本地 FnEntry** 这条去路；不可翻译回落
+    // （`cross_zpkg_via_interp`）在它自己的签名判定**之后**过屏障。于是两个后端、所有去路的顺序统一为
+    // 「解析 → 签名判定 → cctor 屏障 → 执行」（interp `exec_call::call` 同序）——签名对不上的调用本身非法，
+    // 不应先触发类型初始化。此前屏障在分叉之前，回落路径的顺序是「屏障 → 判定」。
+    {
+        let vm = vm_ctx_ref(ctx);
+        if vm.any_cctor_pending() {
+            let name = std::str::from_utf8(
+                std::slice::from_raw_parts(fn_name_ptr, fn_name_len)).unwrap_or("");
+            if let Err(msg) = vm.ensure_callee_owner_init(name) {
+                let module = &*(*ctx).module;
+                let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
+                set_exception(vm, exc);
+                return 1;
+            }
+        }
+    }
 
     // Fill the callee frame directly from the caller's registers — no
     // intermediate `Vec<Value>` alloc, args cloned once instead of twice.
@@ -187,26 +190,16 @@ unsafe fn cross_zpkg_via_interp(
         return 1;
     }
     // Case 1: function present in the merged main module (interp's hot path).
-    let outcome = if let Some(callee) = module.func_index.get(func_name)
+    // Case 2: cross-zpkg target reachable only through the lazy loader.
+    // align-jit-arity-cctor-order：先把目标解析出来（Case 2 的查找可能正是加载依赖包的那一步），
+    // 再判签名，最后过 cctor 屏障 —— 与 interp `exec_call::call` 同序。
+    let mut lazy_holder: Option<std::sync::Arc<crate::metadata::Function>> = None;
+    let callee: &crate::metadata::Function = if let Some(f) = module.func_index.get(func_name)
         .and_then(|&idx| module.functions.get(idx))
     {
-        // fix-call-arity-skew：与 interp `exec_call` 对称。
-        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            vm_ctx, module, func_name, crate::vm_context::symres::call_arity(callee), argc,
-        ) {
-            set_exception(vm_ctx, exc);
-            return 1;
-        }
-        crate::interp::exec_function(vm_ctx, module, callee, &args)
-    // Case 2: cross-zpkg target reachable only through the lazy loader.
+        f
     } else if let Some(lazy_fn) = vm_ctx.try_lookup_function(func_name) {
-        if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
-            vm_ctx, module, func_name, crate::vm_context::symres::call_arity(lazy_fn.as_ref()), argc,
-        ) {
-            set_exception(vm_ctx, exc);
-            return 1;
-        }
-        crate::interp::exec_function(vm_ctx, module, lazy_fn.as_ref(), &args)
+        &**lazy_holder.insert(lazy_fn)
     } else {
         // fix-silent-symbol-resolution：与 interp 统一，抛类型化 MissingSymbolException。
         // 裸 Value::Str 只能被无类型 `catch {}` 捕获，匹配不上 `catch (Exception e)`。
@@ -214,6 +207,21 @@ unsafe fn cross_zpkg_via_interp(
             vm_ctx, module, format!("undefined function `{}`", func_name)));
         return 1;
     };
+    // fix-call-arity-skew：与 interp `exec_call` 对称。
+    if let Some(exc) = crate::vm_context::symres::wrong_arity_exception(
+        vm_ctx, module, func_name, crate::vm_context::symres::call_arity(callee), argc,
+    ) {
+        set_exception(vm_ctx, exc);
+        return 1;
+    }
+    // add-static-constructors：静态方法调用是类型初始化触发点（本回落路径的屏障，见 jit_call 注释）。
+    if vm_ctx.any_cctor_pending() {
+        if let Err(msg) = vm_ctx.ensure_callee_owner_init(func_name) {
+            set_exception(vm_ctx, crate::vm_context::cctor::make_type_init_exception(vm_ctx, module, &msg));
+            return 1;
+        }
+    }
+    let outcome = crate::interp::exec_function(vm_ctx, module, callee, &args);
 
     match outcome {
         Ok(crate::interp::ExecOutcome::Returned(ret)) => {
