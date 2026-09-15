@@ -25,4 +25,10 @@ void Main() {
     Console.WriteLine(f.w);           // 10
     Console.WriteLine(f.h);           // 11
     Console.WriteLine(f.Area());      // 110  跨包方法按生产方布局读
+    // 跨包泛型 struct 套 struct 的链式读写
+    Pair<Point3, string> pr = new Pair<Point3, string>(new Point3(21, 22, 23), "s");
+    Console.WriteLine(pr.First.z);    // 23
+    pr.First.y = 220;
+    Console.WriteLine(pr.First.y);    // 220
+    Console.WriteLine(pr.Second);     // s
 }

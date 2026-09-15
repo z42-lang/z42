@@ -358,12 +358,25 @@ public sealed class AccessEmitter {
         return bdst;
     }
 
+    // fix-generic-struct-chain-access：`m` 是否是一节**内联**链——容器是 blob struct，且该字段在容器布局里
+    // 真的**展平内联**（`FieldIsStruct`）。只有这时 `m` 的字节才在容器 blob 里、偏移才能累加。
+    //
+    // 🔴 只看「容器是 blob struct」不够：泛型 struct 的字段按声明类型 `T` 布局（擦除成一个引用叶子），
+    // 实例化后 `m` 的静态类型虽是 struct（`ValueTuple2<int,string>`），存储却是**另一块 blob 的句柄**。
+    // 把它当内联累加偏移 = 在外层 blob 里读写 ⇒ `t.Item1.Item2` 读到外层 `Item2`、`pp.First.Y = 5`
+    // 写进外层别的字段（静默错值 / 装箱崩）。属性 getter（无布局存储）同理。非内联链节断链：它自己当根
+    // （`_ee.Emit` 取出句柄 / 调 getter），偏移从 0 重新累加。
+    private bool _isInlineChainLink(BoundMember m) {
+        if (!this._ee._isBlobStruct(m.Target.Type())) { return false; }
+        return this._ctx.Gen.Layouts.FieldIsStruct(this._ee._blobStructName(m.Target.Type()), m.MemberName);
+    }
+
     // 嵌套字段链的根 blob 句柄：沿链下降到根 lvalue，只 Emit 根一次。根 = 局部 ident / 返回 struct 的调用……
     // 或**拥有者 struct 的裸字段**（`a.x` 即 `this.a.x`，此时根 blob = this 句柄 reg0，偏移见 _structChainOffset）。
     private TypedReg _structChainRoot(BoundExpr e) {
         if (e is BoundMember) {
             BoundMember m = e as BoundMember;
-            if (this._ee._isBlobStruct(m.Target.Type())) { return this._structChainRoot(m.Target); }
+            if (this._isInlineChainLink(m)) { return this._structChainRoot(m.Target); }
             // add-struct-heap-inline (P3b)：内联 struct 字段根 = 堆对象句柄（Value::Object）；
             // 后续叶子 offset 由 _structChainOffset 累积（对象相对复合 offset 烘焙进 StructFieldGet/SetPrim）。
             if (this._isInlineStructFieldRoot(e)) { return this._ee.Emit(m.Target); }
@@ -385,7 +398,7 @@ public sealed class AccessEmitter {
     private int _structChainOffset(BoundExpr e) {
         if (e is BoundMember) {
             BoundMember m = e as BoundMember;
-            if (this._ee._isBlobStruct(m.Target.Type())) {
+            if (this._isInlineChainLink(m)) {
                 int parent = this._structChainOffset(m.Target);
                 return parent + this._ctx.Gen.Layouts.FieldByteOffset(this._ee._blobStructName(m.Target.Type()), m.MemberName);
             }

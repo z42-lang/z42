@@ -16,3 +16,10 @@ public struct Seg {
     public long tag;
     public Seg(Point3 a, Point3 b, long tag) { this.a = a; this.b = b; this.tag = tag; }
 }
+
+// fix-generic-struct-chain-access：跨包泛型 struct（字段按 `A`/`B` 擦除成引用叶子）。
+public struct Pair<A, B> {
+    public A First;
+    public B Second;
+    public Pair(A a, B b) { this.First = a; this.Second = b; }
+}
