@@ -1,0 +1,14 @@
+// 跨包：约束要求 Item=int，但导入类 StrBag 绑定 Item=string → E0453（跨包错绑定，
+// 删 IsImported 守卫 + wire 承载类侧绑定后才抓得出）。
+namespace DemoAMissApp;
+
+using DemoAMissTarget;
+
+public class Holder<T> where T : IEnum<Item = int> {
+    public T item;
+    public Holder(T v) { this.item = v; }
+}
+
+void Main() {
+    var h = new Holder<StrBag>(new StrBag());   // ❌ StrBag 绑 Item=string，约束要求 int
+}

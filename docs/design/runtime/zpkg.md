@@ -268,6 +268,7 @@ Sidecar 不可作为项目包加载（reader 见 `FlagSymOnly` 即 bail）。
 | 0.44 | 2026-09-13 | [encode-ctorless-objnew](../../spec/archive/2026-09-13-encode-ctorless-objnew/) | 耦合 inner zbc 1.39（`ObjNew` 尾部加 `ctor_known:u8` —— 编译期整包装配后置的**正向**位，供运行期区分「构造器缺失」与「本来就无构造器」，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.45 | 2026-09-14 | [fix-call-arity-skew](../../spec/archive/2026-09-14-fix-call-arity-skew/) | 耦合 inner zbc 1.40（SIGS `method_flags` bit3 = sret，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 | 0.46 | 2026-09-15 | [fix-imported-iface-static-fidelity](../../spec/changes/fix-imported-iface-static-fidelity/) | 耦合 inner zbc 1.41（接口方法块加 `is_static:u8`——`static abstract` 成员静态位随 wire 承载，删 #636 导入接口满足性守卫，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
+| 0.47 | 2026-09-16 | [assoc-type-crosspkg](../../spec/changes/assoc-type-crosspkg/) | 耦合 inner zbc 1.42（约束 bundle bit7 + TYPE 统一 assoc 块，跨包关联类型——接口关联类型名单/类侧绑定/约束绑定三份数据随 wire 承载，删三处 IsImported 守卫，见 zbc changelog）。zpkg outer 段面不变。bump 触发 ci-bootstrap 版本差 gate → 两代自举吸收 |
 
 > **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)（zbc bump 流程含 zpkg 同步条款）+ [§"Bumping `.zpkg` minor version (independent)"](../../../.claude/rules/version-bumping.md#bumping-zpkg-minor-version-independent)（仅 zpkg outer 变化场景）。
 

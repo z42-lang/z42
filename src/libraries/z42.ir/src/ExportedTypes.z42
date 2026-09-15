@@ -82,6 +82,11 @@ public sealed class ExportedClassZ {
     // 直接复用 IrConstraintDesc（同库同 namespace），不另造一套平行编码 —— 少一层转换就少一处漂移点。
     // 种子 ABI：**不进构造函数签名**，ctor 内给默认值，由 TsigReconcile 构造后赋值（同 IsSealed/Visibility/IsDeprecated）。
     public IrConstraintDesc[] TypeParamConstraints; public int TpConstraintCount;
+    // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`class IntBag : IEnum { type Item = int; }` 的
+    // `Item=int`。TsigReconcile 从 TYPE 统一 assoc 块（cd.AssocNames/AssocTypes，类记录）构造后赋值；
+    // ImportedSymbolLoader 据此 AddAssocBinding 恢复 Z42ClassType.AssocBinding*（供跨包使用点匹配，删守卫）。
+    // ctor 元数不变（旧种子 ABI），默认空。
+    public string[] AssocBindingNames; public string[] AssocBindingTypeNames; public int AssocBindingCount;
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -95,6 +100,7 @@ public sealed class ExportedClassZ {
         this.Visibility = "public";   // enforce-class-access：默认 public（reconcile 后赋值；未赋值即 public，绝不误拒）
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamConstraints = null; this.TpConstraintCount = 0;   // add-associated-types PR-1（reconcile 后赋值）
+        this.AssocBindingNames = new string[0]; this.AssocBindingTypeNames = new string[0]; this.AssocBindingCount = 0;
     }
 }
 
@@ -106,11 +112,16 @@ public sealed class ExportedInterfaceZ {
     // 默认 "public"（未赋值即 public，绝不误拒）；TsigReconcile 从 cd.Visibility（zbc TYPE 可见性字节）
     // 构造后赋值；ImportedSymbolLoader 据此填 Z42InterfaceType.Visibility（跨包 internal 接口引用强制）。
     public string            Visibility;
+    // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口声明的 `type Item;` 名列表。TsigReconcile 从
+    // TYPE 统一 assoc 块（cd.AssocNames）构造后赋值；ImportedSymbolLoader 据此 AddAssocType 恢复
+    // Z42InterfaceType.AssocTypeNames（供跨包关联类型满足性校验，删 IsImported 守卫）。默认空。
+    public string[]          AssocTypeNames; public int AssocTypeCount;
     public ExportedInterfaceZ(string name, ExportedMethodZ[] methods, int methodCount,
                               string[] typeParams, int tpCount) {
         this.Name = name; this.Methods = methods; this.MethodCount = methodCount;
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.Visibility = "public";
+        this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0;
     }
 }
 

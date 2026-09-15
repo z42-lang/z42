@@ -322,6 +322,13 @@ public sealed class ClassDescBuilder {
             }
             cd2.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
         }
+        // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`class IntBag : IEnum { type Item = int; }`
+        // → TYPE 统一 assoc 块，类写 (Item, int)。从语义 Z42ClassType 取（MemberCollector._fillClass 已填），
+        // 供跨包 ImportedSymbolLoader 恢复 AssocBinding、删 ConstraintChecker 使用点 IsImported 守卫。
+        if (ctd != null && ctd.AssocBindingCount > 0) {
+            cd2.AssocNames = ctd.AssocBindingNames; cd2.AssocTypes = ctd.AssocBindingTypeNames;
+            cd2.AssocCount = ctd.AssocBindingCount;
+        }
         return cd2;
     }
 
@@ -360,6 +367,11 @@ public sealed class ClassDescBuilder {
             if (b.InterfaceCount > 0) {
                 d.Interfaces = b.InterfaceNames; d.InterfaceCount = b.InterfaceCount;
             }
+            // 关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`where T:IEnum<Item=int>` → bit7 承载。
+            if (b.AssocBindingCount > 0) {
+                d.AssocBindingNames = b.AssocBindingNames; d.AssocBindingTypeNames = b.AssocBindingTypeNames;
+                d.AssocBindingCount = b.AssocBindingCount;
+            }
             i = i + 1;
         }
         return descs;
@@ -392,6 +404,19 @@ public sealed class ClassDescBuilder {
             ConstraintSet cs = null;
             if (st != null && st.HasIfaceConstraints(c.Name)) { cs = st.GetIfaceConstraints(c.Name); }
             cd.TypeParamConstraints = this._constraintDescs(cs, c.TypeParams.Count);
+        }
+        // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口声明的 `type Item;` → TYPE 统一 assoc 块，
+        // 接口写 (Item, "")。从语义 Z42InterfaceType 取（MemberCollector._fillInterface 已填），供跨包
+        // ImportedSymbolLoader 恢复 AssocTypeNames、删 ConstraintChecker/InheritanceResolver 的 IsImported 守卫。
+        SymbolTable stI = this._g._symbols;
+        if (stI != null) {
+            Z42InterfaceType itSym = stI.GetInterface(c.Name);
+            if (itSym != null && itSym.AssocTypeCount > 0) {
+                string[] an = new string[itSym.AssocTypeCount]; string[] at = new string[itSym.AssocTypeCount];
+                int ai = 0;
+                while (ai < itSym.AssocTypeCount) { an[ai] = itSym.AssocTypeNames[ai]; at[ai] = ""; ai = ai + 1; }
+                cd.AssocNames = an; cd.AssocTypes = at; cd.AssocCount = itSym.AssocTypeCount;
+            }
         }
         // 接口方法签名（zbc 1.28，fix-crosspkg-interface-impl）：从成员 MethodDecl 抽名/返回/参数类型
         // （源拼写，同 _typeFieldName 字段策略——TsigReconcile 重建后经 ImportedSymbolLoader._resolve 消费）。

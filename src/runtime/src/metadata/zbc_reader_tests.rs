@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 41, "zbc minor at 1.41 (fix-imported-iface-static-fidelity: interface-method block is_static:u8)");
+    assert_eq!(ZBC_VERSION_MINOR, 42, "zbc minor at 1.42 (assoc-type-crosspkg: constraint bit7 + TYPE assoc block)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 46, "zpkg minor at 0.46 (fix-imported-iface-static-fidelity: coupled zbc 1.41)");
+    assert_eq!(ZPKG_VERSION_MINOR, 47, "zpkg minor at 0.47 (assoc-type-crosspkg: coupled zbc 1.42)");
 }
 
 #[test]
@@ -233,6 +233,9 @@ fn build_type_section_one_struct(size: u32, ref_leaves: &[(u32, u8)]) -> Vec<u8>
         b.extend_from_slice(&off.to_le_bytes());
         b.push(kind);
     }
+    // assoc-type-crosspkg (zbc 1.42): every TYPE record ends with an always-present
+    // unified assoc block (assoc_count:u16 + …); count=0 here (no associated types).
+    b.extend_from_slice(&0u16.to_le_bytes());        // assoc block count = 0
     b
 }
 

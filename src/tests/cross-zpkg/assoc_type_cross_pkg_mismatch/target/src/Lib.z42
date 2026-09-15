@@ -1,0 +1,10 @@
+// assoc-type-crosspkg 负例：生产方定义带关联类型的接口 + 一个绑定 Item=string 的实现类。
+// 消费方（main）用 StrBag（导入）去满足 `where T:IEnum<Item=int>` → 跨包错绑定 E0453。
+namespace DemoAMissTarget;
+
+public interface IEnum { type Item; }
+
+public class StrBag : IEnum {
+    type Item = string;          // 绑定 Item=string
+    public int Get() { return 0; }
+}

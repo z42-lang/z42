@@ -390,6 +390,14 @@ public static class TsigReconcile {
         ExportedInterfaceZ eiz = new ExportedInterfaceZ(bare, methods, cd.IfaceMethodCount,
                                       cd.TypeParams, cd.TypeParamCount);
         eiz.Visibility = TsigReconcile._visStr(cd.Visibility);   // complete-class-access-control ④：接口可见性字节 → 字符串（跨包 internal 接口引用强制）
+        // 关联类型名单（zbc 1.42，assoc-type-crosspkg）：接口记录的 TYPE assoc 块 = 声明的 `type Item;` 名列表
+        // （type 恒 ""）→ ExportedInterfaceZ.AssocTypeNames，供 ImportedSymbolLoader.AddAssocType 恢复。
+        if (cd.AssocCount > 0) {
+            string[] atn = new string[cd.AssocCount];
+            int an = 0;
+            while (an < cd.AssocCount) { atn[an] = cd.AssocNames[an]; an = an + 1; }
+            eiz.AssocTypeNames = atn; eiz.AssocTypeCount = cd.AssocCount;
+        }
         return eiz;
     }
 
@@ -529,6 +537,12 @@ public static class TsigReconcile {
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
         ecz.IsDeprecated = IrDeprecation.Has(cd.Attrs, cd.AttrCount); ecz.DeprecationMsg = IrDeprecation.Msg(cd.Attrs, cd.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
         ecz.Visibility = TsigReconcile._visStr(cd.Visibility);   // enforce-class-access：类可见性字节 → 字符串（跨包 internal 类引用强制）
+        // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：类记录的 TYPE assoc 块 = `type Item = int;` 的
+        // (name, type) 对 → ExportedClassZ.AssocBinding*，供 ImportedSymbolLoader.AddAssocBinding 恢复。
+        if (cd.AssocCount > 0) {
+            ecz.AssocBindingNames = cd.AssocNames; ecz.AssocBindingTypeNames = cd.AssocTypes;
+            ecz.AssocBindingCount = cd.AssocCount;
+        }
         // add-associated-types PR-1：泛型 where 约束搬运（此前 cd.TypeParamConstraints 在整个
         // TsigReconcile 里一次都没被读过 —— 这就是「跨包约束 100% 不校验」的断点所在）。
         //
@@ -555,6 +569,11 @@ public static class TsigReconcile {
                     dst.RequiresClass = src.RequiresClass; dst.RequiresStruct = src.RequiresStruct;
                     dst.RequiresCtor = src.RequiresCtor;   dst.RequiresEnum = src.RequiresEnum;
                     if (src.BaseClass != "") { dst.BaseClass = TsigReconcile._shortName(src.BaseClass); }
+                    // 关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`where T:IEnum<Item=int>` 经 bit7 承载。
+                    if (src.AssocBindingCount > 0) {
+                        dst.AssocBindingNames = src.AssocBindingNames; dst.AssocBindingTypeNames = src.AssocBindingTypeNames;
+                        dst.AssocBindingCount = src.AssocBindingCount;
+                    }
                 }
                 copy[bi] = dst;
                 bi = bi + 1;

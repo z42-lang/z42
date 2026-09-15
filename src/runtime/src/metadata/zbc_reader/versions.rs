@@ -161,7 +161,17 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // compiler's cross-package interface-satisfaction check to skip imported interfaces
 // (#636 stopgap). The runtime consumes the byte to keep the cursor aligned (vtable
 // dispatch ignores it); IfaceMethodSig now carries it for faithful metadata.
-pub const ZBC_VERSION_MINOR: u16 = 41;
+// 2026-09-16 assoc-type-crosspkg: bumped to 1.42 — cross-package associated types.
+// (1) The constraint bundle gains bit7 = has_assoc_binding (assoc_count:u8 +
+// (name_idx:u32, type_idx:u32)×n, after the interface list), carrying a
+// `where T:IEnum<Item=int>` binding. (2) Every TYPE record gains an always-present
+// trailing unified assoc block (assoc_count:u16 + (name_idx:u32, type_idx:u32)×n):
+// interfaces write (Item, "") = declared associated-type names, classes write
+// (Item, int) = their bindings. None of these three data pieces were on the wire
+// before, so cross-package associated types were fully lost, forcing three
+// IsImported guards in the compiler. Associated types are compile-time only; the
+// runtime consumes both new payloads for cursor alignment (does not validate them).
+pub const ZBC_VERSION_MINOR: u16 = 42;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -278,7 +288,10 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-15 fix-imported-iface-static-fidelity: bumped to 0.46 — embeds zbc 1.41
 // (interface-method block gains is_static:u8). No zpkg-outer layout change; the bump
 // triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 46;
+// 2026-09-16 assoc-type-crosspkg: bumped to 0.47 — embeds zbc 1.42 (constraint bundle
+// bit7 + TYPE unified assoc block, cross-package associated types). No zpkg-outer
+// layout change; the bump triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 47;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //
