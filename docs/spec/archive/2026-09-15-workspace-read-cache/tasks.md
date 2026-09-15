@@ -13,7 +13,7 @@
 2. **封闭构建**：成员看不到拓扑序在后的成员——`ZpkgPathSort._sortedZpkgsMulti` 加 hidden 名单，经
    `DepScan.ScanDirs` / `CompileInputs.HiddenPkgs` / `DepIdentity.Of` 同口径透传，driver `_laterMemberNames`。
    不封闭时：前序成员能扫到后序成员上一轮的旧产物 ⇒ 依赖身份每轮变化（实测无改动第二次构建仍全量）；且产物随可见性漂移。
-3. **产物变化 ⇒ 指纹 5→6**：封闭后 z42.json 的 `Dictionary.Get/Set/ContainsKey` 由派发变直调（后序成员同名方法此前
+3. **产物变化 ⇒ 指纹 6→7**（main 上 #663 已占用 6）：封闭后 z42.json 的 `Dictionary.Get/Set/ContainsKey` 由派发变直调（后序成员同名方法此前
    让依赖索引出现歧义键被剔除）。`test fingerprint` 如实判红，bump 后放行。
 4. **增量读回三处与全量不一致**（main 单工程增量同样受影响，只是没人在 stdlib 规模上验过）：
    - `ZbcReader._readSigs` 丢弃方法级泛型形参名、重建 `IrFunction` 不设 `TypeParams` ⇒ SIGS 丢 tp 块
@@ -32,7 +32,7 @@
 
 - [x] 1.1 `Main.z42` / `WorkspaceBuild.z42`（driver）：probe 放开 + effCacheDir + `--no-incremental` 透传 + hidden 名单
 - [x] 1.2 `ZpkgPathSort` / `DepScan` / `PackageCompile` / `DepIdentity`：hidden 透传
-- [x] 1.3 `CacheStore.CompilerFingerprint` 5 → 6
+- [x] 1.3 `CacheStore.CompilerFingerprint` 6 → 7（#663 已占用 6）
 - [x] 1.4 `z42.ir` `ZbcReader` / `ZbcReaderInstr`：三处读回修复
 - [x] 1.5 e2e `_e2eWorkspaceIncrChecks`：无改动全命中 / 依赖改注释下游命中 / `--no-incremental` 不读 / 依赖删方法下游报错
 - [x] 1.6 `xtask test incremental`：demo（+泛型/struct）/ demo-packed / xtask / stdlib 整体读回全过。

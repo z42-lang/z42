@@ -47,29 +47,8 @@ public sealed class IrGenTypeEmitter {
             else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, mem as IndexerDecl); }
             j = j + 1;
         }
-        this._emitSynthCtor(c, owner, ownerKey);
         this._emitStructEquals(c, owner);
         this._emitRecordSynth(rawDecl, c, owner);
-    }
-
-    // 合成隐式 ctor（TypeChecker._synthCtors 已建链 init 体）：无显式实例 ctor 且有字段 init → `<qualClass>.<Name>`。
-    private void _emitSynthCtor(ClassDecl c, Z42ClassType owner, string ownerKey) {
-        IrGen g = this._g; SemanticModel model = this._model;
-        string synthKey = ownerKey + "." + c.Name;
-        if (!g._classDescB._hasExplicitInstanceCtor(c) && model.HasBody(synthKey)) {
-            TypeParamList synthTp = new TypeParamList(new string[0], 0, c.Span);
-            TypeExpr synthRet = new NamedType("", new TypeExpr[0], 0, c.Span);
-            BlockStmt synthBody = new BlockStmt(new Stmt[0], 0, c.Span);
-            MethodDecl synthMd = new MethodDecl("", false, true, synthRet, c.Name, synthTp,
-                                                new WhereClause[0], 0, new Param[0], 0, true, synthBody,
-                                                new Expr[0], 0, false, c.Span);
-            var synthFe = new FunctionEmitter(model.Symbols, g);
-            string synthIr = g._q(g._classIrShortName(c)) + "." + c.Name;
-            IrFunction synthF = synthFe.EmitFunction(synthIr, synthMd, model.GetBody(synthKey),
-                                                     true, false, owner, c.TypeParams.Names, c.TypeParams.Count);
-            IrGenFacts._fillParamMeta(synthF, synthMd, true);   // add-param-metadata（reconcile 补齐）
-            this._out.AddFunc(synthF);
-        }
     }
 
     // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。
