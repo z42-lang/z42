@@ -327,5 +327,5 @@ z42 publish scripts/xtask.z42.toml
 
 - **来源**：add-z42-launcher（原 phase 0.5）
 - **触发原因**：launcher 核心与 dev 脚本都可作为**普通 `kind="exe"` 项目**（带 `z42.toml`）经现有 `z42c build` 产 Exe-zpkg；单独实现"裸脚本 → Exe-zpkg"需在 SingleFileCompiler 重新装配 zpkg（sourceHash/namespace/deps），与已测项目路径重复，ROI 低
-- **触发条件**：若大量一次性脚本需免 `z42.toml` 的极简体验再做
+- **触发条件**：若大量一次性脚本需免 `z42.toml` 的极简体验再做。**已排期**：学习手册第 3 章需要 `z42 run hello.z42`，由后续 change `add-single-file-run` 实现（方案见归档 `add-beginner-cli-onramp` design D6）
 - **当前 workaround**：脚本写成 5 行 `z42.toml`（`kind="exe"`）的 mini-project，`z42c build` 即得 Exe-zpkg

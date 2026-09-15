@@ -2,7 +2,7 @@
 
 > 状态：🟡 进行中（2026-09-16 User 批准开工）| 创建：2026-09-15
 > 子系统：`docs`（新 book + 写作规范）+ `toolchain`（xtask 门禁 / CI / 部署）
-> 姊妹变更：[`add-beginner-cli-onramp`](../add-beginner-cli-onramp/proposal.md)（前三章依赖的 CLI 功能）
+> 姊妹变更：[`add-beginner-cli-onramp`](../2026-09-16-add-beginner-cli-onramp/proposal.md)（前三章依赖的 CLI 功能）
 
 ## Why
 

@@ -2,7 +2,7 @@
 
 > 状态：🟡 进行中（2026-09-16 User 批准开工）| 创建：2026-09-15
 > 子系统：`toolchain`（launcher / z42b / 安装脚本 / 打包）+ `stdlib`（z42.project 清单定位）+ `compiler`（z42c 空参报错）
-> 姊妹变更：[`add-learn-book-examples-gate`](../add-learn-book-examples-gate/proposal.md) —— 手册第 1–3 章与第 28 章依赖本变更
+> 姊妹变更：[`add-learn-book-examples-gate`](../2026-09-16-add-learn-book-examples-gate/proposal.md) —— 手册第 1–3 章与第 28 章依赖本变更
 
 ## Why
 

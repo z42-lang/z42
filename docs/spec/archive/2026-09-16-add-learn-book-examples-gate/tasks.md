@@ -1,6 +1,6 @@
 # Tasks: 学习手册 + examples 清零 + 教程示例门禁
 
-> 状态：🟡 进行中（2026-09-16 User 指令：完成安装章节 + 编写并运行 hello world）| 创建：2026-09-15
+> 状态：🟢 已完成 | 创建：2026-09-15 | 完成：2026-09-16（#686 合入 #685 分支，随 #685 落地 main）
 > 一个 PR 落地（分支 add-learn-book-examples-gate，叠在 #685 / #683 之上）；原计划的 PR-A1 清场并入本 PR。
 
 ## 进度概览
@@ -10,7 +10,7 @@
 - [x] 阶段 3: 门禁实现
 - [x] 阶段 4: docs/learn 骨架 + 第 1、2 章
 - [x] 阶段 5: CI / 部署 / changed 映射
-- [ ] 阶段 6: 文档同步 + 验证 + 归档
+- [x] 阶段 6: 文档同步 + 验证 + 归档
 
 ## 阶段 1: examples 清场
 
@@ -58,8 +58,8 @@
 
 - [x] 6.1 `doc-system.md`：一节目标结构加 learn/、二节「学习手册」附注、D10、§8 例外（中文先行）
 - [x] 6.2 `test-gate.md` stage 表 / 流程图 / 映射 / 实现表；`project.md` 删 `xtask example`；`verify-by-change.md` 加行；`.claude/rules/README.md` 登记 learn-writing
-- [ ] 6.3 GREEN：`xtask test` 全绿 + 两书 mdbook build 无 ERROR；CI linux/macos/windows 各一次绿
-- [ ] 6.4 归档（随本 PR）
+- [x] 6.3 GREEN：`xtask test` 全绿（含 examples stage）+ 两书 mdbook build 无 ERROR；打包 SDK 重放示例通过；CI 三 OS 由 #685 覆盖
+- [x] 6.4 归档（随 #685）
 
 ## 备注
 
