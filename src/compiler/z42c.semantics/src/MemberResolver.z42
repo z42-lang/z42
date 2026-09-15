@@ -92,7 +92,7 @@ public sealed partial class MemberResolver {
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
-                BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
+                BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, false);
                 BoundCall ibc = new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
                 this._applyMethodTypeArgs(ibc, call, ms, env);   // 带真 ms → arity + where 约束真校验
                 return ibc;
@@ -154,7 +154,7 @@ public sealed partial class MemberResolver {
             if (itms != null) {
                 itms = MethodTypeArgSubst.ForExplicitTypeArgs(itms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 Z42Type itRet = MemberResolver._substGeneric(itms.Signature.Ret, instRecv);
-                BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp);
+                BoundExpr[] fa = this._tc._overload._withDefaults(itms, args, rawArgs, argCount, env, sp, false);
                 // add-generic-type-arg-inference 阶段 A：形参位也按 receiver 的 TypeArgs 代换，再查一遍实参。
                 //
                 // 为什么必须**另起一次检查**而不是把代换后的签名喂给上面的 `_withDefaults`（不变式 I1）：
@@ -262,7 +262,7 @@ public sealed partial class MemberResolver {
                 rms = MethodTypeArgSubst.ForExplicitTypeArgs(rms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                 this._tc._access.CheckDeprecatedM(rms, mem.Name, sp);
-                BoundExpr[] fa = this._tc._overload._withDefaults(rms, args, rawArgs, argCount, env, sp);
+                BoundExpr[] fa = this._tc._overload._withDefaults(rms, args, rawArgs, argCount, env, sp, false);
                 return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp);
             }
         }
@@ -671,13 +671,14 @@ public sealed partial class MemberResolver {
             Z42FuncType lfsig = env.LookupLocalFn(id.Name);
             if (lfsig != null) {
                 args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, lfsig, env);
+                this._tc._overload._checkLocalFnArity(id.Name, lfsig, call.ArgCount, call.Span);   // add-call-arity-diagnostics
                 return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span);
             }
             if (env.Symbols.HasFunc(id.Name)) {
                 this._tc.ChkFreeFuncOrigins(env.Symbols, id.Name, call.Span);   // report-crosspkg-duplicate-function：E0601/E0606/E0456
                 MethodSymbol ms = env.Symbols.GetFunc(id.Name);
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
-                BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span);
+                BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span, false);
                 BoundCall bc = new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
                 this._applyMethodTypeArgs(bc, call, ms, env);
                 return bc;
@@ -689,11 +690,9 @@ public sealed partial class MemberResolver {
                     Z42ClassType sct = env.Symbols.GetClass(cls);
                     MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span);
                     if (sms != null && sms.IsStatic) {
-                        // add-params-varargs：本路径（同类无限定静态调用）不经 _withDefaults，
-                        // 但仍须为选中的 params 重载打包 trailing 实参，否则 codegen 收到未打包实参形状。
-                        args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, sms.Signature, env);
-                        BoundExpr[] fa = args;
-                        if (sms.Signature.ParamsFrom >= 0) { fa = this._tc._overload._withParamsExpansion(sms, args, call.ArgCount, call.Span, env.Symbols); }
+                        // add-call-arity-diagnostics：此前本路径不经 _withDefaults（只绑定 + params 打包）⇒ 默认值不补、
+                        // 实参个数不校验。汇入同一汇聚点（绑定 / 装箱 / params / 默认值 / 个数判定）。
+                        BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
                         BoundCall bc = new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
                         this._applyMethodTypeArgs(bc, call, sms, env);
                         return bc;
@@ -741,8 +740,8 @@ public sealed partial class MemberResolver {
                 && env.LookupVar(nsId.Name) == null && env.Symbols.HasFunc(mem.Name)) {
                 this._tc.ChkFreeFuncOrigins(env.Symbols, mem.Name, sp);   // report-crosspkg-duplicate-function：同裸名漏斗
                 MethodSymbol nfs = env.Symbols.GetFunc(mem.Name);
-                args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, nfs.Signature, env);
-                return new BoundCall("free", false, null, "", mem.Name, args, argCount, nfs.Signature.Ret, sp);
+                BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
+                return new BoundCall("free", false, null, "", mem.Name, nfa, nfa.Length, nfs.Signature.Ret, sp);
             }
         }
         // 静态：target 是裸类名（非局部变量）→ Class.m(args)
@@ -765,7 +764,7 @@ public sealed partial class MemberResolver {
                     ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                     this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
-                    BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp);
+                    BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, true);
                     BoundCall bc = new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
                     this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
                     return bc;
@@ -793,7 +792,7 @@ public sealed partial class MemberResolver {
                         // _withDefaults，靠精确 arity 重载兜底；params-for-Join 移除了 `Join(string,string,string,string)`
                         // 精确重载后，`string.Join("-","x","y","z")` 的 expanded form 需在此打包成 string[]，
                         // 否则以 4 裸实参调 `Join$2$string$string[]`（2 形参）→ arity 不符。
-                        BoundExpr[] fa2 = this._tc._overload._withDefaults(wms2, args, rawArgs, argCount, env, sp);
+                        BoundExpr[] fa2 = this._tc._overload._withDefaults(wms2, args, rawArgs, argCount, env, sp, true);
                         return new BoundCall("static", false, null, pwrap2, wms2.RegKey, fa2, fa2.Length, wms2.Signature.Ret, sp);
                     }
                     this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -830,7 +829,7 @@ public sealed partial class MemberResolver {
                         qms = MethodTypeArgSubst.ForExplicitTypeArgs(qms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                         this._tc._access.CheckAccess(qms.Visibility, qms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                         this._tc._access.CheckDeprecatedM(qms, mem.Name, sp);
-                        BoundExpr[] qfa = this._tc._overload._withDefaults(qms, args, rawArgs, argCount, env, sp);
+                        BoundExpr[] qfa = this._tc._overload._withDefaults(qms, args, rawArgs, argCount, env, sp, true);
                         BoundCall qbc = new BoundCall("static", false, null, qct.Name(), qms.RegKey, qfa, qfa.Length, qms.Signature.Ret, sp);
                         this._applyMethodTypeArgs(qbc, call, qms, env);
                         return qbc;

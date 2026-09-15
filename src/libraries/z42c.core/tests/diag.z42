@@ -76,4 +76,5 @@ void test_diagnostic_codes_values() {
     Assert.Equal("E0201", DiagnosticCodes.UnexpectedToken);
     Assert.Equal("E0602", DiagnosticCodes.UnresolvedUsing);
     Assert.Equal("E1005", DiagnosticCodes.MissingRequiredArgument);
+    Assert.Equal("E1006", DiagnosticCodes.TooManyArguments);
 }

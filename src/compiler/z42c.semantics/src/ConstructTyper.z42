@@ -297,6 +297,9 @@ public sealed class ConstructTyper {
         if (cms != null && (!cms.HasDecl || cms.Decl == null) && cms.Signature != null
             && cms.Signature.ParamsFrom < 0 && n.ArgCount < cms.Signature.ParamCount) {
             int fpc = cms.Signature.ParamCount;
+            // add-call-arity-diagnostics：缺位无默认值 → E1005（E0426 只校验本地有 Decl 的 ctor，imported 的此前补零值）。
+            int fmiss = this._tc._overload._crossPkgMissingRequired(cms.Signature, n.ArgCount);
+            if (fmiss >= 0) { OverloadBinder.ReportArity(this._tc._diags, "constructor `" + t.Name() + "`", false, n.ArgCount, fpc, "#" + (fmiss + 1).ToString(), n.Span); }
             BoundExpr[] filled = new BoundExpr[fpc];
             int fi = 0;
             while (fi < n.ArgCount) { filled[fi] = args[fi]; fi = fi + 1; }

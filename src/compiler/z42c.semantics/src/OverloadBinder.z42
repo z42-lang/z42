@@ -195,7 +195,18 @@ public sealed class OverloadBinder {
         return MethodTypeArgSubst.SubstituteFuncParams(ms, ms.Decl.TypeParams.Names, ms.Decl.TypeParams.Count, part);
     }
 
-    internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp) {
+    // add-call-arity-diagnostics：`staticForm` = 调用点是**静态形式**（`Class.m(...)` / `int.m(...)` / `A.B.Class.m(...)`）。
+    // 静态形式选中**实例**方法 = 「接收者作首参」写法（`Int32.ToString(n)`），实参数必须恰为形参数 + 1。
+    internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp, bool staticForm) {
+        // add-call-arity-diagnostics：实参个数校验。此前这里对「个数不符」**全程不报**——少传且缺位无默认值时
+        // 原样返回不足的实参（同包）或补零值（跨包，连运行期签名判定都拦不住），多传则直接发码。
+        // `arityReported` 保证一次调用最多一条（下面三处判定互斥地各报各的形态）。
+        bool recvFirst = staticForm && !ms.IsStatic && ms.Signature != null && ms.Signature.ParamsFrom < 0;
+        bool arityReported = false;
+        if (recvFirst && rawArgCount != ms.Signature.ParamCount + 1) {
+            this._reportArity(ms, true, rawArgCount, ms.Signature.ParamCount + 1, "", sp);
+            arityReported = true;
+        }
         // complete-named-arguments：**命名实参必须在任何绑定步骤之前处理**。
         //
         // 🔴 为什么是「之前」：下面第一步 `BindArgsToSignature` 会把 `_bindCall` 延迟下来的
@@ -232,10 +243,21 @@ public sealed class OverloadBinder {
         if (ms.HasDecl && ms.Decl != null && rawArgCount < ms.Decl.ParamCount) {
             BoundExpr[] ad = this._adaptArgs(ms.Decl, rawArgs, rawArgCount, env, sp);
             if (ad != null) { return ad; }
+            // 补不齐：缺位里有无默认值的形参 → E1005。算不出缺谁（命名实参名字对不上 / 重复）→ 交既有诊断。
+            string miss = recvFirst ? "" : this._firstMissingRequired(ms.Decl, rawArgs, rawArgCount, env);
+            if (!arityReported && miss != "") {
+                this._reportArity(ms, false, rawArgCount, ms.Decl.ParamCount, "`" + miss + "`", sp);
+                arityReported = true;
+            }
         }
         if ((!ms.HasDecl || ms.Decl == null) && ms.Signature != null
             && rawArgCount < ms.Signature.ParamCount) {
             int pc = ms.Signature.ParamCount;
+            int missAt = this._crossPkgMissingRequired(ms.Signature, rawArgCount);
+            if (!arityReported && !recvFirst && missAt >= 0) {
+                this._reportArity(ms, false, rawArgCount, pc, "#" + (missAt + 1).ToString(), sp);
+                arityReported = true;
+            }
             BoundExpr[] filled = new BoundExpr[pc];
             int i = 0;
             while (i < rawArgCount) { filled[i] = args[i]; i = i + 1; }
@@ -245,12 +267,85 @@ public sealed class OverloadBinder {
             }
             return filled;
         }
+        if (!arityReported && !recvFirst && ms.Signature != null && ms.Signature.ParamsFrom < 0
+            && args.Length > ms.Signature.ParamCount) {
+            this._reportArity(ms, false, args.Length, ms.Signature.ParamCount, "", sp);
+        }
         return args;
+    }
+
+    // add-call-arity-diagnostics：普通调用实参个数不符的**唯一**发码点（消息形状对齐构造器 E0426）。
+    // `missing` 非空 = 少传且缺位无默认值（形参名 `name` = 同包 / `#k` = 跨包序号——导入签名不带形参名）。
+    internal void _reportArity(MethodSymbol ms, bool recvFirst, int got, int expected, string missing, Span sp) {
+        string who = ms.ContainingTypeName != null && ms.ContainingTypeName != "" ? ms.ContainingTypeName + "." + ms.Name : ms.Name;
+        OverloadBinder.ReportArity(this._tc._diags, "`" + who + "`", recvFirst, got, expected, missing, sp);
+    }
+
+    internal static void ReportArity(DiagnosticBag diags, string who, bool recvFirst, int got, int expected, string missing, Span sp) {
+        string tail = "; got " + got.ToString() + " argument(s)";
+        if (recvFirst) {
+            diags.Error(got > expected ? "E1006" : "E1005", "instance method " + who + " called in static form takes the receiver as its first argument: expects "
+                + expected.ToString() + " argument(s)" + tail, sp);
+        } else if (missing != "") {
+            diags.Error("E1005", who + " is missing required argument " + missing + " (no default value)" + tail, sp);
+        } else if (got > expected) {
+            diags.Error("E1006", "too many arguments to " + who + ": expects " + expected.ToString() + tail, sp);
+        } else {
+            diags.Error("E1005", "too few arguments to " + who + ": expects " + expected.ToString() + tail, sp);
+        }
+    }
+
+    // 同包：按「前 N 个位置实参 + 命名实参按名」标记已给的形参，返回第一个**既没给、也无默认值**的形参名；
+    // 命名实参对不上任何形参时返回 ""（那是另一种错误，交既有诊断，不冒充「缺实参」）。
+    private string _firstMissingRequired(MethodDecl md, Expr[] rawArgs, int rawArgCount, TypeEnv env) {
+        int pc = md.ParamCount;
+        bool[] given = new bool[pc];
+        int pos = 0;
+        int i = 0;
+        while (i < rawArgCount) {
+            if (rawArgs != null && i < rawArgs.Length && ExprTyper.IsNamedArg(rawArgs[i], env)) {
+                string nm = ((rawArgs[i] as AssignExpr).Target as IdentExpr).Name;
+                int idx = 0 - 1;
+                int p = 0;
+                while (p < pc) { if (md.Params[p].Name == nm) { idx = p; } p = p + 1; }
+                if (idx < 0) { return ""; }
+                given[idx] = true;
+            } else if (pos < pc) {
+                given[pos] = true;
+                pos = pos + 1;
+            }
+            i = i + 1;
+        }
+        int k = 0;
+        while (k < pc) {
+            if (!given[k] && md.Params[k].Default == null) { return md.Params[k].Name; }
+            k = k + 1;
+        }
+        return "";
+    }
+
+    // 跨包：从第 `from` 位起第一个既无 caller 宏、也无 `$Default` 的形参序号；全有 → -1。
+    // 判据与 `_crossPkgDefault` 取默认值的两个来源逐字对应（它在这种位上只能补零值）。
+    internal int _crossPkgMissingRequired(Z42FuncType sig, int from) {
+        int i = from;
+        while (i < sig.ParamCount) {
+            bool caller = sig.ParamCallers != null && i < sig.ParamCallers.Length && sig.ParamCallers[i] != null && sig.ParamCallers[i] != "";
+            bool dflt = sig.ParamDefaults != null && i < sig.ParamDefaults.Length && sig.ParamDefaults[i] != null && sig.ParamDefaults[i] != "";
+            if (!caller && !dflt) { return i; }
+            i = i + 1;
+        }
+        return 0 - 1;
+    }
+
+    // 局部函数：签名不携带默认值（`StmtBinder` 注册时只有形参类型），故按精确个数校验。
+    internal void _checkLocalFnArity(string name, Z42FuncType sig, int got, Span sp) {
+        if (sig == null || sig.ParamsFrom >= 0 || got == sig.ParamCount) { return; }
+        OverloadBinder.ReportArity(this._tc._diags, "local function `" + name + "`", false, got, sig.ParamCount, "", sp);
     }
 
     // PR6：跨包省略实参的默认值物化——从导入签名的 `$Default` ConstBlob 解码 → AST → 重绑（复用
     // BindWithTarget 的类型强转 / array / new），替代旧的 `BoundDefault(T,-1)` **零值**（修跨包塌零 bug）。
-    // 无 ConstBlob（真无默认值）→ 回落零值（保守，绝不崩）。
+    // 无 ConstBlob（真无默认值）→ 回落零值占位（不崩）；该形态已由调用方经 `_crossPkgMissingRequired` 报 E1005（add-call-arity-diagnostics）。
     internal BoundExpr _crossPkgDefault(Z42FuncType sig, int i, TypeEnv env, Span sp) {
         // PR6b：caller 宏跨包注入（ParamCallers[i] = "member"/"line"/"file"/"module"，由
         // ImportedSymbolLoader 从 `$Caller:*` 哨兵填）→ 注入调用点上下文字面量（先于 $Default 判定）。
