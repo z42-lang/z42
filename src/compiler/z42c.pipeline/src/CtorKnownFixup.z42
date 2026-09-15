@@ -18,10 +18,10 @@
 //
 // 发射端（`CallEmitter._emitNew`）那一刻答案还不存在：
 //
-//   * z42c 为「有字段初始化器、无显式 ctor」的类**合成**隐式构造器
-//     （`IrGenTypeEmitter._emitSynthCtor`），它既不是 `MethodSymbol`、也不在 `_bindNew` 时存在
-//     （`DeclBinder._synthCtors` 跑在 `TypeChecker.Infer` 的全部绑定之后）；
 //   * 本 CU 的 `IrModule` 看不到**同包其它文件**的函数，而 `Deps` 按设计不含本包。
+//   * （历史）此前 z42c 为「有字段初始化器、无显式 ctor」的类合成的隐式构造器只在 IR 期发射、不是
+//     `MethodSymbol`；add-implicit-base-ctor-call 起合成构造器在收集期注册为符号（`CtorInheritance`），
+//     这一条已不成立，上一条仍然成立。
 //
 // 装配点两者都齐了：全部文件的 IR 都已发射完毕，合成构造器就是其中一个普通的已发射函数。
 //

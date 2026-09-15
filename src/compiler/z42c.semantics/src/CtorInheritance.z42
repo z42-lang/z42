@@ -1,0 +1,260 @@
+// 构造器继承 + 默认构造器（add-implicit-base-ctor-call）。收集期把它们合成为**普通的构造器声明**，
+// 追加到类的成员里并注册符号——之后的一切（重载决议、E0426、`new()` 约束、字段初始化器注入、隐式 `base()`、
+// IR 发射、TSIG 导出）都走显式构造器的同一条路径，跨包派生类也就能看见并调用它们。
+//
+// ── 规则（对标 Swift 的构造器继承；z42 字段恒有默认值，前置条件天然成立）──────────────
+//   · 类**没写任何实例构造器** ⇒ 继承基类全部非 private 的实例构造器：形参与基类那个相同（泛型基类按
+//     类型实参代换；默认值 / params / caller 宏随签名），体 = 本类初始化器 → `base(形参原样)`。
+//   · 基类没有可继承的构造器 ⇒ 本类有实例初始化器、或基类有（但全是 private 的）构造器时，合成 `public C() { }`
+//     （初始化器由绑定期注入；后一种情形由隐式 `base()` 报 E0404 / E0469，而不是让基类构造器静默不跑）。
+//   · 写了任何实例构造器 ⇒ 什么都不合成（此时由 DeclBinder 的隐式 `base()` 规则接管）。
+// struct 没有继承，只可能得到默认构造器。
+//
+// ── 为什么在收集期、为什么要合成声明 ──────────────────────────────────────────────
+// 此前「无显式 ctor + 有初始化器」的类在**绑定后**合成体、IR 期发射，**不是符号、不进 TSIG**，且祖先链
+// 只收集**当前编译单元**里的类 ⇒ 同包跨文件 / 跨包的基类初始化器静默丢失，派生类也无从调用基类的合成 ctor。
+//
+// ── 顺序 ─────────────────────────────────────────────────────────────────────────
+// 基类先于派生类（本包基类可能在别的 CU）：`_process` 先递归处理本包基类。导入基类的构造器来自 TSIG，
+// 已经包含它自己继承 / 合成的那些。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+// 合成声明用的「已解析类型」：继承构造器的形参类型取自基类构造器的**已解析签名**（泛型实参已代换）。
+// 不回写成源码拼写——导入基类只有签名，TSIG 的类型拼写对限定名是有损的。`SymbolTable.ResolveTypeP` 直接返回它。
+public sealed class ResolvedTypeExpr : TypeExpr {
+    public Z42Type Resolved;
+    public ResolvedTypeExpr(Z42Type t, Span sp) { this.Span = sp; this.Resolved = t; }
+    public override string Dump() { return TypeNameResolver.SurfaceTypeName(this.Resolved); }
+}
+
+public sealed class CtorInheritance {
+    private SymbolCollector _sc;
+    private SymbolTable _table;
+    private StrMap _declByKey;   // 类注册键 → 首个 ClassDecl（partial 取首碎片承载合成成员）
+    private StrMap _hasInit;     // 类注册键 → "1"：任一碎片有实例初始化器
+    private StrMap _done;        // 类注册键 → "1"：已处理（含处理中，防继承环重入）
+
+    public CtorInheritance(SymbolCollector sc, SymbolTable table) {
+        this._sc = sc; this._table = table;
+        this._declByKey = new StrMap(); this._hasInit = new StrMap(); this._done = new StrMap();
+    }
+
+    public void Run(CompilationUnit[] cus, int count) {
+        int i = 0;
+        while (i < count) {
+            CompilationUnit cu = cus[i];
+            int di = 0;
+            while (di < cu.DeclCount) {
+                Decl d = this._sc._unwrap(cu.Decls[di]);
+                if (d is ClassDecl) {
+                    ClassDecl c = d as ClassDecl;
+                    if (c.Kind == "class" || c.Kind == "struct") {
+                        string key = this._key(c);
+                        if (!this._declByKey.ContainsKey(key)) { this._declByKey.Put(key, c); }
+                        if (CtorInheritance._hasInstanceInitializer(this._sc, c)) { this._hasInit.Put(key, "1"); }
+                    }
+                }
+                di = di + 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while (i < count) {
+            CompilationUnit cu = cus[i];
+            int dj = 0;
+            while (dj < cu.DeclCount) {
+                Decl d = this._sc._unwrap(cu.Decls[dj]);
+                if (d is ClassDecl) {
+                    ClassDecl c = d as ClassDecl;
+                    if (c.Kind == "class" || c.Kind == "struct") { this._process(c); }
+                }
+                dj = dj + 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    private string _key(ClassDecl c) {
+        string key = c.Name;
+        if (c.TypeParams.Count > 0) {
+            string mk = c.Name + "$" + c.TypeParams.Count.ToString();
+            if (this._table.Classes.ContainsKey(mk)) { key = mk; }
+        }
+        return key;
+    }
+
+    private void _process(ClassDecl c0) {
+        string key = this._key(c0);
+        if (this._done.ContainsKey(key)) { return; }
+        this._done.Put(key, "1");
+        ClassDecl c = this._declByKey.Get(key) as ClassDecl;
+        if (c == null) { c = c0; }
+        if (this._sc._hasWord(c.Mods, "static")) { return; }
+        Z42ClassType ct = this._table.Classes.Get(key) as Z42ClassType;
+        if (ct == null || ct.IsImported) { return; }
+        if (ct.InstanceCtors().Length > 0) { return; }   // 写了构造器：不继承、不合成
+
+        Z42ClassType bt = null;
+        if (c.Kind == "class" && ct.HasBase && ct.BaseName != "" && ct.BaseName != "Object") {
+            if (this._declByKey.ContainsKey(ct.BaseName)) {
+                this._process(this._declByKey.Get(ct.BaseName) as ClassDecl);
+            }
+            bt = this._table.Classes.Get(ct.BaseName) as Z42ClassType;
+        }
+        MethodSymbol[] inh = CtorInheritance._inheritable(bt);
+        if (inh.Length > 0) {
+            Z42Type[] targs = this._baseTypeArgs(c, bt);
+            int k = 0;
+            while (k < inh.Length) {
+                this._add(c, ct, this._inheritedCtor(c, bt, inh[k], targs), k == 0);
+                k = k + 1;
+            }
+        } else if (this._hasInit.ContainsKey(key) || (bt != null && bt.InstanceCtors().Length > 0)) {
+            // 第二个条件：基类**有**实例构造器、但一个都继承不到（全是 private）。不合成的话本类会被默认构造、
+            // 基类构造器静默不执行；合成默认构造器后它走隐式 `base()`，在绑定期响亮报错（E0404 / E0469）。
+            this._add(c, ct, this._defaultCtor(c), true);
+        }
+    }
+
+    // 基类可继承的实例构造器：非 private，确定性顺序——基类的 primary（裸键）在前，其余按注册键排序。
+    // 顺序决定派生类里谁拿裸键（primary），必须与哈希槽位无关。
+    private static MethodSymbol[] _inheritable(Z42ClassType bt) {
+        if (bt == null) { return new MethodSymbol[0]; }
+        MethodSymbol[] all = bt.InstanceCtors();
+        MethodSymbol[] r = new MethodSymbol[all.Length];
+        int n = 0;
+        int i = 0;
+        while (i < all.Length) {
+            if (all[i].Visibility != "private") { r[n] = all[i]; n = n + 1; }
+            i = i + 1;
+        }
+        int a = 1;
+        while (a < n) {
+            MethodSymbol cur = r[a];
+            int b = a - 1;
+            while (b >= 0 && CtorInheritance._before(cur, r[b])) { r[b + 1] = r[b]; b = b - 1; }
+            r[b + 1] = cur;
+            a = a + 1;
+        }
+        MethodSymbol[] res = new MethodSymbol[n];
+        int j = 0;
+        while (j < n) { res[j] = r[j]; j = j + 1; }
+        return res;
+    }
+
+    private static bool _before(MethodSymbol x, MethodSymbol y) {
+        bool xp = x.RegKey == x.Name;
+        bool yp = y.RegKey == y.Name;
+        if (xp != yp) { return xp; }
+        return x.RegKey.CompareTo(y.RegKey) < 0;
+    }
+
+    // 派生类声明里写的基类类型实参（`class IntBox : Box<int>` → [int]）；非泛型基类 / 解析不到 → null（不代换）。
+    private Z42Type[] _baseTypeArgs(ClassDecl c, Z42ClassType bt) {
+        if (bt == null || bt.GenericParamCount == 0) { return null; }
+        int i = 0;
+        while (i < c.BaseCount) {
+            Z42Type t = this._table.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
+            if (t is Z42InstantiatedType) {
+                Z42InstantiatedType it = t as Z42InstantiatedType;
+                if (it.Def == bt || it.Def.Name() == bt.Name()) { return it.TypeArgs; }
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    private MethodDecl _inheritedCtor(ClassDecl c, Z42ClassType bt, MethodSymbol m, Z42Type[] targs) {
+        Span sp = c.Span;
+        Z42FuncType sig = m.Signature;
+        int pc = sig.ParamCount;
+        Param[] ps = new Param[pc];
+        Expr[] fwd = new Expr[pc];
+        int i = 0;
+        while (i < pc) {
+            Param src = (m.HasDecl && m.Decl != null && i < m.Decl.ParamCount) ? m.Decl.Params[i] : null;
+            string name = src != null ? src.Name : "p" + i.ToString();
+            Z42Type t = sig.ParamTypes[i];
+            if (targs != null) { t = MethodTypeArgSubst.ByName(t, bt.GenericParamNames, bt.GenericParamCount, targs); }
+            Param p = new Param(new ResolvedTypeExpr(t, sp), name, sp);
+            if (src != null) {
+                p.IsRef = src.IsRef; p.IsParams = src.IsParams; p.Default = src.Default;
+            } else {
+                p.IsParams = sig.ParamsFrom >= 0 && i == sig.ParamsFrom;
+                p.Default = CtorInheritance._importedDefault(sig, i, sp);
+            }
+            ps[i] = p;
+            fwd[i] = new IdentExpr(name, sp);
+            i = i + 1;
+        }
+        string mods = m.Visibility;
+        if (mods == "") { mods = "public"; }
+        MethodDecl md = new MethodDecl(mods, false, true, new NamedType("", new TypeExpr[0], 0, sp), c.Name,
+                                       new TypeParamList(new string[0], 0, sp), new WhereClause[0], 0,
+                                       ps, pc, true, new BlockStmt(new Stmt[0], 0, sp), fwd, pc, false, sp);
+        md.HasCtorInit = true;
+        md.IsSynthesized = true;
+        return md;
+    }
+
+    private MethodDecl _defaultCtor(ClassDecl c) {
+        Span sp = c.Span;
+        MethodDecl md = new MethodDecl("public", false, true, new NamedType("", new TypeExpr[0], 0, sp), c.Name,
+                                       new TypeParamList(new string[0], 0, sp), new WhereClause[0], 0,
+                                       new Param[0], 0, true, new BlockStmt(new Stmt[0], 0, sp), new Expr[0], 0, false, sp);
+        md.IsSynthesized = true;
+        return md;
+    }
+
+    // 导入构造器的默认值：caller 宏 → 无参宏哨兵 `$macro:<name>`（与 parser 同形）；否则解码 `$Default` ConstBlob。
+    private static Expr _importedDefault(Z42FuncType sig, int i, Span sp) {
+        if (sig.ParamCallers != null && i < sig.ParamCallers.Length && sig.ParamCallers[i] != null && sig.ParamCallers[i] != "") {
+            string kind = sig.ParamCallers[i];
+            string macro = "caller_member";
+            if (kind == "line") { macro = "caller_line"; }
+            else if (kind == "file") { macro = "caller_file"; }
+            else if (kind == "module") { macro = "module_path"; }
+            return new IdentExpr("$macro:" + macro, sp);
+        }
+        if (sig.ParamDefaults != null && i < sig.ParamDefaults.Length && sig.ParamDefaults[i] != null && sig.ParamDefaults[i] != "") {
+            return new ConstBlobReader(sig.ParamDefaults[i], sp).Read();
+        }
+        return null;
+    }
+
+    // 注册（与 MemberCollector 的实例方法同一规则：本类首个同名 = primary 裸键，其余全签名 mangle）+ 追加成员。
+    private void _add(ClassDecl c, Z42ClassType ct, MethodDecl md, bool primary) {
+        MethodSymbol msym = this._sc._methodSymbol(this._table, md, c.Name, c.TypeParams.Names, c.TypeParams.Count);
+        string regName = md.Name;
+        if (!primary) { regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount); }
+        SymbolCollector.RegisterMethod(ct, md, msym, regName);
+        if (c.MemberCount == c.Members.Length) {
+            Decl[] grown = new Decl[c.Members.Length * 2 + 1];
+            int g = 0;
+            while (g < c.MemberCount) { grown[g] = c.Members[g]; g = g + 1; }
+            c.Members = grown;
+        }
+        c.Members[c.MemberCount] = md;
+        c.MemberCount = c.MemberCount + 1;
+    }
+
+    internal static bool _hasInstanceInitializer(SymbolCollector sc, ClassDecl c) {
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl mem = sc._unwrap(c.Members[j]);
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                if (fd.HasInit && !sc._hasWord(fd.Mods, "static") && !sc._hasWord(fd.Mods, "const")) { return true; }
+            } else if (mem is PropertyDecl) {
+                PropertyDecl pd = mem as PropertyDecl;
+                if (pd.HasInit && !sc._hasWord(pd.Mods, "static")) { return true; }
+            }
+            j = j + 1;
+        }
+        return false;
+    }
+}

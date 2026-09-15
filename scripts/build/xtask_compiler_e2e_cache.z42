@@ -74,3 +74,46 @@ int _e2eCacheLayoutChecks(string vm, string driverZpkg, string e2eDir, string fl
     Console.WriteLine("  ✓ --no-incremental / 多 [[exe]] / workspace 成员均落 cache，默认 ${output_dir}/.cache");
     return 0;
 }
+
+// 依赖身份进缓存键（add-dep-identity-to-cache-key）。path 依赖 foo 改 API、消费方 bar 源码不动：
+// 此前 bar probe 全命中 → preserved 旧产物 → 运行期 undefined function（本应编译期报错）。
+// 另验：foo 只改注释（#654 起 BLID 不变）→ bar 仍全命中，依赖身份不会让下游白重编。
+int _e2eDepIdentityChecks(string vm, string driverZpkg, string e2eDir, string flat) {
+    Console.WriteLine("");
+    Console.WriteLine("── 依赖身份进缓存键（add-dep-identity-to-cache-key）──");
+    string root = Path.Join(e2eDir, "depidentity");
+    string foo = Path.Join(root, "foo");
+    string bar = Path.Join(root, "bar");
+    Directory.Create(foo);
+    Directory.Create(bar);
+    string fooSrc = "namespace DepId.Foo;\n\npublic static class Foo {\n    public static int Answer() { return 42; }\n}\n";
+    File.WriteAllText(Path.Join(foo, "foo.z42"), fooSrc);
+    File.WriteAllText(Path.Join(foo, "depid.foo.z42.toml"),
+        "[project]\nname    = \"depid.foo\"\nversion = \"0.1.0\"\nkind    = \"lib\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    File.WriteAllText(Path.Join(bar, "bar.z42"), "using DepId.Foo;\n\nint Main() { return Foo.Answer() - 42; }\n");
+    File.WriteAllText(Path.Join(bar, "depid.bar.z42.toml"),
+        "[project]\nname    = \"depid.bar\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+        + "[dependencies]\n\"depid.foo\" = { path = \"../foo\" }\n");
+    string[] a = new string[3];
+    a[0] = "build"; a[1] = "depid.bar.z42.toml"; a[2] = "--release";
+    if (_e2eCacheBuild(vm, driverZpkg, bar, a, flat) != 0) { Console.WriteLine("  ✗ 夹具首次构建失败"); return 1; }
+    // ① foo 只改注释 → 输出不变 → bar 必须仍能成功（且不因依赖身份误判）
+    File.WriteAllText(Path.Join(foo, "foo.z42"), "// 只改注释\n" + fooSrc);
+    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(bar)
+        .Env("Z42_LIBS", flat).Run();
+    if (r1.ExitCode != 0 || !r1.Stdout.Contains("no changes")) {
+        Console.WriteLine("  ✗ 依赖只改注释，消费方却没有命中缓存（exit " + r1.ExitCode.ToString() + "）");
+        return 1;
+    }
+    // ② foo 改名（破坏性 API 变更）→ bar 必须重编 → 编译期报 E0401（非零退出），而不是 preserved 旧产物。
+    //   不用「加参数」做夹具：z42c 目前不诊断实参个数不足（另案），加参数不会编译报错。
+    File.WriteAllText(Path.Join(foo, "foo.z42"), fooSrc.Replace("Answer()", "Renamed()"));
+    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Args(a).WorkingDirectory(bar)
+        .Env("Z42_LIBS", flat).Run();
+    if (r2.ExitCode == 0) {
+        Console.WriteLine("  ✗ 依赖删掉了被调用的方法，消费方仍构建成功（命中了旧缓存）：" + r2.Stdout);
+        return 1;
+    }
+    Console.WriteLine("  ✓ 依赖只改注释 → 消费方命中缓存；依赖删掉被调方法 → 消费方重编并报错");
+    return 0;
+}

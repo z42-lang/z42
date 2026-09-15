@@ -262,6 +262,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 优先级：CLI `--no-incremental` 是显式一次性覆盖，**永远压过 manifest**；manifest 里的
     // false 则是该工程的常设选择。两者任一为「关」即关。
     bool incrOff = noIncremental || !pm.Build.Incremental;
+    // 依赖身份（add-dep-identity-to-cache-key）：编译要扫的依赖 zpkg 的 BLID/内容哈希。probe 比对、cache 写入共用
+    // 同一个值——libsDirs 此处已是最终形态（含 path 依赖闭包的 dist）；DepScanCache memo 使编译期扫描零重读。
+    string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name);
     if (outputDirOverride.Length == 0 && !incrOff) {
         string probeCache = _resolveCacheDir(pm, projectDir, isRelease);
         string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -276,7 +279,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // parse 分支、cachedMods 全 null → **缓存整份作废、全部重编**（实测 xtask 3.7s vs 应有 2.25s；
         // 多 exe 工程更是永远全量）。
         bool canPreserve = pm.ExeCount == 0 && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
-        prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache, canPreserve);
+        prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve);
         ConsoleError.WriteLine("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && prep.Plan.AllCached) {
             if (isExe) {
@@ -510,7 +513,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         int mbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
-        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces);
+        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
         return ExitCode.Ok;
     }
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -538,7 +541,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         if (rc1 != 0) { return rc1; }
     }
     // cache 落盘（cache-dir-layout：不论是否增量都落盘，helper 见 BuildCache.z42）。
-    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces);
+    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
         int bc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);

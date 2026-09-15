@@ -17,7 +17,7 @@ using Z42.Pipeline;
 // cache 是性能优化：写失败（如 Windows 路径怪癖）绝不能让构建失败，降级为下次全量即可。
 void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, string cacheDirOverride,
                       string[] srcs, string[] texts, string[] srcHashes, CompiledModuleZ[] cms, ZbcFileZ[] mods,
-                      IncrPrep prep, NameListZ[] metaIdents, NameSurfacesZ[] metaSurfaces) {
+                      IncrPrep prep, NameListZ[] metaIdents, NameSurfacesZ[] metaSurfaces, string depsId) {
     try {
         string cacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : _resolveCacheDir(pm, projectDir, isRelease);
         int i = 0;
@@ -29,7 +29,7 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
         }
         // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
         IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
-                                     cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces);
+                                     cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces, depsId);
         ConsoleError.WriteLine("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
     } catch (Exception e) {
         ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);

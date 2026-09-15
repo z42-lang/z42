@@ -1,0 +1,67 @@
+// add-implicit-base-ctor-call：实例构造器一定调用基类构造器（对齐 C#）。
+// 修前 z42 不自动调用基类构造器，且「无显式 ctor 的类」只内联**同一编译单元**里祖先的字段初始化器
+// ⇒ 下面各段在修前全部读出 0 / 空串，零诊断。
+//
+// 顺序：本类初始化器 → 基类构造器 → 本构造器体；`: this(..)` 委托的构造器不隐式调用基类。
+namespace Demo;
+
+class Log {
+    public static string T = "";
+    public static int Mark(int v) { Log.T = Log.T + v.ToString(); return v; }
+}
+
+// 显式 ctor 没写子句 ⇒ 隐式 base()
+class W { public int w; public W() { this.w = 5; } }
+class D5 : W { public D5() { } }
+
+// 派生类没写 ctor ⇒ 继承基类无参 ctor
+class D3 : W { }
+
+// 基类只有字段初始化器（合成默认 ctor），派生类写了显式 ctor
+class B0 { public int b = 7; }
+class D0 : B0 { public int d; public D0(int x) { this.d = x; } }
+
+// 顺序
+class P0 { public P0() { Log.Mark(2); } }
+class Q0 : P0 { public int f = Log.Mark(1); public Q0() { Log.Mark(3); } }
+
+// 三层
+class A1 { public A1() { Log.Mark(4); } }
+class B1 : A1 { public B1() { Log.Mark(5); } }
+class C1 : B1 { public C1() { Log.Mark(6); } }
+
+// `: this()` 委托：基类 ctor 只执行一次
+class R0 { public R0() { Log.Mark(9); } }
+class R1 : R0 { public R1() { } public R1(int x) : this() { } }
+
+// 基类带默认值的 ctor 也算可零实参调用
+class Dflt { public int k; public Dflt(int k = 8) { this.k = k; } }
+class UsesDflt : Dflt { public UsesDflt() { } }
+
+// 基类无 ctor、无初始化器：不产生调用
+class N0 { public int n; }
+class N1 : N0 { public N1() { this.n = this.n + 1; } }
+
+void Main() {
+    Assert.Equal(5, new D5().w);
+    Assert.Equal(5, new D3().w);
+
+    var d0 = new D0(3);
+    Assert.Equal(7, d0.b);
+    Assert.Equal(3, d0.d);
+
+    Log.T = "";
+    new Q0();
+    Assert.Equal("123", Log.T);
+
+    Log.T = "";
+    new C1();
+    Assert.Equal("456", Log.T);
+
+    Log.T = "";
+    new R1(1);
+    Assert.Equal("9", Log.T);
+
+    Assert.Equal(8, new UsesDflt().k);
+    Assert.Equal(1, new N1().n);
+}
