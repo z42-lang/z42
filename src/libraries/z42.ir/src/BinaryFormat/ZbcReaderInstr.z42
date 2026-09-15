@@ -454,5 +454,17 @@ public static class ZbcReaderInstr {
         if (ins is ArrayGetInstr) { ArrayGetInstr i = ins as ArrayGetInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Arr); ZbcReaderInstr._set(rt, n, i.Idx); return; }
         if (ins is ArraySetInstr) { ArraySetInstr i = ins as ArraySetInstr; ZbcReaderInstr._set(rt, n, i.Arr); ZbcReaderInstr._set(rt, n, i.Idx); ZbcReaderInstr._up(rt, n, i.Val); return; }
         if (ins is LoadLocalAddrInstr) { LoadLocalAddrInstr i = ins as LoadLocalAddrInstr; ZbcReaderInstr._up(rt, n, i.Dst); ZbcReaderInstr._set(rt, n, i.Slot); return; }
+        // 兜底（workspace-read-cache）：上面没列到的指令走统一操作数接口（与 writer _regtInstr 同源）。此前 Struct* 四条
+        // 指令漏列 ⇒ 读回后操作数恒 Unknown ⇒ 重建的 REGT 与原产物不同（z42.core 增量 KeyValuePair/DictionaryEnumerator
+        // 实测 Ref→Unknown）。规则与上面各条一致：解码时带 tag 的寄存器（非 Unknown）只做 tag 兼容升级，无 tag 的直接取 REGT。
+        ZbcReaderInstr._fit(rt, n, ins.DefReg());
+        int rc = ins.ReadCount();
+        int ri = 0;
+        while (ri < rc) { ZbcReaderInstr._fit(rt, n, ins.ReadAt(ri)); ri = ri + 1; }
+    }
+
+    private static void _fit(int[] rt, int n, TypedReg r) {
+        if (r == null) { return; }
+        if (r.Type == IrType.Unknown) { ZbcReaderInstr._set(rt, n, r); } else { ZbcReaderInstr._up(rt, n, r); }
     }
 }

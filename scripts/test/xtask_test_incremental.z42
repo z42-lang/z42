@@ -40,12 +40,16 @@ int _testIncremental(ParseResult r) {
 
     int rc = _reconcileProject(vm, driver, libs, _incrDemoDir(scratch), "demo");
     if (rc != 0) { return rc; }
+    rc = _reconcileProject(vm, driver, libs, _incrDemoPackedDir(scratch), "demo-packed");
+    if (rc != 0) { return rc; }
     rc = _reconcileProject(vm, driver, libs, _incrXtaskCopy(root, scratch), "xtask");
     if (rc != 0) { return rc; }
     rc = _knobTakesEffect(vm, driver, libs, _incrDemoDir(Path.Join(scratch, "knob")));
     if (rc != 0) { return rc; }
+    rc = _reconcileStdlibReadback(root, vm, driver, libs, scratch);
+    if (rc != 0) { return rc; }
 
-    Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + xtask)"
+    Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)"
         + " + [build] incremental knob takes effect");
     _procEnd("test incremental", sw);
     return 0;
@@ -260,12 +264,27 @@ string _snapshotDiff(DistSnapZ a, DistSnapZ b) {
     return "";
 }
 
-// 合成 demo 工程：跨文件引用链 + 多块函数（if/switch/try）+ 接口/继承/静态/数组。
-string _incrDemoDir(string scratch) {
-    string d = Path.Join(scratch, "demo");
+// 合成 demo 工程：跨文件引用链 + 多块函数（if/switch/try）+ 接口/继承/静态/数组 + 方法级泛型 + struct 值类型。
+string _incrDemoDir(string scratch) { return _incrDemoDirNamed(scratch, "demo", false); }
+
+// packed 变体（workspace-read-cache）：indexed 布局下 cache 的 .zbc 原样拷进 dist，读回 IR 的缺陷（如方法级泛型
+// 形参没恢复）照不出来；packed 从读回的 IrFunction 重新生成 SIGS/MODS，才会让这类缺陷变成字节差异。
+string _incrDemoPackedDir(string scratch) { return _incrDemoDirNamed(scratch, "demo-packed", true); }
+
+string _incrDemoDirNamed(string scratch, string name, bool pack) {
+    string d = Path.Join(scratch, name);
     Directory.Create(d);
     File.WriteAllText(Path.Join(d, "t.z42.toml"),
-        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n");
+        "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n" + (pack ? "pack = true\n" : "")
+        + "[sources]\ninclude = [\"**/*.z42\"]\n");
+    File.WriteAllText(Path.Join(d, "gen.z42"),
+        "namespace D;\n"
+        + "public static class Gen {\n"
+        + "    public static T Pick<T>(T a, T b, bool first) { if (first) { return a; } return b; }\n"
+        + "    public static int Count<T>(T[] xs) { return xs.Length; }\n"
+        + "}\n"
+        + "public struct Pt { public int X; public int Y; }\n"
+        + "public static class PtOps { public static int Sum(int a) { Pt p = new Pt(); p.X = a; p.Y = 2; Pt q = p; return q.X + q.Y; } }\n");
     File.WriteAllText(Path.Join(d, "shape.z42"),
         "namespace D;\n"
         + "public interface IShape { int Area(); }\n"
@@ -307,7 +326,7 @@ string _incrDemoDir(string scratch) {
         + "string Banner(string who) { string p = \"hi, \"; return p + who + \"!\"; }\n"
         + "double Ratio(double a) { double k = 2.5; return a / k; }\n");
     File.WriteAllText(Path.Join(d, "leaf.z42"),
-        "namespace D;\nint LeafOnly() { return 42; }\n");
+        "namespace D;\nint LeafOnly() { return 42; }\nint UseGen() { int[] xs = new int[]{ 1, 2 }; return Gen.Pick<int>(Gen.Count<int>(xs), 0, true); }\n");
     return d;
 }
 
