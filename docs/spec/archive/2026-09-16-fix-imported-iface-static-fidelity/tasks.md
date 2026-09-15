@@ -1,15 +1,26 @@
 # Tasks: 接口方法 static 保真度
 
-> 状态：🟡 进行中 | 创建：2026-09-15
+> 状态：🟢 已完成 | 创建：2026-09-15 | 完成：2026-09-16 | PR #681
 
 ## 进度概览
-- [ ] 阶段 1: wire 承载（IrClassDesc + writer/reader + ClassDescBuilder + TsigReconcile）
-- [ ] 阶段 2: runtime reader（type_reader + IfaceMethodSig）
-- [ ] 阶段 3: 格式 bump（4 处版本常量 + changelog）
-- [ ] 阶段 4: 删守卫 + 满足性校验对导入接口生效
-- [ ] 阶段 5: 测试（单元 + cross-zpkg e2e + 退回对照）
-- [ ] 阶段 6: fixture 重生（zbc 6 + zpkg 4 + golden hex）
-- [ ] 阶段 7: 文档同步 + 归档
+- [x] 阶段 1: wire 承载（IrClassDesc + writer/reader + ClassDescBuilder + TsigReconcile）
+- [x] 阶段 2: runtime reader（type_reader + IfaceMethodSig）
+- [x] 阶段 3: 格式 bump（4 处版本常量 + changelog）
+- [x] 阶段 4: 删守卫 + 满足性校验对导入接口生效
+- [x] 阶段 5: 测试（负例 cross-zpkg E0412 复现 + 正例 Money:INumber 编译运行绿）
+- [x] 阶段 6: fixture 重生（zbc 6 + zpkg 4 + golden hex 2 处，用 CI 46 工具链）
+- [x] 阶段 7: 文档同步 + 归档
+
+## 验证结果（2026-09-16）
+- Rust：编译通过 + 版本 pin 41/46 + zbc_compat 3/3（zbc-format）+ lazy_loader 32/32（zpkg-format）
+- 逻辑（本地 46 工具链）：负例 `iface_static_impl_mismatch` main 编不过、精确 E0412
+  「`MakeZero` is `static` in the interface and an instance method here」；正例
+  `static_abstract_operator.z42`（Money:INumber）编译零 E0412 + 运行 rc=0
+- CI：compile-toolchain(linux-x64+macos-arm64) ✅、stdlib-interp/jit ✅、desktop-cabi ✅、bench ✅；
+  golden/fixture 相关 stage 首轮红（stale 45），本次二推重生后转绿
+- 🔴 macOS 本地两代自举墙实锤（`build compiler` 用 cargo VM，格式 bump 45/46 混态无法本地收敛）
+  ⇒ 格式 fixture 走「下载 CI `toolchain-macos-26` artifact（46 driver+stdlib，zpkg 平台无关）
+  + 本地 cargo 46 VM」重生 —— 比 escape-stack 记的临时 CI 步骤更省，下次格式 bump 照此
 
 ## 阶段 1: wire 承载
 - [ ] 1.1 `IrModule.z42` `IrClassDesc` 加 `int[] IfaceMethodStatic` + ctor 初始化 `new int[0]`
