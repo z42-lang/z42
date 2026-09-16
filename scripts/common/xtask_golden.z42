@@ -107,13 +107,15 @@ class _GoldenEntry {
     public bool   isLib;          // came from src/libraries/<lib>/tests
     public bool   hasSource;      // src exists on disk
     public bool   interpOnly;     // interp_only sidecar present → no jit run
+    public bool   optAll;         // opt_all sidecar present → 用 `--emit-zbc --opt-all` 按 release 全优化编
+                                  //（fix-ref-param-escape：逃逸分析等 pass 在 emit-zbc 默认集里是关的）
     public bool   hasTestMethods; // lib-dir only: some .z42 in dir declares [Test]
 
     public _GoldenEntry() {
         this.seg = ""; this.cat = ""; this.name = ""; this.entryName = "";
         this.dir = ""; this.src = ""; this.expected = ""; this.relUnderSrc = "";
         this.zbcName = ""; this.isLib = false; this.hasSource = false;
-        this.interpOnly = false; this.hasTestMethods = false;
+        this.interpOnly = false; this.optAll = false; this.hasTestMethods = false;
     }
 }
 
@@ -159,6 +161,7 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
             e.zbcName = "source.zbc";
             e.hasSource = File.Exists(e.src);
             e.interpOnly = File.Exists(Path.Join(dir, "interp_only"));
+            e.optAll     = File.Exists(Path.Join(dir, "opt_all"));
             es = _appendEntry(es, n, e); n = n + 1;
             ni = ni + 1;
         }
@@ -185,6 +188,7 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
                 e.zbcName = "source.zbc";
                 e.hasSource = File.Exists(e.src);
                 e.interpOnly = File.Exists(Path.Join(dir, "interp_only"));
+                e.optAll     = File.Exists(Path.Join(dir, "opt_all"));
                 e.hasTestMethods = _dirHasTestMethods(dir);
                 es = _appendEntry(es, n, e); n = n + 1;
                 ni = ni + 1;
@@ -213,6 +217,7 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
                 e.zbcName = name + ".zbc";
                 e.hasSource = File.Exists(e.src);
                 e.interpOnly = File.Exists(Path.Join(catDir, name + ".interp_only"));
+                e.optAll     = File.Exists(Path.Join(catDir, name + ".opt_all"));
                 es = _appendEntry(es, n, e); n = n + 1;
             }
             ei = ei + 1;

@@ -3,7 +3,8 @@
 //   z42c --dump-tokens <file.z42>          词法 token 流（z42c 自有格式）
 //   z42c --dump-ast    <file.z42>          AST s-expression
 //   z42c --dump-bound  <file.z42>          类型检查后的 Bound 树（含类型注解 + 诊断数）
-//   z42c --emit-zbc    <file.z42> <out>    编译到 .zbc（ZW-1A/1B opcode 子集；无 DBUG）
+//   z42c --emit-zbc    <file.z42> <out> [--opt-all]   编译到 .zbc（ZW-1A/1B opcode 子集；无 DBUG）
+//                                          --opt-all = 按 release 全优化编（golden 的 opt_all sidecar 用）
 //   z42c build         <project.z42.toml>  编译整包 → dist/<name>.zpkg
 // 注：z42c 只编译，不跑测试。`test` / `bench` 是构建编排（build+run+report），宿主 = z42b
 //     （编排器），runner 逻辑住 z42.test 库。见 docs/design/toolchain/build-orchestrator.md
@@ -81,7 +82,22 @@ void Main() {
                 ezScan.Exported, ezScan.ExportedPkg, ezScan.ExportedCount, ezUsings, ezUsings.Length);
             ezIndex = ezScan.Index;
         }
-        CompiledModuleZ ezCm = IrDump.BuildModuleD(ezText, file, ezIndex, ezImported);
+        // `--opt-all`（fix-ref-param-escape）：本例按**真实 release 全优化**编（Opt.All）。
+        // golden 的 `opt_all` sidecar 用它——逃逸分析 / 内联 / loop-alloc-reuse 这几个 pass 在
+        // emit-zbc 默认集里是关的（会改 golden 字节，见 IrDump.EmitZbcDefaultOpt），不给这条路
+        // 就没有任何 golden 能跑到它们。
+        int ezOpt = IrDump.EmitZbcDefaultOpt();
+        int ezAi = 3;
+        while (ezAi < argv.Length) {
+            if (argv[ezAi] == "--opt-all") { ezOpt = Opt.All; }
+            else {
+                ConsoleError.WriteLine("z42c: --emit-zbc: unknown option '" + argv[ezAi] + "'");
+                Environment.Exit(ExitCode.UsageError);
+                return;
+            }
+            ezAi = ezAi + 1;
+        }
+        CompiledModuleZ ezCm = IrDump.BuildModuleDOpt(ezText, file, ezIndex, ezImported, ezOpt);
         if (ezCm.ErrorCount > 0) {
             ConsoleError.WriteLine("z42c: " + ezCm.ErrorCount.ToString() + " error(s) in " + file);
             int ezDi = 0;
@@ -564,7 +580,7 @@ void _usage() {
     Console.WriteLine("  z42c --dump-ast    <file.z42>          AST s-expression");
     Console.WriteLine("  z42c --dump-bound  <file.z42>          type-checked Bound tree");
     Console.WriteLine("  z42c --dump-ir     <file.z42>          .zasm-like IR text");
-    Console.WriteLine("  z42c --emit-zbc    <file.z42> <out>    compile to .zbc (subset)");
+    Console.WriteLine("  z42c --emit-zbc    <file.z42> <out> [--opt-all]   compile to .zbc (subset)");
     Console.WriteLine("  z42c build         [<manifest>]        build a project (see `z42c build --help`)");
     Console.WriteLine("  (clean / test / bench are run by z42b, not z42c — the compiler only compiles)");
 }

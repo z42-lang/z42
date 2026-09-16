@@ -61,11 +61,13 @@ class _GoldenCases {
     public string[] names;
     public string[] sources;
     public string[] outputs;
+    public bool[]   optAlls;   // opt_all sidecar → 按 release 全优化编（见 _compileCaseSpawn）
     public int count;
     public _GoldenCases() {
         this.names   = new string[0];
         this.sources = new string[0];
         this.outputs = new string[0];
+        this.optAlls = new bool[0];
         this.count   = 0;
     }
 }
@@ -84,6 +86,7 @@ _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilt
     string[] caseNames    = new string[entries.Length];
     string[] caseSources  = new string[entries.Length];
     string[] caseOutputs  = new string[entries.Length];
+    bool[]   caseOptAlls  = new bool[entries.Length];
     int      caseCount    = 0;
 
     int i = 0;
@@ -118,6 +121,7 @@ _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilt
         caseNames[caseCount]   = e.name;
         caseSources[caseCount] = e.src;
         caseOutputs[caseCount] = outPath;
+        caseOptAlls[caseCount] = e.optAll;
         caseCount = caseCount + 1;
     }
 
@@ -125,6 +129,7 @@ _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilt
     gc.names   = caseNames;
     gc.sources = caseSources;
     gc.outputs = caseOutputs;
+    gc.optAlls = caseOptAlls;
     gc.count   = caseCount;
     return gc;
 }
@@ -183,6 +188,7 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     string[] caseNames   = gc.names;
     string[] caseSources = gc.sources;
     string[] caseOutputs = gc.outputs;
+    bool[]   caseOptAlls = gc.optAlls;
     int      caseCount   = gc.count;
 
     if (filtered && caseCount == 0) {
@@ -208,7 +214,7 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
         int b = 0;
         while (b < bsz) {
             hs[b] = _compileCaseSpawn(vmBin, driverZpkg, stdlibDist,
-                                      caseSources[k + b], caseOutputs[k + b]);
+                                      caseSources[k + b], caseOutputs[k + b], caseOptAlls[k + b]);
             b = b + 1;
         }
         b = 0;
@@ -280,10 +286,16 @@ bool _isNonRegenCat(string cat) {
 // （Assert/Console 等）经 Z42_LIBS=stdlibDist 解析；driver 自身 z42c.* 依赖从 driverHome 解析。
 // Spawn (don't wait) the z42c compile of one golden case; caller batches the
 // Wait() across `jobs` concurrent handles. Output .zbc paths are unique per case.
-ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDist, string source, string output) {
-    return new Process(vmBin)
+ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDist, string source, string output, bool optAll) {
+    Process p = new Process(vmBin)
         .Arg(driverZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("--emit-zbc").Arg(source).Arg(output)
+        .Arg("--").Arg("--emit-zbc").Arg(source).Arg(output);
+    // opt_all sidecar：这条用例要按**真实 release 全优化**编。默认 emit-zbc 优化集关掉了
+    // 逃逸分析 / 内联 / loop-alloc-reuse（会改 golden 字节，见 IrDump.EmitZbcDefaultOpt），
+    // 于是那几个 pass 在整个 golden 语料里一次也跑不到——fix-ref-param-escape 的悬垂栈句柄
+    // 就是这么漏出去的。用例加个 `opt_all` 空文件即可让它真的跑在优化后的代码上。
+    if (optAll) { p = p.Arg("--opt-all"); }
+    return p
         .Env("Z42_LIBS", stdlibDist)
         .Stdout(Stdio.Null())
         .Stderr(Stdio.Null())
