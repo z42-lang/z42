@@ -25,7 +25,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `var_region/block.rs` | `BlockType` / `GcBlockHeader`（16 B 头）/ payload 指针 + `PayloadDropGlue` |
 | `var_region/chunk.rs` | 尺寸类 + 原始 chunk + `VarChunkClaim`（TLAB + per-chunk `reuse_gen` ABA 守）+ chunk 增长/借出/回收 |
 | `var_region/var_ref.rs` | `VarGcRef` —— 8 字节类型擦除 tagged 句柄 |
-| `tlab.rs` | **add-gc-tlab**：thread-local `Tlab{obj,arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/book/src/runtime/gc-tlab-chunk-exclusive.md) |
+| `tlab.rs` | **add-gc-tlab**：thread-local `Tlab{obj,arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
 | `refs.rs` | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄 + `GcAllocation<T>` wrapper |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |
 | `heap_tests.rs` | trait 默认方法契约测试 |
@@ -80,14 +80,14 @@ z42 脚本端可调 `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()`（见
 
 ## Phase 路线
 
-详见 [`docs/design/runtime/gc.md`](../../../../docs/design/runtime/gc.md).
+详见 [`docs/internals/src/runtime/gc.md`](../../../../docs/internals/src/runtime/gc.md).
 
 **至 add-generational-gc 完成（2026-05-22）GC 主功能完整 —— A1 / A2 / A3 / A4
 均已落地（custom allocator / mark-sweep / generational / concurrent mark），
 三种 GcMode 可选 opt-in。可投产。**
 
 后续可选迭代规划（剩余性能轨道 / 嵌入式工具 / 测试质量 / MMTk 集成）见同文档
-["GC 后续迭代规划"](../../../../docs/design/runtime/gc.md#gc-后续迭代规划) 段，
+["GC 后续迭代规划"](../../../../docs/internals/src/runtime/gc.md#gc-后续迭代规划) 段，
 每条目带 What / Why / Deps / Size / Risk 四元组，可按优先级独立启动 spec。
 
 ### 已完成 Phase 速览

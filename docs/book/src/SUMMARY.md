@@ -40,38 +40,8 @@
 
 - [概览](compiler/README.md)
   - [项目构建与发布编排（z42b）](compiler/project-build.md)
-  - [编译产物：zbc 字节码格式](compiler/zbc-format.md)
-  - [编译产物：zpkg 包格式](compiler/zpkg-format.md)
   - [CLI 与诊断工具](compiler/tools.md)
 
-# 第三部分 · 运行时（Runtime / VM）
-
-- [概览](runtime/README.md)
-  - [执行模型（interp / jit / aot）]()
-  - [JIT 惰性逐函数编译](runtime/jit-lazy-compile.md)
-  - [解释器 / JIT 标量语义单一真相源](runtime/interp-jit-semantics.md)
-  - [优化管线（编译期 IR 优化 + 运行时分层）](runtime/optimization-pipeline.md)
-  - [加载期可用性折叠与死分支剪枝](runtime/availability-folding.md)
-  - [逃逸分析与栈上分配](runtime/escape-analysis-stack-alloc.md)
-  - [struct 值语义（内联字节 blob）](runtime/struct-value-semantics.md)
-  - [反射 Type 身份（Type 对象 GetType / 数组类型名）](runtime/reflection-type-identity.md)
-  - [超级指令融合（interp）](runtime/superinstr-fusion.md)
-  - [静态构造函数的按类型初始化](runtime/static-ctor-init.md)
-  - [缺符号不再静默：用到才抛可 catch 的类型化异常](runtime/missing-symbol-resolution.md)
-  - [同步原语：值在堆上，原生层只留 Monitor](runtime/sync-primitives.md)
-  - [IR 与 zbc 二进制格式]()
-  - [GC]()
-    - [GC 调参与自动回收 / safepoint 协议](runtime/gc-tuning-and-safepoint.md)
-    - [GC TLAB：线程本地分配（chunk 独占）](runtime/gc-tlab-chunk-exclusive.md)
-    - [增量 major：SATB 屏障与有界停顿](runtime/gc-incremental-major.md)
-  - [运行时设置（旋钮登记表 / 五层优先级 / 可用性与诊断）](runtime/runtime-settings.md)
-  - [加载上下文（LoadContext / ALC 地基）](runtime/load-context.md)
-  - [堆保留诊断（whyRetained）](runtime/heap-diagnostics.md)
-  - [诊断与性能分析（采样 profiler / 火焰图 / perfetto）](runtime/diagnostics.md)
-  - [嵌入与跨平台（PAL）]()
-  - [native interop ABI]()
-  - [Native 扩展库（独立 cdylib 机制）](runtime/native-extensions.md)
-  - [Native 库的布局与解析（放哪 / 怎么找 / 发布期拍平）](runtime/native-libraries.md)
 
 # 第四部分 · 标准库（Standard Library）
 

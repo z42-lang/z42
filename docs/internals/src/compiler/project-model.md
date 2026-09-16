@@ -1,7 +1,7 @@
 # 工程模型、依赖解析与工作区编译
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42.project/` · `src/compiler/z42c.pipeline/` · `src/libraries/z42.ir/DependencyIndex.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [zbc 字节码格式](../../../book/src/compiler/zbc-format.md) · [zpkg 包格式](../../../book/src/compiler/zpkg-format.md) ｜ **对齐**: 2026-09-08
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) ｜ **对齐**: 2026-09-08
 
 ## 概述
 
@@ -71,7 +71,7 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 
 > **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是既有惰性加载器约束，非 path 依赖新引入。
 
-> **与 workspace 编译的关系**：两者都做「拓扑序逐成员建」，但正交——workspace 沿*成员目录内*的依赖边（`z42.workspace.toml` 的 `members`），path 依赖沿*manifest 显式 `path`* 边跨目录。single build 才触发 path 闭包；workspace 成员建带 `libsDirsOverride`（已由 orchestrator 组装 libsDirs）→ 跳过 path 闭包解析。native 库的同族跟随见 [Native 库的布局与解析](../../../book/src/runtime/native-libraries.md)。
+> **与 workspace 编译的关系**：两者都做「拓扑序逐成员建」，但正交——workspace 沿*成员目录内*的依赖边（`z42.workspace.toml` 的 `members`），path 依赖沿*manifest 显式 `path`* 边跨目录。single build 才触发 path 闭包；workspace 成员建带 `libsDirsOverride`（已由 orchestrator 组装 libsDirs）→ 跳过 path 闭包解析。native 库的同族跟随见 [Native 库的布局与解析](../runtime/native-libraries.md)。
 
 > **两阶段（自举纪律）**：`z42.project` 认 `path` 并填 `DepEntry.Path` 是 **support 阶段（PR-1）**；上面 z42c 的**消费机制**（闭包 + colocate）是 **PR-2（use）**，在 PR-1 nightly 发布后落地——上一版 z42c 不引用 `.Path`，故跨版本自举不断链。
 

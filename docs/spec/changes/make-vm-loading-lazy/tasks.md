@@ -31,7 +31,7 @@
 - [ ] 3.2 `xtask test` 完整 GREEN gate（e2e interp+jit / cross-zpkg / stdlib / compiler 自举 / vscode）——**输出逐字节不变 + gen1==gen2**
 - [ ] 3.3 spec scenarios 逐条覆盖
 - [ ] 3.4 性能佐证：`Z42_LOAD_PROFILE` 观测 parse 数骤降；CI test-host/test-vm-jit 墙钟回落（CI 权威）
-- [ ] 3.5 `docs/book/src/runtime/lazy-loading.md`（NEW）+ SUMMARY；`docs/design/runtime/zbc.md`/`zpkg.md` 格式段；runtime/jit README；ACTIVE 释放
+- [ ] 3.5 `docs/book/src/runtime/lazy-loading.md`（NEW）+ SUMMARY；`docs/internals/src/formats/zbc.md`/`zpkg.md` 格式段；runtime/jit README；ACTIVE 释放
 
 ## 备注
 - **阶段 1 收益有限**（z42.core 仍整个 zpkg 加载），价值在"统一架构 + 删残留 eager 合并 + 铺骨架"，且可独立验证零回归。

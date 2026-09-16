@@ -3,7 +3,7 @@
 // 目标：证明某个 ObjNew / ArrayNew / ArrayNewLit 的结果**不逃逸创建它的函数帧**，据此置
 // StackAlloc=true。interp 遇该标志在帧局部 arena 分配（绕过 GC，帧退出即释放；JIT 忽略、照常堆分配）。
 //
-// 设计（见 docs/book/src/runtime/escape-analysis-stack-alloc.md）：
+// 设计（见 docs/internals/src/runtime/escape-analysis.md）：
 //   - **流不敏感 may-escape 过近似（CFG-free）**：逃逸是「该 reg 的**任一**使用是否到达逃逸汇点」，
 //     与控制流顺序无关的 may 问题 → 线性扫全函数即安全过近似，无需 CFG / 支配域（区别于 LICM）。
 //   - **角色感知逃逸汇点规则表**（`_markEscaping`，可扩展核心）：逐指令按操作数**角色**分类——

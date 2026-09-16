@@ -1,7 +1,7 @@
 // IrLicm —— 循环不变量外提（LICM，Opt.Licm；"全部做" 优化程序 4/4）。
 //
 // 把自然循环体内**纯（IsPure）且循环不变**的计算提到循环 pre-header（每次进循环只算一次）。
-// interp 收益大头（循环主导运行时）。设计见 docs/book/src/runtime/optimization-pipeline.md。
+// interp 收益大头（循环主导运行时）。设计见 docs/internals/src/runtime/optimization-pipeline.md。
 //
 // CFG / 支配 / 自然循环体 / 干净 pre-header 判定已抽到 IrLoopUtil（与 IrLoopAllocReuse 共用）。
 // ── 本 pass 专属（保守 v1）──────────────────────────────────────────────────────────

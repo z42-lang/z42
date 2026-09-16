@@ -6,7 +6,7 @@
 
 **build 一次产出平台无关的 `app.zpkg`；导出/打包/测试才按平台分叉。**
 
-[embedding.md](../runtime/embedding.md) 已定"移动端只装 VM、跑 host 编出的 zpkg"。因此同一份 `app.zpkg` 字节码在所有平台被打包/测试——平台间只差"嵌入 host + 原生打包/跑测外壳"，**无 per-platform 代码漂移**。整条生命周期都挂在这条立柱上。
+[embedding.md](../../internals/src/runtime/embedding.md) 已定"移动端只装 VM、跑 host 编出的 zpkg"。因此同一份 `app.zpkg` 字节码在所有平台被打包/测试——平台间只差"嵌入 host + 原生打包/跑测外壳"，**无 per-platform 代码漂移**。整条生命周期都挂在这条立柱上。
 
 ## 两阶段：z42 项目（主，规范）→ 导出平台工程（派生，可重生）
 
@@ -87,7 +87,7 @@ permissions = ["CAMERA"]
 | **2 app.zpkg** | 触发 `z42 build` 产 app zpkg → 放进 `Resources/`(iOS)/`assets/`(Android)；装 build hook |
 | **3 平台设置** | 读 `[platform.*]` → 模板替换出 `.xcodeproj`/Info.plist/entitlements / `build.gradle`/AndroidManifest.xml；合入 `platform-overrides/` |
 
-复用现状：原生骨架直接基于 `xtask package --rid <rid>` 已产的 `Package.swift`/`Sources/` + xcframework（[embedding.md §package 布局](../runtime/embedding.md)），叠加"配置替换 + 用户 zpkg + build hook + overrides 合入"。
+复用现状：原生骨架直接基于 `xtask package --rid <rid>` 已产的 `Package.swift`/`Sources/` + xcframework（[embedding.md §package 布局](../../internals/src/runtime/embedding.md)），叠加"配置替换 + 用户 zpkg + build hook + overrides 合入"。
 
 ### 原生 host shim（每平台一小块固定胶水）
 

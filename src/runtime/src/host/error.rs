@@ -1,7 +1,7 @@
 //! Host ABI status codes and thread-local last-error storage.
 //!
 //! Mirrors `Z42HostStatus` and `z42_host_last_error` from
-//! `src/runtime/include/z42_host.h`. Spec: docs/design/runtime/embedding.md §10.
+//! `src/runtime/include/z42_host.h`. Spec: docs/internals/src/runtime/embedding.md §10.
 
 use std::cell::RefCell;
 use std::ffi::CString;

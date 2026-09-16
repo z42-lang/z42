@@ -70,8 +70,8 @@ importer 还原后即激活 ① 已埋好的 internal deny 分支。
 
 | 文件路径 | 变更 | 说明 |
 |---------|------|------|
-| `docs/design/runtime/zbc.md` | MODIFY | Minor changelog 加 1.33 行 |
-| `docs/design/runtime/zpkg.md` | MODIFY | Minor changelog 加 0.38 行 |
+| `docs/internals/src/formats/zbc.md` | MODIFY | Minor changelog 加 1.33 行 |
+| `docs/internals/src/formats/zpkg.md` | MODIFY | Minor changelog 加 0.38 行 |
 | `docs/design/language/access-control.md` | MODIFY | Status：跨包 internal 类强制已实现（移出 Deferred） |
 | `src/tests/cross-zpkg/class-internal-access/` | ADD | 跨包 e2e：B 包引用 A 包 internal 类 → 期望 E0404 |
 

@@ -4,7 +4,7 @@
 
 `readonly` 修饰符标记一个**构造后不变**的字段。它既是给读者的意图声明，也是给优化器的
 **可信契约**——编译器据此把该字段的读（`field_get`）纳入 CSE 消重与循环外提（LICM），详见
-[优化管线 · pass 2f](../runtime/optimization-pipeline.md#机制--实现)。
+[优化管线 · pass 2f](../../../internals/src/runtime/optimization-pipeline.md#机制--实现)。
 
 ## 语法
 
@@ -69,5 +69,5 @@ class D {
 
 ## 关联文档
 
-- 机制 / 优化：[优化管线](../runtime/optimization-pipeline.md)（pass 2f）
+- 机制 / 优化：[优化管线](../../../internals/src/runtime/optimization-pipeline.md)（pass 2f）
 - 引入：change `add-readonly-fields-opt`（`docs/spec/archive/`）

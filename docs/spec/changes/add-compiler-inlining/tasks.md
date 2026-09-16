@@ -48,7 +48,7 @@
 - [x] 3.3 内联收益实测（A/B，`heavy.z42` 调用密集 hot 循环 4M 迭代，interp best-of-3）：
       **OFF 918ms → ON 278ms（~3.3×，−70%）**，输出同为 `13336000000`（语义不变）；zpkg +9%（1028→1123B，
       内联=代码复制换 dispatch 消除，符合准则 1 interp-first）
-- [x] 3.4 `docs/book/src/runtime/optimization-pipeline.md`：OptSet 门控 + 独立性约束 + 内联机制/资格(D4)/
+- [x] 3.4 `docs/internals/src/runtime/optimization-pipeline.md`：OptSet 门控 + 独立性约束 + 内联机制/资格(D4)/
       展开(D5)/传导内联/不动点(D7)（页在 runtime/ 非 compiler/，随 jit-lowering-pipeline 立项）
 - [x] 3.5a toml `[optimize]` **解析 support 侧**（z42.project：ManifestLoader `_parseOptimize` +
       ProjectManifest `OptimizeNames`/`Values`/`Count` + 2 单测，连字符裸键 `const-fold`/`copy-prop` 验证通过）

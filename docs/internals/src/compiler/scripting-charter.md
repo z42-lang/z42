@@ -11,7 +11,7 @@
 >
 > **Strategic decision**: 路径 2b —— pre-1.0 host-only；1.0 自举完成后 z42-written compiler 作为 zpkg 自然随 VM 全平台分发
 >
-> **Related**: memory project_mobile_no_compiler · [`stdlib/organization.md`](../../../design/stdlib/organization.md) · [`runtime/embedding.md`](../../../design/runtime/embedding.md) · [`runtime/hot-reload.md`](../../../design/runtime/hot-reload.md)
+> **Related**: memory project_mobile_no_compiler · [`stdlib/organization.md`](../../../design/stdlib/organization.md) · [`runtime/embedding.md`](../runtime/embedding.md) · [`runtime/hot-reload.md`](../runtime/hot-reload.md)
 
 ---
 
@@ -186,11 +186,11 @@ ScriptOptions opts = ScriptOptions.Default;
 
 | Doc | 关系 |
 |-----|------|
-| [`compiler-architecture.md`](../../../design/compiler/compiler-architecture.md) | 当前 C# bootstrap 形态；C4 完成后此 doc 转为"过渡阶段历史记录"，新 SoT 是 z42-written 源 + 本 charter |
+| [`compiler-architecture.md`](../formats/zpkg.md) | 当前 C# bootstrap 形态；C4 完成后此 doc 转为"过渡阶段历史记录"，新 SoT 是 z42-written 源 + 本 charter |
 | `compilation.md` | 编译产物粒度策略；自举后维持不变（z42 compiler 产出同一种 .zbc / .zpkg）|
 | [`project.md`](../../../reference/src/toolchain/z42-toml.md) | manifest schema；自举后 `z42.compiler.project` 实现这套 schema |
-| [`runtime/embedding.md`](../../../design/runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
-| [`runtime/hot-reload.md`](../../../design/runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
+| [`runtime/embedding.md`](../runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
+| [`runtime/hot-reload.md`](../runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
 | [`stdlib/organization.md`](../../../design/stdlib/organization.md) | L0–L3 分层规则；本拆分严格遵守 |
 
 ---

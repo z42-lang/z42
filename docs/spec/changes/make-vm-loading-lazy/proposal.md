@@ -43,7 +43,7 @@ z42vm 每次启动一个程序,都**eager 地把整套 stdlib 闭包解析进内
 | `src/runtime/src/main.rs` | MODIFY | 删 `is_eager` BFS 合并;jit 走 lazy loader |
 | `src/runtime/src/jit/frame.rs` | MODIFY | `resolve_fn_by_id` 统一:未命中 `module.functions` 时经 lazy loader 取函数并**编译**(不退 interp) |
 | `src/runtime/src/jit/mod.rs` | MODIFY | static-init 发现改扫命名空间/force-load（不再只扫 merged `module.functions`）；ConstStr 溢出走 `try_lookup_string` |
-| `docs/design/runtime/zbc.md` / `zpkg.md` | MODIFY | FIDX/TIDX 段格式 + minor changelog |
+| `docs/internals/src/formats/zbc.md` / `zpkg.md` | MODIFY | FIDX/TIDX 段格式 + minor changelog |
 | `docs/book/src/runtime/lazy-loading.md` | NEW | 全惰性加载机制页（层级/索引/按需 parse/类型物化/jit 统一，配伪代码+mermaid） |
 | `src/tests/zbc-format/*` / `zpkg-format/*` | MODIFY | 格式 bump fixture 重生（version-bumping.md checklist） |
 | `src/runtime/src/metadata/lazy_load_tests.rs` | NEW | 单测:只 parse 碰到的函数/类型、跨 zpkg 惰性解析、jit 编译 lazy-loaded 函数 |

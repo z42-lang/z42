@@ -50,7 +50,7 @@
       路径 + z42 golden 覆盖（未变）。
       —— 注：阶段 2 删的旧 `repl_tests.rs`(word_start)/`repl_editing_tests.rs`(parse_action) 已随代码搬进 cdylib
       由 `cargo test -p z42-repl` 覆盖；本 4.2 是**新**的 VM 侧 trampoline 覆盖，与旧文件同名但内容全换。
-- [x] 4.3 `docs/book/src/runtime/native-extensions.md`（通用机制 SoT，含单向/compression + 双向/repl 两实例、
+- [x] 4.3 `docs/internals/src/runtime/native-extensions.md`（通用机制 SoT，含单向/compression + 双向/repl 两实例、
       ReplCallbacks/trampoline/out_kind/懒 dlopen/GC 重入/打包位置 + 新增扩展清单）+ SUMMARY 接线。
       crate README 不加（与 compression 一致，靠 lib.rs `//!` doc；native/README 无此文件，机制 SoT 已覆盖）
 - [ ] 4.4 `xtask test` + dist smoke `z42 repl -c "1+2"` + 交互验收（补全/键位）

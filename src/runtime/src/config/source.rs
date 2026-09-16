@@ -47,7 +47,7 @@ pub fn load_config_tables(
         return Err(format!(
             "{var}={} — z42 runtime config is TOML, not JSON.\n     \
              Use {stem}.toml with a `[runtime]` table (e.g. `[runtime]\\ngc-mode = \"concurrent\"`); \
-             see docs/book/src/runtime/runtime-settings.md.",
+             see docs/internals/src/runtime/runtime-settings.md.",
             path.display()
         ));
     }

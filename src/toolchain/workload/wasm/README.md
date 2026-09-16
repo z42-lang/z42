@@ -4,7 +4,7 @@
 >
 > Spec：[`docs/spec/archive/2026-05-12-add-platform-wasm/`](../../../../docs/spec/archive/2026-05-12-add-platform-wasm/)
 > 跨平台契约：[`../README.md`](../README.md)
-> 实现原理：[`docs/design/runtime/embedding.md`](../../../../docs/design/runtime/embedding.md) §6.2 / §11
+> 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md) §6.2 / §11
 
 把 z42 VM 包成 WebAssembly + JS facade，供浏览器 / Node.js / wasm-runtime 一行 `import` 即可跑 `.zbc` 字节码。
 
@@ -135,7 +135,7 @@ wasm/
 - **仅 interp 模式**：wasm 沙箱禁动态代码生成；JIT / AOT 不可用
 - **无文件系统**：必须通过 `zpkgResolver` 把 zpkg 字节喂进来；`search_paths` 在 wasm 上无效
 - **同步 invoke**：v0.1 不支持 async；长任务会阻塞 JS 主线程，需要用户自行 `Worker`
-- **marshal**：JS ↔ z42 仅支持 null / boolean / number / bigint。string / object / Array 推迟到后续 spec（见 [`embedding.md §12 Deferred`](../../../../docs/design/runtime/embedding.md)）
+- **marshal**：JS ↔ z42 仅支持 null / boolean / number / bigint。string / object / Array 推迟到后续 spec（见 [`embedding.md §12 Deferred`](../../../../docs/internals/src/runtime/embedding.md)）
 - **单实例**：与桌面 / iOS / Android 一致 — 一个进程内一个 Z42VM；多实例进 Deferred
 
 ## 故障排查

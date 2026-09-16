@@ -3,7 +3,7 @@
 > 对齐：2026-09-05（change `add-app-properties`）。代码：
 > `src/libraries/z42.core/src/Runtime/AppProperties.z42`、
 > `src/runtime/src/corelib/appprops.rs`、`z42c.driver/src/RuntimeConfigSidecar.z42`。
-> 运行时旋钮那一套见 [运行时设置](../runtime/runtime-settings.md) 与
+> 运行时旋钮那一套见 [运行时设置](../../../internals/src/runtime/runtime-settings.md) 与
 > [`Std.Runtime.RuntimeConfig`](runtime-config.md)。
 
 ## 它解决什么
@@ -46,7 +46,7 @@ max-retries = 3
 ```
 
 运行时**不需要任何人指路**——VM 按「同目录、同 stem」自己找到侧车（见
-[app-config 层](../runtime/runtime-settings.md)），所以 `z42vm <app>` 直跑、`z42 run`、
+[app-config 层](../../../internals/src/runtime/runtime-settings.md)），所以 `z42vm <app>` 直跑、`z42 run`、
 已发布的 apphost、以及 wasm / iOS / Android 的嵌入入口**都**读得到。
 
 ```z42
@@ -120,6 +120,6 @@ void Main() {
 
 ## 关联
 
-- [运行时设置](../runtime/runtime-settings.md)——五层链、旋钮登记表、侧车如何到达各形态
+- [运行时设置](../../../internals/src/runtime/runtime-settings.md)——五层链、旋钮登记表、侧车如何到达各形态
 - [`Std.Runtime.RuntimeConfig`](runtime-config.md)——旋钮那一侧的只读查询面
 - change `add-app-properties`（`docs/spec/changes/`）

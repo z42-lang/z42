@@ -1,7 +1,7 @@
 // IrOptInfo —— IR 优化管线的安全基石：单条指令的「写寄存器 / 读寄存器 / 是否可删」查询。
 // 引入 change：optimization-pipeline（编译期 IR 优化，interp-first）。
 //
-// 设计（见 docs/book/src/runtime/optimization-pipeline.md）：
+// 设计（见 docs/internals/src/runtime/optimization-pipeline.md）：
 //   - pass 放 compiler 源码（非 stdlib z42.ir）；**读/写寄存器枚举走 z42.ir 的统一操作数接口**
 //     （unify-ir-operand-access：`IrInstr.DefReg / ReadCount / ReadAt / SetReadAt`、
 //     `IrTerminator.ReadReg / SetReadReg`）——每条指令自己回答操作数，本文件不再逐 opcode 镜像

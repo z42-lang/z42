@@ -84,7 +84,7 @@ marshaling、单标量叶子塌缩、Value 密度压缩铺平道路。
 - `src/libraries/z42.core/src/Primitives/*.z42` — 基元 phantom struct 定义（Int32/Int64/Boolean/Char/Double/Single）
 - `src/compiler/z42c.semantics/src/OverloadResolver.z42` — 重载键靠 `Canon` 归一，保持 Canon 语义即透明不改
 - `src/runtime/src/interp/exec_vcall.rs` — 确认 runtime 已默认把裸 I64 路由 Std.Int32（Phase 1 不改 runtime）
-- `docs/design/runtime/object-abi.md` — Value 密度压缩是独立 Deferred，不在本程序范围
+- `docs/internals/src/runtime/object-abi.md` — Value 密度压缩是独立 Deferred，不在本程序范围
 - `docs/spec/archive/2026-08-09-add-struct-value-semantics/design-radical.md` — 原始架构 DRAFT（行号已过时，本 proposal 以当前 main 为准更新）
 
 ## Out of Scope（Phase 1）

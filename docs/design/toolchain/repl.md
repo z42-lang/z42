@@ -424,7 +424,7 @@ namespace Std.Scripting {
 
 **约定**：以 `.` 开头的整行 = 元指令（meta，不进编译/transcript）；其余 = z42 代码。
 未知 `.xxx` → `unknown command '.xxx'; try .help` 并保留会话。指令大小写不敏感、可带参。
-标注：**[MVP]** = 0.3.15 首发；**[diag]** = 依赖 [diagnostics.md](../runtime/diagnostics.md)（事件/计数/时间）；
+标注：**[MVP]** = 0.3.15 首发；**[diag]** = 依赖 [diagnostics.md](../../internals/src/runtime/diagnostics-design.md)（事件/计数/时间）；
 **[refl]** = 依赖反射；**[defer]** = 见下 Deferred。
 
 ### 会话控制
@@ -481,7 +481,7 @@ z42 REPL — 输入 z42 代码即时求值；. 前缀为元指令。
 > **已落地**：`.help .exit .quit .reset .clear .vars .types .usings .using .type .members .version`
 > （`.type` = 运行期类型，add-repl-type-metacommand；`.version` 仅格式版本）。**未接**：`.history` /
 > `.save`（需 transcript 存储）、`.mode`（需 `ExecMode` 接口）；
-> `.time`/`.counters`/`.trace` 随 [diagnostics.md](../runtime/diagnostics.md) 落地并入；`.load` 见 Deferred。
+> `.time`/`.counters`/`.trace` 随 [diagnostics.md](../../internals/src/runtime/diagnostics-design.md) 落地并入；`.load` 见 Deferred。
 
 ## 行编辑器
 
@@ -602,7 +602,7 @@ libs/ + programs/z42c/ + programs/z42i/
 
 - **来源**：0.3.15 设计讨论（Growing Transcript 性能权衡）
 - **触发原因**：Growing Transcript 是 O(n) 重编译；小 session 可接受，大 session 慢
-- **前置依赖**：增量模块加载 + 跨模块静态状态共享 VM 能力 —— 即 [load-context.md](../runtime/load-context.md)（每轮输入 = 一个加载上下文，重定义 = 新版 supersede 旧版 + 旧版无引用时回收 `whyRetained`）+ [componentized-runtime.md](../runtime/componentized-runtime.md)（运行时编译器作为可加载组件）。该增量方案 = "每行 = 一个 context" 模型，其使能基建已在 2026-06-21 运行时设计弧中落定（DESIGN）。
+- **前置依赖**：增量模块加载 + 跨模块静态状态共享 VM 能力 —— 即 [load-context.md](../../internals/src/runtime/load-context-design.md)（每轮输入 = 一个加载上下文，重定义 = 新版 supersede 旧版 + 旧版无引用时回收 `whyRetained`）+ [componentized-runtime.md](../../internals/src/runtime/componentized-runtime.md)（运行时编译器作为可加载组件）。该增量方案 = "每行 = 一个 context" 模型，其使能基建已在 2026-06-21 运行时设计弧中落定（DESIGN）。
 - **触发条件**：session 规模成为实际性能瓶颈时（benchmark 驱动）
 - **当前状态（2026-07-26 perf-optimize-repl-eval 大幅缓解）**：曾是每轮 ~3.5s 全量重编译
   （几乎不可用）。诊断发现瓶颈 = 每轮 `PackageCompile → DepScan` 在解释器上重解整个 stdlib+

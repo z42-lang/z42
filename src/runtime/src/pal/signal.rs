@@ -5,7 +5,7 @@
 //! signal machinery lives here; the **z42-specific crash reporter** that walks
 //! `VM_CORES` and formats the call-stack dump stays in `signal_handler.rs` and
 //! drives these primitives (PAL invariant: `pal/` surface is OS-neutral and
-//! knows nothing about VM internals — see `docs/design/runtime/pal.md`).
+//! knows nothing about VM internals — see `docs/internals/src/runtime/pal.md`).
 //!
 //! # Async-signal safety
 //!

@@ -48,7 +48,7 @@ pub enum GcMode {
     /// out every minor and wait for a major. Var blocks carry their age packed into
     /// `GcBlockHeader::type_tag` and keep their own young list; they need no card table of
     /// their own (they are never the source of a cross-generation write — see
-    /// `docs/book/src/runtime/gc-tlab-chunk-exclusive.md`).
+    /// `docs/internals/src/runtime/gc-tlab.md`).
     /// Mutually exclusive with `ConcurrentMarkSweep` in v1.
     /// Landing across `add-generational-gc` P0–P4.
     GenerationalMarkSweep = 2,

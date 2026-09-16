@@ -2,7 +2,7 @@
 //! Rust 侧容器，GC 根扫描器看不见 ⇒ 值只被原语持有时会被回收。当前 stdlib 已改走
 //! [`super::monitor`]（值是 z42 字段），**不再引用这里的任何 builtin**；它们只为上一版 nightly
 //! 种子的 `z42.core` 仍声明着这些 `[Native]` 而保留一个 nightly（`bootstrap-seed.md`「删 runtime
-//! builtin = 两 nightly」）。删除见 `docs/book/src/runtime/sync-primitives.md` 的 Deferred 段。
+//! builtin = 两 nightly」）。删除见 `docs/internals/src/runtime/sync-primitives.md` 的 Deferred 段。
 //!
 //! `Std.Threading.Mutex<T>` / `Channel<T>` builtins
 //! (add-sync-primitives, 2026-05-20).

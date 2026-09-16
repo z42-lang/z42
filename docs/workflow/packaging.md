@@ -197,4 +197,4 @@ file artifacts/packages/z42-0.1.0-browser-wasm-release/native/z42_wasm_bg.wasm
 - Release 自动化（CI matrix）：[`release.md`](release.md)
 - 9 RID 白名单理由：memory `project_supported_platforms`
 - 包结构契约：[`docs/spec/archive/2026-05-13-define-package-layout/`](../spec/archive/2026-05-13-define-package-layout/)
-- 设计原理（Tier 1 C ABI / per-arch flat 决策）：[`docs/design/runtime/embedding.md`](../design/runtime/embedding.md) §11.9
+- 设计原理（Tier 1 C ABI / per-arch flat 决策）：[`docs/internals/src/runtime/embedding.md`](../internals/src/runtime/embedding.md) §11.9

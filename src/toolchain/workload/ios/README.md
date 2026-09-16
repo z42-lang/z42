@@ -4,7 +4,7 @@
 >
 > Spec：[`docs/spec/archive/2026-05-12-add-platform-ios/`](../../../../docs/spec/archive/2026-05-12-add-platform-ios/)
 > 跨平台契约：[`../README.md`](../README.md)
-> 实现原理：[`docs/design/runtime/embedding.md`](../../../../docs/design/runtime/embedding.md)
+> 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
 > 构建工作流：[`docs/workflow/building/ios.md`](../../../../docs/workflow/building/ios.md)
 
 把 z42 VM 编进 SwiftPM 包 + xcframework，让 Swift / SwiftUI iOS app 一行 `import Z42VM` 跑 `.zbc`。
@@ -69,7 +69,7 @@ public enum Z42VMValue: Equatable {
 }
 ```
 
-v0.1 marshal 仅支持 null + 三种原语；string / object / Array 推迟到后续 spec（[`embedding.md §12 Deferred`](../../../../docs/design/runtime/embedding.md)）。
+v0.1 marshal 仅支持 null + 三种原语；string / object / Array 推迟到后续 spec（[`embedding.md §12 Deferred`](../../../../docs/internals/src/runtime/embedding.md)）。
 
 ### `Z42VMError`
 

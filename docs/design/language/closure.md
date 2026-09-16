@@ -4,7 +4,7 @@
 
 > 本文档是 z42 闭包 / lambda / 函数类型的**权威设计规范**。
 > 上游：[`philosophy.md`](../philosophy.md)（设计原则）/ [`language-overview.md`](language-overview.md)（用户视角语法）
-> 下游：[`grammar.peg`](grammar.peg)（机器可读文法）/ [`ir.md`](../runtime/ir.md)（IR 指令）/ [`concurrency.md`](../runtime/concurrency.md)（spawn 捕获规则）
+> 下游：[`grammar.peg`](grammar.peg)（机器可读文法）/ [`ir.md`](../../internals/src/formats/ir.md)（IR 指令）/ [`concurrency.md`](../../internals/src/runtime/concurrency.md)（spawn 捕获规则）
 > 相关：[`iteration.md`](iteration.md)（高阶 API 用例）/ [`customization.md`](customization.md)（L3 lambda 定位）
 
 ---
@@ -33,7 +33,7 @@ list.Filter(x => x > 0);                 // 高阶 API 用法
 | **去 C# 经典陷阱** | 值类型快照（消除"循环变量晚绑定"）、单目标（消除多播 4 类陷阱） |
 | **性能可达 Rust 级别** | 编译器三档自动选：栈分配 / 单态化 / 堆擦除——用户语法不变 |
 | **大项目友好** | 类型擦除路径（档 C）默认可用，避免 Rust 单态化的代码膨胀 |
-| **与并发模型对齐** | spawn 边界自动 move + `Send` 派生（详见 [`concurrency.md`](../runtime/concurrency.md)） |
+| **与并发模型对齐** | spawn 边界自动 move + `Send` 派生（详见 [`concurrency.md`](../../internals/src/runtime/concurrency.md)） |
 | **泄漏靠诊断，不靠语法** | 不引入 `[weak self]` / `\|capture this\|` 类标注；定位泄漏由 GC 诊断负责 |
 
 ---
@@ -421,7 +421,7 @@ task scope {
 }
 ```
 
-详细规则见 [`concurrency.md`](../runtime/concurrency.md) §6.3——本节给出契约，那里给出实现细节。
+详细规则见 [`concurrency.md`](../../internals/src/runtime/concurrency.md) §6.3——本节给出契约，那里给出实现细节。
 
 `Send` 由编译器**自动派生**：闭包类型 Send ⇔ 所有捕获项类型 Send。无需用户手动声明。
 
@@ -447,8 +447,8 @@ L2 阶段编译器对捕获非空 lambda **直接编译错误**——不静默�
 | [`philosophy.md`](../philosophy.md) | 闭包设计是"C# 易用 + Rust 性能"原则的具体落点 |
 | [`language-overview.md`](language-overview.md) | 用户视角语法概览，引用本规范的 §3 / §4 / §10 |
 | [`grammar.peg`](grammar.peg) | LambdaExpr / FnTypeExpr / 表达式短写 / 嵌套函数文法 |
-| [`ir.md`](../runtime/ir.md) | `mkclos` / `callclos` / `mkref` / `loadref` / `storeref` 指令 |
-| [`concurrency.md`](../runtime/concurrency.md) | spawn move + Send 规则；本规范 §9 给契约，那里给实现细节 |
+| [`ir.md`](../../internals/src/formats/ir.md) | `mkclos` / `callclos` / `mkref` / `loadref` / `storeref` 指令 |
+| [`concurrency.md`](../../internals/src/runtime/concurrency.md) | spawn move + Send 规则；本规范 §9 给契约，那里给实现细节 |
 | [`iteration.md`](iteration.md) | Map/Filter/Reduce 等高阶 API 是闭包的主要消费方 |
 | [`customization.md`](customization.md) | L3 lambda 定位由本规范 §10 取代 |
 

@@ -829,4 +829,4 @@ if (parser.Diagnostics.HasErrors) { /* 处理错误 */ }
 
 ---
 
-> IR 映射细节（`do-while`、`??`、`?.`、`enum` 编译策略、`List<T>`/`Dictionary<K,V>` 内置方法）见 [`docs/design/runtime/ir.md`](../runtime/ir.md)。
+> IR 映射细节（`do-while`、`??`、`?.`、`enum` 编译策略、`List<T>`/`Dictionary<K,V>` 内置方法）见 [`docs/internals/src/formats/ir.md`](../../internals/src/formats/ir.md)。

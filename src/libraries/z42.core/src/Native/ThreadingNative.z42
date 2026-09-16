@@ -28,7 +28,7 @@ public static class ThreadNative {
 // RwLockNative / ChannelNative 把值存进 Rust 侧容器、GC 看不见，已删除。
 // 语义：Enter 阻塞且同线程重入抛异常；TryEnter 不阻塞（被任何线程持有即 false）；
 // Exit 非持有者抛异常；Wait 原子地释放 → 等一次 Exit 的信号 → 重新持有，**允许伪唤醒**，
-// 调用方必须 `while (!条件) Wait(m)`。机制见 docs/book/src/runtime/sync-primitives.md。
+// 调用方必须 `while (!条件) Wait(m)`。机制见 docs/internals/src/runtime/sync-primitives.md。
 public static class MonitorNative {
     [Native("__monitor_new")]
     public static extern object New();

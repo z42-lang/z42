@@ -11,7 +11,7 @@ z42c 现在**零 IR 优化**（朴素 codegen；全仓无 const-fold/DCE/copy-pr
 - **interp 逐条 dispatch 朴素 IR**——没有 Cranelift 兜底,IR 里每条冗余指令,interp 每次迭代都多一次解释开销。
 - z42c 的 SSA-lite lowering **系统性地** emit 冗余 `CopyInstr`:每个命名局部赋值都是 `temp = expr; Copy(local, temp)`（`ExprEmitter.z42:546/558`、`FunctionEmitter.z42:421/581`,只跳过自拷贝）。
 
-**这是 interp 性能的主要地基缺口**。按 book [optimization-pipeline](../../../book/src/runtime/optimization-pipeline.md) **准则 1（interp-first）**:IR 层优化以「减少 interp dispatch 条数」为第一目标,而 JIT 的 const-fold/DCE 由 Cranelift 兜底 → 这层优化的**最大受益者是 interp**。
+**这是 interp 性能的主要地基缺口**。按 book [optimization-pipeline](../../../internals/src/runtime/optimization-pipeline.md) **准则 1（interp-first）**:IR 层优化以「减少 interp dispatch 条数」为第一目标,而 JIT 的 const-fold/DCE 由 Cranelift 兜底 → 这层优化的**最大受益者是 interp**。
 
 **寄存器模型给了低垂果实**:表达式临时寄存器**单赋值**（每 temp 全新 `Alloc`,不复用）→ copy-prop / temp-DCE / const-fold **几乎不需分析**即可安全做;命名局部变量重赋值（需 def-use）留后。
 
@@ -37,7 +37,7 @@ pass 框架可扩展（后续加 CSE、局部变量 DCE 等作为新 pass）。
 | `src/libraries/z42.ir/src/IrModule.z42` | MODIFY | 若 pass 需要指令级 def-use 辅助（读/写寄存器查询） |
 | `src/compiler/z42c.semantics/src/IrGen.z42` | MODIFY | `Generate` 末尾调用 IrOptPipeline（emit 后、返回前） |
 | `src/libraries/z42.ir/src/IrOpt/*_tests.z42` | NEW | 各 pass 单测（前后 IR 指令数/语义对比） |
-| `docs/book/src/runtime/optimization-pipeline.md` | MODIFY | 补「机制/实现」节：三 pass 算法 + 单赋值前提 |
+| `docs/internals/src/runtime/optimization-pipeline.md` | MODIFY | 补「机制/实现」节：三 pass 算法 + 单赋值前提 |
 | `src/libraries/z42.ir/README.md` | MODIFY | 功能索引加 IrOpt |
 
 **只读引用**：

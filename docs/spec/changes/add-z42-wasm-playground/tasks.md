@@ -78,7 +78,7 @@
   - dotnet publish src/toolchain/playground/server -c Release -o artifacts/playground/server
   - cd src/toolchain/playground/web && npm install && npm run build
   - 输出汇总到 `artifacts/playground/{wasm, server, web}`
-- [ ] 5.2 MODIFY `docs/design/runtime/embedding.md` — 加 `### Playground` 一节说明 wasm 分发产物
+- [ ] 5.2 MODIFY `docs/internals/src/runtime/embedding.md` — 加 `### Playground` 一节说明 wasm 分发产物
 - [ ] 5.3 MODIFY `docs/roadmap.md` — playground 标已落地（"workflow / 工具链" 段）
 - [ ] 5.4 NEW `src/toolchain/playground/README.md` — 总览：架构图 + 三 component 各自怎么 build + 怎么本地起 + 怎么 deploy
 

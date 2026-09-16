@@ -136,9 +136,9 @@ jump）追加 block-param arg。**故不必手工 threading block-param、不必
 | `src/runtime/src/jit/helpers/*.rs` | — | 只读参考 | Category-B 边界不变（本 change 只改「调用前 spill」侧，不改 helper 签名/ABI）|
 | `src/runtime/src/metadata/types_tests.rs` | 2.0 | MODIFY | 若常量集中，pin 测试引用点跟随 |
 | `src/runtime/src/jit/mod.rs` / `bench` | 2A+ | NEW | 把「非可提升窄整数/标量热循环」收进 criterion/scenario 锁收益 |
-| `docs/book/src/runtime/jit-lazy-compile.md` | 每 phase | MODIFY | 新增「标量 unbox / 寄存器驻留」机制节（数据结构、spill 汇点表、OSR 重载、mermaid）|
+| `docs/internals/src/runtime/jit.md` | 每 phase | MODIFY | 新增「标量 unbox / 寄存器驻留」机制节（数据结构、spill 汇点表、OSR 重载、mermaid）|
 
-**只读引用**：`docs/design/runtime/ir.md`、`metadata/ir_type.rs`、`metadata/bytecode.rs`（REGT 加载）。
+**只读引用**：`docs/internals/src/formats/ir.md`、`metadata/ir_type.rs`、`metadata/bytecode.rs`（REGT 加载）。
 
 ## Out of Scope（本 change 不做）
 

@@ -3,8 +3,8 @@ paths:
   - "src/compiler/z42c.ir/src/BinaryFormat/**"
   - "src/compiler/z42c.project/src/**"
   - "src/runtime/src/metadata/**"
-  - "docs/design/runtime/zbc.md"
-  - "docs/design/runtime/zpkg.md"
+  - "docs/internals/src/formats/zbc.md"
+  - "docs/internals/src/formats/zpkg.md"
   - "src/tests/zbc-format/**"
   - "src/tests/zpkg-format/**"
 ---
@@ -48,7 +48,7 @@ paths:
 2. **`zbc_reader.rs`**（`src/runtime/src/metadata/`）— `ZBC_VERSION_MINOR` 同步到新值（**同时改钉值单测**
    `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`——它们只在
    `cargo test --lib` 里跑，`xtask test` 不包含，2026-09-13 encode-ctorless-objnew 差点漏掉）；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
-3. **`docs/design/runtime/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
+3. **`docs/internals/src/formats/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/tests/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
 
    > 🔒 **CI 有门（`refresh-format-fixtures`，2026-09-04 起）**：`compile-test-assets` job 在 `build test`
@@ -81,11 +81,11 @@ xtask test compiler    # z42c golden hex 单测
 
 ## zpkg 联动规则（强耦合）
 
-**zbc minor bump 必须同步 bump zpkg minor**（zpkg 内嵌 zbc，见 `docs/design/runtime/zpkg.md`）。在上述 5 步外加：
+**zbc minor bump 必须同步 bump zpkg minor**（zpkg 内嵌 zbc，见 `docs/internals/src/formats/zpkg.md`）。在上述 5 步外加：
 
 6. **`ZpkgWriter.z42`**（`src/libraries/z42.ir/src/`）— `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
 7. **`zbc_reader.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
-8. **`docs/design/runtime/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
+8. **`docs/internals/src/formats/zpkg.md`** — Minor changelog 加一行（触发 spec = 同次 zbc bump 的 spec）。
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
    每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**（refresh-format-fixtures，2026-09-04）：
    `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar。

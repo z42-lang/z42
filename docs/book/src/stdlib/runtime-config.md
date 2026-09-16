@@ -2,7 +2,7 @@
 
 > 对齐：2026-09-05。代码：`src/libraries/z42.core/src/Runtime/RuntimeConfig.z42`
 > （builtin 在 `src/runtime/src/corelib/config.rs`）。机制全貌见
-> [运行时设置](../runtime/runtime-settings.md)。
+> [运行时设置](../../../internals/src/runtime/runtime-settings.md)。
 
 ## 为什么不是直接读环境变量
 
@@ -90,5 +90,5 @@ void Main() {
 
 ## 关联
 
-- [运行时设置](../runtime/runtime-settings.md)——五层链、旋钮登记表、可用性与诊断
+- [运行时设置](../../../internals/src/runtime/runtime-settings.md)——五层链、旋钮登记表、可用性与诊断
 - change `complete-runtime-settings`（引入）/ `launcher-forwards-set`（本页补齐）

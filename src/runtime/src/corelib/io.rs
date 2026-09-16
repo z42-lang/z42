@@ -35,7 +35,7 @@ thread_local! {
 /// Process-global stdout / stderr sink installed by the embedding API.
 /// `None` → no host sink configured (the default).
 ///
-/// Spec: docs/design/runtime/embedding.md §8 (stdout / stderr 重定向).
+/// Spec: docs/internals/src/runtime/embedding.md §8 (stdout / stderr 重定向).
 pub struct HostSink {
     pub callback: unsafe extern "C" fn(bytes: *const c_char, length: usize, user_data: *mut c_void),
     pub user_data: *mut c_void,

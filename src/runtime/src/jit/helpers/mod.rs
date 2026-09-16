@@ -4,7 +4,7 @@
 /// Architecture
 /// ------------
 /// * Each `Instruction` category lives in its own submodule, mirroring
-///   the interpreter's `interp/exec_*.rs` split (see `docs/design/runtime/vm-architecture.md`
+///   the interpreter's `interp/exec_*.rs` split (see `docs/internals/src/runtime/vm-architecture.md`
 ///   §"JIT/EE helper 边界")
 /// * `registry.rs` is the single source of truth for the helper set:
 ///   it owns `HelperIds` (one `FuncId` per helper) and the two registration

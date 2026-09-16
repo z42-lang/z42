@@ -4,7 +4,7 @@
 >
 > Spec：[`docs/spec/archive/2026-05-12-add-platform-android/`](../../../../docs/spec/archive/2026-05-12-add-platform-android/)
 > 跨平台契约：[`../README.md`](../README.md)
-> 实现原理：[`docs/design/runtime/embedding.md`](../../../../docs/design/runtime/embedding.md)
+> 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
 > 构建工作流：[`docs/workflow/building/android.md`](../../../../docs/workflow/building/android.md)
 
 把 z42 VM 编进 Gradle AAR 模块，Kotlin / Compose app 引入后一行 `import io.z42.vm.Z42VM` 跑 `.zbc`。

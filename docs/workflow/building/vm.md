@@ -32,7 +32,7 @@ VM 通过文件扩展名分发：`.zbc` 走 `load_zbc`，`.zpkg` 走 `load_zpkg`
 
 ## 执行模式
 
-`--mode` 默认值由 zbc 的命名空间级 `[ExecMode]` 注解决定；命令行 flag 强制覆盖。详见 [`docs/design/runtime/execution-model.md`](../../design/runtime/execution-model.md)。
+`--mode` 默认值由 zbc 的命名空间级 `[ExecMode]` 注解决定；命令行 flag 强制覆盖。详见 [`docs/internals/src/runtime/execution-model.md`](../../internals/src/runtime/execution-model.md)。
 
 | 模式 | 说明 |
 |------|------|
@@ -59,7 +59,7 @@ cargo build --manifest-path src/runtime/Cargo.toml --no-default-features --featu
 
 ## 调试 build
 
-split-debug-symbols 机制（zbc / zpkg sidecar `.zsym`）见 [`docs/design/runtime/vm-architecture.md`](../../design/runtime/vm-architecture.md) "Sidecar 调试符号加载" 段。运行时 VM 自动探测同目录 `.zsym` 并按 build_id 配对合并；trace 内含源码 `file:line:col`。
+split-debug-symbols 机制（zbc / zpkg sidecar `.zsym`）见 [`docs/internals/src/runtime/vm-architecture.md`](../../internals/src/runtime/vm-architecture.md) "Sidecar 调试符号加载" 段。运行时 VM 自动探测同目录 `.zsym` 并按 build_id 配对合并；trace 内含源码 `file:line:col`。
 
 ## 测试
 

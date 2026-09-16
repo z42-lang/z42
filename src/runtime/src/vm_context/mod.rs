@@ -37,7 +37,7 @@
 //! duration of one entry-point invocation and cleared on return. JIT helpers
 //! access fields through `(*jit_ctx).vm_ctx` and call ctx methods.
 //!
-//! See `docs/design/runtime/vm-architecture.md` "VmContext —— 运行时状态归口" 段 for
+//! See `docs/internals/src/runtime/vm-architecture.md` "VmContext —— 运行时状态归口" 段 for
 //! the full state-collapse rationale.
 
 

@@ -3,7 +3,7 @@
 z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 一个目录下最多一个 `*.z42.toml`，支持单工程和多工程工作区两种形态。
 
-> **本文档的边界**：描述用户 manifest 字段（`[build]` / `[[exe]]` / `[dependencies]` / `[workspace]` 等）与构建编排语义。**不描述** `.zbc` / `.zpkg` 二进制格式（归 `compilation.md`）、编译器内部数据结构（归 [`compiler-architecture.md`](../../../design/compiler/compiler-architecture.md)）。
+> **本文档的边界**：描述用户 manifest 字段（`[build]` / `[[exe]]` / `[dependencies]` / `[workspace]` 等）与构建编排语义。**不描述** `.zbc` / `.zpkg` 二进制格式（归 `compilation.md`）、编译器内部数据结构（归 [`compiler-architecture.md`](../../../internals/src/formats/zpkg.md)）。
 
 ---
 

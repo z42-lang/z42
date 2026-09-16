@@ -56,7 +56,7 @@ z42d symbolicate crash.txt --syms symdir/ --syms other.zsym # 多个（目录递
 `--syms` 可重复，值为 `.zsym` 文件**或目录**（目录递归扫 `*.zsym`）。匹配 `at <fn> +0x<off>`
 的帧按 frame-name（含签名，如 `Demo.Boom(int)`）查符号 → 还原 `(file:line:col)`；非帧行透传，
 缺符号保留原行 + stderr 警告（尽力而为，退出码 0）。机制见
-[`docs/design/runtime/zpkg.md`](../../../docs/design/runtime/zpkg.md)（`.zsym` MDBG within-minor 例外）。
+[`docs/internals/src/formats/zpkg.md`](../../../docs/internals/src/formats/zpkg.md)（`.zsym` MDBG within-minor 例外）。
 
 ## 与现有规划的关系（待收敛 —— 规范冲突，已记录）
 

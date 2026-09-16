@@ -69,7 +69,7 @@ Start from what you want to do. The knowledge base is consolidating into
 |--------------|-----------|
 | **Understand the design philosophy** | [`docs/design/philosophy.md`](docs/design/philosophy.md) |
 | **Learn the language** (syntax, types, semantics) | [`docs/design/language/language-overview.md`](docs/design/language/language-overview.md) |
-| **Understand execution** (interp / JIT / AOT) | [`docs/design/runtime/execution-model.md`](docs/design/runtime/execution-model.md) |
+| **Understand execution** (interp / JIT / AOT) | [`docs/internals/src/runtime/execution-model.md`](docs/internals/src/runtime/execution-model.md) |
 | **Call native code / embed the VM** | [`docs/design/language/interop.md`](docs/design/language/interop.md) |
 
 **Working on z42** — building & contributing:

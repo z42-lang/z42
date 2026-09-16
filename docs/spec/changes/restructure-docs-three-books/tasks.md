@@ -7,7 +7,7 @@
 ## 进度概览
 - [x] **批 0 · 立宪**（PR 待合）
 - [x] 批 1 · internals/compiler（PR 待合）
-- [ ] 批 2 · internals/runtime + formats
+- [x] 批 2 · internals/runtime + formats（PR 待合）
 - [ ] 批 3 · reference/language
 - [ ] 批 4 · reference/stdlib
 - [ ] 批 5 · toolchain + devinfra
@@ -72,18 +72,26 @@
 
 ## 批 2 · internals/runtime + formats
 
-- [ ] 2.1 `book/src/runtime/`(21) 迁入 `internals/src/runtime/`
-- [ ] 2.2 建 `internals/src/formats/`：`zbc.md` `zpkg.md`（← book/compiler）+ `ir.md`（← design/runtime）
-- [ ] 2.3 `design/runtime/` 直迁 11 篇（含 4 篇前瞻，页头标「设计已定 / 未实施」——裁决 11）
-- [ ] 2.4 合并 7 篇（`gc` `safepoint` `diagnostics` `load-context` `native-ext-loader` `ir-specialization` `jit`）
+- [x] 2.1 `book/src/runtime/`(21) 迁入 `internals/src/runtime/`
+- [x] 2.2 建 `internals/src/formats/`：`zbc.md` `zpkg.md`（← book/compiler）+ `ir.md`（← design/runtime）
+- [x] 2.3 `design/runtime/` 直迁 11 篇（含 4 篇前瞻，页头标「设计已定 / 未实施」——裁决 11）
+- [x] 2.4 合并 7 篇（`gc` `safepoint` `diagnostics` `load-context` `native-ext-loader` `ir-specialization` `jit`）
       —— **book 是主干，design 只贡献增补**，逐篇按清单取舍
-- [ ] 2.5 **抢救判定**（裁决 9）：`vm-architecture.md`(1212行，对齐停在 05-20) 先判定还剩多少独有内容，
-      再决定当主干页还是拆碎并入
-- [ ] 2.6 删 `design/runtime/{zbc,zpkg}.md`（已迁移的历史壳）
-- [ ] 2.8 **（批 1 移交）** 把 `design/compiler/compiler-architecture.md` 的「跨 zpkg impl 块传播 —
+- [x] 2.5 **抢救判定**：`vm-architecture.md`(1212行) 直迁作 VM 总体架构页——它是唯一的全景页，
+      book 21 页都是专题，没有替代品
+- [x] 2.9 **（核实推翻清单）** 见 [batch2-merge-verification.md](batch2-merge-verification.md)：
+      清单对 **gc / native-ext 两组的主干判断是反的**。`design/gc.md` 的 Safepoint 协议占 706 行、
+      11 个子节逐个在当前 VM 命中（GC mode 37 文件 / write barrier 26 / debug invariants 73 /
+      pause histogram 17 / heap snapshot 74 / finalizer 30），而 book 三页讲的是调参旋钮与 TLAB/SATB
+      ⇒ **design 版作主干**。native-ext 同理（253 行含完整架构，book 版 182 行只有两个范式实例）
+- [x] 2.10 `design/runtime/zbc.md` 的 **Minor changelog 表（79 行）迁入 `formats/zbc.md`** ——
+      `version-bumping.md` 第 3 步明文要求每次 bump 往那张表加行，直接删会让该纪律失去落点；
+      规范同步改指新位置
+- [x] 2.6 删 `design/runtime/{zbc,zpkg}.md`（已迁移的历史壳）
+- [x] 2.8 **（批 1 移交）** 把 `design/compiler/compiler-architecture.md` 的「跨 zpkg impl 块传播 —
       IMPL section + Phase 3 merge」（原文 439–517 行）并入 `formats/zpkg.md`，**同 PR 删除该文件**。
       依据见 [batch1-architecture-verification.md](batch1-architecture-verification.md)
-- [ ] 2.7 链接重指 + `xtask test docs` 绿
+- [x] 2.7 链接重指 + `xtask test docs` 绿
 
 ## 批 3 · reference/language（最大）
 

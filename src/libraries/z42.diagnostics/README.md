@@ -48,7 +48,7 @@ src/runtime/Cargo.toml --release --lib diagnostics`。
 - 日志设计：`docs/design/stdlib/diagnostics.md`（Deferred 段）
 - 堆保留诊断：change `add-heap-retention-diagnostics`（已归档）
 - 运行时计数暴露：change `expose-diagnostics-counters`（脚本性能分析 P1c）；机制见
-  `docs/design/runtime/diagnostics.md` §5
+  `docs/internals/src/runtime/diagnostics-design.md` §5
 - 计数来源（VM 侧）：`src/runtime/src/counters.rs`（`RuntimeCounters`/`ProfileSnapshot`）、
   `src/runtime/src/corelib/diagnostics.rs`（`__diag_counters` builtin）
 

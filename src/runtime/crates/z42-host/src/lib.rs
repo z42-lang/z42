@@ -4,7 +4,7 @@
 //! Tier 2 trades a bit of overhead for `Result`-based error handling,
 //! `Drop`-based cleanup, and `Box<dyn Fn(...)>` sink callbacks.
 //!
-//! Spec: docs/design/runtime/embedding.md (§5 Tier 2 Rust API).
+//! Spec: docs/internals/src/runtime/embedding.md (§5 Tier 2 Rust API).
 //!
 //! ```no_run
 //! use z42_host::{Host, HostConfig, ExecMode};
@@ -58,7 +58,7 @@ pub use z42::host::resolver::ZpkgResolver;
 /// Execution backend. `Default` lets the runtime / `.zbc` metadata
 /// decide; explicit modes fail with `HostError::FeatureOff` if the
 /// runtime was built without that feature (see
-/// `docs/design/runtime/cross-platform.md`).
+/// `docs/internals/src/runtime/cross-platform.md`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum ExecMode {
     #[default]
@@ -90,7 +90,7 @@ pub struct HostConfig {
     /// Optional [`ZpkgResolver`]. Takes precedence over `search_paths`
     /// during `load_zbc` namespace resolution; runtime falls back to
     /// `search_paths` on miss. See
-    /// [`docs/design/runtime/embedding.md §11`].
+    /// [`docs/internals/src/runtime/embedding.md §11`].
     pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
 }
 

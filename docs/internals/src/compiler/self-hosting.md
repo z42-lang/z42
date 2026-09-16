@@ -133,7 +133,7 @@ z42c 自身 7 包不用这些写法 → 旧 byte-identical 门（仅 z42c 自身
 - **效果**：成员从**当前 workspace** 解析其 **toml 声明的**兄弟依赖（`declaredDeps` 过滤未声明项），与输出位置无关。stdlib 等已落在被扫描根的 workspace 去重后**零新增、顺序不变 → 零字节漂移**；单工程构建（`workspaceLibDirs=null`）行为不变。
 - **规则**：除 stdlib（toolchain 自带、自动可用）外，**其他依赖必须在 toml `[dependencies]` 声明**才可解析。远程 / 下载依赖（registry / git URL）暂不支持——见 [Deferred](#deferred--future-work)。
 
-详见 [compiler-architecture.md](../../../design/compiler/compiler-architecture.md) 对应段。
+详见 [compiler-architecture.md](../formats/zpkg.md) 对应段。
 
 ### 运行 / 测试 z42c（单一 flat libs 目录 — 重要）
 

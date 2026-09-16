@@ -9,7 +9,7 @@
 //!   collection control / heap config / finalization / weak refs / observers /
 //!   profiler / stats）
 //!
-//! # Phase 路线（见 `docs/design/runtime/gc.md` "Phase 路线（持续迭代）" 段）
+//! # Phase 路线（见 `docs/internals/src/runtime/gc.md` "Phase 路线（持续迭代）" 段）
 //!
 //! | Phase | 内容 | 状态 |
 //! |-------|------|:---:|
@@ -29,7 +29,7 @@
 //! | 3-OOM | strict OOM 模式（trait `set_strict_oom`；启用后 alloc 越限返 Null 不进 registry/stats）| ✅ |
 //!
 //! 后续可选迭代轨道见
-//! [`docs/design/runtime/gc.md`](../../../docs/design/runtime/gc.md)
+//! [`docs/internals/src/runtime/gc.md`](../../../docs/internals/src/runtime/gc.md)
 //! "GC 后续迭代规划" 段：A 性能（自定义 allocator / mark-sweep / generational
 //! / concurrent）、B 嵌入式工具（OOM 异常 / 软引用 / heap snapshot 导出 /
 //! alloc 站点追踪 / pause 直方图）、C 测试质量（debug invariants / stress 压测）、

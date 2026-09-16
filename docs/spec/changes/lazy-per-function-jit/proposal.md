@@ -47,7 +47,7 @@ translate 全体）。一个只调用少量 stdlib 函数的短命程序，也�
 | `src/runtime/src/jit/helpers/control.rs` | MODIFY | `#[cfg(test)] make_jit_ctx` 构造 `JitModuleCtx` 字面量随结构体变更同步 |
 | `src/runtime/src/jit/lazy_tests.rs` | NEW | 单测：首调编译 / 未调不编 / 多线程首调串行化 |
 | `src/runtime/src/jit/README.md` | MODIFY | 功能索引 + 核心文件 + 测试段同步 lazy 策略 |
-| `docs/book/src/runtime/jit-lazy-compile.md` | NEW | 惰性编译机制页（数据结构 / 首调流程 / 线程安全 / 决策权衡，配伪代码） |
+| `docs/internals/src/runtime/jit.md` | NEW | 惰性编译机制页（数据结构 / 首调流程 / 线程安全 / 决策权衡，配伪代码） |
 | `docs/book/src/SUMMARY.md` | MODIFY | 挂入新页 |
 | `docs/spec/changes/ACTIVE.md` | MODIFY | 登记 runtime 锁持有者 |
 
