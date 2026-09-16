@@ -48,14 +48,14 @@ worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责�
 [一句话：本 PR 做什么、为什么]
 
 ## 验证
+base: <本轮 GREEN 基于的 main sha>          # §3.1 强制：没有它，审阅者无从判断绿灯还算不算数
 [GREEN 状态：`xtask test` 全绿，或列关键 stage 结果 / 对账证据（如自举字节不动点 gen1==gen2）]
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
 - **标题**沿用 commit summary 格式 `type(scope): 描述`（见 [commit-log.md](commit-log.md)），与首个 / 主 commit 一致。
-- **页脚 `🤖 Generated with [Claude Code](https://claude.com/claude-code)` 是 PR body 必附项**——与
-  commit 的 `Co-Authored-By: Claude …` 页脚（[commit-log.md](commit-log.md)）对称：一个标记提交、一个标记 PR。
+- **页脚必附**（与 commit 的 `Co-Authored-By` 对称）：格式见 [commit-log.md「页脚」](commit-log.md)。
 - 多 commit 的 PR，body 的 What/Why 概述整条 PR，不复述每个 commit。
 
 ---
@@ -182,10 +182,8 @@ git push origin --delete <branch>           # 远程分支
 - 删自己这条已合并 PR 的分支 / worktree 属**默认授权**，无需再问 User（不同于 force-push / 删他人分支，
   那些仍需单独确认，见 [workflow.md 阶段 6.5 边界声明](workflow.md)）。
 - worktree 若有未提交改动，`git worktree remove` 会拒绝——先确认没漏东西再删。
-- **合并后只做「清理」，不做「补内容」**：归档（`changes/`→`archive/`）、tasks.md 改 🟢、伴随代码的
-  文档同步都是 PR **内**的事，必须随 PR 一起合并，**禁止 PR 合并后再单独 push 一个 `docs: 归档` /
-  `docs: 补文档` 到 main**。合并后往 main 直推的唯一合法内容是与任何 change 无关的纯文档独立工作。
-  详见 [workflow.md 阶段 9 铁律](workflow.md) 与 [commit-log.md](commit-log.md)。
+- **合并后只做「清理」，不做「补内容」**——归档与文档同步都是 PR **内**的事。
+  完整论证见 [workflow.md 阶段 9 铁律](workflow.md)。
 
 ---
 

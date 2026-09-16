@@ -35,7 +35,7 @@
 ### 完整 gate 的 stage 流水
 
 > **本节是 GREEN gate stage 组成的唯一权威清单（SoT，§4.4）。** 其他文档
-> （`scripts/README.md`、`.claude/rules/workflow.md`、`docs/workflow/ci.md`）一律
+> （`scripts/README.md`、`../../../agent/rules/workflow.md`、`docs/workflow/ci.md`）一律
 > 「跑 `xtask test`，stage 组成见此」+ 链接，不再各自复列（历史上复列 5-6 处、已互相漂移
 > ——有的漏 vscode-syntax、有的把 stdlib 写成 `test lib`）。改 gate 组成 → 只改这里。
 >
@@ -104,7 +104,7 @@ graph LR
 的 debug 断言覆盖不丢，pole 消失（~18→2-3min）。`--toolchain` 消费路径只带 release VM，编译+运行同为它。
 （`vscode-syntax` 守生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 +
 模板」的重渲染——Lexer 加关键字未 `deps install vscode` 重新生成即红，性质同自举不动点。）
-（`lines` 守 [code-organization.md](../../../../.claude/rules/code-organization.md) 的文件行数上限（add-line-count-lint），
+（`lines` 守 [code-organization.md](../../../agent/rules/code-organization.md) 的文件行数上限（add-line-count-lint），
 **两档**：**硬限 886 行** —— 不在基线的新越界文件、或比基线更长的已知越界文件 → **红**；
 **软限 500 行** —— 只打一行 advisory 计数，**不进棘轮、不阻断**
 （`_lineLimitHard()` / `_lineLimitSoft()`，`scripts/test/xtask_test_lines.z42`）。

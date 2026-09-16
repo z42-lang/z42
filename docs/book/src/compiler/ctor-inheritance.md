@@ -52,7 +52,7 @@ process(C):
 `IdentExpr("$macro:<name>")`，`ParamsFrom` 还原 `params`。
 
 **确定性**：继承来的构造器谁拿裸键（primary）决定字节，所以候选按「基类 primary 在前、其余按注册键」排序，
-不依赖 `StrMap` 的槽位顺序（[跨语言共同陷阱 §1](../../../../.claude/rules/common-pitfalls.md)）。
+不依赖 `StrMap` 的槽位顺序（[跨语言共同陷阱 §1](../../../agent/rules/common-pitfalls.md)）。
 
 ## 绑定期：初始化调用
 

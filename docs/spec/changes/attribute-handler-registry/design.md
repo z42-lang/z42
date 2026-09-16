@@ -651,7 +651,7 @@ harness 只用已验证原语（`__load_module` / `Type.GetType` / `Activator.Cr
 > ② 那次实测之后 main 上合过若干改动 dep 解析的修复（如 #595「本包跨-ns 自有类不算跨包依赖」）。
 > 谁是主因没查。**若将来不动点再红，这条是第一嫌疑人，回到这里。**
 >
-> `ci-bootstrap` §1.5「每代构建前清空 artifacts」**照旧保留**（见 `.claude/rules/bootstrap-seed.md`）——
+> `ci-bootstrap` §1.5「每代构建前清空 artifacts」**照旧保留**（见 `../../../agent/rules/bootstrap-seed.md`）——
 > 它让两代之间根本不存在陈旧读，正好也是本守卫在那条路径上的兜底。
 
 #### VM golden 揪出的两个 PR4a/4c 潜伏真 bug（此前只测到 typecheck 层、从未测运行期）

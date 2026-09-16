@@ -268,7 +268,7 @@ private readonly Dictionary<string, List<ExportedModule>> _cache;
 
 **问题（根因）**：第 1/2 条的 workspace 布局把 `artifacts/build/libraries/` **硬编码**为唯一会扫描的 workspace 输出根。stdlib 兄弟依赖能解析纯属巧合——stdlib 恰好输出到那里。引入第二个 workspace（`src/compiler/` 自举编译器，输出 `artifacts/build/z42c/`）后，`z42c.syntax` 声明依赖 `z42c.core` 却扫不到 → `E0602: no loaded package provides this namespace`。
 
-**修复（精准、隔离、零字节漂移）**：`WorkspaceBuildOrchestrator.Build` 收集**本 workspace** 全体成员的 `EffectiveDistDir`（排序去重），经 `CompileMember`（Func 第 3 形参）→ `RunResolved` → `BuildTarget` → `BuildLibsDirs` 的 `workspaceLibDirs` 形参透传；`BuildLibsDirs` 在第 1/2 条扫描**之后**、按**规范化 full-path 去重**追加，并**排序**（[common-pitfalls.md §1](../../../.claude/rules/common-pitfalls.md) 确定性——dirs 顺序喂给 first-wins nsMap / BuildDepIndex）。
+**修复（精准、隔离、零字节漂移）**：`WorkspaceBuildOrchestrator.Build` 收集**本 workspace** 全体成员的 `EffectiveDistDir`（排序去重），经 `CompileMember`（Func 第 3 形参）→ `RunResolved` → `BuildTarget` → `BuildLibsDirs` 的 `workspaceLibDirs` 形参透传；`BuildLibsDirs` 在第 1/2 条扫描**之后**、按**规范化 full-path 去重**追加，并**排序**（[common-pitfalls.md §1](../../agent/rules/common-pitfalls.md) 确定性——dirs 顺序喂给 first-wins nsMap / BuildDepIndex）。
 
 效果：成员从**当前 workspace** 解析其 **`[dependencies]` 声明的**兄弟依赖（`ScanLibsForNamespaces` 的 `declaredDeps` 过滤未声明项），与该 workspace 输出位置无关。**零字节漂移保证**：已落在被扫描根的 workspace（stdlib），其成员 dist 早在 `dirs` 里 → 规范化去重后不新增条目、顺序不变 → nsMap / BuildDepIndex 内容与顺序不变。单工程构建 `workspaceLibDirs=null` → 行为完全不变。远程/下载依赖暂不支持（[self-hosting.md Deferred](self-hosting.md#deferred--future-work)）。
 
@@ -338,7 +338,7 @@ ResolveTypeName 里走 `_ => new Z42PrimType(name)` fallback，被降级。
 下游 IsAssignableTo 比较 `Z42ClassType vs Z42PrimType` same-name 不通过 →
 用户代码 `outer.InnerException = inner` 报 E0402。
 
-按 [.claude/rules/philosophy.md "修复必须从根因出发"](../../.claude/rules/philosophy.md#修复必须从根因出发2026-04-26-强化)，
+按 [../../agent/rules/philosophy.md "修复必须从根因出发"](../../agent/rules/philosophy.md#修复必须从根因出发2026-04-26-强化)，
 **禁止在 IsAssignableTo 加 PrimType↔ClassType 同名兼容分支**（症状级补丁）。
 两阶段加载是经典 C# / Java 编译器的"先建骨架再填字段"做法，从源头物理消除降级。
 
@@ -763,7 +763,7 @@ add-z42-json 加 JsonValue 类时与 TomlValue / Dictionary 多处 method 名共
 - **NudTable**（null denotation）：从哪个 token **开始** 表达式 —— 字面量、前缀运算符、`(`、`new`、lambda 等
 - **LedTable**（left denotation）：在已有表达式后接什么 token —— 二元运算符、`.`（member）、`[`（index）、`(`（call）、`?:`、`switch`、postfix `++`/`--`
 
-**优先级**（binding power）：见 `.claude/rules/compiler-z42c.md` 的 Pratt 表。
+**优先级**（binding power）：见 `../../agent/rules/compiler-z42c.md` 的 Pratt 表。
 
 ### Z42Type record 结构 equality（2026-05-03 fix-z42type-structural-equality）
 
@@ -1379,7 +1379,7 @@ if (opMs != null) {
 - `docs/design/compiler/compilation.md` — 构建流程（manifest → zpkg 的用户视角）
 - `docs/design/runtime/zbc.md` — `.zbc` 二进制格式
 - `docs/design/language/namespace-using.md` — namespace / using 的语言规则
-- `.claude/rules/compiler-z42c.md` — z42c 编译器开发规范（子包结构 + Lexer / Parser / AST 约定）
+- `../../agent/rules/compiler-z42c.md` — z42c 编译器开发规范（子包结构 + Lexer / Parser / AST 约定）
 
 ---
 

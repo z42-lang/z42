@@ -450,7 +450,7 @@ z42c --assemble foo.zasm -o foo.zbc
 
 ## 版本兼容性
 
-**Strict-pin 政策**（与 [`philosophy.md` "不为旧版本提供兼容"](../../../.claude/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化) 对齐）：
+**Strict-pin 政策**（与 [`philosophy.md` "不为旧版本提供兼容"](../../agent/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化) 对齐）：
 
 - Reader 仅接受 `major == ZbcWriter.VersionMajor && minor == ZbcWriter.VersionMinor`。pre-1.0 z42 阶段**不为旧 zbc minor 提供向前 / 向后兼容**；每次 minor bump = 所有现存 zbc artifacts 必须 regen（`./xtask build test`）。
 - **当前版本**：`major=1, minor=27`（详见下方 minor changelog）
@@ -507,7 +507,7 @@ z42c --assemble foo.zasm -o foo.zbc
 | 1.41 | 2026-09-15 | [fix-imported-iface-static-fidelity](../../spec/changes/fix-imported-iface-static-fidelity/) | **接口方法块新增 `is_static:u8`**（TYPE 段 `CLASS_FLAG_INTERFACE` bit4 gated 的接口方法块，每方法在 `pcount` 之后、`ptype`s 之前）。镜像 SIGS 早有的 `is_static` 专用字节。此前接口方法块只携 `name/ret/pcount/ptypes`、**零 flags 字节** ⇒ `static abstract` 接口成员的静态位一路丢成 false（`TsigReconcile._rebuildInterface` 硬编码 `isStatic=false`），迫使 `InheritanceResolver` 用 `if (it.IsImported) return;` 临时守卫跳过导入接口的 static 满足性校验（#636）。承载真值后：`TsigReconcile` 用 wire 值构造 `ExportedMethodZ`（`isVirtual=!isStatic`、`isAbstract=true` 派生）、导入侧 `mz.IsStatic` 恢复真值、删守卫 ⇒ 导入接口获完整 static/可见性/返回满足性校验。VM 侧 **read-and-consume**（保游标对齐；vtable 派发不需要它，`IfaceMethodSig.is_static` 供未来 `MethodInfo.IsStatic` 反射）。耦合 zpkg 0.46。Pre-1.41 zbc 不可读 |
 | 1.42 | 2026-09-16 | [assoc-type-crosspkg](../../spec/changes/assoc-type-crosspkg/) | **跨包关联类型**（associated types across zpkg）：两处 wire 新增，承载此前一个字节没进 wire 的三份数据。① **约束 bundle 新增 bit7 = `has_assoc_binding`**（`assoc_count:u8 + (name_idx:u32, type_idx:u32)×n`，在 iface 列表之后）——承载 `where T:IEnum<Item=int>` 的绑定要求。② **每条 TYPE 记录尾部新增 always-present 统一 assoc 块**（`assoc_count:u16 + (name_idx:u32, type_idx:u32)×n`）——接口写 `(Item, "")` = 声明的关联类型名单、类写 `(Item, int)` = 类侧绑定；消费端按 `class_flags & CLASS_FLAG_INTERFACE` 路由。此前接口关联类型名单（`Z42InterfaceType.AssocTypeNames`）+ 类侧绑定（`Z42ClassType.AssocBinding`）+ 约束绑定（`ConstraintBundle.AssocBinding`）**全无 wire 承载**，跨包 100% 丢失，迫使 `ConstraintChecker`/`InheritanceResolver` 三处 `IsImported` 守卫保守跳过。承载后：`TsigReconcile`/`ImportedSymbolLoader` 恢复三份数据、删三守卫 ⇒ 跨包关联类型获与同包一致的完整校验（正确绑定放行、错/缺绑定 E0453）。关联类型是**纯编译期**概念，VM 侧两处新载荷均 **read-and-consume**（`validate_type_arg_constraint` 无关联类型分支）。耦合 zpkg 0.47。Pre-1.42 zbc 不可读 |
 
-> **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../../.claude/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `xtask build test` regen（原地重生 6 个 zbc-format fixture）+ commit。Invariant CI 校验三方常量一致。
+> **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](../../agent/rules/version-bumping.md#bumping-zbc-minor-versionfreeze-zbc-v1-2026-05-14)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `xtask build test` regen（原地重生 6 个 zbc-format fixture）+ commit。Invariant CI 校验三方常量一致。
 
 ### Token 编码（v1.0+）
 

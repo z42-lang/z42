@@ -34,7 +34,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 - **IR**：寄存器 SSA 形式
 - **执行模式注解**：作用于命名空间级
 - **`.zbc` magic**：`ZBC\0`
-- **pre-1.0 不承诺向后兼容**（与 [`philosophy.md` "不为旧版本提供兼容"](../.claude/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化) 对齐）
+- **pre-1.0 不承诺向后兼容**（与 [`philosophy.md` "不为旧版本提供兼容"](agent/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化) 对齐）
 - **1.0+ 启用 SemVer + deprecation 周期**
 
 ---
@@ -350,7 +350,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ## Deferred Backlog Index
 
-> 所有显式延后特性的横向索引；条目正文存于对应 design doc 的 "Deferred / Future Work" 段。新增延后项时：① 在对应 design doc 加条目 ② 在本表加索引行。规则见 [`.claude/rules/philosophy.md`](../.claude/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
+> 所有显式延后特性的横向索引；条目正文存于对应 design doc 的 "Deferred / Future Work" 段。新增延后项时：① 在对应 design doc 加条目 ② 在本表加索引行。规则见 [`agent/rules/philosophy.md`](agent/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
 
 ### 设计期延后
 

@@ -513,7 +513,7 @@ callback 的 `*out_bytes` 缓冲**仅在 callback 调用期间有效**。运行�
 
 ### 11.7.1 namespace 归属来自 NSPC（无 index 文件）
 
-一份 zpkg 通常提供**多个** namespace（如 `z42.core.zpkg` 同时 ship `z42.core` / `Std` / `Std.Exceptions`），不能假设 `namespace == 文件名`。早期版本用一张手维护的 `index.json`（namespace → 文件名）表达这层映射，但它是 zpkg `NSPC` section 之外的**第二真相源**、易漂移（[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)）。`drop-index-json-self-describing` 删掉 `index.json`：归属一律由各 zpkg 的 `NSPC` section 权威表达，resolver 枚举可见 zpkg、读 NSPC 自建 namespace → bytes 表。
+一份 zpkg 通常提供**多个** namespace（如 `z42.core.zpkg` 同时 ship `z42.core` / `Std` / `Std.Exceptions`），不能假设 `namespace == 文件名`。早期版本用一张手维护的 `index.json`（namespace → 文件名）表达这层映射，但它是 zpkg `NSPC` section 之外的**第二真相源**、易漂移（[common-pitfalls §1](../../agent/rules/common-pitfalls.md)）。`drop-index-json-self-describing` 删掉 `index.json`：归属一律由各 zpkg 的 `NSPC` section 权威表达，resolver 枚举可见 zpkg、读 NSPC 自建 namespace → bytes 表。
 
 - **读取 helper**：`z42_zpkg_read_namespaces(bytes, len, visit, user_data)`（C ABI，visitor 回调每个 namespace）/ wasm `readNamespaces(bytes)` 导出 / `Z42VM.readNamespaces`（Android JNI）—— 让 Swift / Kotlin / JS 不必重写 zpkg 解析（Rust 内部 `read_zpkg_namespaces` 已存在）
 - **生成**：`./xtask build stdlib` 产 flat view 时**不再写** index 文件

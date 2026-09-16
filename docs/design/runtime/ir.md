@@ -342,7 +342,7 @@ JSON wire format (tag = `"op"`):
 
 `obj_new` 分配 `ScriptObject`（slot-indexed 字段）后用 `[this, ...args]`
 调用。0.7 起 `ctor_name` 字段必备，0.6 及更早 zbc 不再被支持
-（按 [`.claude/rules/philosophy.md "不为旧版本提供兼容"`](../../../.claude/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化)）。
+（按 [`../../agent/rules/philosophy.md "不为旧版本提供兼容"`](../../agent/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化)）。
 
 0.9（2026-05-07，add-default-generic-typeparam）起，`obj_new` 携带 **resolved
 type-args 列表**（如 `new Foo<int>()` → `["int"]`），VM 在分配实例后写入

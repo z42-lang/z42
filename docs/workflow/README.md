@@ -1,6 +1,6 @@
 # docs/workflow/
 
-**面向开发者：怎么跑命令。** 设计原理归 [`docs/design/`](../design/)；spec 提案流程归 [`.claude/rules/workflow.md`](../../.claude/rules/workflow.md)。
+**面向开发者：怎么跑命令。** 设计原理归 [`docs/design/`](../design/)；spec 提案流程归 [`../agent/rules/workflow.md`](../agent/rules/workflow.md)。
 
 ## 先拿到 z42
 

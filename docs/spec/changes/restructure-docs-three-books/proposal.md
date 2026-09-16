@@ -8,7 +8,7 @@
 |---|---|---|
 | design → book 迁移 | 迁完即删 | **81 篇迁了 2 篇（2.5%）** |
 | design 停止写入（D2） | 不再往里写 | `design/runtime/zbc.md` **2026-09-16 仍在改**（book 对应页停在 07-19）——两份并行漂移 |
-| 规范集中 | 全迁 `docs/agent/rules/` | 12 篇留 `.claude/rules/`、4 篇已迁，**并存** |
+| 规范集中 | 全迁 `docs/agent/rules/` | ✅ 已由 `consolidate-agent-rules` 收口（16 篇归一） |
 
 **根因不是执行力，是结构**：book 被定义为「用户 + 维护者 + 大模型」**双受众**，于是实现细节在其中没有一等位置——把 `compiler-architecture.md` 的 1431 行 TSIG / Pratt / BoundVisitor 迁进一本「也给用户看的书」本身就别扭，所以迁不动。同源病症还有：语种策略无法收敛、`workflow/packaging.md` 与 `book/src/dev/packaging.md` 文件名撞车、CI job 表三处并存。
 
@@ -39,7 +39,7 @@
 | **3** | `docs/book/src/language/**`(22) + `docs/design/language/**`(28) → `docs/reference/src/language/**` | RENAME / MODIFY / DELETE |
 | **4** | `docs/book/src/stdlib/**`(4) + `docs/design/stdlib/**`(22) → `docs/reference/src/stdlib/**` | RENAME / MODIFY / DELETE |
 | **5** | `docs/book/src/{toolchain,dev}/**`(12) + `docs/design/{toolchain,testing}/**`(13) + `docs/workflow/**`(25) → `docs/reference/src/toolchain/**` 与 `docs/internals/src/{toolchain,dev}/**` | RENAME / MODIFY / DELETE |
-| **6** | `docs/design/`、`docs/workflow/`（删空壳）；`docs/README.md`、`docs/features.md`、`docs/library_review.md`、`docs/todo-list.md`；`.claude/rules/workflow.md`、`.claude/rules/code-organization.md`（删矩阵拷贝）；全仓链接重指（`src/**/README.md`、`.claude/`、`scripts/README.md`、根 `README.md`） | MODIFY / DELETE |
+| **6** | `docs/design/`、`docs/workflow/`（删空壳）；`docs/README.md`、`docs/features.md`、`docs/library_review.md`、`docs/todo-list.md`；`../../../agent/rules/workflow.md`、`../../../agent/rules/code-organization.md`（删矩阵拷贝）；全仓链接重指（`src/**/README.md`、`.claude/`、`scripts/README.md`、根 `README.md`） | MODIFY / DELETE |
 | **7** | `scripts/test/xtask_test_docs.z42`、`scripts/test/xtask_test.z42`、`docs/internals/src/dev/test-gate.md`、`.github/workflows/ci.yml` | NEW / MODIFY |
 
 **只读引用**：`docs/learn/**`（除链接重指外不动）、`docs/spec/archive/**`、`docs/roadmap.md`（仅批 6 改 Deferred 索引链接）。
@@ -47,7 +47,7 @@
 ## Out of Scope
 
 - **`docs/spec/changes/` 的 118 个未归档 change**（19 个已标 🟢 却仍在 `changes/`）：真实的卫生问题，但属 `docs/spec/` 而非三本书，单开 change 清理。
-- **`.claude/rules/`(12 篇) 与 `docs/agent/rules/`(4 篇) 的收口**：是「规范放哪」的问题，与三书（知识放哪）正交，需 User 先裁决方向。
+- ~~`.claude/rules/` 与 `docs/agent/rules/` 的收口~~ → **已由 change `consolidate-agent-rules` 完成**（User 2026-09-16 裁决「迁回 docs」）：12 篇全部并入 `docs/agent/rules/`，`.claude/CLAUDE.md` 退化为瘦入口。
   ⚠️ 例外：批 0 重写 `doc-system.md`、批 6 删 `workflow.md` / `code-organization.md` 里的矩阵拷贝，这两处**必须**在本次做（否则总纲与拷贝冲突）。
 - **internals 内容的质量重写**：本次只做搬迁 + 合并 + 删重复，不借机重写机制页。
 - **英文版**：reference / learn 的英文版不在本次。

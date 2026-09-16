@@ -6,7 +6,6 @@
       "Skill(next-phase)",
       "Skill(next-phase:*)",
       "WebSearch",
-      "Bash(dotnet *)",
       "Bash(cargo *)",
       "Bash(just *)",
       "Bash(brew *)",
@@ -41,21 +40,16 @@
       "Bash(./scripts/*)",
       "Bash(bash scripts/*)",
       "Bash(bash -n scripts/*)",
-      "Bash(/Users/d.s.qiu/Documents/codesigner-ui/z42/scripts/*)",
       "Bash(./src/tests/zbc-format/generate-fixtures.sh)",
       "Bash(artifacts/build/runtime/release/z42vm *)",
       "Bash(artifacts/build/runtime/debug/z42vm *)",
       "Bash(./artifacts/build/runtime/debug/z42vm *)",
-      "Read(//Users/d.s.qiu/Documents/codesigner-ui/**)",
       "Read(//usr/local/bin/**)",
       "Read(//opt/**)"
     ],
     "additionalDirectories": [
       "/tmp",
-      "/private/tmp",
-      "/Users/d.s.qiu/Documents/codesigner-ui/z42/src/libraries/*",
-      "/Users/d.s.qiu/Documents/codesigner-ui/z42/artifacts/build/libraries/*",
-      "/Users/d.s.qiu/Documents/codesigner-ui/z42/.claude"
+      "/private/tmp"
     ]
   }
 }

@@ -4,7 +4,7 @@
 > （目录级六段制，第二部分）。目标一致：**只链接不复制**、**结构固定**（人和大模型都靠
 > 稳定骨架定位）、**基础自足**（各自层级看完即够用）。
 > 文档体系定位见 [doc-system.md](doc-system.md)；「哪些目录必须有 README」的层级规则归
-> [`code-organization.md`](../../../.claude/rules/code-organization.md)。
+> [`code-organization.md`](code-organization.md)。
 
 ---
 
@@ -20,9 +20,10 @@
 |----|------|------|
 | **仓库门面**（第一部分） | 定位 + 上手 + 快速索引 | 根 `README.md` |
 | **目录说明**（第二部分） | 目录的基础层：干什么 / 怎么用 / 怎么测 | `src/**/README.md` |
-| 知识库（深入层） | 系统"是什么" | `docs/book/` |
+| 参考（查规则） | 规则是什么、有哪些 | `docs/reference/` |
+| 实现内幕（深入层） | 怎么实现的、为什么 | `docs/internals/` |
 | 操作手册 | 具体命令 | `docs/workflow/` |
-| 开发规范 | 怎么干活 | `docs/agent/rules/` + `.claude/rules/` |
+| 开发规范 | 怎么干活 | `docs/agent/rules/` |
 
 **判定铁律**：任何要往 README 加的内容，先问「它属于 book / workflow / rules / roadmap 吗？」
 → 是，就写到那边，README 只留**一条索引行**。这条规则把"README 该放什么"变成机械可判，
@@ -49,7 +50,7 @@
 
 ## 三、内容边界（防漂移，双向纪律）
 
-与 [doc-system.md 第四节](doc-system.md)「两层分工」同款，方向相反的两条都要守：
+与 [doc-system.md 「三本书的角色」](doc-system.md)「两层分工」同款，方向相反的两条都要守：
 
 - README **不展开**设计原理 / 内部机制 / 完整命令清单 / 文件职责表——需要时**一句话 + 链接**。
 - book / workflow **不反抄** README 的定位段与索引表——它们链接回 README，不复制。
@@ -64,7 +65,7 @@
 
 这是根 README 的**核心价值**（"快速索引"）。用「我想做 X → 读 Y」表，**按受众分流**：
 
-- **用户向**（理解设计 / 学语法 / 看特性 / 懂执行模型）→ 指向 `docs/book/` 对应部分概览页
+- **用户向**（学怎么用 → `docs/learn/`；查语法与 API → `docs/reference/`）→ 指向对应部分概览页
 - **开发向**（怎么构建测试 / 协作流程 / 看进度）→ 指向 `docs/workflow/`、`docs/agent/rules/`、
   `docs/roadmap.md`
 
@@ -90,9 +91,9 @@
 
 ## 六、定位与角色
 
-目录 README 是文档四类中的**④ 目录说明**，两层分工（[doc-system.md 第四节](doc-system.md)，D9）
+目录 README 是文档四类中的**④ 目录说明**，两层分工（[doc-system.md 「三本书的角色」](doc-system.md)，D9）
 中的**基础层**：看完即掌握"这个目录干什么、怎么用、怎么开发"的全部基础知识，是**人 review
-AI 实现的落点**；更深的设计与机制在 `docs/book/`，README 链接过去。
+AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README 链接过去。
 
 **判定铁律**：要往目录 README 加的内容，先问「它是设计原理 / 实现机制 / 决策权衡吗？」
 → 是，就写进 book 对应页，README 只留一句话 + 链接。
@@ -122,7 +123,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/book/`，README 链接�
 [指明测本目录跑哪个 stage / 哪些用例，以及看什么算通过]
 
 ## 关联文档
-- 设计 / 机制（深入层）：[book 章节](../../docs/book/src/...)
+- 设计 / 机制（深入层）：[internals 对应机制页](../../internals/src/...)
 - 引入 / 演进：change `<name>`（`docs/spec/changes/` 或已归档）—— 需求 ↔ 迭代可追溯
 
 ## 核心文件
@@ -135,7 +136,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/book/`，README 链接�
 
 ### ① 职责
 - 1–3 句陈述句：做什么 + **不做什么**（边界句防止职责漂移）。
-- ❌ 不写演进史——只描述当前状态（[doc-system.md 第七节](doc-system.md)）。
+- ❌ 不写演进史——只描述当前状态（[doc-system.md 「知识上浮」](doc-system.md)）。
 
 ### ② 功能索引
 - **能力 → 入口**的映射表：一行一能力，能力用动词短语（"解析 packages.toml"），
@@ -159,7 +160,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/book/`，README 链接�
 
 ### ⑥ 核心文件
 - 文件 → 一句话职责。第 3 层目录的 README 在此表覆盖其子目录职责
-  （层级规则见 [`code-organization.md`](../../../.claude/rules/code-organization.md)）。
+  （层级规则见 [`code-organization.md`](code-organization.md)）。
 - ❌ 不列生成物 / 临时文件；❌ 职责描述不复述文件名。
 
 ## 九、人的 review 路径（第二部分服务的核心场景）
@@ -177,8 +178,8 @@ AI 实现的落点**；更深的设计与机制在 `docs/book/`，README 链接�
 ## 十、目录 README 维护触发（何时改哪段）
 
 触发的**总控**是统一维护触发矩阵（现驻
-[`workflow.md` 阶段 9](../../../.claude/rules/workflow.md)，体系定位见
-[doc-system.md 第九节](doc-system.md)）；下表是矩阵中「目录 README」列的段级展开，
+[`workflow.md` 阶段 9](workflow.md)，体系定位见
+[doc-system.md 「三本书的角色」](doc-system.md)）；下表是矩阵中「目录 README」列的段级展开，
 **不新增矩阵之外的触发类型**：
 
 | 改了什么 | 同步哪段 |
@@ -202,13 +203,13 @@ AI 实现的落点**；更深的设计与机制在 `docs/book/`，README 链接�
   长尾细节靠代码与 book 兑现；目录 README **软限 ~100 行**，超出优先删减而非拆分。
   拿不准一条信息该不该进 README，问「人 review / 上手时会用到它吗？」→ 不会就不进。
 - **语种**：根 README 是对外门面，**英文正文**；目录 README 是内部开发材料，**中文正文、
-  关键术语保留英文**（沿用 [doc-system.md 第八节](doc-system.md)）。
+  关键术语保留英文**（沿用 [doc-system.md 「语种」](doc-system.md)）。
 - **只描述当前状态**：不写考古注记、不写"不再是什么"的历史对照（第七节）。
 - **每段首句 = 结论句**；引用代码用 `src/...` 路径 + 符号名，**不写行号**。
 
 ## 十二、与其他规则的关系
 
 - 文档体系顶层地图与"这该写哪份文档"：[doc-system.md](doc-system.md)
-- 哪些目录必须有 README、阅读顺序规则：[`code-organization.md`](../../../.claude/rules/code-organization.md)
-- 维护触发矩阵与归档 doc-check：[`workflow.md` 阶段 9](../../../.claude/rules/workflow.md)
+- 哪些目录必须有 README、阅读顺序规则：[`code-organization.md`](code-organization.md)
+- 维护触发矩阵与归档 doc-check：[`workflow.md` 阶段 9](workflow.md)
 - book 页面写作：[book-writing.md](book-writing.md)

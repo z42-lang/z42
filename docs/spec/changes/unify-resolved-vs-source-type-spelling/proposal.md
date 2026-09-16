@@ -41,7 +41,7 @@
   格式常量住 `z42.ir`，两代自举是 CI 的活，本地是环境墙）。
 - 此后 `type-identity-followups`（E0456 声明位）是**纯诊断、零字节影响**，无可 bump 之物。
 - ⇒ 下一次真正改动持久化内容语义的，就是本 change。届时按
-  [version-bumping.md](../../../.claude/rules/version-bumping.md) 走 zbc + zpkg 双 bump，
+  [version-bumping.md](../../../agent/rules/version-bumping.md) 走 zbc + zpkg 双 bump，
   **两次内容变更（#559 的 FQN + 本次的拼写）合用一次 bump**。
 
 ## 落地要点（开工前须自行复核，别照抄）
@@ -51,7 +51,7 @@
 2. 消费端的键（`ImportedSymbolLoader._resolve` 及其调用者）一并归一。
 3. 门建在 `src/tests/cross-zpkg/`，**必须做退回对照证明它会红**。
 4. 格式 bump 按 checklist 9 步；本地全绿拿不到时以 CI 为准
-   （[bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md)）。
+   （[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）。
 
 ## 为什么当初没顺手做完
 

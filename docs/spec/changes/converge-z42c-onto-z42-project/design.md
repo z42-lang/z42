@@ -36,7 +36,7 @@ z42.project (Z42.Build.Project)              组合式 ProjectManifest/Workspace
 
 ### Decision 3【核心】: 分阶段形态由「present-unconsumed 是否炸自举」实测决定
 **问题（自举死结）：** 两条约束疑似互斥——
-- **种子轴**（[bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md) stdlib-API）：z42c 源一旦 `using Z42.Build.Project`，CI ci-bootstrap 用**上一版 nightly 的种子 stdlib** 编当前 z42c 源 → 种子 stdlib 必须已含 `z42.project.zpkg` → z42.project 须先随一个 nightly 发布。
+- **种子轴**（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md) stdlib-API）：z42c 源一旦 `using Z42.Build.Project`，CI ci-bootstrap 用**上一版 nightly 的种子 stdlib** 编当前 z42c 源 → 种子 stdlib 必须已含 `z42.project.zpkg` → z42.project 须先随一个 nightly 发布。
 - **串味轴**（workspace 注释）：`z42.project.zpkg` 与 `z42c.project.zpkg` 共存于 flat libs → first-wins 炸自举。
 - 若两者都成立：「先发 z42.project」的那个 nightly 里两 zpkg 共存 → 该 nightly 坏 → 不能当种子 → **无解**。
 

@@ -21,7 +21,7 @@ Think First → Spec It → Build It → Archive It
 | 角色 | 职责 |
 |------|------|
 | **User** | 定方向、审批规范、裁决分歧 |
-| **Spec**（`docs/book/` + `docs/spec/`）| 人机合同，实现的唯一依据 |
+| **Spec**（三本书 + `docs/spec/`）| 人机合同，实现的唯一依据 |
 | **Claude** | 自驱执行各阶段；不超 Scope；不猜测歧义 |
 
 **User 介入点只有两个：** ① 规范审批（Proposal + Spec）；② 规范分歧裁决。其余全部 Claude 自驱。
@@ -44,7 +44,8 @@ docs/spec/
     └── YYYY-MM-DD-<name>/
 ```
 
-长期规范（新语法、IR 指令、VM 行为）最终上浮到 `docs/book/`（知识库唯一 SoT），不存在 `docs/spec/` 中。
+长期规范（新语法、IR 指令、VM 行为）最终**上浮到三本书**——按 [doc-system 的三问](doc-system.md)分派：
+用户能看见的规则/API 落 `docs/reference/`，实现机制与决策落 `docs/internals/`。不存在 `docs/spec/` 中。
 
 ### 与 OpenSpec 原版的偏离（z42 本地约定）
 
@@ -55,7 +56,7 @@ docs/spec/
 | **目录名** | `openspec/` | `spec/` | 去掉方法论品牌暗示，名字更中性 |
 | **目录位置** | 仓库根 `openspec/` | `docs/spec/`（2026-05-10 起）| spec 与 design doc 同属"项目文档"范畴；放在 `docs/` 下减少顶层目录数，单一文档目录便于检索 |
 | **archive 位置** | `changes/archive/` 子目录 | `archive/` 与 `changes/` 并列 | archive 不是一个 change；并列使 "进行中 vs 历史" 语义清晰，扫描活跃变更不需排除子目录 |
-| **顶层 specs 库** | `openspec/specs/<capability>/spec.md` 作为系统当前行为的 SoT | 无顶层 `docs/spec/specs/`，长期规范为 `docs/book/` 对应页 | z42 的语言/IR/VM 规范用人类可读的叙事文档组织（给语言使用者读），而非结构化 capability spec；变更归档时知识上浮到 `docs/book/` |
+| **顶层 specs 库** | `openspec/specs/<capability>/spec.md` 作为系统当前行为的 SoT | 无顶层 `docs/spec/specs/`，长期规范为三本书的对应页 | z42 的语言/IR/VM 规范用人类可读的叙事文档组织（给语言使用者读），而非结构化 capability spec；变更归档时知识上浮到三本书 |
 
 这些偏离一经明确，不得在未经讨论的情况下回改 OpenSpec 原版结构。
 
@@ -95,7 +96,7 @@ docs/spec/
 **任一未达成 → 停，回到阶段 1–6 补齐，不得推进代码。**
 
 **常见反例（皆为违规）**：
-- ❌ 只有 `docs/book/` 对应页（长期规范）就开始写代码
+- ❌ 只有三本书里的对应页（长期规范）就开始写代码
   → 长期规范 ≠ `docs/spec/changes/<name>/` 的 proposal/specs/design；两者都必须有
 - ❌ "因为迭代中与 User 逐步沟通了方案，所以跳过 proposal/specs"
   → 对话中的确认不替代 spec；User 审批的是文档，不是聊天记录
@@ -212,13 +213,13 @@ docs/spec/changes/<change-name>/
 | `src/path/to/Foo.z42`    | NEW    | 新增文件 |
 | `src/path/to/Bar.z42`    | MODIFY | 修改 X 字段 / Y 方法 |
 | `src/path/to/Old.z42`    | DELETE | 删除（pre-1.0 直接删，不留兼容） |
-| `docs/book/src/<part>/foo.md` | MODIFY | 同步知识库 |
+| `docs/internals/src/<part>/foo.md` | MODIFY | 同步实现内幕（机制类）|
 | `src/path/to/tests/foo/source.z42` | NEW | 新测试 |
 
 **只读引用**（理解上下文必须读，但不修改；不计入并行冲突）：
 
 - `src/path/to/Existing.z42` — 用于理解 X 行为
-- `docs/book/src/<part>/related.md` — 参考 Y 规则
+- `docs/reference/src/<part>/related.md` — 参考 Y 规则
 
 **变更类型枚举**：`NEW` / `MODIFY` / `DELETE` / `RENAME`（rename 同时占用旧路径 DELETE + 新路径 NEW）。
 
@@ -317,7 +318,7 @@ docs/spec/changes/<change-name>/
 ## Testing Strategy
 - 单元测试：[覆盖点]
 - Golden test：[新增场景]
-- VM 验证：`xtask test`（完整 GREEN gate；stage 组成见 [test-gate.md](../../docs/book/src/dev/test-gate.md)）
+- VM 验证：`xtask test`（完整 GREEN gate；stage 组成见 [test-gate.md](../../book/src/dev/test-gate.md)）
 ```
 
 ---
@@ -351,7 +352,7 @@ docs/spec/changes/<change-name>/
 - [ ] 3.2 xtask test compiler —— z42c 自举全绿
 - [ ] 3.3 xtask test e2e —— 全绿
 - [ ] 3.4 spec scenarios 逐条覆盖确认
-- [ ] 3.5 文档同步（按阶段 9 触发矩阵：目录 README / `docs/book/` / workflow）
+- [ ] 3.5 文档同步（按 [doc-system 三问](doc-system.md)：目录 README / reference / internals）
 - [ ] 3.6 docs/roadmap.md 进度表更新（若有特性完成某 pipeline 阶段）
 
 ## 备注
@@ -416,7 +417,7 @@ docs/spec/changes/<change-name>/
 
 1. **Scope 越界**：实施中发现需要修改授权 Scope 之外的文件 → 回阶段 3 更新当前 spec 的 Scope，或开新 spec
 2. **测试失败超出当前 spec 范围**：发现 pre-existing failure 或外部回归
-3. **规范冲突**：实施中发现两个 spec 的设计相互冲突，或与 `docs/book/`（迁移期含旧 design/）现有规范冲突
+3. **规范冲突**：实施中发现两个 spec 的设计相互冲突，或与三本书里的现有规范冲突
 4. **决策点未覆盖**：spec 中未明确的设计点（如字段命名、错误信息措辞、性能权衡），不得自行决定
 5. **依赖前置变更需调整**：例如 C1 落地后发现 C2 引用的 C1 字段需要重命名
 6. **GREEN 失败**：当前 spec 验证未全绿（参见阶段 8）
@@ -482,32 +483,25 @@ xtask test          # 默认串联所有必跑 stage（完整 GREEN gate）
 单跑某 stage（`xtask test e2e --dir/--file` / `test stdlib <lib>` / `--no-build`
 跳过重建波）缩窄。但 **commit 前最终 GREEN 必须跑完整 `xtask test`**——partial
 验证只算 dev 期快速 iterate，不替代 commit 门禁。
-（注：`--scope`/`--parallel` 是 C# 版 xtask 的旧机制，z42 版尚未实现——见
-[`docs/workflow/testing/README.md`](../../docs/workflow/testing/README.md)；当前只有
-上述 `test changed` / 单 stage / `--no-build` 三种缩窄手段。）
+当前的缩窄手段只有三种：`test changed` / 单 stage / `--no-build`。
 
 裸 `test` 先跑 **regen 构建波**（stdlib + z42c 自建 + golden `.zbc` 基线 + debug VM；
-`--no-build` 可跳过），随后按顺序跑以下 stage（任一失败立刻停）：
+`--no-build` 可跳过），随后按顺序跑全部 stage（任一失败立刻停）。
+
+> **stage 清单不在这里复列。** 唯一 SoT 是 `_gateStageNames()`（`scripts/test/xtask_test.z42`）
+> 与 test-gate 文档的 `gate-stages` 区，两者由门禁逐项对账、不一致即红。
+> 本节曾列 6 个 stage，而 gate 实跑 13 个（漏了 examples / docs / lines）——**复列必漂**，这就是证据。
+
+常用的单 stage（调试期缩窄用，**不替代**完整 `xtask test`）：
 
 ```bash
-# 1. 编译验证（无编译错误）—— z42vm（Rust VM）。z42c（编译器）+ stdlib 由 xtask 在下面的
-#    test stage 内用 z42c 自建
-cargo build --manifest-path src/runtime/Cargo.toml --release
-
-# 2. VM goldens（interp；JIT 由 CI test-vm-jit(linux-x64) 专腿覆盖，job key: vm-jit-consistency）
-xtask test e2e
-
-# 3. 跨 zpkg 端到端（catch / vcall / 元数据跨包行为）
-xtask test e2e --dir cross-zpkg
-
-# 4. stdlib [Test] dogfood（全量 [Test] 用例）
-xtask test stdlib
-
-# 5. z42c 自举（编译器正确性：build 7 子包 + 产物存在 + [Test] units）
-xtask test compiler
-
-# 6. VSCode grammar ↔ Lexer 关键字一致性（生成产物防漂移；Lexer 加关键字未重新生成即红）
-xtask test vscode-syntax
+cargo build --manifest-path src/runtime/Cargo.toml --release   # z42vm（Rust VM）
+xtask test e2e                      # VM goldens（interp）
+xtask test e2e --dir cross-zpkg     # 跨 zpkg 端到端
+xtask test stdlib                   # stdlib [Test] dogfood
+xtask test compiler                 # z42c 自举字节不动点
+xtask test docs                     # 文档死链
+xtask test examples                 # 学习手册 ↔ examples 重放
 ```
 
 > **不要漏跑 cross-zpkg / lib / compiler**。historic regression：cross-zpkg
@@ -535,14 +529,8 @@ xtask test vscode-syntax
 
 ### xtask test 状态：✅ 全绿（N stages）/ ❌ 失败 at <stage>
 
-逐 stage（出现失败时展开）：
-- ✅ cargo build (release) —— z42vm
-- ✅ xtask test e2e: M/M（GREEN gate `test all` 跑 interp；JIT 由 CI test-vm-jit(linux-x64) 专腿 / 本地 `test e2e --mode jit` 覆盖）
-- ✅ xtask test e2e --dir cross-zpkg: K/K
-- ✅ xtask test stdlib: 22/22 lib
-- ✅ xtask test compiler: 7/7 zpkg + units（z42c 自举）
-- ✅ xtask test vscode-syntax（grammar ↔ Lexer 一致）
-- （可选）✅ xtask test dist: P/P
+逐 stage（**出现失败时**才展开——全绿时一行 `✅ 全绿（N stages）` 即可；
+stage 名以 `xtask test` 实际输出为准，不在此复列）
 
 ### Spec 覆盖（若有 spec）
 | Scenario | 实现位置 | 验证方式 | 状态 |
@@ -583,8 +571,9 @@ xtask test vscode-syntax
 2. 移动目录：`docs/spec/changes/<name>/` → `docs/spec/archive/YYYY-MM-DD-<name>/`
 3. **文档同步（统一维护触发矩阵）**：下表是"改了什么 → 必须同步哪些文档"的**唯一 SoT**——
    其他规范只链接此表，不另立分表；"同步到哪一段"的段级展开见各写作规范。逐行核对，
-   本次改动命中的行全部落实。知识类内容一律落 `docs/book/`（旧 `docs/design/` 不再更新；
-   迁移期若对应 book 页尚不存在，直接把该主题新写进 book，顺带完成迁移）。
+   本次改动命中的行全部落实。知识类内容按 [doc-system 三问](doc-system.md)分派：
+   用户能看见的 → `docs/reference/`；实现机制与决策 → `docs/internals/`。
+   ⚠️ `docs/book/` / `docs/design/` / `docs/workflow/` **已冻结只读**，不得往里写。
 
    | 改了什么 | 目录 README（六段） | book | 其他 |
    |---------|--------------------|------|------|
@@ -594,25 +583,14 @@ xtask test vscode-syntax
    | 内部机制 / 架构策略变更（数据结构、算法、加载策略、决策权衡） | — | 对应机制页「机制 / 实现」节 | — |
    | 构建 / 打包 / 调试操作变化 | 基础用法（如涉及） | — | `docs/workflow/` 对应页 |
    | change 归档引入新能力 | 关联文档段登记 change 名 | 所改页页头「对齐」日期刷新 | — |
-   | 新协作规则 / 流程变化 | — | — | `.claude/rules/` 或 `docs/agent/rules/` 对应文件 |
+   | 新协作规则 / 流程变化 | — | — | `docs/agent/rules/` 对应文件 |
    | 语言设计决策变更（设计目标 / phase 归属 / 设计理由） | — | 语言部分对应页 | `docs/features.md` |
 
-   **归档前 doc-check 清单（全部勾上才能进 commit 步骤）：**
-
-   - [ ] 触发矩阵逐行核对，命中行的文档均已更新
-   - [ ] 所改目录的 README 六段齐全、与本次改动对齐（六段制见 [code-organization.md](code-organization.md)）
-   - [ ] 所改 / 新写 book 页：页头「对齐」日期已刷新、代码路径可解析；新页已挂入 `docs/book/src/SUMMARY.md`
-   - [ ] 本次触及文档中的相对链接均可解析（无死链）
-   - [ ] **删 / 改 / 重命名任何命令面（xtask 子命令、CLI verb、工程文件字段、脚本入口）时，`grep -rn "<旧名>" docs/ scripts/ .claude/` 必须清零**（含 workflow 手册 / 死链 / help 文案 / 映射表）——命令面重构的文档半径系统性被低估，这条机械检查是抓漏网的最后一道门
-
-   > **规则：任何改变了外部可见行为、机制、规则或约定的迭代，归档前必须有对应文档落地。**
-   > 无文档 = 未完成，不得进入 commit 步骤。
+   **归档前 doc-check 清单**见 [doc-system.md「三道门」](doc-system.md)的门③——**不在此复列**。
 
 4. **自动提交（无需 User 确认）**，包含以下所有相关文件：
    ```bash
-   git add src/ docs/ examples/ \
-           .claude/ \
-           .gitignore *.md
+   git add <本变更 Scope 内的路径>      # 不是 `git add -A`——一个 commit = 一个逻辑单元
    git commit -m "type(scope): 描述"
    ```
    - `.claude/`（workflow、memory、规则变更）和 `docs/spec/`（proposal、design、spec、tasks、archive；已被 `docs/` 覆盖）**必须纳入提交**，不得遗漏。
@@ -688,6 +666,8 @@ User 说"继续"时，Claude 自动执行：
 **必须停下询问（不得擅自决定）：**
 - 需要改动 Scope 外的文件（**即使在批量授权模式下也必须停**）
 - 发现 Scope 外的 Bug → 记录到 tasks.md 备注，新建独立变更，不顺手修
+  - **例外**：若它就是本变更要解决的问题的**根因**，按 [philosophy.md「系统性修复 vs Scope 控制」](philosophy.md)
+    停下报告 + 请求 Scope 扩展，User 批准后从根因修——别在症状层打补丁
 - 规范未覆盖的接口 / 架构选择
 - Done Condition 不明确
 - 批量授权模式下任一中断条件触发（参见阶段 6.5"批量授权的中断条件"）
@@ -766,7 +746,7 @@ tasks.md 顶部：
   - 参见本文件顶部 **🔴 Spec-First Self-Check** 小节 — lang/ir/vm 变更开工前逐项核对
   - **反例**（曾在 2026-04-24 静态抽象接口成员变更中发生）：只建 `tasks.md` +
     长期规范文档就开始实施，把聊天中的逐步确认当作 spec 审批；
-    归档时被发现违规。纠正：长期规范（`docs/book/`）与 `docs/spec/changes/<name>/`
+    归档时被发现违规。纠正：长期规范（三本书）与 `docs/spec/changes/<name>/`
     变更规范是**两份独立文档**，lang/ir/vm 变更两者都必须存在
 
 - **验证未全绿时 commit / push**

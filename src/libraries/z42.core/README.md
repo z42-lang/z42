@@ -101,7 +101,7 @@ assembly，源码在 `System/Collections/Generic/List.cs`，namespace 独立分�
 ### List<T> 尺寸例外（2026-09-02 add-list-dict-lookup-family）
 
 `List<T>` 拆成两个 partial 文件（`List.z42` 核心 + `List.Query.z42` 查询族）以保持
-**单文件**可读；但按 [code-organization.md](../../../../.claude/rules/code-organization.md)
+**单文件**可读；但按 [code-organization.md](../../../docs/agent/rules/code-organization.md)
 「类型拆多文件时累计计入」，`List<T>` **整体**已超过 200 行的类型尺寸软/硬限。
 
 这是**有意的对标例外**：`List<T>` 镜像 C# `System.Collections.Generic.List<T>`，其

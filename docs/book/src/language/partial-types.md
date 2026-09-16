@@ -51,7 +51,7 @@ partial class Widget {
 
 **顺序确定性**：合并后的字段布局顺序 = 对象内存偏移 = zbc 字节，必须确定。碎片按**项目相对
 路径 Ordinal 序**拼接——`SourceDiscovery` 本就对源文件做 Ordinal 排序（见
-[common-pitfalls 规则 1](../../../../.claude/rules/common-pitfalls.md)），故合并序天然确定，逐字节稳定。
+[common-pitfalls 规则 1](../../../agent/rules/common-pitfalls.md)），故合并序天然确定，逐字节稳定。
 
 ### 主碎片：单条完整 TYPE record
 
@@ -135,7 +135,7 @@ z42c 是文件级增量（1 源文件 ↔ 1 cache 条目）。partial 让类型�
 
   **Deferred（正解）**：把 `emittedInst` 从碎片局部提升为**按类型**的 tracker（碎片已有确定序 ——
   项目相对路径 Ordinal 序，见上「顺序确定性」，故 primary 选择仍是确定的）。属编译器改动，
-  受 support-先行纪律约束（见 `.claude/rules/bootstrap-seed.md`），未随本次 stdlib 变更落地。
+  受 support-先行纪律约束（见 `../../../agent/rules/bootstrap-seed.md`），未随本次 stdlib 变更落地。
 
 ## 关联
 

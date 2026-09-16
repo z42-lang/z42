@@ -219,7 +219,7 @@ internals/src/
 
 ### 6.1 链接会大面积断
 
-约 200 篇文档的相对链接 + `src/**/README.md` 与 `.claude/rules/` 里的交叉引用全部要重指。
+约 200 篇文档的相对链接 + `src/**/README.md` 与 `docs/agent/rules/` 里的交叉引用全部要重指。
 
 **对策**（User 裁决 5 后已解决）：**死链检查提前到批 0**（`xtask test docs --links`，只查相对链接可解析），于是批 1–6 每一批都有机械保证；每批 PR 内用脚本重写该批涉及的路径（裁决 8），批 6 再做一次全仓 grep 清零（`docs/design/` 与 `docs/workflow/` 字样必须为 0）。其余门禁项仍留批 7。
 
@@ -236,6 +236,6 @@ roadmap 有一条 06-15 战略「教程外迁 z42-docs 仓」。本次拆分后�
 ## 七、Out of Scope
 
 - **`docs/spec/changes/` 的 118 个未归档 change**（其中 19 个已标 🟢）：真实的卫生问题，但属 `docs/spec/` 而非三本书，建议单开 change 清理。
-- **`.claude/rules/`(12 篇) → `docs/agent/rules/`(4 篇) 的收口**：两处并存本身是冗余源，但它是「规范放哪」的问题，与三书（知识放哪）正交。**需 User 裁决方向**后单独做。
+- ~~`.claude/rules/` 的收口~~ → **已由 change `consolidate-agent-rules` 完成**（16 篇归一到 `docs/agent/rules/`）。
 - **`xtask test docs`**：User 已裁决排在重构之后（批 7 单列，不并入前六批）。
 - **internals 的内容重写**：本次只做**搬迁 + 合并 + 删重复**，不借机重写机制页的内容质量。

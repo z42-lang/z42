@@ -184,7 +184,7 @@ z42c.driver 只 ship 已就绪命令，**绝不** fallback 到 dotnet z42c.dll�
 ## 开发迭代验证流程（staged bootstrap + 不变量）
 
 把「下载种子 → 编 xtask → 驱动编项目 → 测试 → 不动点」串成一张端到端图，标注每步守哪条
-不变量。**纪律**见 [`.claude/rules/bootstrap-seed.md`](../../../.claude/rules/bootstrap-seed.md)；本节是总览，
+不变量。**纪律**见 [`../../agent/rules/bootstrap-seed.md`](../../agent/rules/bootstrap-seed.md)；本节是总览，
 下文 byte-identical 自举闭环是其细节。
 
 ### 依赖图：环在哪

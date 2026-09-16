@@ -22,7 +22,7 @@
 //!
 //! This test reads the **committed bytes straight off disk** and asserts their
 //! header version equals the current constant, so "someone bumped the format and
-//! forgot step 4/9 of `.claude/rules/version-bumping.md`" is a red test rather
+//! forgot step 4/9 of `docs/agent/rules/version-bumping.md`" is a red test rather
 //! than a silent diff. Regenerate with the per-fixture recipes documented in
 //! `src/tests/zpkg-format/README.md`.
 
@@ -101,7 +101,7 @@ fn committed_zbc_baselines_match_the_current_writer() {
         ZBC_VERSION_MINOR,
         "Fix: `xtask build compiler && xtask build stdlib && xtask build test` regenerates the \
          zbc-format set in place; review the diff and commit it \
-         (.claude/rules/version-bumping.md step 4).",
+         (docs/agent/rules/version-bumping.md step 4).",
     );
 }
 
@@ -117,6 +117,6 @@ fn committed_zpkg_baselines_match_the_current_writer() {
         ZPKG_VERSION_MINOR,
         "Fix: rebuild each fixture from its committed `<name>.z42.toml` \
          (see src/tests/zpkg-format/README.md) and commit the result \
-         (.claude/rules/version-bumping.md step 9).",
+         (docs/agent/rules/version-bumping.md step 9).",
     );
 }

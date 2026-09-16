@@ -109,9 +109,12 @@ learn  →  reference  →  internals
 **归档前 doc-check 清单**（全部勾上才能 commit）：
 
 - [ ] 三问逐条过一遍，命中的文档均已更新
-- [ ] 所改目录的 README 六段齐全（六段制见 [code-organization.md](../../../.claude/rules/code-organization.md)）
+- [ ] 所改目录的 README 六段齐全（六段制见 [code-organization.md](code-organization.md)）
 - [ ] 所改 / 新写的书页：页头「对齐」日期已刷新、代码路径可解析、已挂入所属书的 `SUMMARY.md`
-- [ ] `xtask test docs` 绿
+- [ ] 本次触及文档中的相对链接均可解析（`xtask test docs` 绿）
+- [ ] **删 / 改 / 重命名任何命令面**（xtask 子命令、CLI verb、工程文件字段、脚本入口）时，
+      `grep -rn "<旧名>" docs/ scripts/ .claude/` 必须清零——命令面重构的文档半径系统性被低估，
+      这条机械检查是抓漏网的最后一道门
 
 ## 六、防漂移三条硬规则
 

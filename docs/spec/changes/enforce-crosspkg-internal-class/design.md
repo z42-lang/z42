@@ -42,7 +42,7 @@ Rust VM: zbc_reader.rs 读 visibility 字节 → read-and-discard（保 TYPE 后
 
 **决定：** 选 **B**（独立字节）。理由：与成员 Visibility 同构（成员用独立 int 而非塞 flags）、语义清晰
 （可见性非 shape-flag）、拓宽 u8→u16 反而牵动更多字节。**真格式 bump**（zbc 1.32→1.33 / zpkg 0.37→0.38），
-按 [version-bumping.md](../../../../.claude/rules/version-bumping.md) 全套步骤；与成员 internal 的零 bump
+按 [version-bumping.md](../../../agent/rules/version-bumping.md) 全套步骤；与成员 internal 的零 bump
 **不同**，不可类比。
 
 **为何仍不破自举字节不动点：** 所有现存导出类均 `public`（Visibility=0）；新增字节对每个 TYPE 记录尾追加一个

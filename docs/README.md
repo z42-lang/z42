@@ -60,7 +60,7 @@ z42 项目文档总入口。
 
 ## 延后特性管理
 
-所有延后项一律就近写入对应 design doc 的 "Deferred / Future Work" 段；`roadmap.md` "Deferred Backlog Index" 横向索引。规则见 [`.claude/rules/philosophy.md`](../.claude/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
+所有延后项一律就近写入对应 design doc 的 "Deferred / Future Work" 段；`roadmap.md` "Deferred Backlog Index" 横向索引。规则见 [`agent/rules/philosophy.md`](agent/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
 
 ## 文档语种策略
 
@@ -70,6 +70,6 @@ z42 仓库文档采用**双语策略**，按受众分流：
   - 例：[`features.md`](features.md), [`design/philosophy.md`](design/philosophy.md), [`design/language/language-overview.md`](design/language/language-overview.md), [`design/language/interop.md`](design/language/interop.md), [`design/runtime/hot-reload.md`](design/runtime/hot-reload.md), [`design/runtime/execution-model.md`](design/runtime/execution-model.md), [`design/language/object-protocol.md`](design/language/object-protocol.md), [`README.md`](../README.md)（仓库根）
 
 - **内部文档**（面向 z42 开发者 / 协作工作流 / 实现细节）：**中文**
-  - 例：[`workflow/`](workflow/), [`roadmap.md`](roadmap.md), [`design/compiler/compiler-architecture.md`](design/compiler/compiler-architecture.md), [`design/runtime/vm-architecture.md`](design/runtime/vm-architecture.md), [`design/runtime/zbc.md`](design/runtime/zbc.md), [`.claude/CLAUDE.md`](../.claude/CLAUDE.md), [`.claude/rules/*.md`](../.claude/rules/)
+  - 例：[`workflow/`](workflow/), [`roadmap.md`](roadmap.md), [`design/compiler/compiler-architecture.md`](design/compiler/compiler-architecture.md), [`design/runtime/vm-architecture.md`](design/runtime/vm-architecture.md), [`design/runtime/zbc.md`](design/runtime/zbc.md), [`.claude/CLAUDE.md`](../.claude/CLAUDE.md), [`agent/rules/*.md`](agent/rules/)
 
 写新文档时按此分流；混用注释（中文文件里的英文 code comment、英文文件里对中文术语的注音等）允许，但**主体语言**应一致。当一份对外英文文档需要配套实现细节时，把实现细节单独拆到一份内部中文文档而不是混在一起。

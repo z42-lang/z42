@@ -49,7 +49,7 @@ add-concurrent-gc P5 — multi-mutator stress under concurrent mode (2026-05-22)
 ## Out of Scope
 
 - 重新设计并发 GC 算法（本 spec 只修 race，不做架构改造）
-- 关闭 / 标记 `#[ignore]` 测试绕过（违反 [`philosophy.md`](../../../.claude/rules/philosophy.md) "修复必须从根因出发"）
+- 关闭 / 标记 `#[ignore]` 测试绕过（违反 [`philosophy.md`](../../../agent/rules/philosophy.md) "修复必须从根因出发"）
 
 ## Open Questions
 

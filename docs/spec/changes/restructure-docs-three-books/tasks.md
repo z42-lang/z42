@@ -24,7 +24,7 @@
       （design/workflow 冻结只读，要改先搬）
 - [x] 0.1.2 `docs/agent/rules/book-writing.md`：三页型 → 三本书的映射（参考页→reference、机制页→internals、
       概览页→各书部分入口）；页头字段不变
-- [x] 0.1.3 `.claude/rules/README.md` 与 `.claude/CLAUDE.md` 中指向 `docs/book/` / `docs/design/` 的
+- [x] 0.1.3 `../../../agent/rules/README.md` 与 `.claude/CLAUDE.md` 中指向 `docs/book/` / `docs/design/` 的
       描述改指三书（**注意 CLAUDE.md 末尾两行 `@import` 的是 design 文件，必须改**）
 
 ### 0.2 两本书的骨架
@@ -113,7 +113,7 @@
 
 - [ ] 6.1 删 `docs/design/` 与 `docs/workflow/` 空壳（含各自 README）
 - [ ] 6.2 站点根三书分流索引（从批 0 挪来）；游离文件：`features.md` → internals；删 `library_review.md` / `todo-list.md`；重写 `docs/README.md`
-- [ ] 6.3 `.claude/rules/workflow.md` 阶段 9 与 `code-organization.md`：**删矩阵拷贝**，改链接总纲
+- [ ] 6.3 `../../../agent/rules/workflow.md` 阶段 9 与 `code-organization.md`：**删矩阵拷贝**，改链接总纲
 - [ ] 6.4 **全仓链接重指**（裁决 8：脚本批量 + 人工抽查）：
       `src/**/README.md`(76) / `.claude/` / `scripts/README.md` / 根 `README.md` / `docs/learn/` / `docs/roadmap.md`
 - [ ] 6.5 grep 清零：`docs/design/` 与 `docs/workflow/` 字样在全仓为 0
@@ -130,8 +130,8 @@
 
 **Scope 外发现（不在本次处理）**：
 - `docs/spec/changes/` 有 **118 个未归档 change**，其中 **19 个已标 🟢**。建议单开 change 清理。
-- `.claude/rules/`(12) 与 `docs/agent/rules/`(4) 并存 —— 需 User 先裁决收口方向。
-  例外：批 0 改 doc-system、批 6 删两份矩阵拷贝，这两处必须在本次做。
+- ~~`.claude/rules/` 与 `docs/agent/rules/` 并存~~ → **已由 change `consolidate-agent-rules` 收口**（16 篇归一）。
+  批 6 仍要删 `workflow.md` / `code-organization.md` 里的两份矩阵拷贝。
 
 **本次搬迁的性质（别按「去重」理解）**：`docs/design/` 99 篇里 **72 篇在 book 中从未有过对应页（73%）**。
 主体工作是**首次编纂**，不是搬运去重——这正是「顺带迁」两个半月只推进 2.5% 的原因。

@@ -49,7 +49,7 @@
 
 **只读引用**：
 - `src/compiler/z42c.semantics/src/IrGenFacts.z42` — 确认 z42c 源只用 `ZbcInstr.DoubleToBits`/`BitsToDouble`（保签名故不改）
-- `.claude/rules/bootstrap-seed.md` — 轴 ②/④ 判据
+- `../../../agent/rules/bootstrap-seed.md` — 轴 ②/④ 判据
 
 ## Out of Scope
 - math/time 的 `__math_*` 归 core（相位 A2，另 change——工作量与 seed 评估更大）。

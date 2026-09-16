@@ -66,8 +66,8 @@
 **只读引用**：`src/compiler/z42c.ir/src/IrModule.z42`（`IrClassDesc` 形态）；
 `src/compiler/z42c.project/src/CacheStore.z42`（增量 cache 条目 SoT）；
 `src/runtime/src/metadata/zbc_reader.rs`（确认 TYPE record 解码不受影响）；
-`.claude/rules/common-pitfalls.md`（合并顺序确定性硬约束）；
-`.claude/rules/bootstrap-seed.md`（分阶段引入纪律）。
+`../../../agent/rules/common-pitfalls.md`（合并顺序确定性硬约束）；
+`../../../agent/rules/bootstrap-seed.md`（分阶段引入纪律）。
 
 ## Out of Scope
 

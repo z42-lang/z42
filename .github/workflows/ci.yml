@@ -174,7 +174,7 @@ jobs:
 
       # ALL legs bootstrap from the prev nightly seed — download the prev published
       # nightly's z42c compiler seed, then build current z42c + stdlib + xtask from
-      # source with it. The staged-bootstrap discipline (.claude/rules/bootstrap-seed.md)
+      # source with it. The staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md)
       # guarantees the prev nightly compiles current source; `xtask test bootstrap`
       # is the local boundary check. Logic lives in the ci-bootstrap composite action
       # (Windows adds .zip/.exe handling — same seed contract). After this, every later
@@ -667,7 +667,7 @@ jobs:
       # refresh-format-fixtures: committed byte baselines must be up to date.
       # `build test` above regenerates src/tests/zbc-format/*/source.zbc IN PLACE, so a
       # non-empty diff here means the checked-in bytes were stale — i.e. some earlier
-      # format change skipped step 4 of .claude/rules/version-bumping.md.
+      # format change skipped step 4 of docs/agent/rules/version-bumping.md.
       #
       # Why this gate is needed: the baselines' only prior safeguard was "a human
       # notices `git diff`". Since regen runs before every consumer, `zbc_compat`
@@ -692,7 +692,7 @@ jobs:
             echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
             echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
             echo "review the diff, then commit the regenerated fixtures"
-            echo "(see .claude/rules/version-bumping.md step 4)."
+            echo "(see docs/agent/rules/version-bumping.md step 4)."
             git --no-pager diff --stat -- src/tests/zbc-format
             exit 1
           fi
@@ -1417,7 +1417,7 @@ jobs:
     # package-*, all via the ci-bootstrap action / toolchain-bootstrap) seeds from the
     # PREVIOUS nightly's z42c and builds current source with it — every bootstrap depends
     # on a prior nightly. The self-heal invariant rests entirely
-    # on the staged-bootstrap discipline (.claude/rules/bootstrap-seed.md): the prev
+    # on the staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md): the prev
     # nightly's z42c MUST always be able to compile current source (new syntax / zbc
     # bump lands "support" one release before "use"; `xtask test bootstrap`
     # is the boundary check). If that discipline is ever violated, the prev nightly

@@ -18,4 +18,4 @@ z42 标准库的三层架构、包边界与各核心包设计。逐包的**用�
 | organization.md / overview.md / api-guidelines.md | 三层架构与包边界 | ⬜ |
 | roadmap.md | （并入 `docs/roadmap.md` 或本部分排期段） | ⬜ |
 | json.md / toml.md / yaml.md / uri.md / regex.md / crypto.md / compression.md / encoding.md / net.md / io-stream.md / io-binary.md / numerics.md / random.md / time.md / diagnostics.md / cli.md | 核心包索引（各包一节，链接到包内 README） | ⬜ |
-| README-template.md | （→ 归入 `.claude/rules/code-organization.md` 的 README 模板） | ⬜ |
+| README-template.md | （→ 归入 `../../../agent/rules/code-organization.md` 的 README 模板） | ⬜ |

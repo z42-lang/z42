@@ -98,6 +98,6 @@
 ❌ 11 行 README + 单表无 API surface
 ❌ "TODO: write docs later" placeholder
 ❌ Deferred 段缺失，导致 `docs/roadmap.md` Deferred Backlog Index 没有
-   索引行可指（违反 [`philosophy.md` 延后管理规则](../../../.claude/rules/philosophy.md#延后特性管理必须遵守)）
+   索引行可指（违反 [`philosophy.md` 延后管理规则](../../agent/rules/philosophy.md#延后特性管理必须遵守)）
 ❌ src/ 文件表只列文件名不写类型 / 职责
 ❌ 依赖关系只写 "z42.core" 不写 "为什么"

@@ -60,7 +60,7 @@ fn test_something() { ... }
 **首选：让值成为 z42 对象的字段**，原生层只提供机制（参照 `corelib/monitor.rs`）——追踪、写屏障、
 随拥有者回收全都免费。**确实只能暂存**（跨线程移交这类短窗口）时，用 `pin_root` + RAII 守卫 unpin
 （参照 `threading.rs` 的 `SpawnedEnvRoot`），并想清楚「谁拥有它、何时释放」，否则就是泄漏。
-机制与反例见 [sync-primitives.md](../../docs/book/src/runtime/sync-primitives.md)。
+机制与反例见 [sync-primitives.md](../../book/src/runtime/sync-primitives.md)。
 
 ### 阻塞的 native 调用必须 park（2026-09-14）
 
@@ -95,7 +95,7 @@ fn test_something() { ... }
   并照 `gc/arc_heap_tests/incremental.rs` 的形状补一对「开屏障存活 / 关屏障被扫」的测试。
 - 弱 / 软引用的**读取**同样要染色（`ArcMagrGC::shade_if_marking`）：它们能把快照时只剩弱引用的对象交还给寄存器。
 
-机制见 [gc-incremental-major.md](../../docs/book/src/runtime/gc-incremental-major.md)。
+机制见 [gc-incremental-major.md](../../book/src/runtime/gc-incremental-major.md)。
 
 ### wasm 上不能取时钟（2026-09-14，第三次回归）
 

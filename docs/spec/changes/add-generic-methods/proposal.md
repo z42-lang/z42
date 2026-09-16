@@ -75,8 +75,8 @@ roadmap 0.5.x 招牌 `JsonSerializer.Deserialize<T>(json)` 是**泛型方法**�
 **只读引用**：
 - `src/runtime/src/interp/exec_address.rs` 的 `default_of`（类级镜像范式）
 - `src/runtime/src/interp/exec_object.rs`（`obj.new` 填 `instance.type_args` 范式）
-- `.claude/rules/version-bumping.md`（格式 bump checklist）
-- `.claude/rules/bootstrap-seed.md`（support 先行纪律）
+- `../../../agent/rules/version-bumping.md`（格式 bump checklist）
+- `../../../agent/rules/bootstrap-seed.md`（support 先行纪律）
 - `docs/spec/changes/plan-generic-reflection/design.md`（G2 ③ 落点参考）
 
 ## Out of Scope
