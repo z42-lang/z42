@@ -65,11 +65,24 @@ int[] _launcherCliSmoke(string launcher, string work) {
     ProcessResult b = _distZ42(launcher, proj, _a1("build"));
     acc = _distCheck(acc, b.ExitCode == 0 && File.Exists(Path.Join(proj, "dist/hello.zpkg")),
         "z42 build（无参数）→ dist/hello.zpkg", b);
+    // fix-cli-path-display：进度行里的路径相对当前目录呈现，不打绝对路径、更不能出现 `/./`。
+    // 这些输出会直接出现在学习手册第 3 章读者的终端上。
+    //
+    // 只断言**不变量**，不钉具体哪一行：此处工程已被上面的 `z42 run` 建过，这次 build 走增量、
+    // 打的是 `no changes; preserved -> ./dist/hello.zpkg` 而非 `cache -> …`（早先钉死 `cache -> `
+    // 的写法正因此误报）。`-> ./` 覆盖 `wrote ->` / `preserved ->` 两种形态。
+    acc = _distCheck(acc, !b.Stdout.Contains(proj) && !b.Stderr.Contains(proj)
+        && !b.Stdout.Contains("/./") && !b.Stderr.Contains("/./")
+        && (b.Stdout.Contains("-> ./") || b.Stderr.Contains("-> ./")),
+        "z42 build 的进度行相对当前目录，无绝对路径 / 无 /./", b);
 
     ProcessResult c = _distZ42(launcher, proj, _a1("clean"));
     acc = _distCheck(acc, c.ExitCode == 0 && !Directory.Exists(Path.Join(proj, "dist"))
         && !Directory.Exists(Path.Join(proj, "artifacts")),
         "z42 clean → 删除 dist/ 与 artifacts/", c);
+    acc = _distCheck(acc, !c.Stdout.Contains(proj) && !c.Stdout.Contains("/./")
+        && c.Stdout.Contains("removed ./dist") && c.Stdout.Contains("removed ./artifacts"),
+        "z42 clean 的 removed 相对当前目录，无绝对路径 / 无 /./", c);
 
     ProcessResult none = _distZ42(launcher, root, _a1("run"));
     acc = _distCheck(acc, none.ExitCode == 2 && none.Stderr.Contains("could not find z42.toml")

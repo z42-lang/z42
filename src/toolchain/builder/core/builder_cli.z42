@@ -149,7 +149,7 @@ int _cmdClean(ParseResult r) {
     while (i < n) {
         if (Directory.Exists(dirs[i])) {
             Directory.Delete(dirs[i], true);
-            Console.WriteLine("removed " + dirs[i]);
+            Console.WriteLine("removed " + BuildLayout.Display(dirs[i]));
             removed = removed + 1;
         }
         i = i + 1;

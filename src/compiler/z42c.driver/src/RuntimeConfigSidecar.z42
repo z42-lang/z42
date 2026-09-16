@@ -80,7 +80,7 @@ int _writeRuntimeConfigSidecar(ProjectManifest pm, string distDir, string name, 
                 + "# source: [profile." + profName + "] of " + pm.Project.Name + "\n"
                 + TomlValue.Stringify(root);
     File.WriteAllText(path, body);
-    BuildLog.Progress("wrote -> " + path);
+    BuildLog.Progress("wrote -> " + BuildLayout.Display(path));
     return ExitCode.Ok;
 }
 

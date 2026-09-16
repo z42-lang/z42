@@ -31,6 +31,58 @@ public static class Path {
         return false;
     }
 
+    // 词法规范化：折叠重复分隔符、去掉 `.` 段、抵消 `..` 段、去掉尾随 `/`。
+    //
+    // **纯词法**，不碰文件系统（不解析符号链接、不要求路径存在）——与 Rust
+    // `path-clean` / Go `filepath.Clean` 同口径，而非 `realpath(3)`。
+    //
+    // 为什么需要：`Join` 是纯拼接（见下），`Join(cwd, ".")` 得到 `<cwd>/.`，这个 `.` 段会一路
+    // 渗进用它派生的所有路径。实测后果：`z42 build` 打出
+    // `cache -> /Users/me/proj/./artifacts/debug/.cache`。**不在 `Join` 里顺手规范化**——
+    // 它是热路径且契约就是「纯词法拼接」，需要规范化的调用方显式调本方法。
+    //
+    // 边界：越过根的 `..`（`/a/../..`）在根处停住（与 Go/Rust 一致）；相对路径开头保留不了的
+    // `..`（`../a`）原样保留；结果为空时返回 `.`（相对）或 `/`（绝对）。
+    public static string Normalize(string path) {
+        if (path.Length == 0) { return "."; }
+        string s = path.Replace("\\", "/");
+        bool rooted = s.CharAt(0) == '/';
+        // Windows 盘符根（`C:/...`）：前缀原样保留，只规范化其后的部分。
+        string prefix = "";
+        if (!rooted && s.Length >= 2 && s.CharAt(1) == ':') {
+            prefix = s.Substring(0, 2);
+            s = s.Substring(2, s.Length - 2);
+            if (s.Length > 0 && s.CharAt(0) == '/') { rooted = true; s = s.Substring(1, s.Length - 1); }
+        } else if (rooted) {
+            s = s.Substring(1, s.Length - 1);
+        }
+        string[] segs = s.Split("/");
+        string[] keep = new string[segs.Length];
+        int n = 0;
+        int i = 0;
+        while (i < segs.Length) {
+            string seg = segs[i];
+            if (seg.Length == 0 || seg == ".") { /* 折叠 `//` 与 `.` */ }
+            else if (seg == "..") {
+                if (n > 0 && keep[n - 1] != "..") { n = n - 1; }        // 抵消上一段
+                else if (!rooted) { keep[n] = seg; n = n + 1; }          // 相对路径保留前导 `..`
+                // rooted 且无可抵消 → 在根处停住，丢弃
+            }
+            else { keep[n] = seg; n = n + 1; }
+            i = i + 1;
+        }
+        string body = "";
+        int j = 0;
+        while (j < n) {
+            if (j > 0) { body = body + "/"; }
+            body = body + keep[j];
+            j = j + 1;
+        }
+        if (rooted) { return prefix + "/" + body; }
+        if (body.Length == 0) { return prefix.Length > 0 ? prefix : "."; }
+        return prefix + body;
+    }
+
     // 拼接两段路径。如果 b 是绝对路径（Unix `/` 或 Windows 根）则替换 a；
     // 否则用 `/` 分隔（a 已有尾随 `/` 或 `\` 时不重复）。
     // 保留 2-arg 重载：热路径 + params 的 normal-form 直传目标（非 params 精确 arity 重载优先）。

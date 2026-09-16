@@ -285,7 +285,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 int sbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
             }
-            BuildLog.Progress("no changes; preserved -> " + lastZpkg);
+            BuildLog.Progress("no changes; preserved -> " + BuildLayout.Display(lastZpkg));
             return ExitCode.Ok;
         }
     }
@@ -502,11 +502,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 ZpkgWriteResult wresX = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
                 string outX = Path.Join(distDir, ex.Name + ".zpkg");
                 File.WriteAllBytes(outX, wresX.Main);
-                BuildLog.Progress("wrote -> " + outX);
+                BuildLog.Progress("wrote -> " + BuildLayout.Display(outX));
                 if (wresX.HasSidecar) {
                     string symX = Path.Join(distDir, ex.Name + ".zsym");
                     File.WriteAllBytes(symX, wresX.Sidecar);
-                    BuildLog.Progress("wrote -> " + symX);
+                    BuildLog.Progress("wrote -> " + BuildLayout.Display(symX));
                 }
             }
             // 运行配置侧车（complete-runtime-settings P5）：每个产物一份。
@@ -532,11 +532,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // release → strip-symbols：主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。
         ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
         File.WriteAllBytes(outPath, wres.Main);
-        BuildLog.Progress("wrote -> " + outPath);
+        BuildLog.Progress("wrote -> " + BuildLayout.Display(outPath));
         if (wres.HasSidecar) {
             string symPath = Path.Join(distDir, pm.Project.Name + ".zsym");
             File.WriteAllBytes(symPath, wres.Sidecar);
-            BuildLog.Progress("wrote -> " + symPath);
+            BuildLog.Progress("wrote -> " + BuildLayout.Display(symPath));
         }
     }
     // 运行配置侧车（complete-runtime-settings P5）：只对 exe 产物；无 [profile.*]

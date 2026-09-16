@@ -49,3 +49,60 @@ void test_generated_dir_disabled() {
     BuildLayout l = BuildLayout.Resolve(_pm("[build]\ngenerated_dir = \"\"\n"), "/p/app", false);
     Assert.Equal("", l.GeneratedDir);
 }
+
+// ── Display：产物目录呈现给终端（fix-cli-path-display）────────────────────────
+//
+// 解析出的 output/cache/generated 一律绝对（z42c 要拿它建目录写文件），但直接打到终端上
+// 既冗长、又与同一屏里相对的 `wrote -> ./dist/…` 割裂。Display 只管呈现，不改实际取值。
+
+// 当前目录之下 → `./` 相对形式。
+[Test]
+void test_display_under_cwd_is_dotted_relative() {
+    string cwd = Environment.GetCurrentDirectory();
+    Assert.Equal("./artifacts/debug/.cache",
+                 BuildLayout.Display(Path.Join(cwd, "artifacts/debug/.cache")));
+}
+
+// 就是当前目录本身 → `.`。
+[Test]
+void test_display_cwd_itself() {
+    Assert.Equal(".", BuildLayout.Display(Environment.GetCurrentDirectory()));
+}
+
+// 上级目录 → `../x`（子目录里 `z42 clean` 的场景；与同屏的 `../dist` 一致）。
+[Test]
+void test_display_parent_uses_dotdot() {
+    string cwd = Path.Normalize(Environment.GetCurrentDirectory());
+    string parent = Path.GetDirectoryName(cwd);
+    Assert.Equal("../artifacts", BuildLayout.Display(Path.Join(parent, "artifacts")));
+}
+
+// 本就是相对路径（默认 dist = `./dist`）→ 统一补 `./`，不被规范化吃掉。
+[Test]
+void test_display_relative_input_keeps_dot_prefix() {
+    Assert.Equal("./dist", BuildLayout.Display("./dist"));
+    Assert.Equal("./dist", BuildLayout.Display("dist"));
+    Assert.Equal("../dist", BuildLayout.Display("../dist"));
+}
+
+// `/./` 这类未规范化输入先被规范化再呈现。
+[Test]
+void test_display_normalizes_dot_segments() {
+    string cwd = Environment.GetCurrentDirectory();
+    Assert.Equal("./artifacts", BuildLayout.Display(Path.Join(cwd, ".") + "/artifacts"));
+}
+
+// 与 cwd 分叉很深时回落绝对路径（不吐一串 `../../../..`）。
+[Test]
+void test_display_falls_back_to_absolute_when_relative_is_longer() {
+    Assert.Equal("/x", BuildLayout.Display("/x"));
+}
+
+// Resolve 不再把 `.` 段带进产物目录（本次要修的根因）。
+[Test]
+void test_resolve_normalizes_dot_project_dir() {
+    BuildLayout l = BuildLayout.Resolve(_pm(""), ".", false);
+    Assert.True(!l.OutputDir.Contains("/./"));
+    Assert.True(!l.CacheDir.Contains("/./"));
+    Assert.True(!l.ProjectDir.EndsWith("/."));
+}
