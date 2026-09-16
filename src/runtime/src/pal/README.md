@@ -7,7 +7,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 返回 OS-neutral 类型。
 
 **当前状态（review.md Part 1 P2 Phase 1, 2026-06-03）**：刚起步。完整设计 +
-Phase 2-N migration 路径见 [`docs/design/runtime/pal.md`](../../../../docs/design/runtime/pal.md)。
+Phase 2-N migration 路径见 [`docs/internals/src/runtime/pal.md`](../../../../docs/internals/src/runtime/pal.md)。
 
 ## 核心文件
 
@@ -40,4 +40,4 @@ Phase 2-N migration 路径见 [`docs/design/runtime/pal.md`](../../../../docs/de
 ## 依赖关系
 
 依赖 `libc` (unix-only)。其他 cargo feature 见
-`docs/design/runtime/pal.md` "platform feature gates" 节。
+`docs/internals/src/runtime/pal.md` "platform feature gates" 节。

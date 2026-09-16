@@ -20,7 +20,7 @@ pub type Reg = u32;
 // internally-tagged (`tag = "op"`) newtype variant whose inner type is a struct
 // merges the tag into the struct's fields, so `Call(Box<CallInsn>)` serializes
 // to the same `{"op":"call", dst, func, args}` as the old struct variant.
-// See docs/design/runtime/ir.md (hot/cold boxing strategy).
+// See docs/internals/src/formats/ir.md (hot/cold boxing strategy).
 
 /// Payload for [`Instruction::Call`].
 #[derive(Debug, Serialize, Deserialize)]

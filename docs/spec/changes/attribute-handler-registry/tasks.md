@@ -386,7 +386,7 @@ store-meta blob 走现有反射机制）。z42c/stdlib 只加 support 不 use �
 - [ ] B.2 `ZbcWriter`：SIGS 写 method_flags bit3 + msg idx；TYPE 写 class flag bit + msg idx + **实例/静态字段循环各加 field-flags u8 + msg idx**
 - [ ] B.3 读端 3 处 lockstep：① Rust `zbc_reader.rs`（read_type 实例+静态字段 / SIGS）+ `bytecode.rs`（FieldDesc/MethodDesc/ClassDesc 加字段）② z42c `ZbcReader.ReadTypeAt` + SIGS ③ `ZpkgReader` SIGS
 - [ ] B.4 Rust 4 个版本常量（ZBC/ZPKG major+minor）+ changelog 注释行
-- [ ] B.5 `docs/design/runtime/zbc.md` + `zpkg.md` changelog 各加一行；`../../../agent/rules/version-bumping.md` 版本表刷新（stale 1.35/0.40 → 1.37/0.42）
+- [ ] B.5 `docs/internals/src/formats/zbc.md` + `zpkg.md` changelog 各加一行；`../../../agent/rules/version-bumping.md` 版本表刷新（stale 1.35/0.40 → 1.37/0.42）
 
 ### 阶段 C：跨包传播（仿 sealed）
 - [ ] C.1 `ExportedTypes`：`ExportedMethodZ`/`ExportedClassZ`/`ExportedFieldZ` 加 `IsDeprecated`/`DeprecationMsg`

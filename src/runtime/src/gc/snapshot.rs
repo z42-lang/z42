@@ -17,7 +17,7 @@
 //! - explicit weak edges (current weak refs are skipped to avoid
 //!   retention confusion)
 //!
-//! See [`docs/design/runtime/gc.md`] § "Heap snapshot export" for the
+//! See [`docs/internals/src/runtime/gc.md`] § "Heap snapshot export" for the
 //! design notes and node/edge type mapping table.
 
 use std::collections::HashMap;

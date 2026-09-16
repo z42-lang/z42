@@ -53,7 +53,7 @@ C#（`System.Tuple` 引用版**已弃**→ `System.ValueTuple` struct 值版）�
 - `src/libraries/z42.ir/src/BinaryFormat/ZbcFormat.z42` — struct blob opcode `StructAlloc 0xC0`/`StructFieldGetPrim 0xC2`；Tag(:69-118)
 - `src/libraries/z42c.syntax/src/ExprParser.z42` — lambda/cast/分组四方前瞻(:262-301)、`_isLambdaStart`(:12)
 - `src/compiler/z42c.semantics/src/PatternEmitter.z42` — struct 字段 emit 快路（#316）
-- `docs/design/runtime/zbc.md`(:103,208) — spec 预留的原生 tuple 编码（**路线 B，本变更不采用**）
+- `docs/internals/src/formats/zbc.md`(:103,208) — spec 预留的原生 tuple 编码（**路线 B，本变更不采用**）
 
 ## Out of Scope
 

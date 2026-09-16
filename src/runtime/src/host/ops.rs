@@ -2,7 +2,7 @@
 //! entry resolution, and invocation. Kept distinct from `mod.rs` so the
 //! `extern "C"` surface stays a thin dispatcher.
 //!
-//! Spec: docs/design/runtime/embedding.md §4.4 + docs/spec/archive/2026-05-10-add-embedding-api/design.md.
+//! Spec: docs/internals/src/runtime/embedding.md §4.4 + docs/spec/archive/2026-05-10-add-embedding-api/design.md.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

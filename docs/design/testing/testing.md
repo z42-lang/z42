@@ -800,7 +800,7 @@ R4 计划新增的 attribute（**目前 parser 不识别**）：
 
 ### `[Timeout(milliseconds: N)]` — Per-test wallclock budget (2026-05-30)
 
-由 [add-test-timeout-attribute](../../spec/changes/add-test-timeout-attribute/) 引入，
+由 [add-test-timeout-attribute](../../spec/archive/2026-05-30-add-test-timeout-attribute/) 引入，
 首个接受**整数字面量** named-arg 的 test attribute：
 
 ```z42
@@ -1112,7 +1112,7 @@ void test_pi_approximation() {
 
 ## TIDX 二进制格式（R1）
 
-详见 [`zbc.md` 的 TIDX 段](../runtime/zbc.md#tidx-test-index可选spec-r1)。
+详见 [`zbc.md` 的 TIDX 段](../../internals/src/formats/zbc.md#tidx-test-index可选spec-r1)。
 
 要点：
 - Section tag 4 字节 ASCII：`TIDX`

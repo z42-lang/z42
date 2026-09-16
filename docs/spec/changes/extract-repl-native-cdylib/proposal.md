@@ -53,7 +53,7 @@ fork**。是否值得这层 FFI 复杂度，请在看完 design 的「§7 值不
 | `src/runtime/Cargo.lock` | MODIFY | 重解析 |
 | `scripts/build/xtask_toolchain.z42` | MODIFY | 构建 `libz42_repl` cdylib + 拷进 z42i 同侧 toolchain 目录 |
 | `scripts/build/xtask_package_desktop.z42` | MODIFY | 打包 `libz42_repl` 进 SDK 的 interactive/toolchain 侧（非 `<sdk>/native/`）|
-| `docs/book/src/runtime/native-extensions.md` | NEW | 「独立 native 库：编译/链接/运行」机制 SoT（两类库：runtime 跨平台 vs toolchain host-only）|
+| `docs/internals/src/runtime/native-extensions.md` | NEW | 「独立 native 库：编译/链接/运行」机制 SoT（两类库：runtime 跨平台 vs toolchain host-only）|
 | `src/runtime/src/native/README.md` | MODIFY | 指向新机制文档；补 repl(host-only) vs compression(跨平台) 区分 |
 | `src/toolchain/repl/README.md` | MODIFY | 功能索引：行编辑后端现为 dlopen cdylib（host-only）|
 

@@ -43,8 +43,8 @@
 | `src/runtime/src/metadata/zbc_reader.rs` | MODIFY | `ZBC_VERSION_MINOR` 30 / `ZPKG_VERSION_MINOR` 35 + changelog |
 | `src/runtime/src/corelib/reflection.rs` | MODIFY | `MethodInfo.IsSealed` 从 `METHOD_FLAG_SEALED`（两处构造点） |
 | `src/libraries/z42.core/src/Reflection/MethodInfo.z42` | MODIFY | `IsSealed` 字段 |
-| `docs/design/runtime/zbc.md` | MODIFY | Minor changelog 加 1.30 行 |
-| `docs/design/runtime/zpkg.md` | MODIFY | Minor changelog 加 0.35 行 |
+| `docs/internals/src/formats/zbc.md` | MODIFY | Minor changelog 加 1.30 行 |
+| `docs/internals/src/formats/zpkg.md` | MODIFY | Minor changelog 加 0.35 行 |
 | `docs/book/src/language/sealed.md` | NEW | sealed 语义（禁继承/override）+ shorthand 机制页（挂 SUMMARY.md）；去虚化标 Deferred |
 | `docs/book/src/SUMMARY.md` | MODIFY | 挂入 sealed.md |
 | `src/compiler/z42c.semantics/README.md` | MODIFY | 功能索引登记 sealed 强制 + 关联 change |

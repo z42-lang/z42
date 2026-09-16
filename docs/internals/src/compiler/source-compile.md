@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../../../book/src/compiler/zbc-format.md) · [zpkg 包格式](../../../book/src/compiler/zpkg-format.md) · [CLI 与诊断工具](../../../book/src/compiler/tools.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](../../../book/src/compiler/tools.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -661,11 +661,11 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 
 **关键不变量（自举）**：path 1/2 的 `_emitForeach` 完全不动、path 3 的脱糖只在 IEnumerable-only 类型上触发——z42c 源自身 foreach 均走数组/索引 path，从不进脱糖分支 → gen1==gen2 逐字节不动点不受影响。无新 IR 指令 / 无格式 bump（`GetEnumerator`/`MoveNext`/`get_Current`/`Dispose` 全是既有 `Call`/`VCall`）。`ListEnumerator<T>`/`DictionaryEnumerator<K,V>` 是 `Std.Collections` 的 `[Record] struct`（值语义、迭代零堆分配）。用例见 `src/tests/basic/foreach_ienumerable.z42`。
 
-> **配套编译器修复**：struct **属性 getter** 读此前有两个 codegen 缺口——① 成员一律当字段发 `struct_fget_prim @-1`（`fix-struct-property-getter`，见 [struct 值语义](../../../book/src/runtime/struct-value-semantics.md)）；② imported 泛型 struct 属性 getter 返回类型漏 `_substGeneric` 替换 → 松绑 `Unknown` → sret 失配（`MemberResolver` 的 `Z42InstantiatedType` 成员访问分支补属性 getter + 替换）。二者是 foreach 脱糖用 `__e.Current` 的前置。
+> **配套编译器修复**：struct **属性 getter** 读此前有两个 codegen 缺口——① 成员一律当字段发 `struct_fget_prim @-1`（`fix-struct-property-getter`，见 [struct 值语义](../runtime/struct-value-semantics.md)）；② imported 泛型 struct 属性 getter 返回类型漏 `_substGeneric` 替换 → 松绑 `Unknown` → sret 失配（`MemberResolver` 的 `Z42InstantiatedType` 成员访问分支补属性 getter + 替换）。二者是 foreach 脱糖用 `__e.Current` 的前置。
 
 ### 写出（Emit）
 
-`IrModule` → `.zbc` / `.zpkg`。由 `ZbcWriter` 将 IR 序列化为二进制：单文件产出 `.zbc`，打包产出 `.zpkg`。二进制布局与各 section 见 [zbc 字节码格式](../../../book/src/compiler/zbc-format.md) / [zpkg 包格式](../../../book/src/compiler/zpkg-format.md)。
+`IrModule` → `.zbc` / `.zpkg`。由 `ZbcWriter` 将 IR 序列化为二进制：单文件产出 `.zbc`，打包产出 `.zpkg`。二进制布局与各 section 见 [zbc 字节码格式](../formats/zbc.md) / [zpkg 包格式](../formats/zpkg.md)。
 
 ## 实现
 

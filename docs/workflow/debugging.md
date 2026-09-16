@@ -155,7 +155,7 @@ Observer 回调约束：**Send + Sync**（embedder 可能跨 thread 转发到 as
 
 一条命令把外部 profiler / 运行时探针挂到一次脚本运行上，按四个维度出分析产物。机制原理
 （两层成本模型 / safepoint 采样 / perfetto 采样型 trace）见
-[`docs/book/src/runtime/diagnostics.md`](../book/src/runtime/diagnostics.md)（知识库机制页）；
+[`docs/internals/src/runtime/diagnostics.md`](../internals/src/runtime/diagnostics.md)（知识库机制页）；
 program-plan 与决策见归档 `docs/spec/archive/2026-08-24-plan-script-profiling/`。
 
 ```bash
@@ -221,7 +221,7 @@ z42c 默认产出 debug-symbol 信息：
 - **`.zbc`（debug build）**：DBUG section 内嵌 `LineTable` + `LocalVarTable`
 - **`.zbc`（release build）+ `.zsym` sidecar**：split-debug-symbols；运行时按 BLAKE3-128 build_id 自动配对加载
 
-VM trace 已自动显示 `<file>:<line>:<col>` + 局部变量名（DBUG section 加载到时）。详见 [`docs/design/runtime/vm-architecture.md`](../design/runtime/vm-architecture.md) "Sidecar 调试符号加载" 段。
+VM trace 已自动显示 `<file>:<line>:<col>` + 局部变量名（DBUG section 加载到时）。详见 [`docs/internals/src/runtime/vm-architecture.md`](../internals/src/runtime/vm-architecture.md) "Sidecar 调试符号加载" 段。
 
 ```bash
 # 产出 sidecar

@@ -72,7 +72,7 @@ Rust corelib 双侧硬编码——z42 单测覆盖每个 CI OS verify
 
 **Windows hostname / OS version 留 follow-up**：z42 CI 暂无 Windows runner，引入
 `winapi` dep 没有 CI 验证不安全。一旦 Windows CI 落地，直接补
-`GetComputerNameW` + `RtlGetVersion` 即可（[design.md decision 2](../../spec/changes/add-platform-os-stdlib/design.md#decision-2-不引入-hostname--os_info-crate)）。
+`GetComputerNameW` + `RtlGetVersion` 即可（[design.md decision 2](../../spec/archive/2026-05-15-add-platform-os-stdlib/design.md#decision-2-不引入-hostname--os_info-crate)）。
 
 ## OSKind / ArchKind 整数值表
 

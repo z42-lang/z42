@@ -51,7 +51,7 @@ z42vm Rust code。
 | `src/toolchain/playground/web/README.md`                | NEW    | 怎么 npm run dev / build |
 | `src/toolchain/playground/README.md`                    | NEW    | playground/ 总览（架构 + 怎么本地跑端到端） |
 | `src/runtime/Cargo.toml`                                | MODIFY | 若需要 expose 额外 pub API for wasm wrapper（例如 stdlib zpkg loader） |
-| `docs/design/runtime/embedding.md`                      | MODIFY | 加 playground 一节说明 wasm 分发产物如何生成 |
+| `docs/internals/src/runtime/embedding.md`                      | MODIFY | 加 playground 一节说明 wasm 分发产物如何生成 |
 | `docs/roadmap.md`                                       | MODIFY | playground 标为已落地 |
 | `scripts/build-playground.sh`                           | NEW    | 端到端 build：wasm-pack + cargo + npm build |
 
@@ -64,7 +64,7 @@ z42vm Rust code。
   fork subprocess**，直接通过 ProjectReference + `PlaygroundCompiler.CompileSource`
   调用
 - `versions.toml` `[platform.wasm]` — wasm_pack 版本 pin 必须 match
-- `docs/design/runtime/embedding.md` 第 11.9 节 — 分发 package 形态约定
+- `docs/internals/src/runtime/embedding.md` 第 11.9 节 — 分发 package 形态约定
 
 ## Out of Scope
 

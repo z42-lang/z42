@@ -83,7 +83,7 @@
 | `docs/roadmap.md` | MODIFY | L2 JsonSerializer + Deserialize<T> 进度 + Deferred index |
 | `docs/book/src/stdlib/json-serde.md` | NEW | serde 机制页（知识上浮，挂 SUMMARY） |
 
-> **无格式 bump** → `docs/design/runtime/zbc.md` / `zpkg.md` / `../../../agent/rules/version-bumping.md` **不改**。
+> **无格式 bump** → `docs/internals/src/formats/zbc.md` / `zpkg.md` / `../../../agent/rules/version-bumping.md` **不改**。
 
 ## 只读引用（理解上下文，不修改）
 

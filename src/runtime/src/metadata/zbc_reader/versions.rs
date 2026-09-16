@@ -7,9 +7,9 @@ use super::*;
 // Bumping either requires synchronized update of:
 //   1. src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs (VersionMajor / VersionMinor)
 //   2. these two constants
-//   3. docs/design/runtime/zbc.md "Minor changelog" table
+//   3. docs/internals/src/formats/zbc.md "Minor changelog" table
 //   4. src/tests/zbc-format/generate-fixtures.sh regen
-// See docs/design/runtime/zbc.md + docs/agent/rules/workflow.md for the full procedure.
+// See docs/internals/src/formats/zbc.md + docs/agent/rules/workflow.md for the full procedure.
 
 pub const ZBC_VERSION_MAJOR: u16 = 1;
 // 2026-05-30 add-test-timeout-attribute: TIDX v=3 carries per-test
@@ -178,7 +178,7 @@ pub const ZBC_VERSION_MINOR: u16 = 42;
 // Strict-pin policy (freeze-zpkg-v0, 2026-05-14). Same coupling rules as zbc:
 // reader accepts exactly major == ZPKG_VERSION_MAJOR && minor == ZPKG_VERSION_MINOR.
 // Additionally, zbc minor bump REQUIRES zpkg minor bump (strong coupling per
-// docs/design/runtime/zpkg.md). See docs/agent/rules/workflow.md for the bump
+// docs/internals/src/formats/zpkg.md). See docs/agent/rules/workflow.md for the bump
 // procedure (zbc bump → 4 zbc steps + 4 zpkg steps in the same commit).
 
 pub const ZPKG_VERSION_MAJOR: u16 = 0;

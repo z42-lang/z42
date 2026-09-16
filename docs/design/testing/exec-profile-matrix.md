@@ -24,7 +24,7 @@ interp 快多少」，且 baseline 无从分辨自己是在哪种模式/平台/�
 - `tiers`：本次运行活跃的后端集。`interp` 恒在（兜底），可 `+jit`。
 - `aot_pkgs`：被预编到 AOT 的 zpkg 逻辑名子集。
 
-对齐 [AOT 设计 D2/D8](../runtime/aot.md)：AOT 是**按 zpkg 为单位、可部分**的（随包静态 zpkg 走
+对齐 [AOT 设计 D2/D8](../../internals/src/runtime/aot.md)：AOT 是**按 zpkg 为单位、可部分**的（随包静态 zpkg 走
 AOT，动态加载的走 interp/jit），与 JIT/interp 共存（.NET R2R + Tiered-JIT / Android ART 模型）。
 因此「full AOT」在 JIT 平台上根本不是常态——**混合才是常态**。
 

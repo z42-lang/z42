@@ -1,7 +1,7 @@
 # z42 异常机制
 
 > **状态**：L1 throw/catch 语法 ✅；Wave 2（2026-04-25）补齐 stdlib `Exception` 类层次。
-> **使用者视角**；实现原理见 `docs/design/runtime/vm-architecture.md`。
+> **使用者视角**；实现原理见 `docs/internals/src/runtime/vm-architecture.md`。
 
 ---
 
@@ -151,7 +151,7 @@ at MyApp.Greeter.greet(Greeter,str) (Greeter.z42:14:5)
 
 ### 离线符号化（独立工具，spec follow-up）
 
-`z42c symbolicate <crash.txt> --syms <name>.zsym` 把 trace 中 `+0x<ip> [build:<8hex>]` 形式的 frame 还原为 `(file:line:col)`。当前 spec 内未实施；见 [docs/spec/changes/split-debug-symbols/tasks.md](../../spec/changes/split-debug-symbols/tasks.md) 阶段 2.3。
+`z42c symbolicate <crash.txt> --syms <name>.zsym` 把 trace 中 `+0x<ip> [build:<8hex>]` 形式的 frame 还原为 `(file:line:col)`。当前 spec 内未实施；见 [docs/spec/changes/split-debug-symbols/tasks.md](../../spec/archive/2026-05-11-split-debug-symbols/tasks.md) 阶段 2.3。
 
 ### Deferred / Future Work
 

@@ -8,7 +8,7 @@ type implicitly inherits from `Std.Object`.
 
 The doc focuses on **runtime dispatch paths**, not language-level semantics.
 For the user-facing semantics see [`language-overview.md`](language-overview.md).
-For the C# emit side see [`compiler-architecture.md`](../compiler/compiler-architecture.md).
+For the C# emit side see `compiler-architecture.md`.
 
 ---
 
@@ -180,6 +180,6 @@ History:
 ## Related
 
 - [`stdlib.md`](../stdlib/overview.md) — script-first stdlib structure
-- [`compiler-architecture.md`](../compiler/compiler-architecture.md) — IR `ToStr` / `VCall` emission
-- [`vm-architecture.md`](../runtime/vm-architecture.md) — `Value` enum + interpreter loop
+- `compiler-architecture.md` — IR `ToStr` / `VCall` emission
+- [`vm-architecture.md`](../../internals/src/runtime/vm-architecture.md) — `Value` enum + interpreter loop
 - review2 §5.4 (this doc's origin) + §2.2 (Path 2 asymmetry tracking)

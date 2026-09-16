@@ -715,6 +715,6 @@ The handle in B1 is **not stored as a script-visible z42 field**. It is the runt
 
 - [philosophy.md](../philosophy.md) — embedding-first design principle
 - [language-overview.md](language-overview.md) — `extern` / `[Native]` syntax (L1)
-- [ir.md](../runtime/ir.md) — `Builtin` instruction (L1) and future `CallNative` / `CallNativeVtable` opcodes
-- [vm-architecture.md](../runtime/vm-architecture.md) — VM dispatch path
-- [compiler-architecture.md](../compiler/compiler-architecture.md) — type checker for FFI signatures
+- [ir.md](../../internals/src/formats/ir.md) — `Builtin` instruction (L1) and future `CallNative` / `CallNativeVtable` opcodes
+- [vm-architecture.md](../../internals/src/runtime/vm-architecture.md) — VM dispatch path
+- compiler-architecture.md — type checker for FFI signatures

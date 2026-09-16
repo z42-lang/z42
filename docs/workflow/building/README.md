@@ -18,7 +18,7 @@
 | [`vm.md`](vm.md) | Rust VM / `z42vm` + feature flag |
 | [`stdlib.md`](stdlib.md) | 24 个 stdlib 包 workspace |
 
-> 跨平台 / 多 RID 打包见 [`../packaging.md`](../packaging.md)；平台支持矩阵设计见 [`docs/design/runtime/cross-platform.md`](../../design/runtime/cross-platform.md)。
+> 跨平台 / 多 RID 打包见 [`../packaging.md`](../packaging.md)；平台支持矩阵设计见 [`docs/internals/src/runtime/cross-platform.md`](../../internals/src/runtime/cross-platform.md)。
 
 ## ③ 嵌入 z42 到宿主（facade）
 

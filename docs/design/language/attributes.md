@@ -124,7 +124,7 @@ public Attribute __attr$cls$UsersController$0() { return new RouteAttribute("/us
 
 ### 元数据持久化（zbc 1.10）
 
-每个 class 在 `.zbc` TYPE section 记 `attr_count: u16` + 每条 (`type_name`, `factory_func`) 字符串引用（见 [runtime/zbc.md](../runtime/zbc.md) 1.10）。运行期 loader 把它们载入 `TypeDescCold.custom_attributes`。
+每个 class 在 `.zbc` TYPE section 记 `attr_count: u16` + 每条 (`type_name`, `factory_func`) 字符串引用（见 [runtime/zbc.md](../../internals/src/formats/zbc.md) 1.10）。运行期 loader 把它们载入 `TypeDescCold.custom_attributes`。
 
 ### 反射时构造 + 缓存
 

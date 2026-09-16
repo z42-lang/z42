@@ -83,7 +83,7 @@
 - [ ] 4.1 性能验收表（design「Testing Strategy」）：semantics 与 `13_gc_large_heap` 两档 max ≤ 10 ms；总停顿 ≤ +20%；墙钟 ≤ +2%；RSS ≤ +5%
 - [ ] 4.2 正确性配方：冷 `package sdk`（默认 / 4M nursery）、`build stdlib`、`Z42_GC_SLICE_MS=0.05` 全套 stdlib 测试、`http_server_threaded` ×60
 - [ ] 4.3 `xtask test` GREEN（含自举不动点）
-- [ ] 4.4 文档：`docs/book/src/runtime/gc-incremental-major.md`（NEW）、`gc-tuning-and-safepoint.md`、`docs/book/src/SUMMARY.md`
+- [ ] 4.4 文档：`docs/internals/src/runtime/gc-incremental-major.md`（NEW）、`gc-tuning-and-safepoint.md`、`docs/book/src/SUMMARY.md`
 - [ ] 4.5 归档本 change；memory 更新
 
 ## 备注

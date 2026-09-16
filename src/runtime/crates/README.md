@@ -71,7 +71,7 @@ xtask test e2e
 
 ## 关联文档
 
-- 嵌入 API（Tier 1 C ABI + Tier 2）：[`docs/design/runtime/embedding.md`](../../../docs/design/runtime/embedding.md)
+- 嵌入 API（Tier 1 C ABI + Tier 2）：[`docs/internals/src/runtime/embedding.md`](../../../docs/internals/src/runtime/embedding.md)
 - native interop ABI（Tier 1/2 分层）：spec `design-interop-interfaces` 及 C2–C5 后续
 - REPL native 剥离：change `extract-repl-native-cdylib`；`}` 回退 floor：`add-repl-rbrace-floor`（均在 `docs/spec/changes/`）
 - apphost run 路径（进程外拉起）：change `add-apphost` / `simplify-apphost-direct-run`（`docs/spec/archive/`）；实现已并入 apphost 的 `hostrun` 模块（change `merge-hostrun-into-apphost`）

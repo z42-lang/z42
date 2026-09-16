@@ -1,6 +1,6 @@
 //! Process-singleton VM state for the Embedding API.
 //!
-//! Spec: docs/design/runtime/embedding.md §7 + docs/spec/archive/2026-05-10-add-embedding-api/design.md D1/D5.
+//! Spec: docs/internals/src/runtime/embedding.md §7 + docs/spec/archive/2026-05-10-add-embedding-api/design.md D1/D5.
 //!
 //! v0.1 holds one optional `HostState` behind an `RwLock`. `initialize`
 //! takes the write lock and refuses if state is already `Some`; `shutdown`

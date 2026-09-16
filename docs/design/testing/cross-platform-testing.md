@@ -44,7 +44,7 @@
 >
 > 状态：Design Draft（2026-05-09）。落地分散到 [rewrite-z42-test-runner-compile-time](../../spec/archive/2026-05-12-rewrite-z42-test-runner-compile-time/)（lib API） + [add-platform-wasm](../../spec/archive/2026-05-12-add-platform-wasm/) / [add-platform-android](../../spec/archive/2026-05-12-add-platform-android/) / [add-platform-ios](../../spec/archive/2026-05-12-add-platform-ios/) 各自的 Testing 子段。
 >
-> 本文是 [cross-platform.md](../runtime/cross-platform.md)（VM build 矩阵）与 [testing.md](testing.md)（测试框架架构）的桥接：**同一份测试集如何在 host / wasm / iOS / Android 一致地跑，并把失败精确报告回 CI**。
+> 本文是 [cross-platform.md](../../internals/src/runtime/cross-platform.md)（VM build 矩阵）与 [testing.md](testing.md)（测试框架架构）的桥接：**同一份测试集如何在 host / wasm / iOS / Android 一致地跑，并把失败精确报告回 CI**。
 >
 > 本文的 runner 假设是 **Rust library**。runner 自身向 z42 的迁移路径（自举对齐）见 [test-runner-bootstrap.md](test-runner-bootstrap.md)，与本文解耦。
 

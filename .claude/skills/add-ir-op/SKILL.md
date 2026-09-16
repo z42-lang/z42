@@ -55,7 +55,7 @@ argument-hint: <instruction-name>
 
 14. `ZbcFormat.z42` 的 `ZbcVersion.Minor++` + 常量旁 changelog
 15. `src/runtime/src/metadata/zbc_reader/versions.rs` 的 `ZBC_VERSION_MINOR` + changelog
-16. zbc 格式页的 Minor changelog 表加行（⏳ 三书重构搬迁中：`docs/design/runtime/zbc.md` → `docs/internals/src/formats/zbc.md`，批 2）
+16. zbc 格式页的 Minor changelog 表加行（⏳ 三书重构搬迁中：`docs/internals/src/formats/zbc.md` → `docs/internals/src/formats/zbc.md`，批 2）
 17. regen `src/tests/zbc-format/*/source.zbc`（`xtask build test`）
 18. `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 内嵌 hex 串重截
 19. **联动 zpkg**：`ZpkgWriter.z42` 的 `Minor++` + Rust `ZPKG_VERSION_MINOR` + `zpkg.md` changelog
@@ -63,7 +63,7 @@ argument-hint: <instruction-name>
 
 ### 文档
 
-20. IR 参考页（⏳ 搬迁中：`docs/design/runtime/ir.md` → `docs/internals/src/formats/ir.md`，批 2）、`src/libraries/z42.ir/README.md`、`src/runtime/src/interp/README.md`
+20. IR 参考页（⏳ 搬迁中：`docs/internals/src/formats/ir.md` → `docs/internals/src/formats/ir.md`，批 2）、`src/libraries/z42.ir/README.md`、`src/runtime/src/interp/README.md`
 
 ## 自举纪律
 

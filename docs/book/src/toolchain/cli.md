@@ -1,7 +1,7 @@
 # z42 命令参考
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（0.6.x）｜ **代码**: `src/toolchain/launcher/core/launcher_cli.z42` · `src/toolchain/builder/core/builder_cli.z42` · `src/compiler/z42c.driver/src/BuildCommand.z42` · `src/libraries/z42.project/src/{ManifestLocator,BuildLayout}.z42`
-> **相关**: [CLI 与诊断工具（z42c / z42b）](../compiler/tools.md) · [工程模型](../../../internals/src/compiler/project-model.md) · [运行时设置](../runtime/runtime-settings.md) ｜ **对齐**: 2026-09-16
+> **相关**: [CLI 与诊断工具（z42c / z42b）](../compiler/tools.md) · [工程模型](../../../internals/src/compiler/project-model.md) · [运行时设置](../../../internals/src/runtime/runtime-settings.md) ｜ **对齐**: 2026-09-16
 
 ## 概述
 
@@ -40,7 +40,7 @@ Created executable project `hello` in hello/
 ### `z42 run [<目标>] [--bin <name>] [--mode <m>] [--config <file>] [--set <k>=<v>]... [-- <程序参数>]`
 
 目标为空、目录或清单时：先以 `--quiet` 构建（只输出诊断，不输出进度），再运行产物；目标为 `.zpkg` / `.zbc` 时直接运行。
-工程声明了多个 `[[exe]]` 时必须用 `--bin` 选一个。`--mode` / `--config` / `--set` 交给 z42vm，语义见[运行时设置](../runtime/runtime-settings.md)。
+工程声明了多个 `[[exe]]` 时必须用 `--bin` 选一个。`--mode` / `--config` / `--set` 交给 z42vm，语义见[运行时设置](../../../internals/src/runtime/runtime-settings.md)。
 简写 `z42 <app.zpkg|.zbc|.z42> [-- args]` 等价 `z42 run <目标>`。定位到工作区清单时报错，需进入成员目录运行。
 
 **单文件**：目标为单个 `.z42` 源文件时，在缓存目录

@@ -277,7 +277,7 @@ The raw `.cache/*.zbc` files (fat) remain unchanged; the packing step produces o
 
 ### 14.1 `readonly` fields
 
-**Decision:** L1 supports a `readonly` field modifier — a field assignable only inside the declaring class's instance constructor (via `this.<field>`) or a field initializer; any other assignment is a compile error (`E0415`). This is a **field-level** immutability contract that the optimizer trusts to CSE / hoist field reads (see [optimization-pipeline](book/src/runtime/optimization-pipeline.md), pass 2f). Distinct from the L3 `let`/`mut` *local* immutability above.
+**Decision:** L1 supports a `readonly` field modifier — a field assignable only inside the declaring class's instance constructor (via `this.<field>`) or a field initializer; any other assignment is a compile error (`E0415`). This is a **field-level** immutability contract that the optimizer trusts to CSE / hoist field reads (see [optimization-pipeline](internals/src/runtime/optimization-pipeline.md), pass 2f). Distinct from the L3 `let`/`mut` *local* immutability above.
 
 **Rationale:** `readonly` is the highest-ROI immutability primitive for the optimizer — it unblocks `FieldGet` from the `IsPure` exclusion (NPE/mutation) so a method reading its own readonly field in a loop hoists the load out (measured interp ~1.87×). Field-slot immutable only (does not deep-freeze the referenced object — same as C# `readonly`).
 
@@ -369,7 +369,7 @@ env / 文件层 warn 后用默认继续（`--strict-config` 可升级为致命�
 查询：`z42vm --list-knobs [--all] [--json]`（schema）/ `z42vm --show-config [--json]`
 （生效值 + 来源 + 为什么某层没生效）。z42 脚本侧只读面：`Std.Runtime.RuntimeConfig`。
 
-机制详解见 [runtime-settings.md](book/src/runtime/runtime-settings.md)。
+机制详解见 [runtime-settings.md](internals/src/runtime/runtime-settings.md)。
 
 | **module path** | `.zbc` only | `Z42_PATH` | `<cwd>/`, `<cwd>/modules/` | High |
 | **libs path** | `.zpkg` only | `Z42_LIBS` | `<binary-dir>/../libs/`, `<cwd>/artifacts/z42/libs/` | Low |

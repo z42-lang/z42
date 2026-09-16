@@ -9,7 +9,7 @@ slot table。
 `Mutex<T>` / `RwLock<T>` / `Channel<T>` **用 z42 写在 `MonitorNative` 之上**，值 / 队列缓冲区是对象字段——
 GC 可见、随对象回收。原生层只提供不含值的 Monitor（store-sync-values-in-heap, 2026-09-14；此前值存在
 Rust 侧容器里，GC 看不见，只被原语持有的值会被回收）。机制见
-[docs/book/src/runtime/sync-primitives.md](../../../docs/book/src/runtime/sync-primitives.md)。
+[docs/internals/src/runtime/sync-primitives.md](../../../docs/internals/src/runtime/sync-primitives.md)。
 
 ## src/ 核心文件
 

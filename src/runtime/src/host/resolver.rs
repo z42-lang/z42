@@ -1,7 +1,7 @@
 //! ZpkgResolver trait + C hook adapter for the embedding API.
 //!
 //! Spec: docs/spec/archive/2026-05-12-add-zpkg-resolver-hook/
-//!       docs/design/runtime/embedding.md §11
+//!       docs/internals/src/runtime/embedding.md §11
 //!
 //! The runtime accepts two resolver shapes:
 //!
@@ -47,7 +47,7 @@ pub(crate) struct CHookResolver {
 
 // Function pointer + opaque `usize`: both are trivially Send/Sync;
 // thread-safety of the user-supplied callback is the host's contract
-// (see docs/design/runtime/embedding.md §7).
+// (see docs/internals/src/runtime/embedding.md §7).
 unsafe impl Send for CHookResolver {}
 unsafe impl Sync for CHookResolver {}
 

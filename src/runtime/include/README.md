@@ -9,7 +9,7 @@ z42 runtime 对外暴露的 C ABI 公开头文件。供 host 应用 / native 库
 | 文件 | 职责 |
 |------|------|
 | `z42_abi.h` | Tier 1 native interop ABI（`Z42TypeDescriptor_v1` + `z42_*` 函数声明）。Rust 镜像见 [`crates/z42-abi/`](../crates/z42-abi/) |
-| `z42_host.h` | Tier 1 embedding / hosting ABI（`Z42HostConfig` + `z42_host_*` 函数声明）。`#include "z42_abi.h"` 复用 `Z42Value` / `Z42Args` / `Z42Error`。Spec 见 [`docs/design/runtime/embedding.md`](../../../docs/design/runtime/embedding.md) |
+| `z42_host.h` | Tier 1 embedding / hosting ABI（`Z42HostConfig` + `z42_host_*` 函数声明）。`#include "z42_abi.h"` 复用 `Z42Value` / `Z42Args` / `Z42Error`。Spec 见 [`docs/internals/src/runtime/embedding.md`](../../../docs/internals/src/runtime/embedding.md) |
 
 ## 入口点
 
@@ -28,4 +28,4 @@ z42 runtime 对外暴露的 C ABI 公开头文件。供 host 应用 / native 库
 
 ## ABI 演进
 
-`abi_version` 字段永远在偏移 0；新字段只追加，major 版本升级 = 显式 break。两份头文件遵循同一规则（`z42_abi.h` 详见 `docs/design/language/interop.md` §3.3；`z42_host.h` 详见 `docs/design/runtime/embedding.md` §4.5）。
+`abi_version` 字段永远在偏移 0；新字段只追加，major 版本升级 = 显式 break。两份头文件遵循同一规则（`z42_abi.h` 详见 `docs/design/language/interop.md` §3.3；`z42_host.h` 详见 `docs/internals/src/runtime/embedding.md` §4.5）。

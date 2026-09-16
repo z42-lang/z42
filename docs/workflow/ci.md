@@ -159,7 +159,7 @@ xtask test --no-build    # 阶段⑤：消费③+④，反复迭代测试时不�
 
 ## 多平台 CI matrix
 
-`test-host(<host-arch>)` 在 4-OS matrix 跑：`linux-x64`（ubuntu-latest）/ `linux-arm64`（ubuntu-24.04-arm）/ `macos-arm64`（macos-26）/ `windows-x64`（windows-latest）。平台支持矩阵设计见 [`docs/design/runtime/cross-platform.md`](../design/runtime/cross-platform.md)。
+`test-host(<host-arch>)` 在 4-OS matrix 跑：`linux-x64`（ubuntu-latest）/ `linux-arm64`（ubuntu-24.04-arm）/ `macos-arm64`（macos-26）/ `windows-x64`（windows-latest）。平台支持矩阵设计见 [`docs/internals/src/runtime/cross-platform.md`](../internals/src/runtime/cross-platform.md)。
 
 ## Release 自动化
 

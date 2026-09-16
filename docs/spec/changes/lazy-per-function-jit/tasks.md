@@ -30,7 +30,7 @@
 - [x] 3.6 spec scenarios：Rust 单测逐条对应（首调 3 场景 / interp-only / 线程安全 / 计数器语义）；「golden 输出不变」由 CI e2e 覆盖
 
 ## 阶段 4: 文档同步
-- [x] 4.1 `docs/book/src/runtime/jit-lazy-compile.md`（NEW）+ 挂 `SUMMARY.md`
+- [x] 4.1 `docs/internals/src/runtime/jit.md`（NEW）+ 挂 `SUMMARY.md`
 - [x] 4.2 `src/runtime/src/jit/README.md`：核心文件（+lazy.rs）+ 入口点 + 测试段
 - [x] 4.3 `ACTIVE.md`：登记 runtime 锁持有者（归档时释放）
 - [x] 4.4 归档 doc-check 清单核对

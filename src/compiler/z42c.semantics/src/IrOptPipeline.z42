@@ -1,7 +1,7 @@
 // IrOptPipeline —— 编译期 IR 优化管线（处理流程骨架）。
 // 引入 change：optimization-pipeline。挂载点：IrGen.Generate 末尾（emit 后、写 zbc 前）。
 //
-// 流程（见 docs/book/src/runtime/optimization-pipeline.md，准则 1 interp-first）：
+// 流程（见 docs/internals/src/runtime/optimization-pipeline.md，准则 1 interp-first）：
 //   Run(module) → 逐函数 _optFunc：
 //     pass 1 copy-prop：消 SSA-lite 拷回冗余 Copy（`t = expr; copy local, t` → `local = expr`），
 //                       砍 interp 每个赋值的一次 dispatch（interp 热路大头）。

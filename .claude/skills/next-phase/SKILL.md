@@ -14,7 +14,7 @@ agent: Plan
 先读取以下文件了解现状：
 - [roadmap.md](../../../docs/roadmap.md) —— 迭代计划与当前焦点（CLAUDE.md 不再复制焦点）
 - 语言规则：`docs/reference/`（⏳ 三书重构搬迁中，暂在 `docs/design/language/`）
-- IR 指令集：`docs/internals/src/formats/ir.md`（⏳ 暂在 `docs/design/runtime/ir.md`）
+- IR 指令集：`docs/internals/src/formats/ir.md`（⏳ 暂在 `docs/internals/src/formats/ir.md`）
 
 然后扫描代码库，识别哪些内容标注了 `// TODO` 或 `// TODO:`：
 

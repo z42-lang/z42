@@ -4,7 +4,7 @@ Gzip / zlib / DEFLATE / Zstandard primitives plus Tar / Zip archive
 parsing. The first stdlib package whose native code lives **outside**
 `z42vm` — built as a separate `cdylib` (`libz42_compression.{so,dylib,
 dll}`) loaded on demand via the native ext loader
-([`docs/design/runtime/native-ext-loader.md`](../runtime/native-ext-loader.md)).
+([`docs/internals/src/runtime/native-ext-loader.md`](../../internals/src/runtime/native-ext-loader.md)).
 
 > Spec: [`docs/spec/archive/2026-05-24-add-z42-compression/`](../../spec/archive/2026-05-24-add-z42-compression/)
 > shipped 2026-05-24.
@@ -307,7 +307,7 @@ full 256-byte-value binary payload).
 ## Architecture notes
 
 Why a separate cdylib instead of `BUILTINS[]` in-VM? See
-[`docs/design/runtime/native-ext-loader.md`](../runtime/native-ext-loader.md)
+[`docs/internals/src/runtime/native-ext-loader.md`](../../internals/src/runtime/native-ext-loader.md)
 for the full rationale; brief version:
 
 - **Binary modularity**: z42vm core stays small (~4 MB); compression's

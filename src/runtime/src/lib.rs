@@ -25,7 +25,7 @@ pub mod aot;
 #[cfg(feature = "native-interop")]
 pub mod native;
 // Embedding API (Tier 1 C ABI for host applications). Spec:
-// docs/design/runtime/embedding.md, docs/spec/archive/2026-05-10-add-embedding-api/.
+// docs/internals/src/runtime/embedding.md, docs/spec/archive/2026-05-10-add-embedding-api/.
 pub mod host;
 pub mod vm;
 pub mod vm_context;

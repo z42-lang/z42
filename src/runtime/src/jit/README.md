@@ -1,7 +1,7 @@
 # jit — Cranelift JIT backend
 
 ## 职责
-将 z42 SSA 字节码编译为原生机器码执行。所有值操作通过 `extern "C"` helper 函数实现，Cranelift 只生成控制流（分支、跳转、函数入口/出口）。**编译是惰性的**：函数在**首次被调用**时才编译（compile-on-first-call），不在加载时全量编译——机制见 [book: 惰性逐函数 JIT](../../../../docs/book/src/runtime/jit-lazy-compile.md)。
+将 z42 SSA 字节码编译为原生机器码执行。所有值操作通过 `extern "C"` helper 函数实现，Cranelift 只生成控制流（分支、跳转、函数入口/出口）。**编译是惰性的**：函数在**首次被调用**时才编译（compile-on-first-call），不在加载时全量编译——机制见 [book: 惰性逐函数 JIT](../../../../docs/internals/src/runtime/jit.md)。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -45,7 +45,7 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 1. 对应 `helpers/<category>.rs` 添加函数定义
 2. `helpers/registry.rs` 添加 `register_symbols` 中的 `reg!()` 行 + `HelperIds` 字段 + `declare_imports` 中的 `decl!()` 行
 
-详见 [docs/design/runtime/vm-architecture.md](../../../../docs/design/runtime/vm-architecture.md) "JIT/EE helper 边界"。
+详见 [docs/internals/src/runtime/vm-architecture.md](../../../../docs/internals/src/runtime/vm-architecture.md) "JIT/EE helper 边界"。
 
 ## 依赖关系
 - 依赖 `corelib` 的 `exec_builtin` 和 `value_to_str`

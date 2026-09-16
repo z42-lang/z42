@@ -46,5 +46,5 @@
 ## 阶段 9：归档
 
 - [ ] 8.1 类初始化时机上浮 `docs/book/src/runtime/`
-- [ ] 8.2 `docs/design/runtime/vm-architecture.md` 同步
+- [ ] 8.2 `docs/internals/src/runtime/vm-architecture.md` 同步
 - [ ] 8.3 归档到 `docs/spec/archive/`

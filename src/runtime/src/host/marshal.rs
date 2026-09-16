@@ -1,6 +1,6 @@
 //! Host ABI value marshaling: `Z42Value` ↔ runtime `Value`.
 //!
-//! Spec: docs/design/runtime/embedding.md §4.4 (z42_host_invoke),
+//! Spec: docs/internals/src/runtime/embedding.md §4.4 (z42_host_invoke),
 //!       interop.md §6 (Z42Value tag dictionary).
 //!
 //! H2 scope is **null + primitives** (i64 / f64 / bool). Strings, objects,

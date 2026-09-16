@@ -72,7 +72,7 @@ pub fn builtin_system_os_version(_ctx: &VmContext, _: &[Value]) -> Result<Value>
 // add-pal-system-phase1 (2026-06-03): the unix / wasm / windows-stub
 // branches that used to live inline here now sit behind `crate::pal::system::*`.
 // Future PAL concerns (fs / signal / thread / mem) follow the same pattern —
-// see `docs/design/runtime/pal.md` for the migration plan.
+// see `docs/internals/src/runtime/pal.md` for the migration plan.
 
 #[cfg(test)]
 #[path = "system_tests.rs"]

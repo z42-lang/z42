@@ -6,7 +6,7 @@
 //! glue and the wasm-bindgen surface.
 //!
 //! Spec: docs/spec/archive/2026-05-12-add-platform-wasm/ (REVISION 2026-05-11),
-//!       docs/design/runtime/embedding.md §6 Tier 3 + §11 ZpkgResolver.
+//!       docs/internals/src/runtime/embedding.md §6 Tier 3 + §11 ZpkgResolver.
 //!
 //! H4 scope: single VM instance, sync invoke, null / i64 / f64 / bool
 //! marshaling. Async, multi-instance, string marshaling tracked in

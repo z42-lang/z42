@@ -65,7 +65,7 @@
       这个死锁在无修复时同样存在、joiner park 后消失。见 design.md「更新 2026-09-15」。
 - [x] 3.3 cargo test —— 全绿（含本测试重新启用）；CI 全平台待看
 - [x] 3.4 移除 cross_thread_smoke.rs 上的 `#[ignore]`（过渡撤销）
-- [ ] 3.5 docs/design/runtime/vm-architecture.md 或 GC 专章追加"并发 mark bit 生命周期 + 注册/safepoint 协议"说明
+- [ ] 3.5 docs/internals/src/runtime/vm-architecture.md 或 GC 专章追加"并发 mark bit 生命周期 + 注册/safepoint 协议"说明
 
 ## 备注
 - 过渡（阶段 2.5）：`concurrent_gc_mode_stress_no_race_no_leak` 已 windows `#[ignore]`；在 linux/macOS 仍跑（守护 invariant）。

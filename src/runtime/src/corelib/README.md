@@ -31,7 +31,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | GC 控制（collect / 阈值 / 快照） | `gc.rs` |
 | 基准计时 | `bench.rs` |
 | 进程 / 平台 / 系统信息 | `process.rs` / `platform.rs` / `system.rs` |
-| 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上）/ 锁争用探针 | `threading.rs` / `monitor.rs` / `sync_contention.rs`；`sync.rs` 为旧实现（值存 Rust 侧、GC 不可见），阶段 1 种子例外待删，见 [sync-primitives.md](../../../../docs/book/src/runtime/sync-primitives.md) |
+| 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上）/ 锁争用探针 | `threading.rs` / `monitor.rs` / `sync_contention.rs`；`sync.rs` 为旧实现（值存 Rust 侧、GC 不可见），阶段 1 种子例外待删，见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
 | 网络 / TLS / 加密 | `network.rs`（hub：KIND_* / 句柄槽）+ `network/{tcp, tcp_options, udp, wasm}.rs`（refactor-split-network）/ `tls.rs` / `crypto.rs` |
 | REPL 支持（求值宿主 / 行编辑） | `repl.rs` / `repl_editing.rs` |
 | 测试宿主（隔离跑 golden） | `tests.rs`（+ `reflection/module_load.rs` 的 `__run_goldens_isolated`）|
@@ -71,7 +71,7 @@ xtask test stdlib
 ## 关联文档
 
 - 设计/机制（深入层）：[反射机制](../../../../docs/design/language/reflection.md)、
-  [运行时 IR](../../../../docs/design/runtime/ir.md)
+  [运行时 IR](../../../../docs/internals/src/formats/ir.md)
 - 反射能力的引入/演进：`docs/spec/archive/2026-06-*-add-reflection-*` 等（需求↔迭代可追溯）
 - 拆分：change `refactor-reflection-split`（`reflection.rs` 2840 行 → `reflection/` 11 子模块，全 <500）
 

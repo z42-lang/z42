@@ -60,7 +60,7 @@ golden 字节），而 book 里写的「真实 release 自建 + 专项单测覆�
 
 ## 文档
 
-- `docs/book/src/runtime/escape-analysis-stack-alloc.md`：新增「`ref`/`out` 形参的出口写回是逃逸汇点」一节
+- `docs/internals/src/runtime/escape-analysis.md`：新增「`ref`/`out` 形参的出口写回是逃逸汇点」一节
   + 汇点规则表加一行 + 引擎改三趟 + 页头对齐行
 - `src/tests/README.md`：sidecar 表加 `opt_all`、类别表加 `optimization/` 行（含「不带 = 没测」的警告）、
   flat 模式 sidecar 说明

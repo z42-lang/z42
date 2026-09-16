@@ -1,6 +1,6 @@
 # Design: 编译期 IR 优化管线
 
-> 对齐：2026-07-30。总准则见 book [optimization-pipeline](../../../book/src/runtime/optimization-pipeline.md)（准则 1 interp-first / 准则 2 内存时间开销）。
+> 对齐：2026-07-30。总准则见 book [optimization-pipeline](../../../internals/src/runtime/optimization-pipeline.md)（准则 1 interp-first / 准则 2 内存时间开销）。
 
 ## Architecture
 

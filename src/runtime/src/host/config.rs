@@ -1,7 +1,7 @@
 //! Host configuration: C ABI struct layout + validation.
 //!
 //! Mirrors `Z42HostConfig` / `Z42WriteSink` / `Z42ExecMode` from
-//! `src/runtime/include/z42_host.h`. Spec: docs/design/runtime/embedding.md §4.2.
+//! `src/runtime/include/z42_host.h`. Spec: docs/internals/src/runtime/embedding.md §4.2.
 
 use std::os::raw::{c_char, c_void};
 use std::sync::Arc;

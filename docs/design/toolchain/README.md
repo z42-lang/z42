@@ -16,5 +16,5 @@
 ## 与已有规范的关系
 
 - [runtime/launcher.md](../runtime/launcher.md) — launcher 现状（run/link/list/install/apphost；Std.Cli router）。本目录是它的**扩展方向**。
-- [runtime/embedding.md](../runtime/embedding.md) — VM 嵌入 API + 平台包布局（xcframework/AAR/wasm）。平台导出的"VM 嵌入"层即此。
+- [runtime/embedding.md](../../internals/src/runtime/embedding.md) — VM 嵌入 API + 平台包布局（xcframework/AAR/wasm）。平台导出的"VM 嵌入"层即此。
 - `Std.Cli`（archive/2026-06-10-add-cli-nested-subcommands + add-cli-optional-positional）— 命令树/解析的库基础。

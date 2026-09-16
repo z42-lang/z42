@@ -28,7 +28,7 @@
 //!
 //! # Phase 路线
 //!
-//! 见 [`docs/design/runtime/gc.md`](../../../../docs/design/runtime/gc.md)
+//! 见 [`docs/internals/src/runtime/gc.md`](../../../../docs/internals/src/runtime/gc.md)
 //! "GC 子系统" 段。
 
 use std::sync::Arc;
