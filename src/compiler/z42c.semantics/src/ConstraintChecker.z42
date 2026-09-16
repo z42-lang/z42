@@ -239,10 +239,95 @@ public sealed class ConstraintChecker {
         }
     }
 
+    // ════ CheckDeclTypeRefs（声明位校验，check-constraints-all-type-refs H1）═══════
+    // 此前约束满足性只在 `new T<>()`（ConstructTyper）与泛型方法调用（MemberResolver）两处校验；
+    // 字段/属性/索引器/方法形参·返回/基类·接口列表这些**声明位**的泛型类型引用（`HashSet<NoEq> f;`
+    // / `void g(Dict<Bad,V> d)`）从不校验 → 语言健全性洞。收集期 `SymbolCollector._chkTypeRefT`
+    // 也解析了这些类型，但约束在 CollectAll 之后才 Resolve、当时不可查 ⇒ 只能放绑定期本 pass。
+    //
+    // 走 **AST 自有声明**（不走 `ct.Fields`/`ct.Methods` —— 那含继承展平成员，跨类会双报），
+    // 类型上下文（类型参 + 方法型参）与 SymbolCollector._methodSymbol 逐字对齐，`ResolveTypeP` 重解析
+    // 后交 `Check`（含 H2 递归）。基类位类型实参未存 Z42ClassType（只有裸名），故也从 AST c.Bases 重解析。
+    // 体内位（局部/new/cast/is/as/default/typeof）由 TypeChecker._chkTypeRef 覆盖，与本 pass 不重叠。
+    public void CheckDeclTypeRefs(CompilationUnit cu, SymbolTable symbols) {
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) { this._checkClassDeclRefs(symbols, d as ClassDecl); }
+            else if (d is MethodDecl) { this._checkMethodDeclRefs(symbols, d as MethodDecl, new string[0], 0); }   // 顶层自由函数
+            i = i + 1;
+        }
+    }
+
+    private void _checkClassDeclRefs(SymbolTable symbols, ClassDecl c) {
+        string[] tp = c.TypeParams.Names;
+        int tpc = c.TypeParams.Count;
+        int b = 0;
+        while (b < c.BaseCount) {   // 基类 / 接口列表
+            this._checkOneDeclRef(symbols, symbols.ResolveTypeP(c.Bases[b], tp, tpc), c.Bases[b].Span);
+            b = b + 1;
+        }
+        int m = 0;
+        while (m < c.MemberCount) {
+            Decl mem = this._unwrap(c.Members[m]);
+            if (mem is FieldDecl) {
+                FieldDecl fd = mem as FieldDecl;
+                this._checkOneDeclRef(symbols, symbols.ResolveTypeP(fd.Type, tp, tpc), fd.Type.Span);
+            } else if (mem is PropertyDecl) {
+                PropertyDecl pd = mem as PropertyDecl;
+                this._checkOneDeclRef(symbols, symbols.ResolveTypeP(pd.Type, tp, tpc), pd.Type.Span);
+            } else if (mem is IndexerDecl) {
+                IndexerDecl ix = mem as IndexerDecl;
+                this._checkOneDeclRef(symbols, symbols.ResolveTypeP(ix.RetType, tp, tpc), ix.RetType.Span);
+                int p = 0;
+                while (p < ix.ParamCount) {
+                    this._checkOneDeclRef(symbols, symbols.ResolveTypeP(ix.Params[p].Type, tp, tpc), ix.Params[p].Type.Span);
+                    p = p + 1;
+                }
+            } else if (mem is MethodDecl) {
+                this._checkMethodDeclRefs(symbols, mem as MethodDecl, tp, tpc);
+            }
+            m = m + 1;
+        }
+    }
+
+    private void _checkMethodDeclRefs(SymbolTable symbols, MethodDecl md, string[] tp, int tpc) {
+        string[] all = this._mergeParams(tp, tpc, md.TypeParams.Names, md.TypeParams.Count);   // 类型参 + 方法型参（镜像 SymbolCollector._methodSymbol）
+        int allc = tpc + md.TypeParams.Count;
+        int k = 0;
+        while (k < md.ParamCount) {
+            this._checkOneDeclRef(symbols, symbols.ResolveTypeP(md.Params[k].Type, all, allc), md.Params[k].Type.Span);
+            k = k + 1;
+        }
+        if (!md.IsCtor) {   // ctor RetType 是占位空名（同 SymbolCollector 跳过）
+            this._checkOneDeclRef(symbols, symbols.ResolveTypeP(md.RetType, all, allc), md.RetType.Span);
+        }
+    }
+
+    private void _checkOneDeclRef(SymbolTable symbols, Z42Type t, Span sp) {
+        if (t is Z42InstantiatedType) { this.Check(symbols, t as Z42InstantiatedType, sp); }
+    }
+
+    private string[] _mergeParams(string[] a, int ac, string[] b, int bc) {
+        string[] r = new string[ac + bc];
+        int i = 0;
+        while (i < ac) { r[i] = a[i]; i = i + 1; }
+        int j = 0;
+        while (j < bc) { r[ac + j] = b[j]; j = j + 1; }
+        return r;
+    }
+
     // ════ Check（call-site 校验）═══════════════════════════════════════════════
     // `sp` = 实例化点（`new Box<D>()` 的类型位）。此前全程 `_noSpan()` → 诊断指向 `<sem> 0:0`，
     // 使用者拿到一条不知道该看哪一行的错误（complete-where-constraints PR-4）。
     public void Check(SymbolTable symbols, Z42InstantiatedType inst, Span sp) {
+        // check-constraints-all-type-refs H2：递归进类型实参**先做、无条件**——嵌套泛型内层约束
+        // 不能因外层无约束（下面 HasConstraints 早退）而逃逸（`List<HashSet<NoEq>>` 里内层 HashSet）。
+        int r = 0;
+        while (r < inst.ArgCount) {
+            if (inst.TypeArgs[r] is Z42InstantiatedType) { this.Check(symbols, inst.TypeArgs[r] as Z42InstantiatedType, sp); }
+            r = r + 1;
+        }
         // 查询键必须经 ConstraintKey（与写入侧同一函数）——裸名查询会让同短名多 arity 的泛型类
         // 互相串味（`Foo<T>` 的实例化被拿去校验 `Foo<T,U>` 的约束）。见 SymbolTable.ConstraintKey。
         // `cname` 仍用**裸名**：它只流进诊断文案，用户不该看到 `Foo$2` 这种内部键。

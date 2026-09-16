@@ -46,6 +46,7 @@ public sealed class TypeChecker {
         AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
         if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
         this._chkTypeRefPkg(env.Symbols, t, sp);   // report-crosspkg-duplicate-type：E0601 / E0606（使用位）
+        if (t is Z42InstantiatedType) { this._constraints.Check(env.Symbols, t as Z42InstantiatedType, sp); }   // check-constraints-all-type-refs H1：体内类型引用位（局部/cast/is/as/default/typeof）校验 where 约束（声明位走 CheckDeclTypeRefs）
     }
 
     // report-crosspkg-duplicate-type：同 FQN 跨包（E0601）/ 本地遮蔽导入（E0606）的**使用位**判定。
@@ -453,6 +454,7 @@ public sealed class TypeChecker {
         this._currentNs = cu.HasNamespace ? cu.Namespace : "";
         this._collectUsings(cu);   // fix-ns-qualified-static-call：本 CU 的 using ns 集（bug B7）
         if (resolveConstraints) { this._constraints.Resolve(cu, view); }   // Pass 0.5：泛型 where 约束解析（单文件路径）
+        this._constraints.CheckDeclTypeRefs(cu, view);   // check-constraints-all-type-refs H1：声明位（字段/属性/索引器/形参·返回/基类）泛型约束校验（约束此时已 resolve/hoist）
         this._decl._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
         int i = 0;
         while (i < cu.DeclCount) {
