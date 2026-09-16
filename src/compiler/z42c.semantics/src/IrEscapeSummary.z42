@@ -59,7 +59,9 @@ public sealed class IrEscapeSummary {
                 if (f.BlockCount > 0) {
                     bool[] pe = t.Lookup(f.Name);
                     if (pe != null) {
-                        bool[] esc = IrEscapeAnalysis.ComputeEscapedRegs(m, f, t);
+                        // markRefWriteback=false：摘要问「入参值是否逃逸」，参数槽被重新赋值与入参值无关
+                        //（写回汇点只在 _markFunc 的本函数内判定里开，见 IrEscapeAnalysis Pass A′）。
+                        bool[] esc = IrEscapeAnalysis.ComputeEscapedRegs(m, f, t, false);
                         int pi = 0;
                         while (pi < f.ParamCount) {
                             if (pi < esc.Length && esc[pi] && !pe[pi]) { pe[pi] = true; changed = true; }
