@@ -1,5 +1,3 @@
-namespace Greet;
-
 using Std.IO;
 
 void Main() {

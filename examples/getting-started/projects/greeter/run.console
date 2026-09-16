@@ -1,0 +1,28 @@
+# ANCHOR: files
+$ ls
+README.md
+src/
+z42.toml
+$ cat z42.toml
+[project]
+name = "greeter"
+version = "0.1.0"
+kind = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+# ANCHOR_END: files
+# ANCHOR: run
+$ z42 run -- 小明
+Hello, 小明!
+# ANCHOR_END: run
+# ANCHOR: build
+$ z42 build
+no changes; preserved -> ./dist/greeter.zpkg
+cached: 2/2 files
+# ANCHOR_END: build
+# ANCHOR: clean
+$ z42 clean
+removed ./dist
+removed [..]
+# ANCHOR_END: clean

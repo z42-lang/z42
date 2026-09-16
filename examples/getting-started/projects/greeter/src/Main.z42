@@ -1,0 +1,9 @@
+namespace Greeter;
+
+using Std.IO;
+
+void Main() {
+    string[] args = Environment.GetCommandLineArgs();
+    string name = args.Length > 0 ? args[0] : "World";
+    Console.WriteLine(Build(name));
+}

@@ -73,3 +73,53 @@ void test_wildcard_directory_no_match_is_empty() {
     string[] hits = _discover(root, "nope/*/source.z42");
     Assert.Equal(0, hits.Length);
 }
+
+// ── rooted 字面文件路径直通（add-single-file-run）────────────────────────────
+//
+// 单文件运行把用户源文件的**绝对路径**写进合成清单的 include，而合成清单住在缓存目录里——
+// 源文件在 projectDir 之外，与 projectDir 拼接必然落空。改动前实测：`no sources matched`。
+
+// 清单外的绝对路径命中，且返回的就是 include 里给的那个路径。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_rooted_literal_path_outside_project_is_found() {
+    string root = _mkTree();
+    string outside = Path.Join(root, Path.Join("tests", "one.z42"));
+    // projectDir 故意指向一个**不包含**该文件的目录（模拟缓存目录里的合成清单）。
+    string[] hits = _discover(Path.Join(root, Path.Join("tests", "beta")), outside);
+    Assert.Equal(1, hits.Length);
+    Assert.Equal(outside, hits[0]);
+}
+
+// 绝对路径不存在 → 零个（交给上层报 no sources matched），不是报错也不是崩溃。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_rooted_literal_path_missing_is_empty() {
+    string root = _mkTree();
+    string[] hits = _discover(root, Path.Join(root, "does-not-exist.z42"));
+    Assert.Equal(0, hits.Length);
+}
+
+// rooted 但**含通配符** → 不进字面直通分支，仍交给既有 glob 展开。
+//
+// 既有 glob 分支把 pattern 当成**相对 projectDir** 的模式逐段展开，因此一个 rooted 模式
+// 在它那里本来就匹配不到东西（改动前如此，本次不改）——这里断言 0 正是为了钉住
+// 「字面直通只认无通配符的 rooted 路径、不越界接管 glob 模式」这条边界。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_rooted_pattern_with_wildcard_not_taken_by_literal_branch() {
+    string root = _mkTree();
+    string[] hits = _discover(root, Path.Join(root, Path.Join("tests", "*.z42")));
+    Assert.Equal(0, hits.Length);
+}
+
+// 🔴 相对字面路径的语义**必须不变**：仍按相对 projectDir 解析，不得改成相对进程工作目录。
+// 普通工程写 `include = ["src/Main.z42"]` 靠的就是这条；直通分支限定 rooted 正是为了护住它。
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_relative_literal_path_still_resolves_against_project_dir() {
+    string root = _mkTree();
+    string[] hits = _discover(root, "tests/one.z42");
+    Assert.Equal(1, hits.Length);
+    Assert.True(hits[0].EndsWith("/tests/one.z42"));
+}

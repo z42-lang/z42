@@ -1,0 +1,4 @@
+# ANCHOR: run
+$ z42 run hello.z42
+Hello, World!
+# ANCHOR_END: run

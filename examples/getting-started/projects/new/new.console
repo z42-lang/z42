@@ -1,26 +1,26 @@
 # ANCHOR: new
-$ z42 new hello
-Created executable project `hello` in hello/
+$ z42 new greeter
+Created executable project `greeter` in greeter/
 
-  cd hello
+  cd greeter
   z42 run
 # ANCHOR_END: new
 # ANCHOR: files
-$ cd hello
+$ cd greeter
 $ ls
 README.md
 src/
 z42.toml
 $ cat z42.toml
 [project]
-name = "hello"
+name = "greeter"
 version = "0.1.0"
 kind = "exe"
 
 [sources]
 include = ["src/**/*.z42"]
 $ cat src/Main.z42
-namespace Hello;
+namespace Greeter;
 
 using Std.IO;
 
@@ -28,7 +28,3 @@ void Main() {
     Console.WriteLine("Hello, World!");
 }
 # ANCHOR_END: files
-# ANCHOR: run
-$ z42 run
-Hello, World!
-# ANCHOR_END: run

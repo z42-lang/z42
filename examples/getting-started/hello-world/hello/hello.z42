@@ -1,0 +1,5 @@
+using Std.IO;
+
+void Main() {
+    Console.WriteLine("Hello, World!");
+}

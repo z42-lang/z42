@@ -1,5 +1,5 @@
 [project]
-name = "typo"
+name = "greeter"
 version = "0.1.0"
 kind = "exe"
 

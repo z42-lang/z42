@@ -108,6 +108,38 @@ void Main() {
     else                            { Console.WriteLine(SemanticDump.DumpAll(src)); }
 }
 
+// 诊断/警告里呈现的源文件名——与**读取**用的路径分离（CompileInputs 本就是 Files / Texts 两个字段）。
+//
+// 为什么需要：单文件运行（`z42 run hello.z42`）的合成清单住在缓存目录，`[sources].include` 写的是
+// 源文件**绝对路径**，原样打出来就是 `/Users/me/code/hello.z42(3,5): E0401: …`——既与工程模式的
+// `./src/Main.z42` 不一致，也让学习手册的会话脚本跨机器不可复现（门禁在示例目录里重放比对）。
+//
+// 规则：相对路径原样返回（工程模式恒等，现有输出逐字不变）；绝对路径在当前工作目录之下 → 相对化，
+// 否则保持绝对（不生成 `../../..` 这种比绝对路径更难读的形式，与 rustc / clang / tsc 一致）。
+//
+// 不影响产物字节：写 zpkg 前 `_stabilizeSourceIdentity` 已把 `m.SourceFile` 按
+// `IncrementalBuild.Rel(projectDir, …)` 相对化并清空 SourceHash（可复现 build_id 的既有机制）。
+string[] _displaySrcs(string[] srcs) {
+    string cwd = Environment.GetCurrentDirectory().Replace("\\", "/");
+    if (cwd.Length > 1 && cwd.EndsWith("/")) { cwd = cwd.Substring(0, cwd.Length - 1); }
+    string prefix = cwd + "/";
+    string[] outArr = new string[srcs.Length];
+    int i = 0;
+    while (i < srcs.Length) {
+        string s = srcs[i];
+        if (!Path.IsRooted(s)) { outArr[i] = s; }
+        else {
+            string n = s.Replace("\\", "/");
+            if (cwd.Length > 0 && n.StartsWith(prefix) && n.Length > prefix.Length) {
+                outArr[i] = n.Substring(prefix.Length, n.Length - prefix.Length);
+            }
+            else { outArr[i] = s; }
+        }
+        i = i + 1;
+    }
+    return outArr;
+}
+
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
 // cacheDirOverride：workspace 构建由 WsPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
@@ -136,6 +168,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         ConsoleError.WriteLine("z42c build: no sources matched [sources].include");
         return ExitCode.BuildError;
     }
+    string[] dispSrcs = _displaySrcs(srcs);   // 只用于诊断呈现；读取 / 缓存键 / 产物一律仍用 srcs
     // ── 跨包依赖（CI-4）：libsDirs 扫描 → DepIndex + nsMap + TSIG 池；usings 聚合决定激活集 ──
     // workspace build 传 libsDirsOverride：Milestone 1 = [flat dist]（单元素）；
     // Milestone 2 = 全成员 dist 列表（per-member 布局，解析兄弟）+ Z42_LIBS（外部 stdlib）。
@@ -245,7 +278,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // parse 分支、cachedMods 全 null → **缓存整份作废、全部重编**（实测 xtask 3.7s vs 应有 2.25s；
         // 多 exe 工程更是永远全量）。
         bool canPreserve = pm.ExeCount == 0 && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
-        prep = IncrementalDriver.Prepare(srcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve);
+        prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve);
         BuildLog.ProgressErr("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && prep.Plan.AllCached) {
             if (isExe) {
@@ -271,7 +304,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         bool[] want = new bool[srcs.Length];
         int wi = 0;
         while (wi < srcs.Length) { want[wi] = true; wi = wi + 1; }
-        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, srcs.Length, want);
+        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, srcs.Length, want);
         cus = pk.Cus;
         metaIdents = pk.Idents;
         metaSurfaces = pk.Surfaces;
@@ -294,6 +327,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         }
     }
     CompileInputs cin = new CompileInputs();
+    // 🔴 cin.Files 必须是**真实路径**，不能换成显示名：它直接成为 `ZbcFileZ.SourceFile`
+    // （PackageCompile.z42 `string rel = files[i]`）进而进入 zpkg，由 `_stabilizeSourceIdentity`
+    // 按 projectDir 相对化来保证「同一份源换目录编出的字节相同」。换成 cwd 相对的显示名后，
+    // 那次相对化会因前缀不匹配而失效 ⇒ 可复现 build_id 判红（GREEN 实测抓到）。
+    // 显示名只走 Parser（诊断位置）与下面两处呈现，不进产物。
     cin.Texts = texts; cin.Files = srcs; cin.SrcHashes = srcHashes; cin.SrcCount = srcs.Length;
     cin.Cus = cus; cin.CachedMods = cachedMods; cin.CachedMetas = cachedMetas;
     cin.Name = pm.Project.Name; cin.Version = pm.Project.Version; cin.Kind = pm.Project.Kind;
@@ -356,7 +394,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         while (ei < art.CmCount) {
             CompiledModuleZ cm = cms[ei];
             if (cm.ErrorCount > 0) {
-                string origin = ei < srcs.Length ? srcs[ei] : "<generated>";
+                string origin = ei < dispSrcs.Length ? dispSrcs[ei] : "<generated>";
                 ConsoleError.WriteLine("z42c build: " + cm.ErrorCount.ToString() + " error(s) in " + origin);
                 int di = 0;
                 while (di < cm.DiagCount) { ConsoleError.WriteLine("  " + cm.DiagMsgs[di]); di = di + 1; }
@@ -383,7 +421,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         while (wi < srcs.Length) {
             CompiledModuleZ wcm = cms[wi];
             if (wcm.DiagCount > 0) {
-                ConsoleError.WriteLine("z42c build: " + wcm.DiagCount.ToString() + " warning(s) in " + srcs[wi]);
+                ConsoleError.WriteLine("z42c build: " + wcm.DiagCount.ToString() + " warning(s) in " + dispSrcs[wi]);
                 int wd = 0;
                 while (wd < wcm.DiagCount) { ConsoleError.WriteLine("  " + wcm.DiagMsgs[wd]); wd = wd + 1; }
             }
