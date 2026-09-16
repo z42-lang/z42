@@ -167,7 +167,7 @@ public sealed class DeclEnforcer {
 
     // ── [Test] 家族的位置 + 签名强制（fix-test-attr-placement）──────────────────────────────
     // 补回自举迁移中丢失的 TestAttributeValidator（E0911/E0912/E0915）：那套校验随 C# 编译器退休
-    // 一起被删、从未移植到 z42c，而 docs/design/compiler/error-codes.md 至今写着「已启用」。
+    // 一起被删、从未移植到 z42c，而 docs/reference/src/appendix/error-codes.md 至今写着「已启用」。
     // 后果实测：`[Test]` 贴实例方法编译期全绿 → TestIndexBuilder 照写 TIDX entry → 运行期
     // `__invoke_static` 撞 `expects 1 argument(s) (incl. receiver), got 0`（runner 按 FQN 无参调用，
     // 见 z42.test/src/Runner.z42 头注的不变量）。同一失败模式在 BenchmarkDesugar 上已发生过一次。

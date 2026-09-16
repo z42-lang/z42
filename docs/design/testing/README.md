@@ -25,5 +25,5 @@ z42 测试基础设施：测试框架（z42.test）、测试运行器（z42b = z
 
 ## 依赖关系
 
-- 上游：[`../compiler/error-codes.md`](../compiler/error-codes.md)（E0911–E0915 测试 attribute 校验码）
+- 上游：[`../compiler/error-codes.md`](../../reference/src/appendix/error-codes.md)（E0911–E0915 测试 attribute 校验码）
 - 下游：`./xtask test e2e`、`./xtask test lib`、CI 工作流

@@ -66,7 +66,7 @@ class Counter { public int n; public Counter() { this.n = 0; } }
 > 文件只写 `using Std;` 也能编过，纯粹因为 `z42.test` 里有个 `namespace Std;` 的文件替它们
 > 开了门；那个文件一搬走，`Bencher` 当场解析失败、且**编译期静默**、运行期才炸
 > （`VCall: … .<unknown>.get_WarmupIters not found`）。机制与现场见
-> [book/compiler/project-model.md「激活是整包粒度」](../../../docs/book/src/compiler/project-model.md)。
+> [book/compiler/project-model.md「激活是整包粒度」](../../../docs/internals/src/compiler/project-model.md)。
 
 **并行执行**（add-test-runner-parallel 2026-05-27）：`z42 xtask.zpkg test lib --jobs N mylib`
 或 `--jobs 0` 自动用 `available_parallelism()`。N > 1 强制 subprocess 模式 —

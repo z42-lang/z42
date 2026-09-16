@@ -143,7 +143,7 @@ flowchart LR
 - **类内裸名 `Name` 与 `this.Name` 完全同义**——同样走访问器；ctor 内写只读属性（无 `set_Name`）
   时落到 `__prop_Name`。**任何情况下都不会按源名 `Name` 读写字段**（那是不存在的字段）。
   这条不变量的四个历史漏口与修复见
-  [源码编译：属性的「源名 ↔ 后备字段名」落差](../compiler/source-compile.md)。
+  [源码编译：属性的「源名 ↔ 后备字段名」落差](../../../internals/src/compiler/source-compile.md)。
 - **接口属性** `T Name { get; }` → 要求实现类提供 `get_Name`（如 `IEnumerator<T>.Current`
   → `get_Current`）。
 
@@ -269,7 +269,7 @@ int v = b[0];                         // → vcall b.get_Item(0)
 - 表达式体成员引入：change `add-expression-bodied-members`（`docs/spec/archive/2026-09-13-add-expression-bodied-members`）
 - 计算属性 getter 引入：change `add-property-getter`（`docs/spec/archive/2026-08-18-add-property-getter`）
 - 索引器多维使用侧引入：change `add-multidim-indexer`（`docs/spec/archive/2026-08-11-add-multidim-indexer`）
-- 编译器错误码：[错误码体系](../compiler/error-codes.md)
+- 编译器错误码：[错误码体系](../../../internals/src/compiler/error-codes.md)
 - 测试：`src/tests/classes/indexer_basic.z42`（单维 string 键）、`src/tests/classes/indexer_multidim.z42`（多维）、`src/tests/interfaces/interface_indexer.z42`（接口索引器）
 - 静态属性 / 属性初始化器 / 类内裸名静态成员引入：change `add-static-properties`（`docs/spec/archive/2026-09-14-add-static-properties`）
 - 测试：`src/tests/classes/static_properties.z42`（静态属性全形态）、`src/tests/classes/property_initializers.z42`

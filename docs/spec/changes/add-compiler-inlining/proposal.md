@@ -41,7 +41,7 @@ helper),**两个后端 + 移动端(纯 interp)通吃**,且解锁下游优化。�
 | `docs/book/src/compiler/optimization-pipeline.md` | MODIFY | OptSet + 独立性约束 + 内联机制/资格/不动点 |
 | `docs/book/src/toolchain/`（构建配置页） | MODIFY | `[optimize]` + `--opt`/`--no-opt` |
 
-**只读引用**：`src/compiler/z42c.driver/src/BuildPaths.z42`、`docs/design/compiler/self-hosting.md`。
+**只读引用**：`src/compiler/z42c.driver/src/BuildPaths.z42`、`docs/internals/src/compiler/self-hosting.md`。
 
 ## Out of Scope（v1 不做,后续 spec）
 

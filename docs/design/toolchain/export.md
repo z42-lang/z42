@@ -43,7 +43,7 @@ version_code = 1
 title = "My App"
 ```
 
-完整 toml 键表见 [`docs/design/compiler/project.md`](../compiler/project.md)（`[platform.*]` 段）。
+完整 toml 键表见 [`docs/reference/src/toolchain/z42-toml.md`](../../reference/src/toolchain/z42-toml.md)（`[platform.*]` 段）。
 
 ## 平台 SDK 路径
 

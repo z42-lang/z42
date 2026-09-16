@@ -47,7 +47,7 @@ static class Also : IComparable {   // ✗ E0451: static class `Also` cannot imp
 ## 实现原理
 
 强制发生在 **符号收集** 阶段（`z42c.semantics` 的 `SymbolCollector._passSealedEnforce`——与 sealed
-强制同遍遍历类声明 + 成员，见 [`compiler/source-compile.md`](../compiler/source-compile.md)）：
+强制同遍遍历类声明 + 成员，见 [`compiler/source-compile.md`](../../../internals/src/compiler/source-compile.md)）：
 
 1. 判定 `c.Kind == "class"` 且 mods 含 `static` → 该类受约束；
 2. 类级：`HasBase` 或 `InterfaceCount > 0` 各报一条 E0451；

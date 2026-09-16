@@ -44,7 +44,7 @@
 | `src/libraries/z42.core/src/README.md` | MODIFY | 功能索引 + 核心文件登记 BitConverter/Clock |
 | `src/libraries/README.md` | MODIFY | Extern 现状审计表：io.binary/ir/time 位转换·时钟已归 core |
 | `docs/design/stdlib/organization.md` | MODIFY | 「现状」表 extern 列刷新 |
-| `docs/design/compiler/self-hosting.md` | MODIFY | 轴 ④：`_ensureBootstrapZ42Ir` 现也预建 core |
+| `docs/internals/src/compiler/self-hosting.md` | MODIFY | 轴 ④：`_ensureBootstrapZ42Ir` 现也预建 core |
 | `docs/spec/changes/consolidate-core-intrinsics/*` | NEW | 本提案 + design + spec + tasks |
 
 **只读引用**：

@@ -109,7 +109,7 @@ attribute 实参本来就是**任意表达式**，没有常量性约束。
 
 ⇒ `methodof` 只需要是一个合法表达式，**元数据侧零工作、零格式 bump**。
 
-工厂函数合成的机制细节见 [源代码编译流程（z42c）](../compiler/source-compile.md)。
+工厂函数合成的机制细节见 [源代码编译流程（z42c）](../../../internals/src/compiler/source-compile.md)。
 
 ## 稳定性 = 普通调用的稳定性
 

@@ -62,7 +62,7 @@ TSIG/符号恒全包重算（每文件 TSIG 全包耦合）→ 组装零分叉�
 硬验收 = `xtask test incremental` 暴力对账器（逐文件 touch，增量 == 全量逐字节 + 计时）。
 `--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 打印种子与传播链。**workspace/flat 构建
 （上图阶段一/二）不落 cache、不 probe**——gen1/gen2 字节对比路径零扰动；布线见 roadmap
-Deferred `incremental-future-workspace-wiring`。机制细节：[project.md 增量编译节](../../../design/compiler/project.md)。
+Deferred `incremental-future-workspace-wiring`。机制细节：[project.md 增量编译节](../../../reference/src/toolchain/z42-toml.md)。
 
 #### 名字级失效判据（incr-name-level-invalidation，2026-09-06）
 

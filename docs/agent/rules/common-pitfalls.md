@@ -53,7 +53,7 @@
 > `is`/`as`/字段·参数类型）此前仍踩同一坑——`SymbolTable.Classes` 按裸类名 first/last-wins，`new A.Foo`
 > 被剥短名撞赢家 → 对象身份 emit 成 `B.Foo`。根治：`Z42ClassType` 带 `Namespace` + `SymbolTable.ClassesByFqn`
 > 并存 FQN 视图，限定名按 FQN 精确解析、发射端用已解析类型的 `Fqn()`。机制见
-> [source-compile.md「同短名跨命名空间的类型解析」](../../book/src/compiler/source-compile.md)。
+> [source-compile.md「同短名跨命名空间的类型解析」](../../internals/src/compiler/source-compile.md)。
 
 ### 强制规则
 

@@ -1,6 +1,6 @@
 namespace Z42.Build.Project;
 
-/// `[build]` 段。目录默认见 docs/design/compiler/project.md。HasX 标志区分「显式设置」与「缺省」。
+/// `[build]` 段。目录默认见 docs/reference/src/toolchain/z42-toml.md。HasX 标志区分「显式设置」与「缺省」。
 public sealed class BuildConfig {
     public bool   HasOutputDir;
     public string OutputDir;

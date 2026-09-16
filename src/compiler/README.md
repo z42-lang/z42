@@ -18,7 +18,7 @@
 | `z42.ir` | Z42.IR + Z42.Project（IR 模型 + zbc/zpkg 后端 + manifest）| converge-z42c-ir-metadata（收敛自旧 z42c.ir+z42c.project）|
 
 后端三包经**跨-workspace dist 发现**解析这些共享库（冷启动由 `_ensureBootstrapSelfDepLibs` 破环预建，
-见 [self-hosting.md](../../docs/design/compiler/self-hosting.md) 轴 ④）。
+见 [self-hosting.md](../../docs/internals/src/compiler/self-hosting.md) 轴 ④）。
 
 ## 入口点
 `z42c.driver.zpkg`（exe）= 用户 `z42c` 命令别名，路由 `build` / manifest-check 等命令（`z42c.driver/src/Main.z42`，含增量构建 `IncrementalDriver.z42`）。
@@ -32,4 +32,4 @@ z42 xtask.zpkg test  compiler     # 上述 + 断言 3 zpkg 产出（smoke；前�
 兄弟依赖经 workspace 自动解析（须在各 manifest `[dependencies]` 声明）；stdlib 自动可用。
 
 ## 依赖关系
-依赖 stdlib（`src/libraries/`，自动可用）。架构 / 受限写法 / 对账策略见 [docs/design/compiler/self-hosting.md](../../docs/design/compiler/self-hosting.md)。
+依赖 stdlib（`src/libraries/`，自动可用）。架构 / 受限写法 / 对账策略见 [docs/internals/src/compiler/self-hosting.md](../../docs/internals/src/compiler/self-hosting.md)。

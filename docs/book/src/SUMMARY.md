@@ -39,17 +39,10 @@
 # 第二部分 · 编译与构建（Compiler & Build）
 
 - [概览](compiler/README.md)
-  - [架构总览](compiler/architecture.md)
-  - [源代码编译流程（z42c）](compiler/source-compile.md)
-  - [工程模型、依赖解析与工作区编译](compiler/project-model.md)
   - [项目构建与发布编排（z42b）](compiler/project-build.md)
   - [编译产物：zbc 字节码格式](compiler/zbc-format.md)
   - [编译产物：zpkg 包格式](compiler/zpkg-format.md)
   - [CLI 与诊断工具](compiler/tools.md)
-  - [错误码体系](compiler/error-codes.md)
-  - [类型转换分类器](compiler/type-conversion.md)
-  - [访问权限强制](compiler/access-control.md)
-  - [构造器继承与隐式 base()](compiler/ctor-inheritance.md)
 
 # 第三部分 · 运行时（Runtime / VM）
 

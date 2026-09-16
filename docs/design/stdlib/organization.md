@@ -13,7 +13,7 @@
 1. **每个 zpkg 是分发单元，对应 `[project] name = "z42.<domain>"`**；命名空间可跨 zpkg。
 2. **z42.core 是隐式 prelude** — 所有程序自动加载 + 不可声明依赖。
 3. **interop（extern/[Native]）按 native 角色两层安置**（2026-08-27 细化，见下「[native 语义层 → core，应用层 → 纯脚本能力库](#更锐利的判据native-语义层--core应用层--纯脚本能力库2026-08-27)」）：**执行基座**（io/net/threading）的 native 语义层**并入 `z42.core`**、应用层留库转纯脚本（逻辑薄则删包）；**可插拔工具/算法**（compression/crypto/diagnostics/test/build）整体留独立库；**其余库一律纯脚本、零 interop**。（先后取代「VM extern 只能在 core，io 唯一例外」与「io/net/threading 各作平台边界库」两版表述。）
-4. **包按层叠层分类**（L0 → L1 → L2 → L3），上层依赖下层，**禁止反向依赖** —— 这是硬约束，决定了哪些接口必须在 core。stdlib 层级是更通用规则"包依赖必须无环"（见 [project.md L5 — 依赖必须无环](../compiler/project.md#依赖必须无环no-circular-dependencies)）的特化形式：stdlib 不仅要求 DAG，还规定了固定的层级顺序。
+4. **包按层叠层分类**（L0 → L1 → L2 → L3），上层依赖下层，**禁止反向依赖** —— 这是硬约束，决定了哪些接口必须在 core。stdlib 层级是更通用规则"包依赖必须无环"（见 [project.md L5 — 依赖必须无环](../../reference/src/toolchain/z42-toml.md#依赖必须无环no-circular-dependencies)）的特化形式：stdlib 不仅要求 DAG，还规定了固定的层级顺序。
 5. **「Extension over Expansion」**：**未来新增**类型方法 / 高层 trait 时，优先用外部包 + `impl Trait for Type` 扩展（L3-Impl2 已支持），而非塞回类型所在包。**已有 core 内容不做回溯迁移**（见规则 #6）。
 6. **不回溯迁移 core 内已有的接口/类型**：core 自身的实现（如 List 的 IEquatable / IComparable 约束、Dictionary 的 IEquatable 约束）以及未来可能添加的策略重载（`Sort(IComparer<T>)` / `Dictionary(IEqualityComparer<K>)`）都需要这些 protocol 在 core scope 内；迁出会让 core → L1 形成反向依赖，违反规则 #4。**这条规则比 #5 优先级高。**
 7. **每个新包必须明确层级 + 依赖闭包 + 是否可纯脚本化**；不满足全部的不开新包，留 backlog。
@@ -136,7 +136,7 @@ target/arch/位宽/字节序信息。stdlib 源码零条件编译。**因此所�
 | **工具链库** | `Z42.*` | 编译器 / 工具自身 | `z42.ir`（`Z42.IR` + `Z42.Project`）、`z42.project`（`Z42.Build.Project`）、`z42.build`（`Z42.Build`）、**`z42c.core`（`Z42.Core`）+ `z42c.syntax`（`Z42.Syntax`）**（可移植编译器前端：Lexer/Parser/AST/Span/Diagnostic，converge-z42-syntax-lib/PR-A 下沉） | 编译器内部件（IR 模型 / zbc·zpkg 后端 / manifest 模型 / builder 骨架 / **可移植前端**）**下沉为共享库**，供 z42c 自身、REPL、z42b 复用 |
 
 **为什么工具链库住在 `src/libraries/`**：它们要被 z42c 运行期加载（如 z42.ir 是 zbc/zpkg 后端），
-又要被 REPL / z42b 共享，故编译成 zpkg 与 stdlib 同址分发（见 [self-hosting.md 轴 ④](../compiler/self-hosting.md)、
+又要被 REPL / z42b 共享，故编译成 zpkg 与 stdlib 同址分发（见 [self-hosting.md 轴 ④](../../internals/src/compiler/self-hosting.md)、
 converge-z42c-ir-metadata / wire-z42b）。**但它们不是用户 API**：`Z42.*` 命名空间对应用开发者是内部实现，
 不进用户文档，不受本文档 stdlib 划分规则约束（层级 / 两层 interop 等）。新增编译器支撑库 → `Z42.*`；新增
 用户库 → `Std.*`。

@@ -212,7 +212,7 @@ public static class ImportedSymbolLoader {
                         // 当前源 z42.ir 建进 build-libs（不 warm-skip），z42c 源用当前源 z42.ir 新 API 已是常态
                         // （先例：IsSealed / Visibility / IsDeprecated / ExportedMethodZ.TypeParamCount / StrMap.Find）。
                         // 唯一仍有效的约束是**种子 ABI**：新字段不得进 ctor 签名，须 ctor 内给默认值 + 构造后赋值。
-                        // 机制见 docs/design/compiler/self-hosting.md 轴④ 与 docs/agent/rules/bootstrap-seed.md。
+                        // 机制见 docs/internals/src/compiler/self-hosting.md 轴④ 与 docs/agent/rules/bootstrap-seed.md。
                         // （struct-ness 继续复用 HasBase 编码属独立技术债，登记 Deferred，不在本 change 内改。）
                         nct.IsStruct = !cl.HasBase;
                         // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`class IntBag:IEnum{type Item=int;}` 的

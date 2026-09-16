@@ -52,7 +52,7 @@ z42 的「项目清单模型」现在**存在两份**：
 | `src/compiler/z42c.pipeline/src/DepScan.z42`、`IncrementalBuild.z42` | MODIFY | zpkg 后端引用改 `z42c.zpkg`（ZpkgReader/CacheStore）|
 | `src/compiler/z42c.driver/src/IndexedDist.z42`、`IncrementalDriver.z42` | MODIFY | 同上（ZpkgWriterIndexed/CacheStore/PackageTypes）|
 | `src/libraries/z42.project/README.md` | MODIFY | 去「Parked」，标已接入 + GREEN |
-| `docs/design/compiler/project.md` | MODIFY | 单一 manifest 模型 SoT 更新（组合式；z42c 引用 z42.project）|
+| `docs/reference/src/toolchain/z42-toml.md` | MODIFY | 单一 manifest 模型 SoT 更新（组合式；z42c 引用 z42.project）|
 | `docs/spec/changes/ACTIVE.md` | MODIFY | 登记 compiler + stdlib 双锁 |
 
 **只读引用**：

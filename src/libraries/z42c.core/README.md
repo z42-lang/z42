@@ -3,7 +3,7 @@
 ## 职责
 基础设施层（源码位置 Span / 诊断 Diagnostic·DiagnosticBag / 语言特性开关 LanguageFeatures）。命名空间 `Z42.Core`。无兄弟依赖，被编译器前后端引用。
 
-> **位置（converge-z42-syntax-lib，route A 地基）**：本包是 **host-platform-independent 可移植前端**，已从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的可移植库。**包名/命名空间不变**（仍 `z42c.core` / `Z42.Core`）——非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/design/compiler/self-hosting.md) 轴 ④。
+> **位置（converge-z42-syntax-lib，route A 地基）**：本包是 **host-platform-independent 可移植前端**，已从 `src/compiler/` 挪进 `src/libraries/`，成 z42c 编译器**与** scripting/playground/runtime 共享的可移植库。**包名/命名空间不变**（仍 `z42c.core` / `Z42.Core`）——非 Std/z42.* 标准库 API 面，只是恰好与 stdlib 同处 build+ship。冷启动破环预建见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md) 轴 ④。
 
 ## 核心文件
 | 文件 | 职责 |
@@ -16,7 +16,7 @@
 | `src/LanguageFeatures.z42` | 特性开关（snake_case 名 + 并行数组；IsEnabled / Phase1Profile / MinimalProfile）|
 | `src/CoreSkeleton.z42` | **过渡占位**：尚未移植的 syntax/semantics/pipeline/driver 仍引用它；各自移植到真实 core 时移除 |
 
-> 受限写法（无 enum / 类字段无泛型 / List 约束 → typed array）见 [self-hosting.md](../../../docs/design/compiler/self-hosting.md)。
+> 受限写法（无 enum / 类字段无泛型 / List 约束 → typed array）见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)。
 > 测试：`tests/diag.z42`（诊断 7）+ `tests/features.z42`（LanguageFeatures 4），
 > 经 **`xtask test stdlib z42c.core`**（本库住 `src/libraries/`，走 stdlib [Test] 门禁；
 > `xtask test compiler` 只扫 `src/compiler/<member>/tests/`，从来扫不到这里——

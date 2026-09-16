@@ -23,7 +23,7 @@
   只放 semantics/pipeline/driver。
 
 ## 文档
-- [x] `docs/design/compiler/self-hosting.md`：目录树（前端下沉 src/libraries）；轴 ④（rename + 追加前端预建）
+- [x] `docs/internals/src/compiler/self-hosting.md`：目录树（前端下沉 src/libraries）；轴 ④（rename + 追加前端预建）
 - [x] `src/compiler/README.md`：子包表（后端 3 包 + 已下沉共享库表）
 - [x] `src/libraries/z42c.core/README.md` + `z42c.syntax/README.md`：加"位置"说明
 - [x] 陈旧注释：`scripts/packages.toml`、`scripts/package/xtask_package_desktop.z42`（z42i 限制收窄）

@@ -121,7 +121,7 @@ z42 test    <plat> [--device sim|emulator|hw]   # host + 平台上两面跑 [Tes
 > - **publish 的 desktop 形态 = apphost**（取消 `export desktop`：desktop 无 IDE 工程可"导出"，apphost 是 publish 部署件）。`[platform.desktop] apphost = true` 即声明桌面输出（gate；`publish_dir` 仅输出位置，不再充当开关）；`apphost.z42` 的 stub-patch 逻辑是 desktop publish/run 的实现。**无独立 `z42 apphost` 命令**。apphost **stub** 解析序（2026-07-20 wire-z42b 阶段 7）：项目 `[build] hooks` 现场产出 → `Z42_APPHOST_TEMPLATE`（已装 workload）→ 报错——项目带 hook 即免装 desktop workload，见 [build-orchestrator.md](build-orchestrator.md#publish-apphosthook-免装-workload-产-stub需求③)。
 > - **export 仅 ios/android**（生成 Xcode/gradle 原生工程供深度定制）；desktop·wasm 无此概念。
 > - **AOT 在 publish 层**（可选 `--aot`，产平台原生机器码，类比 dotnet NativeAOT 是 publish 选项）；build 默认产字节码。
-> `[platform.desktop]` 键表见 [project.md](../compiler/project.md)；命令分发分层见 [launcher-command-dispatch.md](launcher-command-dispatch.md)。
+> `[platform.desktop]` 键表见 [project.md](../../reference/src/toolchain/z42-toml.md)；命令分发分层见 [launcher-command-dispatch.md](launcher-command-dispatch.md)。
 
 ### `export` vs `publish`：共享逻辑，不同交付物（2026-06-17 裁决）
 

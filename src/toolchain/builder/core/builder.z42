@@ -132,7 +132,7 @@ WorkloadBase _selectWorkload(string family) {
 
 // ── 目录布局 / 输入 ───────────────────────────────────────────────────────────
 
-// 目录布局（镜像 docs/design/compiler/project.md 默认：output_dir = artifacts/<name>/<profile>）。
+// 目录布局（镜像 docs/reference/src/toolchain/z42-toml.md 默认：output_dir = artifacts/<name>/<profile>）。
 // Source 只读；写仅落 Cache / Intermediate / Dist。[build] 段显式值优先。
 Dirs _computeDirs(ProjectManifest m, string sourceDir, string profile) {
     // cache-dir-layout：[build] 里的相对路径按 toml 所在目录（sourceDir）解析、并展开 ${output_dir} / ${profile}

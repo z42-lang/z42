@@ -102,7 +102,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 > - `artifacts/build/` **只放编译/publish 产物**；构建/测试的中间态（`stdlib-run` 快照、`alllibs`
 >   flat 视图、`e2e`/`selfhost-gen1`/`dogfood` 工作区）落 `artifacts/.scratch/`（gitignored、可重生）。
 > - **toolchain 组件的输出/publish 路径一律从各 `z42.toml` 读**（`[build].dist_dir`/`output_dir`、
->   `[platform.desktop].publish_dir`，级联默认见 `docs/design/compiler/project.md`）——xtask 不硬编码，
+>   `[platform.desktop].publish_dir`，级联默认见 `docs/reference/src/toolchain/z42-toml.md`）——xtask 不硬编码，
 >   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
 > - **workspace per-member 产物路径同样单源自 `z42.workspace.toml`**（unify-xtask-paths-from-toml,
 >   2026-08-29）：`artifacts/build/{libraries,compiler}/<member>/<profile>/dist` 由

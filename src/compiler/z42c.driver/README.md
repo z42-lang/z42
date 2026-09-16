@@ -25,12 +25,12 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 `build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，
 `[build].cache_dir` → `${output_dir}/.cache`；workspace 成员由 `WsPlan.CacheDirs` 给出）。
 **不论是否增量都落盘**（含 workspace / `--output-dir` / `--no-incremental` / 多 exe）；workspace 构建目前只写不读
-（probe 待缓存键含编译器身份后再开，见 `docs/design/compiler/project.md` incremental-future-workspace-wiring）。种子（hash/
+（probe 待缓存键含编译器身份后再开，见 `docs/reference/src/toolchain/z42-toml.md` incremental-future-workspace-wiring）。种子（hash/
 条目/清单）→ token 保守边传递闭包 → **仅失效闭包重编**（typecheck+codegen），其余 IrModule
 经 ZbcReader 读回 + meta 残留回填（块 label / 模块池原序 / TIDX idx）；TSIG 恒全包重算；
 全命中完全跳过（`no changes; preserved`）。`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1`
 看种子与传播链。硬验收 = `xtask test incremental` 暴力对账器（增量 == 全量逐字节 + 计时）。
-workspace/flat 模式不落 cache、不 probe（见 [project.md 增量编译节](../../../docs/design/compiler/project.md)）。
+workspace/flat 模式不落 cache、不 probe（见 [project.md 增量编译节](../../../docs/reference/src/toolchain/z42-toml.md)）。
 
 ## 依赖关系
 → z42c.syntax, z42c.semantics, z42c.core, z42c.pipeline, z42.ir, z42.project。stdlib（Std / Std.IO）自动可用。

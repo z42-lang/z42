@@ -91,7 +91,7 @@
 - [ ] 4.2 `xtask test`（e2e + cross-zpkg + stdlib + compiler 自举不动点 7/7 byte-identical + vscode-syntax）全绿
 - [ ] 4.3 `xtask test bootstrap`（种子边界，按阶段 0 定的排序）
 - [ ] 4.4 dist 对账（若增量对账器可用）逐字节等价——迁移行为等价的硬证
-- [ ] 4.5 文档：z42.project README 去 Parked、`docs/design/compiler/project.md` 单一模型 SoT、ACTIVE.md 释放双锁
+- [ ] 4.5 文档：z42.project README 去 Parked、`docs/reference/src/toolchain/z42-toml.md` 单一模型 SoT、ACTIVE.md 释放双锁
 - [ ] 4.6 CI `bootstrap-no-csharp` 绿（cold 路径权威，push 后盯）
 
 ## 备注

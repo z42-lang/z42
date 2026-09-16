@@ -238,7 +238,7 @@ src/libraries/z42.core/
 
 **约定**：
 
-- `src/` 顶层目录强制叫 `src/`（项目结构 — 详见 [project.md](../compiler/project.md)）
+- `src/` 顶层目录强制叫 `src/`（项目结构 — 详见 [project.md](../../reference/src/toolchain/z42-toml.md)）
 - 子目录 PascalCase，**通常**对应一段子命名空间（`src/Collections/` → `namespace Std.Collections`），但不强制——只是用户友好的导航
 - 子目录可嵌套多层（`src/Net/Http/Server/`）
 - 同一目录内**所有 `.z42` 文件可属不同命名空间**——目录只是文件系统组织，不是命名空间边界。`namespace X;` 声明才是权威

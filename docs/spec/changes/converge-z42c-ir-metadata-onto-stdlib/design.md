@@ -81,7 +81,7 @@ z42c 运行期依赖 `z42.ir`——这正是**自依赖环**（见 self-hosting.
 `undefined function Z42.Project.ZpkgBuilder.Sha256Hex`。**破环**：`_ensureBootstrapZ42Ir`
 （`scripts/build/xtask_compiler.z42`）在建 z42c **前**用种子 driver 先把当前源 `z42.ir` 单独编进
 build-libs（两代自举，同构轴 ②），fresh z42c 遂对着真 z42.ir 编译+运行。幂等（warm 跳过 → 不动点
-逐字节不受影响）。完整机制见 [`self-hosting.md` 轴 ④](../../../design/compiler/self-hosting.md)。
+逐字节不受影响）。完整机制见 [`self-hosting.md` 轴 ④](../../../internals/src/compiler/self-hosting.md)。
 （`xtask test bootstrap` 只验轴 ①/③ 的语法/API 越界，**不覆盖轴 ④ 的运行期自依赖**——故当时漏网。）
 
 ## 风险与回退

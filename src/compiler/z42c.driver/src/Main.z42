@@ -263,7 +263,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 其余 IrModule 从 cache 读回（meta 残留已回填）。单工程 --output-dir 平铺不走（workspace 成员走，见下）。
     IncrPrep prep = null;
     // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
-    // BuildConfig.Incremental 就再没人读过**——`docs/design/compiler/project.md:223/242` 明文
+    // BuildConfig.Incremental 就再没人读过**——`docs/reference/src/toolchain/z42-toml.md:223/242` 明文
     // 承诺「基于 source hash 跳过未改动文件，默认 true」，当时的 workspace 示例
     // 也真的在 preset 里写它，但写 false 不会有任何效果。**一个看起来正经、实则从不生效的旋钮**，
     // 比没有这个旋钮更坏：用户以为自己关掉了。

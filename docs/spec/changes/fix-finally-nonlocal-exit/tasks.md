@@ -39,7 +39,7 @@
 - [x] 5. 构建 + GREEN：**完整 `xtask test` 全绿**——z42c 自举不动点 5/5 gen1==gen2 byte-identical、
   e2e（含新用例 `finally_nonlocal_exit` OK）、stdlib 280 file/23 lib（含 z42.json 8 + z42.toml 8 depth-guard
   自愈）、z42c [Test] 20、cross-zpkg、vscode-syntax；interp+jit 均对账
-- [x] 6. 文档同步：`docs/book/src/compiler/source-compile.md` IrGen 节加「try/catch/finally 控制流下沉」小节
+- [x] 6. 文档同步：`docs/internals/src/compiler/source-compile.md` IrGen 节加「try/catch/finally 控制流下沉」小节
 - [ ] 7. 归档 + 释放 compiler 锁（PR 合并后）
 
 ## 备注
