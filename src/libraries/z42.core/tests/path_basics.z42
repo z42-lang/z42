@@ -110,3 +110,72 @@ void test_glob_recursive_missing_dir() {
     string[] hits = Path.GlobRecursive("/nonexistent-z42-glob-xyz", "*.z42");
     Assert.Equal(0, hits.Length);
 }
+
+// ── Normalize（词法规范化；fix-cli-path-display）────────────────────────────
+//
+// 起因：`Join` 纯拼接 ⇒ `Join(cwd, ".")` = `<cwd>/.`，这个 `.` 段渗进所有派生路径，
+// 实测让 `z42 build` 打出 `cache -> /Users/me/proj/./artifacts/debug/.cache`。
+
+[Test]
+void test_normalize_drops_dot_segments() {
+    Assert.Equal("/a/b", Path.Normalize("/a/./b"));
+    Assert.Equal("/a", Path.Normalize("/a/."));
+    Assert.Equal("a/b", Path.Normalize("./a/b"));
+}
+
+[Test]
+void test_normalize_collapses_duplicate_separators() {
+    Assert.Equal("/a/b", Path.Normalize("/a//b"));
+    Assert.Equal("/a/b", Path.Normalize("//a///b"));
+}
+
+[Test]
+void test_normalize_resolves_parent_segments() {
+    Assert.Equal("/a/c", Path.Normalize("/a/b/../c"));
+    Assert.Equal("/c", Path.Normalize("/a/b/../../c"));
+    Assert.Equal("a", Path.Normalize("a/b/.."));
+}
+
+// 越过根的 `..` 在根处停住（与 Go filepath.Clean / Rust path-clean 一致）。
+[Test]
+void test_normalize_parent_beyond_root_stops_at_root() {
+    Assert.Equal("/", Path.Normalize("/.."));
+    Assert.Equal("/a", Path.Normalize("/../a"));
+}
+
+// 相对路径的前导 `..` 无处可抵消，原样保留。
+[Test]
+void test_normalize_keeps_leading_parent_in_relative_path() {
+    Assert.Equal("../a", Path.Normalize("../a"));
+    Assert.Equal("../..", Path.Normalize("../../"));
+    Assert.Equal("../b", Path.Normalize("../a/../b"));
+}
+
+[Test]
+void test_normalize_strips_trailing_separator() {
+    Assert.Equal("/a/b", Path.Normalize("/a/b/"));
+    Assert.Equal("a/b", Path.Normalize("a/b/"));
+    Assert.Equal("/", Path.Normalize("/"));
+}
+
+[Test]
+void test_normalize_empty_and_dot_become_dot() {
+    Assert.Equal(".", Path.Normalize(""));
+    Assert.Equal(".", Path.Normalize("."));
+    Assert.Equal(".", Path.Normalize("./"));
+    Assert.Equal(".", Path.Normalize("a/.."));
+}
+
+// 反斜杠归一为 `/`（Windows 上 GetCurrentDirectory 返回 `D:\...`）。
+[Test]
+void test_normalize_windows_separators_and_drive() {
+    Assert.Equal("/a/b", Path.Normalize("\\a\\b"));
+    Assert.Equal("C:/a/b", Path.Normalize("C:\\a\\.\\b"));
+    Assert.Equal("C:/a", Path.Normalize("C:/a/b/.."));
+}
+
+// 本次要修的那一条：`Join(cwd, ".")` 的产物。
+[Test]
+void test_normalize_fixes_join_with_dot() {
+    Assert.Equal("/home/me/proj", Path.Normalize(Path.Join("/home/me/proj", ".")));
+}

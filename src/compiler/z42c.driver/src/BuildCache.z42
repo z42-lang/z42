@@ -30,7 +30,9 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
         // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
         IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
                                      cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces, depsId);
-        BuildLog.ProgressErr("cache -> " + cacheDir + " (" + srcs.Length.ToString() + " files)");
+        // 显示用相对形式（`./artifacts/debug/.cache`）——与同一屏的 `wrote -> ./dist/…` 对齐；
+        // 实际写入仍用绝对的 cacheDir。
+        BuildLog.ProgressErr("cache -> " + BuildLayout.Display(cacheDir) + " (" + srcs.Length.ToString() + " files)");
     } catch (Exception e) {
         ConsoleError.WriteLine("cache write skipped (non-fatal): " + e.Message);
     }

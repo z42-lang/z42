@@ -24,5 +24,5 @@ cached: 2/2 files
 # ANCHOR: clean
 $ z42 clean
 removed ./dist
-removed [..]
+removed ./artifacts
 # ANCHOR_END: clean
