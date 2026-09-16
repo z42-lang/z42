@@ -1,6 +1,6 @@
 # 逃逸分析与栈上分配
 
-> 对齐：2026-09-13（fix-stackalloc-misses-inlined-refs：栈 arena 根扫描补上字节内联引用那一半）；2026-09-03（unify-ir-operand-access：规则表兜底改为经统一操作数接口标全部读操作数，代码与本页「铁律」对齐）；2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
+> 对齐：2026-09-16（fix-ref-param-escape：`ref`/`out` 出口写回补进逃逸汇点 + golden `opt_all` sidecar）；2026-09-13（fix-stackalloc-misses-inlined-refs：栈 arena 根扫描补上字节内联引用那一半）；2026-09-03（unify-ir-operand-access：规则表兜底改为经统一操作数接口标全部读操作数，代码与本页「铁律」对齐）；2026-08-06（change `add-escape-analysis-stack-alloc` + `add-crossproc-escape-summary` 跨过程参数逃逸摘要）
 > 状态：🟡 编译期分析 + IR 标志 + interp 运行时（对象+数组）已实现；JIT 消费与跨过程精度为 future。
 
 z42 的分配（`new Foo(...)` / `new T[n]` / `[a,b,c]`）默认走 GC 堆——region 分配锁 + 标记/清扫追踪
@@ -35,9 +35,10 @@ z42 源码 ──z42c──> z42 IR ──[IrEscapeAnalysis]──> IR(部分 al
 顺序无关的 may 问题，线性扫全函数即安全过近似，无需 CFG / 支配域（区别于 LICM，也天然规避「异常边不在
 CFG」的坑）。
 
-**引擎 `ComputeEscapedRegs(m, f, table)`**（两趟；`table`=跨过程摘要，解析 call 实参用）：
+**引擎 `ComputeEscapedRegs(m, f, table, markRefWriteback)`**（三趟；`table`=跨过程摘要，解析 call 实参用）：
 1. **Pass A**：逐指令 / 终结子，按操作数**角色**把「经逃逸角色读到的 reg」入种子集。
-2. **Pass B**：copy 传递闭包不动点——`dst = copy src`，dst 逃逸 ⇒ src 逃逸（对象经 copy 流出）。
+2. **Pass A′**：`ref`/`out` **形参写回汇点**（见下节；仅 `markRefWriteback=true` 时，即本函数内的栈分配判定）。
+3. **Pass B**：copy 传递闭包不动点——`dst = copy src`，dst 逃逸 ⇒ src 逃逸（对象经 copy 流出）。
 
 **角色感知逃逸汇点规则表（可扩展核心）**——逐操作数按角色分类。顺序即优先级：① 有摘要的静态调用 →
 ② **显式 neutral 白名单** → ③ 部分汇点（只标特定角色）→ ④ **兜底：经统一操作数接口（`IrInstr.ReadAt`）把
@@ -55,6 +56,7 @@ CFG」的坑）。
 | `FieldGet` / `ArrayGet` / `ArrayLen` | — | target / array / index |
 | 算术·比较·位·移位·一元·StrConcat / `ArrayNew.Size` / Copy(Pass B) | — | 全部读操作数 |
 | **规则表未列的任何指令** | **其所有读操作数（保守兜底）** | — |
+| **被函数体重新定义过的参数槽**（Pass A′，非指令） | **该参数寄存器本身** | 从未被重定义的参数槽 |
 
 > ※ `IsInstance.Obj` / `Convert.Src` 严格说中性（is-check / 恒等 convert 不泄露引用），但**有意标为逃逸
 > 以收窄运行时触达面**——如此栈对象只经历 FieldGet/FieldSet、栈数组只经历 ArrayGet/Set/Len +
@@ -67,6 +69,41 @@ CFG」的坑）。
 
 > 2026-09-03 校正：unify-ir-operand-access 之前代码的实际兜底是「未列出 = neutral」（与本页铁律相反，靠人工
 > 镜像 `AddReads` 枚举保完整）；现改为经接口标全部读操作数，代码与铁律一致。
+
+### `ref`/`out` 形参的出口写回是逃逸汇点（change `fix-ref-param-escape`，2026-09-16）
+
+**坑在于：callee 的 IR 里根本看不出哪个形参是 `ref`。** 运行时的 `ref`/`out` 走「入口 copy-in / 出口
+copy-out」（`impl-ref-out-in-runtime`）——`exec_function_body` 在入口把持 `Value::Ref` 的参数寄存器解引用成
+底层值（于是 callee 的 80+ 个指令 handler 完全不必感知 `Ref`），`run_ref_writebacks` 在**每条退出路径**上
+把该寄存器的**终值**存回 caller 的 lvalue。`Param.IsRef` 只影响 **caller** 侧发 `load_local_addr`；callee
+的形参寄存器类型不变、没有任何一条指令把「写回」表达成汇点。
+
+结果：`void Fill(ref string[] a) { a = new string[2]; }` 里那个新数组的**全部使用都在本帧内**，规则表逐条
+看过去都是中性的 → 判不逃逸 → 栈分配在 `Fill` 帧 → 写回给 caller 的是一个**已退出帧的句柄**。caller 一读就
+炸：
+
+```
+Error: stack-alloc array handle used after its creating frame exited (idx=0, frame_id=19)
+```
+
+**规则**：Pass A′ 把**凡被函数体重新定义过的参数槽**一律标逃逸。写回的值必是某条 def 的产物，挡住所有
+def 就挡住了所有可能被写回的分配；从未被重定义的参数槽不标——它的终值就是入口值，本就来自 caller、活得
+比本帧久，标了只会白丢精度。
+
+**为什么不精确识别 `ref`**：IR 层没有这个信息，要么给 `IrFunction` 加一组 per-param 标志并一路串到 zbc，
+要么按「被重定义」保守近似。选后者——代价只是「非 ref 形参被重新赋值时也会挡掉一次栈分配」（`n = n + 1`
+这类形参推进，挡掉的是给该形参传新分配的调用方），换来的是不依赖任何新元数据、对 zbc 解码回来的 IR 也
+同样安全。
+
+**这条汇点只在本函数的栈分配判定里开，摘要不开**（`markRefWriteback` 参数）。摘要问的是「**传进来的那个
+值**是否逃逸」——参数槽事后被重新赋值，与入参值的去向无关；在摘要里一并标，会把 `while (n != null) { n =
+n.Next; }` 这类「循环里推进形参」的常见写法判成参数逃逸，白白让**所有调用方**的实参丢掉栈分配。
+
+> **为什么这个 bug 能活到 release 用户手上**：`--emit-zbc`（golden 用例的编译路径）的默认优化集**减掉了**
+> `StackAlloc`（会改 golden 字节），于是 `src/tests/optimization/escape_*.z42` 整套在门禁里**一次也没开过
+> 逃逸分析**——本页此前写的「专项单测覆盖」从来没被写出来过。同一 change 加了 `opt_all` sidecar
+>（`z42c --emit-zbc --opt-all` → `Opt.All`）并给 `src/tests/optimization/` 全体挂上，这类用例才真正开始
+> 测它们声称要测的东西。见 `src/tests/README.md` sidecar 表。
 
 ### 跨过程参数逃逸摘要（`IrEscapeSummary`，change `add-crossproc-escape-summary`）
 

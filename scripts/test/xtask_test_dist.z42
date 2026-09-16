@@ -160,7 +160,9 @@ int[] _runDistGoldens(string[] modes, string root, string z42c, string z42vm, st
             live[b] = false;
             if (wantInterp || !c.interpOnly) {
                 try {
-                    hs[b] = new Process(z42c).Arg("--emit-zbc").Arg(c.source).Arg(zbcs[i + b])
+                    Process cp = new Process(z42c).Arg("--emit-zbc").Arg(c.source).Arg(zbcs[i + b]);
+                    if (c.optAll) { cp = cp.Arg("--opt-all"); }   // opt_all sidecar，见 _compileCaseSpawn
+                    hs[b] = cp
                         .Env("Z42_LIBS", libsDir)
                         .Stdout(Stdio.Null()).Stderr(Stdio.Null())
                         .Spawn();
@@ -660,9 +662,10 @@ class _DistCase {
     public string expected;   // expected_output.txt path
     public string entryName;  // <ns>.Main / Main / <ns>.main / main (z42vm needs it)
     public bool interpOnly;   // jit 模式跳过（同 _GoldenEntry.interpOnly）
-    public _DistCase(string name, string source, string expected, string entryName, bool interpOnly) {
+    public bool optAll;       // 按 release 全优化编（同 _GoldenEntry.optAll）
+    public _DistCase(string name, string source, string expected, string entryName, bool interpOnly, bool optAll) {
         this.name = name; this.source = source; this.expected = expected; this.entryName = entryName;
-        this.interpOnly = interpOnly;
+        this.interpOnly = interpOnly; this.optAll = optAll;
     }
 }
 
@@ -705,7 +708,7 @@ _DistCase[] _enumerateDistCases(string root) {
         // (z42b), not golden-runnable (no Main; may be multi-file like secp256k1's
         // source.z42 + vectors.z42).
         if (e.isLib && _isTestRunnerSource(e.src)) { continue; }
-        cases[n] = new _DistCase(e.name, e.src, e.expected, _deriveEntry(e.src), e.interpOnly);
+        cases[n] = new _DistCase(e.name, e.src, e.expected, _deriveEntry(e.src), e.interpOnly, e.optAll);
         n = n + 1;
     }
 

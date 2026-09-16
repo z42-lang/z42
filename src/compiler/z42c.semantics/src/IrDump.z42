@@ -248,7 +248,25 @@ public static class IrDump {
         return r;
     }
     // 公开：带跨包依赖的编译（CI-4）。imported 合并符号表；deps 驱动静态调用 FQ 命中。
+    // `--emit-zbc`（单模块 / golden .zbc regen 路径）的默认优化集：本地优化但**不内联**
+    // （Opt.All - Inline，add-compiler-inlining Phase 2）。codegen/zbc golden 断言的是优化后 IR
+    // （test_constfold_* / test_identity_*），但内联是跨函数变换、会折叠含直接调用的 golden 且脆弱；
+    // 排除内联 = Phase 2 前 Opt.All 的等价输出，所有既有 golden 逐字节不变。真实 release 包构建
+    // （BuildPackageCus 走 ProfileDefault=All 含内联）+ 内联专项单测覆盖内联行为。
+    // 同理排除 StackAlloc（add-escape-analysis）：逃逸分析是跨函数（ctor this-摘要）+ 模块级变换，
+    // 会给非逃逸分配置标志、改 golden 字节且脆弱。同理 LoopAllocReuse（依赖 StackAlloc、改指令流）。
+    //
+    // ⚠️ 单个 golden 可用 `opt_all` sidecar 覆盖成 `Opt.All`（fix-ref-param-escape，2026-09-16）。
+    // 在此之前「真实 release 自建 + 专项单测覆盖」这句是**空头支票**：逃逸分析的专项单测从来没写过，
+    // 于是 `src/tests/optimization/escape_*.z42` 整套在 golden 路径上一次也没开过 StackAlloc ——
+    // ref 形参写回的悬垂栈句柄因此一路漏到 release 用户手上。sidecar 就是补这个洞的。
+    public static int EmitZbcDefaultOpt() {
+        return Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch - Opt.Devirt;
+    }
     public static CompiledModuleZ BuildModuleD(string src, string file, DependencyIndex deps, ImportedSymbols imported) {
+        return IrDump.BuildModuleDOpt(src, file, deps, imported, IrDump.EmitZbcDefaultOpt());
+    }
+    public static CompiledModuleZ BuildModuleDOpt(string src, string file, DependencyIndex deps, ImportedSymbols imported, int optSet) {
         var p = new Parser(src, file);
         var cu = HandlerRegistry.RunAst(p.ParseCompilationUnit());   // attribute-handler-registry：AST-phase 单一入口
         // add-partial-types：单文件路径（--emit-zbc / golden）也须走 file-threading 的 CollectAll（非
@@ -280,16 +298,8 @@ public static class IrDump {
         if (imported != null) { gen.ImportedClassNs = CuPreprocess._filterShadowed(imported.ClassNamespaces, cu); }
         string[] actNs2 = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
-        // 单模块 / --dump-ir / codegen 单测 / golden .zbc regen 路径：本地优化但**不内联**
-        // （Opt.All - Inline，add-compiler-inlining Phase 2）。codegen/zbc golden 断言的是优化后 IR
-        // （test_constfold_* / test_identity_*），但内联是跨函数变换、会折叠含直接调用的 golden 且脆弱；
-        // 排除内联 = Phase 2 前 Opt.All 的等价输出，所有既有 golden 逐字节不变。真实 release 包构建
-        // （BuildPackageCus 走 ProfileDefault=All 含内联）+ 内联专项单测覆盖内联行为。
-        // 同理排除 StackAlloc（add-escape-analysis）：逃逸分析是跨函数（ctor this-摘要）+ 模块级变换，
-        // 会给非逃逸分配置标志、改 golden 字节且脆弱 → dump/golden 路径不跑；真实 release 自建 + 专项单测覆盖。
-        // 同理排除 LoopAllocReuse（add-loop-alloc-hoist-reuse）：依赖 StackAlloc、模块级改指令流（hoist+ctor-call），
-        // 排除即回到既有 golden 输出；真实 release 自建 + 专项单测覆盖。
-        IrModule irm = gen.Generate(cu, model, Opt.All - Opt.Inline - Opt.StackAlloc - Opt.LoopAllocReuse - Opt.PureCall - Opt.DeadBranch - Opt.Devirt);
+        // optSet 由调用方给（默认见 `EmitZbcDefaultOpt`，golden 的 `opt_all` sidecar 传 Opt.All）。
+        IrModule irm = gen.Generate(cu, model, optSet);
         // usings 抽取（DEPS 用）
         string[] usings = new string[4];
         int uc = 0;

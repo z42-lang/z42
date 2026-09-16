@@ -17,6 +17,8 @@
 //   - **copy 传递闭包**（Pass B 不动点）：`dst = copy src`，dst 逃逸 ⇒ src 逃逸。
 //   - **对象额外前提：ctor 不泄漏 this**（= 摘要 `table[ctor][0]`，this=参数槽 0；原 `_ctorLeaksThis` 并入此）。
 //   - **仅标单赋值 temp**（defs==1）：多定义命名局部保守不标。
+//   - **ref/out 写回汇点**（fix-ref-param-escape）：运行时出口把参数寄存器的终值 copy-out 回 caller，
+//     而 IR 看不见 `ref` 修饰 → 被函数体重新定义过的参数槽一律按逃逸处理（见 `ComputeEscapedRegs` Pass A′）。
 namespace Z42.Semantics;
 
 using Z42.IR;
@@ -35,7 +37,7 @@ public sealed class IrEscapeAnalysis {
 
     // 对一个函数：算逃逸集（用摘要解析 call 实参）+ 单赋值集，给不逃逸的分配置 StackAlloc。
     private static void _markFunc(IrModule m, IrFunction f, ParamEscapeTable table) {
-        bool[] esc  = IrEscapeAnalysis.ComputeEscapedRegs(m, f, table);
+        bool[] esc  = IrEscapeAnalysis.ComputeEscapedRegs(m, f, table, true);
         int[]  defs = IrRegCounts.Defs(f);
         int bi = 0;
         while (bi < f.BlockCount) {
@@ -70,9 +72,13 @@ public sealed class IrEscapeAnalysis {
         return (!esc[id]) && defs[id] == 1;
     }
 
-    // ── 逃逸集：Pass A 直接汇点（吃摘要）+ Pass B copy 传递闭包 ──────────────────────────
+    // ── 逃逸集：Pass A 直接汇点（吃摘要）+ Pass A′ ref/out 写回 + Pass B copy 传递闭包 ──────
     // public：IrEscapeSummary.Compute 的不动点每轮对每函数调它（用当前摘要），_markFunc 用收敛后摘要再调一次。
-    public static bool[] ComputeEscapedRegs(IrModule m, IrFunction f, ParamEscapeTable table) {
+    // markRefWriteback：是否把「ref/out 写回」当汇点（见下 Pass A′）。_markFunc（决定本函数内谁能栈分配）
+    // 传 true；IrEscapeSummary 的摘要不动点传 false —— 摘要问的是「**传进来的那个值**是否逃逸」，
+    // 参数槽被重新赋值不代表入参值逃逸，传 true 会把「循环里推进参数」这类常见写法误判成参数逃逸，
+    // 白白让所有调用方的实参丢掉栈分配。
+    public static bool[] ComputeEscapedRegs(IrModule m, IrFunction f, ParamEscapeTable table, bool markRefWriteback) {
         int n = f.MaxReg + 2;
         bool[] esc = new bool[n];
         // Pass A：逐指令 / 终结子标记 escaping-角色操作数。
@@ -86,6 +92,28 @@ public sealed class IrEscapeAnalysis {
             }
             if (b.HasTerm) { IrEscapeAnalysis._markTermEscaping(esc, b.Term); }
             bi = bi + 1;
+        }
+        // Pass A′：**ref/out 形参写回汇点**（fix-ref-param-escape）。运行时的 ref/out 是「入口 copy-in /
+        // 出口 copy-out」（impl-ref-out-in-runtime，见 interp/mod.rs `exec_function_body` +
+        // exec_support.rs `run_ref_writebacks`）：出口把**参数寄存器的终值**存回 caller 的 lvalue。
+        // 而 callee 的 IR 完全看不见 `ref` 修饰（`Param.IsRef` 只影响 caller 侧发 `load_local_addr`，
+        // callee 寄存器类型不变，见 syntax/Decl.z42）→ 没有任何一条指令把「写回」表达成逃逸汇点。
+        // 故这里保守：**凡被函数体重新定义过的参数槽一律逃逸**。写回的值必是某条 def 的产物，若它栈分配
+        // 在本帧，caller 拿到的就是已退出帧的悬垂句柄（`stack-alloc array handle used after its creating
+        // frame exited`）。未被重定义的参数槽不标——终值 = 入口值，本就来自 caller、活得比本帧久。
+        // 代价：非 ref 形参被重新赋值时也会挡掉一次栈分配（无从区分），换绝对安全。
+        if (markRefWriteback) {
+            bi = 0;
+            while (bi < f.BlockCount) {
+                IrBlock b = f.Blocks[bi];
+                int ii = 0;
+                while (ii < b.InstrCount) {
+                    TypedReg d = b.Instrs[ii].DefReg();
+                    if (d != null && d.Id >= 0 && d.Id < f.ParamCount && d.Id < n) { esc[d.Id] = true; }
+                    ii = ii + 1;
+                }
+                bi = bi + 1;
+            }
         }
         // Pass B：copy 传递闭包 —— dst 逃逸 ⇒ src 逃逸（链式，跑到不动点）。
         bool changed = true;

@@ -37,6 +37,7 @@
 | `gc/` | GC cycle / collect / weak ref / weak subscription |
 | `types/` | enum / struct / record / typeof / is/as / nullable / numeric aliases / char |
 | `control_flow/` | switch / do-while / null-coalesce / null-conditional / loop control / nested |
+| `optimization/` | 编译期优化 pass 的端到端行为。⚠️ **这一类的用例基本都得带 `opt_all` sidecar**——不带就是在测「优化关着时」的行为，等于没测（`fix-ref-param-escape`，2026-09-16：逃逸分析的两个既有用例就这样空转了一个多月，ref 形参写回的悬垂栈句柄因此漏到 release 用户手上）|
 | `operators/` | bitwise / 增量 / parse / postfix / 逻辑 / 比较 / 重载 |
 | `refs/` | ref / out / in / nested ref |
 | `classes/` | class / namespace / access / static / auto-property / ctor / indexer |
@@ -82,6 +83,7 @@
 | `expected.zasm` | parse | IR ZASM 期望 |
 | `features.toml` | 可选 | LanguageFeatures override |
 | `interp_only` | 可选 marker | 跳过 JIT 模式 |
+| `opt_all` | 可选 marker | **按真实 release 全优化编**（`z42c --emit-zbc --opt-all` → `Opt.All`）。默认的 `--emit-zbc` 优化集**关掉了**逃逸分析 / 内联 / loop-alloc-reuse（它们会改 golden 字节，见 `IrDump.EmitZbcDefaultOpt`），所以不加这个 marker 的用例**永远跑不到那几个 pass**。测优化 pass 的用例必须加 |
 
 > **先写 assert-only，别默认加 `expected_output.txt`**（tidy-test-layout，2026-09-06）。
 > 把断言写成 `Assert.Equal(...)` 而不是「打印一行、再拿侧车比对」有三个好处：期望值就在
@@ -95,7 +97,8 @@
 
 ### Flat 模式（`<category>/<name>.z42`）
 
-仅适用于 assert-only run 用例。无任何 sidecar — 期望空 stdout，使用 `LanguageFeatures.Phase1` 默认配置。
+仅适用于 assert-only run 用例。sidecar 只支持 marker 形态（`<name>.interp_only` / `<name>.opt_all`）——
+期望空 stdout，使用 `LanguageFeatures.Phase1` 默认配置。
 对应的 `<name>.zbc` 由 `z42 xtask.zpkg regen` 生成（不入库）。
 
 **何时使用 Flat 模式**：用例只调用 `Assert.*`（无 `Console.WriteLine` 输出对照），且不需要 features 覆盖、emit 格式覆盖、interp_only 标记或任何其他 sidecar。
