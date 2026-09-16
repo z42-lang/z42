@@ -14,6 +14,8 @@ on:
     paths:
       - 'docs/book/**'
       - 'docs/learn/**'
+      - 'docs/reference/**'
+      - 'docs/internals/**'
       - 'examples/**'
       - 'scripts/install/**'
       - '.github/workflows/deploy-book.yml'
@@ -21,6 +23,8 @@ on:
     paths:
       - 'docs/book/**'
       - 'docs/learn/**'
+      - 'docs/reference/**'
+      - 'docs/internals/**'
       - 'examples/**'
       - '.github/workflows/deploy-book.yml'
   workflow_dispatch:
@@ -59,12 +63,16 @@ jobs:
           site="$PWD/_site"
           ( cd docs/book && mdbook-mermaid install . && mdbook build -d "$site" ) 2>&1 | tee book.log
           ( cd docs/learn && mdbook build -d "$site/learn" ) 2>&1 | tee -a book.log
+          # 三书重构（restructure-docs-three-books）：reference / internals 与 learn 并列发布。
+          # docs/book 在搬迁完成前继续发布到站点根，搬完即删（批 6）。
+          ( cd docs/reference && mdbook build -d "$site/reference" ) 2>&1 | tee -a book.log
+          ( cd docs/internals && mdbook-mermaid install . && mdbook build -d "$site/internals" ) 2>&1 | tee -a book.log
           if grep -q '\[ERROR\]' book.log; then
             echo "::error::mdBook reported errors (broken {{#include}} etc.) — see the log above"; exit 1
           fi
           # mdBook 对缺失锚点完全静默（渲染成空代码块）；未解析的 include 会原样留在页面里。
-          # 纯文档 PR 不触发 ci.yml（paths-ignore docs/**），完整的书↔示例校验（xtask test examples）
-          # 跑不到，这里至少把这两种静默失败判红。
+          # 完整的书↔示例校验（xtask test examples）要 SDK、只在 ci.yml 跑；这里把这两种
+          # **静默**失败判红——它们在渲染产物里才看得见。
           if grep -rl '{{#include' "$site/learn" --include='*.html'; then
             echo "::error::unresolved {{#include}} left in the rendered learn book (files above)"; exit 1
           fi

@@ -1,0 +1,25 @@
+# z42 语言与库参考（mdBook）
+#
+# 面向 z42 使用者的**查询**用书：语法规则、标准库 API、命令行、工程清单字段、错误码。
+# 判据：不读实现也能用对。三本书的分工见 docs/agent/rules/doc-system.md。
+#
+# 🔴 本书不得链接 docs/internals/——一旦反向链，用户会被带进实现细节（doc-system §2.1）。
+# 本地预览：cargo install mdbook 后，在本目录跑  mdbook serve --open
+
+[book]
+title = "z42 语言与库参考"
+authors = ["z42"]
+language = "zh"
+src = "src"
+
+[build]
+create-missing = false
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+smart-punctuation = true
+site-url = "/z42/reference/"
+git-repository-url = "https://github.com/z42-lang/z42"
+edit-url-template = "https://github.com/z42-lang/z42/edit/main/docs/reference/{path}"
+additional-js = ["theme/z42-highlight.js"]

@@ -78,6 +78,7 @@ graph LR
 - `stdlib [Benchmark]`
 - `manifest targets ([[test]] + [[example]])`
 - `examples (learn book transcripts)`
+- `docs (relative links)`
 - `compiler`
 - `gc modes (z42c.semantics build)`
 - `vscode-syntax`
