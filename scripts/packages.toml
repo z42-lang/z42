@@ -47,7 +47,7 @@ manifest = "auto"
 #    还会被跨 host 使用（如 android runtime 在 Windows/macOS host 上安装），
 #    塞一个只有单一 host 平台意义的 z42c 没有意义，与 ios/android/wasm 的
 #    runtime 包（同样不含 z42c/z42vm CLI）保持形态一致。自举种子改由 SDK 包
-#    的 programs/z42c/ 提供（见 docs/design/compiler/self-hosting.md）────
+#    的 programs/z42c/ 提供（见 docs/internals/src/compiler/self-hosting.md）────
 [package.runtime]
 artifact = "z42-runtime-{version}-{rid}"
 include  = ["native", "stdlib"]

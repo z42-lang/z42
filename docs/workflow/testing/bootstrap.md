@@ -2,7 +2,7 @@
 
 > 权威的**操作层**流程文档：z42c 自举的工具链如何从一个下载的 SDK 起步、编出当前版本、
 > 并被测试/打包/发布。设计原理（src/compiler 架构、
-> 受限写法、对账策略）见 [`docs/design/compiler/self-hosting.md`](../../design/compiler/self-hosting.md)；
+> 受限写法、对账策略）见 [`docs/internals/src/compiler/self-hosting.md`](../../internals/src/compiler/self-hosting.md)；
 > CI 总览见 [`ci.md`](../ci.md)；测试层级见 [`README.md`](README.md)。
 
 ---

@@ -1,7 +1,7 @@
 # z42 命令参考
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（0.6.x）｜ **代码**: `src/toolchain/launcher/core/launcher_cli.z42` · `src/toolchain/builder/core/builder_cli.z42` · `src/compiler/z42c.driver/src/BuildCommand.z42` · `src/libraries/z42.project/src/{ManifestLocator,BuildLayout}.z42`
-> **相关**: [CLI 与诊断工具（z42c / z42b）](../compiler/tools.md) · [工程模型](../compiler/project-model.md) · [运行时设置](../runtime/runtime-settings.md) ｜ **对齐**: 2026-09-16
+> **相关**: [CLI 与诊断工具（z42c / z42b）](../compiler/tools.md) · [工程模型](../../../internals/src/compiler/project-model.md) · [运行时设置](../runtime/runtime-settings.md) ｜ **对齐**: 2026-09-16
 
 ## 概述
 

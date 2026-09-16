@@ -87,7 +87,7 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 > ⚠️ H2 只有在**基类链本身可走**时才有意义。同一次变更修掉了更深的一层：`Z42ClassType.BaseName`
 > 此前存的是**带泛型实参的基类文本**（`"Bag<T>"`），而它的每个消费方都拿它当 `Classes` 的键用
 > ⇒ base 链在泛型基类处**静默截断**（`IsSubclassOf` 恒 false、继承成员找不到）。详见
-> [source-compile.md「基类名裸名化」](source-compile.md)。
+> source-compile.md「基类名裸名化」。
 >
 > **未覆盖**：基类声明处换了实参（`class Sub<T> : Bag<string>`）。`BaseName` 只存名字、不存基类
 > **实参**，无从代换 ⇒ 仍报 E0402（与修前同，无回归）。同因 `GBase<int> b = new CSub();`

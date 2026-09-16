@@ -278,7 +278,7 @@ The compiler enforces strict package-based using resolution
   - **依赖扫描层 W0603（软警告）**：消费一个**已构建**的、NSPC 占用了 `Std.*` 的第三方 zpkg → 警告（该 zpkg
     可能由旧版本 / 非 z42 工具产出）。E0605 落地后正常工具链产不出这种包，W0603 退化为对陈旧 / 外部产物的软网。
 
-**诊断码**（[error-codes.md](../compiler/error-codes.md)）：
+**诊断码**（[error-codes.md](../../reference/src/appendix/error-codes.md)）：
 - E0601 NamespaceCollision — 跨包同 (ns, name) 冲突
 - E0602 UnresolvedUsing — using 指向未加载的 namespace
 - E0605 ReservedNamespaceDeclaration — 第三方包源码声明 Std.* 前缀（硬错误）

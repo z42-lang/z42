@@ -1,7 +1,7 @@
 # CLI 与诊断工具
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（z42b 部分 verb 见状态标注）｜ **代码**: `src/compiler/z42c.driver/src/Main.z42` · `src/toolchain/builder/core/builder_cli.z42`
-> **相关**: [源代码编译流程](source-compile.md) · [项目构建与发布编排](project-build.md) ｜ **对齐**: 2026-09-16
+> **相关**: [源代码编译流程](../../../internals/src/compiler/source-compile.md) · [项目构建与发布编排](project-build.md) ｜ **对齐**: 2026-09-16
 
 ## 概述
 
@@ -10,7 +10,7 @@
 - **z42c** — 编译器 CLI，直接对源文件做编译或诊断，产出 `.zbc` / `.zpkg`；
 - **z42b** — 构建编排器 CLI，对整个项目做"编译 → 发布"，由 launcher 的 `z42 <verb>` 透传调用。
 
-z42c 的一组 `--dump-*` 诊断命令与[源代码编译流程](source-compile.md)的各阶段一一对应，是逐阶段观察中间产物的窗口。
+z42c 的一组 `--dump-*` 诊断命令与[源代码编译流程](../../../internals/src/compiler/source-compile.md)的各阶段一一对应，是逐阶段观察中间产物的窗口。
 
 ## z42c 命令
 

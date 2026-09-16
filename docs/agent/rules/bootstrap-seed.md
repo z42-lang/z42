@@ -162,7 +162,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
   旧名 `_ensureBootstrapZ42Ir`）在建 z42c **前**用当前 driver 把当前源的
   `z42.core` → `z42.project` → `z42.build` → `z42.ir` → `z42c.core` → `z42c.syntax`
   逐个单独编进 build-libs。**不 warm-skip**（`07596b57`，2026-07-30 改）。机制全文见
-  [`docs/design/compiler/self-hosting.md` 轴 ④](../../design/compiler/self-hosting.md)。
+  [`docs/internals/src/compiler/self-hosting.md` 轴 ④](../../internals/src/compiler/self-hosting.md)。
 
 > ⭐ **轴 ③ 对这 6 个自依赖库不成立（2026-09-06 add-associated-types 澄清）**：破环预建总是用
 > **当前源**重建它们，故「z42c 源用这 6 个库的**新 API**」**无需等一个 nightly**，加 API 与用 API
@@ -218,5 +218,5 @@ z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比�
   「发布周期」可控、从而 C# 种子可彻底删除的前提。**
 - **[workflow.md](workflow.md) 阶段 8 GREEN**：cold 路径本地不可验 → 该路径的「全绿」判定**以 CI 为准**，
   不是本地 warm 跑通就算数。
-- **设计原理**（为什么自举需要种子、warm/cold 两态如何切换）落在 [`docs/design/compiler/self-hosting.md`](../../design/compiler/self-hosting.md)，
+- **设计原理**（为什么自举需要种子、warm/cold 两态如何切换）落在 [`docs/internals/src/compiler/self-hosting.md`](../../internals/src/compiler/self-hosting.md)，
   本文件只管「改动时如何避免踩坑」的流程约束。

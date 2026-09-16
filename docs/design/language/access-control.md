@@ -5,7 +5,7 @@
 > 默认成员 private / 顶层 internal + 组合修饰符拒绝（E0405）+ override 继承基类可见性 + record 定位字段 public +
 > **类级：private/protected 嵌套类 + 跨包 internal 类的**类型引用**校验**（覆盖体引用 new/var/cast/is/as/typeof/catch
 > + 声明签名 字段/参/返/基类·接口；跨包 internal 类可见性经 zbc 1.33/zpkg 0.38 TYPE 记录可见性字节序列化）。
-> 机制页见 [`docs/book/src/compiler/access-control.md`](../../book/src/compiler/access-control.md)。
+> 机制页见 [`docs/internals/src/compiler/access-control.md`](../../internals/src/compiler/access-control.md)。
 > **本规范是访问控制的语言 SoT**（2026-08-12：默认成员 = private 以本文档为准，实现已对齐）。
 >
 > **complete-class-access-control（2026-08-13）补齐四项**，类级访问控制自此完整：

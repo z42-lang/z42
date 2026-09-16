@@ -224,7 +224,7 @@ int _buildDesktopWorkload(string root, string rid, string version, string profil
 // macOS host), so a single-host-platform z42c binary inside it has no meaning —
 // this now matches the ios/android/wasm runtime packs, which never carried
 // z42c/z42vm either. The self-host bootstrap seed moved to the SDK package's
-// programs/z42c/ (see docs/design/compiler/self-hosting.md). libs/ + native/
+// programs/z42c/ (see docs/internals/src/compiler/self-hosting.md). libs/ + native/
 // are copied verbatim from the SDK package that _packageDesktop just assembled
 // — single byte source → SDK and runtime pack stay byte-identical, and no
 // native libs are re-collected/re-globbed here.

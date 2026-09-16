@@ -1,5 +1,8 @@
 # Binder Hierarchy
 
+> **页型**: 机制页 ｜ **状态**: 🚧 Phase 1 已落（抽象基类 + 3 个子类桩）｜ **代码**: `src/compiler/z42c.semantics/src/`
+> **相关**: [源代码编译流程](source-compile.md) ｜ **对齐**: 2026-09-16
+
 > review.md F2.4 — Roslyn-style polymorphic Binder chain replacing the
 > monolithic `TypeEnv`. Phase 1 (2026-06-03, add-binder-hierarchy-phase1)
 > shipped the abstract base + 3 stub subclasses; this document codifies the

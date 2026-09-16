@@ -9,7 +9,7 @@ All error, warning, and info codes emitted by the z42 compiler.
 Use `z42c explain <code>` to view the full description and an example in the terminal.
 Use `z42c errors` to print a compact summary of all codes.
 
-The canonical source of truth is [`DiagnosticCodes.cs`](../../../src/compiler/z42.Core/Diagnostics/Diagnostic.cs) (code constants) and [`DiagnosticCatalog.cs`](../../../src/compiler/z42.Core/Diagnostics/DiagnosticCatalog.cs) (descriptions + examples).
+The canonical source of truth is [`DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42)（码常量）.
 
 ---
 
@@ -74,7 +74,7 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 > 整体退役。VM 现在按错误受众二分：
 >
 > - **用户脚本可 catch**（marshal 失败：interior NUL、`PinPtr` source / element 不合规）
->   → 抛出 [`Std.InvalidMarshalException`](../../../src/libraries/z42.core/src/Exceptions/InvalidMarshalException.z42)
+>   → 抛出 [`Std.InvalidMarshalException`](../../../../src/libraries/z42.core/src/Exceptions/InvalidMarshalException.z42)
 >   z42 异常实例（`Message` 含具体原因，`StackTrace` 自动填充）。
 > - **Embedder 侧** native binding setup 失败（`z42_register_type` / dlopen）
 >   → Rust `anyhow!` 错误透传 + `z42_last_error()` 内的 `Z42Error.code`
@@ -101,8 +101,8 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 
 ### 运行期 marshal 失败 → `Std.InvalidMarshalException`
 
-由 VM runtime（[`src/runtime/src/native/marshal.rs`](../../../src/runtime/src/native/marshal.rs) +
-[`src/runtime/src/interp/exec_native.rs`](../../../src/runtime/src/interp/exec_native.rs)）
+由 VM runtime（[`src/runtime/src/native/marshal.rs`](../../../../src/runtime/src/native/marshal.rs) +
+[`src/runtime/src/interp/exec_native.rs`](../../../../src/runtime/src/interp/exec_native.rs)）
 在以下情形构造 `Std.InvalidMarshalException` 并 throw（user-catchable）：
 
 | 触发场景 | Message 含 |
@@ -111,7 +111,7 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 | `PinPtr` source 不是 `String` / `Array<u8>` | `"PinPtr source must be String or Array<u8>, got ..."` |
 | `PinPtr` Array 元素不是 0..=255 的 `Value::I64` | `"PinPtr Array element N not a u8 in 0..=255: ..."` |
 
-构造细节见 [`crate::exception::make_stdlib_exception`](../../../src/runtime/src/exception/mod.rs)。
+构造细节见 [`crate::exception::make_stdlib_exception`](../../../../src/runtime/src/exception/mod.rs)。
 脚本侧用 `catch (Std.InvalidMarshalException e) { ... }` 处理。
 
 ### E0907（C6 已启用，2026-04-29）
@@ -142,9 +142,9 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 > `src/compiler/z42.Semantics/TestAttributeValidator.cs`。那份实现属**已退休的 C# 编译器**，
 > **自举迁移时未移植到 z42c** —— 三个码在 `DiagnosticCodes.z42` 定义齐全但**全仓零引用**，
 > 即长期处于**未实现**状态，而本文档一直声称已启用。2026-09-11 由
-> [`enforce-test-attr-placement`](../../spec/archive/2026-09-11-enforce-test-attr-placement/) 补回。
+> [`enforce-test-attr-placement`](../../../spec/archive/2026-09-11-enforce-test-attr-placement) 补回。
 
-现实施位置：[`src/compiler/z42c.semantics/src/DeclEnforcer.z42`](../../../src/compiler/z42c.semantics/src/DeclEnforcer.z42)
+现实施位置：[`src/compiler/z42c.semantics/src/DeclEnforcer.z42`](../../../../src/compiler/z42c.semantics/src/DeclEnforcer.z42)
 的 `_passTestAttrEnforce`，挂在 `SymbolCollector` 的三个公开入口（与 E0444/E0445/E0447 三个后缀 pass 并列），
 **纯语法检查**（不依赖符号表）。
 
@@ -174,7 +174,7 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 
 ## E06xx — Package / Import Resolution（strict-using-resolution，2026-04-28）
 
-由 TypeChecker 在导入符号过滤后报出（参见 [namespace-using.md](../language/namespace-using.md#strict-using-resolution-2026-04-28)）。
+由 TypeChecker 在导入符号过滤后报出（参见 [namespace-using.md](../../../design/language/namespace-using.md#strict-using-resolution-2026-04-28)）。
 
 | Code   | Title                                | When it occurs |
 |--------|--------------------------------------|----------------|
@@ -240,13 +240,13 @@ C4b 不新增 WSxxx；C4c 已移除 WS004（归并入 WS010）。
 
 ## Adding a new code
 
-1. Add a `public const string Xxx = "E0nnn";` to `DiagnosticCodes` in [Diagnostic.cs](../../../src/compiler/z42.Core/Diagnostics/Diagnostic.cs).
-2. Add an entry to `DiagnosticCatalog.All` in [DiagnosticCatalog.cs](../../../src/compiler/z42.Core/Diagnostics/DiagnosticCatalog.cs) with title, description, and optional example.
+1. 在 [`DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 加一个码常量。
+2. 在本页对应分段加一行（码 → 含义 → 触发示例）。
 3. Add a row to the relevant table in this file.
 
 For **runtime** errors (formerly `Z####`, retired 2026-05-11): don't add an
 error code — define a `Std.*Exception` subclass in
-[`src/libraries/z42.core/src/Exceptions/`](../../../src/libraries/z42.core/src/Exceptions/)
-instead, and throw it via [`crate::exception::make_stdlib_exception`](../../../src/runtime/src/exception/mod.rs)
+[`src/libraries/z42.core/src/Exceptions/`](../../../../src/libraries/z42.core/src/Exceptions)
+instead, and throw it via [`crate::exception::make_stdlib_exception`](../../../../src/runtime/src/exception/mod.rs)
 (or the `throw` IR opcode from script code). The class name + `Message` field
 serve as the diagnostic identity; `StackTrace` is populated automatically.

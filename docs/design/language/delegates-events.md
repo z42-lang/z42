@@ -138,7 +138,7 @@ void Run(Btn.OnClick h, int v) { h(v); }
 > （`src/tests/delegates/nested_delegate_dotted.z42`）因此带着 12+ 条编译错误却"通过"了四个月
 > —— `--emit-zbc` 吞诊断所致。现行实现与限制（走 `NestedFlatten` 的 `Outer+Inner` 展平、
 > **类内部裸名不解析**、泛型嵌套已可用）见
-> [`docs/book/src/compiler/source-compile.md`「名字与『拿名字当键』的三条纪律」](../../book/src/compiler/source-compile.md)。
+> [`docs/internals/src/compiler/source-compile.md`「名字与『拿名字当键』的三条纪律」](../../internals/src/compiler/source-compile.md)。
 > 按 [doc-system.md 决策 D2](../../agent/rules/doc-system.md)，`docs/design/` 不再更新，此处只留
 > 指针、不改写正文。
 

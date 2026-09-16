@@ -2,7 +2,7 @@
 
 > 状态：🟢 已实现（0.4.0；求值引擎 z42.scripting + 宿主 z42.interactive + launcher `z42 repl`）
 >
-> 相关：[scripting-charter.md](../compiler/scripting-charter.md) · [launcher.md](../runtime/launcher.md) · [self-hosting.md](../compiler/self-hosting.md)
+> 相关：[scripting-charter.md](../../internals/src/compiler/scripting-charter.md) · [launcher.md](../runtime/launcher.md) · [self-hosting.md](../../internals/src/compiler/self-hosting.md)
 
 ## 定位
 

@@ -6,7 +6,7 @@
 
 ## 进度概览
 - [x] **批 0 · 立宪**（PR 待合）
-- [ ] 批 1 · internals/compiler
+- [x] 批 1 · internals/compiler（PR 待合）
 - [ ] 批 2 · internals/runtime + formats
 - [ ] 批 3 · reference/language
 - [ ] 批 4 · reference/stdlib
@@ -55,15 +55,20 @@
 
 ## 批 1 · internals/compiler
 
-- [ ] 1.1 `book/src/compiler/`(12) 按清单迁入 `internals/src/compiler/`（zbc/zpkg 除外 → 批 2 的 formats）
-- [ ] 1.2 `design/compiler/`(9)：`self-hosting` `binder-hierarchy` `scripting-charter` 迁入；
+- [x] 1.1 `book/src/compiler/`(12) 按清单迁入 `internals/src/compiler/`（zbc/zpkg 除外 → 批 2 的 formats）
+- [x] 1.2 `design/compiler/`(9)：`self-hosting` `binder-hierarchy` `scripting-charter` 迁入；
       `project.md` 字段全表 → `reference/manifest/`（**跨书，注意 SUMMARY 两边都要挂**）
-- [ ] 1.3 **抢救后删**（裁决 9）：`compiler-architecture.md`(1431行) 逐节读，把仍成立的
-      符号解析优先级链 / workspace 兄弟成员解析 / intra-package 同名降级 fixup 并进
-      `internals/compiler/source-compile.md`，**同一 PR 内删除原文件**
-- [ ] 1.4 删 `design/compiler/compilation.md`（`.zmod`/`.zbin` 机制已不存在，src 零引用）
-- [ ] 1.5 错误码切分：全量码表 → `reference/errors/codes.md`；「新增错误码」+ 分段规则 → `internals/compiler/error-codes.md`
-- [ ] 1.6 本批涉及路径的链接重指 + `xtask test docs` 绿
+- [x] 1.3 **逐节核实已完成**（User 2026-09-16 裁决「现在就做」）——结果见
+      [batch1-architecture-verification.md](batch1-architecture-verification.md)：
+      18 节里 8 节已被现有页覆盖、4 节机制已不存在（含 `Z42InterfaceType.TypeParams` /
+      `ModifierMangling` —— **标识符能 grep 到但字段根本不存在**）、5 节是 C# 结构细节。
+      ⚠️ **唯一有价值的「跨 zpkg IMPL 段传播」属 zpkg 格式 ⇒ 改由批 2 并入 `formats/zpkg.md`，
+      原文件随批 2 删除**（本批删会让批 2 失去来源）
+- [x] 1.7 顺手修 Scope 外事实错误（User 批准）：`compiler-z42c.md` 写「`src/compiler/` 下 5 个子包」，
+      实际 `z42c.core` / `z42c.syntax` 已在 `src/libraries/`，`src/compiler/` 只剩 3 个
+- [x] 1.4 删 `design/compiler/compilation.md`（`.zmod`/`.zbin` 机制已不存在，src 零引用）
+- [x] 1.5 错误码切分：全量码表 → `reference/errors/codes.md`；「新增错误码」+ 分段规则 → `internals/compiler/error-codes.md`
+- [x] 1.6 本批涉及路径的链接重指 + `xtask test docs` 绿
 
 ## 批 2 · internals/runtime + formats
 
@@ -75,6 +80,9 @@
 - [ ] 2.5 **抢救判定**（裁决 9）：`vm-architecture.md`(1212行，对齐停在 05-20) 先判定还剩多少独有内容，
       再决定当主干页还是拆碎并入
 - [ ] 2.6 删 `design/runtime/{zbc,zpkg}.md`（已迁移的历史壳）
+- [ ] 2.8 **（批 1 移交）** 把 `design/compiler/compiler-architecture.md` 的「跨 zpkg impl 块传播 —
+      IMPL section + Phase 3 merge」（原文 439–517 行）并入 `formats/zpkg.md`，**同 PR 删除该文件**。
+      依据见 [batch1-architecture-verification.md](batch1-architecture-verification.md)
 - [ ] 2.7 链接重指 + `xtask test docs` 绿
 
 ## 批 3 · reference/language（最大）

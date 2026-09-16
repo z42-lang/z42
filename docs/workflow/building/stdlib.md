@@ -41,7 +41,7 @@
 ( cd src/libraries && z42c build --workspace --release --no-incremental )   # 强制全量
 ```
 
-机制基于 SHA-256 source hash + cache zbc 存在性 + ExportedModule 可用性三重检查；命中跳过 parse + typecheck + irgen。详见 [`docs/design/compiler/project.md`](../../design/compiler/project.md) L3 build 段。
+机制基于 SHA-256 source hash + cache zbc 存在性 + ExportedModule 可用性三重检查；命中跳过 parse + typecheck + irgen。详见 [`docs/reference/src/toolchain/z42-toml.md`](../../reference/src/toolchain/z42-toml.md) L3 build 段。
 
 ## artifacts 布局
 

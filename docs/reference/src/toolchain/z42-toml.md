@@ -3,7 +3,7 @@
 z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 一个目录下最多一个 `*.z42.toml`，支持单工程和多工程工作区两种形态。
 
-> **本文档的边界**：描述用户 manifest 字段（`[build]` / `[[exe]]` / `[dependencies]` / `[workspace]` 等）与构建编排语义。**不描述** `.zbc` / `.zpkg` 二进制格式（归 [`compilation.md`](compilation.md)）、编译器内部数据结构（归 [`compiler-architecture.md`](compiler-architecture.md)）。
+> **本文档的边界**：描述用户 manifest 字段（`[build]` / `[[exe]]` / `[dependencies]` / `[workspace]` 等）与构建编排语义。**不描述** `.zbc` / `.zpkg` 二进制格式（归 `compilation.md`）、编译器内部数据结构（归 [`compiler-architecture.md`](../../../design/compiler/compiler-architecture.md)）。
 
 ---
 
@@ -240,7 +240,7 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 | `dist_dir` | string? | `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。替代了 0.1.x 的 `out_dir`。 |
 | `publish_dir` | string? | `${output_dir}/publish` | `${output_dir}/publish` | 发布分发目录。`z42c build`（exe）和 `z42c publish` 将产物 + 非 stdlib 依赖复制到此目录。lib 默认不复制（需显式 `z42c publish`）。 |
 | `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关（wire-build-incremental）。 |
-| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对；wire-z42b-host-build 阶段 7）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见 [build-orchestrator.md](../toolchain/build-orchestrator.md#自定义扩展manifest-声明-hook-目录)（含 `z42 publish` 经 hook 免装 workload 产 apphost）。 |
+| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对；wire-z42b-host-build 阶段 7）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见 [build-orchestrator.md](../../../design/toolchain/build-orchestrator.md#自定义扩展manifest-声明-hook-目录)（含 `z42 publish` 经 hook 免装 workload 产 apphost）。 |
 
 **模板变量（`${...}`）**：
 
@@ -357,9 +357,9 @@ pin：源 hash、ns、usedDepNs、模块池原序（hex）、每函数块 label 
 add-dep-identity-to-cache-key）。任何 pin 不符/损坏
 → 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（`CacheStore.CompilerFingerprint`）堵住
 「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见
-[version-bumping.md](../../agent/rules/version-bumping.md#编译器语义指纹非格式失效次元2026-08-11-add-compiler-fingerprint-cache)）。cache 可整目录删除。
+[version-bumping.md](../../../agent/rules/version-bumping.md#编译器语义指纹非格式失效次元2026-08-11-add-compiler-fingerprint-cache)）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
-[self-hosting.md Deferred](self-hosting.md#self-hosting-future-indexed-zpkg)；散装自包含
+self-hosting.md Deferred；散装自包含
 zbc 的最小 patch 分发方向见 `docs/spec/changes/add-indexed-zpkg-min-patch/`（DRAFT）。
 
 **调试**：`Z42_INCR_DEBUG=1` 打印失效种子原因（no-entry / hash-diff / src-list）与传播链
@@ -611,9 +611,9 @@ strip    = true
 | 层级 | 约束 | 当前强制 |
 |------|------|----------|
 | zpkg `[dependencies]` 之间 | A 依赖 B → B 不得（直接或传递）依赖 A | 🔄 编译期解析时检测（错误码待 RFC，建议 `E0610 CircularPackageDependency`） |
-| Workspace member 之间 | 同上，DFS 三色检测 | ✅ `WS006 CircularDependency`（见 [error-codes.md](error-codes.md)） |
+| Workspace member 之间 | 同上，DFS 三色检测 | ✅ `WS006 CircularDependency`（见 [error-codes.md](../appendix/error-codes.md)） |
 | Preset `include` 链 | 同上 | ✅ `WS020 CircularInclude` |
-| stdlib 层级 | `L0 ← L1 ← L2 ← L3`，下层不得依赖上层 | ✅ 设计规则（见 [stdlib-organization.md](../stdlib/organization.md)） |
+| stdlib 层级 | `L0 ← L1 ← L2 ← L3`，下层不得依赖上层 | ✅ 设计规则（见 [stdlib-organization.md](../../../design/stdlib/organization.md)） |
 
 **为什么禁止循环依赖**：
 
@@ -636,7 +636,7 @@ strip    = true
 
 - ❌ 运行时延迟 import / 函数体内 import（Python 风格） —— z42 不提供此后门
 - ❌ "源码引用"打洞（Haskell `{-# SOURCE #-}` 风格） —— z42 不引入此机制
-- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](../../agent/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化)）
+- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](../../../agent/rules/philosophy.md#不为旧版本提供兼容2026-04-26-强化)）
 
 **编译器报错要求**（待实现时遵守）：
 
@@ -702,7 +702,7 @@ strip    = true
 3. `bench/*` 与 `examples/*` → 同 1/2 规则（默认发现 dir 分别为 `bench/` `examples/`）
 4. 子目录内非 `.z42` 文件（fixture / data）随产物打包，运行时 cwd 切到 `<dir>`，相对路径读取
 5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是目标入口
-6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](../../agent/rules/common-pitfalls.md)——
+6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](../../../agent/rules/common-pitfalls.md)——
    first-wins 禁止依赖 FS 枚举序）
 
 ### `[tests]` / `[benches]` / `[examples]` 段
@@ -790,7 +790,7 @@ final_deps = [dependencies]
 
 ### 编译产物布局
 
-测试 / bench 产物在每个 package 的 `output_dir` 下并列两个独立子树，与 L3 [build] 的 `output_dir` / `cache_dir` / `dist_dir` 三字段模型对齐（见 [restructure-build-output-dirs](../../spec/archive/2026-06-06-restructure-build-output-dirs/)）：
+测试 / bench 产物在每个 package 的 `output_dir` 下并列两个独立子树，与 L3 [build] 的 `output_dir` / `cache_dir` / `dist_dir` 三字段模型对齐（见 [restructure-build-output-dirs](../../../spec/archive/2026-06-06-restructure-build-output-dirs)）：
 
 ```
 artifacts/build/libraries/<lib>/<profile>/
@@ -1501,7 +1501,7 @@ stub 产出 exe。与 ios/android/wasm export 对称——apphost 不是独立�
 > **gate 与位置分离（2026-06-30）**：旧逻辑用「`publish_dir` 是否存在」充当「是否产 apphost」的开关，
 > 把"输出目录"与"是否启用"耦合在一个键上。现拆分——`apphost = true` 是唯一 gate，`publish_dir` 退化为
 > 纯输出位置。解析见 `z42.project` 的 `DesktopConfig.Apphost`；gate 实现见 `launcher_export.z42`
-> 的 `_cmdPublishDesktop`。机制详见 [launcher.md](../runtime/launcher.md) apphost 段。
+> 的 `_cmdPublishDesktop`。机制详见 [launcher.md](../../../design/runtime/launcher.md) apphost 段。
 
 ### CLI 覆盖
 
@@ -1514,11 +1514,11 @@ z42 export wasm    <project.z42.toml>                       [--output ./MyApp] [
 z42 publish <project.z42.toml>                             [--output <publish_dir>]
 ```
 
-详细设计见 [`docs/design/toolchain/export.md`](../toolchain/export.md)。
+详细设计见 [`docs/design/toolchain/export.md`](../../../design/toolchain/export.md)。
 
 ## 条件配置：类型化轴子表（前瞻设计，未实施）
 
-> ⚠️ 前瞻设计（未实施）。决策见 [build-orchestrator.md](../toolchain/build-orchestrator.md) Decision #8。
+> ⚠️ 前瞻设计（未实施）。决策见 [build-orchestrator.md](../../../design/toolchain/build-orchestrator.md) Decision #8。
 
 z42.toml **不引入 csproj 式 `Condition` 表达式求值**。沿已知变化轴（profile / platform / rid）
 的条件内容，用**类型化轴子表 + 确定性合并**表达，而非字符串布尔表达式——"条件"靠表键匹配，
@@ -1558,7 +1558,7 @@ base（[dependencies] / [build] / 顶层）
 
 ## `build/` 构建扩展目录（z42b 自定义流程，build-orchestrator）
 
-> ⚠️ 前瞻设计（未实施）。完整设计见 [`docs/design/toolchain/build-orchestrator.md`](../toolchain/build-orchestrator.md)。
+> ⚠️ 前瞻设计（未实施）。完整设计见 [`docs/design/toolchain/build-orchestrator.md`](../../../design/toolchain/build-orchestrator.md)。
 
 项目可选地用一个 **`build/` 目录**（与 `src/` 平级）放构建流程的**自定义扩展** z42 源；
 `z42b` 编排器发现并编译它们进一次性 driver（约定优于配置，类比 `build.rs`）。
@@ -1583,4 +1583,4 @@ myapp/
 - **相位封闭**（八个，线性，不可增删改序）：所有自定义只落在 Hooks / Workload override 上，
   不开放注册新相位（保证构建确定性与缓存模型）。
 
-扩展点基类（`BuildHooks` / `WorkloadBase`）住 [`src/libraries/z42.build/`](../../../src/libraries/z42.build/)。
+扩展点基类（`BuildHooks` / `WorkloadBase`）住 [`src/libraries/z42.build/`](../../../../src/libraries/z42.build)。

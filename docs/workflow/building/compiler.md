@@ -43,7 +43,7 @@ z42c clean [<name>.z42.toml]
 
 > `run` 接受 `.z42.toml`(项目)或单个 `.z42`(脚本)。**`--` 之后的参数透传给被运行的 z42 程序**(经 `Std.IO.Environment.GetCommandLineArgs()` 读取),不被 z42c 解析。例:`z42c run app.z42 -- --verbose input.txt` → 程序看到 `["--verbose", "input.txt"]`。
 
-manifest 字段定义见 [`docs/design/compiler/project.md`](../../design/compiler/project.md)；增量编译机制见 manifest 内 `[build]` + cache 行为说明。
+manifest 字段定义见 [`docs/reference/src/toolchain/z42-toml.md`](../../reference/src/toolchain/z42-toml.md)；增量编译机制见 manifest 内 `[build]` + cache 行为说明。
 
 ### 工具命令
 

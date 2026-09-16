@@ -1,5 +1,8 @@
 # Compiler Scripting Charter
 
+> **页型**: 决策页 ｜ **状态**: 📋 设计已定 / **未实施**（charter，不进 roadmap minor 表）｜ **代码**: —
+> **相关**: [架构总览](architecture.md) ｜ **对齐**: 2026-09-16
+
 > **Status**: charter / not-scheduled — 长期目标，不进 roadmap minor 表
 >
 > **Created**: 2026-05-22
@@ -8,7 +11,7 @@
 >
 > **Strategic decision**: 路径 2b —— pre-1.0 host-only；1.0 自举完成后 z42-written compiler 作为 zpkg 自然随 VM 全平台分发
 >
-> **Related**: memory [project_mobile_no_compiler](../../../.claude/projects/-Users-d-s-qiu-Documents-codesigner-ui-z42/memory/project_mobile_no_compiler.md) · [`stdlib/organization.md`](../stdlib/organization.md) · [`runtime/embedding.md`](../runtime/embedding.md) · [`runtime/hot-reload.md`](../runtime/hot-reload.md)
+> **Related**: memory project_mobile_no_compiler · [`stdlib/organization.md`](../../../design/stdlib/organization.md) · [`runtime/embedding.md`](../../../design/runtime/embedding.md) · [`runtime/hot-reload.md`](../../../design/runtime/hot-reload.md)
 
 ---
 
@@ -38,14 +41,14 @@ z42 设计目标是"全栈系统语言"，host-equivalent 动态编译能力（�
 **2b 选择理由**：
 - z42-written compiler 体积估 2–5 MB（z42 字节码 + 元数据），跟随 VM 走
 - 不引入额外 toolchain（zpkg 是 VM 已经能加载的产物）
-- 自举本就是 [roadmap 1.0 必经里程碑](../../roadmap.md#长期-semver-路线05--10)，全平台 compiler 是顺带
-- 与 [project_supported_platforms](../../../.claude/projects/-Users-d-s-qiu-Documents-codesigner-ui-z42/memory/project_supported_platforms.md) "只支持厂商官方维护的架构" 兼容
+- 自举本就是 [roadmap 1.0 必经里程碑](../../../roadmap.md#长期-semver-路线05--10)，全平台 compiler 是顺带
+- 与 project_supported_platforms "只支持厂商官方维护的架构" 兼容
 
 ---
 
 ## 3. 目标模块拆分
 
-把当前 C# 7 模块（[src/compiler/README.md](../../../src/compiler/README.md)）映射到 8 个 stdlib 包：
+把当前 C# 7 模块（[src/compiler/README.md](../../../../src/compiler/README.md)）映射到 8 个 stdlib 包：
 
 | 标准库包 | 层级 | 对应 C# 模块 | 当前 C# 行数 | 主要类型 |
 |---------|:---:|------|:---:|------|
@@ -88,7 +91,7 @@ z42.compiler.ir ─────────┐    │
         (eval/script API)        (CLI 命令)
 ```
 
-严格遵守 [`stdlib/organization.md` 规则 #4](../stdlib/organization.md)：上层依赖下层，禁止反向。
+严格遵守 [`stdlib/organization.md` 规则 #4](../../../design/stdlib/organization.md)：上层依赖下层，禁止反向。
 
 ---
 
@@ -142,7 +145,7 @@ z42.compiler.ir ─────────┐    │
 2. **Stage 2**：用 v1 重新编译同一份源 → `v2`
 3. **Stage 3**：`v1 ≡ v2` 字节相同 → 自举固定点
 
-复用 [`.zbc` strict-pin](../../spec/archive/2026-05-14-freeze-zbc-v1/) byte-golden 基础设施。
+复用 [`.zbc` strict-pin](../../../spec/archive/2026-05-14-freeze-zbc-v1) byte-golden 基础设施。
 
 ### P6. iOS / WASM interp-only 限制如何在 API 表达
 
@@ -183,12 +186,12 @@ ScriptOptions opts = ScriptOptions.Default;
 
 | Doc | 关系 |
 |-----|------|
-| [`compiler-architecture.md`](compiler-architecture.md) | 当前 C# bootstrap 形态；C4 完成后此 doc 转为"过渡阶段历史记录"，新 SoT 是 z42-written 源 + 本 charter |
-| [`compilation.md`](compilation.md) | 编译产物粒度策略；自举后维持不变（z42 compiler 产出同一种 .zbc / .zpkg）|
-| [`project.md`](project.md) | manifest schema；自举后 `z42.compiler.project` 实现这套 schema |
-| [`runtime/embedding.md`](../runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
-| [`runtime/hot-reload.md`](../runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
-| [`stdlib/organization.md`](../stdlib/organization.md) | L0–L3 分层规则；本拆分严格遵守 |
+| [`compiler-architecture.md`](../../../design/compiler/compiler-architecture.md) | 当前 C# bootstrap 形态；C4 完成后此 doc 转为"过渡阶段历史记录"，新 SoT 是 z42-written 源 + 本 charter |
+| `compilation.md` | 编译产物粒度策略；自举后维持不变（z42 compiler 产出同一种 .zbc / .zpkg）|
+| [`project.md`](../../../reference/src/toolchain/z42-toml.md) | manifest schema；自举后 `z42.compiler.project` 实现这套 schema |
+| [`runtime/embedding.md`](../../../design/runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
+| [`runtime/hot-reload.md`](../../../design/runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
+| [`stdlib/organization.md`](../../../design/stdlib/organization.md) | L0–L3 分层规则；本拆分严格遵守 |
 
 ---
 
@@ -216,7 +219,7 @@ ScriptOptions opts = ScriptOptions.Default;
 2. NativeAOT iOS / Android matured 到可行 + 出现可复用社区方案
 3. 用户在 1.0 前明确需要 mobile dynamic eval（非 host-only 开发期工具）
 
-重新评估时回到 [memory project_mobile_no_compiler](../../../.claude/projects/-Users-d-s-qiu-Documents-codesigner-ui-z42/memory/project_mobile_no_compiler.md) 的"How to apply"部分调整。
+重新评估时回到 memory project_mobile_no_compiler 的"How to apply"部分调整。
 
 ---
 

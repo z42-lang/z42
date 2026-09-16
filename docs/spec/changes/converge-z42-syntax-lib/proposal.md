@@ -36,7 +36,7 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
 3. **破 bootstrap 轴④环**：`scripts/build/xtask_compiler.z42` 的 `_ensureBootstrapSelfDepLibs`（或旁加
    `_ensureBootstrapZ42cFrontend`）在建 z42c **前**，用种子 driver 把**当前源** `z42c.core` + `z42c.syntax`
    预建进 build-libs——与 z42.ir 破环**同款**（z42c 自依赖的共享库必须先于消费者进 flat）。
-4. **文档**：`docs/design/compiler/self-hosting.md`（轴④预建列表 + 布局图）、`compiler-architecture.md`、
+4. **文档**：`docs/internals/src/compiler/self-hosting.md`（轴④预建列表 + 布局图）、`compiler-architecture.md`、
    相关 README。
 
 ## 明确不改（Out of Scope / 减少标准库）
@@ -68,7 +68,7 @@ playground 加载的可移植 `z42c.*` 库**」。这是门面 PR 与 scripting 
 - `src/compiler/z42.workspace.toml`（default-members 去二）
 - `src/libraries/z42.workspace.toml`（default-members 加二）
 - `scripts/build/xtask_compiler.z42`（破环预建扩至 z42c.core + z42c.syntax）
-- `docs/design/compiler/self-hosting.md`、`docs/design/compiler/compiler-architecture.md`、相关 README
+- `docs/internals/src/compiler/self-hosting.md`、`docs/design/compiler/compiler-architecture.md`、相关 README
 - `docs/spec/changes/converge-z42-syntax-lib/**`（本提案 + tasks）
 
 ## Open Questions

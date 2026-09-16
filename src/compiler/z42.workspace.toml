@@ -14,7 +14,7 @@
 # 与 ${member_name} 模板均用该名（= zpkg basename），故子目录名（core/ 等）只是
 # 布局，下游一律按 z42c.<sub> 解析。
 #
-# 设计：docs/design/compiler/self-hosting.md
+# 设计：docs/internals/src/compiler/self-hosting.md
 [workspace]
 members = ["*"]
 # 注：<member>/tests/<unit>/*.z42.toml 是独立 lib 项目（由 `xtask test compiler`

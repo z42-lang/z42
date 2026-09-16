@@ -270,7 +270,7 @@ private readonly Dictionary<string, List<ExportedModule>> _cache;
 
 **修复（精准、隔离、零字节漂移）**：`WorkspaceBuildOrchestrator.Build` 收集**本 workspace** 全体成员的 `EffectiveDistDir`（排序去重），经 `CompileMember`（Func 第 3 形参）→ `RunResolved` → `BuildTarget` → `BuildLibsDirs` 的 `workspaceLibDirs` 形参透传；`BuildLibsDirs` 在第 1/2 条扫描**之后**、按**规范化 full-path 去重**追加，并**排序**（[common-pitfalls.md §1](../../agent/rules/common-pitfalls.md) 确定性——dirs 顺序喂给 first-wins nsMap / BuildDepIndex）。
 
-效果：成员从**当前 workspace** 解析其 **`[dependencies]` 声明的**兄弟依赖（`ScanLibsForNamespaces` 的 `declaredDeps` 过滤未声明项），与该 workspace 输出位置无关。**零字节漂移保证**：已落在被扫描根的 workspace（stdlib），其成员 dist 早在 `dirs` 里 → 规范化去重后不新增条目、顺序不变 → nsMap / BuildDepIndex 内容与顺序不变。单工程构建 `workspaceLibDirs=null` → 行为完全不变。远程/下载依赖暂不支持（[self-hosting.md Deferred](self-hosting.md#deferred--future-work)）。
+效果：成员从**当前 workspace** 解析其 **`[dependencies]` 声明的**兄弟依赖（`ScanLibsForNamespaces` 的 `declaredDeps` 过滤未声明项），与该 workspace 输出位置无关。**零字节漂移保证**：已落在被扫描根的 workspace（stdlib），其成员 dist 早在 `dirs` 里 → 规范化去重后不新增条目、顺序不变 → nsMap / BuildDepIndex 内容与顺序不变。单工程构建 `workspaceLibDirs=null` → 行为完全不变。远程/下载依赖暂不支持（[self-hosting.md Deferred](../../internals/src/compiler/self-hosting.md#deferred--future-work)）。
 
 ### 设计决策：namespace 可跨 zpkg（2026-04-25 vm-zpkg-dependency-loading）
 

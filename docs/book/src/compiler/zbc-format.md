@@ -1,7 +1,7 @@
 # zbc 字节码格式
 
 > **页型**: 参考页 ｜ **状态**: ✅ 已实现（v1.27）｜ **代码**: `src/compiler/z42c.ir/src/BinaryFormat/`（`ZbcFormat.z42` / `ZbcWriter.z42` / `ZbcInstr.z42`）
-> **相关**: [源代码编译流程](source-compile.md) · [zpkg 包格式](zpkg-format.md) ｜ **对齐**: 2026-07-19
+> **相关**: [源代码编译流程](../../../internals/src/compiler/source-compile.md) · [zpkg 包格式](zpkg-format.md) ｜ **对齐**: 2026-07-19
 
 ## 概述
 

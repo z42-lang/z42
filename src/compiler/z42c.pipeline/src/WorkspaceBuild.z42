@@ -103,7 +103,7 @@ public static class WorkspaceBuild {
     //   cache_dir = [workspace.build].cache_dir ?? "${output_dir}/.cache"
     // 模板里的 ${output_dir} 展开为该成员的 output_dir；展开后仍相对的路径按 output_dir 解析
     //（镜像 C# CentralizedBuildLayout：cache_dir 相对 output_dir）。
-    // 防碰撞（docs/design/compiler/project.md「workspace member 继承规则」）：cache_dir 与 output_dir 两个
+    // 防碰撞（docs/reference/src/toolchain/z42-toml.md「workspace member 继承规则」）：cache_dir 与 output_dir 两个
     // 模板都不含 ${member_name} / ${project_name} 时各成员会落进同一目录 → 自动追加成员名子目录。
     public static string ResolveMemberCacheDir(WorkspaceManifest ws, string wsDir, string memberDir,
                                                string name, string profile, string outAbs) {

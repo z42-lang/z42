@@ -1,7 +1,7 @@
 # 项目构建与发布编排（z42b）
 
 > **页型**: 机制页 ｜ **状态**: 🟡 部分实现（框架接口先行；`test`/`bench`/`clean`/`publish` 已可用，完整 `build`/`export` 编排待接入）｜ **代码**: `src/toolchain/builder/` · `src/libraries/z42.build/`
-> **相关**: [架构总览](architecture.md) · [源代码编译流程](source-compile.md) · [工程模型、依赖解析与工作区编译](project-model.md) ｜ **对齐**: 2026-07-19
+> **相关**: [架构总览](../../../internals/src/compiler/architecture.md) · [源代码编译流程](../../../internals/src/compiler/source-compile.md) · [工程模型、依赖解析与工作区编译](../../../internals/src/compiler/project-model.md) ｜ **对齐**: 2026-07-19
 
 ## 概述
 

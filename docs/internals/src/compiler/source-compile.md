@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](zbc-format.md) · [zpkg 包格式](zpkg-format.md) · [CLI 与诊断工具](tools.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../../../book/src/compiler/zbc-format.md) · [zpkg 包格式](../../../book/src/compiler/zpkg-format.md) · [CLI 与诊断工具](../../../book/src/compiler/tools.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -18,7 +18,7 @@ graph LR
 
 ## 机制
 
-各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](tools.md)）。
+各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](../../../book/src/compiler/tools.md)）。
 
 ### 词法（Lexer）
 
@@ -370,7 +370,7 @@ getter 是真实函数体。
 
 #### 重载决议：默认值形参、命名实参、params 两种形态
 
-> fix-overload-defaults-named-args（2026-09-15）。语言规则见 [命名实参](../language/named-arguments.md)。
+> fix-overload-defaults-named-args（2026-09-15）。语言规则见 [命名实参](../../../book/src/language/named-arguments.md)。
 
 `OverloadResolver.Resolve` 只认「形参个数 == 实参个数」。在它之上，`OverloadResolver.Map` / `ResolveMapped` 按 C#
 的规则把实参**映射**到形参再判适用：
@@ -442,7 +442,7 @@ CallExpr ─► MemberResolver._bindCall / _bindMemberCall
 诊断的 span 指向**实参本身**而非调用点；同一调用里多个不符实参**逐条**报，不在第一条短路。
 
 > **为什么这条检查缺席了这么久**：`--emit-zbc` 路径长期丢弃全部编译诊断（见
-> [CLI 与诊断工具](tools.md)），而单文件 e2e / golden / bench 全走那条路 —— 于是「binder 报的错没人
+> [CLI 与诊断工具](../../../book/src/compiler/tools.md)），而单文件 e2e / golden / bench 全走那条路 —— 于是「binder 报的错没人
 > 看见、emitter 那半边碰巧能跑」成了常态。补上检查时暴露的问题**没有一条是真实的用户类型错误**，
 > 全部落在既存的编译器缺陷上，其中四条同属一族：**`ImportedSymbolLoader` 的类型保真度**——跨包读回
 > 时把结构化类型降级成「名字对但种类错」的 `Z42ClassType`：
@@ -543,7 +543,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 > 遗留限制：同短名多 arity 的泛型基类（`Classes` 键带 `$N`）仍对不上——与接口侧（同样存裸名）
 > 一致；以及基类**实参**没地方存，故 `class Sub<T> : Bag<string>` 与 `GBase<int> b = new CSub();`
-> 仍不通（见 [type-conversion.md 步 6c](type-conversion.md)）。
+> 仍不通（见 [type-conversion.md 步 6c](../../../reference/src/language/conversions.md)）。
 
 **② delegate 注册的两个漏口（bug B5 / B1）**。`Delegates` 是 `name → Z42FuncType` 一张表，键恒裸名：
 
@@ -578,7 +578,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 > ⚠️ **为什么编译期的门必须建在语义单测里**：`src/tests/` 的单文件 golden 走 `--emit-zbc`，
 > 而那条路径**曾经**丢弃全部诊断、以 exit 0 照写产物（已于 2026-09-10 `restore-emit-zbc-diagnostics`
-> 修复，见 [CLI 与诊断工具](tools.md)）⇒ 「本该报错却没报」在那侧看不见。
+> 修复，见 [CLI 与诊断工具](../../../book/src/compiler/tools.md)）⇒ 「本该报错却没报」在那侧看不见。
 > **修好之后这条建议依然成立**：golden 断言的是**输出**，「期望编译报错」的用例放进去只会变成
 > 一个编译失败的测试，表达不了「必须报这一条码」——负例门仍然只能走语义单测。上面几条 bug 的 emitter 半边碰巧还能跑（delegate 类型擦除 /
 > 元组 blob），所以 e2e 断言照样绿——`src/tests/tuples/tuple_basic.z42` 与
@@ -661,11 +661,11 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 
 **关键不变量（自举）**：path 1/2 的 `_emitForeach` 完全不动、path 3 的脱糖只在 IEnumerable-only 类型上触发——z42c 源自身 foreach 均走数组/索引 path，从不进脱糖分支 → gen1==gen2 逐字节不动点不受影响。无新 IR 指令 / 无格式 bump（`GetEnumerator`/`MoveNext`/`get_Current`/`Dispose` 全是既有 `Call`/`VCall`）。`ListEnumerator<T>`/`DictionaryEnumerator<K,V>` 是 `Std.Collections` 的 `[Record] struct`（值语义、迭代零堆分配）。用例见 `src/tests/basic/foreach_ienumerable.z42`。
 
-> **配套编译器修复**：struct **属性 getter** 读此前有两个 codegen 缺口——① 成员一律当字段发 `struct_fget_prim @-1`（`fix-struct-property-getter`，见 [struct 值语义](../runtime/struct-value-semantics.md)）；② imported 泛型 struct 属性 getter 返回类型漏 `_substGeneric` 替换 → 松绑 `Unknown` → sret 失配（`MemberResolver` 的 `Z42InstantiatedType` 成员访问分支补属性 getter + 替换）。二者是 foreach 脱糖用 `__e.Current` 的前置。
+> **配套编译器修复**：struct **属性 getter** 读此前有两个 codegen 缺口——① 成员一律当字段发 `struct_fget_prim @-1`（`fix-struct-property-getter`，见 [struct 值语义](../../../book/src/runtime/struct-value-semantics.md)）；② imported 泛型 struct 属性 getter 返回类型漏 `_substGeneric` 替换 → 松绑 `Unknown` → sret 失配（`MemberResolver` 的 `Z42InstantiatedType` 成员访问分支补属性 getter + 替换）。二者是 foreach 脱糖用 `__e.Current` 的前置。
 
 ### 写出（Emit）
 
-`IrModule` → `.zbc` / `.zpkg`。由 `ZbcWriter` 将 IR 序列化为二进制：单文件产出 `.zbc`，打包产出 `.zpkg`。二进制布局与各 section 见 [zbc 字节码格式](zbc-format.md) / [zpkg 包格式](zpkg-format.md)。
+`IrModule` → `.zbc` / `.zpkg`。由 `ZbcWriter` 将 IR 序列化为二进制：单文件产出 `.zbc`，打包产出 `.zpkg`。二进制布局与各 section 见 [zbc 字节码格式](../../../book/src/compiler/zbc-format.md) / [zpkg 包格式](../../../book/src/compiler/zpkg-format.md)。
 
 ## 实现
 

@@ -13,7 +13,7 @@
 > 无泛型 / 无 nullable），与 `src/compiler/z42c.project` 同子集，类型名对齐（`DepEntry` /
 > `WorkspaceManifest`）便于日后 z42c 直接引用本库（届时删 z42c 自带的 ProjectModel）。
 > **暂不接入编译**（无 `z42.project.z42.toml`，不登记 workspace/xtask/CI，零编译参与）；
-> 验证留待「接入」时（建清单 + 登记 + GREEN）。schema 以 `docs/design/compiler/project.md`
+> 验证留待「接入」时（建清单 + 登记 + GREEN）。schema 以 `docs/reference/src/toolchain/z42-toml.md`
 > 为准。**当前 `Z42.Project` 与 z42c.project 暂并存两份**（User 决策：z42.project 按最终方案
 > 写，z42c 后续引用）。
 
