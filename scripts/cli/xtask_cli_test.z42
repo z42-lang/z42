@@ -36,6 +36,10 @@ SubcommandRouter _testRouter() {
     examples.AddFlag("keep", "", "keep every sandbox directory (failed ones are always kept)");
     examples.AddOption("timeout", "", "per-step timeout in seconds", "120");
     t.Add("examples", "learn-book examples (book references + transcript replay)", examples);
+    // 文档机械门禁：相对链接死链。不需要 SDK，秒级。
+    ArgParser docsP = new ArgParser("xtask test docs", "documentation gate: every relative markdown link resolves");
+    docsP.AddFlag("update", "", "rewrite the dead-link baseline (only to drop fixed ones — never to admit new ones)");
+    t.Add("docs", "documentation gate (relative links resolve)", docsP);
     t.Add("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)",
         new ArgParser("xtask test runtime", "Rust VM unit/integration harness (--test-threads=1)"));
     ArgParser e2e = new ArgParser("xtask test e2e", "src/tests end-to-end suite (goldens + cross-zpkg)");
@@ -128,6 +132,7 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "stdlib")       { return _testLib(r, "test"); }
     if (sub == "targets")      { return _testTargetsCore("test", r.GetPositional(0), r.GetFlag("no-build")); }
     if (sub == "examples")     { return _testExamples(_examplesOptions(r)); }
+    if (sub == "docs")         { return _testDocs(_root(), r.GetFlag("update")); }
     if (sub == "runtime")      { return _testRuntime(); }
     if (sub == "e2e")          { return _testE2e(r); }
     if (sub == "list")         { return _testList(r); }        // read-only case catalog

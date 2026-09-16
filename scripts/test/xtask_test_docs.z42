@@ -1,0 +1,315 @@
+// xtask — 文档机械门禁（`xtask test docs`）。不需要 SDK，秒级。
+//
+// 批 0 只做一件事：**相对链接死链清零**。
+//
+// 为什么这条要先落：三书重构要把约 200 篇文档在目录之间搬来搬去，每一次搬运都会让指向它的相对
+// 链接失效。而 `ci.yml` 此前对 `docs/**` 是 paths-ignore（纯文档改动完全不跑 CI），死链可以一路
+// 漏到线上都没人知道。搬运的全程必须有这道网。
+//
+// 检查规则：
+//   D1  markdown 链接 `[text](target)` 的 target 若是仓内相对路径，必须能解析到真实文件/目录
+//
+// **棘轮**（照 `xtask test lines` 的成熟做法）：存量死链记在
+// `scripts/test/doc-link-baseline.txt`，只 warn 不判红；**基线之外的新死链一律红**。
+// 为什么不一次修完：首次跑出 206 条，其中 **121 条（59%）在 `docs/design/` 里，而那个目录
+// 正要被三书重构清空** —— 现在修等于白做。搬走一批，基线自然少一批。
+// `--update` 只许用来**剔除已修好的**，不许用来把新死链写进基线（那等于关掉门禁）。
+//
+// 不检查（有意）：
+//   - 外部 URL（http/https/mailto）—— 联网校验会让门禁变慢且不稳定
+//   - 纯锚点 `#section` —— 需要解析标题生成 slug，留待批 7
+//   - 代码块内的内容 —— 那是示例文本，不是链接（见 _stripFences）
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// `xtask test docs [--update]` 入口。返回退出码。
+int _testDocs(string root, bool update) {
+    Console.WriteLine("▶ test docs");
+    Console.WriteLine("① 相对链接可解析");
+    string[] found = _collectDeadLinks(root);
+    if (update) {
+        _writeBaseline(root, found);
+        Console.WriteLine("  基线已更新：" + found.Length.ToString() + " 条");
+        return 0;
+    }
+    string[] baseline = _readBaseline(root);
+    int fresh = 0;
+    int known = 0;
+    int i = 0;
+    while (i < found.Length) {
+        if (_hasString(baseline, found[i])) { known = known + 1; }
+        else {
+            ConsoleError.WriteLine("  ✗ " + found[i]);
+            fresh = fresh + 1;
+        }
+        i = i + 1;
+    }
+    if (known > 0) {
+        Console.WriteLine("  基线内 " + known.ToString() + " 条存量死链（不判红；搬迁完成后用 --update 剔除）");
+    }
+    if (fresh > 0) {
+        Console.WriteLine("");
+        ConsoleError.WriteLine("  ❌ docs: " + fresh.ToString() + " 条新死链");
+        ConsoleError.WriteLine("     链接目标按所在文件的目录解析；跨书链接请用相对路径或完整 URL。");
+        return 1;
+    }
+    Console.WriteLine("✔ test docs");
+    return 0;
+}
+
+string _baselinePath(string root) { return Path.Join(root, "scripts/test/doc-link-baseline.txt"); }
+
+string[] _readBaseline(string root) {
+    string p = _baselinePath(root);
+    if (!File.Exists(p)) { return new string[0]; }
+    string[] lines = File.ReadAllText(p).Split("\n");
+    string[] acc = new string[lines.Length];
+    int n = 0;
+    int i = 0;
+    while (i < lines.Length) {
+        string t = lines[i].Trim();
+        if (t.Length > 0 && !t.StartsWith("#")) { acc[n] = t; n = n + 1; }
+        i = i + 1;
+    }
+    return _trimStrings(acc, n);
+}
+
+void _writeBaseline(string root, string[] entries) {
+    string body = "# xtask test docs —— 存量死链基线（棘轮）。\n"
+        + "# 每行 `<文件> -> <链接目标>`。**只许剔除已修好的，不许写进新死链**。\n"
+        + "# 三书重构搬走一批，这里就该少一批；重构完成后本文件应为空并删除。\n";
+    int i = 0;
+    while (i < entries.Length) { body = body + entries[i] + "\n"; i = i + 1; }
+    File.WriteAllText(_baselinePath(root), body);
+}
+
+bool _hasString(string[] arr, string s) {
+    int i = 0;
+    while (i < arr.Length) { if (arr[i] == s) { return true; } i = i + 1; }
+    return false;
+}
+
+// 扫全仓 markdown 的相对链接。返回死链条目（`<文件> -> <目标>`，不含行号——行号会随编辑漂移，
+// 基线要对编辑稳定）。
+string[] _collectDeadLinks(string root) {
+    string[] files = _docMarkdownFiles(root);
+    string[] acc = new string[512];
+    int n = 0;
+    int checked = 0;
+    int i = 0;
+    while (i < files.Length) {
+        DocScan sc = _checkOneDoc(root, files[i]);
+        checked = checked + sc.Checked;
+        int j = 0;
+        while (j < sc.Dead.Length) {
+            if (n < acc.Length) { acc[n] = sc.Dead[j]; n = n + 1; }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    Console.WriteLine("  扫描 " + files.Length.ToString() + " 篇，检查 "
+        + checked.ToString() + " 条相对链接");
+    return _trimStrings(acc, n);
+}
+
+sealed class DocScan {
+    public int Checked;
+    public string[] Dead;
+    public DocScan(int checkedCount, string[] dead) { this.Checked = checkedCount; this.Dead = dead; }
+}
+
+// 参与检查的 markdown：docs/ 全部 + 根 README + src/**/README.md + scripts/README.md。
+// 排除 docs/spec/archive/（历史记录，其链接指向的文件可能早已删除——那是留痕，不是死链）。
+string[] _docMarkdownFiles(string root) {
+    string[] acc = new string[1024];
+    int n = 0;
+    // EnumerateRecursive 返回的是**相对传入目录**的子路径，须自行拼回。
+    string docs = Path.Join(root, "docs");
+    string[] all = Directory.EnumerateRecursive(docs);
+    int i = 0;
+    while (i < all.Length) {
+        string rel = all[i].Replace("\\", "/");
+        if (rel.EndsWith(".md") && !rel.StartsWith("spec/archive/")) {
+            string full = Path.Join(docs, rel);
+            if (File.Exists(full) && n < acc.Length) { acc[n] = full.Replace("\\", "/"); n = n + 1; }
+        }
+        i = i + 1;
+    }
+    string[] extra = new string[3];
+    extra[0] = Path.Join(root, "README.md");
+    extra[1] = Path.Join(root, "scripts/README.md");
+    extra[2] = Path.Join(root, "examples/README.md");
+    int e = 0;
+    while (e < extra.Length) {
+        if (File.Exists(extra[e]) && n < acc.Length) { acc[n] = extra[e].Replace("\\", "/"); n = n + 1; }
+        e = e + 1;
+    }
+    string srcRoot = Path.Join(root, "src");
+    string[] srcMds = Directory.EnumerateRecursive(srcRoot);
+    int s = 0;
+    while (s < srcMds.Length) {
+        string rel = srcMds[s].Replace("\\", "/");
+        if (rel.EndsWith("README.md")) {
+            string full = Path.Join(srcRoot, rel);
+            if (File.Exists(full) && n < acc.Length) { acc[n] = full.Replace("\\", "/"); n = n + 1; }
+        }
+        s = s + 1;
+    }
+    return _trimStrings(acc, n);
+}
+
+// 检查一篇。
+DocScan _checkOneDoc(string root, string file) {
+    int checkedCount = 0;
+    string[] dead = new string[64];
+    int dn = 0;
+    string text = _stripFences(File.ReadAllText(file));
+    string dir = Path.GetDirectoryName(file);
+    string[] lines = text.Split("\n");
+    int li = 0;
+    while (li < lines.Length) {
+        string[] targets = _linkTargets(lines[li]);
+        int t = 0;
+        while (t < targets.Length) {
+            string target = targets[t];
+            if (_isRepoRelative(target)) {
+                checkedCount = checkedCount + 1;
+                string rel = _stripAnchor(target);
+                if (rel.Length > 0) {
+                    string resolved = Path.Normalize(Path.Join(dir, rel));
+                    if (!File.Exists(resolved) && !Directory.Exists(resolved)) {
+                        if (dn < dead.Length) {
+                            dead[dn] = _relToRoot(root, file) + " -> " + target;
+                            dn = dn + 1;
+                        }
+                    }
+                }
+            }
+            t = t + 1;
+        }
+        li = li + 1;
+    }
+    return new DocScan(checkedCount, _trimStrings(dead, dn));
+}
+
+// 去掉围栏代码块（``` 与 ~~~）与**行内 code span**（`…`）——里面是示例文本，不是链接。
+//
+// 行内 code span 起初没处理（以为「里面出现 [x](y) 的概率极低」），实测第一次跑就误报：
+// readme-writing.md 里的模板占位 `| 我想…… | [目标页](相对路径) |` 被当成真链接。
+string _stripFences(string text) {
+    string[] lines = text.Split("\n");
+    string[] keep = new string[lines.Length];
+    int n = 0;
+    bool inFence = false;
+    int i = 0;
+    while (i < lines.Length) {
+        string t = lines[i].Trim();
+        if (t.StartsWith("```") || t.StartsWith("~~~")) {
+            inFence = !inFence;
+            keep[n] = ""; n = n + 1;       // 占位，保持行号不变
+        } else {
+            keep[n] = inFence ? "" : _stripCodeSpans(lines[i]);
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    string outText = "";
+    int j = 0;
+    while (j < n) {
+        if (j > 0) { outText = outText + "\n"; }
+        outText = outText + keep[j];
+        j = j + 1;
+    }
+    return outText;
+}
+
+// 去掉一行里成对反引号之间的内容（保留反引号本身，不影响列位判断）。
+string _stripCodeSpans(string line) {
+    string outLine = "";
+    bool inSpan = false;
+    int i = 0;
+    while (i < line.Length) {
+        char c = line.CharAt(i);
+        if (c == '`') { inSpan = !inSpan; outLine = outLine + "`"; }
+        else if (!inSpan) { outLine = outLine + c.ToString(); }
+        i = i + 1;
+    }
+    return outLine;
+}
+
+// 一行里的所有 `](target)` 目标。返回可能为空数组。
+string[] _linkTargets(string line) {
+    string[] acc = new string[16];
+    int n = 0;
+    int i = 0;
+    while (i < line.Length - 1) {
+        if (line.CharAt(i) == ']' && line.CharAt(i + 1) == '(') {
+            int close = _matchParen(line, i + 1);
+            if (close > i + 1) {
+                string target = line.Substring(i + 2, close - (i + 2)).Trim();
+                // `[text](url "title")` → 去掉 title
+                int sp = target.IndexOf(" ");
+                if (sp > 0) { target = target.Substring(0, sp); }
+                if (target.Length > 0 && n < acc.Length) { acc[n] = target; n = n + 1; }
+                i = close;
+            }
+        }
+        i = i + 1;
+    }
+    return _trimStrings(acc, n);
+}
+
+// 从 `(` 位置找配对的 `)`，支持一层嵌套括号（URL 里出现 `(1)` 之类）。找不到返回 -1。
+int _matchParen(string line, int open) {
+    int depth = 0;
+    int i = open;
+    while (i < line.Length) {
+        char c = line.CharAt(i);
+        if (c == '(') { depth = depth + 1; }
+        else if (c == ')') {
+            depth = depth - 1;
+            if (depth == 0) { return i; }
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// 仓内相对链接：不是外部 URL、不是纯锚点、不是绝对路径。
+bool _isRepoRelative(string target) {
+    if (target.Length == 0) { return false; }
+    if (target.StartsWith("#")) { return false; }                     // 纯锚点（批 7）
+    if (target.StartsWith("/")) { return false; }                     // 站点绝对路径，不解析到仓内
+    if (target.StartsWith("<")) { return false; }                     // 尖括号形式，少见，跳过
+    if (target.Contains("://")) { return false; }                     // http(s) / ftp / …
+    if (target.StartsWith("mailto:")) { return false; }
+    if (target.StartsWith("{{")) { return false; }                    // mdBook include 指令
+    return true;
+}
+
+// 去掉 `#anchor` 与 `?query`。
+string _stripAnchor(string target) {
+    string s = target;
+    int h = s.IndexOf("#");
+    if (h >= 0) { s = s.Substring(0, h); }
+    int q = s.IndexOf("?");
+    if (q >= 0) { s = s.Substring(0, q); }
+    return s.Trim();
+}
+
+string _relToRoot(string root, string p) {
+    string r = root.Replace("\\", "/");
+    string f = p.Replace("\\", "/");
+    string prefix = r.EndsWith("/") ? r : r + "/";
+    if (f.StartsWith(prefix)) { return f.Substring(prefix.Length, f.Length - prefix.Length); }
+    return f;
+}
+
+string[] _trimStrings(string[] arr, int n) {
+    string[] outArr = new string[n];
+    int i = 0;
+    while (i < n) { outArr[i] = arr[i]; i = i + 1; }
+    return outArr;
+}

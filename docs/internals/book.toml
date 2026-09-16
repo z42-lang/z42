@@ -1,0 +1,24 @@
+# z42 实现内幕（mdBook）
+#
+# 面向**改 z42 本身**的人（含 AI）：架构、机制流程、决策权衡，以及构建 / 测试 / 发布的操作配方。
+# 判据：要动这块代码才需要读。三本书的分工见 docs/agent/rules/doc-system.md。
+#
+# 本地预览：cargo install mdbook 后，在本目录跑  mdbook serve --open
+
+[book]
+title = "z42 实现内幕"
+authors = ["z42"]
+language = "zh"
+src = "src"
+
+[build]
+create-missing = false
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+smart-punctuation = true
+site-url = "/z42/internals/"
+git-repository-url = "https://github.com/z42-lang/z42"
+edit-url-template = "https://github.com/z42-lang/z42/edit/main/docs/internals/{path}"
+additional-js = ["theme/z42-highlight.js"]

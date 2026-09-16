@@ -1,21 +1,22 @@
 name: CI
 
 on:
-  # change-detect rule (a): non-code-only changes (docs / *.md / .claude) do NOT
-  # trigger CI — no run is started, so a running code CI is never cancelled and no
-  # compute is wasted. (Doc-specific checks land later.) A push touching BOTH docs
-  # and code still triggers (paths-ignore only skips when ALL changed paths match).
+  # change-detect rule (a): 只改 `.claude/**` 不触发 CI（那里没有门禁覆盖的内容）。
+  # **`docs/**` 与 `**/*.md` 已从 paths-ignore 移出**（restructure-docs-three-books 批 0）：
+  # 纯文档改动也要跑 `xtask test docs` 的死链门禁——此前它们被整体忽略，文档 PR 完全不跑 CI，
+  # 死链可以一路漏到线上。改一处代码 + 一处文档的 push 照旧触发
+  # （paths-ignore 只在**全部**改动路径都命中时才跳过）。
   pull_request:
     branches: [main]
     paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
+      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs`（死链门禁）。
+      # 此前它们被整体忽略 ⇒ 文档 PR 完全不跑 CI，死链能一路漏到线上。
       - '.claude/**'
   push:
     branches: [main]
     paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
+      # docs/** 与 **/*.md 已不在此列：纯文档改动也要跑 `xtask test docs`（死链门禁）。
+      # 此前它们被整体忽略 ⇒ 文档 PR 完全不跑 CI，死链能一路漏到线上。
       - '.claude/**'
   # Manual trigger: force a nightly republish from the latest main WITHOUT a new
   # push. This is the escape hatch for the xtask↔nightly bootstrap cycle — after

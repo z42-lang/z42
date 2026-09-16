@@ -422,6 +422,7 @@ string[] _gateStageNames() {
         "stdlib [Benchmark]",
         "manifest targets ([[test]] + [[example]])",
         "examples (learn book transcripts)",
+        "docs (relative links)",
         "compiler",
         "gc modes (z42c.semantics build)",
         "vscode-syntax",
@@ -593,6 +594,13 @@ int _testAll(bool noBuild, string skip) {
         eo.Filter = ""; eo.Sdk = ""; eo.BookOnly = false; eo.Bless = false; eo.Keep = false; eo.TimeoutS = 120;
         c = _testExamples(eo); if (c != 0) { return c; }
         _stageEnd(slog, "examples (learn book transcripts)", swStage);
+    }
+    // stage 4d: 文档门禁（restructure-docs-three-books 批 0）：相对链接死链清零。
+    // 不需要 SDK、秒级；三书重构期间每一批搬运都靠它兜住链接。
+    if (!_skipHas(skip, "docs")) {
+        swStage = _stageStart("docs (relative links)");
+        c = _testDocs(_root(), false); if (c != 0) { return c; }
+        _stageEnd(slog, "docs (relative links)", swStage);
     }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     // Skippable: CI offloads to a dedicated compiler-checks(linux-x64) job (1×)

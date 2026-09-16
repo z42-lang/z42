@@ -5,7 +5,7 @@
 z42 是一门融合 C#、Rust、Python 优点的系统编程语言。
 - 编译器：z42 自举（`src/compiler`，自编译为 zpkg）；C# bootstrap 编译器已移除（2026-06-26）
 - 虚拟机：Rust，支持 Interpreter / JIT / AOT 混合执行
-- 详细设计见 `docs/book/`（知识库 SoT；旧 `docs/design/` 迁移中，见 doc-system.md）；库推荐见 `.claude/libraries.md`
+- 文档分三本书：`docs/learn/`（学怎么用）/ `docs/reference/`（查规则）/ `docs/internals/`（改 z42 本身）——判据见 [doc-system.md](../docs/agent/rules/doc-system.md)；库推荐见 `.claude/libraries.md`
 
 ## 代码库结构
 
@@ -14,14 +14,16 @@ src/compiler/       # z42 自举编译器（z42c.core/ir/syntax/project/semantic
 src/runtime/    # Rust VM（interp / jit / aot）
 src/libraries/  # 标准库 .z42 源码（编译后产出 .zpkg）
 src/toolchain/  # 配套工具链（launcher / test-runner / workload；debugger·builder 占位）
-docs/book/      # 知识库（mdBook：语言/编译器/运行时/stdlib/工具链；旧 docs/design/ 迁移中）
-examples/       # 学习手册（docs/learn）配套示例工程；由 xtask test examples 逐条运行校验
-docs/learn/     # 学习手册（面向用户的教程 mdBook）
+docs/learn/     # 学习手册（教程 mdBook，按学习顺序）
+docs/reference/ # 语言与库参考（mdBook：语法规则 / stdlib API / CLI / 清单字段 / 错误码）
+docs/internals/ # 实现内幕（mdBook：架构 / 机制 / 决策 / 构建测试发布操作）
+examples/       # 学习手册配套示例；由 xtask test examples 逐条运行校验
+docs/book/ docs/design/ docs/workflow/   # ⏳ 三书重构搬迁中，**冻结只读**（要改先搬，见 doc-system.md 过渡期节）
 ```
 
 ## 构建与测试
 
-所有构建、编译、测试、打包命令见 [docs/workflow/](../docs/workflow/)（按主题分子目录：building / testing / ci / release / debugging）。
+所有构建、编译、测试、打包命令见 [docs/workflow/](../docs/workflow/)（搬迁中 → `docs/internals/` 的开发基础设施部分）。
 
 ## 实现计划
 
@@ -44,11 +46,11 @@ docs/learn/     # 学习手册（面向用户的教程 mdBook）
 
 具体的"改动类型 → 需更新文档"映射见 [workflow.md 阶段 9](rules/workflow.md) 的**统一维护触发矩阵**（唯一 SoT）；归档前按同节 **doc-check 清单**逐项核对。
 
-> **实现原理文档规则（2026-04-25；2026-07-07 泛化）**：**任何复杂实现逻辑流程**（多阶段编排 / 顺序·累积循环 / 反直觉决策或坑 / 跨组件数据流——不限编译器·VM）必须把"实现原理与流程"（数据结构、算法、加载策略、决策权衡，配伪代码 / mermaid）同步到 `docs/book/` 对应机制页（旧 `docs/design/` 不再更新，见 doc-system.md 决策 D2），使新接手者不必阅读大量源码即可理解"为什么这样设计"。判据与写法、**「不确定是否算复杂 / 该不该写 → 停下问 User」** 见 [`docs/agent/rules/doc-system.md` §5.1](../docs/agent/rules/doc-system.md)。
+> **实现原理文档规则（2026-04-25；2026-07-07 泛化）**：**任何复杂实现逻辑流程**（多阶段编排 / 顺序·累积循环 / 反直觉决策或坑 / 跨组件数据流——不限编译器·VM）必须把"实现原理与流程"（数据结构、算法、加载策略、决策权衡，配伪代码 / mermaid）同步到 `docs/internals/` 对应机制页（判据见 doc-system.md 的三问），使新接手者不必阅读大量源码即可理解"为什么这样设计"。判据与写法、**「不确定是否算复杂 / 该不该写 → 停下问 User」** 见 [`docs/agent/rules/doc-system.md` §5.1](../docs/agent/rules/doc-system.md)。
 
 ## 代码风格
 
-**z42c（编译器）**：用 z42 写（`src/compiler/z42c.*`）；新代码一律 z42、不退回 C#；具体风格参照 [`src/compiler/README.md`](../src/compiler/README.md) 与 [`docs/design/compiler/compiler-architecture.md`](../docs/design/compiler/compiler-architecture.md)
+**z42c（编译器）**：用 z42 写（`src/compiler/z42c.*`）；新代码一律 z42、不退回 C#；具体风格参照 [`src/compiler/README.md`](../src/compiler/README.md) 与 [`.claude/rules/compiler-z42c.md`](rules/compiler-z42c.md)
 
 **Rust（VM）**：`anyhow::Result` + `thiserror`；非测试代码不用 `unwrap()`；公开类型加 `#[derive(Debug)]`
 
@@ -65,7 +67,7 @@ docs/learn/     # 学习手册（面向用户的教程 mdBook）
 3. **等待 User 裁决**后再继续实施
 4. **裁决结果同步到所有相关文档**，确保唯一真相来源
 
-> 规范冲突优先级高于当前任务推进，适用于所有规范文档（`CLAUDE.md`、`workflow.md` / `philosophy.md` / `version-bumping.md`、`code-organization.md`、`docs/design/` 等）。
+> 规范冲突优先级高于当前任务推进，适用于所有规范文档（`CLAUDE.md`、`workflow.md` / `philosophy.md` / `version-bumping.md`、`code-organization.md`、三本书等）。
 
 ## 事实校正责任（必须遵守）
 
@@ -82,5 +84,4 @@ docs/learn/     # 学习手册（面向用户的教程 mdBook）
 - M4（解释器）全绿前，不填充 JIT/AOT 实现
 - L2/L3 特性（Result、Trait、ADT、泛型、Lambda、async 等）不在 L1 阶段引入到规范或代码中
 
-@docs/design/language/language-overview.md
-@docs/design/runtime/ir.md
+@docs/agent/rules/doc-system.md
