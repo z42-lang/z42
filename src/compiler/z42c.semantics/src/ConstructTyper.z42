@@ -174,11 +174,12 @@ public sealed class ConstructTyper {
             // 单一 choke point，不再在此另发 E0401，避免同一未定义类型双重报错）。
             this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access + 未定义类型 E0443：new 类型引用
         }
-        if (t is Z42InstantiatedType) {   // 2B：泛型实例化 → 校验型参约束（委托 ConstraintChecker）
-            // 真 Span：优先指向 `new Box<D>()` 的类型位；**target-typed `new()`（add-target-typed-new）
-            // 没有类型节点**（`List<int> a = new();` → n.Type == null）→ 回落到 new 表达式自身的 Span。
-            Span csp = (n.Type != null) ? n.Type.Span : n.Span;
-            this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType, csp);
+        // check-constraints-all-type-refs D2：非-target-typed `new Box<D>()` 的约束校验已由上面
+        // `_chkTypeRef`（新接的 ConstraintChecker.Check）覆盖 —— 此处只补 **target-typed `new()`**
+        // （`n.Type == null`，`_chkTypeRef` 那条 else 分支不会跑）用 new 表达式自身 Span 回落。
+        // 两条互斥（n.Type 有无），不重叠 ⇒ 零双报。
+        if (n.Type == null && t is Z42InstantiatedType) {   // 2B：target-typed 泛型实例化 → 校验型参约束
+            this._tc._constraints.Check(env.GetSymbols(), t as Z42InstantiatedType, n.Span);
         }
         // ctor 重载键（镜像 C# ResolveCtorName：单 ctor bare、重载 Name$argCount）
         Z42ClassType cls = null;

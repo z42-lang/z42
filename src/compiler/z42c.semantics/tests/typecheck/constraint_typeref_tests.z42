@@ -1,0 +1,127 @@
+// check-constraints-all-type-refs：where 约束满足性在**所有**类型引用位校验（H1 + H2）。
+//
+// 此前约束只在 `new T<>()`（ConstructTyper）与泛型方法调用（MemberResolver）两处校验；字段 / 属性 /
+// 索引器 / 形参 / 返回 / 基类列表这些声明位，以及局部变量 / cast / is / default / typeof 这些体内位，
+// 全部静默放行 = 语言健全性洞。本文件是那些位置的回归门。
+//
+// 分工：**体内位**（局部/cast/is/as/default/typeof）由 `TypeChecker._chkTypeRef` 覆盖；**声明位**
+// （字段/属性/索引器/形参·返回/基类）由 `ConstraintChecker.CheckDeclTypeRefs` 覆盖；**H2 嵌套**由
+// `ConstraintChecker.Check` 开头的无条件递归覆盖（`List<Box<D>>` 内层 Box 不因外层 List 无约束逃逸）。
+//
+// 断言口径同 constraint_tests.z42：`FirstErrorCode` 返回首条诊断码，""=零诊断。所有负例都在**退回
+// 对照**（禁用对应检查后重建）里精确变红，正例保持绿——见归档 verify 记录。
+namespace Z42cSemanticsConstraintTypeRefTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 公共前缀：非泛型接口 IFoo、满足者 C、违反者 D、受约束泛型 Box<T>、**无约束**泛型 Wrap<T>
+// （H2 嵌套用无约束外层——SemanticDump 单测无 stdlib，不能用 List）。
+string _prelude() {
+    return "interface IFoo { }\n"
+        + "class C : IFoo { }\n"
+        + "class D { }\n"
+        + "class Box<T> where T : IFoo { }\n"
+        + "class Wrap<T> { }\n";
+}
+
+// ── 体内位（TypeChecker._chkTypeRef）────────────────────────────────────────
+
+[Test]
+void test_local_var_decl_violation_reported() {
+    // 局部变量类型标注（体内位）。此前静默。
+    string src = _prelude() + "class Use { void f() { Box<D> b = null; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_local_var_decl_satisfied_ok() {
+    string src = _prelude() + "class Use { void f() { Box<C> b = null; } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_cast_expr_violation_reported() {
+    // cast 位（体内）。
+    string src = _prelude() + "class Use { void f(object o) { var b = o as Box<D>; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 声明位（ConstraintChecker.CheckDeclTypeRefs）────────────────────────────
+
+[Test]
+void test_field_type_violation_reported() {
+    // 字段类型标注（声明位）。headline 例：`HashSet<非IEquatable> f;`。此前静默。
+    string src = _prelude() + "class HasField { Box<D> f; }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_field_type_satisfied_ok() {
+    string src = _prelude() + "class HasField { Box<C> f; }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_property_type_violation_reported() {
+    string src = _prelude() + "class HasProp { Box<D> P { get; set; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_method_param_type_violation_reported() {
+    // 形参类型标注（声明位）。headline 例：`void g(Dictionary<BadKey,V> d)`。此前静默。
+    string src = _prelude() + "class HasMethod { void takes(Box<D> d) { } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_method_return_type_violation_reported() {
+    string src = _prelude() + "class HasMethod { Box<D> gives() { return null; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_free_function_param_violation_reported() {
+    // 顶层自由函数形参（声明位）——CheckDeclTypeRefs 的 MethodDecl 分支。
+    string src = _prelude() + "void freeFn(Box<D> d) { }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_method_param_satisfied_ok() {
+    string src = _prelude() + "class HasMethod { void takes(Box<C> d) { } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── H2 嵌套（Check 无条件递归）──────────────────────────────────────────────
+
+[Test]
+void test_nested_generic_body_violation_reported() {
+    // `Wrap<Box<D>>` 局部变量：外层 Wrap 无约束，内层 Box<D> 违反。此前即便走 new 也逃逸。
+    string src = _prelude() + "class Use { void f() { Wrap<Box<D>> n = null; } }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_nested_generic_field_violation_reported() {
+    // 声明位 + H2：字段类型 `Wrap<Box<D>>` 内层违反。
+    string src = _prelude() + "class HasField { Wrap<Box<D>> nf; }\n";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_nested_generic_satisfied_ok() {
+    string src = _prelude() + "class Use { void f() { Wrap<Box<C>> n = null; } }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 型参转发不误报（泛型类内部把型参转发给受约束类）──────────────────────────
+
+[Test]
+void test_generic_param_forward_no_false_positive() {
+    // `class Outer<T> { Box<T> b; }` —— T 未解析，约束由 Outer 的实例化点校验，声明位放行免假红。
+    string src = _prelude() + "class Outer<T> { Box<T> b; }\n";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

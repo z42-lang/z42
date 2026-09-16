@@ -63,12 +63,19 @@ class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
 | 时机 | 位置 | 报什么 |
 |------|------|--------|
 | 声明期 | 每个泛型类 / **接口**的 `where` 解析成约束集；**类成员方法与顶层自由函数的 `where` 也在此过一遍**（只发诊断，方法级不预登记符号表） | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、未知约束名 `E0443`、func 约束并置 `E0423`、关联类型绑定名笔误 `E0453` —— 每条**只发一次**，与是否被实例化 / 被调用无关 |
-| 实例化点 | `new Box<D>()` | 违反约束 `E0402`，Span 指向实例化处 |
+| 类型引用位（use-site） | **凡是写出一个受约束泛型类型实例化的地方**（check-constraints-all-type-refs）：<br>· **体内位**：`new Box<D>()`、局部变量声明、`cast`/`as`、`is`、`default(T)`、`typeof(T)`、catch<br>· **声明位**：字段 / 属性 / 索引器类型、方法（含自由函数）形参·返回类型、基类·接口列表<br>· **嵌套**：`Wrap<Box<D>>` 逐层下钻，内层约束不因外层无约束而逃逸 | 违反约束 `E0402`，Span 指向该类型引用处 |
 | 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（显式写类型实参）**及 `m(...)`（推断成功时）**；顶层自由函数同样走这条 | 违反约束 `E0402`、**函数类型签名不符 `E0422`** |
 
 > 调用点只报**违反**（`E0402` / `E0422`）——那本来就是 per-call-site 的事实，同一个方法被调 3 次
 > 传 3 个不合格实参就该报 3 条。**声明级**诊断（约束名写错、并置非法等）已于
 > `resolve-method-where-at-decl` 全部挪到声明期，见「已知限制 5」。
+
+> **类型引用位的实现分两条 choke point**（check-constraints-all-type-refs）：体内位由绑定期的
+> `TypeChecker._chkTypeRef` 覆盖（access / 弃用 / 跨包重复诊断都挂在这，约束校验并入）；声明位由
+> `ConstraintChecker.CheckDeclTypeRefs` 覆盖——它必须放绑定期，因为声明位的收集期入口
+> `SymbolCollector._chkTypeRefT` 在 `CollectAll` 时跑、约束尚未 `Resolve`。嵌套下钻由
+> `ConstraintChecker.Check` 开头的**无条件递归**实现（在 `HasConstraints` 早退之前，否则外层无约束的
+> `Wrap<Box<D>>` 会让内层 `Box<D>` 逃逸）。纯诊断、不回灌发射 ⇒ 无格式 bump、自举字节不动。
 
 诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
 
