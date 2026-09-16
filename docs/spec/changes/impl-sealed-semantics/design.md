@@ -91,7 +91,7 @@
 - **`Z42ClassType.IsSealed` 来源**：本地类从 `ClassDecl.Mods` 含 sealed；导入类从 `ImportedSymbolLoader` 读 `CLASS_FLAG_SEALED`。方法 sealed 同理（本地 Mods / 导入 `METHOD_FLAG_SEALED`）。
 - **④ 降级点**：`ExprEmitter._emitCall`（:651）现由 `EmitContext.ReceiverMethodIsVirtual(c.Receiver.Type(), c.MethodName)`（:678）决定 VCall。新增：若 `_receiverClassType(c.Receiver.Type())` 非空且 `IsSealed` 且能解析到唯一实现 FQ 名 → 发 `CallInstr`。保留所有既有守卫（cast-to-class Unknown 链、接口 receiver 恒 VCall 等）——它们优先于去虚化（Unknown 链上不去虚化）。
 - **`_methodFlags`（IrGenFacts:62）**：在现有 virtual/abstract 位判定旁加 `if (_hasWord(mods,"sealed")) flags |= 4;`。注意 shorthand 情形下，SymbolCollector 需保证方法 `Mods` 在语义上等价含 override——但 `_methodFlags` 只关心 sealed 位本身，virtual 位由 override/virtual 触发（shorthand 已被解析为 override，故 virtual 位也正确置上）。
-- **version bump 文件集**：严格按 `.claude/rules/version-bumping.md` 的 zbc(1–5) + zpkg(6–9) 九步，勿漏 golden hex 重截与 fixture 重生。
+- **version bump 文件集**：严格按 `../../../agent/rules/version-bumping.md` 的 zbc(1–5) + zpkg(6–9) 九步，勿漏 golden hex 重截与 fixture 重生。
 
 ## Testing Strategy
 

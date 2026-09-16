@@ -360,7 +360,7 @@ scripts/
   ```
 
 - **删种子/兜底路径**：必须与"为所有 cold-start 入口供种"作为**同一原子变更**；本地只能验
-  warm 路径，cold 路径的全绿以 CI 为准。完整纪律见 [`.claude/rules/bootstrap-seed.md`](../.claude/rules/bootstrap-seed.md)。
+  warm 路径，cold 路径的全绿以 CI 为准。完整纪律见 [`../docs/agent/rules/bootstrap-seed.md`](../docs/agent/rules/bootstrap-seed.md)。
 
 - **改 xtask 源码后**：先重建再验证——`z42c build scripts/xtask.z42.toml --release` 产新
   `xtask.zpkg`，再跑 GREEN gate。

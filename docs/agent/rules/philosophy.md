@@ -147,16 +147,18 @@ deprecation 周期"。当前处于探索期，**任何兼容性投入都是过�
 ### 与其他规则的关系
 
 - 与 **修复必须从根因出发**（本文件）配合：根因若是"设计已偏移"，按本规则停下
-- 与 **规范冲突检测**（[CLAUDE.md](../CLAUDE.md)）配合：spec 与代码现状冲突时，本规则适用
+- 与 **规范冲突检测**（[CLAUDE.md](../../../.claude/CLAUDE.md)）配合：spec 与代码现状冲突时，本规则适用
 - 与 **实现方案原则**（本文件）配合：本规则强调"何时停"，实现方案原则强调"停下后选最终方案"
 
 ---
 
 ## 延后特性管理（必须遵守）
 
-**所有延后特性（无论设计期还是实施期识别）一律就近记录到对应 `docs/design/<dir>/<feature>.md` 的 "Deferred / Future Work" 段；`docs/roadmap.md` 的 "Deferred Backlog Index" 段统一索引指向这些条目。**
+**所有延后特性（无论设计期还是实施期识别）一律就近记录到 `docs/internals/` 对应机制页的 `## Deferred` 节；`docs/roadmap.md` 的 "Deferred Backlog Index" 段统一索引指向这些条目。**
 
-**记录格式（design doc Deferred 段中的单个条目）：**
+> ⚠️ **不得再写进 `docs/design/`**——它已冻结只读（见 [doc-system.md 过渡期节](doc-system.md)）。
+
+**记录格式（机制页 `## Deferred` 节中的单个条目）：**
 
 ```markdown
 ### <ID>: <标题>
@@ -181,7 +183,7 @@ deprecation 周期"。当前处于探索期，**任何兼容性投入都是过�
 
 **禁止反例：**
 
-- ❌ 把延后写进 `docs/deferred.md`（该文件已废弃，不存在）
+- ❌ 把延后写进 `docs/deferred.md`（该文件已废弃，不存在）或 `docs/design/`（已冻结只读）
 - ❌ 同一项在多个 design doc 都登记（决策权威分散）
 - ❌ 把"未来某个 phase 可能引入"的展望式描述写进 design doc Deferred 段（那属于 roadmap 或 features.md）
 - ❌ 在 design doc Deferred 段写延后但没在 `roadmap.md` Deferred Backlog Index 加索引行（破坏集中追溯能力）

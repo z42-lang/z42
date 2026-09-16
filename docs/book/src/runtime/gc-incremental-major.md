@@ -45,7 +45,7 @@ sweep  ：X 被回收，而 r 还攥着它
 | `ArrayObj::copy_elems_from` | `Array.Copy` 的批量快路径（Boxed→Boxed 一次 `clone_from_slice`，先整段 `record_overwrite_all`）—— 第一轮审计漏掉，增量 major 的 `Z42_GC_SLICE_MS=0.05` 压测以编译器 SIGSEGV 抓到 |
 
 `refs_mut_raw()` 不带屏障，只给**刚分配的对象**（旧值全是 `Null`）和 **GC 自己断边**（记录死对象会把悬空句柄
-塞进标记队列）。规则写在 `.claude/rules/runtime-rust.md`。
+塞进标记队列）。规则写在 `../../../agent/rules/runtime-rust.md`。
 
 ### 原语手里没有堆 —— 线程本地记录
 

@@ -1,7 +1,7 @@
 // xtask — `test bootstrap`: staged-bootstrap boundary check.
 //
 // Script-zero port of the former scripts/check-bootstrap-compat.sh. Enforces the
-// staged-bootstrap discipline (.claude/rules/bootstrap-seed.md): the LAST PUBLISHED
+// staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md): the LAST PUBLISHED
 // nightly's z42c must be able to compile the CURRENT repo source. If it can't, the
 // source uses syntax / a zbc·zpkg format newer than the published nightly supports
 // — a boundary violation that would break the bootstrap (build-and-test seeds from

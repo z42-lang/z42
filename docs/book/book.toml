@@ -5,7 +5,7 @@
 #   （CI 部署时自动注入，此处 book.toml 保持干净；GitHub 网页原生渲染 mermaid）
 # 本 book 是 z42 语言 / 编译器 / VM / 标准库的【系统化长期知识库·唯一 SoT】。
 # 与 docs/design/（旧·逐步迁入）、docs/spec/（变更工作区）职责区分见
-# .claude/rules/doc-system.md。
+# docs/agent/rules/doc-system.md。
 
 [book]
 title = "z42 语言与实现"

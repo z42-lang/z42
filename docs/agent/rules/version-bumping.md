@@ -89,7 +89,7 @@ xtask test compiler    # z42c golden hex 单测
 9. **regen zpkg-format fixture** — 覆写 `src/tests/zpkg-format/*/source.zpkg`（4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
    每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**（refresh-format-fixtures，2026-09-04）：
    `[project].pack` 决定 packed/indexed，是否带 `--release` 决定 strip/sidecar。
-   完整重生命令见 [`src/tests/zpkg-format/README.md`](../../src/tests/zpkg-format/README.md)「维护流程」。
+   完整重生命令见 [`src/tests/zpkg-format/README.md`](../../../src/tests/zpkg-format/README.md)「维护流程」。
 
    > 🔒 **有防腐门**：`cargo test --test format_fixture_versions` 读 committed 字节、断言 header 版本
    > == 当前常量，**陈旧即红**（zbc 与 zpkg 两套一起覆盖）。

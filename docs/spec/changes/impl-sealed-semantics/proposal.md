@@ -60,7 +60,7 @@
 | `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` | MODIFY | golden hex（header minor 变化）重截 |
 | `examples/sealed.z42` | NEW | 使用 sealed / sealed override 示例（当前 z42c 编） |
 
-**只读引用**：`IrGen.z42`（method_flags 装配）、`ClassDescBuilder.z42`（`CLASS_FLAG_SEALED` 序列化，已存在不改）、`.claude/rules/version-bumping.md` / `bootstrap-seed.md`。
+**只读引用**：`IrGen.z42`（method_flags 装配）、`ClassDescBuilder.z42`（`CLASS_FLAG_SEALED` 序列化，已存在不改）、`../../../agent/rules/version-bumping.md` / `bootstrap-seed.md`。
 
 ## Out of Scope
 

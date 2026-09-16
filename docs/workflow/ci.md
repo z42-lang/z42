@@ -50,7 +50,7 @@ flowchart TD
 - **触发**：仅 z42c（`src/compiler`）改动（rule b）。
 - **CI job**：`verify-selfhost(linux-x64)`（下载上一 nightly 种子 → 重建 z42c+stdlib+xtask → 不动点 gen1==gen2 逐字节）。
 - **本地**：`xtask test bootstrap [rid]`（✅ 下载上一 nightly 种子 → 用它 + 仓库 z42c 双编当前 z42c 源 → 越界即红；gh/tar 作外部子进程，逻辑在 xtask）。
-- 规范：[`.claude/rules/bootstrap-seed.md`](../../.claude/rules/bootstrap-seed.md)。
+- 规范：[`../agent/rules/bootstrap-seed.md`](../agent/rules/bootstrap-seed.md)。
 
 ### ③ host package（同平台共享）
 **做什么**：把当前源码编成一套工具链 `{z42c, stdlib, toolchain}`（zpkg，平台无关）+ `z42vm`（原生，per-arch），上传供下游消费。
@@ -126,7 +126,7 @@ flowchart TD
 
 ## GREEN 标准
 
-任何 commit / PR merge 前必须全绿（[`.claude/rules/workflow.md`](../../.claude/rules/workflow.md) 阶段 8）。统一入口：
+任何 commit / PR merge 前必须全绿（[`../agent/rules/workflow.md`](../agent/rules/workflow.md) 阶段 8）。统一入口：
 
 ```bash
 ./xtask test          # 默认串联全 stage（完整 GREEN gate）

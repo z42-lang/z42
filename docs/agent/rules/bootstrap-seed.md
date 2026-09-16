@@ -67,7 +67,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
    接管。runtime stdlib（entry-dir 旧）与 compile stdlib（`Z42_LIBS` 新）分离解开死锁（design D7）。
    → **格式 bump 的 build-and-test / toolchain-bootstrap / package 路径 CI 自动过、免手动传种子**
    （实测 0.25→0.30 连续 5+ 次真实 bump 全绿）。机制见
-   [`docs/spec/archive/…-fix-bootstrap-format-bump-deadlock`](../../docs/spec/archive/)。
+   [`docs/spec/archive/…-fix-bootstrap-format-bump-deadlock`](../../spec/archive)。
    > **残留**：纯 download-bootstrap 的 job（vm-jit / bench 等，不 feed publish-nightly）在 bump 当次
    > 仍短暂红一跑，等新 nightly 发布自愈——不阻塞发布链。删 cold 兜底照旧**不要踩在 format bump
    > 同一周期**（该残留窗口期）。
@@ -142,7 +142,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 - stdlib 源自身不受此轴约束（它由自建的当前 z42c 编译）。
 
 可操作的完整提交剧本（判定 grep / 两个 commit / 等 nightly 的检查命令）见
-[`docs/workflow/testing/verify-by-change.md`](../../docs/workflow/testing/verify-by-change.md)
+[`docs/workflow/testing/verify-by-change.md`](../../workflow/testing/verify-by-change.md)
 「stdlib 破坏性 API 变更」。
 
 ### 边界的第三根轴：z42c 运行期自依赖一个 stdlib 库（2026-07-22 补）
@@ -162,7 +162,7 @@ z42c *自己运行期就要用* 的 stdlib 库**（如 `converge-z42c-ir-metadat
   旧名 `_ensureBootstrapZ42Ir`）在建 z42c **前**用当前 driver 把当前源的
   `z42.core` → `z42.project` → `z42.build` → `z42.ir` → `z42c.core` → `z42c.syntax`
   逐个单独编进 build-libs。**不 warm-skip**（`07596b57`，2026-07-30 改）。机制全文见
-  [`docs/design/compiler/self-hosting.md` 轴 ④](../../docs/design/compiler/self-hosting.md)。
+  [`docs/design/compiler/self-hosting.md` 轴 ④](../../design/compiler/self-hosting.md)。
 
 > ⭐ **轴 ③ 对这 6 个自依赖库不成立（2026-09-06 add-associated-types 澄清）**：破环预建总是用
 > **当前源**重建它们，故「z42c 源用这 6 个库的**新 API**」**无需等一个 nightly**，加 API 与用 API
@@ -218,5 +218,5 @@ z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比�
   「发布周期」可控、从而 C# 种子可彻底删除的前提。**
 - **[workflow.md](workflow.md) 阶段 8 GREEN**：cold 路径本地不可验 → 该路径的「全绿」判定**以 CI 为准**，
   不是本地 warm 跑通就算数。
-- **设计原理**（为什么自举需要种子、warm/cold 两态如何切换）落在 [`docs/design/compiler/self-hosting.md`](../../docs/design/compiler/self-hosting.md)，
+- **设计原理**（为什么自举需要种子、warm/cold 两态如何切换）落在 [`docs/design/compiler/self-hosting.md`](../../design/compiler/self-hosting.md)，
   本文件只管「改动时如何避免踩坑」的流程约束。

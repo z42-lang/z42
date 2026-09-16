@@ -40,7 +40,7 @@
 ### Decision 2: 合并顺序必须确定性排序（硬约束）
 **问题：** 合并后字段布局顺序 = 对象内存偏移 = zbc 字节；顺序漂移 → 非确定产物。
 **决定：** 碎片按**项目相对路径 Ordinal 排序**后再按文件内声明序拼接。**禁止**依赖
-`SourceDiscovery` 的文件系统枚举序（见 [common-pitfalls.md 规则 1](../../../.claude/rules/common-pitfalls.md)——
+`SourceDiscovery` 的文件系统枚举序（见 [common-pitfalls.md 规则 1](../../../agent/rules/common-pitfalls.md)——
 该项目已因非确定加载序出过 CI 红 bug）。合并入口在 `SymbolCollector`，排序键复用增量已有的
 `IncrementalBuild.Rel(projectDir, path)`。
 
@@ -54,7 +54,7 @@
 - **非 partial 类型**：只有一个声明文件 → 天然就是它，无需选。
 - `IrGen._classDesc` 判断"本 CU 是否主碎片"：查合并 `Z42ClassType` 记录的主碎片文件（min-path）== 当前 CU。
 - **排序键**：项目相对路径、Ordinal 比较，**禁止依赖 SourceDiscovery 文件系统枚举序**
-  （[common-pitfalls 规则 1](../../../.claude/rules/common-pitfalls.md)）。
+  （[common-pitfalls 规则 1](../../../agent/rules/common-pitfalls.md)）。
 
 > **为什么 record 要"选一个"、方法体不用**：partial 是"一条合并 record vs N 个碎片"——record 是**必须去重
 > 合并的单一实体**；方法体是 N 个**不同名**的独立全局函数（`Foo.M1`/`Foo.M2`），`merge_modules` 按 FQ 名

@@ -108,7 +108,7 @@ $Z42_HOME/tools/                            全局用户工具（类 ~/.cargo/bi
 
 - **SDK 命令 + workload 跟 SDK 走**：new/build/test/fmt + 平台 workload 随当前 SDK，**不进 `runtimes/<ver>/`**；多版本命令作用域 + workload↔runtime ABI 绑定均暂不做（见 Deferred `cmd-future-version-scoped` / `workload-future-version-scoped`）。
 - 优先级：core > 项目本地 > SDK programs > workloads > 全局 tools；同名 first-wins-by-precedence。
-- ⚠️ **目录扫描必须显式排序**（[common-pitfalls.md §1](../../../.claude/rules/common-pitfalls.md)）：`Directory.Enumerate` 跨 OS 顺序不定，first-wins 注册前按稳定键 sort，否则 CI 跨平台炸。
+- ⚠️ **目录扫描必须显式排序**（[common-pitfalls.md §1](../../agent/rules/common-pitfalls.md)）：`Directory.Enumerate` 跨 OS 顺序不定，first-wins 注册前按稳定键 sort，否则 CI 跨平台炸。
 
 ## 分发与参数透传
 

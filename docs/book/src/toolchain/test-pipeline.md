@@ -69,7 +69,7 @@ workload 解析（见下「test-agent 解析」）：
 
 | flag | 语义 |
 |------|------|
-| `--stage-only` | 仅组装 deployable `<out>/{app,libs,bundle}`（②b 行为；`browser-wasm` 额外产 `files.json`）。枚举前按 ordinal 排序保确定序（[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)） |
+| `--stage-only` | 仅组装 deployable `<out>/{app,libs,bundle}`（②b 行为；`browser-wasm` 额外产 `files.json`）。枚举前按 ordinal 排序保确定序（[common-pitfalls §1](../../../agent/rules/common-pitfalls.md)） |
 | `--build` | native 平台构建 + deploy（stage + 平台产物就位） |
 | `--run` | 触发设备 runner + 回收报告 |
 

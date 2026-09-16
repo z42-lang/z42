@@ -51,7 +51,7 @@ Std/Std.Test 同时激活）→ 返回 null → 回落短键 first-wins（prelud
 | `src/compiler/z42c.semantics/src/IrDump.z42` | MODIFY：`_activeNamespaces` + 两入口设 `gen.ActiveNs` |
 | `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY：scoped 优先 + local-wins 守卫 |
 | `src/compiler/z42c.ir/tests/depindex/depindex_tests.z42` | MODIFY：`GetStaticScoped` 消歧单测 |
-| `.claude/rules/common-pitfalls.md` | MODIFY：§1 注记根治 |
+| `../../../agent/rules/common-pitfalls.md` | MODIFY：§1 注记根治 |
 
 ## 验证（本地实测）
 

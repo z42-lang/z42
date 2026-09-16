@@ -27,36 +27,36 @@ docs/book/ docs/design/ docs/workflow/   # ⏳ 三书重构搬迁中，**冻结�
 
 ## 实现计划
 
-见 `docs/roadmap.md`。当前焦点：**0.3.x 自举线**——GC v1 地基 → A（stdlib 重组+perf）‖ B（**编译器全自举**：7 子系统用 z42 重写到 byte-identical）‖ C（反射 MVP）→ REPL capstone（2026-06-07 重排；规划见 `docs/spec/changes/plan-0.3.x-three-streams/proposal.md`）。
+见 [`docs/roadmap.md`](../docs/roadmap.md)。**当前焦点不在此复制**——焦点变化快，复制必过时。
 
 ## 协作工作流（必须遵守）
 
-完整流程见 [`workflow.md`](rules/workflow.md)（流程主线 / Scope / commit）+ [`philosophy.md`](rules/philosophy.md)（实现哲学 / 设计完整性 / 延后管理）+ [`version-bumping.md`](rules/version-bumping.md)（zbc / zpkg version bump checklist）+ [`parallel-development.md`](rules/parallel-development.md)（多 change 并行：**PR 隔离模型**——每 change 一分支/worktree，PR 先来后到合并，合并前必并入 main 最新改动+重跑 GREEN，合并后删分支/worktree；子系统锁 + ACTIVE.md 账本已废除）+ [`bootstrap-seed.md`](rules/bootstrap-seed.md)（自举种子鸡蛋问题：删构建期种子/兜底前必须先为所有 cold-start 入口供种，删+供种是同一原子变更；**新语法/格式分阶段引入纪律——support 先行、晚一个 nightly 再 use，让上一版 z42c 永远能编当前源码 → 彻底删 C# 种子的前提**）。核心要点：
+完整流程见 [`workflow.md`](../docs/agent/rules/workflow.md)（流程主线 / Scope / commit）+ [`philosophy.md`](../docs/agent/rules/philosophy.md)（实现哲学 / 设计完整性 / 延后管理）+ [`version-bumping.md`](../docs/agent/rules/version-bumping.md)（zbc / zpkg version bump checklist）+ [`parallel-development.md`](../docs/agent/rules/parallel-development.md)（多 change 并行：**PR 隔离模型**——每 change 一分支/worktree，PR 先来后到合并，合并前必并入 main 最新改动+重跑 GREEN，合并后删分支/worktree；子系统锁 + ACTIVE.md 账本已废除）+ [`bootstrap-seed.md`](../docs/agent/rules/bootstrap-seed.md)（自举种子鸡蛋问题：删构建期种子/兜底前必须先为所有 cold-start 入口供种，删+供种是同一原子变更；**新语法/格式分阶段引入纪律——support 先行、晚一个 nightly 再 use，让上一版 z42c 永远能编当前源码 → 彻底删 C# 种子的前提**）。核心要点：
 
 - **每次新对话**：Claude 自动读取 `.claude/projects/<project>/memory/MEMORY.md` 和当前阶段，主动说明状态和下一步
 - **需规范先行**（lang / ir / vm 类变更）：DRAFT → User 确认 → IMPL → GREEN → COMMIT
 - **轻量变更**（fix / refactor / test）：直接 IMPL → GREEN → COMMIT
-- **全绿（GREEN）标准**：定义见 [workflow.md 阶段 8](rules/workflow.md)；任何测试失败（含 pre-existing）都不得 commit / push
+- **全绿（GREEN）标准**：定义**与例外**（pre-existing 失败可否单独 issue 跟踪）见 [workflow.md 阶段 8](../docs/agent/rules/workflow.md)——以那里为准
 - **提交格式**：`type(scope): 描述`，每个逻辑单元单独提交
-- **自动提交 + 落地**：每次迭代完成后 Claude 自动 commit，`.claude/` 和 `docs/spec/` 必须纳入，无需 User 二次确认；落地走 **PR 优先**——很小的改动可直推 main，其余开 PR（合并前并入 main 最新改动 + 重跑 GREEN，合并后删分支/worktree）。详见 [`parallel-development.md`](rules/parallel-development.md)
+- **自动提交 + 落地**：每次迭代完成后 Claude 自动 commit，`.claude/` 和 `docs/spec/` 必须纳入，无需 User 二次确认；落地走 **PR 优先**——很小的改动可直推 main，其余开 PR（合并前并入 main 最新改动 + 重跑 GREEN，合并后删分支/worktree）。详见 [`parallel-development.md`](../docs/agent/rules/parallel-development.md)
 
 ## 文档同步（必须遵守）
 
 **核心规则：任何改变了外部可见行为、机制、规则或约定的迭代，归档前必须有对应文档落地。无文档 = 未完成。**
 
-具体的"改动类型 → 需更新文档"映射见 [workflow.md 阶段 9](rules/workflow.md) 的**统一维护触发矩阵**（唯一 SoT）；归档前按同节 **doc-check 清单**逐项核对。
+具体的"改动类型 → 需更新文档"映射见 [workflow.md 阶段 9](../docs/agent/rules/workflow.md) 的**统一维护触发矩阵**（唯一 SoT）；归档前按同节 **doc-check 清单**逐项核对。
 
-> **实现原理文档规则（2026-04-25；2026-07-07 泛化）**：**任何复杂实现逻辑流程**（多阶段编排 / 顺序·累积循环 / 反直觉决策或坑 / 跨组件数据流——不限编译器·VM）必须把"实现原理与流程"（数据结构、算法、加载策略、决策权衡，配伪代码 / mermaid）同步到 `docs/internals/` 对应机制页（判据见 doc-system.md 的三问），使新接手者不必阅读大量源码即可理解"为什么这样设计"。判据与写法、**「不确定是否算复杂 / 该不该写 → 停下问 User」** 见 [`docs/agent/rules/doc-system.md` §5.1](../docs/agent/rules/doc-system.md)。
+> **复杂实现逻辑必须落 `docs/internals/` 对应机制页**——判据（多阶段编排 / 有状态循环 / 反直觉决策 / 跨组件协议）与「拿不准就停下问 User」见 [doc-system.md「三问」](../docs/agent/rules/doc-system.md)。
 
 ## 代码风格
 
-**z42c（编译器）**：用 z42 写（`src/compiler/z42c.*`）；新代码一律 z42、不退回 C#；具体风格参照 [`src/compiler/README.md`](../src/compiler/README.md) 与 [`.claude/rules/compiler-z42c.md`](rules/compiler-z42c.md)
+**z42c（编译器）**：用 z42 写（`src/compiler/z42c.*`）；新代码一律 z42、不退回 C#；具体风格参照 [`src/compiler/README.md`](../src/compiler/README.md) 与 [`../docs/agent/rules/compiler-z42c.md`](../docs/agent/rules/compiler-z42c.md)
 
 **Rust（VM）**：`anyhow::Result` + `thiserror`；非测试代码不用 `unwrap()`；公开类型加 `#[derive(Debug)]`
 
 ## 代码组织（必须遵守）
 
-完整规则见 `.claude/rules/code-organization.md`（目录 README、文件/函数/类型行数限制、Rust 测试拆分等）。
+完整规则见 `../docs/agent/rules/code-organization.md`（目录 README、文件/函数/类型行数限制、Rust 测试拆分等）。
 
 ## 规范冲突检测（必须遵守）
 
@@ -76,7 +76,7 @@ docs/book/ docs/design/ docs/workflow/   # ⏳ 三书重构搬迁中，**冻结�
 - **不盲从**：User 说的若与代码现状 / 约束 / 已知事实冲突，先停下指出「事实是 X，与你说的 Y 不符」+ 具体依据（file:line / 机制 / 历史决策），再一起调整方案。
 - **不甩锅**：不得以「是 User 让我这么做的」为由实施一个 Claude 已知有问题的方案——发现问题而不提 = Claude 的失职。
 - **提出 ≠ 抗命**：摆清事实后，最终方向仍由 User 裁决；但裁决必须建立在「事实已摆清」的基础上，而非信息不对称下的误判。
-- **与 [规范冲突检测](#规范冲突检测必须遵守) / [设计完整性原则](rules/philosophy.md) 一脉相承**：三者都是「发现不对就停下来摆事实、给依据、再继续」。
+- **与 [规范冲突检测](#规范冲突检测必须遵守) / [设计完整性原则](../docs/agent/rules/philosophy.md) 一脉相承**：三者都是「发现不对就停下来摆事实、给依据、再继续」。
 
 ## 注意事项
 

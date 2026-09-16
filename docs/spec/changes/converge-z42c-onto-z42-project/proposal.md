@@ -25,7 +25,7 @@ z42 的「项目清单模型」现在**存在两份**：
    - **删除** manifest-model 4 文件（`ProjectModel.z42` / `ManifestLoader.z42` / `PathTemplate.z42` / `SourceDiscovery.z42`）——其职责由 `z42.project` 承担。
    - **保留** zpkg 后端（`ZpkgWriter.z42` / `ZpkgWriterIndexed.z42` / `ZpkgReader.z42` / `ZpkgBuilder.z42` / `PackageTypes.z42` / `CacheStore.z42`）——编译器产物机器，`z42.project` 按设计永不含。后端独立成新包 **`z42c.zpkg`**（名副其实；见 design 决策 1）。
    - `ProjectSkeleton.z42`（过渡占位）随 `PipelineSkeleton.z42` 一并处置（见 design）。
-2. **z42c 改引用 z42.project 的组合式模型**：z42c.pipeline / z42c.driver 约 30 处调用点从**扁平**字段（`pm.Name` / `pm.IncludeGlobs` / `pm.HasOutputDir`）改为**组合式**（`pm.Project.Name` / `pm.Sources.Include` / `pm.Build.HasOutputDir`）。采纳 z42.project 的最终形态（[philosophy：最终方案优先](../../../.claude/rules/philosophy.md)），不回填扁平层。
+2. **z42c 改引用 z42.project 的组合式模型**：z42c.pipeline / z42c.driver 约 30 处调用点从**扁平**字段（`pm.Name` / `pm.IncludeGlobs` / `pm.HasOutputDir`）改为**组合式**（`pm.Project.Name` / `pm.Sources.Include` / `pm.Build.HasOutputDir`）。采纳 z42.project 的最终形态（[philosophy：最终方案优先](../../../agent/rules/philosophy.md)），不回填扁平层。
 3. **z42.project 登记为 build member**：新增 `z42.project.z42.toml` + 进 `src/libraries/z42.workspace.toml` `default-members`，产 `z42.project.zpkg`；补首个 round-trip [Test]（其 README 承诺的「接入时 GREEN」）。
 4. **拓扑与 CI**：z42.project 先于 z42c.* 构建；z42c.pipeline/driver deps 把 `z42c.project` 换成 `z42.project`（模型）+ `z42c.zpkg`（后端）。
 
@@ -57,7 +57,7 @@ z42 的「项目清单模型」现在**存在两份**：
 
 **只读引用**：
 - `src/libraries/z42.project/src/*.z42` — 组合式模型字段（迁移映射依据）
-- `.claude/rules/bootstrap-seed.md` — 分阶段/种子约束（死结判定）
+- `../../../agent/rules/bootstrap-seed.md` — 分阶段/种子约束（死结判定）
 - `scripts/build/xtask_stdlib.z42`（`_assembleAllLibs`）、`xtask_compiler.z42`（self-host gate）— flat libs 装配 + 不动点门禁
 
 ## Out of Scope

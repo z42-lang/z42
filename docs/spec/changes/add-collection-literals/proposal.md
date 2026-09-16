@@ -21,7 +21,7 @@ Rust `[0; 100]`（重复填充）。本变更把这套简化引入 z42。
 **关键点：纯前端 desugar，零运行时 / 零 IR / 零格式 bump。** `[...]` / `{...}` 在语义层
 lower 成现有的 `ArrayInitExpr`（`new T[]{}`）/ `new List<T>` + `Add` / `new Dictionary<K,V>` + 赋值，
 产出的 zbc 与手写等价代码逐字节相同。因此 **不需要 zbc/zpkg minor bump**，唯一约束是
-[两阶段 nightly 纪律](../../../.claude/rules/bootstrap-seed.md)的**语法轴**（support 先行、晚一个
+[两阶段 nightly 纪律](../../../agent/rules/bootstrap-seed.md)的**语法轴**（support 先行、晚一个
 nightly 才能在 z42c/stdlib 源码里 use）。
 
 ## 语法总览：`[]` = 数组，`{}` = 花括号族（List / Dict / 对象）
@@ -143,7 +143,7 @@ var bad2 = {};                    // 错误：空 {} 无法判定 List / Dict，
 | `src/tests/collection-literals/*.z42` | NEW | golden：各形态端到端 |
 
 **只读引用**：`Ast.z42` 现有 `ArrayInitExpr`/`ObjNewExpr` 节点、`ExprEmitter.z42` 现有 array-init
-codegen、`.claude/rules/bootstrap-seed.md`（语法轴纪律）。
+codegen、`../../../agent/rules/bootstrap-seed.md`（语法轴纪律）。
 
 ## Out of Scope
 

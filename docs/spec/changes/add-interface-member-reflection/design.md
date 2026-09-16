@@ -34,7 +34,7 @@ z42c 编译期                                    运行期
 
 ### Decision 4: version bump —— 实现期以事实判定
 **问题**：填接口方法块是否需 format bump？
-**分析**：TYPE 段 `BuildType`（ZbcWriter:245+）**逐类逐方法**写 MethodFlags/visibility/params。若接口条目走同一 `BuildType` 路径（方法块 count 当前为 0），填非空块 = **同结构、reader 不变 → 无 bump**（似 add-reflection-properties 的"运行期派生、零格式变更"精神）。若接口条目走**独立截断序列化**（整块省略），则 bump zbc 1.27→1.28 / zpkg 0.32→0.33，按 [version-bumping.md](../../../.claude/rules/version-bumping.md) checklist 同步 writer/reader/strict-pin/fixture golden。
+**分析**：TYPE 段 `BuildType`（ZbcWriter:245+）**逐类逐方法**写 MethodFlags/visibility/params。若接口条目走同一 `BuildType` 路径（方法块 count 当前为 0），填非空块 = **同结构、reader 不变 → 无 bump**（似 add-reflection-properties 的"运行期派生、零格式变更"精神）。若接口条目走**独立截断序列化**（整块省略），则 bump zbc 1.27→1.28 / zpkg 0.32→0.33，按 [version-bumping.md](../../../agent/rules/version-bumping.md) checklist 同步 writer/reader/strict-pin/fixture golden。
 **决定**：实现第一步先**勘察 `_interfaceDesc` → BuildType 的序列化路径**证实/证伪"复用现块"，据此决定是否 bump——写进 tasks 阶段 1.0。
 
 ## Implementation Notes

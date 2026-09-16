@@ -1,6 +1,6 @@
 # docs/design/
 
-z42 长期设计文档。变更归档时（`docs/spec/changes/<name>/` → `docs/spec/archive/`），相关 design doc 必须同步更新（参见 [`.claude/rules/workflow.md`](../../.claude/rules/workflow.md) 阶段 9）。
+z42 长期设计文档。变更归档时（`docs/spec/changes/<name>/` → `docs/spec/archive/`），相关 design doc 必须同步更新（参见 [`../agent/rules/workflow.md`](../agent/rules/workflow.md) 阶段 9）。
 
 ## 目录布局
 
@@ -96,4 +96,4 @@ z42 长期设计文档。变更归档时（`docs/spec/changes/<name>/` → `docs
 
 ## 延后特性管理
 
-延后项一律写在对应文档的 "Deferred / Future Work" 段，并在 [`docs/roadmap.md`](../roadmap.md) "Deferred Backlog Index" 加索引行。详见 [philosophy.md "延后特性管理"](../../.claude/rules/philosophy.md#延后特性管理必须遵守)。
+延后项一律写在对应文档的 "Deferred / Future Work" 段，并在 [`docs/roadmap.md`](../roadmap.md) "Deferred Backlog Index" 加索引行。详见 [philosophy.md "延后特性管理"](../agent/rules/philosophy.md#延后特性管理必须遵守)。

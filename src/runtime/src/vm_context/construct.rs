@@ -134,7 +134,7 @@ impl VmContext {
         // The wait is not a park: this thread is not registered, so no collector waits for it.
         // It does mean the thread reaches its first collection attempt only after the pause,
         // where it can win the collector role — safe because every thread blocked outside the
-        // VM is parked (`NativeParkGuard`, see .claude/rules/runtime-rust.md). loom model B′ in
+        // VM is parked (`NativeParkGuard`, see docs/agent/rules/runtime-rust.md). loom model B′ in
         // tests/gc_registration_race_loom.rs checks both halves.
         {
             let mut phase = boxed.core.gc_phase.lock();

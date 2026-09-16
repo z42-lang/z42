@@ -80,4 +80,4 @@ Dictionary<string,int> ed     = {};                     // 空 Dict（目标类�
 - **数组 `[]`**：[arrays.md](arrays.md)——方括号侧，含重复 `[v;n]` 与 spread。
 - **对象初始化器 `new Foo { X = 1 }` / 字段简写 / 结构更新 `..base`**：后续 change（依赖 struct 值语义）。
 - **两阶段 nightly 纪律**：本特性只落"支持"，z42c / stdlib 源码晚一个 nightly 才 use（见
-  [`bootstrap-seed.md`](../../../.claude/rules/bootstrap-seed.md)）。
+  [`bootstrap-seed.md`](../../agent/rules/bootstrap-seed.md)）。

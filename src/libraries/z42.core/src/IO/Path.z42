@@ -238,7 +238,7 @@ public static class Path {
             i = i + 1;
         }
         // Sort for determinism (EnumerateRecursive order is OS-dependent
-        // per .claude/rules/common-pitfalls.md §1).
+        // per docs/agent/rules/common-pitfalls.md §1).
         _sortStrings(hits);
         return hits;
     }

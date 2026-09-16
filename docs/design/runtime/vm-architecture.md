@@ -1209,4 +1209,4 @@ allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已�
 - `docs/design/runtime/jit.md` — Cranelift JIT 后端设计
 - `docs/design/runtime/execution-model.md` — ExecMode 注解、interp/JIT/AOT 切换语义
 - `docs/design/stdlib/overview.md` — stdlib 三层架构（intrinsics / HAL / script BCL）
-- `.claude/rules/runtime-rust.md` — Rust VM 开发规范（错误处理、测试组织、Value 类型约定）
+- `../../agent/rules/runtime-rust.md` — Rust VM 开发规范（错误处理、测试组织、Value 类型约定）

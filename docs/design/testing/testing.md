@@ -121,7 +121,7 @@ z42 测试组织对标 [dotnet/runtime](https://github.com/dotnet/runtime/tree/m
 src/
 ├── compiler/z42.Tests/                # 编译器单元测试 (C# xUnit)
 ├── runtime/
-│   ├── src/<mod>_tests.rs             # VM Rust 单元测试（per .claude/rules/runtime-rust.md）
+│   ├── src/<mod>_tests.rs             # VM Rust 单元测试（per ../../agent/rules/runtime-rust.md）
 │   └── tests/                         # cargo 框架强约定的 Rust 集成测试
 │       ├── zbc_compat.rs              # C# → Rust zbc 解码契约
 │       ├── native_*.rs                # native interop / pin / opcode-trap e2e
@@ -1086,7 +1086,7 @@ void test_pi_approximation() {
 | double overload | 不复用 `EqualApprox` 公差 | strict ordering vs tolerant comparison 是不同 assertion；混合两者会让 `Greater` 语义模糊 |
 | NaN 处理 | 显式 `if (x != x)` guard 抛 TestFailure | IEEE-754 让 `NaN <= 0` 为 false，朴素 ordering 会让 `Greater(NaN, 0)` 静默通过；guard 保证显式失败。**注：z42 当前从 `0.0/0.0` 不产生真 NaN（疑似常量折叠），guard 暂无法从 z42 source 触发，但保留作为 defensive 代码** |
 | 数组 helper 仅 `object[]` | 不引入 `List` / `Set` 重载 | z42 Phase 1 无泛型；`object[]` 通过 boxing 覆盖 6/6 观察用例；L2 generics 后扩展 |
-| **`Array*` 命名前缀** | 不复用 `Contains` / `IsEmpty` 短名 | z42 DependencyIndex first-wins **不做跨包 overload resolution**（[common-pitfalls.md §1](../../../.claude/rules/common-pitfalls.md#1-资源加载顺序必须显式排序2026-05-17-强化)）。bare `Assert.Contains` 永远先命中 z42.core 的 `(string, string)` overload，z42.test 的 `(object, object[])` overload 永远不可达。前缀消除 collision。L2 加 generics 后可引入真正的 `Contains<T>(T, IList<T>)` 与 `Array*` 并存或 deprecate alias |
+| **`Array*` 命名前缀** | 不复用 `Contains` / `IsEmpty` 短名 | z42 DependencyIndex first-wins **不做跨包 overload resolution**（[common-pitfalls.md §1](../../agent/rules/common-pitfalls.md#1-资源加载顺序必须显式排序2026-05-17-强化)）。bare `Assert.Contains` 永远先命中 z42.core 的 `(string, string)` overload，z42.test 的 `(object, object[])` overload 永远不可达。前缀消除 collision。L2 加 generics 后可引入真正的 `Contains<T>(T, IList<T>)` 与 `Array*` 并存或 deprecate alias |
 | 比对运算符 | `==` (z42 默认) | 与 List.Contains 等 stdlib 集合一致；不需要自定义 Equals dispatch |
 
 #### 实施 (implementation)
@@ -1208,4 +1208,4 @@ chmod +x run.sh
 cargo test                # Rust 单测（含 metadata::test_index 12 个）
 ```
 
-详见 [.claude/rules/workflow.md](../../.claude/rules/workflow.md) 阶段 8。
+详见 [../../agent/rules/workflow.md](../../agent/rules/workflow.md) 阶段 8。

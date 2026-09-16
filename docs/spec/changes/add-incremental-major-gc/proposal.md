@@ -97,7 +97,7 @@ sweep 仍 STW。
 | `src/runtime/src/metadata/types/obj_storage_tests.rs` | MODIFY | M2a：`refs_mut_raw` 改名 |
 | `src/runtime/src/gc/snapshot_tests.rs` | MODIFY | M2a：同上 |
 | `src/runtime/src/gc/arc_heap_tests/{cycle_collection,finalization,mode_selection,roots,stress,write_barriers}.rs` | MODIFY | M2a：同上（测试构图直写） |
-| `.claude/rules/runtime-rust.md` | MODIFY | M2a：「堆引用写入必须走带 SATB 屏障的原语」规则 |
+| `../../../agent/rules/runtime-rust.md` | MODIFY | M2a：「堆引用写入必须走带 SATB 屏障的原语」规则 |
 | `docs/book/src/runtime/gc-tuning-and-safepoint.md` | MODIFY | 旋钮表 + 停顿模型 |
 | `docs/book/src/SUMMARY.md` | MODIFY | 挂新页 |
 

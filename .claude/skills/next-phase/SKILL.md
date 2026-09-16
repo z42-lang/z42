@@ -12,9 +12,9 @@ agent: Plan
 ## 当前进度检查
 
 先读取以下文件了解现状：
-- [CLAUDE.md](.claude/CLAUDE.md) — 阶段表格
-- [docs/design/language/language-overview.md](docs/design/language/language-overview.md)
-- [docs/design/runtime/ir.md](docs/design/runtime/ir.md)
+- [roadmap.md](../../../docs/roadmap.md) —— 迭代计划与当前焦点（CLAUDE.md 不再复制焦点）
+- 语言规则：`docs/reference/`（⏳ 三书重构搬迁中，暂在 `docs/design/language/`）
+- IR 指令集：`docs/internals/src/formats/ir.md`（⏳ 暂在 `docs/design/runtime/ir.md`）
 
 然后扫描代码库，识别哪些内容标注了 `// TODO` 或 `// TODO:`：
 
@@ -33,7 +33,7 @@ grep -rn "TODO" src/
 
 2. **IR Codegen**（`Z42.Compiler/Codegen/`）
    - AST → SSA IR
-   - 发射 `.zbc` 二进制文件（使用 `docs/design/runtime/zbc.md` 中的格式）
+   - 发射 `.zbc` 二进制文件（格式见 zbc 页；⏳ 搬迁中 → `docs/internals/src/formats/zbc.md`）
 
 3. **解释器完整实现**（`src/runtime/src/interp.rs`）
    - 完整指令集覆盖

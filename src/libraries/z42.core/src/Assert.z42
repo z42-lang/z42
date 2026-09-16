@@ -27,7 +27,7 @@ namespace Std;
 //
 // 而分开的代价是实打实的：`Assert` 是**整个 stdlib 唯一**的跨命名空间同短名类，
 // 一对类撑起了三处特判——
-//   - `.claude/rules/common-pitfalls.md` §1 的「加载顺序 first-wins」现场案例
+//   - `docs/agent/rules/common-pitfalls.md` §1 的「加载顺序 first-wins」现场案例
 //   - `CuPreprocess._activeNamespaces` 必须把 prelude ns 纳入活跃集，否则
 //     `using Std.Test` 会把裸 `Assert.Equal` 误消歧过去（AssertionError→values not equal 回归）
 //   - `DependencyIndex.GetStaticScoped` 的「活跃集内仍歧义 → 返回 null → 回落短键」分支
@@ -339,7 +339,7 @@ public static class Assert {
     // 原先加前缀是为了绕开跨 package first-wins —— z42.core 的
     // `Std.Assert.Contains(string, string)` 会先 win，bare `Assert.Contains`
     // 永远命中 z42.core 而看不到本文件的 `(object, object[])` overload
-    // （见 .claude/rules/common-pitfalls.md §1）。两份 Assert 合并后同类同包、
+    // （见 docs/agent/rules/common-pitfalls.md §1）。两份 Assert 合并后同类同包、
     // 走正常重载决议，该理由消失；保留前缀只为不制造无谓的调用点 churn，且
     // `ArrayContains` 读起来也确实比 `Contains` 更明确。L2 加 generics 后
     // 可以引入真正的 `Contains<T>(T, IList<T>)` 并把这些 alias 弃用。

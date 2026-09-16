@@ -15,9 +15,9 @@
 | **VM `src/runtime/`（Rust）** | `cargo test --manifest-path src/runtime/Cargo.toml` + `xtask test e2e` | — | `test-host`(e2e goldens+cross-zpkg@linux)、`vm-jit`(2 shard)、`stdlib-interp`+`stdlib-jit`、`verify-features` |
 | **仅测试用例 `src/tests/`** | `xtask test e2e` | — | `test-host`(e2e goldens+cross-zpkg@linux)。⚠️ `vm-jit`/`stdlib-*` 不跑（测试用例不影响 JIT 行为/stdlib 单元） |
 | **xtask 源 `scripts/`** | `z42 publish scripts/xtask.z42.toml` 重建 → 随便跑条命令冒烟 | changed 映射对 `scripts/xtask*` = **full**（完整 gate） | ci-bootstrap step 2（种子编 xtask 源） |
-| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `xtask test bootstrap` | 格式 bump 另跑 [version-bumping checklist](../../../.claude/rules/version-bumping.md)；等 nightly 发布后才 use | `verify-selfhost` + 全腿 bootstrap；发布死锁自愈见 [ci.md 阶段⑥](../ci.md) |
+| **新语法 / zbc·zpkg 格式** | 阶段一只落 support（仓库源码不用）→ `xtask test bootstrap` | 格式 bump 另跑 [version-bumping checklist](../../agent/rules/version-bumping.md)；等 nightly 发布后才 use | `verify-selfhost` + 全腿 bootstrap；发布死锁自愈见 [ci.md 阶段⑥](../ci.md) |
 | **打包 `scripts/package/` / `packages.toml`** | `xtask test packages` | `xtask package sdk` + `xtask test dist` | `package-host` + `package-{ios,android,wasm}` |
-| **编译器 codegen / 优化 / typecheck / z42.ir writer（会改变产物字节）** | `xtask test compiler` | 同步 `CacheStore.CompilerFingerprint` +1（规则见 [version-bumping](../../../.claude/rules/version-bumping.md)「编译器语义指纹」）；自查：`xtask test fingerprint --base <base 树>` | `bench-regression` 的 **Compiler fingerprint guard**（输出变了而版本号没累加 ⇒ 红） |
+| **编译器 codegen / 优化 / typecheck / z42.ir writer（会改变产物字节）** | `xtask test compiler` | 同步 `CacheStore.CompilerFingerprint` +1（规则见 [version-bumping](../../agent/rules/version-bumping.md)「编译器语义指纹」）；自查：`xtask test fingerprint --base <base 树>` | `bench-regression` 的 **Compiler fingerprint guard**（输出变了而版本号没累加 ⇒ 红） |
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader·Instr / IncrementalDriver）** | `xtask test compiler`（含 probe/闭包/meta/往返单测 + 不动点） | `xtask test incremental`（暴力对账器：语料逐文件 touch，增量 == 全量逐字节 + D8 计时） | `compiler-checks`（自举不动点 7/7） |
 | **学习手册 `docs/learn/` / 示例 `examples/`** | `xtask test examples <part>/<chapter>`（只改页面：`--book-only`）；输出确实该变：`--bless` 后审阅 diff | `xtask build sdk` + `xtask test examples` | `test-host`（examples stage）、`package-host`（打包 SDK 重放，含 Windows）、`deploy-book` 的 PR 构建；只改 `docs/learn` 时 ci.yml 不触发，只有 `deploy-book` 兜底 |
 | **launcher / z42b 命令行输出** | `xtask test examples`（手册里的会话脚本记录了这些输出） | 同上 | 同上 |
@@ -28,7 +28,7 @@
 CI 每条腿冷启动时，**xtask 源和 z42c 源都由"上一 nightly 的种子 z42c + 种子 stdlib"编译**
 （`.github/actions/ci-bootstrap` step 2/3）。因此这两个源码域被种子钉死了**两根轴**：
 
-1. **语法/格式轴**：不得用比上一 nightly z42c 更新的语法（[bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md) 的 support-先行纪律）
+1. **语法/格式轴**：不得用比上一 nightly z42c 更新的语法（[bootstrap-seed.md](../../agent/rules/bootstrap-seed.md) 的 support-先行纪律）
 2. **stdlib API 轴**：不得引用上一 nightly stdlib 里不存在的 API——删改 xtask/z42c 在用的
    API 与用新语法是同一种断链，同样要"晚一个 nightly 再 use"
 
@@ -105,7 +105,7 @@ git push origin main
 处置：revert commit B，等 nightly 滚过去再重新 push；**不要**试图往种子里手补。
 
 **附加纪律**：不要与 zbc/zpkg 格式 bump 排在同一个 nightly 周期（双重断链窗口叠加，
-见 [bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md)）。
+见 [bootstrap-seed.md](../../agent/rules/bootstrap-seed.md)）。
 
 ## 验证覆盖矩阵（谁在守哪个格子）
 

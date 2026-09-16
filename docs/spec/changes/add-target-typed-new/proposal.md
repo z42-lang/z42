@@ -24,7 +24,7 @@ Route r = new("/u", "POST");
 **关键点：纯前端 desugar，零运行时 / 零 IR / 零格式 bump。** `new(args)` 在语义层用**目标类型**
 （左侧声明类型 / 返回类型 / 赋值 LHS 类型 / 形参类型）替代省略的类名，产出的 `BoundNew` 与显式
 `new T(args)` 逐字节相同。因此**不需要 zbc/zpkg minor bump**，唯一约束是
-[两阶段 nightly 纪律](../../../.claude/rules/bootstrap-seed.md)的**语法轴**（support 先行、晚一个
+[两阶段 nightly 纪律](../../../agent/rules/bootstrap-seed.md)的**语法轴**（support 先行、晚一个
 nightly 才能在 z42c/stdlib 源码里 use）。
 
 ## 语法

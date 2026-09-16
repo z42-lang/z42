@@ -44,7 +44,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 `namespace B { class Foo }`）会在该表里 first/last-wins 只留一份。仅靠裸名表，限定引用 `new A.Foo` 会被剥成
 `Foo` 再查裸名表 → 撞见碰巧赢的那份（B.Foo），致对象身份、`is`/`as`、`GetType().FullName` 全错
 （`fix-type-ref-ns-collision`；与静态调用侧 `fix-crosspkg-static-ns-collision` 同源，见
-[common-pitfalls §1](../../../.claude/rules/common-pitfalls.md)）。
+[common-pitfalls §1](../../../agent/rules/common-pitfalls.md)）。
 
 根治靠**并存的 FQN 视图**：
 
@@ -366,7 +366,7 @@ getter 是真实函数体。
 
 **VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
 
-> 阶段纪律（[bootstrap-seed.md](../../../.claude/rules/bootstrap-seed.md)）：本 change 是**阶段 1（support）**——只扩 z42c 绑定能力，z42c / stdlib 源自身**不使用** prim 类同 arity 重载。往 `Std.String` 加 `Split(char[])` 等实际重载是**阶段 2**（晚一个 nightly，独立 change）。
+> 阶段纪律（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）：本 change 是**阶段 1（support）**——只扩 z42c 绑定能力，z42c / stdlib 源自身**不使用** prim 类同 arity 重载。往 `Std.String` 加 `Split(char[])` 等实际重载是**阶段 2**（晚一个 nightly，独立 change）。
 
 #### 重载决议：默认值形参、命名实参、params 两种形态
 

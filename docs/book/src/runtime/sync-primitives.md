@@ -39,7 +39,7 @@ static 字段、各线程帧寄存器和几个 arena，**看不见这些容器**
 
 值是 z42 对象的普通字段——`Mutex`/`RwLock` 的 `_value`、`Channel` 的环形缓冲区 `_buf`。
 GC 按常规对象图追踪它们、按常规写屏障记录写入、随拥有者一起回收。原生层只提供同步，
-而同步只需要一个原语：**Monitor**。这条不变量同时写进了 `.claude/rules/runtime-rust.md`。
+而同步只需要一个原语：**Monitor**。这条不变量同时写进了 `../../../agent/rules/runtime-rust.md`。
 
 ```
 z42 Mutex<T>   { object _mon; T _value }

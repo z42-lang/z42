@@ -51,11 +51,11 @@ argument-hint: <instruction-name>
 
 ### 格式 bump（强制链，9 步）
 
-完整 checklist 见 [`.claude/rules/version-bumping.md`](../../rules/version-bumping.md)。要点：
+完整 checklist 见 [`version-bumping.md`](../../../docs/agent/rules/version-bumping.md)。要点：
 
 14. `ZbcFormat.z42` 的 `ZbcVersion.Minor++` + 常量旁 changelog
 15. `src/runtime/src/metadata/zbc_reader/versions.rs` 的 `ZBC_VERSION_MINOR` + changelog
-16. `docs/design/runtime/zbc.md` Minor changelog 表加行
+16. zbc 格式页的 Minor changelog 表加行（⏳ 三书重构搬迁中：`docs/design/runtime/zbc.md` → `docs/internals/src/formats/zbc.md`，批 2）
 17. regen `src/tests/zbc-format/*/source.zbc`（`xtask build test`）
 18. `src/compiler/z42c.semantics/tests/zbc/zbc_tests.z42` 内嵌 hex 串重截
 19. **联动 zpkg**：`ZpkgWriter.z42` 的 `Minor++` + Rust `ZPKG_VERSION_MINOR` + `zpkg.md` changelog
@@ -63,12 +63,12 @@ argument-hint: <instruction-name>
 
 ### 文档
 
-20. `docs/design/runtime/ir.md`、`src/libraries/z42.ir/README.md`、`src/runtime/src/interp/README.md`
+20. IR 参考页（⏳ 搬迁中：`docs/design/runtime/ir.md` → `docs/internals/src/formats/ir.md`，批 2）、`src/libraries/z42.ir/README.md`、`src/runtime/src/interp/README.md`
 
 ## 自举纪律
 
 若 **z42c 自身的源**要使用新 opcode：按
-[`bootstrap-seed.md`](../../rules/bootstrap-seed.md) 的「support 先行、晚一个 nightly 再 use」
+[`bootstrap-seed.md`](../../../docs/agent/rules/bootstrap-seed.md) 的「support 先行、晚一个 nightly 再 use」
 拆两个 PR 跨两个 nightly。只加编解码/执行能力而不发射 → 无字节变化 → 可单 PR
 （`ZbcFormat.z42` 里 0xC0–0xC3 的注释是这个做法的先例）。
 

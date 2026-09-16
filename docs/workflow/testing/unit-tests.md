@@ -33,4 +33,4 @@ cargo test --manifest-path src/runtime/Cargo.toml <substr>
 - VM（Rust）单元 → `src/runtime/src/*_tests.rs`。
 - 端到端编译产物 → VM golden（见 [`vm-tests.md`](vm-tests.md)）。
 
-参见 [`.claude/rules/workflow.md`](../../../.claude/rules/workflow.md) "测试要求"。
+参见 [`../../agent/rules/workflow.md`](../../agent/rules/workflow.md) "测试要求"。
