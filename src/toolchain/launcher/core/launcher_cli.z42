@@ -4,7 +4,7 @@
 //   - launcher 自己实现：run / version / help / publish / export / workload
 //   - 原样转发给工具：build → z42c；new / test / bench / clean → z42b；repl → z42i
 //     （转发命令的参数与帮助由对应工具负责；这里注册只为让 `z42 --help` 列出它们）
-//   - 简写：`z42 <app.zpkg|.zbc> [-- args]` ≡ `z42 run <app>`
+//   - 简写：`z42 <app.zpkg|.zbc|.z42> [-- args]` ≡ `z42 run <app>`（`.z42` = 单文件源码）
 namespace Z42Launcher;
 
 using Std;
@@ -17,7 +17,7 @@ void _runLauncher(string[] argv) {
 
     if (c0 == "--version" || c0 == "-V" || c0 == "version") { _cmdVersion(); return; }
     if (c0 == "help") { _cmdHelp(_tail(argv, 1)); return; }
-    if (c0.EndsWith(".zpkg") || c0.EndsWith(".zbc")) { _cmdRun(argv); return; }
+    if (c0.EndsWith(".zpkg") || c0.EndsWith(".zbc") || c0.EndsWith(".z42")) { _cmdRun(argv); return; }
     // run 的 `-- <program args>` 尾巴过不了严格的 ArgParser，走原样解析。
     if (c0 == "run") { _cmdRun(_tail(argv, 1)); return; }
     if (c0 == "new" || c0 == "test" || c0 == "bench" || c0 == "clean") {

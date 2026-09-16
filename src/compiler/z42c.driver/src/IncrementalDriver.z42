@@ -45,13 +45,15 @@ public static class IncrementalDriver {
     // want[i] 为真的文件从 Parser 已 lex 的 token 流提取标识符集与声明面指纹（D8 修正——
     // 全链路零第二遍 lex）；want == null → 全不捕获。
     // 声明面指纹取 **RunAst 之前**的 raw CU（合成成员无真实 token 区间，见 SurfaceHash.z42）。
-    public static ParsedPkg ParseAllTk(string[] texts, string[] srcs, int n, bool[] want) {
+    // `names[i]` 是**呈现给用户的**文件名（诊断位置由它来），不是读取路径——读取早已完成，texts 就是内容。
+    // 单文件运行时它是用户敲的 `hello.z42`，而真实路径是缓存清单里的绝对路径。
+    public static ParsedPkg ParseAllTk(string[] texts, string[] names, int n, bool[] want) {
         CompilationUnit[] cus = new CompilationUnit[n];
         NameListZ[] idents = new NameListZ[n];
         NameSurfacesZ[] surfaces = new NameSurfacesZ[n];
         int i = 0;
         while (i < n) {
-            var pp = new Parser(texts[i], srcs[i]);
+            var pp = new Parser(texts[i], names[i]);
             CompilationUnit raw = pp.ParseCompilationUnit();
             if (want != null && want[i]) {
                 idents[i] = IncrementalDriver._identsOf(pp.Tokens());
@@ -70,7 +72,9 @@ public static class IncrementalDriver {
     // pack 模式一致、非多 exe）。只有此时全命中才可以廉价早退——因为调用方压根不会用到 IrModule。
     // canPreserve=false 时**必须走完整路径**把 cached zbc 读回来：调用方还要装配一次 dist，
     // 拿不到 IrModule 就只能全部重编，缓存白存（fix-incr-allcached-cache-drop 修的正是这条）。
-    public static IncrPrep Prepare(string[] srcs, string[] texts, string[] hashes, int n,
+    // srcs = 真实路径（缓存键 / 探测用）；dispSrcs = 呈现给用户的文件名（诊断位置用）。工程模式下两者
+    // 逐项相同；单文件运行时 srcs 是绝对路径、dispSrcs 是用户敲的相对路径。
+    public static IncrPrep Prepare(string[] srcs, string[] dispSrcs, string[] texts, string[] hashes, int n,
                                    string projectDir, string cacheDir, string depsId, bool canPreserve) {
         IncrFilePlan plan = IncrementalBuild.ProbeFiles(srcs, hashes, n, projectDir, cacheDir, depsId);
         IrModule[] cached = new IrModule[n];
@@ -82,7 +86,7 @@ public static class IncrementalDriver {
         int i = 0;
         while (i < n) { metas0[i] = plan.Metas[i]; i = i + 1; }
 
-        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, srcs, n, plan.Fresh);
+        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, n, plan.Fresh);
         CompilationUnit[] cus = pk.Cus;
         bool incrDebug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
 
@@ -473,14 +477,11 @@ public sealed class IntBoxZ {
 // 单文件 fullMode .zbc 落盘到 cache（自 Main.z42 迁入，500 行硬限；镜像 C# BuildTarget
 // 的 cache 写出：`<cache>/<rel 去 .z42 换 .zbc>`）。仅单工程模式调用。
 void _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule irm) {
-    // Normalize separators before stripping the projectDir prefix: on Windows `src`
-    // may use `\` while the prefix is built with `/`, so an un-normalized StartsWith
-    // fails → `rel` stays an absolute path (drive letter) → malformed zbcPath →
-    // File.WriteAllBytes "cannot find the path specified" (os error 3).
-    string rel = src.Replace("\\", "/");
-    string projFwd = projectDir.Replace("\\", "/");
-    string prefix = projFwd.EndsWith("/") ? projFwd : projFwd + "/";
-    if (rel.StartsWith(prefix)) { rel = rel.Substring(prefix.Length); }
+    // 走 IncrementalBuild.Rel（此前这里内联复制了一份同样的前缀剥离逻辑）——它负责分隔符归一
+    // （Windows 的 `\` 不归一会让 StartsWith 失配 → rel 留成带盘符的绝对路径 → zbcPath 畸形 →
+    // File.WriteAllBytes "cannot find the path specified"），也负责**工程目录之外的源文件**去掉根
+    // 前缀（否则 Path.Join 遇 rooted 第二段直接返回它 ⇒ .zbc 写到用户源文件旁边，单文件运行实测踩到）。
+    string rel = IncrementalBuild.Rel(projectDir, src);
     if (rel.EndsWith(".z42")) { rel = rel.Substring(0, rel.Length - 4); }
     string zbcPath = Path.Join(cacheDir, rel + ".zbc");
     string parent = Path.GetDirectoryName(zbcPath);

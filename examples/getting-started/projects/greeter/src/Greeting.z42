@@ -1,0 +1,5 @@
+namespace Greeter;
+
+string Build(string name) {
+    return $"Hello, {name}!";
+}

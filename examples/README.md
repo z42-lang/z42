@@ -1,15 +1,16 @@
 # examples — 《z42 学习手册》配套示例
 
-这里的每个目录对应[学习手册](https://z42-lang.github.io/z42/learn/)的一章，里面是书中用到的完整工程，可以直接运行：
+这里的每个目录对应[学习手册](https://z42-lang.github.io/z42/learn/)的一章，里面是书中用到的完整代码，可以直接运行：
 
 ```sh
 cd examples/getting-started/hello-world/greet
-z42 run -- 小明
+z42 run greet.z42 -- 小明
 ```
 
 | 目录 | 章节 |
 |------|------|
 | [`getting-started/hello-world/`](getting-started/hello-world/) | [Hello, World](../docs/learn/src/getting-started/hello-world.md) |
+| [`getting-started/projects/`](getting-started/projects/) | [工程与构建](../docs/learn/src/getting-started/projects.md) |
 
 ## 给贡献者
 

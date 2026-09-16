@@ -8,3 +8,4 @@
 
 - [安装 z42](getting-started/install.md)
 - [Hello, World](getting-started/hello-world.md)
+- [工程与构建](getting-started/projects.md)

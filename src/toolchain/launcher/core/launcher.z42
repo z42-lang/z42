@@ -15,6 +15,7 @@ using Std;
 using Std.IO;
 using Std.Toml;
 using Std.Cli;
+using Std.Crypto;          // Sha256 —— 单文件运行的缓存目录按源路径取哈希
 using Z42.Build.Project;   // ManifestLocator / ManifestLoader / BuildLayout —— `z42 run <工程>`
 
 void Main() {
@@ -108,10 +109,14 @@ string _tomlStr(TomlValue root, string section, string key) {
 void _printRunHelp() {
     Console.WriteLine("z42 run — build and run a project, or run a compiled app");
     Console.WriteLine("");
-    Console.WriteLine("usage: z42 run [options] [<project-dir> | <manifest> | <app.zpkg>] [-- <program args>]");
+    Console.WriteLine("usage: z42 run [options] [<file.z42> | <project-dir> | <manifest> | <app.zpkg>] [-- <program args>]");
     Console.WriteLine("");
     Console.WriteLine("Without a target, the nearest z42.toml in the current directory or its parents is");
     Console.WriteLine("built (only what changed) and run.");
+    Console.WriteLine("");
+    Console.WriteLine("A single .z42 file is compiled and run directly — build artifacts go to the cache,");
+    Console.WriteLine("nothing is written next to your source. A single file can only use the standard");
+    Console.WriteLine("library; to declare dependencies, create a project with `z42 new`.");
     Console.WriteLine("");
     Console.WriteLine("options:");
     Console.WriteLine("  --bin <name>             pick one of the project's [[exe]] targets");
@@ -158,8 +163,21 @@ void _cmdRun(string[] rest) {
         i = i + 1;
     }
 
+    // 单文件源码：合成清单后走同一条工程构建路径。
+    if (app.EndsWith(".z42")) {
+        if (binOpt != null && binOpt.Length > 0) {
+            ConsoleError.WriteLine("z42 run: --bin does not apply to a single file (a single file has one entry)");
+            Environment.Exit(2);
+            return;
+        }
+        string sfManifest = _synthSingleFileManifest(app);
+        if (sfManifest.Length == 0) { Environment.Exit(2); return; }
+        string sfBuilt = _buildAndResolveRun(sfManifest, "");
+        if (sfBuilt.Length == 0) { Environment.Exit(1); return; }
+        app = sfBuilt;
+    }
     // 源码工程（目录 / 清单 / 未给目标）：先构建，再运行产物。
-    if (app.Length == 0 || _isSourceProject(app)) {
+    else if (app.Length == 0 || _isSourceProject(app)) {
         string manifest = _resolveRunManifest(app);
         if (manifest.Length == 0) { Environment.Exit(2); return; }
         string built = _buildAndResolveRun(manifest, binOpt ?? "");
@@ -197,10 +215,81 @@ void _cmdRun(string[] rest) {
 }
 
 // 待构建的源码目标：目录，或清单文件（`z42.toml` / `<name>.z42.toml`）。`.zpkg`/`.zbc` 直接运行。
+// 单文件（`.z42`）走 `_synthSingleFileManifest`，不经过这里。
 bool _isSourceProject(string app) {
     if (app.EndsWith(".zpkg") || app.EndsWith(".zbc")) { return false; }
     if (app.EndsWith("z42.toml")) { return true; }
     return Directory.Exists(app);
+}
+
+// ── 单文件运行 ───────────────────────────────────────────────────────────────
+//
+// `z42 run hello.z42` 在缓存目录里合成一份最小清单，之后**完全复用工程 run 路径**——增量缓存、
+// 入口自动检测、runtimeconfig 侧车、`--mode` / `--set` / `--config` 透传全部照旧。
+//
+// 这样做而不是另写一条单文件编译路径，是为了让 `z42 run hello.z42` 与「把同一段代码建成工程再跑」
+// 的语义**由构造保证一致**（同一条 z42c 代码路径），而不是靠测试去追平两套实现。
+//
+// 🔴 源文件绝不复制进缓存目录：复制后所有诊断的位置都会指向缓存路径，读者无法回到自己的文件。
+// 清单里 include 的是源文件**绝对路径**（SourceDiscovery 对 rooted 字面路径直通），诊断呈现则由
+// z42c 按当前工作目录相对化 → 读者看到的就是自己敲的 `hello.z42`。
+
+// `<SDK 根>/cache`，可用 Z42_CACHE_DIR 覆盖。
+string _cacheRoot() {
+    string c = Environment.GetEnvironmentVariable("Z42_CACHE_DIR") ?? "";
+    if (c.Length > 0) { return c; }
+    return Path.Join(_home(), "cache");
+}
+
+// 文件名 → 合法工程名（`[a-z0-9][a-z0-9._-]*`，与 `z42 new` 同规则）。
+string _sanitizeProjectName(string stem) {
+    string s = stem.ToLower();
+    string r = "";
+    int i = 0;
+    while (i < s.Length) {
+        char ch = s.CharAt(i);
+        bool ok = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+                  || ch == '.' || ch == '-' || ch == '_';
+        r = r + (ok ? ch.ToString() : "-");
+        i = i + 1;
+    }
+    if (r.Length == 0) { return "script"; }
+    char first = r.CharAt(0);
+    bool firstOk = (first >= 'a' && first <= 'z') || (first >= '0' && first <= '9');
+    if (!firstOk) { r = "z" + r; }
+    return r;
+}
+
+// 为单文件源码合成清单，返回清单路径；失败时打印原因并返回 ""。
+//
+// 缓存目录按**源文件绝对路径**取哈希（不读内容）——同一文件反复改动仍落同一条目，增量才生效。
+// 清单每次重写（成本可忽略），避免用户移动文件后清单陈旧。
+string _synthSingleFileManifest(string srcPath) {
+    if (!File.Exists(srcPath)) {
+        ConsoleError.WriteLine("z42 run: file not found: " + srcPath);
+        return "";
+    }
+    string abs = Path.IsRooted(srcPath)
+        ? srcPath
+        : Path.Join(Environment.GetCurrentDirectory(), srcPath);
+    abs = abs.Replace("\\", "/");
+
+    string name = _sanitizeProjectName(Path.GetFileNameWithoutExtension(srcPath));
+    string dir = Path.Join(Path.Join(_cacheRoot(), "run"), Sha256.HashStringHex(abs));
+    Directory.Create(dir);
+
+    string toml = "# 由 `z42 run " + Path.GetFileName(srcPath) + "` 自动生成，请勿手工编辑。\n"
+        + "# 源文件：" + abs + "\n"
+        + "[project]\n"
+        + "name    = \"" + name + "\"\n"
+        + "version = \"0.0.0\"\n"
+        + "kind    = \"exe\"\n"
+        + "\n"
+        + "[sources]\n"
+        + "include = [\"" + abs + "\"]\n";
+    string manifest = Path.Join(dir, "z42.toml");
+    File.WriteAllText(manifest, toml);
+    return manifest;
 }
 
 // 目标 → 工程清单路径。未给目标：从当前目录向上找；给了目录：只看该目录。

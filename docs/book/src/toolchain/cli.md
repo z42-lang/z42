@@ -41,7 +41,15 @@ Created executable project `hello` in hello/
 
 目标为空、目录或清单时：先以 `--quiet` 构建（只输出诊断，不输出进度），再运行产物；目标为 `.zpkg` / `.zbc` 时直接运行。
 工程声明了多个 `[[exe]]` 时必须用 `--bin` 选一个。`--mode` / `--config` / `--set` 交给 z42vm，语义见[运行时设置](../runtime/runtime-settings.md)。
-简写 `z42 <app.zpkg> [-- args]` 等价 `z42 run <app.zpkg>`。定位到工作区清单时报错，需进入成员目录运行。
+简写 `z42 <app.zpkg|.zbc|.z42> [-- args]` 等价 `z42 run <目标>`。定位到工作区清单时报错，需进入成员目录运行。
+
+**单文件**：目标为单个 `.z42` 源文件时，在缓存目录
+（`$Z42_CACHE_DIR`，缺省 `<SDK 根>/cache`）的 `run/<源文件绝对路径哈希>/` 下合成一份最小清单
+（`kind="exe"`，`include` = 源文件绝对路径），此后完全复用工程构建路径——增量缓存、入口自动检测、
+runtimeconfig 侧车一致。**源文件目录不产生任何产物**，源文件也不会被复制进缓存。
+单文件只能使用标准库（合成清单不含 `[dependencies]`）；需要依赖时用 `z42 new` 建工程。
+`--bin` 与单文件同用报错（单文件只有一个入口）。诊断位置按当前工作目录相对化呈现，
+即读者敲什么路径就看到什么路径。
 
 ### `z42 test [<目标>] [--filter <s>] [--name <n>] [--format pretty|json] [--list]`
 

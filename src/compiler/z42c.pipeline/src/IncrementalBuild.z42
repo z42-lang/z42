@@ -203,6 +203,15 @@ public static class IncrementalBuild {
         string projFwd = projectDir.Replace("\\", "/");
         string prefix = projFwd.EndsWith("/") ? projFwd : projFwd + "/";
         if (rel.StartsWith(prefix)) { return rel.Substring(prefix.Length); }
+        // 源文件在工程目录之外（单文件运行：合成清单住缓存目录，源文件在用户目录里）。
+        //
+        // 🔴 绝不能原样返回绝对路径：调用方一律拿它去 `Path.Join(cacheDir, rel)` 组缓存路径，
+        // 而 Path.Join 的第二段若是 rooted 就直接返回它 ⇒ `.zbc` / `.meta` 被写到**用户的源文件旁边**
+        // （实测：`z42 run hello.z42` 在当前目录生成 hello.zbc + hello.meta）。本函数的返回值是
+        // 缓存键 / 标识名，调用方从不拿它回读源文件，故去掉根前缀即可——既保持唯一、又保证包含在
+        // cacheDir 内；嵌套目录的创建与工程模式的 `src/Main.z42` 同路径，无需额外处理。
+        if (rel.StartsWith("/")) { return rel.Substring(1); }
+        if (rel.Length > 2 && rel.Substring(1, 2) == ":/") { return rel.Substring(3); }   // C:/…
         return rel;
     }
 }

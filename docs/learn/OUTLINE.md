@@ -9,8 +9,8 @@
 | # | 章节 | 路径 | 要点 | 状态 |
 |---|------|------|------|------|
 | 1 | 安装 z42 | `getting-started/install` | 平台支持表（无 Intel Mac）、一行命令安装、PATH、`z42 --version` 验证、安装选项、更新与卸载 | 🟢 |
-| 2 | Hello, World | `getting-started/hello-world` | `z42 new` → 工程结构 → `z42 run` → 读懂 `Main.z42` → 命令行参数 → 编译错误 | 🟢 |
-| 3 | 工程与构建 | `getting-started/projects` | `z42.toml` 各字段、`z42 build` / `--release`、产物在哪、`z42 clean`、多源文件、单文件运行（待 `z42 run hello.z42`） | ✅ |
+| 2 | Hello, World | `getting-started/hello-world` | 写 `hello.z42`（5 行，无 namespace / 无清单）→ `z42 run hello.z42` → 读懂代码 → 命令行参数 → 编译错误 | 🟢 |
+| 3 | 工程与构建 | `getting-started/projects` | 什么时候需要工程 → `z42 new` → `z42.toml` 各字段 → 多源文件与 `namespace` → `z42 build` / `--release` / 产物 → `z42 clean` | 🟢 |
 | 4 | 开发环境 | `getting-started/tooling` | VSCode 扩展、`z42 repl`、读懂编译错误（错误码链接到知识库） | 🧪 |
 
 ## 第二部分 · 语言基础（basics）

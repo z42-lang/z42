@@ -323,9 +323,18 @@ z42 publish scripts/xtask.z42.toml
 
 ## Deferred / Future Work
 
-### launcher-future-single-file-exe-zpkg: z42c 从裸 `.z42` 脚本直接产 Exe-zpkg
+### launcher-future-single-file-cache-gc: 单文件运行缓存的回收
 
-- **来源**：add-z42-launcher（原 phase 0.5）
-- **触发原因**：launcher 核心与 dev 脚本都可作为**普通 `kind="exe"` 项目**（带 `z42.toml`）经现有 `z42c build` 产 Exe-zpkg；单独实现"裸脚本 → Exe-zpkg"需在 SingleFileCompiler 重新装配 zpkg（sourceHash/namespace/deps），与已测项目路径重复，ROI 低
-- **触发条件**：若大量一次性脚本需免 `z42.toml` 的极简体验再做。**已排期**：学习手册第 3 章需要 `z42 run hello.z42`，由后续 change `add-single-file-run` 实现（方案见归档 `add-beginner-cli-onramp` design D6）
-- **当前 workaround**：脚本写成 5 行 `z42.toml`（`kind="exe"`）的 mini-project，`z42c build` 即得 Exe-zpkg
+- **来源**：add-single-file-run
+- **触发原因**：单文件运行把产物落在 `<缓存根>/run/<源文件绝对路径哈希>/`，目前**只增不减**。实测一个条目
+  约 20 KB（`dist/` 8K + 增量缓存 12K，5 行脚本），且条目数 = 跑过的**不同文件路径数**而非运行次数
+  （同一文件反复改只占一条）——短期不构成问题，故 User 2026-09-16 裁决先把基础跑通
+- **触发条件**：缓存目录体积或条目数开始被感知时；或用户要求「怎么清」时
+- **已设计的方案**（实施时直接照做）：
+  - **显式入口**：`z42 clean <file>.z42` 清单个条目；`z42 clean --cache` 清空整个 `run/`
+  - **自动回收**：`run/.gc-stamp` 机会式触发——距上次 GC < 24h 直接跳过（热路径零成本），到点才扫一遍，
+    淘汰 7 天未使用的条目。**不能每次运行都扫**：那会给 0.15 s 的热路径加一次全目录枚举，且绝大多数时候无事可做
+  - **源文件已消失即删**：GC 时读条目内合成清单的 `include`（就是源文件绝对路径），文件不存在 → 立即删，不等 7 天
+  - **条目数封顶**：超过 512 条按最久未用排序删到 512，防病理情况（脚本生成器每次用新路径）
+  - **并发**：两个 `z42 run` 同时 GC 时删除失败即跳过、不报错；正在使用的条目 mtime 是当下，不会被选中
+- **当前 workaround**：手工删除 `$Z42_CACHE_DIR`（缺省 `<SDK 根>/cache`）下的 `run/` 目录

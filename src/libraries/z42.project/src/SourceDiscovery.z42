@@ -69,6 +69,21 @@ public static class SourceDiscovery {
     // `[tests] include` 发现测试目标）看到的「这个包没有测试」与「真的没有测试」不可区分。
     // 改为逐段走：目录段照样吃 `*` / `?`。
     private static string[] _expand(string projectDir, string pattern) {
+        // ④ rooted 字面文件路径（无通配）→ 直通，不与 projectDir 拼接。
+        //
+        // 单文件运行（`z42 run hello.z42`）把用户的源文件绝对路径写进合成清单的 include，而合成清单
+        // 住在缓存目录里 —— 源文件在 projectDir **之外**，拼接必然落空。改动前实测：`z42c build:
+        // no sources matched [sources].include`（静默匹配不到，与「真的没有源文件」不可区分）。
+        //
+        // 🔴 只对 **rooted** 路径直通，不可扩到相对路径：普通工程写 `include = ["src/Main.z42"]`
+        // 时语义是「相对 projectDir」，若相对字面路径也直通，这些工程的解析基准会静默从 projectDir
+        // 变成进程 cwd。rooted 路径在改动前**必然匹配不到任何文件**，故本分支是纯增量、零回归面。
+        if (Path.IsRooted(pattern) && !SourceDiscovery._hasWildcard(pattern)) {
+            if (!File.Exists(pattern)) { return new string[0]; }   // 交给上层报 no sources matched
+            string[] one = new string[1];
+            one[0] = pattern;
+            return one;
+        }
         if (pattern.StartsWith("**/")) {
             return Path.GlobRecursive(projectDir, pattern.Substring(3, pattern.Length - 3));
         }

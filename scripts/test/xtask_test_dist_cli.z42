@@ -102,6 +102,55 @@ int[] _launcherCliSmoke(string launcher, string work) {
     acc = _distCheck(acc, bad.ExitCode == 2 && bad.Stderr.Contains("invalid project name"),
         "z42 new 非法工程名 → 退出码 2", bad);
 
+    acc = _singleFileSmoke(launcher, root, acc);
+
     Console.WriteLine("");
+    return acc;
+}
+
+// 单文件运行（add-single-file-run）：`z42 run hello.z42` / `z42 hello.z42` 简写 / `--` 传参 /
+// 诊断路径是用户敲的相对路径 / 源文件不存在 / **不在源文件旁边留任何产物**。
+int[] _singleFileSmoke(string launcher, string root, int[] acc) {
+    string dir = Path.Join(root, "single");
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "hello.z42"),
+        "using Std.IO;\n\nvoid Main() {\n    Console.WriteLine(\"Hello, World!\");\n}\n");
+
+    ProcessResult r = _distZ42(launcher, dir, _a2("run", "hello.z42"));
+    acc = _distCheck(acc, r.ExitCode == 0 && r.Stdout.Trim() == "Hello, World!",
+        "z42 run hello.z42 → Hello, World!", r);
+
+    // 源文件旁必须干干净净——产物全部落缓存目录（第 2 章「就一个文件」的卖点靠这条）。
+    string[] left = Directory.Enumerate(dir);
+    acc = _distCheck(acc, left.Length == 1 && Path.GetFileName(left[0]) == "hello.z42",
+        "单文件运行后源文件目录无新增产物", r);
+
+    ProcessResult sh = _distZ42(launcher, dir, _a1("hello.z42"));
+    acc = _distCheck(acc, sh.ExitCode == 0 && sh.Stdout.Trim() == "Hello, World!",
+        "z42 hello.z42（简写）≡ z42 run hello.z42", sh);
+
+    File.WriteAllText(Path.Join(dir, "greet.z42"),
+        "using Std.IO;\n\nvoid Main() {\n    string[] args = Environment.GetCommandLineArgs();\n"
+        + "    string name = args.Length > 0 ? args[0] : \"World\";\n"
+        + "    Console.WriteLine($\"Hello, {name}!\");\n}\n");
+    string[] ga = new string[4];
+    ga[0] = "run"; ga[1] = "greet.z42"; ga[2] = "--"; ga[3] = "Ada";
+    ProcessResult g = _distZ42(launcher, dir, ga);
+    acc = _distCheck(acc, g.ExitCode == 0 && g.Stdout.Trim() == "Hello, Ada!",
+        "z42 run greet.z42 -- Ada → 程序参数透传", g);
+
+    // 🔴 诊断位置必须是**用户敲的路径**（`typo.z42`），不是缓存目录、也不是绝对路径——
+    // 否则学习手册的会话脚本跨机器不可复现（门禁在示例目录里重放比对）。
+    File.WriteAllText(Path.Join(dir, "typo.z42"),
+        "using Std.IO;\n\nvoid Main() {\n    Consle.WriteLine(\"Hello, World!\");\n}\n");
+    ProcessResult t = _distZ42(launcher, dir, _a2("run", "typo.z42"));
+    acc = _distCheck(acc, t.ExitCode == 1 && t.Stderr.Contains("typo.z42(4,5): E0401")
+                          && !t.Stderr.Contains(dir),
+        "单文件编译错误 → 诊断路径 typo.z42(4,5)，不含绝对路径", t);
+
+    ProcessResult miss = _distZ42(launcher, dir, _a2("run", "nope.z42"));
+    acc = _distCheck(acc, miss.ExitCode == 2 && miss.Stderr.Contains("file not found"),
+        "z42 run nope.z42（不存在）→ 退出码 2", miss);
+
     return acc;
 }

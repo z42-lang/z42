@@ -1,4 +1,4 @@
-$ z42 run
-z42c build: 1 error(s) in ./src/Main.z42
-  ./src/Main.z42(6,5): E0401: undefined: Consle
+$ z42 run typo.z42
+z42c build: 1 error(s) in typo.z42
+  typo.z42(4,5): E0401: undefined: Consle
 [exit: 1]

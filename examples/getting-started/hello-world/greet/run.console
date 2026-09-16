@@ -1,4 +1,4 @@
-$ z42 run
+$ z42 run greet.z42
 Hello, World!
-$ z42 run -- 小明
+$ z42 run greet.z42 -- 小明
 Hello, 小明!
