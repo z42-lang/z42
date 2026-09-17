@@ -1,0 +1,105 @@
+// `ref` / `out` 实参的左值契约（fix-ref-lvalue-addressing）。
+//
+// 支持的形态发不同的取址指令：局部/形参 → LoadLocalAddr(0xA0)、数组元素 → LoadElemAddr(0xA1)、
+// 引用类对象的字段 → LoadFieldAddr(0xA2)。
+//
+// 拒绝的形态此前**全都编译通过、写回静默丢失**（取的是临时寄存器的地址），现在报 E0470。
+// 这些用例就是防止那条静默路径回归。
+namespace Z42cSemanticsRefLvalueTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 合法形态：不应报错 ────────────────────────────────────────────
+
+[Test]
+void test_ref_local_ok() {
+    string src = "namespace D; class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { int v = 0; C.Inc(ref v); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ref_array_element_ok() {
+    string src = "namespace D; class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { int[] a = new int[2]; C.Inc(ref a[0]); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ref_object_field_ok() {
+    string src = "namespace D; class H { public int f; }"
+        + " class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { var h = new H(); C.Inc(ref h.f); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ref_field_array_element_ok() {
+    string src = "namespace D; class W { public int[] a; }"
+        + " class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { var w = new W(); w.a = new int[2]; C.Inc(ref w.a[0]); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_out_var_inline_decl_ok() {
+    string src = "namespace D; class C { static bool T(out int v) { v = 1; return true; }"
+        + " static void M() { C.T(out var n); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 拒绝形态：E0470 ───────────────────────────────────────────────
+
+// 属性没有可取址的存储（读走 getter、写走 setter）。
+[Test]
+void test_ref_property_rejected() {
+    string src = "namespace D; class H { public int P { get; set; } }"
+        + " class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { var h = new H(); C.Inc(ref h.P); } }";
+    Assert.Equal("E0470", SemanticDump.FirstErrorCode(src));
+}
+
+// 静态字段：VM 没有 RefKind::Static，取址后写回无处可去。
+[Test]
+void test_ref_static_field_rejected() {
+    string src = "namespace D; class H { public static int S; }"
+        + " class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { C.Inc(ref H.S); } }";
+    Assert.Equal("E0470", SemanticDump.FirstErrorCode(src));
+}
+
+// 值 struct 的字段：字节在 per-frame arena 里，无对应 RefKind。
+[Test]
+void test_ref_value_struct_field_rejected() {
+    string src = "namespace D; struct P { public int x; public int y; }"
+        + " class C { static void Inc(ref int a) { a = a + 1; }"
+        + " static void M() { var p = new P(); C.Inc(ref p.x); } }";
+    Assert.Equal("E0470", SemanticDump.FirstErrorCode(src));
+}
+
+// 字面量不是左值。
+[Test]
+void test_ref_literal_rejected() {
+    string src = "namespace D; class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { C.Inc(ref 42); } }";
+    Assert.Equal("E0470", SemanticDump.FirstErrorCode(src));
+}
+
+// 调用结果不是左值。
+[Test]
+void test_ref_call_result_rejected() {
+    string src = "namespace D; class C { static int F() { return 1; }"
+        + " static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { C.Inc(ref C.F()); } }";
+    Assert.Equal("E0470", SemanticDump.FirstErrorCode(src));
+}
+
+// 数组的虚字段 .Length 无存储。
+[Test]
+void test_ref_array_length_rejected() {
+    string src = "namespace D; class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { int[] a = new int[2]; C.Inc(ref a.Length); } }";
+    Assert.Equal("E0470", SemanticDump.FirstErrorCode(src));
+}

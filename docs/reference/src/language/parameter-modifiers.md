@@ -74,28 +74,40 @@ Increment(ref c);           // ✓ 局部变量 —— 只有这一种真正写�
 Increment(ref p);           // ✓ 本方法自己的参数（含它自己的 ref 参数，见"嵌套透传"）
 ```
 
-> ### ⚠️ `ref arr[i]` 与 `ref obj.field` 会静默丢写
->
-> 数组元素和对象字段**语法上能写、编译能过，但方法里的修改不会写回去**：
->
-> ```z42
-> class Holder { public int f; }
-> void Inc(ref int x) { x = x + 1; }
->
-> int[] arr = new int[3]; arr[0] = 10;
-> Inc(ref arr[0]);
-> Console.WriteLine(arr[0]);   // 打印 10，不是 11
->
-> var h = new Holder(); h.f = 20;
-> Inc(ref h.f);
-> Console.WriteLine(h.f);      // 打印 20，不是 21
-> ```
->
-> 原因是编译器对这两种实参只发"取局部槽地址"，取到的是承载读出值的临时槽，
-> 写回落在临时槽上。**在修好之前，请先读进局部变量、调用、再写回去。**
+### 实参必须是可取址的左值
 
-对**非左值**同样不报错：`Increment(ref 42)` 与 `Increment(ref f())` 都能编译通过（写入无处可去，直接丢掉）。
-lvalue 检查**未实现**。
+能按引用传的有三种：
+
+```z42
+class Holder { public int f; }
+class Wrap { public int[] a; }
+void Inc(ref int x) { x = x + 1; }
+
+int v = 0;              Inc(ref v);        // ① 局部变量 / 形参
+int[] arr = new int[3]; Inc(ref arr[0]);   // ② 数组元素
+var h = new Holder();   Inc(ref h.f);      // ③ 引用类对象的字段
+
+var w = new Wrap(); w.a = new int[2];
+Inc(ref w.a[0]);                           // ②③ 可以组合
+```
+
+下面几种**没有可取址的存储**，编译报 **`E0470`**：
+
+| 写法 | 为什么不行 |
+|---|---|
+| `ref h.P`（属性 / 索引器） | 读走 getter、写走 setter，没有存储可取址 |
+| `ref C.S`（静态字段） | 运行时没有对应的引用种类 |
+| `ref p.x`（`p` 是值 `struct`） | 值类型的字节不在堆上，取址后无处写回 |
+| `ref 42` / `ref F()` | 字面量、调用结果不是左值 |
+| `ref arr.Length` | 虚成员，无存储 |
+
+变通办法都是同一个：**读进局部变量 → 传局部变量 → 写回去**。
+
+```z42
+int tmp = h.P;
+Inc(ref tmp);
+h.P = tmp;
+```
 
 ### 嵌套透传
 

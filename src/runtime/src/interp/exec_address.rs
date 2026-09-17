@@ -105,3 +105,7 @@ pub(super) fn method_default(frame: &mut Frame, dst: u32, param_index: u8) {
         .unwrap_or(Value::Null);
     frame.set(dst, val);
 }
+
+#[cfg(test)]
+#[path = "exec_address_tests.rs"]
+mod exec_address_tests;

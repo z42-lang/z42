@@ -1,4 +1,5 @@
 // Spec impl-ref-out-in-runtime: 嵌套调用 ref 透传
+// （此处「嵌套」= **调用**嵌套。左值表达式嵌套 `ref w.a[0]` 见 ref_field_array_elem/）
 // Outer 拿到 caller 的 ref，再把自己的 ref param 作为 ref arg 传给 Inner。
 // Inner 修改最终落到原始 caller 的 c。期望输出 101。
 
