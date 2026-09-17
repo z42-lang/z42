@@ -7,7 +7,7 @@
 > 上一次：2026-09-10（change `fix-func-constraint-reported-unknown`）；2026-09-06（change `add-associated-types` PR-1/PR-2；前序 `complete-where-constraints`）
 >
 > 本页是**泛型约束语义与校验范围的 SoT**。泛型的整体设计（代码共享策略、reified 类型、
-> 跨 zpkg 元数据）见 [`docs/book/src/language/generics.md`](generics.md)；
+> 跨 zpkg 元数据）；
 > 方法级类型参数见 [泛型方法](generic-methods.md)。
 
 ## 语法
@@ -189,7 +189,7 @@ public class Dictionary<TKey, TValue> where TKey : IEquatable { … }   // 不�
   > 泛型实参、**不下钻 `Z42FuncType`**，Self 原样漏给调用方；满足性校验侧的 `_substForIface` 同款漏、
   > 会把 `Apply(Func<Self,int>)` 判成与 `Apply(Func<C,int>)` 不匹配（假红 E0412）。两处都补了 Func 分支。
   > **接口索引器**（`Self this[int]`）的返回位走同一条替换（见
-  > [属性与索引器 · 接口索引器](member-accessors.md)）。
+  > [属性与索引器 · 接口索引器](properties-indexers.md)）。
 - 🔴 **形参位的 `Self` 不能经接口静态类型调用 —— 报 E0454**（change
   `bind-self-param-and-constraint-members`，2026-09-07）。返回位能取上界是因为它**协变**；
   形参位是**逆变**：接口只保证实参「也实现了该接口」，而实现方的签名要的是「它自己」。
@@ -300,6 +300,40 @@ VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个�
 > `static_abstract_operator.z42` 的抬头注释当时已经把这条路径描述得一清二楚，但那是**设计意图**
 > 而非现状。这正是 `--emit-zbc` 吞诊断能掩盖的那类缺陷：binder 报的错没人看见，emitter 那半边
 > 碰巧能跑，测试就绿。
+
+### 实现接口静态成员：四项校验（含跨包）
+
+接口成员可以是 `static abstract`（`INumber` 的五个 `op_X` 就是）。实现方**必须**写
+`public static override`，且满足性校验会逐项比对——**其中 static 位与返回类型曾经是真洞**，
+`MangleKey` 只比「名 + 形参」，两者都能静默通过：
+
+| 比对项 | 口径 | 不符 |
+|---|---|---|
+| 名 + 形参 | `MangleKey`（`String[]≡string[]`、`Int32≡int`、数组叶子 keyword 化） | 不算同一成员，继续找下一个重载 |
+| **static / instance** | 接口声明是 `static` 的，实现也必须是 `static`（反之亦然） | **E0412** |
+| **可见性** | 必须显式 `public` —— 类成员**无修饰默认 private**，`int M(){…}` 同样被拦 | **E0412** |
+| **返回类型** | `TypeKey` 归一相等，或**协变**（子类 / 实现该接口）。数值拓宽 `int→long` **不**放行 | **E0412** |
+
+```z42
+interface INum2 { static abstract int MakeZero(); }
+
+struct Good : INum2 { public static override int MakeZero() { return 0; } }   // ✅
+struct Bad  : INum2 { public int MakeZero() { return 0; } }                   // ❌ E0412：接口里是 static，这里是实例方法
+struct Priv : INum2 { static override int MakeZero() { return 0; } }          // ❌ E0412：默认 private，必须写 public
+```
+
+发射点：`src/compiler/z42c.semantics/src/InheritanceResolver.z42:441`（static）/ `:456`（可见性）
+/ `:478`（返回类型）。
+
+**跨包同口径**。接口方法的 static 位随 **zbc 1.41** 的接口方法块 `is_static:u8` 过 wire，
+导入侧还原真值，因此**导入接口**与本包接口接受完全相同的四项校验。在此之前 static 位从 wire
+丢失（恒 false），校验对导入接口整个跳过 ⇒ 跨包把 `static abstract` 成员实现成实例方法是**静默
+放行**的。回归门：`src/tests/cross-zpkg/iface_static_impl_mismatch/`（负例 fixture，期望 build
+error 含 `is \`static\` in the interface and an instance method here`）。
+
+> ⚠️ 这条校验只管**签名对不对**，不管**有没有实现**：接口方法的齐备性今天仍不校验（唯一的
+> 例外是[关联类型](#关联类型type-item)必须绑齐）。漏掉一个 `static abstract` 成员不会在编译期
+> 报错，会在运行期以 `VCall: function X.op_Add not found` 出现。
 
 ## 关联类型（`type Item;`）
 
@@ -518,5 +552,4 @@ Run(g, 3);   // E0422: … parameter 1 is `String`, the constraint requires it t
 ## 相关
 
 - [泛型方法](generic-methods.md) —— 方法级类型参数与 `<` 歧义消解
-- [`docs/book/src/language/generics.md`](generics.md) —— 泛型整体设计与选型
 - change [`complete-where-constraints`](../../../spec/archive/2026-09-05-complete-where-constraints/proposal.md) —— 本页所述行为的引入过程（含三层塌陷的完整定位）

@@ -78,5 +78,5 @@ this.F(new());              // ✗ E0437：重载歧义，需写 new A() / new B
 
 ## 关联文档
 
-- 相关简化：[集合字面量](../../../design/language/collection-literals.md) / [数组字面量](../../../design/language/arrays.md)
+- 相关简化：[集合字面量](collection-literals.md) / [数组](arrays.md)
 - 引入：change `add-target-typed-new`（`docs/spec/archive/`）

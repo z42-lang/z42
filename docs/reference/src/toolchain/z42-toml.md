@@ -3,7 +3,7 @@
 z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 一个目录下最多一个 `*.z42.toml`，支持单工程和多工程工作区两种形态。
 
-> **本文档的边界**：描述用户 manifest 字段（`[build]` / `[[exe]]` / `[dependencies]` / `[workspace]` 等）与构建编排语义。**不描述** `.zbc` / `.zpkg` 二进制格式（归 `compilation.md`）、编译器内部数据结构（归 [`compiler-architecture.md`](../../../internals/src/formats/zpkg.md)）。
+> **本文档的边界**：描述用户 manifest 字段（`[build]` / `[[exe]]` / `[dependencies]` / `[workspace]` 等）与构建编排语义。**不描述** `.zbc` / `.zpkg` 二进制格式（归 `compilation.md`）。
 
 ---
 
@@ -28,7 +28,7 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 
 ```toml
 [project]
-name    = "hello"      # 工程名，kebab-case
+name    = "hello"      # 包名，全小写（见下「包名命名规则」）
 version = "0.1.0"      # SemVer
 kind    = "exe"        # exe | lib
 entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
@@ -38,14 +38,47 @@ entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `name` | string | ✅ | kebab-case；作为输出文件基名和依赖引用键 |
+| `name` | string | ✅ | 全小写；作为输出文件基名和依赖引用键。命名规则见下节 |
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
 | `kind` | `"exe"` \| `"lib"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 or 类库 |
 | `entry` | string | ❌ 可选 | 完全限定入口函数。**省略时**`PackageCompiler` 自动从编译后的 module 查找 `Main`（优先 `<Namespace>.Main` 再 `<Namespace>.main` 再裸 `Main` / `main`）；找不到则**编译期报错**（2026-05-14 起）|
 
+### 包名命名规则
+
+包是**分发单位**（一份 `[project]` = 一个包），与命名空间是两个独立概念，命名规则也不同。
+
+```toml
+[project]
+name    = "z42.collections"      # ✓ 全小写，点分层级
+version = "0.1.0"
+
+[dependencies]
+"acme.web"  = "1.2.0"            # ✓ 引用时也小写
+"my-utils"  = "*"                # ✓ 单段名里的 `-` 也常见
+```
+
+- **全小写**。`z42.IO` 与 `z42.io` 不是同一个包名，别指望编译器帮你对齐大小写。
+- **`.` 表示层级**，通常是"组织.功能"（`z42.io` / `acme.payments` / `unity.physics`）。
+- **`-` 只在单段名内部用**（`my-utils` / `hello-world`），不要拿它当层级分隔符。
+- **不用 `_`**，不用大写字母。
+- **stdlib 命名族**是 `z42.<topic>`（`z42.core` / `z42.io` / `z42.numerics` / `z42.test` …）。
+  `z42.*` 是官方保留前缀——它们随工具链分发、始终可用，**不要**在
+  `[dependencies]` 里声明（会触发 WS013 警告），也不要给自己的包起 `z42.` 开头的名字。
+
+> **包名不受[命名约定](../conventions/naming.md)的 PascalCase 规则约束。** 包名出现在
+> 命令行、TOML、文件系统路径里，按发布层世界的公约（npm / Cargo / pip 都小写）；命名空间
+> 出现在源代码里，按代码层世界的公约（C# / Java 的 PascalCase）。两套规则各管一层。
+
+| 维度 | 包名 | 命名空间 |
+|------|------|---------|
+| 出现位置 | manifest、CLI、文件系统目录 | 源码 `namespace` / `using` |
+| 作用 | 分发 / 依赖管理（构建系统的"地址"）| 类型查找 / 符号路径（编译期的"路径"）|
+| 形态 | `z42.collections`、`my-utils` | `Std.Collections`、`Demo.Web.Api` |
+| 对照 | npm `@org/lib`、Cargo `tokio`、Maven `com.acme:lib` | C# / Java namespace |
+
 **`name` 与命名空间的关系：**
 
-`name` 是包的文件标识符，与命名空间**无关**。命名空间完全由源文件中的 `namespace xxx;` 声明决定，编译器在构建时从源文件中收集并写入 zpkg 的 `namespaces` 字段。`[dependencies]` 中填写的是包名（用于找文件），`using` 语句中填写的是命名空间（由源文件决定），两者无需一致。
+`name` 是包的文件标识符，与命名空间**无关**。命名空间完全由源文件中的 `namespace xxx;` 声明决定，编译器在构建时从源文件中收集并写入 zpkg 的 `namespaces` 字段。`[dependencies]` 中填写的是包名（用于找文件），`using` 语句中填写的是命名空间（由源文件决定），两者无需一致。包 `z42.collections` 里装的是 `namespace Std.Collections`——名字**刻意**不一样，一个说"谁拥有"，另一个说"代码住哪儿"。
 
 **一个 zpkg 可包含多个命名空间（C# 风格）：**
 

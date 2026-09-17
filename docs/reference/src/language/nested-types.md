@@ -55,7 +55,7 @@ typeof(Outer).GetNestedTypes();   // [Color, IShow, Inner, Point]（直接子嵌
 typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType），与字段/方法/属性并列
 ```
 
-细节见 [反射](reflection.md)。
+细节见标准库的反射 API。
 
 ## 支持范围
 
@@ -74,9 +74,8 @@ typeof(Outer).GetMembers();       // 含嵌套类型（MemberTypes.NestedType）
 
 - 跨包用**限定名**引用嵌套类型（`geo.Shape.Corner`）；当前解析包内的 `Outer.Inner`。
 - 嵌套类型自身标 `partial` —— 报 **E0435**（发射点
-  `src/compiler/z42c.semantics/src/DeclEnforcer.z42:153` `_checkNestedPartial`）。
+  `src/compiler/z42c.semantics/src/DeclEnforcer.z42:160`，`_checkNestedPartial`）。
 
 ## 相关
 
-- [反射](reflection.md) —— `IsNested` / `GetDeclaringType` / `GetNestedTypes` 的完整语义
 - [partial 类型](partial-types.md) —— partial 的一般规则（嵌套是其中的例外）

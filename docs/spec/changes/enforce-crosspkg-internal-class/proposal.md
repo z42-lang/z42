@@ -20,7 +20,7 @@ internal class Secret { }              // 默认 internal（顶层→模块）
 void Use() { var s = new Secret(); }   // 跨包引用 A 的 internal 类 → 今天零诊断编译通过 ✗（应 E0404）
 ```
 
-这是 default-member-private #181 与[语言规范](../../../design/language/access-control.md)承诺的**最后一块**。
+这是 default-member-private #181 与[语言规范](../../../reference/src/language/access-control.md)承诺的**最后一块**。
 封装在跨包类型层面仍形同虚设。本变更补上强制的**数据载体**：把类声明可见性序列化进 zbc TYPE 记录，
 importer 还原后即激活 ① 已埋好的 internal deny 分支。
 
@@ -72,7 +72,7 @@ importer 还原后即激活 ① 已埋好的 internal deny 分支。
 |---------|------|------|
 | `docs/internals/src/formats/zbc.md` | MODIFY | Minor changelog 加 1.33 行 |
 | `docs/internals/src/formats/zpkg.md` | MODIFY | Minor changelog 加 0.38 行 |
-| `docs/design/language/access-control.md` | MODIFY | Status：跨包 internal 类强制已实现（移出 Deferred） |
+| `docs/reference/src/language/access-control.md` | MODIFY | Status：跨包 internal 类强制已实现（移出 Deferred） |
 | `src/tests/cross-zpkg/class-internal-access/` | ADD | 跨包 e2e：B 包引用 A 包 internal 类 → 期望 E0404 |
 
 ## Out of Scope（Deferred）

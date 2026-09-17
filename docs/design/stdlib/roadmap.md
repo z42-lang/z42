@@ -160,7 +160,7 @@ P1 剩余条目（`z42.threading.sync` / `z42.crypto` / `z42.net` / `z42.async`�
 
 - VM 内部 intrinsic 调整（属 stdlib.md L1 层）
 - 现有包的 bug fix / 小特性补丁（直接走 docs/spec/changes/）
-- 语言特性扩展（lambda / async / 反射）— 见 [language-overview.md](../language/language-overview.md) + roadmap L3 段
+- 语言特性扩展（lambda / async / 反射）— 见 [language-overview.md](../../reference/src/language/README.md) + roadmap L3 段
 
 ---
 

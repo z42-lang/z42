@@ -53,4 +53,4 @@ lambda 里的裸名静态成员**不是捕获**：读到的是调用时的当前
 - `C.x += v` 此前报 `E0401 undefined: C`：`AssignTyper` 为 event `+=`/`-=` 做的拦截先把接收者当表达式绑定，
   `=` 分支早有「接收者是类名就跳过」的判定、`+=` 分支漏了；两处现共用 `_isStaticRecv`。
 
-静态属性的访问器派发见 [属性与索引器 · 静态属性](member-accessors.md#静态属性add-static-properties)。
+静态属性的访问器规则见[属性与索引器](properties-indexers.md)。

@@ -260,7 +260,7 @@ The rule above generalizes to the *entire* standard library, not just `z42.core`
 ### strict-using-resolution (2026-04-28)
 
 The compiler enforces strict package-based using resolution
-（[namespace-using.md](../language/namespace-using.md#strict-using-resolution-2026-04-28)）：
+（[namespace-using.md](../../reference/src/language/namespaces.md#strict-using-resolution-2026-04-28)）：
 
 - **Prelude whitelist**：硬编码 `Z42.Core.PreludePackages.Names = { "z42.core" }`。
   仅 z42.core 的 namespace 默认可见；扩展需 spec proposal。

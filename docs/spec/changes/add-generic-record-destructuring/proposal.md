@@ -33,7 +33,7 @@
 | `src/compiler/z42c.semantics/src/BoundPattern.z42` | MODIFY(若需) | `BoundPositionalPattern.Type`/`BoundPropertyPattern.Type` 存 resolved（instantiated）类型；emit 侧已能解开，多半无需改，实施期坐实 |
 | `src/tests/pattern-matching/pattern_generic.z42` | NEW | e2e 自检（Assert）：`Box<int>(x)`/`Pair<A,B>(a,b)` switch-stmt/expr + is + 解构声明；嵌套泛型字段 `Pair<int, Box<int>>`；jit 双验 |
 | `src/compiler/z42c.semantics/tests/analyzer/analyzer_tests.z42` | MODIFY(若需) | 若加负例（泛型 struct record 仍 defer 报错）用 `SemanticDump.FirstErrorCode` 单测 |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 泛型 record 解构从 Deferred 上移正文，记录擦除式语义 + `_substGeneric` 替换机制 |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 泛型 record 解构从 Deferred 上移正文，记录擦除式语义 + `_substGeneric` 替换机制 |
 | `src/compiler/z42c.semantics/README.md` | MODIFY(若需) | 功能索引更新 |
 
 **只读引用**（理解上下文必须读，不修改）：

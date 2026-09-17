@@ -159,7 +159,7 @@ interface IShape {
 getter 体。
 
 > 绑定期与发射期怎么分工、这条不变量历史上的四个漏口，见
-> [源码编译：属性的「源名 ↔ 后备字段名」落差](../../../internals/src/compiler/source-compile.md)。
+> 「源名 ↔ 后备字段名」的落差属编译器实现细节，本手册不展开。
 
 ---
 
@@ -260,8 +260,7 @@ int v = b[0];                         // → b.get_Item(0)，虚派发到实现�
 
 - [访问权限控制](access-control.md)——默认可见性、修饰符四级
 - [静态构造函数](static-constructors.md)——静态属性初始化器的执行时机
-- [错误码体系](../../../internals/src/compiler/error-codes.md)——E0402 / E0452 等
-- 实现机制：[源码编译](../../../internals/src/compiler/source-compile.md)
+- [错误码全量表](../appendix/error-codes.md)——E0402 / E0452 等
 - 测试：`src/tests/classes/auto_property.z42`、`src/tests/classes/static_properties.z42`、
   `src/tests/classes/property_initializers.z42`、`src/tests/types/computed_property.z42`、
   `src/tests/types/expression_bodied_members.z42`、`src/tests/classes/indexer_basic.z42`、

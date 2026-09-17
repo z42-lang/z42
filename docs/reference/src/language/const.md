@@ -4,8 +4,7 @@
 
 `const` 声明一个**编译期常量**：值在编译期即已确定，**没有存储**，每处引用都被编译器直接
 替换为对应字面量。它既是意图声明，也是给优化器的最强"燃料"——替换出的字面量喂给
-[常量折叠 pass](../../../internals/src/runtime/optimization-pipeline.md#机制--实现)，并驱动
-[常量条件死分支消除](../../../internals/src/runtime/optimization-pipeline.md#机制--实现)。
+常量折叠，并驱动常量条件的死分支消除。
 
 与 [`readonly`](readonly-fields.md) 的区别：`readonly` 是**运行期**不可变（每实例有存储、
 构造时赋一次）；`const` 是**编译期**常量（无存储、无实例、值内联到使用点）。
@@ -69,7 +68,7 @@ void g() {
 - **喂常量折叠**：替换出的字面量参与既有 ConstFold——`const int N=3; i < N` 中 `N` 变字面量 `3`，
   比较随之折叠；`Config.Max * 5` 折成 `500`。
 - **死分支消除**：`const bool Debug=false; if (Debug) { … }` 的条件变常量 `false`，
-  [dead-branch pass](../../../internals/src/runtime/optimization-pipeline.md#机制--实现) 把 `br.cond` 折成无条件 `br`
+  死分支消除会把条件跳转折成无条件跳转
   并移除不可达的 then 块。
 
 ## 当前边界（Deferred）
@@ -82,6 +81,5 @@ void g() {
 
 ## 关联文档
 
-- 机制 / 优化：[优化管线](../../../internals/src/runtime/optimization-pipeline.md)（const 传播 + dead-branch）
 - 对比：[readonly 字段](readonly-fields.md)（运行期不可变）
 - 引入：change `add-const-keyword`（`docs/spec/archive/`）

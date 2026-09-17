@@ -2,7 +2,7 @@
 
 > SoT。`make-enum-distinct-type`（2026-09-09）之前 z42 的 enum 是 **enum-as-int**：
 > 成员就是 `long`、类型名是个孤立的类。本页描述的是取代它的模型。旧模型的残留描述
-> 曾散落在 [`runtime/struct-value-semantics.md`](../../../internals/src/runtime/struct-value-semantics.md)，
+> 曾散落在多处，
 > 已改为指回本页。
 
 ## 一句话
@@ -180,5 +180,5 @@ false**。解法是让 enum 盒的候选类名换成**底层类型** `Std.Int64`
 ## 相关
 
 - [模式匹配](pattern-matching.md) —— enum 的常量模式 / 关系模式（`>= Status.NotFound and < Status.ServerError`）
-- [`runtime/struct-value-semantics.md`](../../../internals/src/runtime/struct-value-semantics.md) —— 值类型的
+- [所有权与内存模型](memory-model.md) —— 值类型的
   `GetType()` 折叠与装箱-struct Object 协议（enum 的 `GetType()` 折叠与之同源）

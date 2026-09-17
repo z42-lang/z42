@@ -25,6 +25,6 @@
 
 ## 5. GREEN + 文档 + 落地
 - [x] `rm -rf artifacts/build/compiler && xtask build compiler`（clean-cold 绿，retry-on-fail 收敛 pre-A1 seed）
-- [x] `docs/book/src/language/pattern-matching.md` 补 A2；`examples/patterns.z42` 补例
+- [x] `docs/reference/src/language/pattern-matching.md` 补 A2；`examples/patterns.z42` 补例
 - [ ] `xtask test compiler`（lexer/parser 单测）
 - [ ] PR → 盯 CI（gen1==gen2 不动点 + test-vm/stdlib-jit + bootstrap-no-csharp = 权威 GREEN）→ 合并 → 删 worktree/分支

@@ -59,7 +59,7 @@ public delegate bool Predicate<T>(T arg);
 |----|------|
 | 持有量 | 一个实例持 0 或 1 个 handler（target + method）|
 | 调用 | `f(arg)` 等价 `f.Invoke(arg)` |
-| null | 调用 null delegate 抛 `NullReferenceException`（C# 一致）；用 `?.Invoke()` 短路 |
+| null | 调用 null delegate 是**运行期错误**；当前它不是可 `catch` 的 `NullReferenceException`，而是直接终止执行的 VM 错误。**务必用 `?.Invoke()` 短路**（单播 event 字段默认就是 null）|
 | 方法组转换 | `Action<int> a = SomeMethod;` / `obj.Method` 编译期合成 delegate 值 |
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
 | `+=` / `-=` | 单播类型上这两个操作符**只在 `event` 字段上**有意义（见 §5）|
@@ -300,10 +300,14 @@ button.OnKeyDown += handleKey;       // 单播：set
 button.OnKeyDown += otherHandler;    // ✗ InvalidOperationException
 button.OnKeyDown -= handleKey;       // 清空
 
-using (button.Clicked.Subscribe(handler)) {   // scoped 订阅
-    DoStuff();
-}   // 块结束 → token.Dispose() → 自动退订
+// scoped 订阅：拿住 token，用完显式 Dispose
+IDisposable sub = button.Clicked.Subscribe(handler);
+DoStuff();
+sub.Dispose();       // 退订
 ```
+
+> z42 **没有** C# 的 `using (…) { }` 语句（`using` 只是命名空间导入指令），所以订阅
+> token 需要自己 `Dispose()`。
 
 ### 5.5 interface event
 

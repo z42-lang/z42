@@ -93,7 +93,7 @@ zbc / zpkg 里类型引用一律 intern 进字符串池（非封闭 tag enum）�
 - **元数 2..8**；更大元组报错（可后续加 `Rest` 嵌套，如 C#）。
 - 嵌套元组的**链式字段访问** `t.Item1.Item2` 可直接读写（2026-09-15 fix-generic-struct-chain-access 修复；
   此前读到外层同偏移字段）。但嵌套在元组里的 struct 值目前**不是独立副本**——见
-  [struct 值语义「泛型擦除槽的值复制」](../../../internals/src/runtime/struct-value-semantics.md#收敛面与延后)。
+  struct 的值复制语义见[所有权与内存模型](memory-model.md)。
 - **具名元组元素** `(x: int, y: int)`、`Deconstruct` 方法载体、`(T)[]` / `(T)?` 后缀——均后议。
 
 ## 相关

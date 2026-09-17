@@ -19,7 +19,7 @@ z42vm —— Rust 写的虚拟机：加载 `.zpkg`、执行字节码、管理内
 |---|---|
 | **执行** | [执行模型](execution-model.md) · [JIT 惰性逐函数编译](jit.md) · [解释器/JIT 语义单一真相源](interp-jit-semantics.md) · [超级指令融合](superinstr-fusion.md) · [优化管线](optimization-pipeline.md) · [加载期可用性折叠](availability-folding.md) |
 | **内存与 GC** | [GC 子系统与 safepoint 协议](gc.md) · [GC 调参与诊断旋钮](gc-tuning.md) · [TLAB 线程本地分配](gc-tlab.md) · [增量 major：SATB 屏障](gc-incremental-major.md) · [逃逸分析与栈上分配](escape-analysis.md) · [堆保留诊断](heap-diagnostics.md) |
-| **对象与类型** | [struct 值语义](struct-value-semantics.md) · [反射 Type 身份](reflection-type-identity.md) · [静态构造函数初始化](static-ctor-init.md) · [缺符号不再静默](missing-symbol.md) |
+| **对象与类型** | [委托与事件的实现](delegates-events.md) · [struct 值语义](struct-value-semantics.md) · [反射 Type 身份](reflection-type-identity.md) · [静态构造函数初始化](static-ctor-init.md) · [缺符号不再静默](missing-symbol.md) |
 | **加载** | [加载上下文](load-context.md) · [运行时设置的实现](runtime-settings.md) |
 | **并发** | [同步原语](sync-primitives.md) · [并发与 async](concurrency.md) |
 | **原生互操作** | [native interop ABI](object-abi.md) · [Native 扩展加载机制](native-ext-loader.md) · [Native 扩展库范式](native-extensions.md) · [Native 库布局与解析](native-libraries.md) |

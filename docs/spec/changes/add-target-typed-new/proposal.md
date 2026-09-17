@@ -3,7 +3,7 @@
 > Status: **DRAFT → IMPL**（2026-08-09；User 已确认全位置含传参重构）
 > 分类：lang（新语法）→ 走规范先行流程
 > 子系统：compiler（纯前端）
-> 实现原理与用户文档见 [book: target-typed new](../../../book/src/language/target-typed-new.md)
+> 实现原理与用户文档见 [book: target-typed new](../../../reference/src/language/target-typed-new.md)
 
 ## Why
 

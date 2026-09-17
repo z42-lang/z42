@@ -64,7 +64,7 @@ record 位置解构，泛型解构 defer）；**struct record 的位置解构**�
 | `src/compiler/z42c.semantics/src/OperatorEmitter.z42` | MODIFY | `_emitSwitchExpr`（`:141`）：同上 |
 | `src/compiler/z42c.semantics/src/TypeOpEmitter.z42` | MODIFY | `_emitIs`：扩为完整模式 lowering（复用 `PatternEmitter`） |
 | `src/tests/pattern-matching/pattern_core.z42` | NEW | e2e 自检（`Assert`，空 stdout 范式）：通配/常量/类型/位置/属性/嵌套/守卫/绑定作用域，switch-stmt + switch-expr + `is` 三位点 |
-| `docs/book/src/language/pattern-matching.md` | NEW | 机制页：文法、裸名歧义规则、record 位置解构原理、lowering 数据流（含 mermaid/伪代码） |
+| `docs/reference/src/language/pattern-matching.md` | NEW | 机制页：文法、裸名歧义规则、record 位置解构原理、lowering 数据流（含 mermaid/伪代码） |
 | `src/compiler/z42c.syntax/README.md` | MODIFY | 功能索引 + `Pattern.z42`/`PatternParser.z42` |
 | `src/compiler/z42c.semantics/README.md` | MODIFY | 功能索引 + `BoundPattern.z42`/`PatternBinder.z42`/`PatternEmitter.z42` |
 

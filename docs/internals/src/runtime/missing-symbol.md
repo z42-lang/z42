@@ -250,7 +250,7 @@ module.classes 里有            → 回落描述符正确，放行
 
 ## 想主动降级怎么办
 
-用编译期宏 [`available!(X)`](../../../book/src/language/available-macro.md) 把那条分支保护起来：被保护的
+用编译期宏 [`available!(X)`](../../../reference/src/language/available-macro.md) 把那条分支保护起来：被保护的
 分支会在**加载期整块剪掉**，其符号永不参与解析，因此不会触发本异常。这是本机制的
 **唯一显式豁免通道**。
 

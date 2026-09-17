@@ -69,7 +69,7 @@ xtask test e2e --dir libraries/z42.core         # 本库的 Main-based golden �
 | `NotImplementedException.z42` | Exception | 方法未实现 |
 | `NotSupportedException.z42` | Exception | 方法不支持当前场景 |
 
-详见 `docs/design/language/exceptions.md`。
+详见 `docs/reference/src/language/exceptions.md`。
 
 ## src/Collections/ — 基础泛型集合三件套
 

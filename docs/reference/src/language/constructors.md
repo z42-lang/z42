@@ -83,7 +83,7 @@ Kotlin / Dart 只是把转发写得更短；C++11 要显式写 `using Base::Base
 
 ## 可见性
 
-构造器与字段、方法遵守同一套可见性规则（见 [访问权限强制](../../../internals/src/compiler/access-control.md)）：
+构造器与字段、方法遵守同一套可见性规则（见[访问权限控制](access-control.md)）：
 
 | 写法 | 谁能调用（`new` / `: base(..)` / `: this(..)`） |
 |---|---|
@@ -122,4 +122,4 @@ class Token {
 2026-09-15 之前 z42 **不自动调用基类构造器**，而「无显式构造器的类」只内联**同一编译单元**里祖先的字段初始化器：
 同包跨文件、跨包的基类初始化器静默丢失；`class D : W { }` 连基类构造器也不执行；派生类也无法继承基类构造器。
 回归用例：`src/tests/classes/implicit_base_ctor.z42`、`src/tests/classes/inherited_ctors.z42`、
-`src/tests/cross-zpkg/inherited_ctor_cross_pkg/`。实现见 [构造器继承与隐式 base()](../../../internals/src/compiler/ctor-inheritance.md)。
+`src/tests/cross-zpkg/inherited_ctor_cross_pkg/`。

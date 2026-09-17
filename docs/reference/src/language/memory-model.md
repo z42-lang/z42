@@ -98,7 +98,7 @@ if (TryParse("42", out var n)) { /* 这里能用 n */ }
 ## 装箱
 
 把 `struct` 或基本类型赋给 `object` 或接口类型时会**装箱**——值被复制到一份堆对象里。
-装箱后的那份有自己的引用身份，改原值不影响它。详见[装箱](boxing.md)。
+装箱后的那份有自己的引用身份，改原值不影响它。装箱的完整规则见[类型转换](conversions.md)的 `Boxing` / `Unboxing` 两节。
 
 ## 什么时候真的需要关心
 
@@ -134,5 +134,5 @@ if (TryParse("42", out var n)) { /* 这里能用 n */ }
 ## 相关
 
 - [结构体](structs.md)——struct 的定义与限制
-- [装箱](boxing.md)——值类型与 `object` 之间的转换
+- [类型转换](conversions.md)——值类型与 `object` 之间的装箱 / 拆箱
 - [参数修饰符](parameter-modifiers.md)——`ref` / `out` / `in` / `params` 的完整语法

@@ -45,8 +45,8 @@ C#（`System.Tuple` 引用版**已弃**→ `System.ValueTuple` struct 值版）�
 | `src/compiler/z42c.semantics/src/*Typer/*Emitter` | MODIFY | `TupleExpr` 类型检查 + emit（脱糖 `StructAlloc`+`StructFieldSetPrim`）；元组类型解析/单态化 struct 布局接线 |
 | `src/libraries/z42.core/src/ValueTuple.z42` | NEW(可能) | 合成 `[Record] struct ValueTuple<T1,…>`（若采「元组=命名合成 struct」路线）；或纯编译器内部合成、无 stdlib 源 |
 | `src/tests/tuples/tuple_basic.z42` | NEW | e2e：元组字面量/返回/解构声明/switch/is 模式；嵌套元组 `((x,y),z)`；含引用元素 `(string,int)`；jit 双验 |
-| `docs/book/src/language/tuples.md` | NEW | 元组类型/字面量/模式 + 值语义（struct blob）+ 零 bump 决策记录 |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 元组模式接入三位点 |
+| `docs/reference/src/language/tuples.md` | NEW | 元组类型/字面量/模式 + 值语义（struct blob）+ 零 bump 决策记录 |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 元组模式接入三位点 |
 
 **只读引用**（理解上下文必须读，不修改）：
 - `src/libraries/z42.ir/src/BinaryFormat/ZpkgWriter.z42`(:340)/`ExportedTypes.z42` — 类型引用=字符串池证据

@@ -49,7 +49,7 @@ pre-1.0 正是修地基的窗口。终态 = **file-scope 默认 + `global using`
 | `scripts/test/xtask_test.z42`、`xtask_test_lib.z42` | 补 `using Std.Cli;` |
 | `src/toolchain/builder/core/builder_hooks.z42` | 补 `using Std.Test;` |
 | `src/toolchain/builder/core/builder_publish.z42`、`launcher/core/launcher_export.z42` | 补 `using Std.Cli;` |
-| `docs/design/language/namespace-using.md` | file-scoped usings + global using 语法/语义节 |
+| `docs/reference/src/language/namespaces.md` | file-scoped usings + global using 语法/语义节 |
 | `examples/global_using/`、`src/tests/...` | 示例 + 跨文件 golden |
 
 ## Out of Scope

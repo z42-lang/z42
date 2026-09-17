@@ -1,17 +1,38 @@
-# z42 Phase 1 Grammar (PEG notation)
+# z42 Grammar sketch (PEG notation)
 #
-# === Source of Truth (SoT) ===
+# ███ 警告：本文件是**参考性快照，不是 SoT**，且目前无任何自动校验 ███
 #
-# This file is the **machine-readable SoT** for z42 syntax. The C# parser
-# (`z42.Syntax.Parser.*`) must accept exactly the language defined here;
-# `Z42.Tests.GrammarSyncTests` enforces parity by cross-checking this file
-# against the parser's keyword/symbol tables.
+# 真相是同目录的实现：
+#   src/libraries/z42c.syntax/src/Lexer.z42        —— 关键字 / token 表
+#   src/libraries/z42c.syntax/src/*Parser.z42      —— 产生式本体
 #
-# The narrative companion (intended for language users) is
-# `docs/design/language/language-overview.md`. When syntax changes:
-#   1. Update this file FIRST (the rule is the contract)
-#   2. Then update language-overview.md to keep the prose in sync
-#   3. Run `dotnet test --filter GrammarSync` to catch any drift
+# 本文件头部原先声明的 SoT 机制（「C# parser `z42.Syntax.Parser.*` 必须精确接受本文定义的
+# 语言」+ `Z42.Tests.GrammarSyncTests` parity 门禁 + `dotnet test --filter GrammarSync`）
+# **已随自举整族消失**：全仓零个 `.cs`、`GrammarSyncTests` 不存在、无 dotnet。于是本文件
+# 自那以后**无人校验、漂移不受控**。读它之前先读下面的已知漂移清单；改 parser 时**请顺手
+# 改它**（它就放在 parser 旁边，正是为了让这件事的概率大一些）。
+#
+# ─── 已知漂移清单（2026-09-17 抽查，以下 8 处与实现不符）─────────────────────
+# 本清单只记录「文件写的」与「parser 做的」之差，不修产生式本身。
+# 清单不完备——它是一次抽查的结果，不是穷举。
+#
+#  1. param（见 `param`）缺 `ref` / `out` / `in` 形参修饰（MemberParser.z42:340）、
+#     缺 `params` 变长（Lexer.z42:474 有该关键字）、缺形参 attribute（Decl.z42:16 `Param.Attrs`）。
+#  2. using_decl 缺 `global using`（Parser.z42:364）、缺类型别名 `using Id = T;`（Parser.z42:378）。
+#  3. class_member 里 `record_decl` **在本文件内无定义**（悬空自指）；且缺
+#     `interface_decl` / `enum_decl`（嵌套类型已支持）、`operator_decl`（MemberParser.z42:174-180）、
+#     `implicit` / `explicit` 转换运算符（MemberParser.z42:158-159）、`delegate_decl`
+#     （MemberParser.z42:120）、`event` 字段修饰（DeclParser.z42:110）、indexer（`T this[..]`）。
+#  4. type_param **完全没有 `where` 约束**。`where` 是关键字（Lexer.z42:483），解析在
+#     TypeParser.z42:49 `_parseWhereClause`；它是 static-abstract / INumber 体系的核心。
+#  5. top_decl 缺 `delegate_decl`、缺 `const` 声明（Lexer.z42:476）、缺 `impl` 块（Parser.z42:406）。
+#  6. **集合字面量完全缺失**：primary_expr 里没有 `[1,2,3]` / `[v;n]` / `[..a]` / `{1,2,3}` /
+#     `{"a":1}` 任何一个分支，而 ExprParser.z42:277 + :593-627 与 CollectionTyper.z42 全都实现了。
+#  7. object_initializer 缺**字段简写** `new Point { x, y }`（Ast.z42:446-453 `ObjInitExpr`，
+#     简写展开为 FieldValues[i] = IdentExpr）。
+#  8. primitive alias 注释列了**不存在**的 `decimal` / `dynamic`（Lexer.z42:487-495 没有），
+#     反而漏了实际存在的 Rust 风别名 `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64`。
+# ─────────────────────────────────────────────────────────────────────────────
 #
 # === PEG Notation ===
 #

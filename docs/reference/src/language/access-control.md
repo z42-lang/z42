@@ -308,5 +308,4 @@ public extern bool IsNested { get; }               // 顶层 vs 嵌套（正交�
 - [属性与索引器](properties-indexers.md)——属性 / 索引器的默认可见性与访问器修饰符
 - [静态成员](static-members.md) / [构造函数](constructors.md)
 - 实现机制（强制点、`CheckAccess` 判据、跨包 internal 的元数据链路）：
-  [访问权限强制](../../../internals/src/compiler/access-control.md)
-- [错误码体系](../../../internals/src/compiler/error-codes.md)
+- [错误码全量表](../appendix/error-codes.md)

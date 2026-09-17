@@ -28,7 +28,7 @@
 | `src/runtime/src/interp/mod.rs` | MODIFY | `resolve_forwarded_mta` helper（按调用方 frame 解析 `$mta:N`） |
 | `src/runtime/src/interp/exec_call.rs` | MODIFY | 静态调用入口解析转发标记 |
 | `src/runtime/src/interp/exec_vcall.rs` | MODIFY | 实例/null-recv vcall 入口解析转发标记 |
-| `docs/book/src/language/generic-methods.md` | MODIFY | 方法级形参转发机制（`$mta:<idx>`）+ 边界更新 |
+| `docs/reference/src/language/generic-methods.md` | MODIFY | 方法级形参转发机制（`$mta:<idx>`）+ 边界更新 |
 | `docs/roadmap.md` | MODIFY | 0.4.3 G3 标 ✅ + Deferred Backlog 条目更新 |
 
 > `z42.core/src/README.md` 不改：该 README 未itemize Reflection/ 子目录（4 层，无 per-file 索引），

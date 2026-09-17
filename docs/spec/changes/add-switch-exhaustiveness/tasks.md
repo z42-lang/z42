@@ -21,7 +21,7 @@
 ## 3. GREEN + 文档 + 落地
 - [x] clean `xtask build compiler`（rm -rf artifacts/build/compiler 后自建；避增量 staleness）
 - [x] clean `xtask test compiler`（self-build + units 含 exhaust + 自举不动点 gen1==gen2 + 回归 全绿 exit 0）
-- [x] `docs/book/src/language/pattern-matching.md` 补 C 节（含 analyzer/sealed 两事实校正）
+- [x] `docs/reference/src/language/pattern-matching.md` 补 C 节（含 analyzer/sealed 两事实校正）
 - [ ] PR → 盯 CI（gen1==gen2 + test-vm/stdlib-jit + bootstrap-no-csharp = 权威 GREEN）→ 合并 → 删 worktree/分支
 
 ## 备注（本次踩坑教训）

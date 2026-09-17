@@ -140,4 +140,4 @@ z42c 是文件级增量（1 源文件 ↔ 1 cache 条目）。partial 让类型�
 ## 关联
 
 - 引入：change `add-partial-types`（2026-07-22）。
-- 诊断码：`E0430`–`E0435`（见 [错误码体系](../../../internals/src/compiler/error-codes.md)）。
+- 诊断码：`E0430`–`E0435`（见[错误码全量表](../appendix/error-codes.md)）。

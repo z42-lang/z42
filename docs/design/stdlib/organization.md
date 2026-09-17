@@ -4,7 +4,7 @@
 > 让后续添加新包（z42.threading、z42.json、z42.linq 等）有明确的依据。
 >
 > **受众**：stdlib 设计者、新包提案者、reviewer。
-> **不是**：用户使用文档（用户视角看 `docs/design/language/language-overview.md`）。
+> **不是**：用户使用文档（用户视角看 `docs/reference/src/language/README.md`）。
 
 ---
 

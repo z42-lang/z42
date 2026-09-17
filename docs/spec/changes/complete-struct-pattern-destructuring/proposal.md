@@ -43,7 +43,7 @@
 | `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY(若需) | 若 `_copyRegion` 经 ExprEmitter 转发，加转发方法（`_access` 现 private） |
 | `src/tests/pattern-matching/pattern_tests.z42` | MODIFY | :59-65（嵌套 `Line(a,b)=l`）、:67-73（boxed `o is Point(x,y)`）从「期望 E0402」改为「期望成功匹配 + 字段值正确」；jit 双验 |
 | `src/tests/pattern-matching/pattern_struct_complete.z42` | NEW(若需) | 补充 e2e：多层嵌套 struct（`Triangle(Line(Point(x,_),_),_)`）、boxed struct 在 switch/is/解构声明三位点；jit 双验 |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 两个 defer 从 Deferred 移除；记录嵌套 struct 值副本（StructAlloc+copyRegion）+ boxed 拆箱（AsCast→StructRef）机制 |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 两个 defer 从 Deferred 移除；记录嵌套 struct 值副本（StructAlloc+copyRegion）+ boxed 拆箱（AsCast→StructRef）机制 |
 
 **只读引用**（理解上下文必须读，不修改）：
 - `src/compiler/z42c.semantics/src/AccessEmitter.z42` — `_emitBlobFieldGet`(:219-235) 嵌套 struct 读模型

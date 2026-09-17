@@ -370,7 +370,7 @@ getter 是真实函数体。
 
 #### 重载决议：默认值形参、命名实参、params 两种形态
 
-> fix-overload-defaults-named-args（2026-09-15）。语言规则见 [命名实参](../../../book/src/language/named-arguments.md)。
+> fix-overload-defaults-named-args（2026-09-15）。语言规则见 [命名实参](../../../reference/src/language/named-arguments.md)。
 
 `OverloadResolver.Resolve` 只认「形参个数 == 实参个数」。在它之上，`OverloadResolver.Map` / `ResolveMapped` 按 C#
 的规则把实参**映射**到形参再判适用：
