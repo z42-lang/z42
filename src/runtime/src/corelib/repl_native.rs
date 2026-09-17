@@ -49,7 +49,7 @@ pub fn readline(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
 }
 
 #[cfg(feature = "native-interop")]
-mod native {
+pub(super) mod native {
     use super::*;
     use std::ffi::{c_char, c_void, CStr, CString};
     use std::path::PathBuf;
@@ -80,6 +80,7 @@ mod native {
         unsafe extern "C" fn(*const c_char, *const ReplCallbacks, *mut i32) -> *mut c_char;
     type FreeFn = unsafe extern "C" fn(*mut c_char);
     type LastErrorFn = extern "C" fn() -> *const c_char;
+    type SetKeywordsFn = unsafe extern "C" fn(*const c_char);
 
     /// Resolved cdylib entries + the `Library` handle kept alive for the process so
     /// the fn ptrs stay valid.
@@ -87,6 +88,10 @@ mod native {
         readline: ReadlineFn,
         free: FreeFn,
         last_error: LastErrorFn,
+        /// **可选**：语法着色的关键字注入口。老版本 cdylib 没有这个符号——
+        /// 拿不到就 `None`，REPL 照常工作、只是输入行不着色。硬绑定会让
+        /// 新 VM 配旧 cdylib 时整个 REPL 退化成 plain-stdin，代价不成比例。
+        set_keywords: Option<SetKeywordsFn>,
         _lib: libloading::Library,
     }
 
@@ -96,6 +101,17 @@ mod native {
 
     fn loaded() -> Option<&'static LoadedRepl> {
         LOADED.get_or_init(load).as_ref()
+    }
+
+    /// 把 z42 侧的关键字表（`\n` 分隔）交给编辑器 cdylib 做语法着色。
+    /// 没加载到 cdylib、或 cdylib 太老没有这个符号时静默 no-op。
+    pub(in crate::corelib) fn set_keywords(joined: &str) {
+        let Some(l) = loaded() else { return };
+        let Some(f) = l.set_keywords else { return };
+        let Ok(c) = std::ffi::CString::new(joined) else { return };
+        // SAFETY: `f` 来自本进程持有的 Library（`_lib` 保活）；`c` 在调用期间存活，
+        // 且 cdylib 侧只读取、不保留该指针（它把内容拷进自己的关键字集）。
+        unsafe { f(c.as_ptr()) };
     }
 
     /// Probe the repl-specific candidate paths (env override → sibling of the running
@@ -125,7 +141,13 @@ mod native {
         let readline: ReadlineFn = *lib.get::<ReadlineFn>(b"z42_repl_readline")?;
         let free: FreeFn = *lib.get::<FreeFn>(b"z42_repl_free")?;
         let last_error: LastErrorFn = *lib.get::<LastErrorFn>(b"z42_repl_last_error")?;
-        Ok(LoadedRepl { readline, free, last_error, _lib: lib })
+        // 可选符号：缺失不是错误（见 LoadedRepl::set_keywords 的注释）。
+        let set_keywords: Option<SetKeywordsFn> =
+            lib.get::<SetKeywordsFn>(b"z42_repl_set_keywords").ok().map(|f| *f);
+        if set_keywords.is_none() {
+            tracing::debug!("repl: cdylib has no z42_repl_set_keywords; input line will not be colored");
+        }
+        Ok(LoadedRepl { readline, free, last_error, set_keywords, _lib: lib })
     }
 
     /// Repl-specific search order — NOT `ext::native_search_paths()`:

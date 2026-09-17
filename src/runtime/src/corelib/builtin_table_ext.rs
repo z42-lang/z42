@@ -180,6 +180,7 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     ("__repl_complete_probe",     repl::builtin_repl_complete_probe),
     ("__repl_set_completer",      repl::builtin_repl_set_completer),
     ("__repl_set_key_editor",     repl_editing::builtin_repl_set_key_editor),
+    ("__repl_set_keywords",       repl_editing::builtin_repl_set_keywords),
     ("__repl_member_names",       repl::builtin_repl_member_names),
     ("__load_bytecode_in_memory", reflection::builtin_load_bytecode_in_memory),
 

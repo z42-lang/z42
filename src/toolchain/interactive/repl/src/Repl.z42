@@ -3,6 +3,7 @@
 namespace Std.Repl;
 
 using Std;
+using Z42.Syntax;   // Lexer —— 关键字表的唯一 SoT（语法着色用）
 
 // 交互式行编辑器（rustyline，见 z42vm corelib/repl.rs）。EOF/Ctrl-D → null。
 public static class Repl {
@@ -25,4 +26,24 @@ public static class Repl {
     // 策略全在 z42（Std.Repl.ReplEditing），Rust 只翻译动作串。add-repl-indent-editing。
     [Native("__repl_set_key_editor")]
     public static extern void SetKeyEditor(string fqn);
+
+    // 安装输入行语法着色的关键字表（`\n` 分隔）。空串 = 不着色关键字。
+    // 加载不到行编辑器 cdylib（非 tty / wasm / 老版本 cdylib）时静默 no-op。
+    [Native("__repl_set_keywords")]
+    public static extern void SetKeywords(string joined);
+
+    // 便捷入口：从 Lexer 取当前关键字表装进去。**关键字的唯一 SoT 是
+    // `Z42.Syntax.Lexer._initKeywords()`** —— 这里只搬运，不自带表，
+    // 所以加关键字不需要改着色代码。
+    public static void InstallKeywordHighlighting() {
+        Lexer lx = new Lexer("", "<repl>");
+        string s = "";
+        int i = 0;
+        int n = lx.KeywordCount();
+        while (i < n) {
+            s = s + lx.KeywordNameAt(i) + "\n";
+            i = i + 1;
+        }
+        Repl.SetKeywords(s);
+    }
 }

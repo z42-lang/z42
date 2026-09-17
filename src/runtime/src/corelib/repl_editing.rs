@@ -46,6 +46,22 @@ pub fn builtin_repl_set_key_editor(_ctx: &VmContext, args: &[Value]) -> Result<V
     Ok(Value::Null)
 }
 
+/// `__repl_set_keywords(joined: string) -> void` — 把 z42 关键字表（`\n` 分隔）
+/// 交给编辑器 cdylib 做输入行语法着色。关键字的唯一 SoT 在 `z42c.syntax` 的
+/// `Lexer._initKeywords()`，VM 与 cdylib 都**不自带**表，只做搬运。
+/// 没加载到 cdylib（wasm / 无 native-interop / 老版本 cdylib）时静默 no-op。
+pub fn builtin_repl_set_keywords(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let joined = match args.first() {
+        Some(Value::Str(s)) => s.to_string(),
+        _ => bail!("__repl_set_keywords: arg 0 must be the newline-joined keyword table (string)"),
+    };
+    #[cfg(feature = "native-interop")]
+    super::repl_native::native::set_keywords(&joined);
+    #[cfg(not(feature = "native-interop"))]
+    let _ = joined;
+    Ok(Value::Null)
+}
+
 // ── Host-only: VM re-entrancy for the cdylib key handlers ────────────────────
 // (wasm / no-native-interop fall back to plain stdin, no editing)
 
