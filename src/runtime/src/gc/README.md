@@ -18,6 +18,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `arc_heap/generational.rs` | 分代 GC：minor/major/promotion/card + `gen_age` + write barriers |
 | `arc_heap/roots.rs` | roots/retention 扫描：root 快照 + marked-context 扫描 + 反向引用图 |
 | `arc_heap/observe.rs` | 观测：barrier observer(test) + 事件分发 + pause 计时 + snapshot/stats |
+| `arc_heap/incremental.rs` | **增量 major**（add-incremental-major-gc M2b）：切片状态机（Marking / Sweeping）、切片预算、pacer、`admit_resurrected`（弱读 / 堆遍历不交出待清扫的死对象）。机制见 [book: 增量 major](../../../../docs/internals/src/runtime/gc-incremental-major.md) |
 | `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— GC 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
 | `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
 | `region.rs` | 定长 `Region<T>` chunk 分配器（对象/数组）+ `ChunkClaim`（TLAB borrow/retire/reclaim 链本地分配）|
@@ -25,6 +26,7 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `var_region/block.rs` | `BlockType` / `GcBlockHeader`（16 B 头）/ payload 指针 + `PayloadDropGlue` |
 | `var_region/chunk.rs` | 尺寸类 + 原始 chunk + `VarChunkClaim`（TLAB + per-chunk `reuse_gen` ABA 守）+ chunk 增长/借出/回收 |
 | `var_region/var_ref.rs` | `VarGcRef` —— 8 字节类型擦除 tagged 句柄 |
+| `satb.rs` | **SATB 删除屏障**（M2a）：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲（按线程绑定的堆归属），`retire_thread_tlab` 时交给堆 |
 | `tlab.rs` | **add-gc-tlab**：thread-local `Tlab{obj,arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
 | `refs.rs` | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄 + `GcAllocation<T>` wrapper |
 | `types.rs` | 支持类型 —— `RootHandle` / `FrameMark` / `GcEvent` / `GcObserver` / `WeakRef` / `HeapSnapshot` / `HeapStats` / `FinalizerFn` / `AllocSamplerFn` / ... |

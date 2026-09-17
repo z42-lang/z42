@@ -708,10 +708,12 @@ fn escalation_defers_the_major_to_the_next_cycle_instead_of_running_both() {
 /// 1 498 866 entries, 192.6 ms, for a nursery that should have held a fraction of that).
 #[test]
 fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
-    use crate::vm_context::VmContext;
-    let ctx = VmContext::new();
-    ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
-    let heap = ctx.heap();
+    // add-incremental-major-gc M2b: driven directly rather than through the policy — a
+    // policy-requested major is incremental by default now, which has no aging pass and instead
+    // never displaces a minor (see `incremental::the_pause_does_what_the_policy_asked_for`). The
+    // one-shot major (`Z42_GC_INCREMENTAL=0`) still replaces one, so it still has to age.
+    let heap = ArcMagrGC::new();
+    heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let mut pins = Vec::new();
     let mut vals = Vec::new();
@@ -725,14 +727,14 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
         assert_eq!(GcRef::gen_age(g), 0, "test setup: all ten start young");
     }
 
-    // Cycle 1: minor (ages 0 → 1, and escalation requests a major). Cycle 2: the major.
-    // Further cycles only exist because PROMOTION_THRESHOLD may be higher than 2.
-    for _ in 0..PROMOTION_THRESHOLD {
-        heap.collect_cycles_with_context(&ctx);
+    // One minor (ages 0 → 1), then one-shot majors for the remaining tiers.
+    heap.run_cycle_collection_minor();
+    for _ in 1..PROMOTION_THRESHOLD {
+        heap.run_cycle_collection_major();
     }
 
     // After PROMOTION_THRESHOLD *aging* collections every survivor is old — which only holds
-    // if the **major** (cycle 2) aged them too, the same way a minor does.
+    // if the **majors** aged them too, the same way a minor does.
     for v in &vals {
         let Value::Object(g) = v else { panic!("expected Object") };
         assert!(GcRef::gen_age(g) >= PROMOTION_THRESHOLD,

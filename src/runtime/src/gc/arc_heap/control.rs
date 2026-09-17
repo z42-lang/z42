@@ -7,6 +7,7 @@ use crate::metadata::types::{ArrayObj};
 use crate::gc::refs::{GcRef};
 use crate::gc::types::{CollectStats, GcEvent, GcKind};
 use crate::gc::phase_timer::PhaseTimer;
+use super::incremental::{GenWork, SliceBudget};
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Cycle collection — mark-sweep.
@@ -76,6 +77,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // cargo-direct paths (no safepoint) this is the sole retire that keeps a
         // borrowed chunk from being skipped by sweep. Idempotent when unbound.
         self.retire_thread_tlab();
+        // add-incremental-major-gc M2b: a one-shot cycle cannot start inside an open incremental one
+        // (both would own the epoch and the SATB registration) — only reachable across a mode change.
+        self.finish_major_cycle("one-shot major requested");
         // add-incremental-major-gc M1: no reset pass — a new epoch whitens every slot, including
         // anything an aborted concurrent cycle left marked (see `MarkKind`).
         self.open_major_cycle();
@@ -154,7 +158,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.fire_event(GcEvent::BeforeCollect {
             kind: GcKind::Full, used_bytes: used_before,
         });
-        let freed_bytes = self.run_cycle_collection();
+        // add-incremental-major-gc M2b: a forced collection promises everything unreachable is
+        // gone when it returns — which an open incremental cycle would otherwise leave for later.
+        let freed_bytes = self.finish_major_cycle("force_collect").freed_bytes
+            + self.run_cycle_collection();
         {
             let mut i = self.inner.lock();
             i.stats.gc_cycles += 1;
@@ -198,6 +205,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // at Phase 2) through the end of sweep. Objects born inside it
                 // are marked, so the Phase 6 sweep cannot reclaim one that
                 // became reachable after the Phase 1 root snapshot.
+                // add-incremental-major-gc M2b: see `run_cycle_collection_stw` (mode changed mid-cycle).
+                self.finish_major_cycle("mode change");
                 self.begin_alloc_black();
 
                 // Phase 1: STW root snapshot (still holding initial pause).
@@ -327,11 +336,24 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // Measured on `src/tests/perf/scenarios/09_alloc_ctorless` (a 100%-survival
                 // allocation loop, where escalation fires on *every* cycle): each cycle was
                 // `minor 156.7 ms + major 188.5 ms` — 370 ms of pause to free 0 bytes.
-                let (mut freed_bytes, mut did_major) = (0u64, false);
-                if want_major {
+                // add-incremental-major-gc M2b: a major is a sequence of bounded slices now; the
+                // policy's flags (and whether a cycle is open) decide what this one pause does.
+                let freed_bytes: u64;
+                let (mut did_major, mut did_minor) = (false, false);
+                let work = self.choose_generational_work(want_major);
+                if work == GenWork::Major {
                     freed_bytes = self.run_cycle_collection_major();
                     did_major = true;
+                } else if work == GenWork::Slice || work == GenWork::Finish {
+                    let o = if work == GenWork::Slice {
+                        self.run_major_slice(&mut SliceBudget::from_config())
+                    } else {
+                        self.finish_major_cycle("explicit collection or soft cap")
+                    };
+                    freed_bytes = o.freed_bytes;
+                    did_major = o.finished;
                 } else {
+                    did_minor = true;
                     let minor = self.run_cycle_collection_minor();
                     freed_bytes = minor.freed_bytes;
 
@@ -370,11 +392,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     // report a minor that never ran.
                     if did_major {
                         i.stats.major_collections += 1;
-                    } else {
+                    } else if did_minor {
                         i.stats.minor_collections += 1;
                     }
                     i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
                     self.sub_used_bytes(freed_bytes); // add-gc-tlab (option B): atomic used_bytes
+                }
+                if did_minor {
+                    self.after_minor_in_cycle();
                 }
                 self.maybe_reset_near_limit_warned();
                 let pause_us = Self::now_us().saturating_sub(start);
@@ -452,8 +477,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     pub(super) fn soft_ref_get(&self, key: u64) -> Value {
         let v = self.soft_ref_get_unshaded(key);
-        self.shade_if_marking(&v); // add-incremental-major-gc M2a: a soft read can revive an object
-        v
+        // add-incremental-major-gc M2a/M2b: a soft read can revive an object (shade it), and must
+        // not revive one an incremental sweep has already judged dead.
+        if self.admit_resurrected(&v) { v } else { Value::Null }
     }
 
     fn soft_ref_get_unshaded(&self, key: u64) -> Value {
@@ -464,21 +490,27 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if e.ptr_key() != key_usize { continue; }
             if !e.is_alive() { return Value::Null; }
             // e.is_alive() confirmed: alive=true AND generation == snapshot.
-            // Reconstruct GcRef using the snapshot generation (safe against slot reuse).
-            return match e.kind {
-                crate::gc::soft_registry::ErasedKind::Object => {
-                    let ptr = key_usize as *mut crate::gc::region::RegionEntry<crate::metadata::ScriptObject>;
-                    let nn = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
-                    Value::Object(unsafe { GcRef::from_region_entry(nn, e.generation_snapshot()) })
-                }
-                crate::gc::soft_registry::ErasedKind::Array => {
-                    let ptr = key_usize as *mut crate::gc::region::RegionEntry<ArrayObj>;
-                    let nn = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
-                    Value::Array(unsafe { GcRef::from_region_entry(nn, e.generation_snapshot()) })
-                }
-            };
+            return Self::soft_entry_value(e);
         }
         Value::Null
+    }
+
+    /// The value a soft-registry entry refers to, rebuilt with the entry's snapshot generation
+    /// (safe against slot reuse). The caller has checked the entry is alive.
+    pub(super) fn soft_entry_value(e: &crate::gc::soft_registry::ErasedSoftEntry) -> Value {
+        let key_usize = e.ptr_key();
+        match e.kind {
+            crate::gc::soft_registry::ErasedKind::Object => {
+                let ptr = key_usize as *mut crate::gc::region::RegionEntry<crate::metadata::ScriptObject>;
+                let nn = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
+                Value::Object(unsafe { GcRef::from_region_entry(nn, e.generation_snapshot()) })
+            }
+            crate::gc::soft_registry::ErasedKind::Array => {
+                let ptr = key_usize as *mut crate::gc::region::RegionEntry<ArrayObj>;
+                let nn = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
+                Value::Array(unsafe { GcRef::from_region_entry(nn, e.generation_snapshot()) })
+            }
+        }
     }
 
     pub(super) fn unregister_soft_ref(&self, key: u64) {

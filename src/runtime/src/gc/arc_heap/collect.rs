@@ -153,23 +153,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let sweep_objects = PhaseTimer::start("sweep/objects");
         let (obj_freed, obj_reclaimed) = {
             let mut region = self.region_object.lock();
-            region.sweep_all_in_one_pass(major, |entry| {
-                let mut obj = entry.value.lock();
-                let size = Self::script_object_size_estimate(&obj);
-                // unify-object-byte-layout: break every strong reference edge — the
-                // side-table `refs` AND (PR-3 chunk 2b) the object/array pointers
-                // byte-inlined in `bytes` — so no tombstoned entry is left holding a handle
-                // into the region.
-                //
-                // Ahead of the finalizer, as on the minor side (#591): [`FinalizerFn`] takes
-                // no arguments, so it has no way to read the object whose edges these are.
-                for r in obj.refs_mut_raw().iter_mut() {
-                    *r = Value::Null;
-                }
-                obj.clear_inline_refs();
-                drop(obj);
-                (entry.take_finalizer(), size)
-            })
+            region.sweep_all_in_one_pass(major, Self::prepare_dead_object)
         };
         sweep_objects.count(obj_reclaimed);
         freed_bytes += obj_freed;
@@ -184,14 +168,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let sweep_arrays = PhaseTimer::start("sweep/arrays");
         let (arr_freed, arr_reclaimed) = {
             let mut region = self.region_array.lock();
-            region.sweep_all_in_one_pass(major, |entry| {
-                let size = Self::array_size_estimate(&entry.value.lock());
-                // unify-gc-heap PR-3: no eager element drop here — the array's element
-                // storage lives in a `region_var` block (uniquely owned by this header),
-                // reclaimed by `region_var.sweep()` (drop-glue drops the boxed Values) in
-                // the same cycle. Tombstoning the header just releases the slot.
-                (entry.take_finalizer(), size)
-            })
+            region.sweep_all_in_one_pass(major, Self::prepare_dead_array)
         };
         sweep_arrays.count(arr_reclaimed);
         freed_bytes += arr_freed;
@@ -235,6 +212,39 @@ impl crate::gc::arc_heap::ArcMagrGC {
         freed_bytes
     }
 
+    /// A major sweep's business with a dying object entry: its size estimate, breaking its
+    /// reference edges, taking its finalizer. Shared by the one-shot and the incremental sweep.
+    pub(super) fn prepare_dead_object(
+        entry: &crate::gc::region::RegionEntry<crate::metadata::ScriptObject>,
+    ) -> (Option<FinalizerFn>, u64) {
+        let mut obj = entry.value.lock();
+        let size = Self::script_object_size_estimate(&obj);
+        // unify-object-byte-layout: break every strong reference edge — the side-table `refs`
+        // AND (PR-3 chunk 2b) the object/array pointers byte-inlined in `bytes` — so no
+        // tombstoned entry is left holding a handle into the region.
+        //
+        // Ahead of the finalizer, as on the minor side (#591): [`FinalizerFn`] takes no
+        // arguments, so it has no way to read the object whose edges these are.
+        for r in obj.refs_mut_raw().iter_mut() {
+            *r = Value::Null;
+        }
+        obj.clear_inline_refs();
+        drop(obj);
+        (entry.take_finalizer(), size)
+    }
+
+    /// [`Self::prepare_dead_object`] for an array header.
+    pub(super) fn prepare_dead_array(
+        entry: &crate::gc::region::RegionEntry<crate::metadata::types::ArrayObj>,
+    ) -> (Option<FinalizerFn>, u64) {
+        let size = Self::array_size_estimate(&entry.value.lock());
+        // unify-gc-heap PR-3: no eager element drop here — the array's element storage lives
+        // in a `region_var` block (uniquely owned by this header), reclaimed by the var sweep
+        // (drop-glue drops the boxed Values) in the same cycle. Tombstoning the header just
+        // releases the slot.
+        (entry.take_finalizer(), size)
+    }
+
     /// **add-gc-softref (2026-05-26)**: after mark_phase, re-mark alive
     /// soft-ref targets when heap pressure < `Z42_GC_SOFT_THRESHOLD`.
     /// Snapshots the registry entries under the lock, then calls
@@ -249,7 +259,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             (entries, max)
         };
         // revive_pass on snapshot — no lock held; only atomic field access.
-        let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes, self.major_mark());
+        let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes, self.major_mark(), |_| {});
     }
 
     /// **add-incremental-major-gc M2a**: whether `v` carries `kind`'s mark. Values that are not
@@ -371,6 +381,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 alive.push(Value::Array(gc));
             });
         }
+        // add-incremental-major-gc M2b: this hands out every alive entry, including ones an
+        // incremental cycle has already judged dead (still alive until its sweep reaches them).
+        alive.retain(|v| self.admit_resurrected(v));
         alive
     }
 }

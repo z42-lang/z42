@@ -130,6 +130,14 @@ pub struct RuntimeConfig {
     /// 2026-09-12). Default on; `0` pins the configured age. See
     /// `gc/arc_heap/promotion_policy.rs` for the measurements behind the rule.
     pub gc_adaptive_promotion: bool,
+    /// `Z42_GC_INCREMENTAL` — whether a generational major runs as bounded STW slices with
+    /// mutators (and minors) running between them (add-incremental-major-gc M2b). Default on;
+    /// `0` runs every major in one pause. See `gc/arc_heap/incremental.rs`.
+    pub gc_incremental: bool,
+    /// `Z42_GC_SLICE_MS` — the time budget of one incremental major slice, in milliseconds
+    /// (add-incremental-major-gc M2b). Default 2. Tiny values (e.g. 0.05) are a stress knob:
+    /// they maximise how often mutators and minors run in the middle of a major.
+    pub gc_slice_ms: f64,
     /// `Z42_GC_PHASES` — per-phase pause breakdown on stderr (add-gc-phase-timing,
     /// 2026-09-11): one indented line per GC phase (reset marks / full mark / each half of
     /// sweep / aging …) with its duration and, where it means something, how many entries it
@@ -269,6 +277,8 @@ impl Default for RuntimeConfig {
             gc_promotion_age: None,
             gc_loh_bytes: None,
             gc_adaptive_promotion: true,
+            gc_incremental: true,
+            gc_slice_ms: 2.0,
             gc_phases: false,
             gc_trace: false,
             gc_near_limit_ratio: 0.90,
@@ -410,6 +420,9 @@ impl RuntimeConfig {
             // 诊断、根本到不了这里——宽松与严格在这条链上不冲突。
             gc_adaptive_promotion: get("Z42_GC_ADAPTIVE_PROMOTION")
                 .map_or(true, |v| !matches!(v.trim(), "0" | "false" | "off" | "no")),
+            gc_incremental: get("Z42_GC_INCREMENTAL")
+                .map_or(true, |v| !matches!(v.trim(), "0" | "false" | "off" | "no")),
+            gc_slice_ms:         parse_gc_slice_ms(&get),
             gc_phases:           parse_bool_knob(&get, "Z42_GC_PHASES"),
             gc_trace:            parse_bool_knob(&get, "Z42_GC_TRACE"),
             jit_profile:         parse_bool_knob(&get, "Z42_JIT_PROFILE"),

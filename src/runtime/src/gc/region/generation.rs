@@ -236,9 +236,16 @@ impl<T> Region<T> {
     /// `prepare_dead` is the caller's business with a dying entry — its size estimate,
     /// breaking its reference edges, taking its finalizer — and runs with the entry still
     /// readable, before the tombstone. The finalizer runs after it, as before.
+    /// `keep_major`: while an incremental major cycle is open, the entries it has already
+    /// marked are **live for the rest of that cycle** — the marker has committed to them (its
+    /// grey set and SATB records are minor roots for the same reason), and the mutator may be
+    /// holding one it read before the edge that led to it was cut. A minor's own reachability
+    /// view is narrower than the cycle's snapshot, so without this it reclaims them and the
+    /// cycle is left handing out freed slots (add-incremental-major-gc M2b).
     pub fn sweep_young_in_one_pass(
         &mut self,
         observed_age: u8,
+        keep_major: Option<crate::gc::refs::MarkKind>,
         mut observe: impl FnMut(bool),
         mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
     ) -> MinorRegionSweep {
@@ -263,7 +270,9 @@ impl<T> Region<T> {
             if age == observed_age {
                 observe(entry.is_marked(crate::gc::refs::MarkKind::Minor));
             }
-            if entry.is_marked(crate::gc::refs::MarkKind::Minor) {
+            if entry.is_marked(crate::gc::refs::MarkKind::Minor)
+                || keep_major.is_some_and(|k| entry.is_marked(k))
+            {
                 entry.clear_minor_mark();
                 let new_age = age.saturating_add(1);
                 entry.gen_age.store(new_age, Ordering::Release);

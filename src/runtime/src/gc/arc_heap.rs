@@ -498,6 +498,9 @@ pub struct ArcMagrGC {
     /// about ratios between this and the live set, and a test that has to allocate 16 MB to
     /// see one collection is not a test of the policy.
     nursery_bytes: std::sync::atomic::AtomicU64,
+    /// **add-incremental-major-gc M2b**: the incremental major's phase, cursor and the policy's
+    /// request flags — see `arc_heap/incremental.rs`.
+    incremental: incremental::IncrementalState,
 }
 
 impl ArcMagrGC {
@@ -575,6 +578,7 @@ mod auto_collect;
 mod collect;
 mod control;
 mod generational;
+mod incremental;
 mod promotion_policy;
 mod roots;
 mod observe;

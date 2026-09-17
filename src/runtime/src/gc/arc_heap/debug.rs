@@ -96,6 +96,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
             panic!("region_array invariant violation: {}", v);
         }
 
+        // add-incremental-major-gc M2b: between the slices of an open cycle the grey queue holds
+        // work in progress, and alive entries legitimately carry the previous epoch (not yet
+        // re-marked) or are doomed (not yet swept). The region invariants above still hold.
+        if self.major_cycle_active() {
+            return;
+        }
+
         // 2. mark_queue must be empty post-collect.
         //
         // diag-mark-queue-stale (2026-05-30): on failure, dump each

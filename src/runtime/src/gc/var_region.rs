@@ -643,6 +643,15 @@ impl VarRegion {
     /// was *charged* at alloc, or the auto-collect budget reads a number that drifts from
     /// the heap. See [`Self::alloc_charge_bytes`] for the per-`BlockType` rule.
     pub fn sweep(&mut self, major: crate::gc::refs::MarkKind) -> (usize, u64) {
+        let (reclaimed, credited, _) = self.sweep_buckets(major, 0, usize::MAX);
+        (reclaimed, credited)
+    }
+
+    /// **add-incremental-major-gc M2b**: [`Self::sweep`] over at most `max_buckets` chunk buckets
+    /// starting at `from`. Returns `(reclaimed, credited bytes, next bucket)`; `next ==
+    /// all_blocks.len()` means done. Resumable across STW slices for the same reason as
+    /// `Region::sweep_chunks`: blocks allocated between slices carry the cycle's epoch.
+    pub fn sweep_buckets(&mut self, major: crate::gc::refs::MarkKind, from: usize, max_buckets: usize) -> (usize, u64, usize) {
         let mut reclaimed = 0;
         let mut credited: u64 = 0;
         // **one-pass-major-sweep (2026-09-13)**: own the block index (`mem::take`) rather
@@ -652,7 +661,9 @@ impl VarRegion {
         // (`tombstone` touches `free_lists` / `live_count`, none of which is `all_blocks`).
         // Same move as #592 made for `sweep_young`.
         let all = std::mem::take(&mut self.all_blocks);
-        for bucket in &all {
+        let end = from.saturating_add(max_buckets).min(all.len());
+        let start = from.min(end);
+        for bucket in &all[start..end] {
             for &ptr in bucket {
                 // SAFETY: see `iterate_alive`.
                 let header = unsafe { ptr.as_ref() };
@@ -671,7 +682,13 @@ impl VarRegion {
             }
         }
         self.all_blocks = all;
-        (reclaimed, credited)
+        (reclaimed, credited, end)
+    }
+
+    /// Number of chunk buckets a major sweep walks ([`Self::sweep_buckets`] cursor bound).
+    #[inline]
+    pub fn bucket_count(&self) -> usize {
+        self.all_blocks.len()
     }
 
     /// The number of `used_bytes` a block of this kind added when it was allocated — the

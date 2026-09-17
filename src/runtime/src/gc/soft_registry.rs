@@ -153,7 +153,15 @@ impl SoftRegistry {
     /// touches atomic fields on `RegionEntry`, no mutex needed.
     ///
     /// Returns the number of entries revived.
-    pub(crate) fn revive_snapshot(entries: &[ErasedSoftEntry], used_bytes: u64, max_bytes: u64, major: crate::gc::refs::MarkKind) -> usize {
+    /// `on_revived` sees each entry this pass marked — the incremental major queues it, so the
+    /// target's children are traced too.
+    pub(crate) fn revive_snapshot(
+        entries: &[ErasedSoftEntry],
+        used_bytes: u64,
+        max_bytes: u64,
+        major: crate::gc::refs::MarkKind,
+        mut on_revived: impl FnMut(&ErasedSoftEntry),
+    ) -> usize {
         let threshold = soft_threshold_from_env();
         let ratio = if max_bytes == 0 {
             0.0_f64
@@ -166,6 +174,7 @@ impl SoftRegistry {
         let mut revived = 0usize;
         for entry in entries {
             if entry.revive_if_unmarked(major) {
+                on_revived(entry);
                 revived += 1;
             }
         }

@@ -88,7 +88,9 @@ impl VarRegion {
     ///
     /// Old blocks are never visited — that is the definition of a minor collection. They are
     /// reachable as minor roots only through the dirty-card set.
-    pub fn sweep_young(&mut self) -> (usize, u64) {
+    /// `keep_major`: see `Region::sweep_young_in_one_pass` — blocks the open cycle has marked
+    /// stay alive until it finishes (add-incremental-major-gc M2b).
+    pub fn sweep_young(&mut self, keep_major: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
         let threshold = self.promotion_age;
         let mut reclaimed = 0usize;
         let mut credited: u64 = 0;
@@ -128,7 +130,9 @@ impl VarRegion {
                 header.set_in_young(false);
                 continue;
             }
-            if header.is_marked(crate::gc::refs::MarkKind::Minor) {
+            if header.is_marked(crate::gc::refs::MarkKind::Minor)
+                || keep_major.is_some_and(|k| header.is_marked(k))
+            {
                 header.clear_minor_mark();
                 if header.bump_gen_age() >= threshold {
                     header.set_in_young(false);

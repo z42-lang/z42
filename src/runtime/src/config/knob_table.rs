@@ -87,6 +87,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..TUNING
     },
     KnobSpec {
+        name: "Z42_GC_INCREMENTAL",
+        toml_key: "gc-incremental",
+        value: ValueKind::Bool,
+        description: "generational only: run a major collection as bounded stop-the-world slices (budget Z42_GC_SLICE_MS) with mutators and minors running in between, so the longest pause does not grow with the heap; set 0 to run each major in one pause",
+        default_hint: "unset; on",
+        consumed_by: "gc/arc_heap/incremental.rs",
+        ..TUNING
+    },
+    KnobSpec {
         name: "Z42_GC_LOH_BYTES",
         toml_key: "gc-loh-bytes",
         // 同 Z42_GC_MAX_BYTES：接受带单位后缀的写法。
@@ -177,6 +186,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         description: "generational only: how many minor GCs an entry must survive before it is promoted to the old generation. Capped at 3 — the age is packed into two spare bits of the variable-length block header",
         default_hint: "unset; defaults to 3 — which is also the cap, so this knob can be lowered but not raised (retune-gc-nursery-and-promotion-age; was 2)",
         consumed_by: "gc/mod.rs (promotion_age_from_config, read once per heap)",
+        ..TUNING
+    },
+    KnobSpec {
+        name: "Z42_GC_SLICE_MS",
+        toml_key: "gc-slice-ms",
+        value: ValueKind::Float { min: 0.01, max: 1000.0 },
+        description: "time budget of one incremental major slice in milliseconds (Z42_GC_INCREMENTAL); tiny values like 0.05 are a stress setting that maximises how often mutators run mid-major",
+        default_hint: "unset; defaults to 2",
+        consumed_by: "gc/arc_heap/incremental.rs",
         ..TUNING
     },
     KnobSpec {

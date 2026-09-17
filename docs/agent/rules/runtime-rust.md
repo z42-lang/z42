@@ -93,7 +93,10 @@ fn test_something() { ... }
   记录死对象只会把悬空句柄塞进标记队列）。新增调用点时在旁边写清是哪一种。
 - 新增一种「在堆里存引用」的布局（新的 backing / 内联引用形态）时，读旧值 + `record_overwrite` 必须随写入原语一起加，
   并照 `gc/arc_heap_tests/incremental.rs` 的形状补一对「开屏障存活 / 关屏障被扫」的测试。
-- 弱 / 软引用的**读取**同样要染色（`ArcMagrGC::shade_if_marking`）：它们能把快照时只剩弱引用的对象交还给寄存器。
+- **任何不经强引用把已有堆值交给 mutator 的路径**（弱 / 软引用读取、堆遍历）一律过 `ArcMagrGC::admit_resurrected`：
+  标记期染色（快照时只剩弱引用的对象会被交还给寄存器），**增量 major 清扫期拒绝未标记的**（M2b：它是待清扫的死对象，
+  子对象可能已被回收）。新增这类出口时照 `a_doomed_object_is_not_handed_out_while_the_sweep_has_not_reached_it` 补测试。
+- GC 自己在增量周期里**追踪**已有对象（如 minor 的脏卡播种）时同理：清扫期跳过未标记条目（`doomed_unless_marked`）。
 
 机制见 [gc-incremental-major.md](../../internals/src/runtime/gc-incremental-major.md)。
 

@@ -106,6 +106,17 @@ where F: Fn(&str) -> Option<String> {
     }
 }
 
+/// `Z42_GC_SLICE_MS` (add-incremental-major-gc M2b): missing / unparseable → 2.0 ms; clamped to
+/// `[0.01, 1000]` so a typo cannot turn the budget into zero (an endless run of empty slices) or
+/// into a one-shot major.
+pub(super) fn parse_gc_slice_ms<F>(get: &F) -> f64
+where F: Fn(&str) -> Option<String> {
+    let Some(raw) = get("Z42_GC_SLICE_MS").filter(|s| !s.trim().is_empty()) else {
+        return 2.0;
+    };
+    raw.trim().parse::<f64>().ok().filter(|v| v.is_finite()).map_or(2.0, |v| v.clamp(0.01, 1000.0))
+}
+
 pub(super) fn parse_gc_soft_threshold<F>(get: &F) -> f64
 where F: Fn(&str) -> Option<String> {
     let Some(raw) = get("Z42_GC_SOFT_THRESHOLD").filter(|s| !s.trim().is_empty()) else {
