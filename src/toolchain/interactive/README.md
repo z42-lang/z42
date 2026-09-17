@@ -16,7 +16,7 @@ src/toolchain/interactive/core/*.z42  →  z42.interactive.zpkg  →  apphost z4
 
 | 文件 | 职责 |
 |------|------|
-| `core/interactive_main.z42` | REPL 主循环：`Repl.ReadLine` 读入（tty 下整块多行编辑：回车判写完没 / 非 tty 逐行累积 + `Completeness.IsIncomplete`）→ `.` 元指令 / `Script.Eval` 求值；`-c` 单次求值（整块多行 + 完整性机制见 [book](../../../docs/book/src/toolchain/repl-input-completeness.md)）|
+| `core/interactive_main.z42` | REPL 主循环：`Repl.ReadLine` 读入（tty 下整块多行编辑：回车判写完没 / 非 tty 逐行累积 + `Completeness.IsIncomplete`）→ `.` 元指令 / `Script.Eval` 求值；`-c` 单次求值（整块多行 + 完整性机制见 [book](../../../docs/internals/src/toolchain/repl.md)）|
 | `core/z42.interactive.z42.toml` | 包清单（exe / pack / apphost）|
 
 ## 依赖关系
@@ -33,5 +33,5 @@ src/toolchain/interactive/core/*.z42  →  z42.interactive.zpkg  →  apphost z4
 2026-07-01 User 裁决），随 SDK 包一起发行——但入口仍只打印 "planned" 后 `Environment.Exit(1)`，
 真正的 REPL 仍待 `extract-compile-pipeline-api` 落地。
 
-REPL 是 0.3.x capstone，设计见 [`docs/design/toolchain/repl.md`](../../../docs/design/toolchain/repl.md)；
+REPL 是 0.3.x capstone，设计见 [`docs/internals/src/toolchain/repl.md`](../../../docs/internals/src/toolchain/repl.md)；
 推进时点见 `docs/roadmap.md`。

@@ -29,7 +29,7 @@ C1 接口骨架。所有 `extern "C"` 函数实现位于 `z42_vm` crate，C1 阶
 
 ## ABI 演进规则
 
-参见头文件注释 + `docs/design/language/interop.md` §3.3：
+参见头文件注释 + `docs/reference/src/embedding/native-interop.md` §3.3：
 
 - `abi_version` 永远在偏移 0
 - 新字段只追加，不重排

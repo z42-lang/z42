@@ -179,4 +179,4 @@ cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
 
 > 相关：[Native 库的布局与解析](native-libraries.md)（库住哪 / 怎么找 / 发布期拍平）、
 > [加载上下文（LoadContext）](load-context.md)、[GC 调参与 safepoint 协议](gc-tuning.md)、
-> [REPL 输入完整性判定](../../../book/src/toolchain/repl-input-completeness.md)。
+> [REPL 输入完整性判定](../../../internals/src/toolchain/repl.md)。

@@ -34,7 +34,7 @@ Stopwatch _stageStart(string name) {
     // 两个环扣上，新 stage 才没法悄悄绕过 test-gate.md。
     if (!_isRegisteredStage(name)) {
         throw new Exception("stage '" + name + "' 未在 _gateStageNames() 登记 —— "
-            + "加 stage 要同时改 _gateStageNames() 与 docs/book/src/dev/test-gate.md 的 gate-stages 区");
+            + "加 stage 要同时改 _gateStageNames() 与 docs/internals/src/devinfra/test-gate.md 的 gate-stages 区");
     }
     Console.WriteLine("\n=== stage: " + name + " ===");
     return Stopwatch.StartNew();
@@ -400,7 +400,7 @@ bool _skipHas(string skip, string stage) {
 
 // ── stage 清单 ↔ test-gate.md 防漂移门（fix-xtask-doc-drift, 2026-09-05）─────
 //
-// 为什么要这道门：docs/book/src/dev/test-gate.md 自称「GREEN gate stage 组成的唯一
+// 为什么要这道门：docs/internals/src/devinfra/test-gate.md 自称「GREEN gate stage 组成的唯一
 // 权威清单（SoT）」，页内还明文警告过「历史上复列 5-6 处、已互相漂移」——然后它自己
 // 还是烂了：multi-exe（unify-run-modes P3）、manifest targets（add-tests-bench-manifest-
 // config P4）、examples（设计 D4）三次加 stage 都没同步该页，文档停在 6 个而 gate 实跑 9 个。
@@ -433,7 +433,7 @@ string[] _gateStageNames() {
 
 // test-gate.md 里机器可读清单区的边界标记（HTML 注释：渲染成 book 时不可见）。
 string _gateStagesDocPath(string root) {
-    return Path.Join(root, "docs/book/src/dev/test-gate.md");
+    return Path.Join(root, "docs/internals/src/devinfra/test-gate.md");
 }
 
 // 从 test-gate.md 的 <!-- gate-stages:begin/end --> 区抽出 stage 名（每行一个
@@ -482,7 +482,7 @@ int _checkGateStageDoc() {
     int i = 0;
     while (same && i < want.Length) { if (want[i] != got[i]) { same = false; } i = i + 1; }
     if (same) { return 0; }
-    ConsoleError.WriteLine("error: GREEN gate stage 清单与 docs/book/src/dev/test-gate.md 不一致");
+    ConsoleError.WriteLine("error: GREEN gate stage 清单与 docs/internals/src/devinfra/test-gate.md 不一致");
     ConsoleError.WriteLine("       代码 (_gateStageNames, scripts/test/xtask_test.z42):");
     int k = 0;
     while (k < want.Length) { ConsoleError.WriteLine("         " + (k + 1).ToString() + ". " + want[k]); k = k + 1; }

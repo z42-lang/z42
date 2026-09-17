@@ -11,7 +11,7 @@ playground / 用户代码也可 import。**终端行编辑（tty，tier1）已�
 实现（`Z42cReplCompiler`，住 `z42c.pipeline`）由 `ReplCompilerHost` 运行期反射注入（mirror z42b
 `_hostCompiler`）。前端 `z42c.core`/`z42c.syntax`（Lexer/Parser/Span）已是 stdlib（PR-A）。→ apphost
 不再静态 bundle 编译器，运行期动态加载 `z42c.pipeline` 组件。机制详见
-[repl.md「编译门面 + 运行期注入」](../../../docs/design/toolchain/repl.md)。（物理仍在 `src/toolchain`，
+[repl.md「编译门面 + 运行期注入」](../../../docs/internals/src/toolchain/repl.md)。（物理仍在 `src/toolchain`，
 搬 `src/libraries` 作 follow-up。）
 
 ## 功能索引
@@ -56,8 +56,8 @@ CI 全量 GREEN 以 stdlib 构建（`xtask build stdlib`）+ toolchain 构建（
 > 因真 tty + native 行编辑 builtin（平台绑定重）留 `src/toolchain/`。
 
 ## 关联文档
-- 设计/机制：[`docs/design/toolchain/repl.md`](../../../docs/design/toolchain/repl.md)；
-  输入完整性判定机制（parser 权威 / 探针解耦 / 裸 parse）见 [`docs/book/src/toolchain/repl-input-completeness.md`](../../../docs/book/src/toolchain/repl-input-completeness.md)
+- 设计/机制：[`docs/internals/src/toolchain/repl.md`](../../../docs/internals/src/toolchain/repl.md)；
+  输入完整性判定机制（parser 权威 / 探针解耦 / 裸 parse）见 [`docs/internals/src/toolchain/repl.md`](../../../docs/internals/src/toolchain/repl.md)
 - 引入/演进：change `add-z42-repl`（`docs/spec/changes/`；D2 依赖层级 / D7 命名 / D8 状态模型）；
   完整性判定改 parser 权威见 change `add-repl-parser-completeness`；终端交互层拆出见 change `split-z42-repl`；
   求值期运行异常捕获（REPL 不再因 `throw`/除零/类型不符而退出）见 change `fix-repl-eval-exception`

@@ -32,7 +32,7 @@ z42 --version
 z42 help run
 ```
 
-完整命令参考见 book [z42 命令参考](../../../docs/book/src/toolchain/cli.md)。
+完整命令参考见 book [z42 命令参考](../../../docs/reference/src/toolchain/cli-z42.md)。
 
 ## 如何测试验证
 
@@ -46,8 +46,8 @@ xtask test dist                          # 完整：再加 publish 冒烟与打�
 
 ## 关联文档
 
-- 命令参考（用户面，唯一权威）：[docs/book/src/toolchain/cli.md](../../../docs/book/src/toolchain/cli.md)
-- apphost 机制与运行时探测：[docs/design/runtime/launcher.md](../../../docs/design/runtime/launcher.md)
+- 命令参考（用户面，唯一权威）：[docs/reference/src/toolchain/cli-z42.md](../../../docs/reference/src/toolchain/cli-z42.md)
+- apphost 机制与运行时探测：[docs/internals/src/toolchain/launcher.md](../../../docs/internals/src/toolchain/launcher.md)
 - 工程定位 / 产物布局实现：`src/libraries/z42.project/src/{ManifestLocator,BuildLayout}.z42`
 - 引入/演进：change `add-beginner-cli-onramp`（simplify-z42-cli）
 

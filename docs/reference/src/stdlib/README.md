@@ -23,6 +23,8 @@ z42 标准库各包的公开 API。每页覆盖一个包：类型、方法签名
 | [反射](reflection.md) | `Type` `typeof` 元数据查询、特性读取 |
 | [运行时设置查询](runtime-config.md) | `Std.Runtime.RuntimeConfig`——只读查询生效的运行时旋钮 |
 | [应用自定义配置](app-properties.md) | `Std.Runtime.AppProperties`——清单 `[properties]` 表的运行时读取 |
+| [平台与宿主信息](platform.md) | `Std.Platform`（OS / 架构 / 能力查询）`Std.OperatingSystem` `OSKind` `ArchKind` |
+| [GC 与句柄](gc.md) | `Std.GC` `HeapStats` `GCHandle` / `GCHandleType` `WeakHandle` `SoftHandle` |
 
 ### 数据与文本
 

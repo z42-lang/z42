@@ -33,7 +33,7 @@ z42 侧 golden `tests/repl_editing/` 直调 `ReplEditing.KeyEdit`（与 rustylin
 CI 全量 GREEN 以 toolchain 构建（`xtask build toolchain`）+ dist smoke（`z42 repl -c "1+2"`）为准。
 
 ## 关联文档
-- 设计/机制：[`docs/design/toolchain/repl.md`](../../../../docs/design/toolchain/repl.md)；
+- 设计/机制：[`docs/internals/src/toolchain/repl.md`](../../../../docs/internals/src/toolchain/repl.md)；
   键位适配壳（policy-free、动作串范式）见 host-only cdylib `crates/z42-repl/src/editing.rs` 头注
 - 引入/演进：change `add-z42-repl`（REPL MVP）/ `add-repl-indent-editing` / `add-repl-tab-grid-snap` /
   `add-repl-multiline-editing` / `add-repl-rbrace-floor`（`}` 自动回退 + 退格 floor，patch rustyline 光标）；

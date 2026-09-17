@@ -1,7 +1,7 @@
 # 元编程 / 编译期代码生成
 
 > ⚠️ **前瞻设计底稿（未实施，L3+）**。本文沉淀"为什么这样设计 + 分期"，落地各档各自开 spec。
-> 相关：[reflection.md](../../../design/language/reflection.md)（共用语义 API）、[syntax-customization.md](syntax-customization.md)（语法层定制，正交）。
+> 相关：[reflection.md](../../../reference/src/stdlib/reflection.md)（共用语义 API）、[syntax-customization.md](syntax-customization.md)（语法层定制，正交）。
 > 受众友好：没接触过 Rust 宏 / C# Source Generator 也能读，先看「概念扫盲」。
 
 ---
@@ -254,4 +254,4 @@ public Ast Timed(MethodDecl m) {                    // 输入是整个方法的 
 - **前置**：`z42c expand` 稳定 + 确定性展开。
 
 > 与既有路线一致：**简单场景声明式（derive），任意逻辑用代码（编译期 z42），不发明独立宏语言/
-> token DSL**——同 task DAG、condition 的结论一条哲学（[build-orchestrator.md](../../../design/toolchain/build-orchestrator.md) Decision #5/#8）。
+> token DSL**——同 task DAG、condition 的结论一条哲学（[build-orchestrator.md](../../../internals/src/toolchain/z42b.md) Decision #5/#8）。

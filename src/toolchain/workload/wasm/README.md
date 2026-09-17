@@ -40,7 +40,7 @@ PATH="$PWD/../../../../artifacts/tools/node/bin:$PATH" node demo/node/run.js
 # 期望输出：[host] hello, world
 ```
 
-> 详细 step-by-step 跑通流程见 [`docs/workflow/building/wasm.md`](../../../../docs/workflow/building/wasm.md)。
+> 详细 step-by-step 跑通流程见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。
 
 `[host]` 前缀来自 demo 注册的 stdout handler，证明输出**经过宿主回调**而不是 wasm 内部 println。
 

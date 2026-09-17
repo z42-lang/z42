@@ -49,7 +49,7 @@
 
 ## 文档（doc-check）
 
-- [ ] `docs/book/src/dev/benchmarking.md`：新增 micro/criterion tier A/B 两节（机制 + 噪声降级语义 + 触发门控）。
+- [ ] `docs/internals/src/devinfra/benchmarking.md`：新增 micro/criterion tier A/B 两节（机制 + 噪声降级语义 + 触发门控）。
 - [ ] `bench/README.md`：CI 节补 micro/criterion tier。
 - [ ] `docs/roadmap.md`：`ab-bench-micro`/`ab-bench-criterion` 从 Deferred 划掉，链到本 change 归档。
 - [ ] Bencher.z42 / BenchStats.z42 文件头契约注释更新（行格式）。

@@ -1,9 +1,6 @@
 # xtask test docs —— 存量死链基线（棘轮）。
 # 每行 `<文件> -> <链接目标>`。**只许剔除已修好的，不许写进新死链**。
 # 三书重构搬走一批，这里就该少一批；重构完成后本文件应为空并删除。
-docs/design/language/reflection.md -> ../../../src/compiler/z42.Semantics/TypeCheck/SymbolCollector.Classes.cs
-docs/design/language/reflection.md -> ../../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.Exprs.Members.cs
-docs/design/language/reflection.md -> ../../../src/compiler/z42.Semantics/TypeCheck/TypeChecker.Stmts.cs
 docs/design/philosophy.md -> ../language/language-overview.md
 docs/design/philosophy.md -> ../runtime/ir.md
 docs/design/philosophy.md -> ../language/interop.md
@@ -11,15 +8,6 @@ docs/design/philosophy.md -> ../runtime/execution-model.md
 docs/design/philosophy.md -> ../runtime/hot-reload.md
 docs/design/philosophy.md -> ../language/customization.md
 docs/design/stdlib/README-template.md -> ../../docs/design/stdlib/<name>.md
-docs/design/testing/cross-platform-testing.md -> ../features.md
-docs/design/testing/test-runner-bootstrap.md -> ../../src/libraries/z42.test/src/Assert.z42
-docs/design/testing/test-runner-bootstrap.md -> ../../src/libraries/z42.test/src/TestIO.z42
-docs/design/testing/test-runner-bootstrap.md -> ../../src/libraries/z42.test/src/Bencher.z42
-docs/design/testing/testing.md -> ../../spec/archive/2026-05-31-add-benchmark-runner-dispatch/design.md
-docs/design/testing/testing.md -> ../../../src/libraries/z42.test/src/Assert.z42
-docs/design/testing/testing.md -> ../../src/compiler/z42.IR/TestEntry.cs
-docs/design/testing/testing.md -> ../../src/runtime/src/metadata/test_index.rs
-docs/design/testing/testing.md -> ../../src/runtime/tests/zbc_compat.rs
 docs/roadmap.md -> spec/changes/scaffold-z42c-selfhost/
 docs/roadmap.md -> spec/changes/replan-0.4.0-by-module/design.md
 docs/roadmap.md -> spec/changes/scaffold-z42c-selfhost/
@@ -61,9 +49,6 @@ docs/spec/changes/systematize-test-pipeline/design.md -> ../enforce-test-attr-pl
 docs/spec/changes/systematize-test-pipeline/design.md -> ../enforce-test-attr-placement/design.md
 docs/spec/changes/systematize-test-pipeline/design.md -> ../enforce-test-attr-placement/
 docs/spec/changes/wire-embedded-testhost/design.md -> User
-docs/workflow/building/vm.md -> ../../../src/runtime/src/metadata/loader.rs
-docs/workflow/ci.md -> ../../book/src/dev/test-gate.md
-docs/workflow/ci.md -> ../../book/src/dev/test-gate.md
 src/libraries/README.md -> z42.core/src/Bool.z42
 src/libraries/README.md -> z42.io/src/Path.z42
 src/libraries/README.md -> z42.io/tests/16_path/
@@ -74,6 +59,5 @@ src/runtime/benches/README.md -> ../../../spec/changes/add-benchmark-framework/
 src/toolchain/README.md -> repl/
 src/toolchain/workload/desktop/README.md -> ../../../../runtime/include/z42_host.h
 src/toolchain/workload/desktop/README.md -> ../../../../../scripts/xtask_test_desktop.z42
-src/toolchain/workload/desktop/README.md -> ../../../../../docs/design/testing/cross-platform-testing.md
 src/toolchain/workload/wasm/README.md -> js/index.d.ts
 src/toolchain/workload/wasm/README.md -> ../../../../scripts/xtask_test_wasm.z42

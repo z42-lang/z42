@@ -318,7 +318,7 @@ docs/spec/changes/<change-name>/
 ## Testing Strategy
 - 单元测试：[覆盖点]
 - Golden test：[新增场景]
-- VM 验证：`xtask test`（完整 GREEN gate；stage 组成见 [test-gate.md](../../book/src/dev/test-gate.md)）
+- VM 验证：`xtask test`（完整 GREEN gate；stage 组成见 [test-gate.md](../../internals/src/devinfra/test-gate.md)）
 ```
 
 ---

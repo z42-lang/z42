@@ -142,7 +142,7 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 - stdlib 源自身不受此轴约束（它由自建的当前 z42c 编译）。
 
 可操作的完整提交剧本（判定 grep / 两个 commit / 等 nightly 的检查命令）见
-[`docs/workflow/testing/verify-by-change.md`](../../workflow/testing/verify-by-change.md)
+[`docs/internals/src/devinfra/testing.md`](../../internals/src/devinfra/testing.md)
 「stdlib 破坏性 API 变更」。
 
 ### 边界的第三根轴：z42c 运行期自依赖一个 stdlib 库（2026-07-22 补）

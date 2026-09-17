@@ -83,7 +83,7 @@
 - [ ] 5.6 端到端 greet 验证（手动）
 - [ ] 5.7 更新 `docs/design/toolchain/launcher-command-dispatch.md`：
           将 B1/B2 从 Deferred 移出，补实施决策摘要
-- [ ] 5.8 更新 `docs/design/toolchain/runtime-workload-distribution.md`：
+- [ ] 5.8 更新 `docs/internals/src/toolchain/workload-distribution.md`：
           补 `commands/` 目录结构说明
 - [ ] 5.9 docs/roadmap.md 0.3.14 退出标准打 ✅
 

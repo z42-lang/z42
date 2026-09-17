@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://z42-lang.org/schemas/manifest-v1.json",
+  "title": "z42 Native Library Manifest (.z42abi) v1",
+  "description": "Machine-readable metadata describing the native types a library exports to z42 user code. Published alongside the .so/.dylib/.dll. Spec: docs/reference/src/embedding/native-interop.md §9.",
+
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["abi_version", "module", "version", "library_name", "types"],
+
+  "properties": {
+    "abi_version": {
+      "description": "Manifest schema version. v1 is the only supported value.",
+      "const": 1
+    },
+    "module": {
+      "description": "Module identifier as referenced from z42 user code (e.g. \"numz42\").",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+    },
+    "version": {
+      "description": "Library version (semver).",
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "library_name": {
+      "description": "Native library file name without platform prefix/suffix (e.g. \"numz42\" → libnumz42.dylib / numz42.dll).",
+      "type": "string",
+      "minLength": 1
+    },
+    "types": {
+      "description": "Native types exported by the module.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Type" }
+    }
+  },
+
+  "$defs": {
+    "Type": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "size", "align"],
+      "properties": {
+        "name": {
+          "description": "Type name as seen from z42 user code.",
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "size": {
+          "description": "Instance size in bytes.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "align": {
+          "description": "Instance alignment in bytes (power of two).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "flags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["value_type", "sealed", "abstract", "traceable"]
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Field" }
+        },
+        "methods": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Method" }
+        },
+        "trait_impls": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TraitImpl" }
+        }
+      }
+    },
+
+    "Field": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "type", "offset"],
+      "properties": {
+        "name":     { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "type":     { "type": "string", "minLength": 1 },
+        "offset":   { "type": "integer", "minimum": 0 },
+        "readonly": { "type": "boolean" },
+        "internal": { "type": "boolean" }
+      }
+    },
+
+    "Method": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "kind", "symbol", "params", "ret"],
+      "properties": {
+        "name":   { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "kind":   { "type": "string", "enum": ["ctor", "method", "static"] },
+        "symbol": {
+          "description": "Linker symbol of the extern \"C\" shim.",
+          "type": "string",
+          "minLength": 1
+        },
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Param" }
+        },
+        "ret": {
+          "description": "Return type expression. \"void\" / \"Self\" / Rust-style type strings.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "Param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "type": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "TraitImpl": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["trait", "methods"],
+      "properties": {
+        "trait": {
+          "description": "Fully qualified trait name (e.g. \"z42.core::Display\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "symbol"],
+            "properties": {
+              "name":   { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+              "symbol": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -130,4 +130,4 @@ blob）；② cross-desktop / 移动端 native **交叉编译产出**（复制�
 ---
 
 > 相关：[Native 扩展库（cdylib 机制）](native-extensions.md)、[加载上下文（LoadContext）](load-context.md)、
-> [REPL 输入完整性判定](../../../book/src/toolchain/repl-input-completeness.md)。
+> [REPL 输入完整性判定](../../../internals/src/toolchain/repl.md)。

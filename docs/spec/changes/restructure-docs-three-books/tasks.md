@@ -10,8 +10,8 @@
 - [x] 批 2 · internals/runtime + formats（PR 待合）
 - [x] 批 3 · reference/language（3a PR #697 / 3b PR #703）
 - [x] 批 4 · reference/stdlib
-- [ ] 批 5 · toolchain + devinfra
-- [ ] 批 6 · 收尾（删空壳 + 链接重指 + 游离文件）
+- [x] 批 5 · toolchain + devinfra
+- [ ] 批 6 · 收尾（philosophy / features / 矩阵拷贝 / grep 清零）
 - [ ] 批 7 · 其余门禁
 
 ---
@@ -187,16 +187,42 @@
 
 ## 批 5 · toolchain + devinfra
 
-- [ ] 5.1 `reference/toolchain/`：`cli/z42.md` `cli/z42c-z42b.md` `cli/runtime-settings.md`（只取旋钮表）
-- [ ] 5.2 `reference/embedding/`（裁决 12）：`design/runtime/embedding.md` 的 C ABI 契约面
-- [ ] 5.3 `internals/toolchain/`：`z42b` `launcher`(主干) `repl`(**design 是主干**) `deployment-model`
-      `export` `platform-export` `workload-distribution` `editor-integration`
-- [ ] 5.4 `internals/testing/`：`framework` `cross-platform` `embedded-app-run` `exec-profile-matrix`
-- [ ] 5.5 `internals/devinfra/`：book/dev(6) + `test-pipeline` + `artifacts-layout` + **`docs/workflow/` 全部 25 篇**
-- [ ] 5.6 **抢救后删**（裁决 9）：`build-orchestrator.md`(190行) 的八相位 / `ICompiler` in-process /
-      hook 注入并进 `internals/toolchain/z42b.md`，同 PR 删原文件
-- [ ] 5.7 删 `design/testing/test-runner-bootstrap.md`（Rust runner 已删）
-- [ ] 5.8 链接重指 + `xtask test docs` 绿
+- [x] 5.1 `reference/toolchain/`：`cli-z42.md` / `cli-z42c-z42b.md` / `runtime-settings.md`（只取旋钮清单）
+- [x] 5.2 `reference/embedding/c-abi.md`（裁决 12）：从 `internals/runtime/embedding.md` 切出 C ABI 契约面，
+      internals 侧同步瘦身 591 → 367 行
+- [x] 5.3 `internals/toolchain/`(8)：`z42b` `launcher` `repl` `deployment-model` `export`
+      `platform-export` `workload-distribution` `editor-integration`
+- [x] 5.4 `internals/testing/`(4)：`framework` `cross-platform` `embedded-app-run` `exec-profile-matrix`
+- [x] 5.5 `internals/devinfra/`(14)：`docs/workflow/` **25 篇 → 6 页** + book/dev(6) + `artifacts-layout` + `test-pipeline`
+- [x] 5.6 **抢救后删**（裁决 9）：`build-orchestrator.md` 的阶段管线 / `ICompiler` / hook 注入并进 `z42b.md`
+      —— 核实后发现是**九**个阶段不是八个（漏了 `Preflight`）
+- [x] 5.7 删 `design/testing/test-runner-bootstrap.md`（已核实：Rust runner 确已删，30 处 grep 命中逐行看过全是注释）
+- [x] 5.8 链接重指 + `xtask test docs` 绿；死链棘轮基线 76 → **60 条**
+
+### 超出原计划的补充
+
+- [x] `internals/runtime/`：`gc-handle.md` / `stdlib-platform.md`（前几批清单提到但一直没做的遗留）
+- [x] `reference/stdlib/`：`platform.md` / `gc.md`（`Std.Platform` / `Std.GC` / `GCHandle` 全无参考页）
+- [x] `reference/testing.md`（搬迁清单里 reference 应有一页「测试」，至今没有）
+- [x] **站点根改写**（原批 6.2）：`docs/book/` 内容已空但发布在站点根，SUMMARY 指向已删页会让
+      **mdbook build 失败、deploy 断** ⇒ 就地改成三书分流索引
+- [x] 重写 `docs/README.md`（原批 6.2）+ `docs/design/README.md`
+- [x] 补 `internals` 三个部分的概览页（toolchain / testing / devinfra）
+- [x] 删批 4 漏删的 `design/language/{reflection,string-builtins}.md`
+
+### 门禁联动（真门禁，必须同批改）
+
+`scripts/test/xtask_test.z42` 把 GREEN gate 的 stage 清单与 test-gate 页的 `gate-stages` 区逐项比对、
+不一致判红。本批把该页搬到 `internals/devinfra/` ⇒ **同批改了脚本里的 4 处路径**
+（1 处功能常量 + 2 处用户可见 `ConsoleError` 文案 + 1 处注释），并做了**双向实测**：
+正向无报错；反向把页移走 → 报出预期错误 → 还原。
+
+### 本批的核实产出
+
+见 [batch5-verification.md](batch5-verification.md)。输入是**流程与架构描述**（不是 API 签名），
+所以核实手法换成逐个路径 `ls`、逐个命令 `--help`、逐个 CI job 对 `.github/workflows/`。
+
+`design/testing/testing.md`（1211 行）**几乎整篇是虚构的**——26 条断言落空。
 
 ## 批 6 · 收尾
 

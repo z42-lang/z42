@@ -130,7 +130,7 @@
 | `design/toolchain/launcher-command-dispatch.md` | 合并进 `launcher.md` | 前瞻分发器 |
 | `design/toolchain/platform-export-lifecycle.md` | `platform-export.md` | 前瞻 |
 | `design/toolchain/export.md` 实现节 | `export.md` | |
-| `design/toolchain/runtime-workload-distribution.md` | `workload-distribution.md` ＋ manifest/布局表 → `reference/cli/sdk-layout.md` | |
+| `internals/src/toolchain/workload-distribution.md` | `workload-distribution.md` ＋ manifest/布局表 → `reference/cli/sdk-layout.md` | |
 
 ### 2.7 `internals/testing/`
 
@@ -162,7 +162,7 @@ workflow 全部 25 篇：`quickstart` `ci` `debugging` `packaging`→`local-sdk-
 - `design/compiler/compilation.md` —— `.zmod`/`.zbin`/JSON Phase1 机制已不存在
 - `design/compiler/compiler-architecture.md`(1431行) —— 写的是已删除的 C# 编译器 ⚠️**待裁决：是否先抢救几节**
 - `design/testing/test-runner-bootstrap.md` —— 自注「✅已落地」，Rust runner 已删
-- `design/toolchain/build-orchestrator.md` —— ⚠️**待裁决**：book 迁移表标 ✅，但其 190 行八相位 / `ICompiler` in-process / hook 注入设计，book 对应页只有 109 行
+- `internals/src/toolchain/z42b.md` —— ⚠️**待裁决**：book 迁移表标 ✅，但其 190 行八相位 / `ICompiler` in-process / hook 注入设计，book 对应页只有 109 行
 
 **移出三书**（2）：`design/stdlib/README-template.md`→`docs/agent/rules/`；`design/stdlib/roadmap.md`→并入 `docs/roadmap.md`
 

@@ -89,11 +89,57 @@
 
 - [概览](toolchain/README.md)
 
+  **构建与分发**
+
+  - [z42b 构建编排器](toolchain/z42b.md)
+  - [launcher（`z42` 命令的分派层）](toolchain/launcher.md)
+  - [部署形态模型](toolchain/deployment-model.md)
+  - [`z42 export` 的工程生成](toolchain/export.md)
+  - [平台 export 与 publish 的动词模型](toolchain/platform-export.md)
+  - [workload 分发](toolchain/workload-distribution.md)
+
+  **交互**
+
+  - [REPL](toolchain/repl.md)
+  - [编辑器集成](toolchain/editor-integration.md)
+
 # 测试体系
 
 - [概览](testing/README.md)
+  - [测试框架与 runner](testing/framework.md)
+  - [跨平台测试](testing/cross-platform.md)
+  - [嵌入式 app 运行](testing/embedded-app-run.md)
+  - [执行 profile 矩阵](testing/exec-profile-matrix.md)
 
 # 开发基础设施
 
 - [概览](devinfra/README.md)
+
+  **上手**
+
+  - [开发环境准备](devinfra/dev-setup.md)
+  - [xtask（自举 dev CLI）](devinfra/xtask.md)
   - [本仓命名与目录约定](devinfra/repo-conventions.md)
+
+  **构建**
+
+  - [构建编排](devinfra/build.md)
+  - [平台构建](devinfra/build-platforms.md)
+  - [产物目录布局](devinfra/artifacts-layout.md)
+
+  **测试与门禁**
+
+  - [怎么跑测试](devinfra/testing.md)
+  - [GREEN gate](devinfra/test-gate.md)
+  - [测试流水线（两层模型）](devinfra/test-pipeline.md)
+  - [性能基准与回归门禁](devinfra/benchmarking.md)
+  - [CI 拓扑](devinfra/ci.md)
+
+  **发布**
+
+  - [打包引擎](devinfra/packaging.md)
+  - [发版流程](devinfra/release.md)
+
+  **排查**
+
+  - [调试手法](devinfra/debugging.md)
