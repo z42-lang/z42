@@ -330,7 +330,12 @@ public sealed class FunctionEmitter {
         while (i < model.SiCount) {
             TypedReg v = this._expr.Emit(model.SiInit[i]);   // C# static_init 无 LineTable（DBUG file 不在此入池——字节实证）
             string fq = this._ctx.Qualify(model.SiCls[i]) + "." + model.SiField[i];
-            this._ctx.Emit(new StaticSetInstr(fq, v));
+            // fix-static-struct-field-init：blob 值 struct 必须装箱后再存静态槽 —— 裸 StructRef 是
+            // **帧级 arena 句柄**，__static_init__ 一返回 slot 就被 LIFO 截断，下次读抛
+            // 「value-struct lifetime unsound」。有静态 ctor 时初始化器被注入 ctor 体、走
+            // AccessEmitter._emitStaticStore 已装箱；这条无静态 ctor 的路径此前漏挂。
+            TypedReg sv = this._expr._boxIfStaticStruct(v, model.SiInit[i].Type());
+            this._ctx.Emit(new StaticSetInstr(fq, sv));
             i = i + 1;
         }
         if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }

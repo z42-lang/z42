@@ -1,0 +1,72 @@
+// fix-static-struct-field-init：static struct 字段的**初始化器**路径。
+//
+// 与 struct_static_field.z42 的分工：那篇测「先声明、后在 Main 里赋值」（走
+// AccessEmitter._emitStaticStore，一直是装箱的）；本篇测「声明处直接带初始化器」——
+// 那条路走 FunctionEmitter.EmitStaticInit，此前**漏挂装箱**，存进静态槽的是帧级 arena
+// 句柄，__static_init__ 一返回 slot 就被 LIFO 截断，下次读抛
+// 「struct-value handle used after its creating frame exited — value-struct lifetime unsound」。
+//
+// 两条 codegen 路径由 DeclBinder 按「有无静态 ctor」分流，所以两种形态都要覆盖：
+//   无静态 ctor → EmitStaticInit（此前坏）
+//   有静态 ctor → 初始化器注入 ctor 体 → _emitStaticStore（一直好，阴性对照）
+namespace Demo;
+
+struct Color {
+    public int r;
+    public int g;
+    public Color(int r, int g) { this.r = r; this.g = g; }
+}
+
+// ① 无静态 ctor（此前崩）
+class H1 {
+    public static Color A = new Color(1, 2);
+}
+
+// ② static readonly，无静态 ctor（此前崩）
+class H2 {
+    public static readonly Color B = new Color(3, 4);
+}
+
+// ③ 有静态 ctor —— 阴性对照，这条路一直是对的
+class H3 {
+    public static Color C = new Color(5, 6);
+    static H3() { }
+}
+
+// ④ struct 自身持 static struct 字段（此前崩）
+struct Pal {
+    public int r;
+    public int g;
+    public static Pal White = new Pal(255, 255);
+    public Pal(int r, int g) { this.r = r; this.g = g; }
+}
+
+void Main() {
+    // ── 初始化器写入的值可读 ────────────────────────────────────────────
+    Assert.Equal(1, H1.A.r);
+    Assert.Equal(2, H1.A.g);
+    Assert.Equal(3, H2.B.r);
+    Assert.Equal(4, H2.B.g);
+    Assert.Equal(5, H3.C.r);          // 阴性对照
+    Assert.Equal(6, H3.C.g);
+    Assert.Equal(255, Pal.White.r);
+    Assert.Equal(255, Pal.White.g);
+
+    // ── 整读拆出独立副本（值语义）─────────────────────────────────────
+    Color a = H1.A;
+    a.r = 99;
+    Assert.Equal(1, H1.A.r);          // 改副本不影响静态字段
+
+    // ── 就地改字段穿透装箱盒（引用身份，持久）──────────────────────────
+    H1.A.r = 77;
+    Assert.Equal(77, H1.A.r);
+    Assert.Equal(2, H1.A.g);          // 另一个叶子不受影响
+
+    // ── 多次读拿到同一个盒 ───────────────────────────────────────────
+    Color b = H1.A;
+    Assert.Equal(77, b.r);
+
+    // ── static readonly 同样可读（只读约束是编译期的，不影响存储形态）──
+    Color c = H2.B;
+    Assert.Equal(3, c.r);
+}

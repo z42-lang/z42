@@ -350,7 +350,9 @@ public sealed class AccessEmitter {
 
     // add-static-struct-bytecization (PR-2 S)：整写 static struct 字段前 `__box_struct` 全局化——把帧 arena
     // blob 拷到堆装箱盒（进程存活，无悬垂），存的是盒句柄。非 struct 字段原样返回（int/string/引用照旧）。
-    private TypedReg _boxIfStaticStruct(TypedReg val, Z42Type fieldType) {
+    // fix-static-struct-field-init：internal —— FunctionEmitter.EmitStaticInit（无静态 ctor 的
+    // 字段初始化器路径）经 ExprEmitter 转发复用本装箱，否则存进静态槽的是帧级 arena 句柄。
+    internal TypedReg _boxIfStaticStruct(TypedReg val, Z42Type fieldType) {
         if (!this._ee._isBlobStruct(fieldType)) { return val; }
         TypedReg[] bargs = new TypedReg[1]; bargs[0] = val;
         TypedReg bdst = this._ctx.Alloc(IrType.Ref);

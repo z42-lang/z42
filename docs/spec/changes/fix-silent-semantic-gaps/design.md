@@ -1,6 +1,6 @@
 # Design: 修「编译通过但行为静默错误」的缺口
 
-> Status: **DRAFT**（2026-09-17）。三族根因调查全部完成，等 User 裁决分期与四个取舍后进 IMPL。
+> Status: **IMPL 进行中**（2026-09-17）。三族根因调查全部完成，User 已确认按本文推进。
 > 前置阅读：[proposal.md](proposal.md)（判据与归属核实）· [repro.md](repro.md)（最小复现与实测输出）
 
 ---

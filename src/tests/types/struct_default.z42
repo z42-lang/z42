@@ -1,0 +1,61 @@
+// fix-default-blob-struct：`default(T)` 对 blob 值 struct 应产**零初始化 blob**，不是 null。
+//
+// 此前 ExprEmitter 的 BoundDefault 按 IrType tag 分派（Bool/I32/I64/F64/Char），blob struct 的
+// tag 是 Ref ⇒ 落到末尾的 ConstNull 兜底 ⇒ 上层 `T t = default(T)` 发 StructAlloc + StructCopy(t, null)
+// ⇒ 运行期「StructCopy src: expected a struct value (StructRef), got Null」。
+//
+// arena 的 alloc 本就零初始化（bytes 全零 / refs 全 Null），正是 struct 的默认值定义。
+namespace Demo;
+
+struct Two {
+    public int x;
+    public int y;
+}
+
+struct WithRef {
+    public string s;      // 引用叶子 → 默认 null
+    public int    n;      // 基元叶子 → 默认 0
+}
+
+struct Mixed {
+    public long   a;
+    public double b;
+    public bool   c;
+    public char   d;
+}
+
+void Main() {
+    // ── 基元叶子全零 ────────────────────────────────────────────────
+    Two t = default(Two);
+    Assert.Equal(0, t.x);
+    Assert.Equal(0, t.y);
+
+    // ── 引用叶子为 null，基元叶子为零（混合 blob 的引用位图正确）──────
+    WithRef w = default(WithRef);
+    Assert.Equal(0, w.n);
+    Assert.True(w.s == null);
+
+    // ── 各种基元宽度都归零 ──────────────────────────────────────────
+    Mixed m = default(Mixed);
+    Assert.Equal(0L, m.a);
+    Assert.Equal(0.0, m.b);
+    Assert.False(m.c);
+    Assert.Equal('\0', m.d);
+
+    // ── default 与无参 new 等价 ──────────────────────────────────────
+    Two n = new Two();
+    Assert.Equal(n.x, t.x);
+    Assert.Equal(n.y, t.y);
+
+    // ── default 产的是独立值，不是共享句柄 ──────────────────────────
+    Two p = default(Two);
+    Two q = default(Two);
+    p.x = 42;
+    Assert.Equal(0, q.x);
+
+    // ── 可正常参与后续赋值与读写 ─────────────────────────────────────
+    t.x = 7;
+    t.y = 8;
+    Assert.Equal(7, t.x);
+    Assert.Equal(8, t.y);
+}
