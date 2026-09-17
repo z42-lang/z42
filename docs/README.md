@@ -14,7 +14,6 @@ z42 项目文档总入口。
 | 部分 | 概览页 | 涵盖 |
 |------|--------|------|
 | 前言 | [`book/src/README.md`](book/src/README.md) | 这本书是什么 + 知识上浮约定 |
-| 第一部分 · 语言 | [`book/src/language/`](book/src/language/) | 语法 / 类型系统 / 内存模型 / 内置协议 / FFI |
 | 第二部分 · 编译器 | [`book/src/compiler/`](book/src/compiler/) | 自举与种子 / pipeline / zpkg 产物 / 错误码 |
 | 第三部分 · 运行时 | [`book/src/runtime/`](book/src/runtime/) | 执行模型 / IR·zbc / GC / 嵌入·跨平台 / native ABI |
 | 第四部分 · 标准库 | [`book/src/stdlib/`](book/src/stdlib/) | 三层架构 / 包边界 / 核心包索引 |

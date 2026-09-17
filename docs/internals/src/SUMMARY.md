@@ -15,6 +15,8 @@
   - [访问权限强制](compiler/access-control.md)
   - [构造器继承与隐式 base()](compiler/ctor-inheritance.md)
   - [错误码体系：分段与新增流程](compiler/error-codes.md)
+  - [泛型的实现](compiler/generics.md)
+  - [泛型类型实参推断](compiler/generic-inference.md)
   - [语法定制：三层配置机制（未实施）](compiler/syntax-customization.md)
   - [元编程 / 编译期代码生成（未实施）](compiler/metaprogramming.md)
   - [脚本化 charter（未实施）](compiler/scripting-charter.md)
