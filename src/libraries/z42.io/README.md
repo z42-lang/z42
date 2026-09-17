@@ -35,4 +35,4 @@ z42 标准 IO 类型。
 
 > **二进制读写**（原独立包 `z42.io.binary`，2026-08-31 并入本包）：`using Std.IO.Binary;`
 > 提供 `BinaryReader` / `BinaryWriter`，LE / BE 显式后缀 + varint + float/double。
-> 用于协议解析、自定义文件格式、调试 `.zbc` 二进制内容等。设计要点见 `docs/design/stdlib/io-binary.md`。
+> 用于协议解析、自定义文件格式、调试 `.zbc` 二进制内容等。设计要点见 `docs/reference/src/stdlib/io-binary.md`。

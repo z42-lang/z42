@@ -45,7 +45,7 @@ RuntimeStats.Counters 的投影单测（Rust 侧 append-only 注册）：`cargo 
 src/runtime/Cargo.toml --release --lib diagnostics`。
 
 ## 关联文档
-- 日志设计：`docs/design/stdlib/diagnostics.md`（Deferred 段）
+- 日志 API 参考：`docs/reference/src/stdlib/diagnostics.md`
 - 堆保留诊断：change `add-heap-retention-diagnostics`（已归档）
 - 运行时计数暴露：change `expose-diagnostics-counters`（脚本性能分析 P1c）；机制见
   `docs/internals/src/runtime/diagnostics-design.md` §5

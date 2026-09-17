@@ -1,6 +1,6 @@
 // 执行基座 native 语义层：TCP / UDP / TLS / DNS socket 原语。
 //
-// 归属规则见 docs/design/stdlib/organization.md「native 语义层 → core，应用层 →
+// 归属规则见 docs/internals/src/stdlib/organization.md「native 语义层 → core，应用层 →
 // 纯脚本能力库」（2026-08-27）。高层 API（TcpClient / TcpListener / NetworkStream /
 // UdpClient / TlsClient / Dns + 各 *Decode 解码器）留在 z42.net 转纯脚本、调这里的
 // *Native 原语。命名空间保持 Std.Net.Sockets 不变，故 z42.net 调用点无需改动。

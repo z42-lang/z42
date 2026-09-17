@@ -1,6 +1,6 @@
 // 执行基座 native 语义层：线程原语 + 同步原语的底座 Monitor。
 //
-// 归属规则见 docs/design/stdlib/organization.md「native 语义层 → core，应用层 →
+// 归属规则见 docs/internals/src/stdlib/organization.md「native 语义层 → core，应用层 →
 // 纯脚本能力库」（2026-08-27）：io/net/threading 的 native 语义层并入 core（单一可审计
 // native ABI 面），高层 API（Std.Threading.Thread / Mutex<T> / RwLock<T> / Channel<T>）
 // 留在 z42.threading 转纯脚本、调这里的 *Native 原语（Mutex / RwLock / Channel 只用 MonitorNative）。命名空间保持 Std.Threading 不变，

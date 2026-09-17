@@ -2,7 +2,7 @@
 
 Infrastructure that lets a stdlib package's native code live **outside**
 the `z42vm` binary, in a separate `cdylib` that z42vm `dlopen`s at
-startup. First user: [`z42.compression`](../../../design/stdlib/compression.md)
+startup. First user: [`z42.compression`](../../../reference/src/stdlib/compression.md)
 (shipped 2026-05-24). Designed so future heavy native stdlibs
 (`z42.net`, `z42.numerics`, second-wave `z42.crypto` algorithms) follow
 the same template.

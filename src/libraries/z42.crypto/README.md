@@ -6,7 +6,7 @@ z42 标准库的加密算法子模块。**纯脚本实现** —— 不依赖 Ope
 所有算法用 z42 源码 + `long` (i64) 算术实现，便于审计 + 多平台 (包括 wasm)。
 本包**不**做需要 OS 熵源的 CSPRNG（见 Deferred 段）。
 
-设计参考：详见 [`docs/design/stdlib/crypto.md`](../../../docs/design/stdlib/crypto.md)。
+设计参考：详见 [`docs/reference/src/stdlib/crypto.md`](../../../docs/reference/src/stdlib/crypto.md)。
 
 ## src/ 核心文件
 
@@ -40,7 +40,7 @@ HmacSha256.ComputeStringHex(string key, string message) -> string
 
 **命名约定**：mirror `Sha256` — distinct method name per parameter form
 而非 overload-by-arg-type（z42 当前 overload 解析对 `byte[]` vs `string`
-有歧义，见 [`crypto.md`](../../../docs/design/stdlib/crypto.md)）。
+有歧义，见 [`crypto.md`](../../../docs/reference/src/stdlib/crypto.md)）。
 
 ## 依赖关系
 
@@ -51,7 +51,7 @@ HmacSha256.ComputeStringHex(string key, string message) -> string
 
 ## Deferred / Future Work
 
-详见 [`docs/design/stdlib/crypto.md`](../../../docs/design/stdlib/crypto.md) "Deferred / Future Work" 段。
+详见 [`docs/reference/src/stdlib/crypto.md`](../../../docs/reference/src/stdlib/crypto.md)「不支持」节。
 摘要：
 
 - **CSPRNG** (`Std.Crypto.Random`) — 阻塞于 z42.os / z42.io.fs syscall 抽象层

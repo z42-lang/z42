@@ -80,6 +80,10 @@
 # 标准库
 
 - [概览](stdlib/README.md)
+  - [三层架构](stdlib/architecture.md)
+  - [包划分与 interop 归属](stdlib/organization.md)
+  - [API 准则](stdlib/api-guidelines.md)
+  - [JSON serde 的反射底座](stdlib/json-serde.md)
 
 # 工具链
 

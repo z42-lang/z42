@@ -11,15 +11,6 @@
   - [CLI 与诊断工具](compiler/tools.md)
 
 
-# 第四部分 · 标准库（Standard Library）
-
-- [概览](stdlib/README.md)
-  - [三层架构与包边界]()
-  - [核心包索引]()
-  - [JSON serde（对象 ↔ JSON）](stdlib/json-serde.md)
-  - [`Std.Runtime.RuntimeConfig`（只读查询运行时设置）](stdlib/runtime-config.md)
-  - [`Std.Runtime.AppProperties`（应用自定义配置）](stdlib/app-properties.md)
-
 # 第五部分 · 工具链（Toolchain）
 
 - [概览](toolchain/README.md)

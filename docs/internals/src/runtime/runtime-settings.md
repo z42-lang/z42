@@ -147,7 +147,7 @@ mode = "interp"
 合法的用户属性静默收下，本页承诺的「未知旋钮就明确报出来」随之失效。
 
 应用属性只从 app 侧车来（没有 CLI / env / 用户配置的覆盖——它是**项目**配置），
-运行时经 [`Std.Runtime.AppProperties`](../../../book/src/stdlib/app-properties.md) 只读，支持完整
+运行时经 [`Std.Runtime.AppProperties`](../../../reference/src/stdlib/app-properties.md) 只读，支持完整
 TOML 类型。
 
 ## 登记表：唯一 SoT

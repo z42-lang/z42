@@ -72,7 +72,7 @@ m2.Group(2);   // "alice"
 | `(...)` | capturing group（按 `(` 顺序 1-based） |
 | `\|` | alternation |
 
-## 不支持（v0 — 详 `docs/design/stdlib/regex.md` Deferred）
+## 不支持（详 `docs/reference/src/stdlib/regex.md`「不支持」节）
 
 - backreference `\1`, `\2`
 - non-greedy `*?` `+?` `??`

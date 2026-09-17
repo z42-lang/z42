@@ -12,7 +12,7 @@ using Std.Text;
 //   _line/_col 1-based 行 / 列号（用于报错）
 //
 // 不实现：datetime / multiline string / hex/oct/bin int / 下划线分隔符。
-// 见 docs/design/stdlib/toml.md "Deferred" 段。
+// 见 docs/reference/src/stdlib/toml.md「不支持」节。
 public sealed class TomlParser {
     private string _src;
     // Bulk-materialised source chars (one `ToCharArray()`) so per-char cursor

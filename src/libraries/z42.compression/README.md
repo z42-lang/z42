@@ -67,5 +67,5 @@ int n = Tar.ExtractTo(tarBytes, "dest");
 // v0 是 in-memory buffered；真流式 pipeline 仍 deferred。
 ```
 
-See [docs/design/stdlib/compression.md](../../../docs/design/stdlib/compression.md)
+See [docs/reference/src/stdlib/compression.md](../../../docs/reference/src/stdlib/compression.md)
 for the full API + Deferred items.
