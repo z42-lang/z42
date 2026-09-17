@@ -222,7 +222,7 @@ pub struct VmCore {
     /// live `Std.Net.Sockets.TcpListener` instances keyed by monotonic u64 slot id.
     /// (**M2**: slot-id counter embedded in the registry.)
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) tcp_listeners:        ResourceRegistry<std::net::TcpListener>,
+    pub(crate) tcp_listeners:        ResourceRegistry<crate::corelib::network::ListenerSlot>,
 
     // ── add-z42-net-tls (2026-06-03) ──────────────────────────────────────
     /// live rustls client TLS streams (TCP + handshake state) keyed by

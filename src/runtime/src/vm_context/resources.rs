@@ -52,7 +52,9 @@ impl VmContext {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn alloc_tcp_listener_slot(&self, listener: std::net::TcpListener) -> u64 {
-        self.core.tcp_listeners.insert_new(listener)
+        self.core.tcp_listeners.insert_new(
+            crate::corelib::network::ListenerSlot::new(listener),
+        )
     }
 
     /// add-z42-net-tls (2026-06-03): register a connected + handshaken rustls
