@@ -216,6 +216,18 @@ public sealed class ExprEmitter {
                 this._ctx.Emit(new DefaultOfInstr(dr, def.ParamIndex));
                 return dr;
             }
+            // fix-default-blob-struct：blob 值 struct 的 default(T) = **零初始化 blob**，不是 null。
+            // 此前落到末尾的 ConstNull 兜底 ⇒ 上层 `T t = default(T)` 发 StructAlloc + StructCopy(t, null)
+            // ⇒ 运行期「StructCopy src: expected a struct value (StructRef), got Null」。
+            // arena 的 alloc 本就零初始化（bytes 全零 / refs 全 Null），正是 struct 的默认值定义。
+            if (this._isBlobStruct(def.Type())) {
+                Z42ClassType dsct = this._receiverClassType(def.Type());
+                string dsn = dsct.Name();
+                TypedReg dsr = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new StructAllocInstr(dsr, this._ctx.QualifyClass(dsn),
+                                                    this._ctx.Gen.Layouts.StructSize(dsn)));
+                return dsr;
+            }
             int dtag = this._ctx.ToIrType(def.Type());
             if (dtag == IrType.Bool) {
                 TypedReg drb = this._ctx.Alloc(IrType.Bool);
@@ -429,6 +441,11 @@ public sealed class ExprEmitter {
         return this._call._emitStaticAccessor(ownerClass, accessor, args, argCount, retType);
     }
     internal void _emitStaticStore(BoundStaticGet st, TypedReg val) { this._access._emitStaticStore(st, val); }
+
+    // fix-static-struct-field-init：转发静态 struct 字段的装箱（供 FunctionEmitter.EmitStaticInit 用）。
+    internal TypedReg _boxIfStaticStruct(TypedReg val, Z42Type fieldType) {
+        return this._access._boxIfStaticStruct(val, fieldType);
+    }
 
     // fix-struct-property-getter：转发 AccessEmitter 的 blob struct 属性 getter 读到 CallEmitter 的
     // struct-static-call（避免 struct receiver 上发 VCall）。

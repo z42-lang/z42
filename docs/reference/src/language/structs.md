@@ -66,6 +66,72 @@ new Vector2(1.5, 2.5).ToString();     // Vector2 { X = 1.5, Y = 2.5 }
 
 [元组](tuples.md) `(a, b)` 就是编译器合成的值元组 struct，语义与手写 struct 一致。
 
+## 默认值
+
+`default(T)` 产出一个**所有字段都是零值**的 struct —— 基元叶子为 `0` / `false` / `'\0'`，
+引用叶子为 `null`。等价于无参 `new T()`：
+
+```z42
+struct Pt { public int X; public int Y; public string Tag; }
+
+var p = default(Pt);
+p.X;      // 0
+p.Tag;    // null
+```
+
+每次求值都产出**独立**的一份，不是共享的单例。
+
+## 静态字段可以持有 struct 值
+
+```z42
+struct Color {
+    public int R; public int G; public int B;
+    public Color(int r, int g, int b) { R = r; G = g; B = b; }
+
+    public static readonly Color White = new Color(255, 255, 255);
+}
+
+Color.White.R;        // 255
+```
+
+带不带 `readonly` 都可以，声明在 struct 自身或别的类里都可以。
+
+读取静态 struct 字段拿到的是**独立副本**，改副本不影响静态字段本身；
+而**就地**改静态字段的某个成员（`Color.White.R = 0`）是持久的：
+
+```z42
+var c = Color.White;
+c.R = 0;                  // 只改副本
+Color.White.R;            // 仍是 255
+
+Color.White.R = 0;        // 就地改
+Color.White.R;            // 0
+```
+
+## 属性
+
+struct 支持**自动属性**与**计算属性**，写法与类一致：
+
+```z42
+struct Rect {
+    public int W { get; set; }        // 自动属性：编译器合成后备存储
+    public int H { get; set; }
+    public Rect(int w, int h) { W = w; H = h; }
+
+    public int Area { get { return W * H; } }   // 计算属性：无存储
+}
+
+var r = new Rect(3, 4);
+r.W;         // 3
+r.W = 5;
+r.Area;      // 20
+```
+
+自动属性的后备存储占 struct 布局里的一格，与普通字段并列，因此
+「自动属性 + 普通字段」混用时各自的偏移互不影响。计算属性不占存储。
+
+> 自动属性不改变值语义：`var b = a;` 仍是整份 blob 复制，改 `b.W` 不影响 `a.W`。
+
 ## 限制与已知缺口
 
 ### struct 不能继承
@@ -75,18 +141,6 @@ struct 不参与继承层次，没有基类也不能被继承。
 > ⚠️ 给 struct 写基类列表（`struct B : A`，`A` 也是 struct）目前**不报错**，
 > 但既不会继承字段、访问时也会在运行期崩。不要这么写。
 > 写接口名是可以的（见下）。
-
-### 自动属性在 struct 上不可用
-
-```z42
-public struct P {
-    public int X { get; set; }        // ⚠️ 编译通过，构造时运行期崩
-    public P(int x) { X = x; }
-}
-```
-
-实测报 `struct ref leaf at byte offset ... not in type layout`。
-**struct 请用公开字段**；需要计算属性时写方法。
 
 ### 表达式体构造器 + 元组赋值会静默失效
 
@@ -100,31 +154,6 @@ public Pair(int a, int b) => (A, B) = (a, b);   // ⚠️ 编译通过，字段�
 ```z42
 public Pair(int a, int b) { A = a; B = b; }
 ```
-
-### `static` 字段不能持有 struct 值
-
-```z42
-public static readonly Color White = new Color(255, 255, 255);   // ⚠️ 读取时运行期崩
-```
-
-无论加不加 `readonly`，struct 类型的静态字段在读取时都会抛
-`struct-value handle used after its creating frame exited`。
-用**静态工厂方法**代替：
-
-```z42
-public static Color White() => new Color(255, 255, 255);
-
-Color.White().ToRgb();      // ✓ 16777215
-```
-
-### `default(T)` 对 struct 产出 `null`
-
-```z42
-var p = default(Pair);
-p.Sum();     // ⚠️ 运行期抛：StructCopy src: expected a struct value (StructRef), got Null
-```
-
-这是已知缺陷，不是设计语义。需要「零值」时显式 `new Pair(0, 0)`。
 
 ### 单字段 struct 仍表现为引用语义
 

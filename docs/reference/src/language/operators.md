@@ -176,18 +176,19 @@ void Main() {
 仍未覆盖的路径：**泛型类上的 static 方法**（`Box<T>` 的 `static T Zero()`）没有接收者也没有
 方法级类型实参，`default(T)` 在那里退化为 `null`。
 
-### ⚠️ 已知限制：`default(自定义 struct)` 得到 `null`
+### `default(自定义 struct)`
+
+对值 struct，`default(T)` 产出一个**所有字段都是零值**的 struct——基元叶子为 `0` /
+`false` / `'\0'`，引用叶子为 `null`：
 
 ```z42
 struct Pt { public int X; public int Y; }
 
-var p = default(Pt);   // 得到 null，而不是一个 X=0,Y=0 的 Pt
-// 随后任何对 p 的使用都会 trap：
-//   StructCopy src: expected a struct value (StructRef), got Null
+var p = default(Pt);        // X=0, Y=0
+Console.WriteLine(p.X);     // 0
 ```
 
-这是**已知缺陷**，不是设计语义。需要零值 struct 时显式构造（`new Pt()` 或写一个
-`static readonly` 零值常量）。
+等价于 `new Pt()`。
 
 ## 类型检查与转换
 

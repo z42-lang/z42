@@ -1,0 +1,82 @@
+// 重载适用性认用户类层次后的**诊断**契约（fix-overload-ref-conversion）。
+//
+// 改动前：适用性判据不带符号表 ⇒ 子类实参对基类形参恒判不适用 ⇒ 适用集恒空 ⇒ 永远走 NoMatch
+// ⇒ 一律 E0401「找不到方法」，歧义分支（E0425）几乎不可达。
+// 改动后适用集不再恒空，于是**两类诊断的边界**需要单测钉住：
+//   · 真的没有适用候选 → 仍 E0401
+//   · 有多个适用候选且不可比 → E0425（并且**不再**重复补一条 E0401）
+namespace Z42cSemanticsOverloadHierarchyTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 子类实参匹配基类形参：不再报错 ────────────────────────────────
+[Test]
+void test_subclass_arg_matches_base_param_no_error() {
+    string src = "namespace D;"
+        + " class A { public int a; }"
+        + " class Dd : A { public int d; }"
+        + " class C { public static int F(A x) { return 1; } public static int F(string s) { return 2; } }"
+        + " class Use { int M() { return C.F(new Dd()); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 实现类实参匹配接口形参：不再报错 ──────────────────────────────
+[Test]
+void test_impl_arg_matches_interface_param_no_error() {
+    string src = "namespace D;"
+        + " interface IFoo { void Foo(); }"
+        + " class Dd : IFoo { public void Foo() { } }"
+        + " class C { public static int H(IFoo x) { return 1; } public static int H(string s) { return 2; } }"
+        + " class Use { int M() { return C.H(new Dd()); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 多层继承 D : M : A，择优选更派生的 M ───────────────────────────
+[Test]
+void test_multilevel_hierarchy_picks_more_derived_no_error() {
+    string src = "namespace D;"
+        + " class A { public int a; }"
+        + " class M : A { public int m; }"
+        + " class Dd : M { public int d; }"
+        + " class C { public static int G(A x) { return 1; } public static int G(M x) { return 2; } }"
+        + " class Use { int M2() { return C.G(new Dd()); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 阴性：不相关类型仍报 E0401「找不到」─────────────────────────────
+[Test]
+void test_unrelated_arg_still_undefined() {
+    string src = "namespace D;"
+        + " class A { public int a; }"
+        + " class B { public int b; }"
+        + " class X { public int x; }"
+        + " class C { public static int F(A p) { return 1; } public static int F(B p) { return 2; } }"
+        + " class Use { int M() { return C.F(new X()); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 阴性：基类 vs 接口，两者都适用且不可比 → E0425（对齐 C# CS0121）──
+// 这条同时守「歧义时**首条**诊断是 E0425 而不是 E0401」：改动前调用方会在
+// E0425 之后再补一条「找不到方法」，同一处报两个码。
+[Test]
+void test_base_vs_interface_is_ambiguous() {
+    string src = "namespace D;"
+        + " interface IFoo { void Foo(); }"
+        + " class A { public int a; }"
+        + " class Dd : A, IFoo { public void Foo() { } }"
+        + " class C { public static int F(A p) { return 1; } public static int F(IFoo p) { return 2; } }"
+        + " class Use { int M() { return C.F(new Dd()); } }";
+    Assert.Equal("E0425", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 阴性：单签名不适用仍报 E0402（守 na==1 短路没被改坏）────────────
+[Test]
+void test_single_candidate_mismatch_still_arg_error() {
+    string src = "namespace D;"
+        + " class A { public int a; }"
+        + " class C { public static int F(string s) { return 1; } }"
+        + " class Use { int M() { return C.F(new A()); } }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}

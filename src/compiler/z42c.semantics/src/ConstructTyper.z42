@@ -219,7 +219,7 @@ public sealed class ConstructTyper {
                 ai = ai + 1;
             }
             if (allBound) {
-                OverloadResult orr = OverloadResolver.Resolve(cands, cands.Length, argTs, argc);
+                OverloadResult orr = OverloadResolver.Resolve(cands, cands.Length, argTs, argc, env.Symbols);
                 // 只在**决议成功**时改写；无匹配/歧义仍走既有路径（诊断由下方 arity 校验与
                 // 实参类型检查给出，措辞不变）。
                 if (orr.IsResolved()) { ctorName = orr.Key; resolvedByType = true; }
@@ -230,7 +230,7 @@ public sealed class ConstructTyper {
         // = primary）⇒ `new C("a")` 对 `C()` + `C(string a, int n = 2)` **编译通过、运行期选中无参构造器**；
         // 命名实参则在上面被当成普通表达式绑定，报 `undefined: a`。
         if (cands.Length > 1 && !resolvedByType) {
-            OverloadResult mr = OverloadResolver.ResolveMapped(cands, cands.Length, this._tc._overload._argShape(null, rawArgs, argc, env));
+            OverloadResult mr = OverloadResolver.ResolveMapped(cands, cands.Length, this._tc._overload._argShape(null, rawArgs, argc, env), env.Symbols);
             if (mr.IsResolved()) { ctorName = mr.Key; }
             else if (mr.IsAmbiguous()) {
                 this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,

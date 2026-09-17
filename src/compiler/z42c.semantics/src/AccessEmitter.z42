@@ -61,14 +61,16 @@ public sealed class AccessEmitter {
             if (this._ctx.Fields.ContainsKey(tid.Name)) {
                 // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）写翻转为 StructFieldSetPrim(reg0=句柄)。
                 if (this._ctx.OwnerStructName != "") {
+                    // fix-struct-autoprop-layout-name：裸 auto-prop（`X = v`，无 this.）的存储是 __prop_X。
+                    string bn = this._ownerLayoutFieldName(tid.Name);
                     // add-struct-nested-fields：裸 owner struct 字段整写（`a = p;`）→ 逐叶子复制 val 进 this@off。
-                    if (this._ctx.Gen.Layouts.FieldIsStruct(this._ctx.OwnerStructName, tid.Name)) {
-                        string fs = this._ctx.Gen.Layouts.FieldTypeName(this._ctx.OwnerStructName, tid.Name);
-                        int foff = this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, tid.Name);
+                    if (this._ctx.Gen.Layouts.FieldIsStruct(this._ctx.OwnerStructName, bn)) {
+                        string fs = this._ctx.Gen.Layouts.FieldTypeName(this._ctx.OwnerStructName, bn);
+                        int foff = this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, bn);
                         this._copyRegion(val, 0, new TypedReg(0, IrType.Ref), foff, fs);
                         return val;
                     }
-                    this._emitStructFieldSet(this._ctx.OwnerStructName, tid.Name, new TypedReg(0, IrType.Ref), val);
+                    this._emitStructFieldSet(this._ctx.OwnerStructName, bn, new TypedReg(0, IrType.Ref), val);
                     return val;
                 }
                 // add-struct-heap-inline (P3b)：裸内联 struct 字段整写（`pt = other`，class C 方法内）→ 逐叶子
@@ -176,8 +178,15 @@ public sealed class AccessEmitter {
             // 的存储在 `__prop_X` 而非源名）。否则误当叶子发 _emitBlobFieldGet → `FieldByteOffset(X, 源名)`
             // 查不到存储 → 烘焙 `struct_fget_prim @-1` + ref tag → 运行期 `struct ref leaf at byte offset
             // 4294967295`。（原 :148 注释"struct 字段无 auto-property getter"是错的——显式属性 getter 一直漏识别。）
+            // fix-struct-autoprop-layout-name：把这条路由**收窄到计算属性**。
+            // auto-property 有 get_X，但它的合成桩体是 `field.get %0 @__prop_X`——`FieldGet` 只认堆
+            // ScriptObject，而 struct 方法的 this（reg0）是 Value::StructRef ⇒ 桩里必崩
+            // 「FieldGet: not an object or known value type, got StructRef」。
+            // auto-prop 在 blob struct 上应**直接读后备字节**（零 Call、零桩，也更快），
+            // 由下面的 _emitBlobFieldGet 经 _layoutFieldName 翻成 __prop_X 处理。
             Z42ClassType sct = this._ee._receiverClassType(m.Target.Type());
-            if (sct != null && sct.Methods.ContainsKey("get_" + m.MemberName)) {
+            bool isAutoProp = sct != null && this._propBackingName(sct, m.MemberName) != m.MemberName;
+            if (sct != null && !isAutoProp && sct.Methods.ContainsKey("get_" + m.MemberName)) {
                 // struct 无虚方法：走**静态 Call 传 handle**（sret-aware），非 VCall（会崩 expected object）。
                 TypedReg sobj = this._ee.Emit(m.Target);
                 string fqGetter = this._ctx.QualifyClass(sct.Name()) + ".get_" + m.MemberName;
@@ -260,16 +269,17 @@ public sealed class AccessEmitter {
     private TypedReg _emitBlobFieldGet(BoundMember m) {
         string cont = this._ee._blobStructName(m.Target.Type());
         TypedReg base_ = this._structChainRoot(m.Target);
-        int off = this._structChainOffset(m.Target) + this._ctx.Gen.Layouts.FieldByteOffset(cont, m.MemberName);
-        if (this._ctx.Gen.Layouts.FieldIsStruct(cont, m.MemberName)) {
-            string fs = this._ctx.Gen.Layouts.FieldTypeName(cont, m.MemberName);
+        string ln = this._layoutFieldName(m.Target.Type(), m.MemberName);     // auto-prop → __prop_X
+        int off = this._structChainOffset(m.Target) + this._ctx.Gen.Layouts.FieldByteOffset(cont, ln);
+        if (this._ctx.Gen.Layouts.FieldIsStruct(cont, ln)) {
+            string fs = this._ctx.Gen.Layouts.FieldTypeName(cont, ln);
             int sz = this._ctx.Gen.Layouts.StructSize(fs);
             TypedReg cp = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyClass(fs), sz));
             this._copyRegion(base_, off, cp, 0, fs);
             return cp;
         }
-        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(cont, m.MemberName));
+        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(cont, ln));
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(m.Type()));
         this._ctx.Emit(new StructFieldGetPrimInstr(dst, base_, off, tag));
         return dst;
@@ -280,13 +290,14 @@ public sealed class AccessEmitter {
     private void _emitBlobFieldSet(BoundMember tm, TypedReg val) {
         string cont = this._ee._blobStructName(tm.Target.Type());
         TypedReg base_ = this._structChainRoot(tm.Target);
-        int off = this._structChainOffset(tm.Target) + this._ctx.Gen.Layouts.FieldByteOffset(cont, tm.MemberName);
-        if (this._ctx.Gen.Layouts.FieldIsStruct(cont, tm.MemberName)) {
-            string fs = this._ctx.Gen.Layouts.FieldTypeName(cont, tm.MemberName);
+        string ln = this._layoutFieldName(tm.Target.Type(), tm.MemberName);   // auto-prop → __prop_X
+        int off = this._structChainOffset(tm.Target) + this._ctx.Gen.Layouts.FieldByteOffset(cont, ln);
+        if (this._ctx.Gen.Layouts.FieldIsStruct(cont, ln)) {
+            string fs = this._ctx.Gen.Layouts.FieldTypeName(cont, ln);
             this._copyRegion(val, 0, base_, off, fs);
             return;
         }
-        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(cont, tm.MemberName));
+        int tag = Tag.FromName(this._ctx.Gen.Layouts.FieldTypeName(cont, ln));
         this._ctx.Emit(new StructFieldSetPrimInstr(base_, off, tag, val));
     }
 
@@ -329,6 +340,28 @@ public sealed class AccessEmitter {
         return pf.PropBackingName;
     }
 
+    // fix-struct-autoprop-layout-name：**查 blob 布局前**把成员源名翻成存储名。
+    // auto-property 在 struct 上的存储是 `__prop_X`（MemberCollector 合成并 AddOwnField，
+    // 所以它**确实在布局里**、也确实占着字节），而 BoundMember 带的是源名 `X`。
+    // 不翻译 ⇒ FieldByteOffset 查不到 → 返回 -1 → 烘焙成 u32 立即数就是 4294967295
+    // ⇒ 运行期「struct ref leaf at byte offset 4294967295 not in type layout」。
+    // 读侧此前靠路由到 get_X 绕开了（fix-struct-property-getter），写侧从无对称判据。
+    // 同上，但用于**裸名**路径（struct 方法内 `X = v` / 读 `X`，无 this. 前缀）。
+    // 那里拿不到容器的 Z42Type，只有 OwnerStructName；InstProps 恰好记着当前 owner 的
+    // 「源名 → __prop_X」（FunctionEmitter 填表时 struct 与 class 一视同仁）。
+    private string _ownerLayoutFieldName(string memberName) {
+        if (!this._ctx.InstProps.ContainsKey(memberName)) { return memberName; }
+        string ob = this._ctx.InstProps.Get(memberName) as string;
+        if (ob == null || ob.Length == 0) { return memberName; }
+        return ob;
+    }
+
+    private string _layoutFieldName(Z42Type containerType, string memberName) {
+        Z42ClassType lct = this._ee._receiverClassType(containerType);
+        if (lct == null) { return memberName; }
+        return this._propBackingName(lct, memberName);
+    }
+
     // 该成员是不是属性（含**继承来的**——基类 FieldSymbol 被 _passInheritFields 并进子类 Fields）。
     private bool _isPropMember(Z42ClassType ct, string memberName) {
         return this._propSymbol(ct, memberName) != null;
@@ -350,7 +383,9 @@ public sealed class AccessEmitter {
 
     // add-static-struct-bytecization (PR-2 S)：整写 static struct 字段前 `__box_struct` 全局化——把帧 arena
     // blob 拷到堆装箱盒（进程存活，无悬垂），存的是盒句柄。非 struct 字段原样返回（int/string/引用照旧）。
-    private TypedReg _boxIfStaticStruct(TypedReg val, Z42Type fieldType) {
+    // fix-static-struct-field-init：internal —— FunctionEmitter.EmitStaticInit（无静态 ctor 的
+    // 字段初始化器路径）经 ExprEmitter 转发复用本装箱，否则存进静态槽的是帧级 arena 句柄。
+    internal TypedReg _boxIfStaticStruct(TypedReg val, Z42Type fieldType) {
         if (!this._ee._isBlobStruct(fieldType)) { return val; }
         TypedReg[] bargs = new TypedReg[1]; bargs[0] = val;
         TypedReg bdst = this._ctx.Alloc(IrType.Ref);
@@ -400,14 +435,17 @@ public sealed class AccessEmitter {
             BoundMember m = e as BoundMember;
             if (this._isInlineChainLink(m)) {
                 int parent = this._structChainOffset(m.Target);
-                return parent + this._ctx.Gen.Layouts.FieldByteOffset(this._ee._blobStructName(m.Target.Type()), m.MemberName);
+                return parent + this._ctx.Gen.Layouts.FieldByteOffset(
+                    this._ee._blobStructName(m.Target.Type()),
+                    this._layoutFieldName(m.Target.Type(), m.MemberName));
             }
             // add-struct-heap-inline (P3b)：内联 struct 字段根的对象相对起始 offset（纯查表，不 Emit）。
             if (this._isInlineStructFieldRoot(e)) { return this._inlineFieldOffset(m); }
         }
         if (this._isOwnerStructField(e)) {
             BoundIdent id = e as BoundIdent;
-            return this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, id.Name);
+            return this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName,
+                                                        this._ownerLayoutFieldName(id.Name));
         }
         // add-struct-heap-inline (P3b)：裸内联字段 `pt` 的对象相对起始 offset。
         if (this._isOwnerInlineField(e)) {
@@ -544,17 +582,19 @@ public sealed class AccessEmitter {
         if (this._ctx.Fields.ContainsKeyHashed(id.Name, _h)) {
             // A-use：所属类是 blob 值 struct → 裸字段（`this.f`）读翻转为 StructFieldGetPrim(reg0=句柄)。
             if (this._ctx.OwnerStructName != "") {
+                // fix-struct-autoprop-layout-name：裸 auto-prop（读 `X`，无 this.）的存储是 __prop_X。
+                string rbn = this._ownerLayoutFieldName(id.Name);
                 // add-struct-nested-fields：裸 owner 字段本身是 struct（`P p = a;`）→ 值复制出（reg0=this，off=字段 offset）。
-                if (this._ctx.Gen.Layouts.FieldIsStruct(this._ctx.OwnerStructName, id.Name)) {
-                    string fs = this._ctx.Gen.Layouts.FieldTypeName(this._ctx.OwnerStructName, id.Name);
-                    int foff = this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, id.Name);
+                if (this._ctx.Gen.Layouts.FieldIsStruct(this._ctx.OwnerStructName, rbn)) {
+                    string fs = this._ctx.Gen.Layouts.FieldTypeName(this._ctx.OwnerStructName, rbn);
+                    int foff = this._ctx.Gen.Layouts.FieldByteOffset(this._ctx.OwnerStructName, rbn);
                     int sz = this._ctx.Gen.Layouts.StructSize(fs);
                     TypedReg cp = this._ctx.Alloc(IrType.Ref);
                     this._ctx.Emit(new StructAllocInstr(cp, this._ctx.QualifyClass(fs), sz));
                     this._copyRegion(new TypedReg(0, IrType.Ref), foff, cp, 0, fs);
                     return cp;
                 }
-                return this._emitStructFieldGet(this._ctx.OwnerStructName, id.Name, new TypedReg(0, IrType.Ref), this._ctx.ToIrType(id.Type()));
+                return this._emitStructFieldGet(this._ctx.OwnerStructName, rbn, new TypedReg(0, IrType.Ref), this._ctx.ToIrType(id.Type()));
             }
             // add-struct-heap-inline (P3b)：裸内联 struct 字段整读（`Point p = pt`，class C 方法内）→ 拷出新局部
             // blob（值语义）。裸叶子 `pt.x` 由 _emitBlobFieldGet 经 _isOwnerInlineField 根处理。

@@ -75,8 +75,8 @@ if (obj is Point(a, b)) { use(a, b); }
 ```
 
 > **struct record 位置 / 属性解构（complete-pattern-engine 放开）**：位置 / 属性模式除 record class 外，
-> 亦支持 **struct record**（值类型，`[Record] struct`）——覆盖 switch / is / 解构声明全位点。struct 无
-> auto-property getter，字段读走 **blob 字节偏移 + TypeTag**（`StructFieldGetPrim`，`PatternEmitter._emitPatFieldRead`
+> 亦支持 **struct record**（值类型，`[Record] struct`）——覆盖 switch / is / 解构声明全位点。struct 的字段读**不经**
+> auto-property getter，一律走 **blob 字节偏移 + TypeTag**（`StructFieldGetPrim`，`PatternEmitter._emitPatFieldRead`
 > 按 `_isBlobStruct(container)` 分派），而非 class 的 `FieldGet`；struct 静态已知类型（值 subject）→ 不发 `IsInstance`。
 >
 > **嵌套 struct-record 字段**（字段本身是 struct，如 `struct Line(Point A, Point B)`）与 **boxed struct subject**

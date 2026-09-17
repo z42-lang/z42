@@ -1,0 +1,103 @@
+// fix-struct-autoprop-layout-name：blob 值 struct 上的 **auto-property**。
+//
+// 两条独立缺陷，必须一起修（只修一条另一条仍崩）：
+//  ① 写路径用**源名**查布局 —— auto-property 的存储是 `__prop_X`（MemberCollector 合成并
+//     AddOwnField，所以它确实在布局里、确实占字节），而 BoundMember 带的是源名 `X`。
+//     FieldByteOffset 查不到 → 返回 -1 → 烘焙成 u32 立即数就是 4294967295
+//     ⇒ 运行期「struct ref leaf at byte offset 4294967295 not in type layout」。
+//     读侧此前靠路由到 get_X 绕开了，写侧从无对称判据。
+//  ② 合成访问器桩体发 `field.get %0 @__prop_X` —— `FieldGet` 只认堆 ScriptObject，
+//     而 struct 方法的 this（reg0）是 Value::StructRef ⇒ 桩里必崩。
+//     修法是把 get_X 路由**收窄到计算属性**，auto-prop 直接读写后备字节（零 Call）。
+//
+// 阴性对照：C.Sum 是**计算属性**（有 get 体、无后备存储），必须仍然走 get_Sum，
+// 否则说明路由收窄收过头了。
+namespace Demo;
+
+struct P {
+    public int X { get; set; }
+    public int Y { get; set; }
+    public P(int x, int y) { this.X = x; this.Y = y; }
+}
+
+// auto-property 与普通字段混合 —— 验证 __prop_X 占了 offset 0、y 才拿到 offset 4
+struct M {
+    public int X { get; set; }
+    public int y;
+    public M(int a, int b) { this.X = a; this.y = b; }
+}
+
+// 计算属性（无后备存储）—— 阴性对照，必须仍走 get_Sum
+struct C {
+    public int A { get; set; }
+    public int B;
+    public C(int a, int b) { this.A = a; this.B = b; }
+    public int Sum { get { return this.A + this.B; } }
+}
+
+// 只读 auto-property
+struct R {
+    public int V { get; }
+    public R(int v) { this.V = v; }
+}
+
+// **裸名**形态（无 this. 前缀）—— 走的是另一条 codegen 路径（OwnerStructName +
+// InstProps），第一版修复只覆盖了 this. 形态，裸名仍崩。两条都要测。
+struct B {
+    public int W { get; set; }
+    public int H { get; set; }
+    public B(int w, int h) { W = w; H = h; }          // 裸名写
+    public int Area { get { return W * H; } }          // 裸名读（在计算属性体内）
+}
+
+void Main() {
+    // ── ctor 内写（缺口 ①）+ 外部读（缺口 ②）────────────────────────
+    var p = new P(3, 4);
+    Assert.Equal(3, p.X);
+    Assert.Equal(4, p.Y);
+
+    // ── 外部 set ───────────────────────────────────────────────────
+    p.X = 9;
+    Assert.Equal(9, p.X);
+    Assert.Equal(4, p.Y);        // 另一个叶子不受影响
+
+    // ── 值语义独立（auto-prop 不破坏 blob 复制）──────────────────────
+    var q = p;
+    q.X = 1;
+    Assert.Equal(9, p.X);
+    Assert.Equal(1, q.X);
+
+    // ── auto-prop 与普通字段混合，偏移互不串扰 ──────────────────────
+    var m = new M(7, 42);
+    Assert.Equal(7, m.X);
+    Assert.Equal(42, m.y);
+    m.y = 43;
+    Assert.Equal(7, m.X);
+    m.X = 8;
+    Assert.Equal(43, m.y);
+
+    // ── 阴性对照：计算属性仍走 getter ────────────────────────────────
+    var c = new C(10, 20);
+    Assert.Equal(30, c.Sum);
+    c.A = 1;
+    Assert.Equal(21, c.Sum);     // getter 读的是当下的 A/B
+
+    // ── 只读 auto-property ─────────────────────────────────────────
+    var r = new R(5);
+    Assert.Equal(5, r.V);
+
+    // ── 裸名写 + 裸名读（另一条 codegen 路径）────────────────────────
+    var b = new B(3, 4);
+    Assert.Equal(3, b.W);
+    Assert.Equal(4, b.H);
+    Assert.Equal(12, b.Area);      // 计算属性体内裸名读 auto-prop
+    b.W = 5;
+    Assert.Equal(20, b.Area);
+    var b2 = b;
+    b2.W = 1;
+    Assert.Equal(5, b.W);          // 裸名形态也不破坏值语义
+
+    // ── 值相等仍按字段内容（合成的 Equals 看的是 blob 字节）──────────
+    Assert.True(new P(1, 2).Equals(new P(1, 2)));
+    Assert.False(new P(1, 2).Equals(new P(1, 3)));
+}

@@ -1,0 +1,8 @@
+namespace Demo.OvhTarget;
+
+public interface IMark { void Mark(); }
+
+// 三层继承 —— 消费方要能沿 base 链走到 Base
+public class Base { public int b; }
+public class Mid : Base { public int m; }
+public class Leaf : Mid, IMark { public int l; public void Mark() { } }

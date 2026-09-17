@@ -1,0 +1,82 @@
+// fix-overload-ref-conversion：重载适用性判据要认**用户类层次**（派生→基 / 类→接口）。
+//
+// 此前 OverloadResolver._assignable 用的是**不带符号表**的 Z42Type.IsAssignableTo，而
+// Z42ClassType.IsAssignableTo 自己的注释就写着「1A-1 不查继承链；subclass→base 需类表走 base 链」。
+// 于是被漏掉的恰好是**需要类表**的三条：派生→基、类→接口、实例化泛型→基/接口；
+// 而数值加宽（PrimModel.CanWiden）与 object 短路不需类表，所以它们一直过得去
+// —— 「数值和 object 行、用户类层次不行」这个反直觉现象的全部原因。
+//
+// 触发条件精确地是「**同 arity、非 params 的候选 ≥ 2**」：候选只有一个时
+// OverloadBinder 直接返回（na==1 短路），压根不走适用性判据，所以单签名一直是对的。
+namespace Demo;
+
+interface IFoo { void Foo(); }
+
+class A { public int a; }
+class M : A { public int m; }
+class D : M, IFoo { public int d; public void Foo() { } }
+
+class C {
+    // ① 子类 → 基类
+    public static int F(A x)      { return 1; }
+    public static int F(string s) { return 2; }
+
+    // ② 实现类 → 接口
+    public static int H(IFoo x)   { return 1; }
+    public static int H(string s) { return 2; }
+
+    // ③ 择优：更派生的形参更优（守 _assignable2 必须与 _assignable 同批改 ——
+    //    只改一半这里会从「找不到」变成歧义 E0425）
+    public static int G(A x)      { return 1; }
+    public static int G(M x)      { return 2; }
+
+    // ④ object 不得遮蔽更精确的基类形参（本次唯一会改既有选择的形状）
+    public static int K(A x)      { return 1; }
+    public static int K(object o) { return 2; }
+
+    // ⑤ 精确匹配仍优先于上转
+    public static int L(A x)      { return 1; }
+    public static int L(D x)      { return 2; }
+
+    // ⑥ 与数值加宽混合，两条路互不干扰
+    public static int N(A x)      { return 1; }
+    public static int N(long v)   { return 2; }
+
+    // ⑦ 实例方法收者
+    public int IF(A x)      { return 1; }
+    public int IF(string s) { return 2; }
+
+    // ⑧ 单签名（阴性对照：走 na==1 短路，一直是对的，防改坏）
+    public static int One(A x)    { return 1; }
+}
+
+void Main() {
+    var d = new D();
+
+    Assert.Equal(1, C.F(d));        // ① 子类 → 基类
+    Assert.Equal(1, C.H(d));        // ② 实现类 → 接口
+    Assert.Equal(2, C.G(d));        // ③ 更派生者胜 → G(M)
+    Assert.Equal(1, C.K(d));        // ④ K(A) 而非 K(object)
+    Assert.Equal(2, C.L(d));        // ⑤ 精确 > 上转 → L(D)
+
+    Assert.Equal(1, C.N(d));        // ⑥ 类层次
+    Assert.Equal(2, C.N(5));        //    数值加宽
+    Assert.Equal(1, new C().IF(d)); // ⑦ 实例方法
+
+    Assert.Equal(1, C.One(d));      // ⑧ 单签名仍对
+
+    // 多层继承：D : M : A，传 M 时也要选中 G(M)
+    var m = new M();
+    Assert.Equal(2, C.G(m));
+    Assert.Equal(1, C.F(m));
+
+    // 基类实参仍走基类重载（不因为改动而误选）
+    var a = new A();
+    Assert.Equal(1, C.F(a));
+    Assert.Equal(1, C.G(a));
+    Assert.Equal(1, C.K(a));
+
+    // object 实参仍走 object 重载
+    object o = "x";
+    Assert.Equal(2, C.K(o));
+}

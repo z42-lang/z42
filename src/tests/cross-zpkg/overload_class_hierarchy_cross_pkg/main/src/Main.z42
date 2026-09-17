@@ -1,0 +1,38 @@
+namespace Demo.OvhApp;
+
+using Std;
+using Std.IO;
+using Demo.OvhTarget;
+
+// 重载集在**本包**，类层次在**依赖包** —— 消费方必须能从 TSIG 重建的
+// 基类名 / 接口表沿链判定适用性（ImportedSymbolLoader 填 BaseName + Interfaces，
+// 后者还是生产侧展开后的传递闭包）。
+class Pick {
+    public static int F(Base x)   { return 1; }
+    public static int F(string s) { return 2; }
+
+    public static int G(Base x)   { return 1; }
+    public static int G(Mid x)    { return 2; }
+
+    public static int H(IMark x)  { return 1; }
+    public static int H(string s) { return 2; }
+}
+
+void Main() {
+    var leaf = new Leaf();
+    var mid  = new Mid();
+    var b    = new Base();
+
+    // 跨包三层继承 Leaf → Mid → Base / 跨包择优（更派生者胜）/ 跨包类 → 接口
+    Console.WriteLine("F(leaf)=" + Pick.F(leaf));
+    Console.WriteLine("G(leaf)=" + Pick.G(leaf));
+    Console.WriteLine("H(leaf)=" + Pick.H(leaf));
+
+    // 中间层同样成立
+    Console.WriteLine("F(mid)=" + Pick.F(mid));
+    Console.WriteLine("G(mid)=" + Pick.G(mid));
+
+    // 基类本身仍选基类重载
+    Console.WriteLine("F(base)=" + Pick.F(b));
+    Console.WriteLine("G(base)=" + Pick.G(b));
+}

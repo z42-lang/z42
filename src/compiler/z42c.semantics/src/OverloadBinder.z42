@@ -11,6 +11,12 @@ using Z42.IR.BinaryFormat;
 
 public sealed class OverloadBinder {
     private TypeChecker _tc;
+
+    // fix-overload-ref-conversion：`_resolveOverload` 判定为**歧义**时已经报过 E0425，
+    // 调用方（MemberResolver 的四个 E0401 发射点）不该再补一条「找不到方法」——
+    // 同一处报两个码会让用户以为是两个问题。改动前歧义路径几乎不可达（适用性判据
+    // 不认类层次 ⇒ 适用集恒空 ⇒ 直接 NoMatch），所以这个重复诊断一直没暴露。
+    internal bool LastAmbiguous;
     public OverloadBinder(TypeChecker tc) { this._tc = tc; }
 
     // add-target-typed-new：回填延迟绑定的 target-typed new 实参（`_bindCall` 留 null 占位）。
@@ -411,8 +417,9 @@ public sealed class OverloadBinder {
     }
 
     // fix-overload-defaults-named-args：映射决议 + 歧义诊断（无匹配时返回 null，由调用方报「找不到」）。
-    internal MethodSymbol _resolveMappedOrReport(MethodSymbol[] cands, ArgShape shape, string name, Span sp) {
-        OverloadResult r = OverloadResolver.ResolveMapped(cands, cands.Length, shape);
+    internal MethodSymbol _resolveMappedOrReport(MethodSymbol[] cands, ArgShape shape, string name, Span sp,
+                                                 SymbolTable symbols) {
+        OverloadResult r = OverloadResolver.ResolveMapped(cands, cands.Length, shape, symbols);
         if (r.IsResolved()) { return r.Method; }
         if (r.IsAmbiguous()) {
             this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
@@ -618,6 +625,7 @@ public sealed class OverloadBinder {
     internal MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
                                           BoundExpr[] args, int argCount, int typeArgCount, Span sp,
                                           Expr[] rawArgs, TypeEnv env) {
+        this.LastAmbiguous = false;       // 每次决议独立，别让上一次的歧义把这次的「找不到」吞掉
         MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
         if (all.Length == 0) { return null; }
         // fix-overload-defaults-named-args：命名实参 + 多个重载 ⇒ 按「实参映射」决议。此前命名实参在 `_bindCall` 里
@@ -627,7 +635,8 @@ public sealed class OverloadBinder {
         // `P(string head, params int[] xs)` 报 E0437 + undefined。`Map` 本就处理 params 的两种形态。
         bool anyParamsCand = all.Length == 1 && all[0].Signature != null && all[0].Signature.ParamsFrom >= 0;
         if ((all.Length > 1 || anyParamsCand) && rawArgs != null && env != null && this._hasNamedArg(rawArgs, argCount, env)) {
-            return this._resolveMappedOrReport(all, this._argShape(args, rawArgs, argCount, env), name, sp);
+            return this._resolveMappedOrReport(all, this._argShape(args, rawArgs, argCount, env), name, sp,
+                                               env == null ? null : env.Symbols);
         }
         // add-target-typed-new：延迟绑定的 target-typed new 实参（null 位）无类型 → 无法参与基于类型的重载决议。
         // arity 唯一时（下方 na==1）不需类型可直接选中；否则报 E0437 让用户写显式类名。
@@ -661,7 +670,8 @@ public sealed class OverloadBinder {
                     if ((cm.Signature.ParamsFrom < 0 && cm.Signature.ParamCount > argCount) || cm == viaParams) { pool[pn] = cm; pn = pn + 1; }
                     pi = pi + 1;
                 }
-                OverloadResult mr = OverloadResolver.ResolveMapped(pool, pn, this._argShape(args, rawArgs, argCount, env));
+                OverloadResult mr = OverloadResolver.ResolveMapped(pool, pn, this._argShape(args, rawArgs, argCount, env),
+                                                                   env == null ? null : env.Symbols);
                 if (mr.IsResolved()) { return mr.Method; }
                 if (mr.IsAmbiguous()) {
                     this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
@@ -703,11 +713,12 @@ public sealed class OverloadBinder {
         Z42Type[] argTypes = new Z42Type[argCount];
         int k = 0;
         while (k < argCount) { argTypes[k] = args[k].Type(); k = k + 1; }
-        OverloadResult res = OverloadResolver.Resolve(byArity, na, argTypes, argCount);
+        OverloadResult res = OverloadResolver.Resolve(byArity, na, argTypes, argCount, symbols);
         if (res.IsResolved()) { return res.Method; }
         if (res.IsAmbiguous()) {
             this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
                 "ambiguous call to overloaded `" + name + "`; add an explicit cast to disambiguate", sp);
+            this.LastAmbiguous = true;
         }
         return null;
     }

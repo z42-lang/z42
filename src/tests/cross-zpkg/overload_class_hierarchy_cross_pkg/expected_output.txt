@@ -1,0 +1,7 @@
+F(leaf)=1
+G(leaf)=2
+H(leaf)=1
+F(mid)=1
+G(mid)=2
+F(base)=1
+G(base)=1

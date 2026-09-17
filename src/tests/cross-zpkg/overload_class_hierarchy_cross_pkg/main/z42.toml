@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ovhapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.OvhApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ovhtarget" = "0.1.0"

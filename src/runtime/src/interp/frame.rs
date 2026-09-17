@@ -337,10 +337,23 @@ pub(crate) fn store_thru_ref(
             let mut obj = gc_ref.borrow_mut();
             let slot_opt = obj.type_desc.field_index.get(field_name).copied();
             match slot_opt {
-                // unify-object-byte-layout (PR-2): encode into bytes / refs. (No GC
-                // write barrier here — parity with the pre-PR-2 store-through-ref path.)
+                // unify-object-byte-layout (PR-2): encode into bytes / refs.
+                //
+                // fix-ref-field-write-barrier: writing through a `ref` to an object field is a
+                // field store like any other — `FieldSet` fires the barrier (exec_object.rs),
+                // this path never did. Latent until z42c starts emitting `LoadFieldAddr`
+                // (0xA2); with generational GC on by default, storing a young ref into an old
+                // object without recording it in the remembered set collects it prematurely.
+                // Mirrors the `RefKind::Array` arm above and the three `FieldSet` call sites:
+                // filter at the call site, fire post-write, release the borrow first.
                 Some(slot) => {
-                    obj.set_field_value(slot, &val);
+                    let wrote_ref = obj.set_field_value(slot, &val);
+                    drop(obj);
+                    if wrote_ref && val.is_heap_ref() {
+                        ctx.heap().write_barrier_field(
+                            &Value::Object(gc_ref.clone()), slot, &val,
+                        );
+                    }
                     Ok(())
                 }
                 None => anyhow::bail!(

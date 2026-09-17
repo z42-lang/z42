@@ -1,0 +1,39 @@
+// fix-default-blob-struct + fix-static-struct-field-init 的**全优化**对照。
+//
+// 为什么需要这一份：golden 默认只走 `--emit-zbc`，其默认优化集关掉了
+// StackAlloc / Inline / PureCall / DeadBranch / Devirt ⇒ 平铺用例等于没测优化路径。
+// struct 指令的 def/use 登记历史上出过事（漏登 StructFieldSetPrim 的 Val 读 →
+// DCE 误删喂值的 const），而本次两条修复都**新增了 StructAlloc / __box_struct 的发射点**，
+// 必须在开全优化下确认它们不被 DCE 削掉、装箱不被当纯调用消掉。
+namespace Demo;
+
+struct Color {
+    public int r;
+    public int g;
+    public Color(int r, int g) { this.r = r; this.g = g; }
+}
+
+class Holder {
+    public static Color A = new Color(11, 22);
+}
+
+void Main() {
+    // default → StructAlloc：结果只经一次读，DCE 最容易在这里削错
+    Color d = default(Color);
+    Assert.Equal(0, d.r);
+    Assert.Equal(0, d.g);
+
+    // 静态初始化器 → __box_struct：装箱不可被当作纯调用消除
+    Assert.Equal(11, Holder.A.r);
+    Assert.Equal(22, Holder.A.g);
+
+    // 就地写穿装箱盒后再读，确认盒身份在优化后仍然唯一
+    Holder.A.r = 33;
+    Assert.Equal(33, Holder.A.r);
+    Color c = Holder.A;
+    Assert.Equal(33, c.r);
+
+    // 副本独立性在开优化后仍成立（拷贝不可被别名化掉）
+    c.r = 44;
+    Assert.Equal(33, Holder.A.r);
+}
