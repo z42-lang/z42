@@ -151,6 +151,25 @@ Error: uncaught exception: struct ref leaf at byte offset 4294967295 not in type
 ⇒ `4294967295` = `u32::MAX`：自动属性合成的后备字段**没有进 `StructLayout`**，
 offset 保持未初始化值。崩在构造器里（`this.X = x` 这一行）。
 
+## 附带同族：`default(任何值 struct)` 都崩
+
+```z42
+struct Pt { public int x; public int y; public Pt(int x,int y){this.x=x;this.y=y;} }
+Pt d = default(Pt);
+```
+
+```text
+Error: uncaught exception: StructCopy src: expected a struct value (StructRef), got Null
+```
+
+**不只单字段** —— 多字段值 struct 同样崩。根因：`default(T)` 对 struct 类型发的是 `ConstNull`
+（`language-overview` 的零值表原文就写「任意 class / interface / array / `T?` / **自定义 struct** → `null`」），
+随后 `StructCopy` 收到 `Null` 就炸。`Guid.z42:15-18` 的注释承认了这个限制。
+
+⇒ 修法很小：`StructAlloc` 指令的语义本来就是「在 arena 分配**零初始化** blob」，
+`default(值 struct)` 改发 `StructAlloc` 即可。**建议并入第二族一起做**，它和缺口 4/5
+同属「值 struct 的存储与初始化没铺全」。
+
 ## 缺口 6：重载集里子类实参不匹配用户基类形参
 
 ```z42
