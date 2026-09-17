@@ -4,7 +4,7 @@
 //! 与「token 解析」是两件事：token 解析是**每函数一次**的冷路径，PIC 是**每次派发**
 //! 的热路径。父模块 `resolver` 只负责前者。
 
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 use crate::metadata::tokens::UNRESOLVED;
 
 /// review.md C4 P2 + C5 P2 (jit-polymorphic-ic, 2026-05-28): 4-slot
@@ -15,21 +15,20 @@ use crate::metadata::tokens::UNRESOLVED;
 /// on each install, modulo 4 picks the slot to overwrite.
 pub const IC_SLOTS: usize = 4;
 
-/// Single VCall PIC entry — (TypeId, vtable slot, target MethodId).
+/// Single VCall PIC entry — (TypeId, target MethodId) packed into **one** atomic.
+///
+/// fix-field-ic-publication-race (2026-09-17): 拆成两个独立原子量会撕裂，见
+/// [`pack`] 上方的说明。承载的 vtable slot 已删——它是死载荷：唯一的消费点
+/// `interp::vcall_resolve::vcall_ic_hit` 写的是 `let (_slot, fn_idx) = …`，
+/// JIT 侧共用同一个 `vcall_ic_hit`。留着它就得凑 96 位、没法单原子发布。
 #[derive(Debug)]
 pub struct VCallICEntry {
-    pub type_id: AtomicU32,
-    pub slot:    AtomicU32,
-    pub fn_idx:  AtomicU32,
+    pub packed: AtomicU64,
 }
 
 impl Default for VCallICEntry {
     fn default() -> Self {
-        Self {
-            type_id: AtomicU32::new(UNRESOLVED),
-            slot:    AtomicU32::new(UNRESOLVED),
-            fn_idx:  AtomicU32::new(UNRESOLVED),
-        }
+        Self { packed: AtomicU64::new(pack(UNRESOLVED, UNRESOLVED)) }
     }
 }
 
@@ -63,19 +62,16 @@ impl Default for VCallIC {
     }
 }
 
-/// Single Field PIC entry — (TypeId, field slot).
+/// Single Field PIC entry — (TypeId, field slot) packed into **one** atomic
+/// （理由同 [`VCallICEntry`]）。
 #[derive(Debug)]
 pub struct FieldICEntry {
-    pub type_id: AtomicU32,
-    pub slot:    AtomicU32,
+    pub packed: AtomicU64,
 }
 
 impl Default for FieldICEntry {
     fn default() -> Self {
-        Self {
-            type_id: AtomicU32::new(UNRESOLVED),
-            slot:    AtomicU32::new(UNRESOLVED),
-        }
+        Self { packed: AtomicU64::new(pack(UNRESOLVED, UNRESOLVED)) }
     }
 }
 
@@ -99,14 +95,31 @@ impl Default for FieldIC {
 
 // ── PIC lookup + install helpers (shared interp + JIT) ──────────────────────
 //
-// Inline lookup helpers used by both the interp dispatch (exec_object.rs +
-// exec_vcall.rs) and the JIT helper bodies (helpers/object.rs, vcall.rs).
+// **发布协议（fix-field-ic-publication-race，2026-09-17）**：每条 entry 是**一个**
+// `AtomicU64` —— 高 32 位 TypeId、低 32 位载荷（field slot / fn_idx）。安装写一次、
+// 查找读一次，(TypeId, 载荷) 永远配对，**撕裂在结构上不可能**，因此 `Relaxed` 足够：
+// 我们要的不是跨线程的先后顺序，而是"这一对不许拆开"。
 //
-// SAFETY / atomic ordering: all loads / stores use `Ordering::Relaxed` —
-// the type_id check gates payload use, so a torn read (type_id of slot A,
-// payload of slot B) is bounded to "got wrong cached entry for a type that
-// IS currently transitioning"; subsequent reads converge to a valid state.
-// Same hazard the pre-PIC mono IC accepted.
+// 此前是两个独立的 `AtomicU32` + 两次 `Relaxed` 存储，install 注释写着 "write
+// type_id LAST"。**这在 ARM 上不构成发布顺序**：读者可以看到新 TypeId 配上还没写入的
+// slot（`UNRESOLVED` = `u32::MAX`），`field_value(u32::MAX)` 越界后**静默返回 Null**。
+// 旧注释断言这个撕裂"无害、会收敛"——对 `VCallIC` 碰巧成立（`vcall_ic_hit` 有
+// `fn_idx == UNRESOLVED` 哨兵回落），对 `FieldIC` 不成立：它把错槽位直接交给调用方，
+// 于是多线程首次走到同一字段访问点时静默读错字段。实测 2400 次进程冷启动命中 67 次
+// （关掉 PIC 则 0 次），debug 断言 `assert_field_ic_slot` 抓到的形态 100% 是
+// `cached at slot 4294967295`。驱逐方向同样会撕裂（先覆盖 slot 再改 TypeId，找旧
+// TypeId 的读者会配到新 slot），所以只把 `Relaxed` 换成 `Release`/`Acquire` 不够。
+
+/// (TypeId, 载荷) → 单个 u64。空 entry 是 `pack(UNRESOLVED, UNRESOLVED)`。
+#[inline(always)]
+const fn pack(type_id: u32, payload: u32) -> u64 {
+    ((type_id as u64) << 32) | payload as u64
+}
+
+#[inline(always)]
+const fn unpack(v: u64) -> (u32, u32) {
+    ((v >> 32) as u32, v as u32)
+}
 
 /// PIC lookup for `FieldIC`. Returns `Some(slot)` on hit; `None` on miss
 /// (caller must do `field_index.get(name)` fallback + `field_ic_install`).
@@ -115,8 +128,8 @@ pub fn field_ic_lookup(ic: &FieldIC, recv_type: u32) -> Option<u32> {
     use std::sync::atomic::Ordering::Relaxed;
     if recv_type == UNRESOLVED { return None; }
     for entry in &ic.entries {
-        let tid = entry.type_id.load(Relaxed);
-        if tid == recv_type { return Some(entry.slot.load(Relaxed)); }
+        let (tid, slot) = unpack(entry.packed.load(Relaxed));
+        if tid == recv_type { return Some(slot); }
         if tid == UNRESOLVED { return None; }  // early exit: rest are empty
     }
     None
@@ -131,59 +144,45 @@ pub fn field_ic_install(ic: &FieldIC, recv_type: u32, slot: u32) {
     if recv_type == UNRESOLVED { return; }
     // First-empty-slot install.
     for entry in &ic.entries {
-        let tid = entry.type_id.load(Relaxed);
+        let (tid, _) = unpack(entry.packed.load(Relaxed));
         if tid == UNRESOLVED || tid == recv_type {
-            entry.slot.store(slot, Relaxed);
-            entry.type_id.store(recv_type, Relaxed);  // write type_id LAST
+            entry.packed.store(pack(recv_type, slot), Relaxed);
             return;
         }
     }
     // All filled — round-robin victim.
     let victim = (ic.round_robin.fetch_add(1, Relaxed) as usize) % IC_SLOTS;
-    let entry = &ic.entries[victim];
-    entry.slot.store(slot, Relaxed);
-    entry.type_id.store(recv_type, Relaxed);
+    ic.entries[victim].packed.store(pack(recv_type, slot), Relaxed);
 }
 
-/// PIC lookup for `VCallIC`. Returns `Some((slot, fn_idx))` on hit.
+/// PIC lookup for `VCallIC`. Returns `Some(fn_idx)` on hit.
 #[inline]
-pub fn vcall_ic_lookup(ic: &VCallIC, recv_type: u32) -> Option<(u32, u32)> {
+pub fn vcall_ic_lookup(ic: &VCallIC, recv_type: u32) -> Option<u32> {
     use std::sync::atomic::Ordering::Relaxed;
     if recv_type == UNRESOLVED { return None; }
     for entry in &ic.entries {
-        let tid = entry.type_id.load(Relaxed);
-        if tid == recv_type {
-            return Some((entry.slot.load(Relaxed), entry.fn_idx.load(Relaxed)));
-        }
+        let (tid, fn_idx) = unpack(entry.packed.load(Relaxed));
+        if tid == recv_type { return Some(fn_idx); }
         if tid == UNRESOLVED { return None; }
     }
     None
 }
 
-/// PIC install for `VCallIC`. Same protocol as `field_ic_install` but
-/// writes a (slot, fn_idx) pair before publishing type_id.
+/// PIC install for `VCallIC`. Same protocol as [`field_ic_install`].
 #[inline]
-pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, slot: u32, fn_idx: u32) {
+pub fn vcall_ic_install(ic: &VCallIC, recv_type: u32, fn_idx: u32) {
     use std::sync::atomic::Ordering::Relaxed;
     if recv_type == UNRESOLVED { return; }
     for entry in &ic.entries {
-        let tid = entry.type_id.load(Relaxed);
+        let (tid, _) = unpack(entry.packed.load(Relaxed));
         if tid == UNRESOLVED || tid == recv_type {
-            entry.slot.store(slot, Relaxed);
-            entry.fn_idx.store(fn_idx, Relaxed);
-            entry.type_id.store(recv_type, Relaxed);
+            entry.packed.store(pack(recv_type, fn_idx), Relaxed);
             return;
         }
     }
     let victim = (ic.round_robin.fetch_add(1, Relaxed) as usize) % IC_SLOTS;
-    let entry = &ic.entries[victim];
-    entry.slot.store(slot, Relaxed);
-    entry.fn_idx.store(fn_idx, Relaxed);
-    entry.type_id.store(recv_type, Relaxed);
+    ic.entries[victim].packed.store(pack(recv_type, fn_idx), Relaxed);
 }
-
-// ── cache-ctorless-objnew: per-ObjNew-site "no constructor" mark ─────────────
-
 /// Monotonic count of functions ever registered into a lazy loader's
 /// `function_table`, plus loader install/uninstall. **Process-global on
 /// purpose**: it is only ever compared for equality against a value a site
@@ -251,7 +250,12 @@ pub fn ctorless_note(mark: Option<&std::sync::atomic::AtomicUsize>, mark_before:
 // release, so the hot path is byte-identical to before.
 
 /// Assert a `FieldIC` hit resolved to the slot this receiver really holds under
-/// `field_name`. A mismatch means two distinct types share a `TypeId`.
+/// `field_name`.
+///
+/// 两种已知成因：① 两个不同类型共用一个 `TypeId`（#535 已把 `TypeId` 全局唯一化）；
+/// ② **发布竞态**——entry 曾是两个独立的 `Relaxed` 原子量，读者看到新 TypeId 配旧/未写入
+/// 的 slot（典型形态 `cached at slot 4294967295`）。② 已由 fix-field-ic-publication-race
+/// 用单原子打包修掉；这条断言留着守这两条不变量。
 #[cfg(debug_assertions)]
 pub fn assert_field_ic_slot(td: &crate::metadata::TypeDesc, field_name: &str, slot: u32) {
     if td.field_index.get(field_name) == Some(&(slot as usize)) {
@@ -259,8 +263,9 @@ pub fn assert_field_ic_slot(td: &crate::metadata::TypeDesc, field_name: &str, sl
     }
     panic!(
         "FieldIC mis-hit: receiver `{}` (TypeId {}) field `{}` cached at slot {}, \
-         but its field_index says {:?}. Two distinct types share a TypeId — \
-         see tokens::alloc_type_id_block.",
+         but its field_index says {:?}. 要么两个类型共用了 TypeId（见 \
+         tokens::alloc_type_id_block），要么 PIC entry 的 (TypeId, slot) 被拆开发布了 \
+         （slot 为 4294967295 = UNRESOLVED 即是后者）。",
         td.name, td.id.0, field_name, slot, td.field_index.get(field_name)
     );
 }

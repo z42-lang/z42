@@ -57,6 +57,7 @@
   - [静态构造函数的按类型初始化](runtime/static-ctor-init.md)
   - [struct 值语义](runtime/struct-value-semantics.md)
   - [超级指令融合](runtime/superinstr-fusion.md)
+  - [内联缓存（PIC）：一条 entry 一个原子量](runtime/inline-cache-publication.md)
   - [同步原语](runtime/sync-primitives.md)
   - [委托与事件的实现](runtime/delegates-events.md)
   - [分层执行（未实施）](runtime/tiered-execution.md)
