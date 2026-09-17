@@ -78,6 +78,76 @@ no-op `Drop` 并加 `Copy` → **`Value` 派生 `#[derive(Copy)]`**。
 **无 zbc/zpkg 格式 bump**（纯运行时表示）。这是 §2.1 布局线的自然延续：§2.1 把 `Value` 压到 16B，
 §2.2 把它变成真正的 POD（`Copy` + 无 `Drop` glue）。
 
+### 2.3 `Value::Ref` —— `ref`/`out`/`in` 的运行期表示
+
+用户侧规则见参考手册 [参数修饰符](../../../reference/src/language/parameter-modifiers.md)。本节讲**为什么这样表示**
+以及它带来的约束。
+
+#### 设计约束：引用永远不离开调用栈帧
+
+z42 只保留**参数位**的 `ref` / `out` / `in`，砍掉 ref local / ref return / ref field / `ref struct` /
+`scoped` / `ref readonly`。关键判断是：C# `ref` 体系约 80% 的复杂度来自**让引用离开调用栈帧**的那些扩展，
+而那正是 lifetime 系统、`scoped` 默认规则、`ref struct` 传染性约束的唯一来源。把这些位置一律砍掉，
+整条复杂度链塌缩为一条结构性不变式——**一个 `Value::Ref` 的存活期不超过创建它的那次调用**。
+
+这条不变式直接支撑了 §2.2 的瞬态 arena 表示：`Value::Ref` 能做成 `{idx, frame_id}` 句柄、payload 放
+per-`VmContext` 的 `TransientArena`、随帧 LIFO 截断释放，**前提就是它不会逃出栈帧**。若将来引入 ref
+local / ref return，这套表示要连同 §2.2 一起重做。
+
+#### 表示
+
+- `Value::Ref { idx: u32, frame_id: u32 } = 12`（[`metadata/types/value.rs`](../../../../src/runtime/src/metadata/types/value.rs)），
+  8B 句柄指向 `TransientArena` 中的 `RefKind` payload（早期版本是内联 `Box<RefKind>`，`make-value-copy` 改掉）。
+- `RefKind` 三变体（[`metadata/types/value_aux.rs`](../../../../src/runtime/src/metadata/types/value_aux.rs)）：
+  `Stack { frame_idx, slot }` / `Array { gc_ref, idx }` / `Field { gc_ref, field_name }`。
+- **GC 协调**：arena 本身是 root，`Array` / `Field` 里的 `GcRef` 因此恒被扫到，底层数组/对象在调用期间存活；
+  `Stack` 不持 `GcRef`（帧在调用栈上自然存活）。故 `Value::visit_gc_children` 对 `Ref` 是 no-op。
+
+#### 入口 copy-in / 出口 copy-out（Decision R2：sidecar 方案）
+
+1. **Codegen** 在 ref/out/in 实参展开处发地址加载指令，结果即 `Value::Ref`。
+2. **入口 copy-in**：`exec_function_body` 在 callee Frame 建好后扫参数寄存器，持 `Value::Ref` 的被
+   deref 成底层值，原 `RefKind` 存进 `frame.ref_writebacks` sidecar。**callee 体内每条指令读到的都是普通
+   `Value`** → 80+ 个指令 handler 一个都不用改。
+3. **出口 copy-out**：每条 return / throw 路径前调 `run_ref_writebacks`（`interp/exec_support.rs`），把参数
+   寄存器的**终值**按 `RefKind` 写回 caller 的 lvalue。
+4. **嵌套透传**自然成立：`Outer(ref x) { Inner(ref x) }` 中 Outer 的 `x` 已是底层值，对 `Inner(ref x)` 发的
+   地址加载指向 Outer 自己的槽；Inner 写 Outer 槽，Outer 出口再写回原 caller，两步 indirection。
+
+**为什么选 sidecar 而不是"在 `frame.get/set` 内部 deref"**：后者要改 80+ 个指令 handler 的调用点（每个都得
+传 ctx）；sidecar 只在帧入口/出口工作。语义等价——用户观察不到调用中途状态（与 C# 一致）；开销是 1 次 Vec
+分配 + n 次 deref/store-through（n = ref 参数个数）。
+
+#### 现状缺口（与上面的模型不符的部分）
+
+- **三个修饰符在 AST 上塌成一个布尔**：`MemberParser` 对 `ref`/`out`/`in` 一律置 `Param.IsRef`
+  （`src/libraries/z42c.syntax/src/Decl.z42`），调用点同理塌成 `RefArgExpr`。于是 `out` 定值分析、`in` 写保护、
+  修饰符参与重载**全都无处可挂**，也确实都没实现。
+- **`callee 的 IR 看不见 `ref``**：`Param.IsRef` 只影响 **caller** 侧发不发地址加载指令，callee 寄存器类型不变。
+  逃逸分析因此没有任何指令可以认出"写回汇点"，只能保守地把**被函数体重新定义过的参数槽一律标逃逸**——
+  详见 [escape-analysis.md](escape-analysis.md)。
+- **只有 `LoadLocalAddrInstr` 真正落地**：`z42.ir` 里没有 `LoadElemAddrInstr` / `LoadFieldAddrInstr`，
+  `ExprEmitter` 对任何 `BoundRefArg` 都先把 inner 发射成一个寄存器再取该寄存器的地址。于是 `ref arr[i]` /
+  `ref obj.field` 编译通过但写回落在临时槽上——**写入静默丢失**（2026-09-17 实测）。`RefKind::Array` /
+  `Field` 两个变体目前在 z42c 产物里没有生产者。
+
+#### 延后形态（设计期主动决定不引入）
+
+| # | 形态 | 延后理由 | 重启触发 |
+|---|---|---|---|
+| D1 | `ref` 局部变量 `ref int x = ref expr` | 主要服务于值类型原地修改；原语数组场景收益薄 | user struct 落地；profiling 显示原语数组热路径需要 |
+| D2 | `ref` 返回 `ref T M()` | 没有 D1 配套则 caller 接不住；escape analysis 成本高（需 ref-safe-context） | D1 落地后 |
+| D3 | `ref` 字段 | 绑定 D4，独立无意义 | D4 落地（即"永不"） |
+| D4 | `ref struct` 类型 | 传染性约束（不能装箱 / 不进泛型容器）会把类型系统劈成两半；GC 语言里 slice 用 GC 对象表达性能可接受 | 极端零分配 buffer 场景 profiling 证明 GC slice 不可接受 |
+| D5 | `scoped` | 是 C# 在缺 lifetime 下为 `ref struct`/`ref return` 打的补丁；z42 砍掉那些位置后自然不需要 | D1/D2/D4 任一落地（推荐永不） |
+| D6 | `ref readonly`（任何位置） | 参数位由 `in` 顶替（修正 C# `in`/`ref readonly` 双形态冗余）；其他位置在没有 `mut` 体系时 holder-side"我不写"承诺意义弱 | 推荐永不 |
+
+D1 / D2 若真要重启，简化预案是：ref local 永远块作用域（不可 return / 不可存字段 / 不可被 lambda 捕获）；
+ref return 只允许三种 lvalue（参数 / 引用类型字段 / 数组元素），用结构性 escape check 代替 lifetime 标注。
+
+相关决策：`mut` 修饰符**永不引入**（`in` 是 callee 端 API 契约，不是 caller 端可变性标注，与 mut 体系正交）；
+生命周期标注**永不引入**（靠砍掉栈帧外的 ref 位置天然规避）。
+
 ---
 
 ## 3. 统一对象头 + 对象种类（去掉 ad-hoc `native`）

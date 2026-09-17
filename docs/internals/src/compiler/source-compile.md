@@ -585,6 +585,37 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 > `src/tests/delegates/nested_delegate_dotted.z42` 修前就是这样的**假绿**测试（后者带 12+ 条
 > 编译错误却"通过"了四个月）。
 
+#### 嵌套类型的展平（NestedFlatten）
+
+嵌套类型（`class Outer { class Inner { … } }`）**不是**在符号收集 / IR 发射的各 pass 里各自
+特判的，而是被一个**语义前置 pass** 一次性抹平：
+
+1. **parser**：类成员位置遇 `class` / `struct` / `interface` / `enum` / `record` 关键字 → 按类型声明
+   解析（其成员体递归解析成员 ⇒ 深层嵌套天然支持）。此前这些关键字在成员位置被误解析为属性。
+2. **展平（`NestedFlatten`）**：把嵌套类型**提升为顶层声明**、名改 `Outer+Inner`（任意深度
+   `A+B+C`）。此后符号收集 / 名解析 / TYPE·SIGS·FUNC 发射全部把它们当**普通顶层类型**处理——
+   零新机制。pass 幂等（每个编译单元只展平一次）。它同时在 AST 上把嵌套类型的 base / 接口引用
+   限定到 `+` 全名，于是 `class Inner : Outer.Other` 这类兄弟嵌套继承不必在下游再解释一次。
+3. **名解析**：类型位置的点串 `Outer.Inner` → 转 `+` 键（`Outer+Inner`）查表；namespace 限定名
+   （`Std.Console` → `Std+Console` 未注册）自然跳过，无需先判断点号是哪种含义。
+4. **runtime 反射**：`GetNestedTypes` 扫已加载类型取 `<this>+<simple>`（直接子）；
+   `GetDeclaringType` / `IsNested` 从 `+` 派生；`Type.Name` 的简单名同时按 `.` 和 `+` 取末段。
+
+**格式代价为零**：嵌套关系纯从名字派生（找 `+`），类型元数据不加字段 ⇒ 无 zbc / zpkg bump
+（与数组 `[]` 后缀、构造泛型 `<>` 串同一设计路数）。
+
+> 自举纪律：z42c / stdlib 源码**不使用**嵌套类型，`NestedFlatten` 对它们零改动 ⇒
+> 自举字节不动点零扰动。
+
+面向用户的规则见 [嵌套类型](../../../reference/src/language/nested-types.md)。
+
+#### 数组类型（`Z42ArrayType`）的检查
+
+`T[]` 在语义层是 `Z42ArrayType { Elem }`（`src/compiler/z42c.semantics/src/Z42Type.z42:562`，
+**不变，无协变**）。TypeChecker 侧三条：`new T[n]` 校验 `n` 为 `int`；`arr[i]` 校验 `arr` 是数组
+类型、`i` 是 `int`，结果类型取元素类型；`.Length` 仅允许在数组类型上访问、返回 `int`。
+多维下标 `a[i, j]` 报 E0402（`ExprTyper.z42:151`，提示改用 `a[i][j]`）。
+
 ### IR 生成（IrGen）
 
 Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交给 `FunctionEmitter` 发射为寄存器式 IR 函数，汇总类描述与字符串池成 `IrModule`。函数以 `Class.Method`（类方法）或函数名（顶层函数）为键。

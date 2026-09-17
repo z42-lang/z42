@@ -174,7 +174,7 @@ L1 `[Native]` dispatch 一组（E0901–E0904，已启用）+ Tier1 C ABI 编译
 
 ## E06xx — Package / Import Resolution（strict-using-resolution，2026-04-28）
 
-由 TypeChecker 在导入符号过滤后报出（参见 [namespace-using.md](../../../design/language/namespace-using.md#strict-using-resolution-2026-04-28)）。
+由 TypeChecker 在导入符号过滤后报出（参见[命名空间与 `using`](../language/namespaces.md)）。
 
 | Code   | Title                                | When it occurs |
 |--------|--------------------------------------|----------------|

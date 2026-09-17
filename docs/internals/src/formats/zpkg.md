@@ -235,6 +235,41 @@ release strip 时，调试信息剥离到旁挂 `.zsym`：flags = `Packed | SymO
 `z42d symbolicate <trace> --syms <file|dir>...`（多路径递归，参考 addr2line/Breakpad）据 MDBG 的
 frameName → 行表 把 `+0x<offset>` 还原成 `file:line:col`。z42 侧读 `.zsym` 见 `z42.ir` 的 `SidecarReader`。
 
+### 两种构建形态
+
+| 构建 | 主 `.zpkg` | sidecar | 栈跟踪 |
+|---|---|---|---|
+| debug（默认） | 内嵌 DBUG（LineTable + LocalVarTable） | 无 | `at <FQN>(<sig>) (<file>:<line>:<col>)` |
+| release strip（`[profile.release].strip = true` 或 `--strip-symbols=true`） | 剥离 DBUG bodies + 写 16B BLID | `<name>.zsym`（`ZpkgFlags.SymOnly`，独立 STRS 子集 + MDBG + BLID） | 有 sidecar 时与 debug 无差异；无则 `at <FQN>(<sig>) +0x<offset>` |
+
+### 加载期探测
+
+loader 打开 `<path>/<name>.zpkg`（或 `.zbc`）后，按 stem 探同目录 `.zsym`：
+
+```
+load_zpkg(path):
+  1. parse main zpkg (FUNC bodies, SIGS, ...)
+  2. probe `<path-stem>.zsym`
+     ├─ 存在 & SymOnly 位 & BLID 相等 → 按 index 把 MDBG 合入 per-module funcs
+     ├─ 存在但 BLID 不符 / 损坏      → warn + 忽略（**加载不失败**）
+     └─ 不存在                        → 静默退化（trace 走 fallback 形式）
+  3. 照常走 load pipeline
+```
+
+**探测只看同目录**——没有 debuginfod 风格的环境变量 / URL 搜索路径。
+
+### 帧签名来自 SIGS
+
+trace 里每帧的函数名携带参数类型签名（`at MyApp.Greeter.greet(Greeter,str) (Greeter.z42:14:5)`）。
+来源是 [SIGS](#sigs--全局签名表) 中每函数的 `paramCount × u32 strIdx`。实例方法把隐式 `this`
+（类型 = 接收者类裸名）编为 index-0 条目；SIGS 里没有对应名称时（旧产物 / 合成函数）填 `?` 占位。
+
+### Deferred
+
+- **eager 加载**：sidecar 现在是一次性全量读，启动 IO 一次付清；启动延迟敏感场景可加 lazy / mmap 路径。
+- **跨目录 sidecar 搜索**：见上，仅同目录。
+- **stdlib 公开 `Std.Reflection.Symbolicate`**：让 z42 程序内部触发符号化，尚未提供。
+
 ## zpkg 与 zbc 的关系
 
 - **packed**：每模块的 zbc FUNC/TYPE/DBUG/REGT/TIDX 段字节内嵌进 MODS，与独立 `.zbc` 逐字节同构，唯一区别是字符串池全局共享而非文件局部。SIGS 复用同一条目构建器。
