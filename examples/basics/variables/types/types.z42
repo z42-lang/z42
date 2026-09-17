@@ -1,0 +1,27 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: decl
+    // 整数与浮点
+    int    count = 42;
+    long   big   = 9_000_000_000L;   // `_` 只为好读；`L` 后缀 = 64 位
+    double ratio = 0.5;              // 不带后缀的小数是 double
+    float  small = 1.5f;             // `f` 后缀才是 float
+
+    // 其余标量
+    bool   ok = true;
+    char   ch = 'z';
+    string s  = "hello";
+
+    Console.WriteLine($"{count} {big} {ratio} {small}");
+    Console.WriteLine($"{ok} {ch} {s}");
+    // ANCHOR_END: decl
+
+    // ANCHOR: var
+    // var：类型由右边推断出来
+    var n    = 0;        // int
+    var name = "z42";    // string
+    var pi   = 3.14;     // double
+    Console.WriteLine($"{n.GetType().Name} {name.GetType().Name} {pi.GetType().Name}");
+    // ANCHOR_END: var
+}

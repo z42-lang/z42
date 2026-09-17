@@ -1,0 +1,17 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: conv
+    int i = 42;
+
+    // 变宽：不会丢东西，直接赋值
+    long   l = i;
+    double d = i;
+
+    // 变窄：会丢东西，必须自己写 (类型) 表明「我知道」
+    double pi = 3.9;
+    int    n  = (int)pi;      // 截断，不是四舍五入
+
+    Console.WriteLine($"{l} {d} {n}");
+    // ANCHOR_END: conv
+}

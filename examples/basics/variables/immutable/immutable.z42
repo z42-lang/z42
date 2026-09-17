@@ -1,0 +1,21 @@
+using Std.IO;
+
+// ANCHOR: decl
+class Circle {
+    readonly double Radius;      // 运行期不可变：构造时定下，之后不能改
+
+    public Circle(double r) {
+        this.Radius = r;         // ✓ 构造器里可以赋值
+    }
+
+    public double Area() {
+        const double Pi = 3.14159;   // 编译期常量：直接内联到用它的地方
+        return Pi * this.Radius * this.Radius;
+    }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    var c = new Circle(2.0);
+    Console.WriteLine(c.Area());
+}

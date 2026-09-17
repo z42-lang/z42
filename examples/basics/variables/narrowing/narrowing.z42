@@ -1,0 +1,7 @@
+using Std.IO;
+
+void Main() {
+    double pi = 3.9;
+    int    n  = pi;      // ✗ 会丢掉小数部分，编译器要求你写明
+    Console.WriteLine(n);
+}
