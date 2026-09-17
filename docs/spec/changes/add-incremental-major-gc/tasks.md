@@ -70,23 +70,46 @@
 - [x] 2.9 实测（与只有 M1 的二进制交错）：`09_alloc_ctorless` 指令 +0.26%、`z42c.semantics` −0.03%（噪声内），编译产物逐字节一致。GREEN 见 PR
 
 ## M2b: 切片调度
-- [ ] 3.1 `gc/incremental.rs`（NEW）：`IncrementalCycle` 状态机（Idle / Snapshot / Mark / Final / Sweep）、epoch、sweep 游标
-- [ ] 3.2 `gc/arc_heap/auto_collect.rs`：major trip 启动周期；minor 之后调度切片；落后时连续执行
-- [ ] 3.3 `gc/safepoint.rs`：slow path 执行待办切片（复用 `request_gc_pause`）
-- [ ] 3.4 `gc/region.rs` / `gc/var_region.rs` / `gc/var_region/chunk.rs`：按 chunk 分片清扫，清扫中 chunk 不借出
-- [ ] 3.5 `gc/arc_heap/interface.rs` / `control.rs`：`GC.Collect` / `ForceCollect` / 软上限 / OOM ⇒ 同步完成当前周期
-- [ ] 3.6 `config.rs` + `config/knob_table.rs`：`Z42_GC_SLICE_MS`（默认 2）、`Z42_GC_INCREMENTAL`（默认开，0 = 一次性 major）
-- [ ] 3.7 `Z42_GC_PHASES`：每切片一行 + 周期汇总行
-- [ ] 3.8 `tests/gc_satb_loom.rs`（NEW）：模型 D 穷举；既有 A/B/C 模型保持绿
+- [x] 3.1 `gc/arc_heap/incremental.rs`（NEW，**不是** `gc/incremental.rs`：状态机是 `ArcMagrGC` 的一块职责，
+      与其它 concern 子模块并列）：`IncrementalState`（phase 原子 + `Mutex<Cycle>` 游标 + 请求标志）、
+      `SliceBudget`（native 看时钟、wasm32 与单测按工作量）。**阶段合并成 Marking / Sweeping 两个**——
+      Snapshot 是开周期那一瞬（不是独立阶段），Final 是「灰队列与 SATB 队列都空」这个条件（不是独立阶段）
+- [x] 3.2 `auto_collect.rs`：`TripKind{Minor,Major,Slice}`；major trip 开周期，周期中按 pacer 排切片；
+      **切片不动 minor 水位、不参与徒劳退避**（否则每 1/4 nursery 一个切片会把 minor 饿死）；
+      顺带修 `arm_next_collect` 被拒绝的 trip 超调（arm 在 `floor+gate` 而不是 `baseline+gate`，
+      退避 ×4 的 minor 实际在 5×nursery 才触发；`09_alloc_ctorless` 的大 minor 因此多扫 20%）
+- [x] 3.3 **不需要改 `safepoint.rs`**：切片走既有 `collect_cycles_with_context` 那条路（`needs_auto_collect` → 安全点 → 取暂停），
+      标志位区分这次停顿做什么
+- [x] 3.4 `region.rs` `sweep_chunks(major, from, max, delist_young, prepare_dead)` + `var_region.rs` `sweep_buckets`；
+      **增量清扫必须边 tombstone 边摘 young 表**（一次性 major 靠其后的升龄趟摘；切片之间有 minor，
+      死条目的槽一旦复用，同一个 `(chunk, entry)` 会在 young 表里出现两次 ⇒ minor 回收活对象）
+- [x] 3.5 `control.rs`：`GC.Collect`（没有任何策略请求的那次调用）/ `force_collect` / 软上限 ⇒ 同步做完当前周期；
+      一次性 STW / 并发入口先把打开的周期做完（换 GC 模式时才可能撞上）
+- [x] 3.6 `config.rs` / `parse.rs` / `knob_table.rs`：`Z42_GC_SLICE_MS`（默认 2，clamp `[0.01,1000]`）、`Z42_GC_INCREMENTAL`（默认开）
+- [x] 3.7 `Z42_GC_PHASES`：`slice/mark`、`slice/sweep`、`slice/chunk reclaim` 各一行 + 开周期行 + 周期汇总行
+- [x] 3.8 **模型 D 改为穷举交错枚举**（`src/runtime/tests/gc_incremental_model.rs`），**不用 loom**：
+      切片与 mutator 步各自整体原子（切片停世界、mutator 只在 safepoint 之间被打断），只剩「顺序」这一个自由度，
+      枚举顺序即完备；记忆化后 0.03 s，跑在默认测试集里而不是 `--cfg loom` 专腿。5 个策略开关各自给出反例
+- [x] 3.9 **清扫期的 doomed 条目**（alive 但没有本周期 epoch）：弱 / 软读与堆遍历不交出（`admit_resurrected`）、
+      minor 的脏卡播种跳过、校验器在周期打开时不查 epoch 与灰队列
+- [x] 3.10 **周期期间的 minor 不得回收 major 已标记的条目**（`keep_major`）——
+      0.05 ms 切片压测里「编译器读到已回收字符串」的根因；A/B：关掉规则两轮都在 ~6 个测试后挂死，打开连续 5 轮 50/50 全过
+- [x] 3.11 实测见 M2c 表；GREEN 全绿（main `3c73e356`）
 
 ## M2c: 验收
-- [ ] 4.1 性能验收表（design「Testing Strategy」）：semantics 与 `13_gc_large_heap` 两档 max ≤ 10 ms；总停顿 ≤ +20%；墙钟 ≤ +2%；RSS ≤ +5%
+- [ ] 4.1 性能验收表（**RSS 一项已知不达标，见备注「RSS 的真正来源是 chunk 碎片」**）（design「Testing Strategy」）：semantics 与 `13_gc_large_heap` 两档 max ≤ 10 ms；总停顿 ≤ +20%；墙钟 ≤ +2%；RSS ≤ +5%
 - [ ] 4.2 正确性配方：冷 `package sdk`（默认 / 4M nursery）、`build stdlib`、`Z42_GC_SLICE_MS=0.05` 全套 stdlib 测试、`http_server_threaded` ×60
 - [ ] 4.3 `xtask test` GREEN（含自举不动点）
 - [ ] 4.4 文档：`docs/internals/src/runtime/gc-incremental-major.md`（NEW）、`gc-tuning-and-safepoint.md`、`docs/book/src/SUMMARY.md`
 - [ ] 4.5 归档本 change；memory 更新
 
 ## 备注
+- 2026-09-17 **RSS 的真正来源是 chunk 碎片，不是浮动垃圾**：`13_gc_large_heap` 上 M2b 的 RSS 比 M2a 高 30~43%，
+  但**GC 计账的峰值 `used` 两者一样**（339M vs 355M）。差别在 chunk 数（obj 10453 vs 基线少一截）——
+  切片 + 周期期间的保留让幸存者散布在更多 chunk 里，而 chunk 只有**全死**才能回池，TLAB 又只整块取、
+  从不复用块内空洞（[[z42-memory-footprint-analysis]] 记的既有弱点）。⇒ 这条要么等空洞复用那条线，
+  要么在 M2c 里单独定夺是否接受。试过两个便宜旋钮：pacer 目标 allowance/2→/4（RSS −8%、总停顿 +18%）、
+  保留只覆盖标记期（RSS −10%、chunk −12%，压测 2 轮绿但**没有证明**，不敢拿它换刚修好的正确性）。
 - 2026-09-16：**`copy_elems_from` 批量拷贝漏了屏障**——第一轮审计按「单元素写原语」找，批量快路径的 `clone_from_slice` 没进视野。
   M2b 用 `Z42_GC_SLICE_MS=0.05` 跑 `z42.net` 的 stdlib 测试时每轮 1~5 个文件 SIGSEGV（编译器 `TsigReconcile._rebuildClass` 里 `String.Substring` 读到被回收的字符串），
   审计照这条线索找到的漏洞随 M2a 一起提交（含阴性对照），规则已补「批量写同样是覆盖」；它是否就是那次 SIGSEGV 的全部原因，在 M2b 用修复后的二进制复跑压测确认。
