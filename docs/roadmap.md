@@ -4,7 +4,7 @@
 >
 > **已完成**：每个落地的功能对应一个 `docs/spec/archive/YYYY-MM-DD-<name>/` 归档目录（带完整 proposal / design / tasks / 实施备注）；本文不复述。需要查"X 何时落地、为什么这样设计"按主题或日期检索 [`docs/spec/archive/`](spec/archive/) 即可。
 >
-> **设计决策**：见 [`docs/features.md`](features.md)（决策 + 理由 + phase 归属）+ [`docs/design/philosophy.md`](design/philosophy.md)（顶层哲学）。
+> **设计决策**：见 [`internals/src/features.md`](internals/src/features.md)（决策 + 理由 + phase 归属）+ [`internals/src/philosophy.md`](internals/src/philosophy.md)（顶层哲学）。
 >
 > **实施细节**：见[实现内幕](internals/src/README.md)。
 
@@ -24,7 +24,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 嵌入 | VM 设计为可嵌入到外部 app（C ABI），目标 ~200KB 子集 |
 | 互操作 | 三层 ABI（C / Rust ergonomic / 平台 facade），native 类型可注册进 z42 |
 
-性能基线（philosophy §9）：interp ≤ Python 1.5×；JIT ≥ V8 70%；AOT ≥ Go 80%；GC pause < 5ms p99；嵌入子集 < 200KB。
+性能基线（本文件为准）：interp ≤ Python 1.5×；JIT ≥ V8 70%；AOT ≥ Go 80%；GC pause < 5ms p99；嵌入子集 < 200KB。
 
 ---
 
@@ -81,7 +81,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 >
 > **B 主线＝本版本招牌（全自举，从原 1.0 拉到 0.3.x）**：7 子系统 = `z42.{Core,Syntax,Project,Driver,Semantics,IR,Pipeline}` 1:1 镜像 C# 项目，源码落 `src/compiler/` 独立顶级目录（与 `src/compiler/` 平级；2026-06-07 User 裁决，覆盖原 `src/z42.compiler/`；子目录名==包名 `z42c.<sub>`，产物 `z42c.<sub>.zpkg`）。**受限写法**：class+虚方法替代 record+match / 循环替代 LINQ / 异常替代 Result；只有自举真卡点才 dogfood 在 z42 里补该特性（禁止 workaround，per `feedback_dogfood_fill_gaps`）。**无桥接**：z42 端只 ship 就绪命令（0.3.4 起 lex/parse/manifest-check、0.3.9 起 build），0.3.x default 编译器仍是 C#，两实现并存逐字节对账。
 >
-> **受限写法 ⇒ 不强制提前半个 L3**：match/ADT/LINQ/Result 完整版仍在 0.6/0.7；只有被自举单点阻断的特性才按 features.md 逐项评估提前。这是「受限写法」决策的直接后果。
+> **受限写法 ⇒ 不强制提前半个 L3**：match/ADT/LINQ/Result 完整版仍在 0.6/0.7；只有被自举单点阻断的特性才逐项评估提前。这是「受限写法」决策的直接后果。
 >
 > **REPL = capstone（从原 0.5.x 拉到 0.3.x）**：自举端到端 build 跑通后落地（前置 Semantic/TypeChecker/IR 均在本线内交付），单独 spec `add-z42-repl`。
 >
@@ -170,7 +170,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | **0.7.x** | `Result<T,E>` + `?` + ADT + `match` 穷尽检查 | L3 | 6–8 周 |
 | **0.8.x** | async / await + 多线程 + GC v3（generational + concurrent）+ DAP debugger | L3 | 12–16 周 |
 | **0.9.x** | 单文件脚本 + 嵌入 API GA + 可裁剪 + WASM target + Interop 2b（manifest reader / source generator）| L3 | 10–14 周 |
-| **0.10.x** | 性能强化（philosophy §9 五指标全部达标）| L3 | 8–12 周 |
+| **0.10.x** | 性能强化（上方五条性能基线全部达标）| L3 | 8–12 周 |
 | **1.0.x** | 删 C# bootstrap（自举核心已在 **0.3.x** 完成 byte-identical）+ 跨架构 NativeAOT + Interop 3 + `z42up` 工具链 GA + SemVer / deprecation 启用 | L3+ | 8–12 周 |
 
 **累计估算**：~16–20 个月（按全职 1 人节奏）。
@@ -199,7 +199,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 - 0.3 A perf 攻坚 ◄── 0.3.0 GC v1（无稳定 GC 的 micro-opt 无意义）
 - 0.3 B 编译器全自举 ◄── 0.3.0 GC v1（z42 端编译器对 GC 压力大）
 - 0.3 B 自举受限写法 ◄── 泛型 G1-G4 + 闭包核心（已提前落地）；缺 match/LINQ/Result 用 class+虚方法 / 循环 / 异常替代，真卡点才 dogfood 提前
-- 0.3 C3 Attribute reflection ◄── 用户自定义 attribute 机制（features.md §X，0.3.5 前先 spec）
+- 0.3 C3 Attribute reflection ◄── 用户自定义 attribute 机制（0.3.5 前先 spec）
 - 0.3.11 boxing 机制 ◄── 0.3.12 Method.Invoke 非泛型（auto-boxing prim→Object 是 Invoke 的直接前置）
 - 0.4 G 流泛型反射扩展（泛型方法 Invoke + MakeGenericType + Activator.CreateInstance<T>）◄── 0.4 G 流运行期泛型 instantiation（2026-06-23 从 0.5.x 提前，支撑 0.4 L 流 Deserialize<T> serde）
 - 0.4 L 流 JSON `Deserialize<T>` 完整泛型 serde ◄── 0.4 G 流泛型实例化 + 泛型反射（User 裁决"硬上"，显式 L3 提前例外）
@@ -214,20 +214,22 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ## Feature → Version 映射
 
-每个 features.md 章节落地到哪个 minor。
+每块语言能力落地到哪个 minor。各能力**为什么是这个形状**见
+[实现内幕 · 语言特性的决策台账](internals/src/features.md)，**规则怎么写**见
+[语言与库参考](reference/src/language/README.md)——本表只管**排期**。
 
-| features.md 章节 | 所属 minor | 当前状态 |
+| 能力 | 所属 minor | 当前状态 |
 |------|:------:|:----:|
-| §1 Type System / §2 Null Safety / §3 Memory Management / §4 Error Handling (exceptions) / §5 Type Definitions (class/struct/record) / §6 Functions / §7 Control Flow / §8 Strings / §9 Collections / §10 Imports / §11 Numeric Aliases | 0.1.x | ✅ L1 |
-| §12 Hot Reload | 0.5.x（从 0.3.2 推后；GC v1 后真热更新落地）| 🟡 设计有 |
-| §13 Execution Mode Annotations | 0.1.x（注解）→ 0.5.x（运行时切换；从 0.3.x 推后）| 🟡 注解 ✅；运行时切换待 |
-| §14 Generics + Trait | 0.5.x | ✅ G1-G4 + L3-Impl 提前落地 |
-| §15 Reflection | **0.3.x C主线**：只读元数据 + typeof/GetType + Attribute（C1-C3 ✅）；GetInterfaces / IsArray / IsAbstract 等扩展 ✅；**完整化（0.3.12）**：非泛型 Method.Invoke + IsEnum + 嵌套泛型 GetGenericArguments + 接口成员枚举（boxing 机制 0.3.11 为前置）；**0.4.x G 流泛型扩展**（2026-06-23 从 0.5.x 提前）：运行期泛型实例化 + 泛型方法 Invoke + MakeGenericType + Activator.CreateInstance<T>（支撑 0.4 L 流 Deserialize<T> serde）| 🟡 C1-C3 + 多项扩展已落地（见 spec/archive 2026-06-09–06-17 系列）；boxing + Method.Invoke 待 0.3.11–0.3.12；泛型扩展待 0.4.x G 流 |
-| §16 Lambda + Closure | 0.6.0 | ✅ L2-C1 + L3-C2 核心提前落地 |
-| §17 Result + ADT + match | 0.7.x | 📋 |
-| §18 可裁剪 / Tree-shaking / 200KB 子集 | 0.9.x（嵌入 / 裁剪）+ 1.0-rc（AOT 静态链接）| 📋 |
-| §19 NativeAOT | 1.0.x | 📋 |
-| §20 Interop 三层 ABI | 0.5.5 / 0.9.x / 1.0.x | ✅ Tier 1 + Tier 2 + manifest 提前落地 |
+| 类型系统 / 可空标注 / 内存模型 / 异常 / 类型定义 / 函数 / 控制流 / 字符串 / 集合 / 导入 / 数值别名 | 0.1.x | ✅ L1 |
+| 热更新 | 0.5.x（从 0.3.2 推后；GC v1 后真热更新落地）| 🟡 设计有 |
+| 执行模式标注 | 0.1.x（注解）→ 0.5.x（运行时切换；从 0.3.x 推后）| 🟡 注解 ✅；运行时切换待 |
+| 泛型 + Trait | 0.5.x | ✅ G1-G4 + L3-Impl 提前落地 |
+| 反射 | **0.3.x C主线**：只读元数据 + typeof/GetType + Attribute（C1-C3 ✅）；GetInterfaces / IsArray / IsAbstract 等扩展 ✅；**完整化（0.3.12）**：非泛型 Method.Invoke + IsEnum + 嵌套泛型 GetGenericArguments + 接口成员枚举（boxing 机制 0.3.11 为前置）；**0.4.x G 流泛型扩展**（2026-06-23 从 0.5.x 提前）：运行期泛型实例化 + 泛型方法 Invoke + MakeGenericType + Activator.CreateInstance<T>（支撑 0.4 L 流 Deserialize<T> serde）| 🟡 C1-C3 + 多项扩展已落地（见 spec/archive 2026-06-09–06-17 系列）；boxing + Method.Invoke 待 0.3.11–0.3.12；泛型扩展待 0.4.x G 流 |
+| Lambda + 闭包 | 0.6.0 | ✅ L2-C1 + L3-C2 核心提前落地 |
+| Result + ADT + match | 0.7.x | 📋 |
+| 可裁剪 / Tree-shaking / 200KB 子集 | 0.9.x（嵌入 / 裁剪）+ 1.0-rc（AOT 静态链接）| 📋 |
+| NativeAOT | 1.0.x | 📋 |
+| Interop 三层 ABI | 0.5.5 / 0.9.x / 1.0.x | ✅ Tier 1 + Tier 2 + manifest 提前落地 |
 
 > "提前落地" = L2 阶段已实施部分 L3 特性，未对应到 0.x.0 minor 但代码已在 main。
 
@@ -299,7 +301,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.8.6 | 多线程压力测试（race detector）|
 | 0.8.7 | DAP conformance |
 | 0.9.7 | WASM target build & test |
-| 0.10.0 | philosophy §9 五指标自动化基线 |
+| 0.10.0 | 五条性能基线的自动化门禁 |
 | 1.0.0 | C# bootstrap 删除后 z42c-selfhost 唯一编译器全绿 + 跨架构 perf 数字 |
 
 ---
@@ -350,7 +352,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ## Deferred Backlog Index
 
-> 所有显式延后特性的横向索引；条目正文存于对应 design doc 的 "Deferred / Future Work" 段。新增延后项时：① 在对应 design doc 加条目 ② 在本表加索引行。规则见 [`agent/rules/philosophy.md`](agent/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
+> 所有显式延后特性的横向索引；条目正文存于对应书页的「待办」段或「不支持」节。新增延后项时：① 在对应书页写清当前行为 ② 在本表加索引行。规则见 [`agent/rules/philosophy.md`](agent/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
 
 ### 设计期延后
 
@@ -531,12 +533,12 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### 仓库结构 / 维护方向（infra，未排期）
 
-> 战略展望（非 feature，无 design doc 条目，按 philosophy.md 归 roadmap）。来源：User 2026-06-15「这个仓库只做测试流程的」。
+> 战略展望（非 feature，无书页条目，归 roadmap）。来源：User 2026-06-15「这个仓库只做测试流程的」。
 
 | 方向 | 描述 | 触发条件 |
 |------|------|---------|
 | `infra-slim-git-history` | **真正的克隆成本在历史**：`.git` ≈ 604 MB 而 HEAD 跟踪内容仅 ~25 MB → 历史含曾提交又删的大二进制（旧 zpkg/artifacts blob）。用 `git filter-repo` 清历史大 blob（预计降到几十 MB）+ 收紧 `.gitignore`（如 `examples/*.zbc/.zlib/.zmod` 类构建产物；注：`src/toolchain/host/examples/` 重复树连带其 466MB cargo target cruft 已于 dedup-examples 删除）。**与拆库正交,收益最大。** | clone 成本成痛点时 |
-| `infra-extract-user-docs` | 本仓收敛为「核心（编译器/VM）+ 测试流程」仓；**仅外迁纯用户面 docs**（语言教程/指南/官网内容）到独立 `z42-docs`/官网仓。**现状（2026-09-15 User 裁决）**：学习手册 `docs/learn/` 与其配套 `examples/` 先在本仓起步、由 `xtask test examples` 绑定校验；外迁时两者须一起走，并带走该门禁。**留仓不外迁**（它们是开发/测试流程本体）：`docs/spec/`（spec-first 工作流本体）、`docs/design/`（@-included 进 CLAUDE.md）、`docs/workflow/`（build/test 命令真相源）。注意：拆当前文件到新仓**不会**缩小本仓 `.git`，须配合 `infra-slim-git-history`。 | 用户面文档成规模时 |
+| `infra-extract-user-docs` | 本仓收敛为「核心（编译器/VM）+ 测试流程」仓；**仅外迁纯用户面 docs**（语言教程/指南/官网内容）到独立 `z42-docs`/官网仓。**现状（2026-09-15 User 裁决）**：学习手册 `docs/learn/` 与其配套 `examples/` 先在本仓起步、由 `xtask test examples` 绑定校验；外迁时两者须一起走，并带走该门禁。**留仓不外迁**（它们是开发/测试流程本体）：`docs/spec/`（spec-first 工作流本体）、`docs/internals/`（实现内幕 + 开发基础设施）。注意：拆当前文件到新仓**不会**缩小本仓 `.git`，须配合 `infra-slim-git-history`。 | 用户面文档成规模时 |
 
 ### 平台测试 CI / 后续（add-platform-test-pipeline 之后）
 

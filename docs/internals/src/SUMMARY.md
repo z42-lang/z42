@@ -4,6 +4,11 @@
 
 ---
 
+# 设计北极星
+
+- [设计哲学](philosophy.md)
+- [语言特性的决策台账](features.md)
+
 # 编译器
 
 - [概览](compiler/README.md)

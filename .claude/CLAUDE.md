@@ -19,7 +19,6 @@ docs/reference/ # 语言与库参考（mdBook：语法规则 / stdlib API / CLI 
 docs/internals/ # 实现内幕（mdBook：架构 / 机制 / 决策 / 构建测试发布操作）
 examples/       # 学习手册配套示例；由 xtask test examples 逐条运行校验
 docs/book/      # 站点根：三书分流索引
-docs/design/    # ⏳ 搬迁残留（philosophy + README-template），冻结只读
 ```
 
 ## 构建与测试
@@ -45,7 +44,7 @@ docs/design/    # ⏳ 搬迁残留（philosophy + README-template），冻结只
 
 **核心规则：任何改变了外部可见行为、机制、规则或约定的迭代，归档前必须有对应文档落地。无文档 = 未完成。**
 
-具体的"改动类型 → 需更新文档"映射见 [workflow.md 阶段 9](../docs/agent/rules/workflow.md) 的**统一维护触发矩阵**（唯一 SoT）；归档前按同节 **doc-check 清单**逐项核对。
+判据是 [doc-system.md 的三问](../docs/agent/rules/doc-system.md)（唯一 SoT）：用户能看见吗 → `docs/reference/`；下一个接手的人不读文档能看懂吗 → `docs/internals/`；目录结构/入口/依赖变了吗 → 该目录 README。归档前按 doc-system「三道门」的门③ **doc-check 清单**逐项核对。
 
 > **复杂实现逻辑必须落 `docs/internals/` 对应机制页**——判据（多阶段编排 / 有状态循环 / 反直觉决策 / 跨组件协议）与「拿不准就停下问 User」见 [doc-system.md「三问」](../docs/agent/rules/doc-system.md)。
 

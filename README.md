@@ -30,7 +30,7 @@ a single language spanning ad-hoc scripts to embedded systems components:
 | **AI-friendly** | Familiar syntax, compile-time errors as agent feedback, docs-as-code repository |
 
 Performance goal: fast enough for production systems **without unsafe code** — targets and
-trade-offs in [`docs/design/philosophy.md`](docs/design/philosophy.md).
+trade-offs in [`docs/internals/src/philosophy.md`](docs/internals/src/philosophy.md).
 
 ---
 
@@ -67,7 +67,7 @@ Start from what you want to do. The knowledge base is consolidating into
 
 | I want to... | Read this |
 |--------------|-----------|
-| **Understand the design philosophy** | [`docs/design/philosophy.md`](docs/design/philosophy.md) |
+| **Understand the design philosophy** | [`docs/internals/src/philosophy.md`](docs/internals/src/philosophy.md) |
 | **Learn the language** (syntax, types, semantics) | [`docs/reference/src/language/README.md`](docs/reference/src/language/README.md) |
 | **Understand execution** (interp / JIT / AOT) | [`docs/internals/src/runtime/execution-model.md`](docs/internals/src/runtime/execution-model.md) |
 | **Call native code / embed the VM** | [`docs/reference/src/embedding/native-interop.md`](docs/reference/src/embedding/native-interop.md) |
@@ -78,7 +78,7 @@ Start from what you want to do. The knowledge base is consolidating into
 |--------------|-----------|
 | **Build, test, and package the repo** | [`docs/internals/src/devinfra/`](docs/internals/src/devinfra/) |
 | **Follow the collaboration workflow** | [`docs/agent/`](docs/agent/) |
-| **See progress and what's planned** | [`docs/roadmap.md`](docs/roadmap.md) · [`docs/features.md`](docs/features.md) |
+| **See progress and what's planned** | [`docs/roadmap.md`](docs/roadmap.md) · [`docs/features.md`](docs/internals/src/features.md) |
 
 ---
 
