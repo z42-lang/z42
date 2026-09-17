@@ -4,9 +4,9 @@
 >
 > **已完成**：每个落地的功能对应一个 `docs/spec/archive/YYYY-MM-DD-<name>/` 归档目录（带完整 proposal / design / tasks / 实施备注）；本文不复述。需要查"X 何时落地、为什么这样设计"按主题或日期检索 [`docs/spec/archive/`](spec/archive/) 即可。
 >
-> **设计决策**：见 [`docs/features.md`](features.md)（决策 + 理由 + phase 归属）+ [`docs/design/philosophy.md`](design/philosophy.md)（顶层哲学）。
+> **设计决策**：见 [`internals/src/features.md`](internals/src/features.md)（决策 + 理由 + phase 归属）+ [`internals/src/philosophy.md`](internals/src/philosophy.md)（顶层哲学）。
 >
-> **实施细节**：见 [`docs/design/`](design/) 5 个主题子目录。
+> **实施细节**：见[实现内幕](internals/src/README.md)。
 
 ---
 
@@ -24,7 +24,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 嵌入 | VM 设计为可嵌入到外部 app（C ABI），目标 ~200KB 子集 |
 | 互操作 | 三层 ABI（C / Rust ergonomic / 平台 facade），native 类型可注册进 z42 |
 
-性能基线（philosophy §9）：interp ≤ Python 1.5×；JIT ≥ V8 70%；AOT ≥ Go 80%；GC pause < 5ms p99；嵌入子集 < 200KB。
+性能基线（本文件为准）：interp ≤ Python 1.5×；JIT ≥ V8 70%；AOT ≥ Go 80%；GC pause < 5ms p99；嵌入子集 < 200KB。
 
 ---
 
@@ -81,7 +81,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 >
 > **B 主线＝本版本招牌（全自举，从原 1.0 拉到 0.3.x）**：7 子系统 = `z42.{Core,Syntax,Project,Driver,Semantics,IR,Pipeline}` 1:1 镜像 C# 项目，源码落 `src/compiler/` 独立顶级目录（与 `src/compiler/` 平级；2026-06-07 User 裁决，覆盖原 `src/z42.compiler/`；子目录名==包名 `z42c.<sub>`，产物 `z42c.<sub>.zpkg`）。**受限写法**：class+虚方法替代 record+match / 循环替代 LINQ / 异常替代 Result；只有自举真卡点才 dogfood 在 z42 里补该特性（禁止 workaround，per `feedback_dogfood_fill_gaps`）。**无桥接**：z42 端只 ship 就绪命令（0.3.4 起 lex/parse/manifest-check、0.3.9 起 build），0.3.x default 编译器仍是 C#，两实现并存逐字节对账。
 >
-> **受限写法 ⇒ 不强制提前半个 L3**：match/ADT/LINQ/Result 完整版仍在 0.6/0.7；只有被自举单点阻断的特性才按 features.md 逐项评估提前。这是「受限写法」决策的直接后果。
+> **受限写法 ⇒ 不强制提前半个 L3**：match/ADT/LINQ/Result 完整版仍在 0.6/0.7；只有被自举单点阻断的特性才逐项评估提前。这是「受限写法」决策的直接后果。
 >
 > **REPL = capstone（从原 0.5.x 拉到 0.3.x）**：自举端到端 build 跑通后落地（前置 Semantic/TypeChecker/IR 均在本线内交付），单独 spec `add-z42-repl`。
 >
@@ -103,7 +103,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.3.8 | emit（ZbcWriter/ZpkgWriter → byte-identical .zbc/.zpkg）| | |
 | 0.3.9 | ✅ 归档 port-z42c-self-compile（G22 全绿）+ runtime-dynamic-load-call 归档 ‖ **✅ z42c 编译全 22 stdlib 包 byte-identical**（z42c 可完整替代 C# 编译器；commit 36485ae4，2026-06-19）| | |
 | 0.3.10 | byte-identical CI gate 全 7 子系统 7 日零飘移 + compile-perf gate（median ≤3× / P99 ≤5×）启用 | | |
-| 0.3.11 | **Boxing 机制**（方案 A 类型系统层）：prim→object 隐式装箱（Value 已是 tagged union → codegen no-op，零分配）+ object→prim 受检拆箱（复用 Convert）。实证：编译器侧（GS6 赋值）已存在，整改动 = 运行期 Bool 拆箱恒等 + golden + 文档。**无 box/unbox IR、无格式 bump**。见 [`design/language/boxing.md`](design/language/boxing.md) | 🟢 实现完成（add-boxing-conversions，待归档）| |
+| 0.3.11 | **Boxing 机制**（方案 A 类型系统层）：prim→object 隐式装箱（Value 已是 tagged union → codegen no-op，零分配）+ object→prim 受检拆箱（复用 Convert）。实证：编译器侧（GS6 赋值）已存在，整改动 = 运行期 Bool 拆箱恒等 + golden + 文档。**无 box/unbox IR、无格式 bump**。见 [internals: struct-value-semantics.md](internals/src/runtime/struct-value-semantics.md) | 🟢 实现完成（add-boxing-conversions，待归档）| |
 | 0.3.12 | **反射完整化**：~~Method.Invoke（非泛型）~~ ✅ + ~~Type.GetType(fqn)~~ ✅（add-method-invoke-non-generic；builtin 复用 exec_function，异常原类型传播 interp+jit；Activator 无参延后）‖ ~~IsEnum~~ ✅（2026-07-09）‖ ~~嵌套泛型 GetGenericArguments~~ ✅（2026-07-23 add-reflection-nested-generic-args，方案 A：z42c 发括号实参串 + runtime 递归解析，无格式 bump / TypeofInstr 接口不变）‖ ~~接口成员枚举~~ ✅（2026-07-20 add-interface-member-reflection，纯 runtime surface zbc 1.28 接口方法块）| ✅ 反射完整化收口（非泛型 Invoke/GetType/IsEnum/嵌套泛型 args/接口成员枚举 全落地；泛型 Invoke/MakeGenericType/Activator<T> 属 0.4.x G） | |
 | 0.3.13 | **test-runner 删除**：z42.test 加 TestRunner/BenchRunner（反射驱动 [Test]/[Benchmark] 发现）+ z42b `test`/`bench` verb + 退役 Rust binary（同替两者）‖ **CI 三平台模拟器**：WASM(Playwright) / iOS Simulator(`xcodebuild -destination`) / Android(emulator-runner+KVM) → JUnit → GitHub Checks（stdlib ‖ toolchain 双锁并行）| | |
 | 0.3.14 | **workload B1**（命令发现：launcher 扫目录 → Std.Cli 树合并）+ **B2**（workload 包格式 + `z42 workload install/list/remove`）| | |
@@ -170,7 +170,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | **0.7.x** | `Result<T,E>` + `?` + ADT + `match` 穷尽检查 | L3 | 6–8 周 |
 | **0.8.x** | async / await + 多线程 + GC v3（generational + concurrent）+ DAP debugger | L3 | 12–16 周 |
 | **0.9.x** | 单文件脚本 + 嵌入 API GA + 可裁剪 + WASM target + Interop 2b（manifest reader / source generator）| L3 | 10–14 周 |
-| **0.10.x** | 性能强化（philosophy §9 五指标全部达标）| L3 | 8–12 周 |
+| **0.10.x** | 性能强化（上方五条性能基线全部达标）| L3 | 8–12 周 |
 | **1.0.x** | 删 C# bootstrap（自举核心已在 **0.3.x** 完成 byte-identical）+ 跨架构 NativeAOT + Interop 3 + `z42up` 工具链 GA + SemVer / deprecation 启用 | L3+ | 8–12 周 |
 
 **累计估算**：~16–20 个月（按全职 1 人节奏）。
@@ -199,7 +199,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 - 0.3 A perf 攻坚 ◄── 0.3.0 GC v1（无稳定 GC 的 micro-opt 无意义）
 - 0.3 B 编译器全自举 ◄── 0.3.0 GC v1（z42 端编译器对 GC 压力大）
 - 0.3 B 自举受限写法 ◄── 泛型 G1-G4 + 闭包核心（已提前落地）；缺 match/LINQ/Result 用 class+虚方法 / 循环 / 异常替代，真卡点才 dogfood 提前
-- 0.3 C3 Attribute reflection ◄── 用户自定义 attribute 机制（features.md §X，0.3.5 前先 spec）
+- 0.3 C3 Attribute reflection ◄── 用户自定义 attribute 机制（0.3.5 前先 spec）
 - 0.3.11 boxing 机制 ◄── 0.3.12 Method.Invoke 非泛型（auto-boxing prim→Object 是 Invoke 的直接前置）
 - 0.4 G 流泛型反射扩展（泛型方法 Invoke + MakeGenericType + Activator.CreateInstance<T>）◄── 0.4 G 流运行期泛型 instantiation（2026-06-23 从 0.5.x 提前，支撑 0.4 L 流 Deserialize<T> serde）
 - 0.4 L 流 JSON `Deserialize<T>` 完整泛型 serde ◄── 0.4 G 流泛型实例化 + 泛型反射（User 裁决"硬上"，显式 L3 提前例外）
@@ -214,20 +214,22 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ## Feature → Version 映射
 
-每个 features.md 章节落地到哪个 minor。
+每块语言能力落地到哪个 minor。各能力**为什么是这个形状**见
+[实现内幕 · 语言特性的决策台账](internals/src/features.md)，**规则怎么写**见
+[语言与库参考](reference/src/language/README.md)——本表只管**排期**。
 
-| features.md 章节 | 所属 minor | 当前状态 |
+| 能力 | 所属 minor | 当前状态 |
 |------|:------:|:----:|
-| §1 Type System / §2 Null Safety / §3 Memory Management / §4 Error Handling (exceptions) / §5 Type Definitions (class/struct/record) / §6 Functions / §7 Control Flow / §8 Strings / §9 Collections / §10 Imports / §11 Numeric Aliases | 0.1.x | ✅ L1 |
-| §12 Hot Reload | 0.5.x（从 0.3.2 推后；GC v1 后真热更新落地）| 🟡 设计有 |
-| §13 Execution Mode Annotations | 0.1.x（注解）→ 0.5.x（运行时切换；从 0.3.x 推后）| 🟡 注解 ✅；运行时切换待 |
-| §14 Generics + Trait | 0.5.x | ✅ G1-G4 + L3-Impl 提前落地 |
-| §15 Reflection | **0.3.x C主线**：只读元数据 + typeof/GetType + Attribute（C1-C3 ✅）；GetInterfaces / IsArray / IsAbstract 等扩展 ✅；**完整化（0.3.12）**：非泛型 Method.Invoke + IsEnum + 嵌套泛型 GetGenericArguments + 接口成员枚举（boxing 机制 0.3.11 为前置）；**0.4.x G 流泛型扩展**（2026-06-23 从 0.5.x 提前）：运行期泛型实例化 + 泛型方法 Invoke + MakeGenericType + Activator.CreateInstance<T>（支撑 0.4 L 流 Deserialize<T> serde）| 🟡 C1-C3 + 多项扩展已落地（见 spec/archive 2026-06-09–06-17 系列）；boxing + Method.Invoke 待 0.3.11–0.3.12；泛型扩展待 0.4.x G 流 |
-| §16 Lambda + Closure | 0.6.0 | ✅ L2-C1 + L3-C2 核心提前落地 |
-| §17 Result + ADT + match | 0.7.x | 📋 |
-| §18 可裁剪 / Tree-shaking / 200KB 子集 | 0.9.x（嵌入 / 裁剪）+ 1.0-rc（AOT 静态链接）| 📋 |
-| §19 NativeAOT | 1.0.x | 📋 |
-| §20 Interop 三层 ABI | 0.5.5 / 0.9.x / 1.0.x | ✅ Tier 1 + Tier 2 + manifest 提前落地 |
+| 类型系统 / 可空标注 / 内存模型 / 异常 / 类型定义 / 函数 / 控制流 / 字符串 / 集合 / 导入 / 数值别名 | 0.1.x | ✅ L1 |
+| 热更新 | 0.5.x（从 0.3.2 推后；GC v1 后真热更新落地）| 🟡 设计有 |
+| 执行模式标注 | 0.1.x（注解）→ 0.5.x（运行时切换；从 0.3.x 推后）| 🟡 注解 ✅；运行时切换待 |
+| 泛型 + Trait | 0.5.x | ✅ G1-G4 + L3-Impl 提前落地 |
+| 反射 | **0.3.x C主线**：只读元数据 + typeof/GetType + Attribute（C1-C3 ✅）；GetInterfaces / IsArray / IsAbstract 等扩展 ✅；**完整化（0.3.12）**：非泛型 Method.Invoke + IsEnum + 嵌套泛型 GetGenericArguments + 接口成员枚举（boxing 机制 0.3.11 为前置）；**0.4.x G 流泛型扩展**（2026-06-23 从 0.5.x 提前）：运行期泛型实例化 + 泛型方法 Invoke + MakeGenericType + Activator.CreateInstance<T>（支撑 0.4 L 流 Deserialize<T> serde）| 🟡 C1-C3 + 多项扩展已落地（见 spec/archive 2026-06-09–06-17 系列）；boxing + Method.Invoke 待 0.3.11–0.3.12；泛型扩展待 0.4.x G 流 |
+| Lambda + 闭包 | 0.6.0 | ✅ L2-C1 + L3-C2 核心提前落地 |
+| Result + ADT + match | 0.7.x | 📋 |
+| 可裁剪 / Tree-shaking / 200KB 子集 | 0.9.x（嵌入 / 裁剪）+ 1.0-rc（AOT 静态链接）| 📋 |
+| NativeAOT | 1.0.x | 📋 |
+| Interop 三层 ABI | 0.5.5 / 0.9.x / 1.0.x | ✅ Tier 1 + Tier 2 + manifest 提前落地 |
 
 > "提前落地" = L2 阶段已实施部分 L3 特性，未对应到 0.x.0 minor 但代码已在 main。
 
@@ -299,7 +301,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.8.6 | 多线程压力测试（race detector）|
 | 0.8.7 | DAP conformance |
 | 0.9.7 | WASM target build & test |
-| 0.10.0 | philosophy §9 五指标自动化基线 |
+| 0.10.0 | 五条性能基线的自动化门禁 |
 | 1.0.0 | C# bootstrap 删除后 z42c-selfhost 唯一编译器全绿 + 跨架构 perf 数字 |
 
 ---
@@ -350,7 +352,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ## Deferred Backlog Index
 
-> 所有显式延后特性的横向索引；条目正文存于对应 design doc 的 "Deferred / Future Work" 段。新增延后项时：① 在对应 design doc 加条目 ② 在本表加索引行。规则见 [`agent/rules/philosophy.md`](agent/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
+> 所有显式延后特性的横向索引；条目正文存于对应书页的「待办」段或「不支持」节。新增延后项时：① 在对应书页写清当前行为 ② 在本表加索引行。规则见 [`agent/rules/philosophy.md`](agent/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
 
 ### 设计期延后
 
@@ -365,7 +367,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 裸型参作转换目标时的擦除（tighten-bare-type-param-target-erasure）| 🔴 **2026-09-08 更正根因**（change `add-generic-type-arg-inference` 实测）：原记述「分支 B 对『目标是裸型参、来源是具体类型』也放行」把根因记浅了。按字面收紧 `Conversion` 分支 B **立刻全线假红**——探针实测 `build stdlib` 头 3 个包就 33 条 E0402，逐条核对**全是合法代码**（`Array.Copy(byteArr,…)` / `outp.Add(name)` / `new DictionaryEnumerator<TKey,TValue>(this)`），**真欠债 0**。真根因是**检查时拿到的形参类型没被代换**，硬前置是类型实参推断（当时零实现）。该 change 已补齐三条代换路径（受者实例化 / 显式类型实参 / 推断），两侧变具体后分支 B 自然不触发。**本条现在指的是剩余情形**：推断失败、以及型参收者上的 `a.Same("nope")`（形参经 `Self→T` 精确替换后仍是**裸型参**）。要收紧需区分「作用域内不透明型参」与「待推断型参」，而 `Z42GenericParamType` 今天只带名字、不带 owner ⇒ 独立 change | [book: generic-constraints.md](reference/src/language/generic-constraints.md) §已知限制：形参本身是型参时仍不检查 |
 | ~~跨包泛型自由函数的型参保真度（imported-generic-func-type-param-fidelity）~~ ✅ **已解决**（2026-09-08，change `fix-imported-generic-func-fidelity`）| 原状：**跨包**调用泛型自由函数编不过（`T IdOf<T>(T a)` 在包 A、包 B 调 `IdOf(7)` 报 `E0402: cannot assign int to T (argument)`，**显式类型实参也不救**）——导入侧型参退化成名叫 `"T"` 的普通类 ⇒ 擦除放行不触发。根因是链路**两端都漏**：`ExportedFuncZ` 压根没有型参槽（`ExportedMethodZ`/`ExportedInterfaceZ`/`ExportedDelegateZ` 都有）⇒ `TsigReconcile.Rebuild` 无处搬 ⇒ `ImportedSymbolLoader` 只能调无型参上下文的两参 `_resolve`。承载位（zbc SIGS 的 tp 块 + `IrFunction.TypeParams`）本就现成 ⇒ **零格式 bump**。是 #523 的 `_tpsWith` 注释自己列出却漏修的第四处 | `ExportedFuncZ` +TypeParams / `TsigReconcile.Rebuild` / `ImportedSymbolLoader` 自由函数分支；回归 `src/tests/cross-zpkg/free_func_cross_pkg/` |
 | where 约束：~~推断调用~~ ✅ 与顶层函数（where-constraint-future-toplevel-func）| **推断调用已解决**（2026-09-08 `add-generic-type-arg-inference`）：`Max(a,b)` 现在也校验，从实参结构化 unify 出型参绑定后复用同一条 `ConstraintChecker.CheckMethod`。残留 = 推断失败的情形（型参未被形参位覆盖 / 同一型参绑到不同类型 / lambda 与 target-typed new 延迟位 / params 尾位）→ 静默按改动前行为。**顶层 `FuncDecl` 的 `where` 仍完全不校验**（本条继续开着） | [book: generic-constraints.md](reference/src/language/generic-constraints.md) 已知限制 §3 |
-| 泛型推断：最佳公共类型（generic-inference-best-common-type）| 同一型参绑到多个类型时取最佳公共类型（C# 口径）。v1 一律判**整体失败**（静默按改动前行为）⇒ `Max(1, 2L)` 仍不校验 | [book: generics.md](book/src/language/generics.md) §类型实参推断 |
+| 泛型推断：最佳公共类型（generic-inference-best-common-type）| 同一型参绑到多个类型时取最佳公共类型（C# 口径）。v1 一律判**整体失败**（静默按改动前行为）⇒ `Max(1, 2L)` 仍不校验 | [internals: generic-inference.md](internals/src/compiler/generic-inference.md) |
 | 泛型推断：lambda 实参参与推断（generic-inference-lambda-args）| lambda 在形参类型未知时已绑成 `Z42UnknownType`，推断跳过该位。让它参与要动延迟绑定通道（`ExprTyper` 的 `BindWithTarget`），牵扯字节漂移 | 同上 |
 | 泛型推断参与重载决议（generic-inference-in-overload-resolution）| 推断一律在决议选定唯一候选**之后**做。提前会让 `void F(int)` 与 `void F<T>(T)` 变歧义（`OverloadResolver._assignable` 用裸 `IsAssignableTo`，今天在静默淘汰泛型候选）⇒ 今天能编的代码编不过 | 同上 |
 | 类型实参发射门的统一（unify-method-type-arg-emission-gate）| 「callee 需要才发类型实参」应当同时管**显式**路径（今天显式调用无条件发 `CallGeneric`，把不消费型参的 callee 也踢出 native 快路径）。前置 = 可传递、跨包可见的「方法体消费型参」分析（`$mta:` 转发要传递闭包，跨包要进元数据） | 同上 |
@@ -391,9 +393,9 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 数字/Unicode 转义（escape-future-numeric-unicode）| `\uXXXX` / `\xXX` / `\0` 八进制扩展 / `\UXXXXXXXX` 解码；需 hex/oct 解析 + 码点越界诊断。当前（reject-invalid-string-escape 后）这些转义报 E0102，workaround = 源码写字面字符或用 raw 串 | [changes/reject-invalid-string-escape/design.md](spec/changes/reject-invalid-string-escape/design.md) "Deferred / Future Work" 段 |
 | REPL 泛型返回续读（repl-completeness-future-generic-return）| 泛型返回类型函数头 `List<int> foo()` 被 Classifier 漏判为表达式 → 无法多行续读；需 Classifier 泛型感知或 parser submission 模式 | [archive/2026-08-08-add-repl-parser-completeness/design.md](spec/archive/) Deferred 段 |
 | 泛型擦除槽的值复制（generic-struct-erased-slot-value-copy）| struct 值存进声明类型为 `T` 的字段（泛型 struct 与泛型 class）按句柄存、不复制；复制外层泛型 struct 浅拷该句柄 ⇒ 与源变量 / 副本共享 blob（`new Pair<P2,int>(inner,1)` 后改 `inner`、`var q = pp; q.First.Y = 9` 均被 `pp` 看到）。2026-09-15 修链式偏移（fix-generic-struct-chain-access）时实测发现，属值语义设计决策、独立 change | [book: struct-value-semantics.md](internals/src/runtime/struct-value-semantics.md) §收敛面与延后 |
-| 闭包档 A 完整版 | 任何不逃逸 closure 栈分配（当前仅单变量子集）| [language/closure.md](design/language/closure.md) |
-| 闭包档 B 完整版 | 单态化 + 泛型形参标注（当前仅 alias 子集）| [language/closure.md](design/language/closure.md) |
-| 闭包档 C send 派生 | 与 concurrency 实施一起做 | [language/closure.md](design/language/closure.md) |
+| 闭包档 A 完整版 | 任何不逃逸 closure 栈分配（**当前编译期分析已移除、全部堆分配**）| [internals: escape-analysis.md](internals/src/runtime/escape-analysis.md) |
+| 闭包档 B 完整版 | 单态化 + 泛型形参标注（**alias 子集已移除**）| [internals: escape-analysis.md](internals/src/runtime/escape-analysis.md) |
+| 闭包档 C send 派生 | 与 concurrency 实施一起做 | [runtime/concurrency.md](internals/src/runtime/concurrency.md) |
 | Static abstract iter 2+ | 类型级访问（`T.Zero` / `T.Parse(s)`）—— 现有派发是**值驱动**（靠 `args[0]` 的运行期值），无参静态成员走不通，需把 `T` 的 TypeDesc 传到泛型 callsite | [internals: vm-architecture.md](internals/src/runtime/vm-architecture.md) §接口 static abstract 成员的派发 |
 | 重载键稳定化（最终方案 A）| 消除「加/删重载 → re-mangle 现有方法键」的 bootstrap 敏感性：`SymbolCollector.regName` 从「兄弟集相关」（唯一→裸名 / 多 arity→`Name$arity` / 同 arity→`Name$arity$types`）改为**一律全签名 mangle**（键 = 自身签名纯函数、兄弟无关；协议豁免名 ToString/Equals/… 保持裸名 VM 硬查）→ 键永久稳定、未来加重载零 bootstrap 处理。代价大：全局改键（巨大字节 diff）+ 自指两代自举过渡（链接约定级）+ 硬编码名审计（compiler+VM 反射/well-known/DepIndex）。**2026-07-12 实测关键发现**：给唯一方法加重载触发的 re-mangle **不被现有 bootstrap 自愈**——`build stdlib` 本地即崩（seed driver 打新键 z42.io → `undefined Path.Join`），且**无格式版本 bump 触发不了 ci-bootstrap 两代自举**（那只认 zbc/zpkg minor 差）。故「params 两阶段」并非轻量逃生——它撞同一堵墙。要落地这类「z42c 消费的 stdlib 方法加重载」，须**方案 A** 或**随格式 bump 搭两代自举**或**换名兜底**（如变长版另起名/复用 `Combine(params)`）。低频 → 暂缓 | [compiler_review.md](compiler_review.md) §二·派发键稳定化 |
 | compiler-review P1 God-Class 拆分（续）| TypeChecker 步骤 2-4（MemberResolver/StmtBinder/ExprTyper 收敛 Facade——step1 抽 OverloadBinder 已归档 2026-07-12，EmitContext 式 mediator 拆法不动点 7/7 验证）+ Parser(1739) + IrGen/ExprEmitter/FunctionEmitter | [compiler_review.md](compiler_review.md) §一/§七 |
@@ -408,7 +410,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 用户自定义转换 future（user-conversions-future-*）| ① **`as`/`is`/模式匹配接入用户转换**（C# 硬伤②；可失败语义需额外协议，v1 只 `(T)x` 显式 + 隐式上下文）② **标准转换 + 用户转换组合链**（v1 精确 (源,目标) 匹配、比 C# 更可预测；多跳由 ③ 走中间类型诊断引导手写 `(C)(B)x`）| [archive/…-add-user-conversions/design.md](spec/archive/) "Deferred / Future Work" 段 |
 | 编译器指纹自动化（fingerprint-future-auto-buildid）| A 方案（`add-compiler-fingerprint-cache`）手动 `CompilerFingerprint` bump 靠人肉；B 方案 = driver 经 `Z42_HOME` 聚合自身 `programs/z42c/*.zpkg` 的 `build_id`（BLAKE3-128）入 cache key，编译器一变即自动失效、免 bump。暂缓：多启动路径（cold/warm/REPL/z42b/wasm）下 `Z42_HOME` 解析自身产物的验证面大，发布前不值得。触发：0.4.x 尾 build-orchestration 阶段 | [archive/2026-08-11-add-compiler-fingerprint-cache/tasks.md](spec/archive/2026-08-11-add-compiler-fingerprint-cache/tasks.md) 备注 |
 | CO-D1 收尾：统一 toolchain artifact | 让**所有**消费者（host-package/platform/windows，非仅 test）改吃 `current-sdk`（build sdk，需补 xtask 进它）→ 删 `build stage-toolchain` + `toolchain-<os>` artifact（与 `build sdk`/`current-sdk` 重复：差集仅 xtask/vm/apphosts/布局）。省 ~6 job 各一条 bootstrap 之外的重复；纯 CI 改动、只能 CI 验（redesign-xtask-test 期间评估：stage-toolchain 当前仍在关键路径，不可裸删） | [archive/2026-06-30-compile-once-toolchain/tasks.md](spec/archive/2026-06-30-compile-once-toolchain/tasks.md) Deferred 段 |
-| z42vm JIT cdylib 拆分 | 把 cranelift JIT 拆成可 dlopen 的 `libz42_jit.dylib`（z42vm 6M→~3.5M）；ROI 低（拆 ~3M / 整包 ~70M，中高工作量）2026-06-21 暂缓 | [toolchain/runtime-workload-distribution.md](design/toolchain/runtime-workload-distribution.md#deferred--待-spec-细化) |
+| z42vm JIT cdylib 拆分 | 把 cranelift JIT 拆成可 dlopen 的 `libz42_jit.dylib`（z42vm 6M→~3.5M）；ROI 低（拆 ~3M / 整包 ~70M，中高工作量）2026-06-21 暂缓 | [toolchain/runtime-workload-distribution.md](internals/src/toolchain/workload-distribution.md) |
 | 组件化运行时 | libz42 基座 + interp/jit/aot/gc/debug 组件；static/dynlink/dlopen 三粒度 + 切换语义；嵌入按需链接 | [runtime/componentized-runtime.md](internals/src/runtime/componentized-runtime.md) |
 | 分层执行 | interp/JIT 各自内部分层 + OSR/deopt + 低层回收 + 引用诊断 + hot-reload 共用基建 | [runtime/tiered-execution.md](internals/src/runtime/tiered-execution.md) |
 | IR 优化与特化 | 编译期优化 tier0 基线 + intrinsic 表（编译期折常量 + 引擎内联，硬编码纯度）；`"sss".Length` 折叠 | [runtime/ir-specialization.md](internals/src/runtime/ir-specialization-design.md) |
@@ -425,29 +427,29 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 元编程 / 编译期代码生成 | 同语言宏（VM 编译期执行 + 类型化 AST + quote/splice）；分层 derive→模板宏→变换宏；先做 derive（复用反射）| [language/metaprogramming.md](internals/src/compiler/metaprogramming.md#deferred--分期诚实这是语言里最难的几件事之一) |
 | foreach IEnumerator 路径 | 升级为接口 dispatch（当前仅鸭子协议）| [language/iteration.md](reference/src/language/iteration.md) |
 | 自定义 body / init-only / expression-bodied property | properties 未支持子集 | [language/properties.md](reference/src/language/properties-indexers.md) |
-| `Type : MemberInfo` 层级对齐 | 统一 Type 不拆 TypeInfo（2026-06-09 已定）；但 Type 当前非 MemberInfo 子类、不在 Std.Reflection——对齐留待嵌套类型反射 / 自举镜像时 | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
-| 继承的静态字段反射 | `GetFields()` 含静态已落地（2026-06-10）但仅声明类自身；继承静态需沿 base 链聚合 `static_fields` | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
-| 嵌套泛型 type-args / 实例 GetGenericArguments | `IsGenericTypeDefinition`/`GetGenericTypeDefinition` + typeof 携 args 已落地（2026-06-16，zbc 1.18 Typeof opcode）；剩 `typeof(Box<Map<K,V>>)` 嵌套递归 + `new Box<int>()` 实例 `obj.GetType()` 两路径统一 | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
-| `Type.IsEnum` + 接口成员/transitive | `IsClass`/`IsInterface` 已落地（2026-06-16，zbc 1.19 flags bit4 + 接口产最小 TYPE 条目）；`IsEnum` **已落地**（2026-07-09 add-enum-type-metadata，zbc 1.22 flags bit5 + enum 成员块）；**接口成员枚举已落地**（2026-07-20 add-interface-member-reflection，纯 runtime surface zbc 1.28 接口方法块）；接口继承接口方法 / 数组 IsClass 续作 | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
+| `Type : MemberInfo` 层级对齐 | 统一 Type 不拆 TypeInfo（2026-06-09 已定）；但 Type 当前非 MemberInfo 子类、不在 Std.Reflection——对齐留待嵌套类型反射 / 自举镜像时 | [language/reflection.md](reference/src/stdlib/reflection.md) |
+| 继承的静态字段反射 | `GetFields()` 含静态已落地（2026-06-10）但仅声明类自身；继承静态需沿 base 链聚合 `static_fields` | [language/reflection.md](reference/src/stdlib/reflection.md) |
+| 嵌套泛型 type-args / 实例 GetGenericArguments | `IsGenericTypeDefinition`/`GetGenericTypeDefinition` + typeof 携 args 已落地（2026-06-16，zbc 1.18 Typeof opcode）；剩 `typeof(Box<Map<K,V>>)` 嵌套递归 + `new Box<int>()` 实例 `obj.GetType()` 两路径统一 | [language/reflection.md](reference/src/stdlib/reflection.md) |
+| `Type.IsEnum` + 接口成员/transitive | `IsClass`/`IsInterface` 已落地（2026-06-16，zbc 1.19 flags bit4 + 接口产最小 TYPE 条目）；`IsEnum` **已落地**（2026-07-09 add-enum-type-metadata，zbc 1.22 flags bit5 + enum 成员块）；**接口成员枚举已落地**（2026-07-20 add-interface-member-reflection，纯 runtime surface zbc 1.28 接口方法块）；接口继承接口方法 / 数组 IsClass 续作 | [language/reflection.md](reference/src/stdlib/reflection.md) |
 | reconcile-tsig CI gate 布线 | `reconcile-tsig` verb 全 29 包本地 OK（unify P2，2026-07-11）；接入 `xtask test` 需 toolchain 锁（fix-bootstrap 持有）→ P3 全面切换后 GREEN gate 天然覆盖 | [compiler/project.md](reference/src/toolchain/z42-toml.md#tsig-对账重建unify-type-metadata-p22026-07-11) |
-| 非字面量参数默认值的值 | `ParameterInfo.DefaultValue` 只折字面量（add-param-metadata，2026-07-10，zbc 1.25）；常量表达式/enum 成员默认值需常量折叠器 | [language/reflection.md](design/language/reflection.md#deferred--future-work) |
-| Tier 2/3 完整 interop | manifest reader / 源生成 / symbol resolution | [language/interop.md](design/language/interop.md) |
+| 非字面量参数默认值的值 | `ParameterInfo.DefaultValue` 只折字面量（add-param-metadata，2026-07-10，zbc 1.25）；常量表达式/enum 成员默认值需常量折叠器 | [language/reflection.md](reference/src/stdlib/reflection.md) |
+| Tier 2/3 完整 interop | manifest reader / 源生成 / symbol resolution | [internals: native-abi.md](internals/src/runtime/native-abi.md) |
 | 整体 L3 concurrency | async/await / Future / Send-Sync / 调度器 | [runtime/concurrency.md](internals/src/runtime/concurrency.md) |
 | hot-reload 签名变更 + 跨模块 | 签名变更检测 / 跨模块 reload 故事 | [runtime/hot-reload.md](internals/src/runtime/hot-reload.md) |
 | 完整 JIT 指令映射 + 性能基准 | jit.md 待补 | [runtime/jit.md](internals/src/runtime/jit-design.md) |
-| GC handle Phase 3+ | Pinned / WeakTrackResurrection / 多线程 barrier | [runtime/gc-handle.md](design/runtime/gc-handle.md) |
-| z42c 裸脚本→Exe-zpkg | 原 launcher phase 0.5；现以 mini-project(`kind="exe"` toml) workaround，ROI 低 | [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
-| `ICompiler` 抽中立微库 | z42b 编译接口暂置 `z42.build`；后抽中立微库使编译器核心（z42c）不依赖整个 build 框架 | [toolchain/build-orchestrator.md](design/toolchain/build-orchestrator.md#deferred--待-spec-细化) |
+| GC handle Phase 3+ | Pinned / WeakTrackResurrection / 多线程 barrier | [runtime/gc-handle.md](internals/src/runtime/gc-handle.md) |
+| z42c 裸脚本→Exe-zpkg | 原 launcher phase 0.5；现以 mini-project(`kind="exe"` toml) workaround，ROI 低 | [runtime/launcher.md](internals/src/toolchain/launcher.md) |
+| `ICompiler` 抽中立微库 | z42b 编译接口暂置 `z42.build`；后抽中立微库使编译器核心（z42c）不依赖整个 build 框架 | [toolchain/build-orchestrator.md](internals/src/toolchain/z42b.md) |
 | z42c stdlib 构建 jit 加速 | S3（z42c 接管 build stdlib，当前阻塞未落地）落地后：interp 重编 ~30s，jit 加速待实测 22 库 jit==interp 等价 | [compiler/self-hosting.md](internals/src/compiler/self-hosting.md#deferred--future-work) |
 | z42c 继承默认参数方法 TSIG arity | 直接定义方法已修（requiredCount 读 Param.Default）；继承自其它包的默认参数方法 re-export 需 `Z42FuncType.MinArgCount`（import 时丢失），当前 stdlib 未触发 | [compiler/self-hosting.md](internals/src/compiler/self-hosting.md#deferred--future-work) |
 | S3 剩余 2 个 z42c codegen bug | dogfood S3 余 4 stdlib test：① blake3 多块 z42c codegen ② 静态字段 mutation 不持久（diagnostics）。已修 6 bug（含 cross-ns 静态调用） | [compiler/self-hosting.md](internals/src/compiler/self-hosting.md#deferred--future-work) |
-| apphost self-contained | `--self-contained`：VM+libs 随 app 本地化（P1 仅 framework-dependent）| [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
-| apphost single-file | 链 `libz42_vm` + 内嵌 zpkg/libs，经 embedding C ABI 内存加载；依赖 C ABI + 碰 runtime | [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
-| apphost Windows checksum/Authenticode + 跨平台交叉签名 | Windows PE checksum / 在 Linux 上签 macOS apphost（需内建 Mach-O 签名器；P1 用 host codesign）| [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
-| apphost cwd 上行 / 富搜索配置 | P1 本地搜索仅 exe 目录上行 | [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
-| 单文件运行缓存的回收 | `z42 run hello.z42` 的产物落 `<缓存根>/run/<路径哈希>/`，目前只增不减（实测一条 20 KB，条目数 = 跑过的不同文件数）。方案已设计：`z42 clean --cache` / `z42 clean <file>.z42` + 24h 机会式 GC（7 天淘汰、源文件消失即删、512 条封顶） | [runtime/launcher.md](design/runtime/launcher.md#deferred--future-work) |
-| workload install 后续（B1 命令发现 / B4 平台测试 / B5 mobile publish-run / 真机多-slice xcframework）| B2 LOCAL install + B2-4 CI release/manifest 联网装 + host gate 均已落地（2026-06-17）；剩余为后续 change | [toolchain/runtime-workload-distribution.md](design/toolchain/runtime-workload-distribution.md#deferred--待-spec-细化) |
-| stdlib 剩余缺失包 | **async** 仍延后（依赖 L3 async/await 语法）；~~fs~~ ✅ / ~~os~~ ✅（合入 z42.io）/ ~~threading~~ ✅ 2026-05-20 / ~~net~~ ✅ K1-K4 2026-05-24~05-25 / ~~crypto~~ ✅ SHA-1/256+HMAC 2026-05-24~05-25。详 `docs/design/stdlib/roadmap.md` | [stdlib/roadmap.md](design/stdlib/roadmap.md) |
+| apphost self-contained | `--self-contained`：VM+libs 随 app 本地化（P1 仅 framework-dependent）| [runtime/launcher.md](internals/src/toolchain/launcher.md) |
+| apphost single-file | 链 `libz42_vm` + 内嵌 zpkg/libs，经 embedding C ABI 内存加载；依赖 C ABI + 碰 runtime | [runtime/launcher.md](internals/src/toolchain/launcher.md) |
+| apphost Windows checksum/Authenticode + 跨平台交叉签名 | Windows PE checksum / 在 Linux 上签 macOS apphost（需内建 Mach-O 签名器；P1 用 host codesign）| [runtime/launcher.md](internals/src/toolchain/launcher.md) |
+| apphost cwd 上行 / 富搜索配置 | P1 本地搜索仅 exe 目录上行 | [runtime/launcher.md](internals/src/toolchain/launcher.md) |
+| 单文件运行缓存的回收 | `z42 run hello.z42` 的产物落 `<缓存根>/run/<路径哈希>/`，目前只增不减（实测一条 20 KB，条目数 = 跑过的不同文件数）。方案已设计：`z42 clean --cache` / `z42 clean <file>.z42` + 24h 机会式 GC（7 天淘汰、源文件消失即删、512 条封顶） | [runtime/launcher.md](internals/src/toolchain/launcher.md) |
+| workload install 后续（B1 命令发现 / B4 平台测试 / B5 mobile publish-run / 真机多-slice xcframework）| B2 LOCAL install + B2-4 CI release/manifest 联网装 + host gate 均已落地（2026-06-17）；剩余为后续 change | [toolchain/runtime-workload-distribution.md](internals/src/toolchain/workload-distribution.md) |
+| stdlib 剩余缺失包 | 五个仍未开：**`z42.async`**（`Task` + `async`/`await` + `CancellationToken`，阻塞于 L3 async/await 语法）、**`z42.linq`**（`IEnumerable<T>` 链式扩展，阻塞于 lambda + iterator trait）、`z42.xml`、`z42.globalization`、`z42.io.pipelines`（高吞吐 IO，依赖 async）。已发布包的公开面见[标准库参考](reference/src/stdlib/README.md) | — |
 | split-debug-symbols 退化 trace ip+build_id | line==0 时帧追加 `+0x<ip> [build:<8hex>]`；需 VmFrame 追踪 PC | [language/exceptions.md](reference/src/language/exceptions.md#deferred--future-work) |
 | `z42c symbolicate` 离线工具 | 把 `.zsym` 应用到 crash trace 还原 file:line:col | [language/exceptions.md](reference/src/language/exceptions.md#deferred--future-work) |
 | sidecar lazy / mmap 加载 | 启动延迟敏感场景的优化路径 | [language/exceptions.md](reference/src/language/exceptions.md#deferred--future-work) |
@@ -457,43 +459,43 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | multi-arch-container-packages | multi-slice xcframework / multi-ABI AAR 卷起来发；Phase 1 选 per-arch flat（13 包），用户呼声出来再加 `z42-<v>-ios-xcframework-<config>` / `z42-<v>-android-aar-<config>` 两个 convenience 包 | [runtime/embedding.md §11.9](internals/src/runtime/embedding.md#119-分发-package-形态per-arch-flat2026-05-13-define-package-layout) |
 | per-arch-abi-feature-matrix | abi-version 升 2 后"哪些 host config 字段哪个 ABI 起可用"细粒度矩阵 | [runtime/embedding.md §11.9](internals/src/runtime/embedding.md#119-分发-package-形态per-arch-flat2026-05-13-define-package-layout) |
 | binary-package-signing | iOS xcframework / Android AAR / wasm npm publish 时 notarization / GPG / npm 2FA；Phase 1 全 unsigned，留给 Phase 4 release CI | [runtime/embedding.md §11.9](internals/src/runtime/embedding.md#119-分发-package-形态per-arch-flat2026-05-13-define-package-layout) |
-| z42 build-driver prerequisites | 用 z42 自身重写所有 `.sh` 解 Tier 1 Windows CI；阻塞 = P0 z42.os/z42.io.fs + P1 z42.crypto/z42.net + P2 z42.toml/z42.compression | [stdlib/roadmap.md "Deferred / Future Work"](design/stdlib/roadmap.md#z42-build-driver-prerequisites2026-05-13) |
+| z42 build-driver prerequisites | 用 z42 自身重写所有 `.sh` 解 Tier 1 Windows CI。**stdlib 侧的前置已全部就位**（文件/进程/环境在 `z42.core` + `z42.io`，`z42.crypto` / `z42.net` / `z42.toml` / `z42.compression` 均已发布）——剩下的是重写工作本身 | — |
 | ~~pre-existing cargo test build break~~ ✅ | 已修复 2026-05-27 `f7c15058` —— 根因是 `gc::region_tests` / `arc_heap_tests::invariants` 调 `#[cfg(debug_assertions)]` 方法但模块仅 `#[cfg(test)]`。2 行 fix 把模块 cfg 收紧到 `cfg(all(test, debug_assertions))`。验证：release 673/673 + debug 716/716 全绿 | — |
-| ~~URL-safe Base64~~ ✅ + ~~Base32~~ ✅ + ~~UTF-16/32~~ ✅ + ~~Crockford~~ ✅ + ~~Base32-hex~~ ✅ + Encoding streaming / Base85 | **Base64Url / Base32 已落地 2026-05-25**；**UTF-16 + UTF-32 已落地 2026-05-27** (`37b7191e`)；**Base32Crockford + Base32Hex 已落地 2026-05-25**；仅 **Encoding streaming API + Base85** 仍延后 | [stdlib/encoding.md](design/stdlib/encoding.md#deferred--future-work) |
-| HMAC-SHA256 | v0 SHA-256 落地后的下一步；RFC 2104 公式 | [stdlib/crypto.md](design/stdlib/crypto.md#hmac-sha256) |
-| ~~Std.Crypto.SecureRandom (CSPRNG)~~ ✅ | **✅ 已落地 2026-05-26** (add-csprng-to-crypto)；wasm32 bridge 仍延后 | [stdlib/crypto.md](design/stdlib/crypto.md#csprng-wasm32-bridgestdcryptosecurerandom-on-wasm32) |
-| ~~Zip.Write~~ ✅ + Zip.CreateFromDirectory | **Zip.Write 已落地 2026-05-27** (`add-zip-write`，single-buffer 2-pass 绕过 byte[][])；仅 **`Zip.CreateFromDirectory`**（atop Zip.Write + Directory.Enumerate）仍延后 | [stdlib/compression.md](design/stdlib/compression.md#compression-future-zip-create-from-directory) |
-| ~~Compression streaming decode~~ ✅ | **cdylib 流式 2026-05-27** (`add-compression-streaming-decode`) + **z42 消费端 per-chunk pull 2026-06-09** (`compression-decoder-pull-mode`) → 流式解压端到端，不再 accumulate-then-decompress | [stdlib/compression.md](design/stdlib/compression.md#compression-future-streaming-decode) |
-| Brotli / xz / LZ4 | z42.compression v0 算法之外 | [stdlib/compression.md](design/stdlib/compression.md#compression-future-brotli) |
-| wasm zstd | 需 WASI SDK 或 ruzstd | [stdlib/compression.md](design/stdlib/compression.md#compression-future-wasm-zstd) |
-| YAML ~~anchors~~ ✅ / ~~tags~~ ✅ / ~~multi-line~~ ✅ / ~~multi-doc~~ ✅ / ~~timestamps~~ ✅ / ~~hex-octal~~ ✅ / ~~merge-keys~~ ✅ / complex-keys | **anchors / tags / multi-line / multi-doc / timestamps / numeric-bases / merge-keys 全部已落地** (2026-05-25 → 2026-06-01)；仅 `yaml-future-complex-keys` (`? key` 语法) 仍延后 — rare in practice | [stdlib/yaml.md](design/stdlib/yaml.md#deferred--future-work) |
-| ~~FileStream~~ ✅ + ~~TextReader~~ ✅ + ~~BufferedStream~~ ✅ + async streams | **`FileStream` 已落地 2026-05-24**；**TextReader/TextWriter 已落地 2026-05-28** (`e80f0311`)；**BufferedStream 已落地 2026-05-24**；仅 **async streams**（需 L3 async）仍延后 | [stdlib/io-stream.md](design/stdlib/io-stream.md#deferred--future-work) |
-| ~~Refactor CompressionStream to Stream~~ | **✅ 已落地 2026-05-24** — CompressionStream → `WrapWrite/WrapRead` 返回 `Std.IO.Stream` | [stdlib/io-stream.md](design/stdlib/io-stream.md#refactor-compression-stream-on-iostream--landed-2026-05-24) |
-| ~~Refactor BinaryReader/Writer to accept Stream~~ | **✅ 已落地 2026-05-24** — `(Stream)` 构造器；byte[] 构造保留作 sugar | [stdlib/io-stream.md](design/stdlib/io-stream.md#refactor-binary-reader-stream--landed-2026-05-24) |
-| libdeflate batch | 1.5× DEFLATE 快通道；bench 驱动 | [stdlib/compression.md](design/stdlib/compression.md#compression-future-libdeflate-batch) |
+| ~~URL-safe Base64~~ ✅ + ~~Base32~~ ✅ + ~~UTF-16/32~~ ✅ + ~~Crockford~~ ✅ + ~~Base32-hex~~ ✅ + Encoding streaming / Base85 | **Base64Url / Base32 已落地 2026-05-25**；**UTF-16 + UTF-32 已落地 2026-05-27** (`37b7191e`)；**Base32Crockford + Base32Hex 已落地 2026-05-25**；仅 **Encoding streaming API + Base85** 仍延后 | [stdlib/encoding.md](reference/src/stdlib/encoding.md) |
+| HMAC-SHA256 | v0 SHA-256 落地后的下一步；RFC 2104 公式 | [stdlib/crypto.md](reference/src/stdlib/crypto.md) |
+| ~~Std.Crypto.SecureRandom (CSPRNG)~~ ✅ | **✅ 已落地 2026-05-26** (add-csprng-to-crypto)；wasm32 bridge 仍延后 | [stdlib/crypto.md](reference/src/stdlib/crypto.md) |
+| ~~Zip.Write~~ ✅ + Zip.CreateFromDirectory | **Zip.Write 已落地 2026-05-27** (`add-zip-write`，single-buffer 2-pass 绕过 byte[][])；仅 **`Zip.CreateFromDirectory`**（atop Zip.Write + Directory.Enumerate）仍延后 | [stdlib/compression.md](reference/src/stdlib/compression.md) |
+| ~~Compression streaming decode~~ ✅ | **cdylib 流式 2026-05-27** (`add-compression-streaming-decode`) + **z42 消费端 per-chunk pull 2026-06-09** (`compression-decoder-pull-mode`) → 流式解压端到端，不再 accumulate-then-decompress | [stdlib/compression.md](reference/src/stdlib/compression.md) |
+| Brotli / xz / LZ4 | z42.compression v0 算法之外 | [stdlib/compression.md](reference/src/stdlib/compression.md) |
+| wasm zstd | 需 WASI SDK 或 ruzstd | [stdlib/compression.md](reference/src/stdlib/compression.md) |
+| YAML ~~anchors~~ ✅ / ~~tags~~ ✅ / ~~multi-line~~ ✅ / ~~multi-doc~~ ✅ / ~~timestamps~~ ✅ / ~~hex-octal~~ ✅ / ~~merge-keys~~ ✅ / complex-keys | **anchors / tags / multi-line / multi-doc / timestamps / numeric-bases / merge-keys 全部已落地** (2026-05-25 → 2026-06-01)；仅 `yaml-future-complex-keys` (`? key` 语法) 仍延后 — rare in practice | [stdlib/yaml.md](reference/src/stdlib/yaml.md) |
+| ~~FileStream~~ ✅ + ~~TextReader~~ ✅ + ~~BufferedStream~~ ✅ + async streams | **`FileStream` 已落地 2026-05-24**；**TextReader/TextWriter 已落地 2026-05-28** (`e80f0311`)；**BufferedStream 已落地 2026-05-24**；仅 **async streams**（需 L3 async）仍延后 | [stdlib/io-stream.md](reference/src/stdlib/io-stream.md) |
+| ~~Refactor CompressionStream to Stream~~ | **✅ 已落地 2026-05-24** — CompressionStream → `WrapWrite/WrapRead` 返回 `Std.IO.Stream` | [stdlib/io-stream.md](reference/src/stdlib/io-stream.md) |
+| ~~Refactor BinaryReader/Writer to accept Stream~~ | **✅ 已落地 2026-05-24** — `(Stream)` 构造器；byte[] 构造保留作 sugar | [stdlib/io-stream.md](reference/src/stdlib/io-stream.md) |
+| libdeflate batch | 1.5× DEFLATE 快通道；bench 驱动 | [stdlib/compression.md](reference/src/stdlib/compression.md) |
 | Migrate existing stdlib natives to ext loader | crypto / 等可选移出 z42vm | [runtime/native-ext-loader.md](internals/src/runtime/native-ext-loader.md#migration-of-existing-stdlib-natives) |
 | ~~reader-writer-asymmetry (zbc+zpkg)~~ | ✅ 已修复 by [align-zbc-reader-writer-asymmetry](spec/archive/2026-05-27-align-zbc-reader-writer-asymmetry/) (zbc 1.7 / zpkg 0.8, 2026-05-27)；SIGS / TYPE 在 u8 TypeTag 之后加 u32 type_str_idx 作权威类型名；ReadWriteRoundTrip CI 启用 | — |
 | ~~跨包 static field 初始化时机~~ | ✅ 已修复 by `dfcd1495 fix(compiler+vm): unique __static_init__ name per source file`（2026-05-15）；stdlib workaround 由 `cleanup-static-field-workarounds` spec 回收 | — |
 | ~~`jit-future-safepoint-inline`~~ | ✅ landed 2026-06-03 as [inline-jit-safepoint-check](spec/archive/2026-06-03-inline-jit-safepoint-check/tasks.md) — `atomic_rmw sub + brif` 内联在 translate.rs 5 处 emit site，slow path 走 `jit_check_safepoint_slow` 新 helper | [archive/2026-05-28-jit-type-specialization/tasks.md](spec/archive/2026-05-28-jit-type-specialization/tasks.md#out-of-scope-items-deferred-for-future-spec) |
 | `jit-future-f64-specialization` | F64 `fadd` / `fsub` / `fcmp` 走 native（结构与 I64 完全对称，只是 payload 类型）；等 F64-heavy benchmark 出现再做 | [archive/2026-05-28-jit-type-specialization/tasks.md](spec/archive/2026-05-28-jit-type-specialization/tasks.md#out-of-scope-items-deferred-for-future-spec) |
-| TLS 后续（streaming / system-roots / keepalive-pool / server）| `add-z42-net-tls` (2026-06-03) 客户端落地后的 4 项：https `SendStreaming`、honour 系统 CA、TLS 连接池、服务端 TLS | [stdlib/net.md](design/stdlib/net.md#net-future-tls--已落地-2026-06-03-add-z42-net-tls) |
-| `repl-future-decl-capture-vars` | REPL 声明的函数/类型体内引用会话变量（需注入机制；MVP 不捕获）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-decl-capture-vars) |
-| `repl-future-decl-supersede` | 同名重定义 supersede（MVP 报错；需会话内符号版本化）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-decl-supersede) |
-| `repl-future-tab-completion` | Tab 补全：作用域级 + `obj.`会话变量成员 + 类型名/`Type.`静态/ns 导出**已落地**（#59/#62）；余 任意 `expr.` receiver（需静态类型推断）+ 基元变量成员 + 关键字/ns 名 + LSP 客户端 | [toolchain/repl.md](design/toolchain/repl.md#repl-future-tab-completion) |
-| `repl-future-syntax-highlight` | REPL 输入行 / 输出语法着色（rustyline `Highlighter` 钩子 + Lexer 分色；无前置，暂缓）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-syntax-highlight) |
-| `repl-future-incremental-compilation` | Growing Transcript O(n) 重编译 → 增量模块加载（大 session 性能，benchmark 驱动）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-incremental-compilation) |
-| `repl-future-load-directive` | `.load file.z42` 指令（ROI 低，MVP 不做）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-load-directive) |
-| `repl-future-mobile` | mobile / WASM REPL（iOS W^X 限制，依赖 1.1.x mobile scripting）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-mobile) |
-| `repl-future-debugger` | 调试集成（DAP server + VM 单步支持，0.8.x）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-debugger) |
-| `exec-profile-matrix-future-aot-composition-cells` | **AOT 组合格子（`aot_pkgs≠[]`：部分/全 AOT、AOT+JIT 混合）执行 + per-zpkg 配置面**：profile 的 mode 已建成组合 `{tiers,aot_pkgs}` 能表示，矩阵占位 `skipped-not-yet`；AOT 执行（`aot.rs` stub）+ 配置（z42.toml / CLI）归 M9。落地时把 skipped 列翻 runnable，schema 结构不动 | [testing/exec-profile-matrix.md](design/testing/exec-profile-matrix.md#6-deferred) |
-| `exec-profile-matrix-future-platform-bench` | **wasm/ios/android 下跑基准的 harness 编排**：profile 机制已平台就绪（探针在任意平台 VM 报真实 caps），缺各 `IPlatformBackend` 的 bench 采集；冷环境不可验 + informational 非门禁 → 待需要跨平台性能可见性时接 | [testing/exec-profile-matrix.md](design/testing/exec-profile-matrix.md#6-deferred) |
+| TLS 后续（streaming / system-roots / keepalive-pool / server）| `add-z42-net-tls` (2026-06-03) 客户端落地后的 4 项：https `SendStreaming`、honour 系统 CA、TLS 连接池、服务端 TLS | [stdlib/net.md](reference/src/stdlib/net.md) |
+| `repl-future-decl-capture-vars` | REPL 声明的函数/类型体内引用会话变量（需注入机制；MVP 不捕获）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-decl-supersede` | 同名重定义 supersede（MVP 报错；需会话内符号版本化）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-tab-completion` | Tab 补全：作用域级 + `obj.`会话变量成员 + 类型名/`Type.`静态/ns 导出**已落地**（#59/#62）；余 任意 `expr.` receiver（需静态类型推断）+ 基元变量成员 + 关键字/ns 名 + LSP 客户端 | [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-syntax-highlight` | REPL 输入行 / 输出语法着色（rustyline `Highlighter` 钩子 + Lexer 分色；无前置，暂缓）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-incremental-compilation` | Growing Transcript O(n) 重编译 → 增量模块加载（大 session 性能，benchmark 驱动）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-load-directive` | `.load file.z42` 指令（ROI 低，MVP 不做）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-mobile` | mobile / WASM REPL（iOS W^X 限制，依赖 1.1.x mobile scripting）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-debugger` | 调试集成（DAP server + VM 单步支持，0.8.x）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `exec-profile-matrix-future-aot-composition-cells` | **AOT 组合格子（`aot_pkgs≠[]`：部分/全 AOT、AOT+JIT 混合）执行 + per-zpkg 配置面**：profile 的 mode 已建成组合 `{tiers,aot_pkgs}` 能表示，矩阵占位 `skipped-not-yet`；AOT 执行（`aot.rs` stub）+ 配置（z42.toml / CLI）归 M9。落地时把 skipped 列翻 runnable，schema 结构不动 | [testing/exec-profile-matrix.md](internals/src/testing/exec-profile-matrix.md) |
+| `exec-profile-matrix-future-platform-bench` | **wasm/ios/android 下跑基准的 harness 编排**：profile 机制已平台就绪（探针在任意平台 VM 报真实 caps），缺各 `IPlatformBackend` 的 bench 采集；冷环境不可验 + informational 非门禁 → 待需要跨平台性能可见性时接 | [testing/exec-profile-matrix.md](internals/src/testing/exec-profile-matrix.md) |
 | `params-future-empty-array-codegen` | **纯 params 零实参 → 空数组作唯一实参的 codegen/VM 缺陷**：`string.Concat()`（无固定前缀形参、零可变实参）经 `_withParamsExpansion` 合成 `BoundArrayLit(0)` 作唯一静态调用实参 → 运行期崩（interp `undefined register %0` / jit `Null vs Null`）。**边界实测**：`Join("-")`（有 sep 前缀）/`new string[]{}`/normal-form 空数组直传均正常 → **非** #7 `Join`、**非**一般空数组。`migrate-stdlib-to-params` 的 Concat 新暴露；非空 params 全绿。归 `compiler`/`runtime`，待锁空闲单列 change | [archive/2026-07-15-migrate-stdlib-to-params/proposal.md](spec/archive/2026-07-15-migrate-stdlib-to-params/proposal.md) 「已知限制」 |
-| `repl-future-eof-detection` | `Console.ReadLine()` 无法区分 EOF（Ctrl-D）与空行；`z42i` 当前仅靠 `.exit`/`.quit` 退出，待 runtime builtin 补 EOF 信号 | [toolchain/repl.md](design/toolchain/repl.md#repl-future-eof-detection) |
-| `repl-future-runtime-version` | `.version` 只打印 zbc/zpkg 格式版本；z42vm 运行时版本串（profile/features/target）未经 builtin 暴露，待补（可复用 `--info` 信息面）| [toolchain/repl.md](design/toolchain/repl.md#repl-future-runtime-version) |
+| `repl-future-eof-detection` | `Console.ReadLine()` 无法区分 EOF（Ctrl-D）与空行；`z42i` 当前仅靠 `.exit`/`.quit` 退出，待 runtime builtin 补 EOF 信号 | [toolchain/repl.md](internals/src/toolchain/repl.md) |
+| `repl-future-runtime-version` | `.version` 只打印 zbc/zpkg 格式版本；z42vm 运行时版本串（profile/features/target）未经 builtin 暴露，待补（可复用 `--info` 信息面）| [toolchain/repl.md](internals/src/toolchain/repl.md) |
 | ~~`ab-bench-micro`（Stage 2）~~ ✅ | 已落地 `extend-ab-bench-micro-criterion` Part A（Bencher mean/stddev + 自适应采样）+ Part B（`bench --micro-diff`：两隔离 `bench stdlib --json` 基线 + `_abVerdict`）| [changes/extend-ab-bench-micro-criterion/design.md](spec/changes/extend-ab-bench-micro-criterion/design.md) |
 | ~~`ab-bench-criterion`（Stage 3）~~ ✅ | 已落地 `extend-ab-bench-micro-criterion` Part C：criterion 原生 `--save-baseline`/`--baseline` 同-runner 对照（gc_cycle_bench 纳入门禁、smoke_bench 保留不门禁，仅 src/runtime 改动时跑）| [changes/extend-ab-bench-micro-criterion/design.md](spec/changes/extend-ab-bench-micro-criterion/design.md) |
 | `ab-interleave-per-run` | 逐次交错采样（比 hyperfine 双命令「base 全跑→pr 全跑」更抗 job 内漂移）；当前同机相邻已足够抵消 between-run，非必要 | [changes/add-same-runner-ab-bench-gate/design.md](spec/changes/add-same-runner-ab-bench-gate/design.md) Deferred 段 |
-| ~~`ab-resample-on-suspicion`~~ ✅ 2026-09-06 | **同-runner A/B 的「可疑即复测」**已落地：只对初判 `R_lower > 1+thr` 的条目再测 k=3 轮、用**跑间比值离散度**重算区间。随之 **CI 阈值 0.25 → 0.15**、**micro tier 恢复硬门禁**、**criterion tier 降级为 informational**（0 次真阳性，且该层复测代价 +780s 不成比例）。剩余观察项：复测参数（k=3、单侧 95%）尚未在 CI 上验证跑间离散度的真实量级——离散度若偏大，症状是**真回归被放过**，那时该加 k 而不是松阈值（`ab.json` 的 `round_ratios` 为此而留）| [dev/benchmarking.md「可疑即复测」](book/src/dev/benchmarking.md) |
+| ~~`ab-resample-on-suspicion`~~ ✅ 2026-09-06 | **同-runner A/B 的「可疑即复测」**已落地：只对初判 `R_lower > 1+thr` 的条目再测 k=3 轮、用**跑间比值离散度**重算区间。随之 **CI 阈值 0.25 → 0.15**、**micro tier 恢复硬门禁**、**criterion tier 降级为 informational**（0 次真阳性，且该层复测代价 +780s 不成比例）。剩余观察项：复测参数（k=3、单侧 95%）尚未在 CI 上验证跑间离散度的真实量级——离散度若偏大，症状是**真回归被放过**，那时该加 k 而不是松阈值（`ab.json` 的 `round_ratios` 为此而留）| [dev/benchmarking.md「可疑即复测」](internals/src/devinfra/benchmarking.md) |
 | ~~`retire-baseline-branch`~~ ✅ 2026-09-05 | ~~彻底删 `bench-baselines`/`bench-update.yml`~~ 已由 simplify-bench-gate 落地；剩余：e2e 死字段（`metric:"memory"`）/ `blackBox` no-op | [changes/add-same-runner-ab-bench-gate/design.md](spec/changes/add-same-runner-ab-bench-gate/design.md) Deferred 段 |
 | 删除旧同步原语 builtin（store-sync-values-in-heap-remove-legacy）| 阶段 2：stdlib 已改走 `__monitor_*`，19 个旧 `__mutex_*`/`__rwlock_*`/`__channel_*` builtin、`VmCore.{mutexes,rwlocks,channels}`、`corelib/sync.rs` 作为种子例外保留一个 nightly。本变更进 nightly 后用 `strings` 确认种子不再引用再删 | [book: sync-primitives.md](internals/src/runtime/sync-primitives.md#deferred--future-work) |
 
@@ -503,7 +505,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 |------|------|------|
 | **D-2** | ISubscription chain `.AsOnce()` / `.AsWeak()` 跨 generic interface impl | [language/delegates-events.md](reference/src/language/delegates-events.md#d-2-isubscription-chain-asonce--asweak-跨-generic-interface-impl) |
 | **D-3** | N>4 arity Action / Func（自举后用 z42 写生成器）| [language/delegates-events.md](reference/src/language/delegates-events.md#d-3-n4-arity-action--func) |
-| **D-4** | 协变 / 逆变（`<in T, out R>` 等）| [language/generics.md](book/src/language/generics.md#d-4-协变--逆变in-t-out-r-等) |
+| **D-4** | 协变 / 逆变（`<in T, out R>` 等）| [internals: generics.md](internals/src/compiler/generics.md#d-4-协变--逆变in-t-out-r-等) |
 | **D-11** | introduce-bound-visitor（review.md §2.1 visitor 抽象基类）| [compiler/compiler-architecture.md](internals/src/formats/zpkg.md) |
 | ~~`test-pipeline-future-device-run`~~ ✅ | 已实现 (2026-08-30) — `z42b-device-run` Slice 3：z42b 接管设备端 build+deploy+**实际 RUN**（wasm PR-1 / ios PR-2 / android PR-3；驱动 Playwright / xcodebuild-sim / gradle），PR-4 test-agent 从 z42b 自己 SDK 解析已装 `test` workload（删 in-tree `--agent`，dogfood workload 布局） | [archive/2026-08-30-z42b-device-run/design.md](spec/archive/2026-08-30-z42b-device-run/design.md) |
 | ~~`repl-multiline-future-rbrace-floor`~~ ✅ | 已实现 (2026-08-29) — `add-repl-rbrace-floor`：`}` 自动回退一级 + 退格 floor 到前制表位。用 `Replace(WholeLine)`（唯一 redo-免疫的变量宽度删+插）+ patch rustyline `edit_insert_text` 使插入后推进光标（`[patch.crates-io]` → `z42-lang/rustyline` v14.0.0 单 commit，已同步上游）根治坑 ②「光标归位行首破坏 `} else {`」 | [archive/2026-08-29-add-repl-rbrace-floor/design.md](spec/archive/2026-08-29-add-repl-rbrace-floor/design.md) |
@@ -531,12 +533,12 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### 仓库结构 / 维护方向（infra，未排期）
 
-> 战略展望（非 feature，无 design doc 条目，按 philosophy.md 归 roadmap）。来源：User 2026-06-15「这个仓库只做测试流程的」。
+> 战略展望（非 feature，无书页条目，归 roadmap）。来源：User 2026-06-15「这个仓库只做测试流程的」。
 
 | 方向 | 描述 | 触发条件 |
 |------|------|---------|
 | `infra-slim-git-history` | **真正的克隆成本在历史**：`.git` ≈ 604 MB 而 HEAD 跟踪内容仅 ~25 MB → 历史含曾提交又删的大二进制（旧 zpkg/artifacts blob）。用 `git filter-repo` 清历史大 blob（预计降到几十 MB）+ 收紧 `.gitignore`（如 `examples/*.zbc/.zlib/.zmod` 类构建产物；注：`src/toolchain/host/examples/` 重复树连带其 466MB cargo target cruft 已于 dedup-examples 删除）。**与拆库正交,收益最大。** | clone 成本成痛点时 |
-| `infra-extract-user-docs` | 本仓收敛为「核心（编译器/VM）+ 测试流程」仓；**仅外迁纯用户面 docs**（语言教程/指南/官网内容）到独立 `z42-docs`/官网仓。**现状（2026-09-15 User 裁决）**：学习手册 `docs/learn/` 与其配套 `examples/` 先在本仓起步、由 `xtask test examples` 绑定校验；外迁时两者须一起走，并带走该门禁。**留仓不外迁**（它们是开发/测试流程本体）：`docs/spec/`（spec-first 工作流本体）、`docs/design/`（@-included 进 CLAUDE.md）、`docs/workflow/`（build/test 命令真相源）。注意：拆当前文件到新仓**不会**缩小本仓 `.git`，须配合 `infra-slim-git-history`。 | 用户面文档成规模时 |
+| `infra-extract-user-docs` | 本仓收敛为「核心（编译器/VM）+ 测试流程」仓；**仅外迁纯用户面 docs**（语言教程/指南/官网内容）到独立 `z42-docs`/官网仓。**现状（2026-09-15 User 裁决）**：学习手册 `docs/learn/` 与其配套 `examples/` 先在本仓起步、由 `xtask test examples` 绑定校验；外迁时两者须一起走，并带走该门禁。**留仓不外迁**（它们是开发/测试流程本体）：`docs/spec/`（spec-first 工作流本体）、`docs/internals/`（实现内幕 + 开发基础设施）。注意：拆当前文件到新仓**不会**缩小本仓 `.git`，须配合 `infra-slim-git-history`。 | 用户面文档成规模时 |
 
 ### 平台测试 CI / 后续（add-platform-test-pipeline 之后）
 
@@ -547,7 +549,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 > compile-then-test。**②b（wire-z42b-embedded-test，2026-08-29）**：`z42b test <manifest> --rid host`
 > in-process 跑 bundle（共享核 `Std.Test.BundleRunner`，agent 与 z42b 共用）+ `--rid <device>` 组装
 > `{app,libs,bundle}` deployable；`xtask test embedded` 委托 z42b。机制 SoT =
-> [test-pipeline.md](book/src/toolchain/test-pipeline.md)。剩余：
+> [test-pipeline.md](internals/src/devinfra/test-pipeline.md)。剩余：
 
 | 方向 | 描述 | 触发 |
 |------|------|------|
@@ -557,8 +559,8 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `port-android-emulator-run-to-z42` | AndroidBackend.RunTests 当前桥接 `test.sh`（emulator AVD boot/poll/kill）；完整 z42 化 + JUnit 转换 | CI 稳定后 |
 | `ios-simulator-test` | IosBackend.RunTests 当前 `swift test`（macOS host slice）；加 iOS Simulator `xcodebuild test -destination` 执行 + JUnit | CI 接入时 |
 | `retire-platform-build-test-sh` | 三平台 z42 管线 CI-proven 后，删 `platforms/*/{build,test}.sh`（migrate-scripts-to-z42 节奏）| CI-proven 后 |
-| `add-boxing-future-enum-precise` | enum 当前 I64 表示，装箱丢类型精度（GetType→Int32，`(MyEnum)o` 与 `(int)o` 不可区分）；精确 enum 装箱需 enum-as-type-entity（独立 tag/带-tag 装箱）。正文见 [`design/language/boxing.md`](design/language/boxing.md#deferred--future-work) | enum 作独立类型实体时 |
-| `add-method-invoke-future-generic` | 泛型方法 `Invoke` / `MakeGenericType` / `Activator.CreateInstance<T>`，需运行期泛型实例化。正文见 [`design/language/reflection.md`](design/language/reflection.md) | 0.4.x G 流泛型实例化后 |
+| ~~`add-boxing-future-enum-precise`~~ | **已完成**（make-enum-distinct-type）：enum 装箱带自身 type_desc，`GetType().Name` 得 enum 名、`IsEnum` 为 true、`ToString()` 得成员名。见 [语言参考: enum](reference/src/language/enums.md) | — |
+| `add-method-invoke-future-generic` | 泛型方法 `Invoke` / `MakeGenericType` / `Activator.CreateInstance<T>`，需运行期泛型实例化。正文见 [`reference/src/stdlib/reflection.md`](reference/src/stdlib/reflection.md) | 0.4.x G 流泛型实例化后 |
 | `add-method-invoke-future-activator` | ~~无参 `Activator.CreateInstance(Type)`~~ ✅；~~有参构造~~ ✅ 由 `ConstructorInfo.Invoke(args)`（add-reflective-invoke）落地；~~泛型 `Activator.CreateInstance<T>`~~ ✅ add-generic-activator（0.4.3 G3）。剩带参泛型 `CreateInstance<T>(args)` + 嵌套构造泛型的方法级形参转发（`Bar<List<T>>`）| 有需求时 |
 | ~~`generic-methods-future-reflective-invoke`~~ ✅ **已落地**（add-reflective-invoke，2026-08-22）| 反射式泛型方法 `MakeGenericMethod().Invoke()` + `IsGenericMethod`/`GetGenericArguments`——复用 M1 Frame `method_type_args` 载体。正文见 [`language/generic-methods.md`](reference/src/language/generic-methods.md) | — |
 | ~~`generic-methods-future-type-inference`~~ ✅ **已解决**（2026-09-08 `add-generic-type-arg-inference`）| 方法级类型实参推断已落地：结构化 unify（裸型参 / 数组元素 / 实例化类型实参 / func 形参·返回）。⚠️ 推断**只驱动诊断**，刻意不回灌 `BoundCall.MethodTypeArgs`（回灌 = opcode `Op.Call`→`Op.CallGeneric` + zbc 串池重排 + 关掉 native 快路径门，而全仓 112 处隐式泛型调用全是不消费型参的 `Array.Copy<T>` ⇒ 纯回归）；callee 真消费型参时由 **E0455** 要求显式写出 | 泛型人机工学打磨阶段 |
@@ -590,4 +592,4 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 > - **L3 闭包 / Lambda**：`2026-05-01-impl-lambda-l2` / `2026-05-01-impl-closure-l3-core` / `2026-05-02-impl-closure-l3-jit-complete`
 > - **L3 Delegate / Event**：`2026-05-02-add-delegate-type` / `2026-05-02-add-multicast-action` / `2026-05-03-add-event-keyword-multicast` / `2026-05-04-add-event-keyword-singlecast` / `2026-05-04-add-multicast-exception-aggregate`
 >
-> 跨主题概览见 [`docs/design/`](design/) 各子目录的 `README.md` —— 每个 README 列出当前 phase 状态 + 已落地 spec 引用。
+> 跨主题概览见[实现内幕](internals/src/README.md)各部分的概览页。

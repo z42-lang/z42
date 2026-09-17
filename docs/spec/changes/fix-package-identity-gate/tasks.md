@@ -11,7 +11,7 @@
       Android Kotlin（**递归**子树）、Android JNI + CMakeLists、wasm js
 - [x] 1.3 `_pkgFinish` 文案：`SHA-256 invariant check:` → `source-identity check (package copies vs repo source):`
 - [x] 1.4 汇总行打印比对文件数 + 逐规则计数；**规则路径存在却 0 文件可比 → ⚠ 告警**
-- [x] 2.1 `docs/workflow/packaging.md` §4 重写（规则表 + 拷贝点 + 「vs 源 ⟹ 跨包一致且更强」论证 + 递归陷阱）
+- [x] 2.1 `docs/internals/src/devinfra/release.md` §4 重写（规则表 + 拷贝点 + 「vs 源 ⟹ 跨包一致且更强」论证 + 递归陷阱）
 - [x] 2.2 `scripts/README.md` 两处 `SHA-256 invariant` → `source-identity 门`
 - [x] 2.3 `examples/hello_c/main.c` 从文档删（User 裁决）——它在仓库里存在、是给读者看的
       嵌入示例，没进包是 2026-05-13 后包结构重构（9/13 包 → `sdk`/`runtime`/`workload-desktop`

@@ -6,7 +6,7 @@
 >
 > **实施触发**：ROI 出现（如某分发渠道对 z42vm 单二进制体积敏感、或 interp/jit 需按需下发）。在此之前仅作为目标设计存在；`runtime-workload-distribution.md` 的 Deferred `runtime-future-jit-cdylib-split` 指向本文。
 >
-> 当前运行时架构（单 crate + feature gate）见 [vm-architecture.md](vm-architecture.md)；运行时/包分发见 [runtime-workload-distribution.md](../../../design/toolchain/runtime-workload-distribution.md)。
+> 当前运行时架构（单 crate + feature gate）见 [vm-architecture.md](vm-architecture.md)；运行时/包分发见 [runtime-workload-distribution.md](../../../internals/src/toolchain/workload-distribution.md)。
 
 ---
 
@@ -187,7 +187,7 @@ gc     = static  仅此一种   # 不参与 dynlink/dlopen，见 §3
 
 - **当前架构**（单 crate、`#[cfg(feature = "jit"/"aot"/"native-interop"/"interp-only"/"bundled-compression")]`）见 [vm-architecture.md](vm-architecture.md)：本文是它的演进目标，feature gate 是迈向组件化的第一步雏形。
 - **嵌入 API / C ABI** 见 [embedding.md](embedding.md)：host 入口归 libz42 基座，不拆。
-- **包分发** 见 [runtime-workload-distribution.md](../../../design/toolchain/runtime-workload-distribution.md)：其 Deferred `runtime-future-jit-cdylib-split` 是本架构的第一个落地切口。
+- **包分发** 见 [runtime-workload-distribution.md](../../../internals/src/toolchain/workload-distribution.md)：其 Deferred `runtime-future-jit-cdylib-split` 是本架构的第一个落地切口。
 - **分层执行 / OSR / 回收 / hot-reload**（叠在本组件框架之上，引擎内部各自分层）见 [tiered-execution.md](tiered-execution.md)。
 - **IR 优化 / 特化 / intrinsic / tier0 基线质量** 见 [ir-specialization.md](ir-specialization-design.md)。
 - **zpkg 加载上下文 / 重载 / 卸载回收 / 保留根诊断**（ALC 式，复用 observer/注册基座）见 [load-context.md](load-context.md)。

@@ -30,7 +30,7 @@ a single language spanning ad-hoc scripts to embedded systems components:
 | **AI-friendly** | Familiar syntax, compile-time errors as agent feedback, docs-as-code repository |
 
 Performance goal: fast enough for production systems **without unsafe code** — targets and
-trade-offs in [`docs/design/philosophy.md`](docs/design/philosophy.md).
+trade-offs in [`docs/internals/src/philosophy.md`](docs/internals/src/philosophy.md).
 
 ---
 
@@ -44,7 +44,7 @@ z42 new hello && cd hello && z42 run
 ```
 
 **Work on z42 itself** — bootstrap a repo-local SDK, build the `xtask` dev CLI, run the gate
-(full steps in **[docs/workflow/quickstart.md](docs/workflow/quickstart.md)**):
+(full steps in **[docs/internals/src/devinfra/dev-setup.md](docs/internals/src/devinfra/dev-setup.md)**):
 
 ```bash
 git clone https://github.com/z42-lang/z42 && cd z42
@@ -67,18 +67,18 @@ Start from what you want to do. The knowledge base is consolidating into
 
 | I want to... | Read this |
 |--------------|-----------|
-| **Understand the design philosophy** | [`docs/design/philosophy.md`](docs/design/philosophy.md) |
+| **Understand the design philosophy** | [`docs/internals/src/philosophy.md`](docs/internals/src/philosophy.md) |
 | **Learn the language** (syntax, types, semantics) | [`docs/reference/src/language/README.md`](docs/reference/src/language/README.md) |
 | **Understand execution** (interp / JIT / AOT) | [`docs/internals/src/runtime/execution-model.md`](docs/internals/src/runtime/execution-model.md) |
-| **Call native code / embed the VM** | [`docs/design/language/interop.md`](docs/design/language/interop.md) |
+| **Call native code / embed the VM** | [`docs/reference/src/embedding/native-interop.md`](docs/reference/src/embedding/native-interop.md) |
 
 **Working on z42** — building & contributing:
 
 | I want to... | Read this |
 |--------------|-----------|
-| **Build, test, and package the repo** | [`docs/workflow/`](docs/workflow/) |
+| **Build, test, and package the repo** | [`docs/internals/src/devinfra/`](docs/internals/src/devinfra/) |
 | **Follow the collaboration workflow** | [`docs/agent/`](docs/agent/) |
-| **See progress and what's planned** | [`docs/roadmap.md`](docs/roadmap.md) · [`docs/features.md`](docs/features.md) |
+| **See progress and what's planned** | [`docs/roadmap.md`](docs/roadmap.md) · [`docs/features.md`](docs/internals/src/features.md) |
 
 ---
 

@@ -11,7 +11,7 @@
 
 | 步骤 | 做法 |
 |---|---|
-| **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 的 110 个码常量，**加上**语义层 / 语法层用**字面量**直接发的码（`"E0449"`–`"E0469"` 一族、`"W0700"`、`"I0466"`）—— 后者不在常量文件里，只能扫源码字面量才找得到 |
+| **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 的 110 个码常量，**加上**语义层 / 语法层用**字面量**直接发的码（`"E0449"`–`"E0470"` 一族、`"W0700"`、`"I0466"`）—— 后者不在常量文件里，只能扫源码字面量才找得到 |
 | **含义** | 取**发射点的诊断消息文本**，而不是常量名。常量名有过一码两义、也有过名实不符（见 `[Forward]` 一节） |
 | **状态** | 对每个码做 `grep -rn 'DiagnosticCodes.<常量名>' src/` + `grep -rn '"<码号>"' src/`，排除 `DiagnosticCodes.z42` 自身与 `tests/` 目录 |
 
@@ -143,6 +143,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | E0435 | 嵌套类型自身标 `partial`（v1 不支持） | ✅ `DeclEnforcer.z42:160` | — |
 | E0451 | `static` 类含实例成员（方法 / 字段 / 属性 / 构造器）、声明了基类、或实现了接口（对标 C# CS0708/0710/0713/0714） | ✅ `InheritanceResolver.z42:262,266,554,557,563,568` | `static class U { public int V; }` |
 | E0469 | 实例构造器没写初始化子句（⇒ 隐式 `: base()`），而基类有实例构造器却**无一可零实参调用** ⇒ 须显式 `: base(...)`（对标 C# CS7036）。派生类**没写任何构造器**时不报 | ✅ `DeclBinder.z42:516` | `class B { public B(int x){} } class D : B { public D(){} }` |
+| E0470 | `ref` / `out` 实参不是可取址的左值（属性 / 索引器 / 静态字段 / 值 struct 的字段 / 字面量 / 调用结果 / 数组虚成员）。这些形态**此前编译通过但写回静默丢失**——取的是承载读出值的临时寄存器的地址 | ✅ `ExprTyper.z42`（`_chkRefArgLvalue`）| `void Inc(ref int x){} ... Inc(ref h.P)` |
 
 ### 泛型 / 约束 / 关联类型
 

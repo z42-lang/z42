@@ -4,6 +4,11 @@
 
 ---
 
+# 设计北极星
+
+- [设计哲学](philosophy.md)
+- [语言特性的决策台账](features.md)
+
 # 编译器
 
 - [概览](compiler/README.md)
@@ -15,6 +20,10 @@
   - [访问权限强制](compiler/access-control.md)
   - [构造器继承与隐式 base()](compiler/ctor-inheritance.md)
   - [错误码体系：分段与新增流程](compiler/error-codes.md)
+  - [类型转换的实现](compiler/conversions.md)
+  - [Attribute 的编译期管线](compiler/attribute-pipeline.md)
+  - [泛型的实现](compiler/generics.md)
+  - [泛型类型实参推断](compiler/generic-inference.md)
   - [语法定制：三层配置机制（未实施）](compiler/syntax-customization.md)
   - [元编程 / 编译期代码生成（未实施）](compiler/metaprogramming.md)
   - [脚本化 charter（未实施）](compiler/scripting-charter.md)
@@ -48,7 +57,8 @@
   - [Native 扩展加载机制](runtime/native-ext-loader.md)
   - [Native 扩展库范式](runtime/native-extensions.md)
   - [Native 库的布局与解析](runtime/native-libraries.md)
-  - [native interop ABI](runtime/object-abi.md)
+  - [对象与值的表示 ABI](runtime/object-abi.md)
+  - [native ABI（三层架构与注册/调用路径）](runtime/native-abi.md)
   - [优化管线](runtime/optimization-pipeline.md)
   - [PAL 平台抽象层](runtime/pal.md)
   - [反射 Type 身份](runtime/reflection-type-identity.md)
@@ -61,6 +71,7 @@
   - [监听 socket：accept 的可中断性](runtime/accept-interruptible.md)
   - [同步原语](runtime/sync-primitives.md)
   - [委托与事件的实现](runtime/delegates-events.md)
+  - [对象协议的派发](runtime/object-protocol-dispatch.md)
   - [分层执行（未实施）](runtime/tiered-execution.md)
   - [VM 总体架构](runtime/vm-architecture.md)
 
@@ -74,16 +85,66 @@
 # 标准库
 
 - [概览](stdlib/README.md)
+  - [三层架构](stdlib/architecture.md)
+  - [包划分与 interop 归属](stdlib/organization.md)
+  - [API 准则](stdlib/api-guidelines.md)
+  - [JSON serde 的反射底座](stdlib/json-serde.md)
 
 # 工具链
 
 - [概览](toolchain/README.md)
 
+  **构建与分发**
+
+  - [z42b 构建编排器](toolchain/z42b.md)
+  - [launcher（`z42` 命令的分派层）](toolchain/launcher.md)
+  - [部署形态模型](toolchain/deployment-model.md)
+  - [`z42 export` 的工程生成](toolchain/export.md)
+  - [平台 export 与 publish 的动词模型](toolchain/platform-export.md)
+  - [workload 分发](toolchain/workload-distribution.md)
+
+  **交互**
+
+  - [REPL](toolchain/repl.md)
+  - [编辑器集成](toolchain/editor-integration.md)
+
 # 测试体系
 
 - [概览](testing/README.md)
+  - [测试框架与 runner](testing/framework.md)
+  - [跨平台测试](testing/cross-platform.md)
+  - [嵌入式 app 运行](testing/embedded-app-run.md)
+  - [执行 profile 矩阵](testing/exec-profile-matrix.md)
 
 # 开发基础设施
 
 - [概览](devinfra/README.md)
+
+  **上手**
+
+  - [开发环境准备](devinfra/dev-setup.md)
+  - [xtask（自举 dev CLI）](devinfra/xtask.md)
   - [本仓命名与目录约定](devinfra/repo-conventions.md)
+
+  **构建**
+
+  - [构建编排](devinfra/build.md)
+  - [平台构建](devinfra/build-platforms.md)
+  - [产物目录布局](devinfra/artifacts-layout.md)
+
+  **测试与门禁**
+
+  - [怎么跑测试](devinfra/testing.md)
+  - [GREEN gate](devinfra/test-gate.md)
+  - [测试流水线（两层模型）](devinfra/test-pipeline.md)
+  - [性能基准与回归门禁](devinfra/benchmarking.md)
+  - [CI 拓扑](devinfra/ci.md)
+
+  **发布**
+
+  - [打包引擎](devinfra/packaging.md)
+  - [发版流程](devinfra/release.md)
+
+  **排查**
+
+  - [调试手法](devinfra/debugging.md)

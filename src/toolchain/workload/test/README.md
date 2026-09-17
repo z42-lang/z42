@@ -85,10 +85,10 @@ publish-nightly）在 macos-arm64 单 host 建一次 + 归档 `z42-workload-<lab
 
 ## 关联文档
 
-- 设计/机制：[test-pipeline](../../../../docs/book/src/toolchain/test-pipeline.md)（两层模型：z42b 单-bundle
+- 设计/机制：[test-pipeline](../../../../docs/internals/src/devinfra/test-pipeline.md)（两层模型：z42b 单-bundle
   执行器 + xtask fleet 编排器 + BundleRunner 缝，SoT）；旧
-  [embedded-app-run](../../../../docs/design/testing/embedded-app-run.md)、
-  [cross-platform-testing](../../../../docs/design/testing/cross-platform-testing.md)（迁移中）
+  [embedded-app-run](../../../../docs/internals/src/testing/embedded-app-run.md)、
+  [cross-platform-testing](../../../../docs/internals/src/testing/cross-platform.md)（迁移中）
 - 引入/演进：change `unify-test-pipeline-z42b`（阶段①归位）+ `wire-z42b-embedded-test`（②b：z42b 接管
   host bundle 执行 + 设备语料组装）+ `package-test-workload`（payload-only 打包发布 + `workload install`
   描述泛化为「平台 tooling 或能力」）

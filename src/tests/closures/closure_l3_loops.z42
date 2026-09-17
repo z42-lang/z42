@@ -3,7 +3,7 @@
 // z42 captures value-typed locals by snapshot at MkClos time, so each loop
 // iteration produces a closure whose env carries the current iteration's
 // value. This is *automatically* C# 5+/foreach behavior AND it extends to
-// C-style `for` (which C# 5+ left broken) — see docs/design/language/closure.md §4.3.
+// C-style `for` (which C# 5+ left broken) — see docs/reference/src/language/closures.md.
 //
 // This test guards against regression: if the value-snapshot path is ever
 // changed to share a single backing storage across iterations, all closures

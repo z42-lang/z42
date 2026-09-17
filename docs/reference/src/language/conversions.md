@@ -62,84 +62,48 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 判定实现：`Conversion._widensLossless(fromCanon, toCanon)` 是这张无损表；不在表中且非同型的
 数值对 → `ExplicitNumeric`。
 
-## 机制 / 实现
+## 装箱与拆箱（值类型 ↔ `object` / 接口）
 
-`Conversion.Classify` 的判定顺序（短路），镜像历史 `_isAssignable` 的分支序以保证 PR1 布尔等价：
+`Boxing` / `Unboxing` 这两种分类对应的完整规则：
 
-```
-1. 任一侧 error/unknown          → Absorb
-2. 恰一侧泛型形参                 → GenericErase
-3. to == object                  → 值 prim 源 Boxing；否则 ImplicitRef
-4. 两侧数值 prim                 → 数值矩阵（Identity / ImplicitNumeric / ExplicitNumeric）
-5. from.IsAssignableTo(to)       → Identity（同名类 / 接口 / 数组 / func / 别名 prim）
-6. class/instantiated → 基/接口  → 命中 symbols 上转查询则 ImplicitRef；下转则 ExplicitRef；否则 None
-   6a. instantiated → 接口（G）  6b. instantiated → 裸 class（H）
-   6c. instantiated → instantiated（H2）  6d. 裸 class → instantiated（I）
-7. object/接口 → 值 prim         → Unboxing
-8. 否则                          → None
-```
+| 方向 | 规则 |
+|------|------|
+| 值类型 → `object` / 接口 | **隐式**可赋，转换保留**精确的**源类型 |
+| `object` / 接口 → 值类型 | **显式**：`(T)o` 或 `o as T`，运行期受检 |
+| `object[]` 的元素 | `a[i] = 5` 逐元素装箱；`(int)a[i]` 逐元素拆箱 |
+| 引用类型 → `object` | 引用上转（归 `ImplicitRef`），不是装箱 |
+| 数组协变 | **不支持** `int[] <: object[]`（避免 store-hole）|
 
-> **步 6c（H2）是后补的**（`fix-binder-emitter-gaps-batch2`，欠债表 bug B）。G/H/I 三条早就在，
-> **独缺 inst→inst**，而步 5 的 `Z42InstantiatedType.IsAssignableTo` 只比 `Name()` 全等 ⇒
-> `Bag<int> b = new SubBag<int>();` 直接 E0402。H2 的判定 = **类型实参逐位规范同名**
-> （C# 类不变量：`Bag<string> b = subBagOfInt` 必须继续报错）**且** `Def` 名有子类关系。
->
-> ⚠️ H2 只有在**基类链本身可走**时才有意义。同一次变更修掉了更深的一层：`Z42ClassType.BaseName`
-> 此前存的是**带泛型实参的基类文本**（`"Bag<T>"`），而它的每个消费方都拿它当 `Classes` 的键用
-> ⇒ base 链在泛型基类处**静默截断**（`IsSubclassOf` 恒 false、继承成员找不到）。详见
-> source-compile.md「基类名裸名化」。
->
-> **未覆盖**：基类声明处换了实参（`class Sub<T> : Bag<string>`）。`BaseName` 只存名字、不存基类
-> **实参**，无从代换 ⇒ 仍报 E0402（与修前同，无回归）。同因 `GBase<int> b = new CSub();`
-> （非泛型派生 → 泛型基类实例化，步 6d 要求 `Def` 同名）也仍不通。要修得正确需在类符号上存
-> 「已解析的基类型」而非基类**名字**，属类型模型改动。
+**保留精确类型**是这套规则里唯一需要记住的东西：装箱**不会**把 `int` 悄悄变宽成 `long`。
 
-> **关键设计**：数值 prim 对（步 4）**提前到结构判定（步 5）之前**——否则有损拓宽（`int→float`）
-> 会被 `IsAssignableTo`（其 `_canWiden` 判其为拓宽）笼统当成 `Identity`，丢掉"有损"信息。提前后
-> 数值对一律走细粒度矩阵。这不改 PR1 的布尔投影（数值对无论哪种都落在宽松门白名单内），只让
-> **种类标签正确**，为 PR2 的收紧提供准确依据。
-
-`_isAssignable(from, to, symbols)` = `Classify(...).ImplicitOk()`（PR2 收紧门）。它是**纯类型**判定
-（不看表达式），窄化 / 有损浮点返回 `false`；重载候选决议等复用它的地方，窄化实参因此不再"可赋"
-= 不参与该候选（与 C# 一致）。
-
-### 隐式上下文检查：`CheckImplicitConvert`（含常量在范围内例外）
-
-赋值 / return / 传参这些**隐式上下文**的检查经 `TypeChecker.CheckImplicitConvert(value, target, …)`——
-比纯类型 `_isAssignable` 多一层**表达式感知**：
-
-```
-1. Classify(value.Type(), target).ImplicitOk()  → true（放行）
-2. ExplicitNumeric ∧ 目标整数/char ∧ value 是编译期常量整数且在目标范围内 → true
-      （C# 常量在范围内例外：`byte b = 48;` ✓，`byte b = 300;` ✗）
-3. 存在显式转换（Exists）→ 报 E0439「cannot implicitly convert 'X' to 'Y';
-      an explicit conversion exists (are you missing a cast?)」
-4. 否则（根本无转换）→ 报 E0402 TypeMismatch
+```z42
+object a = 5;      // int
+object b = 9L;     // long
+a is long          // false   ← 不是 C# 那种「反正都是整数」
+b is long          // true
+a.GetType().Name   // "Int32"
+b.GetType().Name   // "Int64"
 ```
 
-> **常量例外**只覆盖**整数/char 目标**（`_constIntInRange`，复用编译器权威 `ZbcInstr._parseIntLit`）：
-> 在范围内的常量窄化**逐值可证无损**，与「隐式只允许绝对无损」一致，且令 binary-format writer
-> 里 `bytes[i] = 48;` 这类免于满屏 `(byte)`。**有损浮点无此例外**（`float f = 5;` 仍要 `(float)`）。
-> 常量**表达式**折叠（`byte b = 40 + 8;`）超出 PR2 覆盖面（当前仅字面量 / 一元负号字面量）。
+`enum` 同样保精度——装箱后仍是它自己的类型，不塌成底层整数（详见 [enum](enums.md)）：
 
-### 数值拓宽插 `ConvertInstr`：`ConvertIfNeeded`
+```z42
+object c = Color.Green;
+c.GetType().Name     // "Color"
+c.GetType().IsEnum   // true
+c.ToString()         // "Green"
+```
 
-隐式**拓宽**（`int→double`、`char→int` 等）历史上**不发** `ConvertInstr`——所有整数运行期同为
-`Value::I64`，`double d = 5` 会把 `I64(5)` 存进 F64 槽（表示 bug）。`TypeChecker.ConvertIfNeeded`
-在每个协变点（return / var-decl / assign / call-arg，镜像 `BoxIfNeeded`）当**运行期表示类**变化时
-包 `BoundConvert` → codegen 发 `ConvertInstr`：
+`struct` 值装箱后保持**引用身份**（与 C# 一致）：每装箱一次得到一个新的盒。
 
-| from→to | 表示类 | 插 `ConvertInstr`? |
-|---------|--------|:---:|
-| `int→long`、`byte→int` | INT→INT（运行期同 `I64`）| ✗ no-op |
-| `int→double`、`uint→double` | INT→FLOAT（`I64→F64`）| ✓ |
-| `f32→f64` | FLOAT→FLOAT（运行期同 `F64`）| ✗ no-op |
-| `char→int`、`char→double` | CHAR→其它 | ✓ |
+**拆箱是受检的**：`(T)o` 在运行期核对盒里的精确类型，不符即失败。类型不符的拆箱当前产生的是
+**终止性运行期错误，不能用 `try` / `catch` 捕获**——与其它 `Convert` 失败一致。
 
-> 只在表示类真变化时插——等宽整数拓宽与 `f32↔f64` 是 no-op，最小化字节扰动（z42c 自身源码不含
-> 隐式 int↔float 拓宽 → 其 codegen 逐字节不变，自举不破代）。副作用：`Math.Pow(2,3)` 的 int 实参
-> 现正确拓宽为 `F64` → Pow 遵守其 `double` 签名返 `F64(8.0)`（此前因 native 的 `(I64,I64)→I64`
-> 分支静默返 `Int32(8)`）。
+**健全性**：装箱 = 加宽上转（安全）+ 受检下转（运行期核对精确类型）。因为装箱值携带精确类型，
+下转可靠、`is` / `as` 精确——没有办法把一个类型当成另一个用。
+
+> 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
+> 容器里外的表示不变。
 
 ## 用户自定义转换（User-defined conversions，PR3 `add-user-conversions`）
 
@@ -158,23 +122,6 @@ int x = c;                 // 隐式：赋值/return/传参协变点自动调 op
 Celsius c2 = (Celsius)30;  // 显式：(T)x 调 op_Explicit → Celsius(30)
 int y = (int)c2;           // (T)x 亦接受 implicit → 30
 ```
-
-### 机制 / 实现
-
-| 环节 | 落点 | 说明 |
-|------|------|------|
-| 关键字 | `TokenKind.z42` `Implicit`/`Explicit` + `Lexer._initKeywords` | `implicit`/`explicit` 成保留字（support 先行，z42c/stdlib 晚一个 nightly 才用） |
-| 解析 | `MemberParser._parseMemberBody` | `implicit/explicit operator Target(Source s)` → 方法 `op_Implicit`/`op_Explicit`（静态、单参、返回=Target） |
-| `(T)x` 消歧 | `ExprParser._castOperandStart` | `(Ident)operand`（operand 起于标识符/字面量/new）解析为 `CastExpr`；`(a)-b`/`(f)(x)` 仍按二元/调用 |
-| 分类 | `Conversion._classifyUser` / `_findConvOn` | 内建转换 `None` 时回退：在 from 类与 to 类的 `Methods` 上找 op_Implicit/op_Explicit（精确 (源,目标) 匹配）→ `ConvResult{UserImplicit\|UserExplicit, Method}` |
-| lowering（隐式） | `TypeChecker.ConvertIfNeeded(_,_,syms)` | UserImplicit → `_lowerUserConv` 包成静态 `BoundCall`（op_Implicit）；已过 `CheckImplicitConvert`（UserImplicit 在 `ImplicitOk` 白名单） |
-| lowering（显式） | `TypeOpTyper._bindCastExpr` | UserImplicit/UserExplicit → `BoundCall`；数值/引用 cast 仍 `BoundConvert` |
-| 无格式 bump | — | 全部复用既有 Call opcode（同 `op_Add` 脱糖），无新 IR、不 bump zbc/zpkg |
-
-**RegKey 唯一（根因修复）**：静态方法仅按参数类型 mangle（`op_Implicit$1$Foo`），两个同源不同目标的转换
-（`operator int(Foo)` + `operator string(Foo)`）会撞键。转换运算符 RegKey 附返回类型消歧为
-`op_Implicit$1$Foo$to$i32`（`SymbolCollector` `_isConvOp` 分支）——RegKey 是 body 绑定 / IrGen / 派发的
-单一真相源，一处改全链一致。
 
 ### 比 C# 更好的三处（z42 改进）
 
@@ -205,5 +152,6 @@ int y = (int)c2;           // (T)x 亦接受 implicit → 30
 ## 关联文档
 
 - 引入/演进：change `add-conversion-classifier`（PR1）、`tighten-implicit-conversions`（PR2）、`add-user-conversions`（PR3，用户自定义转换 + ②③ 改进）——均已落地
-- 装箱/拆箱运行期机制：[语言部分 · 装箱](../../../design/language/boxing.md)
+- [enum](enums.md)——枚举值装箱后的类型身份
+- [结构体](structs.md)——值类型的复制语义
 - 承载代码：[`z42c.semantics/README.md`](../../../../src/compiler/z42c.semantics/README.md)

@@ -33,7 +33,7 @@
 
 launcher / test-runner 已实装并在 CI / xtask 中使用；workload 实装中（承接 host 解散迁入的 host-api + 平台 facade，consolidate-platform-into-workload）；builder / devtools / interactive 为占位，具体设计与落地时机见 `docs/roadmap.md`。`host/` 顶层已移除——Tier 1 C ABI + 头在 [`../runtime/src/host/`](../runtime/src/host/) + [`../runtime/include/`](../runtime/include/)，Tier 2/Tier 3 在 `workload/`。
 
-> launcher 的演进方向（命令分发三层、平台工程导出、runtime/workload 分发）见 [`docs/design/toolchain/`](../../docs/design/toolchain/)。
+> launcher 的演进方向（命令分发三层、平台工程导出、runtime/workload 分发）见 [`docs/internals/src/toolchain/`](../../docs/internals/src/toolchain/)。
 
 ## 依赖关系
 

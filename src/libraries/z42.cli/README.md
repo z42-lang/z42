@@ -108,7 +108,7 @@ ParseResult r = res.Result();  // 叶子解析结果
 依赖 `z42.core`（基础类型 + Exception）+ `z42.text`（StringBuilder 用于
 HelpText 拼接）。
 
-## 已落地的进阶特性（详 `docs/design/stdlib/cli.md` Deferred ✅ 段）
+## 进阶特性（完整 API 见 `docs/reference/src/stdlib/cli.md`）
 
 v0 之后逐步补齐，均已 ship：
 

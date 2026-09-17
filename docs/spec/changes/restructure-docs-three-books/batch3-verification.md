@@ -148,3 +148,55 @@ C1/C2/C3/C4a 分节标「已启用」。原生互操作 `E0903`–`E0916` 整组
 3. **转述二手结论会失真。** 本批把「stdlib 在用 `byte[][]`」当作 jagged 已支持的证据下发，
    实际那几处全是**写着「不支持」的绕行注释**。执行方没照抄、而是实跑定性，才发现真缺口是
    `new int[n][]` 不解析。⇒ **证据要给出处，执行方有义务复核。**
+
+---
+
+## 附录 D：批 3b 的核实结果
+
+批 3b（六篇切片 + `generics.md` 瘦身）沿用同一方法，又推翻了执行简报的多条判定，
+并挖出 3 条用户可见的实现缺口。
+
+### D1 简报被推翻的 7 条（interop 族）
+
+| 简报写的 | 源码实情 |
+|---|---|
+| `#[derive(Z42Type)]` 示例可用，划给 reference | **是 `compile_error!` 占位**（`z42-macros/src/lib.rs:22-37`）—— 照搬即向用户发一份编译不过的例子 |
+| Rust↔ABI 映射表可用 | 大半不成立：`&T` / `&str` / `String` / `Vec<T>` / `&[T]` / `Box<T>` / `Result<T,E>` / 按值 `self` 全被 `signature.rs::parse_type` 拒绝 |
+| `pinned` 语法语义 → reference | **整条链不存在**：只有词法关键字 `TokenKind.Pinned`，无 AST / 解析 / 类型检查 / IR；`z42.ir` 里连 `PinPtr` 指令类都没有 |
+| `E0903` / `E0904` 现存 | **也是零发射点死码**（只有 `DiagnosticCodes.z42:127-128` 两行常量），与 `E0907/E0909/E0916` 同族 |
+| `[Layout]` / `[FieldOffset]` / `[UnmanagedCallback]` 成节 | 全仓零命中，从未实现 |
+| （未提及） | **`[Native(lib=,type=,entry=)]` 才是活的核心用户契约**（`StubEmitter.z42:79-84` 按有无 `type=` 分流 `CallNativeInstr` / `BuiltinInstr`）；且 `lib=` 在 builtin 那条路上**完全不参与解析** |
+| §7.1「JIT 发直接 call」 | JIT **不支持** `CallNative`/`CallNativeVtable`/`PinPtr`/`UnpinPtr`（`jit/translate/unsupported.rs:42-43`），含这些指令的函数整体回落解释执行 |
+
+### D2 两次「拒绝新建页」——判断正确，避免了第二份 SoT
+
+| 我的指令 | 执行方的反驳 |
+|---|---|
+| 为 `object-protocol` 在 reference 新建语义契约页 | `reference/language/classes.md:52-88` **已完整覆盖**四方法表、「覆写 `Equals` 必须同时覆写 `GetHashCode`」、struct 不继承 Object、`Type` 描述符 ⇒ 新建即第二份 SoT |
+| 把 `closure.md` §3.1–3.4 语法搬进 reference | `reference/language/functions.md:236-296` 已覆盖且**更准**（已记「函数值必须先落到写明函数类型的局部变量才能调用」这条限制）|
+
+⇒ **教训：派活前先查目标书已经写了什么。** 简报是按源文档的目录列的，没查接收方。
+
+### D3 新挖出的 3 条实现缺口（实跑验证）
+
+| # | 现象 | 根因 |
+|---|---|---|
+| 31 | 🔴 **`"..." + obj` 绕过用户的 `override ToString()`**，而 `$"{obj}"` 不绕过 | `exec_value.rs:58-59` 的 `Add` 混合臂直接调 `value_to_str`（不查 vtable）；emitter 侧 `OperatorEmitter.z42:47-56` 的 `+` **不发 `ToStr`**。源文档明说「`+` with a string operand → implicit ToStr」，是反的。基元 / enum / 数组不受影响 |
+| 32 | 🔴 **`f == f` 返回 `false`**（同一函数两次取引用也是 false）| `__delegate_eq` builtin 存在且有单测，但**编译器侧零发射点** —— `==` 从没接到委托相等语义上。正确写法是 `DelegateOps.ReferenceEquals` |
+| 33 | **`f += g` 不是编译错误** | 编译得过，运行期才炸 `type mismatch in arithmetic: FuncRef(...) vs FuncRef(...)`。源文档标的「❌ 编译错误」不成立 |
+
+### D4 顺带修正的既有文档错误
+
+- **装箱插入点从 5 处扩到 9 处**：新增**再赋值**（`AssignTyper.z42:153` —— 源码注释**自陈**
+  `BoxIfNeeded` 头注「宣称覆盖赋值」而实际**根本没有装箱点**）、索引器 set、泛型方法实参、
+  record 合成 `GetHashCode`。后三处共因：手搭 `BoundCall` 绕过了 `_withDefaults`→`BoxArgs` 汇聚点
+- **`__box_prim` 只覆盖整数与 enum**；bool / char / float / double / string **不装箱**（各有 `Value` 变体）。
+  源文档的 `BoxedPrim{ inner = 裸基元值(I64/F64/Bool/Char/Str) }` 是错的
+- **基元的 `__int32_equals` / `__int32_hash_code` / `__double_*` / `__char_*` 全部已删**
+  （`shrink-primitive-native-interop` Stage 2）⇒「基元 Equals/GetHashCode 走 hardcoded builtin」整条作废
+- **`unify-vcall-resolution`（2026-09-03）已把 interp/JIT 两份 ~900 行阶梯合并**成
+  `interp/vcall_resolve.rs` ⇒ 源文档的「三条路径」框架废弃，新页按现行**四级接收者阶梯**重写
+- **enum 精度边界整节已过期**：`make-enum-distinct-type` 1.5 让 enum 走 `__box_prim` 但盒带
+  **enum 自身**的 type_desc ⇒ Deferred `add-boxing-future-enum-precise` **已完成**，roadmap 该行已划掉
+- **`ref` 形参可被 lambda 捕获**（源文档说不可）—— 捕获到的是值快照
+- 闭包栈分配三个发射点行号订正：`FunctionEmitter.z42:490`（非 485）、`ExprEmitter.z42:356`（非 346）

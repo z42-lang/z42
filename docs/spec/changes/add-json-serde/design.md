@@ -99,7 +99,7 @@ serde 能 RUN 后（无格式 bump → 本地单代自举即可跑 [Test]）暴�
    装箱运行期类型（`GetType`）用 `Std.Int32` 等 FQ——`FromJson` 须**两套词汇都接受**，否则基元成员
    落到 `_fromObject` → `Activator(int)` 无 handle。
 3. **跨包泛型 `typeof(T)` 短名丢 handle**（Bug：`Deserialize<T>` 全线 `no runtime handle`）。见
-   [`docs/book/src/stdlib/json-serde.md`](../../../book/src/stdlib/json-serde.md#跨包泛型-typeoft-的-handle-解析deserializet-依赖)
+   [`docs/internals/src/stdlib/json-serde.md`](../../../internals/src/stdlib/json-serde.md)
    ——`make_type_from_name` 加无点短名唯一简单名兜底解析。
 
 ## Implementation Notes

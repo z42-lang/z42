@@ -6,7 +6,7 @@
 
 - 实现细节在 book 里**没有一等位置** ⇒ `docs/design/` 的 99 篇无处可去 ⇒ 实测迁移速率 **81 篇迁了 2 篇（2.5%），历时两个半月**，而 `design/runtime/zbc.md` 还在被更新（book 对应页停在 07-19）——两份并行漂移的活证据。
 - 语种策略无法收敛（§8：双受众故中文，成熟章节「再评估」英文）。
-- `docs/workflow/packaging.md` 与 `docs/book/src/dev/packaging.md` 文件名直接撞车。
+- `docs/internals/src/devinfra/release.md` 与 `docs/book/src/dev/packaging.md` 文件名直接撞车。
 
 **不是执行力问题，是结构上没给实现细节留位置。** 按受众切开，每本书的深度、语种、是否发布都自洽。
 
@@ -213,7 +213,7 @@ internals/src/
 |---|---|---|---|
 | `design/compiler/compiler-architecture.md` | 1431 | 符号解析优先级链 / workspace 兄弟成员解析 / intra-package 同名降级 fixup（带 2026-06~07 change 名，可能仍成立）→ 并进 `internals/compiler/source-compile.md` | 1 |
 | `design/runtime/vm-architecture.md` | 1212 | 对齐点停在 05-20，而 book 的 runtime 21 页覆盖到 09-16 ⇒ **先判定它还剩多少独有内容**（`VmContext`/`VmCore` 一节大概率仍成立），再决定是当主干页还是拆碎并入 | 2 |
-| `design/toolchain/build-orchestrator.md` | 190 | 八相位管线 / `ICompiler` in-process 编译 / hook 注入（book 对应页只有 109 行，疑似「标了 ✅ 但没真迁完」）→ 并进 `internals/toolchain/z42b.md` | 5 |
+| `internals/src/toolchain/z42b.md` | 190 | 八相位管线 / `ICompiler` in-process 编译 / hook 注入（book 对应页只有 109 行，疑似「标了 ✅ 但没真迁完」）→ 并进 `internals/toolchain/z42b.md` | 5 |
 
 ## 六、必须回答的风险
 

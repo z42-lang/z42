@@ -15,7 +15,7 @@ using Std.Random;
 // chain 不需要任何 wrap-around 处理，纯算术 / 比较即可。trade-off：单
 // limb 容量 4.6% 损失 (vs 32-bit)。
 //
-// v0 scope (per docs/design/stdlib/numerics.md):
+// v0 scope (per docs/reference/src/stdlib/numerics.md):
 //   Add / Sub / Mul (schoolbook) / Div / Mod / Pow / Negate / Abs
 //   Parse(decimal + hex) / ToString / ToHex / ToInt32 / ToInt64
 //   CompareTo / Equals / GetHashCode + Zero/One/MinusOne constants

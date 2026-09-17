@@ -13,7 +13,7 @@ z42b/z42c 的 bin/payload/组件名三轴一致（都是 z42b/z42c），devtools
 zpkg 文件名 `z42.devtools.zpkg`·`z42.interactive.zpkg`、project.name。
 
 **文档影响：** 两个 README component 段、`docs/design/toolchain/repl.md`、
-`docs/book/src/compiler/project-build.md`、`docs/spec/changes/fix-repl-sdk-compiler-closure/proposal.md`
+`docs/internals/src/toolchain/z42b.md`、`docs/spec/changes/fix-repl-sdk-compiler-closure/proposal.md`
 的 payload 路径引用。archive（冻结历史）不动。
 
 ## 任务

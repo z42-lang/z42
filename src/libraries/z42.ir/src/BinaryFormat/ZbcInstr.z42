@@ -80,6 +80,22 @@ public static class ZbcInstr {
             w.WriteU16(i.Obj.Id); w.WriteU32(pool.Idx(i.Field));
             return;
         }
+        // fix-ref-lvalue-addressing：wire 布局由 VM 解码器钉死（instr_decode.rs:274-282）——
+        // LoadElemAddr 与二元算术同形（dst + arr:u16 + idx:u16），LoadFieldAddr 与 FieldGet 同形
+        // （dst + obj:u16 + field:u32 池索引，故必须放在有 pool 的 WriteInstr 里而非 _writeCore）。
+        // 读侧在 ZbcReaderInstr **两处**对称补齐（解码 + REGT 回填）。
+        if (ins is LoadElemAddrInstr) {
+            LoadElemAddrInstr le = ins as LoadElemAddrInstr;
+            w.WriteU8(Op.LoadElemAddr); w.WriteU8(Tag.FromIrType(le.Dst.Type)); w.WriteU16(le.Dst.Id);
+            w.WriteU16(le.Arr.Id); w.WriteU16(le.Idx.Id);
+            return;
+        }
+        if (ins is LoadFieldAddrInstr) {
+            LoadFieldAddrInstr lf = ins as LoadFieldAddrInstr;
+            w.WriteU8(Op.LoadFieldAddr); w.WriteU8(Tag.FromIrType(lf.Dst.Type)); w.WriteU16(lf.Dst.Id);
+            w.WriteU16(lf.Obj.Id); w.WriteU32(pool.Idx(lf.Field));
+            return;
+        }
         if (ins is FieldSetInstr) {
             FieldSetInstr i = ins as FieldSetInstr;
             w.WriteU8(Op.FieldSet); w.WriteU8(Tag.FromIrType(i.Val.Type)); w.WriteU16(ZbcInstr.NoReg);

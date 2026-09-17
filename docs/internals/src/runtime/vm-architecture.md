@@ -86,7 +86,7 @@ Scanner closure 通过 `Weak<VmCore>` 捕获 VmCore（避免 `VmCore → heap �
 
 **VmContext 注册表（add-vmcontext-registry 2026-05-20）**：VmCore 持 `vm_contexts: Mutex<Vec<VmContextPtr>>` 注册表。`VmContext::new()` 返回 `Pin<Box<VmContext>>` 以保证地址稳定（`PhantomPinned` 标 !Unpin 防 move-out），构造时 push 自身到注册表，Drop 时 retain 移除。GC scanner 改为：**1**) 上锁 vm_contexts → **2**) 遍历每个 VmContext ptr → **3**) `unsafe { &*ptr }` 扫其 `pending_exception` / `call_stack` 帧 / `func_ref_slots`。所有 VmContext 的 per-thread roots 在 mark 阶段都被看见 —— multi-thread 安全。Lock 持有期间 Drop 阻塞，无 use-after-free。
 
-API 方法都用 `&self`（内部 Mutex/RwLock），调用方代码风格基本不变。详见 [`object-protocol.md`](../../../design/language/object-protocol.md)、[`interop.md`](../../../design/language/interop.md)、[`concurrency.md`](concurrency.md) 与 review2 §3 / §5.5 / §5.2。
+API 方法都用 `&self`（内部 Mutex/RwLock），调用方代码风格基本不变。详见 [`object-protocol-dispatch.md`](object-protocol-dispatch.md)、[`native-abi.md`](native-abi.md)、[`concurrency.md`](concurrency.md) 与 review2 §3 / §5.5 / §5.2。
 
 ### 帧 arena 的锁瘦身：发布长度原子（interp-frame-lock-slim，2026-08-18）
 
@@ -778,11 +778,17 @@ match callee_value {
 }
 ```
 
-**StackClosure**（2026-05-02 impl-closure-l3-escape-stack）：env 在 caller frame 的 `env_arena: Vec<Vec<Value>>` 中，零堆分配。CallIndirect 时复制内容到临时 GcRef，callee 不区分 stack/heap 来源。
+**StackClosure**：env 在 caller frame 的 `env_arena: Vec<Vec<Value>>` 中，零堆分配。`Value` 侧是 8B 句柄
+`{ idx, frame_id }`，载荷 `StackClosureData { env_idx, fn_name }` 在 `transient_arena`；CallIndirect 时从
+`frame.env_arena[env_idx]` 复制内容**物化出独立 GcRef**，callee 不区分 stack/heap 来源。
 
 **GC root**：每个 `VmFrame` 内嵌 `regs` + `env_arena` 指针（unify-frame-chain），GC scanner 单循环遍历 `call_stack` 即可同时 mark frame regs 和 stack closure env 中的 Object/Array refs，确保不被回收。
 
-**lifetime 安全**：StackClosure value 的有效性由分析器（`ClosureEscapeAnalyzer`）在编译期保证 —— closure value 永不离开创建它的 frame；CallIndirect 复制 env 内容也意味着 callee 不会持有指向 caller arena 的悬空指针。
+> ⚠️ **这条路径当前是死的**：置位 `MkClosInstr.StackAlloc` 的编译期 pass（`ClosureEscapeAnalyzer`）
+> 已从 `src/` 消失，三个发射点全部传常量 `false` ⇒ 编译产物里**永不出现** `Value::StackClosure`，
+> 闭包一律走 `Value::Closure` 堆路径。运行时这一半完整保留、随时可用。
+> lifetime 安全原本由那个分析器在编译期保证（closure value 永不离开创建帧），要复活得先重建编译期
+> 一侧——细节与复活路线见[逃逸分析](escape-analysis.md)末节。
 
 ## interp vs JIT 分发
 
@@ -1249,5 +1255,5 @@ allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已�
 - `docs/internals/src/formats/ir.md` — IR 指令集、zbc 二进制格式
 - `docs/internals/src/runtime/jit-design.md` — Cranelift JIT 后端设计
 - `docs/internals/src/runtime/execution-model.md` — ExecMode 注解、interp/JIT/AOT 切换语义
-- `docs/design/stdlib/overview.md` — stdlib 三层架构（intrinsics / HAL / script BCL）
+- `docs/internals/src/stdlib/architecture.md` — stdlib 三层架构（intrinsics / HAL / script BCL）
 - `../../agent/rules/runtime-rust.md` — Rust VM 开发规范（错误处理、测试组织、Value 类型约定）

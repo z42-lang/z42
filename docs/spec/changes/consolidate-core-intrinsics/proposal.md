@@ -6,7 +6,7 @@
 ## Why
 
 同一个 VM intrinsic 被多个库重复声明为 `extern`，违反新确立的「单一声明点」纪律
-（[organization.md](../../../design/stdlib/organization.md)）：
+（[organization.md](../../../internals/src/stdlib/organization.md)）：
 
 - **位转换** `__double_to_bits` / `__double_from_bits` / `__single_to_bits` / `__single_from_bits`：
   在 `z42.io.binary`（BinaryWriter/Reader）**和** `z42.ir`（ZbcInstr/ZbcReaderInstr）双声明。

@@ -27,7 +27,7 @@
 - [x] 3.5 `timeout-minutes` 30→45；上传 `bench/results/ab.json` 作 artifact
 
 ## 阶段 4: 文档
-- [x] 4.1 `docs/book/src/dev/benchmarking.md`：A/B 门禁机制页（同-runner 抵消 + SEM 有效性 + 判红伪代码 + mermaid）
+- [x] 4.1 `docs/internals/src/devinfra/benchmarking.md`：A/B 门禁机制页（同-runner 抵消 + SEM 有效性 + 判红伪代码 + mermaid）
 - [x] 4.2 `bench/README.md`：状态表 + 「CI 集成」节改写为 A/B 流程
 - [x] 4.3 `docs/roadmap.md`：Deferred 登记 `ab-bench-micro`/`ab-bench-criterion`/`ab-interleave-per-run`/`retire-baseline-branch`
 

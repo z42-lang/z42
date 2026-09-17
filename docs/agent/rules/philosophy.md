@@ -156,7 +156,7 @@ deprecation 周期"。当前处于探索期，**任何兼容性投入都是过�
 
 **所有延后特性（无论设计期还是实施期识别）一律就近记录到 `docs/internals/` 对应机制页的 `## Deferred` 节；`docs/roadmap.md` 的 "Deferred Backlog Index" 段统一索引指向这些条目。**
 
-> ⚠️ **不得再写进 `docs/design/`**——它已冻结只读（见 [doc-system.md 过渡期节](doc-system.md)）。
+> ⚠️ 延后项的落点是**本页所属书页的「待办」段**或 `docs/roadmap.md`，见 [doc-system.md「不写历史」](doc-system.md)。
 
 **记录格式（机制页 `## Deferred` 节中的单个条目）：**
 
@@ -183,7 +183,7 @@ deprecation 周期"。当前处于探索期，**任何兼容性投入都是过�
 
 **禁止反例：**
 
-- ❌ 把延后写进 `docs/deferred.md`（该文件已废弃，不存在）或 `docs/design/`（已冻结只读）
+- ❌ 把延后写进 `docs/deferred.md`（该文件已废弃，不存在）
 - ❌ 同一项在多个 design doc 都登记（决策权威分散）
 - ❌ 把"未来某个 phase 可能引入"的展望式描述写进 design doc Deferred 段（那属于 roadmap 或 features.md）
 - ❌ 在 design doc Deferred 段写延后但没在 `roadmap.md` Deferred Backlog Index 加索引行（破坏集中追溯能力）

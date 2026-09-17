@@ -60,7 +60,7 @@ Console.WriteLine(Uri.DecodeComponent("hello%20world"));  // "hello world"
 - **UTF-8 percent encoding**：codepoint 逐个 encode；surrogate pair 合并成单个 codepoint 再 UTF-8 编码
 - **opaque URI（无 `//`）**：scheme 之后直接是 path，如 `mailto:user@host`、`urn:isbn:...`
 
-## 不在本期 Scope（见 `docs/design/stdlib/uri.md` Deferred）
+## 不支持（见 `docs/reference/src/stdlib/uri.md`「不支持」节）
 
 - 相对 URI 解析（`Uri.Resolve(base, ref)`）
 - IPv6 字面量解构（`[::1]` 当字符串原样保留）

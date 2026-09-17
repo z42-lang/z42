@@ -244,6 +244,59 @@ public sealed class LoadLocalAddrInstr : IrInstr {
     public override IrInstr Clone() { return new LoadLocalAddrInstr(this.Dst, this.Slot); }
 }
 
+// fix-ref-lvalue-addressing：`ref arr[i]` → load_elem_addr（opcode 0xA1）。
+// 此前 ExprEmitter 对任何 BoundRefArg 一律「先把 inner 求值成临时寄存器，再取那个临时槽的地址」
+// ⇒ 写回落在临时槽上、调用方看不到（静默丢写）。VM 侧 0xA1 的解码与执行自 2026-05-05 就完整，
+// 只是编译器从来没发过（纯死代码），本指令补上生产方。
+// 运行期产 Value::Ref{RefKind::Array{gc_ref, idx}} —— 持 GcRef、与帧栈无关，比 Stack 更安全。
+public sealed class LoadElemAddrInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Arr;
+    public TypedReg Idx;
+    public LoadElemAddrInstr(TypedReg dst, TypedReg arr, TypedReg idx) {
+        this.Dst = dst; this.Arr = arr; this.Idx = idx;
+    }
+    public override string Dump() {
+        return "%" + this.Dst.Id.ToString() + " = load_elem_addr %" + this.Arr.Id.ToString()
+             + "[%" + this.Idx.Id.ToString() + "]";
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 2; }
+    public override TypedReg ReadAt(int i) {
+        if (i == 0) { return this.Arr; }
+        if (i == 1) { return this.Idx; }
+        return null;
+    }
+    public override void SetReadAt(int i, TypedReg r) {
+        if (i == 0) { this.Arr = r; }
+        if (i == 1) { this.Idx = r; }
+    }
+    public override IrInstr Clone() { return new LoadElemAddrInstr(this.Dst, this.Arr, this.Idx); }
+}
+
+// fix-ref-lvalue-addressing：`ref obj.f` → load_field_addr（opcode 0xA2）。同上，补生产方。
+// 运行期产 Value::Ref{RefKind::Field{gc_ref, field_name}}，按字段名查 type_desc.field_index。
+public sealed class LoadFieldAddrInstr : IrInstr {
+    public TypedReg Dst;
+    public TypedReg Obj;
+    public string   Field;
+    public LoadFieldAddrInstr(TypedReg dst, TypedReg obj, string field) {
+        this.Dst = dst; this.Obj = obj; this.Field = field;
+    }
+    public override string Dump() {
+        return "%" + this.Dst.Id.ToString() + " = load_field_addr %" + this.Obj.Id.ToString() + "." + this.Field;
+    }
+    public override TypedReg DefReg() { return this.Dst; }
+    public override void SetDefReg(TypedReg r) { this.Dst = r; }
+    public override int ReadCount() { return 1; }
+    public override TypedReg ReadAt(int i) { if (i == 0) { return this.Obj; } return null; }
+    public override void SetReadAt(int i, TypedReg r) { if (i == 0) { this.Obj = r; } }
+    public override int StrCount() { return 1; }
+    public override string StrAt(int i) { if (i == 0) { return this.Field; } return null; }
+    public override IrInstr Clone() { return new LoadFieldAddrInstr(this.Dst, this.Obj, this.Field); }
+}
+
 // 静态字段写：无定义寄存器，读 Val。
 public sealed class StaticSetInstr : IrInstr {
     public string Field; public TypedReg Val;

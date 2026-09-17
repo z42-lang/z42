@@ -318,7 +318,7 @@ docs/spec/changes/<change-name>/
 ## Testing Strategy
 - 单元测试：[覆盖点]
 - Golden test：[新增场景]
-- VM 验证：`xtask test`（完整 GREEN gate；stage 组成见 [test-gate.md](../../book/src/dev/test-gate.md)）
+- VM 验证：`xtask test`（完整 GREEN gate；stage 组成见 [test-gate.md](../../internals/src/devinfra/test-gate.md)）
 ```
 
 ---
@@ -569,22 +569,22 @@ stage 名以 `xtask test` 实际输出为准，不在此复列）
 
 1. 将 tasks.md 状态改为 `🟢 已完成`，更新日期
 2. 移动目录：`docs/spec/changes/<name>/` → `docs/spec/archive/YYYY-MM-DD-<name>/`
-3. **文档同步（统一维护触发矩阵）**：下表是"改了什么 → 必须同步哪些文档"的**唯一 SoT**——
-   其他规范只链接此表，不另立分表；"同步到哪一段"的段级展开见各写作规范。逐行核对，
-   本次改动命中的行全部落实。知识类内容按 [doc-system 三问](doc-system.md)分派：
-   用户能看见的 → `docs/reference/`；实现机制与决策 → `docs/internals/`。
-   ⚠️ `docs/book/` / `docs/design/` / `docs/workflow/` **已冻结只读**，不得往里写。
+3. **文档同步**：判据是 **[doc-system.md 的三问](doc-system.md)**（唯一 SoT，**此处不复列**）——
+   逐问过一遍，命中的文档全部落实：
 
-   | 改了什么 | 目录 README（六段） | book | 其他 |
-   |---------|--------------------|------|------|
-   | 新增 / 删除文件，对外入口或依赖变化 | 功能索引 + 核心文件 | — | — |
-   | 测试方式 / 测试命令变化 | 如何测试验证 | — | `docs/workflow/testing/` 对应页 |
-   | 对外行为变更（新语法 / API / CLI / 二进制格式） | 功能索引 | 对应机制页 / 参考页（知识上浮） | 根 README 对应段；`docs/roadmap.md`（pipeline 进度 / Deferred 索引，如涉及） |
-   | 内部机制 / 架构策略变更（数据结构、算法、加载策略、决策权衡） | — | 对应机制页「机制 / 实现」节 | — |
-   | 构建 / 打包 / 调试操作变化 | 基础用法（如涉及） | — | `docs/workflow/` 对应页 |
-   | change 归档引入新能力 | 关联文档段登记 change 名 | 所改页页头「对齐」日期刷新 | — |
-   | 新协作规则 / 流程变化 | — | — | `docs/agent/rules/` 对应文件 |
-   | 语言设计决策变更（设计目标 / phase 归属 / 设计理由） | — | 语言部分对应页 | `docs/features.md` |
+   1. **用户能看见吗？** → `docs/reference/` 对应页必改；该特性若已被 learn 覆盖 →
+      `examples/<章节>/` + learn 章一并改
+   2. **下一个接手的人不读文档能看懂吗？** → `docs/internals/` 对应机制页必改
+   3. **目录的结构、对外入口或依赖变了吗？** → 该目录 `README.md` 必改（段级写法见
+      [readme-writing.md](readme-writing.md)）
+
+   三问全否 = 纯内部重构，不补文档——**也不许顺手改文档制造漂移**。
+
+   另有三处与三问正交、命中就得改：
+
+   - **根 `README.md`**：对外行为变更且影响仓库门面时
+   - **`docs/roadmap.md`**：延后项被消化 / 新增，或阶段进度变化时
+   - **`docs/agent/rules/`**：改的是协作规则 / 流程本身时
 
    **归档前 doc-check 清单**见 [doc-system.md「三道门」](doc-system.md)的门③——**不在此复列**。
 
@@ -697,7 +697,7 @@ tasks.md 顶部：
 **文档影响：** [列出需要更新的文档，无则写"无"]
 
 - [ ] 1.1 [任务]
-- [ ] 1.x 文档同步（若有行为/机制变更，按阶段 9 触发矩阵）
+- [ ] 1.x 文档同步（若有行为/机制变更，按 doc-system 三问）
 ```
 
 完成后直接进阶段 8（验证）→ 阶段 9（归档）。
@@ -766,7 +766,7 @@ tasks.md 顶部：
   - VM 实现严格按顺序：interp ✅ → JIT → AOT
 
 - **Phase 3 特性混入 Phase 1/2**
-  - 检查 docs/features.md，确认当前 phase 限制
+  - 检查 `docs/roadmap.md`，确认当前 phase 限制
 
 - **单次提交积压多个逻辑单元**
   - 每个 docs/spec/changes/ 变更对应一个 commit

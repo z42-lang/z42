@@ -26,7 +26,7 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 
 > **两类库（别混淆）**：`src/libraries/` 同时住着**用户 stdlib**（`Std.*` 命名空间，面向应用开发者）与
 > **工具链库**（`Z42.*`：`z42.ir` / `z42.project` / `z42.build`——编译器内部件下沉为共享库，供 z42c / REPL /
-> z42b 复用）。下方实现规范与 [organization.md](../../docs/design/stdlib/organization.md) 的划分规则**只约束
+> z42b 复用）。下方实现规范与 [organization.md](../../docs/internals/src/stdlib/organization.md) 的划分规则**只约束
 > `Std.*` 用户库**；`Z42.*` 是编译器内部实现、不是用户 API。详见 organization.md「用户 stdlib vs 工具链库」。
 
 ## 实现规范（必须遵守）
@@ -48,13 +48,13 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `z42 
 > Runtime 提供 **primitive**（JIT 无法消除的硬能力：syscall / libm / GC barrier /
 > 类型元数据 / UTF-8 codepoint 访问 / 数值字面量 parse），**feature**（集合 / 算法 /
 > 格式化 / Assert / Path 字符串操作 / 算术辅助）一律脚本实现。
-> 详见 [docs/design/stdlib/organization.md "Primitive vs Feature (BCL/Rust 对标)"](../../docs/design/stdlib/organization.md)。
+> 详见 [docs/internals/src/stdlib/organization.md "Primitive vs Feature (BCL/Rust 对标)"](../../docs/internals/src/stdlib/organization.md)。
 
 ### 2. Interop 按 native 角色两层安置（native 语义层 → core，应用层 → 纯脚本）
 
 > **2026-08-27 refine-interop-native-separation 更新**（先后取代「VM extern 只在 core，io 例外」与
 > 「io/net/threading 各作平台边界库」两版表述）。唯一 SoT：
-> [docs/design/stdlib/organization.md「native 语义层 → core，应用层 → 纯脚本能力库」](../../docs/design/stdlib/organization.md)。
+> [docs/internals/src/stdlib/organization.md「native 语义层 → core，应用层 → 纯脚本能力库」](../../docs/internals/src/stdlib/organization.md)。
 
 **每个能力拆两层：① native 语义层（`extern`/`[Native]` 原语）② 应用层（纯脚本高层 API）。按 native 角色安置：**
 

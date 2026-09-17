@@ -141,7 +141,7 @@ z42c 自身 7 包不用这些写法 → 旧 byte-identical 门（仅 z42c 自身
 > stdlib 依赖复制进输出 dist（.NET 式自包含），故 `z42c.driver` dist 已**自带** 6 个
 > `z42c.*` 兄弟包——跑它时 `Z42_LIBS` 只需 stdlib，z42vm 从 driver 自身目录解析兄弟包。
 > 下面「合并 z42c+stdlib 到 alllibs」的手工步骤只对**非自包含**旧产物需要；当前机制见
-> [`docs/book/src/dev/build.md`](../../../book/src/dev/build.md)。
+> [`docs/internals/src/devinfra/build.md`](../../../internals/src/devinfra/build.md)。
 
 **运行期 `Z42_LIBS` 是单个目录（非 colon-list），且必须含全部依赖 zpkg。** 跑 z42c 产物
 （driver / 测试）时，先把「z42c 7 包 + stdlib」**合并到一个 flat 目录**（`xtask test
@@ -332,7 +332,7 @@ z42c 达到 golden 编译 parity（编通全部 ~333 golden，含 reflection/clo
   17e342fc / 4dc2896b / 08ef874d）+ bootstrap-no-csharp fixpoint + cross-zpkg + jit-consistency 多次绿 run。
 
 > 操作层流程（SDK/Current 两套 toolchain、共享 host SDK、边界不变量、CI 冗余清单）见
-> [`docs/workflow/testing/bootstrap.md`](../../../workflow/testing/bootstrap.md)。后续 CI 去冗余
+> [`docs/internals/src/devinfra/build.md`](../../../internals/src/devinfra/build.md)。后续 CI 去冗余
 > （compile-once：编一次全下游复用 + fixpoint gate 发布 + format-bump 兜底）规划见
 > `docs/spec/changes/compile-once-toolchain/`。
 

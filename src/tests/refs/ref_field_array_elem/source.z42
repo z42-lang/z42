@@ -1,0 +1,29 @@
+// fix-ref-lvalue-addressing：**复合左值** `ref w.a[0]` —— 字段里的数组的元素。
+// 链条是 field_get 取出数组引用，再对该数组发 LoadElemAddr；arr 操作数来自
+// field_get 的寄存器，天然可用，不需要额外机制。
+//
+// ⚠️ 别和同目录的 `ref_nested/` 搞混 —— 那个测的是**调用嵌套**（ref 透传：
+// Outer 把自己的 ref 形参再传给 Inner），与本文件的**左值表达式嵌套**是两条轴。
+// 本文件是 ref_array_elem（纯数组元素）与 ref_obj_field（纯对象字段）的组合形态。
+class W { public int[] a; public int n; }
+
+void Inc(ref int x) { x = x + 1; }
+
+void Main() {
+    var w = new W();
+    w.a = new int[2];
+    w.a[0] = 7; w.a[1] = 8;
+    w.n = 1;
+
+    Inc(ref w.a[0]);
+    Assert.Equal(8, w.a[0]);
+    Assert.Equal(8, w.a[1]);         // 邻元素巧合同值，下面再区分
+
+    Inc(ref w.a[1]);
+    Assert.Equal(8, w.a[0]);
+    Assert.Equal(9, w.a[1]);
+
+    // 字段本身仍可正常按 ref 传
+    Inc(ref w.n);
+    Assert.Equal(2, w.n);
+}

@@ -5,7 +5,7 @@
 
 ## 概述
 
-`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.43**，与 zbc 1.38 强耦合（两者同步 bump）。
+`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.48**，与 zbc 1.43 强耦合（两者同步 bump）。
 
 它有两种布局：**packed**（模块 zbc 字节内嵌，用于分发与测试）与 **indexed**（模块 zbc 外挂为散装 `.zbc` 文件，用于开发态增量）。字节原语与 section 目录结构与 [zbc](zbc.md) 一致，本页只列 zpkg 特有部分。
 
@@ -211,7 +211,6 @@ zbc version 0.7 → 0.8。pre-1.0 规则：旧 zbc 不可读，需要 `./xtask b
 
 ## 泛型接口 dispatch — Z42InterfaceType.TypeParams（2026-04-26 fix-generic-interface-dispatch）
 
-> 本节自 `docs/design/compiler/compiler-architecture.md` 并入（批 2）。
 > 写出/读取实现：`z42.ir/src/ZpkgWriter.z42` 的 IMPL 段 · `ZpkgReader.z42` 按位置挂回 `Impls`。
 
 ## Packed vs Indexed
@@ -277,7 +276,7 @@ trace 里每帧的函数名携带参数类型签名（`at MyApp.Greeter.greet(Gr
 
 ## 版本
 
-Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（0.43 ↔ 1.38），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
+Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（当前 0.48 ↔ 1.43），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
 
 ### 版本失配怎么表现（fix-version-mismatch-diagnosis，2026-09-05）
 

@@ -44,7 +44,7 @@ PR-B（`sink-repl-compile-facade`）后 `z42.scripting` 编译期已 **stdlib-on
 | `src/libraries/README.md` | MODIFY | 表增 `z42.scripting` 行 |
 | `src/toolchain/README.md` | MODIFY | 表删 `scripting/` 行（repl 行描述微调） |
 | `docs/design/toolchain/repl.md` | MODIFY | scripting 已搬 libraries |
-| `docs/book/src/toolchain/repl-input-completeness.md` | MODIFY | 代码指针路径同步（Completeness → libraries；ReplEditing → repl，修 PR1 遗留） |
+| `docs/internals/src/toolchain/repl.md` | MODIFY | 代码指针路径同步（Completeness → libraries；ReplEditing → repl，修 PR1 遗留） |
 | `bench/repl/BASELINE.md` | MODIFY | Script.z42 路径同步 |
 | `src/runtime/src/corelib/repl_tests.rs` | MODIFY | 注释里 golden 测试路径同步 |
 
@@ -52,7 +52,7 @@ PR-B（`sink-repl-compile-facade`）后 `z42.scripting` 编译期已 **stdlib-on
 - `scripts/packages.toml` — stdlib-glob 自动发现 libs 里的 zpkg（scripting.zpkg 由 workspace build 入 libs → 自动入包），**无需改**。
 - `.github/**` — stdlib 成员派生自 `default-members`（`_stdlibList`），CI 不硬编码成员表，**无需改**。
 - `src/toolchain/workload/wasm/platform/src/lib.rs` — 按包名 mount zpkg（非源路径），**无需改**。
-- `docs/book/src/compiler/project-build.md:74` — 历史坑注（fix-repl-sdk-layout 时状态），保留历史框定。
+- `docs/internals/src/toolchain/z42b.md:74` — 历史坑注（fix-repl-sdk-layout 时状态），保留历史框定。
 
 ## Out of Scope
 

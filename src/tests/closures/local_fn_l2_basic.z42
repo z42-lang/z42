@@ -1,5 +1,5 @@
 // L2 local function (nested fn declaration) end-to-end demo.
-// See docs/design/language/closure.md §3.4 + docs/spec/changes/impl-local-fn-l2/.
+// See docs/reference/src/language/functions.md（局部函数）+ docs/spec/changes/impl-local-fn-l2/.
 //
 // 覆盖：
 //   • 简单 local fn（exp body / block body）

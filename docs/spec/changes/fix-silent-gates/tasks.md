@@ -73,7 +73,7 @@ SKIP 的条件字面上就是「被测对象从包里消失了」，而那正是
 
 ### 随手带的文档
 
-`docs/book/src/dev/test-gate.md` 写「`lines` 守**文件 500 行硬上限**」——**不对**：500 只是
+`docs/internals/src/devinfra/test-gate.md` 写「`lines` 守**文件 500 行硬上限**」——**不对**：500 只是
 软限、只打 advisory、永不变红，硬限是 **886**（`_lineLimitHard()`；baseline 文件首行就写着
 `hard limit 886`）。软/硬分档是 2026-09-05 在 code-organization.md 里有意做的，本页没跟上。
 

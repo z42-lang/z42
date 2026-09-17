@@ -4,7 +4,7 @@
 
 ### 这是已规划的下一段，不是新想法
 
-[cross-platform-testing.md:24-29](../../../design/testing/cross-platform-testing.md) 记着本程序的阶段：
+[cross-platform-testing.md:24-29](../../../internals/src/testing/cross-platform.md) 记着本程序的阶段：
 
 > ②a **host compile-then-test 首刀（已落，`add-z42b-compile-then-test`）**：`z42b test <z42.toml>`
 > ③ z42b in-process 编译成熟后，「编译一个项目」也走 z42b（语料级编译仍留 xtask）

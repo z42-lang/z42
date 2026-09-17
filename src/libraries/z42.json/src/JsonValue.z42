@@ -6,7 +6,7 @@ using Std.Collections;
 // add-z42-json (2026-05-14)：JSON 值的运行时表示 + 入口点。
 //
 // 与 Std.Toml.TomlValue 同款 discriminated-union 设计：单 int kind +
-// 多个 typed 槽位 + Is*/As* 谓词访问。详见 docs/design/stdlib/json.md。
+// 多个 typed 槽位 + Is*/As* 谓词访问。详见 docs/reference/src/stdlib/json.md。
 //
 // kind 0=Null 1=Bool 2=Long 3=Double 4=String 5=Array 6=Object
 //   （注意 Null 在 JSON 中是 first-class value，与 TOML 不同 —— TOML 无 null）

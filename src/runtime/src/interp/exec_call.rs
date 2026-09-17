@@ -304,7 +304,7 @@ pub(super) fn builtin(
 }
 
 /// L2 no-capture lambda lifting: push a function reference value.
-/// See docs/design/language/closure.md §6 + ir.md.
+/// See docs/internals/src/runtime/escape-analysis.md (闭包栈分配) + ir.md.
 pub(super) fn load_fn(frame: &mut Frame, dst: u32, func: &str) {
     frame.set(dst, Value::FuncRef(func.into()));
 }

@@ -8,10 +8,10 @@
 - [x] **批 0 · 立宪**（PR 待合）
 - [x] 批 1 · internals/compiler（PR 待合）
 - [x] 批 2 · internals/runtime + formats（PR 待合）
-- [ ] 批 3 · reference/language
-- [ ] 批 4 · reference/stdlib
-- [ ] 批 5 · toolchain + devinfra
-- [ ] 批 6 · 收尾（删空壳 + 链接重指 + 游离文件）
+- [x] 批 3 · reference/language（3a PR #697 / 3b PR #703）
+- [x] 批 4 · reference/stdlib
+- [x] 批 5 · toolchain + devinfra
+- [x] 批 6 · 收尾（philosophy / features / 矩阵拷贝 / grep 清零）
 - [ ] 批 7 · 其余门禁
 
 ---
@@ -118,6 +118,25 @@
 - [ ] 3b.4 `conversions.md` 切掉「机制 / 实现」两段（已在 reference 但违反判据）
 - [ ] 3b.5 链接重指 + `xtask test docs` 绿 + GREEN
 
+> ⚠️ **格式 bump 刚合入后开的新 worktree 会撞种子窗口**（批 3b 实际踩到）：
+> `install-z42.sh` 装的 nightly 是 bump **合并前**发布的，与源码的新常量 strict-pin 互不认，
+> 第一轮 GREEN 必红在 `zpkg minor <旧> not supported (writer is at <新>)`。
+> **这是假故障**（见 [[z42-worktree-seeding-false-failures]]），不是改坏了。
+> 解法：复用该 bump 那个 PR 的 CI `toolchain-<os>` artifact overlay，
+> 再 `cargo build --release --bin z42vm` + `export Z42_PORTABLE_VM=$PWD/artifacts/build/runtime/release/z42vm`。
+> 等下一个 nightly 发布后自愈。
+
+> ⚠️ **批 6 删 `docs/design/` 前必须先处理的两处硬依赖**（批 3b 发现）：
+> 1. `src/runtime/tests/manifest_schema_validation.rs:22` **硬读**
+>    `docs/design/compiler/manifest-schema.json` —— 删目录时这个测试会红。
+>    该 schema 描述的整套 manifest 机制在自举后已无生产者也无消费者
+>    （`NativeImportSynthesizer` / `ManifestSignatureParser` 全仓零命中）⇒
+>    要么把 schema 落新家，要么连测试一并删。
+> 2. 源码注释里的悬挂引用：`src/runtime/include/z42_abi.h` 头注释指
+>    `docs/design/language/interop.md §3`；`src/runtime/README.md:72` 指
+>    `docs/design/compiler/manifest-schema.json`。注释用**仓库根相对**路径，
+>    重指时别加 `../`（见 [[z42-batch-rewrite-context-blindness]] 的教训）。
+
 ### 批 3 期间做出的裁决（推翻搬迁清单的部分）
 
 | # | 裁决 | 依据 |
@@ -137,35 +156,105 @@
 
 ## 批 4 · reference/stdlib
 
-- [ ] 4.1 `design/stdlib/` 15 个包页 + `book/src/stdlib/`(4) 迁入 `reference/src/stdlib/`
-- [ ] 4.2 `time.md` 改写页头（`z42.time` 包已删，类型在 `z42.core/src/Time/`）
-- [ ] 4.3 `overview` `organization` `api-guidelines` → `internals/stdlib/`
-- [ ] 4.4 `json-serde` 切分：公开 API → reference；反射底座/分派轴 → internals
-- [ ] 4.5 删 `README-template.md`（移入 agent/rules）、`stdlib/roadmap.md`（并入 docs/roadmap.md）
-- [ ] 4.6 链接重指 + `xtask test docs` 绿
+- [x] 4.1 `design/stdlib/` 包页 + `book/src/stdlib/`(4) 迁入 `reference/src/stdlib/`
+- [x] 4.2 `time.md` 改写页头（`z42.time` 包已删，类型在 `z42.core/src/Time/`；命名空间仍是 `Std.Time`）
+- [x] 4.3 `overview`→`architecture` / `organization` / `api-guidelines` → `internals/stdlib/`
+- [x] 4.4 `json-serde` 切分：公开 API 并进 `reference/stdlib/json.md`；反射底座 / 分派轴 → `internals/stdlib/json-serde.md`
+- [x] 4.5 `stdlib/roadmap.md` 并入 `docs/roadmap.md`（残余延后项只剩 5 个未开的包）
+      ⚠️ **`README-template.md` 未动**——与 `readme-writing.md` §七「六段模板（唯一 SoT）」冲突，
+      见 [batch4-verification.md 附录 B](batch4-verification.md) 第 1 条，**待 User 裁决**
+- [x] 4.6 链接重指（`src/` 20 个文件含 `.z42` 注释 / `docs/roadmap.md` 16 条 / internals 5 处）+ `xtask test docs` 绿
+
+### 超出原计划的补充（判断依据：reference 自己的判据「不读实现也能用对」）
+
+原计划只搬 `design/stdlib/` 已有的页。实施时发现**用得最多的几个包根本没有设计页**，
+若照原计划走，stdlib 参考会缺掉 `List` / `Dictionary` / `StringBuilder` / `Thread` /
+`Console` / `File` / `Path` 这些天天用的东西。故新增 **7 页首次编纂**：
+
+- [x] `collections-core.md`（`List<T>` / `Dictionary` / `HashSet` / `KeyValuePair` / `ReadOnlyCollection`）
+- [x] `collections.md`（`Stack` / `Queue` / `LinkedList` / `PriorityQueue` / `SortedSet`）
+- [x] `text.md`（`StringBuilder` / `Strings` / `Levenshtein`）
+- [x] `threading.md`（`Thread` / `Channel` / `Mutex` / `RwLock` / `Timer`）
+- [x] `io-file.md`（`Console` / `File` / `Directory` / `Path` / `Environment`）
+- [x] `process.md`（`Process` / `ProcessHandle` / `Stdio` / `Ansi`）
+- [x] `string.md`（`Std.String` 方法面全表；语法面仍归 `language/strings.md`）
+
+### 本批的核实产出
+
+见 [batch4-verification.md](batch4-verification.md)：**50+ 条实现缺口**，其中两条最重——
+① `z42 run <单文件>` 加载不到跨包命名空间的后半边（三个组独立撞到，根因已定位）；
+② native 压缩的**所有**错误路径自死锁 → VM 永久挂起（11 个发射点，有最小复现）。
 
 ## 批 5 · toolchain + devinfra
 
-- [ ] 5.1 `reference/toolchain/`：`cli/z42.md` `cli/z42c-z42b.md` `cli/runtime-settings.md`（只取旋钮表）
-- [ ] 5.2 `reference/embedding/`（裁决 12）：`design/runtime/embedding.md` 的 C ABI 契约面
-- [ ] 5.3 `internals/toolchain/`：`z42b` `launcher`(主干) `repl`(**design 是主干**) `deployment-model`
-      `export` `platform-export` `workload-distribution` `editor-integration`
-- [ ] 5.4 `internals/testing/`：`framework` `cross-platform` `embedded-app-run` `exec-profile-matrix`
-- [ ] 5.5 `internals/devinfra/`：book/dev(6) + `test-pipeline` + `artifacts-layout` + **`docs/workflow/` 全部 25 篇**
-- [ ] 5.6 **抢救后删**（裁决 9）：`build-orchestrator.md`(190行) 的八相位 / `ICompiler` in-process /
-      hook 注入并进 `internals/toolchain/z42b.md`，同 PR 删原文件
-- [ ] 5.7 删 `design/testing/test-runner-bootstrap.md`（Rust runner 已删）
-- [ ] 5.8 链接重指 + `xtask test docs` 绿
+- [x] 5.1 `reference/toolchain/`：`cli-z42.md` / `cli-z42c-z42b.md` / `runtime-settings.md`（只取旋钮清单）
+- [x] 5.2 `reference/embedding/c-abi.md`（裁决 12）：从 `internals/runtime/embedding.md` 切出 C ABI 契约面，
+      internals 侧同步瘦身 591 → 367 行
+- [x] 5.3 `internals/toolchain/`(8)：`z42b` `launcher` `repl` `deployment-model` `export`
+      `platform-export` `workload-distribution` `editor-integration`
+- [x] 5.4 `internals/testing/`(4)：`framework` `cross-platform` `embedded-app-run` `exec-profile-matrix`
+- [x] 5.5 `internals/devinfra/`(14)：`docs/workflow/` **25 篇 → 6 页** + book/dev(6) + `artifacts-layout` + `test-pipeline`
+- [x] 5.6 **抢救后删**（裁决 9）：`build-orchestrator.md` 的阶段管线 / `ICompiler` / hook 注入并进 `z42b.md`
+      —— 核实后发现是**九**个阶段不是八个（漏了 `Preflight`）
+- [x] 5.7 删 `design/testing/test-runner-bootstrap.md`（已核实：Rust runner 确已删，30 处 grep 命中逐行看过全是注释）
+- [x] 5.8 链接重指 + `xtask test docs` 绿；死链棘轮基线 76 → **60 条**
+
+### 超出原计划的补充
+
+- [x] `internals/runtime/`：`gc-handle.md` / `stdlib-platform.md`（前几批清单提到但一直没做的遗留）
+- [x] `reference/stdlib/`：`platform.md` / `gc.md`（`Std.Platform` / `Std.GC` / `GCHandle` 全无参考页）
+- [x] `reference/testing.md`（搬迁清单里 reference 应有一页「测试」，至今没有）
+- [x] **站点根改写**（原批 6.2）：`docs/book/` 内容已空但发布在站点根，SUMMARY 指向已删页会让
+      **mdbook build 失败、deploy 断** ⇒ 就地改成三书分流索引
+- [x] 重写 `docs/README.md`（原批 6.2）+ `docs/design/README.md`
+- [x] 补 `internals` 三个部分的概览页（toolchain / testing / devinfra）
+- [x] 删批 4 漏删的 `design/language/{reflection,string-builtins}.md`
+
+### 门禁联动（真门禁，必须同批改）
+
+`scripts/test/xtask_test.z42` 把 GREEN gate 的 stage 清单与 test-gate 页的 `gate-stages` 区逐项比对、
+不一致判红。本批把该页搬到 `internals/devinfra/` ⇒ **同批改了脚本里的 4 处路径**
+（1 处功能常量 + 2 处用户可见 `ConsoleError` 文案 + 1 处注释），并做了**双向实测**：
+正向无报错；反向把页移走 → 报出预期错误 → 还原。
+
+### 本批的核实产出
+
+见 [batch5-verification.md](batch5-verification.md)。输入是**流程与架构描述**（不是 API 签名），
+所以核实手法换成逐个路径 `ls`、逐个命令 `--help`、逐个 CI job 对 `.github/workflows/`。
+
+`design/testing/testing.md`（1211 行）**几乎整篇是虚构的**——26 条断言落空。
 
 ## 批 6 · 收尾
 
-- [ ] 6.1 删 `docs/design/` 与 `docs/workflow/` 空壳（含各自 README）
-- [ ] 6.2 站点根三书分流索引（从批 0 挪来）；游离文件：`features.md` → internals；删 `library_review.md` / `todo-list.md`；重写 `docs/README.md`
-- [ ] 6.3 `../../../agent/rules/workflow.md` 阶段 9 与 `code-organization.md`：**删矩阵拷贝**，改链接总纲
-- [ ] 6.4 **全仓链接重指**（裁决 8：脚本批量 + 人工抽查）：
-      `src/**/README.md`(76) / `.claude/` / `scripts/README.md` / 根 `README.md` / `docs/learn/` / `docs/roadmap.md`
-- [ ] 6.5 grep 清零：`docs/design/` 与 `docs/workflow/` 字样在全仓为 0
-- [ ] 6.6 `philosophy.md` 的「延后记 `docs/design/<dir>/`」改指 internals（**本次顺带解决那条一直绕过去的冲突**）
+- [x] 6.1 **`docs/design/` 整个目录删除**；`docs/workflow/` 已于批 5 删除
+- [x] 6.2 站点根三书分流索引（批 5 提前做了——book 的 SUMMARY 指向已删页会让 mdbook build 失败）；
+      重写 `docs/README.md`；游离文件 `philosophy.md` / `features.md` → `internals/src/`
+- [x] 6.3 `workflow.md` 阶段 9 的**统一维护触发矩阵删除**，改为链 doc-system 三问
+      （`code-organization.md` 里那份在更早的规范收口批已清）；
+      连带修 `readme-writing.md` / `.claude/CLAUDE.md` 的三处引用
+- [x] 6.4 全仓链接重指：`README.md` / `docs/roadmap.md` / `.claude/skills/` /
+      `docs/agent/rules/{philosophy,readme-writing}.md` / internals 两页
+- [x] 6.5 **grep 清零**：`docs/design/` 与 `docs/workflow/` 在三书 + agent/rules + `.claude/` +
+      根 README 中**为 0**（`docs/spec/archive/` 与 `docs/spec/changes/` 的历史变更记录保留——
+      那是留痕，改写等于篡改）
+- [x] 6.6 **删 doc-system 的「过渡期」临时节**（章程自己写着「重构完成即删」）；
+      `philosophy.md` 规则里的「不得再写进 docs/design/」改指新落点
+
+### User 裁决落地（本批）
+
+- [x] **「状态」字段只记未来**：`book-writing.md` §二 的 `**状态**: ✅ 已实现（0.3.x）` 改成
+      **可选的「待办」行**——只记 ToDo / 已知缺口 / 后续迭代机会，没有就整行省掉。
+      同步在 `doc-system.md` §6.3 补「禁的是回头看，不是向前看」的对照表
+      （此前只说「不写历史」，导致各批把 Deferred 内容一并压掉了）
+- [x] **README 模板合并**：`design/stdlib/README-template.md` 并入
+      `readme-writing.md`——新增「待办」「依赖关系」两个可选段 + 库目录的两处细化
+      （功能索引写成入口点、核心文件表加「类型」列），原文件删除
+
+### 未做（需 User 定）
+
+`docs/library_review.md`（2026-08-30 的一次性 stdlib 分析快照，结论已大部分被
+`batch4-verification.md` 的实测覆盖或推翻）与 `docs/todo-list.md`（速记清单，部分条目已完成）
+**未删也未合并**——删哪些、并哪些进 roadmap 需要 User 定。已在 `docs/README.md` 建「待归置」表登记。
 
 ## 批 7 · 其余门禁
 

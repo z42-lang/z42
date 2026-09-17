@@ -1,0 +1,36 @@
+// fix-ref-lvalue-addressing：`ref arr[i]` → LoadElemAddr(0xA1)。
+//
+// 此前 ExprEmitter 对任何 ref 实参一律发 LoadLocalAddr 取**临时寄存器**的地址
+// （`Emit(arr[i])` 是一次读取、产新临时槽）⇒ 出口 copy-out 写回临时槽，
+// 调用方看不到 ⇒ 本文件的第一条断言会得到 10 而非 11（静默丢写）。
+void Inc(ref int x) { x = x + 1; }
+void SetTo(ref int x, int v) { x = v; }
+
+void Main() {
+    int[] a = new int[3];
+    a[0] = 10; a[1] = 20; a[2] = 30;
+
+    Inc(ref a[0]);
+    Assert.Equal(11, a[0]);
+    Assert.Equal(20, a[1]);          // 邻元素不受影响
+    Assert.Equal(30, a[2]);
+
+    // 变量下标（下标表达式只求值一次的形态由 IR 保证）
+    int i = 2;
+    SetTo(ref a[i], 99);
+    Assert.Equal(99, a[2]);
+    Assert.Equal(11, a[0]);
+
+    // 连续多次写同一元素
+    Inc(ref a[0]);
+    Inc(ref a[0]);
+    Assert.Equal(13, a[0]);
+
+    // 引用类型元素：写回的是引用本身
+    string[] s = new string[2];
+    s[0] = "x";
+    SetStr(ref s[0], "y");
+    Assert.Equal("y", s[0]);
+}
+
+void SetStr(ref string x, string v) { x = v; }

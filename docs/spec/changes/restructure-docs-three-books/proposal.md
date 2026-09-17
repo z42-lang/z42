@@ -10,7 +10,7 @@
 | design 停止写入（D2） | 不再往里写 | `design/runtime/zbc.md` **2026-09-16 仍在改**（book 对应页停在 07-19）——两份并行漂移 |
 | 规范集中 | 全迁 `docs/agent/rules/` | ✅ 已由 `consolidate-agent-rules` 收口（16 篇归一） |
 
-**根因不是执行力，是结构**：book 被定义为「用户 + 维护者 + 大模型」**双受众**，于是实现细节在其中没有一等位置——把 `compiler-architecture.md` 的 1431 行 TSIG / Pratt / BoundVisitor 迁进一本「也给用户看的书」本身就别扭，所以迁不动。同源病症还有：语种策略无法收敛、`workflow/packaging.md` 与 `book/src/dev/packaging.md` 文件名撞车、CI job 表三处并存。
+**根因不是执行力，是结构**：book 被定义为「用户 + 维护者 + 大模型」**双受众**，于是实现细节在其中没有一等位置——把 `compiler-architecture.md` 的 1431 行 TSIG / Pratt / BoundVisitor 迁进一本「也给用户看的书」本身就别扭，所以迁不动。同源病症还有：语种策略无法收敛、`internals/src/devinfra/release.md` 与 `book/src/dev/packaging.md` 文件名撞车、CI job 表三处并存。
 
 **按受众切成三本书**，每本的深度、语种、是否发布都自洽，实现细节终于有自己的家。
 

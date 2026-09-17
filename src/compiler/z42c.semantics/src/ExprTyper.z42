@@ -249,6 +249,39 @@ public sealed class ExprTyper {
             return new BoundConditional(cond, thenE, elseE, TypeFactsTc._commonType(thenE.Type(), elseE.Type(), env.Symbols), t.Span);
     }
 
+    // fix-ref-lvalue-addressing：ref/out 实参的左值校验（报 E0470）。
+    private void _chkRefArgLvalue(BoundExpr inner, Span sp) {
+        if (inner is BoundIdent) { return; }                      // 局部 / 形参 / owner 字段裸名
+        if (inner is BoundIndex) {
+            BoundIndex bi = inner as BoundIndex;
+            if (bi.Target.Type() is Z42ArrayType) { return; }      // 数组元素 ✓
+            this._refArgBad("an indexer result", sp);
+            return;
+        }
+        if (inner is BoundMember) {
+            BoundMember bm = inner as BoundMember;
+            Z42Type rt = bm.Target.Type();
+            if (rt is Z42ArrayType) { this._refArgBad("an array's virtual member", sp); return; }
+            Z42ClassType rct = null;
+            if (rt is Z42ClassType) { rct = rt as Z42ClassType; }
+            else if (rt is Z42InstantiatedType) { rct = (rt as Z42InstantiatedType).Def; }
+            if (rct == null) { this._refArgBad("this expression", sp); return; }
+            // 值 struct 的字段：字节在 per-frame arena 里，VM 无对应 RefKind ⇒ 取址后写回无处可去。
+            if (rct.IsStruct) { this._refArgBad("a field of a value struct", sp); return; }
+            // 属性 / 索引器：读走 getter、写走 setter，没有可取址的存储。
+            if (rct.Methods.ContainsKey("get_" + bm.MemberName)) { this._refArgBad("a property", sp); return; }
+            return;                                                 // 引用类的普通字段 ✓
+        }
+        if (inner is BoundStaticGet) { this._refArgBad("a static field", sp); return; }
+        this._refArgBad("this expression", sp);
+    }
+
+    private void _refArgBad(string what, Span sp) {
+        this._tc._diags.Error("E0470",
+            "cannot pass " + what + " by reference; copy it into a local, pass the local with `ref`, "
+            + "then write the local back", sp);
+    }
+
     private BoundExpr _bindRefArg(RefArgExpr ra, TypeEnv env) {
             // `out var n` 内联声明：先在 env 声明（调用后可见，如 Assert.Equal(42, n)），再绑 inner。
             if (ra.IsVarDecl) {
@@ -256,6 +289,14 @@ public sealed class ExprTyper {
                 if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(ra.VarName, new Z42UnknownType()); }
             }
             BoundExpr inner = this._bindExpr(ra.Inner, env);
+            // fix-ref-lvalue-addressing：`ref` / `out` 的实参必须是**有存储、可取址**的左值。
+            // 支持：局部变量 / 形参、数组元素（→ LoadElemAddr）、引用类对象的字段（→ LoadFieldAddr）。
+            // 拒绝下列四种——它们此前**编译通过但写回静默丢失**（取的是临时寄存器的地址）：
+            //   · 属性 / 索引器：读走 getter、写走 setter，没有可取址的存储
+            //   · blob 值 struct 的字段：字节在 per-frame arena 里，VM 无对应 RefKind
+            //   · 静态字段：VM 没有 RefKind::Static（要支持需新增 opcode 0xA3，属独立变更）
+            //   · 字面量 / 调用结果等非左值
+            if (!ra.IsVarDecl) { this._chkRefArgLvalue(inner, ra.Span); }
             BoundRefArg bra = new BoundRefArg(inner, new Z42UnknownType(), ra.Span);
             bra.IsVarDecl = ra.IsVarDecl; bra.VarName = ra.VarName;
             return bra;

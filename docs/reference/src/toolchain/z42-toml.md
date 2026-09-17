@@ -273,7 +273,7 @@ strip = true           # 默认剥离 DBUG → 配套 <name>.zsym sidecar
 | `dist_dir` | string? | `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。替代了 0.1.x 的 `out_dir`。 |
 | `publish_dir` | string? | `${output_dir}/publish` | `${output_dir}/publish` | 发布分发目录。`z42c build`（exe）和 `z42c publish` 将产物 + 非 stdlib 依赖复制到此目录。lib 默认不复制（需显式 `z42c publish`）。 |
 | `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关（wire-build-incremental）。 |
-| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对；wire-z42b-host-build 阶段 7）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见 [build-orchestrator.md](../../../design/toolchain/build-orchestrator.md#自定义扩展manifest-声明-hook-目录)（含 `z42 publish` 经 hook 免装 workload 产 apphost）。 |
+| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对；wire-z42b-host-build 阶段 7）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见下文 publish 一节（`z42 publish` 经 hook 免装 workload 产 apphost）；编排实现属内部细节，本书不展开。 |
 
 **模板变量（`${...}`）**：
 
@@ -646,7 +646,7 @@ strip    = true
 | zpkg `[dependencies]` 之间 | A 依赖 B → B 不得（直接或传递）依赖 A | 🔄 编译期解析时检测（错误码待 RFC，建议 `E0610 CircularPackageDependency`） |
 | Workspace member 之间 | 同上，DFS 三色检测 | ✅ `WS006 CircularDependency`（见 [error-codes.md](../appendix/error-codes.md)） |
 | Preset `include` 链 | 同上 | ✅ `WS020 CircularInclude` |
-| stdlib 层级 | `L0 ← L1 ← L2 ← L3`，下层不得依赖上层 | ✅ 设计规则（见 [stdlib-organization.md](../../../design/stdlib/organization.md)） |
+| stdlib 包之间 | 同上，且 `z42.core` 在所有库之下 | ✅ 约定（无固定层级，只要求无环） |
 
 **为什么禁止循环依赖**：
 
@@ -1534,7 +1534,7 @@ stub 产出 exe。与 ios/android/wasm export 对称——apphost 不是独立�
 > **gate 与位置分离（2026-06-30）**：旧逻辑用「`publish_dir` 是否存在」充当「是否产 apphost」的开关，
 > 把"输出目录"与"是否启用"耦合在一个键上。现拆分——`apphost = true` 是唯一 gate，`publish_dir` 退化为
 > 纯输出位置。解析见 `z42.project` 的 `DesktopConfig.Apphost`；gate 实现见 `launcher_export.z42`
-> 的 `_cmdPublishDesktop`。机制详见 [launcher.md](../../../design/runtime/launcher.md) apphost 段。
+> 的 `_cmdPublishDesktop`。apphost 的打桩与签名属实现细节，本书不展开。
 
 ### CLI 覆盖
 
@@ -1547,11 +1547,11 @@ z42 export wasm    <project.z42.toml>                       [--output ./MyApp] [
 z42 publish <project.z42.toml>                             [--output <publish_dir>]
 ```
 
-详细设计见 [`docs/design/toolchain/export.md`](../../../design/toolchain/export.md)。
+工程生成的实现细节本书不展开。
 
 ## 条件配置：类型化轴子表（前瞻设计，未实施）
 
-> ⚠️ 前瞻设计（未实施）。决策见 [build-orchestrator.md](../../../design/toolchain/build-orchestrator.md) Decision #8。
+> ⚠️ 前瞻设计（未实施）。该字段的取舍属实现决策，本书不展开。
 
 z42.toml **不引入 csproj 式 `Condition` 表达式求值**。沿已知变化轴（profile / platform / rid）
 的条件内容，用**类型化轴子表 + 确定性合并**表达，而非字符串布尔表达式——"条件"靠表键匹配，
@@ -1591,7 +1591,7 @@ base（[dependencies] / [build] / 顶层）
 
 ## `build/` 构建扩展目录（z42b 自定义流程，build-orchestrator）
 
-> ⚠️ 前瞻设计（未实施）。完整设计见 [`docs/design/toolchain/build-orchestrator.md`](../../../design/toolchain/build-orchestrator.md)。
+> ⚠️ 前瞻设计（未实施）。完整设计属实现细节，本书不展开。
 
 项目可选地用一个 **`build/` 目录**（与 `src/` 平级）放构建流程的**自定义扩展** z42 源；
 `z42b` 编排器发现并编译它们进一次性 driver（约定优于配置，类比 `build.rs`）。

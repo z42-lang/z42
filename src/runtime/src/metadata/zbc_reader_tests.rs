@@ -116,13 +116,13 @@ fn zbc_version_constants_pinned() {
     // Sanity: writer's claimed version matches what the reader pins.
     // If this fails, the constants drifted out of sync with C# ZbcWriter.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
-    assert_eq!(ZBC_VERSION_MINOR, 42, "zbc minor at 1.42 (assoc-type-crosspkg: constraint bit7 + TYPE assoc block)");
+    assert_eq!(ZBC_VERSION_MINOR, 43, "zbc minor at 1.43 (fix-ref-lvalue-addressing: z42c now emits LoadElemAddr 0xA1 / LoadFieldAddr 0xA2)");
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 47, "zpkg minor at 0.47 (assoc-type-crosspkg: coupled zbc 1.42)");
+    assert_eq!(ZPKG_VERSION_MINOR, 48, "zpkg minor at 0.48 (fix-ref-lvalue-addressing: coupled zbc 1.43)");
 }
 
 #[test]

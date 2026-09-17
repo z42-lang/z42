@@ -1,7 +1,7 @@
 # 架构总览
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/compiler/`（z42c）· `src/toolchain/builder/` + `src/libraries/z42.build/`（z42b）
-> **相关**: [源代码编译流程](source-compile.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [项目构建与发布编排](../../../book/src/compiler/project-build.md) ｜ **对齐**: 2026-07-17
+> **相关**: [源代码编译流程](source-compile.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [项目构建与发布编排](../../../internals/src/toolchain/z42b.md) ｜ **对齐**: 2026-07-17
 
 ## 两个角色
 
@@ -48,7 +48,7 @@ graph LR
     S[source.z42] --> Lexer --> Parser/AST --> TypeCheck --> IrGen --> W[Zbc/ZpkgWriter → .zpkg]
 ```
 
-**B · 项目构建编排**（z42b 的构建阶段，详见[项目构建与发布编排](../../../book/src/compiler/project-build.md)）：即上文的构建流水线，其中 **Compile 阶段**经 `ICompiler` 接口调用流程 A 完成编译、产出 zpkg，随后继续裁剪与打包等阶段。
+**B · 项目构建编排**（z42b 的构建阶段，详见[项目构建与发布编排](../../../internals/src/toolchain/z42b.md)）：即上文的构建流水线，其中 **Compile 阶段**经 `ICompiler` 接口调用流程 A 完成编译、产出 zpkg，随后继续裁剪与打包等阶段。
 
 ## 迭代计划
 

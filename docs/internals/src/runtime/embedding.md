@@ -1,591 +1,367 @@
-# Embedding API（宿主嵌入 API）
+# 嵌入宿主 API（VM 侧实现）
 
-> **Status**: Design Draft（2026-05-10）。MVP 目标 = Hello World：宿主 app 启动 VM、加载一个 `.zbc`、调用入口、捕获 stdout、关闭。
+> 对齐：2026-09-17（change `restructure-docs-three-books`）。
+> 代码：`src/runtime/src/host/`（`mod.rs` extern "C" 分发 · `config.rs` 配置校验 · `error.rs` 状态码与 TLS
+> last_error · `state.rs` 单例状态 · `ops.rs` 加载/解析/调用 · `marshal.rs` 值编组 · `resolver.rs` zpkg 钩子）、
+> `src/runtime/include/z42_host.h`（Tier 1 头文件）、`src/runtime/crates/z42-host/`（Tier 2 crate）、
+> `src/runtime/src/corelib/io.rs`（sink 路由）、`src/toolchain/workload/{desktop,ios,android,wasm}/`（Tier 3 facade）。
 >
-> 本文与下列规范的关系：
->
-> - [interop.md](../../../design/language/interop.md) 解决 **native 代码 → 注册类型/方法进 z42**（"扩展语言"）。本文解决 **宿主 app → 启动并驱动 VM**（"嵌入运行时"）。两者复用同一份 `Z42Value` / `Z42Args` 类型，互不重叠。
-> - [cross-platform.md](cross-platform.md) 决定 VM **如何编译**到 ios/android/wasm。本文决定编译产物**如何被宿主调用**。
-> - [cross-platform-testing.md](../../../design/testing/cross-platform-testing.md) 的 test-runner 是本 API 的**首要消费者**之一；MVP 之后 runner 将基于本 API 重构（见 §12 Deferred）。
+> **宿主怎么调**（函数签名、返回码、生命周期与线程约束）见
+> [嵌入 C ABI 契约](../../../reference/src/embedding/c-abi.md)，本页不复述。
+
+本页讲 VM **内部怎么实现**那套 ABI：三层怎么分、单例状态放在哪、句柄怎么编码、
+输出怎么从解释器路由到宿主回调、错误怎么从 `anyhow::Error` 归类成状态码、zpkg 依赖按什么顺序解析。
+改 `z42_host.h` 或往 `src/runtime/src/host/` 加东西之前读这一页。
+
+反方向（native 代码把类型**注册进** z42）是另一套：见 [native-abi.md](native-abi.md)。
+两者复用同一份 `Z42Value` / `Z42Args` / `Z42Error`，在同一棵头文件树下并行，不重叠。
 
 ---
 
-## §0 编译边界（host 编 / mobile 跑）
+## 编译边界：host 编，mobile 跑
 
-**z42c 是 host-only 工具**。iOS / Android / wasm 等嵌入式平台**只装 VM**，不带编译器；mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台 facade 在运行时 load。原则在自举完成（compiler 用 z42 写）之前不会变。
+**z42c 是 host-only 工具**。iOS / Android / wasm 等嵌入式平台**只装 VM**，不带编译器；
+mobile 端拿到的是 host 端 `z42c` 编出来的 `.zbc` / `.zpkg`，由平台 facade 在运行时 load。
 
-后果：
+后果有三条，都会在改测试基建时撞上：
 
-- 各 platform 的测试资产步骤（`xtask test platform <plat> assets`）把 `src/toolchain/workload/fixtures/*.z42` 在 **host 端**用 `z42c` 编出 `.zbc`，复制进 `Z42VM.xcframework/Resources/` / `z42vm/src/main/assets/` / `pkg-{web,nodejs}/`。
-- 平台 facade 的 test harness（XCTest / JUnit / playwright）**只 load 预编 `.zbc`**，测试代码**不调用 `z42c` / `dotnet`**。
-- 该约束是 v0.1 facade test 契约的硬性前提，详见 `docs/spec/archive/<date>-define-platform-test-contract/specs/platform-test-contract/spec.md`。
-
----
-
-## §1 设计目标
-
-宿主嵌入场景：
-
-1. **iOS / Android app** 内嵌 z42 运行业务脚本或测试用例
-2. **桌面 IDE 插件**（VSCode 扩展）调用 z42 评估表达式
-3. **CI / 测试 runner** 在不 fork 子进程的前提下批量跑 `.zbc`
-4. **C/C++/Rust/Go 原生应用**通过稳定 ABI 接入 z42
-
-## §2 设计原则
-
-参照 CoreCLR `coreclrhost.h`、JNI `JavaVM`、Lua `lua_State` 三家的经验，确立五条：
-
-1. **单实例（v0.1）** — 每进程一份 VM 状态。`Z42HostRef` 是占位 handle，所有调用复用同一全局 context。多实例 / ALC / Isolated context 进 Deferred。
-2. **三层 ABI**（与 [interop.md §2](../../../design/language/interop.md) 同构） — Tier 1 稳定 C ABI；Tier 2 Rust 人因工程；Tier 3 平台 facade（Swift / Kotlin / JS）。
-3. **AOT 友好** — 入口解析按 FQN（fully qualified name）字符串查找，运行时不依赖反射元数据生成器。iOS 禁 JIT 场景下走 interp 或 AOT。
-4. **零拷贝优先** — 标量值通过 `Z42Value` 直接传递；`String` / `Array<T>` 通过 `pinned` 块跨边界（沿用 [interop.md §6.3](../../../design/language/interop.md)）。
-5. **panic 隔离** — 任何 z42 异常 / Rust panic 不跨 FFI 线；统一翻译为 `Z42HostStatus` 错误码 + `Z42Error` 详情。
+- 各平台的测试资产步骤（`z42 xtask.zpkg test platform <plat> assets`，实现在
+  `scripts/test/xtask_test_platform.z42`）把 `src/toolchain/workload/fixtures/*.z42` 在 **host 端**编成 `.zbc`，
+  再拷进 `Z42VM.xcframework/Resources/` / `z42vm/src/main/assets/` / `pkg-{web,nodejs}/`。
+- 平台 facade 的 test harness（XCTest / JUnit / Playwright）**只 load 预编 `.zbc`**，测试代码里不出现 `z42c`。
+- 这条约束在编译器不再需要 host 工具链之前不会变。
 
 ---
 
-## §3 架构
+## 三层分工
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Tier 3: 平台 facade                                          │
-│    Swift Package (z42)        → iOS app                     │
-│    Kotlin AAR (z42-android)   → Android app                 │
-│    npm package (@z42/wasm)    → 浏览器 / Node.js             │
+│    Swift Package (Z42VM)       → iOS app                    │
+│    Kotlin AAR (io.z42.vm)      → Android app                │
+│    npm package (@z42/wasm)     → 浏览器 / Node.js            │
+│    C shell (testhost/apphost)  → 桌面自包含 app              │
 ├─────────────────────────────────────────────────────────────┤
-│  Tier 2: Rust 嵌入 API                                       │
-│    z42_host::Host::new()      → 应用 / 内部测试 runner       │
+│  Tier 2: Rust 嵌入 API（crate z42-host）                     │
+│    Host::new() / load_zbc / resolve_entry / invoke          │
 ├─────────────────────────────────────────────────────────────┤
 │  Tier 1: C ABI（z42_host.h）                                 │
-│    z42_host_initialize / load_zbc / invoke / shutdown       │
+│    z42_host_* + z42_zpkg_read_namespaces + z42_host_run_app │
 └─────────────────────────────────────────────────────────────┘
                               ↓
-                    z42 VM（Interp / JIT / AOT）
+                          z42 VM
 ```
-
-代码归属：
 
 | 路径 | 内容 |
 |------|------|
-| `src/runtime/include/z42_host.h` | Tier 1 C 头文件（与 `z42_abi.h` 平行） |
+| `src/runtime/include/z42_host.h` | Tier 1 C 头文件（与 `z42_abi.h` 平行）。**唯一一份**——iOS / Android facade 目录下那两个同名文件是只有一行 `#include` 的转发头 |
 | `src/runtime/src/host/` | C ABI 在 VM 内的实现（Rust `extern "C"`） |
-| `src/toolchain/workload/host-api/` | Tier 2 Rust crate（`z42-host`）—— consolidate-platform-into-workload S1 迁此 |
-| `src/toolchain/workload/fixtures/` | 各平台 R1–R7 契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`）；面向用户的 C / Rust 嵌入示例由学习手册嵌入章节提供 |
-| `src/toolchain/workload/{ios,android,wasm}/platform/` | Tier 3 facade（与 P4.x spec 协同） |
+| `src/runtime/crates/z42-host/` | Tier 2 Rust crate（`z42-host`，lib 名 `z42_host`） |
+| `src/toolchain/workload/fixtures/` | 各平台契约测试共用的 z42 夹具（`hello.z42` / `multi_line.z42`） |
+| `src/toolchain/workload/{desktop,ios,android,wasm}/platform/` | Tier 3 facade |
+| `src/toolchain/workload/desktop/tests/r1_r7.c` | 真·外部 C 消费者：链 `libz42`，跑 R1–R7 七个契约场景。改 ABI 时这是第一道拦截 |
+
+### 为什么是这个形状
+
+参照 CoreCLR `coreclrhost.h`、JNI `JavaVM`、Lua `lua_State` 三家的经验，定了五条：
+
+1. **单实例** —— 每进程一份 VM 状态，`Z42HostRef` 是占位 sentinel。多实例要求把 VM 全局状态
+   per-handle 化，工作量与收益不成比例，先不做。
+2. **三层 ABI** —— 与 [native-abi.md](native-abi.md) 同构：Tier 1 稳定 C ABI；Tier 2 Rust 人因工程；Tier 3 平台 facade。
+3. **AOT 友好** —— 入口按 FQN 字符串查找，运行时不依赖反射元数据生成器。iOS 禁 JIT 的场景下走 interp。
+4. **零拷贝优先** —— 标量值通过 `Z42Value` 直接传递，不做自动编组。
+5. **panic 隔离** —— 任何 z42 异常 / Rust panic 都不跨 FFI 线，统一翻译成 `Z42HostStatus` + `Z42Error`。
 
 ---
 
-## §4 Tier 1 C ABI（`z42_host.h`）
+## 单例状态与句柄编码
 
-### 4.1 句柄与值类型
-
-```c
-/* 不透明句柄。v0.1 全部是进程单例的占位指针；多实例时升级为真句柄。 */
-typedef struct Z42Host*   Z42HostRef;     /* VM 实例 */
-typedef struct Z42Module* Z42ModuleRef;   /* 已加载的 .zbc */
-typedef struct Z42Entry*  Z42EntryRef;    /* 解析后的入口（方法/函数） */
-
-/* Z42Value / Z42Args 复用 z42_abi.h，不重新定义 */
-```
-
-### 4.2 初始化配置
-
-```c
-typedef enum Z42ExecMode {
-    Z42_EXEC_MODE_DEFAULT = 0,   /* 由 .zbc 元数据 + 编译时 feature 决定 */
-    Z42_EXEC_MODE_INTERP  = 1,
-    Z42_EXEC_MODE_JIT     = 2,   /* feature=jit 关闭时初始化失败 */
-    Z42_EXEC_MODE_AOT     = 3,   /* feature=aot 关闭时初始化失败 */
-} Z42ExecMode;
-
-/* stdout/stderr sink 回调。length 不含 NUL，sink 不应假设 NUL 结尾。 */
-typedef void (*Z42WriteSink)(const char* bytes, size_t length, void* user_data);
-
-/* zpkg resolver hook — 详见 §11. */
-typedef int (*Z42ZpkgResolverFn)(
-    const char* namespace_name,
-    const uint8_t** out_bytes, size_t* out_length,
-    void* user_data);
-
-typedef struct Z42HostConfig {
-    uint32_t      abi_version;        /* = Z42_HOST_ABI_VERSION */
-    uint32_t      reserved;
-
-    Z42ExecMode   exec_mode;
-    size_t        heap_initial_bytes; /* 0 = 默认（VM 决定） */
-    size_t        heap_max_bytes;     /* 0 = 不限 */
-
-    Z42WriteSink  stdout_sink;        /* NULL = 真 stdout */
-    Z42WriteSink  stderr_sink;        /* NULL = 真 stderr */
-    void*         sink_user_data;
-
-    /* 模块搜索路径（NULL 结尾的 C 字符串数组）。NULL = 仅 in-memory load。 */
-    const char* const* search_paths;
-
-    /* 2026-05-11 append-only：zpkg resolver hook + 用户数据。NULL = 无 hook。 */
-    Z42ZpkgResolverFn  zpkg_resolver;
-    void*              zpkg_resolver_user_data;
-} Z42HostConfig;
-
-#define Z42_HOST_ABI_VERSION 1
-```
-
-### 4.3 状态码
-
-```c
-typedef enum Z42HostStatus {
-    Z42_HOST_OK                  = 0,
-    Z42_HOST_ERR_ALREADY_INIT    = 1,   /* 单实例：重复 initialize */
-    Z42_HOST_ERR_NOT_INIT        = 2,
-    Z42_HOST_ERR_BAD_CONFIG      = 3,   /* abi_version 不匹配 / 配置非法 */
-    Z42_HOST_ERR_FEATURE_OFF     = 4,   /* JIT/AOT mode 但 feature 关闭 */
-    Z42_HOST_ERR_BAD_ZBC         = 10,  /* magic / 校验失败 */
-    Z42_HOST_ERR_VERIFICATION    = 11,  /* IR 校验失败 */
-    Z42_HOST_ERR_ENTRY_NOT_FOUND = 20,
-    Z42_HOST_ERR_ARG_MISMATCH    = 21,  /* 参数数量/类型不匹配 */
-    Z42_HOST_ERR_VM_EXCEPTION    = 30,  /* z42 throw 跨出顶层 */
-    Z42_HOST_ERR_INTERNAL        = 99,  /* Rust panic 等 */
-} Z42HostStatus;
-```
-
-### 4.4 生命周期 API
-
-```c
-/* 进程生命周期内仅可成功一次（v0.1）。线程安全。 */
-Z42HostStatus z42_host_initialize(const Z42HostConfig* cfg, Z42HostRef* out_host);
-
-/* 加载 .zbc 字节流。bytes 在调用期间必须存活；VM 按需 copy。 */
-Z42HostStatus z42_host_load_zbc(
-    Z42HostRef host,
-    const uint8_t* bytes, size_t length,
-    Z42ModuleRef* out_module);
-
-/* 按 FQN 解析入口。例 "examples.hello::Main" 或 "examples.hello.Greeter::greet"。 */
-Z42HostStatus z42_host_resolve_entry(
-    Z42HostRef host, Z42ModuleRef module,
-    const char* fqn,
-    Z42EntryRef* out_entry);
-
-/* 同步调用入口。args/n 与签名匹配；result 可为 NULL 表示不取返回值。 */
-Z42HostStatus z42_host_invoke(
-    Z42EntryRef entry,
-    const Z42Value* args, size_t n,
-    Z42Value* out_result);
-
-/* 详细错误信息（线程局部）。每次成功调用清空。 */
-Z42Error z42_host_last_error(Z42HostRef host);
-
-/* 释放整个 VM。Module/Entry 句柄随之失效；shutdown 后可重新 initialize。 */
-Z42HostStatus z42_host_shutdown(Z42HostRef host);
-```
-
-### 4.5 ABI 演化规则（沿用 interop.md §3.3）
-
-- `abi_version` 字段保持 offset 0；新版本只 append 字段
-- VM 按 `abi_version`-aware 大小读取 `Z42HostConfig`，不假设布局
-- 主版本号变更 = 显式 break，semver-major
-
----
-
-## §5 Tier 2 Rust API（`src/toolchain/workload/host-api/`）
-
-最小 surface（v0.1）：
+`state.rs` 持一个 `static HOST: RwLock<Option<HostState>>`。
+`initialize` 拿写锁、发现 `Some` 就返回 `AlreadyInit`；`shutdown` 拿写锁换成 `None`。
+状态转移只在这两处，`ops` 层一律经 `with_state_read` / `with_state_write` 访问，
+拿不到状态（`None`）时统一映射成 `ERR_NOT_INIT`。
 
 ```rust
-// crate: z42-host
+pub(crate) struct HostState {
+    pub config:  ResolvedConfig,
+    pub modules: Vec<HostModule>,   // 每个已 load 的产物 + 它自己的 VmContext
+    pub entries: Vec<HostEntry>,    // { module_idx, fn_idx }
+    pub corelib: Option<HostCorelib>,
+}
+```
 
-pub struct Host { /* opaque */ }
+三种句柄的编码：
 
+- `Z42HostRef` = **常量 sentinel** `HOST_SENTINEL = 0x1`，永不解引用。`is_valid_handle` 只验
+  「非 NULL ∧ 等于 sentinel ∧ 当前已初始化」。
+- `Z42ModuleRef` / `Z42EntryRef` = 对应 `Vec` 的**下标 + 1**（加一是为了让 NULL 与第 0 个句柄区分开）。
+
+**没有代龄（generation）**：shutdown 抹掉整个单例，之后任何 host API 调用都返回 `ERR_NOT_INIT`，
+所以陈旧句柄不会被误当成有效句柄用——但也仅此而已，同一进程内 shutdown→initialize 之后
+拿老句柄会命中新 VM 的同下标条目。多实例落地时这里要换成带代龄的句柄。
+
+`HostState` 手工 `unsafe impl Send + Sync`：`ResolvedConfig` 里带函数指针和宿主的 `user_data`；
+函数指针本身是 `Send`/`Sync`，`user_data` 被存成 `usize` 而非裸指针，运行时从不解引用它。
+线程安全归宿主，这是契约的一部分。
+
+### 每个 module 一个 VmContext
+
+`HostModule` 持 `Pin<Box<VmContext>>`，模块本身由 ctx 拥有。
+这样并发 load 两个产物不会互相污染静态状态。
+
+`ops::build_host_module` 的流程：
+
+1. `load_artifact_from_bytes` 解析用户 `.zbc` / `.zpkg`；
+2. namespace 列表 = `["z42.core"]` + 用户产物的 `import_namespaces`（去重、保持声明顺序）；
+3. 逐个 namespace **先问 resolver、miss 再扫 `search_paths`**（见下一节）；
+4. **eager 合并**所有依赖模块 → `merge_modules` → 重建类型注册表 / 约束校验 / block 索引 / func 索引；
+5. `boot::boot_context` 建 ctx（与 `app::run` 走同一套 boot 步骤：cctor 注册、lazy loader 播种、
+   availability 折叠），再 `boot::prepare_execution`。
+
+第 4 步选 eager 而不是靠 `declared_candidates` 懒解析，是刻意的：宿主是单实例、每次 `load_zbc`
+只走一遍依赖，用一点加载期开销换「invoke 期间不会有意外的懒查找」。
+
+> 第 5 步必须走 `boot::boot_context`，不能手抄。这条路径曾经手工复制过一份更老的子集
+> （没有 cctor 注册、没有 lazy loader 播种、没有 availability 折叠、module 放在 ctx 外面），
+> 结果嵌入路径的静态初始化行为和 `z42vm` 不一致。
+
+静态初始化本身挂在 `HostModule::static_init: OnceLock<Result<(), String>>` 上，
+第一次 invoke 时跑、且**只跑一次**（`init_static_fields` 会先清空所有静态字段，跑第二遍会把已初始化的状态抹掉）。
+失败是粘性的：之后每次 invoke 都返回同一条错误，而不是拿半初始化的静态字段继续执行。
+
+---
+
+## zpkg 依赖解析顺序
+
+`load_zbc` 里对每个 namespace 走同一棵决策树：
+
+```
+for ns in ["z42.core"] + user_artifact.import_namespaces:
+    1. resolver.resolve(ns)     hit → 用 resolver 给的字节
+    2. corelib / search_paths   hit → 扫文件系统
+    3. silent miss              → load_zbc 仍返回 OK
+```
+
+`z42.core` 是**隐式 prelude**：用户 `.zbc` 一句 `using` 都没有，运行时也会请求一次 corelib。
+
+第 3 步「静默 miss」是有意的：自包含产物可能真的不需要 corelib。
+代价是错误延后到 invoke——解释器派发时报 `undefined function`，被归类成 `ERR_VM_EXCEPTION`。
+
+`search_paths` 分支的两个细节：
+
+- `probe_corelib` 在 `initialize` 时就扫一遍 `search_paths` 找 `z42.core.zpkg`，并**试解析一次**
+  （结果丢弃），这样坏 corelib 在 `initialize` 就报 `ERR_BAD_CONFIG`，而不是在第一次 `load_zbc` 时
+  变成一条令人困惑的错误。找到它的那个目录就成了 `libs_dir`，其余 namespace 从那里找。
+- 文件系统分支用 canonical 路径去重：同一个 zpkg 常常同时提供多个 namespace，
+  不去重就会把 `z42.core.zpkg` 合并进去好几遍。
+
+### 两种 resolver 形态收敛到一个 trait
+
+```rust
+pub trait ZpkgResolver: Send + Sync {
+    fn resolve(&self, namespace: &str) -> Option<Vec<u8>>;
+}
+```
+
+- **C 函数指针 + user_data**（`Z42ZpkgResolverFn`，来自 `Z42HostConfig`）被 `resolver::CHookResolver`
+  包一层。`user_data` 存成 `usize` 以干净地继承 `Send + Sync`。回调返回后**立刻 `to_vec()` 复制**，
+  所以宿主那边「字节只需活到回调返回」的契约得以成立。
+- **Rust `Arc<dyn ZpkgResolver>`** 由 Tier 2 经 `host::install_zpkg_resolver()` 直接塞进
+  `HostState::config`，不绕 C 回调。这个函数**不是** `extern "C"`，是 Tier 2 专用的逃生口。
+
+### Tier 3 各平台的默认 resolver
+
+平台 facade 自己的「namespace → 字节」表**由读 zpkg 的 `NSPC` section 派生**，没有索引文件。
+一份 zpkg 通常提供多个 namespace（`z42.core.zpkg` 同时 ship `z42.core` / `Std` / `Std.Exceptions` …），
+所以不能假设 `namespace == 文件名`；早先那张手维护的 `index.json` 是 `NSPC` 之外的**第二真相源**、
+必然漂移，已经删掉。
+
+| 平台 | 默认 resolver | 位置 |
+|---|---|---|
+| iOS | `BundleZpkgResolver(bundle: .main, subdirectory: "stdlib")` —— 枚举 `Bundle.urls(forResourcesWithExtension:"zpkg",subdirectory:)`，逐个读 NSPC 建表。`Z42VM.init` 的**默认参数**，不传就自动装 | `ios/platform/Sources/Z42VM/ZpkgResolver.swift` |
+| Android | `AssetZpkgResolver(assets, subdir = "stdlib")` —— `AssetManager.list` 枚举，逐个经 `Z42VM.readNamespaces`（JNI 桥到同一个 C ABI）读 NSPC。另有 `MapZpkgResolver`。`Z42VM` 构造器里 resolver 是**必填参数** | `android/.../io/z42/vm/ZpkgResolver.kt` |
+| wasm | `bundleStdlibNode(readNamespaces)` / `bundleStdlibBrowser(baseUrl, readNamespaces)` / `mapResolver(map)` —— Node 侧 `readdir`，浏览器侧 fetch 构建期生成的 `files.json`（HTTP 枚举不了目录，这是文件名清单的派生替身，**不是** namespace 映射） | `wasm/platform/js/stdlib-resolver.js` |
+
+读 NSPC 的 helper 在三个层面各有一份入口，都落到同一段 Rust（`metadata::zbc_reader::read_zpkg_meta`）：
+C ABI `z42_zpkg_read_namespaces`、Rust `z42_host::read_zpkg_namespaces`、
+wasm 导出 `readNamespaces` / Android JNI `Z42VM.readNamespaces`。
+Swift / Kotlin / JS 都不需要自己重写 zpkg 解析。
+
+`./xtask build stdlib` 产 flat view 时不写任何索引文件；各平台 `build.sh` 只拷 `*.zpkg`。
+
+---
+
+## 输出路由：从解释器到宿主 sink
+
+sink 的落点在 `src/runtime/src/corelib/io.rs`，由两级开关控制：
+
+```rust
+static HOST_STDOUT_SINK: RwLock<Option<HostSink>> = RwLock::new(None);   // 进程全局
+static HOST_STDERR_SINK: RwLock<Option<HostSink>> = RwLock::new(None);
+thread_local! { static HOST_SINK_ACTIVE: Cell<bool> = const { Cell::new(false) }; }
+```
+
+- **进程全局的 sink 槽**由 `install_host_stdout_sink` / `install_host_stderr_sink` 装卸：
+  `initialize` 从 config 装、`set_*_sink` 换、`shutdown` 卸（装 `None`）。
+- **线程局部的 active 标志**由 `ops::HostSinkGuard::enter()` 在 `invoke_impl` 开头置位、
+  `Drop` 时复位为**进入前的值**（不是无条件 false），所以 panic 或提前 return 都不会留下悬空标志。
+
+`route_stdout` 的优先级：active ∧ 全局槽非空 → 宿主 sink；否则 → test-IO 捕获栈；再否则 → 进程 stdout。
+
+**为什么要这个线程局部标志**：sink 槽是进程全局的，但只有正在执行 `z42_host_invoke` 的那条线程
+应该把输出交给宿主。没有这个标志，另一条线程上并发跑的 `TestIO.captureStdout` 会被劫持到宿主 sink 去。
+代价是 z42 程序自己 spawn 出来的线程的输出不进宿主 sink——这条限制写进了契约。
+
+`WriteLine` 的换行拼在 `dispatch_host_sink` 内部同一个 buffer 里一次交付，所以「一次写出 = 一次回调」，
+顺序天然等于 z42 程序的写出顺序。
+
+> `z42_host_set_stdout_sink(host, NULL, ud)` 是**卸载**（装 `None`），不是「恢复 config 里那个」。
+> 头文件注释目前写的是 "NULL restores the configured default"，与实现不符。
+
+---
+
+## 错误归类
+
+`error.rs` 的 `LAST_ERROR` 是 `thread_local! { RefCell<LastError> }`，
+`message` 由一个 `CString` 背书，指针有效期到同线程下一次 `set_error` / `clear_error`。
+没有待决错误时返回的是一个静态空串指针（不是 NULL），所以宿主不必判空。
+每个 extern "C" 入口在成功路径 `clear_error()`、失败路径 `set_error(...)`，两者都返回状态码，
+于是实现里可以一行写成 `return set_error(...)`。
+
+panic 兜底靠 `guard()`：整个函数体包在 `catch_unwind(AssertUnwindSafe(..))` 里，
+Err 分支翻译成 `ERR_INTERNAL` 加一条稳定消息。`z42_host_run_app` 因为返回 `i32` 而不是状态码，
+自己单独 `catch_unwind`，panic 返回 70。
+
+### 为什么用字符串前缀分类
+
+解释器路径通篇是 `anyhow::Error`，没有结构化错误类型。`invoke` 的错误分流靠两个稳定 marker：
+
+```rust
+fn classify_invoke_error(msg: &str) -> Z42HostStatus {
+    if msg.contains("arg-count-mismatch:")        { ArgMismatch }
+    else if msg.contains("uncaught exception")
+         || msg.contains("undefined function")    { VmException }
+    else                                          { Internal }
+}
+```
+
+- `arg-count-mismatch:` 由 `ops::invoke_impl` 在**任何其他检查之前**抛出，所以它优先级最高。
+- `uncaught exception:` 由 `exception::format_uncaught` 钉住（`src/runtime/src/exception/mod.rs`），
+  是 z42 异常输出的稳定契约。
+- `undefined function` 是解释器派发期找不到符号的错误（典型场景：corelib 没解析到，
+  用户代码碰 `Console.WriteLine`）。它是用户的 z42 程序可见的运行期失败，归 `VmException` 而不是 `Internal`。
+
+为单个分类引入领域错误类型的成本远大于一个稳定 marker——这是明知丑但划算的取舍。
+**代价**：改这几条消息文本等于改 ABI 行为，改之前先看 `host_tests.rs`。
+
+### `ERR_VERIFICATION` 是个空枚举值
+
+`Z42HostStatus::Verification`(11) 在运行时**没有任何发射点**。
+`verify_constraints` 失败在 `ops::build_host_module` 里被 `.context()` 包成普通 `Err`，
+到 `z42_host_load_zbc` 统一映射成 `BadZbc`(10)。Tier 2 的 `translate_status` 里那个分支是死代码。
+要么给它接上发射点，要么从 ABI 里删——现状是两头不靠。
+
+### 被接受但被忽略的配置字段
+
+- `heap_initial_bytes` / `heap_max_bytes` 只进 `ResolvedConfig` 和 Debug 输出，**没有消费点**。
+- `exec_mode` 只做 `from_raw` 合法性校验 + `check_feature_available`（feature 没开就报 `ERR_FEATURE_OFF`）。
+  校验之后没人再看它：句柄式 invoke 永远走 `interp::run_returning`。
+  （`z42_host_run_app` 是另一条路，用 `app::default_mode()`，与 `Z42HostConfig` 无关。）
+
+这两处的现状写进了契约页的「当前不支持」表。要真正接上，落点分别是 GC 配置与 `vm::run` 的后端选择。
+
+---
+
+## 值编组
+
+`marshal.rs` 目前只处理四个 tag：`NULL` / `I64` / `F64` / `BOOL`，两个方向对称。
+其他 tag 一律 `bail!`，由 `mod.rs` 映射成 `ERR_ARG_MISMATCH`。
+`None`（void 返回）编组成 NULL tag，所以宿主的 `out_result` 永远拿到一个有定义的值。
+
+字符串 / 数组 / 对象要跨边界，需要的不只是 marshal 的分支，而是一套跨调用的生命周期方案
+（GC 句柄要不要暴露到嵌入 API surface），这是没做的主要原因。
+
+---
+
+## Tier 2：`z42-host` crate
+
+Tier 2 是 Tier 1 的 Rust 安全封装：所有 `unsafe` 关在 crate 内部，对外是 `Result` + RAII。
+
+```rust
 pub struct HostConfig {
-    pub exec_mode:        ExecMode,
-    pub heap_initial:     Option<usize>,
-    pub heap_max:         Option<usize>,
-    pub stdout_sink:      Option<Box<dyn Fn(&[u8]) + Send + Sync>>,
-    pub stderr_sink:      Option<Box<dyn Fn(&[u8]) + Send + Sync>>,
-    pub search_paths:     Vec<PathBuf>,
+    pub exec_mode:     ExecMode,
+    pub heap_initial:  Option<usize>,
+    pub heap_max:      Option<usize>,
+    pub stdout:        Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
+    pub stderr:        Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
+    pub search_paths:  Vec<PathBuf>,
+    pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
 }
 
 impl Host {
     pub fn new(cfg: HostConfig) -> Result<Self, HostError>;
-
     pub fn load_zbc(&self, bytes: &[u8]) -> Result<Module, HostError>;
-    pub fn load_zbc_path(&self, path: &Path) -> Result<Module, HostError>;
-
+    pub fn load_zbc_path<P: AsRef<Path>>(&self, path: P) -> Result<Module, HostError>;
     pub fn resolve_entry(&self, m: &Module, fqn: &str) -> Result<Entry, HostError>;
     pub fn invoke(&self, e: &Entry, args: &[Value]) -> Result<Value, HostError>;
-}
-
-// Drop 自动 shutdown
+}   // Drop 自动 shutdown
 ```
 
-Tier 2 是 Tier 1 的 Rust 安全封装：所有 unsafe 隔离在 `z42-host` 内部，对外是 `Result` + RAII。
+另有三组自由函数与类型：`read_zpkg_namespaces()`（读 NSPC，无需 VM）、
+`run_app()`（一次性跑 app，对应 C 的 `z42_host_run_app`）、
+内置 resolver `MapResolver`（`HashMap` eager，移动 / wasm 用）与 `SearchPathsResolver`（包文件系统扫描）。
+
+三处**不是**照抄 Tier 1 的地方：
+
+1. **闭包 sink 的跳板**。`HostConfig.stdout` 是 `Box<dyn Fn>`，C 那边只认函数指针 + `user_data`。
+   crate 把闭包装进 `Box<SinkBox>`、由 `Host` 持有保活，`user_data` 传 `&*SinkBox`，
+   `sink_trampoline` 反解引用后调闭包。
+2. **两个 sink 各自的 user_data**。Tier 1 的 `Z42HostConfig` 只有一个 `sink_user_data`，
+   于是 `Host::new` 先用 stdout 的那个完成 `initialize`，随后立刻调 `z42_host_set_stderr_sink`
+   把 stderr 的 `user_data` 换成它自己的 `SinkBox`。
+3. **Rust resolver 不走 C 往返**。`cfg.zpkg_resolver` 在 `initialize` 成功后经
+   `install_zpkg_resolver(Arc<dyn ZpkgResolver>)` 直接装进运行时状态，绕开 `CHookResolver` 适配层。
+   这三步里任何一步失败，`Host::new` 都会先 `z42_host_shutdown` 再返回 Err，不留半初始化的 VM。
+
+`Host` / `Module` / `Entry` 都手工 `unsafe impl Send`（内部真正的同步在运行时那把 `RwLock` 里，
+句柄本身只是 sentinel），但都**不是 `Sync`**——与「调用串行化由宿主负责」的契约一致。
 
 ---
 
-## §6 Tier 3 平台 facade
+## Tier 3：平台 facade
 
-各平台 facade 落在对应 `add-platform-{ios,android,wasm}` spec 的 host 子段；本文只规定 facade 的最小语义契约，不规定 API 细节。
+facade 的 API 细节由各平台自己定，这里只规定最小语义契约：
 
-### 6.1 共同语义
+- 暴露一个 `Host` 型的类（Swift `class` / Kotlin `class` / TS `class`）；
+- 至少支持：从 `Data` / `ByteArray` / `Uint8Array` 加载产物、按 FQN 调用、读取 stdout 字符串；
+- stdout 默认 sink = 在内存累积成字符串（移动平台没有真 stdout）；
+- 异常翻译成平台原生异常（`NSError` / `Throwable` / `Error`）；
+- 资源释放绑到平台惯用的机制上（Swift `deinit` / Kotlin `AutoCloseable.close()` / Rust `Drop`）。
 
-- 暴露 `Host` 类（Swift `class`、Kotlin `class`、TS `class`）
-- 至少支持：从 `Data` / `ByteArray` / `Uint8Array` 加载 `.zbc`、按 FQN 调用、读取 stdout 字符串
-- stdout 默认 sink = 在内存累积成字符串（移动平台无真 stdout）
-- 异常翻译为平台原生异常（`NSError` / `Throwable` / `Error`）
+桌面侧还有两个直接吃 `z42_host_run_app` 的 C shell，它们是**最小可读的嵌入示例**：
 
-### 6.2 具体 API 形态
+- `workload/desktop/shell/testhost.c`（32 行）—— 跑 app.zpkg，`Z42_LIBS` 指 stdlib；
+- `workload/desktop/shell/apphost_embed.c`（81 行）—— 自己解析可执行文件所在目录，
+  跑同目录下的 `app.zpkg` + `./libs`，`z42 publish --self-contained` 直接拷它，发布时不编译。
 
-留待各 P4.x spec 拍板。本文只保证 Tier 1 ABI 足以让 facade 实现上述语义。
-
----
-
-## §7 生命周期与线程模型
-
-- **初始化**：`z42_host_initialize` 进程内单次。重复调用返回 `ERR_ALREADY_INIT`。
-- **线程**：v0.1 假定**调用串行化**。多线程并发调用同一 `Z42EntryRef` 的行为未定义，由宿主负责加锁。后续是否做内置 mutex 进 Deferred。
-- **回调线程**：`Z42WriteSink` 在调用 `z42_host_invoke` 的同一线程被同步触发。
-- **关闭**：`shutdown` 释放 VM 全部状态（heap、模块表、JIT cache）。任何在途调用必须先返回。
-
----
-
-## §8 stdout / stderr 重定向
-
-iOS / Android 没有真 stdout，必须重定向。
-
-- VM 内 `Console.WriteLine` 等输出统一走 `Z42WriteSink`
-- `sink == NULL` 时退化为平台 stdout（桌面）
-- 移动 facade 默认绑一个**累积型 sink**，调用结束后 `host.lastStdout()` 取字符串
-- 二进制安全：sink 接 `(bytes, length)`，不假设 UTF-8
-
-实现侧：`src/runtime/src/native/io.rs` 现已有 stdout writer 抽象，扩展支持 sink 注入。
+`z42_host_run_app` 在 native 平台上**不在调用线程跑 VM**，而是 spawn 一条 16 MB 栈的
+`z42-embedded-run` 线程再 join。原因：解释器在 native 调用栈上递归（一次 z42 调用一个 native 帧），
+而 Android 的 `AndroidJUnitRunner` 和 iOS XCTest 的线程栈只有 ~512 KB–1 MB，
+桌面 8 MB 下跑得好好的深递归程序在嵌入环境里会直接 SIGSEGV 整个进程。
+16 MB = 桌面默认的 2×：既然崩的用例在桌面 8 MB 下能过，≥8 MB 就够，2× 是余量；
+再大没意义（桌面过不了的程序本来就得改）。64 位上这只是虚拟保留，碰到的页才提交。
+wasm 是单线程、且经 `z42_wasm` 而不是这个 C 符号进来，所以那条 spawn 路径被 `cfg` 掉。
 
 ---
 
-## §9 Hello World 示例
-
-### 9.1 z42 源（`hello.z42`）
-
-```z42
-namespace examples.hello;
-
-public static class Greeter {
-    public static int Greet(string name) {
-        Console.WriteLine($"Hello, {name}!");
-        return 0;
-    }
-}
-```
-
-编译：`z42c --emit-zbc hello.z42 hello.zbc`
-
-### 9.2 C 宿主
-
-```c
-#include "z42_host.h"
-#include "z42_abi.h"
-#include <stdio.h>
-
-static void on_stdout(const char* b, size_t n, void* _) {
-    fwrite(b, 1, n, stdout);
-}
-
-int main(void) {
-    Z42HostConfig cfg = {
-        .abi_version = Z42_HOST_ABI_VERSION,
-        .exec_mode   = Z42_EXEC_MODE_DEFAULT,
-        .stdout_sink = on_stdout,
-    };
-    Z42HostRef host;
-    if (z42_host_initialize(&cfg, &host) != Z42_HOST_OK) return 1;
-
-    /* ... read hello.zbc into bytes/len ... */
-    Z42ModuleRef mod;
-    z42_host_load_zbc(host, bytes, len, &mod);
-
-    Z42EntryRef entry;
-    z42_host_resolve_entry(host, mod, "examples.hello.Greeter::Greet", &entry);
-
-    Z42Value name = z42_value_string("World");   /* helper from z42_abi.h */
-    Z42Value result;
-    z42_host_invoke(entry, &name, 1, &result);
-
-    z42_host_shutdown(host);
-    return 0;
-}
-```
-
-### 9.3 Rust 宿主
-
-```rust
-use z42_host::{Host, HostConfig, ExecMode, Value};
-
-fn main() -> anyhow::Result<()> {
-    let cfg = HostConfig {
-        exec_mode:   ExecMode::Default,
-        stdout_sink: Some(Box::new(|b| std::io::stdout().write_all(b).unwrap())),
-        ..Default::default()
-    };
-    let host  = Host::new(cfg)?;
-    let m     = host.load_zbc_path("hello.zbc".as_ref())?;
-    let entry = host.resolve_entry(&m, "examples.hello.Greeter::Greet")?;
-    host.invoke(&entry, &[Value::string("World")])?;
-    Ok(())
-}
-```
-
-### 9.4 Swift / Kotlin
-
-详细 API 形态进 `add-platform-ios` / `add-platform-android` spec。本文只承诺：MVP 完成后，两平台都能跑通"加载 hello.zbc → invoke → 取 stdout 字符串 → 断言 == 'Hello, World!\n'"。
-
----
-
-## §10 错误处理
-
-### 设计原则
-
-- 所有 API 返回 `Z42HostStatus`；详细信息走 `z42_host_last_error`（线程局部）
-- 成功路径必须 clear last_error；失败路径必须 set
-- z42 端 `throw` 跨出顶层 → `ERR_VM_EXCEPTION`，错误信息含异常类型 + message
-- Rust panic（不应该发生，但兜底）→ `ERR_INTERNAL`
-- ABI 不暴露异常对象本身（v0.1）；后续 catch-from-host 进 Deferred
-
-### 状态码 → 触发条件（H1–H3 实测）
-
-| 状态码 | 触发条件 | 测试 |
-|--------|---------|------|
-| `OK` (0) | 任何 API 成功；副作用：`last_error.code = 0` | 所有 happy-path 测试 |
-| `ERR_ALREADY_INIT` (1) | `initialize` 在已初始化状态再次调用 | `initialize_twice_returns_already_init` |
-| `ERR_NOT_INIT` (2) | 任何 API 在未初始化状态调用（含 stale handle） | `shutdown_when_not_initialized_returns_not_init` / `load_zbc_before_init_returns_not_init` |
-| `ERR_BAD_CONFIG` (3) | `cfg == NULL` / `abi_version` 不匹配 / 未知 `exec_mode` / `search_path` 含 NUL | `null_config_returns_bad_config` / `bad_abi_version_returns_bad_config` / `unknown_exec_mode_returns_bad_config` |
-| `ERR_FEATURE_OFF` (4) | 请求 JIT/AOT 但对应 feature 编译时关闭（[cross-platform.md](cross-platform.md)） | `jit_mode_when_feature_off_returns_feature_off` |
-| `ERR_BAD_ZBC` (10) | bytes 长度 < 4 / magic 不匹配 / `read_zbc` 解析失败 | `load_zbc_with_garbage_bytes_returns_bad_zbc` |
-| `ERR_VERIFICATION` (11) | IR 校验失败（暂未独立测试覆盖；通过 `verify_constraints` 抛出） | — |
-| `ERR_ENTRY_NOT_FOUND` (20) | FQN 不在 `module.func_index` / module handle 是 NULL | `resolve_entry_unknown_fqn_returns_entry_not_found` |
-| `ERR_ARG_MISMATCH` (21) | `args.len() != func.param_count`（v0.1 仅检查数量，类型在 H4+ 引入完整 marshal 后扩展） | `invoke_arg_count_mismatch_returns_arg_mismatch` |
-| `ERR_VM_EXCEPTION` (30) | z42 `throw` 跨出 invoke 顶层（错误消息以 `"uncaught exception:"` 开头，由 `exception::format_uncaught` 生成） | `z42_throw_escapes_as_vm_exception_with_message` |
-| `ERR_INTERNAL` (99) | Rust panic 经 `catch_unwind` / 锁中毒 / 其他未分类错误 | （兜底，无单独测试用例） |
-
-### 错误消息分类机制（实施细节）
-
-`host::ops::invoke_impl` 把"参数数量不符"先于其他错误检查，并以前缀 `arg-count-mismatch:` 抛出 `anyhow::Error`。`host::mod::classify_invoke_error` 按字符串前缀分流：
-
-```rust
-fn classify_invoke_error(msg: &str) -> Z42HostStatus {
-    if msg.contains("arg-count-mismatch:")     { Z42HostStatus::ArgMismatch }
-    else if msg.contains("uncaught exception") { Z42HostStatus::VmException }
-    else                                       { Z42HostStatus::Internal }
-}
-```
-
-为何用字符串前缀而不是结构化 enum：interp 路径已是 `anyhow::Error`-only；为单个分类增加领域错误类型成本远大于一个稳定 marker。`uncaught exception:` marker 由 `exception::format_uncaught` 钉住（参见 `src/runtime/src/exception/mod.rs`），是 z42 异常输出的稳定契约。
-
-### Sink 顺序保证
-
-`route_stdout` / `route_stderr` 在 `HOST_SINK_ACTIVE` 设为 `true` 的线程上**同步**派发；
-多次 `Console.WriteLine` 严格按调用顺序触发 sink，sink 收到的字节顺序与 z42 程序的写出顺序一致。
-`sink_called_in_correct_order_for_multiple_lines` 用 3 行输出验证该保证。
-
----
-
-## §11 实施里程碑
-
-| Milestone | 内容 | 依赖 |
-|-----------|------|------|
-| **H0 spec** | 本文档 + docs/spec/archive/2026-05-10-add-embedding-api/ DRAFT | — |
-| **H1 C ABI scaffold** | `z42_host.h` + Rust `extern "C"` 空实现 + 链接通 | H0 |
-| **H2 hello-world (interp)** | initialize / load_zbc / resolve / invoke / shutdown 跑通 hello-world；sink 工作；C + Rust 两个 example | H1，interp 已就绪（M4 已完成）|
-| **H3 错误路径** | 所有 `Z42HostStatus` 路径有测试覆盖；VM 异常 → `ERR_VM_EXCEPTION` | H2 |
-| **H4 平台接入** | 与 P4.3 / P4.4 协同：Android JNI bridge / iOS Swift facade 调本 ABI 跑 hello-world | H3 |
-| **H5 runner 重构** | test-runner library 内部改用 z42-host crate | H4 |
-
-H1–H3 为本 spec 的实施范围；H4 / H5 由各 P4.x / runner spec 主导。
-
----
-
-## §12 Deferred（明确不做的）
-
-> 本节遵循 [feedback_deferral_location.md] 约定：所有延后写在本节，roadmap.md "Deferred Backlog Index" 横向索引。
-
-| 项 | 推迟原因 | 触发条件 |
-|----|---------|---------|
-| **多 VM 实例 / ALC-like context** | 单实例足够覆盖 hello-world 与移动测试场景；多实例需要 VM 全局状态 per-handle 化，工作量大 | IDE 多 workspace 隔离需求 / hot-reload 实现 |
-| **Hot reload** | 依赖多实例 + 模块卸载语义；先把 [hot-reload.md] 的命名空间级方案跑通 | 多实例落地后 |
-| **GC handle 跨调用持有** | hello-world 不需要宿主缓存 z42 对象；直接复用 [gc-handle.md] 即可，但要提升到嵌入 API surface 涉及生命周期与 ABI 设计，先观望真实需求 | 出现宿主缓存 z42 service 对象的实际场景 |
-| **Async / 协程式 invoke** | v0.1 同步即可；移动 UI 线程切换由宿主负责 | z42 引入 async 之后（L3） |
-| **VM 内部 mutex 自动加锁** | 让宿主显式串行化，更简单 | 出现宿主自加锁开销大的实际场景 |
-| **从宿主 catch z42 异常对象** | v0.1 只暴露 status code + message string；不暴露异常对象本身 | 用户反馈需要细粒度异常分支 |
-| **test-runner 重构到本 API 之上** | 先完成 hello-world，再回头收敛 | H4 完成后启动 H5 |
-| **Tier 3 facade API 细节** | 每平台 spec 各自落地，避免本文超载 | 进入 P4.3 / P4.4 实施 |
-| **Facade threading 测试**（R8）| v0.1 runtime / facade 是单实例 + 同步 invoke，threading 还没有正式语义；现在测出来的"后台 invoke + 主线程 sink"契约会随后续 threading 设计推翻 | runtime threading 模型落地（multi-VM / async invoke / per-thread context 任一）后回到 `platform-test-contract` 补 R8 scenario |
-
----
-
-## §13 与现有规范的关系
-
-- **interop.md**：本文 §4.1 复用 `Z42Value` / `Z42Args`；不重复定义。两份 ABI 在同一 `z42_abi.h` / `z42_host.h` 头文件树下并行。
-- **cross-platform.md**：本文 §4.2 的 `Z42_EXEC_MODE_JIT` / `_AOT` 在对应 feature 关闭时返回 `ERR_FEATURE_OFF`，与 cross-platform.md "feature off → CLI 直接报错" 同精神。
-- **cross-platform-testing.md**：runner library 在 H5 重构为本 API 的消费者；现有 platform-binding 形态不变。
-- **hot-reload.md**：本文不动 hot-reload 语义；后续多实例落地时再桥接。
-- **gc-handle.md**：内部 `Std.GCHandle` 不变；宿主侧 GC handle 进 Deferred。
-- **vm-architecture.md**：H1 实施时同步追加"嵌入入口"小节，描述 host context 如何挂接到 VM 全局状态。
-
----
-
-## §11 ZpkgResolver Hook（2026-05-11 add-zpkg-resolver-hook）
-
-桌面端宿主用 `search_paths` 扫文件系统找 `.zpkg`；移动 / wasm 没有文件系统（或不便扫），需要回调机制让宿主告诉运行时"namespace X 的 zpkg 字节在这里"。本节定义这个 hook。
-
-### 11.1 Tier 1 C ABI
-
-```c
-/* 返回非 0 = hit，*out_bytes / *out_length 写入字节范围；
- * 返回 0  = miss，运行时继续 fallback 到 search_paths。
- * 字节生命周期 = 仅 callback 调用期间，运行时立即复制。 */
-typedef int (*Z42ZpkgResolverFn)(
-    const char*       namespace_name,    /* "Std.IO" / "z42.core" / ... */
-    const uint8_t**   out_bytes,
-    size_t*           out_length,
-    void*             user_data);
-```
-
-`Z42HostConfig` 末尾两个新字段：
-
-| 字段 | 用途 |
-|------|------|
-| `zpkg_resolver` | 函数指针；NULL = 不用 resolver，只走 `search_paths` |
-| `zpkg_resolver_user_data` | 透传给 callback 的不透明指针 |
-
-### 11.2 Tier 2 Rust trait
-
-```rust
-pub trait ZpkgResolver: Send + Sync {
-    /// Return zpkg bytes for the given namespace, or None to miss.
-    fn resolve(&self, namespace: &str) -> Option<Vec<u8>>;
-}
-
-// HostConfig 字段
-pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>;
-```
-
-Tier 2 提供两个内置实现：
-
-- **`MapResolver`** — `HashMap<String, Vec<u8>>` eager 模式。移动 / wasm 端预先把 stdlib bundle 字节装进 map
-- **`SearchPathsResolver`** — 包装现有 `search_paths` 扫文件系统行为。桌面端可选
-
-### 11.3 解析顺序
-
-`load_zbc` 内部对每个 namespace 走如下决策树：
-
-```
-for ns in ["z42.core"] + user_artifact.import_namespaces:
-    1. resolver.resolve(ns)         hit → 用 resolver 字节
-    2. corelib / search_paths       hit → 扫文件系统
-    3. silent miss                  → load_zbc 仍返回 OK
-                                      （invoke 用到时报 VmException "undefined function"）
-```
-
-`z42.core` 是**隐式 prelude**：即使 user `.zbc` 没有任何 `using` 语句，runtime 也会请求一次 corelib。
-
-### 11.4 字节生命周期
-
-callback 的 `*out_bytes` 缓冲**仅在 callback 调用期间有效**。运行时在 callback 返回前完成 `read_zbc` + 解析，之后 host 可立即释放或复用缓冲。这条契约让 host 实现可以用栈缓冲（Android JNI `GetByteArrayElements` + `Release` 等）而无需手动管理 heap。
-
-### 11.5 错误归类
-
-| 情况 | `Z42HostStatus` |
-|------|-----------------|
-| resolver hit + bytes 解析失败 | `ERR_BAD_ZBC`（错误信息含 namespace 名） |
-| resolver miss + search_paths miss + user 代码引用该 namespace | invoke 时报 `ERR_VM_EXCEPTION`（消息含 `"undefined function ..."`） |
-| resolver hit + 用户代码不实际引用任何符号 | load_zbc 返回 `OK`；invoke 也 OK |
-
-### 11.6 与现有 `search_paths` 共存
-
-`search_paths` **未废弃**。桌面端可继续用；新 resolver 优先，miss 后才扫 `search_paths`。两者可同时设置。
-
-### 11.7 平台默认 resolver（H4 实施）
-
-平台默认 resolver 实现 §11.2 的 hook，但**自身的 namespace → bytes 映射由读 zpkg 的 `NSPC` section 派生**，不再读 `index.json`：
-
-| 平台 | 默认 resolver | 备注 |
-|------|--------------|------|
-| iOS | `BundleZpkgResolver(bundle: .main, subdirectory: "stdlib")` —— 枚举 `Bundle.urls(forResourcesWithExtension:"zpkg", subdirectory:)`，对每个读 NSPC（`z42_zpkg_read_namespaces`）建 namespace → bytes 表 | facade `Z42VM` 构造时自动装 |
-| Android | `AssetZpkgResolver(context.assets, "stdlib")` —— `AssetManager.list("stdlib")` 枚举，对每个读 NSPC（`Z42VM.readNamespaces`，JNI 桥到同一 C ABI）建表 | facade `Z42VM` 构造时需传 `Context` |
-| WASM | `bundleStdlibNode(readNamespaces)` / `bundleStdlibBrowser(url, readNamespaces)` —— Node `readdir` / 浏览器 fetch 生成的 `files.json`，对每个 zpkg 调 wasm `readNamespaces` 导出建 `mapResolver(Map<string, Uint8Array>)`。自定义 host 仍可直接传 `(name) => Uint8Array` 函数 / `{ resolve(name) }` 对象（主动注入）。| wasm-bindgen 包装层 |
-
-### 11.7.1 namespace 归属来自 NSPC（无 index 文件）
-
-一份 zpkg 通常提供**多个** namespace（如 `z42.core.zpkg` 同时 ship `z42.core` / `Std` / `Std.Exceptions`），不能假设 `namespace == 文件名`。早期版本用一张手维护的 `index.json`（namespace → 文件名）表达这层映射，但它是 zpkg `NSPC` section 之外的**第二真相源**、易漂移（[common-pitfalls §1](../../../agent/rules/common-pitfalls.md)）。`drop-index-json-self-describing` 删掉 `index.json`：归属一律由各 zpkg 的 `NSPC` section 权威表达，resolver 枚举可见 zpkg、读 NSPC 自建 namespace → bytes 表。
-
-- **读取 helper**：`z42_zpkg_read_namespaces(bytes, len, visit, user_data)`（C ABI，visitor 回调每个 namespace）/ wasm `readNamespaces(bytes)` 导出 / `Z42VM.readNamespaces`（Android JNI）—— 让 Swift / Kotlin / JS 不必重写 zpkg 解析（Rust 内部 `read_zpkg_namespaces` 已存在）
-- **生成**：`./xtask build stdlib` 产 flat view 时**不再写** index 文件
-- **分发**：iOS / Android / wasm `build.sh` 只拷 `*.zpkg`（浏览器额外生成 `files.json` 纯文件名清单——HTTP 无法枚举目录的派生替身，非 namespace 映射）
-- **主动注入**：web playground / REPL 等宿主持有 zpkg 字节时，自建 `MapResolver`（读 NSPC 填表）经同一 hook 提供
-
-Spec：[`docs/spec/archive/2026-06-06-drop-index-json-self-describing/`](../../../spec/archive/2026-06-06-drop-index-json-self-describing)（取代已归档的 `2026-05-12-fix-bundle-resolver-namespace-index/`）
-
-### 11.8 Spec 与归档
-
-设计：[`docs/spec/archive/2026-05-12-add-zpkg-resolver-hook/`](../../../spec/archive/2026-05-12-add-zpkg-resolver-hook) — proposal + design + 8 个 Requirement scenario + tasks.
-
-实施：5 个 host:: 测试覆盖 trait / C hook / fallback / 自包含 / VmException 全部路径；22/22 host:: tests pass。
-
-### 11.9 分发 package 形态（per-arch flat，2026-05-13 define-package-layout）
-
-每个 z42 release 产 **9 个 per-arch SDK package** 到 `artifacts/packages/`，按 `z42-<version>-<rid>-<config>` 命名（不带 `<target>` 前缀，RID 完全标识平台 + 架构）。RID 白名单 = memory `project_supported_platforms`：
-
-| 类别 | RID 枚举 | package 数 |
-|------|----------|----------|
-| Desktop SDK (host = C 嵌入同一份) | `macos-arm64` / `linux-arm64` / `linux-x64` / `windows-x64` | 4 |
-| iOS (per slice) | `ios-arm64` / `iossim-arm64` | 2 |
-| Android (per ABI) | `android-arm64` / `android-x64` | 2 |
-| wasm | `browser-wasm` | 1 |
-
-不在白名单：`macos-x64`（Apple Intel 退场）/ `ios-x64-sim`（依赖 Intel Mac host）/ `android-armv7` + `android-x86`（Google Play 自 2019 要求 64-bit 原生库）。
-
-每个 package 统一目录：
-
-```
-z42-<v>-<rid>-<config>/
-├── bin/                   desktop: z42c+z42vm；mobile/wasm: README 占位
-├── libs/                  stdlib zpkg + zsym（跨包 byte-identical；无 namespace 索引——读 NSPC）
-├── native/                平台静态/动态库 + 单 slice container（如 iOS xcframework）+ C ABI 头
-├── (root) <平台原生入口>  iOS: Sources/+Package.swift；Android: kotlin/+cpp/；wasm: pkg-*/+package.json
-└── manifest.toml          统一 schema（abi-version / rid / contents.platform / compat）
-```
-
-> **examples 不再随包分发（remove-examples-from-packaging, 2026-06-20）**：早期包形态曾含 `examples/`（hello_c/hello_rust），现已移除——`examples/` 是仓内测试夹具，示例分发后移到 workload。
-
-**核心 invariant**：`libs/` 与 `native/include/` 跨 9 包 byte-identical（C ABI 头 + zpkg 字节码都是平台无关）。
-
-**multi-arch 合并 container**（multi-slice xcframework / multi-ABI AAR）进 Deferred；Phase 2 用户呼声出来再加 `z42-<v>-ios-xcframework-<config>` / `z42-<v>-android-aar-<config>` 两个 convenience 包。
-
-Spec：[`docs/spec/archive/<date>-define-package-layout/`](../../../spec/archive) — 契约 + 9 个 decision + Phase 1 spec 簇说明。
-
-Phase 1 下游 spec：
-- 1.1 `add-host-package-conform` — 5 个 desktop RID 包
-- 1.2 `add-ios-package` — 3 个 iOS slice 包
-- 1.3 `add-android-package` — 4 个 Android ABI 包
-- 1.4 `add-wasm-package` — wasm32 包（含 staticlib）
-
-#### Release 分发（GitHub Releases）
-
-每个语义版本 tag（`v[0-9]+.[0-9]+.[0-9]+*`，例 `v0.2.5` / `v0.2.5-rc1`）触发 [`.github/workflows/release.yml`](../../../../.github/workflows/release.yml)，把 9 个 SDK package 压缩并上传到 GitHub Releases：
-
-| RID | 压缩格式 | Release filename |
-|-----|---------|------------------|
-| linux-x64 / linux-arm64 / macos-arm64 | `.tar.gz` | `z42-<v>-<rid>.tar.gz` |
-| windows-x64 | `.zip` | `z42-<v>-windows-x64.zip`（Windows 原生格式） |
-| ios-arm64 / iossim-arm64 | `.tar.gz` | `z42-<v>-<rid>.tar.gz` |
-| android-arm64 / android-x64 | `.tar.gz` | `z42-<v>-<rid>.tar.gz` |
-| browser-wasm | `.tar.gz` | `z42-<v>-browser-wasm.tar.gz` |
-
-外加一个 `SHA256SUMS` 文件（coreutils 格式：每行 `<hex>  <filename>`），下游用 `sha256sum -c SHA256SUMS` 校验。
-
-**Pre-release 规则**（自动设置 `--prerelease`）：
-- 版本号 < `1.0.0`（pre-1.0 阶段全部）
-- Tag 含 `-` 后缀（`v0.2.5-rc1` / `v1.0.0-rc.1` 等）
-
-**版本号 SoT**：`versions.toml [project].version` 单一来源；`src/runtime/Cargo.toml [workspace.package].version` 必须镜像（漂移由 `./xtask deps check` 强制检出）。Release pipeline 在 `verify` job 验证 `tag.strip_prefix('v') == versions.toml [project].version`，漂移即 fail-fast。
-
-**Bump 流程**：① 改 `versions.toml [project].version` ② drift-check 通过 ③ 同步更新 `src/runtime/Cargo.toml [workspace.package].version` ④ commit ⑤ `git tag v<version> && git push --tags`。
-
-Spec：[`docs/spec/archive/<date>-add-release-automation/`](../../../spec/archive) — 8 个 decision + 11 个 scenario + 4 个 Deferred（reusable workflow / cargo-release / signing / 多渠道分发）。
+## 改 ABI 时的检查清单
+
+1. `src/runtime/include/z42_host.h` 与 `src/runtime/src/host/`（`config.rs` 的 `#[repr(C)]` 镜像、
+   `error.rs` 的 `#[repr(i32)]` 枚举）必须同步，**字段只追加不重排**。
+2. `src/runtime/include/README.md` 的类型 / 函数清单。
+3. Tier 2：`z42-host` 的 `HostConfig` / `HostError` / `translate_status`。
+4. Tier 3 三家 facade 的桥接层（Swift `Z42VM.swift` 的 `cfg` 填充、
+   Android `cpp/z42vm_jni.c`、wasm `wasm/platform/src/lib.rs`）。
+5. `src/runtime/src/host/host_tests.rs`（状态码路径）+ `workload/desktop/tests/r1_r7.c`（外部 C 消费者）。
+6. [嵌入 C ABI 契约](../../../reference/src/embedding/c-abi.md)——对外可见的任何变化都要落到那一页。
