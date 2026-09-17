@@ -1,6 +1,6 @@
 # Design: 修「编译通过但行为静默错误」的缺口
 
-> Status: **DRAFT**（2026-09-17）。`ref` 传址族与 struct 存储族的根因调查进行中，本文先定稿重载族。
+> Status: **DRAFT**（2026-09-17）。三族根因调查全部完成，等 User 裁决分期与四个取舍后进 IMPL。
 > 前置阅读：[proposal.md](proposal.md)（判据与归属核实）· [repro.md](repro.md)（最小复现与实测输出）
 
 ---
@@ -419,9 +419,188 @@ SIGS 每参写 `type:u32 + name:u32 + default_kind:u8 + payload`，**没有 flag
 
 ## 第二族 · struct 存储与初始化
 
-> ⏳ 根因调查进行中。已独立定位：
-> - 缺口 4 的根因在 `exec_object.rs:499-516` 的 `static_set` 直接存原始 `Value`，
->   其上的 `debug_assert!` 拦了 `StackObject` / `StackArray` 逃逸进静态字段，**漏了同类的 `StructRef`**。
->   存储矩阵实测只有「静态字段」这一格坏，实例字段走 P3 堆内联是好的 ⇒ 修法可照搬。
-> - `default(值 struct)` 的修点在 `ExprEmitter.z42:206-247` 的 `BoundDefault` 兜底分支，
->   改发 `StructAlloc`（本就是「分配零初始化 blob」）而非 `ConstNull`，约 5 行。
+> 调查已完成（20 个探针实测）。**本族的两条修法各只有约一行，但有一条硬阻断。**
+
+### 2.1 缺口 4（静态 struct 字段）：正确机制已在仓里，只是一条 codegen 路径漏挂
+
+**反证是这条的钥匙**：给类加一个**空的** `static Holder() { }`，同一段代码立刻正确输出。
+
+原因：`DeclBinder.z42:176-186` 按「有无静态 ctor」分流字段初始化器：
+
+| 分支 | 去向 | 结果 |
+|---|---|---|
+| **有**静态 ctor | 初始化器注入静态 ctor 体首 → 普通 `BoundAssign` → `AccessEmitter._emitStaticStore` | ✅ **装箱，正确** |
+| **无**静态 ctor | `model.AddStaticInit` → `FunctionEmitter.EmitStaticInit` | ❌ **漏装箱** |
+
+对称性漏项精确到两行：
+
+```z42
+// FunctionEmitter.z42:333  —— 裸 v
+this._ctx.Emit(new StaticSetInstr(fq, v));
+
+// AccessEmitter.z42:308   —— 有装箱
+TypedReg sv = this._boxIfStaticStruct(val, st.Type());   // add-static-struct-bytecization
+```
+
+于是存进静态槽的是 `__static_init__` 帧里的 `Value::StructRef{idx, frame_id}`。arena 是 per-context
+**LIFO**（`pop_frame` → `StructArena::truncate`，`struct_arena.rs:73-78`），`__static_init__` 一返回 slot
+就被截掉，`frame_id` staleness 守卫在下次 deref 时抛 `value-struct lifetime unsound`。
+
+**根本矛盾确实存在**（arena 帧级 LIFO vs 静态字段模块级），但 `add-static-struct-bytecization`
+**早已用「装箱进堆」解决了它**——机制、读路径（`ExprEmitter.z42:155-164` 整读拆箱 /
+`AccessEmitter.z42:383-386` 叶子根直取盒）、golden 全部现成。
+
+> ⚠️ 我在调查早期判断这是「机制层面的矛盾、不可小修」——**结论错了**。正确表述是：
+> 矛盾真实存在，但解法已实现且在跑，缺的只是 `EmitStaticInit` 这一条路径接上它。
+
+**为什么测试没抓到**：现有 golden `src/tests/types/struct_static_field.z42` 声明的是
+`public static Point P;`（**无初始化器**），在 `Main()` 里赋值 ⇒ 只走已装箱的那条路。
+**初始化器路径零覆盖。**
+
+**同族第二条**：静态 auto-property 初始化器走同一个 `AddStaticInit`，但崩点不同 ——
+`Holder.get_White ... takes 0 physical argument(s), the call passes 1`，是**合成 auto-prop 访问器桩不
+sret-aware**，与 §2.2 的第二条缺口同源。
+
+**修法**：`FunctionEmitter.z42:331-334` 发 `StaticSetInstr` 前对 blob struct 值走 `_boxIfStaticStruct`
+（现为 `AccessEmitter` private，需按 `ExprEmitter.z42:431` 的既有手法加一层 `internal` 转发）。
+判据用 `model.SiInit[i].Type()`。
+⛔ **不要用「加个空静态 ctor」当修法** —— 那会把 `beforefieldinit` 语义绑死，
+`DeclBinder.z42:182-186` 的注释明确记了为什么这两条路要分开。
+
+### 2.2 缺口 5（struct 自动属性）：🔴 我的原诊断是错的 —— 后备字段**在**布局里
+
+原判断是「后备字段没进 `StructLayout`，offset 保持未初始化值」。**实测否掉了**：
+
+- `MemberCollector.z42:206`：`if (pfHasBacking) { ... ct.AddOwnField("__prop_" + pd.Name, ...); }`，
+  而 `StructLayout.BuildFromSymbols` 正是从 `ct.OwnFieldNames` 建布局
+- 探针：`struct M { int X {get;set;} int y; }` 里 `this.y = 42` 能正确读回 **42**
+  ⇒ `__prop_X` 确实占了 offset 0 的 4 字节，`y` 才拿到 offset 4
+- 单 auto-prop 的 struct（FieldCount=1）**不崩**（落到缺口 3 的引用语义）；双 auto-prop（FieldCount=2）才崩
+
+⇒ **`4294967295` 不是「没进布局」，而是「查布局时用了错的名字」。**
+
+#### (a) 写路径缺属性判据（不对称漏项）
+
+`AccessEmitter._emitBlobFieldSet:283`：
+
+```z42
+int off = this._structChainOffset(tm.Target) + this._ctx.Gen.Layouts.FieldByteOffset(cont, tm.MemberName);
+```
+
+`FieldByteOffset(P, "X")` —— 布局里只有 `__prop_X` ⇒ 返回 **-1** ⇒ 烘焙进
+`StructFieldSetPrimInstr` 的立即数，编码成 u32 就是 **4294967295** ⇒ runtime 的
+`layout.ref_index(byte_off)` 落空 ⇒ `struct ref leaf at byte offset 4294967295 not in type layout`。
+
+**读侧早已修过**（`fix-struct-property-getter`，`AccessEmitter.z42:179-180` 先查
+`sct.Methods.ContainsKey("get_" + m.MemberName)`），而 `AccessEmitter.z42:176-178` 的注释
+**精确描述了这个 `4294967295` 症状**——只是描述的是读侧。**写侧的对称判据从未加上。**
+同一漏项还在 `_structChainOffset:400-404`、`PatternEmitter.z42:268`、`RecordSynth.z42:318`
+（都直接用源名查偏移）。
+
+#### (b) 合成访问器桩体在 struct 上根本不可执行 —— 第二条独立缺口
+
+非 extern auto-property 的 `get_X`/`set_X` 是合成桩（`IrGenMemberEmitter.z42:98-116`），
+桩体形态是 `field.get %0 @__prop_X → %1; ret %1`（`IrGen.z42:284-289`）。
+`FieldGet`/`FieldSet` 只认堆 `ScriptObject`，而 struct 方法的 `this`（reg0）是 `Value::StructRef`
+⇒ 实测 `FieldGet: not an object or known value type, got StructRef { idx: 0 } (field '__prop_X')`。
+
+**所以只修 (a) 之后读 `m.X` 仍会崩** —— 它会被正确路由到 `get_X` 的静态 Call，然后死在桩体里。
+**(a) 与 (b) 必须一起修。** (b) 的静态变体就是 §2.1 末尾那条（sret arity mismatch）。
+
+**修法**：(a) 查布局前把成员名经 `_propBackingName`（`AccessEmitter.z42:323-328`，**已存在**）
+翻成 `__prop_X`；auto-prop 在 struct 上应**直接读写后备字节**（零 Call、零桩），比路由到 `get_X` 更快。
+(b) owner 是 blob struct 时桩体改发 `StructFieldGetPrim/SetPrim(reg0, FieldByteOffset(S,"__prop_X"), tag)`，
+返回 blob struct 时 sret-aware —— **这条不能省**，接口派发 / 反射 / 泛型仍会调到桩。
+
+**兜底**（若 (b) 的 sret 改造超出本轮 scope）：只做 (a) 的名字翻译，同时对
+「blob struct 的 auto-prop 被经 `get_X`/`set_X` 派发」补一条编译期诊断（新码 `E0470`），
+至少把静默错值 / 晦涩 runtime 崩换成清晰诊断。
+
+> 顺带：`src/tests/types/struct_property_getter.z42` 的头注释声称覆盖 auto-property，
+> **实测文件里一个 auto-prop 都没有**（只有计算属性）。要补真实用例。
+
+### 2.3 附带缺口：`default(任何值 struct)` 都崩
+
+`ExprEmitter.z42:206-248` 的 `BoundDefault` 按 `ToIrType` 的 tag 分派（Bool/I32/I64/F64/Char），
+blob struct 的 tag 是 `IrType.Ref` ⇒ 落到 `:245-247` 的 `ConstNullInstr`；
+上层 `Two t = default(Two)` 发 `StructAlloc t` + `StructCopy(t, null)` ⇒
+`StructCopy src: expected a struct value (StructRef), got Null`。
+
+**修法约 5 行**：在 `BoundDefault` 分支**最前面**加一条 blob-struct 臂，发
+`StructAllocInstr(dst, QualifyClass(name), StructSize(name))`。arena `alloc` 本来就零初始化
+（`struct_arena.rs:82-89`：`bytes` 全零、`refs` 全 `Null`），这正是 struct 的默认值定义。
+顺带收掉 `Guid.z42:15-20` 的注释与 `Guid.Empty()` 的 workaround。
+
+### 2.4 缺口 3（单字段 struct）已移出本 change，但调查结论要留档
+
+见 [proposal.md](proposal.md) 的「归属核实」——归 `unify-value-types` Phase 4。以下三条留给那边：
+
+**(a) 它比「赋值串味」严重得多 —— 值类型契约整体缺失**（全部实测）：
+
+| 契约 | 单字段 struct 实测 | 两字段对照 |
+|---|---|---|
+| 赋值复制 | `b=a; b.x=99` → `a.x=99` ✗ | `c.x=1` ✅ |
+| 传参 copy-in | `Bump(a)` 后 `a.x=100` ✗ | `a.x=1` ✅ |
+| 装箱独立 | `(One)o` 改副本 → 原值也变 ✗ | ✅ |
+| `==` 值相等 | `new One(1) == new One(1)` → **false** ✗ | true ✅ |
+| 类字段零初始化 | `h.o == null` ✗ | `h.o.x=0` ✅ |
+| `GetType()` | **`VCall: function One.GetType not found`** 崩 ✗ | ✅ |
+
+⇒ 「一个类型看起来是值类型、行为处处像引用类型」，且**全是静默给错值**。
+
+**(b) 🔴 硬阻断：泛型静态抽象运算符 × sret。**
+`src/tests/operators/static_abstract_operator.z42:13` 的 `struct Money : INumber { long Cents; }` 是
+**单字段**，**今天绿恰恰因为它走引用语义**。实测翻成 blob 后：
+`T Add<T>(T a, T b) where T: INumber { return a + b; }` 崩在
+`Money.op_Add ... takes 3 physical argument(s), the call passes 2`
+—— 返回 blob struct 的运算符经**泛型约束派发**时没追加 sret。而**直接** `a + b`（非泛型）是好的。
+⇒ **这是一条先决 bug，不修它，放宽判据必然把这个 golden 变红。**
+
+**(c) 一个大幅降险的切分建议**（供 Phase 4 参考）：
+把「单**引用**叶子 / 单**嵌套 struct** 叶子」走放宽 blob，「单**基元**叶子」留给 Phase 4 的标量塌缩。
+这样 `GCHandle`（单 `i64`）**本轮不动** ⇒ 整体避开那 5 个 Rust builtin 的改造
+（`make_gc_handle` 产 `Value::Object`、`extract_gc_handle_slot` 只认 `Value::Object`，
+收到 `StructRef` 会**静默返回 slot 0**当「未分配」）⇒ `src/tests/gc/gc_handle.z42` 也不会红。
+判据从 `FieldCount >= 2` 变成 `FieldCount >= 2 || (FieldCount == 1 && !单基元叶子)`。
+
+### 2.5 格式与自举：本族全部改动**格式中立**
+
+- **无新指令**：缺口 4 用现成 `__box_struct`（`Builtin` opcode）；`default` 用现成 `StructAlloc`（`0xC0`）；
+  缺口 5 用现成 `StructFieldGetPrim/SetPrim`（`0xC2`/`0xC3`）。
+- **无 section 字段语义变化**：`StructLayout` 进 zbc 的门**不是** `IsBlobStruct`，而是
+  `Kind == "struct"`（`ClassDescBuilder.z42:277-286` 填值、`ZbcWriter.z42:392-403` 按 `Flags & 4` emit、
+  `ZbcReader.z42:415-425` 同 gate）。**单字段 struct 的 `StructSize` + 引用位图今天就已写进 TYPE 段**，
+  只是编译器不发 blob 指令去用它。
+- ⇒ **不需要 zbc / zpkg bump。** 与第一族形成对比（那族因新 opcode 必须 bump）。
+- **自举零风险**：`src/compiler/**` 与 `src/libraries/z42c.*` / `z42.ir` 声明的 struct 数量 = **0**
+  （命中全在 `tests/` 的源码字符串 fixture 里）。它们消费的 stdlib struct（`ValueTuple*` /
+  `KeyValuePair` / 两个 Enumerator）字段数都 ≥2、**今天就已是 blob** ⇒ self-host 不动点应保持。
+
+### 2.6 分期建议
+
+| PR | 内容 | 依赖 | 规模 |
+|---|---|---|---|
+| **PR-A**（推荐最先） | 缺口 4：`EmitStaticInit` 挂装箱 + sret-aware 静态 auto-prop 桩 + 扩 `struct_static_field.z42`（初始化器 / `static readonly` / 有无静态 ctor 两路） | 无 | **~1 行主修** + 一个桩修复 |
+| **PR-B** | `default(blob struct)` → `StructAlloc` | 无 | **~5 行** |
+| **PR-C** | 缺口 5：(a) 名字翻译（含 `_structChainOffset` / `PatternEmitter` / `RecordSynth` 三处同漏）+ (b) 桩体 struct-aware | 与 PR-A 的桩修复轻度重叠，建议 sret 部分并入 PR-A | 中 |
+| PR-D | 解构赋值 vs 解构声明（`(A,B) = (a,b)` 在表达式体 ctor 里静默声明两个新局部）| 无 | 触 parser ⇒ **要走 DRAFT → User 确认** |
+
+**先修缺口 4 收益/成本比最高**：`public static readonly Color White = ...` 是 C# 里最常见的 struct
+惯用法之一（`Color.White` / `Vector3.Zero` / `Guid.Empty`），今天**完全用不了**；而修法是一行，
+机制与 golden 全部现成，格式中立、自举零风险、纯增量（今天崩的修好后不崩，今天能跑的一字节不变）。
+
+---
+
+## 附：本 change 调查过程中被推翻的四个前提（我自己的）
+
+1. **「缺口 4 是 arena 与静态字段生命周期的机制矛盾、不可小修」** —— 矛盾真实，但
+   `add-static-struct-bytecization` 早已用装箱解决；缺的只是 `EmitStaticInit` 漏挂，**修法一行**。
+2. **「缺口 5 是后备字段没进 `StructLayout`」** —— 后备字段**在**布局里（`MemberCollector.z42:206`，
+   探针实证 `y` 拿到 offset 4）。真因是**查布局用了源名而非 `__prop_X`**，返回 -1 编码成 u32。
+3. **「VM 对三条取址指令的支持是 2026-08-24 进的」** —— 那是模块拆分搬家；真正 support 是
+   `cb61cc072`（2026-05-05），等待窗口已过 4 个多月。
+4. **「缺口 3 的修法是放宽 `IsBlobStruct`」** —— 与既有设计相反。`unify-value-types` Phase 4 的意图是
+   **塌缩成 Scalar**；而且缺口 3 整体已有主，已移出本 change。
+
+**教训**：读码得到的「根因」要用探针实测反证一次再下结论。本 change 四条自我推翻里，
+有三条是靠「写一个应当成立的反例，看它成不成立」发现的（空静态 ctor / `y` 的 offset / `git log -S`）。
