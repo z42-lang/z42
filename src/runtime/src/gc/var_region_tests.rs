@@ -510,7 +510,7 @@ fn sweep_young_reclaims_unmarked_and_keeps_marked() {
     let drop_me = region.alloc(16, BlockType::Str);
     keep.mark(MarkKind::Minor);
 
-    let (reclaimed, _credited) = region.sweep_young();
+    let (reclaimed, _credited) = region.sweep_young(None);
     assert_eq!(reclaimed, 1, "only the unmarked block is reclaimed");
     // SAFETY: the region outlives this borrow and the block is still alive.
     assert!(unsafe { keep.payload() }.is_some(), "marked block survives");
@@ -527,7 +527,7 @@ fn sweep_young_clears_the_mark_on_survivors() {
     let mut region = VarRegion::new();
     let h = region.alloc(16, BlockType::Closure);
     h.mark(MarkKind::Minor);
-    region.sweep_young();
+    region.sweep_young(None);
     assert!(h.mark(MarkKind::Minor), "mark was cleared, so a fresh mark CAS must win again");
 }
 
@@ -537,7 +537,7 @@ fn sweep_young_promotes_after_threshold_survivals() {
     let h = region.alloc(16, BlockType::Str);
     for i in 1..=PROMOTION_THRESHOLD {
         h.mark(MarkKind::Minor);
-        region.sweep_young();
+        region.sweep_young(None);
         // SAFETY: block still alive (it was marked each round).
         assert_eq!(unsafe { h.header_ptr().as_ref() }.gen_age(), i);
     }

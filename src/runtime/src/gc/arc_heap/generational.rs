@@ -209,6 +209,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// for the edges promotion creates in this same sweep — the two other ways the invariant
     /// can be broken (see the card-table invariant in the book).
     fn seed_from_dirty_cards(&self, queue: &mut Vec<Value>, threshold: u8) {
+        // add-incremental-major-gc M2b: while an incremental major is sweeping, an unmarked alive
+        // entry is doomed — garbage the cursor has not reached, whose children may be reclaimed
+        // already. Tracing through it would follow those dangling edges; it has no young children
+        // anyone can reach, so it contributes nothing (and does not keep its card dirty).
+        let doomed = self.doomed_unless_marked();
         let mut clean_obj: Vec<(u32, u8)> = Vec::new();
         {
             let region = self.region_object.lock();
@@ -218,7 +223,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // SAFETY: handle came from iterate_dirty_cards; entry is alive and its
                 // generation matches at iteration time.
                 let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
-                let found = Self::seed_card_entry(Value::Object(gc), queue, threshold);
+                let found = doomed.is_none_or(|k| entry.is_marked(k))
+                    && Self::seed_card_entry(Value::Object(gc), queue, threshold);
                 Self::note_card(&mut cur, &mut clean_obj, h.chunk_idx, card, found);
             });
             Self::flush_card(cur, &mut clean_obj);
@@ -231,7 +237,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let entry_ptr = std::ptr::NonNull::from(entry);
                 // SAFETY: see above.
                 let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
-                let found = Self::seed_card_entry(Value::Array(gc), queue, threshold);
+                let found = doomed.is_none_or(|k| entry.is_marked(k))
+                    && Self::seed_card_entry(Value::Array(gc), queue, threshold);
                 Self::note_card(&mut cur, &mut clean_arr, h.chunk_idx, card, found);
             });
             Self::flush_card(cur, &mut clean_arr);
@@ -440,6 +447,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let configured = self.configured_promotion_age();
         let threshold = self.promotion_age();
         let observed_age = self.promotion_policy.observed_age(configured);
+        // add-incremental-major-gc M2b: what the open cycle has already marked outlives this minor.
+        let keep_major = self.major_cycle_active().then(|| self.major_mark());
 
         // Object region — **one-pass-minor-sweep (2026-09-12)**: scan, promote and tombstone
         // in a single walk of the young list. See `Region::sweep_young_in_one_pass`; what
@@ -449,6 +458,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             let mut region = self.region_object.lock();
             region.sweep_young_in_one_pass(
                 observed_age,
+                keep_major,
                 |marked| self.promotion_policy.observe(marked),
                 |entry| {
                     let mut o = entry.value.lock();
@@ -488,6 +498,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             let mut region = self.region_array.lock();
             region.sweep_young_in_one_pass(
                 observed_age,
+                keep_major,
                 |marked| self.promotion_policy.observe(marked),
                 |entry| {
                     let size = Self::array_size_estimate(&entry.value.lock());
@@ -521,7 +532,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // minor and wait for a major. It sweeps here with the other two now.
         {
             let t = PhaseTimer::start("minor/var sweep");
-            let (reclaimed, credited) = self.region_var.lock().sweep_young();
+            let (reclaimed, credited) = self.region_var.lock().sweep_young(keep_major);
             t.count(reclaimed);
             freed_bytes += credited;
             reclaimed_entries += reclaimed;
@@ -637,14 +648,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // old out of the young lists (and dirties their cards). Applying it *after* the aging
         // instead leaves those entries listed young while the mark phase treats them as old —
         // measured, that is five different `got Null` failures across a cold `package sdk`.
-        if crate::config::runtime_config().gc_adaptive_promotion
-            && self.promotion_policy.apply_after_major()
-        {
-            let lowered = self.configured_promotion_age().saturating_sub(1).max(1);
-            crate::gc::phase_timer::note(format_args!(
-                "promotion  age {} -> {lowered}", self.promotion_age()));
-            self.apply_promotion_age(lowered);
-        }
+        self.apply_adaptive_promotion_after_major(false);
         {
             let _t = PhaseTimer::start("age survivors");
             self.age_survivors_after_major();
@@ -672,6 +676,27 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.promoted_bytes_since_major
             .store(0, std::sync::atomic::Ordering::Relaxed);
         freed
+    }
+
+    /// Put a promotion-age switch the adaptive policy has asked for into force on top of the major
+    /// that just completed (see [`Self::apply_promotion_age`]).
+    ///
+    /// `age_now`: the incremental major has no aging pass of its own (minors age between its
+    /// slices), but the switch still has to be followed by one — it is what drains the entries the
+    /// lowered line makes old out of the young lists. The one-shot major ages right after anyway.
+    pub(super) fn apply_adaptive_promotion_after_major(&self, age_now: bool) {
+        if !(crate::config::runtime_config().gc_adaptive_promotion
+            && self.promotion_policy.apply_after_major())
+        {
+            return;
+        }
+        let lowered = self.configured_promotion_age().saturating_sub(1).max(1);
+        crate::gc::phase_timer::note(format_args!(
+            "promotion  age {} -> {lowered}", self.promotion_age()));
+        self.apply_promotion_age(lowered);
+        if age_now {
+            self.age_survivors_after_major();
+        }
     }
 
     /// **fix-minor-and-major-in-one-pause (2026-09-10)**: the major's counterpart of the aging

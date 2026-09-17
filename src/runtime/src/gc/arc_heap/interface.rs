@@ -364,8 +364,8 @@ impl MagrGC for ArcMagrGC {
             WeakRefInner::Object(w) => w.upgrade().map(Value::Object),
             WeakRefInner::Array (w) => w.upgrade().map(Value::Array),
         };
-        if let Some(v) = &v { self.shade_if_marking(v); } // add-incremental-major-gc M2a
-        v
+        // add-incremental-major-gc M2a/M2b: shade while marking; refuse a doomed target while sweeping.
+        v.filter(|v| self.admit_resurrected(v))
     }
 
     // ── 8.6 Soft references ──────────────────────────────────────────────────
@@ -401,8 +401,8 @@ impl MagrGC for ArcMagrGC {
 
     fn handle_target(&self, slot: u64) -> Option<Value> {
         let v = self.inner.lock().handle_slab.get(slot).and_then(|e| e.target());
-        if let Some(v) = &v { self.shade_if_marking(v); } // add-incremental-major-gc M2a: weak handles
-        v
+        // add-incremental-major-gc M2a/M2b: weak handles — see `ArcMagrGC::admit_resurrected`.
+        v.filter(|v| self.admit_resurrected(v))
     }
 
     fn handle_is_alloc(&self, slot: u64) -> bool {

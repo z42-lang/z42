@@ -53,6 +53,8 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
 | `Z42_GC_PAUSE_WINDOW` | 1024 | per-heap 滚动 pause-time 队列容量（entries），clamp 到 `[1, 65536]` | `gc/types.rs` |
 | `Z42_SAFEPOINT_THROTTLE` | 1024 | 每线程 safepoint 快路径计数；每 N 次才走真 Mutex 轮询。`1` = 禁节流 | `gc/safepoint.rs` |
+| `Z42_GC_INCREMENTAL` | **on** | **分代专用**：major 拆成有界 STW 切片、切片之间 mutator 与 minor 照常运行（最大停顿与堆大小脱钩）；`0` = 一次性 major（A/B 与排障开关）。见 [增量 major](gc-incremental-major.md) | `arc_heap/incremental.rs` |
+| `Z42_GC_SLICE_MS` | **2** | 一个增量 major 切片的时间预算（ms），clamp 到 `[0.01, 1000]`。极小值（如 `0.05`）是压力配方：让 mutator / minor 最大程度地插进周期中间 | `arc_heap/incremental.rs` |
 | `Z42_GC_MODE` | **`generational-mark-sweep`** | GC 算法：`stw` / `concurrent` / `generational`。默认自 2026-09-10 由 `stw` 改为 `generational`（见下「为什么分代成了默认」） | `gc/mode.rs` |
 
 ## 诊断旋钮（`Z42_GC_TRACE` / `Z42_GC_PHASES`）
@@ -627,6 +629,10 @@ if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
 触发）：每周期 `minor 156.7 ms + major 188.5 ms` = 370 ms 停顿，`freed` 0 字节。
 
 ⚠️ **代价是 major 必须自己升龄**（下一节）—— 以前 major 前面永远有一个 minor 替它做。
+
+> **增量 major（M2b 起默认）不走这条**：它没有升龄趟，换成「开周期**绝不顶掉**策略要的 minor」——
+> 同一次停顿里 minor 与开周期同时被要，先跑 minor、周期在下一个 safepoint 再开。见
+> [增量 major「调度」](gc-incremental-major.md#调度一次停顿只做一件事)。
 
 ### major 也要给幸存者升龄
 

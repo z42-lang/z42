@@ -531,11 +531,44 @@ impl<T> Region<T> {
     pub fn sweep_all_in_one_pass(
         &mut self,
         major: crate::gc::refs::MarkKind,
-        mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
+        prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
     ) -> (u64, usize) {
+        let (freed_bytes, reclaimed, _) = self.sweep_chunks(major, 0, usize::MAX, false, prepare_dead);
+        (freed_bytes, reclaimed)
+    }
+
+    /// Number of chunks — the bound of a [`Self::sweep_chunks`] cursor.
+    #[inline]
+    pub fn chunk_count(&self) -> usize {
+        self.chunks.len()
+    }
+
+    /// **add-incremental-major-gc M2b**: the major sweep over at most `max_chunks` chunks starting at
+    /// chunk `from`. Returns `(freed bytes, reclaimed entries, next chunk)`; `next ==
+    /// self.chunk_count()` means the region is done. Resumable across STW slices: between two calls
+    /// mutators may refill chunks (a pooled one, or a new one past the cursor), but everything they
+    /// allocate during a cycle is born with the cycle's epoch, so the rest of the walk keeps it.
+    /// Every mutator has retired its TLAB before a slice runs, so no chunk here is borrowed.
+    ///
+    /// `delist_young`: take each dead entry out of `young_list` as it is tombstoned. The one-shot
+    /// major passes `false` because `age_young_survivors` follows in the same pause and drops the
+    /// dead as it walks the list. An incremental sweep must pass `true`: minors run between its
+    /// slices, and a dead entry left listed would be listed **twice** once its slot is reused —
+    /// the minor sweep would keep the new object on the first visit (clearing its mark) and
+    /// reclaim it on the second.
+    pub fn sweep_chunks(
+        &mut self,
+        major: crate::gc::refs::MarkKind,
+        from: usize,
+        max_chunks: usize,
+        delist_young: bool,
+        mut prepare_dead: impl FnMut(&RegionEntry<T>) -> (Option<crate::gc::types::FinalizerFn>, u64),
+    ) -> (u64, usize, usize) {
         let mut freed_bytes: u64 = 0;
         let mut reclaimed = 0usize;
-        for ci in 0..self.chunks.len() {
+        let end = from.saturating_add(max_chunks).min(self.chunks.len());
+        for ci in from.min(end)..end {
+            debug_assert!(!self.borrowed[ci], "major sweep over a TLAB-borrowed chunk {ci}");
             for ei in 0..CHUNK_SIZE {
                 if !self.initialized[ci][ei] {
                     continue;
@@ -560,13 +593,14 @@ impl<T> Region<T> {
                 if let Some(f) = fin {
                     f();
                 }
-                if self.tombstone_during_sweep(h) {
+                let tombstoned = if delist_young { self.tombstone(h) } else { self.tombstone_during_sweep(h) };
+                if tombstoned {
                     freed_bytes += size;
                     reclaimed += 1;
                 }
             }
         }
-        (freed_bytes, reclaimed)
+        (freed_bytes, reclaimed, end.max(from.min(self.chunks.len())))
     }
 
     /// Iterate every currently-alive entry. Skips uninit slots in

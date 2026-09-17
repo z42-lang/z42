@@ -5,7 +5,7 @@
 
 use std::sync::atomic::Ordering;
 
-use super::{Region, CHUNK_SIZE, PROMOTION_THRESHOLD};
+use super::{Region, CHUNK_SIZE};
 
 // ── add-gc-debug-invariants P0 (2026-05-22) ─────────────────────────────────
 
@@ -118,7 +118,9 @@ impl<T> Region<T> {
                     expected: idx, recorded: entry.young_idx(),
                 });
             }
-            if entry.gen_age() >= PROMOTION_THRESHOLD {
+            // The line in force, not the configured constant: adaptive promotion lowers it on top
+            // of a major, after which an entry at the old line's last tier is correctly old.
+            if entry.gen_age() >= self.promotion_age {
                 return Err(Violation::OldEntryInYoungList {
                     chunk_idx: ci, entry_idx: ei, gen_age: entry.gen_age(),
                 });
@@ -149,7 +151,7 @@ impl<T> Region<T> {
                 // region maintains one (fix-young-list-only-when-generational).
                 if self.generational
                     && entry.alive.load(Ordering::Acquire)
-                    && entry.gen_age() < PROMOTION_THRESHOLD
+                    && entry.gen_age() < self.promotion_age
                     && !in_young.contains(&(ci as u32, ei as u16))
                 {
                     return Err(Violation::YoungEntryNotInList {

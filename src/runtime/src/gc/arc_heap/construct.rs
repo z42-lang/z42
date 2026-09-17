@@ -69,6 +69,7 @@ impl Default for ArcMagrGC {
                     .unwrap_or(super::auto_collect::DEFAULT_NURSERY_BYTES)
                     .max(1),
             ),
+            incremental: Default::default(),
         }
     }
 }

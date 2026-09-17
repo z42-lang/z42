@@ -122,6 +122,12 @@ const ALLOWANCE_HEAP_RATIO: f64 = 0.33;
 /// tiny live set would major-collect constantly (a third of "almost nothing" is nothing).
 const ALLOWANCE_NURSERY_RATIO: u64 = 4;
 
+/// **add-incremental-major-gc M2b**: floor under [`ArcMagrGC::slice_interval`] (tiny test nurseries).
+const MIN_SLICE_INTERVAL: u64 = 64 * 1024;
+
+/// **add-incremental-major-gc M2b**: see [`ArcMagrGC::with_slice_gate`].
+const SLICE_REARM_SLACK: u64 = 256 * 1024;
+
 impl crate::gc::arc_heap::ArcMagrGC {
     /// **add-gc-safepoint-auto-threshold (2026-05-20)**: when the
     /// `external_needs_collect` flag is wired (post-`VmCore` construction) this
@@ -164,11 +170,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let Some(trip) = self.decide_trip(used, baseline, backoff, soft_limit, &cfg) else {
             // Nothing to do — but re-arm, or the next allocation walks back in here and takes
             // the `inner` mutex all over again.
-            self.arm_next_collect(baseline, used, backoff, soft_limit);
+            self.arm_next_collect(baseline, used, backoff, soft_limit, true);
             return;
         };
 
-        let next_backoff = Self::next_backoff(backoff, reclaimed_since, trip.gate, cycles);
+        // add-incremental-major-gc M2b: a slice is not a collection the backoff can judge (a marking
+        // slice reclaims nothing by design), and it must not move the minor gate's watermarks —
+        // slices every quarter nursery would otherwise keep resetting "grown" and starve minors.
+        let slice = trip.kind == TripKind::Slice;
+        let next_backoff = if slice { backoff } else { Self::next_backoff(backoff, reclaimed_since, trip.gate, cycles) };
 
         // A collect this path already asked for may still be pending at the
         // safepoint. Re-tripping would overwrite the watermarks with readings
@@ -177,7 +187,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let pending = self.external_needs_collect.lock().clone();
         if let Some(f) = &pending {
             if f.load(Ordering::Acquire) {
-                self.arm_next_collect(baseline, used, backoff, soft_limit);
+                self.arm_next_collect(baseline, used, backoff, soft_limit, false);
                 return;
             }
         }
@@ -185,7 +195,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // post-collection live set, which is the only reading that gives the right next gate.
         self.next_collect_at.store(u64::MAX, Ordering::Relaxed);
 
-        {
+        if !slice {
             // Mark the pre-collect watermarks so we don't re-trip on every
             // subsequent alloc while the deferred collect is still pending.
             let mut i = self.inner.lock();
@@ -199,7 +209,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // chew through, which is decided here and nowhere else.
         crate::gc::phase_timer::note(format_args!(
             "trip {:<5}  gate {}{}  grown {}  (last freed {})",
-            if trip.major { "major" } else { "minor" },
+            match trip.kind { TripKind::Major => "major", TripKind::Minor => "minor", TripKind::Slice => "slice" },
             crate::gc::trace::human(trip.gate),
             if backoff > 1 { format!(" x{backoff}") } else { String::new() },
             crate::gc::trace::human(used.saturating_sub(baseline)),
@@ -207,8 +217,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
         ));
         // Which kind of collection the policy is asking for. The deferred safepoint path only
         // knows "collect", so the choice is handed over through `pending_major`.
-        if trip.major {
-            self.pending_major.store(true, Ordering::Release);
+        match trip.kind {
+            TripKind::Major => {
+                self.pending_major.store(true, Ordering::Release);
+                // Only a heap at its soft cap asks for a major while a cycle is open (see
+                // `decide_trip`): finish that cycle rather than slicing on.
+                if self.major_cycle_active() {
+                    self.incremental.pending_finish.store(true, Ordering::Release);
+                }
+            }
+            TripKind::Minor => self.incremental.pending_minor.store(true, Ordering::Release),
+            TripKind::Slice => self.incremental.pending_slice.store(true, Ordering::Release),
         }
 
         // Defer to safepoint when wired (multi-thread safe path).
@@ -225,8 +244,16 @@ impl crate::gc::arc_heap::ArcMagrGC {
 /// What [`ArcMagrGC::decide_trip`] decided: which kind of collection, and the growth gate it
 /// tripped (the futility bar is read off the same number).
 struct Trip {
-    major: bool,
+    kind: TripKind,
     gate: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TripKind {
+    Minor,
+    Major,
+    /// add-incremental-major-gc M2b: the next slice of the open major cycle.
+    Slice,
 }
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -310,18 +337,27 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // One generation: every collection is a full one, and the allowance is read off
             // total live bytes rather than promoted bytes.
             let gate = allowance.saturating_mul(backoff as u64);
-            return (grown >= gate || near_cap).then_some(Trip { major: true, gate: allowance });
+            return (grown >= gate || near_cap).then_some(Trip { kind: TripKind::Major, gate: allowance });
         }
 
         // Old generation first — a minor cannot sweep it at all, so if it is full, that is
         // the collection we need.
+        //
+        // add-incremental-major-gc M2b: while an incremental cycle is open the old generation is
+        // already being collected, so the promoted-byte gate does not start another; only the soft
+        // cap does, and it finishes the open cycle.
+        let active = self.major_cycle_active();
         let promoted = self.promoted_bytes_since_major.load(Ordering::Relaxed);
-        if promoted >= allowance || near_cap {
-            return Some(Trip { major: true, gate: allowance });
+        if near_cap || (!active && promoted >= allowance) {
+            return Some(Trip { kind: TripKind::Major, gate: allowance });
         }
         let minor_gate = self.minor_gate(baseline, soft_limit);
         let gate = minor_gate.saturating_mul(backoff as u64);
-        (grown >= gate).then_some(Trip { major: false, gate: minor_gate })
+        if grown >= gate {
+            return Some(Trip { kind: TripKind::Minor, gate: minor_gate });
+        }
+        (active && used >= self.incremental.next_slice_at.load(Ordering::Relaxed))
+            .then(|| Trip { kind: TripKind::Slice, gate: self.slice_interval() })
     }
 
     /// Mono SGen's allowance rule (`sgen_memgov_calculate_minor_collection_allowance`):
@@ -371,12 +407,23 @@ impl crate::gc::arc_heap::ArcMagrGC {
     ///
     /// `floor` keeps it strictly ahead of the current reading even when the heap has already
     /// blown past the gate (a declined trip must not re-enter on the very next allocation).
+    ///
+    /// `declined`: the policy was consulted and asked for nothing, which means the reading is
+    /// still **short** of `baseline + gate` — so that is exactly where to be consulted next.
+    /// Arming at `floor + gate` instead (still right for a collection already pending, which must
+    /// not put every allocation on the slow path until it runs) overshot the gate by however far
+    /// past the baseline the consult happened: after a collection re-arms at `live + nursery`, a
+    /// ×4-backed-off minor tripped at `baseline + 5 × nursery` rather than `4 ×`. On
+    /// `09_alloc_ctorless` that is a 20% bigger young set for its one large minor, and every extra
+    /// consult point makes it worse — add-incremental-major-gc M2b's slices took the overshoot
+    /// from 80 to 101 MB (148 ms against 127 ms).
     fn arm_next_collect(
         &self,
         baseline: u64,
         floor: u64,
         backoff: u32,
         soft_limit: Option<u64>,
+        declined: bool,
     ) {
         let gate = if crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep {
             self.minor_gate(baseline, soft_limit)
@@ -384,8 +431,50 @@ impl crate::gc::arc_heap::ArcMagrGC {
             Self::collection_allowance(baseline, self.nursery_bytes(), soft_limit)
         };
         let gate = gate.saturating_mul(backoff.max(1) as u64);
-        let next = baseline.saturating_add(gate).max(floor.saturating_add(gate));
-        self.next_collect_at.store(next, Ordering::Relaxed);
+        let at_gate = baseline.saturating_add(gate);
+        let next = if declined && at_gate > floor { at_gate } else { at_gate.max(floor.saturating_add(gate)) };
+        self.next_collect_at.store(self.with_slice_gate(next, floor), Ordering::Relaxed);
+    }
+
+    /// **add-incremental-major-gc M2b**: pull a trip point in to the open cycle's next slice.
+    ///
+    /// Kept at least [`SLICE_REARM_SLACK`] past `floor` (the current reading): a slice already
+    /// asked for but not yet run at a safepoint would otherwise put every allocation in between on
+    /// the slow path.
+    fn with_slice_gate(&self, next: u64, floor: u64) -> u64 {
+        if !self.major_cycle_active() {
+            return next;
+        }
+        let slice_at = self.incremental.next_slice_at.load(Ordering::Relaxed)
+            .max(floor.saturating_add(SLICE_REARM_SLACK));
+        next.min(slice_at)
+    }
+
+    /// **add-incremental-major-gc M2b**: heap growth between two slices of an open major cycle —
+    /// what the pacer (`incremental.rs`) last decided, or a quarter nursery before it has run.
+    pub(super) fn slice_interval(&self) -> u64 {
+        match self.incremental.slice_interval.load(Ordering::Relaxed) {
+            0 => self.clamp_slice_interval(self.nursery_bytes() / 4),
+            n => n,
+        }
+    }
+
+    /// Bounds on any slice interval: never more than a quarter nursery (a cycle must not stall
+    /// behind a program that allocates little), never less than [`MIN_SLICE_INTERVAL`].
+    pub(super) fn clamp_slice_interval(&self, bytes: u64) -> u64 {
+        bytes.min(self.nursery_bytes() / 4).max(MIN_SLICE_INTERVAL)
+    }
+
+    /// **add-incremental-major-gc M2b**: how far the heap may grow while a cycle runs — half the
+    /// allowance that opened it. A one-shot major lets the heap peak near `live + allowance`; the
+    /// cycle's floating garbage (everything that dies after its snapshot) lands on top of that, so
+    /// the cycle is paced to finish within half of it again.
+    pub(super) fn cycle_target_growth(&self, used: u64) -> u64 {
+        let soft_limit = match self.max_bytes_atomic.load(Ordering::Relaxed) {
+            u64::MAX => None,
+            n => Some(n),
+        };
+        Self::collection_allowance(used, self.nursery_bytes(), soft_limit) / 2
     }
 
     /// **arm-gc-by-default (2026-09-09)**: recompute the trip point from the live set a
@@ -418,7 +507,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // a bounded heap un-enforced from its very first allocation.
             live.saturating_add(self.minor_gate(live, soft_limit))
         };
-        self.next_collect_at.store(next, Ordering::Relaxed);
+        self.next_collect_at.store(self.with_slice_gate(next, live), Ordering::Relaxed);
     }
 
     /// **arm-gc-by-default (2026-09-09)**: how many bytes may be allocated before a **minor**
