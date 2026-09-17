@@ -32,6 +32,6 @@ facade **同一套 7 场景**。补齐桌面 C-ABI 这条路径在自动化 gate
 
 ## R1–R7 契约
 
-见 [`docs/design/testing/cross-platform-testing.md`](../../../../../docs/design/testing/cross-platform-testing.md)
+见 [`docs/internals/src/testing/cross-platform.md`](../../../../docs/internals/src/testing/cross-platform.md)
 的 platform 冒烟契约表（R1 smoke / R2 bad zbc=10 / R3 unknown entry=20 / R4 arg mismatch=21 /
 R5 resolver miss / R6 lifecycle / R7 multi-line）。

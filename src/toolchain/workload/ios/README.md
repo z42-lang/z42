@@ -5,7 +5,7 @@
 > Spec：[`docs/spec/archive/2026-05-12-add-platform-ios/`](../../../../docs/spec/archive/2026-05-12-add-platform-ios/)
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
-> 构建工作流：[`docs/workflow/building/ios.md`](../../../../docs/workflow/building/ios.md)
+> 构建工作流：[`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)
 
 把 z42 VM 编进 SwiftPM 包 + xcframework，让 Swift / SwiftUI iOS app 一行 `import Z42VM` 跑 `.zbc`。
 
@@ -24,7 +24,7 @@ dotnet build src/compiler/z42.slnx
 ./xtask test platform ios assets
 ```
 
-产物：`Z42VM.xcframework/` (ios-arm64 + ios-arm64_x86_64-simulator + macos-arm64) + `Resources/stdlib/*.zpkg`（无 index——`BundleZpkgResolver` 读各 zpkg 的 NSPC）。详见 [`docs/workflow/building/ios.md`](../../../../docs/workflow/building/ios.md)。
+产物：`Z42VM.xcframework/` (ios-arm64 + ios-arm64_x86_64-simulator + macos-arm64) + `Resources/stdlib/*.zpkg`（无 index——`BundleZpkgResolver` 读各 zpkg 的 NSPC）。详见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。
 
 ## Run tests
 

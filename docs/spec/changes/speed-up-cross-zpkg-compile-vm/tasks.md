@@ -11,7 +11,7 @@ release 一个量级。铁证：同一 gate 在 `test-consume(linux-x64)` 用 re
 debug VM 的价值（overflow-checks + 66 个内存布局 `debug_assert!`）是**执行期**触发的，编译走 debug 零覆盖
 价值——故编译改 release、只保留运行走 debug，覆盖不丢而 pole 消失。预期 linux-x64 32→~16min，与其余腿齐平。
 
-**文档影响：** `docs/book/src/dev/test-gate.md`（机制页：cross-zpkg 编译 VM 说明）；`.github/workflows/ci.yml`
+**文档影响：** `docs/internals/src/devinfra/test-gate.md`（机制页：cross-zpkg 编译 VM 说明）；`.github/workflows/ci.yml`
 cross-zpkg coverage 注释（描述性，顺带校正）。
 
 ## 任务

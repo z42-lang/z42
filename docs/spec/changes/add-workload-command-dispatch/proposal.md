@@ -46,7 +46,7 @@ Std.Cli 树（spawn-leaf 节点），`z42 -h` 自动列出，无需重编 launch
 | `src/toolchain/launcher/core/launcher.z42` | MODIFY | `_spawnCommand(zpkgPath, argv)` 辅助（复用现有 spawn 逻辑）|
 | `src/toolchain/workload/desktop/README.md` | MODIFY | 文档：命令 workload 格式说明 |
 | `docs/design/toolchain/launcher-command-dispatch.md` | MODIFY | 将 B1/B2 从 Deferred 移出，补实施决策 |
-| `docs/design/toolchain/runtime-workload-distribution.md` | MODIFY | 补 commands/ 目录结构说明 |
+| `docs/internals/src/toolchain/workload-distribution.md` | MODIFY | 补 commands/ 目录结构说明 |
 | `examples/workloads/greet/` | NEW | 示例命令 workload（`z42 greet` 命令，用于验证） |
 
 **只读引用**：

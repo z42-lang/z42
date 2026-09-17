@@ -17,7 +17,7 @@
 
 ### 2. 文档承诺了代码没做的事
 
-[`docs/workflow/packaging.md` §4](../../../workflow/packaging.md) 声称这个门覆盖 6 类文件、
+[`docs/internals/src/devinfra/release.md` §4](../../../internals/src/devinfra/release.md) 声称这个门覆盖 6 类文件、
 保证「跨 9 包 byte-identical」。实际：
 
 | 文档声称 | 代码实况 |
@@ -87,7 +87,7 @@ _PkgIdentityRule { string PkgRel; string SrcRel; string Pattern; }   // 包内�
 - `_pkgSha256Check` → `_pkgSourceIdentityCheck`
 - 用户可见输出：`SHA-256 invariant check:` → `source-identity check (package copies vs repo source):`；
   `✓ SHA-256 invariants OK` → `✓ source-identity OK`；FAILED 同理
-- `scripts/README.md` ×2、`docs/workflow/packaging.md` §4 同步
+- `scripts/README.md` ×2、`docs/internals/src/devinfra/release.md` §4 同步
 
 ### C. `examples/hello_c/main.c` —— 删文档，不补包（待 User 确认）
 
@@ -109,7 +109,7 @@ _PkgIdentityRule { string PkgRel; string SrcRel; string Pattern; }   // 包内�
 | `scripts/package/xtask_package_ios.z42` | 只读引用 | 确认 swift/dummy.c 的源路径 |
 | `scripts/package/xtask_package_android.z42` | 只读引用 | 确认 jni/CMakeLists/kt 的源路径 |
 | `scripts/package/xtask_package_wasm.z42` | 只读引用 | 确认 js 的源路径 |
-| `docs/workflow/packaging.md` | MODIFY | §4 重写：改名 + 覆盖面据实 + 讲清「vs 源 ⟹ 跨包一致且更强」 |
+| `docs/internals/src/devinfra/release.md` | MODIFY | §4 重写：改名 + 覆盖面据实 + 讲清「vs 源 ⟹ 跨包一致且更强」 |
 | `scripts/README.md` | MODIFY | 两处 `SHA-256 invariant` 表述 |
 | `docs/spec/changes/fix-package-identity-gate/` | NEW | 本 proposal + tasks.md |
 

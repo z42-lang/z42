@@ -69,7 +69,7 @@
 > apphost 的**进程外**运行时解析（原 `crates/z42-hostrun`）已并入桌面 apphost 桩的 `hostrun` 模块
 > （`src/toolchain/workload/desktop/platform/apphost/src/hostrun.rs`），不再是本 workspace 的 crate（merge-hostrun-into-apphost）。
 
-C 头文件位于 [`include/z42_abi.h`](include/z42_abi.h)；`.z42abi` manifest schema 在 [`docs/design/compiler/manifest-schema.json`](../../docs/design/compiler/manifest-schema.json)。
+C 头文件位于 [`include/z42_abi.h`](include/z42_abi.h)；`.z42abi` manifest schema 在 [`docs/internals/src/formats/manifest-schema.json`](../../docs/internals/src/formats/manifest-schema.json)。
 
 ## 构建与测试
 

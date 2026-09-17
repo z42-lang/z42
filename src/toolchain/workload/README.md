@@ -4,7 +4,7 @@
 
 承载按需下载的 **workload**，分两类：**平台 workload**（`ios` / `android` / `wasm` / `desktop`）把 runtime 产的平台无关 `app.zpkg` + 原始库包装成各平台可发布/可导出的工程与产物；**能力 workload**（`test`）提供跨平台的共享件（on-device test-agent，平台无关一份字节码，跑测试流程时按需下载）。按 dotnet workload 模型，**按需 `z42 workload install <name>`** 下载。
 
-立柱（见 [platform-export-lifecycle.md](../../../docs/design/toolchain/platform-export-lifecycle.md)）：**`z42 build` 一次产平台无关 `app.zpkg`，零 workload；`export`/`publish`/on-platform `test` 才分叉并门控对应平台 workload。**
+立柱（见 [platform-export-lifecycle.md](../../../docs/internals/src/toolchain/platform-export.md)）：**`z42 build` 一次产平台无关 `app.zpkg`，零 workload；`export`/`publish`/on-platform `test` 才分叉并门控对应平台 workload。**
 
 与 `runtime/` 的区别：runtime = 平台无关核心 + **嵌入 API**（VM + Tier1 C ABI + **Tier2 host-api**，住 `runtime/crates/z42-host` + 头 + per-RID 原始库）；本模块 = 平台相关工程化（appbuilder 发布管线 + template 脚手架 + tests 契约 + platform 原生绑定 Tier3）。
 与 `launcher/`（SDK）的区别：launcher = `z42` CLI core（install/build/run...），引导关键、baked-in；本模块 = 平台命令（publish/export/工程生成），目录发现、按需装。
@@ -23,7 +23,7 @@ workload/<plat>/          # ios / android / desktop / wasm
 └── platform/     # 原生绑定 Tier3（Swift / Kotlin / TS + rust → 编成 runtime pack）
 ```
 
-> 四**平台** workload：`desktop`（仅 publish/export，复用宿主 runtime，**无 `platform/`**）/ `ios` / `android` / `wasm`（含 target runtime pack）。分发模型见 [runtime-workload-distribution.md](../../../docs/design/toolchain/runtime-workload-distribution.md)。
+> 四**平台** workload：`desktop`（仅 publish/export，复用宿主 runtime，**无 `platform/`**）/ `ios` / `android` / `wasm`（含 target runtime pack）。分发模型见 [runtime-workload-distribution.md](../../../docs/internals/src/toolchain/workload-distribution.md)。
 >
 > 另有一个**非平台的能力 workload**（不套上面平台模板）：
 >

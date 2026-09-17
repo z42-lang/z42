@@ -1,7 +1,7 @@
 # Design: 接入 z42b host build
 
 > 把 PARKED 的 z42.project / z42.build / z42b 接入编译，注入真实编译器，launcher 转发。
-> 前瞻架构见 [build-orchestrator.md](../../../design/toolchain/build-orchestrator.md)。
+> 前瞻架构见 [build-orchestrator.md](../../../internals/src/toolchain/z42b.md)。
 
 ## Architecture
 

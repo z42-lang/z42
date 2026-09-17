@@ -13,17 +13,18 @@ z42 是一门融合 C#、Rust、Python 优点的系统编程语言。
 src/compiler/       # z42 自举编译器（z42c.core/ir/syntax/project/semantics/pipeline/driver，编译为 zpkg）
 src/runtime/    # Rust VM（interp / jit / aot）
 src/libraries/  # 标准库 .z42 源码（编译后产出 .zpkg）
-src/toolchain/  # 配套工具链（launcher / test-runner / workload；debugger·builder 占位）
+src/toolchain/  # 配套工具链（launcher / builder(z42b) / interactive(repl) / workload / devtools）
 docs/learn/     # 学习手册（教程 mdBook，按学习顺序）
 docs/reference/ # 语言与库参考（mdBook：语法规则 / stdlib API / CLI / 清单字段 / 错误码）
 docs/internals/ # 实现内幕（mdBook：架构 / 机制 / 决策 / 构建测试发布操作）
 examples/       # 学习手册配套示例；由 xtask test examples 逐条运行校验
-docs/book/ docs/design/ docs/workflow/   # ⏳ 三书重构搬迁中，**冻结只读**（要改先搬，见 doc-system.md 过渡期节）
+docs/book/      # 站点根：三书分流索引
+docs/design/    # ⏳ 搬迁残留（philosophy + README-template），冻结只读
 ```
 
 ## 构建与测试
 
-所有构建、编译、测试、打包命令见 [docs/workflow/](../docs/workflow/)（搬迁中 → `docs/internals/` 的开发基础设施部分）。
+所有构建、编译、测试、打包命令见 [docs/internals/src/devinfra/](../docs/internals/src/devinfra/)。
 
 ## 实现计划
 

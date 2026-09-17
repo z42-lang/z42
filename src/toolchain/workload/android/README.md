@@ -5,13 +5,13 @@
 > Spec：[`docs/spec/archive/2026-05-12-add-platform-android/`](../../../../docs/spec/archive/2026-05-12-add-platform-android/)
 > 跨平台契约：[`../README.md`](../README.md)
 > 实现原理：[`docs/internals/src/runtime/embedding.md`](../../../../docs/internals/src/runtime/embedding.md)
-> 构建工作流：[`docs/workflow/building/android.md`](../../../../docs/workflow/building/android.md)
+> 构建工作流：[`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)
 
 把 z42 VM 编进 Gradle AAR 模块，Kotlin / Compose app 引入后一行 `import io.z42.vm.Z42VM` 跑 `.zbc`。
 
 ## Quick Start
 
-详细 step-by-step 见 [`docs/workflow/building/android.md`](../../../../docs/workflow/building/android.md)。最简略：
+详细 step-by-step 见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md)。最简略：
 
 ```bash
 # 一次性：SDK + NDK + emulator + AVD + Gradle 全装到 artifacts/tools/
@@ -127,7 +127,7 @@ src/runtime/  (interp + aot feature; no JIT inside Android sandbox)
 
 ## 故障排查
 
-详细的 step-by-step 故障兜底见 [`docs/workflow/building/android.md`](../../../../docs/workflow/building/android.md) §Step 各栏的 ❗ 行。
+详细的 step-by-step 故障兜底见 [`docs/internals/src/devinfra/build-platforms.md`](../../../../docs/internals/src/devinfra/build-platforms.md) §Step 各栏的 ❗ 行。
 
 ## 与跨平台契约的对齐
 

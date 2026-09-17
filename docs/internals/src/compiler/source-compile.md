@@ -1,7 +1,7 @@
 # 源代码编译流程（z42c）
 
 > **页型**: 机制页 ｜ **状态**: ✅ 已实现 ｜ **代码**: `src/libraries/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/libraries/z42.ir/`
-> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](../../../book/src/compiler/tools.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
+> **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md) ｜ **对齐**: 2026-09-10（`fix-arity-mangle-package-wide` / `report-duplicate-type-name` / `fix-multiple-file-scoped-namespaces`；前序 `restore-emit-zbc-diagnostics` / `add-bare-name-ambiguity-diagnostic`）
 
 ## 概述
 
@@ -18,7 +18,7 @@ graph LR
 
 ## 机制
 
-各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](../../../book/src/compiler/tools.md)）。
+各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md)）。
 
 ### 词法（Lexer）
 
@@ -442,7 +442,7 @@ CallExpr ─► MemberResolver._bindCall / _bindMemberCall
 诊断的 span 指向**实参本身**而非调用点；同一调用里多个不符实参**逐条**报，不在第一条短路。
 
 > **为什么这条检查缺席了这么久**：`--emit-zbc` 路径长期丢弃全部编译诊断（见
-> [CLI 与诊断工具](../../../book/src/compiler/tools.md)），而单文件 e2e / golden / bench 全走那条路 —— 于是「binder 报的错没人
+> [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md)），而单文件 e2e / golden / bench 全走那条路 —— 于是「binder 报的错没人
 > 看见、emitter 那半边碰巧能跑」成了常态。补上检查时暴露的问题**没有一条是真实的用户类型错误**，
 > 全部落在既存的编译器缺陷上，其中四条同属一族：**`ImportedSymbolLoader` 的类型保真度**——跨包读回
 > 时把结构化类型降级成「名字对但种类错」的 `Z42ClassType`：
@@ -578,7 +578,7 @@ primary = **声明序第一个**同名成员（跨 partial 碎片按碎片加载
 
 > ⚠️ **为什么编译期的门必须建在语义单测里**：`src/tests/` 的单文件 golden 走 `--emit-zbc`，
 > 而那条路径**曾经**丢弃全部诊断、以 exit 0 照写产物（已于 2026-09-10 `restore-emit-zbc-diagnostics`
-> 修复，见 [CLI 与诊断工具](../../../book/src/compiler/tools.md)）⇒ 「本该报错却没报」在那侧看不见。
+> 修复，见 [CLI 与诊断工具](../../../reference/src/toolchain/cli-z42c-z42b.md)）⇒ 「本该报错却没报」在那侧看不见。
 > **修好之后这条建议依然成立**：golden 断言的是**输出**，「期望编译报错」的用例放进去只会变成
 > 一个编译失败的测试，表达不了「必须报这一条码」——负例门仍然只能走语义单测。上面几条 bug 的 emitter 半边碰巧还能跑（delegate 类型擦除 /
 > 元组 blob），所以 e2e 断言照样绿——`src/tests/tuples/tuple_basic.z42` 与

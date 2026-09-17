@@ -401,5 +401,6 @@ void Main() {
 - **没有目录监视（watch）**、没有文件锁、没有 `SetLastWriteTime`、没有权限位读写
   （只有单向的 `MakeExecutable`）。
 - **没有 async**：不存在 `ReadAllTextAsync` 之类。
-- **没有 `Environment.ProcessId` / `MachineName` / `OSVersion` / `NewLine` / `SpecialFolder`**。
+- **`Environment` 上没有 `ProcessId` / `MachineName` / `OSVersion` / `NewLine` / `SpecialFolder`**
+  ——前三个在 `Std.OperatingSystem`（见[平台与能力查询](platform.md)），后两个没有对应物。
 - **环境变量拿不到 `Map<string,string>`**：`GetEnvironmentVariables()` 是 `"KEY=VALUE"` 平铺数组。

@@ -69,13 +69,13 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
   [`src/libraries/z42.project/`](../../libraries/z42.project/)（`z42.toml` 模型）。
 - 调用 `z42c`（编译）、各 workload（平台尾相位）；经 `extern` 调 VM native 原语
   （Sign / Archive / Hash / Download / ProbeVersion，住 `runtime`）。
-- 被 launcher 命令分发调用（见 [`docs/design/toolchain/launcher-command-dispatch.md`](../../../docs/design/toolchain/launcher-command-dispatch.md)）。
+- 被 launcher 命令分发调用（见 [`docs/internals/src/toolchain/launcher.md`](../../../docs/internals/src/toolchain/launcher.md)）。
 
 ## 状态
 
 🔴 **占位 / 未接编译**。当前仅目录骨架 + 本 README，**未登记 workspace / xtask / CI**，
 不影响任何现有构建。
 
-落地走 spec-first（架构性变更），设计文档 `docs/design/toolchain/build-orchestrator.md`（待建）。
+落地走 spec-first（架构性变更），设计文档 `docs/internals/src/toolchain/z42b.md`（待建）。
 **前置**：replace-csharp S5 完成（z42c 成生产编译器、`toolchain` 子系统解锁）。
 推进计划见 `docs/roadmap.md`。

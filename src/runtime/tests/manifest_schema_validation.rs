@@ -1,4 +1,4 @@
-//! Validates `docs/design/compiler/manifest-schema.json` against representative inputs.
+//! Validates `docs/internals/src/formats/manifest-schema.json` against representative inputs.
 //!
 //! C1 freezes the .z42abi manifest schema; later specs that read the manifest
 //! (C5) rely on these scenarios staying green to know the schema is intact.
@@ -19,7 +19,7 @@ fn project_root() -> PathBuf {
 }
 
 fn load_schema() -> Validator {
-    let path = project_root().join("docs/design/compiler/manifest-schema.json");
+    let path = project_root().join("docs/internals/src/formats/manifest-schema.json");
     let raw = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read schema {}: {}", path.display(), e));
     let value: Value = serde_json::from_str(&raw).expect("schema is valid JSON");

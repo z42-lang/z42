@@ -66,5 +66,5 @@ Cargo features 设计上是 additive。`compile_error!` 互斥检查与 cargo �
 每个 P4.x 在本 spec 之上叠加：选合适的 feature preset、加 host bridge、加 demo / e2e 测试。
 
 > **跨平台测试架构**（同一份 `src/tests/` 在所有平台一致执行）见
-> [cross-platform-testing.md](../../../design/testing/cross-platform-testing.md) — library-first
+> [cross-platform-testing.md](../../../internals/src/testing/cross-platform.md) — library-first
 > test-runner + zbc 一次编译 N 处分发 + `[SkipPlatform]` 选择性跳过。

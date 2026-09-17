@@ -3,7 +3,7 @@
 > **对齐**：2026-09-17 ｜ **状态**：Tier 1 C ABI 可用（仅解释器）；Tier 2 Rust 宏部分可用；Tier 3 未实现
 
 本页是**扩展作者与宿主开发者**要查的契约：z42 代码怎么声明一个 native 调用、native 库怎么把类型注册进
-VM、边界上允许出现哪些类型、谁负责释放什么。[嵌入概览](README.md) 讲的是反方向——宿主怎么启动并驱动
+VM、边界上允许出现哪些类型、谁负责释放什么。[C ABI 契约](c-abi.md) 讲的是反方向——宿主怎么启动并驱动
 VM；两边共用同一套 `Z42Value` / `Z42Args` 值形状。
 
 ---
@@ -15,7 +15,7 @@ VM；两边共用同一套 `Z42Value` / `Z42Args` 值形状。
 | 调用 z42vm 内置的原生函数 | `extern` + `[Native("__name")]` | 名字必须**已在** VM 的内置表里；用户加不了新名字 |
 | 调用随 SDK 分发的 native 扩展库（如压缩） | `[Native(lib="z42_x", entry="__y")]` | 可用；解析只看 `entry`，`lib` 是给人看的 |
 | 调用**自己**用 C / Rust 写的 native 类型的方法 | `[Native(lib=, type=, entry=)]` + Tier 1 注册 | 可用，**仅解释器**；类型须由宿主或静态链接注册 |
-| 在宿主程序里启动 z42 VM | `z42_host.h` | 见[嵌入概览](README.md) |
+| 在宿主程序里启动 z42 VM | `z42_host.h` | 见 [C ABI 契约](c-abi.md) |
 
 三条路共享同一条铁律：**跨边界的数据 100% blittable，没有自动编组**。高级类型（`string` / 数组 /
 class 实例）不会被自动转换成 C 形状——要么投成标量后再传，要么根本不能传。
@@ -152,7 +152,7 @@ typedef struct Z42Error { uint32_t code; const char* message; } Z42Error;
 tag 值已冻结，只能追加：`NULL=0` `I64=1` `F64=2` `BOOL=3` `STR=4` `OBJECT=5` `TYPEREF=6`
 `NATIVEPTR=7` `PINNED_VIEW=8`。
 
-> `Z42Value` / `Z42Args` 与[嵌入 API](README.md) 的 `z42_host.h` **是同一份定义**，两套头文件并行但不
+> `Z42Value` / `Z42Args` 与[C ABI 契约](c-abi.md) 的 `z42_host.h` **是同一份定义**，两套头文件并行但不
 > 重复声明。`Z42Error.message` 由 VM 拥有，**不要 free**。
 
 ### 3.3 签名串语法
@@ -376,6 +376,6 @@ long n = NumZ42.CounterGet(ptr);
 
 ## 相关
 
-- [嵌入概览](README.md) —— 宿主怎么启动并驱动 VM
+- [C ABI 契约](c-abi.md) —— 宿主怎么启动并驱动 VM
 - [诊断码全表](../appendix/error-codes.md) —— `E0901`–`E0916` 原生互操作码组
 - [参数修饰符 `ref` / `out` / `in`](../language/parameter-modifiers.md) —— 这三个修饰符**不参与** native 签名

@@ -39,7 +39,7 @@ xtask test vscode-syntax    # 生成器一致性：关键字分类穷尽 + 入�
 
 ## 关联文档
 
-- 机制（SoT 生成链、分类表、安装原理）：[book 编辑器集成](../../../../docs/book/src/toolchain/editor-integration.md)
+- 机制（SoT 生成链、分类表、安装原理）：[book 编辑器集成](../../../../docs/internals/src/toolchain/editor-integration.md)
 - 引入：change `add-vscode-syntax-ext`（`docs/spec/archive/`）
 
 ## 核心文件

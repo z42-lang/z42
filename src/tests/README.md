@@ -45,7 +45,7 @@
 | `cross-zpkg/` | 多 zpkg 端到端（target / ext / main 三方协作；由 `z42 xtask.zpkg test cross-zpkg` 跑） |
 
 > **仓库根 `examples/`** 不是测试语料：它是学习手册的配套工程，由 `xtask test examples`
-> 按会话脚本逐条运行校验（见 [docs/book/src/dev/test-gate.md](../../docs/book/src/dev/test-gate.md)）。
+> 按会话脚本逐条运行校验（见 [docs/internals/src/devinfra/test-gate.md](../../docs/internals/src/devinfra/test-gate.md)）。
 > 语言 / VM 特性的覆盖一律写在本目录。
 
 > **期望编译报错的用例不在本目录**：写成 `z42c.semantics` 自己的 `[Test]` 单测
@@ -117,7 +117,7 @@
    - 仅用 `Assert.*` 测计算 / 控制流，无 sidecar → `src/tests/<category>/<name>.z42`（flat 模式）
    - 不确定类别归 `basic/`
 
-完整规则见 [docs/design/testing/testing.md](../../docs/design/testing/testing.md)。
+完整规则见 [docs/internals/src/testing/framework.md](../../docs/internals/src/testing/framework.md)。
 
 ## 运行
 

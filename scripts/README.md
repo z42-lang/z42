@@ -90,7 +90,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 | `package index <label> [dist] …` | 生成 release-index.json（launcher 供给契约） | SHA256SUMS | `release-index.json` |
 | `bench [--diff]` | 性能基准 / 回归对比 | z42c + hyperfine | 各场景编译/执行耗时；`--diff` 比对两组结果 |
 | `profile <script> [--cpu\|--heap\|--threads\|--e2e\|--all]` | 深挖某个 `.z42` 脚本的性能 | z42c +（可选）samply/dhat/hyperfine | `artifacts/profile/<name>/`：CPU 火焰图 / dhat 堆报告 / peak-RSS / counter 摘要 + `report.md` |
-| `test` | **每次 commit / 归档前必跑** | 下面各 stage | 串联全部验证 stage（清单见 book/dev/test-gate.md；不含 runtime——见下） |
+| `test` | **每次 commit / 归档前必跑** | 下面各 stage | 串联全部验证 stage（清单见 internals/devinfra/test-gate.md；不含 runtime——见下） |
 | `test runtime` | 改了 Rust VM (`src/runtime/`) | `cargo` | Rust VM 单测/集成（`cargo test --test-threads=1`；含 zbc/zpkg format 基线）。**不在 `test` gate 内**（signal 测试在受限沙箱会挂）；CI 每腿单独一步 + 按需本地跑 |
 | `test e2e [--dir <cat>] [--file <p>] [--mode interp\|jit]` | 跑 `src/tests/` 端到端（golden + cross-zpkg；最常用） | `cargo build` + golden 产物 | 默认全跑；`--dir`/`--file` narrow |
 | `test stdlib [lib]` | stdlib 源 / 编译器变动 | `build stdlib` + z42b（z42.builder.zpkg） | 各 stdlib lib 的 `[Test]` 通过率 |
@@ -124,10 +124,10 @@ test ──► _testAll
   │       └ cargo debug z42vm + compression cdylib → build stdlib + z42c
   │         + cargo release z42vm + golden .zbc
   └─► 依序跑各验证 stage，任一失败立即停 ──► ✅ GREEN
-  # CI 只为并行用 `--skip` 把部分 stage 下放到独立 shard job（见 workflow/ci.md）。
+  # CI 只为并行用 `--skip` 把部分 stage 下放到独立 shard job（见 internals/devinfra/ci.md）。
 ```
 
-> **stage 清单不在这里复列**——[`book/dev/test-gate.md`](../docs/book/src/dev/test-gate.md)
+> **stage 清单不在这里复列**——[`internals/devinfra/test-gate.md`](../docs/internals/src/devinfra/test-gate.md)
 > 是唯一权威清单，本页此前复列过一份、并且已经漂移（漏了 multi-exe / manifest targets /
 > examples 三个）。现在该页的清单由 `_checkGateStageDoc` 与代码 `_gateStageNames()` 对账守着，
 > 每个 stage 落在哪个文件见下面的「源码结构」。
@@ -202,7 +202,7 @@ xtask deps check --os android       # 严格校验该平台依赖已就位（缺
 
 **commit 前 / 归档前（必跑，workflow 阶段 8 全绿入口）**：
 ```bash
-xtask test               # 串联全部验证 stage（组成见 book/dev/test-gate.md；runtime 独立，见 test runtime）
+xtask test               # 串联全部验证 stage（组成见 internals/devinfra/test-gate.md；runtime 独立，见 test runtime）
 ```
 
 > 不要单独只跑其中一个 stage 就当作通过 —— 历史上 cross-zpkg subclass catch
@@ -347,7 +347,7 @@ scripts/
 ## 迭代注意点（自举边界与验证）
 
 > 按改动类型的完整验证速查（改了编译器/stdlib/VM/xtask 各跑什么）：
-> [`docs/workflow/testing/verify-by-change.md`](../docs/workflow/testing/verify-by-change.md)。
+> [`docs/internals/src/devinfra/testing.md`](../docs/internals/src/devinfra/testing.md)。
 
 改本目录（乃至全仓）代码时，最容易踩的是**自举边界**：
 
@@ -368,7 +368,7 @@ scripts/
 **commit 前验证**（GREEN 标准）：
 
 ```bash
-xtask test                # 完整 gate（stage 组成见 book/dev/test-gate.md）
+xtask test                # 完整 gate（stage 组成见 internals/devinfra/test-gate.md）
 ```
 
 iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`test e2e --dir/--file` /
@@ -381,7 +381,7 @@ iteration 期可用 `test changed`（按改动挑 stage）或单跑某 stage（`
 
 本 README 是**基础层**（干什么 / 怎么用 / 怎么开发）；设计思路与实现机制（深入层）见 book 工具链部分：
 
-- [xtask：自举 dev CLI](../docs/book/src/dev/xtask.md) —— 自举链路、CLI 分发架构、`--toolchain` 机制
-- [构建编排（build / regen）](../docs/book/src/dev/build.md) —— z42c 七包自建拓扑、stdlib 三阶段、不动点验证、golden 重生
-- [开发基础设施概览](../docs/book/src/dev/README.md) —— xtask 三条产线全景（在线版：<https://z42-lang.github.io/z42/dev/>）
-- 操作手册（构建/测试的完整流程）：[`docs/workflow/`](../docs/workflow/)
+- [xtask：自举 dev CLI](../docs/internals/src/devinfra/xtask.md) —— 自举链路、CLI 分发架构、`--toolchain` 机制
+- [构建编排](../docs/internals/src/devinfra/build.md) —— 编译器 workspace 自建拓扑、stdlib 三阶段、不动点验证、golden 重生
+- [开发基础设施概览](../docs/internals/src/devinfra/README.md) —— xtask 三条产线全景
+- 操作手册（构建/测试的完整流程）：[`docs/internals/src/devinfra/`](../docs/internals/src/devinfra/)

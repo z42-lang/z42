@@ -80,4 +80,4 @@ AOT 码发 **cranelift user stack map**(与 JIT 共享机制)→ AOT 路径精�
 - AOT 作 tier / 与 JIT 共存 / deopt：[tiered-execution.md](tiered-execution.md) · 精确 GC stack map / 后端注册槽：[safepoint.md](safepoint-design.md)
 - 值/对象 ABI：[object-abi.md](object-abi.md) · 组件化(libz42_aot)：[componentized-runtime.md](componentized-runtime.md)
 - 动态加载边界：[load-context.md](load-context.md) · 当前架构：[vm-architecture.md](vm-architecture.md)
-- export/打包：[../toolchain/runtime-workload-distribution.md](../../../design/toolchain/runtime-workload-distribution.md)
+- export/打包：[../toolchain/runtime-workload-distribution.md](../../../internals/src/toolchain/workload-distribution.md)

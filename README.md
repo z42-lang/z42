@@ -44,7 +44,7 @@ z42 new hello && cd hello && z42 run
 ```
 
 **Work on z42 itself** — bootstrap a repo-local SDK, build the `xtask` dev CLI, run the gate
-(full steps in **[docs/workflow/quickstart.md](docs/workflow/quickstart.md)**):
+(full steps in **[docs/internals/src/devinfra/dev-setup.md](docs/internals/src/devinfra/dev-setup.md)**):
 
 ```bash
 git clone https://github.com/z42-lang/z42 && cd z42
@@ -76,7 +76,7 @@ Start from what you want to do. The knowledge base is consolidating into
 
 | I want to... | Read this |
 |--------------|-----------|
-| **Build, test, and package the repo** | [`docs/workflow/`](docs/workflow/) |
+| **Build, test, and package the repo** | [`docs/internals/src/devinfra/`](docs/internals/src/devinfra/) |
 | **Follow the collaboration workflow** | [`docs/agent/`](docs/agent/) |
 | **See progress and what's planned** | [`docs/roadmap.md`](docs/roadmap.md) · [`docs/features.md`](docs/features.md) |
 

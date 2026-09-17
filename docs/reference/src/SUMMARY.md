@@ -87,6 +87,8 @@
   - [反射](stdlib/reflection.md)
   - [运行时设置查询](stdlib/runtime-config.md)
   - [应用自定义配置](stdlib/app-properties.md)
+  - [平台与宿主信息](stdlib/platform.md)
+  - [GC 与句柄](stdlib/gc.md)
 
   **数据与文本**
 
@@ -120,12 +122,20 @@
 # 工具链
 
 - [概览](toolchain/README.md)
+  - [`z42` 命令参考](toolchain/cli-z42.md)
+  - [`z42c` / `z42b` 命令参考](toolchain/cli-z42c-z42b.md)
   - [工程清单 z42.toml](toolchain/z42-toml.md)
+  - [运行时设置（旋钮清单）](toolchain/runtime-settings.md)
 
 # 嵌入
 
 - [概览](embedding/README.md)
+  - [C ABI 契约](embedding/c-abi.md)
   - [原生互操作（native interop）](embedding/native-interop.md)
+
+# 测试
+
+- [编写与运行测试](testing.md)
 
 # 约定
 

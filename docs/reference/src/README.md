@@ -11,6 +11,7 @@
 | 查某个库有什么 API | [标准库](stdlib/README.md) |
 | 查命令、清单字段、运行时旋钮 | [工具链](toolchain/README.md) |
 | 在 C / Rust 宿主里嵌入 z42 | [嵌入](embedding/README.md) |
+| 查 `[Test]` 怎么写、`z42 test` 怎么用 | [测试](testing.md) |
 | 查一个错误码什么意思 | [附录](appendix/README.md) |
 
 本书按主题组织，**可以跳读**：每页把一件事的规则讲完整，不依赖你读过前面的章节。

@@ -68,7 +68,7 @@ ICompiler 包装 z42c.pipeline 的内存编译）→ launcher 转发动词 → p
 | `scripts/xtask_cli.z42` | MODIFY | `build z42b` + sdk 组装含 z42b apphost |
 | `scripts/xtask_compiler_z42.z42` 或新 `xtask_builder.z42` | MODIFY/NEW | z42b 构建编排 |
 | `.github/workflows/*.yml` | MODIFY | CI 纳入 z42.project/z42.build/z42b 构建 |
-| `docs/design/toolchain/build-orchestrator.md` | MODIFY | 从「前瞻草案」更新为已接入状态 + 接入决策 |
+| `docs/internals/src/toolchain/z42b.md` | MODIFY | 从「前瞻草案」更新为已接入状态 + 接入决策 |
 | `docs/spec/changes/ACTIVE.md` | MODIFY | 登记本变更子系统占用 |
 
 **只读引用**：

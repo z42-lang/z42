@@ -42,7 +42,7 @@
 | `scripts/xtask_cli.z42` | MODIFY | 注册 `--ab` 及其选项（`--base-vm`/`--base-libs`/`--base-driver`/`--threshold-time`）路由到 `_benchAb` |
 | `.github/workflows/bench-pr.yml` | MODIFY | 同 job 建 base 工具链 + 跑 `bench --ab`；删 fetch-baseline/diff 两步 |
 | `bench/README.md` | MODIFY | 「CI 集成」节改写为同-runner A/B 门禁流程 |
-| `docs/book/src/dev/benchmarking.md` | MODIFY | A/B 门禁机制页：同-runner 抵消原理 + SEM 有效性 + 判红伪代码 + 数据流 mermaid |
+| `docs/internals/src/devinfra/benchmarking.md` | MODIFY | A/B 门禁机制页：同-runner 抵消原理 + SEM 有效性 + 判红伪代码 + 数据流 mermaid |
 | `docs/roadmap.md` | MODIFY | Deferred Backlog Index：micro A/B（Stage 2）/ criterion 接线（Stage 3）登记 |
 | `scripts/test/xtask_test_lib.z42` | MODIFY | 若 `bench --ab` 需单测入口（A/B 判红纯函数 verdict 测例） |
 

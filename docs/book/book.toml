@@ -8,7 +8,7 @@
 # docs/agent/rules/doc-system.md。
 
 [book]
-title = "z42 语言与实现"
+title = "z42 文档"
 authors = ["z42"]
 language = "zh"
 src = "src"
