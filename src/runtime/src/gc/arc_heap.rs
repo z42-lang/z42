@@ -501,6 +501,14 @@ pub struct ArcMagrGC {
     /// **add-incremental-major-gc M2b**: the incremental major's phase, cursor and the policy's
     /// request flags — see `arc_heap/incremental.rs`.
     incremental: incremental::IncrementalState,
+    /// **add-pause-budget-nursery**: sizes the nursery from the measured cost of a minor, so the
+    /// minor pause has a bound the way the major's slices do. Disabled (and left at the constant
+    /// nursery) when `Z42_GC_PAUSE_TARGET_MS=0` or `Z42_GC_NURSERY_BYTES` is set explicitly.
+    pause_budget: pause_budget::PauseBudget,
+    /// **add-pause-budget-nursery**: the configured nursery, kept fixed while `nursery_bytes`
+    /// adapts — the old generation's allowance is denominated in this one. See
+    /// `auto_collect::allowance_unit`.
+    allowance_unit_bytes: std::sync::atomic::AtomicU64,
 }
 
 impl ArcMagrGC {
@@ -508,6 +516,10 @@ impl ArcMagrGC {
     #[cfg(test)]
     pub(crate) fn set_nursery_bytes_for_test(&self, n: u64) {
         self.nursery_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
+        // add-pause-budget-nursery: a test sizing the nursery is sizing the whole policy, so the
+        // old generation's allowance unit moves with it (production splits the two — see
+        // `auto_collect::allowance_unit`).
+        self.allowance_unit_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
         self.rearm_auto_collect();
     }
 
@@ -579,6 +591,7 @@ mod collect;
 mod control;
 mod generational;
 mod incremental;
+mod pause_budget;
 mod promotion_policy;
 mod roots;
 mod observe;

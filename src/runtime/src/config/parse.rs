@@ -117,6 +117,21 @@ where F: Fn(&str) -> Option<String> {
     raw.trim().parse::<f64>().ok().filter(|v| v.is_finite()).map_or(2.0, |v| v.clamp(0.01, 1000.0))
 }
 
+/// `Z42_GC_PAUSE_TARGET_MS` (add-pause-budget-nursery): missing / unparseable → 10 ms; `0` means
+/// "do not adapt"; otherwise clamped to `[0.5, 1000]` — below half a millisecond the fixed part of
+/// a minor (card scan, chunk reclaim) dominates and no nursery size can meet the target.
+pub(super) fn parse_gc_pause_target_ms<F>(get: &F) -> f64
+where F: Fn(&str) -> Option<String> {
+    let Some(raw) = get("Z42_GC_PAUSE_TARGET_MS").filter(|s| !s.trim().is_empty()) else {
+        return 10.0;
+    };
+    match raw.trim().parse::<f64>() {
+        Ok(v) if v == 0.0 => 0.0,
+        Ok(v) if v.is_finite() => v.clamp(0.5, 1000.0),
+        _ => 10.0,
+    }
+}
+
 pub(super) fn parse_gc_soft_threshold<F>(get: &F) -> f64
 where F: Fn(&str) -> Option<String> {
     let Some(raw) = get("Z42_GC_SOFT_THRESHOLD").filter(|s| !s.trim().is_empty()) else {

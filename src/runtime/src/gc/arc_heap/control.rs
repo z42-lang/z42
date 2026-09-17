@@ -403,6 +403,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
                 self.maybe_reset_near_limit_warned();
                 let pause_us = Self::now_us().saturating_sub(start);
+                // add-pause-budget-nursery: only a **minor** teaches the cost model — a slice is
+                // bounded by its own budget, and a one-shot major is not what the nursery sizes.
+                if did_minor {
+                    self.observe_minor_pause(super::pause_budget::MinorSample {
+                        pause_us,
+                        scanned: young_before as u64,
+                        survivors: self.young_count() as u64,
+                        used_before,
+                        used_after: used_before.saturating_sub(freed_bytes),
+                    });
+                }
                 self.pause_histogram.lock().record(pause_us);
                 self.fire_event(GcEvent::AfterCollect {
                     kind: GcKind::CycleCollector, freed_bytes, pause_us,

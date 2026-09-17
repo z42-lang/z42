@@ -165,6 +165,23 @@ minor 第一次访问保留新对象并清掉 minor 位，第二次访问判它�
 切片不参与徒劳退避（标记切片按设计不回收任何东西），也不移动 minor 闸门的水位 —— 否则每 1/4 nursery 一个切片会
 把 minor 的「已增长」不停清零、把 minor 饿死。
 
+## 切片化之后：剩下的长停顿全是 minor
+
+major 的停顿与堆大小脱钩之后，实测剩余的最大停顿**全部来自 minor**，于是
+[`add-pause-budget-nursery`](gc-tuning.md#按停顿预算自适应-nursery) 接着把 nursery 从常量改成
+按实测代价反推的量。那一轮实测也反过来暴露了本机制留下的两个账，都记在这里：
+
+- **开着的周期会把 grey 队列变成每次 minor 的根**（M2a 的 `queue.extend(mark_queue)`）。
+  实测 `13_gc_large_heap --large` 上是 **108 142** 个老条目，*每次* minor 重新遍历一遍
+  （`Z42_GC_PHASES` 的 `minor roots` 行可见）。这些老条目的年轻子节点**卡表已经覆盖** ——
+  minor 的 BFS 本身就靠这条不入队老 children —— 所以这份工作很可能是白做的。
+- **清扫切片会把下一次 minor 推远**。`rearm_auto_collect` 以*当前* `used` 为锚，而切片释放的字节
+  也走 `sub_used_bytes` 落到那里，于是每个切片都把 minor 闸门往后推至多一个闸门。实测
+  `z42c.semantics` 打出 `trip minor gate 18.1M grown 30.2M` —— **超调 67%**。
+
+两条都需要各自的 change 与设计评审（改锚点的原型把 semantics 打到 11.5 ms，但让
+`13_gc_large_heap --large` 从 22.8 ms 崩到 131.6 ms）。
+
 ## 代价
 
 标记期外每次堆引用写多一次 relaxed load + 不跳转的分支。实测（与只有 epoch 改动的二进制交错）：

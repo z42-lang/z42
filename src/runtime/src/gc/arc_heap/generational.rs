@@ -20,6 +20,14 @@ pub(crate) struct MinorSweepResult {
 }
 
 impl crate::gc::arc_heap::ArcMagrGC {
+    /// Young entries listed across all three regions — what the next minor will have to scan
+    /// before it sees a single new allocation (add-pause-budget-nursery).
+    pub(super) fn young_count(&self) -> usize {
+        self.region_object.lock().young_count()
+            + self.region_array.lock().young_count()
+            + self.region_var.lock().young_count()
+    }
+
     /// The heap's current promotion age. A relaxed load: it only changes inside a STW
     /// sweep, so every reader either sees the whole old value or the whole new one.
     #[inline]
@@ -119,8 +127,16 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // add-incremental-major-gc M2a: a major mark's grey set and SATB records are roots for a
         // minor that runs while that mark is outstanding — otherwise a young object the barrier
         // recorded could be swept here and handed back to the marker as a dangling handle.
+        // add-pause-budget-nursery: a minor's pause is only *buyable* with the nursery to the
+        // extent that its work is proportional to the young set. These three notes say how much
+        // of it is not — see [`super::pause_budget`].
+        let pinned_n = queue.len();
         queue.extend(self.satb_queue.lock().iter().cloned());
+        let satb_n = queue.len() - pinned_n;
         queue.extend(self.mark_queue.lock().iter().cloned());
+        let grey_n = queue.len() - pinned_n - satb_n;
+        crate::gc::phase_timer::note(format_args!(
+            "  minor roots  pinned+handles {pinned_n}, satb {satb_n}, grey {grey_n}"));
         {
             let scanner = self.external_root_scanner.lock();
             if let Some(scan) = scanner.as_ref() {
@@ -144,7 +160,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.seed_from_dirty_cards(&mut queue, threshold);
 
         let mut marked = 0usize;
+        let (mut visited, mut children, mut old_traced) = (0usize, 0usize, 0usize);
         while let Some(v) = queue.pop() {
+            visited += 1;
             // fix-minor-stale-mark-on-old-roots (2026-09-08): **only young entries are
             // marked.** A minor never sweeps old ones, so a mark on them buys nothing —
             // and it is actively wrong. `sweep_phase_young_only` clears the mark on *young*
@@ -166,9 +184,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if young {
                 if !Self::mark_if_unmarked(&v, MarkKind::Minor) { continue; }
                 marked += 1;
+            } else {
+                old_traced += 1;
             }
 
             v.visit_gc_children(young.then_some(MarkKind::Minor), &mut |child| {
+                children += 1;
                 // Only enqueue **young heap references**. Old children that need re-rooting are
                 // already covered via dirty cards.
                 //
@@ -184,6 +205,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             });
         }
+        crate::gc::phase_timer::note(format_args!(
+            "  minor bfs  popped {visited} (old {old_traced}), children {children}, marked {marked}"));
         marked
     }
 
@@ -209,6 +232,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// for the edges promotion creates in this same sweep — the two other ways the invariant
     /// can be broken (see the card-table invariant in the book).
     fn seed_from_dirty_cards(&self, queue: &mut Vec<Value>, threshold: u8) {
+        // add-pause-budget-nursery: how many *old* entries the card scan had to look at is the
+        // part of a minor's cost that the nursery cannot buy down — see the module note.
+        let mut seeded = 0usize;
         // add-incremental-major-gc M2b: while an incremental major is sweeping, an unmarked alive
         // entry is doomed — garbage the cursor has not reached, whose children may be reclaimed
         // already. Tracing through it would follow those dangling edges; it has no young children
@@ -223,6 +249,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // SAFETY: handle came from iterate_dirty_cards; entry is alive and its
                 // generation matches at iteration time.
                 let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
+                seeded += 1;
                 let found = doomed.is_none_or(|k| entry.is_marked(k))
                     && Self::seed_card_entry(Value::Object(gc), queue, threshold);
                 Self::note_card(&mut cur, &mut clean_obj, h.chunk_idx, card, found);
@@ -237,12 +264,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let entry_ptr = std::ptr::NonNull::from(entry);
                 // SAFETY: see above.
                 let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
+                seeded += 1;
                 let found = doomed.is_none_or(|k| entry.is_marked(k))
                     && Self::seed_card_entry(Value::Array(gc), queue, threshold);
                 Self::note_card(&mut cur, &mut clean_arr, h.chunk_idx, card, found);
             });
             Self::flush_card(cur, &mut clean_arr);
         }
+        let (clean_obj_n, clean_arr_n) = (clean_obj.len(), clean_arr.len());
         {
             let mut region = self.region_object.lock();
             for (ci, card) in clean_obj {
@@ -255,6 +284,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 region.clean_card(ci, card);
             }
         }
+        crate::gc::phase_timer::note(format_args!(
+            "  card seed  {seeded} old entries, {} cards cleaned", clean_obj_n + clean_arr_n));
     }
 
     /// Push `v`'s young children onto the mark queue. Returns whether it had any — which is

@@ -130,10 +130,20 @@ pub struct RuntimeConfig {
     /// 2026-09-12). Default on; `0` pins the configured age. See
     /// `gc/arc_heap/promotion_policy.rs` for the measurements behind the rule.
     pub gc_adaptive_promotion: bool,
+    /// `Z42_GC_BACKOFF_CAP` — whether the futility backoff is forbidden to grow the young set
+    /// (add-pause-budget-nursery D4). Default **off**: measured, capping it bounds the worst
+    /// pause hard but costs up to +94% wall on workloads whose allocations never die. See
+    /// `gc/arc_heap/pause_budget.rs`.
+    pub gc_backoff_cap: bool,
     /// `Z42_GC_INCREMENTAL` — whether a generational major runs as bounded STW slices with
     /// mutators (and minors) running between them (add-incremental-major-gc M2b). Default on;
     /// `0` runs every major in one pause. See `gc/arc_heap/incremental.rs`.
     pub gc_incremental: bool,
+    /// `Z42_GC_PAUSE_TARGET_MS` — target maximum **minor** pause in milliseconds
+    /// (add-pause-budget-nursery). The nursery is sized from the measured cost of collecting it
+    /// rather than being a constant; `0` turns that off, and an explicit `Z42_GC_NURSERY_BYTES`
+    /// turns it off too (manual override wins). See `gc/arc_heap/pause_budget.rs`.
+    pub gc_pause_target_ms: f64,
     /// `Z42_GC_SLICE_MS` — the time budget of one incremental major slice, in milliseconds
     /// (add-incremental-major-gc M2b). Default 2. Tiny values (e.g. 0.05) are a stress knob:
     /// they maximise how often mutators and minors run in the middle of a major.
@@ -277,7 +287,9 @@ impl Default for RuntimeConfig {
             gc_promotion_age: None,
             gc_loh_bytes: None,
             gc_adaptive_promotion: true,
+            gc_backoff_cap: false,
             gc_incremental: true,
+            gc_pause_target_ms: 10.0,
             gc_slice_ms: 2.0,
             gc_phases: false,
             gc_trace: false,
@@ -420,9 +432,11 @@ impl RuntimeConfig {
             // 诊断、根本到不了这里——宽松与严格在这条链上不冲突。
             gc_adaptive_promotion: get("Z42_GC_ADAPTIVE_PROMOTION")
                 .map_or(true, |v| !matches!(v.trim(), "0" | "false" | "off" | "no")),
+            gc_backoff_cap: parse_bool_knob(&get, "Z42_GC_BACKOFF_CAP"),
             gc_incremental: get("Z42_GC_INCREMENTAL")
                 .map_or(true, |v| !matches!(v.trim(), "0" | "false" | "off" | "no")),
             gc_slice_ms:         parse_gc_slice_ms(&get),
+            gc_pause_target_ms:  parse_gc_pause_target_ms(&get),
             gc_phases:           parse_bool_knob(&get, "Z42_GC_PHASES"),
             gc_trace:            parse_bool_knob(&get, "Z42_GC_TRACE"),
             jit_profile:         parse_bool_knob(&get, "Z42_JIT_PROFILE"),
