@@ -22,3 +22,8 @@ site-url = "/z42/internals/"
 git-repository-url = "https://github.com/z42-lang/z42"
 edit-url-template = "https://github.com/z42-lang/z42/edit/main/docs/internals/{path}"
 additional-js = ["theme/z42-highlight.js"]
+
+# 侧边目录可折叠：level=1 → 顶层部分展开，其下的分组默认收起
+[output.html.fold]
+enable = true
+level = 1
