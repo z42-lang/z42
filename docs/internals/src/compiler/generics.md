@@ -365,7 +365,7 @@ Parser 在 `impl` 块见到 `extern` 修饰符直接报错（`TopLevelParser.Par
   `impl Trait for Type` 声明（仅签名，方法 body 仍在 MODS）
 - 消费者 `ImportedSymbolLoader` 增加 Phase 3 合并：把 impl 方法 TryAdd
   到 imported `Z42ClassType.Methods`，trait 加进 `ClassInterfaces[target]`
-- 详细机制见 `docs/design/compiler/compiler-architecture.md` "跨 zpkg impl 块传播"
+- 详细机制见 [架构总览](architecture.md) 的跨 zpkg impl 块传播
 
 **后续迭代规划**：
 - **+孤儿规则收紧**：Rust 风完整规则 — impl 必须与 Trait OR Target 同 zpkg

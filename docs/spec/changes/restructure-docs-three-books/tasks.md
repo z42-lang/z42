@@ -11,7 +11,7 @@
 - [x] 批 3 · reference/language（3a PR #697 / 3b PR #703）
 - [x] 批 4 · reference/stdlib
 - [x] 批 5 · toolchain + devinfra
-- [ ] 批 6 · 收尾（philosophy / features / 矩阵拷贝 / grep 清零）
+- [x] 批 6 · 收尾（philosophy / features / 矩阵拷贝 / grep 清零）
 - [ ] 批 7 · 其余门禁
 
 ---
@@ -226,13 +226,35 @@
 
 ## 批 6 · 收尾
 
-- [ ] 6.1 删 `docs/design/` 与 `docs/workflow/` 空壳（含各自 README）
-- [ ] 6.2 站点根三书分流索引（从批 0 挪来）；游离文件：`features.md` → internals；删 `library_review.md` / `todo-list.md`；重写 `docs/README.md`
-- [ ] 6.3 `../../../agent/rules/workflow.md` 阶段 9 与 `code-organization.md`：**删矩阵拷贝**，改链接总纲
-- [ ] 6.4 **全仓链接重指**（裁决 8：脚本批量 + 人工抽查）：
-      `src/**/README.md`(76) / `.claude/` / `scripts/README.md` / 根 `README.md` / `docs/learn/` / `docs/roadmap.md`
-- [ ] 6.5 grep 清零：`docs/design/` 与 `docs/workflow/` 字样在全仓为 0
-- [ ] 6.6 `philosophy.md` 的「延后记 `docs/design/<dir>/`」改指 internals（**本次顺带解决那条一直绕过去的冲突**）
+- [x] 6.1 **`docs/design/` 整个目录删除**；`docs/workflow/` 已于批 5 删除
+- [x] 6.2 站点根三书分流索引（批 5 提前做了——book 的 SUMMARY 指向已删页会让 mdbook build 失败）；
+      重写 `docs/README.md`；游离文件 `philosophy.md` / `features.md` → `internals/src/`
+- [x] 6.3 `workflow.md` 阶段 9 的**统一维护触发矩阵删除**，改为链 doc-system 三问
+      （`code-organization.md` 里那份在更早的规范收口批已清）；
+      连带修 `readme-writing.md` / `.claude/CLAUDE.md` 的三处引用
+- [x] 6.4 全仓链接重指：`README.md` / `docs/roadmap.md` / `.claude/skills/` /
+      `docs/agent/rules/{philosophy,readme-writing}.md` / internals 两页
+- [x] 6.5 **grep 清零**：`docs/design/` 与 `docs/workflow/` 在三书 + agent/rules + `.claude/` +
+      根 README 中**为 0**（`docs/spec/archive/` 与 `docs/spec/changes/` 的历史变更记录保留——
+      那是留痕，改写等于篡改）
+- [x] 6.6 **删 doc-system 的「过渡期」临时节**（章程自己写着「重构完成即删」）；
+      `philosophy.md` 规则里的「不得再写进 docs/design/」改指新落点
+
+### User 裁决落地（本批）
+
+- [x] **「状态」字段只记未来**：`book-writing.md` §二 的 `**状态**: ✅ 已实现（0.3.x）` 改成
+      **可选的「待办」行**——只记 ToDo / 已知缺口 / 后续迭代机会，没有就整行省掉。
+      同步在 `doc-system.md` §6.3 补「禁的是回头看，不是向前看」的对照表
+      （此前只说「不写历史」，导致各批把 Deferred 内容一并压掉了）
+- [x] **README 模板合并**：`design/stdlib/README-template.md` 并入
+      `readme-writing.md`——新增「待办」「依赖关系」两个可选段 + 库目录的两处细化
+      （功能索引写成入口点、核心文件表加「类型」列），原文件删除
+
+### 未做（需 User 定）
+
+`docs/library_review.md`（2026-08-30 的一次性 stdlib 分析快照，结论已大部分被
+`batch4-verification.md` 的实测覆盖或推翻）与 `docs/todo-list.md`（速记清单，部分条目已完成）
+**未删也未合并**——删哪些、并哪些进 roadmap 需要 User 定。已在 `docs/README.md` 建「待归置」表登记。
 
 ## 批 7 · 其余门禁
 

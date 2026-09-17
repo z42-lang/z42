@@ -14,7 +14,7 @@
 
 根 `README.md` 是文档体系里的**仓库门面 / 人的瘦入口**——与 `CLAUDE.md` / `AGENTS.md`（大模型的
 瘦入口）对称的一层。它不承载知识，只做三件事：**定位**（z42 是什么、当前处于什么阶段）、
-**上手**（最短可跑路径）、**索引**（把用户与开发者分流到 book / workflow / rules / roadmap）。
+**上手**（最短可跑路径）、**索引**（把用户与开发者分流到三本书 / rules / roadmap）。
 
 | 层 | 承载 | 位置 |
 |----|------|------|
@@ -22,10 +22,10 @@
 | **目录说明**（第二部分） | 目录的基础层：干什么 / 怎么用 / 怎么测 | `src/**/README.md` |
 | 参考（查规则） | 规则是什么、有哪些 | `docs/reference/` |
 | 实现内幕（深入层） | 怎么实现的、为什么 | `docs/internals/` |
-| 操作手册 | 具体命令 | `docs/workflow/` |
+| 开发基础设施 | 构建 / 测试 / 发版操作 | `docs/internals/src/devinfra/` |
 | 开发规范 | 怎么干活 | `docs/agent/rules/` |
 
-**判定铁律**：任何要往 README 加的内容，先问「它属于 book / workflow / rules / roadmap 吗？」
+**判定铁律**：任何要往 README 加的内容，先问「它属于三本书 / rules / roadmap 吗？」
 → 是，就写到那边，README 只留**一条索引行**。这条规则把"README 该放什么"变成机械可判，
 杜绝它膨胀成第二份文档。
 
@@ -35,7 +35,7 @@
 |---|-----|--------|------|
 | 1 | 标题 + 一句话定位 + 迭代状态提示 | z42 是什么、当前 pre-1.0 不稳定 | — |
 | 2 | Why z42 | 价值主张 + 能力要点合一（维度 → 一句话表） | 一格一句，不展开论证；性能等硬指标类主张须有设计文档落点，链接兑现 |
-| 3 | Quick Start | **最短**可跑路径（clone → install → run） | 完整步骤链 `docs/workflow/quickstart.md` |
+| 3 | Quick Start | **最短**可跑路径（clone → install → run） | 完整步骤链 `docs/internals/src/devinfra/dev-setup.md` |
 | 4 | Documentation | "我想做 X → 读 Y" 索引表 | Y 指向具体页，**不复制**其内容（见 §四） |
 | 5 | Repository Layout | 目录树 + 每行一句话 | 与目录 README 呼应，不抄其内容 |
 | 6 | License | 许可证 | — |
@@ -53,12 +53,12 @@
 与 [doc-system.md 「三本书的角色」](doc-system.md)「两层分工」同款，方向相反的两条都要守：
 
 - README **不展开**设计原理 / 内部机制 / 完整命令清单 / 文件职责表——需要时**一句话 + 链接**。
-- book / workflow **不反抄** README 的定位段与索引表——它们链接回 README，不复制。
+- 三本书**不反抄** README 的定位段与索引表——它们链接回 README，不复制。
 
 **禁止反例**：
 
-- ❌ 在 Why z42 里写某特性的实现算法 / 数据结构 → 那是 book 机制页的地盘
-- ❌ 在 Quick Start 里堆全部构建/测试命令 → 那是 `docs/workflow/` 的地盘，README 只留最短路径
+- ❌ 在 Why z42 里写某特性的实现算法 / 数据结构 → 那是 internals 机制页的地盘
+- ❌ 在 Quick Start 里堆全部构建/测试命令 → 那是 `docs/internals/src/devinfra/` 的地盘，README 只留最短路径
 - ❌ Documentation 索引表里把目标页的内容摘抄进来 → 索引行只跳转，不复述
 
 ## 四、Documentation 索引段的组织
@@ -66,24 +66,21 @@
 这是根 README 的**核心价值**（"快速索引"）。用「我想做 X → 读 Y」表，**按受众分流**：
 
 - **用户向**（学怎么用 → `docs/learn/`；查语法与 API → `docs/reference/`）→ 指向对应部分概览页
-- **开发向**（怎么构建测试 / 协作流程 / 看进度）→ 指向 `docs/workflow/`、`docs/agent/rules/`、
-  `docs/roadmap.md`
+- **开发向**（怎么构建测试 / 协作流程 / 看进度）→ 指向 `docs/internals/src/devinfra/`、
+  `docs/agent/rules/`、`docs/roadmap.md`
 
 每条 = `| 我想…… | [目标页](相对路径) |`，一行一意图，目标指向**可解析的具体页**，不指目录笼统带过。
-
-**迁移期规则**：book 章节未落地前，索引行指向该主题**当前实际承载内容的页**（旧 `docs/design/`），
-不指只有规划的空壳页；对应 book 章节迁入后，当次迭代把索引行换到 book（触发见 §五）。
 
 ## 五、根 README 维护触发表（改了什么 → 同步哪段）
 
 | 改了什么 | 同步根 README 哪段 |
 |---------|-----------------|
 | 新增顶层特性 / 能力 | Why z42 + Documentation 索引 |
-| book 新增部分 / workflow 新增主题 | Documentation 索引加行 |
+| 三本书新增部分 | Documentation 索引加行 |
 | 顶层目录结构变动 | Repository Layout |
-| Quick Start 涉及的命令变动 | Quick Start（只留最短路径，与 `workflow/quickstart.md` 对齐） |
+| Quick Start 涉及的命令变动 | Quick Start（只留最短路径，与 `devinfra/dev-setup.md` 对齐） |
 
-改动落在上表任一行，**当次迭代内同步 README 对应段**，与 book/workflow 的同步同一触发点完成。
+改动落在上表任一行，**当次迭代内同步 README 对应段**，与三本书的同步同一触发点完成。
 
 ---
 
@@ -96,7 +93,7 @@
 AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README 链接过去。
 
 **判定铁律**：要往目录 README 加的内容，先问「它是设计原理 / 实现机制 / 决策权衡吗？」
-→ 是，就写进 book 对应页，README 只留一句话 + 链接。
+→ 是，就写进 `docs/internals/` 对应页，README 只留一句话 + 链接。
 
 ## 七、六段模板（唯一 SoT，其他文件只链接不复制）
 
@@ -116,7 +113,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 | [能力一句话] | `Foo.z42` 的 `Bar()` |
 
 ## 基础用法
-[最常用的几条命令 / 调用示例，开箱即用；完整命令面 → 链接 docs/workflow/ 或参考页]
+[最常用的几条命令 / 调用示例，开箱即用；完整命令面 → 链接参考手册对应页]
 
 ## 如何测试验证
     xtask test <stage>       # 覆盖本目录的测试（实际写成 bash 代码块）
@@ -132,6 +129,54 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 | `foo.rs` / `Foo.z42` | [一句话] |
 ```
 
+### 七之二、两个可选补充段
+
+六段是骨架，下面两段**按目录性质按需加**，位置固定。
+
+#### 「待办」——放在「关联文档」之后
+
+记**还没做什么、已知缺口、后续迭代机会**。没有就整段省掉。
+
+```markdown
+## 待办
+- `Zip.CreateFromDirectory` 未实现；`Zip.Write` 已可用
+- 条目名超 100 字节会被静默截断（未用 ustar prefix 字段）
+```
+
+⚠️ **只写未来，不写过去**：「还没做 X」要写，「2026-05 做了 Y」不写
+（见 [doc-system.md「不写历史」](doc-system.md)）。长期项目计划归 `docs/roadmap.md`，
+这里只写与**本目录**绑定的那几条。
+
+#### 「依赖关系」——库 / 包目录专用，放在「核心文件」之后
+
+```markdown
+## 依赖关系
+依赖 `z42.core` + `z42.text`（`StringBuilder` 用于 ToString 重组）。
+零 interop，纯脚本；要用 native 能力时经 core 的公开 API 间接调。
+```
+
+一句话说清**依赖谁、为什么依赖**，以及**有没有 interop**。
+归属规则本身是 internals 的事，这里只陈述本包的事实、不复制规则。
+
+### 七之三、库 / 包目录的两处细化
+
+`src/libraries/<pkg>/README.md` 与 `src/compiler/<member>/README.md` 这类**库目录**，
+六段里有两段要写得更具体：
+
+- **「功能索引」写成入口点**：按 `公开类型` / `静态函数` / `常量` 分组列，
+  每条给**命名空间全名**（`Std.Uri.Uri` 而非 `Uri`）——读者要能直接照着写 `using`。
+- **「核心文件」表加一列「类型」**：
+
+  | 文件 | 类型 | 职责 |
+  |---|---|---|
+  | `Uri.z42` | `class Uri` | 不可变值对象 + 组件访问器 |
+  | `UriCodec.z42` | `static class UriCodec` | percent 编解码 |
+
+  多一列「类型」，读者不打开文件就知道里面是类、静态类还是 struct。
+
+> **公开 API 的完整签名不写在 README 里**——那是[语言与库参考](../../reference/src/stdlib/README.md)
+> 的事。README 只回答「这个目录有什么、怎么改」。
+
 ## 八、各段写法细则（装什么 · 粒度 · 反例）
 
 ### ① 职责
@@ -142,11 +187,11 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 - **能力 → 入口**的映射表：一行一能力，能力用动词短语（"解析 packages.toml"），
   入口精确到文件 + 符号（`PackageManifest.z42` 的 `Parse()`）。
 - 粒度对齐"一次 change 引入的一个特性"——人拿到 diff 后扫这张表就能定位改了哪个能力。
-- ❌ 不逐文件罗列（那是⑥核心文件的职责）；❌ 不写实现方式（算法 / 数据结构归 book）。
+- ❌ 不逐文件罗列（那是⑥核心文件的职责）；❌ 不写实现方式（算法 / 数据结构归 internals）。
 
 ### ③ 基础用法
 - 最常用的 3–5 条命令或调用示例，**复制即可运行**；每条带一句"做什么"。
-- ❌ 不堆完整命令面 / 全部参数——链接 `docs/workflow/` 对应页或 book 参考页。
+- ❌ 不堆完整命令面 / 全部参数——链接参考手册对应页。
 
 ### ④ 如何测试验证
 - **可复制粘贴的命令 + 预期结果**：跑哪个 stage / 哪个测试目录、看到什么输出算通过。
@@ -154,9 +199,9 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 - ❌ 禁止"跑相关测试即可" / "确保测试通过"这类不可执行的表述。
 
 ### ⑤ 关联文档
-- 两类链接：**深入层**（book 对应章节，看设计与机制）+ **引入迭代**（change 名，
+- 两类链接：**深入层**（internals 对应机制页，看设计与机制）+ **引入迭代**（change 名，
   需求 ↔ 实现可追溯）。change 归档后名字保留即可（git 与 archive 可查）。
-- ❌ 不把 book 内容摘抄进来——只链接。
+- ❌ 不把 internals 内容摘抄进来——只链接。
 
 ### ⑥ 核心文件
 - 文件 → 一句话职责。第 3 层目录的 README 在此表覆盖其子目录职责
@@ -169,7 +214,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 
 1. **定位**：读所改目录 README 的「功能索引」——本次 change 新增 / 触碰了哪个能力、入口在哪。
 2. **验证**：复制「如何测试验证」段的命令亲手跑，对照预期结果。
-3. **深究**（需要时）：点「关联文档」进 book 对应机制页，核对设计与决策；
+3. **深究**（需要时）：点「关联文档」进 internals 对应机制页，核对设计与决策；
    或进 change 目录看 proposal / spec 的场景是否逐条兑现。
 
 反向要求：AI 每次迭代必须让上述路径走得通——README 三段（功能索引 / 如何测试验证 /
@@ -177,16 +222,15 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 
 ## 十、目录 README 维护触发（何时改哪段）
 
-触发的**总控**是统一维护触发矩阵（现驻
-[`workflow.md` 阶段 9](workflow.md)，体系定位见
-[doc-system.md 「三本书的角色」](doc-system.md)）；下表是矩阵中「目录 README」列的段级展开，
-**不新增矩阵之外的触发类型**：
+判据的**总控**是 [doc-system.md 的三问](doc-system.md)——本节是其中**第三问**
+（「目录的结构、对外入口或依赖变了吗？」）的段级展开，回答「命中后具体改哪一段」，
+**不新增三问之外的触发类型**：
 
 | 改了什么 | 同步哪段 |
 |---------|---------|
 | 新增 / 删除文件，对外入口或依赖变化 | 功能索引 + 核心文件 |
 | 测试方式 / 测试命令变化 | 如何测试验证 |
-| 对外行为变更（新语法 / API / CLI / 格式） | 功能索引（+ book 上浮，见矩阵） |
+| 对外行为变更（新语法 / API / CLI / 格式） | 功能索引（+ 按三问上浮到 reference / internals） |
 | 构建 / 用法命令变化 | 基础用法 |
 | change 归档引入新能力 | 关联文档段登记 change 名 |
 | 目录职责范围变化 | 职责 |
@@ -200,7 +244,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 ## 十一、行文纪律
 
 - **只写重要信息**：README 求精不求全——功能索引只列主干能力、核心文件只列关键文件，
-  长尾细节靠代码与 book 兑现；目录 README **软限 ~100 行**，超出优先删减而非拆分。
+  长尾细节靠代码与三本书兑现；目录 README **软限 ~100 行**，超出优先删减而非拆分。
   拿不准一条信息该不该进 README，问「人 review / 上手时会用到它吗？」→ 不会就不进。
 - **语种**：根 README 是对外门面，**英文正文**；目录 README 是内部开发材料，**中文正文、
   关键术语保留英文**（沿用 [doc-system.md 「语种」](doc-system.md)）。
@@ -211,5 +255,5 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 
 - 文档体系顶层地图与"这该写哪份文档"：[doc-system.md](doc-system.md)
 - 哪些目录必须有 README、阅读顺序规则：[`code-organization.md`](code-organization.md)
-- 维护触发矩阵与归档 doc-check：[`workflow.md` 阶段 9](workflow.md)
-- book 页面写作：[book-writing.md](book-writing.md)
+- 文档同步判据（三问）与归档 doc-check：[doc-system.md](doc-system.md)；归档流程：[`workflow.md` 阶段 9](workflow.md)
+- 书页写作（reference / internals）：[book-writing.md](book-writing.md)

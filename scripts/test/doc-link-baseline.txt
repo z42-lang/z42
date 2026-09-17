@@ -1,13 +1,6 @@
 # xtask test docs —— 存量死链基线（棘轮）。
 # 每行 `<文件> -> <链接目标>`。**只许剔除已修好的，不许写进新死链**。
 # 三书重构搬走一批，这里就该少一批；重构完成后本文件应为空并删除。
-docs/design/philosophy.md -> ../language/language-overview.md
-docs/design/philosophy.md -> ../runtime/ir.md
-docs/design/philosophy.md -> ../language/interop.md
-docs/design/philosophy.md -> ../runtime/execution-model.md
-docs/design/philosophy.md -> ../runtime/hot-reload.md
-docs/design/philosophy.md -> ../language/customization.md
-docs/design/stdlib/README-template.md -> ../../docs/design/stdlib/<name>.md
 docs/roadmap.md -> spec/changes/scaffold-z42c-selfhost/
 docs/roadmap.md -> spec/changes/replan-0.4.0-by-module/design.md
 docs/roadmap.md -> spec/changes/scaffold-z42c-selfhost/

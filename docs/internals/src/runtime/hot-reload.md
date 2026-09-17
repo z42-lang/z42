@@ -390,6 +390,6 @@ fn main() {
 
 ## Related Documents
 
-- [philosophy.md](../../../design/philosophy.md) — Dynamic execution principle
+- [philosophy.md](../philosophy.md) — Dynamic execution principle
 - [execution-model.md](execution-model.md) — Interpreter mode (required for hot reload)
 - [language-overview.md](../../../reference/src/language/README.md) — `[HotReload]` and `[ExecMode]` syntax

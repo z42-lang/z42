@@ -211,7 +211,6 @@ zbc version 0.7 → 0.8。pre-1.0 规则：旧 zbc 不可读，需要 `./xtask b
 
 ## 泛型接口 dispatch — Z42InterfaceType.TypeParams（2026-04-26 fix-generic-interface-dispatch）
 
-> 本节自 `docs/design/compiler/compiler-architecture.md` 并入（批 2）。
 > 写出/读取实现：`z42.ir/src/ZpkgWriter.z42` 的 IMPL 段 · `ZpkgReader.z42` 按位置挂回 `Impls`。
 
 ## Packed vs Indexed

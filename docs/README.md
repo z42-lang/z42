@@ -25,7 +25,7 @@ z42 项目文档总入口。
 | [`agent/rules/`](agent/rules/) | 怎么干活的**行为约束** | **任何系统知识**——那是三本书的事 |
 | [`spec/`](spec/) | 变更工作区（`changes/` 进行中 + `archive/` 已归档） | 长期知识（归档时上浮到三书） |
 | [`roadmap.md`](roadmap.md) | 项目计划与 Deferred 索引 | 知识 |
-| [`features.md`](features.md) | 语言特性 catalog（决策 + phase 归属） | |
+| [`features.md`](internals/src/features.md) | 语言特性 catalog（决策 + phase 归属） | |
 | 各 `src/**/README.md` | 这个目录有什么、怎么改 | 设计原理（链 internals） |
 | 根 [`README.md`](../README.md) | 仓库门面与分流 | 实质内容 |
 
@@ -35,9 +35,10 @@ z42 项目文档总入口。
 - `internals`：中文（内部文档）
 - 关键术语一律保留英文原词
 
-## ⏳ 搬迁残留
+## 待归置
 
-[`design/`](design/) 已基本清空，仅余两项待裁决 / 待迁：
-
-- `design/philosophy.md` —— 语言设计哲学，待迁入 `internals/`
-- `design/stdlib/README-template.md` —— 与 `agent/rules/readme-writing.md` 的六段制冲突，待裁决
+| 文件 | 说明 |
+|---|---|
+| [`library_review.md`](library_review.md) | 2026-08-30 的一次性 stdlib 分析快照；结论已大部分被
+  `docs/spec/changes/restructure-docs-three-books/batch4-verification.md` 的实测覆盖或推翻 |
+| [`todo-list.md`](todo-list.md) | 速记清单，部分条目已完成——待逐条并入 [`roadmap.md`](roadmap.md) |

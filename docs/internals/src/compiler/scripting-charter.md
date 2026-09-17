@@ -231,4 +231,4 @@ ScriptOptions opts = ScriptOptions.Default;
 - `z42.scripting` 具体 API surface 设计（与 stdlib 其他 L3 包对齐风格）
 - 自举 byte-identical 验证脚本与 CI 集成
 - mobile 分发包体增量预算（C6 启动前测量）
-- 多平台 scripting 性能基线（interp-only 模式 vs JIT，philosophy §9 五指标对齐）
+- 多平台 scripting 性能基线（interp-only 模式 vs JIT，对齐 `docs/roadmap.md` 的五条性能基线）

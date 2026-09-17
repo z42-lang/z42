@@ -418,6 +418,6 @@ External profilers can attach to these hooks and generate flame graphs, identify
 
 ## Related Documents
 
-- [philosophy.md](../../../design/philosophy.md) — Bytecode-first design principle
+- [philosophy.md](../philosophy.md) — Bytecode-first design principle
 - [ir.md](../formats/ir.md) — Bytecode instruction set reference
 - [hot-reload.md](hot-reload.md) — Hot update mechanism details

@@ -199,3 +199,43 @@
 2. **旧 `embedding.md` 第二个 `## §11`（编号已乱）那约 60 行**讲的是
    9 个 per-arch SDK package 形态 + GitHub Releases 发布流程，**与嵌入无关**，
    已从 embedding 页删除，转交 devinfra 的 packaging / release 页承载。
+
+---
+
+## 批 6 · philosophy / features 的核实（21 条落空）
+
+`docs/features.md` 与 `design/philosophy.md` 是全仓被引用最多的两份「设计北极星」，
+实测 **21 条断言落空**。最要命的几条：
+
+| # | 旧文档 | 事实 |
+|---|---|---|
+| 1 | features §7「Generics… **Monomorphized** at compile time」 | 既不是单态化也不是 Java 擦除，是 **C# 式代码共享 + 运行期具化**（`generics.md:30-56` 明写「为什么不选纯 Rust 单态化 / 为什么不选 Java 类型擦除」）。**三份说法互不一致**：旧 features 说单态化、源码注释（`EmitContext.z42:212` / `ClassDescBuilder.z42:158`）说「类型擦除」（其实只指方法体内看不到 class name）、`generics.md` 说代码共享 |
+| 2 | features §15「`string` is **UTF-16** compatible internally」 | **UTF-8**（VM 对象是 `len + inline UTF-8`） |
+| 3 | philosophy §9「Bytecode compression **40–60% smaller** than source」 | 实测只小 **21–38%**（四个包 src vs zpkg：regex 78.6% / text 62.0% / json 78.1% / z42c.syntax 77.6%）。断言已删 |
+| 4 | features §10「No raw thread primitives are exposed」+ philosophy §7「No data races：类型系统阻止无同步的共享可变状态」 | **全假**。`Std.Threading.Thread` 是真 OS 线程；线程共享 GC 堆与静态字段，**竞争由程序员负责** |
+| 5 | features §11/§12「`[ExecMode(Mode.Jit)]` / `[HotReload]` 注解」 | 编译器内建 attribute 只有 `Suppress`/`Native`/`Deprecated`/`Record` + 测试族；**hot reload 全仓 `src/` 零命中** |
+| 6 | features §13「packed zpkg 上提 shared type table」 | TYPE **按模块内联**；真正上提的是 STRS + **SIGS**（旧文没提 SIGS） |
+| 7 | features §17「stripped zbc `flags=0x01`，直接加载是 error」 | `ZBC_FLAG_STRIPPED` **零调用方**，writer 从不置位，reader 无报错路径；符号剥离实际在 **zpkg 层** |
+| 8 | features §16「`z42.core` 在**每个**源文件免 `using`」 | 免 `using` 的只有 `Std` 与 `Std.Runtime`；同包的 `Std.IO` / `Std.Collections` 仍要写 |
+| 9 | features §18「cargo 组件 `core/interp/jit/aot/gc/...` + `z42.toml [runtime] components=[...]`」 | 真实 features 只有 `jit`/`aot`（`aot = []` 占位）+ 平台预设；**`components` 全仓无解析** |
+| 10 | features §19「NativeAOT：字节码 → **LLVM IR**」 | `aot.rs` 23 行自述 stub；规划后端是 **cranelift-object**，与 JIT 共享翻译层 |
+| 11 | philosophy 示例 `VM.Eval(code)` / `VM.Call("game::on_tick")` | 不存在。真实面是 `Std.Scripting.Engine` + 宿主侧 C ABI `z42_host_*` |
+
+### ⭐ 引用了一个不存在的段落
+
+**`roadmap.md:27` 与 `internals/compiler/scripting-charter.md:234` 都引「philosophy §9 五指标」
+（interp ≤ Python 1.5× / JIT ≥ V8 70% / AOT ≥ Go 80% / GC pause < 5ms p99 / 嵌入子集 < 200KB）——
+而旧 `philosophy.md` §9 从来没有这五条**（它写的是 ≤5 cycles/instr、40–60% 压缩、<10ms GC pause）。
+两处引的是一个虚构的出处。本批已把五条基线归位到 roadmap 自身。
+
+**`roadmap.md` 的「Feature → Version 映射」表按 features.md §号索引，但大面积错位**
+（roadmap §7=Control Flow / features §7=Generics；§8–§17 多数对不上；还有一个 features.md
+从未有过的 §20）。本批改成按能力名索引，去掉 §号锚点。
+
+### 新增实现缺口
+
+| # | 缺口 | 证据 |
+|---|---|---|
+| 1 | **`async` / `await` 静默接受**：`async void Foo() { }` **编得过且完全无诊断**——`async` 被 `DeclParser._isModifier` 当无操作修饰词吃掉，`TokenKind.Await` 零消费者。用户会以为写了异步代码 | 实测 |
+| 2 | **`ZBC_FLAG_STRIPPED` 是死代码**：常量 + `zbc_is_stripped()` 定义在 `formats.rs:30,224`，全 `src/runtime/` 零调用方 | 源码 |
+| 3 | **VM 侧 module path（`Z42_PATH`）事实上是死路径**：`main.rs:324-327` 自述「log only for now」，所有生产调用方给 `resolve_namespace` 传 `&[]`，只有单测走过 ⇒ 文档说的「两条搜索路径、module 优先」目前只有一条真生效 | 源码 |
