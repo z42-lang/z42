@@ -41,6 +41,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__repl_readline",       "host-only: z42-repl cdylib"),
     ("__repl_set_completer",  "host-only: z42-repl cdylib"),
     ("__repl_set_key_editor", "host-only: z42-repl cdylib"),
+    ("__repl_set_keywords",   "host-only: z42-repl cdylib"),
     ("__vfs_enable", "host-only: wasm playground VFS"),
     ("__vfs_mount",  "host-only: wasm playground VFS"),
     // Legacy string primitives retained for `exec_builtin(name, …)` unit tests / embedders

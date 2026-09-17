@@ -75,6 +75,22 @@ impl rustyline::highlight::Highlighter for ReplHelper {
     fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
         std::borrow::Cow::Owned(format!("\x1b[90m{hint}\x1b[0m"))
     }
+
+    /// 输入行语法着色。词法与颜色见 `crate::highlight`；关键字表由 z42 侧经
+    /// `z42_repl_set_keywords` 一次性灌入（没灌过就只着色字符串/注释/数字）。
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> std::borrow::Cow<'l, str> {
+        if line.is_empty() {
+            return std::borrow::Cow::Borrowed(line);
+        }
+        std::borrow::Cow::Owned(crate::highlight::highlight_line(line))
+    }
+
+    /// `highlight_char` 默认返回 `false`（= 不重绘），那样 `highlight` 只在极少数
+    /// 时机被调用，打字时看不到颜色。这里对普通编辑一律要求重绘；
+    /// `ForcedRefresh` 时 rustyline 自己会重绘，返回 false 避免多余一次。
+    fn highlight_char(&self, _line: &str, _pos: usize, kind: rustyline::highlight::CmdKind) -> bool {
+        kind != rustyline::highlight::CmdKind::ForcedRefresh
+    }
 }
 
 impl rustyline::validate::Validator for ReplHelper {}

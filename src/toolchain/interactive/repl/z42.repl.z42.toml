@@ -11,6 +11,7 @@ kind    = "lib"
 
 [dependencies]
 "z42.core"      = "0.1.0"
+"z42c.syntax"   = "0.1.0"   # Lexer 关键字表（语法着色的 SoT，只读不复制）
 "z42.scripting" = "0.1.0"   # Std.Scripting.Completeness（ReplEditing enter 分支整块完整性 + 续行缩进）
 
 # build hook（add-native-dep-config）：本库携带私有 native 行编辑器 cdylib（libz42_repl）。

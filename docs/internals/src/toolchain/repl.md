@@ -335,6 +335,30 @@ Rust 答「光标在末尾没」（`ectx.pos() == ectx.line().len()`，字节比
   `Z42.Syntax.Lexer` 对行 tokenize（`Rewriter` 已用同一个 Lexer）、按 `TokenKind` 包 ANSI 色码即可，
   与补全共用同一个 `ReplHelper`，无新基建；注意非终端与 `NO_COLOR` 下必须禁用色码。
 
+## 5.1 输入行语法着色
+
+`ReplHelper` 实现 rustyline 的 `Highlighter`：`highlight` 给整行加 ANSI 序列，
+词法与配色在 `crates/z42-repl/src/highlight.rs`。
+
+**两个容易踩的点：**
+
+- **光实现 `highlight` 看不到颜色。** `Highlighter::highlight_char` 默认返回 `false`
+  （= 这次按键不需要重绘），于是 `highlight` 几乎不被调用。必须一并覆写它：
+  普通编辑返回 `true`，`CmdKind::ForcedRefresh` 返回 `false`（那时 rustyline 自己会重绘）。
+- **关键字表不在 Rust 侧。** 唯一 SoT 是 `Z42.Syntax.Lexer._initKeywords()`；
+  z42 侧 `Repl.InstallKeywordHighlighting()` 在 REPL 启动时经
+  `__repl_set_keywords` → `z42_repl_set_keywords` 一次性灌进 cdylib。
+  **一次性**是因为 `highlight` 在每个按键上跑，逐键回调 VM 会让打字发卡。
+
+没灌过关键字表时**降级而不是猜**：字符串 / 注释 / 数字照常着色，关键字不着色——
+宁可少着色，也不能把非关键字染成关键字。
+
+VM 侧对 `z42_repl_set_keywords` 用的是**可选符号绑定**（`lib.get(...).ok()`）：
+老版本 cdylib 没有这个导出时只是不着色，而不是让整个 REPL 退回 plain-stdin。
+
+配色用 8 色基本集（关键字 35 / 字符串 32 / 注释 90 / 数字 36），不用 256 色或 truecolor——
+具体色值交给终端主题，跟随用户配色。
+
 ## 6. 首轮延迟是怎么压下来的
 
 朴素实现里，第一次 `Eval` 要一次性构建整个依赖世界——扫全部 stdlib + 编译器 zpkg、eager reconcile

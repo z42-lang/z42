@@ -27,6 +27,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 
 mod editing;
 mod helper;
+mod highlight;
 mod history;
 
 // ── Result kinds (written to `*out_kind` by `z42_repl_readline`) ─────────────
@@ -139,6 +140,24 @@ fn set_last_error(msg: impl Into<Vec<u8>>) {
 #[unsafe(no_mangle)]
 pub extern "C" fn z42_repl_last_error() -> *const c_char {
     LAST_ERROR.with(|e| e.borrow().as_ptr())
+}
+
+/// 安装 z42 关键字表（`\n` 分隔），供输入行语法着色使用。
+///
+/// 由 z42 侧在 REPL 启动时调用一次——关键字的唯一 SoT 是 `z42c.syntax` 的
+/// `Lexer._initKeywords()`，本 crate **不自带**关键字表。没调用过 = 关键字不着色
+/// （字符串 / 注释 / 数字仍着色），**降级而不是猜**。
+///
+/// # Safety
+/// `joined` 必须是有效的 NUL 结尾 C 字符串，或 null（null = 清空）。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn z42_repl_set_keywords(joined: *const c_char) {
+    let s = if joined.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(joined) }.to_string_lossy().into_owned()
+    };
+    highlight::set_keywords(&s);
 }
 
 /// Free a string returned by [`z42_repl_readline`].
