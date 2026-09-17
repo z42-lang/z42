@@ -76,7 +76,7 @@ pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
 pub(crate) fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usize> {
     let ic = ic?;
     let recv_type = receiver_type_id(obj_val)?;
-    let (_slot, fn_idx) = vcall_ic_lookup(ic, recv_type)?;
+    let fn_idx = vcall_ic_lookup(ic, recv_type)?;
     if fn_idx == UNRESOLVED { return None; }
     Some(fn_idx as usize)
 }
@@ -258,7 +258,7 @@ fn resolve_vcall_unchecked(
     if let Some(&slot) = type_desc.vtable_index.get(method) {
         let n = type_desc.vtable[slot].1.as_str();
         if let Some(&idx) = module.func_index.get(n) {
-            install_ic(ic, module, arity, recv_type, slot as u32, idx);
+            install_ic(ic, module, arity, recv_type, idx);
             return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
         }
         if let Some(f) = ctx.try_lookup_function(n) {
@@ -268,7 +268,7 @@ fn resolve_vcall_unchecked(
     // 4b. module class hierarchy (`<class>.<method>` at each level, intra-zpkg).
     if let Ok(f) = resolve_virtual(module, &type_desc.name, method) {
         if let Some(&idx) = module.func_index.get(f.name.as_str()) {
-            install_ic(ic, module, arity, recv_type, UNRESOLVED, idx);
+            install_ic(ic, module, arity, recv_type, idx);
             return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
         }
         if let Some(lazy) = ctx.try_lookup_function(&f.name) {
@@ -282,7 +282,7 @@ fn resolve_vcall_unchecked(
     loop {
         let candidate = format!("{}.{}", cur, method);
         if let Some(&idx) = module.func_index.get(candidate.as_str()) {
-            install_ic(ic, module, arity, recv_type, UNRESOLVED, idx);
+            install_ic(ic, module, arity, recv_type, idx);
             return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
         }
         if let Some(lazy) = ctx.try_lookup_function(&candidate) {
@@ -330,7 +330,7 @@ fn resolve_by_candidates(
     for name in &candidates {
         if let Some(&idx) = module.func_index.get(name.as_str()) {
             if module.functions.get(idx).is_some() {
-                if let Some(key) = ic_key { install_ic(ic, module, arity, key, UNRESOLVED, idx); }
+                if let Some(key) = ic_key { install_ic(ic, module, arity, key, idx); }
                 return Some(VCallTarget::Local(idx));
             }
         }
@@ -345,12 +345,12 @@ fn resolve_by_candidates(
 /// arguments (fix-call-arity-skew): a cached mismatch would be dispatched straight from the PIC
 /// on every later call, bypassing the check in [`resolve_vcall`].
 #[inline]
-fn install_ic(ic: Option<&VCallIC>, module: &Module, arity: usize, recv_type: u32, slot: u32, fn_idx: usize) {
+fn install_ic(ic: Option<&VCallIC>, module: &Module, arity: usize, recv_type: u32, fn_idx: usize) {
     if let Some(ic) = ic {
         let ok = module.functions.get(fn_idx)
             .map_or(false, |f| crate::vm_context::symres::call_arity(f).accepts(arity + 1));
         if ok {
-            vcall_ic_install(ic, recv_type, slot, fn_idx as u32);
+            vcall_ic_install(ic, recv_type, fn_idx as u32);
         }
     }
 }
