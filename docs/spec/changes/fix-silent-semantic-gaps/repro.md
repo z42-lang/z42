@@ -32,6 +32,45 @@ void Main() {
 3) 单字段struct: 99 (应 1)      ← 值语义失效，两个名字共享同一份
 ```
 
+### 缺口 3 的爆炸半径：stdlib 里恰好两个单字段 struct
+
+全仓 struct 普查（`src/libraries/*/src` + `src/compiler/*/src`）：
+
+| struct | 字段数 | 放宽后受影响？ |
+|---|---|---|
+| `Boolean` `Byte` `Char` `Double` `Int16/32/64` `SByte` `Single` `UInt16/32/64` | **0**（只有 static + extern，primitive-as-struct 机制） | 否 |
+| `Guid` | **1**（`byte[] _bytes`） | ✅ 会翻成值语义 |
+| `GCHandle` | **1**（`long _slot`） | ⚠️ **会翻，且有阻碍（见下）** |
+| `KeyValuePair` | 2 | 否（已是 blob） |
+| `ValueTuple2..8` | 2–8 | 否 |
+| `ListEnumerator` | 2（`_list` + body `_pos`） | 否 |
+| `DictionaryEnumerator` | 3（`_dict` + body `_scan` `_cur`） | 否 |
+
+- **`Guid` 无 native**，单字段是 `byte[]` 引用、构造时已防御性复制、构造后不再变更
+  ⇒ 翻成值语义**观察不到差别**，而且**顺带修掉** `Guid.z42:15-18` 自认的 `default(Guid)` 缺陷。
+- **`GCHandle` 是真阻碍。** 它现在被 native 当**堆对象**处理：
+
+  ```rust
+  // src/runtime/src/corelib/gc.rs:190-196
+  fn make_gc_handle(ctx: &VmContext, slot: u64) -> Value {
+      ctx.heap().alloc_object(gc_handle_type_desc(), vec![Value::I64(slot as i64)], NativeData::None)
+  }                                  // ← 返回 Value::Object
+
+  // src/runtime/src/corelib/gc.rs:181-188
+  fn extract_gc_handle_slot(arg: &Value) -> u64 {
+      let Value::Object(rc) = arg else { return 0 };   // ← 只认 Value::Object
+      ...
+  }
+  ```
+
+  一旦 `GCHandle` 变成 blob 值 struct，native 收到的是 `Value::StructRef{...}`，
+  那个 `else` 分支会**静默返回 0** ⇒ 每个句柄 `IsAllocated=false`，GC 句柄整体失效**且不报错**。
+
+  ⚠️ **形态很讽刺：naive 地修这个静默 bug 会引入另一个静默 bug。**
+  受影响的 builtin 共 5 个（`builtin_table.rs:257-261`）：`__gc_handle_alloc` / `_target` /
+  `_is_alloc` / `_kind` / `_free`。缺口 3 若做，**必须同一个 change 里一并改这 5 个**，
+  并补 GCHandle 的回归测试。
+
 ## 缺口 4：struct 的 static 字段读取即崩
 
 ```z42
