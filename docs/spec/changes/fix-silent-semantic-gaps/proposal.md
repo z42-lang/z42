@@ -1,4 +1,4 @@
-# Proposal: 修「编译通过但行为静默错误」的六条缺口
+# Proposal: 修「编译通过但行为静默错误」的缺口（核实后 5 条 + 1 条附带）
 
 > Status: **DRAFT**（2026-09-17；等 User 裁决分期与取舍后进 IMPL）
 > 分类：lang（语义 / 诊断）+ ir（新 opcode 发射）→ **走规范先行流程**
@@ -24,7 +24,7 @@
 其余 24 条（`E0424` 等 54 条零发射点死码、`new int[n][]` 不解析、字符串插值格式说明符被丢弃、
 闭包栈分配已失效等）留在 `batch3-verification.md` 附录里，按需另开 change。
 
-## 六条缺口
+## 六条缺口（核实后 → 本 change 承担五条）
 
 > 全部实测复现过，探针输出见 `batch3-verification.md` 附录 A。
 
@@ -51,7 +51,7 @@
 
 | 缺口 | 现象 | 实测 |
 |---|---|---|
-| **3** | 单字段 `struct` 仍是引用语义 | `struct One { int x; }` 的 `var b = a; b.x = 99;` → **`a.x` 也变 99**。根因：`StructLayout.IsBlobStruct` 要求「**多字段**」，单字段走不到 blob 值语义路径。两字段及以上实测正确 |
+| ~~3~~ | ~~单字段 `struct` 仍是引用语义~~ | **移出本 change —— 已有主**，见下方「归属核实」 |
 | **4** | struct 的 `static` / `static readonly` 字段读取即崩 | 抛 `struct-value handle used after its creating frame exited — value-struct lifetime unsound`。加不加 `readonly` 都一样 ⇒ `public static readonly Color White = ...` 这个 C# 常见惯用法在 z42 **完全用不了** |
 | **5** | struct 上的自动属性崩 | `public int X { get; set; }` + 构造器赋值 → `struct ref leaf at byte offset 4294967295 not in type layout`（`u32::MAX`，明显是未初始化的 offset） |
 
@@ -66,6 +66,57 @@
 > 编号说明：**六条缺口**，其中缺口 2「`ref` 到非局部左值」有两种表现（数组元素 / 对象字段），
 > 上表拆成两行列出，共 7 行。下文一律用缺口编号 **1–6**。
 
+## ⚠️ 归属核实：一条缺口已有主，必须移出
+
+开 change 前先查了现有 change 的覆盖，结果**缺口 3 不是未知 bug，而是既有 change 里有意延后的一个阶段**：
+
+`docs/spec/changes/unify-value-types/`（**未归档 = 活跃**）的阶段表：
+
+> **Phase 4** ｜ 单标量叶子 struct 塌缩（**GCHandle 类**）+ R7 runtime 谓词收敛 ｜ runtime
+
+`design.md` Decision D2 写死了：
+
+> 用户零字段 struct（退化，`Size==0`）与单字段 struct 都算 Blob——「单标量叶子塌缩」
+> （`struct Id{int v}`→标量）留 **Phase 4**，Phase 1 不做。
+
+`StructLayout.z42:193-196` 的代码注释同样点名了原因：
+
+> = IsStruct 且**多叶子复合**（`FieldCount>=2`）。单标量叶子 struct（**GCHandle=1×i64+FFI** /
+> 单字段 wrapper）与 phantom 基元保持现有模型（标量塌缩=Phase B）。
+
+⇒ **缺口 3 移出本 change，归 `unify-value-types` Phase 4。**
+并且**修法方向与我最初的设想相反**：既有设计的意图是把单标量叶子 struct **塌缩成 Scalar**
+（裸 `Value` 承载、根本不进 arena），不是「放宽 `IsBlobStruct` 让它进 blob」。
+后者恰好会踩到注释点名的 `GCHandle` FFI 阻碍（详见 [repro.md](repro.md) 的爆炸半径节）。
+
+其余缺口的归属也查过：
+- **缺口 1 / 2**：归档 change `2026-05-05-define-ref-out-in-parameters-typecheck` 的六项延后
+  （D1 ref local / D2 ref return / D3 ref field / D4 ref struct / D5 scoped / D6 ref readonly）
+  讲的是 **`ref` 在其他位置**，**不含** `ref arr[i]` / `ref obj.field` 作**实参**
+  ——那两个原规范是标 ✓ 支持的 ⇒ **真正无主的实现不完整**，归本 change。
+- **缺口 4 / 5 / `default(值 struct)`**：`unify-value-types` 的 Phase 2（装箱统一）/ Phase 3
+  （FFI marshaling）/ Phase 4（标量塌缩）都不覆盖「静态字段存值 struct」与
+  「自动属性后备字段不进 layout」⇒ 无主，归本 change。
+- **缺口 6**：无活跃 change 覆盖重载适用性 ⇒ 无主，归本 change。
+
+## 🔴 需 User 裁决的规范不一致
+
+按「规范冲突检测」，发现一处设计文档与实现不符，**停下报告而不自行取舍**：
+
+| | 说法 |
+|---|---|
+| `unify-value-types/design.md` D2 | 用户零字段 struct 与单字段 struct **都算 Blob** |
+| 实现 `StructLayout.z42:197-207` | `IsBlobStruct` 对 `FieldCount < 2` **和** `Size == 0` **都返回 false** |
+| 实现 `ReprOf`（同文件 :214-218） | 于是两者都落到 `return ""`——**既不是 Scalar 也不是 Blob** |
+
+代码自己的注释（:211-213）也是按「归 `""`」写的，与 design.md 的「都算 Blob」直接冲突。
+
+**这个冲突就是缺口 3 的成因**：归 `""` ⇒ 回落到旧的 `Value::Object` 共享句柄模型 ⇒ 引用语义。
+
+建议：以**实现**为准修 design.md D2 的措辞（改成「都归 N/A，塌缩留 Phase 4」），
+因为「都算 Blob」若当真执行会立刻踩 GCHandle 的 FFI 阻碍。但这属 `unify-value-types`
+的范围，请 User 裁决由谁改。
+
 ## What Changes
 
 **尚未定稿——三路根因调查进行中**，下列是待确认的修法方向，详见 [design.md](design.md)。
@@ -74,7 +125,8 @@
 |---|---|---|
 | 1 | 调用点修饰符校验（漏写 `ref` 报错） | 新诊断码；**会让现有代码变红**（含 stdlib，需先普查） |
 | 2 | `z42.ir` 补 `LoadElemAddrInstr` / `LoadFieldAddrInstr`（`0xA1`/`0xA2`）+ `ExprEmitter` 按 inner 形态分流 | **发射新 opcode ⇒ 按 `version-bumping.md` 要 zbc bump**；VM 侧已就绪，自举安全（解码支持 2026-08-24 已进） |
-| 3 | 放宽 `IsBlobStruct` 到单字段 | 语义变更；要普查 stdlib 里的单字段 struct 有没有代码依赖当前的引用语义 |
+| ~~3~~ | **移出** → `unify-value-types` Phase 4 | 见上方「归属核实」 |
+| 附带 | `default(值 struct)` 改发 `StructAlloc`（它本就是「分配零初始化 blob」）而非 `ConstNull` | 修点在 `ExprEmitter.z42:206-247` 的 `BoundDefault` 兜底分支前，约 5 行 |
 | 4 | struct 静态字段：装箱进堆 / 模块级 arena / **或先报清晰诊断** | arena 是 per-frame LIFO，与模块级生命周期有根本矛盾；可能短期只能先报诊断 |
 | 5 | struct 自动属性的后备字段进 `StructLayout`，或先禁止并报诊断 | 同上，取舍待定 |
 | 6 | 适用性判据加「子类 → 基类 / 接口」+ 同步择优规则 | 会**放宽**决议；风险是原本唯一确定的调用变成 `E0425` 歧义。跨包能否做全取决于 TSIG 里有无类层次信息 |
