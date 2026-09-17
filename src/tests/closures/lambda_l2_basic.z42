@@ -1,5 +1,5 @@
 // L2 no-capture lambda + (T)->R function type.
-// See docs/design/language/closure.md and docs/spec/changes/impl-lambda-l2/.
+// See docs/reference/src/language/closures.md and docs/spec/changes/impl-lambda-l2/.
 // Local function support deferred to impl-local-fn-l2.
 namespace Demo;
 

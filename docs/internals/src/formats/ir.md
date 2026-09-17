@@ -126,7 +126,7 @@ tag; source type is read at runtime from the source `Value` variant.
 
 **Identity casts** (e.g. `(int)int_val`) are elided by Codegen and don't emit `Convert` — register flows through unchanged.
 
-**Object / Unknown source (unbox)**: Codegen still emits `Convert`; VM resolves at runtime based on dynamic `Value` variant. Preserves the existing stdlib `(long)object` pattern. This is the **unboxing** path for `object → primitive` (see [boxing.md](../../../design/language/boxing.md)): numeric/char targets convert from the boxed `I64/F64/Char`; **`bool` unboxes via an identity match** (`(Value::Bool, T_BOOL)`) since `bool` has no numeric arm; a tag mismatch or `Null` source throws `InvalidCastException`. Boxing (`primitive → object`) emits no IR — the tagged `Value` flows through unchanged.
+**Object / Unknown source (unbox)**: Codegen still emits `Convert`; VM resolves at runtime based on dynamic `Value` variant. Preserves the existing stdlib `(long)object` pattern. This is the **unboxing** path for `object → primitive` (装箱模型见 [struct-value-semantics.md](../runtime/struct-value-semantics.md)): numeric/char targets convert from the boxed scalar; **`bool` unboxes via an identity match** (`(Value::Bool, T_BOOL)`) since `bool` has no numeric arm; a tag mismatch or `Null` source throws `InvalidCastException`. Boxing (`primitive → object`) 走 `__box_prim` **BuiltinInstr**（复用既有 builtin opcode，非新 IR 指令），且只覆盖**整数与 enum**——`bool`/`char`/`float`/`double`/`string` 各有自己的 `Value` 变体，不进盒。
 
 ### Control Flow
 ```
@@ -216,7 +216,7 @@ JSON wire format:
 ```
 
 Four opcodes lock down the binary format for the L2+ three-tier ABI (see
-[interop.md](../../../design/language/interop.md)). Each is **declared** in C1 with no runtime
+[native-abi.md](../runtime/native-abi.md)). Each is **declared** in C1 with no runtime
 behaviour; subsequent specs (C2, C4, C5) wire up dispatch.
 
 | Opcode | Byte | Operands | Filled by spec |
@@ -492,7 +492,7 @@ exec.mode interp | jit | aot    # module-level directive
 
 ### Closures (草案，L3 落地)
 
-闭包 / lambda / 函数引用相关的 IR 指令。完整设计见 [closure.md](../../../design/language/closure.md)。
+闭包 / lambda / 函数引用相关的 IR 指令。用户面捕获语义见[闭包与捕获语义](../../../reference/src/language/closures.md)，运行期表示与栈分配见[逃逸分析](../runtime/escape-analysis.md)。
 opcode 编号在 `impl-closure-l3` 变更落地时分配。
 
 ```

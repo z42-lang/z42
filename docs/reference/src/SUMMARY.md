@@ -26,6 +26,7 @@
   - [参数修饰符（`ref` / `out` / `in` / `params`）](language/parameter-modifiers.md)
   - [命名实参](language/named-arguments.md)
   - [委托与事件](language/delegates-events.md)
+  - [闭包与捕获](language/closures.md)
   - [`methodof`（方法引用表达式）](language/methodof.md)
 
   **类型定义**
@@ -71,6 +72,7 @@
 
   **元数据**
 
+  - [特性（Attributes）](language/attributes.md)
   - [`available!()` 符号可用性探测](language/available-macro.md)
 
 # 标准库
@@ -85,6 +87,7 @@
 # 嵌入
 
 - [概览](embedding/README.md)
+  - [原生互操作（native interop）](embedding/native-interop.md)
 
 # 约定
 

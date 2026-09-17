@@ -181,7 +181,7 @@ generic_type   = qualified_name "<" S type_expr ("," S type_expr)* S ">"   # [fe
 array_type     = type_expr "[" "]"                 # [feat:arrays]
 tuple_type     = "(" S type_expr S IDENT? ("," S type_expr S IDENT?)+ S ")"  # [feat:tuples]
 # Function type: `(T1, T2) -> R` form (replaces C# Func<T1,T2,R> / Action<T>).
-# See docs/design/language/closure.md §3.2 for rationale.
+# See docs/reference/src/language/delegates-events.md for rationale.
 func_type      = "(" S (type_expr ("," S type_expr)*)? S ")" S "->" S type_expr   # [feat:delegates]
 
 # Primitive type aliases

@@ -62,6 +62,49 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 判定实现：`Conversion._widensLossless(fromCanon, toCanon)` 是这张无损表；不在表中且非同型的
 数值对 → `ExplicitNumeric`。
 
+## 装箱与拆箱（值类型 ↔ `object` / 接口）
+
+`Boxing` / `Unboxing` 这两种分类对应的完整规则：
+
+| 方向 | 规则 |
+|------|------|
+| 值类型 → `object` / 接口 | **隐式**可赋，转换保留**精确的**源类型 |
+| `object` / 接口 → 值类型 | **显式**：`(T)o` 或 `o as T`，运行期受检 |
+| `object[]` 的元素 | `a[i] = 5` 逐元素装箱；`(int)a[i]` 逐元素拆箱 |
+| 引用类型 → `object` | 引用上转（归 `ImplicitRef`），不是装箱 |
+| 数组协变 | **不支持** `int[] <: object[]`（避免 store-hole）|
+
+**保留精确类型**是这套规则里唯一需要记住的东西：装箱**不会**把 `int` 悄悄变宽成 `long`。
+
+```z42
+object a = 5;      // int
+object b = 9L;     // long
+a is long          // false   ← 不是 C# 那种「反正都是整数」
+b is long          // true
+a.GetType().Name   // "Int32"
+b.GetType().Name   // "Int64"
+```
+
+`enum` 同样保精度——装箱后仍是它自己的类型，不塌成底层整数（详见 [enum](enums.md)）：
+
+```z42
+object c = Color.Green;
+c.GetType().Name     // "Color"
+c.GetType().IsEnum   // true
+c.ToString()         // "Green"
+```
+
+`struct` 值装箱后保持**引用身份**（与 C# 一致）：每装箱一次得到一个新的盒。
+
+**拆箱是受检的**：`(T)o` 在运行期核对盒里的精确类型，不符即失败。类型不符的拆箱当前产生的是
+**终止性运行期错误，不能用 `try` / `catch` 捕获**——与其它 `Convert` 失败一致。
+
+**健全性**：装箱 = 加宽上转（安全）+ 受检下转（运行期核对精确类型）。因为装箱值携带精确类型，
+下转可靠、`is` / `as` 精确——没有办法把一个类型当成另一个用。
+
+> 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
+> 容器里外的表示不变。
+
 ## 用户自定义转换（User-defined conversions，PR3 `add-user-conversions`）
 
 用户可用 C# 同款语法声明转换运算符，**并修掉 C# 的几处设计硬伤，令 z42 更严更可预测**：
@@ -109,5 +152,6 @@ int y = (int)c2;           // (T)x 亦接受 implicit → 30
 ## 关联文档
 
 - 引入/演进：change `add-conversion-classifier`（PR1）、`tighten-implicit-conversions`（PR2）、`add-user-conversions`（PR3，用户自定义转换 + ②③ 改进）——均已落地
-- 装箱/拆箱运行期机制：[语言部分 · 装箱](../../../design/language/boxing.md)
+- [enum](enums.md)——枚举值装箱后的类型身份
+- [结构体](structs.md)——值类型的复制语义
 - 承载代码：[`z42c.semantics/README.md`](../../../../src/compiler/z42c.semantics/README.md)

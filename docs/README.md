@@ -66,7 +66,7 @@ z42 项目文档总入口。
 z42 仓库文档采用**双语策略**，按受众分流：
 
 - **对外文档**（面向语言用户 / 潜在贡献者 / 公开发布）：**英文**
-  - 例：[`features.md`](features.md), [`design/philosophy.md`](design/philosophy.md), [`design/language/language-overview.md`](reference/src/language/README.md), [`design/language/interop.md`](design/language/interop.md), [`design/runtime/hot-reload.md`](internals/src/runtime/hot-reload.md), [`design/runtime/execution-model.md`](internals/src/runtime/execution-model.md), [`design/language/object-protocol.md`](design/language/object-protocol.md), [`README.md`](../README.md)（仓库根）
+  - 例：[`features.md`](features.md), [`design/philosophy.md`](design/philosophy.md), [`design/language/language-overview.md`](reference/src/language/README.md), [`design/language/interop.md`](reference/src/embedding/native-interop.md), [`design/runtime/hot-reload.md`](internals/src/runtime/hot-reload.md), [`design/runtime/execution-model.md`](internals/src/runtime/execution-model.md), [`design/language/object-protocol.md`](internals/src/runtime/object-protocol-dispatch.md), [`README.md`](../README.md)（仓库根）
 
 - **内部文档**（面向 z42 开发者 / 协作工作流 / 实现细节）：**中文**
   - 例：[`workflow/`](workflow/), [`roadmap.md`](roadmap.md), [`design/compiler/compiler-architecture.md`](internals/src/formats/zpkg.md), [`design/runtime/vm-architecture.md`](internals/src/runtime/vm-architecture.md), [`design/runtime/zbc.md`](internals/src/formats/zbc.md), [`.claude/CLAUDE.md`](../.claude/CLAUDE.md), [`agent/rules/*.md`](agent/rules/)

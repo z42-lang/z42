@@ -294,7 +294,7 @@ pub enum Instruction {
     Builtin(Box<BuiltinInsn>),
     /// Push a function-reference value onto a register. The runtime resolves
     /// `func` at call site (current usage: L2 no-capture lambda lifted as a
-    /// module-level function). See docs/design/language/closure.md §6.
+    /// module-level function). See docs/internals/src/runtime/escape-analysis.md.
     LoadFn(Box<LoadFnInsn>),
     /// 2026-05-02 add-method-group-conversion (D1b): cached method group
     /// conversion. First execution stores `Value::FuncRef(func)` into VmContext
@@ -302,14 +302,14 @@ pub enum Instruction {
     /// qualified `func` shares a `slot_id` across all call sites in a module.
     LoadFnCached(Box<LoadFnCachedInsn>),
     /// Indirect call via a register holding a `FuncRef` value. See
-    /// docs/design/language/closure.md §6.
+    /// docs/internals/src/runtime/escape-analysis.md.
     CallIndirect {
         #[serde(with = "typed_reg_serde")] dst: Reg,
         #[serde(with = "typed_reg_serde")] callee: Reg,
         #[serde(with = "typed_reg_vec_serde")] args: Box<[Reg]>,
     },
     /// L3 closure tier-C: allocate an env from `captures`, build a closure
-    /// value and write it to `dst`. See docs/design/language/closure.md §6.
+    /// value and write it to `dst`. See docs/internals/src/runtime/escape-analysis.md.
     /// `stack_alloc=true` (impl-closure-l3-escape-stack): VM 走 frame-local
     /// arena → `Value::StackClosure`；否则 heap → `Value::Closure`。
     MkClos(Box<MkClosInsn>),
