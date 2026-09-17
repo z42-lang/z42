@@ -326,8 +326,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         soft_limit: Option<u64>,
         cfg: &crate::config::RuntimeConfig,
     ) -> Option<Trip> {
-        let nursery = self.nursery_bytes();
-        let allowance = Self::collection_allowance(baseline, nursery, soft_limit);
+        let allowance = Self::collection_allowance(baseline, self.allowance_unit(), soft_limit);
         let grown = used.saturating_sub(baseline);
         // A heap already past its soft cap is under real pressure: collect regardless of how
         // little it has grown since last time (the backoff still keeps this from spinning).
@@ -352,7 +351,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
             return Some(Trip { kind: TripKind::Major, gate: allowance });
         }
         let minor_gate = self.minor_gate(baseline, soft_limit);
-        let gate = minor_gate.saturating_mul(backoff as u64);
+        // **add-pause-budget-nursery D4** (`Z42_GC_BACKOFF_CAP`, **off** by default): let the
+        // backoff make collections *rarer* without making a single minor *bigger*. Multiplying the
+        // gate is what produced the worst pauses measured anywhere — `13_gc_large_heap --large`
+        // backed off to ×64, let **1.0 GB** of young set pile up, and spent **301 ms** in one
+        // minor. Capping it takes that to 25 ms.
+        //
+        // It is off by default because the price is real and lands on exactly the workloads the
+        // backoff was written for. Measured (3 rounds, median, against the same binary with the
+        // cap off): `09_alloc_ctorless` wall **+94%**, `13_gc_large_heap --large` **+81%**,
+        // `12_gc_churn` RSS **+20%** — all of them workloads where almost nothing dies, so every
+        // collection the cap forces back on is waste. Deleting the backoff outright is not an
+        // option either: that regressed `09_alloc_ctorless` by 70~160% (add-incremental-major-gc
+        // 1.10). The adaptive nursery alone still buys `z42c.semantics` 23.5 ms → 15.1 ms at
+        // −0.8% wall, which is the default worth shipping.
+        let gate = Self::backed_off_gate(minor_gate, backoff, self.pause_budget_cap(cfg));
         if grown >= gate {
             return Some(Trip { kind: TripKind::Minor, gate: minor_gate });
         }
@@ -399,8 +412,36 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// enforced until the heap had allocated a whole nursery past it. Invisible while STW was
     /// the default; the default path now.
     fn minor_gate(&self, baseline: u64, soft_limit: Option<u64>) -> u64 {
-        let nursery = self.nursery_bytes();
-        nursery.min(Self::collection_allowance(baseline, nursery, soft_limit))
+        self.nursery_bytes()
+            .min(Self::collection_allowance(baseline, self.allowance_unit(), soft_limit))
+    }
+
+    /// **add-pause-budget-nursery**: the unit the **old generation's** allowance is denominated
+    /// in — the *configured* nursery, which does not move.
+    ///
+    /// The minor gate adapts to a pause budget; the major's allowance must not follow it down.
+    /// `collection_allowance` floors the allowance at `4 x nursery`, so letting the adaptive value
+    /// in here means "shrink the nursery for a shorter minor" silently also means "collect the old
+    /// generation four times as often": measured on `13_gc_large_heap`, the nursery going 16M → 4M
+    /// took major cycles from **4 to 29** and wall time from 2.41 s to 4.40 s — almost none of it
+    /// minor pause (which fell from 27.8 ms to 5.5 ms), nearly all of it extra major work.
+    #[inline]
+    fn allowance_unit(&self) -> u64 {
+        self.allowance_unit_bytes.load(Ordering::Relaxed)
+    }
+
+    /// How much growth a minor must see before it trips. The backoff multiplies it; `cap`
+    /// (D4, `Z42_GC_BACKOFF_CAP`) is the most young set one minor may be asked to scan.
+    ///
+    /// `cap.max(minor_gate)` rather than `cap`: the gate is already `min(nursery, allowance)`, so
+    /// a squeezed allowance can put it *below* the cap, and capping there would silently undo the
+    /// soft cap's squeeze.
+    pub(super) fn backed_off_gate(minor_gate: u64, backoff: u32, cap: Option<u64>) -> u64 {
+        let gate = minor_gate.saturating_mul(backoff as u64);
+        match cap {
+            Some(cap) => gate.min(cap.max(minor_gate)),
+            None => gate,
+        }
     }
 
     /// Set the next `used_bytes` reading at which the policy wants to be consulted.
@@ -428,7 +469,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let gate = if crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep {
             self.minor_gate(baseline, soft_limit)
         } else {
-            Self::collection_allowance(baseline, self.nursery_bytes(), soft_limit)
+            Self::collection_allowance(baseline, self.allowance_unit(), soft_limit)
         };
         let gate = gate.saturating_mul(backoff.max(1) as u64);
         let at_gate = baseline.saturating_add(gate);
@@ -454,7 +495,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// what the pacer (`incremental.rs`) last decided, or a quarter nursery before it has run.
     pub(super) fn slice_interval(&self) -> u64 {
         match self.incremental.slice_interval.load(Ordering::Relaxed) {
-            0 => self.clamp_slice_interval(self.nursery_bytes() / 4),
+            0 => self.clamp_slice_interval(self.allowance_unit() / 4),
             n => n,
         }
     }
@@ -462,7 +503,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Bounds on any slice interval: never more than a quarter nursery (a cycle must not stall
     /// behind a program that allocates little), never less than [`MIN_SLICE_INTERVAL`].
     pub(super) fn clamp_slice_interval(&self, bytes: u64) -> u64 {
-        bytes.min(self.nursery_bytes() / 4).max(MIN_SLICE_INTERVAL)
+        bytes.min(self.allowance_unit() / 4).max(MIN_SLICE_INTERVAL)
     }
 
     /// **add-incremental-major-gc M2b**: how far the heap may grow while a cycle runs — half the
@@ -474,7 +515,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             u64::MAX => None,
             n => Some(n),
         };
-        Self::collection_allowance(used, self.nursery_bytes(), soft_limit) / 2
+        Self::collection_allowance(used, self.allowance_unit(), soft_limit) / 2
     }
 
     /// **arm-gc-by-default (2026-09-09)**: recompute the trip point from the live set a
@@ -486,12 +527,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// path re-arms with it the next time it runs, which is at worst one gate later.
     pub(super) fn rearm_auto_collect(&self) {
         let live = self.used_bytes_atomic();
-        let nursery = self.nursery_bytes();
         let soft_limit = match self.max_bytes_atomic.load(Ordering::Relaxed) {
             u64::MAX => None,
             n => Some(n),
         };
-        let allowance = Self::collection_allowance(live, nursery, soft_limit);
+        let allowance = Self::collection_allowance(live, self.allowance_unit(), soft_limit);
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {
             self.next_collect_at
                 .store(live.saturating_add(allowance), Ordering::Relaxed);

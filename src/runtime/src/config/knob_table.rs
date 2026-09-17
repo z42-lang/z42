@@ -87,6 +87,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         ..TUNING
     },
     KnobSpec {
+        name: "Z42_GC_BACKOFF_CAP",
+        toml_key: "gc-backoff-cap",
+        value: ValueKind::Bool,
+        description: "generational only: stop the futility backoff from growing the young set — it still makes collections sparser, but one minor never scans more than a nursery's worth. Bounds the worst pause (13_gc_large_heap 301 ms -> 25 ms) at a throughput cost on workloads where nothing ever dies (09_alloc_ctorless wall +94%); off by default",
+        default_hint: "unset; off",
+        consumed_by: "gc/arc_heap/auto_collect.rs, at each trip decision",
+        ..TUNING
+    },
+    KnobSpec {
         name: "Z42_GC_INCREMENTAL",
         toml_key: "gc-incremental",
         value: ValueKind::Bool,
@@ -150,6 +159,15 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         description: "the unit the auto-collect policy is denominated in: bytes allocated before a MINOR trips (generational), and x4 the floor under a major's allowance (both modes). Accepts a byte count or a K/KB/M/MB/G/GB suffix",
         default_hint: "unset; defaults to 16M (Mono SGen uses 4M). Moves with Z42_GC_PROMOTION_AGE — a smaller nursery promotes more eagerly",
         consumed_by: "gc/arc_heap/auto_collect.rs",
+        ..TUNING
+    },
+    KnobSpec {
+        name: "Z42_GC_PAUSE_TARGET_MS",
+        toml_key: "gc-pause-target-ms",
+        value: ValueKind::Float { min: 0.0, max: 1000.0 },
+        description: "generational only: target maximum minor pause in milliseconds — the nursery is sized from the measured cost of collecting it instead of being a constant; 0 disables the adaptation, and an explicit Z42_GC_NURSERY_BYTES disables it too",
+        default_hint: "unset; defaults to 10",
+        consumed_by: "gc/arc_heap/pause_budget.rs",
         ..TUNING
     },
     KnobSpec {

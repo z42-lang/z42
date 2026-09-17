@@ -57,6 +57,8 @@
 
 ## Open Questions
 
-- [ ] 默认目标停顿定 **10 ms**（与 User 裁决的「先 ≤10 ms 后 ≤5 ms」一致）还是直接 5 ms？
-- [ ] `Z42_GC_NURSERY_BYTES` 显式设置时是否**必须**关掉自适应（本提案主张：是，手动挡优先）？
-- [ ] nursery 下界定多少：1M（够小到把 semantics 压到 ~2 ms）还是 4M（避免过早晋升把老年代喂爆）？
+- [x] 默认目标停顿定 **10 ms**（User 裁决 2026-09-17）
+- [x] 显式 `Z42_GC_NURSERY_BYTES` **关掉**自适应，手动挡优先（User 裁决 2026-09-17）
+- [x] nursery 下界定 **4M**（User 裁决 2026-09-17）
+- [x] 退避封顶（design D4）做成旋钮 `Z42_GC_BACKOFF_CAP`，**默认关**（User 裁决 2026-09-17，见 design D4 实测表）
+- [x] 10 ms 验收门槛：实测 nursery 买不到，M3 收在「显著下降且吞吐不回归」，10 ms 留给增量 minor（User 裁决 2026-09-17）

@@ -69,7 +69,26 @@ impl Default for ArcMagrGC {
                     .unwrap_or(super::auto_collect::DEFAULT_NURSERY_BYTES)
                     .max(1),
             ),
+            // add-pause-budget-nursery: the allowance unit is the configured nursery and stays put
+            // while `nursery_bytes` adapts to the pause budget (see `auto_collect::allowance_unit`).
+            allowance_unit_bytes: std::sync::atomic::AtomicU64::new(
+                crate::config::runtime_config()
+                    .gc_nursery_bytes
+                    .unwrap_or(super::auto_collect::DEFAULT_NURSERY_BYTES)
+                    .max(1),
+            ),
             incremental: Default::default(),
+            // add-pause-budget-nursery: an explicit nursery is a manual override — it turns the
+            // adaptation off rather than seeding it, so "I set the nursery and it did not stick"
+            // cannot happen. wasm32 has no microsecond clock (`now_us` counts ticks), so the cost
+            // model would be meaningless there.
+            pause_budget: pause_budget::PauseBudget::new(
+                if cfg!(target_arch = "wasm32") || crate::config::runtime_config().gc_nursery_bytes.is_some() {
+                    0
+                } else {
+                    (crate::config::runtime_config().gc_pause_target_ms * 1000.0) as u64
+                },
+            ),
         }
     }
 }

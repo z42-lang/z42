@@ -254,3 +254,36 @@ fn generational_collects_more_often_than_stw_on_the_same_workload() {
          (generational {gen} vs stw {stw})"
     );
 }
+
+/// **add-pause-budget-nursery D4**: the futility backoff may make collections *rarer*, never a
+/// single minor *bigger* — but only when `Z42_GC_BACKOFF_CAP` asks for it.
+///
+/// The uncapped numbers here are the ones measured on `13_gc_large_heap --large`: backed off to
+/// ×64 against a 16 MB gate, one minor was handed 1.0 GB of young set and took **301 ms**.
+#[test]
+fn the_backoff_makes_collections_rarer_not_minors_bigger() {
+    const NURSERY: u64 = 16 * 1024 * 1024;
+    let uncapped = |b| ArcMagrGC::backed_off_gate(NURSERY, b, None);
+    let capped = |b| ArcMagrGC::backed_off_gate(NURSERY, b, Some(NURSERY));
+
+    assert_eq!(uncapped(1), NURSERY, "no backoff, no multiplier");
+    assert_eq!(uncapped(16), 16 * NURSERY, "off by default: today's behaviour is unchanged");
+    assert_eq!(uncapped(super::MAX_BACKOFF as u32), 64 * NURSERY, "1.0 GB — the 301 ms minor");
+
+    assert_eq!(capped(1), NURSERY);
+    assert_eq!(capped(16), NURSERY, "×16 must not grow the young set");
+    assert_eq!(capped(super::MAX_BACKOFF as u32), NURSERY, "nor may saturation");
+}
+
+/// The cap is a ceiling on the *nursery*, not a floor under the gate: a soft cap that squeezed
+/// the allowance below one nursery has already decided a minor should trip sooner, and D4 must
+/// not hand those bytes back.
+#[test]
+fn the_cap_never_widens_a_gate_the_soft_limit_squeezed() {
+    const NURSERY: u64 = 16 * 1024 * 1024;
+    let squeezed = 2 * 1024 * 1024;
+    assert_eq!(ArcMagrGC::backed_off_gate(squeezed, 8, Some(NURSERY)), squeezed * 8,
+        "a squeezed gate stays below the cap, so the backoff still applies in full");
+    assert_eq!(ArcMagrGC::backed_off_gate(squeezed, 64, Some(squeezed)), squeezed,
+        "and when it is the cap, it is the ceiling");
+}

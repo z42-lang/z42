@@ -48,6 +48,8 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_PROMOTION_AGE` | **3** | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。默认值就是上界 ⇒ **只能调低、不能调高**。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
 | `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect` |
+| `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而不再是常量；`0` 关掉自适应，显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `arc_heap/pause_budget.rs` |
+| `Z42_GC_BACKOFF_CAP` | **off** | **分代专用**：禁止徒劳退避放大年轻代规模 —— 退避仍让回收变稀疏，但一次 minor 最多扫一个 nursery。把最坏停顿压死（`13_gc_large_heap --large` 301 ms → 25 ms），代价是「什么都不死」的负载上墙钟最多 +94%。**默认关**，见下「退避封顶为什么默认关」 | `arc_heap/auto_collect.rs` |
 | `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不再是武装开关**（arm-gc-by-default）：设了只压回收余量并加一个近上限触发 | `arc_heap/auto_collect` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
@@ -111,6 +113,60 @@ minor 的停顿就多大。直觉上把它调小应该同时省停顿和省内�
 实测 `12_gc_churn`：同样扫约 390 万个对象，nursery 16M / 年龄 2 时晋升 **1 326 948 个（33.6%）**，
 32M / 年龄 2 时只有 **684 444 个（17.9%）** —— 峰值 RSS 因此从 198 MB **涨到** 405 MB。
 把年龄提到 3，同一档变成 **142 MB**，比原来的 32M 默认还低。
+
+## 按停顿预算自适应 nursery
+
+`add-pause-budget-nursery`（2026-09-17）把 nursery 从常量改成了**测出来的量**：每次 minor 结束时
+记下「这次停顿 / 扫了多少个年轻代条目」，用 `Z42_GC_PAUSE_TARGET_MS` 反推下次允许扫多少条目，
+再折算回字节当闸门。
+
+**按条目而不是按字节**，因为年轻代里不只有上一个 nursery 的分配量：一个条目要熬过
+`promotion_age` 次 minor 才离开年轻代表，所以一次 minor 扫的是「新条目 + 前几次的幸存者」。
+实测 `13_gc_large_heap` 上一次按 4 MB 增长触发的 minor 仍然标记了 **751 778** 个条目 —— 按字节
+计量的模型看不见这些幸存者、把它们算作 0，这正是「4 MB 的 nursery 依然打出 36 ms 停顿」的由来。
+
+代价读数取**衰减最大值**而不是均值：要压的是最坏那次 minor，而均值会被一串便宜的 minor
+（堆还小、缓存还热）说服去放大 nursery。实测启动阶段均值读到 13 ns/条、把 nursery 从 16M 涨到
+32.9M，等堆长到 300 MB 再读就是 25 ns/条 —— 那一趟的三次 29~33 ms 停顿就是这么来的。
+
+### nursery 买不到的那部分
+
+一次 minor 里有相当一部分工作**与年轻代大小无关**，它给停顿设了一个 nursery 够不到的地板。
+`Z42_GC_PHASES` 会把两个主要来源打出来（`minor roots` / `card seed` / `minor bfs` 三行）：
+
+| 来源 | 量级（实测） | 为什么与 nursery 无关 |
+|---|---|---|
+| 卡表扫描 | `z42c.semantics` 最坏一次 minor 扫 **280 382** 个老年代条目 | O(老年代)，找跨代引用 |
+| 增量 major 的 grey 队列 | `13_gc_large_heap --large` 上 **108 142** 个老条目，**每次** minor 都重新遍历 | 周期开着就一直是 minor 的根 |
+
+所以模型不会收敛到目标值，而是停在这个地板上：目标设 10 ms 时，`z42c.semantics` 落在
+**15.1 ms**（原 23.5），合成负载落在 ~25 ms。再往下缩只是让固定成本乘更多遍 ——
+`13_gc_large_heap --large` 上把 nursery 压到 4M 下限，**总停顿反而涨了 224%**。
+要真的做到 10 ms，得把 minor 本身也切片化，那是另一个 change。
+
+### 退避封顶为什么默认关
+
+徒劳退避的乘数是直接乘在 minor 闸门上的，于是它同时也在放大**一次 minor 要扫多少年轻代**。
+实测 `13_gc_large_heap --large`：退避到 ×64、闸门 16M ⇒ 一次 minor 被塞了 **1.0 GB** 年轻代，
+停顿 **301 ms** —— 全线最坏的那个数字。`Z42_GC_BACKOFF_CAP=1` 给它封顶后变成 25 ms。
+
+**默认仍然关**，因为这笔钱花得很贵，而且正好花在退避当初被写出来要保护的那类负载上
+（3 轮取中位，同一个二进制开关对比）：
+
+| | 最大停顿 | 墙钟 | 峰值 RSS |
+|---|---|---|---|
+| `z42c.semantics` | 23.5 → **15.1 ms** | −0.8% | ≈ 持平 |
+| `09_alloc_ctorless` | −31%（封顶后 −76%） | **+94%**（不封顶 −8.5%） | ≈ 持平 |
+| `13_gc_large_heap --large` | −42%（封顶后 −92%） | **+81%**（不封顶 +15.7%） | −15%（不封顶 −4%） |
+| `12_gc_churn` | ≈ 持平 | ≈ 持平 | **+20%**（不封顶 +11%） |
+
+这些负载的共同点是「几乎什么都不死」，所以封顶逼回来的每一次回收都是纯浪费。
+**只留自适应 nursery（默认）本身几乎白送**：真实负载 `z42c.semantics` 最大停顿 −36% 而墙钟 −0.8%，
+`09_alloc_ctorless` 甚至墙钟 −8.5%。需要低延迟、且知道自己负载存活率不高的，再开 `Z42_GC_BACKOFF_CAP=1`。
+
+> 注意**堆能长多大不归这里管**：那是 `collection_allowance`，它的计量单位是**配置的** nursery
+> （`allowance_unit`），刻意不跟着自适应值走。第一版没拆时，nursery 自适应缩到 4M 让 major 余量的
+> 下界（`nursery × 4`）跟着缩了 4 倍 ⇒ major 周期从 **4 次涨到 29 次**、墙钟 2.41 s → 4.40 s。
 
 这就是 2026-09-11 `retune-gc-nursery-and-promotion-age` 把两个默认值**一起**改掉的原因：
 nursery 32M→16M、晋升年龄 2→3。三个负载、两个二进制、各三跑：
