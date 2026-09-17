@@ -52,7 +52,7 @@ void test_resolve_no_match_arity() {
     Z42Type[] p2 = new Z42Type[]{ Z42ClassType.Builtin("int"), Z42ClassType.Builtin("int") };
     MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$2", p2, 2) };
     Z42Type[] args = new Z42Type[]{ Z42ClassType.Builtin("int") };
-    var r = OverloadResolver.Resolve(cands, 1, args, 1);
+    var r = OverloadResolver.Resolve(cands, 1, args, 1, null);
     Assert.True(r.IsNoMatch());
 }
 
@@ -62,7 +62,7 @@ void test_resolve_single_applicable() {
     Z42Type[] p1 = new Z42Type[]{ Z42ClassType.Builtin("int") };
     MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$1$i32", p1, 1) };
     Z42Type[] args = new Z42Type[]{ Z42ClassType.Builtin("int") };
-    var r = OverloadResolver.Resolve(cands, 1, args, 1);
+    var r = OverloadResolver.Resolve(cands, 1, args, 1, null);
     Assert.True(r.IsResolved());
     Assert.Equal("f$1$i32", r.Key);
 }
@@ -74,7 +74,7 @@ void test_resolve_most_specific_exact_wins() {
     Z42Type[] po = new Z42Type[]{ Z42ClassType.Builtin("object") };
     MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$int", pi, 1), _cand("f$obj", po, 1) };
     Z42Type[] args = new Z42Type[]{ Z42ClassType.Builtin("int") };
-    var r = OverloadResolver.Resolve(cands, 2, args, 1);
+    var r = OverloadResolver.Resolve(cands, 2, args, 1, null);
     Assert.True(r.IsResolved());
     Assert.Equal("f$int", r.Key);
 }
@@ -88,6 +88,6 @@ void test_resolve_ambiguous() {
     Z42Type[] pb = new Z42Type[]{ o, i };
     MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$io", pa, 2), _cand("f$oi", pb, 2) };
     Z42Type[] args = new Z42Type[]{ Z42ClassType.Builtin("int"), Z42ClassType.Builtin("int") };
-    var r = OverloadResolver.Resolve(cands, 2, args, 2);
+    var r = OverloadResolver.Resolve(cands, 2, args, 2, null);
     Assert.True(r.IsAmbiguous());
 }

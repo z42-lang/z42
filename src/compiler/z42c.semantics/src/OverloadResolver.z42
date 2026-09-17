@@ -155,13 +155,13 @@ public sealed class OverloadResolver {
     // ── 决议 ────────────────────────────────────────────────────────────────
     // candidates = 同名所有重载（调用方枚举）；argTypes = 实参解析类型。
     public static OverloadResult Resolve(MethodSymbol[] candidates, int candCount,
-                                         Z42Type[] argTypes, int argCount) {
+                                         Z42Type[] argTypes, int argCount, SymbolTable symbols) {
         // 1. 适用集
         MethodSymbol[] applic = new MethodSymbol[candCount];
         int ac = 0;
         int i = 0;
         while (i < candCount) {
-            if (OverloadResolver._applicable(candidates[i], argTypes, argCount)) {
+            if (OverloadResolver._applicable(candidates[i], argTypes, argCount, symbols)) {
                 applic[ac] = candidates[i]; ac = ac + 1;
             }
             i = i + 1;
@@ -178,7 +178,7 @@ public sealed class OverloadResolver {
             int k = 0;
             while (k < ac) {
                 if (k != j) {
-                    if (!OverloadResolver._betterThan(applic[j], applic[k], argTypes, argCount)) {
+                    if (!OverloadResolver._betterThan(applic[j], applic[k], argTypes, argCount, symbols)) {
                         dominatesAll = false;
                     }
                 }
@@ -198,25 +198,25 @@ public sealed class OverloadResolver {
     }
 
     // 候选适用 ⟺ arity 匹配 ∧ 每个实参可赋值到对应形参（含子类→基类 / prim→object 装箱 / 接口实现）。
-    private static bool _applicable(MethodSymbol ms, Z42Type[] argTypes, int argCount) {
+    private static bool _applicable(MethodSymbol ms, Z42Type[] argTypes, int argCount, SymbolTable symbols) {
         Z42FuncType sig = ms.Signature;
         if (sig.ParamCount != argCount) { return false; }
         int i = 0;
         while (i < argCount) {
-            if (!OverloadResolver._assignable(argTypes[i], sig.ParamTypes[i])) { return false; }
+            if (!OverloadResolver._assignable(argTypes[i], sig.ParamTypes[i], symbols)) { return false; }
             i = i + 1;
         }
         return true;
     }
 
     // X 比 Y 更优 ⟺ 每个位置 X 不差于 Y（X 的形参更精确或同等）且至少一处严格更优。
-    private static bool _betterThan(MethodSymbol x, MethodSymbol y, Z42Type[] argTypes, int argCount) {
+    private static bool _betterThan(MethodSymbol x, MethodSymbol y, Z42Type[] argTypes, int argCount, SymbolTable symbols) {
         Z42FuncType sx = x.Signature;
         Z42FuncType sy = y.Signature;
         bool someStrict = false;
         int i = 0;
         while (i < argCount) {
-            int c = OverloadResolver._betterAtPos(sx.ParamTypes[i], sy.ParamTypes[i], argTypes[i]);
+            int c = OverloadResolver._betterAtPos(sx.ParamTypes[i], sy.ParamTypes[i], argTypes[i], symbols);
             if (c < 0) { return false; }       // 某位 X 更差 → 非更优
             if (c > 0) { someStrict = true; }
             i = i + 1;
@@ -225,15 +225,15 @@ public sealed class OverloadResolver {
     }
 
     // 位置比较：+1 = px 比 py 更适合 argType，-1 = 更差，0 = 同等。
-    internal static int _betterAtPos(Z42Type px, Z42Type py, Z42Type arg) {
+    internal static int _betterAtPos(Z42Type px, Z42Type py, Z42Type arg, SymbolTable symbols) {
         bool exX = OverloadResolver._sameType(arg, px);
         bool exY = OverloadResolver._sameType(arg, py);
         if (exX && !exY) { return 1; }
         if (exY && !exX) { return 0 - 1; }
         if (exX && exY)  { return 0; }
         // 都非精确：更"具体"的形参类型胜（px 可赋值到 py 而非反向 → px 更派生/更具体）。
-        bool xToY = OverloadResolver._assignable2(px, py);
-        bool yToX = OverloadResolver._assignable2(py, px);
+        bool xToY = OverloadResolver._assignable2(px, py, symbols);
+        bool yToX = OverloadResolver._assignable2(py, px, symbols);
         if (xToY && !yToX) { return 1; }
         if (yToX && !xToY) { return 0 - 1; }
         return 0;
@@ -249,7 +249,7 @@ public sealed class OverloadResolver {
     //   · params：正常形态（实参本身是数组）/ 展开形态（多余位置实参逐个可赋值到元素类型）
     // 择优：逐实参比较所映射形参的具体程度（同 `_betterAtPos`）；仍平手时，不需要默认值的胜，非展开形态胜。
     // 只在既有路径失败或会选错的地方调用（见 OverloadBinder / ConstructTyper 的调用点），今天能解析的调用不经过这里。
-    public static MapResult Map(MethodSymbol m, ArgShape a) {
+    public static MapResult Map(MethodSymbol m, ArgShape a, SymbolTable symbols) {
         MapResult r = new MapResult(a.PosCount, a.NamedCount);
         Z42FuncType sig = m.Signature;
         if (sig == null) { return r; }
@@ -262,16 +262,16 @@ public sealed class OverloadResolver {
             Z42Type at = a.PosTypes[i];
             if (i < fixedCount) {
                 Z42Type pt = sig.ParamTypes[i];
-                if (at != null && !OverloadResolver._assignable(at, pt)) { return r; }
+                if (at != null && !OverloadResolver._assignable(at, pt, symbols)) { return r; }
                 r.PosParam[i] = pt; filled[i] = true;
             } else if (pf >= 0) {
                 Z42ArrayType arr = sig.ParamTypes[pf] as Z42ArrayType;
                 if (arr == null) { return r; }
-                bool normal = a.PosCount == pc && i == pf && (at == null || OverloadResolver._assignable(at, arr));
+                bool normal = a.PosCount == pc && i == pf && (at == null || OverloadResolver._assignable(at, arr, symbols));
                 if (normal) {
                     r.PosParam[i] = arr;
                 } else {
-                    if (at != null && !OverloadResolver._assignable(at, arr.Elem)) { return r; }
+                    if (at != null && !OverloadResolver._assignable(at, arr.Elem, symbols)) { return r; }
                     r.PosParam[i] = arr.Elem; r.Expanded = true;
                 }
                 filled[pf] = true;
@@ -287,7 +287,7 @@ public sealed class OverloadResolver {
             if (idx < 0 || idx >= pc || filled[idx]) { return r; }
             Z42Type npt = sig.ParamTypes[idx];
             Z42Type nat = a.NamedTypes[j];
-            if (nat != null && !OverloadResolver._assignable(nat, npt)) { return r; }
+            if (nat != null && !OverloadResolver._assignable(nat, npt, symbols)) { return r; }
             r.NamedParam[j] = npt; filled[idx] = true;
             j = j + 1;
         }
@@ -312,13 +312,13 @@ public sealed class OverloadResolver {
         return false;
     }
 
-    public static OverloadResult ResolveMapped(MethodSymbol[] cands, int n, ArgShape a) {
+    public static OverloadResult ResolveMapped(MethodSymbol[] cands, int n, ArgShape a, SymbolTable symbols) {
         MethodSymbol[] app = new MethodSymbol[n];
         MapResult[] maps = new MapResult[n];
         int ac = 0;
         int i = 0;
         while (i < n) {
-            MapResult mr = OverloadResolver.Map(cands[i], a);
+            MapResult mr = OverloadResolver.Map(cands[i], a, symbols);
             if (mr.Ok) { app[ac] = cands[i]; maps[ac] = mr; ac = ac + 1; }
             i = i + 1;
         }
@@ -330,7 +330,7 @@ public sealed class OverloadResolver {
             bool dominates = true;
             int y = 0;
             while (y < ac) {
-                if (y != x && !OverloadResolver._mappedBetter(maps[x], maps[y], a)) { dominates = false; }
+                if (y != x && !OverloadResolver._mappedBetter(maps[x], maps[y], a, symbols)) { dominates = false; }
                 y = y + 1;
             }
             if (dominates) {
@@ -344,18 +344,18 @@ public sealed class OverloadResolver {
     }
 
     // X 严格优于 Y：逐实参不差且至少一处更好；逐实参全平手时，看「不需要默认值」再看「非展开形态」。
-    private static bool _mappedBetter(MapResult x, MapResult y, ArgShape a) {
+    private static bool _mappedBetter(MapResult x, MapResult y, ArgShape a, SymbolTable symbols) {
         bool strict = false;
         int i = 0;
         while (i < a.PosCount) {
-            int c = OverloadResolver._betterAtPos(x.PosParam[i], y.PosParam[i], a.PosTypes[i]);
+            int c = OverloadResolver._betterAtPos(x.PosParam[i], y.PosParam[i], a.PosTypes[i], symbols);
             if (c < 0) { return false; }
             if (c > 0) { strict = true; }
             i = i + 1;
         }
         int j = 0;
         while (j < a.NamedCount) {
-            int c = OverloadResolver._betterAtPos(x.NamedParam[j], y.NamedParam[j], a.NamedTypes[j]);
+            int c = OverloadResolver._betterAtPos(x.NamedParam[j], y.NamedParam[j], a.NamedTypes[j], symbols);
             if (c < 0) { return false; }
             if (c > 0) { strict = true; }
             j = j + 1;
@@ -372,21 +372,48 @@ public sealed class OverloadResolver {
         return a.CanonName() == b.CanonName();
     }
 
-    // 实参类型可赋值到形参类型（复用 Z42Type.IsAssignableTo + 精确名等价兜底）。
-    internal static bool _assignable(Z42Type arg, Z42Type param) {
+    // 实参类型可赋值到形参类型（复用 Z42Type.IsAssignableTo + 精确名等价兜底 + 类表引用上转）。
+    //
+    // fix-overload-ref-conversion：`Z42Type.IsAssignableTo` **不带符号表**，而
+    // `Z42ClassType.IsAssignableTo` 自己的注释就写着「1A-1 不查继承链；subclass→base 需类表走 base 链」。
+    // 于是被漏掉的恰好是**需要类表**的三条：派生→基、类→接口、实例化泛型→基/接口；
+    // 而数值加宽（PrimModel.CanWiden）与 object（下面第二行短路）不需类表，所以它们一直过得去
+    // —— 这就是「数值和 object 行、用户类层次不行」这个反直觉现象的全部原因。
+    //
+    // 窄口用 `ConvKind.ImplicitRef` 而不是 `TypeFactsTc._isAssignable`（= `Classify(...).ImplicitOk()`）：
+    // 后者白名单还含 ImplicitNumeric / Boxing / UserImplicit，换过去会把数值门从 CanWiden 换成更严的
+    // _widensLossless（诊断质量倒退），并把用户 op_Implicit 拉进重载适用性（语义扩张，属另一件事）。
+    // 窄口 = 只补需要类表的那几条，数值 / object / 装箱 / 泛型擦除的行为逐位不变。
+    //
+    // symbols 可为 null（判据层单测传 null）→ 退化为改动前行为。
+    internal static bool _assignable(Z42Type arg, Z42Type param, SymbolTable symbols) {
         if (OverloadResolver._sameType(arg, param)) { return true; }
         // 任意 → object 装箱/上转。阶段 3：object 形参现恒 Z42ClassType(Object)（Name()="Object"），
-        // 须按 PrimModel.Canon 归一（与 _assignable2:193 同款），否则 raw "object" 失配 → object 形参
+        // 须按 PrimModel.Canon 归一（与 _assignable2 同款），否则 raw "object" 失配 → object 形参
         // 重载（如 StrMap.Put(string,object)）对任意实参判不适用。
         if (param != null && param.CanonName() == "object") { return true; }
         if (arg == null) { return false; }
-        return arg.IsAssignableTo(param);
+        if (arg.IsAssignableTo(param)) { return true; }
+        return OverloadResolver._refUpcast(arg, param, symbols);
     }
-    private static bool _assignable2(Z42Type a, Z42Type b) {
+
+    // 🔴 _assignable2（择优用）必须与 _assignable **同一批**认类层次。
+    // C# 的「更派生的形参更优」在这套实现里是自动推出来的（_betterAtPos：px 可赋到 py 而非反向
+    // ⇒ px 更具体），前提是这里也认。只改 _assignable 不改这里，`F(A)`+`F(M)` 传 `D:M:A` 会从
+    // 「找不到」变成「歧义 E0425」—— 用户体验没变好，还多一种错法。
+    private static bool _assignable2(Z42Type a, Z42Type b, SymbolTable symbols) {
         if (OverloadResolver._sameType(a, b)) { return true; }
         // unify-value-types Phase 1：任意 → object（翻转后 object→Z42ClassType(Object)，Canon 归一）。
         if (b != null && b.CanonName() == "object") { return true; }
         if (a == null) { return false; }
-        return a.IsAssignableTo(b);
+        if (a.IsAssignableTo(b)) { return true; }
+        return OverloadResolver._refUpcast(a, b, symbols);
+    }
+
+    // 引用上转（派生→基 / 类→接口 / inst→基·接口 / 数组→Array）——Conversion 里这条路本来就是齐的
+    // 且都带符号表（分支 E/F/G/H/H2 走 symbols.IsSubclassOf / symbols.Implements）。
+    private static bool _refUpcast(Z42Type from, Z42Type to, SymbolTable symbols) {
+        if (symbols == null || to == null) { return false; }
+        return Conversion.Classify(from, to, symbols).Kind == ConvKind.ImplicitRef;
     }
 }

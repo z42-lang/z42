@@ -103,8 +103,10 @@ public sealed partial class MemberResolver {
             }
             // ⑦ span 地基：下划线收窄到**成员名本身**（mem.NameSpan），不再画在整个调用
             // 表达式（sp）上——「没有这个方法」指的是那个名字，不是整个调用。
-            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                "no method `" + mem.Name + "` on `" + ct.Name() + "`", mem.NameSpan);
+            if (!this._tc._overload.LastAmbiguous) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                    "no method `" + mem.Name + "` on `" + ct.Name() + "`", mem.NameSpan);
+            }
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // add-target-typed-new：错误路径清 null 占位
             return new BoundCall("instance", true, recv, ct.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
@@ -776,8 +778,10 @@ public sealed partial class MemberResolver {
                     this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
                     return bc;
                 }
-                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                    "no static method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
+                if (!this._tc._overload.LastAmbiguous) {
+                    this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                        "no static method `" + mem.Name + "` on `" + ct.Name() + "`", sp);
+                }
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                 return new BoundCall("static", false, null, tid.Name, mem.Name, args, argCount, new Z42ErrorType(), sp);
             }
@@ -802,8 +806,10 @@ public sealed partial class MemberResolver {
                         BoundExpr[] fa2 = this._tc._overload._withDefaults(wms2, args, rawArgs, argCount, env, sp, true);
                         return new BoundCall("static", false, null, pwrap2, wms2.RegKey, fa2, fa2.Length, wms2.Signature.Ret, sp);
                     }
-                    this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                        "no static method `" + mem.Name + "` on `" + pwrap2 + "`", sp);
+                    if (!this._tc._overload.LastAmbiguous) {
+                        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                            "no static method `" + mem.Name + "` on `" + pwrap2 + "`", sp);
+                    }
                     args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                     return new BoundCall("static", false, null, pwrap2, mem.Name, args, argCount, new Z42ErrorType(), sp);
                 }
@@ -841,8 +847,10 @@ public sealed partial class MemberResolver {
                         this._applyMethodTypeArgs(qbc, call, qms, env);
                         return qbc;
                     }
-                    this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                        "no static method `" + mem.Name + "` on `" + qct.Name() + "`", sp);
+                    if (!this._tc._overload.LastAmbiguous) {
+                        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                            "no static method `" + mem.Name + "` on `" + qct.Name() + "`", sp);
+                    }
                     args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                     return new BoundCall("static", false, null, qcls, mem.Name, args, argCount, new Z42ErrorType(), sp);
                 }

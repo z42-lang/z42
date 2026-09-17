@@ -177,29 +177,47 @@ class C {
 `override` 方法的形参类型必须与被覆盖的虚方法**完全一致**。基类即使声明了其它同 arity 的重载，
 子类的 `override` 也会正确接管对应那一个重载的虚表槽位。
 
-> ### ⚠️ 已知限制：重载集里不做「子类 → 用户基类 / 接口」的适用性匹配
->
-> 一个方法**只有一个**签名时，传子类实参没问题；一旦同名方法**有多个重载**，
-> 实参就必须与其中某个形参类型**精确匹配**，否则整组重载都判为找不到：
->
-> ```z42
-> class A { }
-> class D : A { }
->
-> class C {
->     public static string F(A a)      { return "A"; }
->     public static string F(string s) { return "S"; }
->     public static string One(A a)    { return "A"; }   // 无重载
-> }
->
-> C.One(new D());   // ✓ 走 F(A)
-> C.F(new A());     // ✓ 精确匹配
-> C.F(new D());     // ✗ E0401: no static method `F` on `C`
-> ```
->
-> 数值加宽（`int` → `long` / `double`）与 `object` 形参（装箱 / 引用）在重载集里**是**适用的；
-> 只有用户定义的类 / 接口上溯这条路目前走不通。实例方法同样受影响。
-> 变通办法：把实参显式转成基类类型，或给重载换个名字。
+### 上溯匹配：子类 → 基类 / 接口
+
+实参可以是形参类型的**派生类**或**实现类**，重载决议会沿继承链与接口表判定：
+
+```z42
+interface IMark { void Mark(); }
+class A { }
+class M : A { }
+class D : M, IMark { public void Mark() { } }
+
+class C {
+    public static int F(A x)      { return 1; }
+    public static int F(string s) { return 2; }
+
+    public static int G(A x)      { return 1; }
+    public static int G(M x)      { return 2; }
+
+    public static int K(A x)      { return 1; }
+    public static int K(object o) { return 2; }
+}
+
+C.F(new D());   // 1 —— 沿 D → M → A 上溯
+C.G(new D());   // 2 —— 两个都适用时，**更派生**的形参胜
+C.K(new D());   // 1 —— 具体基类优于 object
+```
+
+跨包同样成立（依赖包里定义的类层次，消费方一样能沿链判定）。
+
+**两者都适用且无法比较**时是歧义，报 `E0425`：
+
+```z42
+class C2 {
+    public static int F(A p)     { return 1; }
+    public static int F(IMark p) { return 2; }
+}
+
+C2.F(new D());  // ✗ E0425: ambiguous call ... add an explicit cast to disambiguate
+                //   （D 既是 A 的派生类、又实现了 IMark，两条路不可比）
+```
+
+显式转换即可消歧：`C2.F((A)new D())`。
 
 ### 调用点的实参个数诊断
 
