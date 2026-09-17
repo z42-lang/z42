@@ -16,7 +16,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | `Reflection/` | 反射成员对象：`MemberInfo` / `FieldInfo`（含 `GetCustomAttributes`/`GetAttribute`）/ `MethodInfo` / `PropertyInfo`（含 `GetValue`/`SetValue` + `GetCustomAttributes`/`GetAttribute`）/ `ParameterInfo` / `Activator` / `Assembly`（详见 `docs/design/language/reflection.md`）|
 | `String.z42` | `string` primitive 的成员方法（`Substring` / `Contains` / 等）|
 | `Primitives/` | 6 个数值/布尔 primitive 的成员方法（Bool / Char / Int / Long / Float / Double） |
-| `Delegates/` | callable + multicast + 订阅策略整套（详见 `docs/design/language/delegates-events.md`）<br>• `Delegates.z42` / `DelegateOps.z42` — base Action/Func/Predicate + `==` / `!=`<br>• `MulticastAction/Func/Predicate.z42` — 多播容器<br>• `ISubscription.z42` + `SubscriptionRefs.z42` — 订阅策略 wrapper |
+| `Delegates/` | callable + multicast + 订阅策略整套（详见 `docs/reference/src/language/delegates-events.md`）<br>• `Delegates.z42` / `DelegateOps.z42` — base Action/Func/Predicate + `==` / `!=`<br>• `MulticastAction/Func/Predicate.z42` — 多播容器<br>• `ISubscription.z42` + `SubscriptionRefs.z42` — 订阅策略 wrapper |
 | `Protocols/` | 接口契约集中：IEquatable / IComparable / IDisposable / IFormattable / INumber / IEnumerable / IEnumerator / IComparer / IEqualityComparer |
 | `Exceptions/` | `Exception` 基类 + 11 个标准子类（`AggregateException` / `MulticastException` / `ArgumentException` 等）|
 | `Collections/` | 基础泛型集合：`List<T>` / `Dictionary<K,V>` / `KeyValuePair<K,V>` |

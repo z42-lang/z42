@@ -60,7 +60,7 @@ p with { Y = 99 }
 | `scripts/install/xtask_install_vscode.z42` | MODIFY | `_kwOperatorExpr()` 加 `"with"`（新关键字须归类，否则 vscode-syntax gate 报 ghost） |
 | `src/toolchain/devtools/vscode/syntaxes/z42.tmLanguage.json` | MODIFY | 重生成（`xtask deps install vscode`）——含 `with` 的 operator 关键字正则 |
 | `src/tests/pattern-matching/with_expr.z42` | NEW | e2e：单/多字段覆盖/简写/表达式值/链式/嵌套 record/原对象不变；interp+jit 双验 |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 新增 `with` 表达式语法 + 脱糖语义 |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 新增 `with` 表达式语法 + 脱糖语义 |
 
 ## 自举 / 格式影响
 

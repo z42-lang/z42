@@ -3,9 +3,9 @@
 > **Status**: L3-C2 ✅ core+loops+jit ｜ lambda 字面量 + 捕获 + 档 C 堆擦除 + JIT；档 A/B 完整版 + Send 派生见 Deferred
 
 > 本文档是 z42 闭包 / lambda / 函数类型的**权威设计规范**。
-> 上游：[`philosophy.md`](../philosophy.md)（设计原则）/ [`language-overview.md`](language-overview.md)（用户视角语法）
-> 下游：[`grammar.peg`](grammar.peg)（机器可读文法）/ [`ir.md`](../../internals/src/formats/ir.md)（IR 指令）/ [`concurrency.md`](../../internals/src/runtime/concurrency.md)（spawn 捕获规则）
-> 相关：[`iteration.md`](iteration.md)（高阶 API 用例）/ [`customization.md`](customization.md)（L3 lambda 定位）
+> 上游：[`philosophy.md`](../philosophy.md)（设计原则）/ [`language-overview.md`](../../reference/src/language/README.md)（用户视角语法）
+> 下游：[`grammar.peg`](../../../src/libraries/z42c.syntax/grammar.peg)（机器可读文法）/ [`ir.md`](../../internals/src/formats/ir.md)（IR 指令）/ [`concurrency.md`](../../internals/src/runtime/concurrency.md)（spawn 捕获规则）
+> 相关：[`iteration.md`](../../reference/src/language/iteration.md)（高阶 API 用例）/ [`customization.md`](../../internals/src/compiler/syntax-customization.md)（L3 lambda 定位）
 
 ---
 
@@ -445,12 +445,12 @@ L2 阶段编译器对捕获非空 lambda **直接编译错误**——不静默�
 | 文档 | 关系 |
 |------|------|
 | [`philosophy.md`](../philosophy.md) | 闭包设计是"C# 易用 + Rust 性能"原则的具体落点 |
-| [`language-overview.md`](language-overview.md) | 用户视角语法概览，引用本规范的 §3 / §4 / §10 |
-| [`grammar.peg`](grammar.peg) | LambdaExpr / FnTypeExpr / 表达式短写 / 嵌套函数文法 |
+| [`language-overview.md`](../../reference/src/language/README.md) | 用户视角语法概览，引用本规范的 §3 / §4 / §10 |
+| [`grammar.peg`](../../../src/libraries/z42c.syntax/grammar.peg) | LambdaExpr / FnTypeExpr / 表达式短写 / 嵌套函数文法 |
 | [`ir.md`](../../internals/src/formats/ir.md) | `mkclos` / `callclos` / `mkref` / `loadref` / `storeref` 指令 |
 | [`concurrency.md`](../../internals/src/runtime/concurrency.md) | spawn move + Send 规则；本规范 §9 给契约，那里给实现细节 |
-| [`iteration.md`](iteration.md) | Map/Filter/Reduce 等高阶 API 是闭包的主要消费方 |
-| [`customization.md`](customization.md) | L3 lambda 定位由本规范 §10 取代 |
+| [`iteration.md`](../../reference/src/language/iteration.md) | Map/Filter/Reduce 等高阶 API 是闭包的主要消费方 |
+| [`customization.md`](../../internals/src/compiler/syntax-customization.md) | L3 lambda 定位由本规范 §10 取代 |
 
 ---
 

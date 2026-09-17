@@ -59,7 +59,7 @@
 
 - [ ] `./xtask build compiler`（z42c 自建，catch z42 错）。
 - [ ] `xtask test bootstrap`（上一 nightly 编当前源 → 无语法/格式越界）。
-- [ ] `docs/book/src/language/pattern-matching.md`（NEW）：文法表、裸名歧义规则、record 位置解构原理、lowering 数据流（mermaid + 伪代码）、byte-identical/jit 双验坑。
+- [ ] `docs/reference/src/language/pattern-matching.md`（NEW）：文法表、裸名歧义规则、record 位置解构原理、lowering 数据流（mermaid + 伪代码）、byte-identical/jit 双验坑。
 - [ ] full `xtask test` gate 交 CI（本机 z42vm 退出期挂起，见记忆）；盯 CI 自举不动点 + test-vm-jit 绿。
 - [ ] 归档 change + 更新记忆（A1 完成、A2 待推）。
 

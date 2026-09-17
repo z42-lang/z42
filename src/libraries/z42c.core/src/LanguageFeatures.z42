@@ -1,5 +1,6 @@
 // 语言特性开关。镜像 C# z42.Core `LanguageFeatures`（enum LanguageFeature + Dict）。
-// 受限写法：无 enum（特性名用 snake_case 字符串，同 grammar.peg [feat:NAME] 标签）；
+// 受限写法：无 enum（特性名用 snake_case 字符串，同 src/libraries/z42c.syntax/grammar.peg 的
+// [feat:NAME] 标签——该文件 2026-09-17 从 docs/design/language/ 移来，且已非 SoT，见其抬头警示）；
 // 无泛型类字段（Dict<...> 被丢弃）→ 并行数组 string[] names + bool[] enabled + count。
 // IsEnabled(未知名) = false（拼写错误被发现，不静默启用）。
 namespace Z42.Core;

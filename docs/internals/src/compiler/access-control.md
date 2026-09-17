@@ -15,7 +15,8 @@ z42 的访问修饰符（`public` / `private` / `protected` / `internal`）遵�
 | `protected` | 声明类 + 派生类（跨包派生同样允许） | `CurrentClass()` 沿基链上溯能到声明类 |
 | `internal` | **同包**（同一编译单元 / zpkg）；跨包不可 | 声明类 `IsImported == false` |
 
-**默认可见性 = 最小封闭作用域**（default-member-private；[语言规范](../../../design/language/access-control.md)）：
+**默认可见性 = 最小封闭作用域**（default-member-private；用户面规则见
+[访问权限控制](../../../reference/src/language/access-control.md)）：
 无修饰符声明只对**直接封闭的那层结构**可见。
 
 | 声明位置 | 默认可见性 | 封闭层 |
@@ -185,17 +186,10 @@ VM 此前 read-and-discard 的可见性字节现存入 `ClassDesc.visibility →
 `__type_visibility` 读 `td.visibility`，返回声明可见性字节（`0=public/1=private/2=protected/3=internal`；
 无 TYPE handle 的基元/数组 → `0=Public`，与 C# 一致——基元本就是 public 顶层类型）。
 
-z42 侧 `Type.z42` 以一个 extern auto-property `public extern TypeVisibility Visibility { get; }` 暴露它
-（`TypeVisibility` = `z42.core` 新增 enum `{Public,Private,Protected,Internal}`）。顶层 vs 嵌套是**正交**
-的另一轴，由既有 `Type.IsNested`（FQ 名内 `+`）给出。在这两者之上，`Type.z42` 直接提供 C# 那套 6 个
-bool 属性（`IsPublic` / `IsNotPublic` / `IsNestedPublic` / `IsNestedPrivate` / `IsNestedFamily` /
-`IsNestedAssembly`），每个都是**计算属性**（`{ get { return …; } }`），纯脚本层派生：
-
-```z42
-public bool IsPublic         { get { return this.Visibility == TypeVisibility.Public   && !this.IsNested; } }
-public bool IsNestedPrivate  { get { return this.Visibility == TypeVisibility.Private  &&  this.IsNested; } }
-// …其余 4 个同款，见 src/libraries/z42.core/src/Type.z42
-```
+z42 侧 `Type.z42` 以一个 extern auto-property 暴露它，顶层 vs 嵌套由既有 `Type.IsNested`（FQ 名内 `+`）
+这条**正交**轴给出；在这两者之上是 C# 那套 6 个 bool 属性，每个都是**计算属性**
+（`{ get { return …; } }`），纯脚本层派生（实现见 `src/libraries/z42.core/src/Type.z42`）。
+**API 清单见用户文档**：[访问权限控制 · 反射：类可见性](../../../reference/src/language/access-control.md#反射类可见性)。
 
 > **设计（完全对齐 C#）**：native interop 只用**一个** `__type_visibility` builtin（返回声明可见性
 > 字节的 `TypeVisibility` enum），6 个 bool **全部在脚本层计算**——这正是 C# 的做法（C# 的 6 个 bool

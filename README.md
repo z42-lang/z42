@@ -68,7 +68,7 @@ Start from what you want to do. The knowledge base is consolidating into
 | I want to... | Read this |
 |--------------|-----------|
 | **Understand the design philosophy** | [`docs/design/philosophy.md`](docs/design/philosophy.md) |
-| **Learn the language** (syntax, types, semantics) | [`docs/design/language/language-overview.md`](docs/design/language/language-overview.md) |
+| **Learn the language** (syntax, types, semantics) | [`docs/reference/src/language/README.md`](docs/reference/src/language/README.md) |
 | **Understand execution** (interp / JIT / AOT) | [`docs/internals/src/runtime/execution-model.md`](docs/internals/src/runtime/execution-model.md) |
 | **Call native code / embed the VM** | [`docs/design/language/interop.md`](docs/design/language/interop.md) |
 

@@ -44,7 +44,7 @@
 > **验证状态小结**：逻辑（①②③+跨包+反射）本地全绿；格式 bump（zbc 1.30/zpkg 0.35）的 fixture 重生 + 完整 GREEN 因 macOS 两代自举本地墙 → **CI 判定**（提交+推分支，走 CI ci-bootstrap）。
 
 ## 阶段 5: 文档 + 归档
-- [ ] 5.1 `docs/book/src/language/sealed.md`（NEW）+ 挂 SUMMARY.md：语义 + shorthand；去虚化标 Deferred
+- [ ] 5.1 `docs/reference/src/language/sealed.md`（NEW）+ 挂 SUMMARY.md：语义 + shorthand；去虚化标 Deferred
 - [ ] 5.2 `docs/internals/src/formats/zbc.md` / `zpkg.md` changelog（version-bumping 步骤 3/8）
 - [ ] 5.3 `z42c.semantics/README.md` 功能索引 + 关联 change
 - [ ] 5.4 `docs/roadmap.md` Deferred Backlog Index：sealed 去虚化（follow-up `add-sealed-devirt`）

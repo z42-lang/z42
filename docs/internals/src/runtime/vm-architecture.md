@@ -646,7 +646,7 @@ JIT (`jit_obj_new`) 共享实现。需要这一步的前提是 `FieldSlot` 携�
 ctor 入口由编译器侧 IrGen 注入字段 init（base ctor call 之后、用户 body
 之前）；无显式 ctor 但本类或本地祖先链有字段 init 的类，编译器合成无参
 隐式 ctor 内联整条链的 init 表达式。详见
-`docs/design/language/language-overview.md` §6.3 + `docs/spec/archive/2026-05-02-fix-class-field-default-init/`。
+`docs/reference/src/language/README.md` §6.3 + `docs/spec/archive/2026-05-02-fix-class-field-default-init/`。
 
 ### TypeDesc 结构
 
@@ -721,6 +721,47 @@ else {
 func_name 是 bare 名 → miss）。`build_type_registry` 从 `Module.classes[].name`
 构建 TypeDesc.name，而 ClassDesc.name 由编译器写入 —— 编译期 `QualifyClassName`
 是最终决定者。
+
+> 上面是历史描述。派发目标的**决议**自 `unify-vcall-resolution`（2026-09-03）起集中在
+> `src/runtime/src/interp/vcall_resolve.rs`，interp 与 JIT 共用同一条阶梯（boxed primitive →
+> boxed struct → primitive/array receiver → object vtable / 继承链），各自只决定「怎么调」。
+
+### 非 Object receiver 的派发：`primitive_class_name`
+
+`Value` 不是 `Object` 时没有 `TypeDesc` 可查，VM 改用
+`primitive_class_name`（`src/runtime/src/interp/exec_vcall.rs:74`）把 `Value` 变体映射成
+stdlib 类的 FQ 名，再构造 `{class}.{method}` 直查 `func_index`：
+
+```
+I64 → Std.Int32   F64 → Std.Double   Bool → Std.Boolean
+Char → Std.Char   Str → Std.String   Array → Std.Array
+```
+
+`Value::Array` 走的正是这一条（add-array-base-class，2026-05-07）：`T[]` 不携带 TypeDesc
+引用，`arr.Clone()` / `GetType()` / `ToString()` / `Equals()` / `GetHashCode()` 先试
+`Std.Array.<method>`，未命中再沿基类回落 `Std.Object.<method>`——与 `Std.Int32` / `Std.String`
+完全同款。`is_instance` / `as_cast` 侧则硬编码识别 `Array` / `Object` / `Std.Array` /
+`Std.Object` 的子类型关系。
+
+### 接口 `static abstract` 成员的派发（值驱动，复用 VCall）
+
+`interface INumber { static abstract Self op_Add(Self a, Self b); }` 这类**接口静态抽象成员**，
+在泛型代码 `T Add<T>(T a, T b) where T : INumber { return a + b; }` 里编译期无法确定 `T`。
+
+**落地方案没有引入新 IR 指令**（设计阶段曾考虑 `StaticCallViaIface` / `InterfaceStaticCall`，
+均未实现）：binder（`ExprTyper._bindBinary`）见左操作数是型参，就去该型参的 `where` 约束接口里
+找 `static abstract op_X`，发一条**接收者驱动的普通 `VCall`**（`vcall a.op_Add(b)`）。运行期由
+`a` 的具体类决定跑哪个实现——`Value::Object` 走 TypeDesc / vtable，基元与数组走上一节的
+`primitive_class_name`，两条路都是既有阶梯（`vcall_resolve.rs`），**零新增派发机制**。
+
+代价就是一次普通函数调用：`Std.Int32.op_Add` 的 body 是 `return a + b` → 一条 `add` 指令，
+所以泛型 `a + b` ≈ 「1 次调用 + 原生加法」。
+
+**值驱动的固有边界**：派发靠 `args[0]` 的运行期值，因此**无参的类型级静态成员**
+（`T.Zero` / `T.Parse(s)`）这条路走不通——那需要把 `T` 的 TypeDesc 传到泛型 callsite，未实现。
+
+面向用户的规则（含实现方必须写 `static override`、结果类型恒为 `T`）见
+[泛型约束 · 运算符如何在型参上派发](../../../reference/src/language/generic-constraints.md)。
 
 ---
 

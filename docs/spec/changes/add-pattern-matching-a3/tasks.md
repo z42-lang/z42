@@ -25,7 +25,7 @@
 ## 5. GREEN + 文档 + 落地
 - [x] `xtask build compiler`（fresh nightly seed；z42c self-build 绿——本机 seed 需 post-#293 有 analyzer 类型）
 - [ ] `xtask build stdlib` + 单 `--file pattern_a3` e2e interp+jit
-- [ ] `docs/book/src/language/pattern-matching.md` 补 A3；`examples/patterns.z42` 补例（可选）
+- [ ] `docs/reference/src/language/pattern-matching.md` 补 A3；`examples/patterns.z42` 补例（可选）
 - [ ] PR → 盯 CI（gen1==gen2 不动点 + test-vm/stdlib-jit + bootstrap-no-csharp = 权威 GREEN）→ 合并 → 删 worktree/分支
 
 ## 备注（本机 seed 教训）

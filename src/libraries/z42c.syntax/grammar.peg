@@ -1,0 +1,431 @@
+# z42 Grammar sketch (PEG notation)
+#
+# ███ 警告：本文件是**参考性快照，不是 SoT**，且目前无任何自动校验 ███
+#
+# 真相是同目录的实现：
+#   src/libraries/z42c.syntax/src/Lexer.z42        —— 关键字 / token 表
+#   src/libraries/z42c.syntax/src/*Parser.z42      —— 产生式本体
+#
+# 本文件头部原先声明的 SoT 机制（「C# parser `z42.Syntax.Parser.*` 必须精确接受本文定义的
+# 语言」+ `Z42.Tests.GrammarSyncTests` parity 门禁 + `dotnet test --filter GrammarSync`）
+# **已随自举整族消失**：全仓零个 `.cs`、`GrammarSyncTests` 不存在、无 dotnet。于是本文件
+# 自那以后**无人校验、漂移不受控**。读它之前先读下面的已知漂移清单；改 parser 时**请顺手
+# 改它**（它就放在 parser 旁边，正是为了让这件事的概率大一些）。
+#
+# ─── 已知漂移清单（2026-09-17 抽查，以下 8 处与实现不符）─────────────────────
+# 本清单只记录「文件写的」与「parser 做的」之差，不修产生式本身。
+# 清单不完备——它是一次抽查的结果，不是穷举。
+#
+#  1. param（见 `param`）缺 `ref` / `out` / `in` 形参修饰（MemberParser.z42:340）、
+#     缺 `params` 变长（Lexer.z42:474 有该关键字）、缺形参 attribute（Decl.z42:16 `Param.Attrs`）。
+#  2. using_decl 缺 `global using`（Parser.z42:364）、缺类型别名 `using Id = T;`（Parser.z42:378）。
+#  3. class_member 里 `record_decl` **在本文件内无定义**（悬空自指）；且缺
+#     `interface_decl` / `enum_decl`（嵌套类型已支持）、`operator_decl`（MemberParser.z42:174-180）、
+#     `implicit` / `explicit` 转换运算符（MemberParser.z42:158-159）、`delegate_decl`
+#     （MemberParser.z42:120）、`event` 字段修饰（DeclParser.z42:110）、indexer（`T this[..]`）。
+#  4. type_param **完全没有 `where` 约束**。`where` 是关键字（Lexer.z42:483），解析在
+#     TypeParser.z42:49 `_parseWhereClause`；它是 static-abstract / INumber 体系的核心。
+#  5. top_decl 缺 `delegate_decl`、缺 `const` 声明（Lexer.z42:476）、缺 `impl` 块（Parser.z42:406）。
+#  6. **集合字面量完全缺失**：primary_expr 里没有 `[1,2,3]` / `[v;n]` / `[..a]` / `{1,2,3}` /
+#     `{"a":1}` 任何一个分支，而 ExprParser.z42:277 + :593-627 与 CollectionTyper.z42 全都实现了。
+#  7. object_initializer 缺**字段简写** `new Point { x, y }`（Ast.z42:446-453 `ObjInitExpr`，
+#     简写展开为 FieldValues[i] = IdentExpr）。
+#  8. primitive alias 注释列了**不存在**的 `decimal` / `dynamic`（Lexer.z42:487-495 没有），
+#     反而漏了实际存在的 Rust 风别名 `i8 i16 i32 i64 u8 u16 u32 u64 f32 f64`。
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# === PEG Notation ===
+#
+# Conventions:
+#   rule = expr         definition
+#   /                   ordered choice (try left first)
+#   *                   zero or more
+#   +                   one or more
+#   ?                   optional
+#   &expr               positive lookahead
+#   !expr               negative lookahead
+#   "text"              literal
+#   [a-z]               character class
+#   (expr)              grouping
+#   (* comment *)
+#
+# Feature tags: lines marked [feat:NAME] are gated by LanguageFeatures.NAME.
+# The minimal runnable subset is everything WITHOUT a feature tag.
+
+# ═══════════════════════════════════════════════════════════════════
+# Top level
+# ═══════════════════════════════════════════════════════════════════
+
+compilation_unit
+    = namespace_decl? using_decl* (import_decl / top_decl)* EOF
+
+namespace_decl
+    = "namespace" S qualified_name S ";"
+
+using_decl
+    = "using" S qualified_name S ";"
+
+# Spec C11a — native type import: `from` is contextual (matched as identifier),
+# not a keyword, to keep user identifier space unrestricted.
+import_decl
+    = "import" S IDENT S "from" S STRING S ";"
+
+qualified_name
+    = IDENT ("." IDENT)*
+
+top_decl
+    = attr_list? exec_mode_attr? modifier* (function_decl / class_decl / struct_decl / interface_decl / enum_decl)
+
+# Type-level attributes, e.g. `[Record]`, `[Serializable]`, `[A, B]`.
+# `[Record]` on a class/struct marks it is-record (reflection Type.IsRecord) and makes
+# positional parameters PUBLIC fields; without it, positional params are PRIVATE (C# 12
+# primary constructor). The `record` keyword was removed — `[Record]` replaces it.
+attr_list
+    = ("[" S attr (S "," S attr)* S "]" S)+
+attr
+    = IDENT (S "(" S (expr (S "," S expr)*)? S ")")?
+
+exec_mode_attr                             (* z42 extension *)
+    = "[" S "ExecMode" S "(" S exec_mode_value S ")" S "]"
+
+exec_mode_value
+    = "Mode.Interp" / "Mode.Jit" / "Mode.Aot"
+
+modifier
+    = ("public" / "private" / "protected" / "internal"
+     / "static" / "abstract" / "virtual" / "override"
+     / "sealed" / "readonly" / "async" / "partial") S
+
+# ═══════════════════════════════════════════════════════════════════
+# Declarations
+# ═══════════════════════════════════════════════════════════════════
+
+function_decl
+    = type_expr S IDENT S "(" S param_list S ")" S function_body
+
+# Expression-bodied form (C# 7+): `R Name(T x) => expr;`
+# Block form: `R Name(T x) { ... }`
+function_body
+    = block
+    / "=>" S expr S ";"
+
+param_list
+    = (param ("," S param)*)?
+
+param
+    = type_expr S IDENT (S "=" S expr)?
+
+# ── [feat:oop] ──────────────────────────────────────────────────────
+
+class_decl                                 # [feat:oop]
+    = "class" S IDENT type_params? ("(" S param_list S ")")? base_list? S (class_body / ";")
+
+struct_decl                                # [feat:oop]
+    = "struct" S IDENT type_params? ("(" S param_list S ")")? base_list? S (class_body / ";")
+
+# NOTE: the `record` keyword was removed (2026-08). Records are now `[Record] class` /
+# `[Record] struct` (see attr_list above). Positional params + the `;` short form moved
+# onto class_decl / struct_decl; `[Record]` only decides positional-field visibility
+# (public) and the is-record flag.
+
+interface_decl                             # [feat:oop]
+    = "interface" S IDENT type_params? base_list? S class_body
+
+enum_decl                                  # [feat:oop]
+    = "enum" S IDENT (":" S type_expr)? S "{" S enum_members S "}"
+
+enum_members
+    = (enum_member ("," S enum_member)* ","?)?
+
+enum_member
+    = IDENT (S "=" S expr)?
+
+type_params                                # [feat:generics]
+    = "<" S type_param ("," S type_param)* S ">"
+
+type_param
+    = IDENT
+
+base_list
+    = ":" S type_expr ("," S type_expr)*
+
+class_body
+    = "{" S class_member* S "}"
+
+class_member
+    = modifier* (constructor_decl / property_decl / field_decl / function_decl / class_decl / struct_decl / record_decl)
+
+constructor_decl                           # [feat:oop]
+    = IDENT S "(" S param_list S ")" S (":" S ("base" / "this") S "(" S arg_list S ")")? S block
+
+property_decl                              # [feat:oop]
+    = type_expr S IDENT S "{" S accessor* S "}" (S "=" S expr S ";")?
+
+accessor
+    = modifier* ("get" / "set" / "init") S (block / ";")
+
+field_decl                                 # [feat:oop]
+    = type_expr S IDENT (S "=" S expr)? S ";"
+
+# ═══════════════════════════════════════════════════════════════════
+# Type expressions
+# ═══════════════════════════════════════════════════════════════════
+
+type_expr
+    = array_type / nullable_type / generic_type / tuple_type / func_type / named_type / void_type
+
+void_type   = "void"
+named_type  = qualified_name
+nullable_type  = (named_type / generic_type) "?"   # [feat:nullable]
+generic_type   = qualified_name "<" S type_expr ("," S type_expr)* S ">"   # [feat:generics]
+array_type     = type_expr "[" "]"                 # [feat:arrays]
+tuple_type     = "(" S type_expr S IDENT? ("," S type_expr S IDENT?)+ S ")"  # [feat:tuples]
+# Function type: `(T1, T2) -> R` form (replaces C# Func<T1,T2,R> / Action<T>).
+# See docs/design/language/closure.md §3.2 for rationale.
+func_type      = "(" S (type_expr ("," S type_expr)*)? S ")" S "->" S type_expr   # [feat:delegates]
+
+# Primitive type aliases
+# int long short byte uint ulong ushort sbyte
+# float double decimal
+# bool char string object dynamic var
+
+# ═══════════════════════════════════════════════════════════════════
+# Statements
+# ═══════════════════════════════════════════════════════════════════
+
+stmt
+    = block
+    / function_decl        (* [feat:lambda] local function (C# 7+ nested decl) *)
+    / var_decl_stmt
+    / return_stmt
+    / if_stmt              (* [feat:control_flow] *)
+    / while_stmt           (* [feat:control_flow] *)
+    / for_stmt             (* [feat:control_flow] *)
+    / foreach_stmt         (* [feat:control_flow] *)
+    / do_while_stmt        (* [feat:control_flow] *)
+    / break_stmt           (* [feat:control_flow] *)
+    / continue_stmt        (* [feat:control_flow] *)
+    / throw_stmt           (* [feat:exceptions] *)
+    / try_stmt             (* [feat:exceptions] *)
+    / pinned_stmt          (* [feat:native_interop] — spec C5 *)
+    / using_stmt           (* [feat:using_stmt] *)
+    / await_stmt           (* [feat:async] *)
+    / lock_stmt            (* [feat:threading] *)
+    / expr_stmt
+
+block = "{" S stmt* S "}"
+
+var_decl_stmt
+    = ("var" / type_expr) S IDENT S ("=" S expr)? S ";"
+
+return_stmt
+    = "return" (S expr)? S ";"
+
+if_stmt                                    # [feat:control_flow]
+    = "if" S "(" S expr S ")" S stmt (S "else" S stmt)?
+
+while_stmt                                 # [feat:control_flow]
+    = "while" S "(" S expr S ")" S stmt
+
+for_stmt                                   # [feat:control_flow]
+    = "for" S "(" S for_init S ";" S expr? S ";" S for_update S ")" S stmt
+
+for_init
+    = var_decl_stmt / expr_stmt / (* empty *)
+
+for_update
+    = expr ("," S expr)*
+
+foreach_stmt                               # [feat:control_flow]
+    = "foreach" S "(" S type_expr S IDENT S "in" S expr S ")" S stmt
+
+do_while_stmt                              # [feat:control_flow]
+    = "do" S stmt S "while" S "(" S expr S ")" S ";"
+
+break_stmt    = "break" S ";"              # [feat:control_flow]
+continue_stmt = "continue" S ";"          # [feat:control_flow]
+
+throw_stmt    = "throw" S expr S ";"      # [feat:exceptions]
+
+try_stmt                                   # [feat:exceptions]
+    = "try" S block catch_clause* finally_clause?
+
+catch_clause
+    = "catch" S ("(" S type_expr S IDENT? S ")")? S block
+
+finally_clause
+    = "finally" S block
+
+pinned_stmt                                # [feat:native_interop] — spec C5
+    = "pinned" S IDENT S "=" S expr S block
+
+using_stmt                                 # [feat:using_stmt]
+    = "using" S ("(" S expr S ")" S stmt / var_decl_stmt)
+
+await_stmt                                 # [feat:async]
+    = "await" S expr S ";"
+
+lock_stmt                                  # [feat:threading]
+    = "lock" S "(" S expr S ")" S stmt
+
+expr_stmt = expr S ";"
+
+# ═══════════════════════════════════════════════════════════════════
+# Expressions  (precedence: low → high)
+# ═══════════════════════════════════════════════════════════════════
+
+expr        = assign_expr
+
+assign_expr
+    = unary_expr S assign_op S expr
+    / ternary_expr
+
+assign_op   = "=" / "+=" / "-=" / "*=" / "/=" / "%=" / "&&=" / "||=" / "??="
+            / "&=" / "|=" / "^="                                               # [feat:bitwise]
+
+ternary_expr                               # [feat:ternary]
+    = or_expr (S "?" S expr S ":" S expr)?
+
+or_expr     = and_expr  (S "||" S and_expr)*
+and_expr    = bitor_expr (S "&&" S bitor_expr)*    # [feat:null_coalesce] for ??
+null_coalesce_expr = eq_expr (S "??" S eq_expr)*   # [feat:null_coalesce]
+bitor_expr  = bitxor_expr (S "|"  S bitxor_expr)*  # [feat:bitwise]
+bitxor_expr = bitand_expr (S "^"  S bitand_expr)*  # [feat:bitwise]
+bitand_expr = eq_expr     (S "&"  S eq_expr)*       # [feat:bitwise]
+eq_expr     = rel_expr  (S ("==" / "!=") S rel_expr)*
+rel_expr    = shift_expr  (S ("<=" / ">=" / "<" / ">" / "is" / "as") S shift_expr)*
+shift_expr  = add_expr    (S ("<<" / ">>") S add_expr)*                        # [feat:bitwise]
+add_expr    = mul_expr  (S ("+" / "-") S mul_expr)*
+mul_expr    = unary_expr (S ("*" / "/" / "%") S unary_expr)*
+
+unary_expr
+    = ("!" / "-" / "+" / "~" / "++" / "--") S unary_expr
+    / "await" S unary_expr                 # [feat:async]
+    / cast_expr
+    / postfix_expr
+
+cast_expr                                  # [feat:cast]
+    = "(" S type_expr S ")" S unary_expr
+
+postfix_expr
+    = primary_expr postfix*
+
+postfix
+    = "++" / "--"                          # post-increment
+    / "." IDENT                            # member access
+    / "?." IDENT                           # null-conditional  [feat:null_coalesce]
+    / "[" S expr ("," S expr)* S "]"       # indexer
+    / "(" S arg_list S ")"                 # invocation
+    / "!" S                                # null-forgiving    [feat:nullable]
+
+arg_list
+    = (arg ("," S arg)*)?
+
+arg
+    = (IDENT S ":" S)? ("ref" / "out" / "in")? S expr
+
+primary_expr
+    = "null"
+    / "true" / "false"
+    / interpolated_string                  # [feat:interpolated_str]
+    / STRING
+    / CHAR
+    / NUMBER
+    / "this"                               # [feat:oop]
+    / "base"                               # [feat:oop]
+    / "default" ("(" S type_expr S ")")?
+    / "typeof" "(" S type_expr S ")"       # [feat:reflection]
+    / "nameof" "(" S expr S ")"
+    / "new" S new_expr                     # [feat:oop]
+    / lambda_expr                          # [feat:lambda]
+    / switch_expr                          # [feat:pattern_match]
+    / "(" S expr S ")"
+    / IDENT
+
+new_expr
+    = type_expr S "(" S arg_list S ")" object_initializer?
+    / type_expr "[" S expr? S "]"          # array creation  [feat:arrays]
+    / "{" S (expr ("," S expr)*)? S "}"    # anonymous object [feat:oop]
+
+object_initializer                         # [feat:oop]
+    = "{" S (IDENT S "=" S expr ("," S IDENT S "=" S expr)*)? S "}"
+
+lambda_expr                                # [feat:lambda]
+    = lambda_params S "=>" S (expr / block)
+
+lambda_params                              # [feat:lambda]
+    = IDENT                                                              # x => ...
+    / "(" S ")"                                                          # () => ...
+    / "(" S lambda_param ("," S lambda_param)* S ")"                      # (x, y) / (int x, int y)
+
+lambda_param                               # [feat:lambda]
+    = type_expr S IDENT                                                  # 显式类型
+    / IDENT                                                              # 隐式类型（推断）
+
+switch_expr                                # [feat:pattern_match]
+    = primary_expr S "switch" S "{" S switch_arm ("," S switch_arm)* ","? S "}"
+
+switch_arm
+    = pattern S ("when" S expr)? S "=>" S expr
+
+pattern
+    = "_"                                  # wildcard
+    / "var" S IDENT                        # var pattern
+    / type_expr S IDENT?                   # type pattern
+    / relational_pattern
+    / or_pattern
+    / and_pattern
+    / "(" S pattern ("," S pattern)* S ")" # positional / tuple
+    / "[" S pattern ("," S pattern)* S "]" # list pattern     [feat:list_patterns]
+    / primary_expr                         # constant pattern
+
+relational_pattern = ("<" / "<=" / ">" / ">=") S expr
+or_pattern         = pattern S "or" S pattern
+and_pattern        = pattern S "and" S pattern
+
+interpolated_string                        # [feat:interpolated_str]
+    = "$\"" istr_content* "\""
+
+istr_content
+    = "{" S expr S (":" FORMAT_SPEC)? S "}"
+    / [^"{\\]
+    / ESCAPE
+
+# ═══════════════════════════════════════════════════════════════════
+# Terminals
+# ═══════════════════════════════════════════════════════════════════
+
+IDENT   = [a-zA-Z_@] [a-zA-Z0-9_]*
+        (* reserved words are not valid identifiers unless prefixed with @ *)
+
+NUMBER  = HEX_LIT / BIN_LIT / FLOAT_LIT / INT_LIT
+
+INT_LIT   = [0-9] [0-9_]* INT_SUFFIX?
+FLOAT_LIT = [0-9] [0-9_]* ("." [0-9] [0-9_]*)? ([eE] [+-]? [0-9]+)? FLOAT_SUFFIX?
+HEX_LIT   = "0x" [0-9a-fA-F] [0-9a-fA-F_]*
+BIN_LIT   = "0b" [01] [01_]*
+
+INT_SUFFIX   = "L" / "l" / "U" / "u" / "UL" / "ul" / "Lu" / "lU"
+FLOAT_SUFFIX = "f" / "F" / "d" / "D" / "m" / "M"
+
+STRING  = RAW_STRING
+        / "\"" ([^"\\] / ESCAPE)* "\""
+
+(* Raw / multi-line string — no escape processing; newlines and `"` (up
+   to two consecutive) kept verbatim. Three consecutive `"` close the
+   literal. Added 2026-05-27 by add-raw-string-literal. *)
+RAW_STRING = "\"\"\"" (!"\"\"\"" .)* "\"\"\""
+        / "@\"" ([^"] / "\"\"")* "\""     (* verbatim string *)
+
+CHAR    = "'" ([^'\\] / ESCAPE) "'"
+
+ESCAPE  = "\\" [nrtbf\\'"0] / "\\u" HEX HEX HEX HEX / "\\U" HEX{8} / "\\x" HEX+
+
+FORMAT_SPEC = [^}]+
+
+S       = (WS / LINE_COMMENT / BLOCK_COMMENT)*
+WS      = [ \t\r\n]+
+LINE_COMMENT  = "//" [^\n]* "\n"?
+BLOCK_COMMENT = "/*" (!"*/" .)* "*/"
+
+HEX = [0-9a-fA-F]

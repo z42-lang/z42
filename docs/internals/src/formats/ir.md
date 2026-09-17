@@ -304,6 +304,54 @@ JSON wire format:
      store  %refmut, %value     # store through mutable borrow
 ```
 
+### Arrays
+
+Five instructions cover the whole surface of `T[]` (`Instruction::ArrayNew` / `ArrayNewLit` /
+`ArrayGet` / `ArraySet` / `ArrayLen`, `metadata/bytecode/instruction.rs`):
+
+| IR 指令 | 操作 |
+|---------|------|
+| `array_new { dst, size, element_type, … }` | 分配 `size` 个元素的零值数组 |
+| `array_new_lit { dst, elems: [reg...], element_type, … }` | 字面量数组 |
+| `array_get { dst, arr, idx }` | 读元素，越界 abort |
+| `array_set { arr, idx, val }` | 写元素，越界 abort |
+| `array_len { dst, arr }` | 长度（i32） |
+
+两条 new 指令携带**元素类型 FQ 名**（`element_type`，add-reflection-array-element-type）——
+数组在运行期不擦除元素类型，`arr.GetType().GetElementType()` / `FullName` 才能给出
+`"Std.Int32"` / `"Std.Int32[]"`。泛型值 struct 上这里有个刻意的不对称：TypeDesc 只按**擦除**
+基名（`Kv`）注册一份，而 `element_type` 刻意带**非擦除**名（`Kv<string,int>`），
+故 `try_struct_backed` 查布局时先 `split('<')` 剥回基名，同时把完整名存进 `ArrayObj`
+（`interp/exec_array.rs`）。`array_new` 另带 `stack_alloc`（逃逸分析，zbc 1.29）与
+`type_param_kind` / `type_param_index`（元素是型参时运行期解析出真实零值，zbc 1.37）。
+
+```
+# new int[] { 1, 2, 3 }
+%r0  = const.i32 1
+%r1  = const.i32 2
+%r2  = const.i32 3
+%arr = array_new_lit [%r0, %r1, %r2]
+
+# arr[i] += 1（复合赋值）
+%v   = array_get %arr, %i
+%one = const.i32 1
+%v2  = add %v, %one
+       array_set %arr, %i, %v2
+```
+
+**运行期表示**：`Value::Array(GcRef<ArrayObj>)`（tag 6），载荷 `ArrayObj` = 元素类型名
+（`Arc<str>`）+ 元素 `Vec<Value>`，`Deref` 到元素向量故元素访问零开销。栈分配逃逸分析命中时
+receiver 变成 `Value::StackArray { idx, frame_id }`，同四条指令走 `ctx.stack_arena` 解析。
+布局细节见 [对象与值表示 ABI](../runtime/object-abi.md)。
+
+**越界不是异常**：`array_get` / `array_set` 越界直接
+`bail!("array index {} out of bounds (len={})")`（`interp/exec_array.rs:196`）—— VM abort，
+用户侧 `catch` 接不住。面向用户的规则见
+[数组](../../../reference/src/language/arrays.md)。
+
+**交错数组**：`T[][]` 无专门指令——外层就是元素类型为 `T[]` 的普通数组，逐层 `array_get` 即可。
+多维 `T[,]` 没有 IR 支持，也没有对应的类型语法。
+
 ### Objects (Phase 1 — class instances)
 ```
 %r = obj_new  <ClassName> ctor=<CtorName>(%arg0, %arg1, ...)

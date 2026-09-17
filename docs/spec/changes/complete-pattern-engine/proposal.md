@@ -8,7 +8,7 @@
 D `with`（#313）已全部合入 main，建成三层递归下降引擎（PatternParser → PatternBinder →
 PatternEmitter），服务 `switch`（语句 + 表达式）、`is`、解构声明四个应用位点。
 
-`docs/book/src/language/pattern-matching.md` 的 **Deferred 段**列出若干后续独立特性。本 change 一次性
+`docs/reference/src/language/pattern-matching.md` 的 **Deferred 段**列出若干后续独立特性。本 change 一次性
 补齐其中**三个「引擎已基本就位、只差最后一段接线」的缺口**（均**无格式 bump、无新 token、无新关键字**）：
 
 | # | Deferred 项（book L297-302） | 现状缺口 |
@@ -154,7 +154,7 @@ A1 defer 的**真实根因**在 emit 侧：`PatternEmitter` 无条件发 `FieldG
 | `z42c.semantics/PatternBinder.z42` | 1,3 | `CheckIrrefutable`（:38）加 PropertyPattern 分支；`_bindPositional`（:176）删 IsStruct defer |
 | `z42c.semantics/PatternEmitter.z42` | 1,3 | `EmitIrrefutable`（:154）加 PropertyPattern；`_emitFieldSeq`/`EmitIrrefutable` 字段读按 blob-struct 分派 |
 | `src/tests/pattern-matching/pattern_gaps.z42`（或分 3 文件） | 1,2,3 | e2e：属性解构声明（含部分字段/嵌套/负例）、is or/@（含带绑定）、struct record 解构（switch+decl，**jit 双验**） |
-| `docs/book/src/language/pattern-matching.md` | 1,2,3 | 补三特性文档，Deferred 段移除已实现项 |
+| `docs/reference/src/language/pattern-matching.md` | 1,2,3 | 补三特性文档，Deferred 段移除已实现项 |
 | `examples/patterns.z42` | 1,2,3 | 补示例（可选） |
 
 ---

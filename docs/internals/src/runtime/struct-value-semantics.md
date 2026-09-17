@@ -262,7 +262,7 @@ runtime 才认（`is_instance` 无裸 `StructRef` 臂）。因此调用点**必�
   > 就是 `E`；`E.Red == 0` 与「传 int 参」都不再成立（双向都要显式 cast）。**载体是 `BoundLitInt`、
   > 运行期表示是 i64** 这两点不变，变的是**身份**：擦除到 `object` 时装箱成挂 enum 自己 `TypeDesc`
   > 的盒，`GetType()` 因此与这里的编译期折叠答案一致。
-  > enum 的完整语义 SoT 见 [`language/enums.md`](../../../book/src/language/enums.md)。
+  > enum 的完整语义 SoT 见 [`language/enums.md`](../../../reference/src/language/enums.md)。
 - **`ToString`/`Equals`/`GetHashCode`（struct 未自声明时）→ `__box_struct(recv)` 装箱 + VCall**
   （`_emitBoxedStructObjectCall`），命中上面的 runtime 装箱-struct 协议。**自声明**（record 合成 / 用户覆写，
   `EmitContext.ChainHasMethod` 命中）仍走各自静态 `Call`——保 record 的 `ToString`（`R { A = 1, B = 2 }`）/

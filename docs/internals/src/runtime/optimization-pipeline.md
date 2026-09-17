@@ -79,7 +79,7 @@ z42 源码 ──z42c──> z42 IR
 > **基于 sealed 的去虚化（`Opt.Devirt=2048`，change `add-sealed-devirt`）**：receiver 静态类型是
 > 本地非泛型 **sealed 类** → 目标编译期唯一 → `CallEmitter._emitCall` **emit 时就地**把 `VCallInstr`
 > 降级为直接 `CallInstr`（天然在 `IrInline` 前，解锁 virtual 方法内联；`VCall` inline pass 吃不进）。
-> 目标解析不确定即回落 VCall（永不 miscall）。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../../../book/src/language/sealed.md)。
+> 目标解析不确定即回落 VCall（永不 miscall）。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../../../reference/src/language/sealed.md)。
 > 注：这是**唯一的 emit 时优化**（其余在 `IrOptPipeline` post-emit）——因去虚化需 receiver 的**静态类型**，
 > 而 lowering 后的 IR `VCall` 已不携带该信息。
 
@@ -216,7 +216,7 @@ pre-header）；⑤ **不变量**：循环体内 IsPure + **单赋值 dst** 指�
   **实测 interp ~200×**（递归 `fib(23)` 循环不变调用被外提：OFF 4.24s → ON 0.02s；bench `pure_call_bench.z42`）。
 
 **pass 2h 常量条件死分支消除（`Opt.DeadBranch=1024`，change `add-const-keyword`；跑在 const-fold 后、licm/cse 前）**：
-喂料来自 [`const` 编译期常量](../../../book/src/language/const.md)替换（`const bool` 引用 → `ConstBoolInstr`）与 const-fold
+喂料来自 [`const` 编译期常量](../../../reference/src/language/const.md)替换（`const bool` 引用 → `ConstBoolInstr`）与 const-fold
 （常量比较 → `ConstBoolInstr`）。分两步：
 - **① 折叠**：块终结子 `br.cond(cond, T, F)` 且 `cond` 由**单赋值** `ConstBoolInstr` 产出 → 折成无条件
   `br(命中分支)`。**始终安全**（条件跳转→无条件跳转，不移块）；折掉的 `cond` 读消失，其 `ConstBool`

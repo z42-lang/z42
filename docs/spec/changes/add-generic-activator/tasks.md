@@ -23,7 +23,7 @@
 - [x] 3.1 `z42.core/tests/reflection.z42`：`CreateInstance<T>` 往返（用户类 ctor 副作用 + 类型正确 + 泛型方法内转发）——47/47 绿
 
 ## 阶段 4: 文档同步
-- [x] 4.1 `docs/book/src/language/generic-methods.md`：方法级形参转发机制（`$mta:<idx>`）+ 边界更新
+- [x] 4.1 `docs/reference/src/language/generic-methods.md`：方法级形参转发机制（`$mta:<idx>`）+ 边界更新
 - [x] 4.2 `docs/roadmap.md`：0.4.3 G3 标 ✅ + Deferred Backlog 更新
 - （`z42.core/src/README.md` 不改——未 itemize Reflection/ 子目录，机制文档落 book）
 

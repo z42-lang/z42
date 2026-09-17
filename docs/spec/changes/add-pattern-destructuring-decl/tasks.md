@@ -30,7 +30,7 @@
 - [x] `xtask build compiler`（fresh nightly seed；z42c self-build 绿）
 - [x] `xtask build stdlib`
 - [x] `xtask test compiler`（self-build exit 0；字节不动点权威验证交 CI verify-selfhost）
-- [x] `docs/book/src/language/pattern-matching.md` 补 B 节 + 更新 Deferred
+- [x] `docs/reference/src/language/pattern-matching.md` 补 B 节 + 更新 Deferred
 - [ ] PR → 盯 CI（gen1==gen2 不动点 + test-vm/stdlib-jit + bootstrap-no-csharp = 权威 GREEN）→ 合并 → 删 worktree/分支
 
 ## 备注

@@ -11,7 +11,7 @@ namespace Std;
 //
 // **生成的是真方法**（不是名字解析改写）——只有真方法才能满足接口、被反射看见、被 IDE 跳转。
 //
-// 语义边界（详见 docs/book/src/language/member-forwarding.md）：
+// 语义边界（详见 docs/reference/src/language/member-forwarding.md）：
 //   · 不产生子类型、不产生隐式转换 —— `Service` **不是** `Logger`。这条是 D 语言
 //     `alias this` 灾难的教训：一旦转发带上隐式转换，它就变成了多继承。
 //   · `ToString`/`Equals`/`GetHashCode`/`GetType` 永不转发（转发它们会让外层对象谎报身份）。

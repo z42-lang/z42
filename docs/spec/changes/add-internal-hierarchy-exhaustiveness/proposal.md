@@ -75,7 +75,7 @@
 | `src/compiler/z42c.semantics/src/ExhaustCheck.z42` | MODIFY | `_collect` 加类型模式覆盖；`_report` 加封闭层次穷尽分支 + `_isTypeCovered` 助手 |
 | `src/compiler/z42c.semantics/tests/analyzer/analyzer_tests.z42` | MODIFY | `SemanticDump.FirstErrorCode`/warning 单测：封闭层次穷尽（无 W0700）/漏子类（W0700）；public 基类不报（不用 Std、switch 不写 break 避噪声）|
 | `src/tests/pattern-matching/pattern_exhaust_sealed.z42` | NEW | e2e：internal 封闭层次 switch 穷尽（无 warning）/漏子类；jit 双验 |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 穷尽性从 bool/enum 扩到「非 public 封闭类层次」；记录 internal=封闭 的机制、健全性论证、public 轴 defer |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 穷尽性从 bool/enum 扩到「非 public 封闭类层次」；记录 internal=封闭 的机制、健全性论证、public 轴 defer |
 
 **只读引用**（理解上下文必须读，不修改）：
 - `src/compiler/z42c.semantics/src/ExhaustCheck.z42` — 全文（bool/enum 现算法、`_isUncond`/`_collect`/`_report`）

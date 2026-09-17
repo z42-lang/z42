@@ -73,7 +73,7 @@ _checkExhaustive(subjType, cases[], symbols, span):
 | `src/compiler/z42c.semantics/src/StmtBinder.z42` | MODIFY | `_bindSwitchStmt` 尾部调 `_exhaust.CheckStmt(bsw, env)` |
 | `src/compiler/z42c.semantics/src/ExprTyper.z42` | MODIFY | `_bindSwitchExpr` 尾部调 `_exhaust.CheckExpr(bse, env)` |
 | `src/compiler/z42c.semantics/tests/exhaust/` | NEW | semantics 单测（10 例：enum/bool × stmt/expr × 缺/全/default/or/守卫/开放域） |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 新增「穷尽性诊断」节（域范围 + 兜底规则 + sealed 为何 out-of-scope） |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 新增「穷尽性诊断」节（域范围 + 兜底规则 + sealed 为何 out-of-scope） |
 
 > **W0700 诊断码**：首版直接在 semantics 侧用**字面量 `"W0700"`** 发码（避 core→semantics 冷启动
 > stale-cache，同 E0449/E0450 做法），不改 `DiagnosticCodes.z42`。

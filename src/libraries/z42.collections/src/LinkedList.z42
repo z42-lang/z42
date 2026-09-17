@@ -18,7 +18,7 @@ public class LinkedListNode<T> {
     // Owning `LinkedList<T>` mutates them during splicing; user code should
     // treat the setters as "package-internal" by convention (z42 has no
     // `internal` cross-class visibility primitive yet — see
-    // `docs/design/language/access-control.md`).
+    // `docs/reference/src/language/access-control.md`).
     //
     // Reference-type fields default to null in Phase 1 (no `?` suffix needed).
     LinkedListNode<T> next;

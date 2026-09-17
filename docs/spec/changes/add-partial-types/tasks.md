@@ -63,9 +63,9 @@
 - [ ] 6.9 spec scenarios 逐条覆盖确认
 
 ## 阶段 7: 文档同步（按阶段 9 触发矩阵）
-- [ ] 7.1 `docs/book/src/language/partial-types.md` 新页（语法 + 合并语义 + 增量交互 + mermaid）
+- [ ] 7.1 `docs/reference/src/language/partial-types.md` 新页（语法 + 合并语义 + 增量交互 + mermaid）
 - [ ] 7.2 `docs/book/src/SUMMARY.md` 挂入
-- [ ] 7.3 `docs/design/language/grammar.peg` 加 `partial` 修饰符产生式
+- [ ] 7.3 `src/libraries/z42c.syntax/grammar.peg` 加 `partial` 修饰符产生式
 - [ ] 7.4 `docs/roadmap.md` 0.4.4 partial 状态更新
 - [ ] 7.5 `z42c.syntax/README.md` / `z42c.semantics/README.md` 六段同步
 - [ ] 7.6 `docs/spec/changes/ACTIVE.md` 释放 compiler 锁

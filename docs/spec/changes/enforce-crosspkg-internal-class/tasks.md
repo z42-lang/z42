@@ -43,7 +43,7 @@
 - [ ] 6.1 push PR → 盯 `ci-bootstrap` 版本差 gate 两代自举建 0.38
 - [ ] 6.2 加**临时 CI 步**重生 committed fixture（zbc-format×6 / zpkg-format×4 / empty source.zbc hex）并回写
 - [ ] 6.3 CI 完整 GREEN → 合并 → 删临时步 + 删分支/worktree
-- [ ] 6.4 `docs/design/language/access-control.md`：跨包 internal 移出 Deferred
+- [ ] 6.4 `docs/reference/src/language/access-control.md`：跨包 internal 移出 Deferred
 - [ ] 6.5 doc-check + 归档 mv → `docs/spec/archive/2026-08-13-enforce-crosspkg-internal-class/`
 
 ## 备注

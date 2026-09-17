@@ -93,15 +93,47 @@
       依据见 [batch1-architecture-verification.md](batch1-architecture-verification.md)
 - [x] 2.7 链接重指 + `xtask test docs` 绿
 
-## 批 3 · reference/language（最大）
+## 批 3 · reference/language（最大 —— 已拆成 3a / 3b 两个 PR）
 
-- [ ] 3.1 `book/src/language/`(22) + `book/compiler/type-conversion.md` 迁入 `reference/src/language/`
-- [ ] 3.2 `design/language/` 直迁 + 合并（按清单 20 余项）
-- [ ] 3.3 **`language-overview.md`(832行) 拆成 ~10 个主题页**（裁决 10）：
-      `syntax` `types` `strings` `operators` `control-flow` `functions` `classes` `structs` `interfaces` `unions`
-- [ ] 3.4 填 SUMMARY 的语言类空占位；**新写「所有权与内存模型」**（唯一无对应文件的占位）
-- [ ] 3.5 切片：`interop` §1–§10、`object-protocol` 实现节、`boxing` 实现节、`closure` 档C节 → internals
-- [ ] 3.6 链接重指 + `xtask test docs` 绿
+> **拆分理由**：原计划一个 PR 装 55 篇输入 + 6 篇切片，不可评审。3a = 语言主体，3b = 切片与 internals 回流。
+
+### 批 3a · 语言主体
+
+- [x] 3a.1 `book/src/language/` 19 篇迁入 `reference/src/language/`
+      （`type-conversion.md` → `conversions.md` 批 0 已完成；`generics.md` `member-accessors.md` 另计）
+- [x] 3a.2 `design/language/` 直迁 + 合并 + 按源码重写
+- [x] 3a.3 **`language-overview.md`(832行) 拆成 9 个主题页**
+      `syntax` `types` `strings` `operators` `control-flow` `functions` `classes` `structs` `interfaces`
+      —— ⚠️ **`unions` 取消**（裁决见下）
+- [x] 3a.4 **新写 `memory-model.md`「所有权与内存模型」**（唯一无对应文件的占位）
+- [ ] 3a.5 补 `reference/src/SUMMARY.md`（此前只挂了 2 页，40+ 页不可达）
+- [ ] 3a.6 **清 reference → internals 的反向链接**（章程 §2.1 硬规则；book 搬来时带进 25 处 / 14 文件）
+- [ ] 3a.7 链接重指 + `xtask test docs` 绿 + GREEN
+
+### 批 3b · 切片与 internals 回流
+
+- [ ] 3b.1 `interop.md`(720) 切片 —— ⚠️ **方向与原清单相反**（裁决见下）
+- [ ] 3b.2 `object-protocol.md` / `boxing.md` / `closure.md` / `attributes.md` 切片
+- [ ] 3b.3 `generics.md`(1521) 瘦身 —— 约 700 行可删（裁决见下）
+- [ ] 3b.4 `conversions.md` 切掉「机制 / 实现」两段（已在 reference 但违反判据）
+- [ ] 3b.5 链接重指 + `xtask test docs` 绿 + GREEN
+
+### 批 3 期间做出的裁决（推翻搬迁清单的部分）
+
+| # | 裁决 | 依据 |
+|---|---|---|
+| A | **`interop.md` 的切分方向反过来**：C ABI 契约（§1 §3 §4 §5.1 §6 §7.2-7.3 §8.4）→ reference/embedding；三层架构 / 调用约定 / 内存 / manifest / §11 L1 `[Native]` → internals | `doc-system.md` §2.2 边界裁决表：「C ABI **契约**（宿主开发者也在用 z42）→ reference」。而 §11 的 `[Native("__name")]` 只有改 stdlib 的人才碰（名字必须已在 VM `BUILTINS` 表里，用户加不了） |
+| B | **不建 `unions.md`**，判别联合留在 `pattern-matching.md:310-352` | `record` 关键字已删、全仓无 `union`/`variant`、roadmap 无此项。overview §11 整节编译不过，且它写的 `public` 恰好会**关掉**穷尽性检查（顶层默认 `internal` 才封闭） |
+| C | **`static-abstract-interface.md`(626) 删除** | 准确内容已被 `reference/src/language/generic-constraints.md` 完整覆盖且更新。文档抬头「实现尚未开始」本身是错的（`src/tests/operators/static_abstract_operator.z42` 是跑着的 golden）。迁过去只会制造第二份会漂移的真相源 |
+| D | **`grammar.peg` 移出 docs → `src/libraries/z42c.syntax/`**，加「非 SoT + 已知漂移清单」头 | 它头部声明的 SoT 门禁（C# parser + `dotnet test --filter GrammarSync`）已随自举整族消失，无人校验；抽查 12 条产生式**落空 7 条** |
+| E | **`generics.md` 约 700 行可删**（47%） | 与 `generic-constraints.md`(522) / `generic-methods.md`(214) 重复约 300 行（原文自己在四处写「以 book 页为准」）+ 78 行自标 DEPRECATED + C# 触点 + roadmap/验证记录 |
+| F | **`naming-conventions.md`(727) 一拆三** | 88% 是用户命名约定 → reference/conventions；本仓贡献者约定 → internals；包名规则 → `toolchain/z42-toml.md`（那是 manifest 字段约束，不是语言标识符规则） |
+| G | **补齐 `appendix/error-codes.md`** | 章程规定 reference 附录是全量码表，实测只收录 **38 / 108**；且须逐条标注「有发射点」还是「已定义未接线」——多条死码（E0424 / E0420 / E0414）被文档写成生效规则 |
+
+> **方法论教训（批 1/2 已记，批 3 再次验证）**：搬迁清单的「主干判定」是按文件名和新旧程度猜的，**不可照搬**。
+> 批 3 对 28 条技术断言做字段级核实，**只有 11 条命中、10 条完全落空**。
+> 落空集中在两类：① 自举把 C# 侧机制整族带走了；② 运行时表示重构过两轮而设计文档没跟。
+> **凡文档声称「编译器会报 Exxxx」的，要么给得出发射点 file:line，要么标注「未实现」。**
 
 ## 批 4 · reference/stdlib
 
@@ -138,6 +170,14 @@
 ## 批 7 · 其余门禁
 
 - [ ] 7.1 `xtask test docs` 补齐：SUMMARY 完整性 / 页头「对齐」字段 / 命令面改名后旧名 grep 清零
+      > **SUMMARY 完整性要查两件事**（批 3a 实测出的两类问题，缺一不可）：
+      > ① SUMMARY 条目指向的文件存在 —— 不存在时 **mdbook 直接构建失败**；
+      > ② 书里的 `.md` 都被 SUMMARY 挂上 —— **mdbook 不报错，但页面永远点不到**。
+      > 批 3a 开工时 reference 下有 **40 页属于第 ② 类**（`conversions.md` 之外的全部语言页都不可达）。
+      > 原型脚本见批 3a 的 PR 描述；注意条目标题可能含方括号（`` [`[Record]`] 与主构造器 ``），
+      > 正则用 `[^\]]*` 会截断并把它误判成未挂载。
+- [ ] 7.3 **`reference` / `learn` 里指向 `internals/` 的链接必须为 0**（章程 §2.1 硬规则）。
+      批 3a 清理过一轮（25 处 / 14 文件，全是从 book 搬来时带的），但后续批次会再带进来
 - [ ] 7.2 `internals/devinfra/test-gate.md` 同步新 stage
 
 ---

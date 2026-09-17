@@ -7,7 +7,7 @@ methods (`ToString`, `Equals`, `GetHashCode`, `GetType`) — the methods every
 type implicitly inherits from `Std.Object`.
 
 The doc focuses on **runtime dispatch paths**, not language-level semantics.
-For the user-facing semantics see [`language-overview.md`](language-overview.md).
+For the user-facing semantics see [`language-overview.md`](../../reference/src/language/README.md).
 For the C# emit side see `compiler-architecture.md`.
 
 ---

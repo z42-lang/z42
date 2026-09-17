@@ -392,4 +392,4 @@ fn main() {
 
 - [philosophy.md](../../../design/philosophy.md) — Dynamic execution principle
 - [execution-model.md](execution-model.md) — Interpreter mode (required for hot reload)
-- [language-overview.md](../../../design/language/language-overview.md) — `[HotReload]` and `[ExecMode]` syntax
+- [language-overview.md](../../../reference/src/language/README.md) — `[HotReload]` and `[ExecMode]` syntax

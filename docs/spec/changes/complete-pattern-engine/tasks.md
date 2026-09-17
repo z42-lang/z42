@@ -36,5 +36,5 @@
 - [x] clean-cold `xtask build compiler`（fresh nightly seed；z42c self-build 绿）
 - [x] `xtask test compiler`（semantics 单测 + self-build + 自举字节不动点 gen1==gen2）
 - [x] 回归：pattern_core / a2 / a3 / is / destructure / with_expr interp+jit 双绿
-- [x] 文档：`docs/book/src/language/pattern-matching.md`（三特性 + Deferred 更新）
+- [x] 文档：`docs/reference/src/language/pattern-matching.md`（三特性 + Deferred 更新）
 - [ ] PR + CI 全绿（自举不动点 + test-host×4 含 jit）

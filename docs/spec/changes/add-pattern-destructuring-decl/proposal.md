@@ -4,7 +4,7 @@
 
 模式匹配核心 A1（#306）+ A2（#308）+ A3（#309）建成三层递归下降引擎（PatternParser →
 PatternBinder → PatternEmitter），已服务 `switch`（语句 + 表达式）与 `is` 三个应用位点。设计文档
-（`docs/book/src/language/pattern-matching.md`）的 Deferred 段列出「解构声明 `Point(x,y) = p`」为后续独立特性。
+（`docs/reference/src/language/pattern-matching.md`）的 Deferred 段列出「解构声明 `Point(x,y) = p`」为后续独立特性。
 
 解构声明是模式匹配的**第四个应用位点**：把一个 record 直接按位置解构到**新声明的局部变量**，无需
 `switch`/`is` 外壳。这是 Rust `let Point{x,y} = p;` / C# `var (x,y) = p;` 的对应物——积类型数据消费的
@@ -66,7 +66,7 @@ AST/Bound 语句节点 + bind/emit 接线**。
 | `src/compiler/z42c.semantics/src/PatternEmitter.z42` | MODIFY | 新增 `EmitIrrefutable`（无 IsInstance / 无失败分支，逐字段 field_get 直读 + 绑定，递归嵌套） |
 | `src/compiler/z42c.semantics/src/StmtEmitter.z42` | MODIFY | `_emitStmt` 分派 + emit（`Emit(init)` → `_pat.EmitIrrefutable(subj, pat, contL)` → 续 contL） |
 | `src/tests/pattern-matching/pattern_destructure.z42` | NEW | e2e：单层/嵌套/带常量拒绝（负例诊断）；interp+jit 双验 |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 补解构声明语法 + irrefutable 约束 |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 补解构声明语法 + irrefutable 约束 |
 | `examples/patterns.z42` | MODIFY | 补解构声明示例（可选） |
 
 ## 自举 / 格式影响

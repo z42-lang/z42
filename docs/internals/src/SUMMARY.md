@@ -15,6 +15,8 @@
   - [访问权限强制](compiler/access-control.md)
   - [构造器继承与隐式 base()](compiler/ctor-inheritance.md)
   - [错误码体系：分段与新增流程](compiler/error-codes.md)
+  - [语法定制：三层配置机制（未实施）](compiler/syntax-customization.md)
+  - [元编程 / 编译期代码生成（未实施）](compiler/metaprogramming.md)
   - [脚本化 charter（未实施）](compiler/scripting-charter.md)
 
 # 运行时
@@ -56,6 +58,7 @@
   - [struct 值语义](runtime/struct-value-semantics.md)
   - [超级指令融合](runtime/superinstr-fusion.md)
   - [同步原语](runtime/sync-primitives.md)
+  - [委托与事件的实现](runtime/delegates-events.md)
   - [分层执行（未实施）](runtime/tiered-execution.md)
   - [VM 总体架构](runtime/vm-architecture.md)
 
@@ -81,3 +84,4 @@
 # 开发基础设施
 
 - [概览](devinfra/README.md)
+  - [本仓命名与目录约定](devinfra/repo-conventions.md)

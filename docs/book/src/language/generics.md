@@ -14,24 +14,24 @@
 > 📦 **本页 2026-09-08 从 `docs/design/language/generics.md` 原样迁入**，完成
 > [language/README.md](README.md) 迁移表里「generics.md → 类型系统」那一格。迁入时只修正了失效
 > 段落与相对链接，正文未按 book 口径重写 —— 沿革与 C# 时代的实现引用（`*.cs` 路径）保持原样，
-> 作历史记录读。当前语义一律以本页顶部各「更新」注与 [generic-constraints.md](generic-constraints.md) 为准。
+> 作历史记录读。当前语义一律以本页顶部各「更新」注与 [generic-constraints.md](../../../reference/src/language/generic-constraints.md) 为准。
 
 > **Status**: L3-G1/G2/G2.5/G3a/G3d/G4 ✅ ｜ 泛型函数 + 泛型类 + 约束体系 + 跨 zpkg 元数据传播 + 关联类型（同包 + 跨包，assoc-type-crosspkg）✅；协变逆变 / 嵌套约束 / 反射见 Deferred
 >
 > **约束体系的真实校验范围**（2026-09-06 更新）：同包七项已校验，**跨包七项亦已校验**
 > （add-associated-types PR-1 接通 zbc 约束 bundle 全链路）；`Self`（仅接口）与关联类型
 > **同包 + 跨包均已实现**（关联类型跨包 = `assoc-type-crosspkg`，zbc 1.42）、嵌套约束未实现。以
-> [book/src/language/generic-constraints.md](generic-constraints.md) 为准。
+> [book/src/language/generic-constraints.md](../../../reference/src/language/generic-constraints.md) 为准。
 >
 > 🔴 **本页下文的 `IComparable<T>` / `IEquatable<T>` / `INumber<T>` 写法已全部过时**
 > （change `apply-self-to-core-protocols`，2026-09-07）：这三个协议接口已改写成**非泛型 + `Self`**
 > （`interface IComparable { int CompareTo(Self other); }`），实现方写 `struct Int32 : IComparable`，
 > 约束侧写 `where T : IComparable`。本页属 `docs/design/`（**冻结不再维护**，见
 > [doc-system.md 决策 D2](../../../agent/rules/doc-system.md)），示例未逐条改写；当前写法一律以
-> [book/src/language/generic-constraints.md](generic-constraints.md) 为准。
+> [book/src/language/generic-constraints.md](../../../reference/src/language/generic-constraints.md) 为准。
 > `IComparer<T>` / `IEqualityComparer<T>`（外部比较器形态）**仍是泛型**，本页相关示例依然有效。
 
-> **方法级类型参数（2026-08-21 add-generic-methods M1）**：`Foo<T>()` 直接调用 + 方法体 `typeof(T)`/`new T()`/`default(T)` 具化为调用点类型——载体是 `Frame.method_type_args`（与类级实例 `type_args` 对称）。实现原理、决策、`<` 歧义消解见 **[book/src/language/generic-methods.md](generic-methods.md)**（SoT）。
+> **方法级类型参数（2026-08-21 add-generic-methods M1）**：`Foo<T>()` 直接调用 + 方法体 `typeof(T)`/`new T()`/`default(T)` 具化为调用点类型——载体是 `Frame.method_type_args`（与类级实例 `type_args` 对称）。实现原理、决策、`<` 歧义消解见 **[book/src/language/generic-methods.md](../../../reference/src/language/generic-methods.md)**（SoT）。
 
 > L3 核心特性。本文档定义泛型的语法、约束体系、编译策略和 VM 运行时支持。
 
@@ -133,7 +133,7 @@ interface IEnumerable<T> {
 ## 约束体系
 
 > **约束的语义与校验范围的 SoT 已上浮到
-> [book/src/language/generic-constraints.md](generic-constraints.md)**
+> [book/src/language/generic-constraints.md](../../../reference/src/language/generic-constraints.md)**
 > （change `complete-where-constraints`，2026-09-05）。本节只保留**选型意图**；
 > 「哪些真的会被校验、边界在哪」一律以 book 页为准。
 
@@ -164,7 +164,7 @@ interface IEnumerable<T> {
 > 沿革：本节此前把关联类型 / 嵌套约束按**已实现**描述（含语法示例），实为**设计意图**；
 > 2026-09-05 按实况订正为「未实现」。2026-09-06 `add-associated-types` PR-3 把**同包**关联类型
 > 真正落地，本表随之再更新一次。语义与边界的 SoT 是
-> [book/src/language/generic-constraints.md](generic-constraints.md)，
+> [book/src/language/generic-constraints.md](../../../reference/src/language/generic-constraints.md)，
 > 本文件只留选型与对比。
 
 ### 关联类型
@@ -204,7 +204,7 @@ void RunVoid<T>(T h)      where T: () -> void   { h(); }
 
 两种形态在 TypeChecker 内都解析为 `Z42FuncType`，存入 `ConstraintBundle.FuncType` 字段。
 
-> 📍 **语义与校验范围的 SoT 是 [泛型约束](generic-constraints.md)**，以那页为准。本节保留的是
+> 📍 **语义与校验范围的 SoT 是 [泛型约束](../../../reference/src/language/generic-constraints.md)**，以那页为准。本节保留的是
 > `add-generic-func-constraint` 当年的设计意图，其中**两处与实现不符**，2026-09-10
 > `validate-func-type-constraint` 落地时订正（见下方标注）。
 
@@ -407,7 +407,7 @@ void Copy<K, V>(K k, V v) where K: IHashable, V: ICloneable { ... }
 > 原文写「T 从实参推断后做约束校验；**返回类型也按推断做 T → 具体类型替换**」，语气是已落地的
 > 语义约定，但**推断当时根本没有实现**——`MemberResolver._applyMethodTypeArgs` 在
 > `call.TypeArgCount == 0` 时第一行就早退，全仓无任何回推 T 的代码路径；同节「限制（本阶段）」
-> 也**漏列**了这一条。与 book SoT [`generic-methods.md`](generic-methods.md)「类型推断留后续」
+> 也**漏列**了这一条。与 book SoT [`generic-methods.md`](../../../reference/src/language/generic-methods.md)「类型推断留后续」
 > 三方冲突。推断已于该 change 落地，但**返回类型仍不按推断代换**（推断只驱动诊断，见下）。
 
 ### 类型实参推断（2026-09-08 `add-generic-type-arg-inference`）
@@ -865,7 +865,7 @@ TSIG 缺失），`VerifyStaticOverrides` 跳过 "no target" 诊断，避免误�
 - ⏸ 一元 / 比较运算符 — iter 3
 - ⏸ `sealed override` / `new` — iter 2+
 
-**相关**：`docs/design/language/static-abstract-interface.md`（完整设计书），
+**相关**：`docs/reference/src/language/generic-constraints.md`（完整设计书），
 `docs/spec/archive/2026-04-24-add-static-abstract-interface/`
 
 ### Operator 重载（L3 operator-overload，2026-04-24）

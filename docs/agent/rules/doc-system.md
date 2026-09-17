@@ -53,11 +53,16 @@ README.md           仓库门面 —— 定位 + 上手 + 分流
 ### 2.1 链接方向：单向（硬规则）
 
 ```
-learn  →  reference  →  internals
+learn  ──链──▶  reference          internals  ──链──▶  learn / reference
+                    │                   ▲
+                    └───── 不得链 ───────┘
 ```
 
 **`reference` 不得链 `internals`。** 一旦反向链，用户就会被带进实现细节——受众混淆会从头开始。
-`internals` 可以链任何一边；`learn` 链 `reference` 查规则，不直接链 `internals`。
+`internals` 可以链任何一边；`learn` 链 `reference` 查规则，**也不直接链 `internals`**。
+
+一句话记法：**面向用户的两本书（learn / reference）里，不出现任何指向 `internals/` 的链接。**
+需要交代「实现细节在别处」时，用**不带链接的散文**（「具体降解过程属实现细节，本手册不展开」），或者不提。
 
 ### 2.2 边界裁决（容易混的，写死在这里）
 

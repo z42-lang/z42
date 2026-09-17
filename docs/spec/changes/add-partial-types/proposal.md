@@ -55,9 +55,9 @@
 | `src/tests/partial-types/` | NEW | partial 跨文件端到端（build + run）golden |
 | `src/tests/partial-types/incremental/` | NEW | 改一碎片增量重编 == 全量（字节）对账 |
 | `examples/partial.z42`（或多文件目录） | NEW | partial 示例 |
-| `docs/book/src/language/partial-types.md` | NEW | partial 机制页（语法 + 合并语义 + 增量交互，含 mermaid） |
+| `docs/reference/src/language/partial-types.md` | NEW | partial 机制页（语法 + 合并语义 + 增量交互，含 mermaid） |
 | `docs/book/src/SUMMARY.md` | MODIFY | 挂入新页 |
-| `docs/design/language/grammar.peg` | MODIFY | 语法加 `partial` 修饰符产生式 |
+| `src/libraries/z42c.syntax/grammar.peg` | MODIFY | 语法加 `partial` 修饰符产生式 |
 | `docs/roadmap.md` | MODIFY | 0.4.4 partial 状态更新 |
 | `src/compiler/z42c.syntax/README.md` | MODIFY | 六段同步（如触及入口） |
 | `src/compiler/z42c.semantics/README.md` | MODIFY | 六段同步（合并机制入口） |

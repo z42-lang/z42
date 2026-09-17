@@ -6,7 +6,7 @@
 >
 > **Design philosophy:** See [docs/design/philosophy.md](design/philosophy.md) for the core principles, target audience, and positioning of z42 as a full-stack systems programming language with GC, multi-threading, high performance, and developer-friendly features.
 >
-> - Syntax grammar and code examples: [docs/design/language/language-overview.md](design/language/language-overview.md)
+> - Syntax grammar and code examples: [docs/reference/src/language/README.md](reference/src/language/README.md)
 > - Evolution phases and milestones: [docs/roadmap.md](roadmap.md)
 > - Detailed design docs: [docs/design/](design/)
 
@@ -117,7 +117,7 @@ Call-site argument labeling: `Greet(name: "z42", prefix: "Hi")`.
 ### Lambda & Closures (L3)
 Anonymous functions assigned to `Func<>` / `Action<>` delegate types. Closures capture variables from the enclosing scope.
 
-Lambda 是 delegate / event 体系的前置依赖；完整 delegate / 多播 / event / 订阅策略 wrapper 设计见 [docs/design/language/delegates-events.md](design/language/delegates-events.md)。
+Lambda 是 delegate / event 体系的前置依赖；完整 delegate / 多播 / event / 订阅策略 wrapper 设计见 [docs/reference/src/language/delegates-events.md](reference/src/language/delegates-events.md)。
 
 **Phase:** L3
 

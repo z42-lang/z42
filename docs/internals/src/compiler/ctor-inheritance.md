@@ -1,6 +1,6 @@
 # 构造器继承与隐式 base()
 
-> 对齐日期：2026-09-15 · change `add-implicit-base-ctor-call`。语言规则见 [实例构造器与初始化子句](../../../book/src/language/constructors.md)。
+> 对齐日期：2026-09-15 · change `add-implicit-base-ctor-call`。语言规则见 [实例构造器与初始化子句](../../../reference/src/language/constructors.md)。
 
 两件事分在编译的两个阶段做：**收集期**给没写构造器的类合成构造器声明（继承来的 / 默认的）；**绑定期**给每个
 实例构造器接上基类构造器调用（写了子句按子句、没写就是隐式 `base()`）。

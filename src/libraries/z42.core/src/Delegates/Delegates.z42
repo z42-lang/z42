@@ -4,7 +4,7 @@ namespace Std;
 // Replaces the SymbolCollector hardcoded `Action`/`Func` desugar paths.
 // Coverage: 0–4 arity for Action / Func; 1 arity for Predicate.
 // >4 arity defers to follow-up (script generation post-bootstrap; per
-// docs/design/language/delegates-events.md §3.4).
+// docs/reference/src/language/delegates-events.md §3.4).
 
 // ── Action: void return ──────────────────────────────────────────────────────
 public delegate void Action();

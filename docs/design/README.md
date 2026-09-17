@@ -86,7 +86,7 @@ z42 长期设计文档。变更归档时（`docs/spec/changes/<name>/` → `docs
 
 ### 模板 C — 参考手册
 
-仅 [`language/language-overview.md`](language/language-overview.md) 一份；按主题章节组织 + 大量代码示例，详细机制链接到模板 A/B 文档。
+仅 [`language/language-overview.md`](../reference/src/language/README.md) 一份；按主题章节组织 + 大量代码示例，详细机制链接到模板 A/B 文档。
 
 ## 跨引用规则
 

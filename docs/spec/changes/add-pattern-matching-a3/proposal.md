@@ -57,7 +57,7 @@ z42 IR 无 phi 节点，绑定在 A1/A2 是**零成本别名**（`Locals.Put(nam
 | `src/compiler/z42c.semantics/src/PatternBinder.z42` | MODIFY | `_bindOr` 重写（子作用域收集 + 一致性校验 + 统一注册）；删死代码 `_patternBinds` |
 | `src/compiler/z42c.semantics/src/PatternEmitter.z42` | MODIFY | or lowering 加 `BindCount>0` 合流分支（`BindCount==0` 保持 A2 byte-identical） |
 | `src/tests/pattern-matching/pattern_a3.z42` | NEW | e2e：headline / 多绑定 / 守卫 / @+or / 嵌套 or；interp+jit 双验 |
-| `docs/book/src/language/pattern-matching.md` | MODIFY | 补 A3 or 带绑定语法 + 合流机制 |
+| `docs/reference/src/language/pattern-matching.md` | MODIFY | 补 A3 or 带绑定语法 + 合流机制 |
 | `examples/patterns.z42` | MODIFY | 补 A3 示例（可选） |
 
 **Out（后续 change）**：解构声明 `Point(x,y) = p`（B）；穷尽性诊断（C）；`with`（D）；`init`（E）；

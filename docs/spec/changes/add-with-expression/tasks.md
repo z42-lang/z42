@@ -28,7 +28,7 @@
 ## 5. GREEN + 文档 + 落地
 - [x] clean `xtask build compiler` + `build stdlib`（z42c self-build 绿）
 - [x] clean `xtask test compiler`（self-build + units + 自举不动点 gen1==gen2 + **vscode-syntax gate** + 回归 全绿）
-- [x] `docs/book/src/language/pattern-matching.md` 补 D 节
+- [x] `docs/reference/src/language/pattern-matching.md` 补 D 节
 - [ ] PR → 盯 CI（gen1==gen2 + test-vm/stdlib-jit + bootstrap-no-csharp + vscode-syntax = 权威 GREEN）→ 合并 → 删 worktree/分支
 
 ## 备注（本次踩坑）
