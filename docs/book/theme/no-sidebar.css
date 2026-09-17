@@ -1,0 +1,31 @@
+/* 站点根只有一页（三本书的分流索引），侧边目录没有意义——整体隐藏。
+ *
+ * 对应 mdBook 0.4.40 的实际 DOM 与规则：
+ *   <input id="sidebar-toggle-anchor">  纯 CSS 的开关锚点
+ *   <nav id="sidebar" class="sidebar">  侧栏本体
+ *   <div id="sidebar-resize-handle">    拖拽改宽的把手
+ *   <label id="sidebar-toggle">         menu-bar 里的切换按钮
+ * 让位靠 `#sidebar-toggle-anchor:checked ~ .page-wrapper`：
+ *   ≥620px 用 margin-inline-start，<620px 用 transform（chrome.css:466-481）。
+ * 升级 mdBook 时若侧栏又冒出来，先去生成的 css/chrome.css 里核对这几条选择器。
+ */
+
+#sidebar,
+#sidebar-resize-handle,
+#sidebar-toggle,
+#sidebar-toggle-anchor {
+    display: none !important;
+}
+
+/* 收回为侧栏预留的位移与外边距（两档断点都要覆盖）。 */
+#sidebar-toggle-anchor:checked ~ .page-wrapper,
+.page-wrapper {
+    transform: none !important;
+    margin-inline-start: 0 !important;
+}
+
+/* 单页索引：正文居中，给一个舒服的阅读宽度。 */
+.content main {
+    margin-inline: auto;
+    max-width: 760px;
+}

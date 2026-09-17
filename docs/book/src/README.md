@@ -47,14 +47,3 @@ z42 的文档分三本书。先按**你要做什么**挑一本。
 | 开发基础设施 | xtask、构建编排、GREEN gate、性能门禁、CI、打包发版 |
 
 **[打开实现内幕 →](https://z42-lang.github.io/z42/internals/)**
-
----
-
-## 不在这三本书里的
-
-| 内容 | 位置 |
-|---|---|
-| 项目计划与延后项索引 | [`docs/roadmap.md`](https://github.com/z42-lang/z42/blob/main/docs/roadmap.md) |
-| 开发规范（怎么干活的行为约束） | `docs/agent/rules/` |
-| 一次迭代的提案与任务清单 | `docs/spec/changes/`（做完即归档） |
-| 某个目录有什么、怎么改 | 各 `src/**/README.md` |

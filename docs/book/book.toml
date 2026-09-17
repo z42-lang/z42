@@ -1,11 +1,13 @@
-# z42 知识库（mdBook）
+# 站点根（mdBook）——三本书的分流索引，只有一页。
+#
+# 三本书各自是独立的 mdBook，构建到本站的子目录：
+#   /            docs/book      ← 本文件
+#   /learn/      docs/learn
+#   /reference/  docs/reference
+#   /internals/  docs/internals
+# 见 .github/workflows/deploy-book.yml。
 #
 # 本地渲染：cargo install mdbook 后，在本目录跑  mdbook serve --open
-# mermaid 图本地渲染（可选）：cargo install mdbook-mermaid && mdbook-mermaid install .
-#   （CI 部署时自动注入，此处 book.toml 保持干净；GitHub 网页原生渲染 mermaid）
-# 本 book 是 z42 语言 / 编译器 / VM / 标准库的【系统化长期知识库·唯一 SoT】。
-# 与 docs/design/（旧·逐步迁入）、docs/spec/（变更工作区）职责区分见
-# docs/agent/rules/doc-system.md。
 
 [book]
 title = "z42 文档"
@@ -17,3 +19,5 @@ src = "src"
 default-theme = "rust"
 preferred-dark-theme = "ayu"
 smart-punctuation = true
+# 只有一页，侧边目录没有意义
+additional-css = ["theme/no-sidebar.css"]
