@@ -69,6 +69,12 @@ SubcommandRouter _devtoolsRoot() {
     sym.AddRepeatedOption("syms", "s", "path to a .zsym file or a directory of .zsym (repeatable; dirs searched recursively)");
     root.Add("symbolicate", "resolve a stripped crash trace via .zsym symbols", sym);
 
+    // install — 把 SDK 自带的编辑器集成资产装进用户的编辑器（unify-editor-install）。
+    // 资产随 SDK 分发（<sdk>/editors/<target>/），所以装了 SDK 就能用，不需要仓库。
+    ArgParser inst = new ArgParser("z42d install", "install editor integration from this SDK");
+    inst.AddPositional("target", "editor to set up (vscode)");
+    root.Add("install", "install editor integration (vscode)", inst);
+
     return root;
 }
 
@@ -84,6 +90,10 @@ int _dispatchDevtools(CommandResolution res) {
         string trace = pr.GetPositional(0);
         string[] syms = pr.GetRepeatedOption("syms");
         return Symbolicate.Run(trace, syms, syms.Length);
+    }
+    // install — 编辑器集成（unify-editor-install）。
+    if (top == "install") {
+        return EditorInstall.Run(res.Result().GetPositional(0));
     }
     // scaffold：其余子命令尚未实现，统一报 planned。各工具实现期替换为真实处理。
     ConsoleError.WriteLine("z42d " + top + ": planned — not yet implemented "

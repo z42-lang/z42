@@ -66,6 +66,19 @@ int _testPackagesStaging() {
     }
     _stgAssert("stdlib libs/ has zpkg", anyZpkg);
 
+    // editor-assets: 资产从仓库源码树拷到 editors/<target>/；生成器模板不得进包
+    // （*.tpl.json 是 xtask 的输入，出现在用户扩展目录里只会造成困惑）。
+    int ea = _pkgStageEditorAssets(root);
+    _stgAssert("editor assets staged", ea > 0);
+    string edDir = Path.Join(_pubStagingRoot(root), "editor-assets/editors/vscode");
+    _stgAssert("editors/vscode/package.json exists", File.Exists(Path.Join(edDir, "package.json")));
+    _stgAssert("editors/vscode/language-configuration.json exists",
+        File.Exists(Path.Join(edDir, "language-configuration.json")));
+    _stgAssert("editors/vscode grammar exists",
+        File.Exists(Path.Join(edDir, "syntaxes/z42.tmLanguage.json")));
+    _stgAssert("generator template NOT packaged",
+        !File.Exists(Path.Join(edDir, "syntaxes/z42.tmLanguage.tpl.json")));
+
     // _pkgStageDir resets rather than accumulates: a stale file from a prior
     // run must not survive a second stage call for the same component.
     File.WriteAllText(Path.Join(vmDir, "stale-marker.txt"), "should not survive");

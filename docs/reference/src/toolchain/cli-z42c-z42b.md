@@ -1,19 +1,23 @@
-# `z42c` 与 `z42b`
+# `z42c` / `z42b` / `z42d`
 
 > 对齐：2026-09-17（change `restructure-docs-three-books`）｜ 代码：
 > `src/compiler/z42c.driver/src/Main.z42`（z42c 入口与退出码契约）、
 > `src/compiler/z42c.driver/src/BuildCommand.z42`（`build` 的选项解析）、
 > `src/compiler/z42c.semantics/src/OptSet.z42`（优化名表）、
-> `src/toolchain/builder/core/builder_cli.z42`（z42b 命令树）
+> `src/toolchain/builder/core/builder_cli.z42`（z42b 命令树）、
+> `src/toolchain/devtools/core/devtools_cli.z42`（z42d 命令树）
 >
-> 日常用法走 [`z42` 命令面](cli-z42.md)；这两个二进制是它转发的目标，也可以直接敲。
+> 日常用法走 [`z42` 命令面](cli-z42.md)；这几个二进制是它转发的目标，也可以直接敲。
 
-SDK 的 `bin/` 下有两个编译相关的可执行文件：
+SDK 的 `bin/` 下有三个可以直接敲的可执行文件：
 
 - **`z42c`** — 编译器。对工程或单个源文件做编译，产出 `.zpkg` / `.zbc`。`z42 build`
   原样转发给它。
 - **`z42b`** — 构建编排器。把「编译 → 运行 / 发布」串起来。`z42 new` / `test` / `bench`
   / `clean` 以及 `z42 publish` 的后半程转发给它。
+
+- **`z42d`** — 开发者工具。目前可用的是 `install`（装编辑器集成）与 `symbolicate`
+  （还原崩溃栈）。
 
 z42c 还有一组 `--dump-*` 编译阶段转储开关，面向改编译器本身的人，不在本书范围。
 
@@ -138,3 +142,35 @@ z42b 编译为 `z42.builder.zpkg`，用户通过 launcher 到达它的命令：
 直接敲 `z42b <verb>` 时旗标与 `z42 <verb>` 一致，只有 `publish` / `export` 两处差别：
 `z42b publish` 的 `--rid` 不会默认到宿主（要默认得走 `z42 publish`），`z42b export`
 只认 `--rid` 与 `--release`、不接受 `--bundle-id` / `--app-id` / `--entry` 那组旗标。
+
+## `z42d install <target>`
+
+把**这个 SDK 自带的**编辑器集成装进你的编辑器。
+
+```sh
+z42d install vscode
+```
+
+| 目标 | 装到哪 |
+|---|---|
+| `vscode` | `~/.vscode/extensions/z42.z42-lang/` |
+
+装完**重启编辑器**才生效。重复执行即更新（覆盖同一目录），不会留下多份。
+
+资产来自 SDK 自己的 `editors/` 目录，所以**装了 z42 就能装编辑器集成，不需要 clone 仓库**。
+
+退出码：
+
+| 码 | 含义 |
+|---|---|
+| `0` | 装好了 |
+| `1` | 这个 SDK 打包时没带编辑器资产，或找不到 home 目录 |
+| `2` | 目标名不认识（会打印已知目标列表） |
+
+> 当前只提供 VSCode 的**语法高亮与括号/注释配置**（声明式 TextMate grammar）。
+> 没有语言服务器，因此没有跳转定义、补全、实时诊断。
+
+## `z42d symbolicate`
+
+见 `z42d symbolicate --help`：把发布档的崩溃栈（`at <fn> +0x<off>`）配合归档的 `.zsym`
+还原成 `file:line:col`。

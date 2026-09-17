@@ -16,7 +16,7 @@ entry   = "Z42Devtools.Main"
 pack    = true
 
 [sources]
-include = ["devtools_cli.z42", "symbolicate.z42"]
+include = ["devtools_cli.z42", "symbolicate.z42", "editor_install.z42"]
 
 [dependencies]
 "z42.core" = "0.1.0"   # String / core

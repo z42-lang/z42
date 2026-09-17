@@ -87,6 +87,36 @@ string _runtimePkgScaffold(string root, string rid, string version, string profi
     return pkgDir;
 }
 
+// [component.editor-assets] kind=editor-assets, dest="editors/" — stages
+// artifacts/publish/editor-assets/editors/<target>/ from the in-repo asset dirs.
+// 这些是 `z42d install <target>` 的**输入**：装了 SDK 就能装编辑器集成，不需要仓库
+// （unify-editor-install）。**模板不进包**——`*.tpl.json` 是 xtask 生成器的输入，
+// 用户扩展目录里出现它只会造成困惑。
+int _pkgStageEditorAssets(string root) {
+    string dir = _pkgStageDir(root, "editor-assets");
+    string dest = Path.Join(dir, "editors/vscode");
+    Directory.Create(dest);
+    string src = Path.Join(root, "src/toolchain/devtools/vscode");
+    int n = 0;
+    foreach (var name in Directory.Enumerate(src)) {
+        if (name.EndsWith(".tpl.json")) { continue; }
+        string from = Path.Join(src, name);
+        string to = Path.Join(dest, name);
+        if (Directory.Exists(from)) {
+            Directory.Create(to);
+            foreach (var inner in Directory.Enumerate(from)) {
+                if (inner.EndsWith(".tpl.json")) { continue; }
+                File.Copy(Path.Join(from, inner), Path.Join(to, inner));
+                n = n + 1;
+            }
+        } else {
+            File.Copy(from, to);
+            n = n + 1;
+        }
+    }
+    return n;
+}
+
 // [component.stdlib] kind=stdlib-glob, dest="libs/" — stages
 // artifacts/publish/stdlib/libs/ (every built stdlib *.zpkg + *.zsym).
 int _pkgStageStdlib(string root) {

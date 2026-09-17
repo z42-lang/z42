@@ -44,19 +44,22 @@ int _testPackagesConfig() {
     _PackagesConfig cfg = _pkgcfgLoad(root);
 
     _pkgAssertLen("package count", 3, cfg.packages.Length);
-    _pkgAssertLen("component count", 9, cfg.components.Length);
+    _pkgAssertLen("component count", 10, cfg.components.Length);
 
     _PkgPackage sdk = _pkgcfgFindPackage(cfg, "sdk");
     _pkgAssertEq("sdk.artifact", "z42-sdk-{version}-{rid}", sdk.artifact);
     _pkgAssertEq("sdk.manifest", "auto", sdk.manifest);
-    _pkgAssertLen("sdk.include", 8, sdk.include.Length);
+    _pkgAssertLen("sdk.include", 9, sdk.include.Length);
 
     _PkgComponent[] sdkComps = _pkgcfgResolveInclude(cfg, "sdk");
-    _pkgAssertLen("sdk resolved components", 8, sdkComps.Length);
+    _pkgAssertLen("sdk resolved components", 9, sdkComps.Length);
     _pkgAssertEq("sdk.include[0].name", "z42vm", sdkComps[0].name);
     _pkgAssertEq("sdk.include[0].kind", "cargo-bin", sdkComps[0].kind);
     _pkgAssertEq("sdk.include[6].name", "z42d", sdkComps[6].name);
     _pkgAssertEq("sdk.include[7].name", "z42i", sdkComps[7].name);
+    _pkgAssertEq("sdk.include[8].name", "editor-assets", sdkComps[8].name);
+    _pkgAssertEq("sdk.include[8].kind", "editor-assets", sdkComps[8].kind);
+    _pkgAssertEq("sdk.include[8].dest", "editors/", sdkComps[8].dest);
 
     // z42d/z42i (devtools/interactive, 2026-07-01 User decision): registered as
     // scaffold placeholders — apphost kind, same producer path as launcher/z42c/z42b.
