@@ -68,6 +68,11 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     c = _pkgStageStdlib(root); if (c != 0) { return c; }
     Console.WriteLine("      ✓ staged stdlib/");
 
+    // 编辑器集成资产 — staged to artifacts/publish/editor-assets/editors/.
+    Console.WriteLine("      staging editor assets");
+    int ea = _pkgStageEditorAssets(root);
+    Console.WriteLine("      ✓ staged editors/ (" + ea.ToString() + " files)");
+
     // [assemble] merge every `sdk`-included component's staged subtree into
     // pkgDir (packages.toml `[package.sdk].include`; design.md Decision 6). This
     // is the only place pkgDir gets its bin/native/libs/programs content from —

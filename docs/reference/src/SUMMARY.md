@@ -123,7 +123,7 @@
 
 - [概览](toolchain/README.md)
   - [`z42` 命令参考](toolchain/cli-z42.md)
-  - [`z42c` / `z42b` 命令参考](toolchain/cli-z42c-z42b.md)
+  - [`z42c` / `z42b` / `z42d` 命令参考](toolchain/cli-z42c-z42b.md)
   - [工程清单 z42.toml](toolchain/z42-toml.md)
   - [运行时设置（旋钮清单）](toolchain/runtime-settings.md)
 

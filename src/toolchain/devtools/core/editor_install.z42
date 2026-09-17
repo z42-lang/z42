@@ -1,0 +1,120 @@
+// z42d — `install <target>`：把 SDK 自带的编辑器集成资产装到用户的编辑器里。
+//
+// 分发链路（改这里之前先读懂这条链，三段缺一不可）：
+//   src/toolchain/devtools/vscode/          仓库里的资产（tmLanguage 由 xtask 生成器产出）
+//     → [component.editor-assets]           打进 SDK 包的 <sdk>/editors/vscode/
+//       → z42d install vscode               拷到 ~/.vscode/extensions/z42.z42-lang/
+//
+// 为什么装到**用户级**而不是仓库本地：SDK 用户没有「仓库」这个概念。仓库开发者另有一条
+// `xtask deps install vscode`——那条会先经 `z42c --dump-keywords` 重新生成 tmLanguage
+// （SDK 里没有生成器，只有生成好的产物），再转发到这里。
+//
+// 加一个编辑器目标 = 在 _targetNames() / _destFor() 各加一行 + 在仓库里放好资产目录 + packages.toml 的
+// editor-assets 组件把它带上。安装逻辑本身不用动。
+namespace Z42Devtools;
+
+using Std;
+using Std.IO;
+
+public static class EditorInstall {
+
+    // 已支持的目标。加目标只改这里（外加资产目录与 packages.toml）。
+    static string[] _targetNames() {
+        string[] a = new string[1];
+        a[0] = "vscode";
+        return a;
+    }
+
+    // `z42d install <target>`。返回退出码。
+    public static int Run(string target) {
+        if (!_isKnown(target)) {
+            ConsoleError.WriteLine("z42d install: unknown target '" + target + "'");
+            ConsoleError.WriteLine("       known targets: " + _knownList());
+            return 2;
+        }
+
+        string src = Path.Join(_sdkEditors(), target);
+        if (!Directory.Exists(src)) {
+            ConsoleError.WriteLine("z42d install: editor assets not found at " + src);
+            ConsoleError.WriteLine("       this SDK was packaged without the editor assets;");
+            ConsoleError.WriteLine("       reinstall the SDK, or run `xtask deps install " + target + "` in a z42 checkout");
+            return 1;
+        }
+
+        string dest = _destFor(target);
+        if (dest.Length == 0) {
+            ConsoleError.WriteLine("z42d install: cannot locate the home directory (HOME / USERPROFILE unset)");
+            return 1;
+        }
+
+        Directory.Copy(src, dest, true);
+        Console.WriteLine("installed " + target + " -> " + dest);
+        if (target == "vscode") {
+            Console.WriteLine("restart VS Code to pick it up");
+        }
+        return 0;
+    }
+
+    // ── 目标表 ────────────────────────────────────────────────────────────
+
+    static bool _isKnown(string target) {
+        string[] names = _targetNames();
+        int i = 0;
+        while (i < names.Length) {
+            if (names[i] == target) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    static string _knownList() {
+        string[] names = _targetNames();
+        string s = "";
+        int i = 0;
+        while (i < names.Length) {
+            if (i > 0) { s = s + ", "; }
+            s = s + names[i];
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // 每个目标的安装落点。VSCode 用扩展目录的标准约定 <publisher>.<name>。
+    static string _destFor(string target) {
+        string home = _homeDir();
+        if (home.Length == 0) { return ""; }
+        if (target == "vscode") {
+            return Path.Join(home, ".vscode/extensions/z42.z42-lang");
+        }
+        return "";
+    }
+
+    // ── 路径 ──────────────────────────────────────────────────────────────
+
+    // SDK 根：Z42_HOME > apphost 注入的 Z42_PORTABLE_VM（<sdk>/bin/z42vm）反推 > ~/.z42。
+    // 与 launcher 的 _home() 同一套优先级——z42d 是 SDK 里的组件，看到的必须是同一个根。
+    static string _sdkRoot() {
+        string h = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+        if (h.Length > 0) { return h; }
+        string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+        if (vm.Length > 0) {
+            string binDir = Path.GetDirectoryName(vm);
+            if (binDir.Length > 0) {
+                string root = Path.GetDirectoryName(binDir);
+                if (root.Length > 0) { return root; }
+                return binDir;
+            }
+        }
+        string home = _homeDir();
+        if (home.Length > 0) { return Path.Join(home, ".z42"); }
+        return ".z42";
+    }
+
+    static string _sdkEditors() { return Path.Join(_sdkRoot(), "editors"); }
+
+    static string _homeDir() {
+        string home = Environment.GetEnvironmentVariable("HOME") ?? "";
+        if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE") ?? ""; }
+        return home;
+    }
+}

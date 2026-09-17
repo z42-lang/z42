@@ -6,7 +6,12 @@
 //     → 本生成器：分类表（表现层概念，住这里）+ 穷尽校验（漏/幽灵/重复 → 报错指名）
 //     → 模板 z42.tmLanguage.tpl.json 的 __KW_<GROUP>__ 注入
 //     → syntaxes/z42.tmLanguage.json（生成产物，入库）
-//     → symlink ~/.vscode/extensions/z42.z42-lang（darwin/linux；win 打印指引）
+//     → symlink <repo>/.vscode/extensions/z42.z42-lang（darwin/linux；win 打印指引）
+//
+// **这条路是给仓库开发者的**：symlink 指回源码树，改 Lexer 关键字重跑本命令即时生效。
+// SDK 用户走另一条——`z42d install vscode` 从 <sdk>/editors/ 拷到 ~/.vscode/extensions/
+// （资产由 [component.editor-assets] 打进 SDK 包）。两条路的落点故意不同：
+// 仓库本地 vs 用户级，互不覆盖，开发者可以两者并存。见 unify-editor-install。
 //
 // 资产项组织：目前唯一项 = 语法扩展；B 期 LSP client / snippets 在 install/检查
 // 主流程追加新项即可。检查函数供 `test vscode-syntax` gate stage 调用（in-process，

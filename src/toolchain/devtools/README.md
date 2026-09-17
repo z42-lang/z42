@@ -5,7 +5,8 @@
 围绕**源码与开发体验**的工具集合，统一在单个 muxer apphost `z42d` 下：
 
 | 子命令 | 职责 | 状态 / roadmap |
-| `symbolicate` | 离线还原剥离档崩溃栈（`at <fn> +0x<off>` + `.zsym` → `file:line:col`）| ✅ 已实现（add-offline-symbolication，2026-08-04；z42d 首个落地子命令）|
+| `symbolicate` | 离线还原剥离档崩溃栈（`at <fn> +0x<off>` + `.zsym` → `file:line:col`）| ✅ 已实现 |
+| `install` | 把 SDK 自带的编辑器集成装进用户编辑器（`z42d install vscode`）| ✅ 已实现（unify-editor-install）|
 |--------|------|----------------|
 | `fmt`  | z42 源码格式化 | planned（0.2.4 → 0.4.x；收编原独立 `z42-fmt`）|
 | `doc`  | doc comment → HTML/markdown 文档站点 | planned（0.4.6；收编原独立 `z42-doc`）|
@@ -26,14 +27,24 @@ src/toolchain/devtools/core/*.z42  →  z42.devtools.zpkg  →  apphost z42d
 - **VM 级钩子** —— `dbg` 的断点/单步、`prof` 的采样都对接 `runtime/` 的 VM 调试/profiling 钩子
   （读 zbc DBUG 源位置）；z42d 侧只做前端 + 协议适配（DAP），不在此实现 VM 钩子本身。
 
-## 编辑器集成（`vscode/`，非 z42d 子命令）
+## 编辑器集成（`vscode/` + `z42d install`）
 
-[`vscode/`](vscode/) 是 **VSCode 编辑器资产包**（add-vscode-syntax-ext，2026-07-07）：
-声明式 TextMate 语法高亮 + language-configuration，安装走 `xtask deps install vscode`
-（生成 grammar + symlink），防漂移检查 = `xtask test vscode-syntax`（GREEN gate）。
-它不进 `z42d` muxer（不是 CLI 工具，是编辑器资产）；**B 期 LSP**（诊断/跳转/语义着色）
-落地时：server = 本目录新增 `lsp` 子命令（调 z42c API，对照 `dbg`/DAP 的前端+协议模式），
-client = `vscode/` 扩展升级为 LSP 宿主。详见 vscode/README + book 编辑器集成页。
+[`vscode/`](vscode/) 是 **VSCode 编辑器资产包**：声明式 TextMate 语法高亮 +
+language-configuration，**无 `main`、无需编译**。
+
+**两条安装路，服务不同的人，落点故意不同、互不覆盖：**
+
+| 谁 | 命令 | 落点 | 特点 |
+|---|------|------|------|
+| **SDK 用户** | `z42d install vscode` | `~/.vscode/extensions/z42.z42-lang/`（用户级） | 从 `<sdk>/editors/vscode/` 拷贝；装了 SDK 就能用，不需要仓库 |
+| **仓库开发者** | `xtask deps install vscode` | `<repo>/.vscode/extensions/`（工作区） | **symlink 回源码树**，且先经 `z42c --dump-keywords` 重新生成 grammar——改 Lexer 关键字即时生效 |
+
+资产随 SDK 分发靠 `packages.toml` 的 `[component.editor-assets]`
+（`*.tpl.json` 生成器模板**不进包**，由 `xtask test packages` 的 staging 自检守着）。
+grammar 防漂移 = `xtask test vscode-syntax`（GREEN gate）。
+
+**B 期 LSP**（诊断/跳转/语义着色）落地时：server = 本目录新增 `lsp` 子命令
+（调 z42c API，对照 `dbg`/DAP 的前端+协议模式），client = `vscode/` 扩展升级为 LSP 宿主。
 
 ## 核心文件（`core/`，scaffold）
 

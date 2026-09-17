@@ -39,7 +39,7 @@
 # ── 桌面 SDK：完整开发包 ─────────────────────────────────────────────
 [package.sdk]
 artifact = "z42-sdk-{version}-{rid}"
-include  = ["z42vm", "native", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i"]
+include  = ["z42vm", "native", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]
 manifest = "auto"
 
 # ── 可嵌入运行时：只含 native + stdlib，纯粹给嵌入场景用（2026-07-01 修订）。
@@ -112,3 +112,7 @@ dest = "native/"
 [component.stdlib]
 kind = "stdlib-glob"     # 全部 stdlib *.zpkg + *.zsym（自动发现，加库无需改这里）
 dest = "libs/"
+
+[component.editor-assets]
+kind = "editor-assets"   # 编辑器集成资产（`z42d install <target>` 的输入；*.tpl.json 不进包）
+dest = "editors/"        # → editors/vscode/{package.json,language-configuration.json,syntaxes/}
