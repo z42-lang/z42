@@ -33,7 +33,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 
 详见 [src/libraries/README.md](../../README.md)：
 - **Script-First**：尽可能脚本实现；extern 仅限 syscall / libm / GC barrier / 类型元数据 / UTF-8 codepoint / 数值字面量 parse
-- **interop 收缩两层模型**：interop 只在 core（全平台通用基础原语）+ 独立平台能力库（io/net/threading/compression 等）；其余库纯脚本零 interop。每 native 符号**单一声明点**（cross-cutting 原语归 core，如 `BitConverter` / `Clock`）。详见 [organization.md「平台边界库 vs 全平台共享库」](../../../../docs/design/stdlib/organization.md)
+- **interop 收缩两层模型**：interop 只在 core（全平台通用基础原语）+ 独立平台能力库（io/net/threading/compression 等）；其余库纯脚本零 interop。每 native 符号**单一声明点**（cross-cutting 原语归 core，如 `BitConverter` / `Clock`）。详见 [organization.md「平台边界库 vs 全平台共享库」](../../../../docs/internals/src/stdlib/organization.md)
 
 ## 跨目录依赖（包内 forward ref，无环约束）
 
@@ -52,4 +52,4 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | Disposable | Object + Protocols (IDisposable) + Delegates (Action) |
 
 > 同包内 forward ref 由编译器处理，**不构成实际循环**。"层级"仅作组织约定。
-> 跨包 DAG 严格性见 [docs/design/stdlib/organization.md](../../../docs/design/stdlib/organization.md)。
+> 跨包 DAG 严格性见 [docs/internals/src/stdlib/organization.md](../../../../docs/internals/src/stdlib/organization.md)。

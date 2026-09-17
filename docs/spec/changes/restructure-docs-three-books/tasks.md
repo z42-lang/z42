@@ -8,8 +8,8 @@
 - [x] **批 0 · 立宪**（PR 待合）
 - [x] 批 1 · internals/compiler（PR 待合）
 - [x] 批 2 · internals/runtime + formats（PR 待合）
-- [ ] 批 3 · reference/language
-- [ ] 批 4 · reference/stdlib
+- [x] 批 3 · reference/language（3a PR #697 / 3b PR #703）
+- [x] 批 4 · reference/stdlib
 - [ ] 批 5 · toolchain + devinfra
 - [ ] 批 6 · 收尾（删空壳 + 链接重指 + 游离文件）
 - [ ] 批 7 · 其余门禁
@@ -156,12 +156,34 @@
 
 ## 批 4 · reference/stdlib
 
-- [ ] 4.1 `design/stdlib/` 15 个包页 + `book/src/stdlib/`(4) 迁入 `reference/src/stdlib/`
-- [ ] 4.2 `time.md` 改写页头（`z42.time` 包已删，类型在 `z42.core/src/Time/`）
-- [ ] 4.3 `overview` `organization` `api-guidelines` → `internals/stdlib/`
-- [ ] 4.4 `json-serde` 切分：公开 API → reference；反射底座/分派轴 → internals
-- [ ] 4.5 删 `README-template.md`（移入 agent/rules）、`stdlib/roadmap.md`（并入 docs/roadmap.md）
-- [ ] 4.6 链接重指 + `xtask test docs` 绿
+- [x] 4.1 `design/stdlib/` 包页 + `book/src/stdlib/`(4) 迁入 `reference/src/stdlib/`
+- [x] 4.2 `time.md` 改写页头（`z42.time` 包已删，类型在 `z42.core/src/Time/`；命名空间仍是 `Std.Time`）
+- [x] 4.3 `overview`→`architecture` / `organization` / `api-guidelines` → `internals/stdlib/`
+- [x] 4.4 `json-serde` 切分：公开 API 并进 `reference/stdlib/json.md`；反射底座 / 分派轴 → `internals/stdlib/json-serde.md`
+- [x] 4.5 `stdlib/roadmap.md` 并入 `docs/roadmap.md`（残余延后项只剩 5 个未开的包）
+      ⚠️ **`README-template.md` 未动**——与 `readme-writing.md` §七「六段模板（唯一 SoT）」冲突，
+      见 [batch4-verification.md 附录 B](batch4-verification.md) 第 1 条，**待 User 裁决**
+- [x] 4.6 链接重指（`src/` 20 个文件含 `.z42` 注释 / `docs/roadmap.md` 16 条 / internals 5 处）+ `xtask test docs` 绿
+
+### 超出原计划的补充（判断依据：reference 自己的判据「不读实现也能用对」）
+
+原计划只搬 `design/stdlib/` 已有的页。实施时发现**用得最多的几个包根本没有设计页**，
+若照原计划走，stdlib 参考会缺掉 `List` / `Dictionary` / `StringBuilder` / `Thread` /
+`Console` / `File` / `Path` 这些天天用的东西。故新增 **7 页首次编纂**：
+
+- [x] `collections-core.md`（`List<T>` / `Dictionary` / `HashSet` / `KeyValuePair` / `ReadOnlyCollection`）
+- [x] `collections.md`（`Stack` / `Queue` / `LinkedList` / `PriorityQueue` / `SortedSet`）
+- [x] `text.md`（`StringBuilder` / `Strings` / `Levenshtein`）
+- [x] `threading.md`（`Thread` / `Channel` / `Mutex` / `RwLock` / `Timer`）
+- [x] `io-file.md`（`Console` / `File` / `Directory` / `Path` / `Environment`）
+- [x] `process.md`（`Process` / `ProcessHandle` / `Stdio` / `Ansi`）
+- [x] `string.md`（`Std.String` 方法面全表；语法面仍归 `language/strings.md`）
+
+### 本批的核实产出
+
+见 [batch4-verification.md](batch4-verification.md)：**50+ 条实现缺口**，其中两条最重——
+① `z42 run <单文件>` 加载不到跨包命名空间的后半边（三个组独立撞到，根因已定位）；
+② native 压缩的**所有**错误路径自死锁 → VM 永久挂起（11 个发射点，有最小复现）。
 
 ## 批 5 · toolchain + devinfra
 

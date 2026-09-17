@@ -5,7 +5,7 @@ TOML 1.0 subset reader / writer。覆盖 `z42` manifest（`*.z42.toml`）和
 build-driver `versions.toml` 解析需要的所有语法。
 
 不实现：datetime、multiline string、hex/oct/bin 整数、下划线数字分隔符
-（见 [docs/design/stdlib/toml.md](../../../docs/design/stdlib/toml.md) Deferred）。
+（见 [docs/reference/src/stdlib/toml.md](../../../docs/reference/src/stdlib/toml.md)「不支持」节）。
 
 ## 核心文件
 | 文件 | 职责 |

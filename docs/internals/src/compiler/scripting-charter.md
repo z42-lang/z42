@@ -11,7 +11,7 @@
 >
 > **Strategic decision**: 路径 2b —— pre-1.0 host-only；1.0 自举完成后 z42-written compiler 作为 zpkg 自然随 VM 全平台分发
 >
-> **Related**: memory project_mobile_no_compiler · [`stdlib/organization.md`](../../../design/stdlib/organization.md) · [`runtime/embedding.md`](../runtime/embedding.md) · [`runtime/hot-reload.md`](../runtime/hot-reload.md)
+> **Related**: memory project_mobile_no_compiler · [`stdlib/organization.md`](../stdlib/organization.md) · [`runtime/embedding.md`](../runtime/embedding.md) · [`runtime/hot-reload.md`](../runtime/hot-reload.md)
 
 ---
 
@@ -91,7 +91,7 @@ z42.compiler.ir ─────────┐    │
         (eval/script API)        (CLI 命令)
 ```
 
-严格遵守 [`stdlib/organization.md` 规则 #4](../../../design/stdlib/organization.md)：上层依赖下层，禁止反向。
+严格遵守 [`stdlib/organization.md` §2](../stdlib/organization.md)：依赖图必须无环，`z42.core` 在所有库之下。
 
 ---
 
@@ -191,7 +191,7 @@ ScriptOptions opts = ScriptOptions.Default;
 | [`project.md`](../../../reference/src/toolchain/z42-toml.md) | manifest schema；自举后 `z42.compiler.project` 实现这套 schema |
 | [`runtime/embedding.md`](../runtime/embedding.md) | VM 嵌入 API；scripting 在其上加 in-memory module 加载（C2 引入）|
 | [`runtime/hot-reload.md`](../runtime/hot-reload.md) | runtime 加载模块；scripting 与 hot-reload 共享 `Vm.LoadInMemoryModule(bytes)` 接口 |
-| [`stdlib/organization.md`](../../../design/stdlib/organization.md) | L0–L3 分层规则；本拆分严格遵守 |
+| [`stdlib/organization.md`](../stdlib/organization.md) | 包划分与依赖无环规则；本拆分严格遵守 |
 
 ---
 

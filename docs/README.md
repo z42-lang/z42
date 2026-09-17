@@ -16,7 +16,6 @@ z42 项目文档总入口。
 | 前言 | [`book/src/README.md`](book/src/README.md) | 这本书是什么 + 知识上浮约定 |
 | 第二部分 · 编译器 | [`book/src/compiler/`](book/src/compiler/) | 自举与种子 / pipeline / zpkg 产物 / 错误码 |
 | 第三部分 · 运行时 | [`book/src/runtime/`](book/src/runtime/) | 执行模型 / IR·zbc / GC / 嵌入·跨平台 / native ABI |
-| 第四部分 · 标准库 | [`book/src/stdlib/`](book/src/stdlib/) | 三层架构 / 包边界 / 核心包索引 |
 | 第五部分 · 工具链 | [`book/src/toolchain/`](book/src/toolchain/) | 面向用户：launcher / workload 平台发行 / SDK 布局 |
 | 第六部分 · 开发基础设施 | [`book/src/dev/`](book/src/dev/) | 面向仓库开发：xtask / 构建编排 / 测试门禁 / 打包引擎 |
 | 附录 | [`book/src/appendix/`](book/src/appendix/) | 测试框架 / REPL 等独立主题 |
@@ -44,7 +43,7 @@ z42 项目文档总入口。
 | [`design/language/`](design/language/) | 语法 / 类型系统 / 内置协议 / FFI 表面（20 文件）|
 | [`design/compiler/`](design/compiler/) | z42c 自举编译器内部（架构 / 自举 / 产物布局）+ 工程文件 + 错误码体系 |
 | [`design/runtime/`](design/runtime/) | Rust VM 架构 + IR/zbc + 嵌入 + 跨平台（10 文件）|
-| [`design/stdlib/`](design/stdlib/) | 三层架构 + 包边界 + 缺失包排期（3 文件）|
+| [`design/stdlib/`](design/stdlib/) | 只剩 `README-template.md`（与 `readme-writing.md` 六段制的冲突待裁决）|
 | [`design/testing/`](design/testing/) | z42.test 框架 + runner + 跨平台测试（3 文件）|
 
 每个子目录有自己的 `README.md` 作为索引；新读者从那进入。

@@ -646,7 +646,7 @@ strip    = true
 | zpkg `[dependencies]` 之间 | A 依赖 B → B 不得（直接或传递）依赖 A | 🔄 编译期解析时检测（错误码待 RFC，建议 `E0610 CircularPackageDependency`） |
 | Workspace member 之间 | 同上，DFS 三色检测 | ✅ `WS006 CircularDependency`（见 [error-codes.md](../appendix/error-codes.md)） |
 | Preset `include` 链 | 同上 | ✅ `WS020 CircularInclude` |
-| stdlib 层级 | `L0 ← L1 ← L2 ← L3`，下层不得依赖上层 | ✅ 设计规则（见 [stdlib-organization.md](../../../design/stdlib/organization.md)） |
+| stdlib 包之间 | 同上，且 `z42.core` 在所有库之下 | ✅ 约定（无固定层级，只要求无环） |
 
 **为什么禁止循环依赖**：
 

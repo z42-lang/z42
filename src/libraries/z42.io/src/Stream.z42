@@ -22,7 +22,7 @@ using Std;
 // Lifecycle: `Close()` releases resources. Calling other methods after
 // `Close()` is undefined per-subclass (most concretes throw).
 //
-// Not in scope for v0 (see docs/design/stdlib/io-stream.md Deferred):
+// Not supported (see docs/reference/src/stdlib/io-stream.md):
 //   * `CopyTo(Stream)` — manual loop is one-liner in v0
 //   * `BeginRead` / async — gated on L3 async/await
 //   * `Dispose` pattern — z42 has no `IDisposable` yet; use Close()

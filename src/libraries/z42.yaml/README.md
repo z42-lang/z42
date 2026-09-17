@@ -14,7 +14,7 @@ string out  = Yaml.Stringify(v);  // YamlValue tree → block-style YAML
 
 `YamlValue` is a discriminated-union scalar / sequence / mapping with
 `Is*()` predicates, `As*()` accessors, and `Get / At / Add / Set` for
-nested traversal. See [docs/design/stdlib/yaml.md](../../../docs/design/stdlib/yaml.md)
+nested traversal. See [docs/reference/src/stdlib/yaml.md](../../../docs/reference/src/stdlib/yaml.md)
 for the full API + supported syntax + Deferred items.
 
 ## Quick example
@@ -61,7 +61,7 @@ void Main() {
 - ✅ Stream overloads (`ParseStream` / `ParseAllStream` / `WriteTo`)
 - ❌ Complex keys (`? sequence-as-key` syntax) — see
   `yaml-future-complex-keys` in
-  [yaml.md](../../../docs/design/stdlib/yaml.md#deferred--future-work)
+  [yaml.md](../../../docs/reference/src/stdlib/yaml.md#不支持)
 
 ## Composing configs with merge keys
 

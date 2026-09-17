@@ -24,4 +24,4 @@ z42 任意精度 + 扩展数值类型。v0 仅 BigInt（arbitrary-precision inte
 
 纯脚本，无 VM 改动。Magnitude 用 `int[]` little-endian 31-bit limb（每 limb
 存 0..2^31-1，留 1 bit 给 mul 中间结果 fit `long` i64）；sign 用 `int _sign`
-(-1/0/+1)。详 [docs/design/stdlib/numerics.md](../../../docs/design/stdlib/numerics.md)。
+(-1/0/+1)。详 [docs/reference/src/stdlib/numerics.md](../../../docs/reference/src/stdlib/numerics.md)。
