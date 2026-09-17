@@ -48,8 +48,52 @@ Error: uncaught exception: struct-value handle used after its creating frame exi
        (idx=0, frame_id=18) — value-struct lifetime unsound
 ```
 
-⇒ 注意 `frame_id=18`：静态初始化在某个帧里建了 blob，帧退出后句柄就悬空。
-**arena 是 per-frame LIFO，静态字段却是模块级生命周期** —— 这是机制层面的矛盾，不是小 bug。
+### ⚠️ 判据比第一印象窄得多，也严重得多
+
+第一印象是「struct 的静态字段坏了」。**实测否掉了这个描述**：
+
+| 形态 | 结果 |
+|---|---|
+| `struct SHolder { public static int N = 7; }` | ✅ 打印 7 —— **struct 上的静态字段本身没问题** |
+| `class Holder { public static Color White = ...; }` | ❌ **同样崩** |
+
+⇒ 真判据是：**任何静态字段，只要它的类型是多字段值 struct，就坏**——
+容器是 class 还是 struct 都一样。也就是说 `class Config { public static Point Origin = new Point(0,0); }`
+这种极常见的写法同样崩。
+
+### 存储矩阵：只有静态字段这一格是坏的
+
+| 值 struct 存在哪 | 结果 |
+|---|---|
+| 局部变量 | ✅ |
+| class 的**实例**字段（P3 堆内联，2026-08-11） | ✅ |
+| `struct[]` 数组元素 | ✅ |
+| 静态方法返回值（sret） | ✅ |
+| **静态字段** | ❌ 崩 |
+
+**实例字段当初正是用「把 blob 内联进堆对象」（P3）解决了同一个生命周期问题。
+静态字段只是没走到那条路** —— 不是 arena 机制无解。
+
+### 根因精确到一行
+
+`src/runtime/src/interp/exec_object.rs:499-516` 的 `static_set` 把原始 `Value` 直接存进静态槽：
+
+```rust
+let v = frame.get(val)?.clone();
+// add-escape-analysis-stack-alloc (diagnostic #2): StaticSet.val is an escape sink
+debug_assert!(
+    !matches!(v, Value::StackObject { .. } | Value::StackArray { .. }),
+    "stack-alloc handle stored into a static field — escape analysis unsound (StaticSet.val)"
+);
+```
+
+值 struct 存进去的是 `Value::StructRef { idx, frame_id }` —— **帧作用域的 arena 句柄**。
+而那个 `debug_assert!` 拦了 `StackObject` / `StackArray` 逃逸进静态字段，
+**却没拦 `StructRef`**，而它属于同一类 bug（`StackClosure` 同样没拦）。
+
+⇒ 修法方向清楚：`static_set` 存之前要把 `StructRef` **提升**到堆/全局表示
+（复用 P3 的堆内联，或装箱成 `BoxedStruct`），并把那条 `debug_assert!` 扩到
+`StructRef` / `StackClosure`，让这类 bug 在 debug 构建里当场被抓。
 
 ## 缺口 5：struct 上的自动属性崩
 
