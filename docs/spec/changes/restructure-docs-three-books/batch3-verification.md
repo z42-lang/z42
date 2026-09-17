@@ -40,7 +40,7 @@
 
 ---
 
-## 附录 A：实测发现的实现缺口（16 条）
+## 附录 A：实测发现的实现缺口（30 条）
 
 > **全部用 `./.z42/z42 run` 实跑验证，不是静态推断。** 这些超出文档批次范围，建议单开 change。
 > 按严重度排序——**前 4 条都是「编译通过但行为静默错误」，无任何诊断**。
@@ -88,6 +88,24 @@
 | 19 | 调用 null delegate 不是可 catch 的异常 | `exec_call.rs:371` 是 `bail!` 而非 `NullReferenceException`（未走 make-corelib-errors-catchable 那条路）⇒ 必须用 `?.Invoke()` |
 | 20 | `[Forward]` 四个诊断码的**常量名与实际发射的语义全部错位** | `ForwardTargetNotFound = E0464` 实际发的是「渲染不出签名」；`ForwardNotRenderable = E0465` 实际发的是「不可转发或不唯一」；`ForwardAmbiguous = E0466` 零发射点（重载歧义实际走 E0465）；`ForwardSkipped = I0467` 零发射点（跳过实际发 `I0466`）。⚠️ **照常量名写文档会全篇写反** |
 
+### A4 类型系统缺口（10 条，全部实跑验证）
+
+| # | 缺口 | 实测 |
+|---|---|---|
+| 21 | 🔴 **struct 的 `static` / `static readonly` 字段是坏的** | 读取时抛 `struct-value handle used after its creating frame exited — value-struct lifetime unsound`。加不加 `readonly` 都一样。⇒ `public static readonly Color White = ...` 这种惯用法在 z42 用不了，只能改用静态工厂方法 |
+| 22 | 🔴 **struct 上的自动属性是坏的** | `public int X { get; set; }` + 构造器赋值 → 运行期 `struct ref leaf at byte offset 4294967295 not in type layout`（`4294967295` = `u32::MAX`，即未初始化的 offset） |
+| 23 | 🔴 **重载集里不做「子类 → 用户基类 / 接口」适用性匹配** | 单签名 `One(A)` 传子类 `D` ✅；但有 `F(A)` / `F(string)` 两个重载时传 `D` → `E0401: no static method F on C`（实例方法同样）。数值加宽与 `object` 形参在重载集里**是**适用的，唯独用户类层次不是 |
+| 24 | **接口不能继承接口** | `interface IDerived : IBase` 解析通过但不生效：`d.Base()` → E0401，`IBase b = d;` → E0402 |
+| 25 | **接口方法体不是默认实现** | 写了 body 仍报 `E0412: does not define member Hello` |
+| 26 | **自定义 `static abstract` 接口在运行期崩** | `INumber` 是 `BuiltinTypeDefs.z42:81` **硬编码的内建接口**。自己声明同形接口 `interface ICombine { static abstract Self op_Add(Self a, Self b); }` → 运行期 `MissingSymbolException`（`Cnt.op_Add` 签名 3 参 vs 调用 2 参）。另 `T.Zero()` 形态 → `E0401: undefined: T` |
+| 27 | `Object.ReferenceEquals` **用户代码调不到** | `Object.ReferenceEquals(a,b)` 与 `Std.Object.ReferenceEquals(a,b)` 均报 `E0401: no static method 'ReferenceEquals' on 'Object'`；全仓零调用点（只有 `DelegateOps.ReferenceEquals` 在用） |
+| 28 | **默认值参数顺序不强制** | `F(int a = 1, int b)` 能编译 |
+| 29 | **函数值不能就地调用** | `bus.Handlers[0](9)` → `E0402: unsupported call form`；`var h = bus.Handlers[0]` → `E0401: undefined function: h`。必须先赋给写明 `(T) -> R` 类型的局部变量 |
+| 30 | `default(自定义 struct)` 随即崩 | `StructCopy src: expected a struct value (StructRef), got Null`（与 A3 #17 的 `Guid` 注释同源） |
+
+另：表达式体构造器 `public Pair(int a, int b) => (A, B) = (a, b);` **编译通过但字段全是 0** ——
+`(A, B) = (...)` 走的是解构**声明**（`_parseDeconstructDecl`），声明了两个新局部而不是赋值给字段。
+
 ## 附录 B：已定义但零发射点的诊断码
 
 > 这些码被文档写成生效规则，实际**永远不会被报出**。搬迁时已逐条改标「未实现」。
@@ -98,6 +116,7 @@
 | `E0420` | `InvalidCatchType` | catch 类型须派生自 `Std.Exception` | 零发射点。`catch (Foo e)`（Foo 非 Exception 子类）**不报错**（`StmtBinder.z42:174-209` 只做可见性检查） |
 | `E0414` | — | event 字段访问控制 | 零发射点。`EventFields` 收集于 `MemberCollector.z42:184`，**TypeChecker 从不查询** |
 | `E0602` | — | 未解析的 using | 零发射点（除测试里的字符串断言） |
+| `E1001`–`E1004` | 具名实参四码 | 已启用 | 零发射点。`OverloadBinder.z42:287-294` 只发 **E1005 / E1006** |
 | `E0605` | `ReservedNamespaceDeclaration` | 「源码层硬错误」 | 零发射点 |
 | `W0603` / `W0604` / `W0700` | — | 警告 | `z42c.driver/src/Main.z42:428-431` 注释自述这些警告「**一直是哑的**」 |
 | `E0422` / `E0423` | func 类型约束 | 已定义 | 从未发出（roadmap 已记） |
