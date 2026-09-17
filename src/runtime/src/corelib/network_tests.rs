@@ -330,3 +330,68 @@ fn udp_loopback_send_recv_round_trip() {
     let _ = builtin_net_udp_drop(&ctx, &[Value::I64(slot_b)]).expect("drop B");
     assert_eq!(ctx.udp_socket_slot_count(), 0);
 }
+
+// ── fix-accept-not-interruptible (2026-09-17) ────────────────────────────────
+
+/// 阻塞在 `accept` 里的线程，必须能被另一个线程的 `listener_drop` 唤醒。
+///
+/// 修复前这条会挂死：`accept` 在阻塞前把 listener 从表里摘走，`listener_drop`
+/// 因此什么也没关（macOS 上即便关了 fd 也唤不醒 accept）。`HttpServer` 只好靠一次性
+/// 自连探针唤醒，探针一漏就永久死锁——实测整包测试挂过 44 小时。
+///
+/// 🔴 **worker 必须是 detached 线程 + 带超时的 channel**，不能用 `thread::scope`：
+/// scope 退出时会 join worker，于是回退实现时**整个测试进程挂住**（CI 超时），
+/// 而不是报一条失败。写这条测试时我先踩了这个坑。
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_blocked_accept_is_woken_by_dropping_the_listener() {
+    use std::sync::mpsc;
+
+    let ctx = ctx();
+    let listen = builtin_net_tcp_listen(&ctx, &[Value::Str("127.0.0.1".into()), Value::I64(0)])
+        .expect("listen");
+    let (slot, _port) = ok_listen(&listen);
+
+    let (tx, rx) = mpsc::channel();
+    let core = std::sync::Arc::clone(&ctx.core);
+    std::thread::spawn(move || {
+        let worker_ctx = VmContext::new_with_core(core);
+        let r = builtin_net_tcp_accept(&worker_ctx, &[Value::I64(slot)]).expect("accept");
+        // 关掉的 listener ⇒ KIND_HANDLE_INVALID（z42 侧的 SocketClosedException）。
+        let _ = tx.send(kind_of(&r));
+    });
+
+    // 让 worker 真正进到 accept 里再关。
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    builtin_net_tcp_listener_drop(&ctx, &[Value::I64(slot)]).expect("drop");
+
+    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(kind) => assert_eq!(kind, Some(2), "被关掉的 listener 应返回 KIND_HANDLE_INVALID"),
+        Err(_) => panic!(
+            "阻塞中的 accept 在 listener 关闭后 5 秒仍未返回 —— \
+             accept 又变成不可中断了（本 PR 修的就是这个）"
+        ),
+    }
+}
+
+/// 正向对照：listener 还开着时，accept 照常收连接（别把 bug 修成「accept 直接不工作」）。
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn accept_still_returns_a_real_connection() {
+    let ctx = ctx();
+    let listen = builtin_net_tcp_listen(&ctx, &[Value::Str("127.0.0.1".into()), Value::I64(0)])
+        .expect("listen");
+    let (slot, port) = ok_listen(&listen);
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let _ = std::net::TcpStream::connect(("127.0.0.1", port as u16)).expect("connect");
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        });
+        let r = builtin_net_tcp_accept(&ctx, &[Value::I64(slot)]).expect("accept");
+        assert_eq!(kind_of(&r), Some(0), "应收到连接（KIND_OK）");
+    });
+
+    builtin_net_tcp_listener_drop(&ctx, &[Value::I64(slot)]).expect("drop");
+}

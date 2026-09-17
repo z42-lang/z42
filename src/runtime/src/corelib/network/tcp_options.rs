@@ -71,7 +71,7 @@ pub fn builtin_net_tcp_listener_set_ttl(ctx: &VmContext, args: &[Value]) -> Resu
     }
     let map = ctx.core.tcp_listeners.lock();
     let listener = match map.get(&slot_id) {
-        Some(l) => l,
+        Some(slot) => &slot.listener,
         None => return Ok(handle_invalid(ctx)),
     };
     match listener.set_ttl(ttl as u32) {

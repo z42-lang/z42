@@ -76,8 +76,7 @@ public class HttpServer {
             throw new SocketClosedException();
         }
         TcpClient peer = this._listener.AcceptTcpClient();
-        // If Stop() ran concurrently, the accept might have returned a probe
-        // connection the Stop helper made to unblock us. Drop it and return.
+        // Stop() 可能与这次 accept 并发：accept 在置位前刚好收下一个真实连接。丢弃并退出。
         if (this._stopped) {
             try { peer.Dispose(); } catch (Exception e) { }
             throw new SocketClosedException();
@@ -160,8 +159,8 @@ public class HttpServer {
                 ConsoleError.WriteLine("HttpServer.ServeThreaded: accept error: " + e.Message);
                 continue;
             }
-            // Stop()-probe wake-up check: if the accept returned because
-            // Stop() did a self-connect to unblock us, drop the peer + exit.
+            // Stop() 与 accept 之间仍有竞态窗口：accept 可能在 Stop() 置位前
+            // 刚好收下一个真实连接。此时直接丢弃并退出。
             if (this._stopped) {
                 try { peer.Dispose(); } catch (Exception e) { }
                 return;
@@ -265,28 +264,17 @@ public class HttpServer {
     }
 
     /// Signal the serve loop to exit + close the listener. Idempotent.
-    /// If `Serve` / `ServeThreaded` is running in another thread, this also
-    /// connects a one-shot probe to the listener port so the in-flight
-    /// `AcceptTcpClient` returns immediately (the OS doesn't reliably
-    /// interrupt blocking `accept()` on listener fd close — macOS notably).
-    /// The accept loop checks `_stopped` after each accept and treats
-    /// `true` as exit signal, discarding the probe peer.
+    ///
+    /// fix-accept-not-interruptible (2026-09-17)：关掉 listener 就足以唤醒另一个线程里
+    /// 阻塞中的 `AcceptTcpClient`（它会抛 `SocketClosedException`，三个 serve 循环都在
+    /// catch 它）。此前这里连一个**一次性自连探针**来唤醒 accept，因为运行期的
+    /// `accept` 会把 listener 从表里摘走、`Stop()` 退化成空操作；而那个探针
+    /// **连上就立刻 Dispose**，只要 accept 还没把它从 backlog 取走，连接被 RST 后就从
+    /// 队列里消失 ⇒ accept 永不返回 ⇒ `srv.Join()` 永久挂起（实测整包测试挂过 44 小时）。
+    /// 现在 accept 是非阻塞 + 轮询关闭标志，探针这套已无必要，整段删除。
     public void Stop() {
         if (this._stopped) return;
         this._stopped = true;
-        // Wake the accept loop: connect a probe to ourselves so the next
-        // accept returns. Must happen BEFORE we drop the listener.
-        int port = this._localPort;
-        if (this._listener != null && port > 0) {
-            try {
-                var probe = new TcpClient();
-                probe.Connect("127.0.0.1", port);
-                probe.Dispose();
-            } catch (Exception e) {
-                // Probe might fail if listener already gone or host unreachable
-                // (loopback only). Best-effort.
-            }
-        }
         if (this._listener != null) {
             // Field-access dispatch on `.Stop()` hits z42's name-only
             // method resolver and may route to Stopwatch.Stop instead of
