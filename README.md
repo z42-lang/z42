@@ -70,7 +70,7 @@ Start from what you want to do. The knowledge base is consolidating into
 | **Understand the design philosophy** | [`docs/design/philosophy.md`](docs/design/philosophy.md) |
 | **Learn the language** (syntax, types, semantics) | [`docs/reference/src/language/README.md`](docs/reference/src/language/README.md) |
 | **Understand execution** (interp / JIT / AOT) | [`docs/internals/src/runtime/execution-model.md`](docs/internals/src/runtime/execution-model.md) |
-| **Call native code / embed the VM** | [`docs/design/language/interop.md`](docs/design/language/interop.md) |
+| **Call native code / embed the VM** | [`docs/reference/src/embedding/native-interop.md`](docs/reference/src/embedding/native-interop.md) |
 
 **Working on z42** — building & contributing:
 

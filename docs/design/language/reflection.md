@@ -138,7 +138,7 @@ object r2 = twice.Invoke(c, oneArg);               // 实例：obj=接收者（r
 
 语义：
 - **静态方法** obj 传 null（忽略）；**实例方法** obj 为接收者。`args`（`object[]`）按序映射形参——
-  依赖装箱（[boxing.md](boxing.md)）：原始实参装入 `object[]`、调用时直接落参数寄存器。
+  依赖装箱（[struct-value-semantics.md](../../internals/src/runtime/struct-value-semantics.md)）：原始实参装入 `object[]`、调用时直接落参数寄存器。
 - **返回值**：方法返回值（`void` → null）；拆箱由调用方 `(T)` 完成。
 - **异常传播**：被调方法的 `throw` 以**原始异常类型**传播，调用方可 `try/catch` 精确匹配
   （非包装成 `Std.Exception`）。实现：builtin 经 `ctx.pending_thrown` 把原异常值透出，interp
@@ -178,7 +178,7 @@ z42 用**单一 `Std.Type`** 同时承载类型身份（`Name`/`FullName`/`BaseT
 2. **拆分的技术驱动（trim 反射栈）在 z42 不成立**：z42 反射是 **native-delegated**——`Type` 只揣 `NativeData::TypeHandle`，"重"的枚举在 native builtin（`__type_fields` 等），**不在托管 `Type` 类**。要 trim 反射 = 注册不注册那些 builtin，与 `Type` 拆成几个类无关。拆分在 z42 省不下任何东西。
 3. **MVP 是只读元数据**：`Invoke` / `Activator` / `MakeGenericType` 在 0.5.x 独立 `z42.reflection` 包——拆分本想隔离的"重"部分这里根本不在。
 4. **拆分对 z42 是纯仪式负成本**：`typeof` / `GetType` 高频返回 `Type`；拆了要么处处 `GetTypeInfo()`，要么两边都挂成员 API（等于没拆 + 双份 native plumbing），还破坏 typeof→Type / `Type.GetCustomAttributes` / `MethodInfo` 等已落地 API。
-5. **与 z42 一贯取舍一致**：[attributes.md](attributes.md) 已修了 C# attribute 5 处缺陷；不再把 C# 最被诟病的反射缺陷搬进来。
+5. **与 z42 一贯取舍一致**：[attributes.md](../../reference/src/language/attributes.md) 已修了 C# attribute 5 处缺陷；不再把 C# 最被诟病的反射缺陷搬进来。
 
 > 层级对齐已部分落地（2026-06-11 align-type-memberinfo-hierarchy）：`Std.Type : Std.Reflection.MemberInfo`——`Name` 由基类统一提供（消除 Type 旧 `[Native]` getter 与 MemberInfo 字段的分叉），`typeof(C) is MemberInfo` 为真。`Type` 仍留在 `Std` prelude（不迁 `Std.Reflection`，保 `typeof`/`GetType` 免 import 人体工学）。剩余：嵌套类型纳入 `GetMembers()`——见 Deferred。
 
@@ -560,7 +560,7 @@ extern **方法**（`GetFields()`/`GetMethods()`/`GetGenericArguments()`）不�
 - **触发条件**：0.5.x 泛型 instantiation 落地后，于独立 `z42.reflection` 包提供。
 
 ### ~~reflection-future-attributes（C3）~~ — 已落地（class + method + field + parameter）
-- **状态**：用户自定义 attribute + 反射全落地。class-level（C3a，2026-06-09）+ method-level（C3b，2026-06-09）+ field-level（add-field-attribute-reflection，zbc 1.14，2026-06-10）+ **parameter-level（add-parameter-attribute-reflection，zbc 1.15，2026-06-10）**。`[Foo(args)]` 标注 class/method/field/parameter → `Type` / `MethodInfo` / `FieldInfo` / `ParameterInfo` 的 `GetCustomAttributes()` / `GetAttribute(Type)` 返活实例（缓存）。parameter attr 持久化进 SIGS section 每参数 attr-ref 块，运行期 `FunctionCold.param_attributes`，`__param_custom_attributes(qualified, position)` 按源参数位置取（wire 索引 = position + this 偏移）。设计 + 实现原理见 [attributes.md](attributes.md)。
+- **状态**：用户自定义 attribute + 反射全落地。class-level（C3a，2026-06-09）+ method-level（C3b，2026-06-09）+ field-level（add-field-attribute-reflection，zbc 1.14，2026-06-10）+ **parameter-level（add-parameter-attribute-reflection，zbc 1.15，2026-06-10）**。`[Foo(args)]` 标注 class/method/field/parameter → `Type` / `MethodInfo` / `FieldInfo` / `ParameterInfo` 的 `GetCustomAttributes()` / `GetAttribute(Type)` 返活实例（缓存）。parameter attr 持久化进 SIGS section 每参数 attr-ref 块，运行期 `FunctionCold.param_attributes`，`__param_custom_attributes(qualified, position)` 按源参数位置取（wire 索引 = position + this 偏移）。设计 + 实现原理见 [attribute-pipeline.md](../../internals/src/compiler/attribute-pipeline.md)。
 - **剩余**：AttributeUsage（目标校验）、泛型 attribute、专用诊断 —— 见 attributes.md Deferred。所有声明目标（class/method/field/parameter）已覆盖。
 
 ### attr-factory-return-type-resolution — 合成 attribute factory 返回类型解析为 PrimType（compiler bug）

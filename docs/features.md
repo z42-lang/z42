@@ -147,7 +147,7 @@ type parameter that is purely a compile-time device. When a callee genuinely con
 at runtime (`typeof(T)` / `new T()` / `default(T)` / `new T[n]`, or forwarding it to a nested generic
 call), **E0455** requires the type argument to be written explicitly — turning a silent wrong value into
 a compile error. Inference failure degrades to the pre-change behaviour with no diagnostic.
-See [book: generics.md](book/src/language/generics.md).
+泛型的实现见[实现内幕 · 泛型的实现](internals/src/compiler/generics.md)；用户视角的规则见[参考手册 · 泛型约束](reference/src/language/generic-constraints.md)。
 
 **Phase:** L3
 

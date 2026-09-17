@@ -444,6 +444,77 @@ struct_layout / zbc TYPE section 完全不动，**无格式 bump**。
 （gen1==gen2）；zbc/zpkg minor 不变。golden `types/boxed_primitive_is_as.z42`（Int64/Byte/Int32 跨宽度
 is/as/GetType）+ `types/box_unbox.z42`（`(int)o` 拆箱 + `WriteLine` 装箱打印）验端到端。
 
+### 为什么装箱必须带精确类型标记
+
+`Value` 的内联 payload 只有 8 字节，塞不下「宽度 tag + i64」；而强类型的 `is` / `as` / `GetType`
+要求装箱值**保留精确的基元类型**——`object x = 5; x is long` 必须为 **false**，`object l = 9L;
+l is long` 必须为 **true**。裸 `Value::I64` 两者无从区分（未过 object 边界的裸整数走
+`prim_isa` 松匹配，那是另一条路）。所以装箱一定要落到一个带 `type_desc` 的堆对象上，而不是
+「codegen no-op / 直接把裸值塞进 object 槽」。
+
+代价被限制在装箱点：算术与方法体永远拿拆箱后的标量，热路径零影响。收益是基元 wrapper 本身就是
+真 struct（`struct Int32 : IComparable<int>`），带 type_desc 的盒经对象路径**免费获得**
+is-a / `GetType` / vcall。
+
+### 编译期：谁装箱、在哪装箱
+
+装箱由 `TypeChecker.BoxIfNeeded(value, target)`（`TypeChecker.z42:196`）在每个协变点判定，命中则
+包 `BoundBox`，codegen 由 `TypeOpEmitter._emitBox`（`:135`）降成
+`const.str "Std.Int64"; builtin __box_prim %dst,%val,%cls`（`_emitBoxPrim`，`:163`）。
+**复用既有 Builtin opcode，不新增 IR 指令 ⇒ 不 bump 格式。** 拆箱复用 `AsCast`：`BoxedStruct` →
+基元时 is-a 校验后返还标量。
+
+**哪些源类型真的装箱**（`BoxIfNeeded` 的分支序即判据）：
+
+| 源静态类型 | 目标是 `object` / 接口时 | 说明 |
+|---|---|---|
+| **整数族**（`int`/`long`/`byte`/`short`/`uint`/… ）| ✅ `__box_prim`，`class` = 精确 wrapper | 标量 LE 字节进盒的 `struct_bytes` |
+| **`enum`** | ✅ `__box_prim`，`class` = **enum 自身**（非 `Std.Int32`）| make-enum-distinct-type 1.5 |
+| `bool` / `char` / `float` / `double` | ❌ 不装箱 | 各有自己的 `Value` 变体，自带身份 |
+| `string` | ❌ 不装箱 | 引用类型 |
+| **值 struct**（含泛型实例化 struct）| ✅ `__box_struct`，目标还包括**泛型形参** | 非 blob（单字段等）struct 的 `BoundBox` 在 codegen 退化为透传 |
+| class / record / 数组 / 接口 | ❌ 恒等上转 | 本就是带 TypeDesc 的 GcRef |
+
+> ⚠️ 「基元装箱」在 z42 里**只覆盖整数与 enum**。非整数标量不进盒这件事决定了：
+> `((object)1.5).GetType()` 答 `Double` 不是靠盒，而是靠 `vcall_resolve` 阶梯第 3 级的
+> `primitive_class_name`（见[对象协议派发](object-protocol-dispatch.md)）；
+> 而 `ReferenceEquals` 式的盒身份只对整数 / enum / struct 成立。
+
+**插入点**（协变点逐处插，缺一处就是一次静默丢类型）：
+
+| 插入点 | 位置 |
+|---|---|
+| var-decl（`object o = 5L;`）| `StmtBinder.z42:257` |
+| **再赋值**（`o = 5L;`，非声明）| `AssignTyper.z42:153` |
+| return（返回类型 object/接口）| `StmtBinder.z42:227` |
+| 数组字面量 `object[]` 的元素 | `ExprTyper._bindArrayInit`（`:311`）、集合字面量 `CollectionTyper.z42:63` |
+| call-arg（形参 object/接口）| `TypeChecker.BoxArgs`（`:259-267`），由 `OverloadBinder._withDefaults`（`:243`）单点汇聚 |
+| `params object[]` 尾包元素 | `OverloadBinder._withParamsExpansion`（`:385-399`）逐元素按**元素类型**装箱 |
+| 索引器 set（`d[k] = v`）| `AssignTyper.z42:28-66` —— 手搭 `BoundCall`，**绕过 `BoxArgs`**，就地补装 |
+| 泛型方法实参 | `ExprTyper.z42:164-203` —— 同上，手搭调用绕过 `BoxArgs`，逐位补装 |
+| record 合成 `GetHashCode` 的字段 | `RecordSynth.z42:236` 直接发 `__box_prim` |
+
+> 最后三行是同一个教训的三次复发：**任何手搭 `BoundCall` 而不经 `_withDefaults` 的路径都会漏装箱**。
+> 「再赋值」那一处更直接——`BoxIfNeeded` 的头注释长期宣称覆盖「var-decl / 赋值」，而普通再赋值
+> 其实**根本没有装箱点**，直到 `AssignTyper.z42:148` 补上。漏装箱的症状是安静的：裸标量流进
+> `object` 槽，`is` / `GetType` 答错，或者裸 `StructRef` 句柄逃出创建帧后 use-after-free。
+
+**拆箱消歧**：`(int)x` 有两义——① `x` 是 object / 接口 → 拆箱（`AsCast`）；② `x` 是数值 → 数值窄化
+（`Convert`）。按 `x.Type()` 分派，绝大多数既有 cast 属 ②，不受影响。分类器口径见
+reference 的[类型转换](../../../reference/src/language/conversions.md)。
+
+**call-arg 与基元 native 的交互**：call-arg 装箱会把整数实参装成 object（`Assert.Equal(object,object)`
+这类），而基元 struct 的 native 方法按裸 long 读参 —— `arg_i64`（`corelib/convert.rs` 取参助手）
+**透明拆箱**基元盒，一处修覆盖全部整数 native。
+
+### Deferred（装箱侧）
+
+- **拆箱失败不可捕获**（`add-boxing-future-catchable-invalidcast`）：拆箱失败经运行期
+  `Convert` / `AsCast` 的内部错误产生，当前是**终止性 VM 错误、不可 `try/catch`**——与所有
+  `Convert` 失败一致。让它成为可捕获的 z42 异常是独立的既有问题，不属装箱机制。
+- `add-boxing-future-enum-precise` **已完成**：enum 装箱现在带自己的 type_desc
+  （`GetType().Name` 得 `Color`、`IsEnum` 为 `true`、`ToString()` 得成员名），不再塌成 `Int64`。
+
 ## JIT 值路径（add-struct-jit-value-path P5-A）
 
 P5 前，JIT 一遇任一条 struct 值指令（`StructAlloc`/`StructCopy`/`StructFieldGetPrim`/`StructFieldSetPrim`）

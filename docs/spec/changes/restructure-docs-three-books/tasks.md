@@ -118,6 +118,25 @@
 - [ ] 3b.4 `conversions.md` 切掉「机制 / 实现」两段（已在 reference 但违反判据）
 - [ ] 3b.5 链接重指 + `xtask test docs` 绿 + GREEN
 
+> ⚠️ **格式 bump 刚合入后开的新 worktree 会撞种子窗口**（批 3b 实际踩到）：
+> `install-z42.sh` 装的 nightly 是 bump **合并前**发布的，与源码的新常量 strict-pin 互不认，
+> 第一轮 GREEN 必红在 `zpkg minor <旧> not supported (writer is at <新>)`。
+> **这是假故障**（见 [[z42-worktree-seeding-false-failures]]），不是改坏了。
+> 解法：复用该 bump 那个 PR 的 CI `toolchain-<os>` artifact overlay，
+> 再 `cargo build --release --bin z42vm` + `export Z42_PORTABLE_VM=$PWD/artifacts/build/runtime/release/z42vm`。
+> 等下一个 nightly 发布后自愈。
+
+> ⚠️ **批 6 删 `docs/design/` 前必须先处理的两处硬依赖**（批 3b 发现）：
+> 1. `src/runtime/tests/manifest_schema_validation.rs:22` **硬读**
+>    `docs/design/compiler/manifest-schema.json` —— 删目录时这个测试会红。
+>    该 schema 描述的整套 manifest 机制在自举后已无生产者也无消费者
+>    （`NativeImportSynthesizer` / `ManifestSignatureParser` 全仓零命中）⇒
+>    要么把 schema 落新家，要么连测试一并删。
+> 2. 源码注释里的悬挂引用：`src/runtime/include/z42_abi.h` 头注释指
+>    `docs/design/language/interop.md §3`；`src/runtime/README.md:72` 指
+>    `docs/design/compiler/manifest-schema.json`。注释用**仓库根相对**路径，
+>    重指时别加 `../`（见 [[z42-batch-rewrite-context-blindness]] 的教训）。
+
 ### 批 3 期间做出的裁决（推翻搬迁清单的部分）
 
 | # | 裁决 | 依据 |

@@ -4,11 +4,6 @@
 
 ---
 
-# 第一部分 · 语言（Language）
-
-- [概览](language/README.md)
-  - [泛型总体设计（类型系统）](language/generics.md)
-
 # 第二部分 · 编译与构建（Compiler & Build）
 
 - [概览](compiler/README.md)

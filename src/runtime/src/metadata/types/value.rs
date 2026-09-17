@@ -47,7 +47,7 @@ pub enum Value {
     /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `PinnedViewData`).
     PinnedView { idx: u32, frame_id: u32 } = 8,
     /// Function reference value. Currently used by L2 no-capture lambda
-    /// literals (see docs/design/language/closure.md §6). Indirect call dispatches
+    /// literals (see docs/internals/src/runtime/escape-analysis.md). Indirect call dispatches
     /// to the named function in the loaded module.
     ///
     /// review.md C1 chunk 2 (2026-05-27): `Box<str>` instead of `String`.
@@ -65,7 +65,7 @@ pub enum Value {
     /// L3 capturing closure value: pairs a heap-allocated env (Vec<Value>)
     /// with the lifted function's qualified name. CallIndirect on a Closure
     /// passes `env` as the callee's first implicit parameter and copies user
-    /// args after it. See docs/design/language/closure.md §6 + impl-closure-l3-core.
+    /// args after it. See docs/internals/src/runtime/escape-analysis.md + impl-closure-l3-core.
     ///
     /// review.md C1 chunk 5 (2026-05-27): payload boxed (the last and
     /// biggest cold-path variant — 40 B inline = GcRef(16 B) + String(24 B)).

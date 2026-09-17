@@ -4,7 +4,7 @@
 >
 > 本文与下列规范的关系：
 >
-> - [interop.md](../../../design/language/interop.md) 解决 **native 代码 → 注册类型/方法进 z42**（"扩展语言"）。本文解决 **宿主 app → 启动并驱动 VM**（"嵌入运行时"）。两者复用同一份 `Z42Value` / `Z42Args` 类型，互不重叠。
+> - [native-abi.md](native-abi.md) 解决 **native 代码 → 注册类型/方法进 z42**（"扩展语言"）。本文解决 **宿主 app → 启动并驱动 VM**（"嵌入运行时"）。两者复用同一份 `Z42Value` / `Z42Args` 类型，互不重叠。
 > - [cross-platform.md](cross-platform.md) 决定 VM **如何编译**到 ios/android/wasm。本文决定编译产物**如何被宿主调用**。
 > - [cross-platform-testing.md](../../../design/testing/cross-platform-testing.md) 的 test-runner 是本 API 的**首要消费者**之一；MVP 之后 runner 将基于本 API 重构（见 §12 Deferred）。
 
@@ -36,9 +36,9 @@
 参照 CoreCLR `coreclrhost.h`、JNI `JavaVM`、Lua `lua_State` 三家的经验，确立五条：
 
 1. **单实例（v0.1）** — 每进程一份 VM 状态。`Z42HostRef` 是占位 handle，所有调用复用同一全局 context。多实例 / ALC / Isolated context 进 Deferred。
-2. **三层 ABI**（与 [interop.md §2](../../../design/language/interop.md) 同构） — Tier 1 稳定 C ABI；Tier 2 Rust 人因工程；Tier 3 平台 facade（Swift / Kotlin / JS）。
+2. **三层 ABI**（与 [native-abi.md §1](native-abi.md) 同构） — Tier 1 稳定 C ABI；Tier 2 Rust 人因工程；Tier 3 平台 facade（Swift / Kotlin / JS）。
 3. **AOT 友好** — 入口解析按 FQN（fully qualified name）字符串查找，运行时不依赖反射元数据生成器。iOS 禁 JIT 场景下走 interp 或 AOT。
-4. **零拷贝优先** — 标量值通过 `Z42Value` 直接传递；`String` / `Array<T>` 通过 `pinned` 块跨边界（沿用 [interop.md §6.3](../../../design/language/interop.md)）。
+4. **零拷贝优先** — 标量值通过 `Z42Value` 直接传递；`String` / `Array<T>` 通过 `pinned` 块跨边界（沿用 [native-abi.md §5](native-abi.md) 的 `PinnedView`）。
 5. **panic 隔离** — 任何 z42 异常 / Rust panic 不跨 FFI 线；统一翻译为 `Z42HostStatus` 错误码 + `Z42Error` 详情。
 
 ---
@@ -178,7 +178,7 @@ Z42Error z42_host_last_error(Z42HostRef host);
 Z42HostStatus z42_host_shutdown(Z42HostRef host);
 ```
 
-### 4.5 ABI 演化规则（沿用 interop.md §3.3）
+### 4.5 ABI 演化规则（沿用 Tier 1 的演进规则）
 
 - `abi_version` 字段保持 offset 0；新版本只 append 字段
 - VM 按 `abi_version`-aware 大小读取 `Z42HostConfig`，不假设布局
@@ -421,7 +421,7 @@ H1–H3 为本 spec 的实施范围；H4 / H5 由各 P4.x / runner spec 主导�
 
 ## §13 与现有规范的关系
 
-- **interop.md**：本文 §4.1 复用 `Z42Value` / `Z42Args`；不重复定义。两份 ABI 在同一 `z42_abi.h` / `z42_host.h` 头文件树下并行。
+- **[native-abi.md](native-abi.md)**：本文 §4.1 复用 `Z42Value` / `Z42Args`；不重复定义。两份 ABI 在同一 `z42_abi.h` / `z42_host.h` 头文件树下并行。
 - **cross-platform.md**：本文 §4.2 的 `Z42_EXEC_MODE_JIT` / `_AOT` 在对应 feature 关闭时返回 `ERR_FEATURE_OFF`，与 cross-platform.md "feature off → CLI 直接报错" 同精神。
 - **cross-platform-testing.md**：runner library 在 H5 重构为本 API 的消费者；现有 platform-binding 形态不变。
 - **hot-reload.md**：本文不动 hot-reload 语义；后续多实例落地时再桥接。

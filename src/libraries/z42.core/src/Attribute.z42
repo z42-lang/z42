@@ -23,6 +23,6 @@ namespace Std;
 // Mirrors C# `System.Attribute`: same `[Use]` ↔ `UseAttribute` suffix mapping,
 // but z42 makes the suffix mandatory (hard error, vs C#'s optional CA1710
 // warning). Single constructor init path, cached immutable instances. See
-// docs/design/language/attributes.md and the attribute-handler-registry design.
+// docs/reference/src/language/attributes.md and the attribute-handler-registry design.
 public class Attribute {
 }
