@@ -171,7 +171,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // before, so cross-package associated types were fully lost, forcing three
 // IsImported guards in the compiler. Associated types are compile-time only; the
 // runtime consumes both new payloads for cursor alignment (does not validate them).
-pub const ZBC_VERSION_MINOR: u16 = 42;
+pub const ZBC_VERSION_MINOR: u16 = 43;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -291,7 +291,7 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-16 assoc-type-crosspkg: bumped to 0.47 — embeds zbc 1.42 (constraint bundle
 // bit7 + TYPE unified assoc block, cross-package associated types). No zpkg-outer
 // layout change; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 47;
+pub const ZPKG_VERSION_MINOR: u16 = 48;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

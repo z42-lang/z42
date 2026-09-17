@@ -109,18 +109,16 @@ public sealed class ExprEmitter {
         }
         if (e is BoundRefArg) {
             BoundRefArg ra = e as BoundRefArg;
-            TypedReg slotReg;
             // `out var n` 内联声明：先为 n 分配槽寄存器 + 登记 Locals（调用后读 n 命中），
-            // 镜像 C#（%1=n; load_local_addr %1）。否则 Emit inner 取其活寄存器。
+            // 镜像 C#（%1=n; load_local_addr %1）。这条路一直是对的，保持不动。
             if (ra.IsVarDecl && !this._ctx.Locals.ContainsKey(ra.VarName)) {
-                slotReg = this._ctx.Alloc(IrType.Unknown);
-                this._ctx.Locals.Put(ra.VarName, slotReg);
-            } else {
-                slotReg = this.Emit(ra.Inner);
+                TypedReg vdSlot = this._ctx.Alloc(IrType.Unknown);
+                this._ctx.Locals.Put(ra.VarName, vdSlot);
+                TypedReg vdDst = this._ctx.Alloc(IrType.Unknown);
+                this._ctx.Emit(new LoadLocalAddrInstr(vdDst, vdSlot));
+                return vdDst;
             }
-            TypedReg dst = this._ctx.Alloc(IrType.Unknown);
-            this._ctx.Emit(new LoadLocalAddrInstr(dst, slotReg));
-            return dst;
+            return this._emitRefArgAddr(ra);
         }
         if (e is BoundArrayLit) {
             BoundArrayLit al = e as BoundArrayLit;
@@ -451,6 +449,50 @@ public sealed class ExprEmitter {
     // struct-static-call（避免 struct receiver 上发 VCall）。
     internal TypedReg _emitStructPropGet(string fqGetter, TypedReg recv, Z42Type retType) {
         return this._call._emitStructInstanceGetter(fqGetter, recv, retType);
+    }
+
+    // fix-ref-lvalue-addressing：按 inner 的**左值形态**发不同的取址指令。
+    //
+    // 此前一律 `slotReg = Emit(ra.Inner)` 再 `LoadLocalAddr(slotReg)` —— 对局部变量恰好正确
+    // （Emit 返回的就是它的归属寄存器），但对数组元素 / 对象字段，Emit 是**一次读取**、返回一个
+    // **新分配的临时寄存器** ⇒ 取的是临时槽的地址 ⇒ 出口 copy-out 写回临时槽，调用方看不到
+    // （静默丢写：`Inc(ref arr[0])` 打印 10 而非 11）。
+    //
+    // VM 侧 0xA1/0xA2 的解码与执行自 2026-05-05 就完整（RefKind::Array / Field 持 GcRef、
+    // 与帧栈无关，比 Stack 形态更安全），只是编译器从没发过。
+    //
+    // **不可取址的形态（属性 / 索引器 / 静态字段 / blob struct 字段）已由 ExprTyper._bindRefArg
+    // 在绑定期拒绝**（E0470）—— emitter 不报诊断，走到这里的都是合法形态。
+    private TypedReg _emitRefArgAddr(BoundRefArg ra) {
+        BoundExpr inner = ra.Inner;
+        TypedReg dst = this._ctx.Alloc(IrType.Unknown);
+
+        // ① 数组元素 `ref arr[i]` → load_elem_addr
+        if (inner is BoundIndex) {
+            BoundIndex bi = inner as BoundIndex;
+            if (bi.Target.Type() is Z42ArrayType) {
+                TypedReg arr = this.Emit(bi.Target);
+                TypedReg idx = this.Emit(bi.Index);
+                this._ctx.Emit(new LoadElemAddrInstr(dst, arr, idx));
+                return dst;
+            }
+        }
+
+        // ② 引用类对象的字段 `ref obj.f` / `ref this.f` → load_field_addr
+        if (inner is BoundMember) {
+            BoundMember bm = inner as BoundMember;
+            if (!this._isBlobStruct(bm.Target.Type()) && !(bm.Target.Type() is Z42ArrayType)) {
+                TypedReg obj = this.Emit(bm.Target);
+                this._ctx.Emit(new LoadFieldAddrInstr(dst, obj, bm.MemberName));
+                return dst;
+            }
+        }
+
+        // ③ 局部变量 / 形参（含 owner struct 的裸字段等既有形态）→ 原路径，字节不变。
+        //    绑定期拒绝过的形态也落这里（错误路径，IR 保良构、不会被执行）。
+        TypedReg slotReg = this.Emit(inner);
+        this._ctx.Emit(new LoadLocalAddrInstr(dst, slotReg));
+        return dst;
     }
 
     // ── add-struct-value-semantics A-use：blob 值 struct 字段 access 翻转助手 ────────────
