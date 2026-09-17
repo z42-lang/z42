@@ -1,0 +1,4 @@
+# ANCHOR: eval
+$ z42 repl -c "40 + 2"
+42
+# ANCHOR_END: eval

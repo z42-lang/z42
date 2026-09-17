@@ -1,0 +1,7 @@
+# ANCHOR: errors
+$ z42 run bad.z42
+z42c build: 2 error(s) in bad.z42
+  bad.z42(4,13): E0402: cannot assign string to Int32 (var-decl)
+  bad.z42(5,5): E0401: undefined: Consle
+[exit: 1]
+# ANCHOR_END: errors
