@@ -1,0 +1,36 @@
+// fix-ref-lvalue-addressing：`ref obj.f` / `ref this.f` → LoadFieldAddr(0xA2)。
+// 此前同样取的是临时寄存器的地址 ⇒ h.f 停在 20（静默丢写）。
+class H {
+    public int    f;
+    public string s;
+    public int    g;
+
+    public void BumpOwn() { Inc(ref this.f); }   // this. 形态
+}
+
+void Inc(ref int x) { x = x + 1; }
+void SetStr(ref string x, string v) { x = v; }
+
+void Main() {
+    var h = new H();
+    h.f = 20; h.g = 5; h.s = "a";
+
+    Inc(ref h.f);
+    Assert.Equal(21, h.f);
+    Assert.Equal(5, h.g);            // 同对象的别的字段不受影响
+
+    // this. 形态（方法内取自己的字段地址）
+    h.BumpOwn();
+    Assert.Equal(22, h.f);
+
+    // 引用类型字段
+    SetStr(ref h.s, "b");
+    Assert.Equal("b", h.s);
+
+    // 两个对象互不串扰
+    var h2 = new H();
+    h2.f = 100;
+    Inc(ref h.f);
+    Assert.Equal(23, h.f);
+    Assert.Equal(100, h2.f);
+}
