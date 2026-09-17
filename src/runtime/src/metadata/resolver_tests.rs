@@ -72,9 +72,8 @@ fn vcall_ic_default_all_slots_unresolved() {
     let ic = VCallIC::default();
     use std::sync::atomic::Ordering;
     for entry in &ic.entries {
-        assert_eq!(entry.type_id.load(Ordering::Relaxed), UNRESOLVED);
-        assert_eq!(entry.slot.load(Ordering::Relaxed), UNRESOLVED);
-        assert_eq!(entry.fn_idx.load(Ordering::Relaxed), UNRESOLVED);
+        // 空 entry = (UNRESOLVED, UNRESOLVED) 打包后的 u64（见 ic.rs `pack`）。
+        assert_eq!(entry.packed.load(Ordering::Relaxed), u64::MAX);
     }
     assert_eq!(ic.round_robin.load(Ordering::Relaxed), 0);
 }
@@ -84,8 +83,7 @@ fn field_ic_default_all_slots_unresolved() {
     let ic = FieldIC::default();
     use std::sync::atomic::Ordering;
     for entry in &ic.entries {
-        assert_eq!(entry.type_id.load(Ordering::Relaxed), UNRESOLVED);
-        assert_eq!(entry.slot.load(Ordering::Relaxed), UNRESOLVED);
+        assert_eq!(entry.packed.load(Ordering::Relaxed), u64::MAX);
     }
     assert_eq!(ic.round_robin.load(Ordering::Relaxed), 0);
 }
@@ -148,15 +146,15 @@ fn field_ic_install_unresolved_is_noop() {
 #[test]
 fn vcall_ic_mono_hit() {
     let ic = VCallIC::default();
-    vcall_ic_install(&ic, 1, 2, 100);
-    assert_eq!(vcall_ic_lookup(&ic, 1), Some((2, 100)));
+    vcall_ic_install(&ic, 1, 100);
+    assert_eq!(vcall_ic_lookup(&ic, 1), Some(100));
 }
 
 #[test]
 fn vcall_ic_poly_four_types() {
     let ic = VCallIC::default();
-    for t in 1..=4 { vcall_ic_install(&ic, t, t, t * 100); }
-    for t in 1..=4 { assert_eq!(vcall_ic_lookup(&ic, t), Some((t, t * 100))); }
+    for t in 1..=4 { vcall_ic_install(&ic, t, t * 100); }
+    for t in 1..=4 { assert_eq!(vcall_ic_lookup(&ic, t), Some(t * 100)); }
 }
 
 // ── cache-ctorless-objnew ────────────────────────────────────────────────
@@ -205,6 +203,90 @@ fn ic_reinstall_same_type_updates_slot_in_place() {
     // And the remaining 3 slots should still be UNRESOLVED.
     use std::sync::atomic::Ordering;
     for entry in &ic.entries[1..] {
-        assert_eq!(entry.type_id.load(Ordering::Relaxed), UNRESOLVED);
+        assert_eq!(entry.packed.load(Ordering::Relaxed), u64::MAX);
     }
+}
+
+
+// ── fix-field-ic-publication-race (2026-09-17) ───────────────────────────────
+
+/// (TypeId, 载荷) 必须**成对**发布：并发 install/lookup 期间，任何一次命中拿到的载荷
+/// 都必须是该 TypeId 自己的那份，而不是别的 TypeId 的（或还没写入的 `UNRESOLVED`）。
+///
+/// 这条在修复前是会红的：entry 曾是两个独立 `Relaxed` 原子量，读者能看到
+/// 「新 TypeId + 旧/未写入 slot」。压力式测试对内存序竞态**不保证**每次都抓到
+/// （x86 上几乎抓不到），确定性的那道门是 `tests/ic_publication_loom.rs`。
+#[test]
+fn concurrent_install_never_publishes_a_mismatched_payload() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    // 约定：type t 的载荷恒为 t * 1000 —— 于是「载荷 != tid * 1000」就是撕裂。
+    let ic = Arc::new(FieldIC::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut writers = Vec::new();
+    for t in 1..=8u32 {
+        let (ic, stop) = (Arc::clone(&ic), Arc::clone(&stop));
+        writers.push(std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                field_ic_install(&ic, t, t * 1000);
+            }
+        }));
+    }
+    let mut readers = Vec::new();
+    for _ in 0..4 {
+        let (ic, stop) = (Arc::clone(&ic), Arc::clone(&stop));
+        readers.push(std::thread::spawn(move || {
+            let mut torn = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                for t in 1..=8u32 {
+                    if let Some(payload) = field_ic_lookup(&ic, t) {
+                        if payload != t * 1000 { torn += 1; }
+                    }
+                }
+            }
+            torn
+        }));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    stop.store(true, Ordering::Relaxed);
+    for w in writers { w.join().unwrap(); }
+    let torn: u64 = readers.into_iter().map(|r| r.join().unwrap()).sum();
+    assert_eq!(torn, 0, "PIC 命中拿到了不属于该 TypeId 的载荷（(TypeId, 载荷) 被拆开发布）");
+}
+
+/// `vcall` 侧同款不变量。
+#[test]
+fn vcall_concurrent_install_never_publishes_a_mismatched_payload() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let ic = Arc::new(VCallIC::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut hs = Vec::new();
+    for t in 1..=8u32 {
+        let (ic, stop) = (Arc::clone(&ic), Arc::clone(&stop));
+        hs.push(std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) { vcall_ic_install(&ic, t, t * 1000); }
+            0u64
+        }));
+    }
+    for _ in 0..4 {
+        let (ic, stop) = (Arc::clone(&ic), Arc::clone(&stop));
+        hs.push(std::thread::spawn(move || {
+            let mut torn = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                for t in 1..=8u32 {
+                    if let Some(p) = vcall_ic_lookup(&ic, t) {
+                        if p != t * 1000 { torn += 1; }
+                    }
+                }
+            }
+            torn
+        }));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    stop.store(true, Ordering::Relaxed);
+    let torn: u64 = hs.into_iter().map(|h| h.join().unwrap()).sum();
+    assert_eq!(torn, 0, "VCallIC 命中拿到了不属于该 TypeId 的 fn_idx");
 }
