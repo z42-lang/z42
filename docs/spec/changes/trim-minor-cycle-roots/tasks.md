@@ -1,6 +1,7 @@
 # Tasks: 周期中的 minor 只把年轻的灰条目当根
 
-> 状态：🟠 **实施 + 验证完成，但实测无收益 —— 待 User 裁决落不落** | 创建：2026-09-18 | User gate 已过：2026-09-18
+> 状态：🟢 **实施 + 验证完成，GREEN 全绿，待合** | 创建：2026-09-18 | User gate 已过：2026-09-18
+> ⚠️ **实测无收益**（见 D5b）；User 裁决 2026-09-18：**仍然落**——理由是去掉可证明重复的工作 + 更正成本账，不是性能
 > 变更类型：`vm`（GC 根集语义；不改语言 / IR / zbc 格式）
 > 前置：`add-incremental-major-gc` M0~M2b + `add-pause-budget-nursery`（M3）已合
 > 本 change = M3 挖出、当时明确不在 M3 修的**两笔账之一**（另一笔「切片把 minor 闸门推远」是独立 change）
@@ -39,12 +40,14 @@ A/B（同机交错 ×3）总停顿 `--large` −1.4% / `lh` −0.2%，最大停�
 ## 3: 验收与文档
 - [x] 3.1 A/B（同机交错 ×3，两个二进制）+ 固定 nursery 对照组 —— **无收益，见 D5b**
 - [x] 3.2 产物逐字节一致（6 份 `z42c.semantics.zpkg` 同一个 md5）
-- [x] 3.3 GREEN（`xtask test`；`./xtask` apphost 本树没有，从同 commit 的 worktree 拷了一个）
+- [x] 3.3 GREEN（`xtask test`）：**✅ 全绿 6m47s**。两个环境坑：`./xtask` apphost 本树没有
+      （publish 才产出）⇒ 从同 commit 的 worktree 拷；构建波必须带 `RUSTUP_TOOLCHAIN=1.98.1`，
+      否则 cranelift 要 rustc 1.95 直接失败
 - [x] 3.4 `gc-incremental-major.md`：「灰/SATB 作 minor 根」一节改写 + 卡表论证 + 两条前提
 - [x] 3.5 `gc.md` 写屏障契约页：卡表不变量的第二个消费者
 
-## 4: 待裁决
-- [ ] 4.1 **落还是弃**。落的理由不是性能：省掉的是*可证明*重复的工作、规则变精确、
-      M3 的成本账变诚实。弃的理由：动的是 GC 根集语义（本仓最高风险区），而收益实测为 0。
-- [ ] 4.2 若落：`docs/spec/changes/add-pause-budget-nursery` 与 M3 笔记里「两个固定成本大头」
-      的说法要改成「一个大头（卡表 O(老年代)）+ 一个零头」
+## 4: 裁决与收尾
+- [x] 4.1 **User 裁决 2026-09-18：落**。理由不是性能——省掉的是*可证明*重复的工作、规则变精确、
+      成本账变诚实。PR 不包装成性能优化。
+- [x] 4.2 `add-pause-budget-nursery` 的「两个固定成本大头」改成「一个大头（卡表 O(老年代)）+ 一个零头」
+- [ ] 4.3 合并后删分支 / worktree，归档本 change
