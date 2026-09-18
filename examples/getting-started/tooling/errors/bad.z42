@@ -1,0 +1,6 @@
+using Std.IO;
+
+void Main() {
+    int n = "abc";
+    Consle.WriteLine(n);
+}
