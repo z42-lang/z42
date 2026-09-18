@@ -38,6 +38,20 @@ is_int_div_by_zero(divisor)  DIV_BY_ZERO_EXC  div_by_zero_msg(op)  SHIFT_MASK
 
 于是路径 1、2 对同一规则只有**一份**实现。
 
+> ⚠️ **收敛曾经漏过两个 helper（fix-mixed-numeric-equality, 2026-09-18）。**
+> 上面这句在 `jit_eq` / `jit_ne` 上一度不成立：`jit_lt`/`jit_le`/`jit_gt`/`jit_ge` 都改调了
+> `semantics::numeric_lt`，而相等那两个一直直接用 `Value: PartialEq`。`PartialEq` 按变体配对、
+> **没有混合数值臂**，于是 `int == double` / `char == int` 在**三路全部**恒假（interp 侧
+> `eval_cmp` 也把 `Eq`/`Ne` 委给了 `PartialEq`），而同样操作数的 `<` `<=` `>` `>=` 全部正确。
+>
+> 两条教训：
+>
+> 1. **差分测试对混合操作数是盲区。** 它比的是内联码与 `semantics.rs` 的 byte-identity，
+>    而混合操作数**根本不产生内联码**（`is_int_cmp` / `is_f64_cmp` 只在两侧静态同类时内联）。
+>    混合路径只能靠 golden（`src/tests/operators/mixed_numeric_equality.z42`）+ 单测守。
+> 2. **新增 / 改动任何比较 helper 前，先确认它调的是 `semantics::*`**，而不是自己就地写一个
+>    看起来等价的 `==`。「等价」在同类操作数上成立、在混合操作数上不成立，正是这次漏网的形状。
+
 **对象级判定同款（2026-09-03）**：标量之外，两条对象路径也已收敛到运行期同一 Rust 函数——
 
 | 判定 | 单一实现 | 缓存 | interp 调用侧 | JIT 调用侧 |
