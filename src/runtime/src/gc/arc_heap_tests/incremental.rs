@@ -656,6 +656,124 @@ fn run_minor_inside_cycle(mark_it: bool) -> bool {
     alive
 }
 
+/// **trim-minor-cycle-roots (2026-09-18)**: what seeding the grey queue into a minor actually
+/// buys is the grey entry's **untraced children**. The entry itself is already safe — M2b's
+/// `keep_major` keeps anything the cycle has marked — but a grey entry is *marked and not yet
+/// traced*, so a child reachable only through it is still white, and a minor would take it.
+///
+/// The grey state is the natural one, not a faked queue: a budget-1 slice snapshots the pinned
+/// root and traces exactly one entry, leaving `g` marked-but-untraced and `c` white. The mutator
+/// then cuts the only edge a minor could find `g` by, with SATB off so the cut records nothing —
+/// the grey queue is the sole claim under test. `seeded = false` removes *just* `g` from the
+/// queue and changes nothing else, which is what makes this a control rather than a coincidence.
+fn run_grey_subtree(seeded: bool) -> bool {
+    let heap = generational_heap();
+    let _bound = Bound::to(&heap);
+    let root = obj(&heap, "Root");
+    let g = obj(&heap, "Grey");
+    let c = obj(&heap, "Child");
+    let (Value::Object(root_gc), Value::Object(g_gc)) = (&root, &g) else { panic!() };
+    root_gc.borrow_mut().set_ref_slot(0, &g);
+    g_gc.borrow_mut().set_ref_slot(0, &c);
+    let _pin = heap.pin_root(root.clone());
+    let weak_c = heap.make_weak(&c).expect("object");
+    drop(c);
+
+    assert!(!heap.run_major_slice_for_test(1), "cycle open");
+    let is_g = |v: &Value| matches!(v, Value::Object(o) if GcRef::ptr_eq(o, g_gc));
+    assert!(heap.mark_queue_for_test().iter().any(is_g),
+        "g must be grey after a budget-1 slice");
+    if !seeded {
+        heap.mark_queue_for_test_mut().retain(|v| !is_g(v));
+    }
+
+    crate::gc::satb::set_disabled_for_test(true);
+    root_gc.borrow_mut().set_ref_slot(0, &Value::Null);
+    heap.run_cycle_collection_minor();
+    let alive = raw_alive(&weak_c);
+    std::mem::forget(g);
+    heap.finish_major_cycle_for_test();
+    alive
+}
+
+#[test]
+fn a_young_grey_entry_is_seeded_so_its_untraced_child_survives() {
+    assert!(run_grey_subtree(true));
+}
+
+#[test]
+fn a_child_of_an_unseeded_grey_entry_is_reclaimed() {
+    assert!(!run_grey_subtree(false),
+        "control: the young half of the rule is what carries the child");
+}
+
+/// **trim-minor-cycle-roots (2026-09-18)**: an **old** grey entry is *not* seeded — its young
+/// children are already reachable from the dirty-card set, the same invariant that lets the BFS
+/// skip old *children*. `dirty_card` is the control: with the card clean the young child is
+/// reclaimed, which is what proves this exercises the card path and not some other root.
+///
+/// Before this change the old grey entry was a root itself, so the child survived either way —
+/// and the card scan re-traced that very entry on every minor (measured: 118 690 old entries
+/// re-copied per minor on `13_gc_large_heap --large`, 68% of all grey roots).
+///
+/// `y` is born **before** the cycle opens on purpose: an object allocated during marking is
+/// allocate-black, and `keep_major` would then carry it whatever the root set says.
+fn run_old_grey_entry_child(dirty_card: bool) -> bool {
+    let heap = generational_heap();
+    let _bound = Bound::to(&heap);
+    let root = obj(&heap, "Root");
+    let holder = obj(&heap, "OldHolder");
+    let (Value::Object(root_gc), Value::Object(holder_gc)) = (&root, &holder) else { panic!() };
+    root_gc.borrow_mut().set_ref_slot(0, &holder);
+    let _pin = heap.pin_root(root.clone());
+    for _ in 0..4 {
+        heap.run_cycle_collection_minor();
+    }
+    assert!(ArcMagrGC::gen_age_of(&holder) >= heap.promotion_age(), "holder must be old");
+
+    // The young child, and the old→young edge — with or without the card that records it.
+    let y = obj(&heap, "Young");
+    let weak_y = heap.make_weak(&y).expect("object");
+    holder_gc.borrow_mut().set_field_value(0, &y);
+    if dirty_card {
+        heap.write_barrier_field(&holder, 0, &y);
+    }
+    drop(y);
+
+    // A budget-1 slice traces the root and leaves `holder` marked-but-untraced: an old grey
+    // entry, with `y` still white behind it.
+    assert!(!heap.run_major_slice_for_test(1), "cycle open");
+    assert!(heap.mark_queue_for_test().iter()
+            .any(|v| matches!(v, Value::Object(o) if GcRef::ptr_eq(o, holder_gc))),
+        "holder must be grey after a budget-1 slice");
+
+    crate::gc::satb::set_disabled_for_test(true);
+    root_gc.borrow_mut().set_ref_slot(0, &Value::Null);
+    heap.run_cycle_collection_minor();
+    let alive = raw_alive(&weak_y);
+    if !alive {
+        // The control manufactured a state the card invariant rules out — an old→young edge with
+        // no card — so the edge is now dangling. Cut it before letting the marker trace `holder`,
+        // or the cycle finishes by dereferencing it. That panic *is* the finding, but a control
+        // should report it, not crash on it.
+        holder_gc.borrow_mut().set_ref_slot(0, &Value::Null);
+    }
+    std::mem::forget(holder);
+    heap.finish_major_cycle_for_test();
+    alive
+}
+
+#[test]
+fn an_old_grey_entrys_young_child_survives_on_its_card() {
+    assert!(run_old_grey_entry_child(true));
+}
+
+#[test]
+fn without_the_card_an_old_grey_entry_no_longer_carries_its_child() {
+    assert!(!run_old_grey_entry_child(false),
+        "control: with old grey entries dropped, the card is what carries the child");
+}
+
 #[test]
 fn a_minor_inside_a_cycle_keeps_what_the_marker_already_marked() {
     assert!(run_minor_inside_cycle(true));

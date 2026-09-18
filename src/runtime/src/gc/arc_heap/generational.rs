@@ -127,16 +127,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // add-incremental-major-gc M2a: a major mark's grey set and SATB records are roots for a
         // minor that runs while that mark is outstanding — otherwise a young object the barrier
         // recorded could be swept here and handed back to the marker as a dangling handle.
+        // trim-minor-cycle-roots: **only the young ones**, see [`Self::seed_cycle_queue`].
         // add-pause-budget-nursery: a minor's pause is only *buyable* with the nursery to the
-        // extent that its work is proportional to the young set. These three notes say how much
-        // of it is not — see [`super::pause_budget`].
+        // extent that its work is proportional to the young set. These notes say how much of it
+        // is not — see [`super::pause_budget`].
         let pinned_n = queue.len();
-        queue.extend(self.satb_queue.lock().iter().cloned());
+        let satb_old = Self::seed_cycle_queue(&mut queue, &self.satb_queue.lock(), threshold);
         let satb_n = queue.len() - pinned_n;
-        queue.extend(self.mark_queue.lock().iter().cloned());
+        let grey_old = Self::seed_cycle_queue(&mut queue, &self.mark_queue.lock(), threshold);
         let grey_n = queue.len() - pinned_n - satb_n;
         crate::gc::phase_timer::note(format_args!(
-            "  minor roots  pinned+handles {pinned_n}, satb {satb_n}, grey {grey_n}"));
+            "  minor roots  pinned+handles {pinned_n}, satb {satb_n} (skipped old {satb_old}), \
+grey {grey_n} (skipped old {grey_old})"));
         {
             let scanner = self.external_root_scanner.lock();
             if let Some(scan) = scanner.as_ref() {
@@ -231,6 +233,56 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// re-dirties on the next cross-gen write, and `dirty_cards_for_newly_old_*` re-dirties
     /// for the edges promotion creates in this same sweep — the two other ways the invariant
     /// can be broken (see the card-table invariant in the book).
+    /// **trim-minor-cycle-roots (2026-09-18)**: seed the **young** entries of one of an open
+    /// cycle's queues (`mark_queue` / `satb_queue`) as minor roots, and report how many old ones
+    /// were skipped.
+    ///
+    /// M2a made both queues minor roots wholesale, which is more than the rule needs. What the
+    /// rule protects is a *young* entry: a minor reclaims young entries, so one the marker is
+    /// already holding would be swept out from under it. An **old** entry cannot be reclaimed
+    /// here at all, so rooting it buys exactly one thing — one level of tracing — and that level
+    /// is already covered. For any old entry `X`, exactly one of:
+    ///
+    /// - **`X`'s card is dirty** → [`Self::seed_from_dirty_cards`] traces `X` and queues its young
+    ///   children (`seed_card_entry`'s old arm). The grey push is *duplicate work*, and it is not
+    ///   cheap: measured on `13_gc_large_heap --large`, **118 690** old entries copied and re-traced
+    ///   on *every* minor, 466 629 of the 683 092 grey roots across the run.
+    /// - **`X`'s card is clean** → a card is only cleaned once no entry in it reaches anything
+    ///   young, and both paths that can create an old→young edge re-dirty it
+    ///   (`maybe_mark_cross_gen_card` on the write, `dirty_cards_for_newly_old_*` on promotion).
+    ///   So `X` has no young children and tracing it produces nothing.
+    ///
+    /// This is the **same invariant the BFS below already runs on** — it is why old *children* are
+    /// never enqueued. Two premises it rests on, both load-bearing:
+    ///
+    /// 1. *A minor never reclaims an entry that is old by age.* `Region::sweep_young_in_one_pass`
+    ///    walks `young_list` only, and adaptive promotion may lower the line only in the window
+    ///    where the following aging pass drains everything the new line makes old
+    ///    (`Region::set_promotion_age`). `VarRegion::sweep_young` guards the remaining case
+    ///    explicitly (`fix-old-block-left-in-young-list`), since `age_backing_with_owner` raises a
+    ///    backing's age without delisting it.
+    /// 2. *`region_var` has no card table* (`maybe_mark_cross_gen_card`'s `_ => {}` arm), so
+    ///    premise 1 of the argument above is checked per variant instead: `Str` / `FuncRef` are
+    ///    leaves; a closure's `env` is fixed at construction and ages in lockstep with it (every
+    ///    minor that reaches the closure marks the env header), so an old closure's env is old —
+    ///    and the env is an *array*, which does have a card; an array's element backing is kept at
+    ///    least as old as its owner by `age_backing_with_owner`, and a minor tracing an old array
+    ///    passes `None` so it does not `mark_backing` either way.
+    ///
+    /// The queues themselves are untouched — the marker still gets every entry it recorded, so
+    /// the SATB snapshot promise is unaffected. This only narrows what the *minor* seeds.
+    fn seed_cycle_queue(queue: &mut Vec<Value>, cycle: &[Value], threshold: u8) -> usize {
+        let mut skipped_old = 0usize;
+        for v in cycle {
+            if Self::gen_age_of(v) < threshold {
+                queue.push(v.clone());
+            } else {
+                skipped_old += 1;
+            }
+        }
+        skipped_old
+    }
+
     fn seed_from_dirty_cards(&self, queue: &mut Vec<Value>, threshold: u8) {
         // add-pause-budget-nursery: how many *old* entries the card scan had to look at is the
         // part of a minor's cost that the nursery cannot buy down — see the module note.
