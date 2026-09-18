@@ -1,0 +1,11 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int k = 99;
+    do {
+        Console.WriteLine($"k={k}");   // 条件一开始就不成立，这句照样跑了一次
+        k = k + 1;
+    } while (k < 3);
+    // ANCHOR_END: code
+}

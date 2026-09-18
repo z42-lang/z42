@@ -1,0 +1,12 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int n = 2;
+
+    switch (n) {
+        default: Console.WriteLine("default");   // 命中这条
+        case 2:  Console.WriteLine("two");       // 永远到不了，而且没有任何提示
+    }
+    // ANCHOR_END: code
+}

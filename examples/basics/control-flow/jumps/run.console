@@ -1,0 +1,14 @@
+# ANCHOR: breakcontinue
+$ z42 run breakcontinue.z42
+1
+3
+# ANCHOR_END: breakcontinue
+# ANCHOR: switchcontinue
+$ z42 run switchcontinue.z42
+i=1
+i=3
+# ANCHOR_END: switchcontinue
+# ANCHOR: nested
+$ z42 run nested.z42
+找到了 r=1 c=1
+# ANCHOR_END: nested

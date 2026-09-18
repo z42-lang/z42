@@ -1,0 +1,15 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int i = 0;
+    while (i < 3) {
+        i = i + 1;
+        switch (i) {
+            case 2:  continue;   // 作用于外层 while，不是跳到下一个 case
+            default: break;      // 跳出 switch，继续往下走
+        }
+        Console.WriteLine($"i={i}");
+    }
+    // ANCHOR_END: code
+}

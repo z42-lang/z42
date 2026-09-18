@@ -1,0 +1,18 @@
+# ANCHOR: while
+$ z42 run while.z42
+n=0
+n=1
+n=2
+# ANCHOR_END: while
+# ANCHOR: dowhile
+$ z42 run dowhile.z42
+k=99
+# ANCHOR_END: dowhile
+# ANCHOR: for
+$ z42 run for.z42
+i=0
+i=1
+i=2
+j=0
+j=1
+# ANCHOR_END: for

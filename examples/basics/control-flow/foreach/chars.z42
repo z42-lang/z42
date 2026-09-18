@@ -1,0 +1,12 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    string s = "abc";
+
+    // 字符串不能直接 foreach，先要一个字符数组
+    foreach (char c in s.ToCharArray()) {
+        Console.WriteLine(c);
+    }
+    // ANCHOR_END: code
+}

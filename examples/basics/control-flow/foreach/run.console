@@ -1,0 +1,14 @@
+# ANCHOR: arrays
+$ z42 run arrays.z42
+10
+20
+30
+小明
+小红
+# ANCHOR_END: arrays
+# ANCHOR: chars
+$ z42 run chars.z42
+a
+b
+c
+# ANCHOR_END: chars

@@ -1,0 +1,15 @@
+using Std.IO;
+
+enum Direction { North, South, East, West }
+
+void Main() {
+    // ANCHOR: code
+    Direction d = Direction.South;
+
+    switch (d) {
+        case Direction.North: Console.WriteLine("向北");
+        case Direction.South: Console.WriteLine("向南");
+        default:              Console.WriteLine("其它方向");
+    }
+    // ANCHOR_END: code
+}

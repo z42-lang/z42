@@ -1,0 +1,11 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int n = 0;
+    while (n < 3) {
+        Console.WriteLine($"n={n}");
+        n = n + 1;
+    }
+    // ANCHOR_END: code
+}

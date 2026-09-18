@@ -1,0 +1,4 @@
+# ANCHOR: run
+$ z42 run ifelse.z42
+B
+# ANCHOR_END: run

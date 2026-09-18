@@ -1,0 +1,16 @@
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    // ANCHOR: code
+    int[] nums = [10, 20, 30];
+    foreach (int v in nums) {
+        Console.WriteLine(v);
+    }
+
+    List<string> names = { "小明", "小红" };
+    foreach (string name in names) {
+        Console.WriteLine(name);
+    }
+    // ANCHOR_END: code
+}
