@@ -16,3 +16,4 @@
 # 语言基础
 
 - [变量与基本类型](basics/variables.md)
+- [运算符与表达式](basics/operators.md)

@@ -1,0 +1,9 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    string? name = null;
+    string shown = name ?? "(匿名)";   // name 是 null 就取右边
+    Console.WriteLine(shown);
+    // ANCHOR_END: code
+}

@@ -1,0 +1,25 @@
+using Std.IO;
+
+class Probe {
+    public static bool Yes() {
+        Console.WriteLine("  (Yes 被调用了)");
+        return true;
+    }
+}
+
+void Main() {
+    // ANCHOR: code
+    int[] empty = null;
+
+    // 左边已经定胜负，右边根本不求值——所以这里不会去索引 null
+    Console.WriteLine(empty != null && empty[0] > 0);
+
+    // 同理：|| 的左边为 true，右边不跑
+    Console.WriteLine(true || Probe.Yes());
+
+    // 左边为 false 时，&& 的右边才会跑
+    Console.WriteLine(true && Probe.Yes());
+
+    Console.WriteLine(!false);
+    // ANCHOR_END: code
+}

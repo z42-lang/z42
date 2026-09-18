@@ -1,0 +1,7 @@
+using Std.IO;
+
+void Main() {
+    bool a = true;
+    bool b = false;
+    Console.WriteLine(a & b);
+}

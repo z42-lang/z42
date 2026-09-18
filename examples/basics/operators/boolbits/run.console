@@ -1,0 +1,7 @@
+# ANCHOR: err
+$ z42 run boolbits.z42
+z42c build: 2 error(s) in boolbits.z42
+  boolbits.z42(6,23): E0402: operator `&` requires integral operand, got `Boolean`
+  boolbits.z42(6,27): E0402: operator `&` requires integral operand, got `Boolean`
+[exit: 1]
+# ANCHOR_END: err

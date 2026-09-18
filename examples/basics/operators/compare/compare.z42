@@ -1,0 +1,12 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int age = 20;
+
+    Console.WriteLine(age >= 18);       // true
+    Console.WriteLine(age == 20);       // true
+    Console.WriteLine(age != 20);       // false
+    Console.WriteLine("hi" == "h" + "i");  // true —— 比的是内容，不是地址
+    // ANCHOR_END: code
+}

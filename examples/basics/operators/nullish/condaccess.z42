@@ -1,0 +1,20 @@
+using Std.IO;
+
+class User {
+    public string Name;
+    public User(string name) { this.Name = name; }
+}
+
+void Main() {
+    // ANCHOR: code
+    User? missing = null;
+    User? found   = new User("小明");
+
+    // 接收者是 null 时，整个表达式就是 null——不会去取 .Name
+    Console.WriteLine($"{missing?.Name}");
+    Console.WriteLine($"{found?.Name}");
+
+    // 和 ?? 串起来：取不到就给个默认值
+    Console.WriteLine(missing?.Name ?? "(没有这个人)");
+    // ANCHOR_END: code
+}

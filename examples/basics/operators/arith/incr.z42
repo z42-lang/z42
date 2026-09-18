@@ -1,0 +1,16 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int n = 10;
+
+    n += 3;                  // 等价于 n = n + 3
+    Console.WriteLine(n);
+
+    n++;                     // 等价于 n = n + 1
+    Console.WriteLine(n);
+
+    Console.WriteLine(n++);  // 后缀：先给出旧值，再加
+    Console.WriteLine(n);
+    // ANCHOR_END: code
+}

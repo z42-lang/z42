@@ -1,0 +1,10 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    Console.WriteLine(17 / 5);     // 两边都是整数 → 整除，小数部分丢掉
+    Console.WriteLine(17.0 / 5);   // 有一边是小数 → 小数除法
+    Console.WriteLine(-17 / 5);    // 向零取整（不是向下取整）
+    Console.WriteLine(-17 % 5);    // 余数的符号跟着被除数
+    // ANCHOR_END: code
+}

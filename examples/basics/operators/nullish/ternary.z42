@@ -1,0 +1,9 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int score = 72;
+    string grade = score >= 60 ? "及格" : "不及格";
+    Console.WriteLine(grade);
+    // ANCHOR_END: code
+}

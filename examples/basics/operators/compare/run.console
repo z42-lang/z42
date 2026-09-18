@@ -1,0 +1,15 @@
+# ANCHOR: compare
+$ z42 run compare.z42
+true
+true
+false
+true
+# ANCHOR_END: compare
+# ANCHOR: logic
+$ z42 run logic.z42
+false
+true
+  (Yes 被调用了)
+true
+true
+# ANCHOR_END: logic
