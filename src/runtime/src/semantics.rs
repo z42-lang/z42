@@ -24,10 +24,17 @@
 //! | float→int | 饱和 + NaN→0（Rust `as`）；`U64` 目标按 signed i64 饱和 | `emit_f64_to_int`：`fcvt_to_sint_sat` |
 //! | int→float | 全 f64 精度（F32 目标也走 f64，无 f32 舍入） | `emit_int_to_f64`：`fcvt_from_sint` |
 //! | 数值比较 | signed ordered；`Ne` 用 unordered `NotEqual`（`NaN != NaN → true`） | `emit_i64_cmp` / `emit_f64_cmp` |
+//! | 混合数值比较 | **六种比较一律加宽**（整数升 f64、Char 升 i64）—— `<`/`<=`/`>`/`>=` 走 `numeric_lt`，`==`/`!=` 走 `numeric_eq` | 无（混合操作数永不内联） |
 //! | 整数移位量 | mask 到低 6 位（`& SHIFT_MASK`） | `emit_i64_binop`：`Shl`/`Shr` 前 `band 63` |
 //!
 //! 混合 I64/F64 运算（`int_binop` 自动加宽）永不走内联（内联仅在 `reg_types` 证明全 I64 或
 //! 全 F64 时触发），故加宽规则只在本模块 + JIT helper 两路，无内联镜像。
+//!
+//! ⚠️ **正因为没有内联镜像，差分测试对混合操作数是盲区**——它比的是内联码与本模块的
+//! byte-identity，而混合操作数根本不产生内联码。混合路径的正确性只能由 golden
+//! （`src/tests/operators/mixed_numeric_equality.z42`）+ 本模块单测保证。
+//! fix-mixed-numeric-equality 就是栽在这里：`jit_eq` / `jit_ne` 曾绕过本模块直接用
+//! `Value: PartialEq`，三路口径不一致而无人发现。**新增比较 helper 时先确认它调的是本模块。**
 
 use crate::metadata::Value;
 use crate::metadata::superinstr::CmpOp;
@@ -86,19 +93,46 @@ pub fn numeric_lt(va: &Value, vb: &Value) -> Result<bool> {
     })
 }
 
-/// 六种比较的统一求值。`Lt`/`Le`/`Gt`/`Ge` 走 [`numeric_lt`]（含加宽），`Eq`/`Ne` 走
-/// `Value` 的 `PartialEq`（对所有类型，含引用类型 / 浮点 ordered 相等）。
+/// 数值 `==` 比较，加宽臂与 [`numeric_lt`] **一一对应**；其余类型退回 `Value` 的
+/// `PartialEq`（引用类型 / 字符串 / 装箱透明拆箱 / null 等全在那里）。
+///
+/// fix-mixed-numeric-equality (2026-09-18)：此前 `Eq`/`Ne` 直接走 `PartialEq`，而后者按
+/// 变体配对、**没有混合数值臂**，落到 `_ => false` ⇒ `int i = 5; i == 5.0` 恒为 `false`、
+/// `i != 5.0` 恒为 `true`，与实际数值无关；同样的操作数 `<` `<=` `>` `>=` 却因为走
+/// `numeric_lt` 而全部正确。`char` 对整数同理（`c == 65` 恒假，`c < 66` 正确）。
+///
+/// 为什么改这里而不是 `PartialEq`：`PartialEq` 还服务于 `List.Contains`、模式匹配、
+/// 字典查键等按值查找路径，把加宽塞进去会扩大到那些语义上未必想要的地方。放在比较原语里
+/// 精确限定为 `==` / `!=` 运算符本身。
+///
+/// 加宽方向与 `numeric_lt` 一致（整数升 f64、Char 升 i64），因此不存在「`a < b` 与
+/// `a == b` 按不同规则判定」的不一致。
+pub fn numeric_eq(va: &Value, vb: &Value) -> bool {
+    match (va, vb) {
+        (Value::F64(x), Value::I64(y)) => *x == (*y as f64),
+        (Value::I64(x), Value::F64(y)) => (*x as f64) == *y,
+        (Value::Char(x), Value::I64(y)) => (*x as u32 as i64) == *y,
+        (Value::I64(x), Value::Char(y)) => *x == (*y as u32 as i64),
+        _ => va == vb,
+    }
+}
+
+/// 六种比较的统一求值。`Lt`/`Le`/`Gt`/`Ge` 走 [`numeric_lt`]，`Eq`/`Ne` 走 [`numeric_eq`]
+/// ——两者的加宽规则一致；非数值类型由 `numeric_eq` 内部退回 `Value` 的 `PartialEq`。
 ///
 /// interp 标准 cmp 处理器、interp 融合的 `CmpBr` 超指令、JIT helper 的 `jit_lt` 等三处
 /// 共用此原语，比较逻辑只此一份。
+///
+/// `Ne` 写成 `!numeric_eq(..)` 而非另写一套 `!=`：NaN 的 unordered 语义（`NaN != NaN`
+/// 为 `true`）由 `!(NaN == NaN)` 自然得到，见模块头表格。
 pub fn eval_cmp(op: CmpOp, va: &Value, vb: &Value) -> Result<bool> {
     Ok(match op {
         CmpOp::Lt => numeric_lt(va, vb)?,
         CmpOp::Le => !numeric_lt(vb, va)?,
         CmpOp::Gt => numeric_lt(vb, va)?,
         CmpOp::Ge => !numeric_lt(va, vb)?,
-        CmpOp::Eq => va == vb,
-        CmpOp::Ne => va != vb,
+        CmpOp::Eq => numeric_eq(va, vb),
+        CmpOp::Ne => !numeric_eq(va, vb),
     })
 }
 
