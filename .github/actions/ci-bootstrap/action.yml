@@ -97,12 +97,77 @@ runs:
           rm -f "$work/sdk.${EXT}"
           sleep 15
         done
-        if [ "$dl_ok" != 1 ]; then echo "::error::nightly download failed after 10 attempts:"; cat "$work/dlerr"; exit 1; fi
-        mkdir -p "$work/sdkpkg"
-        if [ "$EXT" = zip ]; then unzip -q "$work/sdk.${EXT}" -d "$work/sdkpkg"; else tar -C "$work/sdkpkg" -xzf "$work/sdk.${EXT}"; fi
-        if ! ls "$work/sdkpkg/programs/z42c/"*.zpkg >/dev/null 2>&1; then
-          echo "::error::nightly SDK package has no programs/z42c/ seed yet — needs a publish-nightly republish carrying the z42c-written seed (self-heals on the next run)"; exit 1
+
+        # 解包 + 确认包里真有 z42c 种子。两件事都放进这个函数，因为回退路径要原样再做一遍。
+        unpack_and_check() {
+          rm -rf "$work/sdkpkg"; mkdir -p "$work/sdkpkg"
+          if [ "$EXT" = zip ]; then unzip -q "$1" -d "$work/sdkpkg"; else tar -C "$work/sdkpkg" -xzf "$1"; fi
+          ls "$work/sdkpkg/programs/z42c/"*.zpkg >/dev/null 2>&1
+        }
+
+        seed_src="nightly"
+        if [ "$dl_ok" = 1 ] && ! unpack_and_check "$work/sdk.${EXT}"; then
+          echo "   nightly SDK has no programs/z42c/ seed — treating as unusable"
+          dl_ok=0
         fi
+
+        # ── 回退：nightly 不可用时，用最近一次成功 CI 运行的 host-package artifact ──
+        #
+        # 为什么必须有这条：nightly 是**唯一**种子来源时，它一旦损坏（如 publish-nightly
+        # 的 delete→create 被整 workflow 取消打断，留下 stuck-draft），所有 bootstrap job
+        # 全挂 → package/publish-nightly 被 skip → **发不出新 nightly 自救**。
+        # 而 `gh workflow run CI` 那个逃生口也在同一个环里（publish-nightly 的 needs 全是
+        # bootstrap job），救不回来。2026-09-17 实际发生过一次，全仓卡了约 5 小时，
+        # 最后靠人工从 CI artifact 重打包重发 nightly 才解开。这条就是把那次人工操作自动化。
+        #
+        # 为什么是 CI artifact 而不是最近的正式 release：**格式版本**。
+        # 正式 release 可能落后很多个 zpkg 格式 bump（2026-09-17 那次：v0.5.0 是 minor 43，
+        # 当时源码是 48，差 5 个），会触发 [1.5] 两代自举；而两代自举全程用种子自带的旧 VM，
+        # 它加载不了 gen1 产出的新格式 stdlib —— 实测必挂（run 35290607109）。
+        # 成功 CI 运行的 artifact 顶多落后一两个 commit，格式天然对得上，**根本不进两代路径**。
+        #
+        # 另两个好处：artifact 里是**已解包**的 SDK 目录（免 tar/zip 与 EXT 分支）；
+        # 不依赖 release 是否被正确发布。保留期 90 天。
+        #
+        # 权限：需要 token 的 `actions: read`。仓库默认 workflow 权限是 read（含 actions），
+        # 且用本 action 的 job 都没有自定义 permissions 块。**若将来给这些 job 加
+        # `permissions:`，必须显式带上 `actions: read`**，否则这条回退会静默失效。
+        if [ "$dl_ok" != 1 ]; then
+          echo "   nightly unusable — falling back to the newest successful CI run's host package"
+          # 逐个试最近几次成功运行：最新的那次 artifact 也可能已过期（90 天）或当时没跑 host-package。
+          for run_id in $(gh run list --workflow CI --branch main --status success \
+                            --limit 5 --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
+            echo "   trying CI run $run_id …"
+            rm -rf "$work/art"; mkdir -p "$work/art"
+            if ! gh run download "$run_id" -p 'z42-host-package-*' -D "$work/art" 2>"$work/dlerr"; then
+              echo "     download failed ($(head -1 "$work/dlerr" 2>/dev/null))"
+              continue
+            fi
+            # 按 RID 后缀挑目录，不硬编码 runner 标签（ubuntu-latest / macos-26 这些会变，
+            # 而 z42-<ver>-<rid>-release 这个命名由 packaging 决定、稳定）。
+            pkg="$(find "$work/art" -maxdepth 2 -type d -name "z42-*-${RID}-release" | head -1)"
+            if [ -z "$pkg" ]; then
+              echo "     no z42-*-${RID}-release dir in this run's artifacts"
+              continue
+            fi
+            if ! ls "$pkg/programs/z42c/"*.zpkg >/dev/null 2>&1; then
+              echo "     $pkg has no programs/z42c/ seed"
+              continue
+            fi
+            rm -rf "$work/sdkpkg"; cp -R "$pkg" "$work/sdkpkg"
+            dl_ok=1; seed_src="ci-run-$run_id"
+            break
+          done
+        fi
+
+        if [ "$dl_ok" != 1 ]; then
+          echo "::error::no usable z42c seed: nightly failed after 10 attempts AND no successful CI run's host package worked."
+          echo "::error::check 'gh release view nightly' — a stuck *draft* nightly (publish-nightly cancelled mid delete-recreate) looks present but carries no SDK packages."
+          echo "::error::manual recovery: repackage the newest successful CI run's z42-host-package-* artifacts and republish the nightly release (see internals/devinfra/ci.md §3.1)."
+          cat "$work/dlerr" 2>/dev/null || true
+          exit 1
+        fi
+        echo "   seed source: $seed_src"
         seed="$ROOT/.ci-seed"; rm -rf "$seed"; mkdir -p "$seed"
         cp -f "$work/sdkpkg/programs/z42c/"*.zpkg "$seed/"
         cp -f "$work/sdkpkg/libs/"*.zpkg "$seed/"

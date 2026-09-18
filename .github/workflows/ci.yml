@@ -19,12 +19,17 @@ on:
       # 此前它们被整体忽略 ⇒ 文档 PR 完全不跑 CI，死链能一路漏到线上。
       - '.claude/**'
   # Manual trigger: force a nightly republish from the latest main WITHOUT a new
-  # push. This is the escape hatch for the xtask↔nightly bootstrap cycle — after
-  # a zbc/zpkg bump (or an xtask change needing a newer stdlib API), the
-  # download-bootstrap jobs (vm-jit/bench) transiently fail on the OLD nightly,
-  # but publish-nightly is decoupled from them (source-bootstrapped only) and
-  # republishes a compatible nightly so the next run self-heals. Run via the
-  # Actions "Run workflow" button or: gh workflow run CI --ref main
+  # push. Useful after a zbc/zpkg bump, when the download-bootstrap gates
+  # (vm-jit/bench) transiently fail on the OLD nightly — those are NOT in
+  # publish-nightly's `needs`, so a republish fixes the next run.
+  # Run via the Actions "Run workflow" button or: gh workflow run CI --ref main
+  #
+  # ⚠️ 这个逃生口**救不了 nightly 本身损坏**的情形：publish-nightly 的 `needs`
+  # 全是从 nightly 自举的 job（build-and-test / host-package / package-* /
+  # toolchain-bootstrap），nightly 坏了它们全挂 → publish 被 skip → 发不出新
+  # nightly。2026-09-17 实测过一次（run 35287940676 照样全红）。
+  # 破环靠的是 ci-bootstrap 的**种子回退链**（nightly → 最近正式 release），
+  # 见 fix-nightly-seed-deadlock。
   workflow_dispatch:
   # Nightly full platform-test sweep — covers commits the per-push paths filter
   # skipped (z42c-only, stdlib-only, etc.) AND the slow Tier-2 platform tests

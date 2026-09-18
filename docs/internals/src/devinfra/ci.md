@@ -109,6 +109,76 @@ job 的 **key**（`needs:` 用的）与 **display 名**（分支保护的 requir
 其余 OS 再多跳 `cross-zpkg,bench`（这两者 host 无关，一条腿够了）。Windows 腿不跑
 `test all`，只跑 `build test` + `xtask test runtime`。
 
+## 3.1 自举种子从哪来（以及它怎么死锁过一次）
+
+**每条** bootstrap 路径（`build-and-test` / `host-package` / `package-*` /
+`toolchain-bootstrap`，都经 `.github/actions/ci-bootstrap`）都要先拿一个 **z42c 种子**，
+用它编当前源码。种子的取用顺序：
+
+```
+nightly release 的 z42-sdk-nightly-<rid>          （首选，10 次重试）
+  ↓ 下载不到，或包里没有 programs/z42c/
+最近 5 次成功 CI 运行的 z42-host-package-* artifact （回退，逐个试）
+  ↓ 全都过期 / 没有本 RID
+报错退出（错误信息带人工恢复指引）
+```
+
+**回退为什么是安全的**：自举纪律（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）
+保证「上一版 z42c 永远能编当前源码」——新语法与格式 bump 都是 support 先行、晚一个
+nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢在这条**单向递推**的纪律内。
+
+> 🔴 **回退目标必须是 CI artifact，不能是「最近的正式 release」。**
+> 第一版就是那么写的，实测**救不回来**：正式 release 可能落后很多个 zpkg 格式 bump
+> （2026-09-17 那次 v0.5.0 是 minor 43、当时源码 48，差 5 个），会触发 [1.5] 两代自举；
+> 而两代自举**全程用种子自带的旧 VM**，它加载不了 gen1 产出的新格式 stdlib——
+> run 35290607109 的日志就停在
+> `z42.core.zpkg … zpkg minor 48 not supported (writer is at 0.43)`。
+> 成功 CI 运行的 artifact 格式天然对得上，**根本不进两代路径**。
+>
+> 附带两个好处：artifact 里是**已解包**的 SDK 目录（免 tar/zip 与 EXT 分支）；
+> 也不依赖 release 是否被正确发布。保留期 90 天，所以逐个试最近 5 次。
+
+> ⚠️ **权限**：这条回退要 token 的 `actions: read`。仓库默认 workflow 权限是 read
+> （含 actions），且用 `ci-bootstrap` 的 job 目前都没有自定义 `permissions:` 块。
+> **将来若给这些 job 加 `permissions:`，必须显式带上 `actions: read`**，否则回退静默失效。
+
+> ⚠️ 按 RID **后缀**挑目录（`z42-*-<rid>-release`），不要硬编码 runner 标签
+> （`ubuntu-latest` / `macos-26` 这些会变，包名由 packaging 决定、稳定）。
+
+### 为什么必须有回退（2026-09-17 的事故）
+
+nightly 曾是**唯一**种子来源。那天 `publish-nightly` 的
+`gh release delete nightly` → `gh release create nightly` 跑到一半，整个 workflow 被
+下一个 push 取消，留下一个**残缺的 draft nightly**（有 4 个资产，但没有任何 SDK 包）。
+
+于是：所有 bootstrap job 拿不到种子 → 全红 → `package-*` / `publish-nightly` 被 skip
+→ **发不出新 nightly 自救**。
+
+而 `workflow_dispatch` 那个逃生口**在同一个环里**——`publish-nightly` 的 `needs` 全是
+bootstrap job。实测（run 35287940676）照样全红。
+
+⇒ 破环只能靠**种子有第二来源**。这就是回退链存在的理由。
+
+**当时是怎么解开的**（回退链上线前的人工流程，也是错误信息里指的那条）：
+
+1. `gh run list --workflow CI --branch main --status success --limit 5` 找最近一次全绿的 run
+2. `gh run download <run> -p 'z42-*'` 取它的 `z42-host-package-*` / `z42-*-packages` 产物
+3. 按 `publish-nightly` 的原样流程重新打包（打平 → 逐 RID 归档 →
+   `xtask package workload nightly` → `SHA256SUMS` → `xtask package index nightly`）
+4. `gh release delete nightly --cleanup-tag` → `gh release create nightly --prerelease`
+   → `gh release edit nightly --draft=false` 并校验非 draft
+
+发布前务必逐个核对 SDK 包**真的带种子**：解包后 `programs/z42c/*.zpkg` 非空、
+`bin/z42vm` 在、`z42c.driver.zpkg` 的 zpkg minor 与当前源码一致
+（`od -An -tu2 -j6 -N2` 读，源码侧看 `z42.ir/src/ZpkgWriter.z42` 的 `Minor`）。
+minor 不一致就会把所有 job 推进两代自举那条已知会挂的路。
+
+### 残留缺口：publish-nightly 仍可能被取消打断
+
+`publish-nightly` 的 `concurrency.cancel-in-progress: false` 只序列化**该 job 自身**的
+并发，**挡不住新 push 取消整个 run**。delete→create 之间被砍，仍会留下 stuck-draft。
+回退链让这件事不再致命（CI 能继续跑、并自动重发健康 nightly），但根因未除。
+
 ## 4. 其它 workflow
 
 | 文件 | job | 干什么 |
