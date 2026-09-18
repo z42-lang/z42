@@ -212,27 +212,6 @@ grey {grey_n} (skipped old {grey_old})"));
         marked
     }
 
-    /// **add-generational-gc P2 (2026-05-22)**: sweep phase for minor GC.
-    ///
-    /// Walks `young_list` in both regions; for each entry:
-    /// - `is_marked == true` → clear mark, increment gen_age (promote
-    ///   to next age tier); if reaches threshold, region.promote()
-    ///   removes from young_list.
-    /// - `is_marked == false` → fire finalizer, tombstone (alive=false,
-    ///   generation++, push to free_list AND remove from young_list).
-    ///
-    /// Old entries are NOT visited — major GC handles them.
-    /// card_dirty is NOT cleared by minor (stable old→young refs need
-    /// to keep their cards dirty until major scans them).
-    /// **add-finer-card-granularity (2026-09-10)**: trace every dirty card in both fixed
-    /// regions, queue the young children it reaches, and **clean the cards that reach none**.
-    ///
-    /// A card is a re-rooting hint, not a fact: it says "something in here *may* point at a
-    /// young object". Once a scan shows it does not, keeping it dirty costs the next minor
-    /// `ENTRIES_PER_CARD` traces for nothing. Cleaning here is safe because the write barrier
-    /// re-dirties on the next cross-gen write, and `dirty_cards_for_newly_old_*` re-dirties
-    /// for the edges promotion creates in this same sweep — the two other ways the invariant
-    /// can be broken (see the card-table invariant in the book).
     /// **trim-minor-cycle-roots (2026-09-18)**: seed the **young** entries of one of an open
     /// cycle's queues (`mark_queue` / `satb_queue`) as minor roots, and report how many old ones
     /// were skipped.
@@ -283,6 +262,27 @@ grey {grey_n} (skipped old {grey_old})"));
         skipped_old
     }
 
+    /// **add-generational-gc P2 (2026-05-22)**: sweep phase for minor GC.
+    ///
+    /// Walks `young_list` in both regions; for each entry:
+    /// - `is_marked == true` → clear mark, increment gen_age (promote
+    ///   to next age tier); if reaches threshold, region.promote()
+    ///   removes from young_list.
+    /// - `is_marked == false` → fire finalizer, tombstone (alive=false,
+    ///   generation++, push to free_list AND remove from young_list).
+    ///
+    /// Old entries are NOT visited — major GC handles them.
+    /// card_dirty is NOT cleared by minor (stable old→young refs need
+    /// to keep their cards dirty until major scans them).
+    /// **add-finer-card-granularity (2026-09-10)**: trace every dirty card in both fixed
+    /// regions, queue the young children it reaches, and **clean the cards that reach none**.
+    ///
+    /// A card is a re-rooting hint, not a fact: it says "something in here *may* point at a
+    /// young object". Once a scan shows it does not, keeping it dirty costs the next minor
+    /// `ENTRIES_PER_CARD` traces for nothing. Cleaning here is safe because the write barrier
+    /// re-dirties on the next cross-gen write, and `dirty_cards_for_newly_old_*` re-dirties
+    /// for the edges promotion creates in this same sweep — the two other ways the invariant
+    /// can be broken (see the card-table invariant in the book).
     fn seed_from_dirty_cards(&self, queue: &mut Vec<Value>, threshold: u8) {
         // add-pause-budget-nursery: how many *old* entries the card scan had to look at is the
         // part of a minor's cost that the nursery cannot buy down — see the module note.
