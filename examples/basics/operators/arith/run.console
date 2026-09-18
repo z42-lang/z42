@@ -1,0 +1,26 @@
+# ANCHOR: basic
+$ z42 run basic.z42
+22
+12
+85
+3
+2
+# ANCHOR_END: basic
+# ANCHOR: intdiv
+$ z42 run intdiv.z42
+3
+3.4
+-3
+-2
+# ANCHOR_END: intdiv
+# ANCHOR: overflow
+$ z42 run overflow.z42
+-2147483648
+# ANCHOR_END: overflow
+# ANCHOR: incr
+$ z42 run incr.z42
+13
+14
+14
+15
+# ANCHOR_END: incr

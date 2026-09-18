@@ -1,0 +1,14 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int a = 17;
+    int b = 5;
+
+    Console.WriteLine(a + b);
+    Console.WriteLine(a - b);
+    Console.WriteLine(a * b);
+    Console.WriteLine(a / b);
+    Console.WriteLine(a % b);   // 余数
+    // ANCHOR_END: code
+}
