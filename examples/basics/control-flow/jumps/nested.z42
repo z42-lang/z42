@@ -1,0 +1,17 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    // z42 没有 goto、也没有循环标签。要跳出多层循环，用一个标志变量：
+    bool found = false;
+    for (int r = 0; r < 3 && !found; r = r + 1) {
+        for (int c = 0; c < 3; c = c + 1) {
+            if (r * 3 + c == 4) {
+                Console.WriteLine($"找到了 r={r} c={c}");
+                found = true;
+                break;           // 只跳出内层
+            }
+        }
+    }
+    // ANCHOR_END: code
+}

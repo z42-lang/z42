@@ -1,0 +1,11 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    for (int i = 1; i <= 6; i = i + 1) {
+        if (i % 2 == 0) { continue; }   // 偶数跳过，进入下一轮
+        if (i > 4)      { break; }      // 超过 4 就整个跳出
+        Console.WriteLine(i);
+    }
+    // ANCHOR_END: code
+}

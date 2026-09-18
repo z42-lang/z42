@@ -1,0 +1,15 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int score = 85;
+
+    if (score >= 90) {
+        Console.WriteLine("A");
+    } else if (score >= 80) {
+        Console.WriteLine("B");
+    } else {
+        Console.WriteLine("C");
+    }
+    // ANCHOR_END: code
+}

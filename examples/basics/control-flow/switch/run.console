@@ -1,0 +1,8 @@
+# ANCHOR: basic
+$ z42 run basic.z42
+向南
+# ANCHOR_END: basic
+# ANCHOR: defaultlast
+$ z42 run defaultlast.z42
+default
+# ANCHOR_END: defaultlast
