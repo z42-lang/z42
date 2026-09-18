@@ -17,7 +17,7 @@
 
 | # | 章节 | 路径 | 要点 | 状态 |
 |---|------|------|------|------|
-| 5 | 变量与基本类型 | `basics/variables` | `var`、整数/浮点/`bool`/`char`/`string`、字面量、类型转换、`const`、`readonly` | ✅ |
+| 5 | 变量与基本类型 | `basics/variables` | `var`、整数/浮点/`bool`/`char`/`string`、字面量、类型转换（比 C# 严）、`const`/`readonly`、`?` 只是标注 | 🟢 |
 | 6 | 运算符与表达式 | `basics/operators` | 算术 / 比较 / 逻辑 / 位运算、可空类型、`?.` / `??` | ✅ |
 | 7 | 控制流 | `basics/control-flow` | `if` / `switch` / `while` / `do` / `for` / `foreach` / `break` / `continue` | ✅ |
 | 8 | 函数 | `basics/functions` | 自由函数与方法、默认值、命名实参、`params`、`ref` / `out` / `in`、局部函数、递归 | ✅ |

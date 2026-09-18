@@ -1,0 +1,6 @@
+# ANCHOR: err
+$ z42 run narrowing.z42
+z42c build: 1 error(s) in narrowing.z42
+  narrowing.z42(5,17): E0439: cannot implicitly convert 'Double' to 'Int32'; an explicit conversion exists (are you missing a cast?)
+[exit: 1]
+# ANCHOR_END: err

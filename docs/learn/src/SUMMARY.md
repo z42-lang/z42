@@ -10,3 +10,9 @@
 - [Hello, World](getting-started/hello-world.md)
 - [工程与构建](getting-started/projects.md)
 - [开发环境](getting-started/tooling.md)
+
+---
+
+# 语言基础
+
+- [变量与基本类型](basics/variables.md)
