@@ -80,6 +80,29 @@ int?    optInt    = 42;
 >
 > 因此 `?` 目前的价值是**给读者的意图标注**，不是编译期保证。空引用在运行期解引用时才暴露。
 
+### 值为 null 的值类型被装箱时得到 null
+
+擦除是彻底的，所以 `int?`（乃至未标 `?` 的 `int`）在运行期确实可能装着 `null`。
+这种值**装箱**（赋给 `object`、传给取 `object` 的重载）时得到的是 **null 引用**：
+
+```z42
+using Std.IO;
+
+void Main() {
+    int? n = null;
+    object o = n;
+    Console.WriteLine(o == null);   // true —— 不是装箱的 0，也不抛异常
+    Console.WriteLine($"{n}");      // null
+    Console.WriteLine(n ?? -1);     // -1
+}
+```
+
+与 C# 的 `int? n = null; object o = n;` 一致。
+
+> ⚠️ 但**算术**不会这么宽容：`n + 1` 在运行期抛
+> `type mismatch in arithmetic: Null vs I64(1)`。装箱有定义好的行为，不等于 `null` 在
+> 值类型位置上处处可用——该判空的地方仍要判。
+
 配套的两个运算符按运行期的 null 值工作，是真实生效的：
 
 ```z42

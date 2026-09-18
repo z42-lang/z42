@@ -19,6 +19,22 @@ pub fn builtin_box_prim(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if matches!(inner, Value::BoxedStruct(_)) {
         return Ok(inner.clone());
     }
+    // fix-box-null-nullable：装箱一个值为 null 的可空值类型 → null 引用。
+    // 对齐 C#：`int? n = null; object o = n;` 得到 `o == null`（不是装箱的 0，也不是异常）。
+    //
+    // 为什么 Null 会走到这里：z42 的 `?` 是纯标注、类型解析期**擦除**，`int x = null;`
+    // 本身就能编能跑（见 reference/language/types.md「可空标记」）。所以「int 槽里装着 Null」
+    // 是语言允许的状态，编译器仍会在 prim→object 转换点无条件发 `__box_prim`。
+    //
+    // 取舍：此前这里 bail 成 `__box_prim: expected integer value, got Null`，曾经顺带暴露过
+    // 「泛型数组未写槽位读出 Null」那类真 bug（见 interp/exec_array.rs 的注释；根因已由
+    // fix-generic-array-value-zero-init 在源头修掉）。但它**不是一道有效防线**——因为 `?`
+    // 完全擦除，装箱点无法区分「用户给 int? 赋了 null」（合法且常见）与「读到未初始化槽位」
+    // （bug），两者在 Value 层面完全相同。未初始化那类仍会在后续使用点暴露（拆箱 / 算术，
+    // 例如 `x + 1` 报 `type mismatch in arithmetic: Null vs I64(1)`）。
+    if matches!(inner, Value::Null) {
+        return Ok(Value::Null);
+    }
     let raw = match inner {
         Value::I64(n) => *n,
         other => bail!("__box_prim: expected integer value, got {:?}", other),
