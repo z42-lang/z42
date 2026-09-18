@@ -73,8 +73,41 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
 
 ### 标记期中的 minor
 
-`satb_queue` 与 `mark_queue` 是 minor 的**额外根**。否则：屏障记录了一个年轻对象，随后的 minor 判它死、回收掉，
-major 再从队列里拿到一个悬空句柄。
+`satb_queue` 与 `mark_queue` 里的**年轻**条目是 minor 的**额外根**。否则：屏障记录了一个年轻对象，
+随后的 minor 判它死、回收掉，major 再从队列里拿到一个悬空句柄。
+
+真正被这条规则保住的是灰条目**还没被追到的子节点**——条目本身早有 `keep_major` 兜底（见「切片调度」），
+而「灰」的定义就是*已标记、尚未追踪*，所以只经由它可达的子节点仍是白的。
+
+**老条目不入根**（`trim-minor-cycle-roots`, 2026-09-18）。minor 根本不回收老年代条目，
+把它们当根唯一的效果是多追一层子节点，而那一层里唯一有意义的（年轻子节点）卡表已经覆盖。
+对任意一个老灰条目 X，二者必居其一：
+
+| X 的卡 | 结论 |
+|---|---|
+| **脏** | `seed_from_dirty_cards` 已经在追 X 并把它的年轻子节点入队 ⇒ 灰根这一 push 是**逐字重复** |
+| **干净** | 卡只有在「其中每个条目都不再指向任何年轻对象」时才被洗掉，而老→年轻边的两条产生路径（写屏障 `maybe_mark_cross_gen_card`、晋升 `dirty_cards_for_newly_old_*`）都会重新染脏 ⇒ X 没有年轻子节点，追它产出为空 |
+
+这正是 minor BFS 一直依赖的那条不变量——它本来就**不把老年子节点入队**，理由一字不差。
+
+两条支撑它的前提，改动前必须先确认它们还成立：
+
+1. **minor 永不回收「按年龄算已老」的条目**。`Region::sweep_young_in_one_pass` 只走 `young_list`，
+   而自适应晋升只在「mark 已用旧线跑完、紧接着的升龄趟会把新线判老的全部排空」那个窗口里降线
+   （`Region::set_promotion_age`）。`VarRegion::sweep_young` 另有**显式**跳过
+   （`fix-old-block-left-in-young-list`——`age_backing_with_owner` 会在不摘表的情况下抬高 backing 年龄）。
+2. **`region_var` 没有卡表**（`maybe_mark_cross_gen_card` 的 `_ => {}` 臂），所以上面那条论证对 var 条目
+   要逐个变体核查：`Str` / `FuncRef` 是叶子；闭包的 `env` 在构造时固定、此后与闭包同步升龄
+   （每次够得着闭包的 minor 都会标记 env 表头）⇒ 老闭包的 env 必老，而 env 是**数组**、有卡；
+   数组的元素 backing 由 `age_backing_with_owner` 保证不比属主年轻，且 minor 追老数组时传 `None`、
+   本来就不 `mark_backing`。
+
+队列本身原封不动——标记器仍然拿到它记录的每一条，SATB 的快照承诺不受影响；变的只是**minor 播种什么**。
+
+**这笔账有多大**（main `a76d03f76` 实测）：`13_gc_large_heap --large` 上每次 minor 拷 **118 690** 个老条目，
+78 次 minor 累计 683 092 条灰根里 **68.3%** 是老条目；`13_gc_large_heap` 是 82.9%。
+反过来，`z42c.semantics` 上灰队列只有千条量级 ⇒ **这笔账集中在「老年代很大、周期开得久」的形状**，
+编译器自举那类负载上看不出差别。
 
 ## 切片调度（M2b）
 

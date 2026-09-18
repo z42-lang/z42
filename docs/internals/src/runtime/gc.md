@@ -479,6 +479,12 @@ test-only `BarrierObserver`）。
   pure-tracing / generational override 也不应改 `HeapStats`（stats 反映
   alloc/free，不反映 barrier dispatch 次数）
 
+> **2026-09-18 trim-minor-cycle-roots —— 这条契约的第二个消费者**：卡表不变量（「老对象的年轻子节点
+> 一定能从脏卡集合到达」）原本只有 minor BFS 依赖它（所以它**不把老年子节点入队**）。增量 major 的
+> 周期根集现在依赖同一条：周期的灰队列 / SATB 队列播种给 minor 时**只播种年轻条目**，老条目靠卡表覆盖。
+> ⇒ 任何削弱 barrier 覆盖面的改动（漏一个写入点、给某类条目免掉卡）会同时打断两处，
+> 而**只有后者要等增量 major 周期打开时才现形**。见 [增量 major](gc-incremental-major.md)。
+
 > **2026-04-29 extend-native-fn-signature（Phase 1.5 完成）**：原限制"corelib 直构未迁移"
 > 已解决 —— `NativeFn` 签名扩展为 `fn(&VmContext, &[Value]) -> Result<Value>`，全部 ~55
 > 个 builtin 走 ctx 传参；`__obj_get_type` / `__env_args` 走 `ctx.heap().alloc_*(...)`。
