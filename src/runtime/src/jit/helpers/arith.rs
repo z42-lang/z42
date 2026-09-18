@@ -155,11 +155,16 @@ pub unsafe extern "C" fn jit_eq(
     dst: u32, a: u32, b: u32,
 ) {
     // Compute the result under a scoped immutable borrow, then write — no
-    // operand clones (`Value: PartialEq` compares by reference). The previous
+    // operand clones (`numeric_eq` takes refs). The previous
     // version cloned both operands on the non-I64 path (string / object
     // equality, very common in compiler token/name comparison).
+    //
+    // fix-mixed-numeric-equality: 必须走 `semantics::numeric_eq`，不能直接用
+    // `Value: PartialEq` —— 后者没有混合数值臂，`int == double` / `char == int` 会恒假。
+    // 这条 helper 正是 JIT 处理混合操作数的**唯一**落点（`is_int_cmp` / `is_f64_cmp`
+    // 只在两侧静态同类时内联），所以漏掉它就等于 JIT 下 bug 依旧。
     let regs = &(*frame).regs;
-    let result = regs[a as usize] == regs[b as usize];
+    let result = semantics::numeric_eq(&regs[a as usize], &regs[b as usize]);
     (*frame).regs[dst as usize] = Value::Bool(result);
 }
 
@@ -169,8 +174,10 @@ pub unsafe extern "C" fn jit_ne(
     dst: u32, a: u32, b: u32,
 ) {
     // Clone-free: compare by reference under a scoped borrow (see jit_eq).
+    // `!numeric_eq(..)` 而非 `!=`：与 `semantics::eval_cmp` 的 `Ne` 同一套（含加宽 +
+    // NaN unordered），保证 interp / JIT 内联 / JIT helper 三路口径一致。
     let regs = &(*frame).regs;
-    let result = regs[a as usize] != regs[b as usize];
+    let result = !semantics::numeric_eq(&regs[a as usize], &regs[b as usize]);
     (*frame).regs[dst as usize] = Value::Bool(result);
 }
 

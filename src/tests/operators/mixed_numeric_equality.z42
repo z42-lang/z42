@@ -1,0 +1,90 @@
+// Test: `==` / `!=` across mixed numeric kinds (integer ⟷ floating, char ⟷ integer)
+//
+// 回归防线 —— fix-mixed-numeric-equality（2026-09-18）之前，下面每一条 `==` 都是 false、
+// 每一条 `!=` 都是 true，与实际数值无关；而同样操作数的 `<` `<=` `>` `>=` 全部正确。
+//
+// 为什么已有的 comparison_operators.z42 没抓到：它每一条都是**同类**比较
+// （int/int、double/double、bool/bool、string/string），一行混合都没有。
+// 为什么 type_conversions.z42（标题就叫 numeric promotion）也没抓到：它的提升断言全部写成
+// 经关系运算符的区间检查（`Assert.True(sum > 7.4); Assert.True(sum < 7.6);`），
+// 从不写 `Assert.Equal(7.5, sum)` —— 整个「提升」测试只走了没坏的那条路径。
+//
+// 这里一律断言 `Assert.Equal(true, <比较表达式>)`：两边都是 bool，不经装箱相等。
+// 装箱相等（`Assert.Equal(5, d)` 这种 object×object）是另一条路径，语义上与 C# 一致地
+// 保持 false，**不在本测试范围**。
+
+void Main() {
+    int    i  = 5;
+    long   l  = 5;
+    double d  = 5.0;
+    float  f  = 5.0f;
+    byte   b  = 5;
+    char   c  = 'A';
+
+    // ── 整数 ⟷ 浮点：相等 ────────────────────────────────────────────────
+    Assert.Equal(true,  i == d);
+    Assert.Equal(true,  d == i);
+    Assert.Equal(false, i != d);
+    Assert.Equal(false, d != i);
+
+    Assert.Equal(true,  l == d);
+    Assert.Equal(true,  d == l);
+    Assert.Equal(true,  b == d);
+    Assert.Equal(true,  i == f);
+    Assert.Equal(true,  f == i);
+    Assert.Equal(true,  l == f);
+
+    // 变量对字面量，两个方向
+    Assert.Equal(true,  i == 5.0);
+    Assert.Equal(true,  d == 5);
+    Assert.Equal(false, i != 5.0);
+    Assert.Equal(false, d != 5);
+
+    // ── 整数 ⟷ 浮点：不相等（加宽不得把不等判成相等）──────────────────
+    Assert.Equal(false, i == 6.0);
+    Assert.Equal(false, 6.0 == i);
+    Assert.Equal(true,  i != 6.0);
+    Assert.Equal(false, d == 6);
+    // 小数部分不为零 —— 整数绝不能等于它
+    double half = 5.5;
+    Assert.Equal(false, i == half);
+    Assert.Equal(true,  i != half);
+
+    // ── char ⟷ 整数 ──────────────────────────────────────────────────────
+    // `numeric_lt` 一直会把 Char 加宽到 i64，`==` 此前不会 —— 必须对齐
+    Assert.Equal(true,  c == 65);
+    Assert.Equal(true,  65 == c);
+    Assert.Equal(false, c != 65);
+    Assert.Equal(false, c == 66);
+    Assert.Equal(true,  c != 66);
+
+    // ── 与关系运算符口径一致 ─────────────────────────────────────────────
+    // 同一对操作数上，`==` 与 `<`/`>` 必须互不矛盾：i 与 d 相等 ⇒ 既不小于也不大于
+    Assert.Equal(false, i < d);
+    Assert.Equal(false, i > d);
+    Assert.Equal(true,  i <= d);
+    Assert.Equal(true,  i >= d);
+    Assert.Equal(true,  i == d);
+
+    // ── NaN 的 unordered 语义不受影响 ────────────────────────────────────
+    double nan = 0.0 / 0.0;
+    Assert.Equal(false, nan == nan);
+    Assert.Equal(true,  nan != nan);
+
+    // ── 非数值相等不受加宽影响 ───────────────────────────────────────────
+    Assert.Equal(true,  "hi" == "h" + "i");
+    Assert.Equal(false, "hi" == "ho");
+    Assert.Equal(true,  true == true);
+    string s = null;
+    Assert.Equal(true,  s == null);
+
+    // ── 回归：混合 `!=` 恒真会让这个循环永不终止 ─────────────────────────
+    double x     = 0.0;
+    int    steps = 0;
+    while (x != 3) {
+        x     = x + 1.0;
+        steps = steps + 1;
+        if (steps > 10) { break; }   // 兜底：修复前会走到这里
+    }
+    Assert.Equal(3, steps);
+}

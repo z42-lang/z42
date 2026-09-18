@@ -230,6 +230,52 @@ fn numeric_lt_char_i64_widening() {
     assert!(numeric_lt(&Value::Char('0'), &Value::I64(100)).unwrap());
 }
 
+/// fix-mixed-numeric-equality：`Eq`/`Ne` 的加宽必须与 `numeric_lt` 一致。
+///
+/// 回归前这里每一条 `Eq` 都是 `false`、每一条 `Ne` 都是 `true`——因为 `eval_cmp` 把
+/// `Eq`/`Ne` 直接委给 `Value: PartialEq`，而后者按变体配对、没有混合数值臂。
+/// 四种跨类顺序（F64/I64、I64/F64、Char/I64、I64/Char）各测一遍，缺一条就漏一个方向。
+#[test]
+fn eval_cmp_eq_widens_mixed_numerics() {
+    let pairs = [
+        (Value::I64(5), Value::F64(5.0)),
+        (Value::F64(5.0), Value::I64(5)),
+        (Value::Char('A'), Value::I64(65)),
+        (Value::I64(65), Value::Char('A')),
+    ];
+    for (a, b) in &pairs {
+        assert!(eval_cmp(CmpOp::Eq, a, b).unwrap(), "Eq {a:?} {b:?} 应为 true");
+        assert!(!eval_cmp(CmpOp::Ne, a, b).unwrap(), "Ne {a:?} {b:?} 应为 false");
+    }
+}
+
+/// 加宽不能把「不相等」也判成相等——否则上面的测试用一句 `=> true` 就能骗过。
+#[test]
+fn eval_cmp_eq_mixed_numerics_unequal_stays_false() {
+    let pairs = [
+        (Value::I64(5), Value::F64(6.0)),
+        (Value::F64(5.5), Value::I64(5)),
+        (Value::Char('A'), Value::I64(66)),
+        (Value::I64(66), Value::Char('A')),
+    ];
+    for (a, b) in &pairs {
+        assert!(!eval_cmp(CmpOp::Eq, a, b).unwrap(), "Eq {a:?} {b:?} 应为 false");
+        assert!(eval_cmp(CmpOp::Ne, a, b).unwrap(), "Ne {a:?} {b:?} 应为 true");
+    }
+}
+
+/// 非数值相等仍走 `Value: PartialEq`，不受加宽影响（`numeric_eq` 的 `_` 臂）。
+#[test]
+fn eval_cmp_eq_non_numeric_unchanged() {
+    assert!(eval_cmp(CmpOp::Eq, &Value::Str("hi".into()), &Value::Str("hi".into())).unwrap());
+    assert!(!eval_cmp(CmpOp::Eq, &Value::Str("hi".into()), &Value::Str("ho".into())).unwrap());
+    assert!(eval_cmp(CmpOp::Eq, &Value::Null, &Value::Null).unwrap());
+    assert!(eval_cmp(CmpOp::Eq, &Value::Bool(true), &Value::Bool(true)).unwrap());
+    // 跨类别（数值 vs 非数值）仍是 false，不得因加宽而误判
+    assert!(!eval_cmp(CmpOp::Eq, &Value::I64(0), &Value::Null).unwrap());
+    assert!(!eval_cmp(CmpOp::Eq, &Value::I64(1), &Value::Bool(true)).unwrap());
+}
+
 #[test]
 fn eval_cmp_ne_nan_is_true() {
     // Ne on NaN vs NaN → true (unordered), matching JIT inline FloatCC::NotEqual.
