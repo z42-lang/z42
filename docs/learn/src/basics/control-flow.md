@@ -2,13 +2,9 @@
 
 到目前为止代码都是从上往下一行行跑。这一章讲怎么让它**分岔**和**重复**。
 
-> **本章代码在 [`examples/basics/control-flow/`](https://github.com/z42-lang/z42/tree/main/examples/basics/control-flow)**，
-> 每段代码上方标出它在该目录下的文件。书上是文件里的片段；完整可跑的程序
-> （含 `using Std.IO;` 与 `void Main() { … }`）就是那个文件本身。
-
 ## `if` / `else`
 
-**`ifelse/ifelse.z42`**
+**`examples/basics/control-flow/ifelse/ifelse.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/ifelse/ifelse.z42:code}}
@@ -26,7 +22,7 @@
 
 条件成立就一直重复：
 
-**`loops/while.z42`**
+**`examples/basics/control-flow/loops/while.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/loops/while.z42:code}}
@@ -42,7 +38,7 @@
 
 区别只有一个：**先跑一次再判断**，所以循环体至少执行一次。
 
-**`loops/dowhile.z42`**
+**`examples/basics/control-flow/loops/dowhile.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/loops/dowhile.z42:code}}
@@ -58,7 +54,7 @@
 
 把"初始化、继续条件、每轮末尾做什么"三件事写在一行：
 
-**`loops/for.z42`**
+**`examples/basics/control-flow/loops/for.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/loops/for.z42:code}}
@@ -74,7 +70,7 @@
 
 不关心下标时用它，比 `for` + 下标短也更不容易写错：
 
-**`foreach/arrays.z42`**
+**`examples/basics/control-flow/foreach/arrays.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/foreach/arrays.z42:code}}
@@ -87,7 +83,7 @@
 > ⚠️ **字符串不能直接 `foreach`。** 写 `foreach (char c in s)` 能通过编译，但运行期会失败。
 > 先取字符数组：
 
-**`foreach/chars.z42`**
+**`examples/basics/control-flow/foreach/chars.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/foreach/chars.z42:code}}
@@ -106,7 +102,7 @@
 - `continue`——**这一轮不往下走了**，直接进入下一轮。
 - `break`——**整个循环不要了**，跳出去。
 
-**`jumps/breakcontinue.z42`**
+**`examples/basics/control-flow/jumps/breakcontinue.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/jumps/breakcontinue.z42:code}}
@@ -122,7 +118,7 @@
 
 z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一个标志变量：
 
-**`jumps/nested.z42`**
+**`examples/basics/control-flow/jumps/nested.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/jumps/nested.z42:code}}
@@ -138,7 +134,7 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 
 `if / else if` 链太长时用 `switch` 更整齐：
 
-**`switch/basic.z42`**
+**`examples/basics/control-flow/switch/basic.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/switch/basic.z42:code}}
@@ -156,7 +152,7 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 
 `default` 一旦出现，**它后面的 `case` 就永远到不了**——而且编译器**不会给任何提示**：
 
-**`switch/defaultlast.z42`**
+**`examples/basics/control-flow/switch/defaultlast.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/switch/defaultlast.z42:code}}
@@ -172,7 +168,7 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 
 `break` 在 `switch` 里是"跳出 switch"，但 `continue` **穿透 switch**，作用于外面那层循环：
 
-**`jumps/switchcontinue.z42`**
+**`examples/basics/control-flow/jumps/switchcontinue.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/control-flow/jumps/switchcontinue.z42:code}}
