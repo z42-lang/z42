@@ -1,0 +1,8 @@
+using Std.IO;
+
+int Parse(int n)    { return n; }
+int Parse(string s) { return s.Length; }
+
+void Main() {
+    Console.WriteLine(Parse(1));
+}

@@ -1,0 +1,18 @@
+# ANCHOR: free
+$ z42 run declare.z42
+── 算术 ──
+3
+12
+# ANCHOR_END: free
+# ANCHOR: method
+$ z42 run method.z42
+212
+36.6 °C
+[无读数]
+# ANCHOR_END: method
+# ANCHOR: dup
+$ z42 run dup.z42
+z42c build: 1 error(s) in dup.z42
+  dup.z42(4,1): E0408: duplicate top-level function `Parse` — free functions do not overload; give them distinct names
+[exit: 1]
+# ANCHOR_END: dup

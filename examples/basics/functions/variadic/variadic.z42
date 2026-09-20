@@ -1,0 +1,20 @@
+using Std.IO;
+
+// ANCHOR: decl
+// params 让调用方传任意多个实参，方法里收到的是一个数组
+int Sum(params int[] numbers) {
+    int total = 0;
+    foreach (int n in numbers) {
+        total = total + n;
+    }
+    return total;
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: call
+    Console.WriteLine(Sum());              // 一个都不传也行
+    Console.WriteLine(Sum(1, 2, 3));       // 散着传，编译器帮你打包成数组
+    Console.WriteLine(Sum(new int[] { 4, 5 }));   // 直接传数组也行
+    // ANCHOR_END: call
+}

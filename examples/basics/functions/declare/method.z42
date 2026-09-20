@@ -1,0 +1,18 @@
+using Std.IO;
+
+// ANCHOR: code
+class Temperature {
+    // 类里的函数叫「方法」，签名语法和顶层函数一样
+    public static double ToFahrenheit(double celsius) => celsius * 9.0 / 5.0 + 32.0;
+
+    // 同一个类里允许同名不同参——这叫「重载」
+    public static void Show(double c)  { Console.WriteLine($"{c} °C"); }
+    public static void Show(string s)  { Console.WriteLine($"[{s}]"); }
+}
+// ANCHOR_END: code
+
+void Main() {
+    Console.WriteLine(Temperature.ToFahrenheit(100.0));
+    Temperature.Show(36.6);
+    Temperature.Show("无读数");
+}

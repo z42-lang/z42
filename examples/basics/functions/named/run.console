@@ -1,0 +1,7 @@
+# ANCHOR: run
+$ z42 run named.z42
+24
+60
+120
+1
+# ANCHOR_END: run

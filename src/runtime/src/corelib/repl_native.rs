@@ -14,9 +14,11 @@
 //!     it in `<sdk>/programs/z42i/` (beside the interactive apphost payload — a *colocated
 //!     native dependency*); dev drops it in the cargo target dir beside `z42vm`. Found by
 //!     *this* repl-specific probe (`candidates()`, via the shared `ext::resolve_native_beside`
-//!     colocated-lib resolver), never `ext::native_search_paths()`. Keeping it out of the
-//!     shared `bin/` stops the eager ext scanner from warning `ignoring unknown lib repl`
-//!     on every VM run. wasm/mobile never load it (plain fallback).
+//!     colocated-lib resolver), never `ext::native_search_paths()`. The eager ext scanner
+//!     leaves it alone because it filters on `ext::KNOWN_EXT_LIBS` before dlopen — *not*
+//!     because of where the file sits: in a dev tree the cargo target dir is itself a
+//!     search path, so `libz42_repl.dylib` is in plain sight of the scanner.
+//!     wasm/mobile never load it (plain fallback).
 //!
 //! # Boundary invariant
 //!

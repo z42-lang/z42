@@ -58,7 +58,7 @@ REPL 里以 `.` 开头的是**元指令**（不是 z42 代码）：
 
 这是这一章最该花时间的部分。z42 的报错格式是固定的，认准它就能快速定位。
 
-拿一个有两处错误的文件：
+拿一个有两处错误的文件 `bad.z42`：
 
 ```z42
 {{#include ../../../../examples/getting-started/tooling/errors/bad.z42}}
@@ -106,3 +106,5 @@ REPL 里以 `.` 开头的是**元指令**（不是 z42 代码）：
 
 起步部分到这里就结束了——你已经能装好 z42、写程序、建工程、配好手边的工具。
 接下来进入语言本身。
+
+本章的全部代码在 [`examples/getting-started/tooling/`](https://github.com/z42-lang/z42/tree/main/examples/getting-started/tooling)。

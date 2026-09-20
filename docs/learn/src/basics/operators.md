@@ -3,9 +3,15 @@
 上一章讲了怎么存一个值，这一章讲怎么把值**算起来**：四则运算、比较、逻辑判断、位运算，
 以及几个处理「可能是空」的写法。
 
+> **本章代码在 [`examples/basics/operators/`](https://github.com/z42-lang/z42/tree/main/examples/basics/operators)**，
+> 每段代码上方标出它在该目录下的文件。书上是文件里的片段；完整可跑的程序
+> （含 `using Std.IO;` 与 `void Main() { … }`）就是那个文件本身。
+
 ## 算术
 
 和你想的一样：
+
+**`arith/basic.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/operators/arith/basic.z42:code}}
@@ -18,6 +24,8 @@
 ### 整数相除得到整数
 
 这是最容易栽的一处：**两边都是整数时，`/` 做的是整除，小数部分直接丢掉**。
+
+**`arith/intdiv.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/operators/arith/intdiv.z42:code}}
@@ -35,6 +43,8 @@
 
 超出类型范围时 z42 **不报错**，而是绕回另一头：
 
+**`arith/overflow.z42`**
+
 ```z42
 {{#include ../../../../examples/basics/operators/arith/overflow.z42:code}}
 ```
@@ -49,6 +59,8 @@
 （`DivideByZeroException`），程序直接中止。
 
 ### `+=` 与 `++`
+
+**`arith/incr.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/operators/arith/incr.z42:code}}
@@ -69,6 +81,8 @@
 ## 比较
 
 `==` `!=` `<` `<=` `>` `>=`，结果都是 `bool`：
+
+**`compare/compare.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/operators/compare/compare.z42:code}}
@@ -94,6 +108,8 @@
 `&&`（并且）、`||`（或者）、`!`（取反）。关键性质是**短路**：左边已经定了胜负时，
 右边根本不求值。
 
+**`compare/logic.z42`**
+
 ```z42
 {{#include ../../../../examples/basics/operators/compare/logic.z42:code}}
 ```
@@ -109,6 +125,8 @@
 
 直接操作二进制位，常用于标志位：
 
+**`bits/bits.z42`**
+
 ```z42
 {{#include ../../../../examples/basics/operators/bits/bits.z42:code}}
 ```
@@ -120,6 +138,12 @@
 > 熟悉 C# 的读者请注意：**z42 的 `&` `|` `^` `~` 只接受整数，不能用在 `bool` 上。**
 > C# 里 `a & b`（两个 `bool`）表示"不短路的逻辑与"，z42 直接报错：
 
+**`boolbits/boolbits.z42`**
+
+```z42
+{{#include ../../../../examples/basics/operators/boolbits/boolbits.z42}}
+```
+
 ```console
 {{#include ../../../../examples/basics/operators/boolbits/run.console:err}}
 ```
@@ -130,6 +154,8 @@
 
 ### `??`：空了就用备用值
 
+**`nullish/coalesce.z42`**
+
 ```z42
 {{#include ../../../../examples/basics/operators/nullish/coalesce.z42:code}}
 ```
@@ -139,6 +165,8 @@
 ```
 
 ### `?.`：空了就整体为空
+
+**`nullish/condaccess.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/operators/nullish/condaccess.z42:code}}
@@ -158,6 +186,8 @@
 > `null`）；直接 `Console.WriteLine(n)` 会在运行期出错。需要打印时走插值。
 
 ### `?:`：三元条件
+
+**`nullish/ternary.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/operators/nullish/ternary.z42:code}}

@@ -1,0 +1,10 @@
+# ANCHOR: run
+$ z42 run byref.z42
+2
+3
+# ANCHOR_END: run
+# ANCHOR: forgot
+$ z42 run forgot.z42
+漏写 ref: 0
+多写 ref: 999
+# ANCHOR_END: forgot

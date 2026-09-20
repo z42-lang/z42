@@ -1,0 +1,14 @@
+using Std.IO;
+
+// ANCHOR: decl
+int Box(int width = 2, int height = 3, int depth = 4) => width * height * depth;
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: call
+    Console.WriteLine(Box());                 // 全用默认值
+    Console.WriteLine(Box(depth: 10));        // 只改最后一个，跳过中间两个
+    Console.WriteLine(Box(5, height: 6));     // 位置实参在前，命名实参在后
+    Console.WriteLine(Box(height: 1, width: 1, depth: 1));   // 命名实参之间可乱序
+    // ANCHOR_END: call
+}

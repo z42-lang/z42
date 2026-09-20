@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run local.z42
+316
+55
+# ANCHOR_END: run
