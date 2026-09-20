@@ -6,6 +6,7 @@
 
 # 起步
 
+- [阅读说明](getting-started/how-to-read.md)
 - [安装 z42](getting-started/install.md)
 - [Hello, World](getting-started/hello-world.md)
 - [工程与构建](getting-started/projects.md)
