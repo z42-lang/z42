@@ -20,7 +20,7 @@
 | 5 | 变量与基本类型 | `basics/variables` | `var`、整数/浮点/`bool`/`char`/`string`、字面量、类型转换（比 C# 严）、`const`/`readonly`、`?` 只是标注 | 🟢 |
 | 6 | 运算符与表达式 | `basics/operators` | 算术 / 比较 / 逻辑 / 位运算、可空类型、`?.` / `??` | 🟢 |
 | 7 | 控制流 | `basics/control-flow` | `if` / `switch` / `while` / `do` / `for` / `foreach` / `break` / `continue` | 🟢 |
-| 8 | 函数 | `basics/functions` | 自由函数与方法、默认值、命名实参、`params`、`ref` / `out` / `in`、局部函数、递归 | ✅ |
+| 8 | 函数 | `basics/functions` | 自由函数与方法、默认值、命名实参、`params`、`ref` / `out` / `in`、局部函数、递归 | 🟢 |
 | 9 | 字符串 | `basics/strings` | 插值、原始字符串 `"""`、常用成员、格式化 | 🧪 |
 | 10 | 数组与集合 | `basics/collections` | 数组、`List` / `Dictionary`、集合字面量与展开、遍历 | ✅ |
 | 11 | 元组 | `basics/tuples` | 值元组、解构 | ✅ |

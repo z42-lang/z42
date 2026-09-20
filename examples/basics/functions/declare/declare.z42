@@ -1,0 +1,24 @@
+using Std.IO;
+
+// ANCHOR: free
+// 顶层函数：返回类型在前，参数表在后
+int Add(int a, int b) {
+    return a + b;
+}
+
+// 表达式体：`=> 表达式;` 代替 `{ return 表达式; }`
+int Multiply(int a, int b) => a * b;
+
+// 不返回值的函数写 void
+void Banner(string title) {
+    Console.WriteLine($"── {title} ──");
+}
+// ANCHOR_END: free
+
+void Main() {
+    // ANCHOR: call
+    Banner("算术");
+    Console.WriteLine(Add(1, 2));
+    Console.WriteLine(Multiply(3, 4));
+    // ANCHOR_END: call
+}

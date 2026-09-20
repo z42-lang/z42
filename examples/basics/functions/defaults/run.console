@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run defaults.z42
+Hello, Alice!
+Hi, Bob!
+# ANCHOR_END: run

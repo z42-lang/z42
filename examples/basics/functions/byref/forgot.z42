@@ -1,0 +1,19 @@
+using Std.IO;
+
+void Increment(ref int x) {
+    x = x + 1;
+}
+
+void ByValue(int x) {
+    x = 999;
+}
+
+void Main() {
+    int a = 0;
+    Increment(a);        // ✗ 漏写 ref：编译通过，但 a 不会变
+    Console.WriteLine($"漏写 ref: {a}");
+
+    int b = 0;
+    ByValue(ref b);      // ✗ 形参本来是按值传的，多写 ref 却真的改了 b
+    Console.WriteLine($"多写 ref: {b}");
+}

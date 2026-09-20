@@ -1,0 +1,12 @@
+# ANCHOR: run
+$ z42 run variadic.z42
+0
+6
+9
+# ANCHOR_END: run
+# ANCHOR: notlast
+$ z42 run notlast.z42
+z42c build: 1 error(s) in notlast.z42
+  notlast.z42(3,16): E0206: 'params' must be the last parameter
+[exit: 1]
+# ANCHOR_END: notlast

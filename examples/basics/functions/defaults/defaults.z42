@@ -1,0 +1,15 @@
+using Std.IO;
+
+// ANCHOR: code
+// prefix 有默认值，调用时可以不给
+void Greet(string name, string prefix = "Hello") {
+    Console.WriteLine($"{prefix}, {name}!");
+}
+// ANCHOR_END: code
+
+void Main() {
+    // ANCHOR: call
+    Greet("Alice");
+    Greet("Bob", "Hi");
+    // ANCHOR_END: call
+}

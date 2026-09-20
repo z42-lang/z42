@@ -1,0 +1,27 @@
+using Std.IO;
+
+// ANCHOR: decl
+// ref：调用方的变量本身被传进来，方法的写入传得回去
+void Increment(ref int x) {
+    x = x + 1;
+}
+
+// out：方法负责给它赋值，调用前不必初始化
+bool TryLength(string s, out int length) {
+    length = s.Length;
+    return length > 0;
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: call
+    int count = 0;
+    Increment(ref count);        // 调用点也要写 ref
+    Increment(ref count);
+    Console.WriteLine(count);
+
+    if (TryLength("hey", out var n)) {   // out var 就地声明一个新变量
+        Console.WriteLine(n);
+    }
+    // ANCHOR_END: call
+}

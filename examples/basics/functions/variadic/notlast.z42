@@ -1,0 +1,7 @@
+using Std.IO;
+
+int Sum(params int[] numbers, int bonus) => bonus;
+
+void Main() {
+    Console.WriteLine(Sum(new int[] { 1 }, 2));
+}

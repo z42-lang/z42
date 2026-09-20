@@ -1,0 +1,21 @@
+using Std.IO;
+
+// ANCHOR: decl
+// 要返回多个值，就返回一个元组
+(bool, int) TryParseLength(string s) {
+    if (s == "") {
+        return (false, 0);
+    }
+    return (true, s.Length);
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: call
+    (ok, len) = TryParseLength("hello");    // 解构：前面不加 var
+    Console.WriteLine($"{ok} {len}");
+
+    var r = TryParseLength("");             // 也可以整个接住，再按位置取
+    Console.WriteLine($"{r.Item1} {r.Item2}");
+    // ANCHOR_END: call
+}
