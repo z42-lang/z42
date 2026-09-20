@@ -1,6 +1,8 @@
-# ANCHOR: run
+# ANCHOR: decl
 $ z42 run types.z42
 42 9000000000 0.5 1.5
 true z hello
+# ANCHOR_END: decl
+# ANCHOR: var
 Int32 String Double
-# ANCHOR_END: run
+# ANCHOR_END: var

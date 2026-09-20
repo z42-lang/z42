@@ -2,9 +2,16 @@
 
 从这一章开始讲语言本身。先是最基础的一件事：**怎么存一个值**。
 
+> **本章代码在 [`examples/basics/variables/`](https://github.com/z42-lang/z42/tree/main/examples/basics/variables)**，
+> 下面每段代码上方标出它在该目录下的文件。书上展示的是文件里的**片段**；完整可跑的程序
+> （含开头的 `using Std.IO;` 和包住代码的 `void Main() { … }`）就是那个文件本身，
+> 存下来用 `z42 run <文件>` 就能跑——和[第 2 章](../getting-started/hello-world.md)的 `hello.z42` 一样。
+
 ## 声明变量
 
 写法是「类型 名字 = 值」：
+
+**`types/types.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/variables/types/types.z42:decl}}
@@ -13,7 +20,7 @@
 跑起来：
 
 ```console
-{{#include ../../../../examples/basics/variables/types/run.console:run}}
+{{#include ../../../../examples/basics/variables/types/run.console:decl}}
 ```
 
 几个容易记混的点：
@@ -44,8 +51,16 @@
 
 右边已经写明白是什么类型时，左边可以写 `var`：
 
+**`types/types.z42`**
+
 ```z42
 {{#include ../../../../examples/basics/variables/types/types.z42:var}}
+```
+
+这段接在上面那段后面，同一个程序再多打一行——`GetType().Name` 报出编译器推断的类型：
+
+```console
+{{#include ../../../../examples/basics/variables/types/run.console:var}}
 ```
 
 `var` **不是**「动态类型」——类型在编译期就定死了，只是不用你重复写一遍。上面 `n` 就是 `int`，
@@ -57,6 +72,8 @@
 ## 类型转换
 
 **变宽不用管，变窄必须自己写。**
+
+**`convert/convert.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/variables/convert/convert.z42:conv}}
@@ -70,6 +87,12 @@
 
 漏写 `(int)` 会怎样？编译器拦住你：
 
+**`narrowing/narrowing.z42`**
+
+```z42
+{{#include ../../../../examples/basics/variables/narrowing/narrowing.z42}}
+```
+
 ```console
 {{#include ../../../../examples/basics/variables/narrowing/run.console:err}}
 ```
@@ -82,6 +105,8 @@
 ## 不变的值：`const` 与 `readonly`
 
 两个都表示「定下就不改」，但时机不同：
+
+**`immutable/immutable.z42`**
 
 ```z42
 {{#include ../../../../examples/basics/variables/immutable/immutable.z42:decl}}
