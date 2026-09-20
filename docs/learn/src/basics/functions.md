@@ -18,7 +18,7 @@
 {{#include ../../../../examples/basics/functions/declare/declare.z42:free}}
 ```
 
-**`declare/declare.z42`**
+在 `Main` 里用它们：
 
 ```z42
 {{#include ../../../../examples/basics/functions/declare/declare.z42:call}}
@@ -81,7 +81,7 @@
 {{#include ../../../../examples/basics/functions/defaults/defaults.z42:code}}
 ```
 
-**`defaults/defaults.z42`**
+调用时给不给 `prefix` 都行：
 
 ```z42
 {{#include ../../../../examples/basics/functions/defaults/defaults.z42:call}}
@@ -104,7 +104,7 @@
 {{#include ../../../../examples/basics/functions/named/named.z42:decl}}
 ```
 
-**`named/named.z42`**
+调用点的四种写法：
 
 ```z42
 {{#include ../../../../examples/basics/functions/named/named.z42:call}}
@@ -130,7 +130,7 @@
 {{#include ../../../../examples/basics/functions/variadic/variadic.z42:decl}}
 ```
 
-**`variadic/variadic.z42`**
+调用时想传几个传几个：
 
 ```z42
 {{#include ../../../../examples/basics/functions/variadic/variadic.z42:call}}
@@ -167,7 +167,7 @@
 {{#include ../../../../examples/basics/functions/byref/byref.z42:decl}}
 ```
 
-**`byref/byref.z42`**
+调用点也要写修饰符：
 
 ```z42
 {{#include ../../../../examples/basics/functions/byref/byref.z42:call}}
@@ -177,7 +177,7 @@
 {{#include ../../../../examples/basics/functions/byref/run.console:run}}
 ```
 
-**声明处和调用点都要写修饰符**——`out var n` 是就地声明一个新变量接住输出，很常用。
+`out var n` 是就地声明一个新变量接住输出，很常用——不必先 `int n;` 再传。
 
 还有一个 `in`，意思是「按引用传进来，但我不改它」，用于传很大的值时省掉复制。
 
@@ -216,7 +216,7 @@
 {{#include ../../../../examples/basics/functions/multi/multi.z42:decl}}
 ```
 
-**`multi/multi.z42`**
+接住返回值有两种写法：
 
 ```z42
 {{#include ../../../../examples/basics/functions/multi/multi.z42:call}}
