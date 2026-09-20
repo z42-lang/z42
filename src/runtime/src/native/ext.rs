@@ -114,6 +114,22 @@ fn register_bundled_compression(ctx: &VmContext) {
     );
 }
 
+/// The stdlib ext libs this loader knows how to wire up — the *allowlist* the
+/// eager scanner filters on.
+///
+/// Matching `libz42_<name>.*` is not enough to conclude a file is an ext lib.
+/// The third entry of [`native_search_paths`] is the raw cargo-target directory,
+/// which in a dev tree holds *every* cdylib in the workspace — `libz42_repl`
+/// (the host-only REPL editor, which has its own colocated by-name probe in
+/// `corelib::repl_native::candidates`) sits right next to `z42vm` there. Without
+/// this filter the scanner dlopen'd it, found no known symbols, parked the
+/// library for the VM lifetime, and emitted `ext: ignoring unknown lib repl` on
+/// *every* VM run in the dev tree — which, among other things, put a WARN line
+/// on stderr for all 325 golden cases. Skipping unknown names before the dlopen
+/// costs nothing and keeps the scanner to the libs it can actually register.
+#[cfg(not(feature = "bundled-compression"))]
+const KNOWN_EXT_LIBS: &[&str] = &["compression"];
+
 #[cfg(not(feature = "bundled-compression"))]
 fn load_via_dlopen(ctx: &VmContext) -> Result<()> {
     for dir in native_search_paths() {
@@ -133,6 +149,12 @@ fn load_via_dlopen(ctx: &VmContext) -> Result<()> {
         paths.sort();
         for path in paths {
             if let Some(name) = parse_z42_lib_name(&path) {
+                // Filter *before* dlopen: a `libz42_*` file in a search path is
+                // not automatically ours to load. See `KNOWN_EXT_LIBS`.
+                if !KNOWN_EXT_LIBS.contains(&name.as_str()) {
+                    tracing::debug!("ext: skip `{}` ({}): not an ext lib", name, path.display());
+                    continue;
+                }
                 if let Err(e) = load_one(ctx, &path, &name) {
                     tracing::warn!("ext: failed to load {}: {:#}", path.display(), e);
                 }
@@ -230,8 +252,10 @@ fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
             }
             tracing::debug!("ext: registered compression builtins from {}", path.display());
         }
+        // Unreachable while the caller filters on `KNOWN_EXT_LIBS`; kept as the
+        // signal for "name added to the allowlist, wiring not written yet".
         other => {
-            tracing::warn!("ext: ignoring unknown lib `{}`", other);
+            tracing::warn!("ext: no symbol wiring for ext lib `{}`", other);
         }
     }
 
