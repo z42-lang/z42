@@ -215,6 +215,7 @@ bool _targetExcludes(string rid, string caseName) {
     if (caseName.StartsWith("z42.io/env"))       { return true; }   // env vars — not mutable/inherited on wasm or the mobile harness (env_cwd/env_set/environment_extra)
     if (caseName == "z42.io/ansi_color")         { return true; }   // env-driven ANSI
     if (caseName == "z42.io/operating_system")   { return true; }   // OS name / current_dir — differs from desktop expectations
+    if (caseName == "z42.project/build_layout_display_cwd") { return true; }   // BuildLayout.Display vs cwd shape — cwd is "/" here (no parent, and the absolute form is shorter than the relative one), so the documented fallback kicks in; see that test file's header
     if (caseName == "z42.io/platform")           { return true; }   // OS/family identity strings — wasm reports "wasm", mobile "ios"/"android", not a desktop OS
     if (caseName == "z42.cli/cli_env_fallback_and_mutex") { return true; }  // env/process
 
