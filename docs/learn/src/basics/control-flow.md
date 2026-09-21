@@ -86,7 +86,8 @@
 {{#include ../../../../examples/basics/control-flow/foreach/run.console:chars}}
 ```
 
-> ⚠️ 但 `Dictionary` **不能**直接 `foreach`，要用 `dict.Keys()` 或 `dict.Entries()`。
+> `Dictionary` 也可以直接 `foreach`，每一轮拿到一个键值对（`kv.Key` / `kv.Value`）；
+> 顺序不作保证。
 > 完整规则（`foreach` 到底按什么顺序挑遍历方式）见参考手册的
 > [迭代](https://z42-lang.github.io/z42/reference/language/iteration.html)。
 
@@ -179,7 +180,7 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 - 条件必须是 `bool`，`if (n)` 这种写法不成立。
 - `while` 先判断，`do/while` **至少跑一次**（别忘末尾分号）。
 - 计数用 `for`，逐元素用 `foreach`。
-- 字符串可以直接 `foreach`（一次一个字符）；**`Dictionary` 不行**，用 `Keys()` / `Entries()`。
+- 字符串可以直接 `foreach`（一次一个字符）；`Dictionary` 也可以（一次一个键值对）。
 - `break` / `continue` 只管最近一层；**没有 `goto`、没有循环标签**，跳多层用标志变量或抽成方法。
 - `switch` **没有 fallthrough**，`break` 可省；`default` 写在哪都行，只在所有 `case` 都不匹配时才走。
 
