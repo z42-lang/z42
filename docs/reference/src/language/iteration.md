@@ -20,8 +20,11 @@ foreach (string s in names)      { /* ... */ }   // 也可以写显式类型
 | 顺序 | 条件 | 走哪条路径 |
 |---|---|---|
 | 1 | 目标是数组 `T[]` | **数组路径** |
-| 2 | 目标是类，且有 `get_Item`，**且**有 `Count`（字段或方法） | **索引路径** |
+| 2 | 目标是类，且有 `get_Item`，**且**有计数成员 `Count` 或 `Length` | **索引路径** |
 | 3 | 目标是类，且有 `GetEnumerator()`（而不满足第 2 条） | **枚举器路径** |
+
+`string` 走第 2 条（`Length` + `this[int]`），所以 `foreach (char c in s)` 直接可用，
+**不物化 `char[]`**；`Length` / `CharAt` 都是 O(1) 摊还，按**字符**（scalar）计而非字节。
 
 > ⚠️ 第 2 条优先于第 3 条。**一个同时提供索引器和 `GetEnumerator()` 的类型会走索引路径**，
 > 即使它实现了 `IEnumerable<T>`。见下方「已知陷阱」。
@@ -35,12 +38,23 @@ foreach (string s in names)      { /* ... */ }   // 也可以写显式类型
 类型只要同时提供这两样，不需要实现任何接口：
 
 ```z42
-public int Count;              // 字段或方法都行
+public int Count;              // 或 Length；字段 / 方法 / 属性都行
 public T get_Item(int i);      // 通常由索引器 `public T this[int i]` 合成
 ```
 
-编译器直接发 `Count` 读取 + `get_Item(i)` 调用。标准库的 `List<T>` 走的就是这条路径
-（它的 `Count` 是**字段**）。
+计数成员按 **`Count` 优先、其次 `Length`** 查找，三种声明形态都认：
+
+| 声明 | 编译成 |
+|---|---|
+| `public int Count;`（字段） | `field_get Count` |
+| `public int Count()`（方法） | `vcall Count()` |
+| `public int Count { get; }`（属性） | `vcall get_Count()` |
+
+标准库的 `List<T>` 走字段那档，`string` 走 `Length` 属性那档。
+
+> 2026-09 之前只认字段与方法两档。`Count` 写成**属性**时编译器按源名发 `field_get`——
+> 而 auto 属性的存储叫 `__prop_Count`、计算属性根本没有存储 ⇒ 读到空值 ⇒ 按一个垃圾
+> 长度多迭代、静默越界。现已修正。
 
 ### 路径 3：枚举器协议
 

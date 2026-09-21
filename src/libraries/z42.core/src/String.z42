@@ -53,6 +53,11 @@ public sealed partial class String : IComparable, IEquatable {
     // Returns the char at the given scalar index. Traps on out-of-range.
     [Native("__str_char_at")]   public extern char CharAt(int index);
 
+    // `s[i]` — sugar over CharAt, mirroring C#'s `string[i]`. Also what makes
+    // `foreach (char c in s)` iterate without materialising a char[]: it lowers
+    // to the same Length + get_Item pair any indexable class uses.
+    public char this[int index] { get { return this.CharAt(index); } }
+
     // Builds a string from a char[] array. Empty array → empty string.
     [Native("__str_from_chars")] public static extern string FromChars(char[] chars);
 

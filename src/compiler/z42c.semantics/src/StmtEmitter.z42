@@ -296,11 +296,12 @@ public sealed class StmtEmitter {
         // 长度：数组 → ArrayLenInstr（loop 前一次性求值，镜像 C#）；类 → Count field/VCall。
         TypedReg lenReg = this._fe._ctx.Alloc(IrType.I32);
         if (fe.IsClassIter) {
+            // 名字由 binder 定（字段名 / 方法名 / 属性的 get_X 访问器），见 BoundForeach.CountMember。
             if (fe.CountIsField) {
-                this._fe._ctx.Emit(new FieldGetInstr(lenReg, collReg, "Count"));
+                this._fe._ctx.Emit(new FieldGetInstr(lenReg, collReg, fe.CountMember));
             } else {
                 TypedReg[] noArgs = new TypedReg[0];
-                this._fe._ctx.Emit(new VCallInstr(lenReg, collReg, "Count", noArgs, 0));
+                this._fe._ctx.Emit(new VCallInstr(lenReg, collReg, fe.CountMember, noArgs, 0));
             }
         } else {
             this._fe._ctx.Emit(new ArrayLenInstr(lenReg, collReg));

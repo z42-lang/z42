@@ -52,17 +52,61 @@ public sealed class StmtBinder {
             this._tc._loopDepth = this._tc._loopDepth + 1;
             BoundStmt febody = this._bindStmt(fe.Body, elemScope, ret);
             this._tc._loopDepth = this._tc._loopDepth - 1;
-            // ClassIterTarget：class with get_Item + Count field or method（镜像 C# ClassIterTarget）
-            bool feIsClassIter = false; bool feCountIsField = false;
+            // ClassIterTarget：有 get_Item 的类 + 一个计数成员（镜像 C# ClassIterTarget）。
+            // 计数成员按 `Count` → `Length` 顺序找；`Length` 那一档让 string 也走这条路
+            // （`foreach (char c in s)` 此前落到数组 path，对 Str 发 ArrayLen → 运行期崩）。
+            bool feIsClassIter = false; bool feCountIsField = false; string feCountMember = "";
             Z42Type feCollType = feIter.Type();
             Z42ClassType feClassDef = null;
             if (feCollType is Z42ClassType) { feClassDef = feCollType as Z42ClassType; }
             else if (feCollType is Z42InstantiatedType) { feClassDef = (feCollType as Z42InstantiatedType).Def; }
-            if (feClassDef != null && feClassDef.Methods.ContainsKey("get_Item")) {
-                if (feClassDef.Fields.ContainsKey("Count")) { feIsClassIter = true; feCountIsField = true; }
-                else if (feClassDef.Methods.ContainsKey("Count")) { feIsClassIter = true; feCountIsField = false; }
+            // 字符串**字面量**的类型是 `Z42ClassType.Builtin("string")` —— 无成员的轻量合成体
+            // （局部变量那条路拿到的是带成员的真 String，所以 `foreach (char c in s)` 能查到而
+            // `foreach (char c in "")` 查不到）。查不到时补一次按名解析，与 MemberResolver 的 prim
+            // 收者派发同一手法。只在**已经查不到**时兜底，不影响上面能直接查到的那条路。
+            if (feClassDef != null && !feClassDef.Methods.ContainsKey("get_Item")
+                && feCollType.CanonName() == "string" && feScope.Symbols.HasClass("String")) {
+                feClassDef = feScope.Symbols.GetClass("String");
             }
-            return new BoundForeach(fe.Name, feElem, feIter, febody, feIsClassIter, feCountIsField, fe.Span);
+            if (feClassDef != null && feClassDef.Methods.ContainsKey("get_Item")) {
+                // 返回 "f:<字段名>" 或 "m:<方法名>"，空串 = 没有可用的计数成员。
+                string feCk = this._feCountMember(feClassDef, "Count");
+                if (feCk == "") { feCk = this._feCountMember(feClassDef, "Length"); }
+                if (feCk != "") {
+                    feIsClassIter = true;
+                    feCountIsField = feCk.StartsWith("f:");
+                    feCountMember = feCk.Substring(2);
+                }
+            }
+            return new BoundForeach(fe.Name, feElem, feIter, febody, feIsClassIter, feCountIsField, feCountMember, fe.Span);
+    }
+
+    // foreach 的计数成员解析：给定源名（`Count` / `Length`），返回发射时要用的那个名字，
+    // 带一个字母前缀标明取法 —— `"f:<字段>"` 走 field_get，`"m:<方法>"` 走 vcall；空串 = 没有。
+    //
+    // 属性不能按源名发 field_get：属性也以 FieldSymbol 登记在 `Fields` 里（键=源名），但
+    // auto 属性的存储叫 `__prop_X`、计算属性（有 get 体）**根本没有存储**。此前不分这一层，
+    // `Count` 写成属性时读到的是空值 —— foreach 于是按一个垃圾长度多迭代，静默越界。
+    // 属性一律改走合成的访问器方法 `get_X`（MemberCollector 与字段符号同时登记）。
+    private string _feCountMember(Z42ClassType ct, string srcName) {
+        if (ct.Fields.ContainsKey(srcName)) {
+            FieldSymbol fs = ct.Fields.Get(srcName) as FieldSymbol;
+            if (fs != null && fs.IsProp) {
+                string acc = "get_" + srcName;
+                if (ct.Methods.ContainsKey(acc)) { return "m:" + acc; }
+                return "";   // 属性但没有 getter 访问器：当作不可计数，别乱发指令
+            }
+            if (fs != null && fs.IsStatic) { return ""; }   // 静态成员不是实例的计数
+            return "f:" + srcName;
+        }
+        if (ct.Methods.ContainsKey(srcName)) { return "m:" + srcName; }
+        // 导入包里的属性可能只以合成访问器的形式出现（`Fields` 里没有源名条目）——
+        // stdlib 的 `String.Length` 正是这样，本地声明是 `extern int Length { get; }`，
+        // 跨 zpkg 过来只剩 `get_Length`。不认这一形态，string 就配不上计数成员，
+        // foreach 落回数组 path 对 Str 发 ArrayLen。
+        string accOnly = "get_" + srcName;
+        if (ct.Methods.ContainsKey(accOnly)) { return "m:" + accOnly; }
+        return "";
     }
 
     // add-foreach-ienumerable：foreach-over-IEnumerable 脱糖（Decision 7 = binder 脱糖，User 裁定）。
