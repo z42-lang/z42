@@ -1,0 +1,13 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    string name = "小明";
+    int    age  = 7;
+
+    Console.WriteLine($"{name} 今年 {age} 岁");
+    Console.WriteLine($"明年 {age + 1} 岁");          // 花括号里可以是表达式
+    Console.WriteLine($"名字有 {name.Length} 个字");   // 也可以是方法/属性调用
+    Console.WriteLine($"字面花括号写成 {{ 和 }}");
+    // ANCHOR_END: code
+}

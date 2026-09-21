@@ -1,0 +1,7 @@
+using Std.IO;
+
+void Main() {
+    string csv = "a,b,c";
+    string[] parts = csv.Split(',');   // ✗ 单引号：编译能过，运行期才崩
+    Console.WriteLine(parts.Length);
+}

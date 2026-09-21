@@ -1,0 +1,6 @@
+using Std.IO;
+
+void Main() {
+    string path = "C:\Users\bin";
+    Console.WriteLine(path);
+}

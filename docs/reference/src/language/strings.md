@@ -120,27 +120,33 @@ void Main() {
 
 完整的字符串成员清单见标准库参考的 `Std.String`。
 
-## 不能对字符串 `foreach`
+## 逐字符遍历
 
-```z42
-foreach (char ch in "abc") { }   // ✗ 运行期 trap：expected array, got Str
-```
-
-`string` 既不是数组，也没有 `foreach` 所需的 `Count` / `get_Item` 协议成员。要逐字符遍历，
-用下标循环配合 `CharAt`：
+`foreach` 与下标 `s[i]` 都可以，两者都按**字符**（Unicode 标量）而非字节走：
 
 ```z42
 using Std.IO;
 
 void Main() {
-    string s = "abc";
-    for (int i = 0; i < s.Length; i++) {
-        Console.WriteLine(s.CharAt(i));
+    string s = "z42";
+
+    foreach (char c in s) {
+        Console.WriteLine(c);
+    }
+
+    for (int i = 0; i < s.Length; i = i + 1) {
+        Console.WriteLine(s[i]);            // 等价于 s.CharAt(i)
     }
 }
 ```
 
-`foreach` 支持哪些形态见[迭代](iteration.md)。
+`string` 命中 `foreach` 的**索引路径**（`Length` + `this[int]`），**不物化 `char[]`**；
+`Length` 与 `CharAt` 都是 O(1) 摊还，所以整个循环是 O(n)。`foreach` 支持哪些形态见
+[迭代](iteration.md)。
+
+> 2026-09 之前 `foreach (char c in s)` 能通过编译却在运行期 trap
+> （`expected array, got Str`），`s[i]` 则报 `E0402: index on non-array String`；
+> 当时的变通是先 `s.ToCharArray()`。两者现已直接可用。
 
 ## 与其他形态的关系
 

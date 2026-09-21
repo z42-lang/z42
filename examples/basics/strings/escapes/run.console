@@ -1,0 +1,13 @@
+# ANCHOR: run
+$ z42 run escapes.z42
+制表符在这里 ->	<- 结束
+第一行
+第二行
+引号 " 与反斜杠 \
+# ANCHOR_END: run
+# ANCHOR: bad
+$ z42 run badescape.z42
+z42c build: 1 error(s) in badescape.z42
+  badescape.z42(4,19): E0102: unrecognized escape sequence '\U'
+[exit: 1]
+# ANCHOR_END: bad

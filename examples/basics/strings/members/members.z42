@@ -1,0 +1,15 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: basic
+    string s = "  Hello, z42  ";
+
+    Console.WriteLine(s.Length);              // 属性，不是方法
+    Console.WriteLine("[" + s.Trim() + "]");
+    Console.WriteLine(s.Trim().ToUpper());
+    Console.WriteLine(s.Contains("z42"));
+    Console.WriteLine(s.Trim().StartsWith("Hello"));
+    Console.WriteLine(s.IndexOf("z42"));      // 找不到时返回 -1
+    Console.WriteLine(s.Replace("z42", "世界").Trim());
+    // ANCHOR_END: basic
+}

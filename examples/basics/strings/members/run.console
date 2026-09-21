@@ -1,0 +1,22 @@
+# ANCHOR: basic
+$ z42 run members.z42
+14
+[Hello, z42]
+HELLO, Z42
+true
+true
+9
+Hello, 世界
+# ANCHOR_END: basic
+# ANCHOR: bytes
+$ z42 run bytes.z42
+2
+6
+# ANCHOR_END: bytes
+# ANCHOR: splitjoin
+$ z42 run splitjoin.z42
+3
+b
+a | b | c
+true
+# ANCHOR_END: splitjoin

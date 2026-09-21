@@ -1,0 +1,14 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    string csv = "a,b,c";
+
+    string[] parts = csv.Split(",");        // 注意是字符串 "," 不是字符 ','
+    Console.WriteLine(parts.Length);
+    Console.WriteLine(parts[1]);
+
+    Console.WriteLine(String.Join(" | ", parts));
+    Console.WriteLine(String.IsNullOrEmpty(""));
+    // ANCHOR_END: code
+}
