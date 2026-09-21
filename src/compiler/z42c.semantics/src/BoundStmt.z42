@@ -210,18 +210,27 @@ public sealed class BoundFor : BoundStmt {
 
 // foreach (T name in coll) body（镜像 C# BoundForeach；FunctionEmitter 专用路径产出 byte-identical IR）。
 // IsClassIter=false → 数组 path（ArrayLen+ArrayGet+ConstI32 计数器）。
-// IsClassIter=true  → 类 iterator path（VCall get_Item + Count field/method）。
+// IsClassIter=true  → 类 iterator path（VCall get_Item + 计数成员）。
+//
+// CountMember 是**要发射的那个名字**，不是源码里的成员名——两者对属性并不相同：
+//   真字段 `public int Count;`      → CountIsField=true，CountMember="Count"    → field_get
+//   方法   `public int Count()`     → CountIsField=false，CountMember="Count"   → vcall
+//   属性   `public int Count {get;}`→ CountIsField=false，CountMember="get_Count" → vcall 访问器
+//   string（`Length` 是 extern 属性）→ CountIsField=false，CountMember="get_Length"
+// 属性以 FieldSymbol 登记在 Fields 里（键=源名），但存储在 `__prop_X`、计算属性根本没有存储，
+// 所以按源名发 field_get 会读到空值 —— 这正是「Count 写成属性时 foreach 多迭代一轮」的成因。
 public sealed class BoundForeach : BoundStmt {
     public string    VarName;
     public Z42Type   VarType;
     public BoundExpr Collection;
     public BoundStmt Body;
-    public bool IsClassIter; public bool CountIsField;
+    public bool IsClassIter; public bool CountIsField; public string CountMember;
     public BoundForeach(string varName, Z42Type varType, BoundExpr coll, BoundStmt body,
-                        bool isClassIter, bool countIsField, Span span) {
+                        bool isClassIter, bool countIsField, string countMember, Span span) {
         this.Span = span; this.VarName = varName; this.VarType = varType;
         this.Collection = coll; this.Body = body;
         this.IsClassIter = isClassIter; this.CountIsField = countIsField;
+        this.CountMember = countMember;
     }
     public override string Dump() { return "(foreach " + this.VarName + ")"; }
 }

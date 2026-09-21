@@ -1,0 +1,98 @@
+// foreach 的索引 path 两件事：
+//
+// ① 字符串可直接 foreach。此前 `foreach (char c in s)` 编译得过，运行期对 Str 发 ArrayLen
+//    崩掉（`ArrayLen: expected array, got Str`）。现在走 get_Length + get_Item，不物化 char[]。
+//    变量与字面量是**两条**路径：字面量的类型是无成员的 `Z42ClassType.Builtin("string")`，
+//    要按名解析回真 String 才查得到 get_Item —— 两者都钉。
+//
+// ② 计数成员是**属性**时不能按源名发 field_get。属性以 FieldSymbol 登记在 Fields 里（键=源名），
+//    但 auto 属性存储叫 `__prop_X`、计算属性根本没有存储 ⇒ 读到空值 ⇒ foreach 按垃圾长度
+//    多迭代、静默越界。现在属性一律走合成访问器 `get_X`。
+namespace Demo;
+
+// Count 是【计算属性】（无后备存储）
+class CountProp {
+    private int[] _a;
+    public CountProp(int[] a) { this._a = a; }
+    public int Count { get { return this._a.Length; } }
+    public int this[int i] { get { return this._a[i]; } }
+}
+
+// Count 是【auto 属性】（存储在 __prop_Count）
+class CountAutoProp {
+    private int[] _a;
+    public CountAutoProp(int[] a) { this._a = a; this.Count = a.Length; }
+    public int Count { get; set; }
+    public int this[int i] { get { return this._a[i]; } }
+}
+
+// Count 是【方法】——既有行为，别回归
+class CountMethod {
+    private int[] _a;
+    public CountMethod(int[] a) { this._a = a; }
+    public int Count() { return this._a.Length; }
+    public int this[int i] { get { return this._a[i]; } }
+}
+
+// Count 是【真字段】——既有行为（List<T> 走的就是这条），别回归
+class CountField {
+    private int[] _a;
+    public int Count;
+    public CountField(int[] a) { this._a = a; this.Count = a.Length; }
+    public int this[int i] { get { return this._a[i]; } }
+}
+
+int SumOf(int[] src, int which) {
+    int total = 0;
+    if (which == 0) { foreach (int v in new CountProp(src))     { total = total + v; } }
+    if (which == 1) { foreach (int v in new CountAutoProp(src)) { total = total + v; } }
+    if (which == 2) { foreach (int v in new CountMethod(src))   { total = total + v; } }
+    if (which == 3) { foreach (int v in new CountField(src))    { total = total + v; } }
+    return total;
+}
+
+void Main() {
+    // ── ① 字符串 foreach ──────────────────────────────────────────────────
+    string s = "abc";
+    string acc = "";
+    foreach (char c in s) { acc = acc + c; }
+    Assert.Equal("abc", acc);
+
+    // 字面量（走的是另一条类型路径）
+    int litCount = 0;
+    foreach (char c in "xyz") { litCount = litCount + 1; }
+    Assert.Equal(3, litCount);
+
+    // 空串 → 零轮
+    int emptyCount = 0;
+    foreach (char c in "") { emptyCount = emptyCount + 1; }
+    Assert.Equal(0, emptyCount);
+
+    // 非 ASCII 按**字符**（scalar）而不是字节计
+    int wide = 0;
+    string w = "";
+    foreach (char c in "aé中") { wide = wide + 1; w = w + c; }
+    Assert.Equal(3, wide);
+    Assert.Equal("aé中", w);
+
+    // 与 ToCharArray() 的既有绕法逐字符一致
+    string viaArray = "";
+    foreach (char c in "aé中".ToCharArray()) { viaArray = viaArray + c; }
+    Assert.Equal(w, viaArray);
+
+    // break / continue 在字符串 foreach 里照常
+    string firstTwo = "";
+    foreach (char c in "abcdef") {
+        if (firstTwo.Length == 2) { break; }
+        firstTwo = firstTwo + c;
+    }
+    Assert.Equal("ab", firstTwo);
+
+    // ── ② 计数成员的四种形态 ──────────────────────────────────────────────
+    int[] src = new int[3];
+    src[0] = 1; src[1] = 2; src[2] = 4;
+    Assert.Equal(7, SumOf(src, 0));   // 计算属性
+    Assert.Equal(7, SumOf(src, 1));   // auto 属性
+    Assert.Equal(7, SumOf(src, 2));   // 方法
+    Assert.Equal(7, SumOf(src, 3));   // 真字段
+}

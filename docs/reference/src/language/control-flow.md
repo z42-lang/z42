@@ -90,7 +90,7 @@ switch (subject) {
 }
 ```
 
-四条与 C# 不同的规则，**每一条都会影响你怎么写**：
+四条需要留意的规则，**每一条都会影响你怎么写**：
 
 ### 1. `break` 可以省，而且没有 fallthrough
 
@@ -113,19 +113,22 @@ void Main() {
 
 写 `break` 也完全合法，效果相同——只是不再是必需的。
 
-### 2. `default` 一旦出现就视作最后一条
+### 2. `default` 的位置不影响语义
 
-`default` 之后的 `case` **不可达**，且不会有任何诊断：
+`default` 只在**所有 `case` 都不匹配**时才走，写在哪一行都一样（与 C# 一致）：
 
 ```z42
 int n = 2;
 switch (n) {
-    default: Console.WriteLine("default");   // 命中这条
-    case 2:  Console.WriteLine("two");       // 永远到不了
+    default: Console.WriteLine("other");   // 不会命中
+    case 2:  Console.WriteLine("two");     // 命中这条
 }
 ```
 
-**把 `default` 写在最后。**
+惯例仍是把 `default` 写在最后——读起来更顺——但这只是风格，不是要求。
+
+> 2026-09 之前不是这样：`default` 会被就地当成最后一条，写在它后面的 `case` 永远不可达
+> 且没有任何诊断。现已修正。
 
 ### 3. `case` 后面是完整的模式，不只是常量
 

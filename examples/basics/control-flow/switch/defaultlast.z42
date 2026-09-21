@@ -5,8 +5,9 @@ void Main() {
     int n = 2;
 
     switch (n) {
-        default: Console.WriteLine("default");   // 命中这条
-        case 2:  Console.WriteLine("two");       // 永远到不了，而且没有任何提示
+        default: Console.WriteLine("其它");   // 只在两个 case 都不匹配时才走
+        case 1:  Console.WriteLine("一");
+        case 2:  Console.WriteLine("二");     // 命中这条
     }
     // ANCHOR_END: code
 }

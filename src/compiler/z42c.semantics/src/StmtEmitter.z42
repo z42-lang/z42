@@ -223,14 +223,24 @@ public sealed class StmtEmitter {
         // （无外层则同当前深），确保 switch 内 continue 跨越 switch 与外层循环间的 try-finally 时跑其 finally。
         int swContFloor = this._fe._ctx.InLoop() ? this._fe._ctx.CurContFinFloor() : this._fe._finDepth;
         this._fe._ctx.PushLoop(outerCont, endL, this._fe._finDepth, swContFloor);
+        // `default` **位置无关**：只在所有 case 都不匹配时才走。故这一轮只发射带模式的 case、
+        // 把 default 记下来，等比较链全部落空后（= 最后一个 sw_next 块里）再发射它的体。
+        //
+        // 曾经是「就地发射 default 并 `ci = sw.CaseCount` 跳出」，于是写在 default 之后的 case
+        // **根本没被 emit**，永远不可达且零诊断（`switch (2) { default: …; case 2: … }` 打 default）。
+        //
+        // ⚠️ default 体必须仍在下面的 PushLoop/PopLoop 区间内发射——它里面的 `break` 要跳到本
+        // switch 的 sw_end、`continue` 要透传外层循环。挪到 PopLoop 之后会绑错循环。
+        //
+        // default 写在最后（绝大多数写法）时，发射顺序与改动前逐字相同：带模式的 case 依次成链，
+        // default 体落在最后一个 sw_next 块里。Fresh 的调用序列不变 ⇒ 标签编号不变 ⇒ IR 不变。
+        int defIdx = -1;
         int ci = 0;
         while (ci < sw.CaseCount) {
             BoundSwitchCase c = sw.Cases[ci];
             if (!c.HasPattern) {
-                int bi = 0;
-                while (bi < c.BodyCount) { if (this._fe._ctx.Ended) { break; } this._emitStmt(c.Body[bi]); bi = bi + 1; }
-                if (!this._fe._ctx.Ended) { this._fe._ctx.EndBlock(new BrTerm(endL)); }
-                ci = sw.CaseCount;   // default 视作最后一条（break out）
+                if (defIdx < 0) { defIdx = ci; }   // 多个 default：仍是第一个胜出（与改动前一致）
+                ci = ci + 1;
             } else {
                 string bodyL = this._fe._ctx.Fresh("sw_case");
                 string nextL = this._fe._ctx.Fresh("sw_next");
@@ -249,6 +259,13 @@ public sealed class StmtEmitter {
                 this._fe._ctx.StartBlock(nextL);
                 ci = ci + 1;
             }
+        }
+        // 比较链全部落空 → 当前块就是最后一个 sw_next（无 case 时是入口块），在这里发射 default。
+        if (defIdx >= 0) {
+            BoundSwitchCase d = sw.Cases[defIdx];
+            int di = 0;
+            while (di < d.BodyCount) { if (this._fe._ctx.Ended) { break; } this._emitStmt(d.Body[di]); di = di + 1; }
+            if (!this._fe._ctx.Ended) { this._fe._ctx.EndBlock(new BrTerm(endL)); }
         }
         this._fe._ctx.PopLoop();
         if (!this._fe._ctx.Ended) { this._fe._ctx.EndBlock(new BrTerm(endL)); }
@@ -279,11 +296,12 @@ public sealed class StmtEmitter {
         // 长度：数组 → ArrayLenInstr（loop 前一次性求值，镜像 C#）；类 → Count field/VCall。
         TypedReg lenReg = this._fe._ctx.Alloc(IrType.I32);
         if (fe.IsClassIter) {
+            // 名字由 binder 定（字段名 / 方法名 / 属性的 get_X 访问器），见 BoundForeach.CountMember。
             if (fe.CountIsField) {
-                this._fe._ctx.Emit(new FieldGetInstr(lenReg, collReg, "Count"));
+                this._fe._ctx.Emit(new FieldGetInstr(lenReg, collReg, fe.CountMember));
             } else {
                 TypedReg[] noArgs = new TypedReg[0];
-                this._fe._ctx.Emit(new VCallInstr(lenReg, collReg, "Count", noArgs, 0));
+                this._fe._ctx.Emit(new VCallInstr(lenReg, collReg, fe.CountMember, noArgs, 0));
             }
         } else {
             this._fe._ctx.Emit(new ArrayLenInstr(lenReg, collReg));

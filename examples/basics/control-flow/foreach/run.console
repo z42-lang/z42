@@ -8,7 +8,7 @@ $ z42 run arrays.z42
 # ANCHOR_END: arrays
 # ANCHOR: chars
 $ z42 run chars.z42
-a
-b
-c
+z
+4
+2
 # ANCHOR_END: chars
