@@ -33,7 +33,8 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, stri
 
 // parentPkg（z42b-owns-test-targets）：非空 → 本次是该包的测试/bench 目标，透传给编译器
 // ⇒ 加载父包时按同包待遇（其 internal 可见）。
-// 注：z42 的**自由函数不重载**（E0408），故另起名字而非同名多签名。
+// 注：另起名字而非同名多签名——自由函数重载（free-function-overloads）已支持，但按 bootstrap-seed
+// 的 support/use 分阶段纪律，工具链/stdlib 源码在阶段 1 暂不使用（晚一个 nightly 才 use），故此处仍分名。
 int _orchestrateFor(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
                     string parentPkg) {
     return _orchestrateWith(manifest, target, sourceDir, hooksRel, parentPkg, "");

@@ -626,8 +626,24 @@ public sealed class OverloadBinder {
     internal MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
                                           BoundExpr[] args, int argCount, int typeArgCount, Span sp,
                                           Expr[] rawArgs, TypeEnv env) {
+        return this._resolveOverloadCands(symbols, this._collectOverloads(symbols, ct, name), name,
+                                          args, argCount, typeArgCount, sp, rawArgs, env);
+    }
+
+    // free-function-overloads：自由函数重载决议——候选来自 SymbolTable.GetFuncCandidates（跨 ns 由调用点先定好 ns），
+    // 决议核心与类方法完全同一套（arity 过滤 / params / 默认值 / 命名实参 / type-based 最具体 / 歧义诊断），
+    // 只是候选来源不同。返回选中符号（其 RegKey 即发射键）；null = no-match 或歧义（歧义已报 E0425）。
+    internal MethodSymbol _resolveFreeOverload(SymbolTable symbols, MethodSymbol[] cands, string name,
+                                          BoundExpr[] args, int argCount, int typeArgCount, Span sp,
+                                          Expr[] rawArgs, TypeEnv env) {
+        return this._resolveOverloadCands(symbols, cands, name, args, argCount, typeArgCount, sp, rawArgs, env);
+    }
+
+    // 决议核心（类方法 + 自由函数共用）：接收已聚合的候选集 all，与来源（类基链 / 自由函数候选表）无关。
+    internal MethodSymbol _resolveOverloadCands(SymbolTable symbols, MethodSymbol[] all, string name,
+                                          BoundExpr[] args, int argCount, int typeArgCount, Span sp,
+                                          Expr[] rawArgs, TypeEnv env) {
         this.LastAmbiguous = false;       // 每次决议独立，别让上一次的歧义把这次的「找不到」吞掉
-        MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
         if (all.Length == 0) { return null; }
         // fix-overload-defaults-named-args：命名实参 + 多个重载 ⇒ 按「实参映射」决议。此前命名实参在 `_bindCall` 里
         // 是延迟占位（null），被下面当成 target-typed `new` 的延迟位 ⇒ 报 E0437「需要显式类型」、再报 undefined。

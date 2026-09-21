@@ -341,11 +341,16 @@ public static class ImportedSymbolLoader {
                 int f = 0;
                 while (f < em.FunctionCount) {
                     ExportedFuncZ fz = em.Functions[f];
+                    // free-function-overloads：TSIG 里 fz.Name = **RegKey**（primary=裸名 / 非-primary=`name$arity$T`）。
+                    // 基名（源名）= 剥首个 `$`（标识符不含 `$`）。FuncOriginAll / 裸名歧义按**基名**记；
+                    // FunctionsByFqn 键与符号 RegKey 用完整 RegKey。Phase 1 无重载 ⇒ fz.Name 无 `$` ⇒ 基名==全名，字节稳定。
+                    int fzDollar = fz.Name.IndexOf("$");
+                    string fzBase = fzDollar < 0 ? fz.Name : fz.Name.Substring(0, fzDollar);
                     // report-crosspkg-duplicate-function：**守卫之外**记来源（ns + 包名）。
                     // 守卫之内只有赢家能进，而「这个名字有几个来源」正是守卫塌掉的那个信息。
                     // 父包不算「另一个包」——与上面类/接口/enum 三处同一判据（#586）。
                     if (!(parentPkg != "" && pkgNames[i] == parentPkg)) {
-                        SymbolTable.NoteNsInto(r.FuncOriginAll, fz.Name, em.Namespace + "#" + pkgNames[i]);
+                        SymbolTable.NoteNsInto(r.FuncOriginAll, fzBase, em.Namespace + "#" + pkgNames[i]);
                     }
                     string fzFqn = SymbolTable.QualOf(em.Namespace, fz.Name);
                     if (!r.FunctionsByFqn.ContainsKey(fzFqn)) {
@@ -361,10 +366,12 @@ public static class ImportedSymbolLoader {
                         var sig = new Z42FuncType(ps, fz.ParamCount, ImportedSymbolLoader._resolve(r, fz.ReturnType, ftps, ftpc));
                         sig.ParamsFrom = fz.ParamsFrom;
                         ImportedSymbolLoader._fillParamMeta(sig, fz.Params, fz.ParamCount);   // PR6：跨包默认值/ caller
-                        var fsym = new MethodSymbol(fz.Name, "public", sig, false, "", false, null);
+                        // free-function-overloads：Name=基名（源名，诊断/候选分组用），RegKey=完整 RegKey（发射键）。
+                        var fsym = new MethodSymbol(fzBase, "public", sig, false, "", false, null);
+                        fsym.RegKey = fz.Name;
                         fsym.TypeParamCount = fz.TypeParamCount;   // 供泛型 arity 重载过滤（镜像方法侧）
                         fsym.TypeParamNames = ImportedSymbolLoader._tpNames(fz.TypeParams);   // fix-explicit-type-arg-not-substituted
-                        r.FunctionsByFqn.Put(fzFqn, fsym);   // 源 ns 在键里；调用点解析出 ns 后随 BoundCall 带到发射端
+                        r.FunctionsByFqn.Put(fzFqn, fsym);   // 源 ns + RegKey 在键里；调用点解析出 ns 后随 BoundCall 带到发射端
                     }
                     f = f + 1;
                 }

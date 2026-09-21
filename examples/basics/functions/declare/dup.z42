@@ -1,7 +1,7 @@
 using Std.IO;
 
-int Parse(int n)    { return n; }
-int Parse(string s) { return s.Length; }
+int Parse(int n) { return n; }
+int Parse(int m) { return m + 1; }   // 同名且同签名 = 重复声明（形参名不算区别）
 
 void Main() {
     Console.WriteLine(Parse(1));

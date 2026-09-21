@@ -1,0 +1,10 @@
+using Std.IO;
+
+// 自由函数同名不同参 = 重载，和类里的方法一样
+int Parse(int n)    { return n; }
+int Parse(string s) { return s.Length; }
+
+void Main() {
+    Console.WriteLine(Parse(42));       // 选 Parse(int)   → 42
+    Console.WriteLine(Parse("hello"));  // 选 Parse(string) → 5
+}

@@ -10,24 +10,65 @@
 namespace Z42.Semantics;
 using Z42.IR;
 
-public sealed partial class SymbolTable {
-    // 登记一份自由函数。同 FQN 已有：`local` 且既有那份是导入的 → 本包覆盖它（local-wins，E0606 另报）；
-    // 否则保留既有。返回**被占用前的既有那份**（无则 null）——调用方据此判「同 FQN 两份本包声明」。
-    public MethodSymbol AddFunc(string ns, string name, MethodSymbol ms, bool local) {
-        string fqn = SymbolTable.QualOf(ns, name);
-        int at = this.FunctionsByFqn.Find(fqn);
-        if (at >= 0) {
-            MethodSymbol prev = this.FunctionsByFqn.ValAt(at) as MethodSymbol;
-            if (local && prev != null && !prev.HasDecl) { this.FunctionsByFqn.Put(fqn, ms); }
-            return prev;
+// free-function-overloads：自由函数重载候选的增长列表（手卷，镜像 GenMethodList）。
+public sealed class MethodSymList {
+    public MethodSymbol[] Items; public int Count;
+    public MethodSymList() { this.Items = new MethodSymbol[2]; this.Count = 0; }
+    public void Add(MethodSymbol v) {
+        if (this.Count == this.Items.Length) {
+            MethodSymbol[] b = new MethodSymbol[this.Items.Length * 2];
+            int k = 0; while (k < this.Count) { b[k] = this.Items[k]; k = k + 1; } this.Items = b;
         }
-        this.FunctionsByFqn.Put(fqn, ms);
-        SymbolTable.NoteNsInto(this.FuncNsAll, name, ns);
-        return null;
+        this.Items[this.Count] = v; this.Count = this.Count + 1;
+    }
+    public MethodSymbol[] Trimmed() {
+        MethodSymbol[] r = new MethodSymbol[this.Count];
+        int k = 0; while (k < this.Count) { r[k] = this.Items[k]; k = k + 1; } return r;
+    }
+}
+
+public sealed partial class SymbolTable {
+    // 登记一份自由函数。**键 = RegKey-限定 FQN**（primary=`ns.name`、非-primary=`ns.name$arity$T`，
+    // 见 free-function-overloads）：唯一函数 → primary → 裸键 ⇒ 存量字节零漂移。
+    // 同 RegKey-FQN 已有（= **同签名重复**）：`local` 且既有那份是导入的 → 本包覆盖它（local-wins，E0606 另报）；
+    // 否则保留既有。返回**同 RegKey-FQN 被占用前的既有那份**（无则 null）——调用方据此判「同签名两份本包声明」。
+    // 另把 ms 追加进**基名 FQN**（`QualOf(ns, name)`，无签名后缀）分组的候选集，供调用点重载决议。
+    public MethodSymbol AddFunc(string ns, string name, MethodSymbol ms, bool local) {
+        string fqn = SymbolTable.QualOf(ns, ms.RegKey);   // RegKey-限定：primary=ns.name、非-primary 带签名
+        int at = this.FunctionsByFqn.Find(fqn);
+        MethodSymbol prev = null;
+        bool installed = false;   // ms 是否成为该 RegKey-FQN 的赢家（→ 同步进候选集）
+        if (at >= 0) {
+            prev = this.FunctionsByFqn.ValAt(at) as MethodSymbol;
+            if (local && prev != null && !prev.HasDecl) { this.FunctionsByFqn.Put(fqn, ms); installed = true; }   // local-wins（E0606 另报）
+        } else {
+            this.FunctionsByFqn.Put(fqn, ms);
+            SymbolTable.NoteNsInto(this.FuncNsAll, name, ns);
+            installed = true;
+        }
+        // 候选集：按基名 FQN 分组，含每个 RegKey 的**赢家**（供调用点重载决议）。同签名重复的旧份不入组
+        // （与 FunctionsByFqn 的 last/local-wins 一致）；local 覆盖导入 stub 时也把 local 放进候选。
+        if (installed) { this._addCandidate(SymbolTable.QualOf(ns, name), ms); }
+        return prev;
     }
 
+    private void _addCandidate(string baseFqn, MethodSymbol ms) {
+        int at = this.FuncOverloadsByFqn.Find(baseFqn);
+        MethodSymList lst = at >= 0 ? (this.FuncOverloadsByFqn.ValAt(at) as MethodSymList) : new MethodSymList();
+        lst.Add(ms);
+        if (at < 0) { this.FuncOverloadsByFqn.Put(baseFqn, lst); }
+    }
+
+    // 单符号取用（既有消费点）：primary 的 RegKey=裸名 ⇒ `QualOf(ns,name)` 命中 primary（唯一函数即那一份）。
     public MethodSymbol GetFuncIn(string ns, string name) {
         return this.FunctionsByFqn.Get(SymbolTable.QualOf(ns, name)) as MethodSymbol;
+    }
+
+    // free-function-overloads：该 (ns, 基名) 下的全部重载候选（含 primary），供调用点 OverloadResolver 决议。
+    public MethodSymbol[] GetFuncCandidates(string ns, string name) {
+        MethodSymList lst = this.FuncOverloadsByFqn.Get(SymbolTable.QualOf(ns, name)) as MethodSymList;
+        if (lst == null) { return new MethodSymbol[0]; }
+        return lst.Trimmed();
     }
 
     // 裸名自由函数引用解析到哪个 ns；无此名 → null。**判据只此一份**（E0456 的 AmbiguousFuncNameMsg 同样走它）：

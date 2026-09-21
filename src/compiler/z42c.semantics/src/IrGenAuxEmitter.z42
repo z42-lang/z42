@@ -98,9 +98,10 @@ public sealed class IrGenAuxEmitter {
             Decl d = IrGenFacts._unwrap(cu.Decls[i]);
             if (d is MethodDecl) {
                 MethodDecl md = d as MethodDecl;
-                if (md.HasBody && model.HasBody(md.Name)) {
+                if (md.HasBody && model.HasBody(md.RegKey)) {
                     var fe = new FunctionEmitter(model.Symbols, this._g);
-                    IrFunction irf = fe.EmitFunction(this._g._q(md.Name), md, model.GetBody(md.Name), false, false,
+                    // free-function-overloads：IR 名 + 体查找键按 RegKey（primary=裸名→字节稳定；重载带签名后缀）。
+                    IrFunction irf = fe.EmitFunction(this._g._q(md.RegKey), md, model.GetBody(md.RegKey), false, false,
                                                      null, new string[0], 0);
                     irf.Visibility = IrGenFacts._visCode(md.Mods, 3);
                     irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
