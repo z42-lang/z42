@@ -317,7 +317,7 @@ void test_instance_call_on_param() {
 void test_static_method_call() {
     // Math.Square(...) 静态调用（裸类名 target）
     string src = "class Math { public static int Square(int n) { return n; } } class C { int Use() { return Math.Square(4); } }";
-    Assert.Equal("(block (return (call-static Math Square$1$i32 (lit-int 4 :int) :int)))",
+    Assert.Equal("(block (return (call-static Math Square$1$int (lit-int 4 :int) :int)))",
                  SemanticDump.DumpBody(src, "C.Use"));
     Assert.Equal(0, SemanticDump.ErrorCount(src));
 }
@@ -726,13 +726,11 @@ void test_distinct_static_overloads_no_duplicate_error() {
 // ── 实例方法 type-based 重载扩展（add-type-based-overloads D7，阶段 8）────────
 // 豁免名单外的实例方法同样做碰撞检测；豁免名单内（协议方法）不检测、不误报；
 // 操作符（op_*）走既有静态决议路径（8.1a：_bindBinary 迁移到 _resolveOverload）。
-[Test]
-void test_error_duplicate_instance_overload_type_alias_collision() {
-    // int 与 i32 同一基本类型两种拼写 → 实例方法签名键碰撞，豁免名单外须报错
-    string src = "class C { void F(int a) { } void F(i32 a) { } }";
-    Assert.Equal(1, SemanticDump.ErrorCount(src));
-}
-
+// drop-short-primitive-aliases：原 `test_error_duplicate_instance_overload_type_alias_collision`
+// （`F(int)` vs `F(i32)`）已删除 —— 短名别名不复存在，同一基本类型只剩一种关键字拼写，
+// 该场景无法再构造。归一造成的键碰撞由下面的 nullable 用例继续覆盖。
+// 注：`Int32` 这类 BCL 包装名在 SemanticDump 的裸片段管线里**解析不到**（那里没有 Std 符号表），
+// 不能拿来替代 —— 换上去会得到 E0443 而非 E0408，测试变成假绿。
 [Test]
 void test_error_duplicate_instance_overload_nullable_collision() {
     // Canon 剥 nullable 后 string 与 string? 同键 → 实例方法签名键碰撞
@@ -774,7 +772,7 @@ void test_operator_overload_multi_arity_dispatch_selects_correct_overload() {
     Assert.Equal(0, SemanticDump.ErrorCount(src));
     Assert.Equal("(block (return (call-static Vec op_Add$2$Vec$Vec (ident a :Vec) (ident b :Vec) :Vec)))",
                  SemanticDump.DumpBody(src, "C.AddVV"));
-    Assert.Equal("(block (return (call-static Vec op_Add$2$Vec$i32 (ident a :Vec) (ident b :int) :Vec)))",
+    Assert.Equal("(block (return (call-static Vec op_Add$2$Vec$int (ident a :Vec) (ident b :int) :Vec)))",
                  SemanticDump.DumpBody(src, "C.AddVI"));
 }
 
@@ -948,15 +946,18 @@ void test_partial_method_overloads_are_allowed() {
 [Test]
 void test_partial_method_real_duplicate_impls_still_reported() {
     // 反向：排除「已擦除的声明」不能把**真重复**也放过 —— 两个实现同签名照报。
-    string src = "partial class C { partial void F(int a) { } partial void F(i32 a) { } }";
-    Assert.Equal(1, SemanticDump.ErrorCount(src));
-    Assert.Equal("E0408", SemanticDump.FirstErrorCode(src));
+    // drop-short-primitive-aliases：原用 `int` / `i32` 两种拼写考验别名归一；别名已删，改用
+    // `int` / `int?`（Canon 同样剥 `?` 后同签名）。断言从「恰好 1 条」改为「E0408 有报」——
+    // 旧的 `ErrorCount == 1` 依赖了别名带来的偶然效果（两个实现互相当声明匹配上、E0434 不触发），
+    // 锁的是偶然而非意图。
+    string src = "partial class C { partial void F(int a) { } partial void F(int? a) { } }";
+    Assert.Equal(true, SemanticDump.HasErrorCode(src, "E0408"));
 }
 
 [Test]
 void test_nonpartial_duplicate_unaffected() {
-    // 反向：非 partial 的重复重载判定完全不受本次改动影响。
-    string src = "class C { void F(int a) { } void F(i32 a) { } }";
+    // 反向：非 partial 的重复重载判定完全不受本次改动影响（同上改用 nullable 归一）。
+    string src = "class C { void F(int a) { } void F(int? a) { } }";
     Assert.Equal(1, SemanticDump.ErrorCount(src));
 }
 

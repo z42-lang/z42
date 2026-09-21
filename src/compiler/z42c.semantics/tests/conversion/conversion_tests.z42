@@ -50,7 +50,7 @@ void test_lossy_float_explicit() {   // 比 C# 严：整数→浮点丢尾数精
 [Test]
 void test_identity() {
     Assert.Equal(ConvKind.Identity, _kind("int", "int"));   // 同型
-    Assert.Equal(ConvKind.Identity, _kind("byte", "u8"));   // 别名归一
+    Assert.Equal(ConvKind.Identity, _kind("byte", "Byte"));   // 关键字 ↔ BCL 包装名归一
     Assert.Equal(ConvKind.Identity, _kind("int?", "int"));  // 剥 nullable
     Assert.Equal(ConvKind.Identity, _kind("string", "string"));
     Assert.Equal(ConvKind.Identity, _kind("bool", "bool"));

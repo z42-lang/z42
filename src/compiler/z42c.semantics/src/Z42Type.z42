@@ -11,7 +11,7 @@ public class Z42Type {
     public virtual string Dump() { return this.Name(); }
 
     // 规范化基本类型名的唯一入口是 `PrimModel.Canon`（剥 nullable `?` + 别名归一：`byte`≡`u8`、
-    // wrapper `Int32` / FQ `Std.Int32` → 短名 `i32`；imported TSIG 用 keyword 拼写、本地用 canonical，
+    // wrapper `Int32` / FQ `Std.Int32` → 关键字 `int`（drop-short-primitive-aliases：canonical 即关键字）；
     // 须等价）。此处历史上有一个同名转发器 `Z42Type.Canon`，2026-09-06 删除 —— 纯转发也要付一整个
     // z42 调用帧，profile 里它**自身**就占 0.53%；调用点一律直呼 PrimModel.Canon。
 
@@ -165,7 +165,7 @@ public sealed class Z42ClassType : Z42Type {
     // unify-value-types Phase 1 阶段 3（消灭 Z42PrimType）：内建基元/string/object 的**轻量合成**
     // 值类型——取代旧 `new Z42PrimType(name)`。Name()=wrapper 拼写（Int32/String/Object…），供消费者
     // 一律按 PrimModel.Canon/IsBuiltin/SurfaceName 归一（与翻转前 Z42PrimType("int") 逐字节等价：
-    // 二者名经 Canon 都归 "i32"，emit 经 SurfaceName 都回 "int"）。IsStruct 复刻真 phantom（scalar
+    // 二者名经 Canon 都归 "int"，emit 经 SurfaceName 都回 "int"）。IsStruct 复刻真 phantom（scalar
     // wrapper=struct，string/object=引用类）；无成员——内建成员访问经 MemberResolver 按名查 wrapper
     // 类（2b 已建），不依赖本类型自带成员表。任意拼写入参（keyword/短名/wrapper/FQ）由 Wrapper 归一。
     public static Z42ClassType Builtin(string name) {

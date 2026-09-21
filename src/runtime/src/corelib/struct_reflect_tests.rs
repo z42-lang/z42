@@ -81,7 +81,7 @@ fn resolver(types: Vec<Arc<TypeDesc>>) -> impl Fn(&str) -> Option<Arc<TypeDesc>>
 #[test]
 fn pure_primitive_struct_offsets() {
     // Demo.Pt { x:i32@0, y:i32@4 } size 8, no refs.
-    let pt = struct_td("Demo.Pt", &[("x", "i32"), ("y", "i32")], layout(8, &[]));
+    let pt = struct_td("Demo.Pt", &[("x", "int"), ("y", "int")], layout(8, &[]));
     let r = resolver(vec![pt]);
     let c = compute(&r, "Demo.Pt").unwrap();
     assert_eq!(c.size, 8);
@@ -97,7 +97,7 @@ fn struct_with_string_ref_leaf_alignment() {
     // Demo.P { x:i32@0, y:i32@4, tag:str@8(8B,align8) } → size 16, ref@8 (PR-3 chunk 2c: 8B ref).
     let p = struct_td(
         "Demo.P",
-        &[("x", "i32"), ("y", "i32"), ("tag", "str")],
+        &[("x", "int"), ("y", "int"), ("tag", "str")],
         layout(16, &[8]),
     );
     let r = resolver(vec![p]);
@@ -115,10 +115,10 @@ fn nested_struct_flattens_ref_leaves() {
     // p@0 size16; n:i32 align4 → @16 size4 → offset20; size = align_up(20,8)=24; ref@8.
     let p = struct_td(
         "Demo.P",
-        &[("x", "i32"), ("y", "i32"), ("tag", "str")],
+        &[("x", "int"), ("y", "int"), ("tag", "str")],
         layout(16, &[8]),
     );
-    let seg = struct_td("Demo.Seg", &[("p", "Demo.P"), ("n", "i32")], layout(24, &[8]));
+    let seg = struct_td("Demo.Seg", &[("p", "Demo.P"), ("n", "int")], layout(24, &[8]));
     let r = resolver(vec![p, seg]);
     let c = compute(&r, "Demo.Seg").unwrap();
     assert_eq!(c.size, 24);
@@ -134,7 +134,7 @@ fn mixed_alignment_padding() {
     // Demo.Mix { a:i8@0, b:i64@8, c:bool@16 } → size align_up(17,8)=24, no refs.
     let mix = struct_td(
         "Demo.Mix",
-        &[("a", "i8"), ("b", "i64"), ("c", "bool")],
+        &[("a", "sbyte"), ("b", "long"), ("c", "bool")],
         layout(24, &[]),
     );
     let r = resolver(vec![mix]);
@@ -148,7 +148,7 @@ fn mixed_alignment_padding() {
 
 #[test]
 fn validate_rejects_wrong_size() {
-    let pt = struct_td("Demo.Pt", &[("x", "i32"), ("y", "i32")], layout(8, &[]));
+    let pt = struct_td("Demo.Pt", &[("x", "int"), ("y", "int")], layout(8, &[]));
     let r = resolver(vec![pt]);
     let c = compute(&r, "Demo.Pt").unwrap();
     // Delivered size disagrees → replication-drift bail.
@@ -159,7 +159,7 @@ fn validate_rejects_wrong_size() {
 fn validate_rejects_wrong_ref_bitmap() {
     let p = struct_td(
         "Demo.P",
-        &[("x", "i32"), ("y", "i32"), ("tag", "str")],
+        &[("x", "int"), ("y", "int"), ("tag", "str")],
         layout(24, &[8]),
     );
     let r = resolver(vec![p]);
@@ -173,22 +173,22 @@ fn validate_rejects_wrong_ref_bitmap() {
 #[test]
 fn tag_from_name_signedness_guardrail() {
     // Every primitive spelling maps to the exact zbc Tag the codegen bakes, so reflection
-    // decodes with matching width + signedness. Aliases + canon forms both covered.
+    // decodes with matching width + signedness.
+    //
+    // drop-short-primitive-aliases (2026-09-22): the short aliases (`i8` / `u8` / …) are gone
+    // from the language AND from the wire, so there is exactly one spelling per type now —
+    // this table used to carry both and assert they agreed.
     let cases: &[(&str, u8)] = &[
         ("bool", ty::TAG_BOOL),
-        ("i8", ty::TAG_I8),
-        ("i16", ty::TAG_I16),
-        ("i32", ty::TAG_I32),
+        ("sbyte", ty::TAG_I8),
+        ("short", ty::TAG_I16),
         ("int", ty::TAG_I32),
-        ("i64", ty::TAG_I64),
         ("long", ty::TAG_I64),
-        ("u8", ty::TAG_U8),
-        ("u16", ty::TAG_U16),
-        ("u32", ty::TAG_U32),
-        ("u64", ty::TAG_U64),
-        ("f32", ty::TAG_F32),
+        ("byte", ty::TAG_U8),
+        ("ushort", ty::TAG_U16),
+        ("uint", ty::TAG_U32),
+        ("ulong", ty::TAG_U64),
         ("float", ty::TAG_F32),
-        ("f64", ty::TAG_F64),
         ("double", ty::TAG_F64),
         ("char", ty::TAG_CHAR),
         ("str", ty::TAG_STR),
@@ -222,12 +222,12 @@ fn class_inline_layout_packs_only_struct_fields() {
     // Inline region: pt@0 (align8) size16, ref leaf flattened to 8 → region size 16, ref@8.
     let p = struct_td(
         "Demo.Point",
-        &[("x", "i32"), ("y", "i32"), ("tag", "str")],
+        &[("x", "int"), ("y", "int"), ("tag", "str")],
         layout(16, &[8]),
     );
     let c = class_td(
         "Demo.C",
-        &[("id", "i32"), ("pt", "Demo.Point"), ("label", "str")],
+        &[("id", "int"), ("pt", "Demo.Point"), ("label", "str")],
         layout(16, &[8]),
     );
     let r = resolver(vec![p, c]);
@@ -253,12 +253,12 @@ fn class_inline_layout_two_struct_fields_pack_contiguously() {
     // n stays a slot (not inlined). Region size 32, refs @8,@24 (chunk 2c: 8B ref).
     let p = struct_td(
         "Demo.Point",
-        &[("x", "i32"), ("y", "i32"), ("tag", "str")],
+        &[("x", "int"), ("y", "int"), ("tag", "str")],
         layout(16, &[8]),
     );
     let d = class_td(
         "Demo.D",
-        &[("a", "Demo.Point"), ("n", "i32"), ("b", "Demo.Point")],
+        &[("a", "Demo.Point"), ("n", "int"), ("b", "Demo.Point")],
         layout(32, &[8, 24]),
     );
     let r = resolver(vec![p, d]);
@@ -273,7 +273,7 @@ fn class_inline_layout_two_struct_fields_pack_contiguously() {
 
 #[test]
 fn class_with_no_struct_fields_has_empty_inline_layout() {
-    let c = class_td("Demo.Plain", &[("id", "i32"), ("label", "str")], layout(0, &[]));
+    let c = class_td("Demo.Plain", &[("id", "int"), ("label", "str")], layout(0, &[]));
     let r = resolver(vec![c]);
     let inline = compute_class_inline(&r, "Demo.Plain").unwrap();
     assert!(inline.leaves.is_empty());

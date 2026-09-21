@@ -18,7 +18,7 @@ public static class TypeNameResolver {
         if (te is NullableType) { return TypeNameResolver.TsigTypeName((te as NullableType).Inner) + "?"; }
         if (te is NamedType) {
             NamedType nt = te as NamedType;
-            if (nt.ArgCount == 0) { return TypeNameResolver._canonName(nt.Name); }
+            if (nt.ArgCount == 0) { return nt.Name; }
             // 泛型实参用 ", " 分隔（镜像 C# TypeToString: string.Join(", ", ...)），避免 Dump() 的无空格格式。
             string s = nt.Name + "<";
             int ai = 0;
@@ -95,14 +95,5 @@ public static class TypeNameResolver {
         return TypeNameResolver._resolvedTypeName(resolved);
     }
 
-    // prim 源名 → IR 规范名（镜像 SymbolTable._canonPrim / C# TypeRegistry：仅次要别名归一）。
-    private static string _canonName(string n) {
-        if (n == "byte")   { return "u8"; }
-        if (n == "sbyte")  { return "i8"; }
-        if (n == "short")  { return "i16"; }
-        if (n == "ushort") { return "u16"; }
-        if (n == "uint")   { return "u32"; }
-        if (n == "ulong")  { return "u64"; }
-        return n;
-    }
+    // drop-short-primitive-aliases：`_canonName`（byte→u8 等）已删 —— 源拼写即 IR 规范名，归一恒等。
 }

@@ -489,10 +489,7 @@ public sealed class Lexer {
         this._kw("float", TokenKind.Float); this._kw("byte", TokenKind.Byte); this._kw("uint", TokenKind.Uint);
         this._kw("ulong", TokenKind.Ulong); this._kw("ushort", TokenKind.Ushort); this._kw("sbyte", TokenKind.Sbyte);
         this._kw("object", TokenKind.Object); this._kw("bool", TokenKind.Bool); this._kw("char", TokenKind.Char);
-        this._kw("void", TokenKind.Void); this._kw("i8", TokenKind.I8); this._kw("i16", TokenKind.I16);
-        this._kw("i32", TokenKind.I32); this._kw("i64", TokenKind.I64); this._kw("u8", TokenKind.U8);
-        this._kw("u16", TokenKind.U16); this._kw("u32", TokenKind.U32); this._kw("u64", TokenKind.U64);
-        this._kw("f32", TokenKind.F32); this._kw("f64", TokenKind.F64);
+        this._kw("void", TokenKind.Void);
         this._kw("impl", TokenKind.Impl);
     }
 }

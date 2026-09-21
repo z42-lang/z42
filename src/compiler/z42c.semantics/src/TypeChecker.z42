@@ -351,10 +351,10 @@ public sealed class TypeChecker {
         return x.Length < y.Length;
     }
 
-    // 运行期表示类：f32/f64 → 1(FLOAT，运行期同 F64)；char → 2(CHAR，Value::Char)；其余整数族 → 0(INT，运行期同 I64)。
+    // 运行期表示类：float/double → 1(FLOAT，运行期同 F64)；char → 2(CHAR，Value::Char)；其余整数族 → 0(INT，运行期同 I64)。
     private static int _repClass(string n) {
         string c = PrimModel.Canon(n);
-        if (c == "f32" || c == "f64") { return 1; }
+        if (c == "float" || c == "double") { return 1; }
         if (c == "char") { return 2; }
         return 0;
     }
@@ -391,20 +391,20 @@ public sealed class TypeChecker {
     // 编译期常量整数且落在目标整数/char 范围内？（浮点目标恒 false → 有损浮点无例外，决策 3）。
     private bool _constIntInRange(BoundExpr value, Z42Type target) {
         // unify-value-types Phase 1：目标为整数/char 基元（Z42PrimType 或翻转后 Z42ClassType(Scalar)）；
-        // 下方按 PrimModel.Canon(=PrimModel.Canon，wrapper-aware) 归一短名做范围判定，翻转前中立。
+        // 下方按 PrimModel.Canon（wrapper-aware）归一到关键字名做范围判定。
         bool _tScalar = (target is Z42ClassType) && target.IsScalarType();
         if (!_tScalar) { return false; }
         if (!TypeChecker._isConstInt(value)) { return false; }
         long v = TypeChecker._constIntValue(value);
         string t = target.CanonName();
-        if (t == "i8")   { return v >= (0 - 128) && v <= 127; }
-        if (t == "u8")   { return v >= 0 && v <= 255; }
-        if (t == "i16")  { return v >= (0 - 32768) && v <= 32767; }
-        if (t == "u16")  { return v >= 0 && v <= 65535; }
-        if (t == "i32")  { return v >= (0 - 2147483647 - 1) && v <= 2147483647; }
-        if (t == "u32")  { return v >= 0 && v <= 4294967295; }
-        if (t == "i64")  { return true; }                 // 任意 long 常量在 i64 范围
-        if (t == "u64")  { return v >= 0; }               // long 上界 < u64 上界，故仅需非负
+        if (t == "sbyte")  { return v >= (0 - 128) && v <= 127; }
+        if (t == "byte")   { return v >= 0 && v <= 255; }
+        if (t == "short")  { return v >= (0 - 32768) && v <= 32767; }
+        if (t == "ushort") { return v >= 0 && v <= 65535; }
+        if (t == "int")    { return v >= (0 - 2147483647 - 1) && v <= 2147483647; }
+        if (t == "uint")   { return v >= 0 && v <= 4294967295; }
+        if (t == "long")   { return true; }               // 任意 long 常量在 long 范围
+        if (t == "ulong")  { return v >= 0; }             // long 上界 < ulong 上界，故仅需非负
         if (t == "char") { return v >= 0 && v <= 1114111; } // Unicode 标量上界 0x10FFFF
         return false;   // float / bool / 非整数 → 无常量例外
     }
@@ -483,7 +483,7 @@ public sealed class TypeChecker {
 
 
     // add-type-based-overloads 根因修复：SymbolCollector 用 first-wins `ct.Methods.Put(regName, ...)` 注册方法——
-    // 同 (name,arity) ≥2 的重载若 Canon 归一后撞出同一个 mangled RegKey（如 f(int) vs f(i32)，或
+    // 同 (name,arity) ≥2 的重载若 Canon 归一后撞出同一个 mangled RegKey（如 f(int) vs f(Int32)，或
     // f(string) vs f(string?)），后者会静默覆盖前者，方法体无声丢失、零诊断。这里在绑体前对每个
     // (name,arity) 重载组重放同一遍 mangle，键碰撞即报错——把"静默丢方法"变成编译错误。
     // D7（2026-07-01）：泛化覆盖静态 + 实例方法（原仅静态）。协议豁免名单内的名字

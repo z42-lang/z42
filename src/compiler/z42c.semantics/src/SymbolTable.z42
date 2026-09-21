@@ -613,28 +613,16 @@ public sealed partial class SymbolTable {
             object c = this.Classes.Get(wrap);
             if (c is Z42ClassType) { return c as Z42ClassType; }
         }
-        return Z42ClassType.Builtin(this._canonPrim(n));
+        return Z42ClassType.Builtin(PrimModel.Canon(n));
     }
 
-    // prim 源名 → C# TypeRegistry 规范名（IR 侧用：byte→u8 等次要名归一；int/long/float/
-    // double/bool/char/string/object 保留源名——见 TypeRegistry.cs 各 TypeEntry 首字段）。
-    // G17c-2：编译 IR（SIGS/TYPE/FUNC）用规范名；TSIG 仍用原始 AST 拼写（见 ExportedTypeExtractor）。
-    private string _canonPrim(string n) {
-        if (n == "byte")   { return "u8"; }
-        if (n == "sbyte")  { return "i8"; }
-        if (n == "short")  { return "i16"; }
-        if (n == "ushort") { return "u16"; }
-        if (n == "uint")   { return "u32"; }
-        if (n == "ulong")  { return "u64"; }
-        return n;
-    }
+    // drop-short-primitive-aliases：`_canonPrim`（byte→u8 等次要名归一）已删 —— canonical 名现在
+    // **就是**关键字拼写，归一退化成恒等，直接走 `PrimModel.Canon`（它还顺带剥 `?` / `Std.` 前缀）。
 
     private bool _isPrim(string n) {
         if (n == "int" || n == "long" || n == "short" || n == "byte" || n == "sbyte") { return true; }
         if (n == "uint" || n == "ulong" || n == "ushort") { return true; }
         if (n == "double" || n == "float" || n == "bool" || n == "char" || n == "string" || n == "object") { return true; }
-        if (n == "i8" || n == "i16" || n == "i32" || n == "i64") { return true; }
-        if (n == "u8" || n == "u16" || n == "u32" || n == "u64" || n == "f32" || n == "f64") { return true; }
         return false;
     }
 }

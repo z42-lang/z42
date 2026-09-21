@@ -1,33 +1,33 @@
 namespace Std;
 
 // rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `UInt16` per BCL convention; source keyword `u16` is preserved as alias.
+// `UInt16` per BCL convention; source keyword `ushort` is preserved as alias.
 //
-// add-narrow-int-primitives (2026-05-15): `u16` / `ushort` (unsigned 16-bit,
+// add-narrow-int-primitives (2026-05-15): `ushort` (unsigned 16-bit,
 // 0..=65535). Underlying runtime Value is i64; Parse range-checks input.
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
 public struct UInt16 : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
-    public static u16 MaxValue = 65535;
-    public static u16 MinValue = 0;
+    public static ushort MaxValue = 65535;
+    public static ushort MinValue = 0;
 
-    [Native("__uint16_parse")]     public static extern u16 Parse(string s);
+    [Native("__uint16_parse")]     public static extern ushort Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
-    public bool Equals(u16 other) { return this == other; }
+    public bool Equals(ushort other) { return this == other; }
     public int GetHashCode() { return (int)this; }
 
-    public int CompareTo(u16 other) {
+    public int CompareTo(ushort other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
-    public static override u16 op_Add(u16 a, u16 b)      { return (u16)(a + b); }
-    public static override u16 op_Subtract(u16 a, u16 b) { return (u16)(a - b); }
-    public static override u16 op_Multiply(u16 a, u16 b) { return (u16)(a * b); }
-    public static override u16 op_Divide(u16 a, u16 b)   { return (u16)(a / b); }
-    public static override u16 op_Modulo(u16 a, u16 b)   { return (u16)(a % b); }
+    public static override ushort op_Add(ushort a, ushort b)      { return (ushort)(a + b); }
+    public static override ushort op_Subtract(ushort a, ushort b) { return (ushort)(a - b); }
+    public static override ushort op_Multiply(ushort a, ushort b) { return (ushort)(a * b); }
+    public static override ushort op_Divide(ushort a, ushort b)   { return (ushort)(a / b); }
+    public static override ushort op_Modulo(ushort a, ushort b)   { return (ushort)(a % b); }
 }

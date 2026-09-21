@@ -155,10 +155,10 @@ public static class Classifier {
             || kind == TokenKind.Protected || kind == TokenKind.Internal;
     }
 
-    // 可作类型名的 token：标识符，或内建类型关键字（string/int/.../f64，TokenKind 69..93）。
+    // 可作类型名的 token：标识符，或内建类型关键字（string/int/.../void，TokenKind 69..83）。
     private static bool _isTypeToken(int kind) {
         if (kind == TokenKind.Identifier) { return true; }
-        if (kind >= TokenKind.String && kind <= TokenKind.F64) { return true; }
+        if (kind >= TokenKind.String && kind <= TokenKind.Void) { return true; }
         return false;
     }
 }

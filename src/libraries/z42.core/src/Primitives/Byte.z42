@@ -1,33 +1,33 @@
 namespace Std;
 
 // rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `Byte` per BCL convention; source keyword `u8` is preserved as alias.
+// `Byte` per BCL convention; source keyword `byte` is preserved as alias.
 //
-// add-narrow-int-primitives (2026-05-15): `u8` / `byte` (unsigned 8-bit,
+// add-narrow-int-primitives (2026-05-15): `byte` (unsigned 8-bit,
 // 0..=255). Underlying runtime Value is i64; Parse range-checks input.
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
 public struct Byte : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
-    public static u8 MaxValue = 255;
-    public static u8 MinValue = 0;
+    public static byte MaxValue = 255;
+    public static byte MinValue = 0;
 
-    [Native("__byte_parse")]       public static extern u8 Parse(string s);
+    [Native("__byte_parse")]       public static extern byte Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
-    public bool Equals(u8 other) { return this == other; }
+    public bool Equals(byte other) { return this == other; }
     public int GetHashCode() { return (int)this; }
 
-    public int CompareTo(u8 other) {
+    public int CompareTo(byte other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
-    public static override u8 op_Add(u8 a, u8 b)      { return (u8)(a + b); }
-    public static override u8 op_Subtract(u8 a, u8 b) { return (u8)(a - b); }
-    public static override u8 op_Multiply(u8 a, u8 b) { return (u8)(a * b); }
-    public static override u8 op_Divide(u8 a, u8 b)   { return (u8)(a / b); }
-    public static override u8 op_Modulo(u8 a, u8 b)   { return (u8)(a % b); }
+    public static override byte op_Add(byte a, byte b)      { return (byte)(a + b); }
+    public static override byte op_Subtract(byte a, byte b) { return (byte)(a - b); }
+    public static override byte op_Multiply(byte a, byte b) { return (byte)(a * b); }
+    public static override byte op_Divide(byte a, byte b)   { return (byte)(a / b); }
+    public static override byte op_Modulo(byte a, byte b)   { return (byte)(a % b); }
 }

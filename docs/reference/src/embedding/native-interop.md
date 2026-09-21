@@ -160,6 +160,12 @@ tag 值已冻结，只能追加：`NULL=0` `I64=1` `F64=2` `BOOL=3` `STR=4` `OBJ
 `Z42MethodDesc.signature` 是 `(P1, P2, …) -> R` 形式的字符串，VM 在注册时解析它并预建 libffi 调用接口。
 每个位置只接受下面这些拼法，其余一律注册失败：
 
+> ⚠️ **这张表是 C/Rust 的 ABI 记法，不是 z42 的源码类型拼写**（drop-short-primitive-aliases，
+> 2026-09-22）。`i8` / `u8` / `f64` 在这里合法，是因为它们与 `usize` / `isize` / `*const T` / `CStr`
+> 同属一套描述 C ABI 的词汇，由 VM 的 `native/dispatch.rs::parse_type` 解析。**z42 源码里写
+> `u8 x = 1;` 是错的**——语言侧只有 C# 关键字一套拼写（`byte` / `sbyte` / …），见
+> [基本类型与字面量](../language/types.md)。两层互不影响。
+
 | 拼法 | 含义 |
 |---|---|
 | `()` / `void` | 无返回值 |

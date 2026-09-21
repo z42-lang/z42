@@ -7,9 +7,9 @@ using Std.Test;
 
 [Test]
 void test_to_byte_int16() {
-    u8 b = Convert.ToByte("255");
+    byte b = Convert.ToByte("255");
     Assert.Equal("255", b.ToString());
-    i16 s = Convert.ToInt16("-32768");
+    short s = Convert.ToInt16("-32768");
     Assert.Equal("-32768", s.ToString());
     Assert.ThrowsAny(() => Convert.ToByte("256"));    // out of u8 range
 }

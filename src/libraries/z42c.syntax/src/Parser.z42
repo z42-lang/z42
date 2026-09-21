@@ -304,9 +304,6 @@ public sealed class Parser {
         if (k == TokenKind.Double || k == TokenKind.Float || k == TokenKind.Byte || k == TokenKind.Bool) { return true; }
         if (k == TokenKind.Char || k == TokenKind.Void || k == TokenKind.Object) { return true; }
         if (k == TokenKind.Uint || k == TokenKind.Ulong || k == TokenKind.Ushort || k == TokenKind.Sbyte) { return true; }
-        if (k == TokenKind.I8 || k == TokenKind.I16 || k == TokenKind.I32 || k == TokenKind.I64) { return true; }
-        if (k == TokenKind.U8 || k == TokenKind.U16 || k == TokenKind.U32 || k == TokenKind.U64) { return true; }
-        if (k == TokenKind.F32 || k == TokenKind.F64) { return true; }
         return false;
     }
 

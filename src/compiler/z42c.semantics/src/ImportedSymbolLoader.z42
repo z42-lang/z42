@@ -771,8 +771,7 @@ public static class ImportedSymbolLoader {
         return n == "int" || n == "long" || n == "short" || n == "byte"
             || n == "uint" || n == "ulong" || n == "ushort" || n == "sbyte"
             || n == "float" || n == "double" || n == "bool" || n == "string" || n == "char"
-            || n == "object" || n == "i8" || n == "i16" || n == "i32" || n == "i64"
-            || n == "u8" || n == "u16" || n == "u32" || n == "u64" || n == "f32" || n == "f64" || n == "str";
+            || n == "object" || n == "str";
     }
 
     private static bool _isPrelude(string pkg) { return pkg == "z42.core"; }

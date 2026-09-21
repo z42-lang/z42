@@ -35,8 +35,8 @@ void test_collect_class_members() {
 void test_collect_method_signature_and_static() {
     var table = collect("class Calc { public static int Add(int a, int b) { return a + b; } }");
     var calc = table.GetClass("Calc");
-    // 方案A 静态-only：静态方法全签名 mangle → 注册键为 Add$2$i32$i32（非裸 Add）。
-    var m = calc.Methods.Get("Add$2$i32$i32") as MethodSymbol;
+    // 方案A 静态-only：静态方法全签名 mangle → 注册键为 Add$2$int$int（非裸 Add）。
+    var m = calc.Methods.Get("Add$2$int$int") as MethodSymbol;
     Assert.Equal("(int,int)->int", m.Signature.Dump());
     Assert.Equal(true, m.IsStatic);
     Assert.Equal("Calc", m.ContainingTypeName);
@@ -75,14 +75,15 @@ void test_tsig_inherited_fields_and_method_merge() {
         SemanticDump.DumpExports(src));
 }
 
-// G18d/G18h 回归：TSIG 全用规范名（byte→u8 等），镜像 C# TypeToString(resolved)——
-// 方法返回/参数**与字段一致**走规范名（z42c.project ZpkgReader.Data:byte[] → TSIG u8[] 实证）。
+// G18d/G18h 回归：TSIG 全用规范名，镜像 C# TypeToString(resolved)——方法返回/参数**与字段一致**走规范名。
+// drop-short-primitive-aliases 后规范名即关键字（`byte[]`），与源拼写合流。
 // 区别于 TYPE/SIGS 段用源拼写（byte[]，G18f/g）。
 [Test]
 void test_tsig_all_canonical_field_and_method() {
     string src = "class W { public byte[] data; public byte[] ToBytes(short n) { return data; } }";
-    Assert.Equal("u8[]", SemanticDump.ExportMethodRet(src, "W", "ToBytes"));   // 方法返回规范名
-    Assert.Equal("u8[]", SemanticDump.ExportFieldType(src, "W", "data"));      // G18h：字段也规范名
+    // drop-short-primitive-aliases：canonical 名 = 关键字，故规范名就是 `byte[]`（此前是 `u8[]`）。
+    Assert.Equal("byte[]", SemanticDump.ExportMethodRet(src, "W", "ToBytes"));   // 方法返回规范名
+    Assert.Equal("byte[]", SemanticDump.ExportFieldType(src, "W", "data"));      // G18h：字段也规范名
 }
 
 // G18d 回归：nullable 在方法签名规范名下结构保留（string? 不被 sig.Name() 擦除为 string）。
@@ -92,8 +93,9 @@ void test_tsig_method_nullable_return_preserved() {
     Assert.Equal("string?", SemanticDump.ExportMethodRet(src, "N", "Find"));
 }
 
-// G18g 回归：TYPE 段（IrClassDesc）字段类型源拼写（byte[]，非规范 u8[]）——同顶层 SIGS，
-// 区别于 TSIG 方法签名规范名（G18d）。int[]（非次要别名）不变。
+// G18g 回归：TYPE 段（IrClassDesc）字段类型源拼写。
+// **drop-short-primitive-aliases 后这条「源拼写 vs 规范名」的区别已消失**——canonical 就是关键字，
+// 两者同为 `byte[]`。保留本测试作为 TYPE 段字段名的定点，但它不再与 TSIG（上面 G18d）形成对照。
 [Test]
 void test_type_section_field_source_spelling() {
     string src = "class W { public byte[] data; public int[] nums; }";
@@ -493,7 +495,7 @@ void test_conversion_operator_regkey_unique_per_target() {
     var table = collect("class Foo { public static implicit operator int(Foo f) { return 0; } "
                       + "public static implicit operator bool(Foo f) { return false; } }");
     var foo = table.GetClass("Foo");
-    Assert.Equal(true, foo.Methods.ContainsKey("op_Implicit$1$Foo$to$i32"));
+    Assert.Equal(true, foo.Methods.ContainsKey("op_Implicit$1$Foo$to$int"));
     Assert.Equal(true, foo.Methods.ContainsKey("op_Implicit$1$Foo$to$bool"));
 }
 

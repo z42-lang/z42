@@ -101,9 +101,9 @@ public sealed class OverloadResolver {
 
     // 单个形参类型 → 键片段：Canon 归一（基本别名 + 剥 nullable）后剥空白（泛型名含 ", "）。
     // unify-value-types Phase 1：**复合类型（array / instantiated / func）里的内建叶子必须用
-    // keyword 拼写**（PrimModel.Keyword：Char→"char"、Int32→"int"、Byte→"u8"），复刻翻转前
+    // keyword 拼写**（PrimModel.Canon：Char→"char"、Int32→"int"、Byte→"byte"），复刻翻转前
     // Z42PrimType 承载的名——否则 `char[]` 变 `Char[]`，与 TSIG 源拼写导出键失配 → 跨包
-    // `undefined function`。裸内建仍走 Canon（int→"i32" 的历史键规则不变）。二者的非对称正是逐字节
+    // `undefined function`。裸内建仍走 Canon（int→"int"）。二者的非对称正是逐字节
     // 复刻旧 `Canon(Name())`：旧 Canon 只归一裸名、不进 "[]"/"<>" 内部，故内部叶子保留 keyword 拼写。
     public static string TypeKey(Z42Type t) {
         if (t == null) { return "unknown"; }

@@ -274,7 +274,7 @@ public sealed class MemberCollector {
                 //   （根治 params-for-Join 的 bootstrap 破坏）。静态无 vtable 派发、编译期决议、emit 用 RegKey → 安全。
                 // - 静态【虚】成员（INumber 的 static abstract op_* 接口成员 + 各 primitive 的 static override 实现）：
                 //   经 VCall 按运行时类型派发（`x.op_Add(x)` → VCall → Std.Int32.op_Add + arity 重试），base 声明与
-                //   派生实现【必须同键】。全 mangle 会因类型参数替换令 base(`op_Add$2$T$T`)≠派生(`op_Add$2$i32$i32`)
+                //   派生实现【必须同键】。全 mangle 会因类型参数替换令 base(`op_Add$2$T$T`)≠派生(`op_Add$2$int$int`)
                 //   → VCall 落空（`expected object, got I64`）。故与实例虚方法同理，走基线键规则（op_* 唯一 → 裸名）。
                 // - 实例方法：保持基线键规则（unique bare / arity 重载 Name$arity / type 重载全 mangle；协议豁免名
                 //   ToString/Equals/GetHashCode/GetType/get_Item/set_Item 恒裸——被 VM vtable / DepIndex 按裸字面量

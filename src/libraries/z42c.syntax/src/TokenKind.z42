@@ -40,9 +40,10 @@ public static class TokenKind {
     public static int Byte = 75; public static int Uint = 76; public static int Ulong = 77;
     public static int Ushort = 78; public static int Sbyte = 79; public static int Object = 80;
     public static int Bool = 81; public static int Char = 82; public static int Void = 83;
-    public static int I8 = 84; public static int I16 = 85; public static int I32 = 86; public static int I64 = 87;
-    public static int U8 = 88; public static int U16 = 89; public static int U32 = 90; public static int U64 = 91;
-    public static int F32 = 92; public static int F64 = 93;
+    // drop-short-primitive-aliases (2026-09-21)：短名关键字 I8..F64（旧值 84..93）已删除 —— `i8` /
+    // `u8` / `i32` … 不再是 z42 的类型拼写，现在它们只是普通标识符（用到即「未定义类型」）。
+    // 84..93 这段号**留空不复用**，避免与仍在流通的旧 token 流混淆。类型关键字区间因此是 69..83
+    // （见 z42.scripting Classifier._isTypeToken 的上界）。
     // 符号
     public static int LParen = 94; public static int RParen = 95; public static int LBrace = 96;
     public static int RBrace = 97; public static int LBracket = 98; public static int RBracket = 99;

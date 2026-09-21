@@ -45,7 +45,7 @@ void test_params_non_params_exact_arity_overload_wins() {
                  "int Call2() { return F(1, 2); } }";
     Assert.Equal(0, SemanticDump.ErrorCount(src));
     // F(int,int) 被选中（未打包成 array-lit），RegKey 因重载 mangle 为 F$2。
-    Assert.Equal("(block (return (call-static C F$2$i32$i32 (lit-int 1 :int) (lit-int 2 :int) :int)))",
+    Assert.Equal("(block (return (call-static C F$2$int$int (lit-int 1 :int) (lit-int 2 :int) :int)))",
                  SemanticDump.DumpBody(src, "C.Call2"));
 }
 

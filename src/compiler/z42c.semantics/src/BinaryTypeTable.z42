@@ -35,12 +35,12 @@ public static class TypeFacts {
 
     // Scalar 值类型名 → 对应基元名。阶段 3：委托 PrimModel，**同时认 wrapper 名（Int32/Boolean/真
     // phantom）与 keyword 名（int/bool/合成 Z42ClassType.Builtin）**——Keyword 对 wrapper 名产出与旧
-    // 逐条相同（Int32→"int"、Byte→"u8"、Boolean→"bool"、Char→"char"…），故对真 phantom byte-identical；
+    // 逐条相同（Int32→"int"、Byte→"byte"、Boolean→"bool"、Char→"char"…），故对真 phantom byte-identical；
     // 新增认 keyword 名让合成体（Name()="bool"/"int"）也被 IsBool/IsNumeric/IsOrderable 识别。string/object
     // 非 scalar → IsScalarValue 挡下返 ""（与旧一致，二者不入本表）。
     private static string _structPrimName(string name) {
         if (!PrimModel.IsScalarValue(name)) { return ""; }
-        return PrimModel.Keyword(name);
+        return PrimModel.Canon(name);
     }
 
     public static bool IsNumeric(Z42Type t) {
@@ -102,18 +102,15 @@ public static class TypeFacts {
         if (n == "int" || n == "long" || n == "float" || n == "double") { return true; }
         if (n == "byte" || n == "sbyte" || n == "short" || n == "ushort") { return true; }
         if (n == "uint" || n == "ulong") { return true; }
-        if (n == "i8" || n == "i16" || n == "i32" || n == "i64") { return true; }
-        if (n == "u8" || n == "u16" || n == "u32" || n == "u64") { return true; }
-        if (n == "f32" || n == "f64") { return true; }
         return false;
     }
 
     public static bool _isFloatName(string n) {
-        return n == "float" || n == "double" || n == "f32" || n == "f64";
+        return n == "float" || n == "double";
     }
-    public static bool _isDoubleName(string n) { return n == "double" || n == "f64"; }
-    public static bool _isFloatOnly(string n)  { return n == "float" || n == "f32"; }
-    public static bool _isLongName(string n)   { return n == "long" || n == "i64"; }
+    public static bool _isDoubleName(string n) { return n == "double"; }
+    public static bool _isFloatOnly(string n)  { return n == "float"; }
+    public static bool _isLongName(string n)   { return n == "long"; }
 }
 
 // 一条运算规则（class 替代 C# record BinaryTypeRule/UnaryTypeRule；二元/一元复用，一元只用 Left+Out）。

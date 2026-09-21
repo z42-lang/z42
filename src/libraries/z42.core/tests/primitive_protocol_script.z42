@@ -26,9 +26,9 @@ void test_int_equals_and_identity_hash() {
 
 [Test]
 void test_narrow_int_hash_is_value() {
-    u8 x = u8.Parse("200");
+    byte x = Byte.Parse("200");
     Assert.Equal(200, x.GetHashCode());
-    i16 y = i16.Parse("-1000");
+    short y = Int16.Parse("-1000");
     Assert.Equal(-1000, y.GetHashCode());
 }
 

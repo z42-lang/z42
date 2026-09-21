@@ -1,24 +1,33 @@
 // unify-value-types Phase 1（消灭 Z42PrimType）：单一「关键字 ↔ Std.* 值类型」模型表。
 //
 // 收敛历史七张并行映射（Canon / _canonPrim / _primWrapper×2 / _intPrimFQ / PrimTag / _isPrim×3 /
-// _isPrimKeyword·_isNumericPrim）成一个入口。接受**任意拼写**——关键字 `int` / canonical 短名 `i32` /
-// 包装名 `Int32` / FQ `Std.Int32`——先归一到 canonical 短名，再由短名投影出各字段。
+// _isPrimKeyword·_isNumericPrim）成一个入口。接受**关键字拼写**（`int` / `byte` / `sbyte` …）、
+// **包装名**（`Int32`）、**FQ**（`Std.Int32`），先归一到 canonical 名，再由它投影出各字段。
 //
-// 设计不变式（byte-identical 门禁）：每个投影与被它取代的历史函数**逐条同义**，故消费点切换到本表后
-// codegen 逐字节不变。归一覆盖 struct 值语义无关的**内建标量/引用类型**：整数族 i8..u64、f32/f64、bool、
-// char 为 **Scalar 值类型**（裸 Value 承载、算术热路径）；string/object 为**有专属 IR 标签的内建引用类型**
-// （非 Scalar，但 IrTag 保留 Str/Ref 以维持 byte-identical）。
+// drop-short-primitive-aliases (2026-09-21)：**canonical 名 = C# 关键字拼写**。此前 canonical 是短名
+// （`i32` / `u8` / `i16` …），既是编译器内部字典键、又经 `_kw` 投影成 IR/zbc 的线格式名，于是同一张表里
+// `int/long/float/double` 走关键字、窄整数族走短名，两套风格并存。现在统一：**源码拼写 == canonical ==
+// IR 线格式名**，`Keyword()` 因与 `Canon()` 同义而删除，`_kw` 表退化成「码 → canonical 名」。
+// 连带效果：短名（`i8` / `u8` / `i32` …）**不再是合法的 z42 类型拼写**——它们走到 `Code()` 得 -1，
+// 与用户未定义的类名同格（源码写 `u8 x = 1;` 报未定义类型）。
+// **注意**：`[Extern]` FFI 签名串里的 `i8` / `u8` / `usize` / `*const T` 是 **C/Rust ABI 记法**，由 VM 的
+// `native/dispatch.rs::parse_type` 解析，与本表无关、不受此变更影响（见 docs/design/language/interop.md §6.1）。
+//
+// 设计不变式：归一覆盖 struct 值语义无关的**内建标量/引用类型**：整数族 sbyte..ulong、float/double、
+// bool、char 为 **Scalar 值类型**（裸 Value 承载、算术热路径）；string/object 为**有专属 IR 标签的内建
+// 引用类型**（非 Scalar，但 IrTag 保留 Str/Ref）。
 namespace Z42.Semantics;
 using Z42.IR;   // IrType
 
 public static class PrimModel {
-    // 任意拼写（关键字 / canonical 短名 / 包装名 / FQ）→ canonical 短名。
-    // 非内建 → 原样返回（剥尾部 `?`）。与 PrimModel.Canon 对关键字/短名的结果一致（超集：也认包装名/FQ）。
+    // 任意拼写（关键字 / 包装名 / FQ）→ canonical 关键字名。非内建 → 原样返回（剥尾部 `?`、剥 `Std.` 前缀）。
+    //
+    // perf：关键字拼写**自身就是 canonical**，故只有 BCL 包装名（PascalCase）需要翻译 —— 小写开头的名字
+    // （关键字、以及绝大多数非内建的泛型形参名）一次字符串比较都不做。`EndsWith("?")`/`StartsWith("Std.")`
+    // 各是一次 z42 方法调用 + 4 次 builtin 分发，而这里只需看首尾各一个字符 —— 直接 CharAt 判。
     public static string Canon(string n) {
         string s = n;
         int L = s.Length;
-        // perf：`EndsWith("?")`/`StartsWith("Std.")` 各是一次 z42 方法调用 + 4 次 builtin
-        // 分发（Length×2 + CharAt×2），而这里只需要看首尾各一个字符 —— 直接 CharAt 判。
         if (L > 0 && s.CharAt(L - 1) == '?') { s = s.Substring(0, L - 1); L = L - 1; }
         if (L == 0) { return s; }
         char c0 = s.CharAt(0);
@@ -27,144 +36,119 @@ public static class PrimModel {
             if (L == 0) { return s; }
             c0 = s.CharAt(0);
         }
-        // 24 个待匹配名字的长度只落在 3/4/5/6/7（len3:1 / len4:5 / len5:8 / len6:9 / len7:1），
-        // 且同长度内首字符近乎两两不同 —— 先按 (L, c0) 分桶再比较。最常见入参是用户类名
-        // （原来要走完 24 次顺序 ==），现在绝大多数一次字符串比较都不做，最坏 3 次。
+        // 小写开头 → 已是关键字（canonical）或非内建，直接原样。（`<= 'a'` 写法见 Char.IsDigit：
+        // z42 char 只支持 `<` / `>`，故用 `!(c0 < 'a')` 表达 `c0 >= 'a'`。）
+        if (!(c0 < 'a')) { return s; }
         if (L == 4) {
-            if (c0 == 'b' && s == "byte") { return "u8"; }
-            if (c0 == 'u' && s == "uint") { return "u32"; }
-            if (c0 == 'l' && s == "long") { return "i64"; }
-            if (c0 == 'B' && s == "Byte") { return "u8"; }
+            if (c0 == 'B' && s == "Byte") { return "byte"; }
             if (c0 == 'C' && s == "Char") { return "char"; }
             return s;
         }
         if (L == 5) {
-            if (c0 == 's') { if (s == "sbyte") { return "i8"; } if (s == "short") { return "i16"; } return s; }
-            if (c0 == 'I') { if (s == "Int32") { return "i32"; } if (s == "Int16") { return "i16"; } if (s == "Int64") { return "i64"; } return s; }
-            if (c0 == 'u' && s == "ulong") { return "u64"; }
-            if (c0 == 'f' && s == "float") { return "f32"; }
-            if (c0 == 'S' && s == "SByte") { return "i8"; }
+            if (c0 == 'I') { if (s == "Int32") { return "int"; } if (s == "Int16") { return "short"; } if (s == "Int64") { return "long"; } return s; }
+            if (c0 == 'S' && s == "SByte") { return "sbyte"; }
             return s;
         }
         if (L == 6) {
-            if (c0 == 'U') { if (s == "UInt32") { return "u32"; } if (s == "UInt16") { return "u16"; } if (s == "UInt64") { return "u64"; } return s; }
-            if (c0 == 'S') { if (s == "String") { return "string"; } if (s == "Single") { return "f32"; } return s; }
-            if (c0 == 'u' && s == "ushort") { return "u16"; }
-            if (c0 == 'd' && s == "double") { return "f64"; }
-            if (c0 == 'D' && s == "Double") { return "f64"; }
+            if (c0 == 'U') { if (s == "UInt32") { return "uint"; } if (s == "UInt16") { return "ushort"; } if (s == "UInt64") { return "ulong"; } return s; }
+            if (c0 == 'S') { if (s == "String") { return "string"; } if (s == "Single") { return "float"; } return s; }
+            if (c0 == 'D' && s == "Double") { return "double"; }
             if (c0 == 'O' && s == "Object") { return "object"; }
             return s;
         }
-        if (L == 3 && c0 == 'i' && s == "int") { return "i32"; }
         if (L == 7 && c0 == 'B' && s == "Boolean") { return "bool"; }
-        return s;   // 已是短名（i32/bool/char/string/object…）或非内建 → 原样
+        return s;
     }
 
-    // canonical 短名 → **内建码**（0..13；-1 = 非内建）。入参须是 `Canon` 的结果（短名）。
-    // 码序 = i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool char string object；下面各投影表按此序对齐。
-    // perf：历史上每个投影（IsBuiltin/IsScalarValue/Fq/Wrapper/Keyword/IrTag…）都在 Canon 之后再跑
-    // 一条**最多 14 次字符串 ==** 的链（每次 == 都是一次 native 分发），而用户类名要走完整条链才落空。
-    // 这里改成一次字符算术定位：长度 2/3 桶**一次字符串比较都不做**；长度 4/6 桶先按首字符预筛，
-    // 命中才落一次完整比较（防用户类名 "book"/"strict" 被首字符误判）。
+    // canonical 关键字名 → **内建码**（0..13；-1 = 非内建）。入参须是 `Canon` 的结果。
+    // 码序 = sbyte short int long byte ushort uint ulong float double bool char string object；
+    // 下面各投影表按此序对齐（**码值本身不变**，仍是历史的 i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 … 次序）。
+    //
+    // perf：历史上每个投影（IsBuiltin/IsScalarValue/Fq/Wrapper/IrTag…）都在 Canon 之后再跑一条**最多 14 次
+    // 字符串 ==** 的链（每次 == 都是一次 native 分发），而用户类名要走完整条链才落空。这里先按长度分桶
+    // （关键字只落在 3/4/5/6），再按首字符预筛，命中才落一次完整比较（防用户名 "book"/"strict" 被误判）。
     public static int Code(string canon) {
         int L = canon.Length;
-        if (L == 3) {
-            char c0 = canon.CharAt(0); char c1 = canon.CharAt(1); char c2 = canon.CharAt(2);
-            if (c0 == 'f') {
-                if (c1 == '3' && c2 == '2') { return 8; }
-                if (c1 == '6' && c2 == '4') { return 9; }
-                return -1;
-            }
-            int b = -1;
-            if (c0 == 'i') { b = 0; }
-            if (c0 == 'u') { b = 4; }
-            if (b < 0) { return -1; }
-            if (c1 == '1' && c2 == '6') { return b + 1; }
-            if (c1 == '3' && c2 == '2') { return b + 2; }
-            if (c1 == '6' && c2 == '4') { return b + 3; }
-            return -1;
-        }
-        if (L == 2) {
-            if (canon.CharAt(1) == '8') {
-                char c0 = canon.CharAt(0);
-                if (c0 == 'i') { return 0; }
-                if (c0 == 'u') { return 4; }
-            }
-            return -1;
-        }
         if (L == 4) {
             char c0 = canon.CharAt(0);
-            if (c0 == 'b' && canon == "bool") { return 10; }
+            if (c0 == 'b') { if (canon == "byte") { return 4; } if (canon == "bool") { return 10; } return -1; }
+            if (c0 == 'l' && canon == "long") { return 3; }
+            if (c0 == 'u' && canon == "uint") { return 6; }
             if (c0 == 'c' && canon == "char") { return 11; }
+            return -1;
+        }
+        if (L == 5) {
+            char c0 = canon.CharAt(0);
+            if (c0 == 's') { if (canon == "short") { return 1; } if (canon == "sbyte") { return 0; } return -1; }
+            if (c0 == 'u' && canon == "ulong") { return 7; }
+            if (c0 == 'f' && canon == "float") { return 8; }
             return -1;
         }
         if (L == 6) {
             char c0 = canon.CharAt(0);
+            if (c0 == 'u' && canon == "ushort") { return 5; }
+            if (c0 == 'd' && canon == "double") { return 9; }
             if (c0 == 's' && canon == "string") { return 12; }
             if (c0 == 'o' && canon == "object") { return 13; }
+            return -1;
+        }
+        if (L == 3) {
+            if (canon.CharAt(0) == 'i' && canon == "int") { return 2; }
             return -1;
         }
         return -1;
     }
 
-    // 是内建基元/内建引用类型（int/long/.../bool/char/string/object 及其短名/包装名/FQ）。
+    // 是内建基元/内建引用类型（int/long/.../bool/char/string/object 及其包装名/FQ）。
     // = 历史 SymbolTable._isPrim 超集（含 string/object）。
     public static bool IsBuiltin(string n) { return PrimModel.Code(PrimModel.Canon(n)) >= 0; }
 
-    // 是 **Scalar 值类型**（六个基元 wrapper：整数族 + f32/f64 + bool + char）。string/object 不算（引用类型）。
-    // Repr==Scalar 的运行时载体是裸 Value 变体（不进字节 arena）。码 0..11 = 整数族 + f32/f64 + bool + char。
+    // 是 **Scalar 值类型**（整数族 + float/double + bool + char）。string/object 不算（引用类型）。
+    // Repr==Scalar 的运行时载体是裸 Value 变体（不进字节 arena）。码 0..11。
     public static bool IsScalarValue(string n) { int c = PrimModel.Code(PrimModel.Canon(n)); return c >= 0 && c <= 11; }
 
-    // 是整数族（i8..u64）。= 历史 _intPrimFQ 返回非空的集合（装箱判别）。码 0..7。
+    // 是整数族（sbyte..ulong）。= 历史 _intPrimFQ 返回非空的集合（装箱判别）。码 0..7。
     public static bool IsInteger(string n) { int c = PrimModel.Code(PrimModel.Canon(n)); return c >= 0 && c <= 7; }
 
-    // 是数值基元（整数 + f32/f64 + char）。= 历史 TypeFactsTc._isNumericPrim（含 char，排除 bool/string）。
-    // 码 0..9（整数族 + f32/f64）或 11（char）。历史实现要走两遍 Canon（IsInteger 一次 + 自己一次），现在一遍。
+    // 是数值基元（整数 + float/double + char）。= 历史 TypeFactsTc._isNumericPrim（含 char，排除 bool/string）。
+    // 码 0..9（整数族 + float/double）或 11（char）。
     public static bool IsNumeric(string n) { int c = PrimModel.Code(PrimModel.Canon(n)); return (c >= 0 && c <= 9) || c == 11; }
 
-    // canonical 短名 → FQ（Std.Int32…）。= 历史 _intPrimFQ 扩到全部内建（bool/char/float/double/string/object）。
+    // canonical 名 → FQ（Std.Int32…）。= 历史 _intPrimFQ 扩到全部内建（bool/char/float/double/string/object）。
     public static string Fq(string n) {
         int c = PrimModel.Code(PrimModel.Canon(n));
         if (c < 0) { return ""; }
         return PrimModel._fq[c];
     }
 
-    // canonical 短名 → 包装类短名（Int32…）。= 历史 _primWrapper（含 string→String；object→Object）。
+    // canonical 名 → 包装类短名（Int32…）。= 历史 _primWrapper（含 string→String；object→Object）。
     public static string Wrapper(string n) {
         int c = PrimModel.Code(PrimModel.Canon(n));
         if (c < 0) { return n; }   // 非内建 → 原样（调用方历史行为：已是类名）
         return PrimModel._wrap[c];
     }
 
-    // 类型的「表面名」（反射 / typeof / 数组元素名）：内建 → keyword 拼写（复刻翻转前 Z42PrimType 名，
-    // Int32→"int"、String→"string"）；其余原样。翻转后 elem.Name()="Int32"，须回到 "int" 以维持反射行为。
+    // 类型的「表面名」（反射 / typeof / 数组元素名）：内建 → canonical 关键字拼写（Int32→"int"、
+    // String→"string"）；**非内建原样返回入参**（注意与 Canon 的差别：Canon 会剥 `?` / `Std.`）。
     public static string SurfaceName(string name) {
         int c = PrimModel.Code(PrimModel.Canon(name));
         if (c < 0) { return name; }
         return PrimModel._kw[c];
     }
 
-    // 数值拓宽（无收窄），迁自旧 Z42Type.Z42PrimType._canWiden（D7）。**入参须是 keyword 名**
-    // （int/long/float/double 或 byte/short——即历史 Z42PrimType 承载名，用 PrimModel.Keyword 从 wrapper
-    // 名得到）。逐字面同旧逻辑：注意旧 _canWiden 的 byte/short 分支在历史里实际因名为 u8/i16 而从不命中，
-    // 此处照抄以维持逐字节等价（拓宽仅对 int/long/float 真正生效，其余走 Conversion 数值矩阵）。
+    // 数值拓宽（无收窄），迁自旧 Z42Type.Z42PrimType._canWiden（D7）。**入参须是 canonical 关键字名**
+    // （用 PrimModel.Canon / KeywordOfCode 得到）。
+    //
+    // drop-short-primitive-aliases：旧实现首行有 `from == "byte" || from == "short"` 分支，但历史上
+    // canonical 名是 `u8` / `i16`，该分支**从不命中**（旧注释已记明）——byte/short 的拓宽一直走
+    // Conversion 数值矩阵。canonical 改成关键字后它会**突然开始命中**、静默改变重载决议的数值门，
+    // 故**连同其死分支一并删除**以保持语义逐条不变。「byte/short 是否也该参与 CanWiden 拓宽」是独立
+    // 议题，不在本次格式收敛的射程内。
     public static bool CanWiden(string from, string to) {
-        if (from == "byte" || from == "short") { return to == "int" || to == "long" || to == "float" || to == "double"; }
         if (from == "int")   { return to == "long" || to == "float" || to == "double"; }
         if (from == "long")  { return to == "float" || to == "double"; }
         if (from == "float") { return to == "double"; }
         return false;
-    }
-
-    // 任意拼写 → 反射/typeof 名（= 历史 Z42PrimType 承载的名，即 SymbolTable._canonPrim(keyword)）：
-    // int→"int"、long→"long"、float→"float"、double→"double"、bool/char/string/object 保留；其余整数族
-    // → 短名 i8/i16/u8/u16/u32/u64（_canonPrim 把 byte/sbyte/short/ushort/uint/ulong 归短名）。翻转后
-    // 内建 Z42ClassType 的 Name()="Int32"，reflection/typeof 名须映射回此拼写以维持 byte-identical。
-    public static string Keyword(string n) {
-        string s = PrimModel.Canon(n);
-        int c = PrimModel.Code(s);
-        if (c < 0) { return s; }   // 非内建 → canon 原样（= _canonPrim 结果）
-        return PrimModel._kw[c];
     }
 
     // 任意拼写 → IrType 标签。= 历史 EmitContext.PrimTag（int→I32…；string→Str；object/非内建→Ref）。
@@ -174,15 +158,15 @@ public static class PrimModel {
         return PrimModel._tag[c];
     }
 
-    // 码 → keyword 拼写（已知码时省掉 Canon+Code 两遍扫描；入参须是 Code 的合法返回 0..13）。
+    // 码 → canonical 关键字拼写（已知码时省掉 Canon+Code 两遍扫描；入参须是 Code 的合法返回 0..13）。
     public static string KeywordOfCode(int c) { return PrimModel._kw[c]; }
 
     // 码 → IrType 标签（同上，已知码时省掉重复扫描）。
     public static int IrTagOfCode(int c) { return PrimModel._tag[c]; }
 
-    // 四张投影表，索引 = Code 的码；顺序 = i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool char string object。
-    // `_kw` 的 i32/i64/f32/f64 映到 keyword（int/long/float/double），其余等于 canon 短名（照抄 _canonPrim）。
-    // `_tag` 的 object → Ref（与非内建同格），复刻历史 PrimTag。
+    // 四张投影表，索引 = Code 的码；顺序 = sbyte short int long byte ushort uint ulong float double
+    // bool char string object。`_kw` 即 canonical 名表（drop-short-primitive-aliases 后全是关键字拼写，
+    // 亦即写进 zbc/zpkg 的线格式名）。`_tag` 的 object → Ref（与非内建同格），复刻历史 PrimTag。
     private static string[] _fq = new string[]{
         "Std.SByte", "Std.Int16", "Std.Int32", "Std.Int64", "Std.Byte", "Std.UInt16", "Std.UInt32", "Std.UInt64",
         "Std.Single", "Std.Double", "Std.Boolean", "Std.Char", "Std.String", "Std.Object" };
@@ -190,7 +174,7 @@ public static class PrimModel {
         "SByte", "Int16", "Int32", "Int64", "Byte", "UInt16", "UInt32", "UInt64",
         "Single", "Double", "Boolean", "Char", "String", "Object" };
     private static string[] _kw = new string[]{
-        "i8", "i16", "int", "long", "u8", "u16", "u32", "u64",
+        "sbyte", "short", "int", "long", "byte", "ushort", "uint", "ulong",
         "float", "double", "bool", "char", "string", "object" };
     private static int[] _tag = new int[]{
         IrType.I8, IrType.I16, IrType.I32, IrType.I64, IrType.U8, IrType.U16, IrType.U32, IrType.U64,

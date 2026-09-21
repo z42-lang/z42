@@ -21,7 +21,7 @@ MethodSymbol _cand(string regkey, Z42Type[] ps, int pc) {
 [Test]
 void test_manglekey_two_params() {
     Z42Type[] ps = new Z42Type[]{ Z42ClassType.Builtin("int"), Z42ClassType.Builtin("int") };
-    Assert.Equal("Add$2$i32$i32", OverloadResolver.MangleKey("Add", ps, 2));
+    Assert.Equal("Add$2$int$int", OverloadResolver.MangleKey("Add", ps, 2));
 }
 
 // arity 0 → 无类型后缀。
@@ -30,18 +30,18 @@ void test_manglekey_arity0() {
     Assert.Equal("f$0", OverloadResolver.MangleKey("f", new Z42Type[0], 0));
 }
 
-// Canon 归一别名：long→i64、int→i32（跨包 imported 拼写与本地 canonical 一致的关键）。
+// Canon 归一包装名：Int64→long、Int32→int（跨包 imported 拼写与本地 canonical 一致的关键）。
 [Test]
 void test_manglekey_canon_alias() {
     Z42Type[] ps = new Z42Type[]{ Z42ClassType.Builtin("long") };
-    Assert.Equal("g$1$i64", OverloadResolver.MangleKey("g", ps, 1));
+    Assert.Equal("g$1$long", OverloadResolver.MangleKey("g", ps, 1));
 }
 
-// Canon 剥 nullable "?"：int? → i32。
+// Canon 剥 nullable "?"：int? → int。
 [Test]
 void test_manglekey_strips_nullable() {
     Z42Type[] ps = new Z42Type[]{ Z42ClassType.Builtin("int?") };
-    Assert.Equal("h$1$i32", OverloadResolver.MangleKey("h", ps, 1));
+    Assert.Equal("h$1$int", OverloadResolver.MangleKey("h", ps, 1));
 }
 
 // ── Resolve ──────────────────────────────────────────────────────────────
@@ -60,11 +60,11 @@ void test_resolve_no_match_arity() {
 [Test]
 void test_resolve_single_applicable() {
     Z42Type[] p1 = new Z42Type[]{ Z42ClassType.Builtin("int") };
-    MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$1$i32", p1, 1) };
+    MethodSymbol[] cands = new MethodSymbol[]{ _cand("f$1$int", p1, 1) };
     Z42Type[] args = new Z42Type[]{ Z42ClassType.Builtin("int") };
     var r = OverloadResolver.Resolve(cands, 1, args, 1, null);
     Assert.True(r.IsResolved());
-    Assert.Equal("f$1$i32", r.Key);
+    Assert.Equal("f$1$int", r.Key);
 }
 
 // 精确 int 与装箱 object 皆适用 → 精确形参更具体 → 选 int 候选。
