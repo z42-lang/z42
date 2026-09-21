@@ -54,11 +54,13 @@ bool _dtMatches(string name, string nameFilter, string substrFilter) {
 ///   ③ nameFilter 非空 → 只留同名者。
 /// 返回按名字**稳定排序**（common-pitfalls §1：任何按名注册/迭代都要确定序）。
 DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter, string sourceDir) {
-    return _resolveDevTargetsF(m, kind, nameFilter, "", sourceDir);
+    return _resolveDevTargets(m, kind, nameFilter, "", sourceDir);
 }
 
-DevTarget[] _resolveDevTargetsF(ProjectManifest m, string kind, string nameFilter,
-                                string substrFilter, string sourceDir) {
+// free-function-overloads 阶段 2（use）：同名重载（5 参版，多一个 substrFilter）——此前因不支持
+// 自由函数重载而分名 _resolveDevTargetsF。
+DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter,
+                               string substrFilter, string sourceDir) {
     RunTarget[] explicitT = (kind == "bench") ? m.Benches : m.Tests;
     int explicitN        = (kind == "bench") ? m.BenchCount : m.TestCount;
     TargetSection sec    = (kind == "bench") ? m.BenchSection : m.TestsSection;
@@ -91,7 +93,7 @@ DevTarget[] _resolveDevTargetsF(ProjectManifest m, string kind, string nameFilte
     if (sec != null && sec.Auto && sec.IncCount > 0) {
         string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, sec.Include, sec.IncCount,
                                                              sec.Exclude, sec.ExcCount);
-        _dtSortStrings(files, files.Length);   // 确定序（common-pitfalls §1）
+        _dtSort(files, files.Length);   // 确定序（common-pitfalls §1）
         int rootDepth = _dtRootDepth(sec.Include, sec.IncCount);
         int f = 0;
         while (f < files.Length) {
@@ -114,7 +116,7 @@ DevTarget[] _resolveDevTargetsF(ProjectManifest m, string kind, string nameFilte
     }
     DevTarget[] r = new DevTarget[n];
     int k = 0; while (k < n) { r[k] = outp[k]; k = k + 1; }
-    _dtSortByName(r, n);
+    _dtSort(r, n);
     return r;
 }
 
@@ -125,7 +127,9 @@ DevTarget[] _dtGrow(DevTarget[] a, int n) {
 }
 
 // 选择排序（确定序；目标数是个位数，复杂度无所谓）。
-void _dtSortByName(DevTarget[] a, int n) {
+// free-function-overloads 阶段 2（use）：`_dtSort` 的 DevTarget[] 重载（按 .Name 排）；string[]
+// 重载在下方，靠数组元素类型区分。此前因不支持自由函数重载而分名 _dtSortByName/_dtSortStrings。
+void _dtSort(DevTarget[] a, int n) {
     int p = 0;
     while (p < n) {
         int min = p; int q = p + 1;
@@ -342,7 +346,7 @@ string _dtRelOf(string sourceDir, string abs) {
     return a;
 }
 
-void _dtSortStrings(string[] a, int n) {
+void _dtSort(string[] a, int n) {
     int p = 0;
     while (p < n) {
         int min = p; int q = p + 1;

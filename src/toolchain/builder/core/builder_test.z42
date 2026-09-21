@@ -86,7 +86,7 @@ int _runDevTargets(ParseResult r, string verb, string format) {
 
     string projDir = Path.GetDirectoryName(tomlPath);
     if (projDir.Length == 0) { projDir = "."; }
-    DevTarget[] targets = _resolveDevTargetsF(m, kind, nameFilter, substrFilter, projDir);
+    DevTarget[] targets = _resolveDevTargets(m, kind, nameFilter, substrFilter, projDir);
     // --list：只报清单，不编不跑。**编排方**（xtask）靠它拿单元名后并行拉起
     // `z42b test <toml> --name <unit>` —— 并行留在知道 vm/zpkg 路径的那一侧（z42b 自己拿不到：
     // `__env_args` 只给 `--` 之后的程序参数），发现规则收归 z42b 独一份。
@@ -213,7 +213,7 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
 
     // ② 父包身份：交给进程内编译器 ⇒ 测试可见父包 internal
     //    （Pipeline.ParentPkg → CompileRequest.ParentPkg → CompileInputs.ParentPkg）。
-    int rc = _orchestrateWith(derived, tgt, sourceDir, "", m.Project.Name, parentDist);
+    int rc = _orchestrate(derived, tgt, sourceDir, "", m.Project.Name, parentDist);
     if (rc != 0) { return rc; }
 
     Dirs dirs = _computeDirs(derived, sourceDir, tgt.Profile);
