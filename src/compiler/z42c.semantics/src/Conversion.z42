@@ -127,7 +127,7 @@ public static class Conversion {
         // add-argument-type-check R1b：判定从「顶层是否 Z42GenericParamType」改为**结构化递归**
         // （数组元素 / 实例化类型实参 / func 形参·返回）。裸型参的行为逐位不变（裸 GP 自身即"含"），
         // 新覆盖的是 `Byte[]` → `T[]` 这类——两侧都是 Z42ArrayType，顶层判定恒相等 ⇒ 擦除永不触发 ⇒
-        // 落 D 的 `Z42ArrayType.IsAssignableTo` 按元素 CanonName 比（`"u8" != "T"`）→ None。
+        // 落 D 的 `Z42ArrayType.IsAssignableTo` 按元素 CanonName 比（`"byte" != "T"`）→ None。
         // 该缺口**只能经传参触达**（泛型方法体内无法凭空造出具体元素类型的值赋给 `T[]`），故长期无人发现。
         if (Conversion._hasGenericParam(from) != Conversion._hasGenericParam(to)) { return new ConvResult(ConvKind.GenericErase); }
         // B2（make-enum-distinct-type）：enum ↔ 整数 / enum ↔ 异种 enum ⇒ **ExplicitEnum**（只显式）。
@@ -289,7 +289,7 @@ public static class Conversion {
     }
 
     // 双路辅助：是数值内建（Z42PrimType 或翻转后 Z42ClassType(Scalar)，且名归一为数值基元）。
-    // Z42ClassType 分支用 PrimModel.IsNumeric（Canon 归一 wrapper 名 Int32→i32）；_isNumericPrim 只认
+    // Z42ClassType 分支用 PrimModel.IsNumeric（Canon 归一 wrapper 名 Int32→int）；_isNumericPrim 只认
     // keyword/短名，翻转后 Name()="Int32" 会漏。二者在 keyword/短名输入上语义相同 → 当前中立。
     private static bool _isNumericBuiltin(Z42Type t) {
         return (t is Z42ClassType) && t.IsNumericType();
@@ -321,19 +321,19 @@ public static class Conversion {
     }
 
     // 无损隐式数值拓宽表（canonical 名）。采用 C# 隐式数值矩阵，剔除会丢尾数精度的
-    // 整数→浮点项（i32/u32/i64/u64 → f32、i64/u64 → f64），令其落入 ExplicitNumeric。
-    // char 视作 21-bit Unicode 标量：可无损进 i32/u32/i64/u64/f32/f64。
+    // 整数→浮点项（int/uint/long/ulong → float、long/ulong → double），令其落入 ExplicitNumeric。
+    // char 视作 21-bit Unicode 标量：可无损进 int/uint/long/ulong/float/double。
     public static bool _widensLossless(string f, string t) {
-        if (f == "i8")  { return t == "i16" || t == "i32" || t == "i64" || t == "f32" || t == "f64"; }
-        if (f == "u8")  { return t == "i16" || t == "u16" || t == "i32" || t == "u32" || t == "i64" || t == "u64" || t == "f32" || t == "f64"; }
-        if (f == "i16") { return t == "i32" || t == "i64" || t == "f32" || t == "f64"; }
-        if (f == "u16") { return t == "i32" || t == "u32" || t == "i64" || t == "u64" || t == "f32" || t == "f64"; }
-        if (f == "i32") { return t == "i64" || t == "f64"; }                 // ✗ f32（有损）
-        if (f == "u32") { return t == "i64" || t == "u64" || t == "f64"; }   // ✗ f32（有损）
-        if (f == "i64") { return false; }                                    // ✗ f32/f64（有损）
-        if (f == "u64") { return false; }                                    // ✗ f32/f64（有损）
-        if (f == "f32") { return t == "f64"; }
-        if (f == "char"){ return t == "i32" || t == "u32" || t == "i64" || t == "u64" || t == "f32" || t == "f64"; }
+        if (f == "sbyte")  { return t == "short" || t == "int" || t == "long" || t == "float" || t == "double"; }
+        if (f == "byte")  { return t == "short" || t == "ushort" || t == "int" || t == "uint" || t == "long" || t == "ulong" || t == "float" || t == "double"; }
+        if (f == "short") { return t == "int" || t == "long" || t == "float" || t == "double"; }
+        if (f == "ushort") { return t == "int" || t == "uint" || t == "long" || t == "ulong" || t == "float" || t == "double"; }
+        if (f == "int") { return t == "long" || t == "double"; }                 // ✗ float（有损）
+        if (f == "uint") { return t == "long" || t == "ulong" || t == "double"; }   // ✗ float（有损）
+        if (f == "long") { return false; }                                    // ✗ float/double（有损）
+        if (f == "ulong") { return false; }                                    // ✗ float/double（有损）
+        if (f == "float") { return t == "double"; }
+        if (f == "char"){ return t == "int" || t == "uint" || t == "long" || t == "ulong" || t == "float" || t == "double"; }
         return false;
     }
 }

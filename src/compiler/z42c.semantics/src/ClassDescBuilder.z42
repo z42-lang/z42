@@ -15,7 +15,6 @@ public sealed class ClassDescBuilder {
         if (te is NullableType) { return this._typeFieldName((te as NullableType).Inner); }
         if (te is NamedType) {
             NamedType nt = te as NamedType;
-            if (nt.ArgCount == 0 && this._isAliasPrim(nt.Name)) { return nt.Name; }
             return this._typeSourceName(nt);
         }
         return "unknown";
@@ -84,9 +83,9 @@ public sealed class ClassDescBuilder {
         return "";
     }
 
-    private bool _isAliasPrim(string n) {
-        return n == "byte" || n == "sbyte" || n == "short" || n == "ushort" || n == "uint" || n == "ulong";
-    }
+    // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名
+    // 会被 Canon 规范化成 u8/i16/…，而 SIGS 要保源拼写」。canonical 收敛到关键字后，`SurfaceName`
+    // 对 byte/short/… 返回的**就是**源拼写，两条路同结果，守卫成了纯噪音。
 
     private bool _hasDot(string name) {
         int i = 0;

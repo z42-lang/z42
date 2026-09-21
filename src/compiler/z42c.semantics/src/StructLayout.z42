@@ -148,8 +148,8 @@ public sealed class StructLayout {
                 }
                 // unify-value-types Phase 1：**Scalar 基元 wrapper（Int32/Boolean/Char…）虽 IsStruct=true，
                 // 但绝不作为 blob struct 布局类型**——它们是裸 Value 标量（Repr=Scalar，不进字节 arena）。
-                // 否则（Canon 收敛后 Int32→"i32"）`int` 字段的 _kindOf 会误判为嵌套 struct（IsStructType("int")
-                // ＝ ContainsKey("i32")）→ 布局尺寸/偏移全错。排除后 int 字段走 _isPrim → Prim 叶子（正确）。
+                // 否则（Canon 收敛后 Int32→"int"）`int` 字段的 _kindOf 会误判为嵌套 struct（IsStructType("int")
+                // ＝ ContainsKey("int")）→ 布局尺寸/偏移全错。排除后 int 字段走 _isPrim → Prim 叶子（正确）。
                 if (ct.IsStruct && !PrimModel.IsScalarValue(keys[i])) { defs.Put(PrimModel.Canon(keys[i]), def); }
                 else if (!ct.IsStruct) { classDefs.Put(PrimModel.Canon(keys[i]), def); }
             }
@@ -553,10 +553,10 @@ public sealed class StructLayout {
         // （消除 D13 的 struct=16B / 对象=8B 分裂）。runtime 反射镜像 `struct_reflect.rs::_sizeOf` 同步。
         if (StructLeafKind.IsRef(kind)) { return 8; }
         string c = PrimModel.Canon(typeName);
-        if (c == "i8" || c == "u8" || c == "bool") { return 1; }
-        if (c == "i16" || c == "u16") { return 2; }
-        if (c == "i32" || c == "u32" || c == "f32" || c == "char") { return 4; }
-        if (c == "i64" || c == "u64" || c == "f64") { return 8; }
+        if (c == "sbyte" || c == "byte" || c == "bool") { return 1; }
+        if (c == "short" || c == "ushort") { return 2; }
+        if (c == "int" || c == "uint" || c == "float" || c == "char") { return 4; }
+        if (c == "long" || c == "ulong" || c == "double") { return 8; }
         return 8;   // 未知基元兜底（不该发生）
     }
 
@@ -567,9 +567,9 @@ public sealed class StructLayout {
     }
 
     private static bool _isPrim(string canon) {
-        return canon == "i8" || canon == "u8" || canon == "i16" || canon == "u16"
-            || canon == "i32" || canon == "u32" || canon == "i64" || canon == "u64"
-            || canon == "f32" || canon == "f64" || canon == "bool" || canon == "char";
+        return canon == "sbyte" || canon == "byte" || canon == "short" || canon == "ushort"
+            || canon == "int" || canon == "uint" || canon == "long" || canon == "ulong"
+            || canon == "float" || canon == "double" || canon == "bool" || canon == "char";
     }
 
     // off 向上取整到 align 的倍数（align 为 2 的幂或任意正整数皆可）。

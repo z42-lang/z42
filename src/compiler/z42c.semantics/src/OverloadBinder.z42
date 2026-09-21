@@ -587,7 +587,7 @@ public sealed class OverloadBinder {
             if (akSym == null || !akSym.IsStatic) { return ak; }
         }
         // stabilize-instance-dispatch-keys：ctor 也走 primary/非-primary 键——非-primary ctor 现注册为全签名键
-        // （如 `Box$2$i32$i32`），不再是老的 `Box$argCount`。上面 `Box$argCount` 查不到 → 按 argCount 在本类 ctor
+        // （如 `Box$2$int$int`），不再是老的 `Box$argCount`。上面 `Box$argCount` 查不到 → 按 argCount 在本类 ctor
         // 里找到匹配者返其 RegKey（primary 裸 / 非-primary 全键），否则回落裸名（单 ctor）。否则 `new Box(3,4)` 会
         // emit 裸 `Box` → 运行期 ObjNew 命中 primary(arity-1) ctor → 错 ctor（ctor_overload 回归）。
         MethodSymbol[] ctors = ct.InstanceCtors();

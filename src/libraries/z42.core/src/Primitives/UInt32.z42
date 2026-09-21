@@ -1,33 +1,33 @@
 namespace Std;
 
 // rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `UInt32` per BCL convention; source keyword `u32` is preserved as alias.
+// `UInt32` per BCL convention; source keyword `uint` is preserved as alias.
 //
-// add-narrow-int-primitives (2026-05-15): `u32` / `uint` (unsigned 32-bit,
+// add-narrow-int-primitives (2026-05-15): `uint` (unsigned 32-bit,
 // 0..=4_294_967_295). Underlying runtime Value is i64; Parse range-checks input.
 // Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
 public struct UInt32 : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
-    public static u32 MaxValue = 4294967295;
-    public static u32 MinValue = 0;
+    public static uint MaxValue = 4294967295;
+    public static uint MinValue = 0;
 
-    [Native("__uint32_parse")]     public static extern u32 Parse(string s);
+    [Native("__uint32_parse")]     public static extern uint Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
-    public bool Equals(u32 other) { return this == other; }
+    public bool Equals(uint other) { return this == other; }
     public int GetHashCode() { return (int)this; }
 
-    public int CompareTo(u32 other) {
+    public int CompareTo(uint other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
-    public static override u32 op_Add(u32 a, u32 b)      { return (u32)(a + b); }
-    public static override u32 op_Subtract(u32 a, u32 b) { return (u32)(a - b); }
-    public static override u32 op_Multiply(u32 a, u32 b) { return (u32)(a * b); }
-    public static override u32 op_Divide(u32 a, u32 b)   { return (u32)(a / b); }
-    public static override u32 op_Modulo(u32 a, u32 b)   { return (u32)(a % b); }
+    public static override uint op_Add(uint a, uint b)      { return (uint)(a + b); }
+    public static override uint op_Subtract(uint a, uint b) { return (uint)(a - b); }
+    public static override uint op_Multiply(uint a, uint b) { return (uint)(a * b); }
+    public static override uint op_Divide(uint a, uint b)   { return (uint)(a / b); }
+    public static override uint op_Modulo(uint a, uint b)   { return (uint)(a % b); }
 }

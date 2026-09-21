@@ -171,7 +171,17 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // before, so cross-package associated types were fully lost, forcing three
 // IsImported guards in the compiler. Associated types are compile-time only; the
 // runtime consumes both new payloads for cursor alignment (does not validate them).
-pub const ZBC_VERSION_MINOR: u16 = 43;
+//
+// 2026-09-17 fix-ref-lvalue-addressing: bumped to 1.43 — z42c starts emitting
+// LoadElemAddr (0xA1) / LoadFieldAddr (0xA2) for `ref arr[i]` / `ref obj.f`.
+// 2026-09-22 drop-short-primitive-aliases: bumped to 1.44 — **string-pool content
+// change**, no layout change. The compiler's canonical primitive spelling moves from
+// the short aliases (`i8`/`i16`/`u8`/`u16`/`u32`/`u64`) to the C# keywords
+// (`sbyte`/`short`/`byte`/`ushort`/`uint`/`ulong`), so every type name written into
+// SIGS / TYPE / FUNC changes accordingly; `Tag.FromName` rebinds the narrow integer
+// family onto the keywords (return-type tags stay one-for-one, and the keyword
+// spellings that used to fall through to Object(0x20) now get their correct tag).
+pub const ZBC_VERSION_MINOR: u16 = 44;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -291,7 +301,11 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // 2026-09-16 assoc-type-crosspkg: bumped to 0.47 — embeds zbc 1.42 (constraint bundle
 // bit7 + TYPE unified assoc block, cross-package associated types). No zpkg-outer
 // layout change; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-pub const ZPKG_VERSION_MINOR: u16 = 48;
+// 2026-09-17 fix-ref-lvalue-addressing: bumped to 0.48 — embeds zbc 1.43.
+// 2026-09-22 drop-short-primitive-aliases: bumped to 0.49 — embeds zbc 1.44
+// (canonical primitive spelling short-name -> C# keyword). No zpkg-outer layout change;
+// the bump triggers ci-bootstrap's version-diff two-gen self-host.
+pub const ZPKG_VERSION_MINOR: u16 = 49;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

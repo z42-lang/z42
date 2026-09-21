@@ -37,16 +37,16 @@ public static class TypeFactsTc {
     }
 
     public static string _primWrapper(string n) {
-        if (n == "int"    || n == "i32") { return "Int32"; }
-        if (n == "long"   || n == "i64") { return "Int64"; }
-        if (n == "short"  || n == "i16") { return "Int16"; }
-        if (n == "sbyte"  || n == "i8")  { return "SByte"; }
-        if (n == "byte"   || n == "u8")  { return "Byte"; }
-        if (n == "ushort" || n == "u16") { return "UInt16"; }
-        if (n == "uint"   || n == "u32") { return "UInt32"; }
-        if (n == "ulong"  || n == "u64") { return "UInt64"; }
-        if (n == "float"  || n == "f32") { return "Single"; }
-        if (n == "double" || n == "f64") { return "Double"; }
+        if (n == "int") { return "Int32"; }
+        if (n == "long") { return "Int64"; }
+        if (n == "short") { return "Int16"; }
+        if (n == "sbyte")  { return "SByte"; }
+        if (n == "byte")  { return "Byte"; }
+        if (n == "ushort") { return "UInt16"; }
+        if (n == "uint") { return "UInt32"; }
+        if (n == "ulong") { return "UInt64"; }
+        if (n == "float") { return "Single"; }
+        if (n == "double") { return "Double"; }
         if (n == "bool") { return "Boolean"; }
         if (n == "char") { return "Char"; }
         if (n == "string") { return "String"; }
@@ -54,32 +54,32 @@ public static class TypeFactsTc {
     }
 
     public static bool _isPrimKeyword(string n) {
-        if (n == "int"    || n == "i32")  { return true; }
-        if (n == "long"   || n == "i64")  { return true; }
-        if (n == "short"  || n == "i16")  { return true; }
-        if (n == "sbyte"  || n == "i8")   { return true; }
-        if (n == "byte"   || n == "u8")   { return true; }
-        if (n == "ushort" || n == "u16")  { return true; }
-        if (n == "uint"   || n == "u32")  { return true; }
-        if (n == "ulong"  || n == "u64")  { return true; }
-        if (n == "float"  || n == "f32")  { return true; }
-        if (n == "double" || n == "f64")  { return true; }
+        if (n == "int")  { return true; }
+        if (n == "long")  { return true; }
+        if (n == "short")  { return true; }
+        if (n == "sbyte")   { return true; }
+        if (n == "byte")   { return true; }
+        if (n == "ushort")  { return true; }
+        if (n == "uint")  { return true; }
+        if (n == "ulong")  { return true; }
+        if (n == "float")  { return true; }
+        if (n == "double")  { return true; }
         if (n == "bool"   || n == "char") { return true; }
         if (n == "string") { return true; }
         return false;
     }
 
     public static bool _isNumericPrim(string n) {
-        if (n == "int"    || n == "i32")  { return true; }
-        if (n == "long"   || n == "i64")  { return true; }
-        if (n == "short"  || n == "i16")  { return true; }
-        if (n == "sbyte"  || n == "i8")   { return true; }
-        if (n == "byte"   || n == "u8")   { return true; }
-        if (n == "ushort" || n == "u16")  { return true; }
-        if (n == "uint"   || n == "u32")  { return true; }
-        if (n == "ulong"  || n == "u64")  { return true; }
-        if (n == "float"  || n == "f32")  { return true; }
-        if (n == "double" || n == "f64")  { return true; }
+        if (n == "int")  { return true; }
+        if (n == "long")  { return true; }
+        if (n == "short")  { return true; }
+        if (n == "sbyte")   { return true; }
+        if (n == "byte")   { return true; }
+        if (n == "ushort")  { return true; }
+        if (n == "uint")  { return true; }
+        if (n == "ulong")  { return true; }
+        if (n == "float")  { return true; }
+        if (n == "double")  { return true; }
         if (n == "char") { return true; }
         return false;
     }

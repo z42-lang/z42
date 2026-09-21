@@ -18,8 +18,8 @@ public static class Convert {
     // ── String → narrow numeric / bool / char (library-review PR-D) ───────────
     // Delegate to the primitive Parse facades so range checks stay in one place.
 
-    public static u8  ToByte(string s)  { return Byte.Parse(s); }
-    public static i16 ToInt16(string s) { return Int16.Parse(s); }
+    public static byte  ToByte(string s)  { return Byte.Parse(s); }
+    public static short ToInt16(string s) { return Int16.Parse(s); }
 
     // float and double share the VM F64 representation; parse as double then
     // narrow-cast (Single has no distinct parse builtin — see Single.z42).

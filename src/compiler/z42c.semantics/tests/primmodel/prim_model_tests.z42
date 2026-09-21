@@ -1,5 +1,8 @@
-// unify-value-types Phase 1：PrimModel 单一表单测。验证任意拼写（关键字/短名/包装名/FQ）归一到同一
-// canonical 短名，且各投影（Fq/Wrapper/IrTag/IsScalarValue/IsInteger/IsNumeric）与历史七表逐条同义。
+// unify-value-types Phase 1：PrimModel 单一表单测。验证任意拼写（关键字 / 包装名 / FQ）归一到同一
+// canonical **关键字**名，且各投影（Fq/Wrapper/IrTag/IsScalarValue/IsInteger/IsNumeric）逐条同义。
+//
+// drop-short-primitive-aliases (2026-09-22)：canonical 从短名改为关键字；短名不再是合法拼写
+// （`Canon("u8")` 原样返回 "u8"，`Code` 给 -1 ⇒ 与用户未定义类名同格）。
 namespace Z42cSemanticsPrimModelTests;
 
 using Std;
@@ -9,25 +12,52 @@ using Z42.IR;   // IrType
 
 [Test]
 void test_canon_normalizes_all_spellings() {
-    // 关键字 / canonical 短名 / 包装名 / FQ 四种拼写 → 同一短名。
-    Assert.Equal("i32", PrimModel.Canon("int"));
-    Assert.Equal("i32", PrimModel.Canon("i32"));
-    Assert.Equal("i32", PrimModel.Canon("Int32"));
-    Assert.Equal("i32", PrimModel.Canon("Std.Int32"));
-    Assert.Equal("i64", PrimModel.Canon("long"));
-    Assert.Equal("u8",  PrimModel.Canon("byte"));
-    Assert.Equal("u8",  PrimModel.Canon("Byte"));
-    Assert.Equal("f64", PrimModel.Canon("double"));
-    Assert.Equal("f32", PrimModel.Canon("float"));
+    // 关键字 / 包装名 / FQ 三种拼写 → 同一关键字。
+    Assert.Equal("int", PrimModel.Canon("int"));
+    Assert.Equal("int", PrimModel.Canon("Int32"));
+    Assert.Equal("int", PrimModel.Canon("Std.Int32"));
+    Assert.Equal("long", PrimModel.Canon("long"));
+    Assert.Equal("byte", PrimModel.Canon("byte"));
+    Assert.Equal("byte", PrimModel.Canon("Byte"));
+    Assert.Equal("sbyte",  PrimModel.Canon("SByte"));
+    Assert.Equal("short",  PrimModel.Canon("Int16"));
+    Assert.Equal("ushort", PrimModel.Canon("UInt16"));
+    Assert.Equal("uint",   PrimModel.Canon("UInt32"));
+    Assert.Equal("ulong",  PrimModel.Canon("UInt64"));
+    Assert.Equal("double", PrimModel.Canon("double"));
+    Assert.Equal("float", PrimModel.Canon("float"));
+    Assert.Equal("float", PrimModel.Canon("Single"));
     Assert.Equal("bool", PrimModel.Canon("bool"));
     Assert.Equal("bool", PrimModel.Canon("Boolean"));
     Assert.Equal("char", PrimModel.Canon("char"));
     Assert.Equal("string", PrimModel.Canon("string"));
     Assert.Equal("object", PrimModel.Canon("object"));
     // 剥尾部 ?（nullable 擦除）。
-    Assert.Equal("i32", PrimModel.Canon("int?"));
+    Assert.Equal("int", PrimModel.Canon("int?"));
     // 非内建 → 原样。
     Assert.Equal("Demo.Point", PrimModel.Canon("Demo.Point"));
+}
+
+// drop-short-primitive-aliases 的**负例门**：短名不再是 z42 类型拼写。没有这条，
+// 「删掉了」这件事零证据（见 memory: 新诊断触发 0 次 = 零证据）。
+[Test]
+void test_short_aliases_are_not_builtin_types() {
+    Assert.Equal(false, PrimModel.IsBuiltin("i8"));
+    Assert.Equal(false, PrimModel.IsBuiltin("i16"));
+    Assert.Equal(false, PrimModel.IsBuiltin("i32"));
+    Assert.Equal(false, PrimModel.IsBuiltin("i64"));
+    Assert.Equal(false, PrimModel.IsBuiltin("u8"));
+    Assert.Equal(false, PrimModel.IsBuiltin("u16"));
+    Assert.Equal(false, PrimModel.IsBuiltin("u32"));
+    Assert.Equal(false, PrimModel.IsBuiltin("u64"));
+    Assert.Equal(false, PrimModel.IsBuiltin("f32"));
+    Assert.Equal(false, PrimModel.IsBuiltin("f64"));
+    // 与用户未定义类名同格：Canon 原样返回、IrTag 落 Ref。
+    Assert.Equal("u8", PrimModel.Canon("u8"));
+    Assert.Equal(IrType.Ref, PrimModel.IrTag("u8"));
+    // 对照组：关键字仍然是内建（防这条测试因「全都 false」而失去判别力）。
+    Assert.Equal(true, PrimModel.IsBuiltin("byte"));
+    Assert.Equal(true, PrimModel.IsBuiltin("sbyte"));
 }
 
 [Test]
@@ -53,7 +83,7 @@ void test_integer_and_numeric() {
     Assert.Equal(false, PrimModel.IsInteger("float"));
     Assert.Equal(false, PrimModel.IsInteger("bool"));
     Assert.Equal(false, PrimModel.IsInteger("char"));
-    // IsNumeric = 历史 _isNumericPrim（整数 + f32/f64 + char，排除 bool/string）。
+    // IsNumeric = 历史 _isNumericPrim（整数 + float/double + char，排除 bool/string）。
     Assert.Equal(true,  PrimModel.IsNumeric("int"));
     Assert.Equal(true,  PrimModel.IsNumeric("double"));
     Assert.Equal(true,  PrimModel.IsNumeric("char"));
@@ -74,7 +104,6 @@ void test_fq_and_wrapper_projections() {
     Assert.Equal("Std.Object",  PrimModel.Fq("object"));
     // Wrapper = 历史 _primWrapper。
     Assert.Equal("Int32",   PrimModel.Wrapper("int"));
-    Assert.Equal("Int32",   PrimModel.Wrapper("i32"));
     Assert.Equal("Boolean", PrimModel.Wrapper("bool"));
     Assert.Equal("Single",  PrimModel.Wrapper("float"));
     Assert.Equal("String",  PrimModel.Wrapper("string"));

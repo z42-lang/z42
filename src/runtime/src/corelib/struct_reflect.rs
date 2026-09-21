@@ -14,7 +14,7 @@
 //! cross-checks the computed layout against the authoritative delivered `struct_layout`.
 //!
 //! Mirror sources (single source of truth stays in the compiler; keep in sync):
-//! - `canon`         ← `Z42Type.Canon`      (`Z42Type.z42:15`)
+//! - `canon`         ← `PrimModel.Canon`    (`PrimModel.z42`; keyword 拼写即 canonical)
 //! - `size_of`/`align_of`/`leaf_kind` ← `StructLayout._sizeOf/_alignOf/_kindOf` (`StructLayout.z42:332/343/322`)
 //! - `tag_from_name` ← `Tag.FromName`       (`z42.ir/.../ZbcFormat.z42:75`)
 
@@ -297,29 +297,28 @@ fn resolve_named(
 // ── Mirror of the compiler's canon / sizing / tag functions ──────────────────
 
 /// Mirror of `Z42Type.Canon` — strip a trailing `?` and normalize numeric aliases to
-/// canonical `i*/u*/f*` spellings. Used for size/alignment/kind (never for the decode tag,
-/// which mirrors `Tag.FromName` directly — see module docs).
+/// canonical spellings. drop-short-primitive-aliases: the compiler's canonical name **is** the
+/// C# keyword (`byte` / `sbyte` / …), so this is now just the `?` strip. Used for
+/// size/alignment/kind (never for the decode tag, which mirrors `Tag.FromName` — see module docs).
 fn canon(n: &str) -> &str {
-    let s = n.strip_suffix('?').unwrap_or(n);
-    match s {
-        "byte" => "u8",
-        "sbyte" => "i8",
-        "short" => "i16",
-        "ushort" => "u16",
-        "int" => "i32",
-        "uint" => "u32",
-        "long" => "i64",
-        "ulong" => "u64",
-        "float" => "f32",
-        "double" => "f64",
-        other => other,
-    }
+    n.strip_suffix('?').unwrap_or(n)
 }
 
 fn is_prim(c: &str) -> bool {
     matches!(
         c,
-        "i8" | "u8" | "i16" | "u16" | "i32" | "u32" | "i64" | "u64" | "f32" | "f64" | "bool" | "char"
+        "sbyte"
+            | "byte"
+            | "short"
+            | "ushort"
+            | "int"
+            | "uint"
+            | "long"
+            | "ulong"
+            | "float"
+            | "double"
+            | "bool"
+            | "char"
     )
 }
 
@@ -338,10 +337,10 @@ fn size_of(canon: &str, is_ref: bool) -> u32 {
         return 8;
     }
     match canon {
-        "i8" | "u8" | "bool" => 1,
-        "i16" | "u16" => 2,
-        "i32" | "u32" | "f32" | "char" => 4,
-        "i64" | "u64" | "f64" => 8,
+        "sbyte" | "byte" | "bool" => 1,
+        "short" | "ushort" => 2,
+        "int" | "uint" | "float" | "char" => 4,
+        "long" | "ulong" | "double" => 8,
         _ => 8, // unknown primitive fallback (mirrors the compiler)
     }
 }
@@ -354,16 +353,16 @@ fn tag_from_name(t: &str) -> u8 {
     match t {
         "void" => ty::TAG_UNKNOWN,
         "bool" => ty::TAG_BOOL,
-        "i8" => ty::TAG_I8,
-        "i16" => ty::TAG_I16,
-        "i32" | "int" => ty::TAG_I32,
-        "i64" | "long" => ty::TAG_I64,
-        "u8" => ty::TAG_U8,
-        "u16" => ty::TAG_U16,
-        "u32" => ty::TAG_U32,
-        "u64" => ty::TAG_U64,
-        "f32" | "float" => ty::TAG_F32,
-        "f64" | "double" => ty::TAG_F64,
+        "sbyte" => ty::TAG_I8,
+        "short" => ty::TAG_I16,
+        "int" => ty::TAG_I32,
+        "long" => ty::TAG_I64,
+        "byte" => ty::TAG_U8,
+        "ushort" => ty::TAG_U16,
+        "uint" => ty::TAG_U32,
+        "ulong" => ty::TAG_U64,
+        "float" => ty::TAG_F32,
+        "double" => ty::TAG_F64,
         "char" => ty::TAG_CHAR,
         "str" => ty::TAG_STR,
         _ => ty::TAG_OBJECT,

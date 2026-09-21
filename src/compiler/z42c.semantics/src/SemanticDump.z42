@@ -184,6 +184,20 @@ public static class SemanticDump {
         return diags.Get(0).Message;
     }
 
+    // 诊断里是否**出现过**某个错误码（drop-short-primitive-aliases 新增）。
+    // 用于「我关心的那条诊断有没有报」而**不关心同时还报了几条**的用例 —— 断言总条数会把
+    // 无关诊断的增减也变成红测试，锁死的是偶然行为而不是意图。
+    public static bool HasErrorCode(string src, string code) {
+        var p = new Parser(src, "<input>");
+        DiagnosticBag diags = SemanticDump._diags(p.ParseCompilationUnit());
+        int i = 0;
+        while (i < diags.Count()) {
+            if (diags.Get(i).Code == code) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
     // 类型检查诊断错误条数（错误用例断言）。
     public static int ErrorCount(string src) {
         var p = new Parser(src, "<input>");

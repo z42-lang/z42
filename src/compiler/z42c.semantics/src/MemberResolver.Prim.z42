@@ -25,7 +25,7 @@ public sealed partial class MemberResolver {
             // stabilize-instance-dispatch-keys：prim 收者实例方法**恒走完整 `_resolveOverload`**（镜像上方
             // class 收者路径 :69 → ms.RegKey）。旧的 `_sameArity<2` 快路径（`_overloadKey`/`_findMethod` 取
             // bare / `Name$arity`）在新键方案下**失效并致命**：arity 重载（如 `Substring(int)`/`Substring(int,int)`）
-            // 的非-primary 现注册为全签名键 `Substring$2$i32$i32`（非 `Substring$2`），`_overloadKey` 找不到
+            // 的非-primary 现注册为全签名键 `Substring$2$int$int`（非 `Substring$2`），`_overloadKey` 找不到
             // `Substring$2` → 回落裸 `Substring` → `_findMethod` 命中 **primary（arity-1）** → emit 裸名 + argCount=2
             // → 运行期按裸名派发到 arity-1 方法却传 2 实参 → **错-arity 调用 → 段错误**。`_resolveOverload` 按
             // arity 过滤 + 返回正确 `rms.RegKey`（primary 裸 / 非-primary 全键），根治。唯一方法字节中性（RegKey=裸）。
@@ -35,13 +35,13 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                 this._tc._access.CheckDeprecatedM(rms, mem.Name, sp);
                 BoundExpr[] fa = this._tc._overload._withDefaults(rms, args, rawArgs, argCount, env, sp, false);
-                return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp);
+                return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp);
             }
             BoundExpr noOv = this.BindPrimNoApplicableOverload(wct, mem, recv, rt, args, argCount, rawArgs, env, sp);   // 无一重载适用 ⇒ 真错，别松绑定（见该方法头注）
             if (noOv != null) { return noOv; }
         }
         args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
-        return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mem.Name, args, argCount, new Z42UnknownType(), sp);
+        return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), mem.Name, args, argCount, new Z42UnknownType(), sp);
     }
 
     // prim 收者（`string` / 数值 / `char`…→ stdlib 包装类）上**没有任何重载适用**时的诊断。
@@ -66,6 +66,6 @@ public sealed partial class MemberResolver {
         this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
             "no overload of `" + mem.Name + "` on `" + wct.Name() + "` accepts these arguments", mem.NameSpan);
         BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
-        return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mem.Name, fa, argCount, new Z42ErrorType(), sp);
+        return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), mem.Name, fa, argCount, new Z42ErrorType(), sp);
     }
 }

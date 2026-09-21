@@ -58,7 +58,7 @@ public sealed class DeclBinder {
     }
 
     // stabilize-instance-dispatch-keys：判重键从 `md.RegKey` 改为**全签名 MangleKey**。
-    // 老键下碰撞的重载（`G(string)`/`G(string?)`、`F(int)`/`F(i32)`——Canon 归一 nullable/别名后同签名）
+    // 老键下碰撞的重载（`G(string)`/`G(string?)`、`F(int)`/`F(Int32)`——Canon 归一 nullable/包装名后同签名）
     // 共享同一 RegKey，靠「RegKey 重复」即可判重；新键下 primary=裸、非-primary=全键，二者 RegKey
     // **不再相同** → 漏判。故这里按符号的语义签名重算全键（Canon 归一，同 MemberCollector 的键规则），
     // 与兄弟集无关、只看方法自身签名 → 判重恢复且不随 primary 选取漂移。
@@ -119,7 +119,7 @@ public sealed class DeclBinder {
                         if (seenKey.ContainsKey(sk)) {
                             this._tc._diags.Error(DiagnosticCodes.DuplicateDeclaration,
                                 "duplicate overload `" + md.Name + "` — parameter types are identical once " +
-                                "aliases (e.g. int/i32) and nullability are normalized", md.Span);
+                                "aliases (e.g. int/Int32) and nullability are normalized", md.Span);
                         } else {
                             seenKey.Put(sk, "1");
                         }

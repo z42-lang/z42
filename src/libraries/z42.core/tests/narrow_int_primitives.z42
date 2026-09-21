@@ -11,18 +11,18 @@ using Std.Test;
 
 [Test]
 void test_i8_parse_round_trip() {
-    i8 v = i8.Parse("-128");
+    sbyte v = SByte.Parse("-128");
     Assert.Equal("-128", v.ToString());
-    v = i8.Parse("127");
+    v = SByte.Parse("127");
     Assert.Equal("127", v.ToString());
-    v = i8.Parse("0");
+    v = SByte.Parse("0");
     Assert.Equal("0", v.ToString());
 }
 
 [Test]
 void test_i8_compare_to() {
-    i8 a = i8.Parse("10");
-    i8 b = i8.Parse("20");
+    sbyte a = SByte.Parse("10");
+    sbyte b = SByte.Parse("20");
     Assert.True(a.CompareTo(b) < 0);
     Assert.True(b.CompareTo(a) > 0);
     Assert.Equal(0, a.CompareTo(a));
@@ -32,9 +32,9 @@ void test_i8_compare_to() {
 
 [Test]
 void test_i16_parse_round_trip() {
-    i16 v = i16.Parse("-32768");
+    short v = Int16.Parse("-32768");
     Assert.Equal("-32768", v.ToString());
-    v = i16.Parse("32767");
+    v = Int16.Parse("32767");
     Assert.Equal("32767", v.ToString());
 }
 
@@ -42,17 +42,17 @@ void test_i16_parse_round_trip() {
 
 [Test]
 void test_u8_parse_round_trip() {
-    u8 v = u8.Parse("0");
+    byte v = Byte.Parse("0");
     Assert.Equal("0", v.ToString());
-    v = u8.Parse("255");
+    v = Byte.Parse("255");
     Assert.Equal("255", v.ToString());
 }
 
 [Test]
 void test_u8_equals() {
-    u8 a = u8.Parse("42");
-    u8 b = u8.Parse("42");
-    u8 c = u8.Parse("43");
+    byte a = Byte.Parse("42");
+    byte b = Byte.Parse("42");
+    byte c = Byte.Parse("43");
     Assert.True(a.Equals(b));
     Assert.False(a.Equals(c));
 }
@@ -61,9 +61,9 @@ void test_u8_equals() {
 
 [Test]
 void test_u16_parse_round_trip() {
-    u16 v = u16.Parse("65535");
+    ushort v = UInt16.Parse("65535");
     Assert.Equal("65535", v.ToString());
-    v = u16.Parse("0");
+    v = UInt16.Parse("0");
     Assert.Equal("0", v.ToString());
 }
 
@@ -71,7 +71,7 @@ void test_u16_parse_round_trip() {
 
 [Test]
 void test_u32_parse_round_trip() {
-    u32 v = u32.Parse("4294967295");
+    uint v = UInt32.Parse("4294967295");
     Assert.Equal("4294967295", v.ToString());
 }
 
@@ -79,7 +79,7 @@ void test_u32_parse_round_trip() {
 
 [Test]
 void test_u64_parse_low_values_round_trip() {
-    u64 v = u64.Parse("12345");
+    ulong v = UInt64.Parse("12345");
     Assert.Equal("12345", v.ToString());
 }
 
@@ -90,37 +90,37 @@ void test_u64_parse_low_values_round_trip() {
 
 [Test]
 void test_i8_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => i8.Parse("128"));
-    Assert.ThrowsAny(() => i8.Parse("-129"));
+    Assert.ThrowsAny(() => SByte.Parse("128"));
+    Assert.ThrowsAny(() => SByte.Parse("-129"));
 }
 
 [Test]
 void test_i16_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => i16.Parse("32768"));
-    Assert.ThrowsAny(() => i16.Parse("-32769"));
+    Assert.ThrowsAny(() => Int16.Parse("32768"));
+    Assert.ThrowsAny(() => Int16.Parse("-32769"));
 }
 
 [Test]
 void test_u8_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => u8.Parse("256"));
-    Assert.ThrowsAny(() => u8.Parse("-1"));
+    Assert.ThrowsAny(() => Byte.Parse("256"));
+    Assert.ThrowsAny(() => Byte.Parse("-1"));
 }
 
 [Test]
 void test_u16_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => u16.Parse("65536"));
-    Assert.ThrowsAny(() => u16.Parse("-1"));
+    Assert.ThrowsAny(() => UInt16.Parse("65536"));
+    Assert.ThrowsAny(() => UInt16.Parse("-1"));
 }
 
 [Test]
 void test_u32_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => u32.Parse("4294967296"));
-    Assert.ThrowsAny(() => u32.Parse("-1"));
+    Assert.ThrowsAny(() => UInt32.Parse("4294967296"));
+    Assert.ThrowsAny(() => UInt32.Parse("-1"));
 }
 
 [Test]
 void test_u64_parse_rejects_negative() {
-    Assert.ThrowsAny(() => u64.Parse("-1"));
+    Assert.ThrowsAny(() => UInt64.Parse("-1"));
 }
 
 [Test]
@@ -132,5 +132,5 @@ void test_int_parse_now_rejects_overflow() {
 [Test]
 void test_parse_rejects_non_numeric() {
     Assert.ThrowsAny(() => int.Parse("abc"));
-    Assert.ThrowsAny(() => u8.Parse("12x"));
+    Assert.ThrowsAny(() => Byte.Parse("12x"));
 }

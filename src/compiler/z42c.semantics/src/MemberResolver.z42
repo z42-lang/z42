@@ -242,7 +242,7 @@ public sealed partial class MemberResolver {
                 MethodSymbol aMs = this._tc._overload._findMethod(env.Symbols, objCt, aMkey);
                 if (aMs != null) {
                     args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, aMs.Signature, env);
-                    return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp);
+                    return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp);
                 }
             }
         }
@@ -321,7 +321,7 @@ public sealed partial class MemberResolver {
             // 才能拿到真实返回类型；否则误判 "member access on non-class" 或松绑 Unknown。
             MethodSymbol wgetter = this._tc._overload._findMethod(env.Symbols, wct, "get_" + m.Name);
             if (wgetter != null && wgetter.Signature != null) {
-                return new BoundCall("instance", true, target, PrimModel.Keyword(tt.Name()), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span);
+                return new BoundCall("instance", true, target, PrimModel.Canon(tt.Name()), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span);
             }
             return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
         }

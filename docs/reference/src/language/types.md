@@ -1,36 +1,57 @@
 # 基本类型与字面量
 
-z42 的内建标量类型有**两套等价拼写**：C# 风格的关键字（`int`、`double`…）和 Rust 风格的
-短名（`i32`、`f64`…）。两者指向同一个类型，可以互相赋值，也**不能**作为重载的区分依据。
+z42 的内建标量类型**每种只有一套拼写**：C# 风格的关键字（`int`、`byte`、`double`…），外加等价的
+BCL 包装类型名（`Int32`、`Byte`、`Double`…），二者关系同 C# 的 `int` ⟷ `System.Int32`。
 
 ## 内建类型总表
 
-| 关键字 | 短名 | 包装类型 | 位宽 | 说明 |
-|--------|------|----------|------|------|
-| `sbyte` | `i8` | `Std.SByte` | 8 | 有符号 |
-| `short` | `i16` | `Std.Int16` | 16 | 有符号 |
-| `int` | `i32` | `Std.Int32` | 32 | 有符号 |
-| `long` | `i64` | `Std.Int64` | 64 | 有符号 |
-| `byte` | `u8` | `Std.Byte` | 8 | 无符号 |
-| `ushort` | `u16` | `Std.UInt16` | 16 | 无符号 |
-| `uint` | `u32` | `Std.UInt32` | 32 | 无符号 |
-| `ulong` | `u64` | `Std.UInt64` | 64 | 无符号 |
-| `float` | `f32` | `Std.Single` | 32 | IEEE-754 |
-| `double` | `f64` | `Std.Double` | 64 | IEEE-754 |
-| `bool` | — | `Std.Boolean` | — | `true` / `false` |
-| `char` | — | `Std.Char` | 32 | 一个 Unicode 标量值 |
-| `string` | — | `Std.String` | — | 不可变 UTF-8，引用类型 |
-| `object` | — | `Std.Object` | — | 所有引用类型的基类，装箱目标 |
-| `void` | — | — | — | 仅用于返回类型 |
+| 关键字 | 包装类型 | 位宽 | 说明 |
+|--------|----------|------|------|
+| `sbyte` | `Std.SByte` | 8 | 有符号 |
+| `short` | `Std.Int16` | 16 | 有符号 |
+| `int` | `Std.Int32` | 32 | 有符号 |
+| `long` | `Std.Int64` | 64 | 有符号 |
+| `byte` | `Std.Byte` | 8 | 无符号 |
+| `ushort` | `Std.UInt16` | 16 | 无符号 |
+| `uint` | `Std.UInt32` | 32 | 无符号 |
+| `ulong` | `Std.UInt64` | 64 | 无符号 |
+| `float` | `Std.Single` | 32 | IEEE-754 |
+| `double` | `Std.Double` | 64 | IEEE-754 |
+| `bool` | `Std.Boolean` | — | `true` / `false` |
+| `char` | `Std.Char` | 32 | 一个 Unicode 标量值 |
+| `string` | `Std.String` | — | 不可变 UTF-8，引用类型 |
+| `object` | `Std.Object` | — | 所有引用类型的基类，装箱目标 |
+| `void` | — | — | 仅用于返回类型 |
 
-**短名是规范形式**：编译器把每种拼写归一到短名后再比较类型，因此
+**关键字就是规范形式**：编译器把包装名 / FQ 名（`Int32` / `Std.Int32`）归一到关键字后再比较类型，
+写进 zbc / zpkg 的类型名也是这一套。因此
 
 ```z42
-void F(int x)  { }
-void F(i32 x)  { }   // ✗ 重复声明——归一后是同一个 F(i32)
+void F(int x)    { }
+void F(Int32 x)  { }   // ✗ 重复声明——归一后是同一个 F(int)
 ```
 
-也因此 `x.GetType().Name` 返回的是包装类型名（`Int32`），`FullName` 是 `Std.Int32`。
+`x.GetType().Name` 返回包装类型名（`Int32`），`FullName` 是 `Std.Int32`。
+
+### 没有 Rust 风格短名（drop-short-primitive-aliases，2026-09-22）
+
+`i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64` / `f32` / `f64` **不是 z42 的类型拼写**。
+它们曾作为关键字 token 与关键字并存，现已从词法器移除；在源码里它们只是普通标识符，用作类型即报
+「未定义类型」。
+
+删除理由：同一个类型有两个名字，既让重载 / 诊断 / 反射的「显示哪个名字」处处需要抉择，也让
+canonical 表里 `int`/`long`/`float`/`double` 走关键字、窄整数族走短名，长出两套风格。收敛后
+**源码拼写 == canonical == zbc 线格式名**，只剩一张表。
+
+短名仍存在于两个**与 z42 类型拼写无关**的记法里，两者都刻意保留：
+
+| 记法 | 例子 | 说明 |
+|---|---|---|
+| `[Extern]` FFI 签名串 | `u8`、`usize`、`*const T`、`CStr` | C / Rust ABI 记法，由 VM 的 `native/dispatch.rs` 解析（见 interop 参考页） |
+| IR 文本 dump | `add i32 %1, %2` | LLVM 风格的 IR 汇编记法 |
+
+这与 C# 的「源码 `int` / CIL `int32` / 元数据 `System.Int32`」分层同形：同一个类型在不同层用不同
+记法是正常的，**同一层里有两个名字**才是要消除的冗余。
 
 > **z42 没有的**：`decimal`、`nint` / `nuint`、`System.*` 的任何类型。
 
@@ -39,9 +60,9 @@ void F(i32 x)  { }   // ✗ 重复声明——归一后是同一个 F(i32)
 ```z42
 int    x    = 42;
 int    hex  = 0xFF;
-long   big  = 9_000_000_000L;   // `_` 数字分隔符；`L` 后缀 = i64
-double pi   = 3.14159;          // 无后缀的小数 = f64
-float  f    = 1.5f;             // `f` 后缀 = f32
+long   big  = 9_000_000_000L;   // `_` 数字分隔符；`L` 后缀 = long
+double pi   = 3.14159;          // 无后缀的小数 = double
+float  f    = 1.5f;             // `f` 后缀 = float
 bool   flag = true;
 char   ch   = 'z';
 string s    = "hello";

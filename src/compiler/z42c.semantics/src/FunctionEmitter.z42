@@ -220,7 +220,6 @@ public sealed class FunctionEmitter {
         if (te is NullableType) { return this._sigTypeName((te as NullableType).Inner, tp, tpc); }   // 剥 ?（镜像 ResolveTypeP）
         if (te is NamedType) {
             NamedType nt = te as NamedType;
-            if (nt.ArgCount == 0 && this._isAliasPrim(nt.Name)) { return nt.Name; }
             // unify-type-identity-fqn：**删除了**「含点的限定名 → 字面量 "unknown"」这条短路。
             // 它镜像的是 C# bootstrap 编译器的 `MemberType → _ → "unknown"`，而那个编译器已于
             // 2026-06-26 移除 —— 等于在复刻一个不存在的编译器的缺陷。`ResolveTypeP` 本就能解析
@@ -310,9 +309,9 @@ public sealed class FunctionEmitter {
         return t.Name();
     }
 
-    private bool _isAliasPrim(string n) {
-        return n == "byte" || n == "sbyte" || n == "short" || n == "ushort" || n == "uint" || n == "ulong";
-    }
+    // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名
+    // 会被 Canon 规范化成 u8/i16/…，而 SIGS 要保源拼写」。canonical 收敛到关键字后，`SurfaceName`
+    // 对 byte/short/… 返回的**就是**源拼写，两条路同结果，守卫成了纯噪音。
 
     // __static_init__ 合成（SA-3；镜像 C#）：每静态字段 init → StaticSet(FQ, init reg)，ret void、0 参。
     public IrFunction EmitStaticInit(string name, SemanticModel model) {

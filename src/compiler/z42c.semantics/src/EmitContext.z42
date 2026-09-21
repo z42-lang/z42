@@ -351,16 +351,16 @@ public sealed class EmitContext {
     // prim 别名 → 包装类名（镜像 TypeChecker._primWrapper；ChainHasMethod IC-3 映射用）。
     private static string _primWrapper(string n) {
         if (n == "string")              { return "String"; }
-        if (n == "int"    || n == "i32") { return "Int32"; }
-        if (n == "long"   || n == "i64") { return "Int64"; }
-        if (n == "short"  || n == "i16") { return "Int16"; }
-        if (n == "sbyte"  || n == "i8")  { return "SByte"; }
-        if (n == "byte"   || n == "u8")  { return "Byte"; }
-        if (n == "ushort" || n == "u16") { return "UInt16"; }
-        if (n == "uint"   || n == "u32") { return "UInt32"; }
-        if (n == "ulong"  || n == "u64") { return "UInt64"; }
-        if (n == "float"  || n == "f32") { return "Single"; }
-        if (n == "double" || n == "f64") { return "Double"; }
+        if (n == "int") { return "Int32"; }
+        if (n == "long") { return "Int64"; }
+        if (n == "short") { return "Int16"; }
+        if (n == "sbyte")  { return "SByte"; }
+        if (n == "byte")  { return "Byte"; }
+        if (n == "ushort") { return "UInt16"; }
+        if (n == "uint") { return "UInt32"; }
+        if (n == "ulong") { return "UInt64"; }
+        if (n == "float") { return "Single"; }
+        if (n == "double") { return "Double"; }
         if (n == "bool")                { return "Boolean"; }
         if (n == "char")                { return "Char"; }
         return n;   // 已是类名（"String"/"List" 等）→ 原样
@@ -565,18 +565,18 @@ public sealed class EmitContext {
         return IrType.Unknown;
     }
 
-    // prim 名（含别名，ResolveType 不规范化）→ IrType 标签。镜像 C# TypeRegistry（int→i32, long→i64）。
+    // prim 名（关键字或 BCL 包装名，ResolveType 不规范化）→ IrType 标签。
     public int PrimTag(string n) {
-        if (n == "int" || n == "i32" || n == "Int32") { return IrType.I32; }
-        if (n == "long" || n == "i64" || n == "Int64") { return IrType.I64; }
-        if (n == "i8" || n == "sbyte" || n == "SByte") { return IrType.I8; }
-        if (n == "i16" || n == "short" || n == "Int16") { return IrType.I16; }
-        if (n == "u8" || n == "byte" || n == "Byte") { return IrType.U8; }
-        if (n == "u16" || n == "ushort" || n == "UInt16") { return IrType.U16; }
-        if (n == "u32" || n == "uint" || n == "UInt32") { return IrType.U32; }
-        if (n == "u64" || n == "ulong" || n == "UInt64") { return IrType.U64; }
-        if (n == "float" || n == "f32" || n == "Single") { return IrType.F32; }
-        if (n == "double" || n == "f64" || n == "Double") { return IrType.F64; }
+        if (n == "int" || n == "Int32") { return IrType.I32; }
+        if (n == "long" || n == "Int64") { return IrType.I64; }
+        if (n == "sbyte" || n == "SByte") { return IrType.I8; }
+        if (n == "short" || n == "Int16") { return IrType.I16; }
+        if (n == "byte" || n == "Byte") { return IrType.U8; }
+        if (n == "ushort" || n == "UInt16") { return IrType.U16; }
+        if (n == "uint" || n == "UInt32") { return IrType.U32; }
+        if (n == "ulong" || n == "UInt64") { return IrType.U64; }
+        if (n == "float" || n == "Single") { return IrType.F32; }
+        if (n == "double" || n == "Double") { return IrType.F64; }
         if (n == "bool" || n == "Boolean") { return IrType.Bool; }
         if (n == "char" || n == "Char") { return IrType.Char; }
         if (n == "string" || n == "String") { return IrType.Str; }

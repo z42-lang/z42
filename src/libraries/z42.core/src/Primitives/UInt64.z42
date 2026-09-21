@@ -1,9 +1,9 @@
 namespace Std;
 
 // rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `UInt64` per BCL convention; source keyword `u64` is preserved as alias.
+// `UInt64` per BCL convention; source keyword `ulong` is preserved as alias.
 //
-// add-narrow-int-primitives (2026-05-15): `u64` / `ulong` (unsigned 64-bit).
+// add-narrow-int-primitives (2026-05-15): `ulong` (unsigned 64-bit).
 // Values above i64::MAX (9_223_372_036_854_775_807) are stored as the
 // bit-preserving i64 cast — i.e. `int.ToString` will render them as
 // negative, but `==` and arithmetic preserve the unsigned semantics.
@@ -15,26 +15,26 @@ public struct UInt64 : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
     // All-bits-set (decimal 18446744073709551615).
-    public static u64 MaxValue = 0xFFFFFFFFFFFFFFFF;
-    public static u64 MinValue = 0;
+    public static ulong MaxValue = 0xFFFFFFFFFFFFFFFF;
+    public static ulong MinValue = 0;
 
-    [Native("__uint64_parse")]     public static extern u64 Parse(string s);
+    [Native("__uint64_parse")]     public static extern ulong Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
     // hash 用 `(int)this`，与其他整型一致、确定性满足 Dictionary 契约（见 Int64 注）。
-    public bool Equals(u64 other) { return this == other; }
+    public bool Equals(ulong other) { return this == other; }
     public int GetHashCode() { return (int)this; }
 
-    public int CompareTo(u64 other) {
+    public int CompareTo(ulong other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
-    public static override u64 op_Add(u64 a, u64 b)      { return (u64)(a + b); }
-    public static override u64 op_Subtract(u64 a, u64 b) { return (u64)(a - b); }
-    public static override u64 op_Multiply(u64 a, u64 b) { return (u64)(a * b); }
-    public static override u64 op_Divide(u64 a, u64 b)   { return (u64)(a / b); }
-    public static override u64 op_Modulo(u64 a, u64 b)   { return (u64)(a % b); }
+    public static override ulong op_Add(ulong a, ulong b)      { return (ulong)(a + b); }
+    public static override ulong op_Subtract(ulong a, ulong b) { return (ulong)(a - b); }
+    public static override ulong op_Multiply(ulong a, ulong b) { return (ulong)(a * b); }
+    public static override ulong op_Divide(ulong a, ulong b)   { return (ulong)(a / b); }
+    public static override ulong op_Modulo(ulong a, ulong b)   { return (ulong)(a % b); }
 }
