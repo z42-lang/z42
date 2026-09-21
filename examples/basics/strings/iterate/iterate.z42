@@ -1,0 +1,13 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    string s = "z42";
+
+    foreach (char c in s) {
+        Console.WriteLine(c);
+    }
+
+    Console.WriteLine(s[0]);      // 也可以按下标取
+    // ANCHOR_END: code
+}

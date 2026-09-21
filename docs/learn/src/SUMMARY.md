@@ -20,3 +20,4 @@
 - [运算符与表达式](basics/operators.md)
 - [控制流](basics/control-flow.md)
 - [函数](basics/functions.md)
+- [字符串](basics/strings.md)

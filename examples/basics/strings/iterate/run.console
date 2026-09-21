@@ -1,0 +1,7 @@
+# ANCHOR: run
+$ z42 run iterate.z42
+z
+4
+2
+z
+# ANCHOR_END: run

@@ -1,0 +1,12 @@
+# ANCHOR: run
+$ z42 run interp.z42
+小明 今年 7 岁
+明年 8 岁
+名字有 2 个字
+字面花括号写成 { 和 }
+# ANCHOR_END: run
+# ANCHOR: format
+$ z42 run format.z42
+#255
+3.14159
+# ANCHOR_END: format

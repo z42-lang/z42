@@ -1,0 +1,14 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    string plain  = "hello";                  // 普通串：处理转义
+    string name   = "z42";
+    string interp = $"Hello, {name}!";        // 插值串：花括号里是表达式
+    string raw    = """{"k": "v"}""";         // 原始串：逐字保留，不处理转义
+
+    Console.WriteLine(plain);
+    Console.WriteLine(interp);
+    Console.WriteLine(raw);
+    // ANCHOR_END: code
+}

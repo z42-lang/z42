@@ -1,0 +1,8 @@
+# ANCHOR: run
+$ z42 run raw.z42
+路径 C:\Users\bin，他说 "你好"。
+[
+  第一行
+  第二行
+]
+# ANCHOR_END: run

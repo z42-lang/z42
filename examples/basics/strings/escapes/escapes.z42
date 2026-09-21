@@ -1,0 +1,9 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    Console.WriteLine("制表符在这里 ->\t<- 结束");
+    Console.WriteLine("第一行\n第二行");
+    Console.WriteLine("引号 \" 与反斜杠 \\");
+    // ANCHOR_END: code
+}

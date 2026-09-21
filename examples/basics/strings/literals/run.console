@@ -1,0 +1,6 @@
+# ANCHOR: run
+$ z42 run literals.z42
+hello
+Hello, z42!
+{"k": "v"}
+# ANCHOR_END: run

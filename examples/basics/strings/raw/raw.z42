@@ -1,0 +1,15 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    // 原始串里 \n 就是反斜杠加 n 两个字符，引号也不用转义
+    Console.WriteLine("""路径 C:\Users\bin，他说 "你好"。""");
+
+    // 跨行时缩进和换行原样保留
+    string block = """
+  第一行
+  第二行
+""";
+    Console.WriteLine("[" + block + "]");
+    // ANCHOR_END: code
+}
