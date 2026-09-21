@@ -6,8 +6,8 @@ void Increment(ref int x) {
     x = x + 1;
 }
 
-// out：方法负责给它赋值，调用前不必初始化
-bool TryLength(string s, out int length) {
+// 「可能没有」的值类型结果：bool 说成没成，ref 出参带值
+bool TryLength(string s, ref int length) {
     length = s.Length;
     return length > 0;
 }
@@ -20,8 +20,12 @@ void Main() {
     Increment(ref count);
     Console.WriteLine(count);
 
-    if (TryLength("hey", out var n)) {   // out var 就地声明一个新变量
+    if (TryLength("hey", ref var n)) {   // ref var 就地声明一个新变量
         Console.WriteLine(n);
     }
+
+    int noInit;                  // 没写初始化器也行——被 ref 取址的槽位自动取零值
+    Increment(ref noInit);
+    Console.WriteLine(noInit);
     // ANCHOR_END: call
 }

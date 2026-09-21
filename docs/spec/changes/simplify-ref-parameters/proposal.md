@@ -25,9 +25,15 @@
 （`z42.Syntax/Lexer/TokenKind.cs`、`z42.Semantics/TypeCheck/FlowAnalyzer.cs`……）——那是**老的 C# 宿主编译器**。
 自举到 z42c 之后，三态区分、`out` 的 DefiniteAssignment、`in` 写保护**全部没有被移植过来**。
 
-而 `docs/reference/src/language/parameter-modifiers.md` 开头仍写着
-「状态：**编译期 + 运行时全部已落地**」——**文档在谎报**。这与 roadmap 谎报可空类型是同一个失效模式：
-不是"没做"，是"看起来做完了"，顺着读只会当它是已知能力绕过去。
+> ⚠️ **起草时我写过「文档在谎报」，那句话是错的，在此更正。**
+> 谎报的是**旧的** `docs/design/language/parameter-modifiers.md`（开头写「状态：编译期 + 运行时
+> 全部已落地」），我是在一棵落后好几天的主树上读到它的。三书重构迁移后的
+> `docs/reference/src/language/parameter-modifiers.md` **已经重写得很诚实**——开头就有 ⚠️ 框
+> 「当前实现不区分这三者」，附 2026-09-17 的实测表，逐条列出「应当 vs 实际」，
+> 还点明了漏写 / 多写 `ref` 是**相反的两个方向**且都不报错。
+>
+> 这条更正本身值得记：**核实"文档怎么说"必须在最新的树上做**，旧树里的文件可能已经被
+> 重写过了。下结论前先 `git fetch`。
 
 ### 为什么现在做，以及为什么可以大改
 

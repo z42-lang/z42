@@ -2,9 +2,12 @@
 $ z42 run byref.z42
 2
 3
+1
 # ANCHOR_END: run
 # ANCHOR: forgot
 $ z42 run forgot.z42
-漏写 ref: 0
-多写 ref: 999
+z42c build: 2 error(s) in forgot.z42
+  forgot.z42(13,15): E0472: argument 1 must be passed with `ref` — the parameter is `ref`, and without it the callee's write is silently lost
+  forgot.z42(17,13): E0473: argument 1 must not be passed with `ref` — the parameter is not `ref`
+[exit: 1]
 # ANCHOR_END: forgot
