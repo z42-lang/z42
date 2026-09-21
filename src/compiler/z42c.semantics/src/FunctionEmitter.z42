@@ -313,8 +313,12 @@ public sealed class FunctionEmitter {
     // 会被 Canon 规范化成 u8/i16/…，而 SIGS 要保源拼写」。canonical 收敛到关键字后，`SurfaceName`
     // 对 byte/short/… 返回的**就是**源拼写，两条路同结果，守卫成了纯噪音。
 
-    // __static_init__ 合成（SA-3；镜像 C#）：每静态字段 init → StaticSet(FQ, init reg)，ret void、0 参。
-    public IrFunction EmitStaticInit(string name, SemanticModel model) {
+    // 类型初始化器合成（unify-static-init-into-cctor）：宿主类 `onlyCls` 的每个静态字段 init
+    // → StaticSet(FQ, init reg)，ret void、0 参。发射名 = 该类的 cctor 名，运行期按 $Cctor
+    // 哨兵在「首次使用该类型前」调用。
+    // 前史：此前本函数合成 per-CU `__static_init__`（一个文件的全部类混在一个函数里，按声明序
+    // 线性展开），于是「A 的初始化器依赖声明在后的 B」会读到未初始化值且**静默**。
+    public IrFunction EmitStaticInit(string name, SemanticModel model, string onlyCls) {
         this._ctx = new EmitContext(this._symbols, this._gen);
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
@@ -327,7 +331,9 @@ public sealed class FunctionEmitter {
         this._ctx.StartBlock("entry");
         int i = 0;
         while (i < model.SiCount) {
-            TypedReg v = this._expr.Emit(model.SiInit[i]);   // C# static_init 无 LineTable（DBUG file 不在此入池——字节实证）
+            if (model.SiCls[i] != onlyCls) { i = i + 1; }
+            else {
+            TypedReg v = this._expr.Emit(model.SiInit[i]);   // 合成体无 LineTable（DBUG file 不在此入池）
             string fq = this._ctx.Qualify(model.SiCls[i]) + "." + model.SiField[i];
             // fix-static-struct-field-init：blob 值 struct 必须装箱后再存静态槽 —— 裸 StructRef 是
             // **帧级 arena 句柄**，__static_init__ 一返回 slot 就被 LIFO 截断，下次读抛
@@ -336,6 +342,7 @@ public sealed class FunctionEmitter {
             TypedReg sv = this._expr._boxIfStaticStruct(v, model.SiInit[i].Type());
             this._ctx.Emit(new StaticSetInstr(fq, sv));
             i = i + 1;
+            }
         }
         if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(false, null)); }
         int[] regTypes = new int[this._ctx.RegTagCount];
