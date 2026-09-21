@@ -369,6 +369,7 @@ public static class ImportedSymbolLoader {
                         // free-function-overloads：Name=基名（源名，诊断/候选分组用），RegKey=完整 RegKey（发射键）。
                         var fsym = new MethodSymbol(fzBase, "public", sig, false, "", false, null);
                         fsym.RegKey = fz.Name;
+                        fsym.IsDeprecated = fz.IsDeprecated; fsym.DeprecationMsg = fz.DeprecationMsg;   // fix-free-function-attrs：跨包自由函数弃用
                         fsym.TypeParamCount = fz.TypeParamCount;   // 供泛型 arity 重载过滤（镜像方法侧）
                         fsym.TypeParamNames = ImportedSymbolLoader._tpNames(fz.TypeParams);   // fix-explicit-type-arg-not-substituted
                         r.FunctionsByFqn.Put(fzFqn, fsym);   // 源 ns + RegKey 在键里；调用点解析出 ns 后随 BoundCall 带到发射端

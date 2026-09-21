@@ -35,6 +35,13 @@ public sealed class MemberCollector {
                 // 有了它才判得出「本包遮蔽了导入包的同 FQN 自由函数」（E0606）。
                 table.NoteFuncOrigin(m.Name, table.ScopeNs, "");
                 MethodSymbol msym = this._sc._methodSymbol(table, m, "", new string[0], 0);
+                // fix-free-function-attrs：本地**自由函数**级弃用（镜像 _fillClass 里类方法那行）。
+                // 此前只有类方法 / 字段 / 类三处标记，顶层函数漏了 ⇒ 同包 `[Deprecated] void f()`
+                // 的调用点零告警。注意取 `cu.Decls[i]` 这份**原始**声明——`d` 已被 `_unwrap` 剥掉
+                // AttributedDecl 外壳，attribute 列表只在外壳上。
+                if (HandlerRegistry.HasDeprecated(cu.Decls[i])) {
+                    msym.IsDeprecated = true; msym.DeprecationMsg = HandlerRegistry.DeprecatedMsg(cu.Decls[i]);
+                }
                 // free-function-overloads：primary/非-primary 键（复用 #414 scheme）。**本地**声明序首个同名 →
                 // primary → 裸键（= 唯一函数今天的键，存量零漂移）；后续同名兄弟 → 全签名 MangleKey（加/删重载只动
                 // 自己、不碰 primary）。tracker 只统计本地（导入函数各自带包内定好的 RegKey）。

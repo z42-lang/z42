@@ -673,6 +673,9 @@ public sealed partial class MemberResolver {
                     args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, null, env);
                     return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, new Z42ErrorType(), call.Span);
                 }
+                // fix-free-function-attrs：自由函数调用的 use-site 弃用告警。放在重载决议**之后** ——
+                // 选中的那个重载才是被调用的那个，逐候选报会对没被选中的重载误报。
+                this._tc._access.CheckDeprecatedM(ms, id.Name, call.Span);
                 string emitKey = ms.RegKey;   // 发射键 = 选中重载 RegKey（primary 裸 / 非-primary 带签名），先取再代换
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span, false);

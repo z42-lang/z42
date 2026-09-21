@@ -1,0 +1,13 @@
+// fix-free-function-attrs 的生产方：一个弃用的**自由函数** + 一个弃用的**类方法**作对照组。
+// 两者走的是完全不同的两条搬运链（ExportedFuncZ vs ExportedMethodZ），类方法那条一直是通的，
+// 自由函数那条此前从发射端 `irf.Attrs` 起就是断的 ⇒ 消费方零告警。
+namespace Demo.DepTarget;
+
+[Deprecated("use NewApi instead")] public int OldApi() { return 1; }
+
+public int NewApi() { return 2; }
+
+public class Holder {
+    [Deprecated("use HNew")] public static int HOld() { return 3; }
+    public static int HNew() { return 4; }
+}

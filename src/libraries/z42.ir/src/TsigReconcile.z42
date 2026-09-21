@@ -268,6 +268,10 @@ public static class TsigReconcile {
                     // 函数的 `T` 在导入侧退化成普通类 ⇒ 调用点 E0402。
                     ef.TypeParamCount = f.TypeParamCount;
                     ef.TypeParams = f.TypeParams;
+                    // fix-free-function-attrs：`$Deprecated` 哨兵 → 导出位（镜像 _methodFromSig 对
+                    // ExportedMethodZ 的同款搬运）。发射端此前不填 `f.Attrs`，故这里读出来恒为空；
+                    // 两处必须同批修，单改一处等于没修。
+                    ef.IsDeprecated = IrDeprecation.Has(f.Attrs, f.AttrCount); ef.DeprecationMsg = IrDeprecation.Msg(f.Attrs, f.AttrCount);
                     if (afc == allFuncs.Length) { ExportedFuncZ[] b = new ExportedFuncZ[allFuncs.Length * 2]; int k = 0; while (k < afc) { b[k] = allFuncs[k]; k = k + 1; } allFuncs = b; }
                     allFuncs[afc] = ef; afc = afc + 1;
                 }

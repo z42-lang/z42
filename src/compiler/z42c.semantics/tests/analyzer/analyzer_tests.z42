@@ -335,6 +335,35 @@ void test_deprecated_class_new_warns() {
     Assert.Equal(true, _hasCode(bag, "deprecated"));
 }
 
+// ── fix-free-function-attrs：**自由函数**（顶层 func）上的 `[Deprecated]` ─────────────────
+// 此前 MemberCollector 收顶层函数时从不问 HasDeprecated（只有类方法 / 字段 / 类三处问），
+// 且 MemberResolver 的自由函数调用分支没有 use-site 检查 ⇒ 同包调用点零告警。
+// 跨包那半（ExportedFuncZ 搬运）由 cross-zpkg/deprecated_free_function 把门。
+
+[Test]
+void test_deprecated_free_function_use_warns() {
+    // 调用 [Deprecated] 自由函数 → 至少 1 条 "deprecated" Warning
+    var bag = _depDiags("[Deprecated(\"use g\")] int f() { return 1; } int g() { return f(); }");
+    Assert.Equal(true, _hasCode(bag, "deprecated"));
+    Assert.Equal(0, bag.ErrorCount());   // Warning 不阻断编译
+}
+
+[Test]
+void test_not_deprecated_free_function_no_warning() {
+    // 无 [Deprecated] 的自由函数 → 无告警（防「凡自由函数调用都报」的过度触发）
+    var bag = _depDiags("int f() { return 1; } int g() { return f(); }");
+    Assert.Equal(false, _hasCode(bag, "deprecated"));
+}
+
+[Test]
+void test_deprecated_free_function_suppress_pragma() {
+    // `#suppress deprecated` 对自由函数调用点同样生效（与类方法同一条抑制通道）
+    string src = "[Deprecated(\"x\")] int f() { return 1; }"
+        + " int g() { #suppress deprecated int r = f(); #restore deprecated return r; }";
+    var bag = _depDiags(src);
+    Assert.Equal(false, _hasCode(bag, "deprecated"));
+}
+
 // ── attribute-handler-registry PR6b：编译期 caller 宏（`name!()`）诊断 E0450 ────────────
 // 宏经 parser 译成 IdentExpr("$macro:<name>") 哨兵；DeclBinder 定义侧校验名字白名单 + 参数类型，
 // ExprTyper 检测非参数默认值位的误用。合法 caller 宏无诊断（注入延到调用点，见 e2e caller_macros）。
