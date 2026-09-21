@@ -301,6 +301,20 @@ public sealed class ExprTyper {
             //   · 静态字段：VM 没有 RefKind::Static（要支持需新增 opcode 0xA3，属独立变更）
             //   · 字面量 / 调用结果等非左值
             if (!ra.IsVarDecl) { this._chkRefArgLvalue(inner, ra.Span); }
+            // simplify-ref-parameters：被 `ref` 取址的无 init 局部 → 回头补 `default(T)` 初始化器。
+            // 复用既有的 BoundDefault 发射路径（blob struct 走零初始化 arena、bool/整数/浮点各自零值、
+            // 引用类型 null），发射层无需任何新代码。
+            // 补在**声明处**而非使用点：使用点懒发会让循环里的 `Inc(ref a)` 每轮把 a 清零。
+            if (inner is BoundIdent) {
+                BoundIdent bid = inner as BoundIdent;
+                object slot = this._tc._noInitLocals.Get(bid.Name);
+                if (slot != null) {
+                    BoundVarDeclStmt vd = slot as BoundVarDeclStmt;
+                    if (vd != null && vd.Init == null) {
+                        vd.Init = new BoundDefault(vd.VarType, 0 - 1, vd.Span);
+                    }
+                }
+            }
             BoundRefArg bra = new BoundRefArg(inner, new Z42UnknownType(), ra.Span);
             bra.IsVarDecl = ra.IsVarDecl; bra.VarName = ra.VarName; bra.IsDiscard = ra.IsDiscard;
             return bra;
