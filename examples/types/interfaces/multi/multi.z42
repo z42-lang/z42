@@ -1,0 +1,19 @@
+using Std.IO;
+
+// ANCHOR: code
+interface IShape { double Area(); }
+interface IDrawable { void Draw(); }
+
+class Circle : IShape, IDrawable {      // 一个类可以实现多个接口
+    public double Area() { return 3.0; }
+    public void Draw() { Console.WriteLine("画圆"); }
+}
+// ANCHOR_END: code
+
+void Main() {
+    Circle c = new Circle();
+    IShape s = c;
+    IDrawable d = c;
+    Console.WriteLine(s.Area());
+    d.Draw();
+}

@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run mutable.z42
+原名
+改名
+# ANCHOR_END: run

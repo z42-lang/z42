@@ -30,3 +30,4 @@
 
 - [类与对象](types/classes.md)
 - [继承与多态](types/inheritance.md)
+- [接口](types/interfaces.md)

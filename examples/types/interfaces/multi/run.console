@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run multi.z42
+3
+画圆
+# ANCHOR_END: run

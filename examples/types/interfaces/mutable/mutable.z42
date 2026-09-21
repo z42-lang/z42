@@ -1,0 +1,19 @@
+using Std.IO;
+
+// ANCHOR: code
+interface IMutName {
+    string Name { get; set; }    // 要求可读可写
+}
+
+class Box : IMutName {
+    public string Name { get; set; }
+    public Box(string n) { this.Name = n; }
+}
+// ANCHOR_END: code
+
+void Main() {
+    IMutName m = new Box("原名");
+    Console.WriteLine(m.Name);
+    m.Name = "改名";             // 经接口写回去
+    Console.WriteLine(m.Name);
+}
