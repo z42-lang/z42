@@ -1,0 +1,191 @@
+// symmetrize-primitive-api (2026-09-22)：把 primitive API 面补成对称的那一批新增。
+// 原则是**每条都带一个对照组**——只断言「成功路径返回值对」会让「失败路径也返回值」
+// 这类退化悄悄绿着（见 memory: 静默失败的特性会掩盖别的 bug）。
+namespace Z42CoreSymmetrizePrimitiveApiTests;
+
+using Std;
+using Std.Test;
+
+// ── 窄整型 TryParse：此前只有 Int32/Int64/Double 有 ──────────────────────────
+
+[Test]
+void test_sbyte_tryparse() {
+    sbyte? ok = SByte.TryParse("-128");
+    Assert.Equal(-128, (int)(ok ?? 0));
+    Assert.Equal(true, SByte.TryParse("128")  == null);   // 越上界
+    Assert.Equal(true, SByte.TryParse("-129") == null);   // 越下界
+    Assert.Equal(true, SByte.TryParse("x")    == null);   // 格式错
+}
+
+[Test]
+void test_int16_tryparse() {
+    short? ok = Int16.TryParse("32767");
+    Assert.Equal(32767, (int)(ok ?? 0));
+    Assert.Equal(true, Int16.TryParse("32768")  == null);
+    Assert.Equal(true, Int16.TryParse("-32769") == null);
+}
+
+[Test]
+void test_byte_tryparse() {
+    byte? ok = Byte.TryParse("255");
+    Assert.Equal(255, (int)(ok ?? 0));
+    Assert.Equal(true, Byte.TryParse("256") == null);
+    Assert.Equal(true, Byte.TryParse("-1")  == null);
+}
+
+[Test]
+void test_uint16_tryparse() {
+    ushort? ok = UInt16.TryParse("65535");
+    Assert.Equal(65535, (int)(ok ?? 0));
+    Assert.Equal(true, UInt16.TryParse("65536") == null);
+}
+
+[Test]
+void test_uint32_tryparse() {
+    uint? ok = UInt32.TryParse("4294967295");
+    Assert.Equal(4294967295L, (long)(ok ?? 0));
+    Assert.Equal(true, UInt32.TryParse("4294967296") == null);
+    Assert.Equal(true, UInt32.TryParse("-1")         == null);
+}
+
+[Test]
+void test_uint64_tryparse() {
+    ulong? ok = UInt64.TryParse("12345");
+    Assert.Equal(12345L, (long)(ok ?? 0));
+    Assert.Equal(true, UInt64.TryParse("-1")  == null);
+    Assert.Equal(true, UInt64.TryParse("abc") == null);
+}
+
+// ── Single：此前连 Parse 都没有 ─────────────────────────────────────────────
+
+[Test]
+void test_single_parse_and_tryparse() {
+    float v = Single.Parse("1.5");
+    Assert.Equal(1.5, (double)v);
+    float? ok = Single.TryParse("-2.25");
+    Assert.Equal(-2.25, (double)(ok ?? 0.0f));
+    Assert.Equal(true, Single.TryParse("nope") == null);
+    Assert.ThrowsAny(() => Single.Parse("nope"));
+}
+
+[Test]
+void test_single_classification() {
+    Assert.Equal(true,  Single.IsNaN(Single.NaN));
+    Assert.Equal(false, Single.IsNaN(1.0f));
+    Assert.Equal(true,  Single.IsInfinity(Single.PositiveInfinity));
+    Assert.Equal(true,  Single.IsInfinity(Single.NegativeInfinity));
+    Assert.Equal(false, Single.IsInfinity(1.0f));
+    Assert.Equal(false, Single.IsInfinity(Single.NaN));          // NaN 不算 ∞
+    Assert.Equal(true,  Single.IsPositiveInfinity(Single.PositiveInfinity));
+    Assert.Equal(false, Single.IsPositiveInfinity(Single.NegativeInfinity));
+    Assert.Equal(true,  Single.IsNegativeInfinity(Single.NegativeInfinity));
+    Assert.Equal(true,  Single.IsFinite(1.0f));
+    Assert.Equal(false, Single.IsFinite(Single.NaN));
+    Assert.Equal(false, Single.IsFinite(Single.PositiveInfinity));
+}
+
+// NaN 全序：此前 Single.CompareTo 缺这段，含 NaN 的 float 排序与 double 不一致。
+[Test]
+void test_single_compareto_nan_total_order() {
+    Assert.Equal(0,  Single.NaN.CompareTo(Single.NaN));      // NaN 只等于自己
+    Assert.Equal(-1, Single.NaN.CompareTo(1.0f));            // NaN 排在非 NaN 之前
+    Assert.Equal(1,  (1.0f).CompareTo(Single.NaN));
+    Assert.Equal(-1, (1.0f).CompareTo(2.0f));                // 对照组：普通比较不受影响
+    Assert.Equal(1,  (2.0f).CompareTo(1.0f));
+    Assert.Equal(0,  (1.0f).CompareTo(1.0f));
+}
+
+// 与 Double 逐条对齐（这次补齐的意义就在于两者不再分叉）。
+[Test]
+void test_single_matches_double_nan_ordering() {
+    Assert.Equal(Double.NaN.CompareTo(Double.NaN), Single.NaN.CompareTo(Single.NaN));
+    Assert.Equal(Double.NaN.CompareTo(1.0),        Single.NaN.CompareTo(1.0f));
+    Assert.Equal((1.0).CompareTo(Double.NaN),      (1.0f).CompareTo(Single.NaN));
+}
+
+// ── Boolean / Char 的 Parse / TryParse ──────────────────────────────────────
+
+[Test]
+void test_boolean_parse() {
+    Assert.Equal(true,  Boolean.Parse("true"));
+    Assert.Equal(false, Boolean.Parse("false"));
+    Assert.Equal(true,  Boolean.Parse("  TRUE  "));   // 去空白 + 大小写不敏感
+    Assert.Equal(false, Boolean.Parse("False"));
+    Assert.ThrowsAny(() => Boolean.Parse("yes"));     // 严格契约：非 true/false 即抛
+    Assert.ThrowsAny(() => Boolean.Parse(""));
+}
+
+[Test]
+void test_boolean_tryparse() {
+    Assert.Equal(true, (Boolean.TryParse("true") ?? false));
+    Assert.Equal(true, Boolean.TryParse("yes") == null);
+}
+
+[Test]
+void test_char_parse() {
+    Assert.Equal('z', Char.Parse("z"));
+    Assert.ThrowsAny(() => Char.Parse(""));     // 必须恰好一个字符
+    Assert.ThrowsAny(() => Char.Parse("ab"));
+}
+
+[Test]
+void test_char_tryparse() {
+    Assert.Equal('q', Char.TryParse("q") ?? ' ');
+    Assert.Equal(true, Char.TryParse("ab") == null);
+    Assert.Equal(true, Char.TryParse("")   == null);
+}
+
+// z42 的 char 是 32 位 Unicode 标量（非 C# 的 16 位 UTF-16 码元）→ 上界 0x10FFFF。
+[Test]
+void test_char_min_max_value() {
+    Assert.Equal(0, (int)Char.MinValue);
+    Assert.Equal(1114111, (int)Char.MaxValue);
+}
+
+// ── Convert 整数族补齐 + 三处改委托后行为不变 ───────────────────────────────
+
+[Test]
+void test_convert_integer_family_complete() {
+    Assert.Equal(-128, (int)Convert.ToSByte("-128"));
+    Assert.Equal(255,  (int)Convert.ToByte("255"));
+    Assert.Equal(-32768, (int)Convert.ToInt16("-32768"));
+    Assert.Equal(65535, (int)Convert.ToUInt16("65535"));
+    Assert.Equal(4294967295L, (long)Convert.ToUInt32("4294967295"));
+    Assert.Equal(12345L, (long)Convert.ToUInt64("12345"));
+    // 对照组：越界仍抛（委托到 Parse 后范围检查没丢）。
+    Assert.ThrowsAny(() => Convert.ToSByte("128"));
+    Assert.ThrowsAny(() => Convert.ToUInt16("65536"));
+}
+
+[Test]
+void test_convert_delegation_keeps_behavior() {
+    Assert.Equal(1.5, (double)Convert.ToSingle("1.5"));
+    Assert.Equal(true, Convert.ToBoolean(" TRUE "));
+    Assert.Equal('x', Convert.ToChar("x"));
+    Assert.ThrowsAny(() => Convert.ToBoolean("maybe"));
+    Assert.ThrowsAny(() => Convert.ToChar("xy"));
+}
+
+// ── UInt64.ToString：**未修**，这里钉住「当前真实行为 + 真因」───────────────
+//
+// `ToString` 对 > i64::MAX 的值渲染成负数。原以为补个 `__uint64_to_string` builtin 就行，
+// 实测**不行**：prim 接收者的类由 `primitive_class_name(obj_val)` 从运行期 Value 反推，
+// 而 `Value::I64 => Std.Int32`（`interp/exec_vcall.rs`），`ulong` 与 `long` 无从区分 ⇒
+// `UInt64` 上声明的实例方法运行期根本到不了。详见 UInt64.z42 的注释。
+//
+// 下面两条**断言的是当前（错误的）行为**，作用是：真因被修好那天它们会变红，
+// 逼着人回来删掉这段注释、把断言改成正确值 —— 而不是让这个坑继续静默存在。
+[Test]
+void test_uint64_tostring_above_i64_max_is_currently_wrong() {
+    ulong big = UInt64.Parse("9223372036854775808");   // 2^63，恰好越过 i64::MAX 一步
+    Assert.Equal("-9223372036854775808", big.ToString());   // ← 正确答案应是 "9223372036854775808"
+    ulong max = UInt64.Parse("18446744073709551615");   // u64::MAX
+    Assert.Equal("-1", max.ToString());                     // ← 正确答案应是 u64::MAX 本身
+}
+
+[Test]
+void test_uint64_tostring_lower_half_is_correct() {
+    // 对照组：下半区间（<= i64::MAX）本来就对，确保上面红的时候不是整条路都坏了。
+    Assert.Equal("12345", UInt64.Parse("12345").ToString());
+    Assert.Equal("9223372036854775807", UInt64.Parse("9223372036854775807").ToString());
+}

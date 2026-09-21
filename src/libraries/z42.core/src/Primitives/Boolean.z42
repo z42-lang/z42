@@ -7,6 +7,24 @@ namespace Std;
 // `bool::Display` / `bool.GetHashCode` 都是常量返回）。`ToString` 输出小写
 // `"true" / "false"` 与 Rust 一致（与 BCL `"True"/"False"` 不同）。
 public struct Boolean : IEquatable {
+    // symmetrize-primitive-api：Boolean 此前既无 Parse 也无 TryParse —— 唯一入口是
+    // `Convert.ToBoolean`，与其它基元「X.Parse 为主、Convert.ToX 委托它」的形状相反。
+    // 现在把判定搬到这里，`Convert.ToBoolean` 改为委托，单一出处。
+    //
+    // 语义对齐 C# `Boolean.Parse`：去首尾空白、大小写不敏感的 "true"/"false"；其余抛
+    // FormatException（严格契约，不把任意非空串当 true）。
+    public static bool Parse(string s) {
+        string t = s.Trim().ToLower();
+        if (t == "true")  return true;
+        if (t == "false") return false;
+        throw new FormatException($"Boolean.Parse: '{s}' is not a valid Boolean");
+    }
+
+    public static bool? TryParse(string s) {
+        try { return Boolean.Parse(s); }
+        catch (Exception e) { return null; }
+    }
+
     public bool Equals(bool other) {
         return this == other;
     }

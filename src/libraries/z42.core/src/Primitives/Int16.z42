@@ -15,6 +15,13 @@ public struct Int16 : IComparable, IEquatable, INumber {
     [Native("__int16_parse")]      public static extern short Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
+    // symmetrize-primitive-api：非抛出解析，成功返回值、任何格式错误/越界返回 `null`
+    // （与 Int32/Int64/Double.TryParse 同款；用可空返回替代 C# 的 `out` 参数）。
+    public static short? TryParse(string s) {
+        try { return Int16.Parse(s); }
+        catch (Exception e) { return null; }
+    }
+
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
     public bool Equals(short other) { return this == other; }
     public int GetHashCode() { return (int)this; }
