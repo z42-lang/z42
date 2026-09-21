@@ -681,22 +681,10 @@ public sealed partial class MemberResolver {
                 this._applyMethodTypeArgs(bc, call, ms, env);
                 return bc;
             }
-            // 同类无限定静态调用（unqualified static call within class body：OSKindValue() inside Platform）。
-            if (env.HasClass()) {
-                string cls = env.CurrentClass();
-                if (env.Symbols.HasClass(cls)) {
-                    Z42ClassType sct = env.Symbols.GetClass(cls);
-                    MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
-                    if (sms != null && sms.IsStatic) {
-                        // add-call-arity-diagnostics：此前本路径不经 _withDefaults（只绑定 + params 打包）⇒ 默认值不补、
-                        // 实参个数不校验。汇入同一汇聚点（绑定 / 装箱 / params / 默认值 / 个数判定）。
-                        BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
-                        BoundCall bc = new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
-                        this._applyMethodTypeArgs(bc, call, sms, env);
-                        return bc;
-                    }
-                }
-            }
+            // 同类无限定调用（`M()` 在类体内）→ MemberResolver.Bare.z42
+            // （partial 拆分只为守 code-organization 行数上限）。
+            BoundExpr bare = this.BindBareClassCall(id, call, args, env);
+            if (bare != null) { return bare; }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined function: " + id.Name, call.Span);
             args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, null, env);   // add-target-typed-new：错误路径清 null 占位
             return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, new Z42ErrorType(), call.Span);

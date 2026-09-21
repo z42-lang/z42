@@ -32,6 +32,7 @@
   **类型定义**
 
   - [类](language/classes.md)
+  - [继承与多态](language/inheritance.md)
   - [结构体](language/structs.md)
   - [接口](language/interfaces.md)
   - [enum（枚举）](language/enums.md)

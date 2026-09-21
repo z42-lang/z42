@@ -208,6 +208,14 @@ public sealed class ConstructTyper {
         Z42ClassType cls = null;
         if (t is Z42ClassType) { cls = t as Z42ClassType; }
         if (t is Z42InstantiatedType) { cls = (t as Z42InstantiatedType).Def; }
+        // 抽象类不能实例化（fix-new-abstract-class）。此前 `new Shape()` 编译期**零提示**，
+        // 建出来的对象一调抽象方法就崩 `VCall: expected object, got Null` —— 抽象方法没有体、
+        // 虚表槽是空的。把它挪到编译期：抽象类本就不表示一个完整的对象。
+        if (cls != null && cls.IsAbstract) {
+            this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
+                "cannot create an instance of abstract class `" + cls.Name() + "`", n.Span);
+            return new BoundError("new on abstract class", new Z42ErrorType(), n.Span);
+        }
         BoundCtorArgs ca = this._bindCtorArgs(cls, n.Args, n.ArgCount, env, n.Span);
         return new BoundNew(t.Name(), ca.Key, ca.Args, ca.Args.Length, t, n.Span);
     }

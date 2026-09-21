@@ -1,0 +1,56 @@
+// 两条：类体内裸名调**实例**方法；抽象类不可实例化。
+//
+// ① 裸名调用同类实例方法 ≡ `this.M()`
+//    回归来源：`MemberResolver` 的「同类无限定调用」分支只写了**静态**那一半，实例方法落到
+//    `E0401: undefined function`。而裸名读**字段**、读**属性**、调**静态方法**三样都是通的
+//    —— 四样里唯独实例方法不通，没有任何设计理由。静态上下文里仍然该报错（没有 `this`），
+//    那条由 `bare_instance_call_static_ctx_err` 那侧钉（本文件只钉正面）。
+//
+// ② 抽象类不能 `new`
+//    回归来源：`new Shape()` 编译期**零提示**，建出来的对象一调抽象方法就崩
+//    `VCall: expected object, got Null`（抽象方法没有体、虚表槽是空的）。现改为编译期
+//    `E0402: cannot create an instance of abstract class`。
+namespace Demo;
+
+class Bare {
+    private int _n = 1;
+    public int M() { return 2; }
+    public static int S() { return 4; }
+    public int P { get; set; }
+
+    // 裸名：字段 / 属性 / 静态方法 / 实例方法 —— 四样都要通
+    public int All() {
+        P = 8;
+        return _n + P + S() + M();
+    }
+
+    // 插值里的裸名实例调用（曾以为是插值特有的问题，实测与插值无关，一并钉住）
+    public string Interp() { return $"[{M()}]"; }
+
+    // 递归的裸名自调
+    public int Fact(int k) { if (k <= 1) { return 1; } return k * Fact(k - 1); }
+}
+
+abstract class Shape {
+    public abstract double Area();
+    // 抽象方法可以被同类普通方法裸名调用 —— 这正是「基类定流程、子类填细节」的形态
+    public double Doubled() { return Area() * 2.0; }
+}
+
+class Rect : Shape {
+    private double _w; private double _h;
+    public Rect(double w, double h) { _w = w; _h = h; }
+    public override double Area() { return _w * _h; }
+}
+
+void Main() {
+    Bare b = new Bare();
+    Assert.Equal(15, b.All());        // 1 + 8 + 4 + 2
+    Assert.Equal("[2]", b.Interp());
+    Assert.Equal(120, b.Fact(5));
+
+    // 抽象类的子类照常；裸名调抽象方法经虚表派发到子类实现
+    Shape s = new Rect(3.0, 4.0);
+    Assert.Equal(12.0, s.Area());
+    Assert.Equal(24.0, s.Doubled());
+}
