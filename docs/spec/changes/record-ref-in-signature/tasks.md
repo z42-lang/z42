@@ -28,9 +28,7 @@
 - [ ] 3.2 `SymbolCollector._methodSymbol`（本地签名）置真
 - [ ] 3.3 `ImportedSymbolLoader`：**仅当该包带 `$ByRef` 通道时**置真
       —— 判据待定，见 3.4
-- [ ] 3.4 定「这个包有没有 `$ByRef` 通道」的判据：候选 ① 包的 zpkg minor ≥ 某值
-      ② 该方法任一形参带 `$ByRef` 即说明写侧是新的（但全非 ref 的方法分不出来）
-      ③ 加一个模块级标记。**选 ③ 最可靠**（① 依赖没 bump 的版本号、② 逻辑上分不开）
+- [ ] 3.4 完备性标记 `$RefSig` 放 `ParamAttrs` **槽 0**（判据选型与否决理由见 design §D2）
 - [ ] 3.5 阴性用例：引用旧包写 `F(ref v)` 不得报 E0473
 
 ## 阶段 4: 跨包用例
@@ -43,4 +41,6 @@
 - [ ] 5.2 `DiagnosticCodes.z42` E0465 注释 —— 记下「`ref` 判定不了」这条前提已解除（但不放宽）
 - [ ] 5.3 `simplify-ref-parameters/tasks.md` 的硬约束标为已解除
 - [ ] 5.4 `xtask test all` + `cargo test --lib` + examples + docs 全绿
-- [ ] 5.5 PR + auto-merge
+- [ ] 5.5 **`CacheStore.CompilerFingerprint++`** —— 本变更改了编出的 zpkg 字节但不 bump 格式，
+      按 version-bumping.md「编译器语义指纹」必须累加；CI 的 `guard-compiler-fingerprint` 会守门
+- [ ] 5.6 PR + auto-merge

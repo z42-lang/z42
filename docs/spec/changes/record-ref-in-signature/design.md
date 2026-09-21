@@ -58,8 +58,25 @@ HasRefInfo() := ParamIsRef != null && ParamIsRef.Length == ParamCount
 | 新包导入 | 按 `$ByRef` 填 | 可信 |
 | **旧包导入**（无 `$ByRef` 通道的包） | 全 false | **不可信** —— 与「已知全否」长得一样 |
 
-⇒ 加一个显式布尔 `RefInfoKnown`，由填充点置真；`HasRefInfo()` 读它，不再靠长度推断。
-旧包的导入路径不置 ⇒ 保持跳过检查，行为与本变更前一致。
+⇒ 需要一个**完备性标记**：这个签名的 ref 信息是不是「写全了」。
+
+判据的候选与否决：
+
+| | 做法 | 否决理由 |
+|---|---|---|
+| ① 按 zpkg minor 判 | 本变更刻意不 bump，版本号分不出 |
+| ② 「有任一形参带 `$ByRef`」即算新 | **逻辑上分不开**——全非 ref 的新方法与旧方法长得一样 |
+| ③ 模块级标记 | `IrModule` 没有跨包可读的 attr 通道（`TsigReconcile` / `ImportedSymbolLoader` 都拿不到） |
+| **④（选定）方法级标记** | `ParamAttrs` **槽 0** 放 `$RefSig` 哨兵 |
+
+④ 的性质：
+- 有形参（或是实例方法）⇒ 槽 0 必然存在 ⇒ 标记有处可放
+- 零形参的静态方法 ⇒ `ParamAttrs` 为空 ⇒ 没有可检查的实参，不需要标记
+- 成本：每个方法一条 attr-ref，TypeName 走字符串池去重
+- 旧包无此标记 ⇒ `RefInfoKnown` 为假 ⇒ 整条检查跳过，行为与本变更前一致
+
+`Z42FuncType.RefInfoKnown` 由填充点置真（本地签名恒真；导入签名看 `$RefSig`），
+`HasRefInfo()` 读它，不再靠数组长度推断。
 
 **这条不做就会产生假阳性**：用户升级编译器后，凡是引用了尚未重新编译的旧包并写了
 `F(ref v)` 的地方，全部误报 E0473。
