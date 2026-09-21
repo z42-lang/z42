@@ -261,6 +261,7 @@ public static class TsigReconcile {
                 if (rest.IndexOf(".") < 0 && !TsigReconcile._hasNativeAttr(f) && rest.IndexOf("__lambda") < 0 && rest.IndexOf("__local_") < 0) {
                     ExportedParamZ[] ps = TsigReconcile._params(f, false);
                     ExportedFuncZ ef = new ExportedFuncZ(rest, f.RetType, f.MinArg, ps, ps.Length);
+                    ef.RefInfoKnown = TsigReconcile.RefInfoKnown(f);   // record-ref-in-signature
                     ef.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
                     // imported-generic-func-type-param-fidelity：自由函数的型参名/个数（镜像
                     // _methodFromSig 对 ExportedMethodZ 的同款搬运）。漏了这两行 → 跨包泛型自由
@@ -590,12 +591,23 @@ public static class TsigReconcile {
         ExportedMethodZ em = new ExportedMethodZ(mkey, f.RetType, TsigReconcile._visStr(f.Visibility),
                                   f.IsStatic, (f.MethodFlags & 1) != 0, (f.MethodFlags & 2) != 0,
                                   f.MinArg, ps, ps.Length);
+        em.RefInfoKnown = TsigReconcile.RefInfoKnown(f);   // record-ref-in-signature
         em.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
         em.IsSealed = (f.MethodFlags & 4) != 0;   // impl-sealed-semantics-devirt：METHOD_FLAG_SEALED
         em.IsDeprecated = IrDeprecation.Has(f.Attrs, f.AttrCount); em.DeprecationMsg = IrDeprecation.Msg(f.Attrs, f.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
         em.TypeParamCount = f.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数 → 供泛型 arity 重载过滤
         em.TypeParams = f.TypeParams;           // add-argument-type-check R1：型参**名** → ImportedSymbolLoader._resolve 的型参表
         return em;
+    }
+
+    // record-ref-in-signature：本方法的 ref 信息是否**写全了**。完备性标记 `$RefSig` 放 ParamAttrs 槽 0。
+    // 缺它 = **「不知道」**（本变更之前编出的包），不是「所有形参都不是 ref」——两者混同会让引用
+    // 未重编的旧包、且写了 `F(ref v)` 的调用点被成批误报「多写了 ref」。见 design §D2。
+    // 无形参的静态方法 ParamAttrsLen==0 → 返 false，但它也没有实参可检查，无害。
+    public static bool RefInfoKnown(IrFunction f) {
+        if (f.ParamAttrsLen <= 0) { return false; }
+        IrAttrRefList s0 = f.ParamAttrs[0];
+        return IrParamDefault.HasRefSig(s0.Items, s0.Count);
     }
 
     // SIGS 参数 → ExportedParamZ[]（跳 this 槽）。
@@ -622,6 +634,7 @@ public static class TsigReconcile {
                 IrAttrRefList pal = f.ParamAttrs[i + off];
                 p.DefaultBlob = IrParamDefault.Blob(pal.Items, pal.Count);
                 p.CallerKind = IrParamDefault.Caller(pal.Items, pal.Count);
+                p.IsRef = IrParamDefault.IsByRef(pal.Items, pal.Count);   // record-ref-in-signature
             }
             ps[i] = p;
             i = i + 1;

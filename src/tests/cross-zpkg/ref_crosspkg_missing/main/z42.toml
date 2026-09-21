@@ -1,0 +1,9 @@
+[project]
+name    = "demo.refmissapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.RefMissApp.Main"
+pack    = true
+
+[dependencies]
+"demo.refbase" = "0.1.0"

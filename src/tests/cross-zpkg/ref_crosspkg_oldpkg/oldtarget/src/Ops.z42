@@ -1,0 +1,9 @@
+namespace Demo.RefBase;
+
+// record-ref-in-signature：`ref` 形参经 param attr-ref 通道（`$ByRef` 哨兵）跨包传播，
+// 下游包的调用点因此能被强制写 `ref`。此前 TSIG 不记录 ref，跨包漏写**编译通过且写入静默丢失**。
+public class Ops {
+    public static void Inc(ref int x) { x = x + 1; }
+    public static void ByValue(int x) { x = 999; }
+    public void IncInst(ref int x) { x = x + 10; }   // 实例方法：验 this 槽不错位
+}

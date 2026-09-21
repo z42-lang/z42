@@ -459,11 +459,15 @@ public sealed class Z42FuncType : Z42Type {
     public Z42FuncType(Z42Type[] paramTypes, int paramCount, Z42Type ret) {
         this.ParamTypes = paramTypes; this.ParamCount = paramCount; this.Ret = ret; this.ParamsFrom = 0 - 1;
         this.ParamDefaults = new string[0]; this.ParamCallers = new string[0]; this.ParamNames = new string[0];
-        this.ParamIsRef = new bool[0];
+        this.ParamIsRef = new bool[0]; this.RefInfoKnown = false;
     }
-    // ref 信息是否可信。**空数组不等于「全都不是 ref」**——跨包导入签名就是空的（TSIG 不记录 ref），
-    // 若把它当成「全否」，跨包 `F(ref v)` 会被误报成「多写了 ref」。故一律先问这个再查。
+    // record-ref-in-signature：ref 信息是否**写全了**，由填充点显式置真。
+    // 本地签名恒真（SymbolCollector 从 AST 填）；导入签名看 `$RefSig` 完备性标记。
+    // ⚠️ **不能按 ParamIsRef 的长度推断**——本变更让导入侧也填之后，「已知全非 ref」与
+    // 「旧包，不知道」两种情形的数组长得一模一样，混同会让引用未重编旧包的调用点被误报。
+    public bool RefInfoKnown;
     public bool HasRefInfo() {
+        if (!this.RefInfoKnown) { return false; }
         return this.ParamIsRef != null && this.ParamIsRef.Length == this.ParamCount;
     }
     // 每参 `ref` 查询：越界 / 未填 → false（跨包导入签名即此情形）。

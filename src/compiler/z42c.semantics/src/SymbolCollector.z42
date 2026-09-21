@@ -419,7 +419,7 @@ public sealed class SymbolCollector {
         bool[] refs = new bool[md.ParamCount];
         int rk = 0;
         while (rk < md.ParamCount) { refs[rk] = md.Params[rk].IsRef; rk = rk + 1; }
-        sig.ParamIsRef = refs;
+        sig.ParamIsRef = refs; sig.RefInfoKnown = true;   // 本地签名从 AST 填，恒可信
         // add-params-varargs：末参标记 params → 记录变长起点（parser 已保证仅末参合法）。
         if (md.ParamCount > 0 && md.Params[md.ParamCount - 1].IsParams) { sig.ParamsFrom = md.ParamCount - 1; }
         var ms = new MethodSymbol(md.Name, this._vis(md.Mods, (containing == "" ? "internal" : "private")), sig, this._hasWord(md.Mods, "static"), containing, true, md);

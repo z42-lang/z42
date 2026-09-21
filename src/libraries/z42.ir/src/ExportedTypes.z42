@@ -7,7 +7,9 @@ public sealed class ExportedParamZ {
     public string TypeName;
     public string DefaultBlob;   // PR6：`$Default` ConstBlob 串（无默认值 → ""）
     public string CallerKind;    // PR6：caller 宏种类 "member"/"line"/"file"/"module"（非 caller → ""）
-    public ExportedParamZ(string name, string typeName) { this.Name = name; this.TypeName = typeName; this.DefaultBlob = ""; this.CallerKind = ""; }
+    public bool   IsRef;         // record-ref-in-signature：该形参带 `ref`（从 `$ByRef` 哨兵读出）。
+                                 // **内存 DTO 字段，不入 wire** —— wire 侧走 param attr-ref 通道。
+    public ExportedParamZ(string name, string typeName) { this.Name = name; this.TypeName = typeName; this.DefaultBlob = ""; this.CallerKind = ""; this.IsRef = false; }
 }
 
 public sealed class ExportedMethodZ {
@@ -44,7 +46,10 @@ public sealed class ExportedMethodZ {
         this.IsSealed = false;
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0; this.TypeParams = new string[0];
+        this.RefInfoKnown = false;
     }
+    public bool RefInfoKnown;   // record-ref-in-signature：本方法的 ref 信息是否写全了
+                                // （`$RefSig` 完备性标记）。假 = 旧包，**不知道**，非「全非 ref」。
 }
 
 public sealed class ExportedFieldZ {
@@ -160,7 +165,10 @@ public sealed class ExportedFuncZ {
         this.Name = name; this.ReturnType = returnType; this.MinArgCount = minArgCount;
         this.Params = params_; this.ParamCount = paramCount; this.ParamsFrom = 0 - 1;
         this.TypeParams = new string[0]; this.TypeParamCount = 0;
+        this.RefInfoKnown = false;
     }
+    public bool RefInfoKnown;   // record-ref-in-signature：本方法的 ref 信息是否写全了
+                                // （`$RefSig` 完备性标记）。假 = 旧包，**不知道**，非「全非 ref」。
 }
 
 public sealed class ExportedDelegateZ {
