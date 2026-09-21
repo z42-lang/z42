@@ -1,0 +1,20 @@
+namespace Demo.RefOldApp;
+
+using Std.IO;
+using Demo.RefBase;
+
+// record-ref-in-signature design §D2 的守卫用例：**引用一个本变更之前编出的旧包**。
+//
+// 旧包的 param attr 块里没有 `$RefSig` 完备性标记 ⇒ 导入侧把它的 ref 信息判为
+// **「不知道」**（而不是「所有形参都不是 ref」）⇒ 对称性检查整条跳过 ⇒ 这里的
+// `ref a` **不得**被报成「多写了 ref」(E0473)。
+//
+// 若把「ParamIsRef 全 false」当成「已知全非 ref」，用户升级编译器后，凡是引用了尚未
+// 重新编译的依赖、又写了 `F(ref v)` 的地方会被成批误报——这是本变更最容易出错的一处。
+//
+// 运行期照常写回（旧包的 Inc 本来就是按 ref 编的），故输出 1。
+void Main() {
+    int a = 0;
+    Ops.Inc(ref a);
+    Console.WriteLine(a);
+}

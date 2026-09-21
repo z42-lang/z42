@@ -81,7 +81,7 @@ public static class CacheStore {
     //   故手动 +1 作废 chunk-2a 期缓存——否则旧 .zbc（object 字段=GcRef）被误命中 → runtime 内联多态字段 = bug。
     // 3 (unify-object-byte-layout PR-3 chunk 2c): `_sizeOf` 引用叶子 16→8B → struct 字节布局
     //   （size/offset/引用位图）变化。格式未 bump（struct 块结构不变、仅值），手动 +1 作废旧缓存。
-    public static int CompilerFingerprint = 7;   // workspace-read-cache：workspace 成员编译改为封闭（看不见拓扑序在后的成员）——此前后序成员的同名方法让依赖索引出歧义键被剔除，封闭后解析为直接调用（z42.json 实测 Dictionary.Get/Set/ContainsKey 由派发变直调）→ 输出变，bump。上一档 6：add-implicit-base-ctor-call（#663）实例 ctor 隐式 base() + 构造器继承 / 默认构造器进符号层（codegen 与 TSIG 输出变）。再上一档 5：unify-ir-operand-access：REGT 收集改走统一操作数接口，void 型 extern 桩结果寄存器 Unknown→Void。
+    public static int CompilerFingerprint = 8;   // record-ref-in-signature：`ref` 形参经 param attr-ref 通道跨包传播（`$ByRef` 逐形参 + `$RefSig` 方法级完备性标记，骑 zbc 1.15 既有通道 ⇒ **无格式 bump**）。每个方法的 param attr 块都多了标记 ⇒ 编出的 zpkg 字节变 ⇒ 按「编译器语义指纹」必须 bump。上一档 7：workspace-read-cache：workspace 成员编译改为封闭（看不见拓扑序在后的成员）——此前后序成员的同名方法让依赖索引出歧义键被剔除，封闭后解析为直接调用（z42.json 实测 Dictionary.Get/Set/ContainsKey 由派发变直调）→ 输出变，bump。上一档 6：add-implicit-base-ctor-call（#663）实例 ctor 隐式 base() + 构造器继承 / 默认构造器进符号层（codegen 与 TSIG 输出变）。再上一档 5：unify-ir-operand-access：REGT 收集改走统一操作数接口，void 型 extern 桩结果寄存器 Unknown→Void。
 
     // rel（.z42）→ cache 内路径。与 driver `_writeCacheZbc` 同款「去 .z42」规则。
     public static string ZbcPath(string cacheDir, string rel)  { return Path.Join(cacheDir, CacheStore._stem(rel) + ".zbc"); }

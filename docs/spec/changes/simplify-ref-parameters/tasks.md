@@ -79,8 +79,9 @@
 
 ---
 
-## 🔴 本变更落地后的硬约束
-**在 `record-ref-in-signature` 落地之前，不得让 stdlib 导出任何 `ref` 形参的公开 API。**
+## ✅ 已解除的硬约束
+~~在 `record-ref-in-signature` 落地之前，不得让 stdlib 导出任何 `ref` 形参的公开 API。~~
+**已解除**——`record-ref-in-signature` 已落地，跨包 `ref` 现在受检。原文保留如下：
 跨包侧看不到 `ref`，导出等于把「漏写 ref 静默丢写入」推给用户包。
 ⇒ `enforce-value-type-non-null` 的 TryParse 迁移必须排在 `record-ref-in-signature` 之后。
 

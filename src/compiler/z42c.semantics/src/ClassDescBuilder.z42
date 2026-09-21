@@ -568,8 +568,25 @@ public sealed class ClassDescBuilder {
                     }
                 }
             }
+            // record-ref-in-signature：`ref` 形参追加 `$ByRef` 哨兵（同 `$Default` 手法，零格式 bump）。
+            if (md.Params[j].IsRef) {
+                IrAttrRef[] pr = new IrAttrRef[pa.Length + 1];
+                int t2 = 0; while (t2 < pa.Length) { pr[t2] = pa[t2]; t2 = t2 + 1; }
+                pr[pa.Length] = new IrAttrRef(IrParamDefault.ByRefSentinel, "");
+                pa = pr;
+            }
             r[j + off] = new IrAttrRefList(pa, pa.Length);
             j = j + 1;
+        }
+        // record-ref-in-signature：**完备性标记**放槽 0 —— 说明本方法的 ref 信息写全了。
+        // 缺它的包（本变更之前编的）在导入侧判为「不知道」而跳过对称性检查，不会误报。
+        // total==0（无形参的静态方法）不需要标记：没有实参可检查。
+        if (total > 0) {
+            IrAttrRefList s0 = r[0];
+            IrAttrRef[] sa = new IrAttrRef[s0.Count + 1];
+            int t3 = 0; while (t3 < s0.Count) { sa[t3] = s0.Items[t3]; t3 = t3 + 1; }
+            sa[s0.Count] = new IrAttrRef(IrParamDefault.RefSigSentinel, "");
+            r[0] = new IrAttrRefList(sa, sa.Length);
         }
         return r;
     }

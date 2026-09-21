@@ -1,0 +1,19 @@
+namespace Demo.RefApp;
+
+using Std.IO;
+using Demo.RefBase;
+
+// 正例：跨包写对 `ref` —— 编过且写回真的生效（此前跨包写回是通的，只是漏写不报）。
+void Main() {
+    int a = 0;
+    Ops.Inc(ref a);
+    Console.WriteLine(a);
+
+    int b = 0;
+    new Ops().IncInst(ref b);       // 实例方法：ParamAttrs 槽 0 是 this，形参从槽 1 起
+    Console.WriteLine(b);
+
+    int c = 5;
+    Ops.ByValue(c);                 // 形参无 ref ⇒ 调用点也不写，按值传
+    Console.WriteLine(c);
+}

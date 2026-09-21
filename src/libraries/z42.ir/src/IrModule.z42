@@ -73,6 +73,21 @@ public static class IrParamDefault {
         int i = 0; while (i < count) { if (attrs[i].TypeName == IrParamDefault.Sentinel) { return attrs[i].FactoryFunc; } i = i + 1; }
         return "";
     }
+    // simplify-ref-parameters / record-ref-in-signature：`ref` 形参标记。骑同一条 param attr-ref
+    // 通道（与 `$Default` / `$Caller:` 同机制）⇒ **零格式 bump**；旧读者不认这两个哨兵即忽略。
+    public static string ByRefSentinel = "$ByRef";    // 该形参带 `ref`
+    public static string RefSigSentinel = "$RefSig";  // **完备性标记**，放槽 0：
+    // 说明「本方法的 ref 信息是写全了的」。没有它不等于「所有形参都不是 ref」，而是
+    // **「不知道」**——旧包就是这种情形。两者必须分开，否则引用未重编的旧包写 `F(ref v)`
+    // 会被误报「多写了 ref」。判据选型与否决理由见 record-ref-in-signature 的 design §D2。
+    public static bool IsByRef(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrParamDefault.ByRefSentinel) { return true; } i = i + 1; }
+        return false;
+    }
+    public static bool HasRefSig(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrParamDefault.RefSigSentinel) { return true; } i = i + 1; }
+        return false;
+    }
     // param 的 caller 宏种类（"member"/"line"/"file"/"module"）；非 caller → ""。
     public static string Caller(IrAttrRef[] attrs, int count) {
         int i = 0;

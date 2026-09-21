@@ -1,0 +1,10 @@
+namespace Demo.RefMissApp;
+
+using Demo.RefBase;
+
+// 阴性：跨包漏写 `ref`。本变更之前**编译通过**，而 `a` 不会变 —— 调用方传值不传址，
+// 被调方改的是自己的形参寄存器，出口 copy-out 没有 caller 的 lvalue 可写回。
+void Main() {
+    int a = 0;
+    Ops.Inc(a);
+}
