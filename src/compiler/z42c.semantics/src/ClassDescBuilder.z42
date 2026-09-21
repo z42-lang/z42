@@ -219,7 +219,8 @@ public sealed class ClassDescBuilder {
                 // 计算属性（HasGetBody，无背后字段）不承载 attribute（M2 已知限制）。
                 IrAttrRef[] prAttrs = this._attrRefs(c.Members[j]);
                 // add-property-getter：计算属性（HasGetBody）无后备字段（getter 是真实函数体）。
-                if (!fpdExtern && !fpd.HasGetBody) {
+                // add-property-custom-setter：自定义 setter（HasSetBody）同理无后备（setter 自管存储）。
+                if (!fpdExtern && !fpd.HasGetBody && !fpd.HasSetBody) {
                     string bfn = "__prop_" + fpd.Name;
                     string bft = this._typeFieldName(fpd.Type);
                     if (fpdStatic) {
