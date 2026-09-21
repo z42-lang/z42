@@ -94,6 +94,21 @@ pub unsafe extern "C" fn jit_array_data(
             *out_width = borrowed.packed_elem_width();
             0
         }
+        // fix-jit-array-data-stackarray: 逃逸分析的栈上数组（`Value::StackArray`）会走到这里——
+        // OSR 下解释器段先建了它、JIT 接手后 frame.regs 里仍是栈句柄。此前这里直接 bail，
+        // 于是「解释器能跑、一 tier-up 就崩」：`ArrayGet: expected array, got StackArray`。
+        // 解释器 `exec_array::array_get` 与慢路 helper `jit_array_get` 都有 StackArray 分支
+        // （后者由 fix-jit-osr-stackarray 补），唯独本快路遗漏 —— 典型的 interp/JIT 分叉。
+        //
+        // 修法与同文件的 `jit_array_data_opt` 一致：报「无快路」而非抛异常。写
+        // `width = 0` 会让内联走 `width_zero → helper_blk → jit_array_get`
+        // （见 `jit/translate/array.rs`），由慢路按 arena 解析栈数组，语义与解释器一致。
+        Value::StackArray { .. } => {
+            *out_ptr = std::ptr::null();
+            *out_len = 0;
+            *out_width = 0;
+            0
+        }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(
                 format!("ArrayGet: expected array, got {:?}", other).into()));
@@ -307,3 +322,7 @@ pub unsafe extern "C" fn jit_array_len(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "array_tests.rs"]
+mod array_tests;
