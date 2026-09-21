@@ -356,6 +356,18 @@ void test_not_deprecated_free_function_no_warning() {
 }
 
 [Test]
+void test_deprecated_free_function_overload_selectivity() {
+    // #731 起自由函数可按参数类型重载 ⇒ 弃用告警必须只认**被选中的那个重载**。
+    // 这条钉住 use-site 检查的位置：它在重载决议**之后**。若挪到决议之前（按名字拿候选就查），
+    // `ov("abc")` 会因为同名的 `ov(int)` 带 [Deprecated] 而误报。
+    string src = "[Deprecated(\"x\")] int ov(int a) { return a; } int ov(string s) { return s.Length; }";
+    var noWarn = _depDiags(src + " int useStr() { return ov(\"abc\"); }");
+    Assert.Equal(false, _hasCode(noWarn, "deprecated"));   // 选中没弃用的 ov(string) → 不报
+    var warn = _depDiags(src + " int useInt() { return ov(1); }");
+    Assert.Equal(true, _hasCode(warn, "deprecated"));      // 选中弃用的 ov(int) → 报
+}
+
+[Test]
 void test_deprecated_free_function_suppress_pragma() {
     // `#suppress deprecated` 对自由函数调用点同样生效（与类方法同一条抑制通道）
     string src = "[Deprecated(\"x\")] int f() { return 1; }"

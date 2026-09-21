@@ -38,7 +38,31 @@
 - [x] 1.8 测试：cross-zpkg `deprecated_free_function/`（自由函数 + 类方法对照组，带 `expected_build_warning.txt` 与 `expected_output.txt`）；analyzer 单测三条（自由函数告警 / 无 attribute 不误报 / `#suppress` 生效）
 - [x] 1.9 文档同步：attribute-pipeline.md（载体表注 + 四棒链）、attributes.md（反射拿不到自由函数 `MethodInfo`）、cross-zpkg README、parallel-development.md（供种后重建 xtask）
 - [x] 1.10 GREEN：`xtask test` 全绿（6m22s，base 134c7d962）；harness 改动后单独重跑 `test e2e --dir cross-zpkg` 60/60。**门禁有牙实证**：把 `expected_build_warning.txt` 改成一条不存在的告警 → `FAIL deprecated_free_function (main build)`，59 passed / 1 failed，改回即绿
+- [x] 1.12 rebase 到 `b82282d93`（main 一小时内合了 7 个 PR）+ 解三处冲突 + 重跑 GREEN（6m30s）。见下「rebase 记事」
 - [ ] 1.11 归档 + PR
+
+## rebase 记事（2026-09-22，base 134c7d962 → b82282d93）
+
+**#731「自由函数按参数类型重载」把本 change 改过的那条路径整个重写了**（从「按名取唯一函数」
+变成「候选集 + `_resolveFreeOverload` 决议」），三处冲突：
+
+- `MemberCollector`：弃用标记挪到 `msym` 刚建好、进 primary/非-primary 键计算之前。
+- `MemberResolver`：**use-site 检查下移到重载决议之后**。这条不是机械合并——放在决议之前
+  （按名拿候选就查）会对**没被选中的重载**误报。实测钉死：对
+  `[Deprecated] ov(int)` + `ov(string)`，`ov("abc")` 不报、`ov(1)` 报。
+  已固化为 `test_deprecated_free_function_overload_selectivity`（正反两例）。
+- `ImportedSymbolLoader`：保留 #731 的 `Name=基名 / RegKey=完整键`，弃用两行跟在其后。
+
+**顺带拆文件**：#731 把 `MemberResolver.z42` 顶到正好 886 行（硬限），本 change 加 3 行即破门。
+外迁 `MemberResolver.Subst.z42`（`_substGeneric` / `_substSelf` / `_paramIndex` 一组类型代换静态工具，
+149 行，**逻辑逐行未改**）→ 739 + 163。选它是因为这组全 static、不碰 `_tc`，是主文件里最独立的一块
+（与既有的 `.Prim` / `.Static` partial 同一模式），不是为绕门禁随便切一刀。
+
+**另需记一笔（环境，非本 change）**：main 同时把 zpkg 格式 bump 到 **minor 49**（#730 删 primitive
+短名别名），本机 48 的种子读不了新 runtime 的产物，两棵 worktree 全挂在 `bootstrap: build z42.ir failed`。
+解法不是跑整套两代自举，而是**从 #730 自己那条 CI 运行的 `z42-host-package-*` 产物取一份 49 的 SDK 换种子**
+（`gh run download <id> -p 'z42-host-package-macos-26'`，里面就是解包好的 SDK 目录）。
+注意 `artifacts/xtask/xtask.zpkg` 也得用新 SDK 的 launcher 重新 `publish` 一遍，否则它自己还是旧格式。
 
 ## 本批发现、未修（已登记）
 
