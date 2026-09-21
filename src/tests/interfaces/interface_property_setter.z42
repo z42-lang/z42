@@ -1,0 +1,51 @@
+// fix-iface-property-setter：接口属性 setter 经**接口静态类型**解析 + 执行。
+// 此前 `_fillInterface` 只为接口属性建 get_X、丢弃 set_X ⇒ ① 缺 setter 的实现静默通过满足性校验；
+// ② 经接口静态类型 `IMut m; m.V = x` 赋值无处派发（AssignTyper 只认类收者）→ 静默丢弃。
+// 本测试经接口静态类型读写 `{ get; set; }` 属性（含值类型走 box/convert）。镜像 interface_indexer.z42。
+
+interface IMutName {
+    string Name { get; set; }
+}
+
+// 值类型属性：验证 setter value 参走 box/convert 路径。
+interface IMutCount {
+    int Count { get; set; }
+}
+
+// 实现用 auto-property `{ get; set; }`（_fillClass 合成 __prop_X 后备字段 + get_X/set_X）。
+class Box : IMutName, IMutCount {
+    public string Name { get; set; }
+    public int Count { get; set; }
+    public Box(string n, int c) { this.Name = n; this.Count = c; }
+}
+
+// 经接口静态类型写属性 —— 赋值必须真的落到实现类的后备存储。
+void Rename(IMutName m, string n) { m.Name = n; }
+void Recount(IMutCount m, int c) { m.Count = c; }
+
+void Main() {
+    Box b = new Box("orig", 1);
+
+    // 直接经具体类读（get 已工作）。
+    Assert.Equal("orig", b.Name);
+    Assert.Equal(1, b.Count);
+
+    // 经接口静态类型读 + 写。
+    IMutName mn = b;
+    Assert.Equal("orig", mn.Name);
+    mn.Name = "renamed";
+    Assert.Equal("renamed", mn.Name);
+    Assert.Equal("renamed", b.Name);   // 写穿透到实现类后备存储
+
+    IMutCount mc = b;
+    Assert.Equal(1, mc.Count);
+    mc.Count = 42;
+    Assert.Equal(42, mc.Count);
+    Assert.Equal(42, b.Count);
+
+    // 经方法参数（接口静态类型）间接写。
+    Rename(b, "viaParam");
+    Assert.Equal("viaParam", b.Name);
+    Recount(b, 7);
+    Assert.Equal(7, b.Count);
+}

@@ -331,9 +331,16 @@ struct Priv : INum2 { static override int MakeZero() { return 0; } }          //
 放行**的。回归门：`src/tests/cross-zpkg/iface_static_impl_mismatch/`（负例 fixture，期望 build
 error 含 `is \`static\` in the interface and an instance method here`）。
 
-> ⚠️ 这条校验只管**签名对不对**，不管**有没有实现**：接口方法的齐备性今天仍不校验（唯一的
-> 例外是[关联类型](#关联类型type-item)必须绑齐）。漏掉一个 `static abstract` 成员不会在编译期
-> 报错，会在运行期以 `VCall: function X.op_Add not found` 出现。
+> ✅ 齐备性也校验（自 `fix-iface-satisfaction-gaps` / `fix-iface-self-completeness-gaps`）：声明了接口
+> 就必须实现它的**每个**成员——缺成员编译期报 **E0412** `\`C\` implements \`I\` but does not define
+> member \`X\``。属性 `{ get; set; }` 的 `get_X`/`set_X`、索引器的 `get_Item`/`set_Item` 各是**独立契约**
+> （满足性键含成员名），缺任一半都报。[关联类型](#关联类型type-item)另走 E0453（必须绑齐）。
+> 本节上面讲的是「成员在、但**签名对不对**」那一层（static / 可见性 / 返回类型）；「成员**在不在**」由
+> E0412 缺成员分支兜。
+>
+> ⚠️ 残余边界：**导入接口**的属性 setter 齐备性尚未过 wire（跨包 Deferred，需格式 bump）——本包接口
+> 的属性 setter 齐备性已由 `fix-iface-property-setter` 覆盖，跨包漏一个接口属性 setter 仍可能到运行期才
+> `VCall not found`。
 
 ## 关联类型（`type Item;`）
 
@@ -360,8 +367,9 @@ new Use<StrBag>()   // ❌ E0453：binds `Item` to `string`, but `int` is requir
 
 - **绑定是实现方的事**：接口里写 `type Item = int;` 报错；类里写不带绑定的 `type Item;` 也报错。
 - **必须绑齐**：实现了带关联类型的接口就得给出绑定，走**接口继承闭包**（父接口的关联类型同样要绑）。
-  这是 z42 目前**唯一**一条「实现接口必须补齐某成员」的强制——接口方法的齐备性今天仍不校验。
-  之所以对关联类型例外：方法缺失还能靠动态派发在运行期兜底，关联类型不绑则**根本无法参与约束匹配**。
+  缺绑定报 **E0453**——与接口方法/属性齐备性的 **E0412**（见上文「实现接口静态成员」一节）同族：两者都是
+  「声明了接口就必须补齐某成员」的编译期强制。关联类型走独立码 E0453 而非 E0412，是因为不绑则**根本无法
+  参与约束匹配**（方法缺失至少还能在运行期以 `VCall not found` 暴露，关联类型缺绑连约束求解都无从进行）。
 - **绑定显式声明，不推断**：`type Item = int;`，而不是从方法签名反推。推断需要跨成员的统一算法
   （且要处理 F-bounded 递归），代价与收益不成比例。
 - 全部相关诊断都是 **`E0453`**。

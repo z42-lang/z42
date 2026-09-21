@@ -112,6 +112,26 @@ public sealed class AssignTyper {
                 else {
                 BoundExpr precv = this._et._bindExpr(pmt.Target, env);
                 Z42Type prt = precv.Type();
+                // fix-iface-property-setter：接口静态类型收者的属性写 `IMutBox b; b.V = x` → set_V 虚调用
+                // （镜像上面索引器的 set_Item 接口分支 + 下面类的 set_X 路径）。接口成员恒 public 无需 CheckAccess。
+                // 此前接口收者不进本分支（pcls 恒 null）→ 落普通赋值路径、set_V 从不派发 → 赋值静默丢弃（与
+                // fix-crosspkg-property-assign 的类侧同族洞，接口侧漏网）。value 参按 setter 形参类型 box/convert。
+                if (prt is Z42InterfaceType) {
+                    Z42InterfaceType pIf = prt as Z42InterfaceType;
+                    string psetKey = "set_" + pmt.Name;
+                    if (pIf.Methods.ContainsKey(psetKey)) {
+                        MethodSymbol isetter = pIf.Methods.Get(psetKey) as MethodSymbol;
+                        if (isetter != null && isetter.Signature != null) {
+                            BoundExpr pval = this._et._bindExpr(a.Value, env);
+                            if (isetter.Signature.ParamTypes != null && isetter.Signature.ParamTypes.Length >= 1) {
+                                pval = this._tc.BoxIfNeeded(pval, isetter.Signature.ParamTypes[0]);
+                                pval = this._tc.ConvertIfNeeded(pval, isetter.Signature.ParamTypes[0], env.Symbols);
+                            }
+                            BoundExpr[] pargs = new BoundExpr[1]; pargs[0] = pval;
+                            return new BoundCall("instance", true, precv, pIf.Name(), psetKey, pargs, 1, new Z42VoidType(), a.Span);
+                        }
+                    }
+                }
                 Z42ClassType pcls = null;
                 if (prt is Z42ClassType) { pcls = prt as Z42ClassType; }
                 else if (prt is Z42InstantiatedType) { pcls = (prt as Z42InstantiatedType).Def; }

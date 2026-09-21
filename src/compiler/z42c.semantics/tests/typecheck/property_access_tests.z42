@@ -73,3 +73,36 @@ void test_readonly_field_still_e0415() {
     string src = "namespace D; class C { public readonly int F; C() { this.F = 1; } void M() { this.F = 2; } }";
     Assert.Equal("E0415", SemanticDump.FirstErrorCode(src));
 }
+
+// ── fix-iface-property-setter：接口 `{ get; set; }` 属性满足性 ─────────────────────────
+// 此前 `_fillInterface` 只为接口属性建 get_X ⇒ 接口 setter 契约整段丢失：getter-only 实现静默通过。
+// 补 set_X 符号后，满足性校验（InheritanceResolver._checkOneIfaceMethod，MangleKey 含名 ⇒ get_X/set_X
+// 独立契约）自动要求实现方补齐 setter。
+
+// 实现补齐 get+set → 无诊断（不回归）。
+[Test]
+void test_iface_property_getset_impl_complete_ok() {
+    string src = "namespace D; interface I { string L { get; set; } } class C : I { public string L { get; set; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 接口要 set 但实现只给 getter → E0412（本 change 新增的强制；修前静默通过）。
+[Test]
+void test_iface_property_missing_setter_e0412() {
+    string src = "namespace D; interface I { string L { get; set; } } class C : I { public string L { get; } }";
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(src));
+}
+
+// getter-only 接口属性 → 不要求 setter，getter-only 实现合法（不回归）。
+[Test]
+void test_iface_property_getonly_no_setter_required_ok() {
+    string src = "namespace D; interface I { string L { get; } } class C : I { public string L { get; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 实现用显式 get_N/set_N 方法也满足接口 `{ get; set; }` 契约（与 auto-property 等价）。
+[Test]
+void test_iface_property_getset_explicit_methods_ok() {
+    string src = "namespace D; interface I { int N { get; set; } } class C : I { public int get_N() { return 0; } public void set_N(int v) { } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
