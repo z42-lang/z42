@@ -6,7 +6,7 @@
 
 | 访问器 | 声明 | 使用 | 编译成 |
 |--------|------|------|--------|
-| **属性** | `T Name { get; set; }`（auto）/ `T Name { get { ... } }` 或 `T Name => e;`（计算） | `obj.Name` / `obj.Name = v` | `get_Name()` / `set_Name(v)`（auto 另合成后备字段 `__prop_Name`；计算 getter 无后备字段） |
+| **属性** | `T Name { get; set; }`（auto）/ `T Name { get { ... } set { ... } }`（带体）/ `T Name => e;`（表达式体） | `obj.Name` / `obj.Name = v` | `get_Name()` / `set_Name(v)`（auto 另合成后备字段 `__prop_Name`；带体访问器无后备字段） |
 | **索引器** | `T this[P...] { get {...} set {...} }` | `obj[i]` / `obj[i] = v` | `get_Item(...)` / `set_Item(..., v)` |
 
 两者都在编译期降解成普通实例方法（镜像 C# 的 `get_X`/`set_X`、`get_Item`/`set_Item`），
@@ -49,25 +49,35 @@ public int Count { get; set; } = 0;
 - **默认可见性是 `private`**：属性 / 索引器不写修饰符时与字段 / 方法同规则（见
   [访问权限控制](access-control.md)）。
 
-### 计算属性 getter（`get { ... }`）
+### 带体访问器 getter / setter（`get { ... }` / `set { ... }`）
 
-getter 可写**块体** `get { <stmts>; return <expr>; }`，在字段 / 其它成员之上**计算**派生值，语义与
-C# 计算属性一致。计算 getter **不合成后备字段**——每次读取都执行 getter 函数体（无存储）。
+访问器可写**块体**——getter `get { <stmts>; return <expr>; }` 计算派生值，setter
+`set { <stmts>; }` 自定义写入逻辑（体内隐式变量 `value` = 被赋的值，类型 = 属性类型）。语义与
+C# 一致。带体访问器**不合成后备字段**——由用户自备字段管理存储。
 
 ```z42
 public class Box {
-    public int n;
-    public int Doubled { get { return this.n * 2; } }       // 派生自字段
-    public bool Big     { get { return this.n > 10; } }      // 布尔派生
-    public int Plus     { get { return this.Doubled + 1; } } // 引用另一计算属性
+    int n;
+    public int Doubled { get { return this.n * 2; } }         // 计算 getter，派生自字段
+    public int N {                                            // 计算 get + 自定义 set
+        get { return this.n; }
+        set { this.n = value; }                               // value = 被赋的值
+    }
+    public int Clamped {
+        get { return this.n; }
+        set => this.n = value;                                // 表达式体 setter，脱糖成 { this.n = value; }
+    }
 }
-// b.Doubled 每次按当前 n 重算；无 __prop_Doubled 后备字段。
+// b.N = 5   → 派发到 set_N，执行 { this.n = 5; }
+// b.Doubled 每次按当前 n 重算；无 __prop_* 后备字段。
 ```
 
-- **get-only**：只支持计算 `get { ... }` / `get => e;`；`set { ... }`（计算 setter）尚未支持。
-- **auto vs 计算的区分**：`get;`（分号）= auto 属性（合成后备字段）；`get { ... }`（块体）=
-  计算属性（无后备字段，getter 是真实函数体）。
-- getter 体内可访问 `this`、本类字段、其它属性（`this.Doubled` 派发到 `get_Doubled`）。
+- **auto vs 带体的区分**：`get;`/`set;`（分号）= auto 属性（合成后备字段 `__prop_X`）；
+  `get { ... }`/`set { ... }`（块体）= 带体访问器（无后备字段，访问器是真实函数体，自备存储）。
+- **不能混合**：两个访问器都在时，要么都 auto（`{ get; set; }`）、要么都带体
+  （`{ get { ... } set { ... } }`）。混合（`{ get; set { ... } }` / `{ get { ... } set; }`）报
+  **E0474**——z42 无 C# 的 `field` 关键字，auto 半边读/写 `__prop_X`、带体半边写自备字段，会读写错位。
+- 访问器体内可访问 `this`、本类字段、其它成员（`this.Doubled` 派发到 `get_Doubled`）；setter 体额外可用 `value`。
 
 ### 表达式体属性（`=> e;`）
 

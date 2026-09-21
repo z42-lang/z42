@@ -106,3 +106,48 @@ void test_iface_property_getset_explicit_methods_ok() {
     string src = "namespace D; interface I { int N { get; set; } } class C : I { public int get_N() { return 0; } public void set_N(int v) { } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── add-property-custom-setter：自定义属性 setter `set { ... }` / `set => e;` ─────────────
+// 此前 parser 只支持计算 getter + auto setter，`set { ... }` 被当类型报 E0443 级联。
+
+// 两半都带体（计算 get + 自定义 set）→ 无诊断。
+[Test]
+void test_property_custom_getset_bodied_ok() {
+    string src = "namespace D; class C { int _x; public int P { get { return this._x; } set { this._x = value; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 表达式体 setter `set => e;` → 无诊断。
+[Test]
+void test_property_expr_bodied_setter_ok() {
+    string src = "namespace D; class C { int _x; public int P { get { return this._x; } set => this._x = value; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 混合 auto get + 带体 set → E0474（本 change 新增禁令）。
+[Test]
+void test_property_mixed_autoget_bodiedset_e0474() {
+    string src = "namespace D; class C { int _x; public int P { get; set { this._x = value; } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+// 混合 带体 get + auto set → E0474（方向相反同样禁）。
+[Test]
+void test_property_mixed_bodiedget_autoset_e0474() {
+    string src = "namespace D; class C { int _x; public int P { get { return this._x; } set; } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+// 两半都 auto `{ get; set; }` → 无诊断（不回归）。
+[Test]
+void test_property_both_auto_no_e0474() {
+    string src = "namespace D; class C { public int P { get; set; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 自定义 setter 里 `value` 隐式参可用（体内用 value + 1，证 value 已进作用域并有类型）。
+[Test]
+void test_property_custom_setter_value_in_scope() {
+    string src = "namespace D; class C { int _x; public int P { get { return this._x; } set { this._x = value + 1; } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

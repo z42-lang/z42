@@ -1,0 +1,69 @@
+// add-property-custom-setter：自定义属性 setter `set { ... }` / `set => e;` 端到端。
+// 此前 `_fillInterface`/`_parseProperty` 只支持计算 getter + auto setter，自定义 setter `set { ... }`
+// 解析器把 `set` 当类型报 E0443 级联。本测试覆盖：副作用 setter、变换 setter、表达式体 setter、
+// 经接口静态类型写（配合上一批 fix-iface-property-setter）。类用**自备后备字段**（无 __prop_X）。
+
+class Counter {
+    int _val;
+    int _writes;
+    public Counter() { this._val = 0; this._writes = 0; }
+    // 自定义 get + set：setter 有副作用（记写入次数）。
+    public int Value {
+        get { return this._val; }
+        set { this._val = value; this._writes = this._writes + 1; }
+    }
+    // 计算 getter 暴露写入次数（只读）。
+    public int Writes { get { return this._writes; } }
+}
+
+class Doubler {
+    int _x;
+    public Doubler() { this._x = 0; }
+    // 变换 setter：存入 2×。
+    public int X {
+        get { return this._x; }
+        set { this._x = value * 2; }
+    }
+    // 表达式体 setter `set => e;`（脱糖成 `{ e; }`）。
+    public int Y {
+        get { return this._x; }
+        set => this._x = value + 1;
+    }
+}
+
+// 接口 `{ get; set; }` + 实现类用自定义 setter → 经接口静态类型写（上一批 + 本批合流）。
+interface IMutBox {
+    int Slot { get; set; }
+}
+
+class GuardBox : IMutBox {
+    int _slot;
+    public GuardBox() { this._slot = 0; }
+    public int Slot {
+        get { return this._slot; }
+        set { this._slot = value; }
+    }
+}
+
+void Main() {
+    Counter c = new Counter();
+    Assert.Equal(0, c.Value);
+    Assert.Equal(0, c.Writes);
+    c.Value = 10;
+    Assert.Equal(10, c.Value);
+    Assert.Equal(1, c.Writes);       // setter 副作用生效
+    c.Value = 20;
+    Assert.Equal(20, c.Value);
+    Assert.Equal(2, c.Writes);
+
+    Doubler d = new Doubler();
+    d.X = 5;
+    Assert.Equal(10, d.X);           // 变换 setter：存了 2×
+    d.Y = 7;
+    Assert.Equal(8, d.X);            // 表达式体 setter：value+1 = 8
+
+    // 经接口静态类型写，派发到实现类自定义 setter。
+    IMutBox b = new GuardBox();
+    b.Slot = 42;
+    Assert.Equal(42, b.Slot);
+}

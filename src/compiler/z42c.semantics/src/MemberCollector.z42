@@ -234,9 +234,11 @@ public sealed class MemberCollector {
                 // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。
                 bool pfExtern = this._sc._hasWord(pd.Mods, "extern");
                 // add-property-getter：计算属性（HasGetBody）无后备字段——getter 是真实函数体，不读 __prop_X。
+                // add-property-custom-setter：自定义 setter（HasSetBody）同理无后备——setter 自管存储；混合（一半带体
+                // 一半 auto）已在 parser 报 E0474，故这里「任一带体 ⇒ 无后备」不会漏掉 auto 半边的存储。
                 // add-static-properties：「有后备存储」与「进实例布局」是两件事——静态 auto 属性有静态后备
                 // `__prop_X`（ClassDescBuilder 早已发其静态字段描述），但不进实例字段布局。
-                bool pfHasStorage = !pfExtern && !pd.HasGetBody;
+                bool pfHasStorage = !pfExtern && !pd.HasGetBody && !pd.HasSetBody;
                 bool pfHasBacking = !pfstatic && pfHasStorage;
                 if (pfHasBacking) { string pfsp = (pft is Z42UnknownType || pft is Z42ErrorType) ? TypeNameResolver.TsigTypeName(pd.Type) : TypeNameResolver.SurfaceTypeName(pft); ct.AddOwnField("__prop_" + pd.Name, pfsp, "private"); }
                 // fix-autoprop-getonly-backing-write：属性打标，让「源名 X ↔ 存储 __prop_X」的落差
