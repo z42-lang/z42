@@ -1,6 +1,6 @@
 # ANCHOR: err
 $ z42 run splitchar.z42
-Error: uncaught exception: VCall: expected object, got Char(',')
-  at Std.String.Split (line 16, col 9)
+z42c build: 1 error(s) in splitchar.z42
+  splitchar.z42(5,26): E0401: no overload of `Split` on `String` accepts these arguments
 [exit: 1]
 # ANCHOR_END: err

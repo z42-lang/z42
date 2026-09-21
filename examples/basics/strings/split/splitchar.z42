@@ -2,6 +2,6 @@ using Std.IO;
 
 void Main() {
     string csv = "a,b,c";
-    string[] parts = csv.Split(',');   // ✗ 单引号：编译能过，运行期才崩
+    string[] parts = csv.Split(',');   // ✗ 单引号：没有收 char 的重载
     Console.WriteLine(parts.Length);
 }
