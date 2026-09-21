@@ -29,7 +29,12 @@
 ## 任务
 
 - [x] 1.1 `MemberCollector`：顶层 `MethodDecl` 收集时问 `HandlerRegistry.HasDeprecated(cu.Decls[i])`（取**未剥壳**那份）并置 `MethodSymbol.IsDeprecated` / `DeprecationMsg`
-- [x] 1.2 `MemberResolver` 自由函数调用分支：解析到 `MethodSymbol` 后调 `CheckDeprecatedM`（use-site 告警，与类方法同一条抑制通道 ⇒ `#suppress deprecated` 自动生效）
+- [x] 1.2 `MemberResolver` 自由函数调用的**两条**入口都调 `CheckDeprecatedM`（use-site 告警，与类方法同一条抑制通道 ⇒ `#suppress deprecated` 自动生效）：
+      ① 裸名 `f()` —— `_bindCall` 的 `ResolveFuncNs` 分支；
+      ② **ns 限定 `Demo.f()`** —— `_bindMemberCall` 的 `fix-namespace-qualified-free-call` 分支。
+      ⚠️ ② 是 2026-09-22 并入 #734 时才发现的**本 change 自己的漏**：先只补了 ①，限定写法仍零诊断（探针实证）。
+      **同一件事有两条码路，补一条不会有任何东西喊疼**——本 change 第三次栽在这个形状上
+      （`ParamAttrs`/`Attrs` 两半 → 同包/跨包两条链 → 裸名/限定两个入口）。
 - [x] 1.3 `IrGenAuxEmitter.EmitFreeFunctions`：保住 `rawD = cu.Decls[i]`，填 `irf.Attrs = _attrRefs(rawD)` / `irf.AttrCount`（`$Cctor` 哨兵与自由函数无关，`_cctorFuncName` 只认 `ClassDecl` → 恒 ""）
 - [x] 1.4 `ExportedFuncZ` 加 `IsDeprecated` / `DeprecationMsg`（**ctor 元数不变**，默认 false/""、构造后赋值——同 `ParamsFrom` / `TypeParams` 的旧种子 ABI 纪律）
 - [x] 1.5 `TsigReconcile.Rebuild`：`ef.IsDeprecated = IrDeprecation.Has(f.Attrs, f.AttrCount)`（镜像 `_methodFromSig` 对 `ExportedMethodZ` 的同款搬运）
