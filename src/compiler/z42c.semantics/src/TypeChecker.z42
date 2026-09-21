@@ -17,6 +17,11 @@ public sealed class TypeChecker {
     // lambda 捕获 frame（port-z42c-closures）：active 时 Ident 钩子检测外层命中。
     public bool _lambdaActive;
     public StrMap _lambdaLocals;
+    // simplify-ref-parameters：本方法内**无初始化器**的局部 → 其 BoundVarDeclStmt。
+    // 若该局部随后被 `ref` 取址，`_bindRefArg` 回头给它补一个 `default(T)` 初始化器，
+    // 于是槽位在**声明处**零初始化（在使用点懒发会被循环反复清零）。
+    // 键是名字——与发射层「locals 是函数级平表、同名变量复用首次分配的寄存器」一致。
+    public StrMap _noInitLocals;
     public BoundCapture[] _lambdaCaps; public int _lambdaCapCount;
     public ConstraintChecker _constraints;  // 泛型 where 约束解析 + call-site 校验（2B）
     public string _currentNs;               // 当前 CU 命名空间（namespace-qualified free call 用；PR6b module_path!() 注入源）
@@ -170,6 +175,7 @@ public sealed class TypeChecker {
         this._loopDepth = 0;
         this._switchDepth = 0;
         this._lambdaActive = false;
+        this._noInitLocals = new StrMap();
         this._constraints = new ConstraintChecker(diags);
         this._currentNs = "";
         this._currentUsings = new string[0]; this._currentUsingCount = 0;

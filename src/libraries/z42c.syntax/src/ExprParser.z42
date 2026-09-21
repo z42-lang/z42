@@ -235,15 +235,40 @@ public sealed class ExprParser {
                     args = bigger;
                 }
                 Expr arg = null;
-                if (this._p._peek().Kind == TokenKind.Ref || this._p._peek().Kind == TokenKind.Out || this._p._peek().Kind == TokenKind.In) {
+                // simplify-ref-parameters：调用点只认 `ref`。`out` / `in` 报 E0471 + 迁移提示，
+                // 但仍按 ref 实参继续解析（消费 token 保持同步，避免级联错）。
+                bool isRefArg = false;
+                if (this._p._peek().Kind == TokenKind.Ref) { isRefArg = true; }
+                else if (this._p._peek().Kind == TokenKind.Out) {
+                    this._p._diags.Error("E0471",
+                        "`out` is no longer an argument modifier — use `ref` (`out v` -> `ref v`, " +
+                        "`out var v` -> `ref var v`)", this._p._peek().Span);
+                    isRefArg = true;
+                }
+                else if (this._p._peek().Kind == TokenKind.In) {
+                    this._p._diags.Error("E0471",
+                        "`in` is no longer an argument modifier — pass the value directly", this._p._peek().Span);
+                    isRefArg = true;
+                }
+                if (isRefArg) {
                     Token refTok = this._p._peek(); this._p._advance();
-                    if (this._p._peek().Kind == TokenKind.Var) {   // `out var n` 内联声明
+                    if (this._p._peek().Kind == TokenKind.Var) {   // `ref var n` 内联声明
                         this._p._advance();   // var
                         string vn = this._p._peek().Text;
                         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
                         RefArgExpr ova = new RefArgExpr(new IdentExpr(vn, refTok.Span), refTok.Span);
                         ova.IsVarDecl = true; ova.VarName = vn;
                         arg = ova;
+                    } else if (this._p._peek().Kind == TokenKind.Underscore) {
+                        // `ref _` 丢弃符：编译器分配隐藏零值槽，`_` 不进作用域。
+                        Span dsp = this._p._peek().Span; this._p._advance();
+                        // 丢弃符的隐藏名在此定死：`_$d<源偏移>`。带 `$` ⇒ 用户在源码里**写不出**
+                        // 这个标识符 ⇒ 天然引用不到；带偏移 ⇒ 同一调用里多个 `ref _` 互不冲突。
+                        // 语义层 `_bindRefArg` 直接沿用这个名字（不再另行生成，避免两处算法漂移）。
+                        string dn = "_$d" + dsp.Start.ToString();
+                        RefArgExpr dsc = new RefArgExpr(new IdentExpr(dn, dsp), refTok.Span);
+                        dsc.IsDiscard = true; dsc.VarName = dn;
+                        arg = dsc;
                     } else {
                         arg = new RefArgExpr(this._parseExpr(0), refTok.Span);
                     }

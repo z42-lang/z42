@@ -23,7 +23,7 @@
   **函数**
 
   - [函数与方法](language/functions.md)
-  - [参数修饰符（`ref` / `out` / `in` / `params`）](language/parameter-modifiers.md)
+  - [参数修饰符（`ref` / `params`）](language/parameter-modifiers.md)
   - [命名实参](language/named-arguments.md)
   - [委托与事件](language/delegates-events.md)
   - [闭包与捕获](language/closures.md)

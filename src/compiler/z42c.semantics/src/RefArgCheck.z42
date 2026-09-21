@@ -1,0 +1,38 @@
+// simplify-ref-parameters：调用点修饰符与形参的对称性检查。
+//
+// 从 OverloadBinder 拆出来——它是个独立关注点（修饰符对称 vs 类型可转），
+// 而且 OverloadBinder 已经贴着 886 行硬限（code-organization.md）。
+namespace Z42.Semantics;
+
+using Z42.Core;
+using Z42.Syntax;
+
+public static class RefArgCheck {
+
+    // 调用点修饰符必须与形参对称。这条修的是 `fix-silent-semantic-gaps` 剩余缺口里排第一的那个：
+    // `void Inc(ref int x)` 配 `Inc(v)` 此前**编译通过且写入静默丢失**（callee 改的是自己的
+    // 形参寄存器，出口 copy-out 没有 caller 的 lvalue 可写回）。反向（形参无 `ref`、实参写了）
+    // 同样报——那会白取一次地址，而且读代码的人会以为有写回，等于「按引用与否由调用点决定」。
+    //
+    // ⚠️ **签名的 ref 信息不可信时一律不报**（`HasRefInfo()` 为假）。跨包导入签名就是这种情形：
+    // TSIG 格式不记录 `ref`（见 DiagnosticCodes 的 E0465 注释），空数组只代表「不知道」，
+    // 当成「全否」会把跨包 `F(ref v)` 误报成多写。跨包强制由 follow-up change
+    // `record-ref-in-signature` 补（需 minor bump）。
+    public static void CheckSymmetry(TypeChecker tc, BoundExpr[] args, int i, Z42FuncType sig) {
+        if (sig == null) { return; }
+        if (!sig.HasRefInfo()) { return; }
+        if (args[i] == null) { return; }
+        bool paramRef = sig.IsRefParam(i);
+        bool argRef = args[i] is BoundRefArg;
+        if (paramRef == argRef) { return; }
+        Span sp = args[i].Span;
+        if (paramRef) {
+            tc._diags.Error("E0472",
+                "argument " + (i + 1).ToString() + " must be passed with `ref` — the parameter is `ref`, "
+                + "and without it the callee's write is silently lost", sp);
+        } else {
+            tc._diags.Error("E0473",
+                "argument " + (i + 1).ToString() + " must not be passed with `ref` — the parameter is not `ref`", sp);
+        }
+    }
+}

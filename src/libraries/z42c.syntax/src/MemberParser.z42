@@ -336,8 +336,26 @@ public sealed class MemberParser {
                 bool isParams = false;
                 Span paramsTok = this._p._peek().Span;
                 if (this._p._peek().Kind == TokenKind.Params) { this._p._advance(); isParams = true; }
+                // simplify-ref-parameters：三态收敛为单一 `ref`（传地址，零契约）。`out` / `in` 作
+                // 形参修饰符改报 E0471 + 迁移提示。消费掉 token 保持解析同步（不消费会从这里脱轨：
+                // 参数列表提前闭合、方法体被撕成垃圾成员——同下面 _isWordKeyword 那条的教训）。
                 bool isRef = false;
-                if (this._p._peek().Kind == TokenKind.Ref || this._p._peek().Kind == TokenKind.Out || this._p._peek().Kind == TokenKind.In) { this._p._advance(); isRef = true; }
+                if (this._p._peek().Kind == TokenKind.Ref) { this._p._advance(); isRef = true; }
+                else if (this._p._peek().Kind == TokenKind.Out) {
+                    Span obs = this._p._peek().Span; this._p._advance();
+                    this._p._diags.Error("E0471",
+                        "`out` is no longer a parameter modifier — use `ref` (`out T x` -> `ref T x`; " +
+                        "the slot is zero-initialised, so the caller need not assign before the call)", obs);
+                    isRef = true;   // 按 ref 继续解析，避免级联错
+                }
+                else if (this._p._peek().Kind == TokenKind.In) {
+                    Span obs = this._p._peek().Span; this._p._advance();
+                    this._p._diags.Error("E0471",
+                        "`in` is no longer a parameter modifier — use `T x` (by value; the compiler passes " +
+                        "large value types by alias automatically when the callee never writes them), " +
+                        "or `ref T x` if the callee must write back", obs);
+                    isRef = false;  // 按按值继续解析
+                }
                 TypeExpr pt = this._p._typeP._parseType();
                 string pn = this._p._peek().Text;
                 if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }

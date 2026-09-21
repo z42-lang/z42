@@ -1,6 +1,6 @@
-// fix-ref-param-escape 回归：`ref`/`out` 形参的出口写回是逃逸汇点。
+// fix-ref-param-escape 回归：`ref` 形参的出口写回是逃逸汇点。
 //
-// 运行时的 ref/out 走「入口 copy-in / 出口 copy-out」（impl-ref-out-in-runtime）：callee 退出前
+// 运行时的 ref 走「入口 copy-in / 出口 copy-out」（impl-ref-out-in-runtime）：callee 退出前
 // 把**参数寄存器的终值**存回 caller 的 lvalue。callee 的 IR 完全看不见 `ref` 修饰，所以逃逸分析
 // 若不特殊处理，就会把「即将被写回 caller 的新分配」判成不逃逸 → 栈分配在 callee 帧 → caller 拿到
 // 的是已退出帧的悬垂句柄，读它时 VM 抛
@@ -20,8 +20,9 @@ void FillArray(ref string[] a) {
     a[1] = "y";
 }
 
-// ② out 形参 + 对象分配（ObjNew 与 ArrayNew 走同一条写回路径）
-void MakeBox(out Box b) {
+// ② 出参形态 + 对象分配（ObjNew 与 ArrayNew 走同一条写回路径）
+// simplify-ref-parameters：原为 `out Box b`；`out` 已并入 `ref`（槽位零值 ⇒ 两侧都无义务）。
+void MakeBox(ref Box b) {
     b = new Box(42);
 }
 
@@ -54,7 +55,7 @@ void Main() {
     Assert.Equal(2, got.Length);
     Assert.Equal("xy", Concat("", got));
 
-    MakeBox(out var b);
+    MakeBox(ref var b);
     Assert.Equal(1, Churn(1));
     Assert.Equal(42, b.V);
 

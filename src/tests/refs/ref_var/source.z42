@@ -1,0 +1,14 @@
+// simplify-ref-parameters：`ref` 是唯一的参数修饰符，`ref var x` 在调用点内联声明。
+//
+// 与旧 `out var x` 的差别只有一处：**被调方没有「必须赋值」的义务**——槽位在声明处
+// 取零值，所以调用方不必先赋值，被调方也不必写回。义务两侧都没有 ⇒ `out` 的四条 DA
+// 规则（全路径赋值 / 进入时不可读 / 调用后视为已赋值 / throw 路径除外）整套消失。
+bool TryParse(string s, ref int v) {
+    v = 42;
+    return true;
+}
+
+void Main() {
+    Assert.True(TryParse("x", ref var n));
+    Assert.Equal(42, n);
+}

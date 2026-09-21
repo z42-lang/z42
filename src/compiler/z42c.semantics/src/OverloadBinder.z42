@@ -59,6 +59,7 @@ public sealed class OverloadBinder {
         int i = 0;
         while (i < fixedEnd) {
             this._checkOneArg(args, rawArgs, i, sig.ParamTypes[i], env);
+            RefArgCheck.CheckSymmetry(this._tc, args, i, sig);
             i = i + 1;
         }
         // params 尾位：展开形态逐位按**元素**类型检查；规范形态（直接传数组）由下方 IsAssignableTo 放行。

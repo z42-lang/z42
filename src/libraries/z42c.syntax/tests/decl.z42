@@ -365,3 +365,53 @@ void test_type_as_identifier_still_parses() {
     string src = "class C { int type(int type) { int x = type; return x; } }";
     Assert.Equal("", parseErrorCodes(src));
 }
+
+// ── simplify-ref-parameters：三态收敛为单一 `ref` ──────────────────────
+//
+// `out` / `in` 作参数修饰符报 E0471，并在消息里给出迁移写法。**必须消费掉那个 token**，
+// 否则会从参数列表脱轨（参数列表提前闭合、方法体被撕成垃圾成员）——所以这些用例断言的是
+// **恰好一条** E0471，多于一条就说明解析同步断了。
+
+[Test]
+void test_out_param_modifier_rejected() {
+    Assert.Equal("E0471", parseErrorCodes("class C { void F(out int v) { } }"));
+}
+
+[Test]
+void test_in_param_modifier_rejected() {
+    Assert.Equal("E0471", parseErrorCodes("class C { int F(in int x) { return x; } }"));
+}
+
+[Test]
+void test_out_arg_modifier_rejected() {
+    Assert.Equal("E0471", parseErrorCodes("class C { void M() { F(out v); } }"));
+}
+
+[Test]
+void test_out_var_arg_modifier_rejected() {
+    Assert.Equal("E0471", parseErrorCodes("class C { void M() { F(out var v); } }"));
+}
+
+[Test]
+void test_in_arg_modifier_rejected() {
+    Assert.Equal("E0471", parseErrorCodes("class C { void M() { F(in v); } }"));
+}
+
+[Test]
+void test_ref_param_and_arg_still_ok() {
+    // 🔒 回归守卫：`ref` 本身不受影响（形参 + 调用点 + `ref var` 内联声明）。
+    Assert.Equal("", parseErrorCodes("class C { void F(ref int v) { } void M() { int a = 0; this.F(ref a); } }"));
+    Assert.Equal("", parseErrorCodes("class C { void M() { F(ref var n); } }"));
+}
+
+[Test]
+void test_ref_discard_parses() {
+    // `ref _` 丢弃符：编译器分配隐藏零值槽，`_` 不进作用域。
+    Assert.Equal("", parseErrorCodes("class C { void M() { F(ref _); } }"));
+}
+
+[Test]
+void test_in_still_works_in_foreach() {
+    // 🔒 `in` 只是不再作参数修饰符，foreach 的关键字身份不变。
+    Assert.Equal("", parseErrorCodes("class C { void M(int[] xs) { foreach (var x in xs) { } } }"));
+}

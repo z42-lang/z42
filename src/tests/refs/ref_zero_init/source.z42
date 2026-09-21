@@ -1,0 +1,55 @@
+// simplify-ref-parameters：无初始化器的局部直接传 `ref`。
+//
+// 砍掉 `out` 之后，调用方不再有「调用前必须赋值」的义务——槽位在声明处取零值。
+// 这让语言里**永远不存在未初始化的存储**：`out` 的四条 DA 规则（callee 必须全路径赋值 /
+// 进入时不可读 / 调用后视为已赋值 / throw 路径除外）全为堵这一个例外而设，例外没了，规则也没了。
+//
+// 零值只发给「本函数内被 `ref` 传过」的无 init 局部——其余维持「无 init 不发 IR」，
+// 否则任何含未初始化局部的函数指令流都会变，golden 大面积 churn。
+
+void Inc(ref int x) { x = x + 1; }
+void Fill(ref string s) { s = "filled"; }
+bool TryGet(ref int v) { v = 7; return true; }
+
+void Main() {
+    // ① 值类型：零值 0 → callee 自增 → 1
+    int a;
+    Inc(ref a);
+    Assert.Equal(1, a);
+
+    // ② 引用类型：零值 null → callee 替换调用方持有的对象
+    string s;
+    Fill(ref s);
+    Assert.Equal("filled", s);
+
+    // ③ 被调方不写时读到的是零值（砍掉 out 的已知代价，语义明确不是未定义）
+    int z;
+    Assert.Equal(0, z + 0);   // 声明处即零初始化（因为下一行把它传了 ref）
+    TryGet(ref z);
+    Assert.Equal(7, z);
+
+    LoopAccumulate();
+    StructZeroInit();
+}
+
+// ④ 🔒 回归守卫：零值必须发在**声明处**，不是使用点。
+// 若在使用点懒发，循环里的 `Inc(ref n)` 每轮都会把 n 清零 → 结果恒为 1 而不是 3。
+void LoopAccumulate() {
+    int n;
+    int i = 0;
+    while (i < 3) {
+        Inc(ref n);
+        i = i + 1;
+    }
+    Assert.Equal(3, n);
+}
+
+// ⑤ struct 的零值走 arena 零初始化（bytes 全零 / refs 全 Null），不是 null
+struct Pair { public int A; public int B; }
+void BumpPair(ref Pair p) { p.A = p.A + 1; p.B = p.B + 2; }
+void StructZeroInit() {
+    Pair p;
+    BumpPair(ref p);
+    Assert.Equal(1, p.A);
+    Assert.Equal(2, p.B);
+}

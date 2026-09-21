@@ -322,6 +322,10 @@ public sealed class StmtBinder {
             init = this._tc.ConvertIfNeeded(init, vt, env.Symbols);   // tighten-implicit-conversions: 拓宽表示转换插 ConvertInstr；add-user-conversions: 用户 implicit
             BoundVarDeclStmt bvd = new BoundVarDeclStmt(v.Name, vt, init, v.Span);
             if (v.IsConst) { this._bindLocalConst(v, env, bvd); }   // add-const-keyword：求值 + 登记 + 诊断
+            // simplify-ref-parameters：无初始化器 → 登记。若随后被 `ref` 取址，`_bindRefArg`
+            // 会回头补 `default(T)`，使槽位在**声明处**零初始化。未被取址的保持「不发 IR」，
+            // 故其余函数的指令流 byte-identical（否则 golden 大面积 churn）。
+            if (init == null && !v.IsConst) { this._tc._noInitLocals.Put(v.Name, bvd); }
             return bvd;
     }
 
