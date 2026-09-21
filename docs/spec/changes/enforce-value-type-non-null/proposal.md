@@ -125,6 +125,24 @@ public static bool TryParse(string s, ref int v) {
 
 ## Open Questions
 
+### ✅ Q1 已关闭（2026-09-22）—— 风险不存在
+
+全仓（stdlib 25 包 + 编译器自身 + 全部测试 + scripts）去重后命中 **7 处，全部是 `int?` TryParse 一族**：
+
+| 位置 | 形态 |
+|---|---|
+| `z42.core/src/Version.z42:84` | `int? v = Int32.TryParse(part); if (v == null)` |
+| `z42.core/tests/scalar_tryparse_classify.z42` 6 处 | `Int32.TryParse("abc") == null` 等 |
+
+**零个「值类型字段当 null 哨兵」** ⇒ 零初始化不会静默改掉任何现存语义。
+命中的 7 处正是本变更要迁移的 TryParse 路径，随迁移一并消失。
+
+⚠️ **过程中一个假信号值得记**：第一轮只跑 `xtask build stdlib` 得到「0 命中」，那是**缓存跑出来的**
+（z42.core 命中 cache，新诊断根本没跑到它）。跑 `xtask test all`（重编更多目标）才露出真实命中。
+⇒ **摸底类的「0 命中」必须在无缓存或全量路径上确认**，否则等于没摸。
+
+原始问题记录如下：
+
 **Q1：有没有现存代码用 `f == null` 检测「值类型字段没被设过」？**
 
 零初始化会把这类代码**静默改掉**（从 Null 变 0，判断恒假，不报错）。

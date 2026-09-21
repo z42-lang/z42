@@ -1,0 +1,92 @@
+// enforce-value-type-non-null：值类型与 `null` 比较。
+//
+// **静默恒假是最坏的形态**——代码看起来做了检查，实际那个分支从不进入（#715 `==` 恒假同族）。
+// 故编译期直接拒绝，而不是让它悄悄永远为 false。
+//
+// 覆盖面：`==`/`!=` 的 BinaryRule 是 OperandKind.None，逐侧 `_checkOperand` 放行一切
+// ⇒ 与既有检查**不重叠**，同一位置不会双报。
+namespace Z42cSemanticsValueTypeNullTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 应报 E0474 ────────────────────────────────────────────────────
+
+[Test]
+void test_int_vs_null_errors() {
+    string src = "namespace D; class C { static void M() { int n = 0; if (n == null) { } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_int_ne_null_errors() {
+    string src = "namespace D; class C { static void M() { int n = 0; if (n != null) { } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_bool_vs_null_errors() {
+    string src = "namespace D; class C { static void M() { bool b = false; if (b == null) { } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_null_on_the_left_errors() {
+    // 左右都要认 —— 写反了同样恒假。
+    string src = "namespace D; class C { static void M() { int n = 0; if (null == n) { } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_value_field_vs_null_errors() {
+    // 字段形态是这条缺陷最容易藏的地方：`f == null` 看起来像「还没设过」的哨兵。
+    string src = "namespace D; class C { int n; void M() { if (this.n == null) { } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_enum_vs_null_errors() {
+    string src = "namespace D; enum Color { Red } class C { static void M() { Color c = Color.Red; if (c == null) { } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_struct_vs_null_errors() {
+    string src = "namespace D; struct Pair { public int A; } class C { static void M() { Pair p; if (p == null) { } } }";
+    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 不应报 ────────────────────────────────────────────────────────
+
+[Test]
+void test_string_vs_null_ok() {
+    string src = "namespace D; class C { static void M() { string s = null; if (s == null) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_object_vs_null_ok() {
+    string src = "namespace D; class C { static void M() { object o = null; if (o != null) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_class_instance_vs_null_ok() {
+    string src = "namespace D; class Box { } class C { static void M() { Box b = null; if (b == null) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_unconstrained_type_param_vs_null_ok() {
+    // 裸型参既可能是值类型也可能是引用类型 ⇒ 保守不报。
+    string src = "namespace D; class C { static void M<T>(T v) { if (v == null) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_two_value_types_compared_ok() {
+    // 🔒 回归守卫：本检查只管「一侧是 null 字面量」，值类型之间比较照常。
+    string src = "namespace D; class C { static void M() { int a = 1; int b = 2; if (a == b) { } } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
