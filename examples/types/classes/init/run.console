@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run init.z42
+example.com:8080
+localhost:443
+# ANCHOR_END: run

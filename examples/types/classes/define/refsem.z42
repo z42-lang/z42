@@ -1,0 +1,14 @@
+using Std.IO;
+
+class Plain { public int V; }
+
+void Main() {
+    // ANCHOR: code
+    Plain p = new Plain();
+    Plain q = p;          // 复制的是「引用」，不是对象
+    q.V = 42;
+    Console.WriteLine(p.V);    // p 也变了 —— 两个名字指着同一个对象
+
+    Console.WriteLine(p.ToString());   // 没重写 ToString 时，默认打类名
+    // ANCHOR_END: code
+}

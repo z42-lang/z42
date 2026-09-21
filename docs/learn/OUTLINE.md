@@ -30,7 +30,7 @@
 
 | # | 章节 | 路径 | 要点 | 状态 |
 |---|------|------|------|------|
-| 13 | 类与对象 | `types/classes` | 字段、构造器与 `: this()`、属性、索引器、对象初始化器、target-typed `new`、`static` | ✅ |
+| 13 | 类与对象 | `types/classes` | 类定义、**引用语义**、字段与可见性、构造器与 `: this()`、自动/计算属性与索引器、对象初始化器与 `new()`、静态成员、重写 ToString | 🟢 |
 | 14 | 继承与多态 | `types/inheritance` | `virtual` / `override` / `abstract` / `sealed`、`base`、构造链 | ✅ |
 | 15 | 接口 | `types/interfaces` | 定义与实现、多接口、接口属性 / 索引器 | ✅ |
 | 16 | 值类型与记录 | `types/structs-records` | `struct` 值语义、`[Record]` 与主构造器、`with` 表达式 | 🧪 |

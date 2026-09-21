@@ -1,0 +1,27 @@
+using Std.IO;
+
+// ANCHOR: code
+class Temperature {
+    public double Celsius { get; set; }                        // 自动属性
+    public double Fahrenheit { get { return Celsius * 9.0 / 5.0 + 32.0; } }   // 计算属性，只读
+}
+
+class Bag {
+    private int[] _items = new int[3];
+    public int this[int i] {                                   // 索引器：让对象能用 [ ]
+        get { return _items[i]; }
+        set { _items[i] = value; }
+    }
+    public int Count { get { return _items.Length; } }
+}
+// ANCHOR_END: code
+
+void Main() {
+    Temperature t = new Temperature();
+    t.Celsius = 100.0;
+    Console.WriteLine(t.Fahrenheit);
+
+    Bag b = new Bag();
+    b[0] = 7;
+    Console.WriteLine($"{b[0]} {b.Count}");
+}

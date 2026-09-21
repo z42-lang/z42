@@ -1,0 +1,4 @@
+# ANCHOR: run
+$ z42 run statics.z42
+a=2 b=1 总计=3
+# ANCHOR_END: run

@@ -1,0 +1,6 @@
+# ANCHOR: run
+$ z42 run ctor.z42
+未命名
+1
+10
+# ANCHOR_END: run

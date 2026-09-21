@@ -1,0 +1,11 @@
+# ANCHOR: run
+$ z42 run define.z42
+3
+10
+116
+# ANCHOR_END: run
+# ANCHOR: refsem
+$ z42 run refsem.z42
+42
+Plain
+# ANCHOR_END: refsem

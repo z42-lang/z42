@@ -1,0 +1,29 @@
+using Std.IO;
+
+// ANCHOR: decl
+class Point {
+    public double X { get; set; }    // 自动属性：外面能读能写
+    public double Y { get; set; }
+
+    public Point(double x, double y) {   // 构造器：建对象时跑
+        X = x;
+        Y = y;
+    }
+
+    public double DistanceSquared(Point other) {   // 实例方法
+        double dx = X - other.X;
+        double dy = Y - other.Y;
+        return dx * dx + dy * dy;
+    }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: use
+    Point p = new Point(3.0, 4.0);
+    Console.WriteLine(p.X);
+    p.X = 10.0;                       // 属性可以赋值
+    Console.WriteLine(p.X);
+    Console.WriteLine(p.DistanceSquared(new Point(0.0, 0.0)));
+    // ANCHOR_END: use
+}

@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run props.z42
+212
+7 3
+# ANCHOR_END: run
