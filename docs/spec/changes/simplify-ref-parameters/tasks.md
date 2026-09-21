@@ -79,7 +79,15 @@
 
 ---
 
+## 🔴 本变更落地后的硬约束
+**在 `record-ref-in-signature` 落地之前，不得让 stdlib 导出任何 `ref` 形参的公开 API。**
+跨包侧看不到 `ref`，导出等于把「漏写 ref 静默丢写入」推给用户包。
+⇒ `enforce-value-type-non-null` 的 TryParse 迁移必须排在 `record-ref-in-signature` 之后。
+
 ## 后续 change（不在本变更范围）
+- **`record-ref-in-signature`（优先级最高的 follow-up）** —— `TsigTypeName` / `ExportedParamZ`
+  的类型串带 `ref` 前缀 + `ImportedSymbolLoader` 解析回 `IsRef` + minor bump
+  （走 `version-bumping.md` 的 CI artifact overlay 配方，本地直接建会死锁）
 - `optimize-readonly-alias` —— `CallEmitter._emitStructAwareArgs` 按「callee 不写该形参」跳过 `StructAlloc + StructCopy`（砍 `in` 的性能替代）
 - `add-definite-assignment` —— DA pass；随之加「传 `ref` 前未赋值」警告 + 「直接读未赋值局部」错误
 - `define-null-model` —— 值类型不可空 / `?` 标记 / 流分析 / `Expect` / 砍 `??` 与 `?.`

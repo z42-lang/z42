@@ -13,6 +13,11 @@
 3. **`ref` 实参的类型检查形同虚设** —— `BoundRefArg` 一律以 `Z42UnknownType` 构造
    （`ExprTyper.z42:300`），而 `Conversion.Classify` 对 unknown 是吸收的 ⇒
    实参与形参类型不匹配**不报错**。
+4. **跨包完全看不见 `ref`** —— `TsigTypeName` 只处理数组 / nullable / 泛型实参，
+   **不记录 `ref`**；`ImportedSymbolLoader` 也没有 `IsRef`。这不是新发现：
+   `DiagnosticCodes.z42` 的 **E0465（`ForwardNotRenderable`）注释已明确记载**
+   「`ref`/`out` 在 TSIG 格式里**根本不记录**……实测调用点少写 ref 照样编译通过、修改丢失」，
+   并因此整类拒绝了跨包 `[Forward]`。
 
 ### 根因：三态是自举移植时丢的
 
@@ -127,6 +132,15 @@ if (Int32.TryParse(s, ref var n)) { return n; }   // 与 out var n 只差一个�
 
 ## Out of Scope
 
+- **跨包 `ref` 强制检查** —— 独立 follow-up change `record-ref-in-signature`。
+  形参在元数据里是 `ExportedParamZ(name, typeString)`，类型是**字符串** ⇒
+  记 `ref` 不必改二进制布局，像 `?` / `[]` 那样进类型串即可。但这是**前向不兼容**
+  （旧工具读新包会把 `"ref int"` 当未知类型名）⇒ 按 `version-bumping.md` 需 minor bump，
+  而本地直接建会撞种子/格式死锁（见 memory 的 CI artifact overlay 配方）。
+  **拆出去是为了让本变更能先落地**，不是忽略它。
+  ⚠️ **`enforce-value-type-non-null` 依赖它**：`Int32.TryParse(string, ref int)` 一旦跨包调用，
+  没有签名里的 `ref` 就无法强制调用点写 `ref`。顺序必须是
+  `simplify-ref-parameters` → `record-ref-in-signature` → `enforce-value-type-non-null`。
 - **只读别名优化** —— 独立 change。着力点已定位：`CallEmitter._emitStructAwareArgs`
   对**每个** blob struct 实参无条件发 `StructAlloc + StructCopy`；若 callee 的 IR 在任何路径上
   都不写该形参，这两条可以省掉直接传句柄。**纯编译期、一处、零运行期风险**，需跨函数摘要

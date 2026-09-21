@@ -39,7 +39,17 @@
 
 #### Scenario: 形参声明增删 `ref` 后调用点失配
 - **WHEN** 已有 `void F(int x)` 与调用 `F(c)`，把声明改成 `void F(ref int x)`
-- **THEN** 所有调用点报 `RefArgModifierMissing` —— 声明变更必被发现
+- **THEN** **同包内**所有调用点报 `RefArgModifierMissing` —— 声明变更必被发现
+
+#### Scenario: 跨包调用暂不检查（已知缺口）
+- **WHEN** pkgB 调用 pkgA 导出的 `void F(ref int x)` 而漏写 `ref`
+- **THEN** 本变更**不报**——`TsigTypeName` 不记录 `ref`，`ImportedSymbolLoader` 无 `IsRef`，
+  跨包侧拿不到修饰符信息
+- **注**：这是**已知且已记录**的缺口（`DiagnosticCodes.z42` 的 E0465 注释早已写明
+  「`ref`/`out` 在 TSIG 格式里根本不记录……实测调用点少写 ref 照样编译通过、修改丢失」）。
+  由 follow-up change `record-ref-in-signature` 修（需 minor bump）。
+  **在它落地前，不得让 stdlib 导出任何 `ref` 形参的公开 API** —— 否则等于把这个静默缺口
+  推给用户包。`enforce-value-type-non-null` 的 TryParse 迁移因此必须排在其后。
 
 ### Requirement: `ref` 实参与形参类型精确匹配
 
