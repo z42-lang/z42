@@ -1,0 +1,19 @@
+using Std.IO;
+
+// ANCHOR: code
+class Config {
+    public string Host { get; set; }
+    public int Port { get; set; }
+    public Config() { Host = "localhost"; Port = 80; }
+}
+// ANCHOR_END: code
+
+void Main() {
+    // ANCHOR: use
+    Config a = new Config { Host = "example.com", Port = 8080 };   // 建完顺手设字段
+    Console.WriteLine($"{a.Host}:{a.Port}");
+
+    Config b = new() { Port = 443 };    // 左边已写明类型，new 后面可以省掉类名
+    Console.WriteLine($"{b.Host}:{b.Port}");
+    // ANCHOR_END: use
+}

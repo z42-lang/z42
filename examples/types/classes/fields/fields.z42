@@ -1,0 +1,20 @@
+using Std.IO;
+
+// ANCHOR: code
+class Counter {
+    public int Count;        // 公开字段：谁都能改
+    private string _name;    // 私有字段：只有类里面能用
+
+    public Counter(string name) { _name = name; }
+
+    public void Inc() { Count = Count + 1; }
+    public string Name { get { return _name; } }   // 只读属性：只有 get
+}
+// ANCHOR_END: code
+
+void Main() {
+    Counter c = new Counter("甲");
+    c.Inc();
+    c.Inc();
+    Console.WriteLine($"{c.Name} 数到 {c.Count}");
+}

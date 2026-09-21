@@ -1,0 +1,4 @@
+# ANCHOR: run
+$ z42 run fields.z42
+甲 数到 2
+# ANCHOR_END: run

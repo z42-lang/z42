@@ -1,0 +1,19 @@
+using Std.IO;
+
+// ANCHOR: code
+class Counter {
+    public static int Total;              // 静态字段：全类共用一份
+    public int Mine;
+
+    public void Inc() { Mine = Mine + 1; Total = Total + 1; }
+
+    public static Counter Fresh() { return new Counter(); }   // 静态方法：不需要对象就能调
+}
+// ANCHOR_END: code
+
+void Main() {
+    Counter a = Counter.Fresh();
+    Counter b = Counter.Fresh();
+    a.Inc(); a.Inc(); b.Inc();
+    Console.WriteLine($"a={a.Mine} b={b.Mine} 总计={Counter.Total}");
+}

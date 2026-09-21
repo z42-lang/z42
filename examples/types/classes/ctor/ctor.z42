@@ -1,0 +1,21 @@
+using Std.IO;
+
+// ANCHOR: code
+class Box {
+    public string Label;
+    public int Size;
+
+    public Box() : this("未命名", 1) { }        // 转调下面那个，别重复写
+    public Box(string label) : this(label, 1) { }
+    public Box(string label, int size) {
+        Label = label;
+        Size = size;
+    }
+}
+// ANCHOR_END: code
+
+void Main() {
+    Console.WriteLine(new Box().Label);
+    Console.WriteLine(new Box("礼物").Size);
+    Console.WriteLine(new Box("大箱", 10).Size);
+}
