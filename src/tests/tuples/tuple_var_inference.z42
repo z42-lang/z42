@@ -1,0 +1,63 @@
+// `var` 接元组字面量时，元素类型必须保留（不能停在擦除的 `T1..Tn`）。
+//
+// 回归来源：元组字面量脱糖成 `new ValueTupleN(...)` 时**不带类型实参**，指望 ctor 实参去推 ——
+// 但 `new` 不做类级型参推断，于是结果类型就是裸的泛型定义。症状三连，全部零关联地各自表现：
+//   var t = (1,2); t.Item1 + t.Item2        → E0402: operator + requires numeric operand, got T1
+//   var n = ((1,2),3); ((a,b),c) = n        → E0402: tuple pattern requires a tuple-typed subject, got T1
+//   var n = ((1,2),3); n.Item1.Item2        → 运行期 FieldGet: expected object, got StructRef
+//
+// 写显式类型（`(int,int) t = (1,2)`）一直是好的 —— 那条路的实例化类型由 var-decl 的目标类型
+// 提供，压根没走脱糖里的推断。所以本文件**专钉 `var`**。
+//
+// 修法：脱糖时先绑元素取类型、经 `_typeToTypeExpr` 反解，把类型实参**写出来**
+// （与集合字面量 `{1,2,3}` → `List<int>` 同款手法）。
+namespace Demo;
+
+(int, string) mkPair() { return (7, "hi"); }
+
+void Main() {
+    // ① 元素类型保留 → 能当真数值用
+    var t = (1, 2);
+    Assert.Equal(3, t.Item1 + t.Item2);
+    int z = t.Item1;
+    Assert.Equal(1, z);
+
+    // ② 混合元素类型
+    var mixed = (7, "hi");
+    Assert.Equal(8, mixed.Item1 + 1);
+    Assert.Equal(2, mixed.Item2.Length);
+
+    // ③ 嵌套：链式字段访问
+    var nested = ((1, 2), 3);
+    Assert.Equal(3, nested.Item2);
+    Assert.Equal(1, nested.Item1.Item1);
+    Assert.Equal(2, nested.Item1.Item2);
+    Assert.Equal(3, nested.Item1.Item1 + nested.Item1.Item2);
+
+    // ④ 嵌套：解构声明
+    ((a, b), c) = nested;
+    Assert.Equal(1, a);
+    Assert.Equal(2, b);
+    Assert.Equal(3, c);
+
+    // ⑤ 嵌套：is 模式
+    Assert.True(nested is ((_, _), _));
+
+    // ⑥ 嵌套：switch 位置模式
+    int hit = 0;
+    switch (nested) {
+        case ((1, y), w): hit = y + w; break;
+        default: hit = -1; break;
+    }
+    Assert.Equal(5, hit);
+
+    // ⑦ 平坦解构（既有行为，别回归）
+    (p, q) = mkPair();
+    Assert.Equal(7, p);
+    Assert.Equal("hi", q);
+
+    // ⑧ 显式类型那条路照旧
+    ((int, int), int) ex = ((4, 5), 6);
+    Assert.Equal(9, ex.Item1.Item1 + ex.Item1.Item2);
+    Assert.Equal(6, ex.Item2);
+}
