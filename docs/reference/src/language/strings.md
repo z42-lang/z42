@@ -116,7 +116,12 @@ void Main() {
 - **`Length` 是属性**（`a.Length`），不是 `a.Length()`。另有 `ByteLength` 返回 UTF-8 字节数，
   两者对非 ASCII 字符串不同（`"你好".Length == 2`，`"你好".ByteLength == 6`）。
 - **`Split` 没有 `Split(char)` 重载**。可用的三个是 `Split(string)`、`Split(string, int)`、
-  `Split(char[])`，所以要写 `a.Split(",")` 而不是 `a.Split(',')`。
+  `Split(char[])`，所以要写 `a.Split(",")` 而不是 `a.Split(',')`；写成字符会报
+  `E0401: no overload of \`Split\` on \`String\` accepts these arguments`。
+
+  > 2026-09 之前 `a.Split(',')` **能通过编译**，到运行期才崩在 `Std.String.Split` 内部
+  > （`VCall: expected object, got Char`）——prim 收者的重载决议解析不到时会松绑定到裸名。
+  > 现已在编译期拦下。
 
 完整的字符串成员清单见标准库参考的 `Std.String`。
 

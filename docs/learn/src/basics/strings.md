@@ -135,10 +135,9 @@ C# 里 `$"{x:X2}"` 能把数字按十六进制两位输出。**z42 不支持这�
 
 `String.Join` 和 `String.IsNullOrEmpty` 是**静态方法**，写类名调用，不是 `s.Join(...)`。
 
-### 🔴 `Split` 只收字符串，写成字符会在运行期崩
+### `Split` 只收字符串，不收字符
 
-C# 里 `s.Split(',')` 是常见写法。**z42 没有 `Split(char)`，但编译器不会拦你**，
-要跑起来才报错：
+C# 里 `s.Split(',')` 是常见写法，**z42 没有 `Split(char)`**，编译器会拦下来：
 
 ```z42
 // examples/basics/strings/split/splitchar.z42
@@ -149,7 +148,8 @@ C# 里 `s.Split(',')` 是常见写法。**z42 没有 `Split(char)`，但编译�
 {{#include ../../../../examples/basics/strings/split/run.console:err}}
 ```
 
-**用双引号**：`csv.Split(",")`。这是从 C# 过来最容易带错的一个习惯。
+**用双引号**：`csv.Split(",")`。这是从 C# 过来最容易带错的一个习惯，
+好在编译器帮你挡着。
 
 ### 字符数 ≠ 字节数
 
@@ -186,7 +186,7 @@ C# 里 `s.Split(',')` 是常见写法。**z42 没有 `Split(char)`，但编译�
 - 插值里 `{{` `}}` 表示字面花括号；**`{x:F2}` 这类格式说明符静默失效**，别用。
 - 原始串固定三个引号、不能插值、**不剥缩进**。
 - `Length` 是**属性**且数的是字符；字节数用 `ByteLength`。
-- **`Split` 要传字符串 `","`**，传字符 `','` 编得过但运行期崩。
+- **`Split` 要传字符串 `","`**，传字符 `','` 编译期就报错。
 - `String.Join` / `String.IsNullOrEmpty` 是静态方法。
 - 字符串不可变，所有方法都返回新串。
 

@@ -1,0 +1,71 @@
+// prim 收者（`string` / 数值 / `char`… → stdlib 包装类）的实例方法调用派发。
+// 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
+//
+// 这条路径与 class 收者路径（`MemberResolver.z42`）的关键差别：prim 类型本身是**无成员的轻量
+// 合成体**（`Z42ClassType.Builtin("string")`），成员要到 stdlib 包装类上按名查（"string"→"String"）。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class MemberResolver {
+    // prim 收者（`string` / 数值 / `char`…）的实例方法调用：prim 名 → stdlib 包装类（"string"→"String"，
+    // imported 自 z42.core TSIG）上做完整重载决议；查无则松绑定 Unknown（运行期经 DepIndex 解析）。
+    // 从 MemberResolver.z42 整块搬来（partial 拆分只为守行数上限），逻辑逐行未改，
+    // 只多了中间对 BindPrimNoApplicableOverload 的那一次委回。
+    internal BoundExpr BindPrimInstanceCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args,
+                                           int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
+        // prim receiver（IC-3，镜像 C#）：prim 名首字母大写 → stdlib 包装类（"string"→"String"，
+        // imported 自 z42.core TSIG）→ 取方法 ret 真类型（dst tag 字节实证 Str 非 Unknown）；
+        // 查无则松绑定 Unknown（codegen 经 DepIndex 真实解析）。
+        string wrapper = TypeFactsTc._primWrapper(rt.Name());
+        if (env.Symbols.HasClass(wrapper)) {
+            Z42ClassType wct = env.Symbols.GetClass(wrapper);
+            // stabilize-instance-dispatch-keys：prim 收者实例方法**恒走完整 `_resolveOverload`**（镜像上方
+            // class 收者路径 :69 → ms.RegKey）。旧的 `_sameArity<2` 快路径（`_overloadKey`/`_findMethod` 取
+            // bare / `Name$arity`）在新键方案下**失效并致命**：arity 重载（如 `Substring(int)`/`Substring(int,int)`）
+            // 的非-primary 现注册为全签名键 `Substring$2$i32$i32`（非 `Substring$2`），`_overloadKey` 找不到
+            // `Substring$2` → 回落裸 `Substring` → `_findMethod` 命中 **primary（arity-1）** → emit 裸名 + argCount=2
+            // → 运行期按裸名派发到 arity-1 方法却传 2 实参 → **错-arity 调用 → 段错误**。`_resolveOverload` 按
+            // arity 过滤 + 返回正确 `rms.RegKey`（primary 裸 / 非-primary 全键），根治。唯一方法字节中性（RegKey=裸）。
+            MethodSymbol rms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, 0, sp, rawArgs, env);
+            if (rms != null) {
+                rms = MethodTypeArgSubst.ForExplicitTypeArgs(rms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
+                this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
+                this._tc._access.CheckDeprecatedM(rms, mem.Name, sp);
+                BoundExpr[] fa = this._tc._overload._withDefaults(rms, args, rawArgs, argCount, env, sp, false);
+                return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp);
+            }
+            BoundExpr noOv = this.BindPrimNoApplicableOverload(wct, mem, recv, rt, args, argCount, rawArgs, env, sp);   // 无一重载适用 ⇒ 真错，别松绑定（见该方法头注）
+            if (noOv != null) { return noOv; }
+        }
+        args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
+        return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mem.Name, args, argCount, new Z42UnknownType(), sp);
+    }
+
+    // prim 收者（`string` / 数值 / `char`…→ stdlib 包装类）上**没有任何重载适用**时的诊断。
+    // 命中 → 返回一个 Error 类型的调用节点（调用方直接 return）；不该报 → null（调用方继续原路径）。
+    //
+    // 为什么必须报：主文件 prim 路径在 `_resolveOverload` 返回 null 时会落到**松绑定**——按**裸名**
+    // 发调用、返回类型 Unknown，交运行期经 DepIndex 解析。名字确实存在时这条路会派发到一个签名
+    // 对不上的重载：`"a,b".Split(',')` 就这样编过、再崩在 `Std.String.Split` 里
+    // （`VCall: expected object, got Char(',')`）—— char 既不适用 `Split(string)` 也不适用
+    // `Split(char[])`，本就该在编译期拦下。
+    //
+    // 镜像 class 收者路径（`MemberResolver.z42` :97-111）的同一分支结构：解析不到时**只有 stub
+    // 受者**（懒加载、主符号表无真类）才松绑定，否则报「没有这个方法」。走到这里说明拿到的是真
+    // 包装类、候选集完整，够格判错。
+    //
+    // ⚠️ 只在该名字**存在**于包装类上时报错。名字压根不在时返回 null，让调用方按老路松绑定——
+    // 那是主文件注释「查无则松绑定」本来要保的情形（运行期经 DepIndex 解析），不动它。
+    internal BoundExpr BindPrimNoApplicableOverload(Z42ClassType wct, MemberExpr mem, BoundExpr recv, Z42Type rt,
+                                                   BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        if (!wct.Methods.ContainsKey(mem.Name)) { return null; }
+        if (this._tc._overload.LastAmbiguous) { return null; }   // 歧义由 _resolveOverload 自己报
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+            "no overload of `" + mem.Name + "` on `" + wct.Name() + "` accepts these arguments", mem.NameSpan);
+        BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
+        return new BoundCall("instance", true, recv, PrimModel.Keyword(rt.Name()), mem.Name, fa, argCount, new Z42ErrorType(), sp);
+    }
+}
