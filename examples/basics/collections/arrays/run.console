@@ -1,0 +1,12 @@
+# ANCHOR: run
+$ z42 run arrays.z42
+3
+1
+42
+0
+# ANCHOR_END: run
+# ANCHOR: oob
+$ z42 run oob.z42
+Error: uncaught exception: array index 5 out of bounds (len=3)
+[exit: 1]
+# ANCHOR_END: oob

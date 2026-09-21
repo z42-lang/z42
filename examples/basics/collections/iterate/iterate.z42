@@ -1,0 +1,14 @@
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    // ANCHOR: code
+    int[] arr = [1, 2, 3];
+    List<string> names = { "小明", "小红" };
+    Dictionary<string, int> ages = { "小明": 7 };
+
+    foreach (int v in arr)      { Console.WriteLine(v); }
+    foreach (string n in names) { Console.WriteLine(n); }
+    foreach (var kv in ages)    { Console.WriteLine($"{kv.Key} 今年 {kv.Value} 岁"); }
+    // ANCHOR_END: code
+}

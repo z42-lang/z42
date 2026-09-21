@@ -1,0 +1,4 @@
+# ANCHOR: run
+$ z42 run list.z42
+4 4 2 0
+# ANCHOR_END: run

@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run literals.z42
+3 30 5 7
+1 2 3 99 10 20 30 
+# ANCHOR_END: run

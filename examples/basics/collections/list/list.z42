@@ -1,0 +1,13 @@
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    // ANCHOR: code
+    List<int> nums = { 1, 2, 3 };     // 花括号 = List
+    var       more = { 100, 200 };    // 裸元素 → List<int>
+    List<int> empty = {};             // 空的，元素类型由左边定
+
+    nums.Add(4);
+    Console.WriteLine($"{nums.Count} {nums[3]} {more.Count} {empty.Count}");
+    // ANCHOR_END: code
+}
