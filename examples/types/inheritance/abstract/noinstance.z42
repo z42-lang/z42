@@ -1,0 +1,10 @@
+using Std.IO;
+
+abstract class Shape {
+    public abstract double Area();
+}
+
+void Main() {
+    Shape s = new Shape();
+    Console.WriteLine(s.Area());
+}

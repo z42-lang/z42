@@ -1,0 +1,30 @@
+using Std.IO;
+
+// ANCHOR: decl
+class Animal {
+    public string Name { get; set; }
+    public Animal(string name) { Name = name; }
+
+    public virtual string Speak() { return "..."; }   // virtual：允许子类改写
+}
+
+class Dog : Animal {
+    public Dog(string name) : base(name) { }          // base：调基类构造器
+    public override string Speak() { return "汪"; }    // override：改写
+}
+
+class Cat : Animal {
+    public Cat(string name) : base(name) { }
+    public override string Speak() { return "喵"; }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: use
+    Animal[] zoo = [ new Dog("大黄"), new Cat("小花"), new Animal("神秘") ];
+
+    foreach (Animal a in zoo) {
+        Console.WriteLine($"{a.Name}: {a.Speak()}");   // 按运行时的真实类型派发
+    }
+    // ANCHOR_END: use
+}

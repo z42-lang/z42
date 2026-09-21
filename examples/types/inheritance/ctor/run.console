@@ -1,0 +1,6 @@
+# ANCHOR: run
+$ z42 run ctor.z42
+Base(甲) 跑了
+Derived(甲, 7) 跑了
+甲 7
+# ANCHOR_END: run

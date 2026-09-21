@@ -1,0 +1,10 @@
+# ANCHOR: run
+$ z42 run sealedcls.z42
+圆
+# ANCHOR_END: run
+# ANCHOR: nosubclass
+$ z42 run nosubclass.z42
+z42c build: 1 error(s) in nosubclass.z42
+  nosubclass.z42(5,1): E0427: cannot inherit from sealed class `Circle`
+[exit: 1]
+# ANCHOR_END: nosubclass

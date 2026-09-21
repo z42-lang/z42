@@ -1,0 +1,11 @@
+# ANCHOR: run
+$ z42 run abstract.z42
+面积 12
+面积 3.14159
+# ANCHOR_END: run
+# ANCHOR: noinstance
+$ z42 run noinstance.z42
+z42c build: 1 error(s) in noinstance.z42
+  noinstance.z42(8,15): E0402: cannot create an instance of abstract class `Shape`
+[exit: 1]
+# ANCHOR_END: noinstance
