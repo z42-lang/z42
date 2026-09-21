@@ -1,0 +1,9 @@
+[project]
+name    = "demo.ffoapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.FfoApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ffotarget" = "0.1.0"

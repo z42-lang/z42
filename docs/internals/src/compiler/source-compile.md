@@ -244,6 +244,34 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 `ImportedFuncNs` / `_filterShadowedFuncs` 随之删除。对原本就正确的代码，解析结果与旧的猜测逐字相同 ⇒
 自举与 stdlib 产物字节不变；只有上表三种形态（及「本包另一文件声明的函数遮蔽导入同名函数」）发码改变。
 
+#### 自由函数按签名重载（free-function-overloads）
+
+自由函数与类方法一样**按参数类型序列重载**，复用类方法**已有**的那套决议（`OverloadResolver`）与
+**#414 的 primary-bare 派发键规则**——不新造机制、不改 wire 格式、不触发格式 bump。
+
+- **派发键**（`MemberCollector._passMembers`）：某 `(ns, 基名)` 的**本地**声明序**首个** = primary →
+  `RegKey = 裸名`（= 唯一函数今天的键）；后续同名兄弟 → 全签名 `MangleKey(name, 形参类型…)`
+  （`name$arity$T…`）。唯一函数恒为 primary ⇒ 键与旧的裸名逐字节相同 ⇒ **存量 zbc/zpkg 零漂移**，
+  加第二个重载才多出一个签名键、不碰 primary（纯增量）。primary 判定用**包级** tracker
+  `SymbolCollector._freeFnLocalSeen`（跨文件同 ns 只能一个 primary，故不能 per-CU；只统计本地——导入
+  函数各自带包内定好的 RegKey）。
+- **候选集**（`SymbolTable`）：`FunctionsByFqn` 键改为 **RegKey-限定 FQN**（`QualOf(ns, RegKey)`：primary =
+  `ns.name`、非-primary = `ns.name$arity$T`），`GetFuncIn(ns, name)` 仍命中 primary（既有单符号消费点零改动）；
+  伴生 `FuncOverloadsByFqn`（**基名** FQN → `MethodSymList`）按基名分组供决议枚举，`GetFuncCandidates` 取之。
+- **调用点**（`MemberResolver` 两处自由调用漏斗）：`GetFuncCandidates` → `OverloadBinder._resolveFreeOverload`
+  （与类方法共用抽出的 `_resolveOverloadCands` 核心：arity 过滤 / params / 默认值 / 命名实参 / type-based
+  最具体 / 歧义 E0425）；选中符号的 `RegKey` 写进 `BoundCall.MethodName`，发射端照旧 `QualOf(FreeNs, RegKey)`。
+  no-match 报「no overload … matches」，歧义报 E0425。
+- **判重**（`MemberCollector`，包级全签名 tracker `_freeFnSigSeen`）：只有**签名完全相同**才 E0408
+  （形参名/返回类型不算区别），且**不注册重复份**（否则它进候选集 → 调用点级联 E0425，一处笔误报两条）。
+  旧的 `DeclBinder._checkDuplicateFreeFunctions`（按裸名去重）已删——primary/非-primary 后裸名去重会误判合法重载。
+- **跨包**（T6）：`FuncImplExtractor._extractFunc` 按 RegKey 精确取本份并**按 RegKey 导出**（primary 裸 →
+  字节稳定）；导入侧基名 = RegKey 剥首个 `$`（标识符不含 `$` ⇒ 无需新增 TSIG 字段），符号的 `RegKey` 存完整键。
+- **运行期零改动**：VM 把函数名当不透明字符串（`func_index: String→usize`，全程不 parse `$`），静态方法调用
+  今天走的就是这条同表同键路径，mangle 串天然可用。入口 `Main` 天然 primary → 裸键 `Main`，`vm.rs` 精确匹配不受影响。
+- **分阶段**（bootstrap-seed）：阶段 1 只给 z42c「能力」，stdlib / z42c / 工具链源码暂不写重载（primary-bare 保证
+  存量零字节变化）；晚一个 nightly 才在种子消费代码里 use。
+
 #### 覆盖面：哪些「引用形态」会被判（E0601 / E0606 / E0456）
 
 诊断只在**引用点**报，所以「覆盖面」= 有多少种引用形态经过了判定。逐形态实测的结果：

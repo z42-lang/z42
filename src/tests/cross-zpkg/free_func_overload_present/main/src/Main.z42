@@ -1,0 +1,10 @@
+namespace Demo.FfoApp;
+
+using Std.IO;
+using Demo.FfoTarget;
+
+void Main() {
+    Console.WriteLine(Fmt(42));     // 跨包 Fmt(int)    → int=42
+    Console.WriteLine(Fmt("hi"));   // 跨包 Fmt(string) → str=hi
+    Console.WriteLine("after");
+}

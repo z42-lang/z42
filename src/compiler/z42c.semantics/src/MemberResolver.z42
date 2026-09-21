@@ -661,10 +661,22 @@ public sealed partial class MemberResolver {
             string fnNs = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace：按引用方 ns + usings 解析
             if (fnNs != null) {
                 this._tc.ChkFreeFuncOrigins(env.Symbols, id.Name, call.Span);   // report-crosspkg-duplicate-function：E0601/E0606/E0456
-                MethodSymbol ms = env.Symbols.GetFuncIn(fnNs, id.Name);
+                // free-function-overloads：候选集 + 与类方法同一套重载决议；唯一函数 → 候选 1 份 → RegKey=裸名 → 零漂移。
+                MethodSymbol[] cands = env.Symbols.GetFuncCandidates(fnNs, id.Name);
+                MethodSymbol ms = this._tc._overload._resolveFreeOverload(env.Symbols, cands, id.Name, args,
+                    call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
+                if (ms == null) {   // 无匹配重载（歧义已由决议内部报 E0425）→ 报无匹配诊断，别用 null 继续崩
+                    if (!this._tc._overload.LastAmbiguous) {
+                        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                            "no overload of free function `" + id.Name + "` matches the given arguments", call.Span);
+                    }
+                    args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, null, env);
+                    return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, new Z42ErrorType(), call.Span);
+                }
+                string emitKey = ms.RegKey;   // 发射键 = 选中重载 RegKey（primary 裸 / 非-primary 带签名），先取再代换
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span, false);
-                BoundCall bc = new BoundCall("free", false, null, "", id.Name, fa, fa.Length, ms.Signature.Ret, call.Span);
+                BoundCall bc = new BoundCall("free", false, null, "", emitKey, fa, fa.Length, ms.Signature.Ret, call.Span);
                 bc.FreeNs = fnNs; bc.FreeImported = !ms.HasDecl;
                 this._applyMethodTypeArgs(bc, call, ms, env);
                 return bc;
@@ -723,11 +735,21 @@ public sealed partial class MemberResolver {
         if (mem.Target is IdentExpr) {
             IdentExpr nsId = mem.Target as IdentExpr;
             if (this._tc._currentNs != "" && nsId.Name == this._tc._currentNs
-                && env.LookupVar(nsId.Name) == null && env.Symbols.GetFuncIn(nsId.Name, mem.Name) != null) {
-                // 限定写法 = 已消歧：直接取该 ns 的那份（resolve-free-functions-by-namespace），不走裸名候选。
-                MethodSymbol nfs = env.Symbols.GetFuncIn(nsId.Name, mem.Name);
+                && env.LookupVar(nsId.Name) == null && env.Symbols.GetFuncCandidates(nsId.Name, mem.Name).Length > 0) {
+                // 限定写法 = ns 已消歧：在该 ns 的候选集内做重载决议（free-function-overloads）；唯一函数字节零漂移。
+                MethodSymbol[] ncands = env.Symbols.GetFuncCandidates(nsId.Name, mem.Name);
+                MethodSymbol nfs = this._tc._overload._resolveFreeOverload(env.Symbols, ncands, mem.Name, args,
+                    argCount, call.TypeArgCount, sp, rawArgs, env);
+                if (nfs == null) {
+                    if (!this._tc._overload.LastAmbiguous) {
+                        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                            "no overload of free function `" + mem.Name + "` matches the given arguments", sp);
+                    }
+                    args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
+                    return new BoundCall("free", false, null, "", mem.Name, args, argCount, new Z42ErrorType(), sp);
+                }
                 BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
-                BoundCall nbc = new BoundCall("free", false, null, "", mem.Name, nfa, nfa.Length, nfs.Signature.Ret, sp);
+                BoundCall nbc = new BoundCall("free", false, null, "", nfs.RegKey, nfa, nfa.Length, nfs.Signature.Ret, sp);
                 nbc.FreeNs = nsId.Name; nbc.FreeImported = !nfs.HasDecl;
                 return nbc;
             }

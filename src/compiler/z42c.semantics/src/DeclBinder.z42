@@ -38,25 +38,6 @@ public sealed class DeclBinder {
         }
     }
 
-    internal void _checkDuplicateFreeFunctions(CompilationUnit cu) {
-        StrMap seen = new StrMap();
-        int i = 0;
-        while (i < cu.DeclCount) {
-            Decl d = this._tc._unwrap(cu.Decls[i]);
-            if (d is MethodDecl) {
-                MethodDecl m = d as MethodDecl;
-                if (seen.ContainsKey(m.Name)) {
-                    this._tc._diags.Error(DiagnosticCodes.DuplicateDeclaration,
-                        "duplicate top-level function `" + m.Name + "` — free functions do not overload; "
-                        + "give them distinct names", m.Span);
-                } else {
-                    seen.Put(m.Name, "1");
-                }
-            }
-            i = i + 1;
-        }
-    }
-
     // stabilize-instance-dispatch-keys：判重键从 `md.RegKey` 改为**全签名 MangleKey**。
     // 老键下碰撞的重载（`G(string)`/`G(string?)`、`F(int)`/`F(i32)`——Canon 归一 nullable/别名后同签名）
     // 共享同一 RegKey，靠「RegKey 重复」即可判重；新键下 primary=裸、非-primary=全键，二者 RegKey
@@ -323,7 +304,8 @@ public sealed class DeclBinder {
             // 使 typeof(T)/new T()/default(T) 走 frame.method_type_args 通道（否则默认全类级 → 占位名）。
             env.ClassTypeParamCount = 0;
             BoundStmt body = this._bindMethodBody(symbols, env, md);
-            model.AddBody(md.Name, body);
+            // free-function-overloads：体按 RegKey 存（primary=裸名→与旧键相同；重载各份键唯一，避免同名撞体）。
+            model.AddBody(md.RegKey, body);
         }
     }
 

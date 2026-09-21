@@ -1,0 +1,15 @@
+// free-function-overloads：自由函数按 arity + 形参类型重载，验证调用点选中正确的那一份。
+using Std.IO;
+
+int add(int a) { return a + 100; }
+int add(int a, int b) { return a + b; }
+
+string describe(int n) { return "int:" + n.ToString(); }
+string describe(string s) { return "str:" + s; }
+
+void Main() {
+    Console.WriteLine(add(5).ToString());        // arity 1 → 105
+    Console.WriteLine(add(5, 7).ToString());     // arity 2 → 12
+    Console.WriteLine(describe(42));             // int 重载 → int:42
+    Console.WriteLine(describe("hi"));           // string 重载 → str:hi
+}

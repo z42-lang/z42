@@ -24,6 +24,15 @@ public sealed class SymbolCollector {
     // partial method 配对追踪：canonical sig key "Cls#Name(pt,…)" → MethodDecl。decl-only 擦除，impl 需匹配 decl。
     internal StrMap _partialDecls;
     internal StrMap _partialImpls;
+    // free-function-overloads：**本地**自由函数 primary 判定的包级 tracker（基名 FQN → "1"）。
+    // 只统计本地声明（导入函数不入），且**声明序首个 = primary（裸键）**，故须包级（跨文件同 ns 同名
+    // 只能一个 primary）。_passMembers 跨 CU 按文件序累积（CollectAll 的 _passMembers 循环）。
+    internal StrMap _freeFnLocalSeen;
+    // free-function-overloads：**同签名**判重的包级 tracker（全签名 FQN `QualOf(ns, MangleKey(...))` → MethodDecl）。
+    // 判重键必须用全签名（不随 primary/非-primary 漂移）：两份 `bar(int)` 中 primary 拿裸键、另一份拿签名键，
+    // RegKey-FQN 不同 ⇒ 靠 FunctionsByFqn 碰撞漏判；故独立按全签名去重。同文件 + 跨文件重复都在
+    // MemberCollector._passMembers 据此统一报 E0408（旧的 DeclBinder 裸名去重已删）。
+    internal StrMap _freeFnSigSeen;
     private StubCollector       _stub;      // Pass A：骨架 stub
     private MemberCollector     _member;    // Pass B：成员填充
     private InheritanceResolver _inherit;   // 基链解析（override/sealed/继承字段/impl）
@@ -33,6 +42,8 @@ public sealed class SymbolCollector {
         this.Diags = new DiagnosticBag();
         this._partialDecls = new StrMap();
         this._partialImpls = new StrMap();
+        this._freeFnLocalSeen = new StrMap();   // free-function-overloads
+        this._freeFnSigSeen = new StrMap();     // free-function-overloads
         this._stub = new StubCollector(this);
         this._member = new MemberCollector(this);
         this._inherit = new InheritanceResolver(this);
@@ -226,14 +237,16 @@ public sealed class SymbolCollector {
             while (j < fos.Length) { SymbolTable.NoteNsInto(table.FuncOriginAll, fok[i], fos[j]); j = j + 1; }
             i = i + 1;
         }
-        // resolve-free-functions-by-namespace：导入自由函数按 FQN 并入（键 = `ns.name`，name 不含点 ⇒ 末个点切分）。
+        // 导入自由函数按 FQN 并入。free-function-overloads：键 = `QualOf(ns, RegKey)`，RegKey 无点 ⇒ 末点切出 ns；
+        // 候选分组用符号的**基名**（fsym.Name，loader 已剥 `$`），RegKey 已由 loader 定好 ⇒ AddFunc 按 RegKey-FQN 入表、
+        // 按基名入候选集。Phase 1 无重载 ⇒ RegKey==基名，与旧行为逐字节一致。
         string[] fns = imported.FunctionsByFqn.Keys();
         i = 0;
         while (i < fns.Length) {
+            MethodSymbol ifsym = imported.FunctionsByFqn.Get(fns[i]) as MethodSymbol;
             int dot = fns[i].LastIndexOf(".");
             string fnNs = dot < 0 ? "" : fns[i].Substring(0, dot);
-            string fnName = dot < 0 ? fns[i] : fns[i].Substring(dot + 1);
-            table.AddFunc(fnNs, fnName, imported.FunctionsByFqn.Get(fns[i]) as MethodSymbol, false);
+            table.AddFunc(fnNs, ifsym.Name, ifsym, false);
             i = i + 1;
         }
         // add-associated-types PR-1：导入类的 where 约束 seed（跨包约束校验的落地点）。

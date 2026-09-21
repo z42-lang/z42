@@ -10,9 +10,14 @@ $ z42 run method.z42
 36.6 °C
 [无读数]
 # ANCHOR_END: method
+# ANCHOR: overload
+$ z42 run overload.z42
+42
+5
+# ANCHOR_END: overload
 # ANCHOR: dup
 $ z42 run dup.z42
 z42c build: 1 error(s) in dup.z42
-  dup.z42(4,1): E0408: duplicate top-level function `Parse` — free functions do not overload; give them distinct names
+  dup.z42(4,1): E0408: duplicate top-level function `Parse` — a function with the same signature is already declared at dup.z42:3; free functions may overload only by parameter types
 [exit: 1]
 # ANCHOR_END: dup

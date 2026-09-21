@@ -34,15 +34,33 @@ public sealed class MemberCollector {
                 // `table` 此处已是 `WithScopeOf(cu)` 的视图 ⇒ ScopeNs 正是本 CU 的 ns。
                 // 有了它才判得出「本包遮蔽了导入包的同 FQN 自由函数」（E0606）。
                 table.NoteFuncOrigin(m.Name, table.ScopeNs, "");
-                // resolve-free-functions-by-namespace：按 FQN 登记（不同 ns 的同名函数各自独立，不再后写覆盖）。
-                // 同 FQN 已有一份**本包**声明、且在另一个文件 → E0408，同时指出两处（同文件那条由
-                // `DeclBinder._checkDuplicateFreeFunctions` 报，这里不重复）。先登记者保留：文件按稳定序收集。
-                MethodSymbol prevFn = table.AddFunc(table.ScopeNs, m.Name, this._sc._methodSymbol(table, m, "", new string[0], 0), true);
-                if (prevFn != null && prevFn.HasDecl && prevFn.Decl != null && prevFn.Decl.Span.File != m.Span.File) {
+                MethodSymbol msym = this._sc._methodSymbol(table, m, "", new string[0], 0);
+                // free-function-overloads：primary/非-primary 键（复用 #414 scheme）。**本地**声明序首个同名 →
+                // primary → 裸键（= 唯一函数今天的键，存量零漂移）；后续同名兄弟 → 全签名 MangleKey（加/删重载只动
+                // 自己、不碰 primary）。tracker 只统计本地（导入函数各自带包内定好的 RegKey）。
+                string baseFqn = SymbolTable.QualOf(table.ScopeNs, m.Name);
+                string sigFqn = SymbolTable.QualOf(table.ScopeNs,
+                    OverloadResolver.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount));
+                string regName = m.Name;
+                if (this._sc._freeFnLocalSeen.ContainsKey(baseFqn)) {
+                    regName = OverloadResolver.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                } else {
+                    this._sc._freeFnLocalSeen.Put(baseFqn, "1");
+                }
+                msym.RegKey = regName; m.RegKey = regName;
+                // 同签名判重（全签名键，包级 = 同文件 + 跨文件统一在此报）：已声明**相同签名**的同名自由函数
+                // → E0408，指向另一处，且**不注册这份重复**（否则它会进候选集 → 调用点级联 E0425 歧义，
+                // 一处笔误报两条）。不同签名同名 = 合法重载，正常注册。此处是自由函数判重的唯一入口
+                // （DeclBinder 旧的按裸名去重已删——primary/非-primary 后裸名去重会误判合法重载）。
+                if (this._sc._freeFnSigSeen.ContainsKey(sigFqn)) {
+                    MethodDecl prevD = this._sc._freeFnSigSeen.Get(sigFqn) as MethodDecl;
+                    string at = prevD != null ? (prevD.Span.File + ":" + prevD.Span.Line.ToString()) : "?";
                     this._sc.Diags.Error(DiagnosticCodes.DuplicateDeclaration,
-                        "duplicate top-level function `" + SymbolTable.QualOf(table.ScopeNs, m.Name) + "` — also declared at "
-                        + prevFn.Decl.Span.File + ":" + prevFn.Decl.Span.Line.ToString()
-                        + "; free functions do not overload, give them distinct names", m.Span);
+                        "duplicate top-level function `" + SymbolTable.QualOf(table.ScopeNs, m.Name) + "` — a function with the "
+                        + "same signature is already declared at " + at + "; free functions may overload only by parameter types", m.Span);
+                } else {
+                    this._sc._freeFnSigSeen.Put(sigFqn, m);
+                    table.AddFunc(table.ScopeNs, m.Name, msym, true);
                 }
             }
             i = i + 1;

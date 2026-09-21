@@ -16,6 +16,12 @@ public sealed partial class SymbolTable {
     // resolve-free-functions-by-namespace：自由函数 **FQN**（`ns.name`；全局 ns 即 `name`）→ MethodSymbol（本包 + 导入）。
     // 解析与登记见 SymbolTable.Functions.z42。此前是裸名键 `Functions`（后写覆盖、不认 ns）。
     public StrMap FunctionsByFqn;
+    // free-function-overloads：自由函数重载候选集。键 = **基名 FQN**（`QualOf(ns, 源名)`，不含签名后缀），
+    // 值 = MethodSymbolList（该 ns 下同名全部重载，含 primary，登记序）。`FunctionsByFqn` 的键是
+    // **RegKey-限定 FQN**（primary=`ns.name`、非-primary=`ns.name$arity$T`）用于发射唯一性与跨包；
+    // 这张表按基名分组用于调用点重载决议（GetFuncCandidates）。#414 primary-bare：唯一函数 → primary →
+    // 裸键 ⇒ 存量字节零漂移；第二个同名起才带签名后缀，纯增量。
+    public StrMap FuncOverloadsByFqn;
     public StrMap FuncNsAll;        // 短名 → 声明过它的全部 ns（StrBox，"|" 连接；与 ClassNsAll 同构）= 裸名解析的候选集
     public StrMap ClassConstraints; // ConstraintKey() → ConstraintSet（2B；仅有 where 子句的泛型类/结构登记）
     // add-associated-types PR-1：泛型**接口**的 where 约束。与 ClassConstraints 分开存，因为类与接口
@@ -66,6 +72,7 @@ public sealed partial class SymbolTable {
         this.ClassesByFqn = new StrMap();   // fix-type-ref-ns-collision
         this.Interfaces = new StrMap();
         this.FunctionsByFqn = new StrMap();
+        this.FuncOverloadsByFqn = new StrMap();   // free-function-overloads
         this.FuncNsAll = new StrMap();
         this.ClassConstraints = new StrMap();
         this.InterfaceConstraints = new StrMap();
@@ -102,6 +109,7 @@ public sealed partial class SymbolTable {
         t.ClassesByFqn = this.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
         t.Interfaces = this.Interfaces;
         t.FunctionsByFqn = this.FunctionsByFqn;   // 共享（并行段内只读）
+        t.FuncOverloadsByFqn = this.FuncOverloadsByFqn;   // free-function-overloads：共享（并行段内只读）
         t.FuncNsAll = this.FuncNsAll;
         t.ClassConstraints = this.ClassConstraints;
         t.InterfaceConstraints = this.InterfaceConstraints;

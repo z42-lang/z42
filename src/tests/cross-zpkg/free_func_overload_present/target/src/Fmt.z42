@@ -1,0 +1,6 @@
+namespace Demo.FfoTarget;
+
+// free-function-overloads 跨包在场：按参数类型重载的自由函数，导出为 primary 裸键（Fmt）+
+// 非-primary 全签名键（Fmt$1$string），消费方按实参类型解析到正确一份。
+public string Fmt(int n)    { return "int=" + n.ToString(); }
+public string Fmt(string s) { return "str=" + s; }

@@ -100,6 +100,15 @@ public sealed class ExprTyper {
                 // 方法组转换：自由函数名作值（`IntFn0 a = Helper`）→ func 引用（LoadFn）。
                 string mfns = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace
                 if (mfns != null) {
+                    // free-function-overloads v1：方法组取引用只在**无歧义**（该名恰一份）时可行。多重载取引用
+                    // 需按目标委托类型定向消解（method-group target-typed resolution），v1 不做 → 报诊断，
+                    // 与类方法方法组取引用的现状对齐。裸名 BoundFuncRef 无从表达选中哪个签名。
+                    if (env.Symbols.GetFuncCandidates(mfns, id.Name).Length > 1) {
+                        this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
+                            "cannot take a reference to overloaded free function `" + id.Name
+                            + "`; only single (non-overloaded) free functions can be used as a method-group value", id.Span);
+                        return new BoundError("overloaded funcref " + id.Name, new Z42ErrorType(), id.Span);
+                    }
                     MethodSymbol mfs = env.Symbols.GetFuncIn(mfns, id.Name);
                     return new BoundFuncRef(id.Name, mfns, !mfs.HasDecl, mfs.Signature, id.Span);
                 }

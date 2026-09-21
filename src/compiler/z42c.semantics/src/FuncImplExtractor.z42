@@ -94,18 +94,16 @@ public static class FuncImplExtractor {
     }
 
     internal static ExportedFuncZ _extractFunc(MethodDecl md, string declNs, SymbolTable symbols) {
-        MethodSymbol ms = symbols.GetFuncIn(declNs, md.Name);   // resolve-free-functions-by-namespace：按声明所在 ns 精确取
+        // free-function-overloads：按 **RegKey** 精确取 THIS 重载（FunctionsByFqn 键 = QualOf(ns, RegKey)；
+        // primary 的 RegKey=裸名 ⇒ 与旧的按 md.Name 取等价，字节稳定）。重载各份 RegKey 唯一 → 取到正确签名，
+        // 不再像旧的按 md.Name 取到 primary 的错签名。
+        MethodSymbol ms = symbols.GetFuncIn(declNs, md.RegKey);
         ExportedParamZ[] ps = new ExportedParamZ[0];
         string ret = "void";
         int pc = 0;
         int paramsFrom = 0 - 1;
-        // Free functions don't overload — the table is keyed by `ns.name`, so for an (invalid)
-        // same-FQN pair it may return a DIFFERENT-arity overload's symbol. Only trust the
-        // resolved signature when its arity matches THIS decl; otherwise fall back to the
-        // decl's own written types so export can't index `md.Params`/`sig.ParamTypes` out
-        // of range and crash. Valid (unique-name) functions always match → unchanged path,
-        // so self-host byte-identity is preserved. TypeChecker._checkDuplicateFreeFunctions
-        // reports the duplicate as a hard error regardless.
+        // 保留 arity 兜底：重复/错误路径下符号可能未按预期注册；arity 不符即退回 decl 自身写法，
+        // 防越界崩。正常（唯一或合法重载）路径 arity 必符 → 走上支，与旧行为一致。
         if (ms != null && ms.Signature.ParamCount == md.ParamCount) {
             Z42FuncType sig = ms.Signature;
             pc = sig.ParamCount;
@@ -127,7 +125,9 @@ public static class FuncImplExtractor {
             }
             ret = TypeNameResolver.TsigTypeName(md.RetType);
         }
-        ExportedFuncZ ef = new ExportedFuncZ(md.Name, ret, ExportedTypeExtractor._requiredCount(md.Params, pc), ps, pc);
+        // free-function-overloads：导出名 = RegKey（primary=裸名→字节稳定；非-primary 带签名后缀）。
+        // 导入侧 base 名可由 RegKey 剥首个 `$` 复原（标识符不含 `$`），故无需新增 TSIG 字段。
+        ExportedFuncZ ef = new ExportedFuncZ(md.RegKey, ret, ExportedTypeExtractor._requiredCount(md.Params, pc), ps, pc);
         ef.ParamsFrom = paramsFrom;
         return ef;
     }

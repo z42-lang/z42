@@ -65,16 +65,14 @@ int Twice(int a) => a * 2;              // 表达式体
 
 - **顶层声明不能标 `private` / `protected`**。模块作用域下这两个修饰符没有意义；默认可见性
   是 `internal`，要跨包可见写 `public`。见[访问控制](access-control.md)。
-- **顶层函数不参与重载**。同名顶层函数即使参数类型不同也是重复声明：
+- **顶层函数参与重载**。同名顶层函数按参数类型序列区分，与类型成员方法同一套重载决议：
 
   ```z42
-  int Add(int a, int b) { return a + b; }
-  int Add(double a, double b) { return 0; }
-  // ✗ E0408: duplicate top-level function `Add` — free functions do not overload;
-  //          give them distinct names
+  int Add(int a, int b)       { return a + b; }
+  int Add(double a, double b) { return 0; }   // ✓ 合法重载（参数类型不同）
   ```
 
-  类型成员方法**可以**按参数类型重载，这条限制只针对顶层函数。
+  只有**签名完全相同**才是重复声明，报 `E0408: duplicate top-level function`。
 
 ## 入口函数
 

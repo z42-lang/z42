@@ -461,7 +461,8 @@ public sealed class TypeChecker {
         this._collectUsings(cu);   // fix-ns-qualified-static-call：本 CU 的 using ns 集（bug B7）
         if (resolveConstraints) { this._constraints.Resolve(cu, view); }   // Pass 0.5：泛型 where 约束解析（单文件路径）
         this._constraints.CheckDeclTypeRefs(cu, view);   // check-constraints-all-type-refs H1：声明位（字段/属性/索引器/形参·返回/基类）泛型约束校验（约束此时已 resolve/hoist）
-        this._decl._checkDuplicateFreeFunctions(cu);     // 顶层 func 不重载（SymbolTable.Functions 名唯一键）
+        // free-function-overloads：自由函数**同签名**判重已移入 MemberCollector._passMembers（包级、全签名键，
+        // 同时覆盖同文件+跨文件）——旧的 DeclBinder 按裸名去重会把合法的按类型重载误报，故删除。
         int i = 0;
         while (i < cu.DeclCount) {
             Decl d = this._unwrap(cu.Decls[i]);
@@ -490,10 +491,9 @@ public sealed class TypeChecker {
     // （ToString/Equals/GetHashCode/GetType/get_Item/set_Item）不参与 mangle（SymbolCollector 同款
     // 判定），继续维持 first-wins 静默覆盖的现状（如 String.Equals(object)/Equals(string)），
     // 不在此处误报——用同一份 `SymbolCollector.IsProtocolExempt` 跳过，单一豁免名单来源。
-    // 顶层（自由）函数**不重载**：它们按 FQN 注册进 `SymbolTable.FunctionsByFqn`（`ns.name` 唯一键——
-    // 重载 mangling 仅类方法有）。同 FQN 多定义只留一份，随后 `ExportedTypeExtractor._extractFunc`
-    // 取到错 arity 的符号 → `md.Params` / `sig.ParamTypes` 越界 null → 崩。
-    // 这里在类型检查期显式报重复定义，把那个隐晦崩溃变成清晰诊断（同一 CU 内检测；跨文件由 MemberCollector 报）。
+    // free-function-overloads：顶层（自由）函数**按签名重载**（primary 裸键 / 非-primary 全签名 MangleKey，
+    // 复用 #414 scheme）。同签名重复的判重已收敛到 `MemberCollector._passMembers`（包级、全签名键，覆盖
+    // 同文件 + 跨文件），旧的 `DeclBinder._checkDuplicateFreeFunctions`（按裸名去重、会误报合法重载）已删。
 
 
     // 重复检测的 arity 预扫键：static/instance 分桶前缀，避免同名静态与实例方法（本就非法，见别处检测）
