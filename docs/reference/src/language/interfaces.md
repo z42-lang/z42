@@ -72,6 +72,24 @@ interface IPipelineContext {
 }
 ```
 
+接口属性也可以声明 `{ get; set; }`——**setter 与 getter 各是独立契约**：实现方必须两半都补齐
+（只给 getter → `E0412 ... does not define member set_Name`），且可以**经接口静态类型写**：
+
+```z42
+interface IMutName {
+    string Name { get; set; }
+}
+
+class Box : IMutName {
+    public string Name { get; set; }        // auto-property 合成 get_Name + set_Name
+    public Box(string n) { this.Name = n; }
+}
+
+IMutName m = new Box("orig");
+m.Name;               // "orig" —— 经接口静态类型读
+m.Name = "renamed";   // 经接口静态类型写（派发到实现方 set_Name）
+```
+
 属性的写法与规则见[属性与索引器](properties-indexers.md)。
 
 ### 索引器

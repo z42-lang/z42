@@ -85,6 +85,16 @@ public sealed class MemberCollector {
                     Z42Type[] gps = new Z42Type[0];
                     it.Methods.Put(gkey, new MethodSymbol(gkey, "public", new Z42FuncType(gps, 0, gret), false, c.Name, false, null));
                 }
+                if (pd.HasSet) {
+                    // fix-iface-property-setter：接口属性 setter → set_X(value) 方法符号（镜像下面索引器的
+                    // set_Item + 类侧 _fillClass 的 set_X）。此前 _fillInterface 只建 get_X ⇒ 接口属性 setter
+                    // 整段丢弃：缺 setter 的实现静默通过满足性校验、经接口给属性赋值无处派发。value 参类型 = 属性类型。
+                    string skey = "set_" + pd.Name;
+                    Z42Type sret = table.ResolveTypeP(pd.Type, tp, tpc);
+                    Z42Type[] sps = new Z42Type[1];
+                    sps[0] = sret;
+                    it.Methods.Put(skey, new MethodSymbol(skey, "public", new Z42FuncType(sps, 1, new Z42VoidType()), false, c.Name, false, null));
+                }
             } else if (mem is IndexerDecl) {
                 // fix-iface-self-completeness-gaps A3：接口索引器 `T this[params]` → get_Item / set_Item
                 // 方法符号（镜像 _fillClass 的 IndexerDecl lowering + 接口属性 getter 的 get_X 处理）。此前
