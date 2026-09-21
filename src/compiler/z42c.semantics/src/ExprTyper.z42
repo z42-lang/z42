@@ -283,7 +283,11 @@ public sealed class ExprTyper {
     }
 
     private BoundExpr _bindRefArg(RefArgExpr ra, TypeEnv env) {
-            // `out var n` 内联声明：先在 env 声明（调用后可见，如 Assert.Equal(42, n)），再绑 inner。
+            // simplify-ref-parameters：`ref _` 丢弃符 —— 复用内联声明这条路（发射期照样分配寄存器），
+            // 但名字带 `$`，用户在源码里**写不出**这个标识符 ⇒ 天然不进可引用的作用域。
+            // 名字含 Span.Start 以保证同一调用里的多个 `ref _` 各自独立。
+            if (ra.IsDiscard) { ra.IsVarDecl = true; }   // VarName 由 parser 定（`_$d<源偏移>`）
+            // `ref var n` 内联声明：先在 env 声明（调用后可见，如 Assert.Equal(42, n)），再绑 inner。
             if (ra.IsVarDecl) {
                 env.Define(ra.VarName, new Z42UnknownType());
                 if (this._tc._lambdaActive) { this._tc._lambdaLocals.Put(ra.VarName, new Z42UnknownType()); }
@@ -298,7 +302,7 @@ public sealed class ExprTyper {
             //   · 字面量 / 调用结果等非左值
             if (!ra.IsVarDecl) { this._chkRefArgLvalue(inner, ra.Span); }
             BoundRefArg bra = new BoundRefArg(inner, new Z42UnknownType(), ra.Span);
-            bra.IsVarDecl = ra.IsVarDecl; bra.VarName = ra.VarName;
+            bra.IsVarDecl = ra.IsVarDecl; bra.VarName = ra.VarName; bra.IsDiscard = ra.IsDiscard;
             return bra;
     }
 

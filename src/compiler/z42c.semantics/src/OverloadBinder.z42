@@ -59,6 +59,7 @@ public sealed class OverloadBinder {
         int i = 0;
         while (i < fixedEnd) {
             this._checkOneArg(args, rawArgs, i, sig.ParamTypes[i], env);
+            this._checkRefSymmetry(args, rawArgs, i, sig, env);
             i = i + 1;
         }
         // params 尾位：展开形态逐位按**元素**类型检查；规范形态（直接传数组）由下方 IsAssignableTo 放行。
@@ -73,6 +74,31 @@ public sealed class OverloadBinder {
                     while (t < argCount) { this._checkOneArg(args, rawArgs, t, at.Elem, env); t = t + 1; }
                 }
             }
+        }
+    }
+
+    // simplify-ref-parameters：调用点修饰符必须与形参对称。这条修的是排第一的静默缺口——
+    // `void Inc(ref int x)` 配 `Inc(v)` 此前**编译通过且写入静默丢失**（callee 改的是自己的
+    // 形参寄存器，出口 copy-out 没有 caller lvalue 可写回）。反向（形参无 `ref`、实参写了）同样报，
+    // 因为那会白取一次地址、读代码的人还会以为有写回。
+    //
+    // ⚠️ **签名的 ref 信息不可信时一律不报**（`HasRefInfo()` 为假）。跨包导入签名就是这种情形：
+    // TSIG 格式不记录 `ref`（见 DiagnosticCodes 的 E0465 注释），空数组只代表「不知道」，
+    // 当成「全否」会把跨包 `F(ref v)` 误报成多写。跨包强制由 follow-up `record-ref-in-signature` 补。
+    private void _checkRefSymmetry(BoundExpr[] args, Expr[] rawArgs, int i, Z42FuncType sig, TypeEnv env) {
+        if (!sig.HasRefInfo()) { return; }
+        if (args[i] == null) { return; }
+        bool paramRef = sig.IsRefParam(i);
+        bool argRef = args[i] is BoundRefArg;
+        if (paramRef == argRef) { return; }
+        Span sp = args[i].Span;
+        if (paramRef) {
+            this._tc._diags.Error("E0472",
+                "argument " + (i + 1).ToString() + " must be passed with `ref` — the parameter is `ref`, "
+                + "and without it the callee's write is silently lost", sp);
+        } else {
+            this._tc._diags.Error("E0473",
+                "argument " + (i + 1).ToString() + " must not be passed with `ref` — the parameter is not `ref`", sp);
         }
     }
 

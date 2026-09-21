@@ -451,9 +451,26 @@ public sealed class Z42FuncType : Z42Type {
     public string[]  ParamCallers;  // PR6：跨包每参 caller 宏种类（"member"/"line"/"file"/"module"；"" = 非 caller）。
     public string[]  ParamNames;    // fix-crosspkg-named-args：跨包每参源名（空数组 = 未知）；ImportedSymbolLoader 从 ExportedParamZ 填。
                                     // 本地签名不填——本地命名实参按 MethodDecl 的形参名归位。与 ParamDefaults 同一批搬运点。
+    public bool[]    ParamIsRef;    // simplify-ref-parameters：每参是否带 `ref`（空数组 = 未知/全否）。
+                                    // **不进 Name()/Dump()** —— `ref` 不参与类型身份、不参与重载判重（同 ParamNames 等平行数组）。
+                                    // ⚠️ 本地签名由 SymbolCollector 填；**跨包目前填不了**——TSIG 格式不记录 `ref`
+                                    // （见 DiagnosticCodes 的 E0465 注释），故导入符号一律为空数组 ⇒ 跨包调用点不强制写 `ref`。
+                                    // 这是已知缺口，由 follow-up change `record-ref-in-signature` 修（需 minor bump）。
     public Z42FuncType(Z42Type[] paramTypes, int paramCount, Z42Type ret) {
         this.ParamTypes = paramTypes; this.ParamCount = paramCount; this.Ret = ret; this.ParamsFrom = 0 - 1;
         this.ParamDefaults = new string[0]; this.ParamCallers = new string[0]; this.ParamNames = new string[0];
+        this.ParamIsRef = new bool[0];
+    }
+    // ref 信息是否可信。**空数组不等于「全都不是 ref」**——跨包导入签名就是空的（TSIG 不记录 ref），
+    // 若把它当成「全否」，跨包 `F(ref v)` 会被误报成「多写了 ref」。故一律先问这个再查。
+    public bool HasRefInfo() {
+        return this.ParamIsRef != null && this.ParamIsRef.Length == this.ParamCount;
+    }
+    // 每参 `ref` 查询：越界 / 未填 → false（跨包导入签名即此情形）。
+    public bool IsRefParam(int i) {
+        if (this.ParamIsRef == null) { return false; }
+        if (i < 0 || i >= this.ParamIsRef.Length) { return false; }
+        return this.ParamIsRef[i];
     }
     // C# TypeToString 镜像（TSIG/SIGS 串字节实证）：void 返回 → "Action[<p,…>]"；否则 "Func<p,…,ret>"（", " 分隔）。
     public override string Name() {

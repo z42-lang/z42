@@ -1,0 +1,70 @@
+// simplify-ref-parameters：调用点修饰符必须与形参对称。
+//
+// 这条修的是 `fix-silent-semantic-gaps` 剩余缺口里排第一的那个：
+// `void Inc(ref int x)` 配 `Inc(v)` 此前**编译通过且写入静默丢失**——callee 改的是自己的
+// 形参寄存器，出口 copy-out 没有 caller 的 lvalue 可写回。
+//
+// ⚠️ 跨包**不**强制：TSIG 格式不记录 `ref`（见 DiagnosticCodes 的 E0465 注释），
+// 导入签名的 `ParamIsRef` 是空数组，`HasRefInfo()` 为假 ⇒ 整条检查跳过。
+// 把空数组当成「全都不是 ref」会把跨包 `F(ref v)` 误报成多写。跨包强制由 follow-up
+// change `record-ref-in-signature` 补（需 minor bump）。
+namespace Z42cSemanticsRefModifierTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 对称：不应报错 ────────────────────────────────────────────────
+
+[Test]
+void test_ref_param_with_ref_arg_ok() {
+    string src = "namespace D; class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { int v = 0; C.Inc(ref v); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_plain_param_with_plain_arg_ok() {
+    string src = "namespace D; class C { static void Show(int x) { }"
+        + " static void M() { int v = 0; C.Show(v); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 失配：E0472 / E0473 ───────────────────────────────────────────
+
+[Test]
+void test_ref_param_missing_ref_at_callsite() {
+    // 🔴 这正是此前「编译通过 + 写入静默丢失」的形态。
+    string src = "namespace D; class C { static void Inc(ref int x) { x = x + 1; }"
+        + " static void M() { int v = 0; C.Inc(v); } }";
+    Assert.Equal("E0472", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_plain_param_with_unexpected_ref_at_callsite() {
+    string src = "namespace D; class C { static void Show(int x) { }"
+        + " static void M() { int v = 0; C.Show(ref v); } }";
+    Assert.Equal("E0473", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_second_argument_position_reported() {
+    // 位置要准：第 2 个形参是 ref，第 1 个不是。
+    string src = "namespace D; class C { static void F(int a, ref int b) { b = a; }"
+        + " static void M() { int x = 1; int y = 0; C.F(x, y); } }";
+    Assert.Equal("E0472", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ref_var_inline_decl_ok() {
+    string src = "namespace D; class C { static bool T(ref int v) { v = 42; return true; }"
+        + " static void M() { C.T(ref var n); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ref_discard_ok() {
+    string src = "namespace D; class C { static bool T(ref int v) { v = 42; return true; }"
+        + " static void M() { C.T(ref _); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

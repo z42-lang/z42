@@ -299,7 +299,8 @@ public sealed class BoundRefArg : BoundExpr {
     public bool IsVarDecl;   // `out var n` 内联声明 → emit 期先 Alloc + Locals.Put(VarName)
     public string VarName;
     private Z42Type _t;   // Z42UnknownType（地址寄存器无具体类型）
-    public BoundRefArg(BoundExpr inner, Z42Type t, Span span) { this.Span = span; this.Inner = inner; this._t = t; this.IsVarDecl = false; this.VarName = ""; }
+    public bool IsDiscard;   // simplify-ref-parameters：`ref _`（隐藏零值槽，用户引用不到）
+    public BoundRefArg(BoundExpr inner, Z42Type t, Span span) { this.Span = span; this.Inner = inner; this._t = t; this.IsVarDecl = false; this.VarName = ""; this.IsDiscard = false; }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(ref-arg " + this.Inner.Dump() + " :" + this._t.Name() + ")"; }
 }

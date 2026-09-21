@@ -262,8 +262,12 @@ public sealed class ExprParser {
                     } else if (this._p._peek().Kind == TokenKind.Underscore) {
                         // `ref _` 丢弃符：编译器分配隐藏零值槽，`_` 不进作用域。
                         Span dsp = this._p._peek().Span; this._p._advance();
-                        RefArgExpr dsc = new RefArgExpr(new IdentExpr("_", dsp), refTok.Span);
-                        dsc.IsDiscard = true;
+                        // 丢弃符的隐藏名在此定死：`_$d<源偏移>`。带 `$` ⇒ 用户在源码里**写不出**
+                        // 这个标识符 ⇒ 天然引用不到；带偏移 ⇒ 同一调用里多个 `ref _` 互不冲突。
+                        // 语义层 `_bindRefArg` 直接沿用这个名字（不再另行生成，避免两处算法漂移）。
+                        string dn = "_$d" + dsp.Start.ToString();
+                        RefArgExpr dsc = new RefArgExpr(new IdentExpr(dn, dsp), refTok.Span);
+                        dsc.IsDiscard = true; dsc.VarName = dn;
                         arg = dsc;
                     } else {
                         arg = new RefArgExpr(this._parseExpr(0), refTok.Span);
