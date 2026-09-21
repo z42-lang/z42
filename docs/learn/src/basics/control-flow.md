@@ -152,9 +152,9 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 > 每个 `case` 体执行完就自动跳出 `switch`，不会继续掉进下一个 `case`。
 > 上面只打印了"向南"。写 `break` 也合法，只是不再必需。
 
-### ⚠️ `default` 一定要写在最后
+### `default` 写在哪都行
 
-`default` 一旦出现，**它后面的 `case` 就永远到不了**——而且编译器**不会给任何提示**：
+`default` **只在所有 `case` 都不匹配时才走**，和它写在第几行无关：
 
 **`switch/defaultlast.z42`**
 
@@ -166,7 +166,7 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 {{#include ../../../../examples/basics/control-flow/switch/run.console:defaultlast}}
 ```
 
-`n` 明明是 `2`，打出来的却是 `default`。这是当前实现的一个坑，**养成把 `default` 写在最后的习惯**。
+`default` 写在最前面，命中的仍是 `case 2`。惯例是把它写在最后——读起来更顺——但那只是风格。
 
 ### `switch` 里的 `continue` 作用于外层循环
 
@@ -197,6 +197,6 @@ z42 **没有 `goto`，也没有循环标签**。想跳出外层循环，用一�
 - 计数用 `for`，逐元素用 `foreach`。
 - **字符串和 `Dictionary` 不能直接 `foreach`**——分别用 `ToCharArray()` 和 `Keys()` / `Entries()`。
 - `break` / `continue` 只管最近一层；**没有 `goto`、没有循环标签**，跳多层用标志变量或抽成方法。
-- `switch` **没有 fallthrough**，`break` 可省；**`default` 必须写在最后**，否则它后面的 `case` 静默失效。
+- `switch` **没有 fallthrough**，`break` 可省；`default` 写在哪都行，只在所有 `case` 都不匹配时才走。
 
 下一章讲怎么把代码切成**函数**。
