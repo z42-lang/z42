@@ -20,14 +20,17 @@ foreach (string s in names)      { /* ... */ }   // 也可以写显式类型
 | 顺序 | 条件 | 走哪条路径 |
 |---|---|---|
 | 1 | 目标是数组 `T[]` | **数组路径** |
-| 2 | 目标是类，且有 `get_Item`，**且**有计数成员 `Count` 或 `Length` | **索引路径** |
+| 2 | 目标是类，有**整数下标**的 `get_Item`，**且**有计数成员 `Count` 或 `Length` | **索引路径** |
 | 3 | 目标是类，且有 `GetEnumerator()`（而不满足第 2 条） | **枚举器路径** |
 
 `string` 走第 2 条（`Length` + `this[int]`），所以 `foreach (char c in s)` 直接可用，
 **不物化 `char[]`**；`Length` / `CharAt` 都是 O(1) 摊还，按**字符**（scalar）计而非字节。
 
-> ⚠️ 第 2 条优先于第 3 条。**一个同时提供索引器和 `GetEnumerator()` 的类型会走索引路径**，
-> 即使它实现了 `IEnumerable<T>`。见下方「已知陷阱」。
+> ⚠️ 第 2 条优先于第 3 条。**一个同时提供整数索引器和 `GetEnumerator()` 的类型会走索引路径**，
+> 即使它实现了 `IEnumerable<T>`。
+>
+> 「整数下标」这个限定是必要的：`Dictionary<K,V>` 的索引器是 `this[TKey]`，若只看「有没有
+> `get_Item`」，它会被判去走索引路径、拿 `int` 计数器调 `get_Item(TKey)`。
 
 ### 路径 1：数组
 
@@ -95,19 +98,22 @@ try {
 - 能用作泛型约束：`where T : IEnumerable<U>`
 - 向读代码的人声明「这个类型可迭代」
 
-## 已知陷阱
+## `Dictionary<K, V>`
 
-> ### `Dictionary<K, V>` 不能直接 foreach
->
-> `Dictionary<K, V>` 同时有 `Count` 字段和 `this[TKey key]` 索引器，因此命中**索引路径**，
-> 编译器会拿 `int` 下标去调 `get_Item(TKey)`。请改用快照方法：
->
-> ```z42
-> foreach (var k in dict.Keys())    { /* ... */ }
-> foreach (var e in dict.Entries()) { /* e 是 KeyValuePair<K,V> */ }
-> ```
->
-> 这是当前实现的缺口，不是设计意图。
+`Dictionary<K, V>` 走**枚举器路径**（第 3 条）：它的索引器是 `this[TKey]`，不是整数下标，
+因此不命中第 2 条。直接 `foreach` 即可，元素是 `KeyValuePair<K, V>`：
+
+```z42
+foreach (var kv in dict) { /* kv.Key / kv.Value */ }
+```
+
+**遍历顺序不作保证**。只要键或只要值时，`Keys()` / `Entries()` 仍然可用，但它们返回的是
+**快照数组**（每次调用分配一次），逐项遍历用 `foreach (var kv in dict)` 更省。
+
+> 2026-09 之前第 2 条只看「有没有 `get_Item`」，`Dictionary` 因此被判去走索引路径 ——
+> `foreach` 跑满 `Count` 轮、每轮取到 `0`，且**没有任何诊断**。现已修正。
+
+## 已知陷阱
 
 > ### 迭代变量的只读性未强制
 >

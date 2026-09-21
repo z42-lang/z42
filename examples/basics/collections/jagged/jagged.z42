@@ -1,0 +1,12 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int[][] rows = [ [7, 8], [9] ];   // 每行长度可以不同
+
+    Console.WriteLine(rows.Length);      // 行数
+    Console.WriteLine(rows[0].Length);   // 第 0 行的长度
+    Console.WriteLine(rows[1].Length);
+    Console.WriteLine(rows[0][1]);       // 逐层下标
+    // ANCHOR_END: code
+}

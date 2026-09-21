@@ -1,0 +1,7 @@
+# ANCHOR: run
+$ z42 run jagged.z42
+2
+2
+1
+8
+# ANCHOR_END: run

@@ -1,0 +1,15 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int[] xs = [1, 2, 3];          // 等价于 new int[] { 1, 2, 3 }
+    var   ys = [10, 20, 30];       // 元素类型由内容推断 → int[]
+
+    int[] zeros = [0; 5];          // 5 个 0
+    int[] cat   = [..xs, 99, ..ys];  // 拼接：展开 xs、插入 99、再展开 ys
+
+    Console.WriteLine($"{xs.Length} {ys[2]} {zeros.Length} {cat.Length}");
+    foreach (int v in cat) { Console.Write($"{v} "); }
+    Console.WriteLine("");
+    // ANCHOR_END: code
+}

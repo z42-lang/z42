@@ -1,0 +1,14 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    int[] a = new int[] { 1, 2, 3 };   // 写明元素
+    int[] b = new int[3];              // 只给长度，元素是零值
+
+    Console.WriteLine(a.Length);
+    Console.WriteLine(a[0]);
+    a[1] = 42;
+    Console.WriteLine(a[1]);
+    Console.WriteLine(b[0]);           // int 的零值是 0
+    // ANCHOR_END: code
+}

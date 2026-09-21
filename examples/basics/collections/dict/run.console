@@ -1,0 +1,7 @@
+# ANCHOR: run
+$ z42 run dict.z42
+2
+7
+3
+true
+# ANCHOR_END: run

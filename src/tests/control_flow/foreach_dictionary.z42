@@ -1,0 +1,66 @@
+// `foreach` 遍历 Dictionary 走**枚举器路径**，拿到真的 KeyValuePair。
+//
+// 回归来源：`foreach` 的路径选择里，索引路径优先于枚举器路径，而它的判据只看「有没有
+// `get_Item`」——`Dictionary<K,V>` 有 `Count` 字段 + `this[TKey]`，于是被判去走索引路径，
+// 拿 i32 计数器调 `get_Item(TKey)`。实测：**跑满 Count 轮、每轮取到 0，零诊断**。
+// 而 Dictionary 本来就有 `GetEnumerator()`。
+//
+// 修法：索引路径追加判据「`get_Item` 的第一个形参必须是整数下标」。泛型形参 `TKey` 不是
+// ⇒ Dictionary 落回枚举器路径；`List<T>.get_Item(int)` / `String.this[int]` 是真整数形参，
+// 不受影响（下面一并钉住）。
+namespace Demo;
+
+using Std.Collections;
+
+void Main() {
+    Dictionary<string, int> d = { "a": 1, "b": 2, "c": 3 };
+
+    // ① 遍历拿到真的键值对（顺序不保证，故只断言聚合量）
+    int sum = 0;
+    int n = 0;
+    string keys = "";
+    foreach (var kv in d) {
+        n = n + 1;
+        sum = sum + kv.Value;
+        keys = keys + kv.Key;
+    }
+    Assert.Equal(3, n);
+    Assert.Equal(6, sum);
+    Assert.Equal(3, keys.Length);
+
+    // ② 与既有绕法 Entries() 结果一致
+    int sum2 = 0;
+    foreach (var e in d.Entries()) { sum2 = sum2 + e.Value; }
+    Assert.Equal(sum, sum2);
+
+    // ③ 空字典 → 零轮
+    Dictionary<string, int> empty = {};
+    int z = 0;
+    foreach (var kv in empty) { z = z + 1; }
+    Assert.Equal(0, z);
+
+    // ④ break 照常
+    int cut = 0;
+    foreach (var kv in d) { cut = cut + 1; if (cut == 2) { break; } }
+    Assert.Equal(2, cut);
+
+    // ── 索引路径的既有用户不受影响 ──
+
+    // ⑤ List<T>（get_Item(int) + Count 字段）
+    List<int> xs = { 10, 20, 30 };
+    int lsum = 0;
+    foreach (int v in xs) { lsum = lsum + v; }
+    Assert.Equal(60, lsum);
+
+    // ⑥ string（this[int] + Length 属性）
+    string s = "abc";
+    string acc = "";
+    foreach (char c in s) { acc = acc + c; }
+    Assert.Equal("abc", acc);
+
+    // ⑦ 数组走数组路径，一如既往
+    int[] arr = [1, 2, 3, 4];
+    int asum = 0;
+    foreach (int v in arr) { asum = asum + v; }
+    Assert.Equal(10, asum);
+}

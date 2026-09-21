@@ -1,0 +1,14 @@
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    // ANCHOR: code
+    Dictionary<string, int> ages = { "小明": 7, "小红": 8 };   // key: value = Dictionary
+
+    Console.WriteLine(ages.Count);
+    Console.WriteLine(ages["小明"]);
+    ages["小刚"] = 9;                  // 下标写入
+    Console.WriteLine(ages.Count);
+    Console.WriteLine(ages.ContainsKey("小刚"));
+    // ANCHOR_END: code
+}

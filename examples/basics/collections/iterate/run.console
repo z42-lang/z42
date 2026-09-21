@@ -1,0 +1,9 @@
+# ANCHOR: run
+$ z42 run iterate.z42
+1
+2
+3
+小明
+小红
+小明 今年 7 岁
+# ANCHOR_END: run
