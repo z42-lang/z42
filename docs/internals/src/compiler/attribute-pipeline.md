@@ -71,6 +71,19 @@ public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POS
 
 逐字段偏移见 [zbc 格式](../formats/zbc.md)。
 
+> **「顶层函数」这一格曾经是空头支票**（fix-free-function-attrs 修）。wire 一直在、读端一直在，
+> 只有**写端**漏了：`IrGenMemberEmitter` 给类方法填 `irf.Attrs`，而自由函数走的是另一条发射路径
+> `IrGenAuxEmitter.EmitFreeFunctions`，它一进循环就 `IrGenFacts._unwrap` 剥掉 `AttributedDecl` 外壳
+> ——attribute 列表只挂在外壳上，剥了就再也取不回。于是自由函数的 attr 块恒为空，
+> 与「这个函数没写 attribute」**字节全等**，无错无警。教训与 `ParamAttrs` 那半（#679）同源：
+> **两条发射路径各写各的，漏一条不会有任何东西喊疼**。
+
+**自由函数的弃用要走满四棒**，缺一棒就静默失效（这也是它拖了数月没人发现的原因——
+每一棒单看都「有实现」）：`IrGenAuxEmitter` 填 `irf.Attrs` → `TsigReconcile.Rebuild` 把
+`$Deprecated` 哨兵搬进 `ExportedFuncZ.IsDeprecated` → `ImportedSymbolLoader` 拷进 `MethodSymbol` →
+`MemberResolver` 的自由函数调用分支调 `CheckDeprecatedM`。**最后一棒是纯同包的**：
+`MemberCollector` 收顶层函数时也得问 `HandlerRegistry.HasDeprecated`，否则连同包调用都不报。
+
 **property 走 backing 字段**：自动属性脱糖出私有 backing 字段 `__prop_<Name>`，编译器把属性上的
 attribute 挂到那个字段上；`__property_custom_attributes(qualified)` 拿 accessor 的限定名
 （优先 getter，否则 setter）、剥掉 `get_` / `set_` 前缀定位 backing 字段，从它的 `field_attributes`

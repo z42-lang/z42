@@ -28,6 +28,14 @@ L3-Impl2 (`impl Trait for Type` 跨 zpkg 传播) 是首个驱动用例。
 → 判红（说明该报的诊断没响）；编不过但错误文本对不上 → 也判红（否则「随便哪种编译失败都算过」
 = 没有判别力的门）。这类 fixture 不进 run 波（没有产物可跑）。范例：`dup_fqn_crosspkg/`。
 
+**告警 fixture（期望编过、且某条警告响了）**：加 `expected_build_warning.txt`，内容 = `main`
+构建输出必须包含的子串。判定：编**不过** → 判红（回归）；编过但输出里没这条告警 → 也判红。
+与 `expected_build_error.txt` 互斥（后者优先），且**照常进 run 波**（警告不阻断编译，有产物可跑），
+所以这类 fixture 仍要写 `expected_output.txt`。范例：`deprecated_free_function/`。
+
+> 加这条是因为此前**跨包警告类行为全仓无处设门**——只能断言「编不过」或断言 stdout，
+> 而「该警告没响」两者都抓不到。跨包 `[Deprecated]` 自由函数静默失效数月无人发现，正是这个盲区。
+
 **版本 skew fixture（编译时依赖 ≠ 运行时依赖）**：两个可选标记文件，都在 **run 波之前**
 生效，且**必须同时改两处**——临时 `Z42_LIBS` 与 `main/<dist>`（packed exe build 会把依赖
 zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**，只改 libs 那份等于没改）。
