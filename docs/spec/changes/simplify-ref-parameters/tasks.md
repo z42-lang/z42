@@ -28,6 +28,7 @@
 - [ ] 1.3 `ExprParser.z42:239` —— 调用点只认 `TokenKind.Ref`；遇 `out`/`in` 同上
 - [ ] 1.4 `ExprParser.z42:241` —— `ref var n` 沿用现 `IsVarDecl` 路径；新增 `ref int n`（显式类型）
 - [ ] 1.5 `Ast.z42:25` —— `RefArgExpr` 增 `IsDiscard`；解析 `ref _`
+> ⚠️ 原 2.6「限值类型」**已撤销**（实测：`escape_ref_param_writeback` 用 `ref string[]`，且它是 #690 的回归测试）
 - [ ] 1.6 `Decl.z42:12` —— `Param.IsRef` 注释更正（删去 "ref/out"）
 - [ ] 1.7 syntax 单测：`z42c.syntax/tests/decl.z42` + `parser.z42` 增阴性用例
 
@@ -37,7 +38,6 @@
 - [ ] 2.3 `ExprTyper._bindRefArg` —— `ref var` 的变量按**形参类型**定义（现为 `Z42UnknownType`）
 - [ ] 2.4 `CallEmitter` / `ExprTyper` 调用绑定 —— 修饰符对称性检查（双向：缺 / 多）
 - [ ] 2.5 同上 —— 实参/形参类型精确匹配（Canon 归一别名，**不做**隐式转换）
-- [ ] 2.6 `ExprTyper` / `DeclEnforcer` —— `ref` 形参与实参的值类型限制（`RefParamNotValueType`）
 - [ ] 2.7 确认 `_chkRefArgLvalue`（四种不可取址形态 → E0470）不受影响
 
 ### 阶段 2b（**仅当 Q1 选 B**）

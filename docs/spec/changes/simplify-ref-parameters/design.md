@@ -102,12 +102,26 @@
 `ref var v` 声明的变量类型：沿用现有做法（`env.Define(name, Z42UnknownType())` 后由赋值推导）。
 本变更不改这一点 —— 但由于形参类型现已可用，**改为按形参类型定义**是更好的做法，列入 tasks。
 
-### D6：限制到值类型
+### D6：不限制类型 —— 起草时的「限值类型」已撤销
 
-`ref` 形参与实参的类型必须是值类型（基元 / enum / struct）。引用类型报错。
+**起草判断**：引用类型本身即按引用传递，`ref` 对它只剩「重新绑定调用方的变量本身」，极罕见 ⇒ 限制掉。
 
-理由：引用类型本身即按引用传递，`ref` 对它唯一的含义是"重新绑定调用方的变量本身"，极罕见；
-限制后 `ref` 写回逃逸（#690 那族）的面缩小，也让 `ref` 与后续可空标记模型完全不交互。
+**实测推翻**：`src/tests/optimization/escape_ref_param_writeback/source.z42` 就是这个用法：
+
+```z42
+void FillArray(ref string[] a) { a = new string[2]; a[0] = "x"; a[1] = "y"; }
+```
+
+而且它是 **#690（ref/out 出口写回是逃逸汇点）的回归测试**——限制到值类型会把一条真实且有覆盖的
+能力连同它的回归保护一起砍掉。
+
+⇒ **`ref` 对任何类型都可用**。原先挂在这条上的两个理由另行落实：
+- 逃逸 → 已由 #690 的修复 + 上述回归测试保证
+- 与可空标记的交互 → 走正常规则。`ref string? s` = 「被调方可能写 null 进来」，
+  调用方按标记模型处理；`ref string s`（未标）= 不强制，与其它未标位置一致
+
+⭐ 教训：**「这个用法很罕见」这种判断必须先 grep 测试语料**，不能只凭语言直觉——
+本仓的测试恰恰是为它写的。
 
 ### D7：`BoundRefArg` 携带真实类型 + 不做隐式转换
 
@@ -123,7 +137,6 @@ unknown 吸收 ⇒ 类型检查形同虚设。改为携带 inner 的真实类型
 |---|---|
 | `RefArgModifierMissing` | 形参有 `ref`，实参无 |
 | `RefArgModifierUnexpected` | 形参无 `ref`，实参有 |
-| `RefParamNotValueType` | `ref` 用在引用类型上 |
 | `RefArgTypeMismatch` | 实参与形参类型不精确匹配 |
 | `ObsoleteParamModifier` | 源码使用 `out` / `in` 作参数修饰符，提示改用 `ref` |
 

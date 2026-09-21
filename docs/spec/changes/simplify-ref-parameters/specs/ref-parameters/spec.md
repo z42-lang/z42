@@ -66,11 +66,15 @@
 - **WHEN** `void Take(ref long v)` 配 `int c = 0; Take(ref c);`
 - **THEN** 报 `RefArgTypeMismatch` —— 转换会产生临时值，地址失去意义
 
-### Requirement: `ref` 仅用于值类型
+### Requirement: `ref` 对任何类型可用
 
-#### Scenario: `ref` 用于引用类型形参
-- **WHEN** 编译 `void Swap(ref string a, ref string b)`
-- **THEN** 报 `RefParamNotValueType`，编译失败
+> 起草时曾要求「仅值类型」，实测推翻——见 design §D6。
+
+#### Scenario: `ref` 用于引用类型（替换调用方持有的对象）
+- **WHEN** `void FillArray(ref string[] a) { a = new string[2]; }` 配 `string[] xs = null; FillArray(ref xs);`
+- **THEN** 编译通过，调用后 `xs` 指向新数组
+- **注**：这是 `src/tests/optimization/escape_ref_param_writeback/` 覆盖的形态，
+  也是 #690（ref 写回逃逸）的回归测试
 
 #### Scenario: `ref` 用于 struct
 - **WHEN** 编译 `void Normalize(ref Vec3 v)`（`Vec3` 是 struct）
