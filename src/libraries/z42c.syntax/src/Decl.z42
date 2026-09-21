@@ -9,7 +9,8 @@ public sealed class Param {
     public Span Span;
     public TypeExpr Type;
     public string   Name;
-    public bool     IsRef;     // ref/out 修饰（调用方传地址，VM 处理间接；callee 寄存器类型不变）
+    public bool     IsRef;     // `ref` 修饰（调用方传地址，VM 处理间接；callee 寄存器类型不变）。
+                               // simplify-ref-parameters：`out`/`in` 已移除，本位只表示 `ref`。
     public bool     IsParams;  // params 变长参数修饰（add-params-varargs）；仅末参合法，类型须 T[]。默认 false → 现有签名不变
     public Expr     Default;   // GS1：可选参数默认值（`int x = 5`）；无默认值 = null。镜像 C# Param.Default。
     public Attr[]   Attrs;     // add-parameter-attribute-reflection：参数前置 attribute（默认空）

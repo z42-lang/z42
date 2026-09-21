@@ -22,13 +22,18 @@ public sealed class ArrayNewExpr : Expr {
     public override string Dump() { return "(array-new " + this.Elem.Dump() + " " + this.Size.Dump() + ")"; }
 }
 
-// ref 实参（ref var）→ 传变量地址（load_local_addr）。Inner 必须是 lvalue 局部变量。
+// ref 实参 → 传变量地址（load_local_addr）。Inner 必须是 lvalue 局部变量。
+// simplify-ref-parameters：`ref` 是唯一的参数修饰符（`out` / `in` 已移除）。
 public sealed class RefArgExpr : Expr {
     public Expr Inner;
-    public bool IsVarDecl;   // `out var n` 内联声明（n 在调用处声明，调用后可见）
+    public bool IsVarDecl;   // `ref var n` / `ref T n` 内联声明（n 在调用处声明，调用后可见）
     public string VarName;   // IsVarDecl 时的变量名
-    public RefArgExpr(Expr inner, Span span) { this.Span = span; this.Inner = inner; this.IsVarDecl = false; this.VarName = ""; }
-    public override string Dump() { return "(ref " + this.Inner.Dump() + ")"; }
+    public bool IsDiscard;   // `ref _` —— 隐藏零值槽，不进作用域（表达「我不要这个出参」）
+    public RefArgExpr(Expr inner, Span span) { this.Span = span; this.Inner = inner; this.IsVarDecl = false; this.VarName = ""; this.IsDiscard = false; }
+    public override string Dump() {
+        if (this.IsDiscard) { return "(ref _)"; }
+        return "(ref " + this.Inner.Dump() + ")";
+    }
 }
 
 public sealed class ArrayInitExpr : Expr {

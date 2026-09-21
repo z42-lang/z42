@@ -1,4 +1,4 @@
-// `ref` / `out` 实参的左值契约（fix-ref-lvalue-addressing）。
+// `ref` 实参的左值契约（fix-ref-lvalue-addressing）。
 //
 // 支持的形态发不同的取址指令：局部/形参 → LoadLocalAddr(0xA0)、数组元素 → LoadElemAddr(0xA1)、
 // 引用类对象的字段 → LoadFieldAddr(0xA2)。
@@ -45,8 +45,8 @@ void test_ref_field_array_element_ok() {
 
 [Test]
 void test_out_var_inline_decl_ok() {
-    string src = "namespace D; class C { static bool T(out int v) { v = 1; return true; }"
-        + " static void M() { C.T(out var n); } }";
+    string src = "namespace D; class C { static bool T(ref int v) { v = 1; return true; }"
+        + " static void M() { C.T(ref var n); } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
 
