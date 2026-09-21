@@ -1,0 +1,14 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    var point = (3, 4);
+    (x, y) = point;                    // 拆成两个变量
+    Console.WriteLine($"{x},{y}");
+
+    var nested = ((1, 2), 3);          // 元组可以套元组
+    ((a, b), c) = nested;              // 按形状逐层拆
+    Console.WriteLine($"{a} {b} {c}");
+    Console.WriteLine(nested.Item1.Item2);   // 也可以逐层用 ItemN 取
+    // ANCHOR_END: code
+}

@@ -1,0 +1,12 @@
+# ANCHOR: run
+$ z42 run basic.z42
+7
+hi
+3
+# ANCHOR_END: run
+# ANCHOR: toobig
+$ z42 run toobig.z42
+z42c build: 1 error(s) in toobig.z42
+  toobig.z42(4,13): E0402: tuples support between 2 and 8 elements, got 9
+[exit: 1]
+# ANCHOR_END: toobig

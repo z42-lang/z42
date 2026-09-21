@@ -1,0 +1,16 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    var p = (0, "zero");
+
+    switch (p) {
+        case (0, s): Console.WriteLine($"第一位是 0，第二位是 {s}"); break;
+        case (n, s): Console.WriteLine($"{n} / {s}"); break;
+    }
+
+    if (p is (m, _)) {                 // _ 表示「这一位不关心」
+        Console.WriteLine($"第一位 = {m}");
+    }
+    // ANCHOR_END: code
+}

@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run patterns.z42
+第一位是 0，第二位是 zero
+第一位 = 0
+# ANCHOR_END: run
