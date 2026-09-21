@@ -7,9 +7,8 @@
 
 和你想的一样：
 
-**`examples/basics/operators/arith/basic.z42`**
-
 ```z42
+// examples/basics/operators/arith/basic.z42
 {{#include ../../../../examples/basics/operators/arith/basic.z42:code}}
 ```
 
@@ -21,9 +20,8 @@
 
 这是最容易栽的一处：**两边都是整数时，`/` 做的是整除，小数部分直接丢掉**。
 
-**`examples/basics/operators/arith/intdiv.z42`**
-
 ```z42
+// examples/basics/operators/arith/intdiv.z42
 {{#include ../../../../examples/basics/operators/arith/intdiv.z42:code}}
 ```
 
@@ -39,9 +37,8 @@
 
 超出类型范围时 z42 **不报错**，而是绕回另一头：
 
-**`examples/basics/operators/arith/overflow.z42`**
-
 ```z42
+// examples/basics/operators/arith/overflow.z42
 {{#include ../../../../examples/basics/operators/arith/overflow.z42:code}}
 ```
 
@@ -56,9 +53,8 @@
 
 ### `+=` 与 `++`
 
-**`examples/basics/operators/arith/incr.z42`**
-
 ```z42
+// examples/basics/operators/arith/incr.z42
 {{#include ../../../../examples/basics/operators/arith/incr.z42:code}}
 ```
 
@@ -78,9 +74,8 @@
 
 `==` `!=` `<` `<=` `>` `>=`，结果都是 `bool`：
 
-**`examples/basics/operators/compare/compare.z42`**
-
 ```z42
+// examples/basics/operators/compare/compare.z42
 {{#include ../../../../examples/basics/operators/compare/compare.z42:code}}
 ```
 
@@ -104,9 +99,8 @@
 `&&`（并且）、`||`（或者）、`!`（取反）。关键性质是**短路**：左边已经定了胜负时，
 右边根本不求值。
 
-**`examples/basics/operators/compare/logic.z42`**
-
 ```z42
+// examples/basics/operators/compare/logic.z42
 {{#include ../../../../examples/basics/operators/compare/logic.z42:code}}
 ```
 
@@ -121,9 +115,8 @@
 
 直接操作二进制位，常用于标志位：
 
-**`examples/basics/operators/bits/bits.z42`**
-
 ```z42
+// examples/basics/operators/bits/bits.z42
 {{#include ../../../../examples/basics/operators/bits/bits.z42:code}}
 ```
 
@@ -134,9 +127,8 @@
 > 熟悉 C# 的读者请注意：**z42 的 `&` `|` `^` `~` 只接受整数，不能用在 `bool` 上。**
 > C# 里 `a & b`（两个 `bool`）表示"不短路的逻辑与"，z42 直接报错：
 
-**`examples/basics/operators/boolbits/boolbits.z42`**
-
 ```z42
+// examples/basics/operators/boolbits/boolbits.z42
 {{#include ../../../../examples/basics/operators/boolbits/boolbits.z42}}
 ```
 
@@ -150,9 +142,8 @@
 
 ### `??`：空了就用备用值
 
-**`examples/basics/operators/nullish/coalesce.z42`**
-
 ```z42
+// examples/basics/operators/nullish/coalesce.z42
 {{#include ../../../../examples/basics/operators/nullish/coalesce.z42:code}}
 ```
 
@@ -162,9 +153,8 @@
 
 ### `?.`：空了就整体为空
 
-**`examples/basics/operators/nullish/condaccess.z42`**
-
 ```z42
+// examples/basics/operators/nullish/condaccess.z42
 {{#include ../../../../examples/basics/operators/nullish/condaccess.z42:code}}
 ```
 
@@ -183,9 +173,8 @@
 
 ### `?:`：三元条件
 
-**`examples/basics/operators/nullish/ternary.z42`**
-
 ```z42
+// examples/basics/operators/nullish/ternary.z42
 {{#include ../../../../examples/basics/operators/nullish/ternary.z42:code}}
 ```
 

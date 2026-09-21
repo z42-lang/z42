@@ -87,9 +87,15 @@ PageCheck _checkLearnPage(string root, string src, string page) {
                 inFence = false;
                 if ((fenceLang == "z42" || fenceLang == "console") && !fenceIgnore
                         && !_isSingleInclude(body)) {
-                    ConsoleError.WriteLine("  ✗ B6 " + "docs/learn/src/" + page + ":" + fenceLine.ToString()
-                        + " — ```" + fenceLang + " block must be exactly one {{#include}} from examples/ (or mark it `" + fenceLang + ",ignore`)");
-                    bad = bad + 1;
+                    // ```z42 另允许「一行 `// <出处>` 注释 + 一条 include」，注释须与 include 同指一个文件。
+                    string why = fenceLang == "z42" ? _fencePathComment(body, mdDir) : "console blocks take no path comment";
+                    if (why != "") {
+                        ConsoleError.WriteLine("  ✗ B6 " + "docs/learn/src/" + page + ":" + fenceLine.ToString()
+                            + " — ```" + fenceLang + " block must be exactly one {{#include}} from examples/"
+                            + (fenceLang == "z42" ? ", optionally preceded by a `// <path>` comment" : "")
+                            + " (or mark it `" + fenceLang + ",ignore`): " + why);
+                        bad = bad + 1;
+                    }
                 }
             }
         } else if (inFence) {
@@ -173,6 +179,38 @@ int _checkExampleAttr(string root, string[] parts, string loc) {
 bool _isSingleInclude(string body) {
     string t = body.Trim();
     return t.StartsWith("{{#include ") && t.EndsWith("}}") && t.IndexOf("\n") < 0;
+}
+
+// B6 的第二种合法形态（仅 ```z42）：**一行出处注释 + 一条 include**。
+//
+//   ```z42
+//   // examples/basics/variables/types/types.z42
+//   {{#include ../../../../examples/basics/variables/types/types.z42:decl}}
+//   ```
+//
+// 注释是给读者看「这段代码是哪个文件里的」。**门禁校验它与 include 指向同一个文件** ——
+// 这正是它比页面上手写的加粗标注强的地方：标注没人管，改了 include 忘了改标注不会判红，
+// 而这里会。返回 "" 表示合法，否则返回要报给用户的原因。
+string _fencePathComment(string body, string mdDir) {
+    string t = body.Trim();
+    int nl = t.IndexOf("\n");
+    if (nl < 0) { return "not a two-line body"; }
+    string first = t.Substring(0, nl).Trim();
+    string rest  = t.Substring(nl + 1).Trim();
+    if (!first.StartsWith("// ")) { return "first line must be a `// <path>` comment"; }
+    if (!_isSingleInclude(rest)) { return "second line must be exactly one {{#include}}"; }
+    string claimed = first.Substring(3).Trim();
+    // include 的实参（去掉 `:锚点`）→ 仓库相对路径，与注释比对。
+    int a0 = rest.IndexOf("{{#include ") + 11;
+    int a1 = rest.IndexOf("}}");
+    string arg = rest.Substring(a0, a1 - a0).Trim();
+    int colon = arg.IndexOf(":");
+    if (colon >= 0) { arg = arg.Substring(0, colon); }
+    string actual = _repoRel(_collapseDots(Path.Join(mdDir, arg)));
+    if (claimed != actual) {
+        return "path comment `" + claimed + "` does not match the include target `" + actual + "`";
+    }
+    return "";
 }
 
 // B10：SUMMARY.md 里的每个链接指向存在的页面；每个页面都在 SUMMARY 里。

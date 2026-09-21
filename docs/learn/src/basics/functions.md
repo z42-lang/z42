@@ -8,9 +8,8 @@
 写法是「返回类型 名字(参数表) { 函数体 }」——和你已经写过无数遍的 `void Main()` 一模一样，
 `Main` 本来就是个普通函数，只不过 z42 拿它当入口。
 
-**`examples/basics/functions/declare/declare.z42`**
-
 ```z42
+// examples/basics/functions/declare/declare.z42
 {{#include ../../../../examples/basics/functions/declare/declare.z42:free}}
 ```
 
@@ -37,9 +36,8 @@
 
 签名语法完全一样，只是放进了类里，调用时要带上类名。
 
-**`examples/basics/functions/declare/method.z42`**
-
 ```z42
+// examples/basics/functions/declare/method.z42
 {{#include ../../../../examples/basics/functions/declare/method.z42:code}}
 ```
 
@@ -55,9 +53,8 @@
 上面的 `Show` 能有两个版本，是因为它在类里。**顶层的自由函数同名就是重复声明，
 和参数类型无关**：
 
-**`examples/basics/functions/declare/dup.z42`**
-
 ```z42
+// examples/basics/functions/declare/dup.z42
 {{#include ../../../../examples/basics/functions/declare/dup.z42}}
 ```
 
@@ -71,9 +68,8 @@
 
 参数可以带默认值，调用时不给就用默认的。
 
-**`examples/basics/functions/defaults/defaults.z42`**
-
 ```z42
+// examples/basics/functions/defaults/defaults.z42
 {{#include ../../../../examples/basics/functions/defaults/defaults.z42:code}}
 ```
 
@@ -94,9 +90,8 @@
 
 实参可以按**名字**传，而不是按位置。
 
-**`examples/basics/functions/named/named.z42`**
-
 ```z42
+// examples/basics/functions/named/named.z42
 {{#include ../../../../examples/basics/functions/named/named.z42:decl}}
 ```
 
@@ -120,9 +115,8 @@
 
 在最后一个参数前写 `params`（它的类型必须是数组），调用方就能散着传任意多个值。
 
-**`examples/basics/functions/variadic/variadic.z42`**
-
 ```z42
+// examples/basics/functions/variadic/variadic.z42
 {{#include ../../../../examples/basics/functions/variadic/variadic.z42:decl}}
 ```
 
@@ -140,9 +134,8 @@
 
 - **`params` 必须是最后一个参数**：
 
-  **`examples/basics/functions/variadic/notlast.z42`**
-
   ```z42
+  // examples/basics/functions/variadic/notlast.z42
   {{#include ../../../../examples/basics/functions/variadic/notlast.z42}}
   ```
 
@@ -157,9 +150,8 @@
 参数默认是**按值**传的——方法拿到的是一份副本，改它不影响调用方。要改到调用方的变量本身，
 用 `ref`（进出都要）或 `out`（只出）。
 
-**`examples/basics/functions/byref/byref.z42`**
-
 ```z42
+// examples/basics/functions/byref/byref.z42
 {{#include ../../../../examples/basics/functions/byref/byref.z42:decl}}
 ```
 
@@ -182,9 +174,8 @@
 这是本章最该记住的一条。z42 当前把 `ref` / `out` / `in` 塌缩成了同一个标志，
 **调用点和声明处对不上时，编译器一声不吭**，而且两个方向的后果相反：
 
-**`examples/basics/functions/byref/forgot.z42`**
-
 ```z42
+// examples/basics/functions/byref/forgot.z42
 {{#include ../../../../examples/basics/functions/byref/forgot.z42}}
 ```
 
@@ -206,9 +197,8 @@
 
 需要一次返回两三个值时，**别用 `out`，用元组**——它没有上面那些缺口。
 
-**`examples/basics/functions/multi/multi.z42`**
-
 ```z42
+// examples/basics/functions/multi/multi.z42
 {{#include ../../../../examples/basics/functions/multi/multi.z42:decl}}
 ```
 
@@ -235,9 +225,8 @@
 
 函数体内还能再声明函数，只在外层函数里可见，并且**能直接用外层的局部变量**。
 
-**`examples/basics/functions/local/local.z42`**
-
 ```z42
+// examples/basics/functions/local/local.z42
 {{#include ../../../../examples/basics/functions/local/local.z42:decl}}
 ```
 
@@ -245,9 +234,8 @@
 
 函数也可以调用自己，这叫**递归**。写递归只有一条纪律：**先写出口**。
 
-**`examples/basics/functions/local/local.z42`**
-
 ```z42
+// examples/basics/functions/local/local.z42
 {{#include ../../../../examples/basics/functions/local/local.z42:recur}}
 ```
 

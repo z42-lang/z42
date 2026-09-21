@@ -6,9 +6,8 @@
 
 写法是「类型 名字 = 值」：
 
-**`examples/basics/variables/types/types.z42`**
-
 ```z42
+// examples/basics/variables/types/types.z42
 {{#include ../../../../examples/basics/variables/types/types.z42:decl}}
 ```
 
@@ -46,9 +45,8 @@
 
 右边已经写明白是什么类型时，左边可以写 `var`：
 
-**`examples/basics/variables/types/types.z42`**
-
 ```z42
+// examples/basics/variables/types/types.z42
 {{#include ../../../../examples/basics/variables/types/types.z42:var}}
 ```
 
@@ -68,9 +66,8 @@
 
 **变宽不用管，变窄必须自己写。**
 
-**`examples/basics/variables/convert/convert.z42`**
-
 ```z42
+// examples/basics/variables/convert/convert.z42
 {{#include ../../../../examples/basics/variables/convert/convert.z42:conv}}
 ```
 
@@ -82,9 +79,8 @@
 
 漏写 `(int)` 会怎样？编译器拦住你：
 
-**`examples/basics/variables/narrowing/narrowing.z42`**
-
 ```z42
+// examples/basics/variables/narrowing/narrowing.z42
 {{#include ../../../../examples/basics/variables/narrowing/narrowing.z42}}
 ```
 
@@ -101,9 +97,8 @@
 
 两个都表示「定下就不改」，但时机不同：
 
-**`examples/basics/variables/immutable/immutable.z42`**
-
 ```z42
+// examples/basics/variables/immutable/immutable.z42
 {{#include ../../../../examples/basics/variables/immutable/immutable.z42:decl}}
 ```
 
