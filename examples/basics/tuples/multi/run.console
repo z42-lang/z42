@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run multi.z42
+true 5
+false 0
+# ANCHOR_END: run

@@ -1,0 +1,12 @@
+using Std.IO;
+
+void Main() {
+    // ANCHOR: code
+    (int, string) p = (7, "hi");   // 类型写在左边，值写在右边
+    var q = (1, 2, 3);             // 也可以让编译器推断
+
+    Console.WriteLine(p.Item1);    // 按位置取：Item1 是第一个
+    Console.WriteLine(p.Item2);
+    Console.WriteLine(q.Item3);
+    // ANCHOR_END: code
+}

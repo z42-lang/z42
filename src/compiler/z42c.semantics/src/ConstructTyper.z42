@@ -104,7 +104,30 @@ public sealed class ConstructTyper {
                 "tuples support between 2 and 8 elements, got " + n.ToString(), te.Span);
             return new BoundError("tuple arity out of range", new Z42ErrorType(), te.Span);
         }
-        NamedType tn = new NamedType("ValueTuple" + n.ToString(), new TypeExpr[0], 0, te.Span);
+        // 🔴 类型实参必须**写出来**，不能留裸名让 ctor 实参去推 —— `new` 不做类级型参推断，
+        // 裸 `new ValueTupleN(...)` 的结果类型就是裸的泛型定义，元素静态类型停在擦除的
+        // `T1..Tn`。实测症状：`var t = (1,2); t.Item1 + t.Item2` 报
+        // `E0402: operator + requires numeric operand, got T1`；嵌套元组的子模式与链式
+        // 字段访问一并失效（`((a,b),c) = x` 报 tuple pattern requires a tuple-typed subject,
+        // got T1；`x.Item1.Item2` 运行期 FieldGet 崩）。
+        //
+        // 写显式类型（`(int,int) t = (1,2)`）之所以一直正常，是那条路由 var-decl 的目标类型
+        // 提供了实例化类型，压根没走这里的推断。
+        //
+        // 做法与集合字面量脱糖同款（`CollectionTyper._bindListLit`：先绑首元素、经
+        // `_typeToTypeExpr` 反解成 TypeExpr 再拼 `List<T>`）。`_typeToTypeExpr` 对
+        // `Z42InstantiatedType` 递归展开，故嵌套元组能拼出 `ValueTuple2<ValueTuple2<int,int>,int>`。
+        //
+        // ⚠️ 元素在这里先绑一次以取类型，随后 `_bindNew` 会再绑一次（同一 AST 节点两次绑定，
+        // 与 `_bindListLit` 一致）——元素表达式的绑定是纯的，重复绑定只多花一点编译期。
+        TypeExpr[] targs = new TypeExpr[n];
+        int ti = 0;
+        while (ti < n) {
+            BoundExpr be = this._tc._expr._bindExpr(te.Elems[ti], env);
+            targs[ti] = this._tc._expr._typeToTypeExpr(be.Type(), te.Span);
+            ti = ti + 1;
+        }
+        NamedType tn = new NamedType("ValueTuple" + n.ToString(), targs, n, te.Span);
         ObjNewExpr on = new ObjNewExpr(tn, te.Elems, n, te.Span);
         return this._bindNew(on, env, null);
     }

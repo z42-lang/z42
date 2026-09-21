@@ -1,0 +1,19 @@
+using Std.IO;
+
+// ANCHOR: decl
+// 返回类型写成元组，就能一次返回多个值
+(bool, int) TryLength(string s) {
+    if (s == "") { return (false, 0); }
+    return (true, s.Length);
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: call
+    (ok, len) = TryLength("hello");    // 解构：前面不加 var
+    Console.WriteLine($"{ok} {len}");
+
+    var r = TryLength("");             // 也可以整个接住
+    Console.WriteLine($"{r.Item1} {r.Item2}");
+    // ANCHOR_END: call
+}

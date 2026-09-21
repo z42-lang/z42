@@ -8,11 +8,11 @@
 
 | # | 章节 | 路径 | 要点 | 状态 |
 |---|------|------|------|------|
-| 1 | 阅读说明 | `getting-started/how-to-read` | 按顺序读、代码从哪来（片段 vs 完整文件、路径标注约定）、跟着做的两种方式、终端画面怎么读、参考手册与坑标记 —— **全书通用约定只在这里说一次** | 🟢 |
-| 2 | 安装 z42 | `getting-started/install` | 平台支持表（无 Intel Mac）、一行命令安装、PATH、`z42 --version` 验证、安装选项、更新与卸载 | 🟢 |
-| 3 | Hello, World | `getting-started/hello-world` | 写 `hello.z42`（5 行，无 namespace / 无清单）→ `z42 run hello.z42` → 读懂代码 → 命令行参数 → 编译错误 | 🟢 |
-| 4 | 工程与构建 | `getting-started/projects` | 什么时候需要工程 → `z42 new` → `z42.toml` 各字段 → 多源文件与 `namespace` → `z42 build` / `--release` / 产物 → `z42 clean` | 🟢 |
-| 5 | 开发环境 | `getting-started/tooling` | `z42d install vscode`、`z42 repl` + 元指令、读懂编译错误（错误码链接参考手册） | 🟢 |
+| 1 | 安装 z42 | `getting-started/install` | 平台支持表（无 Intel Mac）、一行命令安装、PATH、`z42 --version` 验证、安装选项、更新与卸载 | 🟢 |
+| 2 | Hello, World | `getting-started/hello-world` | 写 `hello.z42`（5 行，无 namespace / 无清单）→ `z42 run hello.z42` → 读懂代码 → 命令行参数 → 编译错误 | 🟢 |
+| 3 | 工程与构建 | `getting-started/projects` | 什么时候需要工程 → `z42 new` → `z42.toml` 各字段 → 多源文件与 `namespace` → `z42 build` / `--release` / 产物 → `z42 clean` | 🟢 |
+| 4 | 开发环境 | `getting-started/tooling` | `z42d install vscode`、`z42 repl` + 元指令、读懂编译错误（错误码链接参考手册） | 🟢 |
+| 5 | 阅读说明 | `getting-started/how-to-read` | 按顺序读、代码从哪来（片段 vs 完整文件、路径标注约定）、跟着做的两种方式、终端画面怎么读、参考手册与坑标记 —— **全书通用约定只在这里说一次** | 🟢 |
 
 ## 第二部分 · 语言基础（basics）
 
@@ -24,7 +24,7 @@
 | 9 | 函数 | `basics/functions` | 自由函数与方法、默认值、命名实参、`params`、`ref` / `out` / `in`、局部函数、递归 | 🟢 |
 | 10 | 字符串 | `basics/strings` | 三种字面量、转义与 E0102、插值（含格式说明符静默失效）、原始串四条限制、常用成员、Split 只收 string、Length vs ByteLength、逐字符遍历 | 🟢 |
 | 11 | 数组与集合 | `basics/collections` | 数组（定长 / 越界终止）、`[v;n]` 与 spread、jagged、`List` / `Dictionary` 花括号字面量、三者遍历（含 Dictionary 键值对） | 🟢 |
-| 12 | 元组 | `basics/tuples` | 值元组、解构 | ✅ |
+| 12 | 元组 | `basics/tuples` | 写法与 `ItemN`、元素不可具名、上限 8、多返回值、解构（不加 `var`）、嵌套、switch/is 模式、什么时候该改用类 | 🟢 |
 
 ## 第三部分 · 类型与抽象（types）
 
