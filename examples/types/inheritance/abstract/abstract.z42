@@ -1,0 +1,30 @@
+using Std.IO;
+
+// ANCHOR: decl
+abstract class Shape {
+    public abstract double Area();                     // 只有签名，没有体
+
+    public string Describe() {                         // 普通方法，调抽象方法
+        return $"面积 {Area()}";
+    }
+}
+
+class Rect : Shape {
+    private double _w; private double _h;
+    public Rect(double w, double h) { _w = w; _h = h; }
+    public override double Area() { return _w * _h; }
+}
+
+class Circle : Shape {
+    private double _r;
+    public Circle(double r) { _r = r; }
+    public override double Area() { return 3.14159 * _r * _r; }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: use
+    Shape[] shapes = [ new Rect(3.0, 4.0), new Circle(1.0) ];
+    foreach (Shape s in shapes) { Console.WriteLine(s.Describe()); }
+    // ANCHOR_END: use
+}

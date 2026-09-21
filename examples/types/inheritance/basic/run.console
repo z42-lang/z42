@@ -1,0 +1,6 @@
+# ANCHOR: run
+$ z42 run basic.z42
+大黄: 汪
+小花: 喵
+神秘: ...
+# ANCHOR_END: run

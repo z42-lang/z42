@@ -1,0 +1,7 @@
+using Std.IO;
+
+sealed class Circle { }
+
+class Oval : Circle { }
+
+void Main() { Console.WriteLine("x"); }

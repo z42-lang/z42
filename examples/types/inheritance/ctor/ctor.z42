@@ -1,0 +1,21 @@
+using Std.IO;
+
+// ANCHOR: code
+class Base {
+    public string Tag;
+    public Base(string tag) { Tag = tag; Console.WriteLine($"Base({tag}) 跑了"); }
+}
+
+class Derived : Base {
+    public int N;
+    public Derived(string tag, int n) : base(tag) {   // 先跑基类构造器
+        N = n;
+        Console.WriteLine($"Derived({tag}, {n}) 跑了");
+    }
+}
+// ANCHOR_END: code
+
+void Main() {
+    Derived d = new Derived("甲", 7);
+    Console.WriteLine($"{d.Tag} {d.N}");
+}

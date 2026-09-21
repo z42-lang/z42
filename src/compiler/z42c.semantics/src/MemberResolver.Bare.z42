@@ -1,0 +1,49 @@
+// 类体内**无限定**调用 `M(...)` 的解析：先当同类静态方法，再当同类实例方法（≡ `this.M(...)`）。
+// 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
+//
+// 命中 → 返回 BoundCall；不是同类方法 → 返回 null，调用方继续原路径（最终报 undefined function）。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class MemberResolver {
+    internal BoundExpr BindBareClassCall(IdentExpr id, CallExpr call, BoundExpr[] args, TypeEnv env) {
+        // 同类无限定静态调用（unqualified static call within class body：OSKindValue() inside Platform）。
+        if (env.HasClass()) {
+            string cls = env.CurrentClass();
+            if (env.Symbols.HasClass(cls)) {
+                Z42ClassType sct = env.Symbols.GetClass(cls);
+                MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
+                if (sms != null && sms.IsStatic) {
+                    // add-call-arity-diagnostics：此前本路径不经 _withDefaults（只绑定 + params 打包）⇒ 默认值不补、
+                    // 实参个数不校验。汇入同一汇聚点（绑定 / 装箱 / params / 默认值 / 个数判定）。
+                    BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
+                    BoundCall bc = new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
+                    this._applyMethodTypeArgs(bc, call, sms, env);
+                    return bc;
+                }
+                // 同类无限定**实例**调用：`M()` ≡ `this.M()`（fix-bare-instance-call）。
+                //
+                // 此前只认静态那一半，实例方法落到下方 “undefined function” —— 而裸名读**字段**、
+                // **属性**、调**静态方法**三样都是通的，唯独裸名调实例方法不通。这个不对称没有
+                // 任何设计理由，纯属这条分支只写了一半；C# 四样皆可，读者的肌肉记忆也是四样皆可。
+                //
+                // 判据是「当前有没有 `this`」：实例方法体/构造器/访问器的 env 里 `this` 被 Define
+                // 过（见 DeclBinder），静态方法体里没有。故静态上下文里裸名调实例方法**仍然报错**
+                // （落下方 undefined function），不会把「静态里误用实例成员」放过去。
+                if (sms != null && env.LookupVar("this") != null) {
+                    Z42Type thisT = env.LookupVar("this");
+                    BoundExpr recv = new BoundIdent("this", thisT, call.Span);
+                    BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
+                    this._tc._access.CheckDeprecatedM(sms, id.Name, call.Span);
+                    BoundCall bc = new BoundCall("instance", true, recv, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span);
+                    this._applyMethodTypeArgs(bc, call, sms, env);
+                    return bc;
+                }
+            }
+        }
+        return null;
+    }
+}

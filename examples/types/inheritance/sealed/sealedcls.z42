@@ -1,0 +1,13 @@
+using Std.IO;
+
+// ANCHOR: code
+class Shape { public virtual string Kind() { return "形状"; } }
+
+sealed class Circle : Shape {                  // sealed：到此为止，不许再继承
+    public override string Kind() { return "圆"; }
+}
+// ANCHOR_END: code
+
+void Main() {
+    Console.WriteLine(new Circle().Kind());
+}
