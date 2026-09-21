@@ -1,0 +1,11 @@
+// 消费方：两个调用点都该报 deprecated 告警（Warning 不阻断编译 ⇒ 本 fixture 照常进 run 波）。
+namespace Demo.DepApp;
+
+using Std.IO;
+using Demo.DepTarget;
+
+void Main() {
+    int a = OldApi();          // 跨包**自由函数**弃用 —— 此前静默，fix-free-function-attrs 修的就是它
+    int b = Holder.HOld();     // 跨包**类方法**弃用 —— 对照组，一直能响
+    Console.WriteLine((a + b).ToString());
+}

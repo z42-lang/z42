@@ -11,7 +11,7 @@
 
 | 步骤 | 做法 |
 |---|---|
-| **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 的 110 个码常量，**加上**语义层 / 语法层用**字面量**直接发的码（`"E0449"`–`"E0473"` 一族、`"W0700"`、`"I0466"`）—— 后者不在常量文件里，只能扫源码字面量才找得到 |
+| **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 的 110 个码常量，**加上**语义层 / 语法层用**字面量**直接发的码（`"E0449"`–`"E0474"` 一族、`"W0700"`、`"I0466"`）—— 后者不在常量文件里，只能扫源码字面量才找得到 |
 | **含义** | 取**发射点的诊断消息文本**，而不是常量名。常量名有过一码两义、也有过名实不符（见 `[Forward]` 一节） |
 | **状态** | 对每个码做 `grep -rn 'DiagnosticCodes.<常量名>' src/` + `grep -rn '"<码号>"' src/`，排除 `DiagnosticCodes.z42` 自身与 `tests/` 目录 |
 
@@ -147,6 +147,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | E0471 | 使用了 `out` / `in` 作参数修饰符（形参位或调用点）。三态已收敛为单一 `ref`：`out` 的四条规则全为处理「未初始化内存」这一个例外，而槽位自动取零值消灭了该例外；`in` 的只读保证从设计时起就不完整（只约束 slot 不可重赋，不约束指向对象的内部状态）。诊断附迁移写法 | ✅ `MemberParser.z42`（形参侧）/ `ExprParser.z42`（调用点） | `void F(out int v){}` → `void F(ref int v){}` |
 | E0472 | 形参是 `ref`，**实参漏写** `ref`。此前编译通过且方法里的写入**静默丢失**——被调方改的是自己的形参寄存器，出口 copy-out 没有调用方的 lvalue 可写回 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void Inc(ref int x){} ... Inc(v)` |
 | E0473 | 形参**不是** `ref`，实参却多写了 `ref`。与 E0472 方向相反但同样有害：此前编译通过且写入**传回了调用方**，即「按引用与否由调用点决定」，光看函数声明判断不出参数会不会被改 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void ByValue(int x){} ... ByValue(ref v)` |
+| E0474 | 属性的两个访问器**混合** auto 与带体（一半 `get;`/`set;`、另一半 `get { }`/`set { }`）。z42 无 C# 的 `field` 关键字，auto 半边读/写合成后备 `__prop_X`、带体半边写自备字段 → 读写错位。须**要么都 auto、要么都带体** | ✅ `MemberParser.z42`（`_parseProperty`，字面量发码） | `int P { get; set { _x = value; } }` |
 
 ### 泛型 / 约束 / 关联类型
 

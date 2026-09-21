@@ -23,6 +23,11 @@ worktree 把并行流物理隔离，git 负责文本冲突，GREEN gate 负责�
 > 承载在制品。理由：① 主树常被并发会话共享，在其上改动会互相踩踏；② 共用分支会让两条独立改动的历史 /
 > GREEN 互相污染，无法按 PR 先来后到独立合并。新 worktree 必基于 origin/main（先 `git fetch`，别基于滞后
 > 的本地 ref），供种（`.z42` / `xtask` / `xtask.zpkg`）从一个 warm 树拷贝后用种子 z42c 现建。
+>
+> **供种拷来的 `xtask` 必须立刻按当前源码重建**（`./artifacts/.z42/z42 publish scripts/xtask.z42.toml`，
+> 先 `./xtask build all` 备齐 z42c/stdlib/launcher）。门禁逻辑本身就编在 `xtask.zpkg` 里，拿供体树那份
+> 旧的去查本树的新文档/新测试 = **保证假红**。实测样本：拷 5 天前的 xtask 跑 `test examples`，
+> B6 门禁报 50 条「```z42 block must be exactly one {{#include}}」，重建后同一棵树 35 份 transcript 全绿。
 
 ---
 

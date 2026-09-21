@@ -160,12 +160,19 @@ public sealed class ExportedFuncZ {
     // 同 ParamsFrom：ctor 元数保持不变（旧种子 ABI），默认空/0，TsigReconcile 构造后赋值。
     public string[]         TypeParams;
     public int              TypeParamCount;
+    // fix-free-function-attrs：自由函数的跨包弃用位，与 ExportedMethodZ / ExportedClassZ 同款
+    // （承载位同为 SIGS 的 `$Deprecated` attr-ref 哨兵，无格式 bump）。缺了这两个字段，
+    // `TsigReconcile.Rebuild` 即便读到哨兵也无处安放 ⇒ 跨包 `[Deprecated]` 自由函数零告警。
+    // 同 ParamsFrom/TypeParams：ctor 元数保持不变（旧种子 ABI），默认 false/""，构造后赋值。
+    public bool             IsDeprecated;
+    public string           DeprecationMsg;
     public ExportedFuncZ(string name, string returnType, int minArgCount,
                          ExportedParamZ[] params_, int paramCount) {
         this.Name = name; this.ReturnType = returnType; this.MinArgCount = minArgCount;
         this.Params = params_; this.ParamCount = paramCount; this.ParamsFrom = 0 - 1;
         this.TypeParams = new string[0]; this.TypeParamCount = 0;
         this.RefInfoKnown = false;
+        this.IsDeprecated = false; this.DeprecationMsg = "";
     }
     public bool RefInfoKnown;   // record-ref-in-signature：本方法的 ref 信息是否写全了
                                 // （`$RefSig` 完备性标记）。假 = 旧包，**不知道**，非「全非 ref」。

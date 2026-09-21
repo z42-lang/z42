@@ -221,8 +221,11 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                     // report-crosspkg-duplicate-type：main 波读 `expected_build_error.txt`（若有）→
                     // 该 fixture 期望 main **编不过**且 stderr 命中其内容（trim 后整串，通常是诊断码 + 关键词）。
                     string expErr = "";
-                    if (stage == "main") { expErr = _crossExpectedBuildError(dir); }
-                    hs[b] = _spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, expErr);
+                    string expWarn = "";
+                    // fix-free-function-attrs：`expected_build_warning.txt` = 期望 main **编过且**
+                    // stderr 命中该告警文本（正例 + 告警门，见 README）。与 expErr 互斥（前者优先）。
+                    if (stage == "main") { expErr = _crossExpectedBuildError(dir); expWarn = _crossExpectedBuildWarning(dir); }
+                    hs[b] = _spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, expErr, expWarn);
                 }
             }
             b = b + 1;
@@ -398,20 +401,26 @@ class XpkgJobZ {
     // report-crosspkg-duplicate-type：非空 = 本次 build **期望失败**，且 stderr 须含此子串。
     // 空串 = 常规（期望成功）。只有 main 波会置它。
     public string ExpectErr { get; set; }
+    // fix-free-function-attrs：非空 = 本次 build **期望成功**、且输出须含此子串（告警文本）。
+    // 与 ExpectErr 正交：此前跨包**警告**类行为全仓无处设门（只能断言「编不过」或 stdout），
+    // 于是跨包 `[Deprecated]` 静默失效数月无人发现。置它的 fixture 照常进 run 波。
+    public string ExpectWarn { get; set; }
 }
 
 // _invokeBuildCompiler 的 spawn 版：准备好 outDir + 临时 libs 后**不等待**，
 // 由调用方批量 Wait。临时 libs 必须活到 Wait 之后，故随句柄一起返回。
 XpkgJobZ _spawnBuildPkg(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
-    return _spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, "");
+    return _spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, "", "");
 }
 
-// 带「期望编译失败」的 spawn。expectErr 非空时**不丢弃 stderr**（要拿它比对子串）。
+// 带「期望编译失败」/「期望带告警编过」的 spawn。任一非空时**不丢弃 stdout/stderr**（要拿它比对子串）。
 XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml,
-                         string expectErr) {
+                         string expectErr, string expectWarn) {
     XpkgJobZ j = new XpkgJobZ();
     j.Live = false;
     j.ExpectErr = expectErr;
+    j.ExpectWarn = expectWarn;
+    bool capture = expectErr.Length > 0 || expectWarn.Length > 0;
     string outDir = _fixtureDist(pkgDir);
     Directory.Create(outDir);
     string libs = File.CreateTempDir("z42-xpkg-libs-");
@@ -425,8 +434,8 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
             .Arg("--output-dir").Arg(outDir).Arg("--release")
             .WorkingDirectory(pkgDir)
             .Env("Z42_LIBS", libs)
-            .Stdout(expectErr.Length > 0 ? Stdio.Pipe() : Stdio.Null())
-            .Stderr(expectErr.Length > 0 ? Stdio.Pipe() : Stdio.Null())
+            .Stdout(capture ? Stdio.Pipe() : Stdio.Null())
+            .Stderr(capture ? Stdio.Pipe() : Stdio.Null())
             .Spawn();
         j.Live = true;
     } catch (Exception e) {
@@ -443,7 +452,8 @@ bool _awaitBuildPkg(XpkgJobZ j) {
     try {
         ProcessResult r = j.H.Wait();
         ok = (r.ExitCode == 0);
-        if (j.ExpectErr != null && j.ExpectErr.Length > 0) { outp = r.Stdout + r.Stderr; }
+        if ((j.ExpectErr != null && j.ExpectErr.Length > 0)
+            || (j.ExpectWarn != null && j.ExpectWarn.Length > 0)) { outp = r.Stdout + r.Stderr; }
     } catch (Exception e) { ok = false; }
     Directory.Delete(j.Libs, true);
     // report-crosspkg-duplicate-type：期望失败的负例 —— 编过了是**失败**（诊断没响 = 门坏了），
@@ -452,12 +462,25 @@ bool _awaitBuildPkg(XpkgJobZ j) {
         if (ok) { return false; }
         return outp.Contains(j.ExpectErr);
     }
+    // fix-free-function-attrs：期望「编过 **且** 告警响了」。编不过是失败（回归），编过但没这条
+    // 告警也是失败 —— 后者正是本 change 修的那个缺陷的形状（静默不报）。
+    if (j.ExpectWarn != null && j.ExpectWarn.Length > 0) {
+        if (!ok) { return false; }
+        return outp.Contains(j.ExpectWarn);
+    }
     return ok;
 }
 
 // report-crosspkg-duplicate-type：读 fixture 的 `expected_build_error.txt`（trim；不存在 → ""）。
 string _crossExpectedBuildError(string dir) {
     string f = Path.Join(dir, "expected_build_error.txt");
+    if (!File.Exists(f)) { return ""; }
+    return File.ReadAllText(f).Trim();
+}
+
+// fix-free-function-attrs：读 fixture 的 `expected_build_warning.txt`（trim；不存在 → ""）。
+string _crossExpectedBuildWarning(string dir) {
+    string f = Path.Join(dir, "expected_build_warning.txt");
     if (!File.Exists(f)) { return ""; }
     return File.ReadAllText(f).Trim();
 }

@@ -113,6 +113,27 @@ public sealed class IrGenMemberEmitter {
                 this._out.AddFunc(sg);
             }
         }
+        // add-property-custom-setter：自定义 setter（HasSetBody）→ 真实 set_X（镜像上面计算 getter + 索引器 set_Item）。
+        // 独立于 getter 分支：`{ get {} set {} }` 时 HasGetBody 走首分支、auto 链跳过，故 set_X 须在链外单发。
+        // 隐式 value 参（属性类型）、void 返回。混合已由 parser E0474 挡下，此处只见「两半都带体」。
+        if (pd.HasSetBody) {
+            string psKey = c.Name + ".set_" + pd.Name;
+            string psIrName = g._q(g._classIrShortName(c)) + ".set_" + pd.Name;
+            if (model.HasBody(psKey)) {
+                TypeParamList emptyTpPs = new TypeParamList(new string[0], 0, pd.Span);
+                TypeExpr voidRetP = new NamedType("void", new TypeExpr[0], 0, pd.Span);
+                Param[] setPsP = new Param[1];
+                setPsP[0] = new Param(pd.Type, "value", pd.Span);
+                MethodDecl synthPs = new MethodDecl("", false, false, voidRetP, "set_" + pd.Name,
+                                                     emptyTpPs, new WhereClause[0], 0,
+                                                     setPsP, 1, true, pd.SetBody, new Expr[0], 0, false, pd.Span);
+                var fePs = new FunctionEmitter(model.Symbols, g);
+                IrFunction psIrf = fePs.EmitFunction(psIrName, synthPs, model.GetBody(psKey),
+                                                      !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
+                IrGenFacts._fillParamMeta(psIrf, synthPs, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                this._out.AddFunc(psIrf);
+            }
+        }
     }
 
     // 索引器 → get_Item / set_Item 编译函数（镜像 C# IndexerDecl lowering）。

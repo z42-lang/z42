@@ -268,6 +268,7 @@ public sealed class MemberParser {
         bool hasGet = false; string getMods = "";
         bool hasSet = false; string setMods = "";
         bool hasGetBody = false; Stmt getBody = null;   // add-property-getter：计算 getter 块体
+        bool hasSetBody = false; Stmt setBody = null;   // add-property-custom-setter：自定义 setter 块体
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             string accMods = "";
             while (this._p._declP._isVisibilityModifier(this._p._peek().Kind)) {
@@ -278,10 +279,12 @@ public sealed class MemberParser {
             string acc = this._p._peek().Text;
             if (this._p._peek().Kind == TokenKind.Identifier && (acc == "get" || acc == "set")) {
                 this._p._advance();
-                if (acc == "get" && (this._p._peek().Kind == TokenKind.LBrace || this._p._peek().Kind == TokenKind.FatArrow)) {
-                    // add-property-getter：计算属性 getter（`get { ... }`）——捕获块体，镜像 indexer get body。
-                    // add-expression-bodied-members：`get => e;` 同款，脱糖成 `{ return e; }`。
-                    getBody = this._parseAccessorBody(false); hasGetBody = true; hasGet = true; getMods = accMods;
+                if (this._p._peek().Kind == TokenKind.LBrace || this._p._peek().Kind == TokenKind.FatArrow) {
+                    // add-property-getter / add-property-custom-setter：带体访问器（`get { ... }` / `set { ... }`）
+                    // ——捕获块体，镜像 indexer get/set body。add-expression-bodied-members：`get => e;` / `set => e;`
+                    // 同款脱糖（setter 体为 void）。混合 auto+带体在 MemberCollector 报 E0464。
+                    if (acc == "get") { getBody = this._parseAccessorBody(false); hasGetBody = true; hasGet = true; getMods = accMods; }
+                    else { setBody = this._parseAccessorBody(true); hasSetBody = true; hasSet = true; setMods = accMods; }
                 } else {
                     this._p._expectSemi();   // auto property（`get;` / `set;`）
                     if (acc == "get") { hasGet = true; getMods = accMods; }
@@ -298,8 +301,16 @@ public sealed class MemberParser {
         if (this._p._peek().Kind == TokenKind.Eq) {
             this._p._advance(); init = this._p._exprP._parseExpr(0); hasInit = true; this._p._expectSemi();
         }
+        // add-property-custom-setter：两个访问器都在时，要么都 auto、要么都带体——z42 无 `field` 关键字，
+        // auto 半边（合成读/写 __prop_X）与带体半边（自管存储）会读写错位（`get;` 读 __prop_X，`set { _x=value; }`
+        // 写 _x）。混合 → E0474（同 E0449–E0473 族，语法层字面量发码）。
+        if (hasGet && hasSet && (hasGetBody != hasSetBody)) {
+            this._p._diags.Error("E0474",
+                "property `" + name + "` cannot mix an auto accessor with a bodied accessor — make both auto (`{ get; set; }`) or both bodied (`{ get { ... } set { ... } }`)", sp);
+        }
         PropertyDecl pd = new PropertyDecl(mods, type, name, hasGet, getMods, hasSet, setMods, hasInit, init, sp);
         if (hasGetBody) { pd.HasGetBody = true; pd.GetBody = getBody; }
+        if (hasSetBody) { pd.HasSetBody = true; pd.SetBody = setBody; }
         return pd;
     }
 

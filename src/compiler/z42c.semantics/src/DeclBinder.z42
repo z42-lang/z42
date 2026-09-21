@@ -226,6 +226,17 @@ public sealed class DeclBinder {
                     Z42Type pgret = pgEnv.ResolveType(pd.Type);
                     model.AddBody(ctKey + ".get_" + pd.Name, this._tc._stmt._bindStmt(pd.GetBody, pgEnv, pgret));
                 }
+                if (pd.HasSetBody) {
+                    // add-property-custom-setter：自定义 setter body 绑定 → set_<Name>（镜像索引器 set_Item，无索引参数，
+                    // 隐式 value 参 = 属性类型、void 返回）。静态属性走静态上下文（同计算 getter）。
+                    var psEnv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
+                    if (!TypeFactsTc._hasWordTc(pd.Mods, "static")) {
+                        psEnv.Define("this", ct);
+                        DeclBinder._defineInstanceFields(psEnv, ct);
+                    }
+                    psEnv.Define("value", psEnv.ResolveType(pd.Type));
+                    model.AddBody(ctKey + ".set_" + pd.Name, this._tc._stmt._bindStmt(pd.SetBody, psEnv, new Z42VoidType()));
+                }
             } else if (mem is IndexerDecl) {
                 // get_Item / set_Item 体绑定（IndexerDecl lowering；镜像 C# IndexerDecl 处理）。
                 IndexerDecl id = mem as IndexerDecl;

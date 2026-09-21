@@ -59,7 +59,7 @@ void Demo() {
 | 载体 | 取全部 | 按类型单查 | 贴法 |
 |---|---|---|---|
 | `Std.Type` | `GetCustomAttributes() : Attribute[]` | `GetAttribute(Type) : Attribute?` | `[X] class C { }` |
-| `MethodInfo` | 同上 | 同上 | `[X] public void M() { }`（含顶层函数）|
+| `MethodInfo` | 同上 | 同上 | `[X] public void M() { }`（类的方法；顶层函数见下）|
 | `FieldInfo` | 同上 | 同上 | `[X] public int f;`（实例 + 静态）|
 | `ParameterInfo` | 同上 | 同上 | `void M([X] int p)` |
 | `PropertyInfo` | 同上 | 同上 | `[X] public int P { get; set; }` |
@@ -83,6 +83,12 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 > ⚠️ **属性只有自动属性能带 attribute**。`PropertyInfo.GetCustomAttributes()` 读的是自动属性
 > 脱糖出来的那个私有 backing 字段上的 attribute；**计算属性**（写了 `get { ... }` 体、没有
 > backing 字段）永远返回空数组。
+
+> ⚠️ **顶层（自由）函数上的 attribute 写得进产物，但反射拿不到**。贴在顶层函数上的 attribute
+> 会随它进 zbc（编译期消费它的东西照常工作——`[Deprecated]` 的调用点告警、`[Test]` 的用例发现
+> 都是这一路），但**没有任何 API 能交给你一个自由函数的 `MethodInfo`**：`GetMethods()` 要先有
+> 一个 `Type`，而 [`methodof`](methodof.md) 语法上强制带 owner 类型。要反射就把函数挪进
+> 某个类当 `static` 方法。
 
 ## 对 C# 的改进
 
