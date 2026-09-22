@@ -29,17 +29,20 @@
       ⚠️ 首次测量因 bootstrap 并发抢 CPU 得到 `3.681 s ± 1.237`（range 2.24–5.55），已作废。
       **量测必须串行**，见 [[measure-before-optimizing-and-nohup-trap]]
 
+> **实施位置**：worktree `z42-staticinit`，分支 `unify-static-init-into-cctor`。
+> ⚠️ 绝不在主树 `z42-test` 上做（§0 铁律；2026-09-22 违反过一次，代价见 design.md §5.1）。
+
 ## 阶段 7.1：编译器 —— 绑定与发射统一
 
 - [ ] 1.1 `DeclBinder.z42`：删二分支，静态字段初始化器一律注入宿主类型初始化器体首
 - [ ] 1.2 `DeclBinder.z42`：静态 auto 属性初始化器同上（`:232-236`）
-- [ ] 1.3 `SemanticModel.z42`：消费端从"按 CU 线性"改为"按 `SiCls` 分组"
+- [x] 1.3 `SemanticModel.z42`：加 `HasStaticInitFor`，消费端按 `SiCls` 分组
 - [ ] 1.4 `FunctionEmitter.z42`：无显式 cctor 但有初始化器的类 → 合成类型初始化器
 - [ ] 1.5 `FunctionEmitter.z42`：删 `EmitStaticInit`（含"不带 DBUG 行表"约定）
-- [ ] 1.6 `IrGen.z42`：删 "static_init 首位" 特判与 `SourceStem` 依赖
+- [x] 1.6 `IrGen.z42`：删 "static_init 首位" 特判，改为按类声明序发射 per-class 类型初始化器
 - [ ] 1.7 `IrDump.z42`：删 SA-3 `SourceStem` 设置
 - [ ] 1.8 `AccessEmitter.z42`：静态 struct 字段装箱统一走 `_emitStaticStore`
-- [ ] 1.9 `ClassDescBuilder.z42`：`$Cctor` 哨兵挂载条件扩为「显式 cctor 或有静态初始化器」
+- [x] 1.9 `ClassDescBuilder.z42`：`$Cctor` 哨兵挂载扩到合成 cctor，判据取自 IrGen 的实际发射记录
 
 ## 阶段 7.2：编译器 —— 屏障消除位（对标 `CtorKnownFixup`）
 
