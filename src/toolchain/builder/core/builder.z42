@@ -110,12 +110,12 @@ ICompiler _hostCompiler() {
 //   ② Z42_PORTABLE_VM 反推 SDK 根（<sdk>/bin/z42vm → <sdk>/programs/z42c/）
 //   ③ 开发树 artifacts/build/compiler/z42c.driver/release/dist/（exe 自包含 bundle，7 兄弟共存）
 string _findCompilerZpkg() {
-    string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
     if (home.Length > 0) {
         string p1 = Path.Join(home, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
         if (File.Exists(p1)) { return p1; }
     }
-    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (pv.Length > 0) {
         string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
         string p2 = Path.Join(sdk, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
@@ -168,7 +168,7 @@ Inputs _initialInputs(ProjectManifest m) { return _initialInputs(m, ""); }
 // free-function-overloads 阶段 2（use）：同名重载（2 参版，附加 extraDepDir）——此前因不支持
 // 自由函数重载而分名 _initialInputsWith。
 Inputs _initialInputs(ProjectManifest m, string extraDepDir) {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs.Length == 0 && extraDepDir.Length == 0) { return new Inputs("", "", new string[0]); }
     // 镜像 z42c CLI 的 Z42_LIBS 语义：整目录全部 zpkg 供扫（stdlib 恒可用——prelude/Std.IO
     // 无需在 app 的 toml 里显式声明；非 stdlib 依赖仍受 DepIndex 白名单约束，见 Z42cCompiler）。

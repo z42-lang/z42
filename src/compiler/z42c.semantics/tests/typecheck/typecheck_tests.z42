@@ -433,14 +433,6 @@ void test_ternary_widen_branches() {
 }
 
 [Test]
-void test_null_coalesce() {
-    string src = "class C { string Pick(string a, string b) { return a ?? b; } }";
-    Assert.Equal("(block (return (bin ?? (ident a :string) (ident b :string) :string)))",
-                 SemanticDump.DumpBody(src, "C.Pick"));
-    Assert.Equal(0, SemanticDump.ErrorCount(src));
-}
-
-[Test]
 void test_ternary_non_bool_cond_error() {
     string src = "class C { int M(int x) { return x ? 1 : 2; } }";   // x 非 bool 条件
     Assert.Equal(1, SemanticDump.ErrorCount(src));

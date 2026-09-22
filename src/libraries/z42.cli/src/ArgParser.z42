@@ -271,7 +271,7 @@ public class ArgParser {
             if (envName.Length > 0) {
                 string? envVal = Environment.GetEnvironmentVariable(envName);
                 if (envVal != null) {
-                    string nonNull = envVal ?? "";
+                    string nonNull = envVal;   // 上一行已判空，`?? ""` 原本就是死代码
                     if (nonNull.Length > 0) {
                         initVal = nonNull;
                     }

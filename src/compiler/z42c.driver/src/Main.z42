@@ -71,7 +71,7 @@ void Main() {
         string ezText = File.ReadAllText(file);
         // replace-csharp Phase C：跨包 dep 解析（Z42_LIBS）→ 调 stdlib 的源（golden 等）emit 正确 FQ
         // 函数名（否则 `<error>` → 运行期 undefined function）。无 Z42_LIBS → 回落无依赖单文件 emit。
-        string ezEnv = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        string ezEnv = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         DependencyIndex ezIndex = null;
         ImportedSymbols ezImported = null;
         if (ezEnv.Length > 0) {
@@ -195,7 +195,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         libsDirs = libsDirsOverride;
         libsDirsN = libsDirsCount;
     } else {
-        string env = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         if (env.Length > 0) { libsDirs = new string[1]; libsDirs[0] = env; libsDirsN = 1; }
         else { libsDirs = new string[0]; libsDirsN = 0; }
     }
@@ -206,7 +206,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (libsDirsCount == 0) {
         PathDepClosure closure = PathDepPlan.Resolve(tomlPath);
         if (closure.Count > 0) {
-            string baseLib = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+            string baseLib = Environment.GetEnvironmentVariable("Z42_LIBS", "");
             string[] accum = new string[closure.Count];
             int accN = 0;
             int ci = 0;

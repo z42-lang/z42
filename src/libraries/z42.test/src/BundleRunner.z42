@@ -120,7 +120,7 @@ public static class BundleRunner {
     // deployable stages stdlib as a sibling of the bundle dir).
     static string _resolveLibs(string libsDir, string bundleDir) {
         if (libsDir != null && libsDir.Length > 0) { return libsDir; }
-        string env = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         if (env.Length > 0) { return env; }
         string cand = Path.Join(Path.GetDirectoryName(bundleDir), "libs");
         if (Directory.Exists(cand)) { return cand; }
@@ -130,7 +130,7 @@ public static class BundleRunner {
     // Golden parallelism (P2): Z42_TEST_JOBS (int) → workers; 0/unset = auto
     // (cores), 1 = sequential.
     static int _jobs() {
-        string jv = Environment.GetEnvironmentVariable("Z42_TEST_JOBS") ?? "";
+        string jv = Environment.GetEnvironmentVariable("Z42_TEST_JOBS", "");
         if (jv.Length > 0) {
             try { return int.Parse(jv); } catch (Exception e) { return 0; }
         }

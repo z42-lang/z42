@@ -117,7 +117,7 @@ int _execInherit(Process p) {
 // simulator boot runs Z42VMTests (R1–R7) + Z42EmbeddedTests (embedded corpus).
 // Z42_IOS_DEST overrides the destination; default = first available iPhone sim.
 int _runIosXcodebuild(string buildRoot, string here) {
-    string dest = Environment.GetEnvironmentVariable("Z42_IOS_DEST") ?? "";
+    string dest = Environment.GetEnvironmentVariable("Z42_IOS_DEST", "");
     if (dest.Length == 0) {
         string udid = _firstSimulatorUdid();
         if (udid.Length == 0) {

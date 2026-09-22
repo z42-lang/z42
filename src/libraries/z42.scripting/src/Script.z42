@@ -32,7 +32,7 @@ public static class Script {
         // Z42_LIBS 是**单**目录（共享 libs/：stdlib + 预建包），与 z42c driver、z42b、VM 运行期同一口径，
         // **不按 `:` 拆**：拆了会让第二段目录里的包编得过、运行期却加载不到（MissingSymbolException），
         // 且 Windows 的 `C:\...` 会被拆成两段。
-        string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         ScriptState s = Script.CreateWithLibs("");
         if (libs.Length > 0) {
             string[] dirs = new string[1]; dirs[0] = libs;

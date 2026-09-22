@@ -94,9 +94,9 @@ public static class EditorInstall {
     // SDK 根：Z42_HOME > apphost 注入的 Z42_PORTABLE_VM（<sdk>/bin/z42vm）反推 > ~/.z42。
     // 与 launcher 的 _home() 同一套优先级——z42d 是 SDK 里的组件，看到的必须是同一个根。
     static string _sdkRoot() {
-        string h = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+        string h = Environment.GetEnvironmentVariable("Z42_HOME", "");
         if (h.Length > 0) { return h; }
-        string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+        string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
         if (vm.Length > 0) {
             string binDir = Path.GetDirectoryName(vm);
             if (binDir.Length > 0) {
@@ -113,8 +113,8 @@ public static class EditorInstall {
     static string _sdkEditors() { return Path.Join(_sdkRoot(), "editors"); }
 
     static string _homeDir() {
-        string home = Environment.GetEnvironmentVariable("HOME") ?? "";
-        if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE") ?? ""; }
+        string home = Environment.GetEnvironmentVariable("HOME", "");
+        if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE", ""); }
         return home;
     }
 }

@@ -1,16 +1,21 @@
 // add-default-expression: `default(string)` is null (reference-type semantics,
-// matching C# / `default_value_for("string") = Value::Null`). User can choose
-// empty-string semantics with `?? ""`.
+// matching C# / `default_value_for("string") = Value::Null`).
+//
+// define-null-check-marks: `??` is gone, so a caller who wants a non-null
+// stand-in writes the check out. That is the point — the fallback is visible
+// at the place it happens instead of hiding inside an operator.
 
 void Main() {
     var s = default(string);
     Assert.Null(s);
 
-    // Null-coalesce to empty string for display.
-    var pretty = default(string) ?? "<null>";
+    // Display fallback, written out.
+    string pretty = default(string);
+    if (pretty == null) { pretty = "<null>"; }
     Assert.Equal("<null>", pretty);
 
-    // Direct concat with non-null string when user provides default.
-    var prefix = default(string) ?? "";
+    // Empty-string fallback, written out.
+    string prefix = default(string);
+    if (prefix == null) { prefix = ""; }
     Assert.Equal(0, prefix.Length);
 }

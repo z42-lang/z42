@@ -88,7 +88,7 @@ public static class IncrementalDriver {
 
         ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, n, plan.Fresh);
         CompilationUnit[] cus = pk.Cus;
-        bool incrDebug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
+        bool incrDebug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "")) == "1";
 
         // 闭包三份输入（incr-name-level-invalidation）。**cached 行一律从上次 meta 取**——源未变，
         // 这三样都不变，零重算（D8 教训：为闭包对全部文件多走一遍 lex，增量会反比全量慢）。

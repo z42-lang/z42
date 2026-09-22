@@ -59,12 +59,12 @@ public static class ReplCompilerHost {
     //   ④ Z42_LIBS 目录（单目录；dev warm-z42c 回路 / workspace 运行：编译器组件与 stdlib 同置一处）——
     //      REPL 的调用上下文比 z42b 更杂（驱动测试直驱 Script.Eval），故比 builder 多这一兜底。
     private static string _findCompilerZpkg() {
-        string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+        string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
         if (home.Length > 0) {
             string p1 = Path.Join(home, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
             if (File.Exists(p1)) { return p1; }
         }
-        string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+        string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
         if (pv.Length > 0) {
             string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
             string p2 = Path.Join(sdk, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
@@ -72,7 +72,7 @@ public static class ReplCompilerHost {
         }
         string p3 = "artifacts/build/compiler/z42c.driver/release/dist/z42c.pipeline.zpkg";
         if (File.Exists(p3)) { return p3; }
-        string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         if (libs.Length > 0) {
             string p4 = Path.Join(libs, "z42c.pipeline.zpkg");
             if (File.Exists(p4)) { return p4; }

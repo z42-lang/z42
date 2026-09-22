@@ -43,7 +43,7 @@ BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
         + "namespace Build;\n\nvoid Main() { }\n");
 
     // deps：镜像 _initialInputs 的 Z42_LIBS 语义（hook 需要 z42.build / Std.IO 等）。
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     string[] deps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
 
     string outZpkg = Path.Join(interDir, pkgName + ".zpkg");

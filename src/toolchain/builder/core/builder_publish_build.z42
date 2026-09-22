@@ -62,7 +62,7 @@ string _pubEnsureBuilt(string tomlPath, TomlValue toml, string projName, bool no
 // whatever is already built, or a build-first hint). The apphost colocates the
 // driver's siblings + resolves stdlib itself.
 string _pubFindZ42c() {
-    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (vm.Length == 0) { return ""; }
     string home = Path.GetDirectoryName(Path.GetDirectoryName(vm));   // <home>/bin/z42vm → <home>
     if (home.Length == 0) { return ""; }

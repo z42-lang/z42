@@ -31,7 +31,7 @@
 | 4 | 字段（先做 Q1 的快照规则实测） | 待做 |
 | 5 | 反向推导 + override 一致性 | 待做 |
 | 6 | `Expect("理由")`（emitter 要合成 `new` + `throw`，无先例） | 待做 |
-| 7 | 砍 `??`（约 100 处，含编译器自身） | 待做 |
+| **4** | 砍 `??`（100 处） | 已做 —— 与 `?.` 同码 E0480 |
 
 **`Expect` 又往后挪了一格，理由变了**：原以为「返回值那半需要它，因为调用结果没有
 名字可窄化」。实际上逃生口是**「先存进局部再检查那个局部」**，完全够用且更直白
@@ -116,11 +116,24 @@
     生产代码零依赖（实测 `?.` 在 z42 源码里只有 3 处，全在删掉的那个用例里）
 - [x] 6.2 `?.`：确认 android/ios appbuilder 里生成的 Kotlin/Swift 源串**不受影响**（那是字符串内容）
   - 实测：`?.` 的其余 14 处命中全是 JS / Swift / Kotlin（平台代码或生成的源码串），一处未动
-- [ ] 6.3 `??`：删 `OperatorEmitter.z42:231` 发射 + `ExprTyper.z42:551` 绑定 + 词法/语法
-- [ ] 6.4 `??` 迁移 —— 生产 69 处：compiler/z42c.pipeline 23、z42c.semantics 19、z42c.driver 5、z42c.syntax 4、z42.scripting 4、z42.project 4、z42.core 4、其余 6
-- [ ] 6.5 `??` 迁移 —— 测试 42 处；`tests/control_flow/null_coalesce.z42` 删除
-- [ ] 6.6 `ObsoleteNullOperator` 诊断带迁移写法
-- [ ] 6.7 全仓 grep 清零
+- [x] 6.3 `??`：删 `OperatorEmitter._emitNullCoalesce` 发射 + `ExprTyper` 绑定分支；
+  语法层保留 token、报 E0480、**完整吃掉右侧后只取左侧**（不这么做 `a ?? b ? c : d` 会脱轨）
+- [x] 6.4 `??` 迁移 —— **实测形态与规划差得很远，结论更好**：
+  - 全仓 100 处里 **70 处是同一个形态** `Environment.GetEnvironmentVariable("X") ?? ""`
+    （生产 50 / 测试 20）
+  - ⇒ **不机械改写成 70 个三行 if 块**（那会让代码变吵），而是加重载
+    `GetEnvironmentVariable(name, fallback)`，调用点退回一行且**结果不带 `?`**
+    ⇒ 没有空检查义务。这正是 proposal 里「『可能没有』的结果怎么表达」那条规约
+  - 其余真实生产站点只有 **5 处**：`AppProperties.GetOrDefault` / `RuntimeConfig.GetOrDefault`
+    （`return v ?? fallback` → 早返回守卫）、`DateTime.ParseIso8601`（拼消息）、
+    `ArgParser`（`?? ""` 在 `if (envVal != null)` 里，**本来就是死代码**）、`launcher`（实参位，提局部）
+  - ⚠️ design 写的「生产 69 处（compiler 47 / stdlib 22）」**与实测不符**——
+    那个数把实现本身、注释、regex 串 `"colou??r"`、wasm appbuilder 里生成的 JS
+    （`err.stack ?? err`）都算进去了。**后三类一处未动。**
+- [x] 6.5 `??` 迁移 —— 测试：`tests/control_flow/null_coalesce.z42` 删除、
+  `tests/operators/default_string.z42` 改显式写法、parser/typecheck/codegen 的行为断言改阴性断言
+- [x] 6.6 `ObsoleteNullOperator` 诊断带迁移写法（含「换成收默认值的 API」这条建议）
+- [x] 6.7 全仓 grep 清零（生产代码 `??` 仅剩实现自身与注释）
 
 ## 阶段 7: 自举 + GREEN
 - [ ] 7.1 按 `bootstrap-seed.md` 走冷种子（编译器自身改了 47 处 `??`）

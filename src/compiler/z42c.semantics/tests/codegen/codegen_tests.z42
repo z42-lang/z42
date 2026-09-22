@@ -345,14 +345,6 @@ void test_logical_or() {
                  IrDump.DumpFunc(src, "F"));
 }
 
-[Test]
-void test_null_coalesce() {
-    // a ?? b：a==null → b，否则 a
-    string src = "string F(string a, string b) { return a ?? b; }";
-    Assert.Equal("fn @F(2) -> string {\nentry:\n  %2 = const.null\n  %3 = eq str %0, %2\n  br.cond %3, nc_null_0, nc_end_1\nnc_end_1:\n  %4 = copy %0\n  br nc_after_2\nnc_null_0:\n  %4 = copy %1\n  br nc_after_2\nnc_after_2:\n  ret %4\n}",
-                 IrDump.DumpFunc(src, "F"));
-}
-
 // ── CG-2：泛型（obj_new 携 resolved type-args + 泛型方法签名类型解析）─────────────────
 
 [Test]

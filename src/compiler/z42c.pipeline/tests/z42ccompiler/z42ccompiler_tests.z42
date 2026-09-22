@@ -9,8 +9,8 @@ using Z42.Build;
 using Z42.Project;   // ZpkgReader（读回 MODS 头的 SourceFile / SourceHash）
 
 string _tmpRoot() {
-    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
-    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP") ?? ""; }
+    string t = Environment.GetEnvironmentVariable("TMPDIR", "");
+    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP", ""); }
     if (t == "") { t = "/tmp"; }
     return Path.Join(t, "z42c-z42ccompiler-tests");
 }

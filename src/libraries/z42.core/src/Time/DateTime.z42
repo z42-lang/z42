@@ -300,7 +300,9 @@ public sealed class DateTime {
     // round-trip with `ToIso8601()` whose output ends in `Z`).
     public static DateTime ParseIso8601(string s) {
         if (s == null || s.Length < 10) {
-            throw new ArgumentException("ParseIso8601: input too short: '" + (s ?? "") + "'");
+            string shown = "";
+            if (s != null) { shown = s; }
+            throw new ArgumentException("ParseIso8601: input too short: '" + shown + "'");
         }
         // YYYY-MM-DD
         int year  = _DateTimeHelpers._parseFixed(s, 0, 4, "year");

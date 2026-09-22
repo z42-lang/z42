@@ -639,10 +639,6 @@ public sealed partial class ExprTyper {
         if ((lt is Z42ErrorType) || (rt is Z42ErrorType)) {
             return new BoundBinary(bin.Op, left, right, new Z42ErrorType(), bin.Span);
         }
-        // null 合并 a ?? b → 公共类型（不在拓宽表内）。
-        if (bin.Op == "??") {
-            return new BoundBinary("??", left, right, TypeFactsTc._commonType(lt, rt, env.Symbols), bin.Span);
-        }
         // 字符串拼接特例（任一侧 string）：先于查表，镜像 C# CheckBinary 前置。
         // unify-value-types Phase 1：经 PrimModel.Canon 归一（翻转后 string→Z42ClassType(String)，
         // Name()="String"）；翻转前 Canon("string")=="string" 逐字节同义。
