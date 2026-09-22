@@ -95,6 +95,14 @@ public sealed class BoundCall : BoundExpr {
     // 如错误路径 / 局部函数 → 发射端按当前 ns 限定）与是否来自导入包（发射端据此记依赖 ns）。
     public string      FreeNs;
     public bool        FreeImported;
+    // define-null-check-marks：被调方的返回类型标了 `?` ⇒ 调用结果「可能为 null」，
+    // 调用方解引用前必须检查。默认 false（post-construction 由**手里有已解析签名**的
+    // 调用点经 `BoundCall.Marked` 写入 → 不改其余构造点，同 `MethodTypeArgs` 的先例）。
+    //
+    // 为什么不让 FlowAnalyzer 自己去符号表按 (OwnerClass, RegKey) 反查、省掉这些接线：
+    // 那等于再实现一遍重载解析，**查错就是误报**，而误报在本特性里是零容忍的（design D3）。
+    // 显式接线漏掉一个点只会漏报（D4 允许），方向安全得多。
+    public bool        RetIsNullable;
     private Z42Type _retType;
     public BoundCall(string kind, bool hasReceiver, BoundExpr receiver, string ownerClass,
                      string methodName, BoundExpr[] args, int argCount, Z42Type retType, Span span) { this.Span = span;
@@ -104,6 +112,13 @@ public sealed class BoundCall : BoundExpr {
         this.MethodTypeArgs = new Z42Type[0]; this.MethodTypeArgCount = 0;
         this.MethodTypeArgFwd = new int[0];
         this.FreeNs = null; this.FreeImported = false;
+        this.RetIsNullable = false;
+    }
+
+    // 在已解析签名的调用点给结果打上返回值可空标记，并原样交回 bc（便于 `return` 位直接包一层）。
+    public static BoundCall Marked(BoundCall bc, Z42FuncType sig) {
+        if (bc != null && sig != null) { bc.RetIsNullable = sig.RetIsNullable; }
+        return bc;
     }
     public override Z42Type Type() { return this._retType; }
     public override string  Dump() {

@@ -697,7 +697,7 @@ public sealed partial class ExprTyper {
             opArgs[0] = left; opArgs[1] = right;
             MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, 0, bin.Span, null, env);   // 运算符重载无显式类型实参 → typeArgCount=0
             if (opMs != null) {
-                return new BoundCall("static", false, null, lct.Name(), opMs.RegKey, opArgs, 2, opMs.Signature.Ret, bin.Span);
+                return BoundCall.Marked(new BoundCall("static", false, null, lct.Name(), opMs.RegKey, opArgs, 2, opMs.Signature.Ret, bin.Span), opMs.Signature);
             }
         }
         BinaryRule rule = BinaryTypeTable.Lookup(bin.Op);

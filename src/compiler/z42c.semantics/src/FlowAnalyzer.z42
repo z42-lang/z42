@@ -34,11 +34,14 @@ public sealed class FlowAnalyzer {
 
     // define-null-check-marks：到当前程序点为止**可能为 null**的名字 → "1"。
     //
-    // 事实来源目前只有一处：**标了 `?` 的形参**。`?` 的语义是「编译器请在这里强制检查」，
-    // 缺席 = **不强制**（不是「保证非空」）⇒ 未标的名字不进本表、天然不受检，零迁移成本。
-    // 标了 `?` 的**返回值**（`IPAddress? TryParse`）是下一个 PR 的事——那需要在调用点拿到
-    // 被调方签名，而 `BoundCall` 有 46 个构造点。
+    // 两处事实来源：**标了 `?` 的形参**，以及**标了 `?` 的返回值**（`BoundCall.RetIsNullable`）。
+    // `?` 的语义是「编译器请在这里强制检查」，缺席 = **不强制**（不是「保证非空」）
+    // ⇒ 未标的名字不进本表、天然不受检，零迁移成本。
     private StrMap _maybeNull;
+
+    // 本方法自己的返回类型标没标 `?`。未标 ⇒ 调用方**没有**检查义务 ⇒ 不许把可空值
+    // 从这里漏出去（design D9 的 `PossibleNullReturn`），否则标记体系就被洗穿了。
+    private bool _retIsNullable;
 
     private FlowAnalyzer(DiagnosticBag diags) {
         this._diags = diags;
@@ -52,6 +55,7 @@ public sealed class FlowAnalyzer {
     public static void Check(BoundStmt body, MethodDecl md, DiagnosticBag diags) {
         if (body == null || diags == null) { return; }
         FlowAnalyzer fa = new FlowAnalyzer(diags);
+        if (md != null) { fa._retIsNullable = (md.RetType is NullableType); }
         if (md != null) {
             int i = 0;
             while (i < md.ParamCount) {
@@ -120,7 +124,12 @@ public sealed class FlowAnalyzer {
 
         if (s is BoundVarDeclStmt) {
             BoundVarDeclStmt v = s as BoundVarDeclStmt;
-            if (v.Init != null) { this._reads(v.Init); }
+            if (v.Init != null) {
+                this._reads(v.Init);
+                // 「存进局部再检查」正是返回值标记的逃生口（调用结果没有名字可窄化），
+                // 所以这条传播是必须的，不是可选的优化。
+                this._propagate(v.Name, v.Init);
+            }
             else { this._uninit.Put(v.Name, "1"); }
             return;
         }
@@ -134,7 +143,10 @@ public sealed class FlowAnalyzer {
 
         if (s is BoundReturn) {
             BoundReturn r = s as BoundReturn;
-            if (r.HasValue) { this._reads(r.Value); }
+            if (r.HasValue) {
+                this._reads(r.Value);
+                this._checkReturn(r.Value);
+            }
             return;
         }
 
@@ -403,6 +415,11 @@ public sealed class FlowAnalyzer {
             BoundAssign a = e as BoundAssign;
             this._reads(a.Value);
             if (!(a.Target is BoundIdent)) { this._reads(a.Target); }   // `arr[i] = v` 的 arr/i 要读
+            else {
+                // 重新赋值会**改写**空值事实（两个方向都要）：赋一个可空调用的结果 ⇒ 重新受检；
+                // 赋一个已知非空的值 ⇒ 义务解除。只往一个方向走都会错。
+                this._propagate((a.Target as BoundIdent).Name, a.Value);
+            }
             return;
         }
 
@@ -517,13 +534,62 @@ public sealed class FlowAnalyzer {
     // 报一次就清掉事实 —— 同一个变量在后面每处再报一遍只是噪声（同 E0407 的处置）。
     private void _checkDeref(BoundExpr e) {
         if (e == null) { return; }
-        if (!(e is BoundIdent)) { return; }   // 只管裸名；字段/属性的快照规则是后续 PR
+        // 字段/属性的快照规则是后续 PR，这里只管裸名与调用结果。
+        if (e is BoundCall) {
+            BoundCall c = e as BoundCall;
+            if (!c.RetIsNullable) { return; }
+            this._diags.Error("E0478",
+                "`" + c.MethodName + "` returns a `?`-marked type and may be null here — "
+                + "assign it to a local and check that (e.g. `var v = …; if (v != null) { … }`)", e.Span);
+            return;
+        }
+        if (!(e is BoundIdent)) { return; }
         BoundIdent id = e as BoundIdent;
         if (!this._isMaybeNull(id.Name)) { return; }
         this._diags.Error("E0478",
             "`" + id.Name + "` is marked `?` and may be null here — check it before dereferencing "
             + "(e.g. `if (" + id.Name + " != null) { … }`)", e.Span);
         this._maybeNull.Put(id.Name, "0");
+    }
+
+    // 把右侧表达式的空值性传给名字 `name`。
+    //
+    // ⭐ **义务集只能由 `?` 标记产生，赋值只能更新、不能新增。**
+    // 起初我让「赋 null 字面量」也建立事实，结果在 `z42.net/HttpClient` 上误报：
+    // `TcpClient client = null;` —— 一个**没标 `?`** 的普通局部，随后在循环里被赋上真值。
+    // 那等于偷偷开了**悲观档**（所有引用类型都受检），而那正是设计里明确不做、
+    // User 也否掉过的一档。`null` 字面量本身不是标记。
+    private void _propagate(string name, BoundExpr v) {
+        if (FlowAnalyzer._isNullableCall(v)) { this._maybeNull.Put(name, "1"); return; }
+        // 只更新**已在义务集内**的名字：赋 null ⇒ 重新受检；赋别的 ⇒ 义务解除。
+        if (!this._maybeNull.ContainsKey(name)) { return; }
+        if (v is BoundLitNull) { this._maybeNull.Put(name, "1"); }
+        else { this._maybeNull.Put(name, "0"); }
+    }
+
+    private static bool _isNullableCall(BoundExpr e) {
+        if (e == null) { return false; }
+        if (!(e is BoundCall)) { return false; }
+        return (e as BoundCall).RetIsNullable;
+    }
+
+    // 把可空值 `return` 给**未标 `?`** 的返回类型 → E0479。
+    // 未标的返回类型意味着「调用方不必检查」，所以这里放行就等于凭空造了一个洞。
+    // 修法有两条，诊断里都给出来：给返回类型加 `?`（把义务传给调用方），或在这里先检查。
+    //
+    // ⚠️ 只认**确定性**来源（标 `?` 的名字 / 标 `?` 的调用结果）。
+    // `return null;` 字面量本身**不报** —— 那是 design D8 的反向推导，是「建议加 `?`」
+    // 而非「这里有错」，留给后续 PR，免得和本码混成一团。
+    private void _checkReturn(BoundExpr v) {
+        if (this._retIsNullable) { return; }
+        bool bad = false;
+        if (v is BoundIdent) { bad = this._isMaybeNull((v as BoundIdent).Name); }
+        else if (FlowAnalyzer._isNullableCall(v)) { bad = true; }
+        if (!bad) { return; }
+        this._diags.Error("E0479",
+            "returning a value that may be null from a return type not marked `?` — "
+            + "callers of this method have no obligation to check it; "
+            + "either mark the return type `?` or check before returning", v.Span);
     }
 
     private bool _isMaybeNull(string name) {
