@@ -243,7 +243,11 @@ public sealed class IrGen {
             while (pi < pend.Length) {
                 if (!specDone.ContainsKey(pend[pi])) {
                     specDone.Put(pend[pi], "1");
-                    types.EmitInstantiation(pend[pi]);
+                    // 身份与布局解耦：**描述符**对所有实例化都投送（见下方 InstLayouts 循环），
+                    // 但**成员特化**只对布局与定义不同的做——布局相同时共享定义那份体即可。
+                    if (this.Layouts != null && this.Layouts.InstDiffersFromDef(pend[pi])) {
+                        types.EmitInstantiation(pend[pi]);
+                    }
                     specMore = true;   // 本轮有新增 ⇒ 再扫一遍（体内可能又登记了新实例化）
                 }
                 pi = pi + 1;

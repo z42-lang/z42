@@ -466,12 +466,13 @@ public sealed class CallEmitter {
             // 与**实例化的 ctor**——否则运行期按定义名 resolve_layout（First 是 8B 句柄）而 size 已是实例化的，
             // 且 ctor 体按定义偏移往里写句柄 ⇒ 读出 0。限定只加在基名上、实参原样（同 _qualifyElemName 约定），
             // 与合成描述符的注册键（ns + 短实例化名）对齐。
-            string qualAlloc = qualCls;
-            string ctorOwner = qualCls;
-            if (sname.IndexOf("<") >= 0) {
-                qualAlloc = this._ee._qualifyInstName(sname);
-                ctorOwner = qualAlloc;
-            }
+            // 身份与布局解耦（User 裁决「实例化是独立类型」）：
+            //  · StructAlloc 的类型名走**身份名** —— 所有实例化一律独立，`GetType()` 才自洽；
+            //  · ctor 派发走**特化名** —— 只有布局不同的才有特化 ctor，布局相同的共享定义那份
+            //    （共享体按定义偏移烘焙，布局既相同则偏移对得上）。
+            string identN = this._ee._instIdentityName(n.Type());
+            string qualAlloc = identN != "" ? this._ee._qualifyInstName(identN) : qualCls;
+            string ctorOwner = sname.IndexOf("<") >= 0 ? this._ee._qualifyInstName(sname) : qualCls;
             TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
             this._ctx.Emit(new StructAllocInstr(handle, qualAlloc, size));
             fqCtor = ctorOwner + "." + n.CtorName;

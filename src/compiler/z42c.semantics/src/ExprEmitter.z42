@@ -98,7 +98,7 @@ public sealed class ExprEmitter {
                 // （型参字段 8B 句柄），而元素是实例化形状 ⇒ stride 与偏移错位
                 // （实测 `struct field write out of blob bounds (off=32, w=4, len=32)`：
                 //  2 元素 × 定义布局 16B = 32，写实例化的 Second 落在 32 已越界）。
-                string ie = this._instLayoutName(at.Elem);
+                string ie = this._instIdentityName(at.Elem);   // 元素类型身份 = 实例化
                 elemName = ie != "" ? this._qualifyInstName(ie) : this._qualifyElemName(an.ElemName);
             }
             // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
@@ -559,9 +559,61 @@ public sealed class ExprEmitter {
             i = i + 1;
         }
         string cand = StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
-        // ← 闸门：实例化布局**确实不同于定义布局**才特化。相同则特化是 no-op，跳过 ⇒ 产出字节不变。
+        // ← 闸门：实例化布局**确实不同于定义布局**才特化成员与布局查询。
+        // 相同则共享定义那份成员体——它按定义偏移烘焙，而布局既然相同，偏移就对得上。
+        // 注意这**不影响类型身份**：身份走 `_instIdentityName`，所有实例化一律独立（User 裁决）。
         if (!ly.InstDiffersFromDef(cand)) { return ""; }
         return cand;
+    }
+
+    // **身份名**：任何本包泛型 blob struct 实例化的规范名，**不看布局是否不同**。
+    //
+    // User 裁决「实例化是独立类型」（对齐 C#）⇒ 每个实例化都要有自己的运行期类型描述符，
+    // 否则身份取决于「布局是否碰巧相同」这种实现细节：`GRec<int,int>` 是独立类型，而
+    // `GRec<string,object>`（布局恰与定义相同）却报告自己是 `GRec`——同一泛型的不同实例化
+    // 身份规则不一致，无法解释也无法记忆。
+    //
+    // 与 `_instLayoutName` 的分工：身份名管**描述符 + StructAlloc 的类型名**；
+    // 特化名（`_instLayoutName`）管**布局查询 + 成员派发**。布局相同的实例化有独立身份、
+    // 但共享定义的成员体——安全，因为共享体按定义偏移烘焙而两者布局相同。
+    // 实参是否**全是具体类型**（不含未代换的型参）。
+    //
+    // 泛型体内部出现的 `ListEnumerator<T>`（`T` 还是型参）**不是一个真实例化**，它只是定义的
+    // 自我指代。给它建描述符 = 让包导出一个字面叫 `ListEnumerator<T>` 的类，污染导入侧类型表
+    // ⇒ 消费方 `no method MoveNext on ListEnumerator<T>`（实测回归）。
+    // 此前布局闸门恰好挡住了它（`T` 实参的布局与定义相同），解耦身份后必须显式排除。
+    private bool _isConcreteTypeArg(Z42Type a) {
+        if (a == null) { return false; }
+        if (a is Z42GenericParamType) { return false; }
+        if (a is Z42InstantiatedType) {
+            Z42InstantiatedType it = a as Z42InstantiatedType;
+            int k = 0;
+            while (k < it.ArgCount) { if (!this._isConcreteTypeArg(it.TypeArgs[k])) { return false; } k = k + 1; }
+        }
+        if (a is Z42ArrayType) { return this._isConcreteTypeArg((a as Z42ArrayType).Elem); }
+        return true;
+    }
+
+    internal string _instIdentityName(Z42Type t) {
+        if (!(t is Z42InstantiatedType)) { return ""; }
+        Z42InstantiatedType inst = t as Z42InstantiatedType;
+        if (inst.Def == null || inst.ArgCount <= 0) { return ""; }
+        if (this._ctx.Gen.Layouts == null) { return ""; }
+        if (!this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
+        int c0 = 0;
+        while (c0 < inst.ArgCount) {
+            if (!this._isConcreteTypeArg(inst.TypeArgs[c0])) { return ""; }   // 含未代换型参 → 不是真实例化
+            c0 = c0 + 1;
+        }
+        string[] argNames = new string[inst.ArgCount];
+        int i = 0;
+        while (i < inst.ArgCount) {
+            string an = this._canonTypeName(inst.TypeArgs[i]);
+            if (an == "") { return ""; }
+            argNames[i] = an;
+            i = i + 1;
+        }
+        return StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
     }
 
     // 类型 → **规范名**，实例化实参**递归**规范化。
@@ -602,7 +654,7 @@ public sealed class ExprEmitter {
 
     // 登记（幂等）。
     internal void _noteInstLayout(Z42Type t) {
-        string n = this._instLayoutName(t);
+        string n = this._instIdentityName(t);   // 身份名：所有实例化都登记（都要有描述符）
         if (n == "") { return; }
         if (!this._ctx.Gen.InstLayouts.ContainsKey(n)) { this._ctx.Gen.InstLayouts.Put(n, "1"); }
         // **嵌套实例化一并登记**：`Pair<Pair<int,long>,string>` 的内层 `Pair<int,long>` 自己也需要
