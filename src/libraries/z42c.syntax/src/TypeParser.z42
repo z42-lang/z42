@@ -146,11 +146,34 @@ public sealed class TypeParser {
             }
         }
         TypeExpr t = new NamedType(name, args, ac, sp);
+        bool isArray = false;
         while (this._p._pendingGt == 0 && this._p._peek().Kind == TokenKind.LBracket && this._p._peekAt(1).Kind == TokenKind.RBracket) {
             this._p._advance(); this._p._advance();
             t = new ArrayType(t, sp);
+            isArray = true;
         }
-        if (this._p._peek().Kind == TokenKind.Question) { this._p._advance(); t = new NullableType(t, sp); }
+        if (this._p._peek().Kind == TokenKind.Question) {
+            Span qsp = this._p._peek().Span;
+            this._p._advance();
+            // enforce-value-type-non-null：值类型永不可空 ⇒ 基元关键字上的 `?` 报 E0476。
+            // 此前 `?` 在类型解析期被擦除（`int?` 与 `int` 解析成同一个类型），于是
+            // `int x = Int32.TryParse(s)` 照样编过、往 int 槽塞 Null —— 标注**对任何事都没有约束力**。
+            //
+            // 「可能没有」的值类型结果按规约走 `bool TryX(..., ref T v)`；引用类型才用单个可空
+            // 返回值（`IPAddress? TryParse`）。诊断消息给出这条迁移写法。
+            //
+            // ⚠️ 这里只拦**基元关键字**（语法上可判）。用户 struct / enum 的 `T?` 需要语义信息
+            // （SymbolTable / TypeEnv 都没有诊断袋），列为 tasks 待办；现存代码里没有这种写法。
+            // ⚠️ 必须排除数组：`byte[]?` 是**合法**的 —— 数组是引用类型，可空的是数组本身，
+            // 不是元素。只看基名 `byte` 会把它误拦（实测被 z42.core 的
+            // `ProcessNative.Spawn(..., byte[]? stdinBytes, ...)` 抓住）。
+            if (ac == 0 && !isArray && TypeParser._isValueTypeKeyword(name)) {
+                this._p._diags.Error("E0476",
+                    "`" + name + "?` is not allowed — `" + name + "` is a value type and can never be null; "
+                    + "for a \"maybe absent\" value-type result use `bool TryX(..., ref " + name + " v)`", qsp);
+            }
+            t = new NullableType(t, sp);
+        }
         return t;
     }
 
@@ -227,4 +250,21 @@ public sealed class TypeParser {
         return outp;
     }
 
+
+    // enforce-value-type-non-null：永不可空的基元值类型关键字（含 i32/u8 一族别名）。
+    // `string` / `object` 不在内——它们是引用类型，`string?` 合法。
+    private static bool _isValueTypeKeyword(string n) {
+        if (n == "int"    || n == "i32")  { return true; }
+        if (n == "long"   || n == "i64")  { return true; }
+        if (n == "short"  || n == "i16")  { return true; }
+        if (n == "sbyte"  || n == "i8")   { return true; }
+        if (n == "byte"   || n == "u8")   { return true; }
+        if (n == "ushort" || n == "u16")  { return true; }
+        if (n == "uint"   || n == "u32")  { return true; }
+        if (n == "ulong"  || n == "u64")  { return true; }
+        if (n == "float"  || n == "f32")  { return true; }
+        if (n == "double" || n == "f64")  { return true; }
+        if (n == "bool"   || n == "char") { return true; }
+        return false;
+    }
 }

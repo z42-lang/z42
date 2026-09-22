@@ -1,0 +1,23 @@
+// enforce-value-type-non-null：值类型字段 / 静态字段无初始化器时必须是零值，不是 Null。
+class Holder {
+    public int    N;
+    public bool   B;
+    public char   C;
+    public double D;
+    public long   L;
+}
+class Stat {
+    public static int SN;
+    public static bool SB;
+}
+void Main() {
+    Holder h = new Holder();
+    Assert.Equal(0, h.N);
+    Assert.Equal(false, h.B);
+    Assert.Equal(0.0, h.D);
+    Assert.Equal(0L, h.L);
+    Assert.Equal(1, h.N + 1);          // 算术：Null 会炸 type mismatch
+    Assert.Equal(0, Stat.SN);
+    Assert.Equal(false, Stat.SB);
+    Assert.Equal(1, Stat.SN + 1);
+}

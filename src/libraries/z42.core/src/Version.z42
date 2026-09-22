@@ -80,11 +80,10 @@ public sealed class Version {
     }
 
     private static int _parseComponent(string part, string whole) {
-        int? v = Int32.TryParse(part);
-        if (v == null) {
+        int iv;
+        if (!Int32.TryParse(part, ref iv)) {
             throw new FormatException("Version component is not an integer: '" + part + "' in " + whole);
         }
-        int iv = (int)v;
         if (iv < 0) {
             throw new FormatException("Version component is negative: '" + part + "' in " + whole);
         }

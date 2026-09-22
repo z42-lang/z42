@@ -1,40 +1,65 @@
-// library-review PR-D (2026-08-31): non-throwing TryParse → T? for Int32 /
-// Int64 / Double, plus Double IEEE-754 classification (IsNaN / IsInfinity / …).
+// library-review PR-D (2026-08-31): non-throwing TryParse for Int32 / Int64 / Double,
+// plus Double IEEE-754 classification (IsNaN / IsInfinity / …).
+//
+// enforce-value-type-non-null（2026-09-22）：签名从 `T? TryParse(string)` 改成
+// `bool TryParse(string, ref T)`。值类型永不可空 ⇒ `int?` 不再存在；「可能没有」的值类型结果
+// 按规约走 `bool` + `ref` 出参（引用类型才用单个可空返回值，如 `IPAddress? TryParse`）。
+// 失败路径显式写零值 —— `ref` 两侧都没有义务，零值是约定而非编译器保证。
 namespace Z42CoreScalarTryParseClassifyTests;
 
 using Std;
 using Std.Test;
 
-// ── TryParse → T? (null on malformed) ────────────────────────────────────────
+// ── TryParse：bool + ref 出参 ────────────────────────────────────────────────
 
 [Test]
 void test_int32_tryparse_ok() {
-    int? a = Int32.TryParse("42");
-    Assert.Equal(42, a ?? -1);
-    int? b = Int32.TryParse("-7");
-    Assert.Equal(-7, b ?? 0);
+    int a;
+    Assert.Equal(true, Int32.TryParse("42", ref a));
+    Assert.Equal(42, a);
+    int b;
+    Assert.Equal(true, Int32.TryParse("-7", ref b));
+    Assert.Equal(-7, b);
 }
 
 [Test]
 void test_int32_tryparse_fail() {
-    Assert.Equal(true, Int32.TryParse("abc") == null);
-    Assert.Equal(true, Int32.TryParse("") == null);
-    Assert.Equal(true, Int32.TryParse("3.5") == null);
-    Assert.Equal(true, Int32.TryParse("99999999999999") == null);   // out of i32 range
+    // 失败时返 false 且出参写零值（**有定义的 0**，不是塞进 int 槽的 Null——
+    // 后者会在下游某处以 `expected integer, got Null` 内部错误崩掉，离现场很远）。
+    int v = 99;
+    Assert.Equal(false, Int32.TryParse("abc", ref v));
+    Assert.Equal(0, v);
+    Assert.Equal(false, Int32.TryParse("", ref v));
+    Assert.Equal(false, Int32.TryParse("3.5", ref v));
+    Assert.Equal(false, Int32.TryParse("99999999999999", ref v));   // out of i32 range
 }
 
 [Test]
 void test_int64_tryparse() {
-    long? a = Int64.TryParse("9999999999");
-    Assert.Equal(9999999999L, a ?? 0L);
-    Assert.Equal(true, Int64.TryParse("nope") == null);
+    long a;
+    Assert.Equal(true, Int64.TryParse("9999999999", ref a));
+    Assert.Equal(9999999999L, a);
+    long b;
+    Assert.Equal(false, Int64.TryParse("nope", ref b));
+    Assert.Equal(0L, b);
 }
 
 [Test]
 void test_double_tryparse() {
-    double? a = Double.TryParse("3.14");
-    Assert.Equal(3.14, a ?? 0.0);
-    Assert.Equal(true, Double.TryParse("xyz") == null);
+    double a;
+    Assert.Equal(true, Double.TryParse("3.14", ref a));
+    Assert.Equal(3.14, a);
+    double b;
+    Assert.Equal(false, Double.TryParse("xyz", ref b));
+    Assert.Equal(0.0, b);
+}
+
+[Test]
+void test_guid_tryparse() {
+    // Guid 是 struct ⇒ 同样不能可空，同样走 bool + ref（容易漏的一个）。
+    Guid g;
+    Assert.Equal(false, Guid.TryParse("not-a-guid", ref g));
+    Assert.Equal(true, g.Equals(Guid.Empty()));
 }
 
 // ── Double classification ────────────────────────────────────────────────────

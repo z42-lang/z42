@@ -62,10 +62,18 @@ void test_newguid_unique() {
 
 [Test]
 void test_tryparse() {
-    Assert.NotNull(Guid.TryParse("0f8fad5b-d9cb-469f-a165-70867728950e"));
-    Assert.Null(Guid.TryParse("not-a-guid-string-value-here-nope!!"));
+    // enforce-value-type-non-null：`Guid` 是 struct ⇒ 不能可空，签名从 `Guid? TryParse(string)`
+    // 改成 `bool TryParse(string, ref Guid)`。失败时出参写 `Guid.Empty()`。
+    Guid g;
+    Assert.True(Guid.TryParse("0f8fad5b-d9cb-469f-a165-70867728950e", ref g));
+
+    Guid bad;
+    Assert.False(Guid.TryParse("not-a-guid-string-value-here-nope!!", ref bad));
+    Assert.True(bad.Equals(Guid.Empty()));
+
     // 35 chars — wrong length
-    Assert.Null(Guid.TryParse("0f8fad5b-d9cb-469f-a165-7086772890"));
+    Guid short_;
+    Assert.False(Guid.TryParse("0f8fad5b-d9cb-469f-a165-7086772890", ref short_));
 }
 
 [Test]

@@ -17,9 +17,9 @@ public struct Int64 : IComparable, IEquatable, INumber {
     [Native("__int32_to_string")]  public extern string ToString();
 
     // Non-throwing parse — see Int32.TryParse. Returns `null` on malformed input.
-    public static long? TryParse(string s) {
-        try { return Int64.Parse(s); }
-        catch (Exception e) { return null; }
+    public static bool TryParse(string s, ref long v) {
+        try { v = Int64.Parse(s); return true; }
+        catch (Exception e) { v = 0; return false; }
     }
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。

@@ -365,6 +365,18 @@ public sealed class TypeChecker {
     // T4 收紧时把这里改成 ImplicitOk()，ExplicitNumeric 才落入常量例外 / E0439。
     public bool CheckImplicitConvert(BoundExpr value, Z42Type target, SymbolTable syms, Span sp, string ctx) {
         if (value == null || target == null) { return true; }
+        // enforce-value-type-non-null：`null` 不能给值类型。此前 `int x = null;` **编译通过** ——
+        // 于是一个 Null 静默进了 int 槽，到下游才以 `type mismatch in arithmetic: Null vs I64(1)`
+        // 或 `__box_prim: expected integer value, got Null` 这类**内部错误**炸出来，离现场很远。
+        //
+        // 挂在这道门上而不是逐站点接线：本方法的注释自述它是「赋值 / return / var-decl 同一条门」，
+        // 实参也经 ConvertIfNeeded 前的同一检查 ⇒ 一处覆盖全部流入点。
+        if ((value is BoundLitNull) && TypeChecker._isNonNullableValueType(target)) {
+            this._diags.Error("E0475",
+                "cannot assign `null` to `" + target.Name() + "` — it is a value type and can never be null "
+                + "(" + ctx + ")", sp);
+            return false;
+        }
         Z42Type from = value.Type();
         ConvResult r = Conversion.Classify(from, target, syms);
         if (r.ImplicitOk()) { return true; }   // tighten-implicit-conversions T4：收紧门（ExplicitNumeric 落入常量例外/E0439）
@@ -619,6 +631,41 @@ public sealed class TypeChecker {
         this._diags.Error(DiagnosticCodes.TypeMismatch,
             "operator `" + op + "` cannot mix `" + lt.Name() + "` and `" + rt.Name()
             + "`; enum needs an explicit cast (e.g. `(long)x`)", sp);
+    }
+
+    // enforce-value-type-non-null：值类型与 `null` 比较无意义 —— 值类型永不为 null，该分支永不执行。
+    //
+    // **静默恒假是最坏的形态**：代码看起来做了检查，实际那个分支从不进入（#715 `==` 恒假同族）。
+    // 故编译期直接拒绝，而不是让它悄悄地永远为 false。
+    //
+    // 覆盖面自查（照 `_checkEnumOperands` 的规矩先问一遍）：`==`/`!=` 的 rule 是
+    // `OperandKind.None`，逐侧的 `_checkOperand` 放行一切 ⇒ **与既有检查不重叠**，不会同位置双报。
+    //
+    // 边界：
+    // - 未约束泛型 `T`：既可能是值类型也可能是引用类型 ⇒ **不报**（保守）
+    // - `object` / `string`：引用类型 ⇒ 不报（`IsStruct` 对它们为假）
+    // - error / unknown：吸收
+    public void _checkValueTypeNullCompare(BoundExpr l, BoundExpr r, string op, Span sp) {
+        if (op != "==" && op != "!=") { return; }
+        bool ln = l is BoundLitNull;
+        bool rn = r is BoundLitNull;
+        if (ln == rn) { return; }   // 两边都是 null / 都不是 → 与本检查无关
+        Z42Type vt = rn ? l.Type() : r.Type();
+        if (vt == null) { return; }
+        if ((vt is Z42UnknownType) || (vt is Z42ErrorType)) { return; }
+        if (!TypeChecker._isNonNullableValueType(vt)) { return; }
+        this._diags.Error("E0474",
+            "`" + vt.Name() + "` is a value type and can never be null — this comparison is always "
+            + (op == "==" ? "false" : "true"), sp);
+    }
+
+    // 「永不为 null 的值类型」：带 IsStruct 的 Z42ClassType（基元 wrapper + 用户 struct）或 enum。
+    // `string` / `object` 不是（`PrimModel.IsScalarValue` 挡下 ⇒ IsStruct 为假）；裸型参也不是。
+    private static bool _isNonNullableValueType(Z42Type t) {
+        if (TypeFacts.IsEnum(t)) { return true; }
+        Z42ClassType ct = t as Z42ClassType;
+        if (ct == null) { return false; }
+        return ct.IsStruct;
     }
 
     // 相等 / 关系运算符 —— `_checkEnumOperands` 的适用面（enum 在这些位置**合法**，只有配对要管）。

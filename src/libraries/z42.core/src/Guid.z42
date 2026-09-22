@@ -67,11 +67,13 @@ public struct Guid {
     }
 
     // Non-throwing parse: the Guid on success, null on any malformed input.
-    public static Guid? TryParse(string s) {
+    public static bool TryParse(string s, ref Guid v) {
         try {
-            return Guid.Parse(s);
+            v = Guid.Parse(s);
+            return true;
         } catch (Exception e) {
-            return null;
+            v = Guid.Empty();
+            return false;
         }
     }
 
