@@ -214,7 +214,71 @@ public sealed class StmtBinder {
             BoundExpr init = this._tc._expr._bindExpr(d.Init, env);
             BoundPattern pat = this._tc._pattern.Bind(d.Pat, init.Type(), env);
             this._tc._pattern.CheckIrrefutable(pat, init.Type(), d.Span);
+            this._warnDeconstructShadowsMember(pat, env, d.Span);   // W0701
             return new BoundDeconstructDeclStmt(pat, init, d.Span);
+    }
+
+    // W0701：解构声明的绑定名遮蔽了当前类的字段 / 属性。
+    //
+    // 这条专门拦一个静默陷阱——它读起来完全像给字段赋值，实际一个字段都没动：
+    //
+    //     struct Pair {
+    //         public int A; public int B;
+    //         public Pair(int a, int b) => (A, B) = (a, b);   // 字段全是 0，编译器不吭声
+    //     }
+    //
+    // `(A, B) = (a, b)` 是**解构声明**（见 pattern-matching B），声明了两个遮蔽字段的新局部，
+    // 随即离开作用域。z42 **没有**「解构赋值」这个形态（对齐 Rust `let`：只收 irrefutable 模式、
+    // 恒为声明），所以这行代码不可能是任何人想要的意思 —— 但它既不是错误也不是无用代码，
+    // 单看语法挑不出毛病，只能靠「遮蔽了同名成员」这个信号来拦。
+    //
+    // 只在有 `this` 的上下文里查（实例方法/构造器/访问器；静态体内无成员可遮蔽），
+    // 且只报 warning —— 局部遮蔽字段本身是合法的，别的写法（`int A = 5;`）照旧放行。
+    private void _warnDeconstructShadowsMember(BoundPattern pat, TypeEnv env, Span sp) {
+        Z42Type thisT = env.LookupVar("this");
+        if (thisT == null) { return; }
+        Z42ClassType ct = env.Symbols.GetClass(thisT.Name());
+        if (ct == null) { return; }
+        this._warnShadowWalk(pat, ct, env, sp);
+    }
+
+    private void _warnShadowWalk(BoundPattern pat, Z42ClassType ct, TypeEnv env, Span sp) {
+        if (pat is BoundBindingPattern) {
+            string n = (pat as BoundBindingPattern).Name;
+            string kind = StmtBinder._memberKind(ct, env, n);
+            if (kind.Length > 0) {
+                this._tc._diags.Warning("W0701", "destructuring declaration binds `" + n + "`, which shadows " + kind + " `" + ct.Name() + "." + n + "` — this declares a new local, it does not assign the member (z42 has no destructuring assignment; write `this." + n + " = ...`)", sp);
+            }
+            return;
+        }
+        if (pat is BoundPositionalPattern) {
+            BoundPositionalPattern pp = pat as BoundPositionalPattern;
+            int i = 0;
+            while (i < pp.ElemCount) { this._warnShadowWalk(pp.Elems[i], ct, env, sp); i = i + 1; }
+            return;
+        }
+        if (pat is BoundPropertyPattern) {
+            BoundPropertyPattern qp = pat as BoundPropertyPattern;
+            int j = 0;
+            while (j < qp.FieldCount) { this._warnShadowWalk(qp.Pats[j], ct, env, sp); j = j + 1; }
+            return;
+        }
+    }
+
+    // 名字在 ct 的基链上是字段 / 属性 → 返回 "field" / "property"；都不是 → ""。
+    private static string _memberKind(Z42ClassType ct, TypeEnv env, string name) {
+        Z42ClassType cur = ct;
+        bool more = true;
+        while (more) {
+            if (cur.Fields.Find(name) >= 0) { return "field"; }
+            if (cur.Methods.Find("get_" + name) >= 0) { return "property"; }
+            if (!cur.HasBase) { more = false; }
+            else {
+                Z42ClassType b = env.Symbols.GetClass(cur.BaseName);
+                if (b == null) { more = false; } else { cur = b; }
+            }
+        }
+        return "";
     }
 
     private BoundStmt _bindDoWhile(DoWhileStmt dw, TypeEnv env, Z42Type ret) {
