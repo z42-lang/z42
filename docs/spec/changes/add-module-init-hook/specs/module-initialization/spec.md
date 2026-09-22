@@ -106,6 +106,11 @@ static class Boot { [ModuleInit] static void Init() { throw new Exception("boom"
 > 与屏障插入位置无关（挪进 `ensure_callee_owner_init` 内部仍不可捕获）。
 > 差别只剩「这次调用内同时发生了包加载」。根因未查清 ⇒ **不为一个不成立的行为写门**，
 > 详见 design.md「已知差距」。
+>
+> **目标行为已由 C# 实测钉死**（.NET 10，design.md 有完整记录）：`[ModuleInitializer]` 抛异常
+> ⇒ `TypeInitializationException`（`<Module>`，原异常进 `InnerException`），**只要触发点落在
+> `try` 内就能 `catch`**，第二次触达仍抛、不重试。我们在「依赖包 init 在 try 内被触达」这一格
+> 偏离了它；主包那条（`Main` 之前跑、未捕获终止）与 C# 一致。修它时以此为验收标准。
 
 ### 场景 6 — 没有 `[ModuleInit]` 的包：零行为变化、零字节变化
 

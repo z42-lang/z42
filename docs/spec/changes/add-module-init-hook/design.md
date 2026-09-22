@@ -214,6 +214,37 @@ androidx.startup `Initializer<T>` 全都收敛到「一个接口 + 元数据指�
 ⇒ 差别收敛到一点：**只有包初始化这条路，抛出发生在「这次调用内同时发生了包加载」之后**。
 根因未查清。
 
+### 目标行为：C# 实测（.NET 10，2026-09-23）
+
+同形的 C# 程序（`[ModuleInitializer]` 抛 `new Exception("boom")`，依赖库 + 主程序两个项目）：
+
+| 实验 | 写法 | 结果 |
+|---|---|---|
+| ① `Main` 体内直接引用依赖库类型 | `try { Api.Get(1) } catch` | **Unhandled**，`start` 都没打印 —— CLR 在 **JIT `Main` 时**就触达了该模块，初始化器在 `Main` 体之前跑完 |
+| ② 触达关进 `[MethodImpl(NoInlining)] static int Touch(int)` | `try { Touch(1) } catch` | `start` → `lib-module-init` → **`caught-1`** → **`caught-2`** → `end` |
+
+```text
+caught-1: TypeInitializationException: The type initializer for '<Module>' threw an exception.
+  inner: Exception: boom
+caught-2: TypeInitializationException: The type initializer for '<Module>' threw an exception.
+```
+
+⇒ **C# 的语义**：包装成 `TypeInitializationException`（类型名 `<Module>`、原异常进 `InnerException`）；
+**只要触发点落在 `try` 内就能被 `catch`**；失败是终态，第二次触达仍抛、不重试；触发点若早于
+`Main` 体则是未捕获异常、进程终止。
+
+⇒ **我们的偏离就此明确**：
+
+| 情形 | C# | z42 当前 |
+|---|---|---|
+| 主包自己的 init 失败（`Main` 之前跑） | Unhandled、终止 | **一致** ✅ |
+| **依赖包的 init 在 `try` 内被触达** | **可 catch**，第二次仍抛 | **不可 catch** ❌ |
+| 包装形态 / 不重试 | `TypeInitializationException` + Inner | **一致** ✅ |
+
+所以这不是「C# 也这样」—— 第二行是真偏离，修它时**以实验②为验收标准**。
+（⚠️ 一个诱人但错误的结论是拿实验①说「C# 也抓不到」：那只是触发点早于 `Main`，
+对应的是我们**主包**那条路，而主包那条我们本来就一致。）
+
 **为什么不留一条红着的门**：一个守着不成立行为的 fixture 只会让 GREEN 长期红着，
 而 [[fake-gate-lets-compiler-bug-into-main]] 的教训是「会红但不挡人的门 = 没有门」。
 所以本变更**不为这条写 e2e**，改为把差距显式登记在这里与 spec 里。
