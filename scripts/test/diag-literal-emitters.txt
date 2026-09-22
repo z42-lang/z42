@@ -39,8 +39,9 @@ E0477 src/compiler/z42c.semantics/src/ExprTyper.Funcref.z42
 E0478 src/compiler/z42c.semantics/src/FlowAnalyzer.z42
 E0479 src/compiler/z42c.semantics/src/FlowAnalyzer.z42
 E0480 src/libraries/z42c.syntax/src/ExprParser.z42
-E0481 src/compiler/z42c.semantics/src/TypeChecker.z42
+E0481 src/compiler/z42c.semantics/src/MemberCollector.z42
 E0482 src/compiler/z42c.semantics/src/AssignTyper.z42
+E0483 src/compiler/z42c.semantics/src/TypeChecker.z42
 E0601 src/compiler/z42c.semantics/src/SymbolCollector.z42
 E0601 src/compiler/z42c.semantics/src/TypeChecker.z42
 E0606 src/compiler/z42c.semantics/src/SymbolCollector.z42

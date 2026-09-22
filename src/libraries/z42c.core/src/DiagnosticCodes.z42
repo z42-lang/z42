@@ -186,7 +186,9 @@ public static class DiagnosticCodes {
     public static string NullableToNonNullableValue = "E0475"; // 把可空表达式隐式转给**不可空的值类型**目标。`?` 擦除后此前一路放行，运行期才以 `type mismatch in arithmetic: Null vs I64` 之类的内部错误炸出来。
     public static string NullableValueType       = "E0476";  // 对**值类型**写 `?`（`int?` / `Guid?` / 值 struct）。可空只适用引用类型——`?` 对值类型此前是个「看起来存在、实际为零」的标注。⚠️ `byte[]?` 这类**数组**不受限（数组是引用类型）。
     public static string FuncRefNoMatchingOverload = "E0477"; // 取一个**重载自由函数**的引用时目标委托类型在场，但**没有任何重载**的签名（形参逐位 + 返回）与该委托精确相等。诊断列出该名字下全部候选签名。
-    public static string ValueTypeNullComparison = "E0481";  // 值类型表达式与 `null` 比较（`==` / `!=`）。值类型永不含 null ⇒ 该比较是**静默恒假/恒真**，此前零诊断。⚠️ 本码原为 **E0474**，与「属性访问器混合 auto 与带体」（先占号，#737）撞码，按先来后到于 enforce-diagnostic-code-uniqueness 改号到 E0481。
+    public static string ValueTypeNullComparison = "E0483";  // 值类型表达式与 `null` 比较（`==` / `!=`）。值类型永不含 null ⇒ 该比较是**静默恒假/恒真**，此前零诊断。⚠️ 本码原为 **E0474**，与「属性访问器混合 auto 与带体」（先占号，#737）撞码，按先来后到于 enforce-diagnostic-code-uniqueness 改号到 E0481；随即又与 #747「接口非法成员」撞上 —— 那边早两个 commit 合入、保号，本码再让一次到 **E0483**。⚠️ 两次让号都是因为**本码的发射点用字面量**、号在登记表里没有主，抢号时看不见它。
+
+    public static string InterfaceIllegalMember   = "E0481";  // 接口声明了**非法成员**——字段（静态/实例）或嵌套类型。接口只能声明方法、属性、索引器、事件、关联类型。此前 `_fillInterface` 把这些**静默跳过**（`interface I { static int X; }` 编译通过但 X 无处可用）。**语义层用字面量 "E0481" 发码**。
 
     // ── 穷尽性（add-switch-exhaustiveness）────────────────────────────────────
     public static string SwitchNotExhaustive     = "W0700";  // 【Warning】`switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支且没有 `default`。
