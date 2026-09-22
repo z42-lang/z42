@@ -1,0 +1,41 @@
+// fix-primtype-static-init-order：`PrimModel._tag` 与 `IrType` 的一致性门。
+//
+// `_tag` 里写的是**字面量**而不是 `IrType.X`——理由见 PrimModel.z42 那段注释（跨包静态
+// 初始化顺序 → 补零 → 投影表全 0 → 所有数值转换被静默丢弃 → 两代自举崩）。
+// 代价是这两处可能漂移，所以必须有一个**会变红**的门盯着：本文件即是。
+//
+// 这个门守的是「两处数值相等」，不是「转换有没有被丢」——后者由 bootstrap 门的
+// [repo] 阶段（第二代自建）守，两者互补。
+namespace Z42cSemanticsPrimModelTagTests;
+
+using Std;
+using Std.Test;
+using Z42.IR;
+using Z42.Semantics;
+
+// 码序（与 PrimModel 的四张投影表一致）：sbyte short int long byte ushort uint ulong
+//                                       float double bool char string object
+[Test]
+void test_tag_projection_matches_irtype() {
+    Assert.Equal(IrType.I8,   PrimModel.IrTagOfCode(0));
+    Assert.Equal(IrType.I16,  PrimModel.IrTagOfCode(1));
+    Assert.Equal(IrType.I32,  PrimModel.IrTagOfCode(2));
+    Assert.Equal(IrType.I64,  PrimModel.IrTagOfCode(3));
+    Assert.Equal(IrType.U8,   PrimModel.IrTagOfCode(4));
+    Assert.Equal(IrType.U16,  PrimModel.IrTagOfCode(5));
+    Assert.Equal(IrType.U32,  PrimModel.IrTagOfCode(6));
+    Assert.Equal(IrType.U64,  PrimModel.IrTagOfCode(7));
+    Assert.Equal(IrType.F32,  PrimModel.IrTagOfCode(8));
+    Assert.Equal(IrType.F64,  PrimModel.IrTagOfCode(9));
+    Assert.Equal(IrType.Bool, PrimModel.IrTagOfCode(10));
+    Assert.Equal(IrType.Char, PrimModel.IrTagOfCode(11));
+    Assert.Equal(IrType.Str,  PrimModel.IrTagOfCode(12));
+    Assert.Equal(IrType.Ref,  PrimModel.IrTagOfCode(13));
+}
+
+// 判别力：char 与 int 必须映射到**不同**标签。这一条直接对应被丢弃的转换——
+// 投影表全 0 时它会红，而上面那组逐项比较在"两边都读到 0"时反而全过。
+[Test]
+void test_char_and_int_tags_differ() {
+    Assert.NotEqual(PrimModel.IrTagOfCode(11), PrimModel.IrTagOfCode(2));
+}

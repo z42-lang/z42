@@ -176,7 +176,21 @@ public static class PrimModel {
     private static string[] _kw = new string[]{
         "sbyte", "short", "int", "long", "byte", "ushort", "uint", "ulong",
         "float", "double", "bool", "char", "string", "object" };
+    // fix-primtype-static-init-order（2026-09-22）：这里**必须写字面量，不能写 `IrType.X`**。
+    //
+    // `IrType`（包 z42.ir）的标签是 `public static int X = N`（有存储、靠静态初始化器赋值），
+    // 而本表在包 z42c.semantics。两个包的 `__static_init__` 之间没有顺序保证，`IrType` 先于
+    // 本表初始化并不成立。读到未初始化的值类型静态槽时，运行期给的不是错误而是**补零**
+    // （`vm_context/symres.rs` 的 `fix-static-value-field-null-slot`）⇒ 本表整张变全 0
+    // ⇒ `EmitContext.ToIrType(char) == ToIrType(int)` ⇒ `TypeOpEmitter` 的
+    // `if (fromIr == toIr) { return src; }` 短路把**所有数值转换指令静默丢弃**
+    // ⇒ gen1 编出的 gen2 在 `(int)c - 48` 上崩（`Char('0') vs I64(48)`）。
+    //
+    // 同样手法的先例：`z42.diagnostics/src/Log.z42` 的 `_minLevel = 2`（注释写着
+    // 「static initializer 顺序避免 forward-ref」）。
+    // 改 `const` 不行：跨 zpkg const 在 v1 不支持（const 无字段元数据，见 reference/const.md）。
+    // 与 `IrType` 的一致性由 `tests/codegen/prim_model_tag_tests.z42` 的门守着（漂了就红）。
     private static int[] _tag = new int[]{
-        IrType.I8, IrType.I16, IrType.I32, IrType.I64, IrType.U8, IrType.U16, IrType.U32, IrType.U64,
-        IrType.F32, IrType.F64, IrType.Bool, IrType.Char, IrType.Str, IrType.Ref };
+        1, 2, 3, 4, 5, 6, 7, 8,          // I8  I16 I32 I64 U8  U16 U32 U64
+        9, 10, 11, 12, 13, 14 };         // F32 F64 Bool Char Str Ref
 }
