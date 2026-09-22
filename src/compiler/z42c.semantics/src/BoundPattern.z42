@@ -114,7 +114,11 @@ public sealed class BoundAtPattern : BoundPattern {
     public string       Name;
     public Z42Type      Type;
     public BoundPattern Sub;
-    public BoundAtPattern(string name, Z42Type type, BoundPattern sub, Span span) { this.Span = span; this.Name = name; this.Type = type; this.Sub = sub; }
+    public string       TypeName;   // 收窄时的目标类型名（raw，emit 侧 _qual）；不收窄时 ""
+    public bool         Narrowed;   // 子模式收窄了类型 → emit 在子模式匹配成功后 AsCast 再绑定
+    public BoundAtPattern(string name, Z42Type type, BoundPattern sub, Span span) { this.Span = span; this.Name = name; this.Type = type; this.Sub = sub;
+        this.TypeName = ""; this.Narrowed = false;
+    }
     public override string Dump() { return "(at " + this.Name + " " + this.Sub.Dump() + ")"; }
 }
 

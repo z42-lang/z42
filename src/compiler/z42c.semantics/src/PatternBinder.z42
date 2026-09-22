@@ -120,11 +120,38 @@ public sealed class PatternBinder {
         return -1;
     }
 
-    // @ 绑定（A2）：绑 Name 到整个 subject（subjType），再匹配子模式（子模式绑定照常，@ 不涉合流）。
+    // @ 绑定（A2）：绑 Name 到整个 subject，再匹配子模式（子模式绑定照常，@ 不涉合流）。
+    // **绑定类型按子模式收窄**（narrow-at-pattern-binding）：`s @ Square(_)` 中 s 的静态类型是 Square
+    // 而非 subject 的 Shape——否则 @ 在它最该用的场合（多态 subject「既要整体又要字段」）反而拿不到整体，
+    // 与同位点的类型模式 `case Square s:` 不对称。收窄仅限引用类型（见 _narrowedType）。
     private BoundPattern _bindAt(AtPattern ap, Z42Type subjType, TypeEnv env) {
-        env.Define(ap.Name, subjType);
-        BoundPattern sub = this.Bind(ap.Sub, subjType, env);
-        return new BoundAtPattern(ap.Name, subjType, sub, ap.Span);
+        BoundPattern sub = this.Bind(ap.Sub, subjType, env);   // 子模式不引用 @ 名字，先绑子模式取收窄类型
+        string tn = "";
+        Z42Type bt = this._narrowedType(sub, subjType, env);
+        if (bt.Name() != subjType.Name()) { tn = bt.Name(); }
+        env.Define(ap.Name, bt);
+        BoundAtPattern bap = new BoundAtPattern(ap.Name, bt, sub, ap.Span);
+        if (tn.Length > 0) { bap.TypeName = tn; bap.Narrowed = true; }
+        return bap;
+    }
+
+    // 子模式收窄出的类型（无收窄 → 原 subjType）。只有带类型的模式才收窄：类型模式 / 位置模式 /
+    // 带类型的属性模式。**struct 不参与收窄**：值 struct 无多态（收窄无意义），装箱 struct 收窄要拆箱出
+    // 值副本、绑定寄存器不是 Ref——留原行为（绑在 subject 静态类型上），避免 @ 顺手改动 struct 路径。
+    private Z42Type _narrowedType(BoundPattern sub, Z42Type subjType, TypeEnv env) {
+        Z42Type t = null;
+        if (sub is BoundTypePattern)       { t = (sub as BoundTypePattern).BoundType; }
+        if (sub is BoundPositionalPattern) { t = (sub as BoundPositionalPattern).Type; }
+        if (sub is BoundPropertyPattern) {
+            BoundPropertyPattern qp = sub as BoundPropertyPattern;
+            if (qp.HasType) { t = qp.Type; }
+        }
+        if (t == null) { return subjType; }
+        if (t is Z42UnknownType) { return subjType; }
+        if (t.Name() == subjType.Name()) { return subjType; }
+        Z42ClassType ct = env.Symbols.GetClass(t.Name());
+        if (ct == null || ct.IsStruct) { return subjType; }
+        return t;
     }
 
     // 闭区间范围（A2）：Lo/Hi 常量；subject 须可全序（numeric | char）。

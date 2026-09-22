@@ -1,0 +1,99 @@
+namespace Demo;
+
+using Std;
+
+// `@` 绑定按子模式**收窄类型**（narrow-at-pattern-binding）e2e 自检。
+//
+// 此前 `@` 无条件把名字绑在 subject 的静态类型上：多态 subject 下 `s @ Square(_)` 里的 s 是基类
+// Shape，既取不到 Square 的字段、也传不进收 Square 的函数（E0439）——而同位点的类型模式
+// `case Square s:` 却是收窄的。@ 的用处正是「既要整体又要字段」，那恰恰只在多态 subject 上才成立，
+// 于是它在最该用的场合反而用不了。本用例钉住收窄后的四种用法。
+//
+// 纯 Assert，空 stdout。
+
+abstract class Shape { }
+[Record] class Circle(int R) : Shape;
+[Record] class Square(int S) : Shape;
+
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+
+int sideOf(Square q) { return q.S; }
+int radiusOf(Circle c) { return c.R; }
+
+// @ + 位置模式：whole 收窄到 Square，可直接传进收 Square 的函数
+int viaPositional(Shape s) {
+    switch (s) {
+        case whole @ Square(_):
+            return sideOf(whole);
+        case whole @ Circle(_):
+            return radiusOf(whole);
+        default:
+            return -1;
+    }
+}
+
+// @ + 类型模式：`sq @ Square` 同样收窄
+int viaTypePattern(Shape s) {
+    return s switch {
+        sq @ Square => sideOf(sq),
+        ci @ Circle => radiusOf(ci),
+        _ => -1
+    };
+}
+
+// @ + 属性模式（带类型）
+int viaProperty(Shape s) {
+    switch (s) {
+        case whole @ Square { S: n }:
+            return sideOf(whole) + n;
+        default:
+            return -1;
+    }
+}
+
+// is 位点的 @ 同样收窄
+int viaIs(Shape s) {
+    if (s is whole @ Square(_)) { return sideOf(whole); }
+    return -1;
+}
+
+void Main() {
+    Shape sq = new Square(6);
+    Shape ci = new Circle(4);
+
+    Assert.Equal(6, viaPositional(sq));
+    Assert.Equal(4, viaPositional(ci));
+    Assert.Equal(6, viaTypePattern(sq));
+    Assert.Equal(4, viaTypePattern(ci));
+    Assert.Equal(12, viaProperty(sq));
+    Assert.Equal(6, viaIs(sq));
+    Assert.Equal(-1, viaIs(ci));
+
+    // subject 静态类型 == 模式类型 → 不收窄，行为与从前逐字不变（别名绑定，无 as_cast）
+    Point p = new Point(0, 7);
+    int got = -1;
+    switch (p) {
+        case whole @ Point(0, y):
+            got = whole.Y + y;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(14, got);
+
+    // 嵌套子模式内的 @：字段静态类型即 Point，同样不收窄
+    Line ln = new Line(new Point(1, 2), new Point(3, 4));
+    int ax = -1;
+    switch (ln) {
+        case Line(a @ Point(_, _), _):
+            ax = a.X;
+            break;
+        default:
+            break;
+    }
+    Assert.Equal(1, ax);
+
+    // 收窄发生在子模式匹配成功之后：不匹配的臂不得因 as_cast 而崩
+    Assert.Equal(-1, viaProperty(ci));
+}
