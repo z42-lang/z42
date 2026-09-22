@@ -87,13 +87,13 @@ public static class DepScanCache {
             CachedZpkg hit = DepScanCache._entries[i];
             if (hit.Path == path) {
                 if (size < 0 || (hit.Size == size && hit.MtimeMs == mtime)) { return hit; }
-                CachedZpkg fresh = new CachedZpkg(path, ZpkgReader.Open(File.ReadAllBytes(path)), size, mtime);
+                CachedZpkg fresh = new CachedZpkg(path, ZpkgReader.Open(File.ReadAllBytes(path), path), size, mtime);
                 DepScanCache._entries[i] = fresh;
                 return fresh;
             }
             i = i + 1;
         }
-        ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(path));
+        ZpkgInfo z = ZpkgReader.Open(File.ReadAllBytes(path), path);
         CachedZpkg e = new CachedZpkg(path, z, size, mtime);
         if (DepScanCache._count == DepScanCache._entries.Length) {
             CachedZpkg[] b = new CachedZpkg[DepScanCache._entries.Length * 2];

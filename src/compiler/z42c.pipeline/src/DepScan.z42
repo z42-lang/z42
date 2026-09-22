@@ -186,7 +186,7 @@ public static class DepScan {
     // 把 repl 包 AppendPackage 进惰性 world 再 Rebuild——使其类可 _locate 自身 + 跨声明 base 链解析。
     // scan 被**原地修改**（Index / 平行数组增长）；返回同一对象方便链式。
     public static DepScanResult ExtendWithPackage(DepScanResult scan, byte[] bytes, string pkgName) {
-        ZpkgInfo z = ZpkgReader.Open(bytes);
+        ZpkgInfo z = ZpkgReader.Open(bytes, pkgName);
         if (z == null || z.IsExe) { return scan; }
         string basename = pkgName + ".zpkg";
         // ① namespaces：新 ns 追加到 nsMap（first-wins，已存在则跳过）
@@ -283,7 +283,7 @@ public static class DepScan {
         string[] nsFlat = new string[16]; int[] nsStart = new int[paths.Length]; int[] nsLen = new int[paths.Length]; int nsFlatN = 0;
         int wpi = 0;
         while (wpi < paths.Length) {
-            ZpkgInfo wz = ZpkgReader.Open(File.ReadAllBytes(paths[wpi]));
+            ZpkgInfo wz = ZpkgReader.Open(File.ReadAllBytes(paths[wpi]), paths[wpi]);
             opened[wpi] = wz;
             bool isExe = (wz == null || wz.IsExe);
             entries[wpi] = new NsIndexEntry(Path.GetFileName(paths[wpi]), isExe, new string[0]);   // nss 于主循环回填
@@ -396,7 +396,7 @@ public static class DepScan {
         if (idx < 0) { return false; }
         ZpkgInfo z = scan.Opened[idx];
         if (z == null && idx < scan.OpenedPaths.Length) {
-            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]));
+            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]), scan.OpenedPaths[idx]);
             scan.Opened[idx] = z;
         }
         ZpkgModuleTypes mt = ZpkgReader.ReadOneModuleTypes(z, scan.OpenedDirs[idx], ns);   // 读一次

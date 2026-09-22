@@ -75,30 +75,14 @@ pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Resul
         ),
         None => bail!("__load_bytecode_in_memory: missing byte[] argument"),
     };
-    let static_inits = ctx.load_module_bytes_into_vm(&bytes)?;
-    // Run ONLY the freshly-loaded module's own `__static_init__` functions — NOT the
-    // full `init_static_fields` (which clears ALL static fields then reruns every
-    // module's init). A full clear+rerun would wipe prior REPL rounds' mutated static
-    // state (e.g. a `List` a user `.Add`ed to), breaking carry-forward. Running just
-    // this round's init sets the new round's `Vars{N}` from the still-live prior round.
-    // (add-z42-repl)
-    if !static_inits.is_empty() {
-        let module_arc = ctx.core.module.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("__load_bytecode_in_memory: VmCore.module is None"))?
-            .clone();
-        let module = module_arc.as_ref();
-        for name in &static_inits {
-            if let Some(f) = ctx.try_lookup_function(name) {
-                match exec_function(ctx, module, f.as_ref(), &[])? {
-                    ExecOutcome::Returned(_) => {}
-                    ExecOutcome::Thrown(val) => {
-                        ctx.set_pending_thrown(val);
-                        bail!("__z42_reflected_throw__");
-                    }
-                }
-            }
-        }
-    }
+    ctx.load_module_bytes_into_vm(&bytes)?;
+    // unify-static-init-into-cctor（7.4）：此前在此**只跑本轮**的 `__static_init__`
+    // —— 不能跑全量 `init_static_fields`，那会清空所有静态字段、毁掉 REPL 跨轮
+    // carry-forward（用户 `.Add` 进 List 的东西会没）。
+    //
+    // 静态初始化器现已是**每类型的类型初始化器**、按首次使用惰性触发：本轮的
+    // `Vars{N}` 在被读/写时自然初始化（读写静态字段都是触发点），且天然**只**初始化
+    // 本轮触及的类型 —— 既不需要这条通道，也不再有「跑全量」的诱惑。
     Ok(Value::Bool(true))
 }
 

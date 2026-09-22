@@ -91,3 +91,43 @@ void test_write_packed_header() {
     Assert.Equal("0300", hex.Substring(16, 4));                        // flags Packed|Exe
     Assert.Equal("06000000", hex.Substring(20, 8));                    // secCount
 }
+
+
+// ── 版本失配不再静默（warn-on-zpkg-version-mismatch）──────────────────────────
+// 改前这里是一条光秃秃的 `return null`：依赖包被整包跳过，而「跳过」不会失败——它在很远的地方
+// 以满屏 `undefined: <Type>` 浮出来。本测试盯的是「**报过了**」这件事本身（stderr 文本抓不到，
+// 就用去重计数器作证），以及去重真的生效：同一个旧版本只算一次、不同旧版本各算一次。
+byte[] _skewHeader(int minor) {
+    byte[] d = new byte[16];
+    d[0] = (byte)90; d[1] = (byte)80; d[2] = (byte)75; d[3] = (byte)0;   // "ZPK\0"
+    d[4] = (byte)0;  d[5] = (byte)0;                                      // major = 0
+    d[6] = (byte)(minor % 256); d[7] = (byte)(minor / 256);               // minor (u16 LE)
+    return d;
+}
+
+[Test]
+void version_skew_is_reported_once_per_version() {
+    int before = ZpkgReader.SkewWarningCount();
+    int stale = ZpkgWriterZ.Minor + 1;
+
+    Assert.Null(ZpkgReader.Open(_skewHeader(stale), "stale-a.zpkg"));
+    Assert.Equal(before + 1, ZpkgReader.SkewWarningCount());
+
+    // 同一个旧版本的第二个包：仍跳过，但**不再重复报**（一个过期 libs 目录有几十个同代包）。
+    Assert.Null(ZpkgReader.Open(_skewHeader(stale), "stale-b.zpkg"));
+    Assert.Equal(before + 1, ZpkgReader.SkewWarningCount());
+
+    // 另一个旧版本：另算一条。
+    Assert.Null(ZpkgReader.Open(_skewHeader(stale + 1), "stale-c.zpkg"));
+    Assert.Equal(before + 2, ZpkgReader.SkewWarningCount());
+}
+
+[Test]
+void matching_version_does_not_warn() {
+    int before = ZpkgReader.SkewWarningCount();
+    // 版本对得上但段数为 0 → 不是版本失配那条路径，不该产生告警。
+    byte[] ok = _skewHeader(ZpkgWriterZ.Minor);
+    ok[8] = (byte)1;    // flags: packed
+    Assert.NotNull(ZpkgReader.Open(ok, "fresh.zpkg"));
+    Assert.Equal(before, ZpkgReader.SkewWarningCount());
+}

@@ -1,7 +1,7 @@
 # ANCHOR: missing
 $ z42 run missing.z42
 N
-[null]
+抛了：switch expression did not match any arm; value: West
 z42c build: 1 warning(s) in missing.z42
   missing.z42(6,14): W0700: switch on enum Direction is not exhaustive: missing Direction.West (add the missing case(s) or a default)
 # ANCHOR_END: missing

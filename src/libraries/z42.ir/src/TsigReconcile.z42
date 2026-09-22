@@ -66,7 +66,7 @@ public sealed class LazyReconWorld {
     private ZpkgInfo _openPkg(int i) {
         ZpkgInfo z = this.World[i];
         if (z == null && this.WorldPaths != null && i < this.WorldPaths.Length) {
-            z = ZpkgReader.Open(File.ReadAllBytes(this.WorldPaths[i]));
+            z = ZpkgReader.Open(File.ReadAllBytes(this.WorldPaths[i]), this.WorldPaths[i]);
             this.World[i] = z;
         }
         return z;

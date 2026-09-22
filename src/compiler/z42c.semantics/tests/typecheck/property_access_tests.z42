@@ -193,3 +193,31 @@ void test_protected_set_external_write_e0404() {
         + " void Main() { var c = new C(); c.P = 5; }";
     Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
 }
+
+// ── add-interface-member-check：接口非法成员 → E0481 ──────────────────────────────
+// 此前 `_fillInterface` 静默跳过 FieldDecl / 嵌套 ClassDecl。
+
+[Test]
+void test_interface_static_field_e0481() {
+    string src = "namespace D; interface I { static int X; int M(); }";
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_interface_instance_field_e0481() {
+    string src = "namespace D; interface I { int x; }";
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_interface_nested_type_e0481() {
+    string src = "namespace D; interface I { class Nested {} int M(); }";
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
+}
+
+// 合法接口成员（方法/属性/索引器）→ 不误报（不回归）。
+[Test]
+void test_interface_valid_members_ok() {
+    string src = "namespace D; interface I { int M(); int P { get; } int this[int i] { get; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

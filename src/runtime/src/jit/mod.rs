@@ -210,44 +210,6 @@ impl JitModule {
         Ok(())
     }
 
-    /// runtime-jit-tiering Phase 1c: run a `__static_init__` on the interpreter
-    /// instead of compiling it. Static initialisers execute exactly once, so a
-    /// cranelift compile + native code page is pure overhead. Resolves the function
-    /// (through the lazy loader for dep zpkgs, mirroring `run_fn`'s interp fallback)
-    /// and runs it via `interp::exec_function`, whose tiered central divert keeps a
-    /// cold one-shot on the interpreter (count 1 < threshold) while still routing any
-    /// *already-compiled* callee it reaches to native. The JIT ctx forward pointer
-    /// stays published for the duration so that divert can fire; static fields land
-    /// in the shared `VmContext`, identical to the native path. Cleared in lockstep
-    /// with `vm_ctx` on every exit path.
-    fn run_static_init_interp(&mut self, ctx: &VmContext, name: &str) -> Result<()> {
-        // SAFETY: module/self.ctx valid for the JitModule's lifetime; the raw
-        // pointers published here are cleared before returning.
-        self.ctx.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
-        ctx.set_jit_ctx(&*self.ctx as *const JitModuleCtx as usize);
-        let module = unsafe { &*self.ctx.module };
-        let outcome = if let Some(func) = module.func_index.get(name)
-            .and_then(|&idx| module.functions.get(idx))
-        {
-            crate::interp::exec_function(ctx, module, func, &[])
-        } else if let Some(func) = ctx.try_lookup_function(name) {
-            // Lazily-loaded dep zpkg init not present in the merged module.
-            crate::interp::exec_function(ctx, module, func.as_ref(), &[])
-        } else {
-            // Name came from enumerating inits, so this should be unreachable;
-            // skip defensively rather than hard-fail.
-            self.ctx.vm_ctx = std::ptr::null_mut();
-            ctx.set_jit_ctx(0);
-            return Ok(());
-        };
-        self.ctx.vm_ctx = std::ptr::null_mut();
-        ctx.set_jit_ctx(0);
-        match outcome? {
-            crate::interp::ExecOutcome::Returned(_) => Ok(()),
-            crate::interp::ExecOutcome::Thrown(val) =>
-                Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, module))),
-        }
-    }
 
     /// Run with static initialisation: clears static fields, calls **all**
     /// `*.__static_init__` functions (sorted) — including imported zpkgs —
@@ -272,44 +234,17 @@ impl JitModule {
         //   • eager: inits in the merged module (main + z42.core);
         //   • lazy:  inits in every declared-but-unloaded zpkg (force-loaded).
         //
-        // The union MUST be sorted together (not eager-then-lazy), to reproduce
-        // the pre-lazy JIT order exactly: the old eager-BFS merged every dep into
-        // one `module.functions` and sorted the whole set. A two-phase order
-        // (all eager before all lazy) runs a dep's init AFTER main's — breaking
-        // any main-side init that reads a static field a dep init sets (observed:
-        // xtask crashes `I64(0) vs Null` on the first cross-package static read).
-        // `run_fn` compiles each to native (or interp-fallback if untranslatable).
-        // defer-class-initialization (2026-09-04): 与 interp 侧 `init_static_fields`
-        // 对称——不再 force-load 全部已声明 zpkg 来枚举初始化器。先排空 T3 在主模块
-        // 解析期入队的「静态字段所属类」（这会加载并初始化依赖包），再跑主模块自己的
-        // 初始化器。上面注释记录的顺序依赖（依赖包的 init 必须先于主模块 init）由这个
-        // 先后关系保证，比旧的「全局按名排序」更精确。
+        // unify-static-init-into-cctor（7.4）：此前这里扫 `module.functions` 里所有
+        // `*.__static_init__`、排序去重、逐一在**解释器**上执行（编译一次性函数纯属浪费，
+        // 实测启动时约 73% 的被编译函数都是它们）。
+        //
+        // 静态字段初始化器已全部并入**每类型的类型初始化器**、按首次使用惰性触发 ——
+        // 没有 `__static_init__` 可扫了。上面注释记录的顺序依赖（依赖包的 init 必须先于
+        // 主模块 init）现在由**真实依赖**保证：读依赖包静态字段时屏障先跑完它的初始化器，
+        // 比旧的「全局按名排序」精确得多。
+        //
+        // 仍需排空「待加载类型」队列（T3），让屏障在访问点有类型可查。
         ctx.run_pending_static_inits();
-        let init_names: Vec<String> = {
-            let module = unsafe { &*self.ctx.module };
-            let mut v: Vec<String> = module.functions.iter()
-                .map(|f| f.name.clone())
-                .filter(|n| n.ends_with(".__static_init__"))
-                .collect();
-            v.sort();
-            v.dedup();
-            v
-        };
-        for init_name in &init_names {
-            // runtime-jit-tiering Phase 1c: `__static_init__` functions run EXACTLY
-            // once (class initialization). Compiling a one-shot function is pure
-            // overhead — a cranelift compile (~100µs) + a native code page paid to
-            // run the body a single time, where the interpreter would have run it
-            // outright. Measured: ~73% of all compiled functions on a typical
-            // startup were `*.__static_init__`. Run them on the interpreter (via
-            // `exec_function`, whose tiered central divert routes any *already*-hot
-            // callee to native but keeps this cold one-shot on the interpreter);
-            // static fields land in the shared `VmContext`, identical to native.
-            // NB: this must go through the *tiered* path — `run_fn` uses the
-            // non-tiered `resolve_fn_by_name`, which would compile the init anyway.
-            // The entry (below) stays compiled — it may carry the program's hot loop.
-            self.run_static_init_interp(ctx, init_name)?;
-        }
 
         // runtime-jit-tiering Phase 1: the entry runs via `run_fn` →
         // `resolve_fn_by_id` (non-tiered) → compile-on-first-call. Only tiered call

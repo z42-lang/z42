@@ -106,7 +106,7 @@ impl VmContext {
     /// clear+rerun would wipe prior rounds' mutated static state).
     pub fn load_module_bytes_into_vm(
         &self, raw: &[u8],
-    ) -> anyhow::Result<Vec<String>> {
+    ) -> anyhow::Result<()> {
         self.subclass_memo.lock().clear();   // optimize-subclass-check: REPL redefinition safety
         self.isa_cache.clear();
         let mut state = self.core.lazy_loader.write();
@@ -122,7 +122,7 @@ impl VmContext {
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
         // fix-lazy-lookup-contention：稳态命中走读锁 —— 没有加载任何 zpkg，所以
-        // `newly_loaded` 恒空；静态初始化的排空判定仍照旧（`loader_quiet` 同样在锁内读）。
+        // `newly_loaded` 恒空；类型加载队列的排空判定仍照旧。
         //
         // fix-negative-cache-under-read-lock：**miss 也走读锁**。`resolve_function` 的第一件事
         // 就是查负缓存并直接返回 `None`（热点是无构造函数类合成的 `..ctor$0`，每次 `new` 查一次）——
@@ -131,10 +131,9 @@ impl VmContext {
             let state = self.core.lazy_loader.read();
             match state.as_ref() {
                 Some(loader) => {
-                    let quiet = loader.pending_static_inits.is_empty();
                     match loader.probe_function(func_name) {
-                        Some(f) => Some((Some(f), quiet)),
-                        None if loader.known_unresolved_function_ro(func_name) => Some((None, quiet)),
+                        Some(f) => Some(Some(f)),
+                        None if loader.known_unresolved_function_ro(func_name) => Some(None),
                         None => None,
                     }
                 }
@@ -142,13 +141,13 @@ impl VmContext {
             }
         };
         // `resolved` 已经是最终答案（`Some` = 命中，`None` = 负缓存里的确定性「否」）。
-        if let Some((resolved, loader_quiet)) = fast {
-            if !self.static_init_drain_is_noop(&[], loader_quiet) {
+        if let Some(resolved) = fast {
+            if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
             return resolved;
         }
-        let (result, newly_loaded, loader_quiet) = {
+        let (result, newly_loaded) = {
             let mut state = self.core.lazy_loader.write();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain the loader's `newly_loaded` scratch
@@ -160,10 +159,9 @@ impl VmContext {
             loader.newly_loaded.clear();
             let result = loader.resolve_function(func_name);
             let newly = std::mem::take(&mut loader.newly_loaded);
-            let quiet = loader.pending_static_inits.is_empty();
-            (result, newly, quiet)
+            (result, newly)
         };
-        if self.static_init_drain_is_noop(&newly_loaded, loader_quiet) {
+        if self.static_init_drain_is_noop(&newly_loaded) {
             return result;
         }
         // defer-class-initialization (T1): 锁已释放，跑刚拉进来的包的初始化器。
@@ -198,10 +196,9 @@ impl VmContext {
             let state = self.core.lazy_loader.read();
             match state.as_ref() {
                 Some(loader) => {
-                    let quiet = loader.pending_static_inits.is_empty();
                     match loader.probe_type(class_name) {
-                        Some(td) => Some((Some(td), quiet)),
-                        None if loader.known_unresolved_type_ro(class_name) => Some((None, quiet)),
+                        Some(td) => Some(Some(td)),
+                        None if loader.known_unresolved_type_ro(class_name) => Some(None),
                         None => None,
                     }
                 }
@@ -209,23 +206,22 @@ impl VmContext {
             }
         };
         // 同上：`resolved` 即最终答案。
-        if let Some((resolved, loader_quiet)) = fast {
-            if !self.static_init_drain_is_noop(&[], loader_quiet) {
+        if let Some(resolved) = fast {
+            if !self.static_init_drain_is_noop(&[]) {
                 self.run_pending_static_inits();
             }
             return resolved;
         }
-        let (result, newly_loaded, loader_quiet) = {
+        let (result, newly_loaded) = {
             let mut state = self.core.lazy_loader.write();
             let loader = state.as_mut()?;
             // reduce-lazy-lookup-alloc: drain scratch buffer (see try_lookup_function).
             loader.newly_loaded.clear();
             let result = loader.resolve_type(class_name);
             let newly = std::mem::take(&mut loader.newly_loaded);
-            let quiet = loader.pending_static_inits.is_empty();
-            (result, newly, quiet)
+            (result, newly)
         };
-        if self.static_init_drain_is_noop(&newly_loaded, loader_quiet) {
+        if self.static_init_drain_is_noop(&newly_loaded) {
             return result;
         }
         // defer-class-initialization (T2): 同上。
@@ -243,25 +239,35 @@ impl VmContext {
     /// is preserved because "another thread is inside an initializer" is exactly
     /// `running_static_inits != 0`.
     ///
-    /// `newly_loaded` / `loader_quiet` come out of the loader lock the caller already
-    /// held; the other two reads are plain atomics.
+    /// `newly_loaded` comes out of the loader lock the caller already held;
+    /// the other two reads are plain atomics.
     #[inline]
-    fn static_init_drain_is_noop(&self, newly_loaded: &[String], loader_quiet: bool) -> bool {
+    fn static_init_drain_is_noop(&self, newly_loaded: &[String]) -> bool {
         use std::sync::atomic::Ordering;
         newly_loaded.is_empty()
-            && loader_quiet
             && self.core.pending_type_init_count.load(Ordering::Relaxed) == 0
-            && self.core.running_static_inits.load(Ordering::Acquire) == 0
             && self.core.init_batch_inflight.load(Ordering::Acquire) == 0
     }
-
-    /// defer-class-initialization: 排空「待初始化类」与「待跑 `__static_init__`」两个队列。
+    /// 排空「待加载类型」队列（静态字段引用触发点 T3）。
     ///
-    /// **必须在 loader 锁释放后调用**——初始化器自身会再进 `try_lookup_*` 抢同一把锁。
-    /// 排空是循环的：一个初始化器可能拉进新的包，新的包又带来新的初始化器。
+    /// **必须在 loader 锁释放后调用** —— 解析类型会触发包加载，而加载要抢同一把锁。
+    /// 排空是循环的：加载一个包可能让更多类型变得可解析。
     ///
     /// 重入（初始化器内部再次触发查找）由线程本地 `DRAINING` 标志挡掉：嵌套调用直接返回，
     /// 由最外层的循环继续消费新入队的项。
+    ///
+    /// # 这里**只加载，不初始化**
+    ///
+    /// 类型初始化器的运行时机归**访问点**的屏障（`exec_object::static_get` 顶部的
+    /// `ensure_owner_type_init` / `obj_new` / 静态调用），不在这里。曾经在这里直接跑过，
+    /// 结果是类型初始化器在**函数解析期**就执行，破坏「首次使用前」语义 —— static-ctor
+    /// 的 6 个 golden 全部报 `expected: before, actual: cctor ran`。
+    ///
+    /// 历史：本函数曾同时排空第二个队列（`pending_static_inits`，即包级
+    /// `__static_init__`），连同 `InitState::Claimed` 认领窗口、`running_static_inits`
+    /// 计数、`await_init_quiescence` 自旋等一整套并发防护。静态字段初始化器并入
+    /// 每类型的类型初始化器后（unify-static-init-into-cctor），那条管道整体删除；
+    /// 并发保证改由 `CctorRegistry::claim` 的跨线程等待承担。
     pub fn run_pending_static_inits(&self) {
         thread_local! {
             static DRAINING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -277,182 +283,22 @@ impl VmContext {
 
         loop {
             // 取队列**之前**先宣告在飞：从这一刻起到本批处理完，别的线程都不会把
-            // 「三个队列/计数都是零」误读成「初始化已静止」（见 `init_batch_inflight`）。
+            // 「队列与计数都是零」误读成「已静止」（见 `init_batch_inflight`）。
             self.core.init_batch_inflight.fetch_add(1, std::sync::atomic::Ordering::Release);
-            // ① 待初始化的所属类（静态字段引用触发点 T3）：解析类型会触发所属包加载，
-            //    进而把该包的 `__static_init__` 压进 pending_static_inits。
             let types: Vec<String> = {
                 let mut q = self.core.pending_type_inits.lock();
                 self.core.pending_type_init_count
                     .store(0, std::sync::atomic::Ordering::Relaxed);
                 std::mem::take(&mut *q)
             };
+            self.core.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
+            if types.is_empty() { return; }
             for class_fq in &types {
-                // unify-static-init-into-cctor（7.3）：这里**只查类型**（加载 + 登记 cctor），
-                // 不在此运行它 —— 运行时机归**访问点**的屏障（`exec_object::static_get` 顶部的
-                // `ensure_owner_type_init` / `obj_new` / 静态调用）。曾经在这里直接跑过，结果是
-                // 类型初始化器在**函数解析期**就执行，破坏「首次使用前」语义：static-ctor 的
-                // 6 个 golden 全部报 `expected: before, actual: cctor ran`。
                 let _ = self.try_lookup_type(class_fq);
             }
-
-            // ② 待跑的初始化器。**取出与认领必须在同一把锁里完成** —— 只 take 不认领的话，
-            //    从队列清空到 `run_one_static_init` 写 `Running` 之间有一个窗口，别的线程会看到
-            //    「队列空 + 无 Running + 计数 0」而误判「初始化已静止」，接着读到未赋值的静态
-            //    字段。取走即写 `Claimed(me)`（见 `InitState::Claimed`）。
-            let names: Vec<String> = {
-                let mut state = self.core.lazy_loader.write();
-                match state.as_mut() {
-                    Some(loader) => {
-                        let taken = std::mem::take(&mut loader.pending_static_inits);
-                        for n in &taken {
-                            if !loader.static_init_state.contains_key(n) {
-                                loader.static_init_state.insert(
-                                    n.clone(),
-                                    crate::metadata::lazy_loader::InitState::Claimed(
-                                        std::thread::current().id(),
-                                    ),
-                                );
-                                // 与 `Claimed` 同锁自增：计数从此刻起就非零，窗口关闭。
-                                // 对应的自减在 `Done` 落定处（Claimed → Running 只是换状态，
-                                // 不动计数）。
-                                self.core.running_static_inits
-                                    .fetch_add(1, std::sync::atomic::Ordering::Release);
-                            }
-                        }
-                        taken
-                    }
-                    None => Vec::new(),
-                }
-            };
-            if names.is_empty() && types.is_empty() {
-                // 本批没活 —— 先撤销自己的在飞声明，再去等别人静止（否则会等自己）。
-                self.core.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
-                self.await_init_quiescence();
-                return;
-            }
-            for name in names {
-                self.run_one_static_init(&name);
-            }
-            self.core.init_batch_inflight.fetch_sub(1, std::sync::atomic::Ordering::Release);
         }
     }
 
-    /// 等到**没有其它线程**正在跑 `__static_init__` 才返回。
-    ///
-    /// 光靠「队列里有没有我的活」不够：两个线程同时进 `resolve_function_tokens` 时，
-    /// 先到的把待跑队列 `mem::take` 走，后到的看到空队列就直接返回、接着去读那个
-    /// **还在初始化中**的类的静态字段 → 读到 Null（cross-zpkg golden
-    /// `static_init_concurrent` 稳定复现，interp / JIT 两种模式都会）。
-    /// 因此排空的收尾必须是「初始化静止」而不是「我的队列空了」。
-    ///
-    /// 不会互相死等：本方法只等**别人**的 `Running`，而调用它时自己名下的初始化
-    /// 都已跑完（`run_one_static_init` 返回即 `Done`），所以不存在 A 等 B、B 等 A 的环。
-    fn await_init_quiescence(&self) {
-        let me = std::thread::current().id();
-        // 上限兜底：初始化器都是纯表构造（实测 31 个合计 78 µs），正常等待是微秒级。
-        // 真等到这个上限说明持有线程已经死了，继续空转没有意义——放行并留下告警。
-        for spin in 0..2_000_000u64 {
-            // Lock-free pre-check: no `Running` entry anywhere → nothing to wait for.
-            if self.core.running_static_inits.load(std::sync::atomic::Ordering::Acquire) == 0
-                && self.core.init_batch_inflight.load(std::sync::atomic::Ordering::Acquire) == 0
-            {
-                return;
-            }
-            if self.core.init_batch_inflight.load(std::sync::atomic::Ordering::Acquire) != 0 {
-                std::thread::yield_now();
-                continue;   // 有线程正在处理一批 —— 它可能还会产出新的初始化器
-            }
-            let busy = {
-                let state = self.core.lazy_loader.write();
-                match state.as_ref() {
-                    Some(loader) => loader.static_init_state.values().any(|st| {
-                        // `Claimed` 与 `Running` 一样算「他线程手上还有活」。
-                        matches!(
-                            st,
-                            crate::metadata::lazy_loader::InitState::Running(t)
-                                | crate::metadata::lazy_loader::InitState::Claimed(t)
-                            if *t != me
-                        )
-                    }),
-                    None => false,
-                }
-            };
-            if !busy { return; }
-            std::thread::yield_now();
-            if spin == 1_999_999 {
-                tracing::warn!("static-init quiescence wait timed out; proceeding");
-            }
-        }
-    }
-
-    /// 执行单个 `__static_init__`，按 `InitState` 保证「每个最多跑一次」。
-    ///
-    /// - 同线程已在跑（循环初始化器）→ 直接返回，允许观察部分初始化状态（CLR 语义）。
-    /// - 他线程正在跑 → 自旋让出，等到 `Done` 再返回，保证读到完整初始化的静态字段。
-    fn run_one_static_init(&self, name: &str) {
-        use crate::metadata::lazy_loader::InitState;
-        let me = std::thread::current().id();
-        loop {
-            let claimed = {
-                let mut state = self.core.lazy_loader.write();
-                let Some(loader) = state.as_mut() else { return };
-                match loader.static_init_state.get(name) {
-                    Some(InitState::Done) => return,
-                    Some(InitState::Running(tid)) if *tid == me => return, // 重入
-                    // 本线程在 ② 里取走时已认领 —— 换成 Running 开跑（计数早已算上，不再自增）。
-                    Some(InitState::Claimed(tid)) if *tid == me => {
-                        loader.static_init_state.insert(name.to_string(), InitState::Running(me));
-                        true
-                    }
-                    Some(InitState::Running(_)) | Some(InitState::Claimed(_)) => false, // 他线程持有 → 等
-                    None => {
-                        loader.static_init_state.insert(name.to_string(), InitState::Running(me));
-                        // Bumped under the loader lock, alongside the `Running` entry
-                        // it mirrors, so `== 0` ⇒ no `Running` entry exists.
-                        self.core.running_static_inits
-                            .fetch_add(1, std::sync::atomic::Ordering::Release);
-                        true
-                    }
-                }
-            };
-            if claimed { break; }
-            std::thread::yield_now();
-        }
-
-        tracing::debug!("running lazy static init `{name}`");
-        let outcome = match self.module() {
-            Some(module) => {
-                let f = self.try_lookup_function(name);
-                match f {
-                    Some(f) => match crate::interp::exec_function(self, module, f.as_ref(), &[]) {
-                        Ok(crate::interp::ExecOutcome::Returned(_)) => None,
-                        Ok(crate::interp::ExecOutcome::Thrown(v)) => Some(format!(
-                            "uncaught exception in static init `{name}`: {}",
-                            crate::interp::value_to_str(&v)
-                        )),
-                        Err(e) => Some(format!("static init `{name}` failed: {e:#}")),
-                    },
-                    None => Some(format!("static init `{name}` disappeared from the loader")),
-                }
-            }
-            None => Some(format!("static init `{name}`: no module installed")),
-        };
-
-        {
-            let mut state = self.core.lazy_loader.write();
-            if let Some(loader) = state.as_mut() {
-                loader.static_init_state.insert(name.to_string(), InitState::Done);
-            }
-            self.core.running_static_inits
-                .fetch_sub(1, std::sync::atomic::Ordering::Release);
-        }
-        if let Some(msg) = outcome {
-            tracing::error!("{msg}");
-            let mut slot = self.core.static_init_error.lock();
-            if slot.is_none() { *slot = Some(msg); }
-        }
-    }
 
     /// defer-class-initialization: 该类是否已在 registry 中（即所属包已加载 + 初始化过）。
     /// 只读，不触发任何加载——供 T3 入队前的快速过滤。

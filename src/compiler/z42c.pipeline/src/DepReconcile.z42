@@ -14,7 +14,7 @@ public static class DepReconcile {
     internal static void _loadOpenedPackage(DepScanResult scan, int idx) {
         ZpkgInfo z = scan.Opened[idx];
         if (z == null && idx < scan.OpenedPaths.Length) {
-            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]));
+            z = ZpkgReader.Open(File.ReadAllBytes(scan.OpenedPaths[idx]), scan.OpenedPaths[idx]);
             scan.Opened[idx] = z;
         }
         ZpkgModuleSigs[] mods = ZpkgReader.ReadModuleSigs(z);

@@ -181,9 +181,67 @@ public sealed class OperatorEmitter {
                 ai = ai + 1;
             }
         }
-        if (!this._ctx.Ended) { this._ctx.EndBlock(new BrTerm(endL)); }
+        // throw-on-switch-expr-no-match：**落空点**（到这里 = 一个臂都没采纳，且没有兜底臂）。
+        // 此前这里是 `Br(endL)` —— 于是 `result` 一次都没被写过就被 return，读到未初始化槽位：
+        // `int a = n switch { 1 => 10 }` 在 n=5 时 `a` 打成 `null`、`a + 1` 打出垃圾数
+        // （实测 1；换程序形状曾打出 17179869186）。W0700 盖不住它——那条只查封闭域（bool/enum），
+        // subject 是 int/string 这类开放域时一条诊断都没有。
+        //
+        // 改为合成 `new SwitchExpressionException(msg)` + Throw。`Throw` 使块 Ended ⇒
+        // **落空路径到不了 endL**，这正是 `result` 不再被未初始化读的机制：endL 的每条入边都写过它。
+        //
+        // 有兜底臂（default / `_ =>` / 裸绑定）时这里不可达（那一支 `ai = sw.ArmCount` 提前结束、
+        // 块已 Ended）⇒ 产物 byte-identical，不多发一条指令。
+        //
+        // 全用现有指令，**不新增 opcode、不动 wire 格式、VM 一行不改**。位置信息不进消息：
+        // `Throw` 运行期已做 resolve_line + populate_stack_trace，抛出点自动在栈回溯里；
+        // 而 `Span.File` 是构建机路径，嵌进消息会把它烤进 zbc、破坏字节不动点。
+        if (!this._ctx.Ended) {
+            TypedReg msg0 = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(msg0, this._ctx.Gen.Intern("switch expression did not match any arm; value: ")));
+            TypedReg vs  = this._ee._emitToStr(subj, sw.Subject.Type(), false);
+            TypedReg msg = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new StrConcatInstr(msg, msg0, vs));
+            TypedReg exc = this._ctx.Alloc(IrType.Ref);
+            TypedReg[] cargs = new TypedReg[1];
+            cargs[0] = msg;
+            this._ctx.Emit(new ObjNewInstr(exc, OperatorEmitter.SWX_EXC, this._swxCtorFq(), new string[0], 0, cargs, 1));
+            this._ctx.EndBlock(new ThrowTerm(exc));
+        }
         this._ctx.StartBlock(endL);
         return result;
+    }
+
+    // 落空异常的 FQ 类名。emitter 只写**字符串**、不 `using` 这个类 ⇒ 编译期零依赖，
+    // 因此不踩 bootstrap-seed 的「新 stdlib API 要晚一个 nightly」纪律（轴 ③ 不触发）。
+    private static string SWX_EXC = "Std.SwitchExpressionException";
+
+    // 落空异常的 FQ ctor 名，**从符号表现查、不硬编码**。
+    //
+    // ctor 键的规则不平凡：primary ctor 注册为**裸类名**、非-primary 才是全签名 mangle
+    // （`OverloadBinder._ctorKey`:581-600，stabilize-instance-dispatch-keys）。所以单 ctor 的
+    // `SwitchExpressionException` 今天的键就是裸名 —— 写成 `…$1` 会在运行期变
+    // `MissingSymbolException`（实测踩过这一脚）。而写死裸名又会在**有人给这个类加第二个
+    // ctor 的那天**静默断掉，且只在落空路径才现形。
+    //
+    // 查得到就用 `RegKey`（权威值，与 `_ctorKey` 的回落循环同一判据）；查不到回落裸名。
+    // ⚠️ `GetClass` 走的是**裸名表**（同短名跨 ns 只活一份赢家，`SymbolTable.z42:10,40`）——
+    // 所以必须再核一次 `Fqn()`：用户自己定义一个叫 `SwitchExpressionException` 的类时，
+    // 裸名会撞到他那个，拿他的 RegKey 去拼 `Std.SwitchExpressionException.…` 就是个断键。
+    private string _swxCtorFq() {
+        Z42ClassType c = this._ctx.Symbols.GetClass("SwitchExpressionException");
+        if (c != null && c.Fqn() == OperatorEmitter.SWX_EXC) {
+            MethodSymbol[] cs = c.InstanceCtors();
+            int i = 0;
+            while (i < cs.Length) {
+                // RegKey 可能为空（符号缺失 / decl-only），空则不要拼出 "Std.X." 这种断键 —— 回落裸名。
+                if (cs[i].Signature != null && cs[i].Signature.ParamCount == 1 && cs[i].RegKey != "") {
+                    return OperatorEmitter.SWX_EXC + "." + cs[i].RegKey;
+                }
+                i = i + 1;
+            }
+        }
+        return OperatorEmitter.SWX_EXC + ".SwitchExpressionException";
     }
 
     internal TypedReg _emitConditional(BoundConditional c) {
