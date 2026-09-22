@@ -1,0 +1,37 @@
+// add-accessor-visibility：`{ get; private set; }` 的 setter 只在类内可写、外部只读。
+// 此前访问器级可见性被静默忽略（set_X 用属性级 public），外部能写 private setter。本测试验证
+// 运行期功能正常：类内经方法/ctor 写 private-set 属性、外部读回。（外部写的编译期拦截由单测覆盖。）
+
+class Counter {
+    public int Count { get; private set; }        // 外部只读，内部可写
+    public string Label { get; private set; }
+
+    public Counter(string label) {
+        this.Label = label;
+        this.Count = 0;
+    }
+
+    public void Inc() { this.Count = this.Count + 1; }
+    public void Add(int n) { this.Count = this.Count + n; }
+    public void Retag(string s) { this.Label = s; }
+}
+
+void Main() {
+    Counter c = new Counter("hits");
+    Assert.Equal(0, c.Count);
+    Assert.Equal("hits", c.Label);
+
+    c.Inc();
+    c.Inc();
+    Assert.Equal(2, c.Count);      // 内部 setter 写生效
+
+    c.Add(10);
+    Assert.Equal(12, c.Count);
+
+    c.Retag("clicks");
+    Assert.Equal("clicks", c.Label);
+
+    // 外部只读 getter 正常。
+    Assert.Equal(12, c.Count);
+    Assert.Equal("clicks", c.Label);
+}

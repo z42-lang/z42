@@ -25,15 +25,18 @@
 ```z42
 class Person {
     public string Name { get; set; }     // 读写
-    public int Age { get; private set; } // 见下：`private` 当前被忽略
+    public int Age { get; private set; } // 外部只读、类内可写（见下：访问器级可见性）
     public bool Active { get; }          // 只读（只有 getter）
 }
 ```
 
-- **访问器级可见性修饰符：解析但当前忽略**。`get` / `set` 前可各自写可见性修饰符（如 `private set`），
-  parser 接受并记入 AST，但**语义层没有任何读取点**——两个访问器统一继承**属性级**可见性。
-  上例的 `Age` 实际是 `get` / `set` 都 public，不是「读公开、写私有」。需要「外部只读」时，
-  当前的做法是写 `{ get; }` 只读属性 + 私有字段 / 方法提供写入路径。
+- **访问器级可见性修饰符：生效**（`add-accessor-visibility`）。`get` / `set` 前可各自写可见性修饰符
+  （如 `private set`），覆盖属性级可见性；不写则继承属性级。上例的 `Age` 是「读公开、写私有」——
+  类内经 `this.Age = v` 可写，**外部写报 E0404**（access-denied），外部读正常。反射也报告访问器的真实
+  可见性。用于「外部只读、内部可写」的封装（对标 C# `{ get; private set; }`）。
+  > 实现：访问器可见性进 `get_X`/`set_X` 符号 + IR（`MemberCollector` / `IrGenMemberEmitter`）；本地类属性
+  > 以源名 FieldSymbol 登记、写走 FieldSymbol 路径，故写属性时 `AssignTyper` 对 `SetterVis` 额外做一道
+  > `CheckAccess`（属性级 `Visibility` ≈ getter，setter 可更严）。
 - **只读属性**：只写 `{ get; }`。**只能在本类构造函数内经 `this` 赋值**（对标 C# CS0200 的只读
   自动属性），其它位置赋值报 **E0452**；计算属性（`get { ... }`）无存储，**任何位置**都不可赋值。
 - **初始化器**：`T Name { get; set; } = expr;` 给后备字段一个初值。语义对标 C#：

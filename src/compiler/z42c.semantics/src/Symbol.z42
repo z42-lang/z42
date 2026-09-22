@@ -79,6 +79,11 @@ public sealed class FieldSymbol {
     public bool       IsProp;
     public bool       IsPropNoSetter;
     public string     PropBackingName;
+    // add-accessor-visibility：属性 setter 的可见性（`public int P { get; private set; }` 的 `private`）。
+    // FieldSymbol.Visibility 是**属性级**（≈ getter），setter 可更严。写属性时 AssignTyper 据此额外做一道
+    // CheckAccess（本地类属性以源名 FieldSymbol 登记、不走导入类的 set_X 路径，故写限制须在这里补）。
+    // 空 = 与属性级同（无需额外检查）。
+    public string     SetterVis;
     public FieldSymbol(string name, string visibility, Z42Type fieldType, bool isStatic, string containingTypeName) {
         this.Name = name; this.Visibility = visibility; this.FieldType = fieldType;
         this.IsStatic = isStatic; this.ContainingTypeName = containingTypeName;
@@ -86,6 +91,7 @@ public sealed class FieldSymbol {
         this.IsConst = false; this.ConstVal = null;
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.IsProp = false; this.IsPropNoSetter = false; this.PropBackingName = "";
+        this.SetterVis = "";
     }
     public string Dump() { return "(field " + this.Name + " " + this.FieldType.Dump() + ")"; }
 }

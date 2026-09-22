@@ -292,6 +292,12 @@ public sealed class AssignTyper {
                     "cannot assign to get-only property `" + fs.Name + "` outside constructor", a.Span);
             }
         }
+        // add-accessor-visibility：属性有 setter 但 setter 可见性比属性级更严（`public int P { get; private set; }`）
+        // → 写属性受 setter 可见性约束。FieldSymbol.Visibility 是属性级（getter），普通字段访问检查放行；这里
+        // 对 SetterVis 额外做一道 CheckAccess（本地类属性走 FieldSymbol 路径，不经导入类的 set_X CheckAccess）。
+        if (fs != null && fs.IsProp && !fs.IsPropNoSetter && fs.SetterVis != "") {
+            this._tc._access.CheckAccess(fs.SetterVis, fs.ContainingTypeName, env, env.Symbols, "property setter", fs.Name, a.Span);
+        }
     }
 
     // 从接收者类型取字段符号（class / 泛型实例）；非类或无此字段 → null。

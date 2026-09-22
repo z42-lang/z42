@@ -250,15 +250,23 @@ public sealed class MemberCollector {
                 if (!pd.HasSet) { pfsym.IsPropNoSetter = true; }
                 // get_X / set_X accessor 方法符号（IrGen 发 builtin stub 或编译体；镜像 C# SynthesizeClassAutoProp）。
                 string pvis = this._sc._vis(pd.Mods, "private");
+                // add-accessor-visibility：访问器级可见性修饰符（`public int P { get; private set; }` 的 `private`）
+                // 覆盖属性级；空则继承属性级（`_vis` 对空 mods 回落 dflt=pvis）。此前 get_X/set_X 一律用 pvis
+                // ⇒ `private set` 被静默当 public，封装被突破、反射报错 public。CheckAccess 据 set_X.Visibility
+                // 拦外部写，故符号可见性一改，访问控制自动生效。
+                string pgetVis = this._sc._vis(pd.GetMods, pvis);
+                string psetVis = this._sc._vis(pd.SetMods, pvis);
+                // 仅访问器级修饰符存在时带上 setter 可见性（否则与属性级同、普通字段访问检查已覆盖）。
+                if (pd.SetMods != "") { pfsym.SetterVis = psetVis; }
                 Z42Type[] getPs0 = new Z42Type[0];
                 if (pd.HasGet) {
-                    ct.Methods.Put("get_" + pd.Name, new MethodSymbol("get_" + pd.Name, pvis,
+                    ct.Methods.Put("get_" + pd.Name, new MethodSymbol("get_" + pd.Name, pgetVis,
                         new Z42FuncType(getPs0, 0, pft), pfstatic, c.Name, false, null));
                 }
                 if (pd.HasSet) {
                     Z42Type[] setPs0 = new Z42Type[1];
                     setPs0[0] = pft;
-                    ct.Methods.Put("set_" + pd.Name, new MethodSymbol("set_" + pd.Name, pvis,
+                    ct.Methods.Put("set_" + pd.Name, new MethodSymbol("set_" + pd.Name, psetVis,
                         new Z42FuncType(setPs0, 1, new Z42VoidType()), pfstatic, c.Name, false, null));
                 }
             } else if (mem is IndexerDecl) {

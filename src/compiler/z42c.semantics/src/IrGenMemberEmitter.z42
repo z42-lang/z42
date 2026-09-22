@@ -69,6 +69,12 @@ public sealed class IrGenMemberEmitter {
         IrGen g = this._g; SemanticModel model = this._model;
         bool pdExtern = IrGenFacts._hasWord(pd.Mods, "extern");
         bool pdStatic = IrGenFacts._hasWord(pd.Mods, "static");
+        // add-accessor-visibility：访问器可见性进 IR（供反射 + 跨包访问控制）。此前 auto-prop / 计算体
+        // accessor 一律不设 .Visibility → 默认 0=public，连属性级 private/protected 都丢、`private set` 更丢。
+        // 访问器级修饰符（GetMods/SetMods）覆盖属性级，空则回落属性级（_visCode 对空 mods 回落 dflt）。
+        int pdPropVis = IrGenFacts._visCode(pd.Mods, 1);
+        int pdGetVis = IrGenFacts._visCode(pd.GetMods, pdPropVis);
+        int pdSetVis = IrGenFacts._visCode(pd.SetMods, pdPropVis);
         if (pd.HasGetBody) {
             string pgKey = c.Name + ".get_" + pd.Name;
             string pgIrName = g._q(g._classIrShortName(c)) + ".get_" + pd.Name;
@@ -81,6 +87,7 @@ public sealed class IrGenMemberEmitter {
                 IrFunction pgIrf = fePg.EmitFunction(pgIrName, synthPg, model.GetBody(pgKey),
                                                       !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(pgIrf, synthPg, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                pgIrf.Visibility = pdGetVis;   // add-accessor-visibility（synthPg.Mods 为空，须显式覆盖）
                 this._out.AddFunc(pgIrf);
             }
         } else if (pd.HasGet && pdExtern) {
@@ -93,6 +100,7 @@ public sealed class IrGenMemberEmitter {
                 IrFunction pstub = g._stubE._emitNativeStub(g._q(g._classIrShortName(c)) + ".get_" + pd.Name,
                                                          synthPd, nat2, pdStatic, rawMem);
                 IrGenFacts._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                pstub.Visibility = pdGetVis;   // add-accessor-visibility
                 this._out.AddFunc(pstub);
             }
         } else if (pd.HasGet && !pdExtern) {
@@ -105,11 +113,13 @@ public sealed class IrGenMemberEmitter {
             int retTag = IrGenFacts._irTypeTag(pd.Type);
             IrFunction ag = g._stubE._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
             ag.MinArg = 0;   // getter 逻辑参数 0（reconcile：ctor 默认=含 this 总数，需覆盖）
+            ag.Visibility = pdGetVis;   // add-accessor-visibility
             this._out.AddFunc(ag);
             if (pd.HasSet) {
                 string setIrNm = g._q(g._classIrShortName(c)) + ".set_" + pd.Name;
                 IrFunction sg = g._stubE._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
                 sg.MinArg = 1;   // setter 逻辑参数 1
+                sg.Visibility = pdSetVis;   // add-accessor-visibility（`private set` 等）
                 this._out.AddFunc(sg);
             }
         }
@@ -131,6 +141,7 @@ public sealed class IrGenMemberEmitter {
                 IrFunction psIrf = fePs.EmitFunction(psIrName, synthPs, model.GetBody(psKey),
                                                       !pdStatic, pdStatic, owner, c.TypeParams.Names, c.TypeParams.Count);
                 IrGenFacts._fillParamMeta(psIrf, synthPs, !pdStatic);   // add-param-metadata（reconcile 补齐）
+                psIrf.Visibility = pdSetVis;   // add-accessor-visibility（synthPs.Mods 为空，须显式覆盖）
                 this._out.AddFunc(psIrf);
             }
         }
