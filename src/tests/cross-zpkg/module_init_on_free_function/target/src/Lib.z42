@@ -1,0 +1,14 @@
+// `[ModuleInit]` 标在**顶层自由函数**上（不是类内 static 方法）。
+//
+// 自由函数豁免 `static`：z42 的自由函数本就无 this、恒 `IsStatic=false`（与 C# 一致），
+// 要求它写 `static` 反而不合法。编译期放行这条路是一回事，**运行期真的会跑**是另一回事
+// ——合成的 `$Module.$cctor` 体要按自由函数的发射名（`_q(RegKey)`）去调它。这条 fixture
+// 守的就是后者。
+namespace Demo.FreeInit;
+
+using Std.IO;
+
+[ModuleInit]
+void Init() { Console.WriteLine("free-init"); }
+
+public int Ping(int x) { return x + 1; }
