@@ -84,6 +84,12 @@ public sealed class FieldSymbol {
     // CheckAccess（本地类属性以源名 FieldSymbol 登记、不走导入类的 set_X 路径，故写限制须在这里补）。
     // 空 = 与属性级同（无需额外检查）。
     public string     SetterVis;
+    // define-null-check-marks：字段/属性的类型标了 `?`。**不是类型身份的一部分**（与
+    // `Z42FuncType.ParamIsNullable` 同构：旁路位、不进 `Name()` / `Dump()`），只表达
+    // 「请编译器在这里强制检查」这个请求。未标 = 不强制（缺席不等于「保证非空」）。
+    // 跨包暂不携带：字段的 TSIG 拼写走 `SurfaceTypeName(ft)`（已擦除 `?`），
+    // 导入字段一律 false ⇒ **漏报**方向，符合 D4。
+    public bool       IsNullable;
     public FieldSymbol(string name, string visibility, Z42Type fieldType, bool isStatic, string containingTypeName) {
         this.Name = name; this.Visibility = visibility; this.FieldType = fieldType;
         this.IsStatic = isStatic; this.ContainingTypeName = containingTypeName;
@@ -92,6 +98,7 @@ public sealed class FieldSymbol {
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.IsProp = false; this.IsPropNoSetter = false; this.PropBackingName = "";
         this.SetterVis = "";
+        this.IsNullable = false;
     }
     public string Dump() { return "(field " + this.Name + " " + this.FieldType.Dump() + ")"; }
 }

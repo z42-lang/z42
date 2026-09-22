@@ -237,3 +237,78 @@ void test_bare_null_literal_return_is_not_e0479() {
     string src = "namespace N; class C { static string M() { return null; } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── 字段 / 属性：强制快照（E0484，design §D4 的规则 (a)）──────────────────
+//
+// 字段与形参分成两码，是因为**修法不同**：形参就地 `if (s != null)` 就够了，字段不行。
+// 字段不是一个「值」，是一个**每次读都重新求值的位置** —— `if (this.F != null) { this.F.M(); }`
+// 里的两个 `this.F` 是两次独立的读：别的线程能在中间写；`F` 若是属性还是两次真调用，
+// 返回值可以不同。所以字段永不就地窄化，修法是先快照到局部。
+//
+// ⚠️ 本组的支点是 `test_field_in_place_check_still_errors` —— 它一旦变绿，
+// 「强制快照」就塌回了「调用即失效」那一档（Q1 实测里被否掉的那档）。
+
+[Test]
+void test_marked_field_deref_errors() {
+    string src = "namespace N; class C { string? F; int M() { return this.F.Length; } }";
+    Assert.Equal("E0484", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照组：不标 `?` 的字段完全不受检（同形参那条支点，存量代码零迁移）。
+[Test]
+void test_unmarked_field_is_not_checked() {
+    string src = "namespace N; class C { string F; int M() { return this.F.Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ⭐ 规则 (a) 的定义性用例：**就地检查不算数**。
+[Test]
+void test_field_in_place_check_still_errors() {
+    string src = "namespace N; class C { string? F; int M() {"
+        + " if (this.F != null) { return this.F.Length; } return 0; } }";
+    Assert.Equal("E0484", SemanticDump.FirstErrorCode(src));
+}
+
+// 唯一的修法：快照到局部，检查那个局部（局部是个值，检查一次就永远成立）。
+[Test]
+void test_field_snapshot_then_check_ok() {
+    string src = "namespace N; class C { string? F; int M() {"
+        + " string v = this.F; if (v != null) { return v.Length; } return 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性对照：快照了但**没检查**，义务只是转移到局部上，照样要报（E0478 那半接住）。
+[Test]
+void test_field_snapshot_without_check_errors() {
+    string src = "namespace N; class C { string? F; int M() {"
+        + " string v = this.F; return v.Length; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+// 标记从**接收者的类型**上查，不是「当前类」——`other.F` 与 `this.F` 走同一条路。
+[Test]
+void test_marked_field_on_other_object_errors() {
+    string src = "namespace N; class C { public string? F; }"
+        + " class D { static int M(C c) { return c.F.Length; } }";
+    Assert.Equal("E0484", SemanticDump.FirstErrorCode(src));
+}
+
+// 属性同理 —— D4 的第一条理由（「会被读两次」）说的正是属性。
+[Test]
+void test_marked_property_deref_errors() {
+    string src = "namespace N; class C { string? P { get; set; } int M() { return this.P.Length; } }";
+    Assert.Equal("E0484", SemanticDump.FirstErrorCode(src));
+}
+
+// 字段的可空性会经 `return` 漏给**未标 `?`** 的返回类型 → 仍是 E0479 那半的活。
+[Test]
+void test_return_marked_field_from_unmarked_return_errors() {
+    string src = "namespace N; class C { string? F; string M() { return this.F; } }";
+    Assert.Equal("E0479", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_return_marked_field_from_marked_return_ok() {
+    string src = "namespace N; class C { string? F; string? M() { return this.F; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
