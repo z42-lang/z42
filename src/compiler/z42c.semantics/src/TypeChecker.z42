@@ -654,7 +654,7 @@ public sealed class TypeChecker {
         if (vt == null) { return; }
         if ((vt is Z42UnknownType) || (vt is Z42ErrorType)) { return; }
         if (!TypeChecker._isNonNullableValueType(vt)) { return; }
-        this._diags.Error("E0474",
+        this._diags.Error("E0481",
             "`" + vt.Name() + "` is a value type and can never be null — this comparison is always "
             + (op == "==" ? "false" : "true"), sp);
     }

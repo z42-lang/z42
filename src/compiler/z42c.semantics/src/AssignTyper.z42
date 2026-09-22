@@ -147,7 +147,7 @@ public sealed class AssignTyper {
                 }
             }
             BoundExpr target = this._et._bindExpr(a.Target, env);
-            this._checkAssignable(a, target);            // E0477：赋值目标须是左值
+            this._checkAssignable(a, target);            // E0482：赋值目标须是左值
             this._checkConstAssign(a, target, env);      // add-const-keyword：const（局部 / 字段）不可赋值
             this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
             // add-target-typed-new：`x = new()` RHS 以 LHS 类型为目标（含实例字段初始化器 `this.f = new()`）。
@@ -190,7 +190,7 @@ public sealed class AssignTyper {
         return env.LookupVar(rn) == null && (env.Symbols.HasClass(rn) || env.Symbols.HasInterface(rn));
     }
 
-    // E0477：赋值目标必须是**左值**（有存储的位置）。此前这道检查**根本不存在**——
+    // E0482：赋值目标必须是**左值**（有存储的位置）。此前这道检查**根本不存在**——
     // `42 = a;` 编得过、跑得过、什么也不发生，一条诊断都没有。
     //
     // 最伤人的形态是表达式体成员，那里 `=>` 后面只能是**表达式**（`_parseArrowBody` 发
@@ -221,7 +221,7 @@ public sealed class AssignTyper {
         if (AssignTyper._isTupleCtor(target)) {
             msg = msg + ". `(" + "...) = ..." + "` here builds a new tuple and assigns to it — z42 has no destructuring assignment, only destructuring declaration (a statement, so it cannot appear in an expression-bodied member). Assign the members one by one (`this.X = x;`) in a braced body";
         }
-        this._tc._diags.Error("E0477", msg, a.Span);
+        this._tc._diags.Error("E0482", msg, a.Span);
     }
 
     private static bool _isTupleCtor(BoundExpr target) {

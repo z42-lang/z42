@@ -6,6 +6,6 @@ $ z42 run onefield.z42
 # ANCHOR: exprctor
 $ z42 run exprctor.z42
 z42c build: 1 error(s) in exprctor.z42
-  exprctor.z42(6,34): E0477: the left-hand side of `=` must be a variable, field, or indexer element; this target has no storage to assign to. `(...) = ...` here builds a new tuple and assigns to it — z42 has no destructuring assignment, only destructuring declaration (a statement, so it cannot appear in an expression-bodied member). Assign the members one by one (`this.X = x;`) in a braced body
+  exprctor.z42(6,34): E0482: the left-hand side of `=` must be a variable, field, or indexer element; this target has no storage to assign to. `(...) = ...` here builds a new tuple and assigns to it — z42 has no destructuring assignment, only destructuring declaration (a statement, so it cannot appear in an expression-bodied member). Assign the members one by one (`this.X = x;`) in a braced body
 [exit: 1]
 # ANCHOR_END: exprctor

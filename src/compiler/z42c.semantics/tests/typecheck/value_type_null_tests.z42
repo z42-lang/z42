@@ -11,50 +11,50 @@ using Std;
 using Std.Test;
 using Z42.Semantics;
 
-// ── 应报 E0474 ────────────────────────────────────────────────────
+// ── 应报 E0481 ────────────────────────────────────────────────────
 
 [Test]
 void test_int_vs_null_errors() {
     string src = "namespace D; class C { static void M() { int n = 0; if (n == null) { } } }";
-    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_int_ne_null_errors() {
     string src = "namespace D; class C { static void M() { int n = 0; if (n != null) { } } }";
-    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_bool_vs_null_errors() {
     string src = "namespace D; class C { static void M() { bool b = false; if (b == null) { } } }";
-    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_null_on_the_left_errors() {
     // 左右都要认 —— 写反了同样恒假。
     string src = "namespace D; class C { static void M() { int n = 0; if (null == n) { } } }";
-    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_value_field_vs_null_errors() {
     // 字段形态是这条缺陷最容易藏的地方：`f == null` 看起来像「还没设过」的哨兵。
     string src = "namespace D; class C { int n; void M() { if (this.n == null) { } } }";
-    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_enum_vs_null_errors() {
     string src = "namespace D; enum Color { Red } class C { static void M() { Color c = Color.Red; if (c == null) { } } }";
-    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_struct_vs_null_errors() {
     string src = "namespace D; struct Pair { public int A; } class C { static void M() { Pair p; if (p == null) { } } }";
-    Assert.Equal("E0474", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0481", SemanticDump.FirstErrorCode(src));
 }
 
 // ── 不应报 ────────────────────────────────────────────────────────
