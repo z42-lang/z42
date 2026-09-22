@@ -102,7 +102,7 @@ int _depsInstallAndroidSdk(bool force, string tier) {
 // Resolve a JDK 17+ home (JAVA_HOME, else macOS java_home). Logs the version and
 // returns it, or prints an error and returns "" when none is found / too old.
 string _androidResolveJdk() {
-    string javaHome = Environment.GetEnvironmentVariable("JAVA_HOME") ?? "";
+    string javaHome = Environment.GetEnvironmentVariable("JAVA_HOME", "");
     if (javaHome.Length == 0 && File.Exists("/usr/libexec/java_home")) {
         javaHome = _cmdOut("/usr/libexec/java_home", new string[]{ "-v", "17+" });
         if (javaHome.Length == 0) { javaHome = _cmdOut("/usr/libexec/java_home", new string[0]); }
