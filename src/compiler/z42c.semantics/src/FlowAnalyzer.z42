@@ -561,7 +561,7 @@ public sealed class FlowAnalyzer {
         if (e is BoundCall) {
             BoundCall c = e as BoundCall;
             if (!c.RetIsNullable) { return; }
-            this._diags.Error("E0478",
+            this._diags.Error(DiagnosticCodes.DereferenceOfNullMarked,
                 "`" + c.MethodName + "` returns a `?`-marked type and may be null here — "
                 + "assign it to a local and check that (e.g. `var v = …; if (v != null) { … }`)", e.Span);
             return;
@@ -570,7 +570,7 @@ public sealed class FlowAnalyzer {
         if (!(e is BoundIdent)) { return; }
         BoundIdent id = e as BoundIdent;
         if (!this._isMaybeNull(id.Name)) { return; }
-        this._diags.Error("E0478",
+        this._diags.Error(DiagnosticCodes.DereferenceOfNullMarked,
             "`" + id.Name + "` is marked `?` and may be null here — check it before dereferencing "
             + "(e.g. `if (" + id.Name + " != null) { … }`)", e.Span);
         this._maybeNull.Put(id.Name, "0");
@@ -647,7 +647,7 @@ public sealed class FlowAnalyzer {
             + "on every access (and a property is re-invoked), so checking it in place does not make "
             + "the next read non-null; snapshot it into a local and check that "
             + "(e.g. `var v = " + recv + m.MemberName + "; if (v != null) { … }`)";
-        this._diags.Error("E0484", msg, m.Span);
+        this._diags.Error(DiagnosticCodes.NullableFieldNotSnapshotted, msg, m.Span);
     }
 
     // 把可空值 `return` 给**未标 `?`** 的返回类型 → E0479。
@@ -664,7 +664,7 @@ public sealed class FlowAnalyzer {
         else if (FlowAnalyzer._isNullableCall(v)) { bad = true; }
         else if (FlowAnalyzer._isMarkedFieldExpr(this, v)) { bad = true; }
         if (!bad) { return; }
-        this._diags.Error("E0479",
+        this._diags.Error(DiagnosticCodes.PossibleNullReturn,
             "returning a value that may be null from a return type not marked `?` — "
             + "callers of this method have no obligation to check it; "
             + "either mark the return type `?` or check before returning", v.Span);

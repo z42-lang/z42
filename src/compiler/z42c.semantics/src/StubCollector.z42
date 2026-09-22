@@ -228,7 +228,7 @@ public sealed class StubCollector {
                         if (fqAt >= 0) {
                             Z42ClassType prevFq = table.ClassesByFqn.ValAt(fqAt) as Z42ClassType;
                             if (prevFq != null && prevFq.GenericParamCount == c.TypeParams.Count) {
-                                this._sc.Diags.Error("E0458",
+                                this._sc.Diags.Error(DiagnosticCodes.DuplicateTypeName,
                                     "the " + (dupNs == "" ? "global namespace" : "namespace `" + dupNs + "`")
                                     + " already contains a definition for `" + c.Name + "`"
                                     + " — rename one of them, or mark both `partial` to merge them", c.Span);

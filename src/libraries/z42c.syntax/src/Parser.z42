@@ -339,11 +339,11 @@ public sealed class Parser {
                 string nsName = this._declP._parseQualifiedName();
                 this._expectSemi();
                 if (hasNs) {
-                    this._diags.Error("E0457",
+                    this._diags.Error(DiagnosticCodes.FileScopedNamespaceMisplaced,
                         "a file may declare only one namespace (`" + ns + "` was already declared above)"
                         + " — split the file, or move all declarations under a single namespace", nssp);
                 } else if (sawTypeDecl) {
-                    this._diags.Error("E0457",
+                    this._diags.Error(DiagnosticCodes.FileScopedNamespaceMisplaced,
                         "`namespace` must appear before any type or function declaration in the file", nssp);
                     ns = nsName; hasNs = true;
                 } else {

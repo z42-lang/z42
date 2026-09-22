@@ -165,7 +165,7 @@ public sealed class ConstraintChecker {
                             // 绑定名现与本包一样校验：不是该接口声明的关联类型 → E0453。
                             Z42InterfaceType abIface = symbols.GetInterface(nt.Name);
                             if (report && abIface != null && !abIface.HasAssocType(abt.Name)) {
-                                this._diags.Error("E0453",
+                                this._diags.Error(DiagnosticCodes.AssocTypeBinding,
                                     "interface `" + nt.Name + "` has no associated type `" + abt.Name + "`",
                                     abt.Span);
                             }
@@ -497,13 +497,13 @@ public sealed class ConstraintChecker {
         // 未绑定 → E0453；绑定类型与约束要求不符 → E0453。
         string got = cls.AssocBindingOf(bindName);
         if (got == "") {
-            this._diags.Error("E0453",
+            this._diags.Error(DiagnosticCodes.AssocTypeBinding,
                 "type argument `" + arg.Name() + "` for `" + pn + "` on `" + ownerName
                 + "` does not bind associated type `" + bindName + "`", sp);
             return;
         }
         if (PrimModel.Canon(got) != PrimModel.Canon(wantType)) {
-            this._diags.Error("E0453",
+            this._diags.Error(DiagnosticCodes.AssocTypeBinding,
                 "type argument `" + arg.Name() + "` for `" + pn + "` on `" + ownerName
                 + "` binds `" + bindName + "` to `" + got + "`, but `" + wantType + "` is required", sp);
         }

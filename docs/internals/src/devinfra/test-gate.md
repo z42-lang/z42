@@ -135,7 +135,9 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 2. **发射出去的每个码都必须在登记表里登记**（扫 `src/**` 非 `tests/`，剥行注释后取字符串字面量）；
 3. `DiagnosticCodes.<Name>` 引用的常量名必须存在（防笔误造幽灵码）；
 4. 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` **双向棘轮**（多一条 / 少一条都红）；
-5. [诊断码全表](../../../reference/src/appendix/error-codes.md)的码 ↔ 登记表**双向相等**。
+5. [诊断码全表](../../../reference/src/appendix/error-codes.md)的码 ↔ 登记表**双向相等**；
+6. 清单里的每条**欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）**会过期**，
+   挂账超过宽限期（3 天）即红，逼它切回 `DiagnosticCodes.<Name>`。
 
 **第 4 条为什么不能省**——按 2026-09-22 实测的两次撞码逐条回放过：
 
@@ -160,10 +162,36 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 > 此前谓词只认长度 5，这两个常量整个在门的视野外：不受 ①② 约束，还占着 0908 号段而门看不见。
 
 > **发射点为什么还允许用字面量**：新增的 `DiagnosticCodes` 常量**不能在同一个 PR 里被引用**
-> （core→semantics 冷启动 stale-cache，见 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)
-> 的分阶段引入纪律；`GeneratorDriver` 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡形态**，
-> 清单只应缩短；全部切回常量引用后（Deferred `migrate-diag-literals-to-constants`），
-> ④ 可退役并换成更强的「非 tests 源零字面量发码」。
+> （上一版 z42c 的 `z42c.core` 里还没有这个常量，见
+> [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md) 的分阶段引入纪律；`GeneratorDriver`
+> 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡期形态**，清单只应缩短。
+>
+> **2026-09-23 `migrate-diag-literals-to-constants` 已执行**：#759 那批常量随 nightly `2cb64a225`
+> 进种子后，100 个发射点切回 `DiagnosticCodes.<Name>`，清单由 **54 条降到 2 条**（只剩 #767 刚加、
+> 尚未进种子的 E0485 / E0486）。
+>
+> ⚠️ **但 ④ 不能退役**（订正此前写的「换成『非 tests 源零字面量发码』」）：那条更强的规则会让**新码
+> 根本无法引入**——分阶段引入纪律要求「常量进登记表」与「发射点引用它」跨一个 nightly，中间那一轮
+> 的发射点必然是字面量。所以清单的稳态不是空，而是**「上一个 nightly 以来新加的码」那么几条**；
+> ④ 是这条纪律的**常设配套**，盯的是「过渡期的字面量有没有被评审看见」。清单里的每一条都是**欠账**：
+> 它的常量随下一个 nightly 进种子后，就该切回常量并重跑 `--update`。
+
+**第 6 条：为什么欠账要有到期日**（2026-09-23 补）。④ 让过渡期的字面量**看得见**，但看得见不等于
+会被清掉——三次撞码（E0474 / E0477 / E0481）的共同前提正是「42 个码、100 个发射点常年挂着字面量」。
+这次能清掉 100 条，靠的是有人记着一条 Deferred；**记忆不是机制**，不盯着它就会重新长回来。所以每条
+清单项带一个挂账日（`--update` 给新条目自动填当天，**已有条目保留原日期**——否则每次重生成基线都把
+欠账时钟拨回今天，⑥ 永远不会到期），超过宽限期就红。
+
+> ⚠️ **判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」**：后者更精确，但**在 CI 里拿不到
+> 种子**。`xtask test diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建** stdlib
+> （`artifacts/build/libraries/dist/release`，里面的 `z42c.core` 含全部常量 ⇒ 每条欠账都判红，假红
+> 挡人）；而 `Z42_HOME` 在整个 `test-host` job 里**一次都没设**，nightly 种子解在 ci-bootstrap 自己的
+> `$(mktemp -d)/sdkpkg` 里、test 步骤看不见 ⇒ 只认种子就是**恒跳过的假门**。两条路都不成立。
+>
+> 粗判据之所以安全，是因为**反方向已经有门**：若切早了（常量还没进种子），`xtask test bootstrap`
+> 会直接红。两个方向互为对照——⑥ 说「该切了」，bootstrap 说「切早了」，中间那条缝就是正确时机。
+> 附带好处：nightly 发布链卡住时 ⑥ 会假红，而那**正是该知道的事**（上一次种子停在 #756，把这个
+> 程序卡了好几天，零信号）。
 
 **Rust VM 单测（`test runtime` = `cargo test`）不在 gate 内**：它的 `signal_handler_e2e` 会 spawn
 信号崩溃 helper，在信号受限的沙箱里挂住，会让这个「永远要跑」的 gate 不可用。改由每条 CI 腿单独

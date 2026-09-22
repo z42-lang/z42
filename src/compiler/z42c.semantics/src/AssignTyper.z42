@@ -221,7 +221,7 @@ public sealed class AssignTyper {
         if (AssignTyper._isTupleCtor(target)) {
             msg = msg + ". `(" + "...) = ..." + "` here builds a new tuple and assigns to it — z42 has no destructuring assignment, only destructuring declaration (a statement, so it cannot appear in an expression-bodied member). Assign the members one by one (`this.X = x;`) in a braced body";
         }
-        this._tc._diags.Error("E0482", msg, a.Span);
+        this._tc._diags.Error(DiagnosticCodes.AssignTargetNotLvalue, msg, a.Span);
     }
 
     private static bool _isTupleCtor(BoundExpr target) {
@@ -274,10 +274,10 @@ public sealed class AssignTyper {
             BoundStaticGet sp = target as BoundStaticGet;
             if (sp.PropSetter == "") {
                 if (sp.PropBacking == "") {
-                    this._tc._diags.Error("E0452",
+                    this._tc._diags.Error(DiagnosticCodes.PropertyNoSetter,
                         "cannot assign to property `" + sp.FieldName + "`: it has no setter", a.Span);
                 } else if (!(env.InStaticCtor && sp.ClassName == env.ClassName)) {
-                    this._tc._diags.Error("E0452",
+                    this._tc._diags.Error(DiagnosticCodes.PropertyNoSetter,
                         "cannot assign to get-only property `" + sp.FieldName + "` outside its static constructor", a.Span);
                 }
             }
@@ -325,10 +325,10 @@ public sealed class AssignTyper {
         if (fs != null && fs.IsPropNoSetter) {
             bool inCtorThis = recvIsThis && env.InCtor();
             if (fs.PropBackingName.Length == 0) {
-                this._tc._diags.Error("E0452",
+                this._tc._diags.Error(DiagnosticCodes.PropertyNoSetter,
                     "cannot assign to property `" + fs.Name + "`: it has no setter", a.Span);
             } else if (!inCtorThis) {
-                this._tc._diags.Error("E0452",
+                this._tc._diags.Error(DiagnosticCodes.PropertyNoSetter,
                     "cannot assign to get-only property `" + fs.Name + "` outside constructor", a.Span);
             }
         }

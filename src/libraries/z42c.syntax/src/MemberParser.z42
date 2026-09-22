@@ -305,7 +305,7 @@ public sealed class MemberParser {
         // auto 半边（合成读/写 __prop_X）与带体半边（自管存储）会读写错位（`get;` 读 __prop_X，`set { _x=value; }`
         // 写 _x）。混合 → E0474（同 E0449–E0473 族，语法层字面量发码）。
         if (hasGet && hasSet && (hasGetBody != hasSetBody)) {
-            this._p._diags.Error("E0474",
+            this._p._diags.Error(DiagnosticCodes.MixedPropertyAccessors,
                 "property `" + name + "` cannot mix an auto accessor with a bodied accessor — make both auto (`{ get; set; }`) or both bodied (`{ get { ... } set { ... } }`)", sp);
         }
         PropertyDecl pd = new PropertyDecl(mods, type, name, hasGet, getMods, hasSet, setMods, hasInit, init, sp);
@@ -354,14 +354,14 @@ public sealed class MemberParser {
                 if (this._p._peek().Kind == TokenKind.Ref) { this._p._advance(); isRef = true; }
                 else if (this._p._peek().Kind == TokenKind.Out) {
                     Span obs = this._p._peek().Span; this._p._advance();
-                    this._p._diags.Error("E0471",
+                    this._p._diags.Error(DiagnosticCodes.ObsoleteParamModifier,
                         "`out` is no longer a parameter modifier — use `ref` (`out T x` -> `ref T x`; " +
                         "the slot is zero-initialised, so the caller need not assign before the call)", obs);
                     isRef = true;   // 按 ref 继续解析，避免级联错
                 }
                 else if (this._p._peek().Kind == TokenKind.In) {
                     Span obs = this._p._peek().Span; this._p._advance();
-                    this._p._diags.Error("E0471",
+                    this._p._diags.Error(DiagnosticCodes.ObsoleteParamModifier,
                         "`in` is no longer a parameter modifier — use `T x` (by value; the compiler passes " +
                         "large value types by alias automatically when the callee never writes them), " +
                         "or `ref T x` if the callee must write back", obs);

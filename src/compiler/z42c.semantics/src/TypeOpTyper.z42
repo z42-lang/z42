@@ -88,7 +88,7 @@ public sealed class TypeOpTyper {
             if (mx.Member == "") { return new BoundError("methodof malformed", new Z42ErrorType(), mx.Span); }
             Z42Type ownerT = env.ResolveType(new NamedType(mx.OwnerName, new TypeExpr[0], 0, mx.OwnerSpan));
             if (!(ownerT is Z42ClassType)) {
-                this._tc._diags.Error("E0443",
+                this._tc._diags.Error(DiagnosticCodes.UndefinedType,
                     "methodof: undefined type `" + mx.OwnerName + "`", mx.OwnerSpan);
                 return new BoundError("methodof owner unresolved", new Z42ErrorType(), mx.Span);
             }
@@ -101,7 +101,7 @@ public sealed class TypeOpTyper {
             // `ct.Methods`（实测 `methodof(Vec.op_Addition)` 的 available 列表里没有它），
             // 否则会先撞上「没有这个方法」，给出的诊断答非所问。
             if (TypeOpTyper._startsWith(mx.Member, "op_")) {
-                this._tc._diags.Error("E0461",
+                this._tc._diags.Error(DiagnosticCodes.MethodOfUnreferenceable,
                     "methodof: cannot reference an operator or conversion (`" + mx.Member
                     + "`) — operators have no source-level name, and `op_*` is a compiler-internal "
                     + "spelling that is not part of the language. Wrap the operator in a named "
@@ -146,7 +146,7 @@ public sealed class TypeOpTyper {
             }
 
             if (cc == 0) {
-                this._tc._diags.Error("E0459",
+                this._tc._diags.Error(DiagnosticCodes.MethodOfTargetNotFound,
                     "methodof: type `" + ownerCt.Fqn() + "` has no method named `" + mx.Member + "`"
                     + TypeOpTyper._availableNames(ownerCt, env), mx.MemberSpan);
                 return new BoundError("methodof target not found", new Z42ErrorType(), mx.Span);
@@ -170,7 +170,7 @@ public sealed class TypeOpTyper {
                     mi = mi + 1;
                 }
                 if (matched == 0) {
-                    this._tc._diags.Error("E0459",
+                    this._tc._diags.Error(DiagnosticCodes.MethodOfTargetNotFound,
                         "methodof: no overload of `" + ownerCt.Fqn() + "." + mx.Member + "` takes ("
                         + TypeOpTyper._typeListText(want, mx.ParamCount) + ")"
                         + TypeOpTyper._overloadList(cands, cc), mx.MemberSpan);
@@ -178,7 +178,7 @@ public sealed class TypeOpTyper {
                 }
                 if (matched > 1) {
                     // 泛型基类替换后同签名（Lippert 的第一类）会落到这里——参数类型列表也分不开。
-                    this._tc._diags.Error("E0460",
+                    this._tc._diags.Error(DiagnosticCodes.MethodOfAmbiguous,
                         "methodof: parameter type list ("
                         + TypeOpTyper._typeListText(want, mx.ParamCount) + ") matches "
                         + matched.ToString() + " overloads of `" + ownerCt.Fqn() + "." + mx.Member
@@ -188,7 +188,7 @@ public sealed class TypeOpTyper {
                 }
             } else {
                 if (cc > 1) {
-                    this._tc._diags.Error("E0460",
+                    this._tc._diags.Error(DiagnosticCodes.MethodOfAmbiguous,
                         "methodof: `" + ownerCt.Fqn() + "." + mx.Member + "` has " + cc.ToString()
                         + " overloads — add a parameter type list to pick one, e.g. `methodof("
                         + mx.OwnerName + "." + mx.Member + "("

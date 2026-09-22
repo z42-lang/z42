@@ -145,9 +145,12 @@ z42 一侧（`Type.z42` / `Reflection/*.z42`）把结果缓存在反射对象的
 - `KindOf(name)` —— caller 族内部的 kind（`member` / `line` / `file` / `module`）。
 - `ParamTypeOk(kind, typeName)` —— 定义侧类型校验（`line` 要 `int`，其余要 `string`）。
 
-**发码**：`DeclBinder._validateCallerMacroDefaults`（`:554`）用**字面量** `"E0450"` 发（`:566,569,577`），
-不引用 `DiagnosticCodes.CallerMacroInvalid` 常量——同样是避 core→semantics 新跨成员符号撞 F2 冷启动
-stale-cache。这条纪律对 `E0449`–`E0470` 一族普遍适用。
+**发码**：`DeclBinder._validateCallerMacroDefaults` 发 `DiagnosticCodes.CallerMacroInvalid`。
+⚠️ 它**曾经**用字面量 `"E0450"`——新增的 `DiagnosticCodes` 常量不能在同一个 PR 里被引用（上一版
+z42c 的 `z42c.core` 里还没有它，见 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)
+的分阶段引入纪律）。常量随 nightly 进种子后，`migrate-diag-literals-to-constants`（2026-09-23）
+把这一族 100 个发射点整体切回了常量引用。**新码仍按老路走**：先字面量一轮，跨一个 nightly 再切回，
+过渡期由 `xtask test diagcodes` 的第 ④ 条棘轮盯着。
 
 **持久化**：caller 宏的默认值编成 `$Caller:<kind>` 的 param attr-ref 哨兵（`FactoryFunc` 为空），
 骑既有的 param attr 通道，**零格式 bump**。`IrParamDefault.Caller()` 读回、`ImportedSymbolLoader`

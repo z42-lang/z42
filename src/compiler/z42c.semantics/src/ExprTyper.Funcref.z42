@@ -36,7 +36,7 @@ public sealed partial class ExprTyper {
             return new BoundFuncRef(id.Name, ns, !chosen.HasDecl, chosen.Signature, chosen.RegKey, id.Span);
         }
         if (nmatch == 0) {
-            this._tc._diags.Error("E0477",
+            this._tc._diags.Error(DiagnosticCodes.FuncRefNoMatchingOverload,
                 "no overload of free function `" + id.Name + "` matches target delegate type `"
                 + target.Name() + "`; candidates: " + this._funcCandSigs(cands), id.Span);
         } else {
