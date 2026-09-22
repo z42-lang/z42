@@ -27,7 +27,8 @@ graph LR
     S4g --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
     S5 --> S6[lines<br/>文件行数硬上限棘轮]
     S6 --> S7[walkers<br/>AST walker 完备性]
-    S7 --> G((GREEN))
+    S7 --> S8[diagcodes<br/>诊断码唯一性]
+    S8 --> G((GREEN))
 ```
 
 **机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
@@ -48,6 +49,7 @@ graph LR
 - `vscode-syntax`
 - `lines`
 - `walkers`
+- `diagcodes`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
@@ -100,6 +102,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `vscode-syntax` | 生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 + 模板」的重渲染 | 约一次 z42c fork |
 | `lines` | 文件行数上限棘轮，见下 | 纯文本扫描 < 1 s |
 | `walkers` | z42c 里**手写穷举** AST walker 的完备性，见下 | 纯文本扫描 < 1 s |
+| `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料此前唯一的看门人是 `bench-pr.yml`，
 而那个 job **不在分支保护的 required 列表里**。一次把 `Failure.z42` 搬出 `z42.test` 的改动让
@@ -123,6 +126,34 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 （当前四个：`MethodTypeParamUse.Consumes` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` /
 `PatternBinder.Bind`），加新 walker 加一行。**不硬编码计数**——那种计数本身在漂。
 
+**`diagcodes` 是活体对账 + 一条棘轮**（`scripts/test/xtask_test_diagcodes.z42`）。守的是
+**用户可见契约**：拿到 `E0477` 会去[诊断码全表](../../../reference/src/appendix/error-codes.md)
+查它是什么意思，一码两义 ⇒ 查到的是**另一个诊断的解释**——比查不到更坏，因为它看起来是个答案。
+唯一 SoT 是 `DiagnosticCodes.z42`，四条规则：
+
+1. 登记表内**无重复码值**；
+2. **发射出去的每个码都必须在登记表里登记**（扫 `src/**` 非 `tests/`，剥行注释后取字符串字面量）；
+3. `DiagnosticCodes.<Name>` 引用的常量名必须存在（防笔误造幽灵码）；
+4. 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` **双向棘轮**（多一条 / 少一条都红）。
+
+**第 4 条为什么不能省**——按 2026-09-22 实测的两次撞码逐条回放过：
+
+| 历史事件 | 哪条拦得住 |
+|---|---|
+| #745 发**未登记**字面量 `"E0477"` | ② 红 → 逼它进登记表 |
+| #749 再往登记表塞一个同值常量 | ① 红 |
+| #737 发未登记字面量 `"E0474"` | ② 红 → 逼它进表 |
+| **#741 直接发一个已登记码的字面量**、根本没碰登记表 | **①②③ 全部放行**，只有 ④ 红 |
+| #752 / #747 并行各抢一个 E0478 | 两边都得改登记表 → **git 文本冲突** |
+
+即只有 ①②③ 的话，这道门会漏掉两次里的一次——**「看起来在守」的门比没有门更危险**。
+
+> **发射点为什么还允许用字面量**：新增的 `DiagnosticCodes` 常量**不能在同一个 PR 里被引用**
+> （core→semantics 冷启动 stale-cache，见 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)
+> 的分阶段引入纪律；`GeneratorDriver` 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡形态**，
+> 清单只应缩短；全部切回常量引用后（Deferred `migrate-diag-literals-to-constants`），
+> ④ 可退役并换成更强的「非 tests 源零字面量发码」。
+
 **Rust VM 单测（`test runtime` = `cargo test`）不在 gate 内**：它的 `signal_handler_e2e` 会 spawn
 信号崩溃 helper，在信号受限的沙箱里挂住，会让这个「永远要跑」的 gate 不可用。改由每条 CI 腿单独
 一步 + 本地按需 `xtask test runtime` + `test changed` 覆盖。
@@ -131,7 +162,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job
 （`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`cross-zpkg` / `multi-exe` / `stdlib` /
-`bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `walkers`。
+`bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `walkers` / `diagcodes`。
 
 skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
 `_checkGateStageDoc` 也照常对全量清单对账。

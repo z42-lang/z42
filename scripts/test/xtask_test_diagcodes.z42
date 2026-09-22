@@ -1,0 +1,365 @@
+// xtask — `test diagcodes` gate stage（enforce-diagnostic-code-uniqueness）。
+//
+// 为什么要这道门：**诊断码是用户可见契约**。用户拿到 `E0477` 会去 error-codes.md 查它是什么
+// 意思；一码两义 ⇒ 查表得到的是**另一个诊断的解释**——比「查不到」更坏，因为它看起来是个答案。
+//
+// 开工时实测，main 上同时躺着两处一码两义（E0474 / E0477），形状一模一样：
+//   ① 发码点**绕开登记表**——语义/语法层有一条「用字面量直接发码」的惯例（为避 core→semantics
+//      冷启动 stale-cache，见 bootstrap-seed.md 的分阶段引入纪律），42 个码 / 104 个站点走这条路，
+//      于是一个码可以「被发射出去」却**从不进登记表**；
+//   ② 后来者扫 `DiagnosticCodes.z42` 找空位，看不见那些字面量码 ⇒ 挑中一个**已被占用**的号；
+//   ③ 两个并行 PR 各自在自己的文件里写下同一个号，git 眼里是两处互不相干的新增 ⇒ **欢快合并**。
+// 全程零信号：错误码全表此前靠人工 grep 重建（error-codes.md 自述如此）。
+//
+// 机制：**活体对账**——登记表 `DiagnosticCodes.z42` 是唯一 SoT，三条硬规则（无基线、无白名单）：
+//   ① 登记表内**无重复码值**（同一个码值挂在两个常量上 → 红）；
+//   ② **发射出去的每一个码都必须在登记表里登记**（非 tests 源里剥注释后的字面量码找不到 → 红）；
+//   ③ `DiagnosticCodes.<Name>` 引用的常量名必须存在（笔误造幽灵码 → 红）；
+//   ④ **字面量发码清单双向棘轮**——`diag-literal-emitters.txt` 是 (码, 文件) 的精确快照，
+//      多一条 / 少一条都红。
+//
+// ④ 为什么不能省（按历史回放逐条验过，不是事后解释）：
+//   · E0477 那次：#745 发**未登记**字面量 → ② 红，逼它进表；#749 再登记同值 → ① 红。✅ ①② 够用。
+//   · E0474 那次：#737 发未登记字面量 → ② 红，逼它进表；但 #741 是**直接发一个已登记码的字面量**、
+//     根本没碰登记表 ⇒ **①② 全部放行**。❌ 只有 ④ 拦得住——它让「给一个已有码再挂一个发射点」
+//     必须动一个被评审的文件，于是撞码在评审里看得见，两个 PR 同时动还会产生 git 冲突。
+//
+// 发射点**仍可用字面量**（冷启动纪律要求如此），本门只要求那个号在表里有主、且发射点在清单里。
+// 清单**只应缩短**：Deferred `migrate-diag-literals-to-constants`（晚一个 nightly）把 104 个站点
+// 切回常量引用后，这个清单会清空、④ 可退役，换成更强的「非 tests 源零字面量发码」。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+using Std.Cli;
+using Std.Time;
+
+string _dcBaselinePath() { return "scripts/test/diag-literal-emitters.txt"; }
+
+// `xtask test diagcodes`
+int _testDiagCodes(bool update) {
+    Stopwatch sw = _procStart("test diagcodes");
+    string root = _root();
+
+    // ── ① 读登记表（唯一 SoT）──────────────────────────────────────────────
+    string[] rName = new string[512]; string[] rCode = new string[512];
+    int rc = _dcLoadRegistry(root, rName, rCode);
+    if (rc <= 0) {
+        ConsoleError.WriteLine("  ✗ parsed 0 code constants from " + _dcRegistryPath()
+            + " — registry enumeration broke (gate would be vacuously green)");
+        return 1;
+    }
+
+    string[] viol = new string[128]; int vc = 0;
+    string[] pairs = new string[256]; int pc = 0;      // ④ 字面量发码站点：`<CODE> <relpath>`
+
+    // 规则 ①：登记表内无重复码值。
+    int i = 0;
+    while (i < rc) {
+        int j = i + 1;
+        while (j < rc) {
+            if (rCode[i] == rCode[j]) {
+                viol = _dcPush(viol, vc, "duplicate code " + rCode[i] + ": registered as both `"
+                    + rName[i] + "` and `" + rName[j] + "` — one diagnostic per code; renumber the later claimant");
+                vc = vc + 1;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    // ── ②③ 扫发射点 ───────────────────────────────────────────────────────
+    string dir = Path.Join(root, "src");
+    string[] rel = Directory.EnumerateRecursive(dir);
+    int files = 0; int emitted = 0; int refs = 0;
+    int f = 0;
+    while (f < rel.Length) {
+        string relp = rel[f].Replace("\\", "/");
+        if (relp.EndsWith(".z42") && !_dcIsExcluded(relp)) {
+            string text = "";
+            try { text = File.ReadAllText(Path.Join(dir, relp)); }
+            catch (Exception ex) { text = ""; }
+            if (text != "") {
+                files = files + 1;
+                string[] lines = text.Split("\n");
+                int li = 0;
+                while (li < lines.Length) {
+                    string line = _dcStripComment(lines[li]);
+                    // 规则 ②：字面量发码必须在登记表里。
+                    string[] lits = new string[8];
+                    int ln = _dcStringLiterals(line, lits);
+                    int k = 0;
+                    while (k < ln) {
+                        if (_dcLooksLikeCode(lits[k])) {
+                            emitted = emitted + 1;
+                            string pair = lits[k] + " src/" + relp;
+                            if (_dcIndexOfStr(pairs, pc, pair) < 0) {
+                                pairs = _dcPush(pairs, pc, pair); pc = pc + 1;
+                            }
+                            if (_dcIndexOfStr(rCode, rc, lits[k]) < 0) {
+                                viol = _dcPush(viol, vc, "src/" + relp + ":" + (li + 1).ToString()
+                                    + ": emits unregistered code \"" + lits[k]
+                                    + "\" — add a constant for it in DiagnosticCodes.z42 (the registry is the only place a code number gets claimed)");
+                                vc = vc + 1;
+                            }
+                        }
+                        k = k + 1;
+                    }
+                    // 规则 ③：DiagnosticCodes.<Name> 引用的常量必须存在。
+                    string[] names = new string[8];
+                    int nn = _dcConstRefs(line, names);
+                    k = 0;
+                    while (k < nn) {
+                        refs = refs + 1;
+                        if (_dcIndexOfStr(rName, rc, names[k]) < 0) {
+                            viol = _dcPush(viol, vc, "src/" + relp + ":" + (li + 1).ToString()
+                                + ": references `DiagnosticCodes." + names[k] + "` which is not in the registry");
+                            vc = vc + 1;
+                        }
+                        k = k + 1;
+                    }
+                    li = li + 1;
+                }
+            }
+        }
+        f = f + 1;
+    }
+
+    // ── ④ 字面量发码清单双向棘轮 ──────────────────────────────────────────
+    _dcSort(pairs, pc);
+    if (update) {
+        string outp = Path.Join(root, _dcBaselinePath());
+        string body = "# 字面量发码站点快照（enforce-diagnostic-code-uniqueness 规则 ④，双向棘轮：多一条/少一条都红）。\n"
+            + "# 发射点用字面量而非 DiagnosticCodes 常量，是 bootstrap-seed.md 分阶段引入纪律的过渡形态\n"
+            + "# （新常量与它的引用不能同 PR → 避 core→semantics 冷启动 stale-cache）。\n"
+            + "# 这份清单**只应缩短**：Deferred migrate-diag-literals-to-constants 切回常量后即清空。\n"
+            + "# 重生成：`xtask test diagcodes --update`（改之前先想清楚你是不是在给一个已有码挂第二个含义）。\n";
+        int w2 = 0;
+        while (w2 < pc) { body = body + pairs[w2] + "\n"; w2 = w2 + 1; }
+        File.WriteAllText(outp, body);
+        Console.WriteLine("  ↻ rewrote " + _dcBaselinePath() + " (" + pc.ToString() + " literal emission site(s))");
+    } else {
+        string[] want = new string[256]; int wc = _dcLoadBaseline(root, want);
+        if (wc < 0) {
+            ConsoleError.WriteLine("  ✗ cannot read " + _dcBaselinePath() + " — the ratchet has no baseline to compare against");
+            return 1;
+        }
+        _dcSort(want, wc);
+        int a = 0;
+        while (a < pc) {
+            if (_dcIndexOfStr(want, wc, pairs[a]) < 0) {
+                viol = _dcPush(viol, vc, "NEW literal emission `" + pairs[a]
+                    + "` is not in " + _dcBaselinePath()
+                    + " — a new code must be registered in DiagnosticCodes.z42 first; if you are re-using an EXISTING code, stop: that is how E0474/E0477 became one-code-two-meanings");
+                vc = vc + 1;
+            }
+            a = a + 1;
+        }
+        a = 0;
+        while (a < wc) {
+            if (_dcIndexOfStr(pairs, pc, want[a]) < 0) {
+                viol = _dcPush(viol, vc, "STALE baseline entry `" + want[a]
+                    + "` no longer exists — rerun `xtask test diagcodes --update` (the list must stay honest in both directions)");
+                vc = vc + 1;
+            }
+            a = a + 1;
+        }
+    }
+
+    _dcSort(viol, vc);
+    int v = 0;
+    while (v < vc) { ConsoleError.WriteLine("  ✗ " + viol[v]); v = v + 1; }
+
+    Console.WriteLine("  registry: " + rc.ToString() + " code constant(s); scanned " + files.ToString()
+        + " source file(s): " + emitted.ToString() + " literal emission(s) + " + refs.ToString()
+        + " constant reference(s) across " + pc.ToString() + " literal-emission site(s), "
+        + vc.ToString() + " violation(s)");
+    if (vc > 0) {
+        ConsoleError.WriteLine("  every diagnostic code must be claimed exactly once in "
+            + _dcRegistryPath() + " (enforce-diagnostic-code-uniqueness)");
+        return 1;
+    }
+    Console.WriteLine("  ✓ every emitted diagnostic code is registered exactly once");
+    _procEnd("test diagcodes", sw);
+    return 0;
+}
+
+string _dcRegistryPath() { return "src/libraries/z42c.core/src/DiagnosticCodes.z42"; }
+
+// 基线文件 → `<CODE> <relpath>` 行（`#` 注释与空行跳过）。读不到返回 -1。
+int _dcLoadBaseline(string root, string[] outPairs) {
+    string text = "";
+    try { text = File.ReadAllText(Path.Join(root, _dcBaselinePath())); }
+    catch (Exception ex) { return 0 - 1; }
+    string[] lines = text.Split("\n");
+    int n = 0; int i = 0;
+    while (i < lines.Length) {
+        string l = lines[i].Trim();
+        if (l != "" && !l.StartsWith("#")) {
+            if (n < outPairs.Length) { outPairs[n] = l; n = n + 1; }
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+// 登记表本身是码号的「声明位」，不算发射点；tests 里断言码号是正当用法。
+// `**/artifacts/` 是构建产物（`[Forward]` 生成的 augment、REPL hooks 等**生成的 .z42**）——
+// 不排掉的话扫描集会随「树是否构建过」漂移（实测 589 ↔ 591），门就不确定了。
+bool _dcIsExcluded(string relp) {
+    if (_dcContains(relp, "/tests/")) { return true; }
+    if (relp.StartsWith("tests/")) { return true; }
+    if (_dcContains(relp, "/artifacts/")) { return true; }
+    if (relp.EndsWith("DiagnosticCodes.z42")) { return true; }
+    return false;
+}
+
+// 解析 `public static string <Name> = "<CODE>";` → 并行数组。
+int _dcLoadRegistry(string root, string[] outName, string[] outCode) {
+    string text = "";
+    try { text = File.ReadAllText(Path.Join(root, _dcRegistryPath())); }
+    catch (Exception ex) { return 0 - 1; }
+    string[] lines = text.Split("\n");
+    int n = 0;
+    int i = 0;
+    while (i < lines.Length) {
+        string line = _dcStripComment(lines[i]).Trim();
+        int at = _dcIndexOf(line, "public static string ", 0);
+        if (at == 0) {
+            string rest = line.Substring(21, line.Length - 21);
+            string name = _dcFirstIdent(rest);
+            int eq = _dcIndexOf(rest, "=", 0);
+            if (name != "" && eq >= 0) {
+                string[] lits = new string[8];
+                int ln = _dcStringLiterals(rest.Substring(eq, rest.Length - eq), lits);
+                if (ln >= 1 && _dcLooksLikeCode(lits[0])) {
+                    if (n < outName.Length) { outName[n] = name; outCode[n] = lits[0]; n = n + 1; }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+// 行注释剥离（`//` 到行尾）。字符串里的 `//` 不剥——先按引号配对走。
+string _dcStripComment(string line) {
+    int i = 0; int n = line.Length;
+    bool inStr = false;
+    while (i < n) {
+        char c = line.CharAt(i);
+        if (inStr) {
+            if (c == '\\') { i = i + 2; continue; }
+            if (c == '"') { inStr = false; }
+        } else {
+            if (c == '"') { inStr = true; }
+            else if (c == '/' && i + 1 < n && line.CharAt(i + 1) == '/') { return line.Substring(0, i); }
+        }
+        i = i + 1;
+    }
+    return line;
+}
+
+// 行内全部字符串字面量的**内容**（不含引号）。
+int _dcStringLiterals(string line, string[] outLits) {
+    int n = line.Length; int count = 0;
+    int i = 0;
+    while (i < n) {
+        if (line.CharAt(i) == '"') {
+            int start = i + 1;
+            int j = start;
+            while (j < n) {
+                char c = line.CharAt(j);
+                if (c == '\\') { j = j + 2; continue; }
+                if (c == '"') { break; }
+                j = j + 1;
+            }
+            if (j >= n) { return count; }                       // 未闭合 → 放弃本行剩余
+            if (count < outLits.Length) { outLits[count] = line.Substring(start, j - start); count = count + 1; }
+            i = j + 1;
+            continue;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+// 行内全部 `DiagnosticCodes.<Ident>` 的 Ident。
+int _dcConstRefs(string line, string[] outNames) {
+    string marker = "DiagnosticCodes.";
+    int from = 0; int count = 0;
+    while (true) {
+        int at = _dcIndexOf(line, marker, from);
+        if (at < 0) { return count; }
+        int p = at + marker.Length;
+        string id = _dcFirstIdent(line.Substring(p, line.Length - p));
+        if (id != "" && count < outNames.Length) { outNames[count] = id; count = count + 1; }
+        from = at + marker.Length;
+    }
+}
+
+// 形如 E0477 / W0700 / I0466：首字母 E|W|I + 恰好 4 位数字。
+bool _dcLooksLikeCode(string s) {
+    if (s.Length != 5) { return false; }
+    char c0 = s.CharAt(0);
+    if (c0 != 'E' && c0 != 'W' && c0 != 'I') { return false; }
+    int i = 1;
+    while (i < 5) {
+        char c = s.CharAt(i);
+        if (c < '0' || c > '9') { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+bool _dcIsIdent(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+string _dcFirstIdent(string s) {
+    int i = 0; int n = s.Length;
+    while (i < n && _dcIsIdent(s.CharAt(i))) { i = i + 1; }
+    return s.Substring(0, i);
+}
+
+int _dcIndexOf(string s, string sub, int start) {
+    int n = s.Length; int m = sub.Length;
+    if (m == 0) { return start; }
+    int i = start;
+    while (i + m <= n) {
+        int j = 0;
+        while (j < m && s.CharAt(i + j) == sub.CharAt(j)) { j = j + 1; }
+        if (j == m) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+bool _dcContains(string s, string sub) { return _dcIndexOf(s, sub, 0) >= 0; }
+
+int _dcIndexOfStr(string[] a, int count, string needle) {
+    int i = 0;
+    while (i < count) { if (a[i] == needle) { return i; } i = i + 1; }
+    return 0 - 1;
+}
+
+string[] _dcPush(string[] a, int count, string item) {
+    string[] t = a;
+    if (count == t.Length) {
+        string[] b = new string[count * 2];
+        int k = 0; while (k < count) { b[k] = t[k]; k = k + 1; }
+        t = b;
+    }
+    t[count] = item;
+    return t;
+}
+
+void _dcSort(string[] a, int c) {
+    int i = 1;
+    while (i < c) {
+        string k = a[i]; int j = i - 1;
+        while (j >= 0 && a[j].CompareTo(k) > 0) { a[j + 1] = a[j]; j = j - 1; }
+        a[j + 1] = k;
+        i = i + 1;
+    }
+}
