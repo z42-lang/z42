@@ -930,6 +930,7 @@ Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
   - 2 个新 builtin：`__soft_handle_create(target: object) -> SoftHandle`；`__soft_handle_get(self) -> object`
   - `Std.SoftHandle` 类（`z42.core/GC/SoftHandle.z42`）暴露给 z42 脚本
   - 原子值（int / string / bool）无法被软引用；`Create(atomicVal)` 返回 `Get()` 始终 null 的句柄
+  - **复活必须 trace 子对象（不变量）**：压力低于阈值时 revive 不仅要 mark 软目标本身，还要把它**入灰队列继续 trace**——否则仅经该目标可达的字段 / 数组 backing 块（后者存于 `region_var`，只由目标的 `trace_children` 标记）在随后的 sweep 被回收，留下悬垂 `GcRef`（release UAF / debug `generation/alive mismatch`）。**三条收集路径都要满足**：增量 major 走 `revive_soft_refs_into`（push 进 mark 栈），STW / one-shot-major 走 `revive_soft_refs`（push 进 `mark_queue` 后 `drain_mark_queue`）。⚠️ 历史坑：#701 加 `on_revived` 回调时只接了增量路径，STW 路径留了空闭包 `|_| {}`，直到 `fix/gc-softref-stw-trace-children`（2026-09-23，回归测试 `stw_softref_revive_keeps_the_targets_children`）才补上——**新增收集路径必须同时接这条不变量**。
 - **延后**：泛型 `SoftRef<T>`（待 L2 泛型落地）—— 详见 [Deferred 段](#softref-generic-upgrade)
 
 #### B3. Heap snapshot 导出（已落地，2026-05-24）
