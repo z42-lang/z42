@@ -177,12 +177,20 @@ public sealed class ExprParser {
                 left = new AsExpr(left, ty, left.Span);
                 continue;
             }
-            // ??（右结合，bp 25）
+            // `??` 已移除（E0480，与 `?.` 同码 —— 两者是同一个口子的两种写法）。
+            // 仍按原优先级（右结合，bp 25）**完整解析掉右侧**，否则 `a ?? b ? c : d`
+            // 之类会从表达式脱轨、级联出一串无关错误（同 E0471 / `?.` 的手法）。
+            // 继续时只取左侧：类型与后续检查都按 `a` 走，诊断更贴近真实意图。
             if (k == TokenKind.QuestionQuestion && minBp <= 25) {
+                Span qqs = this._p._peek().Span;
                 this._p._advance();
                 Expr rr = this._parseExpr(25);
-                left = new BinaryExpr("??", left, rr, left.Span);
-                continue;
+                this._p._diags.Error("E0480",
+                    "`??` is no longer supported — write the fallback out: "
+                    + "`var v = <left>; if (v == null) { v = <right>; }`. "
+                    + "For \"read a setting with a default\", prefer an API that takes the default "
+                    + "(e.g. `Environment.GetEnvironmentVariable(name, \"\")`)", qqs);
+                continue;   // 只取 left
             }
             // 三目 ?:（右结合，bp 20）
             if (k == TokenKind.Question && minBp <= 20) {

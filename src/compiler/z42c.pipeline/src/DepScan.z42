@@ -59,7 +59,7 @@ public static class DepScan {
         // perf（perf-optimize-repl-eval ①）：每个 zpkg 只 `File.ReadAllBytes + ZpkgReader.Open`
         // 一次——解码结果存进平行 `opened[]`，下面主循环直接复用，不再重读重解一遍（原双读在
         // REPL 每轮全量 DepScan 里成倍放大，是 ~3.5s/eval 的一部分）。
-        bool trace = (Environment.GetEnvironmentVariable("Z42C_TRACE_DEPSCAN") ?? "") == "1";
+        bool trace = (Environment.GetEnvironmentVariable("Z42C_TRACE_DEPSCAN", "")) == "1";
         Stopwatch swOpen = Stopwatch.StartNew();
         long msSigs = 0L; long msTsig = 0L;
         ZpkgInfo[] opened = new ZpkgInfo[paths.Length];

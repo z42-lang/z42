@@ -5,6 +5,20 @@ public static class Environment {
     [Native("__env_get")]
     public static extern string? GetEnvironmentVariable(string name);
 
+    /// 取环境变量；没设置（或设了个空串）时返回 `fallback`。
+    ///
+    /// define-null-check-marks：`??` 移除前，全仓 **70 处**写的都是
+    /// `GetEnvironmentVariable("X") ?? ""` —— 也就是说「取不到就用默认值」才是这个 API
+    /// 的实际用法，返回 `string?` 让每个调用点都得自己收尾。把收尾放进库里，
+    /// 调用点就退回一行，且**结果不带 `?`** ⇒ 不再有空检查义务。
+    ///
+    /// 需要区分「没设置」与「设成了空串」的调用点，继续用上面那个带 `?` 的重载。
+    public static string GetEnvironmentVariable(string name, string fallback) {
+        string? v = Environment.GetEnvironmentVariable(name);
+        if (v == null) { return fallback; }
+        return v;
+    }
+
     [Native("__env_set")]
     public static extern void SetEnvironmentVariable(string name, string value);
 

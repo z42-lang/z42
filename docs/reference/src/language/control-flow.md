@@ -207,4 +207,4 @@ string label = x switch {
 - [迭代](iteration.md) — `foreach` 的三条路径与判定顺序
 - [模式匹配](pattern-matching.md) — `case` / `switch` 表达式里能写的所有模式
 - [异常](exceptions.md) — `try` / `catch` / `finally`
-- [运算符](operators.md) — 条件表达式 `?:`、`??`、短路求值
+- [运算符](operators.md) — 条件表达式 `?:`、短路求值（`??` / `?.` 已移除）

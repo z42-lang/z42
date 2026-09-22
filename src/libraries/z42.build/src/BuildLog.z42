@@ -17,7 +17,7 @@ using Std.IO;
 public static class BuildLog {
     // 进度是否改走 stderr。z42b 在 `--format json` 时置位（见 builder_test.z42 的 _runModule）。
     public static bool ToStderr() {
-        return (Environment.GetEnvironmentVariable("Z42_BUILD_LOG_STDERR") ?? "") == "1";
+        return (Environment.GetEnvironmentVariable("Z42_BUILD_LOG_STDERR", "")) == "1";
     }
 
     public static void SetToStderr(bool on) {

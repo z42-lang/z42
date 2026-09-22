@@ -142,7 +142,7 @@ string _ridCategory(string rid) {
 // host can publish for any desktop target). Env override → else
 // runtimes/<ver>/workloads/desktop/apphost-<rid>. "" if not installed / not built.
 string _desktopApphostStub(string rid) {
-    string ovr = Environment.GetEnvironmentVariable("Z42_APPHOST_TEMPLATE") ?? "";
+    string ovr = Environment.GetEnvironmentVariable("Z42_APPHOST_TEMPLATE", "");
     if (ovr.Length > 0) { return ovr; }
     string name = rid.StartsWith("windows-") ? ("apphost-" + rid + ".exe") : ("apphost-" + rid);
     foreach (var ver in _installedVersions()) {

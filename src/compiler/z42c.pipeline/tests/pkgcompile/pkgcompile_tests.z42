@@ -86,7 +86,7 @@ void test_bad_source_returns_diagnostics_no_assembly() {
 // 把它作 CachedScan 传回第二次编译 → 跳过 DepScan、结果照常。（REPL 每轮复用的核心路径）
 [Test]
 void test_cached_scan_reused() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
     string[] dirs = libs.Split(":");
     CompileArtifacts a1 = PackageCompile.Compile(_inputsLibs("R1", "F1", dirs, "repl_r1"));
@@ -105,7 +105,7 @@ void test_cached_scan_reused() {
 //（REPL carry-forward 的机制）——并入后该包的命名空间在 scan 里可见。
 [Test]
 void test_extend_with_package_adds_namespace() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string[] dirs = libs.Split(":");
     CompileArtifacts a1 = PackageCompile.Compile(_inputsLibs("ExtNs", "F", dirs, "repl_ext"));
@@ -158,8 +158,8 @@ CompileInputs _fixtureAnalyzerInputs(string[] dirs) {
 }
 
 string _tmpRoot() {
-    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
-    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP") ?? ""; }
+    string t = Environment.GetEnvironmentVariable("TMPDIR", "");
+    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP", ""); }
     if (t == "") { t = "/tmp"; }
     return Path.Join(t, "z42c-analyzer-load-tests");
 }
@@ -180,7 +180,7 @@ bool _cmsHasCode(CompileArtifacts art, string code) {
 
 [Test]
 void test_external_analyzer_loaded_and_reports() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
     string[] dirs = libs.Split(":");
     // 1. 现编 fixture analyzer → 临时 zpkg（非提交二进制）
@@ -228,7 +228,7 @@ CompileInputs _consumerWithAnalyzer(string azPath, LintConfig cfg) {
 
 [Test]
 void test_lints_none_suppresses_end_to_end() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string azPath = _writeFixtureZpkg(libs.Split(":"));
     // [lints] Z9002 = "none" → 抑制，consumer Cms 不含 Z9002
@@ -242,7 +242,7 @@ void test_lints_none_suppresses_end_to_end() {
 
 [Test]
 void test_lints_warnings_as_errors_fails_compile() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string azPath = _writeFixtureZpkg(libs.Split(":"));
     // warnings-as-errors → Z9002（默认 Warning）升 Error → consumer ErrorCount>0（拦编译）
@@ -285,7 +285,7 @@ CompileInputs _consumerAttrSuppress(string azPath) {
 
 [Test]
 void test_suppress_pragma_end_to_end() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string azPath = _writeFixtureZpkg(libs.Split(":"));
     // `#suppress`/`#restore` 圈住空 catch → 抑制，consumer Cms 不含 Z9002；编译干净
@@ -296,7 +296,7 @@ void test_suppress_pragma_end_to_end() {
 
 [Test]
 void test_suppress_attr_end_to_end() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string azPath = _writeFixtureZpkg(libs.Split(":"));
     // `[Suppress("Z9002")]` = directive（纯编译期）→ 全量编译不因缺 SuppressAttribute 类而报错
@@ -388,7 +388,7 @@ CompileInputs _fixConsumerInputs(string azPath, string cpath, bool fix) {
 
 [Test]
 void test_external_analyzer_fix_rewrites_consumer_in_place() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string azPath = _writeFixtureFixZpkg(libs.Split(":"));
     string cpath = Path.Join(_tmpRoot(), "fix_consumer_on.z42");
@@ -403,7 +403,7 @@ void test_external_analyzer_fix_rewrites_consumer_in_place() {
 
 [Test]
 void test_external_analyzer_fix_off_leaves_consumer() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string azPath = _writeFixtureFixZpkg(libs.Split(":"));
     string cpath = Path.Join(_tmpRoot(), "fix_consumer_off.z42");
@@ -550,7 +550,7 @@ void test_handwritten_tostring_via_load_control() {
 
 [Test]
 void test_external_applied_generator_vm_execution_golden() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
     string[] dirs = libs.Split(":");
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
@@ -570,7 +570,7 @@ void test_external_applied_generator_vm_execution_golden() {
 
 [Test]
 void test_external_module_generator_vm_execution_golden() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }
     string[] dirs = libs.Split(":");
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
@@ -613,7 +613,7 @@ void test_no_generator_zpkgs_no_change() {
 
 [Test]
 void test_generator_broken_output_errors_land_in_union_cms() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
     string[] dirs = libs.Split(":");
     string gzPath = _writeFixtureGeneratorZpkg(dirs);
@@ -647,7 +647,7 @@ void test_generator_broken_output_errors_land_in_union_cms() {
 // 就 `E0436: namespace X is used but not imported`。
 [Test]
 void test_augment_fragment_inherits_host_usings() {
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
     string[] dirs = libs.Split(":");
     string gzPath = _writeFixtureGeneratorZpkg(dirs);

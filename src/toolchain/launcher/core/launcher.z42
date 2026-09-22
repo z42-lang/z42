@@ -26,9 +26,9 @@ void Main() {
 
 // SDK 根目录：Z42_HOME > apphost 注入的 Z42_PORTABLE_VM（<sdk>/bin/z42vm）反推 > ~/.z42。
 string _home() {
-    string h = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    string h = Environment.GetEnvironmentVariable("Z42_HOME", "");
     if (h.Length > 0) { return h; }
-    string portableVm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string portableVm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (portableVm.Length > 0) {
         string binDir = Path.GetDirectoryName(portableVm);
         if (binDir.Length > 0) {
@@ -37,21 +37,21 @@ string _home() {
             return binDir;
         }
     }
-    string home = Environment.GetEnvironmentVariable("HOME") ?? "";
-    if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE") ?? ""; }
+    string home = Environment.GetEnvironmentVariable("HOME", "");
+    if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE", ""); }
     if (home.Length > 0) { return Path.Join(home, ".z42"); }
     return ".z42";
 }
 
 // SDK 自带的 z42vm 与标准库目录（apphost 已注入时直接用注入值）。
 string _sdkVm() {
-    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string vm = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (vm.Length > 0) { return vm; }
     return _sdkBin("z42vm");
 }
 
 string _sdkLibs() {
-    string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_PORTABLE_LIBS", "");
     if (libs.Length > 0) { return libs; }
     return Path.Join(_home(), "libs");
 }
@@ -180,7 +180,9 @@ void _cmdRun(string[] rest) {
     else if (app.Length == 0 || _isSourceProject(app)) {
         string manifest = _resolveRunManifest(app);
         if (manifest.Length == 0) { Environment.Exit(2); return; }
-        string built = _buildAndResolveRun(manifest, binOpt ?? "");
+        string binArg = binOpt;
+        if (binArg == null) { binArg = ""; }
+        string built = _buildAndResolveRun(manifest, binArg);
         if (built.Length == 0) { Environment.Exit(1); return; }
         app = built;
     }
@@ -236,7 +238,7 @@ bool _isSourceProject(string app) {
 
 // `<SDK 根>/cache`，可用 Z42_CACHE_DIR 覆盖。
 string _cacheRoot() {
-    string c = Environment.GetEnvironmentVariable("Z42_CACHE_DIR") ?? "";
+    string c = Environment.GetEnvironmentVariable("Z42_CACHE_DIR", "");
     if (c.Length > 0) { return c; }
     return Path.Join(_home(), "cache");
 }

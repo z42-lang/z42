@@ -17,8 +17,8 @@ string _src() { return "namespace T;\nint Add(int a, int b) { return a + b; }\n"
 string _src2() { return "namespace T;\nint Mul(int a, int b) { return a * b; }\n"; }
 
 string _tmpRoot() {
-    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
-    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP") ?? ""; }
+    string t = Environment.GetEnvironmentVariable("TMPDIR", "");
+    if (t == "") { t = Environment.GetEnvironmentVariable("TEMP", ""); }
     if (t == "") { t = "/tmp"; }
     return Path.Join(t, "z42c-incr-tests");
 }

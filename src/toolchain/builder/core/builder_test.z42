@@ -254,7 +254,7 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
         Process p = new Process(vm).Arg(dist);
         if (t.HasEntry && t.Entry.Length > 0) { p = p.Arg(t.Entry); }
         // 子进程按同一条 Z42_LIBS 解析依赖；产物目录已 colocate 父包 zpkg（见上）。
-        string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+        string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         if (libs.Length > 0) { p = p.Env("Z42_LIBS", libs); }
         int rc = p.Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
         if (rc == 0) { Console.WriteLine("  ✓ " + t.Name + " (harness=false, exit 0)"); }
@@ -430,9 +430,9 @@ string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir, b
 //   ③ 开发树 artifacts/build/runtime/release/z42vm
 // 都找不到 → ""（调用方报错，不假装跑过）。
 string _hostVmPath() {
-    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (pv.Length > 0 && File.Exists(pv)) { return pv; }
-    string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
     if (home.Length > 0) {
         string c = Path.Join(home, Path.Join("bin", "z42vm"));
         if (File.Exists(c)) { return c; }

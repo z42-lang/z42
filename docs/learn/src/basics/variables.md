@@ -120,10 +120,12 @@
 
 ```z42,ignore
 string? maybe = null;
-string  s     = maybe ?? "fallback";   // maybe 是 null 就用 "fallback"
+
+string s = maybe;
+if (s == null) { s = "fallback"; }   // 取不到就用备用值
 ```
 
-`??` 是真实生效的运算符。关于 `?` 本身，要知道一件事：
+关于 `?` 本身，要知道一件事：
 
 > **`?` 不是「这里可能是空」，而是「请编译器在这里强制检查」。**
 >

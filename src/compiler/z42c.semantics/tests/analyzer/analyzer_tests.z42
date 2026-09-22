@@ -518,7 +518,7 @@ class FixableEmptyCatchAnalyzer : Analyzer {
 
 // temp 文件：写 content 到 $TMPDIR/z42c-fix-tests/<name>，返回路径（供 spans.File 定位 + 重写后回读）。
 string _tmpFile(string name, string content) {
-    string t = Environment.GetEnvironmentVariable("TMPDIR") ?? "";
+    string t = Environment.GetEnvironmentVariable("TMPDIR", "");
     if (t == "") { t = "/tmp"; }
     string dir = Path.Join(t, "z42c-fix-tests");
     Directory.Create(dir);

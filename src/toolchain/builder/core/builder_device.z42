@@ -39,7 +39,7 @@ int _runDevice(ParseResult r, string manifestPath, string rid) {
 
     string outDir    = r.GetOption("out");
     string buildRoot = r.GetOption("build-root");
-    string libs      = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs      = Environment.GetEnvironmentVariable("Z42_LIBS", "");
 
     if (!_isDeviceRid(rid)) {
         ConsoleError.WriteLine("z42b test: unknown --rid '" + rid
@@ -129,7 +129,7 @@ int _runWasm(ParseResult r, string manifestPath, string outDir,
 int _runWasmPlaywright(ParseResult r, string buildRoot) {
     string testsDir = Path.Join(buildRoot, "src/toolchain/workload/wasm/platform/tests");
     string nodeBin  = r.GetOption("node-bin");
-    string browsers = Environment.GetEnvironmentVariable("Z42_PW_BROWSERS") ?? "";
+    string browsers = Environment.GetEnvironmentVariable("Z42_PW_BROWSERS", "");
     string npx = (nodeBin.Length > 0) ? Path.Join(nodeBin, "npx") : "npx";
 
     Console.WriteLine("z42b: npx playwright test --config playwright.embedded.config.ts");
@@ -137,7 +137,7 @@ int _runWasmPlaywright(ParseResult r, string buildRoot) {
         .Arg("--config").Arg("playwright.embedded.config.ts").Arg("--reporter=list")
         .WorkingDirectory(testsDir);
     if (nodeBin.Length > 0) {
-        string oldPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+        string oldPath = Environment.GetEnvironmentVariable("PATH", "");
         pw = pw.Env("PATH", nodeBin + ":" + oldPath);
     }
     if (browsers.Length > 0) { pw = pw.Env("PLAYWRIGHT_BROWSERS_PATH", browsers); }
@@ -185,7 +185,7 @@ string _ensureAgent() {
         ConsoleError.WriteLine("z42b test: launcher not found at " + launcher + "; install the test workload first (z42 workload install test)");
         return "";
     }
-    string src = Environment.GetEnvironmentVariable("Z42_WORKLOAD_SRC") ?? "";
+    string src = Environment.GetEnvironmentVariable("Z42_WORKLOAD_SRC", "");
     Console.WriteLine("z42b: test workload not installed → z42 workload install test"
         + (src.Length > 0 ? (" --from " + src) : " (network)"));
     Process p = new Process(launcher).Arg("workload").Arg("install").Arg("test");
@@ -206,9 +206,9 @@ string _ensureAgent() {
 // SDK home: Z42_HOME wins; else reverse-derive from Z42_PORTABLE_VM
 // (<sdk>/bin/z42vm → <sdk>). "" if neither is set.
 string _sdkHome() {
-    string h = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    string h = Environment.GetEnvironmentVariable("Z42_HOME", "");
     if (h.Length > 0) { return h; }
-    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (pv.Length > 0) {
         string bin = Path.GetDirectoryName(pv);
         if (bin.Length > 0) {

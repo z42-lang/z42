@@ -82,7 +82,7 @@ int _pubDesktop(ParseResult r, string rid) {
     //   ③ 皆无 → 报错提示 workload install / hook 两条路。
     string stub = _pubHookApphostStub(toml, tomlPath, projName, rid);
     if (stub.Length == 0) {
-        stub = Environment.GetEnvironmentVariable("Z42_APPHOST_TEMPLATE") ?? "";
+        stub = Environment.GetEnvironmentVariable("Z42_APPHOST_TEMPLATE", "");
     }
     if (stub.Length == 0 || !File.Exists(stub)) {
         ConsoleError.WriteLine("z42b publish: desktop apphost not available (the apphost ships with the desktop workload).");
@@ -201,9 +201,9 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
         ConsoleError.WriteLine("z42b publish: [platform.desktop] link must be static|dynamic (got '" + link + "')");
         return 2;
     }
-    string host     = Environment.GetEnvironmentVariable("Z42_EMBED_APPHOST") ?? "";
-    string libsSrc  = Environment.GetEnvironmentVariable("Z42_EMBED_LIBS") ?? "";
-    string dylibSrc = Environment.GetEnvironmentVariable("Z42_EMBED_DYLIB") ?? "";
+    string host     = Environment.GetEnvironmentVariable("Z42_EMBED_APPHOST", "");
+    string libsSrc  = Environment.GetEnvironmentVariable("Z42_EMBED_LIBS", "");
+    string dylibSrc = Environment.GetEnvironmentVariable("Z42_EMBED_DYLIB", "");
     // Auto-provision from the project's [build] hooks when env is unset — the
     // hook builds + registers the embed apphost (per link) + stdlib libs
     // (+ dynamic libz42), mirroring the spawn path's apphost-stub. So
@@ -551,7 +551,7 @@ string[] _pubProjectDepNames(string tomlPath, TomlValue toml) {
 // 取代原「仅同-workspace 成员」逻辑（跟不进跨-workspace 传递链，z42i 因此丢 z42c.*）。
 int _pubBundleProjectDeps(string tomlPath, TomlValue toml, string payloadDir, bool noBuild) {
     string srcRoot = _pubSrcRoot(tomlPath);
-    string libsDir = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libsDir = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     string ownName = _pubTomlStr(toml, "project", "name", "");
     string[] seen  = new string[1024]; int seenN = 0;
     string[] queue = new string[1024]; int qh = 0; int qt = 0;

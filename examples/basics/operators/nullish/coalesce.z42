@@ -3,7 +3,10 @@ using Std.IO;
 void Main() {
     // ANCHOR: code
     string? name = null;
-    string shown = name ?? "(匿名)";   // name 是 null 就取右边
+
+    string shown = name;
+    if (shown == null) { shown = "(匿名)"; }   // 取不到就用备用值
+
     Console.WriteLine(shown);
     // ANCHOR_END: code
 }

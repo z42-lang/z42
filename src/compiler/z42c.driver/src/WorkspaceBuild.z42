@@ -61,7 +61,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int optSet, bool noI
         return ExitCode.UsageError;
     }
     // libsDirs = 全成员 dist + Z42_LIBS（外部 stdlib，如 z42c.* → z42.core）。
-    string env = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     int extra = (env.Length > 0) ? 1 : 0;
     string[] libsDirs = new string[plan.Count + extra];
     int i = 0;

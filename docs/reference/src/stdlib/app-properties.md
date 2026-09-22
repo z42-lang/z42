@@ -78,7 +78,9 @@ using Std.Runtime;
 using Std.Toml;          // using 只能写在文件顶部
 
 void Main() {
-    TomlValue p = TomlValue.Parse(AppProperties.Raw() ?? "");
+    string raw = AppProperties.Raw();
+    if (raw == null) { raw = ""; }          // Raw() 标了 `?`：没有 app-properties 时为 null
+    TomlValue p = TomlValue.Parse(raw);
     long retries = p.Get("limits").Get("max-retries").AsLong();
     string first = p.Get("feature-flags").At(0).AsString();
 }

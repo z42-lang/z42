@@ -64,7 +64,7 @@ public static class IncrementalBuild {
     // SHA-256 每遍 ~3-4s/42 文件，重复计算曾是 D8 差价主项之一）。
     public static IncrFilePlan ProbeFiles(string[] srcs, string[] hashes, int n,
                                           string projectDir, string cacheDir, string depsId) {
-        bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
+        bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "")) == "1";
         IncrFilePlan plan = new IncrFilePlan(n);
         // 包级源清单：数量或任一位置不符（增/删/改名）、或依赖身份变了 → 全量。
         string[] last = CacheStore.LoadSrcList(cacheDir, depsId);
@@ -113,7 +113,7 @@ public static class IncrementalBuild {
     public static void Close(IncrFilePlan plan, string[] srcs, string projectDir,
                              NameListZ[] tokens, NameListZ[] surfIdents, NameListZ[] names,
                              NameListZ seedChanged) {
-        bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG") ?? "") == "1";
+        bool debug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "")) == "1";
         int n = plan.Total;
         StrMap changed = new StrMap();
         int c = 0;

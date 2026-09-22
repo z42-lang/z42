@@ -50,6 +50,8 @@ public static class TokenKind {
     public static int Comma = 100; public static int Dot = 101; public static int DotDot = 102;
     public static int Colon = 103; public static int ColonColon = 104; public static int Semicolon = 105;
     public static int Arrow = 106; public static int FatArrow = 107; public static int Question = 108;
+    // `??` 空合并 —— **语言层面已移除**（E0480，与 `?.` 同码）。token 仍然发，
+    // 理由同 QuestionDot：能给出带迁移写法的诊断并完整吃掉右侧表达式，避免级联错。
     public static int QuestionQuestion = 109; public static int Bang = 110; public static int Ampersand = 111;
     public static int Pipe = 112; public static int Caret = 113; public static int Tilde = 114;
     public static int Plus = 115; public static int Minus = 116; public static int Star = 117;

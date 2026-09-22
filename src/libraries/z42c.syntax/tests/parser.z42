@@ -127,11 +127,13 @@ void test_bitwise_precedence() {
     Assert.Equal("(^ (& a b) c)", parse("a & b ^ c"));   // & (48) 紧于 ^ (46)
 }
 
+// define-null-check-marks：`??` 已移除（E0480，与 `?.` 同码）。
+// 这里只钉**结构**——解析继续时只取左侧，故 `a ?? b` 的 dump 就是 `a`。
+// 诊断码与解析同步的断言在 decl.z42（`parseErrorCodes` 在那个命名空间）。
 [Test]
-void test_null_coalescing() {
-    Assert.Equal("(?? a b)", parse("a ?? b"));
-    Assert.Equal("(?? a (?? b c))", parse("a ?? b ?? c"));      // 右结合
-    Assert.Equal("(?: (?? a b) c d)", parse("a ?? b ? c : d")); // ?? (25) 紧于 ?: (20)
+void test_null_coalescing_parses_as_left_operand() {
+    Assert.Equal("a", parse("a ?? b"));
+    Assert.Equal("a", parse("a ?? b ?? c"));
 }
 
 [Test]

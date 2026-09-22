@@ -20,7 +20,6 @@ public sealed class OperatorEmitter {
         string sop = b.Op;
         if (sop == "&&") { return this._emitShortCircuit(b, true); }
         if (sop == "||") { return this._emitShortCircuit(b, false); }
-        if (sop == "??") { return this._emitNullCoalesce(b); }
         TypedReg a = this._ee.Emit(b.Left);
         TypedReg c = this._ee.Emit(b.Right);
         string op = b.Op;
@@ -62,7 +61,7 @@ public sealed class OperatorEmitter {
             // 字符串拼接也走 Add（tag=str；C# 字节实证 0x10 非 0x85——StrConcatInstr 留作他途）
             this._ctx.Emit(new AddInstr(d, a, c));
         }
-        else { this._ctx.Emit(new AddInstr(d, a, c)); }   // && / || / ?? → CG-1E-2（占位）
+        else { this._ctx.Emit(new AddInstr(d, a, c)); }   // && / || → CG-1E-2（占位）
         return d;
     }
 
@@ -235,30 +234,6 @@ public sealed class OperatorEmitter {
         return result;
     }
 
-    // a ?? b（镜像 C# EmitBoundNullCoalesce）：alloc 序 left/null/cmp/result →
-    // ConstNull+Eq → 标签 nc_null/nc_end，BrCond(cmp, nc_null, nc_end)；
-    // nc_end 块=非空路径 copy left + 中途 Fresh(nc_after)；nc_null 块求 b；汇合 nc_after。
-    private TypedReg _emitNullCoalesce(BoundBinary b) {
-        TypedReg left = this._ee.Emit(b.Left);
-        TypedReg nullReg = this._ctx.Alloc(IrType.Ref);
-        TypedReg cmpReg = this._ctx.Alloc(IrType.Bool);
-        TypedReg result = this._ctx.Alloc(this._ctx.ToIrType(b.Type()));
-        this._ctx.Emit(new ConstNullInstr(nullReg));
-        this._ctx.Emit(new EqInstr(cmpReg, left, nullReg));
-        string nullL = this._ctx.Fresh("nc_null");
-        string endL = this._ctx.Fresh("nc_end");
-        this._ctx.EndBlock(new BrCondTerm(cmpReg, nullL, endL));
-        this._ctx.StartBlock(endL);
-        this._ctx.Emit(new CopyInstr(result, left));
-        string afterL = this._ctx.Fresh("nc_after");
-        this._ctx.EndBlock(new BrTerm(afterL));
-        this._ctx.StartBlock(nullL);
-        TypedReg rightR = this._ee.Emit(b.Right);
-        this._ctx.Emit(new CopyInstr(result, rightR));
-        this._ctx.EndBlock(new BrTerm(afterL));
-        this._ctx.StartBlock(afterL);
-        return result;
-    }
 
     // ── add-struct-value-equality：blob 值 struct 的 == / != → 逐叶子值相等短路合取 ──────────
     // 操作数各求值一次（a/c 为 blob 句柄），递归展平叶子逐个 Eq；首个不等即短路到 fail 块。

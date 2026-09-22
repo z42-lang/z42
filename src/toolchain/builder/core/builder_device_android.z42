@@ -113,7 +113,7 @@ string _androidRidAbi(string rid) {
 // android`). Ported from xtask _resolveAndroidNdk; picks the max basename
 // deterministically (String.CompareTo), never the enumeration order (common-pitfalls §1).
 string _resolveAndroidNdk(string buildRoot) {
-    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
     if (env.Length > 0 && Directory.Exists(env)) { return env; }
     string ndkBase = Path.Join(buildRoot, "artifacts/tools/android-sdk/ndk");
     if (!Directory.Exists(ndkBase)) { return ""; }
@@ -130,8 +130,8 @@ string _resolveAndroidNdk(string buildRoot) {
 // SDK (deps install --os android → artifacts/tools/android-sdk). Empty = let gradle
 // resolve it (local.properties / its own env) — z42b only supplies a fallback.
 string _resolveAndroidSdk(string buildRoot) {
-    string env = Environment.GetEnvironmentVariable("ANDROID_HOME") ?? "";
-    if (env.Length == 0) { env = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT") ?? ""; }
+    string env = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
+    if (env.Length == 0) { env = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
     if (env.Length > 0 && Directory.Exists(env)) { return env; }
     string auto = Path.Join(buildRoot, "artifacts/tools/android-sdk");
     return Directory.Exists(auto) ? auto : "";

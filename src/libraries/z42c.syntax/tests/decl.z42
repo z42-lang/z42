@@ -454,3 +454,34 @@ void test_plain_member_access_still_ok() {
 void test_ternary_with_member_access_not_mistaken_for_null_conditional() {
     Assert.Equal("", parseErrorCodes("class C { int M(bool c) { return c ? a.b : d.e; } }"));
 }
+
+// ── define-null-check-marks：`??` 已移除 ────────────────────────────────
+//
+// 与 `?.` 同码（E0480）：两者是同一个口子的两种写法，都把「可能为 null」静默收尾掉。
+//
+// 纪律同上：**必须完整吃掉右侧表达式**，否则 `a ?? b ? c : d` 会从表达式脱轨。
+// 所以断言的是**恰好 N 条**——多一条就说明解析同步断了。
+
+[Test]
+void test_null_coalescing_rejected() {
+    Assert.Equal("E0480", parseErrorCodes("class C { void M() { var v = a ?? b; } }"));
+}
+
+// 右结合的链：两个 `??` 恰好两条。
+[Test]
+void test_null_coalescing_chain_rejected() {
+    Assert.Equal("E0480,E0480", parseErrorCodes("class C { void M() { var v = a ?? b ?? c; } }"));
+}
+
+// 与 `?:` 混写——最容易脱轨的形态（`??` bp 25 紧于 `?:` bp 20）。
+// 恰好一条，证明右侧被完整吃掉、三元没被撕开。
+[Test]
+void test_null_coalescing_with_ternary_recovers() {
+    Assert.Equal("E0480", parseErrorCodes("class C { void M() { var v = a ?? b ? c : d; } }"));
+}
+
+// 对照组：三元单独用不受影响。
+[Test]
+void test_ternary_alone_still_ok() {
+    Assert.Equal("", parseErrorCodes("class C { int M(bool c) { return c ? 1 : 2; } }"));
+}
