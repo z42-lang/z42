@@ -409,11 +409,23 @@ impl<T> GcRef<T> {
 
     /// Resolve to the inner `&RegionEntry<T>`. Panics if generation
     /// mismatches (use-after-finalize per design D5).
+    ///
+    /// The generation/alive guard is **unconditional** (not `debug_assert!`):
+    /// it is the sole backstop against dereferencing a tombstoned slot that has
+    /// since been reused for a *different* object (silent type confusion). Every
+    /// tombstone path bumps `generation` and clears `alive` together
+    /// (`region.rs` `tombstone` / `tombstone_during_sweep` / `tombstone_via_entry`),
+    /// so a stale handle's 16-bit `gen16()` snapshot no longer matches. Compiling
+    /// this out in release (the old `debug_assert!`) contradicted the two API-doc
+    /// promises above and at the module header ("`borrow` panics on generation
+    /// mismatch") and left release builds with a silent-UAF hole. Cost is two
+    /// `Acquire` loads ahead of the blocking `Mutex` lock in `borrow*` — negligible
+    /// beside the lock itself.
     fn entry_ref(&self) -> &RegionEntry<T> {
         // SAFETY: entry pointer is stable for the entry's lifetime;
         // caller upholds the GcRef-not-outlive-Region contract.
         let e = unsafe { self.entry_addr().as_ref() };
-        debug_assert!(
+        assert!(
             e.generation.load(Ordering::Acquire) as u16 == self.gen16()
                 && e.alive.load(Ordering::Acquire),
             "GcRef::entry_ref: generation/alive mismatch — use-after-finalize"
