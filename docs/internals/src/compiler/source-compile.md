@@ -335,6 +335,37 @@ z42 的编译单元只有**一个**命名空间：`CompilationUnit.Namespace` �
 回归守卫：`src/compiler/z42c.semantics/tests/typecheck/break_context_tests.z42`（9 例，覆盖 switch/循环/
 裸语句/lambda 四类上下文的正负例）。
 
+#### switch **表达式**的落空块（`result` 为什么不会被未初始化读）
+
+`OperatorEmitter._emitSwitchExpr` 一开头就 `Alloc` 一个 `result` 寄存器，**每个被采纳的臂各自写它**，
+汇合在 `endL`。于是有一个天然的洞：**没有任何臂被采纳时谁写 `result`？**
+
+throw-on-switch-expr-no-match 之前的答案是「没人写」—— 循环走完仍未 `Ended`（= 没有兜底臂）时
+直接 `Br(endL)`，`return result` 交出一个**从没写过的槽位**。现象不是崩溃、不是类型默认值，而是
+垃圾值：`int a = n switch { 1 => 10 }` 在 n=5 时 `a` 打成 `null`、`a + 1` 打出 17179869186。
+
+现在那一支发 `ConstStr` + `ToStr(subject)` + `StrConcat` + `ObjNew Std.SwitchExpressionException`
++ **`ThrowTerm`**。机制的关键不是「抛了个异常」，而是：
+
+> **`ThrowTerm` 让这个块 `Ended` ⇒ 落空路径根本到不了 `endL` ⇒ `endL` 的每条入边都写过 `result`。**
+
+不变式因此从「靠调用方不读」变成「按构造成立」。三条连带事实，改这段时都要记着：
+
+- **有兜底臂时这一支不可达**（那一支 `ai = sw.ArmCount` 提前结束、块已 `Ended`）⇒ 产物
+  **byte-identical**，一条指令都不多发。这也是唯一能分辨「改动是否误伤正常路径」的阴性判据。
+- **ctor 键从符号表现查**（`_swxCtorFq`），不硬编码。键规则不平凡：primary ctor 注册为**裸类名**、
+  非-primary 才是全签名 mangle（`OverloadBinder._ctorKey`，stabilize-instance-dispatch-keys）。
+  写成 `SwitchExpressionException$1` 会在运行期变 `MissingSymbolException`（实测踩过）。
+- **消息里不放源码位置**：`Throw` 运行期已做 `resolve_line` + `populate_stack_trace`，位置免费；
+  而 `Span.File` 是构建机路径，嵌进去会把它烤进 zbc 字符串池、破坏字节不动点与可复现构建。
+
+`switch` **语句**没有这个洞（不产值），发射不变。
+
+> ⚡ 副作用（用户可见，已记入 reference）：`IrInline._termInlinable` 白名单只有
+> `Ret`/`Br`/`BrCond`、`IrPureFunctionTable._isFuncPure` 遇 `ThrowTerm` 判非纯 ⇒
+> **含不穷尽 switch 表达式的函数不可内联、且非纯**。产品代码里这种站点 0 个，故 z42c / stdlib
+> 自身发码不变；用户热路径上应加 `_ =>` 兜底臂。
+
 #### 属性的「源名 ↔ 后备字段名」落差（binder ↔ emitter 对称）
 
 属性在符号表里以**源名** `X` 登记一个 `FieldSymbol`（`MemberCollector` 处理 `PropertyDecl` 时

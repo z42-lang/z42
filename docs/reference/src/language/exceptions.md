@@ -116,6 +116,8 @@ outer.InnerException.Message;      // "cause"
 | `NotSupportedException` | `Exception` | 方法不支持当前场景（如对只读集合 `Add`） |
 | `OverflowException` | `Exception` | 数值运算超出目标类型容量（`Int32.Parse` 溢出、checked 溢出） |
 | `DivideByZeroException` | `Exception` | 整数除 / 取模的除数为 0（浮点除 0 按 IEEE 754 返回 ±∞ / NaN，不抛） |
+| `InvalidCastException` | `Exception` | 硬转换 `(T)x` 失败：`x` 非 null 但不是 `T`（`as` 失配返 null、不抛） |
+| `SwitchExpressionException` | `Exception` | `switch` **表达式**求值时无任何臂被采纳（没匹配上，或匹配了但守卫为假）。消息含落空的值；`switch` **语句**不抛。见 [模式匹配](pattern-matching.md) |
 | `OutOfMemoryException` | `Exception` | 堆内存不足（strict OOM 模式下超 `max_heap_bytes`） |
 | `TypeInitializationException` | `Exception` | 静态构造器抛出；该类型此后不可用，后续访问直接重抛，**不重试 cctor** |
 | `MissingSymbolException` | `Exception` | 运行期解析不到符号，通常意味着依赖版本 skew |

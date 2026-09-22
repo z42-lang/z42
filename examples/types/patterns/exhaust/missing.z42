@@ -12,5 +12,11 @@ string shortOf(Direction d) {
 
 void Main() {
     Console.WriteLine(shortOf(Direction.North));
-    Console.WriteLine($"[{shortOf(Direction.West)}]");
+    // Direction.West 没有对应的臂 → 运行期抛 SwitchExpressionException。
+    // 不 catch 的话程序就在这里终止（栈回溯会指到上面那个 switch）。
+    try {
+        Console.WriteLine(shortOf(Direction.West));
+    } catch (SwitchExpressionException e) {
+        Console.WriteLine($"抛了：{e.Message}");
+    }
 }
