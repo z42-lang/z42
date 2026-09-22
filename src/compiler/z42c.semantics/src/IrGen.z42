@@ -31,6 +31,20 @@ public sealed class IrGen {
     // 挂在 IrGen 而非 EmitContext：后者是**每方法**一个，这里要的是**每编译单元**的集合。
     // 不用全局静态：z42c 是多线程编译，静态可变集合有竞态。
     public StrMap InstLayouts;
+    // 本包泛型 struct/class 的定义声明（短名 → 原始 Decl），供实例化特化时重发其成员。
+    public StrMap GenericDecls;
+    // 正在特化的实例化短名（`Pair<P2,int>`）；"" = 常规发射。发射成员时由特化通道设置，
+    // 影响两处：① IR 函数名前缀换成实例化名（调用点据同一规则派发）；
+    // ② `EmitContext.OwnerStructName` 换成实例化名 ⇒ ctor/方法体里 `this.f` 的字节偏移
+    //    按**实例化布局**烘焙（这正是 B1 的全部意义——布局特化了，代码必须跟着特化）。
+    // 单字段而非参数透传：EmitMethod → FunctionEmitter → EmitContext 链路太长，且本 CU 内单线程。
+    public string SpecInstName;
+    // 与 SpecInstName 配对：正在特化的那个泛型**定义**的短名（`Pair` 或 arity-mangle 的 `Pair$2`）。
+    // 特化体内一切指向该定义类型的静态类型（典型是 `this`）都代表**那个实例化**——
+    // `ExprEmitter._blobStructName` 据此把 `cont` 换成实例化名，否则 `this.f = a` 会按定义布局
+    // 判定字段种类（型参字段=引用叶子）而发引用存，运行期与实例化布局对不上（实测：
+    // `struct ref leaf at byte offset 0 not in type layout`）。
+    public string SpecOwnerName;
     public IrGen() {
         this._pool = new string[8];
         this._pool[0] = "";
@@ -40,6 +54,9 @@ public sealed class IrGen {
         this._classDescB = new ClassDescBuilder(this);
         this._stubE = new StubEmitter(this);
         this.InstLayouts = new StrMap();
+        this.GenericDecls = new StrMap();
+        this.SpecInstName = "";
+        this.SpecOwnerName = "";
     }
 
     // 字符串字面量 intern → 1-based 池索引（去重）。
@@ -214,6 +231,24 @@ public sealed class IrGen {
         // 伪类型 + 其类型初始化器（复用 `$Cctor` 哨兵 ⇒ 零格式变更）。无站点时不产任何字节，
         // 故对既有包 byte-identical。合法性已由包级 ModuleInitScan.CheckPackage 校验过。
         ModuleInitSynth.Emit(this, model, cu, sink);
+        // generic-struct-erased-slot-value-copy（B1）：为命中闸门的实例化重发泛型类型的成员。
+        // **工作表 + 不动点**：特化过程本身可能发现新的实例化（嵌套 `Pair<Pair<P2,int>,int>`，
+        // 或成员体里用到的别的实例化），故循环到集合不再增长为止。
+        StrMap specDone = new StrMap();
+        bool specMore = true;
+        while (specMore) {
+            specMore = false;
+            string[] pend = this.InstLayouts.Keys();
+            int pi = 0;
+            while (pi < pend.Length) {
+                if (!specDone.ContainsKey(pend[pi])) {
+                    specDone.Put(pend[pi], "1");
+                    types.EmitInstantiation(pend[pi]);
+                    specMore = true;   // 本轮有新增 ⇒ 再扫一遍（体内可能又登记了新实例化）
+                }
+                pi = pi + 1;
+            }
+        }
         IrFunction[] funcs = sink.Funcs; int fc = sink.Fc;
         IrClassDesc[] classes = sink.Classes; int cc = sink.Cc;
         // generic-struct-erased-slot-value-copy：为本 CU 用到的、命中闸门的泛型实例化追加**合成类描述符**

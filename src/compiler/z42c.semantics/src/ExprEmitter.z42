@@ -92,7 +92,14 @@ public sealed class ExprEmitter {
             string elemName = an.ElemName;
             Z42ArrayType at = an.Type() as Z42ArrayType;
             if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
-                elemName = this._qualifyElemName(an.ElemName);
+                // generic-struct-erased-slot-value-copy：命中闸门的实例化元素用**规范名**，不能用
+                // `an.ElemName`（它来自 `Z42Type.Name()`，渲染成 `Pair<P2, Int32>`——wrapper 名 + 空格）。
+                // 名字对不上 ⇒ 运行期 `try_struct_backed` 全名 miss、回落裸名 ⇒ 数组按**定义**布局建
+                // （型参字段 8B 句柄），而元素是实例化形状 ⇒ stride 与偏移错位
+                // （实测 `struct field write out of blob bounds (off=32, w=4, len=32)`：
+                //  2 元素 × 定义布局 16B = 32，写实例化的 Second 落在 32 已越界）。
+                string ie = this._instLayoutName(at.Elem);
+                elemName = ie != "" ? this._qualifyInstName(ie) : this._qualifyElemName(an.ElemName);
             }
             // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
             // 修 PrimTag 对泛型形参名回落 Ref 的 bug：通过 Z42PrimType 包装会调 PrimTag("T")→Ref。
@@ -538,19 +545,59 @@ public sealed class ExprEmitter {
         if (inst.Def == null || inst.ArgCount <= 0) { return ""; }
         StructLayout ly = this._ctx.Gen.Layouts;
         if (ly == null) { return ""; }
+        // 闸门之二：泛型定义必须在**本包**。B1 要求在用到实例化的这一侧**重发该泛型类型的成员体**
+        // （按实例化布局烘焙偏移），而消费方编译时只读依赖的**签名**（DepReconcile 走 ReadModuleSigs），
+        // 拿不到生产方的方法体 ⇒ 跨包实例化无法特化。收窄到本包后两侧都不特化、行为与今天逐字不变
+        // （不是「修了一半更坏」）。跨包覆盖需另一条 change（泛型体随包投送 + 消费方重发）。
+        if (!this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
         string[] argNames = new string[inst.ArgCount];
-        bool anyStructArg = false;
         int i = 0;
         while (i < inst.ArgCount) {
-            Z42Type a = inst.TypeArgs[i];
-            string an = a == null ? "" : a.Name();
+            string an = this._canonTypeName(inst.TypeArgs[i]);
             if (an == "") { return ""; }              // 实参不可名 → 放弃，退回今天的表示
             argNames[i] = an;
-            if (ly.IsBlobStruct(an)) { anyStructArg = true; }
             i = i + 1;
         }
-        if (!anyStructArg) { return ""; }             // ← 闸门
-        return StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
+        string cand = StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
+        // ← 闸门：实例化布局**确实不同于定义布局**才特化。相同则特化是 no-op，跳过 ⇒ 产出字节不变。
+        if (!ly.InstDiffersFromDef(cand)) { return ""; }
+        return cand;
+    }
+
+    // 类型 → **规范名**，实例化实参**递归**规范化。
+    //
+    // 必须递归：`Z42Type.Name()` 对嵌套实例化给的是 `Pair<Int32, Int64>`——wrapper 名、**还带空格**。
+    // 把它原样塞进外层名，`InstArgsOf` 拆出来就是 `" Int64"`，`_kindOf` 认不出 ⇒ 落 GcRef ⇒
+    // 与运行期布局对不上（实测 `Pair<Pair<Int32, Int64>,string>` 崩在
+    // `struct ref leaf at byte offset 0 not in type layout`）。递归后恒为 `Pair<int,long>`，
+    // 编译器 / wire / 运行期三方同一串。
+    internal string _canonTypeName(Z42Type a) {
+        if (a == null) { return ""; }
+        if (a is Z42InstantiatedType) {
+            Z42InstantiatedType it = a as Z42InstantiatedType;
+            if (it.Def == null || it.ArgCount <= 0) { return ""; }
+            string[] sub = new string[it.ArgCount];
+            int k = 0;
+            while (k < it.ArgCount) {
+                string s = this._canonTypeName(it.TypeArgs[k]);
+                if (s == "") { return ""; }
+                sub[k] = s;
+                k = k + 1;
+            }
+            return StructLayout.InstName(it.Def.Name(), sub, it.ArgCount);
+        }
+        string n = a.Name();
+        if (n == "") { return ""; }
+        return PrimModel.Canon(n);   // `Int32` / `Std.Int32` → `int`（布局缓存与 IsStructType 均按 Canon 键）
+    }
+
+    // 实例化短名 → FQ 名：**只限定基名、实参原样**（`Pair<P2,int>` → `Demo.Pair<P2,int>`）。
+    // 与 `_qualifyElemName`（数组元素名）同一约定，也与合成描述符的注册键（ns + 短实例化名）对齐。
+    internal string _qualifyInstName(string instName) {
+        int lt = instName.IndexOf("<");
+        if (lt < 0) { return this._ctx.QualifyClass(instName); }
+        return this._ctx.QualifyClass(instName.Substring(0, lt))
+             + instName.Substring(lt, instName.Length - lt);
     }
 
     // 登记（幂等）。
@@ -558,10 +605,34 @@ public sealed class ExprEmitter {
         string n = this._instLayoutName(t);
         if (n == "") { return; }
         if (!this._ctx.Gen.InstLayouts.ContainsKey(n)) { this._ctx.Gen.InstLayouts.Put(n, "1"); }
+        // **嵌套实例化一并登记**：`Pair<Pair<int,long>,string>` 的内层 `Pair<int,long>` 自己也需要
+        // 描述符（运行期 resolve_layout 要查它）与特化成员（它的 ctor 也按自己的布局烘焙偏移）。
+        // 只登记外层的话，内层在链式访问 `t.Item1.Item2` 上就会退回定义布局。
+        Z42InstantiatedType inst = t as Z42InstantiatedType;
+        int i = 0;
+        while (i < inst.ArgCount) { this._noteInstLayout(inst.TypeArgs[i]); i = i + 1; }
     }
 
-    // blob struct 短名（调用方已确认 _isBlobStruct）。
-    internal string _blobStructName(Z42Type t) { return this._receiverClassType(t).Name(); }
+    // blob struct 的**布局名**（调用方已确认 _isBlobStruct）。
+    //
+    // generic-struct-erased-slot-value-copy：命中闸门的实例化在此给出**实例化规范名**
+    // （`Pair<P2,int>`）而非定义裸名（`Pair`）——这一行就是「擦除槽变真内联字段」的开关。
+    // 它同时决定三件事，且必须三者一致：① `StructAlloc` 写进指令的类型名（运行期据此
+    // `resolve_layout`）；② `Layouts.FieldIsStruct(cont, …)` 查哪份布局（决定链式偏移累加
+    // 与 `_copyRegion` 深拷）；③ `_copyStructOut` 等按名取布局处。
+    // 不命中闸门（非实例化 / 无 blob struct 实参）→ 仍是裸名，**逐字节不变**。
+    internal string _blobStructName(Z42Type t) {
+        string inst = this._instLayoutName(t);
+        if (inst != "") { return inst; }
+        Z42ClassType rc = this._receiverClassType(t);
+        // 特化体内：指向被特化定义的静态类型（典型是 `this`，其类型是定义 `Pair` 而非 `Pair<P2,int>`）
+        // 代表**那个实例化** ⇒ 布局查询必须换名，否则按定义布局判字段种类（型参字段=引用叶子）
+        // 而运行期 blob 是实例化布局 ⇒ `struct ref leaf at byte offset 0 not in type layout`。
+        if (rc != null && this._ctx.Gen.SpecInstName != "" && rc.Name() == this._ctx.Gen.SpecOwnerName) {
+            return this._ctx.Gen.SpecInstName;
+        }
+        return rc.Name();
+    }
 
     // 值 struct → string，供字符串插值的洞使用（fix-struct-tostr-in-interp）。
     //

@@ -485,7 +485,16 @@ public sealed class ClassDescBuilder {
             fs[i] = new IrFieldDesc(li.FieldNames[i], li.FieldTypeNames[i]);   // 类型名已是代换后的具体名
             i = i + 1;
         }
-        IrClassDesc cd = new IrClassDesc(instName, false, "", fs, n);
+        // 描述符名必须是 **FQ**（与 `_classDesc` 的 `_q(_classIrShortName(c))` 同口径）——运行期
+        // `build_type_registry` 按描述符 name 建键、`resolve_layout` 拿 `struct_alloc` 的 FQ 名去查。
+        // 用短名会**静默 miss**，回落到「只有 size、空引用位图」的兜底布局：零引用叶子的实例化
+        // （`Pair<P2,int>`）恰好照常工作，有引用叶子的（`Pair<P2,string>`）才在写 string 那一刻崩
+        // （`struct ref leaf at byte offset 8 not in type layout`）。**「能跑」曾经掩盖了它。**
+        // 只限定基名、实参原样，与 `ExprEmitter._qualifyInstName` 同一约定。
+        int ltq = instName.IndexOf("<");
+        string fqInst = ltq < 0 ? this._g._q(instName)
+                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        IrClassDesc cd = new IrClassDesc(fqInst, false, "", fs, n);
         cd.Flags = 4;   // bit2 = struct → writer 追加 struct 布局块
         cd.StructSize = li.Size;
         cd.StructRefOffsets = li.RefLeafOffsets;

@@ -462,8 +462,19 @@ public sealed class CallEmitter {
         if (this._ee._isBlobStruct(n.Type())) {
             string sname = this._ee._blobStructName(n.Type());
             int size = this._ctx.Gen.Layouts.StructSize(sname);
+            // generic-struct-erased-slot-value-copy：命中闸门的实例化，StructAlloc 必须携**实例化的 FQ 名**
+            // 与**实例化的 ctor**——否则运行期按定义名 resolve_layout（First 是 8B 句柄）而 size 已是实例化的，
+            // 且 ctor 体按定义偏移往里写句柄 ⇒ 读出 0。限定只加在基名上、实参原样（同 _qualifyElemName 约定），
+            // 与合成描述符的注册键（ns + 短实例化名）对齐。
+            string qualAlloc = qualCls;
+            string ctorOwner = qualCls;
+            if (sname.IndexOf("<") >= 0) {
+                qualAlloc = this._ee._qualifyInstName(sname);
+                ctorOwner = qualAlloc;
+            }
             TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
-            this._ctx.Emit(new StructAllocInstr(handle, qualCls, size));
+            this._ctx.Emit(new StructAllocInstr(handle, qualAlloc, size));
+            fqCtor = ctorOwner + "." + n.CtorName;
             // 仅在 ctor **真实存在**时 Call：_ctorKey 有 ctor→"Name$arity"∈Methods、无 ctor→裸 name∉Methods。
             // 无 ctor struct（如 partial `new Vec2()`）：StructAlloc 已零初始化 blob，字段随后逐个赋值——
             // 别 Call 不存在的 `Vec2.Vec2`（undefined function 崩）。

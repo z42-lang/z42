@@ -202,6 +202,41 @@ public sealed class StructLayout {
         return this._defs.ContainsKey(PrimModel.Canon(StructLayout.BaseNameOf(typeName)));
     }
 
+    // 某实例化的布局是否**真的不同于定义布局**——这是「要不要特化」的唯一判据。
+    //
+    // 为什么不是「有没有 blob struct 实参」（我最初的判据，实测错）：定义把**所有**型参字段当
+    // 8B `GcRef` 引用叶子，而实例化按实参真实种类排布。于是 `Pair<int,long>` 虽无 struct 实参，
+    // 布局也不同（定义有两个引用叶子 @0/@8；实例化零引用叶子、int@0 + long@8）。漏掉它 ⇒ 它作为
+    // 内层被内联进外层后，`pp.First.Second` 会按定义布局把 `B` 当 Object 引用写 ⇒ 运行期
+    // `struct ref leaf at byte offset 8 not in type layout`。
+    //
+    // 这个判据同时自带闸门性质：布局**相同**则特化是 no-op，跳过即产出逐字节不变。
+    public bool InstDiffersFromDef(string instName) {
+        string baseName = StructLayout.BaseNameOf(instName);
+        if (baseName == instName) { return false; }          // 非实例化名
+        if (!this.IsStructType(instName)) { return false; }
+        StructLayoutInfo a = this.LayoutOf(instName);
+        StructLayoutInfo b = this.LayoutOf(baseName);
+        if (a.Size != b.Size) { return true; }
+        if (a.RefLeafCount != b.RefLeafCount) { return true; }
+        int i = 0;
+        while (i < a.RefLeafCount) {
+            if (a.RefLeafOffsets[i] != b.RefLeafOffsets[i]) { return true; }
+            if (a.RefLeafKinds[i] != b.RefLeafKinds[i]) { return true; }   // ArcString vs GcRef：Arc 计数语义不同
+            i = i + 1;
+        }
+        // 字段偏移/种类也要比：size 与引用位图相同、但字段切分不同时（如 int+int vs 一个 8B 引用）
+        // 链式访问仍会按错的种类发指令。
+        if (a.FieldCount != b.FieldCount) { return true; }
+        int j = 0;
+        while (j < a.FieldCount) {
+            if (a.FieldOffsets[j] != b.FieldOffsets[j]) { return true; }
+            if (a.FieldKinds[j] != b.FieldKinds[j]) { return true; }
+            j = j + 1;
+        }
+        return false;
+    }
+
     // 实例化名 → 基名（`Pair<P2,int>` → `Pair`）；无 `<` 原样返回。
     public static string BaseNameOf(string typeName) {
         int lt = typeName.IndexOf("<");

@@ -30,8 +30,21 @@ pub(crate) fn try_struct_backed(ctx: &VmContext, element_type: &str, len: usize)
     // its struct layout and gets a StructBytes backing instead of degrading to a reference
     // array of Nulls. The full `element_type` is still passed to `struct_backed` below so
     // `arr.GetType().GetElementType()` keeps returning the real instantiated element type.
-    let erased = element_type.split('<').next().unwrap_or(element_type);
-    let td = ctx.try_lookup_type(erased)?;
+    //
+    // generic-struct-erased-slot-value-copy: try the **full instantiated name first**. When the
+    // compiler specialised a gated instantiation it delivers a synthetic TypeDesc under that exact
+    // name, whose layout inlines the struct type argument's bytes. Falling straight through to the
+    // erased base name would hand back the *definition* layout (type-parameter fields are 8-byte
+    // reference leaves) while the elements are instantiation-shaped — mismatched size and reference
+    // bitmap. Non-specialised generics still miss on the full name and take the erased path below,
+    // so this is strictly backward compatible.
+    let td = match ctx.try_lookup_type(element_type) {
+        Some(td) => td,
+        None => {
+            let erased = element_type.split('<').next().unwrap_or(element_type);
+            ctx.try_lookup_type(erased)?
+        }
+    };
     if td.fields.len() < 2 { return None; }   // FieldCount >= 2 (matches IsBlobStruct)
     let layout = td.struct_layout()?;         // value struct with a delivered byte layout
     if layout.size == 0 { return None; }      // self-referential / empty guard

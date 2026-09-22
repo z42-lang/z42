@@ -189,7 +189,13 @@ public sealed class AccessEmitter {
             if (sct != null && !isAutoProp && sct.Methods.ContainsKey("get_" + m.MemberName)) {
                 // struct 无虚方法：走**静态 Call 传 handle**（sret-aware），非 VCall（会崩 expected object）。
                 TypedReg sobj = this._ee.Emit(m.Target);
-                string fqGetter = this._ctx.QualifyClass(sct.Name()) + ".get_" + m.MemberName;
+                // generic-struct-erased-slot-value-copy：特化过的实例化要派发到**特化那份** getter，
+                // 否则 getter 体按定义偏移读（`GBox<int>` 定义 tag@8、实例化 tag@4、blob 只有 8B）
+                // ⇒ `struct field read out of blob bounds (off=8, w=4, len=8)`。
+                string gname = this._ee._blobStructName(m.Target.Type());
+                string fqGetter = (gname.IndexOf("<") >= 0 ? this._ee._qualifyInstName(gname)
+                                                           : this._ctx.QualifyClass(sct.Name()))
+                                  + ".get_" + m.MemberName;
                 return this._ee._emitStructPropGet(fqGetter, sobj, m.Type());
             }
             return this._emitBlobFieldGet(m);
