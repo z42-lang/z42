@@ -102,7 +102,7 @@
 
 ## 7. 归档
 
-- [ ] 7.1 PR（合并前并入 main 最新 + 重跑 GREEN）
+- [x] 7.1 PR **#767**（已 rebase 到 main `2cb64a225` + 让号 E0484→E0486 + 重跑 GREEN 全绿）
 - [ ] 7.2 合并后删分支 / worktree
 - [ ] 7.3 `docs/spec/changes/add-module-init-hook/` → `docs/spec/archive/YYYY-MM-DD-...`
 - [ ] 7.4 更新 memory：`add-module-init-hook-program.md` + MEMORY.md 索引
