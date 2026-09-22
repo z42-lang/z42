@@ -112,7 +112,7 @@ public class AndroidBackend : IPlatformBackend {
 
     // ANDROID_NDK_HOME env, else auto from versions.toml install_root/ndk/<version>.
     string _resolveNdk(string root) {
-        string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
+        string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
         if (env.Length > 0) {
             if (Directory.Exists(env)) { return env; }
             ConsoleError.WriteLine("error: ANDROID_NDK_HOME set but not a dir: " + env);
@@ -129,8 +129,8 @@ public class AndroidBackend : IPlatformBackend {
 
     // ANDROID_HOME / ANDROID_SDK_ROOT env, else auto from versions.toml install_root.
     string _resolveSdk(string root) {
-        string env = Environment.GetEnvironmentVariable("ANDROID_HOME") ?? "";
-        if (env.Length == 0) { env = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT") ?? ""; }
+        string env = Environment.GetEnvironmentVariable("ANDROID_HOME", "");
+        if (env.Length == 0) { env = Environment.GetEnvironmentVariable("ANDROID_SDK_ROOT", ""); }
         if (env.Length > 0) {
             if (Directory.Exists(env)) { return env; }
             ConsoleError.WriteLine("error: ANDROID_HOME/ANDROID_SDK_ROOT set but not a dir: " + env);

@@ -47,7 +47,7 @@ int _execIn(Process p, string wd) {
 // 注：此处原先叠着两段互相矛盾的注释——上一段停留在「默认 interp、翻 jit 是待办的 B 步」，
 // 下一段才是翻默认之后的实况。翻默认时只追加了新注释、没删旧的（fix-xtask-doc-drift 清理）。
 string _z42cMode() {
-    string m = Environment.GetEnvironmentVariable("Z42C_BUILD_MODE") ?? "";
+    string m = Environment.GetEnvironmentVariable("Z42C_BUILD_MODE", "");
     if (m == "interp" || m == "jit") { return m; }
     return "jit";
 }
@@ -112,7 +112,7 @@ int _verifyMemberZpkgs(string wsToml, string[] members, string profile) {
 // every delegated compile/run resolves it. No-op in dev where _z42vm() is a bare
 // name (PATH).
 void _ensureDriverVm() {
-    string cur = Environment.GetEnvironmentVariable("Z42VM") ?? "";
+    string cur = Environment.GetEnvironmentVariable("Z42VM", "");
     if (cur.Length > 0) { return; }
     string vm = _z42vm();
     if (File.Exists(vm)) { Environment.SetEnvironmentVariable("Z42VM", vm); }
@@ -121,10 +121,10 @@ void _ensureDriverVm() {
 // Resolve the z42vm this process is running on, to execute compiled zpkgs.
 // The launcher exports Z42_PORTABLE_VM (portable) / sets Z42_HOME (installed/dev).
 string _z42vm() {
-    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (pv.Length > 0) { return pv; }
     string vmname = Platform.IsWindows() ? "z42vm.exe" : "z42vm";
-    string home = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
     if (home.Length > 0) {
         // Z42_HOME spans two layouts: SDK/toolchain root (<home>/bin/z42vm — a
         // portable SDK or a `--toolchain <dir>`) and managed install
@@ -186,7 +186,7 @@ string[] _splitWords(string s) {
 // (_seedSdkDir) or bin/z42vm existence (_activeVm) and fall back to the build tree when
 // this root is not an SDK-toolchain layout. Relative → repo root.
 string _toolchainDir(string root) {
-    string tc = Environment.GetEnvironmentVariable("Z42_HOME") ?? "";
+    string tc = Environment.GetEnvironmentVariable("Z42_HOME", "");
     if (tc.Length == 0) { return ""; }
     if (Path.IsRooted(tc)) { return tc; }
     return Path.Join(root, tc);
@@ -254,7 +254,7 @@ string _verbName(int level) {
 
 // Current level (default minimal). Reads Z42_VERBOSITY; unset/unknown → minimal.
 int _verbosity() {
-    string v = Environment.GetEnvironmentVariable("Z42_VERBOSITY") ?? "";
+    string v = Environment.GetEnvironmentVariable("Z42_VERBOSITY", "");
     if (v.Length == 0) { return 1; }
     int lvl = _normVerbosity(v);
     if (lvl < 0) { return 1; }
@@ -314,7 +314,7 @@ string _seedSdkDir(string root) {
     }
     if (tc.Length > 0) { _vDetailed("    sdk: Z42_HOME=" + tc + "  (no programs/ — managed layout? skip)"); }
     else { _vDetailed("    sdk: Z42_HOME unset"); }
-    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM") ?? "";
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
     if (pv.Length > 0) {
         string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));   // <sdk>/bin/z42vm ⇒ <sdk>
         if (sdk.Length > 0 && Directory.Exists(Path.Join(sdk, "programs"))) {
@@ -343,7 +343,7 @@ string _seedDriverHome(string root) {
 // dir) wins; else <sdk>/libs. "" if neither resolves.
 string _seedStdlibDir(string root) {
     _vDetailed("  seed·stdlib: resolving stdlib dist");
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     if (libs.Length > 0) {
         if (!Path.IsRooted(libs)) { libs = Path.Join(root, libs); }
         if (File.Exists(Path.Join(libs, "z42.core.zpkg"))) {
