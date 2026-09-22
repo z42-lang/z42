@@ -464,7 +464,8 @@ public sealed class OverloadBinder {
     }
 
     private Z42Type _typeOfArgExpr(Expr e, TypeEnv env) {
-        if (ExprTyper.IsTargetTypedNew(e) || ExprTyper.IsLambdaArg(e)) { return null; }
+        // add-target-typed-funcref-resolution：重载 funcref 实参同 lambda/target-new——延迟位无类型，避免急切绑 → 误报 E0425。
+        if (ExprTyper.IsTargetTypedNew(e) || ExprTyper.IsLambdaArg(e) || ExprTyper.IsOverloadedFuncRefArg(e, env)) { return null; }
         BoundExpr b = this._tc._expr._bindExpr(e, env);
         if (b == null) { return null; }
         Z42Type t = b.Type();

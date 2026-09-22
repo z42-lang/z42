@@ -101,9 +101,13 @@ public sealed class BoundFuncRef : BoundExpr {
     public string FuncName;
     public string FuncNs;         // resolve-free-functions-by-namespace：绑定期解析到的 ns（同 BoundCall.FreeNs）
     public bool   FuncImported;
+    // add-target-typed-funcref-resolution：选中重载的 **RegKey**（发射键单一真相）。发射 LoadFn 用它而非
+    // FuncName——唯一/primary 时 RegKey==FuncName（#414 primary-bare）⇒ 存量字节不变；target-typed 选中
+    // 非-primary 重载时 = mangle 键（`name$arity$T`），LoadFn 与 free-call 走同一 func_index（RegKey）解析。
+    public string RegKey;
     private Z42Type _type;
-    public BoundFuncRef(string funcName, string funcNs, bool funcImported, Z42Type type, Span span) {
-        this.Span = span; this.FuncName = funcName; this.FuncNs = funcNs; this.FuncImported = funcImported; this._type = type;
+    public BoundFuncRef(string funcName, string funcNs, bool funcImported, Z42Type type, string regKey, Span span) {
+        this.Span = span; this.FuncName = funcName; this.FuncNs = funcNs; this.FuncImported = funcImported; this._type = type; this.RegKey = regKey;
     }
     public override Z42Type Type() { return this._type; }
     public override string Dump() { return "(func-ref " + this.FuncName + ")"; }

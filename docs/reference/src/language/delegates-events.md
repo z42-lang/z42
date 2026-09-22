@@ -60,9 +60,37 @@ public delegate bool Predicate<T>(T arg);
 | 持有量 | 一个实例持 0 或 1 个 handler（target + method）|
 | 调用 | `f(arg)` 等价 `f.Invoke(arg)` |
 | null | 调用 null delegate 是**运行期错误**；当前它不是可 `catch` 的 `NullReferenceException`，而是直接终止执行的 VM 错误。**务必用 `?.Invoke()` 短路**（单播 event 字段默认就是 null）|
-| 方法组转换 | `Action<int> a = SomeMethod;` / `obj.Method` 编译期合成 delegate 值 |
+| 方法组转换 | `Action<int> a = SomeMethod;` / `obj.Method` 编译期合成 delegate 值。**自由函数重载**按目标委托签名精确消解，见 [§2.5](#25-重载自由函数取引用按目标委托消解) |
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
 | `+=` / `-=` | 单播类型上这两个操作符**只在 `event` 字段上**有意义（见 §5）|
+
+### 2.5 重载自由函数取引用：按目标委托消解
+
+自由函数可以重载（同名不同参数类型）。把一个**重载**自由函数当值取引用时，编译器按**目标委托
+类型**在候选间精确选中——目标存在于赋值、变量声明、`return`、字段/属性初始化器、以及**调用实参**位：
+
+```z42
+int  Parse(string s);
+long Parse(string s, int radix);
+
+Func<string, int>       f = Parse;          // 选 int Parse(string)
+Func<string, int, long> g = Parse;          // 选 long Parse(string, int)
+xs.Reduce(Parse);                           // 实参位：按形参委托签名选中
+```
+
+消解语义是 **精确全签名匹配**（形参类型逐位 + 返回类型都要与委托相等）——z42 委托无协变/逆变，
+唯一能当某委托的重载就是签名与它完全相等的那个。因此：
+
+- **无目标委托类型**（`var f = Parse;`、把重载函数用在纯表达式位）→ 无从消解，报 **E0425**，
+  诊断提示「赋给目标委托类型的变量/参数以消歧」。
+- **目标存在但没有重载与之精确匹配**（如 `Func<string, bool> b = Parse;`）→ 报 **E0477**，
+  列出该名字下全部候选签名。
+
+> **单播 vs 多播**：本消解只发生在取引用（方法组转换）那一步，与委托是单播还是多播无关——
+> `MulticastAction<T>.Subscribe(Handler)` 的 `Handler` 实参同样按 `Action<T>` 形参签名消解。
+
+> **实例/静态方法组** `obj.M` / `T.M`（`M` 有重载）取引用的按目标消解**尚未支持**（走不同的合成
+> thunk 派发路径），是独立的后续项。
 
 ### 2.3 嵌套 delegate
 
