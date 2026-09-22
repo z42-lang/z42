@@ -35,7 +35,7 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                 this._tc._access.CheckDeprecatedM(rms, mem.Name, sp);
                 BoundExpr[] fa = this._tc._overload._withDefaults(rms, args, rawArgs, argCount, env, sp, false);
-                return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp);
+                return BoundCall.Marked(new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), rms.RegKey, fa, fa.Length, rms.Signature.Ret, sp), rms.Signature);
             }
             BoundExpr noOv = this.BindPrimNoApplicableOverload(wct, mem, recv, rt, args, argCount, rawArgs, env, sp);   // 无一重载适用 ⇒ 真错，别松绑定（见该方法头注）
             if (noOv != null) { return noOv; }

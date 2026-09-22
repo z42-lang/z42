@@ -93,7 +93,7 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, false);
-                BoundCall ibc = new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+                BoundCall ibc = BoundCall.Marked(new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
                 this._applyMethodTypeArgs(ibc, call, ms, env);   // 带真 ms → arity + where 约束真校验
                 return ibc;
             }
@@ -134,8 +134,8 @@ public sealed partial class MemberResolver {
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
                 // self-return-type-substitution：返回类型里的 `Self` 换成接收者的静态接口类型，
                 // 否则型参 `Self` 会裸奔到调用方（`var x = c.Copy()` 得到 `:Self`，不可用）。
-                return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
-                                     MemberResolver._substSelf(ims.Signature.Ret, it), sp);
+                return BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
+                                     MemberResolver._substSelf(ims.Signature.Ret, it), sp), ims.Signature);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no method `" + mem.Name + "` on interface `" + it.Name() + "`", mem.NameSpan);   // ⑦ 同上
@@ -200,7 +200,7 @@ public sealed partial class MemberResolver {
                 MethodSymbol gpMs = this._tc._overload._findMethod(env.Symbols, objCt, gpMkey);
                 if (gpMs != null) {
                     args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, gpMs.Signature, env);
-                    return new BoundCall("instance", true, recv, rt.Name(), gpMkey, args, argCount, gpMs.Signature.Ret, sp);
+                    return BoundCall.Marked(new BoundCall("instance", true, recv, rt.Name(), gpMkey, args, argCount, gpMs.Signature.Ret, sp), gpMs.Signature);
                 }
             }
             // bind-self-param-and-constraint-members Part A：Object 查不到 → 按该型参的 **where 约束
@@ -226,7 +226,7 @@ public sealed partial class MemberResolver {
                 // 的 CheckArgTypes 命中 Conversion 分支 B「恰一侧含型参→擦除」把具体实参静默放行。补一道
                 // 方向敏感的严格检查（E0463）——门控来自 Self 的形参位、只报「具体类型实参」。见 design D1–D5。
                 this._tc._overload.CheckConstraintIfaceArgs(args, rawArgs, argCount, cms.Signature, rt.Name(), mem.Name, cms.ContainingTypeName);
-                return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, csig.Ret, sp);
+                return BoundCall.Marked(new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, csig.Ret, sp), csig);
             }
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
@@ -242,7 +242,7 @@ public sealed partial class MemberResolver {
                 MethodSymbol aMs = this._tc._overload._findMethod(env.Symbols, objCt, aMkey);
                 if (aMs != null) {
                     args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, aMs.Signature, env);
-                    return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp);
+                    return BoundCall.Marked(new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), aMkey, args, argCount, aMs.Signature.Ret, sp), aMs.Signature);
                 }
             }
         }
@@ -261,8 +261,8 @@ public sealed partial class MemberResolver {
             MethodSymbol ig = it.Methods.Get("get_" + m.Name) as MethodSymbol;
             if (ig != null && ig.Signature != null) {
                 // self-return-type-substitution：属性 getter 同款（`interface IBox { Self Inner { get; } }`）
-                return new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
-                                     MemberResolver._substSelf(ig.Signature.Ret, it), m.Span);
+                return BoundCall.Marked(new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
+                                     MemberResolver._substSelf(ig.Signature.Ret, it), m.Span), ig.Signature);
             }
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
         }
@@ -321,7 +321,7 @@ public sealed partial class MemberResolver {
             // 才能拿到真实返回类型；否则误判 "member access on non-class" 或松绑 Unknown。
             MethodSymbol wgetter = this._tc._overload._findMethod(env.Symbols, wct, "get_" + m.Name);
             if (wgetter != null && wgetter.Signature != null) {
-                return new BoundCall("instance", true, target, PrimModel.Canon(tt.Name()), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span);
+                return BoundCall.Marked(new BoundCall("instance", true, target, PrimModel.Canon(tt.Name()), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span), wgetter.Signature);
             }
             return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
         }
@@ -342,7 +342,7 @@ public sealed partial class MemberResolver {
             if (getter != null && getter.Signature != null) {
                 this._tc._access.CheckAccess(getter.Visibility, getter.ContainingTypeName, env, env.Symbols, "property", m.Name, m.Span);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(getter, m.Name, m.Span);   // add-deprecated-directive
-                return new BoundCall("instance", true, target, ct.Name(), "get_" + m.Name, new BoundExpr[0], 0, getter.Signature.Ret, m.Span);
+                return BoundCall.Marked(new BoundCall("instance", true, target, ct.Name(), "get_" + m.Name, new BoundExpr[0], 0, getter.Signature.Ret, m.Span), getter.Signature);
             }
             // 实例方法组（D-1b）：`obj.Method` 作值（非调用）→ BoundMethodGroup（emit 合成 thunk+MkClos）。
             // stabilize-dispatch-keys（方案A，静态-only）：实例方法保持基线键 → 沿用 _findMethod 按源名查（unique
@@ -508,7 +508,7 @@ public sealed partial class MemberResolver {
             if (lfsig != null) {
                 args = this._tc._overload.BindArgsToSignature(args, call.Args, call.ArgCount, lfsig, env);
                 this._tc._overload._checkLocalFnArity(id.Name, lfsig, call.ArgCount, call.Span);   // add-call-arity-diagnostics
-                return new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span);
+                return BoundCall.Marked(new BoundCall("free", false, null, "", id.Name, args, call.ArgCount, lfsig.Ret, call.Span), lfsig);
             }
             string fnNs = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace：按引用方 ns + usings 解析
             if (fnNs != null) {
@@ -531,7 +531,7 @@ public sealed partial class MemberResolver {
                 string emitKey = ms.RegKey;   // 发射键 = 选中重载 RegKey（primary 裸 / 非-primary 带签名），先取再代换
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span, false);
-                BoundCall bc = new BoundCall("free", false, null, "", emitKey, fa, fa.Length, ms.Signature.Ret, call.Span);
+                BoundCall bc = BoundCall.Marked(new BoundCall("free", false, null, "", emitKey, fa, fa.Length, ms.Signature.Ret, call.Span), ms.Signature);
                 bc.FreeNs = fnNs; bc.FreeImported = !ms.HasDecl;
                 this._applyMethodTypeArgs(bc, call, ms, env);
                 return bc;
@@ -596,7 +596,7 @@ public sealed partial class MemberResolver {
                 // 决议之后，只认被选中的那个重载。
                 this._tc._access.CheckDeprecatedM(nfs, mem.Name, sp);
                 BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
-                BoundCall nbc = new BoundCall("free", false, null, "", nfs.RegKey, nfa, nfa.Length, nfs.Signature.Ret, sp);
+                BoundCall nbc = BoundCall.Marked(new BoundCall("free", false, null, "", nfs.RegKey, nfa, nfa.Length, nfs.Signature.Ret, sp), nfs.Signature);
                 nbc.FreeNs = nsId.Name; nbc.FreeImported = !nfs.HasDecl;
                 return nbc;
             }
@@ -622,7 +622,7 @@ public sealed partial class MemberResolver {
                     this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                     this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                     BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, true);
-                    BoundCall bc = new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp);
+                    BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
                     this._applyMethodTypeArgs(bc, call, ms, env);   // add-generic-methods：静态泛型方法（serde 招牌路径）
                     return bc;
                 }
@@ -652,7 +652,7 @@ public sealed partial class MemberResolver {
                         // 精确重载后，`string.Join("-","x","y","z")` 的 expanded form 需在此打包成 string[]，
                         // 否则以 4 裸实参调 `Join$2$string$string[]`（2 形参）→ arity 不符。
                         BoundExpr[] fa2 = this._tc._overload._withDefaults(wms2, args, rawArgs, argCount, env, sp, true);
-                        return new BoundCall("static", false, null, pwrap2, wms2.RegKey, fa2, fa2.Length, wms2.Signature.Ret, sp);
+                        return BoundCall.Marked(new BoundCall("static", false, null, pwrap2, wms2.RegKey, fa2, fa2.Length, wms2.Signature.Ret, sp), wms2.Signature);
                     }
                     if (!this._tc._overload.LastAmbiguous) {
                         this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -691,7 +691,7 @@ public sealed partial class MemberResolver {
                         this._tc._access.CheckAccess(qms.Visibility, qms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
                         this._tc._access.CheckDeprecatedM(qms, mem.Name, sp);
                         BoundExpr[] qfa = this._tc._overload._withDefaults(qms, args, rawArgs, argCount, env, sp, true);
-                        BoundCall qbc = new BoundCall("static", false, null, qct.Name(), qms.RegKey, qfa, qfa.Length, qms.Signature.Ret, sp);
+                        BoundCall qbc = BoundCall.Marked(new BoundCall("static", false, null, qct.Name(), qms.RegKey, qfa, qfa.Length, qms.Signature.Ret, sp), qms.Signature);
                         this._applyMethodTypeArgs(qbc, call, qms, env);
                         return qbc;
                     }

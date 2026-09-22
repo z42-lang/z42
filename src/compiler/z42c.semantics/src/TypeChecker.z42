@@ -305,7 +305,7 @@ public sealed class TypeChecker {
     public static BoundExpr _lowerUserConv(BoundExpr value, MethodSymbol ms) {
         BoundExpr[] a = new BoundExpr[1];
         a[0] = value;
-        return new BoundCall("static", false, null, ms.ContainingTypeName, ms.RegKey, a, 1, ms.Signature.Ret, value.Span);
+        return BoundCall.Marked(new BoundCall("static", false, null, ms.ContainingTypeName, ms.RegKey, a, 1, ms.Signature.Ret, value.Span), ms.Signature);
     }
 
     // add-user-conversions ③：A→C 无用户/内建转换，但存在 A→B 与 B→C 两跳用户转换时，返回中间类名 B（否则 ""）。

@@ -147,3 +147,93 @@ void test_value_type_question_mark_still_e0476() {
     string src = "namespace N; class C { static int M(int? v) { return 0; } }";
     Assert.Equal("E0476", SemanticDump.FirstErrorCode(src));
 }
+
+// ── 返回值标记：调用结果可能为 null ────────────────────────────────
+//
+// 与形参那半的关键差别：**调用结果没有名字可窄化**，所以逃生口是「先存进局部」。
+
+[Test]
+void test_nullable_return_deref_errors() {
+    string src = "namespace N; class C { static string? F() { return null; }"
+        + " static int M() { return C.F().Length; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_nullable_return_via_local_checked_ok() {
+    string src = "namespace N; class C { static string? F() { return null; }"
+        + " static int M() { string v = C.F(); if (v != null) { return v.Length; } return 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性对照：存进局部但**没检查**照样要报——否则「存进局部」就成了免检通行证。
+[Test]
+void test_nullable_return_via_local_unchecked_errors() {
+    string src = "namespace N; class C { static string? F() { return null; }"
+        + " static int M() { string v = C.F(); return v.Length; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照组：返回类型没标 `?` ⇒ 调用结果完全不受检。
+[Test]
+void test_unmarked_return_is_not_checked() {
+    string src = "namespace N; class C { static string F() { return \"x\"; }"
+        + " static int M() { return C.F().Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 重新赋一个已知非空的值 ⇒ 义务解除。
+[Test]
+void test_reassign_clears_obligation() {
+    string src = "namespace N; class C { static string? F() { return null; }"
+        + " static int M() { string v = C.F(); v = \"x\"; return v.Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ⭐ 回归：**没标 `?` 的局部赋 `null` 不得建立义务**。
+// 实施时这里误报过——`z42.net/HttpClient` 的 `TcpClient client = null;`（随后在循环里赋真值）。
+// 让 `null` 字面量本身建立事实，等于偷偷开了**悲观档**，而那是设计里明确不做的一档。
+[Test]
+void test_plain_local_assigned_null_is_not_checked() {
+    string src = "namespace N; class C { static int M(bool c) { string v = null;"
+        + " if (c) { v = \"x\"; } return v.Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── E0479：可空值不得从未标 `?` 的返回类型漏出去 ───────────────────
+
+[Test]
+void test_return_marked_param_from_unmarked_return_errors() {
+    string src = "namespace N; class C { static string M(string? s) { return s; } }";
+    Assert.Equal("E0479", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_return_nullable_call_from_unmarked_return_errors() {
+    string src = "namespace N; class C { static string? F() { return null; }"
+        + " static string M() { return C.F(); } }";
+    Assert.Equal("E0479", SemanticDump.FirstErrorCode(src));
+}
+
+// 修法一：把义务传给调用方。
+[Test]
+void test_return_marked_param_from_marked_return_ok() {
+    string src = "namespace N; class C { static string? M(string? s) { return s; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 修法二：在这里先检查。
+[Test]
+void test_return_after_narrowing_ok() {
+    string src = "namespace N; class C { static string M(string? s) {"
+        + " if (s == null) { return \"\"; } return s; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照组：`return null;` 字面量**本身不报** —— 那是反向推导（D8）的活，
+// 是「建议加 `?`」不是「这里有错」，混进 E0479 会让两件事分不开。
+[Test]
+void test_bare_null_literal_return_is_not_e0479() {
+    string src = "namespace N; class C { static string M() { return null; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

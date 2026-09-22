@@ -94,7 +94,7 @@ public sealed class AssignTyper {
                 if (acc != null && acc.Signature != null) {
                     BoundExpr erhs = this._et._bindExpr(a.Value, env);
                     BoundExpr[] sargs = new BoundExpr[1]; sargs[0] = erhs;
-                    return new BoundCall("instance", true, erecv, recvCls, accName, sargs, 1, acc.Signature.Ret, a.Span);
+                    return BoundCall.Marked(new BoundCall("instance", true, erecv, recvCls, accName, sargs, 1, acc.Signature.Ret, a.Span), acc.Signature);
                 }
             }
             // fix-crosspkg-property-assign（wire-z42b 2b 暴露）：imported 类**属性**赋值
