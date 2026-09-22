@@ -1,0 +1,72 @@
+namespace Demo;
+
+using Std;
+
+// `where T : class` / `where T : struct` 的值-引用判定，必须与**运行期**
+// `validate_type_arg_constraint`（corelib/reflection/generics.rs）一致。
+//
+// 参考手册 generic-constraints.md 抬头写着「判定规则的唯一真相源是运行期，编译期照抄同一套
+// 规则，两边不各判各的」——而编译期此前**确实各判各的**：
+//
+//   | 实参        | 旧 `where T : class` | 旧 `where T : struct` |
+//   |------------|---------------------|----------------------|
+//   | `int` 基元  | 拒（对）             | 过（对）              |
+//   | 用户 struct | 🔴 放行              | 🔴 拒                 |
+//   | `enum`      | 🔴 放行              | 🔴 拒                 |
+//
+// 即 `where T : struct` 只认六个基元 wrapper，用户自己写的 struct 一律被拒；`class` 反过来
+// 把 struct 与 enum 全放了进去。两边只在反射入口（MakeGenericType）才会撞上，普通调用走不到，
+// 于是一直没人发现。本用例钉住「编译期与运行期同口径」。
+//
+// 违反的那一半（struct 撞 class、enum 撞 class、class 撞 struct）是**编译错误**，钉不进
+// e2e 正例，由 z42c.semantics 的 constraint_member / typecheck 单测覆盖。
+// 这里钉**正面**：该过的必须过。
+//
+// 纯 Assert，空 stdout。
+
+struct Pair { public int X; public int Y; }
+struct Single { public int X; }
+[Record] struct RecPoint(int X, int Y);
+enum Color { Red, Green }
+
+class Node { public int V; }
+
+// 值类型侧
+int viaStruct<T>(T t) where T : struct { return 1; }
+// 引用类型侧
+int viaClass<T>(T t) where T : class { return 2; }
+// 值类型 + 可零实参构造
+T makeValue<T>() where T : struct { return new T(); }
+
+void Main() {
+    // ── where T : struct —— 基元 / 用户 struct / record struct / enum 全部满足 ──
+    Assert.Equal(1, viaStruct(42));
+    Assert.Equal(1, viaStruct(3.5));
+    Assert.Equal(1, viaStruct(true));
+    Assert.Equal(1, viaStruct('c'));
+    Assert.Equal(1, viaStruct<Pair>(new Pair()));
+    Assert.Equal(1, viaStruct<Single>(new Single()));
+    Assert.Equal(1, viaStruct<RecPoint>(new RecPoint(1, 2)));
+    Assert.Equal(1, viaStruct<Color>(Color.Red));
+
+    // 从局部变量推断（此前这条会把「推断没绑住 T」误报成「T 不满足 struct」）
+    Pair p = new Pair();
+    Assert.Equal(1, viaStruct(p));
+    Color c = Color.Green;
+    Assert.Equal(1, viaStruct(c));
+
+    // ── where T : class —— 引用类型满足 ──
+    Assert.Equal(2, viaClass("s"));
+    Assert.Equal(2, viaClass<Node>(new Node()));
+    object o = new Node();
+    Assert.Equal(2, viaClass<object>(o));
+
+    // ── struct 约束下的 new T() ──
+    Pair mp = makeValue<Pair>();
+    Assert.Equal(0, mp.X);
+
+    // ⚠️ `makeValue<int>()` 在这里**不能**断言：`new T()` 且 T 解析成基元时运行期抛
+    // `__box_prim: expected integer value, got Object(...Std.Int32...)`。与本用例修的那条
+    // 无关（基元一直就满足 `class`/`struct`/`new()` 的判定），是独立的一条 —— 判定说「可以
+    // 构造」，真去构造却崩。已记入待修队列。
+}

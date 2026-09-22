@@ -1,0 +1,5 @@
+T pick<T>(bool first, T a, T b) { return first ? a : b; }
+
+void Main() {
+    int r = pick<int, string>(true, 1, 2);   // pick 只有一个类型参数
+}

@@ -1,0 +1,14 @@
+# ANCHOR: use
+$ z42 run basic.z42
+43
+5
+7
+# ANCHOR_END: use
+# ANCHOR: mismatch
+$ z42 run typemismatch.z42
+z42c build: 3 error(s) in typemismatch.z42
+  typemismatch.z42(13,16): E0402: cannot assign Int32 to String (var-decl)
+  typemismatch.z42(14,11): E0402: cannot assign string to Int32 (argument)
+  typemismatch.z42(15,21): E0402: cannot assign Box<Int32> to Box<String> (var-decl)
+[exit: 1]
+# ANCHOR_END: mismatch

@@ -1,0 +1,5 @@
+# ANCHOR: use
+$ z42 run operators.z42
+6
+3.75
+# ANCHOR_END: use

@@ -1,0 +1,38 @@
+using Std.IO;
+
+// ANCHOR: iface
+interface IShape { int Area(); }
+
+class Rect : IShape {
+    public int w; public int h;
+    public Rect(int w, int h) { this.w = w; this.h = h; }
+    public int Area() { return this.w * this.h; }
+}
+
+// 没有约束的话，T 上什么成员都调不了；`where T : IShape` 之后 Area() 可用。
+int totalArea<T>(T[] shapes) where T : IShape {
+    int sum = 0;
+    int i = 0;
+    while (i < shapes.Length) { sum = sum + shapes[i].Area(); i = i + 1; }
+    return sum;
+}
+// ANCHOR_END: iface
+
+// ANCHOR: newc
+// `new()` 约束：保证 T 能零实参构造。
+T make<T>() where T : new() { return new T(); }
+
+class Plain { public int v; public Plain() { this.v = 9; } }
+// ANCHOR_END: newc
+
+void Main() {
+    // ANCHOR: use
+    Rect[] rs = new Rect[2];
+    rs[0] = new Rect(2, 3);
+    rs[1] = new Rect(4, 5);
+    Console.WriteLine(totalArea(rs));
+
+    Plain p = make<Plain>();
+    Console.WriteLine(p.v);
+    // ANCHOR_END: use
+}

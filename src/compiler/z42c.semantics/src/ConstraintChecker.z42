@@ -357,10 +357,10 @@ public sealed class ConstraintChecker {
         if (b.HasBaseClass && !this._satisfiesBase(symbols, arg, b.BaseClassName)) {
             this._err(arg, pn, b.BaseClassName, ownerName, sp);
         }
-        if (b.RequiresClass && !this._isClassArg(arg)) {
+        if (b.RequiresClass && !this._isClassArg(symbols, arg)) {
             this._err(arg, pn, "class", ownerName, sp);
         }
-        if (b.RequiresStruct && !this._isStructArg(arg)) {
+        if (b.RequiresStruct && !this._isStructArg(symbols, arg)) {
             this._err(arg, pn, "struct", ownerName, sp);
         }
         if (b.HasTypeParamRef) {
@@ -600,21 +600,54 @@ public sealed class ConstraintChecker {
         return arg.IsAssignableTo(other);
     }
 
-    private bool _isClassArg(Z42Type arg) {
-        // 阶段 3：翻转后 scalar 基元（int/bool/char…）为 Z42ClassType(Scalar)——**不满足 `where T : class`**
-        // （值类型非引用）。故排除 IsScalarValue 的 ClassType；string/object（IsScalarValue=false，引用类型）
-        // 与用户 class/instantiated 仍满足。翻转前 scalar 是 Z42PrimType（本就 `is Z42ClassType`=false 不满足），
-        // 逐字节同义。
-        if ((arg is Z42ClassType) && arg.IsScalarType()) { return false; }
-        return (arg is Z42ClassType) || (arg is Z42InstantiatedType);
+    // 值类型判定 —— **镜像运行期** `validate_type_arg_constraint` 的 `is_value`
+    // （`corelib/reflection/generics.rs`：`class_flags & CLASS_FLAG_STRUCT`，取不到 TypeDef 时
+    // 回落基元表）。本页抬头写明「判定规则的唯一真相源是运行期，编译期照抄同一套规则，两边不
+    // 各判各的」——此前这里**确实各判各的**：
+    //
+    //   | 实参        | 旧 `where T : class` | 旧 `where T : struct` |
+    //   |------------|---------------------|----------------------|
+    //   | `int` 基元  | 拒（对）             | 过（对）              |
+    //   | 用户 struct | 🔴 **放行**          | 🔴 **拒**             |
+    //   | `enum`      | 🔴 **放行**          | 🔴 **拒**             |
+    //
+    // 即 `where T : struct` 只接受六个基元 wrapper，用户自己写的 struct 一律被拒；而 `class`
+    // 反过来把 struct 与 enum 全放了进去。运行期那份从一开始就是对的，两边只在**反射入口**
+    // （`MakeGenericType`）才会撞上，普通调用走不到，于是一直没人发现。
+    //
+    // ⚠️ 不读 `arg` 自己的 `IsStruct` 位：薄类型上它可能没被填充（同 `PatternBinder
+    // ._structSubjectBoxed` 的告诫）。一律按名字回符号表查真类型。
+    // ⚠️ `enum` 的 `IsStruct` **是 false 且必须保持 false**（它还喂 `StructLayout` 的字段内联
+    // 展平，而 enum 没有字段，见 Z42Type.z42:191）——所以这里单独并上 `IsEnum`。
+    private bool _isValueTypeArg(SymbolTable symbols, Z42Type arg) {
+        if (arg.IsScalarType()) { return true; }               // 六个基元 wrapper
+        string n = "";
+        if (arg is Z42ClassType) { n = (arg as Z42ClassType).Name(); }
+        else if (arg is Z42InstantiatedType) { n = (arg as Z42InstantiatedType).Def.Name(); }
+        else { return false; }
+        if (symbols.EnumTypes.ContainsKey(n)) { return true; } // enum 是值类型（IsEnum 位见上）
+        Z42ClassType def = symbols.GetClass(n);
+        if (def == null) { return false; }                     // 查不到：按引用类型处理（同运行期的保守回落）
+        return def.IsStruct;
     }
 
-    private bool _isStructArg(Z42Type arg) {
-        // z42c 把基本类型当值类型；class/instantiated 为引用。
-        // unify-value-types Phase 1（2.6 双路）：翻转后基元（int→Z42ClassType(Int32,Scalar)）仍算值类型——
-        // 追加 Scalar 值类型判定（IsScalarValue 只认六个基元 wrapper，用户 struct 不命中，保持现行为）。
-        // 翻转前无 Scalar 名 Z42ClassType 流经此处 → 当前中立。
-        return (arg is Z42ClassType) && arg.IsScalarType();
+    // 实参类型没解析出来（型参未被推断 / 前面已报过错）→ 一律放行，别在上面叠加一条假的约束
+    // 违反。`_isEnumArg` 与 `_hasNoArgCtor` 一直是这么做的，class/struct 两条**漏了**——于是
+    // `SV v = ...; wantStruct(v);` 推断没绑住 T 时，报的是「type argument `T` 不满足 struct」，
+    // 把「推断失败」说成「约束违反」，读者照着约束去改永远改不对。
+    private bool _unresolved(Z42Type arg) {
+        return (arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType);
+    }
+
+    private bool _isClassArg(SymbolTable symbols, Z42Type arg) {
+        if (this._unresolved(arg)) { return true; }
+        if (!((arg is Z42ClassType) || (arg is Z42InstantiatedType))) { return false; }
+        return !this._isValueTypeArg(symbols, arg);            // string / object / 用户 class 仍满足
+    }
+
+    private bool _isStructArg(SymbolTable symbols, Z42Type arg) {
+        if (this._unresolved(arg)) { return true; }
+        return this._isValueTypeArg(symbols, arg);
     }
 
     // ════ 方法级 where 约束（add-generic-methods，call-site）═══════════════════════

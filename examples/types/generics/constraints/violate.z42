@@ -1,0 +1,10 @@
+class Plain { }
+class NeedsArg { public int v; public NeedsArg(int x) { this.v = x; } }
+
+void wantsEnum<T>(T t) where T : enum { }
+T make<T>() where T : new() { return new T(); }
+
+void Main() {
+    wantsEnum<Plain>(new Plain());
+    NeedsArg n = make<NeedsArg>();
+}

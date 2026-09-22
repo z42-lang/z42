@@ -1,0 +1,11 @@
+# ANCHOR: use
+$ z42 run assoc.z42
+3
+# ANCHOR_END: use
+# ANCHOR: mismatch
+$ z42 run mismatch.z42
+z42c build: 2 error(s) in mismatch.z42
+  mismatch.z42(6,33): E0453: type argument `StrStore` for `T` on `IntOnly` binds `Item` to `string`, but `int` is required
+  mismatch.z42(6,5): E0453: type argument `StrStore` for `T` on `IntOnly` binds `Item` to `string`, but `int` is required
+[exit: 1]
+# ANCHOR_END: mismatch

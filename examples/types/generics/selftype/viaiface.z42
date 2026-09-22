@@ -1,0 +1,10 @@
+interface IEq { bool Same(Self other); }
+
+class P : IEq { public int v;    public bool Same(P other) { return true; } }
+class Q : IEq { public string s; public bool Same(Q other) { return true; } }
+
+void Main() {
+    IEq a = new P();
+    IEq b = new Q();
+    bool r = a.Same(b);
+}

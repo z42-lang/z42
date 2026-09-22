@@ -29,12 +29,39 @@ var p = New<Point>();             // new Point()
 ```z42
 class Box<T> {
     U Convert<U>(T input) {   // T = 类形参，U = 方法形参
-        var tu = typeof(U);   // 方法级：读 frame.method_type_args
-        var tt = typeof(T);   // 类级：读实例 type_args（见「实现原理」）
+        var tu = typeof(U);   // 方法级：读 frame.method_type_args → 具体类型
+        var tz = default(T);  // 类级：读实例 type_args（见「实现原理」）→ 具体零值
         …
     }
 }
 ```
+
+### 🔴 `typeof(T)` 对**类级**型参产出占位名（实测 2026-09-22）
+
+上例原先把 `typeof(T)` 也写成「类级：读实例 type_args」——**那是错的**。类级型参的
+`typeof` 走既有 `TypeofInstr`、**只携静态写下的名字**，运行期不查实例 `type_args`
+（`TypeOpTyper.z42:64-65` / `BoundExprOp.z42:210-212` 的 `D3` 注释：「类级 typeof 仍产占位」）。
+
+```z42
+class Box<T> {
+    public string full()  { return typeof(T).FullName; }
+    public bool   isInt() { return typeof(T) == typeof(int); }
+}
+Box<int> b = new Box<int>();
+b.full()    // → "T"      ← 不是 "Int32"
+b.isInt()   // → false    ← 静默走错分支，零诊断
+```
+
+⚠️ **这是静默错值**：泛型类里按 `typeof(T) == typeof(int)` 分派的代码（序列化器的典型写法）
+会安静地走错分支。**同一个 `T` 的 `default(T)` 是对的**（`Box<int>` 得 `0`）——实例
+`type_args` 运行期确实在，只是 `typeof` 没去读它。
+
+可用的替代：
+
+| 想要什么 | 怎么写 |
+|---|---|
+| 类级 `T` 的具体运行期类型 | `default(T).GetType()`（值类型可靠；引用类型 `default` 是 null，改用一个实例的 `GetType()`） |
+| 按类型分派 | 把型参挪到**方法级**（`Convert<U>()`），方法级 `typeof(U)` 是具体的 |
 
 ## `<` 的歧义消解
 

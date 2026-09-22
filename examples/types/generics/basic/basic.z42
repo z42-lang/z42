@@ -1,0 +1,24 @@
+using Std.IO;
+
+// ANCHOR: decl
+// 一个能装任何类型的盒子。T 是类型参数——用的时候才决定它是什么。
+class Box<T> {
+    private T item;
+    public Box(T v) { this.item = v; }
+    public T Get() { return this.item; }
+    public void Set(T v) { this.item = v; }
+}
+// ANCHOR_END: decl
+
+// ANCHOR: use
+void Main() {
+    Box<int> n = new Box<int>(42);
+    Box<string> s = new Box<string>("hello");
+
+    Console.WriteLine(n.Get() + 1);        // int，能做算术
+    Console.WriteLine(s.Get().Length);     // string，能取长度
+
+    n.Set(7);
+    Console.WriteLine(n.Get());
+}
+// ANCHOR_END: use

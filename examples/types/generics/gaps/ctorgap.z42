@@ -1,0 +1,12 @@
+using Std.IO;
+
+class Box<T> {
+    private T item;
+    public Box(T v) { this.item = v; }
+    public T Get() { return this.item; }
+}
+
+void Main() {
+    Box<int> n = new Box<int>("not an int");   // 编译期零诊断
+    Console.WriteLine(n.Get());                // 运行期才炸
+}
