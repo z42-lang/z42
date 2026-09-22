@@ -151,3 +151,45 @@ void test_property_custom_setter_value_in_scope() {
     string src = "namespace D; class C { int _x; public int P { get { return this._x; } set { this._x = value + 1; } } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── add-accessor-visibility：访问器级可见性（`private set` 等）真生效 ──────────────────
+// 此前 get_X/set_X 符号一律用属性级可见性 + IR accessor 恒 public ⇒ `private set` 被静默当 public。
+
+// 外部写 `{ get; private set; }` → E0404（access-denied，新增强制）。
+[Test]
+void test_private_set_external_write_e0404() {
+    string src = "namespace D; class C { public int P { get; private set; } public C() { this.P = 1; } }"
+        + " void Main() { var c = new C(); c.P = 5; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
+
+// 类内写 `this.P`（ctor / 方法）→ 合法（private setter 本类可访问）。
+[Test]
+void test_private_set_internal_write_ok() {
+    string src = "namespace D; class C { public int P { get; private set; } public C() { this.P = 1; } void M() { this.P = 2; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 外部读 `{ get; private set; }` → 合法（getter 继承属性级 public）。
+[Test]
+void test_private_set_external_read_ok() {
+    string src = "namespace D; class C { public int P { get; private set; } public C() { this.P = 1; } }"
+        + " void Main() { var c = new C(); int r = c.P; }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 无访问器修饰的读写属性 `{ get; set; }` → 外部写合法（不回归）。
+[Test]
+void test_public_set_external_write_ok() {
+    string src = "namespace D; class C { public int P { get; set; } }"
+        + " void Main() { var c = new C(); c.P = 5; }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// `protected set` 外部写 → E0404（非派生上下文）。
+[Test]
+void test_protected_set_external_write_e0404() {
+    string src = "namespace D; class C { public int P { get; protected set; } public C() { this.P = 1; } }"
+        + " void Main() { var c = new C(); c.P = 5; }";
+    Assert.Equal("E0404", SemanticDump.FirstErrorCode(src));
+}
