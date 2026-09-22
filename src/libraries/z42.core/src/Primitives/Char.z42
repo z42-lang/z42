@@ -5,6 +5,26 @@ namespace Std;
 //
 // L3-G4b primitive-as-struct: declares Char's interface conformance.
 public struct Char : IComparable, IEquatable {
+    // symmetrize-primitive-api。**与 C# 的差异（有意）**：C# `char` 是 16 位 UTF-16 码元，
+    // `Char.MaxValue == '\uFFFF'`；z42 的 `char` 是 32 位 **Unicode 标量值**，故上界取
+    // 0x10FFFF。写成 `(char)` 转换而非字面量转义，避免依赖 `\u{...}` 语法。
+    public static char MinValue = (char)0;
+    public static char MaxValue = (char)1114111;
+
+    // symmetrize-primitive-api：此前只有 `Convert.ToChar`，`Char` 自己没有 Parse/TryParse。
+    // 语义对齐 C# `Char.Parse`：**恰好一个字符**的字符串，其余抛 FormatException。
+    public static char Parse(string s) {
+        if (s.Length != 1) {
+            throw new FormatException($"Char.Parse: string must be exactly one character (length={s.Length})");
+        }
+        return s.CharAt(0);
+    }
+
+    public static char? TryParse(string s) {
+        try { return Char.Parse(s); }
+        catch (Exception e) { return null; }
+    }
+
     [Native("__char_to_string")]      public extern string ToString();
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
