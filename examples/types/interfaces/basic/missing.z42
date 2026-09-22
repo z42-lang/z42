@@ -1,0 +1,7 @@
+using Std.IO;
+
+interface IShape { double Area(); }
+
+class Bad : IShape { }      // 没实现 Area
+
+void Main() { Console.WriteLine("x"); }

@@ -1,0 +1,33 @@
+using Std.IO;
+
+// ANCHOR: decl
+interface IShape {
+    double Area();          // 只有签名，没有体
+    string Name { get; }    // 接口也能要求属性
+}
+
+class Circle : IShape {
+    public double Radius { get; }
+    public Circle(double r) { Radius = r; }
+
+    public double Area() { return 3.14159 * Radius * Radius; }
+    public string Name { get { return "圆"; } }
+}
+
+class Rect : IShape {
+    private double _w; private double _h;
+    public Rect(double w, double h) { _w = w; _h = h; }
+
+    public double Area() { return _w * _h; }
+    public string Name { get { return "矩形"; } }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: use
+    IShape[] all = [ new Circle(1.0), new Rect(2.0, 3.0) ];
+    foreach (IShape s in all) {
+        Console.WriteLine($"{s.Name}: {s.Area()}");
+    }
+    // ANCHOR_END: use
+}

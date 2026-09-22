@@ -1,0 +1,6 @@
+# ANCHOR: run
+$ z42 run check.z42
+3
+  画圆
+6
+# ANCHOR_END: run

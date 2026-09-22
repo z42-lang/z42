@@ -1,0 +1,11 @@
+# ANCHOR: run
+$ z42 run basic.z42
+圆: 3.14159
+矩形: 6
+# ANCHOR_END: run
+# ANCHOR: missing
+$ z42 run missing.z42
+z42c build: 1 error(s) in missing.z42
+  missing.z42(5,1): E0412: `Bad` implements `IShape` but does not define member `Area`
+[exit: 1]
+# ANCHOR_END: missing

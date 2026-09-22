@@ -1,0 +1,26 @@
+using Std.IO;
+
+interface IShape { double Area(); }
+interface IDrawable { void Draw(); }
+
+class Circle : IShape, IDrawable {
+    public double Area() { return 3.0; }
+    public void Draw() { Console.WriteLine("  画圆"); }
+}
+class Rect : IShape {
+    public double Area() { return 6.0; }
+}
+
+void Main() {
+    // ANCHOR: code
+    IShape[] all = [ new Circle(), new Rect() ];
+
+    foreach (IShape s in all) {
+        Console.WriteLine(s.Area());
+        if (s is IDrawable) {               // 问一句「它能画吗」
+            IDrawable d = s as IDrawable;   // 转成那个接口
+            d.Draw();
+        }
+    }
+    // ANCHOR_END: code
+}
