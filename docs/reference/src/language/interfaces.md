@@ -134,6 +134,20 @@ bus.Fire(7);                                                   // click 7
 `+=` / `-=` 在接口引用上同样脱糖成 `add_Clicked` / `remove_Clicked`，按虚表派发到实现类。
 事件与多播委托的完整语义见[委托与事件](delegates-events.md)。
 
+### 不能出现在接口里的成员
+
+接口**只能**声明方法、属性、索引器、事件、关联类型。**字段**（静态/实例）和**嵌套类型**报 **E0481**：
+
+```z42
+interface I {
+    static int Version;   // ✗ E0481：接口没有字段
+    class Nested {}       // ✗ E0481：接口不能声明嵌套类型
+}
+```
+
+> 接口的属性/索引器访问器（`get_X`/`set_X`/`get_Item`/`set_Item`）随 TYPE record 过 wire，跨包保真
+> （`add-crosspkg-interface-accessors`）——经**接口静态类型**读写跨包接口的属性/索引器与本包同口径。
+
 ## 泛型接口
 
 ```z42

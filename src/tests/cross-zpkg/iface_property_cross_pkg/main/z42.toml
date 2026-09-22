@@ -1,0 +1,8 @@
+[project]
+name = "demo.papp"   # *papp 排在 ptarget 之前——cross-zpkg 驱动取字母序首个 zpkg 当 exe
+version = "0.1.0"
+kind = "exe"
+entry = "DemoPApp.Main"
+pack = true
+[dependencies]
+"demo.ptarget" = "0.1.0"

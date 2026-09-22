@@ -1,0 +1,22 @@
+// add-crosspkg-interface-accessors：target 侧声明带属性 + 索引器的接口 + 实现类 + 工厂。
+// main 经**接口静态类型**读属性/索引器 —— 只有当接口访问器（get_Area/get_Name/get_Item）随
+// TYPE record 过 wire、被 main 侧 ImportedSymbolLoader 恢复进 it.Methods 时才解析得到。
+
+namespace DemoPTarget;
+
+public interface IShape {
+    int Area { get; }
+    string Name { get; }
+    int this[int i] { get; }     // 接口索引器（get-only）
+}
+
+public class Square : IShape {
+    int side;
+    public Square(int s) { this.side = s; }
+    public int Area { get { return this.side * this.side; } }
+    public string Name { get { return "square"; } }
+    public int this[int i] { get { return this.side + i; } }
+}
+
+// 工厂：以**接口静态类型**返回，跨包消费方拿到的就是 IShape。
+public IShape MakeSquare(int s) { return new Square(s); }

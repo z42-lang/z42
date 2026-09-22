@@ -13,6 +13,20 @@ public static class TypeFactsTc {
         if (op == "*") { return "op_Multiply"; }
         if (op == "/") { return "op_Divide"; }
         if (op == "%") { return "op_Modulo"; }
+        // add-comparison-operators：比较/相等/位运算符重载派发名（对齐 C#，与 MemberParser._operatorMethodName
+        // 声明侧一致）。无 op_X 方法的类型（裸数值、无重载类）由 _bindBinary 的 _resolveOverload 返回 null
+        // 回落 BinaryTypeTable（引用相等 / 原生比较），故非重载类型零行为变化。
+        if (op == "==") { return "op_Equality"; }
+        if (op == "!=") { return "op_Inequality"; }
+        if (op == "<")  { return "op_LessThan"; }
+        if (op == ">")  { return "op_GreaterThan"; }
+        if (op == "<=") { return "op_LessThanOrEqual"; }
+        if (op == ">=") { return "op_GreaterThanOrEqual"; }
+        if (op == "&")  { return "op_BitwiseAnd"; }
+        if (op == "|")  { return "op_BitwiseOr"; }
+        if (op == "^")  { return "op_ExclusiveOr"; }
+        if (op == "<<") { return "op_LeftShift"; }
+        if (op == ">>") { return "op_RightShift"; }
         return "";
     }
 
