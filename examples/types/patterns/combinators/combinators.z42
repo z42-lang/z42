@@ -1,0 +1,64 @@
+using Std.IO;
+
+// ANCHOR: scalar
+string grade(int score) {
+    return score switch {
+        >= 90     => "优",
+        75 ..= 89 => "良",
+        60 ..= 74 => "及格",
+        _         => "不及格"
+    };
+}
+
+string kindOf(char c) {
+    return c switch {
+        'a' ..= 'z' => "小写字母",
+        'A' ..= 'Z' => "大写字母",
+        '0' ..= '9' => "数字",
+        _           => "其他"
+    };
+}
+// ANCHOR_END: scalar
+
+// ANCHOR: types
+abstract class Shape { }
+[Record] class Circle(int R) : Shape;
+[Record] class Square(int S) : Shape;
+[Record] class Triangle(int B, int H) : Shape;
+// ANCHOR_END: types
+
+// ANCHOR: orbind
+int sizeOf(Shape s) {
+    return s switch {
+        Circle(r) | Square(r) => r,          // 两个变体同一种处理
+        Triangle(b, h)        => b * h / 2,
+        _                     => 0
+    };
+}
+// ANCHOR_END: orbind
+
+// ANCHOR: at
+string describe(Shape s) {
+    switch (s) {
+        case whole @ Square(side):
+            return $"边长 {side} 的正方形，面积 {area(whole)}";
+        case Circle(r):
+            return $"半径 {r} 的圆";
+        default:
+            return "别的形状";
+    }
+}
+
+int area(Square q) { return q.S * q.S; }
+// ANCHOR_END: at
+
+void Main() {
+    // ANCHOR: use
+    Console.WriteLine(grade(95));
+    Console.WriteLine(grade(80));
+    Console.WriteLine(kindOf('q'));
+    Console.WriteLine(sizeOf(new Square(6)));
+    Console.WriteLine(sizeOf(new Circle(4)));
+    Console.WriteLine(describe(new Square(3)));
+    // ANCHOR_END: use
+}

@@ -1,0 +1,13 @@
+# ANCHOR: use
+$ z42 run destructure.z42
+原点
+Y 轴上，y=7
+右半边 (3, 4)
+在 Y 轴上
+8
+# ANCHOR_END: use
+# ANCHOR: decl
+$ z42 run decl.z42
+7
+3
+# ANCHOR_END: decl

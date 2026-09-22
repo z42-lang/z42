@@ -1,0 +1,14 @@
+using Std.IO;
+
+[Record] class Point(int X, int Y);
+
+void Main() {
+    // ANCHOR: code
+    Point p = new Point(3, 4);
+    Point(x, y) = p;                  // 直接解构到两个新局部
+    Console.WriteLine(x + y);
+
+    { X: only } = p;                  // 属性形态：只取想要的字段
+    Console.WriteLine(only);
+    // ANCHOR_END: code
+}

@@ -1,0 +1,7 @@
+# ANCHOR: run
+$ z42 run enums.z42
+East
+向东
+E
+1
+# ANCHOR_END: run
