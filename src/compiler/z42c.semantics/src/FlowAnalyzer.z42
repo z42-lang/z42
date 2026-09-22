@@ -1,0 +1,493 @@
+// Definite assignment —— 局部变量未赋值就读 → E0407。
+//
+// ## 为什么这个文件是新建的
+//
+// 老的 C# 宿主编译器有 `z42.Semantics/TypeCheck/FlowAnalyzer.cs`（528 行，可达性分析 +
+// definite assignment）。`f8ff73d59`「delete src/compiler」把它连同整个 C# 编译器删掉，
+// **z42c 这边从来没补**——于是 `DiagnosticCodes.UninitializedVariable = "E0407"` 这个常量
+// 一直摆着、文档也记着它，却**零发射点**。本文件把它补回来，join 规则逐条移植自老实现
+// （`git show f8ff73d59^:src/compiler/z42.Semantics/TypeCheck/FlowAnalyzer.cs`）。
+//
+// ## 两条设计铁律
+//
+// **① 误报零容忍。** DA 的全部价值前提是「用了没赋值的变量」是**确定性事实**、不是概率判断。
+// 任何误报都说明下面的 join 规则漏了一种控制流结构，**不是「规则太严」**。
+//
+// **② 漏报可以接受，误报不可以。** 没覆盖到的节点一律保守当成「已赋值」——漏报只是少抓一个
+// bug，误报会拦住合法代码。故 `_stmt` / `_reads` 的兜底分支什么都不做，而不是报错。
+//
+// ## 不做 `out` 那半
+//
+// 老实现近一半是 `out` 形参的 callee 端 DA。`simplify-ref-parameters`（#728）砍了 `out`，
+// 且被 `ref` 取址的无 init 局部会在**声明处**回填 `default(T)` ⇒ 形参与被取址的局部恒为已赋值。
+namespace Z42.Semantics;
+
+using Z42.Core;
+using Z42.Syntax;
+using Z42.IR;     // StrMap
+
+public sealed class FlowAnalyzer {
+
+    private DiagnosticBag _diags;
+    private StrMap _uninit;     // 声明时无初始化器的局部名 → "1"
+    private StrMap _assigned;   // 到当前程序点为止**必定已赋值**的名字 → "1"
+
+    private FlowAnalyzer(DiagnosticBag diags) {
+        this._diags = diags;
+        this._uninit = new StrMap();
+        this._assigned = new StrMap();
+    }
+
+    // 入口：方法体绑定完之后调。形参一律预置为已赋值（调用方提供了值；`ref` 亦然——
+    // 取址点要求槽位已初始化，见 simplify-ref-parameters）。
+    public static void Check(BoundStmt body, MethodDecl md, DiagnosticBag diags) {
+        if (body == null || diags == null) { return; }
+        FlowAnalyzer fa = new FlowAnalyzer(diags);
+        if (md != null) {
+            int i = 0;
+            while (i < md.ParamCount) { fa._assigned.Put(md.Params[i].Name, "1"); i = i + 1; }
+        }
+        fa._stmt(body);
+    }
+
+    // ── 正常结束分析 ────────────────────────────────────────────────────────
+    //
+    // 「这条语句的所有路径都以 return / throw 离开吗」。if/else 的 join 要用它：
+    // 一支必定退出时，只有另一支的赋值能落到后面。
+    //
+    // 保守方向：拿不准就返 false（= 会正常结束）。返 false 只会让 join 更严（少传播赋值），
+    // 那是漏报方向；返 true 则可能让未赋值的路径被误判成已赋值 —— 那是**误报+漏报**兼有，更坏。
+    public static bool AlwaysReturns(BoundStmt s) {
+        if (s == null) { return false; }
+        if (s is BoundReturn) { return true; }
+        if (s is BoundThrow)  { return true; }
+        if (s is BoundBlock) {
+            BoundBlock b = s as BoundBlock;
+            int i = 0;
+            while (i < b.Count) {
+                if (FlowAnalyzer.AlwaysReturns(b.Stmts[i])) { return true; }
+                i = i + 1;
+            }
+            return false;
+        }
+        if (s is BoundIf) {
+            BoundIf f = s as BoundIf;
+            if (!f.HasElse) { return false; }   // 条件假时会落下来
+            return FlowAnalyzer.AlwaysReturns(f.Then) && FlowAnalyzer.AlwaysReturns(f.Else);
+        }
+        if (s is BoundTry) {
+            // try 与**每个** catch 都必定退出才算；finally 不影响（它总会执行但不决定去向）。
+            BoundTry t = s as BoundTry;
+            if (!FlowAnalyzer.AlwaysReturns(t.TryBody)) { return false; }
+            int i = 0;
+            while (i < t.CatchCount) {
+                if (!FlowAnalyzer.AlwaysReturns(t.Catches[i].Body)) { return false; }
+                i = i + 1;
+            }
+            return true;
+        }
+        // while / for / foreach / switch / break / continue / 其余：保守返 false。
+        // （`while (true)` 无 break 也算必定不落下来，但判它需要常量求值 + break 分析，
+        //  收益小于风险，留白。）
+        return false;
+    }
+
+    // ── 语句遍 ──────────────────────────────────────────────────────────────
+
+    private void _stmt(BoundStmt s) {
+        if (s == null) { return; }
+
+        if (s is BoundBlock) {
+            BoundBlock b = s as BoundBlock;
+            int i = 0;
+            while (i < b.Count) { this._stmt(b.Stmts[i]); i = i + 1; }
+            return;
+        }
+
+        if (s is BoundVarDeclStmt) {
+            BoundVarDeclStmt v = s as BoundVarDeclStmt;
+            if (v.Init != null) { this._reads(v.Init); }
+            else { this._uninit.Put(v.Name, "1"); }
+            return;
+        }
+
+        if (s is BoundExprStmt) {
+            BoundExprStmt e = s as BoundExprStmt;
+            this._reads(e.E);
+            this._collectAssign(e.E);
+            return;
+        }
+
+        if (s is BoundReturn) {
+            BoundReturn r = s as BoundReturn;
+            if (r.HasValue) { this._reads(r.Value); }
+            return;
+        }
+
+        if (s is BoundThrow) { this._reads((s as BoundThrow).E); return; }
+
+        if (s is BoundIf) { this._if(s as BoundIf); return; }
+
+        if (s is BoundWhile) {
+            // 循环体可能**零次执行** ⇒ 体内赋值不传出。
+            BoundWhile w = s as BoundWhile;
+            this._reads(w.Cond);
+            this._inScratch(w.Body);
+            return;
+        }
+
+        if (s is BoundDoWhile) {
+            // 体**必执行一次** ⇒ 赋值传出（与 while 相反，这条容易写反）。
+            BoundDoWhile d = s as BoundDoWhile;
+            this._stmt(d.Body);
+            this._reads(d.Cond);
+            return;
+        }
+
+        if (s is BoundFor) {
+            BoundFor f = s as BoundFor;
+            if (f.HasInit) { this._stmt(f.Init); }       // init 必执行 ⇒ 赋值传出
+            if (f.HasCond) { this._reads(f.Cond); }
+            this._inScratch(f.Body);                      // 体与 incr 可能零次执行
+            if (f.HasIncr) { this._readsScratch(f.Incr); }
+            return;
+        }
+
+        if (s is BoundForeach) {
+            BoundForeach fe = s as BoundForeach;
+            this._reads(fe.Collection);
+            this._assigned.Put(fe.VarName, "1");          // 迭代变量由 foreach 赋值
+            this._inScratch(fe.Body);                     // 集合可能为空 ⇒ 体内赋值不传出
+            return;
+        }
+
+        if (s is BoundSwitch) { this._switch(s as BoundSwitch); return; }
+        if (s is BoundTry)    { this._try(s as BoundTry);       return; }
+
+        if (s is BoundDeconstructDeclStmt) {
+            // 解构声明：初始化器必被读；绑出的名字视为已赋值（名字在 Pattern 里，
+            // 这里不拆——未登记进 uninit 的名字本就不会被判红，保守且正确）。
+            this._reads((s as BoundDeconstructDeclStmt).Init);
+            return;
+        }
+
+        if (s is BoundLocalFunction) {
+            // 局部函数体单独成域：只查它内部的读，不与外层共享赋值状态
+            // （它的调用时机不确定，把外层赋值算进去会漏报、把它的赋值传出会误报）。
+            BoundLocalFunction lf = s as BoundLocalFunction;
+            FlowAnalyzer inner = new FlowAnalyzer(this._diags);
+            if (lf.Decl != null) {
+                int i = 0;
+                while (i < lf.Decl.ParamCount) { inner._assigned.Put(lf.Decl.Params[i].Name, "1"); i = i + 1; }
+            }
+            inner._stmt(lf.Body);
+            return;
+        }
+
+        // break / continue / 其余：无赋值语义，且 D4 的保守兜底。
+    }
+
+    // if / else 的合并（老实现 VisitIf 的逐条移植）。
+    private void _if(BoundIf f) {
+        this._reads(f.Cond);
+        StrMap prev = this._assigned;
+
+        StrMap thenA = FlowAnalyzer._copy(prev);
+        this._assigned = thenA;
+        this._stmt(f.Then);
+
+        if (!f.HasElse) {
+            // 无 else：条件假时会落下来 ⇒ then 里的赋值**不算**。
+            this._assigned = prev;
+            return;
+        }
+
+        StrMap elseA = FlowAnalyzer._copy(prev);
+        this._assigned = elseA;
+        this._stmt(f.Else);
+
+        bool thenOut = FlowAnalyzer.AlwaysReturns(f.Then);
+        bool elseOut = FlowAnalyzer.AlwaysReturns(f.Else);
+        this._assigned = prev;
+        if (thenOut && !elseOut)       { FlowAnalyzer._union(this._assigned, elseA); }
+        else if (!thenOut && elseOut)  { FlowAnalyzer._union(this._assigned, thenA); }
+        else if (!thenOut && !elseOut) { FlowAnalyzer._unionCommon(this._assigned, thenA, elseA); }
+        // 两支都退出 → 控制流落不下来，prev 不动。
+    }
+
+    // switch：各 case 的**交集**；必定退出的 case 跳过（同 if/else 的道理）。
+    private void _switch(BoundSwitch sw) {
+        this._reads(sw.Subject);
+        StrMap prev = this._assigned;
+        StrMap common = null;
+        bool sawFallthrough = false;
+        int i = 0;
+        while (i < sw.CaseCount) {
+            BoundSwitchCase c = sw.Cases[i];
+            StrMap caseA = FlowAnalyzer._copy(prev);
+            this._assigned = caseA;
+            if (c.Guard != null) { this._reads(c.Guard); }
+            int j = 0;
+            bool outs = false;
+            while (j < c.BodyCount) {
+                this._stmt(c.Body[j]);
+                if (FlowAnalyzer.AlwaysReturns(c.Body[j])) { outs = true; }
+                j = j + 1;
+            }
+            if (!outs) {
+                sawFallthrough = true;
+                if (common == null) { common = caseA; }
+                else { common = FlowAnalyzer._common(common, caseA); }
+            }
+            i = i + 1;
+        }
+        this._assigned = prev;
+        // 只有**每个**正常结束的 case 都赋了才传出；且必须有 default（否则可能一个 case 都不进）。
+        if (sawFallthrough && common != null && FlowAnalyzer._hasDefault(sw)) {
+            FlowAnalyzer._union(this._assigned, common);
+        }
+    }
+
+    private static bool _hasDefault(BoundSwitch sw) {
+        int i = 0;
+        while (i < sw.CaseCount) {
+            if (!sw.Cases[i].HasPattern) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // try / catch / finally。
+    //
+    // ## 这条规则是三方权衡的结果，改它之前先看完
+    //
+    // **老实现（C# 编译器）**：try 体直接在当前状态上走（赋值保留）、**catch 也拿到 try 的赋值**、
+    // 事后状态 = try 的赋值。零误报，但漏掉「catch 里读 try 赋的值」这种真 bug。
+    //
+    // **我最初写的严格版**：事后状态 = try 与各 catch 的交集。它在 z42.net 的
+    // `HttpServer.ServeThreaded` 上**误报**了：
+    //
+    // ```z42
+    // TcpClient peer;
+    // try { peer = accept(); }
+    // catch (SocketClosedException e) { return; }        // 必定退出，跳过 ✓
+    // catch (Exception e) { log(...); continue; }        // ← `continue` 不算「必定退出」⇒ 被纳入交集 ⇒ peer 被判未赋值
+    // peer.Dispose();
+    // ```
+    //
+    // 把 `break`/`continue` 也算进「必定退出」能修这一例，但会**打坏 switch**——
+    // `case 1: x = 1; break;` 的 break 是 case 的正常收尾，算成「退出」后各 case 都不进交集、
+    // `switch` 整个不传播赋值 ⇒ 换来一批新的误报。控制流转移在「块内顺序」与「switch case 收尾」
+    // 两种语境下含义相反，一个谓词表达不了。
+    //
+    // **选定（严格优于老实现，又无误报）**：
+    // - try 体在当前状态上走 ⇒ 赋值**保留**（避开上面那个误报；代价是漏掉「异常在赋值前抛出」）
+    // - 每个 catch 从 **try 之前**的状态副本开始 ⇒ 「catch 里读 try 赋的值」**照样报**（老实现漏的那条）
+    // - 事后状态 = try 体之后（catch 不参与收紧）
+    // - finally 必执行 ⇒ 在事后状态上走，赋值传出
+    //
+    // 净效果：比老实现多抓一类真 bug，且零误报。剩下的漏报（异常在赋值前抛出）是 D4 认可的方向。
+    private void _try(BoundTry t) {
+        StrMap preTry = FlowAnalyzer._copy(this._assigned);
+
+        this._stmt(t.TryBody);                     // 就地走：try 的赋值保留
+        StrMap postTry = this._assigned;
+
+        int i = 0;
+        while (i < t.CatchCount) {
+            BoundCatchClause c = t.Catches[i];
+            StrMap catchA = FlowAnalyzer._copy(preTry);   // ← preTry，不是 postTry
+            if (c.HasVar) { catchA.Put(c.VarName, "1"); }
+            this._assigned = catchA;
+            this._stmt(c.Body);
+            i = i + 1;
+        }
+
+        this._assigned = postTry;
+        if (t.HasFinally) { this._stmt(t.Finally); }
+    }
+
+    // 在一份**快照**上走（体内赋值不传出）。while / for 体 / foreach 体用。
+    private void _inScratch(BoundStmt body) {
+        StrMap prev = this._assigned;
+        this._assigned = FlowAnalyzer._copy(prev);
+        this._stmt(body);
+        this._assigned = prev;
+    }
+
+    private void _readsScratch(BoundExpr e) {
+        StrMap prev = this._assigned;
+        this._assigned = FlowAnalyzer._copy(prev);
+        this._reads(e);
+        this._collectAssign(e);
+        this._assigned = prev;
+    }
+
+    // ── 赋值收集 ────────────────────────────────────────────────────────────
+
+    private void _collectAssign(BoundExpr e) {
+        if (e == null) { return; }
+        if (e is BoundAssign) {
+            BoundAssign a = e as BoundAssign;
+            this._collectAssign(a.Value);                 // 嵌套赋值 `a = b = 1`
+            if (a.Target is BoundIdent) {
+                this._assigned.Put((a.Target as BoundIdent).Name, "1");
+            }
+            return;
+        }
+        if (e is BoundSeqExpr) { this._collectAssign((e as BoundSeqExpr).Value); return; }
+        // 其余形态不产生对局部名的确定性赋值（D4 的保守兜底）。
+    }
+
+    // ── 表达式 reads 遍 ─────────────────────────────────────────────────────
+    //
+    // 只有「登记在 uninit 且尚未 assigned」的名字才报。其余（形参 / 带初始化器的局部 /
+    // 字段 / 静态）一律不进 uninit，故天然不会被判红。
+
+    private void _reads(BoundExpr e) {
+        if (e == null) { return; }
+
+        if (e is BoundIdent) {
+            BoundIdent id = e as BoundIdent;
+            if (this._uninit.ContainsKey(id.Name) && !this._assigned.ContainsKey(id.Name)) {
+                this._diags.Error(DiagnosticCodes.UninitializedVariable,
+                    "use of unassigned local variable `" + id.Name + "`", e.Span);
+                // 报一次就当它已赋值 —— 同一个变量在后面每处再报一遍只是噪声。
+                this._assigned.Put(id.Name, "1");
+            }
+            return;
+        }
+
+        if (e is BoundAssign) {
+            // 赋值：只读 RHS。**不读 Target** —— 给未赋值的变量赋值正是让它变成已赋值。
+            BoundAssign a = e as BoundAssign;
+            this._reads(a.Value);
+            if (!(a.Target is BoundIdent)) { this._reads(a.Target); }   // `arr[i] = v` 的 arr/i 要读
+            return;
+        }
+
+        if (e is BoundBinary) {
+            BoundBinary b = e as BoundBinary;
+            this._reads(b.Left); this._reads(b.Right); return;
+        }
+        if (e is BoundUnary)   { this._reads((e as BoundUnary).Operand); return; }
+        if (e is BoundMember)  { this._reads((e as BoundMember).Target); return; }
+        if (e is BoundIndex) {
+            BoundIndex ix = e as BoundIndex;
+            this._reads(ix.Target); this._reads(ix.Index); return;
+        }
+        if (e is BoundConditional) {
+            BoundConditional c = e as BoundConditional;
+            this._reads(c.Cond); this._reads(c.Then); this._reads(c.Else); return;
+        }
+        if (e is BoundCall) {
+            BoundCall c = e as BoundCall;
+            if (c.Receiver != null) { this._reads(c.Receiver); }
+            int i = 0; while (i < c.ArgCount) { this._reads(c.Args[i]); i = i + 1; }
+            return;
+        }
+        if (e is BoundIndirectCall) {
+            BoundIndirectCall c = e as BoundIndirectCall;
+            this._reads(c.Callee);
+            int i = 0; while (i < c.ArgCount) { this._reads(c.Args[i]); i = i + 1; }
+            return;
+        }
+        if (e is BoundNew) {
+            BoundNew n = e as BoundNew;
+            int i = 0; while (i < n.ArgCount) { this._reads(n.Args[i]); i = i + 1; }
+            return;
+        }
+        if (e is BoundArrayLit) {
+            BoundArrayLit a = e as BoundArrayLit;
+            int i = 0; while (i < a.ElemCount) { this._reads(a.Elems[i]); i = i + 1; }
+            return;
+        }
+        if (e is BoundArrayNew) { this._reads((e as BoundArrayNew).Size); return; }
+        if (e is BoundCast)     { this._reads((e as BoundCast).E);       return; }
+        if (e is BoundConvert)  { this._reads((e as BoundConvert).E);    return; }
+        if (e is BoundBox)      { this._reads((e as BoundBox).E);        return; }
+        if (e is BoundIsExpr)   { this._reads((e as BoundIsExpr).E);     return; }
+        if (e is BoundIsPatternExpr) { this._reads((e as BoundIsPatternExpr).E); return; }
+        if (e is BoundRefArg) {
+            // `ref x`：取址即视为赋值（被取址的无 init 局部在声明处已回填 default(T)，
+            // 见 simplify-ref-parameters）——不读、且标为已赋值。
+            BoundRefArg r = e as BoundRefArg;
+            if (r.Inner is BoundIdent) { this._assigned.Put((r.Inner as BoundIdent).Name, "1"); }
+            else { this._reads(r.Inner); }
+            return;
+        }
+        if (e is BoundInterpolatedStr) {
+            BoundInterpolatedStr s = e as BoundInterpolatedStr;
+            int i = 0;
+            while (i < s.PartCount) {
+                if (s.Parts[i] is BoundInterpHole) { this._reads((s.Parts[i] as BoundInterpHole).Inner); }
+                i = i + 1;
+            }
+            return;
+        }
+        if (e is BoundSeqExpr) {
+            BoundSeqExpr q = e as BoundSeqExpr;
+            int i = 0; while (i < q.PreludeCount) { this._stmt(q.Prelude[i]); i = i + 1; }
+            this._reads(q.Value);
+            return;
+        }
+        if (e is BoundSwitchExpr) {
+            BoundSwitchExpr sx = e as BoundSwitchExpr;
+            this._reads(sx.Subject);
+            int i = 0;
+            while (i < sx.ArmCount) {
+                if (sx.Arms[i].Guard != null) { this._reads(sx.Arms[i].Guard); }
+                this._reads(sx.Arms[i].Body);
+                i = i + 1;
+            }
+            return;
+        }
+        // BoundLambda：体内的读用外层快照查，但不回传赋值（捕获时机不确定）。
+        if (e is BoundLambda) {
+            BoundLambda lm = e as BoundLambda;
+            if (lm.ExprBody != null) {
+                StrMap prev = this._assigned;
+                this._assigned = FlowAnalyzer._copy(prev);
+                this._reads(lm.ExprBody);
+                this._assigned = prev;
+            }
+            return;
+        }
+        // 字面量 / typeof / methodof / 静态读 / 方法组 / 捕获标识符 等：无局部读。
+    }
+
+    // ── 集合助手 ────────────────────────────────────────────────────────────
+
+    private static StrMap _copy(StrMap m) {
+        StrMap r = new StrMap();
+        int i = 0;
+        while (i < m.Capacity()) {
+            if (m.UsedAt(i)) { r.Put(m.KeyAt(i), "1"); }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    private static void _union(StrMap dst, StrMap src) {
+        int i = 0;
+        while (i < src.Capacity()) {
+            if (src.UsedAt(i)) { dst.Put(src.KeyAt(i), "1"); }
+            i = i + 1;
+        }
+    }
+
+    // a 与 b 的交集（新表）。
+    private static StrMap _common(StrMap a, StrMap b) {
+        StrMap r = new StrMap();
+        int i = 0;
+        while (i < a.Capacity()) {
+            if (a.UsedAt(i) && b.ContainsKey(a.KeyAt(i))) { r.Put(a.KeyAt(i), "1"); }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    private static void _unionCommon(StrMap dst, StrMap a, StrMap b) {
+        FlowAnalyzer._union(dst, FlowAnalyzer._common(a, b));
+    }
+}
