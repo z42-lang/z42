@@ -384,17 +384,20 @@ impl<T> GcRef<T> {
         Self { tagged: Self::pack(entry, generation), _phantom: PhantomData }
     }
 
-    /// **Transitional standalone constructor**: allocates a `RegionEntry`
+    /// **Test-only standalone constructor**: allocates a `RegionEntry`
     /// outside any `Region<T>` (via `Box::leak`). Memory is intentionally
-    /// leaked — the entry stays alive for the rest of the process. Used
-    /// only by tests + the rare callsite that constructs a `GcRef` without
-    /// a heap context (e.g., `corelib/array.rs::builtin_array_clone` will
-    /// be migrated to `ctx.heap().alloc_array` in a follow-up commit).
+    /// leaked — the entry stays alive for the rest of the process.
     ///
-    /// This is the only allocation path that doesn't go through a Region;
+    /// As of 2026-09, **no production code calls this** — the last such
+    /// callsite (`corelib/array.rs::builtin_array_clone`) has been migrated
+    /// to `ctx.heap().alloc_array_obj`, and `corelib/string.rs` likewise
+    /// allocates via the heap. Every remaining caller is in a `#[cfg(test)]`
+    /// module (`grep -rn 'GcRef::new(' src/runtime/`). Keep it that way:
+    /// this is the only allocation path that doesn't go through a Region, so
     /// such GcRefs participate in identity / borrow / mark APIs but are
     /// invisible to GC sweep (not in any heap registry → never reclaimed
-    /// while the process lives).
+    /// while the process lives) — a leak by construction. New heap objects
+    /// must go through `ctx.heap()`.
     pub fn new(value: T) -> Self
     where
         T: 'static,
