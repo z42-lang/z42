@@ -256,9 +256,21 @@ pub(super) fn to_str(
 // moved to `crate::semantics::convert_value` (shared with the JIT
 // `jit_convert` helper); this handler is now just the frame read/write wrapper.
 
-pub(super) fn convert(frame: &mut Frame, dst: u32, src: u32, to_tag: u8) -> Result<()> {
+/// make-hard-cast-fail-properly：硬转换失败改抛**可 catch 的真异常**。
+///
+/// 此前直接 `convert_value(..)?`，而 `convert_value` 对非法组合是 `bail!` —— 内部错误，
+/// 不走异常机制（`catch (Exception)` 抓不到），消息还是 Rust Debug 格式。
+/// 现在先问 `semantics::hard_cast_failure`：它给出 (异常 FQ, 消息) 就走 `Ok(Some(exc))`
+/// 抛异常通道（同 `check_int_div_by_zero` 的分工——判据+消息在 semantics、构造留在这里，
+/// 因为构造需要 ctx/module）。
+pub(super) fn convert(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32, to_tag: u8,
+) -> Result<Option<Value>> {
     let v = frame.get(src)?.clone();
+    if let Some((exc_fq, msg)) = crate::semantics::hard_cast_failure(&v, to_tag) {
+        return Ok(Some(crate::exception::make_stdlib_exception(ctx, module, exc_fq, msg)?));
+    }
     let result = crate::semantics::convert_value(v, to_tag)?;
     frame.set(dst, result);
-    Ok(())
+    Ok(None)
 }

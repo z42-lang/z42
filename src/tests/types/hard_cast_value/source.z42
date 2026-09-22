@@ -1,0 +1,37 @@
+// make-hard-cast-fail-properly：值类型的硬转换失败要抛**可 catch 的真异常**。
+//
+// 此前两种都抛 `bail!("InvalidCastException: cannot convert Str(\"hello\") to type tag 0x04")`
+// —— 内部错误，不走异常机制（`catch (Exception)` **抓不到**），消息还是 Rust Debug 格式。
+// 而且 null 与类型不符用了同一个异常种类：「没有对象」与「对象类型不对」是两种不同的错，
+// 合成一条会让调试变难。
+//
+// ⚠️ 用例里每个转换结果都**必须被使用**（这里累加进 sink）——否则 DCE 会把整条 Convert
+// 消掉，异常根本不发生，用例就变成永远绿的摆设。写这个用例时正是先踩了这一脚。
+void Main() {
+    int sink = 0;
+
+    // ① null → 值类型：NullReferenceException（不是 InvalidCast —— 「没有对象」≠「类型不对」）
+    object n = null;
+    string k1 = "none";
+    try { sink = sink + (int)n; }
+    catch (Exception e) { k1 = e.GetType().Name; }
+    Assert.Equal("NullReferenceException", k1);
+
+    // ② 类型不符 → 值类型：InvalidCastException
+    object s = "hello";
+    string k2 = "none";
+    try { sink = sink + (int)s; }
+    catch (Exception e) { k2 = e.GetType().Name; }
+    Assert.Equal("InvalidCastException", k2);
+
+    // ③ 🔒 null → 引用类型仍然合法（C# 同），不得误抛
+    object m = null;
+    string str = (string)m;
+    Assert.Equal(true, str == null);
+
+    // ④ 🔒 正常路径不受影响：装箱基元拆箱 + 数值截断
+    object boxed = 42;
+    sink = sink + (int)boxed;
+    Assert.Equal(42, sink);
+    Assert.Equal(3, (int)3.7);
+}

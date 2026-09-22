@@ -193,8 +193,82 @@ pub fn convert_value(v: Value, to_tag: u8) -> Result<Value> {
         Value::F64(f)  => convert_from_f64(f, to_tag),
         Value::I64(x)  => convert_from_i64(x, to_tag),
         Value::Char(c) => convert_from_char(c, to_tag),
-        // bool / str / object 等 —— TypeChecker 应已拒；防御性 bail。
-        other => bail!("InvalidCastException: cannot convert {:?} to type tag 0x{:02X}", other, to_tag),
+        // bool / str / object 等 —— 不是合法的数值转换源。
+        // make-hard-cast-fail-properly：此处原本 `bail!("InvalidCastException: …{:?}…")`，
+        // 那是**内部错误**——不走异常机制、`catch (Exception)` 抓不到，消息还是 Rust Debug 格式
+        // （`Str("hello")` / `type tag 0x04`）。真异常路径见 `hard_cast_failure`；本函数保留
+        // `bail!` 只为没接通新路径的残余调用方兜底（接通后应无人走到这里）。
+        other => bail!("internal: unconverted cast {:?} → tag 0x{:02X} (should have been caught by hard_cast_failure)", other, to_tag),
+    }
+}
+
+// ── 硬转换失败：可 catch 的真异常（make-hard-cast-fail-properly）────────────────
+
+pub const INVALID_CAST_EXC: &str = "Std.InvalidCastException";
+pub const NULL_REF_EXC:     &str = "Std.NullReferenceException";
+
+/// 值的用户可读种类名（诊断消息用；**不是** Rust Debug 格式）。
+pub fn value_kind_name(v: &Value) -> &'static str {
+    match v {
+        Value::I64(_)          => "整数",
+        Value::F64(_)          => "浮点数",
+        Value::Bool(_)         => "bool",
+        Value::Char(_)         => "char",
+        Value::Str(_)          => "string",
+        Value::Null            => "null",
+        Value::Array(_)        => "数组",
+        Value::Object(_)       => "对象",
+        Value::BoxedStruct(_)  => "装箱值类型",
+        _                      => "值",
+    }
+}
+
+/// 目标 tag 的用户可读名。
+pub fn tag_name(to_tag: u8) -> &'static str {
+    match to_tag {
+        T_BOOL => "bool",  T_CHAR => "char",
+        T_I8 => "sbyte",   T_I16 => "short",  T_I32 => "int",   T_I64 => "long",
+        T_U8 => "byte",    T_U16 => "ushort", T_U32 => "uint",  T_U64 => "ulong",
+        T_F32 => "float",  T_F64 => "double",
+        T_STR => "string", T_OBJECT => "object", T_ARRAY => "数组",
+        _ => "目标类型",
+    }
+}
+
+/// 这次 `Convert` 是不是一个**失败的硬转换**？是则返 (异常 FQ, 消息)，否则 None。
+///
+/// 判据与 `convert_value` 的放行条件严格互补 —— 凡 `convert_value` 会走到防御性 bail 的组合，
+/// 这里都必须给出异常；否则内部错误又会泄漏给用户。两者的分流点只有一处（本函数 `None`
+/// ⇒ `convert_value` 必定成功），加测试钉住。
+///
+/// 与 JIT 共用（同 `is_int_div_by_zero` / `div_by_zero_msg` 的分工：判据+消息在 semantics，
+/// 异常构造留在各自的宿主，因为那需要 ctx/module）。
+pub fn hard_cast_failure(v: &Value, to_tag: u8) -> Option<(&'static str, String)> {
+    // 装箱基元先拆箱再判（与 convert_value 的首个分支对齐）。
+    if let Value::BoxedStruct(gc) = v {
+        if let Some(n) = gc.borrow().boxed_prim_i64() {
+            return hard_cast_failure(&Value::I64(n), to_tag);
+        }
+    }
+    // 引用类型 identity / null → 引用目标：合法，与 convert_value 的放行表逐条对齐。
+    match (v, to_tag) {
+        (Value::Str(_),    T_STR)    => return None,
+        (Value::Array(_),  T_ARRAY)  => return None,
+        (Value::Object(_), T_OBJECT) => return None,
+        (Value::Bool(_),   T_BOOL)   => return None,
+        (Value::Null,      T_STR | T_OBJECT | T_ARRAY) => return None,
+        _ => {}
+    }
+    match v {
+        // 数值源 → 走 convert_from_*，那几条自己会对非法目标报（溢出 / 非法 Unicode 标量等）。
+        Value::F64(_) | Value::I64(_) | Value::Char(_) => None,
+        // **null → 值类型**：C# 抛 NullReferenceException（不是 InvalidCast）——
+        // 「没有对象」与「对象类型不对」是两种不同的错，合成一条会让调试变难。
+        Value::Null => Some((NULL_REF_EXC,
+            format!("cannot unbox null to `{}`", tag_name(to_tag)))),
+        // 其余：类型不符。
+        other => Some((INVALID_CAST_EXC,
+            format!("cannot cast {} to `{}`", value_kind_name(other), tag_name(to_tag)))),
     }
 }
 

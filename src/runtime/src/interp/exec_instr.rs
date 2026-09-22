@@ -141,7 +141,12 @@ pub fn exec_instr(
         Instruction::MethodDefault { dst, param_index } => exec_address::method_default(frame, *dst, *param_index),
 
         // ── Numeric cast (fix-numeric-cast-lowering, 2026-05-13) ────────────
-        Instruction::Convert { dst, src, to_tag } => exec_value::convert(frame, *dst, *src, *to_tag)?,
+        Instruction::Convert { dst, src, to_tag } => {
+            // make-hard-cast-fail-properly：硬转换失败 → 可 catch 的真异常（走 Ok(Some) 通道）。
+            if let Some(thrown) = exec_value::convert(ctx, module, frame, *dst, *src, *to_tag)? {
+                return Ok(Some(thrown));
+            }
+        }
 
         // ── Calls ────────────────────────────────────────────────────────────
         Instruction::Call(insn) => {

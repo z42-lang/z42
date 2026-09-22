@@ -26,9 +26,22 @@
 唯一逃逸路径：`(int)someNullObject` 把 Null 送进 int 槽。该 change 的 tasks 把这条拆为
 follow-up，起初以为只是「拆箱两段检查」；实测发现根因是整个硬转换语义缺失，故重新定范围。
 
+## 交付切分（实施中定的）
+
+本变更**只交付值类型那半**（运行期）；引用类型那半拆成 follow-up
+`make-ref-hard-cast-checked`。切分理由与两者的差别：
+
+| | 落点 | 代价 |
+|---|---|---|
+| **值类型硬转换**（本变更）`(int)o` | 纯运行期 —— `Convert` 指令已经存在、已经带目标 tag，只要把 `bail!` 换成真异常 | 小；interp + JIT 各一处 |
+| **引用类型硬转换**（follow-up）`(Box)o` | 发射层 —— `_emitConvert` 的 `fromIr == toIr` / `toIr == Ref` 两支**什么都不发**，要插 `IsInst` + 分支 + `Throw` 的**块手术**，且 `ConvertInstr` 不带类名、表达不了目标 | 大；且会改指令流 ⇒ 要核对 golden |
+
+值类型那半正是「值类型永不含 null」（#741）唯一的逃逸路径，优先级更高；
+引用类型那半是更广的类型安全问题，独立排期。
+
 ## What Changes
 
-### 硬转换降解成「先查后转」，**零格式 bump**
+### ~~硬转换降解成「先查后转」~~（引用类型那半 → follow-up）
 
 `BoundCast` 加 `IsHardCast` 标志（`as` 置假、`(T)x` 置真）。发射期对硬转换降解成：
 
