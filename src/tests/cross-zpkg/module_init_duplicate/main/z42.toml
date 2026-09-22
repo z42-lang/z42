@@ -1,0 +1,9 @@
+[project]
+name    = "demo.moddupapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.ModDupApp.Main"
+pack    = true
+
+[dependencies]
+"demo.moddup" = "0.1.0"

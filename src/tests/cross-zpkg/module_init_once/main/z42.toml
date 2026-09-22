@@ -1,0 +1,9 @@
+[project]
+name    = "demo.modonceapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.ModOnceApp.Main"
+pack    = true
+
+[dependencies]
+"demo.modonce" = "0.1.0"

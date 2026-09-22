@@ -90,6 +90,10 @@ pub(super) fn obj_new(
     // add-static-constructors：创建实例是 C# 的类型初始化触发点之一。此处 TypeDesc
     // 已在手 → 检查代价就是一次 `Option` 判断（没有 cctor 的类型的冷区多半是 None），
     // 不需要 `pending` 门。
+    // add-module-init-hook：跨包 `new` 同样可能刚拉进一个包 —— 其包初始化器先跑。
+    if let Err(msg) = ctx.ensure_module_inits() {
+        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+    }
     if let Err(msg) = ctx.ensure_type_init(&type_desc) {
         return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
     }
@@ -490,6 +494,11 @@ pub(super) fn static_get(
 fn ensure_owner_type_init(
     ctx: &VmContext, module: &Module, field: &str,
 ) -> Option<Value> {
+    // add-module-init-hook：读/写一个跨包静态字段同样可能刚把那个包拉进来 —— 包初始化器
+    // 先于类型初始化器。这一处同时覆盖 static_get 与 static_set（两者共用本入口）。
+    if let Err(msg) = ctx.ensure_module_inits() {
+        return Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg));
+    }
     match ctx.ensure_static_owner_init(field) {
         Ok(()) => None,
         Err(msg) => Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)),

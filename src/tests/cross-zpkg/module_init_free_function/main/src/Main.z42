@@ -1,0 +1,8 @@
+// 消费方：**只**调依赖包的自由函数，一个类型都不碰。
+namespace Demo.ModInitApp;
+
+using Demo.ModInit;
+
+void Main() {
+    Ping();
+}

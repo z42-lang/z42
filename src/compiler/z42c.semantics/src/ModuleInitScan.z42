@@ -1,0 +1,196 @@
+// 包级初始化回调 `[ModuleInit]` 的发现与校验（add-module-init-hook）。
+//
+// 两个消费端共用本文件的判据，避免两份判据漂移：
+//   · **包级校验**（SymbolCollector）—— 扫全 CU，报 E0486 / E0485。
+//   · **per-CU 合成**（IrGen）—— 本 CU 有合法站点 ⇒ 发 `<ns>.$Module` 伪类型 + 其类型初始化器。
+//
+// 为什么校验在包级、合成在 CU 级：CU 是**并行**编译的（CompileCuTask / ParallelFor），
+// per-CU 阶段看不到别的 CU ⇒ 「一个包至多一个」这条只能在包级判；而合成只看本 CU、
+// 是纯函数式的 ⇒ 可以留在并行段里。
+//
+// 设计 SoT：docs/spec/changes/add-module-init-hook/design.md。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+
+// 一个 `[ModuleInit]` 站点（已通过合法性校验）。
+public sealed class ModuleInitSite {
+    public MethodDecl Method;
+    public ClassDecl  Owner;   // 类内静态方法的宿主类；顶层自由函数为 null
+                               // （持 ClassDecl 而非类名：发射名要走 IrGen._classIrShortName）
+    public ModuleInitSite(MethodDecl method, ClassDecl owner) {
+        this.Method = method; this.Owner = owner;
+    }
+}
+
+public static class ModuleInitScan {
+    // 合成出来的包级伪类型**短名**。FQ 名 = `<ns>.$Module`。
+    // ⚠️ 必须与运行期的后缀判定逐字一致（`src/runtime/src/vm_context/cctor.rs` 的 `MODULE_PSEUDO_TYPE`）
+    // —— 两处手写同一个字符串是漂移源，故各自只写一次并在此标明对应关系。
+    public static string PseudoTypeName = "$Module";
+
+    // ── 合法性判据（E0486）──────────────────────────────────────────────────────────────────
+    // 合法目标：**有体**的方法，无参、返回 void、非泛型、非 ctor；类内成员还必须 `static`。
+    // 顶层自由函数豁免 static —— z42 的自由函数本就无 this、恒 `IsStatic=false`
+    // （见 IrGenAuxEmitter：「自由函数：无 this 且 IsStatic=false，与 C# 一致」），
+    // 要求它写 `static` 反而不合法。
+    public static bool IsLegalTarget(Decl inner, bool isClassMember) {
+        if (!(inner is MethodDecl)) { return false; }
+        MethodDecl md = inner as MethodDecl;
+        if (md.IsCtor) { return false; }
+        if (!md.HasBody) { return false; }
+        if (md.ParamCount != 0) { return false; }
+        if (md.TypeParams != null && md.TypeParams.Count != 0) { return false; }
+        if (!ModuleInitScan._returnsVoid(md)) { return false; }
+        if (isClassMember && !IrGenFacts._hasWord(md.Mods, "static")) { return false; }
+        return true;
+    }
+
+    private static bool _returnsVoid(MethodDecl md) {
+        if (!(md.RetType is NamedType)) { return false; }
+        return (md.RetType as NamedType).Name == "void";
+    }
+
+    // 不合法时的「哪里不对」——进诊断消息，别让用户对着一个笼统的 E0486 猜。
+    public static string WhyIllegal(Decl inner, bool isClassMember) {
+        if (!(inner is MethodDecl)) { return "`[ModuleInit]` 只能标注方法"; }
+        MethodDecl md = inner as MethodDecl;
+        if (md.IsCtor) { return "`[ModuleInit]` 不能标注构造器"; }
+        if (!md.HasBody) { return "`[ModuleInit]` 方法必须有方法体"; }
+        if (isClassMember && !IrGenFacts._hasWord(md.Mods, "static")) {
+            return "`[ModuleInit]` 方法必须是 `static`（包初始化器无 this）";
+        }
+        if (md.ParamCount != 0) { return "`[ModuleInit]` 方法不能有参数"; }
+        if (md.TypeParams != null && md.TypeParams.Count != 0) { return "`[ModuleInit]` 方法不能是泛型"; }
+        if (!ModuleInitScan._returnsVoid(md)) { return "`[ModuleInit]` 方法必须返回 `void`"; }
+        return "`[ModuleInit]` 标注目标非法";
+    }
+
+    // ── per-CU 发现（IrGen 合成用）──────────────────────────────────────────────────────────
+    // 本 CU 里第一个**合法**站点；没有则 null。不发诊断（诊断归包级那一趟，避免并行段重复报）。
+    public static ModuleInitSite FindInCu(CompilationUnit cu) {
+        int d = 0;
+        while (d < cu.DeclCount) {
+            Decl raw = cu.Decls[d];
+            if (raw is AttributedDecl) {
+                AttributedDecl ad = raw as AttributedDecl;
+                if (HandlerRegistry.HasModuleInit(ad) && ModuleInitScan.IsLegalTarget(ad.Inner, false)) {
+                    return new ModuleInitSite(ad.Inner as MethodDecl, null);
+                }
+                if (ad.Inner is ClassDecl) {
+                    ModuleInitSite inCls = ModuleInitScan._findInClass(ad.Inner as ClassDecl);
+                    if (inCls != null) { return inCls; }
+                }
+            } else if (raw is ClassDecl) {
+                ModuleInitSite inCls = ModuleInitScan._findInClass(raw as ClassDecl);
+                if (inCls != null) { return inCls; }
+            }
+            d = d + 1;
+        }
+        return null;
+    }
+
+    private static ModuleInitSite _findInClass(ClassDecl c) {
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl rawMem = c.Members[j];
+            if (rawMem is AttributedDecl) {
+                AttributedDecl ad = rawMem as AttributedDecl;
+                if (HandlerRegistry.HasModuleInit(ad) && ModuleInitScan.IsLegalTarget(ad.Inner, true)) {
+                    return new ModuleInitSite(ad.Inner as MethodDecl, c);
+                }
+            }
+            j = j + 1;
+        }
+        return null;
+    }
+
+    // 单 CU 路径的适配：把一个 CU 包成长度 1 的数组，让两条路共用同一个 CheckPackage
+    // （判据只写一份）。
+    public static CompilationUnit[] One(CompilationUnit cu) {
+        CompilationUnit[] one = new CompilationUnit[1];
+        one[0] = cu;
+        return one;
+    }
+
+    // ── 包级校验（E0486 / E0485）────────────────────────────────────────────────────────────
+    // 扫全 CU 的 `[ModuleInit]` 应用点：非法目标报 E0486；第二个及以后的**合法**站点报 E0485。
+    //
+    // 为什么 E0485 只数合法站点：一个非法站点已经报过 E0486 了，再给它记一笔「重复」等于对同一处
+    // 写法报两个码 —— 用户改完 E0486 才该看见 E0485（若那时确实有两个）。
+    //
+    // ⚠️ 诊断入包级 bag（coll.Diags），由 BuildPackageCus 末尾按 Span.File 分发到对应 CU
+    //（add-partial-types 铺好的那条路）。
+    public static void CheckPackage(CompilationUnit[] cus, int count, DiagnosticBag diags) {
+        bool seen = false;
+        string firstAt = "";
+        int i = 0;
+        while (i < count) {
+            int d = 0;
+            while (d < cus[i].DeclCount) {
+                Decl raw = cus[i].Decls[d];
+                if (raw is AttributedDecl) {
+                    AttributedDecl ad = raw as AttributedDecl;
+                    if (HandlerRegistry.HasModuleInit(ad)) {
+                        if (ModuleInitScan._report(ad, false, seen, firstAt, diags)) {
+                            if (!seen) { firstAt = ModuleInitScan._at(ad.Span); }
+                            seen = true;
+                        }
+                    }
+                    if (ad.Inner is ClassDecl) {
+                        ClassDecl c = ad.Inner as ClassDecl;
+                        int j = 0;
+                        while (j < c.MemberCount) {
+                            if (ModuleInitScan._checkMember(c.Members[j], seen, firstAt, diags)) {
+                                if (!seen) { firstAt = ModuleInitScan._at(c.Members[j].Span); }
+                                seen = true;
+                            }
+                            j = j + 1;
+                        }
+                    }
+                } else if (raw is ClassDecl) {
+                    ClassDecl c2 = raw as ClassDecl;
+                    int k = 0;
+                    while (k < c2.MemberCount) {
+                        if (ModuleInitScan._checkMember(c2.Members[k], seen, firstAt, diags)) {
+                            if (!seen) { firstAt = ModuleInitScan._at(c2.Members[k].Span); }
+                            seen = true;
+                        }
+                        k = k + 1;
+                    }
+                }
+                d = d + 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    // 该成员若带 `[ModuleInit]` → 校验并报码；返回「它是一个合法站点」。
+    private static bool _checkMember(Decl rawMem, bool seen, string firstAt, DiagnosticBag diags) {
+        if (!(rawMem is AttributedDecl)) { return false; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        if (!HandlerRegistry.HasModuleInit(ad)) { return false; }
+        return ModuleInitScan._report(ad, true, seen, firstAt, diags);
+    }
+
+    // 单个 `[ModuleInit]` 应用点的判定 + 发码。返回「合法站点」（非法 → false，已报 E0486）。
+    private static bool _report(AttributedDecl ad, bool isClassMember, bool seen, string firstAt,
+                                DiagnosticBag diags) {
+        if (!ModuleInitScan.IsLegalTarget(ad.Inner, isClassMember)) {
+            diags.Error("E0486", ModuleInitScan.WhyIllegal(ad.Inner, isClassMember), ad.Span);
+            return false;
+        }
+        if (seen) {
+            diags.Error("E0485",
+                "一个包至多一个 `[ModuleInit]`；第一处在 " + firstAt
+                + "。多处装配请写在同一个方法里 —— 那样顺序是显式的。", ad.Span);
+            return false;
+        }
+        return true;
+    }
+
+    private static string _at(Span sp) {
+        return sp.File + "(" + sp.Line.ToString() + "," + sp.Column.ToString() + ")";
+    }
+}

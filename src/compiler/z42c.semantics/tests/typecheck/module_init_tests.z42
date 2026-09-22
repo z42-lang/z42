@@ -1,0 +1,88 @@
+// 包级初始化回调 `[ModuleInit]` 的声明契约单测（add-module-init-hook）。
+//
+// 锁住两条：
+//   ① E0486 —— 标注目标必须是**有体、无参、返回 void、非泛型**的方法；类内成员还须 static。
+//   ② E0485 —— 一个包至多一个 `[ModuleInit]`（User 裁决 2026-09-22）。
+//
+// 🔴 两个码不得合并：「签名不合法」与「包内重复」是两件事，合并即一码两义
+// （E0474 / E0477 / E0481 三次撞码刚归位过）。
+//
+// ⚠️ 判定挂在 `SymbolCollector.CollectAll`，**两条编译路都经过它** —— 包编译（全部 CU）
+// 与本文件走的单文件路径。挂在包路径独有的地方会让单文件编译静默放行非法标注。
+namespace Z42cSemanticsModuleInitTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 合法形态（不该报任何错）────────────────────────────────────────────────────────
+[Test]
+void test_module_init_private_static_is_legal() {
+    string src = "namespace D; static class B { [ModuleInit] static void Init() { } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_module_init_free_function_is_legal() {
+    // 顶层自由函数豁免 static —— 它本就无 this、恒 IsStatic=false（与 C# 一致）。
+    // 要求它写 `static` 反而不合法。
+    string src = "namespace D; [ModuleInit] void Init() { }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── E0486：标注目标非法 ─────────────────────────────────────────────────────────────
+[Test]
+void test_module_init_instance_method_e0486() {
+    string src = "namespace D; class B { [ModuleInit] void Init() { } }";
+    Assert.Equal("E0486", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_module_init_with_params_e0486() {
+    string src = "namespace D; static class B { [ModuleInit] static void Init(int x) { } }";
+    Assert.Equal("E0486", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_module_init_non_void_e0486() {
+    string src = "namespace D; static class B { [ModuleInit] static int Init() { return 1; } }";
+    Assert.Equal("E0486", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_module_init_generic_e0486() {
+    string src = "namespace D; static class B { [ModuleInit] static void Init<T>() { } }";
+    Assert.Equal("E0486", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_module_init_on_type_e0486() {
+    string src = "namespace D; [ModuleInit] class B { }";
+    Assert.Equal("E0486", SemanticDump.FirstErrorCode(src));
+}
+
+// ── E0485：包内第二个 ───────────────────────────────────────────────────────────────
+// 跨**文件**那条（真正的跨 CU 判定）由 e2e fixture `cross-zpkg/module_init_duplicate` 守。
+[Test]
+void test_module_init_duplicate_same_file_e0485() {
+    string src = "namespace D; static class A { [ModuleInit] static void IA() { } } "
+               + "static class B { [ModuleInit] static void IB() { } }";
+    Assert.Equal("E0485", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_module_init_duplicate_free_and_member_e0485() {
+    string src = "namespace D; [ModuleInit] void IFree() { } "
+               + "static class B { [ModuleInit] static void IB() { } }";
+    Assert.Equal("E0485", SemanticDump.FirstErrorCode(src));
+}
+
+// 非法的那个不占「第一个」的位置：改完 E0486 才该看见 E0485（若那时确实有两个）。
+// 这里非法 + 合法各一个 ⇒ 只报 E0486，不报 E0485。
+[Test]
+void test_illegal_does_not_count_as_the_one() {
+    string src = "namespace D; class A { [ModuleInit] void Bad() { } } "
+               + "static class B { [ModuleInit] static void Good() { } }";
+    Assert.Equal("E0486", SemanticDump.FirstErrorCode(src));
+    Assert.False(SemanticDump.HasErrorCode(src, "E0485"));
+}

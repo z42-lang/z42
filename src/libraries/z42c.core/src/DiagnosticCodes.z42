@@ -194,6 +194,15 @@ public static class DiagnosticCodes {
 
     public static string InterfaceIllegalMember   = "E0481";  // 接口声明了**非法成员**——字段（静态/实例）或嵌套类型。接口只能声明方法、属性、索引器、事件、关联类型。此前 `_fillInterface` 把这些**静默跳过**（`interface I { static int X; }` 编译通过但 X 无处可用）。**语义层用字面量 "E0481" 发码**。
 
+    // ── 包级初始化（add-module-init-hook）──────────────────────────────────────
+    // 两个码**不得合并**：「标注目标非法」与「包内重复」是两件事，合并即一码两义。
+    // ⚠️ BadTarget 原取 E0484，rebase 时发现已被「解引用标了 `?` 的字段/属性」占走（那边早合入
+    // main）⇒ 按先来后到让号到 E0486；E0485 当时未被占，保留。**分配码必须扫全源，别只信文档**。
+    // （E0474 / E0477 / E0481 三次撞码刚归位过）。**语义层用字面量发码**（同 E0449–E0483 手法，
+    // 见 bootstrap-seed.md：新常量与其引用不能同 PR，避 core→semantics 冷启动 stale-cache）。
+    public static string ModuleInitBadTarget     = "E0486";  // `[ModuleInit]` 标注目标非法：必须是 `static` + 无参 + 返回 `void` + 非泛型 + 非抽象的方法。标在类型/字段上，或签名不符，都归此码。
+    public static string ModuleInitDuplicate     = "E0485";  // 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个（User 裁决 2026-09-22）——多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 file:line。
+
     // ── 穷尽性（add-switch-exhaustiveness）────────────────────────────────────
     public static string SwitchNotExhaustive     = "W0700";  // 【Warning】`switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支且没有 `default`。
 

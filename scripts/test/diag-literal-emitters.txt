@@ -43,6 +43,8 @@ E0481 src/compiler/z42c.semantics/src/MemberCollector.z42
 E0482 src/compiler/z42c.semantics/src/AssignTyper.z42
 E0483 src/compiler/z42c.semantics/src/TypeChecker.z42
 E0484 src/compiler/z42c.semantics/src/FlowAnalyzer.z42
+E0485 src/compiler/z42c.semantics/src/ModuleInitScan.z42
+E0486 src/compiler/z42c.semantics/src/ModuleInitScan.z42
 E0601 src/compiler/z42c.semantics/src/SymbolCollector.z42
 E0601 src/compiler/z42c.semantics/src/TypeChecker.z42
 E0606 src/compiler/z42c.semantics/src/SymbolCollector.z42

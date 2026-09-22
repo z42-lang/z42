@@ -325,6 +325,13 @@ public sealed class SymbolCollector {
         // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性——须在所有 CU 的 _passImpls 全跑完后
         // （target 与其 impl 块可能分处不同 CU，本 pass 独立成一轮跨 CU 循环才能看到全部并入的 trait）。
         while (c < cuCount) { this._inherit._passImplIfaceComplete(table, cus[c]); c = c + 1; }
+        // add-module-init-hook：包编译路径的 `[ModuleInit]` 校验（E0486 标注目标非法 /
+        // E0485 包内第二个）。单 CU 路径（SemanticDump / `--emit-zbc` / REPL）挂在 `Collect`
+        // 末尾 —— 那是另一份平行的 pass 序列，两处都要挂。
+        //
+        // 挂在 collector 而不是 IrDump.BuildPackageCus：collector 的 Diags 被两条路都合并，
+        // 且 E0485 要跨 CU 计数、必须在 per-file 并行段之前。
+        ModuleInitScan.CheckPackage(cus, cuCount, this.Diags);
         return table;
     }
 
@@ -354,6 +361,11 @@ public sealed class SymbolCollector {
         this._inherit._passImpls(table, cu);   // port-z42c-impl-block
         this._inherit._passInheritFields(table, cu);
         this._inherit._passImplIfaceComplete(table, cu);   // fix-iface-self-completeness-gaps A2：impl 块接口成员齐备性（须在 _passImpls 后）
+        // add-module-init-hook：单 CU 路径（`--emit-zbc` / SemanticDump / REPL）的 `[ModuleInit]` 校验。
+        // 🔴 `Collect` 与 `CollectAll` 是**两份平行的 pass 序列** —— 只挂一处，另一条路就静默放行
+        // （合成侧只认合法站点，非法的被悄悄忽略）。这正是本文件上方 SemanticDump 头注讲的那个
+        // 「6 个入口各写各的 preamble，其中一份忘了合并」的形状。
+        ModuleInitScan.CheckPackage(ModuleInitScan.One(cu), 1, this.Diags);
         return table;
     }
 

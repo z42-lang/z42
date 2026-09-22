@@ -202,6 +202,10 @@ public sealed class IrGen {
         aux.EmitEnums(cu);
         aux.EmitDelegates(cu);
         aux.EmitFreeFunctions(cu);
+        // add-module-init-hook：包级初始化器 —— 本 CU 有 `[ModuleInit]` ⇒ 追加 `<ns>.$Module`
+        // 伪类型 + 其类型初始化器（复用 `$Cctor` 哨兵 ⇒ 零格式变更）。无站点时不产任何字节，
+        // 故对既有包 byte-identical。合法性已由包级 ModuleInitScan.CheckPackage 校验过。
+        ModuleInitSynth.Emit(this, model, cu, sink);
         IrFunction[] funcs = sink.Funcs; int fc = sink.Fc;
         IrClassDesc[] classes = sink.Classes; int cc = sink.Cc;
         // lift 函数末尾追加（port-z42c-closures；镜像 C# _liftedFunctions AddRange）

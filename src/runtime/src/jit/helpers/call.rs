@@ -119,6 +119,13 @@ pub unsafe extern "C" fn jit_call(
     // 不应先触发类型初始化。此前屏障在分叉之前，回落路径的顺序是「屏障 → 判定」。
     {
         let vm = vm_ctx_ref(ctx);
+        // add-module-init-hook：与 interp 的 exec_call 屏障对称（门在函数内短路）。
+        if let Err(msg) = vm.ensure_module_inits() {
+            let module = &*(*ctx).module;
+            let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
+            set_exception(vm, exc);
+            return 1;
+        }
         if vm.any_cctor_pending() {
             let name = std::str::from_utf8(
                 std::slice::from_raw_parts(fn_name_ptr, fn_name_len)).unwrap_or("");
@@ -212,6 +219,11 @@ unsafe fn cross_zpkg_via_interp(
         vm_ctx, module, func_name, crate::vm_context::symres::call_arity(callee), argc,
     ) {
         set_exception(vm_ctx, exc);
+        return 1;
+    }
+    // add-module-init-hook：本回落路径（cross_zpkg_via_interp）同样先过包级初始化屏障。
+    if let Err(msg) = vm_ctx.ensure_module_inits() {
+        set_exception(vm_ctx, crate::vm_context::cctor::make_type_init_exception(vm_ctx, module, &msg));
         return 1;
     }
     // add-static-constructors：静态方法调用是类型初始化触发点（本回落路径的屏障，见 jit_call 注释）。

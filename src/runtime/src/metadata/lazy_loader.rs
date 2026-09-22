@@ -197,6 +197,24 @@ impl LazyLoader {
     pub fn seed_types_for_lookup(&mut self, types: &FxHashMap<String, Arc<TypeDesc>>) {
         for (name, td) in types {
             if !self.type_registry.contains_key(name) {
+                // add-module-init-hook: this path seeds the **main** artifact's types and
+                // writes `type_registry` directly — bypassing `insert_type`, the funnel the
+                // lazy path uses. That meant the main package's own `$Module` was never
+                // registered and its `[ModuleInit]` silently never ran.
+                //
+                // ⚠️ Only the `$Module` detection is mirrored here, **not** the general cctor
+                // registration: routing this whole loop through `insert_type` would register
+                // every main-module type's cctor a second time (boot.rs already does it) and
+                // widen the barrier's live set during startup — measured fallout was a
+                // `z42c build --workspace stdlib` failure (`undefined function
+                // Std.IO.Environment.GetCommandLineArgs$0`). Keep the blast radius at
+                // exactly the pseudo-type this feature needs.
+                if crate::vm_context::cctor::is_module_pseudo_type(&td.name) {
+                    if let (Some(reg), Some(func)) = (self.cctors.as_ref(), td.cctor_func()) {
+                        reg.register(&td.name, func);
+                        reg.register_module_init(td);
+                    }
+                }
                 self.type_registry.insert(name.clone(), Arc::clone(td));
             }
         }
@@ -305,6 +323,20 @@ impl LazyLoader {
         if let (Some(reg), Some(func)) = (self.cctors.as_ref(), desc.cctor_func()) {
             tracing::debug!("cctor-register (load): type `{}` -> `{}`", desc.name, func);
             reg.register(&desc.name, func);
+            // add-module-init-hook: a package initializer is just this pseudo-type's
+            // type initializer. **Register only** — running it here is impossible: we
+            // are inside the loader's write lock and the initializer is user code that
+            // re-enters symbol resolution (deadlock). The barrier runs it once the lock
+            // is released, still before any of this package's code executes.
+            //
+            // Detection rides on `insert_type`, the single funnel every loaded type
+            // already passes through — no extra pass over the type table. (This is *not*
+            // the whole-function-table `ends_with(".__static_init__")` scan that
+            // unify-static-init-into-cctor deleted: that one walked the function table —
+            // one to two orders of magnitude larger — as a pass of its own.)
+            if crate::vm_context::cctor::is_module_pseudo_type(&desc.name) {
+                reg.register_module_init(&desc);
+            }
         }
         self.type_registry.insert(name, desc);
     }

@@ -1,0 +1,17 @@
+// 跨包初始化顺序 = **实际加载顺序**（User 裁决 2026-09-22），不排序、不预扫、
+// 与清单里的依赖声明顺序无关（清单里 A 在 B 前，实际先跑的是 B）。
+//
+// ⚠️ 两个 init 会**挨着**跑完再回到 Main：首次跨包解析把 main 的依赖闭包一次性拉进来，
+// 于是同一个屏障点看到两个已登记的 `$Module`。关键断言因此是**它们之间的相对顺序**
+// ——先触达的 B 先跑——而不是它们与 `Pong`/`Ping` 返回值的交错。
+namespace Demo.OrderApp;
+
+using Std.IO;
+using Demo.OrderA;
+using Demo.OrderB;
+
+void Main() {
+    Console.WriteLine("start");
+    Console.WriteLine(Pong(1).ToString());   // 先触达 B
+    Console.WriteLine(Ping(1).ToString());   // 后触达 A
+}

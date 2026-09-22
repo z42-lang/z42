@@ -1,0 +1,11 @@
+// 包 A：有自己的包初始化器。
+namespace Demo.OrderA;
+
+using Std.IO;
+
+static class BootA {
+    [ModuleInit]
+    static void Init() { Console.WriteLine("A-init"); }
+}
+
+public int Ping(int x) { return x + 1; }

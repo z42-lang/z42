@@ -36,6 +36,7 @@
 //! 拿到 C# 的「首次使用前」而不是「首次提及时」。
 
 use rustc_hash::FxHashMap;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
@@ -43,6 +44,20 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 /// （`src/libraries/z42.ir/src/IrModule.z42`）——两处手写同一个字符串是漂移源，
 /// 故各自只写一次、并在此标明对应关系。
 pub const CCTOR_SENTINEL: &str = "$Cctor";
+
+/// 包级初始化伪类型的**短名**（add-module-init-hook）。FQ 名 = `<ns>.$Module`。
+/// **必须与编译器侧 `ModuleInitScan.PseudoTypeName` 逐字一致**
+/// （`src/compiler/z42c.semantics/src/ModuleInitScan.z42`）——同 `CCTOR_SENTINEL`，
+/// 两处手写同一个字符串是漂移源，故各自只写一次并互相标明。
+pub const MODULE_PSEUDO_TYPE: &str = "$Module";
+
+/// 这个类型 FQ 名是不是包级初始化伪类型。
+pub fn is_module_pseudo_type(type_fq: &str) -> bool {
+    match type_fq.rsplit_once('.') {
+        Some((_, last)) => last == MODULE_PSEUDO_TYPE,
+        None => type_fq == MODULE_PSEUDO_TYPE,
+    }
+}
 
 /// `claim` 等待他线程跑完类型初始化器的上限。取足够宽松的值：正常的初始化器是毫秒级，
 /// 撞到这个上限基本只意味着跨线程循环初始化（C# 在同样场景会直接死锁）。
@@ -90,11 +105,29 @@ pub struct CctorRegistry {
     /// 静态槽时递增，使所有 `TypeDesc` 上的无锁快路标记一次性失效、类型初始化器随之重跑。
     /// 从 1 起（`TypeDescCold::init_gen` 默认 0 = 从未初始化，不会与任何有效代际相等）。
     generation: AtomicU32,
+    /// add-module-init-hook: the `<ns>.$Module` pseudo-types of every loaded package,
+    /// in load order. Unlike ordinary types these are **not** left to the access-point
+    /// barrier — they are driven eagerly right after their package is loaded.
+    module_inits: Mutex<Vec<Arc<crate::metadata::TypeDesc>>>,
+    /// How many of `module_inits` have not reached `Done`. Same idiom as `pending`:
+    /// trusted only in the `== 0` direction, so the barrier is one relaxed load once
+    /// every package initializer has run.
+    ///
+    /// A **failed** initializer keeps this non-zero on purpose — that is what makes
+    /// every later touch of that package re-enter the barrier and re-raise, instead of
+    /// silently continuing against a half-assembled package.
+    module_pending: AtomicUsize,
 }
 
 impl Default for CctorRegistry {
     fn default() -> Self {
-        Self { map: Mutex::default(), pending: AtomicUsize::new(0), generation: AtomicU32::new(1) }
+        Self {
+            map: Mutex::default(),
+            pending: AtomicUsize::new(0),
+            generation: AtomicU32::new(1),
+            module_inits: Mutex::default(),
+            module_pending: AtomicUsize::new(0),
+        }
     }
 }
 
@@ -125,6 +158,49 @@ impl CctorRegistry {
     #[inline(always)]
     pub fn any_pending(&self) -> bool {
         self.pending.load(Ordering::Relaxed) != 0
+    }
+
+    // ── 包级初始化（add-module-init-hook）────────────────────────────────────────────────
+    /// 热路径的门。`false` ⇒ 所有已加载包的初始化器都已跑完（或一个都没有），
+    /// 屏障是一次 relaxed load。
+    #[inline(always)]
+    pub fn any_module_init_pending(&self) -> bool {
+        self.module_pending.load(Ordering::Relaxed) != 0
+    }
+
+    /// 加载期登记一个包的 `<ns>.$Module` 伪类型。由 `LazyLoader::insert_type` 在自己的写锁内
+    /// 调用 —— **只记账，不执行**：初始化器是用户代码，在加载锁内跑它会重入符号解析而死锁。
+    /// 执行归屏障（`VmContext::ensure_module_inits`），那时锁已释放。
+    pub fn register_module_init(&self, desc: &Arc<crate::metadata::TypeDesc>) {
+        let mut v = self.module_inits.lock().unwrap_or_else(|e| e.into_inner());
+        if v.iter().any(|d| d.name == desc.name) {
+            return;   // 幂等：同一包重复加载不重复登记
+        }
+        v.push(Arc::clone(desc));
+        self.module_pending.fetch_add(1, Ordering::Release);
+    }
+
+    /// 当前登记的全部包初始化伪类型（快照；遍历时不持锁，避免初始化器重入时自锁）。
+    pub fn module_init_snapshot(&self) -> Vec<Arc<crate::metadata::TypeDesc>> {
+        self.module_inits.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// 按 map 里的**真实终态**重算 `module_pending`。
+    ///
+    /// ⚠️ 不能用「ensure 返回了 Ok」来判完成：初始化器内部再触发屏障时，`claim` 对**同线程重入**
+    /// 直接放行并返回 Ok（C# 同款语义），此时初始化器其实还在跑。按 `Done` 判定才是真的。
+    /// 失败（`Failed`）**不计入完成** —— 门因此保持非零，每次触达都会再次抛。
+    pub fn refresh_module_pending(&self) {
+        let names: Vec<String> = {
+            let v = self.module_inits.lock().unwrap_or_else(|e| e.into_inner());
+            v.iter().map(|d| d.name.clone()).collect()
+        };
+        let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let remaining = names
+            .iter()
+            .filter(|n| !matches!(m.get(n.as_str()).map(|e| &e.state), Some(CctorState::Done)))
+            .count();
+        self.module_pending.store(remaining, Ordering::Release);
     }
 
     /// 加载期登记一个「有静态构造器」的类型。幂等（同一类型重复登记不重复计数）。
@@ -293,6 +369,37 @@ impl crate::vm_context::VmContext {
     /// 去虚化后走 Call 也无害——能拿到实例就说明类型已初始化过。
     ///
     /// 调 cctor 自身时会命中「本线程重入」分支而放行，不会递归。
+    /// **包级初始化屏障**（add-module-init-hook）：把已加载但还没初始化的包跑掉。
+    ///
+    /// 调用点是**能抛异常的**那些屏障（静态调用 / `new` / 静态字段访问），不是加载收口点 ——
+    /// 加载收口点（`try_lookup_*`）返回 `Option`，抛不出可 catch 的异常。分工因此是
+    /// 「加载漏斗只登记，屏障点执行」：登记发生在解析该包符号的那一刻，执行发生在**同一次
+    /// 调用内、被调代码执行之前** ⇒ 对用户仍然是「包加载后、本包任何代码跑之前」。
+    ///
+    /// 稳态代价：一次 relaxed load（`any_module_init_pending`）。
+    ///
+    /// 失败不吞、不重试：`refresh_module_pending` 只把 `Done` 算作完成，`Failed` 让门保持
+    /// 非零 ⇒ 之后**每一次**触达都会再次走到这里、再次拿到那个 `Err` 并抛。
+    pub fn ensure_module_inits(&self) -> Result<(), String> {
+        if !self.core.cctors.any_module_init_pending() {
+            return Ok(());
+        }
+        let list = self.core.cctors.module_init_snapshot();
+        let mut first_err: Option<String> = None;
+        for td in &list {
+            if let Err(e) = self.ensure_type_init(td) {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+        self.core.cctors.refresh_module_pending();
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
     pub fn ensure_callee_owner_init(&self, func_fq: &str) -> Result<(), String> {
         if !self.core.cctors.any_pending() { return Ok(()); }
         let Some(owner) = owner_class_of_static_func(func_fq) else { return Ok(()) };
@@ -425,6 +532,19 @@ pub fn owner_class_of_static_func(func_fq: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // add-module-init-hook：失败语义（失败是终态、不重试、每次重抛）已由既有的
+    // `failed_type_reports_error_on_every_later_access` 覆盖 —— 包初始化器复用同一套
+    // `claim`/`finish`，不另造一份重复断言。这里只测本变更**真正新增**的判定。
+    #[test]
+    fn module_pseudo_type_is_recognised_by_suffix() {
+        // 编译器侧合成 `<ns>.$Module`；无 namespace 时就是裸 `$Module`。
+        assert!(is_module_pseudo_type("Demo.Lib.$Module"));
+        assert!(is_module_pseudo_type("$Module"));
+        assert!(!is_module_pseudo_type("Demo.Lib.Module"));
+        assert!(!is_module_pseudo_type("Demo.$ModuleThing"));
+        assert!(!is_module_pseudo_type("Demo.Lib.C"));
+    }
 
     #[test]
     fn empty_registry_is_never_pending() {
