@@ -18,18 +18,8 @@ using Std.IO;
 using Std.Cli;
 using Std.Time;
 
-// 源码里 `<decl><n>;` 的 n（如 "public static int CompilerFingerprint = "）；读不到 → -1。
-int _srcIntConst(string file, string decl) {
-    if (!File.Exists(file)) { return -1; }
-    string t = File.ReadAllText(file);
-    int k = t.IndexOf(decl);
-    if (k < 0) { return -1; }
-    int s = k + decl.Length;
-    int e = s;
-    while (e < t.Length && t.CharAt(e) >= '0' && t.CharAt(e) <= '9') { e = e + 1; }
-    if (e == s) { return -1; }
-    return int.Parse(t.Substring(s, e - s));
-}
+// `_srcIntConst`（源码里读 int 常量）住在 common/xtask_common.z42 —— `_ensureSeed`
+// 的种子代际校验也用它，故提到公共层。
 
 // 编译器身份三元组 "fp/zbc/zpkg"，从源码树读。
 string _compilerIdentityOf(string tree) {
