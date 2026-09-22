@@ -37,7 +37,7 @@ public sealed class ExprParser {
                 // 「简单接收者双求值无副作用；goldens 均为局部接收者」——即已知而未修。
                 Span qds = this._p._peek().Span;
                 this._p._advance();
-                this._p._diags.Error("E0480",
+                this._p._diags.Error(DiagnosticCodes.ObsoleteNullOperator,
                     "`?.` is no longer supported — write the check out: "
                     + "`var t = <target>; if (t != null) { t.<member> }` "
                     + "(the old form silently propagated null to somewhere far from the cause)", qds);
@@ -185,7 +185,7 @@ public sealed class ExprParser {
                 Span qqs = this._p._peek().Span;
                 this._p._advance();
                 Expr rr = this._parseExpr(25);
-                this._p._diags.Error("E0480",
+                this._p._diags.Error(DiagnosticCodes.ObsoleteNullOperator,
                     "`??` is no longer supported — write the fallback out: "
                     + "`var v = <left>; if (v == null) { v = <right>; }`. "
                     + "For \"read a setting with a default\", prefer an API that takes the default "
@@ -262,13 +262,13 @@ public sealed class ExprParser {
                 bool isRefArg = false;
                 if (this._p._peek().Kind == TokenKind.Ref) { isRefArg = true; }
                 else if (this._p._peek().Kind == TokenKind.Out) {
-                    this._p._diags.Error("E0471",
+                    this._p._diags.Error(DiagnosticCodes.ObsoleteParamModifier,
                         "`out` is no longer an argument modifier — use `ref` (`out v` -> `ref v`, " +
                         "`out var v` -> `ref var v`)", this._p._peek().Span);
                     isRefArg = true;
                 }
                 else if (this._p._peek().Kind == TokenKind.In) {
-                    this._p._diags.Error("E0471",
+                    this._p._diags.Error(DiagnosticCodes.ObsoleteParamModifier,
                         "`in` is no longer an argument modifier — pass the value directly", this._p._peek().Span);
                     isRefArg = true;
                 }

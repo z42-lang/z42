@@ -141,6 +141,14 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
   （种子例外，非兼容层）、调用点不动 → nightly 发布 → 阶段 2 切全部调用点 + **同一提交删旧 API**。
 - stdlib 源自身不受此轴约束（它由自建的当前 z42c 编译）。
 
+> 🔴 **阶段 2 最容易被忘掉——因为忘了不会红。** 阶段 1 的过渡形态（字面量 / 旧 API 并存）能一直跑下去，
+> 没有任何东西提醒你回来收尾，于是过渡形态**沉淀成常态**：诊断码那边就这么积到了 42 个码 / 100 个
+> 发射点常年用字面量发码，`DiagnosticCodes` 登记表被绕开，直接长出三次一码两义（E0474 / E0477 /
+> E0481）。2026-09-23 清账后，`xtask test diagcodes` 的**规则 ⑥**给每条过渡项挂了到期日（挂账超
+> 3 天即红），把「阶段 2 该做了」变成一个会自己响的信号，而不是靠谁记得
+> （见 [test-gate.md](../../internals/src/devinfra/test-gate.md)）。
+> **新开一个分阶段引入时，先想好阶段 2 由什么来提醒你**——没有提醒就等于没打算做。
+
 可操作的完整提交剧本（判定 grep / 两个 commit / 等 nightly 的检查命令）见
 [`docs/internals/src/devinfra/testing.md`](../../internals/src/devinfra/testing.md)
 「stdlib 破坏性 API 变更」。

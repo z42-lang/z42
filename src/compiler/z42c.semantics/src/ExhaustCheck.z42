@@ -124,7 +124,7 @@ public sealed class ExhaustChecker {
                 string miss = "";
                 if (!hasT) { miss = "true"; }
                 if (!hasF) { if (miss != "") { miss = miss + ", "; } miss = miss + "false"; }
-                this._tc._diags.Warning("W0700", "switch on bool is not exhaustive: missing " + miss + " (add the missing case or a default)", sp);
+                this._tc._diags.Warning(DiagnosticCodes.SwitchNotExhaustive, "switch on bool is not exhaustive: missing " + miss + " (add the missing case or a default)", sp);
             }
             return;
         }
@@ -151,7 +151,7 @@ public sealed class ExhaustChecker {
                 i = i + 1;
             }
             if (missing > 0) {
-                this._tc._diags.Warning("W0700", "switch on enum " + tn + " is not exhaustive: missing " + missNames + " (add the missing case(s) or a default)", sp);
+                this._tc._diags.Warning(DiagnosticCodes.SwitchNotExhaustive, "switch on enum " + tn + " is not exhaustive: missing " + missNames + " (add the missing case(s) or a default)", sp);
             }
             return;
         }
@@ -197,7 +197,7 @@ public sealed class ExhaustChecker {
         }
         // 仅当确是封闭层次（≥1 子类）才报——孤立的非 public 类不当作 sum type，避免误报。
         if (subCount >= 1 && missing > 0) {
-            this._tc._diags.Warning("W0700", "switch on closed type " + tn + " is not exhaustive: missing " + missNames + " (add the missing case(s) or a default)", sp);
+            this._tc._diags.Warning(DiagnosticCodes.SwitchNotExhaustive, "switch on closed type " + tn + " is not exhaustive: missing " + missNames + " (add the missing case(s) or a default)", sp);
         }
     }
 

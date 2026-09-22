@@ -484,7 +484,7 @@ public sealed class SymbolCollector {
         if (te == null) { return; }
         if (!(te is NamedType)) { return; }
         string msg = table.AmbiguousBareNameMsg((te as NamedType).Name);
-        if (msg != "") { this.Diags.Error("E0456", msg, sp); }
+        if (msg != "") { this.Diags.Error(DiagnosticCodes.AmbiguousBareTypeName, msg, sp); }
     }
 
     // report-crosspkg-duplicate-type：同 FQN 跨包（E0601）/ 本地遮蔽导入（E0606）的**声明位**判定。
@@ -496,9 +496,9 @@ public sealed class SymbolCollector {
         string fqn = SymbolCollector.PkgCheckFqn(t);
         if (fqn == "") { return; }
         string emsg = table.CrossPkgDuplicateMsg(fqn);
-        if (emsg != "") { this.Diags.Error("E0601", emsg, sp); return; }
+        if (emsg != "") { this.Diags.Error(DiagnosticCodes.NamespaceCollision, emsg, sp); return; }
         string wmsg = table.ShadowedImportMsg(fqn);
-        if (wmsg != "") { this.Diags.Error("E0606", wmsg, sp); }
+        if (wmsg != "") { this.Diags.Error(DiagnosticCodes.LocalTypeShadowsImport, wmsg, sp); }
     }
 
     // 取一个类型引用的 FQN（类 / 泛型实例化的定义类 / 接口）；其余（型参、基元、数组…）返回 ""。

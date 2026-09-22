@@ -68,9 +68,9 @@ public sealed class TypeChecker {
         string fqn = SymbolCollector.PkgCheckFqn(t);
         if (fqn == "") { return; }
         string emsg = symbols.CrossPkgDuplicateMsg(fqn);
-        if (emsg != "") { this._diags.Error("E0601", emsg, sp); return; }
+        if (emsg != "") { this._diags.Error(DiagnosticCodes.NamespaceCollision, emsg, sp); return; }
         string wmsg = symbols.ShadowedImportMsg(fqn);
-        if (wmsg != "") { this._diags.Error("E0606", wmsg, sp); }
+        if (wmsg != "") { this._diags.Error(DiagnosticCodes.LocalTypeShadowsImport, wmsg, sp); }
     }
 
     // add-bare-name-ambiguity-diagnostic：源 TypeExpr 形态的歧义判定入口。
@@ -149,23 +149,23 @@ public sealed class TypeChecker {
     public void ChkEnumOrigins(SymbolTable symbols, string enumName, Span sp) {
         string fqn = symbols.EnumFqn(enumName);
         string dmsg = symbols.CrossPkgDuplicateMsg(fqn);
-        if (dmsg != "") { this._diags.Error("E0601", dmsg, sp); return; }
+        if (dmsg != "") { this._diags.Error(DiagnosticCodes.NamespaceCollision, dmsg, sp); return; }
         string smsg = symbols.ShadowedImportMsg(fqn);
-        if (smsg != "") { this._diags.Error("E0606", smsg, sp); }
+        if (smsg != "") { this._diags.Error(DiagnosticCodes.LocalTypeShadowsImport, smsg, sp); }
     }
 
     public void ChkFreeFuncOrigins(SymbolTable symbols, string name, Span sp) {
         string dmsg = symbols.DuplicateFuncPkgMsg(name);
-        if (dmsg != "") { this._diags.Error("E0601", dmsg, sp); return; }
+        if (dmsg != "") { this._diags.Error(DiagnosticCodes.NamespaceCollision, dmsg, sp); return; }
         string smsg = symbols.ShadowedImportFuncMsg(name);
-        if (smsg != "") { this._diags.Error("E0606", smsg, sp); return; }
+        if (smsg != "") { this._diags.Error(DiagnosticCodes.LocalTypeShadowsImport, smsg, sp); return; }
         string amsg = symbols.AmbiguousFuncNameMsg(name);
-        if (amsg != "") { this._diags.Error("E0456", amsg, sp); }
+        if (amsg != "") { this._diags.Error(DiagnosticCodes.AmbiguousBareTypeName, amsg, sp); }
     }
 
     public void ChkAmbiguousBareName(SymbolTable symbols, string name, Span sp) {
         string msg = symbols.AmbiguousBareNameMsg(name);
-        if (msg != "") { this._diags.Error("E0456", msg, sp); }
+        if (msg != "") { this._diags.Error(DiagnosticCodes.AmbiguousBareTypeName, msg, sp); }
     }
 
     private static string _qual(string ns, string name) { return ns == "" ? name : ns + "." + name; }
@@ -372,7 +372,7 @@ public sealed class TypeChecker {
         // 挂在这道门上而不是逐站点接线：本方法的注释自述它是「赋值 / return / var-decl 同一条门」，
         // 实参也经 ConvertIfNeeded 前的同一检查 ⇒ 一处覆盖全部流入点。
         if ((value is BoundLitNull) && TypeChecker._isNonNullableValueType(target)) {
-            this._diags.Error("E0475",
+            this._diags.Error(DiagnosticCodes.NullableToNonNullableValue,
                 "cannot assign `null` to `" + target.Name() + "` — it is a value type and can never be null "
                 + "(" + ctx + ")", sp);
             return false;
@@ -654,7 +654,7 @@ public sealed class TypeChecker {
         if (vt == null) { return; }
         if ((vt is Z42UnknownType) || (vt is Z42ErrorType)) { return; }
         if (!TypeChecker._isNonNullableValueType(vt)) { return; }
-        this._diags.Error("E0483",
+        this._diags.Error(DiagnosticCodes.ValueTypeNullComparison,
             "`" + vt.Name() + "` is a value type and can never be null — this comparison is always "
             + (op == "==" ? "false" : "true"), sp);
     }
