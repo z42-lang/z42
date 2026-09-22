@@ -1,0 +1,14 @@
+# ANCHOR: use
+$ z42 run methods.z42
+1
+b
+Int32
+String
+0
+# ANCHOR_END: use
+# ANCHOR: arity
+$ z42 run arity.z42
+z42c build: 1 error(s) in arity.z42
+  arity.z42(4,13): E0446: generic method `pick` expects 1 type argument(s) but got 2
+[exit: 1]
+# ANCHOR_END: arity

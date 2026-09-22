@@ -1,0 +1,12 @@
+# ANCHOR: use
+$ z42 run constraints.z42
+26
+9
+# ANCHOR_END: use
+# ANCHOR: violate
+$ z42 run violate.z42
+z42c build: 2 error(s) in violate.z42
+  violate.z42(8,5): E0402: type argument `Plain` for `T` does not satisfy constraint `enum` on `wantsEnum`
+  violate.z42(9,18): E0402: type argument `NeedsArg` for `T` does not satisfy constraint `new()` on `make`
+[exit: 1]
+# ANCHOR_END: violate

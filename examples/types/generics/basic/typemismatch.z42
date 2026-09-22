@@ -1,0 +1,16 @@
+using Std.IO;
+
+class Box<T> {
+    private T item;
+    public Box(T v) { this.item = v; }
+    public T Get() { return this.item; }
+    public void Set(T v) { this.item = v; }
+}
+
+void Main() {
+    Box<int> n = new Box<int>(42);
+
+    string s = n.Get();      // T = int，取出来的是 int
+    n.Set("hello");          // T = int，塞不进 string
+    Box<string> b = n;       // Box<int> 不是 Box<string>
+}

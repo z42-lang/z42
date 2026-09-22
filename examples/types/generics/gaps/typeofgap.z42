@@ -1,0 +1,14 @@
+using Std.IO;
+
+class Box<T> {
+    public string full()  { return typeof(T).FullName; }
+    public bool   isInt() { return typeof(T) == typeof(int); }
+    public string viaDefault() { T z = default(T); return z.GetType().Name; }
+}
+
+void Main() {
+    Box<int> b = new Box<int>();
+    Console.WriteLine(b.full());         // 期望 Int32，实际 T
+    Console.WriteLine(b.isInt());        // 期望 true，实际 false
+    Console.WriteLine(b.viaDefault());   // default(T) 这条路是对的
+}

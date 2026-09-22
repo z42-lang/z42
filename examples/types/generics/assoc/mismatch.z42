@@ -1,0 +1,7 @@
+interface IStore { type Item; int Count(); }
+class StrStore : IStore { type Item = string; public int Count() { return 7; } }
+class IntOnly<T> where T : IStore<Item = int> { }
+
+void Main() {
+    IntOnly<StrStore> bad = new IntOnly<StrStore>();
+}

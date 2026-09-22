@@ -1,0 +1,23 @@
+using Std.IO;
+
+// ANCHOR: decl
+// `where T : INumber` 之后，泛型代码里可以直接写 a + b。
+T sum<T>(T[] xs, T seed) where T : INumber {
+    T acc = seed;
+    int i = 0;
+    while (i < xs.Length) { acc = acc + xs[i]; i = i + 1; }
+    return acc;
+}
+// ANCHOR_END: decl
+
+// ANCHOR: use
+void Main() {
+    int[] ns = new int[3];
+    ns[0] = 1; ns[1] = 2; ns[2] = 3;
+    Console.WriteLine(sum(ns, 0));
+
+    double[] ds = new double[2];
+    ds[0] = 1.5; ds[1] = 2.25;
+    Console.WriteLine(sum(ds, 0.0));
+}
+// ANCHOR_END: use

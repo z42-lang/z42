@@ -1,0 +1,24 @@
+using Std.IO;
+
+// ANCHOR: decl
+// 接口声明一个「由实现方决定」的类型，约束侧再要求它绑到具体类型。
+interface IStore {
+    type Item;                 // 实现方说了算
+    int Count();
+}
+
+class IntStore : IStore { type Item = int;    public int Count() { return 3; } }
+class StrStore : IStore { type Item = string; public int Count() { return 7; } }
+
+// 只接受 Item 绑成 int 的实现。
+class IntOnly<T> where T : IStore<Item = int> {
+    public int howMany(T s) { return s.Count(); }
+}
+// ANCHOR_END: decl
+
+// ANCHOR: use
+void Main() {
+    IntOnly<IntStore> ok = new IntOnly<IntStore>();
+    Console.WriteLine(ok.howMany(new IntStore()));
+}
+// ANCHOR_END: use

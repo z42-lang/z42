@@ -33,3 +33,4 @@
 - [接口](types/interfaces.md)
 - [值类型与记录](types/structs-records.md)
 - [枚举与模式匹配](types/patterns.md)
+- [泛型](types/generics.md)

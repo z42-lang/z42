@@ -1,0 +1,21 @@
+using Std.IO;
+
+// ANCHOR: decl
+// 方法自己带类型参数——不需要所在的类是泛型的。
+T pick<T>(bool first, T a, T b) { return first ? a : b; }
+
+// 用不到值、只用类型的场合：显式写类型实参。
+string nameOf<T>() { return typeof(T).Name; }
+T zeroOf<T>() { return default(T); }
+// ANCHOR_END: decl
+
+// ANCHOR: use
+void Main() {
+    Console.WriteLine(pick(true, 1, 2));           // T 从实参推出来 = int
+    Console.WriteLine(pick(false, "a", "b"));      // T = string
+
+    Console.WriteLine(nameOf<int>());              // 推不出来，就显式写
+    Console.WriteLine(nameOf<string>());
+    Console.WriteLine(zeroOf<int>());              // int 的零值
+}
+// ANCHOR_END: use

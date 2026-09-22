@@ -1,0 +1,25 @@
+using Std.IO;
+
+// ANCHOR: decl
+// `Self` 指代「实现这个接口的那个类型」——不必写成 IEq<T> where T : IEq<T>。
+interface IEq { bool Same(Self other); }
+
+class Money : IEq {
+    public int cents;
+    public Money(int c) { this.cents = c; }
+    public bool Same(Money other) { return this.cents == other.cents; }   // Self 落地成 Money
+}
+// ANCHOR_END: decl
+
+// ANCHOR: use
+// 约束侧不写类型实参，读起来就是「T 能和自己比」。
+bool bothSame<T>(T a, T b, T c) where T : IEq { return a.Same(b) && b.Same(c); }
+
+void Main() {
+    Money x = new Money(100);
+    Money y = new Money(100);
+    Money z = new Money(250);
+    Console.WriteLine(bothSame(x, y, y));
+    Console.WriteLine(bothSame(x, y, z));
+}
+// ANCHOR_END: use

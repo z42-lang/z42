@@ -1,0 +1,11 @@
+# ANCHOR: use
+$ z42 run selftype.z42
+true
+false
+# ANCHOR_END: use
+# ANCHOR: viaiface
+$ z42 run viaiface.z42
+z42c build: 1 error(s) in viaiface.z42
+  viaiface.z42(9,14): E0454: cannot call `Same` through interface type `IEq`: a `Self` parameter has no safe bound here — use a type parameter instead, e.g. `where T : IEq`
+[exit: 1]
+# ANCHOR_END: viaiface
