@@ -223,6 +223,7 @@ public sealed class MemberCollector {
                         "partial type `" + c.Name + "` defines field `" + fd.Name + "` in more than one fragment", fd.Span);
                 }
                 FieldSymbol fsym = new FieldSymbol(fd.Name, this._sc._vis(fd.Mods, "private"), ft, fstatic, c.Name);
+                fsym.IsNullable = (fd.Type is NullableType);   // define-null-check-marks：`string? X;` → 读出即受检
                 fsym.IsReadonly = this._sc._hasWord(fd.Mods, "readonly");   // add-readonly-fields-opt：本地字段 readonly → 优化提示
                 if (fconst) { this._collectConstField(fd, fsym, c.Name, classConstEnv); }   // add-const-keyword：求值 + 登记 ConstVal + 诊断
                 if (HandlerRegistry.HasDeprecated(c.Members[j])) { fsym.IsDeprecated = true; fsym.DeprecationMsg = HandlerRegistry.DeprecatedMsg(c.Members[j]); }   // add-deprecated-directive：本地字段级
@@ -240,6 +241,7 @@ public sealed class MemberCollector {
                 this._sc._chkTypeRefT(pft, pd.Type, c.Name, table, pd.Type.Span);   // enforce-class-access：属性类型引用 + E0456
                 bool pfstatic = this._sc._hasWord(pd.Mods, "static");
                 FieldSymbol pfsym = new FieldSymbol(pd.Name, this._sc._vis(pd.Mods, "private"), pft, pfstatic, c.Name);
+                pfsym.IsNullable = (pd.Type is NullableType);   // define-null-check-marks：属性同理（D4 的第一条理由正是属性会被读两次）
                 ct.Fields.Put(pd.Name, pfsym);
                 // 镜像 C# SynthesizeClassAutoProp：后备字段名 __prop_X（非源名 X），供 TSIG 导出匹配。
                 // extern/native 属性无后备字段；后备字段 vis 固定 private（C# 合成行为）。

@@ -43,11 +43,31 @@ public sealed class FlowAnalyzer {
     // 从这里漏出去（design D9 的 `PossibleNullReturn`），否则标记体系就被洗穿了。
     private bool _retIsNullable;
 
+    // ── 字段那半（define-null-check-marks 阶段 3.5）────────────────────────
+    //
+    // 字段与局部的**关键差别**：字段不是一个「值」，是一个**每次读都重新求值的位置**。
+    // 于是 `if (this.F != null) { this.F.M(); }` 里的两个 `this.F` 是两次独立的读，
+    // 中间别的线程能写、若 `F` 是属性还会是两次真调用（返回值可以不同）。
+    // design §D4 由此选了 (a)「强制快照」：字段**永不窄化**，要用就先存进局部
+    // ⇒ 字段不入 `_maybeNull`（没有状态可记）。
+    //
+    // ⭐ **这条是实测定的，不是照抄文档**（tasks 阶段 4 的 Q1 A/B）：另一档 (b)「调用即失效」
+    // 两条都实现过、各跑一遍全仓。(a) 命中 51 处、形态单一；(b) 命中 7 处，但那 7 处全是
+    // **「检查完插了一次无关调用」**——
+    //   · `LinkedList` 里 `node.SetNext(this.head);` 的下一行 `this.head.SetPrevious(node)` 才报（相邻两行，同一个表达式，一行报一行不报）；
+    //   · `HttpClient` 里查完 `_cookieJar` 取了个时间戳，再用就要重查；
+    //   · `Decl.MergeParseDiags` 里 `while (i < this.ParseDiags.Count())` 的条件合法、体内 `this.ParseDiags.Get(i)` 报——**同一条 while 语句内**。
+    // 少报的 44 处买回来的是这种「我明明检查过了，为什么这里报那里不报」。⇒ 维持 (a)。
+
+    // 报过的字段路径 —— 同一个字段在一个方法里每处再报一遍只是噪声（同 E0407 的处置）。
+    private StrMap _fieldReported;
+
     private FlowAnalyzer(DiagnosticBag diags) {
         this._diags = diags;
         this._uninit = new StrMap();
         this._assigned = new StrMap();
         this._maybeNull = new StrMap();
+        this._fieldReported = new StrMap();
     }
 
     // 入口：方法体绑定完之后调。形参一律预置为已赋值（调用方提供了值；`ref` 亦然——
@@ -55,17 +75,20 @@ public sealed class FlowAnalyzer {
     public static void Check(BoundStmt body, MethodDecl md, DiagnosticBag diags) {
         if (body == null || diags == null) { return; }
         FlowAnalyzer fa = new FlowAnalyzer(diags);
-        if (md != null) { fa._retIsNullable = (md.RetType is NullableType); }
-        if (md != null) {
-            int i = 0;
-            while (i < md.ParamCount) {
-                fa._assigned.Put(md.Params[i].Name, "1");
-                // 标了 `?` 的形参进入体内时是「可能为 null」——被调方必须先检查再解引用。
-                if (md.Params[i].Type is NullableType) { fa._maybeNull.Put(md.Params[i].Name, "1"); }
-                i = i + 1;
-            }
-        }
+        FlowAnalyzer._seed(fa, md);
         fa._stmt(body);
+    }
+
+    private static void _seed(FlowAnalyzer fa, MethodDecl md) {
+        if (md == null) { return; }
+        fa._retIsNullable = (md.RetType is NullableType);
+        int i = 0;
+        while (i < md.ParamCount) {
+            fa._assigned.Put(md.Params[i].Name, "1");
+            // 标了 `?` 的形参进入体内时是「可能为 null」——被调方必须先检查再解引用。
+            if (md.Params[i].Type is NullableType) { fa._maybeNull.Put(md.Params[i].Name, "1"); }
+            i = i + 1;
+        }
     }
 
     // ── 正常结束分析 ────────────────────────────────────────────────────────
@@ -534,7 +557,7 @@ public sealed class FlowAnalyzer {
     // 报一次就清掉事实 —— 同一个变量在后面每处再报一遍只是噪声（同 E0407 的处置）。
     private void _checkDeref(BoundExpr e) {
         if (e == null) { return; }
-        // 字段/属性的快照规则是后续 PR，这里只管裸名与调用结果。
+        // 三类义务来源：调用结果（返回值标记）/ 裸名（形参标记）/ 字段与属性（字段标记）。
         if (e is BoundCall) {
             BoundCall c = e as BoundCall;
             if (!c.RetIsNullable) { return; }
@@ -543,6 +566,7 @@ public sealed class FlowAnalyzer {
                 + "assign it to a local and check that (e.g. `var v = …; if (v != null) { … }`)", e.Span);
             return;
         }
+        if (e is BoundMember) { this._checkFieldDeref(e as BoundMember); return; }
         if (!(e is BoundIdent)) { return; }
         BoundIdent id = e as BoundIdent;
         if (!this._isMaybeNull(id.Name)) { return; }
@@ -561,6 +585,9 @@ public sealed class FlowAnalyzer {
     // User 也否掉过的一档。`null` 字面量本身不是标记。
     private void _propagate(string name, BoundExpr v) {
         if (FlowAnalyzer._isNullableCall(v)) { this._maybeNull.Put(name, "1"); return; }
+        // 快照：`var v = this.F;` —— 义务从字段转移到这个局部。这条是字段那半的**逃生口本身**，
+        // 不是可选优化：没有它，标了 `?` 的字段就只剩「无处可用」。
+        if (FlowAnalyzer._isMarkedFieldExpr(this, v)) { this._maybeNull.Put(name, "1"); return; }
         // 只更新**已在义务集内**的名字：赋 null ⇒ 重新受检；赋别的 ⇒ 义务解除。
         if (!this._maybeNull.ContainsKey(name)) { return; }
         if (v is BoundLitNull) { this._maybeNull.Put(name, "1"); }
@@ -571,6 +598,56 @@ public sealed class FlowAnalyzer {
         if (e == null) { return false; }
         if (!(e is BoundCall)) { return false; }
         return (e as BoundCall).RetIsNullable;
+    }
+
+    // ── 字段：义务点（永不窄化，见类首注释）───────────────────────────────
+
+    // 这个成员访问是不是「标了 `?` 的字段/属性」。
+    //
+    // 标记从**接收者的类型**上查，而不是从「当前类」查 —— 这样 `this.F` 与 `other.F`
+    // 走同一条路，不用把 enclosing 类当参数串下来。查不到（接收者不是类类型 /
+    // 成员不是字段）一律返 false：**漏报方向**，符合 D4。
+    private bool _isMarkedField(BoundMember m) {
+        if (m == null) { return false; }
+        if (m.Target == null) { return false; }
+        Z42Type t = m.Target.Type();
+        if (!(t is Z42ClassType)) { return false; }
+        FieldSymbol f = (t as Z42ClassType).Fields.Get(m.MemberName) as FieldSymbol;
+        if (f == null) { return false; }
+        return f.IsNullable;
+    }
+
+    private static bool _isMarkedFieldExpr(FlowAnalyzer fa, BoundExpr e) {
+        if (!(e is BoundMember)) { return false; }
+        return fa._isMarkedField(e as BoundMember);
+    }
+
+    // 字段路径键，只用于「同一路径在本方法里只报一次」的去重。
+    // 只认**接收者是裸名**的一层（`this.F` / `x.F`）；更深的链（`a.b.F`）返 ""，不去重也不漏报。
+    private static string _fieldKey(BoundMember m) {
+        if (m.Target is BoundIdent) { return (m.Target as BoundIdent).Name + "." + m.MemberName; }
+        return "";
+    }
+
+    // 解引用一个标了 `?` 的字段 → E0484。
+    //
+    // 规则 (a)（design §D4）：**永不窄化**。`if (this.F != null) { this.F.M(); }` 照样报，
+    // 因为那是**两次独立的读**：别的线程能在中间写；`F` 若是属性还是两次真调用，返回值可以不同。
+    // 修法是快照到局部再检查那个局部 —— 局部是个值，检查一次就永远成立。
+    private void _checkFieldDeref(BoundMember m) {
+        if (!this._isMarkedField(m)) { return; }
+        // 同一个字段路径在一个方法里只报一次 —— 一次快照就把这个方法里的全部站点一并修掉，
+        // 每处再报一遍只是噪声（同 E0407 / E0478 的处置）。
+        string key = FlowAnalyzer._fieldKey(m);
+        if (key != "" && this._fieldReported.ContainsKey(key)) { return; }
+        if (key != "") { this._fieldReported.Put(key, "1"); }
+        string recv = "";
+        if (m.Target is BoundIdent) { recv = (m.Target as BoundIdent).Name + "."; }
+        string msg = "`" + m.MemberName + "` is marked `?` and may be null here — a field is re-read "
+            + "on every access (and a property is re-invoked), so checking it in place does not make "
+            + "the next read non-null; snapshot it into a local and check that "
+            + "(e.g. `var v = " + recv + m.MemberName + "; if (v != null) { … }`)";
+        this._diags.Error("E0484", msg, m.Span);
     }
 
     // 把可空值 `return` 给**未标 `?`** 的返回类型 → E0479。
@@ -585,6 +662,7 @@ public sealed class FlowAnalyzer {
         bool bad = false;
         if (v is BoundIdent) { bad = this._isMaybeNull((v as BoundIdent).Name); }
         else if (FlowAnalyzer._isNullableCall(v)) { bad = true; }
+        else if (FlowAnalyzer._isMarkedFieldExpr(this, v)) { bad = true; }
         if (!bad) { return; }
         this._diags.Error("E0479",
             "returning a value that may be null from a return type not marked `?` — "
@@ -607,7 +685,7 @@ public sealed class FlowAnalyzer {
     // ⚠️ 已知的漏报：`&&` / `||` / 三元里的窄化在**同一条语句内**不回滚，
     // 例如 `bool b = s == null || s.Length == 0; return s.Length;` 的第二处不会报。
     // 按 D4（漏报可接受、误报不可以）留着——把表达式级也做成 join 要另起一套状态机。
-    // 义务点也只覆盖**裸名**解引用，不覆盖字段/属性（那需要先定快照规则）。
+    // 字段/属性走另一条路（E0484 强制快照，**不在这里窄化**）。
     private void _narrowNotNull(BoundExpr cond, bool whenTrue) {
         if (cond == null) { return; }
         if (cond is BoundBinary) {
@@ -621,6 +699,8 @@ public sealed class FlowAnalyzer {
             if (ne != whenTrue) { return; }
             string n = FlowAnalyzer._nullCompareName(b);
             if (n != "") { this._maybeNull.Put(n, "0"); }
+            // ⚠️ 字段**故意不在这里窄化**（`this.F != null` 不产生任何事实）——那正是
+            // 「强制快照」的全部内容，Q1 实测定的（见类首注释）。
             return;
         }
         if (cond is BoundUnary) {

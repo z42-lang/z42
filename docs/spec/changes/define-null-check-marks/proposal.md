@@ -155,3 +155,35 @@ var cfg = this._cache.Expect("LoadConfig 在构造器里已填过 _cache");
 返回值可以不同）；多线程下只有快照安全；永不出现「我明明检查过了」的困惑。
 
 **摩擦有多大只能实测** —— tasks 里安排在引擎上线后、全仓开闸前做 A/B。
+
+### ✅ Q1 已实测定稿（2026-09-22）：取 (a)
+
+两条规则各实现一遍、各跑一次全仓（25 包 + 编译器自身；用探针把「本方法里被拿去
+和 `null` 比过的字段」视同标了 `?`，诊断降级成 warning 以便跑完全仓；两次均
+`cached: 0/` 全量重编）：
+
+| 规则 | 命中 | 形态 |
+|---|---|---|
+| **(a) 强制快照** | **51** | 单一：就地检查后直接再读字段 |
+| (b) 调用即失效 | 7 | **全部是「检查完插了一次无关调用」** |
+
+**判据不是命中数，是那 7 处长什么样**——它们正是 (b) 那栏预言的「不可预测」：
+
+- `z42.collections/LinkedList.z42:85` — `node.SetNext(this.head);` 的**下一行**
+  `this.head.SetPrevious(node)` 才报。相邻两行、同一个表达式，一行合法一行报错；
+  而那次调用只是**把字段读出去传给别人**，并没有写它。
+- `z42.net/Http/HttpClient.z42:775` — 查完 `_cookieJar` 取了个时间戳
+  （`HttpClient._unixNow()`），再用就要重查。字面意义上的「检查完写句日志就要重检」。
+- `z42c.syntax/Decl.z42:455` — `while (i < this.ParseDiags.Count())` 的**条件里**合法、
+  **体内** `this.ParseDiags.Get(i)` 报错。**同一条 `while` 语句内**两种待遇。
+
+⇒ (b) 少报的 44 处，买回来的是这种「我明明检查过了，为什么这里报那里不报」。
+(a) 的代价则是齐整的一行快照，且**因为标记是 opt-in，存量代码的实际迁移量是 0**
+（全仓现有 `?` 字段数 = 0；那 51 处是「若把你已经在查空的字段全标上」的上界）。
+
+**顺带量到的**：同一次探针跑出 **16 处 E0479**，全是同一个形态——**记忆化惰性初始化**
+（`if (cache != null) { return cache; } cache = compute(); return cache;`，见
+`Reflection/{FieldInfo,MethodInfo,ParameterInfo,PropertyInfo}`、`Type`、`ProcessHandle`、
+`TcpClient`、`TlsClient`）。标了 `?` 的缓存字段直接 `return` 给未标的返回类型会被 E0479 拦，
+修法同样是先快照（`var c = this.__cache; if (c != null) { return c; }`）。
+⇒ **这是字段标记最常见的落地形态，reference 文档要把它当样例写出来。**
