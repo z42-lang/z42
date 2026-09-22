@@ -149,7 +149,16 @@ fn cached_zpkg_namespaces(path_str: &str) -> Option<Vec<String>> {
 
     let data = backend.read(path_str).ok()?;
     if data.len() < 4 || &data[0..4] != ZPKG_MAGIC { return None; }
-    let namespaces = read_zpkg_namespaces(&data).ok()?;
+    // Passed the zpkg magic but the NSPC parse failed — a corrupt / incompatible
+    // package. Warn rather than let it vanish from the candidate set (see the
+    // matching path in `scan_zbc_candidates`).
+    let namespaces = match read_zpkg_namespaces(&data) {
+        Ok(ns) => ns,
+        Err(e) => {
+            tracing::warn!("skipping malformed .zpkg `{path_str}` during namespace scan: {e}");
+            return None;
+        }
+    };
     if let Some((len, ms)) = stamp {
         MEMO.get_or_init(Default::default)
             .lock()
@@ -175,7 +184,17 @@ pub fn scan_zbc_candidates(dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
             let path_str = match path.to_str() { Some(s) => s, None => continue };
             let data = match backend.read(path_str) { Ok(d) => d, Err(_) => continue };
             if data.len() < 4 || &data[0..4] != ZBC_MAGIC { continue; }
-            let file_ns = match read_zbc_namespace(&data) { Ok(n) => n, Err(_) => continue };
+            // A file that starts with the zbc magic but won't parse is a corrupt /
+            // truncated / incompatible artifact, not an unrelated file. Dropping it
+            // silently from the candidate set surfaces downstream as a confusing
+            // "type not found" rather than naming the broken package — so warn.
+            let file_ns = match read_zbc_namespace(&data) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!("skipping malformed .zbc `{path_str}` during namespace scan: {e}");
+                    continue;
+                }
+            };
             let namespaces = if file_ns.is_empty() { Vec::new() } else { vec![file_ns] };
             out.push(ZpkgCandidate { file_path: path, namespaces });
         }
