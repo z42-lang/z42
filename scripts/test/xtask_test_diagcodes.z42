@@ -17,7 +17,9 @@
 //   ③ `DiagnosticCodes.<Name>` 引用的常量名必须存在（笔误造幽灵码 → 红）；
 //   ④ **字面量发码清单双向棘轮**——`diag-literal-emitters.txt` 是 (码, 文件) 的精确快照，
 //      多一条 / 少一条都红；
-//   ⑤ **error-codes.md 的码表与登记表双向相等**。
+//   ⑤ **error-codes.md 的码表与登记表双向相等**；
+//   ⑥ **清单里的每条欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）会过期，
+//      挂账超过宽限期即红，逼它切回常量。
 //
 // ⑤ 为什么后补上（同样是按事故加的，不是补完整性）：①-④ 只盯「发射出去的码」，于是**保留号和
 // 退役号**——被占住、但故意零发射点的号——可以完全不进登记表。实测 main 上有 5 个这样的号
@@ -51,6 +53,10 @@ using Std.Cli;
 using Std.Time;
 
 string _dcBaselinePath() { return "scripts/test/diag-literal-emitters.txt"; }
+
+// ⑥ 的宽限期。nightly 每天发 ⇒ 常量进 main 当晚就该进种子；3 天是给发布链偶发失败留的余量。
+// 调大它之前先问：是真的需要更久，还是 nightly 停了？后者该去修发布链，不是放宽这里。
+int _dcGraceDays() { return 3; }
 
 // `xtask test diagcodes`
 int _testDiagCodes(bool update) {
@@ -149,9 +155,24 @@ int _testDiagCodes(bool update) {
             + "# 发射点用字面量而非 DiagnosticCodes 常量，是 bootstrap-seed.md 分阶段引入纪律的**过渡期形态**：\n"
             + "# 新常量与引用它的发射点不能同 PR（上一版 z42c 的 z42c.core 里还没有这个常量）⇒ 中间必有一轮字面量。\n"
             + "# 所以这份清单的稳态是「上一个 nightly 以来新加的码」那么几条，**不是空**——④ 是常设配套，不会退役。\n"
+            + "# 每条都是**欠账**：等它的常量随 nightly 进了种子，就该把发射点切回 DiagnosticCodes.<Name> 并重跑 --update。\n"
             + "# 重生成：`xtask test diagcodes --update`（改之前先想清楚你是不是在给一个已有码挂第二个含义）。\n";
+        // 挂账日：已在清单里的条目**保留原日期**（否则每次 --update 都把欠账的时钟拨回今天，
+        // ⑥ 就永远不会到期——这正是「重生成基线」类机制最容易长出来的那个洞）。
+        string[] prev = new string[256]; int prevc = _dcLoadBaseline(root, prev);
+        if (prevc < 0) { prevc = 0; }
+        string today = _dcToday();
         int w2 = 0;
-        while (w2 < pc) { body = body + pairs[w2] + "\n"; w2 = w2 + 1; }
+        while (w2 < pc) {
+            string day = "";
+            int q = 0;
+            while (q < prevc) {
+                if (_dcPairOf(prev[q]) == pairs[w2]) { day = _dcDateOf(prev[q]); q = prevc; } else { q = q + 1; }
+            }
+            if (day == "") { day = today; }
+            body = body + pairs[w2] + " " + day + "\n";
+            w2 = w2 + 1;
+        }
         File.WriteAllText(outp, body);
         Console.WriteLine("  ↻ rewrote " + _dcBaselinePath() + " (" + pc.ToString() + " literal emission site(s))");
     } else {
@@ -160,10 +181,15 @@ int _testDiagCodes(bool update) {
             ConsoleError.WriteLine("  ✗ cannot read " + _dcBaselinePath() + " — the ratchet has no baseline to compare against");
             return 1;
         }
+        // 比身份只比前两列 —— 第三列是挂账日，归 ⑥ 管。
+        string[] wantPair = new string[256];
+        int wi = 0;
+        while (wi < wc) { wantPair[wi] = _dcPairOf(want[wi]); wi = wi + 1; }
         _dcSort(want, wc);
+        _dcSort(wantPair, wc);
         int a = 0;
         while (a < pc) {
-            if (_dcIndexOfStr(want, wc, pairs[a]) < 0) {
+            if (_dcIndexOfStr(wantPair, wc, pairs[a]) < 0) {
                 viol = _dcPush(viol, vc, "NEW literal emission `" + pairs[a]
                     + "` is not in " + _dcBaselinePath()
                     + " — a new code must be registered in DiagnosticCodes.z42 first; if you are re-using an EXISTING code, stop: that is how E0474/E0477 became one-code-two-meanings");
@@ -173,9 +199,44 @@ int _testDiagCodes(bool update) {
         }
         a = 0;
         while (a < wc) {
-            if (_dcIndexOfStr(pairs, pc, want[a]) < 0) {
-                viol = _dcPush(viol, vc, "STALE baseline entry `" + want[a]
+            if (_dcIndexOfStr(pairs, pc, wantPair[a]) < 0) {
+                viol = _dcPush(viol, vc, "STALE baseline entry `" + wantPair[a]
                     + "` no longer exists — rerun `xtask test diagcodes --update` (the list must stay honest in both directions)");
+                vc = vc + 1;
+            }
+            a = a + 1;
+        }
+
+        // ── ⑥ 清单里的每条都是**欠账**，必须按时结清 ──────────────────────
+        // 一条字面量发码只有一个正当理由：它的常量**还没进上一版 nightly 的种子**，引用不了。
+        // 那个理由**会过期**（nightly 每天发）。过期后还挂着，就是纯粹的欠账——而三次撞码
+        // （E0474/E0477/E0481）的共同前提正是「一大片字面量发码常年挂着」。没有东西盯着到期，
+        // 这一片迟早重新长回来：2026-09-23 这次能清掉 100 条，纯粹是因为有人记着一条 Deferred。
+        //
+        // ⚠️ 判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」：那个判据更精确，但
+        // **在 CI 里拿不到种子**——`xtask test diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建**
+        // stdlib（`artifacts/build/libraries/dist/release`，含全部常量 ⇒ 每条都判红），而
+        // `Z42_HOME` 在整个 test-host job 里一次都没设，nightly 种子解在 ci-bootstrap 自己的
+        // `$(mktemp -d)/sdkpkg` 里、test 步骤看不见 ⇒ 只认种子就是恒跳过的假门。
+        //
+        // 反方向**已经有门**：切早了（种子里还没有那个常量）→ `xtask test bootstrap` 直接红。
+        // 两个方向互为对照，所以这里粗一点是安全的：宽限期内切回去，bootstrap 会告诉你切早了。
+        int today = _dcCivilDays(_dcToday());
+        a = 0;
+        while (a < wc) {
+            string day = _dcDateOf(want[a]);
+            int dd = _dcCivilDays(day);
+            if (dd < 0) {
+                viol = _dcPush(viol, vc, "baseline entry `" + wantPair[a]
+                    + "` has no valid `YYYY-MM-DD` claim date (got \"" + day
+                    + "\") — rerun `xtask test diagcodes --update`; without a date rule ⑥ cannot tell whether this debt is overdue");
+                vc = vc + 1;
+            } else if (today >= 0 && (today - dd) > _dcGraceDays()) {
+                viol = _dcPush(viol, vc, "OVERDUE literal emission `" + wantPair[a]
+                    + "` — claimed " + (today - dd).ToString() + " day(s) ago (" + day
+                    + "), grace is " + _dcGraceDays().ToString()
+                    + " day(s). Its DiagnosticCodes constant has long since shipped in a nightly seed, so the emission site must now reference the constant: switch it to `DiagnosticCodes.<Name>` and rerun `xtask test diagcodes --update`."
+                    + " (If switching it makes `xtask test bootstrap` go red, the constant is NOT in the seed yet — that means nightly publishing is stuck, which is itself the thing to go fix.)");
                 vc = vc + 1;
             }
             a = a + 1;
@@ -228,6 +289,16 @@ int _testDiagCodes(bool update) {
         + " constant reference(s) across " + pc.ToString() + " literal-emission site(s); "
         + dn.ToString() + " code(s) documented in error-codes.md, "
         + vc.ToString() + " violation(s)");
+    // ⑥ 的欠账要**主动报出来**，别等它超期才第一次被提起——清单短的时候这一行就是全部账面。
+    if (!update && pc > 0) {
+        Console.WriteLine("  ⑥ open literal-emission debt (switch each back to `DiagnosticCodes.<Name>` "
+            + "once its constant has shipped in a nightly seed; grace " + _dcGraceDays().ToString() + " day(s)):");
+        int dbg = 0;
+        while (dbg < pc) {
+            Console.WriteLine("      " + pairs[dbg]);
+            dbg = dbg + 1;
+        }
+    }
     if (vc > 0) {
         ConsoleError.WriteLine("  every diagnostic code must be claimed exactly once in "
             + _dcRegistryPath() + " (enforce-diagnostic-code-uniqueness)");
@@ -242,6 +313,42 @@ string _dcRegistryPath() { return "src/libraries/z42c.core/src/DiagnosticCodes.z
 string _dcDocPath() { return "docs/reference/src/appendix/error-codes.md"; }
 
 // 基线文件 → `<CODE> <relpath>` 行（`#` 注释与空行跳过）。读不到返回 -1。
+// 清单每行形如 `<CODE> <relpath> <YYYY-MM-DD>`；前两列是 ④ 比对的身份，第三列是 ⑥ 的挂账日。
+string _dcPairOf(string line) {
+    string[] f = line.Split(" ");
+    if (f.Length < 2) { return line; }
+    return f[0] + " " + f[1];
+}
+
+string _dcDateOf(string line) {
+    string[] f = line.Split(" ");
+    if (f.Length < 3) { return ""; }
+    return f[2].Trim();
+}
+
+// `YYYY-MM-DD` → 自 1970-01-01 的天数（Howard Hinnant days_from_civil）。非法输入返回 -1。
+int _dcCivilDays(string ymd) {
+    if (ymd.Length != 10) { return 0 - 1; }
+    string[] p = ymd.Split("-");
+    if (p.Length != 3) { return 0 - 1; }
+    int y = 0; int m = 0; int d = 0;
+    try { y = Int32.Parse(p[0]); m = Int32.Parse(p[1]); d = Int32.Parse(p[2]); }
+    catch (Exception ex) { return 0 - 1; }
+    if (m < 1 || m > 12 || d < 1 || d > 31) { return 0 - 1; }
+    int yy = y - ((m <= 2) ? 1 : 0);
+    int era = ((yy >= 0) ? yy : (yy - 399)) / 400;
+    int yoe = yy - era * 400;
+    int doy = (153 * (m + ((m > 2) ? (0 - 3) : 9)) + 2) / 5 + d - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+string _dcToday() {
+    string now = _utcNow();          // `YYYY-MM-DDTHH:MM:SSZ`
+    if (now.Length < 10) { return ""; }
+    return now.Substring(0, 10);
+}
+
 int _dcLoadBaseline(string root, string[] outPairs) {
     string text = "";
     try { text = File.ReadAllText(Path.Join(root, _dcBaselinePath())); }
