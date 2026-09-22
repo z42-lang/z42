@@ -16,7 +16,16 @@
 //   ② **发射出去的每一个码都必须在登记表里登记**（非 tests 源里剥注释后的字面量码找不到 → 红）；
 //   ③ `DiagnosticCodes.<Name>` 引用的常量名必须存在（笔误造幽灵码 → 红）；
 //   ④ **字面量发码清单双向棘轮**——`diag-literal-emitters.txt` 是 (码, 文件) 的精确快照，
-//      多一条 / 少一条都红。
+//      多一条 / 少一条都红；
+//   ⑤ **error-codes.md 的码表与登记表双向相等**。
+//
+// ⑤ 为什么后补上（同样是按事故加的，不是补完整性）：①-④ 只盯「发射出去的码」，于是**保留号和
+// 退役号**——被占住、但故意零发射点的号——可以完全不进登记表。实测 main 上有 5 个这样的号
+// （E0438 预留 / I0467、E0901、E0902 退役 / E0467 曾被文档标「未使用」），占用只写在 error-codes.md
+// 的「保留编号」「已退役的编号空间」两节里，而门只读登记表 ⇒ **它们在门眼里就是空位**，下一个扫表
+// 找空号的人会拿走其中一个，①-④ 全部放行。这正是 E0474/E0477/E0481 三次撞码的同一形状
+// （「占号能绕开登记表」），只是换了个绕法。⑤ 同时把反方向钉住：新码不进 error-codes.md 也红——
+// 码是用户可见契约，「新增一个码」第 3 步此前纯靠自觉。
 //
 // ④ 为什么不能省（按历史回放逐条验过，不是事后解释）：
 //   · E0477 那次：#745 发**未登记**字面量 → ② 红，逼它进表；#749 再登记同值 → ① 红。✅ ①② 够用。
@@ -166,25 +175,64 @@ int _testDiagCodes(bool update) {
         }
     }
 
+    // ── ⑤ error-codes.md 的码表 ↔ 登记表双向相等 ──────────────────────────
+    // 左向（文档有、表无）：号被占在散文里，门看不见 ⇒ 后来者当空位拿走（本门补上前 main 上有 5 个）。
+    // 右向（表有、文档无）：新码没进用户查得到的那张表——码是用户可见契约，查不到比查错略好而已。
+    string docText = "";
+    try { docText = File.ReadAllText(Path.Join(root, _dcDocPath())); }
+    catch (Exception ex) { docText = ""; }
+    int dn = 0;
+    string[] docCodes = new string[512];
+    if (docText == "") {
+        viol = _dcPush(viol, vc, "cannot read " + _dcDocPath()
+            + " — rule ⑤ would be vacuously green (a gate that cannot find its subject is not a gate)");
+        vc = vc + 1;
+    } else {
+        dn = _dcScanCodes(docText, docCodes);
+        int d = 0;
+        while (d < dn) {
+            if (_dcIndexOfStr(rCode, rc, docCodes[d]) < 0) {
+                viol = _dcPush(viol, vc, _dcDocPath() + " documents `" + docCodes[d]
+                    + "` but no constant in " + _dcRegistryPath() + " claims it — a number reserved or retired"
+                    + " only in prose is invisible to this gate, so the next person scanning the registry for a"
+                    + " free slot will take it. Claim it with a zero-emission constant (see the retired-numbers section).");
+                vc = vc + 1;
+            }
+            d = d + 1;
+        }
+        d = 0;
+        while (d < rc) {
+            if (_dcIndexOfStr(docCodes, dn, rCode[d]) < 0) {
+                viol = _dcPush(viol, vc, "registry claims `" + rCode[d] + "` (`" + rName[d] + "`) but "
+                    + _dcDocPath() + " never mentions it — a diagnostic code is a user-visible contract;"
+                    + " step 3 of `新增一个码` (add a row: code -> meaning -> status) is not optional");
+                vc = vc + 1;
+            }
+            d = d + 1;
+        }
+    }
+
     _dcSort(viol, vc);
     int v = 0;
     while (v < vc) { ConsoleError.WriteLine("  ✗ " + viol[v]); v = v + 1; }
 
     Console.WriteLine("  registry: " + rc.ToString() + " code constant(s); scanned " + files.ToString()
         + " source file(s): " + emitted.ToString() + " literal emission(s) + " + refs.ToString()
-        + " constant reference(s) across " + pc.ToString() + " literal-emission site(s), "
+        + " constant reference(s) across " + pc.ToString() + " literal-emission site(s); "
+        + dn.ToString() + " code(s) documented in error-codes.md, "
         + vc.ToString() + " violation(s)");
     if (vc > 0) {
         ConsoleError.WriteLine("  every diagnostic code must be claimed exactly once in "
             + _dcRegistryPath() + " (enforce-diagnostic-code-uniqueness)");
         return 1;
     }
-    Console.WriteLine("  ✓ every emitted diagnostic code is registered exactly once");
+    Console.WriteLine("  ✓ every diagnostic code is claimed exactly once in the registry and documented exactly once in error-codes.md");
     _procEnd("test diagcodes", sw);
     return 0;
 }
 
 string _dcRegistryPath() { return "src/libraries/z42c.core/src/DiagnosticCodes.z42"; }
+string _dcDocPath() { return "docs/reference/src/appendix/error-codes.md"; }
 
 // 基线文件 → `<CODE> <relpath>` 行（`#` 注释与空行跳过）。读不到返回 -1。
 int _dcLoadBaseline(string root, string[] outPairs) {
@@ -299,8 +347,11 @@ int _dcConstRefs(string line, string[] outNames) {
 }
 
 // 形如 E0477 / W0700 / I0466：首字母 E|W|I + 恰好 4 位数字。
+// 码形态：`E0477` / `I0466` / `W0700`，外加**一位小写字母后缀**的子类码（`E0908a`/`E0908b` —— 登记表
+// 里的真常量）。后缀形态此前不被识别 ⇒ 那两个常量既不受 ①② 约束、又占着 0908 号段而门看不见。
 bool _dcLooksLikeCode(string s) {
-    if (s.Length != 5) { return false; }
+    int n = s.Length;
+    if (n != 5 && n != 6) { return false; }
     char c0 = s.CharAt(0);
     if (c0 != 'E' && c0 != 'W' && c0 != 'I') { return false; }
     int i = 1;
@@ -309,7 +360,46 @@ bool _dcLooksLikeCode(string s) {
         if (c < '0' || c > '9') { return false; }
         i = i + 1;
     }
+    if (n == 6) {
+        char sfx = s.CharAt(5);
+        if (sfx < 'a' || sfx > 'z') { return false; }
+    }
     return true;
+}
+
+// 自由文本（markdown）里的全部码 token，去重。两侧必须不是标识符字符，否则 `XE0477` / `E04770`
+// 会被误读成码。
+int _dcScanCodes(string text, string[] outCodes) {
+    int n = text.Length; int count = 0; int i = 0;
+    while (i < n) {
+        char c = text.CharAt(i);
+        bool head = (c == 'E' || c == 'W' || c == 'I') && (i == 0 || !_dcIsIdent(text.CharAt(i - 1)));
+        if (head && i + 5 <= n) {
+            int j = i + 1; bool digits = true;
+            while (j < i + 5) {
+                char d = text.CharAt(j);
+                if (d < '0' || d > '9') { digits = false; }
+                j = j + 1;
+            }
+            if (digits) {
+                int end = i + 5;
+                if (end < n) {
+                    char sfx = text.CharAt(end);
+                    if (sfx >= 'a' && sfx <= 'z') { end = end + 1; }
+                }
+                if (end >= n || !_dcIsIdent(text.CharAt(end))) {
+                    string code = text.Substring(i, end - i);
+                    if (_dcIndexOfStr(outCodes, count, code) < 0 && count < outCodes.Length) {
+                        outCodes[count] = code; count = count + 1;
+                    }
+                    i = end;
+                    continue;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return count;
 }
 
 bool _dcIsIdent(char c) {
