@@ -460,11 +460,25 @@ public sealed class Z42FuncType : Z42Type {
         this.ParamTypes = paramTypes; this.ParamCount = paramCount; this.Ret = ret; this.ParamsFrom = 0 - 1;
         this.ParamDefaults = new string[0]; this.ParamCallers = new string[0]; this.ParamNames = new string[0];
         this.ParamIsRef = new bool[0]; this.RefInfoKnown = false;
+        this.ParamIsNullable = new bool[0]; this.RetIsNullable = false;
     }
     // record-ref-in-signature：ref 信息是否**写全了**，由填充点显式置真。
     // 本地签名恒真（SymbolCollector 从 AST 填）；导入签名看 `$RefSig` 完备性标记。
     // ⚠️ **不能按 ParamIsRef 的长度推断**——本变更让导入侧也填之后，「已知全非 ref」与
     // 「旧包，不知道」两种情形的数组长得一模一样，混同会让引用未重编旧包的调用点被误报。
+    // define-null-check-marks：引用类型的 `?` 标记。**不进 Name()/Dump()** —— 同 ParamIsRef，
+    // 它不参与类型身份、可赋性、重载判重。语义只有一条：
+    // **「编译器请在这里强制检查」**，缺席 = 不强制（**不是**保证非空）。
+    // 空数组 / false = 未标 = 不强制，故不需要 ParamIsRef 那样的「已知」位。
+    public bool[] ParamIsNullable;
+    public bool   RetIsNullable;
+
+    public bool IsNullableParam(int i) {
+        if (this.ParamIsNullable == null) { return false; }
+        if (i < 0 || i >= this.ParamIsNullable.Length) { return false; }
+        return this.ParamIsNullable[i];
+    }
+
     public bool RefInfoKnown;
     public bool HasRefInfo() {
         if (!this.RefInfoKnown) { return false; }

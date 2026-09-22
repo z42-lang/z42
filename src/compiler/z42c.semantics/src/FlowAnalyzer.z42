@@ -32,10 +32,19 @@ public sealed class FlowAnalyzer {
     private StrMap _uninit;     // 声明时无初始化器的局部名 → "1"
     private StrMap _assigned;   // 到当前程序点为止**必定已赋值**的名字 → "1"
 
+    // define-null-check-marks：到当前程序点为止**可能为 null**的名字 → "1"。
+    //
+    // 事实来源目前只有一处：**标了 `?` 的形参**。`?` 的语义是「编译器请在这里强制检查」，
+    // 缺席 = **不强制**（不是「保证非空」）⇒ 未标的名字不进本表、天然不受检，零迁移成本。
+    // 标了 `?` 的**返回值**（`IPAddress? TryParse`）是下一个 PR 的事——那需要在调用点拿到
+    // 被调方签名，而 `BoundCall` 有 46 个构造点。
+    private StrMap _maybeNull;
+
     private FlowAnalyzer(DiagnosticBag diags) {
         this._diags = diags;
         this._uninit = new StrMap();
         this._assigned = new StrMap();
+        this._maybeNull = new StrMap();
     }
 
     // 入口：方法体绑定完之后调。形参一律预置为已赋值（调用方提供了值；`ref` 亦然——
@@ -45,7 +54,12 @@ public sealed class FlowAnalyzer {
         FlowAnalyzer fa = new FlowAnalyzer(diags);
         if (md != null) {
             int i = 0;
-            while (i < md.ParamCount) { fa._assigned.Put(md.Params[i].Name, "1"); i = i + 1; }
+            while (i < md.ParamCount) {
+                fa._assigned.Put(md.Params[i].Name, "1");
+                // 标了 `?` 的形参进入体内时是「可能为 null」——被调方必须先检查再解引用。
+                if (md.Params[i].Type is NullableType) { fa._maybeNull.Put(md.Params[i].Name, "1"); }
+                i = i + 1;
+            }
         }
         fa._stmt(body);
     }
@@ -124,7 +138,10 @@ public sealed class FlowAnalyzer {
             return;
         }
 
-        if (s is BoundThrow) { this._reads((s as BoundThrow).E); return; }
+        if (s is BoundThrow) {
+            BoundThrow th = s as BoundThrow;
+            this._checkDeref(th.E); this._reads(th.E); return;
+        }
 
         if (s is BoundIf) { this._if(s as BoundIf); return; }
 
@@ -155,6 +172,7 @@ public sealed class FlowAnalyzer {
 
         if (s is BoundForeach) {
             BoundForeach fe = s as BoundForeach;
+            this._checkDeref(fe.Collection);
             this._reads(fe.Collection);
             this._assigned.Put(fe.VarName, "1");          // 迭代变量由 foreach 赋值
             this._inScratch(fe.Body);                     // 集合可能为空 ⇒ 体内赋值不传出
@@ -192,22 +210,38 @@ public sealed class FlowAnalyzer {
         this._reads(f.Cond);
         StrMap prev = this._assigned;
 
+        StrMap prevNull = this._maybeNull;
+
         StrMap thenA = FlowAnalyzer._copy(prev);
         this._assigned = thenA;
+        this._maybeNull = FlowAnalyzer._copyNull(prevNull);
+        this._narrowNotNull(f.Cond, true);
         this._stmt(f.Then);
+        StrMap thenN = this._maybeNull;
+
+        // else 路径。**没有 else 时它依然存在** —— 就是「条件为假直接落下来」那条路，
+        // 早返回守卫 `if (s == null) { return; }` 全靠它。
+        StrMap elseA = FlowAnalyzer._copy(prev);
+        this._maybeNull = FlowAnalyzer._copyNull(prevNull);
+        this._narrowNotNull(f.Cond, false);
+        if (f.HasElse) { this._assigned = elseA; this._stmt(f.Else); }
+        StrMap elseN = this._maybeNull;
+
+        bool thenOut = FlowAnalyzer.AlwaysReturns(f.Then);
+        bool elseOut = f.HasElse && FlowAnalyzer.AlwaysReturns(f.Else);
+
+        // 只收还活着的那些支。这一步不做的话，`if (s != null) { return 1; } return s.Length;`
+        // ——一个**必定** NRE 的写法——会因为 then 支的窄化漏出来而被完全放过。
+        if (thenOut && elseOut)  { this._maybeNull = prevNull; }   // 落不下来
+        else if (thenOut)        { this._maybeNull = elseN; }
+        else if (elseOut)        { this._maybeNull = thenN; }
+        else                     { this._maybeNull = FlowAnalyzer._joinNull(thenN, elseN); }
 
         if (!f.HasElse) {
             // 无 else：条件假时会落下来 ⇒ then 里的赋值**不算**。
             this._assigned = prev;
             return;
         }
-
-        StrMap elseA = FlowAnalyzer._copy(prev);
-        this._assigned = elseA;
-        this._stmt(f.Else);
-
-        bool thenOut = FlowAnalyzer.AlwaysReturns(f.Then);
-        bool elseOut = FlowAnalyzer.AlwaysReturns(f.Else);
         this._assigned = prev;
         if (thenOut && !elseOut)       { FlowAnalyzer._union(this._assigned, elseA); }
         else if (!thenOut && elseOut)  { FlowAnalyzer._union(this._assigned, thenA); }
@@ -310,17 +344,23 @@ public sealed class FlowAnalyzer {
     // 在一份**快照**上走（体内赋值不传出）。while / for 体 / foreach 体用。
     private void _inScratch(BoundStmt body) {
         StrMap prev = this._assigned;
+        StrMap prevNull = this._maybeNull;
         this._assigned = FlowAnalyzer._copy(prev);
+        this._maybeNull = FlowAnalyzer._copyNull(prevNull);
         this._stmt(body);
         this._assigned = prev;
+        this._maybeNull = prevNull;   // 循环体内的窄化不外泄（体可能一次都不执行）
     }
 
     private void _readsScratch(BoundExpr e) {
         StrMap prev = this._assigned;
+        StrMap prevNull = this._maybeNull;
         this._assigned = FlowAnalyzer._copy(prev);
+        this._maybeNull = FlowAnalyzer._copyNull(prevNull);
         this._reads(e);
         this._collectAssign(e);
         this._assigned = prev;
+        this._maybeNull = prevNull;
     }
 
     // ── 赋值收集 ────────────────────────────────────────────────────────────
@@ -368,21 +408,35 @@ public sealed class FlowAnalyzer {
 
         if (e is BoundBinary) {
             BoundBinary b = e as BoundBinary;
-            this._reads(b.Left); this._reads(b.Right); return;
+            this._reads(b.Left);
+            // 短路求值自带窄化：`s == null || s.Length == 0`（String.IsNullOrEmpty 的原型）里
+            // 右操作数只在左边为**假**时求值 ⇒ 那时 s 必非 null。`&&` 对称。
+            // 不做这一步就会在这个最常见的写法上误报（D3：误报 = 漏了一种结构）。
+            if (b.Op == "&&") { this._narrowNotNull(b.Left, true); }
+            if (b.Op == "||") { this._narrowNotNull(b.Left, false); }
+            this._reads(b.Right); return;
         }
         if (e is BoundUnary)   { this._reads((e as BoundUnary).Operand); return; }
-        if (e is BoundMember)  { this._reads((e as BoundMember).Target); return; }
+        if (e is BoundMember) {
+            BoundMember m = e as BoundMember;
+            this._checkDeref(m.Target); this._reads(m.Target); return;
+        }
         if (e is BoundIndex) {
             BoundIndex ix = e as BoundIndex;
+            this._checkDeref(ix.Target);
             this._reads(ix.Target); this._reads(ix.Index); return;
         }
         if (e is BoundConditional) {
             BoundConditional c = e as BoundConditional;
-            this._reads(c.Cond); this._reads(c.Then); this._reads(c.Else); return;
+            this._reads(c.Cond);
+            this._narrowNotNull(c.Cond, true);    // `s != null ? s.Length : 0`
+            this._reads(c.Then);
+            this._narrowNotNull(c.Cond, false);   // `s == null ? 0 : s.Length`
+            this._reads(c.Else); return;
         }
         if (e is BoundCall) {
             BoundCall c = e as BoundCall;
-            if (c.Receiver != null) { this._reads(c.Receiver); }
+            if (c.Receiver != null) { this._checkDeref(c.Receiver); this._reads(c.Receiver); }
             int i = 0; while (i < c.ArgCount) { this._reads(c.Args[i]); i = i + 1; }
             return;
         }
@@ -456,6 +510,67 @@ public sealed class FlowAnalyzer {
         // 字面量 / typeof / methodof / 静态读 / 方法组 / 捕获标识符 等：无局部读。
     }
 
+    // ── 空值义务点（define-null-check-marks）────────────────────────────────
+
+    // 解引用一个「可能为 null」的名字 → E0478。
+    //
+    // 报一次就清掉事实 —— 同一个变量在后面每处再报一遍只是噪声（同 E0407 的处置）。
+    private void _checkDeref(BoundExpr e) {
+        if (e == null) { return; }
+        if (!(e is BoundIdent)) { return; }   // 只管裸名；字段/属性的快照规则是后续 PR
+        BoundIdent id = e as BoundIdent;
+        if (!this._isMaybeNull(id.Name)) { return; }
+        this._diags.Error("E0478",
+            "`" + id.Name + "` is marked `?` and may be null here — check it before dereferencing "
+            + "(e.g. `if (" + id.Name + " != null) { … }`)", e.Span);
+        this._maybeNull.Put(id.Name, "0");
+    }
+
+    private bool _isMaybeNull(string name) {
+        if (!this._maybeNull.ContainsKey(name)) { return false; }
+        object v = this._maybeNull.Get(name);
+        return (v as string) == "1";
+    }
+
+    // `cond` 里能确定「x 非 null」的名字 → 置为已检查。
+    //
+    // 只认最直接的形态（`x != null` / `null != x`，加 `&&` / `||` / `!` 的组合）。
+    // **认不出的形态不做窄化 ⇒ 多报**，所以这里宁可多认；而分支间的隔离与合并交给
+    // `_if`（见那里的 join），窄化不会越过它该管的范围。
+    //
+    // ⚠️ 已知的漏报：`&&` / `||` / 三元里的窄化在**同一条语句内**不回滚，
+    // 例如 `bool b = s == null || s.Length == 0; return s.Length;` 的第二处不会报。
+    // 按 D4（漏报可接受、误报不可以）留着——把表达式级也做成 join 要另起一套状态机。
+    // 义务点也只覆盖**裸名**解引用，不覆盖字段/属性（那需要先定快照规则）。
+    private void _narrowNotNull(BoundExpr cond, bool whenTrue) {
+        if (cond == null) { return; }
+        if (cond is BoundBinary) {
+            BoundBinary b = cond as BoundBinary;
+            if (b.Op == "&&" && whenTrue) { this._narrowNotNull(b.Left, true); this._narrowNotNull(b.Right, true); return; }
+            if (b.Op == "||" && !whenTrue) { this._narrowNotNull(b.Left, false); this._narrowNotNull(b.Right, false); return; }
+            bool ne = (b.Op == "!=");
+            bool eq = (b.Op == "==");
+            if (!ne && !eq) { return; }
+            // 想要的是「这一支里 x 非 null」：`x != null` 的 true 支，或 `x == null` 的 false 支。
+            if (ne != whenTrue) { return; }
+            string n = FlowAnalyzer._nullCompareName(b);
+            if (n != "") { this._maybeNull.Put(n, "0"); }
+            return;
+        }
+        if (cond is BoundUnary) {
+            BoundUnary u = cond as BoundUnary;
+            if (u.Op == "!") { this._narrowNotNull(u.Operand, !whenTrue); }
+            return;
+        }
+    }
+
+    // `x != null` / `null != x` → "x"；否则 ""。
+    private static string _nullCompareName(BoundBinary b) {
+        if ((b.Right is BoundLitNull) && (b.Left is BoundIdent))  { return (b.Left  as BoundIdent).Name; }
+        if ((b.Left  is BoundLitNull) && (b.Right is BoundIdent)) { return (b.Right as BoundIdent).Name; }
+        return "";
+    }
+
     // ── 集合助手 ────────────────────────────────────────────────────────────
 
     private static StrMap _copy(StrMap m) {
@@ -463,6 +578,33 @@ public sealed class FlowAnalyzer {
         int i = 0;
         while (i < m.Capacity()) {
             if (m.UsedAt(i)) { r.Put(m.KeyAt(i), "1"); }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // `_copy` 把所有键一律写 "1"（它服务的是 `_assigned` 那个纯集合）。
+    // `_maybeNull` 的值有意义（"1" 可能为 null / "0" 已窄化），必须原样搬。
+    private static StrMap _copyNull(StrMap m) {
+        StrMap r = new StrMap();
+        int i = 0;
+        while (i < m.Capacity()) {
+            if (m.UsedAt(i)) { r.Put(m.KeyAt(i), (m.Get(m.KeyAt(i)) as string)); }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // 「可能为 null」是 **may** 集合（与 `_assigned` 的 must 集合方向相反）：
+    // 只要某条可达支上它仍可能为 null，合并之后就仍然可能。
+    private static StrMap _joinNull(StrMap a, StrMap b) {
+        StrMap r = FlowAnalyzer._copyNull(a);
+        int i = 0;
+        while (i < b.Capacity()) {
+            if (b.UsedAt(i)) {
+                string k = b.KeyAt(i);
+                if ((b.Get(k) as string) == "1") { r.Put(k, "1"); }
+            }
             i = i + 1;
         }
         return r;

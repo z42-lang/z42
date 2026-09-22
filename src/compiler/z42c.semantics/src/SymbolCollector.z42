@@ -420,6 +420,13 @@ public sealed class SymbolCollector {
         int rk = 0;
         while (rk < md.ParamCount) { refs[rk] = md.Params[rk].IsRef; rk = rk + 1; }
         sig.ParamIsRef = refs; sig.RefInfoKnown = true;   // 本地签名从 AST 填，恒可信
+        // define-null-check-marks：`?` 标记。AST 里 `NullableType` 还在（ResolveTypeP 对引用类型
+        // 把它擦成 inner），故从 **AST** 取而不是从解析后的类型取。
+        bool[] nulls = new bool[md.ParamCount];
+        int nk = 0;
+        while (nk < md.ParamCount) { nulls[nk] = (md.Params[nk].Type is NullableType); nk = nk + 1; }
+        sig.ParamIsNullable = nulls;
+        sig.RetIsNullable = (md.RetType is NullableType);
         // add-params-varargs：末参标记 params → 记录变长起点（parser 已保证仅末参合法）。
         if (md.ParamCount > 0 && md.Params[md.ParamCount - 1].IsParams) { sig.ParamsFrom = md.ParamCount - 1; }
         var ms = new MethodSymbol(md.Name, this._vis(md.Mods, (containing == "" ? "internal" : "private")), sig, this._hasWord(md.Mods, "static"), containing, true, md);

@@ -1,0 +1,149 @@
+// define-null-check-marks：标了 `?` 的形参，解引用前必须先检查空值 → E0478。
+//
+// 设计立场（User 定的）：**默认可空、按需从严**。`?` 不是「这里可能是 null」的描述，
+// 而是「**请编译器在这里强制检查**」的请求；不标 = 不强制 ⇒ 存量代码一行不用改。
+// 逃生口只有窄化，**没有 `!` 那样的「我保证」后缀**——那正是 C# 里让问题逃掉的口子。
+//
+// ⚠️ **本组最要紧的性质仍是「该报的都报」**（同 definite_assignment_tests 的理由）：
+// 全仓只有 7 处引用类型 `?` 标注，构建全绿既可能是窄化写得对、也可能是 pass 没接通，
+// 只有下面的阴性用例能分辨。
+namespace Z42cSemanticsNullCheckMarksTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 基础：标了就强制、没标就不管 ──────────────────────────────────
+
+[Test]
+void test_marked_param_deref_errors() {
+    string src = "namespace N; class C { static int M(string? s) { return s.Length; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照组 —— 这条是整个设计的支点：**不标 `?` 就完全不受检**，
+// 所以存量代码的迁移成本是零。它变红就说明「按需从严」塌成了「全局强制」。
+[Test]
+void test_unmarked_param_is_not_checked() {
+    string src = "namespace N; class C { static int M(string s) { return s.Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 窄化：`if (s != null)` ────────────────────────────────────────
+
+[Test]
+void test_narrow_by_if_not_null_ok() {
+    string src = "namespace N; class C { static int M(string? s) { if (s != null) { return s.Length; } return 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_narrow_reversed_operands_ok() {
+    string src = "namespace N; class C { static int M(string? s) { if (null != s) { return s.Length; } return 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性对照：检查了却在**另一支**里用，仍要报——否则「窄化」退化成「出现过 null 比较即放行」。
+[Test]
+void test_deref_in_else_branch_errors() {
+    string src = "namespace N; class C { static int M(string? s) { if (s != null) { return 1; } return s.Length; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 窄化：早返回守卫（`?` 形参最主要的检查写法）────────────────────
+
+[Test]
+void test_early_return_guard_ok() {
+    string src = "namespace N; class C { static int M(string? s) { if (s == null) { return 0; } return s.Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_early_throw_guard_ok() {
+    // ⚠️ 语义层测试的源码串里 `Std.Exception` 解析不到（无 using）——用本地类，
+    // 先例见 typecheck_tests.z42 的 `class E { }`（同一个坑踩过一次了）。
+    string src = "namespace N; class E { } class C { static int M(string? s) "
+        + "{ if (s == null) { throw new E(); } return s.Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性对照：守卫体**落得下来**（不是必定退出）⇒ 后面仍可能是 null，必须报。
+// 这条钉的是 `AlwaysReturns` 真的参与了判断，而不是「见到 `if (s == null)` 就放行」。
+[Test]
+void test_non_exiting_guard_still_errors() {
+    string src = "namespace N; class C { static int M(string? s) { if (s == null) { s = null; } return s.Length; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 短路求值自带的窄化 ────────────────────────────────────────────
+//
+// `String.IsNullOrEmpty` 就是这个形状。实现时这里先误报过一次 —— 按 D3
+// （误报 = 漏了一种结构，不是「规则太严」）补的短路窄化。
+
+[Test]
+void test_or_else_short_circuit_ok() {
+    string src = "namespace N; class C { static bool M(string? s) { return s == null || s.Length == 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_and_also_short_circuit_ok() {
+    string src = "namespace N; class C { static bool M(string? s) { return s != null && s.Length > 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性对照：短路方向反了就不成立（`&&` 的左边为假时右边不求值，
+// 但 `s == null && s.Length > 0` 的右边恰恰只在 s **是** null 时才到达）。
+[Test]
+void test_wrong_short_circuit_direction_errors() {
+    string src = "namespace N; class C { static bool M(string? s) { return s == null && s.Length > 0; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ternary_narrowing_ok() {
+    string src = "namespace N; class C { static int M(string? s) { return s != null ? s.Length : 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 各类解引用位置都算义务点 ──────────────────────────────────────
+
+[Test]
+void test_method_call_receiver_errors() {
+    string src = "namespace N; class C { static string M(string? s) { return s.Trim(); } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_indexer_target_errors() {
+    string src = "namespace N; class C { static int M(int[]? a) { return a[0]; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_foreach_collection_errors() {
+    string src = "namespace N; class C { static int M(int[]? a) { int n = 0; foreach (int v in a) { n = n + v; } return n; } }";
+    Assert.Equal("E0478", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照组：**比较**不是解引用 —— 检查空值本身不能被自己判红。
+[Test]
+void test_null_comparison_is_not_a_deref() {
+    string src = "namespace N; class C { static bool M(string? s) { return s == null; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照组：整体传递（不解引用）也不算义务点。
+[Test]
+void test_passing_along_is_not_a_deref() {
+    string src = "namespace N; class C { static void Sink(string? t) {} static void M(string? s) { C.Sink(s); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 值类型不受影响（`int?` 由 E0476 在更早的阶段就拒了）───────────
+
+[Test]
+void test_value_type_question_mark_still_e0476() {
+    string src = "namespace N; class C { static int M(int? v) { return 0; } }";
+    Assert.Equal("E0476", SemanticDump.FirstErrorCode(src));
+}

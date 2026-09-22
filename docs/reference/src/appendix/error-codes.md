@@ -148,7 +148,11 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | E0472 | 形参是 `ref`，**实参漏写** `ref`。此前编译通过且方法里的写入**静默丢失**——被调方改的是自己的形参寄存器，出口 copy-out 没有调用方的 lvalue 可写回 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void Inc(ref int x){} ... Inc(v)` |
 | E0473 | 形参**不是** `ref`，实参却多写了 `ref`。与 E0472 方向相反但同样有害：此前编译通过且写入**传回了调用方**，即「按引用与否由调用点决定」，光看函数声明判断不出参数会不会被改 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void ByValue(int x){} ... ByValue(ref v)` |
 | E0474 | 属性的两个访问器**混合** auto 与带体（一半 `get;`/`set;`、另一半 `get { }`/`set { }`）。z42 无 C# 的 `field` 关键字，auto 半边读/写合成后备 `__prop_X`、带体半边写自备字段 → 读写错位。须**要么都 auto、要么都带体** | ✅ `MemberParser.z42`（`_parseProperty`，字面量发码） | `int P { get; set { _x = value; } }` |
+| E0474 ⚠️ | **（撞码）**值类型表达式与 `null` 比较（`==` / `!=`）。值类型永不含 null ⇒ 该比较是**静默恒假/恒真**，此前零诊断。⚠️ **本码与上一行的「属性访问器混合 auto 与带体」重复占用**——两个互不相关的诊断共用一个码，`FirstErrorCode` 分辨不出。待 follow-up 改号 | ✅ `TypeChecker.z42`（`_checkValueTypeNullCompare`，字面量发码） | `int x = 1; if (x == null) { }` |
+| E0475 | 把可空表达式隐式转给不可空的值类型目标。`?` 擦除后此前一路放行，运行期才以 `type mismatch in arithmetic: Null vs I64` 之类的**内部错误**炸出来 | ✅ `TypeChecker.z42`（`CheckImplicitConvert`，字面量发码） | `int? m = null; int y = m;` |
+| E0476 | 对**值类型**写 `?`（`int?` / `Guid?` / 值 struct）。可空只适用引用类型——`?` 对值类型此前是个「看起来存在、实际为零」的标注。⚠️ `byte[]?` 这类**数组**不受限（数组是引用类型） | ✅ `TypeParser.z42`（字面量发码） | `int? m = null;` |
 | E0477 | 取一个**重载自由函数**的引用时，目标委托类型在场，但**没有任何重载**的签名（形参逐位 + 返回）与该委托**精确相等**。诊断列出该名字下全部候选签名。见 [delegates §2.5](../language/delegates-events.md#25-重载自由函数取引用按目标委托消解) | ✅ `ExprTyper.Funcref.z42`（`_bindFuncRefTargeted`，字面量发码） | `Func<string,bool> b = Parse;`，`Parse` 无 `(string)->bool` 重载 |
+| E0478 | 解引用一个标了 `?` 的形参，而此前没有检查过空值。`?` 的语义是「**请编译器在这里强制检查**」——**不标就不强制**，所以存量代码一行不用改。逃生口是窄化：`if (s != null) { … }` / 早返回守卫 `if (s == null) { return; }` / `s != null && s.X` / 三元。**没有 `!` 那样的「我保证」后缀**（那正是要避开的逃逸口）。当前只覆盖**裸名**解引用与**形参**标记，返回值与字段见 `define-null-check-marks` 的后续 PR | ✅ `FlowAnalyzer.z42`（字面量发码） | `int M(string? s) { return s.Length; }` |
 
 ### 泛型 / 约束 / 关联类型
 
