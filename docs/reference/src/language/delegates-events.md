@@ -59,7 +59,7 @@ public delegate bool Predicate<T>(T arg);
 |----|------|
 | 持有量 | 一个实例持 0 或 1 个 handler（target + method）|
 | 调用 | `f(arg)` 等价 `f.Invoke(arg)` |
-| null | 调用 null delegate 是**运行期错误**；当前它不是可 `catch` 的 `NullReferenceException`，而是直接终止执行的 VM 错误。**务必用 `?.Invoke()` 短路**（单播 event 字段默认就是 null）|
+| null | 调用 null delegate 是**运行期错误**；当前它不是可 `catch` 的 `NullReferenceException`，而是直接终止执行的 VM 错误。**触发前务必查空**：`var h = X; if (h != null) { h.Invoke(args); }`（单播 event 字段默认就是 null）。⚠️ `?.Invoke()` **已不可用**——`?.` 已移除（E0480）|
 | 方法组转换 | `Action<int> a = SomeMethod;` / `obj.Method` 编译期合成 delegate 值。**自由函数重载**按目标委托签名精确消解，见 [§2.5](#25-重载自由函数取引用按目标委托消解) |
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
 | `+=` / `-=` | 单播类型上这两个操作符**只在 `event` 字段上**有意义（见 §5）|
@@ -261,16 +261,17 @@ cardinality 100% 由字段类型决定。
 
 | 字段类型 | cardinality | `target.X += h` | `target.X -= h` | 类内触发 |
 |---------|:----------:|----------------|----------------|---------|
-| `event Action<T>` | 单播 | X 为 null → 设置；已设 → 抛 `InvalidOperationException` | 引用相等 → 清空；否则 no-op | `X?.Invoke(args)` |
-| `event Func<TArg,TResult>` | 单播 | 同上 | 同上 | `X?.Invoke(args)` |
-| `event Predicate<T>` | 单播 | 同上 | 同上 | `X?.Invoke(args)` |
+| `event Action<T>` | 单播 | X 为 null → 设置；已设 → 抛 `InvalidOperationException` | 引用相等 → 清空；否则 no-op | `var h = X; if (h != null) { h.Invoke(args); }` |
+| `event Func<TArg,TResult>` | 单播 | 同上 | 同上 | 同上 |
+| `event Predicate<T>` | 单播 | 同上 | 同上 | 同上 |
 | `event MulticastAction<T>` | 多播 | `Subscribe(h)` | `Unsubscribe(h)` | `X.Invoke(args)`，空链 = no-op |
 | `event MulticastFunc<TArg,TResult>` | 多播 | 同上 | 同上 | `TResult[] r = X.Invoke(args)` |
 | `event MulticastPredicate<T>` | 多播 | 同上 | 同上 | `bool[] b = X.Invoke(args)` |
 
 **多播 event 字段自动初始化**：`public event MulticastAction<T> Bar;` 无初始化器时编译器
-补 `= new MulticastAction<T>()`，所以永远不用写 `Bar?.Invoke(...)`。
-**单播 event 字段不自动初始化**，默认 null。
+补 `= new MulticastAction<T>()`，所以多播字段**不需要查空**，直接 `Bar.Invoke(...)`。
+**单播 event 字段不自动初始化**，默认 null ⇒ 触发前必须先取到局部再查空
+（`?.` 已移除，见 [operators.md](operators.md#-----已移除e0480)）。
 
 **`+=` 只接受裸 handler**：合成的 `add_X` 只有**一个**重载，形参类型是对应的单播 delegate
 （`MulticastAction<T>` → `Action<T>`，`MulticastFunc` → `Func`，`MulticastPredicate` →
@@ -475,7 +476,7 @@ z42 **不提供** per-event once with replay：
 | C# 缺陷 | z42 改良 |
 |--------|---------|
 | lapsed-listener 内存泄漏 | `IDisposable` token + `WeakRef` 包装 |
-| `event?.Invoke(...)` 模板冗余 | 多播 event 字段自动初始化，空链 = no-op |
+| 触发前的查空模板冗余 | 多播 event 字段自动初始化，空链 = no-op ⇒ 多播侧不必查空 |
 | invoke 异常不隔离 | `continueOnException` + `MulticastException` |
 | `EventHandler<T>` 强制 sender + args | 推荐 plain `Action<T>`，需要 sender 时显式塞进 T |
 | interface event 必须显式写 add/remove | 自动合成 |

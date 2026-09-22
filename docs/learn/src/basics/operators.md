@@ -151,25 +151,25 @@
 {{#include ../../../../examples/basics/operators/nullish/run.console:coalesce}}
 ```
 
-### `?.`：空了就整体为空
+### 取内容之前先判空
 
 ```z42
-// examples/basics/operators/nullish/condaccess.z42
-{{#include ../../../../examples/basics/operators/nullish/condaccess.z42:code}}
+// examples/basics/operators/nullish/nullcheck.z42
+{{#include ../../../../examples/basics/operators/nullish/nullcheck.z42:code}}
 ```
 
 ```console
-{{#include ../../../../examples/basics/operators/nullish/run.console:condaccess}}
+{{#include ../../../../examples/basics/operators/nullish/run.console:nullcheck}}
 ```
 
-`missing?.Name` 在 `missing` 为 `null` 时**不会去取 `.Name`**，整个表达式就是 `null`。
-配上 `??` 就是一句话拿到"取不到就用默认值"。
+判空就老老实实写出来。这样"哪里判过、哪里没判"一眼看得见。
 
-> ⚠️ 上一章说过：z42 的 `?` **只是给人看的标注，编译器不检查**。`?.` 和 `??` 是真实生效
-> 的运算符，按运行期的实际值工作，但它们不构成空安全保证——该判空的地方还是要判。
+> **z42 没有 `?.`。** 别的语言里 `missing?.Name` 能在为空时整体求值成 `null`，
+> 看着省事，代价是**空值被悄悄往下传**——真正出错的地方离病因可能隔着好几层。
+> z42 把这个口子去掉了：写 `n?.value` 会直接报错 **E0480**，并告诉你改成上面的写法。
 >
-> 另外，`int?` 这类"可空的值类型"目前只在**字符串插值**里显示得正确（`$"{n}"` 打出
-> `null`）；直接 `Console.WriteLine(n)` 会在运行期出错。需要打印时走插值。
+> `?` 本身的含义见[上一章](variables.md)：它不是"这里可能是空"，而是
+> **"请编译器在这里强制检查"**——不标的地方完全不受检，所以老代码一行都不用改。
 
 ### `?:`：三元条件
 
@@ -203,7 +203,7 @@
 - 整数溢出**静默绕回**，不报错；整数除以 0 抛异常，小数除以 0 得 `inf`。
 - `&&` `||` **短路**，可以拿来当保护条件用。
 - `&` `|` `^` `~` **只接受整数**——这点比 C# 严。
-- `??` 取备用值，`?.` 遇空整体为空，`?:` 在表达式里二选一。
+- `??` 取备用值，`?:` 在表达式里二选一；**没有 `?.`**——判空要写出来。
 - 位运算与比较混写时加括号。
 
 下一章讲怎么让代码**分支和重复**。

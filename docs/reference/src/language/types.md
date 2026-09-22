@@ -248,7 +248,7 @@ void Main() {
 ## 关联页面
 
 - [类型转换](conversions.md) — 哪些转换是隐式的、哪些要写 `(T)`
-- [运算符](operators.md) — `??` / `?.` / `default(T)` / cast
+- [运算符](operators.md) — `??` / `default(T)` / cast（`?.` 已移除）
 - [字符串](strings.md) — 字符串与字符字面量
 - [元组](tuples.md) — `(int, string)` 值元组
 - [枚举](enums.md) — `enum`

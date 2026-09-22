@@ -415,3 +415,42 @@ void test_in_still_works_in_foreach() {
     // 🔒 `in` 只是不再作参数修饰符，foreach 的关键字身份不变。
     Assert.Equal("", parseErrorCodes("class C { void M(int[] xs) { foreach (var x in xs) { } } }"));
 }
+
+// ── define-null-check-marks：`?.` 已移除 ────────────────────────────────
+//
+// `?.` 是 User 点名的「让问题逃掉」的口子之一：把「可能为 null」静默向下传播，
+// 最终在离现场很远的地方崩。
+//
+// 与 E0471 同样的纪律：**必须消费掉那个 token 并按普通 `.` 继续解析**，否则会从
+// 表达式脱轨、把后面撕成垃圾。所以这些用例断言的是**恰好一条** E0480 ——
+// 多于一条就说明解析同步断了。
+
+[Test]
+void test_null_conditional_member_rejected() {
+    Assert.Equal("E0480", parseErrorCodes("class C { void M() { var v = n?.value; } }"));
+}
+
+// 链式：两个 `?.` 恰好两条，且不产生第三条级联错。
+[Test]
+void test_null_conditional_chain_rejected() {
+    Assert.Equal("E0480,E0480", parseErrorCodes("class C { void M() { var v = a?.b?.c; } }"));
+}
+
+// 解析同步的证据：`?.` 之后的语句照常解析，不被撕碎。
+[Test]
+void test_null_conditional_recovers_to_plain_member() {
+    Assert.Equal("E0480", parseErrorCodes("class C { void M() { var v = n?.value; int ok = 1; } }"));
+}
+
+// 对照组：普通 `.` 不受影响（别把 `?.` 的退役误伤成员访问）。
+[Test]
+void test_plain_member_access_still_ok() {
+    Assert.Equal("", parseErrorCodes("class C { void M() { var v = n.value; } }"));
+}
+
+// 对照组：三元里的 `?` 后面跟成员访问 —— `cond ? a.b : c` 不得被当成 `?.`。
+// 词法上 `? a` 与 `?.` 是两回事，但这条用例让它变成有人看着的不变式。
+[Test]
+void test_ternary_with_member_access_not_mistaken_for_null_conditional() {
+    Assert.Equal("", parseErrorCodes("class C { int M(bool c) { return c ? a.b : d.e; } }"));
+}

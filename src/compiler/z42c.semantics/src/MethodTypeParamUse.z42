@@ -216,7 +216,6 @@ public static class MethodTypeParamUse {
             return MethodTypeParamUse._expr(a.Value, ns, nc);
         }
         if (e is MemberExpr)         { return MethodTypeParamUse._expr((e as MemberExpr).Target, ns, nc); }
-        if (e is NullCondMemberExpr) { return MethodTypeParamUse._expr((e as NullCondMemberExpr).Target, ns, nc); }
         if (e is IndexExpr) {
             IndexExpr ix = e as IndexExpr;
             if (MethodTypeParamUse._expr(ix.Target, ns, nc)) { return true; }

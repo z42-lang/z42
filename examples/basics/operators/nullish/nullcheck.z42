@@ -1,0 +1,19 @@
+using Std.IO;
+
+class User {
+    public string Name;
+    public User(string name) { this.Name = name; }
+}
+
+void Main() {
+    // ANCHOR: code
+    User? missing = null;
+    User? found   = new User("小明");
+
+    // 可能为空的东西，取内容之前先判一下
+    if (missing != null) { Console.WriteLine(missing.Name); }
+    else                 { Console.WriteLine("(没有这个人)"); }
+
+    if (found != null) { Console.WriteLine(found.Name); }
+    // ANCHOR_END: code
+}
