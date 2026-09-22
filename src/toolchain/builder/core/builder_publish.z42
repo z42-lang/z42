@@ -59,7 +59,7 @@ int _pubDesktop(ParseResult r, string rid) {
     }
     // apphost-gate (gate-apphost-on-config): only `[platform.desktop] apphost = true`
     // makes publish emit an apphost. publish_dir / --output are output LOCATION only.
-    if (!_pubPlatformBool(toml, "desktop", "apphost", false)) {
+    if (!_pubPlatform(toml, "desktop", "apphost", false)) {
         ConsoleError.WriteLine("z42b publish: " + tomlPath + " is not configured to publish a desktop apphost — "
             + "add `apphost = true` under [platform.desktop]");
         return 2;
@@ -93,7 +93,7 @@ int _pubDesktop(ParseResult r, string rid) {
     }
 
     string publishDir = r.GetOption("output");
-    if (publishDir.Length == 0) { publishDir = _pubPlatformStr(toml, "desktop", "publish_dir", ""); }
+    if (publishDir.Length == 0) { publishDir = _pubPlatform(toml, "desktop", "publish_dir", ""); }
     // --no-build：不经 z42c、直接部署现成字节（xtask 的 SDK 组装 / 自举不动点路径）。
     // 缺省（false）下每次 publish 都过一遍 z42c 的增量编译，源码变了就重出产物。
     bool noBuild = r.GetFlag("no-build");
@@ -152,8 +152,8 @@ int _pubDesktop(ParseResult r, string rid) {
     if (nrc != 0) { return nrc; }
 
     // deploy layout (add-package-layout-config): optional bin/payload.
-    string binRel     = _pubPlatformStr(toml, "desktop", "bin", "");
-    string payloadRel = _pubPlatformStr(toml, "desktop", "payload", "");
+    string binRel     = _pubPlatform(toml, "desktop", "bin", "");
+    string payloadRel = _pubPlatform(toml, "desktop", "payload", "");
 
     string outPath;
     if (binRel.Length > 0) {
@@ -196,7 +196,7 @@ int _pubDesktop(ParseResult r, string rid) {
 // [, libz42.<dyn>]}. The embed apphost resolves these relative to its own path.
 int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, string projName, string rid) {
     bool isWin = rid.StartsWith("windows-");
-    string link = _pubPlatformStr(toml, "desktop", "link", "static");
+    string link = _pubPlatform(toml, "desktop", "link", "static");
     if (link != "static" && link != "dynamic") {
         ConsoleError.WriteLine("z42b publish: [platform.desktop] link must be static|dynamic (got '" + link + "')");
         return 2;
@@ -238,7 +238,7 @@ int _pubDesktopSelfContained(ParseResult r, TomlValue toml, string tomlPath, str
 
     // output app dir (same resolution as the spawn path's `root`)
     string publishDir = r.GetOption("output");
-    if (publishDir.Length == 0) { publishDir = _pubPlatformStr(toml, "desktop", "publish_dir", ""); }
+    if (publishDir.Length == 0) { publishDir = _pubPlatform(toml, "desktop", "publish_dir", ""); }
     string projDir = Path.GetDirectoryName(tomlPath);
     string appDir;
     if (publishDir.Length == 0) { appDir = _pubDefaultPublishDir(tomlPath, toml, projName); }
@@ -316,7 +316,9 @@ string _pubTomlStr(TomlValue root, string section, string key, string dflt) {
 }
 
 // Read root.platform.[platform].[key] as a string.
-string _pubPlatformStr(TomlValue root, string platform, string key, string dflt) {
+// free-function-overloads 阶段 2（use）：`_pubPlatform` 的 string 重载；bool 重载在下方（末参
+// 类型 string vs bool 区分）。此前因不支持自由函数重载而分名 _pubPlatformStr/_pubPlatformBool。
+string _pubPlatform(TomlValue root, string platform, string key, string dflt) {
     if (!root.ContainsKey("platform")) { return dflt; }
     TomlValue pt = root.Get("platform");
     if (!pt.IsTable() || !pt.ContainsKey(platform)) { return dflt; }
@@ -329,7 +331,8 @@ string _pubPlatformStr(TomlValue root, string platform, string key, string dflt)
 }
 
 // Read a bool key under [platform.<platform>] (e.g. `apphost = true`).
-bool _pubPlatformBool(TomlValue root, string platform, string key, bool dflt) {
+// free-function-overloads 阶段 2（use）：`_pubPlatform` 的 bool 重载（末参 bool 与上方 string 重载区分）。
+bool _pubPlatform(TomlValue root, string platform, string key, bool dflt) {
     if (!root.ContainsKey("platform")) { return dflt; }
     TomlValue pt = root.Get("platform");
     if (!pt.IsTable() || !pt.ContainsKey(platform)) { return dflt; }

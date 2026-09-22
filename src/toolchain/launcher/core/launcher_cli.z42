@@ -145,10 +145,11 @@ void _dispatchLauncher(CommandResolution res) {
 // ── 转发 ─────────────────────────────────────────────────────────────────────
 
 // new / test / bench / clean → z42b：`z42vm programs/z42b/z42.builder.zpkg -- <argv>`，继承 stdio 与退出码。
-int _forwardZ42b(string[] argv) { return _forwardZ42bEnv(argv, "", ""); }
+int _forwardZ42b(string[] argv) { return _forwardZ42b(argv, "", ""); }
 
-// 同上，附带一个额外环境变量（publish 用它传预解析的 apphost stub：Z42_APPHOST_TEMPLATE）。
-int _forwardZ42bEnv(string[] argv, string extraKey, string extraVal) {
+// free-function-overloads 阶段 2（use）：同名重载（3 参版）——附带一个额外环境变量
+// （publish 用它传预解析的 apphost stub：Z42_APPHOST_TEMPLATE）。此前因不支持重载分名 _forwardZ42bEnv。
+int _forwardZ42b(string[] argv, string extraKey, string extraVal) {
     string builder = Path.Join(_home(), "programs/z42b/z42.builder.zpkg");
     if (!File.Exists(builder)) {
         ConsoleError.WriteLine("z42: z42b not found at " + builder + " — reinstall z42");
