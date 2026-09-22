@@ -1,4 +1,8 @@
 // symmetrize-primitive-api (2026-09-22)：把 primitive API 面补成对称的那一批新增。
+//
+// enforce-value-type-non-null（同日）：TryParse 全族签名从 `T? TryParse(string)` 改成
+// `bool TryParse(string, ref T)` —— 值类型永不可空 ⇒ `T?` 不再存在。「可能没有」的值类型
+// 结果按规约走 bool + ref 出参；失败路径写零值（约定，不是编译器保证，故逐条断言）。
 // 原则是**每条都带一个对照组**——只断言「成功路径返回值对」会让「失败路径也返回值」
 // 这类退化悄悄绿着（见 memory: 静默失败的特性会掩盖别的 bug）。
 namespace Z42CoreSymmetrizePrimitiveApiTests;
@@ -10,50 +14,63 @@ using Std.Test;
 
 [Test]
 void test_sbyte_tryparse() {
-    sbyte? ok = SByte.TryParse("-128");
-    Assert.Equal(-128, (int)(ok ?? 0));
-    Assert.Equal(true, SByte.TryParse("128")  == null);   // 越上界
-    Assert.Equal(true, SByte.TryParse("-129") == null);   // 越下界
-    Assert.Equal(true, SByte.TryParse("x")    == null);   // 格式错
+    sbyte ok;
+    Assert.Equal(true, SByte.TryParse("-128", ref ok));
+    Assert.Equal(-128, (int)ok);
+    sbyte bad;
+    Assert.Equal(false, SByte.TryParse("128",  ref bad));   // 越上界
+    Assert.Equal(false, SByte.TryParse("-129", ref bad));   // 越下界
+    Assert.Equal(false, SByte.TryParse("x",    ref bad));   // 格式错
+    Assert.Equal(0, (int)bad);                              // 失败写零值
 }
 
 [Test]
 void test_int16_tryparse() {
-    short? ok = Int16.TryParse("32767");
-    Assert.Equal(32767, (int)(ok ?? 0));
-    Assert.Equal(true, Int16.TryParse("32768")  == null);
-    Assert.Equal(true, Int16.TryParse("-32769") == null);
+    short ok;
+    Assert.Equal(true, Int16.TryParse("32767", ref ok));
+    Assert.Equal(32767, (int)ok);
+    short bad;
+    Assert.Equal(false, Int16.TryParse("32768",  ref bad));
+    Assert.Equal(false, Int16.TryParse("-32769", ref bad));
 }
 
 [Test]
 void test_byte_tryparse() {
-    byte? ok = Byte.TryParse("255");
-    Assert.Equal(255, (int)(ok ?? 0));
-    Assert.Equal(true, Byte.TryParse("256") == null);
-    Assert.Equal(true, Byte.TryParse("-1")  == null);
+    byte ok;
+    Assert.Equal(true, Byte.TryParse("255", ref ok));
+    Assert.Equal(255, (int)ok);
+    byte bad;
+    Assert.Equal(false, Byte.TryParse("256", ref bad));
+    Assert.Equal(false, Byte.TryParse("-1",  ref bad));
 }
 
 [Test]
 void test_uint16_tryparse() {
-    ushort? ok = UInt16.TryParse("65535");
-    Assert.Equal(65535, (int)(ok ?? 0));
-    Assert.Equal(true, UInt16.TryParse("65536") == null);
+    ushort ok;
+    Assert.Equal(true, UInt16.TryParse("65535", ref ok));
+    Assert.Equal(65535, (int)ok);
+    ushort bad;
+    Assert.Equal(false, UInt16.TryParse("65536", ref bad));
 }
 
 [Test]
 void test_uint32_tryparse() {
-    uint? ok = UInt32.TryParse("4294967295");
-    Assert.Equal(4294967295L, (long)(ok ?? 0));
-    Assert.Equal(true, UInt32.TryParse("4294967296") == null);
-    Assert.Equal(true, UInt32.TryParse("-1")         == null);
+    uint ok;
+    Assert.Equal(true, UInt32.TryParse("4294967295", ref ok));
+    Assert.Equal(4294967295L, (long)ok);
+    uint bad;
+    Assert.Equal(false, UInt32.TryParse("4294967296", ref bad));
+    Assert.Equal(false, UInt32.TryParse("-1",         ref bad));
 }
 
 [Test]
 void test_uint64_tryparse() {
-    ulong? ok = UInt64.TryParse("12345");
-    Assert.Equal(12345L, (long)(ok ?? 0));
-    Assert.Equal(true, UInt64.TryParse("-1")  == null);
-    Assert.Equal(true, UInt64.TryParse("abc") == null);
+    ulong ok;
+    Assert.Equal(true, UInt64.TryParse("12345", ref ok));
+    Assert.Equal(12345L, (long)ok);
+    ulong bad;
+    Assert.Equal(false, UInt64.TryParse("-1",  ref bad));
+    Assert.Equal(false, UInt64.TryParse("abc", ref bad));
 }
 
 // ── Single：此前连 Parse 都没有 ─────────────────────────────────────────────
@@ -62,9 +79,11 @@ void test_uint64_tryparse() {
 void test_single_parse_and_tryparse() {
     float v = Single.Parse("1.5");
     Assert.Equal(1.5, (double)v);
-    float? ok = Single.TryParse("-2.25");
-    Assert.Equal(-2.25, (double)(ok ?? 0.0f));
-    Assert.Equal(true, Single.TryParse("nope") == null);
+    float ok;
+    Assert.Equal(true, Single.TryParse("-2.25", ref ok));
+    Assert.Equal(-2.25, (double)ok);
+    float bad;
+    Assert.Equal(false, Single.TryParse("nope", ref bad));
     Assert.ThrowsAny(() => Single.Parse("nope"));
 }
 
@@ -117,8 +136,12 @@ void test_boolean_parse() {
 
 [Test]
 void test_boolean_tryparse() {
-    Assert.Equal(true, (Boolean.TryParse("true") ?? false));
-    Assert.Equal(true, Boolean.TryParse("yes") == null);
+    bool ok;
+    Assert.Equal(true, Boolean.TryParse("true", ref ok));
+    Assert.Equal(true, ok);
+    bool bad;
+    Assert.Equal(false, Boolean.TryParse("yes", ref bad));
+    Assert.Equal(false, bad);                               // 失败写零值
 }
 
 [Test]
@@ -130,9 +153,12 @@ void test_char_parse() {
 
 [Test]
 void test_char_tryparse() {
-    Assert.Equal('q', Char.TryParse("q") ?? ' ');
-    Assert.Equal(true, Char.TryParse("ab") == null);
-    Assert.Equal(true, Char.TryParse("")   == null);
+    char ok;
+    Assert.Equal(true, Char.TryParse("q", ref ok));
+    Assert.Equal('q', ok);
+    char bad;
+    Assert.Equal(false, Char.TryParse("ab", ref bad));
+    Assert.Equal(false, Char.TryParse("",   ref bad));
 }
 
 // z42 的 char 是 32 位 Unicode 标量（非 C# 的 16 位 UTF-16 码元）→ 上界 0x10FFFF。

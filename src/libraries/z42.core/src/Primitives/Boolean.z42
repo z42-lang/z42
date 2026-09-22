@@ -20,9 +20,9 @@ public struct Boolean : IEquatable {
         throw new FormatException($"Boolean.Parse: '{s}' is not a valid Boolean");
     }
 
-    public static bool? TryParse(string s) {
-        try { return Boolean.Parse(s); }
-        catch (Exception e) { return null; }
+    public static bool TryParse(string s, ref bool v) {
+        try { v = Boolean.Parse(s); return true; }
+        catch (Exception e) { v = false; return false; }
     }
 
     public bool Equals(bool other) {

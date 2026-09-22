@@ -20,9 +20,9 @@ public struct Char : IComparable, IEquatable {
         return s.CharAt(0);
     }
 
-    public static char? TryParse(string s) {
-        try { return Char.Parse(s); }
-        catch (Exception e) { return null; }
+    public static bool TryParse(string s, ref char v) {
+        try { v = Char.Parse(s); return true; }
+        catch (Exception e) { v = '\0'; return false; }
     }
 
     [Native("__char_to_string")]      public extern string ToString();

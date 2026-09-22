@@ -17,9 +17,9 @@ public struct UInt32 : IComparable, IEquatable, INumber {
 
     // symmetrize-primitive-api：非抛出解析，成功返回值、任何格式错误/越界返回 `null`
     // （与 Int32/Int64/Double.TryParse 同款；用可空返回替代 C# 的 `out` 参数）。
-    public static uint? TryParse(string s) {
-        try { return UInt32.Parse(s); }
-        catch (Exception e) { return null; }
+    public static bool TryParse(string s, ref uint v) {
+        try { v = UInt32.Parse(s); return true; }
+        catch (Exception e) { v = 0; return false; }
     }
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
