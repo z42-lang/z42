@@ -461,6 +461,8 @@ public sealed class ExprEmitter {
         return this._call._emitStaticAccessor(ownerClass, accessor, args, argCount, retType);
     }
     internal void _emitStaticStore(BoundStaticGet st, TypedReg val) { this._access._emitStaticStore(st, val); }
+    // 非-ident 左值的 ++/-- 写回复用 AccessEmitter 的通用 store（OperatorEmitter 经 _ee 委回）。
+    internal TypedReg _emitStoreTo(BoundExpr target, TypedReg val) { return this._access._emitStoreTo(target, val); }
 
     // fix-static-struct-field-init：转发静态 struct 字段的装箱（供 FunctionEmitter.EmitStaticInit 用）。
     internal TypedReg _boxIfStaticStruct(TypedReg val, Z42Type fieldType) {
