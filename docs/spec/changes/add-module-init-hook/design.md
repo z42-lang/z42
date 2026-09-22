@@ -15,6 +15,29 @@
 
 复用既有哨兵 ⇒ **zbc / zpkg 格式不变，无 bump，无两代自举**。
 
+## 只对库包开放（E0487，User 裁决 2026-09-23）
+
+可执行包（`kind = "exe"`）里出现 `[ModuleInit]` ⇒ **E0487**。两个理由：
+
+1. **失败时用户什么也做不了**：包初始化器在 `Main` 之前执行，没有任何用户代码能包住它
+   （C# 实测同形：entry 模块的 module initializer 抛异常就是未捕获崩溃）。等于提供一个
+   「失败即崩且无法处理」的入口。
+2. **exe 本来就有 `Main`**：写进 `Main` 第一行能做同样的事，失败还可 `try`/`catch`。
+   同一件事的第二种表达 —— 与「一个包至多一个」同样的精神：让多余的表达无法表达。
+
+⭐ 这条裁决顺带**缩小了实现**：主包自己不再会有 `$Module`，`seed_types_for_lookup` 那条
+（曾经引起 stdlib 自建回归的）路径只剩下「随主模块一起急切加载进来的依赖包」这一个服务对象。
+
+### 落点：`PackageCompile`，不是别处
+
+判据是 manifest 的 `kind`，semantics 看不到 ⇒ 必须在 pipeline 层。但具体挂哪里有两个坑：
+
+| 候选 | 结果 |
+|---|---|
+| `Z42cCompiler.Compile`（ICompiler 实现） | ❌ **`z42c build` 根本不走那里**（走 driver 的 `IncrementalDriver`）——实测校验一次也没触发 |
+| driver 层 | ❌ semantics→pipeline→driver 是**两层**符号引用，自建首遍失败只重试一次 ⇒ 一层能自愈、两层必红（[[bootstrap-test-misses-multilevel-symbols]]） |
+| **`PackageCompile.Compile`** | ✅ 所有编译路径（driver / z42b / REPL）必经；只跨一层；且旁边就有 `_mergeDiags` 这条现成的包级诊断汇入路 |
+
 ## 硬约束：「加载那一刻同步回调」做不到
 
 加载发生在 `lazy_loader` 的**写锁内**
@@ -50,9 +73,11 @@
 → 包初始化器跑完 → 才进入 `Ping` 的函数体。对用户仍然是「包加载后、本包任何代码跑之前」。
 
 **主包**（不经惰性加载器）：`seed_types_for_lookup` 此前**直接写 `type_registry`、绕过
-`insert_type`** ⇒ 主包自己的 `[ModuleInit]` 静默从不执行。现在那条路也做 `$Module` 检测，
-第一个屏障点（`Main` 里的第一次调用 / `new` / 静态访问）把它跑掉。golden
-`src/tests/module-init/runs_before_main` 守这条。
+`insert_type`** ⇒ 走这条路进来的包的 `$Module` 静默从不登记。现在那条路也做 `$Module` 检测。
+
+> ⚠️ **User 裁决 exe 包禁用 `[ModuleInit]`（E0487）后，主包自己不会再有 `$Module`** ——
+> 这条路径现在的服务对象只剩「随主合并模块一起急切加载进来的**依赖包**」。检测保留（无害
+> 且那个场景仍需要它），但曾经守它的 golden `module-init/runs_before_main` 已随裁决删除。
 
 > 🔴 **只镜像 `$Module` 检测，不要把整个 seed 循环改走 `insert_type`。** 试过，回归立刻出现：
 > 那样会给主模块每个类型的 cctor **再登记一次**（`boot.rs` 已经登记过），把屏障在启动期的

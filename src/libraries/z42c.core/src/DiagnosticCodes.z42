@@ -201,7 +201,8 @@ public static class DiagnosticCodes {
     // （E0474 / E0477 / E0481 三次撞码刚归位过）。**语义层用字面量发码**（同 E0449–E0483 手法，
     // 见 bootstrap-seed.md：新常量与其引用不能同 PR，避 core→semantics 冷启动 stale-cache）。
     public static string ModuleInitBadTarget     = "E0486";  // `[ModuleInit]` 标注目标非法：必须是 `static` + 无参 + 返回 `void` + 非泛型 + 非抽象的方法。标在类型/字段上，或签名不符，都归此码。
-    public static string ModuleInitDuplicate     = "E0485";  // 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个（User 裁决 2026-09-22）——多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 file:line。
+    public static string ModuleInitDuplicate     = "E0485";
+    public static string ModuleInitInExePackage  = "E0487";  // 可执行包（`kind = "exe"`）里出现了 `[ModuleInit]`。包初始化器在 `Main` 之前执行 ⇒ **它失败时没有任何用户代码能捕获**（对标 C#：entry 模块的 module initializer 抛异常就是未捕获崩溃）。而 exe 本来就有 `Main` 这个天然入口，同一件事的第二种表达 ⇒ 禁掉。库包（`kind = "lib"`）不受限。  // 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个（User 裁决 2026-09-22）——多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 file:line。
 
     // ── 穷尽性（add-switch-exhaustiveness）────────────────────────────────────
     public static string SwitchNotExhaustive     = "W0700";  // 【Warning】`switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支且没有 `default`。

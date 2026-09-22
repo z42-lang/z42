@@ -241,6 +241,19 @@ public static class PackageCompile {
         // PR4a：generator 引擎的护栏诊断（越界 Replace/Augment，E0448）合入首模块 → Error 增 ErrorCount 拦编译。
         if (genDiags.Count() > 0 && cms.Length > 0) { PackageCompile._mergeDiags(cms[0], genDiags); }
 
+        // add-module-init-hook：**exe 包禁用 `[ModuleInit]`**（E0487）。判据是 manifest 的 kind，
+        // 只有这一层拿得到（semantics 看不到）⇒ 挂在这里，而**所有**编译路径都经过 PackageCompile。
+        // 诊断带自己的 Span，`_mergeDiags` 会按 file(line,col) 格式化，位置精确指向那处标注。
+        // 🔴 扫 `cus` 而不是 `inp.Cus`：generator（`[Forward]` 等）会把合成 CU 并进来，
+        // 此时 `cus` 是 union、长度 > `inp.Cus` ⇒ 按 srcCount 读 inp.Cus 会越界
+        // （实测：`forward_tiers_cross_pkg` 的 main 构建直接挂）。编译用的是哪个数组，
+        // 校验就扫哪个。
+        if (inp.Kind == "exe" && cms.Length > 0) {
+            DiagnosticBag exeDiags = new DiagnosticBag();
+            ModuleInitScan.CheckExePackage(cus, srcCount, exeDiags);
+            if (exeDiags.Count() > 0) { PackageCompile._mergeDiags(cms[0], exeDiags); }
+        }
+
         // ── attribute-handler-registry PR3a-load：外部 analyzer（[analyzers] 段声明的 handler zpkg）──
         // gated on 非空 → z42c 自建无 [analyzers] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
         // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让

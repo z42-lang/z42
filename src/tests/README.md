@@ -42,7 +42,6 @@
 | `refs/` | ref / out / in / nested ref |
 | `classes/` | class / namespace / access / static / auto-property / ctor / indexer |
 | `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42)，不在这里 |
-| `module-init/` | 包级初始化 `[ModuleInit]`：主包自己的初始化器在 `Main` 第一行之前跑完。**跨包**那几条（含「只调自由函数也触发」「至多一次」「E0486/E0485 负例」）在 `cross-zpkg/module_init_*` |
 | `cross-zpkg/` | 多 zpkg 端到端（target / ext / main 三方协作；由 `z42 xtask.zpkg test cross-zpkg` 跑） |
 
 > **仓库根 `examples/`** 不是测试语料：它是学习手册的配套工程，由 `xtask test examples`

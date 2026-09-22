@@ -114,6 +114,65 @@ public static class ModuleInitScan {
         return one;
     }
 
+    // ── exe 包禁用（E0487）────────────────────────────────────────────────────────────────
+    // 可执行包里出现 `[ModuleInit]` ⇒ E0487。
+    //
+    // 扫**所有**应用点（合法与否都算）：无论签名对不对，它都不该出现在 exe 包里，一步报到位，
+    // 不让用户先改完签名（E0486）才看见这条。
+    //
+    // ⚠️ 判据是 manifest 的 `kind`，semantics 看不到 ⇒ 调用点在 pipeline 的 `PackageCompile`
+    // ——**所有**编译路径（driver 的 IncrementalDriver / z42b / REPL）都经过它。
+    // 🔴 别挂在 `Z42cCompiler.Compile`（ICompiler 实现）：`z42c build` 走的是 IncrementalDriver，
+    // 根本不经过那里（实测：校验一次也没触发）。也别挂到 driver 层 —— semantics→pipeline→driver
+    // 是两层符号引用，自建首遍失败只重试一次 ⇒ 一层能自愈、两层必红。
+    public static void CheckExePackage(CompilationUnit[] cus, int count, DiagnosticBag diags) {
+        int i = 0;
+        while (i < count) {
+            Span sp = ModuleInitScan._anySiteSpan(cus[i]);
+            if (sp != null) {
+                diags.Error("E0487",
+                    "可执行包（kind = \"exe\"）不支持 `[ModuleInit]` —— 包初始化器在 `Main` 之前执行，"
+                    + "失败时没有任何代码能捕获它。把这段初始化写进 `Main` 的第一行"
+                    + "（那里失败可以 try/catch）。库包（kind = \"lib\"）不受此限。", sp);
+                return;   // 一个包报一条就够，不刷屏
+            }
+            i = i + 1;
+        }
+    }
+
+    // 本 CU 里第一个 `[ModuleInit]` 应用点的位置（合法与否都算）；没有则 null。
+    private static Span _anySiteSpan(CompilationUnit cu) {
+        int d = 0;
+        while (d < cu.DeclCount) {
+            Decl raw = cu.Decls[d];
+            if (raw is AttributedDecl) {
+                AttributedDecl ad = raw as AttributedDecl;
+                if (HandlerRegistry.HasModuleInit(ad)) { return ad.Span; }
+                if (ad.Inner is ClassDecl) {
+                    Span inCls = ModuleInitScan._anySiteSpanInClass(ad.Inner as ClassDecl);
+                    if (inCls != null) { return inCls; }
+                }
+            } else if (raw is ClassDecl) {
+                Span inCls2 = ModuleInitScan._anySiteSpanInClass(raw as ClassDecl);
+                if (inCls2 != null) { return inCls2; }
+            }
+            d = d + 1;
+        }
+        return null;
+    }
+
+    private static Span _anySiteSpanInClass(ClassDecl c) {
+        int j = 0;
+        while (j < c.MemberCount) {
+            if (c.Members[j] is AttributedDecl) {
+                AttributedDecl ad = c.Members[j] as AttributedDecl;
+                if (HandlerRegistry.HasModuleInit(ad)) { return ad.Span; }
+            }
+            j = j + 1;
+        }
+        return null;
+    }
+
     // ── 包级校验（E0486 / E0485）────────────────────────────────────────────────────────────
     // 扫全 CU 的 `[ModuleInit]` 应用点：非法目标报 E0486；第二个及以后的**合法**站点报 E0485。
     //
@@ -190,7 +249,7 @@ public static class ModuleInitScan {
         return true;
     }
 
-    private static string _at(Span sp) {
+    internal static string _at(Span sp) {
         return sp.File + "(" + sp.Line.ToString() + "," + sp.Column.ToString() + ")";
     }
 }
