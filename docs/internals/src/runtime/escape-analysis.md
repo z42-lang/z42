@@ -176,7 +176,9 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   > `bytes` 里的 8B 内联指针。堆一侧的 `Value::visit_gc_children` 同时读两半（`refs()` +
   > `trace_inline_refs`），而 `StackArena::scan_roots` 长期只读 `refs`——于是**一个不逃逸对象的数组字段
   > 不被任何根覆盖**：minor 在其 owner 还活着时就把它扫了，槽位复用后旧句柄静默解析到新住户
-  > （debug 构建报 `GcRef::entry_ref: generation/alive mismatch`，release 构建直接答错对象）。
+  > （`GcRef::entry_ref` 的 generation/alive 守卫报 `use-after-finalize` panic；自
+  > `fix/gc-entry-ref-release-uaf-guard` 起该守卫无条件生效，debug 与 release 均 panic——
+  > 此前 release 用 `debug_assert!` 会静默答错对象）。
   > 现场就是 `xtask test` 自己：13 个 stage 全绿之后，耗时汇总死在自己的 `long[]` 上
   > （`long[]` 读出一个 `Char`）。**新增任何「对象引用存放位置」的表示，必须同时更新堆遍历与每个
   > arena 根扫描**——两者是同一条不变量的两个端点。

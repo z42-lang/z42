@@ -278,9 +278,11 @@ Finalizer 触发时机随 backing 切换变化：
 - finalizer 是 **safety net**（防泄漏），不是即时释放机制
 
 **Strong reference 检测**（design D5）: 显式 `Std.GC.Finalize` 后，
-其他 strong reference 之后 `borrow` 会 `debug_assert!` panic（generation
-mismatch detection — debug build 立即报错；release build 由后续
-generation 检查 enforce）。
+其他 strong reference 之后 `borrow`（经 `GcRef::entry_ref`）会 `assert!`
+panic（generation/alive mismatch detection）。该守卫 **debug 与 release 均生效**
+（`fix/gc-entry-ref-release-uaf-guard`）：此前是 `debug_assert!`，release 被编译掉
+后 slot 被复用即静默读到**另一个对象**（type confusion）——见 `refs.rs::entry_ref`
+的说明。成本仅为一次 `borrow` 阻塞加锁前的两个 `Acquire` 读，可忽略。
 
 **Pre-spec 历史契约**（archive reference）: Arc backing 下 `GcRef::drop`
 触发 refcount 减 1；最后一个 ref drop 时 `GcAllocation::Drop` 自动触发
