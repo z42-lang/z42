@@ -2,12 +2,11 @@
 $ z42 run coalesce.z42
 (匿名)
 # ANCHOR_END: coalesce
-# ANCHOR: condaccess
-$ z42 run condaccess.z42
-null
-小明
+# ANCHOR: nullcheck
+$ z42 run nullcheck.z42
 (没有这个人)
-# ANCHOR_END: condaccess
+小明
+# ANCHOR_END: nullcheck
 # ANCHOR: ternary
 $ z42 run ternary.z42
 及格

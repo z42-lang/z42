@@ -230,12 +230,6 @@ public sealed class BinaryExpr : Expr {
 // ── 后缀 / 赋值 ──────────────────────────────────────────────────────────────
 
 // obj?.member 空条件成员访问（recv 非 null 才访问，否则 null）。
-public sealed class NullCondMemberExpr : Expr {
-    public Expr   Target;
-    public string Name;
-    public NullCondMemberExpr(Expr target, string name, Span span) { this.Span = span; this.Target = target; this.Name = name; }
-    public override string Dump() { return "(?. " + this.Target.Dump() + " " + this.Name + ")"; }
-}
 
 public sealed class MemberExpr : Expr {
     public Expr   Target;

@@ -29,11 +29,25 @@ public sealed class ExprParser {
                 continue;
             }
             if (k == TokenKind.QuestionDot) {
+                // define-null-check-marks：`?.` 已移除。它是 User 点名的「让问题逃掉」的口子之一——
+                // 把「可能为 null」静默向下传播，最终在离现场很远的地方崩。
+                //
+                // ⚠️ 顺带修掉一个真 bug：原脱糖把接收者**绑定了两次**（一次在 `access` 里、
+                // 一次作 `recv`），所以 `F()?.X` 会**调用 F 两次**。原注释自述
+                // 「简单接收者双求值无副作用；goldens 均为局部接收者」——即已知而未修。
+                Span qds = this._p._peek().Span;
                 this._p._advance();
+                this._p._diags.Error("E0480",
+                    "`?.` is no longer supported — write the check out: "
+                    + "`var t = <target>; if (t != null) { t.<member> }` "
+                    + "(the old form silently propagated null to somewhere far from the cause)", qds);
+                // 按普通 `.` 继续解析，避免级联错（同 E0471 手法）。
                 string nname = this._p._peek().Text;
                 if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
                 else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '?.'", this._p._peek().Span); }
-                left = new NullCondMemberExpr(left, nname, left.Span);
+                MemberExpr qme = new MemberExpr(left, nname, left.Span);
+                qme.NameSpan = qds;
+                left = qme;
                 continue;
             }
             if (k == TokenKind.LParen) { this._p._advance(); left = this._parseCall(left); continue; }

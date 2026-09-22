@@ -409,16 +409,6 @@ public sealed partial class ExprTyper {
         return this._coll._bindCollLit(e, target, env);
     }
 
-    private BoundExpr _bindNullCondMember(NullCondMemberExpr nc, TypeEnv env) {
-            // obj?.member 脱糖：(recv != null) ? recv.member : null（复用 BoundConditional）。
-            // 简单接收者双求值无副作用；goldens 均为局部接收者。
-            BoundExpr access = this._tc._member._bindMember(new MemberExpr(nc.Target, nc.Name, nc.Span), env);
-            Z42Type mt = access.Type();
-            BoundExpr recv = this._bindExpr(nc.Target, env);
-            BoundExpr cond = new BoundBinary("!=", recv, new BoundLitNull(mt, nc.Span), Z42ClassType.Builtin("bool"), nc.Span);
-            BoundExpr elseE = new BoundLitNull(mt, nc.Span);
-            return new BoundConditional(cond, access, elseE, mt, nc.Span);
-    }
 
     public BoundExpr _bindExpr(Expr e, TypeEnv env) {
         if (e is IntLitExpr || e is CharLitExpr || e is FloatLitExpr
@@ -436,7 +426,6 @@ public sealed partial class ExprTyper {
         if (e is MemberExpr) {
             return this._tc._member._bindMember(e as MemberExpr, env);
         }
-        if (e is NullCondMemberExpr) { return this._bindNullCondMember(e as NullCondMemberExpr, env); }
         if (e is IsExpr) { return this._typeop._bindIsExpr(e as IsExpr, env); }
         if (e is IsPatternExpr) { return this._typeop._bindIsPatternExpr(e as IsPatternExpr, env); }
         if (e is TypeofExpr) { return this._typeop._bindTypeofExpr(e as TypeofExpr, env); }
