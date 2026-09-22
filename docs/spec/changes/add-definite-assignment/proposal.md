@@ -89,6 +89,30 @@ Console.WriteLine(x);     // 编译通过；运行期读到 Null
 
 ## Open Questions
 
+### ✅ Q1 已关闭 —— 全量零命中，但过程里抓到一个自己的误报
+
+`xtask test all`（stdlib 25 包 + 编译器自身 + 全部测试 + scripts）**E0407 零命中**。
+
+⚠️ 但**第一版规则误报了一处**，正是 design §D3「误报零容忍」要挡的：
+
+```z42
+// z42.net/src/Http/HttpServer.z42 ServeThreaded
+TcpClient peer;
+try { peer = accept(); }
+catch (SocketClosedException e) { return; }     // 必定退出，跳过 ✓
+catch (Exception e) { log(...); continue; }     // ← `continue` 不算「必定退出」⇒ 被纳入交集 ⇒ peer 判未赋值
+peer.Dispose();
+```
+
+修法不是「把 `break`/`continue` 也算作必定退出」—— 那会**打坏 switch**（`case 1: x = 1; break;`
+的 break 是 case 的正常收尾，算成退出后各 case 都不进交集 ⇒ 一批新误报）。
+控制流转移在「块内顺序」与「switch case 收尾」两种语境下含义相反，一个谓词表达不了。
+
+最终的 try 规则见 `FlowAnalyzer._try` 的注释：**比老 C# 实现更严**（它让 catch 看到 try 的赋值、
+因而漏掉「catch 里读 try 赋的值」这种真 bug），**又无误报**。
+
+### 原始问题记录
+
 **Q1：现存代码里有多少处会被判红？**
 
 老实现在 C# 编译器时代是开着的，但 z42c 从未有过 ⇒ **z42c 自身 + stdlib 是在没有这条检查的

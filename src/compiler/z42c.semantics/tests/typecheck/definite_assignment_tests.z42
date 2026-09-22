@@ -1,0 +1,163 @@
+// add-definite-assignment：局部变量未赋值就读 → E0407。
+//
+// `DiagnosticCodes.UninitializedVariable = "E0407"` 这个常量在 z42c 里一直摆着、
+// error-codes.md 也记着它，却**零发射点**——发它的 pass 在自举移植时丢了
+// （老 C# 编译器的 `FlowAnalyzer.cs`，528 行）。本组用例是它回来的凭据。
+//
+// ⚠️ **本组最要紧的性质是「该报的都报」**。一个从不触发的 DA pass 毫无价值，
+// 而「全仓零命中」既可能是代码干净、也可能是 pass 没接通——只有这些阴性用例能分辨。
+namespace Z42cSemanticsDefiniteAssignmentTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 基础 ──────────────────────────────────────────────────────────
+
+[Test]
+void test_read_unassigned_errors() {
+    string src = "namespace D; class C { static int M() { int x; return x; } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_assigned_before_read_ok() {
+    string src = "namespace D; class C { static int M() { int x; x = 1; return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_initializer_ok() {
+    string src = "namespace D; class C { static int M() { int x = 0; return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_param_is_assigned() {
+    string src = "namespace D; class C { static int M(int a) { return a; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_ref_taken_local_is_assigned() {
+    // 被 `ref` 取址的无 init 局部在声明处回填了 default(T)（simplify-ref-parameters）⇒ 不得判红。
+    string src = "namespace D; class C { static void Inc(ref int v) { v = v + 1; }"
+        + " static int M() { int x; C.Inc(ref x); return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── if / else 的合并 ──────────────────────────────────────────────
+
+[Test]
+void test_both_branches_assign_ok() {
+    string src = "namespace D; class C { static int M(bool c) { int x; if (c) { x = 1; } else { x = 2; } return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_only_then_assigns_errors() {
+    // 条件假时会落下来 ⇒ then 里的赋值不算。
+    string src = "namespace D; class C { static int M(bool c) { int x; if (c) { x = 1; } return x; } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_else_returns_so_then_counts() {
+    string src = "namespace D; class C { static int M(bool c) { int x; if (c) { x = 1; } else { return 0; } return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_else_throws_so_then_counts() {
+    // `Std.Exception` 在裸源码串里解析不到（无 using）⇒ 用本地类，同 typecheck_tests.z42:607 的手法。
+    string src = "class E { } class C { static int M(bool c) { int x; if (c) { x = 1; } else { throw new E(); } return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 循环 ──────────────────────────────────────────────────────────
+
+[Test]
+void test_while_body_does_not_count() {
+    // 循环可能零次执行。
+    string src = "namespace D; class C { static int M(bool c) { int x; while (c) { x = 1; } return x; } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_do_while_body_counts() {
+    // 体必执行一次 —— 与 while 相反，这条最容易写反。
+    string src = "namespace D; class C { static int M(bool c) { int x; do { x = 1; } while (c); return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── try / catch ───────────────────────────────────────────────────
+
+[Test]
+void test_catch_reading_try_assigned_errors() {
+    // 异常可能在 `x = 1` **之前**抛出 ⇒ catch 里 x 未必已赋值。
+    // 这条是老 C# 实现**漏掉**的（它让 catch 看到 try 的赋值）；本实现补上了。
+    string src = "class E { } class C { static int M() { int x; try { x = 1; } catch (E e) { return x; } return x; } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_try_assignment_survives_after_try() {
+    // try 的赋值在 try **之后**保留（刻意的宽松：严格交集会在 z42.net 的
+    // HttpServer.ServeThreaded 上误报——那里的 catch 用 `continue` 退出，
+    // 而 `continue` 无法被一个谓词同时正确地表达为「块内不落下来」与「switch case 正常收尾」）。
+    string src = "class E { } class C { static int M() { int x; try { x = 1; } catch (E e) { x = 2; } return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── switch ────────────────────────────────────────────────────────
+
+[Test]
+void test_switch_all_cases_assign_ok() {
+    string src = "namespace D; class C { static int M(int v) { int x;"
+        + " switch (v) { case 1: x = 1; break; default: x = 2; break; } return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_switch_missing_case_errors() {
+    string src = "namespace D; class C { static int M(int v) { int x;"
+        + " switch (v) { case 1: x = 1; break; default: break; } return x; } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_switch_without_default_errors() {
+    // 没有 default ⇒ 可能一个 case 都不进。
+    string src = "namespace D; class C { static int M(int v) { int x;"
+        + " switch (v) { case 1: x = 1; break; } return x; } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 不误报的守卫 ──────────────────────────────────────────────────
+
+[Test]
+void test_field_not_subject_to_da() {
+    // 字段由 #741 零初始化，不在 DA 管辖。
+    string src = "namespace D; class C { int n; int M() { return this.n; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_assignment_target_is_not_a_read() {
+    string src = "namespace D; class C { static int M() { int x; x = 1; return x; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_foreach_var_is_assigned() {
+    string src = "namespace D; class C { static int M(int[] xs) { int last = 0;"
+        + " foreach (var v in xs) { last = v; } return last; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_reported_once_per_variable() {
+    // 报一次就当它已赋值 —— 同一个变量在后面每处再报一遍只是噪声。
+    string src = "namespace D; class C { static int M() { int x; int a = x; int b = x; return a + b; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}

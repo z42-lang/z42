@@ -458,7 +458,16 @@ public sealed class DeclBinder {
         return false;
     }
 
+    // add-definite-assignment：方法体绑定完统一过一遍 DA（局部未赋值就读 → E0407）。
+    // 包成一层是因为 `_bindMethodBodyCore` 有两个返回点（普通体 / ctor 注入 base 调用后的体），
+    // 挂在这里保证**只有一处**调用、且查的是最终交给发射层的那棵树。
     private BoundStmt _bindMethodBody(SymbolTable symbols, TypeEnv env, MethodDecl md) {
+        BoundStmt body = this._bindMethodBodyCore(symbols, env, md);
+        FlowAnalyzer.Check(body, md, this._tc._diags);
+        return body;
+    }
+
+    private BoundStmt _bindMethodBodyCore(SymbolTable symbols, TypeEnv env, MethodDecl md) {
         int p = 0;
         while (p < md.ParamCount) {
             env.Define(md.Params[p].Name, env.ResolveType(md.Params[p].Type));

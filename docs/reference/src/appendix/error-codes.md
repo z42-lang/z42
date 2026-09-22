@@ -94,7 +94,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | E0404 | 访问控制违规：`private`/`protected` 成员跨界访问，或引用 `private`/`protected` 嵌套类型（对标 C# CS0122） | ✅ `AccessChecker.z42:66,192` | 类外读 `private` 字段 |
 | E0405 | 非法修饰符组合（如同时写两个访问修饰符） | ✅ `DeclParser.z42:101`（语法层） | `public private int x;` |
 | E0406 | 整数字面量超出显式宽度类型的范围 | ⚠️ 零发射点 | — |
-| E0407 | 变量未初始化就使用 | ⚠️ 零发射点 | — |
+| E0407 | **局部变量**未赋值就读。合并规则：`if` 两支都赋才算（一支必定 return/throw 则取另一支）／`while` 体内赋值不算（可能零次执行）／`do-while` 算（必执行一次）／`switch` 取各 case 交集且须有 `default`／`try` 的赋值在 **catch 里不算**（异常可能在赋值前抛出）。字段与静态字段不在管辖（它们零初始化） | ✅ `FlowAnalyzer.z42` | `int x; return x;` |
 | E0408 | 重复声明。当前实际发射面是**顶层自由函数重名**（自由函数不支持重载）与成员收集期的重复成员 | ✅ `DeclBinder.z42:49,120`、`MemberCollector.z42:42` | 同文件两个 `int f()` |
 | E0409 | 把 `void` 表达式赋给变量 | ⚠️ 零发射点 | — |
 | E0410 | `break` 在循环 / `switch` 外，或 `continue` 在循环外 | ✅ `StmtBinder.z42:352,358` | 方法体顶层写 `break;` |
