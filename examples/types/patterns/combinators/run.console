@@ -1,0 +1,9 @@
+# ANCHOR: run
+$ z42 run combinators.z42
+优
+良
+小写字母
+6
+4
+边长 3 的正方形，面积 9
+# ANCHOR_END: run

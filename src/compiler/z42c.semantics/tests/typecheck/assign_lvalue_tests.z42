@@ -1,0 +1,149 @@
+// 赋值目标的左值契约（E0477）+ 解构声明遮蔽成员（W0701）。
+//
+// 这两条都是为同一个静默陷阱补的：
+//
+//     struct Pair {
+//         public int A; public int B;
+//         public Pair(int a, int b) => (A, B) = (a, b);   // 字段全 0，此前零诊断
+//     }
+//
+// 表达式体里 `=>` 后只能是表达式，`(A, B) = (a, b)` 就是「造一个新元组再赋给它」——
+// 而**赋值给非左值此前完全没有检查**，连 `42 = a;` 都编得过跑得过。E0477 补这道。
+// 花括号体里同一行是解构声明（合法但同样一个字段都没动），由 W0701 提示遮蔽。
+//
+// ⚠️ E0477 与 E0470（`ref` 实参左值，见 ref_lvalue_tests.z42）不是一回事：那条要「可取址」，
+// 静态字段 / 值 struct 字段 / 属性一律拒；赋值只要「有存储」，那三样都合法。下面各有用例钉住。
+//
+// 注：独立 Infer 路径**不链 stdlib**（同 exhaust_tests.z42），`(a, b)` 元组要 `Std.ValueTupleN`
+// 在这里解析不了 —— 故解构声明一律用 **record 位置形态**（`Pt(A, B) = p`，同一条绑定路径）。
+// 元组那个原始形态由 learn-book 例子门禁钉：`examples/types/structs-records/gaps/exprctor.z42`
+// + 其 transcript（实跑，会打出 E0477）。
+namespace Z42cSemanticsAssignLvalueTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 合法赋值形态：不应报错 ────────────────────────────────────────
+
+[Test]
+void test_assign_local_ok() {
+    string src = "namespace D; class C { static void M() { int v = 0; v = 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_assign_field_ok() {
+    string src = "namespace D; class C { int f; void M() { this.f = 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_assign_array_element_ok() {
+    string src = "namespace D; class C { static void M() { int[] a = new int[2]; a[0] = 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 静态字段：E0470 拒（取不了址），赋值放行 —— 两码的强度差就在这里
+[Test]
+void test_assign_static_field_ok() {
+    string src = "namespace D; class C { static int s; static void M() { C.s = 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 值 struct 的字段：同上，E0470 拒、赋值放行
+[Test]
+void test_assign_struct_field_ok() {
+    string src = "namespace D; struct P { public int X; public int Y; }"
+        + " class C { static void M() { P p = new P(); p.X = 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_compound_assign_local_ok() {
+    string src = "namespace D; class C { static void M() { int v = 0; v += 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 非左值目标 → E0477 ───────────────────────────────────────────
+
+[Test]
+void test_assign_to_literal() {
+    string src = "namespace D; class C { static void M() { int a = 1; 42 = a; } }";
+    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_assign_to_binary_expr() {
+    string src = "namespace D; class C { static void M() { int a = 1; int b = 2; a + b = 3; } }";
+    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+}
+
+// ⚠️ `C.f() = a` **不进本码**：`T ( ... ) =` 会先被解构声明的前瞻
+// （`StmtParser._isDeconstructDeclStart`）认走，报 E0443「undefined type: C.f」。
+// 不静默，形态归属不同，故不在这里钉。
+
+// 表达式体成员里的非左值赋值（原始陷阱就在这个位置——`=>` 后只能是表达式）
+[Test]
+void test_expr_bodied_method_non_lvalue_assign() {
+    string src = "namespace D; class P { public int A;"
+        + " public void Set(int a) => A + 1 = a; } class C { static void M() { } }";
+    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_compound_assign_to_literal() {
+    string src = "namespace D; class C { static void M() { int a = 1; 42 += a; } }";
+    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 解构声明遮蔽成员 → W0701 ─────────────────────────────────────
+
+[Test]
+void test_deconstruct_shadows_field_warns() {
+    string src = "namespace D; [Record] class Pt(int X, int Y); class P { public int A; public int B;"
+        + " public void Set(Pt p) { Pt(A, B) = p; } } class C { static void M() { } }";
+    Assert.Equal("W0701", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_deconstruct_shadows_property_warns() {
+    string src = "namespace D; [Record] class Pt(int X, int Y);"
+        + " class P { public int A { get; set; } public int B { get; set; }"
+        + " public void Set(Pt p) { Pt(A, B) = p; } } class C { static void M() { } }";
+    Assert.Equal("W0701", SemanticDump.FirstErrorCode(src));
+}
+
+// 遮蔽基类字段同样报
+[Test]
+void test_deconstruct_shadows_base_field_warns() {
+    string src = "namespace D; [Record] class Pt(int X, int Y); class B0 { public int A; public int B; }"
+        + " class P : B0 { public void Set(Pt p) { Pt(A, B) = p; } } class C { static void M() { } }";
+    Assert.Equal("W0701", SemanticDump.FirstErrorCode(src));
+}
+
+// ── W0701 阴性对照：不遮蔽成员的解构声明不报 ─────────────────────
+
+// 静态上下文：没有 this，无成员可遮蔽
+[Test]
+void test_deconstruct_in_static_no_warn() {
+    string src = "namespace D; [Record] class Pt(int X, int Y); class P { public int A; public int B;"
+        + " public static void Set(Pt p) { Pt(A, B) = p; int s = A + B; } } class C { static void M() { } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 绑定名与成员无关 → 就是一次普通的解构声明
+[Test]
+void test_deconstruct_fresh_names_no_warn() {
+    string src = "namespace D; [Record] class Pt(int X, int Y); class P { public int A; public int B;"
+        + " public void Set(Pt p) { Pt(u, v) = p; int s = u + v; } } class C { static void M() { } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 普通局部遮蔽字段仍然合法（W0701 只管解构声明这一种形态）
+[Test]
+void test_plain_local_shadowing_field_no_warn() {
+    string src = "namespace D; class P { public int A;"
+        + " public void Set(int a) { int A = a; int s = A; } } class C { static void M() { } }";
+    Assert.NotEqual("W0701", SemanticDump.FirstErrorCode(src));
+}

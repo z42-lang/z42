@@ -1,0 +1,17 @@
+using Std.IO;
+
+abstract class Shape { }
+[Record] class Circle(int R) : Shape;
+[Record] class Square(int S) : Shape;
+[Record] class Triangle(int B, int H) : Shape;
+
+int area(Shape s) {
+    return s switch {
+        Circle(r)    => 3 * r * r,
+        Square(side) => side * side
+    };
+}
+
+void Main() {
+    Console.WriteLine(area(new Circle(2)));
+}

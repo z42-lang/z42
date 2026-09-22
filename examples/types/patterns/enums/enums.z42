@@ -1,0 +1,38 @@
+using Std.IO;
+
+// ANCHOR: decl
+enum Direction { North, East, South, West }
+// ANCHOR_END: decl
+
+// ANCHOR: stmt
+string describe(Direction d) {
+    switch (d) {
+        case Direction.North: return "向北";
+        case Direction.East:  return "向东";
+        case Direction.South: return "向南";
+        case Direction.West:  return "向西";
+    }
+    return "";
+}
+// ANCHOR_END: stmt
+
+// ANCHOR: expr
+string shortOf(Direction d) {
+    return d switch {
+        Direction.North => "N",
+        Direction.East  => "E",
+        Direction.South => "S",
+        Direction.West  => "W"
+    };
+}
+// ANCHOR_END: expr
+
+void Main() {
+    // ANCHOR: use
+    Direction d = Direction.East;
+    Console.WriteLine($"{d}");          // 打印成员名
+    Console.WriteLine(describe(d));
+    Console.WriteLine(shortOf(d));
+    Console.WriteLine((int)d);          // 底层整数：按声明序从 0 开始
+    // ANCHOR_END: use
+}

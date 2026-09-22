@@ -131,6 +131,18 @@ public sealed class PatternEmitter {
         if (pat is BoundAtPattern) {
             // A2 @：绑 Name 到 subj（别名，同裸绑定）+ 匹配子模式。fail 路不读该绑定，安全。
             BoundAtPattern ap = pat as BoundAtPattern;
+            if (ap.Narrowed) {
+                // 子模式收窄了类型（`s @ Square(_)`）→ 先走子模式的 test，匹配成功后 as_cast 到收窄类型
+                // 再绑定（同类型模式 `T x` 的做法：as_cast 只存局部、不接 field_get，JIT 安全）。
+                string atL = this._ctx.Fresh("pat_at");
+                this.EmitMatch(subj, ap.Sub, atL, failL);
+                this._ctx.StartBlock(atL);
+                TypedReg aReg = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new AsCastInstr(aReg, subj, this._qual(ap.TypeName)));
+                this._ctx.Locals.Put(ap.Name, aReg);
+                this._ctx.EndBlock(new BrTerm(matchL));
+                return;
+            }
             this._ctx.Locals.Put(ap.Name, subj);
             this.EmitMatch(subj, ap.Sub, matchL, failL);
             return;

@@ -147,6 +147,7 @@ public sealed class AssignTyper {
                 }
             }
             BoundExpr target = this._et._bindExpr(a.Target, env);
+            this._checkAssignable(a, target);            // E0477：赋值目标须是左值
             this._checkConstAssign(a, target, env);      // add-const-keyword：const（局部 / 字段）不可赋值
             this._checkReadonlyAssign(a, target, env);   // add-readonly-fields-opt：readonly 字段仅 ctor-this 可写
             // add-target-typed-new：`x = new()` RHS 以 LHS 类型为目标（含实例字段初始化器 `this.f = new()`）。
@@ -187,6 +188,45 @@ public sealed class AssignTyper {
         if (!(m.Target is IdentExpr)) { return false; }
         string rn = (m.Target as IdentExpr).Name;
         return env.LookupVar(rn) == null && (env.Symbols.HasClass(rn) || env.Symbols.HasInterface(rn));
+    }
+
+    // E0477：赋值目标必须是**左值**（有存储的位置）。此前这道检查**根本不存在**——
+    // `42 = a;` 编得过、跑得过、什么也不发生，一条诊断都没有。
+    //
+    // 最伤人的形态是表达式体成员，那里 `=>` 后面只能是**表达式**（`_parseArrowBody` 发
+    // `_parseExpr`），于是花括号体里会被当作解构声明的 `(A, B) = (a, b)` 到了这里就是
+    // 「给元组字面量赋值」：
+    //
+    //     public Pair(int a, int b) => (A, B) = (a, b);   // 字段全 0，零诊断
+    //
+    // 读起来完全像给两个字段赋值。同一行换成花括号体是解构声明（走 W0701 提示遮蔽），
+    // 而表达式体位置连那条路都没有——它就是个丢弃结果的非左值赋值。
+    //
+    // 判据用**白名单**：只有标识符 / 成员 / 下标 / 静态字段 / 捕获变量有存储。属性写在上面
+    // 已分流成 `set_X` 调用，到这里的成员访问是字段。`BoundError` 放行（前面已报过，别叠加）。
+    //
+    // 与 **E0470**（`ref` 实参左值，`ExprTyper._chkRefArgLvalue`）的分工：那条要的是**可取址**，
+    // 严得多（静态字段 / 值 struct 字段 / 属性一律拒）；赋值只要求**有存储**，那三样都合法。
+    // 同一个词「左值」，两个强度，故两码。
+    private void _checkAssignable(AssignExpr a, BoundExpr target) {
+        if (target is BoundIdent) { return; }
+        if (target is BoundMember) { return; }
+        if (target is BoundIndex) { return; }
+        if (target is BoundStaticGet) { return; }
+        if (target is BoundCapturedIdent) { return; }
+        if (target is BoundError) { return; }
+        string msg = "the left-hand side of `" + a.Op + "` must be a variable, field, or indexer element; this target has no storage to assign to";
+        // `(A, B) = (a, b)` 在表达式位置绑成「造一个新元组再赋值给它」。这是表达式体成员里
+        // 最容易写出来的那一种，单说「不是左值」读者对不上号，直接点名。
+        if (AssignTyper._isTupleCtor(target)) {
+            msg = msg + ". `(" + "...) = ..." + "` here builds a new tuple and assigns to it — z42 has no destructuring assignment, only destructuring declaration (a statement, so it cannot appear in an expression-bodied member). Assign the members one by one (`this.X = x;`) in a braced body";
+        }
+        this._tc._diags.Error("E0477", msg, a.Span);
+    }
+
+    private static bool _isTupleCtor(BoundExpr target) {
+        if (!(target is BoundNew)) { return false; }
+        return target.Type().Name().StartsWith("ValueTuple");
     }
 
     // add-const-keyword：const 不可赋值——局部 const（BoundIdent 名在 TypeEnv const 表）与

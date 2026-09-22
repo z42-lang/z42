@@ -34,7 +34,7 @@
 | 14 | 继承与多态 | `types/inheritance` | `virtual`/`override`、多态按运行时派发、构造顺序与 `base`、`abstract`（**不能 new**）、`sealed`、无 `new` 方法隐藏 | 🟢 |
 | 15 | 接口 | `types/interfaces` | 声明与实现（E0412）、多接口、`is`/`as`、接口属性（get/set 两份契约）、🔴 接口不能继承接口、接口 vs 抽象类 | 🟢 |
 | 16 | 值类型与记录 | `types/structs-records` | `struct` 值语义与不参与继承、`[Record]` 四样合成、`with`（仅 record class）、🔴 单字段 struct 仍是引用语义、🔴 表达式体构造器静默失效、打印 struct | 🟢 |
-| 17 | 枚举与模式匹配 | `types/patterns` | `enum`、`switch` 表达式、结构化模式、解构、穷尽性 | 🧪 |
+| 17 | 枚举与模式匹配 | `types/patterns` | `enum`（独立类型）、`switch` 语句/表达式、🔴 穷尽性只是警告（无匹配臂静默产 null/垃圾值）、位置与属性解构、嵌套、守卫、组合子 `..=`/关系/`\|`/`@`、解构声明 | 🟢 |
 | 18 | 泛型 | `types/generics` | 泛型类型、泛型方法、`where` 约束 | ✅ |
 | 19 | Lambda、闭包与委托 | `types/lambdas` | lambda 语法、捕获语义、委托、`methodof` | ✅ |
 | 20 | 异常处理 | `types/exceptions` | `try` / `catch` / `finally` / `throw`、自定义异常 | ✅ |

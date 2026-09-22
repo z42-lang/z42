@@ -1,0 +1,13 @@
+# ANCHOR: missing
+$ z42 run missing.z42
+N
+[null]
+z42c build: 1 warning(s) in missing.z42
+  missing.z42(6,14): W0700: switch on enum Direction is not exhaustive: missing Direction.West (add the missing case(s) or a default)
+# ANCHOR_END: missing
+# ANCHOR: closed
+$ z42 run closed.z42
+12
+z42c build: 1 warning(s) in closed.z42
+  closed.z42(9,14): W0700: switch on closed type Shape is not exhaustive: missing Triangle (add the missing case(s) or a default)
+# ANCHOR_END: closed

@@ -1,0 +1,44 @@
+using Std.IO;
+
+// ANCHOR: types
+[Record] class Point(int X, int Y);
+[Record] class Line(Point A, Point B);
+// ANCHOR_END: types
+
+// ANCHOR: positional
+string locate(Point p) {
+    return p switch {
+        Point(0, 0)          => "原点",
+        Point(0, y)          => $"Y 轴上，y={y}",
+        Point(x, y) if x > 0 => $"右半边 ({x}, {y})",
+        Point(x, y)          => $"左半边 ({x}, {y})"
+    };
+}
+// ANCHOR_END: positional
+
+// ANCHOR: property
+string quadrant(Point p) {
+    return p switch {
+        { X: 0 }    => "在 Y 轴上",
+        { Y: 0 }    => "在 X 轴上",
+        _           => "在某个象限里"
+    };
+}
+// ANCHOR_END: property
+
+// ANCHOR: nested
+int spanOf(Line l) {
+    if (l is Line(Point(ax, _), Point(bx, _))) { return bx - ax; }
+    return 0;
+}
+// ANCHOR_END: nested
+
+void Main() {
+    // ANCHOR: use
+    Console.WriteLine(locate(new Point(0, 0)));
+    Console.WriteLine(locate(new Point(0, 7)));
+    Console.WriteLine(locate(new Point(3, 4)));
+    Console.WriteLine(quadrant(new Point(0, 7)));
+    Console.WriteLine(spanOf(new Line(new Point(1, 2), new Point(9, 2))));
+    // ANCHOR_END: use
+}

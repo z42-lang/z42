@@ -1,0 +1,16 @@
+using Std.IO;
+
+enum Direction { North, East, South, West }
+
+string shortOf(Direction d) {
+    return d switch {
+        Direction.North => "N",
+        Direction.East  => "E",
+        Direction.South => "S"
+    };
+}
+
+void Main() {
+    Console.WriteLine(shortOf(Direction.North));
+    Console.WriteLine($"[{shortOf(Direction.West)}]");
+}
