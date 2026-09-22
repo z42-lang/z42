@@ -74,9 +74,22 @@ fn try_native_method_call(
 pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
     use crate::metadata::well_known_names::*;
     match obj {
-        // rename-primitives-to-pascal-case (2026-05-24): VM dispatch on
-        // Value::I64 routes to Std.Int32 by default (narrow int / long values
-        // are tagged with class FQN at compile-time in VCall instructions).
+        // ⚠️ These are derived from the *runtime* `Value`, which cannot tell a `ulong` from a
+        // `long` from an `int` (all `Value::I64`), nor a `float` from a `double` (both `F64`).
+        // So an instance method declared on Std.{SByte,Int16,Byte,UInt16,UInt32,UInt64,Int64}
+        // or Std.Single is **never reached through this path** — it lands on Int32/Double's
+        // same-named method instead.
+        //
+        // fix-narrow-prim-instance-dispatch (2026-09-22): the compiler now emits a **static
+        // Call** to the wrapper's method for exactly those 8 receiver types (primitives are
+        // sealed value types — there is no virtual dispatch to preserve), so they reach their
+        // own implementations. This table stays as the fallback for everything else.
+        //
+        // The previous note here claimed "narrow int / long values are tagged with class FQN
+        // at compile-time in VCall instructions" — that was never true: `vcall()` takes no
+        // receiver-type argument. It read as if the gap were covered, which is why the two
+        // live symptoms (UInt64.ToString printing negatives above i64::MAX, Single.GetHashCode
+        // silently using Double's fold) went unnoticed for months.
         Value::I64(_)  => Some(STD_INT32),
         Value::F64(_)  => Some(STD_DOUBLE),
         Value::Bool(_) => Some(STD_BOOLEAN),

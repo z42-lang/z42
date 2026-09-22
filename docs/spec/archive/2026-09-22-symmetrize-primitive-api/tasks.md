@@ -1,6 +1,6 @@
 # Tasks: primitive API 面对称化（对齐 C#）
 
-> 状态：🟢 GREEN 全绿，待提交 | 创建：2026-09-22 | 完成：2026-09-22
+> 状态：🟢 已归档（PR #736 已合并 `7b131ca1c`） | 创建：2026-09-22 | 完成：2026-09-22
 > 变更类型：feat（stdlib API 新增，纯增量、无删改）
 > 文档影响：无 book 机制页变更（新增 API 语义与 C# 同款，行为由测试固化）
 > **基线**：起初叠在 `drop-short-primitive-aliases`（PR #730）上以避开 12 个 Primitives 文件的

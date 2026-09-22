@@ -252,6 +252,45 @@ public sealed class EmitContext {
         return this.Deps != null && this.Deps.Statics.ContainsKey(fq);
     }
 
+    // fix-narrow-prim-instance-dispatch：窄基元接收者 → 其包装类上该方法的**已发射 FQ**（查不到 → ""）。
+    //
+    // 为什么需要这条：运行期的 prim 派发由 `primitive_class_name(obj_val)` **从 Value 反推**类
+    // （`interp/exec_vcall.rs`：`Value::I64 => Std.Int32`、`Value::F64 => Std.Double`），而
+    // `sbyte/short/byte/ushort/uint/ulong/long` 同为 `Value::I64`、`float` 是 `Value::F64` ⇒
+    // 这 8 个包装类型上声明的实例方法**运行期一个都到不了**，全落到 Int32/Double 的同名方法。
+    // 长期无人发现，只因它们的实现与 Int32/Double 版恰好等价；实测真正分道的有两处：
+    // `UInt64.ToString`（> i64::MAX 打成负数）与 `Single.GetHashCode`（实际走 Double 的 64 位折叠）。
+    //
+    // 基元是 **sealed 值类型、没有虚派发**，所以编译期直呼在语义上就是对的（同 blob 值 struct
+    // 实例调用早已走静态 Call）。这里只覆盖「运行期反推会给错类」的 8 个；`int`/`double`/`bool`/
+    // `char`/`string` 反推本就正确，不动它们 —— 既零字节漂移，也不碰 runtime 对 string/装箱基元
+    // 的既有特殊处理。
+    public string NarrowPrimTarget(Z42Type recvType, string methodKey) {
+        Z42ClassType ct = recvType as Z42ClassType;
+        if (ct == null) { return ""; }
+        // ⚠️ 必须先 Canon 归一：同一个 `ulong` 会以**两种拼写**到达这里 —— 显式类型标注 / 强制转换
+        // 经 `SymbolTable.BuiltinType` 解析时，若包装类在作用域内会**直接返回包装类**（`Name()=="UInt64"`），
+        // 而从方法签名推断出来的则保留关键字（`"ulong"`）。只认其中一种会漏掉一半调用点
+        // （实测：`ulong a = …; a.ToString()` 漏、`UInt64.Parse(…).ToString()` 中）。
+        string canon = PrimModel.Canon(ct.Name());
+        if (!EmitContext.IsRuntimeAmbiguousPrim(canon)) { return ""; }
+        string wrapper = PrimModel.Wrapper(canon);
+        if (wrapper == "" || wrapper == canon) { return ""; }
+        string fq = this.QualifyClass(wrapper) + "." + methodKey;
+        // 必须校验「确为已发射函数」：查不到就回落 VCall（= 今天的行为），**永不 miscall**。
+        // 本地 prim 类（编 z42.core 自身时）不在 Deps 里，用 LocalClasses 判。
+        if (this.LocalClasses != null && this.LocalClasses.ContainsKey(wrapper)) { return fq; }
+        if (this._depHasFunction(fq)) { return fq; }
+        return "";
+    }
+
+    // 运行期由 Value 反推会得到**错类**的基元。入参须是 `PrimModel.Canon` 的结果（关键字拼写）。
+    public static bool IsRuntimeAmbiguousPrim(string kw) {
+        if (kw == "sbyte" || kw == "short" || kw == "byte" || kw == "ushort") { return true; }
+        if (kw == "uint" || kw == "ulong" || kw == "long") { return true; }
+        return kw == "float";
+    }
+
     // add-method-reference：解析 `methodof(T.M)` 的目标 FQ 名 —— **必须沿基链找真正的声明类**。
     //
     // 为什么不能直接用 receiver 类拼名：TSIG 把**继承**方法展平进每个派生类的 `Methods`
