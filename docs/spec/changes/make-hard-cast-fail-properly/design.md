@@ -2,22 +2,41 @@
 
 ## Architecture
 
+> ⚠️ **起草时的架构图是错的，在此更正。** 我以为 `(T)x` 与 `as` 共用 `BoundCast`、需要加
+> `IsHardCast` 标志。实测：**两者本来就是分开的节点** ——
+> `as` → `BoundCast`（`TypeOpTyper._bindAsExpr`，全仓唯一的 `new BoundCast` 处）；
+> `(T)x` → **`BoundConvert`**（`_bindCastExpr`）。所以**不需要新标志**，改动面更小。
+
 ```
-语义层                             发射层                          运行期
-─────────                         ─────────                       ─────────
-(T)x  → BoundCast{IsHardCast=1} ─→ ① IsInst  x, T                 isa_td / prim_isa
-x as T → BoundCast{IsHardCast=0}    ② 假 → 抛（异常按下表选）        （与 as 同一判定）
-                                    ③ AsCast x, T（不变）
+语义层                      发射层（TypeOpEmitter._emitConvert）              运行期
+─────────                  ──────────────────────────────────              ─────────
+x as T → BoundCast    ───→ AsCast（as 语义：失配返 null）                    不变
+(T)x   → BoundConvert ───→ ① 目标是 blob struct → AsCast（拆箱）             不变
+                           ② fromIr == toIr      → **什么都不发**  ← 要改
+                           ③ toIr == Ref/Unknown → **什么都不发**  ← 要改
+                           ④ 其余（数值/跨 IR 类） → ConvertInstr    ← 运行期要改
 ```
 
-`as` 的路径**一条指令都不变**（`AsCast`）。只有硬转换多出「先查」的前缀。
-全部用现有指令 ⇒ **零格式 bump**。
+**②③ 是引用类型硬转换的真相：一条指令都不发，纯编译期透传。** 这才是 `(Box)o` 把错类型的
+对象原样返回的原因——不是「检查后放行」，是**压根没有检查这回事**。
+
+**④** 是 `(int)someObject` 走的路，`ConvertInstr` 在运行期撞 `semantics.rs` 的 `bail!`。
+
+改动落点因此是：
+- ②③：源静态类型不足以保证转换成立时，发 `IsInst` + 分支 + `Throw`（D4 的省略条件正好覆盖
+  「形式上的 cast」，故 `(int)someInt`、`(Base)derived` 仍然零指令）
+- ④：运行期的 `bail!` 改真异常（D5）
+
+`as` 的路径**一条指令都不变**。全部用现有指令 ⇒ **零格式 bump**。
 
 ---
 
 ## Decisions
 
 ### D1：在编译期降解，不新增 IR 指令
+
+> 注：原 D1 的选项 B（「`AsCastInstr` 加 flag」）与「`BoundCast` 加 `IsHardCast`」都随上面的
+> 更正一并作废 —— 节点本来就分开，没有要区分的东西。
 
 **选项：**
 

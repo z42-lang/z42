@@ -18,12 +18,12 @@
 - [ ] 1.2 `CacheStore.CompilerFingerprint++`（新增 stdlib 公开类 ⇒ zpkg 字节变、格式不变）
 
 ## 阶段 2
-- [ ] 2.1 `BoundExprOp.z42`：`BoundCast.IsHardCast`（ctor 默认 false，保持 ABI —— 见该文件顶部关于旧种子的警告）
-- [ ] 2.2 `TypeOpTyper._bindAsExpr` 显式置 false；cast 的绑定点置 true
-- [ ] 2.3 确认没有第三个产出 `BoundCast` 的地方（grep）
+- [x] 2.1 ~~加 IsHardCast~~ —— 实测 `as` → `BoundCast`、`(T)x` → `BoundConvert`，**本来就分开**
+- [x] 2.2 全仓唯一的 `new BoundCast` 在 `TypeOpTyper._bindAsExpr`（已 grep 确认）
 
 ## 阶段 3
-- [ ] 3.1 `TypeOpEmitter._emitCast`：硬转换降解 `IsInst` + 分支 + `Throw`
+- [ ] 3.1 `TypeOpEmitter._emitConvert`（**不是 `_emitCast`**）：分支 ② `fromIr == toIr` 与
+      ③ `toIr == Ref/Unknown` 现在**什么都不发** ⇒ 在这两处按需插 `IsInst` + 分支 + `Throw`
 - [ ] 3.2 null 分流：目标值类型 → `NullReferenceException`；目标引用类型 → 放行
 - [ ] 3.3 静态可判时省略检查（`Conversion.Classify` 为 Identity / 可赋）
 - [ ] 3.4 核对 golden：`as` 与静态可判的 cast 应 byte-identical
