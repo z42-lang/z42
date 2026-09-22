@@ -475,7 +475,9 @@ public sealed class ClassDescBuilder {
     internal IrClassDesc _instLayoutDesc(string instName) {
         StructLayout ly = this._g.Layouts;
         if (ly == null) { return null; }
-        if (!ly.IsStructType(instName)) { return null; }
+        // 形态 ②：泛型 **class** 的实例化 —— 合成带**内联布局块**的描述符（P3b 的 bit7），
+        // 使 `CBox<P2>.Item` 真内联进堆对象字节区，而不是存一个栈帧作用域的 arena 句柄（use-after-free）。
+        if (!ly.IsStructType(instName)) { return this._instClassDesc(instName); }
         StructLayoutInfo li = ly.LayoutOf(instName);
         if (li.Size <= 0) { return null; }   // 空/环兜底布局不投送
         int n = li.FieldCount;
@@ -500,6 +502,38 @@ public sealed class ClassDescBuilder {
         cd.StructRefOffsets = li.RefLeafOffsets;
         cd.StructRefKinds = li.RefLeafKinds;
         cd.StructRefCount = li.RefLeafCount;
+        return cd;
+    }
+
+    // 泛型 class 实例化的合成描述符：字段表用**代换后**的对象全字段布局，并挂内联布局块。
+    private IrClassDesc _instClassDesc(string instName) {
+        StructLayout ly = this._g.Layouts;
+        StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
+        if (ol.FieldCount <= 0) { return null; }
+        StructLayoutInfo il = ly.InlineLayoutOf(instName);
+        if (il.FieldCount <= 0) { return null; }   // 没有内联 struct 字段 ⇒ 与定义等价，不必投送
+        int n = ol.FieldCount;
+        IrFieldDesc[] fs = new IrFieldDesc[n];
+        int i = 0;
+        while (i < n) { fs[i] = new IrFieldDesc(ol.FieldNames[i], ol.FieldTypeNames[i]); i = i + 1; }
+        int ltq = instName.IndexOf("<");
+        string fqInst = ltq < 0 ? this._g._q(instName)
+                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        IrClassDesc cd = new IrClassDesc(fqInst, true, "Std.Object", fs, n);
+        cd.Flags = 128;   // bit7 = 有内联 struct 字段 → writer 追加内联布局块
+        cd.InlineSize = il.Size;
+        cd.InlineRefOffsets = il.RefLeafOffsets;
+        cd.InlineRefKinds = il.RefLeafKinds;
+        cd.InlineRefCount = il.RefLeafCount;
+        // **对象布局块也必须填**（Flags bit2/4/5/6 皆 0 ⇒ writer 会写这一段）。只给内联块不够：
+        // 运行期按**对象布局**决定 ScriptObject 的字节区与引用槽大小，缺了就分配 0 字节
+        // ⇒ 读内联字段报 `struct field read out of blob bounds (off=4, w=4, len=0)`（实测）。
+        cd.ObjectSize = ol.Size;
+        int[] offs = new int[n]; int[] szs = new int[n]; int[] kinds = new int[n];
+        int j = 0;
+        while (j < n) { offs[j] = ol.FieldOffsets[j]; szs[j] = ol.FieldSizes[j]; kinds[j] = ol.FieldKinds[j]; j = j + 1; }
+        cd.ObjFieldOffsets = offs; cd.ObjFieldSizes = szs; cd.ObjFieldKinds = kinds; cd.ObjFieldCount = n;
+        cd.ObjRefOffsets = ol.RefLeafOffsets; cd.ObjRefKinds = ol.RefLeafKinds; cd.ObjRefCount = ol.RefLeafCount;
         return cd;
     }
 

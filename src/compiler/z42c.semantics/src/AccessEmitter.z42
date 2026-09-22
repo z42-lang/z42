@@ -76,7 +76,9 @@ public sealed class AccessEmitter {
                 // add-struct-heap-inline (P3b)：裸内联 struct 字段整写（`pt = other`，class C 方法内）→ 逐叶子
                 // 把 val(blob) 拷进 this 对象 struct_bytes@off（值语义）。裸叶子 `pt.x=v` 由 _emitBlobFieldSet 处理。
                 if (this._isOwnerInlineField(tid)) {
-                    string fs = this._ee._blobStructName(tid.Type());
+                    // 形态 ②：struct 名取自内联布局（静态类型可能是型参，取不出）
+                    string fs = this._ctx.Gen.Layouts.InlineFieldTypeName(this._ctx.OwnerClassName, tid.Name);
+                    if (fs == "") { fs = this._ee._blobStructName(tid.Type()); }
                     int foff = this._ctx.Gen.Layouts.InlineFieldByteOffset(this._ctx.OwnerClassName, tid.Name);
                     this._copyRegion(val, 0, new TypedReg(0, IrType.Ref), foff, fs);
                     return val;
@@ -103,7 +105,8 @@ public sealed class AccessEmitter {
             // add-struct-heap-inline (P3b)：写整个**内联 struct 字段**进堆对象（`c.pt = other`）→ 逐叶子把
             // val(blob) 拷进对象 struct_bytes@off（值语义）。叶子写 `c.pt.x=v` 由上面 blob-target 分支处理。
             if (this._isInlineStructFieldRoot(tm)) {
-                string fs = this._ee._blobStructName(tm.Type());
+                string fs = this._ctx.Gen.Layouts.InlineFieldTypeName(this._ee._classLayoutName(tm.Target.Type()), tm.MemberName);
+                if (fs == "") { fs = this._ee._blobStructName(tm.Type()); }
                 int foff = this._inlineFieldOffset(tm);
                 TypedReg objReg = this._ee.Emit(tm.Target);
                 this._copyRegion(val, 0, objReg, foff, fs);
@@ -203,7 +206,9 @@ public sealed class AccessEmitter {
         // add-struct-heap-inline (P3b)：读整个**内联 struct 字段**出堆对象（`Point p = c.pt`）→ 拷进新局部
         // blob（值语义副本，非别名/非悬垂）。叶子读 `c.pt.x` 由上面的 blob-target 分支处理（含 inline 根）。
         if (this._isInlineStructFieldRoot(m)) {
-            string fs = this._ee._blobStructName(m.Type());
+            // 形态 ②：同写路径，struct 名取自内联布局
+            string fs = this._ctx.Gen.Layouts.InlineFieldTypeName(this._ee._classLayoutName(m.Target.Type()), m.MemberName);
+            if (fs == "") { fs = this._ee._blobStructName(m.Type()); }
             int foff = this._inlineFieldOffset(m);
             TypedReg objReg = this._ee.Emit(m.Target);
             int sz = this._ctx.Gen.Layouts.StructSize(fs);
@@ -468,18 +473,30 @@ public sealed class AccessEmitter {
     private bool _isInlineStructFieldRoot(BoundExpr e) {
         if (!(e is BoundMember)) { return false; }
         BoundMember m = e as BoundMember;
-        if (!this._ee._isBlobStruct(m.Type())) { return false; }          // 字段类型须是 blob struct
+        // generic-struct-erased-slot-value-copy（形态 ②）：字段静态类型是**型参**时该判据恒假
+        // （泛型 class 的 `T` 字段在定义下就是 `A`）⇒ 特化体里 `this.Item = a` 仍发 `field_set`
+        // 引用槽写 ⇒ 存进去的是栈帧 arena 句柄（use-after-free）。故型参字段改由**内联布局**定夺
+        // （它已按实例化算过）。⚠️ 只放宽「型参」这一种，不能整条去掉——否则 `m.Type()` 可能为
+        // null/不可名，`_classLayoutName` 取 `.Name()` 直接崩（实测编译器自身挂掉）。
+        // generic-struct-erased-slot-value-copy（形态 ②）：字段静态类型是**型参**时该判据恒假
+        // （泛型 class 的 `T` 字段在定义下就是 `A`）⇒ 特化体里 `this.Item = a` 仍发 `field_set`
+        // 引用槽写 ⇒ 存的是栈帧 arena 句柄（use-after-free）。故型参字段改由**内联布局**定夺。
+        // ⚠️ 这道判据同时**护着下游**：放宽后必须让下游的 struct 名也改从内联布局取
+        // （`InlineFieldTypeName`），否则 `_blobStructName(型参)` 直接崩——我第一次只放宽判据
+        // 没动下游，编译器自身挂掉。
+        bool tpField = m.Type() is Z42GenericParamType;
+        if (!tpField && !this._ee._isBlobStruct(m.Type())) { return false; }
         if (this._ee._isBlobStruct(m.Target.Type())) { return false; }    // 容器是 struct → 归嵌套链，非本例
         Z42ClassType oc = this._ee._receiverClassType(m.Target.Type());
         if (oc == null) { return false; }                            // 容器须是 class（堆对象）
         if (this._ctx.Gen.Layouts == null) { return false; }
-        return this._ctx.Gen.Layouts.InlineFieldByteOffset(oc.Name(), m.MemberName) >= 0;
+        // generic-struct-erased-slot-value-copy（形态 ②）：按**实例化**的内联布局判定
+        return this._ctx.Gen.Layouts.InlineFieldByteOffset(this._ee._classLayoutName(m.Target.Type()), m.MemberName) >= 0;
     }
 
     // 内联 struct 字段的对象相对 byte offset（调用方已确认 _isInlineStructFieldRoot）。
     private int _inlineFieldOffset(BoundMember m) {
-        Z42ClassType oc = this._ee._receiverClassType(m.Target.Type());
-        return this._ctx.Gen.Layouts.InlineFieldByteOffset(oc.Name(), m.MemberName);
+        return this._ctx.Gen.Layouts.InlineFieldByteOffset(this._ee._classLayoutName(m.Target.Type()), m.MemberName);
     }
 
     // e 是否 = 所属**非-struct class** 的裸内联 struct 字段引用（`pt` 即 `this.pt`，class C 的方法内）——

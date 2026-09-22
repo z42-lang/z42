@@ -214,7 +214,21 @@ public sealed class StructLayout {
     public bool InstDiffersFromDef(string instName) {
         string baseName = StructLayout.BaseNameOf(instName);
         if (baseName == instName) { return false; }          // 非实例化名
-        if (!this.IsStructType(instName)) { return false; }
+        if (!this.IsStructType(instName)) {
+            // 泛型 **class**（形态 ②）：比**内联布局**。定义下型参字段不是 blob struct ⇒ 无内联字段；
+            // 代换后若有内联字段，则布局不同 ⇒ 需特化（否则 ctor 体仍发 field_set 引用槽写，
+            // 存进去的是栈帧作用域的 arena 句柄 ⇒ 帧一弹即悬垂）。
+            StructLayoutInfo ai = this.InlineLayoutOf(instName);
+            StructLayoutInfo bi = this.InlineLayoutOf(baseName);
+            if (ai.FieldCount != bi.FieldCount) { return true; }
+            if (ai.Size != bi.Size) { return true; }
+            int q = 0;
+            while (q < ai.FieldCount) {
+                if (ai.FieldOffsets[q] != bi.FieldOffsets[q]) { return true; }
+                q = q + 1;
+            }
+            return false;
+        }
         StructLayoutInfo a = this.LayoutOf(instName);
         StructLayoutInfo b = this.LayoutOf(baseName);
         if (a.Size != b.Size) { return true; }
@@ -352,16 +366,22 @@ public sealed class StructLayout {
     // 内联块）与 codegen（ExprEmitter stage 4，烘焙 StructFieldGet/SetPrim 立即数）同调此表 → offset 一致。
 
     // 计算某非-struct class 的合成内联布局并缓存（BuildFromSymbols 预计算调用）。
-    private void _computeInlineLayout(string className) {
-        object d = this._classDefs.Get(className);
+    private void _computeInlineLayout(string className) { this._computeInlineLayoutS(className, className); }
+
+    // generic-struct-erased-slot-value-copy：`key` = 缓存键（可为实例化名），`defName` = 取定义用的基名。
+    private void _computeInlineLayoutS(string key, string defName) {
+        object d = this._classDefs.Get(PrimModel.Canon(StructLayout.BaseNameOf(defName)));
         if (!(d is StructFieldsDef)) { return; }
         StructFieldsDef def = d as StructFieldsDef;
+        StrMap subst = StructLayout._substOf(def, key);
+        string className = key;
         StructLayoutInfo info = new StructLayoutInfo(className);
         int offset = 0;
         int maxAlign = 1;
         int i = 0;
         while (i < def.FieldCount) {
             string ftype = def.FieldTypeNames[i];
+            if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
             if (this.IsBlobStruct(ftype)) {
                 StructLayoutInfo sub = this.LayoutOf(ftype);
                 int align = sub.Align;
@@ -385,9 +405,17 @@ public sealed class StructLayout {
 
     // 某 class 的合成内联布局（无内联字段 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo InlineLayoutOf(string className) {
-        object c = this._inlineCache.Get(PrimModel.Canon(className));
+        string k = PrimModel.Canon(className);
+        object c = this._inlineCache.Get(k);
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
-        return new StructLayoutInfo(PrimModel.Canon(className));
+        // generic-struct-erased-slot-value-copy：实例化名按需算（定义那份在 BuildFromSymbols 预计算）。
+        // 泛型 class 的 `T` 字段在**定义**下 `IsBlobStruct("T")` 为假 ⇒ 无内联字段；带代换 `T→P2` 才内联。
+        if (StructLayout.BaseNameOf(k) != k) {
+            this._computeInlineLayoutS(k, k);
+            object c2 = this._inlineCache.Get(k);
+            if (c2 is StructLayoutInfo) { return c2 as StructLayoutInfo; }
+        }
+        return new StructLayoutInfo(k);
     }
 
     // 某 class 是否有内联 struct 字段（→ 设 CLASS_FLAG_HAS_INLINE_STRUCT + emit 内联块）。
@@ -405,6 +433,16 @@ public sealed class StructLayout {
     // composed 对象布局 offset）——runtime 现把所有字段字节内联进 ScriptObject.bytes，struct 字段字节
     // 窗口起点 = 其对象布局 offset。（无 base 类时 = composed offset；含 base 字段的派生类 base-shift
     // 组合见后续。）
+    // generic-struct-erased-slot-value-copy（形态 ②）：内联字段的**struct 类型名**，取自内联布局。
+    // 泛型 class 的 `T` 字段静态类型是型参 `A`，从静态类型取不出 struct 名（`_blobStructName` 会
+    // 对它 `.Name()` 直接崩）。内联布局已按实例化算过，知道那是 `P2` —— 它才是权威来源。
+    public string InlineFieldTypeName(string className, string fieldName) {
+        StructLayoutInfo inl = this.InlineLayoutOf(className);
+        int i = 0;
+        while (i < inl.FieldCount) { if (inl.FieldNames[i] == fieldName) { return inl.FieldTypeNames[i]; } i = i + 1; }
+        return "";
+    }
+
     public int InlineFieldByteOffset(string className, string fieldName) {
         // 判据：仅内联 struct 字段（InlineLayoutOf）才有内联 offset。
         StructLayoutInfo inl = this.InlineLayoutOf(className);
@@ -443,14 +481,14 @@ public sealed class StructLayout {
         if (!(d is StructFieldsDef)) { return new StructLayoutInfo(key); }
         StructFieldsDef def = d as StructFieldsDef;
         this._objStructInProgress.Put(key, "1");
-        StructLayoutInfo info = this._computeObjFields(key, def);
+        StructLayoutInfo info = this._computeObjFields(key, def, new StrMap());
         this._objStructCache.Put(key, info);
         return info;
     }
 
     // 布局主算法（8B 引用版）：逐字段按对齐排布，累积 size/align，展平引用叶子（含嵌套/内联 struct）。
     // 与 _compute 同形，差异仅：引用叶子用 _objSizeOf（8B）、嵌套 struct 递归走 _objLayoutOfStruct（8B）。
-    private StructLayoutInfo _computeObjFields(string typeName, StructFieldsDef def) {
+    private StructLayoutInfo _computeObjFields(string typeName, StructFieldsDef def, StrMap subst) {
         StructLayoutInfo info = new StructLayoutInfo(typeName);
         int offset = 0;
         int maxAlign = 1;
@@ -458,6 +496,8 @@ public sealed class StructLayout {
         while (i < def.FieldCount) {
             string fname = def.FieldNames[i];
             string ftype = def.FieldTypeNames[i];
+            // generic-struct-erased-slot-value-copy：字段声明类型先过代换表（`T` → `P2`），同 _compute。
+            if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
             int kind = this._kindOf(ftype);
             int size = 0;
             int align = 0;
@@ -506,15 +546,26 @@ public sealed class StructLayout {
         object d = this._classDefs.Get(className);
         if (!(d is StructFieldsDef)) { return; }
         StructFieldsDef def = d as StructFieldsDef;
-        StructLayoutInfo info = this._computeObjFields(className, def);
+        StructLayoutInfo info = this._computeObjFields(className, def, new StrMap());
         this._objectCache.Put(className, info);
     }
 
     // 某非-struct class 的对象全字段布局（无缓存 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo ObjectLayoutOf(string className) {
-        object c = this._objectCache.Get(PrimModel.Canon(className));
+        string k = PrimModel.Canon(className);
+        object c = this._objectCache.Get(k);
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
-        return new StructLayoutInfo(PrimModel.Canon(className));
+        // 同 InlineLayoutOf：实例化名按需算（`InlineFieldByteOffset` 要用它取 composed offset）。
+        if (StructLayout.BaseNameOf(k) != k) {
+            object d = this._classDefs.Get(PrimModel.Canon(StructLayout.BaseNameOf(k)));
+            if (d is StructFieldsDef) {
+                StructFieldsDef def = d as StructFieldsDef;
+                StructLayoutInfo info = this._computeObjFields(k, def, StructLayout._substOf(def, k));
+                this._objectCache.Put(k, info);
+                return info;
+            }
+        }
+        return new StructLayoutInfo(k);
     }
 
     // 某 class 是否有对象布局（有直接字段 → 设 CLASS_FLAG_HAS_OBJECT_LAYOUT + emit 对象块）。

@@ -490,6 +490,21 @@ public sealed class CallEmitter {
             }
             return handle;
         }
+        // generic-struct-erased-slot-value-copy（形态 ②）：泛型 class 实例化——
+        //  · ObjNew 的类名走**身份名**（描述符按该名注册，内联布局才查得到）；
+        //  · ctor 走**特化名**（布局不同才有特化 ctor；否则仍是定义那份）。
+        // 不能沿用旧的 `qualCls + targs` 渲染：那给 `Demo.CBox<Demo.P2>`（实参 FQ），
+        // 与描述符名 `Demo.CBox<P2>` 对不上 ⇒ 运行期查不到内联布局（实测形态 ② 不生效）。
+        string cIdent = this._ee._instIdentityName(n.Type());
+        if (cIdent != "") {
+            string cQual = this._ee._qualifyInstName(cIdent);
+            string cSpec = this._ee._instLayoutName(n.Type());
+            string cCtorOwner = cSpec != "" ? this._ee._qualifyInstName(cSpec) : qualCls;
+            // ⚠️ targs 置空：ObjNewInstr 会把 targs **再渲染一遍**贴到类名后，而 cQual 已带实参
+            // ⇒ 不清就成 `Demo.CBox<P2><Demo.P2>`（实测）。身份名里已含实参，这里不需要第二份。
+            this._ctx.Emit(new ObjNewInstr(dst, cQual, cCtorOwner + "." + n.CtorName, new string[0], 0, args, n.ArgCount));
+            return dst;
+        }
         this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, n.ArgCount));
         return dst;
     }

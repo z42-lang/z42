@@ -70,7 +70,9 @@ public sealed class FunctionEmitter {
             }
             // add-struct-heap-inline (P3b)：记所属类短名（含非-struct class）供裸 `pt`/`pt.x` 内联字段解析。
             // struct owner 无内联字段（其字段是嵌套展平，非堆内联）→ InlineFieldByteOffset 恒 -1，安全共存。
-            if (owner != null) { this._ctx.OwnerClassName = owner.Name(); }
+            // generic-struct-erased-slot-value-copy（形态 ②）：特化通道下用实例化名 ⇒ 体内裸字段
+            // （`item` 即 `this.item`）按**实例化的内联布局**解析 offset。
+            if (owner != null) { this._ctx.OwnerClassName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name(); }
             if (owner != null) {   // 实例方法：裸字段 → field_get(reg0)
                 string[] fnames = owner.Fields.Keys();
                 int fi = 0;

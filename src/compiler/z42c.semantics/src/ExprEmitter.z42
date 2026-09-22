@@ -613,7 +613,18 @@ public sealed class ExprEmitter {
             argNames[i] = an;
             i = i + 1;
         }
-        return StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
+        string idn = StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
+        // ⚠️ 身份名必须与「**确实会发描述符**」一致，否则 ObjNew 会用一个运行期解析不到的类型名
+        // （实测 `type Std.MulticastException<bool> could not be resolved`）。
+        //   · blob struct：恒发描述符（`_instLayoutDesc` 的 struct 分支）；
+        //   · 非-struct class：仅当有**内联 struct 字段**时才发（`_instClassDesc` 否则返回 null）。
+        // ⇒ 普通泛型 class（`MulticastException<bool>`）**不取独立身份**，沿用擦除裸名。
+        // 这是对「实例化是独立类型」的一处保留：给所有泛型 class 造独立身份需要合成**完整**类
+        // 描述符（基类 / 接口 / vtable / 静态字段），远超本 change 范围，另开 change。
+        StructLayout ly2 = this._ctx.Gen.Layouts;
+        if (ly2.IsStructType(idn)) { return idn; }
+        if (ly2.InlineLayoutOf(idn).FieldCount > 0) { return idn; }
+        return "";
     }
 
     // 类型 → **规范名**，实例化实参**递归**规范化。
@@ -663,6 +674,25 @@ public sealed class ExprEmitter {
         Z42InstantiatedType inst = t as Z42InstantiatedType;
         int i = 0;
         while (i < inst.ArgCount) { this._noteInstLayout(inst.TypeArgs[i]); i = i + 1; }
+    }
+
+    // 非-struct **class** 的布局名（内联 struct 字段用）。与 `_blobStructName` 同款：命中闸门的
+    // 实例化给实例化名，否则裸名。顺带登记该实例化——泛型 class 没有 `_isBlobStruct` 那样的咽喉点，
+    // 故在这里登记（`cb.Item` 的成员访问与 `new CBox<P2>(c)` 都会经过 class 布局名解析）。
+    //
+    // 形态 ②（泛型 class 的 `T` 槽）正是靠这条：定义下 `IsBlobStruct("T")` 为假 ⇒ `Item` 是引用槽
+    // ⇒ 存进去的是**栈帧作用域的 arena StructRef**，ctor 帧一弹即悬垂（use-after-free，不只是别名）。
+    // 带代换后 `T→P2` ⇒ 真内联进堆对象字节区（P3b 的 struct_bytes）。
+    internal string _classLayoutName(Z42Type t) {
+        Z42ClassType oc = this._receiverClassType(t);
+        if (oc == null) { return ""; }
+        this._noteInstLayout(t);
+        if (this._ctx.Gen.SpecInstName != "" && oc.Name() == this._ctx.Gen.SpecOwnerName) {
+            return this._ctx.Gen.SpecInstName;   // 特化体内 `this` 指代该实例化
+        }
+        string inst = this._instLayoutName(t);
+        if (inst != "") { return inst; }
+        return oc.Name();
     }
 
     // blob struct 的**布局名**（调用方已确认 _isBlobStruct）。
