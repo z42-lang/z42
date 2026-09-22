@@ -68,6 +68,9 @@ public static class DiagnosticCodes {
     public static string TargetTypedNewNeedsType = "E0437";    // target-typed `new()` 目标类型不可推断 / 重载歧义（add-target-typed-new）
     // E0438 预留：值 struct 自引用（struct 直接/间接以自身为值字段）诊断——add-struct-nested-fields 的
     // follow-up（当前由 StructLayout.IsBlobStruct 的 Size==0 兜底防崩，自引用 struct 退化为引用语义不报错）。
+    // 常量在此先登记占号（零发射点，待诊断实现后接上）：占号若只写在文档里，`xtask test diagcodes`
+    // 就看不见它，后来者扫这张表找空位会把它当空号拿走——E0474 / E0477 / E0481 三次撞码都是这个形状。
+    public static string StructSelfReference = "E0438";
     public static string ImplicitNarrowingConversion = "E0439";  // 存在显式转换却用于隐式上下文（窄化/有损）——需 (T) cast（tighten-implicit-conversions）
     public static string ConversionOperatorConflict  = "E0440";  // 转换运算符声明冲突：同 (源→目标) 重复 / implicit+explicit 同对（add-user-conversions ②，声明期检测）
     public static string InconsistentAccessibility   = "E0441";  // 不一致可访问性：更高可见性的成员/类型签名暴露了更低可见性的类型（C# CS0050 族；complete-class-access-control ②）
@@ -192,4 +195,12 @@ public static class DiagnosticCodes {
 
     // ── 穷尽性（add-switch-exhaustiveness）────────────────────────────────────
     public static string SwitchNotExhaustive     = "W0700";  // 【Warning】`switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支且没有 `default`。
+
+    // ── 已退役的编号（仅占号，永不发射；编号不复用）────────────────────────────
+    // 这三个号的「已被占用」此前只记在 docs/reference/src/appendix/error-codes.md 里，而门只读这张表
+    // ⇒ 它们在门眼里是空位。登记表是唯一能占号的地方，**退役号也必须占在这里**。
+    // 前缀不同即不同码（E0466 与 I0466 并存即先例），所以退役 I0467 不牵连 E 前缀的 0467——那个号仍可分配。
+    public static string RetiredForwardSkipped      = "I0467";  // 原 ForwardSkipped：登记此号而发射点一直发 I0466，2026-09-22 改值归位后空出
+    public static string RetiredUnknownNativeName   = "E0901";  // 原 UnknownNativeName（C# bootstrap 编译器删除时一并消失，未移植到 z42c）
+    public static string RetiredNativeArityMismatch = "E0902";  // 原 NativeArityMismatch（同上）
 }

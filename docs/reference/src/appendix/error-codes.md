@@ -11,10 +11,10 @@
 
 | 步骤 | 做法 |
 |---|---|
-| **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 的 **123 个码常量 —— 这是唯一 SoT**。每一个发得出去的码都必须在那里登记，由 `xtask test diagcodes` 强制（见下） |
+| **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 里的码常量 —— **这是唯一 SoT**。每一个发得出去的码都必须在那里登记，由 `xtask test diagcodes` 强制（见下） |
 | **含义** | 取**发射点的诊断消息文本**，而不是常量名。常量名有过一码两义、也有过名实不符（见 `[Forward]` 一节） |
 | **状态** | 对每个码做 `grep -rn 'DiagnosticCodes.<常量名>' src/` + `grep -rn '"<码号>"' src/`，排除 `DiagnosticCodes.z42` 自身与 `tests/` 目录 |
-| **唯一性** | `xtask test diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮 |
+| **唯一性** | `xtask test diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮；⑤ **本页的码表与登记表双向相等**（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
 
 ### 状态列的三个值
 
@@ -229,14 +229,16 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | E0468 | `[Forward]` 形态 / 用法错：字段类型不是 class/interface、没有可转发的成员面；`[Forward(...)]` 实参既非 `typeof(接口)` 也非 `methodof(类型.成员)`；`typeof(X)` 里 X 不解析成接口；`methodof(类型.成员)` 点名的成员**不在该字段的类型上** | ✅ `ForwardGenerator.z42:104,126,163,208` |
 | **I0466**（Info） | 外层类已自己声明了同名成员 → `[Forward]` **跳过不生成**。这不是错误（用户的实现优先），但必须说出来——否则「贴了 `[Forward]` 却没生效」是一个没有任何解释的缺席 | ✅ `ForwardGenerator.z42:201,279` |
 | E0466 | 常量 `ForwardAmbiguous` | ⚠️ 零发射点（重载歧义实际发的是 E0465） |
-| I0467 | ❌ **已退役**（2026-09-22）：常量 `ForwardSkipped` 原登记此号而发射点一直发 I0466，改值归位后本号空出，**不复用** |
+| I0467 | ❌ **已退役**（2026-09-22）：常量 `ForwardSkipped` 原登记此号而发射点一直发 I0466，改值归位后本号空出，**不复用**（占号常量 `RetiredForwardSkipped`）。⚠️ **前缀不同即不同码**（本行上方 E0466 与 I0466 并存即先例），所以退役的是 `I` 前缀的 0467，**`E` 前缀的 0467 不受牵连、仍是可分配空号** |
 
 ### 保留编号
 
 | 码 | 说明 |
 |---|---|
-| E0438 | 预留给「值 struct 自引用」诊断。**常量尚未定义**；当前由布局计算兜底防崩，自引用 struct 退化为引用语义、不报错 |
-| E0467 | 未使用 |
+| E0438 | 预留给「值 struct 自引用」诊断。常量 `StructSelfReference` **已登记占号、零发射点**；当前由布局计算兜底防崩，自引用 struct 退化为引用语义、不报错 |
+
+> **保留 ≠ 只写在这里**。保留号和退役号一样要在 `DiagnosticCodes.z42` 里登记成常量——占号若只活在本页，`xtask test diagcodes` 就看不见它，下一个扫登记表找空位的人会把它当空号拿走。
+> 规则 ⑤ 现在盯着这件事。
 
 ---
 
@@ -279,7 +281,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 
 | 码 | 含义 | 状态 |
 |---|---|---|
-| E0901 / E0902 | **已退役**。原 `UnknownNativeName`（`[Native("__name")]` 不在 VM dispatch_table 内）与 `NativeArityMismatch`（`extern` 形参数与注册项不一致）。C# 编译器删除后这两个编号连常量定义都不存在，仅登记以防复用 | ❌ |
+| E0901 / E0902 | **已退役**。原 `UnknownNativeName`（`[Native("__name")]` 不在 VM dispatch_table 内）与 `NativeArityMismatch`（`extern` 形参数与注册项不一致）。C# 编译器删除后这两个编号连常量定义都不存在 —— 现已补上占号常量 `RetiredUnknownNativeName` / `RetiredNativeArityMismatch`（零发射点，仅防复用） | ❌ |
 | E0903 | `extern` 方法缺少 `[Native]` 标注 | ⚠️ 零发射点 |
 | E0904 | `[Native]` 标注用在非 `extern` 方法上 | ⚠️ 零发射点 |
 | E0907 | `[Native(...)]` 形态错（未知键 / 值不是字符串字面量 / 完全无键），或 Tier1 binding 拼接后仍缺 lib / type / entry 任一字段 | ⚠️ 零发射点 |
@@ -413,7 +415,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | `Z####` | 原运行期错误编号，2026-05-11 整体退役。VM 运行期错误现在通过类型化 z42 异常表达（`Std.InvalidMarshalException` 等）；catch by class 后读 `Message` / `StackTrace` 字段 |
 | `E0901` / `E0902` | 见 E09xx 节 |
 | `WS004` | 归并入 WS010 |
-| `I0467` | 2026-09-22 退役：常量 `ForwardSkipped` 原登记此号、发射点却一直发 I0466，改值归位后空出。编号不复用 |
+| `I0467` | 2026-09-22 退役：常量 `ForwardSkipped` 原登记此号、发射点却一直发 I0466，改值归位后空出。编号不复用（占号常量 `RetiredForwardSkipped`；`E` 前缀的 0467 是另一个码，仍可分配） |
 
 ---
 
@@ -429,6 +431,9 @@ E0442 / E0457 / E0462 除外（见上一节）。
    （`xtask test diagcodes --update`）。**加这一行时先停一秒**：你是不是在给一个已经有主的码挂第二个含义？
    E0474 / E0477 两次撞码正是这么来的。
 3. 在本页对应分段加一行：码号 → 含义 → 状态（带 `file:line`）→ 触发示例。
+   **这一步不是可选的**——规则 ⑤ 要求本页的码表与登记表双向相等，漏了就红。反过来也一样：
+   想在本页「预留」或「退役」一个号，必须同时在登记表里给它一个零发射点的占号常量，
+   否则门看不见它，下一个扫登记表找空位的人会把它当空号拿走。
 4. 加一条回归测试，断言这个码真的被报出。
 
 > **运行期**错误不要分配错误码：在
