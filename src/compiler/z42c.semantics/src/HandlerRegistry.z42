@@ -57,6 +57,7 @@ public static class HandlerRegistry {
     public static int KindOf(string name) {
         if (HandlerRegistry.IsDirectiveAttr(name)) { return AttrKind.Directive; }
         if (HandlerRegistry.IsTestHandlerAttr(name)) { return AttrKind.Handler; }
+        if (HandlerRegistry.IsModuleInitHandler(name)) { return AttrKind.Handler; }
         return AttrKind.StoreMeta;
     }
 
@@ -157,6 +158,30 @@ public static class HandlerRegistry {
     public static bool IsTestHandlerAttr(string name) {
         if (HandlerRegistry.IsTestKindAttr(name)) { return true; }
         if (name == "Ignore" || name == "Skip" || name == "ShouldThrow" || name == "Timeout") { return true; }
+        return false;
+    }
+
+    // ── handler 家族：`[ModuleInit]`（add-module-init-hook）──────────────────────────────────
+    // 包级初始化回调。归 **handler** 而非 directive：消费形态与 test 家族的 TIDX 同形 ——
+    // 扫全 CU、聚合成一个**包级产物**（合成 `<ns>.$Module` 伪类型 + 其类型初始化器），
+    // 而 directive 那一路（Native/Deprecated/Record/Suppress）是「烘进该声明自己的 descriptor」。
+    // 归 handler 的实际效果 = 豁免 D8 的 `Attribute` 后缀约定 + 不合成 store-meta 反射工厂
+    // （KindOf 的唯一真消费点是 AttributeSynth 的 `== StoreMeta`）。
+    // 同时成为**保留名**：用户不可再定义同名 store-meta 类（同 Native/Suppress/Deprecated/Record）。
+    public static bool IsModuleInitHandler(string name) {
+        return name == "ModuleInit";
+    }
+
+    // 某声明是否带 `[ModuleInit]`（读原始 AttributedDecl.Attrs，既有结构、不依赖新 syntax 字段
+    // → z42c.semantics 自建对旧种子 syntax 兼容。同 HasRecord / HasDeprecated 的读法）。
+    public static bool HasModuleInit(Decl rawMem) {
+        if (!(rawMem is AttributedDecl)) { return false; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            if (HandlerRegistry.IsModuleInitHandler(ad.Attrs[a].Name)) { return true; }
+            a = a + 1;
+        }
         return false;
     }
 

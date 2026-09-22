@@ -1,0 +1,10 @@
+[project]
+name    = "demo.orderapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.OrderApp.Main"
+pack    = true
+
+[dependencies]
+"demo.ordera" = "0.1.0"
+"demo.orderb" = "0.1.0"

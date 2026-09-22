@@ -49,6 +49,7 @@
   - [const 编译期常量](language/const.md)
   - [实例构造器与初始化子句](language/constructors.md)
   - [静态构造函数](language/static-constructors.md)
+  - [包级初始化（`[ModuleInit]`）](language/module-initializers.md)
   - [静态成员的名字解析](language/static-members.md)
   - [`[Forward]`（成员转发）](language/member-forwarding.md)
   - [对象初始化器](language/object-initializers.md)

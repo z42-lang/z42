@@ -1,0 +1,16 @@
+// add-module-init-hook 的生产方：包初始化器 + 一个**自由函数**。
+//
+// 🔴 这个 fixture 的判别力全在「只调自由函数」这一点上：cctor 屏障只有三个触发点
+// （new / 静态字段读写 / 静态方法调用），而 `ensure_callee_owner_init` 靠「砍 FQ 名最后
+// 一段」推 owner 类型 —— 自由函数推不出 owner。纯惰性方案在这条路上永远不会跑包初始化器，
+// 用户看到的是「注册表是空的」而不是报错。改成「包加载即登记、屏障点执行」才堵上。
+namespace Demo.ModInit;
+
+using Std.IO;
+
+static class Boot {
+    [ModuleInit]
+    static void Init() { Console.WriteLine("module-init"); }
+}
+
+public void Ping() { Console.WriteLine("ping"); }

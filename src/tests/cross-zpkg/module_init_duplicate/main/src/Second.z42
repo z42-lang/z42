@@ -1,0 +1,10 @@
+// 第二处 [ModuleInit] —— **跨文件**，per-CU 阶段看不见它俩同属一个包，
+// 只有跨 CU 的包级判定能抓住 ⇒ E0485。
+namespace Demo.ModDupApp;
+
+using Std.IO;
+
+static class BootB {
+    [ModuleInit]
+    static void InitB() { Console.WriteLine("B"); }
+}

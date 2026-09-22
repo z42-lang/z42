@@ -1,0 +1,17 @@
+// add-module-init-hook：包初始化器**至多执行一次**，且先于本包任何代码。
+namespace Demo.ModOnce;
+
+using Std.IO;
+
+static class Boot {
+    public static int Count = 0;
+    [ModuleInit]
+    static void Init() { Console.WriteLine("module-init"); Boot.Count = Boot.Count + 1; }
+}
+
+public static class Api {
+    public static void Hello() { Console.WriteLine("hello"); }
+    public static int Runs() { return Boot.Count; }
+}
+
+public void Ping() { Console.WriteLine("ping"); }

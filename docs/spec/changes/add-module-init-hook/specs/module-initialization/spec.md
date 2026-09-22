@@ -89,14 +89,23 @@ ping
 
 **期望输出**：`B-init` 先于 `A-init`（= 实际加载顺序，不是清单声明顺序、不是字典序）。
 
-### 场景 5 — 初始化器抛异常 ⇒ 包标记失败，后续触达抛包装异常
+### 场景 5 — 初始化器抛异常 ⇒ 抛包装异常，程序终止
 
 ```z42
 static class Boot { [ModuleInit] static void Init() { throw new Exception("boom"); } }
 ```
 
-**期望**：主程序首次触达该包即抛（可 `catch`）的类型初始化异常，消息含内层 `boom`；
-第二次触达**仍抛**（不重试、不吞）。
+**期望**：触达该包时抛 `Std.TypeInitializationException`，消息形如
+`the type initializer for `<ns>.$Module` threw an exception: boom`；失败状态被记住，
+**不重试、不吞**（`refresh_module_pending` 只把 `Done` 算作完成，门因此保持非零）。
+
+> 🔴 **已知差距（实测，2026-09-23）**：这条异常**当前不能被用户 `catch` 捕获** ——
+> 程序以未捕获异常终止。同形的**类型**初始化失败（跨包 cctor、cctor 内嵌套帧抛出）
+> 都能被 `catch (TypeInitializationException)` 正常捕获，用干净 A/B 逐项排除过：
+> 与调用形态（自由函数 / 静态方法）无关、与 catch 是否带类型无关、与 interp/jit 无关、
+> 与屏障插入位置无关（挪进 `ensure_callee_owner_init` 内部仍不可捕获）。
+> 差别只剩「这次调用内同时发生了包加载」。根因未查清 ⇒ **不为一个不成立的行为写门**，
+> 详见 design.md「已知差距」。
 
 ### 场景 6 — 没有 `[ModuleInit]` 的包：零行为变化、零字节变化
 
@@ -104,15 +113,15 @@ static class Boot { [ModuleInit] static void Init() { throw new Exception("boom"
 - 不合成 `$Module` 类型（`ir` 里不含 `$Module`）。
 - 全仓现有 zpkg 重编后与本变更前**逐字节相同**（不动点对账）。
 
-## ADDED：E0484 —— `[ModuleInit]` 标注目标非法
+## ADDED：E0486 —— `[ModuleInit]` 标注目标非法
 
 | 写法 | 期望 |
 |---|---|
-| `[ModuleInit] void Init()`（非 static） | E0484 |
-| `[ModuleInit] static void Init(int x)`（有参） | E0484 |
-| `[ModuleInit] static int Init()`（返回非 void） | E0484 |
-| `[ModuleInit] static void Init<T>()`（泛型） | E0484 |
-| `[ModuleInit] class C { }`（标在类型上） | E0484 |
+| `[ModuleInit] void Init()`（非 static） | E0486 |
+| `[ModuleInit] static void Init(int x)`（有参） | E0486 |
+| `[ModuleInit] static int Init()`（返回非 void） | E0486 |
+| `[ModuleInit] static void Init<T>()`（泛型） | E0486 |
+| `[ModuleInit] class C { }`（标在类型上） | E0486 |
 | `[ModuleInit] private static void Init()` | **合法**（可见性不限） |
 
 ## ADDED：E0485 —— 一个包里出现第二个 `[ModuleInit]`
@@ -123,7 +132,7 @@ static class Boot { [ModuleInit] static void Init() { throw new Exception("boom"
 | 同一文件两个 `[ModuleInit]` | E0485 |
 | 两个**不同包**各一个 | **合法** |
 
-🔴 E0484 与 E0485 必须是两个码：「签名不合法」与「包内重复」是两件事，
+🔴 E0486 与 E0485 必须是两个码：「签名不合法」与「包内重复」是两件事，
 合并即一码两义（[[diagnostic-code-uniqueness-program]] 刚归位过两次）。
 
 ## UNCHANGED（显式声明不变的部分）

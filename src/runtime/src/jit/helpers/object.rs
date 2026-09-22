@@ -96,6 +96,13 @@ pub unsafe extern "C" fn jit_obj_new(
     // 一次 `Option` 判断即可，不需要 `pending` 门。与 interp 的 obj_new 屏障对称。
     {
         let vm = vm_ctx_ref(ctx);
+        // add-module-init-hook：与 interp 的 obj_new 屏障对称。
+        if let Err(msg) = vm.ensure_module_inits() {
+            let module = &*(*ctx).module;
+            let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
+            set_exception(vm, exc);
+            return 1;
+        }
         if let Err(msg) = vm.ensure_type_init(&type_desc) {
             let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
             set_exception(vm, exc);

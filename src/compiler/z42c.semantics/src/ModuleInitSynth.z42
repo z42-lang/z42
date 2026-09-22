@@ -1,0 +1,68 @@
+// 包级初始化器的合成（add-module-init-hook）：`[ModuleInit]` → `<ns>.$Module` 伪类型
+// + 它的**类型初始化器**。
+//
+// 零新概念：C# 的 module initializer 本来就是 `<Module>` 伪类型的 `.cctor`，z42 在
+// unify-static-init-into-cctor 之后也只剩「类型初始化器」这一个初始化概念 —— 包级回调
+// 因此不需要新机制，只需要一个新的**宿主类型**。发射出去的东西全是既有形状：
+//   · 一条 TYPE 记录（无字段、无基类），挂既有 `$Cctor` 哨兵、载荷 = cctor 函数 FQ 名；
+//   · 一个 0 参 `void` 函数，体 = 一条对用户那个 `[ModuleInit]` 方法的直接调用。
+// ⇒ **zbc / zpkg 格式不变，无 bump，无两代自举。**
+//
+// 与普通类型初始化器的唯一区别是**谁来触发**：普通类型等访问点屏障（惰性），`$Module`
+// 由运行期的**包加载收口点**主动触发（急切）。见 design.md「触发点」。
+//
+// 合成在 per-CU（本文件）、校验在包级（ModuleInitScan.CheckPackage）—— 理由见 ModuleInitScan 头注。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+
+public static class ModuleInitSynth {
+    // 本 CU 若有合法 `[ModuleInit]` 站点 ⇒ 发射伪类型 + 其类型初始化器；否则一个字节都不产。
+    public static void Emit(IrGen g, SemanticModel model, CompilationUnit cu, IrGenSink sink) {
+        ModuleInitSite site = ModuleInitScan.FindInCu(cu);
+        if (site == null) { return; }
+        string target = ModuleInitSynth._targetIrName(g, site);
+        if (target == "") { return; }
+        string typeFq = g._q(ModuleInitScan.PseudoTypeName);
+        string cctorFn = typeFq + "." + IrStaticCtor.MethodKey;
+        sink.AddFunc(ModuleInitSynth._emitCctor(g, model, cctorFn, target));
+        IrClassDesc desc = new IrClassDesc(typeFq, false, "", new IrFieldDesc[0], 0);
+        IrAttrRef[] refs = new IrAttrRef[1];
+        refs[0] = new IrAttrRef(IrStaticCtor.Sentinel, cctorFn);
+        desc.Attrs = refs; desc.AttrCount = 1;
+        sink.AddClass(desc);
+    }
+
+    // 用户那个 `[ModuleInit]` 方法的**发射名**。两条路各自镜像既有算法，别在这里另发明一套：
+    //   · 类内静态方法 —— IrGenMemberEmitter：`_q(_classIrShortName(c)) + "." + MethodKeyOf(md)`
+    //   · 顶层自由函数 —— IrGenAuxEmitter：`_q(md.RegKey)`
+    private static string _targetIrName(IrGen g, ModuleInitSite site) {
+        if (site.Owner == null) { return g._q(site.Method.RegKey); }
+        return g._q(g._classIrShortName(site.Owner)) + "." + OverloadResolver.MethodKeyOf(site.Method);
+    }
+
+    // 体 = 一条 `call @target()` + `ret void`。镜像 FunctionEmitter.EmitStaticInit 的合成体装配：
+    // 不带 DBUG 行表 / 局部表（合成函数无源行可归属）。
+    private static IrFunction _emitCctor(IrGen g, SemanticModel model, string name, string target) {
+        EmitContext ctx = new EmitContext(model.Symbols, g);
+        ctx.Ns = g.Ns;
+        ctx.Deps = g.Deps;
+        ctx.ImportedClassNs = g.ImportedClassNs;
+        ctx.ActiveNs = g.ActiveNs; ctx.ActiveNsCount = g.ActiveNsCount;
+        ctx.LocalClasses = g.LocalClasses;
+        ctx.CurFnName = name;
+        ctx.NextReg = 0; ctx.MaxReg = 0;
+        ctx.StartBlock("entry");
+        TypedReg dst = ctx.Alloc(IrType.Void);   // void 调用的 dst 恒带但未读（同 CallEmitter）
+        ctx.Emit(new CallInstr(dst, target, new TypedReg[0], 0));
+        if (!ctx.Ended) { ctx.EndBlock(new RetTerm(false, null)); }
+        int[] regTypes = new int[ctx.RegTagCount];
+        int rt = 0;
+        while (rt < ctx.RegTagCount) { regTypes[rt] = ctx.RegTags[rt]; rt = rt + 1; }
+        return new IrFunction(name, 0, "void", false,
+                              ctx.Blocks, ctx.BlockCount, ctx.MaxReg,
+                              "Interp", new string[0], 0, regTypes, ctx.RegTagCount,
+                              new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+    }
+}

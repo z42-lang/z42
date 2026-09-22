@@ -1,0 +1,5 @@
+before
+module-init
+hello
+ping
+1

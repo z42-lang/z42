@@ -1,0 +1,12 @@
+// 三种触达形态各来一次（静态方法 / 自由函数 / 静态字段），初始化器仍只跑一次。
+namespace Demo.ModOnceApp;
+
+using Std.IO;
+using Demo.ModOnce;
+
+void Main() {
+    Console.WriteLine("before");
+    Api.Hello();       // 静态方法调用
+    Ping();            // 自由函数
+    Console.WriteLine(Api.Runs().ToString());   // 静态字段（经 Runs 读）
+}

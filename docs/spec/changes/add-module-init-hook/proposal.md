@@ -59,7 +59,7 @@ static class Bootstrap {
 
 **做**：
 
-- `[ModuleInit]` attribute 的识别、校验、诊断（**E0484**：签名不合法）。
+- `[ModuleInit]` attribute 的识别、校验、诊断（**E0486**：签名不合法）。
 - 编译器合成 `<pkg>.$Module` 伪类型 + 其类型初始化器（依次调用本包全部 `[ModuleInit]` 方法）。
 - 运行期在**包加载的 4 个既有收口点**（锁已释放处）主动触发 `<pkg>.$Module` 的初始化。
 - 主包（不经惰性加载器）在启动路径补一处触发。

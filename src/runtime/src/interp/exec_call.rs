@@ -209,6 +209,12 @@ pub(super) fn call(
     // 热路径代价 = 一次 relaxed load（`any_cctor_pending()` 在门内短路）。
     // fix-crosspkg-static-call-cctor：必须在**解析之后**——解析前依赖包可能还没加载，其类型未登记，
     // 门读到 0 就会让这第一次调用跳过静态构造器（实测：首次使用是跨包静态方法时 cctor 不跑）。
+    // add-module-init-hook：**包级**初始化先于类型初始化 —— 解析上面那个名字可能刚把一个包
+    // 拉进来，它的 `[ModuleInit]` 必须在本包任何代码（包括马上要调的这个函数）之前跑完。
+    // 稳态代价 = 一次 relaxed load。
+    if let Err(msg) = ctx.ensure_module_inits() {
+        return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
+    }
     if let Err(msg) = ctx.ensure_callee_owner_init(fname) {
         return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
     }

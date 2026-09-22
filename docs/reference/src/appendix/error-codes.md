@@ -179,6 +179,8 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | E0480 | 使用了已移除的空值运算符 —— `?.`（空条件成员访问）或 `??`（空合并）。**两者同码**：它们是同一个口子的两种写法，都把「可能为 null」静默收尾掉。诊断给迁移写法，并把表达式按等价合法形态解析完（`?.` 按 `.`、`??` 只取左侧）以免级联错（同 E0471 对 `out`/`in` 的手法）。「读设置取默认值」优先换成接受默认值的 API（全仓 70 处 `GetEnvironmentVariable("X") ?? ""` 即如此迁移）。⚠️ 顺带修掉一个真 bug：`?.` 旧脱糖把接收者**绑定两次** ⇒ `F()?.X` **调用 `F` 两次** | ✅ `ExprParser.z42`（字面量发码） | `var v = n?.value;` / `string s = a ?? b;` |
 | E0481 | 接口声明了**非法成员**——字段（静态/实例）或嵌套类型。接口只能声明方法、属性、索引器、事件、关联类型。此前 `_fillInterface` 静默跳过这些（`interface I { static int X; }` 编译通过但 X 无处可用） | ✅ `MemberCollector.z42`（`_fillInterface`，字面量发码） | `interface I { static int X; }` |
 | E0484 | 直接解引用一个标了 `?` 的**字段 / 属性**，而没有先快照到局部。与 E0478（形参）分成两码，因为**修法不同**：形参就地 `if (s != null) { … }` 就够，字段不行 —— 字段不是一个「值」，是一个**每次读都重新求值的位置**：`if (this.F != null) { this.F.M(); }` 里的两个 `this.F` 是两次独立的读，别的线程能在中间写；`F` 若是属性还是两次真调用，返回值可以不同。所以字段**永不就地窄化**，唯一修法是 `var v = this.F; if (v != null) { … }`（局部是个值，检查一次就永远成立）。⚠️ 跨包暂不携带标记（字段的 TSIG 拼写已擦除 `?`）⇒ 导入字段视为未标，是**漏报**方向 | ✅ `FlowAnalyzer.z42`（字面量发码） | `class C { string? F; int M() { return this.F.Length; } }` |
+| E0485 | 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个 —— 多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 `file:line`。**包级判定**：跨 CU，per-file 阶段看不见 | ✅ `ModuleInitScan.z42`（`CheckPackage`，字面量发码；常量 `ModuleInitDuplicate`） | 同一包两个文件各写一个 `[ModuleInit]` |
+| E0486 | `[ModuleInit]` 标注目标非法：包初始化器必须是**有体、无参、返回 `void`、非泛型**的方法；类内成员还必须 `static`（顶层自由函数豁免 —— 它本就无 this、恒 `IsStatic=false`）。诊断带上「哪里不对」那一条 | ✅ `ModuleInitScan.z42`（`CheckPackage`，字面量发码；常量 `ModuleInitBadTarget`。⚠️ 本码原取 E0484，与「解引用标了 `?` 的字段/属性」撞 —— 那边早合入 main、保号，本码按先来后到让到 E0486） | `public class C { [ModuleInit] void Init() { } }` |
 
 ### 泛型 / 约束 / 关联类型
 

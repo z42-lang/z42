@@ -1,0 +1,9 @@
+[project]
+name    = "demo.modinitapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.ModInitApp.Main"
+pack    = true
+
+[dependencies]
+"demo.modinit" = "0.1.0"

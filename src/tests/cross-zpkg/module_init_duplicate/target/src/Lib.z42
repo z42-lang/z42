@@ -1,0 +1,3 @@
+// 合法的依赖包（自身没有 [ModuleInit]）——本 fixture 的违例在 main 侧。
+namespace Demo.ModDup;
+public int Answer() { return 42; }

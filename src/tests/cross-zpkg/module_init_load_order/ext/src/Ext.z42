@@ -1,0 +1,11 @@
+// 包 B：也有自己的包初始化器。与 A 互不依赖 —— 谁先跑完全由**实际触达顺序**决定。
+namespace Demo.OrderB;
+
+using Std.IO;
+
+static class BootB {
+    [ModuleInit]
+    static void Init() { Console.WriteLine("B-init"); }
+}
+
+public int Pong(int x) { return x + 2; }
