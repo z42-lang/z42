@@ -1,0 +1,53 @@
+// add-comparison-operators：用户定义的比较/相等/位运算符重载端到端。
+// 此前 `_operatorMethodName` 只映射 `+ - * / %`，`operator ==` 等落到非法名 `op_==`、永不派发。
+// 现在声明侧（MemberParser）+ 派发侧（TypeFactsTc）两个 map 对齐 C# 名，`a == b` 派发到 op_Equality。
+
+class Ver {
+    public int major;
+    public int minor;
+    public Ver(int a, int b) { this.major = a; this.minor = b; }
+
+    public static bool operator ==(Ver a, Ver b) { return a.major == b.major && a.minor == b.minor; }
+    public static bool operator !=(Ver a, Ver b) { return !(a == b); }
+    public static bool operator <(Ver a, Ver b) {
+        if (a.major != b.major) { return a.major < b.major; }
+        return a.minor < b.minor;
+    }
+    public static bool operator >(Ver a, Ver b) { return b < a; }
+    public static bool operator <=(Ver a, Ver b) { return !(b < a); }
+    public static bool operator >=(Ver a, Ver b) { return !(a < b); }
+}
+
+class Flags {
+    public int bits;
+    public Flags(int b) { this.bits = b; }
+    public static Flags operator &(Flags a, Flags b) { return new Flags(a.bits & b.bits); }
+    public static Flags operator |(Flags a, Flags b) { return new Flags(a.bits | b.bits); }
+    public static Flags operator ^(Flags a, Flags b) { return new Flags(a.bits ^ b.bits); }
+}
+
+void Main() {
+    Ver v1 = new Ver(1, 2);
+    Ver v2 = new Ver(1, 2);
+    Ver v3 = new Ver(1, 5);
+
+    Assert.True(v1 == v2);       // op_Equality
+    Assert.False(v1 == v3);
+    Assert.True(v1 != v3);       // op_Inequality
+    Assert.True(v1 < v3);        // op_LessThan
+    Assert.True(v3 > v1);        // op_GreaterThan
+    Assert.True(v1 <= v2);       // op_LessThanOrEqual
+    Assert.True(v3 >= v1);       // op_GreaterThanOrEqual
+    Assert.False(v3 <= v1);
+
+    // 结果类型来自 operator 方法签名：`==` 返回 bool（非操作数类型 Ver）。
+    bool eq = v1 == v2;
+    Assert.True(eq);
+
+    // 位运算符重载（返回 Flags）。
+    Flags a = new Flags(6);      // 110
+    Flags b = new Flags(3);      // 011
+    Assert.Equal(2, (a & b).bits);   // 010
+    Assert.Equal(7, (a | b).bits);   // 111
+    Assert.Equal(5, (a ^ b).bits);   // 101
+}

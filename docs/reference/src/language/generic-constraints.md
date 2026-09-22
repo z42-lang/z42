@@ -338,9 +338,9 @@ error 含 `is \`static\` in the interface and an instance method here`）。
 > 本节上面讲的是「成员在、但**签名对不对**」那一层（static / 可见性 / 返回类型）；「成员**在不在**」由
 > E0412 缺成员分支兜。
 >
-> ⚠️ 残余边界：**导入接口**的属性 setter 齐备性尚未过 wire（跨包 Deferred，需格式 bump）——本包接口
-> 的属性 setter 齐备性已由 `fix-iface-property-setter` 覆盖，跨包漏一个接口属性 setter 仍可能到运行期才
-> `VCall not found`。
+> ✅ 跨包也覆盖（`add-crosspkg-interface-accessors`）：接口的属性 / 索引器访问器（get_X/set_X/get_Item/
+> set_Item）作为普通方法进 TYPE record 过 wire，导入侧 `ImportedSymbolLoader` 恢复进 `it.Methods`——**无需
+> 格式 bump**（走既有通用方法块）。跨包接口属性/索引器的满足性与经接口读写与本包同口径。
 
 ## 关联类型（`type Item;`）
 

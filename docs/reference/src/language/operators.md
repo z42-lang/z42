@@ -285,6 +285,42 @@ string home = Environment.GetEnvironmentVariable("HOME", "");   // 结果保证�
 > 顺带修掉的一个真 bug：`?.` 旧的脱糖把接收者**绑定了两次**，所以 `F()?.X` 会
 > **调用 `F` 两次**。写成显式检查后，接收者只求值一次。
 
+## 运算符重载（用户类型）
+
+class / struct 可用 `public static` 方法重载二元运算符，写法与 C# 一致——`operator <sym>(a, b)`，
+编译器把它降低成一个 `op_<Name>` 静态方法，`a <sym> b`（左操作数为该类型时）派发到它：
+
+```z42
+class Ver {
+    public int major; public int minor;
+    public Ver(int a, int b) { this.major = a; this.minor = b; }
+    public static bool operator ==(Ver a, Ver b) { return a.major == b.major && a.minor == b.minor; }
+    public static bool operator <(Ver a, Ver b) {
+        if (a.major != b.major) { return a.major < b.major; }
+        return a.minor < b.minor;
+    }
+}
+// v1 == v2 → 派发 Ver.op_Equality(v1, v2)；结果类型取方法签名（bool），不是操作数类型。
+```
+
+可重载的运算符与 `op_` 名（对齐 C#）：
+
+| 运算符 | 方法名 | 运算符 | 方法名 |
+|---|---|---|---|
+| `+` | `op_Add`      | `==` | `op_Equality` |
+| `-` | `op_Subtract` | `!=` | `op_Inequality` |
+| `*` | `op_Multiply` | `<`  | `op_LessThan` |
+| `/` | `op_Divide`   | `>`  | `op_GreaterThan` |
+| `%` | `op_Modulo`   | `<=` | `op_LessThanOrEqual` |
+| `&` | `op_BitwiseAnd` | `>=` | `op_GreaterThanOrEqual` |
+| `\|` | `op_BitwiseOr` | `<<` | `op_LeftShift` |
+| `^` | `op_ExclusiveOr` | `>>` | `op_RightShift` |
+
+- **不重载即回落**：没有对应 `op_X` 方法的类型，`==`/`!=` 回落引用相等、算术/比较回落原生数值表
+  （裸 `int`/`double` 零开销）。
+- **`==` 与 `!=` 通常成对**定义（一个取反另一个）。
+- 转换运算符 `implicit`/`explicit operator` 见[类型转换](conversions.md)。
+
 ## 关联页面
 
 - [类型转换](conversions.md) — 隐式 / 显式转换的完整规则

@@ -1,0 +1,12 @@
+namespace DemoPApp;
+
+using Std.IO;
+using DemoPTarget;
+
+void Main() {
+    // 经**接口静态类型** IShape 读跨包接口的属性 + 索引器。
+    IShape s = MakeSquare(5);
+    Console.WriteLine("" + s.Area);      // 25
+    Console.WriteLine(s.Name);           // square
+    Console.WriteLine("" + s[3]);        // 8 (side 5 + i 3)
+}

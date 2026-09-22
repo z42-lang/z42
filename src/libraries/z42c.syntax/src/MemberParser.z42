@@ -428,6 +428,19 @@ public sealed class MemberParser {
         if (op == "*") { return "op_Multiply"; }
         if (op == "/") { return "op_Divide"; }
         if (op == "%") { return "op_Modulo"; }
+        // add-comparison-operators：比较/相等/位运算符方法名（对齐 C#，与派发侧 TypeFactsTc._operatorMethodNameTc
+        // 一致）。此前这些落到 `op_" + op` = 非法名 `op_==` 等，声明的运算符永远派发不到。
+        if (op == "==") { return "op_Equality"; }
+        if (op == "!=") { return "op_Inequality"; }
+        if (op == "<")  { return "op_LessThan"; }
+        if (op == ">")  { return "op_GreaterThan"; }
+        if (op == "<=") { return "op_LessThanOrEqual"; }
+        if (op == ">=") { return "op_GreaterThanOrEqual"; }
+        if (op == "&")  { return "op_BitwiseAnd"; }
+        if (op == "|")  { return "op_BitwiseOr"; }
+        if (op == "^")  { return "op_ExclusiveOr"; }
+        if (op == "<<") { return "op_LeftShift"; }
+        if (op == ">>") { return "op_RightShift"; }
         return "op_" + op;
     }
 
