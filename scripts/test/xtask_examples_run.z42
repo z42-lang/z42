@@ -84,7 +84,7 @@ ExampleRunResult _runTranscript(string sdk, string consolePath, int timeoutMs, b
 ProcessResult _runSdkZ42(string sdk, string home, string cwd, string[] argv, int timeoutMs) {
     string exe = Path.Join(sdk, Platform.IsWindows() ? "z42.exe" : "z42");
     string sep = Platform.IsWindows() ? ";" : ":";
-    string sysPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+    string sysPath = Environment.GetEnvironmentVariable("PATH", "");
     Process p = new Process(exe).WorkingDirectory(cwd).ClearEnv()
         .Env("PATH", sdk + sep + Path.Join(sdk, "bin") + sep + sysPath)
         .Env("HOME", home).Env("USERPROFILE", home)
@@ -94,7 +94,7 @@ ProcessResult _runSdkZ42(string sdk, string home, string cwd, string[] argv, int
     string[] passthrough = new string[]{ "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "PATHEXT", "ComSpec", "WINDIR" };
     int k = 0;
     while (k < passthrough.Length) {
-        string v = Environment.GetEnvironmentVariable(passthrough[k]) ?? "";
+        string v = Environment.GetEnvironmentVariable(passthrough[k], "");
         if (v.Length > 0) { p = p.Env(passthrough[k], v); }
         k = k + 1;
     }

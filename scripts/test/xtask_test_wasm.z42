@@ -100,7 +100,7 @@ public class WasmBackend : IPlatformBackend {
     Process _nodeProc(string program, string nodeBin, string browsers) {
         Process p = new Process(program).Env("PLAYWRIGHT_BROWSERS_PATH", browsers);
         if (nodeBin.Length > 0) {
-            string parentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+            string parentPath = Environment.GetEnvironmentVariable("PATH", "");
             p = p.Env("PATH", nodeBin + ":" + parentPath);
         }
         return p;
