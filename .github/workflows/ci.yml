@@ -370,6 +370,42 @@ jobs:
           Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
             "$vm" artifacts/xtask/xtask.zpkg -- test runtime
 
+      # ── 抢号预检（enforce-diagnostic-code-uniqueness）──────────────────────────
+      # **PR 的绿是「过期快照」**：checkout 拿的是 merge ref —— head 与**那次 run 触发时**的 base
+      # 的合并结果；base 后来前进**不会**自动重跑。实测 2026-09-22：#747 13:43:15 合入 main，
+      # #759 13:46:00 合入而它的 baseRefOid 还停在 #761 —— 两边的绿都不含对方，于是同一个诊断码号
+      # 被各自拿走、双双全绿合入、main 才红（#762 收拾残局，#764 的规则 ⑤ 又是同一形状的另一半）。
+      #
+      # 根治是分支保护的 `require branches to be up to date`，但那要求每个 PR 合并前 rebase +
+      # 重跑**整套**自举/多平台 CI，对这条 CI 太贵（2026-09-22 裁决：不开，strict 保持 false）。
+      # 这一步是便宜的替代：GREEN 已经跑完、树可以随便动 —— 把**最新** main 并进来，重跑一次纯文本
+      # 扫描的 diagcodes 门（秒级）。窗口从「PR 的整个生命周期」缩到「最后一次 CI 到合并之间」；
+      # 按下 merge 前重跑一次本 job 就能把窗口压到近零。
+      #
+      # ⭐ 为什么挂在**既有的** required job 末尾而不是新开一个 job：新增 job 默认**不是** required
+      # check ⇒ 不挡合并 ⇒ 又是一个「会红但不挡人的门」（见 fake-gate-lets-compiler-bug-into-main）。
+      # test-host(linux-x64) 已经是 required，且无路径过滤、必跑。
+      - name: Code-number preflight (merge LATEST main, rerun diagcodes)
+        if: github.event_name == 'pull_request' && matrix.platform == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # checkout 是浅克隆 ⇒ 先把历史挖深到能找到共同祖先；挖不到就**放行**（这一步是加保险，
+          # 不是新增的失败源——真正的唯一性判据在 diagcodes 门本身，它在上面的 `test all` 里已跑过）。
+          git fetch --no-tags --deepen=200 origin main 2>/dev/null || true
+          if ! git merge-base HEAD FETCH_HEAD >/dev/null 2>&1; then
+            echo "::notice::浅历史里找不到与 main 的共同祖先，跳过抢号预检"
+            exit 0
+          fi
+          if ! git -c user.name=ci -c user.email=ci@z42.invalid merge --no-edit FETCH_HEAD; then
+            git merge --abort || true
+            echo "::notice::与最新 main 有文本冲突 —— GitHub 本身已挡住合并，此处不重复报警"
+            exit 0
+          fi
+          vm="$PWD/artifacts/build/runtime/release/z42vm"
+          Z42_PORTABLE_VM="$vm" Z42_LIBS="$PWD/artifacts/build/libraries/dist/release" \
+            "$vm" artifacts/xtask/xtask.zpkg -- test diagcodes
+
   # ── parallelize-host-package: SDK packaging, parallel to host tests (all 4 OS) ──
   # The host package (`xtask package release`) used to run sequentially after
   # `test all` on each build-and-test leg, adding ~10 min to the critical path. It's
