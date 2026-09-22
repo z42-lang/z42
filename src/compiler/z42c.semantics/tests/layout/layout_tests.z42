@@ -245,3 +245,82 @@ void test_layout_cycle_detection() {
     Assert.Equal(0, node.Size);
     Assert.Equal("Node", sl.ErrorType);
 }
+
+// ── generic-struct-erased-slot-value-copy：按实例化算布局 ────────────────────────────
+// 擦除槽（字段声明类型 = 型参）在**实例化**布局里应内联实参 struct 的字节，而非 8 字节句柄。
+// 闸门：实参不是 blob struct 时，一切保持今天的表示。
+
+// 带型参名的定义。
+StructFieldsDef _mkGenDef(string[] names, string[] types, int n, string[] tps, int tpn) {
+    var d = _mkDef(names, types, n);
+    d.TypeParamNames = tps; d.TpCount = tpn;
+    return d;
+}
+
+// `Pair<A,B>` + `P2{int,int}` 的 defs。
+StrMap _genDefs() {
+    var defs = new StrMap();
+    defs.Put("P2", _mkDef(new string[]{"X", "Y"}, new string[]{"int", "int"}, 2));
+    defs.Put("Pair", _mkGenDef(new string[]{"First", "Second"}, new string[]{"A", "B"}, 2,
+                               new string[]{"A", "B"}, 2));
+    return defs;
+}
+
+[Test]
+void test_instantiated_layout_inlines_struct_arg() {
+    // Pair<P2,int>：First 应是**内联的 P2**（8 字节，两个 int），Second 是 int。
+    // 修前 A 落 GcRef ⇒ First 恒 8 字节句柄、且外层复制只浅拷它 —— 正是三种错值形态的根。
+    var sl = new StructLayout(_genDefs());
+    var li = sl.LayoutOf("Pair<P2,int>");
+    Assert.Equal(0, _fieldOff(li, "First"));
+    Assert.Equal(StructLeafKind.Struct, li.FieldKinds[0]);   // ← 不再是 GcRef
+    Assert.Equal(8, li.FieldOffsets[1] + 0);                 // Second 紧随内联的 8 字节 P2
+    Assert.Equal(0, li.RefLeafCount);                        // 全基元 ⇒ 无引用叶子
+}
+
+[Test]
+void test_instantiated_layout_gate_non_struct_arg() {
+    // 闸门：Pair<string,int> 的 First 仍是引用叶子（ArcString），布局与今天一致。
+    var sl = new StructLayout(_genDefs());
+    var li = sl.LayoutOf("Pair<string,int>");
+    Assert.Equal(StructLeafKind.ArcString, li.FieldKinds[0]);
+    Assert.Equal(1, li.RefLeafCount);
+}
+
+[Test]
+void test_instantiated_layout_definition_unchanged() {
+    // 定义本身（裸 `Pair`）的布局不受影响：两个型参都无代换 ⇒ 都是 8 字节句柄。
+    // 这条钉住「加了代换能力不会改动非实例化路径」。
+    var sl = new StructLayout(_genDefs());
+    var li = sl.LayoutOf("Pair");
+    Assert.Equal(StructLeafKind.GcRef, li.FieldKinds[0]);
+    Assert.Equal(StructLeafKind.GcRef, li.FieldKinds[1]);
+}
+
+[Test]
+void test_instantiated_layout_nested() {
+    // 嵌套实例化 Pair<Pair<P2,int>,int>：内层 16 字节（P2 内联 8 + int 4 + 对齐），逐层内联。
+    // 同时验 InstArgsOf 的深度跟踪——内层那个逗号不是顶层分隔符。
+    var sl = new StructLayout(_genDefs());
+    var inner = sl.LayoutOf("Pair<P2,int>");
+    var outer = sl.LayoutOf("Pair<Pair<P2,int>,int>");
+    Assert.Equal(StructLeafKind.Struct, outer.FieldKinds[0]);
+    Assert.Equal(inner.Size, outer.FieldOffsets[1]);
+}
+
+[Test]
+void test_inst_args_of_depth_tracking() {
+    // 顶层逗号切分须跟踪嵌套深度：`Pair<P2,int>,int` 只应切成 2 段。
+    string[] a = StructLayout.InstArgsOf("Pair<Pair<P2,int>,int>");
+    Assert.Equal(2, a.Length);
+    Assert.Equal("Pair<P2,int>", a[0]);
+    Assert.Equal("int", a[1]);
+}
+
+[Test]
+void test_inst_name_roundtrip() {
+    // 规范名拼法三方共用，须与 InstArgsOf 互逆。
+    string n = StructLayout.InstName("Pair", new string[]{"P2", "int"}, 2);
+    Assert.Equal("Pair<P2,int>", n);
+    Assert.Equal("Pair", StructLayout.BaseNameOf(n));
+}
