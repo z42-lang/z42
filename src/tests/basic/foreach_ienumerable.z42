@@ -38,6 +38,40 @@ int _sumViaForeach(Range r) {
     return s;
 }
 
+// 静态类型写成**接口**时的判定。类与接口在 z42 里是两条独立继承线，foreach 的协议判定
+// 此前只认类那条 —— 静态类型是接口时整条判定短路，静默落到数组臂对一个对象发 array_len：
+// 编译期零诊断，运行期抛 `ArrayLen: expected array`。
+// 这里用自定义的非泛型协议接口，不用 `Std.IEnumerable<T>`：后者目前还无法被正确实现
+// （实现 `IEnumerator<T>` 的类型上 foreach 报 E0401 —— 接口方法表不展平父接口的 Dispose；
+// 且 `IEnumerator<int>` 被判与 `IEnumerator<T>` 不兼容 E0412）。
+public interface IterProto {
+    bool MoveNext();
+    int Current { get; }
+    void Dispose();
+}
+
+public interface SeqProto {
+    IterProto GetEnumerator();
+}
+
+class ProtoIter : IterProto {
+    int _pos;
+    int _n;
+    public ProtoIter(int n) { this._pos = 0; this._n = n; }
+    public bool MoveNext() {
+        if (this._pos < this._n) { this._pos = this._pos + 1; return true; }
+        return false;
+    }
+    public int Current { get { return this._pos - 1; } }
+    public void Dispose() { }
+}
+
+class ProtoSeq : SeqProto {
+    int _n;
+    public ProtoSeq(int n) { this._n = n; }
+    public IterProto GetEnumerator() { return new ProtoIter(this._n); }
+}
+
 void Main() {
     // ① 正常迭代 + Dispose 调用一次
     var f1 = new DisposeFlag();
@@ -74,4 +108,16 @@ void Main() {
     int lsum = 0;
     foreach (var v in lst) { lsum = lsum + v; }
     Assert.Equal(12, lsum);
+
+    // ⑥ 同一个对象，只把静态类型从具体类换成接口 —— 两边必须迭代出同一结果。
+    //    修复前：接口那一侧判定短路 → 对象上发 array_len → 运行期崩（编译期零诊断）。
+    ProtoSeq ps = new ProtoSeq(4);
+    int viaClass = 0;
+    foreach (int x in ps) { viaClass = viaClass + x; }
+    Assert.Equal(6, viaClass);       // 0+1+2+3
+
+    SeqProto viaIface = ps;
+    int viaInterface = 0;
+    foreach (int x in viaIface) { viaInterface = viaInterface + x; }
+    Assert.Equal(6, viaInterface);
 }

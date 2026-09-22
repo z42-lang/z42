@@ -203,6 +203,15 @@ public static class DiagnosticCodes {
     public static string ModuleInitBadTarget     = "E0486";  // `[ModuleInit]` 标注目标非法：必须是 `static` + 无参 + 返回 `void` + 非泛型 + 非抽象的方法。标在类型/字段上，或签名不符，都归此码。
     public static string ModuleInitDuplicate     = "E0485";  // 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个（User 裁决 2026-09-22）——多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 file:line。
 
+    // ── 迭代协议（fix-foreach-protocol-detection）──────────────────────────────
+    // **语义层用字面量 "E0488" 发码**（同 E0449–E0486 手法，见 bootstrap-seed.md：新常量与其
+    // 引用不能同 PR，避 core→semantics 冷启动 stale-cache）。
+    // ⚠️ 本码原先分配的号与「`[ModuleInit]` 只对库包开放」（#772）撞 —— 那个 PR 早几小时开、
+    // 按先来后到保号，本码让到 E0488。**扫全源不够**：撞码那次 #772 还没合进 main，扫 main 看不见它。
+    // 分配码时除了扫全源，还要 `gh pr list` 逐个在飞分支扫 `DiagnosticCodes.z42`——
+    // CI 跑的是 PR 自己的 base 而非合并结果，两个并行 PR 各拿同一个号会双双全绿合入。
+    public static string NotIterable             = "E0488";  // `foreach` 的目标**不可迭代**：既不是数组，也没有「整数索引器 + `Count`/`Length`」，也没有 `GetEnumerator()`。此前三条路径全落空时**不报任何诊断**，发射端径直走数组臂对一个非数组对象发 `array_len` ⇒ 编译期零诊断、运行期抛 `ArrayLen: expected array`。只在成员面可得（类 / 接口）时发；型参 / Unknown / Error 类型保守放过。
+
     // ── 穷尽性（add-switch-exhaustiveness）────────────────────────────────────
     public static string SwitchNotExhaustive     = "W0700";  // 【Warning】`switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支且没有 `default`。
 
