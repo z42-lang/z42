@@ -24,6 +24,13 @@ public sealed class IrGen {
     // ExprEmitter 翻转值 struct 操作时查询。
     // 惰性阶段（emit 尚不消费）→ self-host 字节不动。
     public StructLayout Layouts;
+    // generic-struct-erased-slot-value-copy：本 CU 里**真正被当 blob struct 值用过**、且至少有一个
+    // 型参实参是 blob struct 的实例化规范名集合（`Pair<P2,int>` → "1"）。发射端经
+    // `ExprEmitter._noteInstLayout` 登记；TYPE 段尾部据此投送**合成类描述符**（携带该实例化的
+    // struct 布局块），使运行期 `resolve_layout` 能按实例化名查到正确的 size + 引用位图。
+    // 挂在 IrGen 而非 EmitContext：后者是**每方法**一个，这里要的是**每编译单元**的集合。
+    // 不用全局静态：z42c 是多线程编译，静态可变集合有竞态。
+    public StrMap InstLayouts;
     public IrGen() {
         this._pool = new string[8];
         this._pool[0] = "";
@@ -32,6 +39,7 @@ public sealed class IrGen {
         this._testIx = new TestIndexBuilder(this);
         this._classDescB = new ClassDescBuilder(this);
         this._stubE = new StubEmitter(this);
+        this.InstLayouts = new StrMap();
     }
 
     // 字符串字面量 intern → 1-based 池索引（去重）。
@@ -208,6 +216,17 @@ public sealed class IrGen {
         ModuleInitSynth.Emit(this, model, cu, sink);
         IrFunction[] funcs = sink.Funcs; int fc = sink.Fc;
         IrClassDesc[] classes = sink.Classes; int cc = sink.Cc;
+        // generic-struct-erased-slot-value-copy：为本 CU 用到的、命中闸门的泛型实例化追加**合成类描述符**
+        // （名 = 实例化规范名，携带该实例化的 struct 布局块）。TYPE 段是 `count + count×描述符`，
+        // 追加条目是**格式中立**的（reader 按 count 循环）⇒ 零 bump。
+        int ilAdded = 0;
+        string[] ilKeys = this.InstLayouts.Keys();
+        int ilI = 0;
+        while (ilI < ilKeys.Length) {
+            IrClassDesc sd = this._classDescB._instLayoutDesc(ilKeys[ilI]);
+            if (sd != null) { classes = IrGenFacts._pushClass(classes, cc, sd); cc = cc + 1; ilAdded = ilAdded + 1; }
+            ilI = ilI + 1;
+        }
         // lift 函数末尾追加（port-z42c-closures；镜像 C# _liftedFunctions AddRange）
         int li2 = 0;
         while (li2 < this.LiftedCount) {

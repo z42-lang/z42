@@ -522,8 +522,44 @@ public sealed class ExprEmitter {
     internal bool _isBlobStruct(Z42Type t) {
         Z42ClassType ct = this._receiverClassType(t);
         if (ct == null) { return false; }
-        return this._ctx.Gen.Layouts != null && this._ctx.Gen.Layouts.IsBlobStruct(ct.Name());
+        bool isBlob = this._ctx.Gen.Layouts != null && this._ctx.Gen.Layouts.IsBlobStruct(ct.Name());
+        // generic-struct-erased-slot-value-copy：这里是「某静态类型被当 blob struct 值用」的**唯一咽喉点**
+        // （AccessEmitter / OperatorEmitter 的十余处判定全经此）。确认是 blob struct 后顺手登记它的
+        // 实例化——TYPE 段尾据此投送合成描述符。登记是**纯副作用**，本增量不改任何返回值。
+        if (isBlob) { this._noteInstLayout(t); }
+        return isBlob;
     }
+
+    // 命中闸门的实例化规范名；不命中（非实例化 / 无 blob struct 实参 / 布局不可用）→ ""。
+    // 闸门：**至少一个型参实参本身是 blob struct**。否则表示与今天逐字节相同，不必投送描述符。
+    internal string _instLayoutName(Z42Type t) {
+        if (!(t is Z42InstantiatedType)) { return ""; }
+        Z42InstantiatedType inst = t as Z42InstantiatedType;
+        if (inst.Def == null || inst.ArgCount <= 0) { return ""; }
+        StructLayout ly = this._ctx.Gen.Layouts;
+        if (ly == null) { return ""; }
+        string[] argNames = new string[inst.ArgCount];
+        bool anyStructArg = false;
+        int i = 0;
+        while (i < inst.ArgCount) {
+            Z42Type a = inst.TypeArgs[i];
+            string an = a == null ? "" : a.Name();
+            if (an == "") { return ""; }              // 实参不可名 → 放弃，退回今天的表示
+            argNames[i] = an;
+            if (ly.IsBlobStruct(an)) { anyStructArg = true; }
+            i = i + 1;
+        }
+        if (!anyStructArg) { return ""; }             // ← 闸门
+        return StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
+    }
+
+    // 登记（幂等）。
+    internal void _noteInstLayout(Z42Type t) {
+        string n = this._instLayoutName(t);
+        if (n == "") { return; }
+        if (!this._ctx.Gen.InstLayouts.ContainsKey(n)) { this._ctx.Gen.InstLayouts.Put(n, "1"); }
+    }
+
     // blob struct 短名（调用方已确认 _isBlobStruct）。
     internal string _blobStructName(Z42Type t) { return this._receiverClassType(t).Name(); }
 

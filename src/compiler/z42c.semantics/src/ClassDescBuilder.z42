@@ -461,6 +461,39 @@ public sealed class ClassDescBuilder {
         return cd;
     }
 
+    // generic-struct-erased-slot-value-copy：为一个**实例化**造合成类描述符。
+    //
+    // 它不来自任何 `ClassDecl`（实例化没有声明），而是直接从 `StructLayout.LayoutOf(instName)`
+    // 反填：Flags 置 struct 位（bit2）以触发 writer 的 struct 布局块，size / 引用位图取自该实例化的布局。
+    // 字段表按布局的直接字段填（名 + **代换后**的类型名），使反射看到的 `Pair<P2,int>.First` 是 `P2`
+    // 而不是型参 `A`。
+    //
+    // 为什么不直接复用定义那条描述符：定义 `Pair` 的布局里 `First` 是 8 字节句柄，
+    // 而 `Pair<P2,int>` 的是内联字节——两者 size 与引用位图都不同，必须各是一条。
+    //
+    // 布局算不出来（基名不是 struct / 环）→ 返回 null，调用方跳过（保守：退回今天的行为）。
+    internal IrClassDesc _instLayoutDesc(string instName) {
+        StructLayout ly = this._g.Layouts;
+        if (ly == null) { return null; }
+        if (!ly.IsStructType(instName)) { return null; }
+        StructLayoutInfo li = ly.LayoutOf(instName);
+        if (li.Size <= 0) { return null; }   // 空/环兜底布局不投送
+        int n = li.FieldCount;
+        IrFieldDesc[] fs = new IrFieldDesc[n];
+        int i = 0;
+        while (i < n) {
+            fs[i] = new IrFieldDesc(li.FieldNames[i], li.FieldTypeNames[i]);   // 类型名已是代换后的具体名
+            i = i + 1;
+        }
+        IrClassDesc cd = new IrClassDesc(instName, false, "", fs, n);
+        cd.Flags = 4;   // bit2 = struct → writer 追加 struct 布局块
+        cd.StructSize = li.Size;
+        cd.StructRefOffsets = li.RefLeafOffsets;
+        cd.StructRefKinds = li.RefLeafKinds;
+        cd.StructRefCount = li.RefLeafCount;
+        return cd;
+    }
+
     internal IrAttrRef[] _attrRefs(Decl rawMem) {
         // add-static-constructors：此前这里对非-AttributedDecl **提前返回空数组**，于是「没写任何
         // attribute 的类」根本走不到下面的哨兵追加。$Cctor 必须能挂在这种类上（静态构造器与
