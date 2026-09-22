@@ -88,6 +88,13 @@ GREEN（`xtask test` 全 stage gate），全绿才能合。**
 
 **跳过 rebase-后-GREEN 直接合 = 违规**，等同于 workflow 阶段 8「未全绿即 commit」。
 
+> **这条规则现在有一个（很薄的）自动兜底**：`test-host(linux-x64)`（required check）末尾会把
+> **最新** main 并进来、重跑一次 `xtask test diagcodes`，所以**抢同一个诊断码号**这一种冲突
+> 会在 CI 里红出来——见 [CI 拓扑 §3.0](../../internals/src/devinfra/ci.md)。它只覆盖码号这**一个**
+> 维度、而且有窗口（你最后一次 CI 到按下 merge 之间 main 又前进了），**不能替代本节**：
+> 语义冲突照旧只有「rebase 到最新 main + 重跑完整 GREEN」才暴露得出来。
+> 按下 merge 前重跑一次那个 job，可以把码号那一维的窗口压到近零。
+
 ### §3.1 GREEN 结论会过期（2026-09-12，两次真实事故）
 
 **「绿了」不是一个属性，是一个**对某个 main sha 的**断言。main 一动，断言就可能失效，而绿灯
