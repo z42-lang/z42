@@ -65,6 +65,21 @@
 
 ## 阶段 7.4：运行期 —— 删除 `__static_init__` 平行管道
 
+> 🔴 **被 nightly 阻塞，不能与 7.1 同 PR 落地**（2026-09-22 实证）。
+>
+> 7.1 已彻底消除 `__static_init__` 的**发射**（新编译器产出的 `z42.core.zpkg` 里 0 次）。
+> 但自举链的 `seed cold-start` 会把**种子的 stdlib** stage 进来、用**新 VM** 运行，
+> 而种子（nightly 0.6.0）产物里还有 `__static_init__`（实测 1 次）。
+> 删掉运行期支持 ⇒ 新 VM 跑不了种子产物 ⇒ 冷启动自举断链。
+>
+> 这是 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md) 纪律的**反方向**：
+> 加新语法是「support 先行、晚一个 nightly 再 use」；删旧机制是
+> **「先让所有 cold-start 入口不再需要它，再删支持」**。
+>
+> **解除条件**：发布一版含 7.1 的 nightly，使种子不再产出 `__static_init__`。
+> 届时用 `python3 -c "print(open('.z42/libs/z42.core.zpkg','rb').read().count(b'__static_init__'))"`
+> 核对为 0 再开工。
+
 - [ ] 4.1 `lazy_loader/registry.rs`：删后缀扫描 `ends_with(".__static_init__")`
 - [ ] 4.2 `lazy_loader.rs`：删 `pending_static_inits` / `static_init_state`
 - [ ] 4.3 `lazy_loader/resolve.rs`：删 `InitState::Claimed` 窗口逻辑
@@ -79,7 +94,11 @@
 ## 阶段 8：验证
 
 - [ ] 6.1 spec 场景 1–11 全部落成 fixture 并通过
-- [ ] 6.2 **场景 8 的会变红的门**：断言产出 zpkg 的 SIGS 段无 `.__static_init__` 后缀函数
+- [x] 6.2 **场景 8 的会变红的门**（2026-09-22）：`tests/codegen/no_static_init_func_tests.z42`
+      —— 4 条断言「不发 `__static_init__` / 每类各自一个 `$cctor` / 静态 auto 属性同路 /
+      无静态初始化器时不凭空合成」。**判别力已用退回对照验过**（注入假断言 → FAIL）。
+      注：断言的是 IR 发射面（`IrDump.DumpModule`）而非 zpkg SIGS 段——前者是根因所在，
+      且不依赖构建产物布局。
 - [ ] 6.3 `xtask test` 全绿（interp）
 - [ ] 6.4 `xtask test stdlib --mode jit`（屏障改在派发面，**必跑**）
 - [ ] 6.5 `cargo test` **全量**（非只 `--lib`）
