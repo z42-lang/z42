@@ -1,38 +1,59 @@
 # Tasks: 引用类型的空检查标记
 
-> 状态：🔴 待 User 审批（阶段 6.5 gate 未过，**不得开始写代码**） | 创建：2026-09-21
-> 分支/worktree：`ref-null-model` @ `/Users/d.s.qiu/Documents/z42-lang/wt-refnull`（基于 origin/main a50f7e897 #723）
+> 状态：🟡 实施中（阶段 6.5 gate 已过——User「请开始推进，持续实现，pr变绿自动合并」） | 创建：2026-09-21
+> 分支/worktree：`ref-null-model` @ `/Users/d.s.qiu/Documents/z42-lang/wt-refnull`（基于 origin/main 187200c61 #748）
 > 类型：`lang` —— 完整流程（阶段 1–9）
 > **依赖**：`enforce-value-type-non-null`（定下 `?` 只适用引用类型）；流分析设施（建议先 `add-definite-assignment`）
 > **不依赖** `simplify-ref-parameters`
 
 ## 进度概览
-- [ ] 阶段 0: User 审批 + Q1 实测计划确认
-- [ ] 阶段 1: A —— 流分析引擎（只报确定性 Null，**零误报为通过标准**）
+- [x] 阶段 0: User 审批 + Q1 实测计划确认
+- [x] 阶段 1: A —— 流分析引擎（**`add-definite-assignment` 已建好设施**，本变更只加第二套事实）
 - [ ] 阶段 2: B —— `Expect("理由")`
-- [ ] 阶段 3: C —— 标记 → MaybeNull，义务点全开
+- [~] 阶段 3: C —— 标记 → MaybeNull，义务点全开（**PR 1 交付形参那半**，返回值/字段待后续）
 - [ ] 阶段 4: Q1 实测（字段窄化 (a) vs (b)）
 - [ ] 阶段 5: D —— 反向推导 + override 一致性
 - [ ] 阶段 6: E —— 砍 `?.` 与 `??` + 全仓迁移
 - [ ] 阶段 7: 自举 + GREEN
 - [ ] 阶段 8: 文档同步 + 归档
 
+### PR 切分（实施时定的）
+
+原计划是「引擎 → `Expect` → 开闸」。实际上 `add-definite-assignment` 已经把引擎建好了
+（结构化数据流 + 正常结束分析 + join 规则），所以改按**义务点的来源**切，一次开一个口子：
+
+| PR | 范围 | 状态 |
+|---|---|---|
+| **1** | 标 `?` 的**形参** + 义务点 + 窄化（E0478） | 本 PR |
+| 2 | 标 `?` 的**返回值**（要在调用点拿被调方签名，`BoundCall` 有 46 个构造点 → 按 `MethodTypeArgs` 的 post-construction 手法只改重载解析处）+ `Expect("理由")` | 待做 |
+| 3 | 字段（先做阶段 4 的 Q1 实测定快照规则） | 待做 |
+| 4 | 反向推导 + override 一致性 | 待做 |
+| 5 | 砍 `??`（生产 69 处）与 `?.`（3 处） | 待做 |
+
+**为什么 `Expect` 能推到 PR 2**：原计划要它「在开闸前落地，否则用户没有逃逸口」。
+形参那半的逃逸口是**窄化**（`if (s != null)` / 早返回守卫），已经够用——
+全仓 7 处引用类型 `?` 标注里没有一处需要 `Expect`。返回值那半才真的需要它
+（调用结果没有名字可窄化），所以它和 PR 2 绑在一起才对。
+
 ---
 
 ## 阶段 0: 审批
-- [ ] 0.1 User 审批 proposal.md + specs/null-check-marks/spec.md + design.md
-- [ ] 0.2 确认流分析设施来源：先做 `add-definite-assignment`（推荐）还是本变更自建
-- [ ] 0.3 User 明确「可以开始」→ 阶段 6.5 gate 通过
+- [x] 0.1 User 审批 proposal.md + specs/null-check-marks/spec.md + design.md
+- [x] 0.2 确认流分析设施来源：**先做 `add-definite-assignment`**（已合并 #750，`FlowAnalyzer.z42`）
+- [x] 0.3 User 明确「可以开始」→ 阶段 6.5 gate 通过
 
 ## 阶段 1: A —— 流分析引擎（零误报验证）
 > 只报「亲眼看见被赋成 null 的值被解引用」。**任何误报都算引擎 bug，不算规则太严。**
-- [ ] 1.1 事实格 `NotNull` / `MaybeNull` / `Null` / `Unknown`（未约束泛型 `T` → Unknown）
-- [ ] 1.2 事实表：键 = 局部变量 / 形参（**字段不入表**，见 design §D4）
-- [ ] 1.3 结构化数据流（无 `goto` ⇒ 不建 CFG，按 `BoundStmt` 递归）
-- [ ] 1.4 「语句是否正常结束」分析（早 return/throw/break/continue）
-- [ ] 1.5 join 规则：if 两分支 / while（循环前与循环尾的 meet）/ switch / **try-catch（catch 入口取 try 区间所有点的 meet）**
-- [ ] 1.6 窄化：`== null` 早退 / `!= null` / `is` / `&&`、`||` 短路 / 三目 / 赋非空
-- [ ] 1.7 全仓跑，**命中必须全部为真阳性**；有误报 ⇒ 停下修引擎
+- [x] 1.1 事实格 `NotNull` / `MaybeNull` / `Null` / `Unknown`（未约束泛型 `T` → Unknown）
+- [x] 1.2 事实表：键 = 局部变量 / 形参（**字段不入表**，见 design §D4）
+- [x] 1.3 结构化数据流（无 `goto` ⇒ 不建 CFG，按 `BoundStmt` 递归）
+- [x] 1.4 「语句是否正常结束」分析（早 return/throw/break/continue）
+- [x] 1.5 join 规则：if 两分支 / while（循环前与循环尾的 meet）/ switch / **try-catch（catch 入口取 try 区间所有点的 meet）**
+- [x] 1.6 窄化：`== null` 早退 / `!= null` / `is` / `&&`、`||` 短路 / 三目 / 赋非空
+- [x] 1.7 全仓跑，**命中必须全部为真阳性**；有误报 ⇒ 停下修引擎
+  - 首次构建命中 1 处：`String.IsNullOrEmpty` 的 `value == null || value.Length == 0`。
+    **是误报** ⇒ 按 D3 补了短路求值的窄化（`||` 右操作数只在左边为假时求值），不是放宽规则。
+  - 补完后全仓 25 包零命中（清空 `.cache` 后重跑确认——**带缓存的「零命中」不作数**）。
 
 ## 阶段 2: B —— `Expect("理由")`
 > 必须在阶段 3 开闸**之前**落地，否则用户没有逃逸口。
@@ -42,10 +63,17 @@
 - [ ] 2.4 结果事实置 NotNull
 
 ## 阶段 3: C —— 标记 → MaybeNull
-- [ ] 3.1 `SymbolTable.z42:590` 引用类型分支：仍返回 inner 类型（类型身份不变），沿途记标记位
-- [ ] 3.2 `MethodSymbol` 每形参一位 + 返回值一位；`FieldSymbol` 一位
+- [x] 3.1 `SymbolTable.z42:590` 引用类型分支：仍返回 inner 类型（类型身份不变），沿途记标记位
+  - 实施时改成在 `SymbolCollector._methodSymbol` 直接读 AST（`md.Params[i].Type is NullableType`），
+    比在擦除点串标记位简单，且**不动类型身份**——`ParamIsNullable` / `RetIsNullable` 与
+    `ParamIsRef` 一样是 `Z42FuncType` 的旁路数组，不进 `Name()` / `Dump()`。
+- [~] 3.2 `MethodSymbol` 每形参一位 + 返回值一位；`FieldSymbol` 一位
+  - 形参位 + 返回值位已加（`Z42FuncType.ParamIsNullable` / `RetIsNullable` / `IsNullableParam(i)`）；
+    **返回值位本 PR 只存不用**（用它要在调用点拿签名，见 PR 2）。字段位留给 PR 3。
 - [ ] 3.3 跨包：符号加载侧从签名文本的 `?` 解析回标记位（`TsigTypeName` / `StubEmitter` 已双向拼写）
-- [ ] 3.4 义务点全开（解引用七类 + `return` 传播）→ `PossibleNullDereference` / `PossibleNullReturn`
+- [~] 3.4 义务点全开（解引用七类 + `return` 传播）→ **E0478**
+  - 已覆盖：成员访问 / 下标 / 方法调用接收者 / `foreach` 集合 / `throw` 操作数（均限**裸名**）
+  - 未覆盖：`return` 传播（PR 2，依赖返回值标记）
 - [ ] 3.5 标 `?` 的字段直接解引用 → `NullableFieldNotSnapshotted`（消息给快照写法）
 - [ ] 3.6 跨包用例（参考 `tests/cross-zpkg/`）
 
