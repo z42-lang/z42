@@ -192,26 +192,76 @@ void test_convert_delegation_keeps_behavior() {
     Assert.ThrowsAny(() => Convert.ToChar("xy"));
 }
 
-// ── UInt64.ToString：**未修**，这里钉住「当前真实行为 + 真因」───────────────
-//
-// `ToString` 对 > i64::MAX 的值渲染成负数。原以为补个 `__uint64_to_string` builtin 就行，
-// 实测**不行**：prim 接收者的类由 `primitive_class_name(obj_val)` 从运行期 Value 反推，
-// 而 `Value::I64 => Std.Int32`（`interp/exec_vcall.rs`），`ulong` 与 `long` 无从区分 ⇒
-// `UInt64` 上声明的实例方法运行期根本到不了。详见 UInt64.z42 的注释。
-//
-// 下面两条**断言的是当前（错误的）行为**，作用是：真因被修好那天它们会变红，
-// 逼着人回来删掉这段注释、把断言改成正确值 —— 而不是让这个坑继续静默存在。
+// ── UInt64.ToString：已修（fix-narrow-prim-instance-dispatch）────────────────
 [Test]
-void test_uint64_tostring_above_i64_max_is_currently_wrong() {
-    ulong big = UInt64.Parse("9223372036854775808");   // 2^63，恰好越过 i64::MAX 一步
-    Assert.Equal("-9223372036854775808", big.ToString());   // ← 正确答案应是 "9223372036854775808"
-    ulong max = UInt64.Parse("18446744073709551615");   // u64::MAX
-    Assert.Equal("-1", max.ToString());                     // ← 正确答案应是 u64::MAX 本身
+void test_uint64_tostring_above_i64_max() {
+    // 2^63，恰好越过 i64::MAX 一步 —— 修复前打印成 -9223372036854775808。
+    Assert.Equal("9223372036854775808", UInt64.Parse("9223372036854775808").ToString());
+    // u64::MAX —— 修复前打印成 -1。
+    Assert.Equal("18446744073709551615", UInt64.Parse("18446744073709551615").ToString());
+}
+
+// 接收者形态要全覆盖：真因是「静态类型丢了」，而显式标注 / 强制转换 / var 推断 / 直接调用
+// 这四种形态到达发射端时的 `Z42ClassType.Name()` **拼写不同**（包装名 vs 关键字）。
+// 实施中第一版只认关键字，前两种漏修而测试一度「部分绿」—— 故逐形态各钉一条。
+[Test]
+void test_uint64_tostring_all_receiver_shapes() {
+    ulong declared = UInt64.Parse("18446744073709551615");        // 显式类型标注
+    var inferred   = UInt64.Parse("18446744073709551615");        // var 推断
+    Assert.Equal("18446744073709551615", declared.ToString());
+    Assert.Equal("18446744073709551615", inferred.ToString());
+    Assert.Equal("18446744073709551615", ((ulong)declared).ToString());   // 强制转换
+    Assert.Equal("18446744073709551615", UInt64.Parse("18446744073709551615").ToString());  // 直接调用
 }
 
 [Test]
-void test_uint64_tostring_lower_half_is_correct() {
-    // 对照组：下半区间（<= i64::MAX）本来就对，确保上面红的时候不是整条路都坏了。
+void test_uint64_tostring_lower_half_unchanged() {
+    // 对照组：下半区间（<= i64::MAX）本来就对，确保修复没把整条路带偏。
     Assert.Equal("12345", UInt64.Parse("12345").ToString());
     Assert.Equal("9223372036854775807", UInt64.Parse("9223372036854775807").ToString());
+}
+
+// ── Single.GetHashCode：已修（同一个真因的第二个症状）──────────────────────
+//
+// 修复前 `float.GetHashCode()` 实际走的是 `Double.GetHashCode`（64 位折叠），
+// Single.z42 里声明的 32 位位模式实现形同虚设。不违反哈希契约（等值仍等哈希），
+// 但声明与实际不符，且 `Dictionary<float,…>` 的桶分布用的是另一套。
+[Test]
+void test_single_gethashcode_uses_single_impl() {
+    float f = 1.5f;
+    Assert.Equal(BitConverter.SingleToBits(1.5), f.GetHashCode());   // = Single 的 32 位位模式
+}
+
+[Test]
+void test_double_gethashcode_unchanged() {
+    // 对照组：Double 的哈希不受影响（它的运行期反推本来就对）。
+    double d = 1.5;
+    long bits = BitConverter.DoubleToBits(1.5);
+    Assert.Equal((int)(bits ^ (bits >> 32)), d.GetHashCode());
+}
+
+// 两者必须**不同** —— 若哪天又塌回同一个实现，这条会红。
+[Test]
+void test_single_and_double_hash_now_differ() {
+    float f = 1.5f;
+    double d = 1.5;
+    Assert.Equal(false, f.GetHashCode() == d.GetHashCode());
+}
+
+// ── 窄整型的其余实例方法：确认静态派发后语义不变（退回对照）─────────────────
+[Test]
+void test_narrow_int_instance_methods_still_correct() {
+    byte b1 = Byte.Parse("42");
+    byte b2 = Byte.Parse("42");
+    byte b3 = Byte.Parse("43");
+    Assert.Equal(true,  b1.Equals(b2));
+    Assert.Equal(false, b1.Equals(b3));
+    Assert.Equal(0,  b1.CompareTo(b2));
+    Assert.Equal(-1, b1.CompareTo(b3));
+    Assert.Equal("42", b1.ToString());
+    short s1 = Int16.Parse("-1000");
+    Assert.Equal("-1000", s1.ToString());
+    Assert.Equal(true, s1.Equals(Int16.Parse("-1000")));
+    long l1 = Int64.Parse("9999999999");
+    Assert.Equal("9999999999", l1.ToString());
 }

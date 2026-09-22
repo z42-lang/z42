@@ -390,6 +390,19 @@ pub fn builtin_int32_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value
 // shrink-primitive-native-interop (2026-08-27): builtin_double_equals /
 // builtin_double_hash_code removed — Std.{Double,Single}.Equals/GetHashCode 现在
 // 是脚本（`this == other`；hash 经 BitConverter 折叠 IEEE-754 位模式）。
+/// fix-narrow-prim-instance-dispatch: `UInt64.ToString` used to borrow `__int32_to_string`,
+/// which renders the bit-preserving i64 payload — every value above i64::MAX printed as a
+/// **negative number**. Reinterpreting the payload as u64 before formatting fixes the whole
+/// upper half; round-trips with `builtin_uint64_parse`, which stores it the same way.
+///
+/// NB: this only became reachable once the compiler started dispatching narrow-primitive
+/// instance calls statically — before that, `ulong.ToString()` resolved to `Std.Int32.ToString`
+/// at runtime (`Value::I64 => Std.Int32`) and no amount of rebinding here would have been seen.
+pub fn builtin_uint64_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let a = arg_i64(args, 0, "UInt64.ToString")?;
+    Ok(Value::Str((a as u64).to_string().into()))
+}
+
 pub fn builtin_double_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let a = arg_f64(args, 0, "Double.ToString")?;
     Ok(Value::Str(a.to_string().into()))

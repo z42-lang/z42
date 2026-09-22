@@ -1,6 +1,6 @@
 # Tasks: 删除 primitive 短名别名，源码与 IR 拼写统一到 C# 关键字
 
-> 状态：🟢 GREEN 全绿，待提交 | 创建：2026-09-21 | 完成：2026-09-22
+> 状态：🟢 已归档（PR #730 已合并 `97de57a98`） | 创建：2026-09-21 | 完成：2026-09-22
 > 变更类型：lang（收窄语言表面）+ ir（zbc 1.44 / zpkg 0.49 双 bump）
 > 文档影响：`docs/reference/src/language/types.md`（基本类型总表重写）、
 > `docs/internals/src/formats/{zbc,zpkg}.md`（changelog + 当前版本）、

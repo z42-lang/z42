@@ -146,6 +146,25 @@ public sealed class CallEmitter {
             // 镜像 C# EmitBoundCall：实参先于 receiver（寄存器编号序——byte-identical）
             TypedReg[] iargs = this._emitArgs(c);
             TypedReg recv = this._ee.Emit(c.Receiver);
+            // fix-narrow-prim-instance-dispatch：**窄基元接收者 → 静态 Call**（同 blob 值 struct 分支的
+            // 道理：基元是 sealed 值类型、无虚派发，编译期直呼语义上就是对的）。
+            // 不这么做的话运行期会按 Value 反推类（`Value::I64 => Std.Int32` / `Value::F64 => Std.Double`），
+            // 于是 sbyte/short/byte/ushort/uint/ulong/long/float 这 8 个包装类型上声明的实例方法**一个都
+            // 到不了**。判据与目标解析在 `EmitContext.NarrowPrimTarget`（解析不出即返回 "" → 落回下方
+            // VCall = 今天的行为，永不 miscall）。
+            // 返回 blob struct 的情形交给下方既有 sret 路径（基元方法不返回值 struct，这里不重复实现）。
+            if (!this._ee._isBlobStruct(c.Type())) {
+                string npTgt = this._ctx.NarrowPrimTarget(c.Receiver.Type(), c.MethodName);
+                if (npTgt != "") {
+                    TypedReg[] npFull = new TypedReg[c.ArgCount + 1];
+                    npFull[0] = recv;
+                    int npi = 0;
+                    while (npi < c.ArgCount) { npFull[npi + 1] = iargs[npi]; npi = npi + 1; }
+                    TypedReg npDst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
+                    this._ctx.Emit(new CallInstr(npDst, npTgt, npFull, c.ArgCount + 1));
+                    return npDst;
+                }
+            }
             // add-struct-method-return (P3b follow-up)：class 实例方法返回 blob 值 struct → **sret** 约定
             // （caller 预留返回 blob 作末尾隐藏实参，callee `return s`→StructCopy(SretReg,s)+ret void；结果=该
             // handle）。VCall 按 vtable slot(方法名)派发、arity 不入解析键 → 追加 sret 实参不破派发，runtime

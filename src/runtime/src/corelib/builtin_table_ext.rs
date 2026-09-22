@@ -276,4 +276,9 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     ("__monitor_try_enter", monitor::builtin_monitor_try_enter),
     ("__monitor_exit",      monitor::builtin_monitor_exit),
     ("__monitor_wait",      monitor::builtin_monitor_wait),
+
+    // ── fix-narrow-prim-instance-dispatch (2026-09-22) — appended to preserve existing BuiltinIds ──
+    // `UInt64.ToString` 专用：借 `__int32_to_string` 时 > i64::MAX 的值打印成负数。
+    // 载荷位不变，只是渲染时按 u64 重解释。
+    ("__uint64_to_string",  convert::builtin_uint64_to_string),
 ];

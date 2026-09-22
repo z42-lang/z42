@@ -5,24 +5,13 @@ namespace Std;
 //
 // add-narrow-int-primitives (2026-05-15): `ulong` (unsigned 64-bit).
 // Values above i64::MAX (9_223_372_036_854_775_807) are stored as the
-// bit-preserving i64 cast — i.e. `ToString` renders them as **negative**,
-// while `==` and arithmetic preserve the unsigned semantics.
+// bit-preserving i64 cast; `==` and arithmetic preserve the unsigned semantics.
 //
-// 🔴 symmetrize-primitive-api (2026-09-22) 实测：这个坑**不是加一个 `__uint64_to_string`
-// builtin 就能修的**，原注释说的「deferred until Value gains explicit unsigned variants」
-// 也没说到点子上。真因在派发：`vcall()` 不携带接收者的编译期类型名，prim 接收者的类由
-// `primitive_class_name(obj_val)` **从运行期 Value 反推**，而 `Value::I64(_) => Std.Int32`
-// （`interp/exec_vcall.rs`）。`ulong` 与 `long`/`int` 在运行期是同一个 `Value::I64`，
-// 于是**本结构体声明的每个实例方法在运行期都到不了** —— 一律落到 `Std.Int32` 的同名方法。
-// 至今没被发现，只因 Equals/GetHashCode/CompareTo 的实现与 Int32 版恰好等价；`ToString`
-// 是第一个真正需要分道的。
-// （`exec_vcall.rs:77-79` 的注释写着「narrow int / long values are tagged with class FQN
-//   at compile-time in VCall instructions」—— 与 `vcall()` 的实际签名不符，该注释已过期。）
+// fix-narrow-prim-instance-dispatch (2026-09-22)：`ToString` 现在走专用的 `__uint64_to_string`，
+// 上半区间不再打印成负数。这一条在 symmetrize-primitive-api 里曾被撤回 —— 当时发现「只加 builtin
+// 没用」，真因是运行期 prim 派发按 `Value` 反推类（`Value::I64 => Std.Int32`），`ulong` 与 `long`
+// 无从区分 ⇒ 本结构体声明的实例方法一个都到不了。本次把编译期静态派发补上后才真正生效。
 //
-// 修法要动派发机制（给 VCall 加接收者类型字段 = 又一次格式 bump，或对已知窄类型的
-// prim 接收者在编译期改发静态 Call），不属 API 对称化的射程，另案。
-//
-// Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
 public struct UInt64 : IComparable, IEquatable, INumber {
     // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
     // primitive structs resolve static members through the wrapper type.
@@ -31,7 +20,11 @@ public struct UInt64 : IComparable, IEquatable, INumber {
     public static ulong MinValue = 0;
 
     [Native("__uint64_parse")]     public static extern ulong Parse(string s);
-    [Native("__int32_to_string")]  public extern string ToString();
+    // fix-narrow-prim-instance-dispatch：改用专用 builtin（此前借 `__int32_to_string` 按 i64 渲染，
+    // > i64::MAX 的值打成负数）。**注意**：单改这一行无效 —— 运行期的 prim 派发按 Value 反推类，
+    // `ulong` 与 `long` 同为 `Value::I64` ⇒ 本方法到不了。真正让它可达的是编译期静态派发
+    // （`CallEmitter` 的窄基元分支 + `EmitContext.NarrowPrimTarget`）。
+    [Native("__uint64_to_string")] public extern string ToString();
 
     // symmetrize-primitive-api：非抛出解析，成功返回值、任何格式错误/越界返回 `null`
     // （与 Int32/Int64/Double.TryParse 同款；用可空返回替代 C# 的 `out` 参数）。
