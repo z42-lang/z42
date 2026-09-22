@@ -590,6 +590,10 @@ public sealed partial class MemberResolver {
                     args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
                     return new BoundCall("free", false, null, "", mem.Name, args, argCount, new Z42ErrorType(), sp);
                 }
+                // fix-free-function-attrs：**ns 限定**写法（`Demo.freeF()`）是自由函数调用的第二条
+                // 入口，与裸名那条（`_bindCall`）各走各的 ⇒ 弃用检查必须两处都放。同样放在重载
+                // 决议之后，只认被选中的那个重载。
+                this._tc._access.CheckDeprecatedM(nfs, mem.Name, sp);
                 BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
                 BoundCall nbc = new BoundCall("free", false, null, "", nfs.RegKey, nfa, nfa.Length, nfs.Signature.Ret, sp);
                 nbc.FreeNs = nsId.Name; nbc.FreeImported = !nfs.HasDecl;

@@ -368,6 +368,16 @@ void test_deprecated_free_function_overload_selectivity() {
 }
 
 [Test]
+void test_deprecated_free_function_ns_qualified_warns() {
+    // `Demo.freeF()`（ns 限定）是自由函数调用的**第二条入口**（`_bindMemberCall` 的
+    // fix-namespace-qualified-free-call 分支），与裸名那条各走各的。两处都得查，
+    // 否则限定写法静默绕过——实测确认过这个漏。
+    string src = "namespace Demo; [Deprecated(\"x\")] int f() { return 1; } int g() { return Demo.f(); }";
+    var bag = _depDiags(src);
+    Assert.Equal(true, _hasCode(bag, "deprecated"));
+}
+
+[Test]
 void test_deprecated_free_function_suppress_pragma() {
     // `#suppress deprecated` 对自由函数调用点同样生效（与类方法同一条抑制通道）
     string src = "[Deprecated(\"x\")] int f() { return 1; }"
