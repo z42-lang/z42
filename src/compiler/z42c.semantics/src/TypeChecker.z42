@@ -365,6 +365,18 @@ public sealed class TypeChecker {
     // T4 收紧时把这里改成 ImplicitOk()，ExplicitNumeric 才落入常量例外 / E0439。
     public bool CheckImplicitConvert(BoundExpr value, Z42Type target, SymbolTable syms, Span sp, string ctx) {
         if (value == null || target == null) { return true; }
+        // enforce-value-type-non-null：`null` 不能给值类型。此前 `int x = null;` **编译通过** ——
+        // 于是一个 Null 静默进了 int 槽，到下游才以 `type mismatch in arithmetic: Null vs I64(1)`
+        // 或 `__box_prim: expected integer value, got Null` 这类**内部错误**炸出来，离现场很远。
+        //
+        // 挂在这道门上而不是逐站点接线：本方法的注释自述它是「赋值 / return / var-decl 同一条门」，
+        // 实参也经 ConvertIfNeeded 前的同一检查 ⇒ 一处覆盖全部流入点。
+        if ((value is BoundLitNull) && TypeChecker._isNonNullableValueType(target)) {
+            this._diags.Error("E0475",
+                "cannot assign `null` to `" + target.Name() + "` — it is a value type and can never be null "
+                + "(" + ctx + ")", sp);
+            return false;
+        }
         Z42Type from = value.Type();
         ConvResult r = Conversion.Classify(from, target, syms);
         if (r.ImplicitOk()) { return true; }   // tighten-implicit-conversions T4：收紧门（ExplicitNumeric 落入常量例外/E0439）

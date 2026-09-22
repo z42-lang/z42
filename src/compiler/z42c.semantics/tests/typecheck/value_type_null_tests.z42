@@ -90,3 +90,75 @@ void test_two_value_types_compared_ok() {
     string src = "namespace D; class C { static void M() { int a = 1; int b = 2; if (a == b) { } } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── null 赋给值类型：E0475 ────────────────────────────────────────
+
+[Test]
+void test_null_to_int_local_errors() {
+    // 🔴 此前**编译通过** —— 一个 Null 静默进了 int 槽，到下游才以
+    // `type mismatch in arithmetic: Null vs I64(1)` 这类内部错误炸出来，离现场很远。
+    string src = "namespace D; class C { static void M() { int x = null; } }";
+    Assert.Equal("E0475", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_null_to_value_field_initializer_errors() {
+    string src = "namespace D; class C { int n = null; }";
+    Assert.Equal("E0475", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_null_as_value_arg_errors() {
+    string src = "namespace D; class C { static void F(int a) { } static void M() { C.F(null); } }";
+    Assert.Equal("E0475", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_null_to_struct_errors() {
+    string src = "namespace D; struct Pair { public int A; } class C { static void M() { Pair p = null; } }";
+    Assert.Equal("E0475", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_null_to_reference_types_ok() {
+    // 🔒 回归守卫：引用类型可空，本变更不动。
+    Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class C { static void M() { string s = null; } }"));
+    Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class C { static void M() { object o = null; } }"));
+    Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class Box { } class C { static void M() { Box b = null; } }"));
+}
+
+// ── 值类型的 `?` 标注：E0476 ──────────────────────────────────────
+
+[Test]
+void test_nullable_int_local_errors() {
+    // 此前 `?` 在类型解析期被擦除（`int?` 与 `int` 同一个类型）⇒ 标注对任何事都没约束力。
+    string src = "namespace D; class C { static void M() { int? a = 42; } }";
+    Assert.Equal("E0476", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_nullable_value_return_errors() {
+    string src = "namespace D; class C { static int? F() { return 1; } }";
+    Assert.Equal("E0476", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_nullable_alias_spelling_errors() {
+    // i32/u8 一族别名同样拦。
+    Assert.Equal("E0476", SemanticDump.FirstErrorCode("namespace D; class C { static void M() { i32? a = 1; } }"));
+    Assert.Equal("E0476", SemanticDump.FirstErrorCode("namespace D; class C { static void M() { u8? a = 1; } }"));
+}
+
+[Test]
+void test_nullable_reference_type_ok() {
+    // 🔒 引用类型的 `?` 合法（语义由后续 change define-null-check-marks 赋予）。
+    Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class C { static string? F() { return null; } }"));
+}
+
+[Test]
+void test_nullable_value_array_ok() {
+    // 🔒 回归守卫：`byte[]?` 合法 —— 数组是引用类型，可空的是数组本身不是元素。
+    // 只看基名会把它误拦（实测被 z42.core 的 `ProcessNative.Spawn(..., byte[]? stdinBytes, ...)` 抓住）。
+    Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class C { static void F(byte[]? b) { } }"));
+    Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class C { static void F(int[]? a) { } }"));
+}

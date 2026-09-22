@@ -18,9 +18,9 @@ public struct Double : IComparable, IEquatable, INumber {
     [Native("__double_to_string")]  public extern string ToString();
 
     // Non-throwing parse — see Int32.TryParse. Returns `null` on malformed input.
-    public static double? TryParse(string s) {
-        try { return Double.Parse(s); }
-        catch (Exception e) { return null; }
+    public static bool TryParse(string s, ref double v) {
+        try { v = Double.Parse(s); return true; }
+        catch (Exception e) { v = 0.0; return false; }
     }
 
     // IEEE-754 classification (pure script; no VM intrinsic needed).

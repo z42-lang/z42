@@ -46,12 +46,32 @@ let slots = vec![Value::Null; td.fields.len()];   // corelib/assemblyloadcontext
 | `int?` / `T?` 其中 T 是值类型 | 编译错误 |
 | `NullableType` 擦除（`SymbolTable.z42:590`） | 值类型分支改为报错；引用类型分支保持擦除 |
 
-### 存储按声明类型零初始化（运行期）
+### ~~存储按声明类型零初始化（运行期）~~ —— 实测已经是对的
 
-6 处 `vec![Value::Null; …]` 改为按字段 tag 取 `default_value_for_tag`
-（`metadata/types/field.rs:92` 已有该函数，非泛型数组路径已在用）。
+起草时按 grep 判断「6 处 `vec![Value::Null; …]`，实例字段那处未修」。**实测推翻**
+（`src/tests/types/value_field_zero/`）：值类型的**实例字段与静态字段都已经读出零值**，
+算术也正常（`h.N + 1` == 1）。
 
-### 拆箱两段检查
+那 6 处里 4 处是 `[Native]` 类的 helper（`alloc_native` 等，注释自述「no data slots written;
+the class exposes everything via `[Native]` methods」）⇒ 那里的 Null 槽无害；
+另两处是 JIT 帧槽与 struct 的引用叶子，Null 本就是引用类型的零值。
+
+⇒ **本变更不改运行期存储初始化**。新增 `value_field_zero` 用例把这个行为钉住，防回归。
+
+⭐ 教训：起草阶段的「grep 出 N 处站点」不等于「这 N 处都需要改」——**先写一个探针实跑**，
+比读站点列表快也准。我这条判断是在一棵落后的主树上读代码得出的。
+
+### 拆箱两段检查 —— 拆为 follow-up
+
+实测确认缺口存在：`object o = null; int x = (int)o;` **不抛**，Null 静默落进 int 槽。
+根因是基元没有真装箱（`object o = 42` 就是 `Value::I64`）⇒ `(int)o` 是 no-op。
+
+修它要动 cast 路径 + JIT 同步 + 两种异常的分流，是独立一块 ⇒ 拆成 follow-up change
+`split-unbox-null-and-type-check`。本变更只交付编译期那半。
+
+原设计如下（保留，供 follow-up 直接用）：
+
+#### 原计划：拆箱两段检查
 
 `object` → 值类型时：**先查 null**（`NullReferenceException`），**再查类型**（`InvalidCastException`）。
 两条不同的错、两条不同的消息——错因完全不同，合成一条会让调试变难。

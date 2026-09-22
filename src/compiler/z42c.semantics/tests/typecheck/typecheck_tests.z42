@@ -969,8 +969,11 @@ void test_partial_method_real_duplicate_impls_still_reported() {
 
 [Test]
 void test_nonpartial_duplicate_unaffected() {
-    // 反向：非 partial 的重复重载判定完全不受本次改动影响（同上改用 nullable 归一）。
-    string src = "class C { void F(int a) { } void F(int? a) { } }";
+    // 反向：非 partial 的重复重载判定完全不受本次改动影响。
+    // enforce-value-type-non-null（2026-09-22）：原来用 `int` vs `int?` 表达「归一后同签名」，
+    // 而值类型的 `?` 现在本身就报 E0476 ⇒ 会变成 2 个错、测不到本意。
+    // 改用**基本类型别名**（`int` ≡ `i32`，Canon 归一）表达同一件事，意图不变。
+    string src = "class C { void F(int a) { } void F(i32 a) { } }";
     Assert.Equal(1, SemanticDump.ErrorCount(src));
 }
 

@@ -20,9 +20,9 @@ public struct Int32 : IComparable, IEquatable, INumber {
     // or out-of-range input (mirrors IPAddress.TryParse — nullable return in
     // place of C#'s `out` parameter). Parse's underlying bail surfaces as a
     // catchable Std.Exception (make-corelib-errors-catchable, 2026-05-15).
-    public static int? TryParse(string s) {
-        try { return Int32.Parse(s); }
-        catch (Exception e) { return null; }
+    public static bool TryParse(string s, ref int v) {
+        try { v = Int32.Parse(s); return true; }
+        catch (Exception e) { v = 0; return false; }
     }
 
     // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 从 [Native]

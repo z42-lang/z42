@@ -84,54 +84,53 @@ var ratio = 0.5;    // double
 `var` 的正规用法是带初始化器的局部变量。不带初始化器的 `var x;` 当前不会被编译器拒绝，
 但类型无从推断，不要依赖这种写法。
 
-## 可空标记 `?`
+## 可空标记 `?` 与值类型
+
+**值类型永不为 null。** `int` / `bool` / `char` / 浮点 / `enum` / `struct` 的槽位里不可能
+出现 null，编译器在三个入口把它挡住：
 
 ```z42
-string? maybeNull = null;
-int?    optInt    = 42;
+int x = null;        // ✗ E0475：值类型不接受 null
+if (n == null) { }   // ✗ E0474：值类型与 null 比较恒假 —— 静默恒假是最坏的形态
+int? a = 42;         // ✗ E0476：值类型不允许 `?`
 ```
 
-> ⚠️ **当前实现中 `?` 是纯注解，会被类型解析擦除。** z42 **没有** `Nullable<T>` 包装类型，
-> 也**没有**可空性流分析：`T?` 和 `T` 解析成同一个类型，编译器不会因为把 `null` 赋给未标 `?`
-> 的变量而报错，也不会要求在解引用前检查。
->
-> ```z42
-> string notNullable = null;   // 编译通过——没有空安全检查
-> ```
->
-> 因此 `?` 目前的价值是**给读者的意图标注**，不是编译期保证。空引用在运行期解引用时才暴露。
+第二条单列是有理由的：静默恒假意味着**代码看起来做了检查、那个分支实际从不进入**，
+比直接报错难查得多。
 
-### 值为 null 的值类型被装箱时得到 null
-
-擦除是彻底的，所以 `int?`（乃至未标 `?` 的 `int`）在运行期确实可能装着 `null`。
-这种值**装箱**（赋给 `object`、传给取 `object` 的重载）时得到的是 **null 引用**：
+`?` 只用于**引用类型**：
 
 ```z42
-using Std.IO;
-
-void Main() {
-    int? n = null;
-    object o = n;
-    Console.WriteLine(o == null);   // true —— 不是装箱的 0，也不抛异常
-    Console.WriteLine($"{n}");      // null
-    Console.WriteLine(n ?? -1);     // -1
-}
+string?    maybeNull = null;    // ✓
+IPAddress? addr      = null;    // ✓
+byte[]?    buf       = null;    // ✓ —— 数组是引用类型，可空的是数组本身不是元素
 ```
 
-与 C# 的 `int? n = null; object o = n;` 一致。
+> ⚠️ **引用类型的 `?` 目前仍是纯注解**：`string?` 与 `string` 解析成同一个类型，
+> 编译器不会因为把 `null` 赋给未标 `?` 的引用变量而报错，也不会要求解引用前检查。
+> 给它赋予强制含义是后续变更 `define-null-check-marks` 的事。
 
-> ⚠️ 但**算术**不会这么宽容：`n + 1` 在运行期抛
-> `type mismatch in arithmetic: Null vs I64(1)`。装箱有定义好的行为，不等于 `null` 在
-> 值类型位置上处处可用——该判空的地方仍要判。
+### 「可能没有」的结果怎么表达
 
-配套的两个运算符按运行期的 null 值工作，是真实生效的：
+按返回类型分流：
+
+| 返回的是 | 写法 |
+|---|---|
+| **引用类型** | `V? Find(…)` —— 单个可空返回值，**不要** bool |
+| **值类型** | `bool TryX(…, ref T v)` —— 失败时出参写零值 |
+
+引用类型自带「缺席」的表示；值类型没有，才需要第二个通道。
 
 ```z42
-string result = maybeNull ?? "default";   // null 合并
-int? len      = maybeNull?.Length;        // null 条件访问，左侧为 null 时整体为 null
+int n;
+if (Int32.TryParse(s, ref n)) { use(n); }     // 值类型
+
+IPAddress? a = IPAddress.TryParse(s);          // 引用类型
+if (a != null) { use(a); }
 ```
 
-它们的优先级与求值规则见[运算符](operators.md)。
+这样 **bool 与可空值的组合永远不会出现**，也就不会出现「我检查了 bool、编译器还要我检查值」
+的双重检查。「总是有，但是多个」用元组：`(int, string) Split(…)`。
 
 ## 集合与对象的字面量语法
 
