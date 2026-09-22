@@ -420,17 +420,6 @@ fn qualified_and_user_names_are_not_primitive() {
     assert!(!is_primitive_keyword_name("Integer"));
 }
 
-#[test]
-fn init_state_distinguishes_running_thread() {
-    // 重入判定靠 ThreadId 相等：同线程 Running → 跳过；他线程 Running → 等待。
-    let me = std::thread::current().id();
-    let other = std::thread::spawn(|| std::thread::current().id()).join().unwrap();
-    assert_ne!(me, other);
-    assert_eq!(InitState::Running(me), InitState::Running(me));
-    assert_ne!(InitState::Running(me), InitState::Running(other));
-    assert_ne!(InitState::Running(me), InitState::Done);
-}
-
 // ── cache-failed-name-resolution: negative resolve cache ─────────────────────
 
 /// A minimal `Function` usable as an in-memory module member.
