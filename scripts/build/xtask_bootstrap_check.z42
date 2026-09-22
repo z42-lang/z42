@@ -136,7 +136,19 @@ int _bootstrapCheck(string ridArg) {
     }
     if (b == 0) { Console.WriteLine("✅ repo z42c self-build OK"); }
     else if (b == 2) { Console.WriteLine("ℹ repo self-build skipped (z42c not built)"); }
+    else {
+        ConsoleError.WriteLine("❌ REPO SELF-BUILD FAILED: the repo-built z42c cannot compile the current source.");
+        ConsoleError.WriteLine("   This is the SECOND generation (gen1 built gen2) —— 只有本阶段能发现「gen1 编出的");
+        ConsoleError.WriteLine("   gen2 是坏的」这类缺陷（如静态初始化顺序导致投影表全零 → 转换指令被静默丢弃）。");
+    }
+    // fix-primtype-static-init-order：`b` 此前**被算出来、被打印，却从不进退出码** —— 于是
+    // [repo] 阶段（第二代自建）全红时本门仍 exit 0，唯一信号是「少打印了一行成功」。
+    // 实证代价：一个两代自举回归（PrimModel 投影表跨包静态初始化顺序 → 全零 → 所有数值转换
+    // 被静默丢弃）就是从这个缺口进 main 的，且进去后本门继续报绿。
+    // 判据（audit-silent-gates-program）：门的价值不在于它打印什么，而在于**它真会红吗**。
+    // `b == 2`（repo z42c 未构建，非失败）不计入。
     int __rc = a;
+    if (__rc == 0 && b != 0 && b != 2) { __rc = b; }
     if (__rc == 0) { _procEnd("test bootstrap", sw); }
     return __rc;
 }
