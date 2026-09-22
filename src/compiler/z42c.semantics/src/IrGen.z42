@@ -51,7 +51,11 @@ public sealed class IrGen {
     }
 
     public string Ns;   // 根命名空间（BP-0 名字限定；""=无）
-    public string SourceStem;   // 文件 stem（SA-3：__static_init__ 名前缀，镜像 C# _cuStem）
+    public string SourceStem;   // 文件 stem（历史：__static_init__ 名前缀；unify-static-init-into-cctor 后仅存留给其它消费方）
+    // unify-static-init-into-cctor：本 CU 中「由 IrGen 合成了类型初始化器」的类名集合。
+    // ClassDescBuilder 据此挂 $Cctor 哨兵——**哨兵与发射一一对应，不另写一份判据**
+    // （同 available! 的 D2.1 教训：手抄第二份判据迟早漂移）。
+    public StrMap SynthCctorClasses;
     public int OptSet;  // add-sealed-devirt：本次 Generate 的优化集（Generate 顶设）；EmitContext.Gen.OptSet 读，
                         // 供 emit 时 devirt 门控（Opt.Devirt）。默认 0=None（未走 Generate 的 dump 路径不 devirt，安全）。
     public DependencyIndex Deps;       // 跨包索引（CI-4；调用方 Generate 前设置，null=无）
@@ -155,12 +159,32 @@ public sealed class IrGen {
         IrGenAuxEmitter aux = new IrGenAuxEmitter(this, model, sink);
         // add-partial-types：本 CU 内已发过合并 TYPE record 的 partial 类型名（同文件多碎片时防重复 emit）。
         StrMap emittedPartial = new StrMap();
-        // static_init 首位（SA-3）：有静态字段 init → 合成 `<ns>.<stem>.__static_init__`（fn0，VM 加载期执行）。
+        // unify-static-init-into-cctor：静态字段初始化器按**宿主类**分组，各自成为该类型的
+        // 类型初始化器（发射名 = 该类 cctor 名），不再合成 per-CU `__static_init__`。
+        //
+        // 按**类声明序**发射：无依赖关系的类型之间，相对顺序因此与改前逐字一致（design D6）；
+        // 有依赖关系的则由运行期屏障按真实依赖拓扑序触发——这正是改前会静默读到未初始化值的场景。
+        //
+        // 只遍历顶层 ClassDecl 即可：`TypeChecker` 只对顶层类调 `_bindClass`，`AddStaticInit`
+        // 的宿主类名因此必然是顶层类名（嵌套类的静态初始化器改前也不曾进过 __static_init__）。
+        this.SynthCctorClasses = new StrMap();
         if (model.SiCount > 0) {
-            string stem = this.SourceStem;
-            if (stem == null) { stem = "main"; }
-            var sfe = new FunctionEmitter(this._symbols, this);
-            sink.AddFunc(sfe.EmitStaticInit(this._q(stem) + ".__static_init__", model));
+            int sidx = 0;
+            while (sidx < cu.DeclCount) {
+                Decl sd = IrGenFacts._unwrap(cu.Decls[sidx]);
+                if (sd is ClassDecl) {
+                    ClassDecl sc = sd as ClassDecl;
+                    if ((sc.Kind == "class" || sc.Kind == "struct")
+                        && !this.SynthCctorClasses.ContainsKey(sc.Name)
+                        && model.HasStaticInitFor(sc.Name)) {
+                        this.SynthCctorClasses.Put(sc.Name, "1");
+                        var sfe = new FunctionEmitter(this._symbols, this);
+                        sink.AddFunc(sfe.EmitStaticInit(
+                            this._q(this._classIrShortName(sc)) + "." + IrStaticCtor.MethodKey, model, sc.Name));
+                    }
+                }
+                sidx = sidx + 1;
+            }
         }
         // 两遍（byte-identical：module.Functions 序 = 类方法（声明序）→ 自由函数（声明序），SIGS 字节实证）。
         int i = 0;

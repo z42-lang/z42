@@ -514,6 +514,12 @@ public sealed class ClassDescBuilder {
             }
             j = j + 1;
         }
+        // unify-static-init-into-cctor：没写显式静态 ctor、但有静态字段/静态 auto 属性初始化器的类，
+        // 由 IrGen 合成了类型初始化器 → 同样要挂哨兵，否则运行期不知道该在首次使用前调它。
+        // 判据取自 IrGen 的**实际发射记录**（SynthCctorClasses），而非在此重算一遍"有没有静态初始化器"。
+        if (this._g.SynthCctorClasses != null && this._g.SynthCctorClasses.ContainsKey(c.Name)) {
+            return this._g._q(this._g._classIrShortName(c)) + "." + IrStaticCtor.MethodKey;
+        }
         return "";
     }
 

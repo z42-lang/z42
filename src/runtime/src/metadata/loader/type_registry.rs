@@ -78,6 +78,8 @@ pub fn build_type_registry(module: &mut Module) {
                 .map(|f| (f.name.as_str().into(), f.attributes.clone()))
                 .collect();
         let cold_inner = crate::metadata::types::TypeDescCold {
+            // unify-static-init-into-cctor（7.3）：初始为 0（未知）；慢路确认 Done 后置 1。
+            init_gen:               Default::default(),
             own_fields:             own_fields.into(),
             own_methods:            own_methods.into(),
             own_static_flags:       own_static.into(),

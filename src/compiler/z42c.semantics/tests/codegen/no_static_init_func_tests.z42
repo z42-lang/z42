@@ -1,0 +1,54 @@
+// unify-static-init-into-cctor：`__static_init__` 必须**不再被发射**的门。
+//
+// 静态字段初始化器现在按宿主类归入该类型的**类型初始化器**（发射名 = 该类 cctor 名），
+// per-CU 的 `<ns>.<stem>.__static_init__` 不再存在。
+//
+// 为什么要有这道门：两套机制并存过，而"并存"正是本变更要消灭的东西 —— 一套是
+// per-CU 急切、一套是 per-type 惰性，接缝处产过静默错值（`A.X = B.Y + 1` 在 B 声明
+// 在后时读到零值）。如果将来有人改 IrGen 让 `__static_init__` 复活，中间态会**静默**
+// 回来：编译通过、测试照过，只是顺序保证又没了。
+//
+// 本仓被"没有东西盯着的约定迟早会烂"坑过不止一次（见 format-fixture-antirot-gates），
+// 故此处留一个会变红的东西。
+namespace Z42cSemanticsNoStaticInitTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 有静态字段初始化器的类 → 只发类型初始化器，不发 __static_init__ ──
+[Test]
+void test_static_field_init_emits_type_initializer_not_static_init() {
+    string src = "namespace D; class C { public static int X = 7; } void Main() { }";
+    string ir = IrDump.DumpModule(src);
+    Assert.False(ir.Contains("__static_init__"));
+    Assert.True(ir.Contains("D.C.$cctor"));
+}
+
+// ── 多个类各自一个类型初始化器（改前是一个文件一个 __static_init__ 混装）──
+[Test]
+void test_each_class_gets_its_own_type_initializer() {
+    string src = "namespace D; class A { public static int X = 1; }"
+        + " class B { public static int Y = 2; } void Main() { }";
+    string ir = IrDump.DumpModule(src);
+    Assert.False(ir.Contains("__static_init__"));
+    Assert.True(ir.Contains("D.A.$cctor"));
+    Assert.True(ir.Contains("D.B.$cctor"));
+}
+
+// ── 静态 auto 属性的初始化器同样进类型初始化器 ──
+[Test]
+void test_static_auto_property_init_goes_to_type_initializer() {
+    string src = "namespace D; class C { public static int P { get; set; } = 3; } void Main() { }";
+    string ir = IrDump.DumpModule(src);
+    Assert.False(ir.Contains("__static_init__"));
+}
+
+// ── 没有任何静态初始化器 → 不该凭空合成类型初始化器 ──
+[Test]
+void test_no_static_init_no_synthesized_cctor() {
+    string src = "namespace D; class C { public int X; } void Main() { }";
+    string ir = IrDump.DumpModule(src);
+    Assert.False(ir.Contains("__static_init__"));
+    Assert.False(ir.Contains("$cctor"));
+}

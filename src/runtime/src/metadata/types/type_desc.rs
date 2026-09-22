@@ -69,6 +69,28 @@ pub struct TypeDesc {
 }
 #[derive(Debug, Default, Clone)]
 pub struct TypeDescCold {
+    /// unify-static-init-into-cctor（7.3）：本类型初始化状态的**无锁快路缓存**。
+    /// 存的是「在哪一**代**成功初始化过」（`0` = 从未）。与 `CctorRegistry::generation()`
+    /// 相等才算有效——`static_fields_clear()` 会清空全部静态槽并**递增代际**，于是所有
+    /// 快路标记一次性失效、类型初始化器随之重跑。
+    ///
+    /// 为什么必须有代际：`static_fields_clear` 早就会把 `__static_init__` 倒回队列重跑
+    /// （见 `statics.rs` 里 Sha256 那段实测注释），但对 cctor 状态什么也没做。本变更把
+    /// 静态字段初始化器全搬进类型初始化器之后，清零后它们停在 `Done` **永不重跑**
+    /// ⇒ 静态字段永远停在 Null/零值（实测：单模块 zbc 里 `C.X` 读到 0 而非 7）。
+    ///
+    /// 为什么需要它：`CctorRegistry::pending` 那个全局门的前提是「跑完就归零」，
+    /// 而**登记是加载期急切的、初始化是惰性的** —— 一个从未被使用的类型永远停在
+    /// `NotRun`，门就永远开着。本变更把静态字段初始化器也纳入类型初始化器之后，
+    /// 带 cctor 的类型从个位数涨到上百个，门几乎不可能再归零，于是每次静态访问都要
+    /// 付「两次 mutex + 两次哈希查表」。
+    ///
+    /// 它只是**快路提示，不是真相来源** —— `CctorRegistry::map` 仍然是唯一真相：
+    /// 只在 map 判定 `Done` 之后才置 1，且**只单调地 0→1**。失败的类型永不置 1，
+    /// 因此每次访问都会回到慢路、重新抛出（C# 语义要求如此）。
+    /// 用 `Arc` 是因为 `TypeDescCold` 派生 `Clone`：克隆共享同一个原子，语义正确；
+    /// 即便某条路径拿到的是独立副本（值为 0），也只是多走一次慢路，不影响正确性。
+    pub init_gen: std::sync::Arc<std::sync::atomic::AtomicU32>,
     /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
     /// itself declares** (excluding inherited). Preserved so the cross-zpkg
     /// fixup pass can rebuild `fields` = base.fields ++ own_fields once the
@@ -202,6 +224,21 @@ impl TypeDesc {
     /// add-static-constructors：本类静态构造器的发射函数名；`None` = 没有静态构造器。
     /// 屏障用它短路——没有 cctor 的类型（绝大多数）只付一次 `Option` 判断。
     #[inline] pub fn cctor_func(&self) -> Option<&str> { self.cold.as_ref().and_then(|c| c.cctor_func.as_deref()) }
+    /// unify-static-init-into-cctor（7.3）：本类型的初始化器是否**已确知跑完**。
+    /// `true` ⇒ 屏障可直接放行（两次 relaxed load，无锁无查表）。
+    /// `false` ⇒ 「不确定」，走慢路复核 —— 不代表没跑过。
+    #[inline]
+    pub fn init_done_in(&self, gen: u32) -> bool {
+        self.cold.as_ref()
+            .is_some_and(|c| c.init_gen.load(std::sync::atomic::Ordering::Relaxed) == gen)
+    }
+    /// 慢路确认 `Done` 之后打上快路标记。**只单调 0→1**；失败的类型永不置位。
+    #[inline]
+    pub fn mark_init_done(&self, gen: u32) {
+        if let Some(c) = self.cold.as_ref() {
+            c.init_gen.store(gen, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
     /// fix-silent-symbol-resolution：见 [`TypeDescCold::base_unmerged`]。`false` = 继承视图
     /// 完整（没有基类，或基类已并入）。冷区不在（绝大多数类型）时恒 `false`。
     #[inline] pub fn base_unmerged(&self) -> bool { self.cold.as_ref().is_some_and(|c| c.base_unmerged) }

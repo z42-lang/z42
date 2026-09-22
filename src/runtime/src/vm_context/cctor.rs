@@ -37,12 +37,16 @@
 
 use rustc_hash::FxHashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 /// 类级 attr-ref 哨兵名。**必须与编译器侧 `IrStaticCtor.Sentinel` 逐字一致**
 /// （`src/libraries/z42.ir/src/IrModule.z42`）——两处手写同一个字符串是漂移源，
 /// 故各自只写一次、并在此标明对应关系。
 pub const CCTOR_SENTINEL: &str = "$Cctor";
+
+/// `claim` 等待他线程跑完类型初始化器的上限。取足够宽松的值：正常的初始化器是毫秒级，
+/// 撞到这个上限基本只意味着跨线程循环初始化（C# 在同样场景会直接死锁）。
+const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// 单个类型的 cctor 状态。
 #[derive(Debug, Clone)]
@@ -73,7 +77,7 @@ pub struct CctorEntry {
 ///
 /// 锁顺序：惰性加载器在持有自己的写锁时调 [`Self::register`]（加载器写锁 → `map`）。
 /// 反方向不存在——本类型的任何方法都**不会**在持有 `map` 时访问加载器——故不会死锁。
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CctorRegistry {
     /// 类 FQ → 登记项。
     map: Mutex<FxHashMap<String, CctorEntry>>,
@@ -82,9 +86,41 @@ pub struct CctorRegistry {
     /// 只在 `== 0` 方向被信任（「可证无事可做」）；非 0 时一律走慢路复核，
     /// 故不存在「读到过期非 0 值」导致的正确性问题——只会多做一次查表。
     pending: AtomicUsize,
+    /// unify-static-init-into-cctor（7.3）：初始化代际。`static_fields_clear()` 清空全部
+    /// 静态槽时递增，使所有 `TypeDesc` 上的无锁快路标记一次性失效、类型初始化器随之重跑。
+    /// 从 1 起（`TypeDescCold::init_gen` 默认 0 = 从未初始化，不会与任何有效代际相等）。
+    generation: AtomicU32,
+}
+
+impl Default for CctorRegistry {
+    fn default() -> Self {
+        Self { map: Mutex::default(), pending: AtomicUsize::new(0), generation: AtomicU32::new(1) }
+    }
 }
 
 impl CctorRegistry {
+    /// 当前初始化代际。快路比对用；一次 relaxed load。
+    #[inline(always)]
+    pub fn generation(&self) -> u32 { self.generation.load(Ordering::Relaxed) }
+
+    /// `static_fields_clear()` 专用：静态槽被清空 ⇒ 已跑过的类型初始化器**必须重跑**。
+    /// 递增代际使全部快路标记失效，并把 map 里的终态条目复位成 `NotRun`。
+    ///
+    /// ⚠️ `Failed` 也复位：槽位既已清空，之前那次失败的结论不再适用于新一代；
+    /// 若它仍会失败，重跑时会再次失败并重新登记。
+    pub fn reset_for_rerun(&self) {
+        let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let mut revived = 0usize;
+        for e in m.values_mut() {
+            if matches!(e.state, CctorState::Done | CctorState::Failed(_)) {
+                e.state = CctorState::NotRun;
+                revived += 1;
+            }
+        }
+        self.pending.fetch_add(revived, Ordering::Release);
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+
     /// 热路径的门。`false` ⇒ 全程序没有任何待初始化的 cctor，屏障可直接跳过。
     #[inline(always)]
     pub fn any_pending(&self) -> bool {
@@ -108,28 +144,62 @@ impl CctorRegistry {
     /// 认领一个类型的初始化权。返回：
     /// - `Ok(Some(func))` — 本线程认领成功，**调用方负责跑 `func` 并回调 `finish`**
     /// - `Ok(None)`       — 无需动作（未登记 / 已 Done / 本线程重入）
-    /// - `Err(msg)`       — 该类型此前初始化失败（C# 语义：后续访问抛包装异常）
+    /// - `Err(msg)`       — 该类型此前初始化失败，或等待超时
     ///
-    /// ⚠️ 他线程正在跑时**返回 `Ok(None)` 而不是阻塞等待**：v1 不引入跨线程等待，
-    /// 因为在持有解释器帧的情况下阻塞等待极易与既有的静态初始化排空逻辑互相死锁
-    /// （那块已有 `DRAINING` / `init_batch_inflight` 一堆防嵌套机制）。代价是并发首次
-    /// 访问可能看到部分初始化状态——与 C# 的强保证有差距，**必须在文档与测试里写明**。
+    /// # 跨线程等待（unify-static-init-into-cctor 7.3）
+    ///
+    /// 他线程正在跑时**阻塞等待到终态**，对齐 C# 的「每类型恰好一次、其他线程看到的
+    /// 一定是初始化完成后的状态」。
+    ///
+    /// 此前这里直接 `Ok(None)` 放行（注释写着「v1 不引入跨线程等待」），代价是并发首次
+    /// 访问可能读到部分初始化状态。改前那条路是安全的——静态字段初始化器住在包级
+    /// `__static_init__` 里，由 `init_batch_inflight` 那套静止判定保护；本变更把它们搬进
+    /// 类型初始化器之后，那套保护不再覆盖，缺口立刻暴露成真实失败
+    /// （cross-zpkg `static_init_concurrent`：两个工作线程同时首次触达，一个读到 Null）。
+    ///
+    /// ## 为什么不会死锁
+    ///
+    /// 1. **等待期间不持有 `map` 锁**——每轮都在独立作用域里取锁判定、出作用域即释放。
+    /// 2. **同线程重入不等待**（`Running(me)` 直接放行），C# 允许 cctor 递归触发自身。
+    /// 3. **有界等待**：超时后返回 `Err` 而不是继续放行。跨线程的循环类型初始化
+    ///    （T1 初始化 A 要 B、T2 初始化 B 要 A）在 C# 里同样会死锁；这里把它变成一条
+    ///    **会响的错误**而不是挂死，也不是静默读到半成品——两害相权取其轻。
     pub fn claim(&self, class_fq: &str) -> Result<Option<String>, String> {
         let me = std::thread::current().id();
-        let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        match m.get_mut(class_fq) {
-            None => Ok(None),
-            Some(e) => match &e.state {
-                CctorState::Done => Ok(None),
-                CctorState::Failed(msg) => Err(msg.clone()),
-                CctorState::Running(tid) if *tid == me => Ok(None), // 重入：C# 直接放行
-                CctorState::Running(_) => Ok(None),                 // 他线程在跑，见上注
-                CctorState::NotRun => {
-                    let f = e.func.clone();
-                    e.state = CctorState::Running(me);
-                    Ok(Some(f))
+        let deadline = std::time::Instant::now() + WAIT_TIMEOUT;
+        let mut spins: u32 = 0;
+        loop {
+            // 判定与认领在同一把锁里完成；**出作用域即释放**，等待绝不持锁。
+            {
+                let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+                match m.get_mut(class_fq) {
+                    None => return Ok(None),
+                    Some(e) => match &e.state {
+                        CctorState::Done => return Ok(None),
+                        CctorState::Failed(msg) => return Err(msg.clone()),
+                        CctorState::Running(tid) if *tid == me => return Ok(None),
+                        CctorState::Running(_) => {}   // 他线程在跑 → 落到下面等待
+                        CctorState::NotRun => {
+                            let f = e.func.clone();
+                            e.state = CctorState::Running(me);
+                            return Ok(Some(f));
+                        }
+                    },
                 }
-            },
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "timed out waiting for the type initializer of `{class_fq}` to finish on \
+                     another thread (possible circular type initialization across threads)"
+                ));
+            }
+            // 前若干轮纯 yield（初始化器通常很短），之后退避到 sleep 免得空转烧 CPU。
+            spins = spins.saturating_add(1);
+            if spins < 64 {
+                std::thread::yield_now();
+            } else {
+                std::thread::sleep(std::time::Duration::from_micros(200));
+            }
         }
     }
 
@@ -253,6 +323,13 @@ impl crate::vm_context::VmContext {
     /// 首次触达时登记即可。少一处要维护的枚举，就少一处将来会漏的地方。
     pub fn ensure_type_init(&self, td: &crate::metadata::TypeDesc) -> Result<(), String> {
         let Some(func) = td.cctor_func() else { return Ok(()) };
+        // unify-static-init-into-cctor（7.3）：无锁快路。`register` + `claim` 各要一次
+        // mutex + 一次哈希查表，而「该类型早就初始化完了」是绝对多数情形。
+        // 快路只信 `true`（已确知跑完）方向，`false` 一律走慢路复核 —— 与 `pending`
+        // 门「只信 == 0 方向」是同一套手法，但**粒度是类型而非全程序**，因此不受
+        // 「有类型从未被使用 ⇒ 全局门永远开着」的拖累。
+        let gen = self.core.cctors.generation();
+        if td.init_done_in(gen) { return Ok(()); }
         let class_fq = td.name.clone();
         self.core.cctors.register(&class_fq, func);
 
@@ -298,6 +375,10 @@ impl crate::vm_context::VmContext {
         };
 
         self.core.cctors.finish(&class_fq, err.clone());
+        // unify-static-init-into-cctor（7.3）：**只有成功才打快路标记**。失败的类型
+        // 必须每次都回到慢路，才能命中 `claim` 的 `Failed` 分支重新抛出（C# 语义：
+        // 失败是终态、后续每次访问都抛、永不重试）。置位了就再也抛不出来了。
+        if err.is_none() { td.mark_init_done(gen); }
         match err {
             None => Ok(()),
             Some(msg) => Err(format!(
