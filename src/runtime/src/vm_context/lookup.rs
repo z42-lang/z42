@@ -288,6 +288,11 @@ impl VmContext {
                 std::mem::take(&mut *q)
             };
             for class_fq in &types {
+                // unify-static-init-into-cctor（7.3）：这里**只查类型**（加载 + 登记 cctor），
+                // 不在此运行它 —— 运行时机归**访问点**的屏障（`exec_object::static_get` 顶部的
+                // `ensure_owner_type_init` / `obj_new` / 静态调用）。曾经在这里直接跑过，结果是
+                // 类型初始化器在**函数解析期**就执行，破坏「首次使用前」语义：static-ctor 的
+                // 6 个 golden 全部报 `expected: before, actual: cctor ran`。
                 let _ = self.try_lookup_type(class_fq);
             }
 

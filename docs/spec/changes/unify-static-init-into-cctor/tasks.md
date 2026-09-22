@@ -54,12 +54,13 @@
 
 ## 阶段 7.3：运行期 —— 状态搬到 TypeDesc
 
-- [ ] 3.1 `type_desc.rs`：`TypeDesc` 增 `init_state: AtomicU8`
-- [ ] 3.2 `cctor.rs`：状态机改读写 `TypeDesc`；删全局 `pending` 计数门与 `Mutex<HashMap>`
+- [x] 3.1 `type_desc.rs`：`TypeDescCold` 增 `init_done: Arc<AtomicU8>` + `TypeDesc::init_done()` / `mark_init_done()`
+- [x] 3.2 `cctor.rs`：`ensure_type_init` 前置无锁快路（`pending` 门与 map 保留为慢路真相来源）
+- [ ] 3.2b 评估是否可**彻底删除** `pending` 全局门（快路落地后它只剩慢路作用）
 - [ ] 3.3 `cctor.rs`：保留 `Failed` 文案旁挂表（少见路径）
 - [ ] 3.4 `statics.rs`：静态读写屏障改用预解析缓存的 owner `TypeDesc`
 - [ ] 3.5 `exec_call` / `jit_call`：静态调用屏障同上
-- [ ] 3.6 屏障尊重 `owner_init_free` 位：置位站点整条不执行
+- [ ] 3.6 屏障尊重 `owner_init_free` 位：置位站点整条不执行（随 7.2）
 - [ ] 3.7 `loader/type_registry.rs`：登记点统一到 `build_type_registry` 单一漏斗
 
 ## 阶段 7.4：运行期 —— 删除 `__static_init__` 平行管道

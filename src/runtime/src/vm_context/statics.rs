@@ -104,6 +104,12 @@ impl VmContext {
         // 崩在 `Sha256._processBlock`。
         // 变更前 `init_static_fields` 在清零后无条件重跑全部初始化器，等价于此。
         // 把已跑过的名字倒回待跑队列，由紧随其后的 `run_pending_static_inits` 重跑。
+        // unify-static-init-into-cctor（7.3）：`__static_init__` 的重跑早就有（见下），
+        // 但**类型初始化器此前完全没被照顾**——本变更把静态字段初始化器全搬进它们之后，
+        // 清零后它们停在 `Done` 永不重跑 ⇒ 静态字段永远停在 Null/零值
+        // （实测：单模块 zbc 里 `class C { static int X = 7; }` 读到 0）。
+        self.core.cctors.reset_for_rerun();
+
         let mut state = self.core.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
             let ran: Vec<String> = loader.static_init_state.keys().cloned().collect();

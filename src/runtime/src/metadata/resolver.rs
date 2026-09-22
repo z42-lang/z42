@@ -282,7 +282,13 @@ pub fn resolve_function_tokens(
         // 必须触发所属类的初始化。热路径 `static_get_by_id` 无法区分「未初始化」与
         // 「值就是 null」（`Value::Null` 是合法值），故触发点前移到这里——名字在此可得，
         // 且每个名字每模块只走一次。所属类 = 字段 FQN 去掉最后一段。
-        // 已在 type registry 里的类说明其所属包早已加载 + 初始化，无需入队。
+        // defer-class-initialization (T3): 静态字段引用是「首次主动使用」的一种，
+        // 所属包必须先加载（类型才登记得上，cctor 屏障才有东西可查）。
+        // 已在 type registry 里的类说明其所属包已加载，无需入队。
+        //
+        // ⚠️ unify-static-init-into-cctor（7.3）：这里**只负责"加载"，不负责"初始化"**。
+        // 初始化时机归访问点的屏障（`static_get` 顶部的 `ensure_owner_type_init` 等），
+        // 否则会在函数解析期就跑掉类型初始化器，破坏「首次使用前」语义。
         for name in &static_site_names {
             let Some((class_fq, _field)) = name.rsplit_once('.') else { continue };
             if ctx.has_loaded_type(class_fq) { continue; }
