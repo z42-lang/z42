@@ -7,10 +7,36 @@ namespace Std;
 // VM represents both float and double as Value::F64 at runtime; builtin names reuse
 // the `__double_*` implementations.
 public struct Single : IComparable, IEquatable, INumber {
-    // C# BCL parity — finite range + smallest denormal (NaN/±Infinity deferred).
+    // C# BCL parity. 特殊值走 IEEE-754 单精度位模式（__static_init__ 可调 BitConverter，
+    // 不像 const 折叠那样只能吃字面量）。symmetrize-primitive-api：补齐 NaN/±Infinity —— 此前
+    // 注释写着「deferred」，于是 Single 在判定 API 上比 Double 少一整套。
     public static float MaxValue = 3.40282347E+38F;
     public static float MinValue = -3.40282347E+38F;
     public static float Epsilon  = 1.401298464324817E-45F;
+    public static float NaN              = (float)BitConverter.SingleFromBits(0x7FC00000);
+    public static float PositiveInfinity = (float)BitConverter.SingleFromBits(0x7F800000);
+    // 0xFF800000 超出 int 正区间（会被当 long 字面量），用等值的有符号十进制写。
+    public static float NegativeInfinity = (float)BitConverter.SingleFromBits(-8388608);
+
+    // symmetrize-primitive-api：Single 此前**连 Parse 都没有**（只有 Convert.ToSingle 绕一圈）。
+    // VM 把 float/double 同存 Value::F64，故解析走 double 再窄化 —— 与 Convert.ToSingle 同实现，
+    // 现在以 `Single.Parse` 为单一出处，Convert.ToSingle 改为委托它。
+    public static float Parse(string s) { return (float)Double.Parse(s); }
+
+    public static float? TryParse(string s) {
+        try { return Single.Parse(s); }
+        catch (Exception e) { return null; }
+    }
+
+    // IEEE-754 分类（纯脚本，与 Double 逐条同款）。NaN 是唯一不等于自身的值。
+    public static bool IsNaN(float v) { return v != v; }
+    // ±∞ 的 `v - v` 是 NaN（≠ 0）；任何有限 v 恒为 0。NaN 本身已被 IsNaN 守卫排除。
+    public static bool IsInfinity(float v) {
+        return !Single.IsNaN(v) && (v - v) != 0.0f;
+    }
+    public static bool IsPositiveInfinity(float v) { return Single.IsInfinity(v) && v > 0.0f; }
+    public static bool IsNegativeInfinity(float v) { return Single.IsInfinity(v) && v < 0.0f; }
+    public static bool IsFinite(float v) { return !Single.IsNaN(v) && !Single.IsInfinity(v); }
 
     [Native("__double_to_string")]  public extern string ToString();
 
@@ -19,8 +45,19 @@ public struct Single : IComparable, IEquatable, INumber {
     public bool Equals(float other) { return this == other; }
     public int GetHashCode() { return BitConverter.SingleToBits(this); }
 
-    // 2026-04-27 wave2-compare-to-script: 与 Double.CompareTo 同语义（NaN → 0）。
+    // 2026-04-27 wave2-compare-to-script。symmetrize-primitive-api：**补上 NaN 全序**——
+    // 此前注释写着「与 Double.CompareTo 同语义」，实际 Double 有 NaN 全序分支而这里没有，
+    // 于是 `List<float>` 里含 NaN 时排序行为与 `List<double>` 不一致（NaN 的 `<`/`>` 都是
+    // false ⇒ 塌成 0 ⇒ 与所有值「相等」⇒ 排序被污染）。现与 Double 逐条一致：
+    // NaN 只等于自己，且排在所有非 NaN 之前。
     public int CompareTo(float other) {
+        bool thisNaN  = (this != this);
+        bool otherNaN = (other != other);
+        if (thisNaN || otherNaN) {
+            if (thisNaN && otherNaN) return 0;
+            if (thisNaN) return -1;
+            return 1;
+        }
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;

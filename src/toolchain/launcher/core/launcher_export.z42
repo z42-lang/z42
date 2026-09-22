@@ -185,7 +185,7 @@ void _cmdPublish(ParseResult r) {
     string stub = _desktopApphostStub(rid);
     string[] fargv = _publishForwardArgv(tomlPath, rid, r.GetOption("output"),
         r.GetFlag("no-build"), r.GetFlag("self-contained"));
-    Environment.Exit(_forwardZ42bEnv(fargv, "Z42_APPHOST_TEMPLATE", stub));
+    Environment.Exit(_forwardZ42b(fargv, "Z42_APPHOST_TEMPLATE", stub));
 }
 
 // Reconstruct the z42b argv:

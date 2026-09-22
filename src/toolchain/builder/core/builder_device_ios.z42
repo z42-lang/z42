@@ -79,7 +79,7 @@ int _buildIosXcframework(string buildRoot, string here, string rid) {
     string iosMin = "16.0";
     string versionsPath = Path.Join(buildRoot, "versions.toml");
     if (File.Exists(versionsPath)) {
-        iosMin = _pubPlatformStr(TomlValue.Parse(File.ReadAllText(versionsPath)), "ios", "min_ios", iosMin);
+        iosMin = _pubPlatform(TomlValue.Parse(File.ReadAllText(versionsPath)), "ios", "min_ios", iosMin);
     }
     int i = 0;
     while (i < n) {

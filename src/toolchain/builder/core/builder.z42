@@ -28,22 +28,23 @@ using Z42.Build.Project;
 // 目录 → 生成一次性 driver 源码」设计被动态注入取代（也修掉了隐式探测会把 xtask 的
 // scripts/build/ 源码目录误判为 hook 目录的坑——hooks 只认 manifest 显式声明）。
 int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel) {
-    return _orchestrateFor(manifest, target, sourceDir, hooksRel, "");
+    return _orchestrate(manifest, target, sourceDir, hooksRel, "");
 }
 
 // parentPkg（z42b-owns-test-targets）：非空 → 本次是该包的测试/bench 目标，透传给编译器
 // ⇒ 加载父包时按同包待遇（其 internal 可见）。
-// 注：另起名字而非同名多签名——自由函数重载（free-function-overloads）已支持，但按 bootstrap-seed
-// 的 support/use 分阶段纪律，工具链/stdlib 源码在阶段 1 暂不使用（晚一个 nightly 才 use），故此处仍分名。
-int _orchestrateFor(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
-                    string parentPkg) {
-    return _orchestrateWith(manifest, target, sourceDir, hooksRel, parentPkg, "");
+// free-function-overloads 阶段 2（use）：以下三个 `_orchestrate` 是同名重载（arity 4/5/6，逐层
+// 加参数、默认透传）——阶段 1 的 support 已随 nightly 发布，此处兑现真正 use（此前因语言不支持
+// 自由函数重载而被迫分名 _orchestrateFor/_orchestrateWith）。
+int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
+                 string parentPkg) {
+    return _orchestrate(manifest, target, sourceDir, hooksRel, parentPkg, "");
 }
 
 // extraDepDir（z42b-owns-test-targets）：除 Z42_LIBS 外再供一个 zpkg 目录 —— 测试目标要依赖
 // **刚建好的父包**，而父包的 dist 不在 Z42_LIBS 里。
-int _orchestrateWith(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
-                     string parentPkg, string extraDepDir) {
+int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel,
+                 string parentPkg, string extraDepDir) {
     Pipeline p = new Pipeline();
     p.ParentPkg = parentPkg;
     p.Compiler = _hostCompiler();                  // 共享 z42c 编译实现（ICompiler），in-process
@@ -64,7 +65,7 @@ int _orchestrateWith(ProjectManifest manifest, Target target, string sourceDir, 
     ctx.Manifest    = manifest;
     ctx.Target      = target;
     ctx.Dirs        = dirs;
-    ctx.Inputs      = _initialInputsWith(manifest, extraDepDir);
+    ctx.Inputs      = _initialInputs(manifest, extraDepDir);
     ctx.WorkloadDir = "";                          // 实现期：选中 workload 的安装目录
     return p.Run(ctx);
 }
@@ -162,9 +163,11 @@ string _dirsResolve(string raw, string sourceDir, string outBase, string profile
 // compile 相位前的初始输入（wire-z42b 2b）：Deps = Z42_LIBS 下 manifest 声明依赖的 zpkg
 // 路径（MVP 单源 Z42_LIBS；workspace 兄弟 dist 多源解析归 wire-z42b-future-deps-resolve）。
 // Z42cCompiler 由这些路径的父目录集推导 LibsDirs（design D3）。
-Inputs _initialInputs(ProjectManifest m) { return _initialInputsWith(m, ""); }
+Inputs _initialInputs(ProjectManifest m) { return _initialInputs(m, ""); }
 
-Inputs _initialInputsWith(ProjectManifest m, string extraDepDir) {
+// free-function-overloads 阶段 2（use）：同名重载（2 参版，附加 extraDepDir）——此前因不支持
+// 自由函数重载而分名 _initialInputsWith。
+Inputs _initialInputs(ProjectManifest m, string extraDepDir) {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS") ?? "";
     if (libs.Length == 0 && extraDepDir.Length == 0) { return new Inputs("", "", new string[0]); }
     // 镜像 z42c CLI 的 Z42_LIBS 语义：整目录全部 zpkg 供扫（stdlib 恒可用——prelude/Std.IO

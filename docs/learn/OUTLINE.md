@@ -32,7 +32,7 @@
 |---|------|------|------|------|
 | 13 | 类与对象 | `types/classes` | 类定义、**引用语义**、字段与可见性、构造器与 `: this()`、自动/计算属性与索引器、对象初始化器与 `new()`、静态成员、重写 ToString | 🟢 |
 | 14 | 继承与多态 | `types/inheritance` | `virtual`/`override`、多态按运行时派发、构造顺序与 `base`、`abstract`（**不能 new**）、`sealed`、无 `new` 方法隐藏 | 🟢 |
-| 15 | 接口 | `types/interfaces` | 定义与实现、多接口、接口属性 / 索引器 | ✅ |
+| 15 | 接口 | `types/interfaces` | 声明与实现（E0412）、多接口、`is`/`as`、接口属性（get/set 两份契约）、🔴 接口不能继承接口、接口 vs 抽象类 | 🟢 |
 | 16 | 值类型与记录 | `types/structs-records` | `struct` 值语义、`[Record]` 与主构造器、`with` 表达式 | 🧪 |
 | 17 | 枚举与模式匹配 | `types/patterns` | `enum`、`switch` 表达式、结构化模式、解构、穷尽性 | 🧪 |
 | 18 | 泛型 | `types/generics` | 泛型类型、泛型方法、`where` 约束 | ✅ |
