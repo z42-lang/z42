@@ -52,6 +52,13 @@ public sealed class OperatorEmitter {
             // 字符串拼接——这是类型系统给的不变式，不是此处的假设。
             a = this._ee._boxEnumForStr(a, b.Left.Type());
             c = this._ee._boxEnumForStr(c, b.Right.Type());
+            // 值 struct 操作数先转成串（fix-struct-tostr-in-interp）。与上面给 enum 装箱同一位置、
+            // 同一动机：VM 的 Add(str) 最终落到 `value_to_str`，那条**没有 ctx** 的路径解不了 arena
+            // 里的 struct blob，只吐 `<struct value>` —— struct 自己写的 `ToString` 在 `"" + p` 里
+            // 完全不生效。判据同 enum 那两行：带 struct 操作数的 `+` 只可能是字符串拼接
+            // （struct 的算术 `+` 要么有 op_Add 重载、早在别处派发，要么被转换格拒掉）。
+            if (this._ee._isBlobStruct(b.Left.Type()))  { a = this._ee._emitStructToStr(a, b.Left.Type()); }
+            if (this._ee._isBlobStruct(b.Right.Type())) { c = this._ee._emitStructToStr(c, b.Right.Type()); }
             // 字符串拼接也走 Add（tag=str；C# 字节实证 0x10 非 0x85——StrConcatInstr 留作他途）
             this._ctx.Emit(new AddInstr(d, a, c));
         }

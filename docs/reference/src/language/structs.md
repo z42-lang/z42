@@ -160,6 +160,26 @@ public Pair(int a, int b) { A = a; B = b; }
 值语义目前只对**两个及以上字段**的 struct 生效。
 细节与示例见[所有权与内存模型的「已知偏差」](memory-model.md)。
 
+### `Console.WriteLine(s)` 不走 `ToString`
+
+自定义的 `ToString` 在**除 `Console.WriteLine` / `Write` 之外**的字符串化路径上都生效：
+
+| 写法 | 结果 |
+|------|------|
+| `s.ToString()` | ✅ 自定义结果 |
+| `$"{s}"` 插值 | ✅ 自定义结果 |
+| `"x" + s` 拼接 | ✅ 自定义结果 |
+| `((object)s).ToString()` | ✅ 自定义结果 |
+| **`Console.WriteLine(s)`** | 🔴 `类型名{...}` |
+
+⚠️ 最后一条**不是 struct 独有**——`Console.WriteLine` / `Write` 对 **class / record / struct
+一律**打 `类型名{...}`，因为它们是 native builtin，走的是不做方法派发的原始字符串化路径。
+要打印自定义格式，用插值 `Console.WriteLine($"{s}")` 或显式 `Console.WriteLine(s.ToString())`。
+
+> 2026-09-22 之前插值 / 拼接 / 经 `object` 调用三条路**也**不走自定义 `ToString`
+> （插值与拼接吐占位符 `<struct value>`，经 `object` 调用吐短类型名），四条路四个说法。
+> 现已统一，只剩 `Console.WriteLine` 那条待修。
+
 ## 与接口一起用
 
 struct 可以实现接口；经接口静态类型调用会装箱：

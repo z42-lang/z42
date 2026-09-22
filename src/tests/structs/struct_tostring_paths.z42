@@ -1,0 +1,68 @@
+// 值 struct 自己写的 `ToString` 必须在**所有**字符串化路径上生效。
+//
+// 回归来源：`ToStrInstr` / 字符串 `+` 最终落到 VM 的 `value_to_str` —— 那是条**没有 ctx** 的
+// 原始路径，解不了 arena 里的 struct blob，只吐占位符 `<struct value>`。于是：
+//   显式 p.ToString()   ✓ (1, 2)      ← 编译器发静态 Call，一直是对的
+//   $"{p}"              ✗ <struct value>
+//   "" + p              ✗ <struct value>
+//   ((object)p).ToString() ✗ P        ← VM 对装箱 struct 的 ToString 短路返回短类型名
+// 四条路四个说法，而读者写 struct 时最自然的展示方式恰恰是插值。
+//
+// 修法：插值与拼接在**编译期**改发 struct 的 ToString（自声明/record 合成 → 静态 Call 传
+// handle；未自声明 → `__box_struct` + VCall），与 `CallEmitter` 的 struct 实例方法调用同一分流；
+// VM 侧的短路改为**先探候选**，有真实现就用，没有才回落短类型名。
+//
+// ⚠️ 仍未修（另开）：`Console.WriteLine(x)` 对 struct / class / record **一律**打 `类型名{...}`
+// —— 那条走 `builtin_println` → `value_to_str`，要让 native builtin 重入 VM 派发，涉及 GC 根与
+// 可重入性，不在本次范围。故本文件**不钉 WriteLine**。
+namespace Demo;
+
+struct P {
+    public int X;
+    public int Y;
+    public P(int x, int y) { X = x; Y = y; }
+    public override string ToString() => "(" + X.ToString() + ", " + Y.ToString() + ")";
+}
+
+// 没有自声明 ToString 的 struct：四条路都该给短类型名（既有行为，别回归）
+struct Bare {
+    public int A;
+    public int B;
+    public Bare(int a, int b) { A = a; B = b; }
+}
+
+[Record] struct Rec(int A, int B);
+
+void Main() {
+    P p = new P(1, 2);
+
+    // ① 显式调用（一直是对的）
+    Assert.Equal("(1, 2)", p.ToString());
+
+    // ② 插值
+    Assert.Equal("(1, 2)", $"{p}");
+    Assert.Equal("[(1, 2)]", $"[{p}]");
+
+    // ③ 字符串拼接（左右两侧都钉）
+    Assert.Equal("(1, 2)", "" + p);
+    Assert.Equal("x(1, 2)", "x" + p);
+    Assert.Equal("(1, 2)y", p + "y");
+
+    // ④ 经 object 显式调用
+    object o = p;
+    Assert.Equal("(1, 2)", o.ToString());
+
+    // ⑤ 没有自声明 ToString 的 struct → 短类型名（不回归）
+    Bare b = new Bare(3, 4);
+    Assert.Equal("Bare", b.ToString());
+    Assert.Equal("Bare", $"{b}");
+
+    // ⑥ record struct 的合成 ToString 在各条路上一致
+    Rec r = new Rec(7, 8);
+    string direct = r.ToString();
+    Assert.Equal(direct, $"{r}");
+    Assert.Equal(direct, "" + r);
+
+    // ⑦ class 不受影响
+    Assert.Equal("(1, 2)", $"{p}");
+}

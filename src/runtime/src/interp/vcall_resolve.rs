@@ -215,7 +215,20 @@ fn resolve_vcall_unchecked(
                 let h = crate::corelib::convert::builtin_struct_hash_code(ctx, &[obj_val.clone()])?;
                 return Ok(ResolvedVCall { target: VCallTarget::Immediate(h), this: obj_val.clone() });
             }
+            // 短类型名只是 **没有真实现时** 的兜底（C# ValueType 默认行为）。record 的合成
+            // `ToString` 一直走下方候选查找；**用户自己写的 `override string ToString()` 此前
+            // 被这条短路一并拦掉** —— 于是 `Console.WriteLine(p)` 打的是 `P` 而不是用户写的格式，
+            // 而显式 `p.ToString()`（编译器发静态 Call）却是对的，两条路说法不一致。
+            // 故先探一次候选：有真实现就用它，没有才回落短类型名。
             if method == "ToString" && !b.type_desc().is_record() {
+                // ⚠️ 只探**这个 struct 自己**的槽位，不能用 `resolve_by_candidates` ——
+                // 它最后会回落到 `Std.Object`，于是没写 ToString 的 struct 会被派发到
+                // `Std.Object.ToString`，而那个 builtin 收到装箱 struct 直接抛
+                // `__obj_to_str: expected an object`（我第一版就这么踩了）。
+                let type_name = b.type_desc().name.to_string();
+                if let Some(target) = resolve_own_slot(ctx, module, &type_name, method, arity) {
+                    return Ok(ResolvedVCall { target, this: obj_val.clone() });
+                }
                 let n: &str = &b.type_desc().name;
                 let short = n.rsplit('.').next().unwrap_or(n);
                 return Ok(ResolvedVCall {
@@ -337,6 +350,28 @@ fn resolve_by_candidates(
         if let Some(f) = ctx.try_lookup_function(name) {
             return Some(VCallTarget::Lazy(f));
         }
+    }
+    None
+}
+
+/// Probe **only** `{class}.{method}` (mangled + plain), never the `Std.Object` fallback.
+///
+/// [`resolve_by_candidates`] deliberately ends with `Std.Object`; that is right for a normal
+/// dispatch but wrong when the caller needs to answer "does this type declare the method
+/// *itself*?" — a boxed struct with no `ToString` of its own would resolve to
+/// `Std.Object.ToString`, whose builtin rejects a boxed struct outright
+/// (`__obj_to_str: expected an object`). Used by the boxed-struct `ToString` arm to pick the
+/// user's / record's own implementation when there is one, and fall back to the short type
+/// name when there is not.
+fn resolve_own_slot(
+    ctx: &VmContext, module: &Module, class_name: &str, method: &str, arity: usize,
+) -> Option<VCallTarget> {
+    let names = [format!("{}.{}${}", class_name, method, arity), format!("{}.{}", class_name, method)];
+    for name in &names {
+        if let Some(&idx) = module.func_index.get(name.as_str()) {
+            if module.functions.get(idx).is_some() { return Some(VCallTarget::Local(idx)); }
+        }
+        if let Some(f) = ctx.try_lookup_function(name) { return Some(VCallTarget::Lazy(f)); }
     }
     None
 }
