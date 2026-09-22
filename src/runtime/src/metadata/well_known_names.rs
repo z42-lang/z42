@@ -93,8 +93,3 @@ pub const BUILTIN_OBJ_TO_STR: &str = "__obj_to_str";
 /// `Std.Object.ToString()` — vtable key + IR-emitted method name.
 pub const METHOD_TO_STRING: &str = "ToString";
 
-/// Per-module static initialiser suffix. Every `__static_init__` function
-/// (one per file with non-trivial static fields) ends with this suffix —
-/// VM scans `module.func_index` for `*.{METHOD_STATIC_INIT}` to run them
-/// before the entry point.
-pub const METHOD_STATIC_INIT: &str = "__static_init__";

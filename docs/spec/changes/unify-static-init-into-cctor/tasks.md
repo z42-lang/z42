@@ -65,31 +65,19 @@
 
 ## 阶段 7.4：运行期 —— 删除 `__static_init__` 平行管道
 
-> 🔴 **被 nightly 阻塞，不能与 7.1 同 PR 落地**（2026-09-22 实证）。
->
-> 7.1 已彻底消除 `__static_init__` 的**发射**（新编译器产出的 `z42.core.zpkg` 里 0 次）。
-> 但自举链的 `seed cold-start` 会把**种子的 stdlib** stage 进来、用**新 VM** 运行，
-> 而种子（nightly 0.6.0）产物里还有 `__static_init__`（实测 1 次）。
-> 删掉运行期支持 ⇒ 新 VM 跑不了种子产物 ⇒ 冷启动自举断链。
->
-> 这是 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md) 纪律的**反方向**：
-> 加新语法是「support 先行、晚一个 nightly 再 use」；删旧机制是
-> **「先让所有 cold-start 入口不再需要它，再删支持」**。
->
-> **解除条件**：发布一版含 7.1 的 nightly，使种子不再产出 `__static_init__`。
-> 届时用 `python3 -c "print(open('.z42/libs/z42.core.zpkg','rb').read().count(b'__static_init__'))"`
-> 核对为 0 再开工。
+> ✅ **阻塞已解除（2026-09-22）**：含 #751 的 nightly 已发布，种子产物
+> `__static_init__` 计数为 **0**，可安全删除运行期支持。
 
-- [ ] 4.1 `lazy_loader/registry.rs`：删后缀扫描 `ends_with(".__static_init__")`
-- [ ] 4.2 `lazy_loader.rs`：删 `pending_static_inits` / `static_init_state`
-- [ ] 4.3 `lazy_loader/resolve.rs`：删 `InitState::Claimed` 窗口逻辑
-- [ ] 4.4 `vm_context/types.rs`：删 `running_static_inits` 等计数字段
-- [ ] 4.5 `vm_context/lookup.rs`：`run_pending_static_inits` 塌缩为单队列
-- [ ] 4.6 `interp/entry.rs`：`init_static_fields` 塌缩
-- [ ] 4.7 `jit/mod.rs`：镜像塌缩；删 `collect_lazy_static_init_names`
-- [ ] 4.8 `well_known_names.rs`：删 `METHOD_STATIC_INIT`
-- [ ] 4.9 `metadata/resolver.rs`：排空点调整
-- [ ] 4.10 `host/ops.rs` / `host/state.rs` / `boot.rs`：宿主加载路径与启动步骤表同步
+- [x] 4.1 `lazy_loader/registry.rs`：删后缀扫描 `ends_with(".__static_init__")`
+- [x] 4.2 `lazy_loader.rs`：删 `pending_static_inits` / `static_init_state`
+- [x] 4.3 `lazy_loader/resolve.rs`：删 `InitState::Claimed` 窗口逻辑
+- [x] 4.4 `vm_context/types.rs`：删 `running_static_inits` 等计数字段
+- [x] 4.5 `vm_context/lookup.rs`：`run_pending_static_inits` 塌缩为单队列
+- [x] 4.6 `interp/entry.rs`：`init_static_fields` 塌缩
+- [x] 4.7 `jit/mod.rs`：镜像塌缩；删 `collect_lazy_static_init_names`
+- [x] 4.8 `well_known_names.rs`：删 `METHOD_STATIC_INIT`
+- [x] 4.9 `metadata/resolver.rs`：排空点调整
+- [x] 4.10 `host/ops.rs` / `host/state.rs` / `boot.rs`：宿主加载路径与启动步骤表同步
 
 ## 阶段 8：验证
 

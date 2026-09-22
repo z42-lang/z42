@@ -72,51 +72,25 @@ pub fn run_outcome(
 /// (test-runner, REPL) can do init once + run multiple functions in
 /// sequence (Setup → Test → Teardown) without re-initialising between.
 ///
-/// 2026-04-27 fix-static-field-access: 修前只跑 `{module.name}.__static_init__`
-/// (主模块)，导入的 zpkg（如 z42.math 的 `Std.Math.__static_init__`）虽然 link 进
-/// merged module 但永不被调用 → `Math.PI` 等常量永远 `null`。
+/// unify-static-init-into-cctor 之后，本函数**不再执行任何初始化器** —— 静态字段
+/// 初始化器已全部并入每类型的类型初始化器，由访问点的屏障在「首次使用前」触发。
+/// 这里只剩两件事：清空静态槽（并经 `reset_for_rerun` 递增代际使类型初始化器可重跑），
+/// 以及排空「待加载类型」队列让屏障有类型可查。
 ///
-/// interp 模式下 stdlib 是 lazy-loaded，启动时除 z42.core 外都不在
-/// `module.functions`。所以同时需要：
-///   1. 扫主模块 functions（拿到 eagerly-loaded 的 init，含 main 自己 + z42.core）
-///   2. 通过 `lazy_loader::declared_namespaces()` 拿到所有声明但未加载的命名空间，
-///      调用 `try_lookup_function("<ns>.__static_init__")` 触发 lazy load
-///   3. 合并 + 按 FQN 字母序去重 + 逐一调用
-///
-/// 副作用：所有声明的 stdlib zpkg 都会被 eagerly 加载（不再纯 lazy）。
+/// 历史（已不适用，留作背景）：曾按三步扫描——扫主模块 `*.__static_init__`、
+/// 经 `declared_namespaces()` 触发 lazy load、按 FQN 字母序去重逐一调用。
+/// 那条路的问题正是本变更要消灭的：**按名字序而非依赖序**，跨类型依赖静默读到零值。
 pub fn init_static_fields(ctx: &VmContext, module: &Module) -> Result<()> {
     ctx.static_fields_clear();
 
-    // defer-class-initialization: 先跑依赖包的初始化器（T3 在主模块解析期入队的
-    // 「静态字段所属类」），再跑主模块自己的——主模块的初始化器可能读依赖包设置的
-    // 静态字段（fix-static-field-access 的顺序依赖）。
-    ctx.run_pending_static_inits();
-
-    // 1. Eager-loaded init functions (in main + z42.core).
-    let mut eager_inits: Vec<&Function> = module.functions.iter()
-        .filter(|f| f.name.ends_with(".__static_init__"))
-        .collect();
-    eager_inits.sort_by(|a, b| a.name.cmp(&b.name));
-    for init_fn in &eager_inits {
-        match exec_function(ctx, module, init_fn, &[])? {
-            ExecOutcome::Returned(_) => {}
-            ExecOutcome::Thrown(val) =>
-                bail!("uncaught exception in static init `{}`: {}", init_fn.name, value_to_str(&val)),
-        }
-    }
-
-    // 2. defer-class-initialization (2026-09-04): 不再 force-load 全部已声明 zpkg。
+    // unify-static-init-into-cctor（7.4）：此前这里做两件事 ——
+    //   ① 扫 `module.functions` 里所有 `*.__static_init__` 并按名字序**急切执行**；
+    //   ② 前后两次排空 `pending_static_inits` 队列。
+    // 静态字段初始化器已全部并入**每类型的类型初始化器**、按首次使用惰性触发，
+    // 两件事都不再需要：没有 `__static_init__` 可扫，也没有那条队列。
     //
-    // 变更前这里调 `collect_lazy_static_init_names()`，它内部
-    // `force_load_all_declared()` 把 libs/ 下每个候选包整包加载再全表扫后缀——
-    // 实测 hello world 因此加载 18 个包 2910 个函数、13.6 ms，而真正要跑的 31 个
-    // 初始化器合计只要 78 µs（99.4% 的成本是「找」）。
-    //
-    // 现在改为按需：包被首次触达时加载，其 `__static_init__` 入队，由
-    // `run_pending_static_inits` 在锁外执行（触发点 T1 函数查找 / T2 类型查找 /
-    // T3 静态字段引用）。这里只需排空 T3 在主模块解析期入队的「所属类」——
-    // **必须在步骤 1 之前**，因为主模块的初始化器可能读依赖包的静态字段
-    // （2026-04-27 fix-static-field-access 记录过这个顺序依赖）。
+    // 仍然要排空「待加载类型」队列（T3 在主模块解析期入队的静态字段所属类）——
+    // 那只做**加载**，让屏障在访问点有类型可查；初始化本身不在这里发生。
     ctx.run_pending_static_inits();
     Ok(())
 }

@@ -79,14 +79,6 @@ pub struct LazyLoader {
     /// clone was the top interp alloc hotspot in cross-zpkg-heavy workloads like
     /// z42c self-compile). Common path (no new load) leaves it empty → zero alloc.
     pub(crate) newly_loaded:   Vec<String>,
-    /// defer-class-initialization: `*.__static_init__` 名字，随包懒加载入队，由
-    /// [`VmContext::run_pending_static_inits`] 在**放锁后**执行。取代旧的
-    /// boot 期 `force_load_all_declared()` 全量加载枚举。
-    pub(crate) pending_static_inits: Vec<String>,
-    /// defer-class-initialization: 每个 `__static_init__` 的执行状态。
-    /// `Running(tid)` = 某线程正在跑（同线程重入直接跳过 = CLR 循环类型初始化器语义；
-    /// 他线程需等到 `Done` 再读该包静态字段）；`Done` = 已跑完。
-    pub(crate) static_init_state: FxHashMap<String, InitState>,
     /// zpkg file names that are declared as dependencies (direct or
     /// transitive) but have not yet been loaded. Lookup candidates.
     pub(crate) declared_zpkgs: FxHashMap<String, ZpkgCandidate>,
@@ -246,8 +238,6 @@ impl LazyLoader {
             string_pool:    Vec::new(),
             loaded_zpkgs,
             newly_loaded:   Vec::new(),
-            pending_static_inits: Vec::new(),
-            static_init_state: FxHashMap::default(),
             declared_zpkgs,
             function_table: FxHashMap::default(),
             type_registry:  FxHashMap::default(),
@@ -418,7 +408,7 @@ impl LazyLoader {
 
 mod registry;
 mod resolve;
-pub(crate) use resolve::{namespace_prefix, InitState};
+pub(crate) use resolve::namespace_prefix;
 #[cfg(test)]
 use resolve::is_primitive_keyword_name;
 

@@ -57,10 +57,6 @@ pub struct VmCore {
     /// they mirror, and are only ever trusted for the `== 0` ("provably nothing to
     /// do") direction.
     pub(crate) pending_type_init_count: std::sync::atomic::AtomicUsize,
-    /// Number of `__static_init__` bodies currently `Running` on any thread. Bumped
-    /// where `InitState::Running` is written and dropped where `Done` is written,
-    /// both under the loader lock, so `== 0` implies no `Running` entry exists.
-    pub(crate) running_static_inits: std::sync::atomic::AtomicUsize,
     /// fix-static-init-claim-window：**有线程正在处理一批初始化工作**（从两个队列
     /// 取走内容起，到这批处理完为止）。
     ///

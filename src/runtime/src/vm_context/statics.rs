@@ -97,26 +97,19 @@ impl VmContext {
             *slot = Value::Null;
         }
         drop(sf);
-        // defer-class-initialization: 槽位清零后，**已跑过的初始化器必须重跑**——
-        // 否则那些包已经是「已加载」状态、不会再被任何查找重新触发，静态字段永远停在
-        // Null。实测：z42b 先加载依赖跑完 43 个初始化器，随后为目标模块调
-        // `init_static_fields` → 这里清零 → `Sha256._roundConstants` 变 Null，
-        // 崩在 `Sha256._processBlock`。
-        // 变更前 `init_static_fields` 在清零后无条件重跑全部初始化器，等价于此。
-        // 把已跑过的名字倒回待跑队列，由紧随其后的 `run_pending_static_inits` 重跑。
-        // unify-static-init-into-cctor（7.3）：`__static_init__` 的重跑早就有（见下），
-        // 但**类型初始化器此前完全没被照顾**——本变更把静态字段初始化器全搬进它们之后，
-        // 清零后它们停在 `Done` 永不重跑 ⇒ 静态字段永远停在 Null/零值
-        // （实测：单模块 zbc 里 `class C { static int X = 7; }` 读到 0）。
+        // 槽位清零后，**已跑过的初始化器必须重跑** —— 否则那些类型已是终态、不会再被
+        // 任何访问重新触发，静态字段永远停在 Null/零值。
+        //
+        // 历史：defer-class-initialization 时期这里把已跑过的 `__static_init__` 名字倒回
+        // 待跑队列（实测诱因：z42b 先加载依赖跑完 43 个初始化器，随后为目标模块调
+        // `init_static_fields` → 清零 → `Sha256._roundConstants` 变 Null，崩在
+        // `Sha256._processBlock`）。
+        //
+        // unify-static-init-into-cctor：静态字段初始化器已全部并入**每类型的类型初始化器**，
+        // 那条队列随 7.4 删除；重跑改由 `reset_for_rerun()` 统一负责 —— 递增代际使所有
+        // `TypeDesc` 上的快路标记一次性失效，比逐个去清散落各处的标记可靠
+        // （漏一个就是静默错值：单模块 zbc 里 `class C { static int X = 7; }` 读到 0）。
         self.core.cctors.reset_for_rerun();
-
-        let mut state = self.core.lazy_loader.write();
-        if let Some(loader) = state.as_mut() {
-            let ran: Vec<String> = loader.static_init_state.keys().cloned().collect();
-            tracing::debug!("static fields cleared; re-queuing {} static init(s)", ran.len());
-            loader.static_init_state.clear();
-            loader.pending_static_inits.extend(ran);
-        }
     }
 
     // ── JIT exception bridge ──────────────────────────────────────────────

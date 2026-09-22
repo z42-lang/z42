@@ -68,10 +68,6 @@ impl LazyLoader {
                 );
                 continue;
             }
-            // defer-class-initialization: 入队，锁外由 VmContext 排空执行。
-            if name.ends_with(".__static_init__") {
-                self.pending_static_inits.push(name.clone());
-            }
             // cache-ctorless-objnew: the one funnel that grows `function_table`
             // (it bumps the shared registration counter every ObjNew site's
             // "this class has no ctor" cache is validated against).
@@ -189,13 +185,7 @@ impl LazyLoader {
             }
         }
         let artifact = load_artifact(path)?;
-        let (entries, static_inits) = self.register_loaded_artifact(artifact)?;
-        // defer-class-initialization: 本路径（宿主 / z42b 显式按路径加载模块）把收集到的
-        // `__static_init__` 名字**丢弃**了——变更前无所谓，因为随后的 `init_static_fields`
-        // 会 force-load 全部包再逐个枚举执行；现在没有那一步，必须入队交给
-        // `VmContext::run_pending_static_inits` 执行。
-        // （`load_module_from_bytes` 不在此列：它把名字返回给 REPL，由调用方按轮次自己跑。）
-        self.pending_static_inits.extend(static_inits);
+        let entries = self.register_loaded_artifact(artifact)?;
         Ok(entries)
     }
 
@@ -205,13 +195,14 @@ impl LazyLoader {
     /// used by `z42.scripting` (REPL): `PackageCompile` produces packed zpkg
     /// bytes in memory, which are loaded here with zero disk I/O so the freshly
     /// compiled `$Eval_N()` becomes reflectively invocable. (add-z42-repl)
-    /// Returns the freshly-loaded module's own `*.__static_init__` function names,
-    /// so the caller runs only THIS round's static init (not a full clear+rerun that
-    /// would wipe prior rounds' mutated state — REPL carry-forward).
-    pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<Vec<String>> {
+    /// unify-static-init-into-cctor（7.4）：此前返回本模块的 `*.__static_init__` 名字，
+    /// 供调用方「只跑本轮」（跑全量会清空所有静态字段、毁掉 REPL 跨轮 carry-forward）。
+    /// 静态初始化器现已是**每类型的类型初始化器**、按首次使用惰性触发 —— 本轮的
+    /// `Vars{N}` 在被读/写时自然初始化，且天然只初始化本轮的类型，不再需要这条通道。
+    pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<()> {
         let artifact = load_artifact_from_bytes(raw)?;
-        let (_entries, static_inits) = self.register_loaded_artifact(artifact)?;
-        Ok(static_inits)
+        let _ = self.register_loaded_artifact(artifact)?;
+        Ok(())
     }
 
     /// Shared registration body for [`load_module_from_path`] /
@@ -220,13 +211,8 @@ impl LazyLoader {
     /// run inheritance fixup, and return the artifact's TIDX test entries.
     pub(super) fn register_loaded_artifact(
         &mut self, mut artifact: LoadedArtifact,
-    ) -> Result<(Vec<LoadedTestEntry>, Vec<String>)> {
+    ) -> Result<Vec<LoadedTestEntry>> {
         let mod_key = format!("__loaded_path__{}", artifact.module.name);
-        // Names of THIS module's own `*.__static_init__` functions — returned so the
-        // caller can run only the freshly-loaded module's static init (without the
-        // full clear+rerun of `init_static_fields`, which would wipe already-loaded
-        // modules' mutated static state). Backs REPL carry-forward. (add-z42-repl)
-        let mut static_inits: Vec<String> = Vec::new();
 
         // Capture test entries (FQN resolved via functions[method_id]) before the
         // functions are moved into the table.
@@ -310,7 +296,7 @@ impl LazyLoader {
 
         // Idempotent: a re-load of the same module just returns its entries.
         if self.loaded_zpkgs.contains(&mod_key) {
-            return Ok((entries, static_inits));
+            return Ok(entries);
         }
         self.mark_zpkg_loaded(mod_key);
 
@@ -331,9 +317,6 @@ impl LazyLoader {
         for mut fn_ in artifact.module.functions {
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
-            if name.ends_with(".__static_init__") {
-                static_inits.push(name.clone());
-            }
             // cache-ctorless-objnew: same funnel (first-wins handled inside).
             self.insert_function(name, Arc::new(fn_));
         }
@@ -373,7 +356,7 @@ impl LazyLoader {
             }
         }
 
-        Ok((entries, static_inits))
+        Ok(entries)
     }
 }
 
