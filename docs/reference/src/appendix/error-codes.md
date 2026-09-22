@@ -333,7 +333,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 |---|---|---|---|
 | W0603 | 包声明了保留命名空间（依赖扫描层软网） | ⚠️ 零发射点 | — |
 | W0604 | 捕获的值快照被赋值 | ⚠️ 零发射点 —— 规避写法（`bool[1]` 单元格）在 stdlib 里有沿用，但编译器当前**不报**这条 | — |
-| W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
+| W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default`。**只覆盖封闭域** —— subject 是 `int` / `string` 这类开放域时不报；表达式形态落空在**运行期抛 `SwitchExpressionException`**（见 [模式匹配](../language/pattern-matching.md)） | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
 
 ---
 

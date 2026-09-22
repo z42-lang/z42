@@ -1,0 +1,22 @@
+namespace Std;
+
+// `switch` **表达式**求值时没有任何臂匹配（含模式匹配了但守卫为假）。
+//
+// 只有表达式形态会抛：表达式必须产出一个值，无臂可采纳时无值可产。`switch` **语句**不产值，
+// 无匹配 case 就什么都不做，不抛（C# 同）。
+//
+// throw-on-switch-expr-no-match 之前 z42 在这里**读一个从没被写过的寄存器** ——
+// 不是崩溃、不是类型默认值，而是垃圾值：`int a = n switch { 1 => 10 }` 在 n=5 时
+// `a` 打印成 `null`、`a + 1` 打出垃圾数。错值会一路流到很远的地方才以别的形态崩。
+//
+// 编译期的 `W0700`（switch 不穷尽）**盖不住这件事** —— 它只查封闭域（bool / enum），
+// subject 是 `int` / `string` 这类开放域时一条诊断都没有。
+//
+// 抛出点的源码位置不在 Message 里，在**栈回溯**里（`Throw` 终结符运行期自动填）。
+public class SwitchExpressionException : Exception {
+    public SwitchExpressionException(string message) : base(message) {}
+
+    override string ToString() {
+        return "SwitchExpressionException: " + this.Message;
+    }
+}

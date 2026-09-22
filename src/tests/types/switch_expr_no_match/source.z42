@@ -1,0 +1,97 @@
+// throw-on-switch-expr-no-match：`switch` **表达式**所有臂都不匹配时抛
+// `Std.SwitchExpressionException`，不再读一个从没被写过的寄存器。
+//
+// 此前的现象不是崩溃、不是类型默认值，而是**垃圾值**：`int a = n switch { 1 => 10 }` 在 n=5 时
+// `a` 打印成 `null`、`a + 1` 打出垃圾数（实测 1；换程序形状曾打出 17179869186）。
+// 编译期的 W0700 盖不住它 —— 那条只查封闭域（bool / enum），subject 是 int / string
+// 这类开放域时**一条诊断都没有**。
+//
+// ⚠️ 用例里每个 switch 表达式的结果都**必须被使用**（累加进 sink / 参与断言）——
+// 否则 DCE 把整条链消掉，异常根本不发生，用例变成永远绿的摆设（同 hard_cast_value 的教训）。
+
+enum Direction { North, East, South, West }
+
+void Main() {
+    int sink = 0;
+
+    // ① int subject（开放域，编译期零诊断）落空 → 抛
+    int n = 5;
+    string k1 = "none";
+    try { sink = sink + (n switch { 1 => 10, 2 => 20 }); }
+    catch (Exception e) { k1 = e.GetType().Name; }
+    Assert.Equal("SwitchExpressionException", k1);
+
+    // ② 结果类型是 bool 也一样（此前 b 打成 null）
+    string k2 = "none";
+    try { bool b = n switch { 1 => true }; if (b) { sink = sink + 1; } }
+    catch (Exception e) { k2 = e.GetType().Name; }
+    Assert.Equal("SwitchExpressionException", k2);
+
+    // ③ 结果类型是 string（此前 s == null，要到 s.Length 才崩）
+    string k3 = "none";
+    try { string s = n switch { 1 => "x" }; sink = sink + s.Length; }
+    catch (Exception e) { k3 = e.GetType().Name; }
+    Assert.Equal("SwitchExpressionException", k3);
+
+    // ④ enum 漏成员：编译期照旧只是 W0700 警告，运行期抛
+    Direction d = Direction.West;
+    string k4 = "none";
+    try {
+        string nm = d switch { Direction.North => "N", Direction.East => "E", Direction.South => "S" };
+        sink = sink + nm.Length;
+    } catch (Exception e) { k4 = e.GetType().Name; }
+    Assert.Equal("SwitchExpressionException", k4);
+
+    // ⑤ 模式匹配上了但**守卫为假** ⇒ 该臂不采纳 ⇒ 仍算落空
+    //    注：z42 的绑定是 **Rust 裸标识符**（无 `var`）、守卫用 **`if`**（不是 C# 的 `when`）
+    string k5 = "none";
+    try { sink = sink + (n switch { x if x > 10 => x }); }
+    catch (Exception e) { k5 = e.GetType().Name; }
+    Assert.Equal("SwitchExpressionException", k5);
+
+    // ⑥ 完全限定名对得上（不是被包成泛用 Std.Exception）
+    string fq = "none";
+    try { sink = sink + (n switch { 1 => 1 }); }
+    catch (Exception e) { fq = e.GetType().FullName; }
+    Assert.Equal("Std.SwitchExpressionException", fq);
+
+    // ⑦ 消息非空、且含落空的那个值。
+    //    这条同时钉住 `ObjNew.CtorKnown` 在**合成站点**被正确置位 —— 位没置上时运行期
+    //    不调 ctor、零初始化，异常照抛但 Message 为空串，于是「抛对了」会掩盖「消息丢了」。
+    string msg = "";
+    try { sink = sink + (n switch { 1 => 1 }); }
+    catch (Exception e) { msg = e.Message; }
+    Assert.Equal(true, msg.Length > 0);
+    Assert.Equal(true, msg.Contains("5"));
+    Assert.Equal(true, msg.Contains("did not match any arm"));
+
+    // ── 阴性对照：有兜底臂就不许抛，且值要对 ─────────────────────────────
+    // 「落空点发 throw」这件事只靠正向用例证明不了 —— 如果改动误伤了有兜底臂的路径，
+    // 上面七条照样全绿。这三条是唯一能分辨的（同 definite-assignment 那次的教训：
+    // 「全量零命中」不能证明 pass 接通了，只有阴性用例能分辨）。
+
+    // ⑧ `_ =>` 兜底
+    int a8 = n switch { 1 => 10, _ => 7 };
+    Assert.Equal(7, a8);
+
+    // ⑨ 裸绑定兜底（恒匹配且无守卫）
+    int a9 = n switch { 1 => 10, x => x * 2 };
+    Assert.Equal(10, a9);
+
+    // ⑩ 带守卫的臂在守卫为真时正常采纳
+    int a10 = n switch { 1 => 10, x if x > 3 => x + 100 };
+    Assert.Equal(105, a10);
+
+    // ⑪ 真有臂匹配时当然不抛
+    int a11 = 2 switch { 1 => 10, 2 => 20, _ => 0 };
+    Assert.Equal(20, a11);
+
+    // ⑫ switch **语句**无匹配 case 不抛 —— 本变更只动表达式形态
+    int a12 = 0;
+    switch (n) { case 1: a12 = 1; break; }
+    Assert.Equal(0, a12);
+
+    // sink 参与最终断言，确保上面每条都没被 DCE 掉：
+    // ①②③④⑤⑥⑦ 全抛 ⇒ 一次都没加成 ⇒ sink 仍是 0
+    Assert.Equal(0, sink);
+}

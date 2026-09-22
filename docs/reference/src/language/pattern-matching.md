@@ -319,6 +319,33 @@ string name = c switch {
 **无条件兜底** = 任一臂无 pattern（`default`），或 pattern 恒匹配（通配 `_` / 裸绑定）且**无守卫**。
 带守卫的臂不计入无条件覆盖（守卫可能为假）。`or`-模式 `Red | Green | Blue` 递归展开各 alt 计入覆盖。
 
+### 运行期：switch **表达式**落空抛 `SwitchExpressionException`
+
+`W0700` 只覆盖**封闭域**——subject 是 `int` / `string` / `char` 这类**开放域**时编译期不可能
+穷尽，一条诊断都没有。所以语义的兜底在运行期：
+
+**`switch` 表达式求值时若无任何臂被采纳**（没有模式匹配，或匹配了但守卫为假），抛
+`Std.SwitchExpressionException`。消息含 subject 的字符串化值（enum 打成员名）；抛出位置在
+**栈回溯**里，不在消息里。
+
+```z42
+int n = 5;
+int a = n switch { 1 => 10, 2 => 20 };   // 编译期无诊断（int 是开放域）
+                                         // 运行期：SwitchExpressionException
+                                         //   "switch expression did not match any arm; value: 5"
+```
+
+`switch` **语句**不受此约束：语句不产值，无匹配 `case` 就什么都不做，**不抛**（C# 同）。
+
+> 📜 **历史**：throw-on-switch-expr-no-match（2026-09）之前，落空的 switch 表达式**读一个从没被
+> 写过的寄存器** —— 不是崩溃、不是类型默认值，而是垃圾值（`int` 变量能打印成 `null`、`a + 1`
+> 打出 17179869186）。
+
+> ⚡ **性能注意**：落空块是一条 `Throw` 终结符，而
+> **含 `Throw` 的函数不可内联、且被判为非纯**（内联白名单只有 `Ret`/`Br`/`BrCond`；非纯则丢
+> LICM / PureCall 提升）。⇒ **热路径上的 switch 表达式加一条 `_ =>` 兜底臂**，既表达了意图
+> 也让这个函数重新可内联。有兜底臂时落空块不可达、一条指令都不发。
+
 ### 封闭类层次：为何用 `internal` 而非新的 `sealed hierarchy` 机制
 
 穷尽性要**健全**，前提是子类集封闭：否则下游包给基类新增子类时，本包判「穷尽」的 switch 在运行期漏网。

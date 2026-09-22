@@ -274,7 +274,33 @@ public sealed class ExprEmitter {
     // GS4：插值串发射。镜像 C# EmitInterpolation：
     // 1. 所有 part 左→右依次发射，收集寄存器列表；
     // 2. EmitConcat 左折叠 StrConcatInstr。
-    // 文本段 → ConstStrInstr；洞 → emit inner + ToStrInstr（内层非 BoundLitStr/BoundInterpolatedStr 时）。
+    // 任意值 → 字符串寄存器。插值的洞与 `switch` 表达式落空消息（throw-on-switch-expr-no-match）
+    // 共用这一处。**不要复制这三分支** —— 每一支都是一次线上事故的产物（见下面逐支的注释），
+    // 复制一份必然漂移。
+    //
+    // `alreadyStr`：内层已经是字符串（`BoundLitStr` / `BoundInterpolatedStr`）⇒ 跳过 ToStr。
+    // ⚠️ `strReg` 的 Alloc **必须在分支之前**：blob struct 那支会丢弃它、只借走寄存器号。
+    // 这个「浪费一个寄存器号」的行为是既有产物字节的一部分，挪动它会让所有含插值的 golden 漂移。
+    internal TypedReg _emitToStr(TypedReg reg, Z42Type t, bool alreadyStr) {
+        TypedReg v = this._boxEnumForStr(reg, t);   // make-enum-distinct-type 1.5：`$"{c}"` → 成员名
+        if (alreadyStr) { return v; }
+        TypedReg strReg = this._ctx.Alloc(IrType.Str);
+        // 值 struct 走**虚调用 ToString**，不走 ToStrInstr（fix-struct-tostr-in-interp）。
+        // `ToStrInstr` 落到 VM 的 `value_to_str` —— 那是条**没有 ctx** 的原始路径，解不了
+        // arena 里的 struct blob，只能吐占位符 `<struct value>`。于是 struct 自己写的
+        // `public override string ToString()` 在 `$"{p}"` 里**完全不生效**（显式
+        // `p.ToString()` 却是对的），读者看到的是一个毫无信息的占位串。
+        // 与上一行给 enum 装箱同一动机：让它走能解析到真实现的那条路。
+        // ⚠️ struct **无虚方法**，receiver 是 StructRef 句柄不是 object —— 直接发 VCall 会崩
+        // 「VCall: expected object, got StructRef」。分流与 `CallEmitter` 的 struct 实例方法
+        // 调用（:128-145）一致：自声明 / record 合成的 `ToString` 走**静态 Call 传 handle**；
+        // 未自声明的走 `__box_struct` + VCall（命中 runtime 的装箱-struct Object 协议）。
+        if (this._isBlobStruct(t)) { strReg = this._emitStructToStr(v, t); }
+        else { this._ctx.Emit(new ToStrInstr(strReg, v)); }
+        return strReg;
+    }
+
+    // 文本段 → ConstStrInstr；洞 → emit inner + _emitToStr。
     private TypedReg _emitInterpolation(BoundInterpolatedStr interp) {
         if (interp.PartCount == 0) {
             TypedReg empty = this._ctx.Alloc(IrType.Str);
@@ -295,28 +321,8 @@ public sealed class ExprEmitter {
             } else {
                 BoundInterpHole hp = p as BoundInterpHole;
                 TypedReg innerReg = this.Emit(hp.Inner);
-                innerReg = this._boxEnumForStr(innerReg, hp.Inner.Type());   // make-enum-distinct-type 1.5：`$"{c}"` → 成员名
                 bool isStrLit = (hp.Inner is BoundLitStr) || (hp.Inner is BoundInterpolatedStr);
-                if (!isStrLit) {
-                    TypedReg strReg = this._ctx.Alloc(IrType.Str);
-                    // 值 struct 的洞走**虚调用 ToString**，不走 ToStrInstr（fix-struct-tostr-in-interp）。
-                    // `ToStrInstr` 落到 VM 的 `value_to_str` —— 那是条**没有 ctx** 的原始路径，解不了
-                    // arena 里的 struct blob，只能吐占位符 `<struct value>`。于是 struct 自己写的
-                    // `public override string ToString()` 在 `$"{p}"` 里**完全不生效**（显式
-                    // `p.ToString()` 却是对的），读者看到的是一个毫无信息的占位串。
-                    // 与上一行给 enum 装箱同一位置、同一动机：让这个洞走能解析到真实现的那条路。
-                    // ⚠️ struct **无虚方法**，receiver 是 StructRef 句柄不是 object —— 直接发 VCall 会崩
-                    // 「VCall: expected object, got StructRef」。分流与 `CallEmitter` 的 struct 实例方法
-                    // 调用（:128-145）一致：自声明 / record 合成的 `ToString` 走**静态 Call 传 handle**；
-                    // 未自声明的走 `__box_struct` + VCall（命中 runtime 的装箱-struct Object 协议）。
-                    if (this._isBlobStruct(hp.Inner.Type())) {
-                        strReg = this._emitStructToStr(innerReg, hp.Inner.Type());
-                    } else {
-                        this._ctx.Emit(new ToStrInstr(strReg, innerReg));
-                    }
-                    innerReg = strReg;
-                }
-                regs[i] = innerReg;
+                regs[i] = this._emitToStr(innerReg, hp.Inner.Type(), isStrLit);
             }
             i = i + 1;
         }
