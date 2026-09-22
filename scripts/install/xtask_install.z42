@@ -290,7 +290,7 @@ string _ndkInstallDir(string root, TomlValue toml) {
 string _resolveNdkHome(string root, TomlValue toml) {
     string local = _ndkInstallDir(root, toml);
     if (Directory.Exists(local)) { return local; }
-    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
+    string env = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
     if (env.Length > 0 && Directory.Exists(env)) { return env; }
     return "";
 }

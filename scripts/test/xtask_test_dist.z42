@@ -272,7 +272,7 @@ int[] _runDistGoldens(string[] modes, string root, string z42c, string z42vm, st
 // golden），不超核数；GitHub 4 核 runner 上 = 4，与 test-host 的 e2e goldens（jobs=4）同一量级。
 // `Z42_DIST_JOBS` 逃生舱：不改代码在 CI 上试别的值（1 = 退回串行）。
 int _distRunJobs() {
-    string ov = Environment.GetEnvironmentVariable("Z42_DIST_JOBS") ?? "";
+    string ov = Environment.GetEnvironmentVariable("Z42_DIST_JOBS", "");
     if (ov.Length > 0) {
         try { int v = int.Parse(ov); if (v > 0) { return v; } } catch (Exception e) { }
     }
@@ -723,7 +723,7 @@ _DistCase[] _enumerateDistCases(string root) {
 string _envOpt(string name, string fallback) {
     string? v = Environment.GetEnvironmentVariable(name);
     if (v == null) { return fallback; }
-    string nonNull = v ?? "";
+    string nonNull = v;   // 上一行已判空，`?? ""` 原本就是死代码（同 ArgParser 的迁移）
     if (nonNull.Length == 0) { return fallback; }
     return nonNull;
 }

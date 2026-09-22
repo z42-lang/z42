@@ -413,7 +413,7 @@ bool _contains(string[] arr, int count, string v) {
 int _testChanged(ParseResult r) {
     string base_ = r.GetPositional(0);
     if (base_.Length == 0) {
-        base_ = Environment.GetEnvironmentVariable("Z42_TEST_CHANGED_BASE") ?? "";
+        base_ = Environment.GetEnvironmentVariable("Z42_TEST_CHANGED_BASE", "");
     }
     if (base_.Length == 0) { base_ = "HEAD"; }
     return _testChangedRun(base_, r.GetFlag("dry-run"));

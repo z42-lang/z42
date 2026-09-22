@@ -169,7 +169,7 @@ string _assembleDriverHome(string root) {
 // 但少核机器（GitHub 4 核 runner）不冒进 → max(8, CpuCount())；`Z42_XPKG_JOBS` 逃生舱
 // 便于在 CI 上实测更高值而不改代码。
 int _crossJobs() {
-    string ov = Environment.GetEnvironmentVariable("Z42_XPKG_JOBS") ?? "";
+    string ov = Environment.GetEnvironmentVariable("Z42_XPKG_JOBS", "");
     if (ov.Length > 0) {
         try { int v = int.Parse(ov); if (v > 0) { return v; } } catch (Exception e) { }
     }

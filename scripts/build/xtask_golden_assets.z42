@@ -42,7 +42,7 @@ int _buildTest() {
 // `Z42_REGEN_JOBS` 逃生舱正是为此：不改代码就能在 CI 上试一个值再决定
 //（同 Z42C_BUILD_MODE 的既有逃生舱写法）。
 int _regenJobs() {
-    string ov = Environment.GetEnvironmentVariable("Z42_REGEN_JOBS") ?? "";
+    string ov = Environment.GetEnvironmentVariable("Z42_REGEN_JOBS", "");
     if (ov.Length > 0) {
         try {
             int v = int.Parse(ov);

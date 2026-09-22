@@ -131,7 +131,7 @@ int _ensureAndroidNdk(string root) {
         ConsoleError.WriteLine("error: cargo-ndk not found. install: cargo install cargo-ndk --locked (or xtask deps install --os android)");
         return 1;
     }
-    string ndkHome = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME") ?? "";
+    string ndkHome = Environment.GetEnvironmentVariable("ANDROID_NDK_HOME", "");
     if (ndkHome.Length > 0) { return 0; }
     string autoNdk = Path.Join(root, _vRead(root, "build.android.install_root") + "/ndk/" + _vRead(root, "build.android.ndk.version"));
     if (Directory.Exists(autoNdk)) {
