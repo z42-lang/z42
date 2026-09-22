@@ -301,3 +301,35 @@ zpkg 同样读不了。所以 **一个 z42vm 与它加载的每一个 `.zpkg` �
 历史字符串逐字相同）+ `app.rs` 从 anyhow 链里 `downcast` 出它来与「普通读失败」区分。
 补救命令由错误类型自带：zpkg → `xtask build stdlib`，zbc → `xtask regen`；也可以改用
 `Z42_PORTABLE_VM=<配套的 z42vm>` 反过来迁就产物。
+
+### 有**两个** reader，这条政策要各实现一遍（warn-on-zpkg-version-mismatch，2026-09-22）
+
+`.zpkg` 有两个独立的读取实现，走的是完全不同的路径：
+
+| reader | 谁在用 | 什么时候读 |
+|---|---|---|
+| `src/runtime/src/metadata/zbc_reader`（Rust） | z42vm | **运行期**加载包 |
+| `src/libraries/z42.ir/src/ZpkgReader.z42`（z42） | z42c / z42b / REPL / 分析工具 | **编译期**跨包扫描（`DepScan.ScanDirs` 把 libsDirs 下所有 `z42.*.zpkg` 当数据盲读） |
+
+上一节那套「点名 + 给补救命令」此前**只在 Rust 那边落地**；z42 侧的 `ZpkgReader.Open` 对版本
+失配是一条光秃秃的 `return null`，一个字都不打。后果与上一节描述的一模一样，只是搬到了编译期：
+依赖包被**整包跳过**，而「跳过」不会失败 —— 它在很远的地方以满屏
+
+```
+E0401: undefined: DiagnosticCodes
+E0443: undefined type: Span
+```
+
+的形态浮出来。**真因是「整个包不见了」，症状却是「你引用了不存在的类型」**，中间没有任何桥。
+实测为此二分过三轮。
+
+现在 z42 侧也在**检测点**点名（`_warnVersionSkew`），三行：跳过了谁 + 它是哪个版本 / 为什么你
+会在别处看到一堆 `undefined` / 怎么修。两点设计取舍：
+
+- **按版本去重**：一个过期的 libs 目录常有几十个同代旧包，逐个报会把真信号淹在噪声里
+  ⇒ 同一个 `<major>.<minor>` 只报一次，并明说同版本的其余包不再重复。
+- **只有版本失配会出声**；坏 magic / 长度不足 / SymOnly sidecar 维持静默跳过 —— 那些确实
+  可能是无关产物，与 Rust 侧「version mismatch 点名，其余 warn-and-continue」的分界一致。
+
+`Open(byte[])` 保留原签名（委托给 `Open(byte[], string origin)`），`origin` 只用于告警措辞：
+文件路径，或 REPL 那种内存包的包名。
