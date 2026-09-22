@@ -196,7 +196,9 @@ public sealed class ExprEmitter {
             TypedReg frdst = this._ctx.Alloc(IrType.Ref);
             // resolve-free-functions-by-namespace：此前一律 `Qualify`（当前 ns）⇒ 引用导入 / 别的 ns 的函数发出不存在的名字。
             if (fr.FuncImported) { this._ctx.TrackDepNamespace(fr.FuncNs); }
-            this._ctx.Emit(new LoadFnInstr(frdst, SymbolTable.QualOf(fr.FuncNs, fr.FuncName)));
+            // add-target-typed-funcref-resolution：发 **RegKey**（非-primary 重载=mangle 键）；LoadFn 与 free-call
+            // 走同一 func_index（QualOf(ns, RegKey)）⇒ 选中的具体重载运行期可解析。primary 时 RegKey==FuncName、字节不变。
+            this._ctx.Emit(new LoadFnInstr(frdst, SymbolTable.QualOf(fr.FuncNs, fr.RegKey)));
             return frdst;
         }
         if (e is BoundMethodGroup) { return this._call._emitMethodGroup(e as BoundMethodGroup); }

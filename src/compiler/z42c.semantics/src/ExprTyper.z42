@@ -17,7 +17,7 @@ using Z42.Syntax;
 using Z42.Core;
 using Z42.IR.BinaryFormat;
 
-public sealed class ExprTyper {
+public sealed partial class ExprTyper {
     private TypeChecker _tc;
     private int _collSeq;   // 集合字面量脱糖的合成局部名计数器（$c0, $c1, ...）
     private CollectionTyper _coll;   // 集合字面量绑定簇（[..]/{..} 脱糖）
@@ -100,17 +100,18 @@ public sealed class ExprTyper {
                 // 方法组转换：自由函数名作值（`IntFn0 a = Helper`）→ func 引用（LoadFn）。
                 string mfns = env.Symbols.ResolveFuncNs(id.Name);   // resolve-free-functions-by-namespace
                 if (mfns != null) {
-                    // free-function-overloads v1：方法组取引用只在**无歧义**（该名恰一份）时可行。多重载取引用
-                    // 需按目标委托类型定向消解（method-group target-typed resolution），v1 不做 → 报诊断，
-                    // 与类方法方法组取引用的现状对齐。裸名 BoundFuncRef 无从表达选中哪个签名。
+                    // add-target-typed-funcref-resolution：此路径**无目标委托类型**（`var f = Overloaded;` /
+                    // 表达式语句 / 非委托目标）。多重载在此无从消解 → E0425；有目标位（赋值/声明/return/字段初始化/实参）
+                    // 走 `BindWithTarget` 的 `_bindFuncRefTargeted` 按委托签名精确选中。恰一份时直接取用。
                     if (env.Symbols.GetFuncCandidates(mfns, id.Name).Length > 1) {
                         this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
                             "cannot take a reference to overloaded free function `" + id.Name
-                            + "`; only single (non-overloaded) free functions can be used as a method-group value", id.Span);
+                            + "` without a target delegate type; assign it to a variable / parameter of the target"
+                            + " delegate type to disambiguate", id.Span);
                         return new BoundError("overloaded funcref " + id.Name, new Z42ErrorType(), id.Span);
                     }
                     MethodSymbol mfs = env.Symbols.GetFuncIn(mfns, id.Name);
-                    return new BoundFuncRef(id.Name, mfns, !mfs.HasDecl, mfs.Signature, id.Span);
+                    return new BoundFuncRef(id.Name, mfns, !mfs.HasDecl, mfs.Signature, mfs.RegKey, id.Span);
                 }
                 this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, "undefined: " + id.Name, id.Span);
                 return new BoundError("undefined " + id.Name, new Z42ErrorType(), id.Span);
@@ -844,6 +845,12 @@ public sealed class ExprTyper {
         // 经 `BindArgsToSignature` 的延迟位把形参类型喂进来后，此处按目标定型。
         if ((e is LambdaExpr) && (target is Z42FuncType)) {
             return this._tc._stmt._bindLambda(e as LambdaExpr, target as Z42FuncType, env);
+        }
+        // add-target-typed-funcref-resolution：裸自由函数名 + 目标委托类型 → 按委托签名精确选中重载。
+        // 返回 null = 该标识符不是自由函数名（局部变量 / 静态成员 / 枚举 / undefined）⇒ 回落普通绑定。
+        if ((e is IdentExpr) && (target is Z42FuncType)) {
+            BoundExpr fr = this._bindFuncRefTargeted(e as IdentExpr, target as Z42FuncType, env);
+            if (fr != null) { return fr; }
         }
         return this._bindExpr(e, env);
     }

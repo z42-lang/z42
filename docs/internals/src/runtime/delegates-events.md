@@ -82,6 +82,32 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 **这条路径没有 static slot 缓存**——每次求值分配一个 Closure。§2.3 的弱引用协议依赖
 "receiver 一定落在 `env[0]`" 这个约定。
 
+#### 重载自由函数取引用：typer 选键、emitter 发键（add-target-typed-funcref-resolution）
+
+自由函数支持按参数类型重载后（free-function-overloads，#731/#739），把一个**重载**自由函数当值
+取引用需要在候选间**定向**。关键在**发射键**：`LoadFn @<name>` 存的是函数名字符串，运行期
+`call_indirect`（`exec_call.rs`）用它查 `module.func_index`——与一次普通自由函数 `Call` **同一张表**、
+同一 key（`QualOf(ns, RegKey)`）。所以选中哪个重载，就发它的 **RegKey**：
+
+- **primary**（声明序首个同名）= 裸键（`Kind`）；**非-primary** = mangle 键（`Kind$1$long`）。
+  primary 时 `RegKey == FuncName` ⇒ 既有单份取引用的发射逐字节不变（#414 primary-bare 复用），
+  零格式 bump、零 VM 改动、不动点 3/3 gen1==gen2 逐字节复现。
+
+**跨组件契约**：绑定期 `ExprTyper.Funcref.z42:_bindFuncRefTargeted` 按目标委托签名精确选中重载，
+把选中的 `MethodSymbol.RegKey` 塞进 `BoundFuncRef.RegKey`；发射期 `ExprEmitter.z42` 发
+`LoadFn @QualOf(FuncNs, RegKey)`。**键的推导只此一处**（typer 选、emitter 原样发），不在发射端
+另拼一份签名——与 `methodof` / 普通调用同样的「RegKey 即派发键」原则。
+
+**为什么精确匹配、不用「最具体」重载决议**：z42 委托相容 `Z42FuncType.IsAssignableTo` 是**逐位
+精确相等、无协变/逆变**，故合法目标唯一 = 签名与委托精确相等的那个重载。若改用调用点的
+`OverloadResolver.Resolve`（可隐式转 + 最具体），会选中随后又被委托精确相容检查拒绝的候选。
+消解入口 = `BindWithTarget` 的 `IdentExpr + Z42FuncType` 分支，覆盖赋值/声明/return/字段初始化；
+**调用实参位**靠延迟谓词 `IsOverloadedFuncRefArg`（仅延迟 ≥2 候选者，单份保持急切绑、字节中性）
+把裸名推迟到重载决议后、经 `BindArgsToSignature` 按形参委托签名回填。
+
+> **实例/静态方法组的按目标消解尚未支持**：上面的 thunk 走 `VCall(裸名, arity)` 虚派发，要
+> 定向到非-primary 同-arity 重载需触及 VM vtable 派发，属独立后续项。
+
 ### 2.3 弱引用需要的三个 builtin
 
 `WeakRef<TD>` 不能强持原 handler：Closure 自己强持 `env = [receiver]`，持住 handler 就等于

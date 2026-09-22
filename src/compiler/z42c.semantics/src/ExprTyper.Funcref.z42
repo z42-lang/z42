@@ -1,0 +1,74 @@
+// add-target-typed-funcref-resolution：自由函数取引用的 target-typed 重载消解（与 ExprTyper 主文件同一个类，
+// partial 拆分只为守 code-organization 行数上限）。入口在主文件 `BindWithTarget` 的 `IdentExpr + Z42FuncType`
+// 分支；此处放消解本体 + 实参延迟谓词。消解语义 = **精确全签名**（`Z42FuncType.IsAssignableTo` 逐位相等、无变型）：
+// z42 委托相容即精确相等，故合法目标唯一 = 签名与委托精确相等的那个重载。发射用选中重载的 RegKey
+// （primary=裸键、非-primary=mangle 键），LoadFn 与 free-call 走同一 func_index。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class ExprTyper {
+
+    // 给定裸标识符 + 目标委托类型，在同名自由函数重载间按精确全签名消解。返回 null ⇒ 非自由函数名，交回普通绑定。
+    private BoundExpr _bindFuncRefTargeted(IdentExpr id, Z42FuncType target, TypeEnv env) {
+        if (env.LookupVar(id.Name) != null) { return null; }          // 局部变量（含委托变量读）→ 普通绑定
+        string ns = env.Symbols.ResolveFuncNs(id.Name);
+        if (ns == null) { return null; }                              // 非自由函数名 → 普通绑定
+        MethodSymbol[] cands = env.Symbols.GetFuncCandidates(ns, id.Name);
+        if (cands.Length <= 1) {
+            // 无重载：现状即走此（经 _bindIdent），此处 target 在场同样直接取用（相容由后续 CheckImplicitConvert 校验）。
+            MethodSymbol only = env.Symbols.GetFuncIn(ns, id.Name);
+            if (only == null) { return null; }
+            return new BoundFuncRef(id.Name, ns, !only.HasDecl, only.Signature, only.RegKey, id.Span);
+        }
+        // 多重载：按目标委托签名精确过滤。
+        MethodSymbol chosen = null;
+        int nmatch = 0;
+        int i = 0;
+        while (i < cands.Length) {
+            Z42FuncType csig = cands[i].Signature as Z42FuncType;
+            if (csig != null && csig.IsAssignableTo(target)) { chosen = cands[i]; nmatch = nmatch + 1; }
+            i = i + 1;
+        }
+        if (nmatch == 1) {
+            return new BoundFuncRef(id.Name, ns, !chosen.HasDecl, chosen.Signature, chosen.RegKey, id.Span);
+        }
+        if (nmatch == 0) {
+            this._tc._diags.Error("E0477",
+                "no overload of free function `" + id.Name + "` matches target delegate type `"
+                + target.Name() + "`; candidates: " + this._funcCandSigs(cands), id.Span);
+        } else {
+            // ≥2 精确匹配：仅泛型基类替换后同签名可达。
+            this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
+                "ambiguous reference to overloaded free function `" + id.Name + "` for target delegate type `"
+                + target.Name() + "`; candidates: " + this._funcCandSigs(cands), id.Span);
+        }
+        return new BoundError("unresolved funcref " + id.Name, new Z42ErrorType(), id.Span);
+    }
+
+    // 候选签名列表（诊断用逃生口，参 methodof 的 E0459/E0460）。
+    private string _funcCandSigs(MethodSymbol[] cands) {
+        string s = "";
+        int i = 0;
+        while (i < cands.Length) {
+            if (i > 0) { s = s + ", "; }
+            s = s + (cands[i].Signature == null ? cands[i].Name : cands[i].Signature.Name());
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // 实参位上的裸名是否**重载自由函数**（须延迟到重载决议后按形参委托签名消解）。只延迟**重载**的（≥2 候选）——
+    // 单份 funcref 实参保持急切绑定 ⇒ 既有代码零行为变化、字节中性（同 IsNamedArg 保守判据）。局部变量优先。
+    public static bool IsOverloadedFuncRefArg(Expr e, TypeEnv env) {
+        if (!(e is IdentExpr)) { return false; }
+        string nm = (e as IdentExpr).Name;
+        if (env.LookupVar(nm) != null) { return false; }
+        string ns = env.Symbols.ResolveFuncNs(nm);
+        if (ns == null) { return false; }
+        return env.Symbols.GetFuncCandidates(ns, nm).Length > 1;
+    }
+
+}

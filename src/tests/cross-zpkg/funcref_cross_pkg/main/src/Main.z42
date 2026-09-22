@@ -1,0 +1,17 @@
+namespace Demo.FrApp;
+
+using Std.IO;          // Console
+using Demo.FrBase;     // 导入重载自由函数 Kind(int) / Kind(long)
+
+public delegate int  IntUn(int x);
+public delegate long LongUn(long x);
+
+// 跨包 target-typed 取引用：`Kind` 是 imported 重载自由函数，按目标委托签名精确选中。
+// - IntUn a = Kind  → int Kind(int)   → LoadFn @Demo.FrBase.Kind（primary 裸键）
+// - LongUn b = Kind → long Kind(long) → LoadFn @Demo.FrBase.Kind$1$long（非-primary mangle 键，须跨包解析）
+void Main() {
+    IntUn  a = Kind;
+    LongUn b = Kind;
+    Console.WriteLine(a(10));
+    Console.WriteLine(b(10));
+}

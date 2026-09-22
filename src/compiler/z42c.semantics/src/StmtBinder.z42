@@ -314,6 +314,12 @@ public sealed class StmtBinder {
             if (init == null && v.Init != null && ExprTyper.IsTargetTypedNew(v.Init)) {
                 init = this._tc._expr.BindWithTarget(v.Init, env.ResolveType(v.Type), env);
             }
+            // add-target-typed-funcref-resolution：`Func<...> f = Overloaded;` 裸函数名 + 声明委托类型 → 按签名消解。
+            // `var`（→ 非 Z42FuncType）自然跳过；非 funcref 的 ident（局部变量）BindWithTarget 内部回落 _bindExpr。
+            if (init == null && v.Init != null && (v.Init is IdentExpr)) {
+                Z42Type declaredFt = env.ResolveType(v.Type);
+                if (declaredFt is Z42FuncType) { init = this._tc._expr.BindWithTarget(v.Init, declaredFt, env); }
+            }
             if (init == null && v.Init != null) { init = this._tc._expr._bindExpr(v.Init, env); }   // G8：无 init 则 init 留 null
             Z42Type vt = this._varType(env, v, init);
             env.Define(v.Name, vt);

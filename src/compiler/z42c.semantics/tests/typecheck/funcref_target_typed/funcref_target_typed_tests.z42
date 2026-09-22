@@ -1,0 +1,148 @@
+// add-target-typed-funcref-resolution：重载自由函数取引用按目标委托签名精确消解。
+//
+// 修前（#731 阶段 1）：取**重载**自由函数引用一律 E0425（无论有无目标委托类型）。
+// 本文件钉住：有目标位（赋值/声明/return/字段初始化/实参）→ 按委托签名精确选中；
+// 无目标位仍 E0425；无匹配 → E0477。消解语义 = 精确全签名（Z42FuncType.IsAssignableTo，无变型）。
+//
+// 每个阳性做退回对照：撤掉 BindWithTarget 的 IdentExpr 分支后，S1/S3 必回落 E0425。
+namespace Z42cFuncrefTargetTypedTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+
+CompiledModuleZ[] frBuild(string src) {
+    string[] srcs = new string[1]; srcs[0] = src;
+    string[] files = new string[1]; files[0] = "t.z42";
+    return IrDump.BuildPackage(srcs, files, 1, null, null, false);
+}
+
+int frCode(CompiledModuleZ[] cms, string code) {
+    int n = 0; int i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { if (cms[i].DiagMsgs[j].Contains(code)) { n = n + 1; } j = j + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+int frDiags(CompiledModuleZ[] cms) {
+    int n = 0; int i = 0;
+    while (i < cms.Length) { n = n + cms[i].DiagCount; i = i + 1; }
+    return n;
+}
+
+string frAllDiags(CompiledModuleZ[] cms) {
+    string s = ""; int i = 0;
+    while (i < cms.Length) {
+        int j = 0;
+        while (j < cms[i].DiagCount) { s = s + cms[i].DiagMsgs[j] + " | "; j = j + 1; }
+        i = i + 1;
+    }
+    return s;
+}
+
+string frDump(CompiledModuleZ[] cms, string fname) {
+    int i = 0;
+    while (i < cms.Length) {
+        IrModule m = cms[i].Module;
+        int f = 0;
+        while (m != null && f < m.FuncCount) {
+            if (m.Functions[f].Name == fname) { return m.Functions[f].Dump(); }
+            f = f + 1;
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// 两个同名重载：int Twice(int)（primary=声明序首个）/ long Twice(long)（非-primary，mangle 键）。
+string frDecls() {
+    return "namespace App;\n"
+         + "public delegate int  IntUn(int x);\n"
+         + "public delegate long LongUn(long x);\n"
+         + "public delegate string StrUn(string s);\n"
+         + "int  Twice(int x)  { return x + x; }\n"
+         + "long Twice(long x) { return x + x; }\n";
+}
+
+// ── S1：赋值/声明位按目标委托精确选中，两重载都可达 ────────────────────────
+
+[Test]
+void assign_int_delegate_selects_int_overload() {
+    CompiledModuleZ[] cms = frBuild(frDecls() + "int Main() { IntUn a = Twice; return a(3); }");
+    Assert.Equal("", frAllDiags(cms));                       // 修前：E0425
+    // primary（int 重载）= 裸键 Twice。
+    Assert.Equal(true, frDump(cms, "App.Main").Contains("@App.Twice"));
+}
+
+[Test]
+void assign_long_delegate_selects_long_overload() {
+    CompiledModuleZ[] cms = frBuild(frDecls() + "long Main2() { LongUn b = Twice; return b(3); }");
+    Assert.Equal("", frAllDiags(cms));                       // 修前：E0425
+    // 非-primary（long 重载）= mangle 键（含 `$`）。
+    Assert.Equal(true, frDump(cms, "App.Main2").Contains("@App.Twice$"));
+}
+
+// ── S3：调用实参位按形参委托签名消解（延迟位回填）─────────────────────────
+
+[Test]
+void call_argument_selects_by_parameter_delegate() {
+    CompiledModuleZ[] cms = frBuild(frDecls()
+        + "int applyI(IntUn g, int v) { return g(v); }\n"
+        + "long applyL(LongUn g, long v) { return g(v); }\n"
+        + "int Main() { return applyI(Twice, 5); }\n"
+        + "long Main2() { return applyL(Twice, 5); }\n");
+    Assert.Equal("", frAllDiags(cms));                       // 修前：实参急切绑 → E0425
+}
+
+// ── S4：无重载匹配目标委托 → E0477（列候选）───────────────────────────────
+
+[Test]
+void no_overload_matches_target_reports_E0477() {
+    CompiledModuleZ[] cms = frBuild(frDecls() + "int Main() { StrUn s = Twice; return 0; }");
+    Assert.Equal(1, frCode(cms, "E0477"));
+    Assert.Equal(0, frCode(cms, "E0425"));
+}
+
+// ── S5：无目标位仍 E0425（消息提示标注委托类型）──────────────────────────
+
+[Test]
+void no_target_position_reports_E0425() {
+    CompiledModuleZ[] cms = frBuild(frDecls() + "int Main() { var x = Twice; return 0; }");
+    Assert.Equal(1, frCode(cms, "E0425"));
+    Assert.Equal(0, frCode(cms, "E0477"));
+}
+
+// ── S6：单份（非重载）自由函数取引用不受影响 ───────────────────────────────
+
+[Test]
+void single_funcref_still_works() {
+    CompiledModuleZ[] cms = frBuild(
+        "namespace App;\npublic delegate int IntUn(int x);\n"
+        + "int Solo(int x) { return x; }\n"
+        + "int Main() { IntUn f = Solo; return f(1); }");
+    Assert.Equal("", frAllDiags(cms));
+    Assert.Equal(true, frDump(cms, "App.Main").Contains("@App.Solo"));
+}
+
+// ── return 位 ─────────────────────────────────────────────────────────────
+
+[Test]
+void return_position_selects_overload() {
+    CompiledModuleZ[] cms = frBuild(frDecls() + "IntUn make() { return Twice; }");
+    Assert.Equal("", frAllDiags(cms));
+    Assert.Equal(true, frDump(cms, "App.make").Contains("@App.Twice"));
+}
+
+// ── 字段初始化位 ──────────────────────────────────────────────────────────
+
+[Test]
+void field_initializer_selects_overload() {
+    CompiledModuleZ[] cms = frBuild(frDecls() + "class C { public LongUn F = Twice; }");
+    Assert.Equal("", frAllDiags(cms));
+}

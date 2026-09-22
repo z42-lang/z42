@@ -1,0 +1,8 @@
+namespace Demo.FrBase;
+
+// Target package: exposes an **overloaded** free function. Cross-zpkg consumers
+// take a target-typed reference to a specific overload; the selected overload's
+// RegKey (bare for primary, `Kind$1$long` for the non-primary) must be exported
+// and re-resolved via the same func_index a cross-pkg call uses.
+public int  Kind(int x)  { return 1; }
+public long Kind(long x) { return 2; }
