@@ -384,17 +384,20 @@ impl<T> GcRef<T> {
         Self { tagged: Self::pack(entry, generation), _phantom: PhantomData }
     }
 
-    /// **Transitional standalone constructor**: allocates a `RegionEntry`
+    /// **Test-only standalone constructor**: allocates a `RegionEntry`
     /// outside any `Region<T>` (via `Box::leak`). Memory is intentionally
-    /// leaked — the entry stays alive for the rest of the process. Used
-    /// only by tests + the rare callsite that constructs a `GcRef` without
-    /// a heap context (e.g., `corelib/array.rs::builtin_array_clone` will
-    /// be migrated to `ctx.heap().alloc_array` in a follow-up commit).
+    /// leaked — the entry stays alive for the rest of the process.
     ///
-    /// This is the only allocation path that doesn't go through a Region;
+    /// As of 2026-09, **no production code calls this** — the last such
+    /// callsite (`corelib/array.rs::builtin_array_clone`) has been migrated
+    /// to `ctx.heap().alloc_array_obj`, and `corelib/string.rs` likewise
+    /// allocates via the heap. Every remaining caller is in a `#[cfg(test)]`
+    /// module (`grep -rn 'GcRef::new(' src/runtime/`). Keep it that way:
+    /// this is the only allocation path that doesn't go through a Region, so
     /// such GcRefs participate in identity / borrow / mark APIs but are
     /// invisible to GC sweep (not in any heap registry → never reclaimed
-    /// while the process lives).
+    /// while the process lives) — a leak by construction. New heap objects
+    /// must go through `ctx.heap()`.
     pub fn new(value: T) -> Self
     where
         T: 'static,
@@ -409,11 +412,23 @@ impl<T> GcRef<T> {
 
     /// Resolve to the inner `&RegionEntry<T>`. Panics if generation
     /// mismatches (use-after-finalize per design D5).
+    ///
+    /// The generation/alive guard is **unconditional** (not `debug_assert!`):
+    /// it is the sole backstop against dereferencing a tombstoned slot that has
+    /// since been reused for a *different* object (silent type confusion). Every
+    /// tombstone path bumps `generation` and clears `alive` together
+    /// (`region.rs` `tombstone` / `tombstone_during_sweep` / `tombstone_via_entry`),
+    /// so a stale handle's 16-bit `gen16()` snapshot no longer matches. Compiling
+    /// this out in release (the old `debug_assert!`) contradicted the two API-doc
+    /// promises above and at the module header ("`borrow` panics on generation
+    /// mismatch") and left release builds with a silent-UAF hole. Cost is two
+    /// `Acquire` loads ahead of the blocking `Mutex` lock in `borrow*` — negligible
+    /// beside the lock itself.
     fn entry_ref(&self) -> &RegionEntry<T> {
         // SAFETY: entry pointer is stable for the entry's lifetime;
         // caller upholds the GcRef-not-outlive-Region contract.
         let e = unsafe { self.entry_addr().as_ref() };
-        debug_assert!(
+        assert!(
             e.generation.load(Ordering::Acquire) as u16 == self.gen16()
                 && e.alive.load(Ordering::Acquire),
             "GcRef::entry_ref: generation/alive mismatch — use-after-finalize"

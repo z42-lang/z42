@@ -14,7 +14,7 @@
 | **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 里的码常量 —— **这是唯一 SoT**。每一个发得出去的码都必须在那里登记，由 `xtask test diagcodes` 强制（见下） |
 | **含义** | 取**发射点的诊断消息文本**，而不是常量名。常量名有过一码两义、也有过名实不符（见 `[Forward]` 一节） |
 | **状态** | 对每个码做 `grep -rn 'DiagnosticCodes.<常量名>' src/` + `grep -rn '"<码号>"' src/`，排除 `DiagnosticCodes.z42` 自身与 `tests/` 目录 |
-| **唯一性** | `xtask test diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮；⑤ **本页的码表与登记表双向相等**（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
+| **唯一性** | `xtask test diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮；⑤ **本页的码表与登记表双向相等**；⑥ 清单里的每条欠账挂账超过 3 天即红（字面量发码的正当理由会过期，到期必须切回常量）（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
 
 ### 状态列的三个值
 
@@ -46,6 +46,13 @@ PR 前后脚合入、各拿了一个 E0481，git 毫无反应，门在 main 上�
 **从不进登记表**；后来者扫登记表找空位，看不见那些字面量码，就挑中一个已被占用的号。
 两个并行 PR 各自在自己的文件里写下同一个号时，git 眼里是两处互不相干的新增 ⇒ **欢快合并**。
 `xtask test diagcodes` 就是补上这个缺席的信号。
+
+**现状（2026-09-23）**：三次撞码的共同前提——「42 个码 / 100 个发射点用字面量、登记表看不见」——
+已经消掉了。常量随 nightly 进种子后，`migrate-diag-literals-to-constants` 把这 100 个发射点全部切回
+`DiagnosticCodes.<Name>`，**登记表成了占号的唯一咽口**：抢同一个号现在会变成 `DiagnosticCodes.z42`
+里的 git 文本冲突。⚠️ 但字面量**不会绝迹**：新码的常量与引用它的发射点不能同 PR（上一版 z42c 里还
+没有那个常量），所以每个新码都要先字面量一轮、跨一个 nightly 再切回——过渡期的那几条由
+`xtask test diagcodes` 的第 ④ 条（`scripts/test/diag-literal-emitters.txt` 双向棘轮）逐条盯着。
 
 ### 当前没有 `explain` 命令
 
@@ -168,17 +175,17 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | E0471 | 使用了 `out` / `in` 作参数修饰符（形参位或调用点）。三态已收敛为单一 `ref`：`out` 的四条规则全为处理「未初始化内存」这一个例外，而槽位自动取零值消灭了该例外；`in` 的只读保证从设计时起就不完整（只约束 slot 不可重赋，不约束指向对象的内部状态）。诊断附迁移写法 | ✅ `MemberParser.z42`（形参侧）/ `ExprParser.z42`（调用点） | `void F(out int v){}` → `void F(ref int v){}` |
 | E0472 | 形参是 `ref`，**实参漏写** `ref`。此前编译通过且方法里的写入**静默丢失**——被调方改的是自己的形参寄存器，出口 copy-out 没有调用方的 lvalue 可写回 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void Inc(ref int x){} ... Inc(v)` |
 | E0473 | 形参**不是** `ref`，实参却多写了 `ref`。与 E0472 方向相反但同样有害：此前编译通过且写入**传回了调用方**，即「按引用与否由调用点决定」，光看函数声明判断不出参数会不会被改 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void ByValue(int x){} ... ByValue(ref v)` |
-| E0474 | 属性的两个访问器**混合** auto 与带体（一半 `get;`/`set;`、另一半 `get { }`/`set { }`）。z42 无 C# 的 `field` 关键字，auto 半边读/写合成后备 `__prop_X`、带体半边写自备字段 → 读写错位。须**要么都 auto、要么都带体** | ✅ `MemberParser.z42`（`_parseProperty`，字面量发码；常量 `MixedPropertyAccessors`） | `int P { get; set { _x = value; } }` |
-| E0475 | 把可空表达式隐式转给不可空的值类型目标。`?` 擦除后此前一路放行，运行期才以 `type mismatch in arithmetic: Null vs I64` 之类的**内部错误**炸出来 | ✅ `TypeChecker.z42`（`CheckImplicitConvert`，字面量发码） | `int? m = null; int y = m;` |
-| E0476 | 对**值类型**写 `?`（`int?` / `Guid?` / 值 struct）。可空只适用引用类型——`?` 对值类型此前是个「看起来存在、实际为零」的标注。⚠️ `byte[]?` 这类**数组**不受限（数组是引用类型） | ✅ `TypeParser.z42`（字面量发码） | `int? m = null;` |
-| E0477 | 取一个**重载自由函数**的引用时，目标委托类型在场，但**没有任何重载**的签名（形参逐位 + 返回）与该委托**精确相等**。诊断列出该名字下全部候选签名。见 [delegates §2.5](../language/delegates-events.md#25-重载自由函数取引用按目标委托消解) | ✅ `ExprTyper.Funcref.z42`（`_bindFuncRefTargeted`，字面量发码；常量 `FuncRefNoMatchingOverload`） | `Func<string,bool> b = Parse;`，`Parse` 无 `(string)->bool` 重载 |
-| E0478 | 解引用一个标了 `?` 的形参，而此前没有检查过空值。`?` 的语义是「**请编译器在这里强制检查**」——**不标就不强制**，所以存量代码一行不用改。逃生口是窄化：`if (s != null) { … }` / 早返回守卫 `if (s == null) { return; }` / `s != null && s.X` / 三元。**没有 `!` 那样的「我保证」后缀**（那正是要避开的逃逸口）。覆盖**裸名**解引用与**调用结果**解引用；事实来源是标 `?` 的**形参**与标 `?` 的**返回值**。字段（需先定快照规则）见 `define-null-check-marks` 的后续 PR | ✅ `FlowAnalyzer.z42`（字面量发码） | `int M(string? s) { return s.Length; }` |
-| E0479 | 把「可能为 null」的值 `return` 给**未标 `?`** 的返回类型。未标的返回类型意味着「调用方不必检查」，放行就等于凭空造一个洞。两条修法诊断里都给：给返回类型加 `?`（把义务传给调用方），或在这里先检查。⚠️ 只认**确定性**来源（标 `?` 的名字 / 标 `?` 的调用结果）；裸 `return null;` **不报**——那是「建议加 `?`」的反向推导，另有其码 | ✅ `FlowAnalyzer.z42`（字面量发码） | `string M(string? s) { return s; }` |
-| E0482 | 赋值目标不是左值（没有可写的存储）：`42 = a` / `f() = x` / `(A, B) = (a, b)` 在**表达式位置**。此前这道检查根本不存在——三种全都编得过、跑得过、什么也不发生、零诊断。最伤人的是表达式体成员 `Pair(int a, int b) => (A, B) = (a, b);`：读起来完全像给两个字段赋值，实际字段全 0。⚠️ 与 **E0470**（`ref` 实参左值）不是一回事：那条要「可取址」，严得多；赋值只要「有存储」。⚠️ 本码**原为 E0477**，与「取重载自由函数引用无匹配」（先占号）撞码，2026-09-22 按先来后到改号 | ✅ `AssignTyper.z42`（`_checkAssignable`，字面量发码；常量 `AssignTargetNotLvalue`） | `42 = a;` |
-| E0483 | 值类型表达式与 `null` 比较（`==` / `!=`）。值类型永不含 null ⇒ 该比较是**静默恒假/恒真**，此前零诊断。⚠️ 本码**原为 E0474**（与「属性访问器混合 auto 与带体」撞）→ 改号 E0481 → 又撞 #747「接口非法成员」（那边早两个 commit 合入、保号）→ 再改号到此。两次都是因为它的发射点用字面量、号在登记表里没有主，抢号的人看不见它 | ✅ `TypeChecker.z42`（`_checkValueTypeNullCompare`，字面量发码；常量 `ValueTypeNullComparison`） | `int x = 1; if (x == null) { }` |
-| E0480 | 使用了已移除的空值运算符 —— `?.`（空条件成员访问）或 `??`（空合并）。**两者同码**：它们是同一个口子的两种写法，都把「可能为 null」静默收尾掉。诊断给迁移写法，并把表达式按等价合法形态解析完（`?.` 按 `.`、`??` 只取左侧）以免级联错（同 E0471 对 `out`/`in` 的手法）。「读设置取默认值」优先换成接受默认值的 API（全仓 70 处 `GetEnvironmentVariable("X") ?? ""` 即如此迁移）。⚠️ 顺带修掉一个真 bug：`?.` 旧脱糖把接收者**绑定两次** ⇒ `F()?.X` **调用 `F` 两次** | ✅ `ExprParser.z42`（字面量发码） | `var v = n?.value;` / `string s = a ?? b;` |
-| E0481 | 接口声明了**非法成员**——字段（静态/实例）或嵌套类型。接口只能声明方法、属性、索引器、事件、关联类型。此前 `_fillInterface` 静默跳过这些（`interface I { static int X; }` 编译通过但 X 无处可用） | ✅ `MemberCollector.z42`（`_fillInterface`，字面量发码） | `interface I { static int X; }` |
-| E0484 | 直接解引用一个标了 `?` 的**字段 / 属性**，而没有先快照到局部。与 E0478（形参）分成两码，因为**修法不同**：形参就地 `if (s != null) { … }` 就够，字段不行 —— 字段不是一个「值」，是一个**每次读都重新求值的位置**：`if (this.F != null) { this.F.M(); }` 里的两个 `this.F` 是两次独立的读，别的线程能在中间写；`F` 若是属性还是两次真调用，返回值可以不同。所以字段**永不就地窄化**，唯一修法是 `var v = this.F; if (v != null) { … }`（局部是个值，检查一次就永远成立）。⚠️ 跨包暂不携带标记（字段的 TSIG 拼写已擦除 `?`）⇒ 导入字段视为未标，是**漏报**方向 | ✅ `FlowAnalyzer.z42`（字面量发码） | `class C { string? F; int M() { return this.F.Length; } }` |
+| E0474 | 属性的两个访问器**混合** auto 与带体（一半 `get;`/`set;`、另一半 `get { }`/`set { }`）。z42 无 C# 的 `field` 关键字，auto 半边读/写合成后备 `__prop_X`、带体半边写自备字段 → 读写错位。须**要么都 auto、要么都带体** | ✅ `MemberParser.z42`（`_parseProperty`，发 `DiagnosticCodes.MixedPropertyAccessors`） | `int P { get; set { _x = value; } }` |
+| E0475 | 把可空表达式隐式转给不可空的值类型目标。`?` 擦除后此前一路放行，运行期才以 `type mismatch in arithmetic: Null vs I64` 之类的**内部错误**炸出来 | ✅ `TypeChecker.z42`（`CheckImplicitConvert`） | `int? m = null; int y = m;` |
+| E0476 | 对**值类型**写 `?`（`int?` / `Guid?` / 值 struct）。可空只适用引用类型——`?` 对值类型此前是个「看起来存在、实际为零」的标注。⚠️ `byte[]?` 这类**数组**不受限（数组是引用类型） | ✅ `TypeParser.z42` | `int? m = null;` |
+| E0477 | 取一个**重载自由函数**的引用时，目标委托类型在场，但**没有任何重载**的签名（形参逐位 + 返回）与该委托**精确相等**。诊断列出该名字下全部候选签名。见 [delegates §2.5](../language/delegates-events.md#25-重载自由函数取引用按目标委托消解) | ✅ `ExprTyper.Funcref.z42`（`_bindFuncRefTargeted`，发 `DiagnosticCodes.FuncRefNoMatchingOverload`） | `Func<string,bool> b = Parse;`，`Parse` 无 `(string)->bool` 重载 |
+| E0478 | 解引用一个标了 `?` 的形参，而此前没有检查过空值。`?` 的语义是「**请编译器在这里强制检查**」——**不标就不强制**，所以存量代码一行不用改。逃生口是窄化：`if (s != null) { … }` / 早返回守卫 `if (s == null) { return; }` / `s != null && s.X` / 三元。**没有 `!` 那样的「我保证」后缀**（那正是要避开的逃逸口）。覆盖**裸名**解引用与**调用结果**解引用；事实来源是标 `?` 的**形参**与标 `?` 的**返回值**。字段（需先定快照规则）见 `define-null-check-marks` 的后续 PR | ✅ `FlowAnalyzer.z42` | `int M(string? s) { return s.Length; }` |
+| E0479 | 把「可能为 null」的值 `return` 给**未标 `?`** 的返回类型。未标的返回类型意味着「调用方不必检查」，放行就等于凭空造一个洞。两条修法诊断里都给：给返回类型加 `?`（把义务传给调用方），或在这里先检查。⚠️ 只认**确定性**来源（标 `?` 的名字 / 标 `?` 的调用结果）；裸 `return null;` **不报**——那是「建议加 `?`」的反向推导，另有其码 | ✅ `FlowAnalyzer.z42` | `string M(string? s) { return s; }` |
+| E0482 | 赋值目标不是左值（没有可写的存储）：`42 = a` / `f() = x` / `(A, B) = (a, b)` 在**表达式位置**。此前这道检查根本不存在——三种全都编得过、跑得过、什么也不发生、零诊断。最伤人的是表达式体成员 `Pair(int a, int b) => (A, B) = (a, b);`：读起来完全像给两个字段赋值，实际字段全 0。⚠️ 与 **E0470**（`ref` 实参左值）不是一回事：那条要「可取址」，严得多；赋值只要「有存储」。⚠️ 本码**原为 E0477**，与「取重载自由函数引用无匹配」（先占号）撞码，2026-09-22 按先来后到改号 | ✅ `AssignTyper.z42`（`_checkAssignable`，发 `DiagnosticCodes.AssignTargetNotLvalue`） | `42 = a;` |
+| E0483 | 值类型表达式与 `null` 比较（`==` / `!=`）。值类型永不含 null ⇒ 该比较是**静默恒假/恒真**，此前零诊断。⚠️ 本码**原为 E0474**（与「属性访问器混合 auto 与带体」撞）→ 改号 E0481 → 又撞 #747「接口非法成员」（那边早两个 commit 合入、保号）→ 再改号到此。两次都是因为它的发射点用字面量、号在登记表里没有主，抢号的人看不见它 | ✅ `TypeChecker.z42`（`_checkValueTypeNullCompare`，发 `DiagnosticCodes.ValueTypeNullComparison`） | `int x = 1; if (x == null) { }` |
+| E0480 | 使用了已移除的空值运算符 —— `?.`（空条件成员访问）或 `??`（空合并）。**两者同码**：它们是同一个口子的两种写法，都把「可能为 null」静默收尾掉。诊断给迁移写法，并把表达式按等价合法形态解析完（`?.` 按 `.`、`??` 只取左侧）以免级联错（同 E0471 对 `out`/`in` 的手法）。「读设置取默认值」优先换成接受默认值的 API（全仓 70 处 `GetEnvironmentVariable("X") ?? ""` 即如此迁移）。⚠️ 顺带修掉一个真 bug：`?.` 旧脱糖把接收者**绑定两次** ⇒ `F()?.X` **调用 `F` 两次** | ✅ `ExprParser.z42` | `var v = n?.value;` / `string s = a ?? b;` |
+| E0481 | 接口声明了**非法成员**——字段（静态/实例）或嵌套类型。接口只能声明方法、属性、索引器、事件、关联类型。此前 `_fillInterface` 静默跳过这些（`interface I { static int X; }` 编译通过但 X 无处可用） | ✅ `MemberCollector.z42`（`_fillInterface`） | `interface I { static int X; }` |
+| E0484 | 直接解引用一个标了 `?` 的**字段 / 属性**，而没有先快照到局部。与 E0478（形参）分成两码，因为**修法不同**：形参就地 `if (s != null) { … }` 就够，字段不行 —— 字段不是一个「值」，是一个**每次读都重新求值的位置**：`if (this.F != null) { this.F.M(); }` 里的两个 `this.F` 是两次独立的读，别的线程能在中间写；`F` 若是属性还是两次真调用，返回值可以不同。所以字段**永不就地窄化**，唯一修法是 `var v = this.F; if (v != null) { … }`（局部是个值，检查一次就永远成立）。⚠️ 跨包暂不携带标记（字段的 TSIG 拼写已擦除 `?`）⇒ 导入字段视为未标，是**漏报**方向 | ✅ `FlowAnalyzer.z42` | `class C { string? F; int M() { return this.F.Length; } }` |
 | E0485 | 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个 —— 多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 `file:line`。**包级判定**：跨 CU，per-file 阶段看不见 | ✅ `ModuleInitScan.z42`（`CheckPackage`，字面量发码；常量 `ModuleInitDuplicate`） | 同一包两个文件各写一个 `[ModuleInit]` |
 | E0486 | `[ModuleInit]` 标注目标非法：包初始化器必须是**有体、无参、返回 `void`、非泛型**的方法；类内成员还必须 `static`（顶层自由函数豁免 —— 它本就无 this、恒 `IsStatic=false`）。诊断带上「哪里不对」那一条 | ✅ `ModuleInitScan.z42`（`CheckPackage`，字面量发码；常量 `ModuleInitBadTarget`。⚠️ 本码原取 E0484，与「解引用标了 `?` 的字段/属性」撞 —— 那边早合入 main、保号，本码按先来后到让到 E0486） | `public class C { [ModuleInit] void Init() { } }` |
 
@@ -361,7 +368,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 | W0603 | 包声明了保留命名空间（依赖扫描层软网） | ⚠️ 零发射点 | — |
 | W0604 | 捕获的值快照被赋值 | ⚠️ 零发射点 —— 规避写法（`bool[1]` 单元格）在 stdlib 里有沿用，但编译器当前**不报**这条 | — |
 | W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
-| W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（字面量发码；常量 `DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
+| W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（发 `DiagnosticCodes.DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
 
 ---
 
@@ -369,7 +376,7 @@ E0442 / E0457 / E0462 除外（见上一节）。
 
 | 码 | 含义 | 状态 |
 |---|---|---|
-| I0466 | `[Forward]` 跳过某成员：外层类已自己声明了同名成员，用户的实现优先（详见上面的 `[Forward]` 小节） | ✅ `ForwardGenerator.z42:201,279`（字面量发码；常量 `ForwardSkipped`） |
+| I0466 | `[Forward]` 跳过某成员：外层类已自己声明了同名成员，用户的实现优先（详见上面的 `[Forward]` 小节） | ✅ `ForwardGenerator.z42:201,279`（发 `DiagnosticCodes.ForwardSkipped`） |
 | I0467 | ❌ 已退役（2026-09-22），编号不复用 —— 见 `[Forward]` 小节 |
 
 ---

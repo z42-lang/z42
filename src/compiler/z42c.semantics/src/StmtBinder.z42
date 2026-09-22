@@ -247,7 +247,7 @@ public sealed class StmtBinder {
             string n = (pat as BoundBindingPattern).Name;
             string kind = StmtBinder._memberKind(ct, env, n);
             if (kind.Length > 0) {
-                this._tc._diags.Warning("W0701", "destructuring declaration binds `" + n + "`, which shadows " + kind + " `" + ct.Name() + "." + n + "` — this declares a new local, it does not assign the member (z42 has no destructuring assignment; write `this." + n + " = ...`)", sp);
+                this._tc._diags.Warning(DiagnosticCodes.DeconstructShadowsMember, "destructuring declaration binds `" + n + "`, which shadows " + kind + " `" + ct.Name() + "." + n + "` — this declares a new local, it does not assign the member (z42 has no destructuring assignment; write `this." + n + " = ...`)", sp);
             }
             return;
         }

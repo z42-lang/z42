@@ -259,11 +259,11 @@ public sealed class InheritanceResolver {
                         bool clsStatic = c.Kind == "class" && this._sc._hasWord(c.Mods, "static");
                         if (clsStatic) {
                             if (ct.HasBase && ct.BaseName != "") {
-                                this._sc.Diags.Error("E0451",
+                                this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                                     "static class `" + c.Name + "` cannot have a base class", c.Span);
                             }
                             if (ct.InterfaceCount > 0) {
-                                this._sc.Diags.Error("E0451",
+                                this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                                     "static class `" + c.Name + "` cannot implement interfaces", c.Span);
                             }
                         }
@@ -360,7 +360,7 @@ public sealed class InheritanceResolver {
         int a = 0;
         while (a < it.AssocTypeCount) {
             if (ct.AssocBindingOf(it.AssocTypeNames[a]) == "") {
-                this._sc.Diags.Error("E0453",
+                this._sc.Diags.Error(DiagnosticCodes.AssocTypeBinding,
                     "`" + c.Name + "` implements `" + ifaceName + "` but does not bind associated type `"
                     + it.AssocTypeNames[a] + "` — add `type " + it.AssocTypeNames[a] + " = <type>;`", c.Span);
             }
@@ -551,25 +551,25 @@ public sealed class InheritanceResolver {
             MethodDecl md = mem as MethodDecl;
             if (this._sc._hasWord(md.Mods, "static")) { return; }   // 静态方法（含静态构造器）合法
             if (md.IsCtor) {
-                this._sc.Diags.Error("E0451",
+                this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                     "static class `" + clsName + "` cannot declare an instance constructor", md.Span);
             } else {
-                this._sc.Diags.Error("E0451",
+                this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                     "static class `" + clsName + "` cannot declare instance method `" + md.Name + "`", md.Span);
             }
         } else if (mem is FieldDecl) {
             FieldDecl fd = mem as FieldDecl;
             if (this._sc._hasWord(fd.Mods, "static") || this._sc._hasWord(fd.Mods, "const")) { return; }
-            this._sc.Diags.Error("E0451",
+            this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                 "static class `" + clsName + "` cannot declare instance field `" + fd.Name + "`", fd.Span);
         } else if (mem is PropertyDecl) {
             PropertyDecl pd = mem as PropertyDecl;
             if (this._sc._hasWord(pd.Mods, "static")) { return; }
-            this._sc.Diags.Error("E0451",
+            this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                 "static class `" + clsName + "` cannot declare instance property `" + pd.Name + "`", pd.Span);
         } else if (mem is IndexerDecl) {
             IndexerDecl ix = mem as IndexerDecl;
-            this._sc.Diags.Error("E0451",
+            this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                 "static class `" + clsName + "` cannot declare an indexer", ix.Span);
         }
     }

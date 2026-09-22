@@ -27,11 +27,11 @@ public static class RefArgCheck {
         if (paramRef == argRef) { return; }
         Span sp = args[i].Span;
         if (paramRef) {
-            tc._diags.Error("E0472",
+            tc._diags.Error(DiagnosticCodes.RefArgModifierMissing,
                 "argument " + (i + 1).ToString() + " must be passed with `ref` — the parameter is `ref`, "
                 + "and without it the callee's write is silently lost", sp);
         } else {
-            tc._diags.Error("E0473",
+            tc._diags.Error(DiagnosticCodes.RefArgModifierUnexpected,
                 "argument " + (i + 1).ToString() + " must not be passed with `ref` — the parameter is not `ref`", sp);
         }
     }

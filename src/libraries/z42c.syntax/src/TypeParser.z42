@@ -168,7 +168,7 @@ public sealed class TypeParser {
             // 不是元素。只看基名 `byte` 会把它误拦（实测被 z42.core 的
             // `ProcessNative.Spawn(..., byte[]? stdinBytes, ...)` 抓住）。
             if (ac == 0 && !isArray && TypeParser._isValueTypeKeyword(name)) {
-                this._p._diags.Error("E0476",
+                this._p._diags.Error(DiagnosticCodes.NullableValueType,
                     "`" + name + "?` is not allowed — `" + name + "` is a value type and can never be null; "
                     + "for a \"maybe absent\" value-type result use `bool TryX(..., ref " + name + " v)`", qsp);
             }
