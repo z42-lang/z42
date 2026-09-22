@@ -289,3 +289,74 @@ fn is_int_div_by_zero_only_integer_zero() {
     assert!(!is_int_div_by_zero(&Value::F64(0.0)));   // float /0 → IEEE Infinity, not throw
     assert!(!is_int_div_by_zero(&Value::I64(1)));
 }
+
+// ── make-hard-cast-fail-properly：hard_cast_failure ─────────────────────────
+
+mod hard_cast {
+    use super::super::*;
+    use crate::metadata::types::{TAG_I32, TAG_I64, TAG_F64, TAG_BOOL, TAG_CHAR, TAG_STR, TAG_OBJECT, TAG_ARRAY};
+
+    /// 🔒 **本组最要紧的一条**：`hard_cast_failure` 与 `convert_value` 的放行条件必须严格互补。
+    ///
+    /// 若某个组合两边都放行，`convert_value` 的防御性 `bail!` 会以**内部错误**泄漏给用户
+    /// （不可 catch、Rust Debug 格式的消息）——那正是本变更要消灭的形态。
+    /// 若某个组合两边都拒，合法转换会被误抛。
+    #[test]
+    fn failure_predicate_is_complementary_to_convert_value() {
+        let values = [
+            Value::I64(7), Value::F64(1.5), Value::Bool(true), Value::Char('x'),
+            Value::Str("s".into()), Value::Null,
+        ];
+        let tags = [TAG_I32, TAG_I64, TAG_F64, TAG_BOOL, TAG_CHAR, TAG_STR, TAG_OBJECT, TAG_ARRAY];
+        for v in &values {
+            for &t in &tags {
+                let verdict = hard_cast_failure(v, t);
+                if verdict.is_none() {
+                    // 说明「这是合法硬转换」⇒ convert_value 不得走到防御性 bail。
+                    // （数值越界 / 非法 Unicode 标量等**值域**错误仍可能 Err，那是另一类，
+                    // 消息不含 "internal:"。）
+                    if let Err(e) = convert_value(v.clone(), t) {
+                        let msg = format!("{:#}", e);
+                        assert!(!msg.contains("internal:"),
+                            "hard_cast_failure 放行了 {:?} → tag 0x{:02X}，但 convert_value 走到防御性 bail：{}",
+                            v, t, msg);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn null_to_value_type_is_null_reference_not_invalid_cast() {
+        // 「没有对象」与「对象类型不对」是两种不同的错，不能合成一条。
+        let (exc, msg) = hard_cast_failure(&Value::Null, TAG_I32).expect("null→int 必须失败");
+        assert_eq!(exc, NULL_REF_EXC);
+        assert!(msg.contains("int"), "消息要点出目标类型：{msg}");
+    }
+
+    #[test]
+    fn null_to_reference_type_is_allowed() {
+        // C# 同：null 可以转成任何引用类型。误抛这条会打断 `(string)someNullObj`。
+        assert!(hard_cast_failure(&Value::Null, TAG_STR).is_none());
+        assert!(hard_cast_failure(&Value::Null, TAG_OBJECT).is_none());
+    }
+
+    #[test]
+    fn wrong_kind_to_value_type_is_invalid_cast_with_readable_message() {
+        let (exc, msg) = hard_cast_failure(&Value::Str("hello".into()), TAG_I32)
+            .expect("string→int 必须失败");
+        assert_eq!(exc, INVALID_CAST_EXC);
+        // 🔒 消息不得是 Rust Debug 格式（此前是 `Str("hello")` / `type tag 0x04`）。
+        assert!(!msg.contains("Str("), "消息漏了 Rust Debug 格式：{msg}");
+        assert!(!msg.contains("tag 0x"), "消息漏了 tag 数字：{msg}");
+        assert!(msg.contains("int"), "消息要点出目标类型：{msg}");
+    }
+
+    #[test]
+    fn legit_numeric_and_identity_casts_are_allowed() {
+        assert!(hard_cast_failure(&Value::I64(1), TAG_F64).is_none());
+        assert!(hard_cast_failure(&Value::F64(3.7), TAG_I32).is_none());
+        assert!(hard_cast_failure(&Value::Bool(true), TAG_BOOL).is_none());
+        assert!(hard_cast_failure(&Value::Str("s".into()), TAG_STR).is_none());
+    }
+}

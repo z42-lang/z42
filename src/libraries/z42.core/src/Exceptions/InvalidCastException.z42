@@ -1,0 +1,14 @@
+namespace Std;
+
+// 硬转换 `(T)x` 失败：`x` 非 null 但不是 `T`（也不是 `T` 的子类型 / 未实现 `T`）。
+//
+// 与 `as` 的分工：`x as T` 失配返 null、不抛；`(T)x` 断言「我知道它是 T」，断言不成立就抛。
+// make-hard-cast-fail-properly 之前 z42 **没有这个类**，而硬转换也从来不抛——
+// 引用类型那支在发射层一条指令都不发（纯透传），于是错类型的对象一路往下流。
+public class InvalidCastException : Exception {
+    public InvalidCastException(string message) : base(message) {}
+
+    override string ToString() {
+        return "InvalidCastException: " + this.Message;
+    }
+}

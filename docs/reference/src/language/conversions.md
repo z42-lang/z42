@@ -96,11 +96,34 @@ c.ToString()         // "Green"
 
 `struct` 值装箱后保持**引用身份**（与 C# 一致）：每装箱一次得到一个新的盒。
 
-**拆箱是受检的**：`(T)o` 在运行期核对盒里的精确类型，不符即失败。类型不符的拆箱当前产生的是
-**终止性运行期错误，不能用 `try` / `catch` 捕获**——与其它 `Convert` 失败一致。
+### 拆箱失败抛可捕获的异常
+
+`(T)o` 在运行期核对盒里的精确类型，不符即抛，且**两种失因分开**：
+
+| 情形 | 异常 |
+|---|---|
+| `o` 是 null，`T` 是**值类型** | `NullReferenceException` |
+| `o` 是 null，`T` 是**引用类型** | **不抛**，结果是 null（C# 同） |
+| `o` 非 null 但类型不符 | `InvalidCastException` |
+
+```z42
+object o = "hello";
+try { int n = (int)o; }
+catch (Exception e) { Console.WriteLine(e.GetType().Name); }   // InvalidCastException
+```
+
+「没有对象」与「对象类型不对」是两种不同的错，分成两个异常种类是为了让调试时一眼看出是哪一种。
+
+> ⚠️ **此前**（make-hard-cast-fail-properly 之前）这两种都是**终止性内部错误，`catch` 捕获不到**，
+> 消息还是 Rust 调试格式（`cannot convert Str("hello") to type tag 0x04`）。
+>
+> ⚠️ **引用类型之间**的硬转换（`(Box)someOther`）目前**仍然不检查**——发射层对它一条指令都不发，
+> 错类型的对象会原样流下去。由 follow-up `make-ref-hard-cast-checked` 修。
+> 在那之前，引用类型的向下转换请用 `as` + null 检查。
 
 **健全性**：装箱 = 加宽上转（安全）+ 受检下转（运行期核对精确类型）。因为装箱值携带精确类型，
-下转可靠、`is` / `as` 精确——没有办法把一个类型当成另一个用。
+下转可靠、`is` / `as` 精确——**在值类型这一侧**没有办法把一个类型当成另一个用。
+（引用类型之间的硬转换尚未受检，见上面的 ⚠️。）
 
 > 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
 > 容器里外的表示不变。
