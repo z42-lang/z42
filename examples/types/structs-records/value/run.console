@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run value.z42
+a=(1, 2) b=(99, 2)
+true
+# ANCHOR_END: run

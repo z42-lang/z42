@@ -1,0 +1,23 @@
+using Std.IO;
+
+// ANCHOR: decl
+struct Point {
+    public int X;
+    public int Y;
+    public Point(int x, int y) { X = x; Y = y; }
+
+    public int Sum() { return X + Y; }
+    public override string ToString() => $"({X}, {Y})";
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: use
+    Point a = new Point(1, 2);
+    Point b = a;          // 复制的是内容，不是指向
+    b.X = 99;
+
+    Console.WriteLine($"a={a} b={b}");      // a 没被动过
+    Console.WriteLine(a.Equals(new Point(1, 2)));   // 值相等：逐字段比
+    // ANCHOR_END: use
+}
