@@ -1,0 +1,12 @@
+using Std.IO;
+
+struct Pair {
+    public int A;
+    public int B;
+    public Pair(int a, int b) => (A, B) = (a, b);   // ✗ 这样写字段不会被赋值
+}
+
+void Main() {
+    Pair p = new Pair(3, 4);
+    Console.WriteLine($"{p.A} {p.B}");
+}

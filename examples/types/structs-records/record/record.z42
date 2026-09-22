@@ -1,0 +1,19 @@
+using Std.IO;
+
+// ANCHOR: decl
+[Record] public class Person(string Name, int Age);
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: use
+    Person p = new Person("小明", 7);
+    Console.WriteLine(p.Name);
+    Console.WriteLine(p.ToString());              // 自动带字段的输出
+
+    Person q = new Person("小明", 7);
+    Console.WriteLine(p.Equals(q));               // 自动的值相等
+
+    Person older = p with { Age = 8 };            // 改一个字段，得到新对象
+    Console.WriteLine($"{older.Name} {older.Age}，原来的还是 {p.Age}");
+    // ANCHOR_END: use
+}

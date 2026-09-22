@@ -1,0 +1,7 @@
+# ANCHOR: run
+$ z42 run record.z42
+小明
+Person { Name = 小明, Age = 7 }
+true
+小明 8，原来的还是 7
+# ANCHOR_END: run

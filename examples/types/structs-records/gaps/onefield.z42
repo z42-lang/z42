@@ -1,0 +1,16 @@
+using Std.IO;
+
+struct One { public int X; public One(int x) { X = x; } }
+struct Two { public int X; public int Y; public Two(int x, int y) { X = x; Y = y; } }
+
+void Main() {
+    One a = new One(1);
+    One b = a;
+    b.X = 50;
+    Console.WriteLine($"单字段: a.X={a.X}  b.X={b.X}");
+
+    Two c = new Two(1, 2);
+    Two d = c;
+    d.X = 50;
+    Console.WriteLine($"两字段: c.X={c.X}  d.X={d.X}");
+}

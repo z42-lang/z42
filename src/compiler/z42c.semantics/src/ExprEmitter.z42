@@ -297,7 +297,21 @@ public sealed class ExprEmitter {
                 bool isStrLit = (hp.Inner is BoundLitStr) || (hp.Inner is BoundInterpolatedStr);
                 if (!isStrLit) {
                     TypedReg strReg = this._ctx.Alloc(IrType.Str);
-                    this._ctx.Emit(new ToStrInstr(strReg, innerReg));
+                    // 值 struct 的洞走**虚调用 ToString**，不走 ToStrInstr（fix-struct-tostr-in-interp）。
+                    // `ToStrInstr` 落到 VM 的 `value_to_str` —— 那是条**没有 ctx** 的原始路径，解不了
+                    // arena 里的 struct blob，只能吐占位符 `<struct value>`。于是 struct 自己写的
+                    // `public override string ToString()` 在 `$"{p}"` 里**完全不生效**（显式
+                    // `p.ToString()` 却是对的），读者看到的是一个毫无信息的占位串。
+                    // 与上一行给 enum 装箱同一位置、同一动机：让这个洞走能解析到真实现的那条路。
+                    // ⚠️ struct **无虚方法**，receiver 是 StructRef 句柄不是 object —— 直接发 VCall 会崩
+                    // 「VCall: expected object, got StructRef」。分流与 `CallEmitter` 的 struct 实例方法
+                    // 调用（:128-145）一致：自声明 / record 合成的 `ToString` 走**静态 Call 传 handle**；
+                    // 未自声明的走 `__box_struct` + VCall（命中 runtime 的装箱-struct Object 协议）。
+                    if (this._isBlobStruct(hp.Inner.Type())) {
+                        strReg = this._emitStructToStr(innerReg, hp.Inner.Type());
+                    } else {
+                        this._ctx.Emit(new ToStrInstr(strReg, innerReg));
+                    }
                     innerReg = strReg;
                 }
                 regs[i] = innerReg;
@@ -504,6 +518,33 @@ public sealed class ExprEmitter {
     }
     // blob struct 短名（调用方已确认 _isBlobStruct）。
     internal string _blobStructName(Z42Type t) { return this._receiverClassType(t).Name(); }
+
+    // 值 struct → string，供字符串插值的洞使用（fix-struct-tostr-in-interp）。
+    //
+    // 不能发 `ToStrInstr`：那落到 VM 的 `value_to_str`，一条**没有 ctx** 的原始路径，解不了 arena
+    // 里的 struct blob，只吐占位符 `<struct value>` —— 于是 struct 自己写的 `ToString` 在 `$"{p}"`
+    // 里完全不生效（显式 `p.ToString()` 却是对的）。也不能直接发 VCall：struct 无虚方法、receiver 是
+    // StructRef 句柄不是 object，会崩「VCall: expected object, got StructRef」。
+    //
+    // 分流与 `CallEmitter` 的 struct 实例方法调用（:128-145）逐条对齐：
+    //   · 自声明 / record 合成的 `ToString`（ChainHasMethod 真）→ **静态 Call 传 handle**
+    //   · 未自声明 → `__box_struct` 装箱 + VCall，命中 runtime 的装箱-struct Object 协议（短类型名）
+    internal TypedReg _emitStructToStr(TypedReg sv, Z42Type t) {
+        string sname = this._blobStructName(t);
+        TypedReg dst = this._ctx.Alloc(IrType.Str);
+        TypedReg[] noArgs = new TypedReg[0];
+        if (this._ctx.ChainHasMethod(sname, "ToString")) {
+            // 静态 Call：receiver 作第一个实参（`CallInstr(dst, fq, args, count)` 无独立 recv 槽）
+            TypedReg[] full = new TypedReg[1]; full[0] = sv;
+            this._ctx.Emit(new CallInstr(dst, this._ctx.QualifyClass(sname) + ".ToString", full, 1));
+            return dst;
+        }
+        TypedReg[] ba = new TypedReg[1]; ba[0] = sv;
+        TypedReg boxed = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new BuiltinInstr(boxed, "__box_struct", ba, 1));
+        this._ctx.Emit(new VCallInstr(dst, boxed, "ToString", noArgs, 0));
+        return dst;
+    }
 
     // 数组元素类型名限定：泛型实例名（`Kv<String,Int32>`）须先剥实参到裸基名再 QualifyClass
     // （imported ns 解析按裸键 `Kv`），再回贴实参保运行期非擦除元素反射——镜像 StructAlloc 的
