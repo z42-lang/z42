@@ -104,18 +104,68 @@ public sealed class ZpkgInfo {
 
 public static class ZpkgReader {
 
-    // 解析 header/目录/META/STRS（其余段惰性按需）。非 packed / 坏 magic / 版本不匹配 → null（调用方静默跳过）。
+    // 已经就某个 `<major>.<minor>` 报过告警的记录。一个过期的 libs 目录里常有几十个同代旧包，
+    // 逐个报会把真信号淹在噪声里 ⇒ **按版本去重，一个旧版本一行**。
+    private static string[] _skewWarned = new string[8];
+    private static int _skewWarnedCount = 0;
+
+    // 版本失配**必须说出来**（restore-emit-zbc-diagnostics 同族）。此前这里是一条静默 `return null`：
+    // 依赖包被整包跳过，而跳过不会失败——它在很远的地方以满屏 `E0401: undefined: DiagnosticCodes` /
+    // `E0443: undefined type: Span` 的形态浮出来，离真因十万八千里（实测为此二分了三轮）。
+    // 措辞对齐 VM 侧那条好报错（`src/runtime/src/app.rs` 的 `version_mismatch_hint`）：在**检测点**
+    // 点名，并给出修它的命令。
+    private static void _warnVersionSkew(string origin, int major, int minor) {
+        string ver = major.ToString() + "." + minor.ToString();
+        int i = 0;
+        while (i < ZpkgReader._skewWarnedCount) {
+            if (ZpkgReader._skewWarned[i] == ver) { return; }      // 同一个旧版本只报一次
+            i = i + 1;
+        }
+        if (ZpkgReader._skewWarnedCount == ZpkgReader._skewWarned.Length) {
+            string[] grown = new string[ZpkgReader._skewWarnedCount * 2];
+            int k = 0;
+            while (k < ZpkgReader._skewWarnedCount) { grown[k] = ZpkgReader._skewWarned[k]; k = k + 1; }
+            ZpkgReader._skewWarned = grown;
+        }
+        ZpkgReader._skewWarned[ZpkgReader._skewWarnedCount] = ver;
+        ZpkgReader._skewWarnedCount = ZpkgReader._skewWarnedCount + 1;
+
+        string who = origin == "" ? "a .zpkg" : "`" + origin + "`";
+        ConsoleError.WriteLine("warning: skipping " + who + " — it was built for z42 package format "
+            + ver + ", this toolchain reads "
+            + ZpkgWriterZ.Major.ToString() + "." + ZpkgWriterZ.Minor.ToString()
+            + " (strict-pin: there is no cross-version compatibility).");
+        ConsoleError.WriteLine("  A skipped package is invisible to dependency resolution, so this usually "
+            + "resurfaces far from here as bogus `undefined: <Type>` / `undefined function` errors.");
+        ConsoleError.WriteLine("  Rebuild it against this toolchain (`xtask build stdlib`), or run the "
+            + "toolchain that produced it. Further packages built for " + ver
+            + " are skipped without repeating this.");
+    }
+
+    // 供测试与诊断：已就多少个**不同的**旧格式版本报过告警（去重后的条数）。
+    public static int SkewWarningCount() { return ZpkgReader._skewWarnedCount; }
+
+    // 解析 header/目录/META/STRS（其余段惰性按需）。非 packed / 坏 magic → null（调用方静默跳过）；
+    // **版本不匹配 → null 并在 stderr 上点名**（见 `_warnVersionSkew`）。
     public static ZpkgInfo Open(byte[] data) {
+        return ZpkgReader.Open(data, "");
+    }
+
+    // `origin` = 这份字节的出处（文件路径，或 REPL 那种内存包的包名），仅用于告警措辞；空串 = 不知道。
+    public static ZpkgInfo Open(byte[] data, string origin) {
         if (data.Length < 16) { return null; }
         if ((int)data[0] != 90 || (int)data[1] != 80 || (int)data[2] != 75 || (int)data[3] != 0) { return null; }   // "ZPK\0"
         // strict-pin（add-params-varargs 5.4）：跨包扫描（DepScan.ScanDirs）会把 libsDirs 下所有
         // z42.*.zpkg 当数据盲读——版本不匹配的包（如 minor bump 前构建的旧 stdlib）其 TSIG/SIGS
         // 字节布局已变，不校验直接按新布局解析会读出垃圾偏移量甚至越界崩溃。此处比照 Rust
-        // zbc_reader 的 strict-pin 原则，major/minor 任一不符即视为不可读，与坏 magic 同等静默跳过。
+        // zbc_reader 的 strict-pin 原则，major/minor 任一不符即视为不可读 → 跳过（但会先点名，见下）。
         var vc = new ZpkgCursor(data, 4);
         int major = vc.U16();
         int minor = vc.U16();
-        if (major != ZpkgWriterZ.Major || minor != ZpkgWriterZ.Minor) { return null; }
+        if (major != ZpkgWriterZ.Major || minor != ZpkgWriterZ.Minor) {
+            ZpkgReader._warnVersionSkew(origin, major, minor);
+            return null;
+        }
         var c = new ZpkgCursor(data, 8);
         int flags = c.U16();
         int secCount = c.U16();
