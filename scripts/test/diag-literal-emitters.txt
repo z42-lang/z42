@@ -1,59 +1,7 @@
 # 字面量发码站点快照（enforce-diagnostic-code-uniqueness 规则 ④，双向棘轮：多一条/少一条都红）。
-# 发射点用字面量而非 DiagnosticCodes 常量，是 bootstrap-seed.md 分阶段引入纪律的过渡形态
-# （新常量与它的引用不能同 PR → 避 core→semantics 冷启动 stale-cache）。
-# 这份清单**只应缩短**：Deferred migrate-diag-literals-to-constants 切回常量后即清空。
+# 发射点用字面量而非 DiagnosticCodes 常量，是 bootstrap-seed.md 分阶段引入纪律的**过渡期形态**：
+# 新常量与引用它的发射点不能同 PR（上一版 z42c 的 z42c.core 里还没有这个常量）⇒ 中间必有一轮字面量。
+# 所以这份清单的稳态是「上一个 nightly 以来新加的码」那么几条，**不是空**——④ 是常设配套，不会退役。
 # 重生成：`xtask test diagcodes --update`（改之前先想清楚你是不是在给一个已有码挂第二个含义）。
-E0443 src/compiler/z42c.semantics/src/TypeOpTyper.z42
-E0450 src/compiler/z42c.semantics/src/DeclBinder.z42
-E0450 src/compiler/z42c.semantics/src/ExprTyper.z42
-E0451 src/compiler/z42c.semantics/src/InheritanceResolver.z42
-E0452 src/compiler/z42c.semantics/src/AssignTyper.z42
-E0452 src/compiler/z42c.semantics/src/DeclBinder.z42
-E0453 src/compiler/z42c.semantics/src/ConstraintChecker.z42
-E0453 src/compiler/z42c.semantics/src/InheritanceResolver.z42
-E0453 src/compiler/z42c.semantics/src/MemberCollector.z42
-E0454 src/compiler/z42c.semantics/src/MemberResolver.z42
-E0455 src/compiler/z42c.semantics/src/MemberResolver.z42
-E0456 src/compiler/z42c.semantics/src/SymbolCollector.z42
-E0456 src/compiler/z42c.semantics/src/TypeChecker.z42
-E0457 src/libraries/z42c.syntax/src/Parser.z42
-E0458 src/compiler/z42c.semantics/src/StubCollector.z42
-E0459 src/compiler/z42c.semantics/src/TypeOpTyper.z42
-E0460 src/compiler/z42c.semantics/src/TypeOpTyper.z42
-E0461 src/compiler/z42c.semantics/src/TypeOpTyper.z42
-E0462 src/libraries/z42c.syntax/src/MethodOfParser.z42
-E0463 src/compiler/z42c.semantics/src/OverloadBinder.z42
-E0464 src/compiler/z42c.semantics/src/ForwardGenerator.z42
-E0465 src/compiler/z42c.semantics/src/ForwardGenerator.z42
-E0468 src/compiler/z42c.semantics/src/ForwardGenerator.z42
-E0469 src/compiler/z42c.semantics/src/DeclBinder.z42
-E0470 src/compiler/z42c.semantics/src/ExprTyper.z42
-E0471 src/libraries/z42c.syntax/src/ExprParser.z42
-E0471 src/libraries/z42c.syntax/src/MemberParser.z42
-E0472 src/compiler/z42c.semantics/src/RefArgCheck.z42
-E0473 src/compiler/z42c.semantics/src/RefArgCheck.z42
-E0474 src/libraries/z42c.syntax/src/MemberParser.z42
-E0475 src/compiler/z42c.semantics/src/TypeChecker.z42
-E0476 src/libraries/z42c.syntax/src/TypeParser.z42
-E0477 src/compiler/z42c.semantics/src/ExprTyper.Funcref.z42
-E0478 src/compiler/z42c.semantics/src/FlowAnalyzer.z42
-E0479 src/compiler/z42c.semantics/src/FlowAnalyzer.z42
-E0480 src/libraries/z42c.syntax/src/ExprParser.z42
-E0481 src/compiler/z42c.semantics/src/MemberCollector.z42
-E0482 src/compiler/z42c.semantics/src/AssignTyper.z42
-E0483 src/compiler/z42c.semantics/src/TypeChecker.z42
-E0484 src/compiler/z42c.semantics/src/FlowAnalyzer.z42
 E0485 src/compiler/z42c.semantics/src/ModuleInitScan.z42
 E0486 src/compiler/z42c.semantics/src/ModuleInitScan.z42
-E0601 src/compiler/z42c.semantics/src/SymbolCollector.z42
-E0601 src/compiler/z42c.semantics/src/TypeChecker.z42
-E0606 src/compiler/z42c.semantics/src/SymbolCollector.z42
-E0606 src/compiler/z42c.semantics/src/TypeChecker.z42
-E0900 src/compiler/z42c.semantics/src/ExprTyper.z42
-E1005 src/compiler/z42c.semantics/src/OverloadBinder.z42
-E1006 src/compiler/z42c.semantics/src/OverloadBinder.z42
-E1101 src/compiler/z42c.semantics/src/ExprTyper.z42
-E1102 src/compiler/z42c.semantics/src/ExprTyper.z42
-I0466 src/compiler/z42c.semantics/src/ForwardGenerator.z42
-W0700 src/compiler/z42c.semantics/src/ExhaustCheck.z42
-W0701 src/compiler/z42c.semantics/src/StmtBinder.z42

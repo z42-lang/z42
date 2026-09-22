@@ -184,7 +184,7 @@ public sealed class OverloadBinder {
         Span sp = args[i].Span;
         if (rawArgs != null && i < rawArgs.Length && rawArgs[i] != null) { sp = rawArgs[i].Span; }
         // 语义层用字面量 "E0463" 发码（同 E0449–E0462，避 core→semantics 冷启动 stale-cache）。
-        this._tc._diags.Error("E0463",
+        this._tc._diags.Error(DiagnosticCodes.ConstraintMethodArgTypeParam,
             "cannot pass `" + at.Name() + "` to a parameter of type parameter `" + tpName + "`: method `"
             + memName + "` comes from constraint `where " + tpName + " : " + ifaceName
             + "` — an opaque type parameter accepts only values of that same type parameter", sp);
@@ -291,14 +291,14 @@ public sealed class OverloadBinder {
     internal static void ReportArity(DiagnosticBag diags, string who, bool recvFirst, int got, int expected, string missing, Span sp) {
         string tail = "; got " + got.ToString() + " argument(s)";
         if (recvFirst) {
-            diags.Error(got > expected ? "E1006" : "E1005", "instance method " + who + " called in static form takes the receiver as its first argument: expects "
+            diags.Error(got > expected ? DiagnosticCodes.TooManyArguments : DiagnosticCodes.MissingRequiredArgument, "instance method " + who + " called in static form takes the receiver as its first argument: expects "
                 + expected.ToString() + " argument(s)" + tail, sp);
         } else if (missing != "") {
-            diags.Error("E1005", who + " is missing required argument " + missing + " (no default value)" + tail, sp);
+            diags.Error(DiagnosticCodes.MissingRequiredArgument, who + " is missing required argument " + missing + " (no default value)" + tail, sp);
         } else if (got > expected) {
-            diags.Error("E1006", "too many arguments to " + who + ": expects " + expected.ToString() + tail, sp);
+            diags.Error(DiagnosticCodes.TooManyArguments, "too many arguments to " + who + ": expects " + expected.ToString() + tail, sp);
         } else {
-            diags.Error("E1005", "too few arguments to " + who + ": expects " + expected.ToString() + tail, sp);
+            diags.Error(DiagnosticCodes.MissingRequiredArgument, "too few arguments to " + who + ": expects " + expected.ToString() + tail, sp);
         }
     }
 

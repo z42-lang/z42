@@ -92,7 +92,7 @@ public sealed class MemberCollector {
                 // 接口侧只登记名字；带绑定（`type Item = int;`）写在接口里是没意义的，报诊断。
                 AssocTypeDecl atd = mem as AssocTypeDecl;
                 if (atd.HasBound) {
-                    this._sc.Diags.Error("E0453",
+                    this._sc.Diags.Error(DiagnosticCodes.AssocTypeBinding,
                         "interface `" + c.Name + "` cannot bind associated type `" + atd.Name
                         + "` — the binding belongs to the implementing type", atd.Span);
                 } else {
@@ -146,12 +146,12 @@ public sealed class MemberCollector {
             } else if (mem is FieldDecl) {
                 // add-interface-member-check：接口没有字段（静态/实例都没有）。此前 FieldDecl 被本循环
                 // **静默跳过**——`interface I { static int X; }` 编译通过但 X 无处可用。报 E0481。
-                this._sc.Diags.Error("E0481",
+                this._sc.Diags.Error(DiagnosticCodes.InterfaceIllegalMember,
                     "interface `" + c.Name + "` cannot declare a field `" + (mem as FieldDecl).Name
                     + "` — interfaces may only declare methods, properties, indexers, events and associated types", mem.Span);
             } else if (mem is ClassDecl) {
                 // add-interface-member-check：嵌套类型此前也被静默跳过（不进任何符号表、无诊断）。
-                this._sc.Diags.Error("E0481",
+                this._sc.Diags.Error(DiagnosticCodes.InterfaceIllegalMember,
                     "interface `" + c.Name + "` cannot declare a nested type `" + (mem as ClassDecl).Name
                     + "` — nested types in interfaces are not supported", mem.Span);
             }
@@ -203,7 +203,7 @@ public sealed class MemberCollector {
                 // 类里写不带绑定的 `type Item;` 是没意义的（类不能把它再往下延），报诊断。
                 AssocTypeDecl catd = mem as AssocTypeDecl;
                 if (!catd.HasBound) {
-                    this._sc.Diags.Error("E0453",
+                    this._sc.Diags.Error(DiagnosticCodes.AssocTypeBinding,
                         "`" + c.Name + "` must bind associated type `" + catd.Name
                         + "` with `type " + catd.Name + " = <type>;`", catd.Span);
                 } else {

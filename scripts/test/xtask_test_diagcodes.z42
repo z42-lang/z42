@@ -34,8 +34,15 @@
 //     必须动一个被评审的文件，于是撞码在评审里看得见，两个 PR 同时动还会产生 git 冲突。
 //
 // 发射点**仍可用字面量**（冷启动纪律要求如此），本门只要求那个号在表里有主、且发射点在清单里。
-// 清单**只应缩短**：Deferred `migrate-diag-literals-to-constants`（晚一个 nightly）把 104 个站点
-// 切回常量引用后，这个清单会清空、④ 可退役，换成更强的「非 tests 源零字面量发码」。
+// 清单**只应缩短**：`migrate-diag-literals-to-constants` 于 2026-09-23 把 100 个站点切回常量引用
+// （#759 的常量已随 nightly `2cb64a225` 进种子），清单由 54 条降到 **2 条**——只剩 E0485/E0486，
+// 即 #767 刚加进登记表、尚未进种子的那两个。
+//
+// ⚠️ **④ 不能退役**（订正这里原先写的「清单清空后换成『非 tests 源零字面量发码』」）：那条更强的
+// 规则会让**新码根本无法引入**。bootstrap-seed.md 的分阶段引入纪律要求「常量进登记表」与「发射点
+// 引用该常量」**跨一个 nightly**（上一版 z42c 的 z42c.core 里还没有这个常量），中间那一轮的发射点
+// 必然是字面量。所以清单的稳态不是空，而是**「上一个 nightly 以来新加的码」那么几条**；④ 是这条
+// 纪律的**常设配套**、不是过渡形态——它盯的是「过渡期的字面量有没有被评审看见」。
 namespace Z42Xtask;
 
 using Std;
@@ -139,9 +146,9 @@ int _testDiagCodes(bool update) {
     if (update) {
         string outp = Path.Join(root, _dcBaselinePath());
         string body = "# 字面量发码站点快照（enforce-diagnostic-code-uniqueness 规则 ④，双向棘轮：多一条/少一条都红）。\n"
-            + "# 发射点用字面量而非 DiagnosticCodes 常量，是 bootstrap-seed.md 分阶段引入纪律的过渡形态\n"
-            + "# （新常量与它的引用不能同 PR → 避 core→semantics 冷启动 stale-cache）。\n"
-            + "# 这份清单**只应缩短**：Deferred migrate-diag-literals-to-constants 切回常量后即清空。\n"
+            + "# 发射点用字面量而非 DiagnosticCodes 常量，是 bootstrap-seed.md 分阶段引入纪律的**过渡期形态**：\n"
+            + "# 新常量与引用它的发射点不能同 PR（上一版 z42c 的 z42c.core 里还没有这个常量）⇒ 中间必有一轮字面量。\n"
+            + "# 所以这份清单的稳态是「上一个 nightly 以来新加的码」那么几条，**不是空**——④ 是常设配套，不会退役。\n"
             + "# 重生成：`xtask test diagcodes --update`（改之前先想清楚你是不是在给一个已有码挂第二个含义）。\n";
         int w2 = 0;
         while (w2 < pc) { body = body + pairs[w2] + "\n"; w2 = w2 + 1; }

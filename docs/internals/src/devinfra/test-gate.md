@@ -160,10 +160,19 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 > 此前谓词只认长度 5，这两个常量整个在门的视野外：不受 ①② 约束，还占着 0908 号段而门看不见。
 
 > **发射点为什么还允许用字面量**：新增的 `DiagnosticCodes` 常量**不能在同一个 PR 里被引用**
-> （core→semantics 冷启动 stale-cache，见 [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)
-> 的分阶段引入纪律；`GeneratorDriver` 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡形态**，
-> 清单只应缩短；全部切回常量引用后（Deferred `migrate-diag-literals-to-constants`），
-> ④ 可退役并换成更强的「非 tests 源零字面量发码」。
+> （上一版 z42c 的 `z42c.core` 里还没有这个常量，见
+> [bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md) 的分阶段引入纪律；`GeneratorDriver`
+> 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡期形态**，清单只应缩短。
+>
+> **2026-09-23 `migrate-diag-literals-to-constants` 已执行**：#759 那批常量随 nightly `2cb64a225`
+> 进种子后，100 个发射点切回 `DiagnosticCodes.<Name>`，清单由 **54 条降到 2 条**（只剩 #767 刚加、
+> 尚未进种子的 E0485 / E0486）。
+>
+> ⚠️ **但 ④ 不能退役**（订正此前写的「换成『非 tests 源零字面量发码』」）：那条更强的规则会让**新码
+> 根本无法引入**——分阶段引入纪律要求「常量进登记表」与「发射点引用它」跨一个 nightly，中间那一轮
+> 的发射点必然是字面量。所以清单的稳态不是空，而是**「上一个 nightly 以来新加的码」那么几条**；
+> ④ 是这条纪律的**常设配套**，盯的是「过渡期的字面量有没有被评审看见」。清单里的每一条都是**欠账**：
+> 它的常量随下一个 nightly 进种子后，就该切回常量并重跑 `--update`。
 
 **Rust VM 单测（`test runtime` = `cargo test`）不在 gate 内**：它的 `signal_handler_e2e` 会 spawn
 信号崩溃 helper，在信号受限的沙箱里挂住，会让这个「永远要跑」的 gate 不可用。改由每条 CI 腿单独

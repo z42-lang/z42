@@ -112,8 +112,13 @@ public class ModeFlags {
 ```
 
 消费侧直接写字面量位掩码（`if ((modes & 2) != 0)`），**不引用常量**——这是为了避开跨成员
-符号带来的冷启动 stale-cache 问题，与 `DiagnosticCodes` 里一批"语义层用字面量发码"是同一
+符号带来的冷启动 stale-cache 问题，与 `DiagnosticCodes` 早期那批"语义层用字面量发码"是同一
 手法。改这些数值时要连同消费点的字面量一起改。
+
+> ⚠️ 这个手法是**过渡形态，不是终态**：诊断码那边的字面量已于 2026-09-23
+> （`migrate-diag-literals-to-constants`）在常量随 nightly 进种子后切回常量引用，只留下最新一轮
+> 还没进种子的两个。这里的位掩码同理——常量进种子后就该切回去，否则"改数值要连同字面量一起改"
+> 这条约定迟早会被漏掉，而且没有任何东西盯着它（诊断码那边至少有 `xtask test diagcodes` 第 ④ 条）。
 
 `[Flags]` attribute 落地后，这类容器可以正式升级为 enum。
 
