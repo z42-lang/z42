@@ -1,4 +1,4 @@
-// 赋值目标的左值契约（E0477）+ 解构声明遮蔽成员（W0701）。
+// 赋值目标的左值契约（E0482）+ 解构声明遮蔽成员（W0701）。
 //
 // 这两条都是为同一个静默陷阱补的：
 //
@@ -8,16 +8,16 @@
 //     }
 //
 // 表达式体里 `=>` 后只能是表达式，`(A, B) = (a, b)` 就是「造一个新元组再赋给它」——
-// 而**赋值给非左值此前完全没有检查**，连 `42 = a;` 都编得过跑得过。E0477 补这道。
+// 而**赋值给非左值此前完全没有检查**，连 `42 = a;` 都编得过跑得过。E0482 补这道。
 // 花括号体里同一行是解构声明（合法但同样一个字段都没动），由 W0701 提示遮蔽。
 //
-// ⚠️ E0477 与 E0470（`ref` 实参左值，见 ref_lvalue_tests.z42）不是一回事：那条要「可取址」，
+// ⚠️ E0482 与 E0470（`ref` 实参左值，见 ref_lvalue_tests.z42）不是一回事：那条要「可取址」，
 // 静态字段 / 值 struct 字段 / 属性一律拒；赋值只要「有存储」，那三样都合法。下面各有用例钉住。
 //
 // 注：独立 Infer 路径**不链 stdlib**（同 exhaust_tests.z42），`(a, b)` 元组要 `Std.ValueTupleN`
 // 在这里解析不了 —— 故解构声明一律用 **record 位置形态**（`Pt(A, B) = p`，同一条绑定路径）。
 // 元组那个原始形态由 learn-book 例子门禁钉：`examples/types/structs-records/gaps/exprctor.z42`
-// + 其 transcript（实跑，会打出 E0477）。
+// + 其 transcript（实跑，会打出 E0482）。
 namespace Z42cSemanticsAssignLvalueTests;
 
 using Std;
@@ -65,18 +65,18 @@ void test_compound_assign_local_ok() {
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
 
-// ── 非左值目标 → E0477 ───────────────────────────────────────────
+// ── 非左值目标 → E0482 ───────────────────────────────────────────
 
 [Test]
 void test_assign_to_literal() {
     string src = "namespace D; class C { static void M() { int a = 1; 42 = a; } }";
-    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0482", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_assign_to_binary_expr() {
     string src = "namespace D; class C { static void M() { int a = 1; int b = 2; a + b = 3; } }";
-    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0482", SemanticDump.FirstErrorCode(src));
 }
 
 // ⚠️ `C.f() = a` **不进本码**：`T ( ... ) =` 会先被解构声明的前瞻
@@ -88,13 +88,13 @@ void test_assign_to_binary_expr() {
 void test_expr_bodied_method_non_lvalue_assign() {
     string src = "namespace D; class P { public int A;"
         + " public void Set(int a) => A + 1 = a; } class C { static void M() { } }";
-    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0482", SemanticDump.FirstErrorCode(src));
 }
 
 [Test]
 void test_compound_assign_to_literal() {
     string src = "namespace D; class C { static void M() { int a = 1; 42 += a; } }";
-    Assert.Equal("E0477", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("E0482", SemanticDump.FirstErrorCode(src));
 }
 
 // ── 解构声明遮蔽成员 → W0701 ─────────────────────────────────────

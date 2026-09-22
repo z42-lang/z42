@@ -427,7 +427,8 @@ string[] _gateStageNames() {
         "gc modes (z42c.semantics build)",
         "vscode-syntax",
         "lines",
-        "walkers"
+        "walkers",
+        "diagcodes"
     };
 }
 
@@ -649,6 +650,13 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("walkers");
         c = _testWalkers(); if (c != 0) { return c; }
         _stageEnd(slog, "walkers", swStage);
+    }
+    // stage 9: 诊断码唯一性对账（enforce-diagnostic-code-uniqueness）：一个码号挂两个含义、
+    // 或发射一个没在登记表里登记过的码 → 红。纯文本扫描（~1s），host-independent。Skippable: "diagcodes"。
+    if (!_skipHas(skip, "diagcodes")) {
+        swStage = _stageStart("diagcodes");
+        c = _testDiagCodes(false); if (c != 0) { return c; }
+        _stageEnd(slog, "diagcodes", swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());
