@@ -67,14 +67,16 @@
 - [x] 4.7 **判别力验证**（`cp` 备份还原，没用 `git checkout`）：注释掉 `ModuleInitSynth.Emit`
       → `module_init_free_function` / `module_init_once` **立刻变红**，两条负例门（纯诊断）
       不受影响 —— 正例守合成+触发、负例守校验，分工正确。还原后复绿。
-      E0486/E0485 单测与 `runs_before_main` 另有天然证据：它们在对应钩子挂上之前就是红的
+      E0486/E0485 单测另有天然证据：它们在判据挂进 `Collect` 之前就是红的
 - [x] 4.8 `xtask test diagcodes` 通过：126 个码常量、592 个源文件、0 violation
 
-## 4.9 新增：主包路径（实现中发现）
+## 4.9 主包路径（实现中发现，后随 8.x 的 exe 禁用而退场）
 
-- [x] 4.9 golden `src/tests/module-init/runs_before_main`：主包自己的 `[ModuleInit]` 在
-      `Main` 第一行之前跑完 —— 守 `seed_types_for_lookup` 绕过 `insert_type` 漏斗那个洞
-      （发现时主包的初始化器**静默从不执行**）
+- [x] 4.9 曾加 golden `module-init/runs_before_main` 守「`seed_types_for_lookup` 绕过
+      `insert_type` 漏斗」那个洞（发现时主包的初始化器**静默从不执行**）。
+      User 裁决 exe 包禁用 `[ModuleInit]` 后该行为不再允许 ⇒ golden 删除；
+      `seed_types_for_lookup` 的检测**保留**——它现在服务的是「随主合并模块急切加载进来的
+      依赖包」，那个场景仍需要
 
 ## 5. 不动点 / 爆炸半径
 
@@ -99,6 +101,22 @@
 - [x] 6.6 doc-check：用户可见规则 → `docs/reference/src/language/module-initializers.md` + 错误码全表；
       实现机制 → `docs/internals/src/runtime/static-ctor-init.md` 的 `$Module` 一节；
       目录/入口变更 → 三处 README/SUMMARY（见 6.5）
+
+## 8. exe 包禁用（User 裁决 2026-09-23，E0487）
+
+- [x] 8.1 `DiagnosticCodes.ModuleInitInExePackage = "E0487"` + 字面量发码清单 + 错误码全表
+- [x] 8.2 `ModuleInitScan.CheckExePackage`：扫**所有**应用点（合法与否都算），一步报到位
+- [x] 8.3 落点 `PackageCompile.Compile`（**所有**编译路径必经）。
+      🔴 试过两个错落点：`Z42cCompiler.Compile`（`z42c build` 走 IncrementalDriver，**根本不经过**，
+      实测校验一次没触发）；driver 层（semantics→pipeline→driver 两层符号引用，自建必红）
+- [x] 8.4 🔴 扫 `cus` 而非 `inp.Cus` —— generator（`[Forward]`）会把合成 CU 并进来，
+      `cus` 是 union、长度 > `inp.Cus` ⇒ 越界（实测炸 `forward_tiers_cross_pkg` 的 main 构建，
+      **并顺带破坏自举不动点 1/3**；改对后两者同时复绿）
+- [x] 8.5 e2e 负例 `module_init_in_exe_rejected`（exe 报 E0487；同 fixture 的 lib 依赖照常可用）
+- [x] 8.6 删掉主包 golden `module-init/runs_before_main`（该行为已不允许）与两个违例在 main 的
+      负例 fixture（会被 E0487 抢先）；跨 CU 的 E0485 改为**直接测判据**的单测（更贴规则、
+      不受 exe/lib 之分干扰）
+- [x] 8.7 文档：reference 新增「只能用在库包里」一节 + 错误码全表 + design/spec/proposal
 
 ## 7. 归档
 

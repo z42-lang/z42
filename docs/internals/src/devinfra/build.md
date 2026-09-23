@@ -46,8 +46,11 @@ dist 发现来解析它们。所以「编译器有几个包」这个数是算出
 ```mermaid
 graph TD
     S{warm 种子存在?<br/>z42c.driver.zpkg + stdlib dist} -->|否| C0[_ensureSeed：<br/>从 SDK-toolchain 布局<br/>暂存种子进 in-tree]
+    S -->|是| G{代际相符?<br/>产物 zpkg minor<br/>== 本树写端 minor}
+    G -->|否| D0[丢弃整代产物<br/>artifacts/build/compiler + libraries]
+    D0 --> C0
     C0 --> P1
-    S -->|是| P1[阶段一：种子 z42c 自建编译器后端<br/>z42c build --workspace]
+    G -->|是| P1[阶段一：种子 z42c 自建编译器后端<br/>z42c build --workspace]
     P1 --> P2[阶段二：直跑自建的自包含 driver<br/>编 src/libraries 全部成员<br/>Z42_LIBS = .stdlib-run 快照]
     P2 --> P3[阶段三：各成员 dist 被自建产物覆盖<br/>hard-link 汇成扁平视图]
     P3 --> OUT[artifacts/build/libraries/dist/release/<br/>= Z42_LIBS]
@@ -57,6 +60,27 @@ graph TD
 阶段二**直接跑**这个 driver 编 stdlib——`Z42_LIBS` 指向 `artifacts/.scratch/stdlib-run/<profile>`
 的快照，因为 stdlib 正在被重建，运行中的 driver 需要一份稳定的 `Std.*` 副本。
 阶段三用 hard-link（零拷贝）把各成员 dist 汇聚成单目录。
+
+### warm 判据带代际校验（「在不在」不等于「能用」）
+
+`_ensureSeed` 判断 in-tree 产物能不能当种子，**不能只看文件在不在**——还要看它是哪一代：
+读 `z42c.driver.zpkg` 与 `z42.core.zpkg` 头里的 zpkg **格式 minor**（`'Z''P''K'0 | major:u16le
+| minor:u16le`，见 `z42.ir` 的 `ZpkgWriterZ._assemble`），与**本源码树写端**的
+`ZpkgWriterZ.Minor` 比对；不等就丢弃 `artifacts/build/{compiler,libraries}` 整代产物、
+退回冷启动重新供种，并打印一行说明。
+
+- **期望版本从源码读、不用编进 xtask 的常量**（`_srcIntConst`）——xtask 自身可能是旧二进制，
+  编进去的版本号会跟着一起旧，正好在最需要它的场合失效。
+- **读不到那个常量就不判也不删**，退回旧行为：这道校验是防呆，不该自己变成新的故障源。
+- 暂存用的 SDK 种子若落后一代，**只告警不失败**——「上一版 z42c 能编当前源」是
+  [bootstrap-seed](../../../agent/rules/bootstrap-seed.md) 的纪律，落后一代未必不能用。
+
+**为什么值得一道专门的校验**：错代产物的失败形态与「种子过期」毫无字面关系。实证
+（2026-09-23）：一棵树里躺着 zpkg 0.48 时代的 driver，那一代的静态初始化还走
+`__static_init__`，而 `unify-static-init-into-cctor` 已把运行期对它的支持删掉 ⇒ 静态量
+永不初始化，崩成 `ArrayGet: expected array, got Null @ PrimModel.SurfaceName`。
+排查时极易误判成「main 有回归」——**而且「换棵 pristine 树验一遍」也分辨不出来，
+因为那只控制了源码、没控制 `artifacts/`**。
 
 `build compiler` 就是单独执行阶段一 + 成员 zpkg 完整性校验。
 

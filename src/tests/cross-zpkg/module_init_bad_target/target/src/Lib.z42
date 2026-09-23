@@ -1,3 +1,0 @@
-// 合法的依赖包——本 fixture 的违例在 main 侧。
-namespace Demo.ModBad;
-public int Answer() { return 7; }

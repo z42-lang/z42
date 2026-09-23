@@ -106,6 +106,11 @@ static class Boot { [ModuleInit] static void Init() { throw new Exception("boom"
 > 与屏障插入位置无关（挪进 `ensure_callee_owner_init` 内部仍不可捕获）。
 > 差别只剩「这次调用内同时发生了包加载」。根因未查清 ⇒ **不为一个不成立的行为写门**，
 > 详见 design.md「已知差距」。
+>
+> **目标行为已由 C# 实测钉死**（.NET 10，design.md 有完整记录）：`[ModuleInitializer]` 抛异常
+> ⇒ `TypeInitializationException`（`<Module>`，原异常进 `InnerException`），**只要触发点落在
+> `try` 内就能 `catch`**，第二次触达仍抛、不重试。我们在「依赖包 init 在 try 内被触达」这一格
+> 偏离了它；（主包那条已随 E0487 禁掉 —— 现在唯一的失败路径就是依赖包这一条，所以这条差距更该修。）修它时以此为验收标准。
 
 ### 场景 6 — 没有 `[ModuleInit]` 的包：零行为变化、零字节变化
 
@@ -134,6 +139,17 @@ static class Boot { [ModuleInit] static void Init() { throw new Exception("boom"
 
 🔴 E0486 与 E0485 必须是两个码：「签名不合法」与「包内重复」是两件事，
 合并即一码两义（[[diagnostic-code-uniqueness-program]] 刚归位过两次）。
+
+## ADDED：E0487 —— 可执行包里用了 `[ModuleInit]`
+
+| 写法 | 期望 |
+|---|---|
+| `kind = "lib"` 的包里写 `[ModuleInit]` | ✅ 合法 |
+| `kind = "exe"`（含未写 kind 的默认值）的包里写 `[ModuleInit]` | **E0487**，位置指向那处标注 |
+| exe 包里写的是**非法**的 `[ModuleInit]`（签名不对） | **E0487**（一步报到位，不让用户先改完签名看 E0486） |
+
+理由见 design.md「只对库包开放」：包初始化器在 `Main` 之前执行 ⇒ 失败无从捕获；
+而 exe 有 `Main` 这个天然入口，写第一行即可且失败可控。
 
 ## UNCHANGED（显式声明不变的部分）
 

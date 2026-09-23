@@ -259,7 +259,32 @@ impl crate::gc::arc_heap::ArcMagrGC {
             (entries, max)
         };
         // revive_pass on snapshot — no lock held; only atomic field access.
-        let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(&entries, used_bytes, max_bytes, self.major_mark(), |_| {});
+        //
+        // Reviving marks each surviving soft target, but we MUST also trace its
+        // children: a field / array-backing block reachable only through the
+        // target is still unmarked after `mark_phase`, so the following
+        // `sweep_phase` would reclaim it out from under the live target →
+        // dangling `GcRef` → UAF (release) / `generation/alive mismatch` panic
+        // (debug). Collect the revived targets and drain them through the mark
+        // queue, exactly as the incremental major path does in
+        // `revive_soft_refs_into`. (Regression source: #701 added the
+        // `on_revived` callback but wired it only into the incremental path,
+        // leaving this STW / one-shot-major path with an empty `|_| {}` — array
+        // backings live in `region_var` and are marked solely via the target's
+        // `trace_children`, so even a primitive array's block leaked here.)
+        let kind = self.major_mark();
+        let mut revived: Vec<Value> = Vec::new();
+        let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(
+            &entries,
+            used_bytes,
+            max_bytes,
+            kind,
+            |e| revived.push(Self::soft_entry_value(e)),
+        );
+        if !revived.is_empty() {
+            self.mark_queue.lock().extend(revived);
+            self.drain_mark_queue();
+        }
     }
 
     /// **add-incremental-major-gc M2a**: whether `v` carries `kind`'s mark. Values that are not

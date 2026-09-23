@@ -24,6 +24,8 @@ public sealed class IrGenTypeEmitter {
         string ownerKey = c.Name;
         if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
         Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
+        // generic-struct-erased-slot-value-copy：记下本包**泛型**类型的声明，供实例化特化时重发成员。
+        if (c.TypeParams.Count > 0 && !g.GenericDecls.ContainsKey(c.Name)) { g.GenericDecls.Put(c.Name, rawDecl); }
         // add-partial-types：partial 类型仅**主碎片**（min-path）发一条**合并** TYPE record；非主碎片跳过 record（方法体照发）。
         bool ptIsPartial = owner != null && owner.IsPartial;
         bool ptIsMain = !ptIsPartial || owner.PartialMainFile == g.SourceFile;
@@ -51,13 +53,54 @@ public sealed class IrGenTypeEmitter {
         this._emitRecordSynth(rawDecl, c, owner);
     }
 
+    // generic-struct-erased-slot-value-copy（B1）：为一个命中闸门的实例化**重发该泛型类型的成员**。
+    //
+    // 只发成员、**不发类描述符**——描述符已由 IrGen.Generate 尾部按 `InstLayouts` 单独投送（增量 2）。
+    // 关键是 `g.SpecInstName`：它同时把 IR 函数名前缀与 `EmitContext.OwnerStructName` 换成实例化名，
+    // 于是体内 `this.f` 的字节偏移按**实例化布局**烘焙；调用点用同一规则拼名字，两边对上。
+    //
+    // 为什么必须重发而不能共用定义那份：定义布局里型参字段一律 8B 句柄，实例化布局里是内联字节
+    // ——size 与后续字段偏移都可能不同，共用即错位（实测 `Pair<P2,int>` 读出 0）。
+    public void EmitInstantiation(string instName) {
+        IrGen g = this._g; SemanticModel model = this._model;
+        string baseName = StructLayout.BaseNameOf(instName);
+        object rd = g.GenericDecls.Get(baseName);
+        if (!(rd is Decl)) { return; }                       // 非本包泛型（闸门已拦，这里兜底）
+        Decl rawDecl = rd as Decl;
+        Decl dd = IrGenFacts._unwrap(rawDecl);
+        if (!(dd is ClassDecl)) { return; }
+        ClassDecl c = dd as ClassDecl;
+        string ownerKey = c.Name;
+        if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
+        Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
+        string saved = g.SpecInstName; string savedOwner = g.SpecOwnerName;
+        g.SpecInstName = instName; g.SpecOwnerName = owner != null ? owner.Name() : c.Name;
+        int j = 0;
+        while (j < c.MemberCount) {
+            Decl rawMem = c.Members[j];
+            Decl mem = IrGenFacts._unwrap(rawMem);
+            if (mem is MethodDecl) { this._members.EmitMethod(c, owner, ownerKey, rawMem, mem as MethodDecl); }
+            else if (mem is PropertyDecl) { this._members.EmitProperty(c, owner, rawMem, mem as PropertyDecl); }
+            else if (mem is IndexerDecl) { this._members.EmitIndexer(c, owner, mem as IndexerDecl); }
+            j = j + 1;
+        }
+        // **合成成员也要特化**：`Equals$1`（blob struct 合成）与 `[Record]` 的 ToString 都按
+        // OwnerStructName 的布局烘焙偏移。只发定义那份 ⇒ 实例化 blob 上调它们会按定义偏移读
+        // （实测 generic_struct_equals 判红）。它们内部用 `_q(_classIrShortName(c))` 拼名，
+        // 特化通道下需换成实例化名——故同样在 SpecInstName 生效期间调用。
+        this._emitStructEquals(c, owner);
+        this._emitRecordSynth(rawDecl, c, owner);
+        g.SpecInstName = saved; g.SpecOwnerName = savedOwner;
+    }
+
     // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。
     private void _emitStructEquals(ClassDecl c, Z42ClassType owner) {
         IrGen g = this._g;
         if (owner != null && g.Layouts != null && g.Layouts.IsBlobStruct(owner.Name())
             && !owner.Methods.ContainsKey("Equals$1") && !owner.Methods.ContainsKey("Equals")) {
             var eqFe = new FunctionEmitter(this._model.Symbols, g);
-            string eqIr = g._q(g._classIrShortName(c)) + ".Equals$1";
+            // 特化通道下用实例化名（调用点按同一规则派发）。
+            string eqIr = g._q(g.SpecInstName != "" ? g.SpecInstName : g._classIrShortName(c)) + ".Equals$1";
             IrFunction eqF = eqFe.EmitSynthStructEquals(eqIr, owner);
             eqF.MinArg = 1;   // Equals(other) 逻辑参数 1（reconcile：默认=含 this 总数，需覆盖）
             this._out.AddFunc(eqF);
@@ -70,7 +113,7 @@ public sealed class IrGenTypeEmitter {
         IrGen g = this._g;
         if (owner != null && HandlerRegistry.HasRecord(rawDecl)) {
             var rse = new RecordSynthEmitter(this._model.Symbols, g);
-            string rq = g._q(g._classIrShortName(c));
+            string rq = g._q(g.SpecInstName != "" ? g.SpecInstName : g._classIrShortName(c));   // 特化通道下用实例化名
             bool hasTs = owner.Methods.ContainsKey("ToString") || owner.Methods.ContainsKey("ToString$0");
             if (owner.IsStruct) {
                 if (!hasTs) { this._out.AddFunc(rse.EmitRecordToString(rq + ".ToString", owner, true)); }

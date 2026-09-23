@@ -316,6 +316,30 @@ fn resolve_vcall_unchecked(
             None => break,
         }
     }
+    // generic-struct-erased-slot-value-copy: **identity is per-instantiation, code is shared.**
+    // Every used instantiation gets its own TypeDesc (`MyList<int>`), but members are only
+    // re-emitted for instantiations whose *layout* differs from the definition. For the rest the
+    // definition's `MyList.Add` is the one and only body, so a miss on the instantiated name must
+    // retry under the erased base name. Same shape as `try_struct_backed`'s "full name first,
+    // erased second" — and it only runs on the miss path, so hot dispatch is untouched.
+    if let Some(lt) = type_desc.name.find('<') {
+        let erased = type_desc.name[..lt].to_string();
+        if let Ok(f) = resolve_virtual(module, &erased, method) {
+            if let Some(&idx) = module.func_index.get(f.name.as_str()) {
+                return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
+            }
+            if let Some(lazy) = ctx.try_lookup_function(&f.name) {
+                return Ok(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
+            }
+        }
+        let direct = format!("{}.{}", erased, method);
+        if let Some(&idx) = module.func_index.get(direct.as_str()) {
+            return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
+        }
+        if let Some(lazy) = ctx.try_lookup_function(&direct) {
+            return Ok(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
+        }
+    }
     bail!("VCall: function `{}.{}` not found", type_desc.name, method)
 }
 

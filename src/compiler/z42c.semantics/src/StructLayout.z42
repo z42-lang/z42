@@ -32,10 +32,18 @@ public sealed class StructFieldsDef {
     public string[] FieldNames;
     public string[] FieldTypeNames;
     public int      FieldCount;
+    // generic-struct-erased-slot-value-copy：**定义**的型参名（`Pair<A,B>` → ["A","B"]）。
+    // 算**实例化**布局（`Pair<P2,int>`）时按位与实参配对成代换表，`_kindOf` 据此把字段声明
+    // 类型名 `A` 换成 `P2` 再判种类 —— 这是「擦除槽变真内联字段」的全部机关。
+    // 非泛型 struct 恒空 ⇒ 代换表恒空 ⇒ 行为逐字不变。
+    public string[] TypeParamNames;
+    public int      TpCount;
     public StructFieldsDef() {
         this.FieldNames = new string[0];
         this.FieldTypeNames = new string[0];
         this.FieldCount = 0;
+        this.TypeParamNames = new string[0];
+        this.TpCount = 0;
     }
     public void Add(string name, string typeName) {
         if (this.FieldCount == this.FieldNames.Length) {
@@ -146,6 +154,8 @@ public sealed class StructLayout {
                     def.Add(ct.OwnFieldNames[j], ct.OwnFieldSpellings[j]);
                     j = j + 1;
                 }
+                // generic-struct-erased-slot-value-copy：记下定义的型参名，供实例化布局的代换表。
+                def.TypeParamNames = ct.GenericParamNames; def.TpCount = ct.GenericParamCount;
                 // unify-value-types Phase 1：**Scalar 基元 wrapper（Int32/Boolean/Char…）虽 IsStruct=true，
                 // 但绝不作为 blob struct 布局类型**——它们是裸 Value 标量（Repr=Scalar，不进字节 arena）。
                 // 否则（Canon 收敛后 Int32→"int"）`int` 字段的 _kindOf 会误判为嵌套 struct（IsStructType("int")
@@ -187,7 +197,108 @@ public sealed class StructLayout {
 
     // 某类型名是不是 struct（值类型）。
     public bool IsStructType(string typeName) {
-        return this._defs.ContainsKey(PrimModel.Canon(typeName));
+        // generic-struct-erased-slot-value-copy：实例化名（`Pair<P2,int>`）按**基名**判定是不是 struct
+        // ——`_defs` 只存定义。基名是 struct ⇒ 其任何实例化也是 struct。
+        return this._defs.ContainsKey(PrimModel.Canon(StructLayout.BaseNameOf(typeName)));
+    }
+
+    // 某实例化的布局是否**真的不同于定义布局**——这是「要不要特化」的唯一判据。
+    //
+    // 为什么不是「有没有 blob struct 实参」（我最初的判据，实测错）：定义把**所有**型参字段当
+    // 8B `GcRef` 引用叶子，而实例化按实参真实种类排布。于是 `Pair<int,long>` 虽无 struct 实参，
+    // 布局也不同（定义有两个引用叶子 @0/@8；实例化零引用叶子、int@0 + long@8）。漏掉它 ⇒ 它作为
+    // 内层被内联进外层后，`pp.First.Second` 会按定义布局把 `B` 当 Object 引用写 ⇒ 运行期
+    // `struct ref leaf at byte offset 8 not in type layout`。
+    //
+    // 这个判据同时自带闸门性质：布局**相同**则特化是 no-op，跳过即产出逐字节不变。
+    public bool InstDiffersFromDef(string instName) {
+        string baseName = StructLayout.BaseNameOf(instName);
+        if (baseName == instName) { return false; }          // 非实例化名
+        if (!this.IsStructType(instName)) {
+            // 泛型 **class**（形态 ②）：比**内联布局**。定义下型参字段不是 blob struct ⇒ 无内联字段；
+            // 代换后若有内联字段，则布局不同 ⇒ 需特化（否则 ctor 体仍发 field_set 引用槽写，
+            // 存进去的是栈帧作用域的 arena 句柄 ⇒ 帧一弹即悬垂）。
+            StructLayoutInfo ai = this.InlineLayoutOf(instName);
+            StructLayoutInfo bi = this.InlineLayoutOf(baseName);
+            if (ai.FieldCount != bi.FieldCount) { return true; }
+            if (ai.Size != bi.Size) { return true; }
+            int q = 0;
+            while (q < ai.FieldCount) {
+                if (ai.FieldOffsets[q] != bi.FieldOffsets[q]) { return true; }
+                q = q + 1;
+            }
+            return false;
+        }
+        StructLayoutInfo a = this.LayoutOf(instName);
+        StructLayoutInfo b = this.LayoutOf(baseName);
+        if (a.Size != b.Size) { return true; }
+        if (a.RefLeafCount != b.RefLeafCount) { return true; }
+        int i = 0;
+        while (i < a.RefLeafCount) {
+            if (a.RefLeafOffsets[i] != b.RefLeafOffsets[i]) { return true; }
+            if (a.RefLeafKinds[i] != b.RefLeafKinds[i]) { return true; }   // ArcString vs GcRef：Arc 计数语义不同
+            i = i + 1;
+        }
+        // 字段偏移/种类也要比：size 与引用位图相同、但字段切分不同时（如 int+int vs 一个 8B 引用）
+        // 链式访问仍会按错的种类发指令。
+        if (a.FieldCount != b.FieldCount) { return true; }
+        int j = 0;
+        while (j < a.FieldCount) {
+            if (a.FieldOffsets[j] != b.FieldOffsets[j]) { return true; }
+            if (a.FieldKinds[j] != b.FieldKinds[j]) { return true; }
+            j = j + 1;
+        }
+        return false;
+    }
+
+    // 实例化名 → 基名（`Pair<P2,int>` → `Pair`）；无 `<` 原样返回。
+    public static string BaseNameOf(string typeName) {
+        int lt = typeName.IndexOf("<");
+        if (lt < 0) { return typeName; }
+        return typeName.Substring(0, lt);
+    }
+
+    // 实例化规范名：基名 + `<` + 实参逗号连接 + `>`。**编译器 / wire / 运行期三方必须用这一份拼法**
+    // （与数组元素类型名同源：`ExprEmitter._qualifyElemName` 也是「在 `<` 处切开、只限定基名」）。
+    // argCount==0 → 返回基名（非泛型不该进来，兜底）。
+    public static string InstName(string baseName, string[] args, int argCount) {
+        if (argCount <= 0) { return baseName; }
+        string s = baseName + "<";
+        int i = 0;
+        while (i < argCount) {
+            if (i > 0) { s = s + ","; }
+            s = s + args[i];
+            i = i + 1;
+        }
+        return s + ">";
+    }
+
+    // 实例化名 → 实参名数组（`Pair<P2,int>` → ["P2","int"]）。顶层逗号切分，**跟踪嵌套深度**
+    // 以正确处理 `Pair<Pair<P2,int>,int>`（内层逗号不是分隔符）。无 `<` → 空数组。
+    public static string[] InstArgsOf(string typeName) {
+        int lt = typeName.IndexOf("<");
+        if (lt < 0) { return new string[0]; }
+        // 去掉外层 `<` 与末尾 `>`
+        int inner = typeName.Length - lt - 2;
+        if (inner <= 0) { return new string[0]; }
+        string body = typeName.Substring(lt + 1, inner);
+        string[] outp = new string[8]; int n = 0;
+        int depth = 0; int start = 0; int i = 0;
+        while (i < body.Length) {
+            string c = body.Substring(i, 1);
+            if (c == "<") { depth = depth + 1; }
+            else if (c == ">") { depth = depth - 1; }
+            else if (c == "," && depth == 0) {
+                if (n == outp.Length) { string[] b = new string[outp.Length * 2]; int k = 0; while (k < n) { b[k] = outp[k]; k = k + 1; } outp = b; }
+                outp[n] = body.Substring(start, i - start); n = n + 1;
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        if (n == outp.Length) { string[] b = new string[outp.Length * 2]; int k = 0; while (k < n) { b[k] = outp[k]; k = k + 1; } outp = b; }
+        outp[n] = body.Substring(start, body.Length - start); n = n + 1;
+        string[] res = new string[n]; int j = 0; while (j < n) { res[j] = outp[j]; j = j + 1; }
+        return res;
     }
 
     // A-use codegen flip 谓词：某类型是否翻转到 **blob 值语义**（emit StructAlloc/Copy/FieldGet/SetPrim）。
@@ -255,16 +366,22 @@ public sealed class StructLayout {
     // 内联块）与 codegen（ExprEmitter stage 4，烘焙 StructFieldGet/SetPrim 立即数）同调此表 → offset 一致。
 
     // 计算某非-struct class 的合成内联布局并缓存（BuildFromSymbols 预计算调用）。
-    private void _computeInlineLayout(string className) {
-        object d = this._classDefs.Get(className);
+    private void _computeInlineLayout(string className) { this._computeInlineLayoutS(className, className); }
+
+    // generic-struct-erased-slot-value-copy：`key` = 缓存键（可为实例化名），`defName` = 取定义用的基名。
+    private void _computeInlineLayoutS(string key, string defName) {
+        object d = this._classDefs.Get(PrimModel.Canon(StructLayout.BaseNameOf(defName)));
         if (!(d is StructFieldsDef)) { return; }
         StructFieldsDef def = d as StructFieldsDef;
+        StrMap subst = StructLayout._substOf(def, key);
+        string className = key;
         StructLayoutInfo info = new StructLayoutInfo(className);
         int offset = 0;
         int maxAlign = 1;
         int i = 0;
         while (i < def.FieldCount) {
             string ftype = def.FieldTypeNames[i];
+            if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
             if (this.IsBlobStruct(ftype)) {
                 StructLayoutInfo sub = this.LayoutOf(ftype);
                 int align = sub.Align;
@@ -288,9 +405,17 @@ public sealed class StructLayout {
 
     // 某 class 的合成内联布局（无内联字段 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo InlineLayoutOf(string className) {
-        object c = this._inlineCache.Get(PrimModel.Canon(className));
+        string k = PrimModel.Canon(className);
+        object c = this._inlineCache.Get(k);
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
-        return new StructLayoutInfo(PrimModel.Canon(className));
+        // generic-struct-erased-slot-value-copy：实例化名按需算（定义那份在 BuildFromSymbols 预计算）。
+        // 泛型 class 的 `T` 字段在**定义**下 `IsBlobStruct("T")` 为假 ⇒ 无内联字段；带代换 `T→P2` 才内联。
+        if (StructLayout.BaseNameOf(k) != k) {
+            this._computeInlineLayoutS(k, k);
+            object c2 = this._inlineCache.Get(k);
+            if (c2 is StructLayoutInfo) { return c2 as StructLayoutInfo; }
+        }
+        return new StructLayoutInfo(k);
     }
 
     // 某 class 是否有内联 struct 字段（→ 设 CLASS_FLAG_HAS_INLINE_STRUCT + emit 内联块）。
@@ -308,6 +433,16 @@ public sealed class StructLayout {
     // composed 对象布局 offset）——runtime 现把所有字段字节内联进 ScriptObject.bytes，struct 字段字节
     // 窗口起点 = 其对象布局 offset。（无 base 类时 = composed offset；含 base 字段的派生类 base-shift
     // 组合见后续。）
+    // generic-struct-erased-slot-value-copy（形态 ②）：内联字段的**struct 类型名**，取自内联布局。
+    // 泛型 class 的 `T` 字段静态类型是型参 `A`，从静态类型取不出 struct 名（`_blobStructName` 会
+    // 对它 `.Name()` 直接崩）。内联布局已按实例化算过，知道那是 `P2` —— 它才是权威来源。
+    public string InlineFieldTypeName(string className, string fieldName) {
+        StructLayoutInfo inl = this.InlineLayoutOf(className);
+        int i = 0;
+        while (i < inl.FieldCount) { if (inl.FieldNames[i] == fieldName) { return inl.FieldTypeNames[i]; } i = i + 1; }
+        return "";
+    }
+
     public int InlineFieldByteOffset(string className, string fieldName) {
         // 判据：仅内联 struct 字段（InlineLayoutOf）才有内联 offset。
         StructLayoutInfo inl = this.InlineLayoutOf(className);
@@ -346,14 +481,14 @@ public sealed class StructLayout {
         if (!(d is StructFieldsDef)) { return new StructLayoutInfo(key); }
         StructFieldsDef def = d as StructFieldsDef;
         this._objStructInProgress.Put(key, "1");
-        StructLayoutInfo info = this._computeObjFields(key, def);
+        StructLayoutInfo info = this._computeObjFields(key, def, new StrMap());
         this._objStructCache.Put(key, info);
         return info;
     }
 
     // 布局主算法（8B 引用版）：逐字段按对齐排布，累积 size/align，展平引用叶子（含嵌套/内联 struct）。
     // 与 _compute 同形，差异仅：引用叶子用 _objSizeOf（8B）、嵌套 struct 递归走 _objLayoutOfStruct（8B）。
-    private StructLayoutInfo _computeObjFields(string typeName, StructFieldsDef def) {
+    private StructLayoutInfo _computeObjFields(string typeName, StructFieldsDef def, StrMap subst) {
         StructLayoutInfo info = new StructLayoutInfo(typeName);
         int offset = 0;
         int maxAlign = 1;
@@ -361,6 +496,8 @@ public sealed class StructLayout {
         while (i < def.FieldCount) {
             string fname = def.FieldNames[i];
             string ftype = def.FieldTypeNames[i];
+            // generic-struct-erased-slot-value-copy：字段声明类型先过代换表（`T` → `P2`），同 _compute。
+            if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
             int kind = this._kindOf(ftype);
             int size = 0;
             int align = 0;
@@ -409,15 +546,26 @@ public sealed class StructLayout {
         object d = this._classDefs.Get(className);
         if (!(d is StructFieldsDef)) { return; }
         StructFieldsDef def = d as StructFieldsDef;
-        StructLayoutInfo info = this._computeObjFields(className, def);
+        StructLayoutInfo info = this._computeObjFields(className, def, new StrMap());
         this._objectCache.Put(className, info);
     }
 
     // 某非-struct class 的对象全字段布局（无缓存 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo ObjectLayoutOf(string className) {
-        object c = this._objectCache.Get(PrimModel.Canon(className));
+        string k = PrimModel.Canon(className);
+        object c = this._objectCache.Get(k);
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
-        return new StructLayoutInfo(PrimModel.Canon(className));
+        // 同 InlineLayoutOf：实例化名按需算（`InlineFieldByteOffset` 要用它取 composed offset）。
+        if (StructLayout.BaseNameOf(k) != k) {
+            object d = this._classDefs.Get(PrimModel.Canon(StructLayout.BaseNameOf(k)));
+            if (d is StructFieldsDef) {
+                StructFieldsDef def = d as StructFieldsDef;
+                StructLayoutInfo info = this._computeObjFields(k, def, StructLayout._substOf(def, k));
+                this._objectCache.Put(k, info);
+                return info;
+            }
+        }
+        return new StructLayoutInfo(k);
     }
 
     // 某 class 是否有对象布局（有直接字段 → 设 CLASS_FLAG_HAS_OBJECT_LAYOUT + emit 对象块）。
@@ -435,22 +583,38 @@ public sealed class StructLayout {
             if (this.ErrorType == "") { this.ErrorType = key; this.ErrorCycle = key; }
             return new StructLayoutInfo(key);   // 空布局打断递归（不入缓存）
         }
-        object d = this._defs.Get(key);
+        // generic-struct-erased-slot-value-copy：实例化名按**基名**取定义，并用「定义型参名 ↔ 实参名」
+        // 按位配对出代换表。缓存 key 仍是完整实例化名 ⇒ `Pair<P2,int>` 与 `Pair<string,int>` 各有一份布局。
+        object d = this._defs.Get(PrimModel.Canon(StructLayout.BaseNameOf(key)));
         if (!(d is StructFieldsDef)) {
             // 非 struct 类型不该走这里；返回空布局兜底（调用方应先 IsStructType 判定）。
             return new StructLayoutInfo(key);
         }
         StructFieldsDef def = d as StructFieldsDef;
+        StrMap subst = StructLayout._substOf(def, key);
         // 环检测在途集：标记 key「计算中」。无需在结束时移除——LayoutOf 先查 _cache 再查 _inProgress，
         // 计算完成后 key 已入 cache，后续调用命中 cache 提前返回，永不重入 _inProgress 检查（StrMap 无 Remove）。
         this._inProgress.Put(key, "1");
-        StructLayoutInfo info = this._compute(key, def);
+        StructLayoutInfo info = this._compute(key, def, subst);
         this._cache.Put(key, info);
         return info;
     }
 
+    // 「定义型参名 → 实参名」代换表。非实例化名 / 非泛型 / 元数对不上 → 空表（行为逐字不变）。
+    // 元数对不上不报错、直接放弃代换：那属于上游类型检查的职责，布局层保守退回今天的句柄表示。
+    private static StrMap _substOf(StructFieldsDef def, string instName) {
+        StrMap m = new StrMap();
+        if (def.TpCount <= 0) { return m; }
+        string[] args = StructLayout.InstArgsOf(instName);
+        if (args.Length != def.TpCount) { return m; }
+        int i = 0;
+        // 值包 StrBox：StrMap 存 object，prim string 不能 `as string` 下行（同 ImportedSymbolLoader 的口径）。
+        while (i < def.TpCount) { m.Put(def.TypeParamNames[i], new StrBox(args[i])); i = i + 1; }
+        return m;
+    }
+
     // 布局主算法：逐字段按对齐排布，累积 size/align，展平引用叶子。
-    private StructLayoutInfo _compute(string typeName, StructFieldsDef def) {
+    private StructLayoutInfo _compute(string typeName, StructFieldsDef def, StrMap subst) {
         StructLayoutInfo info = new StructLayoutInfo(typeName);
         int offset = 0;
         int maxAlign = 1;
@@ -458,6 +622,10 @@ public sealed class StructLayout {
         while (i < def.FieldCount) {
             string fname = def.FieldNames[i];
             string ftype = def.FieldTypeNames[i];
+            // generic-struct-erased-slot-value-copy：字段声明类型名先过代换表（`A` → `P2`），**只做整名匹配**。
+            // 代换之后一切照旧——下游拿到的已是具体名（可能本身又是实例化名，递归 LayoutOf 会再代换一层）。
+            // 整名之外（如字段类型写成 `List<A>`）本轮不代换 ⇒ 落今天的 GcRef 句柄，与闸门口径一致。
+            if (subst.ContainsKey(ftype)) { ftype = (subst.Get(ftype) as StrBox).Value; }
             int kind = this._kindOf(ftype);
             int size = 0;
             int align = 0;

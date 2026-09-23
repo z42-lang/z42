@@ -1,0 +1,9 @@
+namespace Demo.FreeInitApp;
+
+using Std.IO;
+using Demo.FreeInit;
+
+void Main() {
+    Console.WriteLine("start");
+    Console.WriteLine(Ping(1).ToString());
+}

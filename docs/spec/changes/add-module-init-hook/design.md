@@ -15,6 +15,29 @@
 
 复用既有哨兵 ⇒ **zbc / zpkg 格式不变，无 bump，无两代自举**。
 
+## 只对库包开放（E0487，User 裁决 2026-09-23）
+
+可执行包（`kind = "exe"`）里出现 `[ModuleInit]` ⇒ **E0487**。两个理由：
+
+1. **失败时用户什么也做不了**：包初始化器在 `Main` 之前执行，没有任何用户代码能包住它
+   （C# 实测同形：entry 模块的 module initializer 抛异常就是未捕获崩溃）。等于提供一个
+   「失败即崩且无法处理」的入口。
+2. **exe 本来就有 `Main`**：写进 `Main` 第一行能做同样的事，失败还可 `try`/`catch`。
+   同一件事的第二种表达 —— 与「一个包至多一个」同样的精神：让多余的表达无法表达。
+
+⭐ 这条裁决顺带**缩小了实现**：主包自己不再会有 `$Module`，`seed_types_for_lookup` 那条
+（曾经引起 stdlib 自建回归的）路径只剩下「随主模块一起急切加载进来的依赖包」这一个服务对象。
+
+### 落点：`PackageCompile`，不是别处
+
+判据是 manifest 的 `kind`，semantics 看不到 ⇒ 必须在 pipeline 层。但具体挂哪里有两个坑：
+
+| 候选 | 结果 |
+|---|---|
+| `Z42cCompiler.Compile`（ICompiler 实现） | ❌ **`z42c build` 根本不走那里**（走 driver 的 `IncrementalDriver`）——实测校验一次也没触发 |
+| driver 层 | ❌ semantics→pipeline→driver 是**两层**符号引用，自建首遍失败只重试一次 ⇒ 一层能自愈、两层必红（[[bootstrap-test-misses-multilevel-symbols]]） |
+| **`PackageCompile.Compile`** | ✅ 所有编译路径（driver / z42b / REPL）必经；只跨一层；且旁边就有 `_mergeDiags` 这条现成的包级诊断汇入路 |
+
 ## 硬约束：「加载那一刻同步回调」做不到
 
 加载发生在 `lazy_loader` 的**写锁内**
@@ -50,9 +73,11 @@
 → 包初始化器跑完 → 才进入 `Ping` 的函数体。对用户仍然是「包加载后、本包任何代码跑之前」。
 
 **主包**（不经惰性加载器）：`seed_types_for_lookup` 此前**直接写 `type_registry`、绕过
-`insert_type`** ⇒ 主包自己的 `[ModuleInit]` 静默从不执行。现在那条路也做 `$Module` 检测，
-第一个屏障点（`Main` 里的第一次调用 / `new` / 静态访问）把它跑掉。golden
-`src/tests/module-init/runs_before_main` 守这条。
+`insert_type`** ⇒ 走这条路进来的包的 `$Module` 静默从不登记。现在那条路也做 `$Module` 检测。
+
+> ⚠️ **User 裁决 exe 包禁用 `[ModuleInit]`（E0487）后，主包自己不会再有 `$Module`** ——
+> 这条路径现在的服务对象只剩「随主合并模块一起急切加载进来的**依赖包**」。检测保留（无害
+> 且那个场景仍需要它），但曾经守它的 golden `module-init/runs_before_main` 已随裁决删除。
 
 > 🔴 **只镜像 `$Module` 检测，不要把整个 seed 循环改走 `insert_type`。** 试过，回归立刻出现：
 > 那样会给主模块每个类型的 cctor **再登记一次**（`boot.rs` 已经登记过），把屏障在启动期的
@@ -213,6 +238,37 @@ androidx.startup `Initializer<T>` 全都收敛到「一个接口 + 元数据指�
 
 ⇒ 差别收敛到一点：**只有包初始化这条路，抛出发生在「这次调用内同时发生了包加载」之后**。
 根因未查清。
+
+### 目标行为：C# 实测（.NET 10，2026-09-23）
+
+同形的 C# 程序（`[ModuleInitializer]` 抛 `new Exception("boom")`，依赖库 + 主程序两个项目）：
+
+| 实验 | 写法 | 结果 |
+|---|---|---|
+| ① `Main` 体内直接引用依赖库类型 | `try { Api.Get(1) } catch` | **Unhandled**，`start` 都没打印 —— CLR 在 **JIT `Main` 时**就触达了该模块，初始化器在 `Main` 体之前跑完 |
+| ② 触达关进 `[MethodImpl(NoInlining)] static int Touch(int)` | `try { Touch(1) } catch` | `start` → `lib-module-init` → **`caught-1`** → **`caught-2`** → `end` |
+
+```text
+caught-1: TypeInitializationException: The type initializer for '<Module>' threw an exception.
+  inner: Exception: boom
+caught-2: TypeInitializationException: The type initializer for '<Module>' threw an exception.
+```
+
+⇒ **C# 的语义**：包装成 `TypeInitializationException`（类型名 `<Module>`、原异常进 `InnerException`）；
+**只要触发点落在 `try` 内就能被 `catch`**；失败是终态，第二次触达仍抛、不重试；触发点若早于
+`Main` 体则是未捕获异常、进程终止。
+
+⇒ **我们的偏离就此明确**：
+
+| 情形 | C# | z42 当前 |
+|---|---|---|
+| 主包自己的 init 失败（`Main` 之前跑） | Unhandled、终止 | **一致** ✅ |
+| **依赖包的 init 在 `try` 内被触达** | **可 catch**，第二次仍抛 | **不可 catch** ❌ |
+| 包装形态 / 不重试 | `TypeInitializationException` + Inner | **一致** ✅ |
+
+所以这不是「C# 也这样」—— 第二行是真偏离，修它时**以实验②为验收标准**。
+（⚠️ 一个诱人但错误的结论是拿实验①说「C# 也抓不到」：那只是触发点早于 `Main`，
+对应的是我们**主包**那条路，而主包那条我们本来就一致。）
 
 **为什么不留一条红着的门**：一个守着不成立行为的 fixture 只会让 GREEN 长期红着，
 而 [[fake-gate-lets-compiler-bug-into-main]] 的教训是「会红但不挡人的门 = 没有门」。

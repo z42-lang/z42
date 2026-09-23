@@ -63,11 +63,16 @@ public sealed class FunctionEmitter {
             // add-struct-value-semantics A-use：所属类是 blob 值 struct → `this` 是 StructRef 句柄，
             // 其字段 access（裸 `x` 或 `this.x`）翻转到 StructFieldGet/SetPrim（含 ctor 的 `this.f = a`）。
             if (owner != null && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(owner.Name())) {
-                this._ctx.OwnerStructName = owner.Name();
+                // generic-struct-erased-slot-value-copy：特化通道下用**实例化名** ⇒ 体内 `this.f` 的
+                // 字节偏移按实例化布局烘焙。这是 B1 的核心：定义布局里型参字段一律 8B 句柄，
+                // 实例化布局里是内联字节，两者 size 与后续字段偏移都可能不同（P3 为 12B 时 Second 从 @8 挪到 @12）。
+                this._ctx.OwnerStructName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name();
             }
             // add-struct-heap-inline (P3b)：记所属类短名（含非-struct class）供裸 `pt`/`pt.x` 内联字段解析。
             // struct owner 无内联字段（其字段是嵌套展平，非堆内联）→ InlineFieldByteOffset 恒 -1，安全共存。
-            if (owner != null) { this._ctx.OwnerClassName = owner.Name(); }
+            // generic-struct-erased-slot-value-copy（形态 ②）：特化通道下用实例化名 ⇒ 体内裸字段
+            // （`item` 即 `this.item`）按**实例化的内联布局**解析 offset。
+            if (owner != null) { this._ctx.OwnerClassName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name(); }
             if (owner != null) {   // 实例方法：裸字段 → field_get(reg0)
                 string[] fnames = owner.Fields.Keys();
                 int fi = 0;
@@ -192,7 +197,11 @@ public sealed class FunctionEmitter {
         this._ctx.NextReg = 2;
         this._ctx.MaxReg = 2;
         this._ctx.StartBlock("entry");
-        TypedReg result = this._expr.EmitSynthEqualsResult(owner.Name(),
+        // generic-struct-erased-slot-value-copy：特化后装箱值的运行期类型是**实例化**
+        // （合成描述符 `GRec<int,int>`），拿定义名 `GRec` 做 `other is …` 必失败 ⇒ 值相等误返 false
+        // （实测 generic_struct_equals 判红，且是**静默错值**不是崩）。按实例化名检查。
+        string seOwner = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name();
+        TypedReg result = this._expr.EmitSynthEqualsResult(seOwner,
                               new TypedReg(0, IrType.Ref), new TypedReg(1, IrType.Ref));
         if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(true, result)); }
         int[] regTypes = new int[this._ctx.RegTagCount];
@@ -503,7 +512,14 @@ public sealed class FunctionEmitter {
         if (t is Z42ClassType) { ct = t as Z42ClassType; }
         else if (t is Z42InstantiatedType) { ct = (t as Z42InstantiatedType).Def; }
         if (ct == null) { return ""; }
-        if (this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(ct.Name())) { return ct.Name(); }
+        if (this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(ct.Name())) {
+            // generic-struct-erased-slot-value-copy：与 ExprEmitter._blobStructName 同口径——
+            // 命中闸门的实例化给实例化规范名。两处必须一致，否则同一个值在
+            // 「变量声明」（走这里）与「成员访问」（走那里）上会各查一份不同布局。
+            string inst = this._expr._instLayoutName(t);
+            if (inst != "") { return inst; }
+            return ct.Name();
+        }
         return "";
     }
 

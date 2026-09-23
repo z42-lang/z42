@@ -9,6 +9,41 @@ using Std;
 using Std.IO;
 using Std.Time;   // Stopwatch — diagnostic-level elapsed timing
 
+// ── 源码常量 / zpkg 头 ───────────────────────────────────────────────────────
+
+// 源码里 `<decl><n>;` 的 n（如 "public static int CompilerFingerprint = "）；读不到 → -1。
+// **从源码树读、不用编进 xtask 的常量**：xtask 自身可能是旧二进制（反复踩过的假故障），
+// 编进去的版本号会跟着一起旧，那就正好在最需要它的场合失效。
+int _srcIntConst(string file, string decl) {
+    if (!File.Exists(file)) { return -1; }
+    string t = File.ReadAllText(file);
+    int k = t.IndexOf(decl);
+    if (k < 0) { return -1; }
+    int s = k + decl.Length;
+    int e = s;
+    while (e < t.Length && t.CharAt(e) >= '0' && t.CharAt(e) <= '9') { e = e + 1; }
+    if (e == s) { return -1; }
+    return int.Parse(t.Substring(s, e - s));
+}
+
+// 本源码树的 zpkg 格式 minor（z42.ir 的写端常量 = SoT，与 Rust 读端 strict-pin 同步）。
+int _treeZpkgMinor(string root) {
+    return _srcIntConst(Path.Join(root, "src/libraries/z42.ir/src/ZpkgWriter.z42"),
+        "public static int Minor = ");
+}
+
+// 一个 .zpkg 文件头里的格式 minor；文件不在 / 太短 / 坏 magic → -1。
+// 头布局见 `z42.ir` 的 `ZpkgWriterZ._assemble`：'Z''P''K' 0 | major:u16le | minor:u16le | …
+int _zpkgFileMinor(string file) {
+    if (!File.Exists(file)) { return -1; }
+    byte[] b = File.ReadAllBytes(file);
+    if (b.Length < 16) { return -1; }
+    int b0 = b[0]; int b1 = b[1]; int b2 = b[2]; int b3 = b[3];
+    if (b0 != 90 || b1 != 80 || b2 != 75 || b3 != 0) { return -1; }   // "ZPK\0"
+    int lo = b[6]; int hi = b[7];
+    return lo + hi * 256;
+}
+
 // ── repo root + process exec ─────────────────────────────────────────────────
 
 // Repo root via git (spawned directly — no bash), falling back to CWD.
@@ -368,8 +403,31 @@ int _ensureSeed(string root) {
     string inCore = Path.Join(flatDir, "z42.core.zpkg");
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
         && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
-        _vDetailed("  seed: in-tree warm present — reuse (no staging)");
-        return 0;
+        // ⚠️ 「在不在」不等于「能用」——warm 判据此前只有 Exists + size>0，于是**任意老的**
+        // in-tree 产物都会被无声复用。实证代价（2026-09-23）：一棵树里躺着 zpkg 0.48 时代的
+        // driver，那一代的静态初始化还走 `__static_init__`，而 unify-static-init-into-cctor
+        // 已把运行期对它的支持删掉 ⇒ 静态量永不初始化，崩成
+        // `ArrayGet: expected array, got Null @ PrimModel.SurfaceName` —— 一个和「种子过期」
+        // 毫无字面关系的地方，还把人引去怀疑「main 有回归」。
+        // 所以这里加一道**代际校验**：产物的格式 minor 必须等于本源码树写端的 minor。
+        int want = _treeZpkgMinor(root);
+        int gotDriver = _zpkgFileMinor(inDriver);
+        int gotCore = _zpkgFileMinor(inCore);
+        // 读不到源码常量（文件改名 / 结构变了）⇒ **不判、不删**，退回旧行为。
+        // 这道校验是防呆，不该自己变成新的故障源。
+        if (want <= 0 || (gotDriver == want && gotCore == want)) {
+            _vDetailed("  seed: in-tree warm present — reuse (no staging)");
+            return 0;
+        }
+        // 总是打印（不走 _vNormal）：这是一次**丢弃产物**的纠正动作，而且它一旦发生，
+        // 就是用户理解「为什么这次构建特别慢 / 为什么上一次崩得莫名其妙」的唯一线索。
+        Console.WriteLine("  seed: in-tree warm is a format generation behind (zpkg minor driver="
+            + gotDriver.ToString() + " stdlib=" + gotCore.ToString()
+            + ", this tree writes " + want.ToString() + ") — discarding and cold-staging");
+        // 整代作废：同一代产出的编译器产物与 stdlib dist 要一起丢 —— 留一半下来只会在
+        // 下一层撞上同样的错代问题（devinfra/build.md §3「warm 判据带代际校验」）。
+        if (Directory.Exists(_compilerBuildRoot(root))) { Directory.Delete(_compilerBuildRoot(root), true); }
+        if (Directory.Exists(_libsBuildRoot(root))) { Directory.Delete(_libsBuildRoot(root), true); }
     }
 
     Stopwatch sw = _procStart("seed cold-start (stage z42c + stdlib from SDK)");
@@ -384,6 +442,18 @@ int _ensureSeed(string root) {
     }
     _vNormal("  seed: z42c   ← " + driverHome);
     _vNormal("  seed: stdlib ← " + stdlibDir);
+
+    // 种子本身也可能落后一代（刚 bump 完格式、新 nightly 还没发）。这里**只告警不失败**：
+    // 「上一版 z42c 能编当前源」是 bootstrap-seed.md 的纪律，落后一代未必不能用；
+    // 但一旦真的不能用，失败形态会是运行期崩在某个静态表上，那时这行是唯一的线索。
+    int wantSeed = _treeZpkgMinor(root);
+    int gotSeed = _zpkgFileMinor(Path.Join(driverHome, "z42c.driver.zpkg"));
+    if (wantSeed > 0 && gotSeed > 0 && gotSeed != wantSeed) {
+        ConsoleError.WriteLine("  ⚠ seed is a format generation behind: zpkg minor "
+            + gotSeed.ToString() + " (this tree writes " + wantSeed.ToString() + ")");
+        ConsoleError.WriteLine("    refresh with ./scripts/install-z42.sh --force"
+            + "  (a stale seed fails LATER, as a runtime crash on some uninitialized static)");
+    }
 
     string[] members = _compilerMembers(root);
     int i = 0;

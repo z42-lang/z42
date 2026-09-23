@@ -51,6 +51,29 @@ static void Init() {
 这条限制是故意的：与其提供一个「包内多个初始化器」的执行顺序让人去依赖（或让人去记住
 「别依赖它」），不如让这种写法**无法表达**。
 
+### 只能用在库包里
+
+```toml
+# z42.toml
+kind = "lib"     # ✅ 包初始化器可用
+kind = "exe"     # ❌ 里面写 [ModuleInit] ⇒ E0487
+```
+
+可执行包（`kind = "exe"`，未写 `kind` 时的默认值也是它）**不支持** `[ModuleInit]`。两个理由：
+
+1. 它在 `Main` 之前执行 ⇒ **失败时没有任何代码能捕获它**，程序直接崩（C# 同形：entry 模块的
+   module initializer 抛异常就是未捕获崩溃）。
+2. exe 本来就有 `Main` 这个天然入口 —— 写进 `Main` 第一行能做同样的事，**失败还可以
+   `try`/`catch`**。
+
+```z42
+void Main() {
+    LoadNativeCodecs();     // ← 装配写这里；失败可控
+    RegisterHandlers();
+    Run();
+}
+```
+
 ## 执行时机
 
 | 保证 | 说明 |
@@ -92,3 +115,4 @@ void Main() {
 |---|---|
 | [`E0486`](../appendix/error-codes.md) | `[ModuleInit]` 标注目标非法 |
 | [`E0485`](../appendix/error-codes.md) | 一个包里出现了第二个 `[ModuleInit]` |
+| [`E0487`](../appendix/error-codes.md) | 在可执行包（`kind = "exe"`）里用了 `[ModuleInit]` |

@@ -1,0 +1,16 @@
+// **负例**：可执行包里写 `[ModuleInit]` ⇒ E0487。
+//
+// 为什么禁：包初始化器在 `Main` 之前执行 ⇒ 失败时没有任何用户代码能捕获它
+// （C# 同形：entry 模块的 module initializer 抛异常就是未捕获崩溃）。而 exe 本来就有
+// `Main` 这个天然入口 —— 写进 `Main` 第一行能做同样的事，失败还可 try/catch。
+namespace Demo.ExeRejApp;
+
+using Std.IO;
+using Demo.ExeRejLib;
+
+static class Boot {
+    [ModuleInit]
+    static void Init() { Console.WriteLine("app-init"); }
+}
+
+void Main() { Console.WriteLine(Ping(1).ToString()); }

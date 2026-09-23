@@ -1,0 +1,9 @@
+// 合法的库包：`[ModuleInit]` 在 lib 里照常可用 —— 本 fixture 的违例在 main（exe）侧。
+namespace Demo.ExeRejLib;
+
+using Std.IO;
+
+[ModuleInit]
+void Init() { Console.WriteLine("lib-init"); }
+
+public int Ping(int x) { return x + 1; }
