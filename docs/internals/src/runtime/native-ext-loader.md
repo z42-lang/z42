@@ -111,9 +111,22 @@ runs:
 
 1. `libloading::Library::new(path)` — opens the cdylib
 2. Dispatch on the extracted `<basename>` (e.g. `"compression"`):
-   - `"compression"`: resolve the 10 known compression symbols
+   - `"compression"`: **ABI handshake first** — resolve
+     `z42_compression_abi_version` and refuse to bind anything unless it
+     equals the loader's `EXPECTED_COMPRESSION_ABI`
+     (== `z42_compression::Z42_COMPRESSION_ABI_VERSION`); on mismatch **or**
+     a missing version symbol (pre-versioning build) the whole library is
+     skipped. Only then resolve the known compression symbols
      (`z42_compression_deflate_compress` etc.) and stash them in a
-     process-static `LoadedCompression` struct
+     process-static `LoadedCompression` struct. **Why:** the search path
+     includes `<exec_dir>` itself, so a stale `libz42_compression` beside
+     z42vm (dev incremental builds, partial SDK upgrades) has the same
+     symbol names but a possibly-changed layout — calling it through the
+     current `C*Fn` signatures would be UB. Link-time version-locking only
+     covers the bundled / packaged case, not this dlopen. Bump both ABI
+     constants together on any `z42_compression_*` signature change; the
+     `bundled-compression` unit test `abi_handshake_tests` gates that they
+     agree.
    - other basenames: warn + skip (future ext libs add a match arm)
 3. Register `(name, wrapper_fn)` pairs into `VmCore.ext_builtins`. The
    wrappers are static Rust functions with `NativeFn` signature

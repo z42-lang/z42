@@ -57,6 +57,33 @@ pub const Z42_COMPRESSION_ERR_COMPRESS:      i32 = 5;
 pub const Z42_COMPRESSION_ERR_UNKNOWN_SLOT:  i32 = 6;
 pub const Z42_COMPRESSION_ERR_INTERNAL:      i32 = 99;
 
+// ── ABI version handshake ────────────────────────────────────────────────────
+
+/// C-ABI contract version of this crate's `z42_compression_*` exports.
+///
+/// z42vm's dlopen loader (`native/ext.rs`) calls [`z42_compression_abi_version`]
+/// on a freshly-opened `libz42_compression` and refuses to bind the rest of the
+/// symbols unless it matches the loader's own `EXPECTED_COMPRESSION_ABI`. Bump
+/// this constant — and the loader's, together — on **any** change to a
+/// `z42_compression_*` signature (params / return / calling convention) or to
+/// the error-code meanings above.
+///
+/// Why it exists: the loader's search path includes the executable's own
+/// directory, so a stale `libz42_compression.{dylib,so,dll}` left beside z42vm
+/// (dev incremental builds, partial SDK upgrades) would be dlopen'd and called
+/// through the *current* `C*Fn` signatures — same symbol names, changed layout =
+/// UB. The handshake turns that into a clean skip.
+pub const Z42_COMPRESSION_ABI_VERSION: u32 = 1;
+
+/// Returns [`Z42_COMPRESSION_ABI_VERSION`]. The first symbol z42vm resolves when
+/// dlopen'ing this library; a mismatch — or this symbol missing on a
+/// pre-versioning build — makes the loader skip the library rather than risk
+/// calling a signature-incompatible ABI.
+#[unsafe(no_mangle)]
+pub extern "C" fn z42_compression_abi_version() -> u32 {
+    Z42_COMPRESSION_ABI_VERSION
+}
+
 thread_local! {
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
