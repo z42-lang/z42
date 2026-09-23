@@ -462,8 +462,20 @@ public sealed class CallEmitter {
         if (this._ee._isBlobStruct(n.Type())) {
             string sname = this._ee._blobStructName(n.Type());
             int size = this._ctx.Gen.Layouts.StructSize(sname);
+            // generic-struct-erased-slot-value-copy：命中闸门的实例化，StructAlloc 必须携**实例化的 FQ 名**
+            // 与**实例化的 ctor**——否则运行期按定义名 resolve_layout（First 是 8B 句柄）而 size 已是实例化的，
+            // 且 ctor 体按定义偏移往里写句柄 ⇒ 读出 0。限定只加在基名上、实参原样（同 _qualifyElemName 约定），
+            // 与合成描述符的注册键（ns + 短实例化名）对齐。
+            // 身份与布局解耦（User 裁决「实例化是独立类型」）：
+            //  · StructAlloc 的类型名走**身份名** —— 所有实例化一律独立，`GetType()` 才自洽；
+            //  · ctor 派发走**特化名** —— 只有布局不同的才有特化 ctor，布局相同的共享定义那份
+            //    （共享体按定义偏移烘焙，布局既相同则偏移对得上）。
+            string identN = this._ee._instIdentityName(n.Type());
+            string qualAlloc = identN != "" ? this._ee._qualifyInstName(identN) : qualCls;
+            string ctorOwner = sname.IndexOf("<") >= 0 ? this._ee._qualifyInstName(sname) : qualCls;
             TypedReg handle = this._ctx.Alloc(IrType.Ref);   // StructRef 句柄（Ref tag）
-            this._ctx.Emit(new StructAllocInstr(handle, qualCls, size));
+            this._ctx.Emit(new StructAllocInstr(handle, qualAlloc, size));
+            fqCtor = ctorOwner + "." + n.CtorName;
             // 仅在 ctor **真实存在**时 Call：_ctorKey 有 ctor→"Name$arity"∈Methods、无 ctor→裸 name∉Methods。
             // 无 ctor struct（如 partial `new Vec2()`）：StructAlloc 已零初始化 blob，字段随后逐个赋值——
             // 别 Call 不存在的 `Vec2.Vec2`（undefined function 崩）。
@@ -477,6 +489,21 @@ public sealed class CallEmitter {
                 this._ctx.Emit(new CallInstr(voidr, fqCtor, cargs, n.ArgCount + 1));
             }
             return handle;
+        }
+        // generic-struct-erased-slot-value-copy（形态 ②）：泛型 class 实例化——
+        //  · ObjNew 的类名走**身份名**（描述符按该名注册，内联布局才查得到）；
+        //  · ctor 走**特化名**（布局不同才有特化 ctor；否则仍是定义那份）。
+        // 不能沿用旧的 `qualCls + targs` 渲染：那给 `Demo.CBox<Demo.P2>`（实参 FQ），
+        // 与描述符名 `Demo.CBox<P2>` 对不上 ⇒ 运行期查不到内联布局（实测形态 ② 不生效）。
+        string cIdent = this._ee._instIdentityName(n.Type());
+        if (cIdent != "") {
+            string cQual = this._ee._qualifyInstName(cIdent);
+            string cSpec = this._ee._instLayoutName(n.Type());
+            string cCtorOwner = cSpec != "" ? this._ee._qualifyInstName(cSpec) : qualCls;
+            // ⚠️ targs 置空：ObjNewInstr 会把 targs **再渲染一遍**贴到类名后，而 cQual 已带实参
+            // ⇒ 不清就成 `Demo.CBox<P2><Demo.P2>`（实测）。身份名里已含实参，这里不需要第二份。
+            this._ctx.Emit(new ObjNewInstr(dst, cQual, cCtorOwner + "." + n.CtorName, new string[0], 0, args, n.ArgCount));
+            return dst;
         }
         this._ctx.Emit(new ObjNewInstr(dst, qualCls, fqCtor, targs, tcount, args, n.ArgCount));
         return dst;
