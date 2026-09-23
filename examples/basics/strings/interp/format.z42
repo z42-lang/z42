@@ -3,7 +3,7 @@ using Std.IO;
 void Main() {
     // ANCHOR: code
     int r = 255;
-    Console.WriteLine($"#{r:X2}");        // 期待 #FF，实际 #255
-    Console.WriteLine($"{3.14159:F2}");   // 期待 3.14，实际 3.14159
+    Console.WriteLine($"#{r:X2}");        // z42 没有格式说明符 → E0492
+    Console.WriteLine($"{3.14159:F2}");
     // ANCHOR_END: code
 }

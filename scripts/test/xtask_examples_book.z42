@@ -31,7 +31,102 @@ int _checkLearnBook(string root) {
     }
     bad = bad + _checkSummary(src, pages);
     bad = bad + _checkExamplesCoverage(root, ex, pages, included);
+    bad = bad + _checkProseDiagCodes(root, src, pages);
     return bad;
+}
+
+// B11：**正文里引用的诊断码，必须出现在该章自己的 transcript 里**（否则登记进 allowlist）。
+//
+// 为什么需要这道门：全书的代码与输出都由 `.console` 重放钉着——改坏了判红。而**正文不受任何
+// 门禁管**，于是正文里写的诊断码会随着码被重排而烂掉，且烂得毫无声息。
+// 实例（2026-09-23 抓到）：第 16 章正文写 `E0470`，而「赋值目标不是左值」这条码早已经
+// `enforce-diagnostic-code-uniqueness` 归位两次（#749 → E0477，#759/#762 → E0482）。
+// **同章的 run.console 是对的**（写着 E0482，它被重放）⇒ 正文与 transcript 自相矛盾而没人发现。
+// 更阴的是 E0470 是个**活着的、完全不同**的诊断（`ref` 实参不可取址）——不是「码不存在」，
+// 而是静默指向别的东西，存在性检查抓不到它。
+//
+// 例外（正文提及但本章不演示，如「写 `a ?? b` 会报 E0480」）登记在
+// `scripts/test/learn-prose-diag-allow.txt`（`<页面路径> <码>` 每行一条）。
+// 这份清单**只应缩短**：给某条加演示示例后就把它删掉。
+int _checkProseDiagCodes(string root, string src, string[] pages) {
+    string allowPath = Path.Join(root, "scripts/test/learn-prose-diag-allow.txt");
+    string allow = File.Exists(allowPath) ? File.ReadAllText(allowPath) : "";
+    int bad = 0;
+    int i = 0;
+    while (i < pages.Length) {
+        string page = pages[i];
+        string[] codes = _diagCodesIn(File.ReadAllText(Path.Join(src, page)));
+        if (codes.Length > 0) {
+            string tx = _transcriptTextFor(root, page);
+            int c = 0;
+            while (c < codes.Length) {
+                string code = codes[c];
+                bool allowed = allow.Contains(page + " " + code);
+                if (!allowed && !tx.Contains(code)) {
+                    ConsoleError.WriteLine("  ✗ B11 docs/learn/src/" + page + " — 正文引用 " + code
+                        + " 但本章 transcript 里没有它（码被重排过？给它加个演示示例，或登记进 scripts/test/learn-prose-diag-allow.txt）");
+                    bad = bad + 1;
+                }
+                c = c + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return bad;
+}
+
+// 文本里出现的全部 `E####` / `W####`（去重，出现序）。
+string[] _diagCodesIn(string text) {
+    string[] acc = new string[16];
+    int n = 0;
+    int i = 0;
+    while (i + 4 < text.Length) {
+        char c = text.CharAt(i);
+        if ((c == 'E' || c == 'W') && _allDigits(text, i + 1, 4)) {
+            string code = text.Substring(i, 5);
+            bool dup = false;
+            int k = 0;
+            while (k < n) { if (acc[k] == code) { dup = true; } k = k + 1; }
+            if (!dup && n < acc.Length) { acc[n] = code; n = n + 1; }
+            i = i + 5;
+        } else { i = i + 1; }
+    }
+    string[] outp = new string[n];
+    int j = 0;
+    while (j < n) { outp[j] = acc[j]; j = j + 1; }
+    return outp;
+}
+
+bool _allDigits(string text, int from, int count) {
+    int i = 0;
+    while (i < count) {
+        if (from + i >= text.Length) { return false; }
+        char c = text.CharAt(from + i);
+        if (c < '0' || c > '9') { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+// 该页对应的 examples 目录下全部 `.console` 文本拼起来（页面 `a/b.md` → `examples/a/b/**`）。
+string _transcriptTextFor(string root, string page) {
+    string stem = page.EndsWith(".md") ? page.Substring(0, page.Length - 3) : page;
+    string dir = Path.Join(Path.Join(root, "examples"), stem);
+    if (!Directory.Exists(dir)) { return ""; }
+    string acc = "";
+    // ⚠️ `Directory.EnumerateRecursive` 返回的是**相对于 dir 的相对路径**（同 `_learnPages` 的用法），
+    // 必须自己 join 回去才能读 —— 直接拿它喂 `ReadAllText` 会抛 `No such file or directory`
+    // （本门禁第一版就是这么崩的）。再 `File.Exists` 过一道，挡住目录条目。
+    string[] all = Directory.EnumerateRecursive(dir);
+    int i = 0;
+    while (i < all.Length) {
+        if (all[i].EndsWith(".console")) {
+            string full = Path.Join(dir, all[i]);
+            if (File.Exists(full)) { acc = acc + File.ReadAllText(full); }
+        }
+        i = i + 1;
+    }
+    return acc;
 }
 
 // docs/learn/src 下全部 .md（相对路径，正斜杠，字典序），不含 SUMMARY.md。

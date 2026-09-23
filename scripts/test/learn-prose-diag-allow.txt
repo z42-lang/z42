@@ -1,0 +1,7 @@
+# B11 例外：手册正文提及但本章不演示的诊断码（`<页面路径> <码>` 每行一条）。
+# 这份清单**只应缩短** —— 给某条加了演示示例就把它删掉。
+basics/operators.md E0480
+basics/variables.md E0478
+basics/functions.md E0208
+# `#778` 修好了成员查找，但接口间赋值仍不走继承链；正文用 z42,ignore 块举例、本章不演示。
+types/interfaces.md E0402

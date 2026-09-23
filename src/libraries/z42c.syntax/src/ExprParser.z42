@@ -854,6 +854,26 @@ public sealed class ExprParser {
                     i = i + 1;   // skip }
                     var sub = new Parser(holeText, "<interp>");
                     Expr holeExpr = sub.ParseExpression();
+                    // 洞里表达式之后还剩东西 → 报错，别静默丢掉（E0492）。
+                    //
+                    // 此前这里只取 `ParseExpression()` 的结果、**从不问它有没有读完**：`$"{d:F2}"`
+                    // 解析出 `d` 就停在 `:` 前，`:F2` 一个字节都没人看 ⇒ C# 读者写惯的格式说明符
+                    // **静默失效**（`{d:F2}` 原样打出 3.14159、`{n:X}` 打出 42），零诊断。
+                    // `$"{a b}"` 这类手误同理静默。
+                    //
+                    // 位置用 `t.Span`（整个 `$"…"` token 的真实区间），**不能用子 parser 产的 Span**
+                    // —— 那些 Span 的 File 是合成的 `"<interp>"`、偏移是洞内坐标，打印出来是
+                    // `<interp>(1,4)` 这种用户无从定位的假位置（该缺陷仍在，见下）。
+                    //
+                    // ⚠️ 只管「读完了但有剩余」这一种。洞内**解析失败**（`$"{a +}"` / `$"{@#}"`）时
+                    // 子 parser 的诊断被整个丢弃、只剩带假位置的语义诊断漏出来——那是另一件事
+                    // （要给 Parser 穿透真实 file + 偏移），不在本次范围。
+                    if (sub._peek().Kind != TokenKind.Eof) {
+                        this._p._diags.Error("E0492",
+                            "unexpected `" + sub._peek().Text + "` after the expression in this interpolation hole"
+                            + " — z42 has no format specifiers (`{x:F2}`); format the value yourself"
+                            + " (e.g. `Math.Round(x, 2).ToString()`) before interpolating it", t.Span);
+                    }
                     parts[pc] = new InterpHole(holeExpr, t.Span); pc = pc + 1;
                 }
             } else if (c == '}' && i + 1 < bodyEnd && raw.CharAt(i + 1) == '}') {
