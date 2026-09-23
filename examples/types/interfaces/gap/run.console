@@ -1,6 +1,6 @@
-# ANCHOR: err
+# ANCHOR: run
 $ z42 run gap.z42
-z42c build: 1 error(s) in gap.z42
-  gap.z42(14,7): E0401: no method `A` on interface `IDerived`
-[exit: 1]
-# ANCHOR_END: err
+B
+A
+A
+# ANCHOR_END: run

@@ -752,22 +752,10 @@ public sealed partial class ExprTyper {
         return null;
     }
 
-    // 接口（含其父接口闭包）是否声明了 `opMethod`。接口方法按**裸名**登记（MemberCollector），
-    // 故直接查 Methods。
+    // 接口（含其父接口闭包）是否声明了 `opMethod`。遍历收敛到 `InterfaceClosure`——
+    // 成员解析那条路径要的是同一份闭包语义，两处各写一份必然漂移。
     private MethodSymbol _ifaceMethodClosure(TypeEnv env, string ifaceName, string opMethod) {
-        if (!env.Symbols.HasInterface(ifaceName)) { return null; }
-        Z42InterfaceType it = env.Symbols.GetInterface(ifaceName);
-        if (it.Methods.ContainsKey(opMethod)) {
-            MethodSymbol ms = it.Methods.Get(opMethod) as MethodSymbol;
-            if (ms != null && ms.Signature != null) { return ms; }
-        }
-        int i = 0;
-        while (i < it.BaseCount) {
-            MethodSymbol up = this._ifaceMethodClosure(env, it.BaseNames[i], opMethod);
-            if (up != null) { return up; }
-            i = i + 1;
-        }
-        return null;
+        return InterfaceClosure.FindMethodByName(env.Symbols, ifaceName, opMethod);
     }
 
     private BoundExpr _bindUnary(UnaryExpr u, TypeEnv env) {

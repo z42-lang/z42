@@ -1,0 +1,54 @@
+// 接口成员的**父接口闭包**查找。
+//
+// 为什么需要：本地接口的 `Methods` 表**只装本接口自己声明的成员**——`InheritanceResolver`
+// 有 `_passInheritFields`（类的字段继承）却没有对应的「父接口方法合进子接口」那一 pass。
+// 于是 `interface IDerived : IBase` 上调 `IBase` 的方法，裸查 `it.Methods` 查不到 ⇒ E0401。
+//
+// 这个洞平时不显眼，是因为**跨包导入的类型 TSIG 已经把继承方法展平进各派生类的 Methods**：
+// 同一个形状，本包编译报 E0401、跨 zpkg 引用却能过。`IEnumerator<T> : IDisposable` 正撞这条——
+// foreach 脱糖出的 `__e.Dispose()` 在本包实现的枚举器上查不到，`Std.IEnumerable<T>` 因此
+// **一直没人能实现**（全仓零个 `: IEnumerable<T>` 声明不是没人想写，是写不出来）。
+//
+// 查找语义与 `ExprTyper._ifaceMethodClosure`（运算符重载那条路径的同款遍历）统一：
+// 深度优先、先本接口后父接口、**要求签名非 null 才算命中**（无签名的占位符号继续往上找）。
+namespace Z42.Semantics;
+using Z42.IR;   // StrMap
+
+public sealed class InterfaceClosure {
+
+    // 接口（含父接口闭包）里找方法。接口方法按**裸名**登记（MemberCollector）。
+    public static MethodSymbol FindMethod(SymbolTable symbols, Z42InterfaceType it, string method) {
+        if (it == null) { return null; }
+        MethodSymbol own = it.Methods.Get(method) as MethodSymbol;
+        if (own != null && own.Signature != null) { return own; }
+        if (symbols == null) { return null; }
+        return InterfaceClosure._walkBases(symbols, it, method, 0);
+    }
+
+    // 按接口**名**找（调用方只有名字时用，例如泛型约束里的 `where T : IFoo`）。
+    public static MethodSymbol FindMethodByName(SymbolTable symbols, string ifaceName, string method) {
+        if (symbols == null || !symbols.HasInterface(ifaceName)) { return null; }
+        return InterfaceClosure.FindMethod(symbols, symbols.GetInterface(ifaceName), method);
+    }
+
+    // 沿 BaseNames 递归。`depth` 是**成环护栏**——接口继承成环本不该发生，但查找不该因此挂死；
+    // 接口继承链在实际代码里是个位数深度，32 层足够宽松。
+    private static MethodSymbol _walkBases(SymbolTable symbols, Z42InterfaceType it, string method, int depth) {
+        if (depth > 32) { return null; }
+        int i = 0;
+        while (i < it.BaseCount) {
+            string bn = it.BaseNames[i];
+            if (symbols.HasInterface(bn)) {
+                Z42InterfaceType bit = symbols.GetInterface(bn);
+                if (bit != null) {
+                    MethodSymbol own = bit.Methods.Get(method) as MethodSymbol;
+                    if (own != null && own.Signature != null) { return own; }
+                    MethodSymbol up = InterfaceClosure._walkBases(symbols, bit, method, depth + 1);
+                    if (up != null) { return up; }
+                }
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+}

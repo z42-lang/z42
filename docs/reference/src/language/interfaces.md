@@ -233,9 +233,10 @@ Sum3(1, 2, 3);                                          // 6 —— 基元类型
 >
 > 需要这类能力时，请实现标准库的 `Std.INumber`，而不是自己声明 `static abstract` 接口。
 
-## 已知缺口：接口不能继承接口
+## 接口继承：成员可见，但还不构成子类型
 
-`interface IDerived : IBase { ... }` 能通过语法解析，但**继承不生效**：
+`interface IDerived : IBase { ... }` 的**成员继承是生效的** —— 在 `IDerived` 类型的值上
+可以调用 `IBase` 声明的成员，多层继承与菱形继承都走父接口闭包：
 
 ```z42
 interface IBase { int Base(); }
@@ -247,12 +248,21 @@ class Impl : IDerived {
 
 IDerived d = new Impl();
 d.Extra();        // ✓
-d.Base();         // ✗ E0401: no method `Base` on interface `IDerived`
-IBase b = d;      // ✗ E0402: cannot assign IDerived to IBase
+d.Base();         // ✓ 继承自 IBase
 ```
 
-目前请让实现类**直接列出所有接口**（`class Impl : IBase, IDerived`），
-并在需要 `IBase` 视图时用具体类型赋值。
+### 仍缺的一半：接口之间不成立赋值关系
+
+```z42
+IBase b = d;      // ✗ E0402: cannot assign IDerived to IBase
+IBase b2 = new Impl();   // ✓ 类 → 祖先接口可以
+```
+
+**类**到它任一祖先接口的赋值是成立的（走实现关系的传递闭包）；缺的是**接口到父接口**
+这一步 —— 接口类型之间的赋值判定目前只比较名字是否相等，不走继承链。
+
+需要 `IBase` 视图时，用具体类型赋值（`IBase b = impl;`），或让实现类**直接列出所有接口**
+（`class Impl : IBase, IDerived`）。
 
 ## 已知缺口：没有默认实现
 

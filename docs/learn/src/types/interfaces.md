@@ -83,10 +83,10 @@
 `{ get; set; }` 时，**getter 和 setter 是两份独立契约**——只实现一半照样报 `E0412`。
 接口还能要求索引器（`int this[int i] { get; set; }`）和事件。
 
-## 🔴 接口不能继承接口
+## 接口继承接口
 
-`interface IDerived : IBase` **语法能过，但继承不生效**——继承来的成员经 `IDerived`
-看不见：
+`interface IDerived : IBase` 的**成员继承是生效的**——继承来的成员经 `IDerived` 照样能调，
+多层继承与菱形继承都一样：
 
 ```z42
 // examples/types/interfaces/gap/gap.z42
@@ -94,18 +94,21 @@
 ```
 
 ```console
-{{#include ../../../../examples/types/interfaces/gap/run.console:err}}
+{{#include ../../../../examples/types/interfaces/gap/run.console:run}}
 ```
 
-`d.B()` 能用，`d.A()` 不能。这是当前实现的缺口。
+### 🔴 仍缺的一半：接口之间不成立赋值关系
 
-**变通办法**：把需要的成员**在每个接口里各写一遍**，实现类同时实现这几个接口：
+**类**到它任一祖先接口的赋值没问题（上面的 `IBase b = new Impl();`）。缺的是**接口到父接口**
+这一步：
 
 ```z42,ignore
-interface IBase    { void A(); }
-interface IDerived { void A(); void B(); }   // 重复声明 A
-class Impl : IBase, IDerived { /* A 和 B 各实现一次即可 */ }
+IDerived d = new Impl();
+IBase b = d;      // ✗ E0402: cannot assign IDerived to IBase
 ```
+
+接口类型之间的赋值判定目前只比较名字是否相等，不走继承链。**变通办法**：需要 `IBase`
+视图时从具体类型赋值（`IBase b = impl;`），而不是从 `IDerived` 转。
 
 ## 接口还是抽象类？
 
