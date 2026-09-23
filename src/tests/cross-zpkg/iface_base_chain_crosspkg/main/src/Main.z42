@@ -1,0 +1,20 @@
+// 消费方：经**导入的接口静态类型**调用继承来的成员。
+//
+// `l.Tag()` 隔着两层继承（`ILeaf` → `IMid` → `IBase`）—— 导入侧没恢复出父接口链时这一行是
+// E0401（编译期就红，跑不到输出）。`l.Get()` 走一层，`l.Twice()` 是自有成员作对照。
+namespace Demo.IfChainApp;
+
+using Std.IO;
+using Demo.IfChain;
+
+void Main() {
+    ILeaf l = new Leaf(5);
+    Console.WriteLine(l.Twice().ToString());   // 自有成员
+    Console.WriteLine(l.Get().ToString());     // 继承自 IMid（一层）
+    Console.WriteLine(l.Tag().ToString());     // 继承自 IBase（两层）
+
+    // 中间层的静态类型上同样成立。
+    IMid m = new Leaf(9);
+    Console.WriteLine(m.Get().ToString());
+    Console.WriteLine(m.Tag().ToString());
+}

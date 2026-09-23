@@ -1,18 +1,17 @@
 // 实现标准库的**泛型接口** `Std.IEnumerable<T>` / `Std.IEnumerator<T>`，并经接口静态类型用起来。
 //
-// 这是全仓第一个写出 `: IEnumerable<int>` 的类型。走到这一步补了三个独立缺陷：
+// 这是全仓第一个写出 `: IEnumerable<int>` 的类型。走到这一步补了四个独立缺陷：
 //   ① 跨包泛型接口退化成「名字带尖括号的伪 Class」⇒ 满足性校验 E0412 假红（#779）
 //   ② 经接口静态类型访问成员不按接收者实参代换型参 ⇒ `e.Current` 静态类型是 `T`
 //      （`+ 1` 报 E0402 "got T"），且形参位的 `T` 接受任何实参（漏报）
 //   ③ foreach 协议判定只认类那条继承线（#777）—— 由 foreach_ienumerable.z42 的 ⑥ 钉住
 //
-// ⚠️ **仍然不能对这个类型写 `foreach`**，也不能调 `e.Dispose()`：两者都要走
-// `IEnumerator<T> : IDisposable` **继承来的** `Dispose`，而**跨包导入的接口丢失了父接口链** ——
-// `ExportedInterfaceZ` 没有 BaseNames 字段，导入侧因此恢复不出继承关系（本地接口的继承已由
-// #778 修好，跨包这条是独立的一洞）。数据其实在 zbc 里（TYPE 段的 Interfaces 块，zbc 1.17 起
-// 已含传递基接口），缺的只是搬运 + 恢复 ⇒ 无需格式 bump，但要给 z42.ir 加字段再被 semantics
-// 引用 = 新跨成员符号，按 bootstrap-seed 纪律得跨一个 nightly，故独立立项。
-// 那一条修好后，这里就能直接 `foreach (int x in seq)`。
+//   ④ **跨包导入的接口丢失父接口链**（fix-crosspkg-iface-basenames）⇒ `IEnumerator<T>` 上
+//      找不到继承自 `IDisposable` 的 `Dispose` ⇒ 连 `foreach` 都不能写（脱糖出的
+//      `finally { __e.Dispose(); }` 报 E0401）。数据本就在 zbc 里（TYPE 段 Interfaces 块，
+//      zbc 1.17 起已含传递基接口），缺的只是搬运（#788，TSIG）+ 恢复（本条，导入侧）。
+//
+// ⑥–⑨ 正是 ④ 的验收：删掉 `ImportedSymbolLoader` 里恢复 BaseNames 的那几行，本用例编译即红。
 namespace Demo.ImplementStdIEnumerable;
 
 using Std;
@@ -72,4 +71,25 @@ void Main() {
     int empties = 0;
     while (e5.MoveNext()) { empties = empties + 1; }
     Assert.Equal(0, empties);
+
+    // ⑥ **`foreach` 直接跑这个类型** —— 脱糖出的 `__e.Dispose()` 走的是
+    //    `IEnumerator<T> : IDisposable` **继承来的**成员，要求跨包导入的接口恢复出父接口链
+    //    （fix-crosspkg-iface-basenames）。此前这里一律 E0401。
+    int fsum = 0;
+    foreach (int x in seq) { fsum = fsum + x; }
+    Assert.Equal(6, fsum);           // 0+1+2+3
+
+    // ⑦ 经**接口静态类型** foreach（`IEnumerable<int>`，非具体类）。
+    int fsum2 = 0;
+    foreach (int x2 in asIface) { fsum2 = fsum2 + x2; }
+    Assert.Equal(6, fsum2);
+
+    // ⑧ 空序列 foreach：一次都不进循环体。
+    int fempty = 0;
+    foreach (int x3 in new CountSeq(0)) { fempty = fempty + 1; }
+    Assert.Equal(0, fempty);
+
+    // ⑨ 显式调用继承自 `IDisposable` 的成员（⑥ 的隐式路径的手工对照）。
+    IEnumerator<int> e6 = seq.GetEnumerator();
+    e6.Dispose();
 }

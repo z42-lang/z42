@@ -106,6 +106,10 @@ try {
 - 能用作泛型约束：`where T : IEnumerable<U>`
 - 向读代码的人声明「这个类型可迭代」
 
+显式实现它们与自定义形状走的是同一条路径：`Std.*` 在另一个包，跨包导入的接口带着父接口链，
+`IEnumerator<T>` 上因此能找到继承自 `IDisposable` 的 `Dispose`，脱糖的 `finally` 照常成立
+（见[接口](interfaces.md)的「接口继承」一节）。
+
 ## `Dictionary<K, V>`
 
 `Dictionary<K, V>` 走**枚举器路径**（第 3 条）：它的索引器是 `this[TKey]`，不是整数下标，

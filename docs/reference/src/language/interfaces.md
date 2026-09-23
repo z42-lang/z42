@@ -251,6 +251,10 @@ d.Extra();        // ✓
 d.Base();         // ✓ 继承自 IBase
 ```
 
+**跨包同样成立**：从别的包 `using` 进来的接口，其父接口链随 TSIG 过 wire，继承来的成员在
+导入侧一样可调 —— 实现 `Std.IEnumerable<T>` 的类型能 `foreach`，靠的正是这条（`foreach`
+脱糖出的 `__e.Dispose()` 走 `IEnumerator<T> : IDisposable` 继承来的成员）。
+
 ### 仍缺的一半：接口之间不成立赋值关系
 
 ```z42
