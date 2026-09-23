@@ -1,0 +1,56 @@
+// 经接口静态类型访问成员时的**型参代换**（fix-iface-member-type-args）。
+//
+// 实例化**类**那条路早就按 receiver 的 TypeArgs 代换了（`MemberResolver._substGeneric`，GS6），
+// 接口这条一直没做 ⇒ 型参裸奔到调用方，一个根因两个方向的错：
+//   · 返回位拿到 `T` 参与运算被**误报**：`b.Get() + 1` → E0402 "got `T`"（挡住正确代码）
+//   · 形参位的 `T` 接受任何实参而**漏报**：`IBox<int>` 上 `b.Set("x")` 零诊断（放过错误代码）
+// 形参位走 `CheckSubstitutedArgs` 补查——代换后的签名是诊断专用、不回灌（不变式 I1）。
+namespace Z42cSemanticsIfaceTypeArgsTests;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+[Test]
+void test_iface_method_return_targ() {
+    string src = "namespace D; interface IBox<T> { T Get(); }"
+        + " class T2 { int M(IBox<int> b) { return b.Get() + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_iface_property_targ() {
+    string src = "namespace D; interface IBox<T> { T Cur { get; } }"
+        + " class T2 { int M(IBox<int> b) { return b.Cur + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_iface_method_param_targ() {
+    string src = "namespace D; interface IBox<T> { void Set(T v); }"
+        + " class T2 { void M(IBox<int> b) { b.Set(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 对照组：非泛型接口不受影响
+[Test]
+void test_nongeneric_iface_ok() {
+    string src = "namespace D; interface IPlain { int Get(); }"
+        + " class T2 { int M(IPlain p) { return p.Get() + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 形参位若真的替换了 T:=int，传 string 必须报错；若静默放过 ⇒ 那是漏报，不是「正确」。
+[Test]
+void test_iface_method_param_wrong_type_must_error() {
+    string src = "namespace D; interface IBox<T> { void Set(T v); }"
+        + " class T2 { void M(IBox<int> b) { b.Set(\"x\"); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// 同样地，返回位替换后把 int 赋给 string 必须报错。
+[Test]
+void test_iface_return_wrong_assign_must_error() {
+    string src = "namespace D; interface IBox<T> { T Get(); }"
+        + " class T2 { string M(IBox<int> b) { return b.Get(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}

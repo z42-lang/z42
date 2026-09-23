@@ -134,8 +134,19 @@ public sealed partial class MemberResolver {
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
                 // self-return-type-substitution：返回类型里的 `Self` 换成接收者的静态接口类型，
                 // 否则型参 `Self` 会裸奔到调用方（`var x = c.Copy()` 得到 `:Self`，不可用）。
+                Z42Type ifRet = MemberResolver._substSelf(ims.Signature.Ret, it);
+                // 接口**型参**同样要按接收者实参代换（`IBox<int>.Get()` 返回 int 而非 T）——
+                // 实例化**类**那条路早就做了（下方 GS6 的 `_substGeneric`），接口这条一直没做。
+                // 形参位走 `CheckSubstitutedArgs` 补查：代换后的签名是**诊断专用**，不回灌
+                // `_withDefaults`（不变式 I1，理由见 GS6 分支的长注释）。
+                if (it is Z42InstantiatedInterfaceType) {
+                    Z42InstantiatedInterfaceType iRecv = it as Z42InstantiatedInterfaceType;
+                    ifRet = MemberResolver._substIfaceArgs(ifRet, iRecv);
+                    this._tc._overload.CheckSubstitutedArgs(args, rawArgs, argCount, ims.Signature,
+                        MemberResolver._substIfaceSig(ims.Signature, iRecv), env);
+                }
                 return BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
-                                     MemberResolver._substSelf(ims.Signature.Ret, it), sp), ims.Signature);
+                                     ifRet, sp), ims.Signature);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no method `" + mem.Name + "` on interface `" + it.Name() + "`", mem.NameSpan);   // ⑦ 同上
@@ -260,9 +271,12 @@ public sealed partial class MemberResolver {
             Z42InterfaceType it = tt as Z42InterfaceType;
             MethodSymbol ig = InterfaceClosure.FindMethod(env.Symbols, it, "get_" + m.Name);
             if (ig != null && ig.Signature != null) {
-                // self-return-type-substitution：属性 getter 同款（`interface IBox { Self Inner { get; } }`）
+                // self-return-type-substitution：属性 getter 同款（`interface IBox { Self Inner { get; } }`）；
+                // 接口型参也同款代换（`IBox<int>.Cur` 是 int 而非 T）。getter 无形参，不必补查实参。
+                Z42Type gRet = MemberResolver._substSelf(ig.Signature.Ret, it);
+                if (it is Z42InstantiatedInterfaceType) { gRet = MemberResolver._substIfaceArgs(gRet, it as Z42InstantiatedInterfaceType); }
                 return BoundCall.Marked(new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
-                                     MemberResolver._substSelf(ig.Signature.Ret, it), m.Span), ig.Signature);
+                                     gRet, m.Span), ig.Signature);
             }
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
         }

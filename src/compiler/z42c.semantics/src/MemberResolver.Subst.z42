@@ -55,6 +55,63 @@ public sealed partial class MemberResolver {
         return r;
     }
 
+    // 接口版的类级型参代换：把 t 里的**接口型参**按实例化接口的实参替换。
+    // 与 `_substGeneric`（实例化**类**）同构 —— 类那条路早就做了、接口这条一直没做，于是经接口
+    // 静态类型访问成员时型参裸奔：返回位拿到 `T` 参与运算被**误报**（`b.Get() + 1` → E0402
+    // `operator + requires numeric operand, got T`），形参位的 `T` 又接受任何实参（**漏报**：
+    // `IBox<int>` 上 `b.Set("x")` 零诊断）。一个根因，两个方向的错。
+    //
+    // ⚠️ 按**名**匹配 + `i < TypeParamCount && i < ArgCount` 双界限（照搬
+    // `InheritanceResolver._substForIface`），**不能按下标直取**：接口的 `TypeParamNames` 里混着
+    // 隐式的 `Self`（`MemberCollector._withSelf` 把它当作接口的隐式类型参数并进去），而 `TypeArgs`
+    // 只有用户写出的那几个 ⇒ 下标会错位。没命中的（含 `Self`）原样返回，交 `_substSelf` 处理。
+    public static Z42Type _substIfaceArgs(Z42Type t, Z42InstantiatedInterfaceType inst) {
+        if (t is Z42GenericParamType) {
+            int i = 0;
+            while (i < inst.TypeParamCount && i < inst.ArgCount) {
+                if (inst.TypeParamNames[i] == t.Name()) { return inst.TypeArgs[i]; }
+                i = i + 1;
+            }
+            return t;
+        }
+        if (t is Z42ArrayType) {
+            return new Z42ArrayType(MemberResolver._substIfaceArgs((t as Z42ArrayType).Elem, inst));
+        }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it2 = t as Z42InstantiatedType;
+            Z42Type[] na = new Z42Type[it2.ArgCount];
+            int i = 0;
+            while (i < it2.ArgCount) { na[i] = MemberResolver._substIfaceArgs(it2.TypeArgs[i], inst); i = i + 1; }
+            return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
+        }
+        if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType it3 = t as Z42InstantiatedInterfaceType;
+            Z42Type[] nb = new Z42Type[it3.ArgCount];
+            int i = 0;
+            while (i < it3.ArgCount) { nb[i] = MemberResolver._substIfaceArgs(it3.TypeArgs[i], inst); i = i + 1; }
+            return new Z42InstantiatedInterfaceType(it3.Def, nb, it3.ArgCount);
+        }
+        return t;
+    }
+
+    // 整条签名（形参位 + 返回位）按接口实参代换。与 `_substGenericSig` 同构、同纪律：
+    // ⚠️ 产物是**诊断专用**签名，只喂 `CheckSubstitutedArgs`，**绝不回灌** `_withDefaults` /
+    // `BoxArgs` / `ConvertIfNeeded` / 重载决议（不变式 I1 —— 回灌那四条通道每一条都是确定性的
+    // 自举字节漂移，理由见 MemberResolver 调用点注释）。
+    // `ParamsFrom` / `ParamDefaults` / `ParamCallers` / `ParamNames` 原样搬运（漏搬会让 params
+    // 变长形参退化成定长）。
+    private static Z42FuncType _substIfaceSig(Z42FuncType sig, Z42InstantiatedInterfaceType recv) {
+        Z42Type[] np = new Z42Type[sig.ParamCount];
+        int i = 0;
+        while (i < sig.ParamCount) { np[i] = MemberResolver._substIfaceArgs(sig.ParamTypes[i], recv); i = i + 1; }
+        Z42FuncType r = new Z42FuncType(np, sig.ParamCount, MemberResolver._substIfaceArgs(sig.Ret, recv));
+        r.ParamsFrom = sig.ParamsFrom;
+        r.ParamDefaults = sig.ParamDefaults;
+        r.ParamCallers = sig.ParamCallers;
+        r.ParamNames = sig.ParamNames;
+        return r;
+    }
+
     // self-return-type-substitution：把签名里的隐式型参 `Self` 换成 `selfT`。
     //
     // `Self` 由 MemberCollector._withSelf 作为**接口的隐式类型参数**并进 paramNames，所以它在签名里
