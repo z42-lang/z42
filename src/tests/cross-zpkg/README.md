@@ -97,4 +97,5 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `module_init_on_free_function` | `[ModuleInit]` 标在**顶层自由函数**上（豁免 `static`）端到端真的会跑 —— 编译期放行是一回事，合成的 `$Module.$cctor` 按自由函数发射名（`_q(RegKey)`）去调它是另一回事 | `ModuleInitSynth._targetIrName` 的自由函数分支 |
 | `module_init_once` | 先于本包代码；三种触达形态（静态方法 / 自由函数 / 静态字段）各来一次，初始化器仍**只跑一次** | 同上 + `CctorRegistry::claim` |
 | `module_init_load_order` | 跨包初始化顺序 = **实际加载顺序**（先触达 B 则 B 先跑），与清单声明顺序无关 | 同上 |
+| `module_init_failure_catchable` | 初始化**失败**的包：三种触达形态（自由函数 / 静态方法 / `new`）各抛一次**可 catch** 的包装异常，而**不属于该包**的调用不受影响、进程正常退出 —— 🔴 判别力在最后那两行无关调用上（修前失败包让全程序每次调用都重抛，连 catch 块内的第一条 `Console.WriteLine` 都躲不过，看起来像「catch 抓不到」） | `CctorRegistry::failed_module_owning`（命名空间前缀归属）+ `module_failed` 计数 |
 | `ctor_visibility_cross_pkg` | **负例**：跨包调用 `internal` 构造器 → E0404；public 构造器与主构造器放行 | `ConstructTyper._bindNew` → `AccessChecker.CheckAccess`（`expected_build_error.txt`） |

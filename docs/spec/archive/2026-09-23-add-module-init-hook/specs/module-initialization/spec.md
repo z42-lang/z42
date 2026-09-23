@@ -97,9 +97,22 @@ static class Boot { [ModuleInit] static void Init() { throw new Exception("boom"
 
 **期望**：触达该包时抛 `Std.TypeInitializationException`，消息形如
 `the type initializer for `<ns>.$Module` threw an exception: boom`；失败状态被记住，
-**不重试、不吞**（`refresh_module_pending` 只把 `Done` 算作完成，门因此保持非零）。
+**不重试、不吞**。（原文此处写「`refresh_module_pending` 只把 `Done` 算作完成，门因此保持
+非零」——那正是下面这条缺陷的成因，已由 fix-module-init-failure-scope 改成两个计数 +
+归属判定，见下。）
 
-> 🔴 **已知差距（实测，2026-09-23）**：这条异常**当前不能被用户 `catch` 捕获** ——
+> ✅ **已闭合（fix-module-init-failure-scope，2026-09-23 当日）：下面这条「已知差距」的
+> 诊断是错的，保留原文只为留痕。** 真因不在 `catch`，而在屏障的**作用范围**：失败的包让
+> **全程序级**的 `module_pending` 门永远非零，于是每一次调用都重抛它 —— 包括用户 `catch`
+> 块里的第一条 `Console.WriteLine`。异常其实一直是被接住的，只是 handler 里又被一条无关
+> 调用抛了出来（把 catch 体清空，程序立刻正常退出）。
+> 修法 = `Failed` 从 `module_pending` 移到独立的 `module_failed`，重抛加**归属判定**
+> （`<ns>.$Module` 只覆盖 `<ns>.` 开头的符号）。现在的行为与下面钉死的 C# 实验②逐行一致：
+> `start` → `caught-1` → `caught-2` → `end`，进程正常退出。门 =
+> `src/tests/cross-zpkg/module_init_failure_catchable/`；机制见
+> `docs/internals/src/runtime/static-ctor-init.md`。
+>
+> 🔴 ~~**已知差距（实测，2026-09-23）**~~：这条异常**当前不能被用户 `catch` 捕获** ——
 > 程序以未捕获异常终止。同形的**类型**初始化失败（跨包 cctor、cctor 内嵌套帧抛出）
 > 都能被 `catch (TypeInitializationException)` 正常捕获，用干净 A/B 逐项排除过：
 > 与调用形态（自由函数 / 静态方法）无关、与 catch 是否带类型无关、与 interp/jit 无关、

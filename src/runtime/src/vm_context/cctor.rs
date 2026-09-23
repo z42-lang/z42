@@ -59,6 +59,19 @@ pub fn is_module_pseudo_type(type_fq: &str) -> bool {
     }
 }
 
+/// 包初始化伪类型 `module_fq`（`<ns>.$Module`）是否**覆盖**符号 `sym_fq`。
+///
+/// 判据 = 命名空间前缀 `<ns>.`，与编译器**放置**伪类型的规则同源
+/// （`ModuleInitSynth.Emit` 用 CU 的 `g.Ns` 限定）——不是第二套约定。
+/// 无命名空间的裸 `$Module` 覆盖一切。尾点不可省：`Demo.Lib.` 不匹配 `Demo.Library.X`。
+pub fn module_covers(module_fq: &str, sym_fq: &str) -> bool {
+    match module_fq.strip_suffix(MODULE_PSEUDO_TYPE) {
+        Some("")     => true,
+        Some(prefix) => sym_fq.starts_with(prefix),
+        None         => false,
+    }
+}
+
 /// `claim` 等待他线程跑完类型初始化器的上限。取足够宽松的值：正常的初始化器是毫秒级，
 /// 撞到这个上限基本只意味着跨线程循环初始化（C# 在同样场景会直接死锁）。
 const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -113,10 +126,20 @@ pub struct CctorRegistry {
     /// trusted only in the `== 0` direction, so the barrier is one relaxed load once
     /// every package initializer has run.
     ///
-    /// A **failed** initializer keeps this non-zero on purpose — that is what makes
-    /// every later touch of that package re-enter the barrier and re-raise, instead of
-    /// silently continuing against a half-assembled package.
+    /// 失败是**终态**，不计入这里 —— 它计进 `module_failed`。此前把 `Failed` 也算作
+    /// 「未完成」，门因此永远开着，于是**全程序每一次调用**都重跑屏障、重抛那个包的失败
+    /// （连 `catch` 块里的 `Console.WriteLine` 也躲不过）—— 见 `module_failed` 的注释。
     module_pending: AtomicUsize,
+    /// fix-module-init-failure-scope: 已登记且**已失败**的包初始化器数。
+    ///
+    /// 与 `module_pending` 分开计，是因为两者驱动的是两件不同的事：
+    /// - `module_pending != 0` ⇒ 还有初始化器**要跑**，任何屏障点都该把它们跑掉（「加载即执行」）；
+    /// - `module_failed   != 0` ⇒ 有包处于失败终态，只有**触达该包**的屏障该重抛。
+    ///
+    /// 合并成一个计数就是这条缺陷的由来：一个包失败后，`Std.IO.Console.WriteLine` 这种
+    /// 与它毫无关系的调用也会被判成「触达」。文档一直写的是「之后每一次**触达**都会再抛」
+    /// （`docs/reference/src/language/module-initializers.md`），实现却做成了「每一次调用」。
+    module_failed: AtomicUsize,
 }
 
 impl Default for CctorRegistry {
@@ -127,6 +150,7 @@ impl Default for CctorRegistry {
             generation: AtomicU32::new(1),
             module_inits: Mutex::default(),
             module_pending: AtomicUsize::new(0),
+            module_failed: AtomicUsize::new(0),
         }
     }
 }
@@ -142,16 +166,22 @@ impl CctorRegistry {
     /// ⚠️ `Failed` 也复位：槽位既已清空，之前那次失败的结论不再适用于新一代；
     /// 若它仍会失败，重跑时会再次失败并重新登记。
     pub fn reset_for_rerun(&self) {
-        let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        let mut revived = 0usize;
-        for e in m.values_mut() {
-            if matches!(e.state, CctorState::Done | CctorState::Failed(_)) {
-                e.state = CctorState::NotRun;
-                revived += 1;
+        {
+            let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+            let mut revived = 0usize;
+            for e in m.values_mut() {
+                if matches!(e.state, CctorState::Done | CctorState::Failed(_)) {
+                    e.state = CctorState::NotRun;
+                    revived += 1;
+                }
             }
+            self.pending.fetch_add(revived, Ordering::Release);
         }
-        self.pending.fetch_add(revived, Ordering::Release);
         self.generation.fetch_add(1, Ordering::Release);
+        // fix-module-init-failure-scope：包级两个计数也镜像着 map，复位后必须跟着重算 ——
+        // 否则一个曾 `Failed` 的 `$Module` 被复位成 `NotRun`，`module_pending` 却仍是 0，
+        // 屏障不会再去跑它（`module_failed` 则停在 1，白走慢路）。锁已在上面的作用域里释放。
+        self.refresh_module_pending();
     }
 
     /// 热路径的门。`false` ⇒ 全程序没有任何待初始化的 cctor，屏障可直接跳过。
@@ -189,18 +219,63 @@ impl CctorRegistry {
     ///
     /// ⚠️ 不能用「ensure 返回了 Ok」来判完成：初始化器内部再触发屏障时，`claim` 对**同线程重入**
     /// 直接放行并返回 Ok（C# 同款语义），此时初始化器其实还在跑。按 `Done` 判定才是真的。
-    /// 失败（`Failed`）**不计入完成** —— 门因此保持非零，每次触达都会再次抛。
+    ///
+    /// fix-module-init-failure-scope：`Failed` 是**终态**，从 `module_pending` 移到
+    /// `module_failed`。两者驱动的是两件不同的事（见字段注释）——前者「把还没跑的跑掉」，
+    /// 后者「触达失败包时重抛」，后者必须带归属判定（[`Self::failed_module_owning`]）。
     pub fn refresh_module_pending(&self) {
         let names: Vec<String> = {
             let v = self.module_inits.lock().unwrap_or_else(|e| e.into_inner());
             v.iter().map(|d| d.name.clone()).collect()
         };
         let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        let remaining = names
-            .iter()
-            .filter(|n| !matches!(m.get(n.as_str()).map(|e| &e.state), Some(CctorState::Done)))
-            .count();
+        let mut remaining = 0usize;
+        let mut failed = 0usize;
+        for n in &names {
+            match m.get(n.as_str()).map(|e| &e.state) {
+                Some(CctorState::Done)      => {}
+                Some(CctorState::Failed(_)) => failed += 1,
+                _                           => remaining += 1,
+            }
+        }
         self.module_pending.store(remaining, Ordering::Release);
+        self.module_failed.store(failed, Ordering::Release);
+    }
+
+    /// 热路径的门（失败侧）。`false` ⇒ 没有任何包处于初始化失败终态。
+    #[inline(always)]
+    pub fn any_module_init_failed(&self) -> bool {
+        self.module_failed.load(Ordering::Relaxed) != 0
+    }
+
+    /// 这个包初始化伪类型当前是不是失败终态。
+    pub fn is_module_init_failed(&self, type_fq: &str) -> bool {
+        let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        matches!(m.get(type_fq).map(|e| &e.state), Some(CctorState::Failed(_)))
+    }
+
+    /// **归属判定**：`sym_fq`（被调函数 / 被 new 的类型 / 静态字段的 FQ 名）是否落在某个
+    /// **已失败**的包里；是则返回那个包的 `<ns>.$Module` 伪类型描述符，供调用方用
+    /// `ensure_type_init` 重抛（复用同一条错误文案，不另写一份）。
+    ///
+    /// 判据 = 命名空间前缀：伪类型 FQ 是 `<ns>.$Module`，覆盖 `<ns>.` 开头的一切。这与编译器
+    /// **放置**伪类型的规则同源（`ModuleInitSynth.Emit` 用 CU 的 `g.Ns` 限定），不是第二套
+    /// 约定 —— 两侧不会各自漂移。
+    ///
+    /// ⚠️ 已知边界：一个包若声明了**互不嵌套**的多个命名空间（`Foo` 与 `Bar`），而
+    /// `[ModuleInit]` 写在 `Foo` 里，则触达 `Bar.*` 不会重抛。E0485 只保证「一个包至多一个
+    /// 初始化器」，不保证它的命名空间覆盖全包。
+    pub fn failed_module_owning(&self, sym_fq: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
+        if !self.any_module_init_failed() { return None; }
+        let list = self.module_init_snapshot();
+        let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        for td in list {
+            if !matches!(m.get(td.name.as_str()).map(|e| &e.state), Some(CctorState::Failed(_))) {
+                continue;
+            }
+            if module_covers(&td.name, sym_fq) { return Some(td); }
+        }
+        None
     }
 
     /// 加载期登记一个「有静态构造器」的类型。幂等（同一类型重复登记不重复计数）。
@@ -376,28 +451,47 @@ impl crate::vm_context::VmContext {
     /// 「加载漏斗只登记，屏障点执行」：登记发生在解析该包符号的那一刻，执行发生在**同一次
     /// 调用内、被调代码执行之前** ⇒ 对用户仍然是「包加载后、本包任何代码跑之前」。
     ///
-    /// 稳态代价：一次 relaxed load（`any_module_init_pending`）。
+    /// 稳态代价：两次 relaxed load（`any_module_init_pending` + `any_module_init_failed`）。
     ///
-    /// 失败不吞、不重试：`refresh_module_pending` 只把 `Done` 算作完成，`Failed` 让门保持
-    /// 非零 ⇒ 之后**每一次**触达都会再次走到这里、再次拿到那个 `Err` 并抛。
-    pub fn ensure_module_inits(&self) -> Result<(), String> {
-        if !self.core.cctors.any_module_init_pending() {
-            return Ok(());
-        }
-        let list = self.core.cctors.module_init_snapshot();
-        let mut first_err: Option<String> = None;
-        for td in &list {
-            if let Err(e) = self.ensure_type_init(td) {
-                if first_err.is_none() {
-                    first_err = Some(e);
+    /// # 失败不吞、不重试 —— 但只对**触达该包**的那些屏障
+    ///
+    /// `sym_fq` = 这次屏障正要触达的符号（被调函数 / 被 new 的类型 / 静态字段的 FQ 名）。
+    /// 它是 fix-module-init-failure-scope 的全部要点：
+    ///
+    /// - **还没跑的**初始化器，任何屏障点都把它们跑掉（「加载即执行」，与 `module_init_load_order`
+    ///   钉住的语义一致）；这一轮跑出来的失败就在**当前这次**屏障抛出。
+    /// - **已经失败的**包是终态，不再重跑；只有 `sym_fq` 归属于它时才重抛
+    ///   （[`CctorRegistry::failed_module_owning`]）。
+    ///
+    /// 此前没有 `sym_fq`，失败包让门永远开着 ⇒ **全程序每一次调用**都重抛它，
+    /// 包括用户 `catch` 块里的第一条 `Console.WriteLine`：异常看起来「抓不到」，
+    /// 实际是抓到了、然后在 handler 里被一条无关调用重新抛出。
+    /// 文档（`docs/reference/src/language/module-initializers.md`）一直写的是
+    /// 「之后每一次**触达**都会再抛一次」——本实现现在才与之相符。
+    pub fn ensure_module_inits(&self, sym_fq: Option<&str>) -> Result<(), String> {
+        let cc = &self.core.cctors;
+        if cc.any_module_init_pending() {
+            let list = cc.module_init_snapshot();
+            let mut first_err: Option<String> = None;
+            for td in &list {
+                // 失败终态不重跑：`ensure_type_init` 对它只会原样返回那条 Err，
+                // 在这里收下就又变成「与被调方无关也抛」。交给下面的归属判定。
+                if cc.is_module_init_failed(&td.name) { continue; }
+                if let Err(e) = self.ensure_type_init(td) {
+                    if first_err.is_none() {
+                        first_err = Some(e);
+                    }
                 }
             }
+            cc.refresh_module_pending();
+            if let Some(e) = first_err { return Err(e); }
         }
-        self.core.cctors.refresh_module_pending();
-        match first_err {
-            Some(e) => Err(e),
-            None => Ok(()),
+        if let Some(sym) = sym_fq {
+            if let Some(td) = cc.failed_module_owning(sym) {
+                return self.ensure_type_init(&td);
+            }
         }
+        Ok(())
     }
 
     pub fn ensure_callee_owner_init(&self, func_fq: &str) -> Result<(), String> {
@@ -536,6 +630,23 @@ mod tests {
     // add-module-init-hook：失败语义（失败是终态、不重试、每次重抛）已由既有的
     // `failed_type_reports_error_on_every_later_access` 覆盖 —— 包初始化器复用同一套
     // `claim`/`finish`，不另造一份重复断言。这里只测本变更**真正新增**的判定。
+    // fix-module-init-failure-scope：归属判据是这条修复的全部要点 —— 失败的包只毒它自己，
+    // 不毒 `Std.IO.Console.WriteLine`。判据本身是纯函数，直接钉死。
+    #[test]
+    fn module_covers_only_its_own_namespace() {
+        let m = "Demo.MiFail.$Module";
+        assert!(module_covers(m, "Demo.MiFail.Touch$1"));        // 自由函数
+        assert!(module_covers(m, "Demo.MiFail.Api.Get$1"));      // 静态方法
+        assert!(module_covers(m, "Demo.MiFail.Sub.Widget"));     // 嵌套 ns 下的类型
+        assert!(!module_covers(m, "Std.IO.Console.WriteLine$1")); // 无关包 —— 这条就是缺陷本身
+        assert!(!module_covers(m, "Demo.MiFailure.X"));          // 尾点不可省：前缀不得半截匹配
+        assert!(!module_covers(m, "Demo.MiFail"));               // 伪类型所在 ns 本身不是成员
+        // 无命名空间的包：裸 `$Module` 覆盖一切。
+        assert!(module_covers("$Module", "Anything.At.All"));
+        // 不是伪类型的名字不覆盖任何东西。
+        assert!(!module_covers("Demo.MiFail.Boot", "Demo.MiFail.Touch$1"));
+    }
+
     #[test]
     fn module_pseudo_type_is_recognised_by_suffix() {
         // 编译器侧合成 `<ns>.$Module`；无 namespace 时就是裸 `$Module`。

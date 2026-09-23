@@ -98,6 +98,22 @@ void Main() {
 对标 C# `TypeInitializationException`）。**不吞、不重试**：之后每一次触达都会再抛一次，
 不会让你拿到一个半装配的包继续跑。
 
+失败**只影响这个包**——不触达它的代码（别的包、标准库、你自己的 `catch` 块）照常运行：
+
+```z42
+using Demo.Widgets;      // 这个包的 [ModuleInit] 会抛
+
+void Main() {
+    try {
+        Ping();                              // 触达 ⇒ 抛
+    } catch (Exception e) {
+        Console.WriteLine(e.Message);        // 不触达 ⇒ 正常执行
+    }
+    try { Ping(); } catch (Exception e) { }  // 再触达 ⇒ 再抛一次（不重试初始化器）
+    Console.WriteLine("done");               // 不触达 ⇒ 正常执行，程序正常退出
+}
+```
+
 ## 什么时候**不**该用它
 
 如果你要做的是「把一批东西登记进一张表」，**编译期收集更好** —— z42 的测试索引
