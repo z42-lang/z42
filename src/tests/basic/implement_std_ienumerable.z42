@@ -1,22 +1,18 @@
-// 实现标准库的**泛型接口** `Std.IEnumerable<T>` / `Std.IEnumerator<T>`（fix-generic-interface-satisfaction）。
+// 实现标准库的**泛型接口** `Std.IEnumerable<T>` / `Std.IEnumerator<T>`，并经接口静态类型用起来。
 //
-// 这是全仓第一个真正写出 `: IEnumerable<int>` 的类型 —— 此前写不出来：跨包导入时
-// `IEnumerator<T>` 这种泛型接口拼写没被解析成实例化接口，而是落到 `_resolve` 末尾的 fallback、
-// 变成一个**名字里带尖括号的伪 Class**（`Z42ClassType.Builtin("IEnumerator<T>")`）。接口满足性
-// 校验拿它跟实现方真正的 `Z42InstantiatedInterfaceType` 比，必然不等 ⇒
-//   E0412: `MyColl` implements `IEnumerable` but `GetEnumerator`'s return type `IEnumerator`
-//          is not compatible with the interface's `IEnumerator<T>`
-// 泛型实例化解析此前只查 `r.Classes`（接口在 `r.Interfaces` 里），`_substForIface` 也没有下钻
-// 实例化接口那一支 —— 两处都补齐后，`T := int` 的替换才成立。
+// 这是全仓第一个写出 `: IEnumerable<int>` 的类型。走到这一步补了三个独立缺陷：
+//   ① 跨包泛型接口退化成「名字带尖括号的伪 Class」⇒ 满足性校验 E0412 假红（#779）
+//   ② 经接口静态类型访问成员不按接收者实参代换型参 ⇒ `e.Current` 静态类型是 `T`
+//      （`+ 1` 报 E0402 "got T"），且形参位的 `T` 接受任何实参（漏报）
+//   ③ foreach 协议判定只认类那条继承线（#777）—— 由 foreach_ienumerable.z42 的 ⑥ 钉住
 //
-// ⚠️ 这里**刻意不用 foreach**：脱糖出的 `__e.Dispose()` 走的是 `IEnumerator<T> : IDisposable`
-// 继承来的成员，而接口方法表不展平父接口是另一个独立缺陷（见 fix-interface-inherited-members）。
-// 那条修好后，这个类型就能直接 foreach。
-//
-// ⚠️ 也**刻意不读 `e.Current` 的值参与运算**：经接口静态类型访问成员时，返回类型只做了
-// `Self` 替换、**没有按接收者的类型实参替换型参** ⇒ `e.Current` 今天的静态类型仍是 `T`
-// （`int x = e.Current; x + 1` 报 `E0402: operator + requires numeric operand, got T`）。
-// 那是成员访问那一层的独立缺口，本测试只钉住「泛型接口能被实现、能被调用」这一层。
+// ⚠️ **仍然不能对这个类型写 `foreach`**，也不能调 `e.Dispose()`：两者都要走
+// `IEnumerator<T> : IDisposable` **继承来的** `Dispose`，而**跨包导入的接口丢失了父接口链** ——
+// `ExportedInterfaceZ` 没有 BaseNames 字段，导入侧因此恢复不出继承关系（本地接口的继承已由
+// #778 修好，跨包这条是独立的一洞）。数据其实在 zbc 里（TYPE 段的 Interfaces 块，zbc 1.17 起
+// 已含传递基接口），缺的只是搬运 + 恢复 ⇒ 无需格式 bump，但要给 z42.ir 加字段再被 semantics
+// 引用 = 新跨成员符号，按 bootstrap-seed 纪律得跨一个 nightly，故独立立项。
+// 那一条修好后，这里就能直接 `foreach (int x in seq)`。
 namespace Demo.ImplementStdIEnumerable;
 
 using Std;
@@ -41,25 +37,39 @@ class CountSeq : IEnumerable<int> {
 }
 
 void Main() {
-    // ① 经具体类型取枚举器，手工驱动到底。
     CountSeq seq = new CountSeq(4);
+
+    // ① 经具体类型取枚举器并手工驱动到底。
     IEnumerator<int> e = seq.GetEnumerator();
     int count = 0;
     while (e.MoveNext()) { count = count + 1; }
     Assert.Equal(4, count);
 
-    // ② 经**接口静态类型**取枚举器 —— `IEnumerable<int>.GetEnumerator()` 的返回类型
-    //    必须解析成 `IEnumerator<int>`（实参不能丢），否则这一行的赋值就接不上。
+    // ② 经**接口静态类型**取枚举器 —— `IEnumerable<int>.GetEnumerator()` 的返回类型必须仍带
+    //    实参（`IEnumerator<int>`），否则这一行的赋值接不上。
     IEnumerable<int> asIface = seq;
     IEnumerator<int> e2 = asIface.GetEnumerator();
     int count2 = 0;
     while (e2.MoveNext()) { count2 = count2 + 1; }
     Assert.Equal(4, count2);
 
-    // ③ 空序列：接口路径同样正常收敛。
-    IEnumerable<int> empty = new CountSeq(0);
-    IEnumerator<int> e3 = empty.GetEnumerator();
-    int count3 = 0;
-    while (e3.MoveNext()) { count3 = count3 + 1; }
-    Assert.Equal(0, count3);
+    // ③ `Current` 经接口静态类型读出来就是 int，能直接参与 int 运算
+    //    （型参未代换时这里报 E0402 "operator + requires numeric operand, got T"）。
+    IEnumerator<int> e3 = seq.GetEnumerator();
+    e3.MoveNext();
+    int first = e3.Current;
+    Assert.Equal(0, first);
+    Assert.Equal(1, first + 1);
+
+    // ④ 累加元素：元素类型确实是 int 而非 T / Object。
+    IEnumerator<int> e4 = asIface.GetEnumerator();
+    int sum = 0;
+    while (e4.MoveNext()) { sum = sum + e4.Current; }
+    Assert.Equal(6, sum);            // 0+1+2+3
+
+    // ⑤ 空序列：接口路径同样正常收敛。
+    IEnumerator<int> e5 = new CountSeq(0).GetEnumerator();
+    int empties = 0;
+    while (e5.MoveNext()) { empties = empties + 1; }
+    Assert.Equal(0, empties);
 }
