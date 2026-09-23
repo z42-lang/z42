@@ -1,0 +1,34 @@
+// fix-crosspkg-nullable-resolve：跨包（字符串元数据路径 `ImportedSymbolLoader._resolve`）此前
+// 不剥可空后缀 `?`，而本地 AST 路径（`SymbolTable.ResolveTypeP`）剥。于是一个 `byte[]?` 形参
+// 跨包被解析成垃圾 `Z42ClassType.Builtin("byte[]?")`（Code=-1）而非 `Z42ArrayType(byte)`，两路对
+// 同一书写给出不同 Z42Type。现存唯一触点是 z42.core 的 `ProcessNative.Spawn(byte[]? …)`——它与其
+// 包装 `Process` 同包（走 AST 路径不触发），故是潜伏错译；本用例用合成依赖包直接踩字符串路径。
+//
+// 复用 crosspkg_duplicate_tests.z42 的 `dupImports` / `dupDiags`（同一 typecheck 测试单元、自由
+// 函数平坦命名空间共享，不能重定义 → 直接调用）。
+namespace Z42cSemanticsCrossPkgNullableTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Z42.IR;
+
+// 依赖包导出一个 `byte[]?` 形参的方法；消费方用**非空** `byte[]` 实参跨包调用它。
+// 修复前：形参跨包解析成 `Builtin("byte[]?")` 垃圾类 → 传 `byte[]` 触发参数类型不匹配（E0402）。
+// 修复后：形参解析成 `Z42ArrayType(byte)` → `byte[]` 可赋 → 零诊断。
+[Test]
+void test_crosspkg_nullable_array_param_accepts_array() {
+    string[] srcs = new string[1];
+    srcs[0] = "namespace Dep; public class Sink { public static void Take(byte[]? data) {} }";
+    string[] nss = new string[1];   nss[0] = "Dep";
+    string[] pkgs = new string[1];  pkgs[0] = "deppkg";
+    string[] usings = new string[1]; usings[0] = "Dep";
+    ImportedSymbols imp = dupImports(srcs, nss, pkgs, usings);
+
+    string main = "using Dep; void Main() { byte[] b = new byte[3]; Dep.Sink.Take(b); }";
+    string[] diags = dupDiags(main, imp);
+
+    Assert.Equal(0, diags.Length);
+}
