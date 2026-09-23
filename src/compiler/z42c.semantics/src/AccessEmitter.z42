@@ -19,21 +19,29 @@ public sealed class AccessEmitter {
     // 赋值：local（copy 回写）/ 裸字段（field_set reg0）/ obj.field（field_set obj）/ arr[i]（array_set）。
     internal TypedReg _emitAssign(BoundAssign a) {
         TypedReg val = this._ee.Emit(a.Value);
+        return this._emitStoreTo(a.Target, val);
+    }
+
+    // 把一个**已算好**的值 `val` 存进左值 `target`（local / 裸字段 / obj.field / arr[i] /
+    // 静态字段/属性 / blob struct 字段），返回 val 寄存器。从 `_emitAssign` 抽出，让非-ident
+    // 左值的自增/自减（`arr[i]++` / `obj.field++`）能**复用同一套已测的 store lowering**，
+    // 而不是在 OperatorEmitter 里手抄第二份（属性 setter / blob / 嵌套链等分支一个都不能漏）。
+    internal TypedReg _emitStoreTo(BoundExpr target, TypedReg val) {
         // 限定静态字段赋值 `Class.staticField = v`（LHS 绑为 BoundStaticGet）→ static_set。
         // 否则落到末尾 return val 静默丢弃 → 静态字段 mutation 不持久（Log.SetMinLevel 等）。
         // 镜像 static_get 发射（QualifyClass + "." + Field）+ __static_init__ 的 StaticSetInstr。
-        if (a.Target is BoundStaticGet) {
-            this._emitStaticStore(a.Target as BoundStaticGet, val);
+        if (target is BoundStaticGet) {
+            this._emitStaticStore(target as BoundStaticGet, val);
             return val;
         }
-        if (a.Target is BoundIdent) {
-            BoundIdent tid = a.Target as BoundIdent;
+        if (target is BoundIdent) {
+            BoundIdent tid = target as BoundIdent;
             if (this._ctx.Locals.ContainsKey(tid.Name)) {
                 TypedReg existing = this._ctx.Locals.Get(tid.Name) as TypedReg;
                 if (existing.Id != val.Id) {
                     // A-use：blob 值 struct 局部整体赋值 `b = a` → StructCopy（值语义，b/a 均已是 blob 句柄）。
-                    if (this._ee._isBlobStruct(a.Target.Type())) {
-                        int scsize = this._ctx.Gen.Layouts.StructSize(this._ee._blobStructName(a.Target.Type()));
+                    if (this._ee._isBlobStruct(target.Type())) {
+                        int scsize = this._ctx.Gen.Layouts.StructSize(this._ee._blobStructName(target.Type()));
                         this._ctx.Emit(new StructCopyInstr(existing, val, scsize));
                     } else {
                         this._ctx.Emit(new CopyInstr(existing, val));
@@ -94,8 +102,8 @@ public sealed class AccessEmitter {
             if (varReg.Id != val.Id) { this._ctx.Emit(new CopyInstr(varReg, val)); }
             return varReg;
         }
-        if (a.Target is BoundMember) {
-            BoundMember tm = a.Target as BoundMember;
+        if (target is BoundMember) {
+            BoundMember tm = target as BoundMember;
             // add-struct-value-semantics（nested-fields）：blob 值 struct 字段原地写（3a lvalue，含嵌套
             // line.a.x）——先于通用 this._ee.Emit(tm.Target)，理由同 _emitMember。直接字段无 setter。
             if (this._ee._isBlobStruct(tm.Target.Type())) {
@@ -143,8 +151,8 @@ public sealed class AccessEmitter {
             this._ctx.Emit(new FieldSetInstr(obj, this._propBackingName(setCt, tm.MemberName), val));
             return val;
         }
-        if (a.Target is BoundIndex) {
-            BoundIndex ti = a.Target as BoundIndex;
+        if (target is BoundIndex) {
+            BoundIndex ti = target as BoundIndex;
             // add-struct-array-codegen (P3b follow-up)：`arr[i] = p`（value-struct 数组整元素写）→ 取元素
             // 句柄（StructRefHeap）逐叶子把 p 拷进元素字节区（值语义）。ArraySet 的 set_boxed 收不了 arena
             // StructRef 源。叶子写 `arr[i].x=v` 走上面 BoundMember 分支（_emitBlobFieldSet + 句柄根）。

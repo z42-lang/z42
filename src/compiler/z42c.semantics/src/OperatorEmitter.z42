@@ -86,7 +86,7 @@ public sealed class OperatorEmitter {
         if (op == "~") { TypedReg d = this._ctx.Alloc(this._ctx.ToIrType(u.Type())); this._ctx.Emit(new BitNotInstr(d, x)); return d; }
         if (op == "+") { return x; }
         // 前置 ++/--（"pre++"/"pre--"）：x = x ± 1，返回**新值**（区别于后置返回旧值）。
-        // 仅 BoundIdent 操作数（`++i`）写回 Locals 活寄存器；非 ident 暂不增量。
+        // BoundIdent（`++i`）写回 Locals 活寄存器；非-ident（`++arr[i]`/`++obj.f`）走通用 store。
         if (op == "pre++" || op == "pre--") {
             if (u.Operand is BoundIdent) {
                 BoundIdent pbid = u.Operand as BoundIdent;
@@ -112,14 +112,27 @@ public sealed class OperatorEmitter {
                 this._ee._emitStaticStore(st, nv);   // add-static-properties：属性走 set_X
                 return nv;
             }
+            // fix-post-inc-nonident：非-ident 左值（`++arr[i]` / `++obj.field` / `++obj.Prop`）。
+            // x 已是读到的旧值（顶部 `_ee.Emit(u.Operand)` 发的 ArrayGet/FieldGet/get_X）；算新值后
+            // 经**通用 store**（`_emitStoreTo`）写回，覆盖 ArraySet/FieldSet/属性 set_X/blob 全部情形，
+            // 返回新值。索引/接收者随 store 再发一次——与复合赋值 `arr[i] += v` 的求值次数一致。
+            if (u.Operand is BoundIndex || u.Operand is BoundMember) {
+                TypedReg one = this._ctx.Alloc(IrType.I64);
+                TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
+                this._ctx.Emit(new ConstI64Instr(one, "1"));
+                if (op == "pre++") { this._ctx.Emit(new AddInstr(nv, x, one)); }
+                else                { this._ctx.Emit(new SubInstr(nv, x, one)); }
+                this._ee._emitStoreTo(u.Operand, nv);
+                return nv;
+            }
             return x;
         }
         // post-increment / post-decrement（镜像 C# EmitBoundPostfix）：
         // 1. savedOld = copy x（表达式返回旧值）
         // 2. newVal = x ± 1
         // 3. x = copy newVal（写回原寄存器，x 即 Locals 寄存器本身）
-        // 注：仅 BoundIdent 操作数（即 `i++`）时 x 是 Locals 活寄存器，写回合法；
-        //     非 ident（`arr[i]++`）暂不处理增量（留 D-post-inc-nonident）。
+        // 注：BoundIdent（`i++`）时 x 是 Locals 活寄存器，写回合法；非-ident（`arr[i]++`/
+        //     `obj.f++`）走下方通用 store 分支（fix-post-inc-nonident）。
         TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
         this._ctx.Emit(new CopyInstr(ph, x));
         if (u.Operand is BoundIdent) {
@@ -142,6 +155,16 @@ public sealed class OperatorEmitter {
             this._ctx.Emit(new ConstI64Instr(one, "1"));
             if (op == "++") { this._ctx.Emit(new AddInstr(nv, x, one)); } else { this._ctx.Emit(new SubInstr(nv, x, one)); }
             this._ee._emitStaticStore(st, nv);   // add-static-properties：属性走 set_X
+        } else if (u.Operand is BoundIndex || u.Operand is BoundMember) {
+            // fix-post-inc-nonident：非-ident 左值（`arr[i]++` / `obj.field++` / `obj.Prop++`）。
+            // ph 已是旧值（x 的拷贝，x=顶部 `_ee.Emit` 发的 ArrayGet/FieldGet/get_X）；算新值经
+            // **通用 store**（`_emitStoreTo`）写回，覆盖 ArraySet/FieldSet/属性 set_X/blob 全部情形，
+            // 返回旧值 ph。索引/接收者随 store 再发一次——与复合赋值 `arr[i] += v` 的求值次数一致。
+            TypedReg one = this._ctx.Alloc(IrType.I64);
+            TypedReg nv  = this._ctx.Alloc(this._ctx.ToIrType(u.Type()));
+            this._ctx.Emit(new ConstI64Instr(one, "1"));
+            if (op == "++") { this._ctx.Emit(new AddInstr(nv, x, one)); } else { this._ctx.Emit(new SubInstr(nv, x, one)); }
+            this._ee._emitStoreTo(u.Operand, nv);
         }
         return ph;
     }
