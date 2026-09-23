@@ -1,0 +1,96 @@
+// `foreach` 可迭代协议判定单测（fix-foreach-protocol-detection）。
+// 判定实现在 `ForeachProtocol.z42`（成员面 → 路径），诊断在 `StmtBinder._bindForeach` 收口。
+//
+// 两条契约：
+//   ① 三条路径全落空 → **E0488**。此前一条诊断都不报，发射端径直走数组臂对一个非数组对象发
+//      `array_len` ⇒ 编译期零诊断、运行期抛 `ArrayLen: expected array`。
+//   ② 静态类型是**接口**时判定照常成立（不报 E0488）。类与接口是两条独立继承线，判定此前只
+//      认类那条 —— 接口一律短路、落进 ①那个洞里。运行期行为由 e2e
+//      src/tests/basic/foreach_ienumerable.z42 的 ⑥ 钉住（同一对象、两种静态类型同结果）。
+namespace Z42cSemanticsForeachProtocolTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── ① 不可迭代 → E0488 ────────────────────────────────────────────
+
+[Test]
+void test_foreach_plain_class_not_iterable_e0488() {
+    string src = "namespace D; class C { } class T { void M() { foreach (int x in new C()) { } } }";
+    Assert.Equal("E0488", SemanticDump.FirstErrorCode(src));
+}
+
+// 有索引器但下标不是整数、且没有 GetEnumerator ⇒ 索引路径不成立，仍不可迭代。
+// （拿 i32 计数器调 `get_Item(string)` 正是 Dictionary 当年那个静默错值 bug 的形状。）
+[Test]
+void test_foreach_non_int_indexer_not_iterable_e0488() {
+    string src = "namespace D; class C { public int Count; public int get_Item(string k) { return 0; } }"
+        + " class T { void M() { foreach (int x in new C()) { } } }";
+    Assert.Equal("E0488", SemanticDump.FirstErrorCode(src));
+}
+
+// 有整数索引器但**没有计数成员** ⇒ 不知道迭代到哪停，仍不可迭代。
+[Test]
+void test_foreach_indexer_without_count_not_iterable_e0488() {
+    string src = "namespace D; class C { public int get_Item(int i) { return i; } }"
+        + " class T { void M() { foreach (int x in new C()) { } } }";
+    Assert.Equal("E0488", SemanticDump.FirstErrorCode(src));
+}
+
+// ── ② 可迭代的三条路径都不报 ──────────────────────────────────────
+
+[Test]
+void test_foreach_array_ok() {
+    string src = "namespace D; class T { void M(int[] a) { foreach (int x in a) { } } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_foreach_int_indexer_with_count_ok() {
+    string src = "namespace D; class C { public int Count; public int get_Item(int i) { return i; } }"
+        + " class T { void M() { foreach (int x in new C()) { } } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 计数成员只有 `Length`（没有 `Count`）—— 路径选择与发射参数此前各写一份、这一档不一致。
+[Test]
+void test_foreach_int_indexer_with_length_ok() {
+    string src = "namespace D; class C { public int Length; public int get_Item(int i) { return i; } }"
+        + " class T { void M() { foreach (int x in new C()) { } } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_foreach_get_enumerator_ok() {
+    string src = "namespace D; class E { public bool MoveNext() { return false; } public int Current { get { return 0; } } public void Dispose() { } }"
+        + " class C { public E GetEnumerator() { return new E(); } }"
+        + " class T { void M() { foreach (int x in new C()) { } } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── ③ 静态类型是接口：判定照常成立 ────────────────────────────────
+
+[Test]
+void test_foreach_over_interface_get_enumerator_ok() {
+    string src = "namespace D; interface J { bool MoveNext(); int Current { get; } void Dispose(); }"
+        + " interface I { J GetEnumerator(); }"
+        + " class T { void M(I s) { foreach (int x in s) { } } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 接口没有字段面 ⇒ 计数成员只以 `get_Count` 形态出现，这一档同样要认。
+[Test]
+void test_foreach_over_interface_indexer_ok() {
+    string src = "namespace D; interface I { int Count { get; } int get_Item(int i); }"
+        + " class T { void M(I s) { foreach (int x in s) { } } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 接口上什么协议都没有 ⇒ 与类一样报 E0488（而不是静默落数组臂）。
+[Test]
+void test_foreach_over_bare_interface_e0488() {
+    string src = "namespace D; interface I { void Unrelated(); }"
+        + " class T { void M(I s) { foreach (int x in s) { } } }";
+    Assert.Equal("E0488", SemanticDump.FirstErrorCode(src));
+}

@@ -20,8 +20,11 @@ foreach (string s in names)      { /* ... */ }   // 也可以写显式类型
 | 顺序 | 条件 | 走哪条路径 |
 |---|---|---|
 | 1 | 目标是数组 `T[]` | **数组路径** |
-| 2 | 目标是类，有**整数下标**的 `get_Item`，**且**有计数成员 `Count` 或 `Length` | **索引路径** |
-| 3 | 目标是类，且有 `GetEnumerator()`（而不满足第 2 条） | **枚举器路径** |
+| 2 | 有**整数下标**的 `get_Item`，**且**有计数成员 `Count` 或 `Length` | **索引路径** |
+| 3 | 有 `GetEnumerator()`（而不满足第 2 条） | **枚举器路径** |
+
+判定看的是目标**静态类型的成员**，不看它是类还是接口——`foreach (int x in xs)` 里
+`xs` 声明成具体类还是声明成接口，走的是同一条路径、编出同样的代码。
 
 `string` 走第 2 条（`Length` + `this[int]`），所以 `foreach (char c in s)` 直接可用，
 **不物化 `char[]`**；`Length` / `CharAt` 都是 O(1) 摊还，按**字符**（scalar）计而非字节。
@@ -31,6 +34,11 @@ foreach (string s in names)      { /* ... */ }   // 也可以写显式类型
 >
 > 「整数下标」这个限定是必要的：`Dictionary<K,V>` 的索引器是 `this[TKey]`，若只看「有没有
 > `get_Item`」，它会被判去走索引路径、拿 `int` 计数器调 `get_Item(TKey)`。
+
+> 2026-09 之前判定只认类那条继承线，目标的静态类型写成**接口**时三条路径全部落空，
+> `foreach` 静默落到数组路径、对一个对象发 `array_len`：编译期零诊断，运行期抛
+> `ArrayLen: expected array`。接口上的计数成员只以 `get_Count` / `get_Length` 形态
+> 出现（接口没有字段面），这一档同样认。现已修正。
 
 ### 路径 1：数组
 

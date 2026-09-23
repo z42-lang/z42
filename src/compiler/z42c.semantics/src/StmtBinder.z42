@@ -15,23 +15,23 @@ public sealed class StmtBinder {
     private BoundStmt _bindForeach(ForeachStmt fe, TypeEnv env, Z42Type ret) {
             TypeEnv feScope = env.PushScope();
             BoundExpr feIter = this._tc._expr._bindExpr(fe.Iter, feScope);
+            Z42Type ct0 = feIter.Type();
+            // 可迭代协议判定一律走成员面（ForeachProtocol）——类与接口是两条独立继承线，
+            // 判定此前只认类，静态类型写成接口时整条短路、静默落数组臂对对象发 array_len。
+            StrMap feM = ForeachProtocol.MethodsOf(ct0);
+            StrMap feF = ForeachProtocol.FieldsOf(ct0);
             // add-foreach-ienumerable：三-path 决策树的**第三 path（兜底）**——目标既非数组、也无
-            // `get_Item`+`Count` 整数索引面，但暴露 `GetEnumerator()` → 走 IEnumerable 协议 path。
+            // 整数索引面，但暴露 `GetEnumerator()` → 走 IEnumerable 协议 path。
             // 实现（User 裁决改 Decision 7）：**binder 脱糖**成既有 AST
             //   { var __e = <Iter>.GetEnumerator();
             //     try { while (__e.MoveNext()) { <T> x = __e.Current; <Body> } }
             //     finally { __e.Dispose(); } }
             // 再走 _bindStmt → 复用 struct 值返回(sret)/try-finally 栈/break-continue/方法派发全部既有
-            // lowering，零新 Bound 节点、零新 emitter。数组/索引两 path（下方原逻辑）完全不动 → byte-identical。
-            {
-                Z42Type ct0 = feIter.Type();
-                Z42ClassType cd0 = null;
-                if (ct0 is Z42ClassType) { cd0 = ct0 as Z42ClassType; }
-                else if (ct0 is Z42InstantiatedType) { cd0 = (ct0 as Z42InstantiatedType).Def; }
-                if (!(ct0 is Z42ArrayType) && cd0 != null && cd0.Methods.ContainsKey("GetEnumerator")) {
-                    bool idxIter0 = this._feIsIntIndexer(cd0)
-                        && (cd0.Fields.ContainsKey("Count") || cd0.Methods.ContainsKey("Count"));
-                    if (!idxIter0) { return this._bindForeachEnumerable(fe, env, ret); }
+            // lowering，零新 Bound 节点、零新 emitter。
+            if (!(ct0 is Z42ArrayType) && feM != null && feM.ContainsKey("GetEnumerator")) {
+                // 索引面判定与下方 feIsClassIter **共用同一套**（此前两处各写一份、两档不一致）。
+                if (!(ForeachProtocol.IsIntIndexer(feM) && ForeachProtocol.CountOf(feM, feF) != "")) {
+                    return this._bindForeachEnumerable(fe, env, ret);
                 }
             }
             Z42Type feElem = new Z42UnknownType();
@@ -52,82 +52,43 @@ public sealed class StmtBinder {
             this._tc._loopDepth = this._tc._loopDepth + 1;
             BoundStmt febody = this._bindStmt(fe.Body, elemScope, ret);
             this._tc._loopDepth = this._tc._loopDepth - 1;
-            // ClassIterTarget：有 get_Item 的类 + 一个计数成员（镜像 C# ClassIterTarget）。
-            // 计数成员按 `Count` → `Length` 顺序找；`Length` 那一档让 string 也走这条路
-            // （`foreach (char c in s)` 此前落到数组 path，对 Str 发 ArrayLen → 运行期崩）。
+            // ClassIterTarget：整数索引面 + 一个计数成员（镜像 C# ClassIterTarget）。
+            // 计数成员按 `Count` → `Length` 顺序找（`ForeachProtocol.CountOf`）；`Length` 那一档
+            // 让 string 也走这条路（`foreach (char c in s)` 此前落到数组 path，对 Str 发 ArrayLen）。
             bool feIsClassIter = false; bool feCountIsField = false; string feCountMember = "";
-            Z42Type feCollType = feIter.Type();
-            Z42ClassType feClassDef = null;
-            if (feCollType is Z42ClassType) { feClassDef = feCollType as Z42ClassType; }
-            else if (feCollType is Z42InstantiatedType) { feClassDef = (feCollType as Z42InstantiatedType).Def; }
             // 字符串**字面量**的类型是 `Z42ClassType.Builtin("string")` —— 无成员的轻量合成体
             // （局部变量那条路拿到的是带成员的真 String，所以 `foreach (char c in s)` 能查到而
             // `foreach (char c in "")` 查不到）。查不到时补一次按名解析，与 MemberResolver 的 prim
             // 收者派发同一手法。只在**已经查不到**时兜底，不影响上面能直接查到的那条路。
-            if (feClassDef != null && !feClassDef.Methods.ContainsKey("get_Item")
-                && feCollType.CanonName() == "string" && feScope.Symbols.HasClass("String")) {
-                feClassDef = feScope.Symbols.GetClass("String");
+            StrMap feM2 = feM; StrMap feF2 = feF;
+            if (feM2 != null && !feM2.ContainsKey("get_Item")
+                && ct0.CanonName() == "string" && feScope.Symbols.HasClass("String")) {
+                Z42ClassType feStr = feScope.Symbols.GetClass("String");
+                feM2 = feStr.Methods; feF2 = feStr.Fields;
             }
-            if (feClassDef != null && this._feIsIntIndexer(feClassDef)) {
+            if (ForeachProtocol.IsIntIndexer(feM2)) {
                 // 返回 "f:<字段名>" 或 "m:<方法名>"，空串 = 没有可用的计数成员。
-                string feCk = this._feCountMember(feClassDef, "Count");
-                if (feCk == "") { feCk = this._feCountMember(feClassDef, "Length"); }
+                string feCk = ForeachProtocol.CountOf(feM2, feF2);
                 if (feCk != "") {
                     feIsClassIter = true;
                     feCountIsField = feCk.StartsWith("f:");
                     feCountMember = feCk.Substring(2);
                 }
             }
+            // 三条路径全落空 ⇒ 发射端会走数组臂，对一个**不是数组**的东西发 array_len：
+            // 编译期零诊断、运行期抛 `ArrayLen: expected array`，错误信息与用户写的 `foreach`
+            // 毫无关系。这里在唯一的判定点收口，说清楚缺的是哪一样。
+            // 只在**成员面可得**（类 / 接口）时报——型参、Unknown、Error 类型的成员面是 null，
+            // 那些场合判据本就不足以断言「不可迭代」，保守放过（诊断宁可漏，不可误）。
+            if (!feIsClassIter && !(ct0 is Z42ArrayType) && feM2 != null) {
+                this._tc._diags.Error("E0488",
+                    "`" + ct0.Name() + "` is not iterable — `foreach` needs an array, an integer"
+                    + " indexer plus a `Count`/`Length`, or a `GetEnumerator()`", fe.Span);
+            }
             return new BoundForeach(fe.Name, feElem, feIter, febody, feIsClassIter, feCountIsField, feCountMember, fe.Span);
     }
 
-    // 索引路径要求 `get_Item` 的**第一个形参是整数下标** —— 发射端发的是一个 i32 计数器
-    // （`_emitForeach`：ConstI32(0) → ArrayGet/VCall get_Item(i) → Add 1），拿它去调一个
-    // 形参不是整数的索引器，是**类型错配**。
-    //
-    // 此前只看「有没有 get_Item」，于是 `Dictionary<K,V>`（有 `Count` 字段 + `this[TKey]`）
-    // 被判去走索引路径，拿 int 下标调 `get_Item(TKey)` —— 实测 `foreach (var kv in dict)`
-    // **跑满 Count 轮、每轮取到 0，零诊断**。而 Dictionary 本来就有 `GetEnumerator()`；
-    // 排掉它之后它落回枚举器路径，`foreach` 直接可用。
-    // 参考手册 iteration.md 对这条的原话就是「当前实现的缺口，不是设计意图」。
-    //
-    // 泛型形参（`TKey`）的 PrimCode 是 -1 ⇒ `IsIntegerType()` 为假，正是要的判定。
-    // `List<T>.get_Item(int)` 与 `String.this[int]` 都是真整数形参，不受影响。
-    private bool _feIsIntIndexer(Z42ClassType ct) {
-        MethodSymbol gi = ct.Methods.Get("get_Item") as MethodSymbol;
-        if (gi == null || gi.Signature == null) { return false; }
-        Z42Type[] ps = gi.Signature.ParamTypes;
-        if (ps == null || gi.Signature.ParamCount < 1) { return false; }
-        return ps[0].IsIntegerType();
-    }
-
-    // foreach 的计数成员解析：给定源名（`Count` / `Length`），返回发射时要用的那个名字，
-    // 带一个字母前缀标明取法 —— `"f:<字段>"` 走 field_get，`"m:<方法>"` 走 vcall；空串 = 没有。
-    //
-    // 属性不能按源名发 field_get：属性也以 FieldSymbol 登记在 `Fields` 里（键=源名），但
-    // auto 属性的存储叫 `__prop_X`、计算属性（有 get 体）**根本没有存储**。此前不分这一层，
-    // `Count` 写成属性时读到的是空值 —— foreach 于是按一个垃圾长度多迭代，静默越界。
-    // 属性一律改走合成的访问器方法 `get_X`（MemberCollector 与字段符号同时登记）。
-    private string _feCountMember(Z42ClassType ct, string srcName) {
-        if (ct.Fields.ContainsKey(srcName)) {
-            FieldSymbol fs = ct.Fields.Get(srcName) as FieldSymbol;
-            if (fs != null && fs.IsProp) {
-                string acc = "get_" + srcName;
-                if (ct.Methods.ContainsKey(acc)) { return "m:" + acc; }
-                return "";   // 属性但没有 getter 访问器：当作不可计数，别乱发指令
-            }
-            if (fs != null && fs.IsStatic) { return ""; }   // 静态成员不是实例的计数
-            return "f:" + srcName;
-        }
-        if (ct.Methods.ContainsKey(srcName)) { return "m:" + srcName; }
-        // 导入包里的属性可能只以合成访问器的形式出现（`Fields` 里没有源名条目）——
-        // stdlib 的 `String.Length` 正是这样，本地声明是 `extern int Length { get; }`，
-        // 跨 zpkg 过来只剩 `get_Length`。不认这一形态，string 就配不上计数成员，
-        // foreach 落回数组 path 对 Str 发 ArrayLen。
-        string accOnly = "get_" + srcName;
-        if (ct.Methods.ContainsKey(accOnly)) { return "m:" + accOnly; }
-        return "";
-    }
+    // 判定辅助（成员面 / 整数索引面 / 计数成员）搬到 `ForeachProtocol.z42` —— 见该文件抬头。
 
     // add-foreach-ienumerable：foreach-over-IEnumerable 脱糖（Decision 7 = binder 脱糖，User 裁定）。
     // 合成等价 AST 后交 _bindStmt——__e 是 GetEnumerator() 返回的具体 struct（pattern-based 无装箱，
