@@ -13,6 +13,18 @@ public sealed class IrGenMemberEmitter {
     public IrGenMemberEmitter(IrGen g, SemanticModel model, IrGenSink sink) { this._g = g; this._model = model; this._out = sink; }
 
     // 方法：GS3 重载键 Name$arity / unique 裸名；HasBody → 编译体；extern → builtin 桩；实例 abstract → signature-only 桩。
+    // generic-struct-erased-slot-value-copy：成员 IR 名的 owner 前缀。特化通道下换成**实例化名**
+    // （`Demo.GBox<int>.get_Tag`），调用点按同一规则派发。
+    //
+    // 抽成助手是因为「按 owner 名拼成员名」在本文件里出现 **8 次**（方法 / 属性 getter+setter /
+    // native 桩 / 静态 backing / 索引器 get+set）。我先只改了方法那处，属性就漏了 ⇒ 调用点派发到
+    // `GBox<int>.get_Tag` 而它根本没发射（`MissingSymbolException`）。同一形状分散在多处时，
+    // 逐个改必漏——收敛到一个出口。
+    private string _irOwner(ClassDecl c) {
+        IrGen g = this._g;
+        return g._q(g.SpecInstName != "" ? g.SpecInstName : g._classIrShortName(c));
+    }
+
     public void EmitMethod(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, MethodDecl md) {
         IrGen g = this._g; SemanticModel model = this._model;
         string methKey = OverloadResolver.MethodKeyOf(md);   // unify-regkey-source-of-truth
@@ -26,7 +38,7 @@ public sealed class IrGenMemberEmitter {
         // （实测：报 `static ctor C.$cctor not found`）。
         string emitKey = methKey;
         if (md.IsCtor && IrGenFacts._hasWord(md.Mods, "static")) { emitKey = IrStaticCtor.MethodKey; }
-        string irName = g._q(g._classIrShortName(c)) + "." + emitKey;   // IR/包内名（FQ，arity-mangle 时 Name$N）
+        string irName = this._irOwner(c) + "." + emitKey;   // IR/包内名（FQ，arity-mangle 时 Name$N；特化时为实例化名）
         if (md.HasBody) {              // G11：ctor 也发 `<qualClass>.<Class>` 函数（md.Name=类名，ret void，实例）
             string key = ownerKey + "." + methKey;    // SemanticModel 键（arity-mangle 时 ownerKey=Name$N）
             if (model.HasBody(key)) {
@@ -77,7 +89,7 @@ public sealed class IrGenMemberEmitter {
         int pdSetVis = IrGenFacts._visCode(pd.SetMods, pdPropVis);
         if (pd.HasGetBody) {
             string pgKey = c.Name + ".get_" + pd.Name;
-            string pgIrName = g._q(g._classIrShortName(c)) + ".get_" + pd.Name;
+            string pgIrName = this._irOwner(c) + ".get_" + pd.Name;
             if (model.HasBody(pgKey)) {
                 TypeParamList emptyTpPg = new TypeParamList(new string[0], 0, pd.Span);
                 MethodDecl synthPg = new MethodDecl("", false, false, pd.Type, "get_" + pd.Name,
@@ -97,7 +109,7 @@ public sealed class IrGenMemberEmitter {
                 MethodDecl synthPd = new MethodDecl("", false, false, pd.Type, "get_" + pd.Name,
                                                      emptyTpP, new WhereClause[0], 0,
                                                      new Param[0], 0, false, null, new Expr[0], 0, false, pd.Span);
-                IrFunction pstub = g._stubE._emitNativeStub(g._q(g._classIrShortName(c)) + ".get_" + pd.Name,
+                IrFunction pstub = g._stubE._emitNativeStub(this._irOwner(c) + ".get_" + pd.Name,
                                                          synthPd, nat2, pdStatic, rawMem);
                 IrGenFacts._fillParamMeta(pstub, synthPd, !pdStatic);   // add-param-metadata（reconcile 补齐）
                 pstub.Visibility = pdGetVis;   // add-accessor-visibility
@@ -107,8 +119,8 @@ public sealed class IrGenMemberEmitter {
             // 非 extern auto-prop：合成 field.get @__prop_Name 桩（镜像 C# SynthesizeClassAutoProp）。
             string backing = "__prop_" + pd.Name;
             // add-static-properties：静态后备是静态字段 → 桩发 static_get/set，须 FQ 名（同 __static_init__ 的 StaticSet）。
-            if (pdStatic) { backing = g._q(g._classIrShortName(c)) + "." + backing; }
-            string getIrNm = g._q(g._classIrShortName(c)) + ".get_" + pd.Name;
+            if (pdStatic) { backing = this._irOwner(c) + "." + backing; }
+            string getIrNm = this._irOwner(c) + ".get_" + pd.Name;
             string retNm = g._classDescB._typeFieldName(pd.Type);
             int retTag = IrGenFacts._irTypeTag(pd.Type);
             IrFunction ag = g._stubE._emitAutoPropGetter(getIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
@@ -116,7 +128,7 @@ public sealed class IrGenMemberEmitter {
             ag.Visibility = pdGetVis;   // add-accessor-visibility
             this._out.AddFunc(ag);
             if (pd.HasSet) {
-                string setIrNm = g._q(g._classIrShortName(c)) + ".set_" + pd.Name;
+                string setIrNm = this._irOwner(c) + ".set_" + pd.Name;
                 IrFunction sg = g._stubE._emitAutoPropSetter(setIrNm, backing, retNm, retTag, pdStatic, pd.Span.Line);
                 sg.MinArg = 1;   // setter 逻辑参数 1
                 sg.Visibility = pdSetVis;   // add-accessor-visibility（`private set` 等）
@@ -128,7 +140,7 @@ public sealed class IrGenMemberEmitter {
         // 隐式 value 参（属性类型）、void 返回。混合已由 parser E0474 挡下，此处只见「两半都带体」。
         if (pd.HasSetBody) {
             string psKey = c.Name + ".set_" + pd.Name;
-            string psIrName = g._q(g._classIrShortName(c)) + ".set_" + pd.Name;
+            string psIrName = this._irOwner(c) + ".set_" + pd.Name;
             if (model.HasBody(psKey)) {
                 TypeParamList emptyTpPs = new TypeParamList(new string[0], 0, pd.Span);
                 TypeExpr voidRetP = new NamedType("void", new TypeExpr[0], 0, pd.Span);
@@ -154,7 +166,7 @@ public sealed class IrGenMemberEmitter {
         TypeExpr voidRet = new NamedType("void", new TypeExpr[0], 0, idx.Span);
         if (idx.HasGet) {
             string getKey = c.Name + ".get_Item";
-            string getIrName = g._q(g._classIrShortName(c)) + ".get_Item";
+            string getIrName = this._irOwner(c) + ".get_Item";
             if (model.HasBody(getKey)) {
                 MethodDecl synthGet = new MethodDecl("", false, false, idx.RetType, "get_Item",
                                                       emptyTpI, new WhereClause[0], 0,
@@ -168,7 +180,7 @@ public sealed class IrGenMemberEmitter {
         }
         if (idx.HasSet) {
             string setKey = c.Name + ".set_Item";
-            string setIrName = g._q(g._classIrShortName(c)) + ".set_Item";
+            string setIrName = this._irOwner(c) + ".set_Item";
             if (model.HasBody(setKey)) {
                 Param[] setPs = new Param[idx.ParamCount + 1];
                 int spi = 0;

@@ -1,0 +1,97 @@
+// generic-struct-erased-slot-value-copy e2e：泛型实例化按布局特化后的**值语义**。
+//
+// 修前：struct 存进声明类型为型参 `T` 的字段时**按句柄存、不复制**，外层复制也只浅拷句柄
+// ⇒ 与源变量/副本共享同一块 blob。三种形态全错，且形态 ② 还是 **use-after-free**
+// （栈帧作用域的 arena StructRef 存进 GC 堆对象字段槽，ctor 帧一弹 arena 截断 ⇒ 悬垂）。
+//
+// 修法：给命中闸门的实例化算**自己的布局**（型参字段变真内联字节）并按该布局特化其成员。
+// 闸门 = 实例化布局**确实不同于定义布局**；相同则共享定义那份体（特化是 no-op）。
+//
+// 纯 Assert（无 expected 文件 = 空 stdout）。**jit 双验**（struct 路径经 helper 桥接）。
+namespace Demo;
+
+using Std;
+
+struct P2 {
+    public int X;
+    public long Y;
+    public P2(int x, long y) { this.X = x; this.Y = y; }
+}
+
+struct Pair<A, B> {
+    public A First;
+    public B Second;
+    public Pair(A a, B b) { this.First = a; this.Second = b; }
+}
+
+class CBox<T> {
+    public T Item;
+    public CBox(T t) { this.Item = t; }
+}
+
+void Main() {
+    // ── 形态 ①：存进泛型 struct 的 T 槽后改**源变量**，容器不应受影响 ────────────
+    // 修前：pp.First.Y 读到 99（共享 blob）。
+    P2 inner = new P2(1, 2L);
+    Pair<P2, int> pp = new Pair<P2, int>(inner, 7);
+    inner.Y = 99L;
+    Assert.Equal(2L, pp.First.Y);
+    Assert.Equal(1, pp.First.X);
+    Assert.Equal(7, pp.Second);
+
+    // ── 形态 ②：泛型 **class** 的 T 槽（含 use-after-free）─────────────────────
+    // 修前：cb.Item.Y 读到 77，且句柄是栈帧作用域的——ctor 帧一弹即悬垂。
+    P2 c = new P2(3, 4L);
+    CBox<P2> cb = new CBox<P2>(c);
+    c.Y = 77L;
+    Assert.Equal(4L, cb.Item.Y);
+    Assert.Equal(3, cb.Item.X);
+
+    // ── 形态 ③：复制外层泛型 struct 后经**副本**写穿，原件不应受影响 ─────────────
+    // 修前：p3.First.Y 读到 9。
+    P2 d = new P2(5, 6L);
+    Pair<P2, int> p3 = new Pair<P2, int>(d, 8);
+    Pair<P2, int> q = p3;
+    q.First.Y = 9L;
+    Assert.Equal(6L, p3.First.Y);
+    Assert.Equal(9L, q.First.Y);          // 副本自己改到了
+    Assert.Equal(8, p3.Second);
+
+    // ── 闸门：型参实参非 blob struct ⇒ 布局与定义相同 ⇒ 不特化，行为照旧 ──────────
+    Pair<string, int> s = new Pair<string, int>("hi", 5);
+    Assert.Equal("hi", s.First);
+    Assert.Equal(5, s.Second);
+
+    // ── 嵌套实例化：内外两层各自按实例化布局（规范名须递归，否则内层落回句柄）─────
+    Pair<int, long> ni = new Pair<int, long>(3, 4L);
+    Pair<Pair<int, long>, string> no = new Pair<Pair<int, long>, string>(ni, "s");
+    Assert.Equal(3, no.First.First);
+    Assert.Equal(4L, no.First.Second);
+    Assert.Equal("s", no.Second);
+    no.First.Second = 40L;                // 链式写进内层，不串到外层
+    Assert.Equal(40L, no.First.Second);
+    Assert.Equal("s", no.Second);
+
+    // ── 带引用叶子的实例化：Second 是 string（引用位图必须随实例化布局投送）─────────
+    // 修前这条炸在 `struct ref leaf at byte offset N not in type layout`
+    // ——描述符曾用短名注册，运行期静默 miss 到「只有 size、空引用位图」的兜底布局；
+    // 零引用叶子的实例化恰好照常工作，正是它掩盖了这个缺陷。
+    Pair<P2, string> rs = new Pair<P2, string>(new P2(11, 12L), "tag");
+    Assert.Equal(12L, rs.First.Y);
+    Assert.Equal("tag", rs.Second);
+
+    // ── struct 数组的元素是实例化：数组按实例化布局背衬（元素名须用规范名）────────
+    Pair<P2, int>[] arr = new Pair<P2, int>[2];
+    arr[1] = new Pair<P2, int>(new P2(6, 7L), 8);
+    Assert.Equal(7L, arr[1].First.Y);
+    arr[1].First.Y = 70L;
+    Assert.Equal(70L, arr[1].First.Y);
+    Assert.Equal(8, arr[1].Second);
+
+    // ── 值语义传参：实例化作实参时 callee 拿到独立副本 ──────────────────────────
+    Pair<P2, int> orig = new Pair<P2, int>(new P2(20, 21L), 22);
+    Bump(orig);
+    Assert.Equal(21L, orig.First.Y);      // callee 改的是它自己的副本
+}
+
+void Bump(Pair<P2, int> v) { v.First.Y = 999L; }

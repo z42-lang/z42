@@ -125,8 +125,9 @@ t.Item1.Item2  旧：off(VT2,Item1)+off(VT2,Item2) 在 t 的 blob 上读 ⇒ 读
 读写共用 `_structChainRoot` / `_structChainOffset`，故读、写、复合赋值一起修正。golden
 `src/tests/types/generic_struct_chain.z42`（interp + jit）。
 
-> ⚠️ 断链后写穿（`pp.First.Y = 5`）写的是擦除槽**指向的那块 blob**。它今天并非 `pp` 独占——见下方
-> Deferred「泛型擦除槽的值复制」：存入 `T` 槽不复制、复制外层泛型 struct 是浅拷贝，于是写穿会被别名看到。
+> ✅ **已不再别名**（generic-struct-erased-slot-value-copy）：命中闸门的实例化拿到自己的布局，
+> 型参字段是**真内联字节**而非句柄，故 `pp.First.Y = 5` 写的就是 `pp` 独占的那段字节。
+> 闸门外（跨包实例化 / 布局与定义相同者）仍是擦除句柄表示——见下方该条目的「仍未覆盖」。
 
 **整字段复制**：`P p = line.a`（读出）/ `line.a = q`（写入）= 对子 struct 的叶子**逐叶子分解复制**
 （递归到真叶子；基元走字节 codec、引用叶子走侧表 `get_ref`/`set_ref`），复用现有 Get/SetPrim，
@@ -702,15 +703,29 @@ P4b 只交付**装箱 struct** 的字段反射；**堆对象上的内联 struct 
   `snapshot_struct_leaf`/`write_struct_leaf`），格式中立——见上「对象内联 struct 字段反射」节。
 - ✅ **泛型 struct 套 struct 的链式读写**（`t.Item1.Item2` / `pp.First.Y = v`）：链节须真内联才累加偏移，
   擦除成 `T` 的字段断链取句柄（fix-generic-struct-chain-access）——见上「嵌套 struct 字段」节。
-- ⏳ Deferred：**泛型擦除槽的值复制**（generic-struct-erased-slot-value-copy）——struct 值存进声明类型为
-  `T` 的字段（泛型 struct **与泛型 class** 都是）时按句柄存、**不复制**，复制外层泛型 struct 也只浅拷该句柄 ⇒
-  与源变量 / 副本共享同一块 blob（实测 2026-09-15：`new Pair<P2,int>(inner,1)` 后改 `inner.Y`、
-  `new CBox<P2>(inner)` 后改 `inner.Y`、`var q = pp; q.First.Y = 9` 均被 `pp` 看到；C# 语义三者都不应看到）。
-  泛型方法返回值不受影响（`Id<P2>(inner)` 有复制）。**触发原因**：需在「存入 `T` 槽」处复制（对标泛型容器
-  边界装箱 P3a，但 P3a 只覆盖容器 API 实参）+ 外层 struct 复制对引用叶子里的 struct 句柄深拷，或改为读出即复制、
-  禁止写穿，属值语义设计决策，不是链式偏移 bug 的一部分。**当前 workaround**：存入前先拷一份局部
-  （`var c = inner; new Pair<P2,int>(c, 1)`），修改内层时读出-改-写回（`var f = pp.First; f.Y = 9; pp.First = f`）
-  ——注意写回同样不复制，写回后别再改 `f`。
+- ✅ **泛型擦除槽的值复制**（generic-struct-erased-slot-value-copy）——**按实例化算布局 + 部分具体化**。
+  修前：struct 值存进声明类型为 `T` 的字段（泛型 struct **与泛型 class** 都是）时按句柄存、**不复制**，
+  复制外层也只浅拷句柄 ⇒ 与源变量/副本共享同一块 blob。三形态全错，其中泛型 class 那条还是
+  **use-after-free**（栈帧作用域的 arena `StructRef` 存进 GC 堆对象字段槽，ctor 帧一弹 arena 截断 ⇒ 悬垂）。
+
+  **根因不是「存入时忘了复制」，是那个槽物理上放不下字节**：`_kindOf("A")`（型参名）落
+  `StructLeafKind.GcRef` 8 字节句柄，因为布局**按定义**算。故正解是让实例化拿到**自己的布局**
+  （型参字段变真内联字节），并**按该布局特化其成员**——布局特化了，把偏移烘焙进指令的代码就必须跟着特化。
+
+  **闸门** = `InstDiffersFromDef`（实例化布局确实不同于定义布局）。相同则共享定义那份体，
+  特化是 no-op ⇒ 产出逐字节不变。**零格式 bump**（TYPE 段只是追加描述符条目）。
+
+  **两个正交概念**（别混）：**身份名**管描述符 / `StructAlloc` / 数组元素名；**特化名**管布局查询 /
+  成员派发。布局相同的实例化有独立身份但共享定义的成员体——共享体按定义偏移烘焙，布局既相同则对得上。
+
+  > ⚠️ **「实例化是独立类型」的两个硬后果**：① 合成 `Equals` 的 `other is <类型>` 必须用实例化名，
+  > 否则装箱值类型对不上 ⇒ **值相等静默误返 false**；② **VCall 按运行期类型名派发**，身份一变
+  > `MyList<int>.Add` 就找不到 ⇒ 必须配**擦除名回落**（miss 后剥实参重试，只在 miss 路径跑）。
+
+  **仍未覆盖**：① **普通泛型 class 不取独立身份**——给它独立身份要合成完整类描述符
+  （基类链/接口/vtable/静态字段），另开 change；② **跨包实例化不特化**（消费方编译只读依赖签名，
+  拿不到生产方方法体无法重发）⇒ **`Std.ValueTuple` 在 z42.core，用户写 `(P2,int)` 是跨包，尚未覆盖**；
+  ③ 容器 backing 仍靠 P3a 装箱（`List<T>` 内部 `new T[n]` 只编一份、元素名是字面 `"T"`）。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、**JIT 原生内联字节访问**（P5-B，现 helper
   桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438
   自引用诊断**（现 `Size==0` 兜底防崩）。

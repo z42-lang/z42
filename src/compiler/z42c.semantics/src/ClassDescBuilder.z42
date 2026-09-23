@@ -461,6 +461,82 @@ public sealed class ClassDescBuilder {
         return cd;
     }
 
+    // generic-struct-erased-slot-value-copy：为一个**实例化**造合成类描述符。
+    //
+    // 它不来自任何 `ClassDecl`（实例化没有声明），而是直接从 `StructLayout.LayoutOf(instName)`
+    // 反填：Flags 置 struct 位（bit2）以触发 writer 的 struct 布局块，size / 引用位图取自该实例化的布局。
+    // 字段表按布局的直接字段填（名 + **代换后**的类型名），使反射看到的 `Pair<P2,int>.First` 是 `P2`
+    // 而不是型参 `A`。
+    //
+    // 为什么不直接复用定义那条描述符：定义 `Pair` 的布局里 `First` 是 8 字节句柄，
+    // 而 `Pair<P2,int>` 的是内联字节——两者 size 与引用位图都不同，必须各是一条。
+    //
+    // 布局算不出来（基名不是 struct / 环）→ 返回 null，调用方跳过（保守：退回今天的行为）。
+    internal IrClassDesc _instLayoutDesc(string instName) {
+        StructLayout ly = this._g.Layouts;
+        if (ly == null) { return null; }
+        // 形态 ②：泛型 **class** 的实例化 —— 合成带**内联布局块**的描述符（P3b 的 bit7），
+        // 使 `CBox<P2>.Item` 真内联进堆对象字节区，而不是存一个栈帧作用域的 arena 句柄（use-after-free）。
+        if (!ly.IsStructType(instName)) { return this._instClassDesc(instName); }
+        StructLayoutInfo li = ly.LayoutOf(instName);
+        if (li.Size <= 0) { return null; }   // 空/环兜底布局不投送
+        int n = li.FieldCount;
+        IrFieldDesc[] fs = new IrFieldDesc[n];
+        int i = 0;
+        while (i < n) {
+            fs[i] = new IrFieldDesc(li.FieldNames[i], li.FieldTypeNames[i]);   // 类型名已是代换后的具体名
+            i = i + 1;
+        }
+        // 描述符名必须是 **FQ**（与 `_classDesc` 的 `_q(_classIrShortName(c))` 同口径）——运行期
+        // `build_type_registry` 按描述符 name 建键、`resolve_layout` 拿 `struct_alloc` 的 FQ 名去查。
+        // 用短名会**静默 miss**，回落到「只有 size、空引用位图」的兜底布局：零引用叶子的实例化
+        // （`Pair<P2,int>`）恰好照常工作，有引用叶子的（`Pair<P2,string>`）才在写 string 那一刻崩
+        // （`struct ref leaf at byte offset 8 not in type layout`）。**「能跑」曾经掩盖了它。**
+        // 只限定基名、实参原样，与 `ExprEmitter._qualifyInstName` 同一约定。
+        int ltq = instName.IndexOf("<");
+        string fqInst = ltq < 0 ? this._g._q(instName)
+                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        IrClassDesc cd = new IrClassDesc(fqInst, false, "", fs, n);
+        cd.Flags = 4;   // bit2 = struct → writer 追加 struct 布局块
+        cd.StructSize = li.Size;
+        cd.StructRefOffsets = li.RefLeafOffsets;
+        cd.StructRefKinds = li.RefLeafKinds;
+        cd.StructRefCount = li.RefLeafCount;
+        return cd;
+    }
+
+    // 泛型 class 实例化的合成描述符：字段表用**代换后**的对象全字段布局，并挂内联布局块。
+    private IrClassDesc _instClassDesc(string instName) {
+        StructLayout ly = this._g.Layouts;
+        StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
+        if (ol.FieldCount <= 0) { return null; }
+        StructLayoutInfo il = ly.InlineLayoutOf(instName);
+        if (il.FieldCount <= 0) { return null; }   // 没有内联 struct 字段 ⇒ 与定义等价，不必投送
+        int n = ol.FieldCount;
+        IrFieldDesc[] fs = new IrFieldDesc[n];
+        int i = 0;
+        while (i < n) { fs[i] = new IrFieldDesc(ol.FieldNames[i], ol.FieldTypeNames[i]); i = i + 1; }
+        int ltq = instName.IndexOf("<");
+        string fqInst = ltq < 0 ? this._g._q(instName)
+                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        IrClassDesc cd = new IrClassDesc(fqInst, true, "Std.Object", fs, n);
+        cd.Flags = 128;   // bit7 = 有内联 struct 字段 → writer 追加内联布局块
+        cd.InlineSize = il.Size;
+        cd.InlineRefOffsets = il.RefLeafOffsets;
+        cd.InlineRefKinds = il.RefLeafKinds;
+        cd.InlineRefCount = il.RefLeafCount;
+        // **对象布局块也必须填**（Flags bit2/4/5/6 皆 0 ⇒ writer 会写这一段）。只给内联块不够：
+        // 运行期按**对象布局**决定 ScriptObject 的字节区与引用槽大小，缺了就分配 0 字节
+        // ⇒ 读内联字段报 `struct field read out of blob bounds (off=4, w=4, len=0)`（实测）。
+        cd.ObjectSize = ol.Size;
+        int[] offs = new int[n]; int[] szs = new int[n]; int[] kinds = new int[n];
+        int j = 0;
+        while (j < n) { offs[j] = ol.FieldOffsets[j]; szs[j] = ol.FieldSizes[j]; kinds[j] = ol.FieldKinds[j]; j = j + 1; }
+        cd.ObjFieldOffsets = offs; cd.ObjFieldSizes = szs; cd.ObjFieldKinds = kinds; cd.ObjFieldCount = n;
+        cd.ObjRefOffsets = ol.RefLeafOffsets; cd.ObjRefKinds = ol.RefLeafKinds; cd.ObjRefCount = ol.RefLeafCount;
+        return cd;
+    }
+
     internal IrAttrRef[] _attrRefs(Decl rawMem) {
         // add-static-constructors：此前这里对非-AttributedDecl **提前返回空数组**，于是「没写任何
         // attribute 的类」根本走不到下面的哨兵追加。$Cctor 必须能挂在这种类上（静态构造器与

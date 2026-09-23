@@ -24,6 +24,27 @@ public sealed class IrGen {
     // ExprEmitter 翻转值 struct 操作时查询。
     // 惰性阶段（emit 尚不消费）→ self-host 字节不动。
     public StructLayout Layouts;
+    // generic-struct-erased-slot-value-copy：本 CU 里**真正被当 blob struct 值用过**、且至少有一个
+    // 型参实参是 blob struct 的实例化规范名集合（`Pair<P2,int>` → "1"）。发射端经
+    // `ExprEmitter._noteInstLayout` 登记；TYPE 段尾部据此投送**合成类描述符**（携带该实例化的
+    // struct 布局块），使运行期 `resolve_layout` 能按实例化名查到正确的 size + 引用位图。
+    // 挂在 IrGen 而非 EmitContext：后者是**每方法**一个，这里要的是**每编译单元**的集合。
+    // 不用全局静态：z42c 是多线程编译，静态可变集合有竞态。
+    public StrMap InstLayouts;
+    // 本包泛型 struct/class 的定义声明（短名 → 原始 Decl），供实例化特化时重发其成员。
+    public StrMap GenericDecls;
+    // 正在特化的实例化短名（`Pair<P2,int>`）；"" = 常规发射。发射成员时由特化通道设置，
+    // 影响两处：① IR 函数名前缀换成实例化名（调用点据同一规则派发）；
+    // ② `EmitContext.OwnerStructName` 换成实例化名 ⇒ ctor/方法体里 `this.f` 的字节偏移
+    //    按**实例化布局**烘焙（这正是 B1 的全部意义——布局特化了，代码必须跟着特化）。
+    // 单字段而非参数透传：EmitMethod → FunctionEmitter → EmitContext 链路太长，且本 CU 内单线程。
+    public string SpecInstName;
+    // 与 SpecInstName 配对：正在特化的那个泛型**定义**的短名（`Pair` 或 arity-mangle 的 `Pair$2`）。
+    // 特化体内一切指向该定义类型的静态类型（典型是 `this`）都代表**那个实例化**——
+    // `ExprEmitter._blobStructName` 据此把 `cont` 换成实例化名，否则 `this.f = a` 会按定义布局
+    // 判定字段种类（型参字段=引用叶子）而发引用存，运行期与实例化布局对不上（实测：
+    // `struct ref leaf at byte offset 0 not in type layout`）。
+    public string SpecOwnerName;
     public IrGen() {
         this._pool = new string[8];
         this._pool[0] = "";
@@ -32,6 +53,10 @@ public sealed class IrGen {
         this._testIx = new TestIndexBuilder(this);
         this._classDescB = new ClassDescBuilder(this);
         this._stubE = new StubEmitter(this);
+        this.InstLayouts = new StrMap();
+        this.GenericDecls = new StrMap();
+        this.SpecInstName = "";
+        this.SpecOwnerName = "";
     }
 
     // 字符串字面量 intern → 1-based 池索引（去重）。
@@ -206,8 +231,41 @@ public sealed class IrGen {
         // 伪类型 + 其类型初始化器（复用 `$Cctor` 哨兵 ⇒ 零格式变更）。无站点时不产任何字节，
         // 故对既有包 byte-identical。合法性已由包级 ModuleInitScan.CheckPackage 校验过。
         ModuleInitSynth.Emit(this, model, cu, sink);
+        // generic-struct-erased-slot-value-copy（B1）：为命中闸门的实例化重发泛型类型的成员。
+        // **工作表 + 不动点**：特化过程本身可能发现新的实例化（嵌套 `Pair<Pair<P2,int>,int>`，
+        // 或成员体里用到的别的实例化），故循环到集合不再增长为止。
+        StrMap specDone = new StrMap();
+        bool specMore = true;
+        while (specMore) {
+            specMore = false;
+            string[] pend = this.InstLayouts.Keys();
+            int pi = 0;
+            while (pi < pend.Length) {
+                if (!specDone.ContainsKey(pend[pi])) {
+                    specDone.Put(pend[pi], "1");
+                    // 身份与布局解耦：**描述符**对所有实例化都投送（见下方 InstLayouts 循环），
+                    // 但**成员特化**只对布局与定义不同的做——布局相同时共享定义那份体即可。
+                    if (this.Layouts != null && this.Layouts.InstDiffersFromDef(pend[pi])) {
+                        types.EmitInstantiation(pend[pi]);
+                    }
+                    specMore = true;   // 本轮有新增 ⇒ 再扫一遍（体内可能又登记了新实例化）
+                }
+                pi = pi + 1;
+            }
+        }
         IrFunction[] funcs = sink.Funcs; int fc = sink.Fc;
         IrClassDesc[] classes = sink.Classes; int cc = sink.Cc;
+        // generic-struct-erased-slot-value-copy：为本 CU 用到的、命中闸门的泛型实例化追加**合成类描述符**
+        // （名 = 实例化规范名，携带该实例化的 struct 布局块）。TYPE 段是 `count + count×描述符`，
+        // 追加条目是**格式中立**的（reader 按 count 循环）⇒ 零 bump。
+        int ilAdded = 0;
+        string[] ilKeys = this.InstLayouts.Keys();
+        int ilI = 0;
+        while (ilI < ilKeys.Length) {
+            IrClassDesc sd = this._classDescB._instLayoutDesc(ilKeys[ilI]);
+            if (sd != null) { classes = IrGenFacts._pushClass(classes, cc, sd); cc = cc + 1; ilAdded = ilAdded + 1; }
+            ilI = ilI + 1;
+        }
         // lift 函数末尾追加（port-z42c-closures；镜像 C# _liftedFunctions AddRange）
         int li2 = 0;
         while (li2 < this.LiftedCount) {
