@@ -31,9 +31,10 @@ public sealed class ExportedMethodZ {
     // （undefined register）。默认 -1（非变长），需要非默认值时构造后单独赋值。
     public bool             IsSealed;      // impl-sealed-semantics-devirt：方法级 sealed（METHOD_FLAG_SEALED）。
     // 同 ParamsFrom：构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 4) 构造后赋值。
-    public bool             IsSynthesized;   // complete-generic-instantiation：编译器合成的成员（METHOD_FLAG_SYNTHESIZED bit4）。
-    // 供消费方判定「一个**导入的**泛型定义能否在本包按实例化布局重新合成」——全部成员都带这个位
-    // ⇒ 重新合成不会顶替掉任何用户实现。按方法名猜不行：用户手写的 ToString() 与合成版同名同签名。
+    public bool             IsShapeDerived;  // complete-generic-instantiation：纯由声明形状导出的成员（METHOD_FLAG_SHAPE_DERIVED bit4）。
+    // 供消费方判定「一个**导入的**泛型定义能否在本包按实例化布局重新发射」——要求全部导出成员
+    // 都带这个位，于是重建不会顶替掉任何用户代码。判据比「编译器生成的」窄：[Native]/abstract 桩、
+    // 自动属性访问器、$cctor 都**不**带（前两者声明是用户写的，$cctor 的体是用户的静态初始化式）。
     // 同 IsSealed：ctor 元数不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 16) 构造后赋值。
     public bool             IsDeprecated;    // add-deprecated-directive：方法级 `[Deprecated]`。⚠️ **不占 method_flags 位**——
     // 走 attr-ref 哨兵（`IrDeprecation.Sentinel` = "$Deprecated"，见 TsigReconcile 的 `IrDeprecation.Has(f.Attrs, …)`）。
@@ -52,7 +53,7 @@ public sealed class ExportedMethodZ {
         this.MinArgCount = minArgCount; this.Params = params_; this.ParamCount = paramCount;
         this.ParamsFrom = 0 - 1;
         this.IsSealed = false;
-        this.IsSynthesized = false;   // complete-generic-instantiation：TsigReconcile 从 (MethodFlags & 16) 构造后赋值
+        this.IsShapeDerived = false;   // complete-generic-instantiation：TsigReconcile 从 (MethodFlags & 16) 构造后赋值
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0; this.TypeParams = new string[0];
         this.RefInfoKnown = false; this.RetIsNullable = false;

@@ -198,6 +198,7 @@ public sealed class CtorInheritance {
                                        ps, pc, true, new BlockStmt(new Stmt[0], 0, sp), fwd, pc, false, sp);
         md.HasCtorInit = true;
         md.IsSynthesized = true;
+        md.IsShapeDerived = true;   // complete-generic-instantiation：转发基类 ctor，纯由声明形状导出
         return md;
     }
 
@@ -207,6 +208,7 @@ public sealed class CtorInheritance {
                                        new TypeParamList(new string[0], 0, sp), new WhereClause[0], 0,
                                        new Param[0], 0, true, new BlockStmt(new Stmt[0], 0, sp), new Expr[0], 0, false, sp);
         md.IsSynthesized = true;
+        md.IsShapeDerived = true;   // complete-generic-instantiation：空体默认 ctor，纯由声明形状导出
         return md;
     }
 

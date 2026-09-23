@@ -159,6 +159,9 @@ public sealed class FunctionEmitter {
         // fix-call-arity-skew：sret 是**物理签名**的一部分（末尾隐藏返回槽），却不计入 ParamCount。把它显式记进
         // 元数据，运行期才能精确判「这条调用的实参数和被调方签名对不对得上」——否则只能猜（见 proposal 方案 A/B）。
         if (this._ctx.RetIsStruct) { irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagSret; }
+        // complete-generic-instantiation：decl 驱动的合成成员（record 主构造器 / 继承来的 / 默认构造器）
+        // 在这里统一置位——它们都走本函数，不必逐个产生点去打。判据见 IrGenFacts.MethodFlagShapeDerived。
+        if (md != null && md.IsShapeDerived) { irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagShapeDerived; }
         if (this._ctx.ExcCount > 0) {                       // 异常表（port-z42c-try，可变字段赋值）
             IrExcEntry[] xs = new IrExcEntry[this._ctx.ExcCount];
             int xi = 0;
@@ -217,6 +220,9 @@ public sealed class FunctionEmitter {
                               this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
                               "Interp", paramTypes, 2, regTypes, this._ctx.RegTagCount,
                               lines, lc, localVars, localVars.Length);
+        // complete-generic-instantiation：blob struct 的 `Equals$1` 纯由字段序列逐位比较导出
+        // ⇒ 消费方持导出元数据即可重建。
+        irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagShapeDerived;
         return irf;
     }
 

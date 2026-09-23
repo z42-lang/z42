@@ -1,0 +1,68 @@
+// complete-generic-instantiation：`METHOD_FLAG_SHAPE_DERIVED`（SIGS method_flags bit4）的门。
+//
+// 这个位的判据是「**纯由类型的声明形状导出**（字段序列 + record 性）⇒ 持有导出元数据的消费方
+// 能一字不差地重建它」，**比「编译器生成了这个函数对象」窄得多**。跨包实例化特化正是以
+// 「该定义的全部导出成员都带这个位」为放行条件，所以两个方向都要设门：
+//
+//   · **该置未置** → 消费方判否 → 静默退回旧行为（跨包特化失效）。**没有任何红**，
+//     这正是最危险的失效模式，必须由正向断言兜住。
+//   · **不该置却置了** → 消费方把用户代码当可重建的东西顶替掉 → 静默丢实现。
+//     由反向断言兜住（`$cctor` 那条尤其要命：体是用户写的静态初始化式）。
+namespace Z42cSemanticsShapeDerivedFlagTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// SIGS method_flags bit4（与 runtime 的 METHOD_FLAG_SHAPE_DERIVED / IrGenFacts.MethodFlagShapeDerived 同值）。
+int SHAPE_DERIVED() { return 16; }
+
+bool hasFlag(string src, string key) {
+    int f = IrDump.MethodFlagsOf(src, key);
+    Assert.NotEqual(0 - 1, f);        // 函数不存在 ⇒ 用例本身写错了，别把它读成「没置位」
+    return (f & SHAPE_DERIVED()) != 0;
+}
+
+[Test]
+void test_record_struct_members_are_shape_derived() {
+    // `[Record] struct` 的三个成员全部纯由字段序列导出 —— 这正是 `Std.ValueTuple2..8` 的形状，
+    // 跨包元组特化能否放行全看这三条。
+    string src = "namespace D; [Record] struct Pair<A, B>(A First, B Second);";
+    Assert.Equal(true, hasFlag(src, "D.Pair.Pair"));        // 主构造器
+    Assert.Equal(true, hasFlag(src, "D.Pair.Equals$1"));    // blob struct 逐字段比较
+    Assert.Equal(true, hasFlag(src, "D.Pair.ToString"));
+}
+
+[Test]
+void test_record_class_members_are_shape_derived() {
+    string src = "namespace D; [Record] class Box(int V);";
+    Assert.Equal(true, hasFlag(src, "D.Box.Box"));
+    Assert.Equal(true, hasFlag(src, "D.Box.Equals"));
+    Assert.Equal(true, hasFlag(src, "D.Box.GetHashCode"));
+    Assert.Equal(true, hasFlag(src, "D.Box.ToString"));
+}
+
+[Test]
+void test_user_written_body_is_not_shape_derived() {
+    // 阴性对照：用户手写的方法体，消费方无从重建。
+    string src = "namespace D; class C { public int Twice(int a) { return a + a; } }";
+    Assert.Equal(false, hasFlag(src, "D.C.Twice"));
+}
+
+[Test]
+void test_user_written_tostring_on_a_record_is_not_shape_derived() {
+    // ⭐ 判据不能按方法名猜：用户手写的 `ToString()` 与合成版**同名同签名**。
+    // 猜名字的实现会在这里静默把用户实现判成可重建，继而顶替掉它。
+    string src = "namespace D; [Record] class Box(int V) { public string ToString() { return \"custom\"; } }";
+    Assert.Equal(false, hasFlag(src, "D.Box.ToString"));
+    Assert.Equal(true, hasFlag(src, "D.Box.Box"));          // 主构造器仍是形状导出的
+}
+
+[Test]
+void test_static_initializer_cctor_is_not_shape_derived() {
+    // 🔴 `$cctor` 的体是**用户写的静态字段初始化式**。若把它当可重建，消费方重建后
+    // 静态初始化会整个丢掉。不置位 ⇒ 带静态初始化的类型被判据自动拒掉，正是要的行为。
+    string src = "namespace D; class C { static int N = 7; }";
+    int f = IrDump.MethodFlagsOf(src, "D.C.$cctor");
+    if (f != 0 - 1) { Assert.Equal(0, f & SHAPE_DERIVED()); }
+}

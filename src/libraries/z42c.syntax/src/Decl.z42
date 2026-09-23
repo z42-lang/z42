@@ -173,6 +173,12 @@ public sealed class MethodDecl : Decl {
                                        // 擦除分支照样给它写键（= 实现碎片注册的那个）→ 同样非空。
     public bool          IsSynthesized; // add-implicit-base-ctor-call：编译器合成的构造器（继承自基类 / 默认构造器），源码里不存在。
                                          // 构造后置位（不进 ctor 签名：z42c.syntax 是自举自依赖库，种子 ABI 约束）。
+    public bool          IsShapeDerived; // complete-generic-instantiation：本成员纯由类型的**声明形状**导出
+                                         // （record 主构造器 / 继承来的 / 默认构造器），消费方持导出元数据即可重建。
+                                         // **刻意不复用 IsSynthesized**：那条的语义是「源码里不存在这个声明」，
+                                         // 被 DeclBinder 用来换一句 E0469 措辞；record 主构造器在源码里**是**存在的
+                                         // （位置参数），复用会让那条诊断对 record 说错话。
+                                         // 构造后置位（不进 ctor 签名：z42c.syntax 是自举自依赖库，种子 ABI 约束）。
     public bool          IsPartial;   // add-partial-types：`partial` 修饰（方法碎片；声明侧 HasBody=false，实现侧 HasBody=true）。
                                        // 由 parser 从 mods 派生（post-construction，镜像 RegKey）；默认 false → 现有方法不变。
     public MethodDecl(string mods, bool isFree, bool isCtor, TypeExpr retType, string name,
