@@ -32,6 +32,7 @@
 | `src/PatternEmitter.z42` | **模式 lowering**（A1）：BoundPattern 递归下降 → 既有 IR（IsInstance/Eq/FieldGet/BrCond），`EmitMatch(subj,pat,matchL,failL)` 短路。**常量模式 byte-identical 旧 Eq 链（自举不动点）；位置/属性字段 field_get 直读禁 as_cast（jit 硬约束）**。switch(_emitSwitch/_emitSwitchExpr) 与 is(_emitIsPattern) 共用 |
 | `src/TypeEnv.z42` | 词法 scope 链（Vars StrMap）+ 全局符号表引用 |
 | `src/TypeChecker.z42` | Pass 1：集中 if-is 调度 `_bindExpr`/`_bindStmt`，绑定方法体 + 类型检查 |
+| `src/ForeachProtocol.z42` | **`foreach` 可迭代协议判定**：静态类型 → 走哪条发射路径（数组 / 整数索引面 / `GetEnumerator()`）。判定只看**成员面**（`MethodsOf`/`FieldsOf` 两张表），不看类型走哪条继承线——类与接口在 z42 里是两条独立继承线，判定此前只认类那条，静态类型是接口时整条短路、静默落数组臂对对象发 `array_len`。计数成员两档（`Count`→`Length`，`CountOf`）也收在这里：此前路径选择与发射参数各写一份、两档不一致。用户面见 [book 迭代](../../../docs/reference/src/language/iteration.md) |
 | `src/InterfaceClosure.z42` | **接口成员的父接口闭包查找**：`FindMethod` / `FindMethodByName` 沿 `BaseNames` 上溯。本地接口的 `Methods` 只装自己声明的成员（没有「父接口方法合进子接口」那一 pass），而**跨包 TSIG 是展平的** ⇒ 同一形状本包报 E0401、跨包却能过。成员解析（`MemberResolver` 方法 + 属性 getter）与运算符重载（`ExprTyper._ifaceMethodClosure`）共用这一份遍历。⚠️ 只管**成员可见性**；接口之间的**赋值关系**仍不走继承链（`Z42InterfaceType.IsAssignableTo` 只比名字），见 [book 接口](../../../docs/reference/src/language/interfaces.md) |
 | `src/AccessChecker.z42` | 访问权限强制（enforce-access-control）：`CheckAccess` 对 private/protected/internal 成员访问 emit E0404；机制见 [book](../../../docs/internals/src/compiler/access-control.md) |
 | `src/GenericConstraint.z42` | 泛型约束模型（2B）：ConstraintBundle（单型参）+ ConstraintSet（一类全型参，按声明序对齐 TypeArgs） |

@@ -1,0 +1,102 @@
+// foreach 的「可迭代协议」判定 —— 从静态类型解出该走哪条发射路径。
+//
+// 三条路径有序：数组 → 整数索引面（`get_Item(int)` + 计数成员）→ `GetEnumerator()`。
+//
+// 判定只依赖两张**成员表**（方法表 / 字段表），不依赖类型走哪条继承线。这是本文件存在的
+// 理由：z42 里类与接口是**两条独立的继承线**（`Z42ClassType` 是 sealed，`Z42InterfaceType`
+// 不是它的子类），而判定此前只认前者 —— 静态类型写成接口时整条判定短路，`foreach` 静默
+// 落到**数组臂**对一个对象发 `array_len` / `array_get`：编译期零诊断，运行期抛
+// `ArrayLen: expected array`，错误信息与用户写的 `foreach` 毫无关系。
+//
+// 计数成员的两档（`Count` → `Length`）也收在这里：判定点此前有两处、各写一份，一处只认
+// `Count`、另一处认 `Count`→`Length` 且认 `get_` 访问器形态 —— 判据与真实行为分叉。
+namespace Z42.Semantics;
+using Z42.IR;   // StrMap
+
+public sealed class ForeachProtocol {
+
+    // 成员面：方法表。类 / 实例化类 / 接口 / 实例化接口统一取出；取不到返回 null。
+    // `Z42InstantiatedInterfaceType` 继承 `Z42InterfaceType` 且共享 `Def` 的 `Methods`
+    // 引用，故接口一支覆盖两者。
+    public static StrMap MethodsOf(Z42Type t) {
+        if (t is Z42ClassType) { return (t as Z42ClassType).Methods; }
+        if (t is Z42InstantiatedType) {
+            Z42ClassType d = (t as Z42InstantiatedType).Def;
+            if (d == null) { return null; }
+            return d.Methods;
+        }
+        if (t is Z42InterfaceType) { return (t as Z42InterfaceType).Methods; }
+        return null;
+    }
+
+    // 成员面：字段表。接口没有字段面 → null（计数成员因此只会从方法表命中）。
+    public static StrMap FieldsOf(Z42Type t) {
+        if (t is Z42ClassType) { return (t as Z42ClassType).Fields; }
+        if (t is Z42InstantiatedType) {
+            Z42ClassType d = (t as Z42InstantiatedType).Def;
+            if (d == null) { return null; }
+            return d.Fields;
+        }
+        return null;
+    }
+
+    // 索引路径要求 `get_Item` 的**第一个形参是整数下标** —— 发射端发的是一个 i32 计数器
+    // （`_emitForeach`：ConstI32(0) → ArrayGet/VCall get_Item(i) → Add 1），拿它去调一个
+    // 形参不是整数的索引器，是**类型错配**。
+    //
+    // 此前只看「有没有 get_Item」，于是 `Dictionary<K,V>`（有 `Count` 字段 + `this[TKey]`）
+    // 被判去走索引路径，拿 int 下标调 `get_Item(TKey)` —— 实测 `foreach (var kv in dict)`
+    // **跑满 Count 轮、每轮取到 0，零诊断**。而 Dictionary 本来就有 `GetEnumerator()`；
+    // 排掉它之后它落回枚举器路径，`foreach` 直接可用。
+    //
+    // 泛型形参（`TKey`）的 PrimCode 是 -1 ⇒ `IsIntegerType()` 为假，正是要的判定。
+    // `List<T>.get_Item(int)` 与 `String.this[int]` 都是真整数形参，不受影响。
+    public static bool IsIntIndexer(StrMap methods) {
+        if (methods == null) { return false; }
+        MethodSymbol gi = methods.Get("get_Item") as MethodSymbol;
+        if (gi == null || gi.Signature == null) { return false; }
+        Z42Type[] ps = gi.Signature.ParamTypes;
+        if (ps == null || gi.Signature.ParamCount < 1) { return false; }
+        return ps[0].IsIntegerType();
+    }
+
+    // 计数成员解析：给定源名（`Count` / `Length`），返回发射时要用的那个名字，带一个字母
+    // 前缀标明取法 —— `"f:<字段>"` 走 field_get，`"m:<方法>"` 走 vcall；空串 = 没有。
+    //
+    // 属性不能按源名发 field_get：属性也以 FieldSymbol 登记在 `Fields` 里（键=源名），但
+    // auto 属性的存储叫 `__prop_X`、计算属性（有 get 体）**根本没有存储**。不分这一层，
+    // `Count` 写成属性时读到的是空值 —— foreach 于是按一个垃圾长度多迭代，静默越界。
+    // 属性一律改走合成的访问器方法 `get_X`（MemberCollector 与字段符号同时登记）。
+    public static string CountMember(StrMap methods, StrMap fields, string srcName) {
+        if (methods == null) { return ""; }
+        if (fields != null && fields.ContainsKey(srcName)) {
+            FieldSymbol fs = fields.Get(srcName) as FieldSymbol;
+            if (fs != null && fs.IsProp) {
+                string acc = "get_" + srcName;
+                if (methods.ContainsKey(acc)) { return "m:" + acc; }
+                return "";   // 属性但没有 getter 访问器：当作不可计数，别乱发指令
+            }
+            if (fs != null && fs.IsStatic) { return ""; }   // 静态成员不是实例的计数
+            return "f:" + srcName;
+        }
+        if (methods.ContainsKey(srcName)) { return "m:" + srcName; }
+        // 导入包里的属性可能只以合成访问器的形式出现（`Fields` 里没有源名条目）——
+        // stdlib 的 `String.Length` 正是这样，本地声明是 `extern int Length { get; }`，
+        // 跨 zpkg 过来只剩 `get_Length`。不认这一形态，string 就配不上计数成员，
+        // foreach 落回数组 path 对 Str 发 ArrayLen。接口的 `int Count { get; }` 同理
+        // 只以 `get_Count` 出现（接口无字段面）。
+        string accOnly = "get_" + srcName;
+        if (methods.ContainsKey(accOnly)) { return "m:" + accOnly; }
+        return "";
+    }
+
+    // 计数成员的两档：`Count` → `Length`。**判定点唯一**——路径选择与发射参数都问这一个
+    // 函数，不再各写一份（此前路径选择只认 `Count`，发射参数认 `Count`→`Length`，于是
+    // 「整数索引器 + 只有 Length + 有 GetEnumerator」的类型被送去枚举器路径，与文档写的
+    // 「`Count` 或 `Length` 走索引路径」相悖）。
+    public static string CountOf(StrMap methods, StrMap fields) {
+        string c = ForeachProtocol.CountMember(methods, fields, "Count");
+        if (c == "") { c = ForeachProtocol.CountMember(methods, fields, "Length"); }
+        return c;
+    }
+}

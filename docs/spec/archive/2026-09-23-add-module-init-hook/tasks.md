@@ -1,5 +1,10 @@
 # Tasks: 包级初始化回调 `[ModuleInit]`
 
+> **已落地（2026-09-23）**：主特性 PR **#767**（`b05c1cac5`）+ 续篇 PR **#772**（`c68393bf6`，
+> exe 禁用 E0487 / 自由函数端到端门 / C# 实测钉死失败语义）。
+> 余一条**已知差距**：依赖包初始化失败的异常不可 `catch` —— 目标行为已由 C# 实测钉死在
+> design.md「已知差距」（含复现配方与验收标准），按 User 裁决单独立项。
+
 > 勾选即完成。GREEN 标准见 [workflow.md 阶段 8](../../../agent/rules/workflow.md)。
 
 ## 0. 开工前核对（每项都要留证据）
@@ -121,6 +126,6 @@
 ## 7. 归档
 
 - [x] 7.1 PR **#767**（已 rebase 到 main `2cb64a225` + 让号 E0484→E0486 + 重跑 GREEN 全绿）
-- [ ] 7.2 合并后删分支 / worktree
-- [ ] 7.3 `docs/spec/changes/add-module-init-hook/` → `docs/spec/archive/YYYY-MM-DD-...`
-- [ ] 7.4 更新 memory：`add-module-init-hook-program.md` + MEMORY.md 索引
+- [x] 7.2 合并后删分支 / worktree
+- [x] 7.3 归档到 `docs/spec/archive/2026-09-23-add-module-init-hook/`
+- [x] 7.4 更新 memory：`add-module-init-hook-program.md` + MEMORY.md 索引

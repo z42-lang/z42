@@ -705,7 +705,27 @@ public static class ImportedSymbolLoader {
                 if (gbs != baseN && r.Classes.ContainsKey(gbs)) { gdef = r.Classes.Get(gbs) as Z42ClassType; }
             }
             }
-            if (gdef != null) {
+            // **接口同样可以泛型实例化**（`IEnumerator<T>` / `IEnumerable<int>`）——上面只查了
+            // `r.Classes`，而接口在 `r.Interfaces` 里 ⇒ 此前一律落到末尾 fallback，变成一个
+            // **名字里带尖括号的伪 Class**（`Z42ClassType.Builtin("IEnumerator<T>")`）。
+            // 接口满足性校验于是拿它去跟实现方真正的 `Z42InstantiatedInterfaceType` 比，必然不等
+            // ⇒ E0412 假红；`_substForIface` 也无从把 `T` 换成实参（它收到的根本不是型参）。
+            // 这就是 `Std.IEnumerable<T>` 至今没人实现得了的原因。
+            Z42InterfaceType idef = null;
+            if (gdef == null) {
+                int _fqi = -1;
+                if (baseN.IndexOf(".") >= 0) { _fqi = r.InterfacesByFqn.Find(baseN); }
+                if (_fqi >= 0) { idef = r.InterfacesByFqn.ValAt(_fqi) as Z42InterfaceType; }
+                else {
+                    int _sl5 = r.Interfaces.Find(baseN);
+                    if (_sl5 >= 0) { idef = r.Interfaces.ValAt(_sl5) as Z42InterfaceType; }
+                    else {
+                        string ibs = ImportedSymbolLoader._shortName(baseN);
+                        if (ibs != baseN && r.Interfaces.ContainsKey(ibs)) { idef = r.Interfaces.Get(ibs) as Z42InterfaceType; }
+                    }
+                }
+            }
+            if (gdef != null || idef != null) {
                 string argsStr = name.Substring(ltIdx + 1, name.Length - ltIdx - 2);
                 string[] argStrs = ImportedSymbolLoader._splitTypeArgs(argsStr);
                 Z42Type[] targs = new Z42Type[argStrs.Length];
@@ -714,7 +734,8 @@ public static class ImportedSymbolLoader {
                     targs[ai] = ImportedSymbolLoader._resolve(r, argStrs[ai], typeParams, tpCount);
                     ai = ai + 1;
                 }
-                return new Z42InstantiatedType(gdef, targs, argStrs.Length);
+                if (gdef != null) { return new Z42InstantiatedType(gdef, targs, argStrs.Length); }
+                return new Z42InstantiatedInterfaceType(idef, targs, argStrs.Length);
             }
         }
         // 根因修复（fix-crosspkg-fq-type-resolution）：跨命名空间、全限定书写的导入类型名
