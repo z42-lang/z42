@@ -19,10 +19,22 @@
 
 ### 0. 先钉风险（**在动任何发射代码之前**）
 
-- [ ] 0.1 🔴 写一个**双消费方包**用例：包 X 与包 Y 各用一次 `(int,string)`，同一程序加载两者。
-      先在**今天的 main 上**跑通（建立基线），再在改动后复跑。
-      目的：证明「两条同名 `Std.ValueTuple2<Int32,String>` 描述符共存」不炸。
-      ⚠️ 若这条不成立，D2 的整条路线要改，**不要带着这个未知往下做**。
+- [x] 0.1 🔴 **已定性（2026-09-23）：会炸，D2 因此修正。** 结论与取证见 design.md §D4。
+      要点：① `struct_alloc` 不查歧义表，元组分配这条不受影响；② 类型描述符重复 →
+      `registry.rs:83` warn + `note_ambiguous_type` + first-wins 丢弃第二份；
+      🔴 ③ **合成 ctor 同名重复 → `note_ambiguous_function` → `exec_call.rs:235-239` 调用即抛**。
+      碰撞形态比原先设想的广：**「一个库内部用了 `(int,string)`，主程序也用了」就已撞上**。
+      编译期 E0601 不会误报（`PkgCheckFqn` 对实例化返回**定义**的 FQN）。
+
+### 0b. D4-fix：加载器区分「合成实例化产物」与「用户声明」（P1 的先决条件）
+
+- [ ] 0b.1 `src/runtime/src/metadata/lazy_loader/registry.rs`：类型循环与函数循环各加一条——
+      名字是实例化产物（含 `<`）且与表内那份**结构一致** ⇒ 静默跳过（不 warn、不记歧义）；
+      结构不一致 ⇒ 保持今天的歧义行为（**不得静默吞**）
+- [ ] 0b.2 结构一致的判据：size + 字段数 + 逐项偏移（类型侧）
+- [ ] 0b.3 `src/runtime/src/metadata/lazy_loader_tests.rs`：单测覆盖三种情形
+      （实例化名重复且一致 / 实例化名重复但不一致 / 普通用户类型重复）
+- [ ] 0b.4 **阴性对照**：`src/tests/cross-zpkg/dup_fqn_crosspkg` 必须仍然报 E0601
 
 ### 1. 元数据位（生产方 → 消费方）
 

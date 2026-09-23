@@ -91,6 +91,9 @@
 | `src/compiler/z42c.semantics/src/ImportedGenericSynth.z42` | NEW | 从导入元数据反造合成 `ClassDecl` + 可合成性判据 |
 | `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | `:554` / `:604` 两处闸门放宽（收敛到单一判据函数） |
 | `src/compiler/z42c.semantics/src/IrGenTypeEmitter.z42` | MODIFY | `GenericDecls` 接纳合成 decl；`:68` 的 `rd is Decl` 兜底跟着放宽 |
+| `src/runtime/src/metadata/bytecode/class.rs` | MODIFY | 加 `METHOD_FLAG_SYNTHESIZED = 1 << 4`（bit4–7 本就空闲） |
+| `src/runtime/src/metadata/lazy_loader/registry.rs` | MODIFY | **D4-fix**：合成实例化产物的重复到达静默跳过，不记歧义 |
+| `src/runtime/src/metadata/lazy_loader_tests.rs` | MODIFY | D4-fix 的三情形单测 |
 | `src/tests/types/crosspkg_generic_inst_value_semantics.z42` | NEW | A 的 e2e（含 jit 双验） |
 | `docs/internals/src/runtime/struct-value-semantics.md` | MODIFY | §收敛面与延后：遗留项 ② 状态更新 + 新闸门判据 |
 | `docs/internals/src/compiler/source-compile.md` | MODIFY | 跨包实例化特化的机制记述 |
@@ -115,8 +118,11 @@
 
 ## Open Questions
 
-- [ ] P1 的「可合成集」判据取哪种：`IsRecord && 导出方法集 ⊆ 合成集` vs 生产方新增一个
-      「无用户方法体」flag 位。前者零格式改动但按名字判，后者更直接但要新 flag。→ design.md
+- [x] P1 的「可合成集」判据 → **定稿走 `METHOD_FLAG_SYNTHESIZED`**（`method_flags` 的 bit4–7
+      空闲，零格式 bump，两个方向优雅降级）。理由与另两条的否决见 design.md §D1。
+- [x] 🔴 **合成实例化产物跨模块重复** → 已实测定性为 **P1 的先决条件**，设计已修正。
+      见 design.md §D4：合成 ctor 同名重复会让**调用即抛**，且「库内部用了元组、主程序也用了」
+      就已撞上。修法 = 加载器区分合成产物与用户声明。
 - [ ] P2 的静态字段换键走**分阶段引入**（User 已裁决）：support 先行、晚一个 nightly 再 use。
       具体分几步、过渡期两种键怎么共存 → P2 开工前在 design.md 定稿。
 - [ ] P3 的达标线（分配次数 / RSS / 墙钟各降多少才算值得）→ P3 开工前定。
