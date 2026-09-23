@@ -1,8 +1,19 @@
-// 语言特性开关。镜像 C# z42.Core `LanguageFeatures`（enum LanguageFeature + Dict）。
-// 受限写法：无 enum（特性名用 snake_case 字符串，同 src/libraries/z42c.syntax/grammar.peg 的
-// [feat:NAME] 标签——该文件 2026-09-17 从 docs/design/language/ 移来，且已非 SoT，见其抬头警示）；
-// 无泛型类字段（Dict<...> 被丢弃）→ 并行数组 string[] names + bool[] enabled + count。
+// 语言特性开关。受限写法：无 enum（特性名用 snake_case 字符串）；无泛型类字段
+// （Dict<...> 被丢弃）→ 并行数组 string[] names + bool[] enabled + count。
 // IsEnabled(未知名) = false（拼写错误被发现，不静默启用）。
+//
+// ⚠️ **本表当前零调用方** —— 解析器不查它，`z42.toml` 也没有 `[syntax]` 段。也就是说这些
+// 开关**关不掉任何东西**：它描述的是「将来接线后可裁剪的语法面」，不是「今天生效的配置」。
+// 接线计划见 docs/internals/src/compiler/syntax-customization.md（第 1 层）。
+//
+// 🔴 **名字必须对应真实存在的语法构造**。这张表曾长期宣告 4 个**不存在**的特性
+// （`using_stmt` —— z42 没有 using 语句；`null_coalesce` —— `??`/`?.` 已删、parser 报 E0480；
+// `async` —— `await` 从不被任何 parser 消费、无 Task 类型；`list_patterns` —— 全仓零
+// ListPattern、模式解析器没有 `[` 分支），外加 2 个「库有、语言构造没有」的
+// （`threading` —— `lock` 连关键字都不是；`native_interop` —— FFI 真有但挂它名下的
+// `pinned` 是个没人消费的死 token）。六个已于 2026-09-23 删除。
+// **加名字前先确认 parser 真的有消费该语法的代码路径**，否则这里就又多一句假话 ——
+// 在开关真正接线之前，没有任何门能替你发现这件事。
 namespace Z42.Core;
 
 public sealed class LanguageFeatures {
@@ -55,19 +66,13 @@ public sealed class LanguageFeatures {
         f.Set("exceptions",       true);
         f.Set("pattern_match",    true);
         f.Set("lambda",           true);
-        f.Set("async",            true);
-        f.Set("nullable",         true);
-        f.Set("null_coalesce",    true);
+        f.Set("nullable",         true);   // 引用类型的 `T?` 空检查标记；值类型 `int?` 报 E0476
         f.Set("ternary",          true);
         f.Set("cast",             true);
         f.Set("tuples",           true);
         f.Set("delegates",        true);
         f.Set("reflection",       true);
-        f.Set("list_patterns",    true);
-        f.Set("using_stmt",       true);
-        f.Set("threading",        true);
         f.Set("bitwise",          true);
-        f.Set("native_interop",   true);
         f.Phase = 1;
         return f;
     }
