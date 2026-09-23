@@ -403,6 +403,16 @@ public static class TsigReconcile {
             while (an < cd.AssocCount) { atn[an] = cd.AssocNames[an]; an = an + 1; }
             eiz.AssocTypeNames = atn; eiz.AssocTypeCount = cd.AssocCount;
         }
+        // 父接口名单（fix-crosspkg-iface-basenames）：TYPE 记录的 Interfaces 块对**接口**装的就是它的
+        // 父接口（`ClassDescBuilder._interfaceDesc` 写入，已展开成传递闭包）。此前没人搬，导入侧因此
+        // 恢复不出接口继承关系 ⇒ 跨包接口上调继承来的成员一律 E0401。数据早在 zbc 里 ⇒ 无格式 bump。
+        // FQ 名原样搬运（消费侧自己剥短名，见 ExportedInterfaceZ.BaseNames 抬头）。
+        if (cd.InterfaceCount > 0) {
+            string[] bns = new string[cd.InterfaceCount];
+            int bn = 0;
+            while (bn < cd.InterfaceCount) { bns[bn] = cd.Interfaces[bn]; bn = bn + 1; }
+            eiz.BaseNames = bns; eiz.BaseCount = cd.InterfaceCount;
+        }
         return eiz;
     }
 
