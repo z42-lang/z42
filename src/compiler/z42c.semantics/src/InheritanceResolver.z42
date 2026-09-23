@@ -528,6 +528,16 @@ public sealed class InheritanceResolver {
             while (i < it2.ArgCount) { na[i] = this._substForIface(it2.TypeArgs[i], ct, it); i = i + 1; }
             return new Z42InstantiatedType(it2.Def, na, it2.ArgCount);
         }
+        // 成员类型本身是**泛型接口**（`IEnumerable<T>.GetEnumerator()` 返回 `IEnumerator<T>`）——
+        // 不下钻则 want 里的 `T` 原样留着，与实现方的 `IEnumerator<int>` 永不相等 ⇒ E0412 假红。
+        // 与下方 `Z42FuncType` 那支同源：每漏一种可承载型参的复合类型，就多一类假红。
+        if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType it3 = t as Z42InstantiatedInterfaceType;
+            Z42Type[] nb = new Z42Type[it3.ArgCount];
+            int k = 0;
+            while (k < it3.ArgCount) { nb[k] = this._substForIface(it3.TypeArgs[k], ct, it); k = k + 1; }
+            return new Z42InstantiatedInterfaceType(it3.Def, nb, it3.ArgCount);
+        }
         // fix-iface-self-completeness-gaps A3：下钻 `Func<...>`——接口成员 `void Apply(Func<Self,int> f)` 里
         // 的 Self（及接口型参）藏在函数类型的形参/返回位。不下钻则满足性校验拿到 want 里 Self 未换 →
         // 与实现类 `void Apply(Func<C,int> f)` **假不匹配** → E0412 假红。补齐后期望签名正确、真匹配。

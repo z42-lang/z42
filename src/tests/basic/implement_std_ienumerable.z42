@@ -1,0 +1,65 @@
+// 实现标准库的**泛型接口** `Std.IEnumerable<T>` / `Std.IEnumerator<T>`（fix-generic-interface-satisfaction）。
+//
+// 这是全仓第一个真正写出 `: IEnumerable<int>` 的类型 —— 此前写不出来：跨包导入时
+// `IEnumerator<T>` 这种泛型接口拼写没被解析成实例化接口，而是落到 `_resolve` 末尾的 fallback、
+// 变成一个**名字里带尖括号的伪 Class**（`Z42ClassType.Builtin("IEnumerator<T>")`）。接口满足性
+// 校验拿它跟实现方真正的 `Z42InstantiatedInterfaceType` 比，必然不等 ⇒
+//   E0412: `MyColl` implements `IEnumerable` but `GetEnumerator`'s return type `IEnumerator`
+//          is not compatible with the interface's `IEnumerator<T>`
+// 泛型实例化解析此前只查 `r.Classes`（接口在 `r.Interfaces` 里），`_substForIface` 也没有下钻
+// 实例化接口那一支 —— 两处都补齐后，`T := int` 的替换才成立。
+//
+// ⚠️ 这里**刻意不用 foreach**：脱糖出的 `__e.Dispose()` 走的是 `IEnumerator<T> : IDisposable`
+// 继承来的成员，而接口方法表不展平父接口是另一个独立缺陷（见 fix-interface-inherited-members）。
+// 那条修好后，这个类型就能直接 foreach。
+//
+// ⚠️ 也**刻意不读 `e.Current` 的值参与运算**：经接口静态类型访问成员时，返回类型只做了
+// `Self` 替换、**没有按接收者的类型实参替换型参** ⇒ `e.Current` 今天的静态类型仍是 `T`
+// （`int x = e.Current; x + 1` 报 `E0402: operator + requires numeric operand, got T`）。
+// 那是成员访问那一层的独立缺口，本测试只钉住「泛型接口能被实现、能被调用」这一层。
+namespace Demo.ImplementStdIEnumerable;
+
+using Std;
+using Std.Collections;
+
+class CountEnum : IEnumerator<int> {
+    int _pos;
+    int _end;
+    public CountEnum(int end) { this._pos = 0; this._end = end; }
+    public bool MoveNext() {
+        if (this._pos < this._end) { this._pos = this._pos + 1; return true; }
+        return false;
+    }
+    public int Current { get { return this._pos - 1; } }
+    public void Dispose() { }
+}
+
+class CountSeq : IEnumerable<int> {
+    int _end;
+    public CountSeq(int end) { this._end = end; }
+    public IEnumerator<int> GetEnumerator() { return new CountEnum(this._end); }
+}
+
+void Main() {
+    // ① 经具体类型取枚举器，手工驱动到底。
+    CountSeq seq = new CountSeq(4);
+    IEnumerator<int> e = seq.GetEnumerator();
+    int count = 0;
+    while (e.MoveNext()) { count = count + 1; }
+    Assert.Equal(4, count);
+
+    // ② 经**接口静态类型**取枚举器 —— `IEnumerable<int>.GetEnumerator()` 的返回类型
+    //    必须解析成 `IEnumerator<int>`（实参不能丢），否则这一行的赋值就接不上。
+    IEnumerable<int> asIface = seq;
+    IEnumerator<int> e2 = asIface.GetEnumerator();
+    int count2 = 0;
+    while (e2.MoveNext()) { count2 = count2 + 1; }
+    Assert.Equal(4, count2);
+
+    // ③ 空序列：接口路径同样正常收敛。
+    IEnumerable<int> empty = new CountSeq(0);
+    IEnumerator<int> e3 = empty.GetEnumerator();
+    int count3 = 0;
+    while (e3.MoveNext()) { count3 = count3 + 1; }
+    Assert.Equal(0, count3);
+}
