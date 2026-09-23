@@ -8,7 +8,7 @@ $ z42 run interp.z42
 # ANCHOR: format
 $ z42 run format.z42
 z42c build: 2 error(s) in format.z42
-  format.z42(6,23): E0492: unexpected `:` after the expression in this interpolation hole — z42 has no format specifiers (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) before interpolating it
-  format.z42(7,23): E0492: unexpected `:` after the expression in this interpolation hole — z42 has no format specifiers (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) before interpolating it
+  format.z42(6,23): E0492: unexpected `:` after the expression in this interpolation hole — z42 has no format specifiers (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) first
+  format.z42(7,23): E0492: unexpected `:` after the expression in this interpolation hole — z42 has no format specifiers (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) first
 [exit: 1]
 # ANCHOR_END: format
