@@ -246,3 +246,46 @@ fn iterate_live_objects_dedupes_cycle() {
     assert_eq!(count, 1);
 }
 
+/// Regression (fresh-audit B, 2026-09-23): the STW / one-shot-major soft-ref
+/// revive path must trace a revived target's **children**, not just mark the
+/// target itself.
+///
+/// Before the fix, `revive_soft_refs` (collect.rs) passed an empty `|_| {}` to
+/// `revive_snapshot` — the `on_revived` callback was wired only into the
+/// incremental major path (#701). So a field reachable ONLY through a
+/// soft-revived object stayed unmarked and `sweep_phase` reclaimed it out from
+/// under the still-live target → dangling `GcRef` (UAF in release,
+/// `generation/alive mismatch` panic in debug).
+///
+/// `parent` is reachable only via the soft registry; `child` only via
+/// `parent.f0`. Neither is a GC root (Rust locals are not roots). A fresh heap
+/// has `max_bytes == 0`, so the pressure ratio is 0.0 < threshold and revive
+/// always fires. After a full STW major collect both must survive.
+#[test]
+fn stw_softref_revive_keeps_the_targets_children() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+
+    let child = heap.alloc_object(dummy_type_desc("Child"), vec![], NativeData::None);
+    let parent = heap.alloc_object(dummy_type_desc("Parent"), vec![Value::Null], NativeData::None);
+    {
+        let Value::Object(parent_gc) = &parent else { panic!() };
+        parent_gc.borrow_mut().refs_mut_raw()[0] = child.clone();
+    }
+    let key = heap.register_soft_ref(&parent);
+    let weak_child = heap.make_weak(&child).expect("object");
+
+    heap.force_collect(); // STW major: mark (no strong roots) → revive_soft_refs → sweep
+
+    // The soft target always survives (revive marks it) — a setup sanity check.
+    assert!(
+        matches!(heap.soft_ref_get(key), Value::Object(_)),
+        "soft target itself must survive the collect",
+    );
+    // The regression: its child survives iff revive traced *through* the target.
+    assert!(
+        heap.upgrade_weak(&weak_child).is_some(),
+        "a soft-revived object's child must be traced and kept, not swept (fresh-audit B)",
+    );
+}
+
