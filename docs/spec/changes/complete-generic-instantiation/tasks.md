@@ -28,13 +28,13 @@
 
 ### 0b. D4-fix：加载器区分「合成实例化产物」与「用户声明」（P1 的先决条件）
 
-- [ ] 0b.1 `src/runtime/src/metadata/lazy_loader/registry.rs`：类型循环与函数循环各加一条——
+- [x] 0b.1 `src/runtime/src/metadata/lazy_loader/registry.rs`：类型循环与函数循环各加一条——
       名字是实例化产物（含 `<`）且与表内那份**结构一致** ⇒ 静默跳过（不 warn、不记歧义）；
       结构不一致 ⇒ 保持今天的歧义行为（**不得静默吞**）
-- [ ] 0b.2 结构一致的判据：size + 字段数 + 逐项偏移（类型侧）
-- [ ] 0b.3 `src/runtime/src/metadata/lazy_loader_tests.rs`：单测覆盖三种情形
+- [x] 0b.2 结构一致的判据：size + 字段数 + 逐项偏移（类型侧）
+- [x] 0b.3 `src/runtime/src/metadata/lazy_loader_tests.rs`：单测覆盖三种情形
       （实例化名重复且一致 / 实例化名重复但不一致 / 普通用户类型重复）
-- [ ] 0b.4 **阴性对照**：`src/tests/cross-zpkg/dup_fqn_crosspkg` 必须仍然报 E0601
+- [x] 0b.4 **阴性对照**：`src/tests/cross-zpkg/dup_fqn_crosspkg` 仍报 E0601 ✅（e2e 71/71 全绿）
 
 ### 1. 元数据位（生产方 → 消费方）
 

@@ -56,7 +56,14 @@ impl LazyLoader {
         for mut fn_ in artifact.module.functions {
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
-            if self.function_table.contains_key(&name) {
+            if let Some(prev) = self.function_table.get(&name) {
+                // complete-generic-instantiation D4-fix：合成实例化产物的**第二次到达不是歧义**。
+                // 每个用到 `Std.ValueTuple2<Int32,String>` 的包都会各合成一份它的成员，两份是
+                // (定义, 类型实参) 的确定性函数。不区分的话，「库内部用了元组、主程序也用了」
+                // 就会被记成歧义，而歧义函数**一调用就抛**（`exec_call` 的 use-site 判定）。
+                if is_instantiation_artifact(&name) && same_function_shape(prev, &fn_) {
+                    continue;
+                }
                 // runtime-ambiguous-use-site: 记下来，供**使用位**判定（见 note_ambiguous_function
                 // 的注释：这里仍保持 first-wins 注册，不能让解析失败）。
                 self.note_ambiguous_function(&name);
@@ -79,7 +86,13 @@ impl LazyLoader {
         // fixup pass below can't use `Arc::get_mut` to mutate inherited
         // field layouts in place.
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
-            if self.type_registry.contains_key(&name) {
+            if let Some(prev) = self.type_registry.get(&name) {
+                // complete-generic-instantiation D4-fix：同上，类型侧。结构**不**一致时
+                // 仍按歧义处理（两个消费方对着不同版本的生产方编出来的布局真会不同），
+                // 不静默取第一份。
+                if is_instantiation_artifact(&name) && same_type_shape(prev, &desc) {
+                    continue;
+                }
                 self.note_ambiguous_type(&name);   // runtime-ambiguous-use-site：同上
                 tracing::warn!(
                     "duplicate type `{name}` from zpkg `{file_name}`: already provided by an \
@@ -361,6 +374,52 @@ impl LazyLoader {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// complete-generic-instantiation D4-fix：这个名字是**合成的泛型实例化产物**吗？
+///
+/// 判据是「名字里有 `<`」，可靠性来自：用户源码写不出带尖括号的类型名 —— 泛型**定义**按
+/// 裸名发（`GBox`），arity mangle 走 `Name$N`，而实参仍是型参的伪实例化（`ListEnumerator<T>`）
+/// 在编译器侧已被 `_isConcreteTypeArg` 排除。故带尖括号的名字只可能出自实例化合成。
+///
+/// 成员函数名同判：它们的 owner 前缀就是实例化名
+/// （`Std.ValueTuple2<Int32,String>.ValueTuple2$2`）。
+pub(super) fn is_instantiation_artifact(name: &str) -> bool {
+    name.contains('<')
+}
+
+/// D4-fix 的兜底断言（类型侧）：两份同名描述符是不是同一件东西。
+///
+/// 合成产物是 `(定义, 类型实参)` 的确定性函数，正常情况下必然一致。**不一致意味着两个消费方
+/// 是对着不同版本的生产方编的** —— 那种情况下静默取第一份会让后来者按错布局读写，所以这里
+/// 返回 false，让调用方退回既有的歧义处理（记歧义 + 告警）。
+pub(super) fn same_type_shape(a: &TypeDesc, b: &TypeDesc) -> bool {
+    if a.base_name != b.base_name
+        || a.class_flags != b.class_flags
+        || a.fields.len() != b.fields.len()
+    {
+        return false;
+    }
+    match (a.struct_layout(), b.struct_layout()) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            x.size == y.size && x.ref_offsets == y.ref_offsets && x.ref_kinds == y.ref_kinds
+        }
+        _ => false,
+    }
+}
+
+/// D4-fix 的兜底断言（函数侧）。比的是**形状指纹**（签名 + 块数 + 指令总数），不是逐指令
+/// 相等 —— 后者要在每次重复到达时遍历整个函数体，而这条路径在每个 zpkg 加载时都会走。
+/// 指纹不符即退回歧义处理；指纹相符而体不同，需要两个消费方对着不同版本的生产方编出
+/// **同签名同块数同指令数**的体，由包身份/版本门（`fix-package-identity-gate`）在上游拦。
+pub(super) fn same_function_shape(a: &Function, b: &Function) -> bool {
+    a.param_count == b.param_count
+        && a.ret_type == b.ret_type
+        && a.is_static == b.is_static
+        && a.blocks.len() == b.blocks.len()
+        && a.blocks.iter().map(|x| x.instructions.len()).sum::<usize>()
+            == b.blocks.iter().map(|x| x.instructions.len()).sum::<usize>()
+}
 
 /// Rewrite all ConstStr `idx` values in a function's blocks by adding
 /// `offset`, so the resulting indices point into the merged main+lazy pool.

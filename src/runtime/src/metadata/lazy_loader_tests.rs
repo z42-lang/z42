@@ -604,3 +604,101 @@ fn inserting_a_loaded_type_registers_its_static_ctor() {
     assert!(reg.any_pending(), "入表后门必须打开，否则首次使用会跳过屏障");
     assert!(!reg.is_done("Demo.Cfg"), "登记不等于执行");
 }
+
+// ── D4-fix：合成实例化产物的重复到达不是歧义 ──────────────────────────────────
+//
+// complete-generic-instantiation：每个用到 `Std.ValueTuple2<Int32,String>` 的包都会**各合成
+// 一份**它的描述符与成员。两份是 `(定义, 类型实参)` 的确定性函数，第二份到达不是「两个包
+// 声明了同一个名字」。不区分的话，歧义函数**一调用就抛**（`exec_call` 的 use-site 判定），
+// 而「库内部用了元组、主程序也用了」就已经撞上 —— 这是常态形状，不是边角。
+
+use super::registry::{is_instantiation_artifact, same_function_shape, same_type_shape};
+use crate::metadata::{BasicBlock, ExecMode, Terminator};
+
+fn td_shape(name: &str, class_flags: u8, field_count: usize) -> TypeDesc {
+    TypeDesc {
+        name: name.to_string(),
+        base_name: None,
+        class_flags,
+        visibility: 0,
+        fields: (0..field_count)
+            .map(|i| crate::metadata::types::FieldSlot {
+                name: format!("f{i}").into(),
+                type_tag: "i64".into(),
+                visibility: 0,
+            })
+            .collect(),
+        field_index: crate::metadata::name_index::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::name_index::NameIndex::new(),
+        cold: None,
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    }
+}
+
+fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
+    Function {
+        name: name.to_string(),
+        param_count,
+        ret_type: "void".to_string(),
+        exec_mode: ExecMode::Interp,
+        blocks: vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions: (0..instr_count)
+                .map(|_| Instruction::ConstI64 { dst: 0, val: 1 })
+                .collect(),
+            terminator: Terminator::Ret { reg: None },
+        }],
+        is_static: false,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 0,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        frame_meta: None,
+        resolved: std::sync::OnceLock::new(),
+    }
+}
+
+#[test]
+fn instantiation_artifacts_are_recognised_by_their_angle_brackets() {
+    // 合成实例化：类型与其成员（owner 前缀就是实例化名）
+    assert!(is_instantiation_artifact("Std.ValueTuple2<Int32,String>"));
+    assert!(is_instantiation_artifact("Std.ValueTuple2<Int32,String>.ValueTuple2$2"));
+    assert!(is_instantiation_artifact("Demo.Pair<Demo.P2, Int64>"));
+
+    // 用户源码写不出带尖括号的类型名 —— 泛型**定义**按裸名发、arity mangle 走 `Name$N`。
+    assert!(!is_instantiation_artifact("Demo.GBox"));
+    assert!(!is_instantiation_artifact("Demo.GBox$1"));
+    assert!(!is_instantiation_artifact("Demo.Shared.Widget"));
+    assert!(!is_instantiation_artifact("Demo.Shared.W.Who$0"));
+}
+
+#[test]
+fn identical_instantiation_descriptors_are_the_same_thing_twice() {
+    let a = td_shape("Std.ValueTuple2<Int32,String>", 4, 2);
+    let b = td_shape("Std.ValueTuple2<Int32,String>", 4, 2);
+    assert!(same_type_shape(&a, &b));
+
+    let f = fn_shape("Std.ValueTuple2<Int32,String>.ValueTuple2$2", 3, 2);
+    let g = fn_shape("Std.ValueTuple2<Int32,String>.ValueTuple2$2", 3, 2);
+    assert!(same_function_shape(&f, &g));
+}
+
+#[test]
+fn a_differing_shape_is_still_treated_as_ambiguity() {
+    // 两个消费方对着**不同版本**的生产方编出来的布局会真的不同 —— 那种情况必须响，
+    // 不能静默取第一份，否则后来者按错布局读写。
+    let a = td_shape("Std.ValueTuple2<Int32,String>", 4, 2);
+    assert!(!same_type_shape(&a, &td_shape("Std.ValueTuple2<Int32,String>", 4, 3)),
+            "字段数不同 ⇒ 不是同一件东西");
+    assert!(!same_type_shape(&a, &td_shape("Std.ValueTuple2<Int32,String>", 8, 2)),
+            "class_flags 不同 ⇒ 不是同一件东西");
+
+    let f = fn_shape("Std.ValueTuple2<Int32,String>.ValueTuple2$2", 3, 2);
+    assert!(!same_function_shape(&f, &fn_shape("x", 2, 2)), "形参个数不同");
+    assert!(!same_function_shape(&f, &fn_shape("x", 3, 5)), "指令总数不同");
+}
