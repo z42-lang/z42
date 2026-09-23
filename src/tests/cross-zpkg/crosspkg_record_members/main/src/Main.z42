@@ -1,0 +1,16 @@
+namespace Demo.RecProbeApp;
+
+using Std;
+using Std.IO;
+using Demo.RecProbeTarget;
+
+void Main() {
+    Plain pl = new Plain(7);
+    Console.WriteLine(pl.V);
+    Pt p = new Pt(1, 2);
+    Console.WriteLine(p.X);
+    Pt q = p with { Y = 9 };
+    Console.WriteLine(q.X + "," + q.Y);
+    object o = p;
+    if (o is Pt(a, b)) { Console.WriteLine("destructured " + a + "," + b); }
+}

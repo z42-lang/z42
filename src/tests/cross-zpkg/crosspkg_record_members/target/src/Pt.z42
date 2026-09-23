@@ -1,0 +1,5 @@
+namespace Demo.RecProbeTarget;
+
+[Record] public class Pt(int X, int Y);
+
+public class Plain { public int V; public Plain(int v) { this.V = v; } }

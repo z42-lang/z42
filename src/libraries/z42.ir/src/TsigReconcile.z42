@@ -551,6 +551,7 @@ public static class TsigReconcile {
             ecz.Interfaces = ifb; ecz.InterfaceCount = cd.InterfaceCount;
         }
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
+        ecz.IsRecord = (cd.Flags & 8) != 0;   // complete-generic-instantiation：CLASS_FLAG_RECORD（TYPE Flags bit3）
         ecz.IsDeprecated = IrDeprecation.Has(cd.Attrs, cd.AttrCount); ecz.DeprecationMsg = IrDeprecation.Msg(cd.Attrs, cd.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
         ecz.Visibility = TsigReconcile._visStr(cd.Visibility);   // enforce-class-access：类可见性字节 → 字符串（跨包 internal 类引用强制）
         // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：类记录的 TYPE assoc 块 = `type Item = int;` 的
@@ -609,6 +610,7 @@ public static class TsigReconcile {
         em.RefInfoKnown = TsigReconcile.RefInfoKnown(f);   // record-ref-in-signature
         em.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
         em.IsSealed = (f.MethodFlags & 4) != 0;   // impl-sealed-semantics-devirt：METHOD_FLAG_SEALED
+        em.IsSynthesized = (f.MethodFlags & 16) != 0;   // complete-generic-instantiation：METHOD_FLAG_SYNTHESIZED（bit4）
         em.IsDeprecated = IrDeprecation.Has(f.Attrs, f.AttrCount); em.DeprecationMsg = IrDeprecation.Msg(f.Attrs, f.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
         em.RetIsNullable = IrNullableRet.Has(f.Attrs, f.AttrCount);   // define-null-check-marks 3.3：返回类型的 `?`（方法级哨兵）
         em.TypeParamCount = f.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数 → 供泛型 arity 重载过滤

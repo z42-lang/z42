@@ -31,6 +31,10 @@ public sealed class ExportedMethodZ {
     // （undefined register）。默认 -1（非变长），需要非默认值时构造后单独赋值。
     public bool             IsSealed;      // impl-sealed-semantics-devirt：方法级 sealed（METHOD_FLAG_SEALED）。
     // 同 ParamsFrom：构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 4) 构造后赋值。
+    public bool             IsSynthesized;   // complete-generic-instantiation：编译器合成的成员（METHOD_FLAG_SYNTHESIZED bit4）。
+    // 供消费方判定「一个**导入的**泛型定义能否在本包按实例化布局重新合成」——全部成员都带这个位
+    // ⇒ 重新合成不会顶替掉任何用户实现。按方法名猜不行：用户手写的 ToString() 与合成版同名同签名。
+    // 同 IsSealed：ctor 元数不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 16) 构造后赋值。
     public bool             IsDeprecated;    // add-deprecated-directive：方法级 `[Deprecated]`。⚠️ **不占 method_flags 位**——
     // 走 attr-ref 哨兵（`IrDeprecation.Sentinel` = "$Deprecated"，见 TsigReconcile 的 `IrDeprecation.Has(f.Attrs, …)`）。
     // （本行原写「METHOD_FLAG_DEPRECATED bit3」，那是设计初稿的方案，实现时改走 attr 通道，位一直没占。）
@@ -48,6 +52,7 @@ public sealed class ExportedMethodZ {
         this.MinArgCount = minArgCount; this.Params = params_; this.ParamCount = paramCount;
         this.ParamsFrom = 0 - 1;
         this.IsSealed = false;
+        this.IsSynthesized = false;   // complete-generic-instantiation：TsigReconcile 从 (MethodFlags & 16) 构造后赋值
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0; this.TypeParams = new string[0];
         this.RefInfoKnown = false; this.RetIsNullable = false;
@@ -82,6 +87,9 @@ public sealed class ExportedClassZ {
     public string[] TypeParams; public int TpCount;          // 泛型类型参数名（如 "T"/"K"/"V"）
     public bool     IsSealed;   // impl-sealed-semantics-devirt：sealed class（CLASS_FLAG_SEALED，TYPE Flags bit1）。
     // 构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (cd.Flags & 2) 构造后赋值。
+    public bool     IsRecord;   // complete-generic-instantiation：`[Record]` 类/struct（CLASS_FLAG_RECORD，TYPE Flags bit3）。
+    // 今天只有本地类经 StubCollector 回填 Z42ClassType.IsRecord；导入侧从不设。消费方要判「这个导入泛型
+    // 能不能在本包重新合成」必须知道它是不是 record（合成规则由此而来）。ctor 元数不变（旧种子 ABI），默认 false。
     public string   Visibility;   // enforce-class-access：类声明可见性（"public"/"private"/"protected"/"internal"）。
     // 默认 "public"，TsigReconcile 从 cd.Visibility（zbc TYPE 可见性字节）构造后赋值；ImportedSymbolLoader 据此填 Z42ClassType.Visibility（跨包 internal 类引用强制）。
     public bool     IsDeprecated;    // add-deprecated-directive：类级 `[Deprecated]`。🔴 **不占 TYPE Flags 位**——走 attr-ref
@@ -112,6 +120,7 @@ public sealed class ExportedClassZ {
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.IsSealed = false;
+        this.IsRecord = false;   // complete-generic-instantiation：TsigReconcile 从 (cd.Flags & 8) 构造后赋值
         this.Visibility = "public";   // enforce-class-access：默认 public（reconcile 后赋值；未赋值即 public，绝不误拒）
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamConstraints = null; this.TpConstraintCount = 0;   // add-associated-types PR-1（reconcile 后赋值）

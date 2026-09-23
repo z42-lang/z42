@@ -225,6 +225,15 @@ public static partial class ImportedSymbolLoader {
                         // 机制见 docs/internals/src/compiler/self-hosting.md 轴④ 与 docs/agent/rules/bootstrap-seed.md。
                         // （struct-ness 继续复用 HasBase 编码属独立技术债，登记 Deferred，不在本 change 内改。）
                         nct.IsStruct = !cl.HasBase;
+                        // complete-generic-instantiation：类级 `[Record]`（CLASS_FLAG_RECORD，TYPE Flags bit3）。
+                        // 此前**从不设置** —— 唯一写入点是 `StubCollector._putClassStub`（本地类），于是
+                        // 导入 record 恒为 false。后果不止本 change 要用的「能否在本包重新合成」判据：
+                        // `ConstructTyper._bindWith` 与 `PatternBinder._bindPositional` 都以 `!IsRecord`
+                        // 为拒绝条件 ⇒ **跨包 record 的 `with` 与位置解构模式一律误拒**（实测 E0402
+                        // ``with` requires a record type` / `positional pattern requires a record type`，
+                        // 阴性对照见 `src/tests/cross-zpkg/crosspkg_record_members`）。
+                        // 种子 ABI 安全：IsRecord 不进 ExportedClassZ ctor 签名，默认 false、构造后赋值。
+                        nct.IsRecord = cl.IsRecord;
                         // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：`class IntBag:IEnum{type Item=int;}` 的
                         // `Item=int` 经 TYPE assoc 块恢复 → Z42ClassType.AssocBinding*，供 ConstraintChecker 使用点
                         // 跨包匹配（`AssocBindingOf` 不再恒空，删 IsImported 守卫后跨包错绑定/缺绑定才报得出）。

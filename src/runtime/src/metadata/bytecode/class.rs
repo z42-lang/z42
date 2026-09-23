@@ -59,6 +59,16 @@ pub const METHOD_FLAG_SEALED: u8 = 1 << 2;
 /// signatures stay clean). Recording it here is what lets the runtime check a call's
 /// argument count exactly instead of guessing — see `symres::call_arity`.
 pub const METHOD_FLAG_SRET: u8 = 1 << 3;
+/// complete-generic-instantiation：这个成员是**编译器合成**的（record 的主构造器 /
+/// `Equals$1` / `GetHashCode` / `[Record] ToString` 等），而非用户写的方法体。
+///
+/// 用途：消费方据此判断「一个**导入的**泛型定义能否在本包按实例化布局重新合成」——
+/// 全部成员都带这个位 ⇒ 重新合成不会顶替掉任何用户实现。按方法名猜是不行的：用户手写的
+/// `ToString()` 与合成版**同名同签名**，猜会静默丢掉用户实现。
+///
+/// **零格式 bump**：`method_flags: u8` 的 bit4–7 本就空闲，旧读端按 u8 读、忽略不认的位；
+/// 旧写端打 0 ⇒ 消费方判否 ⇒ 退回原行为。两个方向都优雅降级。
+pub const METHOD_FLAG_SYNTHESIZED: u8 = 1 << 4;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClassDesc {
