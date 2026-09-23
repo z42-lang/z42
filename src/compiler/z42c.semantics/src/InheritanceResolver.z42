@@ -292,6 +292,11 @@ public sealed class InheritanceResolver {
                                                 this._sc.Diags.Error(DiagnosticCodes.SealedOverride,
                                                     "cannot override sealed method `" + localSym.Name + "`", md.Span);
                                             }
+                                            // define-null-check-marks D7：`?` 方向一致性（见 _checkNullableDirection）。
+                                            if (near != null) {
+                                                this._checkNullableDirection("base method", ct.Name(),
+                                                    near.Name, near, localSym, md.Span);
+                                            }
                                         }
                                     }
                                 }
@@ -482,6 +487,9 @@ public sealed class InheritanceResolver {
                             + "` is not compatible with the interface's `" + wantRet.Name() + "`", cSpan);
                         return;
                     }
+                    // define-null-check-marks D7：`?` 方向一致性（见 _checkNullableDirection）。
+                    // 与 static / 可见性 / 返回类型同族——都是「MangleKey 命中不代表契约兑现」。
+                    this._checkNullableDirection("interface", cName, it.Name(), ims, cm, cSpan);
                     return;
                 }
                 j = j + 1;
@@ -581,6 +589,61 @@ public sealed class InheritanceResolver {
             IndexerDecl ix = mem as IndexerDecl;
             this._sc.Diags.Error(DiagnosticCodes.StaticClassInstanceMember,
                 "static class `" + clsName + "` cannot declare an indexer", ix.Span);
+        }
+    }
+
+
+    // ── define-null-check-marks D7：override / 接口实现的 `?` 方向一致性 ───────────────
+    //
+    // `?` 的含义是「**请编译器在这里强制检查**」，义务落在**哪一方**决定了允许的方向：
+    //
+    // | 位置 | 允许 | 禁止 | 被破坏的是什么 |
+    // |---|---|---|---|
+    // | 返回类型 | 实现方**去** `?` | 实现方**加** `?` | 基类/接口没标 ⇒ 经它调用的人**没有**检查义务，而实现方却会返回 null |
+    // | 形参 | 实现方**加** `?` | 实现方**去** `?` | 基类/接口标了 ⇒ 契约是「任何实现都会检查」，去掉就不检查了 |
+    //
+    // 两条都是**加严方向可以、放松方向不行**：实现方可以对自己更严（返回更不容易为 null、
+    // 对入参检查得更多），但不能比它兑现的契约更松——松的那一侧就是洞。
+    //
+    // ⚠️ 只在**签名已配对成功**之后调（override 的 `_nearestBaseMethod` 命中 / 接口的 MangleKey 命中），
+    // 所以这里不重做匹配，只比标记位。形参逐位比，长度以被实现方为准（已配对 ⇒ 个数相同）。
+    //
+    // ⚠️ 跨包：方法形参/返回的 `?` 由 TSIG 文本双向携带（`TsigTypeName` / `StubEmitter`），
+    // 导入的基类/接口标记可靠。**字段**那半不携带（`SurfaceTypeName` 已擦除 `?`），但字段不参与
+    // override/接口实现，与本检查无关。
+    //
+    // **语义层用字面量 "E0489" 发码**（同 E0449–E0488 手法，见 bootstrap-seed.md：
+    // 新常量与其发射点不能同 PR）。
+    private void _checkNullableDirection(string kindWord, string ownerName, string contractName,
+                                         MethodSymbol contractSym, MethodSymbol implSym, Span span) {
+        if (contractSym == null || implSym == null) { return; }
+        if (contractSym.Signature == null || implSym.Signature == null) { return; }
+        Z42FuncType cs = contractSym.Signature;
+        Z42FuncType ms = implSym.Signature;
+        // 返回类型：实现方加 `?` 而契约方没标 → 洞。
+        if (ms.RetIsNullable && !cs.RetIsNullable) {
+            this._sc.Diags.Error("E0489",
+                "`" + ownerName + "." + implSym.Name + "` marks its return type `?` but "
+                + kindWord + " `" + contractName + "` does not — callers going through `"
+                + contractName + "` have no obligation to check the result, so the mark would be "
+                + "silently dropped; either mark the return type `?` on `" + contractName
+                + "` too, or drop the `?` here", span);
+            return;
+        }
+        // 形参：契约方标了 `?` 而实现方去掉 → 洞。
+        int n = cs.ParamCount;
+        if (ms.ParamCount < n) { n = ms.ParamCount; }
+        int i = 0;
+        while (i < n) {
+            if (cs.IsNullableParam(i) && !ms.IsNullableParam(i)) {
+                this._sc.Diags.Error("E0489",
+                    "`" + ownerName + "." + implSym.Name + "` drops the `?` on parameter #"
+                    + (i + 1).ToString() + " that " + kindWord + " `" + contractName + "` marks — "
+                    + kindWord + " `" + contractName + "` promises every implementation checks that "
+                    + "argument for null, and this one would not; mark it `?` here too", span);
+                return;
+            }
+            i = i + 1;
         }
     }
 
