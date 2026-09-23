@@ -93,8 +93,8 @@ z42 xtask.zpkg test cross-zpkg jit          # jit 模式
 | `missing_type_skew` | `new` 一个解析不到的类型不再合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |
 | `missing_base_skew` / `crosspkg_base_fields_main` | 基类解析不到不再静默退化成「只有自己的成员」 | 继承 fixup → `TypeDescCold::base_unmerged` → `symres::missing_base_exception`（`skew-absent.txt`） |
 | `module_init_free_function` | 依赖包的 `[ModuleInit]` 在**只调它的自由函数**时也跑 —— 🔴 这条是 add-module-init-hook 的判别力核心：cctor 屏障推不出自由函数的 owner 类型，纯惰性方案在这条路上永远不跑初始化器 | `LazyLoader::insert_type`（登记）→ `VmContext::ensure_module_inits`（屏障执行） |
+| `module_init_in_exe_rejected` | **负例**：可执行包（`kind = "exe"`）里写 `[ModuleInit]` → E0487；同一 fixture 的 lib 依赖照常可用 —— 禁的是 exe，不是这个特性 | `Z42cCompiler`（kind 判据只有 pipeline 层拿得到）→ `ModuleInitScan.ExeRejectionDiag` |
+| `module_init_on_free_function` | `[ModuleInit]` 标在**顶层自由函数**上（豁免 `static`）端到端真的会跑 —— 编译期放行是一回事，合成的 `$Module.$cctor` 按自由函数发射名（`_q(RegKey)`）去调它是另一回事 | `ModuleInitSynth._targetIrName` 的自由函数分支 |
 | `module_init_once` | 先于本包代码；三种触达形态（静态方法 / 自由函数 / 静态字段）各来一次，初始化器仍**只跑一次** | 同上 + `CctorRegistry::claim` |
 | `module_init_load_order` | 跨包初始化顺序 = **实际加载顺序**（先触达 B 则 B 先跑），与清单声明顺序无关 | 同上 |
-| `module_init_bad_target` | **负例**：`[ModuleInit]` 标在实例方法上 → E0486 | `ModuleInitScan.CheckPackage`（`expected_build_error.txt`） |
-| `module_init_duplicate` | **负例**：一个包里两个文件各一个 `[ModuleInit]` → E0485（**跨 CU** 判定，per-file 阶段看不见） | 同上 |
 | `ctor_visibility_cross_pkg` | **负例**：跨包调用 `internal` 构造器 → E0404；public 构造器与主构造器放行 | `ConstructTyper._bindNew` → `AccessChecker.CheckAccess`（`expected_build_error.txt`） |

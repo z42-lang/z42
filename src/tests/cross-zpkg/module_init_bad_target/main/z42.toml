@@ -1,9 +1,0 @@
-[project]
-name    = "demo.modbadapp"
-version = "0.1.0"
-kind    = "exe"
-entry   = "Demo.ModBadApp.Main"
-pack    = true
-
-[dependencies]
-"demo.modbad" = "0.1.0"

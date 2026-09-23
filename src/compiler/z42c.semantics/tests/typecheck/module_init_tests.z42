@@ -14,6 +14,8 @@ namespace Z42cSemanticsModuleInitTests;
 using Std;
 using Std.Test;
 using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
 
 // ── 合法形态（不该报任何错）────────────────────────────────────────────────────────
 [Test]
@@ -75,6 +77,41 @@ void test_module_init_duplicate_free_and_member_e0485() {
     string src = "namespace D; [ModuleInit] void IFree() { } "
                + "static class B { [ModuleInit] static void IB() { } }";
     Assert.Equal("E0485", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 跨 CU 的 E0485（真正的包级判定）──────────────────────────────────────────────────
+// SemanticDump 是**单文件**路径，表达不了「两个文件各一个」。这里直接驱动判据本身
+// ——比起搭一个跨包 e2e，它更贴近被测的那条规则，也不受 exe/lib 之分（E0487）干扰。
+[Test]
+void test_module_init_duplicate_across_cus_e0485() {
+    var p1 = new Parser("namespace D; static class A { [ModuleInit] static void IA() { } }", "a.z42");
+    var p2 = new Parser("namespace D; static class B { [ModuleInit] static void IB() { } }", "b.z42");
+    CompilationUnit[] cus = new CompilationUnit[2];
+    cus[0] = p1.ParseCompilationUnit();
+    cus[1] = p2.ParseCompilationUnit();
+    var diags = new DiagnosticBag();
+    ModuleInitScan.CheckPackage(cus, 2, diags);
+    Assert.Equal(1, diags.Count());
+    Assert.Equal("E0485", diags.Get(0).Code);
+    // 报在**后**出现的那处，且消息指出第一处在哪
+    Assert.Equal("b.z42", diags.Get(0).Span.File);
+    Assert.True(diags.Get(0).Message.Contains("a.z42"));
+}
+
+// 两个**不同包**各一个 ⇒ 合法（各自 CheckPackage 一次，互不影响）。
+[Test]
+void test_module_init_one_per_package_is_legal() {
+    var p1 = new Parser("namespace D; static class A { [ModuleInit] static void IA() { } }", "a.z42");
+    var p2 = new Parser("namespace E; static class B { [ModuleInit] static void IB() { } }", "b.z42");
+    CompilationUnit[] one = new CompilationUnit[1];
+    var d1 = new DiagnosticBag();
+    one[0] = p1.ParseCompilationUnit();
+    ModuleInitScan.CheckPackage(one, 1, d1);
+    Assert.Equal(0, d1.Count());
+    var d2 = new DiagnosticBag();
+    one[0] = p2.ParseCompilationUnit();
+    ModuleInitScan.CheckPackage(one, 1, d2);
+    Assert.Equal(0, d2.Count());
 }
 
 // 非法的那个不占「第一个」的位置：改完 E0486 才该看见 E0485（若那时确实有两个）。

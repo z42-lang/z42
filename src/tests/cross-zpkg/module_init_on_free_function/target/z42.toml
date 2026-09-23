@@ -1,5 +1,5 @@
 [project]
-name    = "demo.moddup"
+name    = "demo.freeinit"
 version = "0.1.0"
 kind    = "lib"
 pack    = true
