@@ -4,6 +4,7 @@
 // Z42ClassType 的 Fields/Methods（StrMap 符号）待 1A-2/1A-3（符号就绪后回填）。
 namespace Z42.Semantics;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
+using Z42.Syntax;   // TypeExpr（Z42InterfaceType.BaseRefs 存父接口的声明形态）
 
 public class Z42Type {
     public virtual string Name() { return "?type"; }
@@ -344,6 +345,17 @@ public class Z42InterfaceType : Z42Type {
     // 受限写法：typed array + int count（类字段不能带泛型）。
     public string[] BaseNames;
     public int      BaseCount;
+    // 父接口的**声明形态**（`interface ILeaf : IMid<int>` 的 `IMid<int>`），与 `BaseNames` 平行、
+    // 同步扩容，条目可为 null（没有实参可保的场合，如跨包尚未解析出来）。
+    //
+    // 为什么裸名不够：`BaseNames` 刻意去了 `<...>`（它是**查找键**，`SymbolTable.Implements` 的 BFS
+    // 与 `InterfaceClosure` 都按短名找定义）。但沿继承链上溯做**型参代换**时，需要知道子接口把哪些
+    // 实参喂给了父接口 —— 只有裸名的话，`ILeaf : IMid<int>` 上溯拿到的是未实例化的 `IMid` 定义，
+    // 它的 `T` 永远换不掉：满足性校验因此误报 E0412，成员访问则拿到裸 `T`（形参位还会漏报）。
+    //
+    // 两侧都填、形态统一：本包侧存 AST 原节点（`StubCollector._addIfaceBases`），跨包侧把 TSIG 名
+    // 解析后包进 `ResolvedTypeExpr`（`ImportedSymbolLoader`）⇒ 消费端一律 `table.ResolveTypeP`。
+    public TypeExpr[] BaseRefs;
     // add-associated-types PR-3：接口自身的型参名（`interface IBox<T>` 的 T）。此前只有
     // `Z42ClassType` 有型参名槽，接口一律无 —— 故跨包导入接口方法时无从建立型参上下文
     // （PR-2 是从 `ExportedInterfaceZ.TypeParams` 现取的）。绑定关联类型也要以它为基准。
@@ -356,23 +368,30 @@ public class Z42InterfaceType : Z42Type {
     // 此前接口**完全没有这个槽**，故跨 ns 同短名接口在持久化里无从区分。
     // 种子 ABI：不进 ctor 签名，ctor 内给默认值 + 注册端构造后赋值。
     public string Namespace;
-    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; this.Namespace = ""; }
+    public Z42InterfaceType(string name) { this._name = name; this.Methods = new StrMap(); this.IsPartial = false; this.PartialMainFile = ""; this.Visibility = "public"; this.IsImported = false; this.BaseNames = new string[0]; this.BaseCount = 0; this.BaseRefs = new TypeExpr[0]; this.TypeParamNames = new string[0]; this.TypeParamCount = 0; this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0; this.Namespace = ""; }
     // 全限定名（ns 为空 → 裸名，与 Z42ClassType.Fqn() 同口径）。接口无 arity-mangle，故直接用裸名。
     public string Fqn() {
         if (this.Namespace == "") { return this._name; }
         return this.Namespace + "." + this._name;
     }
 
-    public void AddBase(string name) {
+    public void AddBase(string name) { this.AddBaseRef(name, null); }
+
+    // 裸名 + 声明形态一起累积（`ref` 可为 null）。两个数组**同一个 BaseCount**，永远等长扩容 ——
+    // 拆成两条增长路径就会出现「名字有、实参没有」的错位，而错位在这里是静默的（型参照旧不代换）。
+    public void AddBaseRef(string name, TypeExpr bref) {
         if (this.BaseCount == this.BaseNames.Length) {
             int cap = this.BaseNames.Length * 2;
             if (cap < 2) { cap = 2; }
             string[] bigger = new string[cap];
+            TypeExpr[] biggerR = new TypeExpr[cap];
             int i = 0;
-            while (i < this.BaseCount) { bigger[i] = this.BaseNames[i]; i = i + 1; }
+            while (i < this.BaseCount) { bigger[i] = this.BaseNames[i]; biggerR[i] = this.BaseRefs[i]; i = i + 1; }
             this.BaseNames = bigger;
+            this.BaseRefs = biggerR;
         }
         this.BaseNames[this.BaseCount] = name;
+        this.BaseRefs[this.BaseCount] = bref;
         this.BaseCount = this.BaseCount + 1;
     }
     public void AddAssocType(string name) {
@@ -424,6 +443,7 @@ public sealed class Z42InstantiatedInterfaceType : Z42InterfaceType {
         // 成员/父接口/型参名共享定义那份引用（只读消费；不复制以免与后续填充脱节）。
         this.Methods = def.Methods;
         this.BaseNames = def.BaseNames; this.BaseCount = def.BaseCount;
+        this.BaseRefs = def.BaseRefs;   // 与 BaseNames 同一份引用（同上：只读消费，不复制）
         this.TypeParamNames = def.TypeParamNames; this.TypeParamCount = def.TypeParamCount;
         this.Visibility = def.Visibility; this.IsImported = def.IsImported;
     }

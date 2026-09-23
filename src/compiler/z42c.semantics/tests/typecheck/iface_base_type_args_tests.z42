@@ -1,0 +1,124 @@
+// 沿**接口继承链**的型参代换（fix-iface-base-type-args）。
+//
+// `iface_type_args_tests.z42` 钉的是「接收者接口自己的型参」；这里钉的是**父接口的**型参 ——
+// `interface ILeaf : IMid<int>` 里的 `int` 此前在符号表根本存不下（`BaseNames` 刻意剥成裸名做
+// 查找键），于是上溯拿到的永远是未实例化的 `IMid` 定义：
+//   · 满足性校验拿 `T` 跟实现方的 `int` 比 ⇒ E0412，实现方**怎么写都过不了**（挡住正确代码）
+//   · 成员访问拿到裸 `T` ⇒ 返回位误报、形参位来者不拒（放过错误代码）
+// 一个根因、两个消费端、两个方向的错 —— 每个正例都配一条「必须报错」的反向探针，
+// 否则「不报错」既可能是修对了、也可能是漏报。
+//
+// ⚠️ **判据是成对的，单看一条会读错**（退回修复实测 13 条里 9 条红，另 4 条「绿」的理由各不同）：
+//   · 满足性校验的两条 `_must_error` 修前也是 1 个错 —— 因为修前**怎么写都报** E0412；
+//     真正有判别力的是与之配对的 `_ok`（修前红）。两条一起看才区分得开「修对了」与「全都报错」。
+//   · `test_member_param_through_generic_base`（传 int，期望 0 错）修前也绿 —— 那是**漏报**：
+//     形参位的 `T` 来者不拒。它的判别力在配对的 `_wrong_type_must_error`（修前红）。
+//   · `test_nongeneric_base_unaffected` 是对照组，两边都该绿；它红了说明改动伤到了既有行为。
+namespace Z42cSemanticsIfaceBaseTypeArgsTests;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 消费端①：满足性校验 ───────────────────────────────────────────────
+
+[Test]
+void test_impl_through_generic_base_ok() {
+    string src = "namespace D; interface IMid<T> { T Get(); } interface ILeaf : IMid<int> { }"
+        + " class C : ILeaf { public int Get() { return 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 反向探针：`T := int` 真的代换了的话，实现成 string 必须报。
+[Test]
+void test_impl_through_generic_base_wrong_type_must_error() {
+    string src = "namespace D; interface IMid<T> { T Get(); } interface ILeaf : IMid<int> { }"
+        + " class C : ILeaf { public string Get() { return \"x\"; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// 子接口自己也是泛型：实参**逐层传递**（C 给 ILeaf 的 int → ILeaf 给 IMid 的 U → IMid 的 T）。
+[Test]
+void test_impl_through_generic_base_relayed_ok() {
+    string src = "namespace D; interface IMid<T> { T Get(); } interface ILeaf<U> : IMid<U> { }"
+        + " class C : ILeaf<int> { public int Get() { return 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_impl_through_generic_base_relayed_wrong_must_error() {
+    string src = "namespace D; interface IMid<T> { T Get(); } interface ILeaf<U> : IMid<U> { }"
+        + " class C : ILeaf<int> { public string Get() { return \"x\"; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// ── 消费端②：经接口静态类型访问成员 ───────────────────────────────────
+
+[Test]
+void test_member_return_through_generic_base() {
+    string src = "namespace D; interface IMid<T> { T Get(); } interface ILeaf : IMid<int> { }"
+        + " class T2 { int M(ILeaf l) { return l.Get() + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 反向探针：返回位换成 int 后，赋给 string 必须报。
+[Test]
+void test_member_return_through_generic_base_wrong_assign_must_error() {
+    string src = "namespace D; interface IMid<T> { T Get(); } interface ILeaf : IMid<int> { }"
+        + " class T2 { string M(ILeaf l) { return l.Get(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_member_param_through_generic_base() {
+    string src = "namespace D; interface IMid<T> { void Set(T v); } interface ILeaf : IMid<int> { }"
+        + " class T2 { void M(ILeaf l) { l.Set(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 反向探针（这条是漏报面：修前零诊断）。
+[Test]
+void test_member_param_through_generic_base_wrong_type_must_error() {
+    string src = "namespace D; interface IMid<T> { void Set(T v); } interface ILeaf : IMid<int> { }"
+        + " class T2 { void M(ILeaf l) { l.Set(\"x\"); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// 属性访问器面（getter 与方法是两条代换路径，各钉一次）。
+[Test]
+void test_member_property_through_generic_base() {
+    string src = "namespace D; interface IMid<T> { T Cur { get; } } interface ILeaf : IMid<int> { }"
+        + " class T2 { int M(ILeaf l) { return l.Cur + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_member_property_through_generic_base_wrong_assign_must_error() {
+    string src = "namespace D; interface IMid<T> { T Cur { get; } } interface ILeaf : IMid<int> { }"
+        + " class T2 { string M(ILeaf l) { return l.Cur; } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// 隔**两层**：IC : IB<int>，IB<U> : IA<U>，成员声明在 IA。
+[Test]
+void test_member_through_two_generic_levels() {
+    string src = "namespace D; interface IA<T> { T Get(); } interface IB<U> : IA<U> { }"
+        + " interface IC : IB<int> { } class T2 { int M(IC c) { return c.Get() + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_member_through_two_generic_levels_wrong_must_error() {
+    string src = "namespace D; interface IA<T> { T Get(); } interface IB<U> : IA<U> { }"
+        + " interface IC : IB<int> { } class T2 { string M(IC c) { return c.Get(); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// ── 对照组：非泛型父接口这条路不受影响（既有行为不得变） ─────────────────
+
+[Test]
+void test_nongeneric_base_unaffected() {
+    string src = "namespace D; interface IBase { int Tag(); } interface ILeaf : IBase { }"
+        + " class C : ILeaf { public int Tag() { return 1; } }"
+        + " class T2 { int M(ILeaf l) { return l.Tag() + 1; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

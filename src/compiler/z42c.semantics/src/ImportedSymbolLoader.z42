@@ -5,6 +5,7 @@
 namespace Z42.Semantics;
 
 using Z42.IR;
+using Z42.Core;   // Span（导入接口的父接口形态包成 ResolvedTypeExpr 时要）
 
 // string 值盒（StrMap 存 object，prim 不能 `as string` 下行 → 包一层）。
 public sealed class StrBox {
@@ -404,6 +405,21 @@ public static class ImportedSymbolLoader {
                         // Z42GenericParamType。`Self` 会踩同一个坑，故一并接上（design D5）。
                         string[] itp2 = MemberCollector._withSelf(iz2.TypeParams, iz2.TpCount);
                         int itpc2 = iz2.TpCount + 1;
+                        // 父接口的**带实参**形态（与本包 `StubCollector._addIfaceBases` 存 AST 节点同形）。
+                        // 骨架那一步（Phase1）只能恢复裸短名 —— 它是查找键，实参被剥掉了；沿继承链代换
+                        // 型参却正需要实参（`interface ILeaf : IMid<int>`）。放在 Phase2 是因为解析父接口
+                        // 要求**所有**骨架已建（Phase1 内父接口可能还没轮到），而 `_resolve` 认 FQ 名 +
+                        // 泛型实例化串，正好吃 TSIG 存的那个形态。
+                        int ibr = 0;
+                        while (ibr < it2.BaseCount && ibr < iz2.BaseCount) {
+                            if (it2.BaseRefs[ibr] == null) {
+                                Z42Type bt2 = ImportedSymbolLoader._resolve(r, iz2.BaseNames[ibr], itp2, itpc2);
+                                if (bt2 is Z42InterfaceType) {
+                                    it2.BaseRefs[ibr] = new ResolvedTypeExpr(bt2, new Span(0, 0, 0, 0, ""));
+                                }
+                            }
+                            ibr = ibr + 1;
+                        }
                         int im2 = 0;
                         while (im2 < iz2.MethodCount) {
                             ExportedMethodZ mz = iz2.Methods[im2];

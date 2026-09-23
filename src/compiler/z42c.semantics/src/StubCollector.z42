@@ -136,7 +136,10 @@ public sealed class StubCollector {
             string bn = c.Bases[b].Dump();
             int ltIdx = bn.IndexOf("<");
             if (ltIdx >= 0) { bn = bn.Substring(0, ltIdx); }
-            target.AddBase(bn);
+            // 裸名作查找键，**AST 原节点**另存一份：裸名把 `IMid<int>` 的 `int` 丢了，而沿继承链
+            // 代换型参时正需要它（见 Z42InterfaceType.BaseRefs 抬头）。这里不能就地解析 ——
+            // 本 pass 是 Pass A，后声明的父接口此刻可能还没进符号表；解析延到消费端。
+            target.AddBaseRef(bn, c.Bases[b]);
             b = b + 1;
         }
     }

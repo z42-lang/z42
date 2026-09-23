@@ -128,7 +128,13 @@ public sealed partial class MemberResolver {
         }
         if (rt is Z42InterfaceType) {                                // 接口收者（port-z42c-interface）
             Z42InterfaceType it = rt as Z42InterfaceType;
-            MethodSymbol ims = InterfaceClosure.FindMethod(env.Symbols, it, mem.Name);   // 父接口闭包，见其抬头
+            IfaceMethodHit ihit = InterfaceClosure.Find(env.Symbols, it, mem.Name);   // 父接口闭包，见其抬头
+            MethodSymbol ims = null;
+            // 代换基准 = 成员**归属的**接口（继承来的成员归属父接口，其实参已由闭包逐层代下来）。
+            // 用接收者 `it` 当基准的话，`interface ILeaf : IMid<int>` 上调 `Get()` 拿 ILeaf 的实参
+            // 去换 IMid 的 `T` —— 换不上，`T` 原样裸奔（返回位误报、形参位漏报）。
+            Z42InterfaceType iown = it;
+            if (ihit != null) { ims = ihit.Sym; iown = ihit.Owner; }
             if (ims != null) {
                 // bind-self-param-and-constraint-members Part B：**形参位**的 `Self` 经接口静态类型
                 // 调用一律禁止（对标 Rust object-safety）。返回位（#527）能取接口作**上界**是因为它
@@ -155,8 +161,8 @@ public sealed partial class MemberResolver {
                 // 实例化**类**那条路早就做了（下方 GS6 的 `_substGeneric`），接口这条一直没做。
                 // 形参位走 `CheckSubstitutedArgs` 补查：代换后的签名是**诊断专用**，不回灌
                 // `_withDefaults`（不变式 I1，理由见 GS6 分支的长注释）。
-                if (it is Z42InstantiatedInterfaceType) {
-                    Z42InstantiatedInterfaceType iRecv = it as Z42InstantiatedInterfaceType;
+                if (iown is Z42InstantiatedInterfaceType) {
+                    Z42InstantiatedInterfaceType iRecv = iown as Z42InstantiatedInterfaceType;
                     ifRet = MemberResolver._substIfaceArgs(ifRet, iRecv);
                     this._tc._overload.CheckSubstitutedArgs(args, rawArgs, argCount, ims.Signature,
                         MemberResolver._substIfaceSig(ims.Signature, iRecv), env);
@@ -285,12 +291,15 @@ public sealed partial class MemberResolver {
         // 接口收者属性访问：get_<Name>() 虚调用（接口 getter 已注册为 get_X 方法符号）；同走父接口闭包。
         if (tt is Z42InterfaceType) {
             Z42InterfaceType it = tt as Z42InterfaceType;
-            MethodSymbol ig = InterfaceClosure.FindMethod(env.Symbols, it, "get_" + m.Name);
+            IfaceMethodHit ghit = InterfaceClosure.Find(env.Symbols, it, "get_" + m.Name);
+            MethodSymbol ig = null;
+            Z42InterfaceType gown = it;   // 代换基准 = 归属接口（同方法那条路，见其注释）
+            if (ghit != null) { ig = ghit.Sym; gown = ghit.Owner; }
             if (ig != null && ig.Signature != null) {
                 // self-return-type-substitution：属性 getter 同款（`interface IBox { Self Inner { get; } }`）；
                 // 接口型参也同款代换（`IBox<int>.Cur` 是 int 而非 T）。getter 无形参，不必补查实参。
                 Z42Type gRet = MemberResolver._substSelf(ig.Signature.Ret, it);
-                if (it is Z42InstantiatedInterfaceType) { gRet = MemberResolver._substIfaceArgs(gRet, it as Z42InstantiatedInterfaceType); }
+                if (gown is Z42InstantiatedInterfaceType) { gRet = MemberResolver._substIfaceArgs(gRet, gown as Z42InstantiatedInterfaceType); }
                 return BoundCall.Marked(new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
                                      gRet, m.Span), ig.Signature);
             }

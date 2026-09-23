@@ -4,23 +4,42 @@
 // 有 `_passInheritFields`（类的字段继承）却没有对应的「父接口方法合进子接口」那一 pass。
 // 于是 `interface IDerived : IBase` 上调 `IBase` 的方法，裸查 `it.Methods` 查不到 ⇒ E0401。
 //
-// 这个洞平时不显眼，是因为**跨包导入的类型 TSIG 已经把继承方法展平进各派生类的 Methods**：
-// 同一个形状，本包编译报 E0401、跨 zpkg 引用却能过。`IEnumerator<T> : IDisposable` 正撞这条——
-// foreach 脱糖出的 `__e.Dispose()` 在本包实现的枚举器上查不到，`Std.IEnumerable<T>` 因此
-// **一直没人能实现**（全仓零个 `: IEnumerable<T>` 声明不是没人想写，是写不出来）。
+// 本包与跨包走同一份闭包：跨包侧的 `BaseNames` / `BaseRefs` 由 TSIG 承载
+// （`ExportedInterfaceZ.BaseNames`，`ImportedSymbolLoader` 恢复）。`IEnumerator<T> : IDisposable`
+// 正撞这条——foreach 脱糖出的 `__e.Dispose()` 走的就是继承来的成员。
 //
 // 查找语义与 `ExprTyper._ifaceMethodClosure`（运算符重载那条路径的同款遍历）统一：
 // 深度优先、先本接口后父接口、**要求签名非 null 才算命中**（无签名的占位符号继续往上找）。
+//
+// ⚠️ 命中结果连**归属接口**一起给（`IfaceMethodHit.Owner`，已按继承链逐层代换过实参）：
+// 调用方拿它做型参代换。只给 MethodSymbol 的话，父接口成员上的 `T` 换不掉 —— 返回位误报、
+// 形参位漏报，与 `_substIfaceArgs` 抬头记的那对症状同源，只是发生在继承链上。
 namespace Z42.Semantics;
 using Z42.IR;   // StrMap
+using Z42.Syntax;   // NamedType（父接口声明形态的实参判别）
+
+// 一次命中：方法符号 + 它**归属的接口**（沿继承链逐层代换实参后的形态）。
+public sealed class IfaceMethodHit {
+    public MethodSymbol      Sym;
+    public Z42InterfaceType  Owner;
+    public IfaceMethodHit(MethodSymbol sym, Z42InterfaceType owner) { this.Sym = sym; this.Owner = owner; }
+}
 
 public sealed class InterfaceClosure {
 
     // 接口（含父接口闭包）里找方法。接口方法按**裸名**登记（MemberCollector）。
+    // 只要符号、不关心归属时用这个；要做型参代换的调用方用 `Find`。
     public static MethodSymbol FindMethod(SymbolTable symbols, Z42InterfaceType it, string method) {
+        IfaceMethodHit hit = InterfaceClosure.Find(symbols, it, method);
+        if (hit == null) { return null; }
+        return hit.Sym;
+    }
+
+    // 同上，但连归属接口一起给（`Owner` 已按 `it` 的实参逐层代换）。
+    public static IfaceMethodHit Find(SymbolTable symbols, Z42InterfaceType it, string method) {
         if (it == null) { return null; }
         MethodSymbol own = it.Methods.Get(method) as MethodSymbol;
-        if (own != null && own.Signature != null) { return own; }
+        if (own != null && own.Signature != null) { return new IfaceMethodHit(own, it); }
         if (symbols == null) { return null; }
         return InterfaceClosure._walkBases(symbols, it, method, 0);
     }
@@ -31,21 +50,47 @@ public sealed class InterfaceClosure {
         return InterfaceClosure.FindMethod(symbols, symbols.GetInterface(ifaceName), method);
     }
 
-    // 沿 BaseNames 递归。`depth` 是**成环护栏**——接口继承成环本不该发生，但查找不该因此挂死；
+    // 第 `i` 个父接口在**当前视角**下的形态：解析声明形态（`IMid<int>` 带实参）后，把子接口自己的
+    // 型参按 `it` 的实参换掉 —— 于是 `class C : ILeaf<int>` 看 `ILeaf<U> : IMid<U>` 的父接口时
+    // 拿到的是 `IMid<int>`，逐层传递。没有声明形态（跨包未解析）或父接口非泛型时退回裸名定义。
+    public static Z42InterfaceType BaseAt(SymbolTable symbols, Z42InterfaceType it, int i) {
+        if (symbols == null || it == null || i >= it.BaseCount) { return null; }
+        // 快路径：声明处没写实参（`: IBase`）⇒ 无实参可代，直接用裸名定义。
+        // 判别用 AST 的 ArgCount，不用 `def.TypeParamCount` —— 后者混着隐式 `Self`
+        //（`_substIfaceArgs` 抬头记着这条），拿它当「是不是泛型」会误判。
+        TypeExpr bref = null;
+        if (it.BaseRefs != null && i < it.BaseRefs.Length) { bref = it.BaseRefs[i]; }
+        bool hasArgs = false;
+        if (bref != null) {
+            if (bref is NamedType) { hasArgs = (bref as NamedType).ArgCount > 0; }
+            else { hasArgs = true; }   // ResolvedTypeExpr（跨包）等：交给下面解析判断
+        }
+        if (hasArgs) {
+            Z42Type bt = symbols.ResolveTypeP(bref, it.TypeParamNames, it.TypeParamCount);
+            if (bt is Z42InstantiatedInterfaceType) {
+                if (it is Z42InstantiatedInterfaceType) {
+                    bt = MemberResolver._substIfaceArgs(bt, it as Z42InstantiatedInterfaceType);
+                }
+                return bt as Z42InterfaceType;
+            }
+            if (bt is Z42InterfaceType) { return bt as Z42InterfaceType; }
+        }
+        if (!symbols.HasInterface(it.BaseNames[i])) { return null; }
+        return symbols.GetInterface(it.BaseNames[i]);
+    }
+
+    // 沿父接口链递归。`depth` 是**成环护栏**——接口继承成环本不该发生，但查找不该因此挂死；
     // 接口继承链在实际代码里是个位数深度，32 层足够宽松。
-    private static MethodSymbol _walkBases(SymbolTable symbols, Z42InterfaceType it, string method, int depth) {
+    private static IfaceMethodHit _walkBases(SymbolTable symbols, Z42InterfaceType it, string method, int depth) {
         if (depth > 32) { return null; }
         int i = 0;
         while (i < it.BaseCount) {
-            string bn = it.BaseNames[i];
-            if (symbols.HasInterface(bn)) {
-                Z42InterfaceType bit = symbols.GetInterface(bn);
-                if (bit != null) {
-                    MethodSymbol own = bit.Methods.Get(method) as MethodSymbol;
-                    if (own != null && own.Signature != null) { return own; }
-                    MethodSymbol up = InterfaceClosure._walkBases(symbols, bit, method, depth + 1);
-                    if (up != null) { return up; }
-                }
+            Z42InterfaceType bit = InterfaceClosure.BaseAt(symbols, it, i);
+            if (bit != null) {
+                MethodSymbol own = bit.Methods.Get(method) as MethodSymbol;
+                if (own != null && own.Signature != null) { return new IfaceMethodHit(own, bit); }
+                IfaceMethodHit up = InterfaceClosure._walkBases(symbols, bit, method, depth + 1);
+                if (up != null) { return up; }
             }
             i = i + 1;
         }

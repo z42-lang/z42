@@ -162,6 +162,23 @@ class Box : IRepo<string> {
 }
 ```
 
+**泛型接口也可以做父接口**，实参沿继承链逐层传递：
+
+```z42
+interface IMid<T> : IBase { T Get(); }
+interface ILeaf : IMid<int> { }        // 把 int 喂给 IMid 的 T
+interface IRelay<U> : IMid<U> { }      // 把自己的 U 转手喂下去
+
+class C : ILeaf {
+    public int Get() { return 1; }     // 期望签名是 int Get()，不是 T Get()
+}
+
+ILeaf l = new C();
+int n = l.Get() + 1;                   // 经接口静态类型读出来也是 int
+```
+
+跨包同样成立（父接口的实参随 TSIG 过 wire）。
+
 接口作为**泛型约束**（`where T : IShape`）的规则见[泛型约束](generic-constraints.md)。
 
 ## `Self` 类型

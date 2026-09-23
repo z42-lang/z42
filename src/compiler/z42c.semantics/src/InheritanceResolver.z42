@@ -407,7 +407,10 @@ public sealed class InheritanceResolver {
         }
         int b = 0;
         while (b < it.BaseCount) {   // 父接口的成员同样要补齐（与 ⑤ 的闭包同一条链）
-            Z42InterfaceType bit = table.GetInterface(it.BaseNames[b]);
+            // `BaseAt` 而不是 `GetInterface(裸名)`：后者拿到的是**未实例化**的定义，`interface
+            // ILeaf : IMid<int>` 上溯时 `IMid` 的 `T` 就永远换不掉 ⇒ 下方 `_substForIface` 拿 `T`
+            // 去跟实现方的 `int` 比，E0412 误报（实现方**怎么写都过不了**）。
+            Z42InterfaceType bit = InterfaceClosure.BaseAt(table, it, b);
             if (bit != null) { this._checkOneIfaceMembers(table, ct, cName, cSpan, bit); }
             b = b + 1;
         }
