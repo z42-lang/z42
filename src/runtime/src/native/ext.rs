@@ -267,6 +267,17 @@ fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
 
 // ── compression symbol table (dlopen path) ───────────────────────────────────
 
+/// The `z42_compression` C-ABI contract version this loader was written against.
+/// Must equal `z42_compression::Z42_COMPRESSION_ABI_VERSION`; bump both together
+/// on any `z42_compression_*` signature or error-code change. The dlopen path
+/// checks it via [`CAbiVersionFn`] before binding any other symbol — link-time
+/// version-locking (the doc below) only covers the bundled / packaged case, not
+/// a stale library dlopen'd from the executable's own directory.
+const EXPECTED_COMPRESSION_ABI: u32 = 1;
+
+/// `z42_compression_abi_version() -> u32` — resolved first on the dlopen path.
+type CAbiVersionFn = unsafe extern "C" fn() -> u32;
+
 /// Raw C ABI signatures matching `src/runtime/crates/z42-compression/src/lib.rs`.
 /// These must stay in sync byte-for-byte with the cdylib's `#[unsafe(no_mangle)]`
 /// exports. Because we ship z42vm and z42-compression version-locked from
@@ -355,6 +366,23 @@ static LOADED_COMPRESSION: Mutex<Option<LoadedCompression>> = Mutex::new(None);
 unsafe fn compression_symbols_via_dlopen(
     lib: &libloading::Library,
 ) -> Result<&'static [(&'static str, NativeFn)]> {
+    // ABI handshake — resolve the version symbol FIRST and refuse to bind the
+    // rest unless it matches what these signatures were written against. The
+    // loader searches the executable's own directory (`native_search_paths`), so
+    // a stale `libz42_compression` sitting there has the same symbol names but a
+    // possibly different layout; calling it through the current `C*Fn` types
+    // would be UB. A missing symbol (pre-versioning build) fails the `?` the same
+    // way — the caller warns and skips the library rather than guess.
+    let abi_version: CAbiVersionFn = *(lib.get(b"z42_compression_abi_version")?);
+    let got = abi_version();
+    if got != EXPECTED_COMPRESSION_ABI {
+        anyhow::bail!(
+            "libz42_compression ABI version mismatch: library reports {got}, z42vm expects \
+             {EXPECTED_COMPRESSION_ABI} — skipping it (rebuild the native library from the \
+             matching source tree)"
+        );
+    }
+
     // libloading::Symbol::* deref to the underlying fn ptr. We copy the
     // fn ptrs out (Copy) and keep the Library alive separately via
     // VmCore.native_libs so the symbols stay resident.
@@ -752,4 +780,27 @@ fn wrap_compressor_dispose(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
         let _ = unsafe { (lc.compressor_dispose)(slot_id) };
     }
     Ok(Value::Null)
+}
+
+// The ABI handshake's two halves — this loader's `EXPECTED_COMPRESSION_ABI` and
+// the crate's `Z42_COMPRESSION_ABI_VERSION` — must agree, or every dlopen of a
+// correctly-built library would be wrongly rejected. Only checkable when the
+// crate is linked in (bundled builds); the dlopen happy path is exercised by the
+// runtime whenever `libz42_compression` is loaded.
+#[cfg(all(test, feature = "bundled-compression"))]
+mod abi_handshake_tests {
+    #[test]
+    fn expected_abi_matches_the_crate() {
+        assert_eq!(
+            super::EXPECTED_COMPRESSION_ABI,
+            z42_compression::Z42_COMPRESSION_ABI_VERSION,
+            "native/ext.rs EXPECTED_COMPRESSION_ABI is out of sync with \
+             z42-compression's Z42_COMPRESSION_ABI_VERSION — bump both together",
+        );
+        assert_eq!(
+            z42_compression::z42_compression_abi_version(),
+            z42_compression::Z42_COMPRESSION_ABI_VERSION,
+            "the exported C function must return the crate constant",
+        );
+    }
 }
