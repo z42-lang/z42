@@ -191,6 +191,27 @@ public sealed class BoundDefault : BoundExpr {
     public override string  Dump() { return "(default :" + this._type.Name() + ")"; }
 }
 
+// define-null-check-marks D5：`Expect("理由")` —— 空检查义务的**唯一显式逃生口**。
+//
+// 语义：运行期**真检查**。为 null 就抛 `NullReferenceException`，消息 = 作者写的理由；
+// 非 null 则原值通过，且流分析把结果记为 NotNull（义务解除）。
+//
+// 与 C# 的 `!` 的区别正是这条线的立场所在：`!` 是纯编译期擦除——不检查、不留痕、不解释；
+// 本节点检查、抛、并把「你**为什么**认为它非空」留在代码里，可 grep、可在 review 里数。
+// ⇒ 理由参数**必须给且必须是字符串字面量**（校验在 `MemberResolver`，违者 E0490）。
+//
+// `Target` 保留原表达式：发射时只求值一次（`Expect` 不是一次额外的读）。
+public sealed class BoundExpect : BoundExpr {
+    public BoundExpr Target;
+    public string    Reason;
+    private Z42Type  _type;
+    public BoundExpect(BoundExpr target, string reason, Z42Type type, Span span) {
+        this.Span = span; this.Target = target; this.Reason = reason; this._type = type;
+    }
+    public override Z42Type Type() { return this._type; }
+    public override string  Dump() { return "(expect " + this.Target.Dump() + ")"; }
+}
+
 public sealed class BoundError : BoundExpr {
     public string Message;
     private Z42Type _type;

@@ -661,7 +661,9 @@ public sealed class TypeChecker {
 
     // 「永不为 null 的值类型」：带 IsStruct 的 Z42ClassType（基元 wrapper + 用户 struct）或 enum。
     // `string` / `object` 不是（`PrimModel.IsScalarValue` 挡下 ⇒ IsStruct 为假）；裸型参也不是。
-    private static bool _isNonNullableValueType(Z42Type t) {
+    // ⚠️ `internal` 而非 `private`：`MemberResolver` 的 `Expect` intrinsic 要用同一个判据挡住
+    // 值类型收者。**不另写一份**——「编译期与运行期各判各的」正是 `where T : struct` 那个 bug 的形状。
+    internal static bool _isNonNullableValueType(Z42Type t) {
         if (TypeFacts.IsEnum(t)) { return true; }
         Z42ClassType ct = t as Z42ClassType;
         if (ct == null) { return false; }

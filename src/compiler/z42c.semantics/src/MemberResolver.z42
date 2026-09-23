@@ -73,6 +73,22 @@ public sealed partial class MemberResolver {
     // **刻意不改重载决议**：下方 `_resolveOverload` 的 typeArgCount 仍传 0。把它改成
     // `call.TypeArgCount` 会改变重载选择 → 撼动 codegen 与自举字节不动点，属另一件事。
     private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
+        // define-null-check-marks D5：`Expect("理由")` intrinsic —— 空检查义务的唯一显式逃生口。
+        //
+        // 挂在这里是因为**所有接收者种类**（类 / 接口 / 基元 / 懒加载 stub / Unknown）都汇聚到
+        // 这一个漏斗，挂在更上游就得为每种收者各写一遍。
+        //
+        // ⚠️ **真实成员优先，intrinsic 只兜底**（`_hasUserExpect`）。`Expect` 不是保留字，全仓
+        // 已经有一个真的：`TomlParser.Expect(char, string)`，12 个调用点。方向是刻意选的——
+        // intrinsic 抢赢会让用户已有的 `Expect` **静默改变行为**（最坏的一类回归）；让真成员赢
+        // 最多是「这个类上用不了逃生口」，用户看得见、改得动（重命名自己的方法）。
+        //
+        // ⚠️ 值类型收者**不走这里**（`_hasUserExpect` 之外还挡一道）：值类型永不为 null
+        // （E0476 禁止给它标 `?`），对它 `Expect` 是个恒真检查 ⇒ 让它落到常规解析去报
+        // 「no method `Expect`」，比造一个恒不触发的检查诚实。
+        if (mem.Name == "Expect" && !MemberResolver._hasUserExpect(rt, env) && !TypeChecker._isNonNullableValueType(rt)) {
+            return this._bindExpectIntrinsic(mem, recv, rt, args, argCount, rawArgs, sp);
+        }
         // unify-value-types Phase 1：翻转后基元/string/object 为 Z42ClassType——**排除内建**，让其
         // 继续走下方 prim-wrapper 派发路径（declClass 用 keyword 名、键用 _overloadKey），与翻转前
         // Z42PrimType 收者逐字节同义。用户 class/struct（非内建）仍走此类分支。
@@ -742,6 +758,52 @@ public sealed partial class MemberResolver {
         if (e is IdentExpr) { return (e as IdentExpr).Name; }
         if (e is MemberExpr) { return MemberResolver._rootIdent((e as MemberExpr).Target); }
         return "";
+    }
+
+
+    // `Expect` intrinsic 的绑定 + 校验。理由**必须给、必须是字符串字面量、且不能是空串**：
+    // 强制理由是这个逃生口与 C# `!` 的全部区别——允许 `Expect("")` 等于把它还原成 `!`。
+    private BoundExpr _bindExpectIntrinsic(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, Span sp) {
+        string reason = "";
+        bool ok = false;
+        if (argCount == 1 && rawArgs != null && rawArgs.Length >= 1 && (rawArgs[0] is StringLitExpr)) {
+            // `Raw` 是**含引号的原始词法**（`BenchmarkDesugar.z42:103` 明写着这条）⇒ 必须解码。
+            reason = Lexer.DecodeString((rawArgs[0] as StringLitExpr).Raw);
+            ok = (reason.Trim() != "");
+        }
+        if (!ok) {
+            this._tc._diags.Error("E0490",
+                "`Expect` needs exactly one argument and it must be a non-empty string literal "
+                + "saying why you believe this is not null (e.g. "
+                + "`Expect(\"LoadConfig filled _cache in the constructor\")`) — the reason is the "
+                + "whole point of this escape hatch: it is checked at run time and the message is "
+                + "what someone sees when your belief turns out to be wrong", sp);
+        }
+        // 出错也返回 `BoundExpect`（类型 = 收者类型）而**不是** ErrorType：理由写坏不该再级联出
+        // 一串「类型不匹配」，那会把真正的一条诊断淹掉。
+        return new BoundExpect(recv, reason, rt, sp);
+    }
+
+    // 收者类型上是否有**用户自己声明**的 `Expect` 成员。有就让真成员赢（见调用点抬头）。
+    //
+    // 判据刻意**宽**：拿不准就算「有」⇒ 不应用 intrinsic ⇒ 最坏是逃生口在这个类上用不了
+    // （看得见、改得动），而不是悄悄改掉一个已有调用的行为。
+    private static bool _hasUserExpect(Z42Type rt, TypeEnv env) {
+        if (rt == null) { return false; }
+        if (rt is Z42ClassType) {
+            Z42ClassType ct = rt as Z42ClassType;
+            while (ct != null) {
+                if (ct.OverloadsOf("Expect").Length > 0) { return true; }
+                if (!ct.HasBase || ct.BaseName == "") { return false; }
+                if (!env.Symbols.HasClass(ct.BaseName)) { return false; }
+                ct = env.Symbols.GetClass(ct.BaseName);
+            }
+            return false;
+        }
+        if (rt is Z42InterfaceType) {
+            return InterfaceClosure.FindMethod(env.Symbols, rt as Z42InterfaceType, "Expect") != null;
+        }
+        return false;
     }
 
 }

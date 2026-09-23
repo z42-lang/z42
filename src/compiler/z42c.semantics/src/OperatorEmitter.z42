@@ -251,21 +251,76 @@ public sealed class OperatorEmitter {
     // ⚠️ `GetClass` 走的是**裸名表**（同短名跨 ns 只活一份赢家，`SymbolTable.z42:10,40`）——
     // 所以必须再核一次 `Fqn()`：用户自己定义一个叫 `SwitchExpressionException` 的类时，
     // 裸名会撞到他那个，拿他的 RegKey 去拼 `Std.SwitchExpressionException.…` 就是个断键。
-    private string _swxCtorFq() {
-        Z42ClassType c = this._ctx.Symbols.GetClass("SwitchExpressionException");
-        if (c != null && c.Fqn() == OperatorEmitter.SWX_EXC) {
+    private string _swxCtorFq() { return this._excCtorFq(OperatorEmitter.SWX_EXC, "SwitchExpressionException"); }
+
+    // 合成异常的 ctor FQ 名 —— **从符号表现查、不硬编码**。两个合成点（switch 落空 / `Expect`
+    // 失败）共用这一份：ctor 键的规则不平凡，留两份迟早漂。
+    //
+    // primary ctor 注册为**裸类名**、非-primary 才是全签名 mangle（`OverloadBinder._ctorKey`,
+    // stabilize-instance-dispatch-keys）。写成 `…$1` 会在运行期变 `MissingSymbolException`
+    // （#760 实测踩过这一脚）；而写死裸名又会在**有人给这个类加第二个 ctor 的那天**静默断掉，
+    // 且只在异常那条路才现形 —— 所以查得到就用 `RegKey`（权威值）。
+    //
+    // ⚠️ `GetClass` 走**裸名表**（同短名跨 ns 只活一份赢家，`SymbolTable.z42:10,40`）⇒ 必须再核
+    // 一次 `Fqn()`：用户自己定义一个同短名的类时，裸名会撞到他那个，拿他的 RegKey 去拼
+    // `Std.X.…` 就是个断键。
+    private string _excCtorFq(string fq, string shortName) {
+        Z42ClassType c = this._ctx.Symbols.GetClass(shortName);
+        if (c != null && c.Fqn() == fq) {
             MethodSymbol[] cs = c.InstanceCtors();
             int i = 0;
             while (i < cs.Length) {
                 // RegKey 可能为空（符号缺失 / decl-only），空则不要拼出 "Std.X." 这种断键 —— 回落裸名。
                 if (cs[i].Signature != null && cs[i].Signature.ParamCount == 1 && cs[i].RegKey != "") {
-                    return OperatorEmitter.SWX_EXC + "." + cs[i].RegKey;
+                    return fq + "." + cs[i].RegKey;
                 }
                 i = i + 1;
             }
         }
-        return OperatorEmitter.SWX_EXC + ".SwitchExpressionException";
+        return fq + "." + shortName;
     }
+
+    // define-null-check-marks D5：`Expect("理由")` —— 空检查义务的唯一显式逃生口，运行期**真检查**。
+    //
+    //     v = <target>                      ← 只求值一次（Expect 不是一次额外的读）
+    //     isNull = (v == null)
+    //     br.cond isNull -> throwL, okL
+    //   throwL:
+    //     exc = new Std.NullReferenceException(reason)
+    //     throw exc                         ← ThrowTerm 使块 Ended ⇒ 落空路径到不了 okL
+    //   okL:
+    //     → v
+    //
+    // 与上方 switch 落空点同一手法（#760）：**全用现有指令，不新增 opcode、不动 wire 格式、
+    // VM 一行不改**。放在同一个文件里就是为了让这两处合成点互相看得见。
+    //
+    // ⚠️ **消息里只放理由、不嵌源位置**：`Span.File` 是构建机路径，嵌进去会把它烤进 zbc、
+    // 破坏字节不动点（#760 踩过）。位置不会丢 —— `Throw` 运行期已做 resolve_line +
+    // populate_stack_trace，抛出点自动在栈回溯里。
+    internal TypedReg _emitExpect(BoundExpect ex) {
+        TypedReg v = this._ee.Emit(ex.Target);
+        string throwL = this._ctx.Fresh("expect_null");
+        string okL    = this._ctx.Fresh("expect_ok");
+        TypedReg nul = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(nul));
+        TypedReg isNull = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new EqInstr(isNull, v, nul));
+        this._ctx.EndBlock(new BrCondTerm(isNull, throwL, okL));
+        this._ctx.StartBlock(throwL);
+        TypedReg msg = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(msg, this._ctx.Gen.Intern(ex.Reason)));
+        TypedReg exc = this._ctx.Alloc(IrType.Ref);
+        TypedReg[] cargs = new TypedReg[1];
+        cargs[0] = msg;
+        this._ctx.Emit(new ObjNewInstr(exc, OperatorEmitter.EXPECT_EXC, this._expectCtorFq(), new string[0], 0, cargs, 1));
+        this._ctx.EndBlock(new ThrowTerm(exc));
+        this._ctx.StartBlock(okL);
+        return v;
+    }
+
+    // 逃生口失败时抛的异常。emitter 只写**字符串**、不 `using` 这个类 ⇒ 编译期零依赖。
+    private static string EXPECT_EXC = "Std.NullReferenceException";
+    private string _expectCtorFq() { return this._excCtorFq(OperatorEmitter.EXPECT_EXC, "NullReferenceException"); }
 
     internal TypedReg _emitConditional(BoundConditional c) {
         TypedReg cond = this._ee.Emit(c.Cond);

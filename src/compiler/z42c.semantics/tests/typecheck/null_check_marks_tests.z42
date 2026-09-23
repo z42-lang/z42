@@ -385,3 +385,66 @@ void test_iface_impl_adds_nullable_param_ok() {
         + "class C : I { public int M(string? s) { return 0; } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── D5：`Expect("理由")` —— 唯一显式逃生口（E0490）─────────────────
+//
+// 它与 C# 的 `!` 的全部区别在那个参数：`!` 纯编译期擦除，`Expect` 运行期真检查 +
+// 把「为什么你认为它非空」留在代码里。⇒ 理由必须是**非空字符串字面量**。
+
+[Test]
+void test_expect_clears_param_obligation() {
+    string src = "namespace N; class C { static int M(string? s) { return s.Expect(\"caller always passes one\").Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性：没有理由 → E0490（不是「悄悄放行」，也不是退回 E0478）
+[Test]
+void test_expect_without_reason_errors() {
+    string src = "namespace N; class C { static int M(string? s) { return s.Expect().Length; } }";
+    Assert.Equal("E0490", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性：理由不是字面量 —— 运行期拼出来的字符串在 review 时读不到，等于没写
+[Test]
+void test_expect_non_literal_reason_errors() {
+    string src = "namespace N; class C { static int M(string? s, string why) { return s.Expect(why).Length; } }";
+    Assert.Equal("E0490", SemanticDump.FirstErrorCode(src));
+}
+
+// 阴性：空理由 —— `Expect("")` 等于把它还原成 C# 的 `!`，那正是要避开的东西
+[Test]
+void test_expect_empty_reason_errors() {
+    string src = "namespace N; class C { static int M(string? s) { return s.Expect(\"\").Length; } }";
+    Assert.Equal("E0490", SemanticDump.FirstErrorCode(src));
+}
+
+// 字段那半：`Expect` 同样是逃生口（字段只被读一次，安全）
+[Test]
+void test_expect_on_marked_field_ok() {
+    string src = "namespace N; class C { string? F; int M() { return this.F.Expect(\"filled in ctor\").Length; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 返回值那半：`Expect` 的结果不再可空 ⇒ 可以漏给未标 `?` 的返回类型
+[Test]
+void test_expect_result_may_return_from_unmarked() {
+    string src = "namespace N; class C { static string M(string? s) { return s.Expect(\"checked upstream\"); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 🛡 无误报守卫一：**真实成员优先**。全仓已有 `TomlParser.Expect(char, string)`，
+// intrinsic 抢赢会让它静默改变行为 —— 那是最坏的一类回归，方向是刻意选的。
+[Test]
+void test_user_declared_expect_member_wins() {
+    string src = "namespace N; class P { void Expect(char c, string what) { } "
+        + "void Use() { this.Expect('[', \"'['\"); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 🛡 无误报守卫二：确定赋值（E0407）不受 `Expect` 影响 —— 两件事不同源。
+// `Expect` 解除的是**空检查**义务，不是「这个局部赋过值没有」。
+[Test]
+void test_expect_does_not_mask_definite_assignment() {
+    string src = "namespace N; class C { static int M() { string s; return s.Expect(\"nope\").Length; } }";
+    Assert.Equal("E0407", SemanticDump.FirstErrorCode(src));
+}
