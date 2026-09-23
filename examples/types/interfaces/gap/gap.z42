@@ -1,7 +1,7 @@
 using Std.IO;
 
 interface IBase { void A(); }
-interface IDerived : IBase { void B(); }   // 语法能过，但继承不生效
+interface IDerived : IBase { void B(); }
 
 class Impl : IDerived {
     public void A() { Console.WriteLine("A"); }
@@ -10,6 +10,9 @@ class Impl : IDerived {
 
 void Main() {
     IDerived d = new Impl();
-    d.B();
-    d.A();        // ✗ 继承来的成员看不见
+    d.B();                  // IDerived 自己声明的
+    d.A();                  // 继承自 IBase —— 一样能调
+
+    IBase b = new Impl();   // 类 → 它的任一祖先接口，可以
+    b.A();
 }
