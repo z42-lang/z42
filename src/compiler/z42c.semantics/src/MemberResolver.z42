@@ -112,7 +112,7 @@ public sealed partial class MemberResolver {
         }
         if (rt is Z42InterfaceType) {                                // 接口收者（port-z42c-interface）
             Z42InterfaceType it = rt as Z42InterfaceType;
-            MethodSymbol ims = it.Methods.Get(mem.Name) as MethodSymbol;
+            MethodSymbol ims = InterfaceClosure.FindMethod(env.Symbols, it, mem.Name);   // 父接口闭包，见其抬头
             if (ims != null) {
                 // bind-self-param-and-constraint-members Part B：**形参位**的 `Self` 经接口静态类型
                 // 调用一律禁止（对标 Rust object-safety）。返回位（#527）能取接口作**上界**是因为它
@@ -255,10 +255,10 @@ public sealed partial class MemberResolver {
         // unify-value-types Phase 1：排除内建 Z42ClassType，让 string.Length（下方特例）+ 其余基元成员
         // 走 prim-wrapper 路径，与翻转前 Z42PrimType 收者同款。用户 class/struct 仍走类成员访问。
         if ((tt is Z42ClassType) && !tt.IsBuiltinType()) { return this._bindClassMemberAccess(m, target, tt as Z42ClassType, env); }
-        // 接口收者属性访问：get_<Name>() 虚调用（接口 getter 已注册为 get_X 方法符号）。
+        // 接口收者属性访问：get_<Name>() 虚调用（接口 getter 已注册为 get_X 方法符号）；同走父接口闭包。
         if (tt is Z42InterfaceType) {
             Z42InterfaceType it = tt as Z42InterfaceType;
-            MethodSymbol ig = it.Methods.Get("get_" + m.Name) as MethodSymbol;
+            MethodSymbol ig = InterfaceClosure.FindMethod(env.Symbols, it, "get_" + m.Name);
             if (ig != null && ig.Signature != null) {
                 // self-return-type-substitution：属性 getter 同款（`interface IBox { Self Inner { get; } }`）
                 return BoundCall.Marked(new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,

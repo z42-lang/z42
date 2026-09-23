@@ -1,0 +1,76 @@
+// 接口成员的父接口闭包查找单测（fix-interface-inherited-members）。
+//
+// 本地接口的 `Methods` 表只装本接口自己声明的成员（没有「父接口方法合进子接口」那一 pass），
+// 而**跨包导入的类型 TSIG 是展平的** ⇒ 同一个形状，本包编译报 E0401、跨 zpkg 引用却能过。
+// `IEnumerator<T> : IDisposable` 正撞这条：foreach 脱糖出的 `__e.Dispose()` 在本包实现的
+// 枚举器上查不到，`Std.IEnumerable<T>` 因此一直没人能实现。
+namespace Z42cSemanticsInterfaceClosureTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 方法：一层 / 多层 / 菱形 ──────────────────────────────────────
+
+[Test]
+void test_derived_interface_inherits_base_method() {
+    string src = "namespace D; interface IB { void Ping(); } interface ID : IB { int V(); }"
+        + " class C : ID { public void Ping() { } public int V() { return 1; } }"
+        + " class T { void M(ID d) { d.Ping(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 本接口自己声明的成员（对照组：修复前后都该过）。
+[Test]
+void test_derived_interface_own_method_still_ok() {
+    string src = "namespace D; interface IB { void Ping(); } interface ID : IB { int V(); }"
+        + " class C : ID { public void Ping() { } public int V() { return 1; } }"
+        + " class T { int M(ID d) { return d.V(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 两层继承：IA ← IB ← IC，在 IC 上调 IA 的方法。
+[Test]
+void test_two_level_interface_inheritance() {
+    string src = "namespace D; interface IA { void Root(); } interface IB : IA { void Mid(); }"
+        + " interface IC : IB { void Leaf(); }"
+        + " class T { void M(IC c) { c.Root(); c.Mid(); c.Leaf(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 菱形：ID 同时继承 IL 与 IR，两边各自的方法都要能调到。
+[Test]
+void test_diamond_interface_inheritance() {
+    string src = "namespace D; interface IT { void Top(); } interface IL : IT { void Left(); }"
+        + " interface IR : IT { void Right(); } interface ID : IL, IR { }"
+        + " class T { void M(ID d) { d.Top(); d.Left(); d.Right(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 闭包里确实没有的成员仍须报错（别把查找放宽成「什么都找得到」）。
+[Test]
+void test_absent_member_still_errors() {
+    string src = "namespace D; interface IB { void Ping(); } interface ID : IB { int V(); }"
+        + " class T { void M(ID d) { d.Nope(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 属性：继承来的 getter ────────────────────────────────────────
+
+[Test]
+void test_derived_interface_inherits_base_property() {
+    string src = "namespace D; interface IB { int Size { get; } } interface ID : IB { int V(); }"
+        + " class T { int M(ID d) { return d.Size; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 真实形状：IEnumerator<T> : IDisposable 上的 foreach 脱糖 ─────
+// 脱糖出的 `__e.Dispose()` 此前在父接口上查不到 ⇒ E0401。
+
+[Test]
+void test_enumerator_interface_dispose_resolves() {
+    string src = "namespace D; interface IDisp { void Dispose(); }"
+        + " interface IEnum : IDisp { bool MoveNext(); int Current { get; } }"
+        + " class T { void M(IEnum e) { e.Dispose(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
