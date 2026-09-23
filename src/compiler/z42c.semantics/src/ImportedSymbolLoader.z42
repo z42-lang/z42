@@ -616,6 +616,15 @@ public static class ImportedSymbolLoader {
     // TypeResolver 子集（镜像 C# 优先级）：数组后缀 → prim/void → imported class → 泛型型参 → fallback prim(name)。
     // typeParams/tpCount：当前类的类型形参列表（如 ["T"] for Channel<T>）；无则传空数组 + 0。
     private static Z42Type _resolve(ImportedSymbols r, string name, string[] typeParams, int tpCount) {
+        // 可空后缀擦除（对齐 SymbolTable.ResolveTypeP 的 NullableType 分支）：TSIG 里 `NullableType`
+        // 被 TypeNameResolver.TsigTypeName 追加 `?`（如 `byte[]?`），而本地 AST 路径解析时早已剥掉 `?`。
+        // 不在这里剥，`byte[]?` 既不命中下方 `EndsWith("[]")`（结尾是 `?`）、也无对应类 ⇒ 落成
+        // `Builtin("byte[]?")` 垃圾类（Code=-1），跨包与本地对同一类型给出不同 Z42Type。基元可空
+        // （`int?`/`string?`）由 PrimModel.Canon 剥 `?` 早已吸收；本条补的是**非基元**可空引用/数组
+        // （现存唯一触点：跨包直调 `ProcessNative.Spawn(byte[]? …)`）。
+        if (name.EndsWith("?")) {
+            return ImportedSymbolLoader._resolve(r, name.Substring(0, name.Length - 1), typeParams, tpCount);
+        }
         if (name.EndsWith("[]")) {
             return new Z42ArrayType(ImportedSymbolLoader._resolve(r, name.Substring(0, name.Length - 2), typeParams, tpCount));
         }
