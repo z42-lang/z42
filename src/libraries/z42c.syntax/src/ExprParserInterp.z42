@@ -1,0 +1,73 @@
+// 插值串 `$"…"` 的解析（从 ExprParser.z42 拆出——那个文件已贴 886 行硬上限，
+// code-organization.md）。`partial` 拆分**只为守行数上限**，与 ExprParser 同一个类、共用 `_p`；
+// 同包先例：Lexer.z42 / LexerEscapes.z42。
+// 剩余-token 检查（E0492）的完整来龙去脉见 error-codes.md 的词条。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed partial class ExprParser {
+    private Expr _parseInterpolated(Token t) {
+        string raw = t.Text;
+        // raw 形如 $"body"：skip 2 ($") from front, skip 1 (") from back
+        int bodyEnd = raw.Length - 1;   // 不含末尾 "
+        int i = 2;                       // 跳 $"
+        InterpPart[] parts = new InterpPart[64];
+        int pc = 0;
+        string textBuf = "";
+        while (i < bodyEnd) {
+            char c = raw.CharAt(i);
+            if (c == '\\' && i + 1 < bodyEnd) {
+                char e = raw.CharAt(i + 1);
+                if (e == 'n')  { textBuf = textBuf + "\n"; i = i + 2; continue; }
+                if (e == 't')  { textBuf = textBuf + "\t"; i = i + 2; continue; }
+                if (e == 'r')  { textBuf = textBuf + "\r"; i = i + 2; continue; }
+                if (e == '\\') { textBuf = textBuf + "\\"; i = i + 2; continue; }
+                if (e == '"')  { textBuf = textBuf + "\""; i = i + 2; continue; }
+                if (e == '0')  { textBuf = textBuf + "\0"; i = i + 2; continue; }
+                textBuf = textBuf + "\\"; i = i + 1;
+            } else if (c == '{') {
+                if (i + 1 < bodyEnd && raw.CharAt(i + 1) == '{') {
+                    textBuf = textBuf + "{"; i = i + 2;
+                } else {
+                    // flush text
+                    if (textBuf.Length > 0) {
+                        parts[pc] = new InterpText(textBuf, t.Span); pc = pc + 1; textBuf = "";
+                    }
+                    i = i + 1;   // skip {
+                    int holeStart = i;
+                    int depth = 1;
+                    while (i < bodyEnd && depth > 0) {
+                        char hc = raw.CharAt(i);
+                        if (hc == '{') { depth = depth + 1; i = i + 1; }
+                        else if (hc == '}') {
+                            depth = depth - 1;
+                            if (depth > 0) { i = i + 1; }
+                        }
+                        else { i = i + 1; }
+                    }
+                    string holeText = raw.Substring(holeStart, i - holeStart);
+                    i = i + 1;   // skip }
+                    var sub = new Parser(holeText, "<interp>");
+                    Expr holeExpr = sub.ParseExpression();
+                    // 洞里表达式之后还剩 token → 报错（E0492，详见 error-codes.md）。此前只取
+                    // `ParseExpression()` 的结果、**从不问它读完没有** ⇒ `$"{d:F2}"` 的 `:F2` 没人看，
+                    // 格式说明符静默失效。位置必须用 `t.Span`：子 parser 产的 Span 其 File 是合成的
+                    // `"<interp>"`、偏移是洞内坐标。⚠️ 洞内**解析失败**时诊断仍带假位置，独立缺口。
+                    if (sub._peek().Kind != TokenKind.Eof) {
+                        this._p._diags.Error("E0492", "unexpected `" + sub._peek().Text
+                            + "` after the expression in this interpolation hole — z42 has no format specifiers"
+                            + " (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) first", t.Span);
+                    }
+                    parts[pc] = new InterpHole(holeExpr, t.Span); pc = pc + 1;
+                }
+            } else if (c == '}' && i + 1 < bodyEnd && raw.CharAt(i + 1) == '}') {
+                textBuf = textBuf + "}"; i = i + 2;
+            } else {
+                textBuf = textBuf + c.ToString(); i = i + 1;
+            }
+        }
+        if (textBuf.Length > 0) { parts[pc] = new InterpText(textBuf, t.Span); pc = pc + 1; }
+        return new InterpolatedStringExpr(parts, pc, t.Span);
+    }
+}
