@@ -191,12 +191,35 @@ public static class PackageCompile {
         // 引用 CompileInputs 新字段撞 F2 冷启动 stale-cache。）
         Generator[] effGens = inp.Generators; int effGenCount = inp.GeneratorCount;
         ModuleGenerator[] effMods = inp.ModuleGenerators; int effModCount = inp.ModuleGeneratorCount;
+        // handler zpkg 能否加载 —— 两个 loader（generator / analyzer）打的是**同一批路径**、同一个
+        // `__load_module`，失败必然同时失败。下面 generator 侧先跑，失败即置 false，`_runAnalyzers`
+        // 据此跳过，避免同一个根因报两遍。
+        bool handlersLoadable = true;
         if (inp.AnalyzerZpkgCount > 0) {
-            LoadedGenerators lg = GeneratorLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
-            effGens = PackageCompile._concatGen(inp.Generators, inp.GeneratorCount, lg.Applied, lg.AppliedCount);
-            effGenCount = inp.GeneratorCount + lg.AppliedCount;
-            effMods = PackageCompile._concatMod(inp.ModuleGenerators, inp.ModuleGeneratorCount, lg.Modules, lg.ModuleCount);
-            effModCount = inp.ModuleGeneratorCount + lg.ModuleCount;
+            // 🔴 加载失败必须是**诊断**，不是崩溃。`GeneratorLoader.Load` 里的 `__load_module` 对
+            // 加载不了的 zpkg 直接抛（最常见：indexed zpkg 被单独拷走、散装 `.zbc` 没跟着，报
+            // `cannot load indexed zpkg`）—— 此前这个异常一路穿出 driver，用户看到的是一段带
+            // z42c 内部栈帧的 `uncaught exception`，既不说是哪个 [analyzers] 条目的问题，也不说
+            // 该怎么办。捕获后落成 E0493，编译按正常错误路径收尾。
+            LoadedGenerators lg = null;
+            try {
+                lg = GeneratorLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
+            } catch (Exception e) {
+                handlersLoadable = false;
+                // 用**字面量**发码（同 E0449–E0490 手法，见 bootstrap-seed.md）：新增 core 常量
+                // 会成为新的跨成员符号，撞 F2 冷启动 stale-cache。常量在 DiagnosticCodes.z42 登记备查。
+                genDiags.Error("E0493",
+                    "[analyzers] 声明的 handler zpkg 加载失败：" + e.Message
+                    + "（indexed zpkg 必须连同它旁边的散装 .zbc 一起放进依赖目录；"
+                    + "或改用 `--release` 构建 handler 工程得到单文件 packed zpkg）",
+                    new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
+            }
+            if (lg != null) {
+                effGens = PackageCompile._concatGen(inp.Generators, inp.GeneratorCount, lg.Applied, lg.AppliedCount);
+                effGenCount = inp.GeneratorCount + lg.AppliedCount;
+                effMods = PackageCompile._concatMod(inp.ModuleGenerators, inp.ModuleGeneratorCount, lg.Modules, lg.ModuleCount);
+                effModCount = inp.ModuleGeneratorCount + lg.ModuleCount;
+            }
         }
         // add-member-forwarding：`[Forward]` 是**语言内建** generator，但**按需注册**。
         // 🔴 不能无条件并进来：本 gate（下一行）正是「空 → 分支不进 → 逐字节不动」赖以成立的
@@ -258,7 +281,7 @@ public static class PackageCompile {
         // gated on 非空 → z42c 自建无 [analyzers] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
         // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
         // analyzer 报的 Error 级也能拦编译。
-        if (inp.AnalyzerZpkgCount > 0) {
+        if (inp.AnalyzerZpkgCount > 0 && handlersLoadable) {
             PackageCompile._runAnalyzers(inp, cms);
         }
 
@@ -388,7 +411,20 @@ public static class PackageCompile {
 
     // 加载 [analyzers] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。
     private static void _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
-        Analyzer[] analyzers = AnalyzerLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
+        // 同 generator 侧：加载失败落 E0493 诊断，不让异常穿出成 uncaught。两处都要 —— 走到这里
+        // 时 generator 侧可能已经成功（只含 analyzer 的 zpkg 发现 0 个 generator 也算成功返回）。
+        Analyzer[] analyzers = null;
+        try {
+            analyzers = AnalyzerLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
+        } catch (Exception e) {
+            if (cms.Length > 0) {
+                DiagnosticBag lbag = new DiagnosticBag();
+                lbag.Error("E0493", "[analyzers] 声明的 handler zpkg 加载失败：" + e.Message,
+                           new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
+                PackageCompile._mergeDiags(cms[0], lbag);
+            }
+            return;
+        }
         if (analyzers.Length == 0) { return; }
         int i = 0;
         while (i < inp.SrcCount) {

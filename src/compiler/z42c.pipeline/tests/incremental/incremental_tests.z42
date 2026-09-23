@@ -363,3 +363,43 @@ void test_indexed_main_roundtrip() {
     Assert.False(zi.HasSection("TSIG"));
     Assert.False(zi.HasSection("EXPT"));
 }
+
+// ── generator 产出的 CU 也必须进 indexed 主文件（fix-compile-time-extension-gaps）──────
+//
+// 回归钉：`_writeIndexedDist` 曾按 **srcs.Length** 循环，而 `z` 携带的是 union（用户 CU +
+// generator 产出的 CU）。于是 `WriteIndexedMain` 拿 union 长的 `z.Files` 去索引 srcs 长的
+// zbcHashes/srcRels，**越界崩**成一句 `array index N out of bounds` —— 不是诊断，是内部异常。
+// 凡用了 generator 的工程，debug（indexed）构建必踩；`--release`（packed）不经此路故无事。
+// 本例直接建「2 模块包 + 2 条 hash/名」的 union 形状：修复前的形状（1 条）在写侧就会越界。
+[Test]
+void test_indexed_main_covers_generated_cu() {
+    CompiledModuleZ cm1 = IrDump.BuildModuleD(_src(),  "t.z42", null, null);
+    CompiledModuleZ cm2 = IrDump.BuildModuleD(_src2(), "__gen$T$add.z42", null, null);
+    ZbcFileZ[] mods = new ZbcFileZ[2];
+    mods[0] = _mkZbcFile("t.z42", _src(), cm1);
+    mods[1] = _mkZbcFile("__gen$T$add.z42", _src2(), cm2);   // 生成 CU：合成名，无真实源文件
+    ZpkgFileZ z = ZpkgBuilder.BuildPackedD("genpkg", "0.1.0", false, false, "",
+                                           mods, 2, new ZpkgDepZ[0], 0);
+    string[] hashes = new string[2];
+    hashes[0] = "deadbeefdeadbeefdeadbeefdeadbeef";
+    hashes[1] = "feedfacefeedfacefeedfacefeedface";
+    string[] rels = new string[2];
+    rels[0] = "t.z42";
+    rels[1] = "__gen$T$add.z42";
+    byte[] main = ZpkgIndexedWriter.WriteIndexedMain(z, hashes, rels).ToBytes();
+    ZpkgInfo zi = ZpkgReader.Open(main);
+    Assert.True(zi != null);
+    Assert.False(zi.Packed);
+    // 两个模块都在 FILE 目录里 —— 少一个就是生成 CU 被截断（运行期表现为 AddSource 出来的类
+    // 没有 TypeDesc / Augment 的 override 丢失）。
+    ZpkgModuleSigs[] sigs = ZpkgReader.ReadModuleSigs(zi);
+    Assert.Equal(2, sigs.Length);
+}
+
+// 三处 fixture 共用：从编译结果拼 ZbcFileZ（exports 取模块全部函数名）。
+ZbcFileZ _mkZbcFile(string rel, string src, CompiledModuleZ cm) {
+    string[] exports = new string[cm.Module.FuncCount];
+    int e = 0;
+    while (e < cm.Module.FuncCount) { exports[e] = cm.Module.Functions[e].Name; e = e + 1; }
+    return new ZbcFileZ(rel, ZpkgBuilder.SourceHashHex(src), "T", exports, cm.Module.FuncCount, cm.Module);
+}

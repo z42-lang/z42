@@ -330,6 +330,37 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     string[] declaredDeps = new string[pm.DepCount];
     int ddi = 0;
     while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
+    // 🔴 声明了却**不存在**的依赖此前零诊断：`DepScan` 拿 declaredDeps 只当**过滤白名单**
+    // （「只索引 stdlib + 声明依赖」），名字对不上任何 zpkg 就只是少激活一个包 —— 编译照常成功。
+    // 于是清单里把包名拼错（或依赖了一个根本没 build 的库），得到的不是「找不到依赖 X」，而是
+    // 一堆**位置在别处**的 `E0443 undefined type` / `E0401 undefined`，从症状反推不回清单。
+    // 判据与 `_bundleExeDeps` / `[analyzers]` 解析同款：libsDirs 里有没有 `<name>.zpkg`。
+    // 摸底：全仓 233 个 z42 包的 [dependencies] 无一条落空（落空的 24 条全在 Cargo.toml）⇒ 判红零误伤。
+    int dvi = 0;
+    while (dvi < pm.DepCount) {
+        string dname = declaredDeps[dvi];
+        string dfile = dname + ".zpkg";
+        bool dfound = false;
+        int dd = 0;
+        while (dd < libsDirsN) {
+            if (File.Exists(Path.Join(libsDirs[dd], dfile))) { dfound = true; break; }
+            dd = dd + 1;
+        }
+        if (!dfound) {
+            string dsearched = "";
+            int ds = 0;
+            while (ds < libsDirsN) {
+                dsearched = dsearched + (ds > 0 ? ", " : "") + libsDirs[ds];
+                ds = ds + 1;
+            }
+            if (libsDirsN == 0) { dsearched = "(无依赖目录——未设 Z42_LIBS，清单也无 path 依赖)"; }
+            ConsoleError.WriteLine("z42c build: [dependencies] `" + dname + "` 未找到 " + dfile
+                + "；已查找：" + dsearched
+                + "。检查包名拼写，或先构建该依赖（path 依赖由 z42c 代建，名字须与其 [project].name 一致）。");
+            return ExitCode.BuildError;
+        }
+        dvi = dvi + 1;
+    }
     IrModule[] cachedMods = prep != null ? prep.Cached : null;
     CachedNsMeta[] cachedMetas = null;
     if (cachedMods != null && prep != null && prep.Plan != null) {
@@ -366,6 +397,18 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         int ai = 0;
         while (ai < pm.AnalyzerCount) {
             string aname = pm.Analyzers[ai].Name;
+            // `path` 此前被**静默忽略**：解析层复用 `_parseDeps`、照单收下 `{ path = "..." }`，而这里
+            // 只读 `.Name` 去 libsDirs 里找 `<name>.zpkg` ⇒ 用户写了 path 却得到一句「未在依赖目录
+            // 找到」——一条指向错误方向的诊断（他明明指定了位置）。[dependencies] 的 path 会由 z42c
+            // 建传递闭包并逐个 build，[analyzers] **不建闭包**，两者语义不同，不能顺手复用。
+            // 在 path 依赖对 [analyzers] 有明确设计之前，显式拒绝 > 静默忽略。
+            if (pm.Analyzers[ai].Path.Length > 0) {
+                ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 指定了 `path`，但 [analyzers] 段尚不支持 path 依赖"
+                    + "（不同于 [dependencies]：z42c 不为 analyzer/generator 建依赖闭包，也不代为构建）。"
+                    + "改法：先单独 build 该工程，再把产出的 " + aname + ".zpkg 放进依赖目录（Z42_LIBS / SDK libs），"
+                    + "清单里只写名字与版本。");
+                return ExitCode.UsageError;
+            }
             string azfile = aname + ".zpkg";
             string azFound = "";
             int d = 0;
@@ -375,7 +418,17 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 d = d + 1;
             }
             if (azFound.Length == 0) {
-                ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 未在依赖目录找到 " + azfile);
+                // 找不到时把**找过哪些目录**说出来——此前只说「未找到」，用户无从判断是放错了
+                // 目录、还是根本没 build。
+                string searched = "";
+                int sd = 0;
+                while (sd < libsDirsN) {
+                    searched = searched + (sd > 0 ? ", " : "") + libsDirs[sd];
+                    sd = sd + 1;
+                }
+                if (libsDirsN == 0) { searched = "(无依赖目录——未设 Z42_LIBS，清单也无 path 依赖)"; }
+                ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 未在依赖目录找到 " + azfile
+                    + "；已查找：" + searched);
                 return ExitCode.BuildError;
             }
             azPaths[ai] = azFound;
@@ -488,6 +541,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     }
     ZpkgFileZ z = art.Z;
     ZbcFileZ[] mods = art.Mods;
+    // union 模块数（含 generator 产出的 CU）——indexed dist 的循环上界必须用它，不能用 srcs.Length，
+    // 否则带 generator 的工程崩在 WriteIndexedMain 的越界上（见 IndexedDist.z42 头注）。
+    int modN = art.ModCount;
     if (isPacked) { _stabilizeSourceIdentity(z, projectDir); }   // 可复现 build_id（BuildPaths.z42）
     Directory.Create(distDir);
     // ── 多 exe 多产物（unify-run-modes P3）：一个 manifest 声明 N 个 [[exe]] → N 个
@@ -512,7 +568,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             z.Entry = ex.Entry;    // 重烤 baked entry
             if (!isPacked) {
                 string idxCacheX = effCacheDir;
-                int ircX = _writeIndexedDist(distDir, idxCacheX, projectDir, srcs, z, mods, srcs.Length, prep);
+                int ircX = _writeIndexedDist(distDir, idxCacheX, projectDir, srcs, z, mods, modN, prep);
                 if (ircX != 0) { return ircX; }
             } else {
                 ZpkgWriteResult wresX = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
@@ -542,7 +598,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
         // + FILE 目录主文件。cache 目录供 cached 文件字节原样复制（增量未启时不消费）。
         string idxCache = effCacheDir;
-        int irc = _writeIndexedDist(distDir, idxCache, projectDir, srcs, z, mods, srcs.Length, prep);
+        int irc = _writeIndexedDist(distDir, idxCache, projectDir, srcs, z, mods, modN, prep);
         if (irc != 0) { return irc; }
     } else {
         // release → strip-symbols：主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。

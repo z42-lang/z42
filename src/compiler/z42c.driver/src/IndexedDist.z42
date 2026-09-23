@@ -14,19 +14,30 @@ using Z42.Build.Project;   // BuildLayout.Display —— 进度行里的路径�
 // 散装 zbc = cache（cached 行）/ 内存（fresh 行）字节**原样落盘**；与 dist 现有字节相等
 // 则不触碰——「未变文件 zbc 字节 + mtime 不动」的最小 patch 硬保证。主文件 = FILE 目录
 //（每次重写，User 裁定可变）。孤儿 .zbc（源清单缩减残留）按当前文件集 diff 清除。
+// 🔴 `n` 必须是 **union 模块数（art.ModCount）而不是 srcs.Length**：generator 产出的 CU
+// （AddSource 新 CU / Augment 的 synthetic partial 碎片）排在用户 CU 之后，`z` 携带的是 union
+// 文件表。按 srcs.Length 截断 ⇒ `WriteIndexedMain` 拿 z.Files（union 长）去索引 zbcHashes/srcRels
+// （srcs 长）⇒ **array index out of bounds，一条看不懂的内部崩溃**，而不是任何诊断。
+// 凡用了 generator 的工程，debug（indexed）构建必踩；`--release`（packed）路径不经此函数故无事。
+// 同族先例：Main.z42 的诊断呈现循环上界曾同样误用 srcs.Length（fix-generated-cu-errors-invisible）。
+// 生成 CU 无真实源文件 → 文件名取 `mods[i].SourceFile`（用户 CU 位置与 srcs[i] 逐字相同 ⇒ 无
+// generator 时产物字节不动；生成 CU 位置是引擎合成名，如 `__gen$Foo$augment.z42` / AddSource hint）。
 int _writeIndexedDist(string distDir, string cacheDir, string projectDir, string[] srcs,
                       ZpkgFileZ z, ZbcFileZ[] mods, int n, IncrPrep prep) {
     string[] zbcHashes = new string[n];
     string[] rels = new string[n];
     string[] srcRels = new string[n];
+    int srcN = srcs.Length;
     int i = 0;
     while (i < n) {
-        string relSrc = IncrementalBuild.Rel(projectDir, srcs[i]);
+        string relSrc = IncrementalBuild.Rel(projectDir, mods[i].SourceFile);
         srcRels[i] = relSrc;
         string stem = relSrc.EndsWith(".z42") ? relSrc.Substring(0, relSrc.Length - 4) : relSrc;
         rels[i] = stem + ".zbc";
         byte[] bytes;
-        if (prep != null && !prep.Plan.Fresh[i]) {
+        // 生成 CU（i >= srcN）没有缓存条目（union 一律 fresh 编译，见 PackageCompile）——
+        // `prep.Plan.Fresh` 只有 srcs 长，越界读即崩。
+        if (i < srcN && prep != null && !prep.Plan.Fresh[i]) {
             bytes = File.ReadAllBytes(CacheStore.ZbcPath(cacheDir, relSrc));   // cache SoT 原样
         } else {
             bytes = ZbcWriter.Write(mods[i].Module).ToBytes();
