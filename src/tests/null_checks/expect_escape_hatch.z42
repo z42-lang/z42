@@ -1,0 +1,45 @@
+// define-null-check-marks D5：`Expect("理由")` 的**运行期**行为。
+//
+// 这个逃生口与 C# 的 `!` 的全部区别就是「真检查」三个字：`!` 纯编译期擦除，运行期什么
+// 都不做；`Expect` 为 null 就抛，消息 = 作者写下的理由。所以光有语义层用例不算数 ——
+// 必须在运行期钉住「真的抛了」「抛的是可 catch 的真异常」「理由真的到了消息里」。
+//
+// ⚠️ 两条路径的结果都**必须被使用**（喂给 Assert）：否则 DCE 会把整条 Expect 指令消掉，
+// 用例就成了摆设。`make-hard-cast-fail-properly` 那条线实测踩过这一脚。
+namespace Demo;
+
+static string? Find(bool hit) {
+    if (hit) { return "found"; }
+    return null;
+}
+
+void Main() {
+    // ① 非空：原值原样通过，且**只求值一次**。
+    string ok = Find(true).Expect("hit=true always yields a value");
+    Assert.Equal("found", ok);
+
+    // ② 为 null：真抛，且是**可被 catch 抓到的真异常**（不是内部错误串）。
+    bool threw = false;
+    string msg = "";
+    try {
+        string bad = Find(false).Expect("this reason shows up at run time");
+        Assert.Equal("unreachable", bad);   // 结果被使用 ⇒ 整条指令不会被 DCE 掉
+    } catch (NullReferenceException e) {
+        threw = true;
+        msg = e.Message;
+    }
+    Assert.True(threw);
+
+    // ③ 理由原样进消息 —— 这是强制理由参数的全部意义：出事时有人读到它。
+    Assert.Equal("this reason shows up at run time", msg);
+
+    // ④ 标了 `?` 的字段：`Expect` 同样是逃生口（字段只被读一次）。
+    Holder h = new Holder();
+    Assert.Equal(3, h.LengthOfName());
+}
+
+class Holder {
+    string? Name;
+    public Holder() { this.Name = "abc"; }
+    public int LengthOfName() { return this.Name.Expect("ctor always fills Name").Length; }
+}

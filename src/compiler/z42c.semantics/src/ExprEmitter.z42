@@ -210,6 +210,7 @@ public sealed class ExprEmitter {
         }
         if (e is BoundMethodGroup) { return this._call._emitMethodGroup(e as BoundMethodGroup); }
         if (e is BoundInterpolatedStr) { return this._emitInterpolation(e as BoundInterpolatedStr); }
+        if (e is BoundExpect) { return this._op._emitExpect(e as BoundExpect); }
         if (e is BoundDefault) {
             BoundDefault def = e as BoundDefault;
             // add-generic-methods：方法级 default(T) → MethodDefaultInsn（读 frame.method_type_args）。
@@ -850,4 +851,5 @@ public sealed class ExprEmitter {
         }
         return false;
     }
+
 }

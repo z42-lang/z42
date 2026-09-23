@@ -497,6 +497,9 @@ public sealed class FlowAnalyzer {
             return;
         }
         if (e is BoundArrayNew) { this._reads((e as BoundArrayNew).Size); return; }
+        // `Expect` —— **读 Target 但不 `_checkDeref` 它**：确定赋值（E0407）照常管
+        // （`x.Expect(…)` 里 x 没赋值仍是错），空检查义务则在这里解除。两件事不同源，别合并。
+        if (e is BoundExpect)   { this._reads((e as BoundExpect).Target); return; }
         if (e is BoundCast)     { this._reads((e as BoundCast).E);       return; }
         if (e is BoundConvert)  { this._reads((e as BoundConvert).E);    return; }
         if (e is BoundBox)      { this._reads((e as BoundBox).E);        return; }
@@ -557,6 +560,9 @@ public sealed class FlowAnalyzer {
     // 报一次就清掉事实 —— 同一个变量在后面每处再报一遍只是噪声（同 E0407 的处置）。
     private void _checkDeref(BoundExpr e) {
         if (e == null) { return; }
+        // define-null-check-marks D5：`Expect("理由")` 的结果恒 NotNull —— 义务在这里解除。
+        // **不下钻 `Target`**：那正是 `Expect` 要放行的那个可空值，下钻就等于逃生口不存在。
+        if (e is BoundExpect) { return; }
         // 三类义务来源：调用结果（返回值标记）/ 裸名（形参标记）/ 字段与属性（字段标记）。
         if (e is BoundCall) {
             BoundCall c = e as BoundCall;
