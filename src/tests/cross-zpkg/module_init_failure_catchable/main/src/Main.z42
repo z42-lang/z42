@@ -1,0 +1,38 @@
+// 包初始化失败 ⇒ 触达该包的每一次操作都抛**可 catch** 的包装异常；不触达它的调用照常。
+//
+// 🔴 判别力全在最后那两行「无关调用」上：修复前，失败的包让包级屏障的门**永远开着**，
+// 于是全程序每一次调用都重抛它 —— 连 catch 块里的第一条 `Console.WriteLine` 都躲不过，
+// 看起来像「catch 抓不到」，实则抓到了又在 handler 里被无关调用重新抛出。
+// 对标 C# 实测（.NET 10）：start → caught → caught → end，进程正常退出。
+namespace Demo.MiFailApp;
+
+using Std;
+using Std.IO;
+using Demo.MiFail;
+
+// ⚠️ 本 fixture **不覆盖第四种触达形态（静态字段读写）**，写不出来：程序里只要有一处
+// 跨包静态字段引用（哪怕在另一个函数里），启动期的 `run_pending_static_inits` 就会把
+// 那个包提前加载完 ⇒ 初始化器在 `Main` 的**第一条调用**上就抛，落在所有 try 之外。
+// 静态字段那条屏障与这里的三条是同一处两行改动（`exec_object::ensure_owner_type_init`），
+// 由 `module_init_once` 覆盖其成功路径。详见 docs/internals 的「加载被提前」一节。
+
+void Main() {
+    Console.WriteLine("start");
+    try {
+        Touch(1);                      // 自由函数触达
+    } catch (Exception e) {
+        Console.WriteLine("caught-free: " + e.Message);
+    }
+    try {
+        Api.Get(1);                    // 静态方法触达
+    } catch (Exception e) {
+        Console.WriteLine("caught-static");
+    }
+    try {
+        new Widget(1);                 // `new` 触达
+    } catch (Exception e) {
+        Console.WriteLine("caught-new");
+    }
+    Console.WriteLine("unrelated-ok"); // 与失败包无关 ⇒ 不该抛
+    Console.WriteLine("end");
+}

@@ -97,7 +97,7 @@ pub unsafe extern "C" fn jit_obj_new(
     {
         let vm = vm_ctx_ref(ctx);
         // add-module-init-hook：与 interp 的 obj_new 屏障对称。
-        if let Err(msg) = vm.ensure_module_inits() {
+        if let Err(msg) = vm.ensure_module_inits(Some(type_desc.name.as_str())) {
             let module = &*(*ctx).module;
             let exc = crate::vm_context::cctor::make_type_init_exception(vm, module, &msg);
             set_exception(vm, exc);

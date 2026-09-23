@@ -1,0 +1,25 @@
+// fix-module-init-failure-scope 的生产方：一个**初始化必然失败**的包。
+//
+// 三种触达形态各提供一个入口（自由函数 / 静态方法 / `new`），消费方逐个触达，
+// 断言每一次都拿到可 catch 的包装异常 —— 而**不属于本包**的调用不受影响。
+namespace Demo.MiFail;
+
+using Std;
+using Std.IO;
+
+static class Boot {
+    [ModuleInit]
+    static void Init() { throw new Exception("boom"); }
+}
+
+public static class Api {
+    public static int Get(int x) { Console.WriteLine("api"); return x + 1; }
+}
+
+public class Widget {
+    public int N;
+    public Widget(int n) { this.N = n; Console.WriteLine("widget"); }
+}
+
+// ⚠️ 必须有真实函数体：空函数会被内联掉、连 call 指令都不发射，屏障无从触发。
+public int Touch(int x) { Console.WriteLine("touched"); return x + 1; }

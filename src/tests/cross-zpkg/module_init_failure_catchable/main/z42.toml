@@ -1,0 +1,9 @@
+[project]
+name    = "demo.mifailapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.MiFailApp.Main"
+pack    = true
+
+[dependencies]
+"demo.mifail" = "0.1.0"

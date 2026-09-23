@@ -212,7 +212,7 @@ pub(super) fn call(
     // add-module-init-hook：**包级**初始化先于类型初始化 —— 解析上面那个名字可能刚把一个包
     // 拉进来，它的 `[ModuleInit]` 必须在本包任何代码（包括马上要调的这个函数）之前跑完。
     // 稳态代价 = 一次 relaxed load。
-    if let Err(msg) = ctx.ensure_module_inits() {
+    if let Err(msg) = ctx.ensure_module_inits(Some(fname)) {
         return Ok(Some(crate::vm_context::cctor::make_type_init_exception(ctx, module, &msg)));
     }
     if let Err(msg) = ctx.ensure_callee_owner_init(fname) {

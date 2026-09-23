@@ -222,6 +222,24 @@ androidx.startup `Initializer<T>` 全都收敛到「一个接口 + 元数据指�
 
 ## 已知差距：包初始化失败的异常当前不可 `catch`
 
+> ✅ **已闭合（fix-module-init-failure-scope，2026-09-23 当日）。本节的**诊断**是错的，
+> 保留原文只为留痕 —— 它示范了一个很值得记住的失败模式：**症状的描述本身可以是误诊**。
+>
+> `catch` 从来没坏。真因是屏障的**作用范围**：`refresh_module_pending` 把 `Failed` 也算
+> 「未完成」，于是失败的包让**全程序级**的门永远非零，`ensure_module_inits` 在**每一次**
+> 调用点都重抛它 —— 包括用户 `catch` 块里的第一条 `Console.WriteLine`。异常被接住了，
+> 又在 handler 里被一条无关调用抛了出来，于是看起来像「抓不到」。
+>
+> 下面那张「已用干净 A/B 排除」的表之所以每一行都指向「不可捕获」，正是因为每个变体的
+> catch 体里都有一条 `Console.WriteLine` —— **所有变体都踩同一颗雷，A/B 因此毫无分辨力**。
+> 一句话判别：**把 catch 体清空**，程序立刻正常退出（`RUN_EXIT=0`）。另一条同样便宜的线索
+> 是未捕获异常自带的行号，它指的一直是 catch 块内部那行，不是 `try` 里那行。
+>
+> 修法 = `Failed` 移到独立的 `module_failed` 计数，重抛加**归属判定**（`<ns>.$Module` 只覆盖
+> `<ns>.` 开头的符号）。结果与下面钉死的 C# 实验②逐行一致。门 =
+> `src/tests/cross-zpkg/module_init_failure_catchable/`（下面「为什么不留一条红着的门」
+> 那条判断在当时是对的：行为不成立就别立门；行为一旦成立，门就该立起来）。
+
 **实测（2026-09-23）**：`[ModuleInit]` 抛异常 ⇒ 正确地包装成
 `Std.TypeInitializationException` 抛出、失败状态被记住、程序终止 —— 但用户的 `try/catch`
 **抓不到它**。
