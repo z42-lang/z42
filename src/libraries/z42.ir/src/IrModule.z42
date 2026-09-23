@@ -163,7 +163,7 @@ public sealed class IrClassDesc {
     public IrFieldDesc[] Fields;
     public int           FieldCount;
     public IrFieldDesc[] StaticFields; public int StaticFieldCount;   // zbc 1.13（SA-3）
-    public string[] Interfaces; public int InterfaceCount;   // zbc 1.17：TYPE 接口块（bare 名）
+    public string[] Interfaces; public int InterfaceCount;   // zbc 1.17：TYPE 接口块。**FQ 名**（zbc 1.20 起，`ClassDescBuilder` 经 `_qClass` 限定；原注释写「bare 名」是过时的）。对**接口**装的是它的父接口（已展开成传递闭包）
     public int Flags;   // class-shape flags（zbc 1.12）：bit0 abstract / bit1 sealed / bit2 struct / bit3 record / bit4 interface / bit5 enum
     public int Visibility;   // enforce-class-access（zbc 1.33）：类声明可见性 0=public/1=private/2=protected/3=internal（默认 0）。TYPE 记录紧随 Flags 的独立字节；跨包 internal 类引用强制据此。
     public string[]           TypeParams;           public int TypeParamCount;        // zbc L3-G1

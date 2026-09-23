@@ -121,12 +121,26 @@ public sealed class ExportedInterfaceZ {
     // TYPE 统一 assoc 块（cd.AssocNames）构造后赋值；ImportedSymbolLoader 据此 AddAssocType 恢复
     // Z42InterfaceType.AssocTypeNames（供跨包关联类型满足性校验，删 IsImported 守卫）。默认空。
     public string[]          AssocTypeNames; public int AssocTypeCount;
+    // **父接口名单**（fix-crosspkg-iface-basenames）：`interface IEnumerator<T> : IDisposable` 的
+    // `IDisposable`。此前 TSIG **完全不携带这一项** ⇒ 导入侧恢复不出接口继承关系，跨包接口上调
+    // 继承来的成员一律 E0401（本地接口的继承已由 fix-interface-inherited-members 修好，跨包这条
+    // 是独立的一洞）。直接后果：实现 `Std.IEnumerable<T>` 的类型**不能 foreach** —— 脱糖出的
+    // `__e.Dispose()` 走的正是 `IEnumerator<T> : IDisposable` 继承来的成员。
+    //
+    // 数据本就在 zbc 里（TYPE 记录的 Interfaces 块，zbc 1.17 起；接口由 `ClassDescBuilder._interfaceDesc`
+    // 写入、且**已展开成传递闭包**）⇒ 只是没人搬运，**无格式 bump**。同 AssocTypeNames 的套路：
+    // 构造器给空默认、`TsigReconcile._rebuildInterface` 构造后赋值。
+    //
+    // ⚠️ 名字形态是 **FQ**（`Std.IDisposable`），与 `IrClassDesc.Interfaces` 一致（zbc 1.20 起）；
+    // 而 `Z42InterfaceType.BaseNames` 存的是**裸名** ⇒ 消费侧恢复时必须剥短名。
+    public string[]          BaseNames;      public int BaseCount;
     public ExportedInterfaceZ(string name, ExportedMethodZ[] methods, int methodCount,
                               string[] typeParams, int tpCount) {
         this.Name = name; this.Methods = methods; this.MethodCount = methodCount;
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.Visibility = "public";
         this.AssocTypeNames = new string[0]; this.AssocTypeCount = 0;
+        this.BaseNames = new string[0]; this.BaseCount = 0;
     }
 }
 
