@@ -312,3 +312,76 @@ void test_return_marked_field_from_marked_return_ok() {
     string src = "namespace N; class C { string? F; string? M() { return this.F; } }";
     Assert.Equal("", SemanticDump.FirstErrorCode(src));
 }
+
+// ── D7：override / 接口实现的 `?` 方向一致性（E0489）─────────────────
+//
+// 规则是**加严可以、放松不行**：
+//   返回类型 —— 实现方**去** `?` 允许（承诺更强），**加** `?` 禁止（经基类/接口调用的人没义务查）
+//   形参     —— 实现方**加** `?` 允许（自己查得更多），**去** `?` 禁止（契约说「都会查」，它不查）
+//
+// ⚠️ 这组用例是本半部**唯一**的接通性证据：全仓现有 `?` 标记只有 43 处、D7 真实命中为 0，
+// 构建全绿既可能是规则对、也可能是检查根本没跑（同本文件开头记的那条理由）。
+
+// 返回类型：派生**加** `?` 而基类没标 → 洞（经基类调用的人不会查）
+[Test]
+void test_override_adds_nullable_return_errors() {
+    string src = "namespace N; class B { public virtual string M() { return \"x\"; } }\n"
+        + "class D : B { public override string? M() { return null; } }";
+    Assert.Equal("E0489", SemanticDump.FirstErrorCode(src));
+}
+
+// 返回类型：派生**去** `?` —— 承诺更强，合法
+[Test]
+void test_override_drops_nullable_return_ok() {
+    string src = "namespace N; class B { public virtual string? M() { return null; } }\n"
+        + "class D : B { public override string M() { return \"x\"; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 形参：基类标 `?`（契约 = 任何实现都会查），派生**去掉** → 洞
+[Test]
+void test_override_drops_nullable_param_errors() {
+    string src = "namespace N; class B { public virtual int M(string? s) { return 0; } }\n"
+        + "class D : B { public override int M(string s) { return 1; } }";
+    Assert.Equal("E0489", SemanticDump.FirstErrorCode(src));
+}
+
+// 形参：基类没标，派生**加** `?` —— 只是对自己更严，合法
+[Test]
+void test_override_adds_nullable_param_ok() {
+    string src = "namespace N; class B { public virtual int M(string s) { return 0; } }\n"
+        + "class D : B { public override int M(string? s) { return 1; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 两端一致 —— 无误报守卫
+[Test]
+void test_override_same_marks_ok() {
+    string src = "namespace N; class B { public virtual string? M(string? s) { return null; } }\n"
+        + "class D : B { public override string? M(string? s) { return null; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 接口：实现方给返回类型**加** `?` 而接口没标 → 洞
+[Test]
+void test_iface_impl_adds_nullable_return_errors() {
+    string src = "namespace N; interface I { string M(); }\n"
+        + "class C : I { public string? M() { return null; } }";
+    Assert.Equal("E0489", SemanticDump.FirstErrorCode(src));
+}
+
+// 接口：接口形参标 `?`，实现方**去掉** → 洞
+[Test]
+void test_iface_impl_drops_nullable_param_errors() {
+    string src = "namespace N; interface I { int M(string? s); }\n"
+        + "class C : I { public int M(string s) { return 0; } }";
+    Assert.Equal("E0489", SemanticDump.FirstErrorCode(src));
+}
+
+// 接口：实现方**加** `?` 形参 —— 合法（无误报守卫）
+[Test]
+void test_iface_impl_adds_nullable_param_ok() {
+    string src = "namespace N; interface I { int M(string s); }\n"
+        + "class C : I { public int M(string? s) { return 0; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
