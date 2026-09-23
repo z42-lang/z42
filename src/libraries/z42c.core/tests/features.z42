@@ -11,10 +11,30 @@ void test_phase1_profile_all_on() {
     Assert.Equal(true, f.IsEnabled("control_flow"));
     Assert.Equal(true, f.IsEnabled("oop"));
     Assert.Equal(true, f.IsEnabled("generics"));
-    Assert.Equal(true, f.IsEnabled("async"));
-    Assert.Equal(true, f.IsEnabled("native_interop"));
+    Assert.Equal(true, f.IsEnabled("pattern_match"));
+    Assert.Equal(true, f.IsEnabled("delegates"));
     Assert.Equal(1, f.Phase);
-    Assert.Equal(21, f.Count());
+    Assert.Equal(15, f.Count());
+}
+
+// 🔴 这张表只能列**真实存在**的语法构造。此前它宣告了 6 个不存在的特性，而当时的单测
+// 恰恰在断言其中两个「已启用」—— 门在守护假话。这条测试钉住那 6 个名字不再出现：
+// 名字回来之前，得先有 parser 真的消费对应语法。
+//   · using_stmt    —— z42 没有 using 语句（`using` 只做 import / 别名）
+//   · null_coalesce —— `??` / `?.` 已从语言移除，parser 见到报 E0480
+//   · async         —— `await` 从不被任何 parser 消费，也没有 Task 类型
+//   · list_patterns —— 全仓零 ListPattern，模式解析器没有 `[` 分支
+//   · threading     —— 库有（z42.threading），但 `lock` 连关键字都不是
+//   · native_interop—— FFI 真有，但挂它名下的 `pinned` 是个没人消费的死 token
+[Test]
+void test_phase1_profile_has_no_phantom_features() {
+    var f = LanguageFeatures.Phase1Profile();
+    Assert.Equal(false, f.IsEnabled("using_stmt"));
+    Assert.Equal(false, f.IsEnabled("null_coalesce"));
+    Assert.Equal(false, f.IsEnabled("async"));
+    Assert.Equal(false, f.IsEnabled("list_patterns"));
+    Assert.Equal(false, f.IsEnabled("threading"));
+    Assert.Equal(false, f.IsEnabled("native_interop"));
 }
 
 [Test]

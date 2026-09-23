@@ -15,8 +15,8 @@
 >
 > 另有两个遗留物需要知道：
 >
-> - **优先级数值已经存在，但硬编码在代码里**，不是数据表。`src/libraries/z42c.syntax/src/ExprParser.z42` 的 `_infixBp()` 是一串 `if` 链，`??` / 三目 / 赋值 / `is` / `as` / `switch` / `with` 则以 `minBp <= N` 的形式内联在 `_parseExpr()` 中。也就是说**解析器是 Pratt 式优先级攀升（这点属实），但并非表驱动**——第 2 层要做的正是把这些数值提取成数据。
-> - `src/tests/control_flow/switch/features.toml` 与 `src/tests/exceptions/exceptions/features.toml` 两个 sidecar 文件存在，但**全仓没有任何代码读取 `features.toml`**（只有文档提到它）。它们是无效负载。
+> - **优先级数值已经存在，但硬编码在代码里**，不是数据表。`src/libraries/z42c.syntax/src/ExprParser.z42` 的 `_infixBp()` 是一串 `if` 链，三目 / 赋值 / `is` / `as` / `switch` / `with` 则以 `minBp <= N` 的形式内联在 `_parseExpr()` 中。也就是说**解析器是 Pratt 式优先级攀升（这点属实），但并非表驱动**——第 2 层要做的正是把这些数值提取成数据。
+> - 曾有两个 `features.toml` sidecar（`src/tests/control_flow/switch/` 与 `src/tests/exceptions/exceptions/`）号称能 override `LanguageFeatures`，实则**全仓没有任何代码读取**——唯一读过它们的是随自举删除的 C# `GoldenTests.cs`。已于 2026-09-23 删除；第 1 层接线时若需要按用例覆盖特性，重新设计即可，不必迁就那两个空壳。
 
 ---
 
@@ -72,26 +72,34 @@
 | `control_flow` | `if` / `while` / `do` / `for` / `foreach` / `break` / `continue` |
 | `exceptions` | `try` / `catch` / `finally` / `throw` |
 | `pattern_match` | `switch` 表达式与语句 |
-| `list_patterns` | 列表模式 |
 | `oop` | `class` / `interface` / `struct` / `record` / `new` |
 | `generics` | 泛型类型与方法 |
 | `arrays` | 数组创建与下标 |
 | `bitwise` | `&` `\|` `^` `~` `<<` `>>` 及其复合赋值 |
-| `null_coalesce` | `??` 运算符 |
-| `nullable` | `T?` 可空类型 |
+| `nullable` | `T?` 空检查标记（引用类型；值类型 `int?` 报 E0476）|
 | `ternary` | `? :` 三目运算符 |
 | `cast` | `(Type)expr` 显式转换 |
 | `lambda` | Lambda 表达式 `=>` |
-| `delegates` | 函数类型 `(T) -> R` |
-| `async` | `async` / `await` |
+| `delegates` | 函数类型 `(T) -> R`、`delegate` / `event` |
 | `tuples` | 元组类型与字面量 |
 | `interpolated_str` | `$"..."` 字符串插值 |
-| `reflection` | `typeof` / `nameof` |
-| `threading` | `lock` / 多线程 |
-| `using_stmt` | `using` 语句（资源管理） |
-| `native_interop` | 原生互操作 |
+| `reflection` | `typeof` / `methodof` |
 
-> **名称冲突（已裁决）**：一份设计稿写作 `string_interp` 与 `async_await`。以实现中的 `interpolated_str` / `async` 为准，另两个名字作废。
+> 🔴 **这张表只列真实存在的语法构造。** 2026-09-23 删掉了 6 个名字，它们指向的语法
+> **在 z42 里根本不存在**——而它们曾以「已启用」的姿态躺在 `Phase1Profile()` 里：
+>
+> | 删掉的名字 | 事实 |
+> |---|---|
+> | `using_stmt` | z42 没有 `using` 语句，`using` 只做 import / 别名 |
+> | `null_coalesce` | `??` / `?.` 已从语言移除，parser 见到报 E0480 |
+> | `async` | `await` 从不被任何 parser 消费，也没有 `Task` 类型 |
+> | `list_patterns` | 全仓零 `ListPattern`，模式解析器没有 `[` 分支 |
+> | `threading` | 库有（`z42.threading`），但 `lock` 连关键字都不是 |
+> | `native_interop` | FFI 真有（`[Native]` + dlopen），但挂它名下的 `pinned` 是个没人消费的死 token |
+>
+> 之所以能长期没人发现，是因为**开关零调用方**：没有任何门能检验「这个名字背后真有语法」。
+> 第 1 层接线之后才谈得上真门 —— 判据见下面「实施路径」的第 4 条（开启/关闭**两个**测试）。
+> 在那之前，加名字前请自己确认 parser 真有消费该语法的代码路径。
 
 ### 配置来源 ①：项目级 `z42.toml [syntax]`
 
@@ -100,8 +108,8 @@
 # 关闭不需要的特性（未列出的沿用 profile 默认）
 exceptions      = false
 pattern_match   = false
-async           = false
-null_coalesce   = true
+lambda          = false
+bitwise         = true
 ```
 
 由 manifest 加载路径读入，构造出该项目的 `LanguageFeatures`，交给编译流水线。落地点是 `src/libraries/z42.project/`（manifest 模型 + `ManifestLoader`）与 `src/compiler/z42c.pipeline/`（把它传进编译单元），详见 [工程模型、依赖解析与工作区编译](project-model.md)。
@@ -112,7 +120,7 @@ null_coalesce   = true
 
 ```z42
 using syntax exceptions = false;
-using syntax null_coalesce = true;
+using syntax bitwise = true;
 ```
 
 - 作用范围：当前编译单元；
@@ -146,7 +154,6 @@ using syntax null_coalesce = true;
 ```
 10  赋值 / 复合赋值      =  += -= *= /= %= &= |= ^=   （右结合）
 20  三目                ? :                          （右结合）
-25  空合并              ??                           （右结合）
 30  逻辑或              ||
 40  逻辑与              &&
 44  按位或              |        [feat:bitwise]
@@ -348,7 +355,7 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 
 顺序不可换：批 3 的表格化是批 4 运行时插入的前提，批 1 不落地则任何特性门都无从验证。
 
-同时应清理 `src/tests/control_flow/switch/features.toml` 与 `src/tests/exceptions/exceptions/features.toml` —— 这两个 sidecar 无人读取，要么在批 1 接上，要么删除。
+（两个无人读取的 `features.toml` sidecar 已于 2026-09-23 删除，批 1 不必再迁就它们。）
 
 新增一个特性的完整清单（批 1–3 落地后）：
 

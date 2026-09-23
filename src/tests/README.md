@@ -6,7 +6,7 @@
 [dotnet/runtime/src/tests/](https://github.com/dotnet/runtime/tree/main/src/tests)。
 
 支持两种用例形态（dual-mode discovery，2026-05-08）：
-- **Dir 模式** — `<category>/<name>/` 目录含 `source.z42` + 可选 sidecar 文件（适合需要 `features.toml` / `expected_output.txt` 等 sidecar 的用例）
+- **Dir 模式** — `<category>/<name>/` 目录含 `source.z42` + 可选 sidecar 文件（适合需要 `expected_output.txt` 等 sidecar 的用例）
 - **Flat 模式** — `<category>/<name>.z42` 单文件（仅 assert-only run 用例：用 `Std.Assert` 抛异常表达失败，期望空 stdout，无任何 sidecar）
 
 不放在这里：
@@ -81,7 +81,6 @@
 | `source.zasm` | 可选 | ZASM 调试文本 |
 | `expected_output.txt` | run | stdout 期望。**默认不要有这个文件**——见下方「先写 assert-only」。空文件 = 删除；缺失 = assert-only 模式（用例靠 `Std.Assert` 抛异常表达失败，期望空 stdout）|
 | `expected.zasm` | parse | IR ZASM 期望 |
-| `features.toml` | 可选 | LanguageFeatures override |
 | `interp_only` | 可选 marker | 跳过 JIT 模式 |
 | `opt_all` | 可选 marker | **按真实 release 全优化编**（`z42c --emit-zbc --opt-all` → `Opt.All`）。默认的 `--emit-zbc` 优化集**关掉了**逃逸分析 / 内联 / loop-alloc-reuse（它们会改 golden 字节，见 `IrDump.EmitZbcDefaultOpt`），所以不加这个 marker 的用例**永远跑不到那几个 pass**。测优化 pass 的用例必须加 |
 
