@@ -1,0 +1,25 @@
+// 生产方：**多级**接口继承（`ILeaf` → `IMid` → `IBase`）。
+//
+// 消费方在另一个包里经导入的接口静态类型调继承来的成员 —— 那条链只能从 TSIG 恢复
+// （`ExportedInterfaceZ.BaseNames`），恢复不出来就是 E0401。
+//
+// ⚠️ 这里三层**都是非泛型**，不是因为泛型不重要，而是因为「父接口带实参」今天写不出来：
+// `interface ILeaf : IMid<int>` + `class Leaf : ILeaf` 在**本包**就报
+// `E0412: Get's return type Int32 is not compatible with the interface's T` ——
+// 满足性校验沿继承链上溯时不代换型参（直接实现 `IMid<int>` 那条路是对的，继承一层就丢）。
+// 那是独立的一洞，修好之后这个 fixture 应当补一层泛型父接口。
+namespace Demo.IfChain;
+
+public interface IBase { int Tag(); }
+
+public interface IMid : IBase { int Get(); }
+
+public interface ILeaf : IMid { int Twice(); }
+
+public class Leaf : ILeaf {
+    int _v;
+    public Leaf(int v) { this._v = v; }
+    public int Tag() { return 7; }
+    public int Get() { return this._v; }
+    public int Twice() { return this._v * 2; }
+}
