@@ -31,7 +31,9 @@ public sealed class ExportedMethodZ {
     // （undefined register）。默认 -1（非变长），需要非默认值时构造后单独赋值。
     public bool             IsSealed;      // impl-sealed-semantics-devirt：方法级 sealed（METHOD_FLAG_SEALED）。
     // 同 ParamsFrom：构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 4) 构造后赋值。
-    public bool             IsDeprecated;    // add-deprecated-directive：方法级 `[Deprecated]`（METHOD_FLAG_DEPRECATED bit3）。
+    public bool             IsDeprecated;    // add-deprecated-directive：方法级 `[Deprecated]`。⚠️ **不占 method_flags 位**——
+    // 走 attr-ref 哨兵（`IrDeprecation.Sentinel` = "$Deprecated"，见 TsigReconcile 的 `IrDeprecation.Has(f.Attrs, …)`）。
+    // （本行原写「METHOD_FLAG_DEPRECATED bit3」，那是设计初稿的方案，实现时改走 attr 通道，位一直没占。）
     public string           DeprecationMsg;  // 同 IsSealed：ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 构造后赋值。
     public int              TypeParamCount;  // add-array-paired-sort：方法级泛型形参个数（SIGS 早已存 tp 块，无格式 bump）。
     // 同 IsSealed/ParamsFrom：ctor 元数不变（旧种子 ABI），默认 0，构造后由 SigEntryZ 赋值。供泛型 arity 重载过滤。
@@ -62,7 +64,7 @@ public sealed class ExportedFieldZ {
     public string TypeName;
     public string Visibility;
     public bool   IsStatic;
-    public bool   IsDeprecated;    // add-deprecated-directive：字段级 `[Deprecated]`（field-flags bit0）。
+    public bool   IsDeprecated;    // add-deprecated-directive：字段级 `[Deprecated]`。⚠️ **不占 field-flags 位**——同方法级，走 attr-ref 哨兵。
     public string DeprecationMsg;  // ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 构造后赋值。
     public ExportedFieldZ(string name, string typeName, string visibility, bool isStatic) {
         this.Name = name; this.TypeName = typeName; this.Visibility = visibility; this.IsStatic = isStatic;
@@ -82,8 +84,11 @@ public sealed class ExportedClassZ {
     // 构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (cd.Flags & 2) 构造后赋值。
     public string   Visibility;   // enforce-class-access：类声明可见性（"public"/"private"/"protected"/"internal"）。
     // 默认 "public"，TsigReconcile 从 cd.Visibility（zbc TYPE 可见性字节）构造后赋值；ImportedSymbolLoader 据此填 Z42ClassType.Visibility（跨包 internal 类引用强制）。
-    public bool     IsDeprecated;    // add-deprecated-directive：类级 `[Deprecated]`（CLASS_FLAG_DEPRECATED，TYPE Flags bit6）。
-    public string   DeprecationMsg;  // ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 从 (cd.Flags & 64) 构造后赋值。
+    public bool     IsDeprecated;    // add-deprecated-directive：类级 `[Deprecated]`。🔴 **不占 TYPE Flags 位**——走 attr-ref
+    // 哨兵（`IrDeprecation.Has(cd.Attrs, …)`）。本行原写「CLASS_FLAG_DEPRECATED，TYPE Flags bit6」+「从 (cd.Flags & 64)
+    // 构造」，**两句都是假的**：bit6 的真主人是 **delegate**（zbc.md 类形状 flags 表 + IrGenAuxEmitter 的 `|64`），
+    // 一个自称占了别人位的注释，比没有注释更坏——下一个分配位的人无从判断 bit6 到底有没有主。
+    public string   DeprecationMsg;  // ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 构造后赋值。
     // add-associated-types PR-1：泛型 where 约束（与 TypeParams 按下标对齐；null = 无约束）。
     // 修前跨包泛型实例化的 where 约束 **100% 不校验** —— 不只接口，连 base-class / class / struct /
     // 型参引用也不查：SymbolTable.ClassConstraints 的唯一写入点只遍历本包 CU 的 ClassDecl，导入类型
