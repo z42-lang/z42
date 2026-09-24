@@ -251,7 +251,11 @@ public sealed class CallEmitter {
                 return sretH;
             }
             TypedReg idst = this._ctx.Alloc(itag);
-            VCallInstr vci = new VCallInstr(idst, recv, c.MethodName, iargs, c.ArgCount);
+            // complete-generic-instantiation S1-c：本包**非虚**实例泛型方法 ⇒ 改派特化体。
+            // vcall 只带简单名，运行期从接收者类型起按 `<类型>.<方法名>` 走基类链查 func_index
+            // （`vcall_resolve` 的 4c），故改简单名即可命中 `Demo.Helper.ReadSecond:P2`，无须动 vtable；
+            // 命中后照常装 IC，热路径不受影响。
+            VCallInstr vci = new VCallInstr(idst, recv, this._specializeVCallName(c), iargs, c.ArgCount);
             if (c.MethodTypeArgCount > 0) { vci.MethodTypeArgs = this._methodTypeArgNames(c); vci.MethodTypeArgCount = c.MethodTypeArgCount; }
             this._ctx.Emit(vci);
             return idst;
@@ -305,6 +309,28 @@ public sealed class CallEmitter {
         // A-use：返回 blob 值 struct 走 sret（如 operator 脱糖的静态 struct 工厂 Vec2.op_Add）；否则普通 Call。
         // add-generic-methods：静态/自由泛型方法调用携方法类型实参（same-program 直呼的 e2e 主路径）。
         return this._emitCallSretAwareG(func, null, args, c.ArgCount, c.Type(), this._methodTypeArgNames(c), c.MethodTypeArgCount);
+    }
+
+    // complete-generic-instantiation S1-c：实例泛型方法的 vcall 简单名 → 特化简单名。
+    // 登记的工作项键是**完整** IR 名（`<OwnerFq>.<简单名>:<实参…>`），与运行期解析拼出的名字一致。
+    private string _specializeVCallName(BoundCall c) {
+        if (c.MethodTypeArgCount <= 0) { return c.MethodName; }
+        IrGen g = this._ctx.Gen;
+        if (g == null || g.GenericBodies == null) { return c.MethodName; }
+        string lookup = c.OwnerClass + "." + c.MethodName;
+        if (!g.GenericBodies.ContainsKey(lookup)) { return c.MethodName; }   // 非本包 / 虚方法（刻意排除）
+        string suffix = "";
+        int i = 0;
+        while (i < c.MethodTypeArgCount) {
+            if (!this._ee._isConcreteTypeArg(c.MethodTypeArgs[i])) { return c.MethodName; }
+            string an = this._ee._canonTypeName(c.MethodTypeArgs[i]);
+            if (an == "") { return c.MethodName; }
+            suffix = suffix + ":" + an;
+            i = i + 1;
+        }
+        string specFq = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName + suffix;
+        if (!g.GenericFnInsts.ContainsKey(specFq)) { g.GenericFnInsts.Put(specFq, new StrBox(lookup)); }
+        return c.MethodName + suffix;
     }
 
     // complete-generic-instantiation S1：把对本包泛型体的调用改派到**按具体实参特化的体**，并登记工作项。

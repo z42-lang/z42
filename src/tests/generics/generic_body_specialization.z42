@@ -34,9 +34,12 @@ int RoundTrip<T>(T first, int second) {
 }
 
 // ── 形态 ⑤：类上的**静态**泛型方法（同样走直接调用，同样要特化）──────────
+// ── 形态 ⑥：**非虚实例**泛型方法（vcall 按简单名派发，改派简单名即可命中）────
 class Helper {
     public static int ReadSecondS<T>(Loc<T, int> p) { return p.Item2; }
     public static long InnerY<T>(Loc<Loc<T, int>, int> p) { return p.Item1.Item2; }
+    public int Second<T>(Loc<T, int> p) { return p.Item2; }
+    public long InnerYI<T>(Loc<Loc<T, int>, int> p) { return p.Item1.Item2; }
 }
 
 // ── 形态 ④：泛型体**写**进实例化的字段后读回 ─────────────────────────────
@@ -71,6 +74,11 @@ void Main() {
     // ⑤ 静态泛型方法
     Assert.Equal(7, Helper.ReadSecondS<P2>(t));
     Assert.Equal(7L, Helper.InnerY<P2>(outer));
+
+    // ⑥ 非虚实例泛型方法
+    Helper h = new Helper();
+    Assert.Equal(7, h.Second<P2>(t));
+    Assert.Equal(7L, h.InnerYI<P2>(outer));
 
     // ── 阴性对照：实参不改变布局时，泛型体与直接访问本来就一致 ──────────────
     Loc<string, int> s = new Loc<string, int>("hi", 5);

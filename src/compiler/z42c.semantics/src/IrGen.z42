@@ -258,7 +258,18 @@ public sealed class IrGen {
                     Decl gmem = IrGenFacts._unwrap(gc.Members[gmi]);
                     if (gmem is MethodDecl) {
                         MethodDecl gm = gmem as MethodDecl;
-                        if (gm.TypeParams.Count > 0 && gm.HasBody && IrGenFacts._hasWord(gm.Mods, "static")) {
+                        // 静态泛型方法走直接调用；**非虚**实例泛型方法走 vcall，但 vcall 的解析链
+                        // 里有一条「按名走基类链查 func_index」的回落，故改派简单名即可，无须动 vtable。
+                        //
+                        // ⚠️ **虚/抽象/override 的实例泛型方法刻意排除**：运行期从**接收者的运行期类型**
+                        // 开始走基类链，若子类 override 了它而子类那份没被特化，就会落到基类的特化体
+                        // ⇒ **静默调错实现**。覆盖它需要把特化闭包扩到「该方法在本包的全部覆写」，
+                        // 留给后续（见 tasks.md S1-d）。不特化 = 维持今天的大声报错，不引入静默错。
+                        bool gIsStatic = IrGenFacts._hasWord(gm.Mods, "static");
+                        bool gIsVirt = IrGenFacts._hasWord(gm.Mods, "virtual")
+                                    || IrGenFacts._hasWord(gm.Mods, "override")
+                                    || IrGenFacts._hasWord(gm.Mods, "abstract");
+                        if (gm.TypeParams.Count > 0 && gm.HasBody && (gIsStatic || !gIsVirt)) {
                             this._noteGenericBody(gownerKey + "." + gm.RegKey, gownerKey, gc.Members[gmi]);
                         }
                     }
@@ -401,14 +412,16 @@ public sealed class IrGen {
         this.SpecTypeArgs = m;
 
         var fe = new FunctionEmitter(model.Symbols, this);
-        // 自由函数与**静态**方法都无 `this` ⇒ isInstance=false；静态方法 isStaticMethod=true。
-        bool isStatic = ownerKey != "";
-        IrFunction irf = fe.EmitFunction(specName, md, model.GetBody(rk.Value), false, isStatic,
+        // 三种形态：自由函数（无 owner、无 this）/ 静态方法（有 owner、无 this）/ 实例方法（两者皆有）。
+        bool isMember = ownerKey != "";
+        bool isStaticMethod = isMember && IrGenFacts._hasWord(md.Mods, "static");
+        bool isInstance = isMember && !isStaticMethod;
+        IrFunction irf = fe.EmitFunction(specName, md, model.GetBody(rk.Value), isInstance, isStaticMethod,
                                          owner, new string[0], 0);
-        irf.Visibility = IrGenFacts._visCode(md.Mods, isStatic ? 1 : 3);
+        irf.Visibility = IrGenFacts._visCode(md.Mods, isMember ? 1 : 3);
         irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);
-        irf.ParamAttrs = this._classDescB._paramAttrRefs(md, false); irf.ParamAttrsLen = irf.ParamAttrs.Length;
-        IrGenFacts._fillParamMeta(irf, md, false);
+        irf.ParamAttrs = this._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
+        IrGenFacts._fillParamMeta(irf, md, isInstance);
         sink.AddFunc(irf);
 
         this.SpecTypeArgs = saved;

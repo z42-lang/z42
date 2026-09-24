@@ -13,7 +13,9 @@
 - [x] **顺带修复** 导入 record 丢失 record 身份（跨包 `with` / 位置解构误拒）
 - [x] **S1-a** 伪实例化不走特化路径（`new G<T,X>()` 不再硬崩）—— `71cbcf51f`
 - [x] **S1-b** 泛型体单调化：自由函数 + **静态**泛型方法
-- [ ] **S1-c** **实例**泛型方法（走 `vcall` 按简单名派发，改派要连 vtable 一起动）
+- [x] **S1-c** **非虚**实例泛型方法（vcall 的解析链有「按名走基类链查 func_index」的回落 ⇒
+      改派简单名即可命中，**无须动 vtable**；命中后照常装 IC，热路径不受影响）
+- [ ] 🔴 **S1-d** **虚/override** 实例泛型方法 —— 刻意未做，见下
 - [ ] **S2** 跨包模板投送 —— 覆盖元组与 `KeyValuePair`，需格式 bump
 - [ ] **S3** 退役擦除名回落
 
@@ -89,6 +91,31 @@
 - [ ] 5.5 PR（body 写跑 GREEN 时的 `base: <sha>`）
 
 ---
+
+## S1-d：虚/override 实例泛型方法（刻意留下的缺口）
+
+**为什么刻意不做**：vcall 从**接收者的运行期类型**起走基类链。若只特化了基类那份，
+子类的 override 没特化 ⇒ 运行期落到基类的特化体上 ⇒ **静默调错实现**。宁可不特化
+（维持大声报错），也不引入静默错。
+
+**精确复现**：
+
+```z42
+class Base    { public virtual  int Second<T>(Loc<T,int> p) { return p.Item2; } }
+class Derived : Base { public override int Second<T>(Loc<T,int> p) { return p.Item2 + 100; } }
+Base b = new Derived();  b.Second<P2>(Loc<P2,int>(a, 7))
+```
+
+| | 结果 |
+|---|---|
+| main（#774 现状）| **102** —— 静默错值（读到 @8 的 `P2.Y`=2，+100） |
+| 本分支 S1-c 后 | `struct ref leaf at byte offset 8 not in type layout` —— **大声报错** |
+| 应为 | 107 |
+
+**做法**（已想清，未实施）：特化闭包扩到「该方法在本包的**全部覆写**」——登记工作项
+`Base.Second:P2` 时，连同每个本包中声明同名同泛型元数的类一并登记（过近似是安全的，
+多特化几份只是体积）。难点在于拿到每个 owner 的 FQ 名（泛型类 owner 还有 arity-mangle），
+`IrGen._q` 用的是当前 CU 的 ns，跨 ns 的同包类要另寻出口。
 
 ## S2 / S3（开工前回到阶段 3/4/5 补精确 Scope）
 
