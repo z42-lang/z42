@@ -1,0 +1,94 @@
+// 基元收者上**不存在的成员**必须编译期报错（fix-prim-member-not-found）。
+//
+// 回归来源：`MemberResolver` 的 prim 收者路径在查无成员时**无条件松绑定**（字段式返回
+// `Z42UnknownType` 的 `BoundMember`、方法式按裸名发 `BoundCall`，都交运行期经 DepIndex 解析）。
+// 于是 `int x = 5; x.Bogus();` **编译期零诊断**，崩在运行期 `VCall: expected object, got I64(5)`
+// ——那是**不可 catch 的内部错误**（不是 `Std.Exception` 子类，`catch (Exception)` 抓不到）。
+// int / string / double / bool 四种基元、字段式与方法式全中；而同样的写法在用户类上一直报
+// E0401、在数组上报 E0402 —— **只有 prim 这一条路松绑定**。
+//
+// `#724` 当年看见了这个洞并选择留下，理由写在 `BindPrimNoApplicableOverload` 的头注里：
+// 「松绑定要保 `string.Length` 经 DepIndex 解析」。**那个理由已经过期**——`String.Length`
+// 现在是真实声明的 extern 属性（`String.z42:44`），getter 查找本就命中。
+//
+// ⚠️ **本文件为什么要在源码里自己声明 `Int32` / `String`**：本单测走 `SemanticDump`，它只
+// `SymbolCollector().Collect(cu)`、**不加载 stdlib**。不自己声明的话 `HasClass("Int32")` 为假，
+// prim 分支压根进不去，断言就变成了空测试（同 `SemanticDump` 头注记的那类「恒绿 = 空测试」）。
+// 声明出来的包装类与真实配置同形：`env.Symbols.GetClass(wrapper)` 拿到一个成员表完整的真类。
+//
+// 门的判别力：下面「stub 包装类仍松绑定」那两条是**反向**用例——把修复退回（无条件松绑定）
+// 时前面几条变绿、它们不变，把逃生口删掉时它们变红。两侧各钉一边。
+namespace Z42cSemanticsPrimMemberTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 成员表完整的包装类模型：真实 Int32/String 有一批方法，这里给够即可。
+string _wrappers() {
+    return "struct Int32 { public string ToString() { return \"\"; } public int GetHashCode() { return 0; } } "
+         + "struct Double { public string ToString() { return \"\"; } } "
+         + "struct Boolean { public string ToString() { return \"\"; } } "
+         + "class String { public int Length { get; } public string ToUpper() { return \"\"; } } ";
+}
+
+[Test]
+void test_missing_method_on_int_is_an_error() {
+    string src = _wrappers() + "class C { void M() { int x = 5; x.Bogus(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("no method `Bogus` on `Int32`", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_missing_field_on_int_is_an_error() {
+    string src = _wrappers() + "class C { int M() { int x = 5; return x.Bogus; } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("no field `Bogus` on `Int32`", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_missing_member_on_string_double_bool_all_report() {
+    // 四种基元同一条路径，逐个钉住——此前是「全中」，修好了也该「全好」。
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(_wrappers() + "class C { void M() { string s = \"h\"; s.Bogus(); } }"));
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(_wrappers() + "class C { void M() { double d = 1.5; d.Bogus(); } }"));
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(_wrappers() + "class C { void M() { bool b = true; b.Bogus(); } }"));
+}
+
+[Test]
+void test_existing_members_still_resolve() {
+    // 正面对照：合法的 prim 成员一条都不能被误伤（字段/属性 getter / 方法 / 继承来的都算）。
+    Assert.Equal(0, SemanticDump.ErrorCount(_wrappers() + "class C { string M() { int x = 5; return x.ToString(); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount(_wrappers() + "class C { int M() { string s = \"h\"; return s.Length; } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount(_wrappers() + "class C { string M() { string s = \"h\"; return s.ToUpper(); } }"));
+}
+
+[Test]
+void test_name_exists_but_no_applicable_overload_keeps_its_own_message() {
+    // #724 那条（名字在、无一重载适用）必须保持原措辞，不能被新分支吞掉。
+    //
+    // ⚠️ 必须用**同 arity 的多重载**来触发：单候选且实参个数不符会先被 E1006（实参过多）
+    // 截走，根本走不到重载决议。真实形态正是 `Split(string)` / `Split(char[])` 配 `Split(',')`
+    // —— 两个候选都是 arity-1，char 一个都不适用。
+    string src = "class String { public int Pick(string a) { return 0; } public int Pick(bool[] a) { return 1; } } "
+               + "class C { void M() { string s = \"h\"; s.Pick('c'); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("no overload of `Pick` on `String` accepts these arguments", SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_stub_wrapper_still_loose_binds() {
+    // 逃生口：包装类是**成员表为空的 stub**（懒加载 / 冷启动未载真类）时候选集不完整，
+    // 判「不存在」会误报 ⇒ 仍按老路松绑定，零诊断。镜像 class 收者路径的 `_stub` 分支。
+    string src = "struct Int32 { } class C { void M() { int x = 5; x.Bogus(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+    string src2 = "struct Int32 { } class C { int M() { int x = 5; return x.Bogus; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src2));
+}
+
+[Test]
+void test_method_group_value_on_prim_still_loose_binds() {
+    // `i.ToString`（不带括号）= 方法组取值。prim 上的方法组不归本次处理，保持松绑定——
+    // 否则会被字段式那条新分支误判成「没有这个字段」。
+    string src = _wrappers() + "class C { void M() { int x = 5; var f = x.ToString; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

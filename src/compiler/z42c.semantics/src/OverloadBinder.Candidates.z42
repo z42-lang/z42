@@ -50,6 +50,14 @@ public sealed partial class OverloadBinder {
         return cnt;
     }
 
+    // fix-prim-member-not-found：`name` 在 ct（含基链）上**是否存在任何重载**——与 arity / 适用性无关。
+    // prim 收者消费端用它分流两句不同的诊断：名字压根不在 → 「没有这个方法」；名字在但无一重载适用
+    // → 「没有重载接受这些实参」。⚠️ 必须走 `_collectOverloads` 而非 `Methods.ContainsKey`：非-primary
+    // 重载注册的是全签名键（`Substring$2$int$int`），继承来的成员又在基类表里，直查会漏判成「不存在」。
+    internal bool _hasAnyOverload(SymbolTable symbols, Z42ClassType ct, string name) {
+        return this._collectOverloads(symbols, ct, name).Length > 0;
+    }
+
     private MethodSymbol[] _collectOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
         // 去重键 = **有效签名**（简单名 + 形参规范类型），非 RegKey。这样一个派生类型自己声明的
         // 方法会**隐藏**基类中同签名的方法（C# method hiding：more-derived wins）——因基链自派生向基
