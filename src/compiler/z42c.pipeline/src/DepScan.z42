@@ -108,7 +108,7 @@ public static class DepScan {
                 string[] nss = ZpkgReader.ReadNamespaces(z);
                 int i = 0;
                 while (i < nss.Length) {
-                    if (DepScan._nsIndexOf(nsNames, nsCount, nss[i]) < 0) {
+                    if (DepScan._nsPairIndexOf(nsNames, nsFiles, nsCount, nss[i], basename) < 0) {
                         if (nsCount == nsNames.Length) {
                             string[] b1 = new string[nsNames.Length * 2];
                             string[] b2 = new string[nsNames.Length * 2];
@@ -189,11 +189,12 @@ public static class DepScan {
         ZpkgInfo z = ZpkgReader.Open(bytes, pkgName);
         if (z == null || z.IsExe) { return scan; }
         string basename = pkgName + ".zpkg";
-        // ① namespaces：新 ns 追加到 nsMap（first-wins，已存在则跳过）
+        // ① namespaces：追加到 nsMap（fix-crosspkg-ns-reachability：按 (ns, file) 整对判重，
+        //    同一 ns 的多个提供包各占一行；`FileOf` 仍取第一行 ⇒ 路由语义不变）
         string[] nss = ZpkgReader.ReadNamespaces(z);
         int i = 0;
         while (i < nss.Length) {
-            if (DepScan._nsIndexOf(scan.NsNames, scan.NsCount, nss[i]) < 0) {
+            if (DepScan._nsPairIndexOf(scan.NsNames, scan.NsFiles, scan.NsCount, nss[i], basename) < 0) {
                 if (scan.NsCount == scan.NsNames.Length) {
                     string[] b1 = new string[scan.NsNames.Length * 2];
                     string[] b2 = new string[scan.NsNames.Length * 2];
@@ -305,7 +306,7 @@ public static class DepScan {
                 string[] nss = ZpkgReader.ReadNamespaces(z);
                 int i = 0;
                 while (i < nss.Length) {
-                    if (DepScan._nsIndexOf(nsNames, nsCount, nss[i]) < 0) {
+                    if (DepScan._nsPairIndexOf(nsNames, nsFiles, nsCount, nss[i], basename) < 0) {
                         if (nsCount == nsNames.Length) {
                             string[] b1 = new string[nsNames.Length * 2];
                             string[] b2 = new string[nsNames.Length * 2];
@@ -431,6 +432,20 @@ public static class DepScan {
         int i = 0;
         while (i < n) {
             if (a[i] == s) { return i; }
+            i = i + 1;
+        }
+        return 0 - 1;
+    }
+
+    // fix-crosspkg-ns-reachability：nsMap 现在是**多值**（一个 ns 每个提供包一行），
+    // 判重判据从「这个 ns 在不在」改成「(ns, file) 这一对在不在」。
+    //
+    // ⚠️ `FileOf(ns)` 仍返回**第一行** ⇒ 路由语义（`DepScan.z42` 的 ReconcileCandidatesInNs、
+    // REPL 补全）逐字不变；改成多值只影响 DEPS 的构造（`ZpkgBuilder._addProviders` 取全部行）。
+    internal static int _nsPairIndexOf(string[] names, string[] files, int n, string ns, string file) {
+        int i = 0;
+        while (i < n) {
+            if (names[i] == ns && files[i] == file) { return i; }
             i = i + 1;
         }
         return 0 - 1;

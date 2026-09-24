@@ -124,7 +124,10 @@ public static class NsIndexCache {
                 int a = 0;
                 while (a < e.Nss.Length) {
                     string nsv = e.Nss[a];
-                    if (DepScan._nsIndexOf(nsNames, nsCount, nsv) < 0) {
+                    // fix-crosspkg-ns-reachability：判重改 (ns, file) 整对 —— **必须与
+                    // `DepScan.ScanDirs` 的非缓存路径逐字一致**，否则命中缓存与否会产出两份不同的
+                    // nsMap（该函数头注写着「产出与 open-all 路径等价」，这就是那条等价性）。
+                    if (DepScan._nsPairIndexOf(nsNames, nsFiles, nsCount, nsv, basename) < 0) {
                         if (nsCount == nsNames.Length) {
                             string[] b1 = new string[nsNames.Length * 2]; string[] b2 = new string[nsNames.Length * 2];
                             int k = 0; while (k < nsCount) { b1[k] = nsNames[k]; b2[k] = nsFiles[k]; k = k + 1; }
