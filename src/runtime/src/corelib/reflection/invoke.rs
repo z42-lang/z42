@@ -316,6 +316,27 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
         Some(td) => td,
         None => bail!("Activator.CreateInstance: type has no runtime handle (primitive/array/synthetic?)"),
     };
+    // fix-new-prim-value: 构造一个基元 = 它的零值，不是「一个 0 字段的 ScriptObject」。
+    //
+    // 这是 `new T()`（T 为方法级型参）在 T 绑到基元时走到的路径——编译期发
+    // `MethodTypeArgInsn` + 本 builtin，类型直到运行期才知道，所以折叠只能在这里做
+    // （非泛型的 `new int()` 由 `ConstructTyper._bindNew` 在编译期折成同样的零值）。
+    //
+    // ⚠️ 上面那句 bail 的括注「primitive/array/synthetic?」**说反了**：`Std.Int32` 是真
+    // struct 类型、runtime handle 一直在，于是基元从不落那条 bail，而是照常 alloc 出一个
+    // 空对象 —— `int`/`double`/`char` 崩在不相干的地方，`bool` 更糟：产出的东西 `if` 判真、
+    // 却 `== true` 与 `== false` 同时为假。
+    //
+    // `default_value_for` 已经认 FQ 包装名（`fix-type-reflection-names` 加的），与
+    // `MethodDefaultInsn`（`default(T)`）读的是同一张表 ⇒ `new T()` 与 `default(T)` 对基元
+    // 恒等，由构造保证。`Std.String` 是唯一的分歧：`default(string)` 是 null，而
+    // `new string()` 是「构造一个」⇒ 空串（User 裁决 2026-09-24）。
+    if td.name == crate::metadata::well_known_names::STD_STRING {
+        return Ok(Value::Str("".into()));
+    }
+    if crate::metadata::well_known_names::is_scalar_prim_wrapper(&td.name) {
+        return Ok(crate::metadata::default_value_for(&td.name));
+    }
     let class_name = td.name.clone();
     let slots: Vec<Value> = td
         .fields
