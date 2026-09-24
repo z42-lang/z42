@@ -57,14 +57,27 @@ public sealed partial class MemberResolver {
     // 受者**（懒加载、主符号表无真类）才松绑定，否则报「没有这个方法」。走到这里说明拿到的是真
     // 包装类、候选集完整，够格判错。
     //
-    // ⚠️ 只在该名字**存在**于包装类上时报错。名字压根不在时返回 null，让调用方按老路松绑定——
-    // 那是主文件注释「查无则松绑定」本来要保的情形（运行期经 DepIndex 解析），不动它。
+    // fix-prim-member-not-found：**名字压根不在也要报**（此前这里 `return null` 落回松绑定）。
+    // `int x = 5; x.Bogus();` 于是编译期零诊断、崩在运行期 `VCall: expected object, got I64(5)`
+    // —— 那是**不可 catch 的内部错误**，不是 `Std.Exception` 子类。int / string / double / bool 全中，
+    // 而同样写法在用户类上一直报 E0401、在数组上报 E0402：只有 prim 这条路松绑定。
+    //
+    // `#724` 当年看见了这个洞并留下，理由是「松绑定要保 `string.Length` 经 DepIndex 解析」——
+    // **该理由已过期**：`String.Length` 现在是真实声明的 extern 属性（`String.z42:44`），
+    // getter 查找本就命中，不再需要靠松绑定兜。
+    //
+    // ⚠️ 仍然松绑定的唯一情形：包装类是**成员表为空的 stub**（懒加载 / 冷启动未载真类）——
+    // 那时候候选集不完整，判「不存在」会误报。镜像 class 收者路径的 `_stub` 分支
+    // （`MemberResolver.z42` :104-119）。
     internal BoundExpr BindPrimNoApplicableOverload(Z42ClassType wct, MemberExpr mem, BoundExpr recv, Z42Type rt,
                                                    BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
-        if (!wct.Methods.ContainsKey(mem.Name)) { return null; }
         if (this._tc._overload.LastAmbiguous) { return null; }   // 歧义由 _resolveOverload 自己报
-        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
-            "no overload of `" + mem.Name + "` on `" + wct.Name() + "` accepts these arguments", mem.NameSpan);
+        string msg = "no overload of `" + mem.Name + "` on `" + wct.Name() + "` accepts these arguments";
+        if (!this._tc._overload._hasAnyOverload(env.Symbols, wct, mem.Name)) {
+            if (wct.Methods.Count() == 0) { return null; }       // stub 包装类 → 按老路松绑定
+            msg = "no method `" + mem.Name + "` on `" + wct.Name() + "`";
+        }
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol, msg, mem.NameSpan);
         BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
         return new BoundCall("instance", true, recv, PrimModel.Canon(rt.Name()), mem.Name, fa, argCount, new Z42ErrorType(), sp);
     }

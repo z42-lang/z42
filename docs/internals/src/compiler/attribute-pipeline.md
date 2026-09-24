@@ -168,18 +168,31 @@ namespace 的字面量——所以跨包调用注入的是**消费方**的上下
 
 | 位置 | 场景 |
 |---|---|
-| `MemberResolver.z42:305` | 泛型型参（`TKey` / `TValue`）上的成员访问 |
-| `MemberResolver.z42:330` | 泛型实例化类型上找不到字段也找不到 `get_X` |
-| `MemberResolver.z42:347` | prim wrapper 类上找不到字段也找不到 `get_X` |
-| `MemberResolver.z42:102` / `:193` | class 收者 / 泛型实例化收者的方法调用查不到 → `sig=null` |
-| `MemberResolver.z42:231-232` | 型参收者的方法调用，Object 与约束接口都查不到 → `sig=null` |
-| `MemberResolver.z42:271-272` | prim 收者的方法调用查不到 → `sig=null` |
+| `MemberResolver.z42:323` | 泛型型参（`TKey` / `TValue`）上的成员访问 |
+| `MemberResolver.z42:348` | 泛型实例化类型上找不到字段也找不到 `get_X` |
+| `MemberResolver.z42:373` | prim wrapper 类上找不到字段也找不到 `get_X`，**且**包装类成员表为空（stub）或该名字其实是个方法（方法组取值） |
+| `MemberResolver.z42:118` / `:226` | class 收者 / 泛型实例化收者的方法调用查不到 → `sig=null` |
+| `MemberResolver.z42:265` | 型参收者的方法调用，Object 与约束接口都查不到 → `sig=null` |
+| `MemberResolver.Prim.z42:44` | prim 收者的方法调用查不到，**且**包装类成员表为空（stub） → `sig=null` |
 
 **这不是可以顺手收紧的小 fix。** 这条逃生通道被大量**合法写法**依赖——enum 成员访问、类名静态成员、
 异常内建属性、字符串上的 extern 属性、链式反射等。历史上实测过一次：即便只对非 Unknown/Error 接收者
 收紧、并保留 poison cascade 抑制，也会把 **26 个合法 golden 程序**变成编译错误（横跨 enums /
 statics / exceptions / strings / reflection）。真正的修法是让 typechecker 对上述每一类成员**完整静态
 建模**，是多子系统工程。
+
+> **prim 收者那两条已经收紧了**（`fix-prim-member-not-found`，2026-09-24）。上面那次「26 个 golden
+> 变红」的实测是**对所有收者一起收紧**；prim 这一支单独拿出来收，判据窄得多，实测零回归：
+>
+> - 收紧的前提是**候选集完整**——`env.Symbols.HasClass(wrapper)` 拿到的是主符号表里的真包装类，
+>   成员面是全的，够格判「这个名字不存在」。成员表为空的 stub（懒加载 / 冷启动未载真类）仍然松绑。
+> - 「名字不存在」与「名字在、但没有重载适用」是两句不同的诊断，共用 E0401；后者是 `#724` 加的。
+> - 为什么非收不可：`int x = 5; x.Bogus();` 此前**编译期零诊断**，崩在运行期
+>   `VCall: expected object, got I64(5)` —— 不可 catch 的内部错误。而同样的写法在用户类上报 E0401、
+>   在数组上报 E0402，**只有基元这一条路是松的**，不对称本身就是它是漏写而非设计的证据。
+> - `#724` 留下这个洞时给的理由（「要保 `string.Length` 经 DepIndex 解析」）**已经过期**：
+>   `String.Length` 现在是真实声明的 extern 属性，getter 查找本就命中。
+>   注释里的理由会腐坏，读到「保持现行为」这类措辞要去核，别当结论接受。
 
 > 注意 `sig == null` 的连带后果：`OverloadBinder.CheckArgTypes` 第一行就是 `if (sig == null) return;`
 > ⇒ 走到松绑分支的调用**实参一律不检查**。`bind-self-param-and-constraint-members` 已经把「型参收者

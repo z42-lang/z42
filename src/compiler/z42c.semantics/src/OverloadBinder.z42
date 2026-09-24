@@ -1,7 +1,11 @@
 // 重载决议子绑定器 OverloadBinder（compiler-review P1-1：拆 TypeChecker God-Class 第 1 步）。
 // 持 TypeChecker 反向引用（_tc）作 mediator：跨界触达 _tc._bindExpr（ExprTyper 域）、
 // _tc._isAssignable（转换助手）、_tc._diags（共享诊断）。同组方法互调仍 this._X。
-// z42 无 partial class → 抽独立类拆文件（镜像 EmitContext/FunctionEmitter 模式）。
+//
+// **候选集聚合那一半在 `OverloadBinder.Candidates.z42`**（`_findMethod` / `_collectOverloads` /
+// `_overloadKey` / `_sameArityOverloadCount` / `_hasAnyOverload` / `_overloadSigKey`），partial
+// 拆分只为守 code-organization 的 886 行硬限。⚠️ 本文件抬头原先写着「z42 无 partial class → 抽独立类
+// 拆文件」——那句**已经过时**（`MemberResolver` 早就是 partial 的），照它去抽新类会白折腾。
 namespace Z42.Semantics;
 using Z42.IR;
 
@@ -9,7 +13,7 @@ using Z42.Syntax;
 using Z42.Core;
 using Z42.IR.BinaryFormat;
 
-public sealed class OverloadBinder {
+public sealed partial class OverloadBinder {
     private TypeChecker _tc;
 
     // fix-overload-ref-conversion：`_resolveOverload` 判定为**歧义**时已经报过 E0425，
@@ -601,29 +605,6 @@ public sealed class OverloadBinder {
         return name;
     }
 
-    internal string _overloadKey(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {
-        string ak = name + "$" + argCount.ToString();
-        if (this._findMethod(symbols, ct, ak) != null) { return ak; }
-        return name;
-    }
-
-    internal MethodSymbol _findMethod(SymbolTable symbols, Z42ClassType ct, string name) {
-        Z42ClassType cur = ct;
-        bool more = true;
-        while (more) {
-            int _sl0 = cur.Methods.Find(name); if (_sl0 >= 0) { return cur.Methods.ValAt(_sl0) as MethodSymbol; }
-            if (!cur.HasBase) {
-                // 无显式 base 的 class 隐式继承 Object（mirror C# object root；struct 无 Object 方法）。
-                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
-                else { more = false; }
-            } else {
-                Z42ClassType b = symbols.GetClass(cur.BaseName);
-                if (b == null) { more = false; } else { cur = b; }
-            }
-        }
-        return null;
-    }
-
     internal MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
                                           BoundExpr[] args, int argCount, int typeArgCount, Span sp,
                                           Expr[] rawArgs, TypeEnv env) {
@@ -741,22 +722,6 @@ public sealed class OverloadBinder {
         return null;
     }
 
-    // add-prim-instance-type-overload（方案1）：统计 (name, argCount) 在 ct（含基链）上的同 arity
-    // 非-params 重载候选数。prim 消费端（MemberResolver prim-wrapper 分支）用它判「是否同 arity 多重载」：
-    // ≥2 时 bare/arity 快键会 first-wins 选错（尤跨包 imported 的 bare 别名），须走完整 _resolveOverload
-    // 得正确 mangle RegKey；<2 时走原 arity-only 快路径（字节中性）。复用 _collectOverloads（RegKey 去重、
-    // 走基链）+ _resolveOverload 同款 byArity 过滤（ParamsFrom<0 且 ParamCount==argCount），确保视图一致。
-    internal int _sameArityOverloadCount(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {
-        MethodSymbol[] all = this._collectOverloads(symbols, ct, name);
-        int cnt = 0;
-        int i = 0;
-        while (i < all.Length) {
-            if (all[i].Signature.ParamsFrom < 0 && all[i].Signature.ParamCount == argCount) { cnt = cnt + 1; }
-            i = i + 1;
-        }
-        return cnt;
-    }
-
     private MethodSymbol _resolveParamsOverload(MethodSymbol[] all, BoundExpr[] args, int argCount, Span sp, SymbolTable symbols) {
         MethodSymbol[] cand = new MethodSymbol[all.Length];
         int nc = 0;
@@ -821,65 +786,6 @@ public sealed class OverloadBinder {
             return null;
         }
         return null;
-    }
-
-    private MethodSymbol[] _collectOverloads(SymbolTable symbols, Z42ClassType ct, string name) {
-        // 去重键 = **有效签名**（简单名 + 形参规范类型），非 RegKey。这样一个派生类型自己声明的
-        // 方法会**隐藏**基类中同签名的方法（C# method hiding：more-derived wins）——因基链自派生向基
-        // 遍历，首见者（最派生）胜。fix-generic-struct-erasure-boxing：imported record struct 的合成
-        // `Equals$1(object)`（RegKey `Equals$1`）与继承的 `Object.Equals(object)`（RegKey `Equals`）RegKey
-        // 不同但签名相同——旧的 RegKey 去重会二者并存 → 同签名两候选 → 重载决议歧义 → 解析失败 → `.Equals`
-        // 松绑不装箱 → 运行期 `other` 裸 StructRef → is_instance 失败 → 值相等误返 false（且伪 E0425）。
-        // 按签名去重后派生合成 Equals$1 隐藏 Object.Equals → 唯一候选 → 正确装箱决议。type-based 重载
-        // （不同形参类型）签名各异、不受影响；override（同 RegKey、同签名）结果不变。
-        StrMap seen = new StrMap();
-        MethodSymbol[] acc = new MethodSymbol[8];
-        int n = 0;
-        Z42ClassType cur = ct;
-        bool more = true;
-        while (more) {
-            MethodSymbol[] here = cur.OverloadsOf(name);
-            int i = 0;
-            while (i < here.Length) {
-                string sigKey = OverloadBinder._overloadSigKey(here[i]);
-                if (!seen.ContainsKey(sigKey)) {
-                    seen.Put(sigKey, "1");
-                    if (n == acc.Length) {
-                        MethodSymbol[] b = new MethodSymbol[acc.Length * 2];
-                        int q = 0; while (q < n) { b[q] = acc[q]; q = q + 1; }
-                        acc = b;
-                    }
-                    acc[n] = here[i]; n = n + 1;
-                }
-                i = i + 1;
-            }
-            if (!cur.HasBase) {
-                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
-                else { more = false; }
-            } else {
-                Z42ClassType b = symbols.GetClass(cur.BaseName);
-                if (b == null) { more = false; } else { cur = b; }
-            }
-        }
-        MethodSymbol[] r = new MethodSymbol[n];
-        int z = 0; while (z < n) { r[z] = acc[z]; z = z + 1; }
-        return r;
-    }
-
-    // fix-generic-struct-erasure-boxing：方法的**有效签名键**（简单名 + 形参规范类型，规范化别名）。
-    // 供 `_collectOverloads` 按签名跨基链去重（派生隐藏基类同签名方法）。params 尾位以 `...` 标记纳入键，
-    // 使 `f(int)` 与 `f(params int[])` 键相异、互不隐藏。
-    private static string _overloadSigKey(MethodSymbol ms) {
-        string k = ms.Name + "#";
-        Z42FuncType s = ms.Signature;
-        if (s == null || s.ParamTypes == null) { return k; }
-        int i = 0;
-        while (i < s.ParamTypes.Length) {
-            if (s.ParamsFrom >= 0 && i == s.ParamsFrom) { k = k + "..."; }
-            k = k + (s.ParamTypes[i] == null ? "?" : s.ParamTypes[i].CanonName()) + ",";
-            i = i + 1;
-        }
-        return k;
     }
 
 }

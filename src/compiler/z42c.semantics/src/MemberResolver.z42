@@ -362,7 +362,19 @@ public sealed partial class MemberResolver {
             if (wgetter != null && wgetter.Signature != null) {
                 return BoundCall.Marked(new BoundCall("instance", true, target, PrimModel.Canon(tt.Name()), "get_" + m.Name, new BoundExpr[0], 0, wgetter.Signature.Ret, m.Span), wgetter.Signature);
             }
-            return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
+            // fix-prim-member-not-found：包装类成员表完整时，无字段、无 getter ⇒ 真错（镜像 class 收者
+            // 路径 :409）。此前无条件松绑 Unknown，于是 `int x = 5; x.Bogus` **编译期零诊断**、崩在运行期
+            // `FieldGet: expected object, got I64(5)` —— 不可 catch 的内部错误。方法式同病，见
+            // `MemberResolver.Prim.z42` 的 `BindPrimNoApplicableOverload`。
+            // ⚠️ 两个仍要松绑定的情形：① 成员表为空的 stub（懒加载 / 冷启动未载真类，候选集不完整）；
+            // ② 名字其实是个**方法**（`i.ToString` 不带括号 = 方法组取值，prim 上的方法组不归本次处理）。
+            if ((wct.Fields.Count() == 0 && wct.Methods.Count() == 0)
+                || this._tc._overload._hasAnyOverload(env.Symbols, wct, m.Name)) {
+                return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
+            }
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "no field `" + m.Name + "` on `" + wct.Name() + "`", m.NameSpan);
+            return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
         }
         this._tc._diags.Error(DiagnosticCodes.TypeMismatch,
             "member access on non-class `" + tt.Name() + "`", m.Span);

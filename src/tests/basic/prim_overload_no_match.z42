@@ -6,8 +6,10 @@
 // char 既不适用 `Split(string)` 也不适用 `Split(char[])`，本就该在编译期拦下。
 // 类收者路径一直是对的（只有 stub 受者才松绑定，否则报「没有这个方法」）；prim 路径少了那个分支。
 //
-// ⚠️ 本文件只钉**正面**（合法调用照常工作）。「非法调用要报错」由
-// `src/tests/basic/prim_overload_no_match_err/` 的 expected_output 钉。
+// ⚠️ 本文件只钉**正面**（合法调用照常工作）。「非法调用要报错」在本目录**没有**门
+// ——期望编译报错的用例不放这里（见 `src/tests/README.md`），由
+// `z42c.semantics/tests/typecheck/prim_member/` 的 `SemanticDump` 断言钉。
+// （原注释指的 `prim_overload_no_match_err/` 从来没被建出来过；2026-09-24 补上真门时订正。）
 namespace Demo;
 
 void Main() {
