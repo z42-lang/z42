@@ -859,21 +859,34 @@ artifacts/build/libraries/<lib>/<profile>/
 
 `bench`（无 `stdlib` 子参）仍是 e2e hyperfine 场景跑器，与 per-lib micro-bench 分流。[Benchmark] 单元由 z42b 与 [Test] 同调度（zero-arg 调用 + Bencher 采样）。
 
-### 错误码
+### 清单校验（构建期，**不是诊断码**）
 
-| 码 | 严重度 | 触发 |
-|---|:---:|------|
-| WS012 | warning | test-only dep 出现在 `[dependencies]`（leak 提示）|
-| WS040 | error | `[[test]]` / `[[bench]]` / `[[example]]` 缺 `name` |
-| WS041 | error | `harness = false` 的目标缺 `entry`（反射目标 harness=true 无需 entry）|
-| WS042 | error | 同一 kind 内 name 重复（含 auto 与显式撞名以显式为准，不报错）|
-| WS043 | error | 目标 `sources` glob 无匹配文件 |
+写错 dev-target 声明会被拦下。校验在 **xtask 发现层**做（`ManifestLoader` 只忠实解析、不校验
+语义），报的是构建工具的错误行、**不走 `E`/`WS` 诊断码** —— 下表是实际会打印的文案：
 
-> 校验在 **xtask 发现层**做（`ManifestLoader` 只忠实解析、不校验语义）。
-> `KnownTestOnlyDeps` 当前为 `{ "z42.test" }`，curated set，不靠启发式。三类 kind 命名 namespace 独立
-> —— `[[test]] name = "x"` / `[[bench]] name = "x"` / `[[example]] name = "x"` 可共存。
+| 规则 | 实际报错 | 实现 |
+|------|---------|------|
+| `[[test]]` / `[[bench]]` / `[[example]]` 缺 `name` | `[[test]] #1 missing required \`name\`` | `_validateRunTargets` |
+| `harness = false` 的目标缺 `entry`（反射目标 harness=true 无需 entry）| `[[test]] 'x' has harness=false but no \`entry\`` | 同上（example 豁免——它恒按 `entry` 跑 Main）|
+| 同一 kind 内 `name` 重复 | `duplicate [[test]] name 'x'` | 同上 |
+| 目标 `include` glob 无匹配文件 | example / `harness=false` 路径：`✗ <目标>: no source files match (sources glob / convention empty)`；test / bench 转发 z42b 的路径：`compile failed: no .z42 sources under <dir>` | `_compileTarget` / z42b |
 
-**WS012 例外**：`[project].name` 含 `.test.` 或 `.bench.` infix 时抑制。xtask dir-mode 生成的 synthetic mini-manifest（`<lib>.test.<unit>` / `<lib>.bench.<unit>`）合法在 `[dependencies]` 写 z42.test —— harness 项目本质是测试程序，不存在 leak。用户 zpkg 命名应避免该 infix。
+三类 kind 的命名 namespace **独立** —— `[[test]] name = "x"` / `[[bench]] name = "x"` /
+`[[example]] name = "x"` 可共存（重名只在同一 kind 内判）。auto 与显式撞名以显式为准，不报错。
+
+> ⚠️ **「`sources` glob 无匹配」这条在 test / bench 路径上收尾姿势不佳**：z42b 说得清楚
+> （`no .z42 sources under <dir>`，且带目标名），但最后以 `Error: uncaught exception:
+> Std.Exception: compile failed` 收场，而不是一条干净的错误退出。会红、信息也在，只是不好看。
+
+> 📌 **历史**：这几条规则原计划用 `WS012` / `WS040`–`WS043` 诊断码表达，由 C# 侧
+> `Z42.Project.ManifestErrors` 发射。C# bootstrap 编译器 2026-06-26 删除后**那些码一个都不存在**，
+> 而规则本身在 xtask 侧独立实现了（上表，已逐条实测会红）。**码号不再使用**，另见
+> [错误码全表](../appendix/error-codes.md)的 WSxxx 节。
+>
+> 其中 **`WS012`（test-only dep 出现在 `[dependencies]`）连规则都不再保留**：它靠一个按名字写死的
+> curated set（`{ "z42.test" }`）加一条 `.test.` / `.bench.` infix 豁免才能工作，而 `z42.test` 是
+> 个普通的运行期库、**无法自证**自己"只该在测试里出现"——这类判据机制化不了。dev-dependency 的
+> 正确表达是 `[tests.dependencies]` / `[benches.dependencies]`（三层合并已支持，见上文 D6）。
 
 ### 与 2026-06-06 旧稿的差异（落地时修订）
 
