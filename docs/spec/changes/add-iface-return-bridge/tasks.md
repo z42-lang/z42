@@ -28,19 +28,31 @@ User 裁「两条一起做」= **不要把「只报错」当最终答案**；本
 - [ ] 1.4 `error-codes.md` 登记（规则 ⑤ 双向相等）
 - [ ] 1.5 GREEN + fingerprint 判定（**修前那种写法编得过 ⇒ 要 bump**，与 #795/#796 同理）
 
-## 阶段 2：桥接合成（本包内）
+## 阶段 2：桥接合成（本包内）—— 🟡 非泛型档已跑通（`cce4c14a3`）
 
-- [ ] 2.1 具体实现挪到合成名 `<m>$struct`（沿用既有 `$` mangle 惯例；**先确认它不与 arity
+**已落地**：判据分两层（符号层 `IfaceBridgeRet` 标记 + 发射层 `IsBlobStruct`）、`emitKey` 改名、
+`IfaceBridgeSynth` 合成裸名桥接（`struct_alloc` + `call $struct` + `__box_struct` + `ret`）。
+最小复现由「零诊断 + 运行期崩」变为正确输出；一字段标量档实测未动（无回归）；
+`test compiler` 24 unit + **自举不动点 3/3** 全过。
+
+🔴 **未完：泛型返回类型**。`CanBridge` 对 `Z42InstantiatedType` 返回 false（不改名不合成，
+保持现状）。要支持得先解决「实例化返回类型的 blob 布局名怎么算」——必须**复用**
+`ExprEmitter._instLayoutName` / 特化通道（`SpecInstName`/`SpecOwnerName`）那套推导，
+不能手抄第二份。**`List<T>` 卡在这一档**（`ListEnumerator<T>` 是实例化返回类型）。
+
+- [x] 2.1 具体实现挪到合成名 `<m>$struct`（沿用既有 `$` mangle 惯例；**先确认它不与 arity
       mangle `name$N` 撞命名空间** —— `$ctor`/`$indexer`/`$cctor` 是同族先例，`SurfaceHash` 那套
       `$` 名**不是**同一命名空间，切勿合表）
-- [ ] 2.2 合成桥接占**裸名**：签名取接口声明（返回 `R_i`、无 sret），体 = 调 `<m>$struct`
+- [x] 2.2 合成桥接占**裸名**：签名取接口声明（返回 `R_i`、无 sret），体 = 调 `<m>$struct`
       → `__box_struct` → return。合成落点参照 `RecordSynth` 的先例
-- [ ] 2.3 直接调用点静态绑到 `<m>$struct`（`MemberResolver`）；**接口调用点一字不改**
-      （裸名槽已是桥接）
+- [x] 2.3 直接调用点**无需改**（实测确认）：它们发的就是发射名 ⇒ 自动落到 `<m>$struct`；
+      接口调用点也一字不改（裸名槽已是桥接）。`RegKey`/发射名是派发键单一真相这条省掉了整块工作
 - [ ] 2.4 跟按名字判断的那几处：`ChainHasMethod` / devirt（`ResolveSealedTarget`）/
       `ReceiverMethodIsVirtual` —— 漏一处就是静默走错方法
 - [ ] 2.5 **虚覆盖一致性**：该方法若在类层次里被覆盖，子类覆盖也必须是桥接形态，否则子类槽变回
       sret ⇒ 同一个崩溃换个入口回来。需要在继承解析处强制
+- [ ] 2.7 **泛型返回类型档**：复用 `_instLayoutName` / 特化通道算实例化 blob 布局名
+      （`List<T>` 的前置；见本阶段抬头的 🔴）
 - [ ] 2.6 e2e：用户自定义接口 + 两字段 struct 返回，经接口调用真跑通；**退回对照**验判别力
 
 ## 阶段 3：跨包
