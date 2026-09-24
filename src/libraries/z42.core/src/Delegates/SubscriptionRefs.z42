@@ -82,7 +82,7 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
         this.weakDegraded = true;
         this.weakHandle = null;
         this.fnName = null;
-        if ((modes & 2) != 0) {
+        if ((modes & ModeFlags.Weak) != 0) {
             // Mode.Weak set：尝试拆解 handler 为 (WeakHandle, fnName)
             var target = DelegateOps.GetTarget(h);
             if (target != null) {
@@ -109,7 +109,7 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
     }
 
     public TD Get() {
-        if ((this.Modes & 2) != 0 && !this.weakDegraded) {
+        if ((this.Modes & ModeFlags.Weak) != 0 && !this.weakDegraded) {
             // Weak 活跃路径：upgrade target → 重建 Closure
             var target = WeakHandle.Upgrade(this.weakHandle);
             if (target == null) return null;
@@ -123,7 +123,7 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
 
     public bool IsAlive() {
         if (this.consumed) return false;
-        if ((this.Modes & 2) != 0 && !this.weakDegraded) {
+        if ((this.Modes & ModeFlags.Weak) != 0 && !this.weakDegraded) {
             var live = WeakHandle.Upgrade(this.weakHandle);
             return live != null;
         }
@@ -132,7 +132,7 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
 
     public void OnInvoked() {
         // Once flag → latch consumed
-        if ((this.Modes & 1) != 0) {
+        if ((this.Modes & ModeFlags.Once) != 0) {
             this.consumed = true;
         }
     }
