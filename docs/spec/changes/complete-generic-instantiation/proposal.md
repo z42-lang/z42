@@ -1,130 +1,118 @@
-# Proposal: 补完泛型实例化模型（跨包 + 身份 + 密度）
+# Proposal: 泛型实例化的单调化（monomorphization）
 
 > 类型：`lang` + `ir`（走阶段 1–9 完整流程）
 > 前序：`generic-struct-erased-slot-value-copy`（PR #774，已归档 `archive/2026-09-23-…`）
-> 落地方式：**一条线、三个 PR 顺序落**（User 裁决 2026-09-23）
+> **2026-09-24 重写**：原提案是「放宽跨包闸门 + 身份 + 密度」三件事，被实测推翻（见下），
+> 改为单调化。User 裁决 2026-09-24。
 
 ## Why
 
-#774 让**本包**泛型实例化拿到自己的布局并按布局特化成员，修掉了三种值语义违反。
-它显式留下三条未覆盖项。本 change 把它们做完。
+### 一句话
 
-三条的现状**实测复核**（树 `wt-geninst` @ `6232c87d1`，全新供种 + 重建 runtime，interp 与
-`--mode jit` 逐字相同）：
+`#774` 做的是**部分单调化**——特化了实例化**类型本身**，没特化**操作它的泛型代码**。
+两者对同一批字节的布局理解不同，产生**静默错值**。这个缺陷**今天就在 main 上**。
 
-| # | 形态 | 实测 | C# | 性质 |
-|---|---|---|---|---|
-| A | `(P2,int) t = (a,7); a.Y = 99` → `t.Item1.Y` | **99** | 2 | 🔴 正确性 |
-| A | `(P2,int) t2 = t; t2.Item1.Y = 55` → `t.Item1.Y` | **55** | 2 | 🔴 正确性 |
-| B | `List<P2>` 存取后改源变量 | 4 ✅ | 4 | ⚪ **仅密度/分配** |
-| C | `GBox<int>` 与 `GBox<string>` 的静态字段计数 | **4**（共享一槽） | 2 / 2 | 🔴 正确性 |
-| C | `GBox<int>` 实例 `is GBox<string>` | **true** | False | 🔴 正确性 |
-| C | `o as GBox<string>`（o 是 `GBox<int>`） | **放行** → `VCall: expected object, got I64(42)` | null | 🔴 **类型混淆** |
+### 驱动用例（main 上实测，非推断）
 
-两条对上一轮记录的**修正**（都影响方案选择，故写进 proposal）：
+```z42
+struct P2 { public int X; public long Y; … }
+[Record] struct Loc<A, B>(A Item1, B Item2);
+int ReadSecond<T>(Loc<T, int> p) { return p.Item2; }
 
-1. **B 不是正确性缺口。** P3a 每元素一个堆 `BoxedStruct`，装箱顺带给了拷贝语义。缺的是
-   密度与分配次数，不是值语义。⇒ 它在本 change 里是**性能项**，优先级最低。
-2. **跨包元组不需要「泛型体随包投送」。** 上一轮记的是「量级 L，本轮修不了」。实测推翻：
-   `Std.ValueTuple2..8` 是**纯 `[Record] struct` 主构造器声明，整个文件 29 行、零方法体**
-   （`src/libraries/z42.core/src/ValueTuple.z42`）。阴性对照（同一次编译、同一文件）：
+Loc<P2, int> t = new Loc<P2, int>(a, 7);
+t.Item2              → 7   ✅
+ReadSecond<P2>(t)    → 2   ❌ 应为 7
+```
 
-   ```
-   本包  [Record] struct Loc<A,B>(A Item1, B Item2)    → struct_alloc Demo.Loc<P2,int> [24B] + struct_fget_prim @8   ✅
-   跨包  [Record] struct ValueTuple2<T1,T2>(…)         → obj_new Demo.<unknown> + field_get %14.Item1                ❌
-   ```
+`ReadSecond<T>` 的**全部** IR：
 
-   两个声明逐字同形，本包那份完全正确。消费方缺的**不是方法体，是许可**——它已持有
-   全部字段名/类型（`ExportedClassZ.Fields` → `ImportedSymbolLoader._fillClass`）与全部方法
-   签名，合成 record 成员所需的信息一件不缺。
+```
+fn @Demo.ReadSecond(1) -> int {
+  %1 = struct_fget_prim %0 @8      ← 一份体，一个烘焙死的偏移
+  ret %1
+}
+```
+
+泛型体只编一份、按**擦除布局**烘焙（`Item2` 在 @8）；调用方按**实例化布局**造值
+（`Item2` 在 @16，@8 处正是 `P2.Y` = 2）。读出 `2` 不是巧合，是读错了位置。
+
+> **阴性对照**：同一段源码用 **main 的编译器**（CI artifact `58f0c4d30`，不含本线任何改动）
+> 编译，结果同样是 `2`。⇒ 这是 #774 的遗留，**不是**本线引入的。
+
+同一根因的第二种表现（跨包）：`Dictionary<K,V>.Entries()` 在 z42.core 里按擦除布局建
+`KeyValuePair<K,V>[]`，消费方若特化则按实例化布局读 ⇒ `dict_iter` 的 `sum3` 读出 `0`（应为 6）。
+
+### 不变式
+
+> **凡是碰到 `G<A,B>` 的值的代码，都必须对它的布局达成一致。**
+
+部分单调化**按构造**违反它。满足它只有两条路：让所有人都特化（本提案），或让代码根本不
+携带布局（符号化访问，见 Out of Scope）。
+
+### 被实测推翻的两条（记下来，别再走回去）
+
+| 方案 | 为什么不成立 |
+|---|---|
+| ❌ 闸门加「生产方不导出提到该泛型的签名」 | `ReadSecond<T>` 是**消费方自己**的泛型函数，生产方签名里没有它——连本包的洞都挡不住 |
+| ❌ 只给编译器脱糖的 `Std.ValueTupleN` 开白名单 | 实测 `ReadSecond<P2>((P2,int))` 同样读出 `2`。元组的「安全」只是**恰好没人用泛型代码碰过它**，用户随时可以 |
+
+两者都只是在缩小「矛盾可见的范围」，且**静默漏**。
 
 ## What Changes
 
-按三个 PR 顺序落，共用本 change 容器与 worktree。
+**核心**：把「特化」从「实例化类型的成员」扩展到**所有以具体实参操作该实例化的泛型代码**，
+并做到**传递闭包**。
 
-### P1 — 跨包闸门放宽到「成员全可合成」的导入泛型（🔴 正确性，覆盖元组）
+分三阶段，每阶段自身 sound、可独立合入：
 
-闸门今天是一刀切的 `LocalClasses.ContainsKey(inst.Def.Name())`，在两处：
-`ExprEmitter.z42:554`（布局/特化）与 `:604`（身份名）。收窄到本包的原始理由写在 550-553：
-「消费方只读签名、拿不到生产方方法体」。该理由对**有方法体的泛型**成立，对**零方法体的
-`[Record] struct`** 不成立。
+### S1 — 本包闭包（🔴 修 main 上的静默错值；**无格式变更**）
 
-改为：定义在本包 **或**（定义是导入的 `[Record] struct` 且其导出成员集恰为编译器可合成集）。
-命中后，消费方从导入元数据**反造一个合成 `ClassDecl`** 登记进 `IrGen.GenericDecls`，
-其余完全复用 #774 已有的 `IrGenTypeEmitter.EmitInstantiation` 通道。
+特化对象从「实例化类型的成员」扩展到：
 
-### P2 — 泛型 class 取独立身份（🔴 正确性，含类型混淆）
+- **泛型自由函数 / 泛型方法**：`ReadSecond<P2>` 按 `T=P2` 特化一份
+- **泛型类型成员体中引用的别的实例化**：闭包到不动点
 
-三个后果各有独立根因，必须一并修，只修一个会得到自相矛盾的模型：
+本包泛型的 AST 就在手，不需要投送、不需要格式变更。驱动用例即上面那条。
 
-- `_instClassDesc`（`ClassDescBuilder.z42:507`）合不出完整描述符 ⇒ 不敢给身份
-- `_bindIsExpr` / `_bindAsExpr`（`TypeOpTyper.z42:319` / `:46`）**把 `NamedType.Args` 直接扔掉**
-- 静态字段键 = `QualifyClass(裸名) + "." + 字段`（`AccessEmitter.z42:348`）⇒ 所有实例化共享一槽
+> 为什么 S1 自身 sound：今天**跨包**实例化两侧都不特化（都用擦除布局）⇒ 自洽，
+> 其缺陷是值语义别名（#774 原始形态），不是布局分裂。S1 只让**本包**这一侧变自洽。
 
-外加两条**解析器缺口**（全仓零先例，`grep` 只命中注释）——不修则 P2 的行为在源码层**无法表达、
-无法测试**：
+### S2 — 跨包模板投送（覆盖元组与 `KeyValuePair`；需格式 bump）
 
-- `GBox<int>.Count`：`ExprParser.z42:114-130` 的泛型出口要求 `<…>` 后紧跟 `(`，`.` 则回滚成二元 `<`
-- `(GBox<string>)o`：`ExprParser.z42:365` 的 cast 前瞻是定长 `( Ident )`，`<` 直接落空
+消费方拿不到生产方的泛型体：zpkg 的 `MODS.func` 里虽有字节，但**已按定义布局烘焙死偏移**，
+不是可再代换的模板；且编译器侧 `ZpkgReader` 根本没有读函数体的 API
+（`ReadModuleTypes` 还主动 `m.Pos += funcLen` 跳过）。
 
-> 记忆里记的障碍是「要合成基类链/接口/**vtable**/静态字段」。实测 **vtable 不在 TYPE 段**——
-> 它由运行期 `build_type_registry` 从 `own_methods` + 基链 merge 出来。⇒ 负担比记录的小一块。
+⇒ 新增一段承载**布局无关的泛型模板**：体内凡是 owner 布局依赖型参的 struct 访问，以
+**符号形式**（字段名）而非烘焙偏移表达；消费方按实例化布局把偏移烘焙进去。
 
-### P3 — 容器密集化 + 删 P3a 装箱（⚪ 性能）
+### S3 — 收紧（退役擦除名回落）
 
-把**类级**类型实参送到 `List<T>` 内部 `new T[n]` 的分配点。地基已有：`TypeDescCold.type_args`、
-`ObjNew` 携 `type_args`、`frame.method_type_args` + `exec_support.rs` 的标记回填。
-收益须由 benchmark 说话（分配次数 / RSS / 墙钟），**不达标则不合**。
+全量单调化之后，派发 miss 不应再悄悄落到擦除体上（`vcall_resolve` 的擦除名回落）。
 
 ## Scope（允许改动的文件）
 
-> P1 的 Scope 已精确；P2 / P3 的 Scope 在各自 PR 开工前回到本阶段补精确
-> （workflow：实施中发现需改的文件 → 立即停下更新 Scope）。
-
-### P1
-
-| 文件路径 | 变更类型 | 说明 |
-|---------|---------|------|
-| `src/libraries/z42.ir/src/ExportedTypes.z42` | MODIFY | `ExportedClassZ` 加 `IsRecord`（**不进 ctor 签名**，默认 false、构造后赋值——种子 ABI） |
-| `src/libraries/z42.ir/src/TsigReconcile.z42` | MODIFY | `ecz.IsRecord = (cd.Flags & 8) != 0`（`CLASS_FLAG_RECORD` 已在 TYPE flags，**零格式 bump**） |
-| `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42` | MODIFY | `nct.IsRecord = cl.IsRecord`（`Z42ClassType.IsRecord` 已存在，今天只对本地类回填） |
-| `src/compiler/z42c.semantics/src/ImportedGenericSynth.z42` | NEW | 从导入元数据反造合成 `ClassDecl` + 可合成性判据 |
-| `src/compiler/z42c.semantics/src/ExprEmitter.z42` | MODIFY | `:554` / `:604` 两处闸门放宽（收敛到单一判据函数） |
-| `src/compiler/z42c.semantics/src/IrGenTypeEmitter.z42` | MODIFY | `GenericDecls` 接纳合成 decl；`:68` 的 `rd is Decl` 兜底跟着放宽 |
-| `src/runtime/src/metadata/bytecode/class.rs` | MODIFY | 加 `METHOD_FLAG_SYNTHESIZED = 1 << 4`（bit4–7 本就空闲） |
-| `src/runtime/src/metadata/lazy_loader/registry.rs` | MODIFY | **D4-fix**：合成实例化产物的重复到达静默跳过，不记歧义 |
-| `src/runtime/src/metadata/lazy_loader_tests.rs` | MODIFY | D4-fix 的三情形单测 |
-| `src/tests/types/crosspkg_generic_inst_value_semantics.z42` | NEW | A 的 e2e（含 jit 双验） |
-| `docs/internals/src/runtime/struct-value-semantics.md` | MODIFY | §收敛面与延后：遗留项 ② 状态更新 + 新闸门判据 |
-| `docs/internals/src/compiler/source-compile.md` | MODIFY | 跨包实例化特化的机制记述 |
-| `docs/roadmap.md` | MODIFY | 泛型擦除槽那行的「仍未覆盖」三条状态更新 |
-
-**只读引用**（理解上下文必须读，不修改）：
-
-- `src/libraries/z42.core/src/ValueTuple.z42` — 确认零方法体
-- `src/compiler/z42c.semantics/src/StructLayout.z42` — `InstDiffersFromDef` / `InstName`
-- `src/compiler/z42c.semantics/src/ClassDescBuilder.z42` — `_instLayoutDesc` / `_instClassDesc`
-- `src/libraries/z42.ir/src/ZpkgReader.z42` — 确认消费方无方法体读取 API
+> S1 的 Scope 在阶段 6.5 通过后、开工前补精确（需先定「哪些泛型体要特化」的判据落点）。
+> S2 / S3 各自开工前回到本阶段补。
 
 ## Out of Scope
 
-- **有用户方法体的跨包泛型**（如用户自己写的 `Pair<T>` 带方法，跨包使用）。覆盖它需要
-  「可重发的泛型模板随包投送」：agent 查实，zpkg 的 `MODS.func` 段里**确实有**函数体字节，
-  但① 编译器侧 `ZpkgReader` 无任何读体 API（`ReadModuleTypes` 还主动 `m.Pos += funcLen` 跳过）；
-  ② 更根本的是那些体**已按定义布局烘焙好偏移**，不是可再代换的模板。⇒ 真正需要的是投送 AST/模板，
-  量级 L，**另开 change**。本 change 命中不了的跨包实例化一律**退回今天的表示**，逐字不变。
-- 泛型**接口**的实例化身份（`IEnumerable<int>` vs `IEnumerable<string>`）。
-- 泛型**方法**（非类型）的实例化特化。
+- **泛型 class 取独立身份**（原 P2）与**容器密集化 / 删 P3a 装箱**（原 P3）。两者都依赖
+  本线结论，待 S1/S2 落地后重新评估。原 P2 的实测取证（静态字段共享 / `is`·`as` 跨实例化
+  为真 / `as` 放行致类型混淆 / 两处解析器缺口）保留在 `tasks.md`，不重做。
+- **符号化访问**（泛型代码内不烘焙布局，运行期 IC 查偏移）。**已向 User 提出并被否决**
+  （2026-09-24），记录在此以免重复讨论：它量级更小（M）、本身即正确性底线，且运行期零件
+  齐备（struct blob 自带类型名、`resolve_layout` 本就按名查、`TypeDesc.field_index` 是
+  名→槽索引）；代价是放弃泛型热路径上的零代价访问。User 选择对齐 C# 的零运行期代价。
+  > 注：S2 的「布局无关模板」在**形式**上与它同源（都把偏移符号化），差别是**谁来消解**
+  > ——模板由**消费方在编译期**烘焙，符号化访问由**运行期**查。
 
 ## Open Questions
 
-- [x] P1 的「可合成集」判据 → **定稿走 `METHOD_FLAG_SYNTHESIZED`**（`method_flags` 的 bit4–7
-      空闲，零格式 bump，两个方向优雅降级）。理由与另两条的否决见 design.md §D1。
-- [x] 🔴 **合成实例化产物跨模块重复** → 已实测定性为 **P1 的先决条件**，设计已修正。
-      见 design.md §D4：合成 ctor 同名重复会让**调用即抛**，且「库内部用了元组、主程序也用了」
-      就已撞上。修法 = 加载器区分合成产物与用户声明。
-- [ ] P2 的静态字段换键走**分阶段引入**（User 已裁决）：support 先行、晚一个 nightly 再 use。
-      具体分几步、过渡期两种键怎么共存 → P2 开工前在 design.md 定稿。
-- [ ] P3 的达标线（分配次数 / RSS / 墙钟各降多少才算值得）→ P3 开工前定。
+- [ ] S1 的特化判据：`InstDiffersFromDef` 是针对**类型**的；泛型**体**要的是「这个体在该
+      替换下触碰的任一布局是否不同于擦除布局」。判据落在调用点还是体内扫描。
+- [ ] S1 的代码膨胀：每个 `(泛型体, 具体实参)` 一份。是否要「布局相同则共享」的去重
+      （同 #774 `InstDiffersFromDef` 的自带闸门性质）。
+- [ ] S2 模板段的载荷形态（布局无关 IR vs 绑定后树）与格式 bump 的两代自举安排。
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

@@ -1,103 +1,84 @@
-# Spec: 泛型实例化的身份与跨包特化
+# Spec: 泛型实例化的单调化闭包
 
 ## MODIFIED Requirements
 
-### Requirement: 跨包泛型实例化的值语义
+### Requirement: 操作实例化的泛型代码必须按实例化布局编译
 
-**Before:** 泛型定义在依赖包里时，实例化一律不特化、不取独立身份。型参槽按 8 字节句柄存，
-外层复制只浅拷句柄 ⇒ 存进去的 struct 与源变量共享同一块 blob。
+**Before:** 泛型体（泛型自由函数 / 泛型方法 / 泛型类型的成员）**只编一份**，按**擦除布局**
+烘焙字节偏移；而 #774 让实例化**类型**拿到自己的布局。同一批字节两种理解 ⇒ **静默错值**。
 
-**After:** 定义是**成员全部由编译器合成的 `[Record] struct`** 时，消费方按实例化布局特化该
-实例化（型参字段变真内联字节）并合成其成员。其余跨包实例化**退回原表示，逐字不变**。
+**After:** 凡是以具体实参操作某实例化的泛型体，都按**该实例化的布局**各特化一份。
+布局与擦除布局相同的实参组合不特化（共享擦除体即正确，且产物逐字节不变）。
 
-#### Scenario: 元组存入后改源变量（形态 ①）
-- **WHEN** `P2 a = new P2(1,2L); (P2,int) t = (a,7); a.Y = 99L;`
+#### Scenario: 泛型函数读实例化的字段（S1 驱动用例）
+- **WHEN** `[Record] struct Loc<A,B>(A Item1, B Item2);`
+  `int ReadSecond<T>(Loc<T,int> p) { return p.Item2; }`
+  `Loc<P2,int> t = new Loc<P2,int>(a, 7);`（`P2 = { int X; long Y; }`）
+- **THEN** `ReadSecond<P2>(t) == 7`（今天读到 **2** —— 按擦除布局在 @8 读，那是 `P2.Y`）
+
+#### Scenario: 泛型函数写实例化的字段
+- **WHEN** 泛型函数以 `ref` 或返回值写回某实例化的字段
+- **THEN** 写入位置与调用方直接访问同一字段的位置一致
+
+#### Scenario: 泛型方法（实例方法）上的同一形态
+- **WHEN** 泛型类型的实例方法以具体实参操作自身的型参字段
+- **THEN** 与调用方的直接访问一致
+
+#### Scenario: 闭包传递
+- **WHEN** 被特化的泛型体内部又构造/访问另一个实例化（含嵌套 `G<G<A,B>,C>`）
+- **THEN** 内层实例化及其相关泛型体同样被特化（不动点），链式访问逐层正确
+
+#### Scenario: 布局相同则不特化（阴性对照）
+- **WHEN** 实参组合使实例化布局与擦除布局逐项相同
+- **THEN** 不产生特化体，编译产物与改动前**逐字节相同**
+
+#### Scenario: 非泛型代码不受影响（阴性对照）
+- **WHEN** 程序不含任何泛型实例化
+- **THEN** 编译产物与改动前**逐字节相同**
+
+### Requirement: 跨包实例化的表示一致（S2）
+
+**Before:** 跨包实例化两侧都不特化（都用擦除布局）—— 自洽但值语义错（型参槽按句柄存，
+外层复制只浅拷句柄）。
+
+**After:** 泛型定义以**布局无关模板**随包投送；消费方按实例化布局烘焙偏移后发射，
+生产方侧以具体实参操作该实例化的泛型体同样特化。
+
+#### Scenario: 元组的值语义
+- **WHEN** `(P2,int) t = (a, 7); a.Y = 99L;`
 - **THEN** `t.Item1.Y == 2L`（今天读到 99）
 
-#### Scenario: 复制元组后经副本写穿（形态 ③）
-- **WHEN** `(P2,int) t2 = t; t2.Item1.Y = 55L;`
-- **THEN** `t.Item1.Y` 不变，`t2.Item1.Y == 55L`
+#### Scenario: 库内部构造、消费方读取
+- **WHEN** `Dictionary<string,int>.Entries()`（体在 z42.core）返回 `KeyValuePair<string,int>[]`，
+  消费方遍历求和
+- **THEN** 和正确（今天 `dict_iter` 的 `sum3` 读到 **0**，应为 6）
 
-#### Scenario: 元组作实参传递
-- **WHEN** 把 `(P2,int)` 传给一个会改 `v.Item1.Y` 的函数
-- **THEN** 调用方的原值不受影响
+### Requirement: 合成实例化产物的重复到达不是歧义（S2 先决条件，已实施）
 
-#### Scenario: 基元元组行为不回归（阴性对照）
-- **WHEN** `(int,string) t = (1,"a"); (int,string) u = t; u.Item1 = 99;`
-- **THEN** `t.Item1 == 1`（今天已正确，改后仍正确）
+同一实例化会被**每个用到它的包**各合成一份描述符与成员。两份是 `(定义, 类型实参)` 的
+确定性函数 ⇒ 第二份到达应被静默跳过，而非记为「两个包声明了同一个名字」。
 
-#### Scenario: 带用户方法体的跨包泛型不命中（闸门阴性对照）
-- **WHEN** 依赖包导出一个带用户方法的泛型 struct，消费方实例化它
-- **THEN** 不特化、不取独立身份，编译产物与改动前**逐字节相同**
-
-### Requirement: 合成实例化产物的重复到达不是歧义
-
-同一个实例化会被**每个用到它的包**各合成一份描述符与成员。两份是 `(定义, 类型实参)` 的
-确定性函数，逐字节相同 ⇒ 第二份到达时应被静默跳过，而非记为「两个包声明了同一个名字」。
-
-#### Scenario: 库与主程序各用一次同一元组
-- **WHEN** 库 `X` 内部使用 `(int,string)`，主程序也使用 `(int,string)`
-- **THEN** 程序正常运行；构造与调用均不抛；stderr 无 `duplicate type` / `duplicate function` 告警
-
-#### Scenario: 两个互不依赖的库各用一次同一元组
-- **WHEN** 包 X 与包 Y 各自使用 `(int,string)`，同一程序同时依赖两者
-- **THEN** 同上
+#### Scenario: 库与主程序各用一次同一实例化
+- **WHEN** 库 `X` 内部使用某实例化，主程序也使用它
+- **THEN** 构造与调用均不抛；stderr 无 `duplicate type` / `duplicate function` 告警
 
 #### Scenario: 真正的用户声明重复仍然报（阴性对照）
 - **WHEN** 两个包各声明同一个 FQN 的**非泛型**类型，消费方引用它
-- **THEN** `E0601` 照报、运行期歧义行为照旧 —— D4-fix 不得放宽这条
-
-### Requirement: 泛型 class 实例化的独立身份
-
-> P2 范围。开工前回到阶段 4 补齐场景。
-
-**Before:** `GBox<int>` 与 `GBox<string>` 在运行期是同一类型——静态字段共享一槽、
-`is`/`as` 跨实例化为真、`GetType().Name` 都报 `GBox`。
-
-**After:** 每个具体实例化是独立类型（对齐 C#）。
-
-#### Scenario: 静态字段按实例化分离
-- **WHEN** `GBox<int>` 构造两次、`GBox<string>` 构造两次，构造器里 `Count = Count + 1`
-- **THEN** `GBox<int>.Count == 2` 且 `GBox<string>.Count == 2`（今天两边都读到 4）
-
-#### Scenario: 类型测试区分实例化
-- **WHEN** `object o = new GBox<int>(42);`
-- **THEN** `o is GBox<int>` 为真，`o is GBox<string>` 为**假**（今天为真）
-
-#### Scenario: 错误实例化的转换被拒
-- **WHEN** `object o = new GBox<int>(42); GBox<string> b = o as GBox<string>;`
-- **THEN** `b == null`（今天放行原值，随后崩在不可 catch 的 `VCall: expected object, got I64(42)`）
-
-#### Scenario: 转换到闭合泛型可被书写
-- **WHEN** 源码写 `(GBox<string>)o`
-- **THEN** 解析通过（今天 `E0202: expected ')'`），语义等同 C# 的硬转换
-
-#### Scenario: 闭合泛型上的静态成员可被书写
-- **WHEN** 源码写 `GBox<int>.Count`
-- **THEN** 解析通过（今天 `E0202: expected ')'` + 级联 `E0401`）
+- **THEN** `E0601` 照报、运行期歧义行为照旧
 
 ## IR Mapping
 
-P1 不新增任何 IR 指令。命中闸门的跨包实例化，发射从
+**S1 不新增任何 IR 指令、不改格式。** 特化体与被特化的泛型体用同一套指令，差别只在
+`struct_fget_prim` / `struct_fset_prim` 烘焙的**偏移**与 `struct_alloc` 的**类型名/大小**。
 
-```
-obj_new <擦除名>          →   struct_alloc <实例化 FQ 名> [N B]
-field_get %o.Item1        →   struct_fget_prim %s @<实例化偏移>
-```
-
-即改为走与本包实例化**完全相同**的既有指令。
-
-**元数据位**：新增 `METHOD_FLAG_SYNTHESIZED = 1 << 4`（SIGS 的 `method_flags: u8`，
-bit4–7 本就空闲）。**零 zbc / zpkg 格式 bump**——旧读端按 u8 读、忽略不认的位；
-旧写端打 0 ⇒ 消费方判否 ⇒ 退回原行为。
+**S2** 需要一段承载**布局无关模板**的新载荷：体内凡 owner 布局依赖型参的 struct 访问，
+以**字段名**而非偏移表达，由消费方按实例化布局烘焙。⇒ 格式 bump（zpkg minor），
+按 `bootstrap-seed.md` 的「support 先行、晚一个 nightly 再 use」分阶段引入。
 
 ## Pipeline Steps
 
-受影响的 pipeline 阶段：
-
 - [ ] Lexer — 无
-- [x] Parser / AST — **仅 P2**（cast 与成员访问两处前瞻改回溯式）
-- [x] TypeChecker — P1：导入类携 `IsRecord`；P2：`is`/`as` 保留 `NamedType.Args`
-- [x] IR Codegen — P1：闸门判据 + 反造合成 decl；P2：完整实例化描述符 + 静态字段键
-- [x] VM interp — P1：**惰性加载器的重复登记判定**（D4-fix，见 design.md）。
-      解析路径本身零改动（本就按原样字符串名）。P2 待定
+- [ ] Parser / AST — 无
+- [x] TypeChecker — S1：确定泛型调用的具体实参（已有信息，需在发射侧可达）
+- [x] IR Codegen — S1：工作表扩成两类工作项 + 特化名单一出口；S2：模板烘焙
+- [x] VM interp — S2 先决条件 D4-fix（惰性加载器的重复登记判定）已实施；S1 **零改动**

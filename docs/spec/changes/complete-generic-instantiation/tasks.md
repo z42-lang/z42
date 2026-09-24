@@ -1,140 +1,148 @@
-# Tasks: complete-generic-instantiation
+# Tasks: complete-generic-instantiation（泛型实例化的单调化）
 
-> 状态：🟡 P1 待 User 过 6.5 gate | 创建：2026-09-23
-> 分支/worktree：`complete-generic-instantiation-p1` @ `wt-geninst` | 基于：origin/main `6232c87d1`
-> 类型：`lang` + `ir` | 落地：**一条线、三个 PR 顺序落**（User 裁决 2026-09-23）
+> 状态：🟡 S1 待 User 过 6.5 gate | 创建：2026-09-23 | **2026-09-24 按 A 方案重写**
+> 分支/worktree：`complete-generic-instantiation-p1` @ `wt-geninst` | 基于：origin/main `2d4042a08`
+> 类型：`lang` + `ir`
 
-**变更说明：** 把 #774 显式留下的三条未覆盖项做完——跨包实例化（覆盖元组）、
-泛型 class 独立身份、容器密集化。
+**变更说明：** #774 做的是**部分单调化**（特化了实例化类型，没特化操作它的泛型代码），
+产生静默错值，**今天就在 main 上**。本 change 把特化做成**闭包**。
 
 ## 进度概览
 
-- [ ] **P1** 跨包闸门放宽到「成员全可合成」的导入泛型（🔴 正确性）
-- [ ] **P2** 泛型 class 独立身份（🔴 正确性，含类型混淆）
-- [ ] **P3** 容器密集化 + 删 P3a 装箱（⚪ 性能，不达标则不合）
+- [x] **前置** D4-fix：合成实例化产物的重复到达不记为歧义（S2 先决条件）
+- [x] **顺带修复** 导入 record 丢失 record 身份（跨包 `with` / 位置解构误拒）
+- [ ] **S1** 本包闭包 —— 修 main 上的静默错值，**无格式变更**
+- [ ] **S2** 跨包模板投送 —— 覆盖元组与 `KeyValuePair`，需格式 bump
+- [ ] **S3** 退役擦除名回落
 
 ---
 
-## P1
+## 已合入本分支的四个 commit
 
-### 0. 先钉风险（**在动任何发射代码之前**）
+| commit | 内容 | 在 A 方案下是否仍成立 |
+|---|---|---|
+| `998b2e6c9` | 归档两个已完成的 change | ✅ 与方案无关 |
+| `674d04057` | D4-fix（加载器区分合成产物与用户声明） | ✅ **S2 先决条件，保留** |
+| `2d6b6d226` | 导入 record 的 `IsRecord` 接线（修跨包 `with`/位置解构误拒）| ✅ **独立成立的真 bug 修复，保留** |
+| `f89ad960b` | `METHOD_FLAG_SHAPE_DERIVED` + 指纹 bump 11 | ⚠️ **待定**：它是「放宽闸门」那版判据的零件，A 方案下暂无消费方。S1 完成后若仍无用，连同指纹一并撤回 |
 
-- [x] 0.1 🔴 **已定性（2026-09-23）：会炸，D2 因此修正。** 结论与取证见 design.md §D4。
-      要点：① `struct_alloc` 不查歧义表，元组分配这条不受影响；② 类型描述符重复 →
-      `registry.rs:83` warn + `note_ambiguous_type` + first-wins 丢弃第二份；
-      🔴 ③ **合成 ctor 同名重复 → `note_ambiguous_function` → `exec_call.rs:235-239` 调用即抛**。
-      碰撞形态比原先设想的广：**「一个库内部用了 `(int,string)`，主程序也用了」就已撞上**。
-      编译期 E0601 不会误报（`PkgCheckFqn` 对实例化返回**定义**的 FQN）。
+> 2026-09-24 已撤回：「放宽跨包闸门 + 反造 `ClassDecl`」那一版实现（未提交）。
+> 撤回理由见 design.md §附录：其核心假设被实测推翻。撞到的六条障碍已全部写进
+> design.md §S2，不必重新发现。
 
-### 0b. D4-fix：加载器区分「合成实例化产物」与「用户声明」（P1 的先决条件）
+---
 
-- [x] 0b.1 `src/runtime/src/metadata/lazy_loader/registry.rs`：类型循环与函数循环各加一条——
-      名字是实例化产物（含 `<`）且与表内那份**结构一致** ⇒ 静默跳过（不 warn、不记歧义）；
-      结构不一致 ⇒ 保持今天的歧义行为（**不得静默吞**）
-- [x] 0b.2 结构一致的判据：size + 字段数 + 逐项偏移（类型侧）
-- [x] 0b.3 `src/runtime/src/metadata/lazy_loader_tests.rs`：单测覆盖三种情形
-      （实例化名重复且一致 / 实例化名重复但不一致 / 普通用户类型重复）
-- [x] 0b.4 **阴性对照**：`src/tests/cross-zpkg/dup_fqn_crosspkg` 仍报 E0601 ✅（e2e 71/71 全绿）
+## S1：本包闭包
 
-### 1. 元数据位（生产方 → 消费方）
+### 0. 驱动用例先行
 
-- [ ] 1.1 `src/runtime/src/metadata/bytecode/class.rs`：加 `METHOD_FLAG_SYNTHESIZED: u8 = 1 << 4`
-      + 注释说明 bit4–7 原本空闲、旧读端按 u8 读忽略不认位
-- [ ] 1.2 z42c 侧：所有**编译器合成**的成员在写 SIGS 时打上该位（record 合成成员 / `Equals$1` /
-      `[Record] ToString` / 主构造器）。**收敛到单一出口**，不要逐处打
-- [ ] 1.3 `src/libraries/z42.ir/src/ExportedTypes.z42`：`ExportedMethodZ` 加 `IsSynthesized`；
-      `ExportedClassZ` 加 `IsRecord`。**两者都不进 ctor 签名**（种子 ABI：默认值 + 构造后赋值）
-- [ ] 1.4 `src/libraries/z42.ir/src/TsigReconcile.z42`：`ecz.IsRecord = (cd.Flags & 8) != 0`；
-      `em.IsSynthesized = (f.MethodFlags & 16) != 0`
-- [ ] 1.5 `src/compiler/z42c.semantics/src/ImportedSymbolLoader.z42`：`nct.IsRecord = cl.IsRecord`
-      （`Z42ClassType.IsRecord` 已存在，今天只对本地类回填）；成员的 synthesized 标记随符号入表
-- [ ] 1.6 验：`strings` 看一个 stdlib zpkg，确认 `ValueTuple2` 的成员确实全部带标记
+- [ ] 0.1 `src/tests/generics/generic_body_specialization.z42`（NEW）：main 上的静默错值
+      ```z42
+      [Record] struct Loc<A, B>(A Item1, B Item2);
+      int ReadSecond<T>(Loc<T, int> p) { return p.Item2; }
+      // Loc<P2,int>(a, 7) ⇒ ReadSecond<P2>(t) 今天读出 2，应为 7
+      ```
+      先确认它在**当前树**上判红（否则用例没有判别力），再动实现。
+- [ ] 0.2 同文件补：泛型**实例方法**形态、**闭包传递**形态（嵌套实例化）、
+      **写**回形态（不止读）
 
-### 2. 闸门与合成 decl
+### 1. 判据与工作表
 
-- [ ] 2.1 `src/compiler/z42c.semantics/src/ImportedGenericSynth.z42`（NEW）：
-      判据 `_canSpecializeDef(def)` = `struct ∧ IsRecord ∧ 全部导出成员 IsSynthesized`
-- [ ] 2.2 同文件：`SynthDecl(def)` —— 从有序字段表 + 型参名反造等价 `ClassDecl`
-      （`[Record] struct X<T1..Tn>(F1 f1, …)`）
-- [ ] 2.3 `src/compiler/z42c.semantics/src/ExprEmitter.z42`：`:554`（布局）与 `:604`（身份）
-      两处闸门**都改调同一个判据函数**。⭐ #774 教训 6：同一判据散在多处 ⇒ 只改一处必漏
-- [ ] 2.4 `src/compiler/z42c.semantics/src/IrGenTypeEmitter.z42`：`GenericDecls` 接纳合成 decl；
-      `:68` 的 `rd is Decl` 兜底判据跟着放宽
-- [ ] 2.5 ⭐ **放宽判据前先确认它在护什么下游**（#774 栽过一次）：逐一核对
-      `LocalClasses` 这条闸门今天还顺带挡着哪些东西，不要只改判据不动下游
+- [ ] 1.1 判据（design D1）：泛型体在该替换下**触碰的任一实例化**满足 `InstDiffersFromDef`
+      ⇒ 需特化。复用既有 `InstDiffersFromDef`，只改作用对象
+- [ ] 1.2 工作表（design D2）：`IrGen.Generate` 尾部的不动点循环，工作项从
+      「实例化类型名」扩成 {实例化类型, 泛型体实例 `f<A>`} 两类
+- [ ] 1.3 ⚠️ **显式上限 + 超限报错**（防御未来元数据缺陷把编译器挂死；
+      先例 `try_fixup_inheritance` 的 `fixup_cap`）
 
-### 3. 用例
+### 2. 特化名的单一出口
 
-- [ ] 3.1 `src/tests/types/crosspkg_generic_inst_value_semantics.z42`（NEW）：
-      形态 ①③ + 传参 + 嵌套 + 带引用叶子的实参
-- [ ] 3.2 **阴性对照 a**：基元元组 `(int,string)` 复制/传参行为不回归
-- [ ] 3.3 **阴性对照 b**：带用户方法体的跨包泛型 struct **不命中** ⇒ 产物逐字节不变
-- [ ] 3.4 0.1 的双消费方包用例落成正式用例
+- [ ] 2.1 泛型体特化名建**单一出口**，调用点与发射端**都调它**
+      ⭐ #774 教训 6：同一判据散在多处 ⇒ 只改一处必漏（当时漏了属性那处，
+      症状是 `MissingSymbolException`）
+- [ ] 2.2 核对：调用点拼名与发射端逐字节一致（含 arity-mangle / 嵌套实例化）
+
+### 3. 阴性对照
+
+- [ ] 3.1 布局相同的实参组合**不特化** ⇒ 产物逐字节不变
+- [ ] 3.2 不含泛型实例化的程序 ⇒ 产物逐字节不变
+- [ ] 3.3 代码膨胀观测：记录 stdlib + z42c 自举产物的体积变化
 
 ### 4. GREEN
 
-- [ ] 4.1 `xtask build stdlib` + `build compiler` + `test compiler`（自举字节不动点 gen1==gen2）
+- [ ] 4.1 `xtask build stdlib` + `build compiler` + `test compiler`（自举不动点 gen1==gen2）
 - [ ] 4.2 `xtask test all`
-- [ ] 4.3 ⚠️ **`xtask test e2e --mode jit`**（`xtask test` 的 golden 只跑 interp；
-      改 struct 访问路径必须显式跑 JIT。注意 `./xtask test e2e jit` 会因位置参数错静默 `rc=2`）
+- [ ] 4.3 ⚠️ **`xtask test e2e --mode jit`**
 - [ ] 4.4 `cargo test --lib`（**debug，不加 `--release`**）
-- [ ] 4.5 `xtask test bootstrap`（上一 nightly 仍能编当前源）
-- [ ] 4.6 并入 origin/main 最新改动 + **在新基线上重跑完整 GREEN**
-      （⭐ 只在旧基线绿过 = 测的不是要合的东西）
+- [ ] 4.5 `xtask test bootstrap`
+- [ ] 4.6 并入 origin/main 最新改动 + 在新基线上重跑完整 GREEN
 
 ### 5. 文档 + PR
 
-- [ ] 5.1 `docs/internals/src/runtime/struct-value-semantics.md` §收敛面与延后：遗留项 ② 状态更新
-- [ ] 5.2 `docs/internals/src/compiler/source-compile.md`：跨包实例化特化机制
-- [ ] 5.3 `docs/roadmap.md`：泛型擦除槽那行的「仍未覆盖」三条状态更新
-- [ ] 5.4 PR（body 写跑 GREEN 时的 `base: <sha>`）
+- [ ] 5.1 `docs/internals/src/runtime/struct-value-semantics.md`：单调化闭包这条不变式
+- [ ] 5.2 `docs/internals/src/compiler/source-compile.md`：工作表与判据
+- [ ] 5.3 `docs/roadmap.md`
+- [ ] 5.4 `f89ad960b` 的去留裁决（见上表）
+- [ ] 5.5 PR（body 写跑 GREEN 时的 `base: <sha>`）
 
 ---
 
-## P2（开工前回到阶段 3/4/5 补精确 Scope 与场景）
+## S2 / S3（开工前回到阶段 3/4/5 补精确 Scope）
 
-- [ ] 完整实例化类描述符（基类链 / 接口 / 静态字段；**vtable 不需要**）
-- [ ] `is` / `as` 保留 `NamedType.Args`，走与身份名同一个规范名函数
-- [ ] 静态字段按实例化分槽 —— ⚠️ **自举敏感，走分阶段引入**（User 裁决）
-- [ ] 解析器：`(GBox<string>)o`
-- [ ] 解析器：`GBox<int>.Count`
-
-## P3（开工前定达标线）
-
-- [ ] 类级类型实参送到 `List<T>` 内部 `new T[n]` 的分配点
-- [ ] 删 P3a 装箱
-- [ ] benchmark：分配次数 / RSS / 墙钟；**不达标则不合**
+- [ ] S2 模板段载荷形态 + 格式 bump + 两代自举安排
+- [ ] S2 六条已实测障碍：见 design.md §S2（**先读它再动手**）
+- [ ] S3 退役 `vcall_resolve` 的擦除名回落
 
 ---
 
-## 实测取证（2026-09-23，树 `wt-geninst` @ `6232c87d1`）
+## 实测取证（树 `wt-geninst`，interp 与 `--mode jit` 逐字相同）
 
 供种：CI run 35805871721 的 `toolchain-macos-26` + `cargo build --release` 重建 runtime
-+ `z42 publish scripts/xtask.z42.toml` 重建门禁。interp 与 `--mode jit` 逐字相同。
++ `z42 publish scripts/xtask.z42.toml` 重建门禁。
+
+### 单调化闭包（本 change 的靶子）
+
+| 探针 | 实测 | 应为 | 备注 |
+|---|---|---|---|
+| `ReadSecond<P2>(Loc<P2,int>)` | **2** | 7 | **本包**；用 main 的编译器复验同样是 2 |
+| `ReadSecond<P2>((P2,int))` | **2** | 7 | 元组同形 ⇒ 白名单方案被推翻 |
+| `dict_iter` 的 `sum3`（特化开启时）| **0** | 6 | 生产方按擦除布局建 `KeyValuePair<K,V>[]` |
+
+### 原 P2 的取证（泛型 class 无独立身份；**本 change Out of Scope，保留备查**）
 
 | 探针 | 实测 | C# |
 |---|---|---|
-| `(P2,int) t=(a,7); a.Y=99` → `t.Item1.Y` | 99 | 2 |
-| `(P2,int) t2=t; t2.Item1.Y=55` → `t.Item1.Y` | 55 | 2 |
-| `(int,string)` 复制/传参 | 正确 | 正确 |
-| `List<P2>` 值语义 | 正确（装箱顺带给的） | 正确 |
 | `GBox<int>`/`GBox<string>` 静态计数 | 4 / 4 | 2 / 2 |
-| `is GBox<string>`（收者 `GBox<int>`） | true | False |
-| `as GBox<string>`（同上） | 放行 → `VCall: expected object, got I64(42)` | null |
+| `is GBox<string>`（收者 `GBox<int>`）| true | False |
+| `as GBox<string>`（同上）| 放行 → `VCall: expected object, got I64(42)` | null |
+| `(GBox<string>)o` / `GBox<int>.Count` | 解析失败 `E0202` | 合法 |
 
-**阴性对照（同一次编译、同一文件）**：
+根因（agent 核实）：`_instClassDesc` 合不出完整描述符（基类写死 `Std.Object`、无接口、
+无静态字段）；`_bindIsExpr`/`_bindAsExpr` 把 `NamedType.Args` 直接扔掉；静态字段键是
+`QualifyClass(裸名) + "." + 字段`。⭐ **vtable 不在 TYPE 段**（运行期从 `own_methods` +
+基链 merge），比记忆里记的少一块。
 
-```
-本包  [Record] struct Loc<A,B>(A Item1, B Item2)  → struct_alloc Demo.Loc<P2,int> [24B] + struct_fget_prim @8
-跨包  [Record] struct ValueTuple2<T1,T2>(…)       → obj_new Demo.<unknown> + field_get %14.Item1
-```
+### 原 P3 的取证（容器密集化；**Out of Scope，保留备查**）
+
+`List<P2>` 的值语义**是对的**（P3a 每元素一个堆 box，装箱顺带给了拷贝语义）⇒
+那条不是正确性缺口，只是密度/分配。
+
+---
 
 ## 踩过的坑（本轮）
 
 - 🔴 **`Z42_JIT=1` 不是旋钮**，正确的是 `--mode jit` / `Z42_MODE=jit`。我先用错的跑了一轮，
   「JIT 与 interp 一致」当时是个空结论。
-- `xtask` 的 apphost stub 会用 `.z42/bin/z42vm`；供种后那份是旧的 ⇒
+- 🔴 **跨包的事一律走 harness 判定**：手工 `z42c build` 与单文件 `--dump-ir` **不加载依赖
+  TSIG**（元组显示成 `Demo.<unknown>`）。我为此误判过两次——一次以为 fixture 坏了，
+  一次以为闸门没生效。`--emit-zbc` 走的是另一条（带依赖）路径。
+- 🔴 **阴性对照要能分辨两种失败**：跨包 record 探针里加一个**普通 class** 才分得清
+  「fixture 接线坏了」与「record 被误拒」——两者症状一模一样。
+- `xtask` 的 apphost stub 用 `.z42/bin/z42vm`；供种后那份是旧的 ⇒
   `zpkg minor 49 not supported (writer is at 0.43)`。修法：`xtask build sdk` 后
-  用 `artifacts/.z42` 整个替换根 `.z42`。
+  用 `artifacts/.z42` 整个替换根 `.z42`。**且改完编译器后 `artifacts/.z42/bin/z42c` 不会自动
+  跟新**——我拿它验过一轮，测的是旧编译器。
 - 所有 xtask / cargo 命令前须 `RUSTUP_TOOLCHAIN=1.98.1`（本机默认 1.88 < MSRV 1.95）。
-- 单文件 `--emit-zbc` 出的 zbc 没有烘焙入口，跑它要给 **`Demo.Main`**（带命名空间）。
+- 单文件 `--emit-zbc` 出的 zbc 没有烘焙入口，跑它要给**带命名空间**的 `Demo.Main`。
+- `strings` 找不到函数全名**不能证明没发射**：全名不是单条池字符串（本包特化的
+  `Demo.Loc<P2,int>.Loc` 同样查不到，而它能跑）。
