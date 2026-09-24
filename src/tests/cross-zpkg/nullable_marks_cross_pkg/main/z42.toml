@@ -1,0 +1,9 @@
+[project]
+name    = "demo.nullmarksapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.NullMarksApp.Main"
+pack    = true
+
+[dependencies]
+"demo.nullmarkstarget" = "0.1.0"

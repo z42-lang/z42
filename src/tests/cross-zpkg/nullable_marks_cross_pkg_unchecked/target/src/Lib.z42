@@ -1,0 +1,6 @@
+// 负例依赖包：标了 `?` 的返回值。义务必须跨过包边界跟到调用方。
+namespace Demo.NullUnchkNs;
+
+public class Registry {
+    public static string? Find(string k) { if (k == "miss") { return null; } return k; }
+}

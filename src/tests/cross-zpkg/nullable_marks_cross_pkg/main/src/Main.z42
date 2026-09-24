@@ -1,0 +1,18 @@
+// 正例：跨包的 `?` 返回值按规矩「先存局部再查」⇒ 编得过、跑得出结果；
+// 未标 `?` 的 API 直接解引用 ⇒ 同样编得过（缺席 = 不强制）。
+namespace Demo.NullMarksApp;
+
+using Std;
+using Std.IO;
+using Demo.NullMarksNs;
+
+void Main() {
+    string v = Registry.Find("hit");
+    if (v != null) { Console.WriteLine(v.Length.ToString()); }
+
+    string w = Registry.Find("miss");
+    if (w == null) { Console.WriteLine("miss"); }
+
+    // 未标 `?`：不受检，直接解引用合法。
+    Console.WriteLine(Registry.Get("abcd").Length.ToString());
+}

@@ -9,7 +9,9 @@ public sealed class ExportedParamZ {
     public string CallerKind;    // PR6：caller 宏种类 "member"/"line"/"file"/"module"（非 caller → ""）
     public bool   IsRef;         // record-ref-in-signature：该形参带 `ref`（从 `$ByRef` 哨兵读出）。
                                  // **内存 DTO 字段，不入 wire** —— wire 侧走 param attr-ref 通道。
-    public ExportedParamZ(string name, string typeName) { this.Name = name; this.TypeName = typeName; this.DefaultBlob = ""; this.CallerKind = ""; this.IsRef = false; }
+    public bool   IsNullable;    // define-null-check-marks 3.3：该形参标了 `?`（从 `$Nullable` 哨兵读出）。
+                                 // 同 IsRef：**内存 DTO 字段，不入 wire** —— wire 侧走 param attr-ref 通道。
+    public ExportedParamZ(string name, string typeName) { this.Name = name; this.TypeName = typeName; this.DefaultBlob = ""; this.CallerKind = ""; this.IsRef = false; this.IsNullable = false; }
 }
 
 public sealed class ExportedMethodZ {
@@ -46,10 +48,13 @@ public sealed class ExportedMethodZ {
         this.IsSealed = false;
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0; this.TypeParams = new string[0];
-        this.RefInfoKnown = false;
+        this.RefInfoKnown = false; this.RetIsNullable = false;
     }
     public bool RefInfoKnown;   // record-ref-in-signature：本方法的 ref 信息是否写全了
                                 // （`$RefSig` 完备性标记）。假 = 旧包，**不知道**，非「全非 ref」。
+    public bool RetIsNullable;  // define-null-check-marks 3.3：返回类型标了 `?`（从方法级 `$RetNullable`
+                                // 哨兵读出）。同 ParamsFrom：ctor 元数不变（旧种子 ABI），默认 false，构造后赋值。
+                                // **不需要**「已知」位——缺席 = 不强制，旧包落成 false 恰好正确。
 }
 
 public sealed class ExportedFieldZ {
@@ -185,11 +190,14 @@ public sealed class ExportedFuncZ {
         this.Name = name; this.ReturnType = returnType; this.MinArgCount = minArgCount;
         this.Params = params_; this.ParamCount = paramCount; this.ParamsFrom = 0 - 1;
         this.TypeParams = new string[0]; this.TypeParamCount = 0;
-        this.RefInfoKnown = false;
+        this.RefInfoKnown = false; this.RetIsNullable = false;
         this.IsDeprecated = false; this.DeprecationMsg = "";
     }
     public bool RefInfoKnown;   // record-ref-in-signature：本方法的 ref 信息是否写全了
                                 // （`$RefSig` 完备性标记）。假 = 旧包，**不知道**，非「全非 ref」。
+    public bool RetIsNullable;  // define-null-check-marks 3.3：返回类型标了 `?`（从方法级 `$RetNullable`
+                                // 哨兵读出）。同 ParamsFrom：ctor 元数不变（旧种子 ABI），默认 false，构造后赋值。
+                                // **不需要**「已知」位——缺席 = 不强制，旧包落成 false 恰好正确。
 }
 
 public sealed class ExportedDelegateZ {

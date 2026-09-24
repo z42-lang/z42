@@ -1,6 +1,10 @@
 # Tasks: `switch` 表达式无匹配臂时抛异常
 
-> 状态：🟢 实现完成、本地 GREEN 全绿；PR 待开 | 创建：2026-09-22
+> 状态：🟢 已完成（#760 已合）| 创建：2026-09-22 | 归档：2026-09-23
+>
+> ⚠️ 归档**晚了一步**：#760 合并时没带上归档，违反 workflow 阶段 9 铁律
+> 「归档必须在 PR 内」。按阶段 0「扫描可归档变更」并入下一个 change 的首个 commit 补上
+> （而不是单独推一条 `docs: 归档` 到 main —— 同一条铁律禁止那样做）。
 > 分支/worktree：`fix-switch-expr-no-match` @ `wt-swxfail` | 基于：origin/main `18a64904e`（#756，rebase 后）
 > 类型：`lang`（**无 zbc·zpkg 格式 bump** —— 编译期合成，全用现有指令；**VM 一行不改**）
 > User 裁决已收到：① 运行期抛（非产默认值、非升级 W0700）② 用新建的 `Std.SwitchExpressionException`

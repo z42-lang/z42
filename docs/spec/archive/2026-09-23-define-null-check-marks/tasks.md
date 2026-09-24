@@ -1,6 +1,6 @@
 # Tasks: 引用类型的空检查标记
 
-> 状态：🟡 实施中（阶段 6.5 gate 已过——User「请开始推进，持续实现，pr变绿自动合并」） | 创建：2026-09-21
+> 状态：🟢 已完成 | 创建：2026-09-21 | 完成：2026-09-23
 > 分支/worktree：`ref-null-model` @ `/Users/d.s.qiu/Documents/z42-lang/wt-refnull`（基于 origin/main 187200c61 #748）
 > 类型：`lang` —— 完整流程（阶段 1–9）
 > **依赖**：`enforce-value-type-non-null`（定下 `?` 只适用引用类型）；流分析设施（建议先 `add-definite-assignment`）
@@ -10,12 +10,12 @@
 - [x] 阶段 0: User 审批 + Q1 实测计划确认
 - [x] 阶段 1: A —— 流分析引擎（**`add-definite-assignment` 已建好设施**，本变更只加第二套事实）
 - [x] 阶段 2: B —— `Expect("理由")`（E0490）
-- [~] 阶段 3: C —— 标记 → MaybeNull，义务点全开（形参 #752 / 返回值 #753 / **字段本 PR**；余 3.3 跨包 + 3.6 跨包用例）
+- [x] 阶段 3: C —— 标记 → MaybeNull，义务点全开（形参 #752 / 返回值 #753 / 字段 #763 / **跨包 PR 9**）
 - [x] 阶段 4: Q1 实测（字段窄化 (a) vs (b)）—— **取 (a)**
 - [x] 阶段 5: D —— ~~反向推导（不做）~~ + override / 接口一致性（E0489）
-- [ ] 阶段 6: E —— 砍 `?.` 与 `??` + 全仓迁移
-- [ ] 阶段 7: 自举 + GREEN
-- [ ] 阶段 8: 文档同步 + 归档
+- [x] 阶段 6: E —— 砍 `?.` 与 `??` + 全仓迁移（#754 / #755 / #756）
+- [x] 阶段 7: 自举 + GREEN（每刀各自过 CI；末刀 PR 9 另见下）
+- [x] 阶段 8: 文档同步 + 归档
 
 ### PR 切分（实施时定的）
 
@@ -32,6 +32,8 @@
 | **6** | ~~反向推导（实测后不做）~~ + override / 接口一致性（E0489） | 本 PR |
 | **7** | `Expect("理由")`（E0490） | 本 PR —— ⚠️ 「emitter 合成 `new` + `throw` 无先例」**实测确为误判**：照抄 #760 的 `ThrowTerm` 手法，一个新 opcode 都没加 |
 | **4** | 砍 `??`（100 处） | ✅ #755 + #756 已合 —— 与 `?.` 同码 E0480 |
+| **8** | override / 接口一致性（E0489） | ✅ #782 已合 |
+| **9** | **跨包携带标记**（`$Nullable` / `$RetNullable` 旁路通道）+ 3 条跨包用例 + 文档 + 归档 | 本 PR |
 
 **`Expect` 又往后挪了一格，理由变了**：原以为「返回值那半需要它，因为调用结果没有
 名字可窄化」。实际上逃生口是**「先存进局部再检查那个局部」**，完全够用且更直白
@@ -91,7 +93,7 @@
   - 实施时改成在 `SymbolCollector._methodSymbol` 直接读 AST（`md.Params[i].Type is NullableType`），
     比在擦除点串标记位简单，且**不动类型身份**——`ParamIsNullable` / `RetIsNullable` 与
     `ParamIsRef` 一样是 `Z42FuncType` 的旁路数组，不进 `Name()` / `Dump()`。
-- [~] 3.2 `MethodSymbol` 每形参一位 + 返回值一位；`FieldSymbol` 一位
+- [x] 3.2 `MethodSymbol` 每形参一位 + 返回值一位；`FieldSymbol` 一位
   - 形参位 + 返回值位已加（`Z42FuncType.ParamIsNullable` / `RetIsNullable` / `IsNullableParam(i)`），
     **三者均已接通**；字段位 = `FieldSymbol.IsNullable`（本 PR）。
   - 返回值位到调用点靠 `BoundCall.RetIsNullable`（post-construction，经 `BoundCall.Marked`
@@ -99,16 +101,34 @@
     ⚠️ 考虑过让 FlowAnalyzer 自己按 `(OwnerClass, RegKey)` 反查符号表（只改一处），
     **否决**：那等于再实现一遍重载解析，查错就是**误报**（D3 零容忍）；
     显式接线漏点只会漏报（D4 允许），方向安全。
-- [ ] 3.3 跨包：符号加载侧从签名文本的 `?` 解析回标记位（`TsigTypeName` / `StubEmitter` 已双向拼写）
-  - ⚠️ **字段那半还差一截**：字段的 TSIG 拼写走 `SurfaceTypeName(ft)`（已解析类型，`?` 已擦除），
-    `MemberCollector` 与 `ImportedSymbolLoader` 两侧都是。导入字段一律 `IsNullable = false`
-    ⇒ **漏报**方向，D4 允许；但要补的话得动字段拼写，那会改 TSIG 文本、牵扯
-    `AddOwnField` 喂的继承字段展开与 struct 布局判别，**不该顺手塞进本 PR**
-- [~] 3.4 义务点全开（解引用七类 + `return` 传播）→ **E0478** / **E0479**
+- [x] 3.3 跨包标记（**PR 9**）—— 做法与规范写的**完全不同**，前提是假的
+  - 🔴 **规范的前提「`TsigTypeName` / `StubEmitter` 已双向拼写」是错的**：实测 zpkg 里
+    **一个 `?` 都没有**。真因是 `FunctionEmitter._sigTypeName:229` 写 SIGS 时**显式剥 `?`**，
+    而那不是疏忽 —— **SIGS 的类型拼写同时是派发键**（`Find$1$string`），把 `?` 拼进去
+    会改键、打烂派发与全部 golden。⇒ **拼写这条路根本走不通，只能走旁路。**
+  - 落地 = 照 `record-ref-in-signature` 的 `$ByRef`/`$RefSig` 手法开旁路 attr-ref 通道：
+    形参挂 **`$Nullable`**（逐形参）、返回值挂**方法级** **`$RetNullable`**（返回值没有形参槽）。
+    骑既有通道 ⇒ **无 zbc/zpkg 格式 bump**。`CompilerFingerprint` 11 → 12。
+  - ⭐ **不配完备性标记**（与 `$ByRef` 的关键差别）：`?` 的语义是「请编译器强制检查」，
+    **缺席 = 不强制**（不是「保证非空」）⇒ 旧包读不出哨兵时落成 false **恰好正确**，
+    不存在 `ref` 那种「不知道」与「全都不是」混同会误报的问题。
+  - **覆盖面**：类方法 + 自由函数的形参与返回值。实测全仓恰好 **3 个**真标记跨过边界
+    （`Process.Which` / `ProcessHandle.TryWait` / `IPAddress.TryParse`），**零误报**。
+  - 🔴 **仍不携带的三类（刻意，漏报方向）**：
+    ① **接口成员** —— 在 zbc 里走 **TYPE 方法块**（只有名/返回/形参类型/static），
+       **根本没有 attr-ref 通道**，要补得扩格式（minor bump）⇒ 独立 change；
+    ② **字段** —— 拼写走 `SurfaceTypeName(ft)`（`?` 已擦除），改它会动 TSIG 文本、
+       牵扯继承字段展开与 struct 布局判别；
+    ③ **extern 桩** —— `_emitNativeStub` 不写 `Attrs`/`ParamAttrs`。
+  - 顺带修掉一个**用户可见的毛病**：诊断里印的是 `BoundCall.MethodName` = **注册键**，
+    跨包导入符号带 `$arity$types` 后缀 ⇒ 用户看到 `` `Find$1$string` ``（源码里根本没写过）。
+    加 `FlowAnalyzer._displayName` 剥后缀。**这条在跨包打通前照不出来**：本包非重载方法的
+    键恰好就是裸名，一直蒙对
+- [x] 3.4 义务点全开（解引用七类 + `return` 传播）→ **E0478** / **E0479**
   - 解引用：成员访问 / 下标 / 方法调用接收者 / `foreach` 集合 / `throw` 操作数
     （限**裸名**与**调用结果**）
   - `return` 传播：**E0479**，可空值不得从未标 `?` 的返回类型漏出去（**字段也算来源**，本 PR 接通）
-  - 未覆盖：跨包字段标记（3.3）
+  - 未覆盖：跨包的**字段 / 接口成员 / extern 桩**（见 3.3 的三类缺口）
 - [x] 3.5 标 `?` 的字段直接解引用 → **E0484** `NullableFieldNotSnapshotted`（消息给快照写法）
   - `FieldSymbol.IsNullable` 旁路位（与 `Z42FuncType.ParamIsNullable` 同构，不进类型身份），
     `MemberCollector` 直接读 AST（`fd.Type is NullableType`）；**属性同样置位**——D4 的第一条
@@ -118,7 +138,15 @@
   - **快照**（`var v = this.F;`）把义务转移到局部 → 复用形参那半的窄化机器；这条不是优化，
     是字段标记的**唯一逃生口**
   - `return this.F;` 漏给未标 `?` 的返回类型仍由 E0479 接住
-- [ ] 3.6 跨包用例（参考 `tests/cross-zpkg/`）
+- [x] 3.6 跨包用例（`src/tests/cross-zpkg/`，3 条，全绿）
+  - `nullable_marks_cross_pkg` —— 正例：标了 `?` 的跨包返回值按规矩窄化 ⇒ 编过跑通；
+    **同包对照**未标 `?` 的 API 直接解引用**也**编过（钉「缺席 = 不强制」这个支点）
+  - `nullable_marks_cross_pkg_unchecked` —— 阴性：跨包 `?` 返回值直接解引用 ⇒ **E0478**
+  - `nullable_marks_cross_pkg_override` —— 阴性：override 跨包基类方法时**去掉**形参的 `?`
+    ⇒ **E0489**（走的是另一个消费端：继承一致性，不是调用点）
+  - ⭐ **方向是挑过的**：一开始写的是接口 + 「契约没标、实现加 `?`」那一侧，**修前就能过** ——
+    导入侧标记位缺省 false，而「契约方没标」恰好也是 false，**蒙对了，一条也分辨不出**。
+    真正有判别力的只有「**契约方标了、实现方去掉**」。（后来又因接口无 attr 通道改走基类。）
 
 ## 阶段 4: Q1 实测 —— 字段窄化规则
 > 在引擎可用之后、全仓开闸之前做。
@@ -184,18 +212,30 @@
 - [x] 6.7 全仓 grep 清零（生产代码 `??` 仅剩实现自身与注释）
 
 ## 阶段 7: 自举 + GREEN
-- [ ] 7.1 按 `bootstrap-seed.md` 走冷种子（编译器自身改了 47 处 `??`）
-- [ ] 7.2 `xtask build` + `xtask test all` 全绿；`cargo test -p z42 --lib`（**debug，不能 `--release`**）
-- [ ] 7.3 golden 核对
-- [ ] 7.4 确认无 zbc/zpkg 格式 bump（`?` 只在签名文本里，已有编码）
-- [ ] 7.5 推 PR 过 CI
+- [x] 7.1 按 `bootstrap-seed.md` 走冷种子（编译器自身改了 47 处 `??`）
+- [x] 7.2 `xtask build` + `xtask test all` 全绿；`cargo test -p z42 --lib`（**debug，不能 `--release`**）
+  - 🔴🔴 **PR 9 在这一步栽了很久，教训值钱**：改动使**两代**才生效（第一代产的包才带哨兵，
+    第二代才读得到），于是我拿**混代的 `artifacts/build/`** 反复量，得出过两个**完全错误**的结论
+    ——先判「跨包标记没接通」，又判「main 从冷缓存编不过、8 条既有误报」。
+    两次都是**对照组本身被污染**：树是 `origin/main` 没错，但 `artifacts/build/` 里的库与
+    **暂存编译器**还是我自己上一轮 3.3 的产物。
+  - ⭐ **判据（记死）**：验 pristine **必须 `rm -rf artifacts/build`**，只核 `artifacts/.z42`
+    （SDK 种子）**不够** —— 真正在编译的是 `artifacts/build/compiler/` 那份。
+    真做干净之后：纯净 main 冷构建**全绿**，我的改动连跑**两代**也**全绿**。
+- [x] 7.3 golden 核对（`xtask test all` 覆盖）
+- [x] 7.4 确认无 zbc/zpkg 格式 bump —— **理由与规划时写的不一样**：`?` **根本不在**签名文本里
+  （`_sigTypeName` 剥掉了，因为那串是派发键）。真正的承载是**既有 attr-ref 通道**上的
+  `$Nullable` / `$RetNullable` 两个哨兵 ⇒ 无格式 bump，但 `CompilerFingerprint` 11 → 12
+  （标了 `?` 的方法 attr 块多了哨兵 ⇒ zpkg 字节变；且**跨包调用点源文件哈希不变而诊断变**，
+  不 bump 会命中旧条目、把新诊断整个吞掉）
+- [x] 7.5 推 PR 过 CI
 
 ## 阶段 8: 文档 + 归档
-- [ ] 8.1 `docs/reference/src/language/*` —— 空检查规则 / 义务点清单 / 窄化清单 / 字段快照 / `Expect`
-- [ ] 8.2 **命名把关**：全文用「空检查」，**不得出现「空安全」**；显式写明不健全与会漏的形态
-- [ ] 8.3 版本语义表（返回加 `?` 破坏调用方 / 形参加 `?` 破坏实现方 / 去 `?` 永远安全）
-- [ ] 8.4 `docs/roadmap.md` —— 可空线的真实进度
-- [ ] 8.5 归档
+- [x] 8.1 `docs/reference/src/language/types.md` —— 空检查规则 / 义务点清单 / 窄化清单 / 字段快照 / `Expect` / 跨包边界
+- [x] 8.2 **命名把关**：全文用「空检查」，**不得出现「空安全」**；显式写明不健全与会漏的形态
+- [x] 8.3 版本语义表（返回加 `?` 破坏调用方 / 形参加 `?` 破坏实现方 / 去 `?` 永远安全）—— types.md §「加 `?` 和去 `?` 各会破坏谁」，并写明它与「D8 反向推导」不能同时为真
+- [x] 8.4 `docs/roadmap.md` —— 可空线的真实进度（🔴 未排期 → ✅ 0.6.x，并挂出三类跨包缺口）
+- [x] 8.5 归档
 
 ---
 

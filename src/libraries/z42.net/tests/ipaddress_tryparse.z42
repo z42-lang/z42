@@ -9,7 +9,9 @@ using Std.Net.Sockets;
 [Test]
 void test_tryparse_valid_ipv4() {
     IPAddress? a = IPAddress.TryParse("192.168.1.1");
-    Assert.True(a != null);
+    // define-null-check-marks：`TryParse` 标了 `?`，义务跨包跟到这里 ——
+    // `Assert.True(a != null)` 不是控制流窄化，要的是一条真守卫。
+    if (a == null) { Assert.Fail("合法 IPv4 字面量应当解析成功"); return; }
     Assert.True(a.IsIPv4());
     Assert.Equal("192.168.1.1", a.ToString());
 }
@@ -17,7 +19,7 @@ void test_tryparse_valid_ipv4() {
 [Test]
 void test_tryparse_valid_ipv6() {
     IPAddress? a = IPAddress.TryParse("::1");
-    Assert.True(a != null);
+    if (a == null) { Assert.Fail("合法 IPv6 字面量应当解析成功"); return; }
     Assert.True(a.IsIPv6());
 }
 
@@ -25,7 +27,7 @@ void test_tryparse_valid_ipv6() {
 void test_tryparse_valid_v4mapped() {
     // Composes with the new IPv4-in-IPv6 dotted parsing.
     IPAddress? a = IPAddress.TryParse("::ffff:192.0.2.1");
-    Assert.True(a != null);
+    if (a == null) { Assert.Fail("v4-mapped 字面量应当解析成功"); return; }
     Assert.True(a.IsIPv6());
 }
 

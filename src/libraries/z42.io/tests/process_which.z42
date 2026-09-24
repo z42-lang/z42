@@ -17,7 +17,9 @@ void test_which_finds_common_shell() {
     } else {
         hit = Process.Which("sh");
     }
-    Assert.NotNull(hit);
+    // define-null-check-marks：`Process.Which` 标了 `?`，义务跨包跟到这里。
+    // `Assert.NotNull` 不是控制流窄化（编译器看不见它的含义），要的是一条真守卫。
+    if (hit == null) { Assert.Fail("Which 应当找到常见 shell"); return; }
     Assert.True(hit.Length > 0);
 }
 

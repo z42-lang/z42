@@ -1,0 +1,14 @@
+// 阴性对照：跨包调用标了 `?` 的返回值并**直接解引用** → 必须报 E0478。
+//
+// 修前实测：编译 rc=0、零诊断 —— `?` 在 TSIG 文本里明明写着，
+// 加载侧 `ImportedSymbolLoader._resolve` 却把后缀当垃圾剥掉、标记位一位不还原。
+// 这条 fixture 钉的就是「跨过包边界之后义务还在不在」。
+namespace Demo.NullUnchkApp;
+
+using Std;
+using Std.IO;
+using Demo.NullUnchkNs;
+
+void Main() {
+    Console.WriteLine(Registry.Find("x").Length.ToString());
+}

@@ -1,0 +1,10 @@
+// 负例依赖包：基类方法的**形参**标了 `?` ⇒ 契约是「任何实现都查这个实参」。
+//
+// ⚠️ 用**基类**而不是接口是有原因的：接口成员在 zbc 里走 TYPE 方法块（只有名 / 返回 /
+// 形参类型 / static），**根本没有 attr-ref 通道**，`?` 标记跨不过去 —— 那是要扩格式
+// （minor bump）才能补的独立缺口。类方法走 SIGS + attr-ref，标记能到。
+namespace Demo.NullOverrideNs;
+
+public class Store {
+    public virtual int Save(string? k) { if (k == null) { return 0; } return k.Length; }
+}
