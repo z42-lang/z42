@@ -19,7 +19,7 @@
 | # | 章节 | 路径 | 要点 | 状态 |
 |---|------|------|------|------|
 | 6 | 变量与基本类型 | `basics/variables` | `var`、整数/浮点/`bool`/`char`/`string`、字面量、类型转换（比 C# 严）、`const`/`readonly`、`?` 只是标注 | 🟢 |
-| 7 | 运算符与表达式 | `basics/operators` | 算术 / 比较 / 逻辑 / 位运算、可空类型、`?.` / `??` | 🟢 |
+| 7 | 运算符与表达式 | `basics/operators` | 算术 / 比较 / 逻辑 / 位运算、判空要写出来（z42 **没有** `?.` / `??`，写了报 E0480） | 🟢 |
 | 8 | 控制流 | `basics/control-flow` | `if` / `switch` / `while` / `do` / `for` / `foreach` / `break` / `continue` | 🟢 |
 | 9 | 函数 | `basics/functions` | 自由函数与方法、默认值、命名实参、`params`、`ref` / `out` / `in`、局部函数、递归 | 🟢 |
 | 10 | 字符串 | `basics/strings` | 三种字面量、转义与 E0102、插值（含格式说明符静默失效）、原始串四条限制、常用成员、Split 只收 string、Length vs ByteLength、逐字符遍历 | 🟢 |
