@@ -1,0 +1,88 @@
+// xtask — 编译期扩展解析域的 e2e 门（add-package-roles 批 1）。
+//
+// 单独成文件而非并入 xtask_compiler_e2e.z42：后者已 487 行，逼近 500 行硬限
+// （code-organization.md）。本门由 `_testCompilerE2e` 调用。
+//
+// **守的是什么**：`kind = "analyzer"` 的工程能不能 `[dependencies]` 到编译器的契约包
+// （`z42c.semantics` 的 Generator / ModuleGenerator / GenSink / GenTarget）。
+//
+// 在此之前这条路是断的：契约 zpkg 只作为 z42c 的 payload 落在 `programs/z42c/`，**在 SDK
+// 目录里、却不在解析器会去看的地方**。插件作者写不出插件，且没有任何东西会诊断它——他拿到
+// 的是一句位置在别处的 `undefined type: ModuleGenerator`。那是一个有名字的已知失败模式
+// （proposal §参照系调研的七家语言全都专门绕开了它）。
+//
+// **两格成对，缺一不可**：
+//   ① `kind = "analyzer"` → 必须编过（能力在）；
+//   ② 同一份源码改 `kind = "lib"` → 必须编**不**过（判别力在）。
+//
+// 只有①的门管不住「哪天有人图省事把 z42c.semantics 塞进 libs/ 了事」——那样①照样绿，
+// 而解析域隔离已经没了（普通工程也能引用编译器语义层）。②正是为这个而写。
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+// analyzer 工程的最小源码：实现 ModuleGenerator 三个成员。只要契约解析得到，它就编得过。
+string _e2eAnalyzerSrc() {
+    return "namespace E2eGen;\n\nusing Std;\nusing Z42.Semantics;\n\n"
+         + "public sealed class E2eProbeGenerator : ModuleGenerator {\n"
+         + "    public void Generate(GenContext ctx, GenSink sink) {\n"
+         + "        sink.AddSource(\"e2e\", \"namespace E2eOut; public static class O { public static int V() { return 1; } }\");\n"
+         + "    }\n"
+         + "    public string[] Consumes() { return new string[0]; }\n"
+         + "    public string[] Produces() { return new string[0]; }\n"
+         + "}\n";
+}
+
+string _e2eAnalyzerToml(string kind) {
+    return "[project]\nname    = \"e2e.gen\"\nversion = \"0.1.0\"\nkind    = \"" + kind + "\"\n\n"
+         + "[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[dependencies]\n\"z42c.semantics\" = \"0.1.0\"\n";
+}
+
+// 🔴 **Z42_LIBS 必须是纯 stdlib dist，不能用 e2e 其余检查那个 `flat`**。
+// `flat`（`_assembleAllLibs`）把 stdlib **与全部 compiler member**（含 z42c.semantics）硬链进
+// 同一个 alllibs/ 目录给测试用 —— 在那个环境里编译器包对**所有**工程可见，②格恒绿、门等于没有。
+// 这里改用 `_libsFlatDist`（真·stdlib 扁平 dist），analyzer 工程靠 `_compilerLibsDirs()` 的
+// 开发树探测（自 Z42_LIBS 上溯到 artifacts/build/ 再拼 compiler member dist）拿到契约包。
+int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e2eDir) {
+    string flat = _libsFlatDist(root, "release");
+    string adir = Path.Join(e2eDir, "analyzerdomain");
+    Directory.Create(adir);
+    File.WriteAllText(Path.Join(adir, "gen.z42"), _e2eAnalyzerSrc());
+    string atoml = Path.Join(adir, "e2e.gen.z42.toml");
+    // ②格用**独立目录**：同目录只改 toml 会让增量缓存参与进来，把「解析得到吗」这个问题
+    // 混进「缓存命中吗」。两格各自干净地走一遍完整解析。
+    string bdir = Path.Join(e2eDir, "analyzerdomain_lib");
+    Directory.Create(bdir);
+    File.WriteAllText(Path.Join(bdir, "gen.z42"), _e2eAnalyzerSrc());
+    string btoml = Path.Join(bdir, "e2e.gen.z42.toml");
+
+    // ① kind = "analyzer" → 解析域含 compiler-libs ⇒ 契约可解析 ⇒ 编过。
+    File.WriteAllText(atoml, _e2eAnalyzerToml("analyzer"));
+    ProcessResult r1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r1.ExitCode != 0) {
+        Console.WriteLine("  ✗ kind=analyzer 的工程解析不到 z42c.semantics（插件作者写不出插件）: rc="
+            + r1.ExitCode.ToString());
+        Console.WriteLine("    stderr: " + r1.Stderr);
+        return 1;
+    }
+
+    // ② 同一份源码，kind = "lib" → 解析域只有 libs/ ⇒ 必须编不过。
+    //    编过了说明编译器域包对普通工程也可见 —— 解析域隔离失效，本门的意义随之归零。
+    File.WriteAllText(btoml, _e2eAnalyzerToml("lib"));
+    ProcessResult r2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(btoml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (r2.ExitCode == 0) {
+        Console.WriteLine("  ✗ kind=lib 的普通工程竟也解析到了 z42c.semantics —— 解析域隔离失效");
+        return 1;
+    }
+    if (r2.Stderr.IndexOf("z42c.semantics") < 0) {
+        Console.WriteLine("  ✗ kind=lib 编不过，但错误与 z42c.semantics 无关（门失去判别力）");
+        Console.WriteLine("    stderr: " + r2.Stderr);
+        return 1;
+    }
+    Console.WriteLine("  ✓ 编译期扩展解析域：kind=analyzer 可引用 z42c.semantics，kind=lib 不可");
+    return 0;
+}

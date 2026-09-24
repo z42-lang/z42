@@ -39,7 +39,7 @@
 # ── 桌面 SDK：完整开发包 ─────────────────────────────────────────────
 [package.sdk]
 artifact = "z42-sdk-{version}-{rid}"
-include  = ["z42vm", "native", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]
+include  = ["z42vm", "native", "stdlib", "compiler-libs", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]
 manifest = "auto"
 
 # ── 可嵌入运行时：只含 native + stdlib，纯粹给嵌入场景用（2026-07-01 修订）。
@@ -112,6 +112,13 @@ dest = "native/"
 [component.stdlib]
 kind = "stdlib-glob"     # 全部 stdlib *.zpkg + *.zsym（自动发现，加库无需改这里）
 dest = "libs/"
+
+[component.compiler-libs]
+kind = "compiler-libs-glob"   # 编译期扩展的解析域：被契约暴露的编译器后端包（当前 z42c.semantics）
+dest = "compiler-libs/"
+# 只进 sdk，**不进 runtime**——它按定义是编译期的东西。写 analyzer/generator 的工程
+# （`kind = "analyzer"`）由 z42c 把本目录并进其 libsDirs；普通工程看不见它。
+# 与 libs/ 分开的理由见 xtask_stage_components.z42 的 _pkgStageCompilerLibs 头注。
 
 [component.editor-assets]
 kind = "editor-assets"   # 编辑器集成资产（`z42d install <target>` 的输入；*.tpl.json 不进包）

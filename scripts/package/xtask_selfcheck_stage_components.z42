@@ -66,6 +66,19 @@ int _testPackagesStaging() {
     }
     _stgAssert("stdlib libs/ has zpkg", anyZpkg);
 
+    // compiler-libs: 编译期扩展的解析域（add-package-roles 批 1）。两条断言成对——
+    //   ① 契约包**在**里面（否则 analyzer 工程解析不到 → 插件作者写不出插件，且无人诊断）；
+    //   ② 它**不在** libs/（否则「编译器语义层 = 标准库的一部分」成为事实，且 publisher 会
+    //      按「在 libs/ = 框架」把它从每个 apphost 的 payload 闭包里抹掉）。
+    // 只测①不测②，这个门就管不住「哪天有人图省事把它塞进 libs/ 了事」——那正是本 change 要防的。
+    int cl = _pkgStageCompilerLibs(root);
+    _stgAssert("compiler-libs stage ok", cl == 0);
+    string clDir = Path.Join(_pubStagingRoot(root), "compiler-libs/compiler-libs");
+    _stgAssert("compiler-libs/ has z42c.semantics.zpkg",
+        File.Exists(Path.Join(clDir, "z42c.semantics.zpkg")));
+    _stgAssert("z42c.semantics NOT in stdlib libs/",
+        !File.Exists(Path.Join(stdlibDir, "libs/z42c.semantics.zpkg")));
+
     // editor-assets: 资产从仓库源码树拷到 editors/<target>/；生成器模板不得进包
     // （*.tpl.json 是 xtask 的输入，出现在用户扩展目录里只会造成困惑）。
     int ea = _pkgStageEditorAssets(root);

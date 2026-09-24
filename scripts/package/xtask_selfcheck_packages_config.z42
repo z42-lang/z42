@@ -44,22 +44,26 @@ int _testPackagesConfig() {
     _PackagesConfig cfg = _pkgcfgLoad(root);
 
     _pkgAssertLen("package count", 3, cfg.packages.Length);
-    _pkgAssertLen("component count", 10, cfg.components.Length);
+    _pkgAssertLen("component count", 11, cfg.components.Length);
 
     _PkgPackage sdk = _pkgcfgFindPackage(cfg, "sdk");
     _pkgAssertEq("sdk.artifact", "z42-sdk-{version}-{rid}", sdk.artifact);
     _pkgAssertEq("sdk.manifest", "auto", sdk.manifest);
-    _pkgAssertLen("sdk.include", 9, sdk.include.Length);
+    _pkgAssertLen("sdk.include", 10, sdk.include.Length);
 
     _PkgComponent[] sdkComps = _pkgcfgResolveInclude(cfg, "sdk");
-    _pkgAssertLen("sdk resolved components", 9, sdkComps.Length);
+    _pkgAssertLen("sdk resolved components", 10, sdkComps.Length);
     _pkgAssertEq("sdk.include[0].name", "z42vm", sdkComps[0].name);
     _pkgAssertEq("sdk.include[0].kind", "cargo-bin", sdkComps[0].kind);
-    _pkgAssertEq("sdk.include[6].name", "z42d", sdkComps[6].name);
-    _pkgAssertEq("sdk.include[7].name", "z42i", sdkComps[7].name);
-    _pkgAssertEq("sdk.include[8].name", "editor-assets", sdkComps[8].name);
-    _pkgAssertEq("sdk.include[8].kind", "editor-assets", sdkComps[8].kind);
-    _pkgAssertEq("sdk.include[8].dest", "editors/", sdkComps[8].dest);
+    // add-package-roles 批 1：compiler-libs 插在 stdlib 之后 ⇒ 其后各项索引 +1。
+    _pkgAssertEq("sdk.include[3].name", "compiler-libs", sdkComps[3].name);
+    _pkgAssertEq("sdk.include[3].kind", "compiler-libs-glob", sdkComps[3].kind);
+    _pkgAssertEq("sdk.include[3].dest", "compiler-libs/", sdkComps[3].dest);
+    _pkgAssertEq("sdk.include[7].name", "z42d", sdkComps[7].name);
+    _pkgAssertEq("sdk.include[8].name", "z42i", sdkComps[8].name);
+    _pkgAssertEq("sdk.include[9].name", "editor-assets", sdkComps[9].name);
+    _pkgAssertEq("sdk.include[9].kind", "editor-assets", sdkComps[9].kind);
+    _pkgAssertEq("sdk.include[9].dest", "editors/", sdkComps[9].dest);
 
     // z42d/z42i (devtools/interactive, 2026-07-01 User decision): registered as
     // scaffold placeholders — apphost kind, same producer path as launcher/z42c/z42b.
@@ -79,7 +83,10 @@ int _testPackagesConfig() {
     _pkgAssertEq("runtime.include[1]", "stdlib", runtimeComps[1].name);
     int i = 0;
     while (i < runtimeComps.Length) {
-        if (runtimeComps[i].name == "z42c" || runtimeComps[i].name == "z42vm") {
+        // compiler-libs 同列：它按定义是编译期的东西，进 runtime 包就等于把契约包
+        // 塞给了一个永远不会编译任何东西的运行时（add-package-roles 批 1）。
+        if (runtimeComps[i].name == "z42c" || runtimeComps[i].name == "z42vm"
+            || runtimeComps[i].name == "compiler-libs") {
             throw new Exception("packages-config: runtime package must not include " + runtimeComps[i].name);
         }
         i = i + 1;
@@ -93,6 +100,11 @@ int _testPackagesConfig() {
     _PkgComponent stdlib = _pkgcfgFindComponent(cfg, "stdlib");
     _pkgAssertEq("stdlib.kind", "stdlib-glob", stdlib.kind);
     _pkgAssertEq("stdlib.project (unset)", "", stdlib.project);
+    // compiler-libs 同 stdlib：glob 类，无单一 project 可指。
+    _PkgComponent clc = _pkgcfgFindComponent(cfg, "compiler-libs");
+    _pkgAssertEq("compiler-libs.kind", "compiler-libs-glob", clc.kind);
+    _pkgAssertEq("compiler-libs.dest", "compiler-libs/", clc.dest);
+    _pkgAssertEq("compiler-libs.project (unset)", "", clc.project);
     _pkgAssertEq("stdlib.dest", "libs/", stdlib.dest);
 
     _pkgAssertThrows("unknown package throws", "no-such-package", true);

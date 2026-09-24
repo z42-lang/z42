@@ -68,6 +68,12 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     c = _pkgStageStdlib(root); if (c != 0) { return c; }
     Console.WriteLine("      ✓ staged stdlib/");
 
+    // 编译期扩展的解析域 — staged to artifacts/publish/compiler-libs/compiler-libs/.
+    // 只进 sdk（不进 runtime）；写 analyzer/generator 的工程靠它解析契约包。
+    Console.WriteLine("      staging compiler-libs (compile-time extension resolution domain)");
+    c = _pkgStageCompilerLibs(root); if (c != 0) { return c; }
+    Console.WriteLine("      ✓ staged compiler-libs/");
+
     // 编辑器集成资产 — staged to artifacts/publish/editor-assets/editors/.
     Console.WriteLine("      staging editor assets");
     int ea = _pkgStageEditorAssets(root);

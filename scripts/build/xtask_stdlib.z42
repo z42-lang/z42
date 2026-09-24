@@ -188,6 +188,26 @@ int _buildSdk(string outOpt, bool noBuild) {
     c = _pkgCopyLibs(_libsDir(root), outDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ libs/ (stdlib)");
 
+    // compiler-libs/ —— 编译期扩展的解析域（add-package-roles 批 1）。
+    //
+    // 与 programs/z42c/ 里那份 z42c.semantics.zpkg **是同一批字节、落两处**，因为它们答的是
+    // 两个不同的问题：programs/z42c/ 是「z42c 这个程序要加载什么」，compiler-libs/ 是
+    // 「写 analyzer/generator 的工程能 `[dependencies]` 到什么」。让后者去读前者，等于把
+    // 扩展作者的解析域绑死在某个程序的 payload 布局上。
+    //
+    // 只有 `kind = "analyzer"` 的工程看得见它（z42c.driver 的 _compilerLibsDirs 探测
+    // Z42_HOME/compiler-libs/）；普通工程的 libsDirs 不含它。
+    string clDir = Path.Join(outDir, "compiler-libs");
+    Directory.Create(clDir);
+    string semDist = _compilerMemberDist(root, "z42c.semantics", "release");
+    _copyIfExists(Path.Join(semDist, "z42c.semantics.zpkg"), Path.Join(clDir, "z42c.semantics.zpkg"));
+    _copyIfExists(Path.Join(semDist, "z42c.semantics.zsym"), Path.Join(clDir, "z42c.semantics.zsym"));
+    if (!File.Exists(Path.Join(clDir, "z42c.semantics.zpkg"))) {
+        ConsoleError.WriteLine("error: compiler-libs/ missing z42c.semantics.zpkg (looked in " + semDist + ")");
+        return 1;
+    }
+    Console.WriteLine("  ✓ compiler-libs/ (compile-time extension resolution domain)");
+
     string binDir = Path.Join(outDir, "bin");
     Directory.Create(binDir);
     string cargoOut = _runtimeOut(root, "release");
