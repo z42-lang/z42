@@ -89,3 +89,56 @@ void _stabilizeSourceIdentity(ZpkgFileZ z, string projectDir) {
         i = i + 1;
     }
 }
+
+// ── 编译期扩展的解析域（add-package-roles 批 1）────────────────────────────
+//
+// `kind = "analyzer"` 的工程要 `[dependencies]` 到编译器的契约包（`z42c.semantics` 的
+// `Generator`/`ModuleGenerator`/`GenSink`/`GenTarget`），而这些 zpkg **不在** `libs/` ——
+// 那正是 proposal 记下的症状：契约在 SDK 目录里、却不在解析器会去看的地方，于是插件作者
+// 拿到的是一句位置在别处的 `E0443 undefined type: ModuleGenerator`，没有任何东西诊断它。
+//
+// 本函数返回该解析域目录（存在者为准，按探测序；一个都没有 → 空数组，调用方照旧只看 libs/）。
+// 探测序镜像 `ReplCompilerHost._findCompilerZpkg`（scripting 定位编译器组件的同款三档）：
+//   ① Z42_HOME/compiler-libs/                  —— SDK 安装态
+//   ② Z42_PORTABLE_VM 反推 SDK 根 → <sdk>/compiler-libs/
+//   ③ 开发树：自 Z42_LIBS 上溯到 artifacts/build/ → compiler/z42c.semantics/release/dist/
+//      （仓库内开发无 SDK；driver 手里没有仓库根，Z42_LIBS 是唯一可靠的锚点）
+//
+// **只对 analyzer 工程生效**：普通工程的 libsDirs 不含它，编译器域包对普通用户仍不可见
+// （role 维度的「compile-time 不进 runtime 解析域」这条，在 kind 这一侧先落一半）。
+string[] _compilerLibsDirs() {
+    string[] found = new string[4];
+    int n = 0;
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+    if (home.Length > 0) {
+        string p1 = Path.Join(home, "compiler-libs");
+        if (Directory.Exists(p1)) { found[n] = p1; n = n + 1; }
+    }
+    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+    if (pv.Length > 0) {
+        string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
+        string p2 = Path.Join(sdk, "compiler-libs");
+        if (Directory.Exists(p2) && !_clContains(found, n, p2)) { found[n] = p2; n = n + 1; }
+    }
+    // ③ 开发树：Z42_LIBS = <root>/artifacts/build/libraries/dist/release → 上溯 3 级得
+    //    <root>/artifacts/build，再拼 compiler/z42c.semantics/release/dist。布局若变则目录
+    //    不存在、自然跳过（不猜、不报错——这只是开发便利档，SDK 态走 ①②）。
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs.Length > 0) {
+        string buildDir = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(libs)));
+        if (buildDir.Length > 0) {
+            string p3 = Path.Join(buildDir, Path.Join("compiler", Path.Join("z42c.semantics", Path.Join("release", "dist"))));
+            if (Directory.Exists(p3) && !_clContains(found, n, p3)) { found[n] = p3; n = n + 1; }
+        }
+    }
+    string[] r = new string[n];
+    int i = 0;
+    while (i < n) { r[i] = found[i]; i = i + 1; }
+    return r;
+}
+
+bool _clContains(string[] a, int count, string x) {
+    int i = 0;
+    while (i < count) { if (a[i] == x) { return true; } i = i + 1; }
+    return false;
+}
