@@ -612,6 +612,8 @@ var x = new Container<Animal, Vehicle>(...);      // ❌ E0402
 
 - zbc 版本 0.4 → 0.5：SIGS / TYPE section 每个 type_param 追加约束布局
   - `flags: u8`（bit0 RequiresClass / bit1 RequiresStruct / bit2 HasBaseClass）
+    —— ⚠️ 这是 **2026-04-22 当时**的三位；该 u8 后来长到 8 位并已满，现状表见
+    [zbc.md 的「约束 flags」](../formats/zbc.md#type--类型元数据)，别照这一行分配新位。
   - `[if bit2] base_class_name_idx: u32`
   - `interface_count: u8 + interface_name_idx[] × u32`
 - C# IR: `IrFunction.TypeParamConstraints` / `IrClassDesc.TypeParamConstraints` 与 `TypeParams` 按索引对齐

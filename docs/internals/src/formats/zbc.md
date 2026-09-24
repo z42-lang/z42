@@ -87,8 +87,9 @@ field_count     u16
 每字段 ×        { name pool idx; type_tag u8; type_name pool idx;
                   attr_count u16; attr×{type_name u32, factory u32}; visibility u8 }
 tp_count        u8（泛型形参数）
-每 tp ×         { tp_name pool idx; constraint_flags u8;
-                  [tp_ref pool idx 当 flags bit3]; iface_count u8; iface × pool idx }
+每 tp ×         { tp_name pool idx; constraint_flags u8（见下）;
+                  [base_class pool idx 当 bit2]; [tp_ref pool idx 当 bit3];
+                  iface_count u8; iface × pool idx; [assoc 块 当 bit7] }
 attr_count      u16（类级 attribute）
 attr ×          { type_name u32; factory u32 }
 flags           u8（类形状，见下）
@@ -99,7 +100,24 @@ interface ×     pool idx
 [enum 块]       仅 flags bit5 置位：member_count u16 + 每成员{name u32, value i64}
 ```
 
-**类形状 flags（u8）**：`bit0` abstract、`bit1` sealed、`bit2` struct、`bit3` record、`bit4` interface、`bit5` enum、`bit6` delegate。
+**约束 flags（`constraint_flags` u8）**：`bit0` requires-class（`where T : class`）、
+`bit1` requires-struct、`bit2` has-base-class（载荷 `base_class` pool idx）、
+`bit3` has-type-param（载荷 `tp_ref` pool idx）、`bit4` requires-constructor（`new()`）、
+`bit5` requires-enum、`bit6` has-func-sig（zbc 1.4，`Z42FuncType` 签名串）、
+`bit7` has-assoc-binding（zbc 1.42，`where T : IEnum<Item=int>` 的绑定；载荷在 iface 列表**之后**）。
+
+> 🔴 **这个 u8 也满了（8/8）。** 载荷顺序是 `base → tp_ref → iface_count → [bit7 assoc]`，
+> 三方 reader（z42 `TsigReconcile` / z42 `ZbcReader` / Rust `read_constraint_bundle`）必须同序读。
+> 三处都用裸数字，无常量副本；Rust 侧见 `zbc_reader/type_reader.rs`。
+
+**类形状 flags（u8）**：`bit0` abstract、`bit1` sealed、`bit2` struct、`bit3` record、`bit4` interface、
+`bit5` enum、`bit6` delegate、`bit7` has-inline-struct（zbc 1.32，gated 合成内联布局块）。
+
+> 🔴 **这个 u8 已经满了（8/8）**——再加一个类形状位必须扩宽字段或另开一字节，不能「找个空位」。
+> 权威副本在 `src/runtime/src/metadata/bytecode/class.rs`（`CLASS_FLAG_ABSTRACT` …
+> `CLASS_FLAG_HAS_INLINE_STRUCT`，`1 << 0` … `1 << 7`）；z42 侧是裸数字，无常量。
+> ⚠️ 本表曾停在 bit6 整整两代格式（bit7 自 1.32 起在用），**正文表落后 = 下一个分配位的人
+> 以为 bit7 空着**。加位的同一个 PR 里必须改这一行。
 
 `visibility`：`0` public / `1` private / `2` protected。
 
@@ -115,7 +133,7 @@ ret_name      pool idx
 exec_mode     u8（0 Interp / 1 Jit / 2 Aot）
 is_static     u8
 visibility    u8
-method_flags  u8（bit0 virtual / bit1 abstract）
+method_flags  u8（bit0 virtual / bit1 abstract / bit2 sealed[1.30] / bit3 sret[1.40]；bit4-7 空）
 min_arg       u16（必填逻辑参数数）
 params_from   u8（变长参数起始逻辑下标；0xFF = 无）
 每参 ×        { param_type pool idx; param_name pool idx; default_kind u8; [default payload] }
