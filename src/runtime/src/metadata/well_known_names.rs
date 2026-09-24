@@ -81,6 +81,21 @@ pub fn int_wrapper_scalar_spec(name: &str) -> Option<(usize, bool)> {
     }
 }
 
+/// fix-new-prim-value：FQ 名是否为一个**标量**基元包装类（12 个：整数族 + `Single`/`Double`
+/// + `Boolean` + `Char`）。`Std.String` / `Std.Object` **不在内** —— 它们是引用类型，
+/// 「构造一个」与「零值」不是一回事（`default(string)` 是 null，`new string()` 是 `""`）。
+///
+/// 与编译期 `PrimModel.Code(canon) 0..=11` 是同一个集合的两侧表述；改一侧必须改另一侧。
+/// 用途：`__activator_create`（即 `new T()` 当 T 运行期绑到基元）要产出零值而非空对象。
+pub fn is_scalar_prim_wrapper(name: &str) -> bool {
+    matches!(
+        name,
+        "Std.SByte" | "Std.Byte" | "Std.Int16" | "Std.UInt16"
+      | "Std.Int32" | "Std.UInt32" | "Std.Int64" | "Std.UInt64"
+      | "Std.Single" | "Std.Double" | "Std.Boolean" | "Std.Char"
+    )
+}
+
 // ── Well-known builtin names (used outside corelib::dispatch_table) ──────
 
 /// Builtin invoked as the fallback in `dispatch.rs::obj_to_string` when an

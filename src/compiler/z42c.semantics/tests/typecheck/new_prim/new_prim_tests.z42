@@ -1,0 +1,65 @@
+// `new <基元>(实参)` 必须编译期报 E0426（fix-new-prim-value 的配套护栏）。
+//
+// 🔴 **这道门是折叠的前提，不是锦上添花**：把 `new int()` 折成零值之后，若不拦实参，
+// `new int(5)` 会被**同一条折叠**静默变成 `0` —— 比修之前（运行期
+// `Std.MissingSymbolException: constructor Std.Int32.Int32`）更坏。所以「折叠」与「拦实参」
+// 必须同一刀落地，这个文件钉的就是后半。
+//
+// 运行期那半（零值本身对不对）由 `src/tests/basic/new_prim_value.z42` 钉；
+// 本文件只钉**诊断**。
+//
+// ⚠️ 与 `prim_member/` 同一条注意事项：`SemanticDump` 只跑 `SymbolCollector`、**不加载
+// stdlib**。但这里不受影响 —— `int` / `string` 这些是**内建关键字**，`env.ResolveType`
+// 不查符号表就能解析（与 `prim_member` 要查 `HasClass("Int32")` 的路径不同）。
+namespace Z42cSemanticsNewPrimTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+[Test]
+void test_new_int_with_args_is_an_error() {
+    string src = "class C { int M() { return new int(5); } }";
+    Assert.Equal("E0426", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("`new int()` takes no arguments — a primitive has no constructor",
+                 SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_new_string_with_args_points_at_FromChars() {
+    // 全仓唯二提到 `new <基元>(…)` 的地方是 z42.compression 里两段踩坑注释
+    // （Tar.z42 / Zip.z42，2026-05）：`new string(chars)` 当年产出 Null / 一个假的
+    // `Std.Archive.string` 对象，两次都靠改用 `String.FromChars` 绕开。诊断直接指路。
+    string src = "class C { string M(char[] cs) { return new string(cs); } }";
+    Assert.Equal("E0426", SemanticDump.FirstErrorCode(src));
+    Assert.Equal("`new string()` takes no arguments — a primitive has no constructor"
+               + "; use `String.FromChars(chars)` to build a string from a `char[]`",
+                 SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_message_uses_the_surface_keyword_not_the_wrapper_name() {
+    // 用户写的是 `int` / `string`，诊断里不该冒出 `Int32` / `String` —— 那是他没写过的名字。
+    // （第一版实现就漏了这条，实测打出 ``new Int32()``。）
+    string src = "class C { double M() { return new double(1.0); } }";
+    Assert.Equal("`new double()` takes no arguments — a primitive has no constructor",
+                 SemanticDump.FirstErrorMessage(src));
+}
+
+[Test]
+void test_no_arg_forms_report_nothing() {
+    // 正面：零实参的形态一条诊断都不该有（折叠掉，不是报错）。
+    Assert.Equal(0, SemanticDump.ErrorCount("class C { int M() { return new int(); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount("class C { bool M() { return new bool(); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount("class C { string M() { return new string(); } }"));
+    Assert.Equal(0, SemanticDump.ErrorCount("class C { char M() { return new char(); } }"));
+}
+
+[Test]
+void test_user_types_with_args_still_go_through_ctor_resolution() {
+    // 阴性对照：用户类的实参检查**不归本分支管**，仍走原来的 ctor 解析（这里是合法调用，零诊断）。
+    // 若把折叠的判据写宽（比如误把用户 struct 也当基元），这条会变红。
+    string ok = "class P { public int V; public P(int v) { this.V = v; } } "
+              + "class C { int M() { return new P(1).V; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(ok));
+}

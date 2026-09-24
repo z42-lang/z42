@@ -153,7 +153,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
 | E0425 | 重载歧义：多个候选同等匹配 | ✅ `OverloadBinder.z42:418,667,709,754,784,790`、`ConstructTyper.z42:236` | 两个重载分别取 `int` / `long`，传 `byte` |
-| E0426 | `new C(args)` 的实参与本地构造器形参不匹配（`params` / 默认值尾巴均已考虑）—— 防的是静默按位截断 | ✅ `ConstructTyper.z42:165,291` | `new Point(1)`，而 `Point` 只有 `(int,int)` |
+| E0426 | `new C(args)` 的实参与本地构造器形参不匹配（`params` / 默认值尾巴均已考虑）—— 防的是静默按位截断。**也覆盖「基元根本没有构造器」**：`new int(5)` / `new string(cs)` 报「takes no arguments — a primitive has no constructor」（后者附带 `String.FromChars` 的指引）。⚠️ 基元这一支**非加不可**——`new <基元>()` 现在折成零值（见[泛型约束](../language/generic-constraints.md#基元满足-new构造出来的是零值)），不拦实参的话 `new int(5)` 会被同一条折叠**静默变成 `0`**，比它此前的运行期 `MissingSymbolException` 更坏 | ✅ `ConstructTyper.z42:188,223,355` | `new Point(1)`，而 `Point` 只有 `(int,int)`；`new int(5)` |
 | E0437 | target-typed `new()` 的目标类型推断不出来或有歧义 | ✅ `ConstructTyper.z42:26,151`、`OverloadBinder.z42:677,699` | `var x = new();` |
 | E0439 | 存在显式转换但用在隐式上下文（窄化 / 有损）—— 必须写 `(T)` cast | ✅ `TypeChecker.z42:368` | `int i = someLong;` |
 | E0440 | 转换运算符声明冲突：同一 (源→目标) 重复，或 `implicit` 与 `explicit` 同对 | ✅ `MemberCollector.z42:339,342` | 同类里同时写 `implicit operator int` 与 `explicit operator int` |

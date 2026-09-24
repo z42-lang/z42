@@ -197,6 +197,39 @@ public sealed class ConstructTyper {
             // 单一 choke point，不再在此另发 E0401，避免同一未定义类型双重报错）。
             this._tc._chkTypeRef(t, env, n.Type.Span);   // enforce-class-access + 未定义类型 E0443：new 类型引用
         }
+        // fix-new-prim-value：`new <基元>()` 折成**零值**，不是「分配一个空的包装类对象」。
+        //
+        // 此前两支汇合后径直去解析 ctor 键 ⇒ 发 `obj_new int int.int()` ⇒ VM 按 `Std.Int32` 的
+        // TypeDesc alloc 一个 0 字段 ScriptObject。后果按类型不同：`int`/`double`/`char` 崩在
+        // 不相干的地方（`Int32.ToString: arg 0 expected int`），而 **`bool` 是静默错值** ——
+        // `new bool()` 的 `if (b)` 走真分支，可 `b == true` 和 `b == false` **同时为 false**。
+        //
+        // 契约早就在，只是构造侧没实现：`default(int/bool/char/double)` 实测全对，
+        // `ConstraintChecker._hasNoArgCtor` 明写 `IsScalarType() → true`「基元恒满足（同运行期）」。
+        // 所以这里**复用同一个 Bound 节点** `BoundDefault(t, -1)` —— 零值由构造保证与 `default(t)`
+        // 一致，不会两处各写一份再漂移。对齐 C#：`new int()` ≡ `default(int)` ≡ `0`。
+        //
+        // 放在两支**汇合之后**，于是 target-typed 的 `int x = new();` 同样命中。
+        // 泛型 `new T()` 不走这里（上面 `Z42GenericParamType` 分支已 return，交运行期
+        // `__activator_create` —— 那半在 VM 侧同 change 修）。
+        bool _isStr = t.CanonName() == "string";
+        if (t.IsScalarType() || _isStr) {
+            // 🔴 带实参必须拦：基元没有任何 ctor，不拦的话 `new int(5)` 会被下面折成 `0` ——
+            // **静默错值，比现状更坏**（现状是运行期 `MissingSymbolException`）。
+            if (n.ArgCount != 0) {
+                string _hint = _isStr ? "; use `String.FromChars(chars)` to build a string from a `char[]`" : "";
+                // 用 **surface 拼法**（`int` / `string`）而非包装类名（`Int32` / `String`）——
+                // 用户写的是关键字，诊断里冒出一个他没写过的名字只会多一层翻译。
+                this._tc._diags.Error(DiagnosticCodes.CtorArgMismatch,
+                    "`new " + PrimModel.SurfaceName(t.Name()) + "()` takes no arguments — a primitive has no constructor" + _hint, n.Span);
+            }
+            // string 是引用类型：`default(string)` 是 null，但 `new string()` 是「构造一个」
+            // ⇒ 空串（User 裁决 2026-09-24；依据是 z42 自己的「无显式 ctor = 默认构造」口径）。
+            // ⚠️ `BoundLitStr.Raw` 是**原始词素**（发射端走 `Lexer.DecodeString` 剥引号），
+            // 所以空串要写成带引号的两字符，不是 ""。
+            if (_isStr) { return new BoundLitStr("\"\"", t, n.Span); }
+            return new BoundDefault(t, -1, n.Span);
+        }
         // check-constraints-all-type-refs D2：非-target-typed `new Box<D>()` 的约束校验已由上面
         // `_chkTypeRef`（新接的 ConstraintChecker.Check）覆盖 —— 此处只补 **target-typed `new()`**
         // （`n.Type == null`，`_chkTypeRef` 那条 else 分支不会跑）用 new 表达式自身 Span 回落。

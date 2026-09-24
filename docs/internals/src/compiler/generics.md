@@ -252,7 +252,7 @@ golden test `short_circuit` 覆盖：左真/左假 RHS 副作用观察、null-gu
 
 ```z42
 class Factory<T> where T: class + new() {
-    T Create() { return null; }  // body 内 `new T()` 待 L3-R 实现
+    T Create() { return new T(); }
 }
 
 void Main() {
@@ -264,11 +264,37 @@ void Main() {
 ```
 
 **实现范围**：
-- 编译期**校验**完整（`TypeChecker.HasNoArgConstructor`）
-- 实际 **`new T()` 泛型 body 实例化未实现** —— 依赖 L3-R 的运行时 type_args 传递机制
-  （code-sharing IR 下 T 被擦除，无法在 body 知道具体 class name）
+- 编译期**校验**完整（`ConstraintChecker._hasNoArgCtor`）
 - zbc / TSIG flags bit `0x10` 承载 `RequiresConstructor`；与现有 class/struct/base/tp-ref
   共享 flags 字节，所有 flag 可组合
+
+> 📜 本节原先写着「**`new T()` 泛型 body 实例化未实现**，依赖 L3-R 的运行时 type_args 传递」
+> —— **已经实现了**（`add-generic-methods`，方法级型参）。校验函数名也早已从
+> `TypeChecker.HasNoArgConstructor` 迁到 `ConstraintChecker._hasNoArgCtor`。
+
+#### `new T()` 走哪条路（两条，都要记住）
+
+**T 是方法级型参时才走运行期 activator**，其余形态在编译期就定了 —— 这个分岔是
+`new` 相关缺陷反复出现的地方（同一个语义，两处实现，改一处漏一处）：
+
+| 形态 | 类型何时已知 | 发射 | 落点 |
+|---|---|---|---|
+| `new Widget()` / `new int()` | 编译期 | `obj_new` / **折叠成常量** | `ConstructTyper._bindNew` |
+| `new T()`（方法级型参） | **运行期** | `MethodTypeArgInsn` + builtin `__activator_create` | `CallEmitter._emitNew` → `reflection/invoke.rs` |
+
+`fix-new-prim-value`（2026-09-25）两处各修一刀，因为**基元的零值在两条路上各缺一次**：
+
+- 编译期那条此前不看类型是不是基元，径直发 `obj_new int int.int()` ⇒ VM 按 `Std.Int32` 的
+  TypeDesc alloc 一个 0 字段 ScriptObject。现在折成 `BoundDefault(t, -1)` ——
+  **与 `default(t)` 复用同一个 Bound 节点**，零值由构造保证一致，不会两处各写一份再漂移。
+- 运行期那条（`builtin_activator_create`）现在先认基元包装类、直接返回
+  `default_value_for(td.name)`。⚠️ 它开头那句 `bail!("... type has no runtime handle
+  (primitive/array/synthetic?)")` 的括注**说反了**：`Std.Int32` 是真 struct 类型、
+  handle 一直在，基元从不落那条 bail。
+
+🔴 **`bool` 那一格是这类缺陷最坏的形态**：修之前 `new bool()` 产出的对象 `if` 判**真**，
+却 `== true` 与 `== false` **同时为假** —— 三条互相矛盾，零诊断。写「构造/默认值」相关
+代码时，`bool` 应当作为头号探针，它是唯一一个坏值**不会自己崩**的标量。
 
 **设计决策记录（2026-04-23 写入）**：
 

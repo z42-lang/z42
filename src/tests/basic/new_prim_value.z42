@@ -1,0 +1,85 @@
+// `new <基元>()` 产出**零值**，不是一个空的包装类对象（fix-new-prim-value）。
+//
+// 回归来源：`new int()` 此前发 `obj_new int int.int()` → VM 按 `Std.Int32` 的 TypeDesc alloc
+// 一个 0 字段 ScriptObject。后果按类型分两种：
+//   · int / long / double / char → 崩在**不相干**的地方（`Int32.ToString: arg 0 expected int`）；
+//   · bool / string             → **静默坏值**。
+//
+// 🔴 `bool` 那条最值得钉：`new bool()` 产出的东西 `if` 判真、却 `== true` 与 `== false`
+// **同时为假** —— 三条互相矛盾，零诊断。下面第一组就是冲着它写的。
+//
+// 泛型那半（`new T()` 且 T 运行期绑到基元）是**同一个 bug 的另一条发射路径**：编译期发
+// `MethodTypeArgInsn` + `__activator_create`，类型直到运行期才知道。两条路各修一处，
+// 所以两条都必须钉 —— 只钉一条的话另一条回归时全绿。
+//
+// 契约来源不是本 change 新造的：`default(int/bool/char/double)` 一直是对的，
+// `ConstraintChecker._hasNoArgCtor` 也明写「基元恒满足 new()（同运行期）」。
+// 所以下面每一格都同时拿 `default(X)` 对照 —— 两者对基元必须恒等。
+//
+// ⚠️ `string` 是**唯一**刻意与 default 不同的一格：`default(string)` 是 null，
+// 而 `new string()` 是「构造一个」⇒ `""`（User 裁决 2026-09-24）。
+namespace Demo;
+
+T make<T>() where T : new() { return new T(); }
+
+void Main() {
+    // ── ① bool：既非真也非假的那个洞 ───────────────────────────────────────
+    bool b = new bool();
+    Assert.True(!b);                 // if (b) 必须走假支
+    Assert.True(b == false);         // 此前**也是 false** —— 与上一行一起才钉得住
+    Assert.True(!(b == true));
+    Assert.Equal(default(bool), b);
+
+    // ── ② 数值与 char：直接形态 ────────────────────────────────────────────
+    Assert.Equal(0, new int());
+    Assert.Equal(1, new int() + 1);           // 参与运算（此前 `type mismatch in arithmetic`）
+    Assert.Equal(0L, new long());
+    Assert.Equal(0.0, new double());
+    Assert.Equal('\0', new char());
+    Assert.Equal(default(int), new int());
+    Assert.Equal(default(long), new long());
+    Assert.Equal(default(double), new double());
+    Assert.Equal(default(char), new char());
+
+    // ── ③ string：构造 ≠ default ──────────────────────────────────────────
+    string s = new string();
+    Assert.True(s != null);          // 刻意与 default(string)（null）不同
+    Assert.Equal("", s);
+    Assert.Equal(0, s.Length);       // 此前崩 `__str_length: arg 0 expected string`
+
+    // ── ④ target-typed `new()` 走同一条折叠 ───────────────────────────────
+    int tt = new();
+    Assert.Equal(0, tt);
+    bool tb = new();
+    Assert.True(!tb);
+
+    // ── ⑤ 泛型形态：另一条发射路径（__activator_create） ──────────────────
+    // ⚠️ 必须先落到**具体类型的局部**再断言：`make<T>()` 的静态返回类型是擦除的 `T`，
+    // 直接写 `!make<bool>()` 会被编译期挡下（`E0402: operator ! requires bool operand, got T`）。
+    // 落局部也正是用户真实的写法。
+    int    mi = make<int>();
+    long   ml = make<long>();
+    double md = make<double>();
+    char   mc = make<char>();
+    bool   mb = make<bool>();
+    string ms = make<string>();
+    Assert.Equal(0, mi);
+    Assert.Equal(0L, ml);
+    Assert.Equal(0.0, md);
+    Assert.Equal('\0', mc);
+    Assert.True(!mb);
+    Assert.True(mb == false);
+    Assert.Equal("", ms);
+    Assert.Equal(0, ms.Length);
+
+    // ── ⑥ 阴性对照：用户 struct / class 一行不改，仍走 ctor 路径 ──────────
+    Assert.Equal(0, new Holder().V);
+    Assert.Equal(7, new Seeded().V);          // ctor 真的跑了，没被折叠掉
+    Assert.Equal(0, make<Holder>().V);
+    Assert.Equal(7, make<Seeded>().V);
+    Assert.Equal(0, new Pair().X);            // 值 struct 同样不受影响
+}
+
+class Holder { public int V; }
+class Seeded { public int V; public Seeded() { this.V = 7; } }
+struct Pair  { public int X; public int Y; }

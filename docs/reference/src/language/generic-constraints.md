@@ -58,6 +58,34 @@ class AllDefault { public AllDefault(int x = 1) { } }   // ✅ 满足：形参�
 class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
 ```
 
+### 基元满足 `new()`，构造出来的是**零值**
+
+`where T : new()` 接受基元（上表第三行），`new T()` 于是要对它们有个答案 —— 答案是
+**与 `default(T)` 相同的零值**（对齐 C#：`new int()` ≡ `default(int)` ≡ `0`）：
+
+| T | `new T()` | `default(T)` |
+|---|---|---|
+| `int` / `long` / `short` / `byte` / `sbyte` / `ushort` / `uint` / `ulong` | `0` | `0` |
+| `float` / `double` | `0` | `0` |
+| `bool` | `false` | `false` |
+| `char` | `'\0'` | `'\0'` |
+| **`string`** | **`""`** | **`null`** ← 唯一不同的一格 |
+
+`string` 那一格刻意分开：`default` 是「没有值」，`new` 是「构造一个」。z42 允许
+`new string()` 正是因为上面那条「完全没有声明任何构造器 = 默认构造」——`Std.String`
+没有声明实例构造器（C# 则反过来，`new string()` 是 CS1729）。
+
+> 📜 **2026-09-25 之前这里是坏的**：`new int()` / `new T()` 会分配一个**空的包装类对象**
+> 而不是值。`int` / `double` / `char` 崩在不相干的地方（`Int32.ToString: arg 0 expected int`），
+> `bool` 更糟 —— 产出的东西 `if` 判**真**，却 `== true` 与 `== false` **同时为假**，零诊断。
+
+**基元没有任何构造器，所以带实参一律报 E0426**：
+
+```z42
+int x = new int(5);        // ✗ E0426: `new int()` takes no arguments — a primitive has no constructor
+string s = new string(cs); // ✗ E0426（提示改用 `String.FromChars(cs)`）
+```
+
 ## 校验发生在哪里
 
 | 时机 | 位置 | 报什么 |
