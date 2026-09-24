@@ -34,8 +34,11 @@ string _e2eAnalyzerSrc() {
          + "}\n";
 }
 
-string _e2eAnalyzerToml(string kind) {
-    return "[project]\nname    = \"e2e.gen\"\nversion = \"0.1.0\"\nkind    = \"" + kind + "\"\n\n"
+string _e2eAnalyzerToml(string kind) { return _e2eAnalyzerTomlNamed("e2e.gen", kind); }
+
+// 编译期扩展工程的最小清单：kind + 对契约包的依赖。
+string _e2eAnalyzerTomlNamed(string name, string kind) {
+    return "[project]\nname    = \"" + name + "\"\nversion = \"0.1.0\"\nkind    = \"" + kind + "\"\n\n"
          + "[sources]\ninclude = [\"*.z42\"]\n\n"
          + "[dependencies]\n\"z42c.semantics\" = \"0.1.0\"\n";
 }
@@ -86,3 +89,121 @@ int _e2eAnalyzerDomainChecks(string root, string vm, string driverZpkg, string e
     Console.WriteLine("  ✓ 编译期扩展解析域：kind=analyzer 可引用 z42c.semantics，kind=lib 不可");
     return 0;
 }
+
+// ── `[analyzers]` 的 path 条目（add-package-roles 批 2）─────────────────────────────────────
+//
+// **守的是什么**：用户自己的 generator 工程能不能被**直接按路径**挂上去——z42c 定位它、校验它
+// 确是编译期扩展、**代建**、把产物喂给 generator 引擎，全程不需要用户手工把 zpkg 拷进 SDK libs。
+//
+// 此前 `[analyzers]` 只能「按名在 LibsDirs 找 `<name>.zpkg`」，path 被显式拒绝（更早是**静默忽略**：
+// 解析层照单收下 `{ path = ... }`，消费端只读 `.Name`）。结果是 `[analyzers]` 机制在、**真实客户为零**
+// ——全仓库除测试外无一工程用过它。
+//
+// **四格**（能力 + 判别力 + 两条反向）：
+//   ① path 引用 → 代建 → generator 产的符号在消费方可用，产物跑起来打印 42；
+//   ② 改 generator 源码（42→7）→ 消费方**必须**重编（handler 指纹）。仍打印 42 = 指纹没接上
+//      path 条目：那是一个「改了扩展却编出旧结果」的静默错值；
+//   ③ 被引工程 `kind = "lib"` → 必须报「不是 analyzer」。普通库挂上去的失败模式是
+//      「加载成功、发现 0 个 handler、什么都不做」，一个静默空转；
+//   ④ analyzer 工程写进 `[dependencies]` → 必须报错。它永不链入产物，写进依赖就是让运行期
+//      代码引用一个不会到场的包。
+string _e2ePathAnalyzerAppSrc() {
+    return "namespace E2ePathApp;\n\nusing Std.IO;\nusing E2eOut;\n\nvoid Main() { Console.WriteLine(O.V().ToString()); }\n";
+}
+
+// generator 源：注入一个返回 `val` 的类，供②格用不同值区分「重编了没有」。
+string _e2ePathGenSrc(string val) {
+    return "namespace E2ePathGen;\n\nusing Std;\nusing Z42.Semantics;\n\n"
+         + "public sealed class E2ePathGenerator : ModuleGenerator {\n"
+         + "    public void Generate(GenContext ctx, GenSink sink) {\n"
+         + "        sink.AddSource(\"e2e\", \"namespace E2eOut; public static class O { public static int V() { return "
+         + val + "; } }\");\n"
+         + "    }\n"
+         + "    public string[] Consumes() { return new string[0]; }\n"
+         + "    public string[] Produces() { return new string[0]; }\n"
+         + "}\n";
+}
+
+string _e2ePathAppToml(string section) {
+    return "[project]\nname    = \"e2e.pathapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+         + "entry   = \"E2ePathApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[" + section + "]\n\"e2e.pathgen\" = { path = \"../pathgen\" }\n";
+}
+
+int _e2ePathAnalyzerChecks(string root, string vm, string driverZpkg, string e2eDir) {
+    string flat = _libsFlatDist(root, "release");   // 同①②：必须是纯 stdlib dist，不能用 alllibs
+    string gdir = Path.Join(e2eDir, "pathgen");
+    string adir = Path.Join(e2eDir, "pathapp");
+    Directory.Create(gdir);
+    Directory.Create(adir);
+    File.WriteAllText(Path.Join(gdir, "gen.z42"), _e2ePathGenSrc("42"));
+    string gtoml = Path.Join(gdir, "e2e.pathgen.z42.toml");
+    File.WriteAllText(gtoml, _e2eAnalyzerTomlNamed("e2e.pathgen", "analyzer"));
+    File.WriteAllText(Path.Join(adir, "app.z42"), _e2ePathAnalyzerAppSrc());
+    string atoml = Path.Join(adir, "e2e.pathapp.z42.toml");
+    File.WriteAllText(atoml, _e2ePathAppToml("analyzers"));
+
+    // ① 代建 + 产码 + 跑起来。
+    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b1.ExitCode != 0) {
+        Console.WriteLine("  ✗ [analyzers] path 条目构建失败（用户写不出自己的 generator）: rc="
+            + b1.ExitCode.ToString());
+        Console.WriteLine("    stderr: " + b1.Stderr);
+        return 1;
+    }
+    string appZpkg = Path.Join(Path.Join(adir, "dist"), "e2e.pathapp.zpkg");
+    ProcessResult r1 = new Process(vm).Arg(appZpkg).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r1.ExitCode != 0 || r1.Stdout.IndexOf("42") < 0) {
+        Console.WriteLine("  ✗ generator 产的符号没能跑出预期值（期望 42）: rc=" + r1.ExitCode.ToString()
+            + " stdout=" + r1.Stdout + " stderr=" + r1.Stderr);
+        return 1;
+    }
+
+    // ② 只改 generator 源码 → 消费方必须重编出新值（handler 指纹覆盖 path 条目）。
+    File.WriteAllText(Path.Join(gdir, "gen.z42"), _e2ePathGenSrc("7"));
+    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b2.ExitCode != 0) {
+        Console.WriteLine("  ✗ 改 generator 后重建失败: " + b2.Stderr);
+        return 1;
+    }
+    ProcessResult r2 = new Process(vm).Arg(appZpkg).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r2.Stdout.IndexOf("7") < 0) {
+        Console.WriteLine("  ✗ 改了 generator 源码，消费方却编出旧结果（handler 指纹漏了 path 条目）: stdout="
+            + r2.Stdout);
+        return 1;
+    }
+
+    // ③ 被引工程不是 analyzer → 必须拒绝（否则是「加载成功、零 handler、静默空转」）。
+    File.WriteAllText(gtoml, _e2eAnalyzerTomlNamed("e2e.pathgen", "lib"));
+    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(atoml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    // 断言**那一句**诊断，不是「凡含 analyzer 字样即可」：kind 校验若被删，kind=lib 的工程
+    // 会在代建阶段因解析不到契约包而失败，那条失败经由本门的 "[analyzers] ... 构建失败" 转述
+    // 也含 "analyzer" 字样 —— 宽断言会把「校验没了」判成绿。
+    if (b3.ExitCode == 0 || b3.Stderr.IndexOf("不是 \"analyzer\"") < 0) {
+        Console.WriteLine("  ✗ [analyzers] 收下了 kind=lib 的普通库（静默空转无人诊断）: rc="
+            + b3.ExitCode.ToString() + " stderr=" + b3.Stderr);
+        return 1;
+    }
+    File.WriteAllText(gtoml, _e2eAnalyzerTomlNamed("e2e.pathgen", "analyzer"));
+
+    // ④ analyzer 写进 [dependencies] → 必须拒绝。
+    string ddir = Path.Join(e2eDir, "pathdep");
+    Directory.Create(ddir);
+    File.WriteAllText(Path.Join(ddir, "app.z42"), _e2ePathAnalyzerAppSrc());
+    string dtoml = Path.Join(ddir, "e2e.pathapp.z42.toml");
+    File.WriteAllText(dtoml, _e2ePathAppToml("dependencies"));
+    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(dtoml).Arg("--release")
+        .Env("Z42_LIBS", flat).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b4.ExitCode == 0 || b4.Stderr.IndexOf("不能作运行期依赖") < 0) {
+        Console.WriteLine("  ✗ 编译期扩展被当作运行期依赖收下了: rc=" + b4.ExitCode.ToString()
+            + " stderr=" + b4.Stderr);
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ [analyzers] path：代建 + 产码可用 + 改扩展必重编 + 双向校验各自拒绝");
+    return 0;
+}
+

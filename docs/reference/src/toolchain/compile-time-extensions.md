@@ -5,10 +5,15 @@ z42 允许把**你自己的代码加载进编译器**，在编译期跑：
 - **Analyzer** —— 遍历语法树、报自定义诊断（可选附带 `--fix` 的自动修复）。
 - **Generator** —— 在 bind 之后生成源码：追加新编译单元、往已有类型注入成员、替换被标注的声明。
 
-两类都打包成普通的 `kind = "lib"` zpkg，由消费方工程的 **`[analyzers]`** 段声明。它们
+两类都打包成 **`kind = "analyzer"`** 的 zpkg，由消费方工程的 **`[analyzers]`** 段声明。它们
 **只在编译器进程里运行，不链入目标产物**。
 
-> 本页所有代码片段都来自实跑通过的最小工程（2026-09-23）。
+`kind = "analyzer"` 做两件事：让这个工程的 `[dependencies]` 够得着编译器的契约包（见
+[解析域](#解析域编译期扩展才看得见-compiler-libs)），并声明「我是编译期扩展」——`[analyzers]` 的
+path 条目据此校验，`[dependencies]` 据此拒收。只用 analyzer 契约（`z42c.syntax` 在普通 `libs/` 里）
+的工程写 `kind = "lib"` 也仍然编得过，但只能按名引用。
+
+> 本页所有代码片段都来自实跑通过的最小工程（2026-09-23；path 条目 2026-09-25）。
 
 ## `[analyzers]` 段
 
@@ -23,25 +28,42 @@ z42 允许把**你自己的代码加载进编译器**，在编译期跑：
 |---|---|---|
 | 何时加载 | 编译目标代码时解析符号 | **加载进编译器、编译期执行** |
 | 进不进产物 | 进 | **不进** |
-| `path = "..."` | 支持，z42c 代为构建整个闭包 | **不支持**（见下） |
+| `path = "..."` | 支持，z42c 代为构建整个闭包 | 支持，z42c 代建**那一个工程** |
 
 **一个段覆盖两类**：z42c 从 `[analyzers]` 列出的每个 zpkg 里同时寻找 `: Analyzer`、
 `: Generator`、`: ModuleGenerator` 的类型。只含 analyzer 的包发现 0 个 generator，反之亦然。
 
-### 限制：不支持 `path`
+### 两种条目写法
 
-`[analyzers]` **不建依赖闭包、也不代为构建**。写了 `path` 会得到一条明确的拒绝：
-
+```toml
+[analyzers]
+"demo.noemptycatch" = "0.1.0"              # 按名：在依赖目录找 demo.noemptycatch.zpkg
+"demo.gen"          = { path = "../gen" }  # 按路径：z42c 代建该工程，取其 dist
 ```
-z42c build: [analyzers] `demo.x` 指定了 `path`，但 [analyzers] 段尚不支持 path 依赖……
-```
 
-正确做法：先单独 `z42c build` 那个工程，把产出的 `<name>.zpkg` 放进依赖目录
-（`Z42_LIBS` 指向的目录或 SDK 的 `libs/`），清单里只写名字与版本。
+**按名**：在依赖目录（`Z42_LIBS` 指向的目录或 SDK 的 `libs/`）里找 `<name>.zpkg`。要求你先单独
+`z42c build` 那个工程、再把产物拷过去。
 
 > ⚠️ **开发态构建产出的是 indexed zpkg**（主文件 + 旁边散装的 `.zbc`）。只拷主文件过去，
 > 加载时会报 **E0493**。要么把散装 `.zbc` 一起拷，要么用 `--release` 构建 handler 工程，
 > 得到单文件 packed zpkg。
+
+**按路径**：指向目录，其中须恰有一份 `*.z42.toml`，`[project].name` 与这里写的名字一致，且
+`kind = "analyzer"`。z42c 会代为构建它（用消费方的 `--release` / 优化档），再把产物挂上去。
+改了扩展的源码，消费方下次构建会重编——handler 指纹含该 zpkg 的内容。**这是自己写扩展时的
+推荐写法**：不用把 zpkg 拷来拷去，也不会踩上面那条 indexed/packed 的坑。
+
+代建出来的 zpkg **不进消费方的解析域**（与 `[dependencies]` 的 path 闭包刻意不同）：handler 只活
+在编译器进程里，把它的 dist 并进依赖目录就等于让编译期扩展对运行期代码可见。
+
+### 两条校验
+
+| 写法 | 结果 |
+|---|---|
+| `kind = "analyzer"` 的工程出现在 `[dependencies]` | 报错——它永不链入产物，运行期不会到场 |
+| 非 `analyzer` 的工程出现在 `[analyzers]` 的 path 条目 | 报错——否则是「加载成功、发现 0 个 handler、什么都不做」的静默空转 |
+
+两条都只在 **path 条目**上判得出来：按名引用时手上只有 zpkg，而 zpkg 不记 `kind`。
 
 ## 写一个 Analyzer
 
@@ -51,12 +73,16 @@ z42c build: [analyzers] `demo.x` 指定了 `path`，但 [analyzers] 段尚不支
 [project]
 name    = "demo.noemptycatch"
 version = "0.1.0"
-kind    = "lib"
+kind    = "analyzer"
 
 [dependencies]
 "z42c.core"   = "0.1.0"
 "z42c.syntax" = "0.1.0"
 ```
+
+> 这两个契约包就在普通 `libs/` 里，所以纯 analyzer 写 `kind = "lib"` 也编得过。但要被
+> `[analyzers]` 的 **path 条目**引用，就必须是 `kind = "analyzer"`——那个字段同时是「我是编译期
+> 扩展」的声明。
 
 类名**必须以 `Analyzer` 结尾**（E0445 强制）：
 
@@ -172,16 +198,37 @@ generator 跑在 bind **之后**，拿得到解析后的符号（`Z42ClassType` 
 多个 generator 之间用 `Consumes()` / `Produces()` 定序，引擎按拓扑分层逐层重新 bind；
 成环报 **E0449**。
 
-### ⚠️ 现状：外部 generator 还写不了
+### 解析域：编译期扩展才看得见 `compiler-libs/`
 
-**`z42c.semantics.zpkg` 目前不在 SDK 的 `libs/` 里**（它住在 `programs/z42c/`，那不是依赖解析
-的地方）。因此消费方工程写 `[dependencies] "z42c.semantics"` 会得到：
+Generator 的契约包 `z42c.semantics.zpkg` **不在 SDK 的 `libs/` 里**——普通工程的依赖解析只看
+`libs/`，编译器域的包另落一个平级目录 `compiler-libs/`：
 
+| 工程 | 解析域 | 能引用 `z42c.semantics` 吗 |
+|---|---|---|
+| `kind = "lib"` / `"exe"` | `libs/`（+ path 依赖闭包）| 否 —— `z42c.semantics 未找到` |
+| `kind = "analyzer"` | `libs/` **+ `compiler-libs/`** | 是 |
+
+所以一个 generator 工程的清单长这样：
+
+```toml
+[project]
+name    = "demo.gen"
+version = "0.1.0"
+kind    = "analyzer"
+
+[dependencies]
+"z42c.semantics" = "0.1.0"
 ```
-E0443: undefined type: ModuleGenerator
+
+消费方用 path 挂上它，全程不需要手工拷 zpkg：
+
+```toml
+[analyzers]
+"demo.gen" = { path = "../gen" }
 ```
 
-引擎、loader、多轮调度都是通的 —— 只有「契约包没被 ship 到用户能解析到的目录」这一件事挡着。
-这属于包模型缺一个**角色**维度（运行时库 / 编译期契约），修法见
-`docs/spec/changes/add-package-roles/`。在那之前，generator 只能在编译器自身的构建里用
-（如内建的 `[Forward]`）。
+> 在 2026-09-24 之前这条路是断的：契约 zpkg 只作为 z42c 的 payload 落在 `programs/z42c/`，
+> **在 SDK 目录里、却不在解析器会去看的地方**，插件作者拿到的是一句位置在别处的
+> `E0443: undefined type: ModuleGenerator`，且没有任何东西会诊断它。引擎、loader、多轮调度
+> 当时全是通的——只差包模型里的一个**角色**维度。来龙去脉见
+> `docs/spec/changes/add-package-roles/`。
