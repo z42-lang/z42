@@ -192,11 +192,17 @@
       ⭐ **实验设计翻车记**：第一次测 WS040 我删的是 `[[bench]]` 的 `name`，而 `test targets`
       只看 test kind ⇒ rc=0，差点据此得出「WS040 没实现」。**绿也可能是实验没打到点上。**
 
-- [ ] 2.5-余项 **`[[test]]`/`[[bench]]` 的 glob 空匹配以未捕获异常收尾**（实测顺带挖出）：
-      z42b 已经说清了（`compile failed: no .z42 sources under <dir>`，带目标名），但最后打的是
-      `Error: uncaught exception: Std.Exception: compile failed` 而非一条干净的错误退出。
-      会红、信息也在，只是收尾姿势不对 —— 与 E0493 当年「加载失败穿出成 uncaught exception」同形状。
-      单独立项，不搭文档 PR 的车。
+- [x] 2.5-余项 **z42b 的编译失败以未捕获异常收尾**（实测顺带挖出，已修）。
+      发现时以为只是 glob 空匹配那一条，**实际射程大得多**：`z42.build` 的 `Pipeline.Compile`
+      相位在**任何**编译失败时抛 `Exception("compile failed")`，而 `Run` 的唯一调用方
+      （z42b `_orchestrate`）直接 `return p.Run(ctx)`、中间无人接 ⇒ 每一次编译失败都是
+      `Error: uncaught exception: Std.Exception: compile failed` + 一串 z42b 内部栈帧，
+      看着像 z42b 崩了，而真正的原因上一行就打印过 —— 与 E0493 当年那条同形状。
+      修法：Compile 相位改为返回 bool，`Run` 见 false 即返回退出码 1（失败即停，不跑
+      AfterCompile / Trim / Assets 与 tail 相位）。**private 方法签名，公开 ABI 不动。**
+      门 = `_smokeCompileFailClean` + fixture `src/tests/z42b/empty-glob/`，三条断言
+      （判红 / 无未捕获异常 / **有** `compile failed`——第三条防「红了但理由不对」）。
+      判别力实证：把 `return false` 改回 `throw` → 门红在「以未捕获异常收场」那条。
 - [x] 2.6 端到端验收（**真跑**，本仓库外的 `/tmp` 工程）：`kind="analyzer"` 的 generator 工程 +
       主工程 `[analyzers] = { path = "../gen" }` → z42c 代建 → generator 注入的 `E2eOut.O.V()`
       在主工程解析得到 → 产物跑起来打印 `42`；改 generator 源码 42→7 → 重建 → 打印 `7`。

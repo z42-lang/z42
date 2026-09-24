@@ -35,7 +35,15 @@ public class Pipeline {
         this.Resolve(ctx);
         this.Workload.Preflight(ctx);                         // 早跑，fail-fast
 
-        this.Hooks.BeforeCompile(ctx);  this.Compile(ctx);  this.Hooks.AfterCompile(ctx);
+        // Compile 失败 → 诊断已由该相位打印，这里**返回退出码**而不是让异常穿出去。
+        // 此前它抛 `Exception("compile failed")`，而 Run 的唯一调用方（z42b `_orchestrate`）
+        // 直接 `return p.Run(ctx)`、中间无人接 ⇒ 用户看到的是一段带 z42b 内部栈帧的
+        // `Error: uncaught exception: Std.Exception: compile failed` —— 看起来像 z42b 自己
+        // 崩了，而实际上「你的清单/源码有问题」这句话**上一行就已经打印过了**。
+        // 失败即停：不跑 AfterCompile，也不进 Trim/Assets 与 tail 相位。
+        this.Hooks.BeforeCompile(ctx);
+        if (!this.Compile(ctx)) { return 1; }
+        this.Hooks.AfterCompile(ctx);
         this.Hooks.BeforeTrim(ctx);     this.Trim(ctx);     this.Hooks.AfterTrim(ctx);
         this.Hooks.BeforeAssets(ctx);   this.Assets(ctx);   this.Hooks.AfterAssets(ctx);
 
@@ -54,7 +62,8 @@ public class Pipeline {
 
     // 经注入的 ICompiler 调编译器库（in-process）：源码 → app.zpkg (+zsym)。
     // 与独立 z42c.driver 共享同一实现，不 fork z42c 子进程（见 ICompiler.z42）。
-    private void Compile(IPipelineContext ctx) {
+    // 返回 false = 编译失败（诊断已打印）；调用方据此以非零退出码收尾，不抛异常。
+    private bool Compile(IPipelineContext ctx) {
         // fix-hooks-source-scan 阶段4.2：有效 exclude = `[sources].exclude` ++（`[build] hooks` 目录，
         // 若声明）。与 z42c.driver Main._build 同款——hooks 由 z42b 单独编，不该被 app 的 `**/*.z42`
         // glob 扫进 app zpkg（否则多一跨包死类 ProjectHooks : BuildHooks → vtable fixup 假警报刷屏）。
@@ -85,9 +94,10 @@ public class Pipeline {
         if (!res.Ok) {
             ctx.Warn("compile failed:");
             ctx.Warn(res.Diagnostics);
-            throw new Exception("compile failed");
+            return false;
         }
         ctx.Log("compiled: " + res.Zpkg);
+        return true;
     }
 
     private void Trim(IPipelineContext ctx)    { }   // 从 entry 可达性裁剪 zpkg（profile 门控）

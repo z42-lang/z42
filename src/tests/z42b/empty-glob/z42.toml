@@ -1,0 +1,23 @@
+# 「显式目标的 include glob 一个文件都不匹配」fixture（**预期 rc!=0**，由 xtask test targets
+# 的 _smokeCompileFailClean 驱动）。
+#
+# 守的**不是**「会不会红」——它一直会红。守的是**红的姿势**：此前 z42b 把这类编译失败以
+# `Error: uncaught exception: Std.Exception: compile failed` 收场（`z42.build/src/Pipeline.z42`
+# 的 Compile 相位抛异常、一路无人接住），而诊断其实已经打印过了。未捕获异常会让人以为
+# 撞上了 z42b 自己的 bug，而不是「你的清单写错了」。
+#
+# 源码是好的、`[dependencies]` 也齐；唯一的毛病是 `[[test]]` 的 include 指向不存在的文件。
+[project]
+name    = "empty.glob"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"
+
+[[test]]
+name    = "ghost"
+include = ["tests/this_file_does_not_exist_*.z42"]

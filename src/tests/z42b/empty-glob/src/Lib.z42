@@ -1,0 +1,4 @@
+// 普通库源（本 fixture 的编译失败来自**清单**，不是源码——源码故意是好的）。
+namespace EmptyGlob;
+
+public class Widget { public int V() { return 1; } }
