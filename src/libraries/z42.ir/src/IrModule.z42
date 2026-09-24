@@ -65,6 +65,17 @@ public static class IrStaticCtor {
 // 参数默认值统一常量表示（PR6，零格式-bump）：`$Default`（ConstBlob）/ `$Caller:*` 哨兵经 param attr-ref
 // 块持久化。生产方 ClassDescBuilder._paramAttrRefs 追加、消费方 TsigReconcile._params / OverloadBinder / 反射
 // 按 TypeName 识别。常量放 z42.ir（叶子库）供 z42c.semantics（生产）与 z42.ir/TsigReconcile（消费）共用。
+// define-null-check-marks 3.3：**返回值**的 `?` 标记。返回值没有形参槽，故挂**方法级** attr-ref
+// 块（与 `$Deprecated` / `$Cctor` 同机制、同零格式 bump）。生产方 ClassDescBuilder、消费方 TsigReconcile。
+// 同 `$Nullable`：缺席 = 不强制 ⇒ 旧包天然正确，不需要完备性标记。
+public static class IrNullableRet {
+    public static string Sentinel = "$RetNullable";
+    public static bool Has(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrNullableRet.Sentinel) { return true; } i = i + 1; }
+        return false;
+    }
+}
+
 public static class IrParamDefault {
     public static string Sentinel = "$Default";          // ConstBlob 常量默认值
     public static string CallerPrefix = "$Caller:";       // caller 宏（+member|line|file|module）
@@ -86,6 +97,15 @@ public static class IrParamDefault {
     }
     public static bool HasRefSig(IrAttrRef[] attrs, int count) {
         int i = 0; while (i < count) { if (attrs[i].TypeName == IrParamDefault.RefSigSentinel) { return true; } i = i + 1; }
+        return false;
+    }
+    // define-null-check-marks 3.3：形参的 `?` 标记。骑同一条 param attr-ref 通道 ⇒ **零格式 bump**。
+    // ⚠️ **不配完备性标记**（与 `$ByRef` 的关键差别）：`?` 的语义是「请编译器在这里强制检查」，
+    // **缺席 = 不强制**（不是「保证非空」）。所以旧包读不出标记时落成「不强制」恰好正确，
+    // 不存在 `ref` 那种「不知道」与「全都不是」混同会误报的问题。
+    public static string NullableSentinel = "$Nullable";   // 该形参标了 `?`
+    public static bool IsNullable(IrAttrRef[] attrs, int count) {
+        int i = 0; while (i < count) { if (attrs[i].TypeName == IrParamDefault.NullableSentinel) { return true; } i = i + 1; }
         return false;
     }
     // param 的 caller 宏种类（"member"/"line"/"file"/"module"）；非 caller → ""。

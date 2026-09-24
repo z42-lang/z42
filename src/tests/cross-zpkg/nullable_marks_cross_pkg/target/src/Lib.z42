@@ -1,0 +1,11 @@
+// 跨包 `?` 标记的**正例**依赖包：一个标了 `?` 的返回值、一个没标的对照。
+namespace Demo.NullMarksNs;
+
+public class Registry {
+    // 标了 `?` ⇒ 调用方有检查义务（跨包也必须有）。
+    public static string? Find(string k) { if (k == "miss") { return null; } return k; }
+
+    // 没标 ⇒ 调用方**完全不受检**。这条是「缺席 = 不强制」支点的跨包对照组：
+    // 它一旦跟着报错，就说明标记被当成了「所有引用类型都查」的悲观档。
+    public static string Get(string k) { return k; }
+}

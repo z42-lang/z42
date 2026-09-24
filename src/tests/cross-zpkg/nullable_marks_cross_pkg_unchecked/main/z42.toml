@@ -1,0 +1,9 @@
+[project]
+name    = "demo.nullunchkapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.NullUnchkApp.Main"
+pack    = true
+
+[dependencies]
+"demo.nullunchktarget" = "0.1.0"

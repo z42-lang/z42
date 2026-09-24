@@ -568,7 +568,7 @@ public sealed class FlowAnalyzer {
             BoundCall c = e as BoundCall;
             if (!c.RetIsNullable) { return; }
             this._diags.Error(DiagnosticCodes.DereferenceOfNullMarked,
-                "`" + c.MethodName + "` returns a `?`-marked type and may be null here — "
+                "`" + FlowAnalyzer._displayName(c.MethodName) + "` returns a `?`-marked type and may be null here — "
                 + "assign it to a local and check that (e.g. `var v = …; if (v != null) { … }`)", e.Span);
             return;
         }
@@ -598,6 +598,17 @@ public sealed class FlowAnalyzer {
         if (!this._maybeNull.ContainsKey(name)) { return; }
         if (v is BoundLitNull) { this._maybeNull.Put(name, "1"); }
         else { this._maybeNull.Put(name, "0"); }
+    }
+
+    // 诊断里显示的方法名：剥掉 RegKey 的 mangle 后缀（`Find$1$string` → `Find`）。
+    // `BoundCall.MethodName` 存的是**注册键**——无重载时它就是裸名，有重载（以及**跨包导入的
+    // 符号**）时带 `$arity$types` 后缀。那串是内部派发键，用户源码里根本没写过它。
+    // 这条在跨包路径打通之前一直照不出来：本包非重载方法的键恰好就是裸名，蒙对了。
+    private static string _displayName(string regKey) {
+        if (regKey == null) { return ""; }
+        int d = regKey.IndexOf("$");
+        if (d <= 0) { return regKey; }
+        return regKey.Substring(0, d);
     }
 
     private static bool _isNullableCall(BoundExpr e) {

@@ -1,0 +1,228 @@
+// TSIG 类型拼写 → `Z42Type` 的解析（`ImportedSymbolLoader` 的 partial 分片，拆分只为守
+// code-organization 的 886 行硬限；与主文件同一个类、共享其 private 面）。
+//
+// 这一簇是**纯叶子**：只认字符串形态（数组后缀 / 可空后缀 / 委托名 / 泛型实例化串 / 型参名 /
+// 基元名 / FQ 名），不碰加载流程。主文件负责「读包 → 建类型骨架 → 填成员」，本文件负责
+// 「把 TSIG 里那一串名字变回类型」。
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+public static partial class ImportedSymbolLoader {
+    // add-argument-type-check R5/R7：委托类型名 → Z42FuncType；非委托名返回 null（调用方继续原流程）。
+    // 名字形态与 `Z42FuncType.Name()` 的产物**互逆**（Action / Action<A,…> / Func<A,…,Ret> / Predicate<A>），
+    // 故 TSIG 里的委托类型串能无损还原。语义逐条对齐 `SymbolTable.ResolveTypeP:238-254`。
+    private static Z42Type _resolveDelegate(ImportedSymbols r, string name, string[] typeParams, int tpCount) {
+        if (name == "Action") { return new Z42FuncType(new Z42Type[0], 0, new Z42VoidType()); }
+        int lt = name.IndexOf("<");
+        if (lt <= 0 || !name.EndsWith(">")) { return null; }
+        string b = name.Substring(0, lt);
+        if (b != "Action" && b != "Func" && b != "Predicate") { return null; }
+        string[] argStrs = ImportedSymbolLoader._splitTypeArgs(name.Substring(lt + 1, name.Length - lt - 2));
+        int n = argStrs.Length;
+        if (b == "Action") {
+            Z42Type[] ps = new Z42Type[n];
+            int i = 0;
+            while (i < n) { ps[i] = ImportedSymbolLoader._resolve(r, argStrs[i], typeParams, tpCount); i = i + 1; }
+            return new Z42FuncType(ps, n, new Z42VoidType());
+        }
+        if (b == "Predicate") {
+            if (n != 1) { return null; }
+            Z42Type[] ps = new Z42Type[1];
+            ps[0] = ImportedSymbolLoader._resolve(r, argStrs[0], typeParams, tpCount);
+            return new Z42FuncType(ps, 1, Z42ClassType.Builtin("bool"));
+        }
+        if (n < 1) { return null; }                     // Func 至少要有返回类型
+        Z42Type[] ps = new Z42Type[n - 1];
+        int i = 0;
+        while (i < n - 1) { ps[i] = ImportedSymbolLoader._resolve(r, argStrs[i], typeParams, tpCount); i = i + 1; }
+        return new Z42FuncType(ps, n - 1, ImportedSymbolLoader._resolve(r, argStrs[n - 1], typeParams, tpCount));
+    }
+
+    // TypeResolver 子集（镜像 C# 优先级）：数组后缀 → prim/void → imported class → 泛型型参 → fallback prim(name)。
+    // typeParams/tpCount：当前类的类型形参列表（如 ["T"] for Channel<T>）；无则传空数组 + 0。
+    private static Z42Type _resolve(ImportedSymbols r, string name, string[] typeParams, int tpCount) {
+        // 可空后缀擦除（对齐 SymbolTable.ResolveTypeP 的 NullableType 分支）：TSIG 里 `NullableType`
+        // 被 TypeNameResolver.TsigTypeName 追加 `?`（如 `byte[]?`），而本地 AST 路径解析时早已剥掉 `?`。
+        // 不在这里剥，`byte[]?` 既不命中下方 `EndsWith("[]")`（结尾是 `?`）、也无对应类 ⇒ 落成
+        // `Builtin("byte[]?")` 垃圾类（Code=-1），跨包与本地对同一类型给出不同 Z42Type。基元可空
+        // （`int?`/`string?`）由 PrimModel.Canon 剥 `?` 早已吸收；本条补的是**非基元**可空引用/数组
+        // （现存唯一触点：跨包直调 `ProcessNative.Spawn(byte[]? …)`）。
+        if (name.EndsWith("?")) {
+            return ImportedSymbolLoader._resolve(r, name.Substring(0, name.Length - 1), typeParams, tpCount);
+        }
+        if (name.EndsWith("[]")) {
+            return new Z42ArrayType(ImportedSymbolLoader._resolve(r, name.Substring(0, name.Length - 2), typeParams, tpCount));
+        }
+        if (name == "void") { return new Z42VoidType(); }
+        // add-argument-type-check R3（欠债表 bug B3 的**消费端**半边）：`"unknown"` 是**哨兵**，不是类名。
+        // 发射端 `FunctionEmitter._sigTypeName` 对含点的限定名（`Std.Type`）刻意写字面量 "unknown"，
+        // 此处却读成 `Z42ClassType.Builtin("unknown")`——一个「名叫 unknown 的类」⇒ `Conversion` 分支 A
+        // 的 error/unknown **Absorb 守卫失效** ⇒ `f.GetAttribute(typeof(X))` 被判 `Type → unknown` 不可转。
+        // 还原成 Z42UnknownType 后 Absorb 生效、级联抑制恢复正常。
+        // 🕳 **产出端半边仍是欠债**（让 SIGS 写出真实限定名）：那会改 SIGS 字节、波及 golden 与自举
+        // 不动点，且反射面 `FieldType.Name == "unknown"` 有运行期后果 → 保留为独立 change（bug B3）。
+        if (name == "unknown") { return new Z42UnknownType(); }
+        if (ImportedSymbolLoader._isPrim(name)) { return Z42ClassType.Builtin(name); }
+        // unify-type-identity-fqn：**FQ 名优先精确解析**。发射端现在写全限定名，短名表（按短名键、
+        // 同短名跨 ns 只活一份）承载不了它 —— 不在这里命中就会一路落到末尾 `Builtin(name)` 兜底，
+        // 变成「名叫 Std.Type 的垃圾类」。只对含点的名字走这条，裸名（型参 / 基元 / 无 ns）不受影响。
+        // 与本地侧 `SymbolTable.ResolveTypeP` 的 ClassesByFqn 分支对称。
+        if (name.IndexOf(".") >= 0) {
+            if (r.EnumTypeNamesByFqn.ContainsKey(name)) {
+                // ⚠️ 名字必须是**短名**、FQN 进 Namespace。把 FQN 当名字传给 Enum() 会让 Name() 变成
+                // 全限定串，与另一侧按短名建的同一 enum 比较时报「不能混用 Std.X.E 和 E」（实测
+                // heap_retention 的 RootKind 就这样炸了）。Name() 是全仓等值比较的口径，不能动。
+                string _esn = ImportedSymbolLoader._shortName(name);
+                Z42ClassType _fect = Z42ClassType.Enum(_esn);
+                _fect.Namespace = name.Substring(0, name.Length - _esn.Length - 1);
+                return _fect;
+            }
+            int _fq0 = r.ClassesByFqn.Find(name); if (_fq0 >= 0) { return r.ClassesByFqn.ValAt(_fq0) as Z42ClassType; }
+            int _fq1 = r.InterfacesByFqn.Find(name); if (_fq1 >= 0) { return r.InterfacesByFqn.ValAt(_fq1) as Z42InterfaceType; }
+        }
+        // add-argument-type-check R5/R7：**imported 委托类型名 → Z42FuncType**。
+        // 本地解析器 `SymbolTable.ResolveTypeP:238-254` 早已把 Func/Action/Predicate 映射成结构
+        // Z42FuncType（这三个名是内建、全仓无对应 class/interface 声明），imported 侧却没有同款分支 →
+        // 退化成同名 `Z42ClassType("Action")`。后果两条：
+        //   ① lambda 实参拿不到 Z42FuncType 目标 ⇒ `Thread.Start(() => {…})` 的 lambda 定不了型
+        //      （`Func<<unknown>>` → `Action` 失败）；
+        //   ② `Func<int>` 与 `Func<Int32>` 判不相等（一侧结构、一侧退化类）。
+        // 这与 R1（型参身份）/ R3（"unknown" 固化）同属 imported **类型保真度**缺口，按根因修产出端。
+        {
+            Z42Type dg = ImportedSymbolLoader._resolveDelegate(r, name, typeParams, tpCount);
+            if (dg != null) { return dg; }
+        }
+        // make-enum-distinct-type：**imported enum 名 → 带 IsEnum 标志的 Z42ClassType**。
+        //
+        // 与 R1（型参身份）/ R3（"unknown" 固化）/ R5（委托退化）同族的 imported **类型保真度**缺口：
+        // 本函数此前从不查 `EnumTypeNames`，于是导入**成员签名里**的 enum（如 z42.core `Type` 的
+        // `public extern TypeVisibility Visibility { get; }`）落到末尾 prim fallback，还原成名字对、
+        // 标志丢的普通 `Z42ClassType` ⇒ 与源码里写出的 `TypeVisibility`（走 `SymbolTable.EnumTypes`
+        // → `Z42ClassType.Enum`，带标志）**不是同一形状** ⇒ `t.Visibility == TypeVisibility.Public`
+        // 被判成「enum 比非 enum」而报错。
+        //
+        // ⚠️ 这条**推翻了本 change 阶段 0 的一个结论**。当时量的是「源码里写出的类型引用」——那条
+        // 确实本地/跨包共用 `SymbolTable:255`；但**导入成员签名里的类型**走的是本函数，是另一条路。
+        // 教训：「跨包 enum 怎么还原」有两条独立路径，只量了一条就下了全称结论。
+        //
+        // 放在 `r.Classes` **之前**：万一同名既进 Classes 又进 EnumTypeNames，也保证标志不被丢。
+        if (r.EnumTypeNames.ContainsKey(name)) {
+            Z42ClassType iect = Z42ClassType.Enum(name);
+            // unify-type-identity-fqn：导入 enum 的声明 ns（数据在 ClassNamespaces —— make-enum-distinct-type
+            // 1.5 已把 imported enum 也记进去了）。缺它则 imported enum 的 Fqn() 退化成短名。
+            StrBox _ens = r.ClassNamespaces.Get(name) as StrBox;
+            if (_ens != null) { iect.Namespace = _ens.Value; }
+            return iect;
+        }
+        int _sl0 = r.Classes.Find(name); if (_sl0 >= 0) { return r.Classes.ValAt(_sl0) as Z42ClassType; }
+        // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
+        // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
+        int _sl1 = r.Interfaces.Find(name); if (_sl1 >= 0) { return r.Interfaces.ValAt(_sl1) as Z42InterfaceType; }
+        // 根因修复（infer-crosspkg-generic-instantiation）：泛型实例化串 `List<int>` /
+        // `Dictionary<string,int>` → 解析基类（r.Classes）+ 递归解析类型参数 → Z42InstantiatedType。
+        // 否则落 fallback prim(name) 垃圾类型；一旦该字段被跨轮 carry-forward（`var v = Other.f;`）
+        // 再导出，TSIG 畸形 → 下游消费包 `undefined: <class>`（add-z42-repl 会话 List<int> 变量的
+        // carry-forward 暴露：round N carry round N-1 的 var 字段，链式失真）。
+        int ltIdx = name.IndexOf("<");
+        if (ltIdx > 0 && name.EndsWith(">")) {
+            string baseN = name.Substring(0, ltIdx);
+            Z42ClassType gdef = null;
+            // unify-type-identity-fqn：基名也 FQ 优先（`Std.List<int>` → 精确定位 ns==Std 的 List），
+            // 再退到既有的短名 / _shortName 路径（那两条是**有损**的：同短名跨 ns 会撞赢家）。
+            int _fqg = -1;
+            if (baseN.IndexOf(".") >= 0) { _fqg = r.ClassesByFqn.Find(baseN); }
+            if (_fqg >= 0) { gdef = r.ClassesByFqn.ValAt(_fqg) as Z42ClassType; }
+            else {
+            int _sl2 = r.Classes.Find(baseN); if (_sl2 >= 0) { gdef = r.Classes.ValAt(_sl2) as Z42ClassType; }
+            else {
+                string gbs = ImportedSymbolLoader._shortName(baseN);
+                if (gbs != baseN && r.Classes.ContainsKey(gbs)) { gdef = r.Classes.Get(gbs) as Z42ClassType; }
+            }
+            }
+            // **接口同样可以泛型实例化**（`IEnumerator<T>` / `IEnumerable<int>`）——上面只查了
+            // `r.Classes`，而接口在 `r.Interfaces` 里 ⇒ 此前一律落到末尾 fallback，变成一个
+            // **名字里带尖括号的伪 Class**（`Z42ClassType.Builtin("IEnumerator<T>")`）。
+            // 接口满足性校验于是拿它去跟实现方真正的 `Z42InstantiatedInterfaceType` 比，必然不等
+            // ⇒ E0412 假红；`_substForIface` 也无从把 `T` 换成实参（它收到的根本不是型参）。
+            // 这就是 `Std.IEnumerable<T>` 至今没人实现得了的原因。
+            Z42InterfaceType idef = null;
+            if (gdef == null) {
+                int _fqi = -1;
+                if (baseN.IndexOf(".") >= 0) { _fqi = r.InterfacesByFqn.Find(baseN); }
+                if (_fqi >= 0) { idef = r.InterfacesByFqn.ValAt(_fqi) as Z42InterfaceType; }
+                else {
+                    int _sl5 = r.Interfaces.Find(baseN);
+                    if (_sl5 >= 0) { idef = r.Interfaces.ValAt(_sl5) as Z42InterfaceType; }
+                    else {
+                        string ibs = ImportedSymbolLoader._shortName(baseN);
+                        if (ibs != baseN && r.Interfaces.ContainsKey(ibs)) { idef = r.Interfaces.Get(ibs) as Z42InterfaceType; }
+                    }
+                }
+            }
+            if (gdef != null || idef != null) {
+                string argsStr = name.Substring(ltIdx + 1, name.Length - ltIdx - 2);
+                string[] argStrs = ImportedSymbolLoader._splitTypeArgs(argsStr);
+                Z42Type[] targs = new Z42Type[argStrs.Length];
+                int ai = 0;
+                while (ai < argStrs.Length) {
+                    targs[ai] = ImportedSymbolLoader._resolve(r, argStrs[ai], typeParams, tpCount);
+                    ai = ai + 1;
+                }
+                if (gdef != null) { return new Z42InstantiatedType(gdef, targs, argStrs.Length); }
+                return new Z42InstantiatedInterfaceType(idef, targs, argStrs.Length);
+            }
+        }
+        // 根因修复（fix-crosspkg-fq-type-resolution）：跨命名空间、全限定书写的导入类型名
+        // （如返回类型 `Std.Reflection.FieldInfo[]` 的元素 `Std.Reflection.FieldInfo`）——
+        // Classes/Interfaces 以短名为键，FQ 名直接查会 miss、降级成 Z42PrimType 哨兵，导致消费包
+        // 对反射对象类型（FieldInfo/PropertyInfo/MethodInfo，均在 Std.Reflection 跨命名空间）
+        // 成员访问报 "member access on non-class"。FQ miss 后按短名回退，解析为真类型。
+        string shortN = ImportedSymbolLoader._shortName(name);
+        if (shortN != name) {
+            int _sl3 = r.Classes.Find(shortN); if (_sl3 >= 0) { return r.Classes.ValAt(_sl3) as Z42ClassType; }
+            int _sl4 = r.Interfaces.Find(shortN); if (_sl4 >= 0) { return r.Interfaces.ValAt(_sl4) as Z42InterfaceType; }
+        }
+        // GS6: 泛型型参（T/K/V 等）→ Z42GenericParamType，避免降级为 Z42PrimType
+        int tp = 0;
+        while (tp < tpCount) { if (typeParams[tp] == name) { return new Z42GenericParamType(name); } tp = tp + 1; }
+        return Z42ClassType.Builtin(name);    // fallback（含泛型实例化串——既有 Unknown 吸收兼容）
+    }
+
+    // 无型参上下文（自由函数等）——委托四参版本。
+    private static Z42Type _resolve(ImportedSymbols r, string name) {
+        return ImportedSymbolLoader._resolve(r, name, new string[0], 0);
+    }
+
+    // 按顶层逗号切分泛型类型参数串（`string,List<int>` → ["string","List<int>"]），尊重嵌套 <>。
+    private static string[] _splitTypeArgs(string s) {
+        string[] parts = new string[2];
+        int n = 0;
+        int depth = 0;
+        int start = 0;
+        int i = 0;
+        while (i < s.Length) {
+            string ch = s.Substring(i, 1);
+            if (ch == "<") { depth = depth + 1; }
+            else if (ch == ">") { depth = depth - 1; }
+            else if (ch == "," && depth == 0) {
+                if (n == parts.Length) { string[] b = new string[parts.Length * 2]; int k = 0; while (k < n) { b[k] = parts[k]; k = k + 1; } parts = b; }
+                parts[n] = s.Substring(start, i - start).Trim(); n = n + 1;
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        if (n == parts.Length) { string[] b = new string[parts.Length * 2]; int k = 0; while (k < n) { b[k] = parts[k]; k = k + 1; } parts = b; }
+        parts[n] = s.Substring(start, s.Length - start).Trim(); n = n + 1;
+        string[] res = new string[n];
+        int j = 0; while (j < n) { res[j] = parts[j]; j = j + 1; }
+        return res;
+    }
+
+    private static bool _isPrim(string n) {
+        return n == "int" || n == "long" || n == "short" || n == "byte"
+            || n == "uint" || n == "ulong" || n == "ushort" || n == "sbyte"
+            || n == "float" || n == "double" || n == "bool" || n == "string" || n == "char"
+            || n == "object" || n == "str";
+    }
+}

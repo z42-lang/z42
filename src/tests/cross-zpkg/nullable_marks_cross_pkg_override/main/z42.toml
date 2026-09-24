@@ -1,0 +1,9 @@
+[project]
+name    = "demo.nulloverrideapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.NullOverrideApp.Main"
+pack    = true
+
+[dependencies]
+"demo.nulloverridetarget" = "0.1.0"

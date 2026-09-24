@@ -1,0 +1,22 @@
+// 阴性对照：override **跨包**基类方法时把形参上的 `?` 去掉 → 必须报 E0489。
+//
+// ⚠️ 方向是刻意挑的。反方向（基类没标、实现加 `?`）**修前就能报** —— 导入侧标记位
+// 缺省为 false，而「契约方没标」恰好也是 false，蒙对了，那种 fixture 一条也分辨不出。
+// 只有「契约方**标了**、实现方去掉」这一侧非得把导入标记位真的还原回来才抓得到。
+//
+// 这条与 nullable_marks_cross_pkg_unchecked 走的是**不同的消费端**：那条查调用点
+// （`BoundCall.RetIsNullable`），这条查继承一致性（`InheritanceResolver._checkNullableDirection`）。
+namespace Demo.NullOverrideApp;
+
+using Std;
+using Std.IO;
+using Demo.NullOverrideNs;
+
+public class MyStore : Store {
+    public override int Save(string k) { return k.Length; }
+}
+
+void Main() {
+    MyStore s = new MyStore();
+    Console.WriteLine(s.Save("k").ToString());
+}

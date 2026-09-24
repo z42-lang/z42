@@ -268,6 +268,7 @@ public static class TsigReconcile {
                     // 函数的 `T` 在导入侧退化成普通类 ⇒ 调用点 E0402。
                     ef.TypeParamCount = f.TypeParamCount;
                     ef.TypeParams = f.TypeParams;
+                    ef.RetIsNullable = IrNullableRet.Has(f.Attrs, f.AttrCount);   // define-null-check-marks 3.3（镜像 _methodFromSig）
                     // fix-free-function-attrs：`$Deprecated` 哨兵 → 导出位（镜像 _methodFromSig 对
                     // ExportedMethodZ 的同款搬运）。发射端此前不填 `f.Attrs`，故这里读出来恒为空；
                     // 两处必须同批修，单改一处等于没修。
@@ -609,6 +610,7 @@ public static class TsigReconcile {
         em.ParamsFrom = TsigReconcile._pfInt(f.ParamsFrom);
         em.IsSealed = (f.MethodFlags & 4) != 0;   // impl-sealed-semantics-devirt：METHOD_FLAG_SEALED
         em.IsDeprecated = IrDeprecation.Has(f.Attrs, f.AttrCount); em.DeprecationMsg = IrDeprecation.Msg(f.Attrs, f.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
+        em.RetIsNullable = IrNullableRet.Has(f.Attrs, f.AttrCount);   // define-null-check-marks 3.3：返回类型的 `?`（方法级哨兵）
         em.TypeParamCount = f.TypeParamCount;   // add-array-paired-sort：跨包方法级泛型形参个数 → 供泛型 arity 重载过滤
         em.TypeParams = f.TypeParams;           // add-argument-type-check R1：型参**名** → ImportedSymbolLoader._resolve 的型参表
         return em;
@@ -649,6 +651,7 @@ public static class TsigReconcile {
                 p.DefaultBlob = IrParamDefault.Blob(pal.Items, pal.Count);
                 p.CallerKind = IrParamDefault.Caller(pal.Items, pal.Count);
                 p.IsRef = IrParamDefault.IsByRef(pal.Items, pal.Count);   // record-ref-in-signature
+                p.IsNullable = IrParamDefault.IsNullable(pal.Items, pal.Count);   // define-null-check-marks 3.3
             }
             ps[i] = p;
             i = i + 1;

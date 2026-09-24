@@ -559,6 +559,15 @@ public sealed class ClassDescBuilder {
         if (cctorFn != "") {
             refs = ClassDescBuilder._appendAttrRef(refs, IrStaticCtor.Sentinel, cctorFn);
         }
+        // define-null-check-marks 3.3：**返回类型**标了 `?` → 挂 `$RetNullable` 哨兵。
+        // 返回值没有形参槽，故用方法级 attr-ref 块（同 `$Deprecated` 手法，零格式 bump）。
+        // 未标的符号不追加 ⇒ 既有产物字节不变。
+        // ⚠️ `rawMem` 是**未剥壳**的（带 attribute 时是 `AttributedDecl` 包装），
+        // 直接 `as MethodDecl` 会恒 null —— 同 `_cctorFuncName` 开头那两行的理由。
+        MethodDecl rmd = IrGenFacts._unwrap(rawMem) as MethodDecl;
+        if (rmd != null && !rmd.IsCtor && (rmd.RetType is NullableType)) {
+            refs = ClassDescBuilder._appendAttrRef(refs, IrNullableRet.Sentinel, "");
+        }
         return refs;
     }
 
@@ -658,6 +667,15 @@ public sealed class ClassDescBuilder {
                 int t2 = 0; while (t2 < pa.Length) { pr[t2] = pa[t2]; t2 = t2 + 1; }
                 pr[pa.Length] = new IrAttrRef(IrParamDefault.ByRefSentinel, "");
                 pa = pr;
+            }
+            // define-null-check-marks 3.3：标了 `?` 的形参追加 `$Nullable` 哨兵（同 `$ByRef` 手法）。
+            // **必须走旁路**：SIGS 的类型拼写同时是**派发键**的一部分（`Find$1$string`），
+            // 把 `?` 拼进去会改键、打烂派发与全部 golden —— 这正是 `_sigTypeName` 当初剥 `?` 的原因。
+            if (md.Params[j].Type is NullableType) {
+                IrAttrRef[] pn2 = new IrAttrRef[pa.Length + 1];
+                int t4 = 0; while (t4 < pa.Length) { pn2[t4] = pa[t4]; t4 = t4 + 1; }
+                pn2[pa.Length] = new IrAttrRef(IrParamDefault.NullableSentinel, "");
+                pa = pn2;
             }
             r[j + off] = new IrAttrRefList(pa, pa.Length);
             j = j + 1;
