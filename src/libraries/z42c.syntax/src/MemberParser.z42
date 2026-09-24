@@ -171,12 +171,40 @@ public sealed class MemberParser {
             return this._parseIndexer(mods, type, sp);
         }
         // 运算符重载 `public static T operator +(...)` → 方法名 op_Add 等（镜像 C#）。
+        //
+        // **只有二元形态成立** —— `operators.md`「运算符重载（用户类型）」那张 16 条表就是全部。
+        // 两条此前**声明零诊断**的形状在这里收口（写得出来、永远派发不到）：
+        //   ① 表外的符号：此前回落 `"op_" + op` 造出**非法名** `op_!`，而且那个方法真的被发进
+        //      zbc（`fn @Vec.op_!$1$Vec` 实测可见）；派发侧 `TypeFactsTc._operatorMethodNameTc`
+        //      回落 `""` ⇒ 永远查不到它。
+        //   ② 一元 `-`：撞进表里的 `op_Subtract`，产出 `op_Subtract$1$T`；派发侧只按二元形态
+        //      查 ⇒ 同样不可达。
+        // 两者的共同表现是「声明处一句话不说，使用处报一句与真因无关的话」（实测
+        // `E0402: operator `-` requires numeric operand, got `Vec``）。
+        // ⚠️ 判定必须在**形参列表解析之后**：一元与二元同符号，名字算出来的那一刻 arity 还不知道。
         if (this._p._peek().Kind == TokenKind.Operator) {
             this._p._advance();   // 'operator'
             string opSym = this._p._peek().Text;
+            Span   opSp  = this._p._peek().Span;
             this._p._advance();   // 运算符符号 token（+ - * / %）
             string opName = MemberParser._operatorMethodName(opSym);
-            return this._parseMethodTail(mods, false, false, type, opName, this._p._typeP._emptyTypeParams(), sp);
+            bool opListed = opName != "";
+            // 表外符号仍给个名字，只为让这条成员**继续解析完**（否则后面的 `(...)` / 方法体会
+            // 级联出一串位置在别处的假错）。同一个类里两个不可重载的符号因此仍互不同名，不会
+            // 再多冒一条假的「重复成员」。本轮必报错 ⇒ 这个名字到不了发射端。
+            if (!opListed) { opName = "op_" + opSym; }
+            Decl opDecl = this._parseMethodTail(mods, false, false, type, opName, this._p._typeP._emptyTypeParams(), sp);
+            if (!opListed) {
+                this._p._diags.Error("E0495",
+                    "operator `" + opSym + "` cannot be overloaded — z42 overloads only the binary"
+                    + " operators `+ - * / % == != < > <= >= & | ^ << >>`", opSp);
+            }
+            else if (opDecl is MethodDecl && (opDecl as MethodDecl).ParamCount != 2) {
+                this._p._diags.Error("E0495",
+                    "operator `" + opSym + "` overload must take exactly two parameters — z42 has no"
+                    + " unary operator overloading", opSp);
+            }
+            return opDecl;
         }
         string name = this._p._peek().Text;
         if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
@@ -441,7 +469,11 @@ public sealed class MemberParser {
         if (op == "^")  { return "op_ExclusiveOr"; }
         if (op == "<<") { return "op_LeftShift"; }
         if (op == ">>") { return "op_RightShift"; }
-        return "op_" + op;
+        // 表外符号 = **不可重载**，与派发侧 `TypeFactsTc._operatorMethodNameTc` 同一约定
+        // （`TypeChecker.z42` 那句「`""` 表不可重载」记的就是它）。此前这里回落 `"op_" + op`
+        // 替表外符号**造了个名字**，于是声明侧「有」而派发侧「无」——两侧对同一个问题给出相反
+        // 答案，非法名 `op_!` 因此一路进到发码。唯一的判据放在这一份表里。
+        return "";
     }
 
     public Decl _parseMethodTail(string mods, bool isFree, bool isCtor, TypeExpr retType, string name, TypeParamList typeParams, Span sp) {
