@@ -299,6 +299,51 @@ public static class PackageCompile {
             while (hi < srcCount) { hashes[hi] = hi < inp.SrcCount ? inp.SrcHashes[hi] : "GENERATED"; hi = hi + 1; }
         }
 
+        // ── `using` 指向不存在的命名空间（E0494）────────────────────────────────────────
+        // 🔴 此前**零诊断**：`using Z42.Totally.Bogus;` 编译通过。usings 的唯一去向是
+        // `ImportedSymbolLoader.Load` 的**激活过滤**——名字对不上任何已知 ns，就只是没激活任何东西，
+        // 与「写了个没用到的 using」不可区分。于是拼错命名空间得到的不是「没有这个命名空间」，
+        // 而是后面一堆**位置在别处**的 `E0401 undefined` / `E0443 undefined type`。
+        // 与 `_enforceFileScope`（E0436，「用了却没 using」）互为反向：那条查漏，这条查错。
+        //
+        // 已知 ns = 依赖 zpkg 的 nsMap ∪ 本包各 CU 自己的 ns（含 generator 产出的 CU）。
+        // **父命名空间也算已知**：`using Std;` 合法，即便注册的只有 `Std.IO` / `Std.Text`
+        // —— 判据是「存在某个已知 ns 以 `<ns>.` 开头」。
+        // ⚠️ `scan == null`（无依赖目录：单文件 / 裸 emit 路径）时**整条跳过** —— 那时已知集为空，
+        // 一开就是全量误报。
+        if (scan != null) {
+            int knownCap = scan.NsCount + srcCount;
+            string[] knownNs = new string[knownCap];
+            int knownN = 0;
+            int kn = 0;
+            while (kn < scan.NsCount) { knownNs[knownN] = scan.NsNames[kn]; knownN = knownN + 1; kn = kn + 1; }
+            int kc = 0;
+            while (kc < srcCount) {
+                if (cus[kc] != null && cus[kc].HasNamespace) { knownNs[knownN] = cus[kc].Namespace; knownN = knownN + 1; }
+                kc = kc + 1;
+            }
+            int ci2 = 0;
+            while (ci2 < srcCount) {
+                CompilationUnit ucu = cus[ci2];
+                if (ucu != null) {
+                    int ud = 0;
+                    while (ud < ucu.DeclCount) {
+                        if (ucu.Decls[ud] is UsingDecl) {
+                            UsingDecl uz = ucu.Decls[ud] as UsingDecl;
+                            if (!PackageCompile._usingAcceptable(uz.Name, knownNs, knownN)) {
+                                DiagnosticBag ubag = new DiagnosticBag();
+                                ubag.Error("E0494", "命名空间 `" + uz.Name + "` 不存在（依赖的包里没有它，本包也没有声明它）"
+                                    + "；检查拼写，或补上提供它的 [dependencies]", uz.Span);
+                                PackageCompile._mergeDiags(cms[ci2], ubag);
+                            }
+                        }
+                        ud = ud + 1;
+                    }
+                }
+                ci2 = ci2 + 1;
+            }
+        }
+
         // 诊断门（聚合）：任一文件有错 → 不组装，携 Cms 返回供调用方逐文件呈现。
         int totalErr = 0;
         int fi = 0;
@@ -410,6 +455,35 @@ public static class PackageCompile {
     }
 
     // 加载 [analyzers] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。
+    // 某个 `using` 的名字是否可接受。三条，缺一条就会误伤真实代码：
+    //   ① 相等 —— 就是一个已知命名空间。
+    //   ② **父命名空间算已知**（存在某已知 ns 以 `<ns>.` 开头）—— 否则 `using Std;` 会在
+    //      只注册了 `Std.IO`/`Std.Text` 的世界里误报。
+    //   ③ **去掉最后一段之后是已知命名空间** —— 因为 z42 允许 `using <类型全名>`：
+    //      `Std.Math` 看着像命名空间，其实是 `namespace Std` 里的 `class Math`（REPL 的默认
+    //      usings 就带着它，examples 门禁实测因此判红）。此类 using 当前被静默接受并忽略。
+    //      ⇒ **本诊断只管「命名空间部分整个不存在」**；最后一段拼错属于类型层面，是 E0443 的活。
+    private static bool _usingAcceptable(string ns, string[] known, int n) {
+        string pfx = ns + ".";
+        int i = 0;
+        while (i < n) {
+            string k = known[i];
+            if (k == ns) { return true; }                                  // ①
+            if (k.Length > pfx.Length && k.StartsWith(pfx)) { return true; }   // ②
+            i = i + 1;
+        }
+        int dot = ns.LastIndexOf(".");                                     // ③
+        if (dot > 0) {
+            string head = ns.Substring(0, dot);
+            int j = 0;
+            while (j < n) {
+                if (known[j] == head) { return true; }
+                j = j + 1;
+            }
+        }
+        return false;
+    }
+
     private static void _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
         // 同 generator 侧：加载失败落 E0493 诊断，不让异常穿出成 uncaught。两处都要 —— 走到这里
         // 时 generator 侧可能已经成功（只含 analyzer 的 zpkg 发现 0 个 generator 也算成功返回）。

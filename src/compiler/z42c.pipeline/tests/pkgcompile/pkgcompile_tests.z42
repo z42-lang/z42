@@ -662,3 +662,42 @@ void test_augment_fragment_inherits_host_usings() {
     Assert.Equal(0, art.ErrorCount);
     Assert.True(art.Z != null);
 }
+
+// ── `using` 指向不存在的命名空间 → E0494（fix-unknown-namespace-using）─────────────
+//
+// 回归钉：此前**零诊断** —— usings 的唯一去向是 `ImportedSymbolLoader.Load` 的激活过滤，
+// 名字对不上任何已知 ns 就只是没激活任何东西，与「写了个用不到的 using」不可区分。
+// 于是拼错命名空间得到的是后面一堆**位置在别处**的 E0401 / E0443，反推不回那行 using。
+[Test]
+void test_unknown_namespace_using_reports() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
+    string[] dirs = libs.Split(":");
+    CompileInputs cin = _inputs("namespace NsBogus;\nusing Std;\nusing Z42.Totally.Bogus;\nclass W { }\n", "lib");
+    cin.Name = "demo.nsbogus";
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.True(art.ErrorCount > 0);
+    bool sawCode = false;
+    int i = 0;
+    while (i < art.Cms[0].DiagCount) {
+        if (art.Cms[0].DiagMsgs[i].Contains("E0494")) { sawCode = true; }
+        i = i + 1;
+    }
+    Assert.True(sawCode);
+}
+
+// 阴性对照：**只**去掉那一行 bogus using，其余逐字相同 → 干净编过。
+// 没有这条，上面那条测的可能只是「这段源码编不过」而不是「E0494 认得出 bogus using」。
+// ⚠️ 顺带钉住**父命名空间算已知**：`using Std;` 在只注册了 `Std.IO`/`Std.Text` 的世界里必须合法。
+[Test]
+void test_known_namespace_using_is_clean() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string[] dirs = libs.Split(":");
+    CompileInputs cin = _inputs("namespace NsBogus;\nusing Std;\nclass W { }\n", "lib");
+    cin.Name = "demo.nsbogus";
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+}

@@ -218,6 +218,8 @@ public static class DiagnosticCodes {
 
     public static string HandlerZpkgLoadFailed   = "E0493";  // `[analyzers]` 段声明的 handler zpkg（analyzer / generator）**加载失败**。此前 `GeneratorLoader` / `AnalyzerLoader` 里的 `__load_module` 抛出的异常一路穿出 driver ⇒ 用户看到的是带 z42c 内部栈帧的 `uncaught exception`，既不指明是哪个 `[analyzers]` 条目、也不给出处置。最常见成因：**indexed zpkg 被单独拷走**——开发态（非 `--release`）产出的是「主文件 + 散装 `.zbc`」，只拷主文件过去，加载端就报 `cannot load indexed zpkg`。处置写在诊断消息里（连散装 `.zbc` 一起拷，或用 `--release` 得到单文件 packed zpkg）。⚠️ 编号：E0491 / E0492 已被未合并分支占走，本码取 E0493。**pipeline 层用字面量 "E0493" 发码**（同 E0449–E0490 手法，避免新增 core→pipeline 跨成员符号撞 F2 冷启动 stale-cache）。
 
+    public static string UnknownNamespace        = "E0494";  // `using X;` 里的 `X` **不存在**——依赖的包里没有它，本包也没有声明它。此前**零诊断**：usings 的唯一去向是 `ImportedSymbolLoader.Load` 的激活过滤，名字对不上就只是没激活任何东西，与「写了个用不到的 using」不可区分 ⇒ 拼错命名空间得到的不是「没有这个命名空间」，而是后面一堆**位置在别处**的 `E0401` / `E0443`。与 E0436（「用了却没 using」）互为反向：那条查漏、这条查错。⚠️ **父命名空间算已知**（`using Std;` 合法，即便注册的只有 `Std.IO`）；无依赖目录的单文件路径整条跳过（已知集为空，否则全量误报）。**pipeline 层用字面量 "E0494" 发码**（同 E0449–E0493 手法）。
+
     // ── 穷尽性（add-switch-exhaustiveness）────────────────────────────────────
     public static string SwitchNotExhaustive     = "W0700";  // 【Warning】`switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支且没有 `default`。
 
