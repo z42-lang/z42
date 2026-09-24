@@ -16,7 +16,8 @@ public struct Int64 : IComparable, IEquatable, INumber {
     [Native("__int64_parse")]      public static extern long Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
-    // Non-throwing parse — see Int32.TryParse. Returns `null` on malformed input.
+    // Non-throwing parse — see Int32.TryParse. Returns false with `v` = 0 on
+    // malformed input (value types are never nullable → out-value goes by `ref`).
     public static bool TryParse(string s, ref long v) {
         try { v = Int64.Parse(s); return true; }
         catch (Exception e) { v = 0; return false; }

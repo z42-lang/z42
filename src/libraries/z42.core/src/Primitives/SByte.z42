@@ -15,8 +15,10 @@ public struct SByte : IComparable, IEquatable, INumber {
     [Native("__sbyte_parse")]      public static extern sbyte Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
-    // symmetrize-primitive-api：非抛出解析，成功返回值、任何格式错误/越界返回 `null`
-    // （与 Int32/Int64/Double.TryParse 同款；用可空返回替代 C# 的 `out` 参数）。
+    // symmetrize-primitive-api：非抛出解析。成功写回 `v` 并返回 true；任何格式
+    // 错误/越界返回 false 且 `v` 置零（与 Int32/Int64/Double.TryParse 同款）。
+    // ⚠️ 出参走 `ref` 而非可空返回：**值类型永不可空**（`int?` 报 E0476，见
+    // define-null-check-marks），C# 的 `out` / 可空返回范式搬不过来。
     public static bool TryParse(string s, ref sbyte v) {
         try { v = SByte.Parse(s); return true; }
         catch (Exception e) { v = 0; return false; }

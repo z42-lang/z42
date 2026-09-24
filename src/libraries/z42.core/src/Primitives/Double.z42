@@ -17,7 +17,8 @@ public struct Double : IComparable, IEquatable, INumber {
     [Native("__double_parse")]      public static extern double Parse(string s);
     [Native("__double_to_string")]  public extern string ToString();
 
-    // Non-throwing parse — see Int32.TryParse. Returns `null` on malformed input.
+    // Non-throwing parse — see Int32.TryParse. Returns false with `v` = 0.0 on
+    // malformed input (value types are never nullable → out-value goes by `ref`).
     public static bool TryParse(string s, ref double v) {
         try { v = Double.Parse(s); return true; }
         catch (Exception e) { v = 0.0; return false; }
