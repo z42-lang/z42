@@ -898,16 +898,31 @@ artifacts/build/libraries/<lib>/<profile>/
 
 ```toml
 [analyzers]
-"demo.noemptycatch" = "0.1.0"
+"demo.noemptycatch" = "0.1.0"              # 按名：在依赖目录找 demo.noemptycatch.zpkg
+"demo.gen"          = { path = "../gen" }  # 按路径：z42c 代建该工程，取其 dist
 ```
 
-值的写法与 `[dependencies]` 相同（版本串），**语义不同**：
+值的写法与 `[dependencies]` 相同，**语义不同**：
 
 | | `[dependencies]` | `[analyzers]` |
 |---|---|---|
 | 何时用 | 编译目标代码时解析符号 | 加载进编译器、编译期执行 |
 | 进不进产物 | 进 | **不进** |
-| `path = "..."` | 支持，z42c 代建整个闭包 | **不支持** —— 写了会被明确拒绝（`z42c build:` 用法错误，非诊断码），需先单独 build 该工程，再把 `<name>.zpkg` 放进依赖目录 |
+| `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，z42c 代建**那一个工程**（它的依赖由它自己解析）|
+| 被引工程的 `kind` | `lib`（引 `analyzer` 会被拒绝）| 必须是 `analyzer`（引普通库会被拒绝）|
+
+**path 条目**（add-package-roles 批 2）：指向目录，其中须恰有一份 `*.z42.toml`，且
+`[project].name` 与这里写的名字一致。z42c 会定位它 → 校验 `kind = "analyzer"` → **代为构建** →
+把产出的 zpkg 交给 generator/analyzer 引擎。改了扩展的源码，消费方下次构建会重编（handler
+指纹含该 zpkg 内容）。
+
+> **代建产物不进消费方的解析域**：与 `[dependencies]` 的 path 闭包刻意不同 —— handler 只活在
+> 编译器进程里，把它的 dist 并进依赖目录就等于让编译期扩展对运行期代码可见。
+
+**双向校验**：`kind = "analyzer"` 的工程写进 `[dependencies]` → 报错（它永不链入产物，运行期不会
+到场）；非 `analyzer` 工程写进 `[analyzers]` → 报错（否则失败模式是「加载成功、发现 0 个 handler、
+什么都不做」的静默空转）。两条都只在 **path 条目**上判得出来 —— 按名引用时手上只有 zpkg，而 zpkg
+不记 `kind`。
 
 同一个段**覆盖 analyzer 与 generator 两类**：z42c 从列出的每个 zpkg 里同时寻找
 `: Analyzer` / `: Generator` / `: ModuleGenerator`。

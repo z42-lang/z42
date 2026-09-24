@@ -9,7 +9,7 @@
 |----|------|:---:|------|
 | 0 | 断 scripting 对 `z42.ir` 的假依赖：`FormatVersion` → z42i | 否 | ✅ 完成 |
 | **1** | **`kind="analyzer"` + `compiler-libs/` 解析域** —— 让用户能写 generator | 否 | ✅ 完成 |
-| 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | ⬜ |
+| 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | 🟡 2.1/2.2/2.3/2.6 完成；2.4 待做、2.5 前提作废 |
 | 2.5 | `role` 字段（support 先行 → 跨 nightly → publisher 读 role + 五包移出 `libs/`） | 否（**跨 nightly**）| ⬜ |
 | 2.6 | scripting 拆两包 + `IReplCompiler` 门面搬家 | 否 | ⬜ |
 | 3 | 大重命名：`std.*` 用户库 + `z42c.*` 编译器域 | 否（跨 nightly）| ⬜ |
@@ -117,18 +117,63 @@
 > 批 1 已交付 `kind = "analyzer"` 取值 + 解析域。本批补齐 analyzer 工程的**其余语义**
 > （宿主平台构建 / 不进 payload 闭包 / 双向校验）与 `[analyzers]` 的 path 支持。
 
-- [ ] 2.1 analyzer 工程的其余语义：恒按宿主平台构建（不跟随目标 rid）/ 不进 `[dependencies]`
-      闭包与 publish payload。
-- [ ] 2.2 `[analyzers]` 从「按名在 LibsDirs 找 `<name>.zpkg`」升级为与 `[dependencies]` 同构的
-      DepEntry 解析（支持 `path`，优先 path → libs 兜底）。**这条是「用户自定义」从纸面变可用的关键。**
-- [ ] 2.3 双向校验诊断：`kind="analyzer"` 的包出现在 `[dependencies]` → error；
-      非 analyzer 包出现在 `[analyzers]` → error。诊断码按 diagnostic-code-uniqueness 规则分配
-      （**逐个 `git show <每个在飞 PR 分支>:DiagnosticCodes.z42`**，扫 main 不够）。
+- [x] 2.1 analyzer 工程的其余语义。**核查后大部分是既有事实，不是待做项**：
+      · 「不跟随目标 rid」—— z42c **根本没有 rid 概念**（rid 是 builder/publish 的维度），
+        `z42c build` 恒按本机构建，代建 handler 天然如此；
+      · 「不进 `[dependencies]` 闭包与 payload」—— `[analyzers]` 与 `PathDepPlan.Resolve`（只走
+        `[dependencies]` 边）本就是两条路；本批新增的代建**刻意不把产物并入 libsDirs**，见 2.2。
+      真正需要落地的是把这条**变成会红的东西**：2.3 的反向校验 + 门的④格。
+- [x] 2.2 `[analyzers]` 升级为与 `[dependencies]` 同构的 DepEntry 解析（支持 `path`）。
+      实现 = `_resolveHandlerZpkgs` / `_handlerFromPath` / `_handlerFromLibs`（`BuildPaths.z42`）：
+      定位 manifest → 校验 kind 与包名 → **z42c 代建** → 取其 dist 的 `<name>.zpkg`。
+      🔴 **代建产物不并入消费方 libsDirs**（与 `[dependencies]` 的 path 闭包刻意不同）——并进去
+      就等于让编译期扩展对运行期代码可见，批 1 的解析域隔离当场破掉。
+      ⭐ **顺序要害**：解析必须排在 `_handlerFingerprint` 之前，否则指纹看到「zpkg 不存在」⇒
+      改了 generator 源码消费方**编出旧结果**且无人报错。顺手把「指纹与 CompileInputs 各扫一遍
+      libsDirs」并成一份解析结果。
+- [x] 2.3 双向校验：analyzer 工程进 `[dependencies]` → 拒；非 analyzer 进 `[analyzers]` → 拒。
+      **未占诊断码**：两条都发在 driver 的 CLI 层（`z42c build:` 前缀，同既有的依赖未找到 /
+      pack 冲突），不是 binder 诊断，与 `[analyzers]` 既有的错误信息同族。
+      ⚠️ 两条都**只在 path 条目上判得出来**：按名引用时手上只有 zpkg，而 **zpkg 不记 `kind`**
+      （要记就是格式 bump，本批 bump=否）。批 2.5 把编译器域包移出 `libs/` 后，按名那条的
+      泄漏面本身会收窄。
 - [ ] 2.4 **handler ABI 握手 fail-fast**（裁决 ⑤ 的对冲，自批 4 提前）：`GeneratorLoader` /
       `AnalyzerLoader` 加载前校验 handler zpkg 与当前编译器同代，不同代 → 明确诊断而非崩。
-- [ ] 2.5 退休 `KnownTestOnlyDeps = { "z42.test" }` 硬编码白名单——让包自己声明 kind/role。
-- [ ] 2.6 端到端验收：在本仓库外建一个 `kind="analyzer"` 工程，主工程 `[analyzers]` 用 `path` 引用，
-      跑出诊断 + 生成代码。**必须真跑，不接受"应该能行"。**
+      🔴 核查发现今天的失败模式**不止是崩**：不同代编出的 handler 里 `as Generator` 全部返回 null
+      ⇒ `Load` 返回空数组 ⇒ `_runAnalyzers` 提前 return ⇒ **静默空转**（用户的 generator 干脆不跑，
+      没有任何一句话）。握手要覆盖这个形态，不只覆盖崩。
+- [ ] ~~2.5 退休 `KnownTestOnlyDeps` 白名单~~ —— **前提不成立，待 User 裁决改写**。
+      该白名单与整个 `WS0xx` manifest-lint 家族住在 **C# 侧 `src/compiler/z42.Project/ManifestErrors.cs`**，
+      随 2026-06-26 删 C# bootstrap 编译器一起蒸发：全仓**零 WS0xx 发射点**（唯一命中是
+      `WorkspaceBuild.z42:136` 的一句注释）。
+      ⚠️ **两本参考书就此冲突**：`error-codes.md` 诚实标注 WS001–WS039「零发射点」且根本没列
+      WS012 / WS040–043；而 `z42-toml.md` 把 WS012/WS040–43 当**现行规则**写，还断言
+      「校验在 xtask 发现层做」+「`KnownTestOnlyDeps` 当前为 `{ "z42.test" }`」——一份已腐成假话的
+      第二真相（同 diagnostic-code-uniqueness 规则⑦的形状）。
+- [x] 2.6 端到端验收（**真跑**，本仓库外的 `/tmp` 工程）：`kind="analyzer"` 的 generator 工程 +
+      主工程 `[analyzers] = { path = "../gen" }` → z42c 代建 → generator 注入的 `E2eOut.O.V()`
+      在主工程解析得到 → 产物跑起来打印 `42`；改 generator 源码 42→7 → 重建 → 打印 `7`。
+      对照/反证四条全部实测：kind=lib 被拒 / analyzer 进 `[dependencies]` 被拒（退出码均 1）/
+      `path = "."` 自指被拦（不无限递归）。
+      注：analyzer **诊断**侧沿用既有 pipeline 单测（`test_external_analyzer_loaded_and_reports`），
+      未经 path 条目——两者共用同一份 `AnalyzerZpkgs`，解析路径完全相同。
+
+### 批 2 的门
+
+`_e2ePathAnalyzerChecks`（[xtask_compiler_e2e_analyzer.z42](../../../../scripts/build/xtask_compiler_e2e_analyzer.z42)）
+四格：① 代建+产码可用 ② 改扩展必重编 ③ kind=lib 被拒 ④ analyzer 进 `[dependencies]` 被拒。
+
+**判别力两次实证**（都是真注入、真重编编译器、真看门的颜色）：
+
+| 注入 | 门的反应 |
+|---|---|
+| `_handlerFingerprint(pm, null)`（指纹看不见 path 条目）| ②格红：「改了 generator 源码，消费方却编出旧结果」stdout=42 |
+| kind 校验改 `if (false)` | ③格红（**收紧断言后**才红，见下）|
+
+⭐ **第一版③格的断言是假的**：写作 `stderr.IndexOf("analyzer") >= 0` 即通过。删掉 kind 校验后，
+kind=lib 的工程会在**代建阶段**因解析不到契约包而失败，那条失败经本门转述成
+「`[analyzers]` … 的工程构建失败」——**含 "analyzer" 字样** ⇒ 宽断言把「校验没了」判成绿。
+改成断言那一句原话（`不是 "analyzer"`）后才真红。**「门会红」不等于「门守着对的东西」。**
 
 ## 批 2.5 —— role 字段（独立轨，跨 nightly）
 

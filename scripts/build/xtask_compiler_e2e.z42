@@ -485,6 +485,8 @@ int _testCompilerE2e(string root, string vm, string flat) {
     // 编译期扩展的解析域（add-package-roles 批 1）——实现在 xtask_compiler_e2e_analyzer.z42
     // （本文件已逼近 500 行硬限）。两格成对：analyzer 工程可引用契约 / 普通工程不可。
     if (_e2eAnalyzerDomainChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
+    // `[analyzers]` 的 path 条目（add-package-roles 批 2）：代建 + 指纹 + 双向校验，四格。
+    if (_e2ePathAnalyzerChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }

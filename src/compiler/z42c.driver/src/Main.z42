@@ -214,6 +214,16 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 string depToml = closure.Tomls[ci];
                 ci = ci + 1;
                 ProjectManifest depPm = ManifestLoader.Load(depToml);
+                // 双向校验之二（add-package-roles 批 2）：编译期扩展不得出现在 `[dependencies]`。
+                // 它只在编译器进程里活、永不链入产物；写进依赖等于让**运行期**代码引用一个不会到场的包。
+                // 名字条目查不出来（zpkg 不记 kind，不为一条校验动格式）——path 条目手上有 manifest，
+                // 这也正是用户自建 analyzer 的实际写法。
+                if (depPm.Project.Kind == "analyzer") {
+                    ConsoleError.WriteLine("z42c build: [dependencies] `" + depPm.Project.Name
+                        + "` 是 kind = \"analyzer\" 的编译期扩展工程，不能作运行期依赖。"
+                        + "改法：把它挪进 [analyzers] 段（同样支持 `{ path = \"...\" }`）。");
+                    return ExitCode.BuildError;
+                }
                 string depDir = Path.GetDirectoryName(depToml);
                 if (depDir.Length == 0) { depDir = "."; }
                 string depDist = BuildLayout.Resolve(depPm, depDir, isRelease).DistDir;
@@ -254,10 +264,22 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             libsDirs = withCl; libsDirsN = libsDirsN + cl.Length;
         }
     }
+    // ── `[analyzers]` handler zpkg 解析（add-package-roles 批 2）────────────────────────────
+    // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了 analyzer 源码但
+    // 消费方源没变」就不会失效缓存 —— 那正是 PR4e 指纹要堵的洞，只是换 path 条目后会重新漏。
+    // 解析结果同时喂指纹与 CompileInputs（此前两处各按名扫一遍 libsDirs）。
+    // 无 `[analyzers]`（含 z42c 自建）→ 不进此块、指纹 `""` → 自举 byte-identical。
+    string[] azPaths = null;
+    if (pm.AnalyzerCount > 0) {
+        HandlerZpkgs hz = _resolveHandlerZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
+                                               isRelease, noIncremental, optSet);
+        if (hz.Code != 0) { return hz.Code; }
+        azPaths = hz.Paths;
+    }
     // attribute-handler-registry PR4e：handler（[analyzers] zpkg）身份指纹并入增量指纹（design red-line ②
     // 「产物纳入指纹」，helper 在 BuildPaths.z42）——揉进每个文件源 hash，则「换 generator 但源没变」也令所有
     // 缓存失效。空（无 [analyzers]，含 z42c 自建）→ `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
-    string handlerFp = _handlerFingerprint(pm, libsDirs, libsDirsN);
+    string handlerFp = _handlerFingerprint(pm, azPaths);
     // 源文本读入 + 源 hash（probe / ZbcFileZ / meta 三处复用；SHA-256 解释执行曾是 D8 增量差价主项）。
     // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
     string[] texts = new string[srcs.Length];
@@ -407,51 +429,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.HiddenPkgs = hiddenPkgs; cin.HiddenN = hiddenN;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
-    // attribute-handler-registry PR3a-load：[analyzers] 段声明的 handler zpkg 名 → LibsDirs 里
-    // `<name>.zpkg` 路径（镜像 _bundleExeDeps 的 dep→zpkg 解析）。加载进编译器、编译期运行、不链入
-    // 目标产物（D9）。z42c 自建无 [analyzers] → 此块不进 → 自举 gen1==gen2 逐字节不动。
-    if (pm.AnalyzerCount > 0) {
-        string[] azPaths = new string[pm.AnalyzerCount];
-        int ai = 0;
-        while (ai < pm.AnalyzerCount) {
-            string aname = pm.Analyzers[ai].Name;
-            // `path` 此前被**静默忽略**：解析层复用 `_parseDeps`、照单收下 `{ path = "..." }`，而这里
-            // 只读 `.Name` 去 libsDirs 里找 `<name>.zpkg` ⇒ 用户写了 path 却得到一句「未在依赖目录
-            // 找到」——一条指向错误方向的诊断（他明明指定了位置）。[dependencies] 的 path 会由 z42c
-            // 建传递闭包并逐个 build，[analyzers] **不建闭包**，两者语义不同，不能顺手复用。
-            // 在 path 依赖对 [analyzers] 有明确设计之前，显式拒绝 > 静默忽略。
-            if (pm.Analyzers[ai].Path.Length > 0) {
-                ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 指定了 `path`，但 [analyzers] 段尚不支持 path 依赖"
-                    + "（不同于 [dependencies]：z42c 不为 analyzer/generator 建依赖闭包，也不代为构建）。"
-                    + "改法：先单独 build 该工程，再把产出的 " + aname + ".zpkg 放进依赖目录（Z42_LIBS / SDK libs），"
-                    + "清单里只写名字与版本。");
-                return ExitCode.UsageError;
-            }
-            string azfile = aname + ".zpkg";
-            string azFound = "";
-            int d = 0;
-            while (d < libsDirsN) {
-                string cand = Path.Join(libsDirs[d], azfile);
-                if (File.Exists(cand)) { azFound = cand; break; }
-                d = d + 1;
-            }
-            if (azFound.Length == 0) {
-                // 找不到时把**找过哪些目录**说出来——此前只说「未找到」，用户无从判断是放错了
-                // 目录、还是根本没 build。
-                string searched = "";
-                int sd = 0;
-                while (sd < libsDirsN) {
-                    searched = searched + (sd > 0 ? ", " : "") + libsDirs[sd];
-                    sd = sd + 1;
-                }
-                if (libsDirsN == 0) { searched = "(无依赖目录——未设 Z42_LIBS，清单也无 path 依赖)"; }
-                ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 未在依赖目录找到 " + azfile
-                    + "；已查找：" + searched);
-                return ExitCode.BuildError;
-            }
-            azPaths[ai] = azFound;
-            ai = ai + 1;
-        }
+    // attribute-handler-registry PR3a-load：`[analyzers]` 段声明的 handler zpkg → 加载进编译器、
+    // 编译期运行、**不链入目标产物**（D9）。路径已在上方 `_resolveHandlerZpkgs` 一次解析完（名字条目
+    // 走 libsDirs、path 条目已代建），此处只挂上去。z42c 自建无 [analyzers] → azPaths 为 null → 不进
+    // 此块 → 自举 gen1==gen2 逐字节不动。
+    if (azPaths != null) {
         cin.AnalyzerZpkgs = azPaths; cin.AnalyzerZpkgCount = pm.AnalyzerCount;
         // attribute-handler-registry PR4d：同一 `[analyzers]` 段 zpkg 也承载 generator（D9 单段覆盖两类，
         // User 2026-08-22 裁决）——PackageCompile 直接从 AnalyzerZpkgs 经 GeneratorLoader 发现

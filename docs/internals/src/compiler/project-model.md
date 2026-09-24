@@ -75,6 +75,46 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 
 > **两阶段（自举纪律）**：`z42.project` 认 `path` 并填 `DepEntry.Path` 是 **support 阶段（PR-1）**；上面 z42c 的**消费机制**（闭包 + colocate）是 **PR-2（use）**，在 PR-1 nightly 发布后落地——上一版 z42c 不引用 `.Path`，故跨版本自举不断链。
 
+### 编译期扩展的解析域与 `[analyzers]` 的 path 条目
+
+`[analyzers]` 声明的 handler zpkg（analyzer / generator 本体）**加载进编译器进程、编译期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道，在 add-package-roles 批 1/批 2 补齐了两件事：契约够得着、扩展工程能被路径引用。
+
+#### 解析域：`kind = "analyzer"` 才看得见 `compiler-libs/`
+
+编译器域的包（`z42c.semantics` 等，Generator 契约所在）**不在 SDK 的 `libs/`**——普通工程的依赖解析只看 `libs/`，它们另落一个平级目录 `compiler-libs/`。driver 只在 `pm.Project.Kind == "analyzer"` 时把该域并入本工程的 `libsDirs`（`Main.z42`，紧接在 path 依赖闭包之后）：
+
+| 工程 | libsDirs | 结果 |
+|---|---|---|
+| `lib` / `exe` | `libs/` + path 闭包 dist | 引用 `z42c.semantics` → 未找到 |
+| `analyzer` | 同上 **+ `compiler-libs/`** | 引用得到 |
+
+`_compilerLibsDirs()`（`BuildPaths.z42`）三档探测，命中即止：① `Z42_HOME/compiler-libs/`；② 由 `Z42_PORTABLE_VM` 反推 SDK 根；③ 开发树——自 `Z42_LIBS` 上溯到 `artifacts/build/` 再拼各 compiler member 的 dist。
+
+> **两条组装路都要改**：发行包（`_packageDesktop` 的 `[component.compiler-libs]`）与本地 SDK（`_buildSdk`）是**两套独立组装**，只改前者的话本地 `Z42_HOME` 根本没有这个目录。该域**只进 sdk、不进 runtime**。
+
+> **为什么 z42c 自建不受影响**：z42c 自己是 `kind = "exe"`，不进这个分支 ⇒ 自举 byte-identical。
+
+#### path 条目：z42c 代建那一个工程
+
+`[analyzers]` 的值与 `[dependencies]` 同为 `DepEntry`，但 path 的消费语义**刻意不同**（`_resolveHandlerZpkgs`，`BuildPaths.z42`）：
+
+| | `[dependencies]` 的 path | `[analyzers]` 的 path |
+|---|---|---|
+| 建什么 | 整个传递闭包（`PathDepPlan.Resolve`，post-order）| **只建那一个工程**（它的依赖由它自己那次 `_build` 解析）|
+| 产物去向 | 并入消费方 `libsDirs`，可被普通代码引用 | **不并入任何 libsDirs**，只把单个 zpkg 路径交给 handler 引擎 |
+| 校验 | 名字须与 `[project].name` 一致 | 同上，外加 `kind` 必须是 `"analyzer"` |
+
+🔴 **代建产物不进 libsDirs 是本机制的要害**：把它并进去就等于让编译期扩展对消费方的**运行期代码**可见，批 1 刚立起来的解析域隔离当场破掉。代建用消费方的 `isRelease` / `optSet`，但 **libsDirs 一律不继承**（传 `count = 0`），让 analyzer 工程走自己的 path 闭包 + `Z42_LIBS` + compiler-libs。
+
+**顺序依赖（易踩）**：handler 解析必须排在 `_handlerFingerprint` **之前**。指纹把 handler zpkg 的内容揉进每个源文件的 hash，是「改了 generator 但消费方源没变 ⇒ 也要重编」唯一的失效通道；path 条目若在指纹之后才代建，指纹看到的是「zpkg 不存在」⇒ 改扩展不触发重编，消费方**编出旧结果**且无人报错。两者现在吃同一份解析结果（此前指纹与 `CompileInputs` 各按名扫一遍 libsDirs）。
+
+**双向校验**（都只在 path 条目上判得出来——按名引用时手上只有 zpkg，而 zpkg 不记 `kind`）：
+
+- `kind = "analyzer"` 的工程出现在 `[dependencies]` → 拒绝（判在 path 闭包循环里，`Main.z42`）。它永不链入产物，写进依赖就是引用一个运行期不会到场的包。判定点继承闭包本身的边界：只在 **top-level build** 走，workspace 成员建带 `libsDirsOverride` ⇒ 跳过。
+- 非 `analyzer` 工程出现在 `[analyzers]` 的 path 条目 → 拒绝。否则失败模式是「加载成功、发现 0 个 handler、什么都不做」的**静默空转**。
+
+**自指防护**：path 指回消费方自身（`path = "."`）会无限递归——按规范化路径比对拦下。
+
 ### 依赖解析（跨包符号）
 
 编译一个包前，`DepScan` 扫描扁平的 `Z42_LIBS` 目录（运行期所有可见 zpkg 汇聚于此），一次产出三样东西：
@@ -136,6 +176,8 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 | 跨包符号加载（TSIG） | `z42c.semantics/src/ImportedSymbolLoader.z42`；调和：`z42c.project/src/TsigReconcile.z42` |
 | 工作区规划 | `z42c.pipeline/src/WorkspaceBuild.z42`；增量：`IncrementalBuild.z42` |
 | 产物组装 | `z42c.project/src/ZpkgBuilder.z42`、`ZpkgWriter.z42` |
+| 编译期扩展解析域 / `[analyzers]` 解析 | `z42c.driver/src/BuildPaths.z42`（`_compilerLibsDirs` / `_resolveHandlerZpkgs` / `_handlerFingerprint`）；接线在 `Main.z42` |
+| handler 加载与执行 | `z42c.pipeline/src/AnalyzerLoader.z42`、`GeneratorLoader.z42`、`PackageCompile.z42` |
 
 ## 边界与限制
 
