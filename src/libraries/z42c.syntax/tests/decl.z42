@@ -528,3 +528,33 @@ void test_binary_minus_overload_still_ok() {
 void test_conversion_operator_single_param_still_ok() {
     Assert.Equal("", parseErrorCodes("class V { public static implicit operator int(V a) { return 0; } }"));
 }
+
+// ── 元组**类型**的元数上界（此前只有字面量侧有）────────────────────────────
+// 修前类型侧只校验下界 ⇒ 9 元组类型合成出 `ValueTuple9`、再由类型解析报
+// `E0443: undefined type: ValueTuple9` —— 把编译器内部的脱糖名漏给了用户（用户从没写过
+// 这个名字），而同一个错误在字面量侧有准确诊断。tuples.md「限制（v1）」一直写着
+// 「元数 2..8；更大元组报错」：文档是对的，类型侧漏了这一半。
+
+// 阴性：9 元组类型 ⇒ 恰好一条 E0402（修前是零条——错误要到语义层解析类型时才冒出来）。
+[Test]
+void test_tuple_type_arity_over_max_rejected() {
+    Assert.Equal("E0402", parseErrorCodes("class C { void M() { (int,int,int,int,int,int,int,int,int) t; } }"));
+}
+
+// 阳性（上界边界）：8 元组类型仍零诊断 —— 证明拦的是 >8 而不是「元组类型」。
+[Test]
+void test_tuple_type_arity_at_max_ok() {
+    Assert.Equal("", parseErrorCodes("class C { void M() { (int,int,int,int,int,int,int,int) t; } }"));
+}
+
+// 阳性（常见元数）：2 元组不受影响。
+[Test]
+void test_tuple_type_arity_two_ok() {
+    Assert.Equal("", parseErrorCodes("class C { void M() { (int,string) t; } }"));
+}
+
+// 阳性：函数类型走 `->` 分流，形参数量不受元组上界约束（9 个形参照旧合法）。
+[Test]
+void test_func_type_many_params_unaffected() {
+    Assert.Equal("", parseErrorCodes("class C { void M() { (int,int,int,int,int,int,int,int,int) -> int f; } }"));
+}

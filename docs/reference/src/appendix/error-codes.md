@@ -110,14 +110,16 @@ PR 前后脚合入、各拿了一个 E0481，git 毫无反应，门在 main 上�
 ## E04xx — 语义 / 类型检查
 
 发射点全在 `src/compiler/z42c.semantics/src/`（本节表中的路径均相对该目录），
-E0442 / E0457 / E0462 除外（见上一节）。
+E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层发射点**
+（`z42c.syntax/src/TypeParser.z42`，元组类型元数越界）—— 刻意与字面量侧同码：同一个用户
+错误不该因为写在类型位还是表达式位就拿到两个不同的码。
 
 ### 基础诊断
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
 | E0401 | 未定义符号：变量 / 函数 / 字段 / 方法找不到 | ✅ `MemberResolver.z42:106,138,377,707`、`PatternBinder.z42:324` | 调用未声明的 `foo()` |
-| E0402 | 类型不匹配（含不支持的语句 / 模式、空集合字面量缺目标类型等兜底场景） | ✅ `StmtBinder.z42:368,391`、`CollectionTyper.z42:35,51,132,141`、`PatternBinder.z42:32` | `var a = [];` |
+| E0402 | 类型不匹配（含不支持的语句 / 模式、空集合字面量缺目标类型、**元组元数越界**等兜底场景） | ✅ `StmtBinder.z42:368,391`、`CollectionTyper.z42:35,51,132,141`、`PatternBinder.z42:32`、`ConstructTyper.z42:103`（元组字面量元数）、`z42c.syntax/src/TypeParser.z42`（元组**类型**元数——语法层） | `var a = [];`、`(int,int,int,int,int,int,int,int,int) t;` |
 | E0403 | 非 void 函数存在无 `return` 的路径 | ⚠️ 零发射点 | — |
 | E0404 | 访问控制违规：`private`/`protected` 成员跨界访问，或引用 `private`/`protected` 嵌套类型（对标 C# CS0122） | ✅ `AccessChecker.z42:66,192` | 类外读 `private` 字段 |
 | E0405 | 非法修饰符组合（如同时写两个访问修饰符） | ✅ `DeclParser.z42:101`（语法层） | `public private int x;` |

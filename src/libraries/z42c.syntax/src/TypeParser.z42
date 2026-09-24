@@ -205,6 +205,20 @@ public sealed class TypeParser {
             return new FuncTypeExpr(ps, pc, ret, sp);
         }
         if (pc >= 2) {
+            // 元数上界 2..8（stdlib 只声明到 `ValueTuple8`，见 z42.core/src/ValueTuple.z42）。
+            // ⚠️ **这条上界此前只在字面量侧存在**（`ConstructTyper._bindTuple` 的 `n < 2 || n > 8`），
+            // 类型侧只校验了下界 ⇒ 9 元组**类型**照样合成出 `ValueTuple9`，再由类型解析报
+            // `E0443: undefined type: ValueTuple9` —— 把**编译器内部的脱糖名**漏给了用户
+            // （用户从没写过 `ValueTuple9`），而同一个错误在字面量侧有准确诊断
+            // （`tuples support between 2 and 8 elements, got 9`）。参考手册 tuples.md「限制（v1）」
+            // 一直写着「元数 2..8；更大元组报错」—— 文档是对的，类型侧漏了这一半。
+            // 码取 E0402（**与字面量侧同一个码**）：同一个用户错误不该因为写在类型位还是表达式位
+            // 就拿到两个不同的码。语法层报 E04xx 有先例（E0442 / E0457 / E0462）。
+            if (pc > 8) {
+                this._p._diags.Error(DiagnosticCodes.TypeMismatch,
+                    "tuples support between 2 and 8 elements, got " + pc.ToString(), sp);
+                return this._emptyType();
+            }
             // 元组类型 → 合成 ValueTupleN 泛型实例化（z42.core prelude 恒加载，短名恒可解析；
             // FQ `Std.ValueTupleN` 反而不经 using 解析，故用短名）。后端沿用泛型 struct record 机制。
             TypeExpr[] elems = new TypeExpr[pc];
