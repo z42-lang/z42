@@ -1,0 +1,12 @@
+namespace Demo.CrossCuTarget;
+
+using Std;
+
+public struct P2 { public int X; public long Y; public P2(int x, long y) { this.X = x; this.Y = y; } }
+
+[Record] public struct Loc<A, B>(A Item1, B Item2);
+
+// 泛型体声明在**本文件**；下面的 Use.z42 在**另一个文件**里调用它。
+public int ReadSecond<T>(Loc<T, int> p) { return p.Item2; }
+
+public int UseSameFile() { P2 a = new P2(1, 2L); return ReadSecond<P2>(new Loc<P2, int>(a, 7)); }

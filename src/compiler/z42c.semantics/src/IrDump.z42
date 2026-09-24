@@ -21,19 +21,24 @@ sealed class CompileCuTask : IParallelBody {
     StrMap _partialMerged; int _optSet; IrModule[] _cached;
     ExportedFuncZ[] _allFuncs; int _afc; StrMap _pkgClassMap;
     StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读共享）
+    // complete-generic-instantiation S1：包级泛型体登记表（同 `_layouts`，并行段只读共享）。
+    StrMap _pkgGenerics; StrMap _pkgGenericOwners; StrMap _pkgGenericMethods;
     CompiledModuleZ[] _r;
     public CompileCuTask(CompilationUnit[] cus, string[] files, SymbolTable symbols,
                          DependencyIndex deps, ImportedSymbols imported,
                          StrMap classNs, StrMap localClasses, bool isRelease,
                          StrMap partialMerged, int optSet, IrModule[] cached,
                          ExportedFuncZ[] allFuncs, int afc, StrMap pkgClassMap,
-                         StructLayout layouts, CompiledModuleZ[] r) {
+                         StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericOwners,
+                         StrMap pkgGenericMethods, CompiledModuleZ[] r) {
         this._cus = cus; this._files = files; this._symbols = symbols;
         this._deps = deps; this._imported = imported;
         this._classNs = classNs; this._localClasses = localClasses; this._isRelease = isRelease;
         this._partialMerged = partialMerged; this._optSet = optSet; this._cached = cached;
         this._allFuncs = allFuncs; this._afc = afc; this._pkgClassMap = pkgClassMap;
         this._layouts = layouts;
+        this._pkgGenerics = pkgGenerics; this._pkgGenericOwners = pkgGenericOwners;
+        this._pkgGenericMethods = pkgGenericMethods;
         this._r = r;
     }
     public void Run(int i) {
@@ -46,7 +51,8 @@ sealed class CompileCuTask : IParallelBody {
         } else {
             this._r[i] = CuCompile._compileCu(this._cus[i], this._files[i], this._symbols, this._deps,
                 this._imported, this._classNs, this._localClasses, this._isRelease, this._partialMerged,
-                this._optSet, this._layouts);
+                this._optSet, this._layouts, this._pkgGenerics, this._pkgGenericOwners,
+                this._pkgGenericMethods);
         }
         CuPreprocess._enforceFileScope(this._cus[i], this._files[i], this._r[i]);   // 跨包未-using 报错
         string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
@@ -236,10 +242,19 @@ public static class IrDump {
         while (_cf < count) { if (cachedModules == null || cachedModules[_cf] == null) { _anyFresh = true; } _cf = _cf + 1; }
         StructLayout layouts = null;
         if (_anyFresh) { layouts = StructLayout.BuildFromSymbols(symbols); }
+        // complete-generic-instantiation S1：**包级**泛型体登记表。
+        // `IrGen` 按 CU 创建（`_compileCu`），若只扫本 CU 的 decls，泛型声明在**别的文件**时调用点
+        // 就判不出该改派 ⇒ 落到擦除体 ⇒ 布局不符（实测：a.z42 声明、b.z42 调用，`UseInB` 报
+        // `struct ref leaf at byte offset 8 not in type layout`）。
+        // 故在这里扫一遍全包 CU，与 `layouts` 同为并行段只读共享。
+        StrMap pkgGenerics = new StrMap();
+        StrMap pkgGenericOwners = new StrMap();
+        StrMap pkgGenericMethods = new StrMap();
+        IrGen.ScanGenericBodies(cus, count, symbols, pkgGenerics, pkgGenericOwners, pkgGenericMethods);
         CompiledModuleZ[] r = new CompiledModuleZ[count];
         CompileCuTask _task = new CompileCuTask(cus, files, symbols, deps, imported, classNs,
             localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
-            layouts, r);
+            layouts, pkgGenerics, pkgGenericOwners, pkgGenericMethods, r);
         ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
         // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。

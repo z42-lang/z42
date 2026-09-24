@@ -240,48 +240,12 @@ public sealed class IrGen {
                 sidx = sidx + 1;
             }
         }
-        // complete-generic-instantiation S1：**先**登记本包泛型自由函数，再开始发射 ——
-        // 类成员里的调用先于 `EmitFreeFunctions` 发射，登记晚了那些调用点就判不出该改派。
-        int gi = 0;
-        while (gi < cu.DeclCount) {
-            Decl gd = IrGenFacts._unwrap(cu.Decls[gi]);
-            if (gd is MethodDecl) {
-                MethodDecl gmd = gd as MethodDecl;
-                if (gmd.TypeParams.Count > 0 && gmd.HasBody) { this._noteGenericBody(gmd.RegKey, "", cu.Decls[gi]); }
-            } else if (gd is ClassDecl) {
-                // 类上的**静态**泛型方法同样走直接调用，可改派（实例泛型方法走 vcall 按简单名派发，
-                // 改派要动 vtable —— 留给 S1-c，见 tasks.md）。
-                ClassDecl gc = gd as ClassDecl;
-                string gownerKey = gc.Name;
-                if (gc.TypeParams.Count > 0) {
-                    string gom = gc.Name + "$" + gc.TypeParams.Count.ToString();
-                    if (model.Symbols.HasClass(gom)) { gownerKey = gom; }
-                }
-                int gmi = 0;
-                while (gmi < gc.MemberCount) {
-                    Decl gmem = IrGenFacts._unwrap(gc.Members[gmi]);
-                    if (gmem is MethodDecl) {
-                        MethodDecl gm = gmem as MethodDecl;
-                        // 静态泛型方法走直接调用；**非虚**实例泛型方法走 vcall，但 vcall 的解析链
-                        // 里有一条「按名走基类链查 func_index」的回落，故改派简单名即可，无须动 vtable。
-                        //
-                        // S1-d：**虚/override 也登记**。安全性由两件事共同保证：
-                        //  ① 运行期「特化名不沿基类链继承」（`vcall_resolve`）—— 子类 override 没被
-                        //     特化时不会落到基类的特化体上，而是让擦除名回落去大声报错；
-                        //  ② 本 CU 内把闭包扩到该方法的**全部覆写**（见 `_noteSpecOverrides`）。
-                        // ⚠️ 跨 CU 的覆写仍看不见（`IrGen` 按 CU 创建）⇒ 那种接收者会走 ① 报错。
-                        // 完整覆盖需要包级特化通道，见 tasks.md。
-                        if (gm.TypeParams.Count > 0 && gm.HasBody) {
-                            this._noteGenericBody(gownerKey + "." + gm.RegKey, gownerKey, gc.Members[gmi]);
-                            if (!IrGenFacts._hasWord(gm.Mods, "static")) {
-                                this.GenericMethodOwners.Put(gownerKey + "." + gm.RegKey, new StrBox(gm.RegKey));
-                            }
-                        }
-                    }
-                    gmi = gmi + 1;
-                }
-            }
-            gi = gi + 1;
+        // complete-generic-instantiation S1：泛型体登记表。包构建时由 `IrDump` 注入**包级**的那份
+        // （泛型可能声明在别的文件里）；单文件 dump / 测试路径没有注入 ⇒ 就地按本 CU 扫一遍。
+        if (this.GenericBodies.Count() == 0 && this.GenericMethodOwners.Count() == 0) {
+            CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
+            IrGen.ScanGenericBodies(one, 1, model.Symbols, this.GenericBodies,
+                                    this.GenericBodyOwners, this.GenericMethodOwners);
         }
         // 两遍（byte-identical：module.Functions 序 = 类方法（声明序）→ 自由函数（声明序），SIGS 字节实证）。
         int i = 0;
@@ -377,6 +341,59 @@ public sealed class IrGen {
     //
     // `specName` 形如 `Demo.ReadSecond<P2>`：基名是擦除 FQ 名，实参段按 `StructLayout.InstName`
     // 拼；`GenericFnInsts` 的值是该函数的 RegKey（体查找键）。
+    // complete-generic-instantiation S1：扫出一批 CU 里**全部可特化的泛型体**。
+    //
+    // 包构建走 `IrDump.BuildPackageCus`（全包 CU 一次），单文件路径走 `Generate`（仅本 CU）——
+    // 两条**共用本方法**，判据只有一份。`IrGen` 按 CU 创建，若只扫本 CU，泛型声明在别的文件时
+    // 调用点就判不出该改派，会落到擦除体上（布局不符 ⇒ 运行期报错）。
+    public static void ScanGenericBodies(CompilationUnit[] cus, int count, SymbolTable symbols,
+                                         StrMap bodies, StrMap owners, StrMap methods) {
+        int ci = 0;
+        while (ci < count) {
+            CompilationUnit cu = cus[ci];
+            int gi = 0;
+            while (gi < cu.DeclCount) {
+                Decl gd = IrGenFacts._unwrap(cu.Decls[gi]);
+                if (gd is MethodDecl) {
+                    MethodDecl gmd = gd as MethodDecl;
+                    if (gmd.TypeParams.Count > 0 && gmd.HasBody && !bodies.ContainsKey(gmd.RegKey)) {
+                        bodies.Put(gmd.RegKey, cu.Decls[gi]);
+                        owners.Put(gmd.RegKey, new StrBox(""));
+                    }
+                } else if (gd is ClassDecl) {
+                    ClassDecl gc = gd as ClassDecl;
+                    string gownerKey = gc.Name;
+                    if (gc.TypeParams.Count > 0) {
+                        string gom = gc.Name + "$" + gc.TypeParams.Count.ToString();
+                        if (symbols.HasClass(gom)) { gownerKey = gom; }
+                    }
+                    int gmi = 0;
+                    while (gmi < gc.MemberCount) {
+                        Decl gmem = IrGenFacts._unwrap(gc.Members[gmi]);
+                        if (gmem is MethodDecl) {
+                            MethodDecl gm = gmem as MethodDecl;
+                            // S1-d：**虚/override 也登记**。安全性靠两条：① 运行期「特化名不沿基类链
+                            // 继承」（`vcall_resolve`）；② 闭包扩到该方法的全部覆写（`_noteSpecOverrides`）。
+                            if (gm.TypeParams.Count > 0 && gm.HasBody) {
+                                string lk = gownerKey + "." + gm.RegKey;
+                                if (!bodies.ContainsKey(lk)) {
+                                    bodies.Put(lk, gc.Members[gmi]);
+                                    owners.Put(lk, new StrBox(gownerKey));
+                                    if (!IrGenFacts._hasWord(gm.Mods, "static")) {
+                                        methods.Put(lk, new StrBox(gm.RegKey));
+                                    }
+                                }
+                            }
+                        }
+                        gmi = gmi + 1;
+                    }
+                }
+                gi = gi + 1;
+            }
+            ci = ci + 1;
+        }
+    }
+
     // 登记一个可特化的本包泛型体（体查找键 → Decl + ownerKey）。
     internal void _noteGenericBody(string lookupKey, string ownerKey, Decl rawD) {
         if (this.GenericBodies.ContainsKey(lookupKey)) { return; }

@@ -1,0 +1,10 @@
+namespace Demo.CrossCuApp;
+
+using Std;
+using Std.IO;
+using Demo.CrossCuTarget;
+
+void Main() {
+    Console.WriteLine(UseSameFile());
+    Console.WriteLine(UseOtherFile());
+}
