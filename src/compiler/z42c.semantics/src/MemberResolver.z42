@@ -781,7 +781,7 @@ public sealed partial class MemberResolver {
             ok = (reason.Trim() != "");
         }
         if (!ok) {
-            this._tc._diags.Error("E0490",
+            this._tc._diags.Error(DiagnosticCodes.ExpectRequiresLiteralReason,
                 "`Expect` needs exactly one argument and it must be a non-empty string literal "
                 + "saying why you believe this is not null (e.g. "
                 + "`Expect(\"LoadConfig filled _cache in the constructor\")`) — the reason is the "

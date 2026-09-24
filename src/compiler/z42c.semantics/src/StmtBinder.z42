@@ -81,7 +81,7 @@ public sealed class StmtBinder {
             // 只在**成员面可得**（类 / 接口）时报——型参、Unknown、Error 类型的成员面是 null，
             // 那些场合判据本就不足以断言「不可迭代」，保守放过（诊断宁可漏，不可误）。
             if (!feIsClassIter && !(ct0 is Z42ArrayType) && feM2 != null) {
-                this._tc._diags.Error("E0488",
+                this._tc._diags.Error(DiagnosticCodes.NotIterable,
                     "`" + ct0.Name() + "` is not iterable — `foreach` needs an array, an integer"
                     + " indexer plus a `Count`/`Length`, or a `GetEnumerator()`", fe.Span);
             }

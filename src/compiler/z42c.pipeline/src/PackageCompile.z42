@@ -208,7 +208,7 @@ public static class PackageCompile {
                 handlersLoadable = false;
                 // 用**字面量**发码（同 E0449–E0490 手法，见 bootstrap-seed.md）：新增 core 常量
                 // 会成为新的跨成员符号，撞 F2 冷启动 stale-cache。常量在 DiagnosticCodes.z42 登记备查。
-                genDiags.Error("E0493",
+                genDiags.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
                     "[analyzers] 声明的 handler zpkg 加载失败：" + e.Message
                     + "（indexed zpkg 必须连同它旁边的散装 .zbc 一起放进依赖目录；"
                     + "或改用 `--release` 构建 handler 工程得到单文件 packed zpkg）",
@@ -332,7 +332,7 @@ public static class PackageCompile {
                             UsingDecl uz = ucu.Decls[ud] as UsingDecl;
                             if (!PackageCompile._usingAcceptable(uz.Name, knownNs, knownN)) {
                                 DiagnosticBag ubag = new DiagnosticBag();
-                                ubag.Error("E0494", "命名空间 `" + uz.Name + "` 不存在（依赖的包里没有它，本包也没有声明它）"
+                                ubag.Error(DiagnosticCodes.UnknownNamespace, "命名空间 `" + uz.Name + "` 不存在（依赖的包里没有它，本包也没有声明它）"
                                     + "；检查拼写，或补上提供它的 [dependencies]", uz.Span);
                                 PackageCompile._mergeDiags(cms[ci2], ubag);
                             }
@@ -493,7 +493,7 @@ public static class PackageCompile {
         } catch (Exception e) {
             if (cms.Length > 0) {
                 DiagnosticBag lbag = new DiagnosticBag();
-                lbag.Error("E0493", "[analyzers] 声明的 handler zpkg 加载失败：" + e.Message,
+                lbag.Error(DiagnosticCodes.HandlerZpkgLoadFailed, "[analyzers] 声明的 handler zpkg 加载失败：" + e.Message,
                            new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
                 PackageCompile._mergeDiags(cms[0], lbag);
             }

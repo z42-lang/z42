@@ -130,7 +130,7 @@ public static class ModuleInitScan {
         while (i < count) {
             Span sp = ModuleInitScan._anySiteSpan(cus[i]);
             if (sp != null) {
-                diags.Error("E0487",
+                diags.Error(DiagnosticCodes.ModuleInitInExePackage,
                     "可执行包（kind = \"exe\"）不支持 `[ModuleInit]` —— 包初始化器在 `Main` 之前执行，"
                     + "失败时没有任何代码能捕获它。把这段初始化写进 `Main` 的第一行"
                     + "（那里失败可以 try/catch）。库包（kind = \"lib\"）不受此限。", sp);
@@ -237,11 +237,11 @@ public static class ModuleInitScan {
     private static bool _report(AttributedDecl ad, bool isClassMember, bool seen, string firstAt,
                                 DiagnosticBag diags) {
         if (!ModuleInitScan.IsLegalTarget(ad.Inner, isClassMember)) {
-            diags.Error("E0486", ModuleInitScan.WhyIllegal(ad.Inner, isClassMember), ad.Span);
+            diags.Error(DiagnosticCodes.ModuleInitBadTarget, ModuleInitScan.WhyIllegal(ad.Inner, isClassMember), ad.Span);
             return false;
         }
         if (seen) {
-            diags.Error("E0485",
+            diags.Error(DiagnosticCodes.ModuleInitDuplicate,
                 "一个包至多一个 `[ModuleInit]`；第一处在 " + firstAt
                 + "。多处装配请写在同一个方法里 —— 那样顺序是显式的。", ad.Span);
             return false;
