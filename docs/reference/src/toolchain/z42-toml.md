@@ -889,6 +889,60 @@ artifacts/build/libraries/<lib>/<profile>/
 
 ---
 
+## L5c — `[analyzers]` / `[lints]`：编译期扩展与诊断开关
+
+完整用法（怎么写一个 analyzer、契约长什么样、`--fix` / `#suppress`）见
+[编译期扩展（Analyzer / Generator）](compile-time-extensions.md)。本节只列**清单字段**。
+
+### `[analyzers]` —— 加载进编译器、编译期运行、**不链入产物**
+
+```toml
+[analyzers]
+"demo.noemptycatch" = "0.1.0"
+```
+
+值的写法与 `[dependencies]` 相同（版本串），**语义不同**：
+
+| | `[dependencies]` | `[analyzers]` |
+|---|---|---|
+| 何时用 | 编译目标代码时解析符号 | 加载进编译器、编译期执行 |
+| 进不进产物 | 进 | **不进** |
+| `path = "..."` | 支持，z42c 代建整个闭包 | **不支持** —— 写了会被明确拒绝（`z42c build:` 用法错误，非诊断码），需先单独 build 该工程，再把 `<name>.zpkg` 放进依赖目录 |
+
+同一个段**覆盖 analyzer 与 generator 两类**：z42c 从列出的每个 zpkg 里同时寻找
+`: Analyzer` / `: Generator` / `: ModuleGenerator`。
+
+> ⚠️ 开发态构建产出的是 indexed zpkg（主文件 + 旁边散装 `.zbc`）。只拷主文件过去，加载时报
+> **E0493**；连 `.zbc` 一起拷，或用 `--release` 得到单文件 packed zpkg。
+
+### `[lints]` —— 逐规则 severity 覆盖
+
+```toml
+[lints]
+DEMO001            = "error"     # warning → error：编译失败、不产产物
+"webgen.*"         = "none"      # 支持通配前缀
+warnings-as-errors = true        # 特殊布尔键（不是规则名）
+```
+
+键是规则 ID，值是 severity 串。**精确 ID 优先于 `pkg.*` 前缀通配**。
+`warnings-as-errors` 是**保留的布尔键**，不当规则名解析。
+`DiagRule.EnabledByDefault` 为 `false` 的规则默认不报，要在这里显式打开。
+
+接受的 severity 串只有五个：
+
+| 值 | 含义 |
+|---|---|
+| `"none"` | 抑制，不报 |
+| `"hidden"` | 不显示，仅供 `--fix` 消费 |
+| `"info"` | 建议 |
+| `"warning"` | 警告 |
+| `"error"` | 编译失败、不产产物 |
+
+> ⚠️ **写错的 severity 串不报错，会被静默当成「无覆盖」**（`LintConfig._parseSevToken` 未知
+> 值返回 `NoOverride`，回落该规则的默认级别）。即 `DEMO001 = "eror"` 看起来配了、实际没配。
+
+---
+
 ## L6 — 工作区（Workspace）
 
 管理多工程 monorepo，统一构建、版本与共享元数据。
@@ -1420,6 +1474,13 @@ mode        = "interp"          # 全局默认执行模式
 # "pkg-name" = "*"              # zpkg 包名（匹配 zpkg manifest 的 [project] name）
 # "pkg-name" = "1.2.0"         # 版本约束（目前仅做存在性校验）
 # stdlib 无需声明，由 VM 自动加载
+
+[analyzers]                      # 编译期扩展 zpkg（analyzer / generator）；加载进编译器、不链入产物
+"demo.noemptycatch" = "0.1.0"   # 值同 [dependencies]，但**不支持 path**
+
+[lints]                          # 逐规则 severity 覆盖：none|hidden|info|warning|error
+DEMO001            = "error"    # 精确 ID 优先于 `pkg.*` 通配；写错的串被静默忽略
+warnings-as-errors = true       # 保留布尔键，不当规则名解析
 
 [profile.debug]
 mode     = "interp"
