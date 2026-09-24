@@ -38,6 +38,12 @@ public sealed class IrGenMemberEmitter {
         // （实测：报 `static ctor C.$cctor not found`）。
         string emitKey = methKey;
         if (md.IsCtor && IrGenFacts._hasWord(md.Mods, "static")) { emitKey = IrStaticCtor.MethodKey; }
+        // add-iface-return-bridge：实现了接口成员、但返回 **blob struct** 而接口声明返回引用型 ⇒
+        // 两侧 ABI 不一致（sret 多一个隐藏物理参）。让**桥接**占裸名 vtable 槽（接口派发按方法名
+        // 索引，见 CallEmitter「VCall 按 vtable slot(方法名)派发」），具体实现挪到 `<m>$struct`。
+        // 直接调用点无需改：它们发的就是这个发射名。同 L1 先例——**只改发射名，methKey 不动**。
+        string bridgeRet = this._ifaceBridgeRet(owner, methKey, md);
+        if (bridgeRet != "") { emitKey = methKey + "$struct"; }
         string irName = this._irOwner(c) + "." + emitKey;   // IR/包内名（FQ，arity-mangle 时 Name$N；特化时为实例化名）
         if (md.HasBody) {              // G11：ctor 也发 `<qualClass>.<Class>` 函数（md.Name=类名，ret void，实例）
             string key = ownerKey + "." + methKey;    // SemanticModel 键（arity-mangle 时 ownerKey=Name$N）
@@ -53,6 +59,16 @@ public sealed class IrGenMemberEmitter {
                 irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
                 IrGenFacts._fillParamMeta(irf, md, isInstance);       // add-param-metadata
                 this._out.AddFunc(irf);
+                // add-iface-return-bridge：具体实现已挪到 `<m>$struct`（irName），裸名槽腾出来了 ⇒
+                // 合成桥接补上它，否则接口派发找不到该方法（把「arity 失配」换成「方法不存在」，
+                // 半个修复比不修更坏）。
+                if (bridgeRet != "") {
+                    MethodSymbol bms = owner.Methods.Get(methKey) as MethodSymbol;
+                    var bsyn = new IfaceBridgeSynth(model.Symbols, g);
+                    IrFunction bridge = bsyn.EmitBridge(this._irOwner(c) + "." + methKey, irName,
+                                                        bms.Signature.Ret.Name(), bridgeRet, owner);
+                    this._out.AddFunc(bridge);
+                }
             }
         } else if (IrGenFacts._hasWord(md.Mods, "extern")) {
             // legacy [Native("__name")] extern → 发 builtin 桩函数（镜像 C# EmitNativeStub）。
@@ -206,5 +222,27 @@ public sealed class IrGenMemberEmitter {
                 this._out.AddFunc(setIrf);
             }
         }
+    }
+
+    // add-iface-return-bridge：本方法要不要桥接 ⇒ 返回接口声明的返回类型名；否则 ""。
+    //
+    // 两道判据缺一不可：
+    //   ① **符号层标记**（`InheritanceResolver` 打的 `IfaceBridgeRet`）—— 说明它确实实现了某个
+    //      接口成员、且实现返回值类型而接口声明返回引用型；
+    //   ② **发射层 blob 判定**（`Layouts.IsBlobStruct`）—— 只有 blob struct 才走 sret、才有 ABI 差。
+    //      标量 repr 的 struct（展平叶子 < 2）是自描述 Value，经接口返回今天本来就对
+    //      （实测 `V=70 / Tag=One / is IThing=true`），**桥接它反而是回归**。
+    // 判据分两层正是因为 ①在继承解析期就知道、而②要等布局算得出来。
+    private string _ifaceBridgeRet(Z42ClassType owner, string methKey, MethodDecl md) {
+        if (owner == null || md.IsCtor) { return ""; }
+        if (!owner.Methods.ContainsKey(methKey)) { return ""; }
+        MethodSymbol ms = owner.Methods.Get(methKey) as MethodSymbol;
+        if (ms == null || ms.IfaceBridgeRet == "") { return ""; }
+        if (ms.Signature == null || ms.Signature.Ret == null) { return ""; }
+        // ③ 布局名算得出来才动手——`CanBridge` 兼了 blob 判定与「能否可靠算出 blob 名/尺寸」。
+        // 算不出（泛型实例化返回类型）就**整条不改名不合成**，保持现状而不是发错布局名的桥接。
+        var bs = new IfaceBridgeSynth(this._model.Symbols, this._g);
+        if (!bs.CanBridge(ms.Signature.Ret)) { return ""; }
+        return ms.IfaceBridgeRet;
     }
 }

@@ -1,0 +1,104 @@
+// 接口返回位的 struct 协变桥接（add-iface-return-bridge）。
+//
+// 问题：接口满足性允许「实现返回具体 struct / 接口声明返回引用型」的协变，但两侧**调用约定**
+// 不一致 —— blob struct 走 sret（物理签名末尾多一个隐藏返回槽），而接口调用点按引用返回发码、
+// 不传该槽。结果是**编译期零诊断、运行期** `takes 2 physical argument(s), the call passes 1`
+// （`symres.rs` 那道 arity 门，`fix-call-arity-skew` 刻意建的——它是对的，错在编译期放行）。
+//
+// 落法（形状 A′）：让**桥接占裸名 vtable 槽**（接口派发按方法名索引，见 CallEmitter
+// 「VCall 按 vtable slot(方法名)派发」），具体实现挪到 `<m>$struct`：
+//
+//     fn @C.m(this) -> <接口声明的返回类型>     ← 桥接（无 sret），接口派发命中它
+//         sret = struct_alloc <RetStruct>
+//         call @C.m$struct(this, sret)          ← 具体实现（有 sret）
+//         ret __box_struct(sret)
+//     fn @C.m$struct(this, sret) -> <RetStruct> ← 直接调用点命中它（无装箱快路径不变）
+//
+// 为什么不改 VM、不改 wire：`RegKey`/发射名就是派发键的单一真相，而直接调用在类收者上也发
+// VCall 裸名 ⇒ 改名纯粹是编译器内部的事。装箱只发生在接口边界，那里本来就必须装箱。
+namespace Z42.Semantics;
+
+using Z42.IR;
+using Z42.Core;
+
+public sealed class IfaceBridgeSynth {
+    private SymbolTable _symbols;
+    private IrGen       _gen;
+    private EmitContext _ctx;
+    public IfaceBridgeSynth(SymbolTable symbols, IrGen gen) { this._symbols = symbols; this._gen = gen; }
+
+    // 这个返回类型能不能算出可靠的 blob 布局名。
+    //
+    // 只接受**非实例化**的 blob struct：实例化返回类型（`ListEnumerator<T>`）的布局名要走
+    // `ExprEmitter._instLayoutName` / 特化通道（`SpecInstName`/`SpecOwnerName`）那套推导，
+    // 手抄第二份必漂（`ClassDescBuilder` 那条「不另拼一份」的教训）。算不出就**不合成**——
+    // 保持现状（运行期 arity 门拦住）而不是发一个布局名错的桥接：错布局名会读到别处的字节，
+    // 那是比崩溃更坏的静默错值。泛型档见 tasks 阶段 4。
+    public bool CanBridge(Z42Type retType) {
+        if (retType == null) { return false; }
+        if (retType is Z42InstantiatedType) { return false; }   // 泛型档未支持（见抬头）
+        if (!(retType is Z42ClassType)) { return false; }
+        if (this._gen.Layouts == null) { return false; }
+        string n = retType.Name();
+        if (!this._gen.Layouts.IsBlobStruct(n)) { return false; }
+        return this._gen.Layouts.StructSize(n) > 0;
+    }
+
+    // 合成桥接：`fnName` = 裸名 FQ（`@C.m`），`concreteFq` = 具体实现 FQ（`@C.m$struct`）。
+    // `retStructName` = 被返回的 blob struct 名；`ifaceRetName` = 接口声明的返回类型名（桥接签名）。
+    public IrFunction EmitBridge(string fnName, string concreteFq, string retStructName,
+                                 string ifaceRetName, Z42ClassType owner) {
+        this._initCtx(fnName);
+        TypedReg self = new TypedReg(0, IrType.Ref);
+        // 预留返回 blob（与 CallEmitter 的 sret 发射序一致：struct_alloc 后作末尾隐藏实参）
+        int rsz = this._gen.Layouts.StructSize(retStructName);
+        TypedReg sretH = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new StructAllocInstr(sretH, this._ctx.QualifyClass(retStructName), rsz));
+        // 调具体实现：(this, sret)，返回 void（值经 sret 槽回传）
+        TypedReg callDst = this._ctx.Alloc(IrType.Void);
+        TypedReg[] args = new TypedReg[2];
+        args[0] = self; args[1] = sretH;
+        this._ctx.Emit(new CallInstr(callDst, concreteFq, args, 2));
+        // 装箱成引用：接口槽位放的是引用，blob 字节本身塞不进去。`__box_struct` 已是既有通道
+        // （`CallEmitter` 装箱 struct receiver 用的同一个）。
+        TypedReg boxed = this._ctx.Alloc(IrType.Ref);
+        TypedReg[] bargs = new TypedReg[1];
+        bargs[0] = sretH;
+        this._ctx.Emit(new BuiltinInstr(boxed, "__box_struct", bargs, 1));
+        this._ctx.EndBlock(new RetTerm(true, boxed));
+        string[] pt = new string[1];
+        pt[0] = owner.Name();
+        return this._finish(fnName, 1, ifaceRetName, pt);
+    }
+
+    // ── 下面两个与 RecordSynthEmitter 的同名私有方法同形（合成 IR 函数的既有样板）──
+
+    private void _initCtx(string fnName) {
+        this._ctx = new EmitContext(this._symbols, this._gen);
+        this._ctx.Ns = this._gen.Ns;
+        this._ctx.Deps = this._gen.Deps;
+        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
+        this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;
+        this._ctx.LocalClasses = this._gen.LocalClasses;
+        this._ctx.CurFnName = fnName;
+        this._ctx.RecordReg(0, IrType.Ref);   // arg0 = this
+        this._ctx.NextReg = 1;
+        this._ctx.MaxReg = 1;
+        this._ctx.StartBlock("entry");   // 漏了这句 ⇒ `Blocks` 为 null，第一条 Emit 就 FieldGet Null
+    }
+
+    private IrFunction _finish(string name, int totalParams, string retName, string[] paramTypes) {
+        int[] regTypes = new int[this._ctx.RegTagCount];
+        int rt = 0;
+        while (rt < this._ctx.RegTagCount) { regTypes[rt] = this._ctx.RegTags[rt]; rt = rt + 1; }
+        this._gen._mergeUsedNsPub(this._ctx);
+        IrLineEntry[] lines = new IrLineEntry[0];
+        IrLocalVarEntry[] localVars = new IrLocalVarEntry[0];
+        IrFunction irf = new IrFunction(name, totalParams, retName, false,
+                              this._ctx.Blocks, this._ctx.BlockCount, this._ctx.MaxReg,
+                              "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
+                              lines, 0, localVars, 0);
+        irf.Visibility = 0;   // public：接口成员是 public 契约，桥接必须对外可见
+        return irf;
+    }
+}

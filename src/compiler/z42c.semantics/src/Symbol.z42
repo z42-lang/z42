@@ -30,6 +30,15 @@ public sealed class MethodSymbol {
                                               // ExportedMethodZ.TypeParams）。`TypeParamCount` 只够做 arity 过滤，
                                               // 而**按名代换**签名（`Sort<int>` 的 `Comparison<T>` → `Comparison<int>`）
                                               // 必须有名字——导入侧此前把这些名字读出来只当解析上下文用，没留在符号上。
+    public string      IfaceBridgeRet;        // add-iface-return-bridge：本方法实现了某接口成员，而**实现返回值类型
+                                              // （struct）、接口声明返回引用型** ⇒ 两侧 ABI 不一致（blob struct 走
+                                              // sret = 多一个隐藏物理参，而接口调用点按引用返回发码、不传该槽 ⇒
+                                              // 运行期 `takes N physical argument(s), the call passes N-1`）。
+                                              // 存**接口声明的返回类型名**，供 IrGen 合成桥接（桥接占裸名 vtable 槽、
+                                              // 返回该类型、内部调 `<m>$struct` 再 `__box_struct`）。"" = 无需桥接。
+                                              // ⚠️ 这只是**标记**：真要不要桥接由 IrGen 用 `_isBlobStruct` 再判一次
+                                              // —— 标量 repr 的 struct（展平叶子 < 2）是自描述 Value，经接口返回今天
+                                              // 本来就对（实测真读字段 + 二次虚派发 + `is` 均正确），绝不能动它。
     public MethodSymbol(string name, string visibility, Z42FuncType sig, bool isStatic,
                         string containingTypeName, bool hasDecl, MethodDecl decl) {
         this.Name = name; this.Visibility = visibility; this.Signature = sig; this.IsStatic = isStatic;
@@ -39,6 +48,7 @@ public sealed class MethodSymbol {
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0;
         this.TypeParamNames = new string[0];
+        this.IfaceBridgeRet = "";
     }
     // fix-explicit-type-arg-not-substituted：同一符号、换一条签名的浅拷贝。
     //
@@ -53,6 +63,7 @@ public sealed class MethodSymbol {
         c.IsSealed = this.IsSealed;
         c.IsDeprecated = this.IsDeprecated; c.DeprecationMsg = this.DeprecationMsg;
         c.TypeParamCount = this.TypeParamCount; c.TypeParamNames = this.TypeParamNames;
+        c.IfaceBridgeRet = this.IfaceBridgeRet;
         return c;
     }
     public string Dump() { return "(method " + this.Name + " " + this.Signature.Dump() + ")"; }
