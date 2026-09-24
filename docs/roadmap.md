@@ -426,7 +426,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | ref local / return / field / struct | parameter-modifiers D1-D4 | [language/parameter-modifiers.md](reference/src/language/parameter-modifiers.md) |
 | StackTrace / 构造器重载 / 字段 ? 标注 / self-assign | exceptions Phase 1 限制 | [language/exceptions.md](reference/src/language/exceptions.md) |
 | Layer 3 用户定义 operator/keyword | customization 第三层 | [language/customization.md](internals/src/compiler/syntax-customization.md) |
-| 元编程 / 编译期代码生成 | 同语言宏（VM 编译期执行 + 类型化 AST + quote/splice）；分层 derive→模板宏→变换宏；先做 derive（复用反射）| [language/metaprogramming.md](internals/src/compiler/metaprogramming.md#deferred--分期诚实这是语言里最难的几件事之一) |
+| 元编程 / 宏（quote·splice·derive）| 同语言宏（VM 编译期执行 + 类型化 AST + quote/splice）；分层 derive→模板宏→变换宏；先做 derive（复用反射）。⚠️ 另一条**编译期代码生成**的路 —— Analyzer / Generator（`[analyzers]`）—— **已发布**，不在本行范围内，见 [toolchain/compile-time-extensions.md](reference/src/toolchain/compile-time-extensions.md) | [language/metaprogramming.md](internals/src/compiler/metaprogramming.md#deferred--分期诚实这是语言里最难的几件事之一) |
 | foreach IEnumerator 路径 | 升级为接口 dispatch（当前仅鸭子协议）| [language/iteration.md](reference/src/language/iteration.md) |
 | 自定义 body / init-only / expression-bodied property | properties 未支持子集 | [language/properties.md](reference/src/language/properties-indexers.md) |
 | `Type : MemberInfo` 层级对齐 | 统一 Type 不拆 TypeInfo（2026-06-09 已定）；但 Type 当前非 MemberInfo 子类、不在 Std.Reflection——对齐留待嵌套类型反射 / 自举镜像时 | [language/reflection.md](reference/src/stdlib/reflection.md) |

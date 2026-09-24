@@ -1,7 +1,7 @@
 # 语法定制：三层配置机制
 
 > **页型**: 决策页 ｜ **状态**: 📋 **设计已定 / 未实施** ｜ **代码**: `src/libraries/z42c.core/src/LanguageFeatures.z42`（全仓唯一实现物，且无调用方）
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [元编程 / 编译期代码生成](metaprogramming.md) · [脚本化 charter（未实施）](scripting-charter.md) ｜ **对齐**: 2026-09-17
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [元编程 / 宏](metaprogramming.md) · [脚本化 charter（未实施）](scripting-charter.md) ｜ **对齐**: 2026-09-17
 
 > **状态：设计已定 / 未实施。** 现状只有第 1 层的**数据结构**，第 1 层的**配置来源**、第 2 层、第 3 层全都没有：
 >
@@ -388,4 +388,4 @@ z42 的差异点是**在解析期完成门控**：同一个编译器二进制可
 - **ABI 版本锁** —— 冻结结构体布局，防止二进制破坏；
 - **语言 profile** —— 预置组合（`safe` / `performance` / `embedded`），避免每个项目手写一长串 `[syntax]`。
 
-语法层定制与**元编程**（`[derive(...)]`、编译期代码生成）是正交的两件事：本页管"能写出什么形状的源码"，[元编程 / 编译期代码生成](metaprogramming.md) 管"已合法的源码如何自动展开出更多代码"。两者都在 Parse/Bind 阶段收敛，都不改动 IR。
+语法层定制与**元编程**（`[derive(...)]` 宏，未实施）是正交的两件事：本页管"能写出什么形状的源码"，[元编程 / 宏](metaprogramming.md) 管"已合法的源码如何自动展开出更多代码"。两者都在 Parse/Bind 阶段收敛，都不改动 IR。

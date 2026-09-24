@@ -1,6 +1,17 @@
-# 元编程 / 编译期代码生成
+# 元编程 / 宏：quote·splice·derive
 
-> ⚠️ **前瞻设计底稿（未实施，L3+）**。本文沉淀"为什么这样设计 + 分期"，落地各档各自开 spec。
+> ⚠️ **前瞻设计底稿（未实施，L3+）**。本文只讲**宏**这一条路——`quote`/`splice` 准引用 +
+> `[derive(...)]` 三层分档，**一行都还没实施**；落地各档各自开 spec。
+>
+> 🔶 **别把本页读成"z42 没有编译期代码生成"**。另有一条**已经发布**的路：
+> **Analyzer / Generator**——消费方工程用 `[analyzers]` 段把你的 zpkg 加载进编译器，
+> generator 在 bind 之后经 `AddSource` / `Augment` / `Replace` 三个 sink 产码并重新 bind。
+> 见 [编译期扩展：Analyzer 与 Generator](../../../reference/src/toolchain/compile-time-extensions.md)。
+> 两者不是同一件事的两种实现：Generator 是**写一个编译器插件**（单独一个包、看得见整个编译），
+> 本页的宏是**在声明旁边标一行**（零样板、只看被标注处）。引擎侧的实现落点见
+> [`src/compiler/z42c.semantics/README.md`](../../../../src/compiler/z42c.semantics/README.md)
+> 的 `AnalyzerDriver` / `GeneratorDriver` 两行。
+>
 > 相关：[reflection.md](../../../reference/src/stdlib/reflection.md)（共用语义 API）、[syntax-customization.md](syntax-customization.md)（语法层定制，正交）。
 > 受众友好：没接触过 Rust 宏 / C# Source Generator 也能读，先看「概念扫盲」。
 
