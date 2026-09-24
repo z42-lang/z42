@@ -1,0 +1,79 @@
+// complete-generic-instantiation S1 e2e：**操作实例化的泛型体**必须按实例化布局编译。
+//
+// #774 让实例化**类型**拿到了自己的布局，却没管**操作它的泛型代码**——后者只编一份、
+// 按**擦除布局**烘焙字节偏移。同一批字节两种理解 ⇒ **静默错值**（不是崩）。
+//
+// 修前（实测，且用 main 的编译器复验同样如此）：
+//   ReadSecond<T> 的全部 IR = `%1 = struct_fget_prim %0 @8; ret %1`
+//   擦除布局下 Item2 在 @8；`Loc<P2,int>` 的实例化布局里 Item2 在 @16，而 @8 是 P2.Y。
+//   ⇒ ReadSecond<P2>(t) 读出 2（P2.Y），应为 7。
+//
+// 纯 Assert（无 expected 文件 = 空 stdout）。**jit 双验必做**（struct blob 读写路径）。
+namespace Demo;
+
+using Std;
+
+struct P2 {
+    public int X;
+    public long Y;
+    public P2(int x, long y) { this.X = x; this.Y = y; }
+}
+
+[Record] struct Loc<A, B>(A Item1, B Item2);
+
+// ── 形态 ①：泛型**自由函数**读实例化的字段 ────────────────────────────────
+int ReadSecond<T>(Loc<T, int> p) { return p.Item2; }
+
+// ── 形态 ②：泛型自由函数读**嵌套**实例化（闭包必须传递到内层）────────────
+long ReadInnerY<T>(Loc<Loc<T, int>, int> p) { return p.Item1.Item2; }
+
+// ── 形态 ③：泛型体内**构造**一个实例化再读回（构造与读取必须同布局）──────
+int RoundTrip<T>(T first, int second) {
+    Loc<T, int> tmp = new Loc<T, int>(first, second);
+    return tmp.Item2;
+}
+
+// ── 形态 ⑤：类上的**静态**泛型方法（同样走直接调用，同样要特化）──────────
+class Helper {
+    public static int ReadSecondS<T>(Loc<T, int> p) { return p.Item2; }
+    public static long InnerY<T>(Loc<Loc<T, int>, int> p) { return p.Item1.Item2; }
+}
+
+// ── 形态 ④：泛型体**写**进实例化的字段后读回 ─────────────────────────────
+int WriteThenRead<T>(Loc<T, int> p, int v) {
+    p.Item2 = v;            // 副本上写（值语义），随即读回同一位置
+    return p.Item2;
+}
+
+void Main() {
+    P2 a = new P2(1, 2L);
+    Loc<P2, int> t = new Loc<P2, int>(a, 7);
+
+    // 直接访问（#774 已修）—— 作为基线，证明实例化布局这一侧是对的
+    Assert.Equal(7, t.Item2);
+    Assert.Equal(2L, t.Item1.Y);
+
+    // ① 经泛型体读：今天读出 2（擦除布局的 @8 = P2.Y）
+    Assert.Equal(7, ReadSecond<P2>(t));
+
+    // ② 嵌套：内层 Loc<P2,int> 的 Item2
+    Loc<Loc<P2, int>, int> outer = new Loc<Loc<P2, int>, int>(t, 9);
+    Assert.Equal(7L, ReadInnerY<P2>(outer));
+    Assert.Equal(9, outer.Item2);
+
+    // ③ 泛型体内构造再读回
+    Assert.Equal(42, RoundTrip<P2>(a, 42));
+
+    // ④ 泛型体内写后读
+    Assert.Equal(55, WriteThenRead<P2>(t, 55));
+    Assert.Equal(7, t.Item2);            // 值语义：callee 改的是自己的副本
+
+    // ⑤ 静态泛型方法
+    Assert.Equal(7, Helper.ReadSecondS<P2>(t));
+    Assert.Equal(7L, Helper.InnerY<P2>(outer));
+
+    // ── 阴性对照：实参不改变布局时，泛型体与直接访问本来就一致 ──────────────
+    Loc<string, int> s = new Loc<string, int>("hi", 5);
+    Assert.Equal(5, s.Item2);
+    Assert.Equal(5, ReadSecond<string>(s));
+}

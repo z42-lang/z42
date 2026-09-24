@@ -299,9 +299,52 @@ public sealed class CallEmitter {
         } else {
             func = this._ctx.Qualify(c.MethodName);
         }
+        // complete-generic-instantiation S1：本包泛型自由函数 + 具体类型实参 ⇒ 改派**特化体**。
+        // 擦除体按擦除布局烘焙偏移，而实参是实例化形状 ⇒ 不改派就读错位置（静默错值）。
+        func = this._specializeGenericBody(func, c);
         // A-use：返回 blob 值 struct 走 sret（如 operator 脱糖的静态 struct 工厂 Vec2.op_Add）；否则普通 Call。
         // add-generic-methods：静态/自由泛型方法调用携方法类型实参（same-program 直呼的 e2e 主路径）。
         return this._emitCallSretAwareG(func, null, args, c.ArgCount, c.Type(), this._methodTypeArgNames(c), c.MethodTypeArgCount);
+    }
+
+    // complete-generic-instantiation S1：把对本包泛型体的调用改派到**按具体实参特化的体**，并登记工作项。
+    // 不该特化（非泛型 / 非本包 / 实参不全具体）时原样返回 `func`。
+    //
+    // 覆盖**自由函数**与类上的**静态**泛型方法（两者都走直接调用）。实例泛型方法走 `vcall` 按
+    // 简单名派发，改派要连 vtable 一起动，留给 S1-c。
+    //
+    // 特化名的拼法与 `IrGen.GenericFnInsts` 的注释一致：用 `:` 而非 `<…>` —— RegKey 本身就可能
+    // 含尖括号（`ReadSecondS$1$Loc<T,int>`），再套一层没法无歧义解析。
+    private string _specializeGenericBody(string func, BoundCall c) {
+        if (c.MethodTypeArgCount <= 0) { return func; }
+        IrGen g = this._ctx.Gen;
+        if (g == null || g.GenericBodies == null) { return func; }
+        // 体查找键：静态方法 = `OwnerKey.RegKey`；自由函数 = `RegKey`（= FQ 名去掉 ns 前缀）。
+        string lookup = "";
+        if (c.Kind == "static") {
+            int d1 = func.LastIndexOf(".");
+            if (d1 < 0) { return func; }
+            string ownerFq = func.Substring(0, d1);
+            string mkey = func.Substring(d1 + 1, func.Length - d1 - 1);
+            int d2 = ownerFq.LastIndexOf(".");
+            string ownerBare = d2 < 0 ? ownerFq : ownerFq.Substring(d2 + 1, ownerFq.Length - d2 - 1);
+            lookup = ownerBare + "." + mkey;
+        } else {
+            int d3 = func.LastIndexOf(".");
+            lookup = d3 < 0 ? func : func.Substring(d3 + 1, func.Length - d3 - 1);
+        }
+        if (!g.GenericBodies.ContainsKey(lookup)) { return func; }
+        string spec = func;
+        int i = 0;
+        while (i < c.MethodTypeArgCount) {
+            if (!this._ee._isConcreteTypeArg(c.MethodTypeArgs[i])) { return func; }   // 伪实例化：留在擦除体
+            string an = this._ee._canonTypeName(c.MethodTypeArgs[i]);
+            if (an == "") { return func; }
+            spec = spec + ":" + an;
+            i = i + 1;
+        }
+        if (!g.GenericFnInsts.ContainsKey(spec)) { g.GenericFnInsts.Put(spec, new StrBox(lookup)); }
+        return spec;
     }
 
     // 依赖包里的静态方法 → FQ 调用目标（DepIndex）；不在依赖里（或无 DepIndex）→ ""。

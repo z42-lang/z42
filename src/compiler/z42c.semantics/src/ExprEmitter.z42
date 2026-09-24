@@ -600,9 +600,22 @@ public sealed class ExprEmitter {
     // 自我指代。给它建描述符 = 让包导出一个字面叫 `ListEnumerator<T>` 的类，污染导入侧类型表
     // ⇒ 消费方 `no method MoveNext on ListEnumerator<T>`（实测回归）。
     // 此前布局闸门恰好挡住了它（`T` 实参的布局与定义相同），解耦身份后必须显式排除。
-    private bool _isConcreteTypeArg(Z42Type a) {
+    // complete-generic-instantiation S1：型参在当前特化体的代换表里 → 它的具体规范名；否则 ""。
+    private string _substTypeParam(Z42Type a) {
+        if (!(a is Z42GenericParamType)) { return ""; }
+        StrMap m = this._ctx.Gen.SpecTypeArgs;
+        if (m == null) { return ""; }
+        string k = a.Name();
+        if (!m.ContainsKey(k)) { return ""; }
+        StrBox b = m.Get(k) as StrBox;
+        return b == null ? "" : b.Value;
+    }
+
+    internal bool _isConcreteTypeArg(Z42Type a) {
         if (a == null) { return false; }
-        if (a is Z42GenericParamType) { return false; }
+        // 已绑定到具体实参的型参**算具体**（否则特化体内的 `Loc<T,int>` 会被伪实例化闸门挡掉，
+        // 特化就退化成擦除体 —— 等于没特化）。
+        if (a is Z42GenericParamType) { return this._substTypeParam(a) != ""; }
         if (a is Z42InstantiatedType) {
             Z42InstantiatedType it = a as Z42InstantiatedType;
             int k = 0;
@@ -654,6 +667,11 @@ public sealed class ExprEmitter {
     // 编译器 / wire / 运行期三方同一串。
     internal string _canonTypeName(Z42Type a) {
         if (a == null) { return ""; }
+        // complete-generic-instantiation S1：特化体内，方法级型参按代换表解成具体名 ——
+        // 于是 `Loc<T,int>` 在 `T→P2` 下算出 `Loc<P2,int>`，布局查询自然落到实例化布局上。
+        // 这里与 `_isConcreteTypeArg` 是同一张表的两个消解点，二者必须同进退。
+        string sub0 = this._substTypeParam(a);
+        if (sub0 != "") { return sub0; }
         if (a is Z42InstantiatedType) {
             Z42InstantiatedType it = a as Z42InstantiatedType;
             if (it.Def == null || it.ArgCount <= 0) { return ""; }
