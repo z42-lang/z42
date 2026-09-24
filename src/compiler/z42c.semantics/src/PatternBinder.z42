@@ -210,7 +210,7 @@ public sealed class PatternBinder {
         Z42ClassType ct = null;
         if (subjType is Z42InstantiatedType) { inst = subjType as Z42InstantiatedType; ct = inst.Def; }
         else if (subjType is Z42ClassType) { ct = subjType as Z42ClassType; }
-        if (ct == null || !PatternBinder._isTupleType(ct.Name())) {
+        if (ct == null || !TypeFactsTc.IsTupleTypeName(ct.Name())) {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "tuple pattern requires a tuple-typed subject, got " + subjType.Name(), tp.Span);
             return new BoundWildcardPattern(tp.Span);
         }
@@ -236,8 +236,10 @@ public sealed class PatternBinder {
         return bpp;
     }
 
-    // 元组类型判定：合成 Std.ValueTupleN（短名/FQ 均含 "ValueTuple"）。
-    private static bool _isTupleType(string name) { return name.IndexOf("ValueTuple") >= 0; }
+    // 元组类型判定 → 唯一谓词 `TypeFactsTc.IsTupleTypeName`（整名精确匹配 ValueTuple2..8）。
+    // 此前这里是 `name.IndexOf("ValueTuple") >= 0`：**名字里含** ValueTuple 的用户类型也被当成
+    // 元组、拿去走 blob 偏移解构，而逐字段同形、只是名字正常的类型报 E0402 —— 能力按名字
+    // 子串分叉。判据搬到 TypeFactsTc 后与 `AssignTyper._isTupleCtor` 共用一份。
 
     // 位置模式（record 解构）：T 必须 record class 或 struct record；子模式数 == 声明序字段数；逐字段递归绑定。
     // 泛型 record（Box<int>）：resolve 成 Z42InstantiatedType → 解开 Def 走 record/arity 校验，字段类型经

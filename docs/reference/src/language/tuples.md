@@ -70,6 +70,22 @@ zbc / zpkg 里类型引用一律 intern 进字符串池（非封闭 tag enum）�
 **用短名 `ValueTupleN`（非 FQ `Std.ValueTupleN`）**：z42.core 是恒加载 prelude，其类型以裸短名注册进
 符号表，短名恒可解析；FQ 点分名反而不经 using 解析路径。
 
+### 什么算「元组类型」
+
+判据是**整名精确匹配** `ValueTupleN`（N ∈ 2..8，短名或带 `Std.` 前缀都认），对应 `z42.core` 里
+真实声明的那 7 个 `[Record] struct`。**自己的类型名里带 ValueTuple 不会让它变成元组**：
+
+```z42
+struct MyValueTupleBox { public int A; public int B; }
+void f(MyValueTupleBox b) {
+    switch (b) { case (x, y): ... }     // ✗ E0402：它不是元组，与任何普通类型一视同仁
+}
+```
+
+> 2026-09-24 之前判据是「名字里**含** ValueTuple」（子串匹配），于是上面这段**编译零诊断**、
+> 还真去按 blob 字节偏移解构；而逐字段完全同形、只是名字正常的 `PlainBox` 报 E0402 ——
+> 能力按名字子串分叉。位置解构本身对任意形状都成立，挡住它的一直只是这条名字检查。
+
 ### 元素类型从哪来
 
 元组字面量脱糖成 `new ValueTupleN<t0..tn>(e0..en)` 时，**类型实参是在脱糖处写出来的**

@@ -113,3 +113,37 @@ void test_generic_struct_destructure_defer_errors() {
         + " void f(SBox<int> b) { SBox<int>(v) = b; } void Main() { }";
     Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
 }
+
+// ── 元组模式的判据是「整名精确匹配 ValueTuple2..8」，不是名字含子串 ────────────
+// 修前 `PatternBinder._isTupleType` = `name.IndexOf("ValueTuple") >= 0` ⇒ **名字里含**
+// ValueTuple 的用户类型也被当成元组，拿去走 blob 偏移解构：实测 `MyValueTupleBox` 与逐字段
+// 同形的 `PlainBox` 只差一个名字，前者编译零诊断、后者报 E0402。能力按名字子串分叉（漏报）。
+//
+// ⭐ 阳性对照不在这里：本 harness 的独立 Infer 路径**不链 stdlib**，真 `ValueTupleN` 解析不到。
+// 真元组仍能解构由 `src/tests/tuples/` 的 e2e 语料盯着（`tuple_basic.z42` 的 `case (a, b, c)`
+// / `case (0, s)` / 嵌套 `case ((aa, bb), cc)` 等 5+ 处），那才是这条修改的阳性门。
+
+// 名字里**含** ValueTuple：修前零诊断（被当成元组），现在与普通类型一视同仁。
+[Test]
+void test_tuple_pattern_rejects_name_containing_valuetuple() {
+    string src = "namespace D; struct MyValueTupleBox { public int A; public int B; }"
+        + " void f(MyValueTupleBox b) { switch (b) { case (x, y): int s = x + y; } } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// 名字以 ValueTuple2 **开头**：修前 IndexOf 与 StartsWith 两种判据都会命中。
+[Test]
+void test_tuple_pattern_rejects_name_prefixed_valuetuple() {
+    string src = "namespace D; struct ValueTuple2Box { public int A; public int B; }"
+        + " void f(ValueTuple2Box b) { switch (b) { case (x, y): int s = x + y; } } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照：普通名字的同形 struct —— 修前修后都报错。单独看没有判别力，
+// 与上面两条并排才说明「现在三者一致」（修前是三者不一致）。
+[Test]
+void test_tuple_pattern_rejects_plain_named_struct() {
+    string src = "namespace D; struct PlainBox { public int A; public int B; }"
+        + " void f(PlainBox b) { switch (b) { case (x, y): int s = x + y; } } void Main() { }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
