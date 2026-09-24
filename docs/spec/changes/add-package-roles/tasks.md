@@ -9,7 +9,7 @@
 |----|------|:---:|------|
 | 0 | 断 scripting 对 `z42.ir` 的假依赖：`FormatVersion` → z42i | 否 | ✅ 完成 |
 | **1** | **`kind="analyzer"` + `compiler-libs/` 解析域** —— 让用户能写 generator | 否 | ✅ 完成 |
-| 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | 🟡 2.1–2.4 + 2.6 完成；**2.5 前提作废、待裁** |
+| 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | ✅ 完成（2.5 改为文档对齐；余一条小项另立）|
 | 2.5 | `role` 字段（support 先行 → 跨 nightly → publisher 读 role + 五包移出 `libs/`） | 否（**跨 nightly**）| ⬜ |
 | 2.6 | scripting 拆两包 + `IReplCompiler` 门面搬家 | 否 | ⬜ |
 | 3 | 大重命名：`std.*` 用户库 + `z42c.*` 编译器域 | 否（跨 nightly）| ⬜ |
@@ -164,14 +164,39 @@
       但 **`AnalyzerLoader` 在 `z42c.semantics`** ⇒ 给它加方法 = 新跨成员符号、卡一个 nightly。
       故 per-zpkg 归属做不成单 PR，本批用**聚合判定**（declared>0 且发现总数==0）+ 版本分流
       （纯 pipeline 内读字节，无新符号）。
-- [ ] ~~2.5 退休 `KnownTestOnlyDeps` 白名单~~ —— **前提不成立，待 User 裁决改写**。
-      该白名单与整个 `WS0xx` manifest-lint 家族住在 **C# 侧 `src/compiler/z42.Project/ManifestErrors.cs`**，
-      随 2026-06-26 删 C# bootstrap 编译器一起蒸发：全仓**零 WS0xx 发射点**（唯一命中是
-      `WorkspaceBuild.z42:136` 的一句注释）。
-      ⚠️ **两本参考书就此冲突**：`error-codes.md` 诚实标注 WS001–WS039「零发射点」且根本没列
-      WS012 / WS040–043；而 `z42-toml.md` 把 WS012/WS040–43 当**现行规则**写，还断言
-      「校验在 xtask 发现层做」+「`KnownTestOnlyDeps` 当前为 `{ "z42.test" }`」——一份已腐成假话的
-      第二真相（同 diagnostic-code-uniqueness 规则⑦的形状）。
+- [x] 2.5 ~~退休 `KnownTestOnlyDeps` 白名单~~ → **改为「文档与实际对齐」**（User 2026-09-25 裁：
+      按实际情况分析，有必要的推进修正、没必要的删描述）。
+
+      前提确实不成立：该白名单与 `WS0xx` 家族住在 C# 侧 `ManifestErrors.cs`，随 2026-06-26 删
+      C# bootstrap 编译器一起蒸发。**但「五条校验全没了」是我的误判** —— 逐条实测后：
+
+      | 文档声称的码 | 实测 |
+      |---|---|
+      | WS040 缺 `name` | ✅ 真会红：`[[test]] #1 missing required \`name\``（`_validateRunTargets`）|
+      | WS041 `harness=false` 缺 `entry` | ✅ 真会红：`[[test]] 'exit_ok' has harness=false but no \`entry\`` |
+      | WS042 同 kind 重名 | ✅ 真会红：`duplicate [[test]] name 'unit_ok'` |
+      | WS043 glob 无匹配 | ✅ 真会红，但**收尾姿势差**（见下） |
+      | WS012 test-only dep 泄漏 | ❌ 不存在 |
+
+      ⇒ **规则是真的、码是虚构的**：实现用构建工具的英文错误行，从不发 `WS0xx`。故处置不是
+      「补实现」也不是「全删」，而是**删掉码号、保留并写准规则**：`z42-toml.md` 的「错误码」节
+      改写为「清单校验（构建期，**不是诊断码**）」+ 实际文案 + 实现位置；`error-codes.md` 的
+      WSxxx 节加一段指路，讲清这几条与「整组未接线」的那批**不是一回事**。
+      同时删掉那句假话（「`KnownTestOnlyDeps` 当前为 `{ "z42.test" }`」）。
+
+      **WS012 连规则一起删**（不实现）：它靠按名字写死的 curated set + 一条 `.test.`/`.bench.`
+      infix 豁免才能工作，而 `z42.test` 是个普通运行期库、**无法自证**「只该在测试里出现」——
+      这类判据机制化不了，正是本程序要消灭的那种代理判据。dev-dependency 的正确表达是
+      `[tests.dependencies]`（三层合并已支持）。且真实包零触发 ⇒ 实现它等于再加一道永不变红的门。
+
+      ⭐ **实验设计翻车记**：第一次测 WS040 我删的是 `[[bench]]` 的 `name`，而 `test targets`
+      只看 test kind ⇒ rc=0，差点据此得出「WS040 没实现」。**绿也可能是实验没打到点上。**
+
+- [ ] 2.5-余项 **`[[test]]`/`[[bench]]` 的 glob 空匹配以未捕获异常收尾**（实测顺带挖出）：
+      z42b 已经说清了（`compile failed: no .z42 sources under <dir>`，带目标名），但最后打的是
+      `Error: uncaught exception: Std.Exception: compile failed` 而非一条干净的错误退出。
+      会红、信息也在，只是收尾姿势不对 —— 与 E0493 当年「加载失败穿出成 uncaught exception」同形状。
+      单独立项，不搭文档 PR 的车。
 - [x] 2.6 端到端验收（**真跑**，本仓库外的 `/tmp` 工程）：`kind="analyzer"` 的 generator 工程 +
       主工程 `[analyzers] = { path = "../gen" }` → z42c 代建 → generator 注入的 `E2eOut.O.V()`
       在主工程解析得到 → 产物跑起来打印 `42`；改 generator 源码 42→7 → 重建 → 打印 `7`。
