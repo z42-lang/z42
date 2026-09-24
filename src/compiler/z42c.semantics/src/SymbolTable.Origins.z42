@@ -202,6 +202,47 @@ public sealed partial class SymbolTable {
         return (at < 0) ? null : (this.ClassPkgAll.ValAt(at) as StrBox);
     }
 
+    // ── fix-crosspkg-ns-reachability：用了未声明的依赖包 → E0497 消息；否则 "" ──────────
+    //
+    // 🔴 **必须按「符号的归属包」判，不能按 `using` 判。** 实测：按「`using X` ⇒ X 的所有提供包
+    // 都要声明」扫全仓得 **299 条命中，其中约 250 条来自 `using Std;`** —— 有 11 个包都声明了
+    // `Std` 命名空间，而 `using Std;` 显然不意味着你用了 `z42.yaml`。按 using 判 = 250 个假阳性。
+    // 这里查的是 `ClassPkgAll`（FQN → 声明它的包），即**这个类型真正来自哪个包**。
+    //
+    // 三种不算「跨包依赖」的来源：本包自己（`SelfPkg`）、prelude（`z42.core`，隐式可用）、
+    // 已在 `[dependencies]` 里声明的包。
+    //
+    // ⚠️ `EnforceDeclaredDeps` 为假时恒返回 ""：单文件写不出 `[dependencies]`，而它的契约是
+    // 「整个标准库可用」；REPL / 单测 / 裸 emit 同理（它们没有 manifest 可依据）。
+    //
+    // ⚠️ 多来源（`box.Count >= 2`）由 `CrossPkgDuplicateMsg`（E0601）先报，那是更严重的问题
+    // （谁也选不了）⇒ 这里跳过，避免同一处叠两条。
+    public string UndeclaredDepMsg(string fqn) {
+        if (!this.EnforceDeclaredDeps) { return ""; }
+        StrBox box = this._pkgBoxOf(fqn);
+        if (box == null) { return ""; }          // 本包类型 / 未登记来源 → 不是跨包引用
+        if (box.Count >= 2) { return ""; }       // 同 FQN 多包：E0601 的地盘
+        string pkg = box.Value;
+        if (pkg == "") { return ""; }            // 空 = 本包声明的那份
+        if (pkg == this.SelfPkg) { return ""; }
+        // 🔴 **标准库（`z42.` 前缀）自动可用，不要求声明** —— 这是已归档的设计裁决
+        // `simplify-stdlib-auto-import`（2026-06-06，Rust-std 模型：`[dependencies]` 只写第三方）。
+        // ⚠️ 它配套的 WS013 lint（声明 `z42.*` 依赖 → 「冗余」警告）**已随 C# 编译器蠕发**
+        // （全仓 `grep WS013 src/` 为空），而 `z42-toml.md` 至今还写着它会警告 ——
+        // 同族于 E0407 / `FlowAnalyzer.cs` 那类「文档在、实现没了」。
+        // 本码对 stdlib 一律放行，否则就是把那条裁决反过来做。
+        if (pkg.StartsWith("z42.")) { return ""; }
+        if (this.DeclaredDeps.ContainsKey(pkg)) { return ""; }
+        // 每个缺失的包**只报一次**。不去重的话一个 `StringBuilder` 就能刷出八条
+        // （声明位 + 使用位 × 每个引用点），而用户要做的动作只有一个：加那一行依赖。
+        // ⚠️ 去重键是**包名**而非 FQN：同一个包里用了三个类也只需要加一行。
+        if (this._undeclaredSeen.ContainsKey(pkg)) { return ""; }
+        this._undeclaredSeen.Put(pkg, "1");
+        return "`" + fqn + "` comes from package `" + pkg
+             + "`, which this project does not declare — add it under `[dependencies]` in z42.toml:"
+             + "  \"" + pkg + "\" = \"*\"";
+    }
+
     private StrBox _nsBoxOf(string name) {
         int at = this.ClassNsAll.Find(name);
         return (at < 0) ? null : (this.ClassNsAll.ValAt(at) as StrBox);

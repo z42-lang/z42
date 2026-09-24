@@ -429,6 +429,10 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.HiddenPkgs = hiddenPkgs; cin.HiddenN = hiddenN;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;
+    // fix-crosspkg-ns-reachability：走到这里就是**真的读了一份 manifest**（`pm`）⇒ 执行依赖契约（E0497）。
+    // REPL / 单测 / 裸 emit 不经本函数，保持默认 false——它们没有「声明」可依据。
+    // 单文件同样走这里，但 launcher 已把 SDK libs 写进它的合成清单，故自然放行。
+    cin.EnforceDeclaredDeps = true;
     // attribute-handler-registry PR3a-load：`[analyzers]` 段声明的 handler zpkg → 加载进编译器、
     // 编译期运行、**不链入目标产物**（D9）。路径已在上方 `_resolveHandlerZpkgs` 一次解析完（名字条目
     // 走 libsDirs、path 条目已代建），此处只挂上去。z42c 自建无 [analyzers] → azPaths 为 null → 不进

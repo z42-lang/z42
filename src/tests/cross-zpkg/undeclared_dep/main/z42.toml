@@ -1,0 +1,12 @@
+# ⚠️ 刻意**不写** [dependencies]：本 fixture 钉的就是「包在 libs 里、却没被声明」。
+# cross-zpkg harness 的 _prepPkgLibs 会把 target 的 dist 拷进 main/libs，与声明与否无关，
+# 所以这正是 E0497 唯一能触发的形状（未声明的第三方包进不了解析域时先报 E0443）。
+[project]
+name    = "demo.undeclaredapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.UndeclaredApp.Main"
+pack    = true
+
+[sources]
+include = ["src/**/*.z42"]

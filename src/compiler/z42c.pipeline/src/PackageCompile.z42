@@ -50,6 +50,12 @@ public sealed class CompileInputs {
     public string[] LibsDirs; public int LibsDirsN;
     public string[] HiddenPkgs; public int HiddenN;   // workspace-read-cache：不可见包名（拓扑序在后的成员）；null/0 = 全可见
     public string[] DeclaredDeps; public int DepCount;
+    // fix-crosspkg-ns-reachability：是否对本次编译执行「用到的包必须声明」（E0497）。
+    // 默认 false：**没有 manifest 可依据**的路径（REPL / 单测 / 裸 emit / dump）不该报——
+    // 它们压根没有「声明」这回事。工程路径由 driver 显式打开。
+    // ⚠️ 单文件**不靠这个开关豁免**：launcher 把 SDK libs 里的包真的写进合成清单的
+    // `[dependencies]`（版本 `"*"`）——清单说的是真话，检查自然放行，不必再造一个「单文件」概念。
+    public bool EnforceDeclaredDeps;
     // scan-provider（perf-optimize-repl-eval ②，realize extract 延后的 scan-provider）：
     // 非 null → **跳过整个 DepScan.ScanDirs**，直接用传入的已建 DepScanResult。REPL 每轮复用缓存
     // 静态 scan（+ ExtendWithPackage 增量并入前轮 Vars）→ 消除 ~98% 的每轮开销。null = 现状（磁盘扫描）。
@@ -161,6 +167,11 @@ public static class PackageCompile {
             // 加载父包时按同包待遇（其 internal 可见）。普通包为 "" → 行为与此前逐字节一致。
             imported = ImportedSymbolLoader.Load(scan.Exported, scan.ExportedPkg, scan.ExportedCount,
                                                  allUsings, auc, inp.ParentPkg);
+            // fix-crosspkg-ns-reachability：依赖契约搭车进符号表（由 `SymbolCollector._mergeImports` 并入）。
+            imported.SelfPkg = inp.Name;
+            imported.EnforceDeclaredDeps = inp.EnforceDeclaredDeps;
+            int dd = 0;
+            while (dd < inp.DepCount) { imported.DeclaredDeps.Put(inp.DeclaredDeps[dd], "1"); dd = dd + 1; }
         }
 
         // ── attribute-handler-registry PR4a/4c：generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）──

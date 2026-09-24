@@ -71,6 +71,11 @@ public sealed class TypeChecker {
         if (emsg != "") { this._diags.Error(DiagnosticCodes.NamespaceCollision, emsg, sp); return; }
         string wmsg = symbols.ShadowedImportMsg(fqn);
         if (wmsg != "") { this._diags.Error(DiagnosticCodes.LocalTypeShadowsImport, wmsg, sp); }
+        // fix-crosspkg-ns-reachability：用了未声明的依赖包（E0497）——使用位这一半。
+        // 与上面两条同源（都读 `ClassPkgAll`），故共用这个 choke point。发射点用字面量，
+        // 理由见 `SymbolCollector._chkTypeRefPkg` 的同款注释。
+        string umsg = symbols.UndeclaredDepMsg(fqn);
+        if (umsg != "") { this._diags.Error("E0497", umsg, sp); }
     }
 
     // add-bare-name-ambiguity-diagnostic：源 TypeExpr 形态的歧义判定入口。
