@@ -9,6 +9,7 @@
 namespace Z42.Pipeline;
 
 using Std;
+using Std.IO;      // File（加载失败时读 handler zpkg 头做成因分流）
 using Z42.Core;       // DiagnosticBag / Diagnostic / DiagnosticSeverity（analyzer 诊断合入）
 using Z42.Syntax;
 using Z42.Semantics;
@@ -195,6 +196,9 @@ public static class PackageCompile {
         // `__load_module`，失败必然同时失败。下面 generator 侧先跑，失败即置 false，`_runAnalyzers`
         // 据此跳过，避免同一个根因报两遍。
         bool handlersLoadable = true;
+        // 从 `[analyzers]` zpkg 里**真发现**的 handler 数（不含 `[Forward]` 这类内建 generator、
+        // 也不含测试注入的实例）—— 零发现是一条静默洞，见下方 `_reportNoHandlers`。
+        int externHandlers = 0;
         if (inp.AnalyzerZpkgCount > 0) {
             // 🔴 加载失败必须是**诊断**，不是崩溃。`GeneratorLoader.Load` 里的 `__load_module` 对
             // 加载不了的 zpkg 直接抛（最常见：indexed zpkg 被单独拷走、散装 `.zbc` 没跟着，报
@@ -209,12 +213,11 @@ public static class PackageCompile {
                 // 用**字面量**发码（同 E0449–E0490 手法，见 bootstrap-seed.md）：新增 core 常量
                 // 会成为新的跨成员符号，撞 F2 冷启动 stale-cache。常量在 DiagnosticCodes.z42 登记备查。
                 genDiags.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
-                    "[analyzers] 声明的 handler zpkg 加载失败：" + e.Message
-                    + "（indexed zpkg 必须连同它旁边的散装 .zbc 一起放进依赖目录；"
-                    + "或改用 `--release` 构建 handler 工程得到单文件 packed zpkg）",
+                    PackageCompile._handlerLoadFailMessage(inp, e.Message),
                     new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
             }
             if (lg != null) {
+                externHandlers = externHandlers + lg.AppliedCount + lg.ModuleCount;
                 effGens = PackageCompile._concatGen(inp.Generators, inp.GeneratorCount, lg.Applied, lg.AppliedCount);
                 effGenCount = inp.GeneratorCount + lg.AppliedCount;
                 effMods = PackageCompile._concatMod(inp.ModuleGenerators, inp.ModuleGeneratorCount, lg.Modules, lg.ModuleCount);
@@ -282,7 +285,20 @@ public static class PackageCompile {
         // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
         // analyzer 报的 Error 级也能拦编译。
         if (inp.AnalyzerZpkgCount > 0 && handlersLoadable) {
-            PackageCompile._runAnalyzers(inp, cms);
+            externHandlers = externHandlers + PackageCompile._runAnalyzers(inp, cms);
+            // 🔴 **零发现此前是静默空转**：声明的 zpkg 加载成功、里面一个 `: Analyzer` /
+            // `: Generator` / `: ModuleGenerator` 都没有 ⇒ 两个 loader 各返回空数组 ⇒ 提前 return
+            // ⇒ **编译退出码 0、零诊断**，用户的扩展干脆不跑，而他有充分理由以为跑了。
+            // （实测：把一个零 handler 的普通库按名挂进 `[analyzers]` → 退出码 0、一句话都没有。）
+            // 两个成因都落在这里：挂错了包；或 handler 由**另一代编译器**编出、契约接口对不上
+            // ⇒ `as Generator` 全部返回 null ⇒ 同样是零发现（格式代差那条已由 strict-pin 在加载
+            // 时拦下、落 E0493，此处盖的是格式相同而接口形状不同的那半）。
+            if (externHandlers == 0 && cms.Length > 0) {
+                DiagnosticBag nbag = new DiagnosticBag();
+                nbag.Error("E0496", PackageCompile._noHandlersMessage(inp),
+                           new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
+                PackageCompile._mergeDiags(cms[0], nbag);
+            }
         }
 
         // PR4d：generation 增长了 srcCount/cus/files/cms（union 含 Augment 合并的 synthetic partial 碎片
@@ -484,7 +500,8 @@ public static class PackageCompile {
         return false;
     }
 
-    private static void _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
+    // 返回**发现的 analyzer 个数**（零发现判定要它；加载失败返回 0）。
+    private static int _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
         // 同 generator 侧：加载失败落 E0493 诊断，不让异常穿出成 uncaught。两处都要 —— 走到这里
         // 时 generator 侧可能已经成功（只含 analyzer 的 zpkg 发现 0 个 generator 也算成功返回）。
         Analyzer[] analyzers = null;
@@ -493,13 +510,14 @@ public static class PackageCompile {
         } catch (Exception e) {
             if (cms.Length > 0) {
                 DiagnosticBag lbag = new DiagnosticBag();
-                lbag.Error(DiagnosticCodes.HandlerZpkgLoadFailed, "[analyzers] 声明的 handler zpkg 加载失败：" + e.Message,
+                lbag.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
+                           PackageCompile._handlerLoadFailMessage(inp, e.Message),
                            new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
                 PackageCompile._mergeDiags(cms[0], lbag);
             }
-            return;
+            return 0;
         }
-        if (analyzers.Length == 0) { return; }
+        if (analyzers.Length == 0) { return 0; }
         int i = 0;
         while (i < inp.SrcCount) {
             CompilationUnit cu = inp.Cus[i];
@@ -512,6 +530,62 @@ public static class PackageCompile {
             }
             i = i + 1;
         }
+        return analyzers.Length;
+    }
+
+    // ── handler zpkg 的失败消息（add-package-roles 批 2）──────────────────────────────────
+    //
+    // 此前这条 E0493 **一口咬定成因**：「indexed zpkg 必须连同散装 .zbc 一起放进依赖目录；或改用
+    // `--release`」。那是最常见的成因，但不是唯一的：把 handler zpkg 的版本改一位（模拟由另一代
+    // 编译器编出）同样走到这里，而用户照那句提示去拷 `.zbc` 做的是完全无关的事 —— 一条**指向错误
+    // 方向的诊断**，比不解释更费时间。故先读 zpkg 头的版本做成因分流，对不上就换一句话说。
+    private static string _handlerLoadFailMessage(CompileInputs inp, string inner) {
+        string skew = PackageCompile._versionSkewNote(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
+        if (skew.Length > 0) {
+            return "[analyzers] 声明的 handler zpkg 加载失败：" + inner + skew;
+        }
+        return "[analyzers] 声明的 handler zpkg 加载失败：" + inner
+            + "（indexed zpkg 必须连同它旁边的散装 .zbc 一起放进依赖目录；"
+            + "或改用 `--release` 构建 handler 工程得到单文件 packed zpkg）";
+    }
+
+    // 声明的 zpkg 里有没有版本对不上本编译器的；有则返回一句可读的说明，没有返回 ""。
+    // zpkg 头（`ZpkgWriterZ._assemble`）：`"ZPK"` + u8(0) + u16 major(off 4) + u16 minor(off 6)。
+    // 只在**已经失败**的路径上调用 ⇒ 读整个文件的开销不在任何热路径上。
+    private static string _versionSkewNote(string[] paths, int count) {
+        string note = "";
+        int i = 0;
+        while (i < count) {
+            string p = paths[i];
+            i = i + 1;
+            byte[] d = null;
+            try { d = File.ReadAllBytes(p); } catch (Exception e) { d = null; }
+            if (d == null || d.Length < 8) { continue; }
+            int maj = ((int)d[4]) | (((int)d[5]) << 8);
+            int min = ((int)d[6]) | (((int)d[7]) << 8);
+            if (maj != ZpkgWriterZ.Major || min != ZpkgWriterZ.Minor) {
+                note = note + "。`" + p + "` 是 zpkg " + maj.ToString() + "." + min.ToString()
+                     + " 格式，而本编译器只认 " + ZpkgWriterZ.Major.ToString() + "."
+                     + ZpkgWriterZ.Minor.ToString()
+                     + " —— 它由**另一代编译器**编出，用当前工具链重建该 handler 工程";
+            }
+        }
+        return note;
+    }
+
+    // 零发现的消息：把「声明了哪些」摆出来，再给两条成因与各自的处置。
+    private static string _noHandlersMessage(CompileInputs inp) {
+        string list = "";
+        int i = 0;
+        while (i < inp.AnalyzerZpkgCount) {
+            list = list + (i > 0 ? "、" : "") + "`" + inp.AnalyzerZpkgs[i] + "`";
+            i = i + 1;
+        }
+        return "[analyzers] 声明的 handler zpkg 里没有发现任何 analyzer / generator："
+            + list + "。加载是成功的，但其中不含实现 `Analyzer` / `Generator` / `ModuleGenerator` 的类型"
+            + " —— 要么挂错了包（这个 zpkg 是普通库），要么它由另一代编译器编出、契约接口对不上；"
+            + "后者用当前工具链重建该 handler 工程即可。"
+            + "（此前这种情形**零诊断**：扩展不跑，而编译照常成功。）";
     }
 
     // 把 analyzer 诊断 append 进 CompiledModuleZ（格式镜像 IrDump BuildModule*）。仅 Error 级增 ErrorCount

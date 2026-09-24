@@ -701,3 +701,63 @@ void test_known_namespace_using_is_clean() {
     CompileArtifacts art = PackageCompile.Compile(cin);
     Assert.Equal(0, art.ErrorCount);
 }
+
+// ── add-package-roles 批 2：零发现不再静默空转（E0496）────────────────────────────────
+//
+// 守的是一个**退出码 0 的洞**：`[analyzers]` 声明的 zpkg 加载成功、里面却一个 handler 都没有
+// ⇒ 两个 loader 各返回空数组 ⇒ `_runAnalyzers` 提前 return ⇒ 编译照常成功、**零诊断**。
+// 用户声明了扩展、没看到任何错误，于是有充分理由以为它跑了——而它根本没跑。
+// （实测复现：把一个零 handler 的普通库按名挂进 `[analyzers]` → 退出码 0、一句话都没有。）
+//
+// 同一形态也覆盖「handler 由另一代编译器编出、契约接口对不上 ⇒ `as Generator` 全返回 null」。
+
+// 不含任何 `: Analyzer` / `: Generator` / `: ModuleGenerator` 的普通库源。
+string _plainNoHandlerSrc() {
+    return "namespace PlainNoHandler;\npublic class Widget { public int V() { return 1; } }\n";
+}
+
+string _writePlainZpkg(string[] dirs) {
+    string[] texts = new string[1]; texts[0] = _plainNoHandlerSrc();
+    string[] files = new string[1]; files[0] = "plain_nohandler.z42";
+    string[] hashes = new string[1]; hashes[0] = "PLAINNOHANDLER";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.plainnohandler"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    CompileArtifacts aArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, aArt.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string azPath = Path.Join(tmp, "demo.plainnohandler.zpkg");
+    File.WriteAllBytes(azPath, ZpkgWriterZ.WritePacked(aArt.Z, false).ToBytes());
+    return azPath;
+}
+
+[Test]
+void test_handler_zpkg_without_handlers_errors() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string azPath = _writePlainZpkg(libs.Split(":"));
+    CompileInputs cin = _inputs("namespace NoHandlerConsumer;\nint M() { return 1; }\n", "lib");
+    string[] az = new string[1]; az[0] = azPath;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    // 报错（此前：ErrorCount==0 且一条诊断都没有）。
+    Assert.Equal(true, _cmsHasCode(art, "E0496"));
+    Assert.Equal(true, art.ErrorCount > 0);
+}
+
+[Test]
+void test_no_analyzer_zpkgs_no_nohandler_error() {
+    // **对照**：没声明 `[analyzers]` ⇒ 不存在「声明了却没生效」这回事 ⇒ 绝不能报 E0496
+    //（否则 z42c 自建这条路会当场变红——它恰恰是 AnalyzerZpkgCount==0）。
+    CompileArtifacts art = PackageCompile.Compile(
+        _inputs("namespace PlainConsumer;\nint M() { return 1; }\n", "lib"));
+    Assert.Equal(false, _cmsHasCode(art, "E0496"));
+    Assert.Equal(0, art.ErrorCount);
+}

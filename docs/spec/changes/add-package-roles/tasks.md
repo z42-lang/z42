@@ -9,7 +9,7 @@
 |----|------|:---:|------|
 | 0 | 断 scripting 对 `z42.ir` 的假依赖：`FormatVersion` → z42i | 否 | ✅ 完成 |
 | **1** | **`kind="analyzer"` + `compiler-libs/` 解析域** —— 让用户能写 generator | 否 | ✅ 完成 |
-| 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | 🟡 2.1/2.2/2.3/2.6 完成；2.4 待做、2.5 前提作废 |
+| 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | 🟡 2.1–2.4 + 2.6 完成；**2.5 前提作废、待裁** |
 | 2.5 | `role` 字段（support 先行 → 跨 nightly → publisher 读 role + 五包移出 `libs/`） | 否（**跨 nightly**）| ⬜ |
 | 2.6 | scripting 拆两包 + `IReplCompiler` 门面搬家 | 否 | ⬜ |
 | 3 | 大重命名：`std.*` 用户库 + `z42c.*` 编译器域 | 否（跨 nightly）| ⬜ |
@@ -137,11 +137,33 @@
       ⚠️ 两条都**只在 path 条目上判得出来**：按名引用时手上只有 zpkg，而 **zpkg 不记 `kind`**
       （要记就是格式 bump，本批 bump=否）。批 2.5 把编译器域包移出 `libs/` 后，按名那条的
       泄漏面本身会收窄。
-- [ ] 2.4 **handler ABI 握手 fail-fast**（裁决 ⑤ 的对冲，自批 4 提前）：`GeneratorLoader` /
-      `AnalyzerLoader` 加载前校验 handler zpkg 与当前编译器同代，不同代 → 明确诊断而非崩。
-      🔴 核查发现今天的失败模式**不止是崩**：不同代编出的 handler 里 `as Generator` 全部返回 null
-      ⇒ `Load` 返回空数组 ⇒ `_runAnalyzers` 提前 return ⇒ **静默空转**（用户的 generator 干脆不跑，
-      没有任何一句话）。握手要覆盖这个形态，不只覆盖崩。
+- [x] 2.4 **handler ABI 握手 fail-fast**（裁决 ⑤ 的对冲，自批 4 提前）。
+      ⭐ **两条实测把这一项的描述本身改了**（design 原话：「失败模式是**崩**而不是报错」）：
+
+      | 实验 | 结果 |
+      |---|---|
+      | 把 handler zpkg 头的 minor 从 49 改成 50（模拟另一代编译器编出）| **E0493、退出码 1，不崩** —— VM strict-pin 拒载 + PR3a 的 catch 早已接住 |
+      | 把一个**零 handler 的普通库**按名挂进 `[analyzers]` | **退出码 0、零诊断** —— 扩展干脆不跑，编译照常成功 |
+
+      ⇒ 「同代校验」这件事**格式维度早就做完了**；真正的洞有两个，本批各修一条：
+
+      - **零发现 = 静默空转** → 新码 **E0496**（`PackageCompile`，`_runAnalyzers` 调用点之后）。
+        只数**从 zpkg 发现的** handler：`[Forward]` 这类内建 generator 与测试注入的实例不计入，
+        否则「声明了外部扩展却零发现」会被内建的存在掩盖。
+      - 🔴 **E0493 的提示文字对版本代差这个成因是错的**：它一口咬定「indexed zpkg 必须连同散装
+        `.zbc` 一起放；或改用 `--release`」，而用户照做的是完全无关的事 —— **与本批修掉的那条
+        （path 被拒时说「未在依赖目录找到」）是同一个形状：指向错误方向的诊断**。
+        改为失败时先读 zpkg 头版本分流成因，对不上就说「是 zpkg X.Y 格式、本编译器只认 A.B」。
+
+      ⚠️ **仍盖不住、且本批盖不了**：**同格式、但 `z42c.semantics` 接口形状变了**的 skew ——
+      zpkg 里没有任何「契约指纹」可比（DEPS 只记名字/版本，而 semantics 版本恒 `0.1.0`）。
+      要真握手得往产物里写契约指纹 = **格式 bump**（本批 bump=否），或走批 4 的 `z42c.abi`。
+      **别把 2.4 说成「同代校验做完了」。** 它今天的覆盖面是：格式代差（E0493）+ 零发现（E0496）。
+
+      ⚠️ **符号归属**：`GeneratorLoader` 在 `z42c.pipeline`（与消费者 `PackageCompile` 同包，随便改），
+      但 **`AnalyzerLoader` 在 `z42c.semantics`** ⇒ 给它加方法 = 新跨成员符号、卡一个 nightly。
+      故 per-zpkg 归属做不成单 PR，本批用**聚合判定**（declared>0 且发现总数==0）+ 版本分流
+      （纯 pipeline 内读字节，无新符号）。
 - [ ] ~~2.5 退休 `KnownTestOnlyDeps` 白名单~~ —— **前提不成立，待 User 裁决改写**。
       该白名单与整个 `WS0xx` manifest-lint 家族住在 **C# 侧 `src/compiler/z42.Project/ManifestErrors.cs`**，
       随 2026-06-26 删 C# bootstrap 编译器一起蒸发：全仓**零 WS0xx 发射点**（唯一命中是

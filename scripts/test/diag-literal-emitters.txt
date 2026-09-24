@@ -4,3 +4,4 @@
 # 所以这份清单的稳态是「上一个 nightly 以来新加的码」那么几条，**不是空**——④ 是常设配套，不会退役。
 # 每条都是**欠账**：等它的常量随 nightly 进了种子，就该把发射点切回 DiagnosticCodes.<Name> 并重跑 --update。
 # 重生成：`xtask test diagcodes --update`（改之前先想清楚你是不是在给一个已有码挂第二个含义）。
+E0496 src/compiler/z42c.pipeline/src/PackageCompile.z42 2026-09-24
