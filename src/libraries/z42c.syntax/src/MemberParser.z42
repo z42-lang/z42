@@ -195,12 +195,12 @@ public sealed class MemberParser {
             if (!opListed) { opName = "op_" + opSym; }
             Decl opDecl = this._parseMethodTail(mods, false, false, type, opName, this._p._typeP._emptyTypeParams(), sp);
             if (!opListed) {
-                this._p._diags.Error("E0495",
+                this._p._diags.Error(DiagnosticCodes.OperatorNotOverloadable,
                     "operator `" + opSym + "` cannot be overloaded — z42 overloads only the binary"
                     + " operators `+ - * / % == != < > <= >= & | ^ << >>`", opSp);
             }
             else if (opDecl is MethodDecl && (opDecl as MethodDecl).ParamCount != 2) {
-                this._p._diags.Error("E0495",
+                this._p._diags.Error(DiagnosticCodes.OperatorNotOverloadable,
                     "operator `" + opSym + "` overload must take exactly two parameters — z42 has no"
                     + " unary operator overloading", opSp);
             }

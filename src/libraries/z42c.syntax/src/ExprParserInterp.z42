@@ -55,7 +55,7 @@ public sealed partial class ExprParser {
                     // 格式说明符静默失效。位置必须用 `t.Span`：子 parser 产的 Span 其 File 是合成的
                     // `"<interp>"`、偏移是洞内坐标。⚠️ 洞内**解析失败**时诊断仍带假位置，独立缺口。
                     if (sub._peek().Kind != TokenKind.Eof) {
-                        this._p._diags.Error("E0492", "unexpected `" + sub._peek().Text
+                        this._p._diags.Error(DiagnosticCodes.InterpHoleTrailing, "unexpected `" + sub._peek().Text
                             + "` after the expression in this interpolation hole — z42 has no format specifiers"
                             + " (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) first", t.Span);
                     }

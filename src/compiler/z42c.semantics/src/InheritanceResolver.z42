@@ -625,7 +625,7 @@ public sealed class InheritanceResolver {
         Z42FuncType ms = implSym.Signature;
         // 返回类型：实现方加 `?` 而契约方没标 → 洞。
         if (ms.RetIsNullable && !cs.RetIsNullable) {
-            this._sc.Diags.Error("E0489",
+            this._sc.Diags.Error(DiagnosticCodes.NullableOverrideMismatch,
                 "`" + ownerName + "." + implSym.Name + "` marks its return type `?` but "
                 + kindWord + " `" + contractName + "` does not — callers going through `"
                 + contractName + "` have no obligation to check the result, so the mark would be "
@@ -639,7 +639,7 @@ public sealed class InheritanceResolver {
         int i = 0;
         while (i < n) {
             if (cs.IsNullableParam(i) && !ms.IsNullableParam(i)) {
-                this._sc.Diags.Error("E0489",
+                this._sc.Diags.Error(DiagnosticCodes.NullableOverrideMismatch,
                     "`" + ownerName + "." + implSym.Name + "` drops the `?` on parameter #"
                     + (i + 1).ToString() + " that " + kindWord + " `" + contractName + "` marks — "
                     + kindWord + " `" + contractName + "` promises every implementation checks that "
