@@ -112,6 +112,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeListTargets(root, tt);
         failed = failed + _smokeHarnessFalse(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
+        failed = failed + _smokeCompileFailClean(root, tt);
     }
     Console.WriteLine("");
     if (failed > 0) {
@@ -207,6 +208,44 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
 // 「1 passed」的绿色，下游 #571 的零测试判红也接不住。这个 fixture 锁的就是那片静默。
 //
 // 断言方向与其它 smoke 相反：rc == 0 才是失败。
+// 编译失败的**收尾姿势**：必须是一条干净的错误退出，不是未捕获异常。
+//
+// 守的不是「会不会红」—— 它一直会红。此前 `z42.build` 的 Compile 相位在编译失败时抛
+// `Exception("compile failed")`，而 Run 的唯一调用方（z42b `_orchestrate`）直接
+// `return p.Run(ctx)`、中间无人接 ⇒ 用户拿到的是一段带 z42b 内部栈帧的
+// `Error: uncaught exception: Std.Exception: compile failed`，看起来像 z42b 自己崩了，
+// 而「你的清单写错了」这句话上一行就已经打印过。**同 E0493 当年那条的形状。**
+//
+// 三条断言缺一不可：① 判红（否则清单写错等于没写错）；② 输出里**没有** uncaught
+// exception / 栈帧；③ 输出里**有** `compile failed` —— 没有 ③ 的话，哪天它因为别的原因
+// 早早退出，②也会「通过」，门就悄悄失去意义（#802 第③格的教训：红了不等于红对了）。
+int _smokeCompileFailClean(string root, TargetTooling tt) {
+    string toml = Path.Join(root, "src/tests/z42b/empty-glob/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── compile-fail 收尾 (编译失败须干净退出，不得是未捕获异常) ──");
+    ProcessResult r = new Process(tt.Vm).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("test").Arg(toml)
+        .Env("Z42_LIBS", tt.Libs).WorkingDirectory(root)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode == 0) {
+        Console.WriteLine("  ❌ compile-fail 收尾: 清单 include 一个文件都不匹配，竟然返回 0");
+        return 1;
+    }
+    if (all.IndexOf("uncaught exception") >= 0) {
+        Console.WriteLine("  ❌ compile-fail 收尾: 以未捕获异常收场 —— 看起来像 z42b 崩了，而不是「你的清单写错了」");
+        return 1;
+    }
+    if (all.IndexOf("compile failed") < 0) {
+        Console.WriteLine("  ❌ compile-fail 收尾: 判红了，但输出里没有 `compile failed` —— 红的理由对不上，门已失去意义");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ compile-fail 收尾: 干净判红（rc=" + r.ExitCode.ToString() + "），无未捕获异常");
+    return 0;
+}
+
 int _smokeOrphanGuard(string root, TargetTooling tt) {
     string toml = Path.Join(root, "src/tests/z42b/orphan-source/z42.toml");
     if (!File.Exists(toml)) { return 0; }

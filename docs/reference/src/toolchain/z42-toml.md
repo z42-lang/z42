@@ -874,9 +874,9 @@ artifacts/build/libraries/<lib>/<profile>/
 三类 kind 的命名 namespace **独立** —— `[[test]] name = "x"` / `[[bench]] name = "x"` /
 `[[example]] name = "x"` 可共存（重名只在同一 kind 内判）。auto 与显式撞名以显式为准，不报错。
 
-> ⚠️ **「`sources` glob 无匹配」这条在 test / bench 路径上收尾姿势不佳**：z42b 说得清楚
-> （`no .z42 sources under <dir>`，且带目标名），但最后以 `Error: uncaught exception:
-> Std.Exception: compile failed` 收场，而不是一条干净的错误退出。会红、信息也在，只是不好看。
+> 四条都是**干净的错误退出**（非零退出码 + 一条说明），不是未捕获异常。test / bench 路径上
+> 的编译失败此前会以 `Error: uncaught exception: Std.Exception: compile failed` 收场——看着像
+> z42b 自己崩了，而真正的原因上一行就已经打印过；2026-09-25 修正。
 
 > 📌 **历史**：这几条规则原计划用 `WS012` / `WS040`–`WS043` 诊断码表达，由 C# 侧
 > `Z42.Project.ManifestErrors` 发射。C# bootstrap 编译器 2026-06-26 删除后**那些码一个都不存在**，
