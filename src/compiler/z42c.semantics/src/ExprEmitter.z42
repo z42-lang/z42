@@ -553,6 +553,21 @@ public sealed class ExprEmitter {
         // 拿不到生产方的方法体 ⇒ 跨包实例化无法特化。收窄到本包后两侧都不特化、行为与今天逐字不变
         // （不是「修了一半更坏」）。跨包覆盖需另一条 change（泛型体随包投送 + 消费方重发）。
         if (!this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
+        // 闸门之三：实参必须**全是具体类型**。与 `_instIdentityName` 同一道闸门 —— 此前只有身份
+        // 路径有，布局路径没有，两条对**伪实例化**（实参里还有未代换型参）给出不同答案。
+        //
+        // #774 曾认为布局闸门「恰好」挡住了伪实例化（`T` 实参的布局与定义相同）。那只对**全型参**
+        // 的伪实例化成立（`ListEnumerator<T>`）；**部分具体**的不成立：泛型体内的 `Loc<T,int>` 里
+        // 定义有 2 个引用叶子、它只有 1 个 ⇒ `InstDiffersFromDef` 为真 ⇒ 闸门放行了一个
+        // **永远不会被发射**的名字。后果：`struct_alloc` 走身份路径回落擦除名 `Demo.Loc`，
+        // 而 ctor 派发走本路径拿到 `Demo.Loc<T,int>` ⇒ 运行期
+        // `undefined function Demo.Loc<T,int>.Loc`，即**泛型体内 `new G<T,X>()` 一律硬崩**
+        // （实测无条件复现，与程序里有没有具体实例化无关）。
+        int c0 = 0;
+        while (c0 < inst.ArgCount) {
+            if (!this._isConcreteTypeArg(inst.TypeArgs[c0])) { return ""; }
+            c0 = c0 + 1;
+        }
         string[] argNames = new string[inst.ArgCount];
         int i = 0;
         while (i < inst.ArgCount) {

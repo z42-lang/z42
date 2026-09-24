@@ -1,0 +1,52 @@
+// complete-generic-instantiation S1-a e2e：泛型体内构造/访问**伪实例化**（实参里还有未代换
+// 型参，如 `Loc<T,int>`）不得走特化路径。
+//
+// 修前（实测，用 main 的编译器复验同样如此）：泛型体内一句 `new Loc<T,int>(…)` 就硬崩
+//   `MissingSymbolException: undefined function Demo.Loc<T,int>.Loc`
+// 且**无条件** —— 程序里有没有具体实例化都一样。
+//
+// 根因：身份路径（`_instIdentityName`，`struct_alloc` 用）有 `_isConcreteTypeArg` 闸门，
+// 布局/特化路径（`_instLayoutName`，ctor 派发用）**没有**，两条对伪实例化给出不同答案：
+//   struct_alloc Demo.Loc [16B]        ← 回落擦除名（对）
+//   call @Demo.Loc<T,int>.Loc(…)       ← 特化名（错：这个名字永远不会被发射）
+//
+// #774 认为布局闸门「恰好」挡住了伪实例化（型参实参的布局与定义相同）——那只对**全型参**的
+// 伪实例化成立（`ListEnumerator<T>`）。**部分具体**的不成立：定义 `Loc<A,B>` 有 2 个引用叶子，
+// `Loc<T,int>` 只有 1 个 ⇒ `InstDiffersFromDef` 为真 ⇒ 闸门放行。
+//
+// 纯 Assert（无 expected 文件 = 空 stdout）。
+namespace Demo;
+
+using Std;
+
+[Record] struct Loc<A, B>(A Item1, B Item2);
+
+// 泛型体内构造伪实例化并读回
+int RoundTrip<T>(T first, int second) {
+    Loc<T, int> tmp = new Loc<T, int>(first, second);
+    return tmp.Item2;
+}
+
+// 泛型体内构造后读**型参那一槽**（引用叶子必须按擦除布局处理）
+string FirstOf<T>(T first) {
+    Loc<T, string> tmp = new Loc<T, string>(first, "tag");
+    return tmp.Item2;
+}
+
+// 嵌套伪实例化
+int Nested<T>(T v) {
+    Loc<Loc<T, int>, int> outer = new Loc<Loc<T, int>, int>(new Loc<T, int>(v, 1), 2);
+    return outer.Item2;
+}
+
+void Main() {
+    Assert.Equal(42, RoundTrip<string>("a", 42));
+    Assert.Equal(7, RoundTrip<int>(1, 7));
+    Assert.Equal("tag", FirstOf<string>("x"));
+    Assert.Equal(2, Nested<string>("y"));
+
+    // 阴性对照：**具体**实例化照旧走特化路径，行为不变
+    Loc<int, int> c = new Loc<int, int>(3, 4);
+    Assert.Equal(4, c.Item2);
+    Assert.Equal(3, c.Item1);
+}
