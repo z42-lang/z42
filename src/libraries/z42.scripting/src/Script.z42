@@ -20,8 +20,6 @@ using Std.IO;
 using Std.Collections;
 using Std.Threading;   // Thread（add-repl-prewarm：Join 后台预热 worker）
 using Z42.Syntax;            // Lexer / TokenKind（_isStatement token 判——前端已是 stdlib）
-using Z42.Project;           // ZpkgWriterZ.Major/Minor（FormatVersion .version 元指令）
-using Z42.IR.BinaryFormat;   // ZbcVersion（.version 元指令）
 using Z42.Build;             // IReplCompiler / ReplCompileResult（编译经门面——sink-repl-compile-facade）
 
 // 分类结果 `ParsedInput` + 分类器 `Classifier` 见 Classifier.z42。
@@ -120,13 +118,6 @@ public static class Script {
         string rest = msg.Substring(endSeq + 3, msg.Length - endSeq - 3);   // "): " 之后
         if (userLine <= 1) { return rest; }
         return "第 " + userLine.ToString() + " 行: " + rest;
-    }
-
-    // .version 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
-    // 运行时（z42vm）版本串未经 builtin 暴露给 z42 → 留待 follow-up（repl-future-runtime-version）。
-    public static string FormatVersion() {
-        return "zbc " + ZbcVersion.Major.ToString() + "." + ZbcVersion.Minor.ToString()
-             + ", zpkg " + ZpkgWriterZ.Major.ToString() + "." + ZpkgWriterZ.Minor.ToString();
     }
 
     public static EvalResult Eval(ScriptState state, string input) {

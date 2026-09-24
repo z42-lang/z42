@@ -12,6 +12,8 @@ using Std.Collections;
 using Std.Scripting;
 using Std.Repl;
 using Std.Threading;   // Thread（add-repl-prewarm：启动即 spawn 预热 worker）
+using Z42.Project;           // ZpkgWriterZ.Major/Minor（.version 元指令）——add-package-roles 批 0
+using Z42.IR.BinaryFormat;   // ZbcVersion（.version 元指令）——add-package-roles 批 0
 
 void Main() {
     string[] argv = Environment.GetCommandLineArgs();
@@ -73,7 +75,7 @@ void Main() {
                 else if (t.StartsWith(".using ")) { _addUsing(s, t); }   // 追加一个 using（注意在 .usings 之后判）
                 else if (t.StartsWith(".type ")) { _showType(s, t); }    // 显示表达式类型（注意在 .types 之后判）
                 else if (t.StartsWith(".members ")) { _showMembers(s, t); }  // 列类型/变量成员
-                else if (t == ".version") { Console.WriteLine(Script.FormatVersion()); }
+                else if (t == ".version") { Console.WriteLine(_formatVersion()); }
                 else if (t == ".clear") { _clear(); }
                 else if (t == ".reset") {
                     // 清空变量/using/声明，回到空白会话。保持 Counter 单调递增——VM 已加载的
@@ -104,6 +106,21 @@ int _indexOf(string[] a, string x) {
     int i = 0;
     while (i < a.Length) { if (a[i] == x) { return i; } i = i + 1; }
     return 0 - 1;
+}
+
+// `.version` 元指令：REPL 使用的二进制格式版本（zbc + zpkg，strict-pin 值）。
+//
+// add-package-roles 批 0：本函数原是 `Std.Scripting.Script.FormatVersion()`，为它一句话，
+// `z42.scripting`（用户面 eval 内核）整包吊着一条 `z42.ir`（编译器域）依赖。`.version` 是 REPL
+// **前端的展示职责**，不是 eval 内核的能力 —— 迁来 z42i（SDK-only apphost，依赖编译器域天经地义），
+// scripting 那条依赖随之断掉。
+//
+// 终局：这两个数该由 **VM 自报**（VM 才是「能加载什么格式」的权威；Rust 侧 ZPKG_VERSION_MAJOR/MINOR
+// 已在，只是未经 builtin 暴露给 z42）。届时本函数改调 Std.Runtime、z42i 也不再需要 z42.ir。
+// 见 docs/spec/changes/add-package-roles/design.md 批 0 注。
+string _formatVersion() {
+    return "zbc " + ZbcVersion.Major.ToString() + "." + ZbcVersion.Minor.ToString()
+         + ", zpkg " + ZpkgWriterZ.Major.ToString() + "." + ZpkgWriterZ.Minor.ToString();
 }
 
 void _help() {
