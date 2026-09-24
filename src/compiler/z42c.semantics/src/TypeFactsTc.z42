@@ -110,4 +110,35 @@ public static class TypeFactsTc {
         return a;
     }
 
+    // 元组类型判定（fix-tuple-name-substring-judgment）：**整名精确匹配**脱糖目标
+    // `ValueTupleN`，N ∈ 2..8 —— 与 `z42.core/src/ValueTuple.z42` 里真实声明的那 7 个
+    // `[Record] struct` 一一对应（stdlib 只定义到 `ValueTuple8`）。
+    //
+    // 此前两个消费端各写一份、判据形态还不一样：`PatternBinder._isTupleType` 用
+    // `IndexOf("ValueTuple") >= 0`，`AssignTyper._isTupleCtor` 用 `StartsWith("ValueTuple")`。
+    // 前者让**名字里含** ValueTuple 的用户类型也被当成元组：实测 `struct MyValueTupleBox`
+    // 与逐字段同形的 `struct PlainBox` 只差一个名字，前者写 `case (a, b)` **编译零诊断**、
+    // 后者报 E0402 —— 能力按名字子串分叉（漏报，比误报更坏）。
+    //
+    // ⚠️ 顺序：**先截 `<`、再剥短名**。反过来（先找最后一个点）会落进类型实参里，
+    // `ValueTuple2<int, Std.String>` 会剥出 `String>`（#789 踩过同一颗雷）。
+    // 短名与 FQ 都要认：语法层合成的是**短名**（`TypeParser.z42` 注释写明 FQ `Std.ValueTupleN`
+    // 不经 using 解析，故用短名），跨包解析回来的则可能带 `Std.` 前缀。
+    public static bool IsTupleTypeName(string name) {
+        if (name == "") { return false; }
+        string bare = name;
+        int lt = bare.IndexOf("<");
+        if (lt >= 0) { bare = bare.Substring(0, lt); }
+        int dot = 0 - 1;
+        int i = 0;
+        while (i < bare.Length) { if (bare.CharAt(i) == '.') { dot = i; } i = i + 1; }
+        if (dot >= 0) { bare = bare.Substring(dot + 1, bare.Length - dot - 1); }
+        // `ValueTuple`（10 字符）+ 恰好一位 2..8，且**到此为止**：`MyValueTupleBox` 与
+        // `ValueTuple2Box` 被长度挡掉，`ValueTuple9`（stdlib 没有）被范围挡掉。
+        if (bare.Length != 11) { return false; }
+        if (!bare.StartsWith("ValueTuple")) { return false; }
+        char n = bare.CharAt(10);
+        return n >= '2' && n <= '8';
+    }
+
 }

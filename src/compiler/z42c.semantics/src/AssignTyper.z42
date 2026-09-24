@@ -224,9 +224,12 @@ public sealed class AssignTyper {
         this._tc._diags.Error(DiagnosticCodes.AssignTargetNotLvalue, msg, a.Span);
     }
 
+    // 判据与 `PatternBinder._bindTuple` 共用 `TypeFactsTc.IsTupleTypeName`（此前这里是
+    // `StartsWith("ValueTuple")`、那里是 `IndexOf(...) >= 0` —— 同一个问题两种形态）。
+    // 这条只用于**改进诊断文案**（点名「这是在造一个新元组」），判据收紧不会放过/挡住任何赋值。
     private static bool _isTupleCtor(BoundExpr target) {
         if (!(target is BoundNew)) { return false; }
-        return target.Type().Name().StartsWith("ValueTuple");
+        return TypeFactsTc.IsTupleTypeName(target.Type().Name());
     }
 
     // add-const-keyword：const 不可赋值——局部 const（BoundIdent 名在 TypeEnv const 表）与
