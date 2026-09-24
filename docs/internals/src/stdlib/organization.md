@@ -25,6 +25,13 @@ stdlib（走 `z42.build` 的 `IReplCompiler` 门面，实现 `Z42cReplCompiler` 
 playground / wasm 当作用户 API 消费。真 tty 交互层 `z42.repl` 平台绑定重，留在 `src/toolchain/`、
 不入 stdlib。
 
+> **这条边界正在被 add-package-roles 重画。** 实测（2026-09-24）：`ReplCompilerHost` 的四条组件探测
+> 路径全部指向 SDK 布局，**纯 runtime 包里的 scripting 是恒失败的空壳**（其头注自陈「组件缺失 →
+> `NoReplCompiler` 兜底，编译恒失败、补全恒空」）。批 0 已断掉其对 `z42.ir` 的假依赖（那条只为
+> `.version` 拼一句版本串而存在，已迁 z42i）；批 1 将按「能不能在只有 runtime 的环境下工作」拆成
+> eval 内核（零编译器域依赖）+ editing（依赖 `z42c.syntax`）两包。
+> 见 [add-package-roles design §scripting 判定](../../../spec/changes/add-package-roles/design.md)。
+
 ## 2. 层级：只要求 DAG，不钉固定层
 
 硬约束只有一条：**依赖图必须无环，且 `z42.core` 在所有库之下**。这是通用规则「包依赖必须无环」
@@ -53,7 +60,7 @@ stdlib 上的特化。
 | | `z42.toml` / `z42.yaml` | core, io |
 | **4** | `z42.threading` | core, diagnostics |
 | **5** | `z42.net` | core, io, encoding, random, crypto, threading, compression |
-| **6** | `z42.scripting` | core, io, ir, build, test, z42c.core, z42c.syntax, threading |
+| **6** | `z42.scripting` | core, io, build, test, z42c.core, z42c.syntax, threading |
 
 几处值得记住的形状：
 

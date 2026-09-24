@@ -1,6 +1,7 @@
 # Proposal: 给包一个**角色**维度（运行时 / 编译期 / 契约）
 
-> 状态：**DRAFT，待 User 裁决**。起因是「用户写不了 generator」这个具体缺口，但根因不是打包
+> 状态：**已裁决（2026-09-24），实施中**。裁决结果与技术设计见 [design.md](design.md)，
+> 逐批 scope 见 [tasks.md](tasks.md)。起因是「用户写不了 generator」这个具体缺口，但根因不是打包
 > 漏项，而是**包模型里缺一个维度**。
 
 ## Why
@@ -127,10 +128,14 @@
   `Z42ClassType` / `SymbolTable` / `TypeSymbol`，与 Roslyn 的 generator 依赖完整语义 API 同形；
   裁子集等于重做一遍语义层的 API 分层，代价与收益不成比例。
 
-## 待 User 裁决
+## 待 User 裁决 → 已裁决（2026-09-24）
 
-1. **要不要引入 role 这个维度**（还是先接受「把 z42c.semantics 搬进 stdlib workspace」的副作用，
-   把 role 留到以后）。
-2. role 的取值与命名（`compile-time` / `contract` 两者要不要合一 —— 合一更简单，代价是
-   「契约包」与「插件包」在 payload 判定上是同一条规则，目前看不出区别）。
-3. 解析域目录名（`compiler-libs/` vs `libs/compile-time/` vs 别的）。
+| # | 问题 | 裁决 |
+|---|------|------|
+| 1 | 要不要引入 role 这个维度 | **要**。批 1–3 全做，批 4 推迟 |
+| 2 | `compile-time` / `contract` 要不要合一 | **合一**，只留 `runtime` / `compile-time` 两值 —— 本提案自陈「目前看不出区别」，快速开发期不预造区分 |
+| 3 | 解析域目录名 | **`compiler-libs/`**（与 `libs/` 平级，不嵌套） |
+
+另补一条本提案列为 Out of Scope 的判定：**`z42.scripting` 的归属**——实测发现它在 runtime 包里
+今天已是恒失败的空壳，且四条编译器域依赖里有一条（`z42.ir`）是纯假的。
+详见 [design.md §scripting 判定](design.md)。完整裁决表见 [design.md §User 裁决](design.md)。

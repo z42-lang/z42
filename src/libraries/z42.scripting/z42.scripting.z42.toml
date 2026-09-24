@@ -6,6 +6,10 @@
 # move-scripting-to-libraries：物理落 src/libraries/ 成 stdlib workspace 成员（编译期依赖全 stdlib），
 # 由 `z42c build --workspace`（build stdlib）编入 flat dist；z42.repl(tty) 留 src/toolchain，从含本库的
 # stdlib dist 解析。
+# add-package-roles 批 0：`z42.ir` 依赖已断——它此前**只**为 `Script.FormatVersion()` 拼一句
+# 版本串（ZbcVersion + ZpkgWriterZ 两个编译期常量）而存在，是本库对编译器域最没有分量的一条依赖。
+# `.version` 是 REPL 前端的展示职责，已迁 z42i（interactive_main._formatVersion）。终局是让 VM 自报
+# 格式版本（VM 才是「能加载什么」的权威），需新 builtin，见 add-package-roles design 批 0 注。
 [project]
 name    = "z42.scripting"
 version = "0.1.0"
@@ -14,7 +18,6 @@ kind    = "lib"
 [dependencies]
 "z42.core"      = "0.1.0"   # String / Std.Reflection（Type / Activator）
 "z42.io"        = "0.1.0"   # Environment / File / Path / Console（组件定位 + Z42_LIBS）
-"z42.ir"        = "0.1.0"   # ZpkgWriterZ.Major/Minor + ZbcVersion（FormatVersion .version 元指令）
 "z42.build"     = "0.1.0"   # IReplCompiler 门面（编译经此；实现运行期注入）——sink-repl-compile-facade
 "z42.test"      = "0.1.0"   # ModuleLoader（__load_module：反射加载编译器组件 zpkg + 依赖闭包）
 "z42c.core"     = "0.1.0"   # Z42.Core.Span（前端已 stdlib，PR-A）
