@@ -4,7 +4,7 @@ namespace Z42.Build.Project;
 public sealed class ProjectInfo {
     public string Name;        // kebab-case；.zpkg 文件名 + 依赖引用名
     public string Version;     // SemVer
-    public string Kind;        // "exe" | "lib"
+    public string Kind;        // "exe" | "lib" | "analyzer"（analyzer = 编译期扩展，add-package-roles 批 1）
     public bool   HasEntry;
     public string Entry;       // 仅 HasEntry 有效（否则自动探测）
     public bool   HasPack;
