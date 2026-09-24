@@ -1,0 +1,10 @@
+// 阴性对照：跨包调用 **extern** 上标的 `?` 返回值并直接解引用 → 必须报 E0478。
+namespace Demo.ExternNullApp;
+
+using Std;
+using Std.IO;
+using Demo.ExternNullNs;
+
+void Main() {
+    Console.WriteLine(EnvProbe.Get("PATH").Length.ToString());
+}

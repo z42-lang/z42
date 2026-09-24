@@ -1,0 +1,9 @@
+[project]
+name    = "demo.externnullokapp"
+version = "0.1.0"
+kind    = "exe"
+entry   = "Demo.ExternNullOkApp.Main"
+pack    = true
+
+[dependencies]
+"demo.externnulloktarget" = "0.1.0"

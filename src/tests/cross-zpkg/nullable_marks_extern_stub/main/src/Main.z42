@@ -1,0 +1,17 @@
+// 正例：跨包 extern 上标的 `?` 按规矩先存局部再查 ⇒ 编得过、跑得出结果；
+// 同一个 builtin 的未标版本直接解引用 ⇒ 同样编得过（缺席 = 不强制）。
+namespace Demo.ExternNullOkApp;
+
+using Std;
+using Std.IO;
+using Demo.ExternNullOkNs;
+
+void Main() {
+    // ① 标了 `?`：取不到 ⇒ null，检查后才用。
+    string v = EnvProbe.Get("Z42_EXTERN_MARK_PROBE_UNSET");
+    if (v == null) { Console.WriteLine("absent"); }
+
+    // ② 未标 `?`：不受检，直接解引用合法。值由本进程写入 ⇒ 结果确定。
+    Environment.SetEnvironmentVariable("Z42_EXTERN_MARK_PROBE", "abcd");
+    Console.WriteLine(EnvProbe.Raw("Z42_EXTERN_MARK_PROBE").Length.ToString());
+}

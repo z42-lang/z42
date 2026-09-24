@@ -1,0 +1,16 @@
+// carry-null-marks-through-native-stubs 的**正例**依赖包：两个 extern，只差一个 `?`。
+//
+// 两者指向同一个 builtin，故运行期行为完全相同 —— 差别纯粹在编译期义务上。
+// 这正是「缺席 = 不强制」这条设计支点的跨包 extern 版对照组：
+// `Raw` 一旦也跟着要求检查，就说明「按需从严」塌成了「所有引用类型都查」。
+namespace Demo.ExternNullOkNs;
+
+public class EnvProbe {
+    // 标了 `?` ⇒ 调用方有检查义务（跨包 + extern 也必须有）。
+    [Native("__env_get")]
+    public static extern string? Get(string name);
+
+    // 没标 ⇒ 调用方**完全不受检**。
+    [Native("__env_get")]
+    public static extern string Raw(string name);
+}
