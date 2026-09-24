@@ -48,6 +48,9 @@ public sealed class IrGen {
     public StrMap GenericBodies;
     // 与 `GenericBodies` 平行：该体的 ownerKey（自由函数为 ""）。
     public StrMap GenericBodyOwners;
+    // S1-d：**实例**泛型方法的体查找键 → 其 RegKey。用于在本 CU 内把特化闭包扩到该方法的全部覆写
+    // （同名同键的每个声明各特化一份）——否则虚派发到子类时那份没有特化体。
+    public StrMap GenericMethodOwners;
     // 待特化的泛型体实例：特化名 → 其体查找键。由调用点登记，工作表消费。
     //
     // 特化名 = `<擦除 FQ 名>:<实参1>[:<实参2>…]`。**刻意不用 `<…>`**：RegKey 本身就可能含尖括号
@@ -79,6 +82,7 @@ public sealed class IrGen {
         this.SpecTypeArgs = null;
         this.GenericBodies = new StrMap();
         this.GenericBodyOwners = new StrMap();
+        this.GenericMethodOwners = new StrMap();
         this.GenericFnInsts = new StrMap();
         this.SpecInstName = "";
         this.SpecOwnerName = "";
@@ -261,16 +265,17 @@ public sealed class IrGen {
                         // 静态泛型方法走直接调用；**非虚**实例泛型方法走 vcall，但 vcall 的解析链
                         // 里有一条「按名走基类链查 func_index」的回落，故改派简单名即可，无须动 vtable。
                         //
-                        // ⚠️ **虚/抽象/override 的实例泛型方法刻意排除**：运行期从**接收者的运行期类型**
-                        // 开始走基类链，若子类 override 了它而子类那份没被特化，就会落到基类的特化体
-                        // ⇒ **静默调错实现**。覆盖它需要把特化闭包扩到「该方法在本包的全部覆写」，
-                        // 留给后续（见 tasks.md S1-d）。不特化 = 维持今天的大声报错，不引入静默错。
-                        bool gIsStatic = IrGenFacts._hasWord(gm.Mods, "static");
-                        bool gIsVirt = IrGenFacts._hasWord(gm.Mods, "virtual")
-                                    || IrGenFacts._hasWord(gm.Mods, "override")
-                                    || IrGenFacts._hasWord(gm.Mods, "abstract");
-                        if (gm.TypeParams.Count > 0 && gm.HasBody && (gIsStatic || !gIsVirt)) {
+                        // S1-d：**虚/override 也登记**。安全性由两件事共同保证：
+                        //  ① 运行期「特化名不沿基类链继承」（`vcall_resolve`）—— 子类 override 没被
+                        //     特化时不会落到基类的特化体上，而是让擦除名回落去大声报错；
+                        //  ② 本 CU 内把闭包扩到该方法的**全部覆写**（见 `_noteSpecOverrides`）。
+                        // ⚠️ 跨 CU 的覆写仍看不见（`IrGen` 按 CU 创建）⇒ 那种接收者会走 ① 报错。
+                        // 完整覆盖需要包级特化通道，见 tasks.md。
+                        if (gm.TypeParams.Count > 0 && gm.HasBody) {
                             this._noteGenericBody(gownerKey + "." + gm.RegKey, gownerKey, gc.Members[gmi]);
+                            if (!IrGenFacts._hasWord(gm.Mods, "static")) {
+                                this.GenericMethodOwners.Put(gownerKey + "." + gm.RegKey, new StrBox(gm.RegKey));
+                            }
                         }
                     }
                     gmi = gmi + 1;
@@ -377,6 +382,25 @@ public sealed class IrGen {
         if (this.GenericBodies.ContainsKey(lookupKey)) { return; }
         this.GenericBodies.Put(lookupKey, rawD);
         this.GenericBodyOwners.Put(lookupKey, new StrBox(ownerKey));
+    }
+
+    // S1-d：为一个实例泛型方法的特化登记**同 CU 内全部同名覆写**的特化。
+    // 过近似是安全的（多特化几份只是体积），漏特化则是静默调错实现。
+    internal void _noteSpecOverrides(string regKey, string suffix) {
+        string[] keys = this.GenericMethodOwners.Keys();
+        int i = 0;
+        while (i < keys.Length) {
+            StrBox rb = this.GenericMethodOwners.Get(keys[i]) as StrBox;
+            if (rb != null && rb.Value == regKey) {
+                StrBox ob = this.GenericBodyOwners.Get(keys[i]) as StrBox;
+                string ok = ob == null ? "" : ob.Value;
+                if (ok != "") {
+                    string fq = this._q(ok) + "." + regKey + suffix;
+                    if (!this.GenericFnInsts.ContainsKey(fq)) { this.GenericFnInsts.Put(fq, new StrBox(keys[i])); }
+                }
+            }
+            i = i + 1;
+        }
     }
 
     // 特化名 → 类型实参。切分见 `GenericFnInsts` 的注释（`:` 在标识符/类型名里不可能出现）。

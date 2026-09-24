@@ -330,6 +330,9 @@ public sealed class CallEmitter {
         }
         string specFq = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName + suffix;
         if (!g.GenericFnInsts.ContainsKey(specFq)) { g.GenericFnInsts.Put(specFq, new StrBox(lookup)); }
+        // S1-d：虚派发可能落到**子类**的 override 上 ⇒ 本 CU 内同名的每个声明都要各特化一份，
+        // 否则那些接收者会 miss（运行期不沿基类链继承特化名，故是大声报错而非静默调错）。
+        g._noteSpecOverrides(c.MethodName, suffix);
         return c.MethodName + suffix;
     }
 

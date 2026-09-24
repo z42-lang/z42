@@ -48,6 +48,14 @@ int WriteThenRead<T>(Loc<T, int> p, int v) {
     return p.Item2;
 }
 
+// ── 形态 ⑦：**虚/override** 实例泛型方法 ─────────────────────────────────
+// 虚派发从**接收者的运行期类型**起走基类链，故每个覆写都要各特化一份。安全性靠两条：
+//   ① 运行期「特化名不沿基类链继承」（一份特化只属于一个声明；否则落到基类的特化体
+//      = 静默调错实现）；② 本 CU 内把闭包扩到该方法的全部覆写。
+// ⚠️ 跨编译单元的覆写看不见（IrGen 按 CU 创建）⇒ 那种接收者走 ① 大声报错，不会静默错。
+class Base    { public virtual  int Bump<T>(Loc<T, int> p) { return p.Item2; } }
+class Derived : Base { public override int Bump<T>(Loc<T, int> p) { return p.Item2 + 100; } }
+
 void Main() {
     P2 a = new P2(1, 2L);
     Loc<P2, int> t = new Loc<P2, int>(a, 7);
@@ -79,6 +87,12 @@ void Main() {
     Helper h = new Helper();
     Assert.Equal(7, h.Second<P2>(t));
     Assert.Equal(7L, h.InnerYI<P2>(outer));
+
+    // ⑦ 虚派发：必须走到**子类**那份特化体（main 上读出 102 —— 擦除布局的 @8 是 P2.Y）
+    Base bv = new Derived();
+    Assert.Equal(107, bv.Bump<P2>(t));
+    Base bb = new Base();
+    Assert.Equal(7, bb.Bump<P2>(t));
 
     // ── 阴性对照：实参不改变布局时，泛型体与直接访问本来就一致 ──────────────
     Loc<string, int> s = new Loc<string, int>("hi", 5);
