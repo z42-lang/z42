@@ -10,9 +10,22 @@ public sealed class DepEntry {
     public string Name;
     public string Version;
     public string Path;
+    /// `deploy` —— 这个依赖**运行期从哪儿来**（add-deployment-model 批 4 support）。
+    ///
+    ///   `"copy"`   构建期复制进 exe 的 dist，私有、不共享；
+    ///   `"shared"` 不复制，运行期从 `probing-paths` 声明的目录解析；
+    ///   `""`       未声明 —— 由默认规则决定（在不在 shipped `libs/`）。
+    ///
+    /// ⚠️ **构造后赋值、不进 ctor 签名**：ctor 是种子 ABI 的一部分，加参数会让上一版 z42c
+    /// 编不动当前源码。同 `Pipeline.ParentPkg` / `ProjectManifest` 的那几个「构造后填」字段。
+    ///
+    /// 🔴 **support 阶段：本字段今天无人消费**（z42c 不读它）⇒ 产物逐字节不变、可立即合并。
+    /// 消费要等它随 nightly 进种子之后（bootstrap-seed 的分阶段引入纪律）。
+    public string Deploy;
     public DepEntry(string name, string version, string path) {
         this.Name = name;
         this.Version = version;
         this.Path = path;
+        this.Deploy = "";
     }
 }

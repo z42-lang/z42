@@ -316,12 +316,17 @@ public static class ManifestLoader {
             var dv = d.Get(keys[i]);
             string ver = "";
             string pth = "";
+            string dep = "";
             if (dv.IsTable()) {
                 if (dv.ContainsKey("version")) { ver = dv.Get("version").AsString(); }
                 if (dv.ContainsKey("path"))    { pth = dv.Get("path").AsString(); }
+                // `deploy`（add-deployment-model 批 4 support）：只忠实搬运，**不校验取值**
+                // ——合法取值是消费方（z42c）的事，ManifestLoader 一贯只解析不解释。
+                if (dv.ContainsKey("deploy"))  { dep = dv.Get("deploy").AsString(); }
             }
             else { ver = dv.AsString(); }
             deps[i] = new DepEntry(keys[i], ver, pth);
+            deps[i].Deploy = dep;   // 构造后赋值：ctor 签名是种子 ABI，不动
             i = i + 1;
         }
         return deps;
