@@ -27,27 +27,42 @@ public sealed class IfaceBridgeSynth {
     private EmitContext _ctx;
     public IfaceBridgeSynth(SymbolTable symbols, IrGen gen) { this._symbols = symbols; this._gen = gen; }
 
-    // 这个返回类型能不能算出可靠的 blob 布局名。
+    private string _structName;   // CanBridge 解出的 blob 名（EmitBridge 复用，不重算）
+
+    // 这个返回类型能不能桥接 ⇒ 顺带解出它的 blob 名（存 `_structName`）。
     //
-    // 只接受**非实例化**的 blob struct：实例化返回类型（`ListEnumerator<T>`）的布局名要走
-    // `ExprEmitter._instLayoutName` / 特化通道（`SpecInstName`/`SpecOwnerName`）那套推导，
-    // 手抄第二份必漂（`ClassDescBuilder` 那条「不另拼一份」的教训）。算不出就**不合成**——
-    // 保持现状（运行期 arity 门拦住）而不是发一个布局名错的桥接：错布局名会读到别处的字节，
-    // 那是比崩溃更坏的静默错值。泛型档见 tasks 阶段 4。
+    // ⭐ 名字**复用 `ExprEmitter._blobStructName`**，不另拼一份：实例化返回类型
+    // （`ListEnumerator<T>`）要走 `_instLayoutName` 的三道闸门（本包定义 / 实参可名 /
+    // 布局确实不同于定义）+ 特化通道（`SpecInstName`/`SpecOwnerName`），手抄第二份必漂
+    // （`ClassDescBuilder` 那条「不另拼一份」的教训）。`CallEmitter` 发 sret 时用的就是它，
+    // 桥接与之逐字同源才不会一边 alloc 一个布局、另一边按另一个布局读。
+    // 为此借一个临时 EmitContext —— `_blobStructName` 只读 `_ctx`（及 `_ctx.Gen`），不碰 `_fn`。
+    // 顺带的副作用（`_noteInstLayout` 登记实例化布局）正是我们要的：桥接真的会 alloc 它。
+    //
+    // 算不出名字（或不是 blob）就**不桥接**——保持现状（运行期 arity 门拦住）而不是发一个
+    // 布局名错的桥接：错布局名会读到别处的字节，那是比崩溃更坏的静默错值。
     public bool CanBridge(Z42Type retType) {
+        this._structName = "";
         if (retType == null) { return false; }
-        if (retType is Z42InstantiatedType) { return false; }   // 泛型档未支持（见抬头）
-        if (!(retType is Z42ClassType)) { return false; }
         if (this._gen.Layouts == null) { return false; }
-        string n = retType.Name();
+        this._initCtx("");                                   // 临时 ctx，只为借 _blobStructName
+        var ee = new ExprEmitter(this._ctx, null);
+        string n = ee._blobStructName(retType);
+        if (n == "") { return false; }
         if (!this._gen.Layouts.IsBlobStruct(n)) { return false; }
-        return this._gen.Layouts.StructSize(n) > 0;
+        if (this._gen.Layouts.StructSize(n) <= 0) { return false; }
+        this._structName = n;
+        return true;
     }
 
+    // CanBridge 解出的 blob 名（供调用方拼 EmitBridge 实参）。
+    public string StructName() { return this._structName; }
+
     // 合成桥接：`fnName` = 裸名 FQ（`@C.m`），`concreteFq` = 具体实现 FQ（`@C.m$struct`）。
-    // `retStructName` = 被返回的 blob struct 名；`ifaceRetName` = 接口声明的返回类型名（桥接签名）。
-    public IrFunction EmitBridge(string fnName, string concreteFq, string retStructName,
+    // `ifaceRetName` = 接口声明的返回类型名（桥接签名）。**必须先调 `CanBridge` 解出 blob 名。**
+    public IrFunction EmitBridge(string fnName, string concreteFq,
                                  string ifaceRetName, Z42ClassType owner) {
+        string retStructName = this._structName;
         this._initCtx(fnName);
         TypedReg self = new TypedReg(0, IrType.Ref);
         // 预留返回 blob（与 CallEmitter 的 sret 发射序一致：struct_alloc 后作末尾隐藏实参）

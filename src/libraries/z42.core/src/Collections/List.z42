@@ -18,7 +18,7 @@ namespace Std.Collections;
 // type-size guideline — `List<T>` mirrors C# `System.Collections.Generic.List<T>`
 // and its parity surface is inherently large; the split keeps files readable
 // while the two parts share one type. See this dir's README「List<T> 尺寸例外」.
-public partial class List<T> {
+public partial class List<T> : IEnumerable<T> {
     T[] items;
     public int Count;
     int capacity;

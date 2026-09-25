@@ -135,7 +135,11 @@ public sealed class EmitContext {
     // DiagnosticBag.Error`）。本地类（含本包跨-ns 自有类如 z42c.ir BinaryFormat 段）→ 认 vtable-owned
     // → VCall，不误劫持到同名外部方法（G18 修正：原误用含自有跨-ns 类的 ImportedClassNs → ByteWriter.
     // ToHex 被劫持到 Std.Numerics.BigInt.ToHex 等虚假 DEPS）。
-    public bool ChainHasMethod(string clsName, string method) {
+    public bool ChainHasMethod(string clsName, string method0) {
+        // add-iface-return-bridge：调用点传进来的是 `MethodSymbol.CallKey()`，被桥接的方法带
+        // `$struct` 后缀；而 `Methods` 映射键仍是 `RegKey`（裸名）⇒ 必须先剥回来，否则本该
+        // 「自有」的方法查不到、IC-1 反劫持守卫（调用方的 `owns`）静默失效。
+        string method = MethodSymbol.StripCallKey(method0);
         string cur = clsName;
         int hops = 0;
         while (hops < 32) {
@@ -173,7 +177,11 @@ public sealed class EmitContext {
     // 故查接收者自身 Z42ClassType 即可命中「接收者静态类型 = 基类本身」的主场景；再沿 BaseName
     // 走一次链（经 Symbols）兜住「静态类型是某中间类、方法虚自更上层」。prim 接收者（string/int，
     // Type() 非 Z42ClassType）→ false → 仍走既有 prim 派发，不受影响。
-    public bool ReceiverMethodIsVirtual(Z42Type recvType, string method) {
+    public bool ReceiverMethodIsVirtual(Z42Type recvType, string method0) {
+        // add-iface-return-bridge：同 ChainHasMethod —— 查的是符号表里的方法（键=RegKey），
+        // 而调用点给的是 CallKey()。不剥后缀 ⇒ 被桥接的 imported 虚方法被判成非虚 ⇒ 落 DepIndex
+        // 直呼捷径 ⇒ 子类 override 永不生效（fix-crosspkg-virtual-override 那条 bug 的形状）。
+        string method = MethodSymbol.StripCallKey(method0);
         Z42ClassType ct = recvType as Z42ClassType;
         int hops = 0;
         while (ct != null && hops < 32) {
@@ -337,6 +345,12 @@ public sealed class EmitContext {
     //   · 两者皆非：R 可在 declClass 下再 override → 目标不唯一 → ""（回落 VCall，永远安全）。
     // 越界（不可限定基类/abstract/未找到）→ ""。imported：extend-sealed-devirt-imported。
     public string ResolveSealedTarget(Z42ClassType startCt, string methodKey, int argc, bool classSealed) {
+        // add-iface-return-bridge：被桥接的方法**不 devirt**。
+        // 这里产的是**直接 Call 的目标名**，若剥掉 `$struct` 去查表，拼出来的目标就指到桥接上
+        // （无 sret）而调用点按具体返回类型传了 sret 槽 ⇒ 反向 arity 失配。devirt 只是优化，
+        // 这一罕见形状回落 VCall（按 `$struct` 名派发，实测可行）永远正确 —— 宁可少一次优化，
+        // 不要拼一个可能指错的目标名。
+        if (methodKey.EndsWith("$struct")) { return ""; }
         Z42ClassType ct = startCt;
         int hops = 0;
         while (ct != null && hops < 32) {

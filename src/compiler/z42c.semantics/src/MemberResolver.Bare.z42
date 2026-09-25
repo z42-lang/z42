@@ -38,7 +38,7 @@ public sealed partial class MemberResolver {
                     BoundExpr recv = new BoundIdent("this", thisT, call.Span);
                     BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
                     this._tc._access.CheckDeprecatedM(sms, id.Name, call.Span);
-                    BoundCall bc = BoundCall.Marked(new BoundCall("instance", true, recv, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span), sms.Signature);
+                    BoundCall bc = BoundCall.Marked(new BoundCall("instance", true, recv, cls, sms.CallKey(), fa, fa.Length, sms.Signature.Ret, call.Span), sms.Signature);
                     this._applyMethodTypeArgs(bc, call, sms, env);
                     return bc;
                 }

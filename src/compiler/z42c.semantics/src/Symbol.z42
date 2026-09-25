@@ -66,6 +66,34 @@ public sealed class MethodSymbol {
         c.IfaceBridgeRet = this.IfaceBridgeRet;
         return c;
     }
+    // add-iface-return-bridge：**绑定 BoundCall 目标名的唯一出口。**
+    //
+    // 一般情况 = `RegKey`。被桥接的方法例外：桥接占了裸名 vtable 槽（接口派发按方法名索引），
+    // 具体实现在 `<RegKey>$struct`，所以**经具体类型（非接口）绑到这个符号的调用点要指后者**
+    // —— 否则调用点按具体返回类型传了 sret 槽、却打在无 sret 的桥接上，运行期报
+    // `takes 1 physical argument(s), the call passes 2`（反向的 arity 失配）。
+    //
+    // ⚠️ 为什么不直接改 `RegKey`：`RegKey` 同时是 `Methods` **映射键**，改了接口满足性
+    // （按接口成员的 mangle 键查 `cm`）与 `ChainHasMethod("m")` 就都查不到了。
+    // ⚠️ 接口收者那几条绑定路径用的是**接口自己的** MethodSymbol（`Z42InterfaceType.Methods`），
+    // 它们的 `IfaceBridgeRet` 恒空 ⇒ 天然拿到裸名 ⇒ 落在桥接上，正是要的。
+    // ⚠️ 本方法是 no-op-safe：未桥接时逐字返回 `RegKey`，所以**所有**以 RegKey 作调用目标名的
+    // 站点都该改用它（宁可多改一处，也不要漏一处——漏的那处是静默走错方法）。
+    public string CallKey() {
+        if (this.IfaceBridgeRet != "") { return this.RegKey + "$struct"; }
+        return this.RegKey;
+    }
+    // `CallKey()` 的**逆**——贴着它放，因为两者必须成对维护（同 `WithSignature` 贴着字段清单）。
+    //
+    // 为什么需要逆：`Methods` 映射键仍是 `RegKey`（裸名），而调用点手里拿的是 `CallKey()`。
+    // 凡是「拿调用点的名字去查 `Methods` / 判是否自有 / 判是否虚」的地方都要先剥回来，否则
+    // 查不到 ⇒ `ChainHasMethod` 返回 false ⇒ **IC-1 反劫持守卫失效**（本地类还有
+    // `ownerIsLocalInst` 兜着，导入类就裸奔了）。这类「名字换了但查表没跟上」正是本仓
+    // 反复出现的静默走错方法。
+    public static string StripCallKey(string callKey) {
+        if (callKey.EndsWith("$struct")) { return callKey.Substring(0, callKey.Length - 7); }
+        return callKey;
+    }
     public string Dump() { return "(method " + this.Name + " " + this.Signature.Dump() + ")"; }
 }
 

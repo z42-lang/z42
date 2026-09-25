@@ -1,0 +1,67 @@
+// add-iface-return-bridge：实现返回**具体 struct**、接口声明返回**引用型**的协变。
+//
+// 修前：编译期零诊断，运行期 `Std.MissingSymbolException: … takes 2 physical argument(s),
+// the call passes 1` —— sret 由**调用点的静态返回类型**决定（`CallEmitter._isBlobStruct(c.Type())`），
+// 接口调用点看到的是引用返回 ⇒ 不传隐藏返回槽，而被调方按 sret 编译。
+// 修后：桥接占裸名 vtable 槽（接口派发按方法名索引），具体实现挪到 `<m>$struct`：
+//   fn @C.m(this) -> <接口声明的返回类型>   { struct_alloc + call @C.m$struct + __box_struct + ret }
+//
+// ⭐ 判别力成对：**一字段** struct（标量 repr = 自描述 Value）修前就是对的，本测试也覆盖它
+// —— 若哪天判据从「blob」放宽成「凡 struct 返回」，那一组会因为多出无谓装箱而暴露。
+
+interface IThing { int V(); }
+
+// ── 两字段 = blob struct（走 sret）：修前崩的就是这一档 ──────────────────
+[Record] struct Two(int _a) : IThing {
+    int _b;
+    public int V() { return this._a; }
+}
+interface IBox { IThing Get(); }
+class Impl : IBox {
+    public Two Get() { return new Two(11); }
+}
+
+// ── 一字段 = 标量 repr（不走 sret）：修前修后都该对，且**不该**被桥接 ─────
+[Record] struct One(int _v) : IThing {
+    public int V() { return this._v * 10; }
+}
+class OneBox : IBox {
+    public One Get() { return new One(7); }
+}
+
+// ── 泛型档：实例化返回类型（`MyIter<T>`），blob 名要经 `_blobStructName` 解 ──
+interface IMyIter<T> { bool MoveNext(); T Current { get; } void Dispose(); }
+interface IMyEnum<T> { IMyIter<T> GetEnumerator(); }
+[Record] struct MyIter<T>(T _one) : IMyIter<T> {
+    int _n;
+    public bool MoveNext() { this._n = this._n + 1; return this._n == 1; }
+    public T Current { get { return this._one; } }
+    public void Dispose() { }
+}
+class MyColl<T> : IMyEnum<T> {
+    T _v;
+    public MyColl(T v) { this._v = v; }
+    public MyIter<T> GetEnumerator() { return new MyIter<T>(this._v); }
+}
+
+void Main() {
+    // 两字段 blob：经接口静态类型调用 —— 修前这一行运行期抛 MissingSymbolException
+    IBox b = new Impl();
+    Assert.Equal(11, b.Get().V());
+
+    // 一字段标量：对照组（修前就对，桥接不该介入）
+    IBox o = new OneBox();
+    Assert.Equal(70, o.Get().V());
+
+    // 具体静态类型直接调：仍拿到 struct 本身（无装箱快路径没被桥接夺走）
+    // 注：变量别起名 `impl` —— 它是关键字（`impl` 块），当变量名会撞出一串 E0202/E0401。
+    Impl concrete = new Impl();
+    Two two = concrete.Get();
+    Assert.Equal(11, two.V());
+
+    // 泛型档 + foreach 经接口静态类型（foreach 脱糖后就是经接口调 GetEnumerator）
+    IMyEnum<int> e = new MyColl<int>(9);
+    int sum = 0;
+    foreach (int v in e) { sum = sum + v; }
+    Assert.Equal(9, sum);
+}

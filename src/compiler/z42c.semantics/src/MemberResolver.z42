@@ -109,7 +109,7 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, false);
-                BoundCall ibc = BoundCall.Marked(new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
+                BoundCall ibc = BoundCall.Marked(new BoundCall("instance", true, recv, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
                 this._applyMethodTypeArgs(ibc, call, ms, env);   // 带真 ms → arity + where 约束真校验
                 return ibc;
             }

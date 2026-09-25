@@ -65,9 +65,12 @@ public sealed class IrGenMemberEmitter {
                 if (bridgeRet != "") {
                     MethodSymbol bms = owner.Methods.Get(methKey) as MethodSymbol;
                     var bsyn = new IfaceBridgeSynth(model.Symbols, g);
-                    IrFunction bridge = bsyn.EmitBridge(this._irOwner(c) + "." + methKey, irName,
-                                                        bms.Signature.Ret.Name(), bridgeRet, owner);
-                    this._out.AddFunc(bridge);
+                    // 必须先 CanBridge：blob 名由它解出（与 CallEmitter 同源），EmitBridge 直接用。
+                    if (bsyn.CanBridge(bms.Signature.Ret)) {
+                        IrFunction bridge = bsyn.EmitBridge(this._irOwner(c) + "." + methKey, irName,
+                                                            bridgeRet, owner);
+                        this._out.AddFunc(bridge);
+                    }
                 }
             }
         } else if (IrGenFacts._hasWord(md.Mods, "extern")) {
