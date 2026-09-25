@@ -573,6 +573,31 @@ entry   = "MyApp.main"
 "my-http"  = "*"         # 版本约束目前只做存在性校验，不做 semver 比较
 ```
 
+**`path` 的两种形态**（对标 C# 的两种引用）：
+
+| `path` 指向 | 语义 | 对标 |
+|---|---|---|
+| **工程目录**（其中恰一份 `*.z42.toml`） | z42c 先建该依赖闭包再解析 —— 私有组件跟随工程走 | `<ProjectReference>` / Cargo `{ path = … }` |
+| **`.zpkg` 文件** | 已经是产物：**不代建**，直接引用 | `<Reference HintPath="….dll">` |
+
+```toml
+[dependencies]
+"mylib"     = { path = "../mylib" }                 # 工程目录 → z42c 代建
+"vendorlib" = { path = "../vendor/vendorlib.zpkg" } # 已构建产物 → 直接用
+```
+
+判据是**扩展名**（`.zpkg`），不是「这个路径上有没有文件」—— 否则把路径写错会被静默当成工程
+引用，然后报一句「期望恰 1 份 `*.z42.toml`」，一条指向错误方向的诊断。
+
+产物引用的三条语义：
+
+- 它**所在目录**并入解析域 —— 于是它自己的兄弟依赖也解析得到（把一组 zpkg 一起 vendored
+  进同一个目录就能用）；
+- zpkg 里的 `[project].name` **必须**与清单里的 key 一致，否则报错。指错文件是最容易犯的错，
+  而包名就写在 zpkg 头里，校验零成本；
+- **运行期自动随产物走**：vendored 目录不是 shipped `libs/`，所以 exe 构建时会把它复制进
+  `dist/` —— 不需要额外声明什么。
+
 **设计原则：命名空间与包名解耦**
 
 `[dependencies]` 中填写的是 **zpkg 的 `[project] name` 字段**，而非命名空间名称。编译器在 libs/ 搜索路径中找到对应 zpkg 后，读取其 `namespaces` 字段，将导出的命名空间注册为可用。

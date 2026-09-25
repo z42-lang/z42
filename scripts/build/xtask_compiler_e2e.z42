@@ -511,6 +511,8 @@ int _testCompilerE2e(string root, string vm, string flat) {
     if (_e2eDeployPredicateChecks(root, vm, driverZpkg) != 0) { return 1; }
     // probing-paths（add-deployment-model 批 3）：声明的运行期搜索目录 + 侧车跟随。
     if (_e2eProbingPathChecks(root, vm, driverZpkg) != 0) { return 1; }
+    // `[dependencies]` 的 zpkg 产物引用（add-deployment-model）：类似 C# 引用 DLL。
+    if (_e2eZpkgRefChecks(root, vm, driverZpkg) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }
