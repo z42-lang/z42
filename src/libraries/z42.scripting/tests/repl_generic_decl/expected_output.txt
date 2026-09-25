@@ -1,13 +1,13 @@
-Std.Collections.List{...}
+List
 ok
 ok
 2
-Std.Collections.List{...}
+List
 ok
 1
 [0, 0, 0]
 3
-Std.Collections.Dictionary{...}
+Dictionary
 ok
 42
 3
