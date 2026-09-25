@@ -12,6 +12,7 @@
 namespace Z42.Driver;
 
 using Std;
+using Z42.Core;      // LanguageFeatures —— [syntax] 解出的语法特性开关
 using Std.IO;
 using Z42.Syntax;
 using Z42.Semantics;
@@ -370,6 +371,35 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         return ExitCode.UsageError;
     }
     int effOptSet = Opt.Resolve(isRelease, optToml.Bits, optToml.Mask, cliAdd, cliRemove);
+
+    // add-l0-protocol-table 批 1：`[syntax]` → `LanguageFeatures` → 解析器（**E0301 首次发射**）。
+    // 照 `[optimize]` 刚踩通的那条路：manifest 只搬中性 name/value，解释权在这里。
+    //
+    // ⚠️ **唯一一次 resolve 落在这一层** —— workspace 每个成员有自己的 manifest，在 CLI 层预先
+    // 算好会把 per-member 配置压平（`[optimize]` 那轮把 `int optSet` 拆成 cliAdd/cliRemove 就是
+    // 为了这个）。
+    // 🔴 **未知特性名报错、不静默忽略**：`IsEnabled` 对「未知」与「已知但关着」都返回 false，
+    // 靠它分不出拼写错误 ⇒ 用 `Has` 单独问一次。`LanguageFeatures` 抬头那条教训（那张表曾长期
+    // 宣告 6 个不存在的特性而无人发现）正是「没有门盯着名字」的后果。
+    LanguageFeatures feats = LanguageFeatures.Phase1Profile();
+    int sy = 0;
+    while (sy < pm.SyntaxCount) {
+        string sname = pm.SyntaxNames[sy];
+        if (!feats.Has(sname)) {
+            string known = "";
+            int kf = 0;
+            while (kf < feats.Count()) {
+                if (kf > 0) { known = known + "/"; }
+                known = known + feats.NameAt(kf);
+                kf = kf + 1;
+            }
+            ConsoleError.WriteLine("z42c: " + tomlPath + ": [syntax] unknown syntax feature `"
+                + sname + "` (known: " + known + ")");
+            return ExitCode.UsageError;
+        }
+        feats.Set(sname, pm.SyntaxValues[sy]);
+        sy = sy + 1;
+    }
     int hiddenN = hiddenPkgs != null ? hiddenPkgs.Length : 0;
     string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, hiddenPkgs, hiddenN);
     // wire-optimize-manifest：**优化集并进包级缓存身份**。它此前不在任何 cache key 里——那时无害
@@ -379,6 +409,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 生效」更难查。并进这里而不是新加一行 meta：`depsId` 本就是「包级身份，不符即整包全量」，
     // 优化集确实属于同一维度，且零签名改动（下游四处原样继承）。
     depsId = depsId + "|opt" + effOptSet.ToString();
+    // 🔴 **特性集也必须进包级缓存身份**，同上一行的理由：改一行 toml 不碰源码 ⇒ probe 全命中
+    // ⇒ 旋钮「全量生效、增量被忽略」。只折**被 toml 显式改动过的**那些（默认 profile 不进 key，
+    // 免得将来给 profile 加特性就把所有人的缓存作废）。
+    int sd = 0;
+    while (sd < pm.SyntaxCount) {
+        depsId = depsId + "|syn:" + pm.SyntaxNames[sd] + "=" + (pm.SyntaxValues[sd] ? "1" : "0");
+        sd = sd + 1;
+    }
     // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
     // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
     // 实际生效的 cache 目录：workspace 成员由 WsPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
@@ -398,7 +436,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // parse 分支、cachedMods 全 null → **缓存整份作废、全部重编**（实测 xtask 3.7s vs 应有 2.25s；
         // 多 exe 工程更是永远全量）。
         bool canPreserve = pm.ExeCount == 0 && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
-        prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve);
+        prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
         BuildLog.ProgressErr("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && prep.Plan.AllCached) {
             if (isExe) {
@@ -432,7 +470,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         bool[] want = new bool[srcs.Length];
         int wi = 0;
         while (wi < srcs.Length) { want[wi] = true; wi = wi + 1; }
-        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, srcs.Length, want);
+        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, srcs.Length, want, feats);
         cus = pk.Cus;
         metaIdents = pk.Idents;
         metaSurfaces = pk.Surfaces;
@@ -497,6 +535,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.HasEntry = pm.Project.HasEntry; cin.Entry = pm.Project.Entry;
     cin.IsRelease = isRelease;
     cin.Fix = fix;         // PR7-wire：`--fix` → _runAnalyzers 传 6-参 Run，analyzer 携修复就地重写源
+    cin.Features = feats;   // add-l0-protocol-table：喂给解析器的语法特性门
     cin.OptSet = effOptSet;   // wire-optimize-manifest：上方已按 CLI > toml > profile 解出
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.HiddenPkgs = hiddenPkgs; cin.HiddenN = hiddenN;
@@ -666,7 +705,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
-        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
+        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats);
         return ExitCode.Ok;
     }
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -694,7 +733,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         if (rc1 != 0) { return rc1; }
     }
     // cache 落盘（cache-dir-layout：不论是否增量都落盘，helper 见 BuildCache.z42）。
-    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
+    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats);
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
         int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);

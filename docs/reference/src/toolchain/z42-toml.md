@@ -1011,6 +1011,51 @@ warnings-as-errors = true        # 特殊布尔键（不是规则名）
 
 ---
 
+## L5d — `[optimize]` / `[syntax]`：逐项具名旋钮
+
+两段同形：**逐项 bool**，键是名字、值是开关。manifest 只搬运中性 name/value 对，
+**解释权在 z42c**（`z42.project` 不认识这些名字的语义）。两段都**参与包级缓存身份**，
+所以只改 toml、不碰源码也会触发重编 —— 否则旋钮会「全量生效、增量被忽略」。
+
+### `[optimize]` —— 逐 pass 优化开关
+
+```toml
+[optimize]
+inline    = true
+const-fold = false
+```
+
+| 事项 | 说明 |
+|---|---|
+| 已知名 | `const-fold` / `copy-prop` / `dce` / `inline` / `cse` / `licm` / `stack-alloc` / `loop-alloc-reuse` / `readonly-load` / `pure-call` / `dead-branch` / `devirt`，外加 `all` / `none` |
+| 优先级 | **CLI (`--opt` / `--no-opt`) > `[optimize]` > profile 默认**（release=全开、debug=全关）|
+| 未知名 | **报错退出**，不静默忽略（与 CLI 侧 `--opt 乱写` 同一口径）|
+
+### `[syntax]` —— 语法特性开关
+
+关掉某个特性后，用到该语法的代码报 **E0301**。
+
+```toml
+[syntax]
+control_flow = false      # 关掉 if / while / for / foreach / do / switch
+exceptions   = false      # 关掉 try
+```
+
+| 事项 | 说明 |
+|---|---|
+| 未知名 | **报错退出**并列出已知名单，不静默忽略 |
+| 默认 | 不写本段 = `Phase1Profile`（C# 12 子集全开）|
+| 粒度 | **整个语法构造**。裁不到「某个协议内的某一步」（例如关不掉「foreach 的枚举器回落、只留索引面」）|
+
+> ⚠️ **今天只有 `control_flow` 与 `exceptions` 真的关得掉东西。**
+> `LanguageFeatures` 里还有 13 个名字（`oop` / `generics` / `pattern_match` / `lambda` / `tuples` /
+> `delegates` / `reflection` / `nullable` / `ternary` / `cast` / `bitwise` / `arrays` /
+> `interpolated_str`）—— 它们已登记、可以写进 `[syntax]` 而不报「未知名」，但**关掉它们不会
+> 挡住任何语法**。这是有意暴露的现状而不是承诺：后续接线见
+> `docs/internals/src/compiler/syntax-customization.md` 的「实施路径」。
+
+---
+
 ## L6 — 工作区（Workspace）
 
 管理多工程 monorepo，统一构建、版本与共享元数据。

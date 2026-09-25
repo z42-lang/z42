@@ -103,7 +103,7 @@ PR 前后脚合入、各拿了一个 E0481，git 毫无反应，门在 main 上�
 
 | 码 | 含义 | 状态 |
 |---|---|---|
-| E0301 | 使用了未启用的语言特性 | ⚠️ 零发射点 |
+| E0301 | 使用了被 `z42.toml` 的 `[syntax]` 段关掉的语法构造 | ✅ `Parser.z42:_requireFeature`（今天覆盖 `control_flow` = if/while/for/foreach/do/switch，`exceptions` = try） |
 
 ---
 

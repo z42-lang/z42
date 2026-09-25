@@ -8,6 +8,7 @@ namespace Z42.Driver;
 using Std;
 using Std.IO;
 using Z42.Syntax;
+using Z42.Core;      // LanguageFeatures —— [syntax] 解出的语法特性开关
 using Z42.Semantics;
 using Z42.Project;
 using Z42.IR;
@@ -47,13 +48,19 @@ public static class IncrementalDriver {
     // 声明面指纹取 **RunAst 之前**的 raw CU（合成成员无真实 token 区间，见 SurfaceHash.z42）。
     // `names[i]` 是**呈现给用户的**文件名（诊断位置由它来），不是读取路径——读取早已完成，texts 就是内容。
     // 单文件运行时它是用户敲的 `hello.z42`，而真实路径是缓存清单里的绝对路径。
-    public static ParsedPkg ParseAllTk(string[] texts, string[] names, int n, bool[] want) {
+    // `feats` = `[syntax]` 解出的语法特性开关；**可空 = 全开**（未接线的调用方不受影响）。
+    // 🔴 生产代码里 `new Parser(...)` **只有两处**（本函数 + `_surfaceOfText`），两处都必须喂 ——
+    // 只挂一处 = 另一条路径静默无门，且主路径与兜底路径对同一份源算出不同的声明面
+    // （见 [[parallel-pass-sequences-miss-new-hook]]）。
+    public static ParsedPkg ParseAllTk(string[] texts, string[] names, int n, bool[] want,
+                                       LanguageFeatures feats) {
         CompilationUnit[] cus = new CompilationUnit[n];
         NameListZ[] idents = new NameListZ[n];
         NameSurfacesZ[] surfaces = new NameSurfacesZ[n];
         int i = 0;
         while (i < n) {
             var pp = new Parser(texts[i], names[i]);
+            pp._features = feats;
             CompilationUnit raw = pp.ParseCompilationUnit();
             if (want != null && want[i]) {
                 idents[i] = IncrementalDriver._identsOf(pp.Tokens());
@@ -75,7 +82,8 @@ public static class IncrementalDriver {
     // srcs = 真实路径（缓存键 / 探测用）；dispSrcs = 呈现给用户的文件名（诊断位置用）。工程模式下两者
     // 逐项相同；单文件运行时 srcs 是绝对路径、dispSrcs 是用户敲的相对路径。
     public static IncrPrep Prepare(string[] srcs, string[] dispSrcs, string[] texts, string[] hashes, int n,
-                                   string projectDir, string cacheDir, string depsId, bool canPreserve) {
+                                   string projectDir, string cacheDir, string depsId, bool canPreserve,
+                                   LanguageFeatures feats) {
         IncrFilePlan plan = IncrementalBuild.ProbeFiles(srcs, hashes, n, projectDir, cacheDir, depsId);
         IrModule[] cached = new IrModule[n];
         if (plan.AllCached && canPreserve) { return new IncrPrep(plan, null, cached); }   // 调用方马上 preserved → 不必读回
@@ -86,7 +94,7 @@ public static class IncrementalDriver {
         int i = 0;
         while (i < n) { metas0[i] = plan.Metas[i]; i = i + 1; }
 
-        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, n, plan.Fresh);
+        ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, n, plan.Fresh, feats);
         CompilationUnit[] cus = pk.Cus;
         bool incrDebug = (Environment.GetEnvironmentVariable("Z42_INCR_DEBUG", "")) == "1";
 
@@ -187,7 +195,8 @@ public static class IncrementalDriver {
     // 残留 pool/labels）+ 包级源清单。任何写失败由调用方 try/catch 吞（cache 非致命）。
     public static void WriteMetas(string cacheDir, string projectDir, string[] srcs, string[] texts,
                                   string[] hashes, int n, CompiledModuleZ[] cms, ZbcFileZ[] mods,
-                                  IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces, string depsId) {
+                                  IncrFilePlan plan, NameListZ[] idents, NameSurfacesZ[] surfaces, string depsId,
+                                  LanguageFeatures feats) {
         string[] rels = new string[n];
         int i = 0;
         while (i < n) {
@@ -204,7 +213,7 @@ public static class IncrementalDriver {
                 // 名字级声明面：parse 时已算（或从上次 meta 沿用）；无捕获（异常路径 / 全量
                 // 且未落 want）才兜底重 parse 一次。
                 NameSurfacesZ ns = (surfaces != null && surfaces[i] != null)
-                    ? surfaces[i] : IncrementalDriver._surfaceOfText(texts[i], srcs[i]);
+                    ? surfaces[i] : IncrementalDriver._surfaceOfText(texts[i], srcs[i], feats);
                 m.NsNames = ns.Names; m.NsHashes = ns.Hashes; m.NsCount = ns.Count;
                 m.SurfIdents = ns.SurfIdents; m.SurfIdentCount = ns.SurfIdentCount;
                 IrModule irm = cms[i].Module;
@@ -424,8 +433,9 @@ public static class IncrementalDriver {
     }
 
     // 声明面指纹的兜底重算（需要 AST 定体边界 → 重 parse 一次；正常路径走 ParseAllTk 的捕获）。
-    private static NameSurfacesZ _surfaceOfText(string text, string file) {
+    private static NameSurfacesZ _surfaceOfText(string text, string file, LanguageFeatures feats) {
         var pp = new Parser(text, file);
+        pp._features = feats;
         CompilationUnit raw = pp.ParseCompilationUnit();
         return SurfaceHash.Of(raw, pp.Tokens());
     }

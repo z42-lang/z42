@@ -1,0 +1,91 @@
+// **协议名的唯一 SoT。** 语法糖绑定到哪些成员名，只在这里写一次。
+//
+// 为什么在 `z42c.core`：它是 `z42c.syntax` 与 `z42c.semantics` **唯一共同可见**的层
+// （core 无依赖 ← syntax 依赖 core ← semantics 依赖 core+syntax）。event 降糖在**语法层**
+// （`MemberParser`）、foreach 判定在**语义层**（`ForeachProtocol`）⇒ 两边都要用的名字只能落这里。
+// ⚠️ `z42.core`（标准库）≠ `z42c.core`（编译器），别混。
+//
+// **这里只放名字，不放判定。** 判定要看 `Z42Type` / 成员表 / 布局 ⇒ 只能在 `z42c.semantics`。
+// 「三条路径按什么顺序试」集中在 `ForeachProtocol.Resolve`；每一步「问哪张继承面、拿不准往哪边
+// 倒」留在各判据函数里、与它上方的事故注释同处。
+//
+// 🔴 **这个分工不是洁癖，是实测出来的**（add-l0-protocol-table 的 L7）：`ForeachProtocol.MethodsOf`
+// 给的是类型**自己声明**的那张直接表，接口不含父接口成员、类不含基类成员。`EnumeratorDisposable`
+// 曾据此判断 ⇒ 经接口静态类型 foreach 时**静默跳过真该调的 `Dispose`**（#827 修）。
+// ⇒ 一条协议步骤真正的内容不是「查 `Dispose`」，而是「沿哪条继承面查、查不到时保守还是激进」——
+// 那半句话在一张名字表里**放不下**，所以它不在这里。
+//
+// 🔴 **加名字前先确认真有消费方。** 同 `LanguageFeatures` 抬头那条教训：那张表曾长期宣告 6 个
+// **不存在**的特性，直到 2026-09-23 才删 —— 在没有消费方的期间，没有任何门能发现它在说假话。
+// 这里多一个没人引用的常量，就是同一类假话。
+//
+// ── SoT 的**准确范围**（别把上面那句读宽了）───────────────────────────────
+// 这里是「**语法糖在判定 / 降糖时去查找的成员名**」的 SoT，**不是**「这些字符串出现的每一处」。
+// 有三族拼写重合但**事实不同**的邻居刻意不收 —— 收一半只会造出新的不一致：
+//
+// 1. **访问器合成命名**：`get_Item` / `set_Item` 各 12 处（MemberCollector / ClassExtractor /
+//    ClassDescBuilder / ExprTyper / StmtEmitter / IrGenMemberEmitter / SymbolCollector）。
+//    它们回答的是「`this[...]` 声明合成出来的方法**叫什么**」，属 `get_`/`set_`/`add_`/`remove_`/
+//    `__prop_` 那一族（48 处 / 14 文件）。只收 `get_Item` 会留下「为什么 get_ 是常量、set_ 不是」
+//    的新不一致 ⇒ 整族另立 PR。本文件的 `GetItem` 只表示「索引面协议**去找**哪个名字」。
+// 2. **数组 / 字符串的内建成员特判**：`arr.Length`（AccessEmitter / MemberResolver /
+//    CollectionTyper）。那是「基元与数组的固有成员」，与「协议去找什么名字」是两个事实。
+// 3. **纯类型名**（`Std.Object` / `ValueTupleN` / `MethodInfo` / 基元包装名三份）与 **`op_*` 映射表
+//    两份** —— 见 proposal 的 Non-goals，各自另立 PR。
+//
+// ⇒ 「改这里一个名字、所有客户一起变」这条判据**按名字分别成立**：`GetEnumerator` / `MoveNext` /
+// `Current` / `Dispose` / `Count` 已无第二份（**含 prelude 内建接口声明** `BuiltinTypeDefs`）；
+// `GetItem` / `Length` 的另一族按 1/2 刻意在外。
+namespace Z42.Core;
+
+public static class ProtocolNames {
+
+    // ── 可迭代协议（foreach）────────────────────────────────────────────────
+    // 三条路径有序：数组 → 整数索引面（`get_Item(int)` + 计数成员）→ 枚举器。
+    // 枚举器面的 `Dispose` 是**条件步骤**（fix-foreach-dispose-optional / #827）。
+    public static string GetEnumerator = "GetEnumerator";
+    public static string MoveNext      = "MoveNext";
+    public static string Current       = "Current";
+    public static string Dispose       = "Dispose";
+    public static string GetItem       = "get_Item";
+    public static string Count         = "Count";
+    public static string Length        = "Length";
+
+    // 属性的合成访问器前缀。**是前缀、不是完整名** —— 计数成员两档（`Count`→`Length`）靠
+    // `GetterPrefix + srcName` 拼；存成两条完整名会把那两档逻辑复制成两份，而「两处各写一份」
+    // 正是 `Count`/`Length` 当年判据分叉的原因（见 `ForeachProtocol.CountOf` 抬头）。
+    public static string GetterPrefix  = "get_";
+
+    // ── 事件协议（`event` 降糖，**发生在语法层**）────────────────────────────
+    // `MemberParser` 替用户合成 add/remove 访问器 + multicast backing 的初始化，因此**语法层
+    // 不得不知道这些 stdlib 名字**。这是 proposal 里最严重的一项（#3）：语法层直接依赖了标准库的
+    // 具体实现类。收进这里之后语法层只引用常量，那条依赖降级为「引用 core 的一份数据」。
+    //
+    // ⚠️ 只搬**名字**，AST 合成动作留在语法层（D-new-3）：搬合成 = 改变「谁在什么阶段造节点」，
+    // 会动 `DeclParser` 的调用时机与 `isIface` 分支，风险与本批收益不成比例。
+    public static string MulticastAction    = "MulticastAction";
+    public static string MulticastFunc      = "MulticastFunc";
+    public static string MulticastPredicate = "MulticastPredicate";
+    // 单播 event 的 backing 类型，同时是 multicast event 的 handler 委托类型
+    // （`MulticastFunc` → `Func`、`MulticastPredicate` → `Predicate`、其余 → `Action`）。
+    public static string Action    = "Action";
+    public static string Func      = "Func";
+    public static string Predicate = "Predicate";
+
+    public static string IDisposable    = "IDisposable";   // add 访问器的返回类型
+    public static string Disposable     = "Disposable";    // `Disposable.From(lambda)`
+    public static string DisposableFrom = "From";
+    public static string Subscribe      = "Subscribe";     // multicast backing 的订阅/退订
+    public static string Unsubscribe    = "Unsubscribe";
+    public static string DelegateOps      = "DelegateOps";      // 单播退订的同一性判定
+    public static string ReferenceEquals  = "ReferenceEquals";
+    public static string InvalidOperationException = "InvalidOperationException";
+
+    public static string AddPrefix    = "add_";
+    public static string RemovePrefix = "remove_";
+
+    // 🔴 **连引号一起存。** `StringLitExpr` 存的是**带引号的原始 token 文本**（词法层约定），
+    // 语法层合成 `new InvalidOperationException(<这个字面量>)` 时直接塞进去 ⇒ 存内容串会让生成的
+    // AST 变形。而验这条的测试通常只看「抛没抛」、不看消息 ⇒ **门不会红**，错了也没人告诉你。
+    public static string SinglecastAlreadyBound = "\"single-cast event already bound\"";
+}

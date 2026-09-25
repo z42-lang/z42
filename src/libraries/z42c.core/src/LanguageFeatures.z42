@@ -2,9 +2,18 @@
 // （Dict<...> 被丢弃）→ 并行数组 string[] names + bool[] enabled + count。
 // IsEnabled(未知名) = false（拼写错误被发现，不静默启用）。
 //
-// ⚠️ **本表当前零调用方** —— 解析器不查它，`z42.toml` 也没有 `[syntax]` 段。也就是说这些
-// 开关**关不掉任何东西**：它描述的是「将来接线后可裁剪的语法面」，不是「今天生效的配置」。
-// 接线计划见 docs/internals/src/compiler/syntax-customization.md（第 1 层）。
+// ✅ **已接线**（add-l0-protocol-table 批 1，2026-09-25）：`z42.toml` 的 `[syntax]` 段 →
+// `ManifestLoader._parseSyntax`（只搬中性 name/value）→ `z42c.driver` 的 `Main._build` 建表
+// （`Phase1Profile` 起底 + 按 toml 覆盖，**未知名报错退出**）→ `CompileInput.Features` →
+// `IncrementalDriver` 的**两处** `new Parser` → `Parser._requireFeature` 发 **E0301**。
+// 特性集同时折进 `depsId`（否则「全量生效、增量被忽略」）。
+//
+// ⚠️ **但只有两个名字今天真的关得掉东西**：`control_flow`（if/while/for/foreach/do/switch）与
+// `exceptions`（try）。其余 13 个名字**仍是死旋钮** —— 它们描述的是「将来可裁剪的语法面」，
+// 不是「今天生效的配置」。别把「这张表接线了」读成「每个名字都生效了」。
+// 后续接线：在各构造的解析入口加一句 `_requireFeature`，然后**为它加一条会红的门**
+// （`scripts/test/xtask_test_incremental.z42` 的 `_syntaxKnobTakesEffect` 是模板：
+// 负例必须报 E0301、且要验「红的理由对不对」）。
 //
 // 🔴 **名字必须对应真实存在的语法构造**。这张表曾长期宣告 4 个**不存在**的特性
 // （`using_stmt` —— z42 没有 using 语句；`null_coalesce` —— `??`/`?.` 已删、parser 报 E0480；
@@ -39,6 +48,24 @@ public sealed class LanguageFeatures {
         this._names[this._count]   = name;
         this._enabled[this._count] = on;
         this._count = this._count + 1;
+    }
+
+    // 名字在表里吗 —— 与 `IsEnabled` 分开是必须的：`IsEnabled` 对「未知名」和「已知但关着」
+    // 都返回 false，消费方据此**分不出拼写错误与故意关闭**。接线后 `[syntax]` 要对未知名报错
+    // （同 `Opt.ByName` 的口径），所以必须有这一问。
+    public bool Has(string name) {
+        int i = 0;
+        while (i < this._count) {
+            if (this._names[i] == name) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 已登记的特性名（供消费方在报未知名时列出「已知有哪些」）。
+    public string NameAt(int i) {
+        if (i < 0 || i >= this._count) { return ""; }
+        return this._names[i];
     }
 
     // 未知特性默认 false（安全：拼写错误不会静默启用）。

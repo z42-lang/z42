@@ -23,6 +23,12 @@ void Main() {
         Console.WriteLine("no throw (BUG)");
     } catch (InvalidOperationException e) {
         Console.WriteLine("double bind throws");
+        // ⭐ **消息本身也要是 golden 覆盖的事实**（add-l0-protocol-table T3 补的一道门）。
+        // 语法层合成 `new InvalidOperationException(<字面量>)`，而那个字面量是 `StringLitExpr` ——
+        // 它存的是**带引号的原始 token 文本**。把这条消息搬进常量表时若只存内容串，合成的 AST
+        // 就会变形（消息多出/少掉引号，或整串被当成标识符）。此前这条消息**全仓零断言**：
+        // 只验「抛没抛」的话，那种变形不会让任何门变红。
+        Console.WriteLine(e.Message);
     }
 
     // 3) Dispose 触发 remove_X，清空 backing field

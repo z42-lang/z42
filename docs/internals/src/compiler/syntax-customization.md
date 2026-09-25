@@ -344,7 +344,8 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 
 ## 实施路径
 
-分三批，与三层对应：
+**分四批**（第 1 层占两批：配置来源 ① / ②）。下表是唯一的批次清单 ——
+此前正文写「分三批」、表里列 4 批、后文又写「批 1–3 落地后」，三处互相矛盾。
 
 | 批次 | 内容 | 落点 |
 |:----:|------|------|
@@ -355,9 +356,25 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 
 顺序不可换：批 3 的表格化是批 4 运行时插入的前提，批 1 不落地则任何特性门都无从验证。
 
+> ✅ **批 1 已落地**（add-l0-protocol-table，2026-09-25）：`z42.toml [syntax]` →
+> `ManifestLoader._parseSyntax`（只搬中性 name/value）→ `Main._build` **唯一一次** resolve
+> （未知特性名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 的**两处** `new Parser`
+> → `Parser._requireFeature` 发 **E0301**（该码此前已分配、零发射点）。特性集折进 `depsId`，
+> 否则旋钮「全量生效、增量被忽略」。门：`xtask test incremental` 的 `_syntaxKnobTakesEffect`。
+>
+> ⚠️ **粒度 = 整个语法构造，裁不到协议内的某一步。** 门挂在 `Parser` 里那**一处**语句关键字
+> 派发上（批 3 要表化的正是这块）⇒ `control_flow = false` 关掉的是 if/while/for/foreach/do/switch
+> **全部**。将来若要「关掉 foreach 的枚举器回落、只留索引面」这种协议内裁剪，做法是给
+> `ForeachProtocol.Resolve` 里的**步骤**挂 feature 名（= 批 3 表项挂 `feature` 的同款做法），
+> 不是加细 `[syntax]` 的语义。这条边界来自 add-l0-protocol-table 的 D-new-1：策略链取
+> 「名字是数据、**链是一处集中的代码**」，链本身不是可配置数据。
+>
+> ⚠️ **只有 `control_flow` 与 `exceptions` 今天真的关得掉东西**，`LanguageFeatures` 里其余 13 个
+> 名字仍是死旋钮。别把「这张表接线了」读成「每个名字都生效了」。
+
 （两个无人读取的 `features.toml` sidecar 已于 2026-09-23 删除，批 1 不必再迁就它们。）
 
-新增一个特性的完整清单（批 1–3 落地后）：
+新增一个特性的完整清单（批 3 落地后的目标形态；**批 1 已落地**，今天第 2 步改为「在该构造的解析入口加一句 `_requireFeature`」）：
 
 1. 在 `Phase1Profile()` / `MinimalProfile()` 中声明该名字；
 2. 在 `ParseTable` 或 `StmtRules` 中把表项的 `feature` 指向它；

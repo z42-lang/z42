@@ -30,6 +30,11 @@ public sealed class Parser {
     public MemberParser _memberP;         // review P1-2：成员子解析器   // 嵌套泛型 `>>`/`>>>` 拆分：close 时若吃了 GtGt，余下的 `>` 记此
     public PatternParser _patP;           // 模式子解析器（Rust 风格模式匹配核心 A1）
 
+    // add-l0-protocol-table 批 1：`z42.toml [syntax]` 解出的语法特性开关。
+    // **可空 = 全开** —— 单测、REPL 与其它直接 `new Parser(src, file)` 的调用方不必改签名，
+    // 也不该因为没喂开关就被裁掉语法（门只在 driver 喂了表时才生效）。
+    public LanguageFeatures _features;
+
     // attribute-handler-registry PR3c：`#suppress`/`#restore` 局部抑制收集。子解析器经 `this._p`
     // 引用共享同一累加器。_supRegions=已闭合区间；_supOpen*=开区间栈（LIFO 按 RuleId 配对）。收尾
     // `_finalizeSuppress` 把未闭合的延伸到 EOF 并挂到 CU。见 SuppressRegion / design PR3c 落地。
@@ -54,6 +59,21 @@ public sealed class Parser {
         this._patP = new PatternParser(this);
         this._supRegions = new SuppressRegion[0]; this._supCount = 0;
         this._supOpenIds = new string[0]; this._supOpenStarts = new int[0]; this._supOpenCount = 0;
+        this._features = null;   // 可空 = 全开，见字段抬头
+    }
+
+    // 语法特性门：该特性被 `[syntax]` 关掉时发 E0301 并返回 false（调用方据此跳过该构造）。
+    // 未喂表（`_features == null`）⇒ 一律放行，见字段抬头。
+    //
+    // ⚠️ **未知特性名不在这里报** —— 那是消费方（driver）在建表时就该拦掉的事；到了这里
+    // 名字一定在表里，`IsEnabled` 的 false 只可能是「故意关掉」。
+    internal bool _requireFeature(string feat, Span sp) {
+        if (this._features == null) { return true; }
+        if (this._features.IsEnabled(feat)) { return true; }
+        this._diags.Error(DiagnosticCodes.FeatureDisabled,
+            "syntax feature `" + feat + "` is disabled by `[syntax]` in z42.toml — remove the"
+            + " `" + feat + " = false` line to use this construct", sp);
+        return false;
     }
 
     // ── PR3c 局部抑制指令 ────────────────────────────────────────────────────
@@ -220,6 +240,39 @@ public sealed class Parser {
 
 
     // ════ 语句 ══════════════════════════════════════════════════════════════
+    // 特性门拒绝一条语句后的错误恢复：**吃掉整条语句**再返回占位节点。
+    //
+    // 不能复用 `_skipToSemicolon` —— 它在 `}` 前停下，而被禁掉的构造多半自带块
+    // （`if (c) { ... }`）⇒ 停在块内会让后面每一个 token 都变成新的 parse 错误，把那条
+    // E0301 淹到看不见。判据是「一条禁用语法 ⇒ **恰好一条**诊断」。
+    //
+    // 括号/花括号配平后停；无块形态（`if (c) x = 1;`）按 depth 0 的 `;` 停；
+    // 尾随 `else` 连同它那一支一起吃掉（否则 `else` 会孤立成第二条错误）。
+    private Stmt _skipStmtPlaceholder(Span sp) {
+        bool more = true;
+        while (more) {
+            more = false;
+            int depth = 0;
+            bool sawBlock = false;
+            while (this._peek().Kind != TokenKind.Eof) {
+                int k2 = this._peek().Kind;   // TokenKind 是 static class + int 常量（z42 暂无 enum）
+                if (k2 == TokenKind.LParen) { depth = depth + 1; this._advance(); continue; }
+                if (k2 == TokenKind.LBrace) { depth = depth + 1; sawBlock = true; this._advance(); continue; }
+                if (k2 == TokenKind.RParen || k2 == TokenKind.RBrace) {
+                    if (depth == 0) { break; }          // 外层块的收尾，不属于本语句
+                    depth = depth - 1;
+                    this._advance();
+                    if (depth == 0 && sawBlock) { break; }   // 本语句的块闭合了
+                    continue;
+                }
+                if (k2 == TokenKind.Semicolon && depth == 0) { this._advance(); break; }
+                this._advance();
+            }
+            if (this._peek().Kind == TokenKind.Else) { this._advance(); more = true; }
+        }
+        return new ExprStmt(new NullLitExpr(sp), sp);
+    }
+
     // 错误恢复：跳过到（含）下一个 `;`，或在 `}` / EOF 前停下。让一条错误只报一次，
     // 后续语句仍能正常解析。
     void _skipToSemicolon() {
@@ -257,6 +310,17 @@ public sealed class Parser {
             return this._stmtP._parseBlock();
         }
         if (k == TokenKind.Return)  { return this._stmtP._parseReturn(); }
+        // add-l0-protocol-table 批 1：**特性门的第一个真客户**（此前 E0301 零发射点）。
+        // 挂在这一处唯一的语句关键字派发上 ⇒ `control_flow = false` 关掉的是 if/while/for/
+        // foreach/do/switch **全部**，而不是其中几个（部分接线会让特性名变成一句假话）。
+        // 门不通过时仍要**消费掉该语句**再返回占位节点，否则一条禁用语法会引发连环 parse 错误。
+        if (k == TokenKind.If || k == TokenKind.While || k == TokenKind.For
+            || k == TokenKind.Foreach || k == TokenKind.Do || k == TokenKind.Switch) {
+            if (!this._requireFeature("control_flow", st.Span)) { return this._skipStmtPlaceholder(st.Span); }
+        }
+        if (k == TokenKind.Try) {
+            if (!this._requireFeature("exceptions", st.Span)) { return this._skipStmtPlaceholder(st.Span); }
+        }
         if (k == TokenKind.If)      { return this._stmtP._parseIf(); }
         if (k == TokenKind.While)   { return this._stmtP._parseWhile(); }
         if (k == TokenKind.For)     { return this._stmtP._parseFor(); }
