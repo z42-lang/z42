@@ -79,6 +79,10 @@ pub struct RuntimeConfig {
     pub libs_dir: Option<PathBuf>,
     /// `Z42_PATH` — colon-separated module search paths.
     pub module_path: Vec<PathBuf>,
+    /// `Z42_PROBING_PATHS` — extra zpkg **dependency** search dirs, platform-separated.
+    /// Relative entries resolve against the entry zpkg's directory (not cwd); `*` / `**`
+    /// expand at resolution time. Empty = search order stays `[entry-dir, libs]`.
+    pub probing_paths: Vec<PathBuf>,
     /// `Z42_LOG` — tracing-subscriber filter directive. `None` = use default.
     pub log_filter: Option<String>,
     /// `Z42_CRASH_DIR` — panic / signal crash report directory. `None` = stderr only.
@@ -276,6 +280,7 @@ impl Default for RuntimeConfig {
         Self {
             libs_dir: None,
             module_path: Vec::new(),
+            probing_paths: Vec::new(),
             log_filter: None,
             crash_dir: None,
             gc_mode: GcMode::default(),
@@ -409,6 +414,7 @@ impl RuntimeConfig {
             // ── Phase 1 startup knobs ─────────────────────────────────────
             libs_dir:    get("Z42_LIBS").map(PathBuf::from),
             module_path: get("Z42_PATH").map(|s| split_paths(&s)).unwrap_or_default(),
+            probing_paths: get("Z42_PROBING_PATHS").map(|s| split_paths(&s)).unwrap_or_default(),
             log_filter:  get("Z42_LOG"),
             crash_dir:   get("Z42_CRASH_DIR").map(PathBuf::from),
 

@@ -357,6 +357,22 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         consumed_by: "main.rs",
         ..PUBLIC
     },
+    // add-deployment-model 批 3：zpkg **依赖**的额外搜索目录。
+    //
+    // ⚠️ 与上面的 `Z42_PATH` 不是一回事，别合并：那条是 `.zbc` **模块**搜索路径，走的是
+    // `resolve_namespace(ns, module_paths, libs_paths)` 那条按命名空间找的老路；本条进的是
+    // `app.rs` 的 `search_dirs`，被按 **zpkg 文件名**解析依赖的 `resolve_dependency` 用。
+    // （`Z42_PATH` 今天在 main.rs 里只被 log 掉 —— 那是它自己的欠账，单独立项处置，
+    //  不让它的历史债决定本旋钮的形状。）
+    KnobSpec {
+        name: "Z42_PROBING_PATHS",
+        toml_key: "probing-paths",
+        value: ValueKind::PathList,
+        description: "extra zpkg dependency search dirs (platform-separated; relative to the entry zpkg's dir; `*` / `**` allowed)",
+        default_hint: "unset; search order is [entry-zpkg dir, libs]",
+        consumed_by: "app.rs",
+        ..PUBLIC
+    },
     KnobSpec {
         name: "Z42_REPL_NATIVE",
         toml_key: "repl-native",

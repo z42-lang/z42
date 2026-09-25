@@ -348,6 +348,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             if (isExe) {
                 int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
+                // 🔴 侧车必须在 preserved 路径上也重写。`[profile.<n>.runtime]` 的旋钮与
+                // `[properties]` **不进源 hash**（它们不影响编译产物），于是「只改了运行时
+                // 配置、源码一字未动」恰好全命中缓存 ⇒ 早退 ⇒ 侧车留在上一次的值：用户改了
+                // 旋钮、构建报成功、产物里还是旧配置。实测复现（把 probing-paths 从
+                // `../../shared` 改成 `../../CHANGED`，重建后侧车仍是 `../../shared`）。
+                // 写出是幂等的（值没变就写回同样的字节），代价是一次 TOML 序列化。
+                int rcp = _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
+                if (rcp != 0) { return rcp; }
             }
             BuildLog.Progress("no changes; preserved -> " + BuildLayout.Display(lastZpkg));
             return ExitCode.Ok;
