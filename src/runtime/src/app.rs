@@ -222,7 +222,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             user_artifact.import_namespaces.iter().cloned().collect();
         loop {
             while let Some(ns) = ns_queue.pop_front() {
-                let Ok(zpkg_paths) = crate::metadata::resolve_namespace(&ns, &[], &libs_paths)
+                let Ok(zpkg_paths) = crate::metadata::resolve_namespace(&ns, &libs_paths)
                 else { continue };
                 for zpkg_path in zpkg_paths {
                     if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
@@ -436,7 +436,7 @@ fn build_declared_candidates(
             continue;
         }
         for ns in &dep.namespaces {
-            let Ok(zpkg_paths) = crate::metadata::resolve_namespace(ns, &[], &libs_paths) else {
+            let Ok(zpkg_paths) = crate::metadata::resolve_namespace(ns, &libs_paths) else {
                 continue;
             };
             for zpkg_path in zpkg_paths {
@@ -463,7 +463,7 @@ fn build_declared_candidates(
 
     // .zbc import_namespaces — reverse lookup
     for ns in &user_artifact.import_namespaces {
-        let Ok(zpkg_paths) = crate::metadata::resolve_namespace(ns, &[], &libs_paths) else {
+        let Ok(zpkg_paths) = crate::metadata::resolve_namespace(ns, &libs_paths) else {
             continue;
         };
         for zpkg_path in zpkg_paths {

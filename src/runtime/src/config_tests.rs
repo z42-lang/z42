@@ -28,7 +28,7 @@ fn known_knobs_alphabetical_and_unique() {
 fn known_knobs_match_struct_fields_for_startup_knobs() {
     // The 4 path-ish fields on RuntimeConfig must each appear in KNOWN_KNOBS.
     let names: Vec<&str> = KNOWN_KNOBS.iter().map(|k| k.name).collect();
-    for required in ["Z42_LIBS", "Z42_PATH", "Z42_LOG", "Z42_CRASH_DIR"] {
+    for required in ["Z42_LIBS", "Z42_LOG", "Z42_CRASH_DIR"] {
         assert!(names.contains(&required),
             "RuntimeConfig field expects {required} in KNOWN_KNOBS");
     }
@@ -40,7 +40,7 @@ fn from_getter_all_unset() {
     assert!(cfg.libs_dir.is_none());
     assert!(cfg.log_filter.is_none());
     assert!(cfg.crash_dir.is_none());
-    assert!(cfg.module_path.is_empty());
+    assert!(cfg.probing_paths.is_empty());
 }
 
 #[test]
@@ -91,11 +91,13 @@ fn from_getter_libs_set() {
 
 #[test]
 fn from_getter_path_splits_on_platform_separator() {
+    // retire-z42-path：这两条测的是 **PathList 的分隔符解析**，`Z42_PATH` 只是当时的载体。
+    // 旋钮退役了，规则还在 —— 改挂到同为 PathList 的 `Z42_PROBING_PATHS`，别把保障一起删掉。
     let sep = if cfg!(windows) { ';' } else { ':' };
     let input = format!("/a{sep}/b{sep}/c");
-    let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_PATH", &input)]));
+    let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_PROBING_PATHS", &input)]));
     assert_eq!(
-        cfg.module_path,
+        cfg.probing_paths,
         vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
     );
 }
@@ -104,9 +106,9 @@ fn from_getter_path_splits_on_platform_separator() {
 fn from_getter_path_skips_empty_segments() {
     let sep = if cfg!(windows) { ';' } else { ':' };
     let input = format!("/a{sep}{sep}/b{sep} {sep} /c");
-    let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_PATH", &input)]));
+    let cfg = RuntimeConfig::from_getter(fake_env(&[("Z42_PROBING_PATHS", &input)]));
     assert_eq!(
-        cfg.module_path,
+        cfg.probing_paths,
         vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]
     );
 }
@@ -1137,8 +1139,8 @@ fn set_parses_key_value_pairs() {
 #[test]
 fn set_splits_on_the_first_equals_only() {
     // Path lists and log directives legitimately contain '='.
-    let m = parse_set_args(&set_args(&["path=/a=b:/c", "log=z42::jit=debug,z42=warn"])).unwrap();
-    assert_eq!(m.get("Z42_PATH").map(String::as_str), Some("/a=b:/c"));
+    let m = parse_set_args(&set_args(&["probing-paths=/a=b:/c", "log=z42::jit=debug,z42=warn"])).unwrap();
+    assert_eq!(m.get("Z42_PROBING_PATHS").map(String::as_str), Some("/a=b:/c"));
     assert_eq!(m.get("Z42_LOG").map(String::as_str), Some("z42::jit=debug,z42=warn"));
 }
 

@@ -142,47 +142,11 @@ fn make_fake_zpkg(dir: &Path, filename: &str, namespaces: &[&str]) {
     std::fs::write(dir.join(filename), &data).expect("write test zpkg");
 }
 
-/// Build a minimal binary zbc with just a NSPC section (v0.3 format with directory).
-fn make_fake_zbc(dir: &Path, filename: &str, namespace: &str) {
-    use crate::metadata::formats::ZBC_MAGIC;
-    let ns_bytes = namespace.as_bytes();
-    // NSPC section payload: u16(len) + bytes
-    let nspc_payload: Vec<u8> = {
-        let mut v = Vec::new();
-        v.extend_from_slice(&(ns_bytes.len() as u16).to_le_bytes());
-        v.extend_from_slice(ns_bytes);
-        v
-    };
-
-    let sec_count: u16 = 1;
-    let header_size: usize = 16;
-    let dir_size: usize = sec_count as usize * 12;
-    let sec_offset = (header_size + dir_size) as u32;
-
-    let mut data: Vec<u8> = Vec::new();
-    // Header: magic[4] + major[2] + minor[2] + flags[2] + sec_count[2] + reserved[4]
-    data.extend_from_slice(&ZBC_MAGIC);
-    data.extend_from_slice(&0u16.to_le_bytes()); // major
-    data.extend_from_slice(&3u16.to_le_bytes()); // minor (v0.3)
-    data.extend_from_slice(&0u16.to_le_bytes()); // flags = 0 (full)
-    data.extend_from_slice(&sec_count.to_le_bytes());
-    data.extend_from_slice(&0u32.to_le_bytes()); // reserved
-
-    // Directory: NSPC entry
-    data.extend_from_slice(b"NSPC");
-    data.extend_from_slice(&sec_offset.to_le_bytes());
-    data.extend_from_slice(&(nspc_payload.len() as u32).to_le_bytes());
-
-    // NSPC section data
-    data.extend_from_slice(&nspc_payload);
-
-    std::fs::write(dir.join(filename), &data).expect("write test zbc");
-}
 
 /// resolve_namespace with empty paths returns an empty vec
 #[test]
 fn test_resolve_namespace_empty_paths() {
-    let result = resolve_namespace("Std.IO", &[], &[]);
+    let result = resolve_namespace("Std.IO", &[]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_empty());
 }
@@ -198,7 +162,7 @@ fn test_resolve_namespace_ambiguous_returns_both() {
     make_fake_zpkg(&tmp, "libA.zpkg", &["z42.conflict"]);
     make_fake_zpkg(&tmp, "libB.zpkg", &["z42.conflict"]);
 
-    let result = resolve_namespace("z42.conflict", &[], &[tmp.clone()]);
+    let result = resolve_namespace("z42.conflict", &[tmp.clone()]);
     std::fs::remove_dir_all(&tmp).ok();
 
     assert!(result.is_ok(), "unexpected error: {:?}", result.err());
@@ -212,33 +176,6 @@ fn test_resolve_namespace_ambiguous_returns_both() {
     assert!(names.contains("libB.zpkg"));
 }
 
-/// A zbc in module_paths and a zpkg in libs_paths both provide the same namespace
-/// → module_paths wins (zpkg tier is skipped when zbc tier has matches).
-#[test]
-fn test_resolve_namespace_cross_tier_override() {
-    let tmp = std::env::temp_dir().join(format!("z42_test_ct_{}", std::process::id()));
-    let zbc_dir  = tmp.join("modules");
-    let zpkg_dir = tmp.join("libs");
-    std::fs::create_dir_all(&zbc_dir).unwrap();
-    std::fs::create_dir_all(&zpkg_dir).unwrap();
-
-    make_fake_zbc(&zbc_dir, "mymod.zbc", "z42.shared");
-    make_fake_zpkg(&zpkg_dir, "mylib.zpkg", &["z42.shared"]);
-
-    let result = resolve_namespace("z42.shared", &[zbc_dir.clone()], &[zpkg_dir.clone()]);
-    std::fs::remove_dir_all(&tmp).ok();
-
-    assert!(result.is_ok(), "unexpected error: {:?}", result.err());
-    let paths = result.unwrap();
-    assert_eq!(paths.len(), 1, "only zbc should match (zpkg tier skipped)");
-    let path = &paths[0];
-    assert_eq!(
-        path.parent().unwrap(),
-        zbc_dir.as_path(),
-        "expected zbc from module_paths to win over zpkg in libs_paths"
-    );
-    assert_eq!(path.extension().and_then(|e| e.to_str()), Some("zbc"));
-}
 
 // ── fix-cross-pkg-subclass-fields (2026-05-14) ────────────────────────────────
 

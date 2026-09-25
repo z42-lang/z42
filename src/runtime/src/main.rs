@@ -322,12 +322,6 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
         return Ok(());
     }
 
-    // Resolve module search paths (Z42_PATH + cwd + cwd/modules); log only for now.
-    let module_paths = resolve_module_paths();
-    if cli.verbose {
-        log_module_paths(&module_paths);
-    }
-
     // `file` is required when not in --info mode. clap can't express "required
     // unless --info" cleanly, so enforce it here.
     let file = cli.file.as_deref()

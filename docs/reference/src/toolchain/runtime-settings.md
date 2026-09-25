@@ -151,13 +151,12 @@ probing-paths = "../shared"        # 多条用平台分隔符（unix `:`／windo
 
 ## 旋钮清单（public）
 
-日常会用到的就是这 14 个。「默认」一列是**未设时**的行为。
+日常会用到的就是这 13 个。「默认」一列是**未设时**的行为。
 
 | 旋钮 | 环境变量 | 类型 | 默认 |
 |---|---|---|---|
 | `mode` | `Z42_MODE` | enum(`interp`\|`jit`\|`aot`) | build 默认（编进了 jit 就 jit，否则 interp） |
 | `log` | `Z42_LOG` | string | `z42=warn`（`--verbose` 下 `z42=info`） |
-| `path` | `Z42_PATH` | path-list | `<cwd>`、`<cwd>/modules` |
 | `libs` | `Z42_LIBS` | path | 相对 z42vm 二进制的 `artifacts/build/libraries/dist/release` |
 | `probing-paths` | `Z42_PROBING_PATHS` | path-list | 无 —— 依赖搜索序就是 `[entry-zpkg 目录, libs]` |
 | `native-path` | `Z42_NATIVE_PATH` | path-list | 包相对搜索 |
@@ -176,7 +175,6 @@ probing-paths = "../shared"        # 多条用平台分隔符（unix `:`／windo
   收下，但没有 `aot` feature 的 build 会警告并回落 build 默认；`--mode` 旗标本身只接受
   `interp` / `jit`。
 - **`log`** — `tracing-subscriber` 的 EnvFilter 指令串，如 `z42::jit=debug,z42=warn`。
-- **`path`** — 模块搜索路径，平台分隔符分隔（Unix `:`，Windows `;`）。
 - **`libs`** — 标准库 zpkg 的搜索目录。**单个路径**，不是路径列表。
 - **`native-path`** — native `.dylib` / `.so` / `.dll` 模块的搜索路径，平台分隔符分隔。
 - **`crash-dir`** — panic / 信号崩溃报告文件的落盘目录。
@@ -194,6 +192,16 @@ probing-paths = "../shared"        # 多条用平台分隔符（unix `:`／windo
 - **`sample-out`** — 采样火焰图的 folded-stacks 输出路径（inferno 格式）。
 - **`trace-out`** — chrome / perfetto 采样时间线 JSON 的输出路径；设了它就额外录一份
   逐采样时间线。
+
+
+## 已退役的旋钮
+
+| 旋钮 | 环境变量 | 退役 | 原因 |
+|---|---|---|---|
+| `path` | `Z42_PATH` | 2026-09-25 | 散装 `.zbc` 模块的搜索路径。**解析出来只进日志** —— 五个生产调用方全传空，它承诺的「`.zbc` 覆盖 `libs/` 里的 zpkg」从未生效过。该能力随 zpkg 打包格式落地而被淘汰：VM 的惰性加载器不再按命名空间路由，改按 zpkg 文件名（设计出处见归档 `2026-04-04-design-module-loading`）。要给 zpkg **依赖**加搜索目录，用 [`probing-paths`](#probing-paths--依赖的额外搜索目录) |
+
+> 退役 = 从旋钮登记表删除。设了也不会有任何效果，`--list-knobs` 也不再列出它。
+> 编号/名字空出来了，但**不复用**——复用会让老脚本里的配置突然有了新含义。
 
 ## 其余 29 个
 

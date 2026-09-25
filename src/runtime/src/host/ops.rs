@@ -134,7 +134,7 @@ pub(crate) fn build_host_module(
         } else if let Some(libs) = libs_dir.as_ref() {
             let libs_paths = vec![libs.clone()];
             let Ok(zpkg_paths) =
-                crate::metadata::resolve_namespace(ns, &[], &libs_paths)
+                crate::metadata::resolve_namespace(ns, &libs_paths)
             else {
                 continue;
             };

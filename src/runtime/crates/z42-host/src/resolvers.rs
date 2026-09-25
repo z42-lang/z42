@@ -74,7 +74,7 @@ impl SearchPathsResolver {
 
 impl ZpkgResolver for SearchPathsResolver {
     fn resolve(&self, namespace: &str) -> Option<Vec<u8>> {
-        let zpkgs = z42::metadata::resolve_namespace(namespace, &[], &self.paths).ok()?;
+        let zpkgs = z42::metadata::resolve_namespace(namespace, &self.paths).ok()?;
         for zpkg_path in zpkgs {
             if let Ok(bytes) = std::fs::read(&zpkg_path) {
                 return Some(bytes);
