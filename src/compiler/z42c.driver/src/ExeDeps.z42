@@ -41,6 +41,18 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     //
     // 为什么 `Z42_LIBS` 可靠而 srcRoot 不可靠：前者是「这台机器上的框架在哪」这个**运行期
     // 事实**，用户机器与 repo 内都成立；后者是「我在不在 z42 的源码树里」，只有开发时成立。
+    //
+    // 🔴 但判据不能写成「这个名字在 Z42_LIBS 里存在吗」—— 那条在**构建期 Z42_LIBS 混装了
+    // 非框架包**时会失真，而 CI 的 bench A/B 正是这么拼环境的（`.ab-base-alllibs` = stdlib +
+    // 全部 compiler member）。那样 `z42c.pipeline` 会被判成框架而不复制，于是 `z42c.driver`
+    // 的**自包含 bundle 缺件**，z42b 的 `_findCompilerZpkg` 探测③（找 driver dist 里的
+    // pipeline 副本）落空 ⇒ `no compiler injected`。实测踩到过，本地看不见——本地
+    // `build compiler` 的 Z42_LIBS 指向不含编译器包的 stdlib flat dist。
+    //
+    // ⇒ 判据用**它是从哪个目录找到的**：`libsDirs` 的顺序本来就是 `[私有 dist…, Z42_LIBS]`
+    //（path 闭包 dist / workspace 成员 dist 在前）。从 shipped libs/ 找到 ⇒ 框架，运行期也从
+    // 那儿解析、不复制；从更靠前的目录找到 ⇒ **本次构建产出的私有包**，复制。
+    // 顺带把「判是不是框架」和「去哪拷」合并成一次查找，不再扫两遍。
     string shippedLibs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     // 待拷名单 = 直接依赖 ∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。
     // 闭包成员恒为私有包（按路径引入、其 dist 不在 Z42_LIBS）⇒ 判据自然判出「拷」，
@@ -73,15 +85,18 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     while (i < nameN) {
         string dep = names[i];
         i = i + 1;
-        bool isFramework = shippedLibs.Length > 0
-            && File.Exists(Path.Join(shippedLibs, dep + ".zpkg"));
-        if (isFramework) { continue; }   // 框架：走 Z42_LIBS，不复制
         string zname = dep + ".zpkg";
         bool copied = false;
         int d = 0;
         while (d < libsDirsN) {
             string cand = Path.Join(libsDirs[d], zname);
             if (File.Exists(cand)) {
+                // 从 shipped libs/ 找到 ⇒ 框架，不复制（运行期同样从那儿解析）。
+                if (shippedLibs.Length > 0 && libsDirs[d] == shippedLibs) {
+                    copied = true;
+                    d = libsDirsN;
+                    continue;
+                }
                 string dst = Path.Join(distDir, zname);
                 if (cand != dst) {
                     if (File.Exists(dst)) { File.Delete(dst); }

@@ -13,6 +13,14 @@
 //
 // 🔴 工程必须落在 **repo 之外**（`/tmp`）：放在 repo 内 `_srcRoot` 找得到根，走的是目录判据，
 // 旧代码在那儿是对的 —— 门也就看不见差别了。**这个缺陷只在用户机器上发生。**
+//
+// ⚠️ **本门盖不到的另一半**（2026-09-25 被 CI 抓到后补记）：判据不能写成「这个名字在
+// Z42_LIBS 里存在吗」—— 构建期 Z42_LIBS 若**混装了非框架包**（CI 的 bench A/B 就是这么拼的：
+// `.ab-base-alllibs` = stdlib + 全部 compiler member），`z42c.pipeline` 会被判成框架而不复制，
+// 于是 `z42c.driver` 的自包含 bundle 缺件、z42b 的 `_findCompilerZpkg` 探测③ 落空 ⇒
+// `no compiler injected`。**本地 GREEN 看不见**（本地 Z42_LIBS 是干净的 stdlib flat dist）。
+// 故判据改用「它是**从哪个目录**找到的」。这一格由 `test compiler` 的自举 + CI 的 bench A/B
+// 共同守着，本门只守「repo 外不按名字前缀猜」那一格。
 namespace Z42Xtask;
 
 using Std;
