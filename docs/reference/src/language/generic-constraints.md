@@ -337,9 +337,25 @@ var m = Max(numA, numB);   // Num 是 class
 m.value                    // ✅ 正常 —— 引用类型经擦除返回位流出时运行期派发良好
 ```
 
-⚠️ 仍有一格**编译期不报、运行期才崩**：**blob struct**（字段数 ≥ 2 的值 struct）经擦除返回位
-流出后访问字段（`id(v).X` → `FieldGet: expected object, got BoxedStruct`）。该格的根因是泛型
-**特化**而非成员解析，见 [internals / 泛型](https://z42-lang.github.io/z42/internals/compiler/generics.html)。
+**blob struct**（字段数 ≥ 2 的值 struct）经擦除返回位流出后访问字段同样正常：
+
+```z42
+struct Vec2 { public long X; public long Y; }
+T id<T>(T a) { return a; }
+
+id(v).X        // ✅ 7 —— 基元 / 引用 / bool / 嵌套 struct 四种叶子皆可
+id(v).Sum()    // ✅ 方法一直可以
+```
+
+> 📌 **订正（accept-boxed-struct-field-get，2026-09-25）**：本节此前写着这一格「编译期不报、
+> 运行期才崩（`FieldGet: expected object, got BoxedStruct`），根因是泛型**特化**」——
+> **根因判断是错的**。运行期的值是带完整 `TypeDesc` + `struct_layout` 的装箱 struct，而
+> `vcall` / `is` / `as` / 数组元素整读 / 反射 `GetValue` 全都认它，**只有 `field_get` 一条指令
+> 漏了这条接收者臂**；补上即可，与特化无关（特化影响的是调用点的**静态**类型，不是能否取到值）。
+>
+> 仍然成立的一格：`id(v).X = 5`（**写**进从擦除返回位流出的临时盒）今天崩
+> `FieldSet: expected object` —— 那应当是**编译错误**（写入必然被丢弃），已登记
+> `reject-assign-to-erased-call-result`，不在本次范围。
 
 ### `Self` 形参位：具体类型实参报 E0463
 

@@ -357,6 +357,18 @@ pub(super) fn field_get(
                 other => bail!("PinnedView has no field `{}` (only `ptr` / `len`)", other),
             }
         }
+        // accept-boxed-struct-field-get: 值 struct 经**擦除的返回位**流出泛型函数时，运行期的值是
+        // 带完整 `TypeDesc` + `struct_layout` 的堆盒。调用点的静态类型是裸 `T`（`--dump-bound`
+        // 实测 `(call id … :T)`）⇒ `AccessEmitter` 的 blob 分支判假 ⇒ 落到这条通用 `field_get`。
+        // 而 `vcall` / `struct_fget_prim` / `is` / `as_cast` / 数组元素整读 / 反射 `GetValue`
+        // 全都认这个盒，**只有 `field_get` 不认** ⇒ `id(v).Sum()` 好、`id(v).X` 崩，规律不自解释。
+        // 语义与反射那条完全同一件事（按名定位叶子：基元 decode / 引用侧表 / 嵌套拷新盒），
+        // 故直接复用 `boxed_struct_field_get`，不另写一份布局复刻。
+        // ⚠️ `field_set` 刻意**不**跟着加：那会把「写进擦除返回位流出的临时盒」变成静默丢弃写，
+        // 正解是编译期拒绝（C# 同）⇒ 独立登记 `reject-assign-to-erased-call-result`。
+        Value::BoxedStruct(gc) => {
+            crate::corelib::reflection::accessors::boxed_struct_field_get(ctx, gc, field_name)?
+        }
         other => bail!("FieldGet: not an object or known value type, got {:?} (field `{}`)", other, field_name),
     };
     frame.set(dst, val);
