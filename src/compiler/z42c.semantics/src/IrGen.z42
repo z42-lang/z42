@@ -39,9 +39,15 @@ public sealed class IrGen {
     // 两者对同一批字节的理解不同 ⇒ 静默错值（`ReadSecond<P2>(Loc<P2,int>)` 读出 2 而非 7）。
     // 修法：以具体实参为键，给泛型体各特化一份，体内的布局查询按代换后的类型算。
     //
-    // `SpecTypeArgs`：当前正在发射的特化体的**方法级**类型实参代换（型参名 → 具体规范名）。
+    // `SpecTypeArgs`：当前正在发射的特化体的类型实参代换（型参名 → 具体规范名）。
     // 非特化发射时为 null。咽喉点是 `ExprEmitter._canonTypeName` / `_isConcreteTypeArg` ——
     // 所有布局名都经由它们推导，故只需在那两处消解代换。
+    //
+    // 两个来源：**方法级**（`_emitSpecializedFreeFn`，键=方法型参名）与 complete-generic-class-identity
+    // P4 起的**类级**（`IrGenTypeEmitter.EmitInstantiation`，键=类型参名）。两者不同时生效
+    //（前者的工作项是泛型体，后者是实例化类型），故共用一张表不会互相污染；`SpecInstName != ""`
+    // 就是「当前是类级通道」的判据 —— `FunctionEmitter._blobStructNameT` 用它把**调用约定**的
+    // 代换限定在类级通道（调用约定是两侧协议，见该处注释）。
     public StrMap SpecTypeArgs;
     // complete-generic-instantiation S1：本 CU 已有类型错误 ⇒ **不做特化**。
     // 病态源码的类型实参可以无限加深（`Rec<T>` 调 `Rec<Loc<T,int>>`），特化工作表会跟着无限

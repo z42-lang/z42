@@ -63,6 +63,23 @@ public sealed class CallEmitter {
         return dst;
     }
 
+    // complete-generic-class-identity P4：**已特化**的实例化成员返回 blob struct ⇒ callee 走 sret，
+    // 调用侧必须一致。返回该 blob 的布局名；不适用 → ""。
+    //
+    // 两个条件缺一不可，且分工明确：
+    //   · `c.InstRetType`（typer 给）：方法返回**类级型参**、按 receiver 实参代换后是什么类型。
+    //     发射端不自己算 —— 那要重做一遍重载决议，查错就是错发。
+    //   · `_instLayoutName(receiver) != ""`（发射端给）：该实例化的成员**确实被重发过**。
+    //     布局知识只在发射端。未特化（跨包擦除体）时装箱模型仍成立，不能改。
+    // 这正是 design D5 要的「同一判据单一出口」：**同一个** `_instLayoutName` 既决定成员派发名，
+    // 也决定调用约定，不可能漂移成两把尺子。
+    private string _specSretName(BoundCall c) {
+        if (c.InstRetType == null || c.Receiver == null) { return ""; }
+        if (this._ee._instLayoutName(c.Receiver.Type()) == "") { return ""; }
+        if (!this._ee._isBlobStruct(c.InstRetType)) { return ""; }
+        return this._ee._blobStructName(c.InstRetType);
+    }
+
     // fix-struct-property-getter：blob struct 属性 getter 读（`x.Prop`）→ **静态 Call 传 handle**（0 参 +
     // sret-aware），与 struct 实例方法调用同款派发（:99-104）——struct 无虚方法，VCall 会崩「expected object,
     // got StructRef」。供 AccessEmitter._emitMember 经 ExprEmitter 转发。
@@ -169,10 +186,11 @@ public sealed class CallEmitter {
             // （caller 预留返回 blob 作末尾隐藏实参，callee `return s`→StructCopy(SretReg,s)+ret void；结果=该
             // handle）。VCall 按 vtable slot(方法名)派发、arity 不入解析键 → 追加 sret 实参不破派发，runtime
             // new_from_receiver_regs 全量传参落 callee SretReg(=1+用户参数数)；devirt/DepIndex 的 Call 同理。
-            bool retStruct = this._ee._isBlobStruct(c.Type());
+            string specSret = this._specSretName(c);
+            bool retStruct = specSret != "" || this._ee._isBlobStruct(c.Type());
             TypedReg sretH = null;
             if (retStruct) {
-                string rsn = this._ee._blobStructName(c.Type());
+                string rsn = specSret != "" ? specSret : this._ee._blobStructName(c.Type());
                 int rsz = this._ctx.Gen.Layouts.StructSize(rsn);
                 sretH = this._ctx.Alloc(IrType.Ref);
                 this._ctx.Emit(new StructAllocInstr(sretH, this._ctx.QualifyClass(rsn), rsz));

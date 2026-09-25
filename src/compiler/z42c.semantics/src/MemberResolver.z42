@@ -216,6 +216,10 @@ public sealed partial class MemberResolver {
                 if (ubR != null) {
                     BoundCall rawM = new BoundCall("instance", true, recv, itDef2.Name(), itms.CallKey(), fa, fa.Length, new Z42UnknownType(), sp);
                     this._applyMethodTypeArgs(rawM, call, itms, env);
+                    // complete-generic-class-identity P4：把代换后的返回类型交给发射端。
+                    // 成员**已特化**时 callee 走 sret（返回值写进 caller 预留的槽），调用侧必须一致，
+                    // 否则 callee 在自己帧里 struct_alloc 再交出句柄 ⇒ use-after-free（本 change 的用例 A）。
+                    rawM.InstRetType = ubR;
                     return new BoundConvert(rawM, ubR, sp);
                 }
                 BoundCall gbc = new BoundCall("instance", true, recv, itDef2.Name(), itms.CallKey(), fa, fa.Length, itRet, sp);

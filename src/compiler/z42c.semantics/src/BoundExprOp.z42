@@ -103,6 +103,17 @@ public sealed class BoundCall : BoundExpr {
     // 那等于再实现一遍重载解析，**查错就是误报**，而误报在本特性里是零容忍的（design D3）。
     // 显式接线漏掉一个点只会漏报（D4 允许），方向安全得多。
     public bool        RetIsNullable;
+    // complete-generic-class-identity P4：receiver 是泛型实例化、且方法返回**类级型参**时，
+    // 这里记下**按 receiver 实参代换后**的返回类型（否则 null）。
+    //
+    // 为什么发射端不自己算：它得重做一遍重载决议才能拿到被调方的声明返回类型，而「查错就是错发」
+    // ——同 `RetIsNullable` 的理由（:102 的长注释）。typer 手里已经有解析好的签名，代换一次记下来
+    // 即可。发射端只做它自己知道的那一半判断：该实例化的成员**是否已特化**（布局知识只在发射端）。
+    //
+    // ⚠️ 与 `_retType` 的分工：`_retType` 仍是**今天的**类型（装箱模型下是 Unknown，外层包
+    // `BoundConvert` 拆箱）。`InstRetType` 只在「成员已特化 ⇒ callee 走 sret」时才被发射端采信；
+    // 未特化（跨包擦除体）时装箱模型仍然成立，两条路各自自洽。
+    public Z42Type     InstRetType;
     private Z42Type _retType;
     public BoundCall(string kind, bool hasReceiver, BoundExpr receiver, string ownerClass,
                      string methodName, BoundExpr[] args, int argCount, Z42Type retType, Span span) { this.Span = span;
@@ -113,6 +124,7 @@ public sealed class BoundCall : BoundExpr {
         this.MethodTypeArgFwd = new int[0];
         this.FreeNs = null; this.FreeImported = false;
         this.RetIsNullable = false;
+        this.InstRetType = null;
     }
 
     // 在已解析签名的调用点给结果打上返回值可空标记，并原样交回 bc（便于 `return` 位直接包一层）。

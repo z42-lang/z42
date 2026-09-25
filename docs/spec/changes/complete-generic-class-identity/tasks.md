@@ -1,7 +1,7 @@
 # Tasks: complete-generic-class-identity（让泛型实例化成为运行期真正的类型）
 
-> 状态：🟡 待 User 过 6.5 gate | 创建：2026-09-25
-> 分支/worktree：待开 | 基于：origin/main `ef88897ac`（#825 合入后）
+> 状态：🟢 实施中（P4 已完成并全绿）| 创建：2026-09-25
+> 分支/worktree：`generic-class-identity` @ `wt-geninst` | 基于：#828 的 head
 > 类型：`lang` + `ir`
 
 **变更说明：** User 早已裁决「实例化是独立类型（对齐 C#）」。#774 为 blob struct 兑现了；
@@ -9,14 +9,50 @@
 
 ## 进度概览
 
+- [x] **P4** 实例化成员的调用约定按实参代换（用例 A：`g.Get()` 返回 blob）— 全绿
 - [ ] **P1** 实例化描述符完整化（基类链 / 接口 / 代换后字段 / 静态字段）
 - [ ] **P2** `is` / `as` / 模式匹配携类型实参
 - [ ] **P3** 静态字段按实例化分槽（⚠️ 自举敏感，分阶段引入）
-- [ ] **P4** 方法签名代换（铺满已有的 `_substGenericSig`）
 - [ ] **P5** 两处解析器缺口（`(G<T>)o` / `G<int>.X`）
+- [ ] **P4b** 泛型**体**（自由函数 / 泛型方法）的返回型参也走代换后的调用约定
 
 ⚠️ **P1–P3 互相咬死，不能只做一格**（见 design.md §D1 的实测）。P5 是 P2/P3 的**可测性前置**
-——不修则那两格在源码层写不出来。
+——不修则那两格在源码层写不出来。**P4 与它们正交**，故先独立落地。
+
+## P4 已落地（2026-09-25）
+
+用例 A 的根因不是描述符，是**调用约定**：callee 与 caller 都在看未代换的返回类型 `T`，
+双双判否 ⇒ 不走 sret ⇒ 特化体把返回值拷进自己帧的 arena 再交出句柄。
+
+| 改点 | 文件 |
+|---|---|
+| 特化通道铺**类级**型参代换表 | `IrGenTypeEmitter.EmitInstantiation` |
+| callee：代换后的型参算具体类型（限类实例化通道） | `FunctionEmitter._blobStructNameT` |
+| typer 记下代换后的返回类型 | `BoundCall.InstRetType` ← `MemberResolver` GS6 分支 |
+| caller：据此预留返回槽 | `CallEmitter._specSretName` |
+
+⭐ **闸门单一出口**：两侧共用 `_instLayoutName(receiver) != ""`（该实例化的成员确实被重发过），
+它同时决定成员派发名与调用约定 ⇒ 不可能漂移成两把尺子（design D5）。
+
+🔴 **实测教训（已写进 internals）**：callee 侧的代换必须被 `SpecInstName != ""` 限定在**类实例化
+通道**。放开后泛型**自由函数**的特化体也走 sret，而它的调用侧无从得知 ⇒
+`Demo.makeValue:Pair … takes 1 physical argument(s), the call passes 0`。
+**调用约定是两侧协议，一侧单方面改就是 ABI 撕裂** —— 这正是 P4b 存在的理由。
+
+**验证**：e2e golden interp 351 / jit 347 全绿、cross-zpkg 81、multi-exe 3、stdlib 340、
+自举字节不动点 3/3、`lines` / `docs` / `walkers` / `diagcodes` 全绿。
+
+## 顺带发现（独立缺口，不在本线）
+
+- **嵌套型参在 ctor 形参位被代换成 `<unknown>`**：
+  ```z42
+  class G<T> { public G(T v) {…} }
+  class Wrap<U> { public G<U> Inner; public Wrap(G<U> inner) {…} }
+  new Wrap<P2>(new G<P2>(p));   // E0402: cannot assign G<P2> to G<<unknown>>  ← 假红
+  ```
+  纯 typer 侧（不涉布局/调用约定），`MemberResolver._substGeneric` 在
+  `Z42InstantiatedType` 递归分支里对外层类的型参 `U` 解析失败。与型参重名无关（换名复现）。
+  单独登记。
 
 ## 实测取证（main `ef88897ac`，全部实跑）
 
