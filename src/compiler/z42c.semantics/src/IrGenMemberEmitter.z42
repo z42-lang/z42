@@ -58,10 +58,20 @@ public sealed class IrGenMemberEmitter {
             // legacy [Native("__name")] extern → 发 builtin 桩函数（镜像 C# EmitNativeStub）。
             string nat = g._stubE._nativeIntrinsic(rawMem);
             if (nat != "") {
-                IrFunction stub = g._stubE._emitNativeStub(irName, md, nat, IrGenFacts._hasWord(md.Mods, "static"), rawMem);
+                bool natStatic = IrGenFacts._hasWord(md.Mods, "static");
+                IrFunction stub = g._stubE._emitNativeStub(irName, md, nat, natStatic, rawMem);
+                // carry-null-marks-through-native-stubs：extern 桩此前**不写 attr-ref 块** ⇒ 源码里
+                // 已经标了的 `?`（`Environment.GetEnvironmentVariable` 等 9 处）过了包边界就静默消失：
+                // 跨包调用方拿不到 `$RetNullable` / `$Nullable` 哨兵，标记位落成 false。
+                // 两行与 **abstract 桩**那一支逐字同源 —— 这条分支历来是「每来一个特性就补一次」
+                // （上一行 visibility 的「此前漏设」就是同一个坑），故这次敲成与它们**对齐**而非只补可空位。
+                // 实测：extern 声明里 `ref` 形参 0 处、默认值 0 处 ⇒ 顺带的 `$RefSig`/`$Default`
+                // 哨兵均为空转；`[Native(…)]` 无 FactoryFunc，被 `_attrRefsFromList` 滤掉，不进产物。
+                stub.Attrs = g._classDescB._attrRefs(rawMem); stub.AttrCount = stub.Attrs.Length;
+                stub.ParamAttrs = g._classDescB._paramAttrRefs(md, !natStatic); stub.ParamAttrsLen = stub.ParamAttrs.Length;
                 stub.Visibility = IrGenFacts._visCode(md.Mods, 1);      // add-member-visibility：extern 桩此前漏设
                 stub.MethodFlags = IrGenFacts._methodFlags(md.Mods); // add-method-modifiers：virtual extern
-                IrGenFacts._fillParamMeta(stub, md, !IrGenFacts._hasWord(md.Mods, "static"));   // add-param-metadata
+                IrGenFacts._fillParamMeta(stub, md, !natStatic);   // add-param-metadata
                 this._out.AddFunc(stub);
             }
         } else if (IrGenFacts._hasWord(md.Mods, "abstract") && !IrGenFacts._hasWord(md.Mods, "static")) {

@@ -107,8 +107,11 @@ Dictionary 无自定义相等 ctor。用户被迫把唯一排序逻辑硬编码�
 > 非凭记忆）。**本节至此清空**，后续 stdlib 补齐工作转向上面的 🔴 结构性缺口
 > （IEnumerable/LINQ、IComparer、`List<T>` 过度约束）。
 
-- ~~**TryParse 缺失**~~ —— ✅ 已补：`Int32.TryParse(s) → int?`（`Primitives/Int32.z42`），
-  按 `IPAddress.TryParse` 的「返回 nullable 替代 out 参数」范式，各标量类型同款。
+- ~~**TryParse 缺失**~~ —— ✅ 已补（`Primitives/Int32.z42` 等）。
+  ⚠️ **2026-09-23 范式已改**：原文写的是 `Int32.TryParse(s) → int?`「返回 nullable
+  替代 out 参数」，而 `define-null-check-marks` 定下**值类型永不可空**（`int?` 报 E0476）
+  ⫸ 各标量类型已全部迁成 **`bool TryParse(string, ref T)`**。`IPAddress.TryParse`
+  是引用类型，仍返 `IPAddress?` —— 两者不再是同一范式。
 - ~~**Double.IsNaN / IsInfinity 缺失**~~ —— ✅ 已补（`Primitives/Double.z42`）。
 - ~~**String 缺** PadLeft/PadRight、IndexOf(char)、Split(char[])、Trim(char)、LastIndexOf、Insert/Remove~~
   —— ✅ 已补（change `augment-string-prelude`，2026-09-04）：`IndexOf(char)` / `LastIndexOf(string|char)` /

@@ -66,7 +66,9 @@ public struct Guid {
         return new Guid(outb);
     }
 
-    // Non-throwing parse: the Guid on success, null on any malformed input.
+    // Non-throwing parse: writes the Guid into `v` and returns true; on malformed
+    // input returns false with `v` = Guid.Empty(). `Guid` is a struct ⇒ never
+    // nullable (see Int32.TryParse), so the out-value goes by `ref`.
     public static bool TryParse(string s, ref Guid v) {
         try {
             v = Guid.Parse(s);

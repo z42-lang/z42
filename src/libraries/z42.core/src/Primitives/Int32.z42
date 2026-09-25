@@ -16,10 +16,13 @@ public struct Int32 : IComparable, IEquatable, INumber {
     [Native("__int32_parse")]      public static extern int Parse(string s);
     [Native("__int32_to_string")]  public extern string ToString();
 
-    // Non-throwing parse: returns the value on success, `null` on any malformed
-    // or out-of-range input (mirrors IPAddress.TryParse — nullable return in
-    // place of C#'s `out` parameter). Parse's underlying bail surfaces as a
-    // catchable Std.Exception (make-corelib-errors-catchable, 2026-05-15).
+    // Non-throwing parse: writes the value into `v` and returns true; on any
+    // malformed or out-of-range input returns false with `v` set to 0.
+    // ⚠️ The out-value travels by `ref`, NOT by a nullable return: value types
+    // are never nullable in z42 (`int?` is E0476, define-null-check-marks), so
+    // C#'s `out` / nullable-return idiom does not carry over. Parse's underlying
+    // bail surfaces as a catchable Std.Exception
+    // (make-corelib-errors-catchable, 2026-05-15).
     public static bool TryParse(string s, ref int v) {
         try { v = Int32.Parse(s); return true; }
         catch (Exception e) { v = 0; return false; }

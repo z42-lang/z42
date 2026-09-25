@@ -1,0 +1,14 @@
+// carry-null-marks-through-native-stubs 的负例依赖包：把 `?` 标在一个 **extern** 上。
+//
+// 修前实测：`IrGenMemberEmitter` 的 extern 分支压根不填 `Attrs`/`ParamAttrs`
+// ⇒ `$RetNullable` 哨兵一个字都没写进 zpkg，标记位在导入侧恒落 false，
+// 调用方直接解引用**零诊断**。非 extern 的同形用例（nullable_marks_cross_pkg_unchecked）
+// 却一直是报的 —— 两者只差「被调方是不是 extern」这一个变量。
+namespace Demo.ExternNullNs;
+
+public class EnvProbe {
+    // 指向真实 builtin（`Environment.GetEnvironmentVariable` 用的同一个），
+    // 这样桩能正常发射；本用例只编译不运行，不依赖它的返回内容。
+    [Native("__env_get")]
+    public static extern string? Get(string name);
+}

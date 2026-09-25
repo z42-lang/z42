@@ -120,6 +120,11 @@
     ② **字段** —— 拼写走 `SurfaceTypeName(ft)`（`?` 已擦除），改它会动 TSIG 文本、
        牵扯继承字段展开与 struct 布局判别；
     ③ **extern 桩** —— `_emitNativeStub` 不写 `Attrs`/`ParamAttrs`。
+    > 🔄 **2026-09-25 已关闭**：见 `docs/spec/changes/carry-null-marks-through-native-stubs/`。
+    > 重新摸底发现这条不是「漏报一种形态」而是「**作者已经 opt in、机制假装没看见**」：
+    > stdlib 里已有 **9 处 extern 标了 `?`**（`Environment.GetEnvironmentVariable` 等）。
+    > 且它是下文「人工标注 stdlib」的**前置**—— 最佳候选（`Type.GetElementType` /
+    > `GetGenericArguments` / `WeakHandle.Upgrade` / `PropertyInfo.GetValue`）大多是 extern。
   - 顺带修掉一个**用户可见的毛病**：诊断里印的是 `BoundCall.MethodName` = **注册键**，
     跨包导入符号带 `$arity$types` 后缀 ⇒ 用户看到 `` `Find$1$string` ``（源码里根本没写过）。
     加 `FlowAnalyzer._displayName` 剥后缀。**这条在跨包打通前照不出来**：本包非重载方法的
