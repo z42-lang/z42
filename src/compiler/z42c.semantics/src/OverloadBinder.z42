@@ -187,7 +187,6 @@ public sealed partial class OverloadBinder {
         if (Conversion._hasGenericParam(at)) { return; }   // `T`-to-`T` / 含型参：今天已正确处理
         Span sp = args[i].Span;
         if (rawArgs != null && i < rawArgs.Length && rawArgs[i] != null) { sp = rawArgs[i].Span; }
-        // 语义层用字面量 "E0463" 发码（同 E0449–E0462，避 core→semantics 冷启动 stale-cache）。
         this._tc._diags.Error(DiagnosticCodes.ConstraintMethodArgTypeParam,
             "cannot pass `" + at.Name() + "` to a parameter of type parameter `" + tpName + "`: method `"
             + memName + "` comes from constraint `where " + tpName + " : " + ifaceName

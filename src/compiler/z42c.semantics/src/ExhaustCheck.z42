@@ -9,7 +9,6 @@
 //   sealed —— 不可行（z42 sealed=不可继承 final，非封闭子类集，且无反向子类索引）→ out-of-scope。
 //
 // 无条件兜底 = 任一臂无 pattern（default），或 pattern 恒匹配（通配 / 裸绑定）且无守卫。带守卫臂不计覆盖。
-// W0700 首版 semantics 侧走**字面量**发码（避 core→semantics 冷启动 stale-cache，同 E0449/E0450 做法）。
 namespace Z42.Semantics;
 
 using Z42.IR;

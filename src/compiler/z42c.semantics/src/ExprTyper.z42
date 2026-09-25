@@ -82,7 +82,6 @@ public sealed partial class ExprTyper {
             // PR6b：编译期宏 `name!()`（parser 译成 IdentExpr("$macro:*") 哨兵）只合法于参数默认值位——
             // 那两条路径（同包 OverloadBinder._adaptArgs / 跨包 _crossPkgDefault / 持久化 ClassDescBuilder）
             // 都在此之前截住。落到这里 = 出现在普通表达式位（方法体 / 字段初始化等）→ E0450。
-            // 发码用字面量（避 core→semantics 冷启动 F2，同 DeclBinder）。
             if (MacroRegistry.IsMacro(id)) {
                 string mn = MacroRegistry.NameOf(id);
                 this._tc._diags.Error(DiagnosticCodes.CallerMacroInvalid, "compile-time macro '" + mn + "!()' is only valid as a parameter default value", id.Span);
@@ -466,8 +465,6 @@ public sealed partial class ExprTyper {
     }
 
     // add-symbol-availability-macro：带参编译期宏 `name!(args)` 的分发。
-    // 发码全用字面量（不引用新 DiagnosticCodes 常量 → 避 core→semantics 冷启动 F2 stale-cache，
-    // 同 E0450 / PR4e E0449 手法）。
     private BoundExpr _bindMacroCall(CallExpr call, TypeEnv env) {
         string mn = MacroRegistry.NameOf(call.Callee);
         string pos = MacroRegistry.PositionOf(mn);

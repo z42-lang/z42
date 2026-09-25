@@ -331,7 +331,7 @@ public sealed class MemberParser {
         }
         // add-property-custom-setter：两个访问器都在时，要么都 auto、要么都带体——z42 无 `field` 关键字，
         // auto 半边（合成读/写 __prop_X）与带体半边（自管存储）会读写错位（`get;` 读 __prop_X，`set { _x=value; }`
-        // 写 _x）。混合 → E0474（同 E0449–E0473 族，语法层字面量发码）。
+        // 写 _x）。混合 → E0474。
         if (hasGet && hasSet && (hasGetBody != hasSetBody)) {
             this._p._diags.Error(DiagnosticCodes.MixedPropertyAccessors,
                 "property `" + name + "` cannot mix an auto accessor with a bodied accessor — make both auto (`{ get; set; }`) or both bodied (`{ get { ... } set { ... } }`)", sp);

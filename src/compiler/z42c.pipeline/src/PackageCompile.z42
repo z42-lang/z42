@@ -221,8 +221,6 @@ public static class PackageCompile {
                 lg = GeneratorLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
             } catch (Exception e) {
                 handlersLoadable = false;
-                // 用**字面量**发码（同 E0449–E0490 手法，见 bootstrap-seed.md）：新增 core 常量
-                // 会成为新的跨成员符号，撞 F2 冷启动 stale-cache。常量在 DiagnosticCodes.z42 登记备查。
                 genDiags.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
                     PackageCompile._handlerLoadFailMessage(inp, e.Message),
                     new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
@@ -306,7 +304,7 @@ public static class PackageCompile {
             // 时拦下、落 E0493，此处盖的是格式相同而接口形状不同的那半）。
             if (externHandlers == 0 && cms.Length > 0) {
                 DiagnosticBag nbag = new DiagnosticBag();
-                nbag.Error("E0496", PackageCompile._noHandlersMessage(inp),
+                nbag.Error(DiagnosticCodes.HandlerZpkgNoHandlers, PackageCompile._noHandlersMessage(inp),
                            new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
                 PackageCompile._mergeDiags(cms[0], nbag);
             }

@@ -14,7 +14,7 @@
 | **码的来源** | [`src/libraries/z42c.core/src/DiagnosticCodes.z42`](../../../../src/libraries/z42c.core/src/DiagnosticCodes.z42) 里的码常量 —— **这是唯一 SoT**。每一个发得出去的码都必须在那里登记，由 `xtask test diagcodes` 强制（见下） |
 | **含义** | 取**发射点的诊断消息文本**，而不是常量名。常量名有过一码两义、也有过名实不符（见 `[Forward]` 一节） |
 | **状态** | 对每个码做 `grep -rn 'DiagnosticCodes.<常量名>' src/` + `grep -rn '"<码号>"' src/`，排除 `DiagnosticCodes.z42` 自身与 `tests/` 目录 |
-| **唯一性** | `xtask test diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮；⑤ **本页的码表与登记表双向相等**；⑥ 清单里的每条欠账挂账超过 3 天即红（字面量发码的正当理由会过期，到期必须切回常量）；⑦ 登记表散文里不得断言发射形态（形态是会变的状态，唯一 SoT 是 ④ 的清单）（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
+| **唯一性** | `xtask test diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮；⑤ **本页的码表与登记表双向相等**；⑥ 清单里的每条欠账挂账超过 3 天即红（字面量发码的正当理由会过期，到期必须切回常量）；⑦ 任何源文件的散文里都不得断言发射形态（形态是会变的状态，唯一 SoT 是 ④ 的清单）（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
 
 ### 状态列的三个值
 
