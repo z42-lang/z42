@@ -8,7 +8,9 @@
 | 2 | `probing-paths` 旋钮 + 运行期搜索序（裁决 C）| 否 | 否 | ⬜ |
 | 3 | `deploy` 字段 support（`DepEntry.Deploy` + ManifestLoader）| 否 | **是** | ⬜ |
 | 4 | `deploy` 字段 use（构建期消费 + `shared` 存在性校验）| 否 | 否 | ⬜ |
-| X | `Z42_PATH` 死旋钮处置（接通 or 退役）—— **独立立项** | 否 | 否 | ⬜ |
+| X | `Z42_PATH` 死旋钮处置 | 否 | 否 | ✅ **退役**（#821）|
+| 5 | `ModuleSearch.Dirs()` —— 把解析后的搜索序暴露给 z42 | 否 | 否 | ✅ support（#832）|
+| 6 | `[dependencies]` 的 path 支持直接引用 `.zpkg` 产物 | 否 | 否 | ✅ 完成（#836）|
 
 ## 批 1 —— 统一复制判据 ✅
 
@@ -92,3 +94,30 @@ preserved 早退 ⇒ **侧车留在上一次的值**。实测：probing-paths �
 
 - [ ] X.1 裁决：接通它原本承诺的 `.zbc` module search 语义，还是明确退役 + 从 `--list-knobs` 移除。
       **不要让它的历史债决定 `probing-paths` 的形状**（见 proposal 裁决 C）。
+
+## 批 5 —— `ModuleSearch.Dirs()`（#832，support）
+
+VM 内部一直算着一份搜索序，但它是 `app.rs::run` 的**局部变量** —— z42 侧看不见，于是
+「按名找一个 zpkg」完全无解，长出两份各四十行的 `_findCompilerZpkg` 与 scripting 那个恒失败
+空壳。新 builtin 把**解析结果**（相对项已按 entry zpkg 解析、通配符已展开、缺失已剔除、
+重复已去重）暴露出来。
+
+- [x] 5.1 builtin `__search_dirs` + `Std.Runtime.ModuleSearch`；门挂 `runtime_config_query` golden。
+- [ ] 5.2 **use**（待 nightly）：两份 `_findCompilerZpkg` 改读它，塌缩成几行且不再硬编码
+      `programs/z42c/`。⭐ 空数组是**有意义的答案**：这个部署形态不带编译能力，而不是"路径没配对"。
+
+## 批 6 —— zpkg 产物引用（#836，已完成）
+
+`path` 指向 `.zpkg` = C# 的 `<Reference HintPath>`；指向工程目录 = `<ProjectReference>`。
+
+- [x] 6.1 `PathDepPlan` 按扩展名跳过产物引用（不代建）；driver 把其所在目录并入解析域。
+- [x] 6.2 包名校验（zpkg 的 `[project].name` 须等于清单 key）。
+- [x] 6.3 顺带接住 `PathDepPlan.Resolve` 的异常 —— 从未捕获异常改为干净的错误退出。
+- [x] 6.4 门 `_e2eZpkgRefChecks` 四格；判别力：撤掉跳过 → 第①格红。
+
+⭐ **运行期自包含没写一行代码**：`_bundleExeDeps` 的判据是「从哪个目录找到的」（批 1），
+vendored 目录不是 shipped `libs/` ⇒ 自动复制进 dist。**批 1 那个为修误判而做的改动，
+在这里白拿了一个新特性** —— 把判据从「按名字猜」改成「按来源判」的复利。
+
+> 📌 由此，「编译器域包该放哪」**不再是个需要解决的问题**：想引用哪个 zpkg 就直接指它，
+> 位置降级成纯粹的打包体积决策。`add-package-roles` 的批 2.5 / 2.6 因此取消。
