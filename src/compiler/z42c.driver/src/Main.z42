@@ -210,7 +210,16 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     string[] closureNames = new string[0];
     int closureN = 0;
     if (libsDirsCount == 0) {
-        PathDepClosure closure = PathDepPlan.Resolve(tomlPath);
+        // 🔴 `PathDepPlan.Resolve` 会**抛**（依赖成环 / 目录里不是恰一份 manifest）。此前无人
+        // 接住 ⇒ 用户拿到的是带 z42c 内部栈帧的 `uncaught exception`，而异常消息里那句话本身
+        // 是好的。同 #807 修掉的 `Pipeline.Compile`：真因已知却被一层无关噪音盖住。
+        PathDepClosure closure;
+        try {
+            closure = PathDepPlan.Resolve(tomlPath);
+        } catch (Exception e) {
+            ConsoleError.WriteLine(e.Message);
+            return ExitCode.BuildError;
+        }
         if (closure.Count > 0) {
             closureNames = new string[closure.Count];
             string baseLib = Environment.GetEnvironmentVariable("Z42_LIBS", "");
@@ -252,6 +261,22 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             int mergedN = accN;
             if (baseLib.Length > 0) { merged[mergedN] = baseLib; mergedN = mergedN + 1; }
             libsDirs = merged; libsDirsN = mergedN;
+        }
+    }
+    // ── `[dependencies]` 的 zpkg 产物引用（add-deployment-model）──
+    // `path` 指向 `.zpkg` 文件 ⇒ 不代建，把它**所在目录**并入解析域（helper 在 ExeDeps.z42）。
+    // 放在 path 闭包之后、compiler-libs 之前：vendored 产物优先级与 path 闭包同级，都排在
+    // 框架（Z42_LIBS）之前——「我显式指定的那一份」应当压过「碰巧同名的框架包」。
+    {
+        string[] zrefs = _zpkgRefDirs(pm, projectDir);
+        if (zrefs == null) { return ExitCode.BuildError; }
+        if (zrefs.Length > 0) {
+            string[] withZ = new string[libsDirsN + zrefs.Length];
+            int zi = 0;
+            while (zi < zrefs.Length) { withZ[zi] = zrefs[zi]; zi = zi + 1; }
+            int wi2 = 0;
+            while (wi2 < libsDirsN) { withZ[zrefs.Length + wi2] = libsDirs[wi2]; wi2 = wi2 + 1; }
+            libsDirs = withZ; libsDirsN = libsDirsN + zrefs.Length;
         }
     }
     // ── 编译期扩展工程的解析域（add-package-roles 批 1）──

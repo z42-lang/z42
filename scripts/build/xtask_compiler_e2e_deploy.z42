@@ -208,3 +208,118 @@ int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
     Console.WriteLine("  ✓ probing-paths：声明的目录真被搜到，且改旋钮值侧车跟着变");
     return 0;
 }
+
+// ── `[dependencies]` 的 zpkg 产物引用（add-deployment-model）──────────────────────────────
+//
+// **守的是什么**：`path` 指向一个已构建的 `.zpkg` 文件时，能不能像 C# 引用 DLL 那样直接用 ——
+// 不代建、编译期解析得到、运行期自动随产物走。
+//
+// 在此之前 `path` 只有一种语义（工程目录 + z42c 代建），指向 zpkg 会得到
+// 「期望恰 1 份 *.z42.toml，实得 0」**而且是个未捕获异常** —— 一条指向错误方向的诊断，
+// 外加一段 z42c 内部栈帧。
+//
+// 四格：
+//   ① 引用得到 + **自动复制进 dist** + 跑得起来（复制不需要额外机制：`_bundleExeDeps` 的
+//      「从哪个目录找到的」判据看到它不是从 shipped libs/ 来的，自然判复制）；
+//   ② 文件不存在 → 明确说「该文件不存在」，并提示两种 path 形态的区别；
+//   ③ zpkg 里的包名与清单 key 不一致 → 拒绝（指错文件是最容易犯的错）；
+//   ④ 指向**没有 manifest 的目录** → 干净的错误退出，**不得是未捕获异常**。
+string _e2eZrefLibSrc() { return "namespace ZrefVendor;\n\npublic class Greeter { public string Hello() { return \"vendored\"; } }\n"; }
+
+string _e2eZrefAppSrc() {
+    return "namespace ZrefApp;\n\nusing Std.IO;\nusing ZrefVendor;\n\nvoid Main() { Console.WriteLine(new Greeter().Hello()); }\n";
+}
+
+string _e2eZrefAppToml(string key, string path) {
+    return "[project]\nname    = \"zrefapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+         + "entry   = \"ZrefApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+         + "[dependencies]\n\"" + key + "\" = { path = \"" + path + "\" }\n";
+}
+
+int _e2eZpkgRefChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-zref");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    string vendor  = Path.Join(tmp, "vendor");
+    string libSrc  = Path.Join(tmp, "vendorsrc");
+    string appDir  = Path.Join(tmp, "app");
+    Directory.Create(libsDir); Directory.Create(vendor);
+    Directory.Create(Path.Join(libSrc, "src")); Directory.Create(appDir);
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+
+    // 先建出被引用的产物，放进一个**不是** libs/ 的 vendored 目录。
+    File.WriteAllText(Path.Join(Path.Join(libSrc, "src"), "lib.z42"), _e2eZrefLibSrc());
+    File.WriteAllText(Path.Join(libSrc, "zrefvendor.z42.toml"),
+        "[project]\nname    = \"zrefvendor\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"src/*.z42\"]\n");
+    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+        .Arg(Path.Join(libSrc, "zrefvendor.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (lb.ExitCode != 0) { Console.WriteLine("  ✗ zpkg 产物引用: 被引用库编译失败: " + lb.Stderr); return 1; }
+    File.Copy(Path.Join(Path.Join(libSrc, "dist"), "zrefvendor.zpkg"), Path.Join(vendor, "zrefvendor.zpkg"));
+
+    File.WriteAllText(Path.Join(appDir, "app.z42"), _e2eZrefAppSrc());
+    string appToml = Path.Join(appDir, "zrefapp.z42.toml");
+    string appZpkg = Path.Join(Path.Join(appDir, "dist"), "zrefapp.zpkg");
+
+    // ① 正常引用：编过 + 复制进 dist + 跑得起来。
+    File.WriteAllText(appToml, _e2eZrefAppToml("zrefvendor", "../vendor/zrefvendor.zpkg"));
+    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b1.ExitCode != 0) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 指向已构建的 zpkg 竟编不过: " + b1.Stderr);
+        return 1;
+    }
+    if (!File.Exists(Path.Join(Path.Join(appDir, "dist"), "zrefvendor.zpkg"))) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 被引用的产物没有随 exe 进 dist —— 拷出去就跑不起来");
+        return 1;
+    }
+    ProcessResult r1 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r1.ExitCode != 0 || r1.Stdout.IndexOf("vendored") < 0) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 产物跑不起来（rc=" + r1.ExitCode.ToString()
+            + " stdout=" + r1.Stdout + " stderr=" + r1.Stderr + "）");
+        return 1;
+    }
+
+    // ② 文件不存在。
+    File.WriteAllText(appToml, _e2eZrefAppToml("zrefvendor", "../vendor/nosuch.zpkg"));
+    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b2.ExitCode == 0 || b2.Stderr.IndexOf("不存在") < 0) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 指向不存在的文件没被明确拒绝: " + b2.Stderr);
+        return 1;
+    }
+
+    // ③ 包名与 key 不一致 —— 指错文件最容易犯。
+    File.WriteAllText(appToml, _e2eZrefAppToml("othername", "../vendor/zrefvendor.zpkg"));
+    ProcessResult b3 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b3.ExitCode == 0 || b3.Stderr.IndexOf("须一致") < 0) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 包名对不上却收下了: " + b3.Stderr);
+        return 1;
+    }
+
+    // ④ 指向没有 manifest 的目录 → 干净退出，不得是未捕获异常。
+    File.WriteAllText(appToml, _e2eZrefAppToml("zrefvendor", "../vendor"));
+    ProcessResult b4 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all4 = b4.Stdout + b4.Stderr;
+    if (b4.ExitCode == 0) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 目录里没有 manifest 竟然成功了");
+        return 1;
+    }
+    if (all4.IndexOf("uncaught exception") >= 0) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 以未捕获异常收场 —— 看起来像 z42c 崩了: " + all4);
+        return 1;
+    }
+    if (all4.IndexOf("z42.toml") < 0) {
+        Console.WriteLine("  ✗ zpkg 产物引用: 判红了但没说清缺什么: " + all4);
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ zpkg 产物引用：引用得到 + 随产物走 + 三条错误各自说清");
+    return 0;
+}

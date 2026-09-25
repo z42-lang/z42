@@ -9,6 +9,7 @@ using Std;
 using Std.IO;
 using Z42.Project;
 using Z42.Build.Project;
+using Z42.IR;          // ZpkgReader / ZpkgInfo（产物引用的包名校验）
 
 // **非框架**依赖的已构建 zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序
 // = [entry-zpkg 目录, Z42_LIBS]，故 exe 从自身 dist 即可解析私有依赖，框架包仍走 Z42_LIBS。
@@ -138,3 +139,70 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
 // Milestone 1（显式 --output-dir <flat>）：全成员产物落该 flat dir（= 各成员 libsDir，
 // deps-first 解析兄弟）。产物 zpkg 与 C# `build --workspace` byte-identical（字节与
 // 目录无关）。注意：flat dir 须含 stdlib 依赖（调用方 seed Z42_LIBS 内容）。
+
+// ── `[dependencies]` 的 zpkg 产物引用（add-deployment-model）──────────────────────────────
+//
+// `path` 有两种形态，对标 C# 的两种引用：
+//   · 指向**工程目录**（其中恰一份 `*.z42.toml`）= `<ProjectReference>` —— z42c 代建整个闭包；
+//   · 指向 **`.zpkg` 文件** = `<Reference HintPath="...dll">` —— 已经是产物，不建、直接用。
+//
+// 产物引用的三条语义：
+//   ① 不代建（`PathDepPlan` 按扩展名跳过它，不进闭包）；
+//   ② **它所在目录并入 libsDirs** —— 这样它自己的兄弟依赖也解析得到（zpkg 的依赖按文件名
+//      在 libsDirs 里找），与「把 zpkg 连同兄弟一起 vendored 进一个目录」的实际用法对齐；
+//   ③ 运行期自包含**不需要额外做任何事**：`_bundleExeDeps` 的判据是「从哪个目录找到的」，
+//      vendored 目录不是 shipped `libs/` ⇒ 自动复制进 exe 的 dist。
+//
+// ⚠️ 判据 `_isZpkgRef` 是 `PathDepPlan.IsZpkgRef` 的**第二份**，理由见那里的注释（跨成员符号）。
+bool _isZpkgRef(string path) {
+    int n = path.Length;
+    if (n < 5) { return false; }
+    string tail = path.Substring(n - 5, 5);
+    return tail == ".zpkg" || tail == ".ZPKG";
+}
+
+// 收集 `[dependencies]` 里的 zpkg 产物引用，校验后返回它们**所在目录**（去重，声明序）。
+// 失败（文件不存在 / 包名对不上）→ 打印诊断并返回 null，调用方据此返回 BuildError。
+//
+// 🔴 **包名必须与 key 一致**：指错文件是最容易犯的错（拷贝粘贴改了目录忘了改名），而 zpkg
+// 头里就有 `[project].name`，校验是零成本的。不校验的话，错误会推迟到「符号找不到」——
+// 位置在别处、原因说不清，正是本 change 一路在消灭的那种诊断。
+string[] _zpkgRefDirs(ProjectManifest pm, string projectDir) {
+    string[] dirs = new string[pm.DepCount];
+    int n = 0;
+    int i = 0;
+    while (i < pm.DepCount) {
+        string dep = pm.Deps[i].Name;
+        string p = pm.Deps[i].Path;
+        i = i + 1;
+        if (p.Length == 0 || !_isZpkgRef(p)) { continue; }
+        string full = Path.IsRooted(p) ? p : Path.Join(projectDir, p);
+        if (!File.Exists(full)) {
+            ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 的 path 指向 " + full
+                + "，但该文件不存在。（`path` 以 .zpkg 结尾 = 直接引用一个已构建的产物；"
+                + "要让 z42c 代建，请指向包含 *.z42.toml 的**工程目录**。）");
+            return null;
+        }
+        ZpkgInfo info = ZpkgReader.Open(File.ReadAllBytes(full), full);
+        if (info == null) {
+            ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 指向的 " + full
+                + " 不是可读的 packed zpkg（格式版本不符，或它是 indexed 布局的主文件）。");
+            return null;
+        }
+        if (info.Name != dep) {
+            ConsoleError.WriteLine("z42c build: [dependencies] `" + dep + "` 指向的 zpkg 里写的包名是 `"
+                + info.Name + "`——两者须一致。改清单里的 key，或指向正确的文件。");
+            return null;
+        }
+        string dir = Path.GetDirectoryName(full);
+        if (dir.Length == 0) { dir = "."; }
+        bool dup = false;
+        int q = 0;
+        while (q < n) { if (dirs[q] == dir) { dup = true; } q = q + 1; }
+        if (!dup) { dirs[n] = dir; n = n + 1; }
+    }
+    string[] r = new string[n];
+    int k = 0;
+    while (k < n) { r[k] = dirs[k]; k = k + 1; }
+    return r;
+}
