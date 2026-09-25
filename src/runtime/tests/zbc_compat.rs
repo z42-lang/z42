@@ -215,58 +215,27 @@ fn class_basic_zbc_has_classes() {
 // R1 — TIDX section cross-language contract.
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Compile tests/data/test_demo/source.z42 fresh and verify Rust read_test_index_section
-/// extracts the same 8 TestEntry records the C# compiler wrote. Skips when
-/// dotnet isn't available (e.g. minimal CI runners), matching the spirit of the
-/// rest of the cross-language tests.
+/// Verify `read_test_index_section` extracts the 8 TestEntry rows that z42c wrote
+/// for tests/data/test_demo/source.z42 (compiled by build.rs under the
+/// `z42-test-fixtures` feature; see the fixture block there).
+///
+/// 🔴 **这个测试曾静默死了三个月**（2026-06-26 C# 移除 → 2026-09-25 修复）：原实现
+/// 现编现测，跑的是 `dotnet run --project src/compiler/z42.Driver` —— 那个目录随 C#
+/// 编译器一起被删，而 dotnet 本身还在 ⇒ 命令执行得了、只是返回非零 ⇒ 落进
+/// `Ok(o) => { eprintln!("skip: …"); return; }`，测试报 ok 而**一条断言都没跑**。
+/// 三条 `return` 降级路径里没有一条会让它变红。
+///
+/// 现在改成 build.rs 预编 + `cfg` 门控：fixture 编不出来 ⇒ 这个测试整个不存在
+/// （编译期可见），而不是存在但恒真。**别再退回「跑不了就 return ok」的形态**——
+/// 它守的是 TIDX 的 SKIPPED / IGNORED 标志位，那两位写错会让测试被**静默跳过**
+/// 而不是失败，是全仓少数「错了不会红」的位。
+#[cfg(z42_have_test_demo)]
 #[test]
 fn test_demo_tidx_round_trips() {
-    use std::process::Command;
     use z42::metadata::{TestEntryKind, TestFlags};
 
-    // Locate the project root (parent-of-parent-of-parent of CARGO_MANIFEST_DIR).
-    let runtime_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = runtime_dir.parent().and_then(|p| p.parent()).unwrap();
-
-    let demo_src = runtime_dir
-        .join("tests").join("data").join("test_demo").join("source.z42");
-    if !demo_src.exists() {
-        eprintln!("skip: test_demo source not found at {}", demo_src.display());
-        return;
-    }
-
-    // Compile to a temp .zbc in the cargo target dir (writable).
-    let out_dir = std::env::temp_dir().join("z42-r1-tidx-test");
-    std::fs::create_dir_all(&out_dir).unwrap();
-    let zbc_path = out_dir.join("test_demo.zbc");
-
-    let dotnet = Command::new("dotnet")
-        .args([
-            "run", "--project",
-            repo_root.join("src/compiler/z42.Driver").to_str().unwrap(),
-            "-c", "Release", "--",
-            demo_src.to_str().unwrap(),
-            "--emit", "zbc",
-            "-o", zbc_path.to_str().unwrap(),
-        ])
-        .output();
-
-    let dotnet = match dotnet {
-        Ok(o) if o.status.success() => o,
-        Ok(o) => {
-            eprintln!(
-                "skip: dotnet failed; stderr:\n{}\nstdout:\n{}",
-                String::from_utf8_lossy(&o.stderr),
-                String::from_utf8_lossy(&o.stdout)
-            );
-            return;
-        }
-        Err(e) => {
-            eprintln!("skip: dotnet not invocable: {e}");
-            return;
-        }
-    };
-    drop(dotnet);
+    // build.rs compiled this with z42c (z42vm + z42c.driver.zpkg) into OUT_DIR.
+    let zbc_path = PathBuf::from(concat!(env!("OUT_DIR"), "/test_demo.zbc"));
 
     // Load and verify the TIDX section.
     let bytes = std::fs::read(&zbc_path).expect("read compiled zbc");

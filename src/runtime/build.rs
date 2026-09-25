@@ -17,6 +17,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(z42_skip_native_poc)");
     println!("cargo:rustc-check-cfg=cfg(z42_have_z42c)");
     println!("cargo:rustc-check-cfg=cfg(z42_have_embedding_hello)");
+    println!("cargo:rustc-check-cfg=cfg(z42_have_test_demo)");
     println!("cargo:rerun-if-env-changed=Z42_SKIP_NATIVE_POC");
     // Auto-skip the C PoC when the build environment can't compile it:
     //   - explicit opt-out (Z42_SKIP_NATIVE_POC=1)
@@ -66,9 +67,9 @@ fn main() {
     // ── z42 test fixtures (C7 native e2e + embedding hello) ────────────
     //
     // The Rust integration tests `z42_source_calls_numz42_via_native_attr`
-    // (cfg z42_have_z42c) and `host::host_tests::load_invoke_hello_world`
-    // (cfg z42_have_embedding_hello) each consume a `.zbc` compiled from a
-    // fixture source. C#/dotnet was removed (2026-06-26) — these now compile
+    // (cfg z42_have_z42c), `host::host_tests::load_invoke_hello_world`
+    // (cfg z42_have_embedding_hello) and `zbc_compat::test_demo_tidx_round_trips`
+    // (cfg z42_have_test_demo) each consume a `.zbc` compiled from a fixture source. C#/dotnet was removed (2026-06-26) — these now compile
     // with z42c (z42vm + z42c.driver.zpkg), mirroring `xtask regen`'s
     // _compileCase. When no warm z42c toolchain is present (e.g. the initial
     // cold cargo build, before stdlib/z42c are built), the fixtures are
@@ -117,6 +118,25 @@ fn main() {
                 }
             } else {
                 println!("cargo:warning=no warm z42c toolchain (run `xtask build stdlib`); C7 e2e test will be skipped");
+            }
+        }
+
+        // TIDX round-trip fixture (`zbc_compat::test_demo_tidx_round_trips`).
+        // ⚠️ 这个测试在 2026-06-26 C# 移除后**静默死了整整三个月**：它调的是
+        // `dotnet run --project src/compiler/z42.Driver`，那个目录早就没了，而 dotnet
+        // 本身还在 ⇒ 命令跑得起来、只是返回非零 ⇒ 撞上 `Ok(o) => { eprintln!("skip: …"); return; }`
+        // 这条静默降级路径，测试报 ok 而一条断言都没执行。迁移时 build.rs 的另外两个
+        // fixture 都改到了 z42c，唯独它被漏掉（它不在 build.rs 里，所以没人想起来）。
+        // 它守的是 TIDX 的 SKIPPED / IGNORED 标志位 —— 那两位若写错，测试会被**静默跳过**
+        // 而不是失败，是全仓少数「错了不会红」的位。别再让它退回 opt-out 形态。
+        let tidx_src = manifest_dir.join("tests/data/test_demo/source.z42");
+        if tidx_src.is_file() && ready {
+            println!("cargo:rerun-if-changed={}", tidx_src.display());
+            let out = PathBuf::from(&out_dir).join("test_demo.zbc");
+            if z42c_emit_zbc(vm.as_ref().unwrap(), &driver, &home, &tidx_src, &out) {
+                println!("cargo:rustc-cfg=z42_have_test_demo");
+            } else {
+                println!("cargo:warning=z42c failed compiling test_demo fixture; TIDX round-trip test will be skipped");
             }
         }
 
