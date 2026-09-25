@@ -193,8 +193,15 @@ public sealed class BoundIsExpr : BoundExpr {
     public BoundExpr E;
     public string    TypeName;
     public string    BindName;   // is-pattern 绑定变量名（""=无绑定）
+    // complete-generic-class-identity P2：**解析后**的目标类型。`TypeName` 取的是 AST 原始名
+    // （`NamedType.Name`），它**丢掉类型实参** —— `x is GBox<int>` 和 `x is GBox<string>` 发出
+    // 的是同一个名字 `GBox`，运行期又按名字符串比 ⇒ 实例化有了独立身份之后必然错。
+    // 发射端优先用它算实例化身份名；解析不出实例化（内建类 / 跨包接口等）时仍回落 `TypeName`
+    // ——那条回落正是 `TypeName` 当初存在的理由（`ResolveType` 得 Unknown → `<unknown>` 会失配）。
+    // post-construction 写入（同 `MethodTypeArgs` / `RetIsNullable` 的先例），不改其余构造点。
+    public Z42Type   TargetType;
     private Z42Type _type;
-    public BoundIsExpr(BoundExpr e, string typeName, string bindName, Span span) { this.Span = span; this.E = e; this.TypeName = typeName; this.BindName = bindName; this._type = Z42ClassType.Builtin("bool"); }
+    public BoundIsExpr(BoundExpr e, string typeName, string bindName, Span span) { this.Span = span; this.E = e; this.TypeName = typeName; this.BindName = bindName; this._type = Z42ClassType.Builtin("bool"); this.TargetType = null; }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() { return "(is " + this.E.Dump() + " " + this.TypeName + " :bool)"; }
 }

@@ -143,6 +143,25 @@ public sealed class IrGen {
     public string SourceFile;   // add-partial-types：当前 CU 源文件全路径（与 Z42ClassType.PartialMainFile 比对判主碎片）
     public StrMap PartialMerged; // add-partial-types：partial 类型名 → 合并后 ClassDecl（成员拼接+基表并集）；仅主碎片发其 TYPE record
 
+    // complete-generic-class-identity P1：按**规范名**登记一个实例化（供 TYPE 段尾投送描述符 +
+    // 不动点重发成员）。
+    //
+    // 表达式侧走 `ExprEmitter._instIdentityName`（它还要把 `Z42Type` 规范化、并递归登记嵌套实参）；
+    // **非表达式**的引用——基表里的 `class DInt : GBox<int>`——只有名串，走这里。
+    // 两者写的是**同一张表**，所以「有身份 ⇒ 有描述符」这条不变式不会因为多一个入口而破。
+    // 嵌套实参（`GBox<Pair<int,long>>` 的内层）一并登记：运行期解析基链/字段时要查它们。
+    public void NoteInstName(string instName) {
+        if (instName.IndexOf("<") < 0) { return; }           // 非实例化名
+        if (this.InstLayouts.ContainsKey(instName)) { return; }   // 兼作递归终止
+        if (this.LocalClasses != null && !this.LocalClasses.ContainsKey(StructLayout.BaseNameOf(instName))) {
+            return;   // 闸门之二：只登记**本包**泛型（跨包拿不到体，两侧都不特化才自洽）
+        }
+        this.InstLayouts.Put(instName, "1");
+        string[] args = StructLayout.InstArgsOf(instName);
+        int i = 0;
+        while (i < args.Length) { this.NoteInstName(args[i]); i = i + 1; }
+    }
+
     public void AddLifted(IrFunction f) {
         if (this.Lifted == null) { this.Lifted = new IrFunction[2]; this.LiftedCount = 0; }
         if (this.LiftedCount == this.Lifted.Length) {
@@ -336,13 +355,32 @@ public sealed class IrGen {
         // generic-struct-erased-slot-value-copy：为本 CU 用到的、命中闸门的泛型实例化追加**合成类描述符**
         // （名 = 实例化规范名，携带该实例化的 struct 布局块）。TYPE 段是 `count + count×描述符`，
         // 追加条目是**格式中立**的（reader 按 count 循环）⇒ 零 bump。
+        //
+        // complete-generic-class-identity P1：这里必须**走到不动点**。造一条描述符本身会发现新的
+        // 实例化 —— `Sub<int>` 的基是 `Bag<int>`，而基表上的实例化只有在造 `Sub<int>` 的描述符时
+        // 才被登记。快照一次 `Keys()` 就会把它漏掉，运行期报
+        // `base type Demo…Bag<int> of Demo…SubBag<int> could not be resolved`（实测）。
         int ilAdded = 0;
-        string[] ilKeys = this.InstLayouts.Keys();
-        int ilI = 0;
-        while (ilI < ilKeys.Length) {
-            IrClassDesc sd = this._classDescB._instLayoutDesc(ilKeys[ilI]);
-            if (sd != null) { classes = IrGenFacts._pushClass(classes, cc, sd); cc = cc + 1; ilAdded = ilAdded + 1; }
-            ilI = ilI + 1;
+        StrMap ilDone = new StrMap();
+        bool ilMore = true;
+        while (ilMore) {
+            ilMore = false;
+            string[] ilKeys = this.InstLayouts.Keys();
+            int ilI = 0;
+            while (ilI < ilKeys.Length) {
+                if (!ilDone.ContainsKey(ilKeys[ilI])) {
+                    ilDone.Put(ilKeys[ilI], "1");
+                    ilMore = true;
+                    IrClassDesc sd = this._classDescB._instLayoutDesc(ilKeys[ilI]);
+                    if (sd != null) { classes = IrGenFacts._pushClass(classes, cc, sd); cc = cc + 1; ilAdded = ilAdded + 1; }
+                }
+                ilI = ilI + 1;
+            }
+            if (ilDone.Count() > IrGen.SpecializationCap) {
+                throw new Exception("generic instantiation descriptors did not converge after "
+                    + IrGen.SpecializationCap.ToString() + " instantiations — 疑似递归泛型基"
+                    + "（形如 `class Rec<T> : Base<Rec<T>>`，基链逐层加深）。");
+            }
         }
         // lift 函数末尾追加（port-z42c-closures；镜像 C# _liftedFunctions AddRange）
         int li2 = 0;
@@ -399,14 +437,20 @@ public sealed class IrGen {
                     }
                 } else if (gd is ClassDecl) {
                     ClassDecl gc = gd as ClassDecl;
-                    // 泛型**类型**声明：`EmitInstantiation` 要靠它重发实例化的成员。
-                    if (gc.TypeParams.Count > 0 && !types.ContainsKey(gc.Name)) {
-                        types.Put(gc.Name, new GenericBodySrc(cu.Decls[gi], mdl, "", ""));
-                    }
                     string gownerKey = gc.Name;
                     if (gc.TypeParams.Count > 0) {
                         string gom = gc.Name + "$" + gc.TypeParams.Count.ToString();
                         if (symbols.HasClass(gom)) { gownerKey = gom; }
+                    }
+                    // 泛型**类型**声明：`EmitInstantiation` / `_instClassDesc` 要靠它重发实例化的
+                    // 成员与描述符。**两个拼写都登记**：实例化名的基名是 arity-mangled 的
+                    // `Pair$2`（见 `ExprEmitter._instBaseName` —— 不 mangle 的话擦除前缀会撞上同名
+                    // 非泛型类），而别的调用点仍按裸名 `Pair` 查。同一份声明，两把钥匙。
+                    if (gc.TypeParams.Count > 0 && !types.ContainsKey(gc.Name)) {
+                        types.Put(gc.Name, new GenericBodySrc(cu.Decls[gi], mdl, "", ""));
+                    }
+                    if (gc.TypeParams.Count > 0 && !types.ContainsKey(gownerKey)) {
+                        types.Put(gownerKey, new GenericBodySrc(cu.Decls[gi], mdl, "", ""));
                     }
                     int gmi = 0;
                     while (gmi < gc.MemberCount) {

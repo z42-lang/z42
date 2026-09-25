@@ -88,6 +88,60 @@ pub fn isa_td(
     v
 }
 
+/// complete-generic-class-identity P2: does the instantiated type name `full` match a test
+/// written against the *erased* generic?
+///
+/// Two spellings of the erased name reach us, and both are legitimate:
+///   * `Demo.GBox`      — a local generic referred to by its bare name;
+///   * `Demo.GBox$1`    — arity-mangled, how an **imported** generic is spelled in metadata
+///                        (see `StmtEmitter`'s `catch_type`: imported generic exceptions get
+///                        `$<arity>`). Missing this one meant `catch (MulticastException<bool>)`
+///                        stopped catching `Std.MulticastException<bool>` (measured).
+///
+/// Only the erased prefix matches — `GBox<int>` against `GBox<string>` stays false, which is the
+/// whole point of giving instantiations identity.
+fn erased_name_matches(full: &str, target: &str) -> bool {
+    let lt = match full.find('<') {
+        Some(i) => i,
+        None => return false,
+    };
+    let erased = &full[..lt];
+    if erased == target {
+        return true;
+    }
+    let dollar = match target.rfind('$') {
+        Some(i) => i,
+        None => return false,
+    };
+    if &target[..dollar] != erased {
+        return false;
+    }
+    match target[dollar + 1..].parse::<usize>() {
+        Ok(n) => n == top_level_arg_count(&full[lt..]),
+        Err(_) => false,
+    }
+}
+
+/// Number of top-level type arguments in `"<a,b<c,d>>"` (nested `<…>` do not count).
+fn top_level_arg_count(args: &str) -> usize {
+    let mut depth = 0usize;
+    let mut n = 0usize;
+    for ch in args.chars() {
+        match ch {
+            '<' => {
+                depth += 1;
+                if depth == 1 {
+                    n = 1; // the first argument; commas below add the rest
+                }
+            }
+            '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 1 => n += 1,
+            _ => {}
+        }
+    }
+    n
+}
+
 /// Alloc-free base+interface chain walk backing [`is_subclass_or_eq_td`]. Caller has already
 /// handled `derived == target` and the memo. Holds the current `Arc<TypeDesc>` across
 /// iterations and follows `base_name` by `&str` (no per-level `String` allocation).
@@ -106,6 +160,19 @@ fn is_subclass_or_eq_td_walk(
         None => return false,
     };
     loop {
+        // complete-generic-class-identity P2: **the erased name is a fallback, never an identity.**
+        //
+        // z42 lets you write `x is GBox` with no type arguments (C# cannot name an open generic),
+        // and it means "any instantiation of GBox". Once every instantiation is its own runtime
+        // type, the string compare `derived == target` no longer sees it: the receiver reports
+        // `Demo.GBox<int>` while the test asks for `Demo.GBox`. Measured fallout before this arm:
+        // `catch (MulticastException e)` stopped catching `Std.MulticastException<bool>`.
+        //
+        // Only the bare prefix matches — `GBox<int>` against target `GBox<string>` stays false,
+        // which is the whole point of giving instantiations identity.
+        if erased_name_matches(&cur_td.name, target) {
+            return true;
+        }
         // add-reflection-transitive-interfaces: a declared interface matches `target`
         // directly OR transitively (interface-extends-interface).
         if cur_td

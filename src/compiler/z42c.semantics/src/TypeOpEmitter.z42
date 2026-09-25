@@ -16,11 +16,31 @@ public sealed class TypeOpEmitter {
 
     // x is T → is_instance（bool）。is-pattern `x is T v`：另发 as-cast 把 (x as T) 存入 v 的
     // 寄存器并登记 Locals（true 分支读 v 命中此寄存器；不匹配时 as 得 null，分支不执行无害）。
+    // complete-generic-class-identity P2：类型测试的目标名必须**携类型实参**。
+    //
+    // `TypeName` 取自 AST 的 `NamedType.Name`，**丢掉实参** —— `x is GBox<int>` 与
+    // `x is GBox<string>` 发的是同一个名字 `GBox`，运行期又按名字符串比
+    //（`dispatch.rs` 的 `is_subclass_or_eq_td` 首行 `derived == target`）。
+    // 实例化有了独立身份（P1）之后这必然错：`o as GBox<string>` 在 `GBox<int>` 上放行、
+    // 或者反过来 `o is GBox<int>` 静默变 false。
+    //
+    // 单一出口：与描述符 / `ObjNew` / 数组元素名**同一个** `_instIdentityName`。
+    // 算不出实例化身份（内建类 / 跨包泛型 / 开放泛型）→ "" → 回落 `TypeName`，
+    // 那条回落正是 `TypeName` 当初存在的理由（`ResolveType` 得 Unknown → `<unknown>` 会失配）。
+    private string _typeOpTargetName(Z42Type resolved, string astName) {
+        if (resolved != null) {
+            string idn = this._ee._instIdentityName(resolved);
+            if (idn != "") { return this._ee._qualifyInstName(idn); }
+        }
+        string qn = this._ctx.QualifyTypeName(astName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
+        if (qn == "Array") { return "Std.Array"; }        // 内建根类（VM 硬编码 Std.Array/Std.Object）
+        if (qn == "Object") { return "Std.Object"; }
+        return qn;
+    }
+
     internal TypedReg _emitIs(BoundIsExpr e) {
         TypedReg obj = this._ee.Emit(e.E);
-        string qn = this._ctx.QualifyTypeName(e.TypeName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
-        if (qn == "Array") { qn = "Std.Array"; }       // 内建根类（VM 硬编码 Std.Array/Std.Object）
-        else if (qn == "Object") { qn = "Std.Object"; }
+        string qn = this._typeOpTargetName(e.TargetType, e.TypeName);
         if (e.BindName != "") {
             TypedReg vReg = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new AsCastInstr(vReg, obj, qn));
@@ -145,9 +165,7 @@ public sealed class TypeOpEmitter {
     internal TypedReg _emitCast(BoundCast c) {
         TypedReg obj = this._ee.Emit(c.E);
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-        string qn = this._ctx.QualifyTypeName(c.TypeName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
-        if (qn == "Array") { qn = "Std.Array"; }
-        else if (qn == "Object") { qn = "Std.Object"; }
+        string qn = this._typeOpTargetName(c.Type(), c.TypeName);   // P2：携类型实参（见 _typeOpTargetName）
         this._ctx.Emit(new AsCastInstr(dst, obj, qn));
         return dst;
     }

@@ -126,8 +126,11 @@ pub(super) fn obj_new(
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let storage = type_desc.object_storage();
         let mut obj = ScriptObject::new(type_desc.clone(), storage);
+        // complete-generic-class-identity P1: an instantiation's class name already carries
+        // its arguments (`Demo.Box<int>`), so the compiler stops shipping a second copy on
+        // the instruction. Fall back to the ones the registry parsed off the name.
         obj.set_type_args(if type_args.is_empty() {
-            Box::new([])
+            Box::<[String]>::from(type_desc.type_args())
         } else {
             Box::<[String]>::from(type_args)
         });
@@ -157,15 +160,24 @@ pub(super) fn obj_new(
 
         // 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): populate
         // per-instance type_args from the IR instruction. Read by `DefaultOf`.
-        if !type_args.is_empty() {
+        // complete-generic-class-identity P1: fall back to the arguments the registry parsed
+        // off the instantiation's own name (see the stack branch).
+        let name_args: Box<[String]> = if type_args.is_empty() {
+            if let Value::Object(ref rc) = obj_val {
+                Box::<[String]>::from(rc.borrow().type_desc.type_args())
+            } else { Box::new([]) }
+        } else { Box::new([]) };
+        let inst_args: &[String] =
+            if type_args.is_empty() { &name_args } else { type_args };
+        if !inst_args.is_empty() {
             if let Value::Object(ref rc) = obj_val {
                 let mut o = rc.borrow_mut();
-                o.set_type_args(Box::<[String]>::from(type_args));
+                o.set_type_args(Box::<[String]>::from(inst_args));
                 // fix-generic-typeparam-field-zero: see the stack branch above. Kept in the
-                // same `!type_args.is_empty()` block because a non-generic instance can
+                // same `!inst_args.is_empty()` block because a non-generic instance can
                 // never need an override.
                 let overrides = crate::metadata::types::generic_field_zero_overrides(
-                    &o.type_desc, type_args,
+                    &o.type_desc, inst_args,
                 );
                 for (slot, zero) in overrides {
                     o.set_field_value(slot, &zero);

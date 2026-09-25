@@ -312,6 +312,19 @@ fn resolve_vcall_unchecked(
         if let Some(lazy) = ctx.try_lookup_function(&candidate) {
             return Ok(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
         }
+        // complete-generic-class-identity P1: the erased-name retry must happen at **every** level
+        // of the chain, not only at the receiver's own. "Identity is per-instantiation, code is
+        // shared" holds at each level: `class DInt : GBox<int> {}` has an *instantiation* as its
+        // base, whose members only exist under the erased spelling `GBox.Tag`. The retry used to
+        // live after the loop and only looked at `type_desc.name`, so an instantiation appearing
+        // as a *base* was unreachable ⇒ `VCall: function Demo.DInt.Tag not found` (measured).
+        //
+        // Doing it per level also fixes the ordering: an override on the receiver's own erased
+        // definition now wins over a same-named method on a *base*, which the post-loop placement
+        // got backwards.
+        if let Some(r) = try_erased_level(ctx, module, &cur, method, obj_val) {
+            return Ok(r);
+        }
         let next = module.classes.iter()
             .find(|c| c.name == cur)
             .and_then(|c| c.base_class.clone())
@@ -328,31 +341,43 @@ fn resolve_vcall_unchecked(
             None => break,
         }
     }
-    // generic-struct-erased-slot-value-copy: **identity is per-instantiation, code is shared.**
-    // Every used instantiation gets its own TypeDesc (`MyList<int>`), but members are only
-    // re-emitted for instantiations whose *layout* differs from the definition. For the rest the
-    // definition's `MyList.Add` is the one and only body, so a miss on the instantiated name must
-    // retry under the erased base name. Same shape as `try_struct_backed`'s "full name first,
-    // erased second" — and it only runs on the miss path, so hot dispatch is untouched.
-    if let Some(lt) = type_desc.name.find('<') {
-        let erased = type_desc.name[..lt].to_string();
-        if let Ok(f) = resolve_virtual(module, &erased, method) {
-            if let Some(&idx) = module.func_index.get(f.name.as_str()) {
-                return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
-            }
-            if let Some(lazy) = ctx.try_lookup_function(&f.name) {
-                return Ok(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
-            }
+    bail!("VCall: function `{}.{}` not found", type_desc.name, method)
+}
+
+/// generic-struct-erased-slot-value-copy: **identity is per-instantiation, code is shared.**
+///
+/// Every used instantiation gets its own TypeDesc (`MyList<int>`), but members are only
+/// re-emitted for instantiations whose *layout* differs from the definition. For the rest the
+/// definition's `MyList.Add` is the one and only body, so a miss on an instantiated name must
+/// retry under the erased base name. Same shape as `try_struct_backed`'s "full name first,
+/// erased second" — and it only runs on the miss path, so hot dispatch is untouched.
+///
+/// Returns `None` for a non-instantiated name (no `<`), which is the common case.
+fn try_erased_level(
+    ctx: &VmContext,
+    module: &Module,
+    cur: &str,
+    method: &str,
+    obj_val: &Value,
+) -> Option<ResolvedVCall> {
+    let lt = cur.find('<')?;
+    let erased = &cur[..lt];
+    if let Ok(f) = resolve_virtual(module, erased, method) {
+        if let Some(&idx) = module.func_index.get(f.name.as_str()) {
+            return Some(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
         }
-        let direct = format!("{}.{}", erased, method);
-        if let Some(&idx) = module.func_index.get(direct.as_str()) {
-            return Ok(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
-        }
-        if let Some(lazy) = ctx.try_lookup_function(&direct) {
-            return Ok(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
+        if let Some(lazy) = ctx.try_lookup_function(&f.name) {
+            return Some(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
         }
     }
-    bail!("VCall: function `{}.{}` not found", type_desc.name, method)
+    let direct = format!("{}.{}", erased, method);
+    if let Some(&idx) = module.func_index.get(direct.as_str()) {
+        return Some(ResolvedVCall { target: VCallTarget::Local(idx), this: obj_val.clone() });
+    }
+    if let Some(lazy) = ctx.try_lookup_function(&direct) {
+        return Some(ResolvedVCall { target: VCallTarget::Lazy(lazy), this: obj_val.clone() });
+    }
+    None
 }
 
 /// Probe the `{class}.{method}` candidate spellings for a non-object receiver, in order:

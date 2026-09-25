@@ -1,0 +1,200 @@
+// ClassDescBuilder 的**泛型实例化描述符**这一半（partial 拆分只为守 code-organization 的
+// 886 行硬限，逻辑逐行未改）。
+//
+// 归在一起的理由：这几个函数共同回答同一个问题 ——「**一个实例化在元数据里长什么样**」。
+// 它们互相调用且判据必须一致：定义 AST 的查找（`_genericRawOf` / `_genericDeclOf`）、
+// 型参→实参代换（`_instSubstOf` / `_substTypeName`）、开放 vs 闭合的判别
+// （`_isClosedTypeExpr`）、实例化名的 FQ 限定（`_qInst`），最后汇进 `_instClassDesc`。
+//
+// ⭐ **字段表来自定义那条描述符**（`_classDesc`），不从 `StructLayout` 另起一份 —— 两份的
+// 集合与顺序对不上就是运行期字段槽错位。详见 `_instClassDesc` 的注释。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.IR;
+using Z42.Project;
+
+public sealed partial class ClassDescBuilder {
+    // 本包泛型类型的**原始**声明（带 attribute 包装）。两张表：本 CU 的 `GenericDecls` 与包级的
+    // `GenericTypeDecls`（泛型常声明在别的文件里）—— 与 `IrGenTypeEmitter.EmitInstantiation` 同一口径。
+    private Decl _genericRawOf(string bareName) {
+        object rd = this._g.GenericDecls.Get(bareName);
+        if (!(rd is Decl)) {
+            GenericBodySrc src = this._g.GenericTypeDecls.Get(bareName) as GenericBodySrc;
+            if (src == null) { return null; }
+            rd = src.Raw;
+        }
+        if (!(rd is Decl)) { return null; }
+        return rd as Decl;
+    }
+
+    private ClassDecl _genericDeclOf(string bareName) {
+        object rd = this._genericRawOf(bareName);
+        if (!(rd is Decl)) { return null; }
+        Decl dd = IrGenFacts._unwrap(rd as Decl);
+        if (!(dd is ClassDecl)) { return null; }   // `dd is ClassDecl ? … : …` 解析不了（`ClassDecl ?` 被当成可空类型）
+        return dd as ClassDecl;
+    }
+
+    // 「定义型参名 → 实参规范名」代换表（元数对不上 → 空表 ⇒ 保守退回擦除名）。
+    private static StrMap _instSubstOf(ClassDecl cdef, string instName) {
+        StrMap m = new StrMap();
+        string[] args = StructLayout.InstArgsOf(instName);
+        if (args.Length != cdef.TypeParams.Count) { return m; }
+        int i = 0;
+        while (i < cdef.TypeParams.Count) { m.Put(cdef.TypeParams.Names[i], new StrBox(args[i])); i = i + 1; }
+        return m;
+    }
+
+    // TypeExpr → **代换后**的规范名（`Base<T>` + {T→int} ⇒ `Base<int>`）。
+    //
+    // 必须按 AST 结构递归、**不能**对 `Dump()` 的字符串做替换：型参名是单字母居多
+    //（`T` / `A`），字符串替换会命中 `TArray` 这类无关标识符的子串。
+    // 与 `StructLayout.InstName` 同一拼写（无空格），否则两边算出的名字对不上。
+    private static string _substTypeName(TypeExpr t, StrMap subst) {
+        if (!(t is NamedType)) { return t.Dump(); }
+        NamedType nt = t as NamedType;
+        if (nt.ArgCount <= 0) {
+            StrBox b = subst.ContainsKey(nt.Name) ? subst.Get(nt.Name) as StrBox : null;
+            // `PrimModel.Canon`：`Int32` → `int`。**必须与 `ExprEmitter._canonTypeName` 同一口径**，
+            // 否则基表这条路算出 `GBox<Int32>`、表达式那条算出 `GBox<int>`，同一个实例化两个名字。
+            return b == null ? PrimModel.Canon(nt.Name) : b.Value;
+        }
+        string[] an = new string[nt.ArgCount];
+        int i = 0;
+        while (i < nt.ArgCount) { an[i] = ClassDescBuilder._substTypeName(nt.Args[i], subst); i = i + 1; }
+        return StructLayout.InstName(nt.Name, an, nt.ArgCount);
+    }
+
+    // 基表里的泛型基是不是**闭合**的（实参全具体）：任一实参（递归）是本类的型参 ⇒ 开放。
+    // 开放泛型基（`class Sub<T> : Bag<T>`）不是一个具体实例化、永远不会有描述符，
+    // 故仍须剥成裸名（`fix-generic-base-name` 的原理由对它依然成立）。
+    private static bool _isClosedTypeExpr(TypeExpr t, ClassDecl owner) {
+        if (!(t is NamedType)) { return false; }
+        NamedType nt = t as NamedType;
+        int i = 0;
+        while (i < owner.TypeParams.Count) {
+            if (owner.TypeParams.Names[i] == nt.Name) { return false; }
+            i = i + 1;
+        }
+        int k = 0;
+        while (k < nt.ArgCount) {
+            if (!ClassDescBuilder._isClosedTypeExpr(nt.Args[k], owner)) { return false; }
+            k = k + 1;
+        }
+        return true;
+    }
+
+    // 短名 → FQ，实例化名只限定基名（与 `ExprEmitter._qualifyInstName` / 本文件 `fqInst` 同约定）。
+    private string _qInst(string name) {
+        int lt = name.IndexOf("<");
+        if (lt < 0) { return this._g._qClass(name); }
+        return this._g._qClass(name.Substring(0, lt)) + name.Substring(lt, name.Length - lt);
+    }
+
+    // 泛型 class 实例化的合成描述符。
+    //
+    // complete-generic-class-identity P1：**每个具体实例化都发一条**（此前只在「有内联 struct
+    // 字段」时才发，普通泛型 class 一律没有描述符 ⇒ 它根本不是运行期的一个类型）。
+    // 三件事跟着补齐：
+    //   · **基类链**：定义的基按实参代换（`class Sub<T> : Base<T>` ⇒ `Sub<int>`.base = `Base<int>`）。
+    //     没有显式基 ⇒ `Std.Object`。**这是 `class DInt : GBox<int> {}` 继承字段拿到零值的前提**
+    //     —— 此前基名被剥成裸名 `GBox`，运行期从**擦除定义**合并字段，`V` 的 type_tag 还是 `T`，
+    //     `ObjNew` 按 tag 取默认值 ⇒ `null`。实参在运行期元数据里根本不存在，只能在这一侧修。
+    //   · **接口**：同样按实参代换（`is`/`as` 与反射都按名字符串比）。
+    //   · 字段的**类型名**按实参代换（字段的集合与顺序仍由定义那条描述符决定，见下）。
+    //
+    // ⭐ **字段表必须从定义那条描述符派生，不能从 `ObjectLayoutOf` 另起一份**（design D5）：
+    // `_classDesc` 除了声明字段，还会追加**属性后备字段**（`__prop_X`）等合成条目，而
+    // `StructLayout` 收的是另一套。两份对不上 ⇒ 运行期字段槽错位，实测
+    // `MulticastException<bool>.Results` 读出 `Null`（写进去的是另一个槽）。
+    // 现在改成：调同一个 `_classDesc(定义)`，**只**改名字 / 基 / 接口 / 字段类型名 ——
+    // 集合与顺序按构造与定义一致。
+    //
+    // ⚠️ **静态字段刻意清空**：发射端今天仍按**擦除名**拼静态字段键（`AccessEmitter`），
+    // 描述符里声明了也没人写 ⇒ 空槽。两侧一起换是 P3（自举敏感，分阶段引入）。
+    private IrClassDesc _instClassDesc(string instName) {
+        StructLayout ly = this._g.Layouts;
+        string bareDef = StructLayout.BaseNameOf(instName);
+        Decl rawDef = this._genericRawOf(bareDef);
+        ClassDecl cdef = this._genericDeclOf(bareDef);
+        if (cdef == null) { return null; }              // 非本包泛型（闸门已拦，这里兜底）
+        StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
+        StructLayoutInfo il = ly.InlineLayoutOf(instName);
+        int ltq = instName.IndexOf("<");
+        string fqInst = ltq < 0 ? this._g._q(instName)
+                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        StrMap subst = ClassDescBuilder._instSubstOf(cdef, instName);
+        // ── 定义那条描述符（字段集合与顺序的唯一来源）──────────────────────────
+        IrClassDesc cd = this._classDesc(cdef, HandlerRegistry.HasRecord(rawDef));
+        cd.Name = fqInst;
+        cd.StaticFields = new IrFieldDesc[0]; cd.StaticFieldCount = 0;   // P3 之前：静态槽仍挂在擦除名上
+        // ⚠️ **TypeParams 保留定义那份**：反射的 `IsGenericType` 判据就是
+        // `!type_params().is_empty() || !type_args().is_empty()`。清空它，`new Box<int>()` 的
+        // `GetType().IsGenericType` 会从 true 变 **false**（实测 instance_generic_args 判红）——
+        // 实例化是**构造出来的泛型类型**，它当然是泛型的。`IsGenericTypeDefinition` 另有判据
+        // （`__typeArgs` 槽是否存在），不受影响。
+        // 字段**类型名**按实例化的对象布局代换（按名匹配；布局里没有的条目保持定义的拼写）。
+        StrMap ftypes = new StrMap();
+        int oi = 0;
+        while (oi < ol.FieldCount) { ftypes.Put(ol.FieldNames[oi], new StrBox(ol.FieldTypeNames[oi])); oi = oi + 1; }
+        int fi2 = 0;
+        while (fi2 < cd.FieldCount) {
+            IrFieldDesc fd = cd.Fields[fi2];
+            StrBox tb = ftypes.ContainsKey(fd.Name) ? ftypes.Get(fd.Name) as StrBox : null;
+            if (tb != null) { fd.Type = tb.Value; }
+            fi2 = fi2 + 1;
+        }
+        // ── 基类链 + 接口：定义的基表按实参代换 ────────────────────────────────
+        string baseName = "Std.Object";
+        string[] ifs = new string[4]; int ifc = 0;
+        int bi = 0;
+        while (bi < cdef.BaseCount) {
+            string sn = ClassDescBuilder._substTypeName(cdef.Bases[bi], subst);
+            string bare = sn;
+            int lt2 = sn.IndexOf("<");
+            if (lt2 >= 0) { bare = sn.Substring(0, lt2); }
+            if (this._g._symbols.HasInterface(bare)) {
+                if (ifc == ifs.Length) {
+                    string[] b2 = new string[ifs.Length * 2];
+                    int z = 0; while (z < ifc) { b2[z] = ifs[z]; z = z + 1; }
+                    ifs = b2;
+                }
+                ifs[ifc] = this._qInst(sn); ifc = ifc + 1;
+                this._g.NoteInstName(sn);
+            } else if (baseName == "Std.Object") {
+                baseName = this._qInst(sn);
+                // 基也是一个实例化 ⇒ 它同样需要一条描述符，否则运行期走基链时断在这里。
+                this._g.NoteInstName(sn);
+            }
+            bi = bi + 1;
+        }
+        cd.HasBase = true; cd.BaseName = baseName;
+        if (ifc > 0) {
+            string[] tr = new string[ifc];
+            int z2 = 0; while (z2 < ifc) { tr[z2] = ifs[z2]; z2 = z2 + 1; }
+            cd.Interfaces = tr; cd.InterfaceCount = ifc;
+        }
+        // ── 两个布局块：从**实例化**的布局覆写掉定义那份 ──────────────────────
+        // `_classDesc` 已按定义的短名填过它们（型参字段一律 8B 句柄）；实例化里型参可能是内联
+        // 字节，size 与引用位图都不同。bit7 要**重算**（定义有、实例化没有，或反过来）。
+        if (il.FieldCount > 0) {
+            if (cd.Flags < 128) { cd.Flags = cd.Flags + 128; }   // bit7 = 有内联 struct 字段
+            cd.InlineSize = il.Size;
+            cd.InlineRefOffsets = il.RefLeafOffsets;
+            cd.InlineRefKinds = il.RefLeafKinds;
+            cd.InlineRefCount = il.RefLeafCount;
+        } else if (cd.Flags >= 128) {
+            cd.Flags = cd.Flags - 128;
+            cd.InlineSize = 0; cd.InlineRefOffsets = new int[0]; cd.InlineRefKinds = new int[0]; cd.InlineRefCount = 0;
+        }
+        // **对象布局块也必须填**（Flags bit2/4/5/6 皆 0 ⇒ writer 会写这一段）。只给内联块不够：
+        // 运行期按**对象布局**决定 ScriptObject 的字节区与引用槽大小，缺了就分配 0 字节
+        // ⇒ 读内联字段报 `struct field read out of blob bounds (off=4, w=4, len=0)`（实测）。
+        cd.ObjectSize = ol.Size;
+        cd.ObjFieldOffsets = ol.FieldOffsets; cd.ObjFieldSizes = ol.FieldSizes;
+        cd.ObjFieldKinds = ol.FieldKinds; cd.ObjFieldCount = ol.FieldCount;
+        cd.ObjRefOffsets = ol.RefLeafOffsets; cd.ObjRefKinds = ol.RefLeafKinds; cd.ObjRefCount = ol.RefLeafCount;
+        return cd;
+    }
+}

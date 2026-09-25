@@ -808,6 +808,57 @@ fn @Demo.G<P2>.Get(1) -> T {
 > 代换一次记下来即可；发射端只做它自己独有的那半判断（布局知识只在发射端）。
 
 用例：`src/tests/generics/generic_class_returns_blob.z42`（六形态，含两条阴性对照）。
+
+### 🔴 实例化成为运行期真正的类型（complete-generic-class-identity P1+P2，2026-09-25）
+
+#774 让实例化有了**布局**，#820/#825 让操作它的代码跟着**特化**，但**声明形状**一直是擦除的：
+普通泛型 class 的实例化根本不发描述符（闸门要求「有内联 struct 字段」），于是
+
+| 形态 | 修前 | 应为 |
+|---|---|---|
+| `class DInt : GBox<int> {}` 的继承字段 | `null` | `0` |
+| `o as GBox<string>`（o 是 `GBox<int>`） | 放行 → `VCall: expected object, got I64` | `null` |
+
+两者**互相咬死**，不能只做一格：只给身份不改 `is`/`as`，`x is GBox<int>` 会从 true **静默**变 false。
+
+**编译期（四处，共用一个出口）**
+
+- `_instIdentityName` 的闸门取消 ⇒ 每个具体的**本包**实例化都有身份。
+- `_instClassDesc` 发**完整**描述符：基类链 / 接口按实参代换，字段类型名代换。
+  ⭐ **字段的集合与顺序必须从定义那条描述符 `_classDesc` 派生**，不能从 `StructLayout` 另起一份
+  ——后者不含属性后备字段（`__prop_X`）等合成条目，两份对不上就是运行期字段槽错位，
+  实测 `MulticastException<bool>.Results` 读出 `Null`。
+- `fix-generic-base-name` 的剥名只对**开放**泛型基保留（`class Sub<T> : Bag<T>` 不是具体实例化，
+  永远不会有描述符，原理由对它依然成立）；**闭合**基写实例化名并登记它。
+- `is`/`as` 的目标名走 `_instIdentityName`（`BoundIsExpr.TargetType` / `BoundCast.Type()`），
+  不再用丢实参的 `NamedType.Name`。
+
+⚠️ **实例化名的基名必须 arity-mangled**（`Pair$2<int,string>`）。泛型类与同名非泛型类共存时
+（add-class-arity-overloading），不 mangle 的话擦除前缀是 `Demo.Pair` —— 那是**非泛型**的那个类，
+运行期擦除回落会调到它身上（实测 `p2.Describe()` 返回 "non-generic Pair"，**静默**错值）。
+
+⚠️ 描述符投送必须**走到不动点**：造一条描述符会发现新的实例化（基表上的 `Bag<int>` 只有在造
+`Sub<int>` 的描述符时才被登记）。快照一次 `Keys()` 就漏，实测
+`base type Demo…Bag<int> of Demo…SubBag<int> could not be resolved`。
+
+**运行期（三处，全是「擦除名是回落、不是身份」的贯彻）**
+
+- `vcall_resolve`：擦除名回落要在基链的**每一层**做，不只接收者自己那层 ——
+  `class DInt : GBox<int> {}` 的基是实例化，而成员体只以擦除名存在
+  （实测 `VCall: function Demo.DInt.Tag not found`）。顺带修正了顺序：接收者自己的擦除定义
+  现在先于**基类**的同名方法，此前的表后置放反了。
+- `is_subclass_or_eq_td`：`x is GBox`（不带实参，C# 写不出来）意为「任何 GBox 的实例化」，
+  故每层都比一次擦除前缀。两种拼写都要认：裸名 `Demo.GBox`，以及 arity-mangled 的
+  `Demo.GBox$1`（**导入**泛型在元数据里的拼写，`StmtEmitter` 的 catch_type 就是它）——
+  漏掉后者时 `catch (MulticastException<bool>)` 抓不住 `Std.MulticastException<bool>`。
+- `build_type_registry`：**实例化的名字就是它的类型实参**，在这里解析成 `type_args`。
+  编译期的 `ObjNew` 一旦用身份名就不再另发一份实参列表（发两份会渲染成 `Demo.Box<int><int>`），
+  反射 `Type.GetGenericArguments()` 与泛型字段零初始化都读 `type_args` ⇒ 名字成为唯一真相。
+  interp 与 JIT 的 `ObjNew` 必须**同时**回落到它（这一对曾经一边倒，正是
+  `GBox<int>().V == 0` 两个引擎答案不一致的根因）。
+
+用例：`src/tests/generics/generic_class_identity.z42`（B/D 两格 + **五条阴性对照**：
+擦除名 `is GBox`、接口代换、派生类两个方向、开放泛型基、反射仍视其为构造泛型类型）。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、**JIT 原生内联字节访问**（P5-B，现 helper
   桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438
   自引用诊断**（现 `Size==0` 兜底防崩）。
