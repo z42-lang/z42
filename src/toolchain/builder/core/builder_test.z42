@@ -138,9 +138,17 @@ int _runDevTargets(ParseResult r, string verb, string format) {
             return 1;
         }
         // 已知欠债（`auto = false` 但目录里有源）：不判红，但每轮响亮打印 —— 豁免不等于消音。
+        // ⚠️ **要把欠债的规模也说出来**：只说「跳过约定发现」是一句配置说明，读者不会知道底下躺着
+        // 多少个从没跑过的目录（z42.scripting 就有 11 个 REPL driver）。消音一半也是消音。
         TargetSection qs = (kind == "bench") ? m.BenchSection : m.TestsSection;
         if (qs != null && !qs.Auto) {
-            Console.WriteLine("  ⚠ z42b " + verb + ": 本清单 `auto = false`，跳过约定发现（只认显式目标）");
+            int unclaimed = _dtUnclaimedSourceDirs(m, kind, projDir);
+            if (unclaimed > 0) {
+                Console.WriteLine("  ⚠ z42b " + verb + ": 本清单 `auto = false`，跳过约定发现 —— "
+                    + unclaimed.ToString() + " 处有源目录无人认领，一个单元都没跑");
+            } else {
+                Console.WriteLine("  ⚠ z42b " + verb + ": 本清单 `auto = false`，跳过约定发现（只认显式目标）");
+            }
         }
         // ── 「本包压根没有测试」≠「测试没跑」────────────────────────────────────
         // 零目标时下面那条回落会编**本包自己**再跑 —— 这对 `compile-then-test` 那种「整个包
