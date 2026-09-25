@@ -76,6 +76,13 @@
 | 7 | `VCall: function Demo.DInt.Tag not found` | 擦除名回落只在**接收者自己**那层做，基链上的实例化层级够不着 |
 | 8 | 单测 `test_new_generic_multi` | ObjNew 类名从「裸名 + 另一份 TypeArgs 渲染」变成身份名 ⇒ `Pair<int, string>` → `Pair<int,string>`（无空格），golden 更新 |
 
+| 9 | CI `bench-regression` 判红：`编译器输出变了，但 CompilerFingerprint 没变` | 本档改的是**发射的元数据**（多出实例化描述符 / base 名 / `is`·`as` 目标名）⇒ 含泛型的源文件**哈希不变而发码变** ⇒ 必须 bump（18 → 19） |
+
+⭐ **#9 是唯一一条本地跑不出来、只有 CI 能抓的**：`xtask test fingerprint` 要一棵 base 源码树
+（CI 里是 bench-pr 已备好的 `base-src`），本地 15 个 stage 里没有它。
+⭐ 这一档与前几档不同：**守门真的看见了输出变化**（z42.core），不是「stdlib 里没这种形状、
+只会漏判」的那类。
+
 ⭐ **7 顺带修正了一处顺序错误**：擦除名回落原先写在链表遍历**之后**，于是「接收者自己的
 擦除定义」排在「基类的同名方法」后面。改成逐层之后，override 正确地赢过基类。
 
