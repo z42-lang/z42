@@ -7,6 +7,6 @@ class Box<T> {
 }
 
 void Main() {
-    Box<int> n = new Box<int>("not an int");   // 编译期零诊断
-    Console.WriteLine(n.Get());                // 运行期才炸
+    Box<int> n = new Box<int>("not an int");   // ✗ 编译期就拦下
+    Console.WriteLine(n.Get());
 }

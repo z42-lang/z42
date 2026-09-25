@@ -257,7 +257,7 @@
 
 要按类型分派，就把型参放在**方法**上；只想知道具体类型，用 `default(T).GetType()`。
 
-### 泛型构造器的实参不检查
+### 泛型构造器的实参也是检查的
 
 ```z42
 // examples/types/generics/gaps/ctorgap.z42
@@ -268,8 +268,12 @@
 {{#include ../../../../examples/types/generics/gaps/run.console:ctor}}
 ```
 
-同一个 `T` 的**实例方法**是检查的（`n.Set("str")` 会报
-`cannot assign string to Int32`），只有**构造器**这条路漏了——错误一路推到运行期才现形。
+构造器与同一个 `T` 的**实例方法**同口径 —— `n.Set("str")` 报的是同一句
+`cannot assign string to Int32`。
+
+> 📜 **2026-09-25 之前只有方法那条路查**，构造器零诊断、错误一路推到运行期
+> （`Std.InvalidCastException: cannot cast string to int`）。根因：ctor 签名里的形参是未代换的
+> 裸 `T`，而类型转换器恰恰擦除「具体实参 → 裸型参形参」。
 
 ### 接口约束只比接口名，不比类型实参
 
@@ -277,12 +281,13 @@
 所以 `class Wrong : IFoo<string>` 也能满足 `where T : IFoo<T>`。这正是标准库把三个协议
 接口改成 `Self` 的原因：不写类型实参，就没有实参可以写错。
 
-### 两个会崩的组合
+### 一个会崩的组合
 
-- **`new T()` 且 T 是基元**（`make<int>()`）：约束判定说基元满足 `new()`，真去构造却崩。
-  用 `default(T)` 代替。
 - **字段数 ≥ 2 的 struct 走 `where T : INumber` 的运算符派发**：崩
-  `MissingSymbolException`。单字段 struct 与基元不受影响。
+  `VCall on boxed struct ...: method 'op_Add' not found`。单字段 struct 与基元不受影响。
+
+> 📜 原本还列着「**`new T()` 且 T 是基元**会崩」——那条**已经修了**：
+> `new T()` 对基元产出零值（与 `default(T)` 一致；`string` 为 `""`）。
 
 ## 小结
 

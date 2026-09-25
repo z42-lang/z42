@@ -43,7 +43,9 @@ public sealed partial class MemberResolver {
     // `ParamsFrom` / `ParamDefaults` / `ParamCallers` / `ParamNames` 必须**原样搬运**：ctor 只设 ParamsFrom = -1，
     // 漏搬会让 params 变长形参在这条路上退化成定长（CheckArgTypes 的 params 尾位分支读的就是它）。
     // 这条是照抄 `_substSelfSig` 的教训，别重踩。
-    private static Z42FuncType _substGenericSig(Z42FuncType sig, Z42InstantiatedType recv) {
+    // fix-generic-ctor-args：`internal`（原 `private`）—— **构造器路径也要用它**。
+    // `new Box<int>("x")` 与 `b.Set("x")` 是同一件事的两条路，此前只有方法那条代换后补查。
+    internal static Z42FuncType _substGenericSig(Z42FuncType sig, Z42InstantiatedType recv) {
         Z42Type[] np = new Z42Type[sig.ParamCount];
         int i = 0;
         while (i < sig.ParamCount) { np[i] = MemberResolver._substGeneric(sig.ParamTypes[i], recv); i = i + 1; }
