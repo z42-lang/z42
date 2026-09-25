@@ -65,6 +65,21 @@ pub fn builtin_cfg_source(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::Str(label.to_string().into()))
 }
 
+/// `__search_dirs() -> string[]` —— 本进程解析 zpkg 依赖时**按序**查找的目录。
+///
+/// 返回的是 `app.rs` 算好的**结果**：相对项已按 entry zpkg 目录解析、`probing-paths` 的通配符
+/// 已展开、不存在的已剔除。给的是结果而不是配置，是为了让调用方**不必重做那套规则** ——
+/// 重做就会漂移，而这正是今天两份 `_findCompilerZpkg` 各写四档探测的由来。
+///
+/// 非 app 路径（纯 host 嵌入）未初始化 → 空数组。
+pub fn builtin_search_dirs(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+    let dirs: Vec<Value> = crate::probing::search_dirs()
+        .iter()
+        .map(|p| Value::Str(p.display().to_string().into()))
+        .collect();
+    Ok(ctx.heap().alloc_array(dirs))
+}
+
 /// `__cfg_names() -> string[]` —— 全部旋钮的对外 key。
 pub fn builtin_cfg_names(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     let names: Vec<Value> = KNOWN_KNOBS

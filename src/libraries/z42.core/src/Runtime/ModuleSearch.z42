@@ -1,0 +1,27 @@
+namespace Std.Runtime;
+
+// 本进程解析 zpkg 依赖时会去哪些目录找（add-deployment-model）。
+//
+// **为什么需要它**：这个问题在 z42 侧此前**完全无解**。VM 内部算好了一份搜索序
+// （entry zpkg 目录 → `probing-paths` 展开后的各目录 → `libs`），但它是 `app.rs` 的局部变量，
+// z42 代码看不见。于是每个需要「按名找一个 zpkg」的地方只能自己猜，长出两份平行的四档
+// 硬编码探测（`builder.z42::_findCompilerZpkg` / `ReplCompilerHost::_findCompilerZpkg`，后者的
+// 注释自陈「探测序同 builder.z42」），以及 runtime-only 包里那个恒失败的 scripting 空壳——
+// 四条路径全落空，却说不出为什么落空。
+//
+// **给的是结果，不是配置**：相对项已按 **entry zpkg 所在目录**解析（不是 cwd —— 同一个安装
+// 从任何工作目录启动都必须一致）、`probing-paths` 里的 `*` / `**` 已展开、不存在的目录已剔除。
+// 调用方直接按序找文件即可，**不需要也不应该重做那套规则** —— 重做就会漂移，那正是今天
+// 那两份探测的由来。
+//
+// 与 [[RuntimeConfig]] 的分工：`RuntimeConfig.Get("probing-paths")` 给的是**原始配置串**
+// （未展开、不知道相对谁），本类给的是**解析后的实际搜索序**。要判断「这个部署形态有没有
+// 某个组件」，读本类；要知道「用户配了什么」，读 RuntimeConfig。
+public static class ModuleSearch {
+    // 按序的搜索目录。非 app 路径（纯 host 嵌入）→ 空数组。
+    //
+    // 空数组是个**有意义的答案**，不是错误：它说明这个进程没有任何 zpkg 搜索路径，
+    // 那么「找不到某组件」就不是"路径没配对"，而是"这个部署形态本来就不带它"。
+    [Native("__search_dirs")]
+    public static extern string[] Dirs();
+}

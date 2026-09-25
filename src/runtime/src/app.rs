@@ -136,6 +136,9 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         }
         dirs
     };
+    // 交给 z42 侧只读查询（`Std.Runtime.ModuleSearch.Dirs`）。存的是**解析结果**——相对项已按
+    // entry zpkg 解析、通配符已展开 —— 免得调用方各自重做一遍规则然后慢慢漂移。
+    crate::probing::set_search_dirs(search_dirs.clone());
 
     let mut modules: Vec<crate::metadata::Module> = Vec::new();
     // Track canonical paths of loaded artifact files to prevent duplicate loading.
