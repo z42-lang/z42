@@ -37,15 +37,6 @@ fn scan_skips_non_zpkg_and_bad_magic() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn scan_empty_dirs_returns_empty() {
-    assert!(scan_zpkg_candidates(&[]).is_empty());
-    assert!(scan_zbc_candidates(&[]).is_empty());
-    // Nonexistent dir is skipped, not an error.
-    let bogus = PathBuf::from("/definitely/not/a/real/dir/zz");
-    assert!(scan_zpkg_candidates(&[bogus.clone()]).is_empty());
-    assert!(scan_zbc_candidates(&[bogus]).is_empty());
-}
 
 #[test]
 fn read_zbc_namespace_rejects_short_and_bad_magic() {

@@ -348,22 +348,12 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
         consumed_by: "jit/mod.rs",
         ..TUNING
     },
-    KnobSpec {
-        name: "Z42_PATH",
-        toml_key: "path",
-        value: ValueKind::PathList,
-        description: "module search paths (platform-separated)",
-        default_hint: "unset; falls back to <cwd>, <cwd>/modules",
-        consumed_by: "main.rs",
-        ..PUBLIC
-    },
     // add-deployment-model 批 3：zpkg **依赖**的额外搜索目录。
     //
-    // ⚠️ 与上面的 `Z42_PATH` 不是一回事，别合并：那条是 `.zbc` **模块**搜索路径，走的是
-    // `resolve_namespace(ns, module_paths, libs_paths)` 那条按命名空间找的老路；本条进的是
-    // `app.rs` 的 `search_dirs`，被按 **zpkg 文件名**解析依赖的 `resolve_dependency` 用。
-    // （`Z42_PATH` 今天在 main.rs 里只被 log 掉 —— 那是它自己的欠账，单独立项处置，
-    //  不让它的历史债决定本旋钮的形状。）
+    // 📌 本旋钮曾刻意不叫 `path`：那个名字当时被 `Z42_PATH`（`.zbc` **模块**搜索路径）占着，
+    // 而那条旋钮解析出来只进日志、五个调用方全传空 —— retire-z42-path（2026-09-25）已把它
+    // 连同整条死路径一并退役。`path` 现在是空着的名字；要不要改名是**用户可见的决定**，
+    // 留给需要它的时候再说，别顺手做。
     KnobSpec {
         name: "Z42_PROBING_PATHS",
         toml_key: "probing-paths",

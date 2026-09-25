@@ -151,7 +151,7 @@ fn cached_zpkg_namespaces(path_str: &str) -> Option<Vec<String>> {
     if data.len() < 4 || &data[0..4] != ZPKG_MAGIC { return None; }
     // Passed the zpkg magic but the NSPC parse failed — a corrupt / incompatible
     // package. Warn rather than let it vanish from the candidate set (see the
-    // matching path in `scan_zbc_candidates`).
+    // matching path in the zpkg scan).
     let namespaces = match read_zpkg_namespaces(&data) {
         Ok(ns) => ns,
         Err(e) => {
@@ -167,40 +167,6 @@ fn cached_zpkg_namespaces(path_str: &str) -> Option<Vec<String>> {
     Some(namespaces)
 }
 
-/// Scan `dirs` (in caller order) for `.zbc` files, reading each one's single
-/// declared namespace (NSPC fast-path). A zbc declares at most one namespace;
-/// it is represented as a 0/1-element `namespaces` vec for a uniform candidate
-/// shape with [`scan_zpkg_candidates`]. Same skip + deterministic-sort rules.
-pub fn scan_zbc_candidates(dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
-    let backend = fs_backend::active();
-    let mut out = Vec::new();
-    for dir in dirs {
-        let dir_str = match dir.to_str() { Some(s) => s, None => continue };
-        let mut names = match backend.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
-        names.sort();
-        for name in names {
-            let path = dir.join(&name);
-            if path.extension().and_then(|e| e.to_str()) != Some("zbc") { continue; }
-            let path_str = match path.to_str() { Some(s) => s, None => continue };
-            let data = match backend.read(path_str) { Ok(d) => d, Err(_) => continue };
-            if data.len() < 4 || &data[0..4] != ZBC_MAGIC { continue; }
-            // A file that starts with the zbc magic but won't parse is a corrupt /
-            // truncated / incompatible artifact, not an unrelated file. Dropping it
-            // silently from the candidate set surfaces downstream as a confusing
-            // "type not found" rather than naming the broken package — so warn.
-            let file_ns = match read_zbc_namespace(&data) {
-                Ok(n) => n,
-                Err(e) => {
-                    tracing::warn!("skipping malformed .zbc `{path_str}` during namespace scan: {e}");
-                    continue;
-                }
-            };
-            let namespaces = if file_ns.is_empty() { Vec::new() } else { vec![file_ns] };
-            out.push(ZpkgCandidate { file_path: path, namespaces });
-        }
-    }
-    out
-}
 
 /// Read only the namespaces from a binary zpkg (NSPC section). Thin wrapper over
 /// the zbc_reader byte-parse — kept here so the scanners have a single parse

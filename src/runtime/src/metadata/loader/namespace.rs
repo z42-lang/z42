@@ -6,30 +6,20 @@ use crate::metadata::namespace_index;
 /// Resolve which files provide a given namespace.
 ///
 /// Multiple zpkgs may legitimately declare the same namespace (C# assembly
-/// model). Returns **all** matching files sorted by search tier:
-///   1. `module_paths`: scan `.zbc` files (binary, read namespace from header)
-///   2. `libs_paths`:   scan `.zpkg` files (binary, read NSPC section)
-///
-/// If a `.zbc` file in `module_paths` matches, `.zpkg` files in `libs_paths`
-/// are **not** scanned (module-path override). This preserves the historical
-/// override behaviour without coupling it to single-result semantics.
+/// model). Returns **all** matching `.zpkg` files under `libs_paths`.
 ///
 /// Used by compiler tooling and diagnostics. The VM's lazy loader no longer
 /// routes by namespace; it uses zpkg file names (`resolve_dependency`).
-pub fn resolve_namespace(
-    ns: &str,
-    module_paths: &[PathBuf],
-    libs_paths: &[PathBuf],
-) -> Result<Vec<PathBuf>> {
+///
+/// retire-z42-path (2026-09-25): 此前还有一个 `module_paths` 参数，用来先扫散装 `.zbc`
+/// 并**覆盖** `libs_paths` 里的 zpkg。那一级由 `Z42_PATH` 供给，而 `Z42_PATH` 解析出来只
+/// 进日志 ⇒ **五个生产调用方全传 `&[]`**，覆盖语义从未生效过。旋钮退役时连参数一起删。
+pub fn resolve_namespace(ns: &str, libs_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
     // Delegates the disk scan + NSPC parse to the stateless `namespace_index`
     // primitive; this resolver is the *transient* consumer — it filters by exact
     // namespace match and drops the candidates on return (refactor-metadata-
     // namespace-index, runtime_review #6 step 2). The lazy loader is the
     // *retaining* consumer of the same primitive.
-    let zbc_matches = matching_paths(namespace_index::scan_zbc_candidates(module_paths), ns);
-    if !zbc_matches.is_empty() {
-        return Ok(zbc_matches);
-    }
     Ok(matching_paths(namespace_index::scan_zpkg_candidates(libs_paths), ns))
 }
 

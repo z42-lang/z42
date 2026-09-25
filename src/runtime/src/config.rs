@@ -11,7 +11,7 @@
 //! # Scope (this Phase 1 refactor)
 //!
 //! Centralizes the **5 startup-consumed** env vars:
-//! `Z42_LIBS` / `Z42_PATH` / `Z42_LOG` / `Z42_CRASH_DIR` / `Z42_TARGET`
+//! `Z42_LIBS` / `Z42_LOG` / `Z42_CRASH_DIR` / `Z42_TARGET`
 //! (reserved). These are the knobs `--info` reports and that `main.rs`
 //! reads at boot.
 //!
@@ -58,7 +58,7 @@ pub(crate) use parse::*;
 /// Resolved values of **every `Z42_*` runtime knob the runtime consumes**.
 ///
 /// Phase 1 (2026-05-25, refactor-runtime-config) introduced the 4 startup
-/// knobs (`Z42_LIBS` / `Z42_PATH` / `Z42_LOG` / `Z42_CRASH_DIR`) — read
+/// knobs (`Z42_LIBS` / `Z42_LOG` / `Z42_CRASH_DIR`) — read
 /// once at `main()` and threaded through setup.
 ///
 /// Phase 2 (2026-06-03, runtime-config-phase2) folded in the 6 subsystem-
@@ -77,8 +77,6 @@ pub struct RuntimeConfig {
     // ── Phase 1: startup knobs (main.rs paths / tracing init) ────────────
     /// `Z42_LIBS` — stdlib zpkg search dir override. `None` = use fallback.
     pub libs_dir: Option<PathBuf>,
-    /// `Z42_PATH` — colon-separated module search paths.
-    pub module_path: Vec<PathBuf>,
     /// `Z42_PROBING_PATHS` — extra zpkg **dependency** search dirs, platform-separated.
     /// Relative entries resolve against the entry zpkg's directory (not cwd); `*` / `**`
     /// expand at resolution time. Empty = search order stays `[entry-dir, libs]`.
@@ -279,7 +277,6 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             libs_dir: None,
-            module_path: Vec::new(),
             probing_paths: Vec::new(),
             log_filter: None,
             crash_dir: None,
@@ -413,7 +410,6 @@ impl RuntimeConfig {
         Self {
             // ── Phase 1 startup knobs ─────────────────────────────────────
             libs_dir:    get("Z42_LIBS").map(PathBuf::from),
-            module_path: get("Z42_PATH").map(|s| split_paths(&s)).unwrap_or_default(),
             probing_paths: get("Z42_PROBING_PATHS").map(|s| split_paths(&s)).unwrap_or_default(),
             log_filter:  get("Z42_LOG"),
             crash_dir:   get("Z42_CRASH_DIR").map(PathBuf::from),
