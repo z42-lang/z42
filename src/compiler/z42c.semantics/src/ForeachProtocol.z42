@@ -111,16 +111,44 @@ public sealed class ForeachProtocol {
     // 语义，代码却更严。User 2026-09-25 裁定以文档为准。
     //
     // ⚠️ 判据取**成员面**而非「有没有声明 IDisposable」：与本文件其余判定同一口径（三条路径都
-    // 按形状匹配），且接口静态类型的枚举器经 `MethodsOf` 也能查到继承来的 `Dispose`
-    // （`IEnumerator<T> : IDisposable` 的父接口链由 #789 恢复）。
+    // 按形状匹配）。
     // ⚠️ 算不出枚举器的成员面（返回型参 / Unknown / Error）时**保守返回 true** —— 保持修前行为，
     // 宁可像以前一样发一次调用，也不要在判据不足时静默跳过真该调的 `Dispose`。
-    public static bool EnumeratorDisposable(StrMap iterableMethods) {
+    public static bool EnumeratorDisposable(SymbolTable symbols, StrMap iterableMethods) {
         if (iterableMethods == null) { return true; }
         MethodSymbol ge = iterableMethods.Get("GetEnumerator") as MethodSymbol;
         if (ge == null || ge.Signature == null || ge.Signature.Ret == null) { return true; }
-        StrMap em = ForeachProtocol.MethodsOf(ge.Signature.Ret);
-        if (em == null) { return true; }
-        return em.ContainsKey("Dispose");
+        return ForeachProtocol._hasDispose(symbols, ge.Signature.Ret);
+    }
+
+    // 枚举器类型上有 `Dispose` 吗 —— **必须问与成员解析同一条继承面**，不能只查 `MethodsOf`
+    // 取到的那张**直接**成员表。
+    //
+    // `MethodsOf` 给的是类型自己声明的那一张表：`Z42InterfaceType.Methods` **不含**父接口成员
+    // （继承查找一律经 `InterfaceClosure`），`Z42ClassType.Methods` 也**不含**基类成员。于是
+    // 「查直接表」在这两种形状上都会答错，而答错的方向是**静默跳过真该调的 Dispose**：
+    // 实测 `foreach (int v in e)`（`e` 静态类型 `IEnumerable<int>`，枚举器 `Iter : IEnumerator<int>`
+    // 且 `IEnumerator<T> : IDisposable`）—— 具体类型那条路 `disposed=1`，经接口这条路 `disposed=0`。
+    // 本地声明的同形状接口链（`ILocalEnum : ILocalDisp`）一样是 0 ⇒ 与跨包/prelude 无关，
+    // 就是「查了直接表」这一条。
+    //
+    // 形态照 `MemberResolver._hasUserExpect`：类沿 `BaseName` 链走，接口交 `InterfaceClosure`。
+    // 判据不足（型参 / Unknown / Error / 链上某一环在符号表里查不到）一律**保守返回 true**。
+    private static bool _hasDispose(SymbolTable symbols, Z42Type et) {
+        if (et is Z42InterfaceType) {
+            if (symbols == null) { return true; }
+            return InterfaceClosure.FindMethod(symbols, et as Z42InterfaceType, "Dispose") != null;
+        }
+        Z42ClassType ct = null;
+        if (et is Z42ClassType) { ct = et as Z42ClassType; }
+        else if (et is Z42InstantiatedType) { ct = (et as Z42InstantiatedType).Def; }
+        if (ct == null) { return true; }
+        while (ct != null) {
+            if (ct.Methods != null && ct.Methods.ContainsKey("Dispose")) { return true; }
+            if (!ct.HasBase || ct.BaseName == "") { return false; }
+            if (symbols == null || !symbols.HasClass(ct.BaseName)) { return true; }
+            ct = symbols.GetClass(ct.BaseName);
+        }
+        return false;
     }
 }

@@ -10,6 +10,13 @@
 // ⭐ 判别力成对：光验「无 Dispose 能编过」不够 —— 一个「永不发 Dispose」的错误实现同样能让它
 // 变绿。所以必须同时验**有** Dispose 的枚举器仍然被调用，且 **break 提前退出也调**
 // （try/finally 覆盖全退出路径这件事不能因为条件化而丢）。
+//
+// ⭐⭐ 更要紧的一条（本文件第一版**漏了**，实测抓到）：判据必须问**与成员解析同一条继承面**。
+// 第一版只验具体 struct 枚举器（`Dispose` 就在它自己的成员表里）⇒ 对「`Dispose` 是继承来的」
+// 那两种形状零判别力。实测：`MethodsOf` 给的是**直接**成员表，`Z42InterfaceType.Methods`
+// 不含父接口成员、`Z42ClassType.Methods` 不含基类成员 ⇒ 经接口静态类型 foreach 时
+// `disposed` 是 **0**（具体类型那条路是 1）。修前是无条件发 Dispose，所以这是条件化**新引入**
+// 的静默泄漏。③④ 两组就是守这一条的。
 
 // ── ① 最小枚举器：只有文档写明的那两个成员，没有 Dispose ────────────────
 [Record] struct NoDisp(int[] _xs) {
@@ -37,6 +44,44 @@ class DispColl {
     public DispIter GetEnumerator() { return new DispIter(this._xs); }
 }
 
+// ── ③ `Dispose` 从**父接口**继承而来：`GetEnumerator` 的返回类型是接口 ──────
+// 这正是 stdlib 的形状（`IEnumerable<T>.GetEnumerator()` → `IEnumerator<T> : IDisposable`）。
+// 用本包接口复现，把「跨包 / prelude」这一维隔离掉 —— 实测两者表现相同，说明与导入无关。
+static class TrackerI { public static int Disposed; }
+interface IDispLike { void Dispose(); }
+interface IIter : IDispLike { bool MoveNext(); int Current { get; } }
+interface IColl { IIter GetEnumerator(); }
+
+struct IfaceIter : IIter {
+    int[] _xs;
+    int _pos;
+    public IfaceIter(int[] xs) { this._xs = xs; this._pos = 0; }
+    public bool MoveNext() { this._pos = this._pos + 1; return this._pos <= this._xs.Length; }
+    public int Current { get { return this._xs[this._pos - 1]; } }
+    public void Dispose() { TrackerI.Disposed = TrackerI.Disposed + 1; }
+}
+class IfaceColl : IColl {
+    int[] _xs;
+    public IfaceColl(int[] xs) { this._xs = xs; }
+    public IfaceIter GetEnumerator() { return new IfaceIter(this._xs); }
+}
+
+// ── ④ `Dispose` 从**基类**继承而来（类链那一半）───────────────────────────
+static class TrackerB { public static int Disposed; }
+class BaseDisp { public void Dispose() { TrackerB.Disposed = TrackerB.Disposed + 1; } }
+class DerivedIter : BaseDisp {
+    int[] _xs;
+    int _pos;
+    public DerivedIter(int[] xs) { this._xs = xs; this._pos = 0; }
+    public bool MoveNext() { this._pos = this._pos + 1; return this._pos <= this._xs.Length; }
+    public int Current { get { return this._xs[this._pos - 1]; } }
+}
+class DerivedColl {
+    int[] _xs;
+    public DerivedColl(int[] xs) { this._xs = xs; }
+    public DerivedIter GetEnumerator() { return new DerivedIter(this._xs); }
+}
+
 void Main() {
     // ① 无 Dispose：修前这一行整个文件编不过
     int s = 0;
@@ -59,4 +104,18 @@ void Main() {
         foreach (int b in dc) { break; }
     }
     Assert.Equal(6, Tracker.Disposed);   // 外层 3 轮 × 内层各 1 次 + 外层 1 次 = 2 + 3 + 1
+
+    // ③ 经**接口静态类型**：`Dispose` 在父接口 `IDispLike` 上，不在 `IIter` 自己的成员表里。
+    // 查直接成员表 ⇒ 这里是 0（静默泄漏）；问继承面 ⇒ 1。
+    IColl ic = new IfaceColl(new int[] { 1, 2, 3 });
+    int u = 0;
+    foreach (int v in ic) { u = u + v; }
+    Assert.Equal(6, u);
+    Assert.Equal(1, TrackerI.Disposed);
+
+    // ④ `Dispose` 在**基类**上，不在枚举器自己的成员表里。
+    int w = 0;
+    foreach (int v in new DerivedColl(new int[] { 1, 2, 3 })) { w = w + v; }
+    Assert.Equal(6, w);
+    Assert.Equal(1, TrackerB.Disposed);
 }

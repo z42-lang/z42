@@ -102,6 +102,9 @@ try {
 > ——连 `try`/`finally` 一起省掉（finally 里没有任何事可做）。所以上面那两个成员
 > （`MoveNext` + `Current`）就是枚举器形状的**全部**要求，与 C# 一致。
 >
+> 「有没有 `Dispose`」按**继承面**问，口径与你自己写 `__e.Dispose()` 时编译器找成员的完全一致：
+> 从父接口继承（`IEnumerator<T> : IDisposable`）或从基类继承来的 `Dispose` **都算有**。
+>
 > 2026-09-25 之前是**无条件**发 `__e.Dispose()`：照本节写的最小枚举器编译会报
 > `E0401: no method Dispose`，位置还指在 `foreach` 那一行、不提这个调用是脱糖合成的 ——
 > 读者对不上号，只能被迫给每个自定义枚举器加一个空 `Dispose(){}` 桩。
