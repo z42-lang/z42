@@ -1,0 +1,55 @@
+// complete-generic-class-identity P5：**闭合泛型**可以写在 cast 里。
+//
+// 修前：`(GBox<string>)o` 报 `E0202: expected ')'`，而 `o as GBox<string>` 一直合法
+//（`_parseType()` 本就支持闭合泛型，`as` 走的就是它）——同一件事两种写法口径不一。
+// 根因是两条 cast 前瞻都是**定长**的（`( Ident )` / `( Ident [ ] )`），装不下变长的 `<…>`。
+//
+// 修法是回溯（游标 + 诊断 + `_pendingGt` 三件一起存档还原），预检 `( Ident <` 才试。
+// 本用例的后半段全是**阴性对照**：回溯必须把 `<` 还回给二元比较。
+namespace Demo;
+
+using Std;
+
+class GBox<T> {
+    public T V;
+    public GBox(T v) { this.V = v; }
+}
+
+class Pair2<A, B> {
+    public A First;
+    public B Second;
+    public Pair2(A a, B b) { this.First = a; this.Second = b; }
+}
+
+int Ident(int x) { return x; }
+
+void Main() {
+    // ── ① 单实参 ────────────────────────────────────────────────────
+    object o = new GBox<int>(42);
+    GBox<int> g = (GBox<int>)o;
+    Assert.Equal(42, g.V);
+
+    // ── ② 双实参（逗号在 `<…>` 里，不得被当成元组字面量）─────────────
+    object p = new Pair2<int, string>(7, "x");
+    Pair2<int, string> q = (Pair2<int, string>)p;
+    Assert.Equal(7, q.First);
+    Assert.Equal("x", q.Second);
+
+    // ── ③ 嵌套实参（`>>` 必须被 `_pendingGt` 正确拆开）────────────────
+    object n = new GBox<GBox<int>>(new GBox<int>(9));
+    GBox<GBox<int>> gn = (GBox<GBox<int>>)n;
+    Assert.Equal(9, gn.V.V);
+
+    // ── ④ 阴性对照：`(a < b)` 仍是比较 ───────────────────────────────
+    int a = 1;
+    int b = 2;
+    Assert.Equal(true, (a < b));
+    Assert.Equal(3, (a < b) ? 3 : 4);
+
+    // ── ⑤ 阴性对照：`(a<b)` 后紧跟标识符起始的表达式也不得误判成 cast ──
+    bool lt = (a < b);
+    Assert.Equal(true, lt);
+
+    // ── ⑥ 阴性对照：泛型**调用**不得被抢走（`_castOperandStart` 排除 `(`）──
+    Assert.Equal(5, Ident(5));
+}

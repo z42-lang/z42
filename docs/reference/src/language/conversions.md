@@ -96,6 +96,23 @@ c.ToString()         // "Green"
 
 `struct` 值装箱后保持**引用身份**（与 C# 一致）：每装箱一次得到一个新的盒。
 
+### cast 的目标可以是闭合泛型
+
+`(T)x` 的 `T` 接受**带类型实参**的泛型类型，与 `as` 同口径：
+
+```z42
+object o = new GBox<int>(42);
+GBox<int> g = (GBox<int>)o;              // 单实参
+Pair<int, string> p = (Pair<int, string>)q;   // 多实参，逗号在 `<…>` 内
+GBox<GBox<int>> n = (GBox<GBox<int>>)m;       // 嵌套（`>>` 正确拆开）
+```
+
+> ⚠️ **此前**只有 `x as GBox<int>` 合法，`(GBox<int>)x` 报 `E0202: expected ')'` ——
+> 同一件事两种写法口径不一。
+>
+> `(f<int>)(x)` 仍解析为**泛型调用**而非 cast（与 `(f)(x)` 一致，这条歧义刻意留给调用）。
+> 要在那种形状下转换，请用 `as` 或临时变量。
+
 ### 拆箱失败抛可捕获的异常
 
 `(T)o` 在运行期核对盒里的精确类型，不符即抛，且**两种失因分开**：

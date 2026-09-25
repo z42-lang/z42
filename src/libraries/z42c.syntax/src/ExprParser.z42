@@ -371,6 +371,34 @@ public sealed partial class ExprParser {
             Expr operand = this._parseExpr(85);
             return new CastExpr(ct, operand, t.Span);
         }
+        // complete-generic-class-identity P5：**闭合泛型**的 cast `(GBox<string>)o`。
+        //
+        // 上面两条 cast 前瞻都是**定长**的（`( Ident )` / `( Ident [ ] )`），装不下变长的 `<…>`
+        // ⇒ `(GBox<string>)o` 报 `E0202: expected ')'`，而 `o as GBox<string>` 一直合法
+        //（`_parseType()` 本就支持闭合泛型，`as` 走的就是它）—— 同一件事两种写法口径不一。
+        //
+        // 用与泛型方法调用（:115）同款的**回溯**：游标 + 诊断 + `_pendingGt`（`>>` 拆分状态）
+        // 三件一起存档还原，缺一不可。
+        // 预检 `( Ident <` 才试 ⇒ 非泛型形态一条指令都不多走，既有产物**字节不变**。
+        // `_castOperandStart` 仍**刻意排除** `(`：`(f<int>)(x)` 保持泛型调用而非 cast（同上条注释）。
+        if (k == TokenKind.LParen && this._p._peekAt(1).Kind == TokenKind.Identifier
+            && this._p._peekAt(2).Kind == TokenKind.Lt) {
+            int cMark = this._p._mark();
+            int cDiag = this._p._diags.Count();
+            int cGt = this._p._pendingGt;
+            this._p._advance();                     // '('
+            TypeExpr gct = this._p._typeP._parseType();
+            if (gct != null && this._p._peek().Kind == TokenKind.RParen
+                && ExprParser._castOperandStart(this._p._peekAt(1).Kind)) {
+                this._p._advance();                 // ')'
+                Expr gop = this._parseExpr(85);
+                return new CastExpr(gct, gop, t.Span);
+            }
+            this._p._reset(cMark);
+            this._p._diags.TruncateTo(cDiag);
+            this._p._pendingGt = cGt;
+            // 落到下面的分组表达式 / 元组（`(a < b)` 这类比较照旧）
+        }
         if (k == TokenKind.LParen) {
             this._p._advance();
             Expr inner = this._parseExpr(0);
