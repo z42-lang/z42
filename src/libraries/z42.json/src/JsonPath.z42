@@ -27,7 +27,7 @@ public static class JsonPath {
 
     /// Walk `root` per `path` and return the value at the path, or null
     /// if the path doesn't resolve.
-    public static JsonValue Select(JsonValue root, string path) {
+    public static JsonValue? Select(JsonValue root, string path) {
         if (root == null) return null;
         JsonValue cur = root;
         int n = path.Length;

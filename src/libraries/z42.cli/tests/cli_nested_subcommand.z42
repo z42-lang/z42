@@ -219,8 +219,7 @@ void test_legacy_match_still_works_on_leaf_router() {
     r.Add("commit", "record changes", commit);
     string[] argv = new string[3];
     argv[0] = "commit"; argv[1] = "--message"; argv[2] = "hi";
-    SubcommandMatch m = r.Match(argv);
-    Assert.NotNull(m);
+    SubcommandMatch m = r.Match(argv).Expect("argv names a registered subcommand");
     Assert.Equal("commit", m.Name());
     Assert.Equal("hi", m.Result().GetOption("message"));
 }

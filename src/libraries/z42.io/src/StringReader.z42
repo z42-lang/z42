@@ -89,7 +89,7 @@ public class StringReader {
     ///   * the line content as a string (may be empty for a blank line)
     ///   * `null` if the cursor is already at EOF before this call
     /// A final line without trailing terminator is returned in full.
-    public string ReadLine() {
+    public string? ReadLine() {
         this.EnsureOpen();
         int len = this._source.Length;
         if (this._pos >= len) { return null; }

@@ -236,7 +236,7 @@ public sealed class Type : MemberInfo {
 
     // The interface implemented by this type with the given (simple) name, or
     // null if none. Convenience over GetInterfaces(). (add-reflection-assignable-from)
-    public Type GetInterface(string name) {
+    public Type? GetInterface(string name) {
         Type[] ifaces = this.GetInterfaces();
         int i = 0;
         while (i < ifaces.Length) {
@@ -294,7 +294,7 @@ public sealed class Type : MemberInfo {
 
     // The single attribute of the given type, or null if absent. Compares by
     // the instance's runtime type (FullName), so subclass attributes match too.
-    public Attribute GetAttribute(Type attributeType) {
+    public Attribute? GetAttribute(Type attributeType) {
         Attribute[] all = this.GetCustomAttributes();
         int i = 0;
         while (i < all.Length) {

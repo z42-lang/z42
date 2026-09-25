@@ -21,8 +21,7 @@ void test_static_key_and_fq() {
     fns[0] = _fn("Std.Console.WriteLine", 1, true);
     idx.AddModule(fns, 1, "Std");
     idx.Seal();
-    DepCallEntry e = idx.GetStatic("Console", "WriteLine");
-    Assert.True(e != null);
+    DepCallEntry e = idx.GetStatic("Console", "WriteLine").Expect("just registered above");
     Assert.Equal("Std.Console.WriteLine", e.QualifiedName);
     Assert.Equal("Std", e.Namespace);
     // ns 前缀 cls 也命中（短类名兜底）
@@ -39,9 +38,9 @@ void test_arity_key_first_wins() {
     idx.AddModule(fns, 2, "Std");
     idx.Seal();
     // arity 键各自命中；bare 键 first-wins（$1 先注册）
-    Assert.Equal("Std.Console.WriteLine$1", idx.GetStatic("Console", "WriteLine$1").QualifiedName);
-    Assert.Equal("Std.Console.WriteLine$0", idx.GetStatic("Console", "WriteLine$0").QualifiedName);
-    Assert.Equal("Std.Console.WriteLine$1", idx.GetStatic("Console", "WriteLine").QualifiedName);
+    Assert.Equal("Std.Console.WriteLine$1", idx.GetStatic("Console", "WriteLine$1").Expect("arity key $1 was registered").QualifiedName);
+    Assert.Equal("Std.Console.WriteLine$0", idx.GetStatic("Console", "WriteLine$0").Expect("arity key $0 was registered").QualifiedName);
+    Assert.Equal("Std.Console.WriteLine$1", idx.GetStatic("Console", "WriteLine").Expect("bare key falls back to first-wins").QualifiedName);
 }
 
 [Test]
@@ -70,15 +69,17 @@ void test_scoped_disambiguates_cross_ns_same_shortname() {
     idx.AddModule(b, 1, "Z42.Build.Project");
     idx.Seal();
     // 短键 first-wins 仍返回先注册那份（既有行为保留 → 字节不动的回落路径）
-    Assert.Equal("Z42.Project.SourceDiscovery.Discover$1", idx.GetStatic("SourceDiscovery", "Discover$1").QualifiedName);
+    Assert.Equal("Z42.Project.SourceDiscovery.Discover$1", idx.GetStatic("SourceDiscovery", "Discover$1").Expect("bare key falls back to first-wins").QualifiedName);
     // scoped：活跃集只含 Z42.Project → 唯一命中该 ns 那份
     string[] actA = new string[1]; actA[0] = "Z42.Project";
     Assert.Equal("Z42.Project.SourceDiscovery.Discover$1",
-        idx.GetStaticScoped(actA, 1, "SourceDiscovery", "Discover$1").QualifiedName);
+        idx.GetStaticScoped(actA, 1, "SourceDiscovery", "Discover$1")
+            .Expect("active set has exactly one match").QualifiedName);
     // scoped：活跃集只含 Z42.Build.Project → 命中另一份
     string[] actB = new string[1]; actB[0] = "Z42.Build.Project";
     Assert.Equal("Z42.Build.Project.SourceDiscovery.Discover$1",
-        idx.GetStaticScoped(actB, 1, "SourceDiscovery", "Discover$1").QualifiedName);
+        idx.GetStaticScoped(actB, 1, "SourceDiscovery", "Discover$1")
+            .Expect("active set has exactly one match").QualifiedName);
     // scoped：两 ns 同时活跃 → ≥2 不同实体歧义 → null（回落短键 first-wins，保持原判）
     string[] actBoth = new string[2]; actBoth[0] = "Z42.Project"; actBoth[1] = "Z42.Build.Project";
     Assert.True(idx.GetStaticScoped(actBoth, 2, "SourceDiscovery", "Discover$1") == null);

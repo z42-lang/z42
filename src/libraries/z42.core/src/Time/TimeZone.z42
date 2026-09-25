@@ -48,7 +48,7 @@ public sealed class TimeZone {
     ///                                    pick the right one yourself)
     ///   CET/CEST/EET/EEST   (European)
     ///   JST/KST/IST/ICT/AEST/AEDT/NZST/NZDT  (Asia / Oceania)
-    public static TimeZone FromName(string code) {
+    public static TimeZone? FromName(string code) {
         string upper = code.ToUpper();
         int offset = TimeZone._lookupOffset(upper);
         if (offset == TimeZone._UNKNOWN) return null;

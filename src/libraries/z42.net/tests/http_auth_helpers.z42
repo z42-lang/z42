@@ -20,7 +20,7 @@ void test_basic_auth_overwrites_existing_header() {
     var req = new HttpRequest("GET", "http://example.com/");
     req.SetHeader("Authorization", "Bearer old-token");
     req.WithBasicAuth("u", "p");
-    string auth = req.Headers.Get("Authorization");
+    string auth = req.Headers.Get("Authorization").Expect("the call above just set Authorization");
     // Should be Basic now, not Bearer.
     Assert.True(auth.StartsWith("Basic "));
 }
@@ -48,7 +48,7 @@ void test_bearer_overwrites_existing_basic() {
     var req = new HttpRequest("GET", "http://example.com/");
     req.WithBasicAuth("u", "p");
     req.WithBearerToken("new-jwt-token");
-    string auth = req.Headers.Get("Authorization");
+    string auth = req.Headers.Get("Authorization").Expect("the call above just set Authorization");
     Assert.True(auth.StartsWith("Bearer "));
 }
 

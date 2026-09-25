@@ -40,8 +40,7 @@ void test_has_unknown_returns_false() {
 void test_match_dispatches_to_commit_with_option() {
     string[] argv = new string[3];
     argv[0] = "commit"; argv[1] = "--message"; argv[2] = "hello";
-    SubcommandMatch m = _git().Match(argv);
-    Assert.NotNull(m);
+    SubcommandMatch m = _git().Match(argv).Expect("argv names a registered subcommand");
     Assert.Equal("commit", m.Name());
     Assert.Equal("hello", m.Result().GetOption("message"));
 }
@@ -50,8 +49,7 @@ void test_match_dispatches_to_commit_with_option() {
 void test_match_dispatches_to_status_with_flag() {
     string[] argv = new string[2];
     argv[0] = "status"; argv[1] = "-s";
-    SubcommandMatch m = _git().Match(argv);
-    Assert.NotNull(m);
+    SubcommandMatch m = _git().Match(argv).Expect("argv names a registered subcommand");
     Assert.Equal("status", m.Name());
     Assert.True(m.Result().GetFlag("short"));
 }
@@ -88,8 +86,7 @@ void test_match_strips_subcommand_arg_from_child_parse() {
 
     string[] argv = new string[2];
     argv[0] = "rebase"; argv[1] = "-i";
-    SubcommandMatch m = r.Match(argv);
-    Assert.NotNull(m);
+    SubcommandMatch m = r.Match(argv).Expect("argv names a registered subcommand");
     Assert.True(m.Result().GetFlag("interactive"));
 }
 
@@ -102,7 +99,7 @@ void test_re_add_overwrites_existing() {
     Assert.Equal(2, r.Count());      // not duplicated
     string[] argv = new string[2];
     argv[0] = "commit"; argv[1] = "-a";
-    SubcommandMatch m = r.Match(argv);
+    SubcommandMatch m = r.Match(argv).Expect("argv names a registered subcommand");
     Assert.True(m.Result().GetFlag("amend"));
 }
 

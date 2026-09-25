@@ -46,7 +46,7 @@ public class BenchStats {
     // benchmark emits exactly one such line; scanning from the end is the most
     // robust choice if stray output precedes it (mirrors the retired runner's
     // "picks last" behaviour).
-    public static BenchStats parse(string text) {
+    public static BenchStats? parse(string text) {
         string[] lines = text.Split("\n");
         int i = lines.Length - 1;
         while (i >= 0) {

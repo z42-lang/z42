@@ -15,8 +15,7 @@ void test_utc_factory_zero_offset() {
 
 [Test]
 void test_fromname_jst() {
-    var z = TimeZone.FromName("JST");
-    Assert.NotNull(z);
+    var z = TimeZone.FromName("JST").Expect("JST is a built-in short code");
     Assert.Equal(540, z.OffsetMinutes());
     Assert.Equal("JST", z.Name());
     Assert.Equal("+09:00", z.ToOffsetString());
@@ -24,22 +23,22 @@ void test_fromname_jst() {
 
 [Test]
 void test_fromname_case_insensitive() {
-    var lower = TimeZone.FromName("jst");
-    var mixed = TimeZone.FromName("JsT");
+    var lower = TimeZone.FromName("jst").Expect("lookup is case-insensitive");
+    var mixed = TimeZone.FromName("JsT").Expect("lookup is case-insensitive");
     Assert.Equal(540, lower.OffsetMinutes());
     Assert.Equal(540, mixed.OffsetMinutes());
 }
 
 [Test]
 void test_fromname_pst_negative_offset() {
-    var z = TimeZone.FromName("PST");
+    var z = TimeZone.FromName("PST").Expect("PST is a built-in short code");
     Assert.Equal(-480, z.OffsetMinutes());
     Assert.Equal("-08:00", z.ToOffsetString());
 }
 
 [Test]
 void test_fromname_ist_half_hour_offset() {
-    var z = TimeZone.FromName("IST");
+    var z = TimeZone.FromName("IST").Expect("IST is a built-in short code");
     Assert.Equal(330, z.OffsetMinutes());
     Assert.Equal("+05:30", z.ToOffsetString());
 }

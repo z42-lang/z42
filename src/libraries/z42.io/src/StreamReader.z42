@@ -78,7 +78,7 @@ public class StreamReader {
     /// Read one line (terminator stripped); null on EOF. Behaviour
     /// matches `StringReader.ReadLine` — see that file for the
     /// `\n` / `\r\n` / lone `\r` rules.
-    public string ReadLine() {
+    public string? ReadLine() {
         this.EnsureOpen();
         this.EnsureDrained();
         return this._inner.ReadLine();

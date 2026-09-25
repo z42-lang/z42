@@ -13,8 +13,8 @@ using Std.Test;
 void test_parse_canonical() {
     // New canonical format carries mean= / stddev= (extend-ab-bench-micro-criterion).
     BenchStats s = BenchStats.parse(
-        "bench[addition] min=3875ns median=3958ns max=9042ns mean=4100ns stddev=250ns samples=100");
-    Assert.NotNull(s);
+        "bench[addition] min=3875ns median=3958ns max=9042ns mean=4100ns stddev=250ns samples=100")
+        .Expect("the literal above is a well-formed bench line");
     Assert.Equal("addition", s.Label);
     Assert.Equal("3875", s.MinNs.ToString());
     Assert.Equal("3958", s.MedianNs.ToString());
@@ -27,8 +27,8 @@ void test_parse_canonical() {
 [Test]
 void test_parse_legacy_line_omits_mean_stddev() {
     // Older Bencher output (no mean/stddev) must still parse — mean/stddev = -1.
-    BenchStats s = BenchStats.parse("bench[addition] min=3875ns median=3958ns max=9042ns samples=100");
-    Assert.NotNull(s);
+    BenchStats s = BenchStats.parse("bench[addition] min=3875ns median=3958ns max=9042ns samples=100")
+        .Expect("the literal above is a well-formed bench line");
     Assert.Equal("3875", s.MinNs.ToString());
     Assert.Equal("100", s.Samples.ToString());
     Assert.Equal("-1", s.MeanNs.ToString());
@@ -54,8 +54,7 @@ void test_parse_multiline_picks_last() {
     string text = "bench[first] min=1ns median=1ns max=1ns samples=1\n"
         + "some noise\n"
         + "bench[second] min=2ns median=2ns max=2ns samples=2";
-    BenchStats s = BenchStats.parse(text);
-    Assert.NotNull(s);
+    BenchStats s = BenchStats.parse(text).Expect("text carries a well-formed bench line");
     Assert.Equal("second", s.Label);
     Assert.Equal("2", s.MinNs.ToString());
 }
@@ -63,8 +62,8 @@ void test_parse_multiline_picks_last() {
 [Test]
 void test_parse_leading_indent() {
     // captured stdout may carry indentation before the bench line
-    BenchStats s = BenchStats.parse("   bench[y] min=5ns median=6ns max=7ns samples=8");
-    Assert.NotNull(s);
+    BenchStats s = BenchStats.parse("   bench[y] min=5ns median=6ns max=7ns samples=8")
+        .Expect("leading indent is tolerated");
     Assert.Equal("y", s.Label);
     Assert.Equal("8", s.Samples.ToString());
 }

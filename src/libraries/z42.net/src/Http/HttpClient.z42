@@ -191,7 +191,7 @@ public class HttpClient {
     }
 
     /// Current cookie jar (or null if none set).
-    public CookieJar GetCookieJar() {
+    public CookieJar? GetCookieJar() {
         return this._cookieJar;
     }
 
