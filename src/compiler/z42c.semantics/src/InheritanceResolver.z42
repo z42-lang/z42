@@ -254,8 +254,7 @@ public sealed class InheritanceResolver {
                         }
                         // ④ static-class 强制（fix-static-class-instance-members）：static 类只容纳静态成员，
                         //   不得声明基类 / 实现接口 / 含实例成员（对标 C# CS0708/0710/0713/0714）。
-                        //   `static` 仅对 `class` 有意义（struct 无 static 变体）。用字面量 "E0451" 发码
-                        //   （同 E0449/E0450：避 core→semantics 新跨成员符号撞 F2 冷启动 stale-cache）。
+                        //   `static` 仅对 `class` 有意义（struct 无 static 变体）。
                         bool clsStatic = c.Kind == "class" && this._sc._hasWord(c.Mods, "static");
                         if (clsStatic) {
                             if (ct.HasBase && ct.BaseName != "") {
@@ -384,7 +383,6 @@ public sealed class InheritanceResolver {
     // fix-static-class-instance-members：static 类的单个成员合法性——实例方法 / 实例字段 /
     // 实例属性 / 实例构造器 / 索引器均非法（static 类只容纳静态成员）。`const` 字段隐含静态（放行）；
     // 嵌套类型（class/struct/enum/interface）不是实例成员（不匹配下列 Decl 分支，天然放行）。
-    // 发码用字面量 "E0451"（见 _passSealedEnforce ④ 注释）。
     // add-associated-types PR-3：`class C : IEnum` 且 IEnum 声明了 `type Item;` ⇒ C 必须写
     // `type Item = <某类型>;`。走接口继承闭包（`SymbolTable.Implements` 的同一份 BaseNames 链），
     // 因为父接口的关联类型同样要绑。
@@ -670,8 +668,6 @@ public sealed class InheritanceResolver {
     // 导入的基类/接口标记可靠。**字段**那半不携带（`SurfaceTypeName` 已擦除 `?`），但字段不参与
     // override/接口实现，与本检查无关。
     //
-    // **语义层用字面量 "E0489" 发码**（同 E0449–E0488 手法，见 bootstrap-seed.md：
-    // 新常量与其发射点不能同 PR）。
     private void _checkNullableDirection(string kindWord, string ownerName, string contractName,
                                          MethodSymbol contractSym, MethodSymbol implSym, Span span) {
         if (contractSym == null || implSym == null) { return; }

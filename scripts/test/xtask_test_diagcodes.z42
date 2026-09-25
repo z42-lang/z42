@@ -20,8 +20,8 @@
 //   ⑤ **error-codes.md 的码表与登记表双向相等**；
 //   ⑥ **清单里的每条欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）会过期，
 //      挂账超过宽限期即红，逼它切回常量；
-//   ⑦ **登记表散文里不得断言发射形态**（「XX 层用字面量 E04xx 发码」）——形态是会变的状态，
-//      唯一 SoT 是 ④ 的清单；散文不会跟着切回，只会腐成假话。
+//   ⑦ **任何源文件的散文里都不得断言发射形态**（「XX 层用字面量 E04xx 发码」）——形态是会变的
+//      状态，唯一 SoT 是 ④ 的清单；散文不会跟着切回，只会腐成假话。
 //
 // ⑤ 为什么后补上（同样是按事故加的，不是补完整性）：①-④ 只盯「发射出去的码」，于是**保留号和
 // 退役号**——被占住、但故意零发射点的号——可以完全不进登记表。实测 main 上有 5 个这样的号
@@ -134,6 +134,19 @@ int _testDiagCodes(bool update) {
                             }
                         }
                         k = k + 1;
+                    }
+                    // 规则 ⑦：任何源文件的散文里都不得断言发射形态。用**未剥注释**的原始行
+                    // （形态断言只会出现在注释里，`line` 已经被 _dcStripComment 剥掉了）。
+                    // ⚠️ 判据只要「字面量」+「发码」同现，**不要求「用字面量」连写**——实测漏过两条：
+                    // 「用**字面量**发码」（markdown 星号把词切断）与「语法层字面量发码」（没有「用」字）。
+                    // 合法用法不会同时含这两个词（「不是字符串字面量」「此前误发字面量 E0463」都不含「发码」）。
+                    if (_dcContains(lines[li], "字面量") && _dcContains(lines[li], "发码")) {
+                        viol = _dcPush(viol, vc, "src/" + relp + ":" + (li + 1).ToString()
+                            + " pins the emission form in prose (「用字面量…发码」) — literal-vs-constant is"
+                            + " transient state the staged-rollout discipline requires to flip back, and prose does"
+                            + " not flip with it. The single source of truth is rule ④'s " + _dcBaselinePath()
+                            + ", regenerated from a real scan. Drop the claim.");
+                        vc = vc + 1;
                     }
                     // 规则 ③：DiagnosticCodes.<Name> 引用的常量必须存在。
                     string[] names = new string[8];
@@ -285,39 +298,6 @@ int _testDiagCodes(bool update) {
                 vc = vc + 1;
             }
             d = d + 1;
-        }
-    }
-
-    // ── ⑦ 登记表散文里不得出现「用字面量发码」形态断言 ──────────────────────
-    // 「这个码的发射点是字面量还是常量」是**会变的状态**——分阶段引入纪律（bootstrap-seed.md）要求
-    // 它必然要切回常量，而写在散文里的断言不会跟着切。实证：#769 把 100 个站点切回常量后，登记表里
-    // **30 条**「XX 层用字面量 E04xx 发码」原样留成了假话，另有 1 条（E0466）声称字面量发码而其实
-    // **零发射点**；连它们给出的理由（避 core→semantics 冷启动 stale-cache）都在 2026-09-13 被修掉了。
-    // 没有任何门盯着，于是腐了整整一轮才被撞见——与 ⑤ 盯住的「号只占在散文里」是同一个形状：
-    // **散文里的第二份真相，一定会先腐坏而不报警**。
-    // 形态的唯一 SoT 是 ④ 的清单——它由 `--update` 从源码实扫重生成，切回常量的那一刻就自动消失。
-    // ⚠️ 判据只认「用字面量」与「发码」**同现**，不碰别的「字面量」用法（「实参不是字符串字面量」
-    // 「此前误发字面量 \"E0463\"」都是对**语言**或**历史**的陈述，与发射点今天的形态无关）。
-    string regText7 = "";
-    try { regText7 = File.ReadAllText(Path.Join(root, _dcRegistryPath())); }
-    catch (Exception ex) { regText7 = ""; }
-    if (regText7 == "") {
-        viol = _dcPush(viol, vc, "cannot re-read " + _dcRegistryPath()
-            + " — rule ⑦ would be vacuously green (a gate that cannot find its subject is not a gate)");
-        vc = vc + 1;
-    } else {
-        string[] rlines7 = regText7.Split("\n");
-        int rl7 = 0;
-        while (rl7 < rlines7.Length) {
-            if (_dcContains(rlines7[rl7], "用字面量") && _dcContains(rlines7[rl7], "发码")) {
-                viol = _dcPush(viol, vc, _dcRegistryPath() + ":" + (rl7 + 1).ToString()
-                    + " pins the emission form in prose (「用字面量…发码」) — literal-vs-constant is transient"
-                    + " state the staged-rollout discipline requires to flip back, and prose does not flip with it"
-                    + " (30 such claims had rotted into falsehoods before this rule existed). The single source of"
-                    + " truth is rule ④'s " + _dcBaselinePath() + ", regenerated from a real scan. Drop the claim.");
-                vc = vc + 1;
-            }
-            rl7 = rl7 + 1;
         }
     }
 

@@ -479,7 +479,7 @@ public sealed class DeclBinder {
         this._tc._curMethodDecl = md;   // fix-generic-operator-constraint-dispatch：体内 `a+b` 查方法级 where
         this._tc._noInitLocals = new StrMap();   // simplify-ref-parameters：每方法一张「无 init 局部」表
         // PR6b：定义侧校验 caller 宏参数默认值——名字白名单 + 参数类型（member/file/module→string，
-        // line→int）。未知宏名 / 类型不符 → E0450（字面量发码，避 core→semantics 冷启动 F2）。
+        // line→int）。未知宏名 / 类型不符 → E0450。
         this._validateCallerMacroDefaults(env, md);
         Z42Type ret = env.ResolveType(md.RetType);
         BoundStmt body = this._tc._stmt._bindStmt(md.Body, env, ret);
@@ -552,8 +552,7 @@ public sealed class DeclBinder {
 
     // PR6b：定义侧校验 caller 宏参数默认值。宏经 parser 译成 IdentExpr("$macro:<name>") 哨兵
     // （见 MacroRegistry）。未知宏名 或 参数类型不符（member/file/module 须 string、line 须 int）→ E0450。
-    // 发码用字面量 "E0450"（不引用新 DiagnosticCodes 常量 → 避 core→semantics 冷启动 F2 stale-cache，
-    // 同 PR4e E0449 手法）。合法 caller 宏在此不产码——持久化由 ClassDescBuilder、注入由 OverloadBinder。
+    // 合法 caller 宏在此不产码——持久化由 ClassDescBuilder、注入由 OverloadBinder。
     private void _validateCallerMacroDefaults(TypeEnv env, MethodDecl md) {
         int i = 0;
         while (i < md.ParamCount) {
