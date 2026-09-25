@@ -38,4 +38,21 @@ void Main() {
         Assert.True(dump[i].Contains("="));
         Assert.True(dump[i].Contains("|"));
     }
+
+    // ── ModuleSearch：解析后的 zpkg 搜索序（add-deployment-model）────────────────
+    //
+    // 同样只断言**结构性不变式**，不断言具体路径——那会随 Z42_LIBS / 运行目录变红。
+    // 本用例跑在 app 路径上（有 entry zpkg），所以搜索序不该为空。
+    string[] dirs = ModuleSearch.Dirs();
+    Assert.True(dirs.Length > 0);
+    for (int i = 0; i < dirs.Length; i = i + 1) {
+        // 非空路径。
+        Assert.True(dirs[i].Length > 0);
+        // 🔴 **不重复**：给出的是解析**结果**（相对项已归一、重复项已去重），不是原始配置。
+        // 这条不变式正是「调用方不必重做那套规则」的依据 —— 它可以直接按序找文件，不用
+        // 再操心 `a/../b` 与 `b` 是不是同一个目录。
+        for (int j = i + 1; j < dirs.Length; j = j + 1) {
+            Assert.True(dirs[i] != dirs[j]);
+        }
+    }
 }

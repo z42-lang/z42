@@ -163,3 +163,25 @@ fn glob_segment_matches(pat: &str, name: &str) -> bool {
     }
     go(&p, &n)
 }
+
+// ── 本进程的 zpkg 依赖搜索目录（对 z42 侧只读暴露）────────────────────────────
+//
+// `app.rs` 算好的那份 `search_dirs` 是个局部变量，z42 代码看不见它 —— 而「这个进程会去哪些
+// 目录找 zpkg」在 z42 侧今天**完全无解**，于是长出了四档硬编码探测
+// （`builder.z42::_findCompilerZpkg` 与 `ReplCompilerHost::_findCompilerZpkg` 两份平行实现），
+// 以及 runtime-only 包里那个恒失败的 scripting 空壳 —— 四条路径全落空，却说不出为什么。
+//
+// 存成 OnceLock（同 `runtime_config()`）：boot 期写一次、之后只读。**相对项已按 entry zpkg
+// 解析、通配符已展开、不存在的已剔除** —— 暴露的是结果，不是配置，调用方不需要重做一遍
+// 那套规则（重做就会漂移）。
+static SEARCH_DIRS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
+
+/// boot 期由 `app.rs` 写入解析结果。重复调用忽略（OnceLock 语义）。
+pub fn set_search_dirs(dirs: Vec<PathBuf>) {
+    let _ = SEARCH_DIRS.set(dirs);
+}
+
+/// 解析 zpkg 依赖时**按序**查找的目录。未初始化（非 app 路径，如纯 host 嵌入）→ 空。
+pub fn search_dirs() -> &'static [PathBuf] {
+    SEARCH_DIRS.get().map(|v| v.as_slice()).unwrap_or(&[])
+}

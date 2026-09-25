@@ -244,6 +244,7 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     ("__cfg_get",       config::builtin_cfg_get),
     ("__cfg_source",    config::builtin_cfg_source),
     ("__cfg_names",     config::builtin_cfg_names),
+    ("__search_dirs",   config::builtin_search_dirs),
     ("__cfg_dump",      config::builtin_cfg_dump),
     ("__cfg_describe",  config::builtin_cfg_describe),
     ("__cfg_available", config::builtin_cfg_available),
