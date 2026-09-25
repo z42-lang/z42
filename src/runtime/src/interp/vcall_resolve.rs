@@ -291,6 +291,17 @@ fn resolve_vcall_unchecked(
     // 4c. lazy hierarchy walk: base chain via `module.classes` first, then the global type
     //     registry for cross-zpkg bases (e.g. `Stream` in z42.io, subclass in z42.net;
     //     `Std.Object.GetType` reached through a `Std.TestFailure` receiver).
+    // complete-generic-instantiation S1-d：**特化体不沿基类链继承**。
+    //
+    // 泛型体的特化名形如 `Second:P2`（`:` 在标识符与类型名里都不可能出现，故这个判据精确）。
+    // 一份特化属于且只属于**某一个声明** —— 它按那个声明所在类型的实例化布局烘焙了偏移。
+    // 若接收者的运行期类型是子类、而子类的 override 没被特化（跨编译单元时必然如此：IrGen
+    // 按 CU 创建，看不见别的文件里的 AST），沿链走到基类的特化体就是**静默调错实现**
+    // （实测形态：`Base b = new Derived(); b.Second<P2>(t)` 本应走 Derived 的体）。
+    //
+    // 故特化名只认接收者**自己**那一层；miss 就让后面的擦除名回落接手（那条会因布局不符
+    // 大声报错，而不是悄悄跑错的实现）。非特化名（不含 `:`）行为一字不变。
+    let spec_no_inherit = method.contains(':');
     let mut cur = type_desc.name.clone();
     loop {
         let candidate = format!("{}.{}", cur, method);
@@ -311,6 +322,7 @@ fn resolve_vcall_unchecked(
                     ctx.try_lookup_type(&cur).and_then(|td| td.base_name.clone())
                 }
             });
+        if spec_no_inherit { break; }   // S1-d：特化名只认接收者自己那一层
         match next {
             Some(b) => cur = b,
             None => break,

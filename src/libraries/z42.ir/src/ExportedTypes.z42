@@ -102,6 +102,16 @@ public sealed class ExportedClassZ {
     // ImportedSymbolLoader 据此 AddAssocBinding 恢复 Z42ClassType.AssocBinding*（供跨包使用点匹配，删守卫）。
     // ctor 元数不变（旧种子 ABI），默认空。
     public string[] AssocBindingNames; public string[] AssocBindingTypeNames; public int AssocBindingCount;
+    // complete-generic-instantiation：`[Record]` 类/struct（CLASS_FLAG_RECORD，TYPE Flags bit3）。
+    // 此前从不设置（唯一写入点 `StubCollector._putClassStub` 只管本地类）⇒ 导入 record 的 `with` 与
+    // 位置解构被误拒。
+    //
+    // 🔴 **必须追加在类的最末尾**（种子 ABI）：上一 nightly 的 z42c 是**已编译的二进制**，按编译当时
+    // 烘焙的**槽位下标**访问本类字段，而它运行时加载的是用**当前源码**建出来的 z42.ir。插在中间会让
+    // 其后每个字段的槽位右移 ⇒ 旧二进制读 `Visibility` 读到的是本字段 ⇒
+    // `ArrayGet: expected array, got Null @ ImportedSymbolLoader.Load`（实测，`xtask test bootstrap`
+    // 判 BOUNDARY VIOLATION）。「不进 ctor 签名」只是种子 ABI 的**一半**，另一半是**追加在末尾**。
+    public bool     IsRecord;
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,
@@ -112,6 +122,7 @@ public sealed class ExportedClassZ {
         this.Interfaces = new string[0]; this.InterfaceCount = 0;
         this.TypeParams = typeParams; this.TpCount = tpCount;
         this.IsSealed = false;
+        this.IsRecord = false;   // complete-generic-instantiation：TsigReconcile 从 (cd.Flags & 8) 构造后赋值
         this.Visibility = "public";   // enforce-class-access：默认 public（reconcile 后赋值；未赋值即 public，绝不误拒）
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamConstraints = null; this.TpConstraintCount = 0;   // add-associated-types PR-1（reconcile 后赋值）

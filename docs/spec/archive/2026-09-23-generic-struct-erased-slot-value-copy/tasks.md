@@ -1,6 +1,8 @@
 # Tasks: generic-struct-erased-slot-value-copy
 
-> 状态：🟡 进行中（本包范围已完成并全绿，未开 PR）| 创建：2026-09-22
+> 状态：🟢 已完成 | 创建：2026-09-22 | 完成：2026-09-23
+> 落地：PR #774（`d2f70124`）已合入 main。文档同步（`struct-value-semantics.md` §收敛面与延后 +
+> `docs/roadmap.md`）随 PR 一并落地；归档并入下一 change 的首个 commit（workflow 阶段 0）。
 
 **变更说明：** 泛型类型的**实例化**拿到自己的布局（型参字段变真内联字节）并按该布局特化其成员。
 三种值语义违反全部修复，其中形态 ② 是 **use-after-free**。
@@ -117,5 +119,5 @@ TYPE 段 = `count + count×描述符`，追加条目 reader 按 count 循环照�
 
 ## 下一步
 
-- [ ] 文档同步（`struct-value-semantics.md` 的 Deferred 条目 → ✅；`docs/roadmap.md:395`）
-- [ ] 归档 + PR
+- [x] 文档同步（`struct-value-semantics.md` 的 Deferred 条目 → ✅；`docs/roadmap.md:395`）
+- [x] 归档 + PR

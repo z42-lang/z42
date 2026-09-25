@@ -551,6 +551,7 @@ public static class TsigReconcile {
             ecz.Interfaces = ifb; ecz.InterfaceCount = cd.InterfaceCount;
         }
         ecz.IsSealed = (cd.Flags & 2) != 0;   // impl-sealed-semantics-devirt：CLASS_FLAG_SEALED（TYPE Flags bit1）
+        ecz.IsRecord = (cd.Flags & 8) != 0;   // complete-generic-instantiation：CLASS_FLAG_RECORD（TYPE Flags bit3）
         ecz.IsDeprecated = IrDeprecation.Has(cd.Attrs, cd.AttrCount); ecz.DeprecationMsg = IrDeprecation.Msg(cd.Attrs, cd.AttrCount);   // add-deprecated-directive（attr-ref 哨兵）
         ecz.Visibility = TsigReconcile._visStr(cd.Visibility);   // enforce-class-access：类可见性字节 → 字符串（跨包 internal 类引用强制）
         // 类侧关联类型绑定（zbc 1.42，assoc-type-crosspkg）：类记录的 TYPE assoc 块 = `type Item = int;` 的

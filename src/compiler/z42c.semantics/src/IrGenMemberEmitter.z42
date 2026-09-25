@@ -89,7 +89,7 @@ public sealed class IrGenMemberEmitter {
                 stub.Attrs = g._classDescB._attrRefs(rawMem); stub.AttrCount = stub.Attrs.Length;
                 stub.ParamAttrs = g._classDescB._paramAttrRefs(md, !natStatic); stub.ParamAttrsLen = stub.ParamAttrs.Length;
                 stub.Visibility = IrGenFacts._visCode(md.Mods, 1);      // add-member-visibility：extern 桩此前漏设
-                stub.MethodFlags = IrGenFacts._methodFlags(md.Mods); // add-method-modifiers：virtual extern
+                stub.MethodFlags = stub.MethodFlags | IrGenFacts._methodFlags(md.Mods); // add-method-modifiers：virtual extern（按位或——MethodFlagSret 的注释已把「不得互相覆盖」定为不变式，这里此前是 `=`）
                 IrGenFacts._fillParamMeta(stub, md, !natStatic);   // add-param-metadata
                 this._out.AddFunc(stub);
             }
@@ -99,7 +99,7 @@ public sealed class IrGenMemberEmitter {
             astub.Attrs = g._classDescB._attrRefs(rawMem); astub.AttrCount = astub.Attrs.Length;
             astub.ParamAttrs = g._classDescB._paramAttrRefs(md, true); astub.ParamAttrsLen = astub.ParamAttrs.Length;
             astub.Visibility = IrGenFacts._visCode(md.Mods, 1);
-            astub.MethodFlags = IrGenFacts._methodFlags(md.Mods);
+            astub.MethodFlags = astub.MethodFlags | IrGenFacts._methodFlags(md.Mods);   // 同上：按位或，守住不变式
             IrGenFacts._fillParamMeta(astub, md, true);   // add-param-metadata：abstract 恒实例
             this._out.AddFunc(astub);
         }

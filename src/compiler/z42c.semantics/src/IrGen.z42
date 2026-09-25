@@ -33,6 +33,39 @@ public sealed class IrGen {
     public StrMap InstLayouts;
     // 本包泛型 struct/class 的定义声明（短名 → 原始 Decl），供实例化特化时重发其成员。
     public StrMap GenericDecls;
+    // complete-generic-instantiation S1：**泛型体的单调化**。
+    //
+    // 泛型体只编一份、按**擦除布局**烘焙字节偏移；而 #774 让实例化**类型**有了自己的布局。
+    // 两者对同一批字节的理解不同 ⇒ 静默错值（`ReadSecond<P2>(Loc<P2,int>)` 读出 2 而非 7）。
+    // 修法：以具体实参为键，给泛型体各特化一份，体内的布局查询按代换后的类型算。
+    //
+    // `SpecTypeArgs`：当前正在发射的特化体的**方法级**类型实参代换（型参名 → 具体规范名）。
+    // 非特化发射时为 null。咽喉点是 `ExprEmitter._canonTypeName` / `_isConcreteTypeArg` ——
+    // 所有布局名都经由它们推导，故只需在那两处消解代换。
+    public StrMap SpecTypeArgs;
+    // complete-generic-instantiation S1：本 CU 已有类型错误 ⇒ **不做特化**。
+    // 病态源码的类型实参可以无限加深（`Rec<T>` 调 `Rec<Loc<T,int>>`），特化工作表会跟着无限
+    // 增长 ⇒ 编译器挂死，用户拿到的不是诊断而是一个不返回的进程。类型不对时 codegen 的产物
+    // 本就无意义，跳过特化让诊断正常输出。（良型代码今天够不到无限加深 —— 类型检查器不把
+    // 方法级实参代换进形参类型，那种递归一律 E0402 —— 但不能依赖这个偶然，故另有上限兜底。）
+    public bool HasTypeErrors;
+    // 单调化工作表的防御性上限（见不动点循环处的注释）。
+    // 每个特化都要发一整个函数体，故上限取得保守：够任何真实程序用，又能在秒级内失败。
+    public static int SpecializationCap = 2000;
+    // 本包**泛型体**的声明：体查找键 → Decl。自由函数键 = `RegKey`；静态方法键 = `OwnerKey.RegKey`
+    // （与 `SemanticModel.HasBody` 同一口径）。供特化时重发体，镜像 `GenericDecls` 之于泛型类型。
+    public StrMap GenericBodies;
+    // 与 `GenericBodies` 平行：该体的 ownerKey（自由函数为 ""）。
+    public StrMap GenericBodyOwners;
+    // S1-d：**实例**泛型方法的体查找键 → 其 RegKey。用于在本 CU 内把特化闭包扩到该方法的全部覆写
+    // （同名同键的每个声明各特化一份）——否则虚派发到子类时那份没有特化体。
+    public StrMap GenericMethodOwners;
+    // 待特化的泛型体实例：特化名 → 其体查找键。由调用点登记，工作表消费。
+    //
+    // 特化名 = `<擦除 FQ 名>:<实参1>[:<实参2>…]`。**刻意不用 `<…>`**：RegKey 本身就可能含尖括号
+    // （类型重载 mangling 把形参拼写编了进去，如 `ReadSecondS$1$Loc<T,int>`），再套一层就没法无歧义
+    // 解析。`:` 在标识符与类型名里都不可能出现，故切分恒确定。
+    public StrMap GenericFnInsts;
     // 正在特化的实例化短名（`Pair<P2,int>`）；"" = 常规发射。发射成员时由特化通道设置，
     // 影响两处：① IR 函数名前缀换成实例化名（调用点据同一规则派发）；
     // ② `EmitContext.OwnerStructName` 换成实例化名 ⇒ ctor/方法体里 `this.f` 的字节偏移
@@ -55,6 +88,12 @@ public sealed class IrGen {
         this._stubE = new StubEmitter(this);
         this.InstLayouts = new StrMap();
         this.GenericDecls = new StrMap();
+        this.SpecTypeArgs = null;
+        this.HasTypeErrors = false;
+        this.GenericBodies = new StrMap();
+        this.GenericBodyOwners = new StrMap();
+        this.GenericMethodOwners = new StrMap();
+        this.GenericFnInsts = new StrMap();
         this.SpecInstName = "";
         this.SpecOwnerName = "";
     }
@@ -211,6 +250,13 @@ public sealed class IrGen {
                 sidx = sidx + 1;
             }
         }
+        // complete-generic-instantiation S1：泛型体登记表。包构建时由 `IrDump` 注入**包级**的那份
+        // （泛型可能声明在别的文件里）；单文件 dump / 测试路径没有注入 ⇒ 就地按本 CU 扫一遍。
+        if (this.GenericBodies.Count() == 0 && this.GenericMethodOwners.Count() == 0) {
+            CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
+            IrGen.ScanGenericBodies(one, 1, model.Symbols, this.GenericBodies,
+                                    this.GenericBodyOwners, this.GenericMethodOwners);
+        }
         // 两遍（byte-identical：module.Functions 序 = 类方法（声明序）→ 自由函数（声明序），SIGS 字节实证）。
         int i = 0;
         while (i < cu.DeclCount) {
@@ -236,6 +282,7 @@ public sealed class IrGen {
         // 或成员体里用到的别的实例化），故循环到集合不再增长为止。
         StrMap specDone = new StrMap();
         bool specMore = true;
+        if (this.HasTypeErrors) { this.GenericFnInsts = new StrMap(); }   // 有类型错误 ⇒ 不特化
         while (specMore) {
             specMore = false;
             string[] pend = this.InstLayouts.Keys();
@@ -251,6 +298,27 @@ public sealed class IrGen {
                     specMore = true;   // 本轮有新增 ⇒ 再扫一遍（体内可能又登记了新实例化）
                 }
                 pi = pi + 1;
+            }
+            // complete-generic-instantiation S1：**泛型体**的工作项与实例化类型共用同一个不动点 ——
+            // 特化一个体可能发现新的实例化（体内 `new Loc<T,int>` 在代换后成为真实例化），
+            // 而特化一个实例化的成员又可能调用新的泛型体。两类必须在同一循环里互相喂。
+            string[] fpend = this.GenericFnInsts.Keys();
+            int fi2 = 0;
+            while (fi2 < fpend.Length) {
+                if (!specDone.ContainsKey(fpend[fi2])) {
+                    specDone.Put(fpend[fi2], "1");
+                    this._emitSpecializedFreeFn(fpend[fi2], model, sink);
+                    specMore = true;
+                }
+                fi2 = fi2 + 1;
+            }
+            // 防御性上限：工作项理应有限（来自源码中出现的调用×实参组合），但递归泛型能让
+            // 类型实参逐层加深而无限产生新项。宁可大声失败，也不让编译器 100% CPU 不返回
+            // ——同 `try_fixup_inheritance` 的 `fixup_cap` 先例。
+            if (specDone.Count() > IrGen.SpecializationCap) {
+                throw new Exception("generic specialization did not converge after "
+                    + IrGen.SpecializationCap.ToString() + " instantiations — 疑似递归泛型"
+                    + "（形如 `Rec<T>` 调 `Rec<G<T>>`，类型实参逐层加深）。");
             }
         }
         IrFunction[] funcs = sink.Funcs; int fc = sink.Fc;
@@ -282,6 +350,141 @@ public sealed class IrGen {
         irm.TestIndex = this._testIx._tiEntries; irm.TestCount = this._testIx._tiCount;
         IrOptPipeline.Run(irm, optSet);   // 编译期 IR 优化管线（可独立开关的 OptSet，interp-first）
         return irm;
+    }
+
+    // complete-generic-instantiation S1：按具体类型实参重发一份泛型自由函数的体。
+    //
+    // 与 `IrGenTypeEmitter.EmitInstantiation` 同构，只是代换的是**方法级**型参：
+    // 发射期把 `SpecTypeArgs` 铺上（型参名 → 具体规范名），体内所有布局名推导
+    // （`_canonTypeName` / `_isConcreteTypeArg`）据此解出实例化布局，偏移随之按实例化烘焙。
+    //
+    // `specName` 形如 `Demo.ReadSecond<P2>`：基名是擦除 FQ 名，实参段按 `StructLayout.InstName`
+    // 拼；`GenericFnInsts` 的值是该函数的 RegKey（体查找键）。
+    // complete-generic-instantiation S1：扫出一批 CU 里**全部可特化的泛型体**。
+    //
+    // 包构建走 `IrDump.BuildPackageCus`（全包 CU 一次），单文件路径走 `Generate`（仅本 CU）——
+    // 两条**共用本方法**，判据只有一份。`IrGen` 按 CU 创建，若只扫本 CU，泛型声明在别的文件时
+    // 调用点就判不出该改派，会落到擦除体上（布局不符 ⇒ 运行期报错）。
+    public static void ScanGenericBodies(CompilationUnit[] cus, int count, SymbolTable symbols,
+                                         StrMap bodies, StrMap owners, StrMap methods) {
+        int ci = 0;
+        while (ci < count) {
+            CompilationUnit cu = cus[ci];
+            int gi = 0;
+            while (gi < cu.DeclCount) {
+                Decl gd = IrGenFacts._unwrap(cu.Decls[gi]);
+                if (gd is MethodDecl) {
+                    MethodDecl gmd = gd as MethodDecl;
+                    if (gmd.TypeParams.Count > 0 && gmd.HasBody && !bodies.ContainsKey(gmd.RegKey)) {
+                        bodies.Put(gmd.RegKey, cu.Decls[gi]);
+                        owners.Put(gmd.RegKey, new StrBox(""));
+                    }
+                } else if (gd is ClassDecl) {
+                    ClassDecl gc = gd as ClassDecl;
+                    string gownerKey = gc.Name;
+                    if (gc.TypeParams.Count > 0) {
+                        string gom = gc.Name + "$" + gc.TypeParams.Count.ToString();
+                        if (symbols.HasClass(gom)) { gownerKey = gom; }
+                    }
+                    int gmi = 0;
+                    while (gmi < gc.MemberCount) {
+                        Decl gmem = IrGenFacts._unwrap(gc.Members[gmi]);
+                        if (gmem is MethodDecl) {
+                            MethodDecl gm = gmem as MethodDecl;
+                            // S1-d：**虚/override 也登记**。安全性靠两条：① 运行期「特化名不沿基类链
+                            // 继承」（`vcall_resolve`）；② 闭包扩到该方法的全部覆写（`_noteSpecOverrides`）。
+                            if (gm.TypeParams.Count > 0 && gm.HasBody) {
+                                string lk = gownerKey + "." + gm.RegKey;
+                                if (!bodies.ContainsKey(lk)) {
+                                    bodies.Put(lk, gc.Members[gmi]);
+                                    owners.Put(lk, new StrBox(gownerKey));
+                                    if (!IrGenFacts._hasWord(gm.Mods, "static")) {
+                                        methods.Put(lk, new StrBox(gm.RegKey));
+                                    }
+                                }
+                            }
+                        }
+                        gmi = gmi + 1;
+                    }
+                }
+                gi = gi + 1;
+            }
+            ci = ci + 1;
+        }
+    }
+
+    // 登记一个可特化的本包泛型体（体查找键 → Decl + ownerKey）。
+    internal void _noteGenericBody(string lookupKey, string ownerKey, Decl rawD) {
+        if (this.GenericBodies.ContainsKey(lookupKey)) { return; }
+        this.GenericBodies.Put(lookupKey, rawD);
+        this.GenericBodyOwners.Put(lookupKey, new StrBox(ownerKey));
+    }
+
+    // S1-d：为一个实例泛型方法的特化登记**同 CU 内全部同名覆写**的特化。
+    // 过近似是安全的（多特化几份只是体积），漏特化则是静默调错实现。
+    internal void _noteSpecOverrides(string regKey, string suffix) {
+        string[] keys = this.GenericMethodOwners.Keys();
+        int i = 0;
+        while (i < keys.Length) {
+            StrBox rb = this.GenericMethodOwners.Get(keys[i]) as StrBox;
+            if (rb != null && rb.Value == regKey) {
+                StrBox ob = this.GenericBodyOwners.Get(keys[i]) as StrBox;
+                string ok = ob == null ? "" : ob.Value;
+                if (ok != "") {
+                    string fq = this._q(ok) + "." + regKey + suffix;
+                    if (!this.GenericFnInsts.ContainsKey(fq)) { this.GenericFnInsts.Put(fq, new StrBox(keys[i])); }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 特化名 → 类型实参。切分见 `GenericFnInsts` 的注释（`:` 在标识符/类型名里不可能出现）。
+    internal static string[] SpecArgsOf(string specName, int expect) {
+        string[] parts = specName.Split(":");
+        if (parts.Length != expect + 1) { return new string[0]; }
+        string[] r = new string[expect];
+        int i = 0;
+        while (i < expect) { r[i] = parts[i + 1]; i = i + 1; }
+        return r;
+    }
+
+    private void _emitSpecializedFreeFn(string specName, SemanticModel model, IrGenSink sink) {
+        StrBox rk = this.GenericFnInsts.Get(specName) as StrBox;
+        if (rk == null) { return; }
+        object rd = this.GenericBodies.Get(rk.Value);
+        if (!(rd is Decl)) { return; }
+        Decl rawD = rd as Decl;
+        Decl dd = IrGenFacts._unwrap(rawD);
+        if (!(dd is MethodDecl)) { return; }
+        MethodDecl md = dd as MethodDecl;
+        if (!model.HasBody(rk.Value)) { return; }
+        string[] targs = IrGen.SpecArgsOf(specName, md.TypeParams.Count);
+        if (targs.Length != md.TypeParams.Count) { return; }   // 形状对不上 ⇒ 宁可不发，也不发错的
+        StrBox ob = this.GenericBodyOwners.Get(rk.Value) as StrBox;
+        string ownerKey = ob == null ? "" : ob.Value;
+        Z42ClassType owner = ownerKey == "" ? null : model.Symbols.GetClass(ownerKey) as Z42ClassType;
+
+        StrMap saved = this.SpecTypeArgs;
+        StrMap m = new StrMap();
+        int i = 0;
+        while (i < md.TypeParams.Count) { m.Put(md.TypeParams.Names[i], new StrBox(targs[i])); i = i + 1; }
+        this.SpecTypeArgs = m;
+
+        var fe = new FunctionEmitter(model.Symbols, this);
+        // 三种形态：自由函数（无 owner、无 this）/ 静态方法（有 owner、无 this）/ 实例方法（两者皆有）。
+        bool isMember = ownerKey != "";
+        bool isStaticMethod = isMember && IrGenFacts._hasWord(md.Mods, "static");
+        bool isInstance = isMember && !isStaticMethod;
+        IrFunction irf = fe.EmitFunction(specName, md, model.GetBody(rk.Value), isInstance, isStaticMethod,
+                                         owner, new string[0], 0);
+        irf.Visibility = IrGenFacts._visCode(md.Mods, isMember ? 1 : 3);
+        irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.Mods);
+        irf.ParamAttrs = this._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
+        IrGenFacts._fillParamMeta(irf, md, isInstance);
+        sink.AddFunc(irf);
+
+        this.SpecTypeArgs = saved;
     }
 
 
