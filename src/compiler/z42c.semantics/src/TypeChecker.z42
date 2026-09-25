@@ -75,7 +75,7 @@ public sealed class TypeChecker {
         // 与上面两条同源（都读 `ClassPkgAll`），故共用这个 choke point。发射点用字面量，
         // 理由见 `SymbolCollector._chkTypeRefPkg` 的同款注释。
         string umsg = symbols.UndeclaredDepMsg(fqn);
-        if (umsg != "") { this._diags.Error("E0497", umsg, sp); }
+        if (umsg != "") { this._diags.Error(DiagnosticCodes.UndeclaredDependency, umsg, sp); }
     }
 
     // add-bare-name-ambiguity-diagnostic：源 TypeExpr 形态的歧义判定入口。
