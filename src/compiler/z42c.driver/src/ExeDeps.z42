@@ -10,9 +10,8 @@ using Std.IO;
 using Z42.Project;
 using Z42.Build.Project;
 
-// **非标准库**依赖（名不以 `z42.` 开头，即 workspace 本地兄弟包如 `z42c.*`）的已构建
-// zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序 = [entry-zpkg 目录,
-// Z42_LIBS]，故 exe 从自身 dist 即可解析兄弟包，stdlib（z42.*）仍走 Z42_LIBS。
+// **非框架**依赖的已构建 zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序
+// = [entry-zpkg 目录, Z42_LIBS]，故 exe 从自身 dist 即可解析私有依赖，框架包仍走 Z42_LIBS。
 // fix-path-dep-closure：**path 依赖的整个闭包**都要搬，不只直接依赖。
 //
 // 此前这里只遍历 `pm.Deps`，头注写着「仅直接依赖……传递闭包记 Deferred，
@@ -29,21 +28,28 @@ using Z42.Build.Project;
 // 闭包名单由 `_build` 透下来（top-level 分支算过的那份），**不在这里重算**——
 // 非 top-level 子建（`libsDirsCount>0`）本就跳过解析，那个语境下重算会抛
 // `No such file or directory`（初稿这么写过，被 e2e `buildclos` 当场抳下）。
-int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string projectDir, string distDir, string[] libsDirs, int libsDirsN) {
-    // 复制判定（add-path-dependencies D2，镜像 builder _pubBundleProjectDeps）：真-stdlib
-    //（`<srcRoot>/libraries/<name>` 存在）走 Z42_LIBS 不复制；其余（path 依赖 / 非 stdlib 命名
-    // 依赖）= 私有，复制进 dist。srcRoot 找不到（repo 外构建）→ 回落旧判据「z42.* 命名视作
-    // stdlib、path 依赖必复制」。path 依赖名即便 z42.*（如 z42.repl）也不在 libraries → 复制。
-    string srcRoot = _srcRoot(projectDir);
-    // 待拷名单 = 直接依赖 ∪ **path 依赖闭包全体**（去重）。闭包成员恒为私有包
-    // （按路径引入、不在 Z42_LIBS）⇒ 一律拷。
+int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN) {
+    // 复制判定（add-deployment-model 批 1）：**在不在 shipped `libs/`**（= `Z42_LIBS`）。
+    // 在 → 框架，运行期从 libs/ 解析，不复制；不在 → 私有，复制进 dist。
+    //
+    // 这条与 publisher 的 `_pubBundleProjectDeps` 现在**真的**是同一条了。此前两边各写各的、
+    // 而注释互相声称一致：这里原本用「`<srcRoot>/libraries/<name>` 存在 ⇒ 真-stdlib」，
+    // 🔴 而 `_srcRoot` 靠向上找「同时含 libraries/ 与 compiler/ 的目录」——**用户机器上恒为空**
+    // ⇒ 整条判据退化成 `dep.StartsWith("z42.")`：**按名字前缀猜一个包是不是框架**。于是一个
+    // 确实躺在框架目录里、但名字不像 `z42.*` 的包，会被当成私有依赖复制进**每一个**用到它的
+    // exe 的 dist；反方向同样能踩（用户自己的库叫 `z42.foo` 就被当成 stdlib）。
+    //
+    // 为什么 `Z42_LIBS` 可靠而 srcRoot 不可靠：前者是「这台机器上的框架在哪」这个**运行期
+    // 事实**，用户机器与 repo 内都成立；后者是「我在不在 z42 的源码树里」，只有开发时成立。
+    string shippedLibs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    // 待拷名单 = 直接依赖 ∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。
+    // 闭包成员恒为私有包（按路径引入、其 dist 不在 Z42_LIBS）⇒ 判据自然判出「拷」，
+    // 不需要再单独记「这一项是不是 path 依赖」——那份平行数组随判据统一一起退休。
     string[] names = new string[pm.DepCount + 8];
-    bool[]   isPath = new bool[pm.DepCount + 8];
     int nameN = 0;
     int pi = 0;
     while (pi < pm.DepCount) {
         names[nameN] = pm.Deps[pi].Name;
-        isPath[nameN] = pm.Deps[pi].Path.Length > 0;
         nameN = nameN + 1;
         pi = pi + 1;
     }
@@ -57,26 +63,19 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
         if (dup) { continue; }
         if (nameN == names.Length) {
             string[] nb = new string[names.Length * 2];
-            bool[] pb = new bool[isPath.Length * 2];
             int k = 0;
-            while (k < nameN) { nb[k] = names[k]; pb[k] = isPath[k]; k = k + 1; }
-            names = nb; isPath = pb;
+            while (k < nameN) { nb[k] = names[k]; k = k + 1; }
+            names = nb;
         }
-        names[nameN] = cn; isPath[nameN] = true; nameN = nameN + 1;
+        names[nameN] = cn; nameN = nameN + 1;
     }
     int i = 0;
     while (i < nameN) {
         string dep = names[i];
-        bool isPathDep = isPath[i];
         i = i + 1;
-        bool isTrueStdlib;
-        if (srcRoot.Length > 0) {
-            isTrueStdlib = !isPathDep
-                && Directory.Exists(Path.Join(Path.Join(srcRoot, "libraries"), dep));
-        } else {
-            isTrueStdlib = !isPathDep && dep.StartsWith("z42.");
-        }
-        if (isTrueStdlib) { continue; }   // 真-stdlib：走 Z42_LIBS，不复制
+        bool isFramework = shippedLibs.Length > 0
+            && File.Exists(Path.Join(shippedLibs, dep + ".zpkg"));
+        if (isFramework) { continue; }   // 框架：走 Z42_LIBS，不复制
         string zname = dep + ".zpkg";
         bool copied = false;
         int d = 0;
@@ -109,21 +108,15 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     return ExitCode.Ok;
 }
 
-// src 根：从 projectDir 上溯，找同时含 libraries/ 与 compiler/ 的目录（镜像 builder
-// _pubSrcRoot）。用于 _bundleExeDeps 的真-stdlib 判定。repo 外构建 → 返回 ""。
-string _srcRoot(string projectDir) {
-    string dir = Path.IsRooted(projectDir) ? projectDir
-        : Path.Join(Environment.GetCurrentDirectory(), projectDir);
-    while (dir.Length > 0) {
-        if (Directory.Exists(Path.Join(dir, "libraries")) && Directory.Exists(Path.Join(dir, "compiler"))) {
-            return dir;
-        }
-        string parent = Path.GetDirectoryName(dir);
-        if (parent.Length == 0 || parent == dir) { return ""; }
-        dir = parent;
-    }
-    return "";
-}
+// 🔴 **剩下的缺口：按名引用的依赖没有传递闭包。**
+// `path` 依赖的闭包已由 fix-path-dep-closure 搬齐（上面那份 `closureNames`）；**按名**引用的
+// 依赖（`"foo" = "1.0"`）若自己还依赖别的非框架包，那一层今天不会被搬。
+// 做不到的原因很具体：建闭包要知道「某个依赖自己依赖了谁」，而 z42 侧 today 读不出 zpkg 的
+// DEPS 段（只有 Rust 侧 `zbc_reader/zpkg.rs` 解码它）。靠源码树的 toml 去找是 publisher 今天
+// 的做法，而那条路**在 repo 外整个失效**（`srcRoot == ""` ⇒ 每个依赖都 continue，零复制零递归）
+// —— 把它搬过来等于把一个更大的毛病也搬过来。
+// ⇒ 正解是先给 z42 侧补 zpkg DEPS 解码（support 先行、卡一个 nightly）。
+// 见 `docs/spec/changes/add-deployment-model/tasks.md` 批 2。
 
 // `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找
 // z42.workspace.toml → 成员拓扑序 → 逐成员 build。

@@ -1,0 +1,96 @@
+// xtask — exe 私有依赖的复制判据 e2e 门（add-deployment-model 批 1）。
+//
+// **守的是什么**：`z42c build` 决定「这个依赖要不要复制进 exe 的 dist」时用的判据。
+//
+// 此前的判据是「`<srcRoot>/libraries/<name>` 存在 ⇒ 真-stdlib ⇒ 不复制」，而 `_srcRoot`
+// 靠向上找「同时含 libraries/ 与 compiler/ 的目录」—— **用户机器上恒为空**，整条判据退化成
+// `dep.StartsWith("z42.")`：**按名字前缀猜一个包是不是框架**。后果之一就是本门这一格 ——
+// 一个确实躺在框架目录（`Z42_LIBS`）里、但名字不以 `z42.` 开头的包，会被当成私有依赖
+// 复制进每一个用到它的 exe 的 dist 里。
+//
+// 现在判据是「**在不在 shipped `libs/`**」（= publisher 一直在用的那条）。它是「这台机器上的
+// 框架在哪」这个**运行期事实**，repo 内外都成立；srcRoot 那条只在开发树里成立。
+//
+// 🔴 工程必须落在 **repo 之外**（`/tmp`）：放在 repo 内 `_srcRoot` 找得到根，走的是目录判据，
+// 旧代码在那儿是对的 —— 门也就看不见差别了。**这个缺陷只在用户机器上发生。**
+namespace Z42Xtask;
+
+using Std;
+using Std.IO;
+
+string _e2eDeployLibSrc() {
+    return "namespace DeployFx;\n\npublic class Helper { public int V() { return 7; } }\n";
+}
+
+string _e2eDeployAppSrc() {
+    return "namespace DeployApp;\n\nusing Std.IO;\nusing DeployFx;\n\nvoid Main() { Console.WriteLine(new Helper().V().ToString()); }\n";
+}
+
+// repo 外的临时根（`_srcRoot` 上溯到 / 都找不到 libraries/+compiler/ ⇒ 返回 ""）。
+string _e2eDeployRoot() { return Path.Join("/tmp", "z42c-e2e-deploy"); }
+
+int _e2eDeployPredicateChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = _e2eDeployRoot();
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    string appDir  = Path.Join(tmp, "app");
+    string fxDir   = Path.Join(tmp, "fx");
+    Directory.Create(libsDir); Directory.Create(appDir); Directory.Create(fxDir);
+
+    // 私有框架目录 = stdlib 扁平 dist 的副本（下面再把 fx 包塞进去）。
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) {
+        File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si])));
+        si = si + 1;
+    }
+
+    // ① 建一个**名字不以 `z42.` 开头**的库，把产物放进框架目录。
+    File.WriteAllText(Path.Join(fxDir, "fx.z42"), _e2eDeployLibSrc());
+    File.WriteAllText(Path.Join(fxDir, "deployfx.z42.toml"),
+        "[project]\nname    = \"deployfx\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+        + "[sources]\ninclude = [\"*.z42\"]\n");
+    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+        .Arg(Path.Join(fxDir, "deployfx.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (lb.ExitCode != 0) {
+        Console.WriteLine("  ✗ deploy 判据: 框架库 fixture 编译失败: " + lb.Stderr);
+        return 1;
+    }
+    File.Copy(Path.Join(Path.Join(fxDir, "dist"), "deployfx.zpkg"), Path.Join(libsDir, "deployfx.zpkg"));
+
+    // ② 一个 exe **按名**依赖它 —— 它此刻确实在框架目录里。
+    File.WriteAllText(Path.Join(appDir, "app.z42"), _e2eDeployAppSrc());
+    string appToml = Path.Join(appDir, "deployapp.z42.toml");
+    File.WriteAllText(appToml,
+        "[project]\nname    = \"deployapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+        + "entry   = \"DeployApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+        + "[dependencies]\n\"deployfx\" = \"0.1.0\"\n");
+    ProcessResult ab = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (ab.ExitCode != 0) {
+        Console.WriteLine("  ✗ deploy 判据: exe fixture 编译失败: " + ab.Stderr);
+        return 1;
+    }
+
+    // ③ 框架包**不得**被复制进 exe 的 dist —— 它在 libs/ 里，运行期从那儿解析。
+    string copied = Path.Join(Path.Join(appDir, "dist"), "deployfx.zpkg");
+    if (File.Exists(copied)) {
+        Console.WriteLine("  ✗ deploy 判据: 框架目录里的 `deployfx` 仍被复制进 exe dist"
+            + " —— 判据还在按名字前缀猜（它不叫 z42.* 就当成私有依赖）");
+        return 1;
+    }
+
+    // ④ **对照**：产物必须真能跑 —— 否则「没复制」可能只是因为整个构建没做事。
+    ProcessResult rr = new Process(vm).Arg(Path.Join(Path.Join(appDir, "dist"), "deployapp.zpkg"))
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (rr.ExitCode != 0 || rr.Stdout.IndexOf("7") < 0) {
+        Console.WriteLine("  ✗ deploy 判据: 没复制，但产物也跑不起来（rc=" + rr.ExitCode.ToString()
+            + " stdout=" + rr.Stdout + "）—— 框架解析断了");
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ 复制判据：框架目录里的包不进 exe dist，且运行期从 libs/ 解析得到");
+    return 0;
+}

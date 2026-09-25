@@ -59,6 +59,25 @@ if cli.verbose { log_module_paths(&module_paths); }
 - 用户自己的包叫 `z42.mylib` ⇒ 被误判为 stdlib、**不复制**，运行期全看 `Z42_LIBS` 里碰巧有没有；
 - 反过来，SDK 里的非 stdlib（`z42c.*`）不以 `z42.` 开头 ⇒ 复制 —— 碰巧对，但是**凭名字碰对的**。
 
+### 🔴 publisher 的依赖 bundling 在 repo 外整个失效
+
+```z42
+// builder_publish.z42:570
+string depTomlPath = (srcRoot.Length > 0) ? _pubLocateDepToml(srcRoot, name) : "";
+if (depTomlPath.Length == 0) { continue; }   // 无源 toml → 保守跳过，不阻断 publish。
+```
+
+用户机器上 `srcRoot == ""` ⇒ **每个依赖都 continue，零复制、零递归**。同一个坑在 native 那条
+路上已经修过（`_pubBundleProjectNativeDeps` 的 Decision 5：改按 `{ path }` 解析、"NOT gated on
+srcRoot"），**zpkg 这条没修**。
+
+### z42 侧读不出 zpkg 的 DEPS 段
+
+这决定了「统一成闭包」的修法：建闭包要知道「某个依赖自己依赖了谁」，而 DEPS 段今天**只有
+Rust 侧解码**（`zbc_reader/zpkg.rs:46`），z42 侧的 `ZpkgReader` 不读它。靠源码树 toml 去找就是
+publisher 上面那条 repo 外失效的路。⇒ 正解是先给 z42 侧补 DEPS 解码（support 先行、卡一个
+nightly），**这也是为什么批 1 只统一了判据、没统一闭包。**
+
 ## 主张
 
 把「运行期从哪儿来」变成 per-dependency 的一等声明，三个问题收敛成一个机制：
