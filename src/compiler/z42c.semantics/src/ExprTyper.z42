@@ -389,7 +389,7 @@ public sealed partial class ExprTyper {
     // 覆盖 prim / 数组 / 泛型实例化（递归）/ 具名类（短名，靠调用方作用域解析）。集合 + objinit 共用 → 留 hub。
     // add-implicit-base-ctor-call：构造器选择 + 实参适配（`new` 与构造器初始化子句共用，见 ConstructTyper._bindCtorArgs）。
     internal BoundCtorArgs BindCtorArgs(Z42ClassType cls, Expr[] rawArgs, int argc, TypeEnv env, Span sp) {
-        return this._construct._bindCtorArgs(cls, rawArgs, argc, env, sp);
+        return this._construct._bindCtorArgs(cls, rawArgs, argc, env, sp, null);   // base-ctor 调用：无实例化实参可代换
     }
 
     internal TypeExpr _typeToTypeExpr(Z42Type t, Span s) {

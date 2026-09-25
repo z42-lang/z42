@@ -6,6 +6,7 @@ Int32
 # ANCHOR_END: typeof
 # ANCHOR: ctor
 $ z42 run ctorgap.z42
-Error: uncaught exception: Std.InvalidCastException: cannot cast string to `int`
+z42c build: 1 error(s) in ctorgap.z42
+  ctorgap.z42(10,31): E0402: cannot assign string to Int32 (argument)
 [exit: 1]
 # ANCHOR_END: ctor

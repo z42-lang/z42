@@ -249,7 +249,7 @@ public sealed class ConstructTyper {
                 "cannot create an instance of abstract class `" + cls.Name() + "`", n.Span);
             return new BoundError("new on abstract class", new Z42ErrorType(), n.Span);
         }
-        BoundCtorArgs ca = this._bindCtorArgs(cls, n.Args, n.ArgCount, env, n.Span);
+        BoundCtorArgs ca = this._bindCtorArgs(cls, n.Args, n.ArgCount, env, n.Span, t as Z42InstantiatedType);
         return new BoundNew(t.Name(), ca.Key, ca.Args, ca.Args.Length, t, n.Span);
     }
 
@@ -257,7 +257,35 @@ public sealed class ConstructTyper {
     // 构造器初始化子句（`: base(args)` / `: this(args)` / 隐式 `base()` / 继承构造器的转发）共用。
     // 此前初始化子句只按实参个数取键（`_ctorKey`），不做按类型的重载决议、默认值填充与 params 打包——
     // 与 `new` 路径是两套口径。cls == null（非类类型）→ 空键 + 逐个绑定的实参。
-    internal BoundCtorArgs _bindCtorArgs(Z42ClassType cls, Expr[] rawArgs, int argc, TypeEnv env, Span sp) {
+    // fix-generic-ctor-args：**泛型实例化的 ctor 要按代换后的型参再查一遍实参。**
+    //
+    // ctor 签名里的形参是**未代换**的裸 `T`，而 `Conversion` 分支 B 恰恰擦除
+    // 「具体实参 → 裸型参形参」⇒ `new Box<int>("x")` **编译期零诊断**
+    // （运行期才 `Std.InvalidCastException: cannot cast string to int`）。
+    // 同一个类上的 `b.Set("x")` 却报 E0402 —— **两条路两个口径**。
+    //
+    // 方法那条路早就有这一支（`MemberResolver` 的 `Z42InstantiatedType` 收者，
+    // `add-generic-type-arg-inference` 加的），ctor 漏了。照抄它，连同两条纪律：
+    //
+    // ⚠️ **代换结果只作诊断入参、绝不回灌**：`_withDefaults` / `BoxArgs` / params 的
+    // normal-expanded 翻转 / ConvertInstr 插入 都对形参类型敏感，回灌是确定性的自举字节漂移
+    // （那条注释在 `MemberResolver.z42:196-201`，别重踩）。
+    // ⚠️ 用 `CheckSubstitutedArgs` 而非 `CheckArgTypes`：**只补查原签名含型参的那些位**——
+    // 具体类型的位已经查过并报过，整条重查会同 span 同消息报两条。
+    //
+    // 🔴 **两个返回点都要调**：局部声明的 ctor（有 Decl）走 `_adaptArgs` 分支并**提前
+    // return**，只在函数尾部补一次等于没改——初稿就是这么错的，构建能过、行为未变。
+    private void _chkCtorSubstArgs(MethodSymbol cms, BoundExpr[] args, Expr[] rawArgs, int argc,
+                                   Z42InstantiatedType inst, TypeEnv env) {
+        if (cms == null || cms.Signature == null || inst == null) { return; }
+        this._tc._overload.CheckSubstitutedArgs(args, rawArgs, argc, cms.Signature,
+            MemberResolver._substGenericSig(cms.Signature, inst), env);
+    }
+
+    // `inst`（fix-generic-ctor-args）= 本次 `new` 的**实例化类型**，用于按类级型参代换后补查
+    // 实参（见下方该块的注释）。`null` = 非泛型实例化，或调用方手上没有那个信息
+    // （base-ctor 调用那条）⇒ 该补查整条跳过，行为恒等。
+    internal BoundCtorArgs _bindCtorArgs(Z42ClassType cls, Expr[] rawArgs, int argc, TypeEnv env, Span sp, Z42InstantiatedType inst) {
         string ctorName = cls != null ? this._tc._overload._ctorKey(cls, argc) : "";
         // 🔴 **同 arity 的多个 ctor 之间做真的类型决议**（fix-ctor-overload-by-arity-only）。
         //
@@ -321,6 +349,11 @@ public sealed class ConstructTyper {
                 // 等 arity 且尾参不是数组时它给回的是「一个元素」，这里补成尾包
                 // （方法路径由 `_withParamsExpansion` 做同一件事）。
                 adapted = this._packParamsTail(cms, adapted, sp, env);
+                // fix-generic-ctor-args：**这条分支会提前 return**，下方那次补查走不到 ——
+                // 局部声明的 ctor（有 Decl）全走这里，恰恰是 `new Box<int>("x")` 的形状。
+                // ⚠️ rawArgs 传 null：`_adaptArgs` 做过命名实参重排，位置可能已与 rawArgs 不对应；
+                // 它只用于取 span，null 时回落 `args[i].Span`（仍指向实参本身）。
+                this._chkCtorSubstArgs(cms, adapted, null, adapted.Length, inst, env);
                 return new BoundCtorArgs(ctorName, adapted);
             }
         }
@@ -373,6 +406,22 @@ public sealed class ConstructTyper {
         // （`P(params int[] xs)` 接 `new P(1,2,3)`：形参是 int[]、实参是元素，逐位比会误报）
         // 与定长/越界位。cms==null（imported / 无 Decl，签名不可知）→ 自身 no-op。
         if (cms != null) { this._tc._overload.CheckArgTypes(args, rawArgs, argc, cms.Signature, env); }
+        // fix-generic-ctor-args：**泛型实例化的 ctor 要按代换后的型参再查一遍**。
+        //
+        // 上面那次 `CheckArgTypes` 拿的是**未代换**的签名——`Box<T>` 的 ctor 形参还是裸 `T`，
+        // 而 `Conversion` 分支 B 恰恰擦除「具体实参 → 裸型参形参」⇒ `new Box<int>("x")`
+        // **编译期零诊断**（运行期才 `Std.InvalidCastException: cannot cast string to int`）。
+        // 同一个类上的 `b.Set("x")` 却报 E0402 —— **两条路两个口径**，而它们表达的是同一件事。
+        //
+        // 方法那条路早就有这一支（`MemberResolver` 的 `Z42InstantiatedType` 收者，
+        // `add-generic-type-arg-inference` 加的），ctor 漏了。照抄它，连同两条纪律：
+        //
+        // ⚠️ **代换结果只作诊断入参、绝不回灌**：`_withDefaults` / `BoxArgs` / params 的
+        // normal-expanded 翻转 / ConvertInstr 插入 都对形参类型敏感，回灌是确定性的自举字节漂移
+        // （那条注释在 `MemberResolver.z42:196-201`，别重踩）。
+        // ⚠️ 用 `CheckSubstitutedArgs` 而非 `CheckArgTypes`：**只补查原签名含型参的那些位**——
+        // 具体类型的位上面已经查过并报过，整条重查会同 span 同消息报两条。
+        this._chkCtorSubstArgs(cms, args, rawArgs, argc, inst, env);
         // 🔴 `params` 尾包在这条路径上**从来没被打包过** —— callee 拿到的是 N 个裸实参而不是
         // 一个数组，运行期 `xs.Length` 读到 Null（实测 `new P(a, b)` 对 `P(params object[] xs)`
         // 直接 `VCall: expected object, got Null`）。方法路径一直有 `_withParamsExpansion`，
