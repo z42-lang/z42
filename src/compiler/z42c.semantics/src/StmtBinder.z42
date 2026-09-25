@@ -31,7 +31,8 @@ public sealed class StmtBinder {
             if (!(ct0 is Z42ArrayType) && feM != null && feM.ContainsKey("GetEnumerator")) {
                 // 索引面判定与下方 feIsClassIter **共用同一套**（此前两处各写一份、两档不一致）。
                 if (!(ForeachProtocol.IsIntIndexer(feM) && ForeachProtocol.CountOf(feM, feF) != "")) {
-                    return this._bindForeachEnumerable(fe, env, ret, ForeachProtocol.EnumeratorDisposable(feM));
+                    return this._bindForeachEnumerable(fe, env, ret,
+                        ForeachProtocol.EnumeratorDisposable(feScope.Symbols, feM));
                 }
             }
             Z42Type feElem = new Z42UnknownType();
