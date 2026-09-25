@@ -214,17 +214,14 @@ ObjectHeader {
 编译期那一侧配套堵住「写 null 进值类型槽」（E0475 / E0476 / E0483），
 `object` → 值类型的**拆箱**则按两段报错，见下。
 
-> 🔴 **仍未覆盖的两格**（不变式尚未全域成立）：
+> ✅ **这两格已由泛型实例化单调化补上**（#831「泛型实例化成为运行期真正的类型」）：
+> `class D : GBox<int> {}` 的继承字段、`struct GS<T> { T F; }` 的型参字段，
+> **存储零值现在都对**（interp / jit 一致，钉在 `src/tests/types/value_field_zero/`）。
+> ⇒ 不变式「值类型的存储槽永不含 `Value::Null`」现已**全域成立**。
 >
-> - **继承链上的型参字段** —— `class D : GBox<int> {}`。派生类型的 `base_name` 只有 `"GBox"`，
->   **实参 `int` 在运行期元数据里根本不存在**，继承来的字段 tag 仍是 `"T"` ⇒ 分配点无从解析。
-> - **泛型 struct 的型参字段** —— `struct GS<T> { T F; }`。存储走 struct blob 的叶子而非对象槽，
->   而 `StructTypeLayout` 只有 `size` / `ref_offsets` / `ref_kinds`，**没有叶子的声明类型名**
->   ⇒ 分不出哪个 ref 叶子是型参字段。
->
-> 两格的共同点：**信息在编译期就被擦掉了**，不是运行期少做了一步。修法属「泛型实例化单调化」
-> （型参字段变真内联字节，`StructLayout._kindOf` 不再把型参名判成 `GcRef` 叶子），见
-> [compiler/generics.md](../compiler/generics.md)。
+> ⚠️ 但**存储**对了不等于**编译期类型**也代换了：继承来的型参字段在编译期仍被当成 `T`，
+> `d.V + 1` / `if (d.V)` 各报 E0402（泛型 struct 那格已代换，两者不是同一条路径）。
+> 那是编译期代换的缺口，见 [compiler/generics.md](../compiler/generics.md)。
 
 ### `object` → 值类型的拆箱：两段检查
 
@@ -240,8 +237,27 @@ ObjectHeader {
 的真异常**，不是内部 `bail!`（改前两种都落在同一条 Rust `Debug` 格式的内部错误上，
 `catch (Exception)` 抓不到）。
 
-⚠️ 反方向的**装箱**（`__box_prim` 收到 `Null`）目前**放行为 `null`**，
-理由与历史见 `corelib/convert.rs` 的注释 —— 那里的取舍已随上述缺口重新记过一遍。
+### 反方向：装箱点收到 `Null` = 不变式被破
+
+`__box_prim` 收到 `Value::Null` 时 **debug 报错、release 放行为 `null`**
+（`alarm-on-boxing-null-value-slot`）。
+
+既然上面那条不变式成立，用户代码就**没有任何合法写法**能把 `Null` 送到装箱点
+（E0475 / E0476 / E0483 在编译期堵住）⇒ 走到那里只可能是 **VM / 编译器缺陷**。
+
+| 档 | 行为 | 为什么 |
+|---|---|---|
+| debug | `bail!`，消息指明「不变式被破、去查这个值从哪个槽读出来的」 | **e2e golden 语料默认跑 debug VM**（`_activeVm(root, "debug")`）⇒ 整个语料成为这条不变式的探测器，缺陷炸在**发生点** |
+| release | 原样返 `null`（与 `fix-box-null-nullable` 之后一字不变） | 摸底零命中只说明现有语料没踩到，不等于不存在；不拿用户的崩溃换诊断能力 |
+
+⚠️ **这里不能报用户级异常**（与拆箱那侧的关键差别）：拆箱是**用户写的**转换，所以 #746 抛
+`NullReferenceException` / `InvalidCastException` 是对的；装箱点的 `Null` 不是用户的错，
+报用户级异常会把责任指向错误的一方。
+
+> 历史：这条分支原是 `fix-box-null-nullable` (#717) 的**无声放行**，理由是「`?` 纯擦除 ⇒
+> `int x = null;` 合法 ⇒ 装箱点分不清用户合法赋 null 与读到未初始化槽位」。那套前提已随
+> `enforce-value-type-non-null` 全部作废（那三个诊断码），所以「分不清好坏信号」这个核心取舍
+> 也不再成立 —— 今天的信号是明确的。
 
 ---
 

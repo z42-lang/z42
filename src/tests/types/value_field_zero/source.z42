@@ -16,6 +16,12 @@ class Stat {
 class GBox<T> { public T V; public GBox() { } }
 class Multi<A, B> { public A X; public B Y; public Multi() { } }
 class Mixed<T> { public int N; public T V; public Mixed() { } }
+// 继承格：派生类本身不是泛型，型参字段是从闭合基类继承来的
+class DInt  : GBox<int>  { public DInt()  { } }
+class DBool : GBox<bool> { public DBool() { } }
+// 泛型 struct 格：存储走 struct blob 的叶子，不是对象槽
+struct GStruct<T>  { public T F; }
+struct GStruct2<T> { public T F; public int N; }
 
 void Main() {
     Holder h = new Holder();
@@ -58,4 +64,34 @@ void Main() {
     // 🔒 T 是引用类型时不介入
     GBox<string> gs = new GBox<string>();
     Assert.Equal(true, gs.V == null);
+
+    // ── 下面两格曾经是这条不变式唯一的两个缺口 ──────────────────────────────
+    // 它们与上面那些**不是同一条实现路径**：运行期分配点根本看不到实参
+    //（派生类的 base 拼写不带实参；struct 布局只有 offset/kind、没有叶子的声明类型），
+    // 所以只能由编译期的泛型实例化单调化解决（complete-generic-instantiation）。
+    // ⇒ 这两条断言钉的是**那条线**的成果，别把它们当成分配点那层的回归。
+
+    // ① 继承来的型参字段 —— **存储**已经是零值了
+    DInt d = new DInt();
+    Assert.Equal(0, d.V);
+    DBool dbl = new DBool();
+    Assert.Equal(false, dbl.V == true);
+    Assert.Equal(true,  dbl.V == false);   // Null 会让这两条同时为假
+    //
+    // ⚠️ 这一格**只能断言到这里**：继承来的型参字段在**编译期仍被当成 `T`**（没有按闭合基类
+    // `GBox<int>` 代换）⇒ 下面两行今天编不过，各报 E0402：
+    //     Assert.Equal(1, d.V + 1);   // operator `+` requires numeric operand, got `T`
+    //     if (dbl.V) { … }            // `if` condition must be `bool`, got `T`
+    // 那是**编译期代换**的缺口（另一条线：complete-generic-instantiation），与本页钉的
+    // **存储零值**是两件事。⇒ 那个缺口补上后，把这两行取消注释。
+
+    // ② 泛型 struct 的型参字段 —— 这一格连**编译期类型**都已代换（算术 / `if` 都能写），
+    //    与 ① 的差别本身就是个结论：两格不是同一条实现路径。
+    GStruct<int> gst = new GStruct<int>();
+    Assert.Equal(0, gst.F);
+    Assert.Equal(1, gst.F + 1);
+    GStruct2<bool> gst2 = new GStruct2<bool>();
+    Assert.Equal(false, gst2.F == true);
+    Assert.Equal(true,  gst2.F == false);
+    Assert.Equal(0, gst2.N);           // 同一个 struct 里的具体类型字段也要对
 }

@@ -19,25 +19,42 @@ pub fn builtin_box_prim(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if matches!(inner, Value::BoxedStruct(_)) {
         return Ok(inner.clone());
     }
-    // Null → null 引用，不 bail。
+    // `Null` 到了装箱点 = **不变式被破**，debug 响一声、release 放行。
     //
-    // ⚠️ 这条分支是 fix-box-null-nullable (#717) 加的，但**它当初给的理由已经作废**，别照着读：
-    // 那时的论证是「`?` 纯标注、擦除彻底 ⇒ `int x = null;` 能编能跑 ⇒ int 槽里装着 Null 是
-    // 语言允许的状态 ⇒ 用户给 `int?` 赋 null 合法且常见」。enforce-value-type-non-null (#741)
-    // 之后这些全是编译错误：`int x = null;` → E0475，`int?` → E0476，且定下了不变式
-    // **值类型的存储槽永不含 Value::Null**。对应的 golden 也已随 #741 删除。
+    // enforce-value-type-non-null (#741) 立下的不变式是「**值类型的存储槽永不含
+    // `Value::Null`**」，配套的编译期门是 E0475（`int x = null;`）/ E0476（`int?`）/
+    // E0483（值类型与 null 比较）。⇒ 用户代码**没有任何合法写法**能把 `Null` 送到这里；
+    // 走到这条分支只可能是 **VM / 编译器自己的缺陷**。
     //
-    // 于是「装箱点分不清好坏信号」这个当初的核心取舍也不再成立：用户代码**不可能**再合法地
-    // 把 Null 送到这里。今天 Null 走到这里**只可能是 VM 自己的缺陷**，已知唯一来源是
-    // **泛型型参字段没有零值**（`class GBox<T> { public T V; }` 的 `GBox<int>().V` 读出 Null，
-    // 因为布局按定义算、型参名落 GcRef 槽）——那条洞记在
-    // docs/spec/archive/2026-09-25-enforce-value-type-non-null/tasks.md「已知未堵的洞」，
-    // 归 complete-generic-instantiation 线修。
+    // ⚠️ 这条分支原本是 fix-box-null-nullable (#717) 加的**无声放行**，理由是
+    // 「`?` 纯擦除 ⇒ `int x = null;` 能编能跑 ⇒ int 槽里装着 Null 是语言允许的状态 ⇒
+    // 装箱点分不清『用户合法赋 null』与『读到未初始化槽位』」。**那套前提已随 #741 全部作废**
+    // （上述三个诊断码），所以「分不清好坏信号」这个核心取舍也不再成立 —— 今天的信号是**明确的**。
     //
-    // 为什么**现在**还是放行而不是改回 bail：那个洞还在飞，改成 bail 等于把一个静默错值
-    // 变成一条在飞的崩溃。⇒ 洞修掉之后重新裁决这里该不该「响一声」
-    // （拆箱那一侧已经由 #746 改成响了：NullReferenceException / InvalidCastException）。
+    // 为什么是 debug-only 而不是无条件报错（两边都掂量过）：
+    // - **debug 响**：e2e golden 语料默认跑的就是 **debug 版 z42vm**
+    //   （`scripts/test/xtask_test_vm.z42` 的 `_activeVm(root, "debug")`），
+    //   ⇒ 整个 golden 语料 + 单测在 CI 里成为这条不变式的探测器，缺陷当场炸在**发生点**，
+    //   而不是像以前那样让 `Null` 顺流而下、炸在毫不相干的地方（或者干脆静默给出错值）。
+    // - **release 放行**：万一还有本仓测试覆盖不到的路径（反射 / interop / 平台特有路径）
+    //   会送 Null 进来，用户拿到的发行版行为与 #717 之后**一字不变** —— 不拿用户的崩溃
+    //   去换我们的诊断能力。摸底（全量 `xtask test`，探针设成无条件 bail）**零命中**，
+    //   但「零命中」只说明现有语料没踩到，不等于不存在 ⇒ 保守留放行。
+    // - 若它在若干个版本里一直不响，再提升为无条件报错。
+    //
+    // 拆箱那一侧的对应决定见 make-hard-cast-fail-properly (#746)：`(int)o` 遇 null 抛
+    // `NullReferenceException`、类型不符抛 `InvalidCastException`。那边能抛**用户级异常**
+    // 是因为那是用户写的转换；这里不行 —— 这里的 `Null` 不是用户的错，报用户级异常会指错责任方。
     if matches!(inner, Value::Null) {
+        if cfg!(debug_assertions) {
+            bail!(
+                "__box_prim received Null — 「值类型的存储槽永不含 Value::Null」这条不变式被破。\
+                 用户代码不可能合法地走到这里（E0475 / E0476 / E0483 已在编译期堵住），\
+                 所以这是 VM 或编译器的缺陷：请查这个值是从哪个槽读出来的（字段 / 数组元素 / \
+                 帧槽 / 泛型型参字段），而不是查调用方的 z42 代码。class arg = {:?}",
+                args.get(1)
+            );
+        }
         return Ok(Value::Null);
     }
     let raw = match inner {
