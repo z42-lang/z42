@@ -161,7 +161,7 @@ string[] _displaySrcs(string[] srcs) {
 // cacheDirOverride：workspace 构建由 WsPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
 // 源码树）；"" = 按本工程 manifest 解析（BuildLayout）。
 // hiddenPkgs：workspace 构建里拓扑序排在本成员之后的成员名——编译扫描与依赖身份都看不见它们（null = 全可见）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int optSet, bool fix, string[] hiddenPkgs) {
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, string[] hiddenPkgs) {
     ProjectManifest pm = ManifestLoader.Load(tomlPath);
     // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
     // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
@@ -240,7 +240,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 while (oi < accN) { depOverride[oi] = accum[oi]; oi = oi + 1; }
                 int depOverrideN = accN;
                 if (baseLib.Length > 0) { depOverride[depOverrideN] = baseLib; depOverrideN = depOverrideN + 1; }
-                int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, optSet, false, null);
+                int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null);
                 if (dbc != 0) { return dbc; }
                 accum[accN] = depDist; accN = accN + 1;
                 closureNames[closureN] = depPm.Project.Name; closureN = closureN + 1;
@@ -280,7 +280,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     string[] azPaths = null;
     if (pm.AnalyzerCount > 0) {
         HandlerZpkgs hz = _resolveHandlerZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
-                                               isRelease, noIncremental, optSet);
+                                               isRelease, noIncremental, cliAdd, cliRemove);
         if (hz.Code != 0) { return hz.Code; }
         azPaths = hz.Paths;
     }
@@ -321,8 +321,39 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     bool incrOff = noIncremental || !pm.Build.Incremental;
     // 依赖身份（add-dep-identity-to-cache-key）：编译要扫的依赖 zpkg 的 BLID/内容哈希。probe 比对、cache 写入共用
     // 同一个值——libsDirs 此处已是最终形态（含 path 依赖闭包的 dist）；DepScanCache memo 使编译期扫描零重读。
+    // wire-optimize-manifest：**`[optimize]` 的唯一接线点**（这里 `pm` 在手；workspace 的
+    // per-member 构建每个成员各走一遍本函数 ⇒ 每个成员用自己的 `[optimize]`）。
+    //
+    // 修前：`BuildCommand` 自己算出 optSet 再透下来，而它调的是 `Opt.Resolve(isRelease, 0, 0, …)`
+    // —— 两个 0 硬编码 ⇒ **`z42.toml` 的 `[optimize]` 段被静默忽略**（写 `inline = false` 照样
+    // 内联、零诊断）。字节对账实测：`inline=true` 与 `false` 编出的 zpkg **逐字节相同**；而同一
+    // 份源加 CLI `--no-opt inline` 字节不同（阳性对照 ⇒ 对账有判别力，toml 那条确实是死的）。
+    // 优先级由 `Opt.Resolve` 保证：**CLI > toml > profile 默认**（它一直这么写着，只是没人喂）。
+    //
+    // ⚠️ 必须解在 `depsId` **之前** —— 优化集要并进包级缓存身份，见下。
+    OptTomlResult optToml = Opt.FromToml(pm.OptimizeNames, pm.OptimizeValues, pm.OptimizeCount);
+    if (optToml.UnknownCount > 0) {
+        // 不静默忽略未知名（`Opt.ByName` 的注释就是这么要求的），与 CLI 侧 `--opt 乱写` 报错
+        // 同一口径 —— 同一个名字表，两条入口不该一个报错一个装没看见。
+        int uk = 0;
+        while (uk < optToml.UnknownCount) {
+            ConsoleError.WriteLine("z42c: " + tomlPath + ": [optimize] unknown optimization `"
+                + optToml.Unknown[uk] + "` (known: const-fold/copy-prop/dce/inline/cse/licm/"
+                + "stack-alloc/loop-alloc-reuse/readonly-load/pure-call/dead-branch/devirt/all/none)");
+            uk = uk + 1;
+        }
+        return ExitCode.UsageError;
+    }
+    int effOptSet = Opt.Resolve(isRelease, optToml.Bits, optToml.Mask, cliAdd, cliRemove);
     int hiddenN = hiddenPkgs != null ? hiddenPkgs.Length : 0;
     string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, hiddenPkgs, hiddenN);
+    // wire-optimize-manifest：**优化集并进包级缓存身份**。它此前不在任何 cache key 里——那时无害
+    // （`[optimize]` 整段被忽略，optSet 只由 CLI/profile 决定，而这两者不会在「源没变」时悄悄变）。
+    // 接线之后就有害了：改一行 toml 不碰源码 ⇒ probe 全命中 ⇒ **旋钮全量构建生效、增量构建被忽略**
+    // （实测：改成 `inline=false` 后 `cached: 1/1`、产物仍 960 字节）。那种「有时生效」比「从不
+    // 生效」更难查。并进这里而不是新加一行 meta：`depsId` 本就是「包级身份，不符即整包全量」，
+    // 优化集确实属于同一维度，且零签名改动（下游四处原样继承）。
+    depsId = depsId + "|opt" + effOptSet.ToString();
     // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
     // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
     // 实际生效的 cache 目录：workspace 成员由 WsPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
@@ -441,7 +472,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.HasEntry = pm.Project.HasEntry; cin.Entry = pm.Project.Entry;
     cin.IsRelease = isRelease;
     cin.Fix = fix;         // PR7-wire：`--fix` → _runAnalyzers 传 6-参 Run，analyzer 携修复就地重写源
-    cin.OptSet = optSet;   // add-compiler-inlining：-1=profile 默认；否则 CLI 解析后的优化集
+    cin.OptSet = effOptSet;   // wire-optimize-manifest：上方已按 CLI > toml > profile 解出
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.HiddenPkgs = hiddenPkgs; cin.HiddenN = hiddenN;
     cin.DeclaredDeps = declaredDeps; cin.DepCount = pm.DepCount;

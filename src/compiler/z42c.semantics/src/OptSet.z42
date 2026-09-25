@@ -74,4 +74,46 @@ public static class Opt {
         set = set & (Opt.All - cliRemove);
         return set;
     }
+
+    // wire-optimize-manifest：把 manifest `[optimize]` 的**中性 name/value 对**折成
+    // `Resolve` 要的 (bits, mask) —— 解释权在消费方（`z42.project` 只搬运，不认识 Opt 位）。
+    //
+    // ⚠️ 这个函数此前**不存在**，于是 `Resolve` 的 `tomlBits`/`tomlMask` 两个形参从来没人填：
+    // `BuildCommand` 调的是 `Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove)`。结果是
+    // **`z42.toml` 的 `[optimize]` 段被静默忽略** —— 写 `inline = false` 照样内联，零诊断。
+    // 实测（字节对账 + 阳性对照）：`inline=true` 与 `inline=false` 编出的 zpkg **逐字节相同**，
+    // 而同一份源用 CLI `--no-opt inline` 字节不同 ⇒ 对账有判别力、toml 那条是死的。
+    // `ProjectManifest.z42` 的注释当时却写着「消费方按名映射到 Opt 位…交 Opt.Resolve」。
+    //
+    // 未知名**不静默忽略**（`ByName` 的注释就是这么要求的）：记进 `Unknown`，由调用方报错。
+    // 与 CLI 侧 `--opt 乱写` 报错（`BuildCommand._unknownOpt`）同一口径 —— 同一个名字表，
+    // 两条入口不该一个报错一个装没看见。
+    public static OptTomlResult FromToml(string[] names, bool[] values, int count) {
+        var r = new OptTomlResult();
+        if (names == null || values == null || count <= 0) { return r; }
+        string[] unk = new string[count];
+        int un = 0;
+        int i = 0;
+        while (i < count) {
+            int b = Opt.ByName(names[i]);
+            if (b < 0) { unk[un] = names[i]; un = un + 1; }
+            else {
+                r.Mask = r.Mask | b;                      // 「该项在 toml 里显式写了」
+                if (values[i]) { r.Bits = r.Bits | b; }   // 值为 true 才置位
+            }
+            i = i + 1;
+        }
+        r.Unknown = unk; r.UnknownCount = un;
+        return r;
+    }
+}
+
+// `Opt.FromToml` 的产物。独立类而非 out 形参：z42 的 `ref`/`out` 当前是**静默失败特性**
+// （见 add-ref-borrow-system），不能用在新代码里。
+public sealed class OptTomlResult {
+    public int      Bits;            // 显式写了且值为 true 的位
+    public int      Mask;            // 显式写了的位（无论真假）——未写的位保持 profile 默认
+    public string[] Unknown;         // `[optimize]` 里不认识的名字（调用方报错用）
+    public int      UnknownCount;
+    public OptTomlResult() { this.Bits = 0; this.Mask = 0; this.Unknown = new string[0]; this.UnknownCount = 0; }
 }
