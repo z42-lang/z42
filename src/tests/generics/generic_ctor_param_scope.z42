@@ -1,0 +1,76 @@
+// fix-ctor-param-resolved-in-caller-scope：构造器形参的声明类型里含**型参**时，这个类
+// 曾经**根本构造不出来**。
+//
+// 修前（实测）：
+//   class Wrap<U> { public Wrap(G<U> inner) {…} }
+//   new Wrap<int>(new G<int>(7));
+//   ⇒ E0402: cannot assign G<Int32> to G<<unknown>> (argument)   ← 假红
+//
+// 根因：`OverloadBinder._adaptParamType` 在 `md != null` 时拿
+// `env.ResolveType(md.Params[i].Type)` —— 那是在**调用点**的环境里重新解析声明类型，而声明
+// 类型里的型参（`U`）在调用点根本不存在 ⇒ 解析成 `Unknown`。
+//
+// ⚠️ **同一个根因有两副面孔**：裸 `U` / `U[]` 形参侥幸无害 —— `Unknown` 被转换格吸收、
+// 静默放行，那是**漏报**；只有嵌套的 `G<U>` 会结构比对而变成**误报**。所以本用例
+// 既要证明误报没了，也要证明漏报那侧现在真的会响（下半段）。
+//
+// 修法：含型参的形参位**不走这条检查**，交给按实参代换后的补查
+// （`ConstructTyper._chkCtorSubstArgs`）—— 与既有纪律「只补查原签名含型参的那些位」正好分区。
+namespace Demo;
+
+using Std;
+
+class G<T> {
+    public T V;
+    public G(T v) { this.V = v; }
+}
+
+class Wrap<U> {
+    public G<U> Inner;
+    public Wrap(G<U> inner) { this.Inner = inner; }
+}
+
+// 型参出现在更深的位置：`G<G<U>>`
+class Deep<U> {
+    public G<G<U>> Inner;
+    public Deep(G<G<U>> inner) { this.Inner = inner; }
+}
+
+// 混合：一个含型参的位 + 一个具体类型的位（后者仍走原路检查）
+class Mixed<U> {
+    public G<U> A;
+    public int  B;
+    public Mixed(G<U> a, int b) { this.A = a; this.B = b; }
+}
+
+// 裸型参 / 数组型参（修前是**漏报**那一侧）
+class Bare<U> {
+    public U V;
+    public Bare(U v) { this.V = v; }
+}
+
+void Main() {
+    // ── ① 嵌套型参形参：修前假红、根本构造不出来 ────────────────────────
+    Wrap<int> w = new Wrap<int>(new G<int>(7));
+    Assert.Equal(7, w.Inner.V);
+
+    Wrap<string> ws = new Wrap<string>(new G<string>("s"));
+    Assert.Equal("s", ws.Inner.V);
+
+    // ── ② 更深的嵌套 ───────────────────────────────────────────────────
+    Deep<int> d = new Deep<int>(new G<G<int>>(new G<int>(9)));
+    Assert.Equal(9, d.Inner.V.V);
+
+    // ── ③ 混合：含型参位 + 具体类型位 ───────────────────────────────────
+    Mixed<int> m = new Mixed<int>(new G<int>(1), 2);
+    Assert.Equal(1, m.A.V);
+    Assert.Equal(2, m.B);
+
+    // ── ④ 裸型参形参（阴性对照：这一侧修前后都该编得过）──────────────────
+    Bare<int> b = new Bare<int>(5);
+    Assert.Equal(5, b.V);
+
+    // ── ⑤ 阴性对照：非泛型 ctor 的实参检查一字不动 ──────────────────────
+    G<int> g = new G<int>(3);
+    Assert.Equal(3, g.V);
+}

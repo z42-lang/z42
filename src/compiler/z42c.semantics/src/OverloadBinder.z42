@@ -519,7 +519,7 @@ public sealed partial class OverloadBinder {
                 slots[idx] = this._tc._expr.BindWithTarget(ae.Value, npt, env); filled[idx] = true;
                 // add-argument-type-check：命名实参路径不经 `_checkArgTypes` 汇聚点（本方法直接产
                 // 形参序 slots），须就地检查——否则 `f(x: wrongType)` 与 ctor 的命名实参成为漏网。
-                this.CheckArg(slots[idx], npt, ae.Value.Span, env);
+                if (!OverloadBinder._paramMentionsTypeParam(ms, idx)) { this.CheckArg(slots[idx], npt, ae.Value.Span, env); }
             } else {
                 if (pos >= pc) { return null; }
                 // add-target-typed-new：位置实参按对应形参类型绑定（支持 `f(new())`）。
@@ -538,7 +538,7 @@ public sealed partial class OverloadBinder {
                     && !slots[pos].Type().IsAssignableTo(ppt)) {
                     chk = (ppt as Z42ArrayType).Elem;
                 }
-                this.CheckArg(slots[pos], chk, a.Span, env);
+                if (!OverloadBinder._paramMentionsTypeParam(ms, pos)) { this.CheckArg(slots[pos], chk, a.Span, env); }
                 pos = pos + 1;
             }
             i = i + 1;
@@ -576,6 +576,26 @@ public sealed partial class OverloadBinder {
     }
 
     // `_adaptArgs` 的形参类型：本地按声明的类型表达式在调用环境解析（沿用既有口径），导入取签名上的已解析类型。
+    // fix-ctor-param-resolved-in-caller-scope：该形参的**声明类型里含不含型参**（递归：`G<U>` 含、
+    // `U[]` 含、`int` 不含）。含则**本路径不检查它**，交给按 receiver 实参代换后的补查
+    // （ctor 走 `ConstructTyper._chkCtorSubstArgs`，方法走 `MemberResolver` 的
+    // `CheckSubstitutedArgs`）—— 与那条既有纪律「只补查原签名含型参的那些位」正好分区，
+    // 不重不漏、不会同 span 报两条。
+    //
+    // 🔴 **为什么这里必须跳过**：`_adaptParamType` 在 `md != null` 时拿
+    // `env.ResolveType(md.Params[i].Type)` —— 那是在**调用点**的环境里重新解析声明类型，而声明
+    // 类型里的型参（`U`）在调用点根本不存在 ⇒ 解析成 `Unknown`。
+    // 裸 `U` / `U[]` 侥幸无害（`Unknown` 被转换格吸收 ⇒ 静默放行，本身是**漏报**）；
+    // 嵌套的 `G<U>` 则变成 `G<<unknown>>`，与实参 `G<int>` 结构比 ⇒ **假红**：
+    //   `class Wrap<U> { Wrap(G<U> inner) {…} }` 的 `new Wrap<int>(new G<int>(p))`
+    //   报 `E0402: cannot assign G<Int32> to G<<unknown>>` —— 这个类**根本构造不出来**。
+    // ⇒ 同一个根因的两副面孔：一边漏报、一边误报。
+    private static bool _paramMentionsTypeParam(MethodSymbol ms, int i) {
+        if (ms == null || ms.Signature == null) { return false; }
+        if (i < 0 || i >= ms.Signature.ParamCount) { return false; }
+        return Conversion._hasGenericParam(ms.Signature.ParamTypes[i]);
+    }
+
     private Z42Type _adaptParamType(MethodSymbol ms, MethodDecl md, int i, TypeEnv env) {
         if (md != null) { return env.ResolveType(md.Params[i].Type); }
         return ms.Signature.ParamTypes[i];
