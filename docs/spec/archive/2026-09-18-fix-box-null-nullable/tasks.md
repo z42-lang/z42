@@ -1,6 +1,30 @@
 # Tasks: 装箱 null 的可空值类型抛内部错误
 
 > 状态：🟢 已完成 | 完成：2026-09-18
+>
+> ## ⚠️ 后续变更推翻了本变更的前提（2026-09-25 补记）
+>
+> 本变更的整个论证依赖一句话：「`?` 是纯标注、擦除彻底，所以 **`int x = null;` 能编能跑**，
+> 『int 槽里装着 Null』是**语言明确允许的状态**」。这句话**现在是假的**：
+>
+> | 本变更当时依赖的前提 | 今天 |
+> |---|---|
+> | `int x = null;` 能编能跑 | ❌ 编译错误 **E0475** |
+> | `int? n = null;` 合法且常见 | ❌ 编译错误 **E0476**（值类型不许 `?`） |
+> | 「int 槽里装着 Null」是允许的状态 | ❌ `enforce-value-type-non-null` 定下不变式：**值类型的存储槽永不含 `Value::Null`** |
+> | golden `src/tests/types/box_null_nullable.z42` | 已被 **#741** 删除（前提消失） |
+>
+> **拆箱那一侧的方向已被反转**（`enforce-value-type-non-null` design §D3 要求「恢复响一声，
+> 但抛用户级异常而非内部错误」），由 **#746** 落地：`(int)o` 在 `o` 为 null 时抛
+> `NullReferenceException`、类型不符时抛 `InvalidCastException`（用例
+> `src/tests/types/hard_cast_value/`，interp + jit 均已实跑核实）。
+>
+> **装箱这一侧的 Null 直通仍然保留**，但理由已经换了一套 —— 不再是「用户合法地把 null 放进了
+> `int?`」（那条路已被编译期堵死），而是：Null 走到 `__box_prim` **今天只可能来自 VM 自己的缺陷**。
+> 已知唯一来源是**泛型型参字段没有零值**（`GBox<int>().V` 读出 `Null`），见
+> `archive/2026-09-25-enforce-value-type-non-null/tasks.md`「已知未堵的洞」。
+> ⇒ 那个洞修掉之后，这里的 Null 直通该不该改回「响一声」要重新裁决 —— **现在改会把它变成
+> 一条在飞的崩溃**，所以先留着，但注释里不能再写已经作废的理由（`corelib/convert.rs` 已同步）。
 
 - [x] 1 `builtin_box_prim` 加 `Value::Null` → `Value::Null` 分支（放在幂等分支旁）
 - [x] 2 golden `src/tests/types/box_null_nullable.z42`

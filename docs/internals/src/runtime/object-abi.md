@@ -182,6 +182,51 @@ ObjectHeader {
 - 名→槽由 `TypeDesc.field_index`（类级共享）。**继承:基类字段在前、子类追加**（基类槽号父子稳定）。
 - 访问 `obj.f` = `slots[常量槽号]`（O(1)）；JIT = `slots 基址 + 槽号×sizeof(Value)` 的 Value 大小 load/store → **槽偏移 + Value 大小是 ABI 一部分,须固化**。
 
+### 槽位零初始化（`enforce-value-type-non-null`）
+
+**不变式：值类型的存储槽永不含 `Value::Null`。** 值类型「默认值是 null」曾经不是一条策略，
+而是存储初始化**根本不看声明类型**（`vec![Value::Null; n]`）；由此长出一族内部错误
+（`__box_prim: expected integer value, got Null` / `type mismatch in arithmetic: Null vs I64(1)`），
+历史上反复在**读取侧**打补丁。
+
+今天的口径是**在分配点一次解决**：`alloc_object` 不再逐字段填默认值，而是按
+`TypeDesc::object_storage()` composed layout 分配**整块零字节区 + `Null` 引用区**
+（`gc/arc_heap/interface.rs`）。于是：
+
+| 槽的种类 | 零值 | 为什么对 |
+|---|---|---|
+| 基元值字段（int/bool/char/double/long…） | 字节零 ⇒ `0` / `false` / `'\0'` / `0.0` | 值落在 bytes 区 |
+| 引用字段 | `Value::Null` | `null` 本就是引用类型的零值 |
+| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取 |
+
+编译期那一侧配套堵住「写 null 进值类型槽」（E0475 / E0476 / E0483），
+`object` → 值类型的**拆箱**则按两段报错，见下。
+
+> 🔴 **已知缺口：泛型型参字段。** 布局**按定义**算，型参名落 `StructLeafKind.GcRef`
+> ⇒ `class GBox<T> { public T V; }` 里 `V` 是 **ref 槽**，于是 `GBox<int>().V` 的零值是
+> `Null` 而不是 `0`（`== 0` 为 false、赋给 `int` 局部得 Null、算术抛内部错误，
+> 且 `== 0` 在 interp / jit 上**结论相反**）。上面这条不变式因此**尚未全域成立**。
+> 修法属「泛型实例化单调化」（型参字段变真内联字节），见
+> [compiler/generics.md](../compiler/generics.md) 与
+> `docs/spec/archive/2026-09-25-enforce-value-type-non-null/tasks.md`「已知未堵的洞」。
+
+### `object` → 值类型的拆箱：两段检查
+
+拆箱失败分**两种**错，各报各的（`make-hard-cast-fail-properly` #746；用例
+`src/tests/types/hard_cast_value/`，interp + JIT 行为一致）：
+
+| 情形 | 异常 | 消息 |
+|---|---|---|
+| 收者是 null | `NullReferenceException` | ``cannot unbox null to `int` `` |
+| 收者类型不符 | `InvalidCastException` | ``cannot cast string to `int` `` |
+
+**顺序不能反**：null 没有类型，先查类型会得到一条误导的消息。两者都是**用户级可 `catch`
+的真异常**，不是内部 `bail!`（改前两种都落在同一条 Rust `Debug` 格式的内部错误上，
+`catch (Exception)` 抓不到）。
+
+⚠️ 反方向的**装箱**（`__box_prim` 收到 `Null`）目前**放行为 `null`**，
+理由与历史见 `corelib/convert.rs` 的注释 —— 那里的取舍已随上述缺口重新记过一遍。
+
 ---
 
 ## 4. GcRef 语义

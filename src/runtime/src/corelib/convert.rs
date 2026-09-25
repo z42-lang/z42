@@ -19,19 +19,24 @@ pub fn builtin_box_prim(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     if matches!(inner, Value::BoxedStruct(_)) {
         return Ok(inner.clone());
     }
-    // fix-box-null-nullable：装箱一个值为 null 的可空值类型 → null 引用。
-    // 对齐 C#：`int? n = null; object o = n;` 得到 `o == null`（不是装箱的 0，也不是异常）。
+    // Null → null 引用，不 bail。
     //
-    // 为什么 Null 会走到这里：z42 的 `?` 是纯标注、类型解析期**擦除**，`int x = null;`
-    // 本身就能编能跑（见 reference/language/types.md「可空标记」）。所以「int 槽里装着 Null」
-    // 是语言允许的状态，编译器仍会在 prim→object 转换点无条件发 `__box_prim`。
+    // ⚠️ 这条分支是 fix-box-null-nullable (#717) 加的，但**它当初给的理由已经作废**，别照着读：
+    // 那时的论证是「`?` 纯标注、擦除彻底 ⇒ `int x = null;` 能编能跑 ⇒ int 槽里装着 Null 是
+    // 语言允许的状态 ⇒ 用户给 `int?` 赋 null 合法且常见」。enforce-value-type-non-null (#741)
+    // 之后这些全是编译错误：`int x = null;` → E0475，`int?` → E0476，且定下了不变式
+    // **值类型的存储槽永不含 Value::Null**。对应的 golden 也已随 #741 删除。
     //
-    // 取舍：此前这里 bail 成 `__box_prim: expected integer value, got Null`，曾经顺带暴露过
-    // 「泛型数组未写槽位读出 Null」那类真 bug（见 interp/exec_array.rs 的注释；根因已由
-    // fix-generic-array-value-zero-init 在源头修掉）。但它**不是一道有效防线**——因为 `?`
-    // 完全擦除，装箱点无法区分「用户给 int? 赋了 null」（合法且常见）与「读到未初始化槽位」
-    // （bug），两者在 Value 层面完全相同。未初始化那类仍会在后续使用点暴露（拆箱 / 算术，
-    // 例如 `x + 1` 报 `type mismatch in arithmetic: Null vs I64(1)`）。
+    // 于是「装箱点分不清好坏信号」这个当初的核心取舍也不再成立：用户代码**不可能**再合法地
+    // 把 Null 送到这里。今天 Null 走到这里**只可能是 VM 自己的缺陷**，已知唯一来源是
+    // **泛型型参字段没有零值**（`class GBox<T> { public T V; }` 的 `GBox<int>().V` 读出 Null，
+    // 因为布局按定义算、型参名落 GcRef 槽）——那条洞记在
+    // docs/spec/archive/2026-09-25-enforce-value-type-non-null/tasks.md「已知未堵的洞」，
+    // 归 complete-generic-instantiation 线修。
+    //
+    // 为什么**现在**还是放行而不是改回 bail：那个洞还在飞，改成 bail 等于把一个静默错值
+    // 变成一条在飞的崩溃。⇒ 洞修掉之后重新裁决这里该不该「响一声」
+    // （拆箱那一侧已经由 #746 改成响了：NullReferenceException / InvalidCastException）。
     if matches!(inner, Value::Null) {
         return Ok(Value::Null);
     }
