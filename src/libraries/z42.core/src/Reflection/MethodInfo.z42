@@ -31,6 +31,39 @@ public class MethodInfo : MethodBase {
 
     // __parameters / GetParameters() and __qualified are inherited from MethodBase.
 
+    // ── 值相等（add-reflection-value-equality）────────────────────────────────
+    //
+    // 与 `Std.Type` 同一刀：修前 `methodof(X.M) == methodof(X.M)` 是 **false**（无相等成员 ⇒
+    // `==` 落引用比较，而每次求值新建对象）。身份判据 = **`__qualified`**（FQ 方法名，
+    // 重载决议后已定，是这个 `MethodInfo` 指代谁的唯一真相）。
+    //
+    // 🔴 **必须与 `Type` 一起做**：`methodof.md` 明写「单给一边加……会让两个号称对称的特性
+    // 行为不一致」。只给 `Type` 补值相等就正好制造出它警告的那种不对称。
+    //
+    // 🔴 判空用 `Object.ReferenceEquals`，写 `a == null` 会递归派发回本运算符（栈溢出）。
+    // ⚠️ 不做对象驻留：`ReferenceEquals(methodof(X.M), methodof(X.M))` 仍为假。
+    public static bool operator ==(MethodInfo a, MethodInfo b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return an && bn; }
+        return a.__qualified == b.__qualified;
+    }
+
+    public static bool operator !=(MethodInfo a, MethodInfo b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return !(an && bn); }
+        return a.__qualified != b.__qualified;
+    }
+
+    public override bool Equals(object other) {
+        MethodInfo m = other as MethodInfo;
+        if (Object.ReferenceEquals(m, null)) { return false; }
+        return this.__qualified == m.__qualified;
+    }
+
+    public override int GetHashCode() { return this.__qualified.GetHashCode(); }
+
     // ── Custom attributes (C3b add-attribute-reflection-methods) ────────────
 
     // Cached attribute instances (see Type.GetCustomAttributes for rationale).

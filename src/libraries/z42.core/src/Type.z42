@@ -8,10 +8,15 @@ namespace Std;
 // reflection builtins, writing `__name` / `__fullName` directly.
 //
 // Primitives (`int` / `long` / `bool` / …) resolve to their real `Std.*` wrapper
-// struct handle — `typeof(int)` is the *same* Type as `(5).GetType()` (C#
+// struct handle — `typeof(int)` **equals** `(5).GetType()` (C#
 // `typeof(int) == 5.GetType()`): Name `Int32`, FullName `Std.Int32`, IsValueType
 // true, members enumerable. Only arrays (`T[]`) return a handle-less synthetic
 // (Name/FullName populated, member queries empty). fix-type-reflection-names.
+//
+// ⚠️ 「equals」是**值相等**（按 `FullName`，见下方 `op_Equality`），不是同一个对象 ——
+// 每次 `typeof` / `GetType()` 都新建，`ReferenceEquals` 恒为假。
+// 📜 本段原先写的是「is the *same* Type as」，那在 `add-reflection-value-equality` 之前
+// **是一句假断言**：当时 `Type` 连值相等都没有，`typeof(int) == 5.GetType()` 实测为 `false`。
 //
 // Mirrors C# `System.Type`. Runtime generic instantiation via `MakeGenericType`
 // (plan-generic-reflection G1); z42's reified type-erasure means this needs no
@@ -68,6 +73,50 @@ public sealed class Type : MemberInfo {
     // Fully-qualified name including namespace, e.g. "geometry.Circle".
     [Native("__type_full_name")]
     public extern string FullName { get; }
+
+    // ── 值相等（add-reflection-value-equality）────────────────────────────────
+    //
+    // 🔴 修前 `typeof(int) == typeof(int)` 是 **false**：`Type` 没有任何相等成员，`==` 落引用
+    // 比较，而每次 `typeof` / `GetType()` 都新建一个对象。于是**一切按 `typeof` 分派的代码都
+    // 静默走错分支** —— 序列化器的招牌写法 `if (typeof(T) == typeof(int))` 恒不命中，零诊断。
+    // 与泛型无关：非泛型的 `typeof(int) == typeof(int)` 就已经是 false。
+    //
+    // 身份判据 = **`FullName`**。`Type` 在 z42 里的身份就是 FQ 名：`typeof(int)` 与
+    // `(5).GetType()` 都得 `Std.Int32`（`fix-type-reflection-names` 起如此），数组等无句柄的
+    // 合成体也有填好的 `FullName`。
+    //
+    // ⚠️ **不是对象驻留**：`ReferenceEquals(typeof(int), typeof(int))` 仍为假，本 change 也不
+    // 打算让它为真。C# 的 `typeof(int)==typeof(int)` 为真靠的同样是值相等，不是缓存
+    // —— `methodof.md` 原先把两者混为一谈，已一并订正。
+    //
+    // ⚠️ **null 两侧都要处理**：`t == null` 今天是引用比较、恒可写，补了运算符之后它会派发到
+    // 这里，漏判就会变成空引用崩。
+    //
+    // 🔴 **判空必须用 `Object.ReferenceEquals`，不能写 `a == null`** —— 那会**递归派发回本运算符**，
+    // 直接栈溢出。（C# 里同款陷阱，惯用解法也是 `ReferenceEquals` / `(object)a == null`。）
+    public static bool operator ==(Type a, Type b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return an && bn; }
+        return a.FullName == b.FullName;
+    }
+
+    public static bool operator !=(Type a, Type b) {
+        bool an = Object.ReferenceEquals(a, null);
+        bool bn = Object.ReferenceEquals(b, null);
+        if (an || bn) { return !(an && bn); }
+        return a.FullName != b.FullName;
+    }
+
+    // `Equals` / `GetHashCode` 与 `==` 同一判据 —— 三者口径必须一致，否则把 Type 当字典键
+    // 会得到「`==` 说相等、字典说不是同一个键」这种最难查的不一致。
+    public override bool Equals(object other) {
+        Type t = other as Type;
+        if (t == null) { return false; }
+        return this.FullName == t.FullName;
+    }
+
+    public override int GetHashCode() { return this.FullName.GetHashCode(); }
 
     // Base class type; `Std.Object` for classes with no explicit base; `null`
     // for `Std.Object` itself and for handle-less Types (primitives/arrays).

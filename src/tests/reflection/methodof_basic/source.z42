@@ -53,7 +53,10 @@ void Main() {
     Console.WriteLine(methodof(Derived.Who).Invoke(d, new object[0]) as string);
     Console.WriteLine(methodof(Derived.Mine).Invoke(d, new object[0]) as string);
 
-    // ⑥ 与 typeof 对称：都是每次求值新建的反射对象（本 v1 不驻留）
+    // ⑥ 与 typeof 对称：**值相等**（按 FQ 方法名）。
+    // 📜 本行原先期望 `false`，注释写着「都是每次求值新建的反射对象（本 v1 不驻留）」
+    // —— 那把**对象身份**与**值相等**混为一谈了：不驻留只意味着 `ReferenceEquals` 为假，
+    // 不应该让 `==` 也为假（C# 同样不驻留，但 `==` 为真）。见 add-reflection-value-equality。
     Console.WriteLine((methodof(Logger.Solo) == methodof(Logger.Solo)).ToString());
     Console.WriteLine(methodof(Logger.Solo).Name);
 }

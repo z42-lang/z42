@@ -71,10 +71,17 @@ methodof(Demo.Api.Handle)              // owner 可以是限定名
 | 结果类型 | `Std.Type` | `Std.Reflection.MethodInfo` |
 | 解析时机 | 编译期 | 编译期（重载决议全部在绑定期完成） |
 | 位置限制 | 无 | 无（attribute 实参、普通代码一视同仁） |
-| 对象身份 | 每次求值**新建**，`typeof(T) == typeof(T)` 为 `false` | 同左，`methodof(X.M) == methodof(X.M)` 为 `false` |
+| 相等 | **值相等**：按 `FullName` 比，`typeof(T) == typeof(T)` 为 `true` | 同左：按 FQ 方法名比，`methodof(X.M) == methodof(X.M)` 为 `true` |
+| 对象身份 | 每次求值**新建**（`ReferenceEquals` 为 `false`） | 同左 |
 
-对象身份那条是刻意保持对称的：单给 `methodof` 加驻留缓存会让两个号称对称的特性行为不
-一致，并悄悄引入对象身份语义。反射对象驻留是独立的优化项，要做就两边一起做。
+两条都是刻意保持对称的：单给一边加会让两个号称对称的特性行为不一致。
+反射对象**驻留**（让 `ReferenceEquals` 也为真）仍是独立的优化项，要做也两边一起做。
+
+> 📜 **2026-09-25 之前这里只有「对象身份」一条，写着 `typeof(T) == typeof(T)` 为 `false`**，
+> 并把它归因于「没做驻留」——**那个归因是错的**。C# 里 `typeof(int)==typeof(int)`
+> 为真靠的是 **值相等语义**，不是对象缓存；值相等不需要任何驻留、也不引入对象身份语义。
+> 后果是一切按 `typeof` 分派的代码（序列化器的招牌写法）**静默走错分支**。
+> 见 `add-reflection-value-equality`。
 
 ## attribute 里的 `methodof`——为什么 z42 能做而 C# / Java 不能
 
