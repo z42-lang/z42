@@ -3,6 +3,7 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
+using Z42.Core;   // ProtocolNames —— 协议成员名的唯一 SoT（本表与 z42.core/src/Protocols/*.z42 逐字锁步）
 
 // 编译器级固定 prelude 内建面（从 ExportedTypeExtractor 分出）：11 接口 + GCHandleType 枚举
 // + Action/Func/Predicate 委托，字节形态 = C# 同源实测。hub 经 _extractCore 注入。
@@ -35,7 +36,7 @@ public static class BuiltinTypeDefs {
         m[2] = ExportedTypeExtractor._im("OnInvoked", "void", BuiltinTypeDefs._t0(), 0);
         r[0] = BuiltinTypeDefs._iface("ISubscription", BuiltinTypeDefs._t1("TD"), 1, m, 3);
         m = new ExportedMethodZ[4];
-        m[0] = ExportedTypeExtractor._im("Count", "int", BuiltinTypeDefs._t0(), 0);
+        m[0] = ExportedTypeExtractor._im(ProtocolNames.Count, "int", BuiltinTypeDefs._t0(), 0);
         m[1] = ExportedTypeExtractor._im("IsEmpty", "bool", BuiltinTypeDefs._t0(), 0);
         m[2] = ExportedTypeExtractor._im("Clear", "void", BuiltinTypeDefs._t0(), 0);
         m[3] = ExportedTypeExtractor._im("AddOne", "void", BuiltinTypeDefs._t1("T"), 1);   // 2026-06-11 prelude 漂移（并行流）
@@ -51,14 +52,14 @@ public static class BuiltinTypeDefs {
         m[0] = ExportedTypeExtractor._im("Compare", "int", BuiltinTypeDefs._t2("T", "T"), 2);
         r[3] = BuiltinTypeDefs._iface("IComparer", BuiltinTypeDefs._t1("T"), 1, m, 1);
         m = new ExportedMethodZ[1];
-        m[0] = ExportedTypeExtractor._im("Dispose", "void", BuiltinTypeDefs._t0(), 0);
+        m[0] = ExportedTypeExtractor._im(ProtocolNames.Dispose, "void", BuiltinTypeDefs._t0(), 0);
         r[4] = BuiltinTypeDefs._iface("IDisposable", BuiltinTypeDefs._t0(), 0, m, 1);
         m = new ExportedMethodZ[1];
-        m[0] = ExportedTypeExtractor._im("GetEnumerator", "IEnumerator", BuiltinTypeDefs._t0(), 0);
+        m[0] = ExportedTypeExtractor._im(ProtocolNames.GetEnumerator, "IEnumerator", BuiltinTypeDefs._t0(), 0);
         r[5] = BuiltinTypeDefs._iface("IEnumerable", BuiltinTypeDefs._t1("T"), 1, m, 1);
         m = new ExportedMethodZ[2];
-        m[0] = ExportedTypeExtractor._im("MoveNext", "bool", BuiltinTypeDefs._t0(), 0);
-        m[1] = ExportedTypeExtractor._im("get_Current", "T", BuiltinTypeDefs._t0(), 0);
+        m[0] = ExportedTypeExtractor._im(ProtocolNames.MoveNext, "bool", BuiltinTypeDefs._t0(), 0);
+        m[1] = ExportedTypeExtractor._im(ProtocolNames.GetterPrefix + ProtocolNames.Current, "T", BuiltinTypeDefs._t0(), 0);
         r[6] = BuiltinTypeDefs._iface("IEnumerator", BuiltinTypeDefs._t1("T"), 1, m, 2);
         m = new ExportedMethodZ[2];
         m[0] = ExportedTypeExtractor._im("Equals", "bool", BuiltinTypeDefs._t2("T", "T"), 2);

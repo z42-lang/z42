@@ -3,6 +3,22 @@
 > 背景与动机见 [proposal.md](proposal.md)。本文件是技术设计 SoT：模型 / 解析域 / scripting 判定 / 批次。
 > 逐批 scope 见 [tasks.md](tasks.md)。
 
+> ## ⚠️ 2026-09-25 复盘：下面的裁决 ① 与 ④ 已被实测推翻
+>
+> 本文件其余部分保留原样作为**当时的推理记录**，但这两条不要照着做：
+>
+> - **裁决 ①（引入 role）→ 取消**。原论证「隔离必须由被保护方声明」有个洞：**物理位置本身
+>   就是被保护方的声明，而且是构造式的** —— 不在 `libs/` 里就物理上找不到，不需要任何代码
+>   去读字段判断。加「读了再判」的字段是反方向。逐条对照见
+>   [tasks.md 批 2.5](tasks.md)。
+> - **裁决 ④（scripting 拆两包）→ 取消**。「eval 内核零编译器域依赖」的前提不成立：
+>   `Script.Eval` 直接调 `Classifier` / `Rewriter`，两者都用 `Z42.Syntax` 的 Lexer。拆完
+>   内核仍依赖 `z42c.syntax`，达不到目的。
+>
+> **仍然成立的是 §scripting 的那句核心判断**：「这不是抽象问题，是**分发**问题」。它的解法
+> 落在 [add-deployment-model](../add-deployment-model/)：`ModuleSearch.Dirs()`（#832）、
+> `probing-paths`（#816）、zpkg 产物引用（#836）。
+
 ## User 裁决（2026-09-24 会话）
 
 proposal 的三个待裁决点已裁，另补一条 proposal 列为 Out of Scope 的 scripting 判定：

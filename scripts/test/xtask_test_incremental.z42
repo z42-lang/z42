@@ -50,11 +50,14 @@ int _testIncremental(ParseResult r) {
     // 独立工程目录 —— 本门会反复改 toml 并比对产物字节，不能与别的判据共用一份工程。
     rc = _optimizeKnobTakesEffect(vm, driver, libs, _optKnobDir(Path.Join(scratch, "optknob")));
     if (rc != 0) { return rc; }
+    // add-l0-protocol-table 批 1：`[syntax]` 与上面两道同族（解析了没人读）。此前 E0301 零发射点。
+    rc = _syntaxKnobTakesEffect(vm, driver, libs, _synKnobDir(Path.Join(scratch, "synknob")));
+    if (rc != 0) { return rc; }
     rc = _reconcileStdlibReadback(root, vm, driver, libs, scratch);
     if (rc != 0) { return rc; }
 
     Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)"
-        + " + [build] incremental / [optimize] knobs take effect");
+        + " + [build] incremental / [optimize] / [syntax] knobs take effect");
     _procEnd("test incremental", sw);
     return 0;
 }
@@ -195,6 +198,121 @@ string _optKnobDir(string scratch) {
     return d;
 }
 
+// `[syntax]` 语法特性门。此前 `LanguageFeatures` 零调用方、`E0301 FeatureDisabled` 零发射点 ——
+// 「解析了、建模了、文档写了、从没人读」那一族的第三例（前两例：`[build] incremental`、`[optimize]`）。
+//
+// **四条判据，缺一不可**：
+//   V3-负 `control_flow = false` ⇒ 用 `foreach` **必须**报 E0301（只验「开着能编过」等于没测门）
+//   V3-正 不写 `[syntax]`        ⇒ 一切照旧（阳性对照：证明红不是夹具本身有问题）
+//   V4   未知特性名              ⇒ 报错退出、**不静默忽略**（同 `Opt.ByName` 口径）
+//   V5   只改 toml 不碰源码      ⇒ 产物**字节必须变**（特性集进了包级 cache key；
+//                                  否则「全量生效、增量被忽略」，比从不生效更难查）
+int _syntaxKnobTakesEffect(string vm, string driver, string libs, string projDir) {
+    Console.WriteLine("\n── knob: [syntax] takes effect (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+    string baseToml = File.ReadAllText(toml);
+    string log = Path.Join(projDir, "out.txt");
+
+    // V3-正（阳性对照）：不写 `[syntax]` 必须编得过。先跑它 —— 若连这步都红，后面的红说明不了任何事。
+    if (_incrBuild(vm, driver, libs, toml, true) != 0) {
+        ConsoleError.WriteLine("  ✗ 阳性对照失败：不写 [syntax] 时夹具就编不过（红与特性门无关）");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    string zpkg = _onlyDistZpkg(projDir);   // ⚠️ 必须在首次构建之后才去定位（dist 此前不存在）
+    if (zpkg == "") {
+        ConsoleError.WriteLine("  ✗ 构建后仍找不到 dist 下唯一的 .zpkg（本判据依赖它）");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    byte[] onBytes = File.ReadAllBytes(zpkg);
+    Console.WriteLine("  ✓ 阳性对照：不写 [syntax] 编得过");
+
+    // V3-负：关掉 control_flow ⇒ 夹具里的 `foreach`/`while` 必须让构建失败并报 E0301。
+    File.WriteAllText(toml, baseToml + "\n[syntax]\ncontrol_flow = false\n");
+    int rcOff = _incrBuildErrTo(vm, driver, libs, toml, log);
+    string offOut = File.Exists(log) ? File.ReadAllText(log) : "";
+    if (rcOff == 0) {
+        ConsoleError.WriteLine("  ✗ `[syntax] control_flow = false` 没有生效 —— 构建照常成功。");
+        ConsoleError.WriteLine("    这个段曾经就是这样：LanguageFeatures 零调用方、E0301 零发射点。");
+        ConsoleError.WriteLine("    接线点：z42c.driver/src/Main.z42 建 feats 那段 → CompileInput.Features →");
+        ConsoleError.WriteLine("    IncrementalDriver 的**两处** new Parser → Parser._requireFeature。");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    if (offOut.IndexOf("E0301") < 0) {
+        ConsoleError.WriteLine("  ✗ 构建失败了，但诊断里没有 E0301 —— 红的理由不对（可能是夹具语法本身出错）。");
+        ConsoleError.WriteLine("    实际输出：" + offOut);
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    Console.WriteLine("  ✓ control_flow=false ⇒ 报 E0301（门真会红，且红的理由对）");
+
+    // V4：未知特性名必须报错退出，不能静默忽略（拼错一个名字而编译照常通过 = 又一句假话）。
+    File.WriteAllText(toml, baseToml + "\n[syntax]\nno_such_feature = false\n");
+    int rcUnk = _incrBuildErrTo(vm, driver, libs, toml, log);
+    string unkOut = File.Exists(log) ? File.ReadAllText(log) : "";
+    if (rcUnk == 0) {
+        ConsoleError.WriteLine("  ✗ 未知特性名 `no_such_feature` 被静默忽略了 —— 拼错名字不该编译通过。");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    // 同样要问「红的理由对不对」—— 未知名报错与「夹具本身编不过」的退出码长得一样。
+    if (unkOut.IndexOf("unknown syntax feature") < 0) {
+        ConsoleError.WriteLine("  ✗ 构建失败了，但诊断里没有 `unknown syntax feature` —— 红的理由不对。");
+        ConsoleError.WriteLine("    实际输出：" + unkOut);
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    Console.WriteLine("  ✓ 未知特性名报错退出（且理由对）");
+
+    // V5：只改 toml、**源码一个字节不动** ⇒ 产物字节必须变（= 特性集进了包级 cache key）。
+    // 用一个**真会改变发射结果**的开关：关掉 exceptions 会让夹具里的 try 报错，不能用来比字节 ⇒
+    // 改用「显式写上 control_flow = true」这一形态：它与「不写」在语义上等价，但会进 depsId ⇒
+    // 产物应当**字节相同**、而 probe 必须**不命中**（否则说明 depsId 没认到 toml 变化）。
+    File.WriteAllText(toml, baseToml + "\n[syntax]\ncontrol_flow = true\n");
+    // ⚠️ `cached: N/M` 与诊断一样走 **stderr**（`wrote -> …` 才在 stdout）。本判据要读前者 ⇒
+    // 必须用 err 捕获版。第一版用了 stdout 版，于是「实际输出」里只有 `wrote -> …`、判据恒红 ——
+    // 与 V3-负 第一版同一个根因（读错了流）。
+    if (_incrBuildErrTo(vm, driver, libs, toml, log) != 0) {
+        ConsoleError.WriteLine("  ✗ control_flow=true 构建失败"); File.WriteAllText(toml, baseToml); return 1;
+    }
+    string onOut = File.Exists(log) ? File.ReadAllText(log) : "";
+    if (!_bytesEqual(onBytes, File.ReadAllBytes(zpkg))) {
+        ConsoleError.WriteLine("  ✗ 显式 control_flow=true 与「不写」产出的字节不同 —— 两者语义应当等价。");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    if (onOut.IndexOf("cached: 0/") < 0) {
+        ConsoleError.WriteLine("  ✗ 改了 [syntax] 却命中了缓存 —— 特性集没进包级 cache key（depsId）。");
+        ConsoleError.WriteLine("    后果是「全量生效、增量被忽略」，比从不生效更难查（[optimize] 实测踩过）。");
+        ConsoleError.WriteLine("    实际输出：" + onOut);
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    Console.WriteLine("  ✓ 改 [syntax] 让缓存失效（特性集在 depsId 里），且等价写法字节相同");
+
+    File.WriteAllText(toml, baseToml);
+    return 0;
+}
+
+// `[syntax]` 门的专用夹具：**必须自带会被 control_flow 挡住的语法**。
+//
+// 🔴 同 `_optKnobDir` 的理由：`[optimize]` 那道门第一版复用了 `_incrDemoDir`，而那份夹具压根没有
+// 可内联的调用 ⇒ 翻旋钮什么都不变、门零判别力。这里的 `foreach` + `while` 正是 `control_flow`
+// 关掉之后必须报 E0301 的靶子。**判别力来自夹具，不来自判据措辞。**
+string _synKnobDir(string scratch) {
+    string d = Path.Join(scratch, "proj");
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"synknobpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+        + "[sources]\ninclude = [\"**/*.z42\"]\n");
+    File.WriteAllText(Path.Join(d, "m.z42"),
+        "namespace SK;\n"
+        + "public static class M {\n"
+        + "    public static int SumArr(int[] xs) {\n"
+        + "        int s = 0;\n"
+        + "        foreach (int v in xs) { s = s + v; }\n"   // control_flow 的靶子①
+        + "        int i = 0;\n"
+        + "        while (i < 3) { s = s + i; i = i + 1; }\n"  // 靶子②（证明门不是只挡 foreach）
+        + "        return s;\n"
+        + "    }\n"
+        + "}\n");
+    return d;
+}
+
 // dist 下唯一的 .zpkg 路径（本门的判据载体）；找不到返回 ""。
 string _onlyDistZpkg(string projDir) {
     string[] zs = Path.GlobRecursive(Path.Join(projDir, "dist"), "*.zpkg");
@@ -210,6 +328,14 @@ bool _bytesEqual(byte[] a, byte[] b) {
 }
 
 // `_incrBuild` 的捕获版：stdout 落盘供判定（stderr 仍丢弃）。
+// 诊断捕获版：**stderr 落盘**。z42c 的诊断走 ConsoleError ⇒ 只捕 stdout 读不到任何错误文本
+// （`[syntax]` 门第一版就是这样：构建确实失败了，但「实际输出」是空的 —— 幸好判据同时要求
+// 「红的理由对不对」，否则只判退出码就会变成一道读不到东西却自称通过的门）。
+int _incrBuildErrTo(string vm, string driver, string libs, string toml, string errPath) {
+    return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml)
+        .Env("Z42_LIBS", libs).Stdout(Stdio.Null()).Stderr(Stdio.ToFile(errPath)).Run().ExitCode;
+}
+
 int _incrBuildTo(string vm, string driver, string libs, string toml, string outPath) {
     return new Process(vm).Arg(driver).Arg("--mode").Arg(_z42cMode()).Arg("--").Arg("build").Arg(toml)
         .Env("Z42_LIBS", libs).Stdout(Stdio.ToFile(outPath)).Stderr(Stdio.Null()).Run().ExitCode;

@@ -573,6 +573,31 @@ entry   = "MyApp.main"
 "my-http"  = "*"         # 版本约束目前只做存在性校验，不做 semver 比较
 ```
 
+**`path` 的两种形态**（对标 C# 的两种引用）：
+
+| `path` 指向 | 语义 | 对标 |
+|---|---|---|
+| **工程目录**（其中恰一份 `*.z42.toml`） | z42c 先建该依赖闭包再解析 —— 私有组件跟随工程走 | `<ProjectReference>` / Cargo `{ path = … }` |
+| **`.zpkg` 文件** | 已经是产物：**不代建**，直接引用 | `<Reference HintPath="….dll">` |
+
+```toml
+[dependencies]
+"mylib"     = { path = "../mylib" }                 # 工程目录 → z42c 代建
+"vendorlib" = { path = "../vendor/vendorlib.zpkg" } # 已构建产物 → 直接用
+```
+
+判据是**扩展名**（`.zpkg`），不是「这个路径上有没有文件」—— 否则把路径写错会被静默当成工程
+引用，然后报一句「期望恰 1 份 `*.z42.toml`」，一条指向错误方向的诊断。
+
+产物引用的三条语义：
+
+- 它**所在目录**并入解析域 —— 于是它自己的兄弟依赖也解析得到（把一组 zpkg 一起 vendored
+  进同一个目录就能用）；
+- zpkg 里的 `[project].name` **必须**与清单里的 key 一致，否则报错。指错文件是最容易犯的错，
+  而包名就写在 zpkg 头里，校验零成本；
+- **运行期自动随产物走**：vendored 目录不是 shipped `libs/`，所以 exe 构建时会把它复制进
+  `dist/` —— 不需要额外声明什么。
+
 **设计原则：命名空间与包名解耦**
 
 `[dependencies]` 中填写的是 **zpkg 的 `[project] name` 字段**，而非命名空间名称。编译器在 libs/ 搜索路径中找到对应 zpkg 后，读取其 `namespaces` 字段，将导出的命名空间注册为可用。
@@ -983,6 +1008,51 @@ warnings-as-errors = true        # 特殊布尔键（不是规则名）
 
 > ⚠️ **写错的 severity 串不报错，会被静默当成「无覆盖」**（`LintConfig._parseSevToken` 未知
 > 值返回 `NoOverride`，回落该规则的默认级别）。即 `DEMO001 = "eror"` 看起来配了、实际没配。
+
+---
+
+## L5d — `[optimize]` / `[syntax]`：逐项具名旋钮
+
+两段同形：**逐项 bool**，键是名字、值是开关。manifest 只搬运中性 name/value 对，
+**解释权在 z42c**（`z42.project` 不认识这些名字的语义）。两段都**参与包级缓存身份**，
+所以只改 toml、不碰源码也会触发重编 —— 否则旋钮会「全量生效、增量被忽略」。
+
+### `[optimize]` —— 逐 pass 优化开关
+
+```toml
+[optimize]
+inline    = true
+const-fold = false
+```
+
+| 事项 | 说明 |
+|---|---|
+| 已知名 | `const-fold` / `copy-prop` / `dce` / `inline` / `cse` / `licm` / `stack-alloc` / `loop-alloc-reuse` / `readonly-load` / `pure-call` / `dead-branch` / `devirt`，外加 `all` / `none` |
+| 优先级 | **CLI (`--opt` / `--no-opt`) > `[optimize]` > profile 默认**（release=全开、debug=全关）|
+| 未知名 | **报错退出**，不静默忽略（与 CLI 侧 `--opt 乱写` 同一口径）|
+
+### `[syntax]` —— 语法特性开关
+
+关掉某个特性后，用到该语法的代码报 **E0301**。
+
+```toml
+[syntax]
+control_flow = false      # 关掉 if / while / for / foreach / do / switch
+exceptions   = false      # 关掉 try
+```
+
+| 事项 | 说明 |
+|---|---|
+| 未知名 | **报错退出**并列出已知名单，不静默忽略 |
+| 默认 | 不写本段 = `Phase1Profile`（C# 12 子集全开）|
+| 粒度 | **整个语法构造**。裁不到「某个协议内的某一步」（例如关不掉「foreach 的枚举器回落、只留索引面」）|
+
+> ⚠️ **今天只有 `control_flow` 与 `exceptions` 真的关得掉东西。**
+> `LanguageFeatures` 里还有 13 个名字（`oop` / `generics` / `pattern_match` / `lambda` / `tuples` /
+> `delegates` / `reflection` / `nullable` / `ternary` / `cast` / `bitwise` / `arrays` /
+> `interpolated_str`）—— 它们已登记、可以写进 `[syntax]` 而不报「未知名」，但**关掉它们不会
+> 挡住任何语法**。这是有意暴露的现状而不是承诺：后续接线见
+> `docs/internals/src/compiler/syntax-customization.md` 的「实施路径」。
 
 ---
 

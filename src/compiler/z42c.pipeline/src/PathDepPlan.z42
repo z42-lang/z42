@@ -65,7 +65,12 @@ public static class PathDepPlan {
         int dc = 0;
         int d = 0;
         while (d < pm.DepCount) {
-            if (pm.Deps[d].Path.Length > 0) {
+            // `path` 指向 **`.zpkg` 产物**的不是工程引用，不进闭包（add-deployment-model：
+            // 对标 C# 的 `<Reference HintPath>` vs `<ProjectReference>`）。它已经是产物，
+            // 没有源码可建、也没有 manifest 可读——由 driver 把它所在目录并入 libsDirs。
+            // 判据用**扩展名**而不是 `File.Exists`：后者会让「路径写错」被静默当成工程引用，
+            // 然后报一句「期望恰 1 份 *.z42.toml」——一条指向错误方向的诊断。
+            if (pm.Deps[d].Path.Length > 0 && !PathDepPlan.IsZpkgRef(pm.Deps[d].Path)) {
                 depNames[dc] = pm.Deps[d].Name;
                 depTomls[dc] = PathDepPlan._resolveDepToml(consumerDir, pm.Deps[d].Path, pm.Deps[d].Name);
                 dc = dc + 1;
@@ -102,6 +107,19 @@ public static class PathDepPlan {
         st.Vc = st.Vc - 1;
         st.Visited[st.Visc] = norm; st.Visc = st.Visc + 1;
         st.Order[st.Oc] = depToml; st.Oc = st.Oc + 1;
+    }
+
+    // `path` 值是不是指向一个 `.zpkg` **产物**（而非工程目录）。
+    //
+    // ⚠️ driver 侧的 `_isZpkgRef` 是**同一条判据的第二份**。不抽成共用 helper 是因为两者分属
+    // z42c.pipeline / z42c.driver 两个成员，共用要么新增跨成员符号（卡一个 nightly），要么把它
+    // 下沉到更底层的包（为三行判据不值）。判据只有「扩展名是不是 .zpkg」这一句，两处同时改
+    // 的成本低于引入跨成员依赖——同 `_bundleExeDeps` 与 `_pubBundleProjectDeps` 的先例。
+    private static bool IsZpkgRef(string path) {
+        int n = path.Length;
+        if (n < 5) { return false; }
+        string tail = path.Substring(n - 5, 5);
+        return tail == ".zpkg" || tail == ".ZPKG";
     }
 
     // consumerDir/relPath 下恰一份 *.z42.toml → 依赖 manifest；0/多份 → 报错。

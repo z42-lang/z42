@@ -120,6 +120,37 @@
 > 本推断路径**只**放开「lambda 重绑」这一条通道，其余对非-lambda 位一律关闭 ⇒ 对自举 / stdlib 构建
 > 零字节漂移（build 源里没有「省略 `<>` + lambda」形态；不动点 3/3 gen1==gen2 兜底）。
 
+## 含型参的形参位由谁检查（2026-09-25 `fix-ctor-param-resolved-in-caller-scope`）
+
+实参检查分两条路，**按形参声明类型含不含型参分区**，不重不漏：
+
+| 形参声明类型 | 谁查 | 拿什么当目标类型 |
+|---|---|---|
+| 含型参（`U` / `U[]` / `G<U>`） | `CheckSubstitutedArgs`（方法）/ `ConstructTyper._chkCtorSubstArgs`（ctor） | 按 receiver 实参**代换后**的类型 |
+| 不含型参（`int` / `string`） | `_adaptArgs` 的 `CheckArg` / `_checkOneArg` | 声明类型本身 |
+
+🔴 **修前 ctor 那条路两边都查**，而它的目标类型来自
+`OverloadBinder._adaptParamType` 的 `md != null` 分支 —— 那是在**调用点**的环境里
+`env.ResolveType(md.Params[i].Type)` 重新解析声明类型。型参在调用点根本不存在 ⇒ `Unknown`。
+
+**同一个根因，两副面孔：**
+
+```z42
+class Bare<U> { Bare(U v) {} }
+new Bare<int>("x");        // U → Unknown，被转换格吸收 ⇒ 静默放行（漏报）
+
+class Wrap<U> { Wrap(G<U> i) {} }
+new Wrap<int>(new G<int>(7));
+// G<U> → G<<unknown>>，与 G<Int32> 结构比 ⇒ E0402（误报）——这个类根本构造不出来
+```
+
+⭐ 只有**嵌套**形态会变成误报：裸型参与数组型参的 `Unknown` 被转换格吸收，看上去「没事」。
+⇒ 修完之后**漏报那一侧会开始响**，这正是必须 bump `CompilerFingerprint` 的理由
+（那类源文件此前编得过、哈希一字未变）。发码零变化（自举不动点 3/3 兜底）。
+
+用例：`src/compiler/z42c.semantics/tests/typecheck/ctor_param_scope_tests.z42`（误报侧 3 条 +
+漏报侧 4 条，两侧都立）与 `src/tests/generics/generic_ctor_param_scope.z42`（端到端）。
+
 ## 限制（本阶段）
 
 - ~~primitive 类型（int/string/...）**未**实现 interface，`Max<int>(1, 2)` 暂不可用~~

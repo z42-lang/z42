@@ -1,0 +1,72 @@
+// Test: accept-boxed-struct-field-get —— 值 struct 经**擦除的返回位**流出泛型函数后读字段。
+//
+// 形状：调用点的静态类型是裸 `T`（`--dump-bound` 实测 `(call id … :T)`、成员 `:<unknown>`）
+// ⇒ AccessEmitter 的 blob 分支判假 ⇒ 落通用 `field_get "X"`，而运行期的值是带完整 TypeDesc +
+// struct_layout 的 `BoxedStruct`。`vcall` / `struct_fget_prim` / `is` / `as_cast` / 数组元素整读 /
+// 反射 GetValue 全都认这个盒，**修复前只有 `field_get` 不认** ⇒ `id(v).Sum()` 好、`id(v).X` 崩。
+//
+// ⚠️ 每条读出的值都必须**被 Assert 用掉**——否则 DCE 会把整条 field_get 消掉，用例变成摆设。
+// ⚠️ 显式类型实参（`id<Vec2>(v).X`）走的是**同一条**路（型参代换在本地声明上没生效，见
+//    proposal「不做什么」），所以它也必须在这里各测一格，不能只测推断形态。
+
+struct Inner { public long A; public long B;
+    public Inner(long a, long b) { this.A = a; this.B = b; } }
+
+struct Wide {
+    public long   N;      // 基元叶子
+    public string S;      // 引用叶子（走 struct_refs 侧表）
+    public bool   Flag;   // bool 叶子 —— 坏值不自崩的那种，必须连 ==true/==false 一起验
+    public Inner  In;     // 嵌套 struct 叶子（拷出新盒，值语义）
+    public Wide(long n, string s, bool f, Inner i) {
+        this.N = n; this.S = s; this.Flag = f; this.In = i;
+    }
+}
+
+struct Vec2 { public long X; public long Y;
+    public Vec2(long x, long y) { this.X = x; this.Y = y; }
+    public long Sum() { return this.X + this.Y; } }
+
+T id<T>(T a) { return a; }
+
+static class Holder { public static T keep<T>(T a) { return a; } }
+
+// 热循环：让 JIT 的 `jit_field_get` 也被走到（interp 那条臂修了、JIT 那条没修的话，
+// 小用例全绿而热代码崩 —— `jit_field_get` 的 StackArray 臂就是这么漏过一次的）。
+long hotSum(Vec2 v, int n) {
+    long acc = 0;
+    int i = 0;
+    while (i < n) { acc = acc + id(v).X; i = i + 1; }
+    return acc;
+}
+
+void Main() {
+    Vec2 v = new Vec2(7, 9);
+
+    // ── 推断形态（本刀修的主形态）──
+    Assert.Equal(7,  id(v).X);
+    Assert.Equal(9,  id(v).Y);
+    // ── 显式类型实参：同一条路，一并守住 ──
+    Assert.Equal(7,  id<Vec2>(v).X);
+    // ── 静态方法承载的泛型（另一条绑定路径）──
+    Assert.Equal(9,  Holder.keep<Vec2>(v).Y);
+    Assert.Equal(7,  Holder.keep(v).X);
+
+    // ── 对照：修复前就好的两条，确认没被改坏 ──
+    Assert.Equal(16, id(v).Sum());        // vcall 一直认盒
+    Vec2 w = id(v);
+    Assert.Equal(7,  w.X);                // 具体静态类型 ⇒ struct_fget_prim
+
+    // ── 四种叶子 ──
+    Wide g = new Wide(42, "hi", true, new Inner(3, 4));
+    Assert.Equal(42,   id(g).N);
+    Assert.Equal("hi", id(g).S);
+    Assert.Equal(true, id(g).Flag);
+    bool f = id(g).Flag;
+    Assert.Equal(true,  f == true);
+    Assert.Equal(false, f == false);
+    Assert.Equal(3, id(g).In.A);
+    Assert.Equal(4, id(g).In.B);
+
+    // ── 热路径（JIT 臂）──
+    Assert.Equal(1400000, hotSum(v, 200000));
+}

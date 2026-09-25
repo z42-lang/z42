@@ -139,7 +139,9 @@ pub(super) fn snapshot_struct_leaf(
 /// `struct_layout`), then decodes the leaf: primitive → `decode_prim` off `struct_bytes`;
 /// reference → the `struct_refs` side-table; nested struct → a fresh boxed snapshot (value
 /// semantics — mutating the returned box does not touch the parent).
-pub(super) fn boxed_struct_field_get(
+/// accept-boxed-struct-field-get: 也被 `field_get` 的 `BoxedStruct` 臂复用（interp + JIT）——
+/// 值 struct 经擦除返回位流出泛型函数时接收者就是这种盒，按名取叶子的逻辑与反射完全同一件事。
+pub(crate) fn boxed_struct_field_get(
     ctx: &VmContext, gc: &crate::gc::GcRef<crate::metadata::types::ScriptObject>, name: &str,
 ) -> Result<Value> {
     use crate::interp::exec_struct::{decode_prim, prim_width};
