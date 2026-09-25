@@ -16,7 +16,7 @@ using Z42.Pipeline;
 // 兄弟解析扫全成员 dist 列表 + Z42_LIBS（外部 stdlib）。镜像 C# WorkspaceBuildOrchestrator
 // 的 workspaceLibDirs（成员 EffectiveDistDir 透传）。
 // noIncremental：CLI `--no-incremental` 透传到每个成员（此前 workspace 恒全量，现在默认读 cache）。
-int _buildWorkspace(bool isRelease, string outputDir, int optSet, bool noIncremental) {
+int _buildWorkspace(bool isRelease, string outputDir, int cliAdd, int cliRemove, bool noIncremental) {
     string cwd = Environment.GetCurrentDirectory();
     string wsToml = _findWorkspaceToml(cwd);
     if (wsToml == "") {
@@ -24,13 +24,13 @@ int _buildWorkspace(bool isRelease, string outputDir, int optSet, bool noIncreme
         return ExitCode.UsageError;
     }
     if (outputDir != "") {
-        return _buildWorkspaceFlat(wsToml, isRelease, outputDir, optSet, noIncremental);
+        return _buildWorkspaceFlat(wsToml, isRelease, outputDir, cliAdd, cliRemove, noIncremental);
     }
-    return _buildWorkspacePerMember(wsToml, isRelease, optSet, noIncremental);
+    return _buildWorkspacePerMember(wsToml, isRelease, cliAdd, cliRemove, noIncremental);
 }
 
 // Milestone 1：flat dist（显式 --output-dir）。
-int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int optSet, bool noIncremental) {
+int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cliAdd, int cliRemove, bool noIncremental) {
     Directory.Create(outputDir);
     string[] flat = new string[1];
     flat[0] = outputDir;
@@ -41,7 +41,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int opt
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
         // cache-dir-layout：flat 模式所有成员共用一个 --output-dir，cache 按成员名分子目录，避免同名相对源互相覆盖。
         string memberCache = Path.Join(Path.Join(outputDir, ".cache"), ManifestLoader.Load(ordered[i]).Project.Name);
-        int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, noIncremental, optSet, false, _laterMemberNames(ordered, ordered.Length, i));   // workspace 暂不支持 --fix
+        int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, noIncremental, cliAdd, cliRemove, false, _laterMemberNames(ordered, ordered.Length, i));   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
             return rc;
@@ -53,7 +53,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int opt
 }
 
 // Milestone 2：per-member 布局（drop-in 替代 C# stdlib build）。
-int _buildWorkspacePerMember(string wsToml, bool isRelease, int optSet, bool noIncremental) {
+int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliRemove, bool noIncremental) {
     string profile = isRelease ? "release" : "debug";
     WsPlan plan = WorkspaceBuild.PlanLayout(wsToml, profile);
     if (plan == null) {
@@ -75,7 +75,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int optSet, bool noI
     i = 0;
     while (i < plan.Count) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + plan.Tomls[i] + " -> " + plan.DistDirs[i]);
-        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], plan.CacheDirs[i], libsDirs, libsN, noIncremental, optSet, false, _laterMemberNames(plan.Tomls, plan.Count, i));   // workspace 暂不支持 --fix
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], plan.CacheDirs[i], libsDirs, libsN, noIncremental, cliAdd, cliRemove, false, _laterMemberNames(plan.Tomls, plan.Count, i));   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
             return rc;

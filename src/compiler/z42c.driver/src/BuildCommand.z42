@@ -70,13 +70,16 @@ int _cmdBuild(string[] argv) {
         else { toml = loc.ManifestPath; }
     }
     // 解析 optSet：无 CLI 覆盖 → -1（PackageCompile 取 profile 默认：release=All/debug=None）。
-    int optSet = 0 - 1;
-    if (cliAdd != 0 || cliRemove != 0) { optSet = Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove); }
+    // wire-optimize-manifest：**不在这里 resolve**。此前这里算出 optSet 再透下去，等于把
+    // 「CLI 说了什么」压成一个结果值 —— 信息有损，深处再也没法与 toml `[optimize]` 正确复合
+    // （CLI 应只覆盖它点名的位，不是整体取代 toml）。而且 workspace 每个成员有**自己的**
+    // manifest，per-member 的 `[optimize]` 只能在 manifest 在手的那一层解。
+    // 故 cliAdd/cliRemove 原样透传，唯一一次 `Opt.Resolve` 落在 `_build`（那里有 `pm`）。
     if (isWorkspace) {
         // --fix 暂不作用于 workspace（多成员批量），单包路径生效
-        return _buildWorkspace(isRelease, outputDir, optSet, noIncremental);
+        return _buildWorkspace(isRelease, outputDir, cliAdd, cliRemove, noIncremental);
     }
-    return _build(toml, isRelease, outputDir, "", new string[0], 0, noIncremental, optSet, isFix, null);
+    return _build(toml, isRelease, outputDir, "", new string[0], 0, noIncremental, cliAdd, cliRemove, isFix, null);
 }
 
 int _unknownOpt(string name) {

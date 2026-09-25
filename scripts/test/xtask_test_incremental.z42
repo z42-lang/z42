@@ -46,11 +46,15 @@ int _testIncremental(ParseResult r) {
     if (rc != 0) { return rc; }
     rc = _knobTakesEffect(vm, driver, libs, _incrDemoDir(Path.Join(scratch, "knob")));
     if (rc != 0) { return rc; }
+    // wire-optimize-manifest：`[optimize]` 与上面那道 `[build] incremental` 同族（解析了没人读）。
+    // 独立工程目录 —— 本门会反复改 toml 并比对产物字节，不能与别的判据共用一份工程。
+    rc = _optimizeKnobTakesEffect(vm, driver, libs, _optKnobDir(Path.Join(scratch, "optknob")));
+    if (rc != 0) { return rc; }
     rc = _reconcileStdlibReadback(root, vm, driver, libs, scratch);
     if (rc != 0) { return rc; }
 
     Console.WriteLine("\n✅ incremental reconciler: all dist files byte-identical (demo + demo-packed + xtask + stdlib readback)"
-        + " + [build] incremental knob takes effect");
+        + " + [build] incremental / [optimize] knobs take effect");
     _procEnd("test incremental", sw);
     return 0;
 }
@@ -100,6 +104,109 @@ int _knobTakesEffect(string vm, string driver, string libs, string projDir) {
     }
     Console.WriteLine("  ✓ incremental = false: 缓存未被命中（旋钮生效）");
     return 0;
+}
+
+// ── `[optimize]` 这个段**真的生效**吗（wire-optimize-manifest）─────────────────────
+//
+// 与上面那道 `[build] incremental` 同族、同病因：`[optimize]` 被解析进
+// `ProjectManifest.OptimizeNames/Values` 后**再没人读过** —— `BuildCommand` 调的是
+// `Opt.Resolve(isRelease, 0, 0, cliAdd, cliRemove)`，两个 0 硬编码。于是写
+// `inline = false` 毫无效果、零诊断，而 `ProjectManifest.z42` 的注释还写着
+// 「消费方按名映射到 Opt 位…交 Opt.Resolve」。
+//
+// 上面所有对账**都测不到它**：它们验「增量结果 == 全量结果」，而一个从不生效的开关
+// 恰恰不会让两者不等 —— 门全绿，洞照样在。这正是本仓「死旋钮」那一族的标准形状。
+//
+// 判据取**产物字节**（不靠日志措辞）：同一份源，
+//   · `[optimize] inline = true`  → 记下 zpkg 字节
+//   · 改成 `inline = false`       → 字节**必须不同**（否则旋钮没生效）
+//   · 再改回 `true`               → 字节**必须回到**第一次（否则不可复现）
+// 第 2 步同时兼一道**缓存身份**判据：只改 toml、源码不动，若优化集没进包级 cache key，
+// probe 会全命中而产物不变 —— 那就是「全量生效、增量被忽略」，比从不生效更难查。
+int _optimizeKnobTakesEffect(string vm, string driver, string libs, string projDir) {
+    Console.WriteLine("\n── knob: [optimize] takes effect (" + projDir + ") ──");
+    string toml = Path.Join(projDir, "t.z42.toml");
+    string baseToml = File.ReadAllText(toml);
+
+    File.WriteAllText(toml, baseToml + "\n[optimize]\ninline = true\n");
+    if (_incrBuild(vm, driver, libs, toml, true) != 0) {
+        ConsoleError.WriteLine("  ✗ build with inline=true failed"); File.WriteAllText(toml, baseToml); return 1;
+    }
+    // ⚠️ 定位产物必须在**首次构建之后** —— 之前 dist/ 还不存在（第一版就这么写的，直接红在
+    // 「找不到 dist zpkg」上，而那不是被测对象的问题）。
+    string zpkg = _onlyDistZpkg(projDir);
+    if (zpkg == "") {
+        ConsoleError.WriteLine("  ✗ 构建后仍找不到 dist 下唯一的 .zpkg（本判据依赖它）");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    byte[] onBytes = File.ReadAllBytes(zpkg);
+
+    // 只改 toml、**源码一个字节不动** → 既验旋钮生效，也验优化集进了包级 cache key。
+    File.WriteAllText(toml, baseToml + "\n[optimize]\ninline = false\n");
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) {
+        ConsoleError.WriteLine("  ✗ build with inline=false failed"); File.WriteAllText(toml, baseToml); return 1;
+    }
+    byte[] offBytes = File.ReadAllBytes(zpkg);
+    if (_bytesEqual(onBytes, offBytes)) {
+        ConsoleError.WriteLine("  ✗ `[optimize] inline = false` 没有生效 —— 产物与 inline=true 逐字节相同。");
+        ConsoleError.WriteLine("    这个段曾经就是这样：解析进 ProjectManifest.Optimize* 后无人读取。");
+        ConsoleError.WriteLine("    接线点：z42c.driver/src/Main.z42 的 effOptSet（Opt.FromToml + Opt.Resolve）；");
+        ConsoleError.WriteLine("    若只在全量构建生效而增量不生效，查那里把优化集并进 depsId 的那一行。");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    Console.WriteLine("  ✓ inline=false 改变了产物字节（旋钮生效，且增量认到了它）");
+
+    // 改回去必须回到原字节 —— 否则「生效」可能只是某种不确定性。
+    File.WriteAllText(toml, baseToml + "\n[optimize]\ninline = true\n");
+    if (_incrBuild(vm, driver, libs, toml, false) != 0) {
+        ConsoleError.WriteLine("  ✗ rebuild with inline=true failed"); File.WriteAllText(toml, baseToml); return 1;
+    }
+    if (!_bytesEqual(onBytes, File.ReadAllBytes(zpkg))) {
+        ConsoleError.WriteLine("  ✗ 改回 inline=true 没有回到原字节 —— 旋钮的效果不可复现。");
+        File.WriteAllText(toml, baseToml); return 1;
+    }
+    Console.WriteLine("  ✓ 改回 inline=true 回到原字节（可复现）");
+    File.WriteAllText(toml, baseToml);
+    return 0;
+}
+
+// `[optimize]` 门的专用夹具：**必须自带可内联的调用**。
+//
+// 🔴 为什么不复用 `_incrDemoDir`：实测复用它时 `inline=true` 与 `false` 编出的字节**完全相同**
+// （`cached: 0/6` 说明缓存身份已正确认到旋钮变化 —— 是夹具里压根没有可内联的调用）。
+// 那样本门就成了「恒红」或（若判据写反）「恒绿」的摆设 —— 判别力来自夹具，不是来自判据措辞。
+// 这里的 `Add` 是小函数、在循环里被调用，正是内联 pass 的靶子（手工验证时 960→956 字节）。
+string _optKnobDir(string scratch) {
+    string d = Path.Join(scratch, "proj");
+    Directory.Create(d);
+    File.WriteAllText(Path.Join(d, "t.z42.toml"),
+        "[project]\nname = \"optknobpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n"
+        + "[sources]\ninclude = [\"**/*.z42\"]\n");
+    File.WriteAllText(Path.Join(d, "m.z42"),
+        "namespace OK;\n"
+        + "public static class M {\n"
+        + "    static int Add(int a, int b) { return a + b; }\n"
+        + "    public static int Sum(int n) {\n"
+        + "        int s = 0; int i = 0;\n"
+        + "        while (i < n) { s = Add(s, i); i = i + 1; }\n"
+        + "        return s;\n"
+        + "    }\n"
+        + "}\n");
+    return d;
+}
+
+// dist 下唯一的 .zpkg 路径（本门的判据载体）；找不到返回 ""。
+string _onlyDistZpkg(string projDir) {
+    string[] zs = Path.GlobRecursive(Path.Join(projDir, "dist"), "*.zpkg");
+    if (zs.Length != 1) { return ""; }
+    return zs[0];
+}
+
+bool _bytesEqual(byte[] a, byte[] b) {
+    if (a.Length != b.Length) { return false; }
+    int i = 0;
+    while (i < a.Length) { if (a[i] != b[i]) { return false; } i = i + 1; }
+    return true;
 }
 
 // `_incrBuild` 的捕获版：stdout 落盘供判定（stderr 仍丢弃）。
