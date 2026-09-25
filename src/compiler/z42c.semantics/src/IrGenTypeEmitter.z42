@@ -65,7 +65,18 @@ public sealed class IrGenTypeEmitter {
         IrGen g = this._g; SemanticModel model = this._model;
         string baseName = StructLayout.BaseNameOf(instName);
         object rd = g.GenericDecls.Get(baseName);
-        if (!(rd is Decl)) { return; }                       // 非本包泛型（闸门已拦，这里兜底）
+        // S1-f：本 CU 没有该泛型的 AST 时查**包级**表 —— 泛型声明与实例化点常在不同文件
+        //（闸门 `LocalClasses` 是包级的，跨文件照样放行）。表里带着**声明所属 CU 的 model**，
+        // 因为成员发射要用它取绑定后的体（用当前 CU 的 `HasBody` 恒假 ⇒ 静默不发 ⇒ 运行期
+        // `MissingSymbolException: undefined function Demo.Loc<P2,int>.Loc`，#774 既有缺陷）。
+        SemanticModel bodyModel = model;
+        if (!(rd is Decl)) {
+            GenericBodySrc src = g.GenericTypeDecls.Get(baseName) as GenericBodySrc;
+            if (src == null) { return; }                     // 非本包泛型（闸门已拦，这里兜底）
+            rd = src.Raw;
+            if (src.Model != null) { bodyModel = src.Model; }
+        }
+        if (!(rd is Decl)) { return; }
         Decl rawDecl = rd as Decl;
         Decl dd = IrGenFacts._unwrap(rawDecl);
         if (!(dd is ClassDecl)) { return; }
@@ -74,7 +85,9 @@ public sealed class IrGenTypeEmitter {
         if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
         Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
         string saved = g.SpecInstName; string savedOwner = g.SpecOwnerName;
+        SemanticModel savedBM = g.SpecBodyModel;
         g.SpecInstName = instName; g.SpecOwnerName = owner != null ? owner.Name() : c.Name;
+        g.SpecBodyModel = bodyModel;   // S1-f：成员体从**声明所属 CU** 的 model 取
         int j = 0;
         while (j < c.MemberCount) {
             Decl rawMem = c.Members[j];
@@ -90,7 +103,7 @@ public sealed class IrGenTypeEmitter {
         // 特化通道下需换成实例化名——故同样在 SpecInstName 生效期间调用。
         this._emitStructEquals(c, owner);
         this._emitRecordSynth(rawDecl, c, owner);
-        g.SpecInstName = saved; g.SpecOwnerName = savedOwner;
+        g.SpecInstName = saved; g.SpecOwnerName = savedOwner; g.SpecBodyModel = savedBM;
     }
 
     // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。

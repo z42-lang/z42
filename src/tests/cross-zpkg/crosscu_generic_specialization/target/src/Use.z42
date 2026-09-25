@@ -2,6 +2,13 @@ namespace Demo.CrossCuTarget;
 
 using Std;
 
-// **跨编译单元**调用上一文件里声明的泛型体 —— `IrGen` 按 CU 创建，登记表必须是包级的，
-// 否则这里判不出该改派、落到擦除体上。
+// ① **跨编译单元**调用上一文件里声明的泛型体。
 public int UseOtherFile() { P2 a = new P2(3, 4L); return ReadSecond<P2>(new Loc<P2, int>(a, 9)); }
+
+// ② **跨编译单元构造**上一文件里声明的泛型类型（S1-f 之前：`MissingSymbolException`）。
+public long ConstructOtherFile() { P2 a = new P2(5, 6L); return new Loc<P2, int>(a, 8).Item1.Y; }
+
+// ③ 虚泛型方法的**覆写在本文件**、基类在上一文件 ⇒ 闭包必须跨 CU 看得见。
+public class Derived : Base { public override int Bump<T>(Loc<T, int> p) { return p.Item2 + 100; } }
+
+public int UseVirtual() { P2 a = new P2(1, 2L); Base b = new Derived(); return b.Bump<P2>(new Loc<P2, int>(a, 7)); }

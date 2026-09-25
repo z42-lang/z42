@@ -80,7 +80,7 @@ public static class CuCompile {
     }
     // perf-layouts-once：`layouts` = 包级预计算的 StructLayout（BuildPackageCus 算一次；此前每 CU
     // 各建一份 = 整包符号表重建 count 次）。预计算后只读 → 跨 CU / 跨 worker 共享安全。null=自行计算。
-    internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericOwners, StrMap pkgGenericMethods) {
+    internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, StrMap classNs, StrMap localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericTypes) {
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
         // parallelize-package-compile：约束已由 BuildPackageCus 循环前 hoist 到 symbols.ClassConstraints
@@ -90,8 +90,8 @@ public static class CuCompile {
         gen.Layouts = layouts;   // perf-layouts-once：包级共享布局表（null → Generate 内自算）
         // complete-generic-instantiation S1：包级泛型体登记表（null → Generate 内按本 CU 自扫，
         // 用于单文件 dump / 测试路径；包构建走这里注入，才看得见别的文件里声明的泛型）。
-        gen.GenericBodies = pkgGenerics; gen.GenericBodyOwners = pkgGenericOwners;
-        gen.GenericMethodOwners = pkgGenericMethods;
+        gen.GenericBodies = pkgGenerics; gen.GenericTypeDecls = pkgGenericTypes;
+        gen.PkgRegistryInjected = true;
         gen.Deps = deps;
         gen.IsRelease = isRelease;   // 传入 release 标志（strip debug info）
         gen.SourceStem = CuPreprocess._stem(cu);

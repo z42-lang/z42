@@ -1,0 +1,34 @@
+// complete-generic-instantiation S1-f：一个**可特化的泛型体**的来源。
+//
+// ## 为什么要带着 `Model`
+//
+// `IrGen` 由 `CuCompile._compileCu` **按编译单元**创建，`SemanticModel` 也是
+// （`TypeChecker.Infer(cu, …)` 每 CU 一份）。发射特化体要 `model.GetBody(key)` 取**绑定后的体**，
+// 而泛型的声明常在**别的文件**里 ⇒ 本 CU 的 model 里没有它 ⇒ `EmitMethod` 的 `model.HasBody(...)`
+// 恒假 ⇒ **静默什么都不发**，调用点却已派发到特化名 ⇒ 运行期
+// `MissingSymbolException: undefined function Demo.Loc<P2,int>.Loc`（#774 既有缺陷）。
+//
+// 故登记表除了 AST，还必须带上**该 AST 所属 CU 的 model**。
+//
+// ## 为什么不拆成两阶段流水线
+//
+// 「先 Infer 全部 CU、再带所有 model 做 codegen」是最正统的解法，但 `BuildPackageCus` 那条路上
+// 并行、诊断、缓存三件事缠在一起，拆开风险与改动面都大。
+//
+// 这里取等价但小得多的做法：**只为「声明了泛型的那些 CU」预先算一次 model**。
+// 泛型声明文件在一个包里只是少数，代价有界；这些 CU 稍后编自己时会再 Infer 一次（多算一遍，
+// 但不改变任何结果），换来流水线结构一行不动。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+
+public sealed class GenericBodySrc {
+    public Decl          Raw;        // 带 attribute 包装的声明（`HandlerRegistry.HasRecord` 要认 `[Record]`）
+    public SemanticModel Model;      // **该声明所属 CU** 的 model —— 体查找必须用它，不能用当前 CU 的
+    public string        OwnerKey;   // 成员：所属类的符号键（arity-mangle 时为 `Name$N`）；自由函数为 ""
+    public string        RegKey;     // 成员的注册键（用于「同名覆写」闭包）；非实例方法为 ""
+
+    public GenericBodySrc(Decl raw, SemanticModel model, string ownerKey, string regKey) {
+        this.Raw = raw; this.Model = model; this.OwnerKey = ownerKey; this.RegKey = regKey;
+    }
+}

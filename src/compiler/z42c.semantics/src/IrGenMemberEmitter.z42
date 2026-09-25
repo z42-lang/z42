@@ -47,11 +47,13 @@ public sealed class IrGenMemberEmitter {
         string irName = this._irOwner(c) + "." + emitKey;   // IR/包内名（FQ，arity-mangle 时 Name$N；特化时为实例化名）
         if (md.HasBody) {              // G11：ctor 也发 `<qualClass>.<Class>` 函数（md.Name=类名，ret void，实例）
             string key = ownerKey + "." + methKey;    // SemanticModel 键（arity-mangle 时 ownerKey=Name$N）
-            if (model.HasBody(key)) {
+            // S1-f：特化跨文件声明的泛型时，体只存在于**声明所属 CU** 的 model 里。
+            SemanticModel bodyM = g.SpecBodyModel != null ? g.SpecBodyModel : model;
+            if (bodyM.HasBody(key)) {
                 bool isStaticMethod = IrGenFacts._hasWord(md.Mods, "static");
                 bool isInstance = !isStaticMethod;   // 实例方法有 this；静态方法无
                 var fe = new FunctionEmitter(model.Symbols, g);
-                IrFunction irf = fe.EmitFunction(irName, md, model.GetBody(key), isInstance, isStaticMethod,
+                IrFunction irf = fe.EmitFunction(irName, md, bodyM.GetBody(key), isInstance, isStaticMethod,
                                                  owner, c.TypeParams.Names, c.TypeParams.Count);
                 irf.Attrs = g._classDescB._attrRefs(rawMem); irf.AttrCount = irf.Attrs.Length;   // add-attribute-reflection
                 irf.ParamAttrs = g._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
