@@ -91,3 +91,45 @@ fn parse_trims_whitespace() {
     assert_eq!(parse(builtin_int32_parse, "  42 ").unwrap(), 42);
     assert_eq!(parse(builtin_uint16_parse, "\t100\n").unwrap(), 100);
 }
+
+// ── __box_prim 的 Null 分支（值类型槽的不变式）──────────────────────────────
+//
+// 「值类型的存储槽永不含 `Value::Null`」（enforce-value-type-non-null）。装箱点收到 Null
+// 只可能是 VM / 编译器缺陷，所以 debug 构建报错、release 放行。
+//
+// ⚠️ 这两条是这道门的**正面对照**：全量摸底对它是零命中（现有语料没有一处踩到），
+// 而「零命中」既不能证明规则对、也不能证明这门真的会响 —— 只有直接喂一个 Null 才能分辨。
+// 少了它，这里就可能交付一道**恒不响的门**。
+
+#[test]
+#[cfg(debug_assertions)]
+fn box_prim_null_is_an_error_in_debug() {
+    let e = builtin_box_prim(&ctx(), &[Value::Null, Value::Str("Std.Int32".into())])
+        .expect_err("debug 构建必须把「装箱 Null」报成错误");
+    let msg = format!("{e}");
+    // 消息要把责任方说清楚：这是 VM 缺陷，不是调用方的 z42 代码写错了。
+    assert!(msg.contains("__box_prim received Null"), "msg = {msg}");
+    assert!(msg.contains("不变式"), "msg = {msg}");
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
+fn box_prim_null_passes_through_in_release() {
+    // release 行为与 #717 之后一字不变：不拿用户的崩溃换我们的诊断能力。
+    let v = builtin_box_prim(&ctx(), &[Value::Null, Value::Str("Std.Int32".into())]).unwrap();
+    assert!(matches!(v, Value::Null));
+}
+
+#[test]
+fn box_prim_does_not_intercept_a_real_integer() {
+    // 🔒 真整数不能被上面那道 Null 门拦住 —— 否则「加一道诊断」会顺手废掉好路径。
+    //
+    // 这个裸 `VmContext` 没有类型注册表，所以 `Std.Int32` 这个 wrapper 查不到，装箱最终仍会失败
+    // ——但**失败在后面那一步**，错误文本证明它已经走过了 Null 分支。真正的装箱成功路径由整个
+    // golden 语料端到端覆盖（`object o = 42` 到处都是），不在这个脚手架里重造。
+    let e = builtin_box_prim(&ctx(), &[Value::I64(42), Value::Str("Std.Int32".into())])
+        .expect_err("裸 VmContext 没有 wrapper 类型，这里预期失败在 wrapper 查找上");
+    let msg = format!("{e}");
+    assert!(msg.contains("unknown prim wrapper type"), "msg = {msg}");
+    assert!(!msg.contains("received Null"), "真整数被 Null 门拦住了：msg = {msg}");
+}

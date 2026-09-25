@@ -19,12 +19,16 @@
 > `NullReferenceException`、类型不符时抛 `InvalidCastException`（用例
 > `src/tests/types/hard_cast_value/`，interp + jit 均已实跑核实）。
 >
-> **装箱这一侧的 Null 直通仍然保留**，但理由已经换了一套 —— 不再是「用户合法地把 null 放进了
-> `int?`」（那条路已被编译期堵死），而是：Null 走到 `__box_prim` **今天只可能来自 VM 自己的缺陷**。
-> 已知唯一来源是**泛型型参字段没有零值**（`GBox<int>().V` 读出 `Null`），见
-> `archive/2026-09-25-enforce-value-type-non-null/tasks.md`「已知未堵的洞」。
-> ⇒ 那个洞修掉之后，这里的 Null 直通该不该改回「响一声」要重新裁决 —— **现在改会把它变成
-> 一条在飞的崩溃**，所以先留着，但注释里不能再写已经作废的理由（`corelib/convert.rs` 已同步）。
+> **装箱这一侧已经改成「响一声」**（`alarm-on-boxing-null-value-slot`，2026-09-25）：
+> debug 构建 `bail!` 并指明「不变式被破、去查这个值是从哪个槽读出来的」，release 仍原样返 `null`
+> ——本变更的行为在发行版里**一字未变**，改的是 debug 侧的诊断能力。
+>
+> 时序上必须等两件事先落地，否则等于把静默错值变成在飞的崩溃：
+> ① 泛型型参字段的零值（#822 直接实例化那半 + **#831** 继承格与泛型 struct 格）；
+> ② 全量摸底（探针设成无条件 `bail`）**零命中**。两者都已完成。
+>
+> ⚠️ 这里**不报用户级异常**，与拆箱那侧不同：拆箱是用户写的转换（#746 抛
+> `NullReferenceException` / `InvalidCastException` 是对的），装箱点的 `Null` 不是用户的错。
 
 - [x] 1 `builtin_box_prim` 加 `Value::Null` → `Value::Null` 分支（放在幂等分支旁）
 - [x] 2 golden `src/tests/types/box_null_nullable.z42`
