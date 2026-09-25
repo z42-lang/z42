@@ -15,6 +15,7 @@ namespace Z42Builder;
 
 using Std;
 using Std.IO;
+using Std.Runtime;   // ModuleSearch（VM 已解析的 zpkg 搜索序）
 using Std.Test;
 using Std.Reflection;
 using Z42.Build;
@@ -110,19 +111,24 @@ ICompiler _hostCompiler() {
 //   ② Z42_PORTABLE_VM 反推 SDK 根（<sdk>/bin/z42vm → <sdk>/programs/z42c/）
 //   ③ 开发树 artifacts/build/compiler/z42c.driver/release/dist/（exe 自包含 bundle，7 兄弟共存）
 string _findCompilerZpkg() {
-    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
-    if (home.Length > 0) {
-        string p1 = Path.Join(home, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
-        if (File.Exists(p1)) { return p1; }
+    // ① **VM 已解析的 zpkg 搜索序**（add-deployment-model 批 5 use，#832）。
+    //    `ModuleSearch.Dirs()` 给的是结果——相对项已按 entry zpkg 解析、`probing-paths` 的通配符
+    //    已展开、不存在的已剔除。位置由清单的 `[profile.<n>.runtime] probing-paths` 声明，
+    //    **代码里不再出现 `programs/z42c/` 这个路径**：位置变了只改清单。
+    string[] msDirs = ModuleSearch.Dirs();
+    int msI = 0;
+    while (msI < msDirs.Length) {
+        string pm = Path.Join(msDirs[msI], "z42c.pipeline.zpkg");
+        if (File.Exists(pm)) { return pm; }
+        msI = msI + 1;
     }
-    string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
-    if (pv.Length > 0) {
-        string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
-        string p2 = Path.Join(sdk, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
-        if (File.Exists(p2)) { return p2; }
-    }
-    string p3 = "artifacts/build/compiler/z42c.driver/release/dist/z42c.pipeline.zpkg";
-    if (File.Exists(p3)) { return p3; }
+    // 找不到 = **这个部署形态不带编译能力**，不是"路径没配对"。
+    //
+    // 2026-09-26（批 5 use）：此处原有四档硬编码探测（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
+    // 反推 SDK 根 → 开发树 artifacts 路径 → Z42_LIBS），且 `ReplCompilerHost` 里还有**第二份**
+    // 几乎相同的实现（注释自陈「探测序同 builder.z42」）。位置改成由清单的 `probing-paths`
+    // 声明后全部删除——**代码里不再出现 `programs/z42c/`**。
+    // 实证：把那三档全部断掉、只留上面这一档，`xtask test targets` 的 compile-then-test 照常通过。
     return "";
 }
 

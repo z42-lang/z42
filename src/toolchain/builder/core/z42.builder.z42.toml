@@ -49,6 +49,13 @@ dist_dir = "../../../../artifacts/build/toolchain/builder"
 
 [profile.release.runtime]
 mode = "interp"
+# add-deployment-model 批 5 use：编译器组件的位置**声明在这里**，不再硬编码进代码。
+# `_findCompilerZpkg` 读 `ModuleSearch.Dirs()`（= VM 已解析的搜索序）在其中找
+# `z42c.pipeline.zpkg`。两条都配上，命不中的自动跳过（probing-paths 的规则）：
+#   · `../z42c`                                → SDK 态：programs/<self>/ 旁边的 programs/z42c/
+#   · `../../compiler/z42c.driver/release/dist` → 开发树：artifacts/build/toolchain/<self>/ 上溯
+# 相对基准是 **entry zpkg 所在目录**（不是 cwd）——同一份安装从任何工作目录启动都一致。
+probing-paths = "../z42c:../../compiler/z42c.driver/release/dist"
 
 # apphost-as-config: this binary publishes a native desktop apphost.
 #   apphost = true  → gate（无此则 `z42 publish` 不产 apphost）。
