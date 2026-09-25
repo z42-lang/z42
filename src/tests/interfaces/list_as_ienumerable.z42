@@ -1,0 +1,65 @@
+// add-iface-return-bridge 阶段 4：`List<T>` 终于能声明 `: IEnumerable<T>`。
+//
+// 为什么此前不行：`List<T>.GetEnumerator()` 按 add-foreach-ienumerable 的 Decision 8
+// （pattern-based 无装箱）返回**具体 struct** `ListEnumerator<T>`，而接口声明返回
+// `IEnumerator<T>`；`ListEnumerator<T>` 恰是两字段（`_list` + `_pos`）= blob struct ⇒ 走 sret，
+// 与接口调用点的引用返回 ABI 不符 ⇒ 编译期零诊断、运行期
+// `takes 2 physical argument(s), the call passes 1`。
+// `Protocols/IEnumerable.z42` 里那句「`class List<T> : IEnumerable<T>` 自我声明」的目标
+// 因此长期停在注释上。桥接机制落地后它成真。
+//
+// 本测试锁三件事：① 赋值关系成立；② 经接口静态类型能迭代；③ **直接 foreach 仍走索引快路径**
+// （无装箱前提不变——若哪天 List 自身 foreach 被改去走枚举器，这里不会红，但 bench 会；
+// 这条注释是给下一个改 foreach 三-path 决策树的人看的）。
+
+using Std;
+using Std.Collections;
+
+// 经接口静态类型消费：证明 List<T> 真的能当 IEnumerable<T> 用（不是只在声明上写着）
+int SumViaIface(IEnumerable<int> src) {
+    int s = 0;
+    foreach (int v in src) { s = s + v; }
+    return s;
+}
+
+int CountViaEnumerator(IEnumerable<int> src) {
+    int n = 0;
+    IEnumerator<int> it = src.GetEnumerator();   // 接口返回位：桥接就在这里生效
+    while (it.MoveNext()) { n = n + 1; }
+    it.Dispose();
+    return n;
+}
+
+void Main() {
+    var xs = new List<int>();
+    xs.Add(1); xs.Add(2); xs.Add(3);
+
+    // ③ 直接 foreach（索引快路径，不经 enumerator）
+    int direct = 0;
+    foreach (int v in xs) { direct = direct + v; }
+    Assert.Equal(6, direct);
+
+    // ① 赋值关系：List<int> → IEnumerable<int>
+    IEnumerable<int> e = xs;
+    Assert.Equal(6, SumViaIface(e));
+
+    // ① 隐式传参（同一条转换，走实参位）
+    Assert.Equal(6, SumViaIface(xs));
+
+    // ② 手写 enumerator 循环：MoveNext / Current / Dispose 三个接口成员都过一遍
+    Assert.Equal(3, CountViaEnumerator(xs));
+
+    // ④ **跨包直接调用**：以 `List<int>` 静态类型直接调 `GetEnumerator()` —— 必须解析到导入包里
+    // 的 `GetEnumerator$struct`（返回具体 struct、走 sret），而不是裸名那个桥接。
+    // 这条专覆盖「桥接改名后导入侧的调用目标名跟没跟上」：`List<T>` 在 z42.core、本测试在另一个
+    // 包 ⇒ 走 imported 符号那条路，与本包内的直接调用不是同一段代码。
+    ListEnumerator<int> raw = xs.GetEnumerator();
+    int rawCount = 0;
+    while (raw.MoveNext()) { rawCount = rawCount + 1; }
+    Assert.Equal(3, rawCount);
+
+    // 空表也要对（enumerator 首次 MoveNext 即 false）
+    var empty = new List<int>();
+    Assert.Equal(0, SumViaIface(empty));
+    Assert.Equal(0, CountViaEnumerator(empty));
+}

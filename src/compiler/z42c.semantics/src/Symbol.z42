@@ -30,6 +30,15 @@ public sealed class MethodSymbol {
                                               // ExportedMethodZ.TypeParams）。`TypeParamCount` 只够做 arity 过滤，
                                               // 而**按名代换**签名（`Sort<int>` 的 `Comparison<T>` → `Comparison<int>`）
                                               // 必须有名字——导入侧此前把这些名字读出来只当解析上下文用，没留在符号上。
+    public string      IfaceBridgeRet;        // add-iface-return-bridge：本方法实现了某接口成员，而**实现返回值类型
+                                              // （struct）、接口声明返回引用型** ⇒ 两侧 ABI 不一致（blob struct 走
+                                              // sret = 多一个隐藏物理参，而接口调用点按引用返回发码、不传该槽 ⇒
+                                              // 运行期 `takes N physical argument(s), the call passes N-1`）。
+                                              // 存**接口声明的返回类型名**，供 IrGen 合成桥接（桥接占裸名 vtable 槽、
+                                              // 返回该类型、内部调 `<m>$struct` 再 `__box_struct`）。"" = 无需桥接。
+                                              // ⚠️ 这只是**标记**：真要不要桥接由 IrGen 用 `_isBlobStruct` 再判一次
+                                              // —— 标量 repr 的 struct（展平叶子 < 2）是自描述 Value，经接口返回今天
+                                              // 本来就对（实测真读字段 + 二次虚派发 + `is` 均正确），绝不能动它。
     public MethodSymbol(string name, string visibility, Z42FuncType sig, bool isStatic,
                         string containingTypeName, bool hasDecl, MethodDecl decl) {
         this.Name = name; this.Visibility = visibility; this.Signature = sig; this.IsStatic = isStatic;
@@ -39,6 +48,7 @@ public sealed class MethodSymbol {
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0;
         this.TypeParamNames = new string[0];
+        this.IfaceBridgeRet = "";
     }
     // fix-explicit-type-arg-not-substituted：同一符号、换一条签名的浅拷贝。
     //
@@ -53,7 +63,41 @@ public sealed class MethodSymbol {
         c.IsSealed = this.IsSealed;
         c.IsDeprecated = this.IsDeprecated; c.DeprecationMsg = this.DeprecationMsg;
         c.TypeParamCount = this.TypeParamCount; c.TypeParamNames = this.TypeParamNames;
+        c.IfaceBridgeRet = this.IfaceBridgeRet;
         return c;
+    }
+    // add-iface-return-bridge：**绑定 BoundCall 目标名的唯一出口。**
+    //
+    // 一般情况 = `RegKey`。被桥接的方法例外：桥接占了裸名 vtable 槽（接口派发按方法名索引），
+    // 具体实现在 `<RegKey>$struct`，所以**经具体类型（非接口）绑到这个符号的调用点要指后者**
+    // —— 否则调用点按具体返回类型传了 sret 槽、却打在无 sret 的桥接上，运行期报
+    // `takes 1 physical argument(s), the call passes 2`（反向的 arity 失配）。
+    //
+    // ⚠️ 为什么不直接改 `RegKey`：`RegKey` 同时是 `Methods` **映射键**，改了接口满足性
+    // （按接口成员的 mangle 键查 `cm`）与 `ChainHasMethod("m")` 就都查不到了。
+    // ⚠️ 接口收者那几条绑定路径用的是**接口自己的** MethodSymbol（`Z42InterfaceType.Methods`），
+    // 它们的 `IfaceBridgeRet` 恒空 ⇒ 天然拿到裸名 ⇒ 落在桥接上，正是要的。
+    // ⚠️ 本方法是 no-op-safe：未桥接时逐字返回 `RegKey`，所以**所有**以 RegKey 作调用目标名的
+    // 站点都该改用它（宁可多改一处，也不要漏一处——漏的那处是静默走错方法）。
+    public string CallKey() {
+        // 幂等守卫：**导入**符号的 `RegKey` 本身就可能是 `m$struct`（TSIG 按发射名反推方法表，
+        // `$struct` 与桥接两个名字都在里面）。那条路上 `IfaceBridgeRet` 恒空、本不会追加，
+        // 但只要哪天有人给导入符号也打上标记，就会得到 `m$struct$struct`
+        // （实测踩过：`VCall: function …GetEnumerator$struct$struct not found`）。
+        if (this.RegKey.EndsWith("$struct")) { return this.RegKey; }
+        if (this.IfaceBridgeRet != "") { return this.RegKey + "$struct"; }
+        return this.RegKey;
+    }
+    // `CallKey()` 的**逆**——贴着它放，因为两者必须成对维护（同 `WithSignature` 贴着字段清单）。
+    //
+    // 为什么需要逆：`Methods` 映射键仍是 `RegKey`（裸名），而调用点手里拿的是 `CallKey()`。
+    // 凡是「拿调用点的名字去查 `Methods` / 判是否自有 / 判是否虚」的地方都要先剥回来，否则
+    // 查不到 ⇒ `ChainHasMethod` 返回 false ⇒ **IC-1 反劫持守卫失效**（本地类还有
+    // `ownerIsLocalInst` 兜着，导入类就裸奔了）。这类「名字换了但查表没跟上」正是本仓
+    // 反复出现的静默走错方法。
+    public static string StripCallKey(string callKey) {
+        if (callKey.EndsWith("$struct")) { return callKey.Substring(0, callKey.Length - 7); }
+        return callKey;
     }
     public string Dump() { return "(method " + this.Name + " " + this.Signature.Dump() + ")"; }
 }

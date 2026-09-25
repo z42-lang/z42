@@ -2,13 +2,18 @@ namespace Std;
 
 // "可迭代" 契约 — 集合类型实现此接口表明它能产出 IEnumerator<T>。
 //
-// 当前 foreach 使用索引鸭子协议（Count + get_Item），不强制要求
-// IEnumerable 实现。本接口主要用途：
+// foreach 的可迭代协议是**有序回落链**：数组 → 整数索引面（`get_Item` + `Count`/`Length`）→
+// `GetEnumerator()`。所以实现本接口**不是** foreach 的前提（`List<T>` 自身仍走索引快路径、
+// 不经 enumerator）。本接口的用途是：
 //   1. 泛型约束 `where T: IEnumerable<U>` — 算法在抽象层依赖"可迭代"
 //   2. 显式类型契约 — `class List<T> : IEnumerable<T>` 自我声明
 //   3. 未来 LINQ / iterator chain 的协议层入口
 //
-// foreach codegen 升级（识别 IEnumerator 路径）是独立后续工作。
+// ⭐ 第 2 条到 2026-09-25 才真正成立（add-iface-return-bridge）。此前 `List<T>` **写不出**这句
+// 声明：它的 `GetEnumerator()` 按无装箱设计返回具体 struct `ListEnumerator<T>`（两字段 = blob、
+// 走 sret），而本接口声明返回 `IEnumerator<T>`（引用型、无 sret）⇒ 两侧调用约定不符，
+// 编译期零诊断、运行期 `takes 2 physical argument(s), the call passes 1`。现在编译器为这种协变
+// 合成桥接（桥接占裸名 vtable 槽 + `__box_struct`），这句声明才写得出来。
 public interface IEnumerable<T> {
     IEnumerator<T> GetEnumerator();
 }

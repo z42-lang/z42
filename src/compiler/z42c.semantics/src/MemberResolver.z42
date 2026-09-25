@@ -109,7 +109,7 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckAccess(ms.Visibility, ms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);   // enforce-access-control
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, false);
-                BoundCall ibc = BoundCall.Marked(new BoundCall("instance", true, recv, ct.Name(), ms.RegKey, fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
+                BoundCall ibc = BoundCall.Marked(new BoundCall("instance", true, recv, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
                 this._applyMethodTypeArgs(ibc, call, ms, env);   // 带真 ms → arity + where 约束真校验
                 return ibc;
             }
@@ -214,11 +214,11 @@ public sealed partial class MemberResolver {
                 // 触发 _emitConvert AsCast 拆箱臂）。
                 Z42Type ubR = this._tc.StructUnboxTarget(itms.Signature.Ret, instRecv);
                 if (ubR != null) {
-                    BoundCall rawM = new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, new Z42UnknownType(), sp);
+                    BoundCall rawM = new BoundCall("instance", true, recv, itDef2.Name(), itms.CallKey(), fa, fa.Length, new Z42UnknownType(), sp);
                     this._applyMethodTypeArgs(rawM, call, itms, env);
                     return new BoundConvert(rawM, ubR, sp);
                 }
-                BoundCall gbc = new BoundCall("instance", true, recv, itDef2.Name(), itms.RegKey, fa, fa.Length, itRet, sp);
+                BoundCall gbc = new BoundCall("instance", true, recv, itDef2.Name(), itms.CallKey(), fa, fa.Length, itRet, sp);
                 this._applyMethodTypeArgs(gbc, call, itms, env);   // 泛型受者上的实例泛型方法同款
                 return gbc;
             }

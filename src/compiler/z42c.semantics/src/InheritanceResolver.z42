@@ -308,6 +308,51 @@ public sealed class InheritanceResolver {
             }
             i = i + 1;
         }
+        // add-iface-return-bridge：⑦ 把「需桥接」标记**沿基链下推**到子类的 override。
+        // 必须在上面那个类循环**之后**——标记由 ⑥ 的满足性校验打在「声明接口的那个类」上，
+        // 而类的处理顺序不保证基类先到。
+        this._propagateBridgeMarks(table);
+    }
+
+    // 「需桥接」标记下推：子类 `override` 是**另一个** MethodSymbol、从不经过接口满足性校验，
+    // 不下推就会出现「基类改名 + 基类桥接 + 子类覆盖仍占裸名且带 sret」⇒ 对子类实例走接口派发时
+    // 同一个崩溃换个入口回来（实测：`Derived.Get … takes 2 physical argument(s), the call passes 1`）。
+    //
+    // 标记必须落在**符号**上而不是只在发射期上溯：`MethodSymbol.CallKey()`（调用点目标名的唯一
+    // 出口）读的就是这个字段 —— 只修发射期会让「`Derived` 类型收者的直接调用」拿到裸名、打在桥接上。
+    private void _propagateBridgeMarks(SymbolTable table) {
+        string[] keys = table.Classes.Keys();
+        int pass = 0;
+        bool changed = true;
+        // 迭代到不动点：一次遍历的类序不保证自上而下，A→B→C 三层可能要两轮才推到底。
+        // 层数有限（`hops<32` 同款上限口径），pass 上限足够。
+        while (changed && pass < 32) {
+            changed = false;
+            int i = 0;
+            while (i < keys.Length) {
+                Z42ClassType ct = table.Classes.Get(keys[i]) as Z42ClassType;
+                if (ct != null && ct.HasBase && ct.BaseName != "" && table.Classes.ContainsKey(ct.BaseName)) {
+                    Z42ClassType b = table.Classes.Get(ct.BaseName) as Z42ClassType;
+                    if (b != null) {
+                        string[] mk = ct.Methods.Keys();
+                        int j = 0;
+                        while (j < mk.Length) {
+                            MethodSymbol dm = ct.Methods.Get(mk[j]) as MethodSymbol;
+                            if (dm != null && dm.IfaceBridgeRet == "" && b.Methods.ContainsKey(mk[j])) {
+                                MethodSymbol bm = b.Methods.Get(mk[j]) as MethodSymbol;
+                                if (bm != null && bm.IfaceBridgeRet != "") {
+                                    dm.IfaceBridgeRet = bm.IfaceBridgeRet;
+                                    changed = true;
+                                }
+                            }
+                            j = j + 1;
+                        }
+                    }
+                }
+                i = i + 1;
+            }
+            pass = pass + 1;
+        }
     }
 
     // 沿 base 链找 (name, paramTypes) 的**最近**匹配 MethodSymbol（用于 sealed override 强制：最近的被
@@ -490,6 +535,16 @@ public sealed class InheritanceResolver {
                             + "` is not compatible with the interface's `" + wantRet.Name() + "`", cSpan);
                         return;
                     }
+                    // add-iface-return-bridge：返回类型**协变通过了，但两侧 ABI 未必一致**——这是
+                    // 「MangleKey 命中不代表契约兑现」的又一条，且此前**连诊断都没有**：实现返回值
+                    // 类型（struct）、接口声明返回引用型时，blob struct 走 sret（多一个隐藏物理参），
+                    // 而接口调用点按引用返回发码、不传该槽 ⇒ 编译期零诊断、运行期
+                    // `takes 2 physical argument(s), the call passes 1`。
+                    // 这里只**打标记**，真要不要桥接由 IrGen 用 `_isBlobStruct` 再判（标量 repr 的
+                    // struct 是自描述 Value，经接口返回今天本来就对，不能动）。
+                    if (InheritanceResolver._isStructTypeRef(implRet) && !InheritanceResolver._isStructTypeRef(wantRet)) {
+                        cm.IfaceBridgeRet = wantRet.Name();
+                    }
                     // define-null-check-marks D7：`?` 方向一致性（见 _checkNullableDirection）。
                     // 与 static / 可见性 / 返回类型同族——都是「MangleKey 命中不代表契约兑现」。
                     this._checkNullableDirection("interface", cName, it.Name(), ims, cm, cSpan);
@@ -648,6 +703,23 @@ public sealed class InheritanceResolver {
             }
             i = i + 1;
         }
+    }
+
+    // add-iface-return-bridge：这个类型引用是不是**值类型（struct）**。
+    //
+    // 只看符号层（`IsStruct`）——这一层拿不到 `Gen.Layouts`，也不该拿：blob 与否是**发射期**的
+    // 事（`_isBlobStruct` = struct + 展平叶子 ≥2 + 布局非退化），而这里要回答的是更粗的一问
+    // 「返回的是值类型还是引用」。粗判在这里是**安全**的：标记只是让 IrGen 去细判，不产生诊断。
+    // 实例化类型按**定义**判（`Pair<int>` 是不是 struct 取决于 `Pair`），与 `StructLayout.IsStructType`
+    // 的基名口径一致。
+    private static bool _isStructTypeRef(Z42Type t) {
+        if (t is Z42ClassType) { return (t as Z42ClassType).IsStruct; }
+        if (t is Z42InstantiatedType) {
+            Z42ClassType d = (t as Z42InstantiatedType).Def;
+            if (d == null) { return false; }
+            return d.IsStruct;
+        }
+        return false;   // 接口 / 数组 / 型参 / Unknown 一律当非-struct（保守：不打标记）
     }
 
 }
