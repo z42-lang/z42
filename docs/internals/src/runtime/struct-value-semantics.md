@@ -859,6 +859,45 @@ fn @Demo.G<P2>.Get(1) -> T {
 
 用例：`src/tests/generics/generic_class_identity.z42`（B/D 两格 + **五条阴性对照**：
 擦除名 `is GBox`、接口代换、派生类两个方向、开放泛型基、反射仍视其为构造泛型类型）。
+
+### 🔴 静态成员按闭合类型各一份（complete-generic-class-identity P3 + P5-b，2026-09-25）
+
+C# 里 `GBox<int>.Count` 与 `GBox<string>.Count` 是**两个槽**。z42 修前两侧都按擦除名拼键
+——自洽，但语义错：各构造 2 / 3 次，两边都读出 5（实测）。
+
+**三件事必须同时成立，缺一格就是另一种错：**
+
+| | 做什么 | 缺了会怎样 |
+|---|---|---|
+| ① 键 | `AccessEmitter._staticKey` 是**唯一出口**（读 / 写 / 属性后备三条路都调它） | 同一个槽因走哪条路而拼出两个名字 |
+| ② 体 | 成员按实例化各发一份 | **一份共享的体只能写一个键** —— 键改了也没用 |
+| ③ 初始化 | 类型初始化器也各一份，描述符挂各自的 `$Cctor` | `static int Seed = 7;` 恒读出 0（定义那份 cctor 写擦除键、读方查实例化键） |
+
+⭐ **②的闸门是 `IrGen.InstNeedsOwnBody`，发射侧与派发侧必须共用它**：
+
+```
+InstNeedsOwnBody(inst) = Layouts.InstDiffersFromDef(inst)      // ① 布局不同（#774 起）
+                       || DefHasStaticState(基名)               // ② 定义有静态状态（本档）
+```
+
+两边错开的后果是确定的：只放宽**发射** ⇒ 特化体发出来但没人调（死代码，行为一字不变）；
+只放宽**派发** ⇒ 调用点指向一个没发射的名字（运行期 MissingSymbol）。
+
+⚠️ **`EmitStaticInit` 自己拼键、不经 `_staticKey`**，所以要在那里也认一次 `SpecInstName` ——
+漏掉时 `Demo.GBox<int>.$cctor` 的体里写的还是 `Demo.GBox.Seed`（实测，症状就是 ③）。
+这是本线第 N 次「同一判据散在多处」，只不过这次是**同一个键的两个拼法**。
+
+**P5-b（解析器）**：`GBox<int>.Count` 此前 `E0202`。`<类型列表>` 后紧跟 `.` ⇒ 左边是**类型引用**，
+无歧义（二元 `<` 的 `>` 之后不可能紧跟 `.`，那样缺操作数）。实参挂到左边的 `IdentExpr`
+（`IdentExpr.TypeArgs`）而**不新造 AST 节点** —— 每加一个节点类型，每个 walker 都要补分支，
+漏一个就是静默跳过。
+
+📐 **实测：全仓 139 个泛型类型声明，带静态字段的是 0 个**（stdlib / 编译器 / 工具链 / 测试 /
+示例全扫过）。两条推论：**不需要分阶段引入**（「生产方与消费方必须同代编译器」那个危险在自举
+路径上没有任何实例），而 **CI 的 fingerprint 守门对这一档是瞎的**（stdlib 产物一字不变）⇒ 手动 bump。
+
+用例：`src/tests/generics/generic_static_per_instantiation.z42`（三格 + **三条阴性对照**：
+非泛型静态字段、`a < b` 仍是比较、实例字段仍每对象一份）。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、**JIT 原生内联字节访问**（P5-B，现 helper
   桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438
   自引用诊断**（现 `Size==0` 兜底防崩）。

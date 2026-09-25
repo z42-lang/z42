@@ -24,6 +24,12 @@ public sealed partial class MemberResolver {
             if (!env.Symbols.HasClass(clsName) && PrimModel.IsBuiltin(clsName)) {
                 clsName = PrimModel.Wrapper(clsName);
             }
+            // complete-generic-class-identity P5-b：`GBox<int>.Count` —— 泛型类与同名非泛型类
+            // 共存时符号表按 arity 分键（`GBox$1`），裸名查不到就按实参个数补上。
+            if (tid.TypeArgCount > 0 && !env.Symbols.HasClass(clsName)) {
+                string mk = clsName + "$" + tid.TypeArgCount.ToString();
+                if (env.Symbols.HasClass(mk)) { clsName = mk; }
+            }
             if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(clsName)) {
                 Z42ClassType sct = env.Symbols.GetClass(clsName);
                 // report-crosspkg-duplicate-*：**静态成员读**也是一次类型引用，同样要判同 FQN 跨包
@@ -31,6 +37,12 @@ public sealed partial class MemberResolver {
                 // `Cfg.N` 与 `Demo.Ns.Cfg.N` 都零诊断，而它们读到的是**哪个包**的那份 N 完全是撞出来的。
                 this._tc._chkTypeRefPkg(env.Symbols, sct, m.Span);
                 BoundExpr sm = this.BindStaticMember(sct, clsName, m.Name, m.Span, env);
+                // P5-b/P3：所有者是闭合泛型 ⇒ 记下解析后的实例化类型，发射端据此拼**按实例化**
+                // 的静态字段键（`Demo.GBox<int>.Count`）。解析不出实例化 → 保持 null ⇒ 回落擦除键。
+                if (sm != null && tid.TypeArgCount > 0 && (sm is BoundStaticGet)) {
+                    Z42Type ot = env.ResolveType(new NamedType(tid.Name, tid.TypeArgs, tid.TypeArgCount, tid.Span));
+                    if (ot is Z42InstantiatedType) { (sm as BoundStaticGet).OwnerType = ot; }
+                }
                 if (sm != null) { return sm; }
             }
             // 枚举常量访问 `EnumType.Member` → BoundLitInt，**静态类型 = 该 enum 类型**

@@ -128,7 +128,28 @@ public sealed partial class ClassDescBuilder {
         // ── 定义那条描述符（字段集合与顺序的唯一来源）──────────────────────────
         IrClassDesc cd = this._classDesc(cdef, HandlerRegistry.HasRecord(rawDef));
         cd.Name = fqInst;
-        cd.StaticFields = new IrFieldDesc[0]; cd.StaticFieldCount = 0;   // P3 之前：静态槽仍挂在擦除名上
+        // complete-generic-class-identity P3：**静态字段按闭合类型各一份**（对齐 C#）。
+        // P1 期这里是清空的（那时发射端仍按擦除名拼键，声明了也没人写）；P3 让两侧同时换成
+        // 实例化键 ⇒ 描述符必须声明它，否则运行期
+        // `static field Demo.GBox<int>.Count is not declared on type Demo.GBox<int>`（实测）。
+        // 类型名同样要代换：`static T Cur;` 在 `GBox<int>` 上是 `int`。
+        int sfi = 0;
+        while (sfi < cd.StaticFieldCount) {
+            IrFieldDesc sfd = cd.StaticFields[sfi];
+            StrBox sb = subst.ContainsKey(sfd.Type) ? subst.Get(sfd.Type) as StrBox : null;
+            if (sb != null) { sfd.Type = sb.Value; }
+            sfi = sfi + 1;
+        }
+        // 类型初始化器哨兵：定义有 cctor（显式或合成）⇒ 这个实例化也有一份**自己的**
+        // （`EmitInstantiation` 发的 `Demo.GBox<int>.$cctor`）。不挂哨兵运行期就不知道要在首次
+        // 使用前调它 ⇒ `static int Seed = 7;` 恒读出 0。
+        // ⚠️ 哨兵与发射**必须一一对应**（`_cctorFuncName` 注释里的老教训：别在这里重算一遍判据）
+        // —— 故沿用 `_cctorFuncName(定义)` 判「有没有」，只把名字换成实例化前缀。
+        if (rawDef != null && this._cctorFuncName(rawDef) != "") {
+            cd.Attrs = ClassDescBuilder._appendAttrRef(new IrAttrRef[0], IrStaticCtor.Sentinel,
+                                                      fqInst + "." + IrStaticCtor.MethodKey);
+            cd.AttrCount = cd.Attrs.Length;
+        }
         // ⚠️ **TypeParams 保留定义那份**：反射的 `IsGenericType` 判据就是
         // `!type_params().is_empty() || !type_args().is_empty()`。清空它，`new Box<int>()` 的
         // `GetType().IsGenericType` 会从 true 变 **false**（实测 instance_generic_args 判红）——

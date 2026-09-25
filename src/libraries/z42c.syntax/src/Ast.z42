@@ -204,8 +204,25 @@ public sealed class NullLitExpr : Expr {
 
 public sealed class IdentExpr : Expr {
     public string Name;
-    public IdentExpr(string name, Span span) { this.Span = span; this.Name = name; }
-    public override string Dump() { return this.Name; }
+    // complete-generic-class-identity P5-b：**闭合泛型上的静态成员** `GBox<int>.Count`。
+    //
+    // 名字后面跟着的类型实参（`<int>`）；非泛型引用为空数组。之所以挂在 `IdentExpr` 上而不是
+    // 新造一个 `TypeRefExpr` 节点：**每加一个 AST 节点类型，每个 walker 都要补一个分支，
+    // 漏一个就是静默跳过**（`BoundStaticGet` 的注释把这条教训写得很清楚）。post-construction
+    // 由 parser 写入，其余构造点一字不动 ⇒ 既有产物字节不变。
+    public TypeExpr[] TypeArgs;
+    public int        TypeArgCount;
+    public IdentExpr(string name, Span span) {
+        this.Span = span; this.Name = name;
+        this.TypeArgs = new TypeExpr[0]; this.TypeArgCount = 0;
+    }
+    public override string Dump() {
+        if (this.TypeArgCount <= 0) { return this.Name; }
+        string s = this.Name + "<";
+        int i = 0;
+        while (i < this.TypeArgCount) { if (i > 0) { s = s + ", "; } s = s + this.TypeArgs[i].Dump(); i = i + 1; }
+        return s + ">";
+    }
 }
 
 public sealed class UnaryExpr : Expr {

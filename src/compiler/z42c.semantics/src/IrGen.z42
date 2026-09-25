@@ -162,6 +162,39 @@ public sealed class IrGen {
         while (i < args.Length) { this.NoteInstName(args[i]); i = i + 1; }
     }
 
+    // complete-generic-class-identity P3：**这个实例化需不需要自己的一份成员体？**
+    //
+    // 这是「单调化到哪」的**唯一判据**，发射侧（`IrGen.Generate` 的不动点）与派发侧
+    // （`ExprEmitter._instLayoutName` → 成员 IR 名）必须共用它。两边错开的后果是确定的：
+    //   · 只放宽发射 ⇒ 特化体发出来了但没人调（死代码，行为一字不变）；
+    //   · 只放宽派发 ⇒ 调用点指向一个没发射的名字（运行期 MissingSymbol）。
+    //
+    // 两条理由，任一成立就要自己的体：
+    //   ① **布局不同**（#774 起）：型参字段在实例化里可能是内联字节，偏移烘焙进指令，共享即错位。
+    //   ② **定义有静态状态**（本档）：C# 里静态成员**按闭合类型**各一份，而键是烘焙进
+    //      `static_get/set` 的字符串 —— 一份共享的体只能写一个键，两个实例化就会共用一个槽
+    //      （实测 `GBox<int>` 构造 2 次、`GBox<string>` 构造 3 次，两边都读出 5）。
+    public bool InstNeedsOwnBody(string instName) {
+        if (this.Layouts != null && this.Layouts.InstDiffersFromDef(instName)) { return true; }
+        return this.DefHasStaticState(StructLayout.BaseNameOf(instName));
+    }
+
+    // 泛型定义是否带**静态状态**（静态字段 / 静态属性后备 / 静态构造器）。
+    // 取自符号表而非 AST：跨 CU 时本 CU 未必有那份 AST，而符号表是包级的。
+    public bool DefHasStaticState(string bareDefName) {
+        if (this._symbols == null || !this._symbols.HasClass(bareDefName)) { return false; }
+        Z42ClassType ct = this._symbols.GetClass(bareDefName) as Z42ClassType;
+        if (ct == null) { return false; }
+        string[] fn = ct.Fields.Keys();
+        int i = 0;
+        while (i < fn.Length) {
+            FieldSymbol fs = ct.Fields.Get(fn[i]) as FieldSymbol;
+            if (fs != null && fs.IsStatic && !fs.IsConst) { return true; }   // const 是编译期折叠的字面量，无槽
+            i = i + 1;
+        }
+        return false;
+    }
+
     public void AddLifted(IrFunction f) {
         if (this.Lifted == null) { this.Lifted = new IrFunction[2]; this.LiftedCount = 0; }
         if (this.LiftedCount == this.Lifted.Length) {
@@ -320,8 +353,9 @@ public sealed class IrGen {
                 if (!specDone.ContainsKey(pend[pi])) {
                     specDone.Put(pend[pi], "1");
                     // 身份与布局解耦：**描述符**对所有实例化都投送（见下方 InstLayouts 循环），
-                    // 但**成员特化**只对布局与定义不同的做——布局相同时共享定义那份体即可。
-                    if (this.Layouts != null && this.Layouts.InstDiffersFromDef(pend[pi])) {
+                    // 但**成员特化**只对「需要自己一份体」的做 —— 判据与派发侧共用
+                    // `InstNeedsOwnBody`（布局不同 或 定义有静态状态），见其注释。
+                    if (this.InstNeedsOwnBody(pend[pi])) {
                         types.EmitInstantiation(pend[pi]);
                     }
                     specMore = true;   // 本轮有新增 ⇒ 再扫一遍（体内可能又登记了新实例化）
