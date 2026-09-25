@@ -67,9 +67,6 @@ public sealed class RecordSynthEmitter {
                               "Interp", paramTypes, totalParams, regTypes, this._ctx.RegTagCount,
                               lines, 0, localVars, 0);
         irf.Visibility = 0;   // public（记录式合成成员对外可见，对齐 C# record）
-        // complete-generic-instantiation：record 的 Equals/GetHashCode/ToString 纯由字段序列导出
-        // ⇒ 消费方持导出元数据即可重建。本方法是这三者唯一的 IrFunction 出口。
-        irf.MethodFlags = irf.MethodFlags | IrGenFacts.MethodFlagShapeDerived;
         return irf;
     }
 

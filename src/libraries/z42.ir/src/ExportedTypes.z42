@@ -31,11 +31,6 @@ public sealed class ExportedMethodZ {
     // （undefined register）。默认 -1（非变长），需要非默认值时构造后单独赋值。
     public bool             IsSealed;      // impl-sealed-semantics-devirt：方法级 sealed（METHOD_FLAG_SEALED）。
     // 同 ParamsFrom：构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 4) 构造后赋值。
-    public bool             IsShapeDerived;  // complete-generic-instantiation：纯由声明形状导出的成员（METHOD_FLAG_SHAPE_DERIVED bit4）。
-    // 供消费方判定「一个**导入的**泛型定义能否在本包按实例化布局重新发射」——要求全部导出成员
-    // 都带这个位，于是重建不会顶替掉任何用户代码。判据比「编译器生成的」窄：[Native]/abstract 桩、
-    // 自动属性访问器、$cctor 都**不**带（前两者声明是用户写的，$cctor 的体是用户的静态初始化式）。
-    // 同 IsSealed：ctor 元数不变（旧种子 ABI），默认 false，TsigReconcile 从 (MethodFlags & 16) 构造后赋值。
     public bool             IsDeprecated;    // add-deprecated-directive：方法级 `[Deprecated]`。⚠️ **不占 method_flags 位**——
     // 走 attr-ref 哨兵（`IrDeprecation.Sentinel` = "$Deprecated"，见 TsigReconcile 的 `IrDeprecation.Has(f.Attrs, …)`）。
     // （本行原写「METHOD_FLAG_DEPRECATED bit3」，那是设计初稿的方案，实现时改走 attr 通道，位一直没占。）
@@ -53,7 +48,6 @@ public sealed class ExportedMethodZ {
         this.MinArgCount = minArgCount; this.Params = params_; this.ParamCount = paramCount;
         this.ParamsFrom = 0 - 1;
         this.IsSealed = false;
-        this.IsShapeDerived = false;   // complete-generic-instantiation：TsigReconcile 从 (MethodFlags & 16) 构造后赋值
         this.IsDeprecated = false; this.DeprecationMsg = "";
         this.TypeParamCount = 0; this.TypeParams = new string[0];
         this.RefInfoKnown = false; this.RetIsNullable = false;
@@ -88,9 +82,6 @@ public sealed class ExportedClassZ {
     public string[] TypeParams; public int TpCount;          // 泛型类型参数名（如 "T"/"K"/"V"）
     public bool     IsSealed;   // impl-sealed-semantics-devirt：sealed class（CLASS_FLAG_SEALED，TYPE Flags bit1）。
     // 构造函数元数保持不变（旧种子 ABI），默认 false，TsigReconcile 从 (cd.Flags & 2) 构造后赋值。
-    public bool     IsRecord;   // complete-generic-instantiation：`[Record]` 类/struct（CLASS_FLAG_RECORD，TYPE Flags bit3）。
-    // 今天只有本地类经 StubCollector 回填 Z42ClassType.IsRecord；导入侧从不设。消费方要判「这个导入泛型
-    // 能不能在本包重新合成」必须知道它是不是 record（合成规则由此而来）。ctor 元数不变（旧种子 ABI），默认 false。
     public string   Visibility;   // enforce-class-access：类声明可见性（"public"/"private"/"protected"/"internal"）。
     // 默认 "public"，TsigReconcile 从 cd.Visibility（zbc TYPE 可见性字节）构造后赋值；ImportedSymbolLoader 据此填 Z42ClassType.Visibility（跨包 internal 类引用强制）。
     public bool     IsDeprecated;    // add-deprecated-directive：类级 `[Deprecated]`。🔴 **不占 TYPE Flags 位**——走 attr-ref
@@ -111,6 +102,16 @@ public sealed class ExportedClassZ {
     // ImportedSymbolLoader 据此 AddAssocBinding 恢复 Z42ClassType.AssocBinding*（供跨包使用点匹配，删守卫）。
     // ctor 元数不变（旧种子 ABI），默认空。
     public string[] AssocBindingNames; public string[] AssocBindingTypeNames; public int AssocBindingCount;
+    // complete-generic-instantiation：`[Record]` 类/struct（CLASS_FLAG_RECORD，TYPE Flags bit3）。
+    // 此前从不设置（唯一写入点 `StubCollector._putClassStub` 只管本地类）⇒ 导入 record 的 `with` 与
+    // 位置解构被误拒。
+    //
+    // 🔴 **必须追加在类的最末尾**（种子 ABI）：上一 nightly 的 z42c 是**已编译的二进制**，按编译当时
+    // 烘焙的**槽位下标**访问本类字段，而它运行时加载的是用**当前源码**建出来的 z42.ir。插在中间会让
+    // 其后每个字段的槽位右移 ⇒ 旧二进制读 `Visibility` 读到的是本字段 ⇒
+    // `ArrayGet: expected array, got Null @ ImportedSymbolLoader.Load`（实测，`xtask test bootstrap`
+    // 判 BOUNDARY VIOLATION）。「不进 ctor 签名」只是种子 ABI 的**一半**，另一半是**追加在末尾**。
+    public bool     IsRecord;
     public ExportedClassZ(string name, bool hasBase, string baseName,
                           ExportedFieldZ[] fields, int fieldCount,
                           ExportedMethodZ[] methods, int methodCount,

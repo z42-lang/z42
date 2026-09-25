@@ -1,0 +1,30 @@
+// complete-generic-instantiation S1：泛型体单调化的编译器侧门。
+namespace Z42cSemanticsGenericSpecializationTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 单调化不得因递归泛型挂死 ──────────────────────────────────────────────
+//
+// complete-generic-instantiation S1：特化按 `(泛型体, 具体实参)` 建工作项。递归泛型
+// （`Rec<T>` 调 `Rec<G<T>>`）让类型实参逐层加深 ⇒ 工作项无限增长 ⇒ **编译器 100% CPU
+// 不返回**，用户拿到的不是诊断而是一个挂死的进程。实测：S1 实施后确实挂死（45 秒未返回），
+// 而 main 在同一段源码上秒级报 E0402。
+//
+// 两道防线：① 本 CU 有类型错误 ⇒ 完全不做特化（`IrGen.HasTypeErrors`）——病态源码的
+// codegen 产物本就无意义，跳过让诊断正常输出；② 工作表的防御性上限（`SpecializationCap`），
+// 兜住未来可能出现的「良型但无界」的情形。
+//
+// ⚠️ 本测试的失败形态是**挂起**而非判红（真挂死时整个套件会卡住，靠 CI 超时暴露）。
+// 这是这类缺陷能设的最直接的门 —— 没有它，回归只会在某个用户的机器上表现为「编译器卡住了」。
+[Test]
+void test_recursive_generic_does_not_hang() {
+    // 形参是裸 T，实参每层包一层：源码在今天的类型检查器下是 E0402，但**工作项的增长**
+    // 与类型检查是否通过无关 —— 特化发生在 codegen，而 codegen 在有诊断时照常跑。
+    string src = "namespace D; [Record] struct Loc<A, B>(A Item1, B Item2);\n"
+               + "void Rec<T>(T v, int d) { if (d <= 0) { return; } Rec<Loc<T, int>>(new Loc<T, int>(v, d), d - 1); }\n"
+               + "void Main() { Rec<int>(1, 3); }";
+    string dump = IrDump.DumpModule(src);
+    Assert.Equal(true, dump.Length > 0);   // 能走到这一行就说明没挂死
+}

@@ -17,6 +17,7 @@
       改派简单名即可命中，**无须动 vtable**；命中后照常装 IC，热路径不受影响）
 - [x] **S1-d** **虚/override** 实例泛型方法（运行期「特化名不沿基类链继承」+ 覆写闭包）
 - [x] **S1-e** 泛型体登记表提到**包级** —— 泛型声明在别的文件时也能改派
+- [ ] 🔴 **S1-f** 跨 CU 的**泛型类型**实例化（#774 既有缺陷，单独立项，见下）
 - [ ] **S2** 跨包模板投送 —— 覆盖元组与 `KeyValuePair`，需格式 bump
 - [ ] **S3** 退役擦除名回落
 
@@ -116,7 +117,9 @@
 2. **编译期：本 CU 内把闭包扩到该方法的全部覆写**（`_noteSpecOverrides`）。过近似安全
    （多特化几份只是体积），漏特化才是危险。
 
-> ✅ **S1-e 已消除这条边界**：登记表提到包级后，覆写闭包也看得见别的文件里的声明。
+> ⚠️ **更正（2026-09-25 实测）**：S1-e 把**登记表**提到了包级，但跨文件的覆写特化**仍未打通**
+> ——真正的阻塞是 `SemanticModel` 也按 CU 建（见下方 S1-f）。原先写的「覆写闭包也看得见别的
+> 文件里的声明」是**未经验证的断言**，据实更正。
 
 ## S1-e：登记表提到包级（实测逼出来的）
 
@@ -133,6 +136,36 @@ type layout`。这不是边角，是主路径：任何跨文件的泛型调用�
 **顺带验证**：两个 CU 都用到 `ReadSecond<P2>` ⇒ 各发一份同名特化体。实测把该包当依赖加载
 **不会**被记成歧义函数（调用未抛、无告警）—— 调用在各自模块的 `func_index` 里就地命中。
 固化为 `cross-zpkg/crosscu_generic_specialization`。
+
+## S1-f：跨 CU 的泛型类型实例化（#774 既有缺陷，单独立项）
+
+**症状**：泛型 struct 声明在一个文件、实例化在**另一个文件** ⇒ 运行期
+`MissingSymbolException: undefined function Demo.Loc<P2,int>.Loc`。
+**main 上逐字复现**，与本线无关。
+
+```z42
+a.z42: [Record] struct Loc<A, B>(A Item1, B Item2);
+c.z42: new Loc<P2, int>(a, 7)      → undefined function Demo.Loc<P2,int>.Loc
+```
+
+**根因是两层，只修第一层不够**（实测探针：`ZP declFound pkgHas=true cuHas=false bodyLoc.Loc=false`）：
+
+| 层 | 说明 |
+|---|---|
+| 泛型**声明**表按 CU 建 | 闸门 `LocalClasses` 是**包级**的（跨文件放行），`GenericDecls` 却按 CU ⇒ 判据与数据源不同步。可修（已试通） |
+| 🔴 **绑定后的体**（`SemanticModel`）也按 CU 建 | `TypeChecker.Infer(cu, …)` 每 CU 一份；`EmitMethod` 要 `model.GetBody(...)`。**单独修声明表无效** |
+
+> 与 design.md §S2「障碍 1」是**同一件事**，只是粒度从跨包降到跨文件。
+
+**三条路（User 已裁决：都不在 S1 的 PR 里做，单独立项走甲）**：
+
+| | 做法 | 代价 / 性质 |
+|---|---|---|
+| ✅ **甲** | **两阶段包级流水线**：先 Infer 全部 CU，再带所有 model 做 codegen | 要动 `BuildPackageCus` / `CompileCuTask` / `_compileCu` —— 并行 + 诊断 + 缓存都在这条路上。真修 |
+| ❌ 乙 | 闸门收窄到同一 CU | 崩 → 退回 #774 的**别名**（静默错值）。**loud 换 silent，与 z42 取向相反** |
+| ❌ 丙 | 跨 CU 实例化时编译期报错 | 诚实且响，但会让今天「只在运行期崩」的构建编不过 |
+
+⚠️ **A2（跨文件虚覆写）被这条挡住，至今未验成** —— 修完 S1-f 才测得到。
 
 ## S2 / S3（开工前回到阶段 3/4/5 补精确 Scope）
 

@@ -78,18 +78,6 @@ public static class IrDump {
         return IrDump._build(src).Dump();
     }
 
-    // complete-generic-instantiation：指定函数的 SIGS `method_flags`（供元数据位的门断言）。
-    // IR 文本里看不见 flags，而这些位的错漏（尤其**该置未置**）是静默的 —— 消费方只会判否、
-    // 退回旧行为，没有任何红。函数不存在返回 -1，好与「flags==0」区分开。
-    public static int MethodFlagsOf(string src, string funcKey) {
-        IrModule m = IrDump._build(src);
-        int i = 0;
-        while (i < m.FuncCount) {
-            if (m.Functions[i].Name == funcKey) { return m.Functions[i].MethodFlags; }
-            i = i + 1;
-        }
-        return 0 - 1;
-    }
     // 指定 optSet 的函数 dump（add-compiler-inlining Phase 2：内联/独立性单测用；
     // 传 Opt.All 开内联、Opt.Inline 单独验内联、Opt.None 验 -O0）。
     public static string DumpFuncOpt(string src, string funcKey, int optSet) {

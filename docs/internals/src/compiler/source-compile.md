@@ -792,3 +792,66 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
   - **暴露于** `fix-partial-protocol-overload-e0433`（2026-09-01，partial `Std.String` 拆分把该塌缩显式化：
     partial 的跨碎片重复成员检测原按 RegKey 判重，误把协议重载报成 E0433；已改为按完整签名判重，但底层
     单槽塌缩仍在）。索引见 `docs/roadmap.md` Deferred Backlog。
+
+## 泛型实例化的单调化：工作表与判据
+
+> complete-generic-instantiation S1（2026-09-25）。语义面与不变式见
+> [struct-value-semantics.md §单调化必须是闭包](../runtime/struct-value-semantics.md)；
+> 本节只记**编译器侧的机制**。
+
+### 为什么必须特化「体」，而不只是「类型」
+
+z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。#774 让实例化**类型**拿到了自己
+的布局，但泛型**体**仍只编一份、按擦除布局烘焙 ⇒ 两者对同一批字节的理解不同。
+
+### 三个咽喉点
+
+| 关注点 | 出口 | 说明 |
+|---|---|---|
+| 类型代换 | `ExprEmitter._canonTypeName` / `_isConcreteTypeArg` | **所有**布局名都由它们推导，故代换只需在这两处消解（`IrGen.SpecTypeArgs`） |
+| 调用点改派 | `CallEmitter._specializeGenericBody`（直接调用）/ `_specializeVCallName`（vcall） | 与发射端必须拼出逐字节相同的名字 |
+| 发射 | `IrGen._emitSpecializedFreeFn` | 自由函数 / 静态方法 / 实例方法三形态共用 |
+
+### 不动点：两类工作项必须互相喂
+
+```
+工作项 ::= 实例化类型 G<A,B>     （#774）
+         | 泛型体实例 f:A[:B…]   （S1）
+```
+
+特化一个**体**会发现新实例化（体内 `new Loc<T,int>` 代换后成了真实例化）；特化一个**实例化**的
+成员又会调用新的泛型体。**分成两个循环就会漏**，故共用 `IrGen.Generate` 尾部那一个不动点。
+
+### 特化名为什么用 `:` 而不是 `<…>`
+
+`RegKey` **本身就可能含尖括号** —— 类型重载 mangling 把形参拼写编了进去
+（`ReadSecondS$1$Loc<T,int>`），再套一层 `<…>` 就没法无歧义解析。`:` 在标识符与类型名里都不可能
+出现，故切分恒确定。
+
+### vcall 不需要动 vtable
+
+`vcall_resolve` 的解析链里有一条「从接收者运行期类型起、按 `<类型>.<方法名>` 走基类链查
+`func_index`」的回落（4c），故改派**简单名**即可命中 `Demo.Helper.Second:P2`；命中后照常装 IC，
+热路径不受影响。
+
+⚠️ 配套约束：**特化名不沿基类链继承**。一份特化按**某一个声明**所在类型的布局烘焙了偏移，
+虚派发落到基类的特化体就是**静默调错实现**，故 4c 对含 `:` 的名字只认接收者自己那一层。
+
+### 两条防挂死
+
+1. **本 CU 有类型错误 ⇒ 完全不做特化**（`IrGen.HasTypeErrors`）。递归泛型让类型实参逐层加深、
+   工作项无限增长 ⇒ 编译器不返回。⚠️ **三条 `Generate` 入口都要设**：`CuCompile._compileCu`
+   与 `IrDump` 的两条单文件路径（只设包路径的话 `--emit-zbc` 照样挂）。
+2. **工作表上限** `IrGen.SpecializationCap`。每个特化要发一整个函数体，上限取 2000 而非两万 ——
+   取太高等于还是挂死。
+
+### 登记表的粒度陷阱
+
+`IrGen` 由 `CuCompile._compileCu` **按编译单元**创建，而闸门用的 `LocalClasses` 是**包级**的。
+**凡是「包级判据 + 按 CU 的数据」就是一处 bug**（本线撞了三次）。故泛型体登记表由
+`IrDump.BuildPackageCus` 扫全包 CU 建好后注入，与 `layouts` 同为并行段**只读**共享；
+`Generate` 仅在未注入时按本 CU 自扫（单文件 dump / 测试路径），两条路共用
+`IrGen.ScanGenericBodies`，判据只有一份。
+
+> 🔴 **仍未收口**：`SemanticModel` 也按 CU 建（`TypeChecker.Infer(cu, …)`），所以**泛型声明与
+> 实例化跨文件**时拿不到绑定后的体 —— 登记表提到包级**不足以**修好它。见 S1-f。
