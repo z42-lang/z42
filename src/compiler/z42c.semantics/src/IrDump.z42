@@ -326,6 +326,7 @@ public static class IrDump {
         if (imported != null) { gen.ImportedClassNs = CuPreprocess._filterShadowed(imported.ClassNamespaces, cu); }
         string[] actNs2 = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs2; gen.ActiveNsCount = actNs2.Length;
+        gen.HasTypeErrors = diags.ErrorCount() > 0;   // S1：类型错误下不做特化（见 IrGen.HasTypeErrors）
         // optSet 由调用方给（默认见 `EmitZbcDefaultOpt`，golden 的 `opt_all` sidecar 传 Opt.All）。
         IrModule irm = gen.Generate(cu, model, optSet);
         // usings 抽取（DEPS 用）
@@ -415,6 +416,7 @@ public static class IrDump {
         gen.SourceStem = CuPreprocess._stem(cu);   // SA-3：__static_init__ 名前缀须用文件 stem（镜像 _compileCu / C# _cuStem），否则回落 "main" → 与 C# `<stem>.__static_init__` 字节不一致
         CompilationUnit[] one = new CompilationUnit[1]; one[0] = cu;
         gen.LocalClasses = CuPreprocess._pkgLocalClasses(one, 1);   // G18：反劫持守卫仅认本地类
+        gen.HasTypeErrors = diags.ErrorCount() > 0;   // S1：同上
         return gen.Generate(cu, model, optSet);
     }
 }

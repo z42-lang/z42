@@ -57,9 +57,12 @@
       ⇒ 需特化。复用既有 `InstDiffersFromDef`，只改作用对象
 - [x] 1.2 工作表（design D2）：`IrGen.Generate` 尾部的不动点循环，工作项从
       「实例化类型名」扩成 {实例化类型, 泛型体实例 `f<A>`} 两类
-- [ ] 1.3 ⚠️ **显式上限 + 超限报错**（S1-b 未做 —— 工作项来自源码中出现的调用×实参组合，
-      有限且收敛，但防御性上限仍应补）（防御未来元数据缺陷把编译器挂死；
-      先例 `try_fixup_inheritance` 的 `fixup_cap`）
+- [x] 1.3 ⚠️ **防挂死**（实测逼出：S1 实施后递归泛型让编译器 100% CPU 不返回，45 秒未结束；
+      main 在同一源码上秒级报 E0402）。两道防线：① 本 CU 有类型错误 ⇒ 完全不做特化
+      （`IrGen.HasTypeErrors`，三条 Generate 入口都要设 —— `_compileCu` 与 `IrDump` 的两条
+      单文件路径，我первый次只设了包路径，`--emit-zbc` 照样挂）；② 工作表上限
+      `SpecializationCap`（每个特化要发一整个函数体，故取 2000 而非两万，秒级失败）。
+      门：`shape_derived_flag_tests.test_recursive_generic_does_not_hang`
 
 ### 2. 特化名的单一出口
 

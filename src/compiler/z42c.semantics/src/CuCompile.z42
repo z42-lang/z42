@@ -104,6 +104,8 @@ public static class CuCompile {
         gen.LocalClasses = localClasses; // G18：ChainHasMethod 反劫持守卫仅认本地类
         string[] actNs = CuPreprocess._activeNamespaces(cu);   // path C：static call using-scoped 消歧
         gen.ActiveNs = actNs; gen.ActiveNsCount = actNs.Length;
+        // complete-generic-instantiation S1：类型错误下不做特化（见 IrGen.HasTypeErrors）。
+        gen.HasTypeErrors = diags.ErrorCount() > 0;
         IrModule irm = gen.Generate(cu, model, optSet);
         string[] usings = new string[8];
         int uc = 0;

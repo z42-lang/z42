@@ -43,6 +43,15 @@ public sealed class IrGen {
     // 非特化发射时为 null。咽喉点是 `ExprEmitter._canonTypeName` / `_isConcreteTypeArg` ——
     // 所有布局名都经由它们推导，故只需在那两处消解代换。
     public StrMap SpecTypeArgs;
+    // complete-generic-instantiation S1：本 CU 已有类型错误 ⇒ **不做特化**。
+    // 病态源码的类型实参可以无限加深（`Rec<T>` 调 `Rec<Loc<T,int>>`），特化工作表会跟着无限
+    // 增长 ⇒ 编译器挂死，用户拿到的不是诊断而是一个不返回的进程。类型不对时 codegen 的产物
+    // 本就无意义，跳过特化让诊断正常输出。（良型代码今天够不到无限加深 —— 类型检查器不把
+    // 方法级实参代换进形参类型，那种递归一律 E0402 —— 但不能依赖这个偶然，故另有上限兜底。）
+    public bool HasTypeErrors;
+    // 单调化工作表的防御性上限（见不动点循环处的注释）。
+    // 每个特化都要发一整个函数体，故上限取得保守：够任何真实程序用，又能在秒级内失败。
+    public static int SpecializationCap = 2000;
     // 本包**泛型体**的声明：体查找键 → Decl。自由函数键 = `RegKey`；静态方法键 = `OwnerKey.RegKey`
     // （与 `SemanticModel.HasBody` 同一口径）。供特化时重发体，镜像 `GenericDecls` 之于泛型类型。
     public StrMap GenericBodies;
@@ -80,6 +89,7 @@ public sealed class IrGen {
         this.InstLayouts = new StrMap();
         this.GenericDecls = new StrMap();
         this.SpecTypeArgs = null;
+        this.HasTypeErrors = false;
         this.GenericBodies = new StrMap();
         this.GenericBodyOwners = new StrMap();
         this.GenericMethodOwners = new StrMap();
@@ -272,6 +282,7 @@ public sealed class IrGen {
         // 或成员体里用到的别的实例化），故循环到集合不再增长为止。
         StrMap specDone = new StrMap();
         bool specMore = true;
+        if (this.HasTypeErrors) { this.GenericFnInsts = new StrMap(); }   // 有类型错误 ⇒ 不特化
         while (specMore) {
             specMore = false;
             string[] pend = this.InstLayouts.Keys();
@@ -300,6 +311,14 @@ public sealed class IrGen {
                     specMore = true;
                 }
                 fi2 = fi2 + 1;
+            }
+            // 防御性上限：工作项理应有限（来自源码中出现的调用×实参组合），但递归泛型能让
+            // 类型实参逐层加深而无限产生新项。宁可大声失败，也不让编译器 100% CPU 不返回
+            // ——同 `try_fixup_inheritance` 的 `fixup_cap` 先例。
+            if (specDone.Count() > IrGen.SpecializationCap) {
+                throw new Exception("generic specialization did not converge after "
+                    + IrGen.SpecializationCap.ToString() + " instantiations — 疑似递归泛型"
+                    + "（形如 `Rec<T>` 调 `Rec<G<T>>`，类型实参逐层加深）。");
             }
         }
         IrFunction[] funcs = sink.Funcs; int fc = sink.Fc;
