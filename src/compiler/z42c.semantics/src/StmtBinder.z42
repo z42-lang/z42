@@ -18,8 +18,11 @@ public sealed class StmtBinder {
             Z42Type ct0 = feIter.Type();
             // 可迭代协议判定一律走成员面（ForeachProtocol）——类与接口是两条独立继承线，
             // 判定此前只认类，静态类型写成接口时整条短路、静默落数组臂对对象发 array_len。
-            StrMap feM = ForeachProtocol.MethodsOf(ct0);
-            StrMap feF = ForeachProtocol.FieldsOf(ct0);
+            // **策略链问一次就够** —— 顺序（数组 → 索引面 → 枚举器）与每一步的判据都在
+            // `ForeachProtocol.Resolve` 里，本函数只按 plan 合成 AST / 填 BoundForeach。
+            // 此前路径选择散在下面的 if 嵌套里、判据在 ForeachProtocol，「两处各写一份」正是
+            // `Count`/`Length` 当年分叉的形状。
+            ForeachPlan fePlan = ForeachProtocol.Resolve(feScope.Symbols, ct0);
             // add-foreach-ienumerable：三-path 决策树的**第三 path（兜底）**——目标既非数组、也无
             // 整数索引面，但暴露 `GetEnumerator()` → 走 IEnumerable 协议 path。
             // 实现（User 裁决改 Decision 7）：**binder 脱糖**成既有 AST
@@ -28,12 +31,8 @@ public sealed class StmtBinder {
             //     finally { __e.Dispose(); } }
             // 再走 _bindStmt → 复用 struct 值返回(sret)/try-finally 栈/break-continue/方法派发全部既有
             // lowering，零新 Bound 节点、零新 emitter。
-            if (!(ct0 is Z42ArrayType) && feM != null && feM.ContainsKey("GetEnumerator")) {
-                // 索引面判定与下方 feIsClassIter **共用同一套**（此前两处各写一份、两档不一致）。
-                if (!(ForeachProtocol.IsIntIndexer(feM) && ForeachProtocol.CountOf(feM, feF) != "")) {
-                    return this._bindForeachEnumerable(fe, env, ret,
-                        ForeachProtocol.EnumeratorDisposable(feScope.Symbols, feM));
-                }
+            if (fePlan.Path == ForeachPlan.Enumerator) {
+                return this._bindForeachEnumerable(fe, env, ret, fePlan.Disposable);
             }
             Z42Type feElem = new Z42UnknownType();
             bool feIsVar = (fe.Type is NamedType) && ((fe.Type as NamedType).Name == "var");
@@ -42,8 +41,8 @@ public sealed class StmtBinder {
                 else if (feIter.Type() is Z42ClassType) {
                     // class-iter：elem type from get_Item return type（镜像 C# ElemTypeOf）
                     Z42ClassType feCt = feIter.Type() as Z42ClassType;
-                    if (feCt.Methods.ContainsKey("get_Item")) {
-                        MethodSymbol feMs = feCt.Methods.Get("get_Item") as MethodSymbol;
+                    if (feCt.Methods.ContainsKey(ProtocolNames.GetItem)) {
+                        MethodSymbol feMs = feCt.Methods.Get(ProtocolNames.GetItem) as MethodSymbol;
                         if (feMs != null && feMs.Signature != null) { feElem = feMs.Signature.Ret; }
                     }
                 }
@@ -54,39 +53,21 @@ public sealed class StmtBinder {
             BoundStmt febody = this._bindStmt(fe.Body, elemScope, ret);
             this._tc._loopDepth = this._tc._loopDepth - 1;
             // ClassIterTarget：整数索引面 + 一个计数成员（镜像 C# ClassIterTarget）。
-            // 计数成员按 `Count` → `Length` 顺序找（`ForeachProtocol.CountOf`）；`Length` 那一档
-            // 让 string 也走这条路（`foreach (char c in s)` 此前落到数组 path，对 Str 发 ArrayLen）。
-            bool feIsClassIter = false; bool feCountIsField = false; string feCountMember = "";
-            // 字符串**字面量**的类型是 `Z42ClassType.Builtin("string")` —— 无成员的轻量合成体
-            // （局部变量那条路拿到的是带成员的真 String，所以 `foreach (char c in s)` 能查到而
-            // `foreach (char c in "")` 查不到）。查不到时补一次按名解析，与 MemberResolver 的 prim
-            // 收者派发同一手法。只在**已经查不到**时兜底，不影响上面能直接查到的那条路。
-            StrMap feM2 = feM; StrMap feF2 = feF;
-            if (feM2 != null && !feM2.ContainsKey("get_Item")
-                && ct0.CanonName() == "string" && feScope.Symbols.HasClass("String")) {
-                Z42ClassType feStr = feScope.Symbols.GetClass("String");
-                feM2 = feStr.Methods; feF2 = feStr.Fields;
-            }
-            if (ForeachProtocol.IsIntIndexer(feM2)) {
-                // 返回 "f:<字段名>" 或 "m:<方法名>"，空串 = 没有可用的计数成员。
-                string feCk = ForeachProtocol.CountOf(feM2, feF2);
-                if (feCk != "") {
-                    feIsClassIter = true;
-                    feCountIsField = feCk.StartsWith("f:");
-                    feCountMember = feCk.Substring(2);
-                }
-            }
+            // 判定与计数成员的取法（含 string 字面量那条兜底、`Count`→`Length` 两档）全在
+            // `ForeachProtocol.Resolve`，这里只取结果。
+            bool feIsClassIter = fePlan.Path == ForeachPlan.Index;
             // 三条路径全落空 ⇒ 发射端会走数组臂，对一个**不是数组**的东西发 array_len：
             // 编译期零诊断、运行期抛 `ArrayLen: expected array`，错误信息与用户写的 `foreach`
             // 毫无关系。这里在唯一的判定点收口，说清楚缺的是哪一样。
             // 只在**成员面可得**（类 / 接口）时报——型参、Unknown、Error 类型的成员面是 null，
             // 那些场合判据本就不足以断言「不可迭代」，保守放过（诊断宁可漏，不可误）。
-            if (!feIsClassIter && !(ct0 is Z42ArrayType) && feM2 != null) {
+            if (fePlan.Path == ForeachPlan.None && fePlan.HasMemberFace) {
                 this._tc._diags.Error(DiagnosticCodes.NotIterable,
                     "`" + ct0.Name() + "` is not iterable — `foreach` needs an array, an integer"
                     + " indexer plus a `Count`/`Length`, or a `GetEnumerator()`", fe.Span);
             }
-            return new BoundForeach(fe.Name, feElem, feIter, febody, feIsClassIter, feCountIsField, feCountMember, fe.Span);
+            return new BoundForeach(fe.Name, feElem, feIter, febody, feIsClassIter,
+                fePlan.CountIsField, fePlan.CountMember, fe.Span);
     }
 
     // 判定辅助（成员面 / 整数索引面 / 计数成员）搬到 `ForeachProtocol.z42` —— 见该文件抬头。
@@ -100,11 +81,11 @@ public sealed class StmtBinder {
             string eName = "__fe_e_" + sp.Start.ToString();
             TypeExpr varTy = new NamedType("var", new TypeExpr[0], 0, sp);
             // var __e = <Iter>.GetEnumerator();
-            Expr getEnum = new CallExpr(new MemberExpr(fe.Iter, "GetEnumerator", sp), new Expr[0], 0, sp);
+            Expr getEnum = new CallExpr(new MemberExpr(fe.Iter, ProtocolNames.GetEnumerator, sp), new Expr[0], 0, sp);
             Stmt declE = new VarDeclStmt(varTy, eName, getEnum, sp);
             // while (__e.MoveNext()) { <fe.Type> <fe.Name> = __e.Current; <fe.Body> }
-            Expr moveNext = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), "MoveNext", sp), new Expr[0], 0, sp);
-            Expr curGet = new MemberExpr(new IdentExpr(eName, sp), "Current", sp);   // 属性 getter → get_Current 虚调用
+            Expr moveNext = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), ProtocolNames.MoveNext, sp), new Expr[0], 0, sp);
+            Expr curGet = new MemberExpr(new IdentExpr(eName, sp), ProtocolNames.Current, sp);   // 属性 getter → get_Current 虚调用
             Stmt declX = new VarDeclStmt(fe.Type, fe.Name, curGet, sp);
             Stmt[] whileBodyStmts = new Stmt[2];
             whileBodyStmts[0] = declX;
@@ -121,7 +102,7 @@ public sealed class StmtBinder {
             // 不可 dispose 时连 try/finally 一起省掉：finally 里没有任何事可做。
             Stmt body = whileStmt;
             if (disposable) {
-                Expr disposeCall = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), "Dispose", sp), new Expr[0], 0, sp);
+                Expr disposeCall = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), ProtocolNames.Dispose, sp), new Expr[0], 0, sp);
                 Stmt disposeStmt = new ExprStmt(disposeCall, sp);
                 body = new TryCatchStmt(whileStmt, new CatchClause[0], 0, true, disposeStmt, sp);
             }

@@ -11,7 +11,8 @@
 // 计数成员的两档（`Count` → `Length`）也收在这里：判定点此前有两处、各写一份，一处只认
 // `Count`、另一处认 `Count`→`Length` 且认 `get_` 访问器形态 —— 判据与真实行为分叉。
 namespace Z42.Semantics;
-using Z42.IR;   // StrMap
+using Z42.IR;     // StrMap
+using Z42.Core;   // ProtocolNames —— 协议名的唯一 SoT
 
 public sealed class ForeachProtocol {
 
@@ -53,7 +54,7 @@ public sealed class ForeachProtocol {
     // `List<T>.get_Item(int)` 与 `String.this[int]` 都是真整数形参，不受影响。
     public static bool IsIntIndexer(StrMap methods) {
         if (methods == null) { return false; }
-        MethodSymbol gi = methods.Get("get_Item") as MethodSymbol;
+        MethodSymbol gi = methods.Get(ProtocolNames.GetItem) as MethodSymbol;
         if (gi == null || gi.Signature == null) { return false; }
         Z42Type[] ps = gi.Signature.ParamTypes;
         if (ps == null || gi.Signature.ParamCount < 1) { return false; }
@@ -72,7 +73,7 @@ public sealed class ForeachProtocol {
         if (fields != null && fields.ContainsKey(srcName)) {
             FieldSymbol fs = fields.Get(srcName) as FieldSymbol;
             if (fs != null && fs.IsProp) {
-                string acc = "get_" + srcName;
+                string acc = ProtocolNames.GetterPrefix + srcName;
                 if (methods.ContainsKey(acc)) { return "m:" + acc; }
                 return "";   // 属性但没有 getter 访问器：当作不可计数，别乱发指令
             }
@@ -85,7 +86,7 @@ public sealed class ForeachProtocol {
         // 跨 zpkg 过来只剩 `get_Length`。不认这一形态，string 就配不上计数成员，
         // foreach 落回数组 path 对 Str 发 ArrayLen。接口的 `int Count { get; }` 同理
         // 只以 `get_Count` 出现（接口无字段面）。
-        string accOnly = "get_" + srcName;
+        string accOnly = ProtocolNames.GetterPrefix + srcName;
         if (methods.ContainsKey(accOnly)) { return "m:" + accOnly; }
         return "";
     }
@@ -95,8 +96,8 @@ public sealed class ForeachProtocol {
     // 「整数索引器 + 只有 Length + 有 GetEnumerator」的类型被送去枚举器路径，与文档写的
     // 「`Count` 或 `Length` 走索引路径」相悖）。
     public static string CountOf(StrMap methods, StrMap fields) {
-        string c = ForeachProtocol.CountMember(methods, fields, "Count");
-        if (c == "") { c = ForeachProtocol.CountMember(methods, fields, "Length"); }
+        string c = ForeachProtocol.CountMember(methods, fields, ProtocolNames.Count);
+        if (c == "") { c = ForeachProtocol.CountMember(methods, fields, ProtocolNames.Length); }
         return c;
     }
 
@@ -116,7 +117,7 @@ public sealed class ForeachProtocol {
     // 宁可像以前一样发一次调用，也不要在判据不足时静默跳过真该调的 `Dispose`。
     public static bool EnumeratorDisposable(SymbolTable symbols, StrMap iterableMethods) {
         if (iterableMethods == null) { return true; }
-        MethodSymbol ge = iterableMethods.Get("GetEnumerator") as MethodSymbol;
+        MethodSymbol ge = iterableMethods.Get(ProtocolNames.GetEnumerator) as MethodSymbol;
         if (ge == null || ge.Signature == null || ge.Signature.Ret == null) { return true; }
         return ForeachProtocol._hasDispose(symbols, ge.Signature.Ret);
     }
@@ -137,18 +138,108 @@ public sealed class ForeachProtocol {
     private static bool _hasDispose(SymbolTable symbols, Z42Type et) {
         if (et is Z42InterfaceType) {
             if (symbols == null) { return true; }
-            return InterfaceClosure.FindMethod(symbols, et as Z42InterfaceType, "Dispose") != null;
+            return InterfaceClosure.FindMethod(symbols, et as Z42InterfaceType, ProtocolNames.Dispose) != null;
         }
         Z42ClassType ct = null;
         if (et is Z42ClassType) { ct = et as Z42ClassType; }
         else if (et is Z42InstantiatedType) { ct = (et as Z42InstantiatedType).Def; }
         if (ct == null) { return true; }
         while (ct != null) {
-            if (ct.Methods != null && ct.Methods.ContainsKey("Dispose")) { return true; }
+            if (ct.Methods != null && ct.Methods.ContainsKey(ProtocolNames.Dispose)) { return true; }
             if (!ct.HasBase || ct.BaseName == "") { return false; }
             if (symbols == null || !symbols.HasClass(ct.BaseName)) { return true; }
             ct = symbols.GetClass(ct.BaseName);
         }
         return false;
+    }
+
+    // ── 策略链：把「按什么顺序试」收在这一个函数里 ──────────────────────────
+    //
+    // add-l0-protocol-table 的 D3 / D-new-1：协议匹配是**有序策略链**，而链的形态取「名字是数据、
+    // **链是一处集中的代码**」——顺序在这个函数体里一眼可见，每一步的**判据**连同它上方的事故
+    // 注释留在各自函数里（那些注释是资产：压进一份数据编码就没有地方可写了）。
+    //
+    // 此前这条链散在两处：`StmtBinder._bindForeach` 的 if 嵌套挑路径、本文件提供判据。
+    // 「两处各写一份」正是 `Count`/`Length` 当年判据分叉的形状（见 `CountOf` 抬头）。
+    //
+    // ⚠️ **元素类型推导不在这里**：`var` 那一支今天只认 `Z42ClassType`（`List<int>` 这种
+    // `Z42InstantiatedType` 落不进去、元素类型停在 Unknown），**比协议成员面窄**。挪进来顺手
+    // 「修齐」它就是行为变更、字节会变，而本批要求字节不变 ⇒ 原样留在 `StmtBinder`，另起记账。
+    public static ForeachPlan Resolve(SymbolTable symbols, Z42Type ct0) {
+        StrMap m = ForeachProtocol.MethodsOf(ct0);
+        StrMap f = ForeachProtocol.FieldsOf(ct0);
+        bool isArray = ct0 is Z42ArrayType;
+
+        // ① 枚举器路径（add-foreach-ienumerable 的第三 path，但**优先级在索引面之前**）：
+        //    既非数组、暴露 `GetEnumerator()`、且**配不上**整数索引面 ⇒ 走枚举器。
+        //    ⚠️ 这一步用的是**未经 string 兜底**的成员面（下面 ② 才兜底）。不是笔误：string
+        //    没有 `GetEnumerator`，兜底与否都进不了这一臂；提前兜底反而改变判定顺序。
+        if (!isArray && m != null && m.ContainsKey(ProtocolNames.GetEnumerator)) {
+            if (!(ForeachProtocol.IsIntIndexer(m) && ForeachProtocol.CountOf(m, f) != "")) {
+                ForeachPlan pe = new ForeachPlan(ForeachPlan.Enumerator);
+                pe.Disposable = ForeachProtocol.EnumeratorDisposable(symbols, m);
+                pe.HasMemberFace = true;
+                return pe;
+            }
+        }
+
+        // ② string **字面量**的成员面兜底：字面量的类型是 `Z42ClassType.Builtin("string")` ——
+        //    无成员的轻量合成体（局部变量那条路拿到的是带成员的真 `String`，所以
+        //    `foreach (char c in s)` 查得到而 `foreach (char c in "")` 查不到）。只在**已经
+        //    查不到**时补一次按名解析，与 MemberResolver 的 prim 收者派发同一手法。
+        //    ⚠️ `"String"` / `"string"` 是**基元包装名**，按 D7 不进 `ProtocolNames`（另立 PR）。
+        StrMap m2 = m; StrMap f2 = f;
+        if (m2 != null && !m2.ContainsKey(ProtocolNames.GetItem)
+            && ct0.CanonName() == "string" && symbols != null && symbols.HasClass("String")) {
+            Z42ClassType str = symbols.GetClass("String");
+            m2 = str.Methods; f2 = str.Fields;
+        }
+
+        // ③ 整数索引面 + 一个计数成员（`Count` → `Length` 两档，判定点唯一）。
+        if (ForeachProtocol.IsIntIndexer(m2)) {
+            string ck = ForeachProtocol.CountOf(m2, f2);
+            if (ck != "") {
+                ForeachPlan pi = new ForeachPlan(ForeachPlan.Index);
+                pi.CountIsField = ck.StartsWith("f:");
+                pi.CountMember = ck.Substring(2);
+                pi.HasMemberFace = m2 != null;
+                return pi;
+            }
+        }
+
+        // ④ 数组（发射端的数组臂）。
+        if (isArray) { return new ForeachPlan(ForeachPlan.ArrayPath); }
+
+        // ⑤ 三条全落空。`HasMemberFace` 决定调用方能不能据此报「不可迭代」——型参 / Unknown /
+        //    Error 的成员面是 null，那些场合判据不足以断言不可迭代，保守放过（诊断宁可漏不可误）。
+        ForeachPlan pn = new ForeachPlan(ForeachPlan.None);
+        pn.HasMemberFace = m2 != null;
+        return pn;
+    }
+}
+
+// `Resolve` 的结果：走哪条路径 + 该路径需要的发射参数。
+//
+// 刻意是**一个类而不是 out 形参**：z42 的 `ref`/`out` 当前是静默失败特性
+// （见 add-ref-borrow-system-program）。同 `OptSet.z42` 的 `OptTomlResult`。
+public sealed class ForeachPlan {
+    // 路径常量（z42 暂无 enum —— 同 `DiagnosticSeverity` 的 static class + int 常量做法）。
+    public static int ArrayPath  = 0;   // 发射端数组臂
+    public static int Index      = 1;   // 整数索引面 + 计数成员
+    public static int Enumerator = 2;   // GetEnumerator/MoveNext/Current（+ 条件 Dispose）
+    public static int None       = 3;   // 三条全落空
+
+    public int    Path;
+    public bool   CountIsField;    // Index：计数成员走 field_get（否则 vcall）
+    public string CountMember;     // Index：发射时用的那个名字（已剥掉 "f:"/"m:" 前缀）
+    public bool   Disposable;      // Enumerator：脱糖要不要发 try/finally + Dispose
+    public bool   HasMemberFace;   // None：调用方能否据此报「不可迭代」
+
+    public ForeachPlan(int path) {
+        this.Path = path;
+        this.CountIsField = false;
+        this.CountMember = "";
+        this.Disposable = false;
+        this.HasMemberFace = false;
     }
 }

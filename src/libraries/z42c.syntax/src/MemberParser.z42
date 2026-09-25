@@ -11,26 +11,27 @@ public sealed class MemberParser {
     internal bool _isMulticastEventType(TypeExpr t) {
         if (!(t is NamedType)) { return false; }
         string n = (t as NamedType).Name;
-        return n == "MulticastAction" || n == "MulticastFunc" || n == "MulticastPredicate";
+        return n == ProtocolNames.MulticastAction || n == ProtocolNames.MulticastFunc
+            || n == ProtocolNames.MulticastPredicate;
     }
 
     internal MethodDecl _synthEventAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
         Span sp = ev.Span;
         NamedType evt = ev.Type as NamedType;
-        string handlerName = "Action";
-        if (evt.Name == "MulticastFunc") { handlerName = "Func"; }
-        else if (evt.Name == "MulticastPredicate") { handlerName = "Predicate"; }
+        string handlerName = ProtocolNames.Action;
+        if (evt.Name == ProtocolNames.MulticastFunc) { handlerName = ProtocolNames.Func; }
+        else if (evt.Name == ProtocolNames.MulticastPredicate) { handlerName = ProtocolNames.Predicate; }
         TypeExpr handlerT = new NamedType(handlerName, evt.Args, evt.ArgCount, sp);
         Param[] ps = new Param[1];
         ps[0] = new Param(handlerT, "h", sp);
-        string mname = (isAdd ? "add_" : "remove_") + ev.Name;
-        TypeExpr ret = isAdd ? new NamedType("IDisposable", new TypeExpr[0], 0, sp)
+        string mname = (isAdd ? ProtocolNames.AddPrefix : ProtocolNames.RemovePrefix) + ev.Name;
+        TypeExpr ret = isAdd ? new NamedType(ProtocolNames.IDisposable, new TypeExpr[0], 0, sp)
                              : new NamedType("void", new TypeExpr[0], 0, sp);
         bool body = hasBody;
         Stmt bodyStmt = null;
         if (hasBody) {
             Expr fieldRead = new MemberExpr(new IdentExpr("this", sp), ev.Name, sp);
-            Expr subMember = new MemberExpr(fieldRead, isAdd ? "Subscribe" : "Unsubscribe", sp);
+            Expr subMember = new MemberExpr(fieldRead, isAdd ? ProtocolNames.Subscribe : ProtocolNames.Unsubscribe, sp);
             Expr[] callArgs = new Expr[1];
             callArgs[0] = new IdentExpr("h", sp);
             Expr call = new CallExpr(subMember, callArgs, 1, sp);
@@ -46,7 +47,7 @@ public sealed class MemberParser {
     internal bool _isSinglecastEventType(TypeExpr t) {
         if (!(t is NamedType)) { return false; }
         string n = (t as NamedType).Name;
-        return n == "Action" || n == "Func" || n == "Predicate";
+        return n == ProtocolNames.Action || n == ProtocolNames.Func || n == ProtocolNames.Predicate;
     }
 
     internal MethodDecl _synthSinglecastAccessor(FieldDecl ev, bool isAdd, bool hasBody) {
@@ -54,24 +55,24 @@ public sealed class MemberParser {
         TypeExpr handlerT = ev.Type;
         Param[] ps = new Param[1];
         ps[0] = new Param(handlerT, "h", sp);
-        string mname = (isAdd ? "add_" : "remove_") + ev.Name;
-        TypeExpr ret = isAdd ? new NamedType("IDisposable", new TypeExpr[0], 0, sp)
+        string mname = (isAdd ? ProtocolNames.AddPrefix : ProtocolNames.RemovePrefix) + ev.Name;
+        TypeExpr ret = isAdd ? new NamedType(ProtocolNames.IDisposable, new TypeExpr[0], 0, sp)
                              : new NamedType("void", new TypeExpr[0], 0, sp);
         Stmt bodyStmt = null;
         if (hasBody && isAdd) {
             Expr fr = new MemberExpr(new IdentExpr("this", sp), ev.Name, sp);
             Expr nullCmp = new BinaryExpr("!=", fr, new NullLitExpr(sp), sp);
             Expr[] ioeArgs = new Expr[1];
-            ioeArgs[0] = new StringLitExpr("\"single-cast event already bound\"", sp);
-            Expr ioeNew = new ObjNewExpr(new NamedType("InvalidOperationException", new TypeExpr[0], 0, sp), ioeArgs, 1, sp);
+            ioeArgs[0] = new StringLitExpr(ProtocolNames.SinglecastAlreadyBound, sp);
+            Expr ioeNew = new ObjNewExpr(new NamedType(ProtocolNames.InvalidOperationException, new TypeExpr[0], 0, sp), ioeArgs, 1, sp);
             Stmt[] thr = new Stmt[1]; thr[0] = new ThrowStmt(ioeNew, sp);
             Stmt ifThrow = new IfStmt(nullCmp, new BlockStmt(thr, 1, sp), false, new BlockStmt(new Stmt[0], 0, sp), sp);
             Expr asgn = new AssignExpr("=", new MemberExpr(new IdentExpr("this", sp), ev.Name, sp), new IdentExpr("h", sp), sp);
             Expr[] lamArgs = new Expr[1]; lamArgs[0] = new IdentExpr("h", sp);
-            Expr lamBody = new CallExpr(new MemberExpr(new IdentExpr("this", sp), "remove_" + ev.Name, sp), lamArgs, 1, sp);
+            Expr lamBody = new CallExpr(new MemberExpr(new IdentExpr("this", sp), ProtocolNames.RemovePrefix + ev.Name, sp), lamArgs, 1, sp);
             Expr lam = new LambdaExpr(new LambdaParam[0], 0, false, lamBody, null, sp);
             Expr[] fromArgs = new Expr[1]; fromArgs[0] = lam;
-            Expr disp = new CallExpr(new MemberExpr(new IdentExpr("Disposable", sp), "From", sp), fromArgs, 1, sp);
+            Expr disp = new CallExpr(new MemberExpr(new IdentExpr(ProtocolNames.Disposable, sp), ProtocolNames.DisposableFrom, sp), fromArgs, 1, sp);
             Stmt[] stmts = new Stmt[3];
             stmts[0] = ifThrow;
             stmts[1] = new ExprStmt(asgn, sp);
@@ -80,7 +81,7 @@ public sealed class MemberParser {
         } else if (hasBody) {
             Expr fr = new MemberExpr(new IdentExpr("this", sp), ev.Name, sp);
             Expr[] eqArgs = new Expr[2]; eqArgs[0] = fr; eqArgs[1] = new IdentExpr("h", sp);
-            Expr refEq = new CallExpr(new MemberExpr(new IdentExpr("DelegateOps", sp), "ReferenceEquals", sp), eqArgs, 2, sp);
+            Expr refEq = new CallExpr(new MemberExpr(new IdentExpr(ProtocolNames.DelegateOps, sp), ProtocolNames.ReferenceEquals, sp), eqArgs, 2, sp);
             Expr asgnNull = new AssignExpr("=", new MemberExpr(new IdentExpr("this", sp), ev.Name, sp), new NullLitExpr(sp), sp);
             Stmt[] clr = new Stmt[1]; clr[0] = new ExprStmt(asgnNull, sp);
             Stmt ifClear = new IfStmt(refEq, new BlockStmt(clr, 1, sp), false, new BlockStmt(new Stmt[0], 0, sp), sp);
