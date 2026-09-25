@@ -1,0 +1,43 @@
+// Test: fix-class-level-typeof 的边界 —— 载体本就为空时优雅降级成占位名 "T"。
+//
+// 判据：降级结果必须是**显然不对的占位名**，绝不能是**看起来对的错类型**。这四条钉住
+// 「补类级分支不会把行为改坏」，它们的期望值与本变更前逐字相同。
+
+class Box<T> {
+    public string full() { return typeof(T).FullName; }
+
+    // 🔴 关键钉子：静态帧的 reg0 是**第一个实参**、不是 this。若绑定期省掉实例语境判据，
+    // 这里会读到实参 `o`（一个 `Box<int>`）的 type_args，静默产出 "Std.Int32"。
+    // （同形态的 `default(T)` 今天确实就是这个静默 bug —— 见 tasks.md 备注。）
+    public static string staticFull(Box<int> o) { return typeof(T).FullName; }
+
+    // 无实参的静态语境：同样产占位名。
+    public static string staticBare() { return typeof(T).FullName; }
+
+    // 方法级同名型参遮蔽类级（就近优先）——本变更前就已正确，列为回归护栏。
+    public string shadow<T>() { return typeof(T).FullName; }
+}
+
+// 继承基类的型参：`Derived` 非泛型，实例的 type_args 为空 ⇒ 基类体内的 T 取不到 int。
+// 归第二刀（继承链按声明类寻址 + fingerprint bump）。
+class Derived : Box<int> { }
+
+void Main() {
+    var b = new Box<int>();
+
+    // 静态语境（带对象首参）：必须是占位名，不能是 "Std.Int32"
+    Assert.Equal("T", Box.staticFull(b));
+
+    // 静态语境（无实参）
+    Assert.Equal("T", Box.staticBare());
+
+    // 继承基类的型参：载体为空 → 占位名
+    var d = new Derived();
+    Assert.Equal("T", d.full());
+
+    // 方法级遮蔽类级：走方法级实参，不是类级的 int
+    Assert.Equal("Std.String", b.shadow<string>());
+
+    // 实例语境仍然正常（与上面几条同一个类，确认判据没把正面路径一起关掉）
+    Assert.Equal("Std.Int32", b.full());
+}

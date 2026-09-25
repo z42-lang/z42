@@ -209,11 +209,19 @@ public sealed class BoundTypeof : BoundExpr {
     public string  TargetName;
     // add-generic-methods：方法级泛型形参 typeof(T)。IsMethodLevel=true 时 Target 为 Z42GenericParamType，
     // MethodParamIndex = 该形参在方法 TypeParams 中的序号 → ExprEmitter 发 MethodTypeArgInsn（读 frame 槽），
-    // 而非常规 TypeofInstr。默认 false（类级/具体类型走既有路径，D3 类级 typeof 仍产占位）。
+    // 而非常规 TypeofInstr。默认 false。
     public bool    IsMethodLevel;
     public int     MethodParamIndex;
+    // fix-class-level-typeof：类级泛型形参 typeof(T)（兑现 add-generic-methods design 的 D3 延后项）。
+    // IsClassLevel=true 时 ClassParamIndex = 该形参在**类** TypeParams 中的序号 → 发
+    // `__class_type_arg(this, idx)` builtin（读 instance.type_args，与类级 default(T) 的
+    // DefaultOfInstr 同一个载体）。**不新增 IR 指令**——见 TypeOpEmitter._emitTypeof。
+    // 两个标记互斥：方法级就近优先（同名时遮蔽类级），绑定期按该顺序判定。
+    // 两者皆 false ⇒ 走既有 TypeofInstr（具体类型，或载体本就为空的静态语境 → 占位名）。
+    public bool    IsClassLevel;
+    public int     ClassParamIndex;
     private Z42Type _t;
-    public BoundTypeof(Z42Type target, string targetName, Z42Type t, Span span) { this.Span = span; this.Target = target; this.TargetName = targetName; this._t = t; this.IsMethodLevel = false; this.MethodParamIndex = -1; }
+    public BoundTypeof(Z42Type target, string targetName, Z42Type t, Span span) { this.Span = span; this.Target = target; this.TargetName = targetName; this._t = t; this.IsMethodLevel = false; this.MethodParamIndex = -1; this.IsClassLevel = false; this.ClassParamIndex = -1; }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(typeof " + this.Target.Name() + " :" + this._t.Name() + ")"; }
 }

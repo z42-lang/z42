@@ -281,4 +281,10 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     // `UInt64.ToString` 专用：借 `__int32_to_string` 时 > i64::MAX 的值打印成负数。
     // 载荷位不变，只是渲染时按 u64 重解释。
     ("__uint64_to_string",  convert::builtin_uint64_to_string),
+
+    // ── fix-class-level-typeof (2026-09-25) — appended to preserve existing BuiltinIds ──
+    // 类级 `typeof(T)`：读 receiver 的 per-instance type_args[idx] 产 `Std.Type`。
+    // 与类级 `default(T)`（`DefaultOf` 指令）同一个载体，只是产类型而非零值；走 builtin
+    // 而非新 opcode ⇒ 零 zbc 格式 bump、JIT 白送（Builtin 按名/id 通用派发）。
+    ("__class_type_arg",    reflection::builtin_class_type_arg),
 ];

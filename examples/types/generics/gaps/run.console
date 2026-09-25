@@ -1,8 +1,9 @@
 # ANCHOR: typeof
 $ z42 run typeofgap.z42
+Std.Int32
+true
 T
-false
-Int32
+T
 # ANCHOR_END: typeof
 # ANCHOR: ctor
 $ z42 run ctorgap.z42

@@ -238,7 +238,10 @@
 
 这些不是写法问题，是**当前实现的洞**。踩到时别怀疑自己。
 
-### `typeof(T)` 对类级型参给不出真类型
+### `typeof(T)` 需要一个实例才拿得到类级型参
+
+类级型参的实参是**跟着实例走的**（每个 `Box<int>` 对象自己记着 `T = int`）。所以
+`typeof(T)` 在**实例方法**里是对的，但两种场景下没有实例可问，只能退回占位名 `"T"`：
 
 ```z42
 // examples/types/generics/gaps/typeofgap.z42
@@ -249,13 +252,16 @@
 {{#include ../../../../examples/types/generics/gaps/run.console:typeof}}
 ```
 
-`full()` 该打 `Int32`，实际打 `T`；`isInt()` 该是 `true`，实际 `false`——**静默走错分支，
-零诊断**。泛型类里按 `typeof(T)` 分派的代码会安静地跑错。
+- **静态方法**里没有实例 —— 问不到，得 `"T"`。
+- **继承来的型参**：`Derived : Box<int>` 的实例不携带基类的类型实参，基类体内的 `T` 同样
+  得 `"T"`。同一实例上 `default(T)` 也一样拿不到（会得 `null` 而不是 `0`）。
 
-**方法级的 `typeof(U)` 是对的**（上面 `nameOf<int>()` 打出 `Int32` 就是它）；只有**类级**
-型参的 `typeof` 拿不到实参。同一个类级 `T` 的 `default(T)` **是对的**（第三行打出 `Int32`）。
+> 📜 原本这里写的是「**类级 `typeof(T)` 一律给不出真类型**」——那条**已经修了**：实例语境下
+> `typeof(T).FullName` 现在就是 `Std.Int32`、`typeof(T) == typeof(int)` 为 `true`。
+> 剩下的只有上面这两种「没有实例可问」的场景。
 
-要按类型分派，就把型参放在**方法**上；只想知道具体类型，用 `default(T).GetType()`。
+要在静态方法里按类型分派，把型参放到**方法**上（`static string nameOf<U>()`）——方法级型参
+走的是另一条通道（调用时随实参传进来），不需要实例。
 
 ### 泛型构造器的实参也是检查的
 
@@ -299,8 +305,8 @@
 - 🔴 **`Self` 是 z42 的特色**：接口里指代实现者自己，省掉 `IEquatable<T>` 那种自引用样板。
   形参位的 `Self` 不能经接口类型调用——改用型参。
 - 关联类型 `type Item;` 让实现方决定一个类型，约束侧用 `IStore<Item = int>` 要求它。
-- 🔴 记住四个边界：类级 `typeof(T)` 给不出真类型、泛型构造器实参不检查、接口约束只比名字、
-  `new T()` 遇基元会崩。
+- 🔴 记住三个边界：类级 `typeof(T)` 要有实例才拿得到（静态方法 / 继承来的型参得占位名）、
+  接口约束只比名字、字段数 ≥ 2 的 struct 走 `where T : INumber` 的运算符派发会崩。
 
 完整的约束语义、校验时机与跨包传递，见
 [泛型约束](https://z42-lang.github.io/z42/reference/language/generic-constraints.html)
