@@ -10,8 +10,8 @@
 | 0 | 断 scripting 对 `z42.ir` 的假依赖：`FormatVersion` → z42i | 否 | ✅ 完成 |
 | **1** | **`kind="analyzer"` + `compiler-libs/` 解析域** —— 让用户能写 generator | 否 | ✅ 完成 |
 | 2 | `[analyzers]` 支持 `path` + 隔离校验 + handler ABI 握手 | 否 | ✅ 完成（2.5 改为文档对齐；余一条小项另立）|
-| 2.5 | `role` 字段（support 先行 → 跨 nightly → publisher 读 role + 五包移出 `libs/`） | 否（**跨 nightly**）| ⬜ |
-| 2.6 | scripting 拆两包 + `IReplCompiler` 门面搬家 | 否 | ⬜ |
+| 2.5 | ~~`role` 字段~~ | — | ❌ **取消**（见下：物理位置是更强的声明）|
+| 2.6 | ~~scripting 拆两包~~ | — | ❌ **取消**（拆完 eval 内核仍依赖 z42c.syntax）|
 | 3 | 大重命名：`std.*` 用户库 + `z42c.*` 编译器域 | 否（跨 nightly）| ⬜ |
 | 4 | `z42c.abi` 契约包 | 待评估 | ⏸️ 推迟 |
 
@@ -228,19 +228,75 @@ kind=lib 的工程会在**代建阶段**因解析不到契约包而失败，那�
 「`[analyzers]` … 的工程构建失败」——**含 "analyzer" 字样** ⇒ 宽断言把「校验没了」判成绿。
 改成断言那一句原话（`不是 "analyzer"`）后才真红。**「门会红」不等于「门守着对的东西」。**
 
-## 批 2.5 —— role 字段（独立轨，跨 nightly）
+## 批 2.5 —— role 字段 ❌ **取消**（User 2026-09-25 裁）
 
-- [ ] 2.5.1 **support**：`ProjectInfo.Role` + `ManifestLoader` 解析 `[project].role`（两值，
-      省略 = `runtime`）。**无消费者** → byte-identical、可立即合并。
-- [ ] 2.5.2 **use**（晚一个 nightly）：publisher 判据换成读 role，退休
-      `builder_publish.z42:546-551` 那两条打补丁的注释（`z42.scripting`「越界」/`z42.workload.*`「漏拷」）。
-      注：publisher 现在走 `_pubTomlStr(toml, …)` 直读 toml，**不经 ProjectInfo** —— 若维持直读，
-      这一步可不等 nightly，实施时再定。
-- [ ] 2.5.3 五个编译器域包标 `role=compile-time` 并移出 `libs/`。
-      ⚠️ 三处按「stdlib workspace 成员」推导落点会同时动到：`_ensureBootstrapSelfDepLibs` 冷启动预建、
-      `xtask_stdlib.z42` 的 `_stdlibList`、扁平视图 hard-link 汇聚。
+**结论：`role` 不需要，移包也不需要。** 核心目标（用户能写 generator）批 1 就达成了；
+`role` 要替掉的三条代理判据，逐条查下来都有更简单的答案。
 
-## 批 2.6 —— scripting 拆两包
+### 为什么不需要 role
+
+最初的论证是「隔离必须由**被保护方**声明，所以要 role」。**那个论证有个洞**：
+
+> **物理位置本身就是被保护方的声明，而且是更强的那种** —— 包不在 `libs/` 里，普通工程在
+> **结构上**就找不到它，不需要任何代码去读一个字段、执行一次判断。
+
+这正是本仓库的主线原则：关键不变量从「靠约定」改成「**构造式不变式**」。加一个「读了再判」
+的字段是反方向。
+
+| role 要替掉的判据 | 实际答案 |
+|---|---|
+| 进不进 SDK `libs/` | 物理位置本身（放哪就是哪）|
+| publisher 要不要 bundle | 「在不在 shipped `libs/`」——#813 已统一为「从哪个目录找到的」|
+| 递归穿透「框架到此为止」 | 同上 |
+| （隐含）普通工程不能引用编译器域包 | 不在 `libs/` ⇒ 物理上找不到 |
+
+### 为什么移包也不需要
+
+查清各包性质后，`libs/` 里那几个「编译器相关」的包分成**性质完全不同的两类**：
+
+| 包 | 位置 | 普通应用能引用 | 该不该 |
+|---|---|:---:|---|
+| `z42c.core` / `z42c.syntax` | `libs/` | ✅ | **应该** —— 可移植前端（Lexer/Parser/AST），写 linter、格式化器、语法高亮都是正当用途 |
+| `z42.scripting` | `libs/` | ✅ | **应该** —— 嵌入 eval 就是它存在的理由 |
+| `z42.ir` / `z42.project` / `z42.build` | `libs/` | ✅ | **应该** —— z42b 在用（读 zpkg 格式 / 读清单 / 跑构建管线），是工具链共享库 |
+| `z42c.semantics` | `compiler-libs/` | ❌ | 对 —— Generator 契约，**批 1 已隔离** |
+| `z42c.pipeline` / `z42c.driver` | `programs/z42c/` | ❌ | 对 —— 编译器程序本体 |
+
+**真正需要隔离的三个，早就不在 `libs/` 里了。** 留在 `libs/` 的是共享库，不是「漏出去的
+编译器」。而且它们留着**不撑大任何人的发布目录** —— 在 shipped `libs/` 里 = 框架，#813 的
+判据认定不复制。
+
+⭐ **把 `z42.scripting` 挪进编译器域的提议也被证伪**：挪走就断了普通应用嵌入 eval 的路
+（普通工程的编译期解析域只有 `libs/`）。而「嵌入 eval 的应用怎么拿到编译器」是**分发问题**，
+答案是 `add-deployment-model` 的 `deploy` / `probing-paths` / zpkg 产物引用（#836），
+不是位置问题。
+
+## 批 2.6 —— scripting 拆两包 ❌ **取消**（达不到目的）
+
+裁决 ④ 说「eval 内核零编译器域依赖」，**那个前提不成立**。实查 `z42.scripting/src/`：
+
+| 件 | 谁需要 | 用 `Z42.Syntax` 的 Lexer 吗 |
+|---|---|:---:|
+| `Classifier` / `Rewriter` | **eval 内核** —— `Script.Eval` 直接调（分类输入形态、改写变量引用）| ✅ |
+| `Completeness` / `Completer` | 只有 tty 前端（z42i / z42.repl）| ✅ |
+| `Script._isStatement` | eval 内核（纯优化：省一次编译，去掉行为等价）| ✅ |
+
+design 把 `Classifier` / `Rewriter` 归进了 editing，**实际它们在 eval 的核心流程里**。所以
+拆完之后 eval 内核**仍然**依赖 `z42c.syntax` —— 拆包解决不了「把 z42c.syntax 移出 libs/」。
+
+根子在于：REPL 的 eval 要**理解用户输入**（这是不是声明？这个标识符要不要加限定？），那本来
+就需要词法分析。要让它零编译期依赖，只能把词法能力也做成运行期注入（scripting 已经为「编译」
+做过一次），那是独立的设计工作，不是拆包能顺带解决的。
+
+⇒ 而既然批 2.5 的移包本身已取消（见上），**拆包失去了它要服务的目标**。
+`z42.scripting` 留在 `libs/` 是对的 —— 普通应用嵌入 eval 正是它存在的理由。
+
+> 📌 scripting 真正的问题仍然成立，但**不是位置、也不是抽象**：`ReplCompilerHost` 的四条探测
+> 路径全指向 SDK 布局，纯 runtime 包一条都命不中 ⇒ 恒落 `NoReplCompiler`。那是**分发问题**，
+> 归 [add-deployment-model](../add-deployment-model/tasks.md)：`ModuleSearch.Dirs()`（#832）让
+> 「找不到」变得可解释，`deploy` / `probing-paths` / zpkg 产物引用（#836）让它变得可配置。
+
+## ~~批 2.6 原稿~~ —— scripting 拆两包
 
 - [ ] 2.6.1 拆 `z42.scripting`（eval 内核，零编译器域依赖）/ `z42.scripting.editing`
       （Classifier / Completeness / Completer / Rewriter，依赖 `z42c.syntax`）。
