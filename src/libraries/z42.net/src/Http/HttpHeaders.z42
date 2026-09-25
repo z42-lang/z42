@@ -50,7 +50,7 @@ public class HttpHeaders {
 
     /// Get the FIRST value for `name` (case-insensitive). Returns null if
     /// no such header.
-    public string Get(string name) {
+    public string? Get(string name) {
         string lower = name.ToLower();
         int i = 0;
         while (i < this._count) {

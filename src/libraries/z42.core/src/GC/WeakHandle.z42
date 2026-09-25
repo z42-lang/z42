@@ -21,5 +21,5 @@ public class WeakHandle {
     public static extern WeakHandle MakeWeak(object target);
 
     [Native("__obj_upgrade_weak")]
-    public static extern object Upgrade(WeakHandle handle);
+    public static extern object? Upgrade(WeakHandle handle);
 }

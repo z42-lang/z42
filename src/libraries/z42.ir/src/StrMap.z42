@@ -97,7 +97,7 @@ public sealed class StrMap {
     }
 
     // 不存在返回 null（调用方 `as`-下行前 ContainsKey 或判 null）。
-    public object Get(string key) {
+    public object? Get(string key) {
         int slot = key.GetHashCode() & (this._cap - 1);
         int probes = 0;
         while (probes < this._cap) {

@@ -116,7 +116,7 @@ public sealed class SubcommandRouter {
     ///   - argv is empty
     ///   - argv[0] is `--help` / `-h` (caller should print HelpText)
     ///   - argv[0] doesn't match any registered subcommand
-    public SubcommandMatch Match(string[] argv) {
+    public SubcommandMatch? Match(string[] argv) {
         if (argv.Length == 0) return null;
         string first = argv[0];
         if (first == "--help" || first == "-h") return null;

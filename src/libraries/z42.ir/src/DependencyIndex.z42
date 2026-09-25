@@ -25,7 +25,7 @@ public sealed class DependencyIndex {
     }
 
     // 静态查找：先全键 "Cls.Method"，cls 带 ns 前缀则再试短类名键（镜像 TryGetStatic）。
-    public DepCallEntry GetStatic(string cls, string method) {
+    public DepCallEntry? GetStatic(string cls, string method) {
         string key = cls + "." + method;
         int _sl0 = this.Statics.Find(key); if (_sl0 >= 0) { return this.Statics.ValAt(_sl0) as DepCallEntry; }
         int cut = 0 - 1;
@@ -55,7 +55,7 @@ public sealed class DependencyIndex {
     // 由调用方回落短键 first-wins（prelude-first，既有行为）。→ 既根治「跨 ns 同短名 first-wins 串到未
     // using 的那份」（converge：只 Z42.Project 活跃、Z42.Build.Project 不活跃 → 唯一命中），又对既有活跃集内
     // 歧义完全保持原判（字节不动）。
-    public DepCallEntry GetStaticScoped(string[] activeNs, int activeCount, string shortCls, string method) {
+    public DepCallEntry? GetStaticScoped(string[] activeNs, int activeCount, string shortCls, string method) {
         if (activeNs == null) { return null; }
         DepCallEntry found = null;
         int hits = 0;
@@ -77,7 +77,7 @@ public sealed class DependencyIndex {
     }
 
     // 实例查找：арity 键优先，bare 兜底（镜像 TryGetInstance）。
-    public DepCallEntry GetInstance(string method, int userArgCount) {
+    public DepCallEntry? GetInstance(string method, int userArgCount) {
         string k = method + "$" + userArgCount.ToString();
         int _sl2 = this.Instances.Find(k); if (_sl2 >= 0) { return this.Instances.ValAt(_sl2) as DepCallEntry; }
         int _sl3 = this.Instances.Find(method); if (_sl3 >= 0) { return this.Instances.ValAt(_sl3) as DepCallEntry; }

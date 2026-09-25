@@ -74,7 +74,7 @@ public class TextReader {
     ///   - line content (may be empty for a blank line)
     ///   - `null` at EOF
     /// `\n`, `\r\n`, and lone `\r` all terminate a line.
-    public string ReadLineBase() {
+    public string? ReadLineBase() {
         char[] buf = new char[128];
         int len = 0;
         bool any = false;

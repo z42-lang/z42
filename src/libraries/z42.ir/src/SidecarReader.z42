@@ -32,7 +32,7 @@ public sealed class SidecarSyms {
         this.BuildId = buildId; this.Funcs = funcs; this.FuncCount = funcCount;
     }
     // frame-name key → 行表（线性查；单文件函数数有限）。未命中返回 null。
-    public SidecarFuncSym Find(string fqn) {
+    public SidecarFuncSym? Find(string fqn) {
         int i = 0;
         while (i < this.FuncCount) {
             if (this.Funcs[i].Fqn == fqn) { return this.Funcs[i]; }

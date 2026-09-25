@@ -16,38 +16,38 @@ static JsonValue _sample() {
 
 [Test]
 void test_select_simple_key() {
-    JsonValue v = JsonPath.Select(_sample(), "$.flag");
+    JsonValue v = JsonPath.Select(_sample(), "$.flag").Expect("$.flag exists in _sample()");
     Assert.NotNull(v);
     Assert.Equal(true, v.AsBool());
 }
 
 [Test]
 void test_select_long_value() {
-    JsonValue v = JsonPath.Select(_sample(), "$.count");
+    JsonValue v = JsonPath.Select(_sample(), "$.count").Expect("$.count exists in _sample()");
     Assert.Equal(42L, v.AsLong());
 }
 
 [Test]
 void test_select_nested_object_key() {
-    JsonValue v = JsonPath.Select(_sample(), "$.api.version");
+    JsonValue v = JsonPath.Select(_sample(), "$.api.version").Expect("$.api.version exists in _sample()");
     Assert.Equal("1.2", v.AsString());
 }
 
 [Test]
 void test_select_array_index() {
-    JsonValue v = JsonPath.Select(_sample(), "$.api.users[0].name");
+    JsonValue v = JsonPath.Select(_sample(), "$.api.users[0].name").Expect("$.api.users[0].name exists in _sample()");
     Assert.Equal("alice", v.AsString());
 }
 
 [Test]
 void test_select_second_array_element() {
-    JsonValue v = JsonPath.Select(_sample(), "$.api.users[1].age");
+    JsonValue v = JsonPath.Select(_sample(), "$.api.users[1].age").Expect("$.api.users[1].age exists in _sample()");
     Assert.Equal(25L, v.AsLong());
 }
 
 [Test]
 void test_select_without_dollar_anchor() {
-    JsonValue v = JsonPath.Select(_sample(), ".api.version");
+    JsonValue v = JsonPath.Select(_sample(), ".api.version").Expect("leading `$` is optional");
     Assert.Equal("1.2", v.AsString());
 }
 
@@ -73,21 +73,21 @@ void test_select_wrong_kind_step_returns_null() {
 [Test]
 void test_select_bracket_quoted_key_with_special_char() {
     JsonValue root = JsonValue.Parse("{\"a.b\":42,\"normal\":1}");
-    JsonValue v = JsonPath.Select(root, "$[\"a.b\"]");
+    JsonValue v = JsonPath.Select(root, "$[\"a.b\"]").Expect("quoted key a.b exists in root");
     Assert.Equal(42L, v.AsLong());
 }
 
 [Test]
 void test_select_bracket_index_only() {
     JsonValue root = JsonValue.Parse("[10,20,30]");
-    JsonValue v = JsonPath.Select(root, "$[1]");
+    JsonValue v = JsonPath.Select(root, "$[1]").Expect("index 1 exists in root");
     Assert.Equal(20L, v.AsLong());
 }
 
 [Test]
 void test_select_root_only_returns_full_value() {
     JsonValue root = JsonValue.Parse("{\"x\":1}");
-    JsonValue v = JsonPath.Select(root, "$");
+    JsonValue v = JsonPath.Select(root, "$").Expect("`$` selects the root itself");
     Assert.NotNull(v);
     Assert.True(v.IsObject());
     Assert.True(v.ContainsKey("x"));

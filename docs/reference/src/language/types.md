@@ -229,6 +229,30 @@ public Attribute[] GetCustomAttributes() {
 >
 > 显式逃生口 `Expect("理由")` 见下一节。
 
+### 标准库里标了 `?` 的 API
+
+标记是 opt-in 的，所以「标准库标了哪些」就是你实际会遇到的检查点清单：
+
+| 包 | API | `null` 的含义 |
+|---|---|---|
+| `Std.IO` | `StreamReader.ReadLine` / `StringReader.ReadLine` / `TextReader.ReadLineBase` | 到了 EOF |
+| `Std.IO` | `ProcessHandle.TryWait` | 子进程还在跑 |
+| `Std` | `Environment.GetEnvironmentVariable(name)` | 变量没设（想要兜底值就用两参重载） |
+| `Std` | `Version.TryParse` / `TimeZone.FromName` | 解析失败 / 不是已知短码 |
+| `Std` | `Type.GetInterface` / `Type.GetAttribute`、`FieldInfo`·`MethodInfo`·`ParameterInfo`·`PropertyInfo.GetAttribute` | 没有 |
+| `Std` | `WeakHandle.Upgrade` | 目标已被回收 |
+| `Std.Runtime` | `RuntimeConfig.Get` / `Describe`、`AppProperties.Get` / `Raw` | 未知 key / 没有属性 |
+| `Std.Net` | `IPAddress.TryParse` | 格式非法 |
+| `Std.Net.Http` | `HttpHeaders.Get` / `HttpClient.GetCookieJar` | 头不存在 / 没设 cookie jar |
+| `Std.Json` | `JsonPath.Select` | 路径不存在 |
+| `Std.Collections` | `LinkedList.Find` / `First` / `Last`、`LinkedListNode.Next` / `Previous` | 找不到 / 空表 / 到头 |
+| `Std.Cli` | `SubcommandRouter.Match` | 没路由到 |
+
+> ⚠️ **配了「存在性测试」的查找 API 刻意没标** —— 例如 `TomlValue.Get`（配 `ContainsKey`）、
+> `Type.GetElementType`（配 `IsArray`）。它们的惯用法是「先测再取」，而
+> `if (t.ContainsKey(k)) { t.Get(k).X }` 这种**跨 API 的不变式流分析看不见** ⇒
+> 标上只会逼你把已经正确的代码重写一遍。**判据是实测的调用形态，不是 API 的名字。**
+
 ### override / 接口实现：`?` 只能加严（E0489）
 
 标记进了签名，**子类和接口实现就不能悄悄把它改松**：

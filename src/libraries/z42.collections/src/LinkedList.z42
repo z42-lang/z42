@@ -30,8 +30,8 @@ public class LinkedListNode<T> {
         this.prev = null;
     }
 
-    public LinkedListNode<T> Next()     { return this.next; }
-    public LinkedListNode<T> Previous() { return this.prev; }
+    public LinkedListNode<T>? Next()     { return this.next; }
+    public LinkedListNode<T>? Previous() { return this.prev; }
 
     public void SetNext(LinkedListNode<T> n)     { this.next = n; }
     public void SetPrevious(LinkedListNode<T> p) { this.prev = p; }
@@ -55,8 +55,8 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
 
     // Front / back accessors — return null on empty list (idiomatic for
     // a query method; throwers are RemoveFirst / RemoveLast below).
-    public LinkedListNode<T> First() { return this.head; }
-    public LinkedListNode<T> Last()  { return this.tail; }
+    public LinkedListNode<T>? First() { return this.head; }
+    public LinkedListNode<T>? Last()  { return this.tail; }
 
     // add-collection-toarray (review §2.6): snapshot head → tail without
     // modifying the list (nodes stay linked; user gets a plain array to iterate).
@@ -176,7 +176,7 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
 
     public bool Contains(T value) { return this.Find(value) != null; }
 
-    public LinkedListNode<T> Find(T value) {
+    public LinkedListNode<T>? Find(T value) {
         var cur = this.head;
         while (cur != null) {
             if (cur.Value.Equals(value)) {

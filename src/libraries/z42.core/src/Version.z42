@@ -91,7 +91,7 @@ public sealed class Version {
     }
 
     // Non-throwing parse: the Version on success, null on any malformed input.
-    public static Version TryParse(string s) {
+    public static Version? TryParse(string s) {
         try {
             return Version.Parse(s);
         } catch (Exception e) {
