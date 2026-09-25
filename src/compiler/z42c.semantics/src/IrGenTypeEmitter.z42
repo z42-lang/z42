@@ -25,7 +25,10 @@ public sealed class IrGenTypeEmitter {
         if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
         Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
         // generic-struct-erased-slot-value-copy：记下本包**泛型**类型的声明，供实例化特化时重发成员。
+        // **两个拼写都登记**（裸名 + arity-mangled）：实例化名的基名是 `Pair$2`
+        // （见 `ExprEmitter._instBaseName`），而别的调用点仍按裸名 `Pair` 查。
         if (c.TypeParams.Count > 0 && !g.GenericDecls.ContainsKey(c.Name)) { g.GenericDecls.Put(c.Name, rawDecl); }
+        if (c.TypeParams.Count > 0 && !g.GenericDecls.ContainsKey(ownerKey)) { g.GenericDecls.Put(ownerKey, rawDecl); }
         // add-partial-types：partial 类型仅**主碎片**（min-path）发一条**合并** TYPE record；非主碎片跳过 record（方法体照发）。
         bool ptIsPartial = owner != null && owner.IsPartial;
         bool ptIsMain = !ptIsPartial || owner.PartialMainFile == g.SourceFile;

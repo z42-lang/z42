@@ -118,9 +118,24 @@ pub unsafe extern "C" fn jit_obj_new(
     // 2026-05-07 expand-jit-type-args: populate per-instance type_args BEFORE
     // ctor call so the ctor body's `default(T)` resolves correctly (mirrors
     // interp ObjNew handler order).
-    if type_args_count > 0 {
+    // complete-generic-class-identity P1: an instantiation's class name already carries its
+    // arguments, so the compiler ships no separate copy on the instruction. Fall back to the
+    // ones the registry parsed off the name — must mirror interp `obj_new` exactly (a
+    // one-sided pair here is what made `GBox<int>().V == 0` disagree between the two engines).
+    let name_args: Box<[String]> = if type_args_count > 0 {
+        Box::new([])
+    } else if let Value::Object(ref rc) = obj_val {
+        Box::<[String]>::from(rc.borrow().type_desc.type_args())
+    } else {
+        Box::new([])
+    };
+    if type_args_count > 0 || !name_args.is_empty() {
         if let Value::Object(ref rc) = obj_val {
-            let slice = std::slice::from_raw_parts(type_args_ptr, type_args_count);
+            let slice: &[String] = if type_args_count > 0 {
+                std::slice::from_raw_parts(type_args_ptr, type_args_count)
+            } else {
+                &name_args
+            };
             let mut o = rc.borrow_mut();
             o.set_type_args(Box::<[String]>::from(slice));
             // fix-generic-typeparam-field-zero: a `T`-typed field is laid out as a

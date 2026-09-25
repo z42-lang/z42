@@ -67,7 +67,7 @@ public sealed partial class ExprEmitter {
             argNames[i] = an;
             i = i + 1;
         }
-        string cand = StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
+        string cand = StructLayout.InstName(this._instBaseName(inst.Def), argNames, inst.ArgCount);
         // ← 闸门：实例化布局**确实不同于定义布局**才特化成员与布局查询。
         // 相同则共享定义那份成员体——它按定义偏移烘焙，而布局既然相同，偏移就对得上。
         // 注意这**不影响类型身份**：身份走 `_instIdentityName`，所有实例化一律独立（User 裁决）。
@@ -105,6 +105,20 @@ public sealed partial class ExprEmitter {
         return b == null ? "" : b.Value;
     }
 
+    // 实例化名的**基名**。泛型类与同名非泛型类共存时（add-class-arity-overloading），必须用
+    // arity-mangled 短名 `Pair$2` —— 否则 `Pair<int,string>` 的擦除前缀是 `Demo.Pair`，而那是
+    // **非泛型**的那个类，运行期擦除名回落会调到它身上（实测 `p2.Describe()` 返回
+    // "non-generic Pair"，而且是**静默**返回错值）。
+    // 判据与 `IrGen._classIrShortName` / `EmitInstantiation` 的 ownerKey 逐字同款：
+    // 只有符号表里**确实**注册了 `Name$N` 才 mangle（无冲突时不 mangle ⇒ 既有名字不变）。
+    internal string _instBaseName(Z42ClassType def) {
+        string n = def.Name();
+        if (def.GenericParamCount <= 0) { return n; }
+        string m = n + "$" + def.GenericParamCount.ToString();
+        if (this._ctx.Gen._symbols != null && this._ctx.Gen._symbols.HasClass(m)) { return m; }
+        return n;
+    }
+
     internal bool _isConcreteTypeArg(Z42Type a) {
         if (a == null) { return false; }
         // 已绑定到具体实参的型参**算具体**（否则特化体内的 `Loc<T,int>` 会被伪实例化闸门挡掉，
@@ -138,17 +152,19 @@ public sealed partial class ExprEmitter {
             argNames[i] = an;
             i = i + 1;
         }
-        string idn = StructLayout.InstName(inst.Def.Name(), argNames, inst.ArgCount);
+        string idn = StructLayout.InstName(this._instBaseName(inst.Def), argNames, inst.ArgCount);
         // ⚠️ 身份名必须与「**确实会发描述符**」一致，否则 ObjNew 会用一个运行期解析不到的类型名
         // （实测 `type Std.MulticastException<bool> could not be resolved`）。
-        //   · blob struct：恒发描述符（`_instLayoutDesc` 的 struct 分支）；
-        //   · 非-struct class：仅当有**内联 struct 字段**时才发（`_instClassDesc` 否则返回 null）。
-        // ⇒ 普通泛型 class（`MulticastException<bool>`）**不取独立身份**，沿用擦除裸名。
-        // 这是对「实例化是独立类型」的一处保留：给所有泛型 class 造独立身份需要合成**完整**类
-        // 描述符（基类 / 接口 / vtable / 静态字段），远超本 change 范围，另开 change。
-        StructLayout ly2 = this._ctx.Gen.Layouts;
-        bool granted = ly2.IsStructType(idn) || ly2.InlineLayoutOf(idn).FieldCount > 0;
-        if (!granted) { return ""; }
+        //
+        // complete-generic-class-identity P1：闸门已**取消** —— `_instClassDesc` 现在为每个具体
+        // 实例化都发一条完整描述符（基类链 / 接口 / 代换后字段），不再只在「有内联 struct 字段」
+        // 时才发。此前那条保留（普通泛型 class 沿用擦除裸名）的代价是**它根本不是运行期的一个
+        // 类型**：`class DInt : GBox<int> {}` 的继承字段读出 `null`、`o as GBox<string>` 在
+        // `GBox<int>` 上放行。
+        //
+        // ⭐ vtable **不用**合成（#774 当初把它算进负担里，那条是高估）：运行期
+        // `build_type_registry` 从 `own_methods` + 基链 merge，不在 TYPE 段。布局与定义相同的
+        // 实例化共享定义那份成员体，由 `vcall_resolve` 的擦除名回落接手。
         // S4-C：**给身份的那一刻就登记**，让「有身份 ⇒ 有描述符」按构造成立。
         //
         // 此前登记只挂在 `_isBlobStruct` 那条路上，而它用的是 `IsBlobStruct`（还要求
@@ -197,7 +213,7 @@ public sealed partial class ExprEmitter {
                 sub[k] = s;
                 k = k + 1;
             }
-            return StructLayout.InstName(it.Def.Name(), sub, it.ArgCount);
+            return StructLayout.InstName(this._instBaseName(it.Def), sub, it.ArgCount);
         }
         string n = a.Name();
         if (n == "") { return ""; }

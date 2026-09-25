@@ -1,0 +1,83 @@
+// complete-generic-class-identity P1 + P2：泛型 class 的**实例化是运行期真正的类型**。
+//
+// 修前三条实测缺口（都是静默错值，不是崩）：
+//   B  `class DInt : GBox<int> {}` 的继承字段读出 `null` 而不是 `0`
+//      —— 基名被剥成裸名 `GBox`，运行期从**擦除定义**合并字段，`V` 的 type_tag 还是 `T`，
+//         `ObjNew` 按 tag 取默认值。实参在运行期元数据里根本不存在，只能在编译期修。
+//   D  `o as GBox<string>` 在一个 `GBox<int>` 上**放行**（随后 `VCall: expected object, got I64`）
+//      —— `is`/`as` 取 AST 的 `NamedType.Name`，**丢掉类型实参**，运行期又按名字符串比。
+//   ——两者互相咬死：只给身份不改 `is`/`as`，`x is GBox<int>` 会从 true **静默**变 false。
+//
+// 阴性对照同样重要，都在下面：擦除名 `is GBox`（不带实参，C# 里写不出来）必须**继续**成立，
+// 泛型与同名非泛型类共存时不得互相劫持，非泛型路径一字不动。
+namespace Demo;
+
+using Std;
+
+interface ITagged {
+    string Tag();
+}
+
+class GBox<T> : ITagged {
+    public T V;
+    public GBox() { }
+    public string Tag() { return "gbox"; }
+    public int Arity() { return 1; }
+}
+
+// 继承自**闭合**实例化：基链上出现一个实例化
+class DInt : GBox<int> { }
+class DStr : GBox<string> { }
+
+// 继承自**开放**实例化：基仍是型参，不是具体实例化 ⇒ 仍走擦除名（阴性对照）
+class Open<T> : GBox<T> { }
+
+void Main() {
+    // ── B：继承字段拿到**代换后**类型的零值 ─────────────────────────────
+    DInt d = new DInt();
+    Assert.Equal(0, d.V);                 // 修前：null
+    DStr s = new DStr();
+    Assert.True(s.V == null);             // 引用型参的零值仍是 null
+
+    // 继承来的方法仍然找得到（成员体只以擦除名存在，基链每一层都要做擦除回落）
+    Assert.Equal("gbox", d.Tag());
+    Assert.Equal(1, d.Arity());
+
+    // ── D：`as` / `is` 携类型实参 ───────────────────────────────────────
+    object o = new GBox<int>();
+    Assert.True((o as GBox<string>) == null);   // 修前：放行
+    Assert.True((o as GBox<int>) != null);
+    Assert.True(o is GBox<int>);
+    Assert.False(o is GBox<string>);
+
+    // 硬转换同口径（P5-a 让它能写出来）
+    GBox<int> hard = (GBox<int>)o;
+    Assert.Equal(0, hard.V);
+
+    // ── 阴性对照 ①：**擦除名**不带实参仍然成立（C# 写不出，z42 可以）──────
+    Assert.True(o is GBox);
+
+    // ── 阴性对照 ②：接口按实参代换后仍然匹配 ────────────────────────────
+    Assert.True(o is ITagged);
+    ITagged it = o as ITagged;
+    Assert.True(it != null);
+    Assert.Equal("gbox", it.Tag());
+
+    // ── 阴性对照 ③：派生类的类型测试两个方向都对 ────────────────────────
+    object od = d;
+    Assert.True(od is DInt);
+    Assert.True(od is GBox<int>);          // 基就是这个实例化
+    Assert.False(od is GBox<string>);
+    Assert.True(od is GBox);               // 擦除名回落
+
+    // ── 阴性对照 ④：开放泛型基不受影响 ──────────────────────────────────
+    Open<int> op = new Open<int>();
+    Assert.Equal("gbox", op.Tag());
+
+    // ── 阴性对照 ⑤：反射仍把实例化看作**构造出来的**泛型类型 ─────────────
+    Type t = o.GetType();
+    Assert.True(t.IsGenericType);
+    Assert.False(t.IsGenericTypeDefinition);
+    Type[] ta = t.GetGenericArguments();
+    Assert.True(ta.Length == 1);
+}

@@ -86,6 +86,43 @@ pub fn default_value_for(type_tag: &str) -> Value {
 /// Returns `(slot_index, zero)` pairs for the caller to write via `set_field_value`.
 /// Empty for non-generic types, for missing/short `type_args`, and whenever the argument
 /// is not a primitive value type — so callers can apply it unconditionally.
+/// complete-generic-class-identity P1: a constructed instantiation's **name is its type
+/// argument list** — `Demo.Box<int>` carries `["int"]`, `Demo.Pair<int,Demo.P2>` carries
+/// `["int", "Demo.P2"]`. Nested `<…>` stay inside their argument.
+///
+/// Parsing them here makes the name the single source of truth. The compiler's `ObjNew`
+/// deliberately ships **no** separate `type_args` list once the class name carries them
+/// (see `CallEmitter`: passing both renders `Demo.Box<int><int>`), so reflection
+/// (`Type.GetGenericArguments`) and generic field zero-init would otherwise see nothing.
+///
+/// Returns an empty list for a non-instantiated name, which is the common case.
+pub fn type_args_from_name(name: &str) -> Box<[String]> {
+    let Some(lt) = name.find('<') else { return Box::new([]) };
+    let inner = match name.strip_suffix('>') {
+        Some(s) => &s[lt + 1..],
+        None => return Box::new([]),
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (i, ch) in inner.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                out.push(inner[start..i].trim().to_string());
+                start = i + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let last = inner[start..].trim();
+    if !last.is_empty() {
+        out.push(last.to_string());
+    }
+    out.into_boxed_slice()
+}
+
 pub fn generic_field_zero_overrides(td: &TypeDesc, type_args: &[String]) -> Vec<(usize, Value)> {
     if type_args.is_empty() {
         return Vec::new();

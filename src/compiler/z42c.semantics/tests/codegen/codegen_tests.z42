@@ -358,7 +358,10 @@ void test_new_generic() {
 [Test]
 void test_new_generic_multi() {
     string src = "class Pair<K, V> { } class C { Pair<int, string> Make() { return new Pair<int, string>(); } }";
-    Assert.Equal("fn @C.Make(1) -> Pair<int, string> {\nentry:\n  %1 = obj_new Pair<int, string> Pair.Pair()\n  ret %1\n}",
+    // complete-generic-class-identity P1：ObjNew 的类名现在是**实例化身份名** `Pair<int,string>`
+    // （`StructLayout.InstName`，**无空格**），不再是「裸名 + 另一份 TypeArgs 渲染」的
+    // `Pair<int, string>`。签名位仍是源码拼写（`Z42Type.Name()`），故那半保留空格。
+    Assert.Equal("fn @C.Make(1) -> Pair<int, string> {\nentry:\n  %1 = obj_new Pair<int,string> Pair.Pair()\n  ret %1\n}",
                  IrDump.DumpFunc(src, "C.Make"));
 }
 

@@ -6,7 +6,7 @@ using Z42.Syntax;
 using Z42.IR;
 using Z42.Project;
 
-public sealed class ClassDescBuilder {
+public sealed partial class ClassDescBuilder {
     private IrGen _g;
     public ClassDescBuilder(IrGen g) { this._g = g; }
 
@@ -151,12 +151,26 @@ public sealed class ClassDescBuilder {
             int ltIdx = bn.IndexOf("<");
             if (ltIdx >= 0) { barebn = bn.Substring(0, ltIdx); }
             if (!this._g._symbols.HasInterface(barebn)) {
-                // fix-generic-base-name：发射的 CLASS base 也必须是裸名。写 `"Ns.Bag<T>"` 进元数据，
-                // VM 建 vtable 时按该名找不到任何类 ⇒ 继承来的方法在运行期 `VCall: function
-                // Ns.Sub.Tag not found`（binder 那半边同时静默放行，正是「binder 不认 / emitter
-                // 照发」的同一族）。z42 泛型是类型擦除的，实参在此毫无用处。
-                baseName = barebn;
-                if (!this._hasDot(baseName)) { baseName = this._g._qClass(baseName); }   // 镜像 QualifyClassName
+                // fix-generic-base-name：泛型基名此前一律剥成裸名。理由是「写 `Ns.Bag<T>` 进元数据，
+                // VM 建 vtable 时按该名找不到任何类 ⇒ 继承来的方法运行期 `VCall: … not found`」。
+                //
+                // complete-generic-class-identity P1：**闭合**泛型基（实参全具体，如 `GBox<int>`）
+                // 现在自己就是一个运行期类型（`_instClassDesc` 为它发描述符），那条理由消失 ——
+                // 而剥名的代价是继承字段读出 `null`：运行期从**擦除定义**合并字段，`V` 的 type_tag
+                // 还是 `T`，`ObjNew` 按 tag 取默认值。实参在运行期元数据里根本不存在。
+                //
+                // ⚠️ **开放**泛型基（`class Sub<T> : Bag<T>`，实参仍是型参）仍剥成裸名：它不是一个
+                // 具体实例化、永远不会有描述符，原来的理由对它**依然成立**。
+                bool closed = ltIdx >= 0 && ClassDescBuilder._isClosedTypeExpr(c.Bases[bi2], c);
+                if (closed) {
+                    // 规范名必须与表达式侧同口径（`Int32`→`int`、嵌套递归、无空格）。
+                    string cn = ClassDescBuilder._substTypeName(c.Bases[bi2], new StrMap());
+                    baseName = this._qInst(cn);
+                    this._g.NoteInstName(cn);   // 基也要有描述符，否则运行期基链断在这里
+                } else {
+                    baseName = barebn;
+                    if (!this._hasDot(baseName)) { baseName = this._g._qClass(baseName); }   // 镜像 QualifyClassName
+                }
                 hasBase = true;
                 bi2 = c.BaseCount;        // 取首个类即止
             }
@@ -505,37 +519,6 @@ public sealed class ClassDescBuilder {
         return cd;
     }
 
-    // 泛型 class 实例化的合成描述符：字段表用**代换后**的对象全字段布局，并挂内联布局块。
-    private IrClassDesc _instClassDesc(string instName) {
-        StructLayout ly = this._g.Layouts;
-        StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
-        if (ol.FieldCount <= 0) { return null; }
-        StructLayoutInfo il = ly.InlineLayoutOf(instName);
-        if (il.FieldCount <= 0) { return null; }   // 没有内联 struct 字段 ⇒ 与定义等价，不必投送
-        int n = ol.FieldCount;
-        IrFieldDesc[] fs = new IrFieldDesc[n];
-        int i = 0;
-        while (i < n) { fs[i] = new IrFieldDesc(ol.FieldNames[i], ol.FieldTypeNames[i]); i = i + 1; }
-        int ltq = instName.IndexOf("<");
-        string fqInst = ltq < 0 ? this._g._q(instName)
-                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
-        IrClassDesc cd = new IrClassDesc(fqInst, true, "Std.Object", fs, n);
-        cd.Flags = 128;   // bit7 = 有内联 struct 字段 → writer 追加内联布局块
-        cd.InlineSize = il.Size;
-        cd.InlineRefOffsets = il.RefLeafOffsets;
-        cd.InlineRefKinds = il.RefLeafKinds;
-        cd.InlineRefCount = il.RefLeafCount;
-        // **对象布局块也必须填**（Flags bit2/4/5/6 皆 0 ⇒ writer 会写这一段）。只给内联块不够：
-        // 运行期按**对象布局**决定 ScriptObject 的字节区与引用槽大小，缺了就分配 0 字节
-        // ⇒ 读内联字段报 `struct field read out of blob bounds (off=4, w=4, len=0)`（实测）。
-        cd.ObjectSize = ol.Size;
-        int[] offs = new int[n]; int[] szs = new int[n]; int[] kinds = new int[n];
-        int j = 0;
-        while (j < n) { offs[j] = ol.FieldOffsets[j]; szs[j] = ol.FieldSizes[j]; kinds[j] = ol.FieldKinds[j]; j = j + 1; }
-        cd.ObjFieldOffsets = offs; cd.ObjFieldSizes = szs; cd.ObjFieldKinds = kinds; cd.ObjFieldCount = n;
-        cd.ObjRefOffsets = ol.RefLeafOffsets; cd.ObjRefKinds = ol.RefLeafKinds; cd.ObjRefCount = ol.RefLeafCount;
-        return cd;
-    }
 
     internal IrAttrRef[] _attrRefs(Decl rawMem) {
         // add-static-constructors：此前这里对非-AttributedDecl **提前返回空数组**，于是「没写任何

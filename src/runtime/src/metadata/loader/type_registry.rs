@@ -84,7 +84,12 @@ pub fn build_type_registry(module: &mut Module) {
             own_methods:            own_methods.into(),
             own_static_flags:       own_static.into(),
             type_params:            desc.type_params.clone(),
-            type_args:              vec![].into(),
+            // complete-generic-class-identity P1: the name of a constructed instantiation
+            // *is* its argument list (`Demo.Box<int>`), and the compiler ships no separate
+            // copy alongside it. Parse it here — `build_type_registry` is the one funnel all
+            // modules (eager + cross-zpkg lazy) go through, so every consumer of
+            // `type_args()` sees them without a second source of truth.
+            type_args:              crate::metadata::types::type_args_from_name(class_name),
             type_param_constraints: desc.type_param_constraints.clone(),
             // C3 add-attribute-reflection: carry the class's user attributes.
             custom_attributes:      desc.attributes.clone(),
