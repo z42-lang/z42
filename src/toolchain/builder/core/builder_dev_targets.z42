@@ -271,6 +271,34 @@ string _dtOrphanSourceDir(ProjectManifest m, string kind, string sourceDir) {
     return "";
 }
 
+// `auto = false` 豁免掉的欠债**规模**：段根下有几处「有 .z42 源却没有任何目标认领」。
+//
+// 为什么要数：豁免那条路径只打「本清单 `auto = false`，跳过约定发现」——那是一句**配置说明**，
+// 不是欠债提醒。读者看完不知道底下躺着 11 个从没跑过的测试目录，而清单注释自称的是「欠债不消音」。
+// 说出数字，那行 ⚠ 才真的在报欠债。判据与 `_dtOrphanSourceDir` 同一套（自带 toml 的子目录 =
+// 独立工程，不算），差别只是它返回「第一处」用于判红、这里返回「共几处」用于报数。
+int _dtUnclaimedSourceDirs(ProjectManifest m, string kind, string sourceDir) {
+    TargetSection sec = (kind == "bench") ? m.BenchSection : m.TestsSection;
+    if (sec == null || sec.IncCount == 0) { return 0; }
+    string rootRel = _dtSectionRoot(sec.Include, sec.IncCount);
+    if (rootRel.Length == 0) { return 0; }
+    string root = Path.Join(sourceDir, rootRel);
+    if (!Directory.Exists(root)) { return 0; }
+    int n = 0;
+    if (Path.Glob(root, "*.z42").Length > 0) { n = n + 1; }   // 段根直下的散文件算一处
+    string[] entries = Path.Glob(root, "*");
+    int i = 0;
+    while (i < entries.Length) {
+        if (Directory.Exists(entries[i])
+            && Path.Glob(entries[i], "*.z42.toml").Length == 0
+            && Path.GlobRecursive(entries[i], "*.z42").Length > 0) {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
 // 段根 = 各 include pattern 首个通配段之前的公共字面前缀（`tests/*.z42` → `tests`）。
 // 深度取最小值，前缀取该深度下的第一条 pattern 的段（各 pattern 段根不一致时保守取第一条）。
 string _dtSectionRoot(string[] includes, int n) {
