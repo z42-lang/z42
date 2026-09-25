@@ -121,7 +121,19 @@ pub unsafe extern "C" fn jit_obj_new(
     if type_args_count > 0 {
         if let Value::Object(ref rc) = obj_val {
             let slice = std::slice::from_raw_parts(type_args_ptr, type_args_count);
-            rc.borrow_mut().set_type_args(Box::<[String]>::from(slice));
+            let mut o = rc.borrow_mut();
+            o.set_type_args(Box::<[String]>::from(slice));
+            // fix-generic-typeparam-field-zero: a `T`-typed field is laid out as a
+            // *reference* slot (layout comes from the declaration), so layout zero-init
+            // leaves it `Null` instead of the instantiation's zero. Must mirror the interp
+            // `obj_new` handler exactly — this pair being one-sided is what made
+            // `GBox<int>().V == 0` answer `false` under interp and `true` under JIT.
+            let overrides = crate::metadata::types::generic_field_zero_overrides(
+                &o.type_desc, slice,
+            );
+            for (slot, zero) in overrides {
+                o.set_field_value(slot, &zero);
+            }
         }
     }
 

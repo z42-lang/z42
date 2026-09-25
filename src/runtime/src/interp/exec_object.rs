@@ -125,12 +125,21 @@ pub(super) fn obj_new(
     // `Z42_STACKALLOC=off` bypasses this at runtime (heap) for triage.
     let obj_val = if stack_alloc && crate::interp::stack_alloc::stack_alloc_enabled() {
         let storage = type_desc.object_storage();
-        let mut obj = ScriptObject::new(type_desc, storage);
+        let mut obj = ScriptObject::new(type_desc.clone(), storage);
         obj.set_type_args(if type_args.is_empty() {
             Box::new([])
         } else {
             Box::<[String]>::from(type_args)
         });
+        // fix-generic-typeparam-field-zero: a `T`-typed field is a *reference* slot (the
+        // layout is computed from the declaration), so layout zero-init leaves it `Null`.
+        // Rewrite it to the instantiation's real zero. Must stay in lockstep with the heap
+        // branch below — otherwise flipping `Z42_STACKALLOC` changes observable values.
+        for (slot, zero) in crate::metadata::types::generic_field_zero_overrides(
+            &type_desc, obj.type_args(),
+        ) {
+            obj.set_field_value(slot, &zero);
+        }
         let idx = ctx.stack_alloc_obj(frame.frame_id, obj);
         Value::StackObject { idx, frame_id: frame.frame_id }
     } else {
@@ -150,7 +159,17 @@ pub(super) fn obj_new(
         // per-instance type_args from the IR instruction. Read by `DefaultOf`.
         if !type_args.is_empty() {
             if let Value::Object(ref rc) = obj_val {
-                rc.borrow_mut().set_type_args(Box::<[String]>::from(type_args));
+                let mut o = rc.borrow_mut();
+                o.set_type_args(Box::<[String]>::from(type_args));
+                // fix-generic-typeparam-field-zero: see the stack branch above. Kept in the
+                // same `!type_args.is_empty()` block because a non-generic instance can
+                // never need an override.
+                let overrides = crate::metadata::types::generic_field_zero_overrides(
+                    &o.type_desc, type_args,
+                );
+                for (slot, zero) in overrides {
+                    o.set_field_value(slot, &zero);
+                }
             }
         }
         obj_val

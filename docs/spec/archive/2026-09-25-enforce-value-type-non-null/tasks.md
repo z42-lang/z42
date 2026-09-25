@@ -108,7 +108,13 @@
   「Deliberately narrow: only PRIMITIVE value params」，struct 类型参数仍走老路。
   强推 struct backing 会打坏泛型容器（`struct_generic_container: VCall: expected object, got StructRefHeap`）。
 
-- 🔴 **泛型型参字段没有零值**（2026-09-25 归档复核时实测发现，**当时漏掉了这一格**）——
+- 🟡 **泛型型参字段没有零值**（2026-09-25 归档复核时实测发现，**当时漏掉了这一格**）——
+  ✅ **直接实例化那半已修**：`fix-generic-typeparam-field-zero`（分配点按实例化取零值，
+  interp + JIT 同步，`value_field_zero` 已补上泛型格）。
+  🔴 **仍未修的两格**：`class D : GBox<int> {}` 的**继承**字段、以及**泛型 struct** 的型参字段 ——
+  两者的实参在运行期元数据里**根本不存在**（派生类的 `base_name` 不带实参；
+  `StructTypeLayout` 只有 offset/kind、没有叶子声明类型），只能由编译期单调化解决。
+  下面记的是**修前**的全貌，保留作现场：
   本变更的不变式「**值类型的存储槽永不含 `Value::Null`**」在泛型实例化上**今天就不成立**。
 
   ```z42

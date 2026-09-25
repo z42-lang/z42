@@ -1,4 +1,7 @@
 // enforce-value-type-non-null：值类型字段 / 静态字段无初始化器时必须是零值，不是 Null。
+//
+// fix-generic-typeparam-field-zero 补上**泛型型参字段**那格 —— 此前这个用例只有非泛型，
+// 于是「零初始化已经是对的」这个结论被记成了比实测更宽的样子，泛型那格漏了整整一轮。
 class Holder {
     public int    N;
     public bool   B;
@@ -10,6 +13,10 @@ class Stat {
     public static int SN;
     public static bool SB;
 }
+class GBox<T> { public T V; public GBox() { } }
+class Multi<A, B> { public A X; public B Y; public Multi() { } }
+class Mixed<T> { public int N; public T V; public Mixed() { } }
+
 void Main() {
     Holder h = new Holder();
     Assert.Equal(0, h.N);
@@ -20,4 +27,35 @@ void Main() {
     Assert.Equal(0, Stat.SN);
     Assert.Equal(false, Stat.SB);
     Assert.Equal(1, Stat.SN + 1);
+
+    // ── 泛型型参字段：零值按**实例化**取，不是按声明（声明里 T 是 ref 槽 ⇒ 零值曾是 Null）──
+    GBox<int> gi = new GBox<int>();
+    Assert.Equal(0, gi.V);
+    Assert.Equal(1, gi.V + 1);         // 算术：Null 会炸 type mismatch（catch 抓不到）
+    int y = gi.V;
+    Assert.Equal(0, y);                // 值类型局部里绝不能装 Null
+
+    // bool 是这类缺陷的头号探针：Null 会让 `== true` 与 `== false` **同时为假**，
+    // 而 `if` 直接崩 `BrCond expects bool, got Null`。三格都要断言。
+    GBox<bool> gb = new GBox<bool>();
+    Assert.Equal(false, gb.V == true);
+    Assert.Equal(true,  gb.V == false);
+    if (gb.V) { Assert.Equal(1, 2); }  // 走到这里就说明 if 把零值判成了真
+
+    GBox<double> gd = new GBox<double>();
+    Assert.Equal(0.0, gd.V);
+
+    // 多型参：按名字映射到正确的下标（不是跟字段表位置配对）
+    Multi<int, string> m = new Multi<int, string>();
+    Assert.Equal(0, m.X);
+    Assert.Equal(true, m.Y == null);   // 🔒 引用型参的零值本来就是 null，不得被改写
+
+    // 具体类型字段与型参字段混在一个类里，两者都要对
+    Mixed<int> mx = new Mixed<int>();
+    Assert.Equal(0, mx.N);
+    Assert.Equal(0, mx.V);
+
+    // 🔒 T 是引用类型时不介入
+    GBox<string> gs = new GBox<string>();
+    Assert.Equal(true, gs.V == null);
 }

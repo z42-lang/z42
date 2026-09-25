@@ -198,17 +198,33 @@ ObjectHeader {
 | 基元值字段（int/bool/char/double/long…） | 字节零 ⇒ `0` / `false` / `'\0'` / `0.0` | 值落在 bytes 区 |
 | 引用字段 | `Value::Null` | `null` 本就是引用类型的零值 |
 | 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取 |
+| **型参字段**（`class GBox<T> { T V; }`） | 按**实例化**取：`default_value_for(type_args[i])` | 见下 |
+
+**型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽被分类成
+**引用槽** ⇒ 整块零初始化给它的零值是 `Null`，而不是 `GBox<int>` 该有的 `0`。
+实例自己带着实参（`ObjNew` 写入 `set_type_args`），所以真正的零值在**分配点**可以还原：
+把字段的 `type_tag` 按名字映射到 `TypeDesc::type_params()` 的下标，再取该实参的零值
+（`metadata/types/field.rs::generic_field_zero_overrides`，interp 的堆/栈两支 + JIT 三处共用）。
+
+口径**刻意窄**，与 `ArrayNew` 同一条线：**只有基元值实参**才改写。解析出的 *struct* 实参
+不能在这里强推 struct backing（泛型容器按引用存 struct，会炸
+`struct_generic_container: VCall: expected object, got StructRefHeap`）；引用实参的零值
+本来就是 `Null`，无事可做。
 
 编译期那一侧配套堵住「写 null 进值类型槽」（E0475 / E0476 / E0483），
 `object` → 值类型的**拆箱**则按两段报错，见下。
 
-> 🔴 **已知缺口：泛型型参字段。** 布局**按定义**算，型参名落 `StructLeafKind.GcRef`
-> ⇒ `class GBox<T> { public T V; }` 里 `V` 是 **ref 槽**，于是 `GBox<int>().V` 的零值是
-> `Null` 而不是 `0`（`== 0` 为 false、赋给 `int` 局部得 Null、算术抛内部错误，
-> 且 `== 0` 在 interp / jit 上**结论相反**）。上面这条不变式因此**尚未全域成立**。
-> 修法属「泛型实例化单调化」（型参字段变真内联字节），见
-> [compiler/generics.md](../compiler/generics.md) 与
-> `docs/spec/archive/2026-09-25-enforce-value-type-non-null/tasks.md`「已知未堵的洞」。
+> 🔴 **仍未覆盖的两格**（不变式尚未全域成立）：
+>
+> - **继承链上的型参字段** —— `class D : GBox<int> {}`。派生类型的 `base_name` 只有 `"GBox"`，
+>   **实参 `int` 在运行期元数据里根本不存在**，继承来的字段 tag 仍是 `"T"` ⇒ 分配点无从解析。
+> - **泛型 struct 的型参字段** —— `struct GS<T> { T F; }`。存储走 struct blob 的叶子而非对象槽，
+>   而 `StructTypeLayout` 只有 `size` / `ref_offsets` / `ref_kinds`，**没有叶子的声明类型名**
+>   ⇒ 分不出哪个 ref 叶子是型参字段。
+>
+> 两格的共同点：**信息在编译期就被擦掉了**，不是运行期少做了一步。修法属「泛型实例化单调化」
+> （型参字段变真内联字节，`StructLayout._kindOf` 不再把型参名判成 `GcRef` 叶子），见
+> [compiler/generics.md](../compiler/generics.md)。
 
 ### `object` → 值类型的拆箱：两段检查
 

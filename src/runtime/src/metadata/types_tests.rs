@@ -628,3 +628,93 @@ fn script_object_stays_small() {
     assert_eq!(std::mem::size_of::<ScriptObject>(), 32,
         "ScriptObject grew — re-measure per-object RSS before updating this");
 }
+
+// ── generic_field_zero_overrides (fix-generic-typeparam-field-zero, 2026-09-25) ──
+//
+// A `T`-typed field is laid out as a reference slot (layout is computed from the
+// declaration), so layout zero-init leaves it `Null`. These pin the narrow rule that
+// recovers the instantiation's real zero at the allocation point.
+
+fn td_with_params(name: &str, params: &[&str], fields: &[(&str, &str)]) -> Arc<TypeDesc> {
+    let mut cold = crate::metadata::types::TypeDescCold::default();
+    cold.type_params = params.iter().map(|p| p.to_string()).collect();
+    Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: name.to_string(),
+        base_name: None,
+        fields: fields.iter().map(|(n, t)| FieldSlot {
+            name: (*n).into(), type_tag: (*t).into(), visibility: 0,
+        }).collect(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: Some(Box::new(cold)),
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    })
+}
+
+#[test]
+fn generic_field_zero_primitive_arg_yields_zero() {
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    let got = generic_field_zero_overrides(&td, &["int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 0);
+    assert!(matches!(got[0].1, Value::I64(0)));
+}
+
+#[test]
+fn generic_field_zero_covers_bool_and_double() {
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    assert!(matches!(
+        generic_field_zero_overrides(&td, &["bool".to_string()])[0].1, Value::Bool(false)));
+    match generic_field_zero_overrides(&td, &["double".to_string()])[0].1 {
+        Value::F64(v) => assert_eq!(v, 0.0),
+        ref other => panic!("expected F64(0.0), got {other:?}"),
+    }
+}
+
+#[test]
+fn generic_field_zero_skips_reference_arg() {
+    // A reference argument's zero already IS `Null` — nothing to rewrite.
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    assert!(generic_field_zero_overrides(&td, &["string".to_string()]).is_empty());
+    assert!(generic_field_zero_overrides(&td, &["Demo.Thing".to_string()]).is_empty());
+}
+
+#[test]
+fn generic_field_zero_picks_the_right_param_by_index() {
+    let td = td_with_params("Multi", &["A", "B"], &[("X", "A"), ("Y", "B")]);
+    // A=string (ref, skipped), B=int (slot 1) — proves the name→index mapping is used
+    // rather than positional pairing with the field list.
+    let got = generic_field_zero_overrides(&td, &["string".to_string(), "int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 1);
+}
+
+#[test]
+fn generic_field_zero_ignores_concretely_typed_fields() {
+    // `int N` is already a byte-region slot: layout zero-init handles it, and an
+    // override here would be a second source of truth.
+    let td = td_with_params("Mixed", &["T"], &[("N", "int"), ("V", "T")]);
+    let got = generic_field_zero_overrides(&td, &["int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 1);
+}
+
+#[test]
+fn generic_field_zero_empty_for_non_generic_or_missing_args() {
+    let plain = td_with_params("Plain", &[], &[("N", "int")]);
+    assert!(generic_field_zero_overrides(&plain, &["int".to_string()]).is_empty());
+    let td = td_with_params("GBox", &["T"], &[("V", "T")]);
+    assert!(generic_field_zero_overrides(&td, &[]).is_empty());
+}
+
+#[test]
+fn generic_field_zero_short_type_args_does_not_panic() {
+    // Partially-applied / erased call sites reach here with fewer args than params.
+    let td = td_with_params("Multi", &["A", "B"], &[("X", "A"), ("Y", "B")]);
+    let got = generic_field_zero_overrides(&td, &["int".to_string()]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].0, 0);
+}
