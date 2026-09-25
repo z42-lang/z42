@@ -131,14 +131,14 @@ public partial class List<T> : IEnumerable<T> {
     // Top-down merge sort — stable, O(n log n). One scratch buffer allocated
     // up front and reused across every merge (recursion only splits index
     // ranges, never allocates).
-    public void Sort() {
+    public void Sort() where T : IComparable {   // check-bare-type-param-member-access：`CompareTo` 由方法级 where 细化类级 T 提供（此前靠松绑）
         if (this.Count < 2) return;
         T[] scratch = new T[this.Count];
         this.MergeSort(scratch, 0, this.Count);
     }
 
     // Sort items[lo, hi) into ascending order using `scratch` as merge staging.
-    void MergeSort(T[] scratch, int lo, int hi) {
+    void MergeSort(T[] scratch, int lo, int hi) where T : IComparable {
         if (hi - lo < 2) return;
         int mid = lo + (hi - lo) / 2;
         this.MergeSort(scratch, lo, mid);

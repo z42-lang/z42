@@ -101,14 +101,14 @@ public sealed class Array {
 
     // Stable ascending sort by the element's own `CompareTo` (same top-down
     // merge sort as List<T>.Sort — one scratch buffer, O(n log n)).
-    public static void Sort<T>(T[] array) {
+    public static void Sort<T>(T[] array) where T : IComparable {   // check-bare-type-param-member-access：`CompareTo` 由约束提供（此前靠松绑，裸 T 上零诊断）
         int n = array.Length;
         if (n < 2) return;
         T[] scratch = new T[n];
         Array._mergeSort<T>(array, scratch, 0, n);
     }
 
-    static void _mergeSort<T>(T[] a, T[] scratch, int lo, int hi) {
+    static void _mergeSort<T>(T[] a, T[] scratch, int lo, int hi) where T : IComparable {
         if (hi - lo < 2) return;
         int mid = lo + (hi - lo) / 2;
         Array._mergeSort<T>(a, scratch, lo, mid);
@@ -138,7 +138,7 @@ public sealed class Array {
 
     // Paired sort (C# System.Array.Sort<TKey,TValue>): sort `keys` ascending by
     // CompareTo, applying the same permutation to `items` in parallel.
-    public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items) {
+    public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items) where TKey : IComparable {
         int n = keys.Length;
         if (n < 2) return;
         TKey[] kScratch = new TKey[n];
@@ -146,7 +146,7 @@ public sealed class Array {
         Array._mergeSortPaired<TKey, TValue>(keys, items, kScratch, vScratch, 0, n);
     }
 
-    static void _mergeSortPaired<TKey, TValue>(TKey[] k, TValue[] v, TKey[] ks, TValue[] vs, int lo, int hi) {
+    static void _mergeSortPaired<TKey, TValue>(TKey[] k, TValue[] v, TKey[] ks, TValue[] vs, int lo, int hi) where TKey : IComparable {
         if (hi - lo < 2) return;
         int mid = lo + (hi - lo) / 2;
         Array._mergeSortPaired<TKey, TValue>(k, v, ks, vs, lo, mid);
@@ -260,7 +260,7 @@ public sealed class Array {
     // if found; otherwise `~insertionPoint` (a negative value whose bitwise
     // complement is where `value` should go to keep the array sorted) — C#
     // System.Array.BinarySearch semantics.
-    public static int BinarySearch<T>(T[] array, T value) {
+    public static int BinarySearch<T>(T[] array, T value) where T : IComparable {
         int lo = 0;
         int hi = array.Length - 1;
         while (lo <= hi) {
@@ -344,7 +344,7 @@ public sealed class Array {
     // Stable ascending sort of the sub-range [index, index+length) by CompareTo.
     // Reuses _mergeSort (already parameterised on absolute [lo, hi)); scratch is
     // full-length so absolute indices line up.
-    public static void Sort<T>(T[] array, int index, int length) {
+    public static void Sort<T>(T[] array, int index, int length) where T : IComparable {
         Array._checkRange<T>(array, index, length);
         if (length < 2) return;
         T[] scratch = new T[array.Length];
@@ -416,7 +416,7 @@ public sealed class Array {
 
     // Binary search for `value` within the sorted sub-range [index, index+length)
     // by CompareTo. Returns the element index, or ~insertionPoint when absent.
-    public static int BinarySearch<T>(T[] array, int index, int length, T value) {
+    public static int BinarySearch<T>(T[] array, int index, int length, T value) where T : IComparable {
         int lo = index;
         int hi = index + length - 1;
         while (lo <= hi) {

@@ -80,6 +80,12 @@ void test_self_param_with_same_type_param_reports_nothing() {
 }
 
 // 无约束的型参收者：查不到约束接口 → 仍走原来的松绑，不得因本改动开始误报。
+//
+// 📌 `check-bare-type-param-member-access`（2026-09-25）复核过这条：它**仍然成立**。
+// 那个变更只报「成员名在**任何**已知类型上都不存在」（拼错名字 / 调不存在的方法），而这里的
+// `Add` 在 `IColl` 上存在 ⇒ 不报。按字面全面执行规则（不由约束提供即报）的宽版曾被实测证伪
+// —— 它会误报 `var m = Max(a,b); m.value` 这类今天完全正常的惯用写法（`generic_constraints`
+// e2e 当场判红）。故本条护栏跨两次变更**一字未改**。
 [Test]
 void test_unconstrained_type_param_receiver_reports_nothing() {
     string src = pre() + "void loose<T>(T a) { a.Add(\"whatever\"); } void Main() { }";

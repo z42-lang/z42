@@ -93,6 +93,7 @@ string s = new string(cs); // ✗ E0426（提示改用 `String.FromChars(cs)`）
 | 声明期 | 每个泛型类 / **接口**的 `where` 解析成约束集；**类成员方法与顶层自由函数的 `where` 也在此过一遍**（只发诊断，方法级不预登记符号表） | 未知型参 `E0401`、`class`/`struct` 互斥 `E0402`、未知约束名 `E0443`、func 约束并置 `E0423`、关联类型绑定名笔误 `E0453` —— 每条**只发一次**，与是否被实例化 / 被调用无关 |
 | 类型引用位（use-site） | **凡是写出一个受约束泛型类型实例化的地方**（check-constraints-all-type-refs）：<br>· **体内位**：`new Box<D>()`、局部变量声明、`cast`/`as`、`is`、`default(T)`、`typeof(T)`、catch<br>· **声明位**：字段 / 属性 / 索引器类型、方法（含自由函数）形参·返回类型、基类·接口列表<br>· **嵌套**：`Wrap<Box<D>>` 逐层下钻，内层约束不因外层无约束而逃逸 | 违反约束 `E0402`，Span 指向该类型引用处 |
 | 方法调用点 | `obj.m<T>(...)` / `C.m<T>(...)`（显式写类型实参）**及 `m(...)`（推断成功时）**；顶层自由函数同样走这条 | 违反约束 `E0402`、**函数类型签名不符 `E0422`** |
+| 方法调用点（**细化类级型参**）| `list.Sort()` —— 方法的 `where` 约束的是**所属类**的型参（见下「方法级 `where` 细化类级型参」）；按**收者的**类型实参校验 | 违反约束 `E0402` |
 
 > 调用点只报**违反**（`E0402` / `E0422`）——那本来就是 per-call-site 的事实，同一个方法被调 3 次
 > 传 3 个不合格实参就该报 3 条。**声明级**诊断（约束名写错、并置非法等）已于
@@ -107,7 +108,41 @@ string s = new string(cs); // ✗ E0426（提示改用 `String.FromChars(cs)`）
 
 诊断都携带真实 Span：约束声明错误指向 `where` 所在行，违反错误指向实例化 / 调用处。
 
-**本包与跨包同口径**：导入类型的约束走同一个校验函数，判定规则完全一致（见下节）。
+**本包与跨包同口径**：导入**类型**的约束走同一个校验函数，判定规则完全一致（见下节）。
+
+🔴 **例外：方法级 `where` 不跨包**（实测 2026-09-25）。TSIG 不导出方法级约束，
+故**导入**的泛型方法 / 自由函数，其 `where` 在调用点**不被校验**：
+
+```z42
+// Array.Sort<T> 声明了 where T : IComparable，但它来自 z42.core（导入）
+Array.Sort<Opaque>(arr);   // ⚠️ 跨包无诊断（同包写同样的代码则报 E0402）
+```
+
+**类级**约束不受影响（`add-associated-types PR-1` 给它建了 TSIG 通道，跨包正常报 E0402）。
+这条限制对「方法自己的型参」与「细化类级型参」两种形态**一样成立**。
+已登记后续 `export-method-level-wheres`。
+
+## 方法级 `where` 细化类级型参
+
+方法可以用自己的 `where` **收紧所属类的型参**，从而在该方法体内使用更多成员 ——
+约束**只作用于这个方法**，不上升为类级：
+
+```z42
+class List<T> {
+    public void Sort() where T : IComparable { … }   // 只有 Sort 要求可比较
+    public void Add(T item) { … }                    // Add 不要求
+}
+
+List<int>    xs;  xs.Sort();   // ✅
+List<Opaque> ys;  ys.Add(o);   // ✅ —— 类级无约束，构造与其余成员照常可用
+                  ys.Sort();   // ❌ E0402（同包）：Opaque 不满足 IComparable
+```
+
+> 📜 **2026-09-25 之前这条 `where` 形同注释**：成员确实变可用，但**约束满足性从不校验** ——
+> 声明期在「方法自己没有型参」时早退、调用点又对「where 的型参不在方法型参表里」静默跳过，
+> 并注明「归声明期报」⇒ **两边各自以为对方会报，结果没人报**，`List<Opaque>().Sort()` 零诊断、
+> 运行期崩 `VCall: function \`Opaque.CompareTo\` not found`。
+> ⚠️ 受上文「方法级 `where` 不跨包」限制：该校验目前**只在同包生效**。
 
 ## 跨包约束是怎么传过来的
 
@@ -269,6 +304,43 @@ void f<T>(T a) where T : IColl {
 > 就是 `if (sig == null) return;` ⇒ 泛型代码里对约束接口方法的调用，实参一律不检查、返回类型一律
 > `<unknown>`。`PriorityQueue` / `SortedSet` / `Dictionary` 走的正是这条路。
 
+#### 属性与方法同口径（`check-bare-type-param-member-access`，2026-09-25）
+
+约束提供的**属性**与**方法**在型参收者上现在走同一条解析路：
+
+```z42
+interface IHasName { string Name { get; }  string GetName(); }
+
+string viaProp<T>(T a)   where T : IHasName { return a.Name; }      // → "Ada"
+string viaMethod<T>(T a) where T : IHasName { return a.GetName(); } // → "Ada"
+```
+
+> 📜 **2026-09-25 之前 `a.Name` 静默返回 `null`**（链式 `a.Name.Length` 直接崩）：约束查找只补在
+> 方法路，**属性 / 字段路从未补**，运行期把 `Name` 当字段读、读不到 ⇒ `null`。
+> 同一约束的 `a.GetName()` 则一直正确 —— 这个不对称是那次修复的根因。
+
+#### 成员名压根不存在 → `E0401`
+
+型参收者上访问一个**任何已知类型都没有声明过**的成员名，编译期报 **E0401**：
+
+```z42
+T f<T>(T a) { return a.Bogus; }     // ❌ E0401：no field or property `Bogus` on type parameter `T`,
+                                    //    and no known type declares that name
+T g<T>(T a) { return a.NoSuch(); }  // ❌ E0401（方法形态同款）
+```
+
+**判据刻意收窄到「全仓无此名字」**，不是「不由约束提供就报」。后者会误报今天完全正常的写法：
+
+```z42
+T Max<T>(T a, T b) where T : IComparable { … }
+var m = Max(numA, numB);   // Num 是 class
+m.value                    // ✅ 正常 —— 引用类型经擦除返回位流出时运行期派发良好
+```
+
+⚠️ 仍有一格**编译期不报、运行期才崩**：**blob struct**（字段数 ≥ 2 的值 struct）经擦除返回位
+流出后访问字段（`id(v).X` → `FieldGet: expected object, got BoxedStruct`）。该格的根因是泛型
+**特化**而非成员解析，见 [internals / 泛型](https://z42-lang.github.io/z42/internals/compiler/generics.html)。
+
 ### `Self` 形参位：具体类型实参报 E0463
 
 ```z42
@@ -296,6 +368,13 @@ error/unknown（吸收、不级联）→ 不受影响。**只收「目标裸型�
 > Deferred `tighten-bare-type-param-target-erasure` 的「型参收者」那半由本 change 关闭；其**通用**
 > 擦除收紧（任意裸型参目标位，需区分作用域内不透明型参 vs 待推断型参、要给 `Z42GenericParamType`
 > 加 owner）仍开着——那是对通用规则动刀、爆炸半径另算。
+>
+> 📌 **2026-09-25 补记**：`check-bare-type-param-member-access` 关掉了「**收者位**的成员名不存在」
+> 这一格（上文 E0401）。它**没有**动目标位，也**没有**给 `Z42GenericParamType` 加 owner ——
+> 区分两类型参本来要靠 owner，但收窄后（只报「全仓无此名字」）两种修法都不适用，该区分不再需要。
+> 剩下两条独立后续：**按字面全面执行成员可用性规则**（`enforce-bare-type-param-member-rule`，
+> 开工前需先裁决 `var m = genericCall(); m.X` 是否接受判红）、以及**方法级 `where` 跨包导出**
+> （`export-method-level-wheres`，见下）。
 
 ## 运算符如何在型参上派发
 
