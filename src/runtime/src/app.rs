@@ -105,18 +105,28 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     let libs_dir = opts.libs_dir;
 
     // Dependency search dirs (support-colocated-zpkg-deps): resolve a dep zpkg
-    // from the ENTRY zpkg's own directory first, then the stdlib `libs/`. Fixed
-    // order (entry dir, then libs) for deterministic resolution; de-duped.
+    // from the ENTRY zpkg's own directory first, then any declared probing paths,
+    // then the stdlib `libs/`. Fixed order for deterministic resolution; de-duped.
+    //
+    // add-deployment-model 批 3: `Z42_PROBING_PATHS` / `[runtime] probing-paths` sits
+    // **between** entry-dir and libs — a dependency deployed next to the exe still wins
+    // over a shared copy, and a shared copy still wins over the framework's own. This is
+    // the whole of "declare it shared and it is not copied": the build leaves it out of
+    // the dist, and this is where it is found instead.
     let search_dirs: Vec<PathBuf> = {
         let mut dirs: Vec<PathBuf> = Vec::new();
-        if let Some(entry_dir) = std::path::Path::new(file).parent() {
-            let entry_dir = if entry_dir.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                entry_dir.to_path_buf()
-            };
-            if be_is_dir(&entry_dir) {
-                dirs.push(entry_dir);
+        let entry_dir = match std::path::Path::new(file).parent() {
+            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        if be_is_dir(&entry_dir) {
+            dirs.push(entry_dir.clone());
+        }
+        // Relative probing paths resolve against the entry zpkg's dir, so the same
+        // install behaves identically whatever cwd it is launched from.
+        for p in crate::probing::expand_probing_paths(&entry_dir, &crate::config::runtime_config().probing_paths) {
+            if !dirs.iter().any(|d| d == &p) {
+                dirs.push(p);
             }
         }
         if let Some(libs) = &libs_dir {

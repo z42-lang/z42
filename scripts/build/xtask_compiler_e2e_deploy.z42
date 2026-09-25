@@ -102,3 +102,109 @@ int _e2eDeployPredicateChecks(string root, string vm, string driverZpkg) {
     Console.WriteLine("  ✓ 复制判据：框架目录里的包不进 exe dist，且运行期从 libs/ 解析得到");
     return 0;
 }
+
+// ── `probing-paths`：声明一组运行期搜索目录（add-deployment-model 批 3）───────────────
+//
+// **守的是什么**：`[profile.<n>.runtime] probing-paths` 能不能让一个**既不在 exe 目录、也不在
+// libs/** 的依赖在运行期被找到。这是「配置了就不复制过去」那条路的后半段——前半段（构建期
+// 不复制）由上面那格守着。
+//
+// 三格：
+//   ① 依赖只在 `shared/` 时，**不配** probing-paths → 必须跑不起来（对照：证明下面那格是它
+//      起的作用，不是依赖碰巧还能从别处解析到）；
+//   ② 配上之后 → 跑得起来；
+//   ③ 改掉 manifest 里的值、源码一字不动 → 侧车必须跟着变。
+//      🔴 ③ 不是凑数：`[profile.*.runtime]` **不进源 hash**（它不影响编译产物），于是「只改运行时
+//      配置」恰好全命中增量缓存 ⇒ 走 preserved 早退 ⇒ 侧车留在上一次的值。实测踩到过：把
+//      probing-paths 改掉重建，构建报成功而侧车纹丝不动——**用户改了旋钮，产物里还是旧配置**。
+string _e2eProbeLibSrc() { return "namespace ProbeFx;\n\npublic class Helper { public int V() { return 99; } }\n"; }
+
+string _e2eProbeAppSrc() {
+    return "namespace ProbeApp;\n\nusing Std.IO;\nusing ProbeFx;\n\nvoid Main() { Console.WriteLine(new Helper().V().ToString()); }\n";
+}
+
+string _e2eProbeAppToml(string probing) {
+    string s = "[project]\nname    = \"probeapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+             + "entry   = \"ProbeApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+             + "[dependencies]\n\"probefx\" = \"0.1.0\"\n";
+    if (probing.Length > 0) {
+        s = s + "\n[profile.release.runtime]\nprobing-paths = \"" + probing + "\"\n";
+    }
+    return s;
+}
+
+int _e2eProbingPathChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-probing");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    string shared  = Path.Join(tmp, "shared");
+    string appDir  = Path.Join(tmp, "app");
+    string fxDir   = Path.Join(tmp, "fx");
+    Directory.Create(libsDir); Directory.Create(shared); Directory.Create(appDir); Directory.Create(fxDir);
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+
+    // 依赖：先建好、放进 libs（编译期要解析得到它——probing-paths 只管运行期）。
+    File.WriteAllText(Path.Join(fxDir, "fx.z42"), _e2eProbeLibSrc());
+    File.WriteAllText(Path.Join(fxDir, "probefx.z42.toml"),
+        "[project]\nname    = \"probefx\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n[sources]\ninclude = [\"*.z42\"]\n");
+    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+        .Arg(Path.Join(fxDir, "probefx.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (lb.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: 依赖 fixture 编译失败: " + lb.Stderr); return 1; }
+    string fxZpkg = Path.Join(Path.Join(fxDir, "dist"), "probefx.zpkg");
+    File.Copy(fxZpkg, Path.Join(libsDir, "probefx.zpkg"));
+    File.Copy(fxZpkg, Path.Join(shared, "probefx.zpkg"));
+
+    File.WriteAllText(Path.Join(appDir, "app.z42"), _e2eProbeAppSrc());
+    string appToml = Path.Join(appDir, "probeapp.z42.toml");
+    string appZpkg = Path.Join(Path.Join(appDir, "dist"), "probeapp.zpkg");
+
+    // ① 不配 probing-paths，且运行时 libs 里没有它 → 必须跑不起来。
+    File.WriteAllText(appToml, _e2eProbeAppToml(""));
+    ProcessResult b0 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b0.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: exe fixture 编译失败: " + b0.Stderr); return 1; }
+    // 目标机：libs 里没有该依赖，只有 shared/。
+    File.Delete(Path.Join(libsDir, "probefx.zpkg"));
+    ProcessResult r0 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r0.ExitCode == 0) {
+        Console.WriteLine("  ✗ probing-paths: 没配 probing-paths 竟也跑通了 —— 下一格就失去判别力");
+        return 1;
+    }
+
+    // ② 配上 → 跑得起来（相对 entry zpkg 所在目录）。
+    File.WriteAllText(appToml, _e2eProbeAppToml("../../shared"));
+    File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(libsDir, "probefx.zpkg"));   // 编译期要它
+    ProcessResult b1 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b1.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: 配上后编译失败: " + b1.Stderr); return 1; }
+    File.Delete(Path.Join(libsDir, "probefx.zpkg"));
+    ProcessResult r1 = new Process(vm).Arg(appZpkg).Env("Z42_LIBS", libsDir)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (r1.ExitCode != 0 || r1.Stdout.IndexOf("99") < 0) {
+        Console.WriteLine("  ✗ probing-paths: 配了却没生效（rc=" + r1.ExitCode.ToString()
+            + " stdout=" + r1.Stdout + " stderr=" + r1.Stderr + "）");
+        return 1;
+    }
+
+    // ③ 只改旋钮值、源码不动 → 侧车必须跟着变（preserved 早退不得把它落下）。
+    File.Copy(Path.Join(shared, "probefx.zpkg"), Path.Join(libsDir, "probefx.zpkg"));
+    File.WriteAllText(appToml, _e2eProbeAppToml("../../CHANGED"));
+    ProcessResult b2 = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (b2.ExitCode != 0) { Console.WriteLine("  ✗ probing-paths: 改旋钮后重建失败: " + b2.Stderr); return 1; }
+    string side = Path.Join(Path.Join(appDir, "dist"), "probeapp.runtimeconfig.toml");
+    string body = File.Exists(side) ? File.ReadAllText(side) : "";
+    if (body.IndexOf("CHANGED") < 0) {
+        Console.WriteLine("  ✗ probing-paths: 改了 manifest 的旋钮值，侧车却没跟着变"
+            + " —— 源码没动就全命中缓存、preserved 早退把侧车落下了。侧车内容: " + body);
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ probing-paths：声明的目录真被搜到，且改旋钮值侧车跟着变");
+    return 0;
+}

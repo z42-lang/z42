@@ -43,12 +43,36 @@
 
 ## 批 3 —— probing-paths
 
-- [ ] 3.1 新增旋钮 `probing-paths`（`ValueKind::PathList`，toml_key `probing-paths`）。
-- [ ] 3.2 `app.rs:110` 的 `search_dirs` 插入展开后的 probing paths（entry 之后、libs 之前）。
-- [ ] 3.3 展开器：相对 entry 目录 / 绝对原样 / `*` 与 `**` / Ordinal 稳定排序 / 缺失跳过。
-- [ ] 3.4 sidecar：`[runtime] probing-paths` 由 `z42c build` 写出（复用既有 `[runtime]` 段通道）。
-- [ ] 3.5 门：**判别力**——把 probing path 接线改 `if (false)` 必须让门变红；另加一格
-      「配了不存在的目录不报错」与一格「两个目录同名 zpkg 取声明序第一个」。
+- [x] 3.1 新增旋钮 `Z42_PROBING_PATHS` / `probing-paths`（`ValueKind::PathList`）。
+      ⭐ **z42 侧零改动**：profile knobs 是通用 `"key=value"` 透传，且旋钮名**直接问 VM**
+      （`RuntimeConfig.Names()`）⇒ 新旋钮进了 VM 登记表，z42c 自动认识、侧车自动烤进去。
+- [x] 3.2 `app.rs` 的 `search_dirs` 插入展开结果（entry 之后、libs 之前）。
+- [x] 3.3 展开器（`runtime/src/probing.rs`）：相对 **entry 目录**／绝对原样／`*` 与 `**`／
+      只返回目录／Ordinal 稳定排序／缺失静默跳过。
+      ⭐ **单测抓到一个会漏掉的缺陷**：`entry.join("../shared")` 的字面量是 `app/../shared`，
+      与 `shared` 是**不同字符串** ⇒ 去重失效、同一目录搜两遍。加**词法**规范化（不用
+      `canonicalize` —— 那会解析符号链接，改变用户写的语义）。
+- [x] 3.4 侧车：`[profile.<n>.runtime] probing-paths` → `dist/<app>.runtimeconfig.toml`。
+- [x] 3.5 两层门：`probing_tests.rs`（展开规则 8 格）+ e2e `_e2eProbingPathChecks`（三格：
+      不配→跑不起来／配了→跑得起来／改旋钮值→侧车跟着变）。
+      判别力实证：把 `search_dirs` 的接线换成空列表 → 门红在「配了却没生效」、rc=1。
+
+### 批 3 顺带修掉的真缺陷
+
+🔴 **所有运行时旋钮「改了但不生效」**：`[profile.*.runtime]` 与 `[properties]` **不进源 hash**
+（它们不影响编译产物），于是「只改运行时配置、源码一字未动」恰好全命中增量缓存 ⇒ 走
+preserved 早退 ⇒ **侧车留在上一次的值**。实测：probing-paths 从 `../../shared` 改成
+`../../CHANGED`，重建报成功而侧车纹丝不动。修 = preserved 分支里也写侧车（幂等）。
+**射程不止 probing-paths，是每一个运行时旋钮。**
+
+### 已知限制
+
+`probing-paths` 是**平台分隔符**分隔的字符串（与 `path`／`native-path` 一致），跨平台清单写多条
+时分隔符不同。数组写法要改清单模型（`pr.Knobs` 是扁平 `"key=value"`）= 卡 nightly ⇒ 随批 4 的
+清单改动一起做。
+
+另：`deploy = "shared"` 的依赖**编译期仍须可解析**（z42c 要读它的元数据），probing-paths 只管
+运行期 —— fixture 要按「构建机有完整 libs、目标机只有 shared/」来搭。
 
 ## 批 4 —— `deploy` 字段
 

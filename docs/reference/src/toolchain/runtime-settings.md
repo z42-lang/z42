@@ -117,9 +117,41 @@ gc-mode = concurrent  [cli]
   ignored [env] "stw"  (overridden by a higher layer)
 ```
 
+### `probing-paths` —— 依赖的额外搜索目录
+
+zpkg **依赖**在运行期按文件名解析，搜索序是：
+
+```
+[entry-zpkg 所在目录] → [probing-paths 展开后的各目录] → [libs]
+```
+
+放在中间意味着：挨着 exe 放的那份仍然优先，共享的那份又优先于框架自带的。**这就是「声明为
+共享就不复制过去」的后半段** —— 构建期不把它拷进 dist，运行期从这里找到。
+
+```toml
+# 工程清单 <name>.z42.toml
+[profile.release.runtime]
+probing-paths = "../shared"        # 多条用平台分隔符（unix `:`／windows `;`）
+```
+
+`z42c build` 把它烤进 `dist/<app>.runtimeconfig.toml`，目标机上无需任何环境变量。
+
+| 规则 | 行为 |
+|---|---|
+| 相对路径 | 相对 **entry zpkg 所在目录**，**不是 cwd** —— 同一个安装从任何工作目录启动结果一致 |
+| 绝对路径 | 原样使用 |
+| 通配符 | `*` 匹配一层、`**` 递归；展开结果是**目录**（依赖再按文件名到每个目录里找）|
+| 展开时机 | 运行期 —— 安装之后新增的插件目录无需重新构建也能被发现 |
+| 顺序 | 按声明序；同一模式的展开结果按路径排序（不依赖目录读取的偶然顺序）|
+| 不存在的目录 | 静默跳过（可选的插件目录不该让启动失败）|
+| 同名 zpkg 出现在多个目录 | 取搜索序里第一个命中的，不做版本比较 |
+
+> ⚠️ **已知限制**：多条路径用的是**平台分隔符**（与 `path` / `native-path` 一致），所以同一份
+> 跨平台清单写多条时分隔符不同。数组写法要改清单模型，随后续变更一起做。
+
 ## 旋钮清单（public）
 
-日常会用到的就是这 13 个。「默认」一列是**未设时**的行为。
+日常会用到的就是这 14 个。「默认」一列是**未设时**的行为。
 
 | 旋钮 | 环境变量 | 类型 | 默认 |
 |---|---|---|---|
@@ -127,6 +159,7 @@ gc-mode = concurrent  [cli]
 | `log` | `Z42_LOG` | string | `z42=warn`（`--verbose` 下 `z42=info`） |
 | `path` | `Z42_PATH` | path-list | `<cwd>`、`<cwd>/modules` |
 | `libs` | `Z42_LIBS` | path | 相对 z42vm 二进制的 `artifacts/build/libraries/dist/release` |
+| `probing-paths` | `Z42_PROBING_PATHS` | path-list | 无 —— 依赖搜索序就是 `[entry-zpkg 目录, libs]` |
 | `native-path` | `Z42_NATIVE_PATH` | path-list | 包相对搜索 |
 | `crash-dir` | `Z42_CRASH_DIR` | path | 不写文件，崩溃报告只进 stderr |
 | `gc-mode` | `Z42_GC_MODE` | enum（见下） | `generational-mark-sweep` |
