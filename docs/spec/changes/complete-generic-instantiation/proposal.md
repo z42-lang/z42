@@ -77,7 +77,7 @@ fn @Demo.ReadSecond(1) -> int {
 > 为什么 S1 自身 sound：今天**跨包**实例化两侧都不特化（都用擦除布局）⇒ 自洽，
 > 其缺陷是值语义别名（#774 原始形态），不是布局分裂。S1 只让**本包**这一侧变自洽。
 
-### S4 — 实例化的**声明形状**代换（🔴 三条 soundness 缺口，2026-09-25 新增）
+### S4 — 身份⇔描述符收敛（🔴 原为三条缺口，实测后拆分，2026-09-25）
 
 S1 之后仍有三条缺口，**根因同一**：单调化代换了**布局**与**体**，却没代换**声明的形状**
 （方法签名、字段描述符、描述符投送判据）。三条都在 main 上实测复现：
@@ -87,6 +87,8 @@ S1 之后仍有三条缺口，**根因同一**：单调化代换了**布局**与
 | A | `class G<T>{T V; T Get(){return this.V;}}` → `g.Get().X` | `struct-value handle used after its creating frame exited — value-struct lifetime unsound` | `42` |
 | B | `class DInt : GBox<int> {}` 的继承字段 | `null` | `0` |
 | C | `struct GS<T>{T F;}`（单字段）→ `new GS<int>(0)` | `type Demo.GS<int> could not be resolved` | 可构造 |
+
+> A / B 已移出本线（见下方「范围裁剪」）；C 已修。
 
 **A**：特化体把返回值拷进**自己帧**的 arena 再返回句柄。z42 本有 sret 约定（调用方预留槽），
 但两侧的判据都看**未代换**的返回类型 `T` ⇒ 都判否 ⇒ 表面自洽，代价是返回**已死帧的句柄**。
@@ -107,6 +109,23 @@ _noteInstLayout    挂在 _isBlobStruct   → 还要求 li.FieldCount >= 2      
 
 单字段泛型 struct 正好落在夹缝里：身份名发了、描述符没发。`_instIdentityName` 的注释明写
 「身份名必须与**确实会发描述符**一致」，而代码用了**两把尺子**。
+
+**范围裁剪（实测后）**：
+
+- ✅ **C 归本线**（已修）：两把尺子的问题是纯粹的判据分叉，就地可修。
+- ➡️ **A 与 B 移出**，并入新线 `complete-generic-class-identity`。理由：它们都要求
+  **实例化成为运行期真正的类型**（完整描述符 / 基类链 / `is`·`as` 携实参 / 静态字段分槽），
+  而这几件事**互相咬死**，不能只做一半 ——
+  > 只给 `GBox<int>` 独立身份而不改 `is`/`as`：后者至今 `tn = (ax.Type as NamedType).Name`
+  > **把类型实参扔掉**，运行期又按**名字符串**比 ⇒ `x is GBox<int>` 从 true 变 **false**，
+  > **静默**。这条线已经证明静默错值比崩溃贵得多。
+  >
+  > 基类链同样二选一：`GBox<int>` 的 base 记 `Std.Object` 则 `is GBox` 断；记 `GBox` 则运行期
+  > 会把定义的**擦除字段**也合并进来 ⇒ 同名两份槽、偏移错位。两个都要，就必须先让 `is`/`as`
+  > 携实参 —— 那正是新线的内容。
+- ➡️ **①b 单字段 struct 不属本线**：非泛型 `struct S1 { int F; }` 的数组同样崩
+  （`FieldGet: expected object, got Null`），根因是 `IsBlobStruct` 硬性要求 `FieldCount >= 2`，
+  与泛型无关。单独登记。
 
 > ⭐ 这已经是本线第四次撞上**同一判据散在多处**（#774 教训 6 / S1-a 的伪实例化闸门 /
 > S1-e 的按 CU 登记表 / 本条）。S4 必须把「实例化的形状从哪来」收敛到**单一出口**。
