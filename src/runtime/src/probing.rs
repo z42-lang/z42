@@ -25,8 +25,8 @@ pub fn expand_probing_paths(entry_dir: &std::path::Path, patterns: &[PathBuf]) -
     let mut out: Vec<PathBuf> = Vec::new();
     for pat in patterns {
         let joined = if pat.is_absolute() { pat.clone() } else { normalize_lexically(&entry_dir.join(pat)) };
-        let s = joined.to_string_lossy().to_string();
-        let mut hits = if s.contains('*') { glob_dirs(&s) } else { vec![joined] };
+        let has_glob = joined.components().any(|c| c.as_os_str().to_string_lossy().contains('*'));
+        let mut hits = if has_glob { glob_dirs(&joined) } else { vec![joined] };
         hits.sort();
         for h in hits {
             if h.is_dir() && !out.contains(&h) {
@@ -69,40 +69,52 @@ fn normalize_lexically(p: &std::path::Path) -> PathBuf {
 }
 
 /// Expand a glob pattern to existing **directories**. Supports `*` (one segment) and
-/// `**` (any depth). Walks segment by segment so no external crate is needed and the
+/// `**` (any depth). Walks component by component so no external crate is needed and the
 /// traversal stays bounded by what actually exists on disk.
-fn glob_dirs(pattern: &str) -> Vec<PathBuf> {
-    let sep = std::path::MAIN_SEPARATOR;
-    let mut segs: Vec<&str> = pattern.split(sep).collect();
-    // A leading empty segment means the pattern was absolute ("/a/b" → ["", "a", "b"]).
-    let mut current: Vec<PathBuf> = if segs.first() == Some(&"") {
-        segs.remove(0);
-        vec![PathBuf::from(std::path::MAIN_SEPARATOR.to_string())]
-    } else {
-        vec![PathBuf::from(".")]
-    };
-    for seg in segs {
+///
+/// 🔴 走 `Path::components()` 而**不是**按分隔符切字符串：Windows 的绝对路径是 `C:\...`，
+/// 按 `MAIN_SEPARATOR` 切出来的首段是 `C:` 而不是空串，于是「这是绝对路径吗」判错、
+/// 拼出 `.\C:\...` 这种谁也找不到的东西。`components()` 把盘符前缀（`Prefix`）与根
+/// （`RootDir`）作为独立分量给出来，三个平台同一套代码。
+fn glob_dirs(pattern: &std::path::Path) -> Vec<PathBuf> {
+    use std::path::Component;
+    let mut comps = pattern.components().peekable();
+    // 先吃掉前缀与根（Windows: `C:` + `\`；unix: `/`），它们不参与匹配。
+    let mut base = PathBuf::new();
+    while let Some(c) = comps.peek() {
+        match c {
+            Component::Prefix(_) | Component::RootDir => {
+                base.push(c.as_os_str());
+                comps.next();
+            }
+            _ => break,
+        }
+    }
+    if base.as_os_str().is_empty() {
+        base = PathBuf::from(".");
+    }
+    let mut current: Vec<PathBuf> = vec![base];
+    for comp in comps {
+        let seg = comp.as_os_str().to_string_lossy().to_string();
         if seg.is_empty() || seg == "." {
             continue;
         }
         let mut next: Vec<PathBuf> = Vec::new();
-        for base in &current {
-            match seg {
-                "**" => collect_dirs_recursive(base, &mut next),
-                s if s.contains('*') => {
-                    let mut kids = read_dir_names(base);
-                    kids.sort();
-                    for name in kids {
-                        if glob_segment_matches(s, &name) {
-                            next.push(base.join(name));
-                        }
+        for b in &current {
+            if seg == "**" {
+                collect_dirs_recursive(b, &mut next);
+            } else if seg.contains('*') {
+                let mut kids = read_dir_names(b);
+                kids.sort();
+                for name in kids {
+                    if glob_segment_matches(&seg, &name) {
+                        next.push(b.join(name));
                     }
                 }
-                s => {
-                    let p = base.join(s);
-                    if p.exists() {
-                        next.push(p);
-                    }
+            } else {
+                let p = b.join(&seg);
+                if p.exists() {
+                    next.push(p);
                 }
             }
         }
