@@ -99,4 +99,28 @@ public sealed class ForeachProtocol {
         if (c == "") { c = ForeachProtocol.CountMember(methods, fields, "Length"); }
         return c;
     }
+
+    // 枚举器路径的**条件步骤**：`GetEnumerator()` 返回的那个类型可 dispose 吗。
+    //
+    // `iterableMethods` = 被迭代对象的方法面（调用方判定路径时已取好，不必二次绑定）。
+    // 从它的 `GetEnumerator` 签名取返回类型，再看那个类型的方法面有没有 `Dispose`。
+    //
+    // 为什么要有这一问：脱糖此前**无条件**发 `__e.Dispose()`，于是照 `iteration.md` 写的最小
+    // 枚举器（那里把形状写成 `MoveNext` + `Current` 两个成员，**没有** `Dispose`）编译就报
+    // `E0401: no method Dispose`。C# 只在枚举器实现 `IDisposable` 时才调 —— 文档描述的是 C#
+    // 语义，代码却更严。User 2026-09-25 裁定以文档为准。
+    //
+    // ⚠️ 判据取**成员面**而非「有没有声明 IDisposable」：与本文件其余判定同一口径（三条路径都
+    // 按形状匹配），且接口静态类型的枚举器经 `MethodsOf` 也能查到继承来的 `Dispose`
+    // （`IEnumerator<T> : IDisposable` 的父接口链由 #789 恢复）。
+    // ⚠️ 算不出枚举器的成员面（返回型参 / Unknown / Error）时**保守返回 true** —— 保持修前行为，
+    // 宁可像以前一样发一次调用，也不要在判据不足时静默跳过真该调的 `Dispose`。
+    public static bool EnumeratorDisposable(StrMap iterableMethods) {
+        if (iterableMethods == null) { return true; }
+        MethodSymbol ge = iterableMethods.Get("GetEnumerator") as MethodSymbol;
+        if (ge == null || ge.Signature == null || ge.Signature.Ret == null) { return true; }
+        StrMap em = ForeachProtocol.MethodsOf(ge.Signature.Ret);
+        if (em == null) { return true; }
+        return em.ContainsKey("Dispose");
+    }
 }

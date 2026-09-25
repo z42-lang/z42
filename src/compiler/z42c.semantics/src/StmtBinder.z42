@@ -31,7 +31,7 @@ public sealed class StmtBinder {
             if (!(ct0 is Z42ArrayType) && feM != null && feM.ContainsKey("GetEnumerator")) {
                 // 索引面判定与下方 feIsClassIter **共用同一套**（此前两处各写一份、两档不一致）。
                 if (!(ForeachProtocol.IsIntIndexer(feM) && ForeachProtocol.CountOf(feM, feF) != "")) {
-                    return this._bindForeachEnumerable(fe, env, ret);
+                    return this._bindForeachEnumerable(fe, env, ret, ForeachProtocol.EnumeratorDisposable(feM));
                 }
             }
             Z42Type feElem = new Z42UnknownType();
@@ -94,7 +94,7 @@ public sealed class StmtBinder {
     // 合成等价 AST 后交 _bindStmt——__e 是 GetEnumerator() 返回的具体 struct（pattern-based 无装箱，
     // Decision 8），MoveNext/Current/Dispose 直接在其上派发；try/finally 保证所有离开路径调 Dispose
     // （Decision 2）。__e 名以 span.Start 唯一化，避免函数级平表寄存器冲突（嵌套 foreach）。
-    private BoundStmt _bindForeachEnumerable(ForeachStmt fe, TypeEnv env, Z42Type ret) {
+    private BoundStmt _bindForeachEnumerable(ForeachStmt fe, TypeEnv env, Z42Type ret, bool disposable) {
             Span sp = fe.Span;
             string eName = "__fe_e_" + sp.Start.ToString();
             TypeExpr varTy = new NamedType("var", new TypeExpr[0], 0, sp);
@@ -110,14 +110,24 @@ public sealed class StmtBinder {
             whileBodyStmts[1] = fe.Body;
             Stmt whileBody = new BlockStmt(whileBodyStmts, 2, sp);
             Stmt whileStmt = new WhileStmt(moveNext, whileBody, sp);
-            // try { <while> } finally { __e.Dispose(); }
-            Expr disposeCall = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), "Dispose", sp), new Expr[0], 0, sp);
-            Stmt disposeStmt = new ExprStmt(disposeCall, sp);
-            Stmt tryStmt = new TryCatchStmt(whileStmt, new CatchClause[0], 0, true, disposeStmt, sp);
-            // { var __e = ...; try/finally }
+            // try { <while> } finally { __e.Dispose(); } —— **仅当枚举器真的可 dispose**。
+            //
+            // fix-foreach-dispose-optional：此前**无条件**发 `Dispose()`，于是照文档写的最小枚举器
+            // （`iteration.md` 把形状写成 `MoveNext` + `Current` 两个成员）编译就报
+            // `E0401: no method Dispose on <T>`，位置还指在 `foreach` 那一行、不提是脱糖合成的调用。
+            // 这与 C# 不同（C# 只在枚举器实现 `IDisposable` 时才调），也与本仓文档冲突 ——
+            // User 2026-09-25 裁定**以文档为准、改代码**。
+            // 不可 dispose 时连 try/finally 一起省掉：finally 里没有任何事可做。
+            Stmt body = whileStmt;
+            if (disposable) {
+                Expr disposeCall = new CallExpr(new MemberExpr(new IdentExpr(eName, sp), "Dispose", sp), new Expr[0], 0, sp);
+                Stmt disposeStmt = new ExprStmt(disposeCall, sp);
+                body = new TryCatchStmt(whileStmt, new CatchClause[0], 0, true, disposeStmt, sp);
+            }
+            // { var __e = ...; try/finally（或裸 while） }
             Stmt[] blockStmts = new Stmt[2];
             blockStmts[0] = declE;
-            blockStmts[1] = tryStmt;
+            blockStmts[1] = body;
             Stmt block = new BlockStmt(blockStmts, 2, sp);
             return this._bindStmt(block, env, ret);
     }

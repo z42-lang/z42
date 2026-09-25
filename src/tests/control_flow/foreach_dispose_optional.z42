@@ -1,0 +1,62 @@
+// fix-foreach-dispose-optional：枚举器路径的 `Dispose()` 是**条件步骤**，不是必需成员。
+//
+// 修前：脱糖**无条件**发 `__e.Dispose()`，于是照参考手册写的最小枚举器编译就报
+//   `E0401: no method `Dispose` on NoDisp`        ← 位置还指在 `foreach` 那一行
+// 而 `docs/reference/src/language/iteration.md` 把枚举器形状写成两个成员：
+//   bool MoveNext();  T Current { get; }
+// 并强调「按形状匹配、不要求显式实现 IEnumerable<T>」。C# 也只在枚举器实现 `IDisposable`
+// 时才调 Dispose。⇒ 文档与代码冲突，User 2026-09-25 裁定**以文档为准、改代码**。
+//
+// ⭐ 判别力成对：光验「无 Dispose 能编过」不够 —— 一个「永不发 Dispose」的错误实现同样能让它
+// 变绿。所以必须同时验**有** Dispose 的枚举器仍然被调用，且 **break 提前退出也调**
+// （try/finally 覆盖全退出路径这件事不能因为条件化而丢）。
+
+// ── ① 最小枚举器：只有文档写明的那两个成员，没有 Dispose ────────────────
+[Record] struct NoDisp(int[] _xs) {
+    int _pos;
+    public bool MoveNext() { this._pos = this._pos + 1; return this._pos <= this._xs.Length; }
+    public int Current { get { return this._xs[this._pos - 1]; } }
+}
+class PlainColl {
+    int[] _xs;
+    public PlainColl(int[] xs) { this._xs = xs; }
+    public NoDisp GetEnumerator() { return new NoDisp(this._xs); }
+}
+
+// ── ② 带 Dispose 的枚举器：必须仍被调用（正常结束 + break 两条退出路径）──
+static class Tracker { public static int Disposed; }
+[Record] struct DispIter(int[] _xs) {
+    int _pos;
+    public bool MoveNext() { this._pos = this._pos + 1; return this._pos <= this._xs.Length; }
+    public int Current { get { return this._xs[this._pos - 1]; } }
+    public void Dispose() { Tracker.Disposed = Tracker.Disposed + 1; }
+}
+class DispColl {
+    int[] _xs;
+    public DispColl(int[] xs) { this._xs = xs; }
+    public DispIter GetEnumerator() { return new DispIter(this._xs); }
+}
+
+void Main() {
+    // ① 无 Dispose：修前这一行整个文件编不过
+    int s = 0;
+    foreach (int v in new PlainColl(new int[] { 1, 2, 3 })) { s = s + v; }
+    Assert.Equal(6, s);
+
+    // ② 有 Dispose：正常结束要调一次
+    var dc = new DispColl(new int[] { 1, 2, 3 });
+    int t = 0;
+    foreach (int v in dc) { t = t + v; }
+    Assert.Equal(6, t);
+    Assert.Equal(1, Tracker.Disposed);
+
+    // ② break 提前退出也要调（try/finally 五条退出路径的那一条）
+    foreach (int v in dc) { break; }
+    Assert.Equal(2, Tracker.Disposed);
+
+    // ② 嵌套：内外各一次，且内层先于外层退出
+    foreach (int a in dc) {
+        foreach (int b in dc) { break; }
+    }
+    Assert.Equal(6, Tracker.Disposed);   // 外层 3 轮 × 内层各 1 次 + 外层 1 次 = 2 + 3 + 1
+}
