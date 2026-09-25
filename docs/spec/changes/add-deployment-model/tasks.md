@@ -33,8 +33,12 @@
 > ⚠️ **订正**：初稿把「统一闭包」整块判成做不到。实际上 **path 依赖那半已由 #811 修掉**
 > （闭包本来就有，`PathDepPlan.Resolve`，只是没透传给 `_bundleExeDeps`）。剩下的是按名那半。
 
-- [ ] 2.1 **support**：z42 侧 `ZpkgReader` 补 DEPS 段解码（Rust 侧 `zbc_reader/zpkg.rs:46`
-      已有，z42 侧没有）。无消费者 ⇒ byte-identical、可立即合并；卡一个 nightly 才能被 use。
+- [x] 2.1 **support**：`ZpkgReader.ReadDependencies`（Rust 侧 `zbc_reader/zpkg.rs:46` 早有，
+      z42 侧没有）。无消费者 ⇒ 自举 byte-identical、已合并；use 待它随 nightly 进种子。
+      门 = `zpkg.z42` 两条往返测试。⭐ **第一版 fixture 没有判别力**：把「按 nsCount 跳过」
+      改成「恒跳 1 个」注入进去，测试**照样绿** —— 因为多命名空间的那一项被我放在了**最后**，
+      跳错多少都没有后续项会错位。多 ns 项前移后才真红。
+      **「构造了一个复杂输入」不等于那个复杂度真的被验到了。**
 - [ ] 2.2 **use**：`_bundleExeDeps` 对**按名引用**的依赖也建闭包，来源 = zpkg 的 DEPS 段
       （**不是**源码树 toml —— 那条路在 repo 外整个失效）。
 - [ ] 2.3 🔴 **publisher 的闭包在 repo 外失效**（`srcRoot == ""` ⇒ 每个依赖 continue，零复制
@@ -76,8 +80,10 @@ preserved 早退 ⇒ **侧车留在上一次的值**。实测：probing-paths �
 
 ## 批 4 —— `deploy` 字段
 
-- [ ] 4.0 support：`DepEntry.Deploy`（`""` = 未声明）+ ManifestLoader 解析。**无消费者**
-      ⇒ byte-identical、可立即合并。⚠️ 与 role 同形：z42c 读它 = 新跨成员符号，**卡一个 nightly**。
+- [x] 4.0 support：`DepEntry.Deploy`（`""` = 未声明）+ ManifestLoader 解析。**无消费者**
+      ⇒ byte-identical、已合并。**构造后赋值、不进 ctor 签名** —— ctor 是种子 ABI 的一部分，
+      加参数会让上一版 z42c 编不动当前源码（同 `Pipeline.ParentPkg` 那几个「构造后填」字段）。
+      解析层只忠实搬运、**不校验取值**：合法取值是消费方的事。
 - [ ] 4.1 use：构建期按 `deploy 显式 > framework 默认` 决定复制与否。
 - [ ] 4.2 `shared` 的构建期存在性校验（找不到 → 报错，不留到运行期）。
 - [ ] 4.3 `role = compile-time` 的包写 `deploy` → 报错（它不在运行期出现）。

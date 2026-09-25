@@ -131,3 +131,45 @@ void matching_version_does_not_warn() {
     Assert.NotNull(ZpkgReader.Open(ok, "fresh.zpkg"));
     Assert.Equal(before, ZpkgReader.SkewWarningCount());
 }
+
+// ── DEPS 往返：写进去的依赖文件名，读得回来（add-deployment-model 批 2 support）──────────
+//
+// `ReadDependencies` 今天**没有生产调用方**（support 先行，消费要等它随 nightly 进种子）。
+// 正因为没人用，写错了也不会有任何东西变红 —— 等到 use 那一轮才发现解码是歪的，届时要同时
+// 怀疑「闭包逻辑」和「解码」两处。往返测试把解码**现在**就钉住。
+//
+// 顺带守住段布局本身：`u32 count` + 每项 `u32 fileIdx` / `u16 nsCount` / `u32[] nsIdx`。
+//
+// 🔴 **多命名空间的那项必须排在前面**。初稿把它放在最后 —— 把「按 nsCount 跳过」改成
+// 「恒跳 1 个」注入进去，测试**照样绿**：最后一项跳错多少都无所谓，后面没有东西要读了。
+// 多 ns 的项排在前面，跳错才会让**后一项的文件名读错位**，断言才抓得住。
+// ⭐ 「故意构造了一个复杂输入」不等于那个复杂度真的被验到了。
+[Test]
+void test_deps_roundtrip_reads_file_names() {
+    var mods = new ZbcFileZ[1];
+    mods[0] = _mod("Demo", "Demo.Main");
+    var deps = new ZpkgDepZ[2];
+    string[] ns0 = new string[3]; ns0[0] = "Std.IO"; ns0[1] = "Std.Net"; ns0[2] = "Std.Text";
+    deps[0] = new ZpkgDepZ("z42.io.zpkg", ns0, 3);     // 多 ns 在前 —— 跳错就会带歪下一项
+    string[] ns1 = new string[1]; ns1[0] = "Std";
+    deps[1] = new ZpkgDepZ("z42.core.zpkg", ns1, 1);
+    ZpkgFileZ z = ZpkgBuilder.BuildPackedD("p", "0.1.0", false, false, "", mods, 1, deps, 2);
+
+    ZpkgInfo info = ZpkgReader.Open(ZpkgWriterZ.WritePacked(z, false).ToBytes(), "p.zpkg");
+    Assert.NotNull(info);
+    string[] got = ZpkgReader.ReadDependencies(info);
+    Assert.Equal(2, got.Length);
+    Assert.Equal("z42.io.zpkg", got[0]);
+    Assert.Equal("z42.core.zpkg", got[1]);   // 读错 nsCount 跳法 → 这里错位
+}
+
+[Test]
+void test_deps_roundtrip_empty_when_no_deps() {
+    // **对照**：没有依赖的包读出空数组，而不是崩或读出垃圾。
+    var mods = new ZbcFileZ[1];
+    mods[0] = _mod("Demo", "Demo.Main");
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", false, false, "", mods, 1);
+    ZpkgInfo info = ZpkgReader.Open(ZpkgWriterZ.WritePacked(z, false).ToBytes(), "p.zpkg");
+    Assert.NotNull(info);
+    Assert.Equal(0, ZpkgReader.ReadDependencies(info).Length);
+}

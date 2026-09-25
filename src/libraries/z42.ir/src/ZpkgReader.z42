@@ -250,6 +250,35 @@ public static class ZpkgReader {
         return r;
     }
 
+    // DEPS 段 → 本包声明的依赖 **zpkg 文件名**（如 `z42.core.zpkg`）。
+    //
+    // 段布局（`ZpkgWriterZ._buildDeps`）：`u32 depCount` + 每项 `u32 fileIdx` / `u16 nsCount`
+    // / `u32[] nsIdx`。这里只要文件名，命名空间按 count 跳过。
+    //
+    // **为什么需要它**（add-deployment-model 批 2 support）：给 exe 装配**传递闭包**要知道
+    // 「某个依赖自己依赖了谁」。这份信息一直在 zpkg 里，但**只有 Rust 侧解码**
+    // （`metadata/zbc_reader/zpkg.rs`）—— z42 侧读不出来，于是 `_bundleExeDeps` 只能搬直接依赖。
+    // 另一条路（顺着源码树的 toml 找）在 repo 外整个失效（publisher 今天就是那样），不能用。
+    //
+    // 🔴 **support 阶段：本方法今天无人调用** ⇒ 产物逐字节不变、可立即合并。
+    // 消费（`_bundleExeDeps` 改建闭包）要等它随 nightly 进种子之后。
+    public static string[] ReadDependencies(ZpkgInfo z) {
+        ZpkgSection s = z.Section("DEPS");
+        if (s == null) { return new string[0]; }
+        var c = new ZpkgCursor(z.Data, s.Offset);
+        int n = c.U32();
+        string[] r = new string[n];
+        int i = 0;
+        while (i < n) {
+            r[i] = z.Pool[c.U32()];
+            int ns = c.U16();
+            int j = 0;
+            while (j < ns) { c.U32(); j = j + 1; }
+            i = i + 1;
+        }
+        return r;
+    }
+
     // SIGS + MODS/FILE 头 → 每模块 (ns, IrFunction 签名 stub 列表)。
     // SIGS 条目布局 = zbc WriteSigEntries（名/арity/retTag/retIdx/exec/static/paramTypes/tp 块/attr 块）。
     // packed：MODS 只读头（ns/src/hash/fnCount/firstSigIdx）+ 按 len 跳过五个体；
