@@ -144,9 +144,29 @@ public sealed partial class ExprEmitter {
         // 这是对「实例化是独立类型」的一处保留：给所有泛型 class 造独立身份需要合成**完整**类
         // 描述符（基类 / 接口 / vtable / 静态字段），远超本 change 范围，另开 change。
         StructLayout ly2 = this._ctx.Gen.Layouts;
-        if (ly2.IsStructType(idn)) { return idn; }
-        if (ly2.InlineLayoutOf(idn).FieldCount > 0) { return idn; }
-        return "";
+        bool granted = ly2.IsStructType(idn) || ly2.InlineLayoutOf(idn).FieldCount > 0;
+        if (!granted) { return ""; }
+        // S4-C：**给身份的那一刻就登记**，让「有身份 ⇒ 有描述符」按构造成立。
+        //
+        // 此前登记只挂在 `_isBlobStruct` 那条路上，而它用的是 `IsBlobStruct`（还要求
+        // `FieldCount >= 2`）；身份却用 `IsStructType`（只看基名是不是 struct 定义）。
+        // **两把尺子在回答同一个问题**，单字段泛型 struct 正好落在夹缝里：身份名发了、
+        // 描述符没发 ⇒ 运行期 `type Demo.GS<int> could not be resolved`。
+        // 上面那段注释一直写着「身份名必须与**确实会发描述符**一致」——现在它由代码保证。
+        this._registerInst(idn, inst);
+        return idn;
+    }
+
+    // 登记一个实例化（连同其嵌套实参）供 TYPE 段尾投送合成描述符。
+    // `ContainsKey` 守卫兼作递归终止：实参的结构深度有限，且同名只登记一次。
+    private void _registerInst(string idn, Z42InstantiatedType inst) {
+        if (this._ctx.Gen.InstLayouts.ContainsKey(idn)) { return; }
+        this._ctx.Gen.InstLayouts.Put(idn, "1");
+        // **嵌套实例化一并登记**：`Pair<Pair<int,long>,string>` 的内层自己也需要描述符
+        // （运行期 `resolve_layout` 要查它）与特化成员。只登记外层的话，内层在链式访问
+        // `t.Item1.Item2` 上就会退回定义布局。
+        int i = 0;
+        while (i < inst.ArgCount) { this._instIdentityName(inst.TypeArgs[i]); i = i + 1; }
     }
 
     // 类型 → **规范名**，实例化实参**递归**规范化。
@@ -191,17 +211,9 @@ public sealed partial class ExprEmitter {
     }
 
     // 登记（幂等）。
-    internal void _noteInstLayout(Z42Type t) {
-        string n = this._instIdentityName(t);   // 身份名：所有实例化都登记（都要有描述符）
-        if (n == "") { return; }
-        if (!this._ctx.Gen.InstLayouts.ContainsKey(n)) { this._ctx.Gen.InstLayouts.Put(n, "1"); }
-        // **嵌套实例化一并登记**：`Pair<Pair<int,long>,string>` 的内层 `Pair<int,long>` 自己也需要
-        // 描述符（运行期 resolve_layout 要查它）与特化成员（它的 ctor 也按自己的布局烘焙偏移）。
-        // 只登记外层的话，内层在链式访问 `t.Item1.Item2` 上就会退回定义布局。
-        Z42InstantiatedType inst = t as Z42InstantiatedType;
-        int i = 0;
-        while (i < inst.ArgCount) { this._noteInstLayout(inst.TypeArgs[i]); i = i + 1; }
-    }
+    // S4-C 之后这里只是转发：登记已折进 `_instIdentityName`（给身份即登记），
+    // 保留本入口是因为调用点读作「顺手登记一下」比读作「算个名字」更贴切。
+    internal void _noteInstLayout(Z42Type t) { this._instIdentityName(t); }
 
     // 非-struct **class** 的布局名（内联 struct 字段用）。与 `_blobStructName` 同款：命中闸门的
     // 实例化给实例化名，否则裸名。顺带登记该实例化——泛型 class 没有 `_isBlobStruct` 那样的咽喉点，

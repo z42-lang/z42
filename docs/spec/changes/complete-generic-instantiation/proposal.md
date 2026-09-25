@@ -63,7 +63,7 @@ fn @Demo.ReadSecond(1) -> int {
 **核心**：把「特化」从「实例化类型的成员」扩展到**所有以具体实参操作该实例化的泛型代码**，
 并做到**传递闭包**。
 
-分三阶段，每阶段自身 sound、可独立合入：
+分四阶段，每阶段自身 sound、可独立合入：
 
 ### S1 — 本包闭包（🔴 修 main 上的静默错值；**无格式变更**）
 
@@ -76,6 +76,40 @@ fn @Demo.ReadSecond(1) -> int {
 
 > 为什么 S1 自身 sound：今天**跨包**实例化两侧都不特化（都用擦除布局）⇒ 自洽，
 > 其缺陷是值语义别名（#774 原始形态），不是布局分裂。S1 只让**本包**这一侧变自洽。
+
+### S4 — 实例化的**声明形状**代换（🔴 三条 soundness 缺口，2026-09-25 新增）
+
+S1 之后仍有三条缺口，**根因同一**：单调化代换了**布局**与**体**，却没代换**声明的形状**
+（方法签名、字段描述符、描述符投送判据）。三条都在 main 上实测复现：
+
+| # | 形态 | 实测 | 应为 |
+|---|---|---|---|
+| A | `class G<T>{T V; T Get(){return this.V;}}` → `g.Get().X` | `struct-value handle used after its creating frame exited — value-struct lifetime unsound` | `42` |
+| B | `class DInt : GBox<int> {}` 的继承字段 | `null` | `0` |
+| C | `struct GS<T>{T F;}`（单字段）→ `new GS<int>(0)` | `type Demo.GS<int> could not be resolved` | 可构造 |
+
+**A**：特化体把返回值拷进**自己帧**的 arena 再返回句柄。z42 本有 sret 约定（调用方预留槽），
+但两侧的判据都看**未代换**的返回类型 `T` ⇒ 都判否 ⇒ 表面自洽，代价是返回**已死帧的句柄**。
+> 实证：只让 callee 认出 `T→P2`（走 sret）之后，症状立刻变成
+> `takes 2 physical argument(s), the call passes 1` —— **「lifetime unsound」与「解析不到」
+> 是同一条 bug 的两副面孔**，取决于哪一侧先判出具体类型。
+
+**B**：`DInt` 的类描述符里，从 `GBox<int>` 继承来的字段槽 `type_tag` 仍是擦除的 `T`；
+`ObjNew` 按 type_tag 挑默认值，`T` 非已知基元 ⇒ 给 `null`。**实参在运行期元数据里根本不存在**
+⇒ 运行期修不了，只能在**编译期发描述符**那一侧修。
+
+**C**：两个不同的谓词在回答同一个问题「这个实例化会不会有描述符」——
+
+```
+_instIdentityName  用 IsStructType(n)   → 只看基名是不是 struct 定义     ⇒ GS<int> 为真（给身份）
+_noteInstLayout    挂在 _isBlobStruct   → 还要求 li.FieldCount >= 2      ⇒ GS<int> 为假（不登记）
+```
+
+单字段泛型 struct 正好落在夹缝里：身份名发了、描述符没发。`_instIdentityName` 的注释明写
+「身份名必须与**确实会发描述符**一致」，而代码用了**两把尺子**。
+
+> ⭐ 这已经是本线第四次撞上**同一判据散在多处**（#774 教训 6 / S1-a 的伪实例化闸门 /
+> S1-e 的按 CU 登记表 / 本条）。S4 必须把「实例化的形状从哪来」收敛到**单一出口**。
 
 ### S2 — 跨包模板投送（覆盖元组与 `KeyValuePair`；需格式 bump）
 
