@@ -1,0 +1,75 @@
+// 构造器形参的声明类型含**型参**时的实参检查（fix-ctor-param-resolved-in-caller-scope）。
+//
+// `OverloadBinder._adaptParamType` 在 `md != null` 时拿 `env.ResolveType(md.Params[i].Type)`
+// —— 那是在**调用点**的环境里重新解析声明类型，而型参（`U`）在调用点根本不存在 ⇒ `Unknown`。
+//
+// ⚠️ **同一个根因两副面孔**，所以正反两侧都要立用例：
+//   · 嵌套 `G<U>` → `G<<unknown>>`，与实参 `G<int>` 结构比 ⇒ **误报**（类根本构造不出来）；
+//   · 裸 `U` / `U[]` → `Unknown` 被转换格吸收 ⇒ **漏报**（错类型静默放行）。
+// 修法是把含型参的形参位交给代换后的补查（`ConstructTyper._chkCtorSubstArgs`），
+// 于是误报消失、漏报那侧反而**开始响**。
+namespace Z42cSemanticsCtorParamScopeTests;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 误报侧：这些**必须零诊断**（修前 ctor 那条报 E0402）────────────────────
+
+[Test]
+void test_ctor_nested_typeparam_param_ok() {
+    string src = "namespace D; class G<T> { public G(T v) {} }"
+        + " class W<U> { public W(G<U> i) {} }"
+        + " class T2 { void M() { var w = new W<int>(new G<int>(1)); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_deep_nested_typeparam_param_ok() {
+    string src = "namespace D; class G<T> { public G(T v) {} }"
+        + " class W<U> { public W(G<G<U>> i) {} }"
+        + " class T2 { void M() { var w = new W<int>(new G<G<int>>(new G<int>(1))); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 对照组：**方法**形参位一直是好的（它走 CheckSubstitutedArgs）——证明差别只在 ctor 那条路。
+[Test]
+void test_method_nested_typeparam_param_ok() {
+    string src = "namespace D; class G<T> { public G(T v) {} }"
+        + " class W<U> { public void S(G<U> i) {} }"
+        + " class T2 { void M(W<int> w) { w.S(new G<int>(1)); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 漏报侧：这些**必须报错**，否则等于把误报换成了静默放行 ──────────────────
+
+[Test]
+void test_ctor_nested_typeparam_wrong_arg_must_error() {
+    string src = "namespace D; class G<T> { public G(T v) {} }"
+        + " class W<U> { public W(G<U> i) {} }"
+        + " class T2 { void M() { var w = new W<int>(new G<string>(\"s\")); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_ctor_bare_typeparam_wrong_arg_must_error() {
+    string src = "namespace D; class B<U> { public B(U v) {} }"
+        + " class T2 { void M() { var b = new B<int>(\"x\"); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// 含型参的位被划给代换后补查，**具体类型的位仍走原路** —— 不能连它一起放过。
+[Test]
+void test_ctor_concrete_param_still_checked() {
+    string src = "namespace D; class G<T> { public G(T v) {} }"
+        + " class W<U> { public W(G<U> a, int b) {} }"
+        + " class T2 { void M() { var w = new W<int>(new G<int>(1), \"z\"); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
+
+// 非泛型 ctor 完全不受影响。
+[Test]
+void test_nongeneric_ctor_wrong_arg_must_error() {
+    string src = "namespace D; class P { public P(int v) {} }"
+        + " class T2 { void M() { var p = new P(\"x\"); } }";
+    Assert.Equal(1, SemanticDump.ErrorCount(src));
+}
