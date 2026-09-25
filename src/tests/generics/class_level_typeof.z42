@@ -1,0 +1,45 @@
+// Test: fix-class-level-typeof — 类级 `typeof(T)` 在实例语境产出绑定的真实类型
+// （此前一律产占位名 "T"）。载体 = `__class_type_arg(this, idx)` builtin，读
+// `regs[0].instance.type_args[idx]` —— 与类级 `default(T)` 的 `DefaultOf` 同一个载体。
+
+class Box<T> {
+    public string full() { return typeof(T).FullName; }
+    public string name() { return typeof(T).Name; }
+    public bool   isInt() { return typeof(T) == typeof(int); }
+}
+
+class Pair<A, B> {
+    public string both() { return typeof(A).FullName + "/" + typeof(B).FullName; }
+}
+
+void Main() {
+    // 值类型实参
+    var bi = new Box<int>();
+    Assert.Equal("Std.Int32", bi.full());
+    Assert.Equal("Int32", bi.name());
+
+    // 引用类型实参
+    var bs = new Box<string>();
+    Assert.Equal("Std.String", bs.full());
+    Assert.Equal("String", bs.name());
+
+    // 同一泛型类的两个实例化互不串味（type_args 是 per-instance，不是 per-TypeDesc）
+    Assert.Equal("Std.Int32", bi.full());
+
+    // 值相等两侧（招牌症状：此前 `typeof(T) == typeof(int)` 恒为 false）
+    Assert.True(bi.isInt());
+    Assert.False(bs.isInt());
+
+    // 多型参按声明序对位
+    var p = new Pair<int, string>();
+    Assert.Equal("Std.Int32/Std.String", p.both());
+
+    // 数组型参：实例存的 type_arg 串是 "Std.Int32[]"，`make_type_from_name` 的 [] 分支递归解析
+    var ba = new Box<int[]>();
+    Assert.Equal(typeof(int[]).FullName, ba.full());
+    Assert.Equal("Std.Int32[]", ba.full());
+
+    // 嵌套泛型型参：constructed-generic 分支逐层重入
+    var bn = new Box<Pair<int, string>>();
+    Assert.Equal(typeof(Pair<int, string>).FullName, bn.full());
+}

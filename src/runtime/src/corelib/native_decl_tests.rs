@@ -35,6 +35,11 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // bind time and lowered to `__methodof("<declaring FQN>.<RegKey>")`, so the name never
     // appears in stdlib source — the same shape as `__box_prim`/`__box_struct`.
     ("__methodof", "compiler-emitted: add-method-reference"),
+    // Emitted by the compiler for a **class-level** `typeof(T)` — lowered to
+    // `__class_type_arg(this, <classParamIndex>)`, reading the receiver's per-instance
+    // `type_args`. Same shape as `__box_prim`/`__methodof`: the name never appears in stdlib
+    // source, and there is no z42-callable surface for it (the index is a compile-time fact).
+    ("__class_type_arg", "compiler-emitted: fix-class-level-typeof"),
     // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in vcall_resolve).
     ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
     // Host-only surfaces (REPL line editor, wasm virtual filesystem) wired by their hosts.

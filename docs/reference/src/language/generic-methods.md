@@ -30,38 +30,41 @@ var p = New<Point>();             // new Point()
 class Box<T> {
     U Convert<U>(T input) {   // T = 类形参，U = 方法形参
         var tu = typeof(U);   // 方法级：读 frame.method_type_args → 具体类型
-        var tz = default(T);  // 类级：读实例 type_args（见「实现原理」）→ 具体零值
+        var tz = default(T);  // 类级：读实例 type_args → 具体零值
+        var tt = typeof(T);   // 类级：同样读实例 type_args → 具体类型
         …
     }
 }
 ```
 
-### 🔴 `typeof(T)` 对**类级**型参产出占位名（实测 2026-09-22）
+### 类级型参的具化以**实例**为载体
 
-上例原先把 `typeof(T)` 也写成「类级：读实例 type_args」——**那是错的**。类级型参的
-`typeof` 走既有 `TypeofInstr`、**只携静态写下的名字**，运行期不查实例 `type_args`
-（`TypeOpTyper.z42:64-65` / `BoundExprOp.z42:210-212` 的 `D3` 注释：「类级 typeof 仍产占位」）。
+方法级型参的实参随调用传入（帧槽），类级型参的实参**跟着实例走**（每个对象自己的
+`type_args`，由 `ObjNew` 在构造时填）。两级都能具化，但类级的前提是**手上有那个实例**：
 
 ```z42
 class Box<T> {
     public string full()  { return typeof(T).FullName; }
     public bool   isInt() { return typeof(T) == typeof(int); }
 }
-Box<int> b = new Box<int>();
-b.full()    // → "T"      ← 不是 "Int32"
-b.isInt()   // → false    ← 静默走错分支，零诊断
+new Box<int>().full()    // → "Std.Int32"
+new Box<int>().isInt()   // → true
 ```
 
-⚠️ **这是静默错值**：泛型类里按 `typeof(T) == typeof(int)` 分派的代码（序列化器的典型写法）
-会安静地走错分支。**同一个 `T` 的 `default(T)` 是对的**（`Box<int>` 得 `0`）——实例
-`type_args` 运行期确实在，只是 `typeof` 没去读它。
+🔴 **两种场景没有实例可问，退回占位名 `"T"`**（不抛、不报诊断）：
 
-可用的替代：
+| 场景 | 结果 | 为什么 |
+|---|---|---|
+| `static` 方法里的类级 `typeof(T)` | `"T"` | 静态帧没有 `this`，无实例可读 |
+| `class Derived : Box<int>` 的实例上、基类体内的 `typeof(T)` | `"T"` | `Derived` 非泛型，实例不携带基类的类型实参；同一实例上 `default(T)` 也取不到（得 `null`） |
 
-| 想要什么 | 怎么写 |
-|---|---|
-| 类级 `T` 的具体运行期类型 | `default(T).GetType()`（值类型可靠；引用类型 `default` 是 null，改用一个实例的 `GetType()`） |
-| 按类型分派 | 把型参挪到**方法级**（`Convert<U>()`），方法级 `typeof(U)` 是具体的 |
+这两格要具化就把型参挪到**方法级**（`Convert<U>()`）——方法级不依赖实例。
+
+> 📜 **2026-09-25 之前类级 `typeof(T)` 一律产占位名**（`typeof(T) == typeof(int)` 恒为
+> `false`，是个静默错分支）。`add-generic-methods` design 的 D3 把类级具化留作后续，
+> 由 `fix-class-level-typeof` 兑现：载体用 `__class_type_arg` builtin 读实例 `type_args`，
+> 与类级 `default(T)` 同一个载体。机制见
+> [internals / 泛型](https://z42-lang.github.io/z42/internals/compiler/generics.html)。
 
 ## `<` 的歧义消解
 

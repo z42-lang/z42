@@ -3,12 +3,17 @@ using Std.IO;
 class Box<T> {
     public string full()  { return typeof(T).FullName; }
     public bool   isInt() { return typeof(T) == typeof(int); }
-    public string viaDefault() { T z = default(T); return z.GetType().Name; }
+    // 静态方法里没有实例，类级 T 取不到实参 → 占位名 "T"
+    public static string staticFull() { return typeof(T).FullName; }
 }
+
+// 派生类非泛型，实例不携带基类的类型实参 → 基类体内的 T 也取不到
+class Derived : Box<int> { }
 
 void Main() {
     Box<int> b = new Box<int>();
-    Console.WriteLine(b.full());         // 期望 Int32，实际 T
-    Console.WriteLine(b.isInt());        // 期望 true，实际 false
-    Console.WriteLine(b.viaDefault());   // default(T) 这条路是对的
+    Console.WriteLine(b.full());            // Std.Int32
+    Console.WriteLine(b.isInt());           // true
+    Console.WriteLine(Box.staticFull());    // T ← 静态语境仍是占位名
+    Console.WriteLine(new Derived().full()); // T ← 继承来的型参仍是占位名
 }

@@ -160,6 +160,55 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
     has_bare || has_zero || !has_any_ctor
 }
 
+/// fix-class-level-typeof (2026-09-25): `__class_type_arg(receiver, index) -> Std.Type`
+/// — materialize a **class-level** type parameter into a concrete `Std.Type`.
+///
+/// Mirrors `exec_address::method_type_arg`, but reads the **per-instance**
+/// `type_args` (the carrier `DefaultOf` has always used for class-level
+/// `default(T)`) instead of the callee frame's `method_type_args`. That carrier
+/// is populated by `ObjNew` from the IR instruction's type args, so `Box<int>`
+/// and `Box<string>` instances differ at runtime despite sharing one TypeDesc
+/// (z42's reified erasure with a per-instance type-arg view).
+///
+/// **Why a builtin and not a new opcode**: a new `Instruction` would mean a zbc
+/// format bump plus the two-nightly bootstrap dance (`bootstrap-seed.md`) for
+/// semantics a builtin already delivers — and `Instruction::Builtin` is dispatched
+/// by name/BuiltinId in the JIT too, so JIT support comes for free. `__methodof`
+/// set the same precedent (see `TypeOpEmitter._emitMethodOf`).
+///
+/// Lenient by construction (mirrors the whole reflection module's contract):
+/// non-object receiver / out-of-range index / empty `type_args` all yield the
+/// placeholder constructed type named `"T"` — byte-for-byte what the method-level
+/// OOB path yields, and **exactly what class-level `typeof(T)` produced before
+/// this change**. Static contexts and type params inherited from a generic base
+/// therefore keep their previous behaviour rather than silently resolving to a
+/// plausible-but-wrong type.
+pub fn builtin_class_type_arg(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    Ok(match class_type_arg_name(args) {
+        Some(n) => make_type_from_name(ctx, &n),
+        None => make_constructed_type(ctx, "T", &[]),
+    })
+}
+
+/// The pure name-selection half of `builtin_class_type_arg`: `(receiver, index)`
+/// → the bound type-arg tag, or `None` for every degraded case.
+///
+/// **Split out so the selection logic is unit-testable.** `build_type_ex`
+/// degrades to `Value::Null` when `Std.Type` isn't loaded (no z42.core in Rust
+/// unit tests), so asserting on the builtin's *returned value* would compare
+/// `Null` against `Null` — a gate that can never fire. Asserting on the selected
+/// name instead keeps both sides discriminating.
+pub(super) fn class_type_arg_name(args: &[Value]) -> Option<String> {
+    let idx = match args.get(1) {
+        Some(Value::I64(n)) if *n >= 0 => *n as usize,
+        _ => return None,
+    };
+    match args.first() {
+        Some(Value::Object(rc)) => rc.borrow().type_args().get(idx).cloned(),
+        _ => None,
+    }
+}
+
 /// `__type_make_generic(defType, Type[] argTypes) -> Std.Type` — construct a
 /// generic type at runtime (`typeof(List<>).MakeGenericType(typeof(int))` →
 /// `List<int>`). Reuses `make_constructed_type` (z42's reified type-erasure means

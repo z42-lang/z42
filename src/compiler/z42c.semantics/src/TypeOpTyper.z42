@@ -62,10 +62,26 @@ public sealed class TypeOpTyper {
             string targetName = (tox.Type is NamedType) ? (tox.Type as NamedType).Name : "";
             BoundTypeof bto = new BoundTypeof(toTarget, targetName, toType, tox.Span);
             // add-generic-methods：方法级 typeof(T) → 发 MethodTypeArgInsn 具体化（读 frame 槽）。
-            // 类级泛型形参不标记（D3：类级 typeof 仍产占位名，走既有 TypeofInstr）。
+            // fix-class-level-typeof：否则试类级 → 发 `__class_type_arg(this, idx)`（读 instance.type_args）。
+            //
+            // **顺序即「就近优先」，不能颠倒**：方法级先查，同名时遮蔽类级。与 `_bindDefault`
+            // / `_bindArrayNew` 的既有口径逐字一致（`default(T)` / `new T[n]` 也是这个顺序）。
             if (toTarget is Z42GenericParamType) {
                 int mIdx = env.MethodParamIndexOf(toTarget.Name());
                 if (mIdx >= 0) { bto.IsMethodLevel = true; bto.MethodParamIndex = mIdx; }
+                else {
+                    int cIdx = env.ClassParamIndexOf(toTarget.Name());
+                    // 🔴 **实例语境判据不可省**：类级载体是 `regs[0].instance.type_args`，而
+                    // **静态帧的 reg0 是第一个实参、不是 this**。不查语境就会把
+                    // `static string S(Box<int> o) { return typeof(T).FullName; }` 解析成实参
+                    // `o` 的型参（实测 `default(T)` 在这一形态下今天就产 `0` 而非 `null` ——
+                    // 那是既有的静默 bug，本变更不把它搬进 typeof）。
+                    // 判据沿用 `MemberResolver.Bare` 判实例语境的同一条，不自创机制。
+                    // 落不到类级 ⇒ 维持既有 TypeofInstr（占位名），行为逐字不变。
+                    if (cIdx >= 0 && env.LookupVar("this") != null) {
+                        bto.IsClassLevel = true; bto.ClassParamIndex = cIdx;
+                    }
+                }
             }
             return bto;
     }

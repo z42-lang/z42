@@ -231,6 +231,47 @@ pub struct TypeDesc {
 type_instantiation_cache: HashMap<(String, Vec<String>), Arc<TypeDesc>>
 ```
 
+### 型参具化的两个载体（`typeof(T)` / `default(T)` / `new T()` / `new T[n]`）
+
+型参的实参在运行期从**哪里**读，取决于它是类级还是方法级。这是个反复被记错的分岔
+（`fix-class-level-typeof` 之前 `typeof` 的类级那一格是空的），四个消费点都按同一张表走：
+
+| 载体 | 存放位置 | 谁填 | 消费指令 |
+|---|---|---|---|
+| **方法级** | `Frame.method_type_args` | 调用点（`CallInsn::method_type_args`）| `MethodTypeArg` / `MethodDefault` |
+| **类级** | `regs[0]` 指向对象的 per-instance `type_args` | `ObjNew`（从 IR 指令的 type args）| `DefaultOf` / **`__class_type_arg` builtin** |
+
+绑定期按「**方法级就近优先**」分流（`TypeOpTyper._bindTypeofExpr` /
+`ExprTyper._bindDefault` / `_bindArrayNew` 三处同序）：方法级先查，同名时遮蔽类级。
+
+#### 为什么类级 `typeof(T)` 是 builtin 而不是一条新 opcode
+
+`add-generic-methods` design 的 D3 把类级具化留作后续，并预设「用同款范式补」=
+再开一个像 `DefaultOf` 那样的 opcode。**实际落地用了 builtin**，理由：
+
+- 新 opcode 要 **zbc 格式 bump + 两代自举纪律**（`bootstrap-seed.md`：support 先行、
+  晚一个 nightly 再 use），而换来的语义与一条 builtin **完全相同**。
+- `Instruction::Builtin` 在 JIT 里是按名 / `BuiltinId` 的**通用派发**
+  （`jit/translate/call.rs`）⇒ **JIT 支持白送**，无需动 translate / analysis / unsupported。
+- `__methodof` 已在同一个发射器里立了这个先例（见 `TypeOpEmitter._emitMethodOf` 抬头）。
+
+⇒ **看到这里没有 `ClassTypeArg` opcode 不是漏做**，是刻意用更便宜的载体兑现同一语义。
+⚠️ `BuiltinId` 就是 `BUILTINS` 表下标、会被烤进 zbc ⇒ 新 builtin **只可表尾追加**。
+
+#### 🔴 类级载体的两个空洞（截至 2026-09-25）
+
+per-instance `type_args` 只覆盖「实例自己那一层泛型」，两种形态读不到，一律优雅降级
+（`typeof` → 占位名 `"T"`；`default` → `Null`）：
+
+1. **静态语境**：静态帧的 `regs[0]` 不是 `this`。`typeof` 侧在**绑定期**用
+   `env.LookupVar("this") != null` 拦住了；🔴 **`default(T)` 侧没拦** ——
+   `class Box<T> { static F(Box<int> o) { T z = default(T); } }` 会读到**实参 `o`** 的
+   `type_args`，静默产出 `0` 而非 `null`。
+2. **继承来的型参**：`class Derived : Box<int>` 的实例 `type_args` 为空 ⇒ 基类体内的 `T`
+   取不到 `int`。**扁平下标在此无解** —— `DerivedG<U> : Box<int>` 里派生自己的 `U` 与基类的
+   `T` 都想占下标 0。正解是按**声明类**寻址（声明类可从帧的函数 owner 推导 ⇒ 零指令变更），
+   并让 `ObjNew` 携带基链实参；那要 fingerprint bump，故独立成刀。
+
 ---
 
 ## L3-G2 落地细节（2026-04-22）

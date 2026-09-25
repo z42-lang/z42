@@ -357,3 +357,63 @@ fn primitive_fqn_maps_both_vocabularies() {
     assert_eq!(primitive_fqn("Demo.Point"), None);
     assert_eq!(primitive_fqn("List"), None);
 }
+
+// ── fix-class-level-typeof: 类级 typeof(T) 的名字选择 ────────────────────────
+//
+// 断言的是 `class_type_arg_name`（选名）而非 builtin 的返回值：`build_type_ex` 在
+// 没有 z42.core 的单测环境里一律退化成 `Value::Null`，拿返回值对比等于 Null == Null
+// —— 一道恒不响的门。选名这一半两侧都有判别力。
+
+/// 带 per-instance type_args 的对象（镜像 `ObjNew` 的填充动作）。
+fn obj_with_type_args(ctx: &VmContext, name: &str, targs: &[&str]) -> Value {
+    let v = ctx
+        .heap()
+        .alloc_object(bare_td(name), Vec::new(), NativeData::None);
+    if let Value::Object(ref rc) = v {
+        let boxed: Box<[String]> = targs.iter().map(|s| s.to_string()).collect();
+        rc.borrow_mut().set_type_args(boxed);
+    }
+    v
+}
+
+#[test]
+fn class_type_arg_name_picks_bound_arg_by_index() {
+    let c = ctx();
+    let o = obj_with_type_args(&c, "Demo.Pair", &["Std.Int32", "Std.String"]);
+    assert_eq!(class_type_arg_name(&[o.clone(), Value::I64(0)]).as_deref(), Some("Std.Int32"));
+    assert_eq!(class_type_arg_name(&[o, Value::I64(1)]).as_deref(), Some("Std.String"));
+}
+
+#[test]
+fn class_type_arg_name_none_for_out_of_range_index() {
+    let c = ctx();
+    let o = obj_with_type_args(&c, "Demo.Box", &["Std.Int32"]);
+    assert_eq!(class_type_arg_name(&[o.clone(), Value::I64(1)]), None);
+    assert_eq!(class_type_arg_name(&[o, Value::I64(9)]), None);
+}
+
+#[test]
+fn class_type_arg_name_none_for_empty_type_args() {
+    // `class Derived : Box<int> { }` 的实例：非泛型类，type_args 为空 ⇒ 占位降级。
+    let c = ctx();
+    let o = obj_with_type_args(&c, "Demo.Derived", &[]);
+    assert_eq!(class_type_arg_name(&[o, Value::I64(0)]), None);
+}
+
+#[test]
+fn class_type_arg_name_none_for_non_object_receiver() {
+    // 🔴 静态语境的 reg0 可能是任意实参（含基元）——必须一律降级，绝不猜。
+    assert_eq!(class_type_arg_name(&[Value::I64(7), Value::I64(0)]), None);
+    assert_eq!(class_type_arg_name(&[Value::Null, Value::I64(0)]), None);
+    assert_eq!(class_type_arg_name(&[]), None);
+}
+
+#[test]
+fn class_type_arg_name_none_for_bad_index_arg() {
+    let c = ctx();
+    let o = obj_with_type_args(&c, "Demo.Box", &["Std.Int32"]);
+    // 负数下标 / 缺下标 / 非整数下标：都不得被当成 0 悄悄放过。
+    assert_eq!(class_type_arg_name(&[o.clone(), Value::I64(-1)]), None);
+    assert_eq!(class_type_arg_name(&[o.clone()]), None);
+    assert_eq!(class_type_arg_name(&[o, Value::Bool(true)]), None);
+}

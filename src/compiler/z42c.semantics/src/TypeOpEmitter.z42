@@ -58,6 +58,30 @@ public sealed class TypeOpEmitter {
             this._ctx.Emit(new MethodTypeArgInsn(mdst, e.MethodParamIndex));
             return mdst;
         }
+        // fix-class-level-typeof：类级 typeof(T) → `__class_type_arg(%this, %idx)` builtin
+        // （读 `regs[0].instance.type_args[idx]`，与类级 `default(T)` 的 DefaultOfInstr 同一载体）。
+        //
+        // **不新增 IR 指令、不 bump 格式**：照下面 `_emitMethodOf` / `_emitBoxPrim` 的同一范式
+        // 复用既有 Builtin opcode。新 opcode 要 zbc 格式 bump + 两代自举纪律
+        // （bootstrap-seed.md），换来的语义与这条完全相同；而 `Instruction::Builtin` 在 JIT 里
+        // 是按名 / BuiltinId 的通用派发 ⇒ JIT 支持白送。
+        //
+        // 🔴 `Locals.Get("this")` 为 null 必须落回占位路径：绑定期已用
+        // `env.LookupVar("this")` 判过实例语境，但**绑定 env 与发射 Locals 是两张表**，
+        // 这里不作跨阶段假设（真落空时行为 = 本变更前，无回归面）。
+        if (e.IsClassLevel) {
+            TypedReg thisReg = this._ctx.Locals.Get("this") as TypedReg;
+            if (thisReg != null) {
+                TypedReg idxReg = this._ctx.Alloc(IrType.I32);
+                this._ctx.Emit(new ConstI32Instr(idxReg, e.ClassParamIndex.ToString()));
+                TypedReg[] cargs = new TypedReg[2];
+                cargs[0] = thisReg;
+                cargs[1] = idxReg;
+                TypedReg cdst = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new BuiltinInstr(cdst, "__class_type_arg", cargs, 2));
+                return cdst;
+            }
+        }
         // typeof(delegate)：delegate 名解析成结构化 Z42FuncType（"Action"/"Func<…>"），丢了 FQ
         // delegate 名 → 用 AST 原始名 QualifyClass 回 FQ delegate 名（其 TYPE 条目 under FQ 名，
         // add-delegate-metadata），使 typeof(MyDelegate) 得真句柄（IsDelegate=true），与
