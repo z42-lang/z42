@@ -35,12 +35,17 @@ pub(crate) mod boot;
 #[path = "app_tests.rs"]
 mod app_tests;
 
+#[cfg(test)]
+#[path = "probing_tests.rs"]
+mod probing_tests;
+
 // Runtime configuration registry — single source of truth for every
 // Z42_* env var the runtime reads (docs/review.md Part 4 D1, 2026-05-26).
 // `RuntimeConfig` carries the 5 startup-consumed knobs; `KNOWN_KNOBS`
 // table also lists subsystem-local knobs (Z42_GC_* / Z42_NATIVE_PATH /
 // Z42_SAFEPOINT_THROTTLE / Z42_STRESS_ITERS) for `--info` discovery.
 pub mod config;
+pub mod probing;
 
 // Runtime atomic counters — JIT compiles / builtin calls / exception
 // traffic etc. Surfaced via `--print-stats-on-exit` CLI flag and (future)
