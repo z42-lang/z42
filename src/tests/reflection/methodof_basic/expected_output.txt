@@ -8,5 +8,5 @@ stat:3
 9
 base
 mine
-false
+true
 Solo
