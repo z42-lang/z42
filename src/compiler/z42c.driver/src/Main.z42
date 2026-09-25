@@ -346,7 +346,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         BuildLog.ProgressErr("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && prep.Plan.AllCached) {
             if (isExe) {
-                int sbc = _bundleExeDeps(pm, closureNames, closureN, projectDir, distDir, libsDirs, libsDirsN);
+                int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
             }
             BuildLog.Progress("no changes; preserved -> " + BuildLayout.Display(lastZpkg));
@@ -599,7 +599,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             xi = xi + 1;
         }
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
-        int mbc = _bundleExeDeps(pm, closureNames, closureN, projectDir, distDir, libsDirs, libsDirsN);
+        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
         _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
@@ -633,7 +633,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
-        int bc = _bundleExeDeps(pm, closureNames, closureN, projectDir, distDir, libsDirs, libsDirsN);
+        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
         if (bc != 0) { return bc; }
     }
     return ExitCode.Ok;

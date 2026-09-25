@@ -507,6 +507,8 @@ int _testCompilerE2e(string root, string vm, string flat) {
     if (_e2eAnalyzerDomainChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
     // `[analyzers]` 的 path 条目（add-package-roles 批 2）：代建 + 指纹 + 双向校验，四格。
     if (_e2ePathAnalyzerChecks(root, vm, driverZpkg, e2eDir) != 0) { return 1; }
+    // exe 私有依赖的复制判据（add-deployment-model 批 1）——工程落 /tmp，见该文件头注。
+    if (_e2eDeployPredicateChecks(root, vm, driverZpkg) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }
