@@ -1,7 +1,7 @@
 # Tasks: complete-generic-instantiation（泛型实例化的单调化）
 
-> 状态：🟡 S1 待 User 过 6.5 gate | 创建：2026-09-23 | **2026-09-24 按 A 方案重写**
-> 分支/worktree：`complete-generic-instantiation-p1` @ `wt-geninst` | 基于：origin/main `2d4042a08`
+> 状态：🟢 S1 完成，待开 PR | 创建：2026-09-23 | **2026-09-24 按 A 方案重写**
+> 分支/worktree：`complete-generic-instantiation-p1` @ `wt-geninst` | 基于：origin/main `abb0bc6fb`（rebase 后）
 > 类型：`lang` + `ir`
 
 **变更说明：** #774 做的是**部分单调化**（特化了实例化类型，没特化操作它的泛型代码），
@@ -80,19 +80,19 @@
 
 ### 4. GREEN
 
-- [ ] 4.1 `xtask build stdlib` + `build compiler` + `test compiler`（自举不动点 gen1==gen2）
-- [ ] 4.2 `xtask test all`
-- [ ] 4.3 ⚠️ **`xtask test e2e --mode jit`**
-- [ ] 4.4 `cargo test --lib`（**debug，不加 `--release`**）
-- [ ] 4.5 `xtask test bootstrap`
-- [ ] 4.6 并入 origin/main 最新改动 + 在新基线上重跑完整 GREEN
+- [x] 4.1 `xtask build stdlib` + `build compiler` + `test compiler`（自举不动点 gen1==gen2）
+- [x] 4.2 `xtask test all`
+- [x] 4.3 ⚠️ **`xtask test e2e --mode jit`**
+- [x] 4.4 `cargo test --lib`（**debug，不加 `--release`**）
+- [x] 4.5 `xtask test bootstrap`
+- [x] 4.6 并入 origin/main 最新改动 + 在新基线上重跑完整 GREEN
 
 ### 5. 文档 + PR
 
-- [ ] 5.1 `docs/internals/src/runtime/struct-value-semantics.md`：单调化闭包这条不变式
-- [ ] 5.2 `docs/internals/src/compiler/source-compile.md`：工作表与判据
-- [ ] 5.3 `docs/roadmap.md`
-- [ ] 5.4 `f89ad960b` 的去留裁决（见上表）
+- [x] 5.1 `docs/internals/src/runtime/struct-value-semantics.md`：单调化闭包这条不变式
+- [x] 5.2 `docs/internals/src/compiler/source-compile.md`：工作表与判据
+- [x] 5.3 `docs/roadmap.md`
+- [x] 5.4 `f89ad960b` 的去留裁决（见上表）
 - [ ] 5.5 PR（body 写跑 GREEN 时的 `base: <sha>`）
 
 ---
@@ -208,6 +208,21 @@ c.z42: new Loc<P2, int>(a, 7)      → undefined function Demo.Loc<P2,int>.Loc
 那条不是正确性缺口，只是密度/分配。
 
 ---
+
+## ⚠️ bootstrap 门的误报（值得记）
+
+rebase 前 `xtask test bootstrap` 稳定报 `❌ BOUNDARY VIOLATION`，栈是
+`ArrayGet: expected array, got Null @ ImportedSymbolLoader.Load`。**并入 origin/main 后一次通过。**
+
+原因：分支基线落后 nightly **35 个提交**，而该门下载的是**今天**（由当前 main 构建）的 nightly
+SDK —— 它编不动这么旧的基线源码。这不是代码缺陷。
+
+🔴 **我在这里犯过一次方法论错误**：为分辨「我的回归 vs 环境」，我把 `src` 换成 `origin/main`
+的跑对照——**但 origin/main 比我的基线新得多**，等于拿「与 nightly 同源的 src」去比，
+当然通过，**证明不了任何事**。而且 `git checkout origin/main -- src` 还在树里留下了 10 个
+main 独有的文件（`git checkout HEAD -- src` 不会删除 HEAD 中不存在的文件）。
+⇒ **对照实验的两棵树必须只差「我的改动」这一个变量**；基线不同就不是对照。
+正确处置是直接 rebase 到 main 再跑。
 
 ## 踩过的坑（本轮）
 
