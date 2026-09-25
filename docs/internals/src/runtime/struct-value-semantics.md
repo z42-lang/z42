@@ -642,6 +642,31 @@ PR2a 的 `Value::BoxedStruct(Box<BoxedStructData>)` 是**值**（`Box` 独占，
 - 端到端 golden `reflection/struct_field`（GetValue 基元/string/嵌套 + SetValue 写穿+别名可见 + 值语义独立，
   interp+jit 双模式匹配 expected）+ `struct_reflect` 单元测试（布局/校验/tag signedness 护栏）。
 
+### `field_get` 接受装箱 struct（accept-boxed-struct-field-get，2026-09-25）
+
+值 struct 经**擦除的返回位**流出泛型函数时（`T id<T>(T a)` 的 `id(v)`），运行期的值就是上面那个
+装箱 `ScriptObject`。此前**只有 `field_get` 一条指令不认它**，于是同一个接收者上
+`id(v).Sum()` 正常、`id(v).X` 抛 `FieldGet: expected object, got BoxedStruct(…整屏堆转储…)`。
+
+- **为什么落到通用 `field_get`**：调用点的静态类型是裸 `T`（`--dump-bound` 实测
+  `(call id … :T)`、成员 `:<unknown>`）⇒ `AccessEmitter._emitMember` 的
+  `_isBlobStruct(m.Target.Type())` 判假 ⇒ 不走 `struct_fget_prim`（那条**早就**认盒）。
+- **修法 = 复用反射那条已验证的按名取叶子路径**（`accessors::boxed_struct_field_get`，
+  含 `validate_against` 布局对账），interp（`exec_object.rs`）+ JIT（`jit_field_get`）**两条臂对称**
+  —— 只补一侧的话小用例全绿而热代码崩（`jit_field_get` 的 `StackArray` 臂就这么漏过一次）。
+- **`field_set` 刻意不跟着加**：写进「从擦除返回位流出的临时盒」必然被丢弃，正解是编译期拒绝
+  （C# 同）⇒ 独立登记 `reject-assign-to-erased-call-result`。
+- 端到端 golden `generics/erased_return_blob_field.z42`（四种叶子 + 显式/推断型参 + 静态方法承载
+  + 200k 次热循环逼出 OSR 走 JIT 臂）。⭐ **两条臂各自的阴性对照都做过**：撤 interp 臂 → interp
+  措辞红；撤 JIT 臂 → **JIT 措辞红**（证明热循环真的进了 `jit_field_get`，而不是全程解释执行）。
+- ⚠️ 验这类修复必须 `xtask build runtime` **再** `build sdk`：`build sdk` 只装配、**不重编 Rust**，
+  只跑后者会拿到上一轮的 `z42vm`，得到一字未变的假阴性（本刀的阴性对照第一次就这么假绿了）。
+- 📉 **已知代价（不是回归 —— 这条路此前是崩）**：`struct_reflect::compute` + `validate_against`
+  **每次访问都重算**（反射那条是冷路径，从来没人给它加缓存）。实测 interp 下 500 万次
+  `id(v).X` = 2.29s，同规模普通对象字段读 = 0.78s ⇒ 每次访问约 300ns 的布局重算。
+  登记 `cache-struct-reflect-layout`（按类型名缓存 `ComputedLayout`；布局按类型不变、缓存天然安全，
+  反射侧同样受益）。本刀不做：缓存要挂在 `VmContext` 或 `TypeDesc` 上，属独立取舍。
+
 ### 对象内联 struct 字段反射（`class C { Point pt; }`，add-object-inline-struct-reflection P4b-B）
 
 P4b 只交付**装箱 struct** 的字段反射；**堆对象上的内联 struct 字段**（`class C { Point pt; }`）此前反射

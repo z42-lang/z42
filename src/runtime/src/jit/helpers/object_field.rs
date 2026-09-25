@@ -181,6 +181,17 @@ pub unsafe extern "C" fn jit_field_get(
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
             }
         }
+        // accept-boxed-struct-field-get: interp `field_get` 的 `BoxedStruct` 臂的 JIT 对应件
+        // （值 struct 经擦除返回位流出泛型函数 ⇒ 接收者是带 struct_layout 的堆盒）。两侧必须同时有，
+        // 否则同一段代码 interp 好、JIT 崩（`jit_field_get` 的 StackArray 臂就是这么补上的）。
+        Value::BoxedStruct(gc) => {
+            match crate::corelib::reflection::accessors::boxed_struct_field_get(
+                vm_ctx_ref(ctx), gc, field_name,
+            ) {
+                Ok(v) => v,
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+            }
+        }
         other => {
             set_exception(vm_ctx_ref(ctx), Value::Str(format!("FieldGet: expected object, got {:?}", other).into()));
             return 1;
