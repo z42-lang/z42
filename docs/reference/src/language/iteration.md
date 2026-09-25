@@ -98,6 +98,14 @@ try {
 `try` / `finally` 保证**任何离开方式**（正常结束、`break`、`return`、抛异常）都会调到 `Dispose()`。
 `IEnumerator<T>` 继承 `IDisposable` 正是为了这个。
 
+> **`Dispose` 是条件步骤，不是必需成员。** 枚举器**没有** `Dispose` 时，脱糖就只剩那个 `while`
+> ——连 `try`/`finally` 一起省掉（finally 里没有任何事可做）。所以上面那两个成员
+> （`MoveNext` + `Current`）就是枚举器形状的**全部**要求，与 C# 一致。
+>
+> 2026-09-25 之前是**无条件**发 `__e.Dispose()`：照本节写的最小枚举器编译会报
+> `E0401: no method Dispose`，位置还指在 `foreach` 那一行、不提这个调用是脱糖合成的 ——
+> 读者对不上号，只能被迫给每个自定义枚举器加一个空 `Dispose(){}` 桩。
+
 ## 协议接口
 
 `Std.IEnumerable<T>` / `Std.IEnumerator<T>` 定义在标准库里。`foreach` 本身**不要求**你实现它们
