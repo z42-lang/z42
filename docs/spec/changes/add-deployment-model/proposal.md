@@ -71,12 +71,18 @@ if (depTomlPath.Length == 0) { continue; }   // 无源 toml → 保守跳过，�
 路上已经修过（`_pubBundleProjectNativeDeps` 的 Decision 5：改按 `{ path }` 解析、"NOT gated on
 srcRoot"），**zpkg 这条没修**。
 
-### z42 侧读不出 zpkg 的 DEPS 段
+### 闭包分两半：path 依赖那半已修，按名那半缺 DEPS 解码
 
-这决定了「统一成闭包」的修法：建闭包要知道「某个依赖自己依赖了谁」，而 DEPS 段今天**只有
-Rust 侧解码**（`zbc_reader/zpkg.rs:46`），z42 侧的 `ZpkgReader` 不读它。靠源码树 toml 去找就是
-publisher 上面那条 repo 外失效的路。⇒ 正解是先给 z42 侧补 DEPS 解码（support 先行、卡一个
-nightly），**这也是为什么批 1 只统一了判据、没统一闭包。**
+⚠️ **本节订正**：初稿断言「统一成闭包做不到」，那话说得太宽。
+
+- **path 依赖的闭包早就有**（`PathDepPlan.Resolve`），只是没传给 `_bundleExeDeps` ——
+  这半已由 **#811 fix-path-dep-closure** 修掉（把 `_build` 算好的闭包名单透传下来）。
+  它的复现门槛也记着一条教训：`add-path-dependencies` 的 e2e 只造了 **1 层**，而深度 1 时
+  「直接依赖」恰好等于「闭包」⇒ 缺陷藏了一个月。
+- **按名引用的依赖**（`"foo" = "1.0"`）若自己还依赖别的非框架包，那一层仍不会被搬。
+  这半才是真的卡住：建闭包要知道「某个依赖自己依赖了谁」，而 DEPS 段今天**只有 Rust 侧
+  解码**（`zbc_reader/zpkg.rs:46`），z42 侧的 `ZpkgReader` 不读它。靠源码树 toml 去找就是
+  上面那条 repo 外失效的路。⇒ 正解是先补 z42 侧 DEPS 解码（support 先行、卡一个 nightly）。
 
 ## 主张
 

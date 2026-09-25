@@ -28,12 +28,15 @@
 > `!isPathDep &&` 已经把 path 依赖排除在 stdlib 之外）。真正的差异是**一个确实在框架目录里、
 > 但名字不以 `z42.` 开头的包** —— 旧判据把它当私有依赖复制进每个用到它的 exe。
 
-## 批 2 —— zpkg DEPS 解码 + 统一闭包
+## 批 2 —— zpkg DEPS 解码 + 按名依赖的闭包
+
+> ⚠️ **订正**：初稿把「统一闭包」整块判成做不到。实际上 **path 依赖那半已由 #811 修掉**
+> （闭包本来就有，`PathDepPlan.Resolve`，只是没透传给 `_bundleExeDeps`）。剩下的是按名那半。
 
 - [ ] 2.1 **support**：z42 侧 `ZpkgReader` 补 DEPS 段解码（Rust 侧 `zbc_reader/zpkg.rs:46`
       已有，z42 侧没有）。无消费者 ⇒ byte-identical、可立即合并；卡一个 nightly 才能被 use。
-- [ ] 2.2 **use**：`_bundleExeDeps` 改 BFS 闭包，依赖来源 = zpkg 的 DEPS 段（**不是**源码树
-      toml —— 那条路在 repo 外整个失效）。
+- [ ] 2.2 **use**：`_bundleExeDeps` 对**按名引用**的依赖也建闭包，来源 = zpkg 的 DEPS 段
+      （**不是**源码树 toml —— 那条路在 repo 外整个失效）。
 - [ ] 2.3 🔴 **publisher 的闭包在 repo 外失效**（`srcRoot == ""` ⇒ 每个依赖 continue，零复制
       零递归）也一并修：改按 DEPS 段或 `{ path }` 解析，镜像 `_pubBundleProjectNativeDeps`
       的 Decision 5（那条已经修过，zpkg 这条漏了）。
