@@ -182,6 +182,67 @@ ObjectHeader {
 - 名→槽由 `TypeDesc.field_index`（类级共享）。**继承:基类字段在前、子类追加**（基类槽号父子稳定）。
 - 访问 `obj.f` = `slots[常量槽号]`（O(1)）；JIT = `slots 基址 + 槽号×sizeof(Value)` 的 Value 大小 load/store → **槽偏移 + Value 大小是 ABI 一部分,须固化**。
 
+### 槽位零初始化（`enforce-value-type-non-null`）
+
+**不变式：值类型的存储槽永不含 `Value::Null`。** 值类型「默认值是 null」曾经不是一条策略，
+而是存储初始化**根本不看声明类型**（`vec![Value::Null; n]`）；由此长出一族内部错误
+（`__box_prim: expected integer value, got Null` / `type mismatch in arithmetic: Null vs I64(1)`），
+历史上反复在**读取侧**打补丁。
+
+今天的口径是**在分配点一次解决**：`alloc_object` 不再逐字段填默认值，而是按
+`TypeDesc::object_storage()` composed layout 分配**整块零字节区 + `Null` 引用区**
+（`gc/arc_heap/interface.rs`）。于是：
+
+| 槽的种类 | 零值 | 为什么对 |
+|---|---|---|
+| 基元值字段（int/bool/char/double/long…） | 字节零 ⇒ `0` / `false` / `'\0'` / `0.0` | 值落在 bytes 区 |
+| 引用字段 | `Value::Null` | `null` 本就是引用类型的零值 |
+| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取 |
+| **型参字段**（`class GBox<T> { T V; }`） | 按**实例化**取：`default_value_for(type_args[i])` | 见下 |
+
+**型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽被分类成
+**引用槽** ⇒ 整块零初始化给它的零值是 `Null`，而不是 `GBox<int>` 该有的 `0`。
+实例自己带着实参（`ObjNew` 写入 `set_type_args`），所以真正的零值在**分配点**可以还原：
+把字段的 `type_tag` 按名字映射到 `TypeDesc::type_params()` 的下标，再取该实参的零值
+（`metadata/types/field.rs::generic_field_zero_overrides`，interp 的堆/栈两支 + JIT 三处共用）。
+
+口径**刻意窄**，与 `ArrayNew` 同一条线：**只有基元值实参**才改写。解析出的 *struct* 实参
+不能在这里强推 struct backing（泛型容器按引用存 struct，会炸
+`struct_generic_container: VCall: expected object, got StructRefHeap`）；引用实参的零值
+本来就是 `Null`，无事可做。
+
+编译期那一侧配套堵住「写 null 进值类型槽」（E0475 / E0476 / E0483），
+`object` → 值类型的**拆箱**则按两段报错，见下。
+
+> 🔴 **仍未覆盖的两格**（不变式尚未全域成立）：
+>
+> - **继承链上的型参字段** —— `class D : GBox<int> {}`。派生类型的 `base_name` 只有 `"GBox"`，
+>   **实参 `int` 在运行期元数据里根本不存在**，继承来的字段 tag 仍是 `"T"` ⇒ 分配点无从解析。
+> - **泛型 struct 的型参字段** —— `struct GS<T> { T F; }`。存储走 struct blob 的叶子而非对象槽，
+>   而 `StructTypeLayout` 只有 `size` / `ref_offsets` / `ref_kinds`，**没有叶子的声明类型名**
+>   ⇒ 分不出哪个 ref 叶子是型参字段。
+>
+> 两格的共同点：**信息在编译期就被擦掉了**，不是运行期少做了一步。修法属「泛型实例化单调化」
+> （型参字段变真内联字节，`StructLayout._kindOf` 不再把型参名判成 `GcRef` 叶子），见
+> [compiler/generics.md](../compiler/generics.md)。
+
+### `object` → 值类型的拆箱：两段检查
+
+拆箱失败分**两种**错，各报各的（`make-hard-cast-fail-properly` #746；用例
+`src/tests/types/hard_cast_value/`，interp + JIT 行为一致）：
+
+| 情形 | 异常 | 消息 |
+|---|---|---|
+| 收者是 null | `NullReferenceException` | ``cannot unbox null to `int` `` |
+| 收者类型不符 | `InvalidCastException` | ``cannot cast string to `int` `` |
+
+**顺序不能反**：null 没有类型，先查类型会得到一条误导的消息。两者都是**用户级可 `catch`
+的真异常**，不是内部 `bail!`（改前两种都落在同一条 Rust `Debug` 格式的内部错误上，
+`catch (Exception)` 抓不到）。
+
+⚠️ 反方向的**装箱**（`__box_prim` 收到 `Null`）目前**放行为 `null`**，
+理由与历史见 `corelib/convert.rs` 的注释 —— 那里的取舍已随上述缺口重新记过一遍。
+
 ---
 
 ## 4. GcRef 语义

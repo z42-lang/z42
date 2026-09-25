@@ -60,6 +60,58 @@ pub fn default_value_for(type_tag: &str) -> Value {
     }
 }
 
+/// fix-generic-typeparam-field-zero: per-instantiation zero values for **type-parameter
+/// fields**.
+///
+/// `alloc_object` zero-initialises from the composed layout, which is right for every
+/// concretely-typed field. But a field declared as a type parameter (`class GBox<T> {
+/// public T V; }`) is classified as a **reference** slot — the layout is computed from
+/// the *declaration*, where `T` is not a primitive — so its zero is `Value::Null`.
+/// `GBox<int>().V` then reads `Null` instead of `0`, which breaks the
+/// `enforce-value-type-non-null` invariant "a value-type slot never holds `Value::Null`"
+/// (and read out through `==` it even disagreed between interp and JIT).
+///
+/// The instance knows its arguments (`ObjNew` carries them; see `set_type_args`), so the
+/// slot's real zero is recoverable at the allocation point: map the field's declared
+/// `type_tag` onto `TypeDesc::type_params()` by name, then take
+/// `default_value_for(type_args[i])`.
+///
+/// **Deliberately narrow — only PRIMITIVE value arguments produce an override**, the same
+/// line `ArrayNew` already draws (`interp/exec_array.rs`): a resolved *struct* argument
+/// must NOT be forced through struct backing here, because generic containers store
+/// structs by reference (`struct_generic_container`: `VCall: expected object, got
+/// StructRefHeap`); and a reference argument's zero is `Null` already, so there is
+/// nothing to write. Both cases return no override and keep the pre-change path exactly.
+///
+/// Returns `(slot_index, zero)` pairs for the caller to write via `set_field_value`.
+/// Empty for non-generic types, for missing/short `type_args`, and whenever the argument
+/// is not a primitive value type — so callers can apply it unconditionally.
+pub fn generic_field_zero_overrides(td: &TypeDesc, type_args: &[String]) -> Vec<(usize, Value)> {
+    if type_args.is_empty() {
+        return Vec::new();
+    }
+    let params = td.type_params();
+    if params.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (slot, f) in td.fields.iter().enumerate() {
+        // The field's declared type is a type parameter exactly when its tag is one of
+        // the declaring type's parameter names (`"T"`), not a type name.
+        let Some(pi) = params.iter().position(|p| p.as_str() == &*f.type_tag) else {
+            continue;
+        };
+        // Short `type_args` happens for partially-applied / erased call sites; leaving
+        // those alone is the pre-change behaviour.
+        let Some(concrete) = type_args.get(pi) else { continue };
+        let zero = default_value_for(concrete);
+        if !matches!(zero, Value::Null) {
+            out.push((slot, zero));
+        }
+    }
+    out
+}
+
 // ── zbc TypeTag bytes (mirror of C# Opcodes.TypeTags) ────────────────────────
 //
 // Single source of truth for the 1-byte type tag carried in instruction
