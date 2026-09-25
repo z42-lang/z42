@@ -67,7 +67,13 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 
 1. **闭包发现（`PathDepPlan.Resolve`，`z42c.pipeline`）**：从消费方 manifest 沿 `DepEntry.Path` 非空的边做 **post-order DFS**——`visiting` 集（in-progress）检测回边报环，`visited` 集（按**规范化** toml 绝对路径）去重使钻石依赖只建一次，post-order 发射得到**叶子在前**的传递闭包（消费方自身不发射）。每条边经 `Glob(<consumerDir>/<path>, "*.z42.toml")` 恰配 1 份 manifest 解析（0/多份报错）。
 2. **逐成员构建 + libsDirs 累积（driver `_build`）**：按闭包序（叶子在前）逐个 `_build`，把已建成员的 dist 目录累积起来，作为**后续成员**与**最终消费方**的 `libsDirs`（并入继承的 `Z42_LIBS`）。因是 post-order，任一成员被建时其 path 依赖的 dist 都已在累积集里——单遍即可，无需二次扫描。
-3. **私有组件 colocate（`_bundleExeDeps`）**：消费方为 exe 时，把 path 依赖的 `<name>.zpkg`（+ `.zsym`）从 libsDirs **复制进消费方 dist**，使 `z42 run dist/<exe>.zpkg` 能从 entry-zpkg 同目录解析到它（运行期惰性加载器把 entry-zpkg 所在目录并入搜索路径）。复制判据是**真-stdlib**（`<srcRoot>/libraries/<name>` 存在）走 `Z42_LIBS` 不复制、其余（path 依赖 / 非 stdlib 命名依赖）复制——与 publish 侧 `_pubBundleProjectDeps` 一致；path 依赖名即便形如 `z42.*`（如 `z42.repl`）也因不在 `src/libraries/` 而被正确复制。
+3. **私有组件 colocate（`_bundleExeDeps`）**：消费方为 exe 时，把 **闭包全体**的 `<name>.zpkg`（+ `.zsym`）从 libsDirs **复制进消费方 dist**，使 `z42 run dist/<exe>.zpkg` 能从 entry-zpkg 同目录解析到它们（运行期惰性加载器把 entry-zpkg 所在目录并入搜索路径）。待拷名单 = **消费方直接依赖 ∪ 第 1 步算出的 path 闭包全体**（去重）；闭包名单由 `_build` 透下来，**不在这里重算**——非 top-level 子建（`libsDirsCount>0`）本就跳过闭包解析，那个语境下重算会抛 `No such file or directory`。复制判据是**真-stdlib**（`<srcRoot>/libraries/<name>` 存在）走 `Z42_LIBS` 不复制、其余（path 依赖 / 非 stdlib 命名依赖）复制——与 publish 侧 `_pubBundleProjectDeps` 一致；path 依赖名即便形如 `z42.*`（如 `z42.repl`）也因不在 `src/libraries/` 而被正确复制。
+
+   > 📜 **2026-09-25 之前这里只搬「直接依赖」**（`ExeDeps.z42` 头注白纸黑字「仅直接依赖……传递闭包记 Deferred，exe 应直接声明全部所需兄弟」）⇒ **path 依赖链深度 >1 不可用**：`bar → foo → baz` 时 `bar/dist/` 里只有 `foo.zpkg`，编译期正常（闭包 dist 早已并进 libsDirs）、运行期 `MissingSymbolException`。
+   >
+   > 那条 Deferred 的理由站不住：**`bar` 根本没引用过 `baz` 的任何符号**（是 `foo` 内部在用），要求消费方声明一个自己不用的包，正是包管理器该替你做的事。
+   >
+   > ⭐ **它藏了一个月的原因**：`add-path-dependencies` 的 e2e（阶段 2.5）只造了 **1 层**（`lib foo + exe bar`），而深度为 1 时「直接依赖」恰好等于「闭包」——缺陷被完整遮住。同族于 `static_abstract_operator` 挑中单字段 `Money` 恰好绕开 sret 那条。现已把该 e2e 加深到 2 层。
 
 > **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是既有惰性加载器约束，非 path 依赖新引入。
 
