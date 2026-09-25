@@ -13,17 +13,61 @@ using Z42.Build.Project;
 // **非标准库**依赖（名不以 `z42.` 开头，即 workspace 本地兄弟包如 `z42c.*`）的已构建
 // zpkg（+ .zsym）复制进 exe 的 dist。运行时 z42vm 的依赖搜索序 = [entry-zpkg 目录,
 // Z42_LIBS]，故 exe 从自身 dist 即可解析兄弟包，stdlib（z42.*）仍走 Z42_LIBS。
-// 仅直接依赖（与 publish 一致：exe 应直接声明全部所需兄弟；传递闭包记 Deferred）。
-int _bundleExeDeps(ProjectManifest pm, string projectDir, string distDir, string[] libsDirs, int libsDirsN) {
+// fix-path-dep-closure：**path 依赖的整个闭包**都要搬，不只直接依赖。
+//
+// 此前这里只遍历 `pm.Deps`，头注写着「仅直接依赖……传递闭包记 Deferred，
+// exe 应直接声明全部所需兄弟」——**那个理由站不住**：`app → acme.web → acme.util` 时
+// app 根本没引用过 `Acme.Util` 的任何符号（是 `acme.web` 内部在用），要求它声明一个
+// 自己不用的包，正是包管理器存在的意义所在。征状：编译期正常（闭包 dist 已并进
+// libsDirs），运行期 `MissingSymbolException: type \`Acme.Util.Helper\``——`app/dist/` 里只有
+// `acme.web.zpkg`。⇒ **path 依赖链深度超过 1 就不可用。**
+//
+// ⭐ 这条藏了一个月的原因：`add-path-dependencies` 的 e2e（阶段 2.5）只造了
+// **1 层**（`lib foo + exe bar`），而深度 1 时「直接依赖」恰好等于「闭包」——
+// 又一个「测试写了但抓不到 bug」的样本（同 `static_abstract_operator` 挑中单字段 `Money`）。
+//
+// 闭包名单由 `_build` 透下来（top-level 分支算过的那份），**不在这里重算**——
+// 非 top-level 子建（`libsDirsCount>0`）本就跳过解析，那个语境下重算会抛
+// `No such file or directory`（初稿这么写过，被 e2e `buildclos` 当场抳下）。
+int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string projectDir, string distDir, string[] libsDirs, int libsDirsN) {
     // 复制判定（add-path-dependencies D2，镜像 builder _pubBundleProjectDeps）：真-stdlib
     //（`<srcRoot>/libraries/<name>` 存在）走 Z42_LIBS 不复制；其余（path 依赖 / 非 stdlib 命名
     // 依赖）= 私有，复制进 dist。srcRoot 找不到（repo 外构建）→ 回落旧判据「z42.* 命名视作
     // stdlib、path 依赖必复制」。path 依赖名即便 z42.*（如 z42.repl）也不在 libraries → 复制。
     string srcRoot = _srcRoot(projectDir);
+    // 待拷名单 = 直接依赖 ∪ **path 依赖闭包全体**（去重）。闭包成员恒为私有包
+    // （按路径引入、不在 Z42_LIBS）⇒ 一律拷。
+    string[] names = new string[pm.DepCount + 8];
+    bool[]   isPath = new bool[pm.DepCount + 8];
+    int nameN = 0;
+    int pi = 0;
+    while (pi < pm.DepCount) {
+        names[nameN] = pm.Deps[pi].Name;
+        isPath[nameN] = pm.Deps[pi].Path.Length > 0;
+        nameN = nameN + 1;
+        pi = pi + 1;
+    }
+    int ci = 0;
+    while (ci < closureN) {
+        string cn = closureNames[ci];
+        ci = ci + 1;
+        bool dup = false;
+        int q = 0;
+        while (q < nameN) { if (names[q] == cn) { dup = true; } q = q + 1; }
+        if (dup) { continue; }
+        if (nameN == names.Length) {
+            string[] nb = new string[names.Length * 2];
+            bool[] pb = new bool[isPath.Length * 2];
+            int k = 0;
+            while (k < nameN) { nb[k] = names[k]; pb[k] = isPath[k]; k = k + 1; }
+            names = nb; isPath = pb;
+        }
+        names[nameN] = cn; isPath[nameN] = true; nameN = nameN + 1;
+    }
     int i = 0;
-    while (i < pm.DepCount) {
-        string dep = pm.Deps[i].Name;
-        bool isPathDep = pm.Deps[i].Path.Length > 0;
+    while (i < nameN) {
+        string dep = names[i];
+        bool isPathDep = isPath[i];
         i = i + 1;
         bool isTrueStdlib;
         if (srcRoot.Length > 0) {

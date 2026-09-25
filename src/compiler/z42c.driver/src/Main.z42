@@ -203,9 +203,16 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // top-level build（libsDirsCount==0）才解析：沿 `dep = { path = "..." }` 边建传递闭包
     // （叶子在前），逐个 `_build` 并累积其 dist，最后并入消费方 libsDirs。workspace / 闭包子建
     // 传 libsDirsOverride（count>0）→ 已由调用方组装好 libsDirs，跳过（叶子无 path 依赖，闭包空）。
+    // fix-path-dep-closure：闭包成员名单抄出来交给 `_bundleExeDeps`——exe 的 dist 必须装
+    // **整个闭包**，不只直接依赖（否则 path 依赖链深度 >1 运行期就找不到传递包）。
+    // ⚠️ **不在 `_bundleExeDeps` 里重算**：非 top-level 子建（libsDirsCount>0）本就跳过解析，
+    // 那里的相对路径未必解得开——实测会抛 `No such file or directory`（e2e `buildclos` 抢到）。
+    string[] closureNames = new string[0];
+    int closureN = 0;
     if (libsDirsCount == 0) {
         PathDepClosure closure = PathDepPlan.Resolve(tomlPath);
         if (closure.Count > 0) {
+            closureNames = new string[closure.Count];
             string baseLib = Environment.GetEnvironmentVariable("Z42_LIBS", "");
             string[] accum = new string[closure.Count];
             int accN = 0;
@@ -236,6 +243,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, optSet, false, null);
                 if (dbc != 0) { return dbc; }
                 accum[accN] = depDist; accN = accN + 1;
+                closureNames[closureN] = depPm.Project.Name; closureN = closureN + 1;
             }
             // 消费方 libsDirs = 闭包全 dist + Z42_LIBS。
             string[] merged = new string[accN + 1];
@@ -338,7 +346,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         BuildLog.ProgressErr("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && prep.Plan.AllCached) {
             if (isExe) {
-                int sbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
+                int sbc = _bundleExeDeps(pm, closureNames, closureN, projectDir, distDir, libsDirs, libsDirsN);
                 if (sbc != 0) { return sbc; }
             }
             BuildLog.Progress("no changes; preserved -> " + BuildLayout.Display(lastZpkg));
@@ -591,7 +599,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             xi = xi + 1;
         }
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
-        int mbc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
+        int mbc = _bundleExeDeps(pm, closureNames, closureN, projectDir, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
         _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
@@ -625,7 +633,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId);
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
-        int bc = _bundleExeDeps(pm, projectDir, distDir, libsDirs, libsDirsN);
+        int bc = _bundleExeDeps(pm, closureNames, closureN, projectDir, distDir, libsDirs, libsDirsN);
         if (bc != 0) { return bc; }
     }
     return ExitCode.Ok;
