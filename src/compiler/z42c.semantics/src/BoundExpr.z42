@@ -153,10 +153,15 @@ public sealed class BoundStaticGet : BoundExpr {
     public bool   IsProp;
     public string PropSetter;
     public string PropBacking;
+    // complete-generic-class-identity P3：所有者写成**闭合泛型**时（`GBox<int>.Count`）的解析后类型。
+    // 非泛型 / 未限定（类内裸名）为 null —— 后者的所有者是「当前正在特化的那个实例化」，
+    // 只有发射端（`Gen.SpecInstName`）知道，故不在这里记。
+    // post-construction 写入（同 `MethodTypeArgs` / `RetIsNullable` 的先例）。
+    public Z42Type OwnerType;
     private Z42Type _t;
     public BoundStaticGet(string className, string fieldName, Z42Type t, Span span) {
         this.Span = span; this.ClassName = className; this.FieldName = fieldName; this._t = t;
-        this.IsProp = false; this.PropSetter = ""; this.PropBacking = "";
+        this.IsProp = false; this.PropSetter = ""; this.PropBacking = ""; this.OwnerType = null;
     }
     public override Z42Type Type() { return this._t; }
     public override string Dump() { return "(static-get " + this.ClassName + "." + this.FieldName + " :" + this._t.Name() + ")"; }
