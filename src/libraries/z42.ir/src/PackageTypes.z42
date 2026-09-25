@@ -23,6 +23,34 @@ public sealed class ZbcFileZ {
     }
 }
 
+// fix-crosspkg-ns-reachability：DEPS 构造期的 (file, ns) 对缓冲。z42 无 out 参，而「加一对」
+// 既要去重又要扩容 ⇒ 用引用类型自持，调用方不必在每次调用后自己判容量（那个写法此前在
+// `BuildDependencyMap` 里抄了两遍，且只保证「再放得下一个」—— 一个 ns 带出多个提供包后就不成立了）。
+public sealed class ZpkgDepPairs {
+    public string[] Files;
+    public string[] Nss;
+    public int      Count;
+    public ZpkgDepPairs() { this.Files = new string[8]; this.Nss = new string[8]; this.Count = 0; }
+    // 按 (file, ns) 整对去重、保首现序。
+    public void Add(string file, string ns) {
+        int i = 0;
+        while (i < this.Count) {
+            if (this.Files[i] == file && this.Nss[i] == ns) { return; }
+            i = i + 1;
+        }
+        if (this.Count == this.Files.Length) {
+            string[] b1 = new string[this.Files.Length * 2];
+            string[] b2 = new string[this.Nss.Length * 2];
+            int k = 0;
+            while (k < this.Count) { b1[k] = this.Files[k]; b2[k] = this.Nss[k]; k = k + 1; }
+            this.Files = b1; this.Nss = b2;
+        }
+        this.Files[this.Count] = file;
+        this.Nss[this.Count] = ns;
+        this.Count = this.Count + 1;
+    }
+}
+
 // DEPS 条目束（BuildDependencyMap 返回；z42 无 out 参）。
 public sealed class ZpkgDepList {
     public ZpkgDepZ[] Items;

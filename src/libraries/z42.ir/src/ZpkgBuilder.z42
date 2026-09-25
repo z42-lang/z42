@@ -91,36 +91,27 @@ public static class ZpkgBuilder {
     public static ZpkgDepList BuildDependencyMap(ZbcFileZ[] modules, int moduleCount,
                                                  string[] nsNames, string[] nsFiles, int nsCount,
                                                  string selfZpkgFile) {
-        string[] pairFile = new string[8];
-        string[] pairNs   = new string[8];
-        int pairCount = 0;
+        // fix-crosspkg-ns-reachability：扩容搬进 `ZpkgDepPairs.Add`（此前调用方两处各抄一遍，
+        // 且只保证「再放得下一个」—— 一个 ns 现在可能带出多个提供包，那个假设不再成立）。
+        ZpkgDepPairs buf = new ZpkgDepPairs();
         int mi = 0;
         while (mi < moduleCount) {
             ZbcFileZ m = modules[mi];
             int u = 0;
             while (u < m.UsingCount) {
-                pairCount = ZpkgBuilder._addPair(pairFile, pairNs, pairCount, nsNames, nsFiles, nsCount, m.Usings[u], selfZpkgFile);
-                if (pairCount > pairFile.Length - 1) {
-                    string[] b1 = new string[pairFile.Length * 2];
-                    string[] b2 = new string[pairFile.Length * 2];
-                    int k = 0; while (k < pairCount) { b1[k] = pairFile[k]; b2[k] = pairNs[k]; k = k + 1; }
-                    pairFile = b1; pairNs = b2;
-                }
+                ZpkgBuilder._addProviders(buf, nsNames, nsFiles, nsCount, m.Usings[u], selfZpkgFile);
                 u = u + 1;
             }
             u = 0;
             while (u < m.UsedDepNsCount) {
-                pairCount = ZpkgBuilder._addPair(pairFile, pairNs, pairCount, nsNames, nsFiles, nsCount, m.UsedDepNs[u], selfZpkgFile);
-                if (pairCount > pairFile.Length - 1) {
-                    string[] b1 = new string[pairFile.Length * 2];
-                    string[] b2 = new string[pairFile.Length * 2];
-                    int k = 0; while (k < pairCount) { b1[k] = pairFile[k]; b2[k] = pairNs[k]; k = k + 1; }
-                    pairFile = b1; pairNs = b2;
-                }
+                ZpkgBuilder._addProviders(buf, nsNames, nsFiles, nsCount, m.UsedDepNs[u], selfZpkgFile);
                 u = u + 1;
             }
             mi = mi + 1;
         }
+        string[] pairFile = buf.Files;
+        string[] pairNs   = buf.Nss;
+        int pairCount     = buf.Count;
         // 二遍：file 首现序聚合
         string[] files = new string[pairCount + 1];
         int fileCount = 0;
@@ -153,25 +144,26 @@ public static class ZpkgBuilder {
 
     // (file,ns) 对去重追加；ns 不在 nsMap → 跳过；file==selfZpkgFile → 跳过自依赖
     // （镜像 C# AddDepNs 的 `if (depFile == selfZpkgName) return`）。返回新 count。
-    private static int _addPair(string[] pairFile, string[] pairNs, int pairCount,
-                                string[] nsNames, string[] nsFiles, int nsCount, string ns,
-                                string selfZpkgFile) {
-        string file = "";
+    // fix-crosspkg-ns-reachability：一个 ns 的**全部**提供包都进 DEPS，不再只取一个。
+    //
+    // 此前这里在 nsMap 里找到一行就完事（而 nsMap 本身是 ns→单包 first-wins），于是命名空间跨包时
+    // 第二个提供包永远进不了 DEPS —— `Std.Collections` 恒记成 `z42.core.zpkg`，`z42.collections.zpkg`
+    // 拿不到运行期候选资格 ⇒ `new Stack<int>()` 编得过、跑起来 `MissingSymbolException`。
+    // `PackageCompile._unionDeclaredDeps` 是针对这条的**补救**，但它只救得了写了 `[dependencies]`
+    // 的工程；单文件的合成清单根本没有那一段。
+    //
+    // ⚠️ 顺序即 nsMap 行序（sorted + prelude-first）⇒ 原先那个唯一提供包仍排在最前，
+    // 既有 DEPS 条目位置不变、新提供包追加在后。
+    private static void _addProviders(ZpkgDepPairs buf, string[] nsNames, string[] nsFiles,
+                                      int nsCount, string ns, string selfZpkgFile) {
         int i = 0;
         while (i < nsCount) {
-            if (nsNames[i] == ns) { file = nsFiles[i]; }
+            if (nsNames[i] == ns) {
+                string file = nsFiles[i];
+                if (selfZpkgFile == "" || file != selfZpkgFile) { buf.Add(file, ns); }   // 自依赖排除
+            }
             i = i + 1;
         }
-        if (file == "") { return pairCount; }
-        if (selfZpkgFile != "" && file == selfZpkgFile) { return pairCount; }  // 自依赖排除
-        i = 0;
-        while (i < pairCount) {
-            if (pairFile[i] == file && pairNs[i] == ns) { return pairCount; }
-            i = i + 1;
-        }
-        pairFile[pairCount] = file;
-        pairNs[pairCount] = ns;
-        return pairCount + 1;
     }
 
     // entry 自动检测（镜像 C# AutoDetectEntry / vm.rs resolve_entry 四级优先）：

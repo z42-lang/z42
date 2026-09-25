@@ -180,6 +180,12 @@ public sealed class SymbolCollector {
     // 必须在 _passMembers 前调用：成员（字段/方法签名）类型解析依赖 imported 类已在表中（G18）。
     private void _mergeImports(SymbolTable table, ImportedSymbols imported) {
         if (imported == null) { return; }
+        // fix-crosspkg-ns-reachability：依赖契约三件套。必须在本函数**最前**并入——
+        // `CollectAll` 随后就会跑声明位的 `_chkTypeRefT`，那时 E0497 的判据已经要用上了；
+        // 放在后面等于声明位永远不报（而使用位报），是一半生效的门。
+        table.DeclaredDeps = imported.DeclaredDeps;
+        table.SelfPkg = imported.SelfPkg;
+        table.EnforceDeclaredDeps = imported.EnforceDeclaredDeps;
         string[] cls = imported.Classes.Keys();
         int i = 0;
         while (i < cls.Length) {
@@ -499,6 +505,12 @@ public sealed class SymbolCollector {
         if (emsg != "") { this.Diags.Error(DiagnosticCodes.NamespaceCollision, emsg, sp); return; }
         string wmsg = table.ShadowedImportMsg(fqn);
         if (wmsg != "") { this.Diags.Error(DiagnosticCodes.LocalTypeShadowsImport, wmsg, sp); }
+        // fix-crosspkg-ns-reachability：用了未声明的依赖包（E0497）。挂在这个既有的 choke point 上
+        // ——它已经是「一次类型引用」的唯一汇聚处，判据也已经在 SymbolTable 里，不必另起一条通路。
+        // ⚠️ 发射点用**字面量**（bootstrap-seed 分阶段引入纪律：常量 `UndeclaredDependency` 与引用它的
+        // 发射点不能同 PR）；已登记进 `scripts/test/diag-literal-emitters.txt`。
+        string umsg = table.UndeclaredDepMsg(fqn);
+        if (umsg != "") { this.Diags.Error("E0497", umsg, sp); }
     }
 
     // 取一个类型引用的 FQN（类 / 泛型实例化的定义类 / 接口）；其余（型参、基元、数组…）返回 ""。

@@ -10,18 +10,27 @@
 见 [基础泛型集合](collections-core.md)。本包的五个类型共用同一个 `Std.Collections` 命名空间，
 但要**显式声明包依赖**才能用。
 
-## 用之前：声明依赖
+## 直接用：`using Std.Collections;` 就够了
 
-`using Std.Collections;` 只解决名字解析。本包不是隐式依赖，工程清单里必须写上：
+本包随工具链分发、**自动可用**，`z42.toml` 里**不需要**声明
+（`[dependencies]` 只写第三方包，见[工程清单](../toolchain/z42-toml.md)）：
 
-```toml
-[dependencies]
-"z42.collections" = "0.1.0"
+```z42
+using Std.Collections;
+
+Stack<int> s = new Stack<int>();
 ```
 
-**单文件脚本用不了本包**：`z42 run foo.z42` 里 `new Stack<int>()` 能编译通过，
-但运行期报 `Std.MissingSymbolException: type 'Std.Collections.Stack' could not be resolved`。
-需要本包的程序要建成带 `z42.toml` 的工程（见 [工程清单 z42.toml](../toolchain/z42-toml.md)）。
+**单文件脚本同样可用**：`z42 run foo.z42` 里 `new Stack<int>()` 能编译也能跑。
+
+> 📜 **2026-09-25 之前这一节写的是反的**，而且三处文档互相矛盾：
+> 本节说「必须在清单里写上」「单文件用不了本包」，`z42-toml.md` 说「`z42.*` 始终可用、不要声明」。
+>
+> 真相是**两边都没执行**：能不能用取决于该包的命名空间有没有被 `z42.core` 抢先占住
+> （nsMap first-wins）——`Std.Text` 没被占，未声明照样能用；`Std.Collections` 被占了，
+> 于是 `new Stack<int>()` 编得过、跑起来 `MissingSymbolException`，声明与否都不影响判决。
+> 那是一条实现细节冒充的规则。`fix-crosspkg-ns-reachability` 让 DEPS 取**全部**提供包，
+> 这条不对称随之消失。
 
 ## 公共形状
 

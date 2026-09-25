@@ -62,8 +62,17 @@ version = "0.1.0"
 - **`-` 只在单段名内部用**（`my-utils` / `hello-world`），不要拿它当层级分隔符。
 - **不用 `_`**，不用大写字母。
 - **stdlib 命名族**是 `z42.<topic>`（`z42.core` / `z42.io` / `z42.numerics` / `z42.test` …）。
-  `z42.*` 是官方保留前缀——它们随工具链分发、始终可用，**不要**在
-  `[dependencies]` 里声明（会触发 WS013 警告），也不要给自己的包起 `z42.` 开头的名字。
+  `z42.*` 是官方保留前缀——它们随工具链分发、**始终可用**，`[dependencies]` 里
+  **只写第三方包**（Rust-std 模型），也不要给自己的包起 `z42.` 开头的名字。
+  声明 `z42.*` 是冗余、但无害：编译器不报错也不警告。
+
+  > 📜 本条原先写着「会触发 WS013 警告」。**WS013 已经不存在了** —— 它是 C# 编译器时代的
+  > lint（`simplify-stdlib-auto-import`，2026-06-06），随 2026-06-26 移除 C# 编译器一起蒸发，
+  > 自举实现从未补回（判据：`grep WS013 src/` 为空）。同族于 E0407 / `FlowAnalyzer.cs`
+  > 那类「常量在、文档在、发它的 pass 不在」。
+
+- **第三方包必须声明**，漏写会在编译期报 [`E0497`](../appendix/error-codes.md)，
+  消息里直接给出要加的那一行。判据是**类型的归属包**，不是 `using` 的命名空间。
 
 > **包名不受[命名约定](../conventions/naming.md)的 PascalCase 规则约束。** 包名出现在
 > 命令行、TOML、文件系统路径里，按发布层世界的公约（npm / Cargo / pip 都小写）；命名空间
@@ -584,7 +593,13 @@ entry   = "MyApp.main"
 由此确立的约定：
 
 - **`[dependencies]` / `[tests.dependencies]` / `[bench.dependencies]` 只用于第三方依赖。** stdlib（`z42.*`）出现在其中纯属冗余。
-- **WS013 lint（warning）**：非 `z42.*` 项目在任一 deps section 声明了 `z42.*` 包 → 警告「冗余，可删」。（`z42.*` 包**自身**声明 `z42.*` inter-dep 不警告——那是 workspace build 排序需要的，见下「workspace member 构建顺序」。）
+- **声明 `z42.*` 不报错也不警告**，只是冗余。
+  > 📜 本条原先写的是「**WS013 lint（warning）**：非 `z42.*` 项目声明了 `z42.*` 包 → 警告」。
+  > **WS013 已经不存在**——它是 C# 编译器时代的 lint，随 2026-06-26 移除 C# 编译器一起蒸发，
+  > 自举实现从未补回（判据：`grep WS013 src/` 为空）。与 #805 退役的 WS012 / WS040-043 同一族：
+  > **规则是真的，发它的 lint 不在了**。
+- **第三方包漏写会报 [`E0497`](../appendix/error-codes.md)**（编译期）——这是本节约定里
+  真正有执行的那一半。
 - **`Std.*` 命名空间保留（E0605，硬错误）**：非 `z42.*` 包在源码声明 `namespace Std.*`（或裸 `Std`）→ **编译错误**。`Std` / `Std.*` 专属官方 stdlib（同 Rust 保留 `std`/`core`/`alloc`），保证程序里任何 `Std.*` 一定解析到官方、自动可用的 stdlib，永不被第三方 shadow。（消费一个已构建的、占用 `Std.*` 的第三方 zpkg 时另有 W0603 warning 作软网。）
 
 > 历史背景：早期约定 / 示例鼓励「用啥 stdlib 声明啥」，但编译器本就自动加载，声明从无作用。本次把隐式机制正式化为「显式约定 + lint 守护」。stdlib 各包 manifest 自身曾带的 `[tests.dependencies] "z42.test"` 也一并清掉（z42.test 是 stdlib，自动可用）。

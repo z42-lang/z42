@@ -59,6 +59,24 @@ public sealed partial class SymbolTable {
     //   ② 同 ns、其一为本包（pkg=""）→ E0606（本包遮蔽导入，被遮那份指不了）
     //   ③ 不同 ns、都可见            → E0456（裸名歧义，写限定名可消歧）
     public StrMap FuncOriginAll;
+    // ── fix-crosspkg-ns-reachability：依赖契约的三件套（E0497 的判据输入）─────────────
+    //
+    // 此前「工程必须声明它用到的包」只是一句文档（`collections.md:15`），**没有任何执行**：
+    // 实测未声明 `z42.text` 照样能用 `Std.Text`，未声明 `z42.collections` 却崩 —— 差别不在
+    // 声明与否，而在该包的命名空间有没有被 `z42.core` 抢先占住（nsMap first-wins）。
+    // 那是一条实现细节冒充的规则。这三个字段把它换成真规则。
+    //
+    // `DeclaredDeps`：manifest `[dependencies]` 的包名集（键=包名，值 "1"）。
+    public StrMap DeclaredDeps;
+    // `SelfPkg`：本包名（自引用不算跨包依赖）。
+    public string SelfPkg;
+    // `EnforceDeclaredDeps`：⚠️ **单文件必须为 false**。单文件的合成清单写不出 `[dependencies]`，
+    // 而它的契约（`z42 run --help`）是「整个标准库可用」⇒ 对它执行声明检查等于把它废掉。
+    // 默认 false：没被 pipeline 显式打开的路径（REPL / 单测 / 裸 emit）行为恒等。
+    public bool   EnforceDeclaredDeps;
+    // E0497 的「每个缺失包只报一次」去重集（包名 → "1"）。
+    // ⚠️ 与上三个字段一起走 `WithAliases` 共享，否则每个文件视图各报一遍。
+    internal StrMap _undeclaredSeen;
     // fix-arity-mangle-package-wide：**包级**「同短名有多个 arity」集合（name → "1"）。
     // arity-mangle 的判据必须与符号表同尺度：`Classes` 是 per-package 的，而预扫此前在
     // `StubCollector._passClassStubs`（per-CU）与 `ExportedTypeExtractor._extractCore`（per-CU）
@@ -84,6 +102,10 @@ public sealed partial class SymbolTable {
         this.ClassNsAll = new StrMap();
         this.ClassPkgAll = new StrMap();   // report-crosspkg-duplicate-type
         this.FuncOriginAll = new StrMap();   // report-crosspkg-duplicate-function
+        this.DeclaredDeps = new StrMap();    // fix-crosspkg-ns-reachability
+        this.SelfPkg = "";
+        this.EnforceDeclaredDeps = false;    // ⚠️ 默认关：只有 pipeline 的工程路径显式打开
+        this._undeclaredSeen = new StrMap();
         this.MultiArityNames = new StrMap();
         this._firstArity = new StrMap();
         this.CurrentAliases = null;
@@ -121,6 +143,10 @@ public sealed partial class SymbolTable {
         t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
         t.ClassPkgAll = this.ClassPkgAll;   // report-crosspkg-duplicate-type：共享（并行段内只读）。⚠️ 漏了这行 = 门恒不响
         t.FuncOriginAll = this.FuncOriginAll;   // report-crosspkg-duplicate-function：同上，漏了这行门就恒不响
+        t.DeclaredDeps = this.DeclaredDeps;     // fix-crosspkg-ns-reachability：同上三行，漏了 E0497 就恒不响
+        t.SelfPkg = this.SelfPkg;
+        t.EnforceDeclaredDeps = this.EnforceDeclaredDeps;
+        t._undeclaredSeen = this._undeclaredSeen;   // 共享：去重要跨文件视图生效
         t.MultiArityNames = this.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
         t.CurrentAliases = aliases;
         t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）

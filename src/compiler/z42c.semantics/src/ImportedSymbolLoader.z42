@@ -49,6 +49,12 @@ public sealed class ImportedSymbols {
     // add-associated-types PR-1：导入类的 where 约束（键与 Classes 同一 clKey，即条件 arity-mangle，
     // 与 SymbolTable.ConstraintKey 口径一致）→ ConstraintSet。修前此表不存在，跨包约束全程无载体。
     public StrMap Constraints;
+    // fix-crosspkg-ns-reachability：依赖契约三件套的**搬运载体**。放在这里而不是给
+    // `BuildPackageCus` 加参：本类已经是「跨包信息进符号表」的唯一通道（ClassPkgAll 就走这条），
+    // 而改签名要动十几个调用点。由 `SymbolCollector._mergeImports` 并进 SymbolTable。
+    public StrMap DeclaredDeps;
+    public string SelfPkg;
+    public bool   EnforceDeclaredDeps;
     public ImportedSymbols() {
         this.Classes = new StrMap();
         this.Constraints = new StrMap();
@@ -58,6 +64,9 @@ public sealed class ImportedSymbols {
         this.Interfaces = new StrMap();
         this.ClassesByFqn = new StrMap();          // unify-type-identity-fqn
         this.ClassPkgAll = new StrMap();           // report-crosspkg-duplicate-type
+        this.DeclaredDeps = new StrMap();          // fix-crosspkg-ns-reachability
+        this.SelfPkg = "";
+        this.EnforceDeclaredDeps = false;
         this.FuncOriginAll = new StrMap();         // report-crosspkg-duplicate-function
         this.InterfacesByFqn = new StrMap();       // unify-type-identity-fqn
         this.EnumTypeNamesByFqn = new StrMap();    // unify-type-identity-fqn
