@@ -757,10 +757,57 @@ S1 把特化扩到：泛型自由函数 / 静态泛型方法 / 实例泛型方�
   无限增长 ⇒ **编译器不返回**。病态源码的 codegen 产物本就无意义，跳过让诊断正常输出；另有
   工作表上限兜底。
 
-**仍未覆盖（S1-f）**：泛型声明与实例化**跨编译单元**时仍不特化 —— `SemanticModel` 由
-`TypeChecker.Infer(cu, …)` **按 CU** 建，别的文件里声明的泛型拿不到其绑定后的体。症状是
-`MissingSymbolException: undefined function Demo.Loc<P2,int>.Loc`（#774 既有缺陷，非本次引入）。
-真修需要**两阶段包级流水线**（先 Infer 全部 CU，再带所有 model 做 codegen）。
+**跨编译单元（S1-f，已做）**：泛型声明与实例化在不同文件时，`SemanticModel` 由
+`TypeChecker.Infer(cu, …)` **按 CU** 建，用当前 CU 的 `HasBody` 恒假 ⇒ 静默不发 ⇒
+`MissingSymbolException: undefined function Demo.Loc<P2,int>.Loc`。修法是包级登记表
+`GenericBodies` / `GenericTypeDecls` 里带上**声明所属 CU 的 model**（`GenericBodySrc.Model`）。
+
+**仍未覆盖**：**跨包**实例化（S2）—— 消费方编译只读依赖的签名，拿不到生产方的方法体。
+
+### 🔴 特化改变调用约定：sret 必须两侧同时翻（complete-generic-class-identity P4，2026-09-25）
+
+泛型 **class** 的方法返回**类级型参**、而该型参被实例化成 blob 值 struct 时：
+
+```
+fn @Demo.G<P2>.Get(1) -> T {
+  %1 = struct_alloc Demo.P2 [16B]   ← 在**自己帧**的 arena 里造
+  …逐字段拷贝…
+  ret %1                            ← 帧一弹即悬垂
+}
+```
+
+⇒ `struct-value handle used after its creating frame exited — value-struct lifetime unsound`。
+
+根因是**两侧都在看未代换的返回类型 `T`**：callee 的 `FunctionEmitter._blobStructNameT(T)` 判否
+（`T` 既非 ClassType 也非 InstantiatedType），caller 的 `_isBlobStruct(c.Type())` 也判否
+（装箱模型下 `c.Type()` 是 `Unknown`，外层包 `BoundConvert` 拆箱）。两边都判否 ⇒ **表面自洽**，
+代价是返回一个已死帧的句柄。
+
+> 🔬 **只修一侧＝换个地方错**：原型中只让 callee 走 sret，症状立刻变成
+> `takes 2 physical argument(s), the call passes 1`。「lifetime unsound」与「签名对不上」
+> 是同一条 bug 的两副面孔，取决于哪一侧先判出具体类型。
+
+**修法（两侧 + 一道共同闸门）：**
+
+| 侧 | 谁提供信息 | 做什么 |
+|---|---|---|
+| callee | `IrGenTypeEmitter.EmitInstantiation` 铺**类级** `SpecTypeArgs`（`T→P2`） | `_blobStructNameT` 认出代换后的 blob ⇒ 置 `METHOD_FLAG_SRET` |
+| caller | typer 在 `MemberResolver` GS6 分支写 `BoundCall.InstRetType`（代换后的返回类型） | `CallEmitter._specSretName` 判定后预留返回槽、作末尾隐藏实参传入 |
+
+⭐ **闸门必须是同一个**（design D5「判据单一出口」）：`_instLayoutName(receiver) != ""` ——
+即「该实例化的成员**确实被重发过**」。它同时决定**成员派发名**与**调用约定**，不可能漂移成两把尺子。
+
+⚠️ **调用约定是两侧协议，一侧单方面改就是 ABI 撕裂**：callee 侧的代换被
+`SpecInstName != ""` 限定在**类实例化通道**。去掉这道闸门后，泛型**自由函数**的特化体
+（`T makeValue<T>() where T : struct`）也跟着走 sret，而它的调用侧无从得知 ⇒
+`Demo.makeValue:Pair … takes 1 physical argument(s), the call passes 0`（实测）。
+泛型体那一侧今天两边都不代换 ⇒ 自洽（装箱模型），要改得连调用约定一起改。
+
+> 为什么 caller 不自己算代换后的返回类型：那要**重做一遍重载决议**才能拿到被调方的声明返回
+> 类型，查错就是错发 —— 同 `BoundCall.RetIsNullable` 的理由。typer 手里已有解析好的签名，
+> 代换一次记下来即可；发射端只做它自己独有的那半判断（布局知识只在发射端）。
+
+用例：`src/tests/generics/generic_class_returns_blob.z42`（六形态，含两条阴性对照）。
 - ⏳ Deferred：**单标量叶子 struct 塌缩**（`GCHandle`=Phase B）、**JIT 原生内联字节访问**（P5-B，现 helper
   桥接=interp 速度）、**反射合成方法可见**、**static struct 字段反射**、**ToString 字段 dump**、**E0438
   自引用诊断**（现 `Size==0` 兜底防崩）。

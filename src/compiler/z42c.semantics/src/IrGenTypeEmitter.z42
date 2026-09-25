@@ -86,8 +86,25 @@ public sealed class IrGenTypeEmitter {
         Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
         string saved = g.SpecInstName; string savedOwner = g.SpecOwnerName;
         SemanticModel savedBM = g.SpecBodyModel;
+        StrMap savedTA = g.SpecTypeArgs;
         g.SpecInstName = instName; g.SpecOwnerName = owner != null ? owner.Name() : c.Name;
         g.SpecBodyModel = bodyModel;   // S1-f：成员体从**声明所属 CU** 的 model 取
+        // complete-generic-class-identity P4：特化通道也要铺**类级**型参代换表。
+        //
+        // 此前 `SpecTypeArgs` 只在泛型**体**（自由函数 / 泛型方法）特化时铺，类的实例化特化不铺 ⇒
+        // 成员体里的 `T` 在 `_substTypeParam` 下恒 "" ⇒ 两个后果：
+        //   ① `FunctionEmitter._blobStructNameT(返回类型 T)` 判否 ⇒ **不走 sret** ⇒ `T Get()` 把返回值
+        //      拷进**自己帧**的 arena 再 `ret` 句柄，帧一弹即悬垂（实测
+        //      `struct-value handle used after its creating frame exited`）；
+        //   ② 体内 `new Loc<T,int>()` 这类嵌套实例化拿不到具体名，退回擦除布局。
+        // 铺上之后 `T` 在整个成员体里就是 `P2`，与调用侧（`BoundCall.InstRetType`）对上。
+        StrMap ta = new StrMap();
+        string[] iargs = StructLayout.InstArgsOf(instName);
+        if (iargs.Length == c.TypeParams.Count) {
+            int ti = 0;
+            while (ti < c.TypeParams.Count) { ta.Put(c.TypeParams.Names[ti], new StrBox(iargs[ti])); ti = ti + 1; }
+        }
+        g.SpecTypeArgs = ta;
         int j = 0;
         while (j < c.MemberCount) {
             Decl rawMem = c.Members[j];
@@ -104,6 +121,7 @@ public sealed class IrGenTypeEmitter {
         this._emitStructEquals(c, owner);
         this._emitRecordSynth(rawDecl, c, owner);
         g.SpecInstName = saved; g.SpecOwnerName = savedOwner; g.SpecBodyModel = savedBM;
+        g.SpecTypeArgs = savedTA;
     }
 
     // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。

@@ -1,0 +1,84 @@
+// complete-generic-class-identity P4：泛型 **class** 的方法返回**类级型参**、而该型参被实例化成
+// blob 值 struct 时，调用双方必须都走 sret。
+//
+// 修前（实测，interp 与 jit 同）：
+//   fn @Demo.G<P2>.Get(1) -> T { %1 = struct_alloc Demo.P2 [16B]; …逐字段拷…; ret %1 }
+//   —— 特化体把返回值拷进**自己帧**的 arena 再把句柄交出去，帧一弹即悬垂：
+//   `struct-value handle used after its creating frame exited — value-struct lifetime unsound`。
+//
+// 根因是两侧都在看**未代换**的返回类型 `T`：callee 的 `_blobStructNameT(T)` 判否（不走 sret），
+// caller 的 `_isBlobStruct(c.Type())` 也判否（`c.Type()` 是装箱模型下的 Unknown）。两边都判否 ⇒
+// 表面自洽，代价是返回已死帧的句柄。
+//
+// ⚠️ 只修一侧会**换个地方错**：原型实证中只让 callee 走 sret，症状立刻变成
+// `takes 2 physical argument(s), the call passes 1`。故修法必须是两侧同时按实参代换。
+//
+// 纯 Assert（无 expected 文件 = 空 stdout）。**jit 双验必做**（blob 读写 + 调用约定两条路）。
+namespace Demo;
+
+using Std;
+
+struct P2 {
+    public int X;
+    public long Y;
+    public P2(int x, long y) { this.X = x; this.Y = y; }
+}
+
+struct P3 {
+    public int A;
+    public int B;
+    public int C;
+    public P3(int a, int b, int c) { this.A = a; this.B = b; this.C = c; }
+}
+
+class G<T> {
+    public T V;
+    public G(T v) { this.V = v; }
+    public T Get() { return this.V; }
+    public void Put(T v) { this.V = v; }
+}
+
+// 形态②：返回**嵌套**在实例化里的型参（两层 sret）。
+// ⚠️ 这里刻意**不**用 `Wrap(G<U> inner)` 形参——那会撞上一条独立的 typer 缺口：ctor 形参位上的
+// 嵌套实例化 `G<U>` 在按 receiver 实参代换时把 `U` 代换成 `<unknown>`，于是
+// `new Wrap<P2>(new G<P2>(…))` 被**假红** `E0402: cannot assign G<P2> to G<<unknown>>`。
+// 与本 change 无关（不涉布局/调用约定），单独登记。
+class Wrap<U> {
+    public G<U> Inner;
+    public Wrap(U v) { this.Inner = new G<U>(v); }
+    public U Peel() { return this.Inner.Get(); }
+}
+
+void Main() {
+    // ── ① 直接返回：修前 use-after-free ────────────────────────────────
+    G<P2> g = new G<P2>(new P2(42, 7L));
+    Assert.Equal(42, g.Get().X);
+    Assert.Equal(7L, g.Get().Y);
+
+    // ── ② 返回值必须是**副本**：改它不影响容器（值语义）─────────────────
+    P2 taken = g.Get();
+    taken.X = 99;
+    Assert.Equal(42, g.Get().X);
+
+    // ── ③ 写进去再读回来（Put 的形参位同样要按实参代换）─────────────────
+    g.Put(new P2(5, 6L));
+    Assert.Equal(5, g.Get().X);
+    Assert.Equal(6L, g.Get().Y);
+
+    // ── ④ 另一个 blob 宽度（3×int）——证明不是靠 16B 巧合 ────────────────
+    G<P3> h = new G<P3>(new P3(1, 2, 3));
+    Assert.Equal(1, h.Get().A);
+    Assert.Equal(2, h.Get().B);
+    Assert.Equal(3, h.Get().C);
+
+    // ── ⑤ 嵌套：Wrap<P2>.Peel() 内部还要再调一次 G<P2>.Get() ─────────────
+    Wrap<P2> w = new Wrap<P2>(new P2(11, 12L));
+    Assert.Equal(11, w.Peel().X);
+    Assert.Equal(12L, w.Peel().Y);
+
+    // ── ⑥ 阴性对照：型参不是 blob struct 时仍走今天的路（不得回归）───────
+    G<int> gi = new G<int>(3);
+    Assert.Equal(3, gi.Get());
+    G<string> gs = new G<string>("ok");
+    Assert.Equal("ok", gs.Get());
+}

@@ -508,6 +508,23 @@ public sealed class FunctionEmitter {
 
     // add-struct-value-semantics A-use：某类型是 blob 值 struct 则返回其短名（供值语义翻转），否则 ""。
     internal string _blobStructNameT(Z42Type t) {
+        // complete-generic-class-identity P4：**类实例化**特化通道下，已代换的型参算具体类型。
+        // `T Get()` 在 `G<P2>` 的特化体里返回的就是 `P2`（blob）——判否的代价是不走 sret，
+        // 返回值被拷进自己帧的 arena 再交出句柄，帧一弹即悬垂。
+        //
+        // ⚠️ 闸门 `SpecInstName != ""` 把它**限定在类实例化通道**，与调用侧
+        // `CallEmitter._specSretName` 能看见的判据（`_instLayoutName(receiver)`）严格对齐 ——
+        // 调用约定是两侧协议，一侧单方面改就是 ABI 撕裂。实测：去掉这道闸门后**泛型自由函数**
+        // 的特化体（`T makeValue<T>() where T : struct`）也跟着走 sret，而它的调用侧无从得知
+        // ⇒ `Demo.makeValue:Pair ... takes 1 physical argument(s), the call passes 0`。
+        // 泛型**体**（自由函数 / 泛型方法）那一侧今天两边都不代换 ⇒ 自洽（装箱模型），
+        // 要改得连调用约定一起改，属本线后续格（见 tasks P4b）。
+        if (t is Z42GenericParamType) {
+            if (this._gen.SpecInstName == "") { return ""; }
+            string sn = this._expr._substTypeParamPub(t);
+            if (sn != "" && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(sn)) { return sn; }
+            return "";
+        }
         Z42ClassType ct = null;
         if (t is Z42ClassType) { ct = t as Z42ClassType; }
         else if (t is Z42InstantiatedType) { ct = (t as Z42InstantiatedType).Def; }

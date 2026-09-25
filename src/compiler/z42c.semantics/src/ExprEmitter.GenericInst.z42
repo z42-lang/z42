@@ -92,6 +92,9 @@ public sealed partial class ExprEmitter {
     // ⇒ 消费方 `no method MoveNext on ListEnumerator<T>`（实测回归）。
     // 此前布局闸门恰好挡住了它（`T` 实参的布局与定义相同），解耦身份后必须显式排除。
     // complete-generic-instantiation S1：型参在当前特化体的代换表里 → 它的具体规范名；否则 ""。
+    // 同上，供 FunctionEmitter 判「返回类型是不是代换后的 blob struct」。
+    internal string _substTypeParamPub(Z42Type a) { return this._substTypeParam(a); }
+
     private string _substTypeParam(Z42Type a) {
         if (!(a is Z42GenericParamType)) { return ""; }
         StrMap m = this._ctx.Gen.SpecTypeArgs;
