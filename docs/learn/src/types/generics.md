@@ -84,6 +84,34 @@
 裸的 `T` 上**什么成员都调不了**——编译器不知道它是什么，也就不知道它有什么。`where` 就是
 告诉编译器「`T` 至少满足这些」，于是那些成员变得可用。
 
+约束给进来的**属性和方法一样能用**：
+
+```z42
+// examples/types/generics/constraints/ctprop.z42
+{{#include ../../../../examples/types/generics/constraints/ctprop.z42:prop}}
+```
+
+```console
+{{#include ../../../../examples/types/generics/constraints/run.console:prop}}
+```
+
+> 📜 **2026-09-25 之前属性这条路是坏的**：`a.Name` 会静默返回 `null`（方法 `a.GetName()` 则正常）。
+> 踩到过的话不用怀疑自己，那是实现里的不对称，已修。
+
+成员名**写错**时编译器现在会拦：
+
+```z42
+// examples/types/generics/constraints/typo.z42
+{{#include ../../../../examples/types/generics/constraints/typo.z42:typo}}
+```
+
+```console
+{{#include ../../../../examples/types/generics/constraints/run.console:typo}}
+```
+
+⚠️ 它只拦「**全仓都找不到这个名字**」的情况。名字在别的类型上存在时仍然放行——因为
+`var m = pick(a, b); m.value` 这类写法对引用类型是正常可用的，一律判红会误伤。
+
 ```z42
 // examples/types/generics/constraints/constraints.z42
 {{#include ../../../../examples/types/generics/constraints/constraints.z42:iface}}
@@ -301,7 +329,8 @@
 - `Box<int>` 与 `Box<string>` 是**两个不同类型**，互不赋值。
 - 类型参数有两级：**类级**（`class Box<T>`）和**方法级**（`pick<T>()`），同名时方法级优先。
   能从实参推出来就不写类型实参。
-- 裸 `T` 上什么都调不了；**`where` 是让成员变可用的开关**。七种约束，多约束用 `+` 连。
+- 裸 `T` 上什么都调不了；**`where` 是让成员变可用的开关**（属性与方法同样适用）。七种约束，多约束用 `+` 连。
+  成员名写错（全仓都没这个名字）会报 **E0401**。
 - 🔴 **`Self` 是 z42 的特色**：接口里指代实现者自己，省掉 `IEquatable<T>` 那种自引用样板。
   形参位的 `Self` 不能经接口类型调用——改用型参。
 - 关联类型 `type Item;` 让实现方决定一个类型，约束侧用 `IStore<Item = int>` 要求它。

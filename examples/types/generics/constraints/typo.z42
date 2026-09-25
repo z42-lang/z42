@@ -1,0 +1,10 @@
+using Std.IO;
+
+// ANCHOR: typo
+// 型参上写了个全仓都不存在的成员名 → 编译期就拦下
+int lenOf<T>(T a) { return a.Bogue; }
+// ANCHOR_END: typo
+
+void Main() {
+    Console.WriteLine(lenOf(5));
+}

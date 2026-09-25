@@ -1,0 +1,121 @@
+// check-bare-type-param-member-access：型参收者上的成员可用性。
+//
+// 规则（本变更让它生效、不是新立）：型参 `T` 上可用的成员 = `Std.Object` 继承来的
+// ∪ 该型参 `where` 约束提供的。其余不可用。成文处见 learn/generics.md 与
+// reference/generic-constraints.md。
+//
+// ⚠️ **本组最要紧的性质是「放行面一条都不能少」**：B 的判据若写宽了，会把
+// `a.ToString()` / 约束提供的成员一起判红 —— 那不是收紧，是砸掉泛型代码。
+// 故每个报错用例都配一条同形状的放行对照。
+//
+// 🔴 `SemanticDump` 只跑 `SymbolCollector`、**不加载 stdlib** ⇒ 用例里必须**自己声明**
+// 用到的 `Object` / 接口，否则查找落空、分支根本进不去 = 空测试（#801 踩过这个坑）。
+namespace Z42cSemanticsBareTypeParamMemberTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// 每个用例都自带 Object 与接口声明（见抬头）。
+string _prelude() {
+    return "namespace N; class Object { public string ToString() { return \"\"; } "
+         + "public int GetHashCode() { return 0; } } "
+         + "interface IHasName { string Name { get; } int GetName(); } ";
+}
+
+// ── B：成员名在任何已知类型上都不存在 → 编译期报错 ─────────────────
+//
+// ⚠️ 判据是「**全仓都没有这个名字**」，不是「不由约束提供」。后者会误报惯用写法
+// （`var m = Max(a,b); m.value` 今天正常工作）—— 见 MemberResolver.TypeParam.z42 抬头。
+
+[Test]
+void test_unknown_member_on_bare_type_param_errors() {
+    string src = _prelude() + "class C { static int M<T>(T a) { return a.Bogus; } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_unknown_method_on_bare_type_param_errors() {
+    string src = _prelude() + "class C { static int M<T>(T a) { return a.NoSuch(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// 🔴 收窄的支点：成员名**存在于某个已知类型**上 ⇒ 不报（松绑照旧）。
+// 这条变红 = 判据又收宽了，会打破 `var m = genericCall(); m.X` 这类惯用写法。
+[Test]
+void test_member_existing_on_some_type_is_not_reported() {
+    string src = _prelude() + "class P { public int value; } "
+               + "class C { static int M<T>(T a) { return a.value; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 同款：方法名存在于某个类型上 ⇒ 不报。
+[Test]
+void test_method_existing_on_some_type_is_not_reported() {
+    string src = _prelude() + "class P { public int Tally() { return 0; } } "
+               + "class C { static int M<T>(T a) { return a.Tally(); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── B 的放行面（这几条变红 = 判据写宽了，比不修更坏）─────────────────
+
+// `Object` 继承来的成员：每个类型都有，永远可用。
+[Test]
+void test_object_member_on_bare_type_param_ok() {
+    string src = _prelude() + "class C { static string M<T>(T a) { return a.ToString(); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_object_hashcode_on_bare_type_param_ok() {
+    string src = _prelude() + "class C { static int M<T>(T a) { return a.GetHashCode(); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 约束提供的**方法**（本变更前就可用，回归护栏）。
+[Test]
+void test_constraint_method_on_type_param_ok() {
+    string src = _prelude() + "class C { static int M<T>(T a) where T : IHasName { return a.GetName(); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 约束提供的**属性** —— A 修的那一格。本变更前这里松绑成 Unknown（运行期读出 null），
+// 现在解析成 `get_Name` 调用。**它必须不报错**，否则 A 没接上、B 反而误伤了合法代码。
+[Test]
+void test_constraint_property_on_type_param_ok() {
+    string src = _prelude() + "class C { static string M<T>(T a) where T : IHasName { return a.Name; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// 型参不参与的普通成员访问（确认判据只在 Z42GenericParamType 收者上生效）。
+[Test]
+void test_concrete_receiver_unaffected() {
+    string src = _prelude() + "class P : IHasName { public string Name { get { return \"\"; } } "
+               + "public int GetName() { return 0; } } "
+               + "class C { static string M(P p) { return p.Name; } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── C：方法级 where 细化类级型参 ──────────────────────────────────
+
+// 细化本身合法 —— 本变更前声明期在 `TypeParams.Count == 0` 早退、根本没看这条 where；
+// 现在会看，但**不得因此报错**（它是合法写法）。
+[Test]
+void test_method_where_refining_class_param_is_legal() {
+    string src = _prelude() + "class Box<T> { public int Cmp(T o) where T : IHasName { return o.GetName(); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// where 挂在既非方法级也非类级的名字上 ⇒ 未知型参。本变更前因早退而**静默**。
+[Test]
+void test_method_where_on_unknown_type_param_errors() {
+    string src = _prelude() + "class Box<T> { public int f() where U : IHasName { return 0; } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// 对照：同一形状但 where 挂在**方法自己的**型参上 ⇒ 一直合法。
+[Test]
+void test_method_where_on_own_type_param_ok() {
+    string src = _prelude() + "class Box<T> { public int f<U>(U u) where U : IHasName { return u.GetName(); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}

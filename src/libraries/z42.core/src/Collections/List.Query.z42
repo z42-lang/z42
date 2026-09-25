@@ -110,7 +110,7 @@ public partial class List<T> {
     // 在**已升序排序**的列表上二分查找 `item`（用 T 的 CompareTo）。
     // 命中返回其下标；未命中返回负数：`-insertionPoint - 1`（等价 C# 的
     // `~insertionPoint`，insertionPoint = 第一个大于 item 的位置）。
-    public int BinarySearch(T item) {
+    public int BinarySearch(T item) where T : IComparable {   // check-bare-type-param-member-access：`CompareTo` 由方法级 where 细化类级 T 提供（此前靠松绑）
         int lo = 0;
         int hi = this.Count - 1;
         while (lo <= hi) {

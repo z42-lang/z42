@@ -1,0 +1,74 @@
+// Test: check-bare-type-param-member-access —— 型参收者上的成员可用性（端到端）。
+//
+// A：约束提供的**属性**在型参收者上读出真实值（此前松绑成 Unknown ⇒ 运行期当字段读 ⇒ 静默 null）。
+// C：方法级 `where` 细化类级型参时，约束在调用点被校验（同包）。
+// D：放行面 —— `Object` 成员 / 约束方法 / 赋具体类型局部，逐条不变。
+//
+// ⚠️ 这里只放**能跑通**的形态；B 的报错形态在 z42c.semantics/tests/typecheck/ 的诊断单测里
+// （编译期判红的用例进不了 e2e）。
+
+interface IHasName {
+    string Name { get; }        // 属性 —— A 修的那一格
+    string GetName();           // 方法 —— 对照，本变更前就对
+}
+
+class Person : IHasName {
+    private string _n;
+    public Person(string n) { this._n = n; }
+    public string Name { get { return this._n; } }
+    public string GetName() { return this._n; }
+    public override string ToString() { return "P(" + this._n + ")"; }
+}
+
+// 方法级约束来源
+string viaProp<T>(T a)   where T : IHasName { return a.Name; }
+string viaMethod<T>(T a) where T : IHasName { return a.GetName(); }
+string viaChain<T>(T a)  where T : IHasName { return a.Name.Length.ToString(); }
+
+// 类级约束来源（约束查找必须覆盖方法级 + 类级两个来源）
+class Holder<T> where T : IHasName {
+    public string get(T a) { return a.Name; }
+}
+
+// C：方法级 where 细化类级型参 —— 成员可用，且调用点验约束
+class Cmp2<T> {
+    private T a;
+    private T b;
+    public Cmp2(T x, T y) { this.a = x; this.b = y; }
+    public int Cmp() where T : IComparable { return this.a.CompareTo(this.b); }
+    public int Plain() { return 7; }            // 无约束方法 —— 约束不得上升为类级
+}
+
+// D：裸型参上 Object 继承来的成员永远可用（无任何约束）
+string objMembers<T>(T a) {
+    return a.ToString() + "|" + (a.GetHashCode() == a.GetHashCode()).ToString()
+         + "|" + a.Equals(a).ToString();
+}
+
+void Main() {
+    Person p = new Person("Ada");
+
+    // ── A：约束属性 ──
+    Assert.Equal("Ada", viaProp(p));            // 此前是 null
+    Assert.Equal("Ada", viaMethod(p));          // 对照：一直是对的
+    Assert.Equal("3", viaChain(p));             // 此前链式会崩
+    Assert.Equal("Ada", new Holder<Person>().get(p));   // 类级约束来源
+    Assert.Equal(p.Name, viaProp(p));           // 与非泛型逐字一致
+
+    // ── C：细化约束满足时照常工作；同类无约束方法不受牵连 ──
+    Assert.Equal(-1, new Cmp2<int>(3, 7).Cmp());
+    Assert.Equal(1,  new Cmp2<int>(7, 3).Cmp());
+    Assert.Equal(7,  new Cmp2<Person>(p, p).Plain());   // Person 不是 IComparable，但 Plain 无约束
+
+    // ── D：裸型参上的 Object 成员 ──
+    Assert.Equal("P(Ada)|true|true", objMembers(p));
+    Assert.Equal("5|true|true", objMembers(5));
+
+    // ── D：stdlib 侧补了约束之后仍可正常使用 ──
+    int[] nums = new int[4];
+    nums[0] = 3; nums[1] = 1; nums[2] = 4; nums[3] = 2;
+    Array.Sort<int>(nums);
+    Assert.Equal(1, nums[0]);
+    Assert.Equal(4, nums[3]);
+    Assert.Equal(2, Array.BinarySearch<int>(nums, 3));
+}

@@ -43,7 +43,7 @@ public sealed class ConstraintChecker {
             if (d is MethodDecl) {
                 // resolve-method-where-at-decl：**顶层自由函数**（`MethodDecl.IsFree`）的 where。
                 // 它此前完全没有声明期入口——`Resolve` 只认 ClassDecl，而调用点那条又只在真被调用时才走。
-                this._diagnoseMethodWheres(symbols, d as MethodDecl);
+                this._diagnoseMethodWheres(symbols, d as MethodDecl, new string[0], 0);   // 自由函数无 owner 类型参
             } else if (d is ClassDecl) {
                 ClassDecl c = d as ClassDecl;
                 // add-associated-types PR-1：条件由 `class || struct` 放宽到**含 interface**。此前
@@ -64,7 +64,7 @@ public sealed class ConstraintChecker {
                 int m = 0;
                 while (m < c.MemberCount) {
                     Decl mem = this._unwrap(c.Members[m]);
-                    if (mem is MethodDecl) { this._diagnoseMethodWheres(symbols, mem as MethodDecl); }
+                    if (mem is MethodDecl) { this._diagnoseMethodWheres(symbols, mem as MethodDecl, c.TypeParams.Names, c.TypeParams.Count); }
                     m = m + 1;
                 }
             }
@@ -77,24 +77,81 @@ public sealed class ConstraintChecker {
     // 为什么不顺手把结果缓存起来给 `CheckMethod` 用：方法级约束**不预登记符号表**（没有一把稳定的键——
     // 同名同 arity 的重载各有各的 where），而即席重建的成本本来就低（约束项个位数）。把「报诊断」与
     // 「建 bundle」拆开，比造一张键不可靠的缓存表安全得多。
-    private void _diagnoseMethodWheres(SymbolTable symbols, MethodDecl md) {
-        if (md == null || md.WhereCount == 0 || md.TypeParams.Count == 0) { return; }
+    // check-bare-type-param-member-access C：`ownerPnames` = owner 类的型参名表（自由函数传空）。
+    //
+    // 🔴 **此前这里是 `md.TypeParams.Count == 0` 就早退** —— 于是
+    // `class List<T> { public void Sort() where T : IComparable { … } }`（方法级 where **细化**
+    // 类级型参、方法自己没有型参）整条 where **一眼都不看**。而调用点 `CheckMethod` 对
+    // `pi < 0` 静默跳过、注释写着「那条也归声明期报」⇒ **两边各自以为对方会报，结果没人报**：
+    // `new List<Opaque>().Sort()` 零诊断、运行期崩 `VCall: function `Opaque.CompareTo` not found`。
+    //
+    // 现在：where 的型参先查方法级、再查**类级**（后者 = 合法细化），两边都不在才报未知型参。
+    private void _diagnoseMethodWheres(SymbolTable symbols, MethodDecl md, string[] ownerPnames, int ownerPc) {
+        if (md == null || md.WhereCount == 0) { return; }
         string[] pnames = md.TypeParams.Names;
         int pc = md.TypeParams.Count;
         int w = 0;
         while (w < md.WhereCount) {
             WhereClause wc = md.Wheres[w];
             int pi = this._indexOfName(pnames, pc, wc.TypeParam);
-            if (pi < 0) {
-                // 与类级同款（`_buildSet` 那条）：`void f<T>(T v) where U : IFoo` —— 约束挂在一个
-                // 不存在的型参上，等于整条 where 白写。此前方法级把它**静默跳过**。
-                this._diags.Error(DiagnosticCodes.UndefinedSymbol,
-                    "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + md.Name + "`",
-                    wc.Span);
-            } else {
+            if (pi >= 0) {
                 this._fillBundle(symbols, md.Name, new ConstraintBundle(), wc, pnames, pc, true);
+            } else {
+                int ci = this._indexOfName(ownerPnames, ownerPc, wc.TypeParam);
+                if (ci >= 0) {
+                    // 合法细化：约束挂在 owner 类的型参上。声明期照样过一遍 `_fillBundle`，
+                    // 这样 `where T : NotAnInterface` 这类**约束本身写错**仍在声明期被抓到。
+                    this._fillBundle(symbols, md.Name, new ConstraintBundle(), wc, ownerPnames, ownerPc, true);
+                } else {
+                    // 与类级同款（`_buildSet` 那条）：`void f<T>(T v) where U : IFoo` —— 约束挂在一个
+                    // 不存在的型参上，等于整条 where 白写。此前方法级把它**静默跳过**。
+                    this._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                        "where clause references unknown type parameter `" + wc.TypeParam + "` on `" + md.Name + "`",
+                        wc.Span);
+                }
             }
             w = w + 1;
+        }
+    }
+
+    // ════ C：方法级 where **细化类级型参**时的调用点校验 ═════════════════════════
+    // `new List<Opaque>().Sort()` —— `Sort()` 声明了 `where T : IComparable`，`T` 是 `List` 的
+    // 类级型参 ⇒ 用**收者的**类型实参（`Z42InstantiatedType.TypeArgs`）验约束，违反报 E0402。
+    //
+    // 与既有两条同规则、同诊断（复用 `_fillBundle` / `_checkBundle`）：
+    //   · 方法自己的型参 → `CheckMethod`（✅ 一直有）
+    //   · 类级型参 + 类级 where → `ClassConstraints` 那条（✅ 一直有）
+    //   · **类级型参 + 方法级 where（细化）→ 本方法**（🆕 此前无人校验）
+    //
+    // ⚠️ 只校验**被本方法的 where 提到的**那些类级型参：约束不上升为类级
+    // （`List<Opaque>` 的构造 / `Add` / `Count` 必须照常可用）。
+    public void CheckMethodRefinedClassParams(SymbolTable symbols, MethodDecl md,
+                                              string[] ownerPnames, int ownerPc,
+                                              Z42Type[] recvArgs, int recvArgCount, Span sp) {
+        if (md == null || md.WhereCount == 0 || ownerPc == 0 || recvArgCount == 0) { return; }
+        ConstraintBundle[] bundles = new ConstraintBundle[ownerPc];
+        int b = 0;
+        while (b < ownerPc) { bundles[b] = new ConstraintBundle(); b = b + 1; }
+        bool any = false;
+        int w = 0;
+        while (w < md.WhereCount) {
+            WhereClause wc = md.Wheres[w];
+            // 方法自己的型参归 `CheckMethod`，这里只管细化类级型参的那些。
+            if (this._indexOfName(md.TypeParams.Names, md.TypeParams.Count, wc.TypeParam) < 0) {
+                int ci = this._indexOfName(ownerPnames, ownerPc, wc.TypeParam);
+                // 声明期已报未知型参 ⇒ 这里静默跳过（report=false，一个错误一条诊断）。
+                if (ci >= 0) { this._fillBundle(symbols, md.Name, bundles[ci], wc, ownerPnames, ownerPc, false); any = true; }
+            }
+            w = w + 1;
+        }
+        if (!any) { return; }
+        int n = recvArgCount; if (n > ownerPc) { n = ownerPc; }
+        int i = 0;
+        while (i < n) {
+            if (!bundles[i].IsEmpty()) {
+                this._checkBundle(symbols, ownerPnames, ownerPc, recvArgs, recvArgCount, bundles[i], recvArgs[i], md.Name, i, sp);
+            }
+            i = i + 1;
         }
     }
 

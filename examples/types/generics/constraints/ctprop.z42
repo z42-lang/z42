@@ -1,0 +1,18 @@
+using Std.IO;
+
+// ANCHOR: prop
+interface IHasName { string Name { get; } }
+
+class Person : IHasName {
+    private string _n;
+    public Person(string n) { this._n = n; }
+    public string Name { get { return this._n; } }
+}
+
+// 约束给进来的**属性**和方法一样能用
+string nameOf<T>(T a) where T : IHasName { return a.Name; }
+// ANCHOR_END: prop
+
+void Main() {
+    Console.WriteLine(nameOf(new Person("Ada")));
+}

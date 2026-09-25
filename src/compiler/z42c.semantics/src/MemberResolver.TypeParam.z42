@@ -1,0 +1,95 @@
+// 型参收者（`T a` 里的 `T`）上「这个成员名压根不存在」的诊断
+// （check-bare-type-param-member-access B）。
+// 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
+//
+// ── 为什么只报「压根不存在」，而不是「不由约束提供就报」 ─────────────────────────
+// 成文规则是「裸 `T` 上什么都调不了，`where` 是让成员变可用的开关」
+// （learn/generics.md、reference/generic-constraints.md），而**执行这条规则的检查此前不在**
+// ⇒ `a.Bogus` / `a.NoSuch()` 这类**必然错**的写法编译期零诊断、运行期才崩。
+//
+// 🔴 但按字面全面执行会**误报今天完全正常的惯用写法**（实测，被存量 e2e 抓下）：
+//
+//     T Max<T>(T a, T b) where T : IComparable { … }
+//     var m = Max(a, b);        // a,b 是 Num（class）
+//     m.value                   // ✅ 今天打 7 —— 引用类型的擦除返回位运行期派发得好好的
+//
+//     void Introduce<T>(T pet) where T : Animal { pet.legs }   // ✅ 基类约束提供的字段
+//
+// **只有 blob struct 经擦除返回位才真的坏**（`id(v).X` → `FieldGet: expected object,
+// got BoxedStruct`），而那一格的根因是泛型**特化**（实测两份 IR 只差 callee 名：
+// `@id` vs `@id<Vec2>`），不是成员解析 —— 报错只是换个说法，修不好它。
+//
+// ⇒ **User 2026-09-25 裁决：收窄到「成员名在任何已知类型上都不存在」**。
+// 零误报、零存量破坏，抓住的是「拼错名字 / 调不存在的方法」这类必然错。
+// 「让 `id(v).X` 真的工作」与「按字面全面执行规则」各自登记为后续（见 design Deferred）。
+//
+// 📌 因此**不需要**区分「收者是 callee 漏出的型参」还是「作用域内的型参」：成员压根不存在时
+// 两种修法（写显式类型实参 / 加 where）**都不对**，正确的话是「这个名字不存在」。
+// 初版为此在 `BoundCall` 上加过 `RetIsErasedTypeParam` 标记，收窄后它成了死机制，已撤。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class MemberResolver {
+    // 全仓有没有任何已知类型声明过名为 `member` 的字段 / 属性 / 方法。
+    //
+    // ⚠️ **不能用 `Methods.ContainsKey(member)`**：非-primary 重载注册的是全签名键
+    // （`Substring$2$int$int`），属性是 `get_<Name>` —— 只查裸名会把存在的成员判成不存在，
+    // 那就是误报（#801 的同一个坑：判「名字存不存在」必须按真实键形态查）。
+    // 故键匹配为：`member` 本身 / `member$…`（重载 mangle）/ `get_member` / `set_member`。
+    //
+    // 走的是错误路径（`Object` 成员与约束都没命中之后），所以这趟扫描的成本不在热路径上。
+    private static bool _anyKnownTypeHasMember(SymbolTable symbols, string member) {
+        if (symbols == null || member == "") { return true; }   // 拿不到符号表 ⇒ 不敢断言，放行
+        string[] cnames = symbols.Classes.Keys();
+        int i = 0;
+        while (i < cnames.Length) {
+            Z42ClassType ct = symbols.Classes.Get(cnames[i]) as Z42ClassType;
+            if (ct != null) {
+                if (ct.Fields.ContainsKey(member)) { return true; }
+                if (MemberResolver._mapHasMemberKey(ct.Methods, member)) { return true; }
+            }
+            i = i + 1;
+        }
+        string[] inames = symbols.Interfaces.Keys();
+        int j = 0;
+        while (j < inames.Length) {
+            Z42InterfaceType it = symbols.Interfaces.Get(inames[j]) as Z42InterfaceType;
+            if (it != null && MemberResolver._mapHasMemberKey(it.Methods, member)) { return true; }
+            j = j + 1;
+        }
+        return false;
+    }
+
+    // 键形态匹配：裸名 / `名$…`（重载 mangle）/ `get_名` / `set_名`。
+    private static bool _mapHasMemberKey(StrMap methods, string member) {
+        if (methods == null) { return false; }
+        if (methods.ContainsKey(member)) { return true; }
+        if (methods.ContainsKey("get_" + member)) { return true; }
+        if (methods.ContainsKey("set_" + member)) { return true; }
+        string pfx = member + "$";
+        string[] keys = methods.Keys();
+        int i = 0;
+        while (i < keys.Length) {
+            if (keys[i].StartsWith(pfx)) { return true; }
+            if (keys[i].StartsWith("get_" + pfx)) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 报「型参上没有这个成员，且全仓没有任何类型声明过这个名字」。
+    // 复用 **E0401**（`UndefinedSymbol`），镜像 #801 的基元收者路径 —— 同一类问题同一个码、
+    // 措辞对称，**不取新号**。
+    internal void ReportTypeParamMemberUnknown(SymbolTable symbols, string tpName, string member,
+                                               bool isCall, Span sp) {
+        if (MemberResolver._anyKnownTypeHasMember(symbols, member)) { return; }
+        string what = isCall ? "method" : "field or property";
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+            "no " + what + " `" + member + "` on type parameter `" + tpName
+            + "`, and no known type declares that name — check the spelling, or add a `where` "
+            + "constraint on `" + tpName + "` that provides it", sp);
+    }
+}
