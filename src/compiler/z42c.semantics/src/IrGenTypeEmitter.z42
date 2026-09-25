@@ -123,8 +123,36 @@ public sealed class IrGenTypeEmitter {
         // 特化通道下需换成实例化名——故同样在 SpecInstName 生效期间调用。
         this._emitStructEquals(c, owner);
         this._emitRecordSynth(rawDecl, c, owner);
+        // complete-generic-class-identity P3：**类型初始化器也按实例化各一份**。
+        //
+        // 静态字段既然分槽了（`Demo.GBox<int>.Count` vs `…<string>.Count`），初始化当然也得分 ——
+        // 否则 `static int Seed = 7;` 在每个实例化上都读出 0（实测）：定义那份 cctor 写的是**擦除
+        // 键**，而读方查的是实例化键。
+        //
+        // 显式 `static GBox() {}` 走上面的成员循环（emitKey 就是 `$cctor`），自动带上实例化前缀；
+        // 这里补的是**合成**的那份（由静态字段初始化器生成）。判据用 `bodyModel.HasStaticInitFor`
+        // 而不是 `g.SynthCctorClasses` —— 后者是**按 CU** 的，泛型声明在别的文件时恒落空（S1-f 同款坑）。
+        if (bodyModel != null && bodyModel.SiCount > 0 && bodyModel.HasStaticInitFor(c.Name)
+            && !this._declaresExplicitCctor(c)) {
+            var cfe = new FunctionEmitter(bodyModel.Symbols, g);
+            this._out.AddFunc(cfe.EmitStaticInit(g._q(instName) + "." + IrStaticCtor.MethodKey, bodyModel, c.Name));
+        }
         g.SpecInstName = saved; g.SpecOwnerName = savedOwner; g.SpecBodyModel = savedBM;
         g.SpecTypeArgs = savedTA;
+    }
+
+    // 该类是否**显式**声明了静态构造器（那份由成员循环发，别再合成一份同名的 → 重复定义）。
+    private bool _declaresExplicitCctor(ClassDecl c) {
+        int i = 0;
+        while (i < c.MemberCount) {
+            Decl m = IrGenFacts._unwrap(c.Members[i]);
+            if (m is MethodDecl) {
+                MethodDecl md = m as MethodDecl;
+                if (md.IsCtor && IrGenFacts._hasWord(md.Mods, "static") && md.HasBody) { return true; }
+            }
+            i = i + 1;
+        }
+        return false;
     }
 
     // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。

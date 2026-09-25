@@ -323,6 +323,44 @@ public sealed class AccessEmitter {
     // 写一个静态成员（`C.x = v` / `C.x++` / `C.x += v` 的写回共用）。
     // add-static-properties：属性有 setter → `call C.set_X(v)`；无 setter（get-only auto，合法性已由
     // AssignTyper 的 E0452 限定为本类静态 ctor 内）→ 直写静态后备 `C.__prop_X`。普通静态字段照旧 static_set。
+    // complete-generic-class-identity P3：静态字段/后备槽的**键**。唯一出口 —— 读、写、属性后备
+    // 三条路都调它，否则同一个槽会因为走哪条路而拼出两个名字（本线已四次栽在这上面）。
+    //
+    // C# 语义：静态成员**按闭合类型**各一份（`GBox<int>.Count` 与 `GBox<string>.Count` 是两个槽）。
+    // z42 修前两侧都按擦除名 ⇒ 自洽但语义错（实测各构造 2 / 3 次，两边都读出 5）。
+    //
+    // 所有者的实例化从两处来，**缺一不可**：
+    //   ① `st.OwnerType`：源码写了闭合泛型（`GBox<int>.Count`），typer 解析后挂上来（P5-b）。
+    //   ② `Gen.SpecInstName`：类**内部**的裸名 `Count` / `GBox<T>.Count` —— 所有者就是当前正在
+    //      特化的那个实例化，只有发射端知道。与 `_classLayoutName` 里 `this` 的处理同款。
+    // 两者都不适用 → 擦除名（非泛型类、跨包泛型：两侧都不代换 ⇒ 仍自洽）。
+    private string _staticKey(BoundStaticGet st, string member) {
+        if (st.OwnerType != null) {
+            string idn = this._ee._instIdentityName(st.OwnerType);
+            if (idn != "") { return this._ee._qualifyInstName(idn) + "." + member; }
+        }
+        IrGen g = this._ctx.Gen;
+        if (g != null && g.SpecInstName != ""
+            && AccessEmitter._bareOf(st.ClassName) == AccessEmitter._bareOf(g.SpecOwnerName)) {
+            return this._ee._qualifyInstName(g.SpecInstName) + "." + member;
+        }
+        return this._ctx.QualifyClass(st.ClassName) + "." + member;
+    }
+
+    // 去掉 arity mangle（`GBox$1` → `GBox`）：`SpecOwnerName` 取的是符号表键、可能带 `$N`，
+    // 而 `BoundStaticGet.ClassName` 是源码短名。比之前先归一，否则恒不相等（静默退回擦除键）。
+    private static string _bareOf(string n) {
+        int d = n.LastIndexOf("$");
+        if (d <= 0) { return n; }
+        int i = d + 1;
+        if (i >= n.Length) { return n; }
+        while (i < n.Length) {
+            if (n.CharAt(i) < '0' || n.CharAt(i) > '9') { return n; }
+            i = i + 1;
+        }
+        return n.Substring(0, d);
+    }
+
     internal void _emitStaticStore(BoundStaticGet st, TypedReg val) {
         if (st.IsProp) {
             if (st.PropSetter != "") {
@@ -331,12 +369,12 @@ public sealed class AccessEmitter {
                 return;
             }
             if (st.PropBacking != "") {
-                this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.PropBacking, this._boxIfStaticStruct(val, st.Type())));
+                this._ctx.Emit(new StaticSetInstr(this._staticKey(st, st.PropBacking), this._boxIfStaticStruct(val, st.Type())));
             }
             return;
         }
         TypedReg sv = this._boxIfStaticStruct(val, st.Type());   // add-static-struct-bytecization：struct 字段整写 → 装箱盒
-        this._ctx.Emit(new StaticSetInstr(this._ctx.QualifyClass(st.ClassName) + "." + st.FieldName, sv));
+        this._ctx.Emit(new StaticSetInstr(this._staticKey(st, st.FieldName), sv));
     }
 
     // add-static-struct-bytecization (PR-2 S)：发 StaticGet 取**原始存储值**（static struct 字段 = 装箱盒
@@ -345,7 +383,7 @@ public sealed class AccessEmitter {
         // StaticGet 结果寄存器 = Unknown（C# REGT 字节实证：静态字段读 IR 层擦除）。
         // G17b：用 QualifyClass（非 Qualify）→ 同包跨-ns 类静态字段限定到声明 ns。
         TypedReg dst = this._ctx.Alloc(IrType.Unknown);
-        this._ctx.Emit(new StaticGetInstr(dst, this._ctx.QualifyClass(sg.ClassName) + "." + sg.FieldName));
+        this._ctx.Emit(new StaticGetInstr(dst, this._staticKey(sg, sg.FieldName)));
         return dst;
     }
 

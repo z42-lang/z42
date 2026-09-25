@@ -1,0 +1,69 @@
+// complete-generic-class-identity P3 + P5-b：**静态成员按闭合类型各一份**（对齐 C#）。
+//
+// 修前：`GBox<int>` 与 `GBox<string>` 共用一个槽 —— 各构造 2 / 3 次，两边都读出 5（实测）。
+// 根因是静态字段键**两侧都按擦除名**拼：自洽，但语义错。
+//
+// 修法要三件事同时成立，缺一格就是另一种错：
+//   ① 键按实例化（`Demo.GBox<int>.Count`）—— 发射端单一出口 `AccessEmitter._staticKey`；
+//   ② 成员体**按实例化各发一份**（一份共享的体只能写一个键）—— 闸门
+//      `IrGen.InstNeedsOwnBody`，发射与派发共用它；
+//   ③ **类型初始化器也各一份**，否则 `static int Seed = 7;` 恒读出 0
+//      （定义那份 cctor 写擦除键，读方查实例化键）。
+//
+// P5-b 让 `GBox<int>.Count` 这种写法在源码层可书写（此前 `E0202` 解析失败）。
+namespace Demo;
+
+using Std;
+
+class GBox<T> {
+    public static int Count;
+    public static int Seed = 7;          // 带初始值 ⇒ 要求类型初始化器按实例化各跑一次
+    public T V;
+    public GBox() { Count = Count + 1; }   // 类内**裸名**静态访问
+    public int Read() { return Count; }    // 经实例方法读（不需要 P5-b 也能测）
+}
+
+// 阴性对照：非泛型类的静态字段一字不动
+class Plain {
+    public static int N = 3;
+}
+
+void Main() {
+    GBox<int> a1 = new GBox<int>();
+    GBox<int> a2 = new GBox<int>();
+    GBox<string> b1 = new GBox<string>();
+
+    // ── ① 计数按实例化分开（修前两边都是 3）────────────────────────────
+    Assert.Equal(2, GBox<int>.Count);
+    Assert.Equal(1, GBox<string>.Count);
+
+    // 经实例方法读同一个槽 —— 两条路必须给同一个答案
+    Assert.Equal(2, a2.Read());
+    Assert.Equal(1, b1.Read());
+
+    // ── ② 类型初始化器按实例化各跑一次（修前两边都是 0）─────────────────
+    Assert.Equal(7, GBox<int>.Seed);
+    Assert.Equal(7, GBox<string>.Seed);
+
+    // ── ③ 写入互不影响 ────────────────────────────────────────────────
+    GBox<int>.Seed = 99;
+    Assert.Equal(99, GBox<int>.Seed);
+    Assert.Equal(7, GBox<string>.Seed);
+
+    // ── 阴性对照 ①：非泛型静态字段 ────────────────────────────────────
+    Assert.Equal(3, Plain.N);
+    Plain.N = 4;
+    Assert.Equal(4, Plain.N);
+
+    // ── 阴性对照 ②：`a < b` 仍是比较，没被 P5-b 的前瞻抢走 ──────────────
+    int x = 1;
+    int y = 2;
+    Assert.True(x < y);
+    Assert.Equal(3, (x < y) ? 3 : 4);
+
+    // ── 阴性对照 ③：实例字段仍是每对象一份，不受静态分槽影响 ────────────
+    a1.V = 11;
+    a2.V = 22;
+    Assert.Equal(11, a1.V);
+    Assert.Equal(22, a2.V);
+}

@@ -68,10 +68,7 @@ public sealed partial class ExprEmitter {
             i = i + 1;
         }
         string cand = StructLayout.InstName(this._instBaseName(inst.Def), argNames, inst.ArgCount);
-        // ← 闸门：实例化布局**确实不同于定义布局**才特化成员与布局查询。
-        // 相同则共享定义那份成员体——它按定义偏移烘焙，而布局既然相同，偏移就对得上。
-        // 注意这**不影响类型身份**：身份走 `_instIdentityName`，所有实例化一律独立（User 裁决）。
-        if (!ly.InstDiffersFromDef(cand)) { return ""; }
+        if (!this._ctx.Gen.InstNeedsOwnBody(cand)) { return ""; }
         return cand;
     }
 
