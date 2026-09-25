@@ -4,6 +4,7 @@ namespace Z42.Driver;
 using Std;
 using Std.IO;
 using Z42.Syntax;
+using Z42.Core;      // LanguageFeatures
 using Z42.Semantics;
 using Z42.Project;
 using Z42.IR;
@@ -17,7 +18,8 @@ using Z42.Pipeline;
 // cache 是性能优化：写失败（如 Windows 路径怪癖）绝不能让构建失败，降级为下次全量即可。
 void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, string cacheDirOverride,
                       string[] srcs, string[] texts, string[] srcHashes, CompiledModuleZ[] cms, ZbcFileZ[] mods,
-                      IncrPrep prep, NameListZ[] metaIdents, NameSurfacesZ[] metaSurfaces, string depsId) {
+                      IncrPrep prep, NameListZ[] metaIdents, NameSurfacesZ[] metaSurfaces, string depsId,
+                      LanguageFeatures feats) {
     try {
         string cacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
         int i = 0;
@@ -29,7 +31,7 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
         }
         // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
         IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,
-                                     cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces, depsId);
+                                     cms, mods, prep != null ? prep.Plan : null, metaIdents, metaSurfaces, depsId, feats);
         // 显示用相对形式（`./artifacts/debug/.cache`）——与同一屏的 `wrote -> ./dist/…` 对齐；
         // 实际写入仍用绝对的 cacheDir。
         BuildLog.ProgressErr("cache -> " + BuildLayout.Display(cacheDir) + " (" + srcs.Length.ToString() + " files)");

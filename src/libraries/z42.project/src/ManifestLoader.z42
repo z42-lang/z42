@@ -47,6 +47,7 @@ public static class ManifestLoader {
                                    benches, benches.Length,
                                    examples, examples.Length);
         ManifestLoader._parseOptimize(root, pm);   // [optimize] 逐 pass 具名开关（构造后填，见 ProjectManifest）
+        ManifestLoader._parseSyntax(root, pm);     // [syntax] 语法特性开关（构造后填，见 ProjectManifest）
         ManifestLoader._parseAnalyzers(root, pm);   // [analyzers] 编译期 handler zpkg 引用（同构造后填）
         ManifestLoader._parseLints(root, pm);       // [lints] 诊断规则开关 / severity 覆盖（同构造后填）
         ManifestLoader._parseNative(root, pm);       // [native.*] 本包携带的私有 native 库（同构造后填）
@@ -141,6 +142,25 @@ public static class ManifestLoader {
             i = i + 1;
         }
         pm.OptimizeNames = names; pm.OptimizeValues = vals; pm.OptimizeCount = keys.Length;
+    }
+
+    // ── [syntax] ─────────────────────────────────────────────────────────────
+    // `[syntax]` 段逐项 bool（`control_flow = false` / `pattern_match = true` …）→ 中性 name/value 对。
+    // z42.project 不认识特性名的语义（避免与 `LanguageFeatures` 的名单耦合）；消费方
+    // （z42c.driver 的 `Main._build`）喂给 `LanguageFeatures`，**未知名在那里报错**。
+    private static void _parseSyntax(TomlValue root, ProjectManifest pm) {
+        if (!root.ContainsKey("syntax")) { return; }
+        var sy = root.Get("syntax");
+        string[] keys = sy.Keys();
+        string[] names = new string[keys.Length];
+        bool[]   vals  = new bool[keys.Length];
+        int i = 0;
+        while (i < keys.Length) {
+            names[i] = keys[i];
+            vals[i]  = sy.Get(keys[i]).AsBool();
+            i = i + 1;
+        }
+        pm.SyntaxNames = names; pm.SyntaxValues = vals; pm.SyntaxCount = keys.Length;
     }
 
     /// 从文件路径加载 workspace 清单。

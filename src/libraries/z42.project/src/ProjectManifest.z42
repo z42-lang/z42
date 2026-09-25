@@ -33,6 +33,12 @@ public sealed class ProjectManifest {
     // 的 Opt 位（Opt.ByName）建 tomlBits/tomlMask 交 Opt.Resolve。z42.project **不**耦合 Opt 位值。
     // 可变公字段（默认空，ManifestLoader 构造后填），避免撑大已 20 参的构造函数。
     public string[] OptimizeNames; public bool[] OptimizeValues; public int OptimizeCount;
+    // ── [syntax] 语法特性开关（add-l0-protocol-table 批 1）────────────────────
+    // 中性 name/value 对（如 `control_flow = false`）；消费方（z42c.driver）按名喂给
+    // `LanguageFeatures`、解析器据此发 E0301。z42.project **不**认识特性名的语义，只搬运
+    // —— 同 OptimizeNames / LintNames 的形态。可变公字段（默认空，ManifestLoader 构造后填）。
+    // 🔴 未知特性名由**消费方**报错、不静默忽略（同 `Opt.ByName` 的口径）：这里只搬。
+    public string[] SyntaxNames; public bool[] SyntaxValues; public int SyntaxCount;
     // ── [analyzers] 编译期 handler zpkg 引用（attribute-handler-registry D9）─────
     // 独立引用段：声明「加载进编译器、编译期运行、不链入目标程序」的 analyzer/generator zpkg
     // （与 [dependencies] 物理分开）。中性 DepEntry（name+version）；消费方（z42c）按名在 LibsDirs
@@ -77,6 +83,7 @@ public sealed class ProjectManifest {
         this.Benches = benches; this.BenchCount = benchCount;
         this.Examples = examples; this.ExampleCount = exampleCount;
         this.OptimizeNames = new string[0]; this.OptimizeValues = new bool[0]; this.OptimizeCount = 0;
+        this.SyntaxNames = new string[0]; this.SyntaxValues = new bool[0]; this.SyntaxCount = 0;
         this.Analyzers = new DepEntry[0]; this.AnalyzerCount = 0;
         this.LintNames = new string[0]; this.LintSeverities = new string[0]; this.LintCount = 0;
         this.LintWarningsAsErrors = false;

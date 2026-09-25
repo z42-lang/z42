@@ -46,6 +46,9 @@ public sealed class CompileInputs {
     // add-compiler-inlining：可独立开关的优化集（OptSet 位）。-1 = 未显式设置 → 取 profile 默认
     // （release=All / debug=None）。Z42cCompiler 解析 toml/CLI 后显式设置以覆盖。
     public int OptSet;
+    // add-l0-protocol-table 批 1：`[syntax]` 解出的语法特性开关（driver 建好后塞进来）。
+    // **可空 = 全开** —— 未接线的调用方（单测 / REPL / 自举预建）不受影响。
+    public LanguageFeatures Features;
     // 依赖解析（磁盘目录——design D3；DeclaredDeps 是依赖名白名单，DepIndex 过滤用）
     public string[] LibsDirs; public int LibsDirsN;
     public string[] HiddenPkgs; public int HiddenN;   // workspace-read-cache：不可见包名（拓扑序在后的成员）；null/0 = 全可见
@@ -91,6 +94,7 @@ public sealed class CompileInputs {
     public bool Fix;
     public CompileInputs() {
         this.CachedScan = null; this.OptSet = -1;
+        this.Features = null;
         this.AnalyzerZpkgs = new string[0]; this.AnalyzerZpkgCount = 0;
         this.Lints = null;
         this.Generators = new Generator[0]; this.GeneratorCount = 0;
