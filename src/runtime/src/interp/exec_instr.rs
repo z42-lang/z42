@@ -83,7 +83,7 @@ pub fn exec_instr(
         Instruction::Copy      { dst, src } => exec_value::copy(frame, *dst, *src)?,
 
         // ── Arithmetic ───────────────────────────────────────────────────────
-        Instruction::Add { dst, a, b } => exec_value::add(ctx, frame, *dst, *a, *b)?,
+        Instruction::Add { dst, a, b } => exec_value::add(ctx, module, frame, *dst, *a, *b)?,
         Instruction::Sub { dst, a, b } => exec_value::sub(frame, *dst, *a, *b)?,
         Instruction::Mul { dst, a, b } => exec_value::mul(frame, *dst, *a, *b)?,
         Instruction::Div { dst, a, b } => {

@@ -1,4 +1,4 @@
-Std.Collections.List{...}
+List
 ok
 1
 ok

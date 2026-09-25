@@ -259,7 +259,55 @@ pub fn obj_to_string(ctx: &VmContext, module: &Module, val: &Value) -> Result<St
                 &[val.clone()])
             .map(|v| match v { Value::Str(s) => s.to_string(), other => value_to_str(&other) });
     }
+    // dispatch-tostring-in-native-stringify: **装箱**接收者（值 struct 装箱 / 基元装箱 / enum 盒）。
+    // 复用 `resolve_vcall` 的整套判据 —— 它已经把三种盒各自的正确答案都定好了：
+    // enum → 成员名、基元 → 标量、struct → 自身槽位的 `ToString`（没有才短类型名），
+    // 且**刻意不回落 `Std.Object.ToString`**（那个 builtin 收装箱 struct 直接抛
+    // `__obj_to_str: expected an object`）。自己再写一份判据必然与它漂移。
+    if matches!(val, Value::BoxedStruct(_)) {
+        let r = super::vcall_resolve::resolve_vcall(ctx, module, val, "ToString", 0, None)?;
+        let imm = |v: Value| match v { Value::Str(s) => s.to_string(), other => value_to_str(&other) };
+        return match r.target {
+            super::vcall_resolve::VCallTarget::Immediate(v) => Ok(imm(v)),
+            super::vcall_resolve::VCallTarget::Thrown(v) => Ok(format!("<exception: {}>", value_to_str(&v))),
+            super::vcall_resolve::VCallTarget::Local(idx) => match module.functions.get(idx) {
+                Some(f) => exec_to_string(ctx, module, f, &r.this),
+                None => Ok(value_to_str(val)),
+            },
+            super::vcall_resolve::VCallTarget::Lazy(f) => exec_to_string(ctx, module, f.as_ref(), &r.this),
+        };
+    }
     Ok(value_to_str(val))
+}
+
+/// dispatch-tostring-in-native-stringify: 跑一个已解析出的 `ToString` 目标并把结果化成串。
+/// 与 `obj_to_string` 的 object 分支同款结果映射（抛出 → `<exception: …>`，不往外传）——
+/// 字符串化是展示路径，让 `WriteLine` 变成可抛点是独立取舍（登记 Deferred）。
+fn exec_to_string(
+    ctx: &VmContext, module: &Module, callee: &crate::metadata::Function, this: &Value,
+) -> Result<String> {
+    match super::exec_function(ctx, module, callee, &[this.clone()])? {
+        super::ExecOutcome::Returned(Some(Value::Str(s))) => Ok(s.to_string()),
+        super::ExecOutcome::Returned(Some(other))         => Ok(value_to_str(&other)),
+        super::ExecOutcome::Returned(None)                => Ok(String::new()),
+        super::ExecOutcome::Thrown(v)                     => Ok(format!("<exception: {}>", value_to_str(&v))),
+    }
+}
+
+/// dispatch-tostring-in-native-stringify: `obj_to_string` 的 **ctx-only** 包装 —— 给手里只有
+/// `&VmContext` 的 native 落点用（`Console.WriteLine` 一族 builtin、字符串拼接的混合臂）。
+///
+/// 此前这些落点直接用无 ctx 的 `value_to_str` ⇒ 对象一律打 `类型名{...}`，于是同一个对象
+/// 「插值对、`WriteLine` 错」。`module` 从 `ctx.core.module` 取（与 `reflection/invoke.rs`
+/// 的取法同源）；取不到（未装载模块的宿主场景）就回落 `value_to_str`，不为展示路径制造失败。
+pub fn stringify_dispatch(ctx: &VmContext, val: &Value) -> Result<String> {
+    match ctx.core.module.as_ref() {
+        Some(m) => {
+            let m = m.clone();
+            obj_to_string(ctx, m.as_ref(), val)
+        }
+        None => Ok(value_to_str(val)),
+    }
 }
 
 // ── Virtual method resolution (fallback) ─────────────────────────────────────

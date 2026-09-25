@@ -12,9 +12,13 @@
 // handle；未自声明 → `__box_struct` + VCall），与 `CallEmitter` 的 struct 实例方法调用同一分流；
 // VM 侧的短路改为**先探候选**，有真实现就用，没有才回落短类型名。
 //
-// ⚠️ 仍未修（另开）：`Console.WriteLine(x)` 对 struct / class / record **一律**打 `类型名{...}`
-// —— 那条走 `builtin_println` → `value_to_str`，要让 native builtin 重入 VM 派发，涉及 GC 根与
-// 可重入性，不在本次范围。故本文件**不钉 WriteLine**。
+// ✅ 上面那条「另开」已由 dispatch-tostring-in-native-stringify（2026-09-25）做掉：
+// `Console.WriteLine(x)` 与**拼接对 class / record / 单字段 struct** 现在都派发用户 `ToString`。
+// 钉它的是 Dir 模式用例 `structs/tostring_native_paths/`（WriteLine 只能比对 stdout，Assert 断不了）。
+// ⚠️ 本文件当年的判断「涉及 GC 根与可重入性」**前提是错的**：路 ② 走的 `obj_to_string` 一直在
+// `exec_function` 重入 VM，重入不是新风险，只是 `builtin_println` / `exec_value::add` 没接上它。
+// ⚠️ 本文件的 struct 都是**双字段**（blob）——单字段 struct 走的是引用路，当年那一支全漏，
+// 现由新用例覆盖。改这里的断言前先想清楚测的是哪一支。
 namespace Demo;
 
 struct P {

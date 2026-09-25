@@ -15,6 +15,18 @@ use super::{set_exception, vm_ctx_ref};
 // C# unchecked / Java int / Rust release default 一致。Div/Rem 不变（panic
 // on /0 是不同语义）。
 
+/// dispatch-tostring-in-native-stringify: JIT 侧的字符串化 —— 对象/装箱 struct 走
+/// `stringify_dispatch`（派发用户 `ToString`），其余走裸 `value_to_str`。
+/// 与 interp `exec_value::add` 的 `concat_str` 闭包一一对应。
+#[inline]
+unsafe fn jit_stringify(ctx: *const JitModuleCtx, v: &Value) -> anyhow::Result<String> {
+    match v {
+        Value::Object(_) | Value::BoxedStruct(_) =>
+            crate::interp::dispatch::stringify_dispatch(vm_ctx_ref(ctx), v),
+        other => Ok(value_to_str(other)),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_add(
     frame: *mut JitFrame, ctx: *const JitModuleCtx,
@@ -35,8 +47,16 @@ pub unsafe extern "C" fn jit_add(
         let vb = &regs[b as usize];
         match (va, vb) {
             (Value::Str(sa), Value::Str(sb)) => Value::Str(format!("{}{}", sa, sb).into()),
-            (Value::Str(sa), vb) => Value::Str(format!("{}{}", sa, value_to_str(vb)).into()),
-            (va, Value::Str(sb)) => Value::Str(format!("{}{}", value_to_str(va), sb).into()),
+            // dispatch-tostring-in-native-stringify: interp `exec_value::add` 混合臂的 JIT 对称件
+            // —— 对象/装箱 struct 操作数派发用户 `ToString`（只补一侧的话热代码与解释器不一致）。
+            (Value::Str(sa), vb) => match jit_stringify(ctx, vb) {
+                Ok(t)  => Value::Str(format!("{}{}", sa, t).into()),
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+            },
+            (va, Value::Str(sb)) => match jit_stringify(ctx, va) {
+                Ok(t)  => Value::Str(format!("{}{}", t, sb).into()),
+                Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }
+            },
             _ => match semantics::int_binop(va, vb, i64::wrapping_add, |x, y| x + y) {
                 Ok(r)  => r,
                 Err(e) => { set_exception(vm_ctx_ref(ctx), Value::Str(e.to_string().into())); return 1; }

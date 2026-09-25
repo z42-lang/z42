@@ -49,14 +49,27 @@ pub(super) fn copy(frame: &mut Frame, dst: u32, src: u32) -> Result<()> {
 
 // ── Arithmetic ───────────────────────────────────────────────────────────
 
-pub(super) fn add(ctx: &VmContext, frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
+pub(super) fn add(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32,
+) -> Result<()> {
+    // dispatch-tostring-in-native-stringify: 混合臂（一侧是字符串）此前用无 ctx 的
+    // `value_to_str` ⇒ `"" + obj` 打 `类型名{...}`，而 `$"{obj}"`（`ToStr` 指令 →
+    // `obj_to_string`）是对的。fix-struct-tostring-paths 在**编译期**补过这条路，但只补了
+    // `_isBlobStruct`（字段数 ≥ 2）那一支 ⇒ class / record / **单字段** struct 全漏。
+    // 这里接上同一个 `obj_to_string`，四条路收敛。两条快路（Str+Str 融合分配 / 整数）不动。
+    let concat_str = |v: &Value| -> Result<String> {
+        match v {
+            Value::Object(_) | Value::BoxedStruct(_) => super::dispatch::obj_to_string(ctx, module, v),
+            other => Ok(value_to_str(other)),
+        }
+    };
     let result = match (frame.get(a)?, frame.get(b)?) {
         // fuse-str-concat-alloc: allocate the concatenation as one fused GC block,
         // skipping the intermediate `format!` String (mixed arms still build one
         // `String` for the non-string operand via `value_to_str`).
         (Value::Str(sa), Value::Str(sb)) => Value::Str(ctx.heap().alloc_str_concat2(sa, sb)),
-        (Value::Str(sa), vb)             => Value::Str(ctx.heap().alloc_str_concat2(sa, &value_to_str(vb))),
-        (va, Value::Str(sb))             => Value::Str(ctx.heap().alloc_str_concat2(&value_to_str(va), sb)),
+        (Value::Str(sa), vb)             => { let sa = sa.clone(); let t = concat_str(vb)?; Value::Str(ctx.heap().alloc_str_concat2(&sa, &t)) }
+        (va, Value::Str(sb))             => { let sb = sb.clone(); let t = concat_str(va)?; Value::Str(ctx.heap().alloc_str_concat2(&t, &sb)) }
         // 2026-04-28 vm-wrapping-int-arith: wrapping_add（与 Rust release build /
         // C# unchecked int / Java int 一致），解锁 hash / PRNG / 校验和算法
         _ => int_binop(&frame.regs, a, b, i64::wrapping_add, |x, y| x + y)?,
