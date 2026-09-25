@@ -29,6 +29,17 @@ class OneBox : IBox {
     public One Get() { return new One(7); }
 }
 
+// ── 虚覆盖一致性：基类实现接口、子类 override 同一方法 ──────────────────
+// 标记打在**声明接口的那个类**（Base）上，子类的 override 是另一个 MethodSymbol、从不经过接口
+// 满足性校验 ⇒ 不把标记沿基链下推，就会出现「Base 改名+桥接，Derived 覆盖仍占裸名且带 sret」，
+// 对 Derived 实例走接口派发时同一个崩溃换个入口回来（实测过：`Derived.Get … passes 1`）。
+class VBase : IBox {
+    public virtual Two Get() { return new Two(1); }
+}
+class VDerived : VBase {
+    public override Two Get() { return new Two(2); }
+}
+
 // ── 泛型档：实例化返回类型（`MyIter<T>`），blob 名要经 `_blobStructName` 解 ──
 interface IMyIter<T> { bool MoveNext(); T Current { get; } void Dispose(); }
 interface IMyEnum<T> { IMyIter<T> GetEnumerator(); }
@@ -58,6 +69,12 @@ void Main() {
     Impl concrete = new Impl();
     Two two = concrete.Get();
     Assert.Equal(11, two.V());
+
+    // 虚覆盖：经接口派发到子类覆盖（拿 2 而非基类的 1），且 Base 静态类型的直接调用也要对
+    IBox vb = new VDerived();
+    Assert.Equal(2, vb.Get().V());
+    VBase vbase = new VDerived();
+    Assert.Equal(2, vbase.Get().V());
 
     // 泛型档 + foreach 经接口静态类型（foreach 脱糖后就是经接口调 GetEnumerator）
     IMyEnum<int> e = new MyColl<int>(9);
