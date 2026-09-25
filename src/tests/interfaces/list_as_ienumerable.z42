@@ -49,6 +49,15 @@ void Main() {
     // ② 手写 enumerator 循环：MoveNext / Current / Dispose 三个接口成员都过一遍
     Assert.Equal(3, CountViaEnumerator(xs));
 
+    // ④ **跨包直接调用**：以 `List<int>` 静态类型直接调 `GetEnumerator()` —— 必须解析到导入包里
+    // 的 `GetEnumerator$struct`（返回具体 struct、走 sret），而不是裸名那个桥接。
+    // 这条专覆盖「桥接改名后导入侧的调用目标名跟没跟上」：`List<T>` 在 z42.core、本测试在另一个
+    // 包 ⇒ 走 imported 符号那条路，与本包内的直接调用不是同一段代码。
+    ListEnumerator<int> raw = xs.GetEnumerator();
+    int rawCount = 0;
+    while (raw.MoveNext()) { rawCount = rawCount + 1; }
+    Assert.Equal(3, rawCount);
+
     // 空表也要对（enumerator 首次 MoveNext 即 false）
     var empty = new List<int>();
     Assert.Equal(0, SumViaIface(empty));

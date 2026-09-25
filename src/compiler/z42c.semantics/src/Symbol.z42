@@ -80,6 +80,11 @@ public sealed class MethodSymbol {
     // ⚠️ 本方法是 no-op-safe：未桥接时逐字返回 `RegKey`，所以**所有**以 RegKey 作调用目标名的
     // 站点都该改用它（宁可多改一处，也不要漏一处——漏的那处是静默走错方法）。
     public string CallKey() {
+        // 幂等守卫：**导入**符号的 `RegKey` 本身就可能是 `m$struct`（TSIG 按发射名反推方法表，
+        // `$struct` 与桥接两个名字都在里面）。那条路上 `IfaceBridgeRet` 恒空、本不会追加，
+        // 但只要哪天有人给导入符号也打上标记，就会得到 `m$struct$struct`
+        // （实测踩过：`VCall: function …GetEnumerator$struct$struct not found`）。
+        if (this.RegKey.EndsWith("$struct")) { return this.RegKey; }
         if (this.IfaceBridgeRet != "") { return this.RegKey + "$struct"; }
         return this.RegKey;
     }

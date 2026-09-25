@@ -43,16 +43,19 @@ class VDerived : VBase {
 // ── 泛型档：实例化返回类型（`MyIter<T>`），blob 名要经 `_blobStructName` 解 ──
 interface IMyIter<T> { bool MoveNext(); T Current { get; } void Dispose(); }
 interface IMyEnum<T> { IMyIter<T> GetEnumerator(); }
-[Record] struct MyIter<T>(T _one) : IMyIter<T> {
-    int _n;
-    public bool MoveNext() { this._n = this._n + 1; return this._n == 1; }
-    public T Current { get { return this._one; } }
+// ⚠️ 字段用 `T[]`（引用）而**不是**裸 `T`：`[Record] struct X<T>(T _f)` 这种**型参主构造器
+// 字段**从方法返回后会读出零值 —— 这是与本 change 无关的**既有**缺陷（同 main 基线实测一致：
+// `ia.Current` 读 0 而非 7）。踩上它会让本 fixture 因为别的 bug 变红、指向错误的方向。
+[Record] struct MyIter<T>(T[] _xs) : IMyIter<T> {
+    int _pos;
+    public bool MoveNext() { this._pos = this._pos + 1; return this._pos <= this._xs.Length; }
+    public T Current { get { return this._xs[this._pos - 1]; } }
     public void Dispose() { }
 }
 class MyColl<T> : IMyEnum<T> {
-    T _v;
-    public MyColl(T v) { this._v = v; }
-    public MyIter<T> GetEnumerator() { return new MyIter<T>(this._v); }
+    T[] _xs;
+    public MyColl(T[] xs) { this._xs = xs; }
+    public MyIter<T> GetEnumerator() { return new MyIter<T>(this._xs); }
 }
 
 void Main() {
@@ -77,8 +80,20 @@ void Main() {
     Assert.Equal(2, vbase.Get().V());
 
     // 泛型档 + foreach 经接口静态类型（foreach 脱糖后就是经接口调 GetEnumerator）
-    IMyEnum<int> e = new MyColl<int>(9);
+    IMyEnum<int> e = new MyColl<int>(new int[] { 9 });
     int sum = 0;
     foreach (int v in e) { sum = sum + v; }
     Assert.Equal(9, sum);
+
+    // 泛型档 + **具体静态类型直接调**：这条与上面 foreach 走的是不同绑定路径
+    // （`MemberResolver` 的泛型实例化收者分支），此前它用 `itms.RegKey`（裸名）而调用点按具体
+    // 返回类型传了 sret ⇒ `MyColl.GetEnumerator … takes 1 physical argument(s), the call passes 2`。
+    // ⭐ 判别靠**值语义**而不是看 IR：`--dump-ir` 在这条路上不加载导入符号，读它会被误导。
+    // struct 是值类型 ⇒ 拷贝后两者独立；若错走桥接拿到装箱别名，两者同体、下面就会读出 9。
+    MyColl<int> mc = new MyColl<int>(new int[] { 7, 8 });
+    MyIter<int> ia = mc.GetEnumerator();
+    MyIter<int> ib = ia;      // 值拷贝
+    ia.MoveNext();            // 只推进 ia
+    ib.MoveNext();            // ib 独立 ⇒ 这是它的第一次
+    Assert.Equal(7, ib.Current);
 }
