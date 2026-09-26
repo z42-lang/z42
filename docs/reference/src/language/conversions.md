@@ -32,7 +32,7 @@ z42 的类型转换体系借鉴 C#（隐式 / 显式），但**比 C# 更严、�
 | `ExplicitNumeric` | 数值窄化 **或** 有损浮点 | ✗（要求 `(T)`）|
 | `Boxing` | 值类型 → `object`/接口 | ✓ |
 | `Unboxing` | `object`/接口 → 值类型 | ✗（要求 `(T)`）|
-| `ImplicitRef` | 引用上转（派生→基、类→接口、`null`→引用、任意→`object`）| ✓ |
+| `ImplicitRef` | 引用上转（派生→基、类→接口、**接口→祖先接口**、`null`→引用、任意→`object`）| ✓ |
 | `ExplicitRef` | 引用下转（基→派生）| ✗（要求 `(T)`）|
 | `UserImplicit` / `UserExplicit` | 用户自定义转换运算符（PR3）| 隐式 ✓ / 显式 ✗ |
 
