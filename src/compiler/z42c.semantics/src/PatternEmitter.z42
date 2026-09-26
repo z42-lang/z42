@@ -41,7 +41,7 @@ public sealed class PatternEmitter {
         }
         if (pat is BoundTypePattern) {
             BoundTypePattern tp = pat as BoundTypePattern;
-            string qn = this._qual(tp.TypeName);
+            string qn = this._qual(tp.BoundType, tp.TypeName);
             TypedReg isR = this._ctx.Alloc(IrType.Bool);
             this._ctx.Emit(new IsInstanceInstr(isR, subj, qn));
             if (tp.Bind != "") {
@@ -61,24 +61,24 @@ public sealed class PatternEmitter {
             BoundPositionalPattern pp = pat as BoundPositionalPattern;
             // complete-struct：boxed struct subject（object/接口持装箱 struct）→ IsInstance + AsCast 拆箱后直读。
             if (pp.Boxed) {
-                this._emitBoxedStructSeq(subj, pp.Type, this._qual(pp.TypeName), pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
+                this._emitBoxedStructSeq(subj, pp.Type, this._qual(pp.Type, pp.TypeName), pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
                 return;
             }
             // struct record：subject 静态即该 struct（binder 已保证），类型已知 → 不发 IsInstance（值类型不入
             // IsInstance）；class record → IsInstance 保多态。字段读由 _emitFieldSeq 按 container 分派（特性 3）。
             bool needTest = !this._ee._isBlobStruct(pp.Type);
-            this._emitFieldSeq(subj, pp.Type, this._qual(pp.TypeName), needTest, pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
+            this._emitFieldSeq(subj, pp.Type, this._qual(pp.Type, pp.TypeName), needTest, pp.FieldNames, pp.FieldTypes, pp.Elems, pp.ElemCount, matchL, failL);
             return;
         }
         if (pat is BoundPropertyPattern) {
             BoundPropertyPattern pp = pat as BoundPropertyPattern;
             if (pp.Boxed) {   // complete-struct：boxed struct 属性解构（HasType 恒真，拆箱后按名读）
-                this._emitBoxedStructSeq(subj, pp.Type, this._qual(pp.TypeName), pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
+                this._emitBoxedStructSeq(subj, pp.Type, this._qual(pp.Type, pp.TypeName), pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
                 return;
             }
             bool needTest = pp.HasType && !this._ee._isBlobStruct(pp.Type);
             string qn = "";
-            if (needTest) { qn = this._qual(pp.TypeName); }
+            if (needTest) { qn = this._qual(pp.Type, pp.TypeName); }
             this._emitFieldSeq(subj, pp.Type, qn, needTest, pp.FieldNames, pp.FieldTypes, pp.Pats, pp.FieldCount, matchL, failL);
             return;
         }
@@ -138,7 +138,7 @@ public sealed class PatternEmitter {
                 this.EmitMatch(subj, ap.Sub, atL, failL);
                 this._ctx.StartBlock(atL);
                 TypedReg aReg = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new AsCastInstr(aReg, subj, this._qual(ap.TypeName)));
+                this._ctx.Emit(new AsCastInstr(aReg, subj, this._qual(ap.Type, ap.TypeName)));
                 this._ctx.Locals.Put(ap.Name, aReg);
                 this._ctx.EndBlock(new BrTerm(matchL));
                 return;
@@ -293,10 +293,20 @@ public sealed class PatternEmitter {
     }
 
     // 类型名 FQ 化（镜像 _emitIs：基元别名 → 包装类；内建根类硬编码）。
-    private string _qual(string typeName) {
-        string qn = this._ctx.QualifyTypeName(typeName);
-        if (qn == "Array") { qn = "Std.Array"; }
-        else if (qn == "Object") { qn = "Std.Object"; }
-        return qn;
+    // complete-generic-class-identity P2：模式的类型测试也必须**携类型实参**。
+    //
+    // 走 `ExprEmitter._typeTestName` —— 与 `is` / `as` / cast **同一个出口**。此前这里自己写了
+    // 一份 `QualifyTypeName` + Array/Object 归一，P2 只改了 `TypeOpEmitter` 那份，于是同一个
+    // 问题两个答案（实测）：
+    //   object o = new Box<int>(1);
+    //   o is Box<string>            → false  ✅
+    //   switch (o) { case Box<string> b: … }  → **匹配上**，`b` 拿到一个装着 int 的 Box<string>
+    // 后者是**静默**的，还会把错类型漏给下游。
+    //
+    // `resolved` 由 binder 填好挂在模式节点上（`BoundTypePattern.BoundType` /
+    // `BoundPositionalPattern.Type` / `BoundPropertyPattern.Type` / `BoundAtPattern.Type`），
+    // 不需要新字段。
+    private string _qual(Z42Type resolved, string typeName) {
+        return this._ee._typeTestName(resolved, typeName);
     }
 }

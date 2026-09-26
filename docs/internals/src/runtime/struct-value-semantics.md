@@ -885,6 +885,35 @@ fn @Demo.G<P2>.Get(1) -> T {
 用例：`src/tests/generics/generic_class_identity.z42`（B/D 两格 + **五条阴性对照**：
 擦除名 `is GBox`、接口代换、派生类两个方向、开放泛型基、反射仍视其为构造泛型类型）。
 
+### 🔴 类型测试的目标名只能有一个出口（2026-09-26，本线收尾）
+
+`is` / `as` / cast / **模式匹配** 问的是同一个问题：「这个值是不是那个类型」。
+它们的目标名此前有**两份**实现 —— `TypeOpEmitter` 与 `PatternEmitter` 各写了一遍
+「`QualifyTypeName` + Array/Object 归一」。P2 只改了前者，于是：
+
+```z42
+object o = new Box<int>(1);
+o is Box<string>                      // → false   ✅
+switch (o) { case Box<string> b: … }  // → **匹配上**，b 拿到装着 int 的 Box<string>
+```
+
+**同一个问题两个答案**，而且后者是静默的、还把错类型漏给下游。三种模式形态
+（类型模式 / 位置模式 / is-结构化模式）与属性模式实测全中。
+
+> ⚠️ 修前两侧是「都错但一致」（都用擦除名）。P2 只改一侧 ⇒ **引入了不一致** ——
+> 不一致比一致的错误更难查，这是「同一判据散在多处」最贵的一种形态。
+
+现在唯一出口是 `ExprEmitter._typeTestName(resolved, astName)`：
+优先 `_instIdentityName`（与描述符 / `ObjNew` / 数组元素名同源），算不出来才回落 AST 名
+（那条回落是给内建类 / 跨包泛型 / 开放泛型的，`ResolveType` 对它们得 Unknown）。
+模式节点本就带着 binder 解析好的类型（`BoundTypePattern.BoundType` /
+`BoundPositionalPattern.Type` / `BoundPropertyPattern.Type` / `BoundAtPattern.Type`），
+**不需要新字段**。
+
+⚠️ **既有用例 `pattern_generic.z42` 一直绿着**，因为它只测「正确实例化能匹配」——
+判别力全在**阴性**那半。新用例 `pattern_generic_identity.z42` 六格全是阴性形态，
+且**撤回修复本身验过会变红**。
+
 ### 🔴 静态成员按闭合类型各一份（complete-generic-class-identity P3 + P5-b，2026-09-25）
 
 C# 里 `GBox<int>.Count` 与 `GBox<string>.Count` 是**两个槽**。z42 修前两侧都按擦除名拼键

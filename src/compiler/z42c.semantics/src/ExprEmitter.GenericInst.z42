@@ -217,6 +217,30 @@ public sealed partial class ExprEmitter {
         return PrimModel.Canon(n);   // `Int32` / `Std.Int32` → `int`（布局缓存与 IsStructType 均按 Canon 键）
     }
 
+    // complete-generic-class-identity P2：**类型测试的目标名**（`is` / `as` / cast / 模式匹配共用）。
+    //
+    // AST 原始名（`NamedType.Name`）**丢掉类型实参** —— `x is GBox<int>` 与 `x is GBox<string>`
+    // 会发同一个名字 `GBox`，而运行期按名字符串比（`dispatch.rs` 的 `is_subclass_or_eq_td`）。
+    // 实例化有了独立身份之后这必然错。
+    //
+    // ⭐ **这是唯一出口**：`TypeOpEmitter`（is/as/cast）与 `PatternEmitter`（类型模式 / 位置模式 /
+    // 属性模式）都调它。此前两处各写一份 `QualifyTypeName(...)` + Array/Object 归一 ——
+    // P2 只改了前者，于是 `o is GBox<string>` 说 false、`case GBox<string>` 却匹配上，
+    // **同一个问题两个答案**（实测）。
+    //
+    // 算不出实例化身份（内建类 / 跨包泛型 / 开放泛型）→ 回落 AST 名，那正是 `TypeName`
+    // 当初存在的理由（`ResolveType` 得 Unknown → `<unknown>` 会失配）。
+    internal string _typeTestName(Z42Type resolved, string astName) {
+        if (resolved != null) {
+            string idn = this._instIdentityName(resolved);
+            if (idn != "") { return this._qualifyInstName(idn); }
+        }
+        string qn = this._ctx.QualifyTypeName(astName);   // 基元别名 → FQ 包装类（fix-boxed-primitive-is-as）
+        if (qn == "Array") { return "Std.Array"; }        // 内建根类（VM 硬编码 Std.Array/Std.Object）
+        if (qn == "Object") { return "Std.Object"; }
+        return qn;
+    }
+
     // 实例化短名 → FQ 名：**只限定基名、实参原样**（`Pair<P2,int>` → `Demo.Pair<P2,int>`）。
     // 与 `_qualifyElemName`（数组元素名）同一约定，也与合成描述符的注册键（ns + 短实例化名）对齐。
     internal string _qualifyInstName(string instName) {
