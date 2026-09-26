@@ -1834,3 +1834,59 @@ fn gc_loh_bytes_parses_the_same_suffixes_as_gc_max_bytes() {
         assert_eq!(cfg.gc_loh_bytes, want, "Z42_GC_LOH_BYTES={raw:?}");
     }
 }
+
+// ── probing-paths 的 TOML 数组形态（2026-09-26）────────────────────────────────
+//
+// 守的是什么：路径列表的分隔符平台相关（unix `:` / win `;`），所以「在清单里写多条」一旦落成
+// 一个字符串就绑死了一个平台（#842 的 windows 红）。数组形态让清单无歧义，**摊平只发生在
+// 运行这个应用的那台机器上** —— 下面的断言按 `cfg!(windows)` 取期望分隔符，正是在钉这一点。
+#[test]
+fn pathlist_knob_accepts_toml_array_joined_with_host_separator() {
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let table: toml::Table = toml::from_str(
+        "probing-paths = [\"../a\", \"../b\", \"../c\"]",
+    )
+    .expect("array table parses");
+    let v = table.get("probing-paths").expect("key present");
+    assert_eq!(
+        crate::config::parse::toml_value_to_string(v, ValueKind::PathList),
+        Some(format!("../a{sep}../b{sep}../c")),
+        "PathList 数组按**本机**分隔符摊平"
+    );
+}
+
+#[test]
+fn pathlist_array_trims_and_drops_empty_entries() {
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let table: toml::Table =
+        toml::from_str("probing-paths = [\"  ../a  \", \"\", \"   \", \"../b\"]").unwrap();
+    let v = table.get("probing-paths").unwrap();
+    assert_eq!(
+        crate::config::parse::toml_value_to_string(v, ValueKind::PathList),
+        Some(format!("../a{sep}../b")),
+        "空串/纯空白项不该变成一条空路径"
+    );
+}
+
+#[test]
+fn pathlist_empty_array_reads_as_unset() {
+    let table: toml::Table = toml::from_str("probing-paths = []").unwrap();
+    let v = table.get("probing-paths").unwrap();
+    assert_eq!(
+        crate::config::parse::toml_value_to_string(v, ValueKind::PathList),
+        None,
+        "空数组 = 没配（而不是配了一条空路径）"
+    );
+}
+
+// 数组只对 PathList 合法 —— 否则 `gc-mode = ["a","b"]` 会被悄悄摊成一个字符串再去解析。
+#[test]
+fn array_is_still_invalid_for_non_pathlist_knobs() {
+    let table: toml::Table = toml::from_str("gc-mode = [\"concurrent\", \"stw\"]").unwrap();
+    let v = table.get("gc-mode").unwrap();
+    assert_eq!(
+        crate::config::parse::toml_value_to_string(v, ValueKind::Str),
+        None,
+        "非 PathList 的数组仍是非法旋钮值"
+    );
+}

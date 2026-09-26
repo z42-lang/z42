@@ -33,6 +33,39 @@ pub(super) fn toml_scalar_to_string(v: &toml::Value) -> Option<String> {
     }
 }
 
+/// 同上，但 **`PathList` 旋钮额外接受 TOML 数组**（`probing-paths = ["../a", "../b"]`）。
+///
+/// # 为什么数组必须在**这一层**摊平
+///
+/// 路径列表的分隔符是**平台相关**的（unix `:` / windows `;`），所以「在清单里写多条」这件事
+/// 一旦落成一个字符串，就绑死了一个平台 —— 跨平台清单必然在某个平台上错。#842 就是这么红的
+/// （`probing-paths = "../a:../b"` 在 `package-host(windows-x64)` 整串被当成一条不存在的路径）。
+///
+/// 而**本函数跑在要运行这个应用的那台机器上**，它知道自己的分隔符 ⇒ 在这里拼是唯一没有平台假设
+/// 的地方。清单侧因此可以写成一个无歧义的数组，一路原样带到侧车，由这里摊平。
+///
+/// 数组只对 `PathList` 合法；其余类型的数组仍是 `None`（= 非法旋钮值，走既有诊断）。
+pub(super) fn toml_value_to_string(v: &toml::Value, kind: ValueKind) -> Option<String> {
+    if let toml::Value::Array(items) = v {
+        if kind != ValueKind::PathList {
+            return None;
+        }
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        let parts: Vec<String> = items
+            .iter()
+            .filter_map(toml_scalar_to_string)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        // 空数组 / 全是空串 → 当作没配（与 `probing-paths = ""` 一致），而不是配了一条空路径。
+        if parts.is_empty() {
+            return None;
+        }
+        return Some(parts.join(&sep.to_string()));
+    }
+    toml_scalar_to_string(v)
+}
+
 // ── Phase 2 parsers (one per subsystem knob) ─────────────────────────────────
 //
 // Centralised so `from_getter` reads as a flat list of field assignments;
