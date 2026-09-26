@@ -17,9 +17,13 @@ public class ParameterInfo {
     // IsOptional: the parameter has a default value (Position >= min_arg).
     // IsParams: the parameter is a `params` varargs parameter.
     // DefaultValue: the folded literal default (null when none / non-literal).
+    //
+    // carry-field-null-marks：标 `?` —— 「null 表示没有」是作者原本就写下的契约（上一行）。
+    // ⚠️ `IsOptional` **不是**它的存在性判据：非字面量默认值时 `DefaultValue` 也是 null 而
+    // `IsOptional` 仍为真 ⇒ 存在性只能靠检查这个值本身，故标 `?` 不与惯用法打架。
     public bool IsOptional;
     public bool IsParams;
-    public object DefaultValue;
+    public object? DefaultValue;
 
     // ── Custom attributes (add-parameter-attribute-reflection) ──────────────
 
