@@ -329,14 +329,19 @@ button.OnKeyDown += handleKey;       // 单播：set
 button.OnKeyDown += otherHandler;    // ✗ InvalidOperationException
 button.OnKeyDown -= handleKey;       // 清空
 
-// scoped 订阅：拿住 token，用完显式 Dispose
+// scoped 订阅：`using` 管住生命周期（订阅 token 实现 `Std.IDisposable`）
+using (button.Clicked.Subscribe(handler)) {
+    DoStuff();
+}                    // 块的任一退出路径（含 return / break / continue / 抛异常）都退订
+
+// 或者拿住 token 自己 Dispose
 IDisposable sub = button.Clicked.Subscribe(handler);
 DoStuff();
 sub.Dispose();       // 退订
 ```
 
-> z42 **没有** C# 的 `using (…) { }` 语句（`using` 只是命名空间导入指令），所以订阅
-> token 需要自己 `Dispose()`。
+> `using` 语句自 add-using-statement（批 3）起可用 —— 见[`using` 语句](using-statement.md)。
+> 它与 `using` **指令**（命名空间导入 / 类型别名）是同一个关键字的两种用法，靠后随 token 区分。
 
 ### 5.5 interface event
 

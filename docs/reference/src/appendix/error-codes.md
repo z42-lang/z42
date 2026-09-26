@@ -87,7 +87,7 @@ PR 前后脚合入、各拿了一个 E0481，git 毫无反应，门在 main 上�
 | E0206 | `params` 不是最后一个形参 | ✅ `MemberParser.z42:380` | `void f(params int[] a, int b)` |
 | E0207 | `params` 形参类型不是数组 `T[]` | ✅ `MemberParser.z42:369` | `void f(params int a)` |
 | E0208 | `params` 与 `ref`/`out`/默认值同时出现 | ✅ `MemberParser.z42:371` | `void f(params ref int[] a)` |
-| E0209 | 只能出现在文件顶部的声明（`using` / `namespace`）出现在语句位置。此前会级联出 4 条无关错误，没有一条说得出真正原因 | ✅ `Parser.z42:246` | 在方法体里写 `using Std.Text;` |
+| E0209 | 只能出现在文件顶部的**指令**（`using` 导入 / 别名、`namespace`）出现在语句位置。此前会级联出 4 条无关错误，没有一条说得出真正原因。⚠️ 自 add-using-statement（批 3）起 `using` **也是一种语句** ⇒ 这条拦截先经 `StmtParser._isUsingStmtStart()` 分流：`using (` / `using var` / `using <类型> <标识符> =` 是语句，其余才落本码 | ✅ `Parser.z42`（`ParseStatement` 开头那段拦截）| 在方法体里写 `using Std.Text;` |
 
 下面三个码编号落在 E04xx，但实际由**语法层**报出，在此一并登记（E04xx 表不再重复）：
 

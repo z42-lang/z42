@@ -1084,6 +1084,7 @@ exceptions    = false     # 关掉 try + throw
 bitwise       = false     # 关掉 | ^ & << >>
 ternary       = false     # 关掉 ?:
 pattern_match = false     # 关掉模式（`x is 1` / `case 1:` / switch 表达式 / 解构声明）
+using_stmt    = false     # 关掉 `using` **语句**（import / 别名**指令**不受影响）
 ```
 
 | 事项 | 说明 |
@@ -1093,7 +1094,7 @@ pattern_match = false     # 关掉模式（`x is 1` / `case 1:` / switch 表达�
 | 粒度 | 一般是**整个语法构造**；`pattern_match` 例外，它只关「进模式引擎」的那几条路 —— **`x is T` / `x is T v` 是类型测试，仍然可用** |
 | 缓存 | 特性集折进包级缓存身份（`depsId`）⇒ 只改 toml 不碰源码也会重编，不会「全量生效、增量被忽略」|
 
-> ⚠️ **上面这 5 个是今天真的关得掉东西的全部。**
+> ⚠️ **上面这 6 个是今天真的关得掉东西的全部。**
 > `LanguageFeatures` 里还有 10 个名字（`oop` / `generics` / `lambda` / `tuples` / `delegates` /
 > `reflection` / `nullable` / `cast` / `arrays` / `interpolated_str`）—— 它们已登记、可以写进
 > `[syntax]` 而不报「未知名」，但**关掉它们不会挡住任何语法**。这是有意暴露的现状而不是承诺：

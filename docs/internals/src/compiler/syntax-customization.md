@@ -13,10 +13,11 @@
 > | `using syntax` 指令（配置来源②）| **不存在** | `grep -rn "using syntax" src/` |
 > | `operator` / `keyword` 用户声明（第 3 层）| **不存在** | 同上 |
 >
-> 🔴 **但「接线了」≠「每个名字都生效了」**：15 个特性名里今天真的关得掉东西的是 **5 个**
+> 🔴 **但「接线了」≠「每个名字都生效了」**：16 个特性名里今天真的关得掉东西的是 **6 个**
 > —— `control_flow`（if/while/for/foreach/do/switch + break/continue）、`exceptions`（try + throw）、
 > `bitwise`（`| ^ & << >>`）、`ternary`（`?:`）、`pattern_match`（进模式引擎的那几条路）。
-> **其余 10 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
+> `using_stmt`（`using` **语句**四形态，add-using-statement 批 3 —— 它曾是被删掉的**幻影名**之一，
+> 现在以真名回来）。**其余 9 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
 > 这张表当年的原罪正是宣告了 6 个**不存在**的特性而三年无人发现（已于 2026-09-23 删除）。
 >
 > 另有一个遗留物需要知道：曾有两个 `features.toml` sidecar（`src/tests/control_flow/switch/` 与

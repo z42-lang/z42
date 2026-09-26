@@ -8,13 +8,14 @@
 // `IncrementalDriver` 的**两处** `new Parser` → `Parser._requireFeature` 发 **E0301**。
 // 特性集同时折进 `depsId`（否则「全量生效、增量被忽略」）。
 //
-// ⚠️ **但只有 5 个名字今天真的关得掉东西**（add-l2-parse-table 批 2 起）：
+// ⚠️ **但只有 6 个名字今天真的关得掉东西**（add-l2-parse-table 批 2 起 + 批 3 的 `using_stmt`）：
 //   · `control_flow` —— if/while/for/foreach/do/switch **+ break/continue**
 //   · `exceptions`   —— try **+ throw**
 //   · `bitwise`      —— `| ^ & << >>`（`&=`/`|=`/`^=` 的归属待裁，未挂）
 //   · `ternary`      —— `?:`
 //   · `pattern_match`—— **进模式引擎**的那几条路（`x is T` / `x is T v` 是类型测试，**保留**）
-// 其余 10 个名字**仍是死旋钮** —— 它们描述的是「将来可裁剪的语法面」，不是「今天生效的配置」。
+//   · `using_stmt`   —— `using` **语句**四形态（import / 别名**指令**不受影响）
+// 其余 9 个名字**仍是死旋钮** —— 它们描述的是「将来可裁剪的语法面」，不是「今天生效的配置」。
 // 别把「这张表接线了」读成「每个名字都生效了」。
 // 前三个的表项在 `z42c.syntax/src/ParseTable.z42`（`FeatureNames` + `Feature(kind)`），
 // 语句那两个在同文件的 `StmtRules.Feature`。

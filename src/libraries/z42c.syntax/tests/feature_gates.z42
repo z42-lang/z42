@@ -88,6 +88,33 @@ void test_return_is_never_gated() {
     Assert.Equal("", codesWithout("return;", "control_flow"));
 }
 
+// ── using_stmt（add-using-statement 批 3 新接；曾是**幻影名**）────────────────
+
+[Test]
+void test_using_stmt_knob_takes_effect() {
+    // 四形态全开时零诊断（阳性对照）
+    Assert.Equal(0, diagsAllOn("using (r) { }"));
+    Assert.Equal(0, diagsAllOn("using var v = Open();"));
+    // 关掉 ⇒ 四形态全部必须报 E0301
+    Assert.True(hasFeatureDisabled(codesWithout("using (r) { }", "using_stmt")));
+    Assert.True(hasFeatureDisabled(codesWithout("using (Res v = Open()) { }", "using_stmt")));
+    Assert.True(hasFeatureDisabled(codesWithout("using var v = Open();", "using_stmt")));
+    Assert.True(hasFeatureDisabled(codesWithout("using Res v = Open();", "using_stmt")));
+}
+
+[Test]
+void test_using_knob_does_not_touch_import_directives() {
+    // 🔴 `using_stmt` 只管**语句**。关掉它**不得**影响 import/别名指令 —— 那两种在语句位
+    // 本来就报 E0209（放错位置），关掉语句特性后仍应是 E0209、**不是** E0301：
+    // 报错的理由不能因为一个无关旋钮而改变。
+    string c1 = codesWithout("using Std.Toml;", "using_stmt");
+    Assert.True(c1.IndexOf(DiagnosticCodes.DeclarationInStatement) >= 0);
+    Assert.True(c1.IndexOf(DiagnosticCodes.FeatureDisabled) < 0);
+    string c2 = codesWithout("using Alias = Std.Toml;", "using_stmt");
+    Assert.True(c2.IndexOf(DiagnosticCodes.DeclarationInStatement) >= 0);
+    Assert.True(c2.IndexOf(DiagnosticCodes.FeatureDisabled) < 0);
+}
+
 // ── pattern_match（本批新接；边界 = D2-6 甲）──────────────────────────────────
 
 [Test]
