@@ -1,6 +1,6 @@
 # 命名空间与 `using`
 
-> 对齐：2026-09-17 ｜ 实测基准：`./.z42/z42 run`
+> 对齐：2026-09-27 ｜ 实测基准：`./artifacts/.z42/z42 run`
 
 ## 语法
 
@@ -10,8 +10,11 @@ using_decl     ::= "global"? "using" ( alias "=" type_expr | dotted_name ) ";"
 dotted_name    ::= IDENT ( "." IDENT )*
 ```
 
-- 每个文件至多一条 `namespace`，必须在所有 `using` 和所有顶层声明之前。
-- 所有 `using` 必须在顶层声明之前。
+- 每个文件至多一条 `namespace`（违反 → `E0457`），且必须在**所有类型/函数声明**之前（违反 → `E0457`）。
+- ⚠️ **`namespace` 与 `using` 的相对顺序不受约束** —— `using` 写在 `namespace` 之前照样合法，
+  且 `namespace` 正常生效。这是刻意的：`using` / `global using` / 类型别名**不算声明**
+  （`z42c.syntax` 的 parser 单测钉着这条）。
+- ⚠️ **`using` 出现在顶层声明之后目前不报错**（能编过）。习惯上仍应全部写在文件顶部。
 - 不支持 block-scoped namespace（`namespace Foo { ... }`）。
 
 ## 命名空间声明
@@ -151,7 +154,8 @@ z42c build: kind=exe but no Main() found
 | `E0401` | 用到未激活包里的符号，或写了没有 `using` 的全限定名 | 生效 |
 | `E0601` | 同一个**全限定名**被两个以上的**依赖包**声明——限定名也分不开它们，谁都选不中 | 生效 |
 | `E0606` | 本包声明的类型**遮蔽**了某个导入包的同全限定名类型——被遮的那份无论怎么写都指不到 | 生效 |
-| `E0602` | `using <ns>;` 无任何已加载包提供 | **未实现**：有码无发射点，`using NoSuch.Pkg;` / `using System;` 都静默通过 |
+| `E0494` | `using <ns>;` 指向的命名空间不存在（依赖的包里没有它，本包也没声明） | 生效（`using Z42.Totally.Bogus;` → E0494）|
+| `E0602` | 同上语义的旧码 | **未实现且已被 E0494 取代**：有码无发射点 |
 | `W0603` | 非 stdlib 包（不以 `z42.` 开头）占用 `Std` / `Std.*` 命名空间 | **未实现**：有码无发射点 |
 
 `E0601` 与 `E0606` 的分工：前者是两个**第三方依赖**打架，下游既没用到也无权修，所以只在实际引用该类型时才报；
@@ -161,9 +165,9 @@ z42c build: kind=exe but no Main() found
 
 | 情形 | 消息 |
 |---|---|
-| `namespace` 出现在顶层声明之后 | `namespace declaration must appear before any top-level declarations` |
-| 同一文件两条 `namespace` | `duplicate namespace declaration` |
-| `using` 出现在顶层声明之后 | `using directive must appear before any top-level declarations` |
+| `namespace` 出现在类型/函数声明之后 | `E0457: \`namespace\` must appear before any type or function declaration in the file` |
+| 同一文件两条 `namespace` | `E0457: a file may declare only one namespace (\`A\` was already declared above) — split the file, or move all declarations under a single namespace` |
+| `using` 出现在顶层声明之后 | **不报错**（见上方「语法」小节的 ⚠️）|
 
 ### 缺 `using` 怎么补
 

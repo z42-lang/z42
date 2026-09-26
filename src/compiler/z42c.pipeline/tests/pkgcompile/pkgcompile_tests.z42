@@ -41,6 +41,66 @@ CompileInputs _inputs(string src, string kind) {
     return cin;
 }
 
+// 两源同包 + 真实依赖世界（global using / file-scope 检查用：E0436 只对**跨包**依赖 ns 发火，
+// 所以必须有 LibsDirs，否则 `Console` 压根解析不到、报的是 E0401 而不是 E0436）。
+CompileInputs _inputs2Libs(string srcA, string srcB, string[] dirs) {
+    string[] texts = new string[2]; texts[0] = srcA; texts[1] = srcB;
+    string[] files = new string[2]; files[0] = "prelude.z42"; files[1] = "Main.z42";
+    string[] hashes = new string[2]; hashes[0] = "AAAA1111"; hashes[1] = "BBBB2222";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 2;
+    cin.Cus = IrDump.ParseAll(texts, files, 2);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo.gusing"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    return cin;
+}
+
+// ── `global using` 跨文件生效（add-global-using 的首份自动覆盖）──────────────────────
+//
+// 🔴 这条特性此前**零自动覆盖**：全仓 grep `global using` 只命中 z42c.syntax 的 parser 单测
+// 字符串，`src/tests/` 一个 golden 都没有，`add-global-using/proposal.md:53` 承诺的
+// 「示例 + 跨文件 golden」两样都没建。写学习手册第 21 章时才第一次端到端跑它。
+[Test]
+void test_global_using_covers_sibling_file() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }   // 无 libs 环境 → 跳过（同本文件其它 fixture 用例）
+    string[] dirs = libs.Split(":");
+    // prelude 写 global using；Main **自己一条 using 都没有**。
+    CompileArtifacts art = PackageCompile.Compile(_inputs2Libs(
+        "namespace Gu;\nglobal using Std.IO;\n",
+        "namespace Gu;\nvoid Go() { Console.WriteLine(\"x\"); }\n", dirs));
+    Assert.Equal(0, art.ErrorCount);
+}
+
+// 同一组源，**只把 `global` 去掉** —— 于是那行 using 只管 prelude 自己，Main 缺 using → E0436。
+// 这是上一条的判别性对照：没有它，上一条在「E0436 整条不发火」的实现下也会绿
+// （fix-incremental-file-scope-diagnostics 修的正是「cached 文件永远不报 E0436」）。
+[Test]
+void test_missing_global_using_reports_e0436() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string[] dirs = libs.Split(":");
+    CompileArtifacts art = PackageCompile.Compile(_inputs2Libs(
+        "namespace Gu;\nusing Std.IO;\n",
+        "namespace Gu;\nvoid Go() { Console.WriteLine(\"x\"); }\n", dirs));
+    Assert.True(art.ErrorCount > 0);
+    bool sawE0436 = false;
+    int ci = 0;
+    while (ci < art.Cms.Length) {
+        int di = 0;
+        while (di < art.Cms[ci].DiagCount) {
+            if (art.Cms[ci].DiagMsgs[di].Contains("E0436")) { sawE0436 = true; }
+            di = di + 1;
+        }
+        ci = ci + 1;
+    }
+    Assert.True(sawE0436);
+}
+
 // 同上但指定 LibsDirs（真实依赖世界）+ 包名 —— CachedScan / ExtendWithPackage 测试用。
 CompileInputs _inputsLibs(string ns, string fname, string[] dirs, string name) {
     CompileInputs cin = _inputs("namespace " + ns + ";\nint " + fname + "() { return 1; }\n", "lib");

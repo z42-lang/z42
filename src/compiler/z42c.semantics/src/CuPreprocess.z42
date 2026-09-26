@@ -183,7 +183,17 @@ public static class CuPreprocess {
                 di = di + 1;
             }
             if (!allowed) {
-                string pmsg = file + "(1,1): " + DiagnosticCodes.MissingUsing
+                // 路径取 `cu.Span.File`（parser 拿到的那个），**不是**传进来的 `file` ——
+                // 本诊断是手工拼串、不走 `DiagnosticBag`，而正常诊断在 `IrDump` 汇点用
+                // `dg.Span.File` 渲染。两者在包编译路径下不同源：`file` 是绝对路径，于是
+                // 同一个文件里 `E0401` 打 `cmp.z42(1,15)`、`E0436` 打
+                // `/Users/.../cmp.z42(1,1)`（实测对照）。对用户是输出不一致，对学习手册的
+                // transcript 则是**根本钉不住**（沙箱路径每次都变）。
+                // ⚠️ `(1,1)` 是刻意保留的：「本文件缺 using」没有对应的源码位置，
+                // 文件级诊断指向第 1 行与 C# 同口径 —— 那不是缺陷。
+                string dfile = file;
+                if (cu.Span != null && cu.Span.File != "") { dfile = cu.Span.File; }
+                string pmsg = dfile + "(1,1): " + DiagnosticCodes.MissingUsing
                     + ": namespace `" + ns + "` is used but not imported in this file; add `using " + ns + ";`";
                 int oldn = cm.DiagCount;
                 string[] nw = new string[oldn + 1];

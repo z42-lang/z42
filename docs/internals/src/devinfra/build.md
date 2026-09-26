@@ -186,6 +186,29 @@ windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **inte
 dist 清空后全命中重装配三轮，每轮都要求增量 dist 与 `--no-incremental` 全量**逐字节相等**。
 **workspace / flat 构建（§3 的阶段一/二）不落 cache、不 probe**，gen1/gen2 字节对比路径零扰动。
 
+### 5.x cached 文件的**诊断**重放边界（易错，务必读）
+
+增量对账的判据是 **dist 字节**。但一个 cached 文件不只「少产一次字节」——
+它还**没有跑 typecheck**，于是所有**以 typecheck 产物为输入的诊断**都要专门安排，
+否则就是「增量绿、全量红」的假绿。
+
+已知的两处（`fix-incremental-file-scope-diagnostics`）：
+
+- ✅ **E0436（文件级 `using` 强制）已修**：它的输入是 `cm.UsedDepNs`，而 cached 分支构造
+  `CompiledModuleZ` 时那个数组是**空的**（typecheck 产物，本轮没跑），真正的回填在
+  `PackageCompile` 从 cache meta 补 —— 比原先的调用点（`IrDump` 的 per-file 并行体）**晚**。
+  于是 cached 文件**永远不可能报 E0436**。现已把检查移到回填之后
+  （`IrDump.EnforceFileScopeAll`）。
+- 🔴 **cached 文件的 warning 仍会静默消失**：per-file 并行体在 cached 分支把 `DiagMsgs`
+  整体清空。带 error 的构建不落 cache，所以丢的只有 warning。
+  候选后续 `replay-cached-file-warnings`。
+
+⚠️ **`xtask test incremental` 照不到这一类**，三个独立原因：
+① 三个变异算子（追加注释 / 追加自由函数 / 删 dist）都不改任何文件的 `using` 集合；
+② 判据只比 dist 字节（`_incrBuild` 把 stdout/stderr 接到 `Stdio.Null()`，只取 exit code）——
+而缺的恰恰是**诊断**，字节一模一样；③ 三份语料里根本没有 `global using`。
+⇒ **变异算子的覆盖面决定了门禁能抓什么。** 候选后续 `incremental-gate-using-mutation`。
+
 ## 6. Rust 构建 ↔ z42c 产物：一条被刻意切断的构建期环
 
 `src/runtime/build.rs` 会用 z42vm + z42c 把两个 `.z42` 测试 fixture 编成 `.zbc`，并 emit
