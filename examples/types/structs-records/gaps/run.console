@@ -1,8 +1,3 @@
-# ANCHOR: onefield
-$ z42 run onefield.z42
-单字段: a.X=1  b.X=50
-两字段: c.X=1  d.X=50
-# ANCHOR_END: onefield
 # ANCHOR: exprctor
 $ z42 run exprctor.z42
 z42c build: 1 error(s) in exprctor.z42

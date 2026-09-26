@@ -118,9 +118,8 @@ class Exception {
 **加字段是自定义异常的主要价值**：`e.Message` 只是一句话，而 `e.Key` 是接住的人可以拿去
 继续处理的数据。
 
-> 📜 **2026-09-26 之前 `ToString()` 会打错类名**：上面最后一行会打成
-> `Exception: 找不到：bob` 而不是 `NotFoundException: ...`——基类里那个名字是写死的。
-> 现在它按真实类型取名，自定义异常不必再自己重写 `ToString`。
+> `ToString()` 按**真实类型**取名（`NotFoundException: …`），所以自定义异常不必再自己
+> 重写它。
 
 ## 换个说法抛出去，但别丢掉原因
 
