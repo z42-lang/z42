@@ -18,8 +18,10 @@ class Box<T> {
     public string shadow<T>() { return typeof(T).FullName; }
 }
 
-// 继承基类的型参：`Derived` 非泛型，实例的 type_args 为空 ⇒ 基类体内的 T 取不到 int。
-// 归第二刀（继承链按声明类寻址 + fingerprint bump）。
+// 继承基类的型参：`Derived` 非泛型，实例自己的 type_args 为空 —— 实参在**基的名字里**。
+// ✅ 已修（2026-09-26「继承链按声明类寻址」）：`__class_type_arg` / `__class_default` 现在
+// 沿基链走到**声明该型参的那一层**再取实参。这条路是 P1（#831）让闭合泛型基不再被剥成裸名
+// 之后才通的 —— base 现在是 `Demo.Box<int>` 而不是 `Demo.Box`。
 class Derived : Box<int> { }
 
 void Main() {
@@ -31,9 +33,9 @@ void Main() {
     // 静态语境（无实参）
     Assert.Equal("T", Box.staticBare());
 
-    // 继承基类的型参：载体为空 → 占位名
+    // 继承基类的型参：沿基链定位到 Box<int> 那一层 ⇒ 拿到真实参
     var d = new Derived();
-    Assert.Equal("T", d.full());
+    Assert.Equal("Std.Int32", d.full());
 
     // 方法级遮蔽类级：走方法级实参，不是类级的 int
     Assert.Equal("Std.String", b.shadow<string>());

@@ -288,4 +288,5 @@ pub(crate) const PART2: &[(&str, NativeFn)] = &[
     // 与类级 `default(T)`（`DefaultOf` 指令）同一个载体，只是产类型而非零值；走 builtin
     // 而非新 opcode ⇒ 零 zbc 格式 bump、JIT 白送（Builtin 按名/id 通用派发）。
     ("__class_type_arg",    reflection::builtin_class_type_arg),
+    ("__class_default",     reflection::builtin_class_default),
 ];
