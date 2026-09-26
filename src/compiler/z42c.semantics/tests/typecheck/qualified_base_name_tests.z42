@@ -1,0 +1,108 @@
+// 基类型写**限定名**时的继承关系（qualified-base-name）。
+//
+// `StubCollector` 的基表分流此前直接拿**源码原样串**去查 `Interfaces`（键是裸短名）⇒
+// 限定名一律查不中，落进 `else if (!hasBase)` 分支**去占基类槽**。一个根、四个症状，全部实测过：
+//   ① `class A : Std.IDisposable` ⇒ 接口关系丢失，`IDisposable a = new A();` 报 E0402
+//   ② `class C : Demo.ILocal`     ⇒ **同包**限定名一样中招（不是跨包问题，是拼写问题）
+//   ③ `class E : Ns.IFace, Base`  ⇒ 接口先占了 `hasBase` ⇒ **真基类被静默吞掉**（继承成员 E0401）
+//   ④ `class G : Demo.Base`       ⇒ `BaseName` 存成查不到的串 ⇒ 整条基类关系丢失
+//
+// ③ 是这组里最隐蔽的一条：写法完全合法、编译只在**用到继承成员时**才报一句看似无关的
+// 「no method」，根本不指向基表。它也是「只看症状 ① 就以为修好了」会漏掉的那格。
+namespace Z42cSemanticsQualifiedBaseNameTests;
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── 正例：限定名应当与短名等效 ─────────────────────────────────────────────
+
+[Test]
+void test_qualified_iface_same_package() {
+    string src = "namespace D; interface ILocal { int V(); }"
+        + " class C : D.ILocal { public int V() { return 1; } }"
+        + " class T2 { void M(C c) { ILocal x = c; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_qualified_base_class_same_package() {
+    string src = "namespace D; class Base { public int Tag() { return 42; } }"
+        + " class G : D.Base { }"
+        + " class T2 { int M(G g) { return g.Tag(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 🔴 最隐蔽那条：限定名接口排在基类**前面**，基类不能被吞掉。
+[Test]
+void test_qualified_iface_does_not_steal_base_slot() {
+    string src = "namespace D; interface IF { void P(); } class Base { public int Tag() { return 42; } }"
+        + " class E : D.IF, Base { public void P() { } }"
+        + " class T2 { int M(E e) { return e.Tag(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 同一形状，再验接口那半也还在（吞掉基类与丢掉接口是两件事，要分别断言）。
+[Test]
+void test_qualified_iface_relation_also_holds() {
+    string src = "namespace D; interface IF { void P(); } class Base { }"
+        + " class E : D.IF, Base { public void P() { } }"
+        + " class T2 { void M(E e) { IF f = e; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 接口的**父接口**写限定名（`BaseNames` 那条路，与类的基表是两处代码）。
+[Test]
+void test_qualified_parent_interface() {
+    string src = "namespace D; interface IB { void P(); } interface ID : D.IB { }"
+        + " class T2 { void M(ID d) { d.P(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// 限定名父接口 + 接口→祖先接口赋值（与 interface-assignability 那条边合起来走一遍）。
+[Test]
+void test_qualified_parent_interface_assignable() {
+    string src = "namespace D; interface IB { } interface ID : D.IB { }"
+        + " class T2 { void M(ID d) { IB b = d; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 对照：短名写法必须逐字不变（这次改动对它们应当是恒等） ──────────────────
+
+[Test]
+void test_short_name_iface_unchanged() {
+    string src = "namespace D; interface ILocal { int V(); }"
+        + " class C : ILocal { public int V() { return 1; } }"
+        + " class T2 { void M(C c) { ILocal x = c; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_short_name_base_unchanged() {
+    string src = "namespace D; class Base { public int Tag() { return 42; } } class G : Base { }"
+        + " class T2 { int M(G g) { return g.Tag(); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 负例：放行这些就是把误报换成了漏报 ─────────────────────────────────────
+
+// 限定名指向一个**不存在**的类型：仍须报错，不能因为「剥成短名碰巧撞上别的类型」而放行。
+[Test]
+void test_qualified_unknown_type_must_error() {
+    string src = "namespace D; class G : D.NoSuchBase { }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+
+// 认了限定名 ≠ 认了继承面：没实现的接口成员仍须 E0412。
+[Test]
+void test_qualified_iface_members_still_enforced() {
+    string src = "namespace D; interface IF { void P(); } class C : D.IF { }";
+    Assert.Equal("E0412", SemanticDump.FirstErrorCode(src));
+}
+
+// 基类是限定名时，访问一个**基类也没有**的成员仍须报错（别把 base 链认成「什么都有」）。
+[Test]
+void test_qualified_base_absent_member_still_errors() {
+    string src = "namespace D; class Base { public int Tag() { return 1; } } class G : D.Base { }"
+        + " class T2 { void M(G g) { g.Bogus(); } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
