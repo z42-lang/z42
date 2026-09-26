@@ -69,7 +69,41 @@ public TomlValue Get(string key)           // 键不存在 → TomlException("ke
 public void      Set(string key, TomlValue v)
 public string[]  Keys()                    // 插入顺序快照
 public int       Count()                   // 表键数；数组则为元素数；其余 kind 抛
+
+// 取即检查（取值与存在性测试合成一次）
+public bool      TryGet(string key, ref TomlValue value)
+public bool      TryGetValue<T>(string key, ref T value)
 ```
+
+#### 取即检查：`TryGet` / `TryGetValue<T>`
+
+`ContainsKey` + `Get` 是**两次调用**，键要写两遍，而「ContainsKey 为真 ⇒ Get 不抛」这件事
+编译器看不见。`TryGet` 把两步合成一步：
+
+```z42
+// 旧写法：键写两遍，查两遍
+if (p.ContainsKey("name")) { name = p.Get("name").AsString(); }
+
+// 取即检查：一行，键一遍
+p.TryGetValue<string>("name", ref name);
+```
+
+三条规则：
+
+- **未命中返回 false 且不动 `value`** ⇒「键在就覆盖、不在就保留默认」是主用法，一行写完。
+- **收者不是表时返回 false 而不抛** —— 与 `ContainsKey` 一致，所以老写法可以逐字替换。
+- **命中但类型不符照抛** `TomlException`，与 `AsString()` / `AsLong()` 一字不差。
+  「键不在」和「值类型错」是两种失败：前者是常态，后者是文件写错了，吞掉它会让
+  配置里的类型笔误**静默退回默认值**。
+
+`T` 取 `string` / `long` / `double` / `bool` / `TomlValue`（原样取子树）。其它类型抛异常 ——
+那是调用方写错了代码，返回 false 会把它伪装成「键不在」。
+
+> TOML 整数是 i64 ⇒ 标量整数用 `<long>`；要落进 `int` 自己窄化一次。
+> 返回 `bool` 而不是可空值，是因为**值类型永不可空**（[E0476](../appendix/error-codes.md)）——
+> 与 `Int32.TryParse` 同一套 `bool TryX(ref T)` 形状。
+
+`Std.Json.JsonValue` 与 `Std.Yaml.YamlValue` 有**同名同形**的一对。
 
 `Keys()` 与 `Stringify` 都按**插入顺序**（解析出来的树即文件顺序），`Set` 覆盖已有键时保持
 原位置——round-trip 不重排，diff 友好。
@@ -157,9 +191,9 @@ void Main() {
     string rust = manifest.Get("build").Get("rust").AsString();
     Console.WriteLine(rust);
 
-    // 可选键要先探
-    if (manifest.ContainsKey("dependencies")) {
-        TomlValue deps = manifest.Get("dependencies");
+    // 可选键：取即检查
+    TomlValue deps = null;
+    if (manifest.TryGet("dependencies", ref deps)) {
         string[] names = deps.Keys();
         int i = 0;
         while (i < names.Length) {

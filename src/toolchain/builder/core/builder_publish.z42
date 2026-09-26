@@ -272,15 +272,16 @@ string _pubRidCategory(string rid) {
 // but TomlValue-direct to keep builder_publish stdlib-only (no z42.project dep).
 // Empty array if no `[[exe]]`. Two passes → exact-size array (no trim helper).
 string[] _pubExes(TomlValue toml) {
-    if (!toml.IsTable() || !toml.ContainsKey("exe")) { return new string[0]; }
-    TomlValue arr = toml.Get("exe");
-    if (!arr.IsArray()) { return new string[0]; }
+    // `TryGet` 对非 table 收者本身就返回 false ⇒ 原来的 `!toml.IsTable() ||` 守卫由它吸收。
+    TomlValue arr = null;
+    if (!toml.TryGet("exe", ref arr) || !arr.IsArray()) { return new string[0]; }
     int n = arr.Length();
     int cnt = 0;
     int i = 0;
     while (i < n) {
         TomlValue e = arr.At(i);
-        if (e.IsTable() && e.ContainsKey("name") && e.Get("name").IsString()) { cnt = cnt + 1; }
+        TomlValue nv = null;
+        if (e.TryGet("name", ref nv) && nv.IsString()) { cnt = cnt + 1; }
         i = i + 1;
     }
     string[] names = new string[cnt];
@@ -288,8 +289,9 @@ string[] _pubExes(TomlValue toml) {
     i = 0;
     while (i < n) {
         TomlValue e = arr.At(i);
-        if (e.IsTable() && e.ContainsKey("name") && e.Get("name").IsString()) {
-            names[k] = e.Get("name").AsString();
+        TomlValue nv = null;
+        if (e.TryGet("name", ref nv) && nv.IsString()) {
+            names[k] = nv.AsString();
             k = k + 1;
         }
         i = i + 1;
@@ -298,10 +300,10 @@ string[] _pubExes(TomlValue toml) {
 }
 
 string _pubTomlStr(TomlValue root, string section, string key, string dflt) {
-    if (!root.ContainsKey(section)) { return dflt; }
-    TomlValue s = root.Get(section);
-    if (!s.IsTable() || !s.ContainsKey(key)) { return dflt; }
-    TomlValue v = s.Get(key);
+    TomlValue s = null;
+    if (!root.TryGet(section, ref s)) { return dflt; }
+    TomlValue v = null;
+    if (!s.TryGet(key, ref v)) { return dflt; }
     if (v.IsString()) { return v.AsString(); }
     if (v.IsLong())   { return v.AsLong().ToString(); }
     return dflt;
@@ -311,12 +313,12 @@ string _pubTomlStr(TomlValue root, string section, string key, string dflt) {
 // free-function-overloads 阶段 2（use）：`_pubPlatform` 的 string 重载；bool 重载在下方（末参
 // 类型 string vs bool 区分）。此前因不支持自由函数重载而分名 _pubPlatformStr/_pubPlatformBool。
 string _pubPlatform(TomlValue root, string platform, string key, string dflt) {
-    if (!root.ContainsKey("platform")) { return dflt; }
-    TomlValue pt = root.Get("platform");
-    if (!pt.IsTable() || !pt.ContainsKey(platform)) { return dflt; }
-    TomlValue p = pt.Get(platform);
-    if (!p.IsTable() || !p.ContainsKey(key)) { return dflt; }
-    TomlValue v = p.Get(key);
+    TomlValue pt = null;
+    TomlValue p = null;
+    TomlValue v = null;
+    if (!root.TryGet("platform", ref pt)) { return dflt; }
+    if (!pt.TryGet(platform, ref p))      { return dflt; }
+    if (!p.TryGet(key, ref v))            { return dflt; }
     if (v.IsString()) { return v.AsString(); }
     if (v.IsLong())   { return v.AsLong().ToString(); }
     return dflt;
@@ -325,12 +327,12 @@ string _pubPlatform(TomlValue root, string platform, string key, string dflt) {
 // Read a bool key under [platform.<platform>] (e.g. `apphost = true`).
 // free-function-overloads 阶段 2（use）：`_pubPlatform` 的 bool 重载（末参 bool 与上方 string 重载区分）。
 bool _pubPlatform(TomlValue root, string platform, string key, bool dflt) {
-    if (!root.ContainsKey("platform")) { return dflt; }
-    TomlValue pt = root.Get("platform");
-    if (!pt.IsTable() || !pt.ContainsKey(platform)) { return dflt; }
-    TomlValue p = pt.Get(platform);
-    if (!p.IsTable() || !p.ContainsKey(key)) { return dflt; }
-    TomlValue v = p.Get(key);
+    TomlValue pt = null;
+    TomlValue p = null;
+    TomlValue v = null;
+    if (!root.TryGet("platform", ref pt)) { return dflt; }
+    if (!pt.TryGet(platform, ref p))      { return dflt; }
+    if (!p.TryGet(key, ref v))            { return dflt; }
     if (v.IsBool()) { return v.AsBool(); }
     return dflt;
 }
@@ -390,12 +392,12 @@ string _pubWorkspaceOutputDir(string wsRoot, string name) {
     string wsToml = Path.Join(wsRoot, "z42.workspace.toml");
     if (!File.Exists(wsToml)) { return ""; }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(wsToml));
-    if (!toml.ContainsKey("workspace")) { return ""; }
-    TomlValue ws = toml.Get("workspace");
-    if (!ws.IsTable() || !ws.ContainsKey("build")) { return ""; }
-    TomlValue wb = ws.Get("build");
-    if (!wb.IsTable() || !wb.ContainsKey("output_dir")) { return ""; }
-    TomlValue v = wb.Get("output_dir");
+    TomlValue ws = null;
+    TomlValue wb = null;
+    TomlValue v = null;
+    if (!toml.TryGet("workspace", ref ws)) { return ""; }
+    if (!ws.TryGet("build", ref wb))       { return ""; }
+    if (!wb.TryGet("output_dir", ref v))   { return ""; }
     if (!v.IsString()) { return ""; }
     string tmpl = v.AsString();
     tmpl = tmpl.Replace("${project_name}", name);
@@ -431,10 +433,10 @@ string[] _pubWorkspaceMembers(string wsRoot) {
     string wsToml = Path.Join(wsRoot, "z42.workspace.toml");
     if (!File.Exists(wsToml)) { return new string[0]; }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(wsToml));
-    if (!toml.ContainsKey("workspace")) { return new string[0]; }
-    TomlValue ws = toml.Get("workspace");
-    if (!ws.IsTable() || !ws.ContainsKey("default-members")) { return new string[0]; }
-    TomlValue arr = ws.Get("default-members");
+    TomlValue ws = null;
+    TomlValue arr = null;
+    if (!toml.TryGet("workspace", ref ws))          { return new string[0]; }
+    if (!ws.TryGet("default-members", ref arr))     { return new string[0]; }
     string[] xs = new string[arr.Count()];
     int i = 0;
     while (i < arr.Count()) {
@@ -447,9 +449,8 @@ string[] _pubWorkspaceMembers(string wsRoot) {
 
 // This project's own `[dependencies]` key names ("" if the section is missing).
 string[] _pubDepNames(TomlValue toml) {
-    if (!toml.ContainsKey("dependencies")) { return new string[0]; }
-    TomlValue deps = toml.Get("dependencies");
-    if (!deps.IsTable()) { return new string[0]; }
+    TomlValue deps = null;
+    if (!toml.TryGet("dependencies", ref deps) || !deps.IsTable()) { return new string[0]; }
     return deps.Keys();
 }
 
@@ -624,18 +625,20 @@ string _pubResolveDepToml(string parentTomlPath, TomlValue parentToml, string de
 
 // The `path` of a `{ path = "..." }` dep entry, or "" for a plain version-string dep.
 string _pubDepPath(TomlValue toml, string name) {
-    if (!toml.ContainsKey("dependencies")) { return ""; }
-    TomlValue deps = toml.Get("dependencies");
-    if (!deps.IsTable() || !deps.ContainsKey(name)) { return ""; }
-    TomlValue d = deps.Get(name);
-    if (d.IsTable() && d.ContainsKey("path") && d.Get("path").IsString()) { return d.Get("path").AsString(); }
+    TomlValue deps = null;
+    TomlValue d = null;
+    TomlValue pv = null;
+    if (!toml.TryGet("dependencies", ref deps)) { return ""; }
+    if (!deps.TryGet(name, ref d))              { return ""; }
+    if (d.TryGet("path", ref pv) && pv.IsString()) { return pv.AsString(); }
     return "";
 }
 
 // True if `[native.*]` declares ≥1 lib.
 bool _pubHasNative(TomlValue toml) {
-    if (!toml.ContainsKey("native")) { return false; }
-    return toml.Get("native").Keys().Length > 0;
+    TomlValue nat = null;
+    if (!toml.TryGet("native", ref nat)) { return false; }
+    return nat.Keys().Length > 0;
 }
 
 // Load a native-carrying dep's hooks, run ProvideNative (dep-scoped ctx), and flatten
@@ -695,7 +698,8 @@ int _pubCopyPrebuiltNative(string depTomlPath, TomlValue depToml, string depName
         string name = keys[i]; i = i + 1;
         TomlValue sub = nat.Get(name);
         string dir = "";
-        if (sub.IsTable() && sub.ContainsKey("dir") && sub.Get("dir").IsString()) { dir = sub.Get("dir").AsString(); }
+        TomlValue dv = null;
+        if (sub.TryGet("dir", ref dv) && dv.IsString()) { dir = dv.AsString(); }
         if (dir.Length == 0) {
             ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' lib '" + name + "' has no [build] hooks and no dir — skipped");
             continue;

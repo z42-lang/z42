@@ -832,29 +832,34 @@ AbVerdict _microVerdict(JsonValue b, JsonValue c, double thr) {
 
 // SEM usable ⟺ mean present + stddev>0 + samples>1 (matches _abVerdict's haveCi).
 bool _microHasSem(JsonValue b) {
-    return b.ContainsKey("mean_ns") && b.Get("mean_ns").AsDouble() >= 0.0
-        && b.ContainsKey("stddev_ns") && b.Get("stddev_ns").AsDouble() > 0.0
-        && b.ContainsKey("samples") && b.Get("samples").AsDouble() > 1.0;
+    double mean = -1.0; double sd = -1.0; double n = 0.0;
+    return b.TryGetValue<double>("mean_ns", ref mean)     && mean >= 0.0
+        && b.TryGetValue<double>("stddev_ns", ref sd)     && sd > 0.0
+        && b.TryGetValue<double>("samples", ref n)        && n > 1.0;
 }
 bool _microHasCiBounds(JsonValue b) {
-    return b.ContainsKey("ci_lower") && b.ContainsKey("ci_upper");
+    JsonValue lo = null; JsonValue hi = null;
+    return b.TryGet("ci_lower", ref lo) && b.TryGet("ci_upper", ref hi);
 }
 
 // Point estimate for a micro benchmark object: prefer mean_ns; fall back to
 // value (median) when mean_ns is absent/-1 (older baseline).
 double _microMean(JsonValue b) {
-    if (b.ContainsKey("mean_ns") && b.Get("mean_ns").AsDouble() >= 0.0) { return b.Get("mean_ns").AsDouble(); }
+    double mean = -1.0;
+    if (b.TryGetValue<double>("mean_ns", ref mean) && mean >= 0.0) { return mean; }
     return b.Get("value").AsDouble();
 }
 // Dispersion: stddev_ns, or 0 (→ _abVerdict no-ci fallback) when absent/-1.
 double _microSd(JsonValue b) {
-    if (b.ContainsKey("stddev_ns") && b.Get("stddev_ns").AsDouble() >= 0.0) { return b.Get("stddev_ns").AsDouble(); }
+    double sd = -1.0;
+    if (b.TryGetValue<double>("stddev_ns", ref sd) && sd >= 0.0) { return sd; }
     return 0.0;
 }
 // Sample count n for SEM = stddev/sqrt(n); 0 (→ no-ci) when absent.
 double _microN(JsonValue b) {
-    if (b.ContainsKey("samples")) { return b.Get("samples").AsDouble(); }
-    return 0.0;
+    double n = 0.0;
+    b.TryGetValue<double>("samples", ref n);
+    return n;
 }
 
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
@@ -1019,8 +1024,9 @@ JsonValue _findBenchObj(JsonValue benchmarks, string name, string metric, string
 // true iff the benchmark carries both confidence-interval bounds (present & non-null).
 // Get() throws on a missing key and AsDouble() throws on null, so guard before reading.
 bool _hasCi(JsonValue b) {
-    if (!b.ContainsKey("ci_lower") || b.Get("ci_lower").IsNull()) { return false; }
-    if (!b.ContainsKey("ci_upper") || b.Get("ci_upper").IsNull()) { return false; }
+    JsonValue lo = null; JsonValue hi = null;
+    if (!b.TryGet("ci_lower", ref lo) || lo.IsNull()) { return false; }
+    if (!b.TryGet("ci_upper", ref hi) || hi.IsNull()) { return false; }
     return true;
 }
 
@@ -1033,8 +1039,8 @@ void _printSpeedups(JsonValue benchmarks) {
     int i = 0;
     while (i < benchmarks.Count()) {
         JsonValue b = benchmarks.At(i);
-        if (b.ContainsKey("profile")) {
-            JsonValue p = b.Get("profile");
+        JsonValue p = null;
+        if (b.TryGet("profile", ref p)) {
             if (p.Get("mode_label").AsString() == "jit") {
                 string name    = b.Get("name").AsString();
                 string metric  = b.Get("metric").AsString();
@@ -1118,14 +1124,15 @@ class MicroBenchAgg {
     // Non-benchmark entries (smoke [Test]) and failed benches (no bench_stats) skip.
     internal void addModuleJson(string moduleJson, string lib) {
         JsonValue root = JsonValue.Parse(moduleJson.Trim());
-        if (!root.ContainsKey("results")) { return; }
-        JsonValue results = root.Get("results");
+        JsonValue results = null;
+        if (!root.TryGet("results", ref results)) { return; }
         int i = 0;
         while (i < results.Count()) {
             JsonValue res = results.At(i);
-            if (res.ContainsKey("is_benchmark") && res.Get("is_benchmark").AsBool()
-                && res.ContainsKey("bench_stats")) {
-                JsonValue bs = res.Get("bench_stats");
+            bool isBench = false;
+            JsonValue bs = null;
+            if (res.TryGetValue<bool>("is_benchmark", ref isBench) && isBench
+                && res.TryGet("bench_stats", ref bs)) {
                 string name = lib + "." + bs.Get("label").AsString();
                 long med = bs.Get("median_ns").AsLong();
                 long lo  = bs.Get("min_ns").AsLong();
@@ -1134,8 +1141,8 @@ class MicroBenchAgg {
                 // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): optional
                 // in older reports → default -1. Carried into the schema-v2 object
                 // so the informational baseline is SEM-ready for future consumers.
-                long mean = bs.ContainsKey("mean_ns") ? bs.Get("mean_ns").AsLong() : -1;
-                long sd   = bs.ContainsKey("stddev_ns") ? bs.Get("stddev_ns").AsLong() : -1;
+                long mean = -1; bs.TryGetValue<long>("mean_ns", ref mean);
+                long sd   = -1; bs.TryGetValue<long>("stddev_ns", ref sd);
                 if (this._n > 0) { this._items = this._items + ",\n"; }
                 this._items = this._items
                     + "    {\n      \"name\": \"" + name + "\",\n"

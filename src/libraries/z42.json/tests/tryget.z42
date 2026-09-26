@@ -1,0 +1,71 @@
+// add-doc-value-tryget：`TryGet` / `TryGetValue<T>` —— 取即检查。
+// 三条不变量与 `Std.Toml` 那份一字对应（① 未命中不动出参 ② 非 object 返 false 不抛
+// ③ 命中但类型不符照抛）。三个文档库形状必须一致，不一致本身就是缺陷。
+namespace Z42JsonTryGetTests;
+
+using Std;
+using Std.Test;
+using Std.Json;
+
+[Test]
+void test_tryget_hit_and_miss() {
+    var o = JsonValue.Parse("{\"name\":\"foo\"}");
+
+    JsonValue v = null;
+    Assert.True(o.TryGet("name", ref v));
+    Assert.Equal("foo", v.AsString());
+
+    JsonValue missing = null;
+    Assert.False(o.TryGet("nope", ref missing));
+    Assert.True(missing == null);            // ①
+}
+
+[Test]
+void test_tryget_on_non_object_is_false_not_throw() {
+    var scalar = JsonValue.Parse("42");      // ②
+    Assert.False(scalar.ContainsKey("k"));
+
+    JsonValue v = null;
+    Assert.False(scalar.TryGet("k", ref v));
+    Assert.True(v == null);
+}
+
+[Test]
+void test_trygetvalue_scalars_and_subtree() {
+    var o = JsonValue.Parse("{\"s\":\"hi\",\"n\":42,\"d\":1.5,\"b\":true,\"sub\":{\"k\":\"v\"}}");
+
+    string s = ""; Assert.True(o.TryGetValue<string>("s", ref s)); Assert.Equal("hi", s);
+    long n = 0;    Assert.True(o.TryGetValue<long>("n", ref n));   Assert.Equal(42L, n);
+    double d = 0.0; Assert.True(o.TryGetValue<double>("d", ref d)); Assert.Equal(1.5, d);
+    bool b = false; Assert.True(o.TryGetValue<bool>("b", ref b));  Assert.True(b);
+
+    JsonValue sub = null;
+    Assert.True(o.TryGetValue<JsonValue>("sub", ref sub));
+    string k = ""; Assert.True(sub.TryGetValue<string>("k", ref k)); Assert.Equal("v", k);
+}
+
+[Test]
+void test_trygetvalue_miss_keeps_default() {
+    var o = JsonValue.Parse("{\"other\":1}");        // ①：主用法
+    string name = "fallback";
+    Assert.False(o.TryGetValue<string>("name", ref name));
+    Assert.Equal("fallback", name);
+}
+
+[Test]
+void test_trygetvalue_wrong_kind_throws() {
+    var o = JsonValue.Parse("{\"n\":42}");           // ③
+    string s = "untouched";
+    bool threw = false;
+    try { o.TryGetValue<string>("n", ref s); } catch (JsonException e) { threw = true; }
+    Assert.True(threw);
+    Assert.Equal("untouched", s);
+}
+
+[Test]
+void test_trygetvalue_unsupported_type_throws() {
+    var o = JsonValue.Parse("{\"n\":42}");
+    bool threw = false;
+    try { int small = 0; o.TryGetValue<int>("n", ref small); } catch (JsonException e) { threw = true; }
+    Assert.True(threw);
+}

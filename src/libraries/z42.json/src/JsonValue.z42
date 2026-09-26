@@ -197,6 +197,47 @@ public class JsonValue {
         return this._objectValues[this._objectIndex.Get(key)];
     }
 
+    // ── 取即检查（取值与存在性测试合成一次）──────────────────────────
+    //
+    // 为什么要这一对：`ContainsKey(k)` + `Get(k)` 是**两次独立调用**，
+    // 「ContainsKey 为真 ⇒ Get 不抛」是调用方手里的不变式，**编译器原理上看不见**。
+    // 代价三样：键字面量写两遍（改一处漏一处 ⇒ 编译零诊断、运行期才抛）、
+    // 同一个 对象 查两遍、以及「在不在」这件事没有任何编译期表示。
+    //
+    // 签名取 `bool TryX(ref T)` —— 与 `Int32.TryParse` 那套全仓统一
+    // （值类型永不可空，可空返回这条路对 `long` / `bool` 走不通，见 E0476）。
+    // 三个文档库（TOML / JSON / YAML）形状一致，见 `Std.Toml.TomlValue.TryGet`。
+
+    /// 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
+    /// 本值不是 object 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
+    public bool TryGet(string key, ref JsonValue value) {
+        if (this._kind != 6) { return false; }
+        if (!this._objectIndex.ContainsKey(key)) { return false; }
+        value = this._objectValues[this._objectIndex.Get(key)];
+        return true;
+    }
+
+    /// 取即检查 + 取标量：命中则按 `T` 取值写入 `value` 并返回 true；未命中返回 false 且
+    /// **不动** `value`（「有就覆盖默认值」一行写完）。
+    ///
+    /// ⚠️ 命中但**类型不符照抛** `JsonException`，与 `AsString()` / `AsLong()` 一字不差 ——
+    /// 「键不在」与「值类型错」是两种失败，把后者吞成 false 会让数据里的类型错**静默退回默认值**。
+    ///
+    /// 支持的 `T`：`string` / `long` / `double` / `bool` / `JsonValue`（原样取子树）。
+    /// 其它 `T` 抛异常：那是**调用方写错了代码**，返回 false 会把它伪装成「键不在」。
+    public bool TryGetValue<T>(string key, ref T value) {
+        JsonValue v = null;
+        if (!this.TryGet(key, ref v)) { return false; }
+        Type t = typeof(T);
+        if (t == typeof(string))    { object o = v.AsString(); value = (T)o; return true; }
+        if (t == typeof(long))      { object o = v.AsLong();   value = (T)o; return true; }
+        if (t == typeof(double))    { object o = v.AsDouble(); value = (T)o; return true; }
+        if (t == typeof(bool))      { object o = v.AsBool();   value = (T)o; return true; }
+        if (t == typeof(JsonValue)) { object o = v;            value = (T)o; return true; }
+        throw new JsonException("TryGetValue<" + t.FullName + "> is not supported — "
+            + "use string / long / double / bool / JsonValue");
+    }
+
     public void Set(string key, JsonValue v) {
         if (this._kind != 6) {
             throw new JsonException("JsonSet on non-object value (" + this.KindName() + ")");

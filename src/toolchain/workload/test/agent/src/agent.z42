@@ -88,8 +88,8 @@ BundleCase[] _parseManifest(string manifestPath) {
         JsonValue c = cases.At(i);
         string name = c.Get("name").AsString();
         string zbc = c.Get("zbc").AsString();
-        string entry = c.ContainsKey("entry") ? c.Get("entry").AsString() : null;
-        string expected = c.ContainsKey("expected") ? c.Get("expected").AsString() : null;
+        string entry = null;    c.TryGetValue<string>("entry", ref entry);
+        string expected = null; c.TryGetValue<string>("expected", ref expected);
         outp[i] = new BundleCase(name, zbc, entry, expected);
     }
     return outp;

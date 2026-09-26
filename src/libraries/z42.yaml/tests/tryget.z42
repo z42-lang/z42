@@ -1,0 +1,65 @@
+// add-doc-value-tryget：`TryGet` / `TryGetValue<T>` —— 取即检查。
+// 三条不变量与 `Std.Toml` / `Std.Json` 那两份一字对应。
+//
+// ⚠️ YAML 的访问器叫 `AsInt` / `AsFloat`（TOML / JSON 叫 `AsLong` / `AsDouble`），
+// 但 `TryGetValue<T>` 按 **z42 类型**选：`<long>` 与 `<double>`，三个库调用点写法相同。
+namespace Z42YamlTryGetTests;
+
+using Std;
+using Std.Test;
+using Std.Yaml;
+
+[Test]
+void test_tryget_hit_and_miss() {
+    var m = YamlValue.Parse("name: foo");
+
+    YamlValue v = null;
+    Assert.True(m.TryGet("name", ref v));
+    Assert.Equal("foo", v.AsString());
+
+    YamlValue missing = null;
+    Assert.False(m.TryGet("nope", ref missing));
+    Assert.True(missing == null);            // ①
+}
+
+[Test]
+void test_tryget_on_non_mapping_is_false_not_throw() {
+    var scalar = YamlValue.Parse("42");      // ②
+    Assert.False(scalar.ContainsKey("k"));
+
+    YamlValue v = null;
+    Assert.False(scalar.TryGet("k", ref v));
+    Assert.True(v == null);
+}
+
+[Test]
+void test_trygetvalue_scalars_and_subtree() {
+    var m = YamlValue.Parse("s: hi\nn: 42\nd: 1.5\nb: true\nsub:\n  k: v");
+
+    string s = ""; Assert.True(m.TryGetValue<string>("s", ref s)); Assert.Equal("hi", s);
+    long n = 0;    Assert.True(m.TryGetValue<long>("n", ref n));   Assert.Equal(42L, n);
+    double d = 0.0; Assert.True(m.TryGetValue<double>("d", ref d)); Assert.Equal(1.5, d);
+    bool b = false; Assert.True(m.TryGetValue<bool>("b", ref b));  Assert.True(b);
+
+    YamlValue sub = null;
+    Assert.True(m.TryGetValue<YamlValue>("sub", ref sub));
+    string k = ""; Assert.True(sub.TryGetValue<string>("k", ref k)); Assert.Equal("v", k);
+}
+
+[Test]
+void test_trygetvalue_miss_keeps_default() {
+    var m = YamlValue.Parse("other: 1");     // ①：主用法
+    string name = "fallback";
+    Assert.False(m.TryGetValue<string>("name", ref name));
+    Assert.Equal("fallback", name);
+}
+
+[Test]
+void test_trygetvalue_wrong_kind_throws() {
+    var m = YamlValue.Parse("n: 42");        // ③
+    string s = "untouched";
+    bool threw = false;
+    try { m.TryGetValue<string>("n", ref s); } catch (YamlException e) { threw = true; }
+    Assert.True(threw);
+    Assert.Equal("untouched", s);
+}
