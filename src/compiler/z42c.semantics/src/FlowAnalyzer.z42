@@ -501,7 +501,16 @@ public sealed class FlowAnalyzer {
         // （`x.Expect(…)` 里 x 没赋值仍是错），空检查义务则在这里解除。两件事不同源，别合并。
         if (e is BoundExpect)   { this._reads((e as BoundExpect).Target); return; }
         if (e is BoundCast)     { this._reads((e as BoundCast).E);       return; }
-        if (e is BoundConvert)  { this._reads((e as BoundConvert).E);    return; }
+        if (e is BoundConvert)  {
+            BoundConvert cv = e as BoundConvert;
+            // enforce-null-at-cast：转换到**不可空值类型** = 运行期必然解引用
+            //（#746：null→值类型抛 NullReferenceException；null→引用类型合法通过）。
+            // 判据**复用 TypeChecker._isNonNullableValueType，不另写一份**
+            //（「编译期与运行期各判各的」正是 `where T : struct` 那个 bug 的形状）。
+            if (TypeChecker._isNonNullableValueType(cv.Type())) { this._checkDeref(cv.E); }
+            this._reads(cv.E);
+            return;
+        }
         if (e is BoundBox)      { this._reads((e as BoundBox).E);        return; }
         if (e is BoundIsExpr)   { this._reads((e as BoundIsExpr).E);     return; }
         if (e is BoundIsPatternExpr) { this._reads((e as BoundIsPatternExpr).E); return; }

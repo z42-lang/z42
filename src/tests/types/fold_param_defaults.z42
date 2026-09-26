@@ -27,6 +27,19 @@ class H {
     public string Cat(string s = "a" + "b") { return s; }
 }
 
+// enforce-null-at-cast：`ParameterInfo.DefaultValue` 标了 `?`，而**转换到值类型**
+// （`(long)` / `(bool)` / `(double)`）在运行期必然解引用 ⇒ 编译期同样要过义务。
+//
+// 本用例的输入全是它**自己声明**的方法（见 class H），被取的形参**必有字面量默认值**
+// ⇒ 用 `Expect(理由)` 在**一处**收口，而不是把 8 个调用点各写一遍：
+// 理由只需要说一次，而运行期检查仍然真实存在（`Assert` 对编译器不可见，
+// 真为 null 时炸点会是离现场很远的 NRE）。
+object dvOf(string method, int idx) {
+    // ⚠️ 理由必须是**字符串字面量**（E0490 刻意如此：拼出来的理由等于没理由），
+    // 所以这里不把 method/idx 拼进去 —— 真炸时栈帧已经指明是哪一处调用。
+    return pOf(method, idx).DefaultValue.Expect("本用例在 class H 里声明的这些形参都带字面量默认值");
+}
+
 ParameterInfo pOf(string method, int idx) {
     H h = new H();
     foreach (var m in h.GetType().GetMethods()) {
@@ -40,15 +53,15 @@ ParameterInfo pOf(string method, int idx) {
 
 void Main() {
     // ── Folded constants ───────────────────────────────────────────────────
-    Assert.Equal(-5, (int)(long)pOf("Neg", 1).DefaultValue);
-    Assert.Equal(3, (int)(long)pOf("Arith", 1).DefaultValue);
-    Assert.Equal(7, (int)(long)pOf("Arith", 2).DefaultValue);      // 2*3+1
-    Assert.True((bool)pOf("BNot", 0).DefaultValue);                // !false
-    Assert.Equal(16, (int)(long)pOf("Bits", 0).DefaultValue);      // 1<<4
-    Assert.Equal(0, (int)(long)pOf("Bits", 1).DefaultValue);       // 0xF0 & 0x0F
-    Assert.True((bool)pOf("Cmp", 0).DefaultValue);                 // 3>2
+    Assert.Equal(-5, (int)(long)dvOf("Neg", 1));
+    Assert.Equal(3, (int)(long)dvOf("Arith", 1));
+    Assert.Equal(7, (int)(long)dvOf("Arith", 2));      // 2*3+1
+    Assert.True((bool)dvOf("BNot", 0));                // !false
+    Assert.Equal(16, (int)(long)dvOf("Bits", 0));      // 1<<4
+    Assert.Equal(0, (int)(long)dvOf("Bits", 1));       // 0xF0 & 0x0F
+    Assert.True((bool)dvOf("Cmp", 0));                 // 3>2
 
-    double fv = (double)pOf("FNeg", 0).DefaultValue;               // -3.14
+    double fv = (double)dvOf("FNeg", 0);               // -3.14
     Assert.True(fv < -3.13 && fv > -3.15);
 
     // ── String concat now folds (PR6: ConstEval covers string `+`) ─────────
