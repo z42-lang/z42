@@ -58,6 +58,29 @@ class AllDefault { public AllDefault(int x = 1) { } }   // ✅ 满足：形参�
 class NeedsArg { public NeedsArg(int x) { } }     // ❌ 不满足
 ```
 
+### `new T()` 不会去调一个它满足不了的构造器
+
+`T` 只有到运行期才知道，所以「有没有能用的无参构造器」这个判断必须**在运行期再做一遍**
+—— 非泛型那条路早就在编译期做了（`new V2()` 报 `E0426`），泛型这条做不到。
+
+```z42
+struct V2 { public int X; public int Y; public V2(int x, int y) { … } }   // 只有带参 ctor
+T mk<T>() where T : struct { return new T(); }
+mk<V2>()        // → 零值 {0, 0}（对齐 C#：struct 总有隐式无参构造）
+```
+
+**有无参构造器就一定会跑它**，两者不冲突：
+
+```z42
+struct S3 { public int A; public S3() { this.A = 5; } }
+mk<S3>().A      // → 5
+```
+
+> 📜 **2026-09-26 之前这里是坏的**：运行期按**裸名**找无参构造器，而「只有一个构造器」的类型
+> 正是注册在裸名上 ⇒ 它会拿**一个实参**（只有 `this`）去调那个带参构造器，形参全是 `null`。
+> `mk<V2>()` 于是崩成 `struct field: expected an integer value, got Null`，**报在被调用的
+> 构造器里**，对真因一个字都没说。
+
 ### 基元满足 `new()`，构造出来的是**零值**
 
 `where T : new()` 接受基元（上表第三行），`new T()` 于是要对它们有个答案 —— 答案是
