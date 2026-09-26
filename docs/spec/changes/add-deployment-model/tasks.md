@@ -233,7 +233,13 @@ vendored 目录不是 shipped `libs/` ⇒ 自动复制进 dist。**批 1 那个�
 - [x] 2.5.3 `bootstrap-seed.md` 补**轴 ④ 豁免的边界**：「加 API 可同 commit 加+用」**只对增量成立**，
       改名/删除会抹掉旧 FQN ⇒ 跑这轮 bootstrap 的那个 driver 中途就死（实测见该节）。此前只写了
       ctor 签名一条残余约束。
-- [ ] 2.5.4 🔴 **已知未挂账的真债**：`store-sync-values-in-heap` 阶段 2（挂 2026-09-14，**已超期**）——
-      19 个旧同步 builtin + `corelib/sync.rs`。没挂进清单是因为它的阶段 2 不是机械删除
-      （`vm_context/types.rs` 还在用 `sync::ChannelSlot`），需单独立项；挂上去会让 GREEN 当天红在
-      一条本 PR 修不了的债上。⇒ **待裁：是否开这个 change。**
+- [x] 2.5.4 **已知未挂账的真债 → 已清**（`store-sync-values-in-heap` 阶段 2，2026-09-26）。
+      19 个旧同步 builtin + 三个 registry + `corelib/sync.rs`（596 行）整批删除。
+      ⭐ **我对这条债的判断连错两次，都是靠读码纠正的**：
+      ① 第一次说「阶段 2 不是机械删除，因为 `vm_context/types.rs` 还在用 `sync::ChannelSlot`」——
+         查下去那三个 registry 除声明与构造外**零使用**，是跟着旧 builtin 一起死的。
+      ② 第二次改判「槽位永久不可删，因为 BuiltinId 是下标」并写了墓碑桩 —— 那是照 `builtin_table_ext.rs`
+         头注写的，而**那句头注本身是错的**：zbc 存的是名字（`BuiltinInsn { name }`），`BuiltinId`
+         是加载期按名填的派发令牌、AOT 不烤 ⇒ 能真删。两处文档互相矛盾时，**必须去代码里定论**。
+      判据按归档规定核过：nightly 种子 `strings -n 3 | grep` 旧名，programs/z42c 与 libs 皆 0 引用。
+      ⭐ 顺带：删掉的两个 Rust 测试的覆盖在 z42 那层活着（`z42.threading/tests/` 17 单元），留了指路注释。
