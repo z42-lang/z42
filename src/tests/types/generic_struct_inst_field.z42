@@ -1,0 +1,93 @@
+namespace Demo;
+
+using Std;
+
+// fix-nested-generic-field-layout e2e：泛型 struct 的字段类型**本身是一个实例化**
+// （`struct Wrap<T> { Loc<T, long> inner; }`）。
+//
+// 与 `generic_struct_chain` 的区别（两格不同，缺一格照样崩）：那条测的是字段声明为**裸型参**
+// （`A First`）—— 擦除成引用叶子、存的是另一块 blob 的句柄；本条测的是字段声明为**带型参的
+// 实例化**（`Loc<T, long>`）—— 它是 struct，应当**内联**，而内联就要求分配端与访问端对
+// 「代换后的那个实例化有多大」达成一致。
+//
+// 修复前（实测，release + jit 均崩）：
+//   `StructLayout` 的字段类型代换**只做整名匹配** ⇒ `subst = {T→P2}` 匹配不上字符串
+//   `"Loc<T,long>"` ⇒ 布局层按**擦除**的 `Loc`（a 当 8B 句柄 + b 8B）算出 `Wrap<P2>` = 16B；
+//   而访问侧的静态类型是语义层结构递归出来的 `Loc<P2,long>`（a 内联 16B + b @16）。
+//   ⇒ `struct field write out of blob bounds (off=16, w=8, len=16)` —— 分配端给 16 字节、
+//   访问端按 off=16 写。
+//
+// 判据同时覆盖读与写、以及嵌套两层（`Wrap<Wrap<P2>>` 形态由 `Box` 那格代表）。
+// **jit 双验必做**（struct blob 读写路径）。纯 Assert（无 expected 文件 = 空 stdout）。
+
+struct P2 {
+    public int  X;
+    public long Y;
+    public P2(int x, long y) { this.X = x; this.Y = y; }
+}
+
+struct Loc<A, B> {
+    public A a;
+    public B b;
+}
+
+// 字段类型是实例化（`Loc<T, long>`）—— 本用例的主题。
+struct Wrap<T> {
+    public Loc<T, long> inner;
+}
+
+// 再套一层：字段类型是「实参本身又是实例化」的实例化。
+struct Box<T> {
+    public Wrap<T> w;
+    public int     tag;
+}
+
+void Main() {
+    // ── 一层：写内层的两个叶子，读回来必须各自成立 ──────────────────
+    Wrap<P2> w = new Wrap<P2>();
+    w.inner.b = 7L;
+    P2 p = new P2(3, 11L);
+    w.inner.a = p;
+    Assert.Equal(7L, w.inner.b);
+    Assert.Equal(11L, w.inner.a.Y);
+    Assert.Equal(3, w.inner.a.X);
+
+    // 写 struct 叶子里的一个字段，不得串到相邻的 `b`（偏移分裂时正是这里先错）。
+    w.inner.a.Y = 22L;
+    Assert.Equal(22L, w.inner.a.Y);
+    Assert.Equal(7L, w.inner.b);
+    Assert.Equal(3, w.inner.a.X);
+
+    // 反向：写 `b` 不得串进 `a`。
+    w.inner.b = 99L;
+    Assert.Equal(99L, w.inner.b);
+    Assert.Equal(22L, w.inner.a.Y);
+
+    // ── 两层：实参本身是实例化 ─────────────────────────────────
+    Box<P2> bx = new Box<P2>();
+    bx.tag = 5;
+    bx.w.inner.b = 8L;
+    bx.w.inner.a = new P2(1, 2L);
+    Assert.Equal(5, bx.tag);
+    Assert.Equal(8L, bx.w.inner.b);
+    Assert.Equal(2L, bx.w.inner.a.Y);
+    Assert.Equal(1, bx.w.inner.a.X);
+
+    // `tag` 排在 `w` 之后：若 `w` 的大小算小了，写 `w` 的末叶会踩到 `tag`。
+    bx.w.inner.b = 77L;
+    Assert.Equal(5, bx.tag);
+    Assert.Equal(77L, bx.w.inner.b);
+
+    // ── 值语义：整体赋值必须拷贝，不是共享句柄 ──────────────────
+    Wrap<P2> w2 = w;
+    w2.inner.b = 1000L;
+    Assert.Equal(99L, w.inner.b);
+    Assert.Equal(1000L, w2.inner.b);
+
+    // ── 阳性对照：换一个**布局与擦除相同**的实参（引用型），不得被本修复打坏 ──
+    Wrap<string> ws = new Wrap<string>();
+    ws.inner.b = 4L;
+    ws.inner.a = "hi";
+    Assert.Equal(4L, ws.inner.b);
+    Assert.Equal("hi", ws.inner.a);
+}
