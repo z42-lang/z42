@@ -35,7 +35,7 @@
 //! 本状态机不靠值推断状态——状态是显式的——所以可以把屏障放在**真正的访问点**，
 //! 拿到 C# 的「首次使用前」而不是「首次提及时」。
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -64,12 +64,45 @@ pub fn is_module_pseudo_type(type_fq: &str) -> bool {
 /// 判据 = 命名空间前缀 `<ns>.`，与编译器**放置**伪类型的规则同源
 /// （`ModuleInitSynth.Emit` 用 CU 的 `g.Ns` 限定）——不是第二套约定。
 /// 无命名空间的裸 `$Module` 覆盖一切。尾点不可省：`Demo.Lib.` 不匹配 `Demo.Library.X`。
-pub fn module_covers(module_fq: &str, sym_fq: &str) -> bool {
-    match module_fq.strip_suffix(MODULE_PSEUDO_TYPE) {
-        Some("")     => true,
-        Some(prefix) => sym_fq.starts_with(prefix),
-        None         => false,
+/// 归属判定：`sym_fq` 是否属于某个包 —— **先确认是哪个包，再无关命名空间**。
+///
+/// # 为什么不能按命名空间前缀判（这是本函数存在的全部理由）
+///
+/// 旧判据是「`<ns>.$Module` 覆盖 `<ns>.` 开头的一切」。而 `$Module` 落在哪个 ns，由**谁写了
+/// `[ModuleInit]` 那个 CU** 决定，与「这个包拥有哪些符号」没有关系 ⇒ 两个方向都会错：
+///
+/// - **漏判**：`z42.compression` 的初始化器写在 `namespace Std.Compression` ⇒ 前缀
+///   `Std.Compression.`；失败后触达**同包**的 `Std.Archive.ZipReader` 不重抛，在一个初始化
+///   失败的包上继续跑。
+/// - **过判**：同一个包写在裸 `namespace Std`（实测 **11 个包**都有这样的 CU：z42.core 77 个、
+///   z42.net 8 个、z42.io 6 个……`z42.compression` 自己也有）⇒ 前缀 `Std.` 命中
+///   `Std.IO.Console.WriteLine`，那是 **z42.io** 的符号 ⇒ 一个包的失败毒掉另一个包。
+///
+/// 根因：**命名空间在 z42 里不是包的边界**（同 E0497 那条诊断反复强调的判据：
+/// 「看类型的归属包，不是 `using` 的命名空间」）。所以任何形式的前缀匹配都不可能精确 ——
+/// 连「按包的真实符号算出 owner 前缀集合」也不行，因为那个集合照样会含 `Std.`。
+///
+/// ⇒ 判据换成**成员归属**：登记时记下该包实际拥有的符号名，判定查集合。
+///
+/// # `sym_fq` 的三种形态
+///
+/// 屏障的三类触达点分别传：类型 FQN（`Ns.T`）、静态字段 FQN（`Ns.T.F`）、函数 FQN
+/// （`Ns.F$n` 或 `Ns.T.M$n`）。故先查本身，不中则**逐段剥末段**再查，以命中字段/方法的 owner。
+///
+/// ⚠️ 泛型实例化名里含 `.`（`Std.List<Std.IO.Foo>`）时剥段会剥出无意义的中间串 —— 那只会
+/// **查不中**（集合里没有这种串），不会误判；类型 FQN 本来就走第一步的精确匹配。
+pub fn module_owns_symbol(owned: &FxHashSet<String>, sym_fq: &str) -> bool {
+    if owned.contains(sym_fq) {
+        return true;
     }
+    let mut rest = sym_fq;
+    while let Some((head, _)) = rest.rsplit_once('.') {
+        if owned.contains(head) {
+            return true;
+        }
+        rest = head;
+    }
+    false
 }
 
 /// `claim` 等待他线程跑完类型初始化器的上限。取足够宽松的值：正常的初始化器是毫秒级，
@@ -106,6 +139,15 @@ pub struct CctorEntry {
 /// 锁顺序：惰性加载器在持有自己的写锁时调 [`Self::register`]（加载器写锁 → `map`）。
 /// 反方向不存在——本类型的任何方法都**不会**在持有 `map` 时访问加载器——故不会死锁。
 #[derive(Debug)]
+/// 一个包的初始化伪类型 + **该包实际拥有的符号名集合**。
+///
+/// `owned` 是归属判定的唯一依据（见 [`module_owns_symbol`]）。它在登记时由调用方从**整包**的
+/// 类型表与函数表算出 —— 构造式精确，不依赖任何命名约定。
+struct ModuleInitEntry {
+    desc: Arc<crate::metadata::TypeDesc>,
+    owned: FxHashSet<String>,
+}
+
 pub struct CctorRegistry {
     /// 类 FQ → 登记项。
     map: Mutex<FxHashMap<String, CctorEntry>>,
@@ -121,7 +163,7 @@ pub struct CctorRegistry {
     /// add-module-init-hook: the `<ns>.$Module` pseudo-types of every loaded package,
     /// in load order. Unlike ordinary types these are **not** left to the access-point
     /// barrier — they are driven eagerly right after their package is loaded.
-    module_inits: Mutex<Vec<Arc<crate::metadata::TypeDesc>>>,
+    module_inits: Mutex<Vec<ModuleInitEntry>>,
     /// How many of `module_inits` have not reached `Done`. Same idiom as `pending`:
     /// trusted only in the `== 0` direction, so the barrier is one relaxed load once
     /// every package initializer has run.
@@ -201,18 +243,32 @@ impl CctorRegistry {
     /// 加载期登记一个包的 `<ns>.$Module` 伪类型。由 `LazyLoader::insert_type` 在自己的写锁内
     /// 调用 —— **只记账，不执行**：初始化器是用户代码，在加载锁内跑它会重入符号解析而死锁。
     /// 执行归屏障（`VmContext::ensure_module_inits`），那时锁已释放。
-    pub fn register_module_init(&self, desc: &Arc<crate::metadata::TypeDesc>) {
+    /// `owned` = **这个包实际拥有的符号名集合**（类型 FQN ∪ 函数 FQN），归属判定的唯一依据。
+    ///
+    /// 🔴 它是**必填参数**，不是可选项：这样「某条加载路径忘了供」在**编译期**就过不去，
+    /// 不存在「漏供 ⇒ 静默退回按命名空间猜」这种形态（本仓库反复吃亏的正是这类静默失效）。
+    /// 调用方必须在**整包**视野下算它 —— 逐类型漏斗（`insert_type`）那时类型表还没填完。
+    pub fn register_module_init(
+        &self,
+        desc: &Arc<crate::metadata::TypeDesc>,
+        owned: FxHashSet<String>,
+    ) {
         let mut v = self.module_inits.lock().unwrap_or_else(|e| e.into_inner());
-        if v.iter().any(|d| d.name == desc.name) {
+        if v.iter().any(|e| e.desc.name == desc.name) {
             return;   // 幂等：同一包重复加载不重复登记
         }
-        v.push(Arc::clone(desc));
+        v.push(ModuleInitEntry { desc: Arc::clone(desc), owned });
         self.module_pending.fetch_add(1, Ordering::Release);
     }
 
     /// 当前登记的全部包初始化伪类型（快照；遍历时不持锁，避免初始化器重入时自锁）。
     pub fn module_init_snapshot(&self) -> Vec<Arc<crate::metadata::TypeDesc>> {
-        self.module_inits.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.module_inits
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|e| Arc::clone(&e.desc))
+            .collect()
     }
 
     /// 按 map 里的**真实终态**重算 `module_pending`。
@@ -226,7 +282,7 @@ impl CctorRegistry {
     pub fn refresh_module_pending(&self) {
         let names: Vec<String> = {
             let v = self.module_inits.lock().unwrap_or_else(|e| e.into_inner());
-            v.iter().map(|d| d.name.clone()).collect()
+            v.iter().map(|e| e.desc.name.clone()).collect()
         };
         let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
         let mut remaining = 0usize;
@@ -262,18 +318,26 @@ impl CctorRegistry {
     /// **放置**伪类型的规则同源（`ModuleInitSynth.Emit` 用 CU 的 `g.Ns` 限定），不是第二套
     /// 约定 —— 两侧不会各自漂移。
     ///
-    /// ⚠️ 已知边界：一个包若声明了**互不嵌套**的多个命名空间（`Foo` 与 `Bar`），而
-    /// `[ModuleInit]` 写在 `Foo` 里，则触达 `Bar.*` 不会重抛。E0485 只保证「一个包至多一个
-    /// 初始化器」，不保证它的命名空间覆盖全包。
+    /// ✅ 那条「已知边界」已消除（2026-09-27）：判据从命名空间前缀换成**包的符号集合**，
+    /// 所以「一个包声明了互不嵌套的多个命名空间」不再影响归属 —— 同包的兄弟命名空间照样重抛，
+    /// 别的包也不会被毒。见 [`module_owns_symbol`] 的头注。
     pub fn failed_module_owning(&self, sym_fq: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
         if !self.any_module_init_failed() { return None; }
-        let list = self.module_init_snapshot();
+        // 先取快照再拿 map 锁：初始化器是用户代码，遍历时持 module_inits 锁会在重入时自锁。
+        let entries: Vec<(Arc<crate::metadata::TypeDesc>, FxHashSet<String>)> = self
+            .module_inits
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|e| (Arc::clone(&e.desc), e.owned.clone()))
+            .collect();
         let m = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        for td in list {
+        for (td, owned) in entries {
             if !matches!(m.get(td.name.as_str()).map(|e| &e.state), Some(CctorState::Failed(_))) {
                 continue;
             }
-            if module_covers(&td.name, sym_fq) { return Some(td); }
+            // 「先确认哪个包」：查该包的符号集合，而不是比命名空间前缀。
+            if module_owns_symbol(&owned, sym_fq) { return Some(td); }
         }
         None
     }
@@ -630,21 +694,57 @@ mod tests {
     // add-module-init-hook：失败语义（失败是终态、不重试、每次重抛）已由既有的
     // `failed_type_reports_error_on_every_later_access` 覆盖 —— 包初始化器复用同一套
     // `claim`/`finish`，不另造一份重复断言。这里只测本变更**真正新增**的判定。
-    // fix-module-init-failure-scope：归属判据是这条修复的全部要点 —— 失败的包只毒它自己，
-    // 不毒 `Std.IO.Console.WriteLine`。判据本身是纯函数，直接钉死。
+    // fix-module-init-ownership（2026-09-27）：判据从「命名空间前缀」换成「**包的符号集合**」。
+    // 旧版本钉的是前缀语义，所以整段重写 —— 保留的是同一个意图：失败的包只毒它自己。
     #[test]
-    fn module_covers_only_its_own_namespace() {
-        let m = "Demo.MiFail.$Module";
-        assert!(module_covers(m, "Demo.MiFail.Touch$1"));        // 自由函数
-        assert!(module_covers(m, "Demo.MiFail.Api.Get$1"));      // 静态方法
-        assert!(module_covers(m, "Demo.MiFail.Sub.Widget"));     // 嵌套 ns 下的类型
-        assert!(!module_covers(m, "Std.IO.Console.WriteLine$1")); // 无关包 —— 这条就是缺陷本身
-        assert!(!module_covers(m, "Demo.MiFailure.X"));          // 尾点不可省：前缀不得半截匹配
-        assert!(!module_covers(m, "Demo.MiFail"));               // 伪类型所在 ns 本身不是成员
-        // 无命名空间的包：裸 `$Module` 覆盖一切。
-        assert!(module_covers("$Module", "Anything.At.All"));
-        // 不是伪类型的名字不覆盖任何东西。
-        assert!(!module_covers("Demo.MiFail.Boot", "Demo.MiFail.Touch$1"));
+    fn module_owns_only_its_own_symbols() {
+        // 一个包真实拥有的东西：类型 FQN 与函数 FQN（登记时从整包的类型表+函数表算出）。
+        let owned: FxHashSet<String> = [
+            "Demo.MiFail.Touch$1",      // 自由函数
+            "Demo.MiFail.Api",          // 类型（其静态方法按 owner 判）
+            "Demo.MiFail.Sub.Widget",   // 嵌套 ns 下的类型
+            "Other.Ns.Sibling",         // ⭐ 同包的**兄弟命名空间** —— 旧前缀判据在这里漏判
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        assert!(module_owns_symbol(&owned, "Demo.MiFail.Touch$1"), "自由函数：精确命中");
+        assert!(module_owns_symbol(&owned, "Demo.MiFail.Api"), "类型：精确命中");
+        assert!(module_owns_symbol(&owned, "Demo.MiFail.Api.Get$1"), "静态方法：剥末段落到 owner 类型");
+        assert!(module_owns_symbol(&owned, "Demo.MiFail.Api.Level"), "静态字段：同上");
+        assert!(module_owns_symbol(&owned, "Demo.MiFail.Sub.Widget"), "嵌套 ns 下的类型");
+
+        // ⭐ 这一条是本次修复的要点：同包的兄弟命名空间**必须**判成自己的。
+        // 旧判据（前缀 `Demo.MiFail.`）在这里返回 false ⇒ 失败的包上继续跑。
+        assert!(
+            module_owns_symbol(&owned, "Other.Ns.Sibling"),
+            "同包的兄弟命名空间要算自己的 —— 旧前缀判据在这里漏判"
+        );
+
+        // ⭐ 另一个方向：不属于本包的，一概不算 —— 即便命名空间前缀看起来像。
+        assert!(!module_owns_symbol(&owned, "Std.IO.Console.WriteLine$1"), "别的包不许被毒");
+        assert!(!module_owns_symbol(&owned, "Demo.MiFailure.X"), "名字前缀相近但不是成员");
+        assert!(!module_owns_symbol(&owned, "Demo.MiFail"), "命名空间本身不是成员");
+        assert!(!module_owns_symbol(&owned, "Demo.MiFail.NotMine"), "同 ns 下但不属于本包");
+    }
+
+    // 过判方向的回归钉子：**裸 `Std` 那一格**。实测 11 个包都有 `namespace Std;` 的 CU，
+    // 所以「初始化器恰好写在裸 Std 里」是写得出来的形态，而旧判据会因此毒掉所有 `Std.*`。
+    #[test]
+    fn bare_std_module_init_does_not_poison_other_packages() {
+        // z42.compression 的符号（它自己也有一个裸 `Std` 的 CU）。
+        let owned: FxHashSet<String> = ["Std.Compression.Deflate", "Std.Archive.ZipReader", "Std.Zip$0"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(module_owns_symbol(&owned, "Std.Archive.ZipReader"), "同包，兄弟 ns");
+        assert!(module_owns_symbol(&owned, "Std.Zip$0"), "同包，直接落在裸 Std 下");
+        // z42.io 的符号 —— 前缀 `Std.` 会命中，成员判定不会。
+        assert!(
+            !module_owns_symbol(&owned, "Std.IO.Console.WriteLine$1"),
+            "别的包的符号：前缀判据会误命中，成员判据不会"
+        );
     }
 
     #[test]

@@ -3,6 +3,44 @@
 
 use super::*;
 
+/// 整包 owner 集合的累积器（fix-module-init-ownership，2026-09-27）。
+///
+/// 包初始化失败后的归属判定查的是「这个包拥有哪些符号」，所以登记 `$Module` 时必须把整包的
+/// 类型 FQN ∪ 函数 FQN 交出去。**逐类型漏斗（`insert_type`）算不出它** —— 走到某个 `$Module`
+/// 时同包的表还没填完 ⇒ 登记只能放在整包循环之后，由本累积器把两轮的名字攒起来。
+#[derive(Default)]
+struct OwnedSyms {
+    names: rustc_hash::FxHashSet<String>,
+    module_descs: Vec<std::sync::Arc<crate::metadata::TypeDesc>>,
+}
+
+impl OwnedSyms {
+    fn note(&mut self, name: &str) {
+        self.names.insert(name.to_string());
+    }
+    /// 顺带记下这一轮见到的 `$Module`（可能一个都没有，那是常态）。
+    fn note_type(&mut self, desc: &std::sync::Arc<crate::metadata::TypeDesc>) {
+        self.names.insert(desc.name.clone());
+        if crate::vm_context::cctor::is_module_pseudo_type(&desc.name) && desc.cctor_func().is_some() {
+            self.module_descs.push(std::sync::Arc::clone(desc));
+        }
+    }
+    /// 两轮都跑完后调用：把 owner 集合交给每个 `$Module`。
+    fn finish(self, cctors: Option<&std::sync::Arc<crate::vm_context::cctor::CctorRegistry>>) {
+        if self.module_descs.is_empty() {
+            return;
+        }
+        if let Some(reg) = cctors {
+            for td in &self.module_descs {
+                if let Some(func) = td.cctor_func() {
+                    reg.register(&td.name, func);
+                }
+                reg.register_module_init(td, self.names.clone());
+            }
+        }
+    }
+}
+
 impl LazyLoader {
     /// Load a zpkg file, merge its functions / types / strings, and expand
     /// its own `ZpkgDep` list into `declared_zpkgs` for future transitive
@@ -53,7 +91,9 @@ impl LazyLoader {
         // for is rejected there (E0601 / E0606 / E0456). Reaching this warning means the
         // two zpkgs were never compiled against each other — usually a stale copy of a
         // renamed package left in a libs dir.
+        let mut owned = OwnedSyms::default();
         for mut fn_ in artifact.module.functions {
+            owned.note(&fn_.name);
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
             if let Some(prev) = self.function_table.get(&name) {
@@ -86,6 +126,7 @@ impl LazyLoader {
         // fixup pass below can't use `Arc::get_mut` to mutate inherited
         // field layouts in place.
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
+            owned.note_type(&desc);
             if let Some(prev) = self.type_registry.get(&name) {
                 // complete-generic-instantiation D4-fix：同上，类型侧。结构**不**一致时
                 // 仍按歧义处理（两个消费方对着不同版本的生产方编出来的布局真会不同），
@@ -104,6 +145,7 @@ impl LazyLoader {
             }
             self.insert_type(name, desc);   // fix-crosspkg-static-call-cctor：入表即登记 cctor
         }
+        owned.finish(self.cctors.as_ref());
 
         // fix-cross-pkg-subclass-fields (2026-05-14): subclasses in this
         // zpkg whose base lives in an already-loaded dep zpkg need a fixup
@@ -327,13 +369,16 @@ impl LazyLoader {
         let offset = self.main_pool_len + self.string_pool.len();
         self.string_pool.extend(artifact.module.string_pool.iter().cloned());
 
+        let mut owned = OwnedSyms::default();
         for mut fn_ in artifact.module.functions {
+            owned.note(&fn_.name);
             remap_const_str(&mut fn_, offset);
             let name = fn_.name.clone();
             // cache-ctorless-objnew: same funnel (first-wins handled inside).
             self.insert_function(name, Arc::new(fn_));
         }
         for (name, desc) in std::mem::take(&mut artifact.module.type_registry) {
+            owned.note_type(&desc);
             if self.type_registry.contains_key(&name) {
                 // harden-crosspkg-gates: this used to be a **completely silent** skip —
                 // the zpkg-loading path warns, this one said nothing at all. First-wins is
@@ -350,6 +395,7 @@ impl LazyLoader {
             }
             self.insert_type(name, desc);   // fix-crosspkg-static-call-cctor：入表即登记 cctor
         }
+        owned.finish(self.cctors.as_ref());
 
         // Eagerly load the test module's full declared-dependency closure
         // (functions + types + vtables). Lazy on-demand resolution suffices for

@@ -194,7 +194,17 @@ impl LazyLoader {
     /// `Arc::make_mut` (clone-on-write): it gives THIS registry a private, merged
     /// copy so the lazy-lookup path resolves the full vtable/fields, while the
     /// eager source module keeps its own-only copy (unaffected).
-    pub fn seed_types_for_lookup(&mut self, types: &FxHashMap<String, Arc<TypeDesc>>) {
+    /// `func_names` = 同一个（主）包的函数 FQN。**归属判定要它**：主包自己的自由函数
+    /// （`Ns.F$n`）既不在 `types` 里、也不是任何类型的成员，不传进来就判不出归属
+    /// （fix-module-init-ownership，2026-09-27）。调用方手上就是完整的 `Module`，取 `functions` 即可。
+    pub fn seed_types_for_lookup(
+        &mut self,
+        types: &FxHashMap<String, Arc<TypeDesc>>,
+        func_names: &[String],
+    ) {
+        // 整包 owner 集合：类型 FQN ∪ 函数 FQN。只在真有 `$Module` 时才会被用到，
+        // 但要在循环**之前**算好 —— 循环里逐个插入时集合还不完整。
+        let mut module_descs: Vec<Arc<TypeDesc>> = Vec::new();
         for (name, td) in types {
             if !self.type_registry.contains_key(name) {
                 // add-module-init-hook: this path seeds the **main** artifact's types and
@@ -212,10 +222,23 @@ impl LazyLoader {
                 if crate::vm_context::cctor::is_module_pseudo_type(&td.name) {
                     if let (Some(reg), Some(func)) = (self.cctors.as_ref(), td.cctor_func()) {
                         reg.register(&td.name, func);
-                        reg.register_module_init(td);
+                        // 登记推迟到循环之后：owner 集合要整包齐了才算得准。
+                        module_descs.push(Arc::clone(td));
                     }
                 }
                 self.type_registry.insert(name.clone(), Arc::clone(td));
+            }
+        }
+        if !module_descs.is_empty() {
+            if let Some(reg) = self.cctors.as_ref() {
+                let owned: rustc_hash::FxHashSet<String> = types
+                    .values()
+                    .map(|t| t.name.clone())
+                    .chain(func_names.iter().cloned())
+                    .collect();
+                for td in &module_descs {
+                    reg.register_module_init(td, owned.clone());
+                }
             }
         }
     }
@@ -329,14 +352,12 @@ impl LazyLoader {
             // re-enters symbol resolution (deadlock). The barrier runs it once the lock
             // is released, still before any of this package's code executes.
             //
-            // Detection rides on `insert_type`, the single funnel every loaded type
-            // already passes through — no extra pass over the type table. (This is *not*
-            // the whole-function-table `ends_with(".__static_init__")` scan that
-            // unify-static-init-into-cctor deleted: that one walked the function table —
-            // one to two orders of magnitude larger — as a pass of its own.)
-            if crate::vm_context::cctor::is_module_pseudo_type(&desc.name) {
-                reg.register_module_init(&desc);
-            }
+            // fix-module-init-ownership（2026-09-27）：`$Module` 的登记**不再在这里**。
+            // 归属判定要的是「这个包拥有哪些符号」，而本函数是**逐类型**漏斗 —— 走到某个
+            // `$Module` 时，同包的类型表还没填完、函数表也不在手上，算不出那个集合。
+            // 登记改由**整包缝**做（`lazy_loader/registry.rs` 的两处循环之后、
+            // `seed_types_for_lookup` 的循环之后），那里两张表都齐。
+            // `register_module_init` 的 owned 参数是必填的，所以漏接的路径编译期就过不去。
         }
         self.type_registry.insert(name, desc);
     }
