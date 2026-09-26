@@ -8,7 +8,8 @@
 namespace Std.Scripting;
 
 using Std;
-using Std.IO;          // Environment / Path / File / ConsoleError
+using Std.IO;
+using Std.Runtime;   // ModuleSearch（VM 已解析的 zpkg 搜索序）          // Environment / Path / File / ConsoleError
 using Std.Reflection;  // Type / Activator
 using Std.Test;        // ModuleLoader（__load_module：按路径把组件 zpkg + 依赖闭包加载进 live VM）
 using Z42.Build;       // IReplCompiler / NoReplCompiler
@@ -59,19 +60,24 @@ public static class ReplCompilerHost {
     //   ④ Z42_LIBS 目录（单目录；dev warm-z42c 回路 / workspace 运行：编译器组件与 stdlib 同置一处）——
     //      REPL 的调用上下文比 z42b 更杂（驱动测试直驱 Script.Eval），故比 builder 多这一兜底。
     private static string _findCompilerZpkg() {
-        string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
-        if (home.Length > 0) {
-            string p1 = Path.Join(home, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
-            if (File.Exists(p1)) { return p1; }
+        // ① **VM 已解析的 zpkg 搜索序**（add-deployment-model 批 5 use，#832）。
+        //        `ModuleSearch.Dirs()` 给的是结果——相对项已按 entry zpkg 解析、`probing-paths` 的通配符
+        //        已展开、不存在的已剔除。位置由清单的 `[profile.<n>.runtime] probing-paths` 声明，
+        //        **代码里不再出现 `programs/z42c/` 这个路径**：位置变了只改清单。
+        string[] msDirs = ModuleSearch.Dirs();
+        int msI = 0;
+        while (msI < msDirs.Length) {
+                string pm = Path.Join(msDirs[msI], "z42c.pipeline.zpkg");
+                if (File.Exists(pm)) { return pm; }
+                msI = msI + 1;
         }
-        string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
-        if (pv.Length > 0) {
-            string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
-            string p2 = Path.Join(sdk, Path.Join("programs", Path.Join("z42c", "z42c.pipeline.zpkg")));
-            if (File.Exists(p2)) { return p2; }
-        }
-        string p3 = "artifacts/build/compiler/z42c.driver/release/dist/z42c.pipeline.zpkg";
-        if (File.Exists(p3)) { return p3; }
+        // ② **兜底：Z42_LIBS 单目录**。保留它而不是像 builder 那样删干净，因为 REPL 的调用
+        //    上下文更杂——驱动测试直驱 `Script.Eval`，那是**非 app 路径**（没有 entry zpkg），
+        //    `ModuleSearch.Dirs()` 在那里按设计返回空数组。
+        //
+        // 2026-09-26（批 5 use）：原先这里有四档硬编码（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
+        // 反推 SDK 根 → 开发树 artifacts 路径 → Z42_LIBS），与 `builder.z42` 那份几乎逐行相同。
+        // 位置改由清单的 `probing-paths` 声明后，前三档删除，**代码里不再出现 `programs/z42c/`**。
         string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         if (libs.Length > 0) {
             string p4 = Path.Join(libs, "z42c.pipeline.zpkg");
