@@ -401,22 +401,18 @@ public sealed class EmitContext {
         return "";
     }
 
-    // prim 别名 → 包装类名（镜像 TypeChecker._primWrapper；ChainHasMethod IC-3 映射用）。
+    // prim 别名 → 包装类名。**转发到 `PrimModel.Wrapper`（唯一真相）**（converge-prim-wrapper）。
+    //
+    // 🔴 原注释写的是「镜像 `TypeChecker._primWrapper`」—— 而它指的那个函数**早已不存在**
+    // （`TypeChecker` 里只剩一句提到它的注释）。一份声称镜像某处的实现，其镜像对象是个鬼：
+    // 这正是「注释即第二份真相、且先于代码腐坏」的标准形态。
+    //
+    // 三份旧实现已经不一致（详见 `TypeFactsTc._primWrapper` 的注释）；本份独有的错是
+    // **缺 `object` 分支** ⇒ `_primWrapper("object")` 返回 `object`。它在 `QualifyTypeName`
+    // 里被前置的 `if (name == "object")` 挡住了，但 `ChainHasMethod` 没有那层挡 ⇒
+    // `object` 收者查 `LocalClasses["object"]` 必然落空。
     private static string _primWrapper(string n) {
-        if (n == "string")              { return "String"; }
-        if (n == "int") { return "Int32"; }
-        if (n == "long") { return "Int64"; }
-        if (n == "short") { return "Int16"; }
-        if (n == "sbyte")  { return "SByte"; }
-        if (n == "byte")  { return "Byte"; }
-        if (n == "ushort") { return "UInt16"; }
-        if (n == "uint") { return "UInt32"; }
-        if (n == "ulong") { return "UInt64"; }
-        if (n == "float") { return "Single"; }
-        if (n == "double") { return "Double"; }
-        if (n == "bool")                { return "Boolean"; }
-        if (n == "char")                { return "Char"; }
-        return n;   // 已是类名（"String"/"List" 等）→ 原样
+        return PrimModel.Wrapper(n);
     }
 
     // 类的声明 ns 是否异于当前模块 ns（跨-ns，含 imported）。G18i：`as`-cast 到跨-ns 类后字段读
