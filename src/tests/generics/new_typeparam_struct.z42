@@ -1,0 +1,61 @@
+// fix-activator-arity：`new T()`（T 为型参）**不得去调一个它满足不了的构造器**。
+//
+// 修前（实测）：`T mk<T>() where T : struct { return new T(); }` 在 `T = V2`
+// （只有 `V2(int,int)` 一个 ctor）上崩：
+//   Std.Exception: struct field: expected an integer value, got Null
+//     at Demo.V2.V2 —— 报在**被调方**，对真因一个字都没说。
+//
+// 根因：`__activator_create` 按**裸名** `<Class>.<Simple>` 找无参 ctor，而「只有一个 ctor」
+// 的类型正是注册在裸名上（single/primary-ctor 约定）⇒ 它用 1 个实参（只有 `this`）去调
+// 一个 3 参的 ctor，形参全是 Null。
+//
+// ⚠️ **非泛型那条路早就是对的**：`new V2()` 编译期报 `E0426: constructor V2 has no overload
+// accepting 0 argument(s)`。泛型这条做不到（`T` 要到运行期才知道）⇒ 判据必须在运行期补一遍
+// —— 又一处「编译期与运行期各判各的」。
+//
+// 满足不了时**默认字段分配就是构造**（原注释对「没有 ctor 的类型」已经这么写了），
+// 这也正是 C# 给 struct 的语义。
+namespace Demo;
+
+using Std;
+
+struct V2 {                      // 只有带参 ctor —— 修前崩在这一格
+    public int X;
+    public int Y;
+    public V2(int x, int y) { this.X = x; this.Y = y; }
+}
+
+struct S2 { public int A; public int B; }                              // 无 ctor
+struct S3 { public int A; public S3() { this.A = 5; } }                // 有无参 ctor
+struct S4 {                                                            // 无参 + 带参并存
+    public int A;
+    public S4() { this.A = 9; }
+    public S4(int a) { this.A = a; }
+}
+
+T mk<T>() where T : struct { return new T(); }
+
+void Main() {
+    // ── ① 只有带参 ctor：零值，不崩、不拿 Null 去调那个 ctor ──────────────
+    V2 v = mk<V2>();
+    Assert.Equal(0, v.X);
+    Assert.Equal(0, v.Y);
+
+    // ── ② 阴性对照：无 ctor 的 struct 仍是零值 ─────────────────────────────
+    S2 s2 = mk<S2>();
+    Assert.Equal(0, s2.A);
+    Assert.Equal(0, s2.B);
+
+    // ── ③ 阴性对照：**有无参 ctor 就必须真的跑它** ─────────────────────────
+    //     （这条是判别力所在：若为了躲开 ① 而一律不调 ctor，这里会变成 0）
+    S3 s3 = mk<S3>();
+    Assert.Equal(5, s3.A);
+
+    // ── ④ 无参与带参重载并存：选无参那个 ─────────────────────────────────
+    S4 s4 = mk<S4>();
+    Assert.Equal(9, s4.A);
+
+    // ── ⑤ 阴性对照：基元型参（#803 修的那格）不受影响 ─────────────────────
+    Assert.Equal(0, mk<int>());
+    Assert.Equal(false, mk<bool>());
+}

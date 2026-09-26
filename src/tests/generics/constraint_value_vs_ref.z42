@@ -65,8 +65,9 @@ void Main() {
     Pair mp = makeValue<Pair>();
     Assert.Equal(0, mp.X);
 
-    // ⚠️ `makeValue<int>()` 在这里**不能**断言：`new T()` 且 T 解析成基元时运行期抛
-    // `__box_prim: expected integer value, got Object(...Std.Int32...)`。与本用例修的那条
-    // 无关（基元一直就满足 `class`/`struct`/`new()` 的判定），是独立的一条 —— 判定说「可以
-    // 构造」，真去构造却崩。已记入待修队列。
+    // 📜 这里原写着「`makeValue<int>()` **不能**断言：`new T()` 且 T 解析成基元时运行期抛
+    // `__box_prim: expected integer value…`」——那条**已由 #803 修掉**（实跑核实）。
+    // 留着「不能断言」等于给后来的人留一个假的禁区，故补成真断言。
+    Assert.Equal(0, makeValue<int>());
+    Assert.Equal(false, makeValue<bool>());
 }

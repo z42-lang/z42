@@ -377,15 +377,33 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
     let simple = class_name.rsplit('.').next().unwrap_or(class_name.as_str());
     let cand_bare = format!("{class_name}.{simple}");
     let cand_zero = format!("{class_name}.{simple}$0");
+    // fix-activator-arity: **the bare candidate is not necessarily parameterless.**
+    // A type whose *only* constructor takes arguments registers it under the bare name
+    // (single/primary-ctor convention, `OverloadBinder._ctorKey`), so `<Class>.<Simple>`
+    // happily resolves to `Vec2(int, int)` — and we would then call it with one argument
+    // (`this`), leaving every parameter `Null`. Measured: `new T()` with `T = Vec2` died as
+    // `struct field: expected an integer value, got Null` **inside the constructor**, which
+    // points at the callee and says nothing about the real cause.
+    //
+    // The non-generic path already rejects this at compile time (`new Vec2()` → E0426), but
+    // `new T()` cannot: `T` is only known here. So replicate the arity requirement — and when
+    // nothing satisfies it, the default-field allocation IS the construction (exactly what the
+    // comment above says for a type with no constructor at all, and what C# gives a struct).
+    let arity_ok = |f: &crate::metadata::Function| f.param_count <= 1;   // param_count includes `this`
     let mut i = 0;
     while i < 2 {
         let cand = if i == 0 { cand_bare.as_str() } else { cand_zero.as_str() };
         i += 1;
         let outcome = match module.func_index.get(cand) {
-            Some(&idx) => Some(exec_function(ctx, module, &module.functions[idx], &[obj.clone()])?),
+            Some(&idx) if arity_ok(&module.functions[idx]) => {
+                Some(exec_function(ctx, module, &module.functions[idx], &[obj.clone()])?)
+            }
+            Some(_) => None,
             None => match ctx.try_lookup_function(cand) {
-                Some(f) => Some(exec_function(ctx, module, f.as_ref(), &[obj.clone()])?),
-                None => None,
+                Some(f) if arity_ok(f.as_ref()) => {
+                    Some(exec_function(ctx, module, f.as_ref(), &[obj.clone()])?)
+                }
+                _ => None,
             },
         };
         if let Some(o) = outcome {
