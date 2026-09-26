@@ -17,6 +17,8 @@
 //                                     v2 起入 meta：cached 文件零重 lex，见 D8 实测修正）
 //   pool <hex(utf8)>               ← 0..n 行（模块 StringPool[1..] 原序——writer 残留，D5a）
 //   labels <hex> <hex> ...         ← 每函数一行（块 label 表原文——writer 残留，D5a）
+//   diag <hex(utf8)>               ← 0..n 行（该 CU 的 **per-CU typecheck 诊断**原文，v7 起；
+//                                     cached 命中时回放，否则警告只在冷构建那一次可见）
 //
 // TSIG **不入 meta**（design D2 修正 2026-07-08）：每文件 TSIG 全包耦合（自由函数
 // 兄弟泄漏 + 全包 AST 依赖），每次 build 由当前源 AST 全包重算。token 集与源一一对应
@@ -46,6 +48,11 @@ public sealed class CacheMeta {
     public string[] Tokens;    public int TokenCount;      // 标识符 token 去重集（D3 边输入）
     public string[] Pool;      public int PoolCount;       // 模块池 [1..] 原序（writer 残留）
     public string[] FnLabels;  public int FnLabelsCount;   // 每函数一项 = 空格连接的 hex label 表
+    // per-CU typecheck 诊断（warnings-survive-cache）。**只装 per-CU typecheck 那一层**：
+    // E0436（`EnforceFileScopeAll`）与 analyzer 诊断都在其后追加、且每次构建都会重新发，
+    // 存进来就会重复打印。见 `PackageCompile` 里取快照的那一点。
+    // 又因为 ErrorCount>0 时根本不写 cache，这里实际只会有 **warning**。
+    public string[] Diags;     public int DiagCount;
     public CacheMeta(string rel) {
         this.Rel = rel;
         this.SourceHash = "";
@@ -56,10 +63,14 @@ public sealed class CacheMeta {
         this.Tokens = new string[0];    this.TokenCount = 0;
         this.Pool = new string[0];      this.PoolCount = 0;
         this.FnLabels = new string[0];  this.FnLabelsCount = 0;
+        this.Diags = new string[0];     this.DiagCount = 0;
     }
 }
 
 public static class CacheStore {
+    // v7（2026-09-27 warnings-survive-cache）：+`diag <hex>` 行——per-CU typecheck 诊断入 meta，
+    //     cached 命中时回放。此前 cached CU 的 `DiagMsgs` 被清空 ⇒ **警告只在冷构建那一次可见**
+    //     （实测 W0700：第 ① 次打印，第 ② 次 `cached: 1/1` 起彻底消失，源码一字未改）。v6 条目失效。
     // v6（2026-09-15 add-dep-identity-to-cache-key）：package.meta +`deps <依赖身份>` 行——依赖包变了（BLID /
     //     内容哈希）整包作废。此前依赖改签名、消费方源码没动会命中旧产物。v5 条目失效。
     // v5（2026-09-06 incr-name-level-invalidation）：`surface` 单行 → `nsurf <name> <hash>` 多行
@@ -69,7 +80,7 @@ public static class CacheStore {
     // v3（2026-08-11 add-compiler-fingerprint-cache）：+z42c-fp 行（编译器语义指纹进 key）。v2 条目失效。
     // v2（2026-07-08）：+token 行——D8 计时实测 42 文件语料增量比全量慢 17%，根因 =
     // 闭包边输入对全部文件独立重 lex；token 入 meta 后 cached 文件零 lex。v1 条目失效。
-    public static int MetaVersion = 6;
+    public static int MetaVersion = 7;
 
     // 编译器语义指纹：z42c 的 codegen / 优化 / typecheck / lowering 行为变化，但 zbc/zpkg 格式
     // Minor **不** bump 时，手动 +1。它进 cache key → 编译器语义一变即令旧 .meta 全部失效，堵住
@@ -95,7 +106,7 @@ public static class CacheStore {
     // 序列化（行式；集合按传入序写出——调用方保证确定性来源）。
     // 逐行进 parts 再一次 ConcatParts：`s = s + …` 在大模块（token/pool 上千行）上是平方级拷贝。
     public static string Serialize(CacheMeta m) {
-        int total = 6 + m.NsCount + m.SurfIdentCount + m.UsedDepNsCount + m.TokenCount + m.PoolCount + m.FnLabelsCount;
+        int total = 6 + m.NsCount + m.SurfIdentCount + m.UsedDepNsCount + m.TokenCount + m.PoolCount + m.FnLabelsCount + m.DiagCount;
         string[] parts = new string[total];
         int k = 0;
         parts[k] = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"; k = k + 1;
@@ -116,6 +127,9 @@ public static class CacheStore {
         while (i < m.PoolCount) { parts[k] = "pool " + CacheStore.HexEnc(m.Pool[i]) + "\n"; k = k + 1; i = i + 1; }
         i = 0;
         while (i < m.FnLabelsCount) { parts[k] = "labels " + m.FnLabels[i] + "\n"; k = k + 1; i = i + 1; }
+        i = 0;
+        // 诊断原文 hex 编码：消息里可能嵌用户标识符/字面量，raw 存会撞上行式格式的换行与首空格切分。
+        while (i < m.DiagCount) { parts[k] = "diag " + CacheStore.HexEnc(m.Diags[i]) + "\n"; k = k + 1; i = i + 1; }
         return String.ConcatParts(parts, k);
     }
 
@@ -169,6 +183,10 @@ public static class CacheStore {
             else if (key == "labels") {
                 m.FnLabels = CacheStore._append(m.FnLabels, m.FnLabelsCount, val);
                 m.FnLabelsCount = m.FnLabelsCount + 1;
+            }
+            else if (key == "diag") {
+                m.Diags = CacheStore._append(m.Diags, m.DiagCount, CacheStore.HexDec(val));
+                m.DiagCount = m.DiagCount + 1;
             }
             else { return null; }   // 未知键 = 未来格式 → 按坏条目处理（宁 fresh 不误命中）
         }

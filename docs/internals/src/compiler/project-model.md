@@ -248,6 +248,38 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 `[project].version` ⇒ 产物字节必须变；② 加一条不存在的 `[dependencies]` ⇒ 构建必须判红。
 ②不是①换得来的 —— 把依赖名单从键里去掉，①照样绿。
 
+### 诊断也是缓存内容（`diag` 行，meta v7）
+
+上表讲的是**失效**：什么变了要重编。还有一类缺陷与失效无关 —— 源码确实没变、不该重编，
+但**警告仍然应该每次都打印**，因为缺陷还在代码里。此前不是这样：
+
+| 构建 | 缓存状态 | W0700 |
+|---|---|---|
+| ① 冷 | `cached: 0/1` | ✅ 打印 |
+| ② 什么都不改 | `cached: 1/1` | ❌ 消失 |
+| ③ 再来一次 | `cached: 1/1` | ❌ 消失 |
+
+两个**独立**的静默器叠在一起，各自负责一种缓存形态：
+
+| 形态 | 静默器 | 修法 |
+|---|---|---|
+| 整包全命中 | driver 在 `no changes; preserved` 处**早退**，压根不编译 ⇒ 无人呈现警告 | 早退前回放 `prep.Plan.Metas[*].Diags` |
+| 部分命中 | `CompileCuTask.Run` 的 cached 分支把 `DiagMsgs` 置空，而无人回填 | `diag` 行入 meta（v7）+ `CachedNsMeta` 回填 |
+
+⚠️ **这一条不该用「扩 depsId」来修**，与上面那四次正好相反：源码真的没变，强行让它失效
+就是用一次全量重编去换几行终端输出。缺的不是**失效**，是**呈现** —— 早退路径必须回放它
+手上已经有的东西。判断用哪种形状的问法是「重编一遍能得到新答案吗」：不能，就是呈现问题。
+
+`diag` 行**只装 per-CU typecheck 那一层**诊断。快照点在 `PackageCompile` 里
+`EnforceFileScopeAll`（E0436）与 `_runAnalyzers` **之前**取 —— 那两层每次构建都会重新发
+（analyzer 跑在 AST 上，cached CU 的 AST 是在的），一并存进 meta 就会在命中时**重复打印**。
+又因为 `ErrorCount > 0` 的编译**根本不写 cache**，存下来的实际只会是 warning；哪天这个前提
+变了，回填处的「不回填 ErrorCount」也必须跟着改（否则命中会把错误降级成警告）。
+
+门禁在 `xtask test incremental` 的 `_warningsSurviveCache`，**判据看 stderr 而不是产物字节** ——
+这个缺陷不动产物一个字节，「对账全绿」与「警告一条看不见」可以同时成立。三格：冷构建
+（阳性对照，修前也对）/ 全命中 / 部分命中。
+
 ## 实现
 
 | 关注点 | 关键文件 |

@@ -491,6 +491,21 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 int rcp = _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
                 if (rcp != 0) { return rcp; }
             }
+            // 🔴 警告必须在 preserved 路径上也打印（warnings-survive-cache），理由与上面侧车
+            // 那条**一模一样**：早退跳过了用户仍然需要看见的东西。实测：带 W0700 的工程连续
+            // 构建三次，只有第 ① 次打印，第 ②③ 次 `cached: N/N` 起彻底消失——而源码一字未改、
+            // 缺陷还在。「连着构建两次」恰恰是最常见的工作方式，所以这一格比部分增量那格更常被撞到。
+            // 诊断此刻已经在手（`prep.Plan.Metas[*].Diags`，v7 meta 起随条目回放），不需要编译。
+            int pwi = 0;
+            while (pwi < srcs.Length) {
+                CacheMeta pm2 = prep.Plan.Metas[pwi];
+                if (pm2 != null && pm2.DiagCount > 0) {
+                    ConsoleError.WriteLine("z42c build: " + pm2.DiagCount.ToString() + " warning(s) in " + dispSrcs[pwi]);
+                    int pwd = 0;
+                    while (pwd < pm2.DiagCount) { ConsoleError.WriteLine("  " + pm2.Diags[pwd]); pwd = pwd + 1; }
+                }
+                pwi = pwi + 1;
+            }
             BuildLog.Progress("no changes; preserved -> " + BuildLayout.Display(lastZpkg));
             return ExitCode.Ok;
         }
@@ -559,6 +574,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         while (mi < srcs.Length) {
             if (prep.Plan.Metas[mi] != null) {
                 cachedMetas[mi] = new CachedNsMeta(prep.Plan.Metas[mi].UsedDepNs, prep.Plan.Metas[mi].UsedDepNsCount);
+                // warnings-survive-cache：cached CU 的诊断也随 meta 回来（否则警告只在冷构建可见）。
+                cachedMetas[mi].Diags = prep.Plan.Metas[mi].Diags;
+                cachedMetas[mi].DiagCount = prep.Plan.Metas[mi].DiagCount;
             }
             mi = mi + 1;
         }
@@ -640,12 +658,18 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     //
     // 打开它的代价实测为 **0**：stdlib 25 个包 + z42c 自建全跑一遍，共 0 条 warning
     // （量法是临时给这里加打印再全量构建）。warning 不改退出码，只出 stderr。
+    // 🔴 循环上界与上面的错误循环同口径：**`art.CmCount` 而不是 `srcs.Length`**
+    // （warnings-survive-cache）。上面那条在 fix-generated-cu-errors-invisible 里已经改过并写明
+    // 理由，这一条当时没跟着改 ⇒ **generator 产出的 CU 里的警告一条也不会打印**。
+    // 少一格不像错误那格会崩（越界读），所以它更安静、也更容易一直留着。
+    // 生成 CU 没有真实源文件名 → 标 `<generated>`，与错误那格逐字一致。
     if (art.ErrorCount == 0) {
         int wi = 0;
-        while (wi < srcs.Length) {
+        while (wi < art.CmCount) {
             CompiledModuleZ wcm = cms[wi];
             if (wcm.DiagCount > 0) {
-                ConsoleError.WriteLine("z42c build: " + wcm.DiagCount.ToString() + " warning(s) in " + dispSrcs[wi]);
+                string worigin = wi < dispSrcs.Length ? dispSrcs[wi] : "<generated>";
+                ConsoleError.WriteLine("z42c build: " + wcm.DiagCount.ToString() + " warning(s) in " + worigin);
                 int wd = 0;
                 while (wd < wcm.DiagCount) { ConsoleError.WriteLine("  " + wcm.DiagMsgs[wd]); wd = wd + 1; }
             }
@@ -745,7 +769,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
-        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats);
+        _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags);
         return ExitCode.Ok;
     }
     string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -773,7 +797,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         if (rc1 != 0) { return rc1; }
     }
     // cache 落盘（cache-dir-layout：不论是否增量都落盘，helper 见 BuildCache.z42）。
-    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats);
+    _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags);
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
         int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
