@@ -48,8 +48,9 @@ path 条目据此校验，`[dependencies]` 据此拒收。只用 analyzer 契约
 > 加载时会报 **E0493**。要么把散装 `.zbc` 一起拷，要么用 `--release` 构建 handler 工程，
 > 得到单文件 packed zpkg。
 
-**按路径**：指向目录，其中须恰有一份 `*.z42.toml`，`[project].name` 与这里写的名字一致，且
-`kind = "analyzer"`。z42c 会代为构建它（用消费方的 `--release` / 优化档），再把产物挂上去。
+**按路径**：指向目录，其中须恰有一份**工程清单**（裸 `z42.toml` 优先，否则唯一一份
+`*.z42.toml` —— 判据与 `z42c build <dir>`、与 `[dependencies]` 的 path 完全一致），
+`[project].name` 与这里写的名字一致，且 `kind = "analyzer"`。z42c 会代为构建它（用消费方的 `--release` / 优化档），再把产物挂上去。
 改了扩展的源码，消费方下次构建会重编——handler 指纹含该 zpkg 的内容。**这是自己写扩展时的
 推荐写法**：不用把 zpkg 拷来拷去，也不会踩上面那条 indexed/packed 的坑。
 
