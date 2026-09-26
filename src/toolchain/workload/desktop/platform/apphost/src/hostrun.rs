@@ -179,6 +179,56 @@ pub fn resolve_app_runtime_in(
     None
 }
 
+/// Decide the value to hand the child z42vm in `$Z42_LIBS`, given the ambient
+/// value (`None`/empty = unset) and the resolved runtime's libs dir.
+///
+/// Rule: **fill only an unset/empty var**. This deliberately mirrors the VM's
+/// own [`libs_env_to_publish`] (`src/runtime/src/startup.rs`) — same knob, so
+/// one rule, stated once per component that touches it.
+///
+/// 🔴 Before honor-explicit-libs-env this was an unconditional
+/// `cmd.env("Z42_LIBS", &rt.libs)`, i.e. the apphost **silently discarded** an
+/// explicit value. Measured (patched apphost + a `z42vm` stub that echoes what
+/// it receives): with `Z42_LIBS=/my/explicit/libs` set, the child still saw
+/// `<runtime>/libs` — not a warning, not an error, just gone.
+///
+/// That mattered well beyond deployed apps: **the SDK's own `bin/z42c` is an
+/// apphost** (`builder_publish_build.z42`), so `Z42_LIBS=… z42c build …`
+/// against an installed toolchain was inert. `Z42_LIBS` is a `PUBLIC` knob in
+/// `knob_table.rs` and a documented row in `runtime-settings.md`; on this path
+/// it did nothing at all — "a gate that never fires is not a gate".
+///
+/// Still load-bearing when unset, so this is not a plain deletion: in the
+/// installed layout z42vm sits at `<dir>/z42vm`, and the VM's own step ②
+/// probes `<binary-dir>/../libs` = `<dir>/../libs` — **not** the `<dir>/libs`
+/// that the apphost found. Drop the set entirely and the installed layout
+/// stops resolving stdlib.
+pub fn libs_env_for_child(current: Option<&str>, libs: &Path) -> Option<PathBuf> {
+    let unset = current.map_or(true, |v| v.trim().is_empty());
+    if unset && libs.is_dir() {
+        Some(libs.to_path_buf())
+    } else {
+        None
+    }
+}
+
+/// Build the `z42vm <app_zpkg> [-- <argv>]` command, taking the ambient
+/// `$Z42_LIBS` explicitly so the decision is testable without touching process
+/// state (`env::set_var` is racy across `cargo test`'s threads).
+fn build_app_command(rt: &AppRuntime, app_zpkg: &Path, argv: &[String],
+                     current_libs: Option<&str>) -> Command {
+    let mut cmd = Command::new(&rt.vm);
+    cmd.arg(app_zpkg);
+    if let Some(val) = libs_env_for_child(current_libs, &rt.libs) {
+        cmd.env("Z42_LIBS", val);
+    }
+    if !argv.is_empty() {
+        cmd.arg("--");
+        cmd.args(argv);
+    }
+    cmd
+}
+
 /// Exec `z42vm <app_zpkg> -- <argv>` directly (apphost run path) with
 /// `Z42_LIBS` set, and propagate the child exit code.
 ///
@@ -189,15 +239,8 @@ pub fn resolve_app_runtime_in(
 /// and the apphost's job is "find z42vm and hand it the app", nothing more. No `launcher.zpkg`, no
 /// muxer, single VM. Never returns.
 pub fn exec_app(rt: &AppRuntime, app_zpkg: &Path, argv: &[String]) -> ! {
-    let mut cmd = Command::new(&rt.vm);
-    cmd.arg(app_zpkg);
-    if rt.libs.is_dir() {
-        cmd.env("Z42_LIBS", &rt.libs);
-    }
-    if !argv.is_empty() {
-        cmd.arg("--");
-        cmd.args(argv);
-    }
+    let current = env::var("Z42_LIBS").ok();
+    let mut cmd = build_app_command(rt, app_zpkg, argv, current.as_deref());
     match cmd.status() {
         Ok(status) => exit(status.code().unwrap_or(1)),
         Err(e) => {
@@ -397,5 +440,60 @@ mod tests {
         let rt = resolve_app_runtime_in(Some(&bogus), Some(&env_home), &temp_dir("pv-exe5"), None)
             .expect("falls through to $Z42_HOME");
         assert!(rt.vm.starts_with(&env_home));
+    }
+
+    // ---- $Z42_LIBS handover (honor-explicit-libs-env) ----------------------
+    //
+    // Asserted on the built `Command`, not on a spawned child: the question is
+    // exactly "what env would the child receive", and `get_envs()` answers it
+    // without a real z42vm. Note `cmd.env(k, v)` shows up as an *override* —
+    // an untouched var is simply absent from `get_envs()`, which is precisely
+    // "inherit whatever the user set".
+
+    fn child_libs_override(rt: &AppRuntime, current: Option<&str>) -> Option<Option<PathBuf>> {
+        let cmd = build_app_command(rt, Path::new("app.zpkg"), &[], current);
+        cmd.get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("Z42_LIBS"))
+            .map(|(_, v)| v.map(PathBuf::from))
+    }
+
+    #[test]
+    fn unset_libs_gets_the_resolved_dir() {
+        // Load-bearing: in the installed layout the VM's own `<bin>/../libs`
+        // probe would look one level too high, so the apphost must still fill it.
+        let d = temp_dir("libs-unset");
+        make_runtime(&d, false);
+        let rt = probe_app_runtime(&d).expect("found");
+        assert_eq!(child_libs_override(&rt, None), Some(Some(d.join("libs"))));
+    }
+
+    #[test]
+    fn explicit_libs_is_left_untouched() {
+        // 🔴 The regression test for the actual bug: this used to be
+        // `Some(Some(<runtime>/libs))` — the user's value silently discarded.
+        let d = temp_dir("libs-explicit");
+        make_runtime(&d, false);
+        let rt = probe_app_runtime(&d).expect("found");
+        assert_eq!(child_libs_override(&rt, Some("/my/explicit/libs")), None,
+                   "an explicit $Z42_LIBS must reach the child unmodified");
+    }
+
+    #[test]
+    fn blank_libs_counts_as_unset() {
+        // Mirrors the VM's `libs_env_to_publish`: empty string == unset.
+        let d = temp_dir("libs-blank");
+        make_runtime(&d, false);
+        let rt = probe_app_runtime(&d).expect("found");
+        assert_eq!(child_libs_override(&rt, Some("   ")), Some(Some(d.join("libs"))));
+    }
+
+    #[test]
+    fn missing_libs_dir_publishes_nothing() {
+        // No `libs/` next to the vm → nothing to hand over; leave the child to
+        // its own resolution order rather than pointing it at a nonexistent dir.
+        let d = temp_dir("libs-none");
+        fs::write(d.join(vm_name()), b"vm").unwrap();
+        let rt = probe_app_runtime(&d).expect("found");
+        assert_eq!(child_libs_override(&rt, None), None);
     }
 }

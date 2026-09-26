@@ -189,7 +189,12 @@ probing-paths = ["../shared", "../vendor"]   # 多条写数组（推荐，跨平
   收下，但没有 `aot` feature 的 build 会警告并回落 build 默认；`--mode` 旗标本身只接受
   `interp` / `jit`。
 - **`log`** — `tracing-subscriber` 的 EnvFilter 指令串，如 `z42::jit=debug,z42=warn`。
-- **`libs`** — 标准库 zpkg 的搜索目录。**单个路径**，不是路径列表。
+- **`libs`** — 标准库 zpkg 的搜索目录。**单个路径**，不是路径列表。设了它就压过所有内置
+  探测档，**经 apphost 启动的程序也一样**——这包括 SDK 自己的 `bin/z42c` / `bin/z42b` 等
+  （它们都是 apphost）。⚠️ 2026-09-27 之前 apphost 会**无条件覆写**这个变量，于是对装好的
+  工具链设 `Z42_LIBS` 完全无效、且不给任何提示；如果你手上的 SDK 早于该日期，唯一的绕行法是
+  **不经 apphost**——直接 `z42vm <programs/z42c/z42c.driver.zpkg> -- <args>`（设
+  `Z42_PORTABLE_VM` 不行：它只改 apphost 强制成哪个 libs，覆写照旧）。
 - **`native-path`** — native `.dylib` / `.so` / `.dll` 模块的搜索路径，平台分隔符分隔。
 - **`crash-dir`** — panic / 信号崩溃报告文件的落盘目录。
 - **`gc-mode`** — GC 算法，六个取值：`stw` / `concurrent` / `generational`，以及三者各自的
