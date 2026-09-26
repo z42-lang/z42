@@ -36,6 +36,7 @@ graph LR
 
 <!-- gate-stages:begin -->
 - `build wave (debug vm + regen)`
+- `rust units (cargo test --lib + --no-run)`
 - `e2e goldens (interp; jit → vm-jit-consistency)`
 - `e2e cross-zpkg`
 - `e2e multi-exe`
