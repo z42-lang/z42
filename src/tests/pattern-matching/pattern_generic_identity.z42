@@ -1,0 +1,82 @@
+// complete-generic-class-identity（收尾）：**模式匹配的类型测试也要携类型实参**。
+//
+// #831 让 `is` / `as` / cast 认了实参，模式那条路却还在用擦除名 —— 于是同一个问题两个答案：
+//
+//   object o = new Box<int>(1);
+//   o is Box<string>                      → false   ✅
+//   switch (o) { case Box<string> b: … }  → **匹配上**，`b` 拿到一个装着 int 的 Box<string>
+//
+// 后者是**静默**的，还会把错类型漏给下游。修前实测三种模式形态（类型模式 / 位置模式 /
+// is-结构化模式）全部误匹配。
+//
+// 根因是**两把尺子**：`TypeOpEmitter` 与 `PatternEmitter` 各写了一份
+// 「`QualifyTypeName` + Array/Object 归一」，#831 只改了前者。
+// 修法是收敛到 `ExprEmitter._typeTestName` 这**一个出口**——模式节点本就带着 binder 解析好的
+// 类型（`BoundTypePattern.BoundType` / `BoundPositionalPattern.Type` / …），不需要新字段。
+//
+// ⚠️ 本用例的判别力全在**阴性**那半：只测「正确实例化能匹配」是分辨不出来的
+// （`pattern_generic.z42` 就只测了那半，所以它一直绿着）。
+namespace Demo;
+
+using Std;
+
+[Record] class Box<T>(T Value);
+[Record] class Pair<A, B>(A First, B Second);
+
+void Main() {
+    object o = new Box<int>(1);
+
+    // ── ① 类型模式：错的实例化**不得**匹配 ──────────────────────────────
+    string r1 = "none";
+    switch (o) {
+        case Box<string> bs: r1 = "string"; break;
+        case Box<int> bi:    r1 = "int";    break;
+        default:             r1 = "default"; break;
+    }
+    Assert.Equal("int", r1);
+
+    // ── ② 位置模式（record 解构）────────────────────────────────────────
+    string r2 = "none";
+    switch (o) {
+        case Box<string>(sv): r2 = "string"; break;
+        case Box<int>(iv):    r2 = "int";    break;
+        default:              r2 = "default"; break;
+    }
+    Assert.Equal("int", r2);
+
+    // ── ③ 属性模式 ─────────────────────────────────────────────────────
+    string r3 = "none";
+    switch (o) {
+        case Box<string> { Value: null }: r3 = "string"; break;
+        case Box<int> { Value: 1 }:       r3 = "int";    break;
+        default:                          r3 = "default"; break;
+    }
+    Assert.Equal("int", r3);
+
+    // ── ④ is-结构化模式 ────────────────────────────────────────────────
+    Assert.False(o is Box<string>(sv2));
+    Assert.True(o is Box<int>(iv2));
+
+    // ── ⑤ 与非模式形式 `is` 的答案必须一致（这正是修前打架的那一对）──────
+    Assert.False(o is Box<string>);
+    Assert.True(o is Box<int>);
+
+    // ── ⑥ 双参：只错一个实参也不得匹配 ──────────────────────────────────
+    object p = new Pair<int, string>(3, "hi");
+    string r6 = "none";
+    switch (p) {
+        case Pair<int, int>(a1, b1):     r6 = "int,int";    break;
+        case Pair<string, string>(a2, b2): r6 = "str,str";  break;
+        case Pair<int, string>(a3, b3):  r6 = "int,str";    break;
+        default:                         r6 = "default";    break;
+    }
+    Assert.Equal("int,str", r6);
+
+    // ── 阴性对照：正确实例化的解构仍然拿到值（不能为了不匹配而全不匹配）──
+    int got = -1;
+    switch (o) {
+        case Box<int>(v): got = v; break;
+        default: break;
+    }
+    Assert.Equal(1, got);
+}
