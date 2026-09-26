@@ -75,6 +75,30 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
    >
    > ⭐ **它藏了一个月的原因**：`add-path-dependencies` 的 e2e（阶段 2.5）只造了 **1 层**（`lib foo + exe bar`），而深度为 1 时「直接依赖」恰好等于「闭包」——缺陷被完整遮住。同族于 `static_abstract_operator` 挑中单字段 `Money` 恰好绕开 sret 那条。现已把该 e2e 加深到 2 层。
 
+#### 按名/产物引用的依赖也建闭包
+
+上面第 3 步的「闭包全体」来自 `PathDepPlan.Resolve`，而它只沿 **`path` 指向工程目录** 的边走。
+另两类依赖（按名引用、`path` 指向 `.zpkg` 产物）没有工程目录可递归，闭包来源换成 **zpkg 自己的
+`DEPS` 段**（`ZpkgReader.ReadDependencies`）：`_bundleExeDeps` 的复制循环每拷成功一个包，就打开它、
+读出它的依赖名、把未见过的追加到待拷队列尾部 —— 同一个 `while` 里做 BFS，队列即工作表。
+
+三条边界：
+
+| 情形 | 行为 | 理由 |
+|---|---|---|
+| 判定为框架包（从 shipped `libs/` 找到）| 不拷、**也不递归** | 它的依赖同在 `libs/`，运行期找得到 |
+| `deploy = "shared"` | 循环开头就 `continue` | 闭包是运行期的事（probing-paths 展开规则不在构建侧重做）|
+| 间接依赖不在 `[dependencies]` 里 | `deploy` 取 `""` ⇒ 走默认判据 | 它没有声明，只能按「在哪个目录找到的」判 |
+
+递归只对**已复制**的包做 —— 「拷了它」和「该看它的依赖」是同一个条件，不是两个。
+
+> 📜 **为什么来源必须是 DEPS 而不是源码树 toml**：产物引用的场景下对方的 `.z42.toml` 通常
+> 不在本机（`{ path = "../vendor/mid.zpkg" }` 只有 zpkg）。按名引用同理。
+>
+> ⭐ **这个缺口的症状离原因很远**：`app → mid → leaf`、`dist/` 里只有 `mid.zpkg` 时，拷出去运行
+> **死在 `mid` 的方法里**（`MissingSymbolException: NcLeaf.Deep`）—— 报的像是「mid 的代码有问题」，
+> 实际是打包漏了 `leaf`。编译期全绿（vendored 目录早已并进 libsDirs）。
+
 > **packed 前提（运行期约束）**：colocate 的依赖 zpkg 必须是 **packed**（release 布局）——运行期惰性加载器只把 packed zpkg 当依赖候选，**indexed**（debug 多文件开发态布局）不作候选。故私有 path 依赖的**部署构建走 `--release`**（消费方与其闭包一并 packed；z42.interactive→z42.repl 即如此）。debug 单包 build 仍可编译解析（编译期读 `.zsym`），只是产出的 indexed 依赖不适合 colocate 运行——这是既有惰性加载器约束，非 path 依赖新引入。
 
 > **与 workspace 编译的关系**：两者都做「拓扑序逐成员建」，但正交——workspace 沿*成员目录内*的依赖边（`z42.workspace.toml` 的 `members`），path 依赖沿*manifest 显式 `path`* 边跨目录。single build 才触发 path 闭包；workspace 成员建带 `libsDirsOverride`（已由 orchestrator 组装 libsDirs）→ 跳过 path 闭包解析。native 库的同族跟随见 [Native 库的布局与解析](../runtime/native-libraries.md)。

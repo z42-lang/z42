@@ -515,6 +515,8 @@ int _testCompilerE2e(string root, string vm, string flat) {
     if (_e2eZpkgRefChecks(root, vm, driverZpkg) != 0) { return 1; }
     // `deploy = copy|shared`（add-deployment-model 批 4 use）：显式覆盖默认的复制判据。
     if (_e2eDeployUseChecks(root, vm, driverZpkg) != 0) { return 1; }
+    // 按名/产物引用的传递闭包（add-deployment-model 批 2.2 use）。
+    if (_e2eNamedClosureChecks(root, vm, driverZpkg) != 0) { return 1; }
     Console.WriteLine("✅ z42c e2e: self-compiled .zbc executes on z42vm");
     return 0;
 }
