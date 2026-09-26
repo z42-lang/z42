@@ -20,6 +20,20 @@ public sealed partial class ClassDescBuilder {
         return "unknown";
     }
 
+    // carry-field-null-marks：字段 / 属性标了 `?` → 在它自己的 attr-ref 块上追加 `$Nullable` 哨兵。
+    //
+    // **为什么不走类型拼写**：字段的 TYPE 段拼写（`_typeFieldName`）是**查找键 / 布局判据**
+    // —— `StructLayout` 按它判「字段是不是 struct」、TSIG 按它展开继承字段。把 `?` 拼进去会改键
+    //（同 `FunctionEmitter._sigTypeName` 历来剥 `?` 的理由：那串同时是派发键）。
+    // ⇒ 走 attr 旁路通道，与 `$Nullable`（形参）/ `$RetNullable`（返回值）同一套机制。
+    //
+    // **不配完备性标记**（与 `$ByRef` 的 `$RefSig` 的关键差别）：`?` 的语义是「请编译器强制检查」，
+    // **缺席 = 不强制**（不是「保证非空」）⇒ 旧包读不出哨兵落成 false 恰好正确。
+    private IrAttrRef[] _withNullableMark(IrAttrRef[] refs, TypeExpr t) {
+        if (!(t is NullableType)) { return refs; }
+        return ClassDescBuilder._appendAttrRef(refs, IrParamDefault.NullableSentinel, "");
+    }
+
     // unify-type-identity-fqn：类名成分一律**全限定**。
     //
     // 修前这里有两条毛病：① 含点的限定名直接返回字面量 "unknown"（复刻已删除的 C# 编译器的
@@ -206,7 +220,7 @@ public sealed partial class ClassDescBuilder {
                         sfields = b2;
                     }
                     IrFieldDesc sfdesc = new IrFieldDesc(fd.Name, tn);
-                    sfdesc.Attrs = this._attrRefs(c.Members[j]); sfdesc.AttrCount = sfdesc.Attrs.Length;
+                    sfdesc.Attrs = this._withNullableMark(this._attrRefs(c.Members[j]), fd.Type); sfdesc.AttrCount = sfdesc.Attrs.Length;
                     sfdesc.Visibility = IrGenFacts._visCode(fd.Mods, 1);   // add-member-visibility
                     sfields[sfcount] = sfdesc;
                     sfcount = sfcount + 1;
@@ -217,7 +231,7 @@ public sealed partial class ClassDescBuilder {
                         fields = bigger;
                     }
                     IrFieldDesc fdesc = new IrFieldDesc(fd.Name, tn);
-                    fdesc.Attrs = this._attrRefs(c.Members[j]); fdesc.AttrCount = fdesc.Attrs.Length;
+                    fdesc.Attrs = this._withNullableMark(this._attrRefs(c.Members[j]), fd.Type); fdesc.AttrCount = fdesc.Attrs.Length;
                     fdesc.Visibility = IrGenFacts._visCode(fd.Mods, 1);   // add-member-visibility
                     fields[fcount] = fdesc;
                     fcount = fcount + 1;
@@ -231,7 +245,8 @@ public sealed partial class ClassDescBuilder {
                 // `__prop_X` 的 .Attrs（复用既有 field_attributes 格式，无格式 bump）。`PropertyInfo.
                 // GetCustomAttributes` 经 __property_custom_attributes 查 `__prop_<Name>` 字段 attr。
                 // 计算属性（HasGetBody，无背后字段）不承载 attribute（M2 已知限制）。
-                IrAttrRef[] prAttrs = this._attrRefs(c.Members[j]);
+                // 属性的 `?` 同样挂在**背后字段**的 attr 块上（`add-json-serde` 建的那条路）。
+                IrAttrRef[] prAttrs = this._withNullableMark(this._attrRefs(c.Members[j]), fpd.Type);
                 // add-property-getter：计算属性（HasGetBody）无后备字段（getter 是真实函数体）。
                 // add-property-custom-setter：自定义 setter（HasSetBody）同理无后备（setter 自管存储）。
                 if (!fpdExtern && !fpd.HasGetBody && !fpd.HasSetBody) {

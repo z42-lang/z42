@@ -66,9 +66,15 @@ public sealed class ExportedFieldZ {
     public bool   IsStatic;
     public bool   IsDeprecated;    // add-deprecated-directive：字段级 `[Deprecated]`。⚠️ **不占 field-flags 位**——同方法级，走 attr-ref 哨兵。
     public string DeprecationMsg;  // ctor 元数不变（旧种子 ABI），默认 false/""，TsigReconcile 构造后赋值。
+    // carry-field-null-marks：该字段（或属性，标记挂在背后字段上）的类型标了 `?`。
+    // 同 `IsDeprecated`：**不占 field-flags 位**，走 attr-ref 哨兵（`$Nullable`），
+    // ctor 元数不变（旧种子 ABI），默认 false，TsigReconcile 构造后赋值。
+    // **缺席 = 不强制**（不是「保证非空」）⇒ 旧包落成 false 恰好正确，无需完备性标记。
+    public bool   IsNullable;
     public ExportedFieldZ(string name, string typeName, string visibility, bool isStatic) {
         this.Name = name; this.TypeName = typeName; this.Visibility = visibility; this.IsStatic = isStatic;
         this.IsDeprecated = false; this.DeprecationMsg = "";
+        this.IsNullable = false;
     }
 }
 

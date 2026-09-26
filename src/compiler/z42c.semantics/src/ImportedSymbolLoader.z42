@@ -588,6 +588,7 @@ public static partial class ImportedSymbolLoader {
                 FieldSymbol fsym = new FieldSymbol(fd.Name, fd.Visibility,
                     ImportedSymbolLoader._resolve(r, fd.TypeName, tps, tpc), fd.IsStatic, ct.Name());
                 fsym.IsDeprecated = fd.IsDeprecated; fsym.DeprecationMsg = fd.DeprecationMsg;   // add-deprecated-directive：跨包字段级弃用
+                fsym.IsNullable = fd.IsNullable;   // carry-field-null-marks：跨包字段 / 属性的 `?` 标记（缺席 = 不强制）
                 ct.Fields.Put(fd.Name, fsym);
                 // G18-import：实例字段入 OwnField* 有序元数据（TSIG 继承字段展开；static 不入，同本地 _fillClass）。
                 // fix-generic-struct-chain-access：拼写须与本地 `MemberCollector` **同一口径**（`SurfaceTypeName`
