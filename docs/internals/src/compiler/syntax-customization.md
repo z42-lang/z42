@@ -17,7 +17,7 @@
 > —— `control_flow`（if/while/for/foreach/do/switch + break/continue）、`exceptions`（try + throw）、
 > `bitwise`（`| ^ & << >>`）、`ternary`（`?:`）、`pattern_match`（进模式引擎的那几条路）。
 > `using_stmt`（`using` **语句**四形态，add-using-statement 批 3 —— 它曾是被删掉的**幻影名**之一，
-> 现在以真名回来）。**其余 9 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
+> 现在以真名回来）。**其余 10 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
 > 这张表当年的原罪正是宣告了 6 个**不存在**的特性而三年无人发现（已于 2026-09-23 删除）。
 >
 > 另有一个遗留物需要知道：曾有两个 `features.toml` sidecar（`src/tests/control_flow/switch/` 与
@@ -68,7 +68,7 @@
 - **一个**预置 profile：`Phase1Profile()`（**15** 个特性全开）。另有 `Has(name)` / `NameAt(i)`：与 `IsEnabled` 分开是必须的——`IsEnabled` 对「未知名」与「已知但关着」都返回 false，靠它分不出拼写错误，而 `[syntax]` 要对未知名报错。
   （曾有 `MinimalProfile()`，已于 2026-09-26 删除：零生产调用方，且 `[syntax]` 语法里选不到 profile ⇒ 用不上。真要按 profile 裁剪得先加 manifest 键，是独立一条。）
 
-解析器持有它（`Parser._features`，**可空 = 全开**，于是单测 / REPL 不必改签名也不被裁语法）。关掉 `control_flow` / `exceptions` / `bitwise` / `ternary` / `pattern_match` 这 5 个会真的改变解析行为并发 E0301；其余 10 个名字今天没有消费点（见页首那条 🔴）。
+解析器持有它（`Parser._features`，**可空 = 全开**，于是单测 / REPL 不必改签名也不被裁语法）。关掉 `control_flow` / `exceptions` / `bitwise` / `ternary` / `pattern_match` / `using_stmt` 这 **6** 个会真的改变解析行为并发 E0301；其余 10 个名字今天没有消费点（见页首那条 🔴）。
 
 ### 特性名清单
 

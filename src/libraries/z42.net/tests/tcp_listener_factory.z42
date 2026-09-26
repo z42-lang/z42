@@ -8,27 +8,21 @@ using Std.Net.Sockets;
 
 [Test]
 void test_create_returns_bound_listener() {
-    var l = TcpListener.Create("127.0.0.1", 0);
-    try {
+    // add-using-statement 批 4：手写 try/finally 换成 `using`（`TcpListener` 名义实现 IDisposable）。
+    using (var l = TcpListener.Create("127.0.0.1", 0)) {
         // OS picked a port, so LocalPort > 0 confirms Bind ran.
         Assert.True(l.LocalPort() > 0);
-    } finally {
-        l.Dispose();
     }
 }
 
 [Test]
 void test_create_equivalent_to_manual_new_bind() {
-    var manual = new TcpListener();
+    // 两个资源 ⇒ 两个 `using var`（作用域到方法末尾，退出时**逆序**释放：factory 先、manual 后）。
+    using var manual = new TcpListener();
     manual.Bind("127.0.0.1", 0);
-    var factory = TcpListener.Create("127.0.0.1", 0);
-    try {
-        // Both must have valid (distinct) ports.
-        Assert.True(manual.LocalPort() > 0);
-        Assert.True(factory.LocalPort() > 0);
-        Assert.False(manual.LocalPort() == factory.LocalPort());
-    } finally {
-        manual.Dispose();
-        factory.Dispose();
-    }
+    using var factory = TcpListener.Create("127.0.0.1", 0);
+    // Both must have valid (distinct) ports.
+    Assert.True(manual.LocalPort() > 0);
+    Assert.True(factory.LocalPort() > 0);
+    Assert.False(manual.LocalPort() == factory.LocalPort());
 }

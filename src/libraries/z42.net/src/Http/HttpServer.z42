@@ -77,17 +77,22 @@ public class HttpServer : IDisposable {
         }
         TcpClient peer = this._listener.AcceptTcpClient();
         // Stop() 可能与这次 accept 并发：accept 在置位前刚好收下一个真实连接。丢弃并退出。
+        // ⚠️ 这里**不用 `using`**：它不是资源作用域，而是「丢弃这个连接」的单点释放
+        //（本文件另有三处同形态：`ServeThreaded` / `ServeWithPool` 的竞态丢弃与队列满丢弃）。
+        // `using` 只解决「块的任一退出路径都要释放」，这四处没有块。
         if (this._stopped) {
             try { peer.Dispose(); } catch (Exception e) { }
             throw new SocketClosedException();
         }
-        try {
+        // add-using-statement 批 4：`using` 取代「try + 正常路径 Dispose + catch 里再 Dispose +
+        // 手工 throw e」那四行。除了短，还修掉一个真问题：`throw e` 是**手工重抛**、会把抛出点
+        // 换成这一行；`using` 让原异常**原样传播**，栈指回 `_dispatchOne` 里真正出错的地方。
+        // ⚠️ 一处刻意的行为变化：原代码在异常路径上**吞掉 `Dispose` 自己的异常**，`using` 不吞。
+        // `TcpClient.Dispose()` 幂等、只调一次 native drop，那个 catch 是预防性的；
+        // 「`Dispose` 抛异常时怎么与主异常合并」是独立一条（本 change 的 Non-goal）。
+        using (peer) {
             NetworkStream stream = peer.GetStream();
             this._dispatchOne(stream, handler);
-            peer.Dispose();
-        } catch (Exception e) {
-            try { peer.Dispose(); } catch (Exception e2) { }
-            throw e;
         }
     }
 
@@ -300,17 +305,15 @@ public class HttpServer : IDisposable {
     /// thread-spawn closures (register-flow check tripped on empty catch
     /// blocks).
     private void _workerHandle(TcpClient workerPeer, Action<HttpServerContext> handler) {
-        NetworkStream stream = null;
-        try {
-            stream = workerPeer.GetStream();
-            this._dispatchOne(stream, handler);
-        } catch (Exception e) {
-            // Per-worker error — swallow; logging would race other workers.
-        }
-        try {
-            workerPeer.Dispose();
-        } catch (Exception e2) {
-            // Best-effort cleanup.
+        // add-using-statement 批 4：释放交给 `using`，内层 catch 只管「per-worker 错误不外溢」
+        // 这一件事（原来它同时兼着「别让异常绕过下面那次 Dispose」—— 那是 try/finally 的活）。
+        using (workerPeer) {
+            try {
+                NetworkStream stream = workerPeer.GetStream();
+                this._dispatchOne(stream, handler);
+            } catch (Exception e) {
+                // Per-worker error — swallow; logging would race other workers.
+            }
         }
     }
 
