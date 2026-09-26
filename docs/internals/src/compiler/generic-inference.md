@@ -120,6 +120,49 @@
 > 本推断路径**只**放开「lambda 重绑」这一条通道，其余对非-lambda 位一律关闭 ⇒ 对自举 / stdlib 构建
 > 零字节漂移（build 源里没有「省略 `<>` + lambda」形态；不动点 3/3 gen1==gen2 兜底）。
 
+## 类级型参的载体：沿基链定位**声明类**（2026-09-26）
+
+类级 `typeof(T)` / `default(T)` 的载体此前只有一个：**受者自己**的 `type_args`。
+于是从泛型基继承来的型参取不到 —— `class Derived : Box<int> {}` 的实例自己没有实参：
+
+```z42
+class Box<T> { string Tof() { return typeof(T).FullName; } T Def() { return default(T); } }
+class Derived : Box<int> { }
+new Derived().Tof()   // 修前 → 占位名 "T"（应为 Std.Int32）
+new Derived().Def()   // 修前 → null（应为 0）
+```
+
+⭐ **实参其实一直都在 —— 在基的名字里**，只是此前被剥掉了。#831（P1）让**闭合**泛型基保留
+实参（`Derived` 的 base 现在是 `Demo.Box<int>`）之后，这条路才通。
+
+**两个载体，顺序是关键：**
+
+| # | 载体 | 何时用 |
+|---|---|---|
+| ① | **声明那一层的名字** | 沿基链走到 erased 名 == 声明类的那层，从名字解析实参 |
+| ② | 受者自己的 `type_args` | ①落空时的回落 —— 跨包泛型没有身份名，实参只在这个载体里 |
+
+🔴 **②绝不能在「声明类是某个基」时生效**：`class DG<U> : Box<int>` 的受者
+`type_args = [U 的实参]`，按下标 0 读回答的是 `DG` 的型参，而问的是 `Box` 的
+—— **看起来对的错类型**，比占位名更糟。实测 `DG<string>` 曾把 `Box` 的 `T` 报成 `Std.String`
+（这条是新用例抓出来的，不是设计时想到的）。
+
+所以 builtin 多带一个**声明类 FQ 名**实参，按它定位那一层 —— 精确，不是按下标启发式。
+类级 `default(T)` 也因此从 `DefaultOfInstr` 改发 `__class_default`（指令只带下标，加操作数要
+格式 bump；builtin 不用，同 `__class_type_arg` 的先例）。
+
+### 🔴 静态语境：诚实的 null，不要读 `regs[0]`
+
+`DefaultOfInstr` 读 `regs[0]`，而**静态帧的 reg0 是第一个实参、不是 `this`**：
+
+```z42
+class Box<T> { static string S(Box<int> probe) { … default(T) … } }
+Box<string>.S(boxOfInt)   // 修前 → "0"（读了 probe 的实参表！）应为 null
+```
+
+类级 `typeof(T)` 早就有这道语境判据（`TypeOpTyper` 注释写明了同一个理由），`default(T)` 一直漏着
+—— 把「明显不知道」升级成了「看起来对的错值」。现在静态语境给 null，与 typeof 给占位名同口径。
+
 ## 含型参的形参位由谁检查（2026-09-25 `fix-ctor-param-resolved-in-caller-scope`）
 
 实参检查分两条路，**按形参声明类型含不含型参分区**，不重不漏：

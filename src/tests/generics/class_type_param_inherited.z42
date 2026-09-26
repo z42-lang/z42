@@ -1,0 +1,81 @@
+// 继承链按声明类寻址：`typeof(T)` / `default(T)` 在**从泛型基继承**的实例上取到真实参。
+//
+// 修前（实测）：
+//   class Derived : Box<int> { }
+//   new Derived().Tof()   → 占位名 "T"（期望 Int32）
+//   new Derived().Def()   → null（期望 0）
+// 因为载体是**受者自己**的 `type_args`，而 `Derived` 自己没有实参 —— 实参在**基的名字里**。
+//
+// ⭐ 这条路是 #831（P1）让**闭合**泛型基不再被剥成裸名之后才通的：`Derived` 的 base 现在是
+// `Demo.Box<int>`，实参就写在名字上。运行期沿基链走到**声明该型参的那一层**再取。
+//
+// ⚠️ **不能按下标在受者自己身上猜**：`class D<U> : Box<int>` 的下标 0 在两层上是不同的型参。
+// 所以 builtin 多带一个「声明类」实参，按它定位那一层 —— 精确，不是启发式。
+//
+// 🔴 另一半同样重要：**静态语境**里 `default(T)` 此前发 `DefaultOfInstr`，而它读 `regs[0]`
+// ——静态帧的 reg0 是**第一个实参、不是 this** ⇒ 静默读了那个实参的实参表
+// （`Box<string>.S(boxOfInt)` 返回 `0` 而不是 `null`）。现在给诚实的 null，
+// 与类级 `typeof(T)` 早就有的占位名口径一致。
+namespace Demo;
+
+using Std;
+
+class Box<T> {
+    public T V;
+    public Box() { }
+    public string Tof() { return typeof(T).FullName; }
+    public T Def() { return default(T); }
+    // 静态语境 + 对象首参：最危险的一格
+    public static string SDef(Box<int> probe) {
+        object d = default(T);
+        return d == null ? "null" : d.ToString();
+    }
+}
+
+class Derived  : Box<int> { }       // 非泛型派生自闭合泛型基
+class DerivedS : Box<string> { }    // 同上，引用型实参
+class Deep     : Derived { }        // 隔一层再继承
+
+// 派生类**自己也是泛型**：受者自己有实参，但下标 0 指的是 U，不是 Box 的 T
+class DG<U> : Box<int> {
+    public U Own;
+    public DG() { }
+    public string OwnTof() { return typeof(U).FullName; }
+}
+
+void Main() {
+    // ── ① 继承链：typeof(T) 与 default(T) ──────────────────────────────
+    Derived d = new Derived();
+    Assert.Equal("Std.Int32", d.Tof());
+    Assert.Equal(0, d.Def());
+
+    DerivedS ds = new DerivedS();
+    Assert.Equal("Std.String", ds.Tof());
+    Assert.True(ds.Def() == null);          // 引用型实参的零值就是 null
+
+    // ── ② 隔一层继承仍然找得到 ─────────────────────────────────────────
+    Deep dp = new Deep();
+    Assert.Equal("Std.Int32", dp.Tof());
+    Assert.Equal(0, dp.Def());
+
+    // ── ③ 🔴 判别力所在：派生类自己也是泛型时，**下标不能瞎猜** ──────────
+    //     DG<string> 自己的 type_args = [string]；Box 的 T 是 int。
+    //     按下标在受者身上取 ⇒ 会拿到 string（看起来对的错值）。
+    DG<string> g = new DG<string>();
+    Assert.Equal("Std.Int32", g.Tof());     // Box 的 T
+    Assert.Equal(0, g.Def());               // Box 的 T
+    Assert.Equal("Std.String", g.OwnTof()); // DG 自己的 U
+
+    // ── ④ 静态语境：诚实的 null，不得静默读第一个实参 ───────────────────
+    Box<int> probe = new Box<int>();
+    Assert.Equal("null", Box<string>.SDef(probe));   // 修前返回 "0"
+    Assert.Equal("null", Box<int>.SDef(probe));      // 同样不得靠实参猜出 0
+
+    // ── 阴性对照：直接实例化那条路一字不动 ──────────────────────────────
+    Box<int> bi = new Box<int>();
+    Assert.Equal("Std.Int32", bi.Tof());
+    Assert.Equal(0, bi.Def());
+    Box<string> bs = new Box<string>();
+    Assert.Equal("Std.String", bs.Tof());
+    Assert.True(bs.Def() == null);
+}

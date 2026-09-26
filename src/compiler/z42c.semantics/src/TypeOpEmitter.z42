@@ -56,6 +56,17 @@ public sealed class TypeOpEmitter {
     }
 
     // typeof(T) → Typeof 指令（reflection Std.Type 句柄）。FQ 名镜像 C# Z42TypeName。
+    // 当前正在发射的方法**所属类**的 FQ 名（特化通道下是实例化名，运行期按擦除前缀比，两者皆可）。
+    internal string _classOwnerFqPub() { return this._classOwnerFq(); }
+
+    private string _classOwnerFq() {
+        string on = this._ctx.OwnerClassName;
+        if (on == "") { return ""; }
+        int lt = on.IndexOf("<");
+        if (lt < 0) { return this._ctx.QualifyClass(on); }
+        return this._ctx.QualifyClass(on.Substring(0, lt)) + on.Substring(lt, on.Length - lt);
+    }
+
     internal TypedReg _emitTypeof(BoundTypeof e) {
         // add-generic-methods：方法级 typeof(T) → MethodTypeArgInsn 具体化（读 frame.method_type_args）。
         if (e.IsMethodLevel) {
@@ -79,11 +90,21 @@ public sealed class TypeOpEmitter {
             if (thisReg != null) {
                 TypedReg idxReg = this._ctx.Alloc(IrType.I32);
                 this._ctx.Emit(new ConstI32Instr(idxReg, e.ClassParamIndex.ToString()));
-                TypedReg[] cargs = new TypedReg[2];
+                // 第三个实参 = 该型参的**声明类** FQ 名。没有它，运行期只能读受者**自己**的
+                // `type_args`，而 `class DInt : Box<int> {}` 的实例自己没有实参 ⇒ 产占位名 `T`
+                // / `default(T)` 产 `null`（实测）。有了它，运行期可以沿基链走到声明类那一层，
+                // 从**名字**里解析实参 —— 这条路是 P1 让闭合泛型基不再被剥成裸名之后才通的
+                // （base 现在是 `Demo.Box<int>` 而不是 `Demo.Box`）。
+                // ⚠️ 按下标在受者自己身上瞎猜是不行的：`class D<U> : Box<int>` 的下标 0
+                // 在两层上指的是不同的型参。必须按**声明类**定位那一层。
+                TypedReg ownReg = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new ConstStrInstr(ownReg, this._ctx.Gen.Intern(this._classOwnerFq())));
+                TypedReg[] cargs = new TypedReg[3];
                 cargs[0] = thisReg;
                 cargs[1] = idxReg;
+                cargs[2] = ownReg;
                 TypedReg cdst = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new BuiltinInstr(cdst, "__class_type_arg", cargs, 2));
+                this._ctx.Emit(new BuiltinInstr(cdst, "__class_type_arg", cargs, 3));
                 return cdst;
             }
         }
