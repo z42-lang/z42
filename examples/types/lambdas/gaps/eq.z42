@@ -1,0 +1,7 @@
+using Std.IO;
+
+void Main() {
+    Func<int, int> f = (int x) => x;
+    Console.WriteLine("f == f       -> " + (f == f));
+    Console.WriteLine("引用相等判定 -> " + DelegateOps.ReferenceEquals(f, f));
+}

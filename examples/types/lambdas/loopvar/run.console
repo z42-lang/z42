@@ -1,0 +1,6 @@
+# ANCHOR: loop
+$ z42 run loopvar.z42
+1
+2
+3
+# ANCHOR_END: loop

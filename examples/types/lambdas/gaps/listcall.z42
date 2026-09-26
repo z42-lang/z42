@@ -1,0 +1,8 @@
+using Std.IO;
+using Std.Collections;
+
+void Main() {
+    List<Action<int>> hs = new List<Action<int>>();
+    hs.Add((int x) => Console.WriteLine("h " + x));
+    hs[0](9);                     // ✗ 不能就地调用
+}

@@ -1,0 +1,11 @@
+# ANCHOR: snapshot
+$ z42 run capture.z42
+5
+# ANCHOR_END: snapshot
+# ANCHOR: shared
+2
+# ANCHOR_END: shared
+# ANCHOR: write
+false
+42
+# ANCHOR_END: write

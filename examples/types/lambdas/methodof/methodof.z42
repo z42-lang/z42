@@ -1,0 +1,21 @@
+using Std.IO;
+using Std.Reflection;
+
+// ANCHOR: decl
+class Api {
+    public static string Handle(string path) { return "GET " + path; }
+    public static string Handle(int id)      { return "GET #" + id; }
+}
+// ANCHOR_END: decl
+
+void Main() {
+    // ANCHOR: use
+    // 参数类型列表把重载指得一清二楚
+    MethodInfo byPath = methodof(Api.Handle(string));
+    MethodInfo byId   = methodof(Api.Handle(int));
+    Console.WriteLine(byPath.Name + " / " + byId.Name);
+
+    // 指向同一个方法的两个 methodof 相等
+    Console.WriteLine(methodof(Api.Handle(int)) == methodof(Api.Handle(int)));
+    // ANCHOR_END: use
+}

@@ -1,0 +1,37 @@
+using Std.IO;
+
+// ANCHOR: types
+// 三个内置委托类型：Action 没有返回值，Func 有，Predicate 返回 bool
+void Main() {
+    Action<string>   greet = (string name) => Console.WriteLine("你好，" + name);
+    Func<int, int>   twice = (int x) => x * 2;
+    Predicate<int>   isPos = (int x) => x > 0;
+
+    greet("小明");
+    Console.WriteLine(twice(21));
+    Console.WriteLine(isPos(5));
+    // ANCHOR_END: types
+
+    // ANCHOR: invoke
+    // 两种调用写法完全等价
+    greet("小红");
+    greet.Invoke("小刚");
+    // ANCHOR_END: invoke
+
+    // ANCHOR: interop
+    // 委托类型与函数类型是同一回事，可以互相赋值
+    (int) -> int ft = twice;          // Func<int,int> → (int) -> int
+    Func<int, int> back = ft;         // 反过来也行
+    Console.WriteLine(ft(5) + back(5));
+    // ANCHOR_END: interop
+
+    // ANCHOR: methodgroup
+    // 直接把一个具名函数当值传：不用写 lambda 包一层
+    Func<int, int> f = Square;
+    Console.WriteLine(f(9));
+    // ANCHOR_END: methodgroup
+}
+
+// ANCHOR: square
+int Square(int x) { return x * x; }
+// ANCHOR_END: square

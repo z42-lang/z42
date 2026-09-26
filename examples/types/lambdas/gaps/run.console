@@ -1,0 +1,32 @@
+# ANCHOR: listcall
+$ z42 run listcall.z42
+z42c build: 1 error(s) in listcall.z42
+  listcall.z42(7,5): E0402: unsupported call form
+[exit: 1]
+# ANCHOR_END: listcall
+# ANCHOR: eq
+$ z42 run eq.z42
+f == f       -> false
+引用相等判定 -> true
+# ANCHOR_END: eq
+# ANCHOR: arity
+$ z42 run arity.z42
+z42c build: 1 error(s) in arity.z42
+  arity.z42(5,5): E1006: too many arguments to `f`: expects 1; got 2 argument(s)
+[exit: 1]
+$ z42 run toofew.z42
+z42c build: 1 error(s) in toofew.z42
+  toofew.z42(5,5): E1005: too few arguments to `add`: expects 2; got 1 argument(s)
+[exit: 1]
+# ANCHOR_END: arity
+# ANCHOR: nulldelegate
+$ z42 run nulldelegate.z42
+Error: uncaught exception: CallIndirect: expected FuncRef / Closure / StackClosure, got Null
+[exit: 1]
+# ANCHOR_END: nulldelegate
+# ANCHOR: staticmg
+$ z42 run staticmg.z42
+z42c build: 1 error(s) in staticmg.z42
+  staticmg.z42(6,24): E0401: undefined: Api
+[exit: 1]
+# ANCHOR_END: staticmg

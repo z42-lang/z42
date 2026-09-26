@@ -1,0 +1,16 @@
+# ANCHOR: types
+$ z42 run delegates.z42
+你好，小明
+42
+true
+# ANCHOR_END: types
+# ANCHOR: invoke
+你好，小红
+你好，小刚
+# ANCHOR_END: invoke
+# ANCHOR: interop
+20
+# ANCHOR_END: interop
+# ANCHOR: methodgroup
+81
+# ANCHOR_END: methodgroup

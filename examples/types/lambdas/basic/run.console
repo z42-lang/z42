@@ -1,0 +1,9 @@
+# ANCHOR: forms
+$ z42 run basic.z42
+49
+7
+21
+# ANCHOR_END: forms
+# ANCHOR: infer
+6
+# ANCHOR_END: infer

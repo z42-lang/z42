@@ -1,0 +1,48 @@
+using Std.IO;
+
+class Bus { public event MulticastAction<int> Ev; }
+
+void Main() {
+    // ANCHOR: token
+    Bus bus = new Bus();
+    bus.Ev += (int x) => Console.WriteLine("  常驻 " + x);
+
+    // Subscribe 返回一张退订票
+    IDisposable token = bus.Ev.Subscribe((int x) => Console.WriteLine("  临时 " + x));
+    bus.Ev.Invoke(1);
+    token.Dispose();
+    Console.WriteLine("退订后还有 " + bus.Ev.Count() + " 个");
+    bus.Ev.Invoke(2);
+    // ANCHOR_END: token
+
+    // ANCHOR: scoped
+    // using 管住生命周期：块的任何退出路径都会退订
+    using (bus.Ev.Subscribe((int x) => Console.WriteLine("  块内 " + x))) {
+        bus.Ev.Invoke(3);
+    }
+    Console.WriteLine("出块后还有 " + bus.Ev.Count() + " 个");
+    // ANCHOR_END: scoped
+
+    // ANCHOR: continue
+    // 默认「首抛即停」；continueOnException 让每个处理器都跑完，最后聚合
+    MulticastAction<int> risky = new MulticastAction<int>();
+    risky.Subscribe((int x) => Console.WriteLine("  一号 ok"));
+    risky.Subscribe((int x) => { throw new ArgumentException("二号坏了"); });
+    risky.Subscribe((int x) => Console.WriteLine("  三号 ok"));
+
+    try { risky.Invoke(1, continueOnException: true); }
+    catch (MulticastException e) {
+        Console.WriteLine(e.Failures.Length + "/" + e.TotalHandlers + " 失败，成功 "
+            + e.SuccessCount() + " 个，出错的是第 " + e.FailureIndices[0] + " 号");
+    }
+    // ANCHOR_END: continue
+
+    // ANCHOR: once
+    // OnceRef：这一个订阅只响一次，别的订阅不受影响
+    MulticastAction<int> bus2 = new MulticastAction<int>();
+    bus2.SubscribeAdvanced(new OnceRef<Action<int>>((int x) => Console.WriteLine("  只此一次 " + x)));
+    bus2.Subscribe((int x) => Console.WriteLine("  每次都来 " + x));
+    bus2.Invoke(1);
+    bus2.Invoke(2);
+    // ANCHOR_END: once
+}
