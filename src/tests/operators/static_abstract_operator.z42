@@ -9,6 +9,13 @@
 // → 落到 BinaryTypeTable，类型检查报 E0402、emitter 照发**裸 `add i32`**。下面 int/double 的断言
 // 之所以一直绿，纯粹因为解释器的 `add` 对 Value 动态派发；换成**用户类型**（Money）就会拿 struct
 // blob 去做整数加法。故本文件补上 Money 一组——那才是真正会炸的形态。
+//
+// ⚠️ **事实校正 ②（unify-blob-return-abi，2026-09-26）**：`Money` 是**单字段** struct ⇒ 不是 blob
+// ⇒ 返回位没有 sret ⇒ 物理实参「2 对 2」**巧合通过**。真正会炸的是**两个及以上字段**的 struct：
+// 擦除的泛型体发接收者驱动 VCall（`this`+1 = 2 物理），而 `static Vec2 op_Add(Vec2,Vec2)` 是
+// 2 形参 **+ sret = 3** ⇒ 运行期 `takes 3 physical argument(s), the call passes 2`。
+// 也就是说本文件在补上 Vec2 之前，**仍然是「写了但抓不到 bug」**（同一条教训第二次）。
+// 修法＝桥接占裸名（无 sret、返回装箱），具体实现挪 `op_Add$struct`，具体类型收者经 `CallKey()` 指后者。
 
 struct Money : INumber {
     public long Cents;
@@ -18,6 +25,19 @@ struct Money : INumber {
     public static override Money op_Multiply(Money a, Money b) { return new Money(a.Cents * b.Cents); }
     public static override Money op_Divide(Money a, Money b)   { return new Money(a.Cents / b.Cents); }
     public static override Money op_Modulo(Money a, Money b)   { return new Money(a.Cents % b.Cents); }
+}
+
+// unify-blob-return-abi：**两个字段** ⇒ blob struct ⇒ 返回位有 sret。这一组才是 ④a 的形状
+// （Money 那组是单字段、无 sret，2 对 2 巧合通过）。
+struct Vec2 : INumber {
+    public long X;
+    public long Y;
+    public Vec2(long x, long y) { this.X = x; this.Y = y; }
+    public static override Vec2 op_Add(Vec2 a, Vec2 b)      { return new Vec2(a.X + b.X, a.Y + b.Y); }
+    public static override Vec2 op_Subtract(Vec2 a, Vec2 b) { return new Vec2(a.X - b.X, a.Y - b.Y); }
+    public static override Vec2 op_Multiply(Vec2 a, Vec2 b) { return new Vec2(a.X * b.X, a.Y * b.Y); }
+    public static override Vec2 op_Divide(Vec2 a, Vec2 b)   { return new Vec2(a.X / b.X, a.Y / b.Y); }
+    public static override Vec2 op_Modulo(Vec2 a, Vec2 b)   { return new Vec2(a.X % b.X, a.Y % b.Y); }
 }
 
 T Add<T>(T a, T b) where T: INumber { return a + b; }
@@ -39,4 +59,23 @@ void Main() {
     Assert.Equal(12, Mul(new Money(3), new Money(4)).Cents);
     // 链式：`a + b` 的结果类型须仍是 T，否则第二个 `+` 落不回约束派发
     Assert.Equal(9,  Chain3(new Money(2), new Money(3), new Money(4)).Cents);
+
+    // ── blob struct（≥ 2 字段，返回位有 sret）：④a 的正面用例 ──
+    // 修前全部抛 `Vec2.op_Add ... takes 3 physical argument(s), the call passes 2`。
+    Vec2 p = new Vec2(1, 2);
+    Vec2 q = new Vec2(10, 20);
+    Assert.Equal(11, Add(p, q).X);              // 经擦除返回位读字段（装箱 → field_get）
+    Assert.Equal(22, Add(p, q).Y);
+    Assert.Equal(9,  Sub(q, p).X);
+    Assert.Equal(10, Mul(p, q).X);
+    Assert.Equal(12, Chain3(p, q, p).X);        // 链式：第二个 `+` 的左操作数是装箱结果
+    Vec2 r = Add(p, q);                         // 赋给具体类型局部再读
+    Assert.Equal(11, r.X);
+    Assert.Equal(22, r.Y);
+    // 具体类型收者：**必须仍走带 sret 的 `op_Add$struct`**（桥接占了裸名）。
+    // 这一格是反向失配的守卫：调用点传 sret 打在无 sret 的桥接上会报 `takes 2 …, passes 3`。
+    Assert.Equal(11, (p + q).X);
+    Vec2 s2 = p + q;
+    Assert.Equal(22, s2.Y);
+    Assert.Equal(11, Vec2.op_Add(p, q).X);      // 显式静态调用（另一条以 RegKey 作目标名的站点）
 }

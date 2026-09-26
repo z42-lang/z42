@@ -20,7 +20,7 @@ public sealed partial class MemberResolver {
                     // add-call-arity-diagnostics：此前本路径不经 _withDefaults（只绑定 + params 打包）⇒ 默认值不补、
                     // 实参个数不校验。汇入同一汇聚点（绑定 / 装箱 / params / 默认值 / 个数判定）。
                     BoundExpr[] fa = this._tc._overload._withDefaults(sms, args, call.Args, call.ArgCount, env, call.Span, false);
-                    BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, cls, sms.RegKey, fa, fa.Length, sms.Signature.Ret, call.Span), sms.Signature);
+                    BoundCall bc = BoundCall.Marked(new BoundCall("static", false, null, cls, sms.CallKey(), fa, fa.Length, sms.Signature.Ret, call.Span), sms.Signature);
                     this._applyMethodTypeArgs(bc, call, sms, env);
                     return bc;
                 }

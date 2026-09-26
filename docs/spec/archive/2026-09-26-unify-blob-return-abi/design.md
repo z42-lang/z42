@@ -1,6 +1,7 @@
 # Design: blob struct 返回位的 ABI 统一
 
-> 状态：🔴 DRAFT ｜ 前置：[proposal.md](proposal.md) ｜ 三个待裁决点：**D1 形状 / D2 刀数 / D3 ⑤ 的路线**
+> 状态：**D1 已定（形状 A′⁺，触发面收窄，见 D1′）/ D2 已定（分两刀）/ D3 仍待裁决（⑤ 的路线）**
+> ｜ 前置：[proposal.md](proposal.md)
 
 ## 约束（先摆事实）
 
@@ -25,7 +26,8 @@ C1×C2×C4 三条合起来就是矛盾的来源：**名字派发的入口不可�
 > （`struct_alloc` + `call <m>$struct` + `__box_struct` + `ret`，返回引用）。
 
 - ✅ **零新机制**：C5 的三处落点已经在 main，本刀只扩**触发面**。
-- ✅ 一次覆盖三副面孔（④a 泛型约束派发 / ⑤-a Money / ⑤-b 跨包 loose VCall）。
+- ✅ 覆盖**接口/型参边界**那几副面孔（④a 泛型约束派发 / ④a′ 实例 `Self` / ⑤-a Money）。
+  ⚠️ **⑤-b 不在其内**（`GCHandle.AllocStrong` 不实现任何接口）—— 见 D1′。
 - ✅ 直接调用点（静态可解析）照旧绑 `$struct` ⇒ **无装箱快路径零开销、字节不变**。
 - ✅ 与 #814 D1 的裁决一脉相承（「改在对的层」「零新 IR / 零格式 bump」「JIT 保持 ABI 静态」）。
 - 🔴 **触发面判据要定**（见下「触发面三选一」），定宽了会给每个 blob 返回方法多合成一个函数。
@@ -44,6 +46,26 @@ C1×C2×C4 三条合起来就是矛盾的来源：**名字派发的入口不可�
 - 🔴 直接把 `where T : INumber` 对多字段 struct 判死（`Vec2 + Vec2` 在泛型里永远不能用），
   也救不了 ⑤（`GCHandle.AllocStrong` 是 stdlib 现有 API，不能要求它改签名）。⇒ 只作退路。
 
+### D1′ 实施结论（2026-09-26）：取 A′⁺，触发面挂在**接口满足性**上
+
+判据 = **接口成员未代换的声明返回位是型参**（`ims.Signature.Ret is Z42GenericParamType`），
+与既有的「接口声明返回引用型」并列成一条：
+
+```z42
+bool declRetTypeParam = (ims.Signature.Ret is Z42GenericParamType);
+if (_isStructTypeRef(implRet) && (declRetTypeParam || !_isStructTypeRef(wantRet))) {
+    cm.IfaceBridgeRet = declRetTypeParam ? "object" : wantRet.Name();
+}
+```
+
+🔴 **为什么必须看「未代换」的那个**：`wantRet` 已被 `_substForIface` 把 `Self` 换成实现类
+（= 那个 struct），单看它**分不出**两种情形 ——
+「声明写的是 `Self`」（调用点看到引用槽 ⇒ 要桥接）与「声明写的就是这个具体 struct」
+（调用点**知道**要传 sret ⇒ 桥接反而打坏它）。后者由 golden 的 `IExact` 组守着。
+
+⚠️ 这个触发面**够不到 ⑤-b**（`GCHandle.AllocStrong` 不实现任何接口）⇒ 下方 T1 vs T2 的取舍
+**推迟到 ⑤ 的路线定下来之后**再评：若 D3 取 ⑤-blob，⑤-b 需要「导出的 blob 返回方法」这个独立判据。
+
 ### 触发面三选一（A′⁺ 之下）
 
 | 选项 | 判据 | 代价 | 风险 |
@@ -56,7 +78,7 @@ C1×C2×C4 三条合起来就是矛盾的来源：**名字派发的入口不可�
 （`fix-call-arity-skew` 的门只在**失配时**响，判据漂移是静默的）；T1 让不变式**按构造成立**。
 代价是可度量的（合成函数数量 = 返回 blob struct 的方法数），且桥接体只有 4 条指令。
 
-## D2（待裁决）：要不要同刀放开「返回位代换」
+## D2（**已定：分两刀**）：要不要同刀放开「返回位代换」
 
 `substitute-generic-call-return-type`（含 `TypeParamNames.Length` 那一行真 bug）在本刀之后才安全。
 **建议分两刀**：
@@ -125,9 +147,10 @@ C1×C2×C4 三条合起来就是矛盾的来源：**名字派发的入口不可�
 
 | 用例 | 修前 | 修后 |
 |---|---|---|
-| 泛型 `Add(Vec2, Vec2)`（双字段 + `where T : INumber`） | 🔴 `takes 3 physical, passes 2` | ✅ 得 `(11, 22)` |
+| 泛型 `Add(Vec2, Vec2)`（双字段 + `where T : INumber`） | 🔴 `takes 3 physical, passes 2` | ✅ 得 `(11, 22)`（已实测）|
+| 实例 `Self Copy()` 经接口收者（双字段实现） | 🔴 `takes 2 physical, passes 1` | ✅ 通（已实测）|
 | 既有 `src/tests/operators/static_abstract_operator.z42`（Money） | 绿（Money 非 blob ⇒ 2 对 2 巧合通过） | **仍绿**，且在 ⑤ 之后**才真的在测这条路** |
-| `src/tests/gc/gc_handle.z42` | 绿（GCHandle 非 blob） | ⑤-blob 之后仍绿（本刀的桥接负责） |
+| `src/tests/gc/gc_handle.z42` | 绿（GCHandle 非 blob） | 本刀后仍绿；🔴 但 ⑤-blob 会让它红 —— 触发面够不到它，**⑤ 那一刀必须自带 ⑤-b 的判据** |
 | 直接调用点 `Vec2 r = Vec2.op_Add(a, b)` | 走 sret | **字节不变**（绑 `$struct`）|
 
 - **阴性对照**：撤掉桥接合成 ⇒ 上表第一行必须回到 `takes 3 physical, passes 2`

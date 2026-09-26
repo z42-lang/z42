@@ -59,36 +59,57 @@ public sealed class IfaceBridgeSynth {
     public string StructName() { return this._structName; }
 
     // 合成桥接：`fnName` = 裸名 FQ（`@C.m`），`concreteFq` = 具体实现 FQ（`@C.m$struct`）。
-    // `ifaceRetName` = 接口声明的返回类型名（桥接签名）。**必须先调 `CanBridge` 解出 blob 名。**
-    public IrFunction EmitBridge(string fnName, string concreteFq,
-                                 string ifaceRetName, Z42ClassType owner) {
+    // `ifaceRetName` = 桥接的声明返回类型名（接口声明的引用型，或型参位的 `object`）。
+    // `ms` = 被桥接方法的符号（取形参个数与类型），`isInstance` = 有没有 `this`。
+    // **必须先调 `CanBridge` 解出 blob 名。**
+    //
+    // unify-blob-return-abi：原版硬编码成「1 个 `this` + sret」，只够 `T GetEnumerator()` 那一形
+    // （零声明形参的实例方法）。`static abstract Self op_Add(Self,Self)` 是 **2 声明形参 + 静态**，
+    // 于是形参表必须按符号算、`this` 按实际有无决定 —— 否则合成出的桥接自己就是新的 arity 失配。
+    public IrFunction EmitBridge(string fnName, string concreteFq, string ifaceRetName,
+                                 Z42ClassType owner, MethodSymbol ms, bool isInstance) {
         string retStructName = this._structName;
-        this._initCtx(fnName);
-        TypedReg self = new TypedReg(0, IrType.Ref);
+        int declared = 0;
+        if (ms != null && ms.Signature != null) { declared = ms.Signature.ParamCount; }
+        int thisCount = isInstance ? 1 : 0;
+        int total = thisCount + declared;
+        this._initCtx(fnName, total, ms, isInstance, owner);
         // 预留返回 blob（与 CallEmitter 的 sret 发射序一致：struct_alloc 后作末尾隐藏实参）
         int rsz = this._gen.Layouts.StructSize(retStructName);
         TypedReg sretH = this._ctx.Alloc(IrType.Ref);
         this._ctx.Emit(new StructAllocInstr(sretH, this._ctx.QualifyClass(retStructName), rsz));
-        // 调具体实现：(this, sret)，返回 void（值经 sret 槽回传）
+        // 调具体实现：(形参原样转发…, sret)，返回 void（值经 sret 槽回传）
         TypedReg callDst = this._ctx.Alloc(IrType.Void);
-        TypedReg[] args = new TypedReg[2];
-        args[0] = self; args[1] = sretH;
-        this._ctx.Emit(new CallInstr(callDst, concreteFq, args, 2));
-        // 装箱成引用：接口槽位放的是引用，blob 字节本身塞不进去。`__box_struct` 已是既有通道
+        TypedReg[] args = new TypedReg[total + 1];
+        int i = 0;
+        while (i < total) { args[i] = new TypedReg(i, this._ctx.RegTags[i]); i = i + 1; }
+        args[total] = sretH;
+        this._ctx.Emit(new CallInstr(callDst, concreteFq, args, total + 1));
+        // 装箱成引用：接口槽位 / 型参位放的是引用，blob 字节本身塞不进去。`__box_struct` 已是既有通道
         // （`CallEmitter` 装箱 struct receiver 用的同一个）。
         TypedReg boxed = this._ctx.Alloc(IrType.Ref);
         TypedReg[] bargs = new TypedReg[1];
         bargs[0] = sretH;
         this._ctx.Emit(new BuiltinInstr(boxed, "__box_struct", bargs, 1));
         this._ctx.EndBlock(new RetTerm(true, boxed));
-        string[] pt = new string[1];
-        pt[0] = owner.Name();
-        return this._finish(fnName, 1, ifaceRetName, pt);
+        string[] pt = new string[total];
+        int k = 0;
+        if (isInstance) { pt[0] = owner.Name(); k = 1; }
+        int d = 0;
+        while (d < declared) {
+            Z42Type pdt = ms.Signature.ParamTypes[d];
+            pt[k] = (pdt == null) ? "?" : pdt.Name();
+            k = k + 1; d = d + 1;
+        }
+        return this._finish(fnName, total, ifaceRetName, pt);
     }
 
     // ── 下面两个与 RecordSynthEmitter 的同名私有方法同形（合成 IR 函数的既有样板）──
 
-    private void _initCtx(string fnName) {
+    // `CanBridge` 只借 ctx 算名字（无形参）；`EmitBridge` 要登记形参寄存器 ⇒ 两种调用形态。
+    private void _initCtx(string fnName) { this._initCtx(fnName, 0, null, false, null); }
+
+    private void _initCtx(string fnName, int total, MethodSymbol ms, bool isInstance, Z42ClassType owner) {
         this._ctx = new EmitContext(this._symbols, this._gen);
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
@@ -96,9 +117,25 @@ public sealed class IfaceBridgeSynth {
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = fnName;
-        this._ctx.RecordReg(0, IrType.Ref);   // arg0 = this
-        this._ctx.NextReg = 1;
-        this._ctx.MaxReg = 1;
+        // 形参寄存器 0..total-1。**tag 必须按真实类型登记**（REGT 要与形参一致）：`this` 与引用型
+        // 形参是 Ref，`long`/`bool` 这类基元形参有自己的 tag —— 一律登记 Ref 会让 REGT 与实际
+        // 传入的值形态不符（转发本身不解引用，但 REGT 是 JIT/校验读的那张表）。
+        int r = 0;
+        if (isInstance && total > 0) { this._ctx.RecordReg(0, IrType.Ref); r = 1; }
+        int d = 0;
+        while (r < total) {
+            int tag = IrType.Ref;
+            if (ms != null && ms.Signature != null && d < ms.Signature.ParamCount
+                && ms.Signature.ParamTypes[d] != null) {
+                tag = this._ctx.ToIrType(ms.Signature.ParamTypes[d]);
+            }
+            this._ctx.RecordReg(r, tag);
+            r = r + 1; d = d + 1;
+        }
+        int first = (total > 0) ? total : 1;
+        if (total == 0) { this._ctx.RecordReg(0, IrType.Ref); }   // CanBridge 的临时 ctx（旧形态）
+        this._ctx.NextReg = first;
+        this._ctx.MaxReg = first;
         this._ctx.StartBlock("entry");   // 漏了这句 ⇒ `Blocks` 为 null，第一条 Emit 就 FieldGet Null
     }
 

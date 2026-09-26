@@ -185,6 +185,36 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 > 普查的覆盖边界也由此可见：探针挂在解释器的函数体入口，JIT native 直调不经过——那一处正走 native。
 > 普查只用来定「合法调用长什么样」，判定本身挂在两后端共用的绑定点，不依赖探针覆盖。
 
+#### 谁负责传 sret：裸名入口一律不传（unify-blob-return-abi，2026-09-26）
+
+上面那条判定是对的，但它把一条**编译期约定的自相矛盾**暴露成了运行期异常：
+
+- sret 由**调用点的静态返回类型**决定（`CallEmitter` 的 `_isBlobStruct(c.Type())`）；
+- 而它是**每方法固定**的 `method_flags bit3`；
+- 且 VCall **只按方法名**索引 vtable 槽（arity 不入解析键）。
+
+⇒ **凡「调用点看不见具体返回类型」的派发边界，两侧必然对不上。** 已知三副面孔，同一个根因：
+
+| 形态 | 调用点物理实参 | callee | 措辞 |
+|---|---|---|---|
+| 接口声明返回**引用型**、实现返回 blob struct | `this` = 1 | `this`+sret = 2 | `takes 2 …, passes 1` |
+| `static abstract Self op_Add(Self,Self)` 在**擦除的泛型体**里 | `this`+1 = 2 | 2 形参+sret = 3 | `takes 3 …, passes 2` |
+| 实例 `Self Copy()` 经**接口收者** | 1 | `this`+sret = 2 | `takes 2 …, passes 1` |
+
+**约定收口**：返回 blob struct 的方法，只要它**可能被裸名派发**，就让
+**桥接占裸名槽**（无 sret，`__box_struct` 后返回引用），具体实现挪到 `<m>$struct`（带 sret）；
+静态可解析的直接调用点经 `MethodSymbol.CallKey()` 绑到后者，**无装箱快路径零开销、字节不变**。
+
+判据在**符号层**（`InheritanceResolver` 打 `IfaceBridgeRet`），且必须看**未代换**的接口声明
+（`ims.Signature.Ret is Z42GenericParamType`）—— `Self` 经满足性检查已被换成实现类（= 那个 struct），
+单看代换后的类型分不出「声明写的是 `Self`」（要桥接）与「声明写的就是这个具体 struct」
+（调用点**知道**要传 sret，桥接反而会打坏）。后者由 golden `interfaces/self_return_blob_struct.z42`
+的 `IExact` 那一组守着。
+
+⚠️ **为什么不让 VM 按目标 flags 自适应**：那会把每方法固定的 ABI 变成**派发时协商**，
+与本页判定「精确相等」的立场反向，且 JIT 要发条件化调用序列 ⇒ 接口/泛型调用整体降级回解释执行。
+`add-iface-return-bridge` 的 D1 已裁决过同一个问题。
+
 ### 类型 —— `missing_type_exception`
 
 回落描述符（`make_fallback_type_desc`）有一个**正当用途**：合并进来的 stdlib 模块不带预建

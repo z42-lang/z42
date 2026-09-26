@@ -412,6 +412,8 @@ VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个�
   这条不是可选的：`a + b + c` 的第二个 `+` 需要左侧仍是型参才能
   再次落回约束派发，否则退化成裸算术。（不能改读接口方法的声明返回类型：`INumber` 是**导入**
   接口，其签名经 `ImportedSymbolLoader` 还原后返回类型已不是型参形态。）
+- **实现方可以是多字段（blob）struct**：`struct Vec2 : INumber`（两个字段）在泛型里照常
+  `a + b`。它曾经是整条路上唯一还崩的一格 —— 见下方「blob struct 的返回位」。
 - **实现方必须写 `static override`**：`public static override T op_Add(T a, T b)`。只写 `static`
   的方法注册到另一个键，运行期会 `VCall: function X.op_Add not found`。
 
@@ -423,6 +425,21 @@ VCall**（`vcall a.op_Add(b)`），运行期由 `a` 的具体类决定跑哪个�
 > `static_abstract_operator.z42` 的抬头注释当时已经把这条路径描述得一清二楚，但那是**设计意图**
 > 而非现状。这正是 `--emit-zbc` 吞诊断能掩盖的那类缺陷：binder 报的错没人看见，emitter 那半边
 > 碰巧能跑，测试就绿。
+
+### blob struct 的返回位
+
+返回**多字段 struct** 的运算符实现（`static override Vec2 op_Add(Vec2, Vec2)`）比其它实现多一件事：
+blob struct 走 **sret**（调用方传一个隐藏返回槽），而泛型体里 `T` 已擦除、调用点按引用发码、不传该槽。
+
+这一格由编译器**自动桥接**处理，用户无需写任何东西：裸名槽放一个无 sret 的桥接（内部调具体实现、
+把结果装箱返回），具体实现挪到内部名 `op_Add$struct`；具体类型收者（`p + q`）仍直接走后者，零装箱。
+
+> 📜 **2026-09-26 之前这一格是崩的**：`where T : INumber` 对**双字段**struct 抛
+> `Vec2.op_Add ... takes 3 physical argument(s), the call passes 2`（编译期零诊断）。
+> 而既有回归用例用的 `Money` 是**单字段** struct —— 不是 blob、返回位没有 sret、物理实参
+> 「2 对 2」**巧合通过** ⇒ 那条用例「写了但抓不到 bug」。同一根因还有第二副面孔：
+> 接口声明 `Self Copy()` 被多字段 struct 实现时，经接口收者调用同样失配
+> （`unify-blob-return-abi`，机制见 [internals / missing-symbol](https://z42-lang.github.io/z42/internals/runtime/missing-symbol.html)）。
 
 ### 实现接口静态成员：四项校验（含跨包）
 
