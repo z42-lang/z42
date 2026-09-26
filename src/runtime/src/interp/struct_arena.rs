@@ -136,25 +136,48 @@ impl StructArena {
     /// (assign/param/return). No write barrier (arena is a GC root).
     pub fn copy_into(&mut self, dst_idx: u32, dst_frame_id: u32,
                      src_idx: u32, src_frame_id: u32, _size: usize) -> Result<()> {
-        // Two indices into the same Vec — snapshot src (bytes + cloned refs),
-        // then write dst.
-        let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = {
+        // Two indices into the same Vec. `split_at_mut` hands out two disjoint
+        // borrows, so the copy is in-place — **no allocation**.
+        //
+        // 🔴 Before struct-copy-no-alloc this snapshotted src with
+        // `(s.bytes.to_vec(), s.refs.to_vec())` purely to dodge the borrow
+        // checker ⇒ **two heap allocations on every value-struct copy**, and a
+        // struct copy is the value-semantics copy point: every `S b = a`, every
+        // by-value argument, every return. The allocations were unconditional —
+        // paid even for a 4-byte single-field struct.
+        //
+        // Validate both slots up front (needs two immutable looks), then split.
+        {
             let s = self.slots.get(src_idx as usize)
                 .ok_or_else(|| stale_err(src_idx, src_frame_id))?;
             if s.frame_id != src_frame_id {
                 return Err(stale_err(src_idx, src_frame_id));
             }
-            (s.bytes.to_vec(), s.refs.to_vec())
-        };
-        let d = self.slots.get_mut(dst_idx as usize)
-            .ok_or_else(|| stale_err(dst_idx, dst_frame_id))?;
-        if d.frame_id != dst_frame_id {
-            return Err(stale_err(dst_idx, dst_frame_id));
+            let d = self.slots.get(dst_idx as usize)
+                .ok_or_else(|| stale_err(dst_idx, dst_frame_id))?;
+            if d.frame_id != dst_frame_id {
+                return Err(stale_err(dst_idx, dst_frame_id));
+            }
         }
-        let n = src_bytes.len().min(d.bytes.len());
-        d.bytes[..n].copy_from_slice(&src_bytes[..n]);
-        let rn = src_refs.len().min(d.refs.len());
-        d.refs[..rn].clone_from_slice(&src_refs[..rn]);
+        // Self-copy (`a = a`, or two names for one slot): already validated, and
+        // `split_at_mut` cannot produce two borrows of one element — nothing to do.
+        // The old code happened to handle this by copying a snapshot onto itself.
+        if src_idx == dst_idx {
+            return Ok(());
+        }
+        let (lo, hi) = if src_idx < dst_idx { (src_idx, dst_idx) } else { (dst_idx, src_idx) };
+        let (left, right) = self.slots.split_at_mut(hi as usize);
+        // `left` = [0, hi), `right` = [hi, ..) — disjoint, so one may be borrowed
+        // immutably while the other is borrowed mutably.
+        let (src, dst): (&StructSlot, &mut StructSlot) = if src_idx < dst_idx {
+            (&left[lo as usize], &mut right[0])
+        } else {
+            (&right[0], &mut left[lo as usize])
+        };
+        let n = src.bytes.len().min(dst.bytes.len());
+        dst.bytes[..n].copy_from_slice(&src.bytes[..n]);
+        let rn = src.refs.len().min(dst.refs.len());
+        dst.refs[..rn].clone_from_slice(&src.refs[..rn]);
         Ok(())
     }
 
