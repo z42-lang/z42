@@ -1,0 +1,9 @@
+namespace Demo;
+
+using Std.IO;                 // 兄弟文件写过不算，本文件还要再写一次
+
+void Main() {
+    Circle c = new Circle(2.0);
+    c.Describe();
+    Console.WriteLine("两个文件各有各的 using");
+}

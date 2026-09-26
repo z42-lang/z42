@@ -3,3 +3,8 @@ $ z42 run value.z42
 a=(1, 2) b=(99, 2)
 true
 # ANCHOR_END: run
+# ANCHOR: onefield
+$ z42 run onefield.z42
+单字段: a.X=1  b.X=50
+两字段: c.X=1  d.X=50
+# ANCHOR_END: onefield

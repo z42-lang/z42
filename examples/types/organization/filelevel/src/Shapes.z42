@@ -1,0 +1,9 @@
+namespace Demo;
+
+using Std.IO;                 // 本文件要用 Console，就得自己写
+
+public class Circle {
+    public double R;
+    public Circle(double r) { this.R = r; }
+    public void Describe() { Console.WriteLine("半径 " + this.R); }
+}

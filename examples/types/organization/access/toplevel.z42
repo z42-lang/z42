@@ -1,0 +1,2 @@
+private class Foo { }             // ✗ 顶层声明不接受 private
+void Main() { }

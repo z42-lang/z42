@@ -26,6 +26,17 @@
 `Equals` 也不一样：类比的是「是不是同一个对象」，**struct 比的是内容**（逐字段），
 所以两个各自 `new` 出来的 `Point(1, 2)` 相等。
 
+**字段数不影响语义**——只有一个字段的 struct 同样是值语义：
+
+```z42
+// examples/types/structs-records/value/onefield.z42
+{{#include ../../../../examples/types/structs-records/value/onefield.z42}}
+```
+
+```console
+{{#include ../../../../examples/types/structs-records/value/run.console:onefield}}
+```
+
 > struct 能写字段、方法、构造器、静态成员、运算符重载，也能实现接口。
 > 但它**不参与继承**——没有基类，也不能被继承。
 
@@ -65,26 +76,7 @@
 > ⚠️ `with` 目前**只支持 record class**，用在 record struct 上会报错
 > （`with on a struct record is not yet supported`）。
 
-## 🔴 一个坑
-
-### 值语义与字段数无关（一个字段也是值语义）
-
-```z42
-// examples/types/structs-records/gaps/onefield.z42
-{{#include ../../../../examples/types/structs-records/gaps/onefield.z42}}
-```
-
-```console
-{{#include ../../../../examples/types/structs-records/gaps/run.console:onefield}}
-```
-
-两边都是「改副本不动原值」——**字段数不影响语义**。
-
-> 📜 **2026-09-26 之前这里是坏的**：单字段 struct 走的是引用模型，上面那个 `a.X` 会跟着
-> `b` 一起变成 50（值语义只对两个及以上字段生效）。当时的建议是「加一个占位字段，或者先用类」
-> —— 现在不需要了。
-
-### 表达式体构造器里的元组赋值
+## 🔴 一个坑：表达式体构造器里的元组赋值
 
 ```z42
 // examples/types/structs-records/gaps/exprctor.z42
@@ -105,8 +97,8 @@
 public Pair(int a, int b) { A = a; B = b; }
 ```
 
-> 这个坑此前是**静默**的：字段全 `0`，编译器一声不吭。E0482 是写这本书时补上的——
-> 赋值给非左值以前完全没有检查，连 `42 = a;` 都能编过能跑。
+> 报错的是 **E0482**（赋值目标没有存储位置）。它拦住的是一整族写法 —— 凡是往「不是变量、
+> 不是字段、不是索引器元素」的东西上赋值，都归这一条。
 
 ## 打印 struct 的内容
 

@@ -1,0 +1,6 @@
+# ANCHOR: run
+$ z42 run
+(3, 4)
+  at Demo.App.Boom() (Main.z42:14:15)
+  at Demo.App.Main() (Main.z42:10:5)
+# ANCHOR_END: run

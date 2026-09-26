@@ -277,6 +277,13 @@ public static class PackageCompile {
             }
         }
 
+        // 文件级 using 强制（E0436）——**必须在上面那段回填之后**。
+        // 它曾挂在 `IrDump` 的 per-file 并行体里，那时 cached 文件的 `UsedDepNs` 还是空数组
+        // ⇒ cached 文件永远不报 E0436（fix-incremental-file-scope-diagnostics）。
+        // 上界用 `srcCount` 而非 `cms.Length` —— 与紧邻的 `ModuleInitScan.CheckExePackage(cus, srcCount, …)`
+        // 同口径：generator 路径下 `cus`/`files`/`srcCount` 是三者一起被替换的（见上方 ro.Cus 那一支）。
+        IrDump.EnforceFileScopeAll(cus, files, cms, srcCount);
+
         // PR4a：generator 引擎的护栏诊断（越界 Replace/Augment，E0448）合入首模块 → Error 增 ErrorCount 拦编译。
         if (genDiags.Count() > 0 && cms.Length > 0) { PackageCompile._mergeDiags(cms[0], genDiags); }
 

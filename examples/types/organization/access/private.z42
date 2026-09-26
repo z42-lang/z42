@@ -1,0 +1,8 @@
+using Std.IO;
+
+class Counter { int n; }
+
+void Main() {
+    Counter c = new Counter();
+    Console.WriteLine(c.n);       // ✗ n 是 private
+}

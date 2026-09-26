@@ -52,7 +52,6 @@ sealed class CompileCuTask : IParallelBody {
                 this._imported, this._classNs, this._localClasses, this._isRelease, this._partialMerged,
                 this._optSet, this._layouts, this._pkgGenerics, this._pkgGenericTypes);
         }
-        CuPreprocess._enforceFileScope(this._cus[i], this._files[i], this._r[i]);   // 跨包未-using 报错
         string ns2 = "main";                                 // no-ns build 路径缺省（C# 字节实证）
         if (this._cus[i].HasNamespace) { ns2 = this._cus[i].Namespace; }
         this._r[i].Exported = ExportedTypeExtractor.ExtractP(this._cus[i], this._symbols, ns2,
@@ -364,6 +363,21 @@ public static class IrDump {
         }
         cm2.DiagMsgs = dm; cm2.DiagCount = diags.Count();
         return cm2;
+    }
+    // 公开：文件级 using 强制（E0436）。**必须在 `UsedDepNs` 回填之后调**——
+    // 这正是本入口存在的理由（fix-incremental-file-scope-diagnostics）：
+    // 它原先挂在 per-file 并行体（`CompileCuTask.Run`）里 typecheck/codegen 之后，
+    // 而 **cached 分支构造 `CompiledModuleZ` 时 `usedDepNs` 传的是空数组**
+    // （cached 不做 typecheck，拿不到这个产物），于是 `while (u < cm.UsedDepNsCount)`
+    // 一次都不进 ⇒ **任何 cached 文件永远不可能报 E0436**。真正的回填在 pipeline 层
+    // （`PackageCompile` 从 cache meta 补），比原来的调用点晚。
+    // ⇒ 检查必须跟着回填走，不能留在并行体里。
+    public static void EnforceFileScopeAll(CompilationUnit[] cus, string[] files, CompiledModuleZ[] cms, int n) {
+        int i = 0;
+        while (i < n) {
+            if (cus[i] != null && cms[i] != null) { CuPreprocess._enforceFileScope(cus[i], files[i], cms[i]); }
+            i = i + 1;
+        }
     }
     // 公开：从**已解析** CU 收 using 名，零 reparse（F1）。包编译已有 CompilationUnit 在手时走此入口。
     public static string[] UsingsOf(CompilationUnit cu) {

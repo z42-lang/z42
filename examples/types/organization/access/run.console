@@ -1,0 +1,16 @@
+# ANCHOR: use
+$ z42 run access.z42
+Value=2
+# ANCHOR_END: use
+# ANCHOR: private
+$ z42 run private.z42
+z42c build: 1 error(s) in private.z42
+  private.z42(7,23): E0404: cannot access private field `n` of `Counter`
+[exit: 1]
+# ANCHOR_END: private
+# ANCHOR: toplevel
+$ z42 run toplevel.z42
+z42c build: 1 error(s) in toplevel.z42
+  toplevel.z42(1,9): E0442: top-level declaration cannot be private or protected (use internal or public)
+[exit: 1]
+# ANCHOR_END: toplevel

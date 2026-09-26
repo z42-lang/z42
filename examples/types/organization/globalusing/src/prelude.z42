@@ -1,0 +1,5 @@
+namespace Demo;
+
+// 包内写一处，全包的文件都不必再写这两行
+global using Std.IO;
+global using Std.Collections;

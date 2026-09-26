@@ -1,0 +1,7 @@
+[project]
+name = "demo-partial"
+version = "0.1.0"
+kind = "exe"
+
+[sources]
+include = ["src/**/*.z42"]

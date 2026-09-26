@@ -1,0 +1,24 @@
+using Std.IO;
+using Std.Collections;
+
+// ANCHOR: decl
+using UserId = int;                        // 给基本类型起个有语义的名字
+using Scores = Dictionary<string, int>;    // 压缩长泛型
+// ANCHOR_END: decl
+
+class Account { public UserId Id; }
+
+// ANCHOR: use
+void Main() {
+    Account a = new Account();
+    a.Id = 7;
+
+    int plain = a.Id;        // 别名与目标类型完全互通
+    UserId back = plain;
+    Console.WriteLine("Id=" + back);
+
+    Scores s = new Scores();  // 泛型别名可以直接 new
+    s["语文"] = 95;
+    Console.WriteLine("科目数=" + s.Count);
+}
+// ANCHOR_END: use

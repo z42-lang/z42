@@ -1,0 +1,10 @@
+namespace Demo;
+
+using Std.IO;
+
+void Main() {
+    Widget w = new Widget();
+    w.Width = 3;
+    w.Height = 4;
+    Console.WriteLine("Area=" + w.Area() + "  Describe=" + w.Describe());
+}
