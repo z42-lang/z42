@@ -77,6 +77,29 @@ public sealed class IrGenMemberEmitter {
                         this._out.AddFunc(bridge);
                     }
                 }
+            } else if (!g.HasTypeErrors) {
+                // 🔴 **键对不上时不能静默走过** —— 此前这里没有 else：`md.HasBody` 为真（AST 亲口说
+                // 有体）而 `bodyM.HasBody(key)` 为假 ⇒ **这个方法一个字节都不发**，零诊断。
+                // 症状是「方法静默消失」，在运行期才以 `undefined function …` / `MissingSymbolException`
+                // 现形，位置离原因很远。而这是**编译器自己的键构造 bug**，不是用户的错。
+                //
+                // 为什么这条缝一直在：体查找键是 `ownerKey + "." + methKey` **手拼**的，写端 7 处、
+                // 读端约 10 处各拼一遍、没有共享构造器（`emitKey` / `irName` 还是另外两套名字，
+                // 且带 `$cctor` / `$struct` 两处特例改写）。本文件上方那条注释就记着一次实测：
+                // 「两者一起改会让 model.HasBody 落空 → 函数根本不发射」。
+                //
+                // 取 `throw` 而非诊断码，同本包既有 4 处不变式先例（`OverloadResolver.MethodKeyOf`
+                // 的 `unify-regkey 不变量`、`ExprEmitter` 的 unhandled kind、`IrGen` 两处不收敛）：
+                // 这是「不该发生」的内部状态，报一条用户看不懂的诊断码不如直接指出不变式被破。
+                //
+                // ⚠️ `!g.HasTypeErrors` 这道守卫是必须的：有类型错误时绑定器本来就可能没绑这个体
+                //（IrGen 在 `ErrorCount > 0` 时**照常全量跑**），那时落空是预期的，诊断已经报过了 ——
+                // 不加守卫会把「一堆诊断」变成「编译器崩」。
+                throw new Exception("z42c internal: no bound body for `" + key + "` while emitting `"
+                    + irName + "` (the AST says it has a body). The SemanticModel body key is hand-spelled"
+                    + " at both ends — check `ownerKey`/`methKey` here against DeclBinder's spelling"
+                    + " (arity-mangle → `Name$N`; static ctor → IrStaticCtor.MethodKey; iface bridge →"
+                    + " `<m>$struct`). Silently skipping would drop the whole method with no diagnostic.");
             }
         } else if (IrGenFacts._hasWord(md.Mods, "extern")) {
             // legacy [Native("__name")] extern → 发 builtin 桩函数（镜像 C# EmitNativeStub）。
