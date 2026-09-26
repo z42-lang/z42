@@ -1,0 +1,104 @@
+// 委托 / 函数类型值上的成员调用（add-delegate-invoke-syntax）。
+//
+// 回归来源：`_bindInstanceMemberCall` 对 `Z42FuncType` 收者**没有任何分支**，fallthrough 到
+// prim 路径 → `HasClass("Action<string>")` 恒假（delegate 不进 `Classes`，它在
+// `SymbolTable.Delegates`）→ 跳过唯一的诊断闸门 `BindPrimNoApplicableOverload` → 撞上
+// 「查无则松绑 Unknown」兜底（签名传 `null`，**连实参都不查**）→ 发 VCall → 运行期
+// `VCall: expected object, got FuncRef(...)`，而那是**不可 catch 的内部错误**。
+//
+// 于是 `a.Invoke("x")` 编译期零诊断、运行期崩，而参考手册 `delegates-events.md:61` 一直宣称
+// 「`f(arg)` 等价 `f.Invoke(arg)`」，`:62` / `:264-266` 还把 `h.Invoke(args)` 当**单播 event 的
+// 官方触发模板**在教 —— 照着文档写必崩。归档稿 `2026-05-02-add-delegate-type/proposal.md:44,86`
+// 当年把 `.Invoke` 划为 Out of Scope 并注明「留后续视需要补」。
+//
+// 顺带补了同一条路上的 arity 校验（此前**从不校验个数**）：
+//   多传 → 多余实参被**静默丢掉**（lambda 照常收到第一个、返回正常值，零诊断）
+//   少传 → 形参拿到 `Null`，崩在**别处**（栈顶指 lambda 体而非调用点）
+// 实参**类型**一直是查的（E0402），缺的只有个数。
+//
+// ⚠️ **本文件用 `(int) -> int` 这类函数类型拼写，不用 `Action` / `Func`**：本单测走
+// `SemanticDump`，它只 `SymbolCollector().Collect(cu)`、**不加载 stdlib**。函数类型由语法
+// 直接产出 `Z42FuncType`（`SymbolTable.ResolveTypeP` 的 `FuncTypeExpr` 分支），不依赖任何
+// 已注册的类 ⇒ 分支一定进得去。用委托名则要看内建 desugar 是否可达，容易变成恒绿空测试。
+//
+// 门的判别力（修复不存在时会不会红）：三组断言在改动前**全部拿到空错误码** ——
+// `.Invoke`/`f.Bogus()`/arity 三条路当年都是零诊断，所以 `Assert.Equal("E****", ...)` 必红。
+namespace Z42cSemanticsDelegateInvokeTests;
+
+using Std;
+using Std.Test;
+using Z42.Semantics;
+
+// ── `.Invoke` 现在是合法的调用形式（不再零诊断 + 运行期崩）──
+
+[Test]
+void test_invoke_on_func_type_is_accepted() {
+    string src = "class C { void M() { (int) -> int f = (int x) => x; f.Invoke(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_invoke_result_has_the_declared_return_type() {
+    // 走 prim 兜底时返回类型是 Unknown ⇒ 赋给 int 不会被检查。脱糖后取 ft.Ret ⇒ 真实类型。
+    // 这条钉住「返回类型不是 Unknown」：类型对不上就报错。
+    string src = "class C { void M() { (int) -> int f = (int x) => x; string s = f.Invoke(1); } }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_paren_call_still_accepted() {
+    string src = "class C { void M() { (int) -> int f = (int x) => x; f(1); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 委托值上除 `Invoke` 之外没有别的成员 → E0401 ──
+
+[Test]
+void test_unknown_member_on_func_type_is_an_error() {
+    string src = "class C { void M() { (int) -> int f = (int x) => x; f.Bogus(); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_unknown_member_message_names_the_delegate_type() {
+    string src = "class C { void M() { (int) -> int f = (int x) => x; f.Bogus(); } }";
+    Assert.True(SemanticDump.FirstErrorMessage(src).Contains("only `Invoke` is available"));
+}
+
+// ── arity 校验：两个方向 × 两种拼写 ──
+
+[Test]
+void test_too_many_args_to_func_value_is_an_error() {
+    string src = "class C { void M() { (int) -> int f = (int x) => x; f(1, 2); } }";
+    Assert.Equal("E1006", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_too_few_args_to_func_value_is_an_error() {
+    string src = "class C { void M() { (int, int) -> int g = (int a, int b) => a; g(1); } }";
+    Assert.Equal("E1005", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_invoke_spelling_is_also_arity_checked() {
+    // 新写法不得绕过校验 —— 两种拼写共用 `_checkFuncValueArity`。
+    string src = "class C { void M() { (int) -> int f = (int x) => x; f.Invoke(1, 2); } }";
+    Assert.Equal("E1006", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_correct_arity_is_not_reported() {
+    // 正面对照：否则上面四条在「无条件报 arity 错」的实现下也会绿。
+    string src = "class C { void M() { (int, int) -> int g = (int a, int b) => a; g(1, 2); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+// ── 型参收者**不**校验 arity（擦除后形参表不可信，校验会误报）──
+
+[Test]
+void test_type_param_receiver_arity_is_not_checked() {
+    // `where T : Func<..>` 形态：返回 Unknown、形参表不可信 ⇒ 刻意不接校验。
+    // 这条守住「收窄没有溢出到型参路」；接上去的话这里会报 E1005/E1006。
+    string src = "class C { void M<T>(T f) { f(1, 2, 3); } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

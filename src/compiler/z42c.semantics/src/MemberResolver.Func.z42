@@ -1,0 +1,74 @@
+// 委托 / 函数类型收者（`Action<T>` / `Func<..>` / `Predicate<T>` / 用户 `delegate` /
+// `(T) -> R`）上的成员调用 —— add-delegate-invoke-syntax。
+// 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
+//
+// **这些拼写在编译器里是同一个类型对象 `Z42FuncType`**（`Z42Type.z42:476`；
+// `StubCollector.z42:37` 的注释就写着「委托类型即函数类型」）⇒ 一条分支同时覆盖全部。
+// 也因此 `(int) -> int` 与 `Func<int,int>` 双向可互赋：`Z42FuncType.IsAssignableTo`
+// 走**结构比较**（arity + 各形参 + 返回），不看名字。
+//
+// 委托值上**只有 `Invoke` 一个成员**：
+//   `d.Invoke(args)` → 脱糖成与括号调用 `d(args)` **同一个** `BoundIndirectCall` 节点
+//                      （与 `MemberResolver.z42` 那条「任意表达式 callee」路同型）
+//                      ⇒ 发射端零改动（`ExprEmitter.z42` 发 `CallIndirectInstr`）、VM 零改动
+//   其它成员名   → E0401
+//
+// ## 修之前是什么样
+//
+// `_bindInstanceMemberCall` 对 `Z42FuncType` 收者**没有任何分支**，fallthrough 到 prim 路径 →
+// `HasClass("Action<string>")` 恒假（**delegate 不进 `Classes`**，它在 `SymbolTable.Delegates`）
+// ⇒ 跳过唯一的诊断闸门 `BindPrimNoApplicableOverload` ⇒ 撞上「查无则松绑 Unknown」兜底
+// （`MemberResolver.Prim.z42`，签名传 `null` ⇒ **连实参都不查**）⇒ 发 VCall ⇒ 运行期
+// `VCall: expected object, got FuncRef(...)`（`vcall_resolve.rs`，FuncRef 没有 TypeDesc），
+// 而那是**不可 catch 的内部错误**。
+//
+// ⭐ 这正是 prim 收者（fix-prim-member-not-found）与型参收者
+// （check-bare-type-param-member-access）那两次「E0401 收窄」**漏掉的那一格** ——
+// 它们只覆盖「包装类存在」的情形，委托收者连包装类查找都进不去。
+//
+// ⭐ 文档层面这不是「实现漏了」：归档稿 `2026-05-02-add-delegate-type/proposal.md:44,86`
+// 明确把 `.Invoke` 划为 Out of Scope（「v1 仅支持 `d(args)`」「留后续视需要补」）。
+// 真正的缺陷是参考手册在此之后宣称「`f(arg)` 等价 `f.Invoke(arg)`」，并把 `h.Invoke(args)`
+// 当**单播 event 的官方触发模板**在教 ⇒ 照着文档写必崩。本变更把它补上。
+//
+// ⭐ **不走那个已有的 `<FQ>.Invoke` 死体桩**（`StubEmitter.z42`）：它是 virtual、体为
+// `ret null`，只能经**有 TypeDesc 的对象**派发，`FuncRef` / `Closure` 永远到不了。
+// 那个桩继续只服务反射签名与跨包元数据重建，本变更不碰它。
+//
+// ⚠️ 多播 `MulticastAction<T>.Invoke` 与反射 `MethodInfo.Invoke` **到不了这里** ——
+// 它们是真类的真方法，走 class 分支。两者行为一字不变（golden 里各有一条阴性对照守着）。
+namespace Z42.Semantics;
+using Z42.IR;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class MemberResolver {
+    // 三个 `BoundIndirectCall` 产出点共用：绑实参（类型检查，E0402）+ 校验个数（E1005/E1006）。
+    // 抽出来是为了让另两个产出点**一行换一行**、不动主文件的行数（它离硬上限只剩几行）。
+    // ⚠️ 型参收者那条产出点（`where T : Func<..>`）**不走这里** —— 返回 Unknown、擦除后形参表
+    // 不可信，校验会误报。
+    internal BoundExpr[] BindIndirectArgs(BoundExpr[] args, Expr[] rawArgs, int argCount, Z42FuncType ft,
+                                         string who, TypeEnv env, Span sp) {
+        BoundExpr[] bound = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ft, env);
+        this._tc._overload._checkFuncValueArity(who, ft, argCount, sp);
+        return bound;
+    }
+
+    internal BoundExpr BindFuncValueMemberCall(MemberExpr mem, BoundExpr recv, Z42FuncType ft, BoundExpr[] args,
+                                              int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
+        if (mem.Name == "Invoke") {
+            args = this.BindIndirectArgs(args, rawArgs, argCount, ft, "`Invoke`", env, sp);
+            // 返回类型取 `ft.Ret` —— 走 prim 兜底时这里是 `Unknown`，于是
+            // `int r = f.Invoke(1)` 这类赋值压根不被检查。
+            return new BoundIndirectCall(recv, args, argCount, ft.Ret, sp);
+        }
+        // ⚠️ **不套用** prim 那条 stub 豁免（「包装类成员表为空时仍松绑定」）：委托的成员面是
+        // **语言固定的**（只有 `Invoke`），不存在「懒加载导致候选集不完整」的情形 ⇒ 判「不存在」
+        // 不会误报。
+        this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+            "no method `" + mem.Name + "` on delegate type `" + ft.Name() + "` (only `Invoke` is available)", mem.NameSpan);
+        BoundExpr[] fa = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);   // 错误路径清 null 占位
+        return new BoundIndirectCall(recv, fa, argCount, new Z42ErrorType(), sp);
+    }
+}
