@@ -2,5 +2,6 @@ start
 caught-free: the type initializer for `Demo.MiFail.$Module` threw an exception: boom
 caught-static
 caught-new
+caught-sibling
 unrelated-ok
 end

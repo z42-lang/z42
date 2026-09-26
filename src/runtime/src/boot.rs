@@ -82,7 +82,8 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
     // Seed lazy loader with merged module's TypeDescs (cross-zpkg base classes)
     // and eagerly-loaded artifacts' impl pairs.
     if let Some(m) = ctx.module() {
-        ctx.seed_lazy_loader_types(&m.type_registry);
+        let func_names: Vec<String> = m.functions.iter().map(|f| f.name.clone()).collect();
+        ctx.seed_lazy_loader_types(&m.type_registry, &func_names);
     }
     ctx.seed_lazy_loader_impls(&plan.eager_impl_pairs);
     ctx

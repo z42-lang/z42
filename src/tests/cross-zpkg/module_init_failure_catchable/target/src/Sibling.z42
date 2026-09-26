@@ -1,0 +1,16 @@
+// fix-module-init-ownership（2026-09-27）：同包的**非嵌套兄弟命名空间**。
+//
+// 判别力全在「非嵌套」上：`Demo.Sibling` 不以 `Demo.MiFail.` 开头，所以旧的**前缀**判据
+// 在这里判不出归属 ⇒ 触达它不重抛，程序就在一个初始化失败的包上继续跑。
+// 新的成员判据查「这个包拥有哪些符号」，与它落在哪个 ns 无关。
+//
+// 不是造出来的形状：`z42.compression` 就是 `Std` / `Std.Archive` / `Std.Compression` 三个
+// 互不嵌套的 ns，而它恰是最该用 `[ModuleInit]` 的那类包。
+namespace Demo.Sibling;
+
+using Std;
+using Std.IO;
+
+public static class Thing {
+    public static int Use(int x) { Console.WriteLine("sibling"); return x + 1; }
+}

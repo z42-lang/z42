@@ -100,3 +100,66 @@ fn ref_leaf_bad_offset_errors() {
     assert!(a.set_ref(idx, 1, 8, Value::Null).is_err(), "unknown ref offset must error");
     assert!(a.get_ref(idx, 1, 8).is_err(), "unknown ref offset must error");
 }
+
+/// struct-copy-no-alloc: the in-place copy path must behave identically **in both
+/// index directions**. `split_at_mut` splits at the higher index, so `src < dst`
+/// and `dst < src` take two different branches — a bug in one of them would show
+/// up only for one ordering of the two allocations.
+#[test]
+fn copy_into_works_in_both_index_directions() {
+    let ty: Arc<str> = Arc::from("P");
+    // src < dst
+    {
+        let mut a = StructArena::default();
+        let src = a.alloc(1, ty.clone(), prim_layout(8));
+        let dst = a.alloc(1, ty.clone(), prim_layout(8));
+        assert!(src < dst);
+        a.with_mut(src, 1, |s| s.bytes[0] = 7).unwrap();
+        a.copy_into(dst, 1, src, 1, 8).unwrap();
+        assert_eq!(a.with(dst, 1, |s| s.bytes[0]).unwrap(), 7, "src<dst must copy");
+    }
+    // dst < src  (the other `split_at_mut` branch)
+    {
+        let mut a = StructArena::default();
+        let dst = a.alloc(1, ty.clone(), prim_layout(8));
+        let src = a.alloc(1, ty.clone(), prim_layout(8));
+        assert!(dst < src);
+        a.with_mut(src, 1, |s| s.bytes[0] = 9).unwrap();
+        a.copy_into(dst, 1, src, 1, 8).unwrap();
+        assert_eq!(a.with(dst, 1, |s| s.bytes[0]).unwrap(), 9, "dst<src must copy");
+    }
+}
+
+/// struct-copy-no-alloc: self-copy (`a = a`, or two handles onto one slot) is a
+/// no-op — `split_at_mut` cannot hand out two borrows of one element, so this case
+/// returns early. **Validation still runs**: a stale handle must be rejected even
+/// though there is nothing to copy (the old snapshot-based code validated both
+/// sides, and dropping that would turn a stale-handle bug into silent success).
+#[test]
+fn copy_into_self_is_noop_but_still_validated() {
+    let mut a = StructArena::default();
+    let idx = a.alloc(1, Arc::from("P"), prim_layout(8));
+    a.with_mut(idx, 1, |s| s.bytes[0] = 5).unwrap();
+
+    a.copy_into(idx, 1, idx, 1, 8).unwrap();
+    assert_eq!(a.with(idx, 1, |s| s.bytes[0]).unwrap(), 5, "self-copy must not disturb the blob");
+
+    assert!(a.copy_into(idx, 2, idx, 2, 8).is_err(), "stale frame_id must still be rejected");
+    assert!(a.copy_into(999, 1, 999, 1, 8).is_err(), "out-of-range idx must still be rejected");
+}
+
+/// struct-copy-no-alloc: a **stale dst** must be rejected even when src is fine,
+/// and vice versa. Both checks happen before the split; losing either one would be
+/// invisible to the happy-path tests.
+#[test]
+fn copy_into_rejects_either_side_stale() {
+    let mut a = StructArena::default();
+    let ty: Arc<str> = Arc::from("P");
+    let src = a.alloc(1, ty.clone(), prim_layout(8));
+    let dst = a.alloc(1, ty, prim_layout(8));
+    assert!(a.copy_into(dst, 2, src, 1, 8).is_err(), "stale dst frame_id must error");
+    assert!(a.copy_into(dst, 1, src, 2, 8).is_err(), "stale src frame_id must error");
+    assert!(a.copy_into(dst, 1, 999, 1, 8).is_err(), "out-of-range src must error");
+    assert!(a.copy_into(999, 1, src, 1, 8).is_err(), "out-of-range dst must error");
+    assert!(a.copy_into(dst, 1, src, 1, 8).is_ok(), "valid handles still copy");
+}

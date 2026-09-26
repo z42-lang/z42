@@ -59,6 +59,20 @@ b.x = 99;       // 只改 b
 `kind` 是运行期 `TypeTag`（`TAG_I32`/`TAG_STR`/…），给字节宽 + 解码 / 或标识引用叶子。字段 byte
 offset / size 由编译期烘焙为**立即数**，运行时无需查表。
 
+> ⚠️ **`StructCopy` 是「值语义的复制点」，它的成本被所有赋值/传参/返回摊到** —— 到
+> 2026-09-27 之前 `StructArena::copy_into` 为了绕借用检查（src 与 dst 是同一个 `Vec` 的两个
+> 下标）做 `(s.bytes.to_vec(), s.refs.to_vec())`，即**每次复制两次无条件堆分配**，且代价与
+> struct 大小无关（4 字节单字段 struct 也照付）。现改为 `split_at_mut` 取两个不相交借用、
+> 就地复制（`struct-copy-no-alloc`）。
+>
+> 实测（**两个二进制**交替 A/B）：struct 复制密集的 micro **interp −6.0% / jit −9.8%**；
+> 而**真实编译负载（编一个 30 文件的 stdlib 包）量不出差异**（+0.26%，stdev 1.7%）——
+> 因为 **z42c 自己热路径上几乎不用多字段值 struct**。**别把这条引用成「编译器提速」**：
+> 它提速的是用了值类型的**用户代码**。
+>
+> 📜 同族的另外两项还在（审计记录：`new S(...)` = 3 次堆分配 + 1 锁 + 1 RwLock + 1 哈希），
+> 属独立的刀 —— 「值 struct 目前比堆对象更贵」这个与值类型存在理由相反的事实尚未消除。
+
 ### GC：arena 是根，P1 无写屏障
 
 字节 arena 每次采集都作 **GC 根**整体重扫（`scan_roots` 遍历每个 blob 的 `refs`，与 `stack_alloc`

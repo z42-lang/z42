@@ -49,10 +49,16 @@ impl VmContext {
     /// test runner immediately after `install_lazy_loader_with_deps` so the
     /// fixup pass can find eagerly-loaded base classes when lazy-loading a
     /// subclass.
-    pub fn seed_lazy_loader_types(&self, types: &FxHashMap<String, Arc<TypeDesc>>) {
+    /// `func_names`：同包函数 FQN —— 包初始化失败后的归属判定要它（主包的自由函数既不在
+    /// `types` 里也不是类型成员）。见 `LazyLoader::seed_types_for_lookup`。
+    pub fn seed_lazy_loader_types(
+        &self,
+        types: &FxHashMap<String, Arc<TypeDesc>>,
+        func_names: &[String],
+    ) {
         let mut state = self.core.lazy_loader.write();
         if let Some(loader) = state.as_mut() {
-            loader.seed_types_for_lookup(types);
+            loader.seed_types_for_lookup(types, func_names);
         }
     }
 

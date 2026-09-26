@@ -1,6 +1,7 @@
 # Proposal: 包初始化失败的「归属判定」改成构造式
 
-> 状态：**DRAFT，待 User 裁决**（vm 语义变更 ⇒ 规范先行）。
+> 状态：✅ **已实现**（2026-09-27）。User 裁：判据换成**成员归属**，「先确认哪个包，再是命名空间」。
+> 余下三点我自行收口：主包那条路多传 `func_names`；开销只落在声明了 `[ModuleInit]` 的包；E0485 不动。
 > 来源 = #785（`module-init-failure-not-catchable` 的修复）自己留下的洞。
 
 ## 1. 现状与缺陷（已实测确证，不是边界情况）
@@ -75,3 +76,26 @@ Std 这一个命名空间由 11 个包共同声明（z42.core / z42.io / z42.net
 - e2e `src/tests/cross-zpkg/module_init_failure_catchable` 新增两格：
   **同包的兄弟命名空间要重抛**、**别的包不许被毒**；
 - 判别力：把判据退回前缀 ⇒ 这两格必须分别红。
+
+## 6. 实现记录（2026-09-27）
+
+- `module_covers`（前缀）→ `module_owns_symbol`（成员集合），**全仓已无前缀判据**；
+- `register_module_init` 的 owner 集合是**必填参数** ⇒ 落地当场抓到一个没跟上的调用点
+  （`corelib/tests.rs`）——「必填」要的就是这个效果；
+- `$Module` 登记从逐类型漏斗 `insert_type` 挪到三个**整包缝**（`registry.rs` 两处循环之后、
+  `seed_types_for_lookup` 之后）；后者按裁决多收一个 `func_names`（主包的自由函数既不在类型表里、
+  也不是任何类型的成员）；
+- 单测两条：成员归属各形态（含**同包兄弟 ns 要判成自己的**）+ **裸 `Std` 不毒别的包**；
+- e2e 新增「同包**非嵌套**兄弟命名空间」格。
+
+### ⭐ 判别力：一行就看得见
+
+退回前缀判据后，那一格的输出从 `caught-sibling` 变成 **`sibling`** —— 也就是 `Thing.Use`
+**在一个初始化失败的包上真的跑了**，而且悄无声息。这比「断言抛了什么」直观得多。
+
+### ⚠️ 顺带撞到一个与本修复无关的既有行为（未处理，记一笔）
+
+同包的**自由函数**在该包的**多个命名空间里都可见** ⇒ 消费方同时 `using` 两个 ns 再调它会被判
+`E0456` 歧义：`Touch is ambiguous between Demo.Sibling.Touch and Demo.MiFail.Touch`，
+而 `Demo.Sibling` 里**并没有** `Touch`。fixture 用「单开一个只 `using` 兄弟 ns 的文件」绕开
+（`using` 是文件级的）。是否为缺陷需单独查 —— 不在本次范围。

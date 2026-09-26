@@ -33,6 +33,14 @@ void Main() {
     } catch (Exception e) {
         Console.WriteLine("caught-new");
     }
-    Console.WriteLine("unrelated-ok"); // 与失败包无关 ⇒ 不该抛
+    // fix-module-init-ownership：同包的**非嵌套兄弟命名空间**也必须重抛。
+    // 🔴 旧的前缀判据在这一格漏判（`Demo.Sibling` 不以 `Demo.MiFail.` 开头）⇒ 不抛、
+    // 直接在一个初始化失败的包上跑。这一行就是那条修复的判别力所在。
+    try {
+        TouchSibling(1);               // 同包、兄弟 ns 触达（见 SiblingTouch.z42 的头注）
+    } catch (Exception e) {
+        Console.WriteLine("caught-sibling");
+    }
+    Console.WriteLine("unrelated-ok"); // 与失败包无关（Std.IO）⇒ 不该抛
     Console.WriteLine("end");
 }
