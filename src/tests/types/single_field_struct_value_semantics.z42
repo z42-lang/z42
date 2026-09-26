@@ -1,0 +1,96 @@
+// Test: single-field-struct-value-semantics（坑点 ⑤）—— **单字段** struct 从引用语义改为值语义。
+//
+// 修前：`IsBlobStruct` 要求 `FieldCount >= 2`，单字段 struct 落在引用模型上 ⇒ `S b = a; b.X = 50;`
+// 会**改到 a**（实测 a.X 也是 50）。翻门后它与多字段 struct 同一个模型（arena blob + 逐叶子复制）。
+//
+// ⚠️ **bool 是头号探针**：坏值不自己崩 —— 它能让 `if` 判真、却让 `==true` 与 `==false` 同时为假
+// （`new bool()` 那条坑就是这么藏了很久的）。所以每种单字段形态都要连 `==true`/`==false` 一起钉。
+// ⚠️ 单字段 struct 的**方法/属性/运算符**此前走的是引用路；翻门后走 blob 路（`this` 是 arena 句柄），
+// 所以这几样都要各钉一格，而不是只测字段读写。
+
+struct SInt    { public int X; }
+struct SLong   { public long V; }
+struct SBool   { public bool B; }
+struct SStr    { public string S; }            // 单字段是**引用**叶子（走 struct_refs 侧表）
+struct SCtor   { public int N; public SCtor(int n) { this.N = n; } public int Twice() { return this.N * 2; } }
+struct SProp   { public int V; public int Half { get { return this.V / 2; } } }
+
+class Holder { public SInt Inner; public Holder() { } }   // 单字段 struct 作**类的内联字段**
+
+void mutate(SInt s) { s.X = 999; }             // 传参 copy-in：不得影响调用方
+
+void Main() {
+    // ── ① headline：赋值是复制 ──
+    SInt a = new SInt(); a.X = 10;
+    SInt b = a;          b.X = 50;
+    Assert.Equal(10, a.X);                      // 修前这里是 50
+    Assert.Equal(50, b.X);
+
+    // ── ② bool（坏值不自崩的那种）──
+    SBool f = new SBool();
+    Assert.Equal(false, f.B);                   // 零值
+    Assert.Equal(false, f.B == true);
+    Assert.Equal(true,  f.B == false);
+    f.B = true;
+    SBool g = f; g.B = false;
+    Assert.Equal(true,  f.B);                   // 拷贝互不影响
+    Assert.Equal(false, g.B);
+    Assert.Equal(true,  f.B == true);
+    Assert.Equal(true,  g.B == false);
+
+    // ── ③ long / string（引用叶子）──
+    SLong l = new SLong(); l.V = 7;
+    SLong l2 = l; l2.V = 8;
+    Assert.Equal(7, l.V);
+    SStr s1 = new SStr(); s1.S = "hi";
+    SStr s2 = s1; s2.S = "bye";
+    Assert.Equal("hi",  s1.S);                  // 复制的是引用本身（与 C# 同）
+    Assert.Equal("bye", s2.S);
+
+    // ── ④ 构造器 / 方法 / 属性（翻门后 `this` 是 arena 句柄）──
+    SCtor c = new SCtor(21);
+    Assert.Equal(21, c.N);
+    Assert.Equal(42, c.Twice());
+    SProp p = new SProp(); p.V = 10;
+    Assert.Equal(5, p.Half);
+
+    // ── ⑤ 传参 copy-in ──
+    SInt m = new SInt(); m.X = 1;
+    mutate(m);
+    Assert.Equal(1, m.X);                       // 修前会变 999
+
+    // ── ⑥ 作类字段（内联）──
+    Holder h = new Holder();
+    h.Inner.X = 5;
+    Assert.Equal(5, h.Inner.X);
+    SInt taken = h.Inner; taken.X = 77;
+    Assert.Equal(5, h.Inner.X);                 // 取出来是副本
+
+    // ── ⑦ 数组元素 ──
+    SInt[] arr = new SInt[2];
+    arr[0].X = 3;
+    Assert.Equal(3, arr[0].X);
+    Assert.Equal(0, arr[1].X);
+    SInt e = arr[0]; e.X = 9;
+    Assert.Equal(3, arr[0].X);                  // 取出来是副本
+
+    // ── ⑧ struct 值相等（逐叶子）──
+    SInt q1 = new SInt(); q1.X = 4;
+    SInt q2 = new SInt(); q2.X = 4;
+    Assert.Equal(true, q1 == q2);
+    q2.X = 5;
+    Assert.Equal(false, q1 == q2);
+
+    // ── ⑨ 装箱 / 身份 ──
+    object o = a;
+    Assert.Equal(true, o is SInt);
+    SInt back = (SInt)o;
+    Assert.Equal(10, back.X);
+    Assert.Equal("SInt", o.ToString());          // 无自声明 ToString → 短类型名
+
+    // ── ⑩ stdlib 的单字段 struct（`Std.Guid`，其单字段是 byte[] 引用叶子）──
+    Guid gu = Guid.NewGuid();
+    Guid gu2 = gu;
+    Assert.Equal(true, gu == gu2);               // 复制后仍相等
+    Assert.Equal(36, gu.ToString().Length);      // 规范形态可用
+}

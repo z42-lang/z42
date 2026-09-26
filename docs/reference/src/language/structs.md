@@ -155,10 +155,17 @@ public Pair(int a, int b) => (A, B) = (a, b);   // ⚠️ 编译通过，字段�
 public Pair(int a, int b) { A = a; B = b; }
 ```
 
-### 单字段 struct 仍表现为引用语义
+### 值语义与字段数无关
 
-值语义目前只对**两个及以上字段**的 struct 生效。
-细节与示例见[所有权与内存模型的「已知偏差」](memory-model.md)。
+一个字段的 struct 与多字段 struct 走**同一个**值模型（字节 blob + 逐叶子复制）：赋值、传参、
+返回、数组元素、类的内联字段一律是复制。
+
+> 📜 **2026-09-26 之前（`single-field-struct-value-semantics`）**：闸门 `IsBlobStruct` 要求
+> `FieldCount >= 2`，**单字段 struct 落在引用模型上** —— `S b = a; b.X = 50;` 会改到 `a`。
+> 翻闸门要**编译器与 VM 两侧同时改**：VM 在 `try_struct_backed` 有一份逐字镜像的判据，
+> 只翻一侧会让 `S[]`（单字段）退化成引用数组、元素全 `Null`。
+> 同一刀还连带修了两条既存缺陷：跨包静态调用漏传 sret（`fix-crosspkg-static-sret`）、
+> `extern` 桩不支持 blob 返回（`GCHandle.Alloc`）。
 
 ### `ToString` 在所有字符串化路径上一致
 

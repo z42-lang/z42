@@ -178,21 +178,49 @@ fn heap_stats_type_desc() -> Arc<TypeDesc> {
 
 /// Read the `_slot: long` field out of a `Std.GCHandle` receiver. Treats null /
 /// non-Object / missing field as slot 0 ("unallocated").
-fn extract_gc_handle_slot(arg: &Value) -> u64 {
-    let Value::Object(rc) = arg else { return 0 };
-    let obj = rc.borrow();
-    match obj.field_value(0) {
-        Value::I64(i) => i.max(0) as u64,
+/// 读出一个 `Std.GCHandle` 的 slot id。
+///
+/// ⑤（single-field-struct-value-semantics）之后 `GCHandle` 是**单字段 blob 值 struct**，于是同一个
+/// 句柄在运行期有三种承载：帧 arena 的 `StructRef`（最常见）/ 堆盒 `BoxedStruct`（装箱过）/
+/// 旧的单槽 `Object`（⑤ 之前的表示；保留是为了让**旧编译器产出的 zbc** 仍能跑，
+/// 与 `make_gc_handle` 的新表示不对称是刻意的：读要宽、写要窄）。
+fn extract_gc_handle_slot(ctx: &VmContext, arg: &Value) -> u64 {
+    fn first_i64(bytes: &[u8]) -> u64 {
+        if bytes.len() < 8 { return 0; }
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&bytes[0..8]);
+        i64::from_le_bytes(b).max(0) as u64
+    }
+    match arg {
+        Value::StructRef { idx, frame_id } => ctx
+            .struct_arena
+            .lock()
+            .with(*idx, *frame_id, |s| first_i64(&s.bytes))
+            .unwrap_or(0),
+        Value::BoxedStruct(gc) => first_i64(gc.borrow().bytes()),
+        Value::Object(rc) => match rc.borrow().field_value(0) {
+            Value::I64(i) => i.max(0) as u64,
+            _ => 0,
+        },
         _ => 0,
     }
 }
 
+/// 造一个 `Std.GCHandle`。
+///
+/// ⑤ 之后它是 blob 值 struct ⇒ 产**装箱 struct**（字节 = 一个 i64 的 `_slot`），由
+/// `_emitNativeStubSret` 合成的桩 `as_cast` 拆箱、`struct_copy` 写进调用方的 sret 槽。
+/// 造不出来（`Std.GCHandle` 的类型尚未装载等）→ 回落旧的单槽对象表示，不让 GC 句柄整条路崩。
 fn make_gc_handle(ctx: &VmContext, slot: u64) -> Value {
-    ctx.heap().alloc_object(
-        gc_handle_type_desc(),
-        vec![Value::I64(slot as i64)],
-        NativeData::None,
-    )
+    let bytes = (slot as i64).to_le_bytes();
+    match crate::corelib::convert::box_struct_blob(ctx, "Std.GCHandle", &bytes, &[]) {
+        Ok(v) => v,
+        Err(_) => ctx.heap().alloc_object(
+            gc_handle_type_desc(),
+            vec![Value::I64(slot as i64)],
+            NativeData::None,
+        ),
+    }
 }
 
 /// `Std.GCHandle.Alloc(target, GCHandleType type)` — returns a new GCHandle
@@ -209,27 +237,27 @@ pub fn builtin_gc_handle_alloc(ctx: &VmContext, args: &[Value]) -> Result<Value>
 
 /// `Std.GCHandle.Target { get; }` — returns null when slot freed or weak target collected.
 pub fn builtin_gc_handle_target(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot = extract_gc_handle_slot(args.first().unwrap_or(&Value::Null));
+    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
     Ok(ctx.heap().handle_target(slot).unwrap_or(Value::Null))
 }
 
 /// `Std.GCHandle.IsAllocated { get; }`.
 pub fn builtin_gc_handle_is_alloc(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot = extract_gc_handle_slot(args.first().unwrap_or(&Value::Null));
+    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
     Ok(Value::Bool(ctx.heap().handle_is_alloc(slot)))
 }
 
 /// `Std.GCHandle.Kind { get; }` — returns `GCHandleType` enum int. Freed slot
 /// returns `Strong` (default) — callers should check `IsAllocated` first.
 pub fn builtin_gc_handle_kind(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot = extract_gc_handle_slot(args.first().unwrap_or(&Value::Null));
+    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
     let kind = ctx.heap().handle_kind(slot).unwrap_or(GcHandleKind::Strong);
     Ok(Value::I64(gc_handle_kind_to_i64(kind)))
 }
 
 /// `Std.GCHandle.Free()` — releases the slot. Idempotent (also no-op on slot 0).
 pub fn builtin_gc_handle_free(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot = extract_gc_handle_slot(args.first().unwrap_or(&Value::Null));
+    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
     ctx.heap().handle_free(slot);
     Ok(Value::Null)
 }
