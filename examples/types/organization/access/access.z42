@@ -1,0 +1,17 @@
+using Std.IO;
+
+// ANCHOR: decl
+class Counter {
+    int n;                                  // 不写修饰符 → private
+    public int Value() { return this.n; }    // 要给外面看，就写 public
+    public void Bump() { this.n = this.n + 1; }
+}
+// ANCHOR_END: decl
+
+// ANCHOR: use
+void Main() {
+    Counter c = new Counter();
+    c.Bump(); c.Bump();
+    Console.WriteLine("Value=" + c.Value());
+}
+// ANCHOR_END: use

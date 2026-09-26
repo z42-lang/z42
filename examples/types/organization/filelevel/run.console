@@ -1,0 +1,5 @@
+# ANCHOR: run
+$ z42 run
+半径 2
+两个文件各有各的 using
+# ANCHOR_END: run

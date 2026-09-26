@@ -1,0 +1,6 @@
+namespace Demo;
+
+partial class Widget {
+    public int Width;
+    public int Area() { return this.Width * this.Height; }   // 用另一个碎片的字段
+}

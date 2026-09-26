@@ -1,0 +1,8 @@
+namespace Demo;
+
+// 本文件一条 using 都没有
+void Main() {
+    List<string> names = new List<string>();
+    names.Add("小明"); names.Add("小红");
+    Console.WriteLine("共 " + names.Count + " 个：" + names[0] + " " + names[1]);
+}

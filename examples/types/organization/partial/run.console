@@ -1,0 +1,4 @@
+# ANCHOR: run
+$ z42 run
+Area=12  Describe=3x4
+# ANCHOR_END: run

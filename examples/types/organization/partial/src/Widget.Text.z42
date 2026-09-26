@@ -1,0 +1,6 @@
+namespace Demo;
+
+partial class Widget {
+    public int Height;
+    public string Describe() { return this.Width + "x" + this.Height; }
+}

@@ -1,0 +1,4 @@
+# ANCHOR: run
+$ z42 run
+共 2 个：小明 小红
+# ANCHOR_END: run

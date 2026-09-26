@@ -1,0 +1,14 @@
+namespace Demo.App;
+
+using Std.IO;
+
+void Main() {
+    // 同一个包里的另一个 namespace，不需要 using 就能用
+    Point p = new Point(3, 4);
+    Console.WriteLine("(" + p.X + ", " + p.Y + ")");
+
+    try { Boom(); }
+    catch (Exception e) { Console.WriteLine(e.StackTrace); }
+}
+
+void Boom() { throw new Exception("看限定名"); }

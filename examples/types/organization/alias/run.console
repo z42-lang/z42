@@ -1,0 +1,5 @@
+# ANCHOR: use
+$ z42 run alias.z42
+Id=7
+科目数=1
+# ANCHOR_END: use
