@@ -1,0 +1,162 @@
+// `ParseTable` 的守门单测（add-l2-parse-table 批 2）。三类判据，各自守一件不同的事：
+//
+//   ① **同步门** —— 表是四条平行 if 链（`LeftBp` / `Led` / `Postfix` / `Feature`），
+//      往一条里加了行却忘了另一条 = 静默失效（[[parallel-pass-sequences-miss-new-hook]]）。
+//      逐个 token kind 核对四者的互相含义。
+//   ② **不变式** —— 那些此前是魔数的关系（`AboveAssign` / `BetweenOrAndXor` / `UnaryBp`）。
+//      光断言「函数返回 11」没意义，要断言「它等于赋值 bp + 1」**并且**把数值也钉死：
+//      前者守关系、后者守「收敛没有改语义」。
+//   ③ **特性名一致性** —— 表里出现的每个 feature 必须在 `Phase1Profile()` 里。
+//      没有这条，拼错一个名字 ⇒ `IsEnabled` 静默返回 false ⇒ 该运算符凭空消失且无报错
+//      （`syntax-customization.md` 早就写明这是 `IsEnabled(未知名)=false` 这条安全默认的代价）。
+namespace Z42cSyntaxParseTableTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Core;
+
+// ── ② 不变式：关系 + 数值双断言 ──────────────────────────────────────────────
+
+[Test]
+void test_bp_ladder_pinned() {
+    // 收敛不是改语义：这 12 档数值与收敛前逐个相同（`_infixBp` 的 if 链 + 9 处内联守卫）。
+    Assert.Equal(10, ParseTable.LeftBp(TokenKind.Eq));
+    Assert.Equal(10, ParseTable.LeftBp(TokenKind.PlusEq));
+    Assert.Equal(10, ParseTable.LeftBp(TokenKind.CaretEq));
+    Assert.Equal(20, ParseTable.LeftBp(TokenKind.Question));
+    Assert.Equal(25, ParseTable.LeftBp(TokenKind.QuestionQuestion));
+    Assert.Equal(30, ParseTable.LeftBp(TokenKind.PipePipe));
+    Assert.Equal(40, ParseTable.LeftBp(TokenKind.AmpAmp));
+    Assert.Equal(44, ParseTable.LeftBp(TokenKind.Pipe));
+    Assert.Equal(46, ParseTable.LeftBp(TokenKind.Caret));
+    Assert.Equal(48, ParseTable.LeftBp(TokenKind.Ampersand));
+    Assert.Equal(50, ParseTable.LeftBp(TokenKind.EqEq));
+    Assert.Equal(60, ParseTable.LeftBp(TokenKind.Lt));
+    Assert.Equal(60, ParseTable.LeftBp(TokenKind.Is));
+    Assert.Equal(60, ParseTable.LeftBp(TokenKind.As));
+    Assert.Equal(65, ParseTable.LeftBp(TokenKind.LtLt));
+    Assert.Equal(70, ParseTable.LeftBp(TokenKind.Plus));
+    Assert.Equal(80, ParseTable.LeftBp(TokenKind.Star));
+    Assert.Equal(85, ParseTable.LeftBp(TokenKind.Switch));
+    Assert.Equal(85, ParseTable.LeftBp(TokenKind.With));
+    // 不是 led 的 token ⇒ 0（主循环据此停）
+    Assert.Equal(0, ParseTable.LeftBp(TokenKind.Semicolon));
+    Assert.Equal(0, ParseTable.LeftBp(TokenKind.Identifier));
+}
+
+[Test]
+void test_relations_not_just_numbers() {
+    // 「排除赋值」：switch arm 的 guard/body 用它（收敛前写死 11）。
+    Assert.Equal(ParseTable.LeftBp(TokenKind.Eq) + 1, ParseTable.AboveAssign());
+    Assert.Equal(11, ParseTable.AboveAssign());
+    // 「含赋值层」：lambda 体用它（收敛前写死 10）。
+    Assert.Equal(ParseTable.LeftBp(TokenKind.Eq), ParseTable.AtAssign());
+    Assert.Equal(10, ParseTable.AtAssign());
+    // 「高于 `|`、低于 `^`」：模式常量用它（收敛前写死 45，且那 45 的含义全靠它落在
+    // 另一个文件的两个数值之间）。`|` 必须留给模式引擎续 or-链（`x is 1 | 2`）。
+    Assert.True(ParseTable.LeftBp(TokenKind.Pipe) < ParseTable.BetweenOrAndXor());
+    Assert.True(ParseTable.BetweenOrAndXor() <= ParseTable.LeftBp(TokenKind.Caret));
+    Assert.Equal(45, ParseTable.BetweenOrAndXor());
+}
+
+[Test]
+void test_unary_and_postfix_tiers() {
+    // 一元紧于所有二元/led（收敛前是 6 处硬编码 85）。
+    Assert.Equal(85, ParseTable.UnaryBp());
+    Assert.True(ParseTable.UnaryBp() >= ParseTable.LeftBp(TokenKind.Star));
+    // 🔴 后缀链「无守卫」与「bp 90 + 统一守卫」等价的**前提**：90 严格高于所有 minBp 取值，
+    // 而 minBp 的上界就是一元的 85（`_parseExpr(ParseTable.UnaryBp())` 六处是最深的那一档）。
+    // 这条一旦破（例如有人把某个 `_parseExpr(N)` 写成 N > 90），后缀链会在那个上下文里
+    // 悄悄失效 —— 后置 `++` / `.` 不再被识别。
+    Assert.True(ParseTable.PostfixBp() > ParseTable.UnaryBp());
+    int maxLed = 0;
+    int k = 0;
+    while (k < ParseTable.MaxKind()) {
+        int bp = ParseTable.LeftBp(k);
+        if (bp > maxLed) { maxLed = bp; }
+        k = k + 1;
+    }
+    Assert.Equal(85, maxLed);                                  // 全表最大 led bp
+    Assert.True(ParseTable.PostfixBp() > maxLed);
+}
+
+// ── ① 同步门：四条平行 if 链不许走散 ─────────────────────────────────────────
+
+[Test]
+void test_table_columns_stay_in_sync() {
+    int k = 0;
+    int ledCount = 0;
+    int pfCount = 0;
+    while (k < ParseTable.MaxKind()) {
+        int bp  = ParseTable.LeftBp(k);
+        int led = ParseTable.Led(k);
+        int pf  = ParseTable.Postfix(k);
+        string feat = ParseTable.Feature(k);
+        // 有绑定力 ⇔ 有 led 角色（往一条链加了行、另一条忘了，就在这里红）
+        if (bp != 0)  { Assert.True(led != LedKind.None); }
+        if (bp == 0)  { Assert.Equal(LedKind.None, led); }
+        // 挂了特性门的必须是个真表项（否则那个 feature 名永远不会被查）
+        if (feat != "") { Assert.True(bp != 0 || pf != PostfixKind.None); }
+        // 🔴 后缀一档**不读** `Feature`（主循环在守卫之前就 continue 了）⇒ 给后缀 token 挂
+        // 特性名会静默失效。真要给后缀加门，得先在主循环的后缀一档里读它。
+        if (pf != PostfixKind.None) { Assert.Equal("", feat); }
+        if (led != LedKind.None) { ledCount = ledCount + 1; }
+        if (pf  != PostfixKind.None) { pfCount = pfCount + 1; }
+        k = k + 1;
+    }
+    // 钉住规模：led 33 个 = 9 赋值族 + `?:` + `??` + `is` + `as` + `switch` + `with` + 18 二元；
+    // 后缀 7 个（`.` `?.` `(` `[` `++` `--` `<`）。数目变了要么是真加了运算符（改这里），
+    // 要么是某一列漏了同步（上面的断言会先红）。
+    Assert.Equal(33, ledCount);
+    Assert.Equal(7, pfCount);
+}
+
+[Test]
+void test_lt_carries_both_roles() {
+    // 🔴 `Lt` 同时是「泛型调用尝试」（后缀一档、**不受 minBp 约束**）与二元 `<`（bp 60）。
+    // `a + f<int>(x)` 的右操作数以 minBp=71 进入主循环 —— 若泛型那半被并进统一守卫之后，
+    // `60 < 71` 会先 break，`f<int>(x)` 就不再是泛型调用。收敛前这条只由「代码写在守卫
+    // 之前」这一行文位置表达，没有任何东西守着它。
+    Assert.Equal(PostfixKind.GenericCallTry, ParseTable.Postfix(TokenKind.Lt));
+    Assert.Equal(60, ParseTable.LeftBp(TokenKind.Lt));
+    Assert.Equal(LedKind.Binary, ParseTable.Led(TokenKind.Lt));
+}
+
+// ── ③ 特性名一致性 ──────────────────────────────────────────────────────────
+
+[Test]
+void test_every_feature_name_is_declared() {
+    // 表里的每个 feature 必须在 `Phase1Profile()` 的已知名单里。拼错一个名字的后果是
+    // 「该运算符凭空消失、零诊断」—— 这道门是唯一能提前发现它的东西。
+    // ⚠️ 判别力自验：把某个 `Feature(...)` 改成 `"no_such"`，本测试必须红（已实测）。
+    var feats = LanguageFeatures.Phase1Profile();
+    int k = 0;
+    int gated = 0;
+    while (k < ParseTable.MaxKind()) {
+        string f = ParseTable.Feature(k);
+        if (f != "") {
+            Assert.True(feats.Has(f));
+            gated = gated + 1;
+        }
+        k = k + 1;
+    }
+    // 6 个：`| ^ & << >>`（bitwise）+ `?:`（ternary）
+    Assert.Equal(6, gated);
+}
+
+[Test]
+void test_gated_operators_are_the_expected_ones() {
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.Pipe));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.Caret));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.Ampersand));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.LtLt));
+    Assert.Equal("bitwise", ParseTable.Feature(TokenKind.GtGt));
+    Assert.Equal("ternary", ParseTable.Feature(TokenKind.Question));
+    // ⚠️ 刻意**没有**挂在表里的：
+    //  · `&=` / `|=` / `^=` —— 复合赋值的归属待裁（本批裁决的范围是那 5 个运算符）。
+    Assert.Equal("", ParseTable.Feature(TokenKind.AmpEq));
+    //  · `is` —— `pattern_match` 比「`is` 这个 token」细一档：只关进模式引擎的那几条路，
+    //    `x is T` / `x is T v`（类型测试，不入引擎）必须留着 ⇒ 门挂在引擎入口，不在表里。
+    Assert.Equal("", ParseTable.Feature(TokenKind.Is));
+}
