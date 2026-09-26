@@ -211,6 +211,28 @@ params 变长 ⇒ phys ≥ want；否则 phys == want
 （调用点**知道**要传 sret，桥接反而会打坏）。后者由 golden `interfaces/self_return_blob_struct.z42`
 的 `IExact` 那一组守着。
 
+#### 三条「绕过 VCall 的捷径」里，静态那条漏了 sret（fix-crosspkg-static-sret，2026-09-26）
+
+`CallEmitter._emitCall` 有三条捷径，**两条实例路一直正确拼 sret 槽，静态那条从一开始就没拼**：
+
+| 捷径 | sret |
+|---|---|
+| devirt（sealed / 精确类） | ✅ |
+| DepIndex **instance** | ✅ |
+| **DepIndex `static`** ＋ **静态属性访问器的依赖分支** | 🔴 修前直接发裸 `CallInstr` |
+
+⇒ 跨包调用一个返回 blob 值 struct 的**静态**方法/属性：生产方按 sret 编、消费方少传一槽
+⇒ 编译期零诊断、运行期 `takes N+1 physical argument(s), the call passes N`。
+
+**为什么四个月没响**：全仓没有任何 golden 跨包调用过「返回 struct 的方法」——
+`struct_cross_pkg` 只测跨包**构造**与**字段读**，而 `z42.core` 里**一个多字段 struct 都没有**
+（`GCHandle`/`Guid` 各 1 字段 + 12 个零字段基元 wrapper）⇒ 这条路在 stdlib 上走不到。
+守门的 fixture 现在有了：`src/tests/cross-zpkg/single_field_struct_cross_pkg/`。
+
+⚠️ **调查工具的陷阱**：`z42c --dump-ir` / `--dump-bound` **不加载 stdlib/依赖**（带 `Z42_LIBS`
+也一样）⇒ 用它们看「跨包调用点发了什么」会得到假象（我据此错判成 loose VCall）。
+可靠办法：在编译器里打点，或只信运行期措辞。
+
 ⚠️ **为什么不让 VM 按目标 flags 自适应**：那会把每方法固定的 ABI 变成**派发时协商**，
 与本页判定「精确相等」的立场反向，且 JIT 要发条件化调用序列 ⇒ 接口/泛型调用整体降级回解释执行。
 `add-iface-return-bridge` 的 D1 已裁决过同一个问题。

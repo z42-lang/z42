@@ -288,11 +288,14 @@ public sealed class CallEmitter {
         if (c.Kind == "static" && !ownerIsLocal) {
             string depFq = this._depStaticTarget(c.OwnerClass, c.MethodName, c.ArgCount);
             if (depFq != "") {
-                TypedReg ddst = this._ctx.Alloc(this._ctx.ToIrType(c.Type()));
-                CallInstr dci = new CallInstr(ddst, depFq, args, c.ArgCount);
-                if (c.MethodTypeArgCount > 0) { dci.MethodTypeArgs = this._methodTypeArgNames(c); dci.MethodTypeArgCount = c.MethodTypeArgCount; }
-                this._ctx.Emit(dci);
-                return ddst;
+                // fix-crosspkg-static-sret：这条捷径此前**直接发裸 CallInstr、不处理 sret** ——
+                // 跨包静态方法返回 blob 值 struct 时，生产方按 sret 编（末尾隐藏返回槽），消费方却少传一个
+                // ⇒ 编译期零诊断、运行期 `takes N+1 physical argument(s), the call passes N`。
+                // 实例那两条捷径（devirt :230-240 / DepIndex instance :253-265）一直是对的（各自拼 sretH），
+                // 只有静态这条漏了。改走同一个 sret-aware 发射器，顺带把 mta 一并交给它。
+                return this._emitCallSretAwareG(depFq, null, args, c.ArgCount, c.Type(),
+                    c.MethodTypeArgCount > 0 ? this._methodTypeArgNames(c) : new string[0],
+                    c.MethodTypeArgCount);
             }
         }
         // func-typed 局部/参数值调用：`f(x)` where f 是 Locals 中的 Func 值（含泛型
@@ -416,9 +419,10 @@ public sealed class CallEmitter {
         if (!ownerIsLocal) {
             string depFq = this._depStaticTarget(ownerClass, accessor, argCount);
             if (depFq != "") {
-                TypedReg ddst = this._ctx.Alloc(this._ctx.ToIrType(retType));
-                this._ctx.Emit(new CallInstr(ddst, depFq, args, argCount));
-                return ddst;
+                // fix-crosspkg-static-sret：与上面的静态捷径同一个漏洞（跨包静态**属性** getter
+                // 返回 blob 值 struct 时少传 sret 槽）。本地分支走的就是 `_emitCallSretAware`，
+                // 依赖分支必须同口径 —— 否则「同一个 getter，本包调对、跨包调崩」。
+                return this._emitCallSretAware(depFq, null, args, argCount, retType);
             }
         }
         return this._emitCallSretAware(this._ctx.QualifyClass(ownerClass) + "." + accessor, null, args, argCount, retType);

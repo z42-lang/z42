@@ -1,0 +1,3 @@
+pair=3,4
+single=7
+copy=7

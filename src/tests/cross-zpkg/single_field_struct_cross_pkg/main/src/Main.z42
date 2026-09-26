@@ -1,0 +1,16 @@
+namespace Demo.SfsApp;
+
+using Std;
+using Std.IO;
+using Demo.SfsTarget;
+
+void Main() {
+    // ③ 先测**双字段**（blob 在翻门前就成立）：跨包调用「返回 struct 的方法」
+    Pair p = Pair.Make(3, 4);
+    Console.WriteLine("pair=" + p.A + "," + p.B);
+    // ① 再测**单字段**
+    Handle h = Handle.Make(7);
+    Console.WriteLine("single=" + h.Slot());
+    Handle h2 = h;
+    Console.WriteLine("copy=" + h2.Slot());
+}
