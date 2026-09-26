@@ -1,0 +1,83 @@
+// make-ref-hard-cast-checked：**引用类型的硬转换终于受检**。
+//
+// 修前：`(B)o`（o 其实是 A）**不抛、返回非 null** —— 发射层对引用目标是
+// `toIr == IrType.Ref → return src`，**一条指令都不发**，错类型的对象原样流下去，
+// 到很远的地方才以别的面目崩。值类型那半 #746 已修（null → NullReferenceException /
+// 类型不符 → InvalidCastException），引用这半一直欠着。
+//
+// 修法全用现有指令（`is_instance` + 分支 + `ObjNew` + `Throw`）⇒ 不新增 opcode、
+// 不动 wire 格式、VM 一行不改，与 `throw-on-switch-expr-no-match` 同一范式。
+//
+// 🔴 **判据有两格，第二格是实测逼出来的**：主判据是 `ConvKind.ExplicitRef`（基→派生），
+// 但从 **`object`** 强转到引用类型 `Conversion.Classify` 给的是 `None` —— 因为
+// `IsSubclassOf` 不认 `Std.Object` 这条**隐式根基**。只做第一格的话，
+// 最常见的 `object o; (B)o` 恰恰漏掉（我第一版就是这样，靠下面 ① 抓出来的）。
+namespace Demo;
+
+using Std;
+
+class A { public int X; }
+class B : A { public int Y; }
+class D : B { }
+interface I { }
+class C : A, I { }
+class NotI : A { }
+
+void Main() {
+    // ── ① 错类型下转：必须抛，且能被 catch ─────────────────────────────
+    object o = new A();
+    bool threw = false;
+    try {
+        B bad = (B)o;
+        Assert.True(bad == null);      // 到不了：上一行必须抛
+    } catch (InvalidCastException e) {
+        threw = true;
+    }
+    Assert.True(threw);
+
+    // ── ② 源声明为基类（`ExplicitRef` 那一格）同样受检 ──────────────────
+    A a2 = new A();
+    bool threw2 = false;
+    try { B bad2 = (B)a2; } catch (InvalidCastException e2) { threw2 = true; }
+    Assert.True(threw2);
+
+    // ── ③ 阴性对照：**正确**的下转必须照常工作 ──────────────────────────
+    object o3 = new B();
+    B b3 = (B)o3;
+    b3.Y = 7;
+    Assert.Equal(7, b3.Y);
+
+    // 跨两层的下转
+    object o4 = new D();
+    B b4 = (B)o4;
+    Assert.True(b4 != null);
+    D d4 = (D)o4;
+    Assert.True(d4 != null);
+
+    // ── ④ 阴性对照：`null` 放行（对齐 C#，不抛）────────────────────────
+    object onull = null;
+    B bnull = (B)onull;
+    Assert.True(bnull == null);
+
+    // ── ⑤ 阴性对照：**上**转不受影响（恒安全，不该插检查）───────────────
+    B b5 = new B();
+    A a5 = (A)b5;
+    Assert.True(a5 != null);
+    object obj5 = (object)b5;
+    Assert.True(obj5 != null);
+
+    // ── ⑥ 接口：实现了就通过，没实现就抛 ────────────────────────────────
+    object oc = new C();
+    I i6 = (I)oc;
+    Assert.True(i6 != null);
+
+    object oni = new NotI();
+    bool threw6 = false;
+    try { I bad6 = (I)oni; } catch (InvalidCastException e6) { threw6 = true; }
+    Assert.True(threw6);
+
+    // ── ⑦ 阴性对照：`as` 那条路一字不动（不符给 null，不抛）─────────────
+    object o7 = new A();
+    B b7 = o7 as B;
+    Assert.True(b7 == null);
+}

@@ -134,13 +134,15 @@ catch (Exception e) { Console.WriteLine(e.GetType().Name); }   // InvalidCastExc
 > ⚠️ **此前**（make-hard-cast-fail-properly 之前）这两种都是**终止性内部错误，`catch` 捕获不到**，
 > 消息还是 Rust 调试格式（`cannot convert Str("hello") to type tag 0x04`）。
 >
-> ⚠️ **引用类型之间**的硬转换（`(Box)someOther`）目前**仍然不检查**——发射层对它一条指令都不发，
-> 错类型的对象会原样流下去。由 follow-up `make-ref-hard-cast-checked` 修。
-> 在那之前，引用类型的向下转换请用 `as` + null 检查。
+> ✅ **引用类型之间**的硬转换（`(Box)someOther`）**现在也受检**（make-ref-hard-cast-checked）：
+> 类型不符抛 `InvalidCastException`，`null` 照 C# 语义放行。此前它在发射层**一条指令都不发**，
+> 错类型的对象原样流下去、到很远的地方才以别的面目崩。
 
 **健全性**：装箱 = 加宽上转（安全）+ 受检下转（运行期核对精确类型）。因为装箱值携带精确类型，
-下转可靠、`is` / `as` 精确——**在值类型这一侧**没有办法把一个类型当成另一个用。
-（引用类型之间的硬转换尚未受检，见上面的 ⚠️。）
+下转可靠、`is` / `as` 精确——没有办法把一个类型当成另一个用。引用类型之间的硬转换同样受检。
+
+> 想要「不符就给 null」而不是抛，用 `as`：两者的分工是**明确要求** vs **试一下**。
+> `(T)x` 说的是「它就是 T」，说错了应当立刻响；`x as T` 说的是「是 T 的话给我」。
 
 > 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
 > 容器里外的表示不变。

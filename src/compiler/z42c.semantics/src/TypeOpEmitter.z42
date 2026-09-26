@@ -264,6 +264,29 @@ public sealed class TypeOpEmitter {
         return dst;
     }
 
+    private static string ICAST_EXC = "Std.InvalidCastException";
+
+    // 与 `OperatorEmitter._excCtorFq` 同一纪律：ctor 键**从符号表现查、不硬编码**
+    // （primary ctor 注册为裸类名、非-primary 才全签名 mangle；写死任一种都会在某天静默断掉，
+    // 且只在异常那条路才现形）。查不到回落裸名。
+    private string _icastCtorFq() {
+        SymbolTable syms = this._ctx.Gen._symbols;
+        if (syms != null && syms.HasClass("InvalidCastException")) {
+            Z42ClassType ct = syms.GetClass("InvalidCastException") as Z42ClassType;
+            if (ct != null && ct.Fqn() == TypeOpEmitter.ICAST_EXC) {
+                MethodSymbol[] cs = ct.InstanceCtors();
+                int i = 0;
+                while (i < cs.Length) {
+                    if (cs[i].Signature != null && cs[i].Signature.ParamCount == 1) {
+                        return TypeOpEmitter.ICAST_EXC + "." + cs[i].RegKey;
+                    }
+                    i = i + 1;
+                }
+            }
+        }
+        return TypeOpEmitter.ICAST_EXC + ".InvalidCastException";
+    }
+
     internal TypedReg _emitConvert(BoundConvert c) {
         TypedReg src = this._ee.Emit(c.E);
         // add-struct-object-boxing (PR2a)：`(P)o`（object/接口 → blob 值 struct 的 C 风格强转）= **拆箱**。
@@ -274,6 +297,45 @@ public sealed class TypeOpEmitter {
             TypedReg ud = this._ctx.Alloc(IrType.Ref);
             this._ctx.Emit(new AsCastInstr(ud, src, this._ctx.QualifyClass(this._ee._blobStructName(c.Type()))));
             return ud;
+        }
+        // make-ref-hard-cast-checked：用户写的**引用下转** `(Derived)base` 此前在这里被下面那句
+        // `toIr == IrType.Ref → return src` 原样透传 —— **一条指令都不发**，于是 `(B)o`（o 是 A）
+        // 不抛、返回非 null，错类型的对象一路流下去，到很远的地方才以别的面目崩。
+        // 值类型那半 #746 已修，引用这半一直欠着。
+        //
+        // 全用现有指令合成（`is_instance` + 分支 + `ObjNew` + `Throw`）⇒ **不新增 opcode、
+        // 不动 wire 格式、VM 一行不改**，与 `throw-on-switch-expr-no-match` 同一范式。
+        //
+        // ⚠️ **null 放行**（对齐 C#）：`(B)null` 是 null，不抛。`is_instance` 对 null 本就为假，
+        // 所以必须先把 null 分出去，否则合法代码会被这道检查打死。
+        if (c.CheckedRefCast) {
+            string ckTarget = this._ee._typeTestName(c.Type(), c.Type().Name());
+            TypedReg okR = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new IsInstanceInstr(okR, src, ckTarget));
+            string okL = this._ctx.Fresh("cast_ok");
+            string nullL = this._ctx.Fresh("cast_null");
+            string badL = this._ctx.Fresh("cast_bad");
+            this._ctx.EndBlock(new BrCondTerm(okR, okL, nullL));
+            // null？→ 放行
+            this._ctx.StartBlock(nullL);
+            TypedReg nr = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new ConstNullInstr(nr));
+            TypedReg isNull = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new EqInstr(isNull, src, nr));
+            this._ctx.EndBlock(new BrCondTerm(isNull, okL, badL));
+            // 类型不符 → 抛 InvalidCastException
+            this._ctx.StartBlock(badL);
+            TypedReg m0 = this._ctx.Alloc(IrType.Str);
+            this._ctx.Emit(new ConstStrInstr(m0, this._ctx.Gen.Intern(
+                "cannot cast to `" + ckTarget + "`: the object is of a different type")));
+            TypedReg exc = this._ctx.Alloc(IrType.Ref);
+            TypedReg[] eargs = new TypedReg[1];
+            eargs[0] = m0;
+            this._ctx.Emit(new ObjNewInstr(exc, TypeOpEmitter.ICAST_EXC, this._icastCtorFq(),
+                                           new string[0], 0, eargs, 1));
+            this._ctx.EndBlock(new ThrowTerm(exc));
+            this._ctx.StartBlock(okL);
+            return src;
         }
         int toIr = this._ctx.ToIrType(c.Type());
         int fromIr = this._ctx.ToIrType(c.E.Type());

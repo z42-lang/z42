@@ -290,8 +290,16 @@ public sealed class BoundCast : BoundExpr {
 // C 风格数值转换（G3）：(T)x → T。codegen 发 ConvertInstr（identity/Unknown/Ref no-op，镜像 C# VisitCast）。
 public sealed class BoundConvert : BoundExpr {
     public BoundExpr E;
+    // make-ref-hard-cast-checked：这是**用户写的引用下转** `(Derived)base`（`ConvKind.ExplicitRef`），
+    // 发射端要为它补一次运行期类型检查、不符则抛 `Std.InvalidCastException`。
+    //
+    // ⚠️ 必须是**标记**而不是在发射端重判：`BoundConvert` 同时承载隐式转换
+    // （`ConvertIfNeeded` 的数值拓宽 / 引用**上**转 / 实参适配）。上转恒安全，给它们也插检查
+    // 既是纯开销、又会把「一定成立」的判断搬到运行期。只有 `_bindCastExpr` 那条路会置位。
+    // post-construction 写入（同 `MethodTypeArgs` / `RetIsNullable` 的先例）。
+    public bool CheckedRefCast;
     private Z42Type _type;
-    public BoundConvert(BoundExpr e, Z42Type type, Span span) { this.Span = span; this.E = e; this._type = type; }
+    public BoundConvert(BoundExpr e, Z42Type type, Span span) { this.Span = span; this.E = e; this._type = type; this.CheckedRefCast = false; }
     public override Z42Type Type() { return this._type; }
     public override string  Dump() { return "(convert " + this.E.Dump() + " :" + this._type.Name() + ")"; }
 }

@@ -14,6 +14,29 @@ public sealed class TypeOpTyper {
     private ExprTyper _et;   // 反向引用：递归 _bindExpr 委回 ExprTyper
     public TypeOpTyper(TypeChecker tc, ExprTyper et) { this._tc = tc; this._et = et; }
 
+    // make-ref-hard-cast-checked：这次 `(T)x` 是不是需要**运行期受检**的引用下转？
+    //
+    // 主判据是 `ConvKind.ExplicitRef`（基→派生）。但**从 `object` 或接口强转到引用类型**
+    // 同样是下转，而 `Conversion.Classify` 对它给的是 `None` —— 因为 `SymbolTable.IsSubclassOf`
+    // 不认 `Std.Object` 这条**隐式根基**（实测：`object o; B b = (B)o;` 在修前一条指令都不发，
+    // 而 `A o; B b = (B)o;` 走的是 ExplicitRef）。这里把那一格补上，而不是去动 `IsSubclassOf`
+    // ——后者是全仓赋值/重载决议的公共判据，为一条 cast 改它的波及面不成比例。
+    //
+    // ⚠️ **目标是值类型的一律排除**：`(int)o` / `(P2)o` 是**拆箱**，另有其路
+    //（值类型那半 #746 已修；blob struct 走 `_emitConvert` 上面的 AsCast 拆箱臂）。
+    private static bool _isCheckedRefCast(ConvResult ur, Z42Type from, Z42Type to) {
+        if (ur.Kind == ConvKind.ExplicitRef) { return true; }
+        if (ur.Kind != ConvKind.None) { return false; }
+        bool fromRefRoot = Conversion._isObjectPrim(from) || (from is Z42InterfaceType);
+        if (!fromRefRoot) { return false; }
+        if (to is Z42InterfaceType) { return true; }
+        if (to is Z42ClassType) {
+            Z42ClassType tc = to as Z42ClassType;
+            return !tc.IsStruct && tc.PrimCode() < 0;   // 值类型 / 基元 → 拆箱，不归本条
+        }
+        return false;
+    }
+
     internal BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
             BoundExpr operand = this._et._bindExpr(cx.E, env);
             Z42Type target = env.ResolveType(cx.Type);
@@ -35,7 +58,13 @@ public sealed class TypeOpTyper {
                     return new BoundError("no conversion", new Z42ErrorType(), cx.Span);
                 }
             }
-            return new BoundConvert(operand, target, cx.Span);
+            BoundConvert bc = new BoundConvert(operand, target, cx.Span);
+            // make-ref-hard-cast-checked：引用**下**转（基→派生）此前在发射层**一条指令都不发**
+            // ⇒ `(B)o`（o 其实是 A）不抛、返回非 null，错类型的对象原样流下去，到很远的地方才崩。
+            // 值类型那半 #746 已修（null→NullReferenceException / 类型不符→InvalidCastException），
+            // 引用这半一直欠着。判据就是 `ExplicitRef`，**只在这条（用户写的 cast）路上置位**。
+            bc.CheckedRefCast = TypeOpTyper._isCheckedRefCast(ur, operand.Type(), target);
+            return bc;
     }
 
     internal BoundExpr _bindAsExpr(AsExpr ax, TypeEnv env) {
