@@ -1,0 +1,62 @@
+// Test: dispatch-tostring-in-native-stringify —— `Console.WriteLine(x)` 与字符串拼接派发用户 `ToString`。
+//
+// 姊妹用例 `structs/struct_tostring_paths.z42`（flat 模式）钉的是 ①显式 / ②插值 / ③拼接 三条路，
+// 但它只覆盖**双字段 struct**；本用例补上**它当年明确留给「另开」的那条**（④ `WriteLine`）
+// 以及 ③ 在 **class / record / 单字段 struct** 上的缺口 —— 上一刀只补了 `_isBlobStruct`
+// （字段数 ≥ 2）那一支。
+//
+// 判据：**同一个值在四条路上必须给同一个答案**。没有自声明 `ToString` 的类型给**短类型名**
+// （与 ①② 早已钉下的行为一致，不是 `类型名{...}`）。
+// ⚠️ 本用例必须是 Dir 模式：`WriteLine` 的行为只能靠比对 stdout 断言，Assert 断不了它。
+using Std;
+using Std.IO;
+
+class C  { public int N; public C(int n) { this.N = n; }
+           public override string ToString() => "C!" + this.N.ToString(); }
+struct S1 { public int N; public S1(int n) { this.N = n; }
+           public override string ToString() => "S1!" + this.N.ToString(); }   // 单字段 = 非 blob
+struct S2 { public int N; public int M; public S2(int n, int m) { this.N = n; this.M = m; }
+           public override string ToString() => "S2!" + this.N.ToString(); }   // 双字段 = blob
+[Record] class RC(int A);
+class BareC { public int N; public BareC(int n) { this.N = n; } }              // 无覆写 → 短类型名
+enum Color { Red, Blue }
+
+void Main() {
+    C c = new C(1);  S1 a = new S1(2);  S2 b = new S2(3, 4);
+    RC r = new RC(5);  BareC bare = new BareC(6);
+
+    // ④ WriteLine —— 本刀新修的那条
+    Console.WriteLine(c);
+    Console.WriteLine(a);
+    Console.WriteLine(b);
+    Console.WriteLine(r);
+    Console.WriteLine(bare);
+
+    // ③ 拼接：class / 单字段 struct / record 此前全打 `类型名{...}`
+    Console.WriteLine("" + c);
+    Console.WriteLine("" + a);
+    Console.WriteLine("x" + c);
+    Console.WriteLine(c + "y");
+    Console.WriteLine("" + r);
+    Console.WriteLine("" + bare);
+
+    // ①② 对照：本刀不得改动它们
+    Console.WriteLine(c.ToString());
+    Console.WriteLine($"{c}");
+    Console.WriteLine(a.ToString());
+    Console.WriteLine($"{a}");
+
+    // 经 object（装箱路：class 直传、struct 装箱）
+    object oc = c;   Console.WriteLine(oc);
+    object oa = a;   Console.WriteLine(oa);
+
+    // 非对象操作数一律不受影响（含 enum 打成员名、null、数组）
+    Console.WriteLine(Color.Blue);
+    Console.WriteLine(42);
+    Console.WriteLine(true);
+    int[] arr = new int[2]; arr[0] = 1; arr[1] = 2;
+    Console.WriteLine(arr);
+    object nul = null;
+    Console.WriteLine(nul);
+    Console.WriteLine("[" + nul + "]");
+}

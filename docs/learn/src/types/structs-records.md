@@ -109,15 +109,18 @@ public Pair(int a, int b) { A = a; B = b; }
 
 ## 打印 struct 的内容
 
-自己写的 `ToString` 在插值、拼接、`.ToString()` 上都生效（上面第一个例子就用的插值）。
-**但 `Console.WriteLine(s)` 例外**——它对 struct、类、record 一律打 `类型名{...}`，
-不走 `ToString`：
+自己写的 `ToString` 在**每一条**路上都生效 —— 插值、拼接、`.ToString()`、`Console.WriteLine`
+给的是同一个答案：
 
 ```z42,ignore
-Console.WriteLine(p);              // Point{...}
-Console.WriteLine($"{p}");         // (1, 2)   ← 用插值
-Console.WriteLine(p.ToString());   // (1, 2)   ← 或显式调用
+Console.WriteLine(p);              // (1, 2)
+Console.WriteLine($"{p}");         // (1, 2)
+Console.WriteLine("p = " + p);     // p = (1, 2)
+Console.WriteLine(p.ToString());   // (1, 2)
 ```
+
+没写 `ToString` 的类型，四条路一律打**短类型名**（`Point`）。
+⚠️ 别在 `ToString` 里拼接 `this`（`=> "P" + this`）—— 那会无限递归。
 
 ## 三者怎么挑
 
@@ -134,6 +137,6 @@ Console.WriteLine(p.ToString());   // (1, 2)   ← 或显式调用
 - ⚠️ `with` 只支持 record **class**。
 - 🔴 **单字段 struct 仍表现为引用语义**——当前实现缺口。
 - ⚠️ **表达式体构造器里 `(A, B) = (a, b)` 不是赋值**（报 E0482）；构造器写花括号体。
-- `Console.WriteLine(s)` 不走 `ToString`，用插值或显式 `.ToString()`。
+- 自己写的 `ToString` 在插值 / 拼接 / `WriteLine` / 显式调用四条路上**答案一致**。
 
 下一章讲**枚举与模式匹配**——把「这个值是哪一种」写得更直接。

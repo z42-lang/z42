@@ -153,26 +153,39 @@ fn route_stderr(text: &str, append_newline: bool) {
     });
 }
 
-pub fn builtin_println(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let text = args.first().map(value_to_str).unwrap_or_default();
+/// dispatch-tostring-in-native-stringify: `Console.Write/WriteLine` 一族的实参字符串化。
+///
+/// 此前四个 builtin 都签着 `_ctx` **却用无 ctx 的 `value_to_str`** ⇒ 对象一律打 `类型名{...}`，
+/// 而同一个对象经插值（`ToStr` 指令 → `obj_to_string`）是对的 —— 四条字符串化路四个说法。
+/// 改走 `stringify_dispatch`：有用户 `ToString` 就派发（含装箱 struct / record 合成 / enum 成员名），
+/// 没有才回落短类型名，与插值、拼接、显式 `x.ToString()` 收敛为同一个答案。
+fn stringify_arg(ctx: &VmContext, args: &[Value]) -> Result<String> {
+    match args.first() {
+        Some(v) => crate::interp::dispatch::stringify_dispatch(ctx, v),
+        None => Ok(String::new()),
+    }
+}
+
+pub fn builtin_println(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let text = stringify_arg(ctx, args)?;
     route_stdout(&text, true);
     Ok(Value::Null)
 }
 
-pub fn builtin_print(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let text = args.first().map(value_to_str).unwrap_or_default();
+pub fn builtin_print(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let text = stringify_arg(ctx, args)?;
     route_stdout(&text, false);
     Ok(Value::Null)
 }
 
-pub fn builtin_eprintln(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let text = args.first().map(value_to_str).unwrap_or_default();
+pub fn builtin_eprintln(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let text = stringify_arg(ctx, args)?;
     route_stderr(&text, true);
     Ok(Value::Null)
 }
 
-pub fn builtin_eprint(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let text = args.first().map(value_to_str).unwrap_or_default();
+pub fn builtin_eprint(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let text = stringify_arg(ctx, args)?;
     route_stderr(&text, false);
     Ok(Value::Null)
 }
