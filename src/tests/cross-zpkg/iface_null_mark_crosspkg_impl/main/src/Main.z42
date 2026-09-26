@@ -1,0 +1,35 @@
+// 阴性对照 ②（**继承一致性**这一端）：实现一个**跨包**接口时把形参上的 `?` 去掉
+// → 必须报 E0489。
+//
+// ⚠️ 方向是刻意挑的（同 nullable_marks_cross_pkg_override 的教训）：反方向（契约没标、
+// 实现加 `?`）**修前就能报** —— 导入侧标记位缺省为 false，而「契约方没标」恰好也是 false，
+// 蒙对了，那种 fixture 一条也分辨不出。只有「契约方**标了**、实现方去掉」这一侧非得把
+// 导入标记位真的还原回来才抓得到。
+//
+// 这条与 iface_null_mark_crosspkg_unchecked 走的是**不同的消费端**：那条查调用点
+// （`BoundCall.RetIsNullable`），这条查 D7（`InheritanceResolver._checkOneIfaceMethod`
+// → `_checkNullableDirection`）。
+namespace Demo.INullImplApp;
+
+using Std;
+using Std.IO;
+using Demo.INull;
+
+// 🔴 这个类里**只有一处**与契约不符（`Take` 的形参）。其余成员一律**不加** `?` ——
+// 加 `?` 的那一侧（实现比契约更宽）是**反方向**，修前就能报，会让本条用例在机制
+// 根本没接通时也绿掉。实测栽过一次：初稿的 `Find` / `Current` 照抄契约写了 `?`，
+// 撤回发射端后这条用例**照样 PASS**。
+//
+// 实现方**去掉**返回位的 `?`（承诺更强）是允许的 ⇒ 下面两处正是 D7 的 🔒 对照。
+public class MyFinder : IFinder {
+    public string Find(string key) { return key; }          // 🔒 去掉返回 `?`：允许（承诺更强）
+    public string Plain(string key) { return key; }
+    public string Current { get { return "c"; } }           // 🔒 同上
+    public void Take(string maybe) { }                      // ✗ 契约是 `string?`，实现去掉了 `?`
+}
+
+void Main() {
+    MyFinder f = new MyFinder();
+    f.Take("k");
+    Console.WriteLine("done");
+}

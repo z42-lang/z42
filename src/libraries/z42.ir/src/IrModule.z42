@@ -76,6 +76,47 @@ public static class IrNullableRet {
     }
 }
 
+// carry-iface-null-marks：**接口成员**的 `?` 标记。
+//
+// 为什么不能骑 `$Nullable` / `$RetNullable` 那条路：接口方法**不在 SIGS 里**（它们没有函数体，
+// 也就没有 `IrFunction` 的 `Attrs` / `ParamAttrs` 槽）。接口成员的签名住在 TYPE 记录的
+// **接口方法块**（`ZbcWriter` 的 `cd.Flags & 16` 那段平行数组：name / ret / pcount /
+// is_static / ptypes），那里**没有任何 attr 槽**。
+//
+// 但**类级** attr-ref 块是**无条件**写的（同一个 TYPE 记录里紧跟类型参数块），接口的记录
+// 早就带着它，只是 `ClassDescBuilder._interfaceDesc` 从不填（恒 0 条）⇒ 直接骑它，
+// **零格式 bump**（同 `$Deprecated` / `$Cctor` 的哲学）。
+//
+// 编码：每个标了 `?` 的槽一条哨兵，`TypeName` = `$IfaceNull`、`FactoryFunc` = `"<mi>:r"`
+// （返回位）或 `"<mi>:<pi>"`（第 pi 个形参）。`mi` 是该方法在**接口方法块里的下标** ——
+// 生产方（`_interfaceDesc` 的 `_IfaceMethodBuf`）与消费方（`TsigReconcile._rebuildInterface`）
+// 按同一顺序遍历同一个数组，下标天然对齐。
+//
+// ⚠️ payload 放 `FactoryFunc` 而不是像 `$Caller:` 那样拼进 `TypeName`：`TypeName` 保持**单一
+// 常量**，反射侧那条通用的 `$` 前缀过滤一条规则就盖住全部 payload 变体（拼进 TypeName 的话
+// 每个 `<mi>:<pi>` 都是一个新的类型名串，过滤仍然有效但池里多出一堆无意义的类型名）。
+//
+// 同 `$Nullable` / `$RetNullable`：**不配完备性标记**。`?` 的语义是「请编译器在这里强制检查」，
+// **缺席 = 不强制**（不是「保证非空」）⇒ 旧包读不出哨兵落成 false 恰好正确。
+public static class IrIfaceNullable {
+    public static string Sentinel = "$IfaceNull";
+    public static string RetSlot = "r";
+    // 一条哨兵的 payload：`"<mi>:r"` / `"<mi>:<pi>"`。
+    public static string Encode(int methodIndex, string slot) {
+        return methodIndex.ToString() + ":" + slot;
+    }
+    // 接口方法块下标 methodIndex 的 slot 位是否标了 `?`。
+    public static bool Has(IrAttrRef[] attrs, int count, int methodIndex, string slot) {
+        string want = IrIfaceNullable.Encode(methodIndex, slot);
+        int i = 0;
+        while (i < count) {
+            if (attrs[i].TypeName == IrIfaceNullable.Sentinel && attrs[i].FactoryFunc == want) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+}
+
 public static class IrParamDefault {
     public static string Sentinel = "$Default";          // ConstBlob 常量默认值
     public static string CallerPrefix = "$Caller:";       // caller 宏（+member|line|file|module）

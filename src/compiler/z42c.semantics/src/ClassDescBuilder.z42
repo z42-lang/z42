@@ -454,7 +454,14 @@ public sealed partial class ClassDescBuilder {
         // 跨包保真（此前只处理 MethodDecl ⇒ 跨包一个 accessor 都过不去，`IEnumerator.get_Current` 能跨包
         // 纯靠 BuiltinTypeDefs 硬编码注入）。set_X/set_Item value 参 = 属性/索引器类型、void 返回；接口访问器
         // 恒实例（static=0）。走通用方法数组、无新格式字段，零格式 bump。
+        //
+        // carry-iface-null-marks：成员的 `?` 标记**不能**走上面这串类型名 —— `_typeFieldName`
+        // 对 `NullableType` 显式取 `Inner`（本文件开头第 3 行），与 SIGS 的 `_sigTypeName` 同理：
+        // 这串拼写同时是**查找键**（导入侧 `ImportedSymbolLoader._resolve` 按它找类型），塞 `?`
+        // 进去就改了键。标记改挂**类级** attr-ref 块的 `$IfaceNull` 哨兵（见 `IrIfaceNullable`），
+        // 下标 = 该方法在 `buf` 里的位置，消费方 `TsigReconcile._rebuildInterface` 按同序解码。
         _IfaceMethodBuf buf = new _IfaceMethodBuf();
+        IrAttrRef[] nullRefs = new IrAttrRef[0];
         int mj = 0;
         while (mj < c.MemberCount) {
             Decl imem = IrGenFacts._unwrap(c.Members[mj]);
@@ -462,23 +469,45 @@ public sealed partial class ClassDescBuilder {
                 MethodDecl imd = imem as MethodDecl;
                 int st = 0; if (IrGenFacts._hasWord(imd.Mods, "static")) { st = 1; }
                 buf.Add(imd.Name, this._typeFieldName(imd.RetType), imd.ParamCount, st);
+                nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, imd.RetType);
                 int pj = 0;
-                while (pj < imd.ParamCount) { buf.AddPt(this._typeFieldName(imd.Params[pj].Type)); pj = pj + 1; }
+                while (pj < imd.ParamCount) {
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, pj.ToString(), imd.Params[pj].Type);
+                    buf.AddPt(this._typeFieldName(imd.Params[pj].Type)); pj = pj + 1;
+                }
             } else if (imem is PropertyDecl) {
                 PropertyDecl ipd = imem as PropertyDecl;
                 int pst = 0; if (IrGenFacts._hasWord(ipd.Mods, "static")) { pst = 1; }
-                if (ipd.HasGet) { buf.Add("get_" + ipd.Name, this._typeFieldName(ipd.Type), 0, pst); }
-                if (ipd.HasSet) { buf.Add("set_" + ipd.Name, "void", 1, pst); buf.AddPt(this._typeFieldName(ipd.Type)); }
+                if (ipd.HasGet) {
+                    buf.Add("get_" + ipd.Name, this._typeFieldName(ipd.Type), 0, pst);
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, ipd.Type);
+                }
+                if (ipd.HasSet) {
+                    buf.Add("set_" + ipd.Name, "void", 1, pst); buf.AddPt(this._typeFieldName(ipd.Type));
+                    // setter 的 value 参承载属性类型 ⇒ 标记落在**形参 0**（返回位是 void）。
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, "0", ipd.Type);
+                }
             } else if (imem is IndexerDecl) {
                 IndexerDecl iid = imem as IndexerDecl;
                 if (iid.HasGet) {
                     buf.Add("get_Item", this._typeFieldName(iid.RetType), iid.ParamCount, 0);
-                    int qj = 0; while (qj < iid.ParamCount) { buf.AddPt(this._typeFieldName(iid.Params[qj].Type)); qj = qj + 1; }
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, IrIfaceNullable.RetSlot, iid.RetType);
+                    int qj = 0;
+                    while (qj < iid.ParamCount) {
+                        nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, qj.ToString(), iid.Params[qj].Type);
+                        buf.AddPt(this._typeFieldName(iid.Params[qj].Type)); qj = qj + 1;
+                    }
                 }
                 if (iid.HasSet) {
                     buf.Add("set_Item", "void", iid.ParamCount + 1, 0);
-                    int qk = 0; while (qk < iid.ParamCount) { buf.AddPt(this._typeFieldName(iid.Params[qk].Type)); qk = qk + 1; }
+                    int qk = 0;
+                    while (qk < iid.ParamCount) {
+                        nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, qk.ToString(), iid.Params[qk].Type);
+                        buf.AddPt(this._typeFieldName(iid.Params[qk].Type)); qk = qk + 1;
+                    }
                     buf.AddPt(this._typeFieldName(iid.RetType));
+                    // 末位 value 参承载索引器类型（下标 = ParamCount）。
+                    nullRefs = ClassDescBuilder._ifaceNullRef(nullRefs, buf.count - 1, iid.ParamCount.ToString(), iid.RetType);
                 }
             }
             mj = mj + 1;
@@ -487,6 +516,7 @@ public sealed partial class ClassDescBuilder {
         cd.IfaceMethodParamCounts = buf.pcs; cd.IfaceMethodCount = buf.count;
         cd.IfaceMethodParamTypes = buf.pts; cd.IfaceMethodParamTotal = buf.ptCount;
         cd.IfaceMethodStatic = buf.statics;
+        cd.Attrs = nullRefs; cd.AttrCount = nullRefs.Length;
         return cd;
     }
 
@@ -567,6 +597,14 @@ public sealed partial class ClassDescBuilder {
             refs = ClassDescBuilder._appendAttrRef(refs, IrNullableRet.Sentinel, "");
         }
         return refs;
+    }
+
+    // carry-iface-null-marks：`te` 标了 `?` 时追加一条 `$IfaceNull` 哨兵，否则原样返回。
+    // 没标的槽**不发哨兵**（缺席 = 不强制），所以未用 `?` 的接口其 attr 块仍是 0 条、字节不变。
+    private static IrAttrRef[] _ifaceNullRef(IrAttrRef[] refs, int methodIndex, string slot, TypeExpr te) {
+        if (!(te is NullableType)) { return refs; }
+        return ClassDescBuilder._appendAttrRef(refs, IrIfaceNullable.Sentinel,
+                                               IrIfaceNullable.Encode(methodIndex, slot));
     }
 
     private static IrAttrRef[] _appendAttrRef(IrAttrRef[] refs, string typeName, string payload) {
