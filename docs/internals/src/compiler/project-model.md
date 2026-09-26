@@ -209,11 +209,51 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 
 缓存 key 用绝对 path（不含 mtime），正确性依赖「同一进程内 path→内容稳定」不变式：工作区每个成员的 dist 在建成前为空目录（不在扫描路径里）、建成后即终态只被后续成员读；外部 `Z42_LIBS` 全程恒定；单包 build 一次扫描后进程即退；REPL 走 `CachedScan` 跳过 `ScanDirs`。故现有全部路径均无「进程内覆写 zpkg 后重扫」，path-only 正确。实测 DepScan 从约 20s 降到约 5.7s（-71%），每成员从约 850ms 降到约 210ms（首成员仍付冷缓存填充）。
 
+### 包级缓存身份（`depsId`）
+
+增量探测有两级：**文件级**（每个源文件的哈希 + 名字级 surface）与**包级**。包级那一级就是
+`depsId` —— 一个字符串，不符即整包当全量。它在 `z42c.driver/src/Main.z42` 拼出，随后交给
+`IncrementalDriver.Prepare`，并写进 `package.meta`。
+
+**它必须涵盖「一切影响产物的输入」**，因为 `depsId` 相符 + 全部源文件命中会走一条
+**早退**路径：打印 `no changes; preserved` 后直接返回，本次编译的后续检查一条都不跑。
+所以漏一项的后果不是「慢一点」，而是两种静默错误：
+
+| 漏的输入 | 后果 |
+|---|---|
+| 会进产物字节的（如 `[project].version` 进 zpkg META 段）| 改了、构建报成功、**产物里还是旧值** |
+| 会发诊断的（如声明依赖名单驱动 E0497 与「依赖找不到」检查）| 本该判红的构建**静默成功**，因为那些检查位置在早退之后 |
+
+当前组成（`|` 分段，便于人读；整体只作相等比较，不解析）：
+
+| 段 | 内容 | 为什么在 |
+|---|---|---|
+| （无前缀） | `DepIdentity.Of(...)` = 本次扫描到的全部依赖 zpkg 的 basename + 身份（BLID，回落整文件 Murmur3），排除自身 | 依赖的 API 变了而本包源码没动 ⇒ 必须重编 |
+| `\|opt<N>` | 解析后的优化集 | `[optimize]` 只改 toml 时 probe 全命中 ⇒ 旋钮「全量生效、增量被忽略」 |
+| `\|syn:<name>=0\|1` | 被 toml **显式**改动过的 `[syntax]` 特性（默认 profile 不进，免得将来给 profile 加特性就作废所有人的缓存）| 同上 |
+| `\|mf:<name>@<version>/<kind>/<entry>/<rel\|dbg>` | 清单自身的身份 | Name / Version / Entry 进 zpkg META；Kind 决定 FlagExe 与装配路径；profile 通常被 cache 目录的 `${profile}` 隔开，但 `cache_dir` 可以配成不含它的路径 |
+| `\|dep:<name>`（每条一段）| `[dependencies]` 声明的依赖**名单**，按清单顺序 | 按名依赖删掉一条不改变 libsDirs 里 zpkg 的集合与内容 ⇒ `DepIdentity.Of` 不变 ⇒ DEPS 段陈旧 + E0497 被吞 |
+
+**纪律：新增任何「会影响产物或诊断的 manifest / CLI 输入」时，扩这个键，不要在早退路径上
+再打一个补偿补丁。** 历史上同一形状出现过四次：`[build] incremental`、`[optimize]`、
+`[syntax]` 三次改为扩键；而 `[properties]` / `[profile.*.runtime]` 与 exe 依赖装配走的是补偿
+补丁（`Main.z42` 早退分支里的 `_writeRuntimeConfigSidecar` / `_bundleExeDeps`）。补偿补丁
+只能救**已知的那一个**产出物，扩键才是「缓存键涵盖全部输入」这条前置条件本身。
+
+**过度失效是安全方向**：依赖名单按清单顺序折入，所以重排 `[dependencies]` 会多触发一次全量；
+`DepIdentity` 同理不按 `declaredDeps` 过滤（`Z42_LIBS` 里任何包重建都让全部消费方失效）。
+两处都是刻意的——漏失效产出错产物，过度失效只是慢。
+
+门禁在 `xtask test incremental` 的 `_manifestIdentityTakesEffect`：**两格判据**，① 改
+`[project].version` ⇒ 产物字节必须变；② 加一条不存在的 `[dependencies]` ⇒ 构建必须判红。
+②不是①换得来的 —— 把依赖名单从键里去掉，①照样绿。
+
 ## 实现
 
 | 关注点 | 关键文件 |
 |--------|---------|
 | 工程模型 | `z42c.project/src/ManifestLoader.z42`、`ProjectModel.z42`、`PackageTypes.z42`、`SourceDiscovery.z42` |
+| 包级缓存身份 | `z42c.driver/src/Main.z42`（拼 `depsId`）、`z42c.pipeline/src/DepIdentity.z42`、`IncrementalDriver.z42`、`CacheStore.z42` |
 | 依赖扫描 | `z42c.pipeline/src/DepScan.z42`；跨成员 memo：`DepScanCache.z42`（F2） |
 | 依赖索引 | `z42c.ir/src/DependencyIndex.z42` |
 | 跨包符号加载（TSIG） | `z42c.semantics/src/ImportedSymbolLoader.z42`；调和：`z42c.project/src/TsigReconcile.z42` |
