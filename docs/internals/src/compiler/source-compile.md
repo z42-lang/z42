@@ -681,6 +681,29 @@ Bound 树 + `SemanticModel` → `IrModule`。逐个类方法与顶层函数交�
 
 代码生成只依赖 `SemanticModel` 这一接口，与前端类型检查解耦。观察：`--dump-ir`。
 
+#### 方法体的查找键是两端**手拼**的，落空必须大声失败
+
+`SemanticModel` 只存「键 → 已绑定的体」，键是 `ownerKey + "." + methKey` 这样**手拼的字符串**：
+写端在 `DeclBinder` 有 7 处各拼一遍（普通方法 / ctor / 属性 get·set / 索引器 get·set / 自由函数），
+读端在 `IrGenMemberEmitter` / `IrGenTypeEmitter` / `IrGenAuxEmitter` 约 10 处各重拼一遍，
+**没有共享的键构造器**（只有 `OverloadResolver.MethodKeyOf` 覆盖了 `methKey` 那一半）。
+
+而发射侧同时还有**另外两套名字**：`emitKey`（会被改写成 `IrStaticCtor.MethodKey` 或
+`methKey + "$struct"`）与 `irName`（FQ / 实例化名）。三套名字 + 两处特例改写。
+
+> 🔴 **落空的后果曾经是「零诊断丢掉整个方法」**：`md.HasBody` 为真（AST 亲口说有体）而
+> `bodyM.HasBody(key)` 为假时，此前那个 `if` **没有 else** ⇒ 这个方法一个字节都不发，
+> 编译成功，直到运行期才以 `undefined function …` / `MissingSymbolException` 现形 ——
+> 位置离原因很远，而原因是**编译器自己的键构造 bug**，不是用户的错。
+>
+> 现在那里 `throw` 一条内部不变式（同 `OverloadResolver.MethodKeyOf` 的 `unify-regkey 不变量`
+> 等既有 4 处先例），消息里同时打出两个键。⚠️ 守卫 `!g.HasTypeErrors` 是必须的：有类型错误时
+> 绑定器本来就可能没绑这个体（**IrGen 在 `ErrorCount > 0` 时照常全量跑**），那时落空是预期的、
+> 诊断已经报过 —— 不加守卫会把「一堆诊断」变成「编译器崩」。
+
+**改键的纪律**：动 `methKey` 的拼法必须同时看写读两端。本文件上方那条注释记着一次实测教训 ——
+「只改**发射名**，不能改 `methKey`：两者一起改会让 `model.HasBody` 落空 → 函数根本不发射」。
+
 #### 字节布局表（StructLayout）是包级单例，不随 CU 重建
 
 `StructLayout`（struct blob 布局 / class 合成内联布局 / 对象全字段布局）由
