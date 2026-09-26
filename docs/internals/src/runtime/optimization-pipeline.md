@@ -79,7 +79,13 @@ z42 源码 ──z42c──> z42 IR
 > **基于 sealed 的去虚化（`Opt.Devirt=2048`，change `add-sealed-devirt`）**：receiver 静态类型是
 > 本地非泛型 **sealed 类** → 目标编译期唯一 → `CallEmitter._emitCall` **emit 时就地**把 `VCallInstr`
 > 降级为直接 `CallInstr`（天然在 `IrInline` 前，解锁 virtual 方法内联；`VCall` inline pass 吃不进）。
-> 目标解析不确定即回落 VCall（永不 miscall）。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../../../reference/src/language/sealed.md)。
+> 目标解析不确定即回落 VCall。机制与 v1 边界详见 [sealed 修饰符 · 去虚化](../../../reference/src/language/sealed.md)。
+> 🔴 **「永不 miscall」这句话此前是假的**（2026-09-27 `fix-devirt-bare-name-alias` 改正）：校验「目标确为
+> 已发射函数」用的 `Deps.Statics` **含裸名别名**（`DependencyIndex` 给 `Name$N$T` 这类 mangle 名额外注册
+> `Cls.Name` / `ns.Cls.Name`），而命中别名后拿来当直呼目标名的是**那个键本身** ⇒ 发出一条指向不存在函数名
+> 的 Call。实测 `typeof(int).GetType()` 在 `--opt-all` 下报 `undefined function \`Std.Type.GetType\``。
+> 判据已收紧为「entry 的真名与构造出的 fq 逐字相同」。教训：**「校验过了」要问清那个谓词回答的是哪个问题** ——
+> 「这个键在表里吗」与「有一个真叫这个名字的函数吗」在有别名的表上不是同一件事。
 > 注：这是**唯一的 emit 时优化**（其余在 `IrOptPipeline` post-emit）——因去虚化需 receiver 的**静态类型**，
 > 而 lowering 后的 IR `VCall` 已不携带该信息。
 

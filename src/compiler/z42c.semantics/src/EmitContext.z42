@@ -257,7 +257,26 @@ public sealed class EmitContext {
     // 完整 FQ 注册进 Statics，行 110）。imported sealed 去虚化用它排除「TSIG 展平的继承方法」——
     // 派生类 Methods 命中但本类未声明时，`QualifyClass(派生类)+key` 不在 Deps → 回落基链上溯。
     private bool _depHasFunction(string fq) {
-        return this.Deps != null && this.Deps.Statics.ContainsKey(fq);
+        if (this.Deps == null) { return false; }
+        int i = this.Deps.Statics.Find(fq);
+        if (i < 0) { return false; }
+        DepCallEntry e = this.Deps.Statics.ValAt(i) as DepCallEntry;
+        // 🔴 **键存在 ≠ 有一个真叫这个名字的函数**（fix-devirt-bare-name-alias）。
+        // `DependencyIndex.AddModule` 给 mangle 名（`Name$N$T`）**额外注册裸名别名**
+        // （`Cls.Name` 与 `ns.Cls.Name`，见 DependencyIndex.z42 那两处 `TryAdd`），供
+        // 调用点按裸名消歧用。而本谓词的**两个调用方都把 `fq` 直接当直呼目标名**
+        // （`ResolveSealedTarget` / `NarrowPrimTarget`）⇒ 命中一个别名就会发出一条
+        // 指向**不存在的函数名**的直接 Call。
+        //
+        // 实测 4 行可复现：`typeof(int).GetType().FullName` 在 `--opt-all` 下报
+        // `undefined function \`Std.Type.GetType\`` —— 真身是 `Std.Type.GetType$1$string`
+        // （`Std.Type` 声明 `static extern Type GetType(string)`，而裸名 `GetType` 又被
+        // TSIG 从 `Std.Object` 的实例方法展平进 `Type.Methods`，两者在裸名上撞车）。
+        // `--release --no-opt devirt` 通过 ⇒ 单变量锁定 Devirt。
+        //
+        // 判据收紧为「entry 的**真名**与 fq 逐字相同」：非重载方法 fq == QualifiedName 照旧命中
+        // （零回归），只有「别名命中而真名不同」这一格被拒 —— 那一格本来就必错。
+        return e != null && e.QualifiedName == fq;
     }
 
     // fix-narrow-prim-instance-dispatch：窄基元接收者 → 其包装类上该方法的**已发射 FQ**（查不到 → ""）。
