@@ -1,0 +1,162 @@
+// 表达式规则表（add-l2-parse-table 批 2）：**绑定力 / led 角色 / 特性门**的唯一真相源。
+//
+// 此前这三样东西以**九种不同形态**散落在 `ExprParser.z42` 里：`_infixBp` 的 if 链只管 30…80 的
+// 11 个二元运算符，另有 9 处内联 `minBp <= N` 守卫（后缀 switch/with 85、is/as 60、`??` 25、
+// 三元 20、赋值 10）与 6 处硬编码 `_parseExpr(85)`（一元前缀与四种 cast），外加三处**跨构造魔数**
+// （switch arm 的 11 = 赋值+1、lambda 体的 10、`PatternParser:94` 模式常量的 45 =「高于 `|`、低于 `^`」）。
+// 改任何一个数值时没有东西会告诉你踩了别人的约束 —— 那 45 的约束跨两个无关文件。
+//
+// ## SoT 范围（写不准的话「唯一 SoT」本身就是假话 —— 批 1 的教训）
+//
+// **收**：每个 token 作为后缀 / 中缀时的绑定力、led 角色 tag、可选特性名。
+// **不收**（刻意留在原地，它们是**有状态判据**而非数据）：
+//   · `_isLambdaStart()` 必须抢在 `_parsePrefix` 之前这条位置约束（`ExprParser:13`）；
+//   · 四种 cast 的 follow 集与 `_mark`/`TruncateTo`/`_pendingGt` 回溯三件套（`_parsePrefix`）；
+//   · `Lt` 泛型调用消歧的「先试后退」本身（见下）；
+//   · 模式引擎内部的优先级（`PatternParser`）。
+//
+// ## 为什么是「常量 + 查询函数」而不是 `ParseRule` 对象
+//
+// `_parseExpr` 的主循环是全编译器最热的解析路径，每个 token 每轮都要查一次 ⇒ 返回对象就是
+// **每轮一次分配**。仓内先例是 `z42.ir/src/IrModule.z42` 的「哨兵常量 + 查询函数」；
+// `BinaryTypeTable.Lookup` 那种 `new BinaryRule(...)` 形态只适合「每个表达式一次」的语义层。
+// 代价 = 四条平行 if 链可能不同步（往 `LeftBp` 加了一行却忘了 `Led`）⇒ 由
+// `tests/parse_table.z42` 的同步门守（对全部 token kind 逐个核 `LeftBp != 0 ⇔ Led != None`）。
+//
+// ## 🔴 `Lt` 同时有两个角色，且泛型那半**不受 minBp 约束**
+//
+// 今天 `ExprParser:116` 的「试解析 `<T,…>(`」在**所有守卫之前**执行（那处没有 `minBp <= 60`）：
+// `a + f<int>(x)` 里右操作数以 `minBp = 71` 进入循环，泛型调用照样识别得出来。
+// ⇒ 若把它塞进「统一守卫之后」，`60 < 71` 会先 break，`f<int>(x)` 就不再是泛型调用 = 行为变更。
+// 表因此把 `Lt` 记成**两条角色**：`Postfix(Lt) = GenericCallTry`（与 `.`/`()`/`[]` 同一「最紧、
+// 无守卫」的一档，试不成则落回中缀）+ `LeftBp(Lt) = 60 / Led = Binary`（比较运算符那一半）。
+// 这条事实此前只由**代码的行文位置**表达，没有任何东西守着。
+//
+// ## 特性门能表达到什么粒度
+//
+// `Feature(kind)` 的粒度是「**整个 token 的构造**」。`bitwise`（`| ^ & << >>`）与 `ternary`（`?:`）
+// 正好是这个粒度 ⇒ 挂在表项上。**`pattern_match` 不在这张表里**：裁决（D2-6 甲）是只关
+// 「进模式引擎的 5 个入口」而**保留** `x is T` / `x is T v`（类型测试，`ExprParser:181-183`
+// 明写不入模式引擎）⇒ 它比「`is` 这个 token」细一档，只能挂在引擎入口。
+// ⚠️ `&=` / `|=` / `^=` **未**挂 `bitwise`：本批裁决的范围是那 5 个运算符，复合赋值的归属待裁。
+namespace Z42.Syntax;
+
+// 后缀角色（「最紧」的一档：今天在主循环里无守卫地 `continue`）。
+// 概念绑定力 = `ParseTable.PostfixBp()` = 90，严格高于一元 85 ⇒ 所有调用点（最大 `_parseExpr(85)`）
+// 都满足 `90 >= minBp`，因此「无守卫」与「bp 90 + 统一守卫」等价（`tests/parse_table.z42` V2 断言）。
+public static class PostfixKind {
+    public static int None           = 0;
+    public static int Member         = 1;   // `.`
+    public static int MemberNullCond = 2;   // `?.` —— 已移除，报 E0480 后按 `.` 继续（防级联）
+    public static int Call           = 3;   // `(`
+    public static int Index          = 4;   // `[`（含多维 `obj[a, b]`）
+    public static int PostIncDec     = 5;   // 后置 `++` / `--`
+    public static int GenericCallTry = 6;   // `名<T,…>(` —— 试解析，失败回滚后落中缀 `<`
+}
+
+// 中缀/后缀 led 角色（受统一守卫约束的一档）。
+public static class LedKind {
+    public static int None          = 0;
+    public static int PostfixSwitch = 1;   // `subject switch { … }`（bp 85）
+    public static int PostfixWith   = 2;   // `target with { … }`（bp 85）
+    public static int IsPattern     = 3;   // `is`（bp 60）—— 结构化模式 + 老 `is T`
+    public static int As            = 4;   // `as`（bp 60）
+    public static int NullCoalesce  = 5;   // `??`（bp 25）—— 已移除，仍完整吃掉右侧（防级联）
+    public static int Ternary       = 6;   // `?:`（bp 20，右结合）
+    public static int Assign        = 7;   // `=` 与 8 个复合赋值（bp 10，右结合）
+    public static int Binary        = 8;   // 11 个二元运算符（bp 30…80，左结合）
+}
+
+public static class ParseTable {
+    // ── 绑定力 ─────────────────────────────────────────────────────────────
+    // 层级之间留 10 的间隔（便于插入）；44/46/48 与 65 是既有的密集档，**数值不得改动**
+    // （本 change 是收敛不是改语义，字节必须不变）。
+    public static int LeftBp(int k) {
+        if (k == TokenKind.Eq || k == TokenKind.PlusEq || k == TokenKind.MinusEq
+            || k == TokenKind.StarEq || k == TokenKind.SlashEq || k == TokenKind.PercentEq
+            || k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq) { return 10; }
+        if (k == TokenKind.Question)         { return 20; }
+        if (k == TokenKind.QuestionQuestion) { return 25; }
+        if (k == TokenKind.PipePipe)  { return 30; }
+        if (k == TokenKind.AmpAmp)    { return 40; }
+        if (k == TokenKind.Pipe)      { return 44; }
+        if (k == TokenKind.Caret)     { return 46; }
+        if (k == TokenKind.Ampersand) { return 48; }
+        if (k == TokenKind.EqEq || k == TokenKind.BangEq) { return 50; }
+        if (k == TokenKind.Lt || k == TokenKind.LtEq || k == TokenKind.Gt || k == TokenKind.GtEq) { return 60; }
+        if (k == TokenKind.Is || k == TokenKind.As) { return 60; }
+        if (k == TokenKind.LtLt || k == TokenKind.GtGt) { return 65; }
+        if (k == TokenKind.Plus || k == TokenKind.Minus)  { return 70; }
+        if (k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent) { return 80; }
+        if (k == TokenKind.Switch || k == TokenKind.With) { return 85; }
+        return 0;   // 0 = 不是中缀/后缀 led ⇒ 主循环停
+    }
+
+    // ── led 角色 ───────────────────────────────────────────────────────────
+    public static int Led(int k) {
+        if (k == TokenKind.Eq || k == TokenKind.PlusEq || k == TokenKind.MinusEq
+            || k == TokenKind.StarEq || k == TokenKind.SlashEq || k == TokenKind.PercentEq
+            || k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq) { return LedKind.Assign; }
+        if (k == TokenKind.Question)         { return LedKind.Ternary; }
+        if (k == TokenKind.QuestionQuestion) { return LedKind.NullCoalesce; }
+        if (k == TokenKind.Is) { return LedKind.IsPattern; }
+        if (k == TokenKind.As) { return LedKind.As; }
+        if (k == TokenKind.Switch) { return LedKind.PostfixSwitch; }
+        if (k == TokenKind.With)   { return LedKind.PostfixWith; }
+        if (ParseTable._isBinaryOp(k)) { return LedKind.Binary; }
+        return LedKind.None;
+    }
+
+    // 二元（左结合）运算符集合 —— `LeftBp` 里 30…80 那几档的成员。
+    private static bool _isBinaryOp(int k) {
+        if (k == TokenKind.PipePipe || k == TokenKind.AmpAmp) { return true; }
+        if (k == TokenKind.Pipe || k == TokenKind.Caret || k == TokenKind.Ampersand) { return true; }
+        if (k == TokenKind.EqEq || k == TokenKind.BangEq) { return true; }
+        if (k == TokenKind.Lt || k == TokenKind.LtEq || k == TokenKind.Gt || k == TokenKind.GtEq) { return true; }
+        if (k == TokenKind.LtLt || k == TokenKind.GtGt) { return true; }
+        if (k == TokenKind.Plus || k == TokenKind.Minus) { return true; }
+        if (k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent) { return true; }
+        return false;
+    }
+
+    // ── 后缀角色（无守卫的一档）───────────────────────────────────────────
+    public static int Postfix(int k) {
+        if (k == TokenKind.Dot)         { return PostfixKind.Member; }
+        if (k == TokenKind.QuestionDot) { return PostfixKind.MemberNullCond; }
+        if (k == TokenKind.LParen)      { return PostfixKind.Call; }
+        if (k == TokenKind.LBracket)    { return PostfixKind.Index; }
+        if (k == TokenKind.PlusPlus || k == TokenKind.MinusMinus) { return PostfixKind.PostIncDec; }
+        if (k == TokenKind.Lt)          { return PostfixKind.GenericCallTry; }   // 两角色之一，见抬头
+        return PostfixKind.None;
+    }
+
+    // ── 特性门（第 1 层与第 2 层的接缝）──────────────────────────────────
+    // "" = 永远启用。粒度是「整个 token 的构造」，见抬头「特性门能表达到什么粒度」。
+    public static string Feature(int k) {
+        if (k == TokenKind.Pipe || k == TokenKind.Caret || k == TokenKind.Ampersand
+            || k == TokenKind.LtLt || k == TokenKind.GtGt) { return "bitwise"; }
+        if (k == TokenKind.Question) { return "ternary"; }
+        return "";
+    }
+
+    // ── 关系（此前是写死的魔数，必须**从表里算**）──────────────────────
+    // 后缀链的概念绑定力：严格高于一元 ⇒ 「无守卫」与「有守卫」等价。
+    public static int PostfixBp() { return 90; }
+
+    // 前缀一元（`-` `!` `~` `+` / 前置 `++` `--` / 四种 cast）的操作数绑定力。
+    // 今天是 `_parsePrefix` 里 6 处硬编码 85。
+    public static int UnaryBp() { return 85; }
+
+    // 「排除赋值」—— switch arm 的 guard 与 body 用它（今天写死 11）。
+    public static int AboveAssign() { return ParseTable.LeftBp(TokenKind.Eq) + 1; }
+
+    // 「含赋值层」—— lambda 体用它（今天写死 10；`=> x = y` 解析成 `=> (x = y)`，镜像 C#）。
+    public static int AtAssign() { return ParseTable.LeftBp(TokenKind.Eq); }
+
+    // 「高于 `|`、低于 `^`」—— 模式常量用它（今天 `PatternParser:94` 写死 45）：
+    // 挡掉 or-模式的 `|`（`x is 1 | 2` 里 `|` 必须留给模式引擎续 or-链），允许 `^` / `&` / 算术。
+    public static int BetweenOrAndXor() { return ParseTable.LeftBp(TokenKind.Pipe) + 1; }
+
+    // 同步门用：需要遍历的 token kind 上界（`TokenKind.Methodof` = 155 是当前最大值）。
+    public static int MaxKind() { return 156; }
+}

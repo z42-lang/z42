@@ -14,8 +14,9 @@ public sealed partial class ExprParser {
         Expr left = this._parsePrefix();
         while (true) {
             int k = this._p._peek().Kind;
-            // 后缀（最紧）
-            if (k == TokenKind.Dot) {
+            // ── 后缀一档（概念 bp 90，**无守卫**；等价性见 ParseTable.PostfixBp 与 V2 断言）──
+            int pf = ParseTable.Postfix(k);
+            if (pf == PostfixKind.Member) {
                 this._p._advance();
                 Token nameTok = this._p._peek();
                 string name = nameTok.Text;
@@ -28,7 +29,7 @@ public sealed partial class ExprParser {
                 left = me;
                 continue;
             }
-            if (k == TokenKind.QuestionDot) {
+            if (pf == PostfixKind.MemberNullCond) {
                 // define-null-check-marks：`?.` 已移除。它是 User 点名的「让问题逃掉」的口子之一——
                 // 把「可能为 null」静默向下传播，最终在离现场很远的地方崩。
                 //
@@ -50,8 +51,8 @@ public sealed partial class ExprParser {
                 left = qme;
                 continue;
             }
-            if (k == TokenKind.LParen) { this._p._advance(); left = this._parseCall(left); continue; }
-            if (k == TokenKind.LBracket) {
+            if (pf == PostfixKind.Call) { this._p._advance(); left = this._parseCall(left); continue; }
+            if (pf == PostfixKind.Index) {
                 this._p._advance();
                 // 逗号分隔的多下标：单维 obj[i]、多维索引器 obj[a, b]（派发 get_Item/set_Item）。
                 // 至少一个下标（obj[] 非法，由首个 _parseExpr 在 ']' 上产出诊断，保持非空不变式）。
@@ -67,14 +68,56 @@ public sealed partial class ExprParser {
                 continue;
             }
             // 后置 ++ / --（无右操作数，结合性同 . / () / []）
-            if (k == TokenKind.PlusPlus || k == TokenKind.MinusMinus) {
+            if (pf == PostfixKind.PostIncDec) {
                 string pop = this._p._peek().Text;
                 this._p._advance();
                 left = new UnaryExpr(pop, left, left.Span);
                 continue;
             }
-            // switch 表达式（postfix，bp 85）：`subject switch { p => b, _ => d }`
-            if (k == TokenKind.Switch && minBp <= 85) {
+            // 泛型方法调用 `名<T,...>(args)`（add-generic-methods）：`<` 歧义消解。
+            // 仅当 <类型列表> 后紧跟 '(' 才判为泛型调用；否则回滚游标/诊断/_pendingGt，落到二元 '<'。
+            // 🔴 属后缀一档、**不受 minBp 约束**（`a + f<int>(x)` 以 minBp=71 进来也要认）——见 ParseTable 抬头。
+            if (pf == PostfixKind.GenericCallTry) {
+                int posMark = this._p._mark();
+                int diagMark = this._p._diags.Count();
+                int gtMark = this._p._pendingGt;
+                TypeExpr[] targs = this._p._typeP._tryParseCallTypeArgs();
+                if (targs != null && this._p._peek().Kind == TokenKind.LParen) {
+                    this._p._advance();                       // consume '('
+                    CallExpr gcall = this._parseCall(left) as CallExpr;
+                    gcall.TypeArgs = targs; gcall.TypeArgCount = targs.Length;
+                    left = gcall;
+                    continue;
+                }
+                // complete-generic-class-identity P5-b：**闭合泛型上的静态成员** `GBox<int>.Count`。
+                //
+                // `<类型列表>` 后紧跟 `.` ⇒ 左边是一个**类型引用**（`GBox<int>`），不是比较。
+                // 这个形状无歧义：二元 `<` 的右操作数后面不可能紧跟 `>` 再跟 `.`
+                //（`a < b > .c` 里 `>` 之后缺操作数）。与 C# 的消歧规则同源
+                //（C# 是「`>` 后跟 `(` `)` `]` `}` `:` `;` `,` `.` `?` `==` `!=` 之一才算类型实参」）。
+                //
+                // 实参挂到左边的 `IdentExpr` 上（不新造节点 —— 见 `IdentExpr.TypeArgs` 的注释），
+                // 后续 `.` 由上面既有的成员访问分支照常接手。
+                if (targs != null && this._p._peek().Kind == TokenKind.Dot && (left is IdentExpr)) {
+                    IdentExpr tid = left as IdentExpr;
+                    tid.TypeArgs = targs; tid.TypeArgCount = targs.Length;
+                    continue;
+                }
+                this._p._reset(posMark);
+                this._p._diags.TruncateTo(diagMark);
+                this._p._pendingGt = gtMark;
+                // 落到下面二元 '<'（`LeftBp(Lt) = 60` / `Led = Binary`）
+            }
+            // ── led 一档：绑定力/角色/特性名三样都来自 ParseTable，守卫只此**一道**
+            //（此前是九处各写一遍的 `minBp <= N`：85/85/60/60/25/20/10 + `_infixBp`）。
+            int bp = ParseTable.LeftBp(k);
+            if (bp == 0 || bp < minBp) { break; }
+            // 特性门：报了 E0301 后**仍按启用继续解析**（同 `?.`/`??` 的防级联手法）。
+            string feat = ParseTable.Feature(k);
+            if (feat != "") { this._p._requireFeature(feat, this._p._peek().Span); }
+            int led = ParseTable.Led(k);
+            // switch 表达式（postfix 形，bp 85）：`subject switch { p => b, _ => d }`
+            if (led == LedKind.PostfixSwitch) {
                 Span swsp = this._p._peek().Span;
                 this._p._advance();
                 this._p._expect(TokenKind.LBrace, "{");
@@ -105,47 +148,14 @@ public sealed partial class ExprParser {
                 continue;
             }
             // with 表达式（postfix，bp 85）：`target with { F = v, x }`（模式匹配 D：record 非破坏式更新）
-            if (k == TokenKind.With && minBp <= 85) {
+            if (led == LedKind.PostfixWith) {
                 Span wsp = this._p._peek().Span;
                 this._p._advance();
                 left = this._parseWithBody(left, wsp);
                 continue;
             }
-            // 泛型方法调用 `名<T,...>(args)`（add-generic-methods）：`<` 歧义消解。
-            // 仅当 <类型列表> 后紧跟 '(' 才判为泛型调用；否则回滚游标/诊断/_pendingGt，落到二元 '<'。
-            if (k == TokenKind.Lt) {
-                int posMark = this._p._mark();
-                int diagMark = this._p._diags.Count();
-                int gtMark = this._p._pendingGt;
-                TypeExpr[] targs = this._p._typeP._tryParseCallTypeArgs();
-                if (targs != null && this._p._peek().Kind == TokenKind.LParen) {
-                    this._p._advance();                       // consume '('
-                    CallExpr gcall = this._parseCall(left) as CallExpr;
-                    gcall.TypeArgs = targs; gcall.TypeArgCount = targs.Length;
-                    left = gcall;
-                    continue;
-                }
-                // complete-generic-class-identity P5-b：**闭合泛型上的静态成员** `GBox<int>.Count`。
-                //
-                // `<类型列表>` 后紧跟 `.` ⇒ 左边是一个**类型引用**（`GBox<int>`），不是比较。
-                // 这个形状无歧义：二元 `<` 的右操作数后面不可能紧跟 `>` 再跟 `.`
-                //（`a < b > .c` 里 `>` 之后缺操作数）。与 C# 的消歧规则同源
-                //（C# 是「`>` 后跟 `(` `)` `]` `}` `:` `;` `,` `.` `?` `==` `!=` 之一才算类型实参」）。
-                //
-                // 实参挂到左边的 `IdentExpr` 上（不新造节点 —— 见 `IdentExpr.TypeArgs` 的注释），
-                // 后续 `.` 由下面既有的成员访问分支照常接手。
-                if (targs != null && this._p._peek().Kind == TokenKind.Dot && (left is IdentExpr)) {
-                    IdentExpr tid = left as IdentExpr;
-                    tid.TypeArgs = targs; tid.TypeArgCount = targs.Length;
-                    continue;
-                }
-                this._p._reset(posMark);
-                this._p._diags.TruncateTo(diagMark);
-                this._p._pendingGt = gtMark;
-                // 落到下面二元 '<'
-            }
             // is（bp 60）：结构化模式（模式匹配核心 A1 + or/@ 放开）或 老 type/type+bind（byte-identical 保持）
-            if (k == TokenKind.Is && minBp <= 60) {
+            if (led == LedKind.IsPattern) {
                 this._p._advance();
                 int nk = this._p._peek().Kind;
                 // `@` 绑定：`x is name @ P`（标识符后紧跟 `@` → At-模式，类型名后永不合法跟 `@`，无歧义）。
@@ -185,7 +195,7 @@ public sealed partial class ExprParser {
                 continue;
             }
             // as（bp 60，右侧为类型）
-            if (k == TokenKind.As && minBp <= 60) {
+            if (led == LedKind.As) {
                 this._p._advance();
                 TypeExpr ty = this._p._typeP._parseType();
                 left = new AsExpr(left, ty, left.Span);
@@ -195,7 +205,7 @@ public sealed partial class ExprParser {
             // 仍按原优先级（右结合，bp 25）**完整解析掉右侧**，否则 `a ?? b ? c : d`
             // 之类会从表达式脱轨、级联出一串无关错误（同 E0471 / `?.` 的手法）。
             // 继续时只取左侧：类型与后续检查都按 `a` 走，诊断更贴近真实意图。
-            if (k == TokenKind.QuestionQuestion && minBp <= 25) {
+            if (led == LedKind.NullCoalesce) {
                 Span qqs = this._p._peek().Span;
                 this._p._advance();
                 Expr rr = this._parseExpr(25);
@@ -207,7 +217,7 @@ public sealed partial class ExprParser {
                 continue;   // 只取 left
             }
             // 三目 ?:（右结合，bp 20）
-            if (k == TokenKind.Question && minBp <= 20) {
+            if (led == LedKind.Ternary) {
                 this._p._advance();
                 Expr thenE = this._parseExpr(0);
                 this._p._expect(TokenKind.Colon, ":");
@@ -216,16 +226,15 @@ public sealed partial class ExprParser {
                 continue;
             }
             // 赋值 / 复合赋值（右结合，bp 10）
-            if (this._isAssignOp(k) && minBp <= 10) {
+            if (led == LedKind.Assign) {
                 string aop = this._p._peek().Text;
                 this._p._advance();
                 Expr rhs = this._parseExpr(10);
                 left = new AssignExpr(aop, left, rhs, left.Span);
                 continue;
             }
-            // 二元
-            int bp = this._infixBp(k);
-            if (bp == 0 || bp < minBp) { break; }
+            // 二元（左结合；`bp` 已由上面那道统一守卫取到并校验过）
+            if (led != LedKind.Binary) { break; }
             string op = this._p._peek().Text;
             this._p._advance();
             Expr right = this._parseExpr(bp + 1);
@@ -765,28 +774,6 @@ public sealed partial class ExprParser {
         }
         this._p._expect(TokenKind.RBrace, "}");
         return new ListLitExpr(elems, en, t.Span);
-    }
-
-    private int _infixBp(int k) {
-        if (k == TokenKind.PipePipe)  { return 30; }
-        if (k == TokenKind.AmpAmp)    { return 40; }
-        if (k == TokenKind.Pipe)      { return 44; }
-        if (k == TokenKind.Caret)     { return 46; }
-        if (k == TokenKind.Ampersand) { return 48; }
-        if (k == TokenKind.EqEq || k == TokenKind.BangEq) { return 50; }
-        if (k == TokenKind.Lt || k == TokenKind.LtEq || k == TokenKind.Gt || k == TokenKind.GtEq) { return 60; }
-        if (k == TokenKind.LtLt || k == TokenKind.GtGt) { return 65; }
-        if (k == TokenKind.Plus || k == TokenKind.Minus)  { return 70; }
-        if (k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent) { return 80; }
-        return 0;
-    }
-
-    private bool _isAssignOp(int k) {
-        if (k == TokenKind.Eq) { return true; }
-        if (k == TokenKind.PlusEq || k == TokenKind.MinusEq || k == TokenKind.StarEq) { return true; }
-        if (k == TokenKind.SlashEq || k == TokenKind.PercentEq) { return true; }
-        if (k == TokenKind.AmpEq || k == TokenKind.PipeEq || k == TokenKind.CaretEq) { return true; }
-        return false;
     }
 
     private bool _isLambdaStart() {
