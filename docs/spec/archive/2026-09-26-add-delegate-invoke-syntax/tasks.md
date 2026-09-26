@@ -1,6 +1,7 @@
 # Tasks: 委托值上的 `.Invoke(args)` 显式调用语法
 
-> 状态：🟢 实施完成，待 PR | 创建：2026-09-26 | User 已确认（含 D3 的 arity 范围决策）
+> 状态：🟢 已完成 | 创建：2026-09-26 | 完成：2026-09-26 | 归档：2026-09-26 | PR #861
+> User 已确认（含 D3 的 arity 范围决策）
 > 分支/worktree：`learn-ch19` @ `wt-learn19` | 基于：origin/main `4ae522839`（#854）
 > 类型：`lang`（按 workflow 词汇警报走完整流程 1–9）——
 > **零 VM 改动 / 零格式 bump / 零新诊断码**（E0401 / E1005 / E1006 全部复用）
@@ -80,8 +81,11 @@
 
 - [x] 7.1 **✅ GREEN — all stages passed**（15 stage / 8m44s）+ cargo lib 1442/0
 - [x] 7.2 每轮都 `build compiler` → `build sdk` 后再验
-- [ ] 7.3 PR（并入 main 最新改动 + 重跑 GREEN）
-- [ ] 7.4 🔴 **归档必须在 PR 内**（workflow 阶段 9 铁律，本仓已违反过一次）
+- [x] 7.3 PR **#861**（基于 main `4ae522839`，开 PR 前已跑 GREEN）
+- [x] 7.4 归档在本分支内完成、随 PR #861 一起合并（阶段 9 铁律）
+      ⚠️ 自查：我是**先开 PR 再补归档 commit** 的，铁律原话是「步骤 1–4 必须在开 PR 之前
+      就 commit」。PR 未合 ⇒ 落地形态相同（零多余 main 提交），但**顺序确实走反了**，下次
+      先归档再开 PR。
 
 ## 并入本变更首个 commit 的归档（workflow 阶段 0）
 
@@ -149,3 +153,42 @@
    ⚠️ 另记一条：**lambda 形参不支持数组类型**（`(int[] xs) => …` 报 E0202 系列解析错），
    我第一个 params 探针就栽在这上面 —— 当时把连带噪声误读成了本刀的问题，
    **靠「两个编译器输出逐字相同」才分辨出来**。
+
+## 阶段 9 文档同步（doc-system 三问逐条过）
+
+1. **用户能看见吗？** ✅
+   - `docs/reference/src/language/delegates-events.md`：`.Invoke` 从谎报变准确；新增「实参个数」
+     一行；方法组转换那格订正（见下）
+   - `docs/reference/src/language/functions.md`：「函数值取出后不能就地调用」**边界记宽了**，
+     订正为「只管 `List` 索引器，数组下标可以」+ 补「函数类型不能当数组元素类型」
+     + 补「`(T) -> R` 与委托双向可互赋」
+   - `docs/reference/src/appendix/error-codes.md`：E0401 / E1005 / E1006 三条各补「委托收者」这一格
+   - 学习手册第 19 章 + `examples/types/lambdas/`（八场景 / 8 transcript）
+2. **下一个接手的人不读文档能看懂吗？** ✅
+   `docs/internals/src/runtime/delegates-events.md` 新增 §2.1a「`.Invoke` 为什么不派发到那个桩」
+   —— 这是**反直觉决策**（仓里明明有个叫 `<FQ>.Invoke` 的合成函数，却不能当派发目标，
+   因为 FuncRef 没有 TypeDesc），不写下来下一个人一定会去接那个桩。
+3. **目录结构 / 对外入口 / 依赖变了吗？** ❌ 新增 `MemberResolver.Func.z42` 只是同一个
+   `partial class` 的第 6 个文件，`src/compiler/z42c.semantics/src/` 无 README、清单也无
+   `[sources]` 段（默认约定自动纳入）⇒ 无需改。
+
+**正交三处**：根 README ❌（不影响仓库门面）；`docs/roadmap.md` ✅（Deferred Backlog 新增
+三条：`support-static-method-group-conversion` / `honor-delegate-param-defaults` /
+`support-params-in-delegate-types`）；`docs/agent/rules/` ❌（未改协作规则）。
+
+## 🔴 归档前抓到自己一处「边界记窄」
+
+初稿把静态方法组那条缺口写成「**限定名形式**取不了引用」—— **记窄了**。触发点是
+`internals` §2.2 写着「静态方法组 → `LoadFnCached`」与我的实测冲突，逼我回头分形态实测：
+
+| 形态 | 实测 |
+|---|---|
+| 自由函数 `Func<int,int> a = Free;` | ✅ |
+| 实例方法组 `o.Twice` | ✅ |
+| 类静态、限定名 `C.F` | 🔴 `E0401: undefined: C` |
+| 类静态、类内不限定 `F` | 🔴 `E0401: undefined: F` |
+
+⇒ 真相是**静态方法组整条没接**，两种拼写都不行；`internals` 说的「静态方法组」其实指
+**自由函数**（已就地订正，并加 ⚠️ 说明为什么旧措辞会被读错）。
+⭐ **教训：文档与实测冲突时，别急着判文档错 —— 先把形态拆开各测一遍**，
+我这次差点把「记窄的边界」写进三本书。

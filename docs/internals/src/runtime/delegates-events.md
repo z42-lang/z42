@@ -65,11 +65,39 @@ delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
 （`src/compiler/z42c.semantics/src/StubEmitter.z42`）合成一个 `Invoke` 桩函数，
 由 `IrGenAuxEmitter` 挂进模块；跨 zpkg 导出走通用类型元数据通道。
 
+### 2.1a `.Invoke(args)` 为什么不派发到那个桩（add-delegate-invoke-syntax）
+
+`d.Invoke(args)` 在**绑定期**就被脱糖成与括号调用 `d(args)` **同一个** `BoundIndirectCall`
+节点（`MemberResolver.Func.z42`），发的还是 `CallIndirect` ⇒ **零 VM 改动、零新指令、
+零格式 bump**。
+
+⭐ **那个 `<FQ>.Invoke` 桩不是、也不能是 `.Invoke` 的派发目标** —— 这是最容易走错的一步：
+桩是 virtual（`method_flags` bit0）且**体为 `ret null`**，而 VCall 按**接收者运行期类型的
+TypeDesc** 索引 vtable；委托值在 VM 里是 `FuncRef` / `Closure` / `StackClosure`，**根本没有
+TypeDesc**（`interp/vcall_resolve.rs` 直接 bail）。所以桩永远派发不到，它只服务**反射签名
+与跨包元数据重建**。
+
+⚠️ 修之前 `.Invoke` 恰恰走到了 VCall 那条死路上：`_bindInstanceMemberCall` 没有
+`Z42FuncType` 分支 ⇒ fallthrough 到 prim 收者路径 ⇒ `HasClass("Action<string>")` 恒假
+（delegate 不进 `SymbolTable.Classes`，它在 `SymbolTable.Delegates`）⇒ 跳过诊断闸门 ⇒
+撞上「查无则松绑 Unknown」兜底 ⇒ 发 VCall ⇒ 运行期 `VCall: expected object, got FuncRef(...)`，
+**编译期零诊断且不可 catch**。
+
+同一条路上的实参个数校验也是那时补的（`OverloadBinder._checkFuncValueArity`）：此前
+`BoundIndirectCall` 从不校验个数 —— 多传**静默丢掉**多余实参，少传让形参拿到 `Null`
+再崩在别处。🔴 **型参收者（`where T : Func<..>`）刻意不校验**：返回类型是 Unknown、
+擦除后形参表不可信，校验会误报。
+
 ### 2.2 方法组转换
 
-**静态方法组** `Action<int> a = SomeStatic;` → `LoadFnCached`，函数引用缓存到**模块级 slot**
+**自由函数** `Action<int> a = SomeFreeFn;` → `LoadFnCached`，函数引用缓存到**模块级 slot**
 （slot 表在 `boot.rs` 的 `alloc_func_ref_slots` 分配）。反复进入同一作用域不重复分配，消除
 C# 高频 callback 路径的 GC 压力。
+
+> ⚠️ **这条只覆盖自由函数，不覆盖类的静态方法**（2026-09-26 实测）：
+> `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，类内不限定写 `F` 报 `undefined: F`
+> —— 静态方法组转换**整条没接**，两种拼写都不行。本页旧措辞写的是「静态方法组」，
+> 容易读成「类的静态方法也走这条」。既存缺口，候选后续 `support-static-method-group-conversion`。
 
 **实例方法组** `obj.Method`（D-1b）→ 编译期合成一个 static thunk：
 

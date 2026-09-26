@@ -174,7 +174,8 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 
 函数重载了也没关系：编译器按**目标委托类型**挑出签名完全对上的那一个。
 
-实例方法也可以这样取（`Func<int,int> f = obj.Method;`）。🔴 但**静态**方法不行：
+实例方法也可以这样取（`Func<int,int> f = obj.Method;`）。🔴 但**类的静态方法**不行——
+写成 `C.F` 或在类内直接写 `F` 都报错：
 
 ```z42
 // examples/types/lambdas/gaps/staticmg.z42
@@ -185,7 +186,8 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 {{#include ../../../../examples/types/lambdas/gaps/run.console:staticmg}}
 ```
 
-变通办法：包一层 lambda（`Func<int,int> f = (int x) => Api.Twice(x);`），或者改成自由函数。
+变通办法：包一层 lambda（`Func<int,int> f = (int x) => Api.Twice(x);`），或者改写成自由函数
+（自由函数本来就能直接取）。
 
 ## 事件：让别人挂处理器
 
@@ -404,7 +406,7 @@ z42 的一个函数值最多绑**一个**目标，`f += g` 这种组合写法不
 - 多播还给了退订票（配 `using` 更省事）、`continueOnException` 的异常聚合、
   `OnceRef` / `WeakRef` 订阅策略。
 - `methodof(Type.Member(参数类型))` 精确指代一个方法，把运行期的静默失效变成编译期报错。
-- 🔴 记住五个边界：`List` 取出的函数值要先赋给局部变量才能调、**静态**方法不能直接取引用
+- 🔴 记住五个边界：`List` 取出的函数值要先赋给局部变量才能调、**类的静态方法**不能直接取引用
   （包一层 lambda）、`==` 比不了函数值（用 `DelegateOps.ReferenceEquals`）、调 `null` 委托
   直接终止程序、没有 `+=` 组合多播。
 
