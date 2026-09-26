@@ -14,8 +14,13 @@ namespace Std;
 // 2026-05-10 exception-stack-trace：interp 在执行 `throw <exception>` 时若
 // thrown 值是 Exception 子类且 `StackTrace` 仍为 null，runtime 自动填入
 // 形如 `  at Demo.Inner (line 17)\n  at Demo.Outer (line 16)\n  at Demo.Main (line 6)`
-// 的多行字符串。重抛同一对象不会重写已填的 trace。JIT 模式下抛出走
-// `set_exception` 不经 `Terminator::Throw`，目前不填 trace（独立 spec）。
+// 的多行字符串。重抛同一对象不会重写已填的 trace。
+//
+// ⚠️ **本注释此前写着「JIT 模式下……目前不填 trace（独立 spec）」——已过时**：
+// 那条 follow-up 当天就做了（`820e583ce` "feat(jit): stack trace parity with interp"），
+// `jit/helpers/control.rs` 的 throw helper 调的是同一个 `populate_stack_trace`。
+// ⚠️ 验这件事不能只看 `--mode jit` 跑通（小用例里抛出的函数可能全程解释执行）——
+// 判据是 `Z42_JIT_PROFILE=1` 里有没有该函数的 `lazy-compile` / `osr-compile`。
 public class Exception {
     public string Message;
     public string StackTrace;      // reference type defaults to null (Phase 1)
@@ -34,7 +39,21 @@ public class Exception {
         this.InnerException = inner;
     }
 
+    // 按**运行期类型**取名，而不是硬编码 "Exception"。
+    //
+    // 🔴 此前这里写的是字面量 `"Exception: " + this.Message` ⇒ **用户自定义的异常子类
+    // 一律打错类名**（`class NotFoundException : Exception` 的实例 `ToString()` 得到
+    // `"Exception: not found"`），而 stdlib 的 17 个子类看起来没事只是因为**每一个都重复
+    // 硬编码了自己的名字**。
+    //
+    // ⭐ 这条在 `archive/2026-04-25-add-core-exception-ienumerable/design.md` 的风险表里
+    // 登记过（「Exception 类名硬编码 ToString 误差 | 低 | 9 个子类都显式写」），但那条缓解
+    // **只覆盖 stdlib**、没考虑用户自定义异常；而「L3-R 后可统一」说的是**清理那些冗余
+    // override**，不是这个用户可见缺陷 ⇒ 用户侧是被漏掉的，不是被延后的。
+    //
+    // `Object.ToString` 的默认实现本来就是 `GetType().Name`（add-object-type-base），
+    // 机制现成；子类的 override 输出**一字不变**（它们硬编码的名字正是 `GetType().Name`）。
     override string ToString() {
-        return "Exception: " + this.Message;
+        return this.GetType().Name + ": " + this.Message;
     }
 }

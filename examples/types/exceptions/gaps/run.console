@@ -1,0 +1,23 @@
+# ANCHOR: oob
+$ z42 run oob.z42
+Error: uncaught exception: array index 5 out of bounds (len=1)
+[exit: 1]
+$ z42 run oob2.z42
+catch {} 能接住
+程序继续跑
+# ANCHOR_END: oob
+# ANCHOR: rethrow
+$ z42 run rethrow.z42
+z42c build: 3 error(s) in rethrow.z42
+  rethrow.z42(6,36): E0201: unexpected token in expression
+  rethrow.z42(6,38): E0202: expected ';'
+  rethrow.z42(6,36): E0401: undefined: <error>
+[exit: 1]
+# ANCHOR_END: rethrow
+# ANCHOR: filter
+$ z42 run filter.z42
+z42c build: 2 error(s) in filter.z42
+  filter.z42(5,49): E0202: expected ';'
+  filter.z42(9,1): E0203: unexpected end of input, expected '}'
+[exit: 1]
+# ANCHOR_END: filter

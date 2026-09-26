@@ -1,0 +1,6 @@
+# ANCHOR: wrap
+$ z42 run wrap.z42
+外层：配置文件读不了：app.toml
+原因：第 3 行少了一个引号
+没有原因时是 null：true
+# ANCHOR_END: wrap

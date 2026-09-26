@@ -1,0 +1,8 @@
+# ANCHOR: trace
+$ z42 run trace.z42
+消息：出错了
+调用栈：
+  at Innermost() (trace.z42:4:20)
+  at Middle() (trace.z42:5:20)
+  at Main() (trace.z42:9:9)
+# ANCHOR_END: trace

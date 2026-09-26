@@ -37,7 +37,7 @@
 | 17 | 枚举与模式匹配 | `types/patterns` | `enum`（独立类型）、`switch` 语句/表达式、🔴 穷尽性在编译期只是警告（运行期无匹配臂抛 `Std.SwitchExpressionException`）、位置与属性解构、嵌套、守卫、组合子 `..=`/关系/`\|`/`@`、解构声明 | 🟢 |
 | 18 | 泛型 | `types/generics` | 泛型类型、泛型方法、`where` 约束、`Self`、关联类型、型参上的运算符 | 🟢 |
 | 19 | Lambda、闭包与委托 | `types/lambdas` | lambda 与函数类型 `(T) -> R`、捕获语义（值快照）、`Action`/`Func`/`Predicate`、方法组转换、`event` 的单播/多播（**类型决定 cardinality**）、多播退订票 / `continueOnException` / `OnceRef`、`methodof` | 🟢 |
-| 20 | 异常处理 | `types/exceptions` | `try` / `catch` / `finally` / `throw`、自定义异常 | ✅ |
+| 20 | 异常处理 | `types/exceptions` | `throw` / `try` / `catch` / `finally`、匹配规则与顺序、`catch {}` 比 typed 更宽、标准子类、自定义异常（继承 + `: base` + 加字段）、`InnerException` 包装、`StackTrace`、🔴 数组越界只有 `catch {}` 接得住 / 无裸 `throw;` / 无 `when` 过滤器 | 🟢 |
 | 21 | 组织代码 | `types/organization` | `namespace`、`using` / `global using` / 类型别名、访问控制、`partial`（`global using` 跨文件目前没有端到端测试，本章示例将是首个覆盖） | ✅ |
 | 22 | 特性与反射入门 | `types/attributes-reflection` | 使用内置 attribute、`typeof` / `GetType`、成员查询 | 🧪 |
 

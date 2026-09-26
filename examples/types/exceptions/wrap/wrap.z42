@@ -1,0 +1,22 @@
+using Std.IO;
+
+// ANCHOR: wrap
+// 底层异常信息太细，想换个说法抛出去，又不想丢掉原因：把它包进去
+void LoadConfig(string path) {
+    try {
+        throw new FormatException("第 3 行少了一个引号");
+    } catch (FormatException e) {
+        throw new Exception("配置文件读不了：" + path, e);
+    }
+}
+
+void Main() {
+    try {
+        LoadConfig("app.toml");
+    } catch (Exception e) {
+        Console.WriteLine("外层：" + e.Message);
+        Console.WriteLine("原因：" + e.InnerException.Message);
+        Console.WriteLine("没有原因时是 null：" + (new Exception("孤立").InnerException == null));
+    }
+    // ANCHOR_END: wrap
+}

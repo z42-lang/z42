@@ -1,0 +1,22 @@
+using Std.IO;
+
+// ANCHOR: basic
+double Divide(int a, int b) {
+    if (b == 0) {
+        throw new ArgumentException("除数不能为 0");
+    }
+    return a / b;
+}
+
+void Main() {
+    try {
+        Console.WriteLine(Divide(10, 2));
+        Console.WriteLine(Divide(1, 0));      // 这一行会抛
+        Console.WriteLine("抛了就到不了这里");
+    } catch (ArgumentException e) {
+        Console.WriteLine("接住了：" + e.Message);
+    } finally {
+        Console.WriteLine("finally 一定会跑");
+    }
+    // ANCHOR_END: basic
+}

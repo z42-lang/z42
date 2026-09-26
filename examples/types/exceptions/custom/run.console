@@ -1,0 +1,7 @@
+# ANCHOR: use
+$ z42 run custom.z42
+Alice Smith
+找不到：bob
+出问题的键：bob
+NotFoundException: 找不到：bob
+# ANCHOR_END: use

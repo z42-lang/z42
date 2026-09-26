@@ -1,0 +1,8 @@
+using Std.IO;
+
+void Main() {
+    try {
+        try { throw new Exception("原始"); }
+        catch (Exception e) { throw; }        // ✗ 裸 throw; 不支持
+    } catch { Console.WriteLine("到不了"); }
+}
