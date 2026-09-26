@@ -1,0 +1,117 @@
+// 语句位**步骤顺序**的守门单测（add-l2-parse-table 批 2 / D5「顺序约束从注释变数据」）。
+//
+// ⭐ 这道门存在的全部理由：**顺序是手写 if 链时，测试注入不了一个错误的顺序** ——
+// 只能证明「现在这个顺序能过」，而那等于没测。顺序成为 `Parser._steps` 这张数据表之后，
+// 同一批夹具可以在**故意写反的顺序**下再跑一遍，于是「顺序写错会怎样」第一次可观测。
+//
+// 三条顺序约束（前两条此前是散注释，第三条此前一个字都没写）：
+//   ① `{ X: x } = e;`（省类型属性解构）**须先于**块语句 —— 否则被当成普通块
+//   ② `int F() { … }`（局部函数）**须先于** var-decl —— 否则被当成变量声明
+//   ③ `(a,b) = e;`（括号解构）排在 var-decl **之后** —— 与元组 var-decl `(T1,T2) t` 靠
+//      「`)` 后是 `=` 还是标识符」互斥；理论上两序都对，这条门把「理论上」变成「实测过」
+namespace Z42cSyntaxStmtOrderTests;
+
+using Std;
+using Std.Test;
+using Z42.Syntax;
+using Z42.Core;
+
+// 用默认顺序解析一条语句，返回 Dump 文本。
+string parseStmt(string src) {
+    var p = new Parser("class C { void M() { " + src + " } }", "t.z42");
+    var u = p.ParseCompilationUnit();
+    return u.Dump();
+}
+
+// 用**指定顺序**解析。steps 为 StmtStep tag 数组。
+string parseStmtWithOrder(string src, int[] steps) {
+    var p = new Parser("class C { void M() { " + src + " } }", "t.z42");
+    p._steps = steps;
+    var u = p.ParseCompilationUnit();
+    return u.Dump();
+}
+
+int diagCountWithOrder(string src, int[] steps) {
+    var p = new Parser("class C { void M() { " + src + " } }", "t.z42");
+    p._steps = steps;
+    p.ParseCompilationUnit();
+    return p._diags.Count();
+}
+
+int[] defaultOrder() {
+    int[] o = new int[StmtRules.StepCount()];
+    int i = 0;
+    while (i < StmtRules.StepCount()) { o[i] = StmtRules.StepAt(i); i = i + 1; }
+    return o;
+}
+
+[Test]
+void test_default_order_is_the_table() {
+    // 阳性对照：表就是今天生效的顺序（若这条红，下面的「反序红」说明不了任何事）。
+    Assert.Equal(6, StmtRules.StepCount());
+    Assert.Equal(StmtStep.DeconstructBrace, StmtRules.StepAt(0));
+    Assert.Equal(StmtStep.Block,            StmtRules.StepAt(1));
+    Assert.Equal(StmtStep.KeywordRules,     StmtRules.StepAt(2));
+    Assert.Equal(StmtStep.LocalFn,          StmtRules.StepAt(3));
+    Assert.Equal(StmtStep.VarDecl,          StmtRules.StepAt(4));
+    Assert.Equal(StmtStep.DeconstructParen, StmtRules.StepAt(5));
+}
+
+// ── ① 属性解构 vs 块语句 ─────────────────────────────────────────────────────
+
+[Test]
+void test_brace_deconstruct_before_block() {
+    // 正序：解析成解构声明（零诊断）。
+    Assert.Equal(0, diagCountWithOrder("{ X: x } = p;", defaultOrder()));
+    // 反序（Block 提到解构之前）：`{ X: x }` 被当成普通块 ⇒ **必须**出诊断。
+    int[] bad = defaultOrder();
+    bad[0] = StmtStep.Block;
+    bad[1] = StmtStep.DeconstructBrace;
+    Assert.True(diagCountWithOrder("{ X: x } = p;", bad) > 0);
+}
+
+// ── ② 局部函数 vs var-decl ───────────────────────────────────────────────────
+
+[Test]
+void test_local_fn_before_var_decl() {
+    string good = parseStmt("int F() { return 1; }");
+    Assert.True(good.IndexOf("localfn") >= 0);
+    // 反序（VarDecl 提到 LocalFn 之前）：`int F()` 被 var-decl 判据抢走 ⇒ 解析结果必须变。
+    int[] bad = defaultOrder();
+    bad[3] = StmtStep.VarDecl;
+    bad[4] = StmtStep.LocalFn;
+    string worse = parseStmtWithOrder("int F() { return 1; }", bad);
+    Assert.True(good != worse);
+    Assert.True(worse.IndexOf("localfn") < 0);   // 不再是局部函数
+}
+
+// ── ③ 括号解构 vs 元组 var-decl（此前无人写下的那条）───────────────────────
+
+[Test]
+void test_tuple_var_decl_not_stolen_by_paren_deconstruct() {
+    // 正序：`(int, string) t = …` 是元组变量声明。
+    string good = parseStmt("(int, string) t = MakePair();");
+    Assert.Equal(0, diagCountWithOrder("(int, string) t = MakePair();", defaultOrder()));
+    // 反序（解构提到 var-decl 之前）：两个判据互斥（`)` 后是标识符 ⇒ 解构判据不命中）⇒
+    // 结果**应当相同**。这是一条「顺序其实无关」的实测结论 —— 此前只有推理，没有观测。
+    int[] swapped = defaultOrder();
+    swapped[4] = StmtStep.DeconstructParen;
+    swapped[5] = StmtStep.VarDecl;
+    Assert.Equal(good, parseStmtWithOrder("(int, string) t = MakePair();", swapped));
+    // 反向也一样：`(a, b) = e;` 在两序下都该是解构。
+    string dgood = parseStmt("(a, b) = MakePair();");
+    Assert.Equal(dgood, parseStmtWithOrder("(a, b) = MakePair();", swapped));
+}
+
+// ── 步骤缺失 = 该语法整个消失（顺序表也是「有没有」的表）────────────────────
+
+[Test]
+void test_dropping_a_step_makes_that_syntax_vanish() {
+    // 把 VarDecl 步骤换成 None ⇒ `var x = 1;` 落到表达式兜底 ⇒ 必须出诊断。
+    // （这条守的是「步骤表真的在驱动解析」，而不是摆设 —— 若 ParseStatement 里还留着
+    //   一条与表平行的硬编码 if，这里就绿了，那才是最危险的形态。）
+    int[] dropped = defaultOrder();
+    dropped[4] = StmtStep.None;
+    Assert.True(diagCountWithOrder("var x = 1;", dropped) > 0);
+    Assert.Equal(0, diagCountWithOrder("var x = 1;", defaultOrder()));
+}

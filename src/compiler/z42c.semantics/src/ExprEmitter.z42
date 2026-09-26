@@ -220,9 +220,36 @@ public sealed partial class ExprEmitter {
                 return mdr;
             }
             if (def.ParamIndex >= 0) {
-                TypedReg dr = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new DefaultOfInstr(dr, def.ParamIndex));
-                return dr;
+                // 类级 `default(T)`。`DefaultOfInstr` 只读**受者自己**的 `type_args`，于是
+                // `class DInt : Box<int> {}` 上的 `default(T)` 产 `null` 而不是 `0`（实测）——
+                // 那个实例自己没有实参，实参在**基**的名字里（`Demo.Box<int>`，P1 之后才不被剥掉）。
+                //
+                // 与类级 `typeof(T)` 同款走 builtin（`__class_default(this, idx, ownerFq)`）：
+                // 第三个实参是型参的**声明类**，运行期据此沿基链定位到那一层再取实参。
+                // 不新增 IR 指令 ⇒ 无格式 bump（`DefaultOfInstr` 只带下标，加操作数要 bump）。
+                // 拿不到 `this`（静态语境）⇒ 保持 `DefaultOfInstr`，行为与今天逐字一致。
+                TypedReg dThis = this._ctx.Locals.Get("this") as TypedReg;
+                if (dThis != null) {
+                    TypedReg dIdx = this._ctx.Alloc(IrType.I32);
+                    this._ctx.Emit(new ConstI32Instr(dIdx, def.ParamIndex.ToString()));
+                    TypedReg dOwn = this._ctx.Alloc(IrType.Ref);
+                    this._ctx.Emit(new ConstStrInstr(dOwn, this._ctx.Gen.Intern(this._top._classOwnerFqPub())));
+                    TypedReg[] dargs = new TypedReg[3];
+                    dargs[0] = dThis; dargs[1] = dIdx; dargs[2] = dOwn;
+                    TypedReg dbr = this._ctx.Alloc(IrType.Ref);
+                    this._ctx.Emit(new BuiltinInstr(dbr, "__class_default", dargs, 3));
+                    return dbr;
+                }
+                // 🔴 **静态语境：绝不能发 `DefaultOfInstr`**。它读 `regs[0]`，而静态帧的 reg0 是
+                // **第一个实参、不是 this** ⇒ 静默读了那个实参的 `type_args`。实测
+                // `static string S(Box<int> o) { … default(T) … }` 在 `Box<string>.S(bi)` 上
+                // 返回 `0`（T=string，应为 null）—— 把「明显不知道」升级成「看起来对的错值」。
+                // 类级 `typeof(T)` 早有这道语境判据（`TypeOpTyper` 的注释写明了同一个理由），
+                // `default(T)` 一直漏着。静态语境下 T 今天确实无从得知 ⇒ 给**诚实的 null**，
+                // 与 typeof 给占位名同一口径。
+                TypedReg dnull = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new ConstNullInstr(dnull));
+                return dnull;
             }
             // fix-default-blob-struct：blob 值 struct 的 default(T) = **零初始化 blob**，不是 null。
             // 此前落到末尾的 ConstNull 兜底 ⇒ 上层 `T t = default(T)` 发 StructAlloc + StructCopy(t, null)

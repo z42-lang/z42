@@ -719,7 +719,10 @@ void test_param_metadata_default_values() {
             Assert.Equal(10, (int)(long)ps[1].DefaultValue); // i64 默认值
             // 注：`as string` 对 boxed str 是 pre-existing VM 缺口（as_cast 只认 Object/Array/Null）
             // → 用 ToString 对账（值本身正确）。
-            object dvs = ps[2].DefaultValue;
+            // carry-field-null-marks：`DefaultValue` 标了 `?` ⇒ 解引用前必须过义务。
+            // 这里的输入是本用例自己声明的 `Blend`，第 3 个形参**必然**有字符串字面量默认值
+            // ⇒ 用 `Expect(理由)`（原先的 `Assert` 对编译器不可见，真为 null 时炸点是 NRE）。
+            object dvs = ps[2].DefaultValue.Expect("Blend 的第 3 个形参声明了字符串字面量默认值");
             Assert.Equal("hi", dvs.ToString());
             Assert.True((bool)ps[3].DefaultValue);
         }

@@ -91,7 +91,10 @@ public sealed class PatternParser {
 
     // 模式内常量子表达式：bp 45（> Pipe 的 44）→ `_parseExpr` 停在 `|` 处，把 `|` 交回模式层作 or-链（A2）。
     // 字面量 / 一元负号 / 点分名（`.` postfix 不受 minBp 限）仍完整解析。
-    private Expr _parsePatternConst() { return this._p._exprP._parseExpr(45); }
+    // 「高于 `|`、低于 `^`」：`|` 必须留给模式引擎续 or-链（`x is 1 | 2`），`^`/`&`/算术照常吃。
+    // 此前写死 45 —— 那个数值的含义全靠它落在 `Pipe`(44) 与 `Caret`(46) 之间，
+    // 而那两个数值在另一个文件里，没有任何东西守着这条关系（现由 ParseTable + 不变式断言守）。
+    private Expr _parsePatternConst() { return this._p._exprP._parseExpr(ParseTable.BetweenOrAndXor()); }
 
     // 关系模式起始算子：> >= < <=（A2）。
     private bool _isRelOp(int k) {

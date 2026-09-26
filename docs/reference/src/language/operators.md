@@ -26,6 +26,13 @@
 
 这套次序与 C# 一致，除了 z42 **没有** `??`（已移除，见下）。
 
+> **这张表的真相源是编译器里的 `ParseTable`**（`src/libraries/z42c.syntax/src/ParseTable.z42`：
+> 每个 token 的绑定力 + led 角色 + 可选特性名），本页是它的人类可读镜像。数值与不变式
+> 由 `tests/parse_table.z42` 钉住（改动某个绑定力会让那道门红）。
+>
+> 其中 `| ^ & << >>` 挂 `bitwise`、`?:` 挂 `ternary`：在 `z42.toml` 的
+> `[syntax]` 里把它们置 `false`，用到就报 **E0301**（见[语法定制](../../../internals/src/compiler/syntax-customization.md)）。
+
 ```z42
 if (a && b || c) { }   // ≡ ((a && b) || c)
 int n = 1 | 2 & 3;     // ≡ 1 | (2 & 3) = 3

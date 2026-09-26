@@ -13,7 +13,7 @@
 | `src/Diagnostic.z42` | 单条诊断（Severity/Code/Message/Span + IsError + Format + 工厂）|
 | `src/DiagnosticBag.z42` | 诊断收集器（typed array + count；Add/Error/Count/Get/ErrorCount/HasErrors）|
 | `src/DiagnosticCodes.z42` | E01xx–E10xx 错误码常量（镜像 C# `DiagnosticCodes`）|
-| `src/LanguageFeatures.z42` | 特性开关（snake_case 名 + 并行数组；IsEnabled / Phase1Profile / MinimalProfile）|
+| `src/LanguageFeatures.z42` | 特性开关（snake_case 名 + 并行数组；IsEnabled / Has / Phase1Profile）|
 | `src/CoreSkeleton.z42` | **过渡占位**：尚未移植的 syntax/semantics/pipeline/driver 仍引用它；各自移植到真实 core 时移除 |
 
 > 受限写法（无 enum / 类字段无泛型 / List 约束 → typed array）见 [self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)。

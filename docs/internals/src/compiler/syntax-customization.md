@@ -1,22 +1,27 @@
 # 语法定制：三层配置机制
 
-> **页型**: 决策页 ｜ **状态**: 📋 **设计已定 / 未实施** ｜ **代码**: `src/libraries/z42c.core/src/LanguageFeatures.z42`（全仓唯一实现物，且无调用方）
-> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [元编程 / 宏](metaprogramming.md) · [脚本化 charter（未实施）](scripting-charter.md) ｜ **对齐**: 2026-09-17
+> **页型**: 决策页 ｜ **状态**: 🟡 **第 1、2 层已实施 / 第 3 层未实施** ｜ **代码**: `src/libraries/z42c.core/src/LanguageFeatures.z42`（特性表）· `src/libraries/z42c.syntax/src/ParseTable.z42`（规则表）
+> **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [元编程 / 宏](metaprogramming.md) · [脚本化 charter（未实施）](scripting-charter.md) ｜ **对齐**: 2026-09-26
 
-> **状态：设计已定 / 未实施。** 现状只有第 1 层的**数据结构**，第 1 层的**配置来源**、第 2 层、第 3 层全都没有：
+> **现状（2026-09-26 复核）**：第 1 层（含配置来源①）与第 2 层已落地，第 3 层仍未动。
 >
 > | 设计物 | 现状 | 证据 |
 > |--------|------|------|
-> | `LanguageFeatures` 类 | **存在但零调用方** —— 定义在 `src/libraries/z42c.core/src/LanguageFeatures.z42`，全仓只有它自己的单测 `src/libraries/z42c.core/tests/features.z42` 引用它。`z42c.syntax` / `z42c.ir` / `src/compiler` / `src/runtime` / `src/toolchain` 无任何命中，编译器从不读它 | `grep -rn LanguageFeatures src/` |
-> | `ParseTable` 类 | **不存在**。全仓唯一字面命中是 `src/libraries/z42.toml/src/TomlParser.z42` 的 `ParseTableHeader()`——TOML 解析器的无关同名方法 | `grep -rn ParseTable .` |
-> | `z42.toml` 的 `[syntax]` 节 | **不存在**。`src/libraries/z42.project/src/` 下 21 个 manifest 模型文件里搜 `syntax` 零命中 | `grep -rni syntax src/libraries/z42.project/src/` |
-> | `using syntax` 指令 | **不存在**，词法器与解析器均无此形态 | `grep -rn "using syntax" src/` |
-> | `operator` / `keyword` 用户声明 | **不存在** | 同上 |
+> | `LanguageFeatures` 类 | **已接线**。`z42.toml [syntax]` → `ManifestLoader._parseSyntax` → `Main._build`（唯一一次 resolve，未知名报错退出）→ `CompileInput.Features` → `IncrementalDriver` 两处 `new Parser` → `Parser._requireFeature` 发 **E0301** | add-l0-protocol-table（批 1，#841）|
+> | `ParseTable` 类 | **已存在**：`src/libraries/z42c.syntax/src/ParseTable.z42` —— 绑定力 / led 角色 / 特性名 + 语句步骤顺序 `StmtRules` | add-l2-parse-table（批 2）|
+> | `z42.toml` 的 `[syntax]` 节 | **已存在** | 同批 1；字段见[清单参考](../../../reference/src/toolchain/z42-toml.md) |
+> | `using syntax` 指令（配置来源②）| **不存在** | `grep -rn "using syntax" src/` |
+> | `operator` / `keyword` 用户声明（第 3 层）| **不存在** | 同上 |
 >
-> 另有两个遗留物需要知道：
+> 🔴 **但「接线了」≠「每个名字都生效了」**：15 个特性名里今天真的关得掉东西的是 **5 个**
+> —— `control_flow`（if/while/for/foreach/do/switch + break/continue）、`exceptions`（try + throw）、
+> `bitwise`（`| ^ & << >>`）、`ternary`（`?:`）、`pattern_match`（进模式引擎的那几条路）。
+> **其余 10 个仍是死旋钮**：它们描述的是「将来可裁剪的语法面」，不是今天生效的配置。
+> 这张表当年的原罪正是宣告了 6 个**不存在**的特性而三年无人发现（已于 2026-09-23 删除）。
 >
-> - **优先级数值已经存在，但硬编码在代码里**，不是数据表。`src/libraries/z42c.syntax/src/ExprParser.z42` 的 `_infixBp()` 是一串 `if` 链，三目 / 赋值 / `is` / `as` / `switch` / `with` 则以 `minBp <= N` 的形式内联在 `_parseExpr()` 中。也就是说**解析器是 Pratt 式优先级攀升（这点属实），但并非表驱动**——第 2 层要做的正是把这些数值提取成数据。
-> - 曾有两个 `features.toml` sidecar（`src/tests/control_flow/switch/` 与 `src/tests/exceptions/exceptions/`）号称能 override `LanguageFeatures`，实则**全仓没有任何代码读取**——唯一读过它们的是随自举删除的 C# `GoldenTests.cs`。已于 2026-09-23 删除；第 1 层接线时若需要按用例覆盖特性，重新设计即可，不必迁就那两个空壳。
+> 另有一个遗留物需要知道：曾有两个 `features.toml` sidecar（`src/tests/control_flow/switch/` 与
+> `src/tests/exceptions/exceptions/`）号称能 override `LanguageFeatures`，实则**全仓没有任何代码
+> 读取**——唯一读过它们的是随自举删除的 C# `GoldenTests.cs`。已于 2026-09-23 删除。
 
 ---
 
@@ -59,9 +64,10 @@
 - `Set(name, on)` 为 upsert；
 - **`IsEnabled(未知名) = false`** —— 拼错的特性名不会静默启用，这是刻意的安全默认；
 - 另有 `int Phase` 字段（1 = Phase1，2 保留）；
-- 两个预置 profile：`Phase1Profile()`（21 个特性全开）与 `MinimalProfile()`（仅 `interpolated_str` / `ternary` / `cast` / `bitwise`）。
+- **一个**预置 profile：`Phase1Profile()`（**15** 个特性全开）。另有 `Has(name)` / `NameAt(i)`：与 `IsEnabled` 分开是必须的——`IsEnabled` 对「未知名」与「已知但关着」都返回 false，靠它分不出拼写错误，而 `[syntax]` 要对未知名报错。
+  （曾有 `MinimalProfile()`，已于 2026-09-26 删除：零生产调用方，且 `[syntax]` 语法里选不到 profile ⇒ 用不上。真要按 profile 裁剪得先加 manifest 键，是独立一条。）
 
-再次提醒：**没有任何编译器代码构造或查询它**。解析器不接受 `LanguageFeatures` 参数，因此今天关掉任何开关都不会改变解析行为。
+解析器持有它（`Parser._features`，**可空 = 全开**，于是单测 / REPL 不必改签名也不被裁语法）。关掉 `control_flow` / `exceptions` / `bitwise` / `ternary` / `pattern_match` 这 5 个会真的改变解析行为并发 E0301；其余 10 个名字今天没有消费点（见页首那条 🔴）。
 
 ### 特性名清单
 
@@ -134,6 +140,14 @@ using syntax bitwise = true;
 
 ### 表达式规则
 
+**🔴 落地形态与下面这几段画的不同**：z42 **无 delegate**（且命名 delegate 跨 zpkg 会丢 FQ 名），
+所以 `nud:` / `led:` / `handler:` **函数指针在 z42c 里写不出来**。实际形态照
+`z42c.semantics/src/BinaryTypeTable.z42` 的在仓先例：**int tag + if 链 + 一处集中派发**
+（`LedKind` / `PostfixKind` / `StmtStep` 是 tag，`ParseTable.LeftBp/Led/Postfix/Feature`
+是查询函数，`_parseExpr` 主循环按 tag 派发）。另外为避开热路径上的每轮分配，表是
+「常量 + 查询函数」而**不是**返回 `ParseRule` 对象。下面的概念形态仍然成立，读时把
+「函数指针」换成「tag + 集中派发」即可：
+
 每个运算符一条表项，概念形态：
 
 ```
@@ -194,7 +208,7 @@ using syntax bitwise = true;
 
 ### 一致性守门
 
-规则表一旦成为数据，就需要一条自动检查：**`ParseTable` / `StmtRules` 中出现的每个 `feature` 名，必须在 `LanguageFeatures` 的已知名单里声明**。没有它，一个拼错的特性名会让该表项被 `IsEnabled` 静默判为 `false`，对应语法凭空消失且无任何报错——这正是 `IsEnabled(未知名) = false` 这条安全默认的代价。此检查目前不存在（`LanguageFeatures` 也还没有"已知名单"这个概念，只有两个 profile）。
+规则表一旦成为数据，就需要一条自动检查：**`ParseTable` / `StmtRules` 中出现的每个 `feature` 名，必须在 `LanguageFeatures` 的已知名单里声明**。没有它，一个拼错的特性名会让该表项被 `IsEnabled` 静默判为 `false`，对应语法凭空消失且无任何报错——这正是 `IsEnabled(未知名) = false` 这条安全默认的代价。**此检查已落地**（add-l2-parse-table 批 2，`src/libraries/z42c.syntax/tests/parse_table.z42` 的 `test_every_feature_name_is_declared`）：逐个 token kind 核 `Phase1Profile().Has(feature)`。判别力已实测——把某个 `Feature(...)` 改成不存在的名字，**stdlib 构建照常全绿、只有这道门红**，而那正是它唯一的存在理由（冷门运算符上的拼写错误构建看不见）。同一文件还守着两件事：四条平行 if 链的同步（`LeftBp != 0 ⇔ Led != None`）、以及那些「关系型」绑定力的不变式（`AboveAssign() == LeftBp(Eq)+1`、`BetweenOrAndXor()` 严格落在 `|` 与 `^` 之间）。
 
 ---
 
@@ -308,7 +322,7 @@ reflection       = false
 
 ### 场景 2：教学环境（特性渐进放开）
 
-从 `MinimalProfile()` 起步，每周在 `[syntax]` 里多打开一项：第 1 周只有基础类型与输出，第 2 周加 `control_flow`，第 3 周加 `oop`。学生越界使用尚未讲授的语法会在**解析期**直接报错，而不是写出一段看不懂的程序。
+在 `[syntax]` 里把尚未讲授的特性逐项置 `false`，每周少关一项：第 1 周只有基础类型与输出，第 2 周加 `control_flow`，第 3 周加 `oop`。学生越界使用尚未讲授的语法会在**解析期**直接报错，而不是写出一段看不懂的程序。
 
 ### 场景 3：受限生产环境
 
@@ -327,7 +341,7 @@ pattern_match = false
 在不影响既有代码的前提下加一个运算符，三步：
 
 1. **加表项** —— `[TokenKind.StarStar] = ParseRule(leftBp: 75, nud: null, led: Leds.BinaryLeft, feature: "pow_operator")`；75 落在加减（70）与乘除（80）之间，是刻意留出的插入位；
-2. **注册特性** —— 在 `MinimalProfile()` 里置 `false`，在 `Phase1Profile()` 里置 `true`；
+2. **注册特性** —— 在 `Phase1Profile()` 里置 `true`（这也是「已知名单」，未登记的名字会让 `[syntax]` 报错退出）；
 3. **使用** —— `int power = 2 ** 8;`，仅当 `pow_operator` 开启时成立。
 
 若不想改编译器，同一件事可以走第 3 层，在源码里声明：
@@ -369,18 +383,38 @@ var x = 2 ** 10;   // 展开为 Math.Pow(2, 10)
 > 不是加细 `[syntax]` 的语义。这条边界来自 add-l0-protocol-table 的 D-new-1：策略链取
 > 「名字是数据、**链是一处集中的代码**」，链本身不是可配置数据。
 >
-> ⚠️ **只有 `control_flow` 与 `exceptions` 今天真的关得掉东西**，`LanguageFeatures` 里其余 13 个
-> 名字仍是死旋钮。别把「这张表接线了」读成「每个名字都生效了」。
+> ⚠️ **只有 `control_flow` 与 `exceptions` 那时真的关得掉东西**，其余 13 个名字仍是死旋钮。
+> 别把「这张表接线了」读成「每个名字都生效了」。
+
+> ✅ **批 3 已落地**（add-l2-parse-table，2026-09-26）：`ParseTable` + `StmtRules` 建成，
+> `_infixBp` 与 9 处内联 `minBp <= N` 守卫塌成「查表 → **一道**守卫 → 按 led tag 派发」；
+> 三处跨构造魔数（switch arm 的 11 / lambda 体的 10 / 模式常量的 45）改成**从表里算**的关系函数；
+> 语句位的**步骤顺序**成为数据（`Parser._steps`）；一致性守门 + 同步门 + 不变式断言落在
+> `tests/parse_table.z42`，顺序门落在 `tests/stmt_order.z42`。
+>
+> ⭐ **顺序表化的真正收益**：顺序是手写 if 链时，**测试注入不了一个错误的顺序** ——
+> 只能证明「现在这个顺序能过」，等于没测。成为数据后，单测拿一张故意写反的顺序表跑同一批
+> 夹具，「顺序写错会怎样」第一次可观测（`{ X: x } = e` 被当成块、`int F()` 被 var-decl 抢走）。
+>
+> 同批把 `bitwise` / `ternary` / `pattern_match` 接上，并补齐批 1 漏掉的
+> `break` / `continue`（属 `control_flow`）与 `throw`（属 `exceptions`）——
+> 那三个洞正是上面那条 ⚠️ 警告过的形状。**今天真的关得掉东西的是 5 个，死旋钮 10 个。**
+> `pattern_match` 的边界：只关**进模式引擎**的那几条路，`x is T` / `x is T v`（类型测试）保留。
 
 （两个无人读取的 `features.toml` sidecar 已于 2026-09-23 删除，批 1 不必再迁就它们。）
 
 新增一个特性的完整清单（批 3 落地后的目标形态；**批 1 已落地**，今天第 2 步改为「在该构造的解析入口加一句 `_requireFeature`」）：
 
-1. 在 `Phase1Profile()` / `MinimalProfile()` 中声明该名字；
-2. 在 `ParseTable` 或 `StmtRules` 中把表项的 `feature` 指向它；
-3. 实现 Nud / Led / Stmt handler；
-4. 写**两个**测试：开启时能解析、默认关闭时报错——只写前者等于没测门控；
-5. 一致性守门自动校验名字拼写。
+1. 在 `Phase1Profile()` 中声明该名字（那就是「已知名单」；未登记的名字会让 `[syntax]` 报错退出），并在 `FeatureNames` 里给它一个常量；
+2. 在 `ParseTable.Feature` / `StmtRules.Feature` 中把表项指向它 —— 若粒度比「整个 token 的构造」更细（如 `pattern_match`），则挂在该构造的**解析入口**上；
+3. 实现对应的 led / stmt 分派（int tag + 集中派发，不是函数指针）；
+4. 写**两个**测试：开启时能解析、关闭时必须报 E0301——只写前者等于没测门控；
+5. `tests/parse_table.z42` 的一致性守门会自动校验名字拼写。
+
+> ⚠️ **别拿编译器自身大量使用的构造做「假特性名」实验**：那会让产出的编译器连自己都编不了，
+> 且毒化产物会落进 `artifacts/build/libraries/dist/` 让后续每次构建都用它 = 自举死锁。
+> 选一个全仓零出现的构造（如已移除的 `??`）；真踩了的话，恢复要用种子：
+> `cd src/libraries && ../../.z42/bin/z42c build --workspace --release`。
 
 ---
 

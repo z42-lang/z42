@@ -38,18 +38,6 @@ void test_phase1_profile_has_no_phantom_features() {
 }
 
 [Test]
-void test_minimal_profile_subset() {
-    var f = LanguageFeatures.MinimalProfile();
-    Assert.Equal(true, f.IsEnabled("interpolated_str"));
-    Assert.Equal(true, f.IsEnabled("ternary"));
-    Assert.Equal(true, f.IsEnabled("cast"));
-    Assert.Equal(true, f.IsEnabled("bitwise"));
-    // 未 Set 的 → false
-    Assert.Equal(false, f.IsEnabled("control_flow"));
-    Assert.Equal(false, f.IsEnabled("oop"));
-}
-
-[Test]
 void test_unknown_feature_is_false() {
     var f = LanguageFeatures.Phase1Profile();
     Assert.Equal(false, f.IsEnabled("no_such_feature"));

@@ -411,3 +411,96 @@ int _e2eDeployUseChecks(string root, string vm, string driverZpkg) {
     Console.WriteLine("  ✓ deploy 声明：copy 压过默认、shared 阻止复制、非法取值被拒");
     return 0;
 }
+
+// ── 按名/产物引用的**传递闭包**（add-deployment-model 批 2.2 use）────────────────────────
+//
+// **守的是什么**：`app → mid → leaf` 时 `leaf` 也得随产物走。
+//
+// 此前只搬直接依赖：`dist/` 里只有 `mid.zpkg`，拷到别处运行会**死在 mid 的方法里**
+// （`MissingSymbolException: type NcLeaf.Deep`）—— 症状位置离原因很远，报的是「mid 的代码有问题」，
+// 而实际是「打包漏了 leaf」。
+//
+// 依赖名从 **zpkg 的 DEPS 段**读（`ReadDependencies`，#826 support），不是源码树的 toml ——
+// 那条路在 repo 外整个失效（publisher 今天就是那样，见 tasks 批 2）。
+//
+// ⭐ path 依赖的闭包早由 #811 搬齐，这一格补的是**按名/产物引用**那一半。
+string _e2eClosureLeafSrc() { return "namespace NcLeaf;\n\npublic class Deep { public string Who() { return \"leaf\"; } }\n"; }
+string _e2eClosureMidSrc()  { return "namespace NcMid;\n\nusing NcLeaf;\n\npublic class Mid { public string Call() { return new Deep().Who(); } }\n"; }
+string _e2eClosureAppSrc()  { return "namespace NcApp;\n\nusing Std.IO;\nusing NcMid;\n\nvoid Main() { Console.WriteLine(new Mid().Call()); }\n"; }
+
+string _e2eClosureLibToml(string name, string dep) {
+    string s = "[project]\nname    = \"" + name + "\"\nversion = \"0.1.0\"\nkind    = \"lib\"\n\n"
+             + "[sources]\ninclude = [\"src/*.z42\"]\n";
+    if (dep.Length > 0) { s = s + "\n[dependencies]\n\"" + dep + "\" = \"0.1.0\"\n"; }
+    return s;
+}
+
+int _e2eNamedClosureChecks(string root, string vm, string driverZpkg) {
+    string flat = _libsFlatDist(root, "release");
+    string tmp  = Path.Join("/tmp", "z42c-e2e-closure");
+    if (Directory.Exists(tmp)) { try { Directory.Delete(tmp, true); } catch (Exception e) {} }
+    string libsDir = Path.Join(tmp, "libs");
+    string vendor  = Path.Join(tmp, "vendor");
+    string leafDir = Path.Join(tmp, "leafsrc");
+    string midDir  = Path.Join(tmp, "midsrc");
+    string appDir  = Path.Join(tmp, "app");
+    Directory.Create(libsDir); Directory.Create(vendor); Directory.Create(appDir);
+    Directory.Create(Path.Join(leafDir, "src")); Directory.Create(Path.Join(midDir, "src"));
+    string[] stdlib = Path.Glob(flat, "*.zpkg");
+    int si = 0;
+    while (si < stdlib.Length) { File.Copy(stdlib[si], Path.Join(libsDir, Path.GetFileName(stdlib[si]))); si = si + 1; }
+
+    // leaf → 建好后临时放进 libs（mid 编译期要解析它）。
+    File.WriteAllText(Path.Join(Path.Join(leafDir, "src"), "Leaf.z42"), _e2eClosureLeafSrc());
+    File.WriteAllText(Path.Join(leafDir, "ncleaf.z42.toml"), _e2eClosureLibToml("ncleaf", ""));
+    ProcessResult lb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+        .Arg(Path.Join(leafDir, "ncleaf.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (lb.ExitCode != 0) { Console.WriteLine("  ✗ 传递闭包: leaf 编译失败: " + lb.Stderr); return 1; }
+    File.Copy(Path.Join(Path.Join(leafDir, "dist"), "ncleaf.zpkg"), Path.Join(libsDir, "ncleaf.zpkg"));
+
+    // mid（依赖 leaf）。
+    File.WriteAllText(Path.Join(Path.Join(midDir, "src"), "Mid.z42"), _e2eClosureMidSrc());
+    File.WriteAllText(Path.Join(midDir, "ncmid.z42.toml"), _e2eClosureLibToml("ncmid", "ncleaf"));
+    ProcessResult mb = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build")
+        .Arg(Path.Join(midDir, "ncmid.z42.toml")).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (mb.ExitCode != 0) { Console.WriteLine("  ✗ 传递闭包: mid 编译失败: " + mb.Stderr); return 1; }
+
+    // 两个都挪进 vendor（离开 libs/）⇒ 它们是「非框架依赖」，该随产物走。
+    File.Copy(Path.Join(Path.Join(midDir, "dist"), "ncmid.zpkg"), Path.Join(vendor, "ncmid.zpkg"));
+    File.Copy(Path.Join(libsDir, "ncleaf.zpkg"), Path.Join(vendor, "ncleaf.zpkg"));
+    File.Delete(Path.Join(libsDir, "ncleaf.zpkg"));
+
+    // app 只声明 mid —— leaf 是**间接**依赖，用户不该被要求声明它。
+    File.WriteAllText(Path.Join(appDir, "app.z42"), _e2eClosureAppSrc());
+    string appToml = Path.Join(appDir, "ncapp.z42.toml");
+    File.WriteAllText(appToml,
+        "[project]\nname    = \"ncapp\"\nversion = \"0.1.0\"\nkind    = \"exe\"\n"
+        + "entry   = \"NcApp.Main\"\n\n[sources]\ninclude = [\"*.z42\"]\n\n"
+        + "[dependencies]\n\"ncmid\" = { path = \"../vendor/ncmid.zpkg\" }\n");
+    ProcessResult ab = new Process(vm).Arg(driverZpkg).Arg("--").Arg("build").Arg(appToml).Arg("--release")
+        .Env("Z42_LIBS", libsDir).Stdout(Stdio.Null()).Stderr(Stdio.Pipe()).Run();
+    if (ab.ExitCode != 0) { Console.WriteLine("  ✗ 传递闭包: app 编译失败: " + ab.Stderr); return 1; }
+
+    string distDir = Path.Join(appDir, "dist");
+    if (!File.Exists(Path.Join(distDir, "ncmid.zpkg"))) {
+        Console.WriteLine("  ✗ 传递闭包: 直接依赖都没进 dist —— 基线就坏了");
+        return 1;
+    }
+    if (!File.Exists(Path.Join(distDir, "ncleaf.zpkg"))) {
+        Console.WriteLine("  ✗ 传递闭包: **间接**依赖 ncleaf 没随产物走 —— 拷出去会死在 mid 的方法里");
+        return 1;
+    }
+    // 对照：产物真能跑（leaf 在 libs/ 里已被删，只能从 dist 解析到）。
+    ProcessResult rr = new Process(vm).Arg(Path.Join(distDir, "ncapp.zpkg")).Env("Z42_LIBS", libsDir)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (rr.ExitCode != 0 || rr.Stdout.IndexOf("leaf") < 0) {
+        Console.WriteLine("  ✗ 传递闭包: 文件都在却跑不起来（rc=" + rr.ExitCode.ToString()
+            + " stdout=" + rr.Stdout + " stderr=" + rr.Stderr + "）");
+        return 1;
+    }
+
+    Console.WriteLine("  ✓ 传递闭包：间接依赖随产物走，两层链拷出去照样跑");
+    return 0;
+}

@@ -41,8 +41,15 @@
       改成「恒跳 1 个」注入进去，测试**照样绿** —— 因为多命名空间的那一项被我放在了**最后**，
       跳错多少都没有后续项会错位。多 ns 项前移后才真红。
       **「构造了一个复杂输入」不等于那个复杂度真的被验到了。**
-- [ ] 2.2 **use**：`_bundleExeDeps` 对**按名引用**的依赖也建闭包，来源 = zpkg 的 DEPS 段
-      （**不是**源码树 toml —— 那条路在 repo 外整个失效）。
+- [x] 2.2 **use**：`_bundleExeDeps` 对按名/产物引用的依赖也建闭包，来源 = zpkg 的 DEPS 段
+      （`ReadDependencies`，**不是**源码树 toml —— 那条路在 repo 外整个失效）。
+      只对**已复制**的包递归：框架包不复制也不递归（它的依赖同在 libs/）、`deploy = "shared"`
+      在循环开头就跳过（闭包由运行期解析）。间接依赖不在 `[dependencies]` 里 ⇒ deploy 取 `""`、
+      走默认判据。
+      门 `_e2eNamedClosureChecks`（`app → mid → leaf` 两层链）；判别力：撤掉 DEPS 读取 →
+      门红在「间接依赖没随产物走」。
+      ⭐ **缺口的症状离原因很远**：改前 `dist/` 只有 mid，拷出去运行**死在 mid 的方法里**
+      （`MissingSymbolException: NcLeaf.Deep`）——报的像是「mid 的代码有问题」，实际是打包漏了 leaf。
 - [ ] 2.3 🔴 **publisher 的闭包在 repo 外失效**（`srcRoot == ""` ⇒ 每个依赖 continue，零复制
       零递归）也一并修：改按 DEPS 段或 `{ path }` 解析，镜像 `_pubBundleProjectNativeDeps`
       的 Decision 5（那条已经修过，zpkg 这条漏了）。
