@@ -358,6 +358,22 @@ pub fn compose_object_layout(
 /// get an 8B slot + a `refs` side-table entry. Internally consistent (all of
 /// `field_value` / `set_field_value` / GC read the same table); never cross-checked
 /// against compiler output, so its exact packing only needs to be self-consistent.
+///
+/// ⚠️ **「a struct field never occurs in a layout-less type」是前置条件，不是这里能检查的事**
+/// —— 本函数只拿到 `&[FieldSlot]`，没有类型注册表，`tag_from_type_name` 对任何非基元名都给
+/// `TAG_OBJECT`，**无从区分 struct 与 class**。所以这条不变式必须由**写端**保证，而它确实成立
+/// （2026-09-27 核实，此前这里只断言、没给理由）：
+///
+/// - zbc writer 的对象布局块 gate 是 `(cd.Flags & 116) == 0`，`116 = 4|16|32|64`
+///   = struct｜interface｜enum｜delegate ⇒ **每个普通 class 一律带布局块**，走不到本函数；
+/// - 格式是 strict-pin（只接受一个 minor）⇒ 「zbc < 1.34 的旧模块没有布局块」这条路不存在；
+/// - 泛型 class 的**实例化**描述符也填了对象布局块（`ClassDescBuilder.GenericInst` 的
+///   `_instClassDesc`，并按需置 `class_flags` bit7 = 有内联 struct 字段）。
+///
+/// 如果哪天违反了，症状是 struct 字段**之后**的每个字段偏移与编译器烘焙进指令的偏移不一致
+/// （这里当 8B 引用、编译器整块内联），且内部引用叶子不在 `ref_offsets` 里 ⇒
+/// `inline struct ref leaf at byte offset N not in object layout`。**要加检查，得加在写端**
+/// 或调用方（那里有注册表），不是这里。
 pub fn synthesize_object_layout(fields: &[FieldSlot]) -> ObjectLayout {
     let mut cursor: u32 = 0;
     let mut field_offsets = Vec::with_capacity(fields.len());
