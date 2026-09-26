@@ -161,6 +161,33 @@ z42vm <file>
   └── Vm::new(final_module, default_mode).run(entry)
 ```
 
+### `$Z42_LIBS` 的交接规则：两个组件、同一条规则
+
+`$Z42_LIBS` 有**两个**写入方，两边都只填「未设/为空」：
+
+| 写入方 | 函数 | 写什么 |
+|---|---|---|
+| z42vm 自己 | `libs_env_to_publish`（`startup.rs`）| `resolve_libs_dir()` 的结果，给**进程内**运行的程序看 |
+| apphost | `libs_env_for_child`（`hostrun.rs`）| 它定位到的 `<runtime>/libs`，给它 exec 的**子** z42vm 看 |
+
+⚠️ **apphost 那格不能简化成「不设」**：安装布局下 z42vm 在 `<dir>/z42vm`，VM 自己的第 ②
+档探的是 `<binary-dir>/../libs` = `<dir>/../libs`，**不是** apphost 找到的 `<dir>/libs`。
+删掉这次 set，安装布局就定位不到 stdlib 了。
+
+🔴 **honor-explicit-libs-env 之前 apphost 是无条件覆写**，显式值被静默丢弃。影响面远不止
+已发布的 app：**SDK 自己的 `bin/z42c` 就是一个 apphost**（见
+[packaging.md](../devinfra/packaging.md) 的 `kind = apphost`），所以拿装好的工具链跑
+`Z42_LIBS=… z42c build …` 是**完全无效**的——不报警、不报错，就是没生效。`Z42_LIBS` 在
+`knob_table.rs` 里标着 `PUBLIC`、在 [runtime-settings.md](../../../reference/src/toolchain/runtime-settings.md)
+是有名有姓的一行，而这条路径上它一直是死的。实测口径（patch 过的 apphost + 一个把收到的
+`Z42_LIBS` 回显出来的 `z42vm` 桩）：
+
+| `Z42_LIBS` | 修复前子进程看到 | 修复后 |
+|---|---|---|
+| 未设 | `<runtime>/libs` | `<runtime>/libs` |
+| `/my/explicit/libs` | `<runtime>/libs` ← **被吞** | `/my/explicit/libs` |
+| 空串 | `<runtime>/libs` | `<runtime>/libs`（空串等同未设）|
+
 ### 依赖同址搜索（support-colocated-zpkg-deps，2026-06-20）
 
 依赖 zpkg 按文件名在 `search_dirs` 列表里**按序**解析，而非单一 `libs_dir`。z42vm CLI

@@ -76,7 +76,9 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
     // ⚠ 放 /tmp（仓库外）：C# BuildLibsDirs 会 walk-up 仓库布局并按成员目录字母序扫
     // （z42.cli < z42.core，两者都声明 ns Std）→ 仓库内 DEPS 解析 Std→z42.cli.zpkg；
     // /tmp 下只剩 Z42_LIBS 单目录 → prelude-first → Std→z42.core.zpkg，两侧编译器环境等价。
-    string hdir = "/tmp/z42c-e2e-buildhello";
+    // ⚠️ 路径经 `_e2eTmpRoot` **按树分**（fix-e2e-tmp-per-tree）：留在仓库外（上面那条理由不变），
+    // 但掺进树名，免得同机并行跑两棵 worktree 时互相覆盖 fixture。
+    string hdir = _e2eTmpRoot(root, "buildhello");
     Directory.Create(hdir);
     File.WriteAllText(Path.Join(hdir, "hello.z42"),
         "using Std;\nusing Std.IO;\n\nvoid Main() {\n    Console.WriteLine(\"hi\");\n}\n");
@@ -84,7 +86,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
         "[project]\nname    = \"hello.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
     // textapp（port-z42c-instance-import）：StringBuilder（imported 类 VCall+DEPS）+
     // string.Substring（prim receiver → DepIndex instance 捷径 FQ Call）——实例跨包链对账工程
-    string tdir = "/tmp/z42c-e2e-buildtext";
+    string tdir = _e2eTmpRoot(root, "buildtext");
     Directory.Create(tdir);
     File.WriteAllText(Path.Join(tdir, "app.z42"),
         "using Std;\nusing Std.IO;\nusing Std.Text;\n\nvoid Main() {\n    var sb = new StringBuilder();\n    sb.Append(\"ab\");\n    sb.Append(\"cd\");\n    string s = sb.ToString();\n    string sub = s.Substring(0, 2);\n    Console.WriteLine(sub);\n}\n");
@@ -92,7 +94,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
         "[project]\nname    = \"text.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
     // closcheck（port-z42c-closures）：无捕获/捕获 lambda + Func 形参 + 间接调用 + oracle。
     // 注意逃逸形态（Apply 传参）：C# 逃逸分析对非逃逸闭包发 stackAlloc=1（z42c 恒 0 延后）。
-    string cdir = "/tmp/z42c-e2e-buildclos";
+    string cdir = _e2eTmpRoot(root, "buildclos");
     Directory.Create(cdir);
     File.WriteAllText(Path.Join(cdir, "app.z42"),
         "int Apply(Func<int, int> f, int v) {\n"
@@ -110,7 +112,7 @@ int _e2eBuildChecks(string root, string vm, string driverZpkg, string e2eDir, st
         "[project]\nname    = \"clos.app\"\nversion = \"0.1.0\"\nkind    = \"exe\"\npack    = true\n\n[sources]\ninclude = [\"*.z42\"]\n");
     // multifile（port-z42c-package-symbols）：同包跨文件互引（namespaced——C# no-ns 多文件互引自身有
     // pre-existing VCall 缺陷 `main.Pair.Sum not found`，挂账上游）
-    string mdir = "/tmp/z42c-e2e-buildmulti";
+    string mdir = _e2eTmpRoot(root, "buildmulti");
     Directory.Create(mdir);
     File.WriteAllText(Path.Join(mdir, "types.z42"),
         "namespace App;\n\nclass Pair {\n    public int A;\n    public int B;\n    public int Sum() { return A + B; }\n}\n");

@@ -46,7 +46,7 @@
 
 - `src/compiler/z42c.semantics/src/TypeFactsTc.z42`（转发 + 删 `_capFirst`）
 - `src/compiler/z42c.semantics/src/EmitContext.z42`（转发 + 改正注释）
-- `src/compiler/z42c.pipeline/src/CacheStore.z42`（指纹 35 → 36）
+- `src/compiler/z42c.pipeline/src/CacheStore.z42`（指纹 35 → **37**，让号见下）
 
 ## Tasks
 
@@ -55,7 +55,7 @@
 - [x] 头注写清三份的差异表、`_capFirst` 为什么是猜测、以及那条指向鬼的镜像注释
 - [x] `xtask test compiler` 全绿：单测全过 + **`✅ 自举不动点 3/3 gen1==gen2`（逐字节）**
 - [x] 可执行探针新旧 driver 行为对比（`2/1` == `2/1`）
-- [x] `CompilerFingerprint` 35 → 36
+- [x] `CompilerFingerprint` 35 → **37**（原取 36，#885 先合取走 36 ⇒ 让号）
 - [ ] GREEN：CI 全矩阵绿
 
 ## 为什么仍要 bump 指纹（尽管零观察变化）
@@ -67,6 +67,12 @@
 
 ⚠️ 这一档 **CI 的 fingerprint 守门必然是瞎的**（产物逐字节不变），按 version-bumping 规则表
 第 1 行手动 bump。
+
+### ⚠️ 让号实录
+
+本 PR 原取 **36**；另一会话的 **#885（qualified-base-name）先合入 main、取走 36** ⇒ 按
+`parallel-development.md` §4.1「按合并顺序让号」坐实 **37**。指纹是单调的缓存失效计数器，
+跳号无害；#885 的条目在注释链里降为「上一档 36」。
 
 ## 不做（Out of Scope）
 

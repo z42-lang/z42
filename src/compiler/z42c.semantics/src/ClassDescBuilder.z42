@@ -164,7 +164,12 @@ public sealed partial class ClassDescBuilder {
             string barebn = bn;
             int ltIdx = bn.IndexOf("<");
             if (ltIdx >= 0) { barebn = bn.Substring(0, ltIdx); }
-            if (!this._g._symbols.HasInterface(barebn)) {
+            // 🔴 判定走 `SymbolTable.InterfaceKeyOf`（与符号层 `_passClassStubs` **同一份**），
+            // 不再自己 `HasInterface(源码原样串)` —— 那样限定名查不中 ⇒ `Std.IDisposable` 被当成
+            // 基类，而循环紧接着 `bi2 = c.BaseCount` 提前结束 ⇒ **真基类根本没被看到**。
+            // 实测：符号层修好而这里没修时，`class E : Std.IDisposable, Base` 编译通过、
+            // 运行期 `VCall: Demo.E.Tag not found`。
+            if (SymbolTable.InterfaceKeyOf(this._g._symbols, barebn) == "") {
                 // fix-generic-base-name：泛型基名此前一律剥成裸名。理由是「写 `Ns.Bag<T>` 进元数据，
                 // VM 建 vtable 时按该名找不到任何类 ⇒ 继承来的方法运行期 `VCall: … not found`」。
                 //

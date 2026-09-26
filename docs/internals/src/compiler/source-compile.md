@@ -56,6 +56,33 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 - 发射端（`CallEmitter` 的 `ObjNew`）对已解析到的、`Namespace!=""` 的类型直接发 `Fqn()`，绕开
   `EmitContext.QualifyClass` 按短名走 `ImportedClassNs` 的同类撞名歧义；`is`/`as` 本就发 AST 源码原始限定名，天然正确。
 
+> **③ 第三条路：基表（`class C : X` 的那个 `X`）—— 2026-09-27 `qualified-base-name` 才补上。**
+>
+> 上面两条讲的都是**引用位**（`new A.Foo` / 类型标注）。**基表是独立的第三条路**，而且它不走
+> `ResolveTypeP`：Pass A 只能存名字（被引用的类型可能在后面的 CU 里还没注册），判定是就地查
+> `Interfaces` 决定「这个名字是接口还是基类」。此前那次查用的是**源码原样串**，而表键是裸短名
+> ⇒ 限定名一律查不中，落进「按基类处理」的分支。四个症状同一个根：
+>
+> | 写法 | 修前 |
+> |---|---|
+> | `class A : Std.IDisposable` | 接口关系丢失（`IDisposable a = new A();` 报 E0402）|
+> | `class C : Demo.ILocal` | 同样 —— **同包**限定名一样中招，这是**拼写**问题、不是跨包问题 |
+> | `class E : Std.IDisposable, Base` | 🔴 接口先占了 `hasBase`、循环随即提前结束 ⇒ **真基类被静默吞掉** |
+> | `class G : Demo.Base` | 🔴 `BaseName` 存成查不到的串 ⇒ 整条基类关系丢失 |
+>
+> 🔴 **这个判定此前有两份且同错**：符号层 `StubCollector._passClassStubs` 与发射层
+> `ClassDescBuilder._classDesc` 各写一遍。两份同错时症状还只是「接口关系丢了」；
+> **只修一份反而升级成运行期崩** —— 实测只修符号层后，`class E : Std.IDisposable, Base`
+> 编译通过而运行期 `VCall: Demo.E.Tag not found`。现收敛到 **`SymbolTable.InterfaceKeyOf`
+> 这一个出口**，两处共用（同 `_constraintDescs` 抬头那条「writer 与 checker 从此共用同一个判定」）。
+>
+> 判定三步回落：① **原样**（短名写法走这步，与改动前逐字等价）→ ② 限定名查 `InterfacesByFqn`
+> （本地 `_passInterfaces` 与导入 `_mergeImportedInterfaces` **都在 `_passClassStubs` 之前**完成，
+> 故这一步可靠）→ ③ 退回裸短名。`Z42InterfaceType.BaseNames`（接口的父接口链）同样剥 ns ——
+> 它也是 `Interfaces` 的查找键。
+>
+> ⚠️ 第 ③ 步在「跨 ns 同短名」时仍可能认错 —— 与全仓短名键同病、不更坏；根治要等符号表键本身 FQN 化。
+
 > **② 已修**（2026-09-10 `add-bare-name-ambiguity-diagnostic`）：非限定同短名（`using A; using B;`
 > 后裸写 `Foo`）不再静默选一，报 **E0456**（对标 C# CS0104）。判据：候选 ns 取自新表
 > `SymbolTable.ClassNsAll`（本地 `StubCollector` 与跨包 `ImportedSymbolLoader` 都在各自的

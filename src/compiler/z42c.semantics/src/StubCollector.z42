@@ -136,6 +136,11 @@ public sealed class StubCollector {
             string bn = c.Bases[b].Dump();
             int ltIdx = bn.IndexOf("<");
             if (ltIdx >= 0) { bn = bn.Substring(0, ltIdx); }
+            // 🔴 **必须剥 ns**：`BaseNames` 是 `Interfaces` 表的**查找键**（`BaseAt` / `InterfaceDerivesFrom`
+            // 都拿它去查），而那张表的键是**裸短名**。此前这里存的是源码原样串 ⇒ 写
+            // `interface IRes : Std.IDisposable` 就永远查不到、父接口链整条断掉。
+            // 短名写法下 `_shortOf` 是恒等，故对既有源码逐字等价。
+            bn = SymbolTable.ShortNameOf(bn);
             // 裸名作查找键，**AST 原节点**另存一份：裸名把 `IMid<int>` 的 `int` 丢了，而沿继承链
             // 代换型参时正需要它（见 Z42InterfaceType.BaseRefs 抬头）。这里不能就地解析 ——
             // 本 pass 是 Pass A，后声明的父接口此刻可能还没进符号表；解析延到消费端。
@@ -180,7 +185,16 @@ public sealed class StubCollector {
                         string bnLookup = bn;
                         int ltIdx = bn.IndexOf("<");
                         if (ltIdx >= 0) { bnLookup = bn.Substring(0, ltIdx); }
-                        if (table.Interfaces.ContainsKey(bnLookup)) { ifaces[ifc] = bnLookup; ifc = ifc + 1; }
+                        // 🔴 **基表分流必须认限定名**。此前这里直接拿源码原样串查 `Interfaces`
+                        // （键是裸短名）⇒ 写 `class A : Std.IDisposable` 查不中，落进下面的
+                        // `else` 分支**去占基类槽**。三个症状同一个根，全部实测过：
+                        //   ① `IDisposable a = new A();` 报 E0402（接口关系丢了）
+                        //   ② `class E : Std.IDisposable, Base` ⇒ 真基类 `Base` 被**静默吞掉**
+                        //      （`e.Tag()` 报 E0401，因为接口先占了 `hasBase`）
+                        //   ③ `class G : Demo.Base` ⇒ `BaseName` 存成查不到的串，整条基类关系丢失
+                        // 同包限定名（`Demo.ILocal`）一样中招 —— 这不是跨包问题，是拼写问题。
+                        string ifaceKey = SymbolTable.InterfaceKeyOf(table, bnLookup);
+                        if (ifaceKey != "") { ifaces[ifc] = ifaceKey; ifc = ifc + 1; }
                         // fix-generic-base-name（欠债表 bug B 真根因）：**基类**也必须存裸名。
                         // `BaseName` 的每一个消费方都拿它当 `Classes` 的键用（IsSubclassOf /
                         // InheritanceResolver / DeclBinder / EmitContext / AccessChecker /
@@ -190,7 +204,7 @@ public sealed class StubCollector {
                         // 上面接口分支早已算出裸名，这里此前却用了带实参的 `bn`。
                         // 遗留限制：同短名多 arity 的泛型基类（`Classes` 键带 `$N`）仍对不上——
                         // 与接口侧（同样存裸名）一致，不在本次修复范围。
-                        else if (!hasBase) { hasBase = true; baseName = bnLookup; baseRef = c.Bases[b]; }
+                        else if (!hasBase) { hasBase = true; baseName = SymbolTable.ShortNameOf(bnLookup); baseRef = c.Bases[b]; }
                         b = b + 1;
                     }
                     bool needsMangle = c.TypeParams.Count > 0 && multiArityMap.ContainsKey(c.Name);
